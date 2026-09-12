@@ -34,6 +34,7 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
   { weg: '/api/accounts/ (Konten-API des Spielservers)', muster: /location\s+\/api\/accounts\/\s*\{/ },
+  { weg: '/accounts/ (Konten-API, bare, fuer den eingebauten Anmeldedialog)', muster: /location\s+\/accounts\/\s*\{/ },
   { weg: '/api/ (Betriebsdienst)', muster: /location\s+\/api\/\s*\{/ },
   { weg: '/assets/ (statische Modelle/Texturen)', muster: /location\s+\/assets\/\s*\{/ },
   { weg: '/ws (Spielserver-WebSocket)', muster: /location\s+\/ws\s*\{/ },
@@ -61,7 +62,7 @@ function main(): void {
   // nur dokumentieren, warum hier keine Reihenfolge verlangt wird.
   console.log('(Reihenfolge der Blöcke ist für nginx-Präfixmatching ohne Bedeutung — nicht geprüft.)');
 
-  console.log(fehler === 0 ? '\nnginx-wov-lab-pfade: alle sieben Wege gefunden.\n' : `\nnginx-wov-lab-pfade: ${fehler} FEHLEND.\n`);
+  console.log(fehler === 0 ? '\nnginx-wov-lab-pfade: alle acht Wege gefunden.\n' : `\nnginx-wov-lab-pfade: ${fehler} FEHLEND.\n`);
   process.exit(fehler > 0 ? 1 : 0);
 }
 

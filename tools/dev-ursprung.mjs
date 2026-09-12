@@ -153,6 +153,18 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  // Bare /accounts/, ohne /api-Anteil: der eingebaute Anmeldedialog des
+  // Spiel-Clients (client/src/ui/Anmeldung.ts, Bauer "Anmeldung") ruft
+  // genau das auf, weil er denselben Ursprung wie die Webseite teilt und
+  // der Spielserver selbst nur `/accounts/...` kennt. Ohne diesen Zweig
+  // fiele die Anfrage auf `bediene()` (die Webseite) und liefe in ein
+  // 404 statt ein Konto — derselbe fehlende Block wie in
+  // deploy/nginx/wov-lab.conf, hier fuer die lokale Ursprung-Probe
+  // nachgezogen.
+  if (pfad.startsWith('/accounts/')) {
+    proxyHttp(req, res, { host: '127.0.0.1', port: SPIEL_PORT, pfad: pfad + suche });
+    return;
+  }
   if (pfad.startsWith('/api/')) {
     proxyHttp(req, res, {
       host: ADMIN_ADRESSE,
@@ -200,6 +212,7 @@ server.listen(PORT, () => {
   console.log(`  /play/       -> 127.0.0.1:${CLIENT_PORT}`);
   console.log(`  /editor/     -> 127.0.0.1:${CLIENT_PORT}/play/editor.html`);
   console.log(`  /api/accounts/ -> 127.0.0.1:${SPIEL_PORT}/accounts/`);
+  console.log(`  /accounts/   -> 127.0.0.1:${SPIEL_PORT}/accounts/ (fuer den eingebauten Anmeldedialog)`);
   console.log(`  /api/        -> ${ADMIN_ADRESSE}:${ADMIN_PORT}${ADMIN_TOKEN ? '' : ' (KEIN Token gefunden — 401 zu erwarten)'}`);
   console.log(`  /assets/     -> ${ASSETS_DIR}`);
   console.log(`  /ws          -> 127.0.0.1:${SPIEL_PORT}`);

@@ -26,18 +26,21 @@ things a fresh clone is missing on its own:
   `/etc/wov-admin.token`; here there is no operator, so the service generates its own
   and writes it to `server/data/admin.token` (outside git) on first start.
 
-Open the client at the URL below, and create an account from there — the game has no
-standalone login screen.
+Open the client at the URL below. If a website is running in front of it (see
+[Repository structure](#repository-structure) — `wov-web/`), it redirects there to sign in
+and pick a character; a bare clone with no website has its own small built-in sign-in
+dialog instead, so `npm run dev` alone is always enough to create an account and play.
 
 ## Local URLs
 
 | Service | URL | What it is |
 |---|---|---|
-| Game client | http://localhost:5274/ | The Babylon.js client (also reachable at `/play/` behind a reverse proxy) |
-| World editor | http://localhost:5274/editor.html | In-game world/dungeon editor |
-| World map | http://localhost:5274/karte.html | Rendered world overview |
-| Game server | ws://localhost:2467/ws · http://localhost:2467/accounts/ | Proxied by the client dev server under `/ws` and `/accounts/` |
+| Game client | http://localhost:5274/play/ | The Babylon.js client (`base: '/play/'`, so it also lines up with `/play/` behind the single-origin reverse proxy — see `deploy/nginx/wov-lab.conf`) |
+| World editor | http://localhost:5274/play/editor.html (or `/editor/` behind the proxy) | In-game world/dungeon editor |
+| World map | http://localhost:5274/play/karte.html | Rendered world overview |
+| Game server | ws://localhost:2467/ws · http://localhost:2467/accounts/ | Proxied by the client dev server under `/ws` and `/accounts/`; behind the reverse proxy also reachable as `/api/accounts/` |
 | Admin service | http://localhost:2468/ | Ops service (world document, console, service control); proxied under `/api/`, token-protected |
+| Website (optional) | see `wov-web/` | Its own SvelteKit project — `npm install && npm run dev` inside `wov-web/` for it; not needed to play |
 
 ## Commands
 

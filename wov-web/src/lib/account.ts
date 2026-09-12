@@ -765,12 +765,13 @@ export function enterGame(
   time?: string,
   weiter?: string | null,
 ): void {
-  const ziel = new URL(SHORES[shore].url);
-  if (typeof window !== 'undefined' && window.location.origin === ziel.origin) {
+  const { origin, playPath } = SHORES[shore];
+  const zielOrigin = origin ? new URL(origin).origin : window.location.origin;
+  if (typeof window !== 'undefined' && window.location.origin === zielOrigin) {
     try {
       window.localStorage.setItem(GAME_SESSION_TOKEN_KEY, sessionToken);
-      const zielPfad = weiter && weiter.startsWith('/') && !weiter.startsWith('//') ? weiter : '/play/';
-      const spiel = new URL(zielPfad, ziel.origin);
+      const zielPfad = weiter && weiter.startsWith('/') && !weiter.startsWith('//') ? weiter : playPath;
+      const spiel = new URL(zielPfad, zielOrigin);
       spiel.searchParams.set('lang', language);
       if (time) spiel.searchParams.set('time', time);
       location.href = spiel.pathname + spiel.search;

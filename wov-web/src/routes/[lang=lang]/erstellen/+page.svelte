@@ -148,7 +148,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-druidenstab-spielgriff3-20260912';
+  const FIGUREN_STAND = 'wikinger-posebereit-20260912';
 
   let figur = $state('');
   let frisur = $state('');
@@ -295,6 +295,22 @@
     await vorschau.setze('beine', datei(daten.equipment, beine));
   }
 
+  /**
+   * Wartet nicht nur auf Dateien, sondern auf tatsächlich gezeichnete Bilder.
+   * Die Waffenhaltung wird nach Babylons Animationsdurchlauf aufgetragen;
+   * ohne diesen Puffer verschwand der Lader einen Frame vor der fertigen Pose.
+   */
+  function warteBilder(anzahl = 3): Promise<void> {
+    return new Promise((resolve) => {
+      const weiter = () => {
+        anzahl -= 1;
+        if (anzahl <= 0) resolve();
+        else requestAnimationFrame(weiter);
+      };
+      requestAnimationFrame(weiter);
+    });
+  }
+
   async function ladeAlles() {
     if (!vorschau || !daten) return;
     fertig = false;
@@ -305,11 +321,16 @@
       await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
       await zeigeAussehen();
       // Während Frisur und Kleidung nachladen, kann bereits eine andere
-      // Klasse gewählt worden sein. Ab jetzt dürfen weitere Klicks ihre
-      // Waffe selbst umschalten; dieser letzte Abgleich korrigiert den
-      // Klassenstand, mit dem der erste Waffenimport begonnen hatte.
+      // Klasse gewählt worden sein. Solange abgleichen, bis genau diese
+      // Wahl samt Haltung fertig ist; danach drei echte Renderframes warten.
+      // So bleibt weder eine veraltete Waffe noch die T-Pose kurz sichtbar.
+      while (true) {
+        const abgeglicheneKlasse = klasseId;
+        await vorschau.setzeWaffe(waffeFuerKlasse(abgeglicheneKlasse));
+        await warteBilder();
+        if (klasseId === abgeglicheneKlasse) break;
+      }
       fertig = true;
-      await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
     } catch (e) {
       // Die Meldung nennt Adresse UND Grund. Eine Vorgängerfassung sagte nur
       // „liess sich nicht laden“ — damit war weder zu erkennen, ob der Server
@@ -763,7 +784,7 @@
         ? (lang === 'de' ? '3D-Vorschau nicht verfügbar' : '3D preview unavailable')
         : (lang === 'de' ? 'Der Recke wird gerufen …' : 'Summoning your Viking …')}</p>
     </div>
-    <canvas bind:this={leinwand}></canvas>
+    <canvas bind:this={leinwand} class:bereit={fertig}></canvas>
     <div class="buehne-hinweis nur-vorlesen" aria-live="polite" class:fertig>{hinweisText ?? t['create.stage.hint.loading']}</div>
     <div class="buehne-werkzeug">
       <button type="button" title={t['create.stage.rotate_left']} onclick={() => vorschau?.drehe(-0.35)}>↺</button>
@@ -990,6 +1011,7 @@
     text-shadow: 0 2px 8px #000;
     pointer-events: none;
     transition: visibility 0s linear, opacity 0.35s ease;
+    z-index: 2;
   }
   .figur-lader.ausblenden { visibility: hidden; opacity: 0; transition-delay: 0.35s, 0s; }
   .figur-lader p { margin: 0; font-family: var(--schrift-kappen); font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; }
@@ -1007,7 +1029,8 @@
   @keyframes portal-drehen { to { transform: rotate(360deg); } }
   @keyframes portal-atmen { 50% { border-color: rgba(255, 220, 102, 0.72); box-shadow: 0 0 44px rgba(225, 177, 38, 0.3), inset 0 0 36px rgba(225, 177, 38, 0.17); } }
   @keyframes runenkern-leuchten { 50% { opacity: 0.58; transform: translate(-50%, -50%) scale(0.9); } }
-  .buehne canvas { position: absolute; inset: -28px -10px -36px; width: calc(100% + 20px); height: calc(100% + 64px); outline: none; background: transparent; cursor: grab; touch-action: none; }
+  .buehne canvas { position: absolute; inset: -28px -10px -36px; width: calc(100% + 20px); height: calc(100% + 64px); outline: none; background: transparent; cursor: grab; touch-action: none; opacity: 0; transition: opacity 0.3s ease; }
+  .buehne canvas.bereit { opacity: 1; }
   .buehne canvas:active { cursor: grabbing; }
   .buehne-hinweis { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #b8ad95; font-size: 12px; text-align: center; text-shadow: 0 2px 6px #000; pointer-events: none; }
   .buehne-hinweis.fertig { display: none; }

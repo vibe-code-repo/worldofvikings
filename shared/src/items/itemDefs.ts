@@ -396,7 +396,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   },
   {
     // Kampfstab (Mikes eigenes Modell, 11.09.2026, schlanke Fassung 12.09.):
-    // 1,65 m, Kopf oben, Ursprung am Griffpunkt der rechten Hand 1,35 m
+    // 1,65 m, Kopf oben, Ursprung am Griffpunkt der rechten Hand 1,40 m
     // ueber dem unteren Ende — deshalb ohne den 8-cm-Versatz des Schwerts.
     // Gleiche Drehung wie das Schwert: die Laengsachse laeuft durch die
     // Faust. Ruhehaltung wie der Speer (Mike, 12.09.): aufrecht in der

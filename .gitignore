@@ -32,6 +32,10 @@ tools/asset-extractor/extract.d.ts.map
 assets/*
 !assets/manifest.json
 server/data/worlds/
+# Getting-started (2026-09-12): Zufallstoken des Betriebsdienstes fuer den
+# Fall ohne Operator (scripts/dev.mjs, admin/src/main.ts) -- ein Geheimnis
+# wie server/data/konten/ weiter unten, gehoert also ebenso wenig ins Repo.
+server/data/admin.token
 # Kontendatenbank (SQLite). Laufzeitzustand wie die Spielstaende darueber --
 # und darin stehen Passwort-Hashes und E-Mail-Adressen echter Leute. Die
 # haben in einem oeffentlichen Repo nichts verloren, auch nicht als

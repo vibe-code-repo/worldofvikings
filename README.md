@@ -102,6 +102,12 @@ tracking them would add well over a gigabyte a year to a history every clone car
 `assets/manifest.json` is the one exception the tests check against; everything else
 arrives through the archive described in Getting started.
 
+## Running a server
+
+The steps above are for local development. To run your own game server and website
+on a machine you control — systemd units, the single-origin nginx config, backups,
+updates — see [`docs/server-setup.md`](docs/server-setup.md).
+
 ## Architecture in one screen
 
 ```

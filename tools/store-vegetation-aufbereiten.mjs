@@ -9,8 +9,8 @@
  * ist erzeugt und steht in `.gitignore`; der Name sagt am Pfad, was die
  * Datei ist.
  *
- *   node tools/store-vegetation-aufbereiten.mjs
- *   node tools/store-vegetation-aufbereiten.mjs --nur-pruefen
+ *   npm run store:aufbereiten
+ *   npx tsx tools/store-vegetation-aufbereiten.mjs --nur-pruefen
  *
  * ── Was gemessen wurde, bevor irgendetwas gesetzt wurde ──────────────
  * Die zwölf Atlanten unter `assets/store/vegetation/textures/`, jeweils
@@ -50,7 +50,7 @@
  * des Vorbilds führen zu jedem Laub-Atlas ein Shadergraph-Material mit
  * einer Ober- und einer Unterfarbe; glTF kennt nur einen Faktor, also
  * steht hier das MITTEL aus beiden. Die Zahlen und ihre Herkunft stehen
- * unten in `UNITY_LAUB`, gemessen am 08.09.2026.
+ * in `shared/src/laubSpitzen.ts`, gemessen am 08.09.2026.
  *
  * Er fehlt genau dort, wo es am meisten weh tut: In 33 Primitiven zeigt
  * das Material auf `DefaultMaterial` — kein Bild, keine Tönung, kein
@@ -235,6 +235,17 @@ import { createHash } from 'node:crypto';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decode as decodePng } from './lib/png.mjs';
+/*
+  Die Farben des Vorbilds stehen seit dem 12.09.2026 NICHT mehr hier,
+  sondern in `shared/src/laubSpitzen.ts` — dort, wo auch der Client sie
+  liest. Vorher lagen dieselben Zahlen zweimal im Baum (hier das Mittel,
+  dort der Verlauf), und zwei Tabellen mit denselben Zahlen laufen
+  auseinander, sobald jemand eine davon nachmisst.
+
+  Deshalb startet `store:aufbereiten` dieses Werkzeug mit `tsx` statt mit
+  `node` — dieselbe Zeile startet `tools/store-prefabs.mjs` schon so.
+*/
+import { LAUB_SPITZEN, laubMittel } from '../shared/src/laubSpitzen.js';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -369,7 +380,7 @@ const quellFaktor = (mat) => mat?.pbrMetallicRoughness?.baseColorFactor ?? null;
  *     bremst.
  *
  * Genommen wird die gemessene Originalfarbe `Maple Leaves 1` aus den
- * Spieldaten (`UNITY_LAUB.mapleLeaves1`, s. dort) — dieselbe Quelle, aus
+ * Spieldaten (`LAUB_SPITZEN['Maple Leaves 1']`) — dieselbe Quelle, aus
  * der die uebrigen Vorgaben stammen. Mit ihr faellt die Albedo auf
  * 0,1482 linear, also 1,08 x Median: Der Ahorn steht damit neben Kiefer
  * (1,07) und Busch (1,07) statt doppelt so hell.
@@ -426,7 +437,7 @@ const TOENUNG_VORRANG = new Set(['ahorn']);
  *     damit ist diese Tabelle die einzige Stelle, an der sie entsteht.
  *
  *  2. DIE 26 KRONEN MIT `DefaultMaterial` SIND NICHT DIE HELLEN. Sie
- *     bekommen `TOENUNG_VORGABE.laub` (= `UNITY_LAUB.leaves1`, lineare
+ *     bekommen `TOENUNG_VORGABE.laub` (= Mittel von „Leaves 1", lineare
  *     Luma des Faktors 0,615) und liegen damit UNTER den Store-Faktoren
  *     der übrigen Kronen (0,792 und 0,849). Der Bericht weist es je
  *     Primitiv aus (`albedo` im Zensus).
@@ -445,12 +456,17 @@ const TOENUNG_VORRANG = new Set(['ahorn']);
  * dort, `small-thin-tree-1a5`).
  *
  * ── Woher die Zahlen kommen ──────────────────────────────────────────
- * Aus `/home/mike/wov-lab-mess/laub-materialien.json`, Abschnitt
- * `materialien` — derselben Quelle wie `UNITY_LAUB` und nach derselben
- * Regel gelesen: MITTEL aus `Color_3E4BE667` (oben in der Krone) und
- * `Color_99FDAD86` (unten), linear, weil glTF nur EINEN
- * `baseColorFactor` kennt und wir den Verlauf nicht nachbauen. Geschätzt
- * ist an keiner Zeile etwas.
+ * Aus `shared/src/laubSpitzen.ts` — und nur von dort. Dort stehen beide
+ * Farben des Vorbilds (`Color_3E4BE667` oben, `Color_99FDAD86` unten,
+ * linear, gemessen in `/home/mike/wov-lab-mess/laub-materialien.json`),
+ * hier das MITTEL aus beiden, weil glTF nur EINEN `baseColorFactor`
+ * kennt.
+ *
+ * Bis zum 12.09.2026 stand hier eine eigene Zahlenliste mit genau diesen
+ * Mittelwerten. Sie ist ersatzlos weg: Der Client baut den Verlauf seit
+ * heute nach (`client/src/engine/LaubSpitzen.ts`), und zwei Tabellen mit
+ * denselben Zahlen laufen auseinander, sobald eine davon nachgemessen
+ * wird. Geschätzt ist an keiner Zeile etwas.
  *
  * ── Und damit ist `grasGelb` vermessen ───────────────────────────────
  * Die eine geschätzte Zeile des Bestands (`TOENUNG_VORGABE.grasGelb`,
@@ -460,68 +476,48 @@ const TOENUNG_VORRANG = new Set(['ahorn']);
  * Modell diesen Materialnamen NICHT trägt.
  *
  * Measured original material colours, keyed by the source material name
- * the store GLB carries. Mean of the shader graph's upper and lower
- * crown colour, linear — same rule as UNITY_LAUB.
+ * the store GLB carries — the mean of the shader graph's top and bottom
+ * crown colour, derived from shared/src/laubSpitzen.ts.
+ *
+ * Die `1A1`-Grasfamilie steht mit drin: Sie teilt sich EINE Geometrie
+ * und unterscheidet sich nur in diesen Farben; der Store hat für drei
+ * der vier gar keinen Faktor mitgebracht (`grasBunt`, `grasSchnee`
+ * standen auf „ohne").
  */
-const UNITY_JE_MATERIAL = {
-  // ── Laubkarten (`Color Leaves Alpha`) ──────────────────────────────
-  'Leaves 1': [0.5975, 0.646, 0.3645, 1],
-  'Leaves 2': [0.6695, 0.741, 0.2785, 1],
-  'Leaves 3': [0.5475, 0.7265, 0.2945, 1],
-  'Leaves Birch 1': [0.5525, 0.5995, 0.3725, 1],
-  'Leaves Birch 2': [0.478, 0.5425, 0.325, 1],
-  'Leaves Birch 3 Dark': [0.6255, 0.4625, 0.2675, 1],
-  'Leaves Birch 3 Dark Snow': [0.6705, 0.66, 0.662, 1],
-  // ── Nadeln und Ahorn ───────────────────────────────────────────────
-  'Pine 1': [0.3395, 0.3765, 0.2805, 1],
-  'Pine 2': [0.5175, 0.5295, 0.347, 1],
-  'Maple Leaves 1': [0.377, 0.4095, 0.209, 1],
-  // ── Grasbüschel ────────────────────────────────────────────────────
-  // Die `1A1`-Familie teilt sich EINE Geometrie und unterscheidet sich
-  // nur in diesen Farben; der Store hat für drei der vier gar keinen
-  // Faktor mitgebracht (`grasBunt`, `grasSchnee` standen auf „ohne").
-  'Grass_Short_Plant_Leaves_1A1 2': [0.8175, 0.804, 0.5405, 1],
-  Grass_Short_Plant_Leaves_1A1_Yellow: [0.925, 0.6945, 0.5375, 1],
-  Grass_Short_Plant_Leaves_1A1_Snow: [0.8315, 0.849, 0.884, 1],
-  Grass_Short_Plant_Leaves_1A1_RedBlue: [0.868, 0.479, 0.822, 1],
-};
+const UNITY_JE_MATERIAL = Object.fromEntries(
+  Object.entries(LAUB_SPITZEN).map(([name, s]) => [name, [...laubMittel(s), 1]])
+);
 
 /**
- * Die Originalmaterialien aus den Spieldaten — die Herkunft der Zahlen
- * darunter.
+ * Welches Originalmaterial hinter einer ROLLE steht.
  *
- * Gemessen am 08.09.2026 aus `/home/mike/wov-lab-mess/laub-materialien.json`
- * (Abschnitt `materialien`). Der Laub-Shader des Vorbilds
- * (`Shader Graphs/Leaves Foliage`) färbt die graue Alphakarte mit ZWEI
- * Farben: `Color_3E4BE667` oben in der Krone, `Color_99FDAD86` unten.
- * glTF kennt nur einen `baseColorFactor` — genommen wird deshalb das
- * MITTEL aus beiden, linear, wie Unity die Werte speichert. Das ist
- * keine Schätzung mehr, sondern der arithmetische Mittelwert eines
- * Verlaufs, den wir nicht nachbauen können.
+ * Gebraucht an zwei Stellen, und nur deshalb gibt es die Zeile
+ * überhaupt: für die Vorgabe unten (ein Primitiv ohne eigenes Material
+ * bekommt die Farbe seiner Familie) und für `shared/src/laubVorbilder.ts`
+ * — der Client muss auch bei den wiederhergestellten Kronen wissen,
+ * WELCHEN Verlauf er auftragen soll.
  *
  * Die Zuordnung Store-Textur ↔ Original-Material läuft über den
- * Texturnamen; der Store hängt an jeden noch seinen Inhaltshash.
+ * Texturnamen; der Store hängt an jeden noch seinen Inhaltshash:
+ *
+ *   laub        „Leaves 1"                 ↔ bush-1a2-small-1-dark-0-46087926.png
+ *   laubDunkel  „Leaves Birch 3 Dark"      ↔ dieselbe Karte, Sumpf-/Schattenvariante
+ *   laubSchnee  „Leaves Birch 3 Dark Snow" ↔ dieselbe Karte, verschneit
+ *   nadeln      „Pine 1"                   ↔ pine-1b1-0-1-45d12350.png
+ *   ahorn       „Maple Leaves 1"           ↔ tree-1e1-1-ac727b2e.png
+ *
+ * Die Farben dazu stehen in `shared/src/laubSpitzen.ts`.
  */
-const UNITY_LAUB = {
-  // „Leaves 1" — Color Leaves Alpha ↔ bush-1a2-small-1-dark-0-46087926.png
-  //   oben 0.764/0.802/0.443, unten 0.431/0.490/0.286
-  leaves1: [0.5975, 0.646, 0.3645, 1],
-  // „Leaves Birch 3 Dark" — dieselbe Karte, die Schatten-/Sumpfvariante
-  //   oben 0.886/0.682/0.353, unten 0.365/0.243/0.182
-  leavesBirch3Dark: [0.6255, 0.4625, 0.2675, 1],
-  // „Leaves Birch 3 Dark Snow" — dieselbe Karte, verschneit
-  //   oben 0.976/0.979/0.996, unten 0.365/0.341/0.328
-  leavesBirch3DarkSnow: [0.6705, 0.66, 0.662, 1],
-  // „Pine 1" — Pine Alpha A ↔ pine-1b1-0-1-45d12350.png
-  //   oben 0.275/0.349/0.157, unten 0.404/0.404/0.404
-  pine1: [0.3395, 0.3765, 0.2805, 1],
-  // „Pine 2" — Pine Alpha B ↔ pine-1b1-1-b7d6f292.png
-  //   oben 0.651/0.671/0.592, unten 0.384/0.388/0.102
-  pine2: [0.5175, 0.5295, 0.347, 1],
-  // „Maple Leaves 1" — Maple Leaves Alpha A ↔ tree-1e1-1-ac727b2e.png
-  //   oben 0.412/0.451/0.208, unten 0.342/0.368/0.210
-  mapleLeaves1: [0.377, 0.4095, 0.209, 1],
+const VORBILD_JE_ROLLE = {
+  laub: 'Leaves 1',
+  laubDunkel: 'Leaves Birch 3 Dark',
+  laubSchnee: 'Leaves Birch 3 Dark Snow',
+  nadeln: 'Pine 1',
+  ahorn: 'Maple Leaves 1',
 };
+
+/** Das Mittel des Vorbilds einer Rolle — die Vorgabe unten liest hier. */
+const rollenMittel = (rolle) => UNITY_JE_MATERIAL[VORBILD_JE_ROLLE[rolle]];
 
 /**
  * Die VORGABE je Rolle — sie greift nur, wo das Quellmaterial keinen
@@ -535,7 +531,7 @@ const UNITY_LAUB = {
  * (gemessen R = G = B, Laub 0.452).
  *
  * Wo eine Zuordnung zum Original-Material besteht, steht hier dessen
- * Mittel aus Ober- und Unterfarbe (siehe UNITY_LAUB) und keine
+ * Mittel aus Ober- und Unterfarbe (siehe VORBILD_JE_ROLLE) und keine
  * Schätzung. Übrig bleibt genau eine geschätzte Zeile, `grasGelb` — für
  * seinen Atlas gibt es keine benannte Zuordnung, das steht als offener
  * Punkt im Bericht.
@@ -545,19 +541,19 @@ const TOENUNG_VORGABE = {
   // In den Spieldaten haben diese Bäume zwei Submeshes, aber nur EIN
   // Material (Rinde) — ein Original-Laubmaterial gibt es für sie nicht.
   // Genommen wird die Laubfamilie ihrer Karte, „Leaves 1".
-  laub: UNITY_LAUB.leaves1,
+  laub: rollenMittel('laub'),
   // Dieselben Kronen in den `-dark`-Dateien (Sumpf, Schattenwald).
-  laubDunkel: UNITY_LAUB.leavesBirch3Dark,
+  laubDunkel: rollenMittel('laubDunkel'),
   // Verschneite Kronen und das faktorlose `Leaves Birch 3 Dark Snow`.
   // Vorher stand hier [0.94, 0.97, 1.0, 1] — hell und kühl geschätzt,
   // weil die Herkunft fehlte. Das Original ist deutlich gedämpfter.
-  laubSchnee: UNITY_LAUB.leavesBirch3DarkSnow,
+  laubSchnee: rollenMittel('laubSchnee'),
   // Nadeln und Ahorn: im Store trägt jedes dieser Materialien seinen
   // eigenen Faktor, die Vorgabe ist also derzeit unerreicht. Sie steht
   // trotzdem hier, damit ein künftiges Modell ohne Faktor nicht grau
   // wird — und sie steht auf dem Original, nicht auf dem Nachbarwert.
-  nadeln: UNITY_LAUB.pine1,
-  ahorn: UNITY_LAUB.mapleLeaves1,
+  nadeln: rollenMittel('nadeln'),
+  ahorn: rollenMittel('ahorn'),
   // Wiesengras. Steht in TOENUNG_VORRANG und schlägt damit den
   // Store-Faktor [0.85, 1.0, 0.6] — die Begründung dort.
   gras: [0.46, 0.22, 0.04, 1],
@@ -1398,6 +1394,10 @@ const bericht = {
 };
 let ausGeometrie = 0;
 let ausZwilling = 0;
+/** Modell → { Materialname → Name des Originalmaterials }. */
+const vorbildJeModell = {};
+/** Kartenmaterialien ohne Vorbild — im Bericht, damit sie auffallen. */
+const ohneVorbild = new Set();
 
 for (const datei of dateien) {
   const { json, bin } = modelle.get(datei);
@@ -1465,6 +1465,10 @@ for (const datei of dateien) {
   // beiden seine Store-Farbe — lautlos, denn getönt wäre es ja.
   const neueMaterialien = [];
   const indexJeSchluessel = new Map();
+  // Materialindex → Name des Originalmaterials (oder null). Wird in
+  // Schritt 3 auf den MATERIALNAMEN umgeschlüsselt — den Index sieht der
+  // Client nicht, den Namen schon.
+  const vorbildJeIndex = new Map();
   for (const eintrag of rolleJePrim) {
     const altMaterial = json.materials[eintrag.prim.material];
     const altBild = bildDesMaterials(json, altMaterial);
@@ -1498,10 +1502,45 @@ for (const datei of dateien) {
     // Tabelle. Ohne ihn steht im Bericht nur das Ergebnis, und niemand
     // sieht mehr, um wie viel die Messung den Herstellerwert verschiebt.
     eintrag.toenungVorher = ausStore ?? null;
+    /*
+      WELCHES Originalmaterial hinter diesem Material steht — die einzige
+      Auskunft, die der Client braucht und aus der GLB nicht bekommt.
+
+      glTF kann nur den einen Faktor, und der ist das Mittel aus zwei
+      Farben. Der Verlauf dazwischen (`client/src/engine/LaubSpitzen.ts`)
+      braucht beide, also braucht er den NAMEN des Quellmaterials — und
+      der ist beim Zusammenlegen weg. Er wandert deshalb in
+      `shared/src/laubVorbilder.ts`, Modell für Modell.
+
+      Eingetragen wird NUR, wenn der Faktor auch wirklich vom Vorbild
+      kommt:
+        • `gemessen`  — das Quellmaterial steht in der Tabelle.
+        • `Vorgabe`/`Vorrang` — die Rolle hat ein Vorbild (die
+          wiederhergestellten Kronen, der Ahorn).
+      Hat dagegen der STORE-Faktor gewonnen, trägt das Material die Farbe
+      des Asset-Herstellers; der Verlauf des Vorbilds gehörte dann nicht
+      dazu und würde die Farbe verschieben statt sie aufzufächern.
+
+      Und nur bei neutraler Dämpfung: Ein `TOENUNG_DAEMPFUNG` ungleich
+      1 verschöbe den geschriebenen Faktor gegen die Tabelle, und der
+      Client rechnete mit ungedämpften Farben weiter. Lieber kein
+      Verlauf als ein widersprüchlicher.
+    */
+    const neutral = !daempfung || daempfung.every((v) => v === 1);
+    const vorbildName = gemessen
+      ? eintrag.quellMat
+      : ausStore && !vorrang
+        ? null
+        : (VORBILD_JE_ROLLE[eintrag.rolle] ?? null);
+    const vorbild = neutral && vorbildName && LAUB_SPITZEN[vorbildName]?.imLabor ? vorbildName : null;
+    if (!vorbild && KARTEN_ROLLEN.has(eintrag.rolle) && !eintrag.rolle.startsWith('gras')) {
+      ohneVorbild.add(`${datei}:${eintrag.rolle}:${eintrag.quellMat}`);
+    }
     const schluessel = `${eintrag.rolle}|${uri}|${JSON.stringify(toenung)}`;
     if (!indexJeSchluessel.has(schluessel)) {
       indexJeSchluessel.set(schluessel, neueMaterialien.length);
       neueMaterialien.push(baueMaterial(eintrag.rolle, uri, toenung, neueMaterialien));
+      vorbildJeIndex.set(indexJeSchluessel.get(schluessel), vorbild);
     }
     eintrag.neuerIndex = indexJeSchluessel.get(schluessel);
     eintrag.toenung = toenung;
@@ -1517,6 +1556,15 @@ for (const datei of dateien) {
     json.materials[i].pbrMetallicRoughness.baseColorTexture = { index: uris.indexOf(m.uri) };
   }
   for (const eintrag of rolleJePrim) eintrag.prim.material = eintrag.neuerIndex;
+
+  // Das Vorbild vom Index auf den NAMEN umschlüsseln — erst hier steht
+  // er fest (`materialName` hängt zwei gleiche auseinander).
+  const vorbilder = {};
+  for (const [i, m] of neueMaterialien.entries()) {
+    const v = vorbildJeIndex.get(i);
+    if (v) vorbilder[m.material.name] = v;
+  }
+  if (Object.keys(vorbilder).length > 0) vorbildJeModell[datei.replace(/\.glb$/, '')] = vorbilder;
 
   pruefeIndizes(json, datei);
 
@@ -1753,8 +1801,73 @@ function pruefeIndizes(json, datei) {
   }
 }
 
+bericht.vorbilder = vorbildJeModell;
+bericht.ohneVorbild = [...ohneVorbild].sort();
+
 if (!NUR_PRUEFEN) {
   writeFileSync(join(ZIEL, 'BERICHT.json'), `${JSON.stringify(bericht, null, 2)}\n`);
+  /*
+    Die erzeugte Zuordnung wird NUR beim Lauf in den Regelordner
+    geschrieben. `tools/test/store-vegetation.ts` lässt dasselbe Werkzeug
+    mit `--ziel` in einen Probenordner laufen und vergleicht zwei Läufe
+    byteweise — ein Test, der dabei eine Quelldatei des Repos überschreibt,
+    ist einer zu viel.
+  */
+  if (ZIEL === resolve(WURZEL, ZIEL_STANDARD)) vorbilderSchreiben();
+  else console.log('\n(laubVorbilder.ts nicht geschrieben — Lauf mit --ziel)');
+}
+
+/**
+ * `shared/src/laubVorbilder.ts` — die Zuordnung Modell/Material →
+ * Originalmaterial, erzeugt und nicht von Hand gepflegt.
+ *
+ * ── Warum eine erzeugte Datei und kein Eintrag in der GLB ────────────
+ * Weil Babylons glTF-Lader `extras` an Materialien nicht durchreicht
+ * (geprüft in `@babylonjs/loaders/glTF/2.0/glTFLoader.js`: `extras`
+ * erreicht nur registrierte Erweiterungen, `material.metadata` bleibt
+ * leer). Und weil der MATERIALNAME nicht reicht: Die Zusammenlegung
+ * benennt nach ROLLE (`laub`, `nadeln`), und unter `laub` liegen fünf
+ * verschiedene Originalmaterialien.
+ *
+ * Umbenennen wäre der andere Weg gewesen und ist bewusst NICHT gewählt:
+ * Die Messwerkzeuge dieser Runde erkennen Kronen am Materialnamen
+ * (`~/wov-lab-mess/original-lib.mjs`, `LAUB_MAT`). Ein neuer Name hätte
+ * jede Vorher-Nachher-Messung dieses Workflows still entwertet — auch
+ * die der Nachbarbauer.
+ *
+ * Dasselbe Muster wie `shared/src/storePrefabs.ts`, das dieselbe
+ * npm-Zeile erzeugt.
+ */
+function vorbilderSchreiben() {
+  const modelle = Object.keys(vorbildJeModell).sort();
+  const zeilen = modelle.map((m) => {
+    const inner = Object.entries(vorbildJeModell[m])
+      .sort()
+      .map(([mat, v]) => `${JSON.stringify(mat)}: ${JSON.stringify(v)}`)
+      .join(', ');
+    return `  ${JSON.stringify(m)}: { ${inner} },`;
+  });
+  const kopf = `/**
+ * Welches Originalmaterial hinter welchem Laubmaterial steht.
+ *
+ * ERZEUGT von \`tools/store-vegetation-aufbereiten.mjs\` — nicht von Hand
+ * bearbeiten. Der Schlüssel ist der Dateiname des Speichermodells ohne
+ * Endung, darunter der Materialname, wie ihn die aufbereitete GLB führt.
+ *
+ * Gebraucht wird das, weil glTF nur EINEN \`baseColorFactor\` kennt: In
+ * der Datei steht das Mittel aus Ober- und Unterfarbe, den Verlauf
+ * dazwischen trägt der Client auf (\`client/src/engine/LaubSpitzen.ts\`),
+ * und dafür braucht er den Namen des Vorbilds. Die Farben selbst stehen
+ * in \`shared/src/laubSpitzen.ts\`.
+ *
+ * Generated: which original material each prepared foliage material
+ * came from.
+ */
+export const LAUB_VORBILD_JE_MODELL: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+`;
+  const datei = join(WURZEL, 'shared/src/laubVorbilder.ts');
+  writeFileSync(datei, `${kopf}${zeilen.join('\n')}\n};\n`);
+  console.log(`\nlaubVorbilder.ts: ${modelle.length} Modelle geschrieben`);
 }
 
 // ── Bericht auf der Konsole ──────────────────────────────────────────
@@ -1819,4 +1932,24 @@ console.log('Primitive je Rolle und Tönung:');
 for (const [k, n] of [...rollen].sort()) {
   const [rolle, aus, toenung] = k.split('|');
   console.log(`  ${rolle.padEnd(12)} ${String(n).padStart(3)}  ${aus.padEnd(7)} ${toenung}`);
+}
+
+/*
+  Die Spitzenfarben zum Schluss, und mit BEIDEN Zahlen: wie viele
+  Materialien einen Verlauf bekommen und welche keinen. Die zweite Liste
+  ist die wichtigere — ein Laubmaterial ohne Vorbild bekommt im Bild
+  weiterhin die flache Mischfarbe, und das sieht man ihm nicht an.
+*/
+const mitVerlauf = Object.values(vorbildJeModell).reduce((s, m) => s + Object.keys(m).length, 0);
+const vorbildZaehler = new Map();
+for (const m of Object.values(vorbildJeModell)) {
+  for (const v of Object.values(m)) vorbildZaehler.set(v, (vorbildZaehler.get(v) ?? 0) + 1);
+}
+console.log(`\nLaub-Spitzenfarben: ${mitVerlauf} Materialien in ${Object.keys(vorbildJeModell).length} Modellen`);
+for (const [v, n] of [...vorbildZaehler].sort()) console.log(`  ${v.padEnd(26)} ${String(n).padStart(3)}`);
+if (ohneVorbild.size > 0) {
+  console.log(`  OHNE Vorbild (flache Mischfarbe): ${ohneVorbild.size}`);
+  for (const o of [...ohneVorbild].sort()) console.log(`    ${o}`);
+} else {
+  console.log('  ohne Vorbild: keines');
 }

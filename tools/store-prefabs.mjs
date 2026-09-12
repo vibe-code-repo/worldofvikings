@@ -769,7 +769,7 @@ console.log(
 console.log(
   aufbereiteteHuellen.size === 0
     ? `Hinweis: ${BERICHT_PFAD} fehlt — renderScale kommt für ALLE Prefabs aus prefabs.json ` +
-        '(erst `node tools/store-vegetation-aufbereiten.mjs` laufen lassen)'
+        '(erst `npm run store:aufbereiten` laufen lassen)'
     : `renderScale: ${ausStoreLab} Prefabs aus der nachgemessenen Hüllbox von store-lab, ` +
         `${defs.length - ausStoreLab} aus prefabs.json`
 );

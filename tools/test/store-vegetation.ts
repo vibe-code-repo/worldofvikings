@@ -88,7 +88,14 @@ function ordnerFingerabdruck(pfad: string): string[] {
 }
 
 function lauf(): void {
-  const ergebnis = spawnSync('node', [WERKZEUG, '--ziel', relative(WURZEL, PROBE_ZIEL)], {
+  /*
+    Mit `tsx` und nicht mit `node`: Das Werkzeug liest die Farben des
+    Vorbilds seit dem 12.09.2026 aus `shared/src/laubSpitzen.ts`, damit
+    Aufbereitung und Client nicht zwei Tabellen mit denselben Zahlen
+    pflegen. Reines `node` kann die Datei nicht laden — dieselbe Zeile
+    steht in `package.json` unter `store:aufbereiten`.
+  */
+  const ergebnis = spawnSync(join(WURZEL, 'node_modules/.bin/tsx'), [WERKZEUG, '--ziel', relative(WURZEL, PROBE_ZIEL)], {
     cwd: WURZEL,
     encoding: 'utf8',
   });
@@ -377,7 +384,7 @@ if (ersterLauf.length > 0) {
     eingecheckt.length > 0 && eingecheckt === frisch,
     eingecheckt.length === 0
       ? 'Datei fehlt'
-      : 'Inhalt weicht ab — node tools/store-vegetation-aufbereiten.mjs, dann assets/store-lab/vegetation/BERICHT.json hierher kopieren'
+      : 'Inhalt weicht ab — npm run store:aufbereiten, dann assets/store-lab/vegetation/BERICHT.json hierher kopieren'
   );
 }
 

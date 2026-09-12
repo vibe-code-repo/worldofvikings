@@ -365,7 +365,22 @@ function check(name: string, ok: boolean, detail = ''): void {
     gelesen wird. Ohne die zweite Hälfte wäre die Tabelle da und
     wirkungslos, und das sähe man keiner Zeile an.
   */
-  const jeMaterial = /const UNITY_JE_MATERIAL = \{([\s\S]*?)\n\};/.exec(quelle)?.[1] ?? '';
+  /*
+    Seit dem 12.09.2026 stehen die Zahlen NICHT mehr im Werkzeug,
+    sondern in `shared/src/laubSpitzen.ts` — dort führt der Client
+    beide Farben des Vorbilds, und das Werkzeug rechnet sich sein
+    Mittel daraus (`Bauer Laub-Spitzenfarben`). Geprüft wird deshalb
+    die Tabelle an ihrem neuen Ort UND die Ableitung im Werkzeug: Eine
+    Tabelle, aus der niemand mehr liest, wäre genauso wirkungslos wie
+    eine fehlende.
+  */
+  const jeMaterial = readFileSync(join(WURZEL, 'shared/src/laubSpitzen.ts'), 'utf8');
+  check(
+    'das Werkzeug leitet UNITY_JE_MATERIAL aus shared/src/laubSpitzen.ts ab',
+    /import \{ LAUB_SPITZEN, laubMittel \} from '\.\.\/shared\/src\/laubSpitzen\.js'/.test(quelle)
+      && /const UNITY_JE_MATERIAL = Object\.fromEntries\(/.test(quelle),
+    'sonst liegen dieselben Zahlen wieder zweimal im Baum'
+  );
   const gefordert = [
     'Leaves 1', 'Leaves 2', 'Leaves 3',
     'Leaves Birch 1', 'Leaves Birch 2', 'Leaves Birch 3 Dark',
@@ -374,7 +389,7 @@ function check(name: string, ok: boolean, detail = ''): void {
   ];
   const fehlend = gefordert.filter((n) => !jeMaterial.includes(n));
   check(
-    `UNITY_JE_MATERIAL führt die ${String(gefordert.length)} Quellmaterialien des Speichers`,
+    `LAUB_SPITZEN führt die ${String(gefordert.length)} Quellmaterialien des Speichers`,
     fehlend.length === 0,
     fehlend.join(', ')
   );

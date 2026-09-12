@@ -150,7 +150,7 @@ for (const [biom, liste] of STORE_FLORA_BUENDEL) {
   ignorieren.
 */
 if (!existsSync(BERICHT)) {
-  console.log('     (BERICHT.json fehlt — node tools/store-vegetation-aufbereiten.mjs für die Aschewüsten-Gegenprobe)');
+  console.log('     (BERICHT.json fehlt — npm run store:aufbereiten für die Aschewüsten-Gegenprobe)');
 } else {
   type Bericht = { modelle: Record<string, { primitive: { rolle: string }[] }> };
   const bericht: Bericht = JSON.parse(readFileSync(BERICHT, 'utf8'));

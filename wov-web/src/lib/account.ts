@@ -572,6 +572,14 @@ export interface ShoreStatus {
   accounts: number;
   /** Characters across all of them. */
   characters: number;
+  /**
+   * Present only when the shore's `server.yml` still carries a
+   * `standard-konto:` block — an operator who removes it (or changes the
+   * password) is done, there is no separate flag. Only the NAME travels
+   * here; the password lives in `server.yml` and the README, never in
+   * this unauthenticated response.
+   */
+  standardKonto?: { name: string };
 }
 
 /**

@@ -103,6 +103,7 @@ import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Kontendatenbank } from './konto/Kontendatenbank.js';
 import { KontoApi } from './konto/KontoApi.js';
+import { standardKontoSicherstellen, type StandardKontoVorgabe } from './konto/StandardKonto.js';
 import { Peer } from './net/Peer.js';
 import { Reader } from './io/Reader.js';
 import { Writer } from './io/Writer.js';
@@ -201,6 +202,12 @@ export interface ServerConfig {
    * Spieler dieselbe Stimmung sehen. Siehe shared/wetterVorgabe.ts.
    */
   wetterVorgabe: WetterVorgabe;
+  /**
+   * Ausprobieren ohne Registrierung (server.yml `standard-konto:`).
+   * `undefined` = kein Standardkonto — der Betreiber hat den Block
+   * entfernt oder er stand nie in der Datei. Siehe StandardKonto.ts.
+   */
+  standardKonto?: StandardKontoVorgabe;
   /** Kartengenerierungs-Umbau: 'layout' = designer-definierte Welt. */
   worldMode: 'valheim' | 'layout';
   /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
@@ -552,6 +559,13 @@ export class WovServer {
     this.kontenDb = new Kontendatenbank(
       resolve(this.config.worldsDir, '..', 'konten', `${this.config.worldName}.db`),
     );
+    // Ausprobieren ohne Registrierung (server.yml `standard-konto:`).
+    // Direkt hier, wo die Kontendatenbank geoeffnet wird -- Begruendung
+    // (Idempotenz, Passwort-Handling, warum kein AdminListe-Zugriff) in
+    // StandardKonto.ts.
+    if (this.config.standardKonto) {
+      standardKontoSicherstellen(this.kontenDb, this.config.standardKonto, this.config.everyoneAdmin);
+    }
     // Der dritte Parameter beantwortet `/accounts/status` fuer die
     // Webseite. Er wird als Funktion uebergeben und nicht als Wert: `this.net`
     // entsteht erst in der naechsten Anweisung, und die Spielerzahl aendert
@@ -561,7 +575,7 @@ export class WovServer {
       plaetze: this.config.maxPlayers,
       tag: this.getDay(),
       welt: this.config.worldName,
-    }));
+    }), this.config.standardKonto?.name);
 
     this.net = new NetManager({
       port: this.config.port,

@@ -508,6 +508,10 @@ export const en: Messages = {
   'login.switch.text': 'No account yet?',
   'login.switch.link': 'Create one',
   'login.session_expired': 'Your session has expired — please sign in again.',
+  // Shown only when the selected shore reports a standard account
+  // (KontoApi.status(), field `standardKonto`) — name and password are
+  // fixed text here because the API never sends the password (server.yml).
+  'login.try_it_out': 'To try it out: user gast, password gast.',
 
   /* -------------------------------------------- account.page (/konto) */
   'account.page.meta.title': 'Your heroes',

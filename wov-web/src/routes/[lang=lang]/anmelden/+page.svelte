@@ -15,6 +15,7 @@
     isShore,
     login,
     readShore,
+    shoreStatus,
     writeAccountName,
     writeShore,
     writeToken,
@@ -88,6 +89,43 @@
     writeShore(shore);
   }
 
+  /**
+   * Whether the selected shore still offers the standard account
+   * (`server.yml` `standard-konto:` — `KontoApi.status()`).
+   *
+   * Not derived from anything else: the hint text below states the
+   * default username AND password from memory ("gast"/"gast"), not from
+   * this call — `/accounts/status` deliberately never carries the
+   * password (see `ShoreStatus` in `account.ts`). This flag only decides
+   * WHETHER to show that fixed sentence, so an operator who keeps the
+   * block but changes the password would need to adjust this page's text
+   * too; the README asks them to remove the block instead for exactly
+   * that reason.
+   */
+  let tryItOutHint = $state(false);
+
+  $effect(() => {
+    // Re-run whenever `shore` changes (shore picker, or the ?shore= /
+    // remembered-shore assignment in onMount above).
+    const gefragtesGestade = shore;
+    if (!browser || !SHORE_OPEN[gefragtesGestade]) {
+      tryItOutHint = false;
+      return;
+    }
+    let abgebrochen = false;
+    void (async () => {
+      try {
+        const status = await shoreStatus(gefragtesGestade);
+        if (!abgebrochen) tryItOutHint = Boolean(status.standardKonto);
+      } catch {
+        // Ein nicht erreichbares Gestade zeigt keinen Hinweis -- dieselbe
+        // Zurueckhaltung wie beim Server-Fehler weiter unten im Formular.
+        if (!abgebrochen) tryItOutHint = false;
+      }
+    })();
+    return () => { abgebrochen = true; };
+  });
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (running) return;
@@ -126,6 +164,10 @@
 
     {#if expired}
       <div class="hinweis">{t['login.session_expired']}</div>
+    {/if}
+
+    {#if tryItOutHint}
+      <div class="hinweis">{t['login.try_it_out']}</div>
     {/if}
 
     <div class="account-panel">

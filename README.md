@@ -31,6 +31,33 @@ Open the client at the URL below. If a website is running in front of it (see
 and pick a character; a bare clone with no website has its own small built-in sign-in
 dialog instead, so `npm run dev` alone is always enough to create an account and play.
 
+### Try it without registering
+
+Every instance started from this repository's `server/data/server.yml` also creates a
+standard account on first start: **user `gast`, password `gast`**, with one ready-made
+character (`Gast`). Sign in with it directly — on the built-in dialog or on `wov-web`'s
+`/anmelden` page, which shows this same hint whenever the server it talks to reports the
+account (`GET /accounts/status`, never the password itself).
+
+It is created once, the same way a real registration is (same password hashing, same
+account database), and an existing password is never overwritten — so changing the
+block below only affects an instance that has not started yet. It is also never an
+admin account on its own; the only thing that can make it (or anyone) an admin is
+`players.everyone-admin: true`, and the server warns loudly about that regardless.
+
+Operators running a real, public instance should disable this before anyone else finds
+the well-known password in this public repository — either remove the block from
+`server/data/server.yml`:
+
+```yaml
+standard-konto:
+  name: gast
+  passwort: gast
+  charakter: Gast
+```
+
+or change `passwort` to something private. There is no separate on/off switch.
+
 ## Local URLs
 
 | Service | URL | What it is |

@@ -54,6 +54,43 @@ players:
   # die es hier nicht gibt.
   everyone-admin: true
 
+# ── Standardkonto ────────────────────────────────────────────────────
+# EN: The standard account — a way to try the game right away, with no
+# registration. Created once at server start (server/src/konto/
+# StandardKonto.ts) if it does not already exist: an account "gast" with
+# password "gast" and one character "Gast", using the game's normal
+# account database and password hashing (same scrypt cost as a real
+# registration, just computed synchronously at startup). A password
+# already stored is NEVER overwritten — changing it here only takes
+# effect for a NEW instance that has not created the account yet.
+#
+# Removing this block (or renaming/deleting the account afterwards)
+# disables the feature; there is no separate on/off switch. This is
+# meant for the dev instance and for anyone trying a fresh clone — an
+# operator running a real, public instance should either remove this
+# block or change the password before anyone else finds it in this
+# public repository.
+#
+# DE: Das Standardkonto — Ausprobieren ohne Registrierung. Wird einmal
+# beim Serverstart angelegt (server/src/konto/StandardKonto.ts), falls
+# es noch nicht existiert: ein Konto "gast" mit Passwort "gast" und
+# einem Charakter "Gast", ueber dieselbe Kontendatenbank und dasselbe
+# Passwort-Hashing wie eine echte Registrierung (derselbe scrypt-
+# Aufwand, nur synchron beim Start berechnet). Ein bereits gespeichertes
+# Passwort wird NIE ueberschrieben — eine Aenderung hier wirkt nur auf
+# eine NEUE Instanz, die das Konto noch nicht angelegt hat.
+#
+# Diesen Block entfernen (oder das Konto danach umbenennen/loeschen)
+# schaltet die Funktion ab; einen eigenen Schalter dafuer gibt es nicht.
+# Gedacht fuer die dev-Instanz und fuer jeden frischen Klon — wer damit
+# eine echte, oeffentliche Instanz betreibt, sollte diesen Block
+# entfernen oder das Passwort aendern, bevor es jemand anders in diesem
+# oeffentlichen Repository findet.
+standard-konto:
+  name: gast
+  passwort: gast
+  charakter: Gast
+
 world:
   # Welt und Spielstand bestimmt WOV_INSTANZ (dev|live), nicht diese Datei:
   #   Layout     server/data/welten/<instanz>.json

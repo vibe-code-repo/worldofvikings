@@ -21,7 +21,7 @@
  * answers "does this password belong to this record" -- it knows nothing
  * about accounts, sessions or players.
  */
-import { randomBytes, scrypt, timingSafeEqual, type ScryptOptions } from 'node:crypto';
+import { randomBytes, scrypt, scryptSync, timingSafeEqual, type ScryptOptions } from 'node:crypto';
 import { promisify } from 'node:util';
 
 // promisify loses the overload that takes options, so the signature is
@@ -103,6 +103,28 @@ export async function passwortPruefen(passwort: string, eintrag: string): Promis
   // Same length by construction (we asked for erwartet.length), so
   // timingSafeEqual cannot throw here.
   return timingSafeEqual(berechnet, erwartet);
+}
+
+/**
+ * Same record format as `passwortEinlagern`, but SYNCHRONOUS.
+ *
+ * The one caller is `StandardKonto.ts`: it runs from the `WovServer`
+ * constructor, which cannot be `async` (it is called as `new WovServer()`
+ * all over `main.ts`, `createWovServer()` and every test). scrypt has a
+ * synchronous sibling for exactly this — a few tens of milliseconds during
+ * startup, once, is a fair trade for not turning server construction into
+ * a promise everywhere it happens today.
+ */
+export function passwortEinlagernSync(passwort: string): string {
+  const salz = randomBytes(SALZ_BYTES);
+  const hash = scryptSync(passwort.normalize('NFKC'), salz, SCHLUESSEL_BYTES, {
+    N, r: R, p: P, maxmem: MAXMEM,
+  });
+  return [
+    'scrypt', N, R, P,
+    salz.toString('base64url'),
+    hash.toString('base64url'),
+  ].join('$');
 }
 
 /**

@@ -631,6 +631,14 @@ const KERN = [
   // lokalen Klon (client/src/ui/Anmeldung.ts) haengt vollstaendig an
   // dieser HTTP-API. Echter node:http-Server, Sekunden.
   ['server', 'test/konto-lokal.ts'],
+  // Standardkonto: Ausprobieren ohne Registrierung (server.yml
+  // `standard-konto:`) -- Konto+Charakter entstehen einmal, ein zweiter
+  // Start legt nichts doppelt an und laesst das Passwort unveraendert,
+  // Login klappt ueber die echte HTTP-API, der Status meldet den Namen
+  // (nie das Passwort), und das Konto bleibt admin-frei ausser durch
+  // `everyone-admin` (dann warnt der Server). Echter node:http-Server auf
+  // Port 0, Sekunden.
+  ['server', 'test/standard-konto.ts'],
   // Herkunft.ts hinter einem Reverse-Proxy: Loopback-Peer + X-Forwarded-For/
   // X-Real-IP wird geglaubt, jede andere Peer-Adresse nicht; und zwei
   // Herkuenfte sperren sich in der Anmelde-Drossel nicht gegenseitig.

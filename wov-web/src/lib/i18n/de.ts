@@ -565,6 +565,10 @@ export const de = {
   'login.switch.text': 'Noch kein Konto?',
   'login.switch.link': 'Eines anlegen',
   'login.session_expired': 'Deine Sitzung ist abgelaufen — bitte melde dich erneut an.',
+  // Nur sichtbar, wenn das gewaehlte Gestade ein Standardkonto meldet
+  // (KontoApi.status(), Feld `standardKonto`) — Name und Passwort stehen
+  // hier fest, weil die API das Passwort nie mitschickt (server.yml).
+  'login.try_it_out': 'Zum Ausprobieren: Benutzer gast, Passwort gast.',
 
   /* -------------------------------------------- account.page (/konto) */
   'account.page.meta.title': 'Deine Recken',

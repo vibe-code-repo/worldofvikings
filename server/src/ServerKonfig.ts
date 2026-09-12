@@ -18,6 +18,8 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
 import { type ServerConfig } from './WovServer.js';
+import { BENUTZERNAME_REGEX, CHARAKTERNAME_REGEX } from './konto/KontoApi.js';
+import { type StandardKontoVorgabe } from './konto/StandardKonto.js';
 import {
   findEnvironment,
   istNebelDichte,
@@ -97,6 +99,7 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
     ],
     dungeons: ['enabled', 'modulbau'],
     wetter: ['umgebung', 'nebeldichte'],
+    'standard-konto': ['name', 'passwort', 'charakter'],
     /*
       Der Look-Block. Nur die OBERSTE Ebene steht hier — die
       Unterabschnitte (bloom, vignette, ca, dof, strahlen, himmel,
@@ -179,6 +182,54 @@ function leseWetterVorgabe(wetter: Record<string, unknown>): WetterVorgabe {
   }
 
   return { umgebung, nebelDichte };
+}
+
+/**
+ * Abschnitt `standard-konto:` aus server.yml — Ausprobieren ohne
+ * Registrierung (siehe StandardKonto.ts).
+ *
+ * GEPRUEFT und im Zweifel VERWORFEN, genau wie `wetter:` und aus demselben
+ * Grund: Ein Tippfehler hier ist sichtbar (niemand kann sich mit dem
+ * kaputten Namen anmelden, das Konto existiert schlicht nicht) und ein
+ * Startabbruch waere fuer eine Ausprobier-Bequemlichkeit unverhaeltnis-
+ * maessig — anders als beim `look:`-Block, dessen Fehler NIRGENDWO
+ * auffaellt.
+ */
+function leseStandardKonto(yaml: Record<string, unknown>): StandardKontoVorgabe | undefined {
+  const roh = yaml['standard-konto'];
+  if (roh === undefined || roh === null) return undefined;
+  if (typeof roh !== 'object') {
+    console.warn(
+      '[Konfig] server.yml: standard-konto ist kein Block — Standardkonto bleibt aus',
+    );
+    return undefined;
+  }
+
+  const block = roh as Record<string, unknown>;
+  const name = String(block.name ?? '');
+  const passwort = String(block.passwort ?? '');
+  const charakter = String(block.charakter ?? '');
+
+  const maengel: string[] = [];
+  // "wie bei der Registrierung": dieselben Muster wie in KontoApi.ts, nicht
+  // eine zweite Abschrift davon.
+  if (!BENUTZERNAME_REGEX.test(name)) {
+    maengel.push(`name "${name}" ist ungueltig (3-24 Zeichen, wie beim Benutzernamen der Registrierung)`);
+  }
+  if (passwort.length < 4) {
+    maengel.push('passwort muss mindestens 4 Zeichen haben');
+  }
+  if (!CHARAKTERNAME_REGEX.test(charakter)) {
+    maengel.push(`charakter "${charakter}" ist kein gueltiger Charaktername`);
+  }
+  if (maengel.length > 0) {
+    for (const m of maengel) {
+      console.warn(`[Konfig] server.yml standard-konto: ${m} — Standardkonto bleibt aus`);
+    }
+    return undefined;
+  }
+
+  return { name, passwort, charakter };
 }
 
 /**
@@ -324,6 +375,7 @@ export function leseServerKonfig(
       // ServerConfig.metrikenDatei).
       metrikenDatei: resolve(datenVerzeichnis, 'metriken.json'),
       wetterVorgabe: { ...leseWetterVorgabe(wetter), look: lookVorgabe },
+      standardKonto: leseStandardKonto(yaml),
     };
   } catch (err) {
     /*

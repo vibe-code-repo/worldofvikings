@@ -75,6 +75,16 @@ const FEHLVERSUCHE_FENSTER_MS = 15 * 60 * 1000;
 const REGISTRIERUNG_MAX = 5;
 const REGISTRIERUNG_FENSTER_MS = 60 * 60 * 1000;
 
+/**
+ * Username shape, shared with `StandardKonto.ts`: the standard account's
+ * name is validated the same way a registered one is, "wie bei der
+ * Registrierung" is not just a comment but this one pattern.
+ */
+export const BENUTZERNAME_REGEX = /^[\p{L}\p{N}_-]{3,24}$/u;
+
+/** Character name shape, shared with `StandardKonto.ts` for the same reason. */
+export const CHARAKTERNAME_REGEX = /^[\p{L}\p{N} _-]{2,24}$/u;
+
 interface KontoTokenPayload { k: number; i: number; e: number }
 
 /**
@@ -112,6 +122,14 @@ export class KontoApi {
      * construction time would be the count at server start forever.
      */
     private readonly zustand: () => Serverzustand,
+    /**
+     * Name of the standard account (`server.yml` `standard-konto:`), or
+     * `undefined` when the operator removed that block. The PASSWORD is
+     * deliberately not a constructor argument — it lives in `server.yml`
+     * and the README, and this class hands the browser nothing it could
+     * not already read there. See `StandardKonto.ts`.
+     */
+    private readonly standardKontoName?: string,
   ) {
     // Domain separation: a different key for account tokens, derived from
     // the same secret. See the header comment.
@@ -207,6 +225,11 @@ export class KontoApi {
       day: z.tag,
       accounts: gezaehlt.konten,
       characters: gezaehlt.charaktere,
+      // Nur der NAME, nie das Passwort — das steht in server.yml und im
+      // README, nicht in dieser oeffentlichen, tokenlosen Antwort. Das
+      // Feld fehlt ganz, wenn der Betreiber den Block entfernt hat, damit
+      // die Webseite den Hinweis nur zeigt, wenn er wirklich stimmt.
+      ...(this.standardKontoName ? { standardKonto: { name: this.standardKontoName } } : {}),
     });
   }
 
@@ -303,7 +326,7 @@ export class KontoApi {
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
 
     const name = String(k.name ?? '').trim();
-    if (!/^[\p{L}\p{N} _-]{2,24}$/u.test(name)) return this.json(res, 400, { error: 'name-invalid' });
+    if (!CHARAKTERNAME_REGEX.test(name)) return this.json(res, 400, { error: 'name-invalid' });
 
     // Wire field -> database column. The two vocabularies are separate on
     // purpose: the columns in `Kontendatenbank.ts` still read `figur`,
@@ -488,7 +511,7 @@ function nachAussen(c: Charakter): Record<string, unknown> {
 export function pruefeAnmeldedaten(
   benutzername: string, email: string, passwort: string,
 ): string | null {
-  if (!/^[\p{L}\p{N}_-]{3,24}$/u.test(benutzername)) return 'username-invalid';
+  if (!BENUTZERNAME_REGEX.test(benutzername)) return 'username-invalid';
   // Deliberately loose: the address is never verified, so a strict pattern
   // would only reject valid unusual addresses without buying anything.
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return 'email-invalid';

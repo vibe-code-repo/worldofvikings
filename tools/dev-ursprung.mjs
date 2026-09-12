@@ -5,7 +5,7 @@
  * `which nginx` findet auf dieser Maschine nichts (Bauer "Ein Ursprung
  * im Container", 12.09.2026) — der Nachweis für `deploy/nginx/wov-lab.conf`
  * braucht trotzdem einen echten HTTP-Server, gegen den Playwright fahren
- * kann. Dieses Skript bildet GENAU dieselben sieben Wege nach, mit
+ * kann. Dieses Skript bildet GENAU dieselben Wege nach, mit
  * `node:http`/`node:net`, ohne eine neue Abhängigkeit (kein `http-proxy`,
  * kein Express) — dieselbe Handvoll Zeilen, die auch
  * `client/vite.config.ts` (`gameWsProxy`, `assetHandler`) schon benutzt.
@@ -75,6 +75,8 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.xml': 'application/xml',
   '.txt': 'text/plain',
+  '.woff2': 'font/woff2',
+  '.webm': 'video/webm',
 };
 
 /** Statische Datei ausliefern — mit demselben Ausbruchsschutz wie assetHandler in vite.config.ts. */
@@ -132,7 +134,10 @@ const server = http.createServer((req, res) => {
   // Reihenfolge spiegelt wov-lab.conf NICHT als Prioritätsregel — sie
   // steht hier nur, weil eine sequenzielle if-Kette eine ordnen MUSS.
   // Der längste Treffer gewinnt genau wie bei nginx: /api/accounts/ wird
-  // VOR /api/ geprüft.
+  // VOR /api/ geprüft. /api/*.json (Webseite) und /assets/ (erst Webseite,
+  // dann Spiel) bilden nach, dass eine REGEX- bzw. Fallback-location in
+  // nginx gegen jede Präfix-location gewinnt — hier als expliziter
+  // Vorrang-Zweig VOR der jeweiligen Alternative.
   if (pfad === '/editor' || pfad === '/play') {
     res.writeHead(301, { location: pfad + '/' }).end();
     return;
@@ -143,6 +148,19 @@ const server = http.createServer((req, res) => {
   }
   if (pfad.startsWith('/play/')) {
     proxyHttp(req, res, { host: '127.0.0.1', port: CLIENT_PORT, pfad: pfad + suche });
+    return;
+  }
+  // Statische Daten der Webseite unter /api/ (wov-web/static/api/*.json,
+  // z. B. welt.json) — flach, OHNE Unterordner, s. wov-lab.conf. Muss vor
+  // /api/accounts/ und /api/ geprüft werden: ohne diesen Zweig läuft
+  // /api/welt.json in den Betriebsdienst (Herkunft.ts) statt in die
+  // Webseite. Ein fehlender Treffer liefert ehrlich 404, statt an den
+  // Betriebsdienst durchzufallen — genau wie die REGEX-location in nginx.
+  const apiJsonTreffer = pfad.match(/^\/api\/([^/]+\.json)$/);
+  if (apiJsonTreffer) {
+    if (!sendeDatei(res, WEBSEITE_DIR, '/api/' + apiJsonTreffer[1])) {
+      res.writeHead(404).end('Not found');
+    }
     return;
   }
   if (pfad.startsWith('/api/accounts/')) {
@@ -175,6 +193,10 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (pfad.startsWith('/assets/')) {
+    // Erst die Webseite (wov-web/build/assets/ — Schriften, Wappen-/
+    // Held-Bilder, Karten-Vorschauen, appearance.json), dann das Spiel:
+    // beide teilen sich denselben URL-Präfix, s. wov-lab.conf.
+    if (sendeDatei(res, WEBSEITE_DIR, pfad)) return;
     if (!sendeDatei(res, ASSETS_DIR, pfad.slice('/assets/'.length))) {
       res.writeHead(404).end('Not found');
     }
@@ -211,9 +233,10 @@ server.listen(PORT, () => {
   console.log(`  /            -> ${WEBSEITE_DIR}`);
   console.log(`  /play/       -> 127.0.0.1:${CLIENT_PORT}`);
   console.log(`  /editor/     -> 127.0.0.1:${CLIENT_PORT}/play/editor.html`);
+  console.log(`  /api/*.json  -> ${WEBSEITE_DIR}/api/ (statische Daten der Webseite)`);
   console.log(`  /api/accounts/ -> 127.0.0.1:${SPIEL_PORT}/accounts/`);
   console.log(`  /accounts/   -> 127.0.0.1:${SPIEL_PORT}/accounts/ (fuer den eingebauten Anmeldedialog)`);
   console.log(`  /api/        -> ${ADMIN_ADRESSE}:${ADMIN_PORT}${ADMIN_TOKEN ? '' : ' (KEIN Token gefunden — 401 zu erwarten)'}`);
-  console.log(`  /assets/     -> ${ASSETS_DIR}`);
+  console.log(`  /assets/     -> ${WEBSEITE_DIR}/assets/, sonst ${ASSETS_DIR}`);
   console.log(`  /ws          -> 127.0.0.1:${SPIEL_PORT}`);
 });

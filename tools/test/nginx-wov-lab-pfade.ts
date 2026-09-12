@@ -1,7 +1,10 @@
 /**
- * PRÜFT deploy/nginx/wov-lab.conf: alle fünf Aufgaben des einen Ursprungs
+ * PRÜFT deploy/nginx/wov-lab.conf: alle Aufgaben des einen Ursprungs
  * (Bauer "Ein Ursprung im Container", 12.09.2026) stehen als eigener
- * `location`-Block in der Datei.
+ * `location`-Block in der Datei — inklusive der beiden Kollisionen
+ * zwischen Webseite und Spiel unter `/assets/` und `/api/`: beide Seiten
+ * liefern eigene Dateien unter demselben Präfix, die Webseite muss dort
+ * zuerst geprüft werden.
  *
  * ── Warum ein Textnachweis und keine echte nginx-Prüfung ─────────────
  * Diese Maschine hat kein installiertes nginx (`which nginx` — nichts).
@@ -33,10 +36,12 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: '/ (Webseite)', muster: /location\s+\/\s*\{/ },
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
+  { weg: '/api/*.json (statische Daten der Webseite)', muster: /location\s+~\s+\^\/api\/[^\n{]*\\\.json[^\n{]*\{/ },
   { weg: '/api/accounts/ (Konten-API des Spielservers)', muster: /location\s+\/api\/accounts\/\s*\{/ },
   { weg: '/accounts/ (Konten-API, bare, fuer den eingebauten Anmeldedialog)', muster: /location\s+\/accounts\/\s*\{/ },
   { weg: '/api/ (Betriebsdienst)', muster: /location\s+\/api\/\s*\{/ },
-  { weg: '/assets/ (statische Modelle/Texturen)', muster: /location\s+\/assets\/\s*\{/ },
+  { weg: '/assets/ (Webseite: Schriften/Bilder, VOR den Spiel-Assets)', muster: /location\s+\/assets\/\s*\{[^}]*wov-web\/build\/assets\/[^}]*\}/ },
+  { weg: '@spiel-assets (Fallback: Modelle/Texturen/Audio)', muster: /location\s+@spiel-assets\s*\{[^}]*\/opt\/worldofvikings\/assets\/[^}]*\}/ },
   { weg: '/ws (Spielserver-WebSocket)', muster: /location\s+\/ws\s*\{/ },
 ];
 
@@ -62,7 +67,11 @@ function main(): void {
   // nur dokumentieren, warum hier keine Reihenfolge verlangt wird.
   console.log('(Reihenfolge der Blöcke ist für nginx-Präfixmatching ohne Bedeutung — nicht geprüft.)');
 
-  console.log(fehler === 0 ? '\nnginx-wov-lab-pfade: alle acht Wege gefunden.\n' : `\nnginx-wov-lab-pfade: ${fehler} FEHLEND.\n`);
+  console.log(
+    fehler === 0
+      ? `\nnginx-wov-lab-pfade: alle ${ERWARTUNGEN.length} Wege gefunden.\n`
+      : `\nnginx-wov-lab-pfade: ${fehler} FEHLEND.\n`,
+  );
   process.exit(fehler > 0 ? 1 : 0);
 }
 

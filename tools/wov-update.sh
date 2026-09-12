@@ -715,6 +715,20 @@ echo
 echo "▶ npm ci"
 npm ci --include=dev
 
+# ── 5b. Store aufbereiten (Ein Ursprung im Container, 12.09.2026) ────
+# `assets/store-lab/` und `assets/generiert/terrain/` sind gitignored —
+# sie entstehen erst hier, aus `assets/store` (Mikes Speicher, read-only
+# eingehängt) bzw. der externen Boden-Quelle. `store:aufbereiten`
+# schreibt zusätzlich `shared/src/storePrefabs.ts` & Nachbarn neu — DAVOR
+# lief der Typecheck (Schritt 6) hier oben ohne diesen Schritt einfach
+# gegen die im Repo committete Fassung, was auf einem frischen Checkout
+# stimmt, nach einer lokalen Änderung an `assets/store/prefabs.json`
+# aber nicht mehr. Deshalb VOR dem Tor, nicht danach.
+echo
+echo "▶ Store aufbereiten"
+npm run store:aufbereiten
+npm run store:boden
+
 # ── 6. Das Tor ───────────────────────────────────────────────────────
 # NACKT, ohne Pipe, ohne "| tail -1", ohne "|| true". Der Exit-Code einer
 # Pipeline ist der des letzten Glieds; "npm run typecheck 2>&1 | tail -1"
@@ -764,6 +778,21 @@ if [ "$INSTANZ" = "live" ]; then
   dist_tauschen "client/dist.neu" "client/dist"
   echo "  ausgeliefert: $(find client/dist -type f | wc -l) Dateien"
 fi
+
+# ── 7b. Webseite bauen (Ein Ursprung im Container, 12.09.2026) ───────
+# IMMER, nicht nur auf live: nginx (deploy/nginx/wov-lab.conf) liefert
+# `wov-web/build` als root für "/" auf JEDEM Container mit diesem einen
+# Ursprung — anders als beim Client gibt es hier keine Dev-Variante, die
+# stattdessen aus den Quellen ausliefert (adapter-static rendert immer
+# vor, s. wov-web/svelte.config.js). Ohne diesen Schritt bliebe nach
+# jedem Pull der alte Stand der Webseite stehen.
+#
+# EIGENES npm ci: wov-web ist kein Workspace des Wurzel-package.json
+# (eigenes package.json, eigene package-lock.json) — Schritt 5 oben hat
+# seine Abhängigkeiten deshalb nicht mitinstalliert.
+echo
+echo "▶ Webseite bauen"
+(cd wov-web && npm ci && npm run build && bash tools/ohne-js-pruefen.sh)
 
 # ── 8. Dienste starten ───────────────────────────────────────────────
 # Gestartet wird, was auf DIESEM Container aktiviert ist. Die Unit-Dateien

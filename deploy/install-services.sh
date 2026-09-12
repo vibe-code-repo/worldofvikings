@@ -85,6 +85,42 @@ fi
 
 systemctl daemon-reload
 
+# ── nginx: der eine Ursprung (Bauer "Ein Ursprung im Container", 12.09.2026) ──
+# deploy/nginx/wov-lab.conf verteilt / (Webseite), /play/ (Client),
+# /editor/, /api/accounts/ (Konten-API) und /api/ (Betriebsdienst) hinter
+# EINEM Port — Begründung und Wegeliste im Kopf dieser Datei,
+# Einhängeschritte in deploy/nginx/README.md.
+#
+# Fehlt nginx (frischer Container), wird hier NICHT installiert (apt
+# gehört dem Betreiber, nicht diesem Skript, s. deploy/nginx/README.md)
+# — nur ein Hinweis, damit der fehlende Ursprung nicht stillschweigend
+# unbemerkt bleibt.
+NGINX_SITE=/etc/nginx/sites-available/wov-lab
+if command -v nginx >/dev/null 2>&1; then
+  ln -sfn "$PROJECT_DIR/deploy/nginx/wov-lab.conf" "$NGINX_SITE"
+  ln -sfn "$NGINX_SITE" /etc/nginx/sites-enabled/wov-lab
+  echo "verlinkt: $NGINX_SITE"
+  if [[ ! -f /etc/nginx/wov-admin-token.conf ]]; then
+    echo "FEHLT NOCH: /etc/nginx/wov-admin-token.conf (Anleitung in deploy/nginx/README.md) — /api/ bleibt bis dahin ein Startfehler."
+  else
+    nginx -t && systemctl reload nginx && echo "nginx neu geladen."
+  fi
+else
+  echo "HINWEIS: nginx ist nicht installiert — 'apt install nginx' und danach"
+  echo "         dieses Skript erneut ausführen, oder von Hand gemäß"
+  echo "         deploy/nginx/README.md einhängen."
+fi
+
+# ── Webseite bauen ───────────────────────────────────────────────────
+# nginx liefert / aus wov-web/build — ohne einen ersten Build stünde dort
+# nichts, sobald die Site verlinkt ist. tools/wov-update.sh hält das bei
+# jedem künftigen Pull nach; hier ist es der EINMALIGE erste Bau.
+if [[ -d "$PROJECT_DIR/wov-web" ]]; then
+  echo "→ Webseite bauen (wov-web)"
+  (cd "$PROJECT_DIR/wov-web" && npm ci && bash tools/ausrollen.sh) || \
+    echo "FEHLGESCHLAGEN: Webseite nicht gebaut — 'wov-web/tools/ausrollen.sh' von Hand nachholen."
+fi
+
 # ── Autostart ────────────────────────────────────────────────────────
 if [[ "${1:-}" != "--no-enable" ]]; then
   INSTANZ="$(grep -m1 '^WOV_INSTANZ=' "$ENV_DATEI" | cut -d= -f2 || true)"
@@ -124,8 +160,17 @@ Fertig. Projekt: $PROJECT_DIR
 
   sudo tools/wov-update.sh       Container auf den Stand von origin/main bringen
 
+Ein Ursprung (nginx, Port 80 — deploy/nginx/wov-lab.conf):
+  http://<host>/            Webseite (wov-web)
+  http://<host>/play/       Spiel-Client
+  http://<host>/editor/     Editor
+  http://<host>/api/accounts/  Konten-API
+  http://<host>/api/           Betriebsdienst
+  ws://<host>/ws                Spielserver
+
+Direkt, ohne nginx (zum Nachmessen, nicht die Aussenadresse):
 Client (dev):  http://<host>:5274
-Spielserver:   ws://<host>:2467 (Client proxyt über /ws)
+Spielserver:   ws://<host>:2467
 Betriebsdienst: http://<WOV_ADMIN_ADRESSE>:<WOV_ADMIN_PORT>/status
                 (Token aus /etc/wov-admin.token als Kopf x-wov-token)
 EOF

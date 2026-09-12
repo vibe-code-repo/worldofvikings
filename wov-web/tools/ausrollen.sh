@@ -1,22 +1,58 @@
 #!/usr/bin/env bash
 #
-# Baut die Seite auf wov-dev und legt das Ergebnis in CT 103 (wov-web).
+# Baut die Seite.
 #
-# Warum von Mikes Arbeitsplatz aus und nicht auf einem Container: Der Build
-# braucht `wov-bau` (dort liegt der Quellbaum samt node_modules), das Ausrollen
-# braucht `wov-host` (nur der Proxmox-Host kommt per `pct` in CT 103 hinein).
-# Beides zusammen hat nur der Arbeitsplatz.
+# ── Seit dem Ein-Ursprung-Container (Bauer "Ein Ursprung im Container",
+# 12.09.2026) ────────────────────────────────────────────────────────
+# wov-lab braucht KEIN Ausrollen mehr im alten Sinn: Der Container ist
+# der Bauort UND der Auslieferort zugleich (tools/wov-update.sh baut
+# `wov-web` dort, wo `git pull` den Quellbaum ohnehin hinlegt), und
+# `deploy/nginx/wov-lab.conf` zeigt `root` direkt auf `wov-web/build` —
+# denselben Ordner, den `npm run build` gerade eben gefuellt hat. Der
+# Vorgabeweg unten baut deshalb NUR NOCH LOKAL und kopiert nichts mehr:
+# es gibt keinen zweiten Ort mehr, an den zu kopieren waere.
+#
+#   tools/ausrollen.sh             baut lokal (wov-lab, Vorgabe)
+#
+# ── Der alte Weg, fuer CT 103 (wov-live-Aussenauftritt) ────────────────
+# Der bisherige Container bleibt getrennt vom Spiel — die Seite dort
+# liegt unter `/var/www/wov`, nicht neben einem laufenden nginx, der
+# schon auf `wov-web/build` zeigt. Fuer GENAU DIESEN Fall bleibt der
+# alte rsync/ssh/pct-Weg erhalten, jetzt hinter `--fern`:
+#
+#   tools/ausrollen.sh --fern            baut auf wov-bau, rollt nach CT 103
+#   tools/ausrollen.sh --fern --trocken  baut und zeigt nur den Unterschied
 #
 # Seit dem 23.08.2026 liegt die Seite IM Spiel-Repo (wov-web/). Client und
 # Seite teilen sich die Ticket-Uebergabe im Adressfragment, den optionalen
 # Zeitparameter sowie die Aussehensdaten fuer die Charaktererstellung.
 # Getrennte Repos machten aus jeder solchen Aenderung zwei Commits, die
 # niemand zusammen zuruecknehmen kann.
-#
-#   tools/ausrollen.sh            baut und rollt aus
-#   tools/ausrollen.sh --trocken  baut und zeigt nur den Unterschied
 set -euo pipefail
 
+WOV_WEB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ "${1:-}" != "--fern" ]]; then
+  # ── Lokal (wov-lab, Vorgabe) ─────────────────────────────────────────
+  echo "→ bauen"
+  (cd "$WOV_WEB" && npm run build)
+
+  echo "→ ohne JavaScript lesbar?"
+  (cd "$WOV_WEB" && bash tools/ohne-js-pruefen.sh)
+
+  # Derselbe Syntax-Check wie im fernen Weg, an der AUSGELIEFERTEN Datei:
+  # Am 22.08. ging eine erstellen.js mit Syntaxfehler hinaus, und ein
+  # nicht parsebares Modul laeuft gar nicht — die Seite blieb stumm
+  # stehen, ohne Fehlermeldung.
+  echo "→ Skripte parsebar?"
+  (cd "$WOV_WEB/build" && find . -name '*.js' -exec node --check {} \; && echo '  alle ok')
+
+  echo "fertig. nginx (deploy/nginx/wov-lab.conf) liefert bereits aus $WOV_WEB/build."
+  exit 0
+fi
+
+# ── Fern (CT 103, alter Weg) ───────────────────────────────────────────
+shift
 BAU=wov-bau
 QUELLE=/opt/worldofvikings/wov-web
 HOST=wov-host
@@ -27,7 +63,7 @@ TROCKEN=${1:-}
 echo "→ Quellbaum auf $BAU auffrischen"
 rsync -a --delete \
   --exclude node_modules --exclude .svelte-kit --exclude build --exclude .git \
-  "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/" "$BAU:$QUELLE/"
+  "$WOV_WEB/" "$BAU:$QUELLE/"
 
 echo "→ bauen"
 ssh "$BAU" "cd $QUELLE && npm run build"

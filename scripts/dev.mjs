@@ -80,6 +80,24 @@ function assetsVorbereiten() {
       }
     }
   }
+
+  // assets/appearance.json — die Charaktererstellung der Webseite
+  // (wov-web /erstellen, /konto) liest diese Datei unter /assets/appearance.json.
+  // Sie braucht KEIN Modell und KEIN heruntergeladenes Paket, nur
+  // shared/src/aussehen.ts (tools/aussehen-json.mjs) — deshalb hier immer
+  // erzeugt, wenn sie fehlt, unabhaengig davon, ob das Asset-Paket da ist.
+  // Ohne sie zeigt der Charaktereditor der Webseite leere Auswahllisten
+  // ("assets/appearance.json nicht erreichbar"), obwohl Server und Client
+  // selbst laengst spielbereit sind — ein Lueckenfund aus der Ein-Ursprung-
+  // Probe (lab/install-integration, 12.09.2026), nicht aus einem der drei
+  // gemergten Zweige einzeln.
+  if (!existsSync(resolve(WURZEL, 'assets/appearance.json'))) {
+    console.log('[dev] assets/appearance.json fehlt — erzeuge die Aussehen-Listen für die Webseite …');
+    const ergebnis = spawnSync(npm, ['run', 'aussehen:json'], { stdio: 'inherit', cwd: WURZEL });
+    if (ergebnis.status !== 0) {
+      console.warn('[dev] "npm run aussehen:json" ist fehlgeschlagen — der Charaktereditor der Webseite bleibt ohne Auswahllisten.');
+    }
+  }
 }
 
 assetsVorbereiten();

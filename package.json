@@ -32,6 +32,7 @@
     "extract:assets": "npm run extract --workspace=tools/asset-extractor",
     "parse:prefabs": "npm run parse --workspace=tools/prefab-parser",
     "store:aufbereiten": "tsx tools/store-vegetation-aufbereiten.mjs && tsx tools/store-prefabs.mjs",
+    "aussehen:json": "tsx tools/aussehen-json.mjs",
     "store:quellen": "node tools/store-boden-quellen.mjs",
     "store:boden": "node tools/store-boden-quellen.mjs && node tools/store-terrain-schichten.mjs",
     "test": "node scripts/run-tests.mjs",

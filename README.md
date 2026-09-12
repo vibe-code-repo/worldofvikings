@@ -54,6 +54,7 @@ dialog instead, so `npm run dev` alone is always enough to create an account and
 | `npm run assets:holen` | (Re-)download the asset archive into `assets/` |
 | `npm run assets:bauen` | Build a new asset archive from `assets/{store,models,textures}` (operator tool, not for daily dev) |
 | `npm run store:aufbereiten`, `npm run store:boden` | Derive the aggregated/staged asset folders `assets/store-lab` and `assets/generiert` from `assets/store` |
+| `npm run aussehen:json` | Regenerate `assets/appearance.json` (the website's character-creator option lists) from `shared/src/aussehen.ts` |
 
 ## Repository structure
 

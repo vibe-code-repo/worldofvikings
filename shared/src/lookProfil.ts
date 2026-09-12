@@ -191,7 +191,7 @@ export interface LookProfil {
   belichtung: number;
   kontrast: number;
   /**
-   * Sättigung als FAKTOR: 1 = unverändert, 0,68 = das Ziel des Profils.
+   * Sättigung als FAKTOR: 1 = unverändert, 0,45 = der ausgelieferte Wert.
    *
    * Bewusst der Faktor und nicht Babylons Reglerwert. `ColorCurves`
    * führt die Sättigung auf einer Skala von −100 bis +100 mit 0 als
@@ -323,13 +323,221 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
   Die `himmel`-Zusatzfelder aus `LOOK_HIMMEL_PLUS_VORGABE` stehen absicht-
   lich NICHT in `server.yml`; der Test vergleicht nur, was dort steht.
 */
+/*
+  ── Runde 2, 12.09.2026: Neutral statt Kontrast 0,84 ──────────────────
+
+  Fuenf der Zahlen unten haben sich gedreht, und sie haengen an EINER
+  Messreihe. Sie steht hier, weil sie zugleich die GRENZE dieser Regler
+  beschreibt.
+
+  Gemessen wurde VERSCHRAENKT: eine Anmeldung, eine Pose, danach nur noch
+  an `imageProcessingConfiguration` gedreht (`~/wov-lab-mess/
+  tm-sweep.mjs`). Jede Zeile misst dieselben Bildpunkte im selben
+  Wolkenstand. Dass das noetig ist, ist selbst gemessen: zwei getrennte
+  Anmeldungen auf dem UNVERAENDERTEN Stand lieferten am `steinkreis`
+  47,6 und 40,6 Luma fuer denselben Wiesengrund — sieben Luma
+  Unterschied, ohne dass ein Regler bewegt worden waere.
+
+  ── Die Grenze: ein VERHAELTNIS bewegt keiner dieser Regler ───────────
+  Pose `weitblick`, 12:00, Neutral, Kontrast 1,0, Saettigung 1,0 — nur
+  die Belichtung gedreht:
+
+    belichtung   1,42   1,63   1,80   2,00   2,20   2,40   2,80   3,00
+    Wiesengrund  36,6   39,0   40,7   42,8   44,7   46,6   50,1   51,7
+    Himmel      135,8  146,2  153,9  162,0  170,0  177,0  207,7  209,2
+
+  Die Zielbaender der Referenz sind Wiesengrund 52–58 UND Himmel 142 ± 4.
+  Das erste verlangt Belichtung ab 3,0, das zweite 1,47–1,63 — ein Faktor
+  zwei auseinander. Der Grund ist gegenueber dem Himmel rund doppelt zu
+  dunkel, und ein VERHAELTNIS bewegt weder Belichtung noch Tonwertkurve:
+  Beide greifen VOR der Kurve an, der Himmel steigt mit. Mit ACES ist es
+  schlechter, nicht besser (Himmel/Grund 6,55 bei Belichtung 2,0 gegen
+  Neutrals 3,75).
+
+  Runde 1 hat dieses Verhaeltnis mit `kontrast 0,84` erkauft — Babylon
+  mischt unter 1,0 gegen Mittelgrau, das hebt den Grund und senkt den
+  Himmel (Verhaeltnis 2,67). Der Preis ist ein Mittelgrau-Anteil auf
+  JEDEM Bildpunkt und ein Bildkontrast p95/p5 von 3,03 statt der 5–6, auf
+  die die Referenz zeigt. Der Regler ist deshalb zurueck auf 1,0; die
+  fehlende Grundhelligkeit gehoert den Spitzenfarben von Gras und Laub.
+
+  ── Was die Umstellung bringt und was sie kostet ─────────────────────
+  v0 = Stand Runde 1, neu = die Werte unten, je verschraenkt gemessen:
+
+    weitblick 12:00        v0      neu    Ziel
+      Wiesengrund L       52,9    39,0    52–58      offen (Material)
+      Wiesengrund S      0,440   0,461    0,42–0,47  getroffen
+      Himmel L           141,3   146,2    142 ± 4    Oberkante
+      Bild-Saettigung    0,221   0,235    —
+      Bildkontrast        3,03    4,52    Richtung 5–6
+      Ferne/Himmel       0,563   0,383    0,53 ± 0,08  VERFEHLT
+      Clipping           0 / 0   0 / 0    0
+
+    steinkreis 18:18       v0      neu    Ziel
+      Wiesengrund L       47,6    32,4    ≥ 40       offen (Material)
+      Bild-Saettigung    0,149   0,226    ≥ 0,30     offen (Material)
+      Bildkontrast        3,39    5,79    5–6        getroffen
+
+  Die zwei VERFEHLTEN Zeilen sind keine Feinjustage:
+   · `Ferne/Himmel` faellt durch die KURVE, nicht durch den Nebel (bei
+     unveraendertem Nebelstart 15 steht sie schon auf 0,402). Der
+     Neutral-Mapper zieht `min(r,g,b)` ab und trifft damit die dunkle
+     Ferne haerter als den hellen Himmel. Wer die Zahl zurueckholen
+     will, braucht mehr Nebel in der Ferne — also `nebelEnde`, und das
+     ist die gemessene Entscheidung E3 und eine eigene Karte.
+   · Die Grundhelligkeit an beiden Posen ist die Spaltung von oben.
+
+  ── Und die Nacht (?t=0), gemessen statt vermutet ────────────────────
+  Drei Staende, dieselbe Sitzung, dieselben Bildpunkte:
+
+                          v0 (R1)   vor R1   neu
+    Wiesengrund L           35,0     19,4    17,0
+    Himmel L                47,5     34,7    18,9
+    Bild-Saettigung        0,152    0,242   0,352
+    Bild-Farbton (Mittel)    265°     246°    150°
+
+  Der Farbton der EINZELNEN Flaechen bleibt (Himmel 237° → 224°, Gras
+  56° → 60°); was kippt, ist das MITTEL — der ohnehin dunkle Nachthimmel
+  verliert 46 % seiner Helligkeit, und damit uebernimmt das Gruen der
+  Vegetation das Bild. Das ist der eine Punkt dieser Runde, der eine
+  Sichtprobe braucht und den keine Zahl entscheidet.
+
+  Round 2 (12 Sep 2026): the Neutral tone mapper with +0.2 EV replaces
+  the sub-1.0 contrast round 1 used to buy ground brightness. The
+  measured ground/sky ratio cannot be moved by exposure or by a tone
+  curve at all; that gap belongs to the grass and leaf materials. Two
+  numbers regress and are named above rather than smoothed over.
+*/
 export const LOOK_VORGABE: LookProfil = {
-  tonemapping: 'aus',
-  belichtung: 1.42,
-  kontrast: 0.84,
-  saettigung: 1.12,
+  /*
+    `neutral` statt `aus` (Entscheidung Mike, 12.09.2026): Village1 ist
+    das Leitbild fuer die freie Welt, und Village1 faehrt den
+    Neutral-Tonemapper mit +0,2 EV. Die Begruendung fuer `aus` bezog
+    sich auf die neun SPIEL-Level; das Dorf ist keins davon.
+
+    ── Die Falle beim Nachmessen ──────────────────────────────────────
+    Babylons Konstanten sind TONEMAPPING_STANDARD 0, _ACES 1,
+    _KHR_PBR_NEUTRAL 2 — die Shader-DEFINES dagegen 1, 2 und 3. Wer beim
+    Messen die Define-Zahl als `toneMappingType` setzt, bekommt fuer
+    „Neutral" den Typ 3; der faellt in Babylons `default`-Zweig und
+    rechnet die alte Exp-Kurve. Der Setter meldet dabei brav `3`
+    zurueck. Eine ganze Messreihe dieser Runde ist so entstanden und
+    musste wiederholt werden; seither liest `tm-sweep.mjs` das DEFINE
+    aus dem uebersetzten Effekt der Kamera.
+
+    Was der Mapper bringt: Bildkontrast 3,03 → 4,52 (weitblick 12:00)
+    und 3,39 → 5,79 (steinkreis 18:18, ins Zielband). Was er kostet:
+    Grundhelligkeit und die Ferne (s. oben).
+  */
+  tonemapping: 'neutral',
+  /*
+    1,42 × 2^0,2 = 1,6315 — die +0,2 EV des Leitbilds, auf den am Bild
+    kalibrierten Pegel gerechnet. Unitys `postExposure` steckt in URPs
+    `LutBuilder3D` im `_ColorFilter` und wirkt damit VOR dem Tonemapper,
+    genau wie Babylons `exposureLinear` (`result.rgb *= exposureLinear`
+    steht in `imageProcessingFunctions` vor der Kurve). Die beiden
+    Regler sitzen an derselben Stelle der Kette und duerfen deshalb
+    ineinander gerechnet werden.
+
+    Sie trifft die Oberkante des Himmelsbands (146,2 gegen 146). Das ist
+    innerhalb dessen, was der Wolkenstand ueber eine lange Messreihe
+    ohnehin bewegt: In einer Reihe mit 24 Zeilen stand derselbe v0-Himmel
+    am Anfang auf 141,3 und am Ende auf 148,9, waehrend der Wiesengrund
+    beide Male exakt 52,9 zeigte.
+
+    Die zwei Alternativen sind mitgemessen und beide schlechter:
+
+      Kandidat            Himmel   Wiesengrund   Wiesengrund
+                          12:00    12:00         steinkreis 18:18
+      1,50 (Band mittig)  139,9    37,5          31,2
+      1,6315 (+0,2 EV)    146,2    39,0          32,4   ← gewaehlt
+      2,00                162,0    42,8          35,5
+
+    Die 1,50 ist aus dem Zielwert rueckwaerts gerechnet und laesst den
+    Grund noch tiefer stehen; die 2,00 reisst den Himmel um 16 Luma auf,
+    ohne den Grund in sein Band zu bringen. Die 1,6315 ist die einzige
+    der drei, die aus dem Leitbild folgt.
+  */
+  belichtung: 1.6315,
+  /*
+    Zurueck auf 1,0 — die Zahl, die das Vorbild fuehrt (es hat gar
+    keinen Kontrastregler). Die 0,84 war der Griff, mit dem Runde 1 die
+    Grundhelligkeit erkauft hat; sie mischt das ganze Bild gegen
+    Mittelgrau und ist damit der graue Schleier selbst.
+
+    Ein Kontrast UEBER 1,0 zeigt in Richtung des Zielbands 5–6 und ist
+    mitgemessen (`weitblick`/12:00, Neutral, Belichtung 1,6315):
+
+      kontrast     1,00   1,10   1,20   1,30
+      Bildkontrast 4,53   4,91   5,27   5,68
+      Wiesengrund  39,0   37,0   35,0   33,0
+      Himmel      146,2  147,5  149,3  151,1
+
+    Er kauft den Kontrast also mit genau der Grundhelligkeit, die hier
+    ohnehin fehlt, und hebt den Himmel zusaetzlich aus seinem Band.
+    Erst wenn die Spitzenfarben von Gras und Laub stehen, ist diese
+    Zeile wieder frei. Am `steinkreis` wird das Band 5–6 schon mit 1,0
+    erreicht (5,79).
+  */
+  kontrast: 1.0,
+  /*
+    0,45 ist KEINE Rueckkehr zur alten Labor-Erfindung, sondern die
+    Korrektur fuer eine gemessene Eigenschaft des Neutral-Mappers: Er
+    zieht `min(r,g,b) − 6,25·min²` von allen drei Kanaelen ab, und auf
+    unserem dunklen Wiesengrund bleibt davon fast nichts vom Blaukanal
+    uebrig. ROH steigt die Saettigung des Rechtecks `vordergrund_gras`
+    dadurch auf 0,916 — mehr als das Doppelte des Zielbands.
+
+    Gemessen (weitblick 12:00, Belichtung 1,6315, Nebelstart 50):
+
+      saettigung     0,35   0,40   0,45   0,50   0,55   0,60   0,70   1,00
+      Wiesengrund S 0,367  0,414  0,461  0,507  0,552  0,596  0,681  0,916
+      Bild-S        0,188  0,211  0,235  0,258  0,281  0,303  0,347  0,467
+
+    0,45 trifft das Zielband des Wiesengrunds (0,42–0,47) und hebt die
+    Bildsaettigung gegenueber Runde 1 trotzdem (0,221 → 0,235 hier,
+    0,149 → 0,226 am `steinkreis`).
+
+    Die zweite Zielzahl — Bild-Saettigung am `steinkreis` ≥ 0,30 —
+    erreicht sie NICHT; dafuer braeuchte es rund 0,65, und dort steht
+    der Wiesengrund dann auf S 0,652 statt 0,461. EIN globaler Faktor
+    kann nur eines von beiden. Gewaehlt ist das Band, das GLEICHES mit
+    GLEICHEM vergleicht (dasselbe Rechteck im Referenzbild); die
+    Bildsaettigung ist ein Mittel ueber alles, und was sie am
+    `steinkreis` drueckt, ist der grosse, fast graue Himmel — kein Fall
+    fuer einen Saettigungsregler.
+  */
+  saettigung: 0.45,
   nebelmodus: 'linear',
-  nebelStart: 15,
+  /*
+    ── Nebelstart 15 → 50 m ───────────────────────────────────────────
+    Bei 15 m liegt schon ueber dem Nahbereich Dunst; im Bild ist das der
+    „Schleier" ueber dem Waldrand. Gemessen an der Pose `steinkreis`,
+    18:18, auf dem neuen Stand, nur `scene.fogStart` gedreht (der Boden
+    liest ihn je Bild aus der Szene, s. `setzeNebelmodus`):
+
+      nebelStart        15     30     40     50     60     70
+      Bild-Saettigung 0,179  0,205  0,218  0,226  0,227  0,228
+      Bildkontrast     7,23   6,21   5,93   5,79   5,77   5,79
+      Ferne/Himmel    0,417  0,399  0,396  0,412  0,423  0,411
+      Himmel L        123,0  120,3  122,6  122,5  120,1  123,3
+      Wiesengrund L    32,3   32,4   32,4   32,4   32,4   32,4
+
+    Vier Ablesungen, eine Antwort:
+     1. Die Bild-Saettigung waechst bis 50 m um 0,047 und danach um
+        0,002 auf zwanzig weitere Meter — 50 m holt 96 % des Gewinns.
+     2. Der Bildkontrast faellt von 7,23 (ueber dem Zielband) auf 5,79
+        und landet damit IM Band 5–6. Der Nebel bei 15 m sass auf dem
+        mittleren Grund und hat die untere Bildhaelfte gespreizt.
+     3. Der Himmel bewegt sich ueber die ganze Reihe nicht (120–123) —
+        Wolken und Kuppel bleiben, was sie waren. Das war die Bedingung.
+     4. Der Nahbereich verliert nichts: 32,4 Luma ueber die ganze Reihe.
+
+    Ferne/Himmel bleibt dabei, wo es ist (0,417 → 0,412); dass die Zahl
+    ausserhalb ihres Bands liegt, hat die Kurve zu verantworten und
+    nicht diese Zeile (Herleitung im Block oben).
+  */
+  nebelStart: 50,
   nebelEnde: 800,
   nebelWaerme: 0,
   // Die Dorf-Zeile der Entscheidung E1, roh (0,9800831 / 0,92229587 /
@@ -371,8 +579,9 @@ export const LOOK_VORGABE: LookProfil = {
   // `CascadedShadowGenerator` ohnehin zieht (`MIN_CASCADES_COUNT`); eine 1
   // hier waere nur eine falsche Auskunft. `dunkelheit` ist Babylons
   // RESTLICHT im Schatten, nicht seine Staerke — 0,20 laesst den
-  // Schlagschatten als Form lesbar werden, die Gesamthelligkeit traegt
-  // seit dem 12.09.2026 `kontrast 0,84`.
+  // Schlagschatten als Form lesbar werden. Die Gesamthelligkeit trug
+  // dazu bis zur Runde 2 `kontrast 0,84`; seit dessen Rueckbau auf 1,0
+  // steht sie allein an `belichtung` und an den Materialfarben.
   schatten: { aufloesung: 1024, reichweite: 50, kaskaden: 2, dunkelheit: 0.2, rasten: true },
 };
 

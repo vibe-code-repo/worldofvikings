@@ -201,69 +201,135 @@ wetter:
 #     WeltWetter, wie `wetter:`). Wer hier dreht, waehrend jemand spielt,
 #     aendert bei ihm nichts — er muss neu verbinden.
 look:
-  # ── Tonemapping: KEINS ───────────────────────────────────────────────
-  # `aus`, und das ist eine Messung aus den Spieldateien, keine Meinung:
-  # Level1 setzt `Tonemapping.mode = 0 = None`, und ALLE NEUN Spiel-Level
-  # tun dasselbe (design/original-boden.md §E). Nur Menue, Charakterwahl
-  # und Village1 fahren `Neutral`.
+  # ── Tonemapping: NEUTRAL (Runde 2, 12.09.2026) ───────────────────────
+  # Hier stand `aus`, und die Begruendung war richtig gemessen: Level1
+  # setzt `Tonemapping.mode = 0 = None`, und alle neun SPIEL-Level tun
+  # dasselbe (design/original-boden.md §E). Nur Menue, Charakterwahl und
+  # Village1 fahren `Neutral`.
   #
-  # Der Widerspruch zu der Messreihe, die hier bis gestern `neutral`
-  # begruendet hat, ist echt und aufgeloest: Jene Reihe zielte auf
-  # `village-square-staging.png` — ein Bild aus dem SCHWESTERPROJEKT.
-  # Das Zielbild ist seit dem 10.09.2026 Tale of Dark Lands, und das hat
-  # keine Kurve. Die Tabelle bei LOOK_VORGABE bleibt trotzdem stehen; sie
-  # ist richtig fuer die Frage, die sie beantwortet hat.
+  # Entscheidung Mike vom 12.09.2026: Leitbild fuer die freie Welt ist
+  # das DORFBILD Village1 — satt, klare Schatten, blauer Himmel. Damit
+  # gilt hier Village1s Kette: Neutral-Tonemapper und +0,2 EV. Die
+  # Level-Messung bleibt richtig; sie beschreibt eine andere Szene.
   #
-  # Was `aus` mit sich bringt, ist der Grund, aus dem diese Runde
-  # ueberhaupt kalibrierbar ist: OHNE Kurve ist ein sRGB-Luma-VERHAELTNIS
-  # unabhaengig von der Belichtung — beide Seiten laufen durch dieselbe
-  # Potenz 1/2,2, der Faktor kuerzt sich. Genau drei Verhaeltnisse sind
-  # der Abnahmemassstab (`design/look-referenz.md`: Hangfels/Himmel 0,73,
-  # Kronen/Himmel 0,34, Moos/Himmel 0,435); mit einem Tonemapper haette
-  # jede Belichtungskorrektur sie wieder verschoben.
-  tonemapping: aus
-  # Am Bild kalibriert und NICHT uebertragen: Die `postExposure 0,7` des
-  # Vorbilds steht in einer Komponente, die AUS ist (ColorAdjustments,
-  # §E), und Unitys Blende ist ohnehin keine Babylon-Belichtung. Diese
-  # Zahl stellt die absolute Helligkeit auf die Regionswerte der
-  # Referenzbilder ein; die Verhaeltnisse beruehrt sie nicht (s. oben).
-  belichtung: 1.42
-  # ── Kontrast 0,84: der EINZIGE gegenlaeufige Regler ──────────────────
-  # Hier stand 1,0 mit der Begruendung, das Vorbild fuehre keinen
-  # Kontrastregler. Das bleibt richtig als Herkunftsaussage und ist als
-  # Zielaussage falsch: Gesucht war „Boden hoch, Himmel leicht runter",
-  # und von den fuenf Reglern, die am 12.09.2026 einzeln gegen denselben
-  # Bildinhalt gefahren wurden, hat GENAU EINER entgegengesetztes
-  # Vorzeichen auf Boden und Himmel (Pose `weitblick`, 12:00, je auf dem
-  # Stand darueber):
+  # Was der Mapper bringt (verschraenkt gegen denselben Bildinhalt,
+  # `~/wov-lab-mess/tm-sweep.mjs`):
   #
-  #   belichtung 1,42 → 2,0     Boden  +7,4   Himmel  +24,4   beide hoch
-  #   tonemapping neutral       Boden  −4,3   Himmel   −8,8   beide runter
-  #   grading Dorf              Boden  −4,4   Himmel   −1,5   beide runter
-  #   kontrast 1,0 → 0,84       Boden +12,5   Himmel   −3,9   GEGENLAEUFIG
-  #   saettigung 1,0 → 1,12     Boden   ±0    Himmel    ±0    nur Farbe
+  #                       weitblick 12:00   steinkreis 18:18
+  #   Bildkontrast p95/p5   3,03 → 4,52       3,39 → 5,79  (Ziel 5–6)
+  #   Bild-Saettigung      0,221 → 0,235     0,149 → 0,226
   #
-  # Babylon mischt unter 1,0 im Gammaraum gegen Mittelgrau
-  # (`mix(vec3(0.5), rgb, contrast)`, NACH dem Tonemapping) — das hebt
-  # alles Dunkle und senkt alles Helle.
+  # Was er kostet, offen und gemessen:
+  #   Wiesengrund L        52,9 → 39,0       47,6 → 32,4
+  #   Ferne/Himmel        0,563 → 0,383            —
   #
-  # Der Preis steht dabei und ist gemessen, nicht geschaetzt: Bei ?t=0
-  # hebt 0,84 den Boden von L 21,2 auf 34,0 und das Bild-p5 von 19,1 auf
-  # 32,4. Die Nacht wird flauer, nicht bunter (S 0,452 → 0,184).
-  # Innenraeume sind nicht gemessen — dort steht die naechste Karte.
-  kontrast: 0.84
-  # Das Vorbild hat KEINEN Saettigungsregler: In keiner der zwoelf
-  # Szenen des Spiels ist `saturation` ueberschrieben (§E, F2). Die 0,45
-  # war eine Erfindung des Labors — sie hat eine Farbe weggenommen, die
-  # danach mit Toenungen wieder hereingerechnet wurde.
+  # Die Grundhelligkeit ist nicht mit Belichtung zu holen (s. dort); die
+  # Ferne faellt, weil der Mapper `min(r,g,b)` abzieht und damit die
+  # dunkle Ferne haerter trifft als den hellen Himmel. Beides ist keine
+  # Feinjustage dieser Zeile, sondern gehoert den Materialfarben bzw.
+  # `nebelEnde`.
   #
-  # Die 1,12 ist deshalb keine Rueckkehr zu jener Erfindung, sondern der
-  # Ausgleich fuer `kontrast 0,84`: Die Mischung gegen Mittelgrau nimmt
-  # mit dem Kontrast auch Farbe. Gemessen am Wiesengrund (`weitblick`,
-  # 12:00) hebt 1,12 die Saettigung von 0,399 auf 0,439 — das Zielband
-  # der Referenz ist 0,42–0,47 (gemessen 0,447), und der Regler ruehrt
-  # die Helligkeit dabei nicht an (Boden ±0, Himmel ±0).
-  saettigung: 1.12
+  # Und was `aus` mitnimmt, damit es niemand spaeter als Fehler liest:
+  # OHNE Kurve war ein sRGB-Luma-VERHAELTNIS unabhaengig von der
+  # Belichtung (beide Seiten laufen durch dieselbe Potenz 1/2,2, der
+  # Faktor kuerzt sich). Die drei Abnahmeverhaeltnisse aus
+  # `design/look-referenz.md` (Hangfels/Himmel 0,73, Kronen/Himmel 0,34,
+  # Moos/Himmel 0,435) verschieben sich ab jetzt mit jeder
+  # Belichtungskorrektur. Wer sie zitiert, nennt die Belichtung dazu.
+  #
+  # NACHMESSEN — die Falle: Babylons Konstanten sind STANDARD 0, ACES 1,
+  # KHR_PBR_NEUTRAL 2; die Shader-DEFINES dagegen 1, 2, 3. Wer die
+  # Define-Zahl als `toneMappingType` setzt, misst fuer „Neutral" die
+  # alte Exp-Kurve — und bekommt seine Eingabe brav zurueckgemeldet.
+  tonemapping: neutral
+  # ── Belichtung 1,42 → 1,6315: die +0,2 EV des Leitbilds ─────────────
+  # 1,42 × 2^0,2 = 1,6315. Unitys `postExposure` steht in URPs
+  # `LutBuilder3D` im `_ColorFilter` und wirkt damit VOR dem Tonemapper —
+  # genau wie Babylons `exposureLinear`. Beide sitzen an derselben Stelle
+  # der Kette; deshalb darf man sie ineinander rechnen, statt eine neue
+  # Zahl zu suchen.
+  #
+  # Sie trifft die Oberkante des Himmelsbands (146,2 gegen 146) — und das
+  # liegt innerhalb dessen, was der Wolkenstand ueber eine lange Reihe
+  # ohnehin bewegt (derselbe v0-Himmel: 141,3 am Anfang, 148,9 am Ende
+  # einer 24-Zeilen-Reihe, bei exakt gleichem Wiesengrund 52,9).
+  #
+  # Zwei Alternativen sind mitgemessen und beide schlechter:
+  #
+  #   Kandidat            Himmel  Wiesengrund  Wiesengrund
+  #                       12:00   12:00        steinkreis 18:18
+  #   1,50 (Band mittig)  139,9   37,5         31,2
+  #   1,6315 (+0,2 EV)    146,2   39,0         32,4   ← gewaehlt
+  #   2,00                162,0   42,8         35,5
+  #
+  # Was KEINE Belichtung leistet: Wiesengrund 52–58 verlangt ab 3,0, das
+  # Himmelsband 142 ± 4 verlangt 1,47–1,63 — Faktor zwei auseinander. Der
+  # Grund ist gegenueber dem Himmel rund doppelt zu dunkel, und ein
+  # VERHAELTNIS bewegt keine Belichtung: sie greift vor der Kurve an, der
+  # Himmel steigt mit. Diese Luecke gehoert den Spitzenfarben von Gras
+  # und Laub.
+  belichtung: 1.6315
+  # ── Kontrast 0,84 → 1,0: der graue Schleier ──────────────────────────
+  # Die 0,84 war der EINE gegenlaeufige Regler (Boden +12,5, Himmel −3,9)
+  # und hat damit in Runde 1 die Grundhelligkeit erkauft. Genau das ist
+  # der Schleier, den Mike im Bild sieht: Babylon mischt unter 1,0 im
+  # Gammaraum gegen Mittelgrau (`mix(vec3(0.5), rgb, contrast)`), also
+  # liegt ueber JEDEM Bildpunkt ein Anteil Grau. Der Bildkontrast p95/p5
+  # faellt dabei auf 3,03; die Referenz zeigt auf 5–6.
+  #
+  # Ein Kontrast UEBER 1,0 zeigt in die Zielrichtung und ist gemessen
+  # (`weitblick`/12:00, Neutral, Belichtung 1,6315):
+  #
+  #   kontrast     1,00   1,10   1,20   1,30
+  #   Bildkontrast 4,53   4,91   5,27   5,68
+  #   Wiesengrund  39,0   37,0   35,0   33,0
+  #   Himmel      146,2  147,5  149,3  151,1
+  #
+  # Er kauft den Kontrast mit genau der Grundhelligkeit, die hier ohnehin
+  # fehlt, und hebt den Himmel zusaetzlich aus seinem Band. Am
+  # `steinkreis` wird das Band 5–6 schon mit 1,0 erreicht (5,79) — es
+  # gibt also keinen Grund, hier vorzugreifen.
+  #
+  # Die Nacht (?t=0), drei Staende in EINER Sitzung gemessen:
+  #
+  #                        Runde 1   vor Runde 1   jetzt
+  #     Wiesengrund L        35,0        19,4       17,0
+  #     Himmel L             47,5        34,7       18,9
+  #     Bild-Saettigung     0,152       0,242      0,352
+  #     Bild-Farbton         265°        246°       150°
+  #
+  # Der Farbton der EINZELNEN Flaechen bleibt (Himmel 237° → 224°, Gras
+  # 56° → 60°); was kippt, ist das Mittel, weil der ohnehin dunkle
+  # Nachthimmel 46 % seiner Helligkeit verliert und damit das Gruen der
+  # Vegetation das Bild uebernimmt. Das ist der eine Punkt dieser Runde,
+  # den keine Zahl entscheidet — er braucht eine Sichtprobe.
+  kontrast: 1.0
+  # ── Saettigung 1,12 → 0,45 ───────────────────────────────────────────
+  # Das Vorbild hat KEINEN Saettigungsregler (§E, F2), und die 1,12 war
+  # der Ausgleich fuer `kontrast 0,84` — faellt der Kontrast weg, faellt
+  # sein Ausgleich mit. Die 0,45 ist trotzdem keine Rueckkehr zur alten
+  # Labor-Erfindung, sondern die Korrektur fuer eine EIGENSCHAFT des
+  # Neutral-Mappers: Er zieht `min(r,g,b) − 6,25·min²` von allen drei
+  # Kanaelen ab, und auf unserem dunklen Wiesengrund bleibt davon fast
+  # nichts vom Blaukanal uebrig. ROH steht die Saettigung dort dann auf
+  # 0,916 — mehr als das Doppelte des Zielbands.
+  #
+  #   saettigung     0,35   0,40   0,45   0,50   0,55   0,60   0,70   1,00
+  #   Wiesengrund S 0,367  0,414  0,461  0,507  0,552  0,596  0,681  0,916
+  #   Bild-S        0,188  0,211  0,235  0,258  0,281  0,303  0,347  0,467
+  #
+  # 0,45 trifft das Zielband des Wiesengrunds (0,42–0,47) und hebt die
+  # Bildsaettigung gegenueber Runde 1 trotzdem (0,221 → 0,235 hier,
+  # 0,149 → 0,226 am `steinkreis`).
+  #
+  # Die zweite Zielzahl — Bild-Saettigung am `steinkreis` ≥ 0,30 —
+  # erreicht sie NICHT; dafuer braeuchte es rund 0,65, und dort steht der
+  # Wiesengrund dann auf S 0,652 statt 0,461. EIN globaler Faktor kann
+  # nur eines von beiden. Gewaehlt ist das Band, das Gleiches mit
+  # Gleichem vergleicht (dasselbe Rechteck im Referenzbild); was die
+  # Bildsaettigung am `steinkreis` drueckt, ist der grosse, fast graue
+  # Himmel — kein Fall fuer einen Saettigungsregler.
+  saettigung: 0.45
   # ── Nebel: linear 15 → 200 m ─────────────────────────────────────────
   # `m_FogMode = 1` (Linear), `m_LinearFogStart` 15, `m_LinearFogEnd` 200
   # (§D). Im Linear-Modus liest niemand `fogDensity` — auch das Vorbild
@@ -294,8 +360,38 @@ look:
   # 1498 m. Alles dahinter steht weiter in voller Nebelfarbe; „keine
   # Flaeche erreicht die volle Nebelfarbe" braeuchte 1500 m und ist eine
   # eigene Entscheidung.
+  #
+  # ── Nebelstart 15 → 50 m (Runde 2, 12.09.2026) ──────────────────────
+  # Die 15 stammt aus `m_LinearFogStart` des Vorbilds und ist dort
+  # richtig — bei 200 m Nebelende. Neben unseren 800 m heisst sie: schon
+  # ueber dem Nahbereich liegt Dunst. Im Bild ist genau das der
+  # „Schleier" ueber dem Waldrand.
+  #
+  # Gemessen an der Pose `steinkreis`, 18:18, auf dem NEUEN Stand,
+  # verschraenkt in EINER Sitzung, nur `scene.fogStart` gedreht:
+  #
+  #   nebelStart        15     30     40     50     60     70
+  #   Bild-Saettigung 0,179  0,205  0,218  0,226  0,227  0,228
+  #   Bildkontrast     7,23   6,21   5,93   5,79   5,77   5,79
+  #   Ferne/Himmel    0,417  0,399  0,396  0,412  0,423  0,411
+  #   Himmel L        123,0  120,3  122,6  122,5  120,1  123,3
+  #   Wiesengrund L    32,3   32,4   32,4   32,4   32,4   32,4
+  #
+  # 1. Die Bild-Saettigung waechst bis 50 m um 0,047 und danach um 0,002
+  #    auf zwanzig weitere Meter — 50 m holt 96 % des Gewinns.
+  # 2. Der Bildkontrast faellt von 7,23 (UEBER dem Zielband) auf 5,79 und
+  #    landet damit im Band 5–6. Der Nebel bei 15 m sass auf dem mittleren
+  #    Grund und hat die untere Bildhaelfte auseinandergezogen.
+  # 3. Der Himmel bewegt sich ueber die ganze Reihe nicht (120–123) —
+  #    Wolken und Kuppel bleiben, was sie waren. Das war die Bedingung.
+  # 4. Der Nahbereich verliert nichts: 32,4 Luma ueber die ganze Reihe.
+  #
+  # Ferne/Himmel bleibt, wo es ist (0,417 → 0,412). Dass die Zahl
+  # ausserhalb ihres Bands 0,53 ± 0,08 liegt, hat der Tonemapper zu
+  # verantworten und nicht diese Zeile — bei Nebelstart 15 steht sie
+  # genauso daneben.
   nebelmodus: linear
-  nebelStart: 15
+  nebelStart: 50
   nebelEnde: 800
   nebelWaerme: 0
   # ── Grading: die ganze Farbhandschrift des Vorbilds ──────────────────

@@ -59,9 +59,12 @@
  *   Himmel       L 146,5 → 145,0  S 0,180 → 0,146   H 201,7 → 191,0
  *
  * Die Zeile DUNKELT also und zieht den Farbton ins Warme; sie ist kein
- * Aufheller. Wer mit ihr auf die Zielhelligkeit will, braucht den
- * zweiten Regler dazu (`look.kontrast`, die Herleitung steht in
- * `lookProfil.ts`).
+ * Aufheller. Wer mit ihr auf die Zielhelligkeit will, braucht einen
+ * zweiten Regler dazu. Bis Runde 2 war das `look.kontrast` unter 1,0 —
+ * und genau der ist seit dem 12.09.2026 zurueckgebaut, weil er die
+ * Helligkeit mit einem Mittelgrau-Anteil auf jedem Bildpunkt erkauft
+ * hat. Sie gehoert jetzt der Belichtung und den Materialfarben; die
+ * Herleitung steht in `shared/src/lookProfil.ts`.
  *
  * Warum sie so deutlich wirkt, steht in der Bandverteilung: 0,3 LINEARE
  * Luminanz ist sRGB-Byte 149. Im ausgelieferten Stand liegt unser
@@ -107,8 +110,11 @@
  *
  * Der Kontrastregler liegt VOR der Tabelle — auch das wie im Vorbild, wo
  * `contrast` im LUT-Bau vor SMH steht. Wer an `look.kontrast` dreht,
- * verschiebt damit die Baender mit; die Zahlen oben gelten fuer den
- * ausgelieferten Stand (`kontrast` 0,84).
+ * verschiebt damit die Baender mit; die Zahlen oben sind am Stand von
+ * Runde 1 gemessen (`kontrast` 0,84, `tonemapping` aus). Seit Runde 2
+ * steht der Kontrast auf 1,0 und der Neutral-Mapper davor — die Baender
+ * liegen damit anders, die AUSSAGE der Zeile (dunkelt, waermt, greift
+ * fast nur am Grund) bleibt.
  *
  * ── Die Falle, die kein Symptom hat ──────────────────────────────────
  * `fM = 1 − fS − fH`. Ueberlappen die Baender (`schattenEnde` groesser

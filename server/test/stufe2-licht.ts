@@ -488,11 +488,19 @@ function abendStuetzpunkt(): void {
 
     Was an ihre Stelle tritt, ist keine kleinere Zusage, sondern eine
     andere: Der ABSOLUTE Pegel gehoert seit dieser Runde `look.belichtung`
-    (server.yml) und nicht den Keyframes. Ohne Tonemapper ist ein
-    sRGB-Luma-VERHAELTNIS unabhaengig von der Belichtung; die Keyframes
-    stellen also das Verhaeltnis ein, die Belichtung die Helligkeit. Ein
-    Test, der hier `direkt = 1,467` festnagelt, wuerde genau diese
-    Trennung wieder zunageln.
+    (server.yml) und nicht den Keyframes. Ein Test, der hier
+    `direkt = 1,467` festnagelt, wuerde genau diese Trennung wieder
+    zunageln.
+
+    NACHTRAG 12.09.2026 (Runde 2): Hier stand als Begruendung „ohne
+    Tonemapper ist ein sRGB-Luma-VERHAELTNIS unabhaengig von der
+    Belichtung — der Faktor kuerzt sich". Das galt fuer `tonemapping:
+    aus` und gilt seit `neutral` nicht mehr: Die Kurve ist nicht linear,
+    also verschiebt jede Belichtung auch die Verhaeltnisse. Die Trennung
+    „Keyframes machen das Verhaeltnis, Belichtung die Helligkeit" bleibt
+    als ARBEITSTEILUNG richtig, ist aber keine Identitaet mehr. Wer ein
+    Verhaeltnis aus `design/look-referenz.md` zitiert, nennt die
+    Belichtung dazu.
 
     Geprueft werden deshalb die zwei EIGENSCHAFTEN, an denen das Bild
     haengt und die keine Belichtung repariert:
@@ -702,11 +710,40 @@ function vorgabeDecktServerYml(): void {
     `jedes Feld des look:-Blocks steht so in LOOK_VORGABE${abweichungen.length ? `\n     ${abweichungen.join('\n     ')}` : ''}`
   );
 
-  // Die vier Zahlen, an denen diese Runde haengt, noch einmal beim Namen
-  // — damit ein stiller Rueckfall nicht nur als „eine Abweichung" oben
+  // Die Zahlen, an denen diese Runde haengt, noch einmal beim Namen —
+  // damit ein stiller Rueckfall nicht nur als „eine Abweichung" oben
   // erscheint, sondern als die Entscheidung, die er ist.
-  ok(LOOK_VORGABE.belichtung === 1.42, `Belichtung 1,42 (war 1,0): ${LOOK_VORGABE.belichtung}`);
-  ok(LOOK_VORGABE.kontrast === 0.84, `Kontrast 0,84 — der eine gegenlaeufige Regler: ${LOOK_VORGABE.kontrast}`);
+  //
+  // Runde 2 (12.09.2026) hat vier davon gedreht. Sie stehen hier als
+  // GRUPPE, weil sie eine einzige Entscheidung sind: Der Neutral-
+  // Tonemapper mit +0,2 EV ersetzt den Kontrast unter 1,0, mit dem
+  // Runde 1 die Grundhelligkeit erkauft hat, und der Saettigungsregler
+  // war nur dessen Ausgleich.
+  ok(LOOK_VORGABE.tonemapping === 'neutral', `Tonemapper Neutral (war aus, Leitbild Village1): ${LOOK_VORGABE.tonemapping}`);
+  ok(
+    Math.abs(LOOK_VORGABE.belichtung - 1.42 * Math.pow(2, 0.2)) < 5e-4,
+    `Belichtung ist 1,42 mit den +0,2 EV des Leitbilds: ${LOOK_VORGABE.belichtung} (gerechnet ${(1.42 * Math.pow(2, 0.2)).toFixed(4)})`
+  );
+  ok(
+    LOOK_VORGABE.kontrast === 1.0,
+    `Kontrast 1,0 — kein Grau-Mischen als Helligkeitsersatz: ${LOOK_VORGABE.kontrast}`
+  );
+  /*
+    Die Saettigung ist die EINZIGE Zahl dieser Runde, die kleiner als
+    neutral bleibt, und sie hat einen anderen Grund als die alte 1,12:
+    Der Neutral-Mapper zieht `min(r,g,b)` ab und treibt die gemessene
+    Saettigung des Wiesengrunds roh auf 0,916 — mehr als das Doppelte
+    des Zielbands 0,42–0,47. Die 0,45 holt sie auf 0,461 zurueck.
+
+    Zugesagt wird deshalb die KOPPLUNG: ein Saettigungsregler unter 1
+    ist nur zulaessig, solange ein Tonemapper laeuft. Ohne Kurve waere
+    er wieder die Erfindung, die Runde 1 zu Recht abgeschafft hat.
+  */
+  ok(
+    LOOK_VORGABE.saettigung === 0.45 && LOOK_VORGABE.tonemapping !== 'aus',
+    `Saettigung 0,45 als Korrektur zum Tonemapper, nicht als Erfindung: ${LOOK_VORGABE.saettigung} bei tonemapping ${LOOK_VORGABE.tonemapping}`
+  );
+  ok(LOOK_VORGABE.nebelStart === 50, `Nebelstart 50 m (war 15, Runde 2): ${LOOK_VORGABE.nebelStart}`);
   ok(LOOK_VORGABE.nebelEnde === 800, `Nebelende 800 m (war 200, Entscheidung E3): ${LOOK_VORGABE.nebelEnde}`);
   ok(
     LOOK_VORGABE.schatten.kaskaden === 2 && LOOK_VORGABE.schatten.dunkelheit === 0.2,

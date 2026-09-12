@@ -519,30 +519,55 @@ export class PostProcessing {
   /**
    * Alles, was das Look-Profil an dieser Pipeline steuert.
    *
-   * ── Warum ACES jetzt gilt und die alte Messung trotzdem stimmt ──────
-   * Hier stand KHR-Neutral mit einer A/B-Messung als Begründung: ACES
-   * dunkelt "doppelt ab" (Boden RGB(26,61,2) → (6,37,0)) und die
-   * Sättigung stieg von 98 auf 100 %. Beide Zahlen sind richtig gemessen
-   * — und beide wurden unter Belichtung 1,0 und OHNE Sättigungsregler
-   * genommen. Genau das sind die zwei Regler, die zum Tonemapper gehören:
-   * ACES ist dunkler UND flauer als Neutral, deshalb steht im Profil
-   * Belichtung 1,15 daneben, und deshalb steht der Sättigungsregler
-   * ueberhaupt erst hier. ADR-0040 des Schwesterprojekts hat dieselbe
-   * Wahl an denselben Zahlen getroffen: Neutral liefert 0,70 mittlere
-   * Sättigung, ACES 0,52 — Neutral macht das Bild BUNTER, und "bunter"
-   * ist das Gegenteil des Ziels.
+   * ── Welcher Tonemapper gilt, und warum die alten Messungen stimmen ──
+   * Ausgeliefert wird seit Runde 2 (12.09.2026) KHR-Neutral
+   * (`tonemapping: neutral`, dazu Belichtung 1,6315 = 1,42 × 2^0,2).
+   * Leitbild ist das Dorfbild Village1, und das fährt Neutral mit
+   * +0,2 EV. Welcher Mapper gemeint ist, entscheidet allein `server.yml`
+   * — diese Methode setzt nur, was im Profil steht.
    *
-   * Neutral bleibt als `tonemapping: neutral` erreichbar; die alte
-   * Einstellung ist damit nicht verloren, sondern eine Zeile in
-   * server.yml.
+   * Hier stand vorher zweimal etwas anderes, und beide Male war die
+   * Messung richtig und der Schluss an eine andere Frage gebunden:
    *
-   * ── Sättigung ist PROZENT ───────────────────────────────────────────
-   * `ColorCurves.globalSaturation` rechnet intern `value / 100`. Das
-   * Profil führt sie deshalb als 68 und nicht als 0,68 — eine 0,68 hier
-   * wäre eine Sättigung von 0,68 % und ein graues Bild. Der
-   * Sättigungsregler ist ausserdem NUR wirksam, wenn `colorCurvesEnabled`
-   * gesetzt ist: Babylon prüft das Flag beim Anlegen der Defines, ein
-   * gesetzter Wert ohne Flag ist stumm.
+   *  · „ACES gilt": begründet damit, dass ACES dunkler UND flauer ist
+   *    als Neutral (ADR-0040 des Schwesterprojekts: Neutral 0,70
+   *    mittlere Sättigung, ACES 0,52) und „bunter" das Gegenteil des
+   *    Ziels sei. Das Ziel war damals eine Sättigung um 0,45.
+   *  · „gar keiner": begründet damit, dass alle neun SPIEL-Level
+   *    `Tonemapping.mode = None` setzen. Auch das stimmt — das Dorf ist
+   *    keins der neun.
+   *
+   * Der heutige Befund, verschränkt gegen denselben Bildinhalt: Neutral
+   * hebt den Bildkontrast p95/p5 von 3,03 auf 4,52 (`weitblick` 12:00)
+   * und von 3,39 auf 5,79 (`steinkreis` 18:18, damit ins Zielband 5–6),
+   * und die Bildsättigung von 0,221 auf 0,235 bzw. von 0,149 auf 0,226.
+   * Genau diese zwei Zahlen haben am ausgelieferten Bild gefehlt.
+   *
+   * ACES bleibt eine Zeile in server.yml entfernt und zieht in die
+   * falsche Richtung: bei Belichtung 2,0 steht dort Himmel/Grund auf
+   * 6,55, bei Neutral auf 3,75.
+   *
+   * BEIM NACHMESSEN: Babylons Konstanten (STANDARD 0, ACES 1,
+   * KHR_PBR_NEUTRAL 2) sind NICHT die Shader-Defines (1, 2, 3). Wer die
+   * Define-Zahl als `toneMappingType` setzt, misst die alte Exp-Kurve
+   * und bekommt trotzdem seine Eingabe zurückgemeldet.
+   *
+   * ── Sättigung: Faktor im Profil, Prozent an Babylon ─────────────────
+   * Das Profil führt die Sättigung als FAKTOR (1 = unverändert);
+   * Babylons `ColorCurves.globalSaturation` läuft von −100 bis +100 mit
+   * 0 als neutral und rechnet intern `1 + s/100`. Die Umrechnung steht
+   * unten an genau einer Stelle. Der Regler ist ausserdem NUR wirksam,
+   * wenn `colorCurvesEnabled` gesetzt ist: Babylon prüft das Flag beim
+   * Anlegen der Defines, ein gesetzter Wert ohne Flag ist stumm.
+   *
+   * Seit Runde 2 steht der Faktor auf 0,45 — und das ist nicht die alte
+   * Labor-Erfindung, sondern die Korrektur für eine Eigenschaft des
+   * Neutral-Mappers: Er zieht `min(r,g,b)` ab und treibt die gemessene
+   * Sättigung des Wiesengrunds roh auf 0,916, mehr als das Doppelte des
+   * Zielbands. Die Herleitung und die Messreihe stehen in
+   * `shared/src/lookProfil.ts`; dort steht auch, warum ein GLOBALER
+   * Regler die zweite Zielzahl (Bildsättigung am `steinkreis`) nicht
+   * zusätzlich bedienen kann.
    */
   private wendeLookAn(profil: LookProfil): void {
     this.profil = profil;

@@ -12,6 +12,7 @@ import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 // Nur für `VertexBuffer.ColorKind`: Ob ein Netz schon Vertexfarben trägt,
 // entscheidet, ob es eine Instanzfarbe bekommen darf (darfGetoentWerden).
@@ -832,7 +833,127 @@ function schreibeInstanzen(mesh: Mesh, daten: Float32Array | null): void {
   // (thinInstanceMesh.js:103) — jetzt ist der Moment, ihm die Windreserve
   // zu geben. Vorher wäre sie wieder überschrieben.
   huellkoerperAufweiten(mesh);
+  merkeModellHoehe(mesh, daten);
   mesh.setEnabled(daten !== null);
+}
+
+/**
+ * Gemessene Höhe EINES Exemplars je Master, in Metern.
+ *
+ * ── Wofür ───────────────────────────────────────────────────────────
+ * Shadows.darfWerfen() entschied bisher allein über Namensregeln, welches
+ * Mesh Schatten wirft. Ein Regex über Namen ist aber eine LISTE: Sie wird
+ * bei jedem neuen Modell stillschweigend falsch, und zwar in beide
+ * Richtungen — ein neuer Kleinkram-Name steht nicht drin und wirft
+ * grundlos durch alle Kaskaden, ein umbenanntes Prefab fällt plötzlich
+ * heraus. Eine gemessene Höhe kann das nicht: Sie kommt aus der
+ * Geometrie, die tatsächlich gezeichnet wird.
+ *
+ * ── Warum HIER gemessen wird und nicht in Shadows ────────────────────
+ * Ein Master steht im Ursprung, seine Hülle umfasst nach
+ * `thinInstanceSetBuffer` ALLE Instanzen — ihre Y-Ausdehnung ist die
+ * Höhenstreuung des Geländes, nicht die Höhe der Pflanze. Die Höhe eines
+ * Exemplars ergibt sich erst aus der ROHEN Hülle (`getRawBoundingInfo`,
+ * vor den Instanzen) mal der Skalierung, die in der Instanzmatrix steckt.
+ * Beides liegt genau hier zusammen: die Rohhülle am Mesh, die Matrizen im
+ * Puffer, den diese Funktion gerade schreibt.
+ *
+ * Genommen wird die GRÖSSTE Skalierung im Puffer und die größte der drei
+ * Spaltennormen — bewusst konservativ nach oben. Eine überschätzte Höhe
+ * lässt einen Werfer in der Liste; eine unterschätzte löscht einen
+ * sichtbaren Schatten, und das ist der Fehler, den man im Bild sucht und
+ * nicht findet.
+ *
+ * Measured once per master when its instance buffer is written: raw model
+ * height times the largest instance scale, rounded up on purpose.
+ */
+const MODELL_HOEHE = new WeakMap<Mesh, number>();
+
+function merkeModellHoehe(mesh: Mesh, daten: Float32Array | null): void {
+  // Leerer Puffer: Die Messung des vorigen Aufbaus behalten. Ein
+  // abgeschalteter Zell-Master kommt aus dem Pool mit derselben Geometrie
+  // zurück, und Shadows.darfWerfen() lässt abgeschaltete Meshes ohnehin
+  // ungeprüft stehen.
+  if (daten === null || daten.length < 16) return;
+  const roh = mesh.getRawBoundingInfo().boundingBox;
+  MODELL_HOEHE.set(mesh, (roh.maximum.y - roh.minimum.y) * groessteInstanzSkala(daten));
+}
+
+/**
+ * Die grösste Skalierung in einem Instanzpuffer — reine Rechnung, ohne
+ * Szene testbar (client/test/modell-hoehe.ts).
+ *
+ * Genommen wird je Instanz die GRÖSSTE der drei Spaltennormen und davon
+ * das Maximum über alle Instanzen. Das überschätzt eine ungleichmässig
+ * skalierte oder gekippte Instanz bewusst — und zwar in die richtige
+ * Richtung: Ein zu grosser Wert lässt einen Werfer in der Liste, ein zu
+ * kleiner löscht einen sichtbaren Schatten.
+ */
+export function groessteInstanzSkala(daten: ArrayLike<number>): number {
+  let skala = 0;
+  for (let o = 0; o + 16 <= daten.length; o += 16) {
+    const sx = Math.hypot(daten[o]!, daten[o + 1]!, daten[o + 2]!);
+    const sy = Math.hypot(daten[o + 4]!, daten[o + 5]!, daten[o + 6]!);
+    const sz = Math.hypot(daten[o + 8]!, daten[o + 9]!, daten[o + 10]!);
+    const groesste = sx > sy ? (sx > sz ? sx : sz) : sy > sz ? sy : sz;
+    if (groesste > skala) skala = groesste;
+  }
+  return skala;
+}
+
+/**
+ * Die gemessene Höhe eines Exemplars dieses Masters, oder `undefined`.
+ *
+ * `undefined` heisst „nicht gemessen", NICHT „klein": Gelände, Spieler,
+ * Dungeon-Architektur und Himmel laufen nie durch `schreibeInstanzen()`.
+ * Der Aufrufer muss diesen Fall als „darf werfen" behandeln — ein
+ * fehlender Messwert darf niemals einen Schatten löschen.
+ */
+export function gemesseneModellHoehe(mesh: AbstractMesh): number | undefined {
+  return MODELL_HOEHE.get(mesh as Mesh);
+}
+
+/**
+ * Einen Knoten als ORTSFEST kennzeichnen: Weltmatrix einfrieren.
+ *
+ * ── Was das spart ───────────────────────────────────────────────────
+ * Babylon ruft in `_evaluateActiveMeshes()` für jedes eingeschaltete Mesh
+ * `computeWorldMatrix()` (scene.js:3837). Ohne Einfrieren vergleicht das
+ * jedes Bild den gesamten Transformations-Cache gegen den Ist-Zustand
+ * (`isSynchronized()`); eingefroren steigt es in der ersten Zeile aus
+ * (transformNode.js:895). Für Master, die per Definition im Ursprung
+ * stehen, ist dieser Vergleich reine Arbeit ohne Ergebnis.
+ *
+ * ── Wo aufgetaut werden MUSS ────────────────────────────────────────
+ * Ein eingefrorener Knoten, den jemand später versetzt, bleibt stehen —
+ * ohne Fehlermeldung, ohne Symptom ausser „das Objekt ist am falschen
+ * Ort". Deshalb wird hier NICHT pauschal eingefroren, sondern nur an den
+ * drei Stellen, die wissen, dass ihr Mesh ortsfest ist:
+ *
+ *   · `zellMeshHolen()` — Zell-Master tragen Weltmatrizen in ihren Thin
+ *     Instances und stehen selbst im Ursprung (s. AssetManager.zuMaster).
+ *     Das Streaming versetzt sie NIE; es schreibt nur ihren Instanzpuffer
+ *     neu, und `thinInstanceSetBuffer` spannt die Hülle über
+ *     `_updateBoundingInfo()` aus der (eingefrorenen) Weltmatrix neu auf —
+ *     das funktioniert mit eingefrorener Matrix unverändert.
+ *   · `rebuildBucketColliders()` — der `col_`-Träger, aus demselben Grund.
+ *   · `AssetManager.zuMaster()` — der Prefab-Master selbst.
+ *
+ * AUSDRÜCKLICH NICHT eingefroren wird in `zellMeshAusPrototyp()`, obwohl
+ * das der bequemste Ort wäre: `BaumImpostor` baut seine Backmeshes über
+ * genau diese Funktion und hängt sie danach an einen Halter, den es für
+ * die acht Ansichten dreht (BaumImpostor.ts:740 ff.). Eingefroren blieben
+ * Rinde und Laub im Ursprung übereinanderliegen und alle acht Ansichten
+ * zeigten dasselbe Bild — ein Fehler ohne Absturz und ohne Warnung.
+ *
+ * Wer einen so gekennzeichneten Knoten doch bewegen will, ruft
+ * `unfreezeWorldMatrix()` davor. Kein stiller Weg daran vorbei.
+ *
+ * Freeze only where the caller knows the node is fixed in place; the
+ * impostor baker moves meshes built by the same factory function.
+ */
+export function alsOrtsfestEinfrieren(mesh: AbstractMesh): void {
+  mesh.freezeWorldMatrix();
 }
 
 /**
@@ -2021,6 +2142,10 @@ export class EntityManager {
       const carrier = new Mesh(`col_${bucket.masterKey}`, this.scene);
       carrier.isVisible = false;
       carrier.isPickable = false;
+      // Ortsfest, aus demselben Grund wie der Zell-Master: Der Träger
+      // steht im Ursprung, die Auswahl der nahen Kollisionskörper kommt
+      // ausschliesslich über seinen Thin-Instance-Puffer weiter unten.
+      alsOrtsfestEinfrieren(carrier);
       entry = { carrier, set: new StaticColliderSet(carrier, form, this.scene), signature: '' };
       this.colliders.set(bucket.masterKey, entry);
       this.colliderSpecs.set(bucket.masterKey, form);
@@ -2778,7 +2903,14 @@ export class EntityManager {
       this.onMasterBelebt?.(frei);
       return frei;
     }
-    return zellMeshAusPrototyp(proto, name, this.scene);
+    const frisch = zellMeshAusPrototyp(proto, name, this.scene);
+    // Ortsfest: Ein Zell-Master steht im Ursprung, die Weltmatrizen seiner
+    // Instanzen stecken im Thin-Instance-Puffer. Das Streaming schreibt
+    // diesen Puffer neu, versetzt den Master aber nie — s.
+    // alsOrtsfestEinfrieren() für die Stellen, an denen aufgetaut werden
+    // müsste, und warum das NICHT in zellMeshAusPrototyp() steht.
+    alsOrtsfestEinfrieren(frisch);
+    return frisch;
   }
 
   /**

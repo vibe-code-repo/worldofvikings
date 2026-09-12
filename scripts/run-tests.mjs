@@ -873,6 +873,13 @@ const KERN = [
   // gekeult, der Bewegungsrand haelt die Packung bis zum naechsten
   // Neupacken, und entartete Eingaben liefern 0 statt Muell.
   ['client', 'test/schatten-instanz-keulung.ts'],
+  // Die Werfer-Regel entscheidet seit G5 ueber die GEMESSENE Modellhoehe
+  // statt ueber einen Namensregex. Der Test haelt fest, dass die
+  // Skalenmessung ueberschaetzt statt zu unterschaetzen (ein zu kleiner
+  // Wert loescht Schatten), dass eine Drehung nicht als Skalierung
+  // durchgeht, und dass „nicht gemessen" nicht als „klein" gelesen wird —
+  // sonst verloere das Gelaende seinen Schattenwurf.
+  ['client', 'test/modell-hoehe.ts'],
   // Das 100-FPS-Profil nutzt auf der niedrigen Stufe eine eigene
   // Schattenfassung. Der GPU-lose Test haelt 2 x 1024 px / 80 m fest und
   // prueft zugleich, dass alle normalen Stufen unveraendert bleiben.

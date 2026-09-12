@@ -1447,6 +1447,21 @@ function zuMaster(mesh: Mesh, welt?: Matrix): PrefabMaster {
   // .huellkoerperAufweiten() nach jedem Puffer-Schreiben — der Shader
   // verschiebt Blattscheitel über den Kasten hinaus, den die Rohgeometrie
   // aufspannt.
+  //
+  // ── Ortsfest (G5) ──────────────────────────────────────────────────
+  // Oben ist der Master auf die Identität zurückgesetzt worden, weil
+  // Thin-Instance-Matrizen Weltmatrizen sind. Er steht damit per
+  // Konstruktion im Ursprung und wird dort nie wieder versetzt — das
+  // Streaming schreibt ausschliesslich seinen Instanzpuffer. Eingefroren
+  // spart das je Bild und je eingeschaltetem Master den vollständigen
+  // Cache-Vergleich in `computeWorldMatrix()` (scene.js:3837 →
+  // transformNode.js:895). Herleitung und die Stellen, an denen NICHT
+  // eingefroren werden darf, stehen bei
+  // EntityManager.alsOrtsfestEinfrieren(). Bewusst direkt und nicht über
+  // diesen Helfer: Ein WERT-Import aus EntityManager machte aus der
+  // bisher reinen Typabhängigkeit (`import type { AssetManager }` dort)
+  // einen echten Modulzyklus.
+  mesh.freezeWorldMatrix();
   return { mesh, localMatrix };
 }
 

@@ -369,6 +369,18 @@ export class AvatarRig {
   /** Attachment point at the end of the right forearm for a held tool. */
   readonly handR: TransformNode;
   private held: TransformNode | null = null;
+  /**
+   * Ruheposition des Halters im Handraum, gemerkt beim Ergreifen. Der
+   * Griffversatz im Hieb rechnet immer von hier aus — sonst wandert die
+   * Waffe mit jedem Hieb ein Stueck weiter durch die Faust.
+   */
+  private readonly heldGrund = Vector3.Zero();
+  /** Griffversatz im Hieb (Meter entlang der Waffenachse); 0 = aus. */
+  private heldHiebVersatz = 0;
+  /** Rechenplaetze fuer Achse und Drehung des Halters (kein Muell je Bild). */
+  private readonly heldAchse = Vector3.Zero();
+  private readonly heldDrehung = Matrix.Identity();
+  private readonly heldQuat = Quaternion.Identity();
 
   /** Laufzyklus-Phase (Bogenmaß), wächst mit der zurückgelegten Strecke. */
   /** Geladenes Charaktermodell; solange null, bleibt die Klötzchenfigur sichtbar. */
@@ -671,11 +683,19 @@ export class AvatarRig {
    *
    * While something is held the right arm stops swinging (see update) —
    * otherwise the tool flails around with the walk cycle.
+   *
+   * `hiebVersatz` (Meter entlang der Waffen-Laengsachse, Modell-+Y) laesst
+   * die Waffe waehrend eines Hiebs durch die Faust rutschen — siehe
+   * `wendeSchichtenAn` und `holdOffsetStrike` in den Gegenstandsdaten.
    */
-  setHeldItem(node: TransformNode | null, satz: Waffensatz = 'schwert'): void {
+  setHeldItem(node: TransformNode | null, satz: Waffensatz = 'schwert', hiebVersatz = 0): void {
     const vorher = this.held !== null;
     if (this.held && this.held !== node) this.held.parent = null;
     this.held = node;
+    // Die uebergebene Position ist die RUHEposition; von ihr aus rechnet
+    // der Griffversatz. Ohne Versatz bleibt sie unangetastet.
+    this.heldHiebVersatz = node ? hiebVersatz : 0;
+    if (node) this.heldGrund.copyFrom(node.position);
     if (node) this.waffensatz = satz;
     // Beim Ergreifen die Schichtclips von vorn, damit Arm und Finger nicht
     // mitten im Zyklus einsteigen.
@@ -1985,6 +2005,33 @@ export class AvatarRig {
         ziel = b && hieb(b.von) ? Math.min(1, b.t) : 1;
       }
     }
+
+    // ── Griffversatz im Hieb ─────────────────────────────────────────
+    // Stangenwaffen werden in Ruhe weit oben gefasst, damit ihr unteres
+    // Ende neben der Figur am Boden aufsteht. In der beidhaendigen
+    // Hiebkette liegen die Haende in Brusthoehe — der ueberstehende Meter
+    // faehrt dann durch Rumpf und Beine. Also rutscht die Waffe fuer die
+    // Dauer des Hiebs entlang ihrer eigenen Achse durch die Faust.
+    //
+    // Als Gewicht dient das GEGENSTUECK des Dauerschicht-Ziels (vor der
+    // Aktions-Daempfung): 0 in Ruhe, 1 im Hieb, dazwischen dieselbe weiche
+    // Ueberblendung, mit der auch arm_*/hand_* weichen. Eine eigene Uhr
+    // waere ein zweiter Takt, der sich mit dem ersten streiten kann.
+    // Bewusst VOR dem Ausstieg bei schichtGewicht <= 0 — genau dann,
+    // mitten im Hieb, wird der Versatz ja gebraucht.
+    if (this.held && this.heldHiebVersatz !== 0) {
+      const hiebGewicht = this.nutzeClip ? 1 - ziel : 0;
+      // Laengsachse der Waffe (Modell-+Y) im Handraum: die Drehung des
+      // Halters auf (0,1,0) angewandt. Babylon macht aus `rotation` beim
+      // Setzen kein Quaternion, darum beide Wege.
+      const q = this.held.rotationQuaternion;
+      if (q) this.heldQuat.copyFrom(q);
+      else Quaternion.FromEulerAnglesToRef(this.held.rotation.x, this.held.rotation.y, this.held.rotation.z, this.heldQuat);
+      Matrix.FromQuaternionToRef(this.heldQuat, this.heldDrehung);
+      Vector3.TransformNormalToRef(Vector3.UpReadOnly, this.heldDrehung, this.heldAchse);
+      this.held.position.copyFrom(this.heldGrund).addInPlace(this.heldAchse.scaleInPlace(this.heldHiebVersatz * hiebGewicht));
+    }
+
     // Waehrend einer Aktion tritt die Dauerschicht zurueck (Upperbody
     // Layer liegt im Original ueber dem Right Arm Layer).
     ziel *= 1 - aktionGewicht;

@@ -79,6 +79,22 @@ export interface ItemShared {
   holdPosition?: readonly [number, number, number];
   holdRotation?: readonly [number, number, number];
   /**
+   * Griffversatz waehrend eines Hiebs, in Metern entlang der Laengsachse
+   * der Waffe (Modell-+Y, von der Faust zur Spitze). Positiv = das Modell
+   * rutscht in Richtung Spitze durch die Faust, die Hand greift also
+   * naeher am unteren Ende.
+   *
+   * WARUM: Lange Stangenwaffen werden in Ruhe weit oben gefasst, damit ihr
+   * unteres Ende neben der Figur am Boden aufsteht — der Ursprung liegt
+   * darum gut einen Meter ueber dem Ende. In der beidhaendigen Hiebkette
+   * liegen die Haende aber in Brusthoehe, und derselbe Meter Schaft faehrt
+   * dann durch Rumpf und Beine. Statt fuer den Hieb ein zweites Modell mit
+   * anderem Ursprung zu halten, verschiebt der Halter die Waffe fuer die
+   * Dauer des Hiebs entlang ihrer eigenen Achse. Fehlt das Feld (Schwert,
+   * Werkzeuge), aendert sich nichts.
+   */
+  holdOffsetStrike?: number;
+  /**
    * Animationssatz der Figur beim Halten: `sword` einhaendig (Vorgabe),
    * `staff` beidhaendig (Katana-Kette und beidarmige Ruheschicht),
    * `spear` einhaendig aufrecht getragen, Ende am Boden (eigene Ruhepose).

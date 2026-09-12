@@ -411,6 +411,13 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     toolTier: 1,
     holdPosition: [0, 0.08, 0.035],
     holdRotation: [0, Math.PI, Math.PI / 2],
+    // Im Hieb rutscht der Stab 30 cm durch die Faust, die Hand greift also
+    // 30 cm tiefer: die Ruhehaltung fasst ihn 1,40 m ueber dem Ende, damit
+    // er aufrecht am Boden aufsteht — im beidhaendigen Hieb liegen die
+    // Haende in Brusthoehe, und genau dieser knappe Meter Schaft faehrt
+    // sonst durch Rumpf und Beine. Mit 0,30 haelt die Faust ihn etwa in
+    // der Mitte (1,10 m ueber dem Ende bei 1,65 m Laenge).
+    holdOffsetStrike: 0.3,
     animationSet: 'spear',
     maxDurability: 200,
     useDurabilityDrain: 1,
@@ -433,6 +440,11 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     toolTier: 1,
     holdPosition: [0, 0.08, 0.035],
     holdRotation: [0, Math.PI, Math.PI / 2],
+    // Im Hieb rutscht der Speer 15 cm durch die Faust. Weniger als beim
+    // Stab, weil der Griff hier ohnehin naeher an der Mitte sitzt (1,26 m
+    // von 1,90 m) — 0,15 bringt die Hand auf etwa 1,11 m, also knapp unter
+    // die Mitte, ohne dass die Spitze im Hieb zu weit vorsteht.
+    holdOffsetStrike: 0.15,
     animationSet: 'spear',
     maxDurability: 200,
     useDurabilityDrain: 1,

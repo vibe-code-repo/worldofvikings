@@ -75,6 +75,18 @@ import {
   quantisiereRadius,
 } from './SchattenInstanzKeulung';
 
+/**
+ * Kleinste Kaskadenzahl, die Babylon wirklich rendert.
+ *
+ * `CascadedShadowGenerator.numCascades` klemmt im Setter auf
+ * `MIN_CASCADES_COUNT = 2`; eine 1 im Look-Profil war deshalb nie eine
+ * Einstellung, sondern nur eine falsche Zahl in der Diagnosezeile. Die
+ * Konstante steht hier und nicht als Import, weil sie als ZAHL geprueft
+ * werden soll (client/test/ausfaelle-zeugen.ts) — der Generator selbst
+ * laesst sich ohne GPU nicht bauen.
+ */
+export const MIN_KASKADEN = 2;
+
 /** Die drei Original-Stufen, plus "Aus" an Index 0. */
 export interface ShadowLevel {
   readonly kaskaden: number;
@@ -170,11 +182,18 @@ export function schattenKonfiguration(stufe: number, hundertFpsProfil: boolean):
  *    50 m mit 1 Kaskade und einer 1024er Karte (Performant/Balanced)
  *    beziehungsweise 150 m mit 4 (HighFidelity).
  *
- *  · `kaskaden` ERSETZT die Kaskadenzahl der Stufe, wenn es > 0 ist.
- *    Auch das ist eine Look-Entscheidung und kein Hardwarepreis — und
- *    sie geht in die BILLIGE Richtung: Jede Kaskade rendert die
- *    Werferliste komplett erneut, eine statt zwei ist also eine ganze
- *    Passage weniger.
+ *  · `kaskaden` ERSETZT die Kaskadenzahl der Stufe, wenn es > 0 ist —
+ *    aber NIE unter `MIN_KASKADEN`.
+ *
+ *    ⚠ Hier stand, eine Kaskade statt zwei sei „eine ganze Passage
+ *    weniger". Das ist eine Rechnung, die nie stattgefunden hat:
+ *    `CascadedShadowGenerator` klemmt `numCascades` in seinem Setter auf
+ *    `MIN_CASCADES_COUNT = 2` (`cascadedShadowGenerator.js`), und
+ *    `server.yml` steht seit A7 auf `kaskaden: 1`. Gerendert wurden also
+ *    IMMER zwei Passagen; gespart hat die Einstellung nichts, und die
+ *    Diagnosezeile hat ein Jahr lang „1x" gemeldet. Der Deckel steht
+ *    seit F3 hier, damit Wunsch und Wirklichkeit nicht auseinanderlaufen
+ *    koennen — und `Shadows.info` liest die Zahl seither am Generator.
  *  · `aufloesung` ist eine OBERGRENZE. Sie ist keine Look-Groesse,
  *    sondern ein Hardwarepreis, den der Spieler mit der Stufe gewaehlt
  *    hat: Auf "Niedrig" 512 auf 2048 hochzudrehen ist genau die Sorte
@@ -195,7 +214,12 @@ export function schattenMitLook(
   // fehlendes Feld darf hier nicht als `numCascades = 0` durchgehen:
   // Babylons CascadedShadowGenerator klemmt das zwar, würde aber eine
   // Stufe rendern, die niemand gewählt hat.
-  const kaskaden = profil.kaskaden && profil.kaskaden > 0 ? profil.kaskaden : cfg.kaskaden;
+  const gewuenscht = profil.kaskaden && profil.kaskaden > 0 ? profil.kaskaden : cfg.kaskaden;
+  // Und derselbe Deckel HIER statt nur in Babylon (F3): Sonst steht im
+  // Profil eine Zahl, die der Generator schweigend gegen eine andere
+  // tauscht — jede Anzeige, jeder Test und jede Kostenrechnung, die das
+  // Profil liest statt den Generator, wird damit falsch.
+  const kaskaden = Math.max(MIN_KASKADEN, gewuenscht);
   return {
     kaskaden,
     distanz: profil.reichweite,
@@ -842,9 +866,17 @@ export class Shadows {
     };
   }
 
-  /** Diagnose: Kaskaden der aktuellen Stufe, 0 wenn Schatten aus sind. */
+  /**
+   * Diagnose: Kaskaden, die WIRKLICH gerendert werden; 0 wenn Schatten aus
+   * sind.
+   *
+   * Seit F3 am Generator abgelesen und nicht mehr an der Wunschstufe — sie
+   * geht in `__vb.profil().schattenKaskaden` und damit in die
+   * Kostenrechnung „Werfer × Kaskaden" ein. Mit `kaskaden: 1` im Profil
+   * stand dort die halbe Wahrheit.
+   */
   kaskaden(): number {
-    return this.generator ? (this.konfiguration()?.kaskaden ?? 0) : 0;
+    return this.generator?.numCascades ?? 0;
   }
 
   /**
@@ -1204,16 +1236,36 @@ export class Shadows {
     }
   }
 
-  /** Für die Diagnoseanzeige. */
+  /**
+   * Für die Diagnoseanzeige.
+   *
+   * ── Warum die Zahlen am GENERATOR abgelesen werden (F3) ─────────────
+   * Hier stand `cfg.kaskaden` — der WUNSCH aus Stufe und Look-Profil. Mit
+   * `kaskaden: 1` in `server.yml` meldete die Zeile deshalb ein Jahr lang
+   * „1x", während Babylon auf zwei klemmte und zwei Passagen rendern
+   * liess. Eine Diagnosezeile, die den Wunsch druckt, ist kein Zeuge,
+   * sondern eine zweite Stelle, an der dieselbe Annahme steht.
+   *
+   * Reichweite und Auflösung aus demselben Grund: `shadowMaxZ` und
+   * `mapSize` sind, was wirklich gerendert wird. Fehlt der Generator
+   * (Option an, Aufbau noch nicht durch), bleibt der Wunsch die einzige
+   * verfügbare Auskunft — dann sagt ein `?`, dass hier nicht gemessen,
+   * sondern gelesen wurde.
+   *
+   * Read from the generator, not from the request: `kaskaden: 1` printed
+   * "1x" for a year while Babylon clamped to two and rendered two passes.
+   */
   get info(): string {
     const cfg = this.konfiguration();
     if (!cfg) return 'aus';
-    const n = this.generator?.getShadowMap()?.renderList?.length ?? 0;
+    const g = this.generator;
+    const n = g?.getShadowMap()?.renderList?.length ?? 0;
     const v = this.vegetationsSchattenStats();
     const instanzen = v.master > 0 && v.an ? `, v ${v.aktiv}/${v.gesamt}` : '';
-    return `${cfg.kaskaden}x ${cfg.distanz}m ${cfg.aufloesung}px (${n} werfer${
-      this.fern ? '' : ', nah'
-    }${instanzen})`;
+    const k = g ? `${g.numCascades}x` : `${cfg.kaskaden}x?`;
+    const d = g ? `${Math.round(g.shadowMaxZ)}m` : `${cfg.distanz}m?`;
+    const a = g ? `${g.mapSize}px` : `${cfg.aufloesung}px?`;
+    return `${k} ${d} ${a} (${n} werfer${this.fern ? '' : ', nah'}${instanzen})`;
   }
 
   dispose(): void {

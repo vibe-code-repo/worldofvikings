@@ -792,6 +792,13 @@ const KERN = [
   // Schattenfassung. Der GPU-lose Test haelt 2 x 1024 px / 80 m fest und
   // prueft zugleich, dass alle normalen Stufen unveraendert bleiben.
   ['client', 'test/schatten-profil.ts'],
+  // F3 „Ausfaelle": die drei Effekte, die liefen, kosteten und nichts
+  // lieferten. Hier steht der GPU-lose Teil ihrer Reparatur — Kaskadendeckel
+  // (Babylon klemmt `kaskaden: 1` auf 2, das Profil muss es auch),
+  // Ankerdurchmesser aus einem WINKEL statt aus Metern, und der
+  // 10-%-Konstantterm im Komposit-Shader, dessen Entfernung eine
+  // Textersetzung ist und nach einem Babylon-Wechsel STILL ausbleiben kann.
+  ['client', 'test/ausfaelle-zeugen.ts'],
   // Die Huellkoerper der Thin-Instance-Master entscheiden seit D10 ueber
   // die SICHTBARKEIT der Prefabs — ein Kasten, der eine Instanz auslaesst,
   // laesst das Objekt aus bestimmten Blickwinkeln verschwinden. Laeuft

@@ -43,7 +43,7 @@ export const en = {
   'settings.water_quality': 'Water quality',
   'settings.dungeon_quality': 'Dungeon graphics',
   'settings.anti_aliasing': 'Anti-aliasing',
-  'settings.temporal_aa': 'Temporal anti-aliasing (TAA)',
+  'settings.temporal_aa': 'Temporal smoothing (TAA, in motion)',
   'settings.performance_profile': '100 FPS profile',
   'settings.bloom': 'Bloom',
   'settings.motion_blur': 'Motion blur',

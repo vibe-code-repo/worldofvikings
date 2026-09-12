@@ -68,6 +68,12 @@ import { ColorCurves } from '@babylonjs/core/Materials/colorCurves';
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ValheimDof } from './ValheimDof';
+import {
+  ankerDurchmesser,
+  kompositKorrigiert,
+  korrigiereStrahlenKomposit,
+  StrahlenAnker,
+} from './StrahlenAnker';
 import { setzeGrading } from './Grading';
 import { beiLook, hexLinear4, look, type LookProfil } from './lookProfil';
 import { strahlenTor, strahlenWinkel } from '@wov/shared';
@@ -141,6 +147,84 @@ const TAA_SAMPLES = 16;
  * Ghosting; gemessen wird sie mit `tools/pw-schatten-flimmern.mjs`.
  */
 const TAA_FAKTOR = 0.2;
+
+/**
+ * Den Halton-Versatz von der `hasMoved`-Sperre loesen (F3).
+ *
+ * ── Der Befund ──────────────────────────────────────────────────────────
+ * TAA war vollstaendig verdrahtet — `isSupported true`, Kette waechst von 8
+ * auf 10 Paesse, `disableOnCameraMove: false`, `clampHistory`, `factor 0,2`,
+ * `samples 16` liegen an — und hat trotzdem nie gejittert. Der Grund steht in
+ * drei Zeilen von `thinTAAPostProcess.js:176-178`:
+ *
+ *     _updateProjectionMatrix() {
+ *       if (this.disabled) return;
+ *       if (this.camera && !this.camera.hasMoved) { … Versatz … }
+ *       this._hs.next();
+ *     }
+ *
+ * Der Versatz wird also NUR angelegt, solange die Kamera stillsteht. Unsere
+ * Kamera haengt am Spieler und meldet `hasMoved === true` in **58 von 58**
+ * gemessenen Bildern — auch bei stehender Figur. Zeile 2 der
+ * Projektionsmatrix blieb ueber rund 70 Bilder auf (0, 0), und TAA mischte
+ * damit identische Bilder: im Stand aendert sich fast nichts (Kantenmass
+ * −2,2 %), in Bewegung wirkt es als Weichzeichner (−19,6 %).
+ *
+ * ── Warum die Sperre hier falsch ist ────────────────────────────────────
+ * Sie ist die zweite Haelfte von `disableOnCameraMove`, und den haben wir
+ * bewusst auf `false` gesetzt (Begruendung im Konstruktor: unsere Kamera
+ * bewegt sich fast immer, und das Flimmern stoert gerade beim Laufen). Eine
+ * Vorgabe abzuschalten und ihre Wirkung an anderer Stelle stehen zu lassen,
+ * ergibt genau den Zustand, den wir gemessen haben: der Schalter greift, die
+ * Wirkung nicht. `_nextJitterOffset` — der Zweig fuer `reprojectHistory` —
+ * prueft konsequenterweise `|| !this.disableOnCameraMove`; nur
+ * `_updateProjectionMatrix` tut es nicht.
+ *
+ * ── Warum als Ersetzung und nicht als Unterklasse ───────────────────────
+ * `TAARenderingPipeline` legt seinen `ThinTAAPostProcess` selbst an und haelt
+ * ihn privat; es gibt keinen Einhaengepunkt. Die Ersetzung trifft genau eine
+ * Methode, bildet den Babylon-Rumpf Zeile fuer Zeile nach und laesst
+ * `_hs.next()` an seinem Platz — ohne PrePass-Passage, ohne Bewegungsvektoren.
+ * Der Rueckgabewert ist der Zeuge: Findet sich die Methode nach einem
+ * Babylon-Wechsel nicht, steht dort `false` statt einer stillen Rueckkehr
+ * zum Nullversatz (`taaMesswerte.entsperrt`).
+ *
+ * In English: Babylon only applies the Halton jitter while the camera has NOT
+ * moved — the other half of `disableOnCameraMove`, which we switch off. Our
+ * camera reports movement in every frame, so the jitter never fired. We
+ * replace that one method; the return value is the witness.
+ */
+function entsperreTaaJitter(pipeline: TAARenderingPipeline): boolean {
+  const halter = pipeline as unknown as { _taaThinPostProcess?: ThinTaaHaken };
+  const thin = halter._taaThinPostProcess;
+  if (!thin || typeof thin._updateProjectionMatrix !== 'function' || !thin._hs) return false;
+  thin._updateProjectionMatrix = function (this: ThinTaaHaken): void {
+    if (this.disabled) return;
+    const kamera = this.camera;
+    if (kamera) {
+      if (kamera.mode === Constants.PERSPECTIVE_CAMERA) {
+        const p = kamera.getProjectionMatrix();
+        p.setRowFromFloats(2, this._hs.x, this._hs.y, p.m[10]!, p.m[11]!);
+      } else {
+        // Orthografisch erzwingt Babylon die Neuberechnung, weil es hier
+        // Zeile 3 ADDITIV beschreibt — sonst summierte sich der Versatz auf.
+        const p = kamera.getProjectionMatrix(true);
+        p.setRowFromFloats(3, this._hs.x + p.m[12]!, this._hs.y + p.m[13]!, p.m[14]!, p.m[15]!);
+      }
+    }
+    this._hs.next();
+  };
+  return true;
+}
+
+/** Die drei Stuecke von `ThinTAAPostProcess`, die `entsperreTaaJitter` anfasst. */
+interface ThinTaaHaken {
+  disabled: boolean;
+  camera: Nullable<Camera>;
+  _hs: { x: number; y: number; next: () => void };
+  _updateProjectionMatrix: () => void;
+}
+
 /**
  * Umgebungsverdeckung — Werte aus dem Original-Profil (siehe Kopf):
  * `radius 0.15`, `totalStrength 1.0`, 10 Abtastungen. `ratio 0.5` rechnet
@@ -229,8 +313,18 @@ export class PostProcessing {
   private motionBlur: MotionBlurPostProcess | null = null;
   private dof: ValheimDof | null = null;
   private shafts: VolumetricLightScatteringPostProcess | null = null;
+  /**
+   * Der weisse Anker im Verdeckungspuffer (F3).
+   *
+   * Er lebt genau so lange wie `shafts`: Babylons voreingestellter Anker
+   * wird nie gebunden und waere ausserdem unterpixelig — die Begruendung
+   * steht vollstaendig in `StrahlenAnker.ts`.
+   */
+  private strahlenAnker: StrahlenAnker | null = null;
   /** Immer vorhanden, aber nur angehängt, wenn die Option an ist. */
   private readonly taa: TAARenderingPipeline;
+  /** Sitzt die Jitter-Ersetzung? Zeuge, kein Schalter (s. entsperreTaaJitter). */
+  private taaEntsperrt = false;
   private readonly ssao: SSAO2RenderingPipeline;
   private ssaoAn = false;
   /**
@@ -362,6 +456,7 @@ export class PostProcessing {
       this.taa.clampHistory = true;
       this.taa.samples = TAA_SAMPLES;
       this.taa.factor = TAA_FAKTOR;
+      this.taaEntsperrt = entsperreTaaJitter(this.taa);
     }
 
     // ── SSAO2 VOR der DefaultRenderingPipeline ──────────────────────
@@ -573,6 +668,15 @@ export class PostProcessing {
    * `isEnabled` hängt die Kamera an bzw. ab (taaRenderingPipeline.js) —
    * abgeschaltet läuft kein Pass, es bleiben nur die beiden
    * Ping-Pong-Texturen im Speicher liegen.
+   *
+   * ── Was der Schalter WIRKLICH liefert (F3, 12.09.2026) ──────────────
+   * Bis zum Entsperren des Jitters (`entsperreTaaJitter`) mischte TAA
+   * identische Bilder: im Stand änderte sich fast nichts (Kantenmass
+   * −2,2 %), in Bewegung wirkte es als reiner Weichzeichner (−19,6 %). Mit
+   * Versatz ist es das, was es sein soll — **zeitliche Glättung gegen
+   * Vegetationsflimmern IN BEWEGUNG**, nicht Kantenqualität im Stand. So
+   * heisst der Schalter seither auch in beiden Sprachen (`settings.
+   * temporal_aa`); wer ruhige Kanten im Standbild sucht, braucht MSAA/FXAA.
    */
   private setTemporalAA(enabled: boolean): void {
     // Ohne `texelFetch` baut Babylon die Pipeline gar nicht erst auf; ein
@@ -714,6 +818,15 @@ export class PostProcessing {
       const c = this.camera.globalPosition;
       this.strahlenQuelle.set(c.x + sunDir.x * d, c.y + sunDir.y * d, c.z + sunDir.z * d);
       this.shafts.customMeshPosition = this.strahlenQuelle;
+      // Der Anker haengt nicht an den aktiven Meshes (layerMask 0), also
+      // fuehrt `_evaluateActiveMeshes` seine Weltmatrix nicht nach. Ohne
+      // diese Zeile stuende die weisse Kugel dort, wo die Sonne beim Bau
+      // des Passes stand — der Kranz waere fest und das Tor im Recht.
+      this.strahlenAnker?.setzePosition(
+        this.strahlenQuelle.x,
+        this.strahlenQuelle.y,
+        this.strahlenQuelle.z
+      );
 
       /*
         ── Das Tor (ADR-0042) ──────────────────────────────────────────
@@ -815,6 +928,12 @@ export class PostProcessing {
    * `angehaengt` (Composite) und `passagen` (Verdeckungspassage). `passagen`
    * ist zugleich der Leck-Zeuge nach dem Vorbild von `DungeonGodrays.werte()`:
    * nach zehn Torwechseln muss dort 0 oder 1 stehen, nicht 10.
+   *
+   * `ankerDurchmesser` und `komposit` sind seit F3 dazugekommen. Der erste
+   * sagt, ob die Quelle im Viertel-Puffer ueberhaupt Flaeche hat; der zweite,
+   * ob der 10-%-Konstantterm wirklich draussen ist. Ohne den zweiten waere
+   * „an gegen aus = 1,000" eine Behauptung ueber eine Textersetzung, die nach
+   * einem Babylon-Wechsel still ausbleiben kann.
    */
   get strahlenMesswerte(): {
     an: boolean;
@@ -824,6 +943,9 @@ export class PostProcessing {
     umschaltungen: number;
     kettenplatz: number;
     ankerAbstand: number;
+    ankerDurchmesser: number;
+    ankerName: string | null;
+    komposit: boolean;
   } | null {
     return this.shafts
       ? {
@@ -834,8 +956,89 @@ export class PostProcessing {
           umschaltungen: this.strahlenUmschaltungen,
           kettenplatz: this.camera._postProcesses.indexOf(this.shafts),
           ankerAbstand: this.profil.strahlen.ankerAbstand,
+          ankerDurchmesser: +ankerDurchmesser(this.profil.strahlen.ankerAbstand).toFixed(1),
+          ankerName: this.strahlenAnker?.mesh.name ?? null,
+          komposit: kompositKorrigiert(),
         }
       : null;
+  }
+
+  /**
+   * DER Abnahmezeuge des Strahlenkranzes (F3): Was steht im
+   * Verdeckungspuffer?
+   *
+   * Solange hier 0 steht, ist jede Aussage ueber Belichtung, Abfall und
+   * Gewicht eine Aussage ueber einen schwarzen Puffer — der radiale Blur
+   * verschmiert dann Nullen und der Effekt ist reine Rechenzeit. Genau das
+   * war der Stand am 11.09.2026: Maximum 0 ueber 400x225 Bildpunkte.
+   *
+   * `readPixels()` liest die Zieltextur der Verdeckungspassage zurueck, also
+   * GPU → CPU. Das ist teuer und gehoert deshalb in Messungen, nicht in die
+   * Bildschleife.
+   *
+   * The acceptance witness: the maximum red channel in the occlusion buffer.
+   * Anything at 0 means the effect smears zeroes.
+   */
+  async strahlenPufferProbe(): Promise<{
+    breite: number;
+    hoehe: number;
+    maxRot: number;
+    anteilHell: number;
+  } | null> {
+    if (!this.shafts) return null;
+    const pass = this.shafts.getPass();
+    const daten = await pass.readPixels();
+    if (!daten) return null;
+    const bytes = new Uint8Array(daten.buffer, daten.byteOffset, daten.byteLength);
+    let max = 0;
+    let hell = 0;
+    for (let i = 0; i < bytes.length; i += 4) {
+      const r = bytes[i]!;
+      if (r > max) max = r;
+      if (r > 32) hell++;
+    }
+    const punkte = bytes.length / 4;
+    return {
+      breite: pass.getSize().width,
+      hoehe: pass.getSize().height,
+      maxRot: max,
+      anteilHell: punkte > 0 ? +(hell / punkte).toFixed(5) : 0,
+    };
+  }
+
+  /**
+   * Zeuge fuer den TAA-Jitter (F3).
+   *
+   * Die Zustandsgroesse ist Zeile 2 der PROJEKTIONSMATRIX: Dort legt
+   * `ThinTAAPostProcess._updateProjectionMatrix` den Halton-Versatz ab. Sie
+   * stand bis 12.09.2026 ueber siebzig Bilder auf (0, 0) — TAA mischte
+   * identische Bilder. Ein Messlauf liest sie ueber 16 Bilder und zaehlt die
+   * verschiedenen Werte; unter 8 ist der Jitter gesperrt.
+   *
+   * `entsperrt` sagt, ob unsere Ersetzung sitzt — ohne sie waere ein
+   * Nullversatz nicht von „Kamera stand zufaellig still" zu unterscheiden.
+   */
+  get taaMesswerte(): {
+    an: boolean;
+    unterstuetzt: boolean;
+    entsperrt: boolean;
+    proben: number;
+    faktor: number;
+    kameraBewegt: boolean;
+    versatzX: number;
+    versatzY: number;
+  } {
+    const m = this.camera.getProjectionMatrix().m;
+    return {
+      an: this.taa.isEnabled,
+      unterstuetzt: this.taa.isSupported,
+      entsperrt: this.taaEntsperrt,
+      proben: this.taa.samples,
+      faktor: this.taa.factor,
+      kameraBewegt: this.camera.hasMoved,
+      versatzX: m[8] ?? 0,
+      versatzY: m[9] ?? 0,
+    };
   }
 
   /**
@@ -1020,6 +1223,10 @@ export class PostProcessing {
    */
   private setSunShafts(enabled: boolean): void {
     if (enabled && !this.shafts) {
+      // Muss VOR der ersten Uebersetzung des Komposit-Shaders laufen (F3):
+      // ohne diese Korrektur ist ein angehaengter Pass ein 10-%-Aufheller
+      // auf dem ganzen Bild, ganz gleich, was `exposure` sagt.
+      korrigiereStrahlenKomposit();
       const vls = new VolumetricLightScatteringPostProcess(
         'valheimSunShafts',
         // Verdeckung klein (dort liegen die Kosten), Ausgabe VOLL — die
@@ -1056,34 +1263,39 @@ export class PostProcessing {
       const kuppel = this.scene.getMeshByName('valheimSky');
       if (kuppel) vls.excludedMeshes.push(kuppel);
       /*
-        ── Der Anker ist ein sichtbares Mesh, und niemand hat es versteckt ──
+        ── Der voreingestellte Anker: weiter aus, aber nicht mehr allein ──
 
         `mesh = undefined` oben heisst nicht „kein Mesh", sondern
         `CreateDefaultMesh` (`volumetricLightScatteringPostProcess.js:94`):
         eine 1-m-Plane mit `BILLBOARDMODE_ALL` und einem
         `StandardMaterial` mit `emissiveColor = (1,1,1)` — bei (0,0,0).
         `useCustomMeshPosition` verschiebt nur die BILDSCHIRMkoordinate
-        (`_updateMeshScreenCoordinates`), nicht den Mesh.
-
-        Er kostet damit zweimal: In der Kamerapassage steht er als
-        weisses Quadrat im Weltursprung, und in der Verdeckungspassage
-        schreibt er ueber den `material.bind`-Zweig (Zeile 332-334) WEISS
-        statt schwarz — dort ist er also eine zweite, falsche
-        Lichtquelle. Fuer die Position wird er nicht gebraucht: Die kommt
-        aus `customMeshPosition`.
-
+        (`_updateMeshScreenCoordinates`), nicht den Mesh. In der
+        Kamerapassage stuende er also als weisses Quadrat im Weltursprung.
         `setEnabled(false)` nimmt ihn aus `_evaluateActiveMeshes`
-        (`scene.js:3834`) und damit aus BEIDEN Passagen; die Aufnahme in
-        `excludedMeshes` ist der Guertel zum Hosentraeger, falls eine
-        spaetere Babylon-Fassung die Verdeckungsliste anders bildet.
+        (`scene.js:3834`) und damit aus BEIDEN Passagen; `excludedMeshes`
+        ist der Guertel zum Hosentraeger.
 
-        The anchor billboard is a real scene mesh at the origin with an
-        emissive white material — visible in the camera pass and a false
-        light source in the occlusion pass. Disable it; the position comes
-        from `customMeshPosition` anyway.
+        NEU an dieser Stelle ist nur, was hier NICHT mehr steht: „damit ist
+        die Verdeckung sauber". Sie war danach LEER — Rotkanal 0 ueber
+        400x225 Bildpunkte, GEMESSEN in 34 Durchlaeufen je Sekunde. Ein
+        Kranz entsteht aus einer weissen Quelle, und die hatten wir
+        abgeschaltet. Der Ersatz steht unten: ein eigener Anker, gross
+        genug fuer den Viertel-Puffer und mit einem Material, das die
+        Passage wirklich bindet (`StrahlenAnker.ts`).
+
+        Disabling the built-in anchor left the occlusion buffer empty —
+        that is why the effect drew nothing. Our own anchor follows below.
       */
       vls.mesh.setEnabled(false);
       vls.excludedMeshes.push(vls.mesh);
+      const anker = new StrahlenAnker(
+        this.scene,
+        'skySunShaftAnchor',
+        ankerDurchmesser(this.profil.strahlen.ankerAbstand)
+      );
+      anker.verbinde(vls);
+      this.strahlenAnker = anker;
       this.shafts = vls;
       // Der Konstruktor haengt selbst an (Kamera-Argument) und schiebt die
       // Verdeckungspassage in `camera.customRenderTargets`. Der Latch
@@ -1116,7 +1328,13 @@ export class PostProcessing {
 
         The actual leak is the internal billboard: no dispose path touches
         `this.mesh`.
+
+        Unser eigener Anker geht ZUERST: `StrahlenAnker.dispose()` loest
+        seine Liste und sein Passagen-Material aus der noch lebenden
+        Zieltextur.
       */
+      this.strahlenAnker?.dispose();
+      this.strahlenAnker = null;
       vls.mesh.material?.dispose();
       vls.mesh.dispose();
       vls.dispose(this.camera);

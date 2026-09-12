@@ -1499,6 +1499,29 @@ async function main() {
        */
       strahlen: () => post?.strahlenMesswerte ?? null,
       /**
+       * Der Abnahmezeuge des Strahlenkranzes (F3): Was steht im
+       * Verdeckungspuffer?
+       *
+       * `maxRot` war am 11.09.2026 ueber 400x225 Bildpunkte durchgehend 0
+       * — der Effekt hat nichts gemalt und voll gekostet. Solange hier 0
+       * steht, ist jede Aussage ueber Belichtung eine Aussage ueber einen
+       * schwarzen Puffer. Liest zurueck von der GPU, gehoert also in
+       * Messungen und nicht in die Bildschleife.
+       */
+      strahlenPuffer: () => post?.strahlenPufferProbe() ?? null,
+      /**
+       * Diagnose: jittert TAA wirklich? (F3)
+       *
+       * `versatzX`/`versatzY` sind Zeile 2 der Projektionsmatrix — genau
+       * die Stelle, an der Babylon den Halton-Versatz ablegt. Sie stand
+       * ueber siebzig Bilder auf (0, 0), weil `_updateProjectionMatrix`
+       * ihn nur bei STEHENDER Kamera setzt und unsere Kamera in 58 von 58
+       * Bildern `hasMoved` meldet. Ein Messlauf sammelt die Werte ueber 16
+       * Bilder: unter 8 verschiedenen ist der Jitter gesperrt.
+       * `entsperrt` sagt, ob unsere Ersetzung ueberhaupt sitzt.
+       */
+      taa: () => post?.taaMesswerte ?? null,
+      /**
        * Diagnose: Woran haengt es, wenn eine Fackel nicht leuchtet?
        *
        * Drei Stationen, die von aussen gleich aussehen: Der Pool existiert

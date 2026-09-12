@@ -132,6 +132,12 @@ when the corresponding folder is missing — as a warning, not a hard stop, if t
 download fails. For a server install, run them explicitly and check they actually
 succeed.)
 
+`assets/generiert/` (runtime-built dungeon halls and their `modul-registry.json`)
+is deliberately **not** part of this archive — the game server creates that folder
+and an empty, valid `modul-registry.json` there on its own first start if neither
+exists yet (§8 shows the client's 404 on that file as expected on a fresh install
+before any hall has been built).
+
 ## 4. Container-wide environment: `/etc/wov.env` and the admin token
 
 `/etc/wov.env` is the **only** place this project's environment differs between
@@ -356,6 +362,9 @@ curl -I http://<host>/play/                 # game client, expect 200
 curl -I http://<host>/editor/               # world editor, expect 200 (redirected from /play/editor.html)
 curl -s http://<host>/api/accounts/status   # account API, expect JSON with a player count
 curl -I http://<host>/assets/manifest.json  # asset manifest, expect 200
+curl -I http://<host>/assets/generiert/modul-registry.json  # expect 200 with an
+     # empty registry once the game server has started at least once (§3) — the
+     # server creates this file itself, no hall needs to have been built yet
 curl -i -N -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
      -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
      http://<host>/ws                       # expect 101 Switching Protocols

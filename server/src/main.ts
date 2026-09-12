@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { createWovServer } from './WovServer.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
-import { ladeModulRegistrierung } from './world/dungeon/ModuleBuild.js';
+import { ladeModulRegistrierung, sorgeFuerRegistryDatei } from './world/dungeon/ModuleBuild.js';
 import { ASSET_WURZEL, KollisionsFormen } from './world/KollisionsFormen.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -47,6 +47,19 @@ console.log('╚═════════════════════�
 console.log();
 
 const config = leseServerKonfig(DATA_DIR, INSTANZ);
+
+/*
+  Fremd-Installation, nie zuvor ein Saal gebaut: assets/generiert/ existiert
+  gar nicht, und der Client bekommt auf modul-registry.json ein 404 (fuer
+  ihn der Normalfall, ModuleRegistryLoad.ts behandelt das still). Damit
+  trotzdem ab dem ersten Start eine ECHTE, lesbare Registry-Datei mit
+  korrekter Pruefsumme liegt statt erst mit dem ersten Modulbau, legt der
+  Server sie hier an — ohne je eine vorhandene Datei anzufassen.
+*/
+const registrySicherstellung = sorgeFuerRegistryDatei(config.generiertDir);
+if (registrySicherstellung.angelegt) {
+  console.log(`[Modulbau] leere Registry angelegt: ${registrySicherstellung.pfad}`);
+}
 
 /*
   E5: Zur Laufzeit gebaute Saele aus assets/generiert/modul-registry.json

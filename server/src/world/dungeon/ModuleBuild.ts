@@ -619,6 +619,41 @@ export function deleteModule(kontext: ModuleDeleteContext, name: string): Module
   };
 }
 
+/**
+ * Legt beim Serverstart eine LEERE, gültige Registry an, wenn `verzeichnis`
+ * oder die Datei darin noch fehlen — der Normalfall auf einer frischen
+ * Installation, die noch nie einen Saal gebaut hat.
+ *
+ * Warum das nötig ist: Der Client fragt `assets/generiert/modul-registry.json`
+ * per HTTP ab (`ModuleRegistryLoad.ts`) und behandelt ein 404 dort als
+ * „keine gebauten Säle" — das bleibt richtig. Diese Funktion ändert daran
+ * nichts, sie sorgt nur dafür, dass ab dem ersten Start eine ECHTE, durch
+ * `leseRegistryAusText`/`applyModuleRegistry` lesbare Datei mit korrekter
+ * Prüfsumme dort liegt, statt dass die Datei erst mit dem ersten
+ * `baueModul`-Aufruf entsteht.
+ *
+ * Zwei Entscheidungen:
+ *
+ * (1) Die Prüfsumme kommt aus `leereRegistry()` (also `registryPruefsumme`)
+ *     — nie hart kodiert. Ändert sich die Formel, zieht diese Stelle von
+ *     selbst mit.
+ * (2) Eine VORHANDENE Datei wird nie angefasst, auch nicht, wenn sie leer
+ *     oder kaputt ist — das ist Sache von `leseRegistry`/`ladeModulRegistrierung`
+ *     weiter unten, nicht dieser Funktion.
+ */
+export function sorgeFuerRegistryDatei(verzeichnis: string = GENERIERT_DIR): {
+  readonly angelegt: boolean;
+  readonly pfad: string;
+} {
+  mkdirSync(verzeichnis, { recursive: true });
+  const pfad = join(verzeichnis, REGISTRY_DATEI);
+  if (existsSync(pfad)) {
+    return { angelegt: false, pfad };
+  }
+  schreibeRegistry(verzeichnis, leereRegistry().module);
+  return { angelegt: true, pfad };
+}
+
 // ── Beim Start lesen ────────────────────────────────────────────────────
 export interface LadeErgebnis {
   readonly geladen: number;

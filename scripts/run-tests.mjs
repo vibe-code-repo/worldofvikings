@@ -298,6 +298,27 @@ const KERN = [
   */
   ['server', 'test/modulbau-grenzen.ts'],
   /*
+    Fremd-Installation, nie zuvor ein Saal gebaut: assets/generiert/
+    existiert nicht, der Client bekommt auf modul-registry.json ein 404
+    (der Normalfall, ModuleRegistryLoad.ts behandelt das still). Dieser
+    Test misst die neue Stelle `sorgeFuerRegistryDatei`, die main.ts VOR
+    ladeModulRegistrierung aufruft: legt Ordner+Datei mit einer echten,
+    ueber registryPruefsumme([]) gerechneten Leer-Registry an, wenn
+    beide fehlen; ruehrt eine vorhandene Datei nie an, auch nicht mit
+    echten Modulen drin; und der volle Rundgang wie beim Serverstart.
+
+    Ohne Weiche: schreibt nur in os.tmpdir(), braucht kein `assets/`.
+    Zehntelsekunden.
+
+    A fresh install has never built a hall: assets/generiert/ never
+    existed, the client's fetch 404s (handled silently, the normal
+    case). Guards the new sorgeFuerRegistryDatei() that main.ts calls
+    before ladeModulRegistrierung: creates folder+file with a real
+    empty-registry checksum when both are missing, never touches an
+    existing file, and the full startup round trip.
+  */
+  ['server', 'test/modul-registry-start.ts'],
+  /*
     E6 — die Registry-Pruefsumme reist mit dem Dokument.
 
     `sanitizeDungeonDocument` verwirft unbekannte Raeume STILL (Kopf

@@ -1238,7 +1238,7 @@ export class EntityManager {
         // Rueckfall auf eine Vorgabefrisur, sonst saehe man bei jedem
         // Fremden etwas anderes als er selbst.
         if (u.frisur !== undefined || u.ruestung !== undefined) {
-          void this.setzeFremdesAussehen(u);
+          void this.setzeFremdesAussehen(u, modell);
         }
       });
     } else {
@@ -1262,11 +1262,11 @@ export class EntityManager {
    * direkt um, sitzt das Teil gespiegelt — genau dieser Fehler ist beim
    * eigenen Avatar schon einmal passiert.
    */
-  private async setzeFremdesAussehen(u: ZDOEntityUpdate): Promise<void> {
+  private async setzeFremdesAussehen(u: ZDOEntityUpdate, modell: string | null): Promise<void> {
     const dyn = this.dynamics.get(u.key);
     if (!dyn) return;
-    // Beide aktuellen Körper stammen aus derselben 63-Knochen-Armatur und
-    // können deshalb dieselben modularen Teile tragen.
+    // Nur die beiden spielbaren Körper kennen die modularen Aussehensteile;
+    // die zusätzliche Geometrie-Kompatibilität wird je Slot geprüft.
     if (u.figur && !/^(wikinger\/|wikingerin\/)/.test(modellZu(u.figur))) return;
     dyn.aussehen ??= new Map();
 
@@ -1279,7 +1279,9 @@ export class EntityManager {
 
     const [ober, beine] = (u.ruestung ?? '|').split('|');
     const gewuenscht: Record<string, string | null> = {
-      frisur: u.frisur && istFrisur(u.frisur)
+      // Gleiche Schutzregel wie für den eigenen Avatar: Die Frisuren aus
+      // dem alten Master passen nur auf den Wikingerin-Kopf.
+      frisur: modell?.startsWith('wikingerin/') && u.frisur && istFrisur(u.frisur)
         ? `${AUSSEHEN_ORDNER}/${frisurZu(u.frisur).datei}` : null,
       bart: u.frisur && istFrisur(u.frisur) && bartAusFrisur(u.frisur)
         ? `${AUSSEHEN_ORDNER}/${bartAusFrisur(u.frisur)!.datei}` : null,

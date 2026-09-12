@@ -2246,16 +2246,22 @@ export class AvatarRig {
    * erzeugt sie aus derselben Armatur und prüft Anzahl und Herkunft.
    */
   async setzeAussehen(teile: Record<string, string | null>): Promise<void> {
-    // Wikinger und Wikingerin stammen aus demselben Master mit derselben
-    // 63-Knochen-Liste. Die daraus exportierten Haare und Bärte passen auf
-    // beide; fremde Modelle bleiben weiterhin ausgeschlossen.
+    // Nur die spielbaren Körper kennen modulare Aussehensteile. Gleiche
+    // Knochennamen allein garantieren aber keine passende Geometrie; das
+    // wird unten für Slots mit abweichender Kopfform zusätzlich geprüft.
     if (!/^(wikinger\/|wikingerin\/)/.test(this.modellDatei)) return;
     if (!this.halter) {
       // Modell noch nicht da — merken und nach dem Laden nachziehen.
       this.offenesAussehen = { ...(this.offenesAussehen ?? {}), ...teile };
       return;
     }
-    for (const [slot, datei] of Object.entries(teile)) {
+    for (const [slot, angefordert] of Object.entries(teile)) {
+      // Zweite Sicherung unterhalb aller UI- und Netzwerk-Aufrufer: Die
+      // alten Frisuren haben zwar passende Knochennamen, aber nicht die
+      // Kopfgeometrie des neuen Wikinger-Modells.
+      const datei = slot === 'frisur' && !this.modellDatei.startsWith('wikingerin/')
+        ? null
+        : angefordert;
       if (this.getragen.get(slot) === (datei ?? '')) continue;
       const vorher = this.getragen.get(slot);
       if (vorher) this.zeigeTeil(vorher, false);

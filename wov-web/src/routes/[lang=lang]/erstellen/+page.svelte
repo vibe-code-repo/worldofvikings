@@ -150,7 +150,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-auswahl-stabil-20260912';
+  const FIGUREN_STAND = 'wikinger-haarteil-korrigiert-20260912';
 
   let figur = $state('');
   let frisur = $state('');
@@ -280,7 +280,17 @@
     if (!vorschau || !daten) return false;
     const istAktuell = () => lauf === undefined || lauf === ladeLauf;
     if (!istAktuell()) return false;
-    await vorschau.setze('frisur', datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? ''));
+    // Die modularen Frisuren stammen aus dem alten Wikingerin-Rig. Obwohl
+    // beide Körper dieselben Knochennamen tragen, liegt deren Kopfgeometrie
+    // anders: Auf dem neuen Wikinger schwebt insbesondere der Zopf hinter
+    // dem Schädel. Darum dort ausdrücklich ablegen statt nur die Auswahl zu
+    // verstecken — so verschwindet auch eine zuvor geladene Frisur sicher.
+    await vorschau.setze(
+      'frisur',
+      figur === 'wikingerin'
+        ? datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? '')
+        : null
+    );
     if (!istAktuell()) return false;
     // Bärte gibt es im Master nur für den männlichen Grundkörper.
     await vorschau.setze('bart', figur === 'wikinger' ? datei(daten.beards ?? [], bart) : null);
@@ -697,7 +707,7 @@
             {#each daten?.figures ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
           </select>
         </div>
-        <p class="platzhalter-hinweis">{lang === 'de' ? 'Beide Körper verwenden dieselben modularen Frisuren.' : 'Both bodies use the same modular hairstyles.'}</p>
+        <p class="platzhalter-hinweis">{lang === 'de' ? 'Die Frisurenauswahl ist derzeit für die Wikingerin verfügbar.' : 'Hairstyle selection is currently available for the Viking woman.'}</p>
       {:else if detailTab === 'gesicht'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-eyebrows">{lang === 'de' ? 'Augenbrauen' : 'Eyebrows'}</label>
@@ -722,30 +732,34 @@
         </div>
         {#if figur !== 'wikinger'}<p class="platzhalter-hinweis">{lang === 'de' ? 'Bärte sind für den männlichen Körper verfügbar.' : 'Beards are available for the male body.'}</p>{/if}
       {:else if detailTab === 'haare'}
-        <div class="erstellen-feld">
-          <label class="feldname" for="create-hairstyle">{t['create.appearance.hair.label']}</label>
-          <div class="waehler">
-            <button type="button" aria-label={t['create.appearance.hair.previous']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
-            <select id="create-hairstyle" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
-              {#each daten?.hairstyles ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
-            </select>
-            <button type="button" aria-label={t['create.appearance.hair.next']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+        {#if figur === 'wikingerin'}
+          <div class="erstellen-feld">
+            <label class="feldname" for="create-hairstyle">{t['create.appearance.hair.label']}</label>
+            <div class="waehler">
+              <button type="button" aria-label={t['create.appearance.hair.previous']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+              <select id="create-hairstyle" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
+                {#each daten?.hairstyles ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
+              </select>
+              <button type="button" aria-label={t['create.appearance.hair.next']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+            </div>
           </div>
-        </div>
-        <fieldset class="farbwahl">
-          <legend>{t['create.appearance.haircolor.label']}</legend>
-          {#each daten?.hairColors ?? [] as farbe (farbe.id)}
-            <button
-              type="button"
-              class:aktiv={haarfarbe === farbe.id}
-              style={'--farbton:' + (farbe.hex ?? '#777')}
-              title={eintragName(farbe)}
-              aria-label={eintragName(farbe)}
-              aria-pressed={haarfarbe === farbe.id}
-              onclick={() => { haarfarbe = farbe.id; merke(); void zeigeAussehen(); }}
-            ></button>
-          {/each}
-        </fieldset>
+          <fieldset class="farbwahl">
+            <legend>{t['create.appearance.haircolor.label']}</legend>
+            {#each daten?.hairColors ?? [] as farbe (farbe.id)}
+              <button
+                type="button"
+                class:aktiv={haarfarbe === farbe.id}
+                style={'--farbton:' + (farbe.hex ?? '#777')}
+                title={eintragName(farbe)}
+                aria-label={eintragName(farbe)}
+                aria-pressed={haarfarbe === farbe.id}
+                onclick={() => { haarfarbe = farbe.id; merke(); void zeigeAussehen(); }}
+              ></button>
+            {/each}
+          </fieldset>
+        {:else}
+          <p class="platzhalter-hinweis">{lang === 'de' ? 'Für den neuen Wikinger stehen noch keine passend exportierten Frisuren zur Verfügung.' : 'No correctly exported hairstyles are available for the new Viking yet.'}</p>
+        {/if}
       {:else if detailTab === 'stil'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-top">{t['create.appearance.chest.label']}</label>

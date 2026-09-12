@@ -78,8 +78,10 @@ export class Vorschau {
   private zerstoert = false;
   private beobachter: ResizeObserver | null = null;
   private sonne!: DirectionalLight;
-  /** Nur das alte Wikingerin-Rig kann deren separate Aussehensteile tragen. */
+  /** Nur die beiden spielbaren Körper können modulare Aussehensteile tragen. */
   private teileErlaubt = true;
+  /** Die alten Frisuren passen geometrisch nur auf den Wikingerin-Kopf. */
+  private frisurenErlaubt = true;
   /** Verhindert, dass Reset und Zufall denselben Körper mehrfach importieren. */
   private koerperDatei = '';
   /** Nur der zuletzt angeforderte Körper darf nach dem asynchronen Import sichtbar werden. */
@@ -349,6 +351,7 @@ export class Vorschau {
 
     this.koerperDatei = datei;
     this.teileErlaubt = /^(wikinger\/WikingerKoerper|wikingerin\/WikingerinKoerper)$/.test(datei);
+    this.frisurenErlaubt = datei === 'wikingerin/WikingerinKoerper';
 
     // Der Synty-Atlas ist für einen nahezu unbeleuchteten Unity-Shader
     // gemalt. Das Spiel tönt ihn deshalb auf dieselben gemessenen Werte;
@@ -543,6 +546,9 @@ export class Vorschau {
 
   async setze(slot: string, datei: string | null): Promise<void> {
     if (!this.teileErlaubt) return;
+    // Schutz auch für andere Aufrufer als die aktuelle Svelte-Seite: Ein
+    // altes, hautgebundenes Haarteil darf nie auf den neuen Wikinger geraten.
+    if (slot === 'frisur' && !this.frisurenErlaubt) datei = null;
     const ziel = datei ?? '';
     if (this.aktuell.get(slot) === ziel && (!datei || this.geladen.has(datei))) return;
     const epoche = this.teileEpoche;

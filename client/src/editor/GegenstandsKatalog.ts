@@ -119,6 +119,7 @@ import {
 } from '@wov/shared';
 import { AssetManager, modelUrl } from '../engine/AssetManager';
 import { toeneStoreMeshes } from '../engine/StoreToenung';
+import { laubSpitzenMeshes } from '../engine/LaubSpitzen';
 import {
   F,
   M,
@@ -2266,6 +2267,15 @@ export class GegenstandsKatalog {
       fuehrt (`store/<pfad>`); die Endung `.glb` stoert die Tabelle nicht.
     */
     this.letzteToenung = toeneStoreMeshes(ergebnis.meshes, `${STORE_BASIS}/${eintrag.pfad}`);
+    /*
+      Und dasselbe fuer den Farbverlauf der Blattkarten. Er greift von
+      selbst nur an Laubmaterialien (`shared/src/laubSpitzen.ts`) und
+      liest im Katalog ueber den ROHEN Materialnamen — die Aufbereitung
+      ist hier nicht gelaufen, das Material heisst also noch „Leaves 1"
+      statt „laub". Ohne die Zeile zeigte der Katalog ein flach getoentes
+      Blatt und die Welt ein verlaufendes ([[wov-editor-paritaet]]).
+    */
+    laubSpitzenMeshes(ergebnis.meshes, `${STORE_BASIS}/${eintrag.pfad}`);
     this.vorhanden.set(eintrag.pfad, true);
     const wurzel = ergebnis.rootNodes.find((n): n is TransformNode => n instanceof TransformNode) ?? null;
     if (!wurzel) {

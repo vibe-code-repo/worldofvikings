@@ -804,6 +804,26 @@ const KERN = [
   // `PbrNebelFix.ts` nicht, nebeln Fels und Gebaeude auf einer anderen
   // Kurve als der Boden, ohne Fehlermeldung. Reine Rechnung, keine GPU.
   ['client', 'test/grading-schatten.ts'],
+  /*
+    Runde 2, Hebel 3: der Farbverlauf der Blattkarten — gelbgruene Spitze
+    ueber dunklem Ansatz, wie ihn das Vorbild im MATERIAL macht. glTF
+    kennt nur einen Faktor, in der GLB steht deshalb das Mittel aus zwei
+    Farben; der Verlauf dazwischen entsteht erst im Fragment-Shader. Vier
+    Dinge daran koennen lautlos falsch sein, und genau die stehen im
+    Test: die Richtung der V-Achse (Unity zaehlt von unten, glTF von
+    oben — gedreht sitzt die helle Farbe am Ast statt an der Spitze, und
+    das Laub wird flauer statt klarer), die Mittelwerttreue (der Verlauf
+    darf die Krone nicht heimlich heller machen und damit die
+    Helligkeitsmessung zweier anderer Bauer verschieben), der Abgleich
+    der gepflegten Tabelle mit der ERZEUGTEN Zuordnung, und der Weg in
+    den Shader (ein Plugin ohne `enable` landet in der passiven Liste und
+    tut schlicht nichts — derselbe Fehler hat den Wind einmal ein halbes
+    Jahr lang stillgelegt). Die Achsenprobe misst an der echten
+    Speichergeometrie statt an einer Behauptung. NullEngine, keine GPU;
+    ohne `assets/store-lab` fallen die beiden Speicherpruefungen weg.
+    Foliage tip gradient: axis direction, mean preservation, tables, plugin.
+  */
+  ['client', 'test/laub-spitzen.ts'],
   // F3 „Ausfaelle": die drei Effekte, die liefen, kosteten und nichts
   // lieferten. Hier steht der GPU-lose Teil ihrer Reparatur — Kaskadendeckel
   // (Babylon klemmt `kaskaden: 1` auf 2, das Profil muss es auch),

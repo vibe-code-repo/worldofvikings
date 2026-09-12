@@ -65,6 +65,7 @@ import { FlammenAtlas } from './FlammenAtlas';
 import { GlutPuls } from './GlutPuls';
 import { toeneFigurMaterial } from './FigurToenung';
 import { toeneStoreMaterial } from './StoreToenung';
+import { laubSpitzenAuftragen } from './LaubSpitzen';
 
 import { GENERATED_PREFIX, modelBaseUrl, modelDateiName, modelUrl } from './assetUrls';
 import { storeSpiegelung } from '@wov/shared';
@@ -923,6 +924,20 @@ export class AssetManager {
     // eigene Figur laedt an AvatarRig vorbei am Cache (s. FigurToenung.ts).
     // Die Zeile tut nichts an einem Modell ohne Eintrag in FIGUR_TOENUNG.
     toeneFigurMaterial(material, modelName);
+
+    /*
+      Der Farbverlauf der Blattkarten — gelbgrüne Spitze über dunklem
+      Ansatz, wie ihn das Vorbild im Material macht.
+
+      Hier und nicht im Cutout-Block darunter: Der Block steigt mehrfach
+      früh aus (kein Material, keine Textur, bereits geprüfte Textur),
+      und in genau diese `return`s liefe der Verlauf hinein — an einem
+      Baum, dessen Laubmaterial schon von einem anderen Mesh geprüft
+      wurde, hinge er dann nicht. Die Tabelle greift von selbst nur an
+      Speicher-Laub (`shared/src/laubVorbilder.ts`); an allem anderen ist
+      die Zeile wirkungslos.
+    */
+    laubSpitzenAuftragen(material, modelName);
 
     // Wind für Modelle ohne Cutout-Laub — muss VOR dem Cutout-Block
     // stehen, dessen frühe `return`s solche Materialien sonst aussortieren

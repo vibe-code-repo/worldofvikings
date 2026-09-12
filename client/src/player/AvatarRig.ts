@@ -2236,21 +2236,20 @@ export class AvatarRig {
    * Frisur und Ruestung anlegen — je Slot ein Teil, `null` raeumt ihn.
    *
    * Die Teile liegen als eigene Dateien neben dem Koerper
-   * (assets/models/wikingerin/) und werden EINZELN geladen: Alle 21
-   * Frisuren zusammen waeren 17,5 MB fuer eine, die man traegt.
+   * (assets/models/wikingerin/) und werden EINZELN geladen: 38 Frisuren
+   * und 18 Bärte gemeinsam zu laden wäre unnötiger Ballast.
    *
    * Jedes Teil bringt sein eigenes Skelett mit. Benutzt wird trotzdem
    * das des KOERPERS — sonst stuende die Frisur in der Bindepose,
    * waehrend der Koerper laeuft. Zulaessig ist das nur, weil alle
-   * Teildateien dieselbe Gelenkliste tragen; tools/asset-aufteilen.py
-   * erzeugt sie aus derselben Armatur und prueft das nach.
+   * Teildateien dieselbe Gelenkliste tragen; der Blender-Exporter
+   * erzeugt sie aus derselben Armatur und prüft Anzahl und Herkunft.
    */
   async setzeAussehen(teile: Record<string, string | null>): Promise<void> {
-    // Frisuren und Ruestung sind Teildateien der Wikingerin (aussehen.ts)
-    // und tragen DEREN Gelenkliste. An einer anderen Figur — dem Wikinger
-    // aus dem Synty-Rig — saessen sie am falschen Knochen; dort wird das
-    // Aussehen deshalb schlicht nicht angezogen.
-    if (!this.modellDatei.startsWith(`${AUSSEHEN_ORDNER}/`)) return;
+    // Wikinger und Wikingerin stammen aus demselben Master mit derselben
+    // 63-Knochen-Liste. Die daraus exportierten Haare und Bärte passen auf
+    // beide; fremde Modelle bleiben weiterhin ausgeschlossen.
+    if (!/^(wikinger\/|wikingerin\/)/.test(this.modellDatei)) return;
     if (!this.halter) {
       // Modell noch nicht da — merken und nach dem Laden nachziehen.
       this.offenesAussehen = { ...(this.offenesAussehen ?? {}), ...teile };
@@ -2281,12 +2280,14 @@ export class AvatarRig {
 
   private faerbeFrisur(): void {
     if (!this.haarHex) return;
-    const datei = this.getragen.get('frisur');
-    if (!datei) return;
-    // Kein Klon: `ladeTeil` holt jedes Teil ueber `ImportMeshAsync`, und
-    // das erzeugt je Aufruf eigene Materialien. Geteilt wird hier
-    // nichts — anders als bei den Mitspielern (s. haarfarbe.ts).
-    faerbeHaar(this.teile.get(datei) ?? [], this.haarHex, false);
+    for (const slot of ['frisur', 'bart', 'augenbraue']) {
+      const datei = this.getragen.get(slot);
+      if (!datei) continue;
+      // Kein Klon: `ladeTeil` holt jedes Teil ueber `ImportMeshAsync`, und
+      // das erzeugt je Aufruf eigene Materialien. Geteilt wird hier
+      // nichts — anders als bei den Mitspielern (s. haarfarbe.ts).
+      faerbeHaar(this.teile.get(datei) ?? [], this.haarHex, false);
+    }
   }
 
   private async ladeTeil(datei: string): Promise<void> {

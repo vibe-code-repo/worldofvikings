@@ -33,36 +33,18 @@ export interface Figur {
 /**
  * Reihenfolge = Reihenfolge im Anmeldebildschirm.
  *
- * ── Warum nur noch EINE Figur (Stand 22.08.2026) ────────────────────
- * Hier standen drei: `wikinger` (PlayerAvatar), `wikingerin` und
- * `walkuere`. Gepflegt wurde nur die Wikingerin — sie hat als einzige
- * das vollstaendige Rig mit 51 Knochen und 24 Fingern, sechs auf den
- * Boden gesetzte Clips, eine Comic-Hautkarte, 21 Frisuren und Ruestung.
- * Die beiden anderen waren Staende aus frueheren Wochen ohne diese
- * Teile; im Anmeldebildschirm haetten sie eine Auswahl vorgetaeuscht,
- * hinter der nichts steht.
- *
  * ── Warum ein Ordner im Modellnamen steht ───────────────────────────
- * `wikingerin/WikingerinKoerper` ist kein Tippfehler. Die Figur ist in
- * Einzeldateien aufgeteilt — Koerper, 21 Frisuren, Ruestungsteile —,
- * damit die Charaktererstellung nur laedt, was getragen wird: 3,76 MB
- * statt 17,5 MB. Alle Teile liegen unter assets/models/wikingerin/ und
- * tragen dieselbe Gelenkliste; erzeugt werden sie von
- * tools/asset-aufteilen.py, das genau das nachprueft.
- *
- * Die alte Einzeldatei WikingerinBasis.glb bleibt vorerst liegen: Sie
- * ist der Stand, mit dem bis heute gespielt wurde.
+ * Beide Körper liegen mit ihren modularen Teilen in Unterordnern. Die
+ * Wikingerin und alle 38 Frisuren sowie 18 Bärte stammen aus derselben
+ * Blender-Datei und tragen dieselbe Gelenkliste; erzeugt werden sie von
+ * tools/web/charakterteile-exportieren.py.
  *
  * ── Der Wikinger (09.09.2026) ───────────────────────────────────────
  * `wikinger/WikingerKoerper` ist die Standardfigur aus dem Synty-Rig:
  * 63 Knochen, Clips `idle/gehen/rennen/springen/angriff` (Sprung =
  * Absprung, Flug, Fall; Angriff = Faustschlag). Er steht VORN und ist
- * damit die Vorgabe. Die Wikingerin steht NICHT mehr in der Liste
- * (Mike, 09.09.2026: „den bestehenden ersetzen"): Ein gespeichertes
- * `wikingerin` faellt ueber figurZu() auf den Wikinger zurueck, genau die
- * Regel, fuer die diese Liste gebaut ist. Ihre Dateien und die Teile aus
- * aussehen.ts bleiben liegen; AvatarRig zieht sie nur an, wenn der
- * Koerper wieder die Wikingerin ist.
+ * damit die Vorgabe. Die Wikingerin ist als zweite Körperform wieder
+ * auswählbar und verwendet dieselben modularen Aussehensteile.
  *
  * ⚠ Der Wikingerin fehlt der Sprung nicht mehr: Ihre Clips heissen
  * `idle/gehen/rennen/springen/angriff/weitsprung`. AvatarRig sucht sie
@@ -71,6 +53,7 @@ export interface Figur {
  */
 export const FIGUREN: readonly Figur[] = [
   { id: 'wikinger', modell: 'wikinger/WikingerKoerper', name: 'Wikinger' },
+  { id: 'wikingerin', modell: 'wikingerin/WikingerinKoerper', name: 'Wikingerin' },
 ] as const;
 
 /** Was ein Spieler bekommt, der nie gewählt hat — der bisherige Charakter. */
@@ -191,6 +174,7 @@ export function modellDateiZu(id: string | null | undefined): string {
  */
 export const FIGUR_TOENUNG: Readonly<Record<string, readonly [number, number, number]>> = {
   'wikinger/WikingerKoerper': [0.7305, 0.4904, 0.4179],
+  'wikingerin/WikingerinKoerper': [0.7305, 0.4904, 0.4179],
 };
 
 /**

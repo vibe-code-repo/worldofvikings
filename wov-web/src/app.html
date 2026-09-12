@@ -54,5 +54,8 @@
   </head>
   <body data-sveltekit-preload-data="hover">
     <div style="display: contents">%sveltekit.body%</div>
+    <!-- Fängt auch Klicks aus lange geöffneten Tabs ab, deren Svelte-Module
+         noch auf einen älteren Charaktereditor zeigen. -->
+    <script src="/assets/fahrt-aktuell.js"></script>
   </body>
 </html>

@@ -250,7 +250,7 @@ function vermiss(pfad) {
  *
  * Hier stand ein flaches readdirSync. Das ging gut, solange jede Figur
  * eine Datei war. Seit die Wikingerin in Einzelteile zerlegt ist
- * (assets/models/wikingerin/ — Koerper, 21 Frisuren, Ruestung), fehlten
+ * (assets/models/wikingerin/ — Körper, Frisuren, Bärte, Rüstung), fehlten
  * genau diese im Manifest, und der F17-Test meldete fuer die einzige
  * verbliebene Figur "steht im Manifest: FAIL" und "keine Clips".
  *

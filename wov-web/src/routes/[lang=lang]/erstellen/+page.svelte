@@ -66,16 +66,20 @@
    */
   interface Eintrag {
     /** sRGB-Hex, nur bei Haarfarben belegt. */
-    hex?: string; id: string; name: string; file?: string; slot?: string }
+    hex?: string; id: string; name: string; nameEn?: string; file?: string; model?: string; slot?: string; figure?: string }
   interface Aussehen {
     folder: string;
     body: string;
     figures: Eintrag[];
     hairstyles: Eintrag[];
+    beards: Eintrag[];
+    eyebrows: Eintrag[];
     hairColors: Eintrag[];
     equipment: Eintrag[];
     defaultFigure?: string;
     defaultHairstyle?: string;
+    defaultBeard?: string;
+    defaultEyebrows?: Record<string, string>;
     defaultHairColor?: string;
     /**
      * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
@@ -92,6 +96,7 @@
   interface Vorschau {
     setzeWurzel(url: string): Promise<void>;
     ladeKoerper(pfad: string): Promise<void>;
+    setzeWaffe(art: 'schwert' | 'stab' | null): Promise<void>;
     setze(slot: string, datei: string | null): Promise<void>;
     /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
     setzeHaarfarbe(hex: string): void;
@@ -127,8 +132,6 @@
   let daten = $state<Aussehen | null>(null);
   let vorschau: Vorschau | null = null;
 
-  /** True, sobald ein Skript übernommen hat. Siehe Kopfkommentar. */
-  let bereit = $state(false);
   /** Der Vorgabezustand ist „nicht angemeldet“ — er ist der einzig sichere. */
   let angemeldet = $state(false);
 
@@ -143,20 +146,14 @@
   let fertig = $state(false);
   let fussHinweisAn = $state(false);
 
-  /*
-    Der Hintergrundfilm. Leer, solange die Datei nicht liegt.
-
-    Nachgefragt wird mit HEAD, BEVOR das <video> eine Quelle bekommt: Ein
-    <video src> auf eine fehlende Datei schreibt eine 404 in die Konsole und
-    feuert ein error-Ereignis — Rauschen, das bei der naechsten echten
-    Stoerung im Weg steht. So bleibt es still, und sobald die Datei da ist,
-    laeuft sie ohne dass jemand die Seite neu bauen muss.
-  */
-  let videoQuelle = $state('');
-  const VIDEO = '/assets/video/schwarzwald.webm';
+  const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
+  /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
+  const FIGUREN_STAND = 'wikinger-posebereit-20260912';
 
   let figur = $state('');
   let frisur = $state('');
+  let bart = $state('');
+  let augenbraue = $state('');
   let haarfarbe = $state('');
   let ober = $state('');
   let beine = $state('');
@@ -173,6 +170,38 @@
    */
   let zeit = $state('');
 
+  type DetailTab = 'koerper' | 'gesicht' | 'haare' | 'stil' | 'fahrt';
+  type Uebersetzung = { de: string; en: string };
+  interface Faehigkeit { zeichen: string; name: Uebersetzung; text: Uebersetzung }
+  interface Charakterklasse {
+    id: string; zeichen: string; farbe: string; name: Uebersetzung; rolle: Uebersetzung;
+    beschreibung: Uebersetzung; werte: readonly [number, number, number, number, number];
+    faehigkeiten: readonly Faehigkeit[];
+  }
+
+  let detailTab = $state<DetailTab>('koerper');
+  let klasseId = $state('krieger');
+  const klassen: readonly Charakterklasse[] = [
+    { id: 'krieger', zeichen: '⚔', farbe: '#d58a45', name: { de: 'Krieger', en: 'Warrior' }, rolle: { de: 'Tank / Nahkampf-DPS', en: 'Tank / Melee DPS' }, beschreibung: { de: 'Krieger sind kampferprobte Nahkämpfer, die Wut aufbauen, wenn sie Schaden verursachen oder erleiden.', en: 'Warriors are battle-tested melee fighters who build rage as they deal or receive damage.' }, werte: [23, 20, 22, 10, 11], faehigkeiten: [
+      { zeichen: 'ᛏ', name: { de: 'Vorpreschen', en: 'Charge' }, text: { de: 'Stürmt auf einen Gegner zu und betäubt ihn kurz.', en: 'Rush an enemy and briefly stun them.' } },
+      { zeichen: 'ᛏ', name: { de: 'Brecher-Hieb', en: 'Breaker Strike' }, text: { de: 'Ein schwerer Hieb, der den Nahkampfschaden erhöht.', en: 'A heavy strike that increases melee damage.' } },
+      { zeichen: 'ᛏ', name: { de: 'Frühes Grab', en: 'Early Grave' }, text: { de: 'Verwundete Gegner erleiden zusätzlichen Schaden.', en: 'Wounded enemies take additional damage.' } },
+    ] },
+    { id: 'schildmaid', zeichen: 'ᛉ', farbe: '#d2ad55', name: { de: 'Schildmaid', en: 'Shieldmaiden' }, rolle: { de: 'Tank / Schutz', en: 'Tank / Guard' }, beschreibung: { de: 'Schildmaiden halten die Linie und schützen ihre Gefährten mit unerschütterlicher Disziplin.', en: 'Shieldmaidens hold the line and protect their allies with unshakable discipline.' }, werte: [19, 17, 25, 12, 17], faehigkeiten: [] },
+    { id: 'jaeger', zeichen: '➹', farbe: '#83a253', name: { de: 'Jäger', en: 'Hunter' }, rolle: { de: 'Fernkampf-DPS', en: 'Ranged DPS' }, beschreibung: { de: 'Jäger lesen Spuren, kontrollieren Distanz und treffen, bevor sie gesehen werden.', en: 'Hunters read tracks, control distance and strike before they are seen.' }, werte: [14, 24, 17, 16, 15], faehigkeiten: [] },
+    { id: 'skalde', zeichen: '♫', farbe: '#4fa993', name: { de: 'Skalde', en: 'Skald' }, rolle: { de: 'Unterstützung', en: 'Support' }, beschreibung: { de: 'Skalden tragen alte Lieder in die Schlacht und stärken die Gruppe mit Runenklang.', en: 'Skalds carry old songs into battle and strengthen the party with rune-song.' }, werte: [13, 18, 18, 22, 21], faehigkeiten: [] },
+    { id: 'seherin', zeichen: '✹', farbe: '#9d83cf', name: { de: 'Seherin', en: 'Seer' }, rolle: { de: 'Heilung / Magie', en: 'Healing / Magic' }, beschreibung: { de: 'Seherinnen deuten die Fäden des Schicksals und wenden den Ausgang eines Kampfes.', en: 'Seers read the threads of fate and turn the outcome of a battle.' }, werte: [9, 14, 16, 25, 24], faehigkeiten: [] },
+    { id: 'berserker', zeichen: 'ᚢ', farbe: '#da684f', name: { de: 'Berserker', en: 'Berserker' }, rolle: { de: 'Nahkampf-DPS', en: 'Melee DPS' }, beschreibung: { de: 'Berserker tauschen Schutz gegen rohe Kraft und entfesseln kurze, vernichtende Angriffe.', en: 'Berserkers trade protection for raw power and unleash short, devastating attacks.' }, werte: [25, 21, 18, 8, 12], faehigkeiten: [] },
+    { id: 'runenmagier', zeichen: 'ᚱ', farbe: '#55a9c6', name: { de: 'Runenmagier', en: 'Runemage' }, rolle: { de: 'Magie-DPS', en: 'Magic DPS' }, beschreibung: { de: 'Runenmagier binden elementare Kräfte in Zeichen aus Licht und Stein.', en: 'Runemages bind elemental forces into signs of light and stone.' }, werte: [8, 15, 15, 25, 22], faehigkeiten: [] },
+    { id: 'hexer', zeichen: 'ᛈ', farbe: '#8b5ec2', name: { de: 'Hexer', en: 'Warlock' }, rolle: { de: 'Kontrolle / Magie', en: 'Control / Magic' }, beschreibung: { de: 'Hexer schwächen ihre Feinde mit Flüchen und verbotenen Zeichen.', en: 'Warlocks weaken their enemies with curses and forbidden signs.' }, werte: [10, 14, 16, 24, 21], faehigkeiten: [] },
+    { id: 'druide', zeichen: '☘', farbe: '#c28a3d', name: { de: 'Druide', en: 'Druid' }, rolle: { de: 'Wandel / Heilung', en: 'Shifting / Healing' }, beschreibung: { de: 'Druiden rufen die Kräfte der Wildnis und wechseln ihre Rolle mit der Gestalt.', en: 'Druids call on the wild and change their role with their shape.' }, werte: [15, 18, 18, 21, 23], faehigkeiten: [] },
+  ];
+  const aktiveKlasse = $derived(klassen.find((eintrag) => eintrag.id === klasseId) ?? klassen[0]);
+  const wertNamen = $derived(lang === 'de' ? ['Stärke', 'Beweglichkeit', 'Ausdauer', 'Intelligenz', 'Willenskraft'] : ['Strength', 'Agility', 'Stamina', 'Intellect', 'Willpower']);
+  const tabs = $derived(lang === 'de'
+    ? [{ id: 'koerper' as const, name: 'Körper' }, { id: 'gesicht' as const, name: 'Gesicht' }, { id: 'haare' as const, name: 'Haare' }, { id: 'stil' as const, name: 'Stil' }, { id: 'fahrt' as const, name: 'Fahrt' }]
+    : [{ id: 'koerper' as const, name: 'Body' }, { id: 'gesicht' as const, name: 'Face' }, { id: 'haare' as const, name: 'Hair' }, { id: 'stil' as const, name: 'Style' }, { id: 'fahrt' as const, name: 'Voyage' }]);
+
   /** Läuft gerade „Recke anlegen und Ticket holen“? */
   let sendet = $state(false);
   /** Fehler, der zum Namensfeld gehört (ungültig oder vergeben). */
@@ -185,6 +214,7 @@
 
   const oberTeile = $derived(daten?.equipment.filter((r) => r.slot === 'oberkoerper') ?? []);
   const beinTeile = $derived(daten?.equipment.filter((r) => r.slot === 'beine') ?? []);
+  const augenbrauen = $derived(daten?.eyebrows?.filter((a) => a.figure === figur) ?? []);
 
   const gestadeHinweis = $derived(
     gestade === 'dev'
@@ -193,13 +223,11 @@
   );
 
   /**
-   * Woher die Vorschau ihre Modelle holt — vom GEWÄHLTEN Gestade.
-   *
-   * Nicht immer von live: Die beiden Server tragen nicht zwingend denselben
-   * Stand, und eine Vorschau, die etwas anderes zeigt als das, was einen dort
-   * erwartet, wäre schlimmer als keine.
+   * Die Vorschau kommt aus derselben Auslieferung wie die Webseite. Dadurch
+   * bleibt sie unabhängig von Login-Status, Gestade und CORS-Regeln der
+   * Spielserver; nur das Erstellen selbst spricht weiterhin deren API an.
    */
-  const modellWurzel = $derived(`${SHORES[gestade].origin}/assets/models/`);
+  const modellWurzel = '/assets/models/';
 
   /** 00:00 … 23:00, die markanten Stunden mit Namen dahinter. */
   const stunden = $derived(
@@ -218,7 +246,7 @@
         // `server` steht hier nicht mehr drin: Welches Gestade gewählt ist,
         // führt seit den Kontoseiten `wov-gestade` (writeShore), und zwei
         // Orte für dieselbe Angabe laufen früher oder später auseinander.
-        JSON.stringify({ figur, frisur, haarfarbe, ober, beine, name: spielerName, zeit })
+        JSON.stringify({ figur, frisur, bart, augenbraue, haarfarbe, ober, beine, name: spielerName, zeit })
       );
     } catch {
       /* privater Modus: dann eben nicht */
@@ -230,11 +258,28 @@
     return e?.file && daten ? `${daten.folder}/${e.file}` : null;
   }
 
+  function eintragName(eintrag: Eintrag): string {
+    return lang === 'en' ? eintrag.nameEn ?? eintrag.name : eintrag.name;
+  }
+
+  /** Das Körpermodell der gewählten Figur, relativ zu /assets/models/. */
+  function koerperDatei(): string {
+    const ausgewaehlt = daten?.figures.find((eintrag) => eintrag.id === figur);
+    return ausgewaehlt?.model ?? (daten ? `${daten.folder}/${daten.body}` : '');
+  }
+
+  function brauenVorgabe(): string {
+    return daten?.defaultEyebrows?.[figur] ?? augenbrauen[0]?.id ?? '';
+  }
+
   /* -------------------------------------------------------- Die Bühne */
 
   async function zeigeAussehen() {
     if (!vorschau || !daten) return;
     await vorschau.setze('frisur', datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? ''));
+    // Bärte gibt es im Master nur für den männlichen Grundkörper.
+    await vorschau.setze('bart', figur === 'wikinger' ? datei(daten.beards ?? [], bart) : null);
+    await vorschau.setze('augenbraue', datei(daten.eyebrows ?? [], augenbraue));
     // Die Haarfarbe ist kein Modell, sondern eine Toenung auf dem
     // Frisurmodell -- deshalb NACH der Frisur und ueber einen eigenen Weg.
     // Ohne diesen Aufruf steht die Auswahl da und die Vorschau zeigt sie
@@ -245,21 +290,48 @@
     await vorschau.setze('beine', datei(daten.equipment, beine));
   }
 
+  /**
+   * Wartet nicht nur auf Dateien, sondern auf tatsächlich gezeichnete Bilder.
+   * Die Waffenhaltung wird nach Babylons Animationsdurchlauf aufgetragen;
+   * ohne diesen Puffer verschwand der Lader einen Frame vor der fertigen Pose.
+   */
+  function warteBilder(anzahl = 3): Promise<void> {
+    return new Promise((resolve) => {
+      const weiter = () => {
+        anzahl -= 1;
+        if (anzahl <= 0) resolve();
+        else requestAnimationFrame(weiter);
+      };
+      requestAnimationFrame(weiter);
+    });
+  }
+
   async function ladeAlles() {
     if (!vorschau || !daten) return;
     fertig = false;
     hinweisText = null;
     try {
       await vorschau.setzeWurzel(modellWurzel);
-      await vorschau.ladeKoerper(`${daten.folder}/${daten.body}`);
+      await vorschau.ladeKoerper(koerperDatei());
+      await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
       await zeigeAussehen();
+      // Während Frisur und Kleidung nachladen, kann bereits eine andere
+      // Klasse gewählt worden sein. Solange abgleichen, bis genau diese
+      // Wahl samt Haltung fertig ist; danach drei echte Renderframes warten.
+      // So bleibt weder eine veraltete Waffe noch die T-Pose kurz sichtbar.
+      while (true) {
+        const abgeglicheneKlasse = klasseId;
+        await vorschau.setzeWaffe(waffeFuerKlasse(abgeglicheneKlasse));
+        await warteBilder();
+        if (klasseId === abgeglicheneKlasse) break;
+      }
       fertig = true;
     } catch (e) {
       // Die Meldung nennt Adresse UND Grund. Eine Vorgängerfassung sagte nur
       // „liess sich nicht laden“ — damit war weder zu erkennen, ob der Server
       // schweigt, ob die Datei fehlt oder ob der Browser die Domaingrenze
       // blockt, und jede Fehlersuche begann mit Raten.
-      const url = `${modellWurzel}${daten.folder}/${daten.body}.glb`;
+      const url = `${modellWurzel}${koerperDatei()}.glb`;
       console.warn('[erstellung] Laden fehlgeschlagen:', url, e);
       let grund = String(e instanceof Error ? e.message : e);
       try {
@@ -277,6 +349,30 @@
     }
   }
 
+  function waehleKlasse(id: string) {
+    klasseId = id;
+    // Während der Körper noch importiert wird, existiert Hand_R noch nicht.
+    // ladeAlles() übernimmt die inzwischen gewählte Klassenwaffe direkt nach
+    // dem Import; ein paralleler Ladeversuch würde nur ohne Hand-Anker enden.
+    if (!fertig) return;
+    void vorschau?.setzeWaffe(waffeFuerKlasse(id)).catch((fehler) => {
+      console.warn('[erstellung] Waffe ließ sich nicht umschalten:', fehler);
+    });
+  }
+
+  function waffeFuerKlasse(id: string): 'schwert' | 'stab' | null {
+    if (id === 'krieger') return 'schwert';
+    if (id === 'druide') return 'stab';
+    return null;
+  }
+
+  async function figurGewechselt() {
+    if (!augenbrauen.some((a) => a.id === augenbraue)) augenbraue = brauenVorgabe();
+    if (figur !== 'wikinger') bart = '';
+    merke();
+    await ladeAlles();
+  }
+
   function vorgabenWaehlen() {
     if (!daten) return;
     const gueltig = (liste: Eintrag[], wert?: string) =>
@@ -284,6 +380,9 @@
 
     figur = gueltig(daten.figures, alt.figur) ?? daten.defaultFigure ?? daten.figures[0]?.id ?? '';
     frisur = gueltig(daten.hairstyles, alt.frisur) ?? daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
+    bart = gueltig(daten.beards ?? [], alt.bart) ?? daten.defaultBeard ?? '';
+    augenbraue = gueltig(daten.eyebrows ?? [], alt.augenbraue) ?? '';
+    if (!augenbrauen.some((a) => a.id === augenbraue)) augenbraue = brauenVorgabe();
     haarfarbe =
       gueltig(daten.hairColors, alt.haarfarbe) ?? daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
     ober = gueltig(daten.equipment, alt.ober) ?? '';
@@ -310,7 +409,7 @@
 
     if (!daten) {
       try {
-        daten = await holeJson<Aussehen>('/assets/appearance.json');
+        daten = await holeJson<Aussehen>(`/assets/appearance.json?v=${FIGUREN_STAND}`);
       } catch (e) {
         console.error('[erstellung]', e);
         hinweisText = t['create.stage.hint.lists_missing'];
@@ -327,7 +426,7 @@
         heraus — Vite soll die 2,8 MB weder anfassen noch mitziehen.
       */
       try {
-        const pfad = '/assets/js/vorschau.js';
+        const pfad = `/assets/js/vorschau.js?v=${FIGUREN_STAND}`;
         const modul = (await import(/* @vite-ignore */ pfad)) as {
           Vorschau: new (leinwand: HTMLCanvasElement, wurzel: string) => Vorschau;
         };
@@ -370,15 +469,9 @@
 
     const nunAngemeldet = readToken(gestade) !== null;
     if (nunAngemeldet !== angemeldet) {
-      // Das Konto ist ein anderes: getrennte Datenbank je Gestade.
-      if (!nunAngemeldet) raeumeBuehne();
       angemeldet = nunAngemeldet;
-      if (nunAngemeldet) await starteBuehne();
-      return;
     }
-    // Gleiche Sperrlage, aber andere Modelle: die Vorschau holt sie vom
-    // gewählten Gestade, nicht immer von live.
-    if (angemeldet) await ladeAlles();
+    await ladeAlles();
   }
 
   function schritt(liste: Eintrag[], aktuell: string, richtung: number, mitLeer: boolean): string {
@@ -386,6 +479,37 @@
     if (!ids.length) return aktuell;
     const i = Math.max(0, ids.indexOf(aktuell));
     return ids[(i + richtung + ids.length) % ids.length];
+  }
+
+  function zufall(liste: Eintrag[], mitLeer = false): string {
+    const ids = mitLeer ? ['', ...liste.map((e) => e.id)] : liste.map((e) => e.id);
+    return ids[Math.floor(Math.random() * ids.length)] ?? '';
+  }
+
+  async function zufaelligesAussehen() {
+    if (!daten) return;
+    figur = zufall(daten.figures);
+    frisur = zufall(daten.hairstyles);
+    bart = figur === 'wikinger' && Math.random() > 0.25 ? zufall(daten.beards ?? []) : '';
+    augenbraue = zufall(daten.eyebrows?.filter((a) => a.figure === figur) ?? []);
+    haarfarbe = zufall(daten.hairColors);
+    ober = zufall(oberTeile, true);
+    beine = zufall(beinTeile, true);
+    merke();
+    await ladeAlles();
+  }
+
+  async function aussehenZuruecksetzen() {
+    if (!daten) return;
+    figur = daten.defaultFigure ?? daten.figures[0]?.id ?? '';
+    frisur = daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
+    bart = daten.defaultBeard ?? '';
+    augenbraue = brauenVorgabe();
+    haarfarbe = daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
+    ober = '';
+    beine = '';
+    merke();
+    await ladeAlles();
   }
 
   /* ---------------------------------------------------------- Losfahren */
@@ -421,7 +545,9 @@
       const neu = await createCharacter(gestade, token, {
         name: spielerName.trim(),
         figure: figur,
-        hairstyle: frisur,
+        // Das bestehende Drahtfeld bleibt kompatibel: H_04+B_02 bedeutet
+        // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
+        hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
         hairColor: haarfarbe,
         top: ober,
         legs: beine,
@@ -445,18 +571,6 @@
   }
 
   onMount(async () => {
-    bereit = true;
-
-    // Erst nachsehen, ob es den Film gibt — siehe Kommentar bei videoQuelle.
-    void (async () => {
-      try {
-        const antwort = await fetch(VIDEO, { method: 'HEAD' });
-        if (antwort.ok) videoQuelle = VIDEO;
-      } catch {
-        /* kein Film, kein Problem: die Buehne behaelt ihren Verlauf */
-      }
-    })();
-
     try {
       alt = JSON.parse(localStorage.getItem(SPEICHER) ?? '{}');
     } catch {
@@ -488,477 +602,505 @@
     if (gewuenscht) writeShore(gewuenscht);
     angemeldet = readToken(gestade) !== null;
 
-    if (angemeldet) await starteBuehne();
+    await starteBuehne();
+  });
+
+  onMount(() => {
+    document.body.dataset.sveltekitReload = '';
+    return () => delete document.body.dataset.sveltekitReload;
   });
 </script>
 
+<!--
+  Diese Seite wird unabhängig von den übrigen, bereits laufenden Seiten
+  ausgerollt. Ein Vollreload beim Verlassen verhindert deshalb, dass ein
+  älteres, schon geöffnetes App-Bündel eine andere Route im Browser rendert.
+-->
 <Kopfdaten
   titel={t['create.meta.title']}
   beschreibung={t['create.meta.description']}
   noindex
 />
 
-<main class="mitte" style="padding-block:clamp(20px,3.5vh,40px) 3rem">
-  <div class="erstellen-kopfzeile">
-    <h1>{t['create.title']}</h1>
-    <p>{t['create.intro']}</p>
+<main class="charakter-schmiede" data-testid="character-creator">
+  <div class="kulisse" aria-hidden="true">
+    <video
+      src={HINTERGRUND_VIDEO}
+      poster="/assets/video/schwarzwald.webp"
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="auto"
+    ></video>
   </div>
 
-  {#if angemeldet}
-    <div class="erstellen-raster">
-      <!-- links: Aussehen -->
-      <aside class="tafel">
-        <h2>{t['create.appearance.title']}</h2>
+  <header class="schmiede-kopf">
+    <h1>{t['create.title']}</h1>
+    <label class="nur-vorlesen" for="create-name">{t['create.voyage.name.label']}</label>
+    <input
+      id="create-name"
+      class="namensfeld"
+      type="text"
+      maxlength="24"
+      placeholder={t['create.voyage.name.placeholder']}
+      aria-invalid={namensFehler ? 'true' : undefined}
+      bind:value={spielerName}
+      onchange={merke}
+    />
+    {#if namensFehler}<p class="feld-fehler" role="alert">{t[namensFehler]}</p>{/if}
+  </header>
 
-        <!--
-          Figur bleibt ein blosses Auswahlfeld: In appearance.json steht
-          GENAU EIN Eintrag (`wikingerin`). Ein Pfeilpaar davor, wie der
-          Entwurf es zeichnet, wuerde bei jedem Druck denselben Wert wieder
-          setzen — zwei Knoepfe, die nachweislich nichts tun.
-        -->
+  <aside class="anpassung glasrahmen" aria-label={t['create.appearance.title']}>
+    <div class="panel-kopf">
+      <h2>{t['create.appearance.title']}</h2>
+      <div class="schnellaktionen">
+        <button type="button" onclick={zufaelligesAussehen}>{lang === 'de' ? 'Zufällig' : 'Random'}</button>
+        <button type="button" onclick={aussehenZuruecksetzen}>{lang === 'de' ? 'Zurücksetzen' : 'Reset'}</button>
+      </div>
+    </div>
+
+    <div class="detail-tabs" role="tablist" aria-label={lang === 'de' ? 'Bereich' : 'Section'}>
+      {#each tabs as tab (tab.id)}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={detailTab === tab.id}
+          class:aktiv={detailTab === tab.id}
+          onclick={() => (detailTab = tab.id)}>{tab.name}</button
+        >
+      {/each}
+    </div>
+
+    <div class="detail-inhalt">
+      {#if detailTab === 'koerper'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-figure">{t['create.appearance.figure.label']}</label>
-          <select id="create-figure" bind:value={figur} onchange={() => { merke(); void ladeAlles(); }}>
-            {#each daten?.figures ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+          <select id="create-figure" bind:value={figur} onchange={() => { void figurGewechselt(); }}>
+            {#each daten?.figures ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
           </select>
         </div>
-
+        <p class="platzhalter-hinweis">{lang === 'de' ? 'Beide Körper verwenden dieselben modularen Frisuren.' : 'Both bodies use the same modular hairstyles.'}</p>
+      {:else if detailTab === 'gesicht'}
+        <div class="erstellen-feld">
+          <label class="feldname" for="create-eyebrows">{lang === 'de' ? 'Augenbrauen' : 'Eyebrows'}</label>
+          <div class="waehler">
+            <button type="button" aria-label={lang === 'de' ? 'Vorige Augenbrauen' : 'Previous eyebrows'} onclick={() => { augenbraue = schritt(augenbrauen, augenbraue, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+            <select id="create-eyebrows" bind:value={augenbraue} onchange={() => { merke(); void zeigeAussehen(); }}>
+              {#each augenbrauen as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
+            </select>
+            <button type="button" aria-label={lang === 'de' ? 'Nächste Augenbrauen' : 'Next eyebrows'} onclick={() => { augenbraue = schritt(augenbrauen, augenbraue, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+          </div>
+        </div>
+        <div class="erstellen-feld">
+          <label class="feldname" for="create-beard">{lang === 'de' ? 'Bart' : 'Beard'}</label>
+          <div class="waehler">
+            <button type="button" disabled={figur !== 'wikinger'} aria-label={lang === 'de' ? 'Voriger Bart' : 'Previous beard'} onclick={() => { bart = schritt([{ id: '', name: '' }, ...(daten?.beards ?? [])], bart, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+            <select id="create-beard" disabled={figur !== 'wikinger'} bind:value={bart} onchange={() => { merke(); void zeigeAussehen(); }}>
+              <option value="">{lang === 'de' ? 'Glatt rasiert' : 'Clean-shaven'}</option>
+              {#each daten?.beards ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
+            </select>
+            <button type="button" disabled={figur !== 'wikinger'} aria-label={lang === 'de' ? 'Nächster Bart' : 'Next beard'} onclick={() => { bart = schritt([{ id: '', name: '' }, ...(daten?.beards ?? [])], bart, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+          </div>
+        </div>
+        {#if figur !== 'wikinger'}<p class="platzhalter-hinweis">{lang === 'de' ? 'Bärte sind für den männlichen Körper verfügbar.' : 'Beards are available for the male body.'}</p>{/if}
+      {:else if detailTab === 'haare'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-hairstyle">{t['create.appearance.hair.label']}</label>
           <div class="waehler">
-            <button type="button" aria-label={t['create.appearance.hair.previous']}
-              onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+            <button type="button" aria-label={t['create.appearance.hair.previous']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
             <select id="create-hairstyle" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
-              {#each daten?.hairstyles ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+              {#each daten?.hairstyles ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
             </select>
-            <button type="button" aria-label={t['create.appearance.hair.next']}
-              onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+            <button type="button" aria-label={t['create.appearance.hair.next']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
           </div>
         </div>
-
-        <div class="erstellen-feld">
-          <label class="feldname" for="create-haircolor">{t['create.appearance.haircolor.label']}</label>
-          <div class="waehler">
-            <button type="button" aria-label={t['create.appearance.haircolor.previous']}
-              onclick={() => { haarfarbe = schritt(daten?.hairColors ?? [], haarfarbe, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
-            <select id="create-haircolor" bind:value={haarfarbe} onchange={() => { merke(); void zeigeAussehen(); }}>
-              {#each daten?.hairColors ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
-            </select>
-            <button type="button" aria-label={t['create.appearance.haircolor.next']}
-              onclick={() => { haarfarbe = schritt(daten?.hairColors ?? [], haarfarbe, 1, false); merke(); void zeigeAussehen(); }}>›</button>
-          </div>
-        </div>
-
+        <fieldset class="farbwahl">
+          <legend>{t['create.appearance.haircolor.label']}</legend>
+          {#each daten?.hairColors ?? [] as farbe (farbe.id)}
+            <button
+              type="button"
+              class:aktiv={haarfarbe === farbe.id}
+              style={'--farbton:' + (farbe.hex ?? '#777')}
+              title={eintragName(farbe)}
+              aria-label={eintragName(farbe)}
+              aria-pressed={haarfarbe === farbe.id}
+              onclick={() => { haarfarbe = farbe.id; merke(); void zeigeAussehen(); }}
+            ></button>
+          {/each}
+        </fieldset>
+      {:else if detailTab === 'stil'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-top">{t['create.appearance.chest.label']}</label>
-          <div class="waehler">
-            <button type="button" aria-label={t['create.appearance.chest.previous']}
-              onclick={() => { ober = schritt(oberTeile, ober, -1, true); merke(); void zeigeAussehen(); }}>‹</button>
-            <select id="create-top" bind:value={ober} onchange={() => { merke(); void zeigeAussehen(); }}>
-              <option value="">{t['create.appearance.chest.none']}</option>
-              {#each oberTeile as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
-            </select>
-            <button type="button" aria-label={t['create.appearance.chest.next']}
-              onclick={() => { ober = schritt(oberTeile, ober, 1, true); merke(); void zeigeAussehen(); }}>›</button>
-          </div>
+          <select id="create-top" bind:value={ober} onchange={() => { merke(); void zeigeAussehen(); }}>
+            <option value="">{t['create.appearance.chest.none']}</option>
+            {#each oberTeile as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
+          </select>
         </div>
-
         <div class="erstellen-feld">
           <label class="feldname" for="create-legs">{t['create.appearance.legs.label']}</label>
-          <div class="waehler">
-            <button type="button" aria-label={t['create.appearance.legs.previous']}
-              onclick={() => { beine = schritt(beinTeile, beine, -1, true); merke(); void zeigeAussehen(); }}>‹</button>
-            <select id="create-legs" bind:value={beine} onchange={() => { merke(); void zeigeAussehen(); }}>
-              <option value="">{t['create.appearance.legs.none']}</option>
-              {#each beinTeile as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
-            </select>
-            <button type="button" aria-label={t['create.appearance.legs.next']}
-              onclick={() => { beine = schritt(beinTeile, beine, 1, true); merke(); void zeigeAussehen(); }}>›</button>
-          </div>
+          <select id="create-legs" bind:value={beine} onchange={() => { merke(); void zeigeAussehen(); }}>
+            <option value="">{t['create.appearance.legs.none']}</option>
+            {#each beinTeile as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
+          </select>
         </div>
-      </aside>
-
-      <!-- Mitte: Bühne -->
-      <section class="buehne-spalte">
-      <div class="buehne">
-        <!--
-          Der Hintergrund ist ein gewoehnliches <video> HINTER der Leinwand,
-          nicht Teil der 3D-Szene. Das ist der billigste Weg: Der Browser
-          dekodiert es in Hardware und die Grafikkarte setzt es zusammen —
-          kein Texturupload je Frame, keine Weltgenerierung, keine Instanzen.
-
-          `muted` ist Pflicht, sonst verweigern Browser das Selbststarten.
-          `playsinline` verhindert, dass iOS es in den Vollbildspieler reisst.
-          Der Faktor --zoom kommt aus der Vorschau und laesst den Wald beim
-          Heranzoomen leicht mitwachsen; ohne das sieht man sofort, dass die
-          Figur vor einer Leinwand steht.
-
-          Faellt das Video aus — weil es fehlt, weil jemand Autoplay sperrt
-          oder weniger Bewegung verlangt —, bleibt das Standbild stehen.
-          Deshalb `poster`, und deshalb hat die Buehne darunter weiter ihren
-          Farbverlauf.
-        -->
-        {#if videoQuelle}
-        <video
-          class="buehne-video"
-          src={videoQuelle}
-          poster="/assets/video/schwarzwald.webp"
-          autoplay
-          muted
-          loop
-          playsinline
-          preload="auto"
-          aria-hidden="true"
-        ></video>
-        {/if}
-        <canvas bind:this={leinwand}></canvas>
-        <div class="buehne-hinweis" class:fertig>
-          {hinweisText ?? t['create.stage.hint.loading']}
-        </div>
-        <div class="buehne-werkzeug">
-          <button type="button" title={t['create.stage.rotate_left']} onclick={() => vorschau?.drehe(-0.35)}>↺</button>
-          <button type="button" title={t['create.stage.rotate_right']} onclick={() => vorschau?.drehe(0.35)}>↻</button>
-          <button type="button" title={t['create.stage.reset_view']} onclick={() => vorschau?.blickZurueck()}>⌂</button>
-        </div>
-      </div>
-      <!--
-        Die Bedienungszeile steht UNTER dem Rahmen, nicht im Fuss der ganzen
-        Seite: Sie erklaert das Ziehen und Zoomen, und das geschieht genau
-        einen Zentimeter darueber. Sie erscheint erst, wenn die Buehne steht
-        — vorher gaebe es nichts zu ziehen.
-      -->
-      <p class="buehne-fuss">{fussHinweisAn ? t['create.footer.hint'] : ''}</p>
-      </section>
-
-      <!-- rechts: Fahrt -->
-      <aside class="tafel">
-        <h2>{t['create.voyage.title']}</h2>
-
-        <div class="erstellen-feld">
-          <label class="feldname" for="create-name">{t['create.voyage.name.label']}</label>
-          <input
-            type="text"
-            id="create-name"
-            maxlength="24"
-            placeholder={t['create.voyage.name.placeholder']}
-            aria-invalid={namensFehler ? 'true' : undefined}
-            aria-describedby="create-name-hint"
-            bind:value={spielerName}
-            onchange={merke}
-          />
-          {#if namensFehler}
-            <p class="account-error" id="create-name-hint" role="alert">{t[namensFehler]}</p>
-          {:else}
-            <p class="gestade-hinweis" id="create-name-hint">{t['create.voyage.name.hint']}</p>
-          {/if}
-        </div>
-
+      {:else}
         <div class="erstellen-feld">
           <label class="feldname" for="create-shore">{t['create.voyage.shore.label']}</label>
           <select id="create-shore" bind:value={gestade} onchange={gestadeGewechselt}>
             {#each SHORE_IDS as s (s)}
-              <option value={s} disabled={!SHORE_OPEN[s]}>
-                {t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ` — ${t['account.shore.closed']}`}
-              </option>
+              <option value={s} disabled={!SHORE_OPEN[s]}>{t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ' — ' + t['account.shore.closed']}</option>
             {/each}
           </select>
-          <p class="gestade-hinweis">{gestadeHinweis}</p>
+          <p class="platzhalter-hinweis">{gestadeHinweis}</p>
         </div>
-
         {#if gestade === 'dev'}
           <div class="erstellen-feld">
             <label class="feldname" for="create-time">{t['create.voyage.time.label']}</label>
             <select id="create-time" bind:value={zeit} onchange={merke}>
               <option value="">{t['create.voyage.time.server_time']}</option>
-              {#each stunden as s (s.wert)}
-                <option value={s.wert}>{s.text}</option>
-              {/each}
+              {#each stunden as s (s.wert)}<option value={s.wert}>{s.text}</option>{/each}
             </select>
-            <p class="gestade-hinweis">{t['create.voyage.time.hint']}</p>
           </div>
         {/if}
+      {/if}
+    </div>
+  </aside>
 
-        {#if sendeFehler}
-          <p class="account-notice" role="alert">{t[sendeFehler]}</p>
-        {/if}
-      </aside>
+  <section class="buehne" aria-label={lang === 'de' ? 'Charaktervorschau' : 'Character preview'}>
+    <div class="figur-lader" class:ausblenden={fertig} class:fehler={Boolean(hinweisText)} aria-hidden="true">
+      <div class="runenportal">
+        <div class="runenring">
+          {#each ['ᚠ', 'ᚢ', 'ᚦ', 'ᚨ', 'ᚱ', 'ᚲ', 'ᚷ', 'ᚹ'] as rune, index (rune)}
+            <span style={`--r:${index * 45}deg`}>{rune}</span>
+          {/each}
+        </div>
+        <i class="runenkern">{hinweisText ? 'ᛁ' : 'ᛉ'}</i>
+      </div>
+      <p>{hinweisText
+        ? (lang === 'de' ? '3D-Vorschau nicht verfügbar' : '3D preview unavailable')
+        : (lang === 'de' ? 'Der Recke wird gerufen …' : 'Summoning your Viking …')}</p>
+    </div>
+    <canvas bind:this={leinwand} class:bereit={fertig}></canvas>
+    <div class="buehne-hinweis nur-vorlesen" aria-live="polite" class:fertig>{hinweisText ?? t['create.stage.hint.loading']}</div>
+    <div class="buehne-werkzeug">
+      <button type="button" title={t['create.stage.rotate_left']} onclick={() => vorschau?.drehe(-0.35)}>↺</button>
+      <button type="button" title={t['create.stage.reset_view']} onclick={() => vorschau?.blickZurueck()}>⌂</button>
+      <button type="button" title={t['create.stage.rotate_right']} onclick={() => vorschau?.drehe(0.35)}>↻</button>
+    </div>
+    <p class="buehne-fuss">{fussHinweisAn ? t['create.footer.hint'] : ''}</p>
+  </section>
+
+  <aside class="klasseninfo" style={'--klasse:' + aktiveKlasse.farbe}>
+    <div class="klassen-titel">
+      <span class="klassen-signet" aria-hidden="true">{aktiveKlasse.zeichen}</span>
+      <div><h2>{aktiveKlasse.name[lang]}</h2><p>{aktiveKlasse.rolle[lang]}</p></div>
+    </div>
+    <p class="klassen-text">{aktiveKlasse.beschreibung[lang]}</p>
+
+    <div class="werte-block">
+      <h3>{lang === 'de' ? 'Startwerte' : 'Starting stats'}</h3>
+      {#each aktiveKlasse.werte as wert, index}
+        <div class="wert-zeile">
+          <span>{wertNamen[index]}</span>
+          <div class="wert-balken"><i style={'width:' + wert * 4 + '%'}></i></div>
+          <strong>{wert}</strong>
+        </div>
+      {/each}
     </div>
 
-    <!--
-      Rechtsbuendig wie im Entwurf, aber unter dem GANZEN Raster und mit drei
-      Wegen statt zweien: „Deine Recken“ kennt der Entwurf nicht, und ohne
-      diesen Link kaeme man von hier nur ueber die Startseite zurueck zur
-      eigenen Liste.
-    -->
-    <div class="erstellen-fuss">
-      <a class="knopf knopf-rand" href={localizedPath(lang, '/konto')}>{t['create.to_account']}</a>
-      <a class="knopf knopf-rand" href={localizedPath(lang, '/')}>{t['create.footer.back']}</a>
+    <div class="faehigkeiten">
+      <h3>{lang === 'de' ? 'Signaturfähigkeiten' : 'Signature abilities'}</h3>
+      {#if aktiveKlasse.faehigkeiten.length}
+        {#each aktiveKlasse.faehigkeiten as faehigkeit (faehigkeit.name.de)}
+          <article><span aria-hidden="true">{faehigkeit.zeichen}</span><div><h4>{faehigkeit.name[lang]}</h4><p>{faehigkeit.text[lang]}</p></div></article>
+        {/each}
+      {:else}
+        <p class="dummy-notiz">{lang === 'de' ? 'Fähigkeiten folgen im nächsten Ausbauschritt.' : 'Abilities will follow in the next iteration.'}</p>
+      {/if}
+    </div>
+  </aside>
+
+  <nav class="klassenwahl" aria-label={lang === 'de' ? 'Klasse wählen' : 'Choose class'}>
+    {#each klassen as eintrag (eintrag.id)}
       <button
         type="button"
-        class="knopf knopf-gross account-primary erstellen-los"
-        disabled={sendet}
-        onclick={losfahren}
-      >
-        {sendet ? t['create.button.loading'] : t['create.button.set_sail']}
+        style={'--klasse:' + eintrag.farbe}
+        class:aktiv={klasseId === eintrag.id}
+        aria-pressed={klasseId === eintrag.id}
+        onclick={() => waehleKlasse(eintrag.id)}
+      ><span class="klassen-icon" aria-hidden="true"><i>{eintrag.zeichen}</i></span><small>{eintrag.name[lang]}</small></button>
+    {/each}
+  </nav>
+
+  <div class="schmiede-aktionen">
+    <a class="zurueck" href={localizedPath(lang, '/')}>{t['create.footer.back']}</a>
+    <div class="konto-aktion">
+      {#if !angemeldet}<span>{lang === 'de' ? 'Anmeldung beim Erstellen' : 'Sign-in on creation'}</span>{/if}
+      <button type="button" class="erstellen-los" disabled={sendet} onclick={losfahren}>
+        {sendet ? t['create.button.loading'] : (lang === 'de' ? 'Erstellen' : 'Create')}
       </button>
     </div>
-  {:else}
-    <!--
-      Die Anmeldesperre. Genau dieser Zustand steht im vorgerenderten HTML
-      und ist damit auch das, was ohne JavaScript dasteht.
-    -->
-    <div class="account-column">
-      <div class="account-panel">
-        <h2>{t['create.gate.title']}</h2>
-        <p style="color:var(--text-matt)">{t['create.gate.text']}</p>
+  </div>
 
-        {#if bereit}
-          <!-- Die Gestadewahl steht nur mit Skript da: ohne Skript wäre sie
-               ein Kasten, dessen Umstellen nichts bewirkt. -->
-          <div class="account-field">
-            <label class="account-label" for="locked-shore">
-              {t['create.voyage.shore.label']}
-            </label>
-            <select
-              class="account-input"
-              id="locked-shore"
-              bind:value={gestade}
-              onchange={gestadeGewechselt}
-            >
-              {#each SHORE_IDS as s (s)}
-                <option value={s} disabled={!SHORE_OPEN[s]}>
-                {t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ` — ${t['account.shore.closed']}`}
-              </option>
-              {/each}
-            </select>
-            <p class="account-hint">{t['account.shore.hint']}</p>
-          </div>
-        {/if}
-
-        <div class="account-actions">
-          <a class="knopf account-primary" href={localizedPath(lang, '/anmelden')}>
-            {t['create.gate.login']}
-          </a>
-          <a class="knopf knopf-rand" href={localizedPath(lang, '/registrieren')}>
-            {t['create.gate.register']}
-          </a>
-        </div>
-      </div>
-    </div>
-  {/if}
+  {#if sendeFehler}<p class="sende-fehler" role="alert">{t[sendeFehler]}</p>{/if}
 </main>
 
 <style>
-  /* Nur was diese Seite braucht — der Rest kommt aus wov.css. */
-  .erstellen-kopfzeile { text-align: center; margin: 0 0 1.6rem; }
-  .erstellen-kopfzeile h1 {
-    font-size: clamp(24px, 3.4vw, 34px);
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--primaer);
-    margin: 0 0 6px;
-  }
-  /*
-    Der Entwurf hat hier gar keine Ueberschrift, nur diesen einen Absatz in
-    Pergament. Die Ueberschrift bleibt trotzdem stehen — eine Seite ohne h1
-    haette fuer Vorleseprogramme keinen Namen mehr —, aber der Absatz
-    bekommt das Aussehen aus dem Entwurf.
-  */
-  .erstellen-kopfzeile p {
-    color: var(--pergament);
-    font-size: 16px;
-    line-height: 1.6;
-    margin: 0;
-  }
+  :global(body:has(.charakter-schmiede) .fuss) { display: none; }
 
-  /*
-    Drei gleich breite Spalten wie im Entwurf — aber nicht mit `auto-fit`.
-
-    `repeat(auto-fit, minmax(17rem, 1fr))` waere die woertliche Uebernahme
-    und geht 3 → 2 → 1. Die Zwischenstufe ist gemessen schlecht: bei 900px
-    Fenster stehen Aussehen und Buehne nebeneinander, die Fahrt rutscht in
-    die zweite Zeile unter das Aussehen, und NEBEN ihr bleibt ein leeres
-    Feld von rund 470px Hoehe stehen — die Buehne ist hoeher als das
-    Aussehen, also endet Zeile 1 tief.
-
-    Deshalb: entweder drei oder eine. Die Schwelle ist keine gegriffene
-    Zahl, sondern dieselbe Rechnung, die `auto-fit` angestellt haette —
-    3 × 17rem + 2 × 24px = 864px Inhaltsbreite, und `.mitte` gibt an den
-    Seiten je 4vw ab, also 864 / 0,92 ≈ 940px Fensterbreite.
-  */
-  .erstellen-raster {
-    display: grid;
-    gap: 24px;
-    align-items: start;
-    grid-template-columns: 1fr;
-  }
-  @media (min-width: 940px) {
-    .erstellen-raster { grid-template-columns: repeat(3, 1fr); }
-  }
-
-  /* Kasten und Bedienungszeile darunter gehoeren zusammen. */
-  .buehne-spalte { display: flex; flex-direction: column; gap: 0.9rem; }
-  .buehne-fuss { font-size: 13px; color: var(--umriss); margin: 0; min-height: 1.2em; }
-
-  .buehne {
+  .charakter-schmiede {
     position: relative;
-    border: 1px solid var(--umriss-matt);
-    border-radius: var(--account-r-box);
+    min-height: 100svh;
     overflow: hidden;
-    height: clamp(360px, 58vh, 620px);
-    /* Waldgruen, nicht der alte Graufarbverlauf: Was hier durchscheint,
-       bevor der Film laeuft, ist der Schwarzwald. */
-    background: var(--stage-forest);
-    /* Der Kasten wirft im Entwurf einen Schatten auf die Seite — er steht
-       davor, nicht darin. */
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+    isolation: isolate;
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) minmax(380px, 1fr) minmax(290px, 370px);
+    grid-template-rows: auto minmax(430px, 1fr) auto auto;
+    gap: 18px 28px;
+    padding: 84px clamp(20px, 2.6vw, 48px) 24px;
+    background: #071016;
   }
-  .buehne canvas {
-    position: relative;
-    z-index: 1;
-    width: 100%;
-    height: 100%;
-    display: block;
-    outline: none;
-    /* Die Leinwand ist durchsichtig — sie zeigt nur die Figur, alles
-       andere kommt vom Video darunter. */
-    background: transparent;
-    cursor: grab;
-    touch-action: none;
-  }
-  .buehne canvas:active { cursor: grabbing; }
 
-  .buehne-video {
+  .kulisse {
     position: absolute;
     inset: 0;
-    z-index: 0;
+    z-index: -2;
+    overflow: hidden;
+    background-image: url('/assets/video/schwarzwald.webp');
+    background-size: cover;
+    background-position: center;
+    filter: saturate(0.76) contrast(1.08);
+  }
+
+  .kulisse video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    /* Beim Heranzoomen waechst der Hintergrund leicht mit. Den Faktor setzt
-       die Vorschau als CSS-Variable; ohne sie bleibt er bei 1. */
-    transform: scale(var(--zoom, 1));
-    transform-origin: 50% 55%;
-    transition: transform 0.12s linear;
-    pointer-events: none;
+    object-position: center;
+    transform: scale(1.025);
+  }
+
+  .kulisse::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background:
+      linear-gradient(180deg, rgba(3, 8, 13, 0.36) 0%, rgba(4, 7, 9, 0.1) 46%, rgba(2, 3, 4, 0.93) 100%),
+      linear-gradient(90deg, rgba(2, 4, 5, 0.76) 0%, transparent 30%, transparent 67%, rgba(2, 4, 5, 0.82) 100%);
+  }
+
+  .kulisse::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background: radial-gradient(circle at 51% 45%, transparent 0 24%, rgba(0, 0, 0, 0.22) 55%, rgba(0, 0, 0, 0.62) 100%);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    /* Wer weniger Bewegung will, bekommt das Standbild. Das Video laeuft
-       zwar weiter, aber der mitwachsende Zoom faellt weg. */
-    .buehne-video { transition: none; transform: none; }
+    .kulisse video { display: none; }
   }
-  .buehne-hinweis {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--umriss);
-    font-size: 14px;
+
+  .schmiede-kopf {
+    grid-column: 1 / -1;
+    align-self: start;
+    justify-self: center;
+    width: min(420px, 90vw);
     text-align: center;
-    padding: 20px;
-    pointer-events: none;
-    z-index: 2;
   }
-  .buehne-hinweis.fertig { display: none; }
-  /*
-    ueber der Leinwand. Die traegt seit dem Videohintergrund z-index 1, und
-    ohne eigenen Wert lagen die Knoepfe DARUNTER — sichtbar, aber nicht
-    anklickbar. Aufgefallen ist es nur, weil ein Pruefschuss beim Klick in
-    einen Timeout lief.
-  */
-  .buehne-werkzeug { position: absolute; right: 0.9rem; bottom: 0.9rem; display: flex; gap: 0.4rem; z-index: 2; }
-  .buehne-werkzeug button {
-    width: 2.2rem; height: 2.2rem; padding: 0; font-size: 14px; line-height: 1;
-    display: grid; place-items: center;
-    /* --eisen (#121212) bei 82 %: Die Knoepfe liegen ueber dem Film und
-       muessen ihn durchscheinen lassen, sonst sind es drei schwarze
-       Loecher im Wald. */
-    background: rgba(18, 18, 18, 0.82);
-    color: var(--text-matt);
-    border: 1px solid var(--umriss-matt);
-    border-radius: var(--r-lg);
-    cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease;
-  }
-  .buehne-werkzeug button:hover { color: var(--runengold); border-color: var(--umriss); }
 
-  /*
-    Die beiden Tafeln setzen ihre Felder mit `gap`, nicht mit Aussenabstaenden
-    an den einzelnen Teilen: So steht der Abstand EINMAL da und nicht an
-    Beschriftung, Feld und Hinweiszeile je einmal.
-  */
-  .tafel { border-radius: var(--account-r-box); display: flex; flex-direction: column; gap: 1.1rem; }
-  .tafel h2 {
+  .schmiede-kopf h1 {
+    margin: 0 0 16px;
+    color: var(--runengold);
     font-family: var(--schrift-kopf);
-    font-size: 30px;
-    font-weight: 800;
-    letter-spacing: -0.01em;
-    color: var(--text);
-    margin: 0;
+    font-size: clamp(22px, 2vw, 30px);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-shadow: 0 2px 12px #000;
   }
-  .erstellen-feld { display: flex; flex-direction: column; gap: 0.4rem; }
 
-  .waehler { display: flex; align-items: stretch; gap: 0.4rem; }
-  .waehler button {
-    width: 2.1rem; flex: 0 0 auto; cursor: pointer;
-    background: var(--flaeche);
-    color: var(--text-matt);
-    border: 1px solid var(--umriss-matt);
-    border-radius: var(--account-r-field);
-    font-family: var(--schrift-kappen);
-    font-size: 13px;
-    transition: border-color 0.2s ease, color 0.2s ease;
-  }
-  .waehler button:hover { color: var(--runengold); border-color: var(--umriss); }
-  .waehler select { flex: 1 1 auto; min-width: 0; text-align: center; text-align-last: center; }
-
-  .feldname {
-    display: block; font-family: var(--schrift-kappen); font-size: 11px;
-    font-weight: 700; letter-spacing: 0.14em;
-    text-transform: uppercase; color: var(--umriss); margin: 0;
-  }
-  /*
-    Nur die Felder DIESER Seite. Die Anmeldesperre weiter unten benutzt
-    `.account-input` aus account.css, und ein blosses `select` hier wuerde
-    sie mit anderen Werten ueberschreiben — dieselbe Optik zweimal
-    beschrieben ist dieselbe Optik genau bis zur ersten Aenderung.
-  */
-  .tafel input[type='text'], .tafel select {
-    width: 100%;
-    background: var(--flaeche);
+  .namensfeld {
+    width: min(300px, 100%);
+    height: 46px;
+    padding: 0 18px;
+    border: 1px solid rgba(221, 170, 30, 0.58);
+    border-radius: 4px;
+    outline: none;
+    background: rgba(9, 11, 16, 0.84);
     color: var(--text);
-    border: 1px solid var(--umriss-matt);
-    border-radius: var(--account-r-field);
-    padding: 0.6rem 0.7rem;
     font-family: var(--schrift);
     font-size: 15px;
-    transition: border-color 0.2s ease;
+    letter-spacing: 0.07em;
+    text-align: center;
+    text-transform: uppercase;
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.62), 0 8px 28px rgba(0, 0, 0, 0.25);
   }
-  /* Nur die Eingabefelder sind im Entwurf versenkt, die Auswahlkaesten
-     nicht — sie tragen ohnehin schon den Pfeil des Browsers. */
-  .tafel input[type='text'] {
-    padding: 0.6rem 0.8rem;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
-  }
-  .tafel input[type='text']:focus, .tafel select:focus {
-    outline: none;
-    border-color: var(--primaer);
+  .namensfeld:focus { border-color: var(--runengold); box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.16); }
+  .feld-fehler, .sende-fehler { margin: 6px 0 0; color: #ffc0aa; font-size: 12px; }
+
+  .glasrahmen {
+    border: 1px solid rgba(213, 166, 38, 0.48);
+    border-radius: 10px;
+    background: linear-gradient(145deg, rgba(9, 12, 14, 0.9), rgba(10, 11, 13, 0.7));
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42), inset 0 1px rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(10px);
   }
 
-  .gestade-hinweis {
-    font-size: 13px; color: var(--umriss); margin: 0; line-height: 1.5;
+  .anpassung { grid-column: 1; grid-row: 2; align-self: start; min-height: 246px; padding: 12px; }
+  .panel-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .panel-kopf h2, .klasseninfo h2, .klasseninfo h3 {
+    margin: 0;
+    font-family: var(--schrift-kopf);
+    color: var(--runengold);
+    text-transform: uppercase;
+  }
+  .panel-kopf h2 { font-size: 14px; letter-spacing: 0.13em; }
+  .schnellaktionen { display: flex; gap: 5px; }
+  .schnellaktionen button, .detail-tabs button, .waehler button, .buehne-werkzeug button {
+    border: 1px solid rgba(169, 137, 63, 0.38);
+    border-radius: 4px;
+    background: rgba(22, 23, 24, 0.82);
+    color: #c9bea6;
+    cursor: pointer;
+  }
+  .schnellaktionen button { padding: 5px 8px; font-family: var(--schrift-kappen); font-size: 9px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; }
+  button:hover { border-color: var(--runengold); color: var(--runengold); }
+
+  .detail-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; padding: 3px; border: 1px solid rgba(169, 137, 63, 0.36); border-radius: 6px; }
+  .detail-tabs button { padding: 7px 2px; border-color: transparent; background: transparent; font-family: var(--schrift-kappen); font-size: 8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .detail-tabs button.aktiv { border-color: #b58b25; background: rgba(182, 139, 37, 0.17); color: #f6dd89; }
+  .detail-inhalt { display: flex; flex-direction: column; gap: 12px; min-height: 132px; padding-top: 12px; }
+  .erstellen-feld { display: flex; flex-direction: column; gap: 6px; }
+  .feldname, .farbwahl legend { color: #a99b7d; font-family: var(--schrift-kappen); font-size: 9px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .erstellen-feld select {
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    padding: 0 9px;
+    border: 1px solid rgba(169, 137, 63, 0.4);
+    border-radius: 4px;
+    background: rgba(8, 10, 12, 0.82);
+    color: #e7dfce;
+    font: 13px var(--schrift);
+  }
+  .waehler { display: grid; grid-template-columns: 32px 1fr 32px; gap: 6px; }
+  .waehler button { font-size: 20px; }
+  .farbwahl { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; border: 0; }
+  .farbwahl legend { width: 100%; margin-bottom: 3px; }
+  .farbwahl button { width: 22px; height: 22px; padding: 0; border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 50%; background: var(--farbton); box-shadow: 0 1px 5px #000; cursor: pointer; }
+  .farbwahl button.aktiv { outline: 2px solid var(--runengold); outline-offset: 2px; }
+  .platzhalter-hinweis { margin: 0; color: #9d947e; font-size: 11px; line-height: 1.45; }
+  .buehne { grid-column: 2; grid-row: 2; position: relative; min-height: 0; overflow: visible; }
+  .figur-lader {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 18px;
+    color: #d8b950;
+    text-align: center;
+    text-shadow: 0 2px 8px #000;
+    pointer-events: none;
+    transition: visibility 0s linear, opacity 0.35s ease;
+    z-index: 2;
+  }
+  .figur-lader.ausblenden { visibility: hidden; opacity: 0; transition-delay: 0.35s, 0s; }
+  .figur-lader p { margin: 0; font-family: var(--schrift-kappen); font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; }
+  .runenportal { position: relative; width: 184px; height: 184px; border: 1px solid rgba(222, 180, 59, 0.4); border-radius: 50%; box-shadow: 0 0 24px rgba(225, 177, 38, 0.16), inset 0 0 28px rgba(225, 177, 38, 0.1); animation: portal-atmen 2.2s ease-in-out infinite; }
+  .runenportal::before, .runenportal::after { content: ''; position: absolute; border-radius: 50%; }
+  .runenportal::before { inset: 14px; border: 1px dashed rgba(240, 204, 93, 0.48); animation: portal-drehen 14s linear infinite reverse; }
+  .runenportal::after { inset: 52px; border: 1px solid rgba(240, 204, 93, 0.32); box-shadow: inset 0 0 18px rgba(240, 204, 93, 0.18); }
+  .runenring { position: absolute; inset: 0; animation: portal-drehen 10s linear infinite; }
+  .runenring span { position: absolute; top: 50%; left: 50%; color: #f0cf69; font-family: var(--schrift-kopf); font-size: 17px; transform: translate(-50%, -50%) rotate(var(--r)) translateY(-72px); transform-origin: center; }
+  .runenkern { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle, rgba(237, 197, 69, 0.2), transparent 68%); font-family: var(--schrift-kopf); font-size: 38px; font-style: normal; transform: translate(-50%, -50%); animation: runenkern-leuchten 1.65s ease-in-out infinite; }
+  .figur-lader.fehler { color: #b98d72; }
+  .figur-lader.fehler .runenportal, .figur-lader.fehler .runenportal::before, .figur-lader.fehler .runenkern, .figur-lader.fehler .runenring { animation-play-state: paused; }
+  .figur-lader.fehler .runenportal { border-color: rgba(166, 91, 61, 0.45); box-shadow: 0 0 20px rgba(91, 34, 24, 0.2), inset 0 0 28px rgba(91, 34, 24, 0.12); }
+  .figur-lader.fehler .runenring span, .figur-lader.fehler .runenkern { color: #b87559; }
+  @keyframes portal-drehen { to { transform: rotate(360deg); } }
+  @keyframes portal-atmen { 50% { border-color: rgba(255, 220, 102, 0.72); box-shadow: 0 0 44px rgba(225, 177, 38, 0.3), inset 0 0 36px rgba(225, 177, 38, 0.17); } }
+  @keyframes runenkern-leuchten { 50% { opacity: 0.58; transform: translate(-50%, -50%) scale(0.9); } }
+  .buehne canvas { position: absolute; inset: -28px -10px -36px; width: calc(100% + 20px); height: calc(100% + 64px); outline: none; background: transparent; cursor: grab; touch-action: none; opacity: 0; transition: opacity 0.3s ease; }
+  .buehne canvas.bereit { opacity: 1; }
+  .buehne canvas:active { cursor: grabbing; }
+  .buehne-hinweis { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #b8ad95; font-size: 12px; text-align: center; text-shadow: 0 2px 6px #000; pointer-events: none; }
+  .buehne-hinweis.fertig { display: none; }
+  .buehne-werkzeug { position: absolute; right: 12px; bottom: 34px; display: flex; gap: 5px; z-index: 3; }
+  .buehne-werkzeug button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; font-size: 14px; backdrop-filter: blur(5px); }
+  .buehne-fuss { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: max-content; max-width: 92%; margin: 0; color: rgba(225, 216, 196, 0.72); font-size: 10px; text-align: center; }
+
+  .klasseninfo { grid-column: 3; grid-row: 2; align-self: stretch; overflow: auto; padding: 10px 0 12px 20px; border-left: 1px solid rgba(208, 157, 32, 0.22); background: linear-gradient(90deg, rgba(5, 8, 9, 0.48), rgba(4, 6, 7, 0.16)); backdrop-filter: blur(3px); }
+  .klassen-titel { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(194, 150, 42, 0.23); }
+  .klassen-signet { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--klasse), transparent 25%); border-radius: 7px; background: rgba(6, 8, 9, 0.72); color: var(--klasse); font-size: 25px; box-shadow: 0 0 18px color-mix(in srgb, var(--klasse), transparent 72%); }
+  .klasseninfo h2 { color: var(--klasse); font-size: 27px; letter-spacing: 0.04em; }
+  .klassen-titel p { margin: 1px 0 0; color: var(--runengold); font-family: var(--schrift-kappen); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .klassen-text { margin: 14px 6px 17px 0; color: #c2b9a5; font-family: var(--schrift); font-size: 13px; font-style: italic; line-height: 1.65; }
+  .klasseninfo h3 { margin: 0 0 9px; font-size: 13px; letter-spacing: 0.08em; }
+  .werte-block { padding-bottom: 16px; border-bottom: 1px solid rgba(194, 150, 42, 0.18); }
+  .wert-zeile { display: grid; grid-template-columns: 94px 1fr 24px; align-items: center; gap: 8px; margin: 5px 0; color: #a99f88; font-size: 11px; }
+  .wert-zeile strong { color: #eee8db; font-size: 11px; text-align: right; }
+  .wert-balken { height: 3px; overflow: hidden; background: rgba(255, 255, 255, 0.09); }
+  .wert-balken i { display: block; height: 100%; background: linear-gradient(90deg, #9a681d, var(--klasse)); box-shadow: 0 0 7px var(--klasse); }
+  .faehigkeiten { padding-top: 15px; }
+  .faehigkeiten article { display: grid; grid-template-columns: 36px 1fr; gap: 10px; margin: 8px 0; padding: 8px; border: 1px solid rgba(194, 150, 42, 0.18); border-radius: 4px; background: rgba(2, 4, 5, 0.48); }
+  .faehigkeiten article > span { display: grid; place-items: center; height: 36px; border: 1px solid rgba(213, 138, 69, 0.55); border-radius: 4px; color: var(--klasse); font-size: 20px; }
+  .faehigkeiten h4 { margin: 0 0 3px; color: var(--runengold); font-family: var(--schrift-kopf); font-size: 12px; text-transform: uppercase; }
+  .faehigkeiten article p, .dummy-notiz { margin: 0; color: #aaa18f; font-size: 10px; line-height: 1.5; }
+
+  .klassenwahl { grid-column: 2; grid-row: 3; display: flex; justify-content: center; gap: clamp(5px, 0.8vw, 12px); z-index: 3; }
+  .klassenwahl button { width: 60px; padding: 0; border: 0; background: transparent; color: #bcb39f; cursor: pointer; }
+  .klassen-icon { display: grid; place-items: center; width: 60px; height: 60px; border: 2px solid rgba(150, 132, 96, 0.35); border-radius: 9px; background: radial-gradient(circle at 50% 36%, color-mix(in srgb, var(--klasse), transparent 64%), rgba(5, 7, 9, 0.92) 68%); color: var(--klasse); box-shadow: inset 0 0 14px #000; transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
+  .klassen-icon i { display: grid; place-items: center; width: 30px; height: 30px; font-family: 'DejaVu Sans', sans-serif; font-size: 28px; font-style: normal; line-height: 1; }
+  .klassenwahl button small { display: block; margin-top: 4px; overflow: hidden; font-family: var(--schrift-kappen); font-size: 9px; letter-spacing: 0.03em; text-overflow: ellipsis; text-transform: uppercase; }
+  .klassenwahl button:hover > .klassen-icon, .klassenwahl button.aktiv > .klassen-icon { transform: translateY(-3px); border-color: var(--runengold); box-shadow: 0 0 14px color-mix(in srgb, var(--klasse), transparent 48%), inset 0 0 12px #000; }
+  .klassenwahl button.aktiv small { color: var(--runengold); }
+
+  .schmiede-aktionen { grid-column: 1 / -1; grid-row: 4; display: flex; align-items: end; justify-content: space-between; gap: 16px; z-index: 4; }
+  .zurueck, .erstellen-los { min-width: 140px; padding: 9px 18px; border: 1px solid rgba(172, 142, 70, 0.56); border-radius: 4px; font-family: var(--schrift-kappen); font-size: 11px; letter-spacing: 0.08em; text-align: center; text-transform: uppercase; }
+  .zurueck { background: rgba(14, 15, 23, 0.9); color: #c5baa3; }
+  .erstellen-los { min-width: 180px; background: linear-gradient(180deg, #6e541b, #32250d); color: #f4ce5f; cursor: pointer; box-shadow: inset 0 1px rgba(255, 222, 126, 0.24); }
+  .erstellen-los:hover { border-color: var(--runengold); box-shadow: 0 0 18px rgba(255, 215, 0, 0.17); }
+  .erstellen-los:disabled { cursor: wait; opacity: 0.68; }
+  .konto-aktion { display: flex; flex-direction: column; align-items: end; gap: 4px; }
+  .konto-aktion span { color: #aca28c; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .sende-fehler { position: absolute; right: 28px; bottom: 74px; max-width: 360px; padding: 8px 12px; background: rgba(40, 10, 6, 0.82); border: 1px solid #8f4b3a; }
+
+  @media (max-width: 1180px) {
+    .charakter-schmiede { grid-template-columns: minmax(240px, 300px) 1fr minmax(260px, 310px); column-gap: 18px; }
+    .klassenwahl { grid-column: 1 / -1; }
+    .klasseninfo h2 { font-size: 23px; }
   }
 
-  .erstellen-fuss {
-    display: flex; align-items: center; justify-content: flex-end;
-    gap: 0.7rem; margin: 1.4rem 0 0; flex-wrap: wrap;
+  @media (max-width: 879px) {
+    :global(body:has(.charakter-schmiede)) { padding-bottom: 76px; }
+    .charakter-schmiede { min-height: auto; overflow: visible; grid-template-columns: 1fr; grid-template-rows: auto; gap: 16px; padding: 24px 16px 28px; }
+    .schmiede-kopf, .anpassung, .buehne, .klasseninfo, .klassenwahl, .schmiede-aktionen { grid-column: 1; grid-row: auto; min-width: 0; }
+    .anpassung { order: 2; }
+    .buehne { order: 1; min-height: 55svh; }
+    .buehne canvas { inset: 0; width: 100%; height: 100%; }
+    .klassenwahl { order: 3; overflow-x: auto; justify-content: flex-start; padding: 8px 2px; }
+    .klassenwahl button { flex: 0 0 56px; width: 56px; }
+    .klassen-icon { width: 56px; height: 56px; }
+    .klasseninfo { order: 4; max-height: none; padding: 16px; border: 1px solid rgba(208, 157, 32, 0.22); border-radius: 8px; }
+    .schmiede-aktionen { order: 5; }
   }
-  /*
-    Der einzige Goldknopf des Entwurfs ohne Versalien: „Auf Fahrt gehen“
-    steht als Satz da, nicht als Beschriftung. `.knopf` setzt ohnehin kein
-    text-transform, hier ist nur Groesse und Laufweite anzupassen.
-  */
-  .erstellen-los { font-size: 15px; letter-spacing: 0.06em; }
+
+  @media (max-width: 520px) {
+    .schmiede-kopf h1 { font-size: 19px; }
+    .panel-kopf { align-items: flex-start; flex-direction: column; }
+    .detail-tabs { overflow-x: auto; grid-template-columns: repeat(5, minmax(64px, 1fr)); }
+    .schmiede-aktionen { align-items: stretch; flex-direction: column-reverse; }
+    .konto-aktion { align-items: stretch; text-align: right; }
+    .zurueck, .erstellen-los { width: 100%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .runenportal, .runenportal::before, .runenkern, .runenring { animation: none; }
+  }
 </style>

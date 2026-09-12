@@ -66,7 +66,7 @@ function eigenesMaterial(vorlage: PBRMaterial, hex: string, farbe: Color3): PBRM
 
   const neu = new PBRMaterial(`${vorlage.name}_${hex.slice(1)}`, vorlage.getScene());
   // Von Hand uebertragen statt serialisiert: Was hier NICHT steht, gibt
-  // es an einem Haarmaterial auch nicht — die 21 Frisuren tragen keine
+  // es an einem Haarmaterial auch nicht — Frisuren und Bärte tragen keine
   // einzige Textur (nachgemessen: 0 Bilder je Datei). Kommt spaeter eine
   // dazu, gehoert sie in diese Liste.
   neu.albedoTexture = vorlage.albedoTexture;

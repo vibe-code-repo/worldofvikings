@@ -59,6 +59,8 @@ import {
   istHaarfarbe,
   istRuestung,
   frisurZu,
+  bartAusFrisur,
+  augenbraueAusFrisur,
   haarfarbeZu,
   ruestungZu,
   AUSSEHEN_ORDNER,
@@ -804,6 +806,8 @@ async function main() {
   const aussehenTeile = (): Record<string, string | null> => {
     const teile: Record<string, string | null> = {
       frisur: frisurZu(selectedHairstyle).datei,
+      bart: bartAusFrisur(selectedHairstyle)?.datei ?? null,
+      augenbraue: augenbraueAusFrisur(selectedHairstyle)?.datei ?? null,
       oberkoerper: null,
       beine: null,
     };

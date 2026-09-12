@@ -45,6 +45,7 @@ await new Promise<void>((resolve, reject) => {
 const { port } = server.address() as { port: number };
 const basis = `http://127.0.0.1:${port}`;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Testhelfer: die Antwortform ist je Aufruf verschieden
 interface Antwort { status: number; daten: any }
 
 async function ruf(pfad: string, init: RequestInit = {}): Promise<Antwort> {
@@ -90,8 +91,15 @@ try {
     'das Ticket traegt eine echte spielerId, keine vom Client waehlbare',
   );
 
-  const letztesZeichen = sessionToken.at(-1);
-  const verfaelscht = sessionToken.slice(0, -1) + (letztesZeichen === 'A' ? 'B' : 'A');
+  // Nicht das LETZTE Zeichen kippen: In Base64 traegt das letzte Zeichen
+  // oft nur Fuellbits, die beim Dekodieren wegfallen — dann bleibt die
+  // Signatur bitgleich und der Test flattert (auf wov-dev gesehen, 12.09.).
+  // Das vorletzte Zeichen aendert immer ein dekodiertes Byte.
+  // Never flip the last base64 char: its padding bits may be discarded on
+  // decode, leaving the signature unchanged; flipping the second-to-last
+  // always changes a decoded byte.
+  const vorletztesZeichen = sessionToken.at(-2);
+  const verfaelscht = sessionToken.slice(0, -2) + (vorletztesZeichen === 'A' ? 'B' : 'A') + sessionToken.slice(-1);
   assert.equal(tokenPruefen(verfaelscht, geheimnis).status, 'gefaelscht', 'ein veraendertes Ticket wird erkannt');
 
   // ── 2. Fremdes Konto ──────────────────────────────────────────────────

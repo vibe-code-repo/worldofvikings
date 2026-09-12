@@ -154,15 +154,27 @@ import type { LookGrading } from '@wov/shared';
 /** Kantenlänge der Nachschlagetabelle — die LUT-Größe des Vorbilds. */
 export const GRADING_LUT_KANTE = 32;
 
-/** sRGB-Byteanteil (0..1) → linear. Dieselbe Kurve wie im Vorbild. */
+/**
+ * sRGB-Byteanteil (0..1) → linear. NICHT die exakte sRGB-EOTF, sondern
+ * `pow(x, 2.2)` — Babylon setzt in diesem Client `useExactSrgbConversions`
+ * nirgends (Default `false`) und rechnet Farbraumwandlungen deshalb mit der
+ * einfachen Gammakurve. Die LUT muss mit derselben Kurve gebaut werden, mit
+ * der Babylon das Bild kodiert hat, sonst passt sie nicht zur Textur.
+ *
+ * Not the exact sRGB EOTF but `pow(x, 2.2)` — this client never sets
+ * Babylon's `useExactSrgbConversions` (default `false`), so Babylon's own
+ * colour-space conversions use the simple gamma curve. The LUT must be
+ * built with the same curve Babylon used to encode the image, or it won't
+ * line up with the texture.
+ */
 function zuLinear(s: number): number {
-  return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  return Math.pow(s, 2.2);
 }
 
-/** linear → sRGB-Anteil (0..1). */
+/** linear → sRGB-Anteil (0..1). Gegenstück zu `zuLinear`, siehe dort. */
 function zuSrgb(l: number): number {
   const c = Math.min(1, Math.max(0, l));
-  return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  return Math.pow(c, 1 / 2.2);
 }
 
 /** `#rrggbb` → drei Anteile 0..1, ohne Farbraumwandlung. */

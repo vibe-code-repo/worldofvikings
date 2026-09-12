@@ -71,10 +71,23 @@ const DORF_ROH = {
   mitten: [1.0, 0.960438, 0.9038545] as const,
   mittenOffset: -0.014825796,
 };
-/** Die vorbereiteten Zahlen, unter denen die Analyse sie führt. */
+/**
+ * Die vorbereiteten Zahlen, gerechnet mit der Kurve, die dieser Client
+ * tatsächlich nutzt (`pow(x, 2.2)`, siehe `zuLinear` unten). Bis zum
+ * 12.09.2026 stand hier die exakte sRGB-EOTF (0,911/0,788/0,956 und
+ * 0,985/0,898/0,78) — richtig für die Analyse-Notiz, aber die falsche
+ * Kurve für Babylon in diesem Client (`useExactSrgbConversions` bleibt
+ * `false`).
+ *
+ * Prepared numbers computed with the curve this client actually uses
+ * (`pow(x, 2.2)`, see `zuLinear` below), not the exact sRGB EOTF that
+ * stood here before — correct for the analysis note, but the wrong
+ * curve for this client's Babylon (`useExactSrgbConversions` stays
+ * `false`).
+ */
 const DORF_VORBEREITET = {
-  schatten: [0.911, 0.788, 0.956] as const,
-  mitten: [0.985, 0.898, 0.78] as const,
+  schatten: [0.912, 0.793, 0.956] as const,
+  mitten: [0.985, 0.9, 0.786] as const,
 };
 
 /** Das Profil, das ausgeliefert wird (Leitbild Dorf). */
@@ -122,9 +135,39 @@ const EINS: LookGrading = {
   lichterEnde: 1.0,
 };
 
-/** sRGB-Anteil → linear, exakte Kurve (dieselbe wie in `Grading.ts`). */
+/**
+ * sRGB-Anteil → linear — eigene, von `Grading.ts` UNABHÄNGIGE
+ * Implementierung derselben Kurve (`pow(x, 2.2)`, Babylons Vorgabe bei
+ * `useExactSrgbConversions: false`). Unabhängig heisst: Diese Funktion
+ * importiert nichts aus `Grading.ts`, sondern schreibt die Formel noch
+ * einmal hin — sonst prüft der Test nur, ob eine Datei sich selbst
+ * gleich bleibt, nicht ob sie die richtige Kurve trägt.
+ *
+ * Own implementation of the same curve, INDEPENDENT of `Grading.ts`
+ * (`pow(x, 2.2)`, Babylon's default with `useExactSrgbConversions:
+ * false`). Independent means this function imports nothing from
+ * `Grading.ts` and restates the formula — otherwise the test would only
+ * check that a file agrees with itself, not that it carries the right
+ * curve.
+ */
 function zuLinear(s: number): number {
-  return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  return Math.pow(s, 2.2);
+}
+
+console.log('\n(0) Die Gammakurve selbst — pow(2.2), nicht die exakte EOTF');
+{
+  // Regressionsanker: Wird hier wieder die exakte sRGB-EOTF eingesetzt
+  // (0,2140 statt 0,2176 bei 0,5), muss dieser Test das fangen — nicht
+  // erst ein Vergleich mit dem gerenderten Bild.
+  //
+  // Regression anchor: if the exact sRGB EOTF (0.2140 instead of 0.2176
+  // at 0.5) sneaks back in here, this test must catch it — not a later
+  // comparison against the rendered image.
+  const bei05 = zuLinear(0.5);
+  pruefe(
+    Math.abs(bei05 - 0.2176) < 0.0001,
+    `zuLinear(0,5) = ${bei05.toFixed(4)} (pow 2.2, erwartet 0,2176 — NICHT 0,2140 der EOTF)`
+  );
 }
 const K = GRADING_LUT_KANTE;
 /** Ein Texel der Tabelle: Eingang i/(K−1) je Kanal → drei Bytes. */
@@ -143,11 +186,11 @@ console.log('\n(1) Die Aufbereitung einer Zeile — Linearisierung und Offset');
   const mRoh = ausRoh(DORF_ROH.mitten, DORF_ROH.mittenOffset);
   pruefe(
     sRoh.every((v, i) => Math.abs(v - DORF_VORBEREITET.schatten[i]!) < 0.001),
-    `Rohwerte → Schattenzeile ${sRoh.map((v) => v.toFixed(3)).join(' / ')} (erwartet 0,911 / 0,788 / 0,956)`
+    `Rohwerte → Schattenzeile ${sRoh.map((v) => v.toFixed(3)).join(' / ')} (erwartet 0,912 / 0,793 / 0,956)`
   );
   pruefe(
     mRoh.every((v, i) => Math.abs(v - DORF_VORBEREITET.mitten[i]!) < 0.001),
-    `Rohwerte → Mittenzeile ${mRoh.map((v) => v.toFixed(3)).join(' / ')} (erwartet 0,985 / 0,898 / 0,780)`
+    `Rohwerte → Mittenzeile ${mRoh.map((v) => v.toFixed(3)).join(' / ')} (erwartet 0,985 / 0,900 / 0,786)`
   );
 
   // Und jetzt die Frage, um die es geht: Liefert das GERUNDETE HEX aus
@@ -161,10 +204,10 @@ console.log('\n(1) Die Aufbereitung einer Zeile — Linearisierung und Offset');
     Die Schranke 0,005 ist nicht bequem gewählt, sondern die Grenze, die
     ein einzelner 8-Bit-Schritt in diesem Bereich überhaupt erreichen
     kann: Der schlechteste der sechs Werte ist das Blau der Mittenzeile
-    (roh 0,9038545 → Byte 230 oder 231; 230 liegt 0,0038 daneben, 231
-    sogar 0,0041). Näher kommt man mit einem Hex nicht heran. Im Bild
-    sind 0,0038 auf einem Faktor von 0,78 rund 0,3 sRGB-Byte auf dem
-    Himmel — ein Drittel des kleinsten darstellbaren Schritts.
+    (roh 0,9038545 → Byte 230 oder 231; 230 liegt 0,0037 daneben, 231
+    sogar 0,0040). Näher kommt man mit einem Hex nicht heran. Im Bild
+    ist das rund ein halbes sRGB-Byte auf dem Himmel — deutlich unter
+    einem darstellbaren Schritt.
   */
   pruefe(abwS < 0.005, `Hex ${DORF.schatten} trifft die Schattenzeile (grösste Abweichung ${abwS.toFixed(4)})`);
   pruefe(abwM < 0.005, `Hex ${DORF.mitten} trifft die Mittenzeile (grösste Abweichung ${abwM.toFixed(4)})`);
@@ -287,7 +330,7 @@ console.log('\n(3) Die Tabelle — was sie tut und was sie nicht tun darf');
 
   /*
     Und die Wirkung selbst, an EINEM Texel: ein neutrales Grau tief im
-    Schattenband. Die Zeile 0,911 / 0,788 / 0,956 muss es dunkler machen
+    Schattenband. Die Zeile 0,912 / 0,793 / 0,956 muss es dunkler machen
     und dabei Grün am stärksten senken — genau das ist die bläuliche
     Schattentönung, um die es geht. Ein Vorzeichenfehler im Offset oder
     ein vertauschter Kanal fällt hier sofort auf.

@@ -498,12 +498,14 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     // dort Tag 0,408 und Abend 0,604, und `elevationFactor` × sunAngle 46
     // ergibt 26,8° — die 27° des Vorbilds auf eine Zehntelstunde genau.
     //
-    // ⚠ NICHT bei 18 h messen. Bei Tagesbruchteil 0,75 sind Tag- UND
-    // Nachtgewicht exakt null (der Tagbogen endet bei 0,75, der Nachtbogen
-    // beginnt dort), und `lightIntensity` zieht ausschliesslich aus diesen
-    // beiden. Am Modul gemessen: sunColor (0,0,0), Intensität 0,000. Das
-    // ist keine Eigenheit dieses Wetters, sondern der Dämmerungs-Nullpunkt
-    // des Keyframe-Modells — er trifft jedes Wetter gleich.
+    // Stand 12.09.2026: Bei Tagesbruchteil 0,75 waren Tag- UND Nachtgewicht
+    // früher exakt null (der Tagbogen endete bei 0,75, der Nachtbogen begann
+    // dort), und `lightIntensity` zog ausschliesslich aus diesen beiden —
+    // gemessen sunColor (0,0,0), Intensität 0,000. Bauer „Tageslauf" hat das
+    // behoben: `tagseitenAnteil`/`elevationFactor` liefern bei 0,75 jetzt
+    // eine durchgehende Kurve statt eines Sprungs. Am Modul gemessen:
+    // `evaluateEnv(klar, 0.75)` liefert Intensität 0,97 und sunColor
+    // (0,98 / 0,772 / 0,538) — 18 h ist damit kein Sonderfall mehr.
     //
     // Herleitung der Abend-Werte aus dem `lighting`-Block von
     // village1.json (Stand main a81cee3). Gesucht ist nicht der
@@ -540,8 +542,10 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     // Klar-Comic: the image-calibrated look weather of stage 2. Hand-tuned,
     // therefore in this table and not in envData.json (which the dump tool
     // rewrites). The profile is an EVENING, met at day fraction 0.7083
-    // (17 h). Do NOT measure at 18 h — day and night weights are both
-    // exactly zero there and the sun goes black.
+    // (17 h). As of 2026-09-12, day fraction 0.75 (18 h) is no longer a
+    // dead zone — builder "Tageslauf" fixed the day/night weight jump;
+    // `evaluateEnv(klar, 0.75)` now returns intensity 0.97 and sunColor
+    // (0.98 / 0.772 / 0.538).
     name: ENV_KLAR_COMIC,
     /*
       ── Klar-Comic trägt seit dem 10.09.2026 die Zahlen des VORBILDS ───

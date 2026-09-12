@@ -208,6 +208,11 @@ const KERN = [
   // und laesst genau 0,000 m Abweichung zu — die Bremse gegen jede
   // Beschleunigung, die die Welt unter den Fuessen des Spielers verschiebt.
   ['shared', 'test/heightmap-determinismus.ts'],
+  // Paket G13: Seit der Gelaendestrom Zonen ZEILENWEISE bauen darf (gegen
+  // den 9-ms-Ruckler je neuer Zone), gibt es zwei Wege zu derselben Zone.
+  // Der Test haelt beide gegeneinander — bitgleich, bei jeder Schrittgroesse
+  // — und prueft, dass eine halbfertige Zone von aussen nie sichtbar wird.
+  ['shared', 'test/heightmap-schrittweise.ts'],
   ['shared', 'test/dungeon-generator.ts'],
   ['shared', 'test/dungeon-raster.ts'],
   // `schliesseOffeneKanten`: Im Modul-Kit ist eine Wand ein EIGENER Raum

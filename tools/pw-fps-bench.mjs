@@ -123,6 +123,17 @@ const START_Z = Number(arg('z', -18723));
 const YAW = Number(arg('yaw', 0));
 /** Feste Tageszeit (0..1). 0.708333 = 17 Uhr — dieselbe Beleuchtung je Lauf. */
 const TIME = arg('t', '0.708333');
+/**
+ * Weitere Adressparameter, wortwoertlich angehaengt (z. B.
+ * `--zusatz '&shadows=off'` oder `&zonen=stueck`).
+ *
+ * Die Diagnoseschalter des Clients stehen in der Adresse und muessen VOR
+ * dem ersten Bild greifen. Ohne diesen Durchlass liesse sich ein
+ * A/B-Vergleich zweier Codestaende nur ueber zwei Serverinstanzen fahren —
+ * und dann misst man deren Unterschiede mit. Landet unveraendert im
+ * Ergebnis (`zusatz`), damit spaeter feststeht, womit eine Zahl entstand.
+ */
+const ZUSATZ = arg('zusatz', '');
 /** Spielername fuer die Messung — bewusst NICHT ein echter Spielername. */
 const SPIELER = arg('spieler', `BenchBot${Date.now().toString(36).slice(-4)}`);
 /** Notbremse gegen endloses Laufen (Wand, Wasser, Kollisionsfalle). */
@@ -188,7 +199,7 @@ console.log(`[bench] ${LABEL} -> ${URL_ZIEL}`);
 // erst nach dem ersten Laden gesetzt wird, greift nicht rechtzeitig.)
 await page.addInitScript(([t]) => localStorage.setItem('wov-session-token', t), [testToken()]);
 
-await page.goto(`${URL_ZIEL}/?name=${SPIELER}&t=${TIME}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+await page.goto(`${URL_ZIEL}/?name=${SPIELER}&t=${TIME}${ZUSATZ}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
 // ── GPU pruefen, bevor irgendetwas gemessen wird ──────────────────────
 const gpu = await page.evaluate(() => {
@@ -448,6 +459,7 @@ const ergebnis = {
   gpu: gpu.renderer,
   aufloesung: '1600x900',
   uhrzeit: TIME,
+  zusatz: ZUSATZ,
   messort: { x: START_X, z: START_Z, yaw: YAW },
   endPosition: roh.endPos,
   strecke: { angefordert: STRECKE, gelaufen: +strecke.toFixed(1), dauerS: +dauerSprintS.toFixed(1), laeufe: LAEUFE, vorlauf: VORLAUF },
@@ -496,5 +508,5 @@ console.log(`  aktive Meshes           : ${ergebnis.aktiveMeshes} von ${ergebnis
 console.log(`  Materialien             : ${ergebnis.materialien}`);
 console.log(`  Schattenwerfer          : ${ergebnis.schattenwerfer} x ${ergebnis.schattenKaskaden} Kaskaden`);
 console.log(`  Teilsysteme (avg/max ms je Bild): ${JSON.stringify(teilsysteme)}`);
-console.log(`  Commit ${ergebnis.commit} | GPU ${ergebnis.gpu} | ${ergebnis.aufloesung} | t=${TIME}`);
+console.log(`  Commit ${ergebnis.commit} | GPU ${ergebnis.gpu} | ${ergebnis.aufloesung} | t=${TIME}${ZUSATZ ? ` | zusatz ${ZUSATZ}` : ''}`);
 console.log(`  -> ${OUT}`);

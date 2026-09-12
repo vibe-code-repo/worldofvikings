@@ -154,6 +154,27 @@ let uferUndTiefeTeilenBudget = true;
 export function budgetSchalter(an: boolean): void {
   uferUndTiefeTeilenBudget = an;
 }
+
+/**
+ * A/B-Schalter für die zeilenweise Zonenerzeugung (Paket G13).
+ *
+ * `true` (neu, Vorgabe): Zonen entstehen budgetiert in Zeilenpaketen, und
+ * die Nachbarzonen eines Chunks werden vorab geholt. `false`: der alte
+ * Weg — ganze Zone am Stück, Nachbarn erst beim ersten Randvertex.
+ *
+ * Aus demselben Grund vorhanden wie `budgetSchalter`: Auf dieser Maschine
+ * schwankt dieselbe Messung zwischen zwei Sitzungen um mehr, als der
+ * gesuchte Unterschied gross ist. Nur verschränkt in EINER Sitzung
+ * gemessen ist der Vergleich etwas wert. NUR ZUM MESSEN.
+ */
+let zonenSchrittweise = true;
+export function zonenSchrittweiseSchalter(an: boolean): void {
+  zonenSchrittweise = an;
+}
+/** Der Stand des Schalters — die Tiefenkarte holt Zonen auf demselben Weg. */
+export function zonenSchrittweiseAktiv(): boolean {
+  return zonenSchrittweise;
+}
 /** Fenster für einen Posten, der den Schalter beachtet. */
 function eigenesOderGeteiltes(budget: TerrainBudget): TerrainBudget {
   return uferUndTiefeTeilenBudget
@@ -421,8 +442,23 @@ interface TeilBau {
    * unauffälliger, weil sie in `gitterbau` landet statt in
    * `zonenRaster`. Gemessen am 21.08.2026: Zeilenpakete bis 16,5 ms,
    * obwohl vier Zeilen rund 1 ms kosten.
+   *
+   * Seit Paket G13 werden sie nicht mehr beim ersten Randvertex nachgeholt,
+   * sondern VORAB und budgetiert über `zonenPlan` gefüllt — sonst entsteht
+   * eine noch unbekannte Nachbarzone weiterhin am Stück mitten im
+   * Zeilenpaket (gemessen: `gitterbau` 14,2 ms).
    */
   nachbarn: Map<string, Heightmap>;
+  /**
+   * Alle Zonen, die dieser Chunk braucht, in Arbeitsreihenfolge: zuerst
+   * die eigenen (Gitterreihenfolge, sie landen in `hms`), dann die
+   * orthogonalen Nachbarn (sie landen in `nachbarn`).
+   *
+   * Ein Plan statt zweier Schleifen, weil beide Gruppen dasselbe Zeitfenster
+   * teilen und der Fortschritt über Bilder hinweg mit EINEM Zähler
+   * (`zonen`) festgehalten werden muss.
+   */
+  zonenPlan: ReadonlyArray<readonly [number, number]>;
 }
 
 /**
@@ -432,6 +468,17 @@ interface TeilBau {
  * nicht mehr kostet als die Arbeit.
  */
 const ZEILEN_JE_SCHRITT = 4;
+
+/**
+ * Vertexzeilen einer ZONENERZEUGUNG je Schritt (Paket G13).
+ *
+ * Eine ganze Zone sind 65 Zeilen und rund 9 ms; 8 Zeilen sind gut 1 ms —
+ * dieselbe Körnung wie beim Gitterbau, fein genug fürs 4-ms-Fenster und
+ * grob genug, dass die Budgetprüfung nicht mehr kostet als die Arbeit.
+ * Nicht feiner: Jeder Schritt hat einen festen Aufwand (Fachprüfung,
+ * Kartenzugriff), und der ist bei 65 Einzelzeilen spürbar.
+ */
+const ZONEN_ZEILEN_JE_SCHRITT = 8;
 
 interface Chunk {
   mesh: Mesh;
@@ -1029,6 +1076,12 @@ export class TerrainManager {
                 !this.buildQueue.some(([qx, qy]) => qx === zx && qy === zy)
               ) {
                 this.buildQueue.push([zx, zy]);
+                // Wartezeit-Zeuge (Paket G13): Arbeit ueber mehr Bilder zu
+                // verteilen ist nur dann ein Gewinn, wenn die Zelle nicht
+                // spuerbar spaeter da ist. Ohne diesen Zeitstempel liesse
+                // sich „keine Loecher" nur behaupten. Kostet einen
+                // Map-Eintrag je Chunk, nicht je Bild.
+                if (!this.wartetSeit.has(key)) this.wartetSeit.set(key, performance.now());
               }
             }
           }
@@ -1054,6 +1107,18 @@ export class TerrainManager {
           ) {
             chunk.mesh.dispose();
             this.chunks.delete(key);
+          }
+        }
+        // Wartezeit-Zeuge aufraeumen: Eine eingereihte Zone, die nie
+        // gebaut wurde (weil der Ring weitergezogen ist), haette ihren
+        // Zeitstempel sonst fuer immer behalten — und die Karte waechst
+        // dann ueber einen langen Lauf mit.
+        for (const key of this.wartetSeit.keys()) {
+          const komma = key.indexOf(',');
+          const zx = Number(key.slice(0, komma));
+          const zy = Number(key.slice(komma + 1));
+          if (Math.max(Math.abs(zx - cz), Math.abs(zy - cw)) > this.viewRadius + 1) {
+            this.wartetSeit.delete(key);
           }
         }
       });
@@ -1685,27 +1750,52 @@ export class TerrainManager {
     const tb = this.teilBau;
     if (!tb) return false;
 
-    // Schritt 1..z: Weltgenerierung, EINE Zone je Schritt. Nicht weiter
-    // teilbar — `getZone()` rechnet eine ganze Zone (65×65
-    // Rauschauswertungen) oder gar nichts, gemessene 12–17 ms. Ein
-    // Fern-Chunk deckt 2×2 Zonen ab; die alle vier in einem Frame zu
-    // erzeugen war der teuerste Einzelposten überhaupt.
-    const gesamtZonen = tb.zonesPerSide * tb.zonesPerSide;
-    if (tb.zonen < gesamtZonen) {
-      // Mehrere Zonen je Frame, solange das Fenster offen ist: Eine
-      // bereits erzeugte Zone kostet nichts (Cache-Treffer), und ein
-      // Fern-Chunk deckt vier ab. Ist eine wirklich neu, sprengt sie das
-      // Fenster und die Schleife endet nach genau dieser einen.
+    // Schritt 1..z: Weltgenerierung.
+    //
+    // Hier stand bis Paket G13 „EINE Zone je Schritt, nicht weiter
+    // teilbar". Das stimmte — und war der Grund, warum das 4-ms-Fenster
+    // nie hielt: Eine Zonenerzeugung kostet rund 9 ms am Stück, und
+    // `budgetOffen()` liess sie über die „mindestens eins"-Ausnahme durch.
+    // Seit `zoneSchrittweise()` entsteht eine Zone ZEILENWEISE, und das
+    // Fenster gilt auch für sie. Gemessen (Bildprotokoll, 200 m Sprint):
+    // Bilder mit einer Zonenerzeugung lagen bei 33,8 ms gegen 24,0 ms
+    // ohne — die Zonenerzeugung war der einzige Posten, der in JEDEM
+    // terrainlastigen Ruckler auftauchte.
+    //
+    // MIT DEN NACHBARZONEN ZUSAMMEN, und das ist kein Beiwerk: Die
+    // Normalen an den Chunkrändern lesen über die Zonengrenze (s.
+    // `heightAcrossZones`). Wurde die Nachbarzone dort zum ersten Mal
+    // angefasst, entstand sie MITTEN im Zeilenpaket — in der Messung ein
+    // `gitterbau` von 14,2 ms, wo vier Zeilen rund 1 ms kosten sollen.
+    // Werden die Nachbarn hier vorab und budgetiert geholt, findet
+    // `heightAcrossZones` sie fertig vor und rechnet nie selbst.
+    const eigeneZonen = tb.zonesPerSide * tb.zonesPerSide;
+    const zonenZiel = zonenSchrittweise ? tb.zonenPlan.length : eigeneZonen;
+    if (tb.zonen < zonenZiel) {
+      let weiter = true;
       misst('terrain.zonenRaster', () => {
-        while (tb.zonen < gesamtZonen && budgetOffen(budget)) {
-          const dz = Math.floor(tb.zonen / tb.zonesPerSide);
-          const dx = tb.zonen % tb.zonesPerSide;
-          tb.hms.push(this.world.heightmaps.getZone(tb.zoneX + dx, tb.zoneY + dz));
-          tb.zonen++;
+        while (tb.zonen < zonenZiel && budgetOffen(budget)) {
+          const [zx, zy] = tb.zonenPlan[tb.zonen]!;
+          if (!zonenSchrittweise) {
+            // Alter Weg (nur für den A/B-Vergleich): ganze Zone am Stück,
+            // Nachbarn erst beim ersten Randvertex im Zeilenpaket.
+            tb.hms.push(this.world.heightmaps.getZone(zx, zy));
+            tb.zonen++;
+            budget.gebaut = true;
+            continue;
+          }
+          const hm = this.world.heightmaps.zoneSchrittweise(zx, zy, ZONEN_ZEILEN_JE_SCHRITT);
           budget.gebaut = true;
+          if (hm === null) return; // noch nicht fertig — im nächsten Bild weiter
+          // Die ersten `zonesPerSide²` Einträge des Plans sind die eigenen
+          // Zonen (in Gitterreihenfolge), der Rest sind Nachbarn.
+          if (tb.zonen < eigeneZonen) tb.hms.push(hm);
+          else tb.nachbarn.set(`${zx},${zy}`, hm);
+          tb.zonen++;
         }
+        if (tb.zonen >= zonenZiel) weiter = false;
       });
-      return true;
+      if (weiter) return true;
     }
 
     // Schritt z+1..k: Vertexzeilen in Paketen.
@@ -1729,6 +1819,36 @@ export class TerrainManager {
     return false;
   }
 
+  /**
+   * Die Zonen eines Chunks in Arbeitsreihenfolge — s. `TeilBau.zonenPlan`.
+   *
+   * Zuerst die eigenen `zonesPerSide²` (Gitterreihenfolge, wie `hms` sie
+   * erwartet), dann die ORTHOGONALEN Nachbarn ringsum: vier bei einem
+   * Nah-Chunk, acht bei einem Fern-Chunk. Keine Diagonalen — die zentrale
+   * Differenz versetzt nie rx UND ry zugleich, eine Eckzone wird also nie
+   * gelesen (s. `TeilBau.nachbarn`).
+   *
+   * The zones a chunk needs, in work order: its own ones first, then the
+   * orthogonal neighbours the edge normals read across. No diagonals.
+   */
+  private static zonenPlan(
+    zoneX: number,
+    zoneY: number,
+    zonesPerSide: number
+  ): ReadonlyArray<readonly [number, number]> {
+    const plan: Array<readonly [number, number]> = [];
+    for (let dz = 0; dz < zonesPerSide; dz++) {
+      for (let dx = 0; dx < zonesPerSide; dx++) plan.push([zoneX + dx, zoneY + dz]);
+    }
+    for (let d = 0; d < zonesPerSide; d++) {
+      plan.push([zoneX + d, zoneY - 1]);
+      plan.push([zoneX + d, zoneY + zonesPerSide]);
+      plan.push([zoneX - 1, zoneY + d]);
+      plan.push([zoneX + zonesPerSide, zoneY + d]);
+    }
+    return plan;
+  }
+
   /** Einen Teilbau anlegen — Puffer belegen, Zähler auf Null. */
   private static teilBauBeginnen(
     zoneX: number,
@@ -1748,6 +1868,7 @@ export class TerrainManager {
       n,
       fern,
       daten: TerrainManager.leererGitterPuffer(n * n, n),
+      zonenPlan: TerrainManager.zonenPlan(zoneX, zoneY, zonesPerSide),
       zeile: 0,
       zonen: 0,
       hms: [],
@@ -1825,6 +1946,16 @@ export class TerrainManager {
     // wiederverwendet, ein ungeschriebener Slot trüge noch die Maske der
     // vorherigen Zone.
     this.splat.uploadMaskTile(zoneX, zoneY, this.world.heightmaps.getTerrainComp(zoneX, zoneY)?.paintMask ?? null);
+
+    // Wartezeit-Zeuge (s. `wartezeit()`): jetzt steht das Mesh.
+    const seit = this.wartetSeit.get(`${zoneX},${zoneY}`);
+    if (seit !== undefined) {
+      const dauer = performance.now() - seit;
+      this.wartetSeit.delete(`${zoneX},${zoneY}`);
+      this.wartestatistik.n++;
+      this.wartestatistik.summe += dauer;
+      if (dauer > this.wartestatistik.max) this.wartestatistik.max = dauer;
+    }
 
     this.chunks.set(`${zoneX},${zoneY}`, {
       mesh,
@@ -1994,6 +2125,34 @@ export class TerrainManager {
     mesh.freezeWorldMatrix();
 
     this.farChunks.set(`${fx},${fy}`, { mesh, fx, fy });
+  }
+
+  /**
+   * Wann wurde ein Nah-Chunk eingereiht? Schluessel wie in `chunks`.
+   * Diagnose fuer `wartezeit` — der Eintrag verschwindet, sobald der
+   * Chunk steht.
+   */
+  private readonly wartetSeit = new Map<string, number>();
+  /** Ausgewertete Wartezeiten seit dem letzten Auslesen (s. `wartezeit`). */
+  private wartestatistik = { n: 0, summe: 0, max: 0 };
+
+  /**
+   * Wie lange hat eine Gelaendezelle vom Einreihen bis zum fertigen Mesh
+   * gebraucht? Auslesen UND zuruecksetzen.
+   *
+   * DER GEGENZEUGE zur Verteilung ueber mehrere Bilder: Eine Zelle, die
+   * eine halbe Sekunde spaeter erscheint, ist kein Gewinn, sondern ein
+   * anderer Fehler. `max` ist die Zahl, die das entscheidet.
+   */
+  wartezeit(): { n: number; mittelMs: number; maxMs: number } {
+    const w = this.wartestatistik;
+    const raus = {
+      n: w.n,
+      mittelMs: w.n > 0 ? +(w.summe / w.n).toFixed(1) : 0,
+      maxMs: +w.max.toFixed(1),
+    };
+    this.wartestatistik = { n: 0, summe: 0, max: 0 };
+    return raus;
   }
 
   get chunkCount(): number {

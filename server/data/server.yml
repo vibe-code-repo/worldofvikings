@@ -304,32 +304,23 @@ look:
   # Vegetation das Bild uebernimmt. Das ist der eine Punkt dieser Runde,
   # den keine Zahl entscheidet — er braucht eine Sichtprobe.
   kontrast: 1.0
-  # ── Saettigung 1,12 → 0,45 ───────────────────────────────────────────
+  # ── Saettigung 1,12 → 0,45 → 0,65 ────────────────────────────────────
   # Das Vorbild hat KEINEN Saettigungsregler (§E, F2), und die 1,12 war
   # der Ausgleich fuer `kontrast 0,84` — faellt der Kontrast weg, faellt
-  # sein Ausgleich mit. Die 0,45 ist trotzdem keine Rueckkehr zur alten
-  # Labor-Erfindung, sondern die Korrektur fuer eine EIGENSCHAFT des
-  # Neutral-Mappers: Er zieht `min(r,g,b) − 6,25·min²` von allen drei
+  # sein Ausgleich mit. Was hier steht, ist trotzdem keine Rueckkehr zur
+  # alten Labor-Erfindung, sondern die Korrektur fuer eine EIGENSCHAFT
+  # des Neutral-Mappers: Er zieht `min(r,g,b) − 6,25·min²` von allen drei
   # Kanaelen ab, und auf unserem dunklen Wiesengrund bleibt davon fast
-  # nichts vom Blaukanal uebrig. ROH steht die Saettigung dort dann auf
-  # 0,916 — mehr als das Doppelte des Zielbands.
+  # nichts vom Blaukanal uebrig. ROH stuende die Saettigung dort auf
+  # 0,905 — mehr als das Doppelte des Wiesenbands.
   #
-  #   saettigung     0,35   0,40   0,45   0,50   0,55   0,60   0,70   1,00
-  #   Wiesengrund S 0,367  0,414  0,461  0,507  0,552  0,596  0,681  0,916
-  #   Bild-S        0,188  0,211  0,235  0,258  0,281  0,303  0,347  0,467
-  #
-  # 0,45 trifft das Zielband des Wiesengrunds (0,42–0,47) und hebt die
-  # Bildsaettigung gegenueber Runde 1 trotzdem (0,221 → 0,235 hier,
-  # 0,149 → 0,226 am `steinkreis`).
-  #
-  # Die zweite Zielzahl — Bild-Saettigung am `steinkreis` ≥ 0,30 —
-  # erreicht sie NICHT; dafuer braeuchte es rund 0,65, und dort steht der
-  # Wiesengrund dann auf S 0,652 statt 0,461. EIN globaler Faktor kann
-  # nur eines von beiden. Gewaehlt ist das Band, das Gleiches mit
-  # Gleichem vergleicht (dasselbe Rechteck im Referenzbild); was die
-  # Bildsaettigung am `steinkreis` drueckt, ist der grosse, fast graue
-  # Himmel — kein Fall fuer einen Saettigungsregler.
-  saettigung: 0.45
+  # Die 0,45 war auf DIESES Band gestellt und liess dabei die
+  # SPIELERFIGUR ausbluten (Figur-S 0,235 am `weitblick`). Warum jetzt
+  # 0,65 dasteht, welche sechs Werte dafuer gemessen wurden und warum
+  # kein Wert beides zugleich kann, steht bei `saettigung` in
+  # `shared/src/lookProfil.ts` — hier stuende sonst dieselbe Herleitung
+  # ein zweites Mal, und die zweite ist die, die veraltet.
+  saettigung: 0.65
   # ── Nebel: linear 15 → 200 m ─────────────────────────────────────────
   # `m_FogMode = 1` (Linear), `m_LinearFogStart` 15, `m_LinearFogEnd` 200
   # (§D). Im Linear-Modus liest niemand `fogDensity` — auch das Vorbild

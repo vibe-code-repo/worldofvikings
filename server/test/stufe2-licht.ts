@@ -732,16 +732,31 @@ function vorgabeDecktServerYml(): void {
     Die Saettigung ist die EINZIGE Zahl dieser Runde, die kleiner als
     neutral bleibt, und sie hat einen anderen Grund als die alte 1,12:
     Der Neutral-Mapper zieht `min(r,g,b)` ab und treibt die gemessene
-    Saettigung des Wiesengrunds roh auf 0,916 — mehr als das Doppelte
-    des Zielbands 0,42–0,47. Die 0,45 holt sie auf 0,461 zurueck.
+    Saettigung des Wiesengrunds roh auf 0,905 — mehr als das Doppelte
+    des Wiesenbands. Die 0,65 holt sie auf 0,632 zurueck.
 
     Zugesagt wird deshalb die KOPPLUNG: ein Saettigungsregler unter 1
     ist nur zulaessig, solange ein Tonemapper laeuft. Ohne Kurve waere
     er wieder die Erfindung, die Runde 1 zu Recht abgeschafft hat.
   */
   ok(
-    LOOK_VORGABE.saettigung === 0.45 && LOOK_VORGABE.tonemapping !== 'aus',
-    `Saettigung 0,45 als Korrektur zum Tonemapper, nicht als Erfindung: ${LOOK_VORGABE.saettigung} bei tonemapping ${LOOK_VORGABE.tonemapping}`
+    LOOK_VORGABE.saettigung === 0.65 && LOOK_VORGABE.tonemapping !== 'aus',
+    `Saettigung 0,65 als Korrektur zum Tonemapper, nicht als Erfindung: ${LOOK_VORGABE.saettigung} bei tonemapping ${LOOK_VORGABE.tonemapping}`
+  );
+  /*
+    Die UNTERE Schranke, und sie steht hier, weil ihr Bruch kein Symptom
+    hat: Ein Regler, der auf die WIESE gestellt wird, kann dabei die
+    SPIELERFIGUR ausbluten lassen — bei 0,45 stand ihre Saettigung am
+    `weitblick` auf 0,235, und eine weisse Figur ist die eine Sache, die
+    Mike an diesem Bild schon einmal beanstandet hat (`bb508b6`). Der
+    Zusammenhang ist gemessen: die Figur steigt mit rund 0,41 je
+    Reglerpunkt, 0,30 an der schlechteren der beiden Posen verlangt also
+    mindestens 0,607. Zugesagt wird die 0,60 — die Schranke selbst, ohne
+    die Stelle, an der die naechste Runde arbeiten darf.
+  */
+  ok(
+    LOOK_VORGABE.saettigung >= 0.6,
+    `Saettigung nicht unter 0,60 — darunter blutet die Spielerfigur aus: ${LOOK_VORGABE.saettigung}`
   );
   ok(LOOK_VORGABE.nebelStart === 50, `Nebelstart 50 m (war 15, Runde 2): ${LOOK_VORGABE.nebelStart}`);
   ok(LOOK_VORGABE.nebelEnde === 800, `Nebelende 800 m (war 200, Entscheidung E3): ${LOOK_VORGABE.nebelEnde}`);

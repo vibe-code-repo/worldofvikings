@@ -110,13 +110,18 @@
  * 0,440 → 0,916. Unvollständig war nur der Schluss — die Reihe lief
  * OHNE Nachziehen von Sättigung und Belichtung.
  *
- * Mit `saettigung 0,45` steht dasselbe Rechteck auf 0,461 und damit im
+ * Mit `saettigung 0,45` stand dasselbe Rechteck auf 0,461 und damit im
  * Zielband 0,42–0,47, während die Bildsättigung gegenüber Runde 1
- * trotzdem steigt (0,221 → 0,235; am `steinkreis` 0,149 → 0,226) und
- * der Bildkontrast von 3,03 auf 4,52 geht (am `steinkreis` 3,39 → 5,79,
+ * trotzdem stieg (0,221 → 0,235; am `steinkreis` 0,149 → 0,226) und
+ * der Bildkontrast von 3,03 auf 4,52 ging (am `steinkreis` 3,39 → 5,79,
  * ins Zielband). Der Preis steht in `shared/src/lookProfil.ts`:
  * `Ferne/Himmel` fällt von 0,563 auf 0,383, weil die Kurve die dunkle
  * Ferne härter trifft als den hellen Himmel.
+ *
+ * Ausgeliefert wird seit dem 12.09.2026 trotzdem 0,65 und nicht 0,45:
+ * Das Wiesenband war auf EINE Fläche gestellt und liess die
+ * Spielerfigur ausbluten. Die Messreihe dazu steht bei `saettigung` in
+ * `shared/src/lookProfil.ts`.
  *
  * `aces` bleibt weiter weg und bleibt eine Zeile in `server.yml`
  * entfernt: Bei Belichtung 2,0 steht dort Himmel/Grund auf 6,55, bei

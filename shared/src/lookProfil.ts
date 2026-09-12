@@ -191,7 +191,7 @@ export interface LookProfil {
   belichtung: number;
   kontrast: number;
   /**
-   * Sättigung als FAKTOR: 1 = unverändert, 0,45 = der ausgelieferte Wert.
+   * Sättigung als FAKTOR: 1 = unverändert, 0,65 = der ausgelieferte Wert.
    *
    * Bewusst der Faktor und nicht Babylons Reglerwert. `ColorCurves`
    * führt die Sättigung auf einer Skala von −100 bis +100 mit 0 als
@@ -254,7 +254,11 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
  * 2048/120 m/0,42). Vier Zahlen weichen ab, und jede Abweichung ist
  * gemessen statt gewählt:
  *
- *  · `tonemapping: neutral` mit `saettigung 0,45` statt ACES mit 0,68.
+ *  · `tonemapping: neutral` mit einem Sättigungsfaktor unter 1 statt
+ *    ACES mit 0,68. (Der Faktor selbst steht seit dem 12.09.2026 auf
+ *    0,65; die Reihe unten ist mit 0,45 gemessen und bleibt als
+ *    Tonemapper-Vergleich gültig — verglichen werden dort die KURVEN,
+ *    bei jeweils gleichem Regler.)
  *
  *    ── Das ist die eine Stelle, an der die Vorlage NICHT überträgt ───
  *    Gemessen am Referenzort (10077/−18723, Klar-Comic, Tagesbruchteil
@@ -398,6 +402,12 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
       Bild-Saettigung    0,167   0,220    ≥ 0,30     offen
       Bildkontrast        3,14    5,18    5–6        getroffen
 
+  Die eine Zeile, die hier „offen" steht, hat sich am selben Tag noch
+  geschlossen: Mit `saettigung 0,65` (statt der 0,45, mit der diese
+  Spalte gemessen ist) steht die Bild-Saettigung am `steinkreis` auf
+  0,311. Die Herleitung dieser 0,65 steht unten am Feld selbst — sie
+  kommt NICHT von dieser Zeile, sondern von der Spielerfigur.
+
   Der Befund dreht sich damit an zwei Stellen um: `Ferne/Himmel` ist
   keine verfehlte Zeile mehr (die fehlenden Altbestandsbaeume hatten die
   Ferne leer gelassen), und die Grundhelligkeit ist keine Luecke von 14
@@ -511,33 +521,73 @@ export const LOOK_VORGABE: LookProfil = {
   */
   kontrast: 1.0,
   /*
-    0,45 ist KEINE Rueckkehr zur alten Labor-Erfindung, sondern die
-    Korrektur fuer eine gemessene Eigenschaft des Neutral-Mappers: Er
-    zieht `min(r,g,b) − 6,25·min²` von allen drei Kanaelen ab, und auf
-    unserem dunklen Wiesengrund bleibt davon fast nichts vom Blaukanal
-    uebrig. ROH steigt die Saettigung des Rechtecks `vordergrund_gras`
-    dadurch auf 0,916 — mehr als das Doppelte des Zielbands.
+    Der Regler ist KEINE Labor-Erfindung, sondern die Korrektur fuer eine
+    gemessene Eigenschaft des Neutral-Mappers: Er zieht
+    `min(r,g,b) − 6,25·min²` von allen drei Kanaelen ab, und auf unserem
+    dunklen Wiesengrund bleibt davon fast nichts vom Blaukanal uebrig.
+    ROH (Regler auf 1,0) steht die Saettigung des Wiesengrunds bei 0,905
+    — mehr als das Doppelte des Wiesenbands.
 
-    Gemessen (weitblick 12:00, Belichtung 1,6315, Nebelstart 50):
+    ── Warum 0,45 wieder weggeht (12.09.2026) ─────────────────────────
+    Die 0,45 war auf EINE Groesse gestellt, den Wiesengrund, und hat den
+    Rest des Bildes mitgenommen. Am staerksten die SPIELERFIGUR: Sie ist
+    zu grossen Teilen Haut, und Haut ist ein schwach gesaettigter
+    Orangeton — was der Regler von ihr abzieht, fehlt sofort. Mike hat
+    sich ueber eine weisse Figur schon einmal beschwert (`bb508b6
+    Player: tint the Viking's atlas so the figure stops rendering
+    white`); mit 0,45 stand sie wieder da.
 
-      saettigung     0,35   0,40   0,45   0,50   0,55   0,60   0,70   1,00
-      Wiesengrund S 0,367  0,414  0,461  0,507  0,552  0,596  0,681  0,916
-      Bild-S        0,188  0,211  0,235  0,258  0,281  0,303  0,347  0,467
+    Gemessen am WIKINGER-Modell (nicht an der prozeduralen Kapselfigur,
+    s. unten), sechs Werte in EINER Sitzung je Pose, dieselbe Kamera,
+    dieselbe Uhr, dieselben Masken:
 
-    0,45 trifft das Zielband des Wiesengrunds (0,42–0,47) und hebt die
-    Bildsaettigung gegenueber Runde 1 trotzdem (0,221 → 0,235 hier,
-    0,149 → 0,226 am `steinkreis`).
+                        weitblick 12:00          steinkreis 18:18
+      saettigung    Figur-S  Wiese-S  Bild-S   Figur-S  Wiese-S  Bild-S
+        0,45         0,235    0,457   0,240     0,262    0,409   0,222
+        0,61         0,305    0,599   0,317     0,336    0,540   0,293
+        0,65         0,321    0,632   0,336     0,353    0,572   0,311
+        0,70         0,338    0,674   0,360     0,373    0,610   0,333
+        0,80         0,376    0,754   0,405     0,412    0,687   0,377
+        0,90         0,408    0,831   0,451     0,457    0,761   0,418
+        1,00         0,442    0,905   0,494     0,494    0,834   0,461
+      (Wiese-S = Store-Schicht `grass-a` auf der Schichtmaske; Clipping
+      steht bei JEDEM Wert und beiden Posen auf 0,00 %.)
 
-    Die zweite Zielzahl — Bild-Saettigung am `steinkreis` ≥ 0,30 —
-    erreicht sie NICHT; dafuer braeuchte es rund 0,65, und dort steht
-    der Wiesengrund dann auf S 0,652 statt 0,461. EIN globaler Faktor
-    kann nur eines von beiden. Gewaehlt ist das Band, das GLEICHES mit
-    GLEICHEM vergleicht (dasselbe Rechteck im Referenzbild); die
-    Bildsaettigung ist ein Mittel ueber alles, und was sie am
-    `steinkreis` drueckt, ist der grosse, fast graue Himmel — kein Fall
-    fuer einen Saettigungsregler.
+    ── Warum kein Wert beides kann ────────────────────────────────────
+    Die Figur steigt mit rund 0,41 Saettigung je Reglerpunkt, die Wiese
+    mit rund 0,80 — fast doppelt so schnell. Die beiden Zusagen
+    „Figur-S ≥ 0,30 an beiden Posen" und „Wiese-S ≤ 0,60" gelten
+    deshalb nur gemeinsam im Fenster 0,607–0,612; nachgemessen bei 0,61
+    steht die Figur auf 0,305 (Abstand 0,005) und die Wiese auf 0,599
+    (Abstand 0,001). Das ist kein Zielwert, das ist ein Zufall auf der
+    dritten Stelle — zumal die Wiesengrenze selbst geschaetzt ist
+    (Village1-Dorfbild, hell gelbgruen, S 0,45–0,55). Ein Wert, dessen
+    Einhaltung an 0,001 haengt, faellt beim naechsten Hebel um.
+
+    ── Warum 0,65 ────────────────────────────────────────────────────
+    Die Figur geht vor der Wiese, also wird der KLEINSTE Wert genommen,
+    der ihr echten Abstand laesst: 0,321 / 0,353 sind rund das
+    Zehnfache der Wiederholgenauigkeit (±0,002, nachgewiesen dadurch,
+    dass der Anker 0,45 in zwei unabhaengigen Sitzungen mit
+    verschiedenen Masken auf die dritte Stelle gleich blieb). Die Wiese
+    steht dafuer am `weitblick` auf 0,632 statt 0,60 und am
+    `steinkreis` mit 0,572 INNERHALB der Grenze — weit weg von den
+    0,905 des unkorrigierten Mappers.
+
+    0,65 loest ausserdem die zweite Zielzahl ein, die 0,45 verfehlte:
+    Bild-Saettigung am `steinkreis` ≥ 0,30 (gemessen 0,311).
+
+    ── Eine Falle beim Nachmessen ─────────────────────────────────────
+    `assets/models/wikinger/WikingerKoerper.glb` fehlt im gemeinsamen
+    Asset-Speicher. `AvatarRig.ladeModell` faengt den Ausfall ab und
+    laesst die PROZEDURALE Kapselfigur stehen — cremefarbene Kapseln mit
+    Material `avatar_skin`, die ohne Fehlermeldung rendern. Auf ihnen
+    misst sich dieselbe Reihe rund 0,02 zu NIEDRIG (bei 0,45: 0,212 an
+    den Kapseln, 0,235 am Modell). Wer die Figur nachmisst, prueft
+    zuerst, dass unter `player.avatar.root` Meshes mit dem Material
+    `WoV_Original_Atlas` sichtbar sind.
   */
-  saettigung: 0.45,
+  saettigung: 0.65,
   nebelmodus: 'linear',
   /*
     ── Nebelstart 15 → 50 m ───────────────────────────────────────────

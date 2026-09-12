@@ -43,6 +43,18 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: '/assets/ (Webseite: Schriften/Bilder, VOR den Spiel-Assets)', muster: /location\s+\/assets\/\s*\{[^}]*wov-web\/build\/assets\/[^}]*\}/ },
   { weg: '@spiel-assets (Fallback: Modelle/Texturen/Audio)', muster: /location\s+@spiel-assets\s*\{[^}]*\/opt\/worldofvikings\/assets\/[^}]*\}/ },
   { weg: '/ws (Spielserver-WebSocket)', muster: /location\s+\/ws\s*\{/ },
+  /*
+    Seit `world-of-vikings.com` ohne Basic-Auth auf diesen Container zeigt
+    (12.09.2026), haengt an drei Bloecken ein Riegel gegen den
+    oeffentlichen Namen. Er ist nicht zu sehen, wenn er wirkt — deshalb
+    steht er hier: Faellt der Schalter beim naechsten Umbau weg, liegt der
+    Betriebsdienst mit beigelegtem Admin-Token offen im Netz.
+  */
+  { weg: 'Schalter $oeffentlich wird gesetzt', muster: /set\s+\$oeffentlich\s+0;/ },
+  { weg: 'Schalter erkennt world-of-vikings.com', muster: /if\s*\(\$host[\s\S]{0,80}?world-of-vikings/ },
+  { weg: '/api/ (Betriebsdienst) ist unter dem oeffentlichen Namen dicht', muster: /location\s+\/api\/\s*\{[^}]*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
+  { weg: '/editor/ ist unter dem oeffentlichen Namen dicht', muster: /location\s+=\s*\/editor\/\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
+  { weg: '/editor (ohne Schraegstrich) ebenso', muster: /location\s+=\s*\/editor\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
 ];
 
 function main(): void {

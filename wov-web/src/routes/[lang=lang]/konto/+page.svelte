@@ -16,11 +16,11 @@
     clearAllTokens,
     clearToken,
     deleteCharacter,
+    enterGame,
     errorMessageKey,
     isLoggedOut,
     me,
     play,
-    playUrl,
     readShore,
     readToken,
     signedInShore,
@@ -166,9 +166,11 @@
     busy = c.id;
     try {
       const ticket = await play(shore, token, c.id);
-      // The credential travels in the address fragment, never as a
-      // parameter — the reasoning is at `playUrl` in `$lib/account.ts`.
-      location.href = playUrl(shore, ticket.sessionToken, lang);
+      // Same origin: straight into localStorage, no address-bar fragment.
+      // Different origins: unchanged fragment handoff. See `enterGame` in
+      // `$lib/account.ts`. `weiter` came from `/anmelden`, forwarded here
+      // through the address, and is only honoured same-origin.
+      enterGame(shore, ticket.sessionToken, lang, undefined, page.url.searchParams.get('weiter'));
     } catch (err) {
       busy = null;
       if (isLoggedOut(err)) return toLogin();

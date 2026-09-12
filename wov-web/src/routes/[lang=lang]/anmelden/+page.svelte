@@ -50,6 +50,20 @@
    */
   const expired = $derived(browser && page.url.searchParams.get('abgelaufen') === '1');
 
+  /**
+   * Where to send the visitor after signing in, on top of the usual
+   * `/konto` or `/erstellen` choice below.
+   *
+   * `client/src/main.ts` appends this when it sends a visitor here for the
+   * first time (same-origin install, no session yet) so that the merged
+   * origin can return them to the game instead of stranding them on the
+   * account page. Carried forward as a query parameter rather than acted
+   * on here: only `enterGame` (`$lib/account.ts`) knows whether this
+   * shore is even the same origin, and only it validates the value before
+   * using it.
+   */
+  const weiter = $derived(browser ? page.url.searchParams.get('weiter') : null);
+
   let ready = $state(false);
   let running = $state(false);
 
@@ -92,7 +106,8 @@
         to create one. Whoever has some wants to choose. The sign-in answer
         already says both — a second call would be nothing but waiting time.
       */
-      await goto(localizedPath(lang, answer.characters.length ? '/konto' : '/erstellen'));
+      const ziel = localizedPath(lang, answer.characters.length ? '/konto' : '/erstellen');
+      await goto(weiter ? `${ziel}?weiter=${encodeURIComponent(weiter)}` : ziel);
     } catch (err) {
       error = err instanceof ApiError ? errorMessageKey(err.key) : 'account.error.unexpected';
       running = false;

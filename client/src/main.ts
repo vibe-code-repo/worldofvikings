@@ -454,7 +454,9 @@ async function main() {
   };
 
   // Online play is account-only. The former anonymous `?go=1` route and
-  // the in-game login/character picker were removed as one unit.
+  // the in-game login/character picker were removed as one unit; the
+  // built-in dialog a few lines down is not that picker's return — it
+  // exists ONLY for a local clone with no website in front of it.
   if (!offlineMode && !accountSessionPresent) {
     // `?dungeon=` würde hier verloren gehen.
     //
@@ -484,8 +486,58 @@ async function main() {
         // wie bisher — das ist kein Grund, die Anmeldung zu verweigern.
       }
     }
-    window.location.replace(websiteLoginUrl());
-    return;
+
+    // ── Ein Ursprung: Webseite da, oder nicht? ─────────────────────────
+    //
+    // Teilen Webseite und Spiel denselben Ursprung (der Zweck dieses
+    // Umbaus), entscheidet eine kurze Anfrage auf die Anmeldeseite der
+    // Webseite. Eine richtige Installation da -- sie bleibt der EINE
+    // Anmeldeweg, und die Weiterleitung ist RELATIV: kein fremder
+    // Ursprung mehr in der Adresse, kein #ticket= ueber eine
+    // Domaingrenze, `?weiter=` bringt den Besucher nach dem Anmelden
+    // zurueck ins Spiel statt auf eine Startseite.
+    //
+    // WARUM NICHT NUR DER STATUSCODE: Sowohl Vites Dev-Server als auch
+    // `vite preview` (Testgestade, s. wov-staging-nicht-mit-vite-dev)
+    // beantworten JEDEN unbekannten Pfad standardmaessig mit 200 und der
+    // EIGENEN index.html (History-API-Fallback fuer Ein-Seiten-Apps) --
+    // genau der Fall "lokaler Klon ohne Webseite", den diese Weiche
+    // erkennen soll. Ein blosses `probe.ok` waere hier IMMER wahr und
+    // schickte den frischen Klon in eine Weiterleitungsschleife auf sich
+    // selbst. Der Koerper verraet den Unterschied zuverlaessig: Nur die
+    // eigene Spiel-Huelle (client/index.html) traegt
+    // `id="renderCanvas"` -- eine echte, andersartige Webseiten-Seite
+    // (vorgerendert oder per nginx ausgeliefert) tut das nie.
+    //
+    // Antwortet der Pfad gar nicht mit 200, oder ist die Anfrage
+    // fehlgeschlagen (Netzfehler), zeigt der Client seinen eigenen,
+    // eingebauten Anmeldedialog (ui/Anmeldung.ts). Das ist die einzige
+    // Stelle, an der ein lokaler Klon ohne die Webseite an ein
+    // SessionToken kommt -- ?offline und der Testtoken-Zweig bleiben
+    // daneben unveraendert bestehen.
+    const anmeldePfad = i18n.language === 'en' ? '/en/login' : '/de/anmelden';
+    let websiteDa = false;
+    try {
+      const probe = await fetch(anmeldePfad, { method: 'GET', cache: 'no-store' });
+      websiteDa = probe.ok && !(await probe.text()).includes('id="renderCanvas"');
+    } catch {
+      websiteDa = false;
+    }
+
+    if (websiteDa) {
+      const ziel = new URL(anmeldePfad, window.location.origin);
+      ziel.searchParams.set('weiter', '/play/');
+      window.location.assign(ziel.pathname + ziel.search);
+      return;
+    }
+
+    const { Anmeldung } = await import('./ui/Anmeldung');
+    await new Anmeldung(i18n).anzeigen();
+    // Der Dialog loest erst auf, wenn ein SessionToken im localStorage
+    // liegt (siehe dort) -- ab hier gilt derselbe Vertrag wie beim Ticket
+    // aus der Adresse: ein Konto-Charakter, Name und Aussehen stehen fest.
+    mitTicket = true;
+    ticketVorgelegt = true;
   }
 
   const stored = (key: string): string => {

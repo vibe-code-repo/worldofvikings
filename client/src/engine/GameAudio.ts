@@ -21,13 +21,27 @@ export class GameAudio {
   private musikGain: GainNode | null = null;
   private musikQuelle: AudioBufferSourceNode | null = null;
   private master: GainNode | null = null;
+  /**
+   * Diagnoseschalter `?mute=1` (Paket 0.14): Ein Bauer, der Ruckler
+   * eingrenzt, will Video/Ton nicht bei jedem Lauf per Hand abstellen,
+   * und Messläufe sollen keinen Ton im Hintergrund erzeugen. Der Zustand
+   * wird VOR `start()` gesetzt (main.ts liest `?mute=` beim Aufbau) und
+   * wirkt auch, wenn `start()` erst nach der ersten Nutzergeste läuft.
+   */
+  private stumm = false;
+
+  /** Für `?mute=1` — vor ODER nach start() aufrufbar. */
+  setMuted(an: boolean): void {
+    this.stumm = an;
+    if (this.master) this.master.gain.value = an ? 0 : 0.7;
+  }
 
   /** Beim ersten Nutzer-Input aufrufen (Pointer-Lock-Klick reicht). */
   start(): void {
     if (this.ctx) return;
     this.ctx = new AudioContext();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.7;
+    this.master.gain.value = this.stumm ? 0 : 0.7;
     this.master.connect(this.ctx.destination);
 
     void this.lade(MUSIK_DATEI).then((buf) => {

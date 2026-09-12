@@ -52,7 +52,7 @@ import type { ClientWorld } from '../world/World';
 // Nur der Typ und die Prüffunktion des gemeinsamen Terrain-Budgets —
 // `import type` erzeugt keinen Laufzeit-Zyklus, `budgetOffen` ist eine
 // freie Funktion und kein Teil der Klasse.
-import { budgetOffen, type TerrainBudget } from './Terrain';
+import { budgetOffen, zonenSchrittweiseAktiv, type TerrainBudget } from './Terrain';
 
 /** Kantenlänge in Metern = Texeln. Deckt die Nahwasserfläche (512 m) ab. */
 const SIZE = 512;
@@ -87,6 +87,11 @@ const SIZE = 512;
  * dass eine davon erst erzeugt werden muss.
  */
 const ZONEN_SOLL = 9;
+/**
+ * Vertexzeilen je Schritt, wenn eine Zone fuer die Kachel erst erzeugt
+ * werden muss — dieselbe Koernung wie im Gelaendestrom (Terrain.ts).
+ */
+const ZONEN_ZEILEN_JE_SCHRITT = 8;
 /** Grundhöhe ausserhalb der Kachel: so tief, dass depth01 = 1 gilt. */
 const AUSSERHALB_TIEFE = 40;
 
@@ -203,11 +208,14 @@ export class WaterDepthMap {
     const soll = Math.min(gesamt, this.naechsteZone + ZONEN_SOLL);
     let n = this.naechsteZone;
     for (; n < soll; n++) {
-      this.kopiereZone(
+      const fertig = this.kopiereZone(
         this.zoneX0 + (n % this.zonenProAchse),
         this.zoneZ0 + Math.floor(n / this.zonenProAchse)
       );
       budget.gebaut = true;
+      // Noch nicht fertige Zone: NICHT weiterzaehlen, sonst bliebe ihr
+      // Streifen in der Kachel auf der Grundhoehe stehen.
+      if (!fertig) break;
       if (performance.now() >= ende) {
         n++;
         break;
@@ -268,8 +276,17 @@ export class WaterDepthMap {
    * Kachel-Origin ist immer ganzzahlig — der Index ist deshalb reine
    * Ganzzahlarithmetik ohne die Rundung aus `getGroundHeight`.
    */
-  private kopiereZone(zx: number, zz: number): void {
-    const hm = this.heightmaps.getZone(zx, zz);
+  private kopiereZone(zx: number, zz: number): boolean {
+    // Zeilenweise holen statt am Stueck (Paket G13): Eine noch unbekannte
+    // Zone kostete hier rund 9 ms in EINEM Bild — das Budget oben konnte
+    // das nicht verhindern, weil `getZone()` entweder ganz oder gar nicht
+    // rechnet. `null` heisst: diese Zone ist noch nicht fertig, der
+    // Aufrufer kommt im naechsten Bild wieder. Gefahrlos, weil der Shader
+    // bis zum Upload weiter mit der alten, vollstaendigen Kachel arbeitet.
+    const hm = zonenSchrittweiseAktiv()
+      ? this.heightmaps.zoneSchrittweise(zx, zz, ZONEN_ZEILEN_JE_SCHRITT)
+      : this.heightmaps.getZone(zx, zz);
+    if (hm === null) return false;
     // Gegen die ZIEL-Origin, nicht gegen die veröffentlichte: der Puffer
     // wird für die neue Kachel gefüllt, `info` zeigt bis zum Upload noch
     // auf die alte.
@@ -286,6 +303,7 @@ export class WaterDepthMap {
         this.daten[zeileTex + i] = hm.heights[zeileHm + vx];
       }
     }
+    return true;
   }
 
   dispose(): void {

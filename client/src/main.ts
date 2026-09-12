@@ -70,10 +70,11 @@ import {
   FLAG_DISABLE_DISTANT_RIVERS,
   FLAG_LAYOUT_MODE,
   FLAG_RIVER_AFFECTS_OCEAN,
+  HeightmapProvider,
 } from '@wov/shared';
 import type { NpcDef, NpcEinordnung, SteinKitConfig, TerrainComp } from '@wov/shared';
 import { createWorld, DEFAULT_OFFLINE_SEED, type ClientWorld, type ClientWorldSettings } from './world/World';
-import { TerrainManager } from './engine/Terrain';
+import { TerrainManager, zonenSchrittweiseSchalter } from './engine/Terrain';
 import { Lighting } from './engine/Lighting';
 import { installiereStandardGammaFix } from './engine/StandardGammaFix';
 import { installierePbrNebelFix } from './engine/PbrNebelFix';
@@ -695,6 +696,19 @@ async function main() {
    * einen Ruckler eingrenzen will, ohne Code zu ändern.
    */
   const schattenErzwingenAus = params.get('shadows') === 'off';
+  /**
+   * `?zonen=stueck` — Diagnoseschalter Paket G13, dieselbe Familie.
+   *
+   * Baut Gelände-Zonen wieder in EINEM Stück statt zeilenweise (der Stand
+   * vor G13). Gebraucht wird er für die Bildparität: Sonst liessen sich
+   * die beiden Codestände nur über zwei Serverinstanzen vergleichen, und
+   * dann misst man deren Unterschiede mit. Er muss VOR der ersten
+   * Zonenerzeugung greifen, deshalb hier und nicht erst in `__vb`.
+   */
+  if (params.get('zonen') === 'stueck') {
+    zonenSchrittweiseSchalter(false);
+    console.log('[terrain] ?zonen=stueck — Zonen entstehen wieder am Stueck (Diagnose).');
+  }
   /** Spielerwahl plus die Diagnoseschalter aus der Adresse. */
   const postOptionen = (s: GameSettings): GameSettings =>
     strahlenAus ? { ...s, sunShafts: false } : s;
@@ -1192,6 +1206,45 @@ async function main() {
   };
   let gemessenDieserFrame = 0;
   /**
+   * Bild-für-Bild-Protokoll (Diagnose, Paket G13 „Ruckler statt Mittelwert").
+   *
+   * WARUM: `zeitmess` liefert je Abschnitt nur Mittel und Maximum über ein
+   * ganzes Messfenster. Damit lässt sich NICHT beantworten, ob das 70-ms-Bild
+   * dasselbe Bild ist wie das 19-ms-`terrain`-Maximum — Mittel und Maxima aus
+   * verschiedenen Töpfen kann man nicht zusammenrechnen. Ein Ruckler ist aber
+   * genau eine Aussage über EIN Bild. Deshalb schreibt dieser Schalter je Bild
+   * eine Zeile mit allen Abschnitten, und die Zuordnung wird gelesen statt
+   * geraten.
+   *
+   * Per-frame log: subsystem averages cannot tell whether the worst frame and
+   * the worst terrain section are the same frame. This switch records one row
+   * per frame so the tail can be attributed rather than guessed.
+   *
+   * Standardmässig AUS — eingeschaltet über `__vb.bildprotokoll(true)`.
+   */
+  const bildProtokoll: { an: boolean; zeilen: Record<string, unknown>[] } = { an: false, zeilen: [] };
+  /** Abschnittszeiten NUR dieses Bildes (im Gegensatz zu `zeitmess`: kumulativ). */
+  let frameTeile: Record<string, number> = {};
+  /**
+   * Shader-Übersetzungszeit dieses Bildes.
+   *
+   * Der zweite Hauptverdächtige hinter den Rucklern: Babylon übersetzt ein
+   * Material erst, wenn es zum ersten Mal gezeichnet wird — mitten im Bild.
+   * Die Zeit steckt dann in `scene.render()` und in KEINEM der
+   * Update-Abschnitte, ist also ohne diesen Zähler nicht von einem
+   * GPU-Engpass zu unterscheiden.
+   */
+  /** Stand des Zonen-Zählers beim vorigen Bild — Bezug für `neueZonen`. */
+  let zonenVorherigesBild = 0;
+  let shaderMsDiesesBild = 0;
+  let shaderNDiesesBild = 0;
+  let shaderBeginn = 0;
+  engine.onBeforeShaderCompilationObservable.add(() => { shaderBeginn = performance.now(); });
+  engine.onAfterShaderCompilationObservable.add(() => {
+    shaderMsDiesesBild += performance.now() - shaderBeginn;
+    shaderNDiesesBild++;
+  });
+  /**
    * Stand des kumulativen Zeichenaufruf-Zählers beim letzten profil() —
    * die Bezugsgrösse für `zeichenaufrufeProBild`, s. dort.
    */
@@ -1201,6 +1254,7 @@ async function main() {
     const r = fn();
     const dt = performance.now() - t0;
     gemessenDieserFrame += dt;
+    if (bildProtokoll.an) frameTeile[feld] = (frameTeile[feld] ?? 0) + dt;
     const e = zeitmess[feld]!;
     e.summe += dt; e.n++;
     if (dt > e.max) e.max = dt;
@@ -1404,9 +1458,36 @@ async function main() {
         gameSettings.set({ [schluessel]: wert } as never);
         return { ...gameSettings.get(), skalierung: engine.getHardwareScalingLevel() };
       },
+      /**
+       * A/B-Schalter der zeilenweisen Zonenerzeugung (Paket G13).
+       * `true` = neu (budgetiert in Zeilenpaketen), `false` = alt (am Stück).
+       * Nur zum Messen — s. `zonenSchrittweiseSchalter` in Terrain.ts.
+       */
+      zonenSchrittweise: (an: boolean) => {
+        zonenSchrittweiseSchalter(an);
+        return an;
+      },
       /** Feinmessung der Terrain-Abschnitte ein-/ausschalten. */
       feinmessung: (an: boolean) => {
         feinmessungSetzen(an);
+        return an;
+      },
+      /**
+       * Bild-für-Bild-Protokoll ein-/ausschalten und auslesen (Paket G13).
+       *
+       * `bildprotokoll(true)` schaltet ein (und schaltet die Feinmessung mit
+       * ein, sonst bliebe die `fein`-Spalte jeder Zeile leer). Ein Aufruf ohne
+       * Argument gibt die gesammelten Zeilen zurück UND leert sie.
+       */
+      bildprotokoll: (an?: boolean) => {
+        if (an === undefined) {
+          const raus = bildProtokoll.zeilen;
+          bildProtokoll.zeilen = [];
+          return raus;
+        }
+        bildProtokoll.an = an;
+        feinmessungSetzen(an);
+        bildProtokoll.zeilen = [];
         return an;
       },
       profil: () => {
@@ -1466,6 +1547,10 @@ async function main() {
         // dominante terrain-Posten seine Zeit verbringt: Rauschen,
         // Gitterbau, GPU-Upload oder Havok-Shape.
         p['fein'] = feinmessungLesen();
+        // Wartezeit einer Gelaendezelle vom Einreihen bis zum Mesh
+        // (Paket G13). Der Gegenzeuge zur Verteilung ueber mehrere Bilder:
+        // spaeter fertig waere kein Gewinn, sondern ein anderer Fehler.
+        p['zellwartezeit'] = terrain?.wartezeit() ?? null;
         // Der Schattenpass rendert die Werferliste JE KASKADE komplett neu
         // — das Produkt ist der zweite Posten, den D10 betrifft, und er
         // ist grösser als der Bildpass. Beide Zahlen gehören deshalb in
@@ -3694,6 +3779,7 @@ async function main() {
     if (!world || !terrain || !player || !entities || !grass) return; // waiting for buildWorld()
     const updateStart = performance.now();
     gemessenDieserFrame = 0;
+    if (bildProtokoll.an) frameTeile = {};
     const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
     const elapsed = performance.now() / 1000;
 
@@ -4159,11 +4245,67 @@ async function main() {
     rest.summe += restDauer;
     rest.n++;
     if (restDauer > rest.max) rest.max = restDauer;
+    if (bildProtokoll.an) {
+      // Die Feinmessung wird JE BILD gelesen und geleert — nur so gehört ein
+      // Feinposten zu genau dem Bild, in dessen Zeile er steht. Nur Posten
+      // mit Zeit aufnehmen, sonst erstickt die Zeile in Nullen.
+      const fein: Record<string, number> = {};
+      for (const [k, v] of Object.entries(feinmessungLesen())) {
+        if (v.summeMs > 0.05) fein[k] = +v.summeMs.toFixed(2);
+      }
+      const zonenJetzt = HeightmapProvider.neuErzeugt;
+      const neueZonen = zonenJetzt - zonenVorherigesBild;
+      zonenVorherigesBild = zonenJetzt;
+      bildProtokoll.zeilen.push({
+        t: +updateStart.toFixed(1),
+        neueZonen,
+        update: +(performance.now() - updateStart).toFixed(2),
+        ...Object.fromEntries(Object.entries(frameTeile).map(([k, v]) => [k, +v.toFixed(2)])),
+        rest: +restDauer.toFixed(2),
+        fein,
+      });
+    }
   });
 
+  /**
+   * Letzter gestarteter Renderlauf — die Bezugsgrösse, mit der die Renderzeit
+   * (inkl. Zeichnen) an die zuletzt geschriebene Protokollzeile geheftet wird.
+   */
+  let letzterRenderBeginn = 0;
   engine.runRenderLoop(() => {
     if (!scene.activeCamera) return; // no PlayerController/camera until buildWorld() runs
+    if (!bildProtokoll.an) {
+      scene.render();
+      return;
+    }
+    // Nur im Diagnosefall: `scene.render()` einklammern. `luecke` ist der
+    // Abstand zweier Renderläufe (= was der Spieler als Bildzeit spürt),
+    // `render` davon der Anteil, den Babylon selbst verbraucht — die
+    // Differenz gehört Browser, Treiber und Bildtausch. Ohne diese Trennung
+    // ist nicht entscheidbar, ob ein Ruckler aus unserem Code kommt oder
+    // hinter unserem Code liegt.
+    const t0 = performance.now();
+    const luecke = letzterRenderBeginn > 0 ? t0 - letzterRenderBeginn : 0;
+    letzterRenderBeginn = t0;
+    const vorher = bildProtokoll.zeilen.length;
+    shaderMsDiesesBild = 0;
+    shaderNDiesesBild = 0;
+    const zaehlerVorher =
+      (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current ?? 0;
     scene.render();
+    const zeile = bildProtokoll.zeilen[bildProtokoll.zeilen.length - 1];
+    // Nur anheften, wenn DIESER Renderlauf die Zeile geschrieben hat — ohne
+    // Welt läuft onBeforeRender gar nicht und die alte Zeile bekäme sonst
+    // eine fremde Renderzeit angehängt.
+    if (zeile && bildProtokoll.zeilen.length > vorher) {
+      zeile['render'] = +(performance.now() - t0).toFixed(2);
+      zeile['luecke'] = +luecke.toFixed(2);
+      zeile['shaderMs'] = +shaderMsDiesesBild.toFixed(2);
+      zeile['shaderN'] = shaderNDiesesBild;
+      zeile['draws'] =
+        ((engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current ?? 0) -
+        zaehlerVorher;
+    }
   });
   window.addEventListener('resize', () => engine.resize());
 

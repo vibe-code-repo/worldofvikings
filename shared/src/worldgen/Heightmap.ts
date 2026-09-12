@@ -114,18 +114,90 @@ export class Heightmap {
    */
   private genHeights: Float32Array | null = null;
 
+  /**
+   * Offener Bau, wenn die Zone ZEILENWEISE entsteht (s. `bauSchritt`).
+   * `null` heisst: fertig — der Normalfall für jeden Aufrufer, der die
+   * Zone in einem Stück baut.
+   */
+  private offenerBau: {
+    readonly geo: GeoManager;
+    readonly blendSmoothStep: boolean;
+    readonly mods?: readonly TerrainLeveling[];
+    /** Nächste noch nicht gerechnete Vertexzeile (0..E_WIDTH). */
+    zeile: number;
+  } | null = null;
+
   constructor(
     geo: GeoManager,
     zoneX: number,
     zoneY: number,
     settings: HeightmapSettings = {},
     /** F4: terrain leveling modifiers overlapping this zone (baked into heights). */
-    mods?: readonly TerrainLeveling[]
+    mods?: readonly TerrainLeveling[],
+    /**
+     * Zeilenweise bauen statt in einem Stück.
+     *
+     * WARUM ES DAS GIBT (Paket G13): Eine Zonenerzeugung ist der teuerste
+     * UNTEILBARE Posten des Geländestroms — 65×65 Vertices, bei gemischten
+     * Eckbiomen vier Rauschabfragen je Vertex, gemessen rund 9 ms. Solange
+     * sie unteilbar ist, nützt kein Zeitbudget: Sie schlägt auch mitten in
+     * einem Zeilenpaket zu, das eine Millisekunde kosten soll, und genau
+     * das machte bis hierher die schlimmsten Bilder der Messung aus
+     * (Bilder MIT Zonenerzeugung: 33,8 ms; ohne: 24,0 ms).
+     *
+     * Die Zerlegung ist rechnerisch folgenlos: Jede Vertexzeile hängt
+     * ausschliesslich an ihren Weltkoordinaten, nicht an der Zeile davor.
+     * Es entstehen dieselben Bits, nur über mehrere Bilder verteilt.
+     *
+     * Stepwise build: a zone build is the most expensive INDIVISIBLE item
+     * in terrain streaming, so no time budget can contain it. Rows depend
+     * only on their world coordinates, so splitting them yields bit-identical
+     * results — proven by the round trip test in tests/.
+     *
+     * Ein so gebautes Objekt ist unvollständig, bis `bauSchritt()` `true`
+     * gemeldet hat; `fertig` sagt es. Nur der Client-Geländestrom benutzt
+     * diesen Weg, der Server baut weiter in einem Stück.
+     */
+    schrittweise = false
   ) {
     this.zoneX = zoneX;
     this.zoneY = zoneY;
+    if (schrittweise) {
+      this.offenerBau = { geo, blendSmoothStep: settings.blendSmoothStep ?? true, mods, zeile: 0 };
+      this.bauVorbereiten(geo);
+      return;
+    }
     this.build(geo, settings.blendSmoothStep ?? true);
+    this.bauAbschliessen(mods);
+  }
 
+  /** Ist die Zone vollständig gerechnet? Bei einem Bau in einem Stück immer. */
+  get fertig(): boolean {
+    return this.offenerBau === null;
+  }
+
+  /**
+   * Höchstens `zeilen` Vertexzeilen weiterrechnen. Gibt `true` zurück,
+   * sobald die Zone vollständig ist (dann auch bei jedem weiteren Aufruf).
+   */
+  bauSchritt(zeilen: number): boolean {
+    const b = this.offenerBau;
+    if (!b) return true;
+    const bis = Math.min(E_WIDTH, b.zeile + Math.max(1, zeilen));
+    this.buildZeilen(b.geo, b.blendSmoothStep, b.zeile, bis);
+    b.zeile = bis;
+    if (bis < E_WIDTH) return false;
+    this.offenerBau = null;
+    this.bauAbschliessen(b.mods);
+    return true;
+  }
+
+  /**
+   * Was nach der letzten Vertexzeile folgt — Eckentiefen, Endhöhen und die
+   * eingebackenen Gelände-Modifikatoren. Aus dem Konstruktor herausgezogen,
+   * damit der zeilenweise Bau GENAU denselben Abschluss nimmt.
+   */
+  private bauAbschliessen(mods?: readonly TerrainLeveling[]): void {
     // C++ Regenerate corner depths — from PRISTINE baseHeights (C++ parity:
     // the C++ server never levels, so its m_baseHeights drives this too)
     this.oceanDepth[0] = Math.max(0, WATER_LEVEL - this.baseHeights[64 * E_WIDTH + 0]);
@@ -148,19 +220,41 @@ export class Heightmap {
 
   /** C++ IHeightmapBuilder::Build (HeightmapBuilder.cpp:146-239). */
   private build(geo: GeoManager, blendSmoothStep: boolean): void {
+    this.bauVorbereiten(geo);
+    this.buildZeilen(geo, blendSmoothStep, 0, E_WIDTH);
+  }
+
+  /**
+   * Die Eckbiome bestimmen — der Teil von Build, der NICHT je Vertexzeile
+   * anfällt und deshalb auch beim zeilenweisen Bau genau einmal läuft
+   * (er entscheidet mit `sameBiome` über den schnellen Zweig, s. unten).
+   */
+  private bauVorbereiten(geo: GeoManager): void {
     // C++ baseWorldPos = ZoneToWorldPos(zone) + (-32, 0, -32)
     const baseX = this.zoneX * ZONE_UNITS - ZONE_UNITS / 2;
     const baseZ = this.zoneY * ZONE_UNITS - ZONE_UNITS / 2;
+    this.cornerBiomes = [
+      geo.getBiome(baseX, baseZ),
+      geo.getBiome(baseX + ZONE_UNITS, baseZ),
+      geo.getBiome(baseX, baseZ + ZONE_UNITS),
+      geo.getBiome(baseX + ZONE_UNITS, baseZ + ZONE_UNITS),
+    ];
+  }
 
-    const b1 = geo.getBiome(baseX, baseZ);
-    const b2 = geo.getBiome(baseX + ZONE_UNITS, baseZ);
-    const b3 = geo.getBiome(baseX, baseZ + ZONE_UNITS);
-    const b4 = geo.getBiome(baseX + ZONE_UNITS, baseZ + ZONE_UNITS);
-    this.cornerBiomes = [b1, b2, b3, b4];
-
+  /**
+   * Die Vertexzeilen `[von, bis)` rechnen.
+   *
+   * Herausgezogen, damit ein Aufrufer die Zone über mehrere Bilder bauen
+   * kann (s. Konstruktorflag `schrittweise`). Eine Zeile liest nur ihre
+   * eigenen Weltkoordinaten — die Zerlegung ändert kein einziges Bit.
+   */
+  private buildZeilen(geo: GeoManager, blendSmoothStep: boolean, von: number, bis: number): void {
+    const baseX = this.zoneX * ZONE_UNITS - ZONE_UNITS / 2;
+    const baseZ = this.zoneY * ZONE_UNITS - ZONE_UNITS / 2;
+    const [b1, b2, b3, b4] = this.cornerBiomes;
     const sameBiome = b1 === b2 && b1 === b3 && b1 === b4;
 
-    for (let ry = 0; ry < E_WIDTH; ry++) {
+    for (let ry = von; ry < bis; ry++) {
       // [HEIGHTFIX-02] double intermediates
       const worldY = baseZ + ry;
       const ty = blendSmoothStep ? smoothStepD(0, 1, ry / ZONE_UNITS) : ry / ZONE_UNITS;
@@ -443,6 +537,24 @@ export interface TerrainOpEffect {
  * Shared by server (ground truth) and client (rendering + prediction).
  */
 export class HeightmapProvider {
+  /**
+   * Wie viele Zonen wurden insgesamt WIRKLICH erzeugt (Cache-Fehlschlag)?
+   *
+   * Diagnose, kein Spielcode: Eine Zonenerzeugung ist der teuerste
+   * unteilbare Einzelposten des Geländestroms (65×65 Vertices, bei
+   * gemischten Eckbiomen vier Rauschabfragen je Vertex). Sie kostet nur,
+   * wenn sie WIRKLICH läuft — und genau das ist von aussen sonst nicht zu
+   * sehen: Sie tritt auch mitten in einem Zeilenpaket auf, das nominell
+   * eine Millisekunde kosten soll (über die Nachbarzonen der Normalen).
+   * Ohne diesen Zähler lässt sich ein 12-ms-Zeilenpaket nicht von einem
+   * Maschinenhänger unterscheiden.
+   *
+   * Diagnostic counter: a zone build is the single most expensive
+   * indivisible item in terrain streaming, and it can hide inside a
+   * nominally cheap row packet via the neighbour lookups.
+   */
+  static neuErzeugt = 0;
+
   private readonly settings: Required<HeightmapSettings>;
   private readonly zones = new Map<string, Heightmap>();
   /** F4: terrain leveling modifiers per overlapped zone key ("zx,zy"). */
@@ -494,6 +606,7 @@ export class HeightmapProvider {
         if (list) list.push(mod);
         else this.mods.set(key, [mod]);
         this.zones.delete(key); // force rebuild with the modifier baked
+        this.verwerfeTeilZone(key); // und den angefangenen Bau dazu
         affected.push([zx, zy]);
       }
     }
@@ -525,6 +638,7 @@ export class HeightmapProvider {
     for (let zy = zy0; zy <= zy1; zy++) {
       for (let zx = zx0; zx <= zx1; zx++) {
         this.zones.delete(`${zx},${zy}`);
+        this.verwerfeTeilZone(`${zx},${zy}`);
         affected.push([zx, zy]);
       }
     }
@@ -698,8 +812,76 @@ export class HeightmapProvider {
     return hm;
   }
 
+  /**
+   * Zone holen, aber höchstens `zeilen` Vertexzeilen Arbeit dafür leisten.
+   *
+   * Gibt `null` zurück, solange die Zone noch nicht vollständig ist — der
+   * Aufrufer muss dann im nächsten Bild wiederkommen. Eine Zone, die schon
+   * im Cache liegt, kommt wie bei `getZone()` sofort und kostenlos zurück.
+   *
+   * DAS IST DER PUNKT (Paket G13): Bis hierher war eine Zonenerzeugung ein
+   * unteilbarer 9-ms-Block, gegen den jedes Zeitbudget des Geländestroms
+   * wirkungslos war — sie fiel einfach dort an, wo sie zuerst gebraucht
+   * wurde, auch mitten in einem nominell 1 ms teuren Zeilenpaket. Über
+   * diesen Weg geholt, kostet sie je Bild nur noch ihren Zeilenanteil.
+   *
+   * Halbfertige Zonen liegen bewusst NICHT in `zones`: Niemand darf eine
+   * Zone zu sehen bekommen, deren obere Hälfte noch aus Nullen besteht.
+   *
+   * Fetch a zone doing at most `zeilen` vertex rows of work; `null` while
+   * it is not complete yet. Partially built zones are kept out of the LRU
+   * so no reader can ever observe a half-filled heightmap.
+   */
+  zoneSchrittweise(zoneX: number, zoneY: number, zeilen: number): Heightmap | null {
+    const key = `${zoneX},${zoneY}`;
+    const fertig = this.zones.get(key);
+    if (fertig) return this.getZone(zoneX, zoneY);
+
+    let teil = this.teilZonen.get(key);
+    if (!teil) {
+      HeightmapProvider.neuErzeugt++;
+      teil = new Heightmap(this.geo, zoneX, zoneY, this.settings, this.mods.get(key), true);
+      this.teilZonen.set(key, teil);
+    }
+    if (!teil.bauSchritt(zeilen)) return null;
+
+    this.teilZonen.delete(key);
+    const comp = this.comps.get(key);
+    if (comp) teil.applyTerrainComp(comp);
+    this.zones.set(key, teil);
+    if (this.zones.size > this.maxCachedZones) {
+      const oldest = this.zones.keys().next().value!;
+      this.zones.delete(oldest);
+      this.verwerfeZonenMemo();
+    }
+    return teil;
+  }
+
+  /**
+   * Angefangene, noch unvollständige Zonen (s. `zoneSchrittweise`).
+   *
+   * Getrennt von `zones` und NICHT LRU-begrenzt: Es sind immer nur die
+   * wenigen Zonen, an denen der Geländestrom gerade baut, und ein Eintrag
+   * verschwindet, sobald er fertig ist.
+   */
+  private readonly teilZonen = new Map<string, Heightmap>();
+
+  /**
+   * Einen angefangenen Bau wegwerfen — Pflicht überall dort, wo eine Zone
+   * ungültig wird (Terraforming, neue Modifikatoren). Ohne das würde der
+   * halbfertige Bau später mit veralteten Eingaben fertiggestellt und läge
+   * dann als „frische" Zone im Cache.
+   */
+  private verwerfeTeilZone(key: string): void {
+    this.teilZonen.delete(key);
+  }
+
   private zoneAusCache(zoneX: number, zoneY: number): Heightmap {
     const key = `${zoneX},${zoneY}`;
+    // Ein angefangener zeilenweiser Bau ist hier wertlos (er ist nicht
+    // fertig) und wäre danach falsch — wer die Zone JETZT in einem Stück
+    // will, bekommt sie in einem Stück, und der Teilbau muss weg.
+    if (this.teilZonen.size > 0) this.verwerfeTeilZone(key);
     let hm = this.zones.get(key);
     if (hm) {
       // LRU touch (Map preserves insertion order)
@@ -707,6 +889,7 @@ export class HeightmapProvider {
       this.zones.set(key, hm);
       return hm;
     }
+    HeightmapProvider.neuErzeugt++;
     hm = new Heightmap(this.geo, zoneX, zoneY, this.settings, this.mods.get(key));
     const comp = this.comps.get(key);
     if (comp) hm.applyTerrainComp(comp);

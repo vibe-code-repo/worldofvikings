@@ -58,6 +58,30 @@
  * Die Einzelwerte je Runde bleiben im Ergebnis stehen, damit die Streuung
  * sichtbar bleibt und nicht im Median verschwindet.
  *
+ * ⚠ DER ZONENCACHE (Angreifer-Review 13.09.2026, Falle im MESSWEG):
+ * Wiederholungen auf DERSELBEN durchlaufenden Serverinstanz messen keinen
+ * kalten Stand. `HeightmapProvider` haelt 512 Zonen in einem LRU — viel
+ * mehr, als ein Messkorridor von ein paar hundert Metern beruehrt.
+ * Aufgefallen an der Terrain-Maximalzeit: Sie fiel bei BEIDEN verglichenen
+ * Staenden monoton von Lauf zu Lauf (17,2 / 15,2 / 13,5 ms gegen 5,6 / 5,4
+ * / 4,8 ms). Nur der erste Lauf war kalt; die daraus gerechnete
+ * Standardabweichung ist groesstenteils ein TREND und liest sich
+ * faelschlich als Beleg fuer Reproduzierbarkeit.
+ *
+ * Deshalb steht in der Ergebnisdatei jetzt, WIE WARM der Lauf war:
+ *   · `zonencache.serverLaufzeitS` — wie lange die Serverinstanz schon
+ *     laeuft (nur bei einer LOKALEN Instanz ermittelbar, sonst null).
+ *     Zwei Zahlen sind nur vergleichbar, wenn diese Laufzeit vergleichbar
+ *     ist. Sauber ist: die Serverinstanz VOR JEDEM Lauf neu starten.
+ *   · `runden[].zonenGebaut` — wie viele Zonen der CLIENT in dieser Runde
+ *     wirklich gerechnet hat (aus `__vb.profil().zonen`). Faellt die Zahl
+ *     von Runde zu Runde gegen null, misst man ab da das Abspielen eines
+ *     warmen Caches und nicht mehr den Gelaendestrom.
+ * Den Cache je Lauf zu leeren waere besser als ihn zu protokollieren —
+ * dafuer gibt es hier aber bewusst keinen Schalter: Ein Server im Betrieb
+ * darf so etwas nicht versehentlich ziehen koennen. Ein Neustart der
+ * Instanz leistet dasselbe und kann nicht danebengehen.
+ *
  * Aufruf:
  *   node tools/pw-fps-bench.mjs --url http://localhost:5291 --label baseline
  *   node tools/pw-fps-bench.mjs --url ... --strecke 250 --out mess/x.json
@@ -170,6 +194,48 @@ function commitHash() {
     return execSync('git rev-parse --short HEAD', { cwd: process.cwd() }).toString().trim();
   } catch {
     return 'unbekannt';
+  }
+}
+
+/**
+ * Laufzeit der LOKALEN Serverinstanz in Sekunden, oder null.
+ *
+ * Der Zeuge gegen die Zonencache-Falle (s. Kopf): Ein Server, der seit
+ * einer halben Stunde laeuft, hat den Messkorridor laengst im LRU und
+ * liefert Zahlen, die mit denen eines frisch gestarteten nichts zu tun
+ * haben. Die Laufzeit ist die billigste Auskunft darueber, die keinen
+ * Eingriff in den Server braucht.
+ *
+ * `null` heisst „nicht feststellbar", nicht „kalt" — bei einer entfernten
+ * Instanz, ohne `pgrep` oder wenn kein Kandidat uebrigbleibt. Der Leser
+ * der Ergebnisdatei muss den Unterschied sehen koennen; eine geratene
+ * Null waere schlimmer als keine Zahl.
+ *
+ * Auf DIESEN Arbeitsbaum eingegrenzt (`/proc/<pid>/cwd`), denn auf der
+ * Maschine laufen mehrere Worktrees mit demselben Pfadmuster — und die
+ * Laufzeit eines fremden Servers waere eine falsche Zahl, keine fehlende.
+ * Genommen wird die groesste Laufzeit der Treffer: `tsx` startet einen
+ * Kindprozess, der Elternprozess ist der aeltere und damit der richtige.
+ */
+function serverLaufzeitS() {
+  try {
+    const hier = execSync('pwd -P', { encoding: 'utf-8' }).trim();
+    const pids = execSync("pgrep -f 'server/src/main\\.ts' || true", { encoding: 'utf-8' })
+      .split('\n')
+      .filter(Boolean)
+      .filter((pid) => {
+        try {
+          return execSync(`readlink -f /proc/${pid}/cwd`, { encoding: 'utf-8' }).trim() === hier;
+        } catch {
+          return false;
+        }
+      });
+    const zeiten = pids
+      .map((pid) => Number(execSync(`ps -o etimes= -p ${pid} || true`, { encoding: 'utf-8' }).trim()))
+      .filter((n) => Number.isFinite(n));
+    return zeiten.length > 0 ? Math.max(...zeiten) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -372,7 +438,11 @@ await page.evaluate(() => {
  * einmal aufgerufen, um den vorigen Stand zu verwerfen).
  */
 async function runde(ziel) {
-  await page.evaluate(() => window.__vb.profil());
+  // Der verworfene Stand ist nicht wertlos: Sein kumulativer Zonenzaehler
+  // ist der Nullpunkt, gegen den am Rundenende gerechnet wird (s. den
+  // Zonencache-Absatz im Kopf).
+  const vorstand = await page.evaluate(() => window.__vb.profil());
+  const zonenVorher = vorstand?.zonen?.neuErzeugt ?? null;
   const abVorher = await page.evaluate(() => window.__bench.zeiten.length);
   await page.keyboard.down('ShiftLeft');
   await page.keyboard.down('KeyW');
@@ -399,10 +469,26 @@ async function runde(ziel) {
   await page.keyboard.up('ShiftLeft');
   const teilProfil = await page.evaluate(() => window.__vb.profil());
   const bilder = (await page.evaluate((v) => window.__bench.zeiten.slice(v), abVorher)).slice(1);
-  return { strecke: s, dauerS: (Date.now() - beginn) / 1000, teilProfil, bilder };
+  const zonenNachher = teilProfil?.zonen?.neuErzeugt ?? null;
+  const zonenGebaut =
+    zonenVorher === null || zonenNachher === null ? null : zonenNachher - zonenVorher;
+  return {
+    strecke: s,
+    dauerS: (Date.now() - beginn) / 1000,
+    teilProfil,
+    bilder,
+    zonenGebaut,
+    zonenImCache: teilProfil?.zonen?.imCache ?? null,
+  };
 }
 
 // ── Der Sprint ueber die feste Strecke, GERADEAUS, in LAEUFE Runden ──
+// Serverlaufzeit VOR dem Sprint festhalten (Zonencache, s. Kopf).
+const SERVER_LAUFZEIT_S = serverLaufzeitS();
+console.log(
+  `[bench] Serverinstanz laeuft seit ${SERVER_LAUFZEIT_S === null ? 'unbekannt' : `${SERVER_LAUFZEIT_S} s`}` +
+    ` — Zahlen sind nur gegen einen aehnlich warmen Stand vergleichbar.`
+);
 console.log(`[bench] Sprint ${STRECKE} m in Richtung ${YAW} rad, ${LAEUFE} Runde(n) ...`);
 const runden = [];
 let strecke = 0;
@@ -421,9 +507,16 @@ for (let r = 0; r < LAEUFE; r++) {
     dauerS: +m.dauerS.toFixed(1),
     bilder: sortiert.length,
     p50: +p50Runde.toFixed(2),
+    // Wie viel Gelaendestrom diese Runde wirklich bezahlt hat — die
+    // Unterscheidung „gerechnet" gegen „aus dem Cache" (s. Kopf).
+    zonenGebaut: m.zonenGebaut,
+    zonenImCache: m.zonenImCache,
     teilProfil: m.teilProfil,
   });
-  console.log(`[bench]   Runde ${r + 1}: ${m.strecke.toFixed(1)} m, p50 ${p50Runde.toFixed(1)} ms, ${sortiert.length} Bilder`);
+  console.log(
+    `[bench]   Runde ${r + 1}: ${m.strecke.toFixed(1)} m, p50 ${p50Runde.toFixed(1)} ms, ` +
+      `${sortiert.length} Bilder, ${m.zonenGebaut ?? '?'} Zonen gebaut`
+  );
 }
 
 const roh = await page.evaluate(() => {
@@ -500,6 +593,21 @@ const ergebnis = {
   messort: { x: START_X, z: START_Z, yaw: YAW },
   endPosition: roh.endPos,
   strecke: { angefordert: STRECKE, gelaufen: +strecke.toFixed(1), dauerS: +dauerSprintS.toFixed(1), laeufe: LAEUFE, vorlauf: VORLAUF },
+  /*
+    WIE WARM war dieser Lauf? (s. Zonencache-Absatz im Kopf)
+
+    `serverLaufzeitS === null` heisst „nicht feststellbar" (entfernte
+    Instanz, mehrere Kandidaten, kein pgrep) — NICHT „kalt". Zwei
+    Ergebnisdateien darf man nur nebeneinanderlegen, wenn diese Zahl
+    vergleichbar ist; sonst vergleicht man Cachewaerme statt Codestand.
+    `clientZonenGebaut` ist die Gegenprobe aus dem Client: Wie viele
+    Zonen die Messung wirklich gerechnet hat.
+  */
+  zonencache: {
+    serverLaufzeitS: SERVER_LAUFZEIT_S,
+    clientZonenGebaut: runden.map((r) => r.zonenGebaut),
+    clientZonenImCache: runden[runden.length - 1]?.zonenImCache ?? null,
+  },
   runden: runden.map(({ teilProfil, ...rest }) => rest),
   frames: t.length,
   frameZeitMs: {
@@ -539,6 +647,11 @@ console.log(`  Maximum                 : ${ergebnis.frameZeitMs.max} ms`);
 console.log(
   `  Frames >16,7/33/50ms    : ${ergebnis.ausreisser.ueber16_7ms} / ${ergebnis.ausreisser.ueber33ms} / ` +
     `${ergebnis.ausreisser.ueber50ms} von ${t.length}`
+);
+console.log(
+  `  Zonencache              : Server seit ${SERVER_LAUFZEIT_S ?? '?'} s, ` +
+    `Zonen je Runde gebaut ${ergebnis.zonencache.clientZonenGebaut.join('/')}, ` +
+    `im Cache ${ergebnis.zonencache.clientZonenImCache}`
 );
 console.log(`  Draw Calls je Bild      : ${ergebnis.zeichenaufrufeProBild}`);
 console.log(`  aktive Meshes           : ${ergebnis.aktiveMeshes} von ${ergebnis.gesamtMeshes}`);

@@ -89,8 +89,12 @@ function skaliert(s: number): number[] {
 // ── 6. Die Schwelle selbst ──────────────────────────────────────────
 {
   // Die Zahl ist eine Look-/Kostenentscheidung und gehört festgenagelt:
-  // Wer sie ändert, ändert die Werferliste der ganzen Welt.
-  pruefe(MIN_WURF_HOEHE_M === 0.5, `Schwelle steht auf ${MIN_WURF_HOEHE_M}, erwartet 0,5 m`);
+  // Wer sie ändert, ändert die Werferliste der ganzen Welt. Seit dem
+  // Angreifer-Review vom 13.09.2026 steht sie auf 0,35 m statt 0,5 —
+  // ausgezählt am Katalog und an der gebauten Welt; die Herleitung samt
+  // der zehn Prefabs, die sie weiterhin kostet, steht im Kopf von
+  // MIN_WURF_HOEHE_M.
+  pruefe(MIN_WURF_HOEHE_M === 0.35, `Schwelle steht auf ${MIN_WURF_HOEHE_M}, erwartet 0,35 m`);
 }
 
 console.log(

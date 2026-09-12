@@ -1551,6 +1551,25 @@ async function main() {
         // (Paket G13). Der Gegenzeuge zur Verteilung ueber mehrere Bilder:
         // spaeter fertig waere kein Gewinn, sondern ein anderer Fehler.
         p['zellwartezeit'] = terrain?.wartezeit() ?? null;
+        /*
+          Zustand des Zonencaches (Angreifer-Review 13.09.2026).
+
+          Der `terrain`-Posten misst zwei verschiedene Dinge, die man ihm
+          nicht ansieht: eine wirklich GERECHNETE Zone (65x65 Vertices,
+          bei gemischten Eckbiomen vier Rauschabfragen je Vertex) oder
+          einen Cache-Treffer. Der LRU haelt 512 Zonen — weit mehr, als
+          ein Messkorridor beruehrt. Wer denselben Weg zweimal laeuft,
+          misst beim zweiten Mal das Abspielen und haelt den Unterschied
+          fuer eine Verbesserung. `neuErzeugt` ist kumulativ (statisch,
+          seit Seitenaufruf); die Differenz zweier Momentaufnahmen sagt,
+          wie viele Zonen das Messfenster wirklich gebaut hat.
+
+          Whether the terrain figure measured zone BUILDS or cache hits.
+        */
+        p['zonen'] = {
+          neuErzeugt: HeightmapProvider.neuErzeugt,
+          imCache: world?.heightmaps.cachedZoneCount ?? -1,
+        };
         // Der Schattenpass rendert die Werferliste JE KASKADE komplett neu
         // — das Produkt ist der zweite Posten, den D10 betrifft, und er
         // ist grösser als der Bildpass. Beide Zahlen gehören deshalb in
@@ -1880,7 +1899,12 @@ async function main() {
     // fuer sie nie wieder. Dieser Rueckkanal traegt sie nach, s. die
     // Kommentare an EntityManager.onMasterBelebt und Shadows.meldeWerfer().
     entities.onMasterBelebt = (m) => shadows?.meldeWerfer(m);
-    entities.onMasterEntsorgt = (m) => shadows?.entferneWerfer(m);
+    // Entsorgt gegen gepoolt: Ein entsorgter Master muss VOLLSTAENDIG
+    // vergessen werden (auch sein Vegetations-Schattenklon), ein
+    // gepoolter nur aus den Listen — er kommt oben ueber onMasterBelebt
+    // zurueck. S. Shadows.vergissMaster() fuer die Begruendung.
+    entities.onMasterEntsorgt = (m, endgueltig) =>
+      endgueltig ? shadows?.vergissMaster(m) : shadows?.entferneWerfer(m);
 
     // ── Impostor-Fernfeld ─────────────────────────────────────────
     // Ferne Vegetation wird durch 2-Dreiecke-Sprites ERSETZT, statt sie

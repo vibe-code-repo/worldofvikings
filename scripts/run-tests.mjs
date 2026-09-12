@@ -880,6 +880,16 @@ const KERN = [
   // durchgeht, und dass „nicht gemessen" nicht als „klein" gelesen wird —
   // sonst verloere das Gelaende seinen Schattenwurf.
   ['client', 'test/modell-hoehe.ts'],
+  // Zu jedem Vegetationsmaster gehoert ein Schattenklon mit EIGENER
+  // GPU-Geometrie. Wird der Master entsorgt, muss beides weg — sonst
+  // bleibt eine Buchung stehen, die jedes Bild mitgezaehlt und mitgepackt
+  // wird und mit der Sitzungsdauer waechst. Ein Bild kann das nicht
+  // zeigen (der Klon steht deckungsgleich oder abgeschaltet), deshalb
+  // haengt der Test an der ZUSTANDSGROESSE
+  // vegetationsSchattenStats().master. Er haelt zugleich die
+  // Gegenrichtung fest: Ein GEPOOLTER Master behaelt seinen Klon.
+  // NullEngine, kein `assets/`, <1 s.
+  ['client', 'test/schatten-master-vergessen.ts'],
   // Das 100-FPS-Profil nutzt auf der niedrigen Stufe eine eigene
   // Schattenfassung. Der GPU-lose Test haelt 2 x 1024 px / 80 m fest und
   // prueft zugleich, dass alle normalen Stufen unveraendert bleiben.

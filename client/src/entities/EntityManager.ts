@@ -1746,9 +1746,20 @@ export class EntityManager {
   /** Erst wenn die Spielerposition EINMAL angekommen ist, darf getauscht
    *  werden — s. die Begruendung in baueZellMaster(). */
   private spielerBekannt = false;
-  /** Gegenstueck fuer die Entsorgung: erst beim Schattensystem abmelden
-   *  (Shadows.entferneWerfer), dann dispose. Verdrahtet in main.ts. */
-  onMasterEntsorgt: ((mesh: Mesh) => void) | null = null;
+  /**
+   * Gegenstueck fuer die Entsorgung: erst beim Schattensystem abmelden,
+   * dann dispose. Verdrahtet in main.ts.
+   *
+   * `endgueltig` trennt die ZWEI Faelle, in denen `zellMeshFreigeben()`
+   * diesen Rueckkanal zieht: `true` heisst „gleich kommt dispose()",
+   * `false` heisst „geht abgeschaltet in den Pool und kommt ueber
+   * onMasterBelebt zurueck". Der Empfaenger MUSS beides unterscheiden
+   * koennen, weil an einem Master mehr haengen kann als Listeneintraege
+   * — s. Shadows.vergissMaster(). Ein Parameter statt zweier Callbacks:
+   * So kann keine der beiden Stellen den anderen Weg stillschweigend
+   * uebersehen, der Typ erzwingt die Entscheidung.
+   */
+  onMasterEntsorgt: ((mesh: Mesh, endgueltig: boolean) => void) | null = null;
   /** Invisible collision carriers, one per prefab — see rebuildBucketColliders. */
   private readonly colliders = new Map<
     string,
@@ -2930,11 +2941,18 @@ export class EntityManager {
     const schluessel = `${prefabName}|${prototypIndex}`;
     const pool = this.zellPool.get(schluessel);
     if (!pool) {
+      // Auch der ALLERERSTE Master eines Schluessels wird abgemeldet. Er
+      // legt den Pool an und nahm bisher als einziger Pfad den Rueckkanal
+      // nicht — abgeschaltet, aber weiter je Kaskade durchgesehen.
+      this.onMasterEntsorgt?.(mesh, false);
       this.zellPool.set(schluessel, [mesh]);
       return;
     }
     if (pool.length >= ZELL_POOL_DECKEL) {
-      this.onMasterEntsorgt?.(mesh);
+      // ENDGUELTIG: gleich folgt dispose(). Der Empfaenger muss deshalb
+      // alles wegraeumen, was an diesem Mesh haengt, nicht nur die
+      // Listeneintraege — s. Shadows.vergissMaster().
+      this.onMasterEntsorgt?.(mesh, true);
       mesh.dispose(false, false);
       return;
     }
@@ -2943,8 +2961,11 @@ export class EntityManager {
     // der Schattenpass iteriert sie je Kaskade. Ohne Abmeldung sammeln
     // sich bis zu DECKEL x Prefabs x Prototypen tote Eintraege. Der
     // Callback entsorgt nichts, er raeumt nur Listen; beim Reaktivieren
-    // meldet onMasterBelebt -> meldeWerfer wieder an.
-    this.onMasterEntsorgt?.(mesh);
+    // meldet onMasterBelebt -> meldeWerfer wieder an. Deshalb hier
+    // `endgueltig = false`: Das Mesh lebt weiter, und was sonst noch an
+    // ihm haengt (Schattenklon samt eigener Geometrie) soll es behalten,
+    // statt es beim Wiederbeleben neu auf die Grafikkarte zu laden.
+    this.onMasterEntsorgt?.(mesh, false);
     pool.push(mesh);
   }
 

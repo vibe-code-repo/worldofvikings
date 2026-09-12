@@ -262,9 +262,39 @@ export function schattenLambda(stufe: number, hundertFpsProfil: boolean): number
  *
  * Gemessen wird in EntityManager.merkeModellHoehe(): rohe Modellhöhe mal
  * grösster Instanzskalierung, bewusst nach oben gerundet. Ein Objekt
- * unter einem halben Meter wirft bei unserer Kaskadenauflösung (2048 px
- * auf 80 m Nahkaskade, also rund 4 cm je Texel) einen Fleck von einer
+ * unter einer Handbreit wirft bei unserer Kaskadenauflösung (2048 px auf
+ * 80 m Nahkaskade, also rund 4 cm je Texel) einen Fleck von einer
  * Handvoll Texeln, den das PCF-Filter zusätzlich weichzeichnet.
+ *
+ * ── Warum 0,35 und nicht 0,5 (Angreifer-Review 13.09.2026) ───────────
+ * G5 hat mit 0,5 m angefangen. Ausgezählt am Katalog (über einen
+ * Modulimport, nicht per Regex über die Datei) und an der gebauten Welt
+ * sagt die Zahl:
+ *
+ *  - In der Welt `dev` (16.545 ZDOs, 79 Prefab-Sorten) nimmt die Regel
+ *    genau 7 Sorten mit 488 Instanzen aus der Werferliste — Bodensteine
+ *    und Kiesel, ALLE zwischen 0,20 und 0,31 m. Das ist der Fall, für
+ *    den die Regel gebaut wurde.
+ *  - NICHTS, was in dieser Welt steht, liegt zwischen 0,31 und 0,50 m.
+ *    Für den heutigen Bestand sind 0,35 und 0,50 also dieselbe
+ *    Werferliste — die niedrigere Schwelle kostet keinen Zeichenaufruf.
+ *  - Dafür fallen bei 0,5 zusätzlich 38 Katalog-Prefabs heraus, die
+ *    niemand streut, sondern jemand HINSTELLT: Amboss (0,4465), Kessel
+ *    (0,4662), Tischfass (0,4793), Kerzenständer (0,4904), Hocker
+ *    (0,4925), Truhenboden (0,4711), halbes Fass (0,4758), Fasstrümmer
+ *    (0,44–0,46). Bei einem Ding, das auf dem Boden steht und aus
+ *    nächster Nähe angesehen wird, ist der Kontaktschatten der
+ *    Unterschied zwischen „steht" und „schwebt".
+ *
+ * WEN SIE WEITERHIN KOSTET, damit es nicht wieder jemand ausrechnen
+ * muss: die zehn Katalogstücke zwischen 0,31 und 0,35 m — Korb, Haken,
+ * Gewürztopf, Heuhaufen, Brunnensockel, Truhe (0,3291), Kelch,
+ * Schneestein, Baumfuss-Pflaster, gebrochene Grubenschiene. Fehlt davon
+ * eines sichtbar in einer Szene, ist die nächste Stufe 0,32 — und nicht
+ * der Wegfall der Regel.
+ *
+ * Counted against the catalogue and the built world: 0,35 leaves today's
+ * caster list unchanged and spares 38 furniture-scale props.
  *
  * Die Schwelle greift NUR, wenn eine Messung vorliegt. Gelände, Spieler,
  * Dungeon-Architektur und Himmel laufen nie durch den Instanzpfad;
@@ -277,7 +307,7 @@ export function schattenLambda(stufe: number, hundertFpsProfil: boolean): number
  * Begruendung wie bei MIN_KASKADEN oben: `darfWerfen()` braucht eine
  * Szene mit GPU, die Schwelle nicht.
  */
-export const MIN_WURF_HOEHE_M = 0.5;
+export const MIN_WURF_HOEHE_M = 0.35;
 
 /**
  * Meshes, die keinen Schatten WERFEN.
@@ -1166,6 +1196,50 @@ export class Shadows {
       if (i >= 0) this.werferPending.splice(i, 1);
       this.werferPendingSet?.delete(mesh);
     }
+  }
+
+  /**
+   * Einen Master ENDGUELTIG vergessen — vor `mesh.dispose()`.
+   *
+   * ── Warum das nicht dasselbe ist wie entferneWerfer() ────────────
+   * `entferneWerfer()` raeumt LISTEN (renderList, werferPending). Ein
+   * Vegetationsmaster hinterlaesst aber mehr als Listeneintraege: Zu ihm
+   * gehoert ein eigener Schattenklon mit EIGENER GPU-Geometrie
+   * (`zellMeshAusPrototyp`, s. setVegetationsInstanzen) und ein Eintrag
+   * in `vegetationsSchatten`. Beides ueberlebt das dispose der Quelle,
+   * und der Eintrag wird danach in JEDEM Bild mitgezaehlt und mitgepackt
+   * — in packeVegetationsMaster(), in den Radiusschleifen von
+   * setPlayerPosition() und in vegetationsSchattenStats(). Eine Leiche
+   * ohne Symptom: Sie waechst nur mit der Sitzungsdauer, und kein
+   * Messlauf unter ein paar Minuten sieht sie.
+   *
+   * ── Warum nur beim ENTSORGEN und nicht beim Poolen ───────────────
+   * `EntityManager.zellMeshFreigeben()` meldet einen Master in zwei
+   * Faellen ab: wenn er ueber den Pool-Deckel hinaus ENTSORGT wird, und
+   * wenn er abgeschaltet in den POOL zurueckgeht. Nur der erste Fall
+   * gehoert hierher. Ein gepoolter Master lebt weiter, kommt ueber
+   * `onMasterBelebt` mit DERSELBEN Geometrie zurueck und bekommt dann
+   * einen neuen Instanzpuffer — seinen Schattenklon jetzt wegzuwerfen
+   * hiesse, ihn gleich darauf neu auf die Grafikkarte zu laden. Genau
+   * diese Kosten ist der Pool angetreten zu sparen. Deshalb trennt der
+   * Aufrufer die beiden Faelle (Parameter `endgueltig`), statt hier zu
+   * raten.
+   *
+   * Dispose-time counterpart to entferneWerfer(): also drops the
+   * vegetation shadow clone and its bookkeeping entry.
+   */
+  vergissMaster(mesh: AbstractMesh): void {
+    this.entferneWerfer(mesh);
+    this.vegetationsQuellen.delete(mesh);
+    const stand = this.vegetationsSchatten.get(mesh as Mesh);
+    if (!stand) return;
+    this.vegetationsSchatten.delete(mesh as Mesh);
+    this.vegetationsPackPending.delete(stand);
+    this.vegetationsKlone.delete(stand.schatten);
+    // Erst abmelden, dann entsorgen — dieselbe Reihenfolge, aus der der
+    // Kopf von entferneWerfer() oben seine Begruendung bezieht.
+    this.entferneWerfer(stand.schatten);
+    stand.schatten.dispose();
   }
 
   /** Stufe setzen (Index in SHADOW_LEVELS). */

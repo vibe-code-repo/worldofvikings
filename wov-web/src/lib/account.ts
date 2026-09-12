@@ -42,12 +42,59 @@ export type ShoreId = 'dev' | 'live';
 /**
  * Where each shore lives.
  *
- * Both hosts are already listed in `connect-src` in `svelte.config.js`;
- * a third one would need an entry there too, or the browser blocks it.
+ * ── Same origin since the "one origin" container (Bauer "Ein Ursprung
+ * im Container", 12.09.2026) ──────────────────────────────────────────
+ * `dev` used to be its own subdomain (`play.dev.world-of-vikings.com`),
+ * exactly like `live` still is. It no longer is one: nginx in the
+ * wov-lab container now answers the website, the game client (under
+ * `/play/`) and the account API (under `/api/accounts/`, proxied to the
+ * game server's own `/accounts/`, see `deploy/nginx/wov-lab.conf`) from
+ * a SINGLE origin — the one this page was itself served from.
+ * `origin: ''` means exactly that: build the URL against
+ * `window.location`, not against a second host. Subdomains remain only
+ * for telling the LIVE production origin apart from a future staging
+ * one (Mikes decision 4); they are not how a shore's own pieces (site,
+ * game, API) address each other any more.
+ *
+ * `apiPrefix` and `origin` are deliberately separate fields: on `live`
+ * they are the same string (its game server still answers bare
+ * `/accounts/` at its own root, unchanged, so the account call is
+ * `origin + path`), but on a same-origin shore the account call goes
+ * through `/api/accounts/`, one path segment the asset and play
+ * addresses do not carry.
+ *
+ * `WOV_DEV_ORIGIN`: the environment switch. Unset (the default), `dev`
+ * is same-origin — correct for wov-lab and for `vite dev`, where this
+ * very page and the game share a host. Set it (a Vite `define`, e.g. to
+ * a staging host) when the website is ever built to be served from
+ * somewhere other than the wov-lab origin itself; the three fields below
+ * all key off it so nothing has to change in three places by hand.
  */
-export const SHORES: Record<ShoreId, { url: string }> = {
-  dev: { url: 'https://play.dev.world-of-vikings.com' },
-  live: { url: 'https://play.world-of-vikings.com' },
+declare const WOV_DEV_ORIGIN: string | undefined;
+const DEV_ORIGIN = typeof WOV_DEV_ORIGIN === 'string' ? WOV_DEV_ORIGIN : '';
+
+export interface ShoreConfig {
+  /** Origin for absolute asset URLs (`/assets/models/…`). Empty means
+   *  "this page's own origin". */
+  origin: string;
+  /** Origin (or relative prefix) an `/accounts/…` path is appended to. */
+  apiPrefix: string;
+  /** Where the game client lives, resolved against `origin` (or, when
+   *  that is empty, against `window.location`). */
+  playPath: string;
+}
+
+export const SHORES: Record<ShoreId, ShoreConfig> = {
+  dev: {
+    origin: DEV_ORIGIN,
+    apiPrefix: DEV_ORIGIN ? DEV_ORIGIN : '/api',
+    playPath: DEV_ORIGIN ? '/' : '/play/',
+  },
+  live: {
+    origin: 'https://play.world-of-vikings.com',
+    apiPrefix: 'https://play.world-of-vikings.com',
+    playPath: '/',
+  },
 };
 
 /** Display order: the test shore first, because it is the default. */
@@ -472,7 +519,7 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(SHORES[shore].url + path, {
+    response = await fetch(SHORES[shore].apiPrefix + path, {
       method: a.method,
       headers,
       body: a.body === undefined ? undefined : JSON.stringify(a.body),
@@ -633,6 +680,14 @@ export function play(shore: ShoreId, token: string, id: number): Promise<Ticket>
  * `lang` and `time` remain ordinary parameters: language selects client
  * copy, while time is a request for the test realm. Neither is a character
  * property or a credential.
+ *
+ * ── `playPath` instead of `origin` ────────────────────────────────────
+ * A same-origin shore (the wov-lab container) puts the game under
+ * `/play/` on THIS host, not on a second one — `new URL('/play/',
+ * window.location.origin)` resolves that. A cross-origin shore (`live`,
+ * still its own domain) sets `origin` to that domain and `playPath` to
+ * `/`; `new URL` then ignores the base entirely because the first
+ * argument is already absolute. One call handles both.
  */
 export function playUrl(
   shore: ShoreId,
@@ -640,7 +695,8 @@ export function playUrl(
   language: Locale,
   time?: string,
 ): string {
-  const url = new URL(SHORES[shore].url);
+  const { origin, playPath } = SHORES[shore];
+  const url = new URL(origin ? `${origin}${playPath}` : playPath, window.location.origin);
   // Language is explicit rather than inferred by the game host: the website
   // URL is the user's choice, while browser preferences may differ. Keeping
   // it in the query also preserves it on game reloads.

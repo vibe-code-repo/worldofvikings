@@ -179,6 +179,23 @@ function gameWsProxy(targetPort: number): Plugin {
 
 export default defineConfig({
   root: '.',
+  /**
+   * Der Ein-Ursprung-Container (Bauer "Ein Ursprung im Container",
+   * 12.09.2026) haengt Spiel UND Editor unter /play/ auf, weil / der
+   * vorgerenderten Webseite gehoert (deploy/nginx/wov-lab.conf). Vite
+   * haengt diese Basis vor JEDEN erzeugten Verweis — Bundle-Skripte,
+   * CSS, den `assetsDir`-Ordner — automatisch an; assetUrls.ts bleibt
+   * unberuehrt, weil dessen /assets/-Pfade ABSOLUT bleiben muessen
+   * (nginx bedient /assets/ als eigene, von /play/ unabhaengige
+   * Adresse) und eine relative Vite-Basis genau dort nichts aendert.
+   *
+   * The single-origin container hangs game and editor under /play/,
+   * because / belongs to the prerendered website. Vite prefixes every
+   * generated reference with this base automatically; assetUrls.ts is
+   * untouched on purpose — its /assets/ paths must stay absolute since
+   * nginx serves /assets/ as its own address, independent of /play/.
+   */
+  base: '/play/',
   plugins: [
     gameWsProxy(GAME_SERVER_PORT),
     assetFolder(resolve(CONFIG_DIR, '../assets')),

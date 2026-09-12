@@ -85,6 +85,18 @@ function brauchtPython() {
 
 const KERN = [
   /*
+    Ein Ursprung im Container (12.09.2026): Textnachweis über
+    deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,
+    /editor/, /api/accounts/, /api/, /assets/, /ws) stehen als eigener
+    location-Block darin. Liest nur Text, ~0.1 s — deshalb ganz vorn,
+    aus demselben Grund wie die drei Elemente-Umzug-Wächter direkt
+    darunter.
+
+    Text-only guard over the single-origin nginx config — all seven
+    paths present as their own location block.
+  */
+  ['tools/test', 'nginx-wov-lab-pfade.ts'],
+  /*
     S1 (Elemente-Umzug): Kopfzeilen-Wächter über `tools/elements/`. Steht
     ganz vorn, weil er der billigste Prüfer der Liste ist — er liest Text,
     sonst nichts: kein `assets/`, kein Blender, keine GPU, keine

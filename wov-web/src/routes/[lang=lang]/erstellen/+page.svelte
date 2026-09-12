@@ -199,7 +199,7 @@
    * Stand, und eine Vorschau, die etwas anderes zeigt als das, was einen dort
    * erwartet, wäre schlimmer als keine.
    */
-  const modellWurzel = $derived(`${SHORES[gestade].url}/assets/models/`);
+  const modellWurzel = $derived(`${SHORES[gestade].origin}/assets/models/`);
 
   /** 00:00 … 23:00, die markanten Stunden mit Namen dahinter. */
   const stunden = $derived(

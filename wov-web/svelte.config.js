@@ -72,6 +72,15 @@ export default {
      * („Refused to connect because it violates the document's Content
      * Security Policy“) — genau der offene Punkt „Vorschau ungeprüft im
      * Bild“. Erlaubt sind deshalb exakt diese beiden Hosts, sonst keiner.
+     *
+     * Seit dem Ein-Ursprung-Container (12.09.2026, `$lib/account.ts`,
+     * `SHORES.dev`) ist "dev" kein zweiter Host mehr: Modelle,
+     * Konten-API und Spiel kommen für dieses Gestade vom selben Ursprung
+     * wie die Webseite, und dafür steht bereits `'self'`. Die alte
+     * Dev-Subdomain bleibt hier trotzdem stehen — ein `WOV_DEV_ORIGIN`
+     * kann `SHORES.dev` jederzeit wieder auf einen zweiten Host zeigen
+     * lassen (Umgebungsschalter, s. dort), und ohne den Eintrag hier
+     * bräche das lautlos an der CSP.
      */
     csp: {
       mode: 'hash',

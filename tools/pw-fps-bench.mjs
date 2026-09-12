@@ -133,7 +133,24 @@ const TIME = arg('t', '0.708333');
  * und dann misst man deren Unterschiede mit. Landet unveraendert im
  * Ergebnis (`zusatz`), damit spaeter feststeht, womit eine Zahl entstand.
  */
-const ZUSATZ = arg('zusatz', '');
+const ZUSATZ_ROH = arg('zusatz', '');
+/**
+ * Das Trennzeichen ergaenzen, wenn der Aufrufer es vergessen hat.
+ *
+ * Beim Zusammenfuehren von G5/G6/G13 aufgefallen: `--zusatz zonen=stueck`
+ * (ohne fuehrendes `&`) haengte sich WORTWOERTLICH an den Zeitparameter,
+ * die Adresse lautete `t=0.708333zonen=stueck`. Der Schalter erreichte
+ * den Client nie, und die Tageszeit war Unsinn — gemerkt haette es
+ * niemand, denn `zusatz` steht so, wie er angefordert wurde, in der
+ * Zusammenfassung und in der Messdatei: Die Datei BEHAUPTET dann einen
+ * Schalter, der nie gegriffen hat. Ein vergessenes `&` darf keine stille
+ * Falschmessung erzeugen.
+ *
+ * A missing separator silently voided the switch while the result file
+ * still claimed it — normalise instead of trusting the caller.
+ */
+const ZUSATZ =
+  !ZUSATZ_ROH || ZUSATZ_ROH.startsWith('&') ? ZUSATZ_ROH : `&${ZUSATZ_ROH.replace(/^[?&]+/, '')}`;
 /** Spielername fuer die Messung — bewusst NICHT ein echter Spielername. */
 const SPIELER = arg('spieler', `BenchBot${Date.now().toString(36).slice(-4)}`);
 /** Notbremse gegen endloses Laufen (Wand, Wasser, Kollisionsfalle). */
@@ -179,8 +196,24 @@ const kontext = await browser.newContext({ viewport: { width: 1600, height: 900 
 const page = await kontext.newPage();
 
 const konsole = [];
+/**
+ * Zeugen fuer die Diagnoseschalter aus `--zusatz`: Jede Client-Meldung,
+ * die sich als „Diagnose" ausweist, wird mitgeschrieben UND ausgegeben.
+ *
+ * Ein Schalter in der Adresszeile ist sonst eine Behauptung: Steht er
+ * falsch (Tippfehler, fehlendes Trennzeichen, umbenannter Parameter),
+ * laeuft die Messung stillschweigend auf dem Standardstand weiter, und
+ * das Ergebnis traegt trotzdem den Schaltertext. Der Zeuge kommt aus dem
+ * Client selbst — nur er weiss, ob der Schalter gegriffen hat.
+ */
+const zeugen = [];
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') konsole.push(`[${m.type()}] ${m.text().slice(0, 200)}`);
+  const t = m.text();
+  if (/Diagnose/.test(t)) {
+    zeugen.push(t.slice(0, 200));
+    console.log(`[bench] Zeuge: ${t.slice(0, 200)}`);
+  }
 });
 const seitenfehler = [];
 page.on('pageerror', (e) => seitenfehler.push(e.message.slice(0, 300)));
@@ -460,6 +493,10 @@ const ergebnis = {
   aufloesung: '1600x900',
   uhrzeit: TIME,
   zusatz: ZUSATZ,
+  // Was der CLIENT zu den Schaltern gemeldet hat (s. `zeugen` oben). Leer
+  // bei einem Lauf ohne Schalter — und leer trotz `zusatz` heisst: Der
+  // Schalter hat NICHT gegriffen, die Zahlen gehoeren zum Standardstand.
+  schalterZeugen: zeugen,
   messort: { x: START_X, z: START_Z, yaw: YAW },
   endPosition: roh.endPos,
   strecke: { angefordert: STRECKE, gelaufen: +strecke.toFixed(1), dauerS: +dauerSprintS.toFixed(1), laeufe: LAEUFE, vorlauf: VORLAUF },

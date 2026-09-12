@@ -758,8 +758,14 @@ function vorgabeDecktServerYml(): void {
     LOOK_VORGABE.saettigung >= 0.6,
     `Saettigung nicht unter 0,60 — darunter blutet die Spielerfigur aus: ${LOOK_VORGABE.saettigung}`
   );
-  ok(LOOK_VORGABE.nebelStart === 50, `Nebelstart 50 m (war 15, Runde 2): ${LOOK_VORGABE.nebelStart}`);
-  ok(LOOK_VORGABE.nebelEnde === 800, `Nebelende 800 m (war 200, Entscheidung E3): ${LOOK_VORGABE.nebelEnde}`);
+  ok(
+    LOOK_VORGABE.nebelStart === 4000,
+    `Nebelstart 4000 m (Nebel vorerst aus, Mike 12.09.2026, war 50): ${LOOK_VORGABE.nebelStart}`
+  );
+  ok(
+    LOOK_VORGABE.nebelEnde === 20000,
+    `Nebelende 20000 m (Nebel vorerst aus, Mike 12.09.2026, war 800, Entscheidung E3): ${LOOK_VORGABE.nebelEnde}`
+  );
   ok(
     LOOK_VORGABE.schatten.kaskaden === 2 && LOOK_VORGABE.schatten.dunkelheit === 0.2,
     `Schatten: ${LOOK_VORGABE.schatten.kaskaden} Kaskaden (Babylons Deckel), Restlicht ${LOOK_VORGABE.schatten.dunkelheit}`
@@ -796,34 +802,38 @@ function nebelkurve(): void {
     ── Was hier stand, und warum es nicht mehr stimmt ──────────────────
 
     Bis zum 12.09.2026 hielt dieser Test fest: „Das Vorbild sieht sechsmal
-    kuerzer" — `linear 15 → 200 m` gegen die alte exp-Kurve mit 630 m.
-    Das war richtig gemessen und ist durch eine ENTSCHEIDUNG ueberholt
-    (E3): Das Nebelende steht seit heute auf 800 m, gemessen an drei
-    Zeugen (Ferne B−R 26,1 → 2,1; Struktur der Ferne +14,6 Luma bis
-    800 m, danach ~1 Luma je 100 m; Ferne/Himmel 0,550 gegen gemessene
-    0,53). Die FARBE des Nebels ist dabei unveraendert geblieben.
+    kuerzer" — `linear 15 → 200 m` gegen die alte exp-Kurve mit 630 m,
+    und spaeter (Entscheidung E3) `linear 50 → 800 m` als weiter, aber
+    weiter KUERZER als die exp-Kurve.
+
+    Beides ist durch Mikes Entscheidung vom 12.09.2026 ueberholt: Der
+    Nebel soll vorerst AUS sein. `nebelStart`/`nebelEnde` stehen jetzt so
+    weit hinter der Sichtweite (4000/20000), dass im sichtbaren Bereich
+    kein Nebel mehr liegt — die FARBE (E3, Ferne B−R, Ferne/Himmel 0,550)
+    bleibt dabei unangetastet, nur die Reichweite ist verschoben.
 
     Die Zusage wird deshalb nicht geloescht, sondern auf das gedreht,
-    was jetzt gilt und was beim naechsten Umbau wieder kippen kann:
+    was jetzt gilt und was beim naechsten Umbau (Rueckweg zu 50/800)
+    wieder kippen kann:
 
-     · Die lineare Sicht ist weiter KUERZER als die alte exp-Kurve
-       (408 m gegen 630 m) — der Umstieg auf `linear` hat die Ferne
-       nicht heimlich geoeffnet.
-     · Sie ist zugleich deutlich WEITER als die 108 m, die `nebelEnde
-       200` ergab. Genau das ist die Entscheidung, und sie steht hier
-       als Zahl, damit ein Rueckfall auf 200 auffaellt.
-     · Und `nebelStart` bleibt so weit unter `nebelEnde`, dass die
-       Rechnung nicht entartet.
+     · Die lineare Sicht ist jetzt weit WEITER als die alte exp-Kurve
+       (rund 12000 m gegen 630 m) — das ist die Kehrseite von „Nebel
+       aus" und keine ueberraschende Regression.
+     · Sie ist zugleich um ein Vielfaches weiter als die 425 m, die
+       die vorherige Produktions-Einstellung (`nebelStart 50, nebelEnde
+       800`) ergab. Ein Rueckfall auf die alten Werte faellt damit auf.
+     · Und `nebelStart` bleibt unter `nebelEnde`, sonst entartet die
+       Rechnung.
   */
   const sichtLinear = sichtweite('linear', 0, 0.5, LOOK_VORGABE.nebelStart, LOOK_VORGABE.nebelEnde);
-  const sichtAlt200 = sichtweite('linear', 0, 0.5, LOOK_VORGABE.nebelStart, 200);
+  const sichtVorherigeProduktion = sichtweite('linear', 0, 0.5, 50, 800);
   ok(
-    sichtLinear < w0011,
-    `linear bleibt kuerzer als die alte exp-Kurve: ${sichtLinear.toFixed(0)} m gegen ${w0011.toFixed(0)} m`
+    sichtLinear > 15 * w0011,
+    `Nebel aus: linear sieht jetzt ein Vielfaches weiter als die alte exp-Kurve: ${sichtLinear.toFixed(0)} m gegen ${w0011.toFixed(0)} m`
   );
   ok(
-    sichtLinear > 3 * sichtAlt200,
-    `E3 hat die Sicht mehr als verdreifacht: ${sichtAlt200.toFixed(0)} m (nebelEnde 200) → ${sichtLinear.toFixed(0)} m (nebelEnde ${LOOK_VORGABE.nebelEnde})`
+    sichtLinear > 20 * sichtVorherigeProduktion,
+    `Nebel aus hat die Sicht um mehr als das Zwanzigfache verlaengert: ${sichtVorherigeProduktion.toFixed(0)} m (vorherige Produktion, nebelStart 50/nebelEnde 800) → ${sichtLinear.toFixed(0)} m (nebelStart ${LOOK_VORGABE.nebelStart}/nebelEnde ${LOOK_VORGABE.nebelEnde})`
   );
   ok(
     LOOK_VORGABE.nebelStart < LOOK_VORGABE.nebelEnde,

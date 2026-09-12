@@ -381,9 +381,14 @@ look:
   # ausserhalb ihres Bands 0,53 ± 0,08 liegt, hat der Tonemapper zu
   # verantworten und nicht diese Zeile — bei Nebelstart 15 steht sie
   # genauso daneben.
+  # ── Nebel vorerst aus (Mike, 12.09.2026) ────────────────────────────
+  # Linear jenseits der Sichtweite: Start und Ende liegen beide hinter
+  # dem, was im Sichtbereich je gerendert wird, also erscheint kein
+  # Nebel. Der Rueckweg zu den gemessenen Werten oben ist nebelStart 50 /
+  # nebelEnde 800.
   nebelmodus: linear
-  nebelStart: 50
-  nebelEnde: 800
+  nebelStart: 4000
+  nebelEnde: 20000
   nebelWaerme: 0
   # ── Grading: die ganze Farbhandschrift des Vorbilds ──────────────────
   # `ShadowsMidtonesHighlights` ist die EINZIGE Komponente, die in Level1

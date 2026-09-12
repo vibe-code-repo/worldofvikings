@@ -617,8 +617,15 @@ export const LOOK_VORGABE: LookProfil = {
     ausserhalb ihres Bands liegt, hat die Kurve zu verantworten und
     nicht diese Zeile (Herleitung im Block oben).
   */
-  nebelStart: 50,
-  nebelEnde: 800,
+  /*
+    ── Nebel vorerst aus (Mike, 12.09.2026) ────────────────────────────
+    Diese Vorgabe IST `server.yml` (s. oben), also zieht sie hier nach:
+    linear jenseits der Sichtweite, damit im Sichtbereich kein Nebel
+    liegt. Rueckweg zu den gemessenen Werten oben: nebelStart 50,
+    nebelEnde 800.
+  */
+  nebelStart: 4000,
+  nebelEnde: 20000,
   nebelWaerme: 0,
   // Die Dorf-Zeile der Entscheidung E1, roh (0,9800831 / 0,92229587 /
   // 1,0) mit Offset −0,044477392, in Hex gerundet (Rundungsfehler

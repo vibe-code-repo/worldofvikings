@@ -148,7 +148,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-druidenstab-senkrecht-20260912';
+  const FIGUREN_STAND = 'wikinger-druidenstab-spielgriff-20260912';
 
   let figur = $state('');
   let frisur = $state('');
@@ -330,6 +330,10 @@
 
   function waehleKlasse(id: string) {
     klasseId = id;
+    // Während der Körper noch importiert wird, existiert Hand_R noch nicht.
+    // ladeAlles() übernimmt die inzwischen gewählte Klassenwaffe direkt nach
+    // dem Import; ein paralleler Ladeversuch würde nur ohne Hand-Anker enden.
+    if (!fertig) return;
     void vorschau?.setzeWaffe(waffeFuerKlasse(id)).catch((fehler) => {
       console.warn('[erstellung] Waffe ließ sich nicht umschalten:', fehler);
     });

@@ -435,7 +435,10 @@ export class Vorschau {
       '', this.wurzel, 'wikinger/DruidStaff.glb', this.scene,
     );
     const halter = new TransformNode('druide-stab', this.scene);
-    halter.position.set(0.08, 0.08, 0.035);
+    // SpearIdle dreht die Hand so, dass deren lokale Z-Achse quer über
+    // den Bildschirm läuft. Der Stabmittelpunkt sitzt bei 7,4 cm im
+    // geschlossenen Fingerring; der Schwertwert 3,5 cm lag daneben.
+    halter.position.set(0.08, 0.08, 0.074);
     // Der Stab zeigt im Asset entlang +Y. In der Speer-Ruhepose zeigt die
     // lokale +X-Achse der rechten Hand senkrecht nach oben; Z -90° legt die
     // Stabachse genau darauf.
@@ -444,10 +447,17 @@ export class Vorschau {
     halter.parent = hand;
 
     const modell = new TransformNode('druide-stab-modell', this.scene);
-    modell.scaling.setAll(1.65);
+    // Das Spielmodell ist ein schlanker Wanderstab. Seine Laenge bleibt
+    // 1,62 m; nur die beiden Querachsen werden auf rund ein Drittel der
+    // bisherigen Staerke gebracht. Gleichmaessiges Skalieren hatte aus dem
+    // 3-cm-Schaft in der Vorschau einen fast unterarmdicken Pfosten gemacht.
+    modell.scaling.set(0.36, 1.65, 0.36);
     // Die Hand sitzt rund 1,06 m über dem Boden. Dieser Versatz legt das
     // Metallende auf den Boden und lässt die verzierte Spitze nach oben.
-    modell.position.set(0, -1.06, -0.08);
+    // Kein seitlicher Modellversatz: Die Griffachse laeuft durch den von
+    // SpearIdle geschlossenen Fingerring. Der alte Z-Versatz von -8 cm
+    // stellte den Stab sichtbar neben die Faust.
+    modell.position.set(0, -1.06, 0);
     modell.parent = halter;
     for (const knoten of [...res.meshes, ...res.transformNodes]) {
       if (!knoten.parent) knoten.parent = modell;

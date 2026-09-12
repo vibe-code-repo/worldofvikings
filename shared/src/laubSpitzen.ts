@@ -119,14 +119,23 @@ export type LaubSpitze = {
   /** `Added Color Amount` — 1 heisst „ganz", 0 hiesse „gar nicht". */
   readonly menge: number;
   /**
-   * Bekommt dieses Material im Labor den Verlauf?
+   * Bekommt dieses Material den Verlauf aus `LaubSpitzenPlugin`?
    *
    * Die vier Grasbüschel stehen hier mit ihren gemessenen Farben, aber
-   * auf `false`: Die Halme sind in dieser Runde der Auftrag des Bauern
-   * „Gras-Spitzenfarben", und zwei Hände am selben Bild ergeben eine
-   * Messung, die keinem der beiden gehört. Ihr Mittel wird weiter als
-   * einzelner Faktor geschrieben; ein `true` genügt, sobald der Halm
-   * seinen Verlauf bekommen soll.
+   * auf `false` — und das BLEIBT so. Sie waren in dieser Runde der
+   * Auftrag eines zweiten Bauern, und der hat ihren Verlauf über einen
+   * anderen Weg eingebaut: nicht über die Blattkarte (`1 − uv.y`),
+   * sondern über die HALMHÖHE im Clutter-Shader (`GRAS_SPITZEN` in
+   * `client/src/engine/GrassClutter.ts`, Achse an der Geometrie
+   * nachgemessen). Beide Wege tragen dieselben acht Farben auf
+   * dieselben Büschel auf.
+   *
+   * Ein `true` hier wäre deshalb keine Nachrüstung, sondern ein ZWEITER
+   * Verlauf über demselben Halm — die Spitzenfarbe stünde zweimal
+   * darauf. Die vier Zeilen haben in dieser Tabelle nur noch einen
+   * Zweck: Die Aufbereitung leitet aus ihnen das Mittel ab, das als
+   * einzelner `baseColorFactor` in die GLB geht (nachgetragen bei der
+   * Zusammenführung von Runde 2, 12.09.2026).
    */
   readonly imLabor: boolean;
 };
@@ -158,6 +167,14 @@ export const LAUB_SPITZEN: Readonly<Record<string, LaubSpitze>> = {
   'Pine 2': { oben: [0.651, 0.671, 0.592], unten: [0.384, 0.388, 0.102], menge: 1.0, imLabor: true },
   'Maple Leaves 1': { oben: [0.412, 0.451, 0.208], unten: [0.342, 0.368, 0.21], menge: 1.017, imLabor: true },
   // ── Grasbüschel des Speichers (s. `imLabor`) ───────────────────────
+  // ⚠ Diese vier Zeilen sind seit dem 12.09.2026 an ZWEI Stellen
+  // wirksam: Die Aufbereitung schreibt ihr Mittel als `baseColorFactor`
+  // in die GLB, und `GRAS_SPITZEN` in `client/src/engine/GrassClutter.ts`
+  // führt dieselben acht Farben noch einmal, um daraus den Höhenverlauf
+  // des Halms zu rechnen — mittelwerttreu, das Mittel bleibt also
+  // richtig. Wer hier eine Zahl nachmisst, zieht die dortige Tabelle
+  // mit; `client/test/gras-spitzen.ts` vergleicht beide Seiten und wird
+  // sonst rot.
   'Grass_Short_Plant_Leaves_1A1 2': { oben: [0.937, 1.0, 0.851], unten: [0.698, 0.608, 0.23], menge: 0.956, imLabor: false },
   Grass_Short_Plant_Leaves_1A1_Yellow: { oben: [1.0, 0.998, 0.95], unten: [0.85, 0.391, 0.125], menge: 0.956, imLabor: false },
   Grass_Short_Plant_Leaves_1A1_Snow: { oben: [0.921, 0.936, 0.95], unten: [0.742, 0.762, 0.818], menge: 0.956, imLabor: false },

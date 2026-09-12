@@ -479,10 +479,14 @@ const TOENUNG_VORRANG = new Set(['ahorn']);
  * the store GLB carries — the mean of the shader graph's top and bottom
  * crown colour, derived from shared/src/laubSpitzen.ts.
  *
- * Die `1A1`-Grasfamilie steht mit drin: Sie teilt sich EINE Geometrie
- * und unterscheidet sich nur in diesen Farben; der Store hat für drei
- * der vier gar keinen Faktor mitgebracht (`grasBunt`, `grasSchnee`
- * standen auf „ohne").
+ * Die `1A1`-Grasfamilie steht mit drin, und fuer sie ist dieses Mittel
+ * seit dem 12.09.2026 nur noch die HAELFTE der Geschichte: Den Verlauf,
+ * den glTF nicht abbilden kann, legt der Client auf den Halm
+ * (`GRAS_SPITZEN` in `client/src/engine/GrassClutter.ts`) — mittelwert-
+ * treu, der Faktor hier bleibt also die Farbe bei halber Halmhoehe und
+ * damit richtig. Wer eine der vier Grasfarben nachmisst, aendert sie in
+ * `shared/src/laubSpitzen.ts` und zieht die dortige Tabelle mit;
+ * `client/test/gras-spitzen.ts` vergleicht beide Seiten.
  */
 const UNITY_JE_MATERIAL = Object.fromEntries(
   Object.entries(LAUB_SPITZEN).map(([name, s]) => [name, [...laubMittel(s), 1]])

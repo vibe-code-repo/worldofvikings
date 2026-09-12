@@ -294,6 +294,99 @@ const STORE_GRAS_MODELLE = {
 type StoreGrasName = keyof typeof STORE_GRAS_MODELLE;
 
 /**
+ * Der Farbverlauf ÜBER DIE HALMHÖHE, je Store-Büschel.
+ *
+ * ── Was das Vorbild tut ──────────────────────────────────────────────
+ * Seine Grasbüschel hängen an einem Materialgraphen, der die Karte nicht
+ * mit EINER Farbe tönt, sondern mit zweien: eine an der Spitze, eine am
+ * Fuß, dazwischen ein Verlauf. Für das Wiesengras stehen dort
+ *
+ *     Spitze  0,937 / 1,000 / 0,851   ein fast weisses Gelbgrün
+ *     Fuss    0,698 / 0,608 / 0,230   ein warmes, dunkles Oliv
+ *
+ * (linear, wie die Quelle sie führt). Genau daher kommen die gelbgrünen
+ * Spitzen, die auf dem Dorfbild über der Wiese liegen — und nicht aus
+ * dem Licht.
+ *
+ * ── Was wir bisher hatten ────────────────────────────────────────────
+ * glTF kennt nur EINEN `baseColorFactor`. `tools/store-vegetation-
+ * aufbereiten.mjs` schreibt deshalb das MITTEL aus beiden Farben in die
+ * GLB ([0.8175, 0.804, 0.5405] beim Wiesengras) — eine Wiese aus lauter
+ * gleichmässig getönten Büscheln. Der Verlauf fehlte, und mit ihm der
+ * Teil des Bildes, der Gras als Gras lesbar macht: hell oben, dunkel
+ * unten.
+ *
+ * ── Warum hier der KONTRAST steht und nicht die Farbe ────────────────
+ * Die absolute Farbe bleibt Sache der GLB (`baseColorFactor`, von
+ * `storeGrasLaden()` gelesen). Hier steht nur, wie weit Spitze und Fuss
+ * von diesem Mittel abweichen — dimensionslos:
+ *
+ *     d = (oben − unten) / (oben + unten)
+ *     Faktor(h) = 1 + d · (2h − 1)      h = 0 am Fuss, 1 an der Spitze
+ *
+ * Bei h = 0,5 ist der Faktor 1: Die mittlere Halmfarbe ändert sich
+ * NICHT, der Verlauf verteilt sie nur über die Höhe. Das ist der Grund
+ * für diese Form — eine absolute Farbe hier würde beim nächsten Lauf des
+ * Aufbereitungswerkzeugs still neben dessen Faktor stehen, und der
+ * Bildmittelwert wanderte mit jedem Umbau.
+ *
+ * ── Die Achse ist gemessen, nicht geraten ────────────────────────────
+ * Die GLB trägt den Verlauf bereits: `COLOR_0.g` ist an allen zwölf Ecken
+ * exakt die auf [0,1] normierte lokale Höhe (gemessen 11.09.2026,
+ * grösste Abweichung 0,0000 — `grasr2-glb.mjs`). Der Shader rechnet
+ * denselben Wert aus `position.y` aus, statt das Attribut mitzuschleppen:
+ * Dieselbe Zahl, ein Vertexpuffer weniger, und sie gilt genauso für den
+ * Altbestands-Halm, der gar kein `COLOR_0` hat.
+ *
+ * `UV.v` taugt NICHT als Achse — sie läuft beim Büschel von 0,744 oben
+ * bis 0,988 unten, also verkehrt herum und über einen Ausschnitt des
+ * Atlas.
+ *
+ * ── Was bewusst NICHT übernommen ist ─────────────────────────────────
+ * Der Graph hat einen dritten Regler („Added Color Amount", beim Gras
+ * 0,956). Was er rechnet, steht in keiner lesbaren Quelle — der
+ * exportierte Shader ist eine leere Hülle. Ein Faktor 0,956 ohne
+ * belegte Bedeutung wäre ein Regler ohne Zeugen; die 4,4 % Unterschied
+ * liegen ausserdem unter dem, was die Rechteckmessung auflöst. Spitze
+ * und Fuss stehen deshalb genau auf den gemessenen Farben.
+ */
+export const GRAS_SPITZEN: Record<
+  StoreGrasName,
+  { readonly oben: readonly [number, number, number]; readonly unten: readonly [number, number, number] }
+> = {
+  gruen: { oben: [0.937, 1.0, 0.851], unten: [0.698, 0.608, 0.23] },
+  bunt: { oben: [1.0, 0.821, 0.948], unten: [0.736, 0.137, 0.696] },
+  gelb: { oben: [1.0, 0.998, 0.95], unten: [0.85, 0.391, 0.125] },
+  schnee: { oben: [0.921, 0.936, 0.95], unten: [0.742, 0.762, 0.818] },
+};
+
+/**
+ * Der Schalter für den Verlauf — an.
+ *
+ * Er ist der ZEUGE, nicht der Regler: Aus heisst „genau der Stand von
+ * vorher", denn ohne Verlauf tönt das Material wie bisher mit dem einen
+ * Faktor der GLB. Genau so ist der Vorher-Nachher-Vergleich entstanden
+ * (`grasr2-*` in ~/wov-lab-mess), und genau so lässt er sich
+ * wiederholen, ohne am Zweig zu drehen. Dieselbe Rolle wie
+ * `INSTANZ_TOENUNG_AN` bei der Tönungsstreuung.
+ */
+export const GRAS_SPITZEN_AN = true;
+
+/**
+ * Der dimensionslose Spitzenkontrast eines Verlaufs (siehe GRAS_SPITZEN).
+ *
+ * Nullsicher: Wo Spitze und Fuss beide null sind, gibt es keinen
+ * Verlauf — und keine Division.
+ */
+export function spitzenKontrast(v: {
+  readonly oben: readonly [number, number, number];
+  readonly unten: readonly [number, number, number];
+}): [number, number, number] {
+  const d = (o: number, u: number): number => (o + u > 1e-6 ? (o - u) / (o + u) : 0);
+  return [d(v.oben[0], v.unten[0]), d(v.oben[1], v.unten[1]), d(v.oben[2], v.unten[2])];
+}
+
+/**
  * Tönungsstreuung je Büschel — gegen den „gestempelten" Bestand.
  *
  * Die Analyse „Look-Übertragung ins Labor" (§2 „Vegetation") hält fest,
@@ -826,6 +919,26 @@ export class GrassClutter {
         // top Y for sway normalization
         let topY = 0;
         for (let i = 1; i < geometry.positions.length; i += 3) topY = Math.max(topY, geometry.positions[i]);
+        // Der FUSS des Halms — die Nulllinie des Spitzen-Verlaufs.
+        //
+        // Getrennt von `topY` gemessen, weil der Wind dort eine andere
+        // Frage stellt: Er will wissen, wie hoch ein Vertex über dem
+        // Ursprung sitzt (deshalb die 0 als Untergrenze), der Verlauf
+        // dagegen, wo dieser Vertex ZWISCHEN Fuss und Spitze steht. Beim
+        // Store-Büschel liegt der Fuss bei −0,027 m; mit 0 als Nulllinie
+        // begänne das Oliv erst über dem Boden und der unterste
+        // Zentimeter bliebe zu hell.
+        let bodenY = Number.POSITIVE_INFINITY;
+        for (let i = 1; i < geometry.positions.length; i += 3) bodenY = Math.min(bodenY, geometry.positions[i]);
+        if (!Number.isFinite(bodenY)) bodenY = 0;
+        // Der Verlauf gilt nur, wo eine gemessene Quelle dafür steht:
+        // für die Store-Büschel. Der Altbestands-Atlas hat keine — sein
+        // Bild ist selbst erzeugt, und eine erfundene Spitzenfarbe wäre
+        // genau der Regler ohne Zeugen, den diese Datei sonst meidet.
+        const spitzen =
+          GRAS_SPITZEN_AN && store && entry.storeGras
+            ? spitzenKontrast(GRAS_SPITZEN[entry.storeGras])
+            : null;
         const material = new StandardMaterial(`clutter_${entry.key}`, this.scene);
         material.alpha = 1;
         // Textur und Tönung setzt applyTexture() unten — an einer Stelle,
@@ -889,6 +1002,10 @@ export class GrassClutter {
           // nicht alles, was auf den Wasserspiegel gesetzt wird. Der
           // Unterschied zwischen Seerose und Schilf, siehe `schwimmt`.
           aufWasser: entry.schwimmt === true,
+          // Spitzen hell, Fuss warm dunkel — siehe GRAS_SPITZEN.
+          spitzen,
+          halmMinY: bodenY,
+          halmSpanY: Math.max(topY - bodenY, 1e-4),
         });
         return {
           entry,

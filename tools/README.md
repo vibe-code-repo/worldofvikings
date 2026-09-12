@@ -154,6 +154,32 @@ Beide Werkzeuge sind deterministisch: Ein zweiter Lauf ändert nichts.
 Ohne `assets/store` (Symlink auf den Store ausserhalb des Repos) brechen
 sie ab, statt eine halbe Wahrheit zu schreiben.
 
+### Wer MISST, braucht auch `assets/models`
+
+`assets/` liegt ausserhalb des Repos, und ein frischer Arbeitsbaum
+braucht drei Verweise, die getrennte Dinge tun:
+
+| Verweis | wofür |
+| --- | --- |
+| `assets/store` | Quelle der Aufbereitung (die zwei Werkzeuge oben) |
+| `assets/textures` | Boden- und Modelltexturen |
+| `assets/models` | Altbestand: **Grasbüschel-Vorlage, Bäume, Findlinge, Spielerkörper** |
+
+Der dritte fehlt in jedem Rezept, das nur von der Aufbereitung spricht —
+und sein Fehlen ist unsichtbar, weil nichts abbricht: Der Client holt
+`assets/models/clutter_default.glb` per HTTP, bekommt 404, und
+`GrassClutter` bleibt auf `ready: false` stehen. Die Welt steht dann
+ohne ein einziges Grasbüschel da, ohne die Altbestandsbäume und ohne
+Spielerkörper; in der Konsole stehen nur ein paar 404-Zeilen zwischen
+den übrigen.
+
+Für eine Look-Messung ist das kein Schönheitsfehler, sondern ein anderes
+Bild: Am `weitblick` misst dasselbe Rechteck 52,9 Luma ohne und 65,0 mit
+Grasbüscheln (12.09.2026, Zusammenführung Runde 2). Zwei Stände, die in
+verschieden ausgestatteten Arbeitsbäumen gemessen wurden, sind damit
+nicht vergleichbar — auch dann nicht, wenn beide Zahlen sauber
+entstanden sind.
+
 ### Der Fels steht in `shared/src/storeFelsen.ts`, nicht im Werkzeug
 
 Die Streutabelle des Speicher-Felsens ist HANDARBEIT und wird von keinem

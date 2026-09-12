@@ -378,7 +378,37 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
       Bild-Saettigung    0,149   0,226    ≥ 0,30     offen (Material)
       Bildkontrast        3,39    5,79    5–6        getroffen
 
-  Die zwei VERFEHLTEN Zeilen sind keine Feinjustage:
+  NACHGEMESSEN BEI DER ZUSAMMENFUEHRUNG (12.09.2026): Die Tabelle oben
+  ist in einem Arbeitsbaum OHNE `assets/models` entstanden — dort holt
+  der Client `clutter_default.glb` nicht, und die Welt steht ganz ohne
+  Grasbueschel da (s. tools/README.md, „Wer MISST, braucht auch
+  assets/models"). Mit vollstaendiger Welt, gleiche Posen, gleiche Uhr,
+  beide Staende auf demselben Baum:
+
+    weitblick 12:00        v0      neu    Ziel
+      Wiesengrund L       65,0    51,7    52–58      knapp darunter
+      Wiesengrund S      0,458   0,441    0,42–0,47  getroffen
+      Himmel L (Rechteck) 141,1  146,1    142 ± 4    Oberkante
+      Bildkontrast        2,85    4,17    Richtung 5–6
+      Ferne/Himmel       0,647   0,545    0,53 ± 0,08  GETROFFEN
+      Clipping           0 / 0   0 / 0    0
+
+    steinkreis 18:18       v0      neu    Ziel
+      Wiesengrund L       56,2    41,3    ≥ 40       GETROFFEN
+      Bild-Saettigung    0,167   0,220    ≥ 0,30     offen
+      Bildkontrast        3,14    5,18    5–6        getroffen
+
+  Der Befund dreht sich damit an zwei Stellen um: `Ferne/Himmel` ist
+  keine verfehlte Zeile mehr (die fehlenden Altbestandsbaeume hatten die
+  Ferne leer gelassen), und die Grundhelligkeit ist keine Luecke von 14
+  Luma, sondern von 0,3 bzw. erfuellt. Die Aussage „die fehlende
+  Grundhelligkeit gehoert den Spitzenfarben" traegt trotzdem NICHT: Beide
+  Spitzenfarben-Hebel sind mittelwerttreu gebaut und nachgemessen, sie
+  koennen einen Mittelwert gar nicht heben. Was den Grund hebt, sind die
+  Bueschel selbst.
+
+  Die zwei VERFEHLTEN Zeilen — in der vollstaendigen Welt bleibt davon
+  die Bild-Saettigung am steinkreis — sind keine Feinjustage:
    · `Ferne/Himmel` faellt durch die KURVE, nicht durch den Nebel (bei
      unveraendertem Nebelstart 15 steht sie schon auf 0,402). Der
      Neutral-Mapper zieht `min(r,g,b)` ab und trifft damit die dunkle

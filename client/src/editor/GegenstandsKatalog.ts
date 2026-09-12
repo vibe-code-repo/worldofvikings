@@ -112,11 +112,13 @@ import {
   NPC_VORGABEN,
   PREFABS_BY_NAME,
   PREFAB_DEFS,
+  STORE_BASIS,
   isRenderable,
   istEigenesModell,
   type PrefabDef,
 } from '@wov/shared';
 import { AssetManager, modelUrl } from '../engine/AssetManager';
+import { toeneStoreMeshes } from '../engine/StoreToenung';
 import {
   F,
   M,
@@ -405,6 +407,12 @@ export class GegenstandsKatalog {
   private storeContainer: AssetContainer | null = null;
   /** Der gerade gezeigte Speicher-Eintrag (für Infoblock, Ton und Kachel). */
   private gezeigterStore: StoreEintrag | null = null;
+  /**
+   * Wie viele MATERIALIEN der letzten Speicher-Vorschau ihre Grundfarbe
+   * bekommen haben. Zustandsgröße für `__wovKatalogFarben` — ohne sie
+   * sieht man einem wirkungslosen Einbau im Katalog nichts an.
+   */
+  private letzteToenung = 0;
   /** Gemessene Bildgröße der Texturvorschau — erst nach `onload` bekannt. */
   private bildMasse: { breite: number; hoehe: number } | null = null;
 
@@ -1074,6 +1082,30 @@ export class GegenstandsKatalog {
         materialien: this.scene?.materials.length ?? 0,
         texturen: this.scene?.textures.length ?? 0,
         tonElemente: document.querySelectorAll('audio').length,
+      });
+      /*
+        Zweite Messzelle, gleiche Begründung: Die Grundfarbe der
+        Speicher-Modelle (`StoreToenung`) ist im Katalog an nichts
+        abzulesen — ein Bild sagt nicht, ob 1/1/1 oder 0,466 im Material
+        steht, und ein Vergleich mit der Welt schon gar nicht. Diese
+        Funktion nennt beides: wie viele Materialien getönt wurden und
+        welche `albedoColor` jedes von ihnen JETZT trägt. Die Messung
+        `gf-katalog.mjs` hält sie gegen dieselbe Zahl aus der Welt.
+      */
+      (window as unknown as Record<string, unknown>).__wovKatalogFarben = (): unknown => ({
+        pfad: this.gezeigterStore?.pfad ?? null,
+        getoent: this.letzteToenung,
+        materialien: (this.storeContainer?.materials ?? []).map((m) => ({
+          name: m.name,
+          albedo:
+            'albedoColor' in m
+              ? [
+                  +(m as { albedoColor: Color3 }).albedoColor.r.toFixed(4),
+                  +(m as { albedoColor: Color3 }).albedoColor.g.toFixed(4),
+                  +(m as { albedoColor: Color3 }).albedoColor.b.toFixed(4),
+                ]
+              : null,
+        })),
       });
     }
   }
@@ -2218,6 +2250,22 @@ export class GegenstandsKatalog {
 
     ergebnis.addAllToScene();
     this.storeContainer = ergebnis;
+    /*
+      Die fehlende Grundfarbe des Speicher-Modells nachreichen — derselbe
+      Handgriff, den `AssetManager.fixupMaterial` in der WELT macht.
+
+      Er muss hier ein zweites Mal stehen, weil dieser Weg absichtlich am
+      AssetManager vorbeigeht (s. den Kommentar über `storeModellZeigen`):
+      Der Katalog laedt ueber `LoadAssetContainerAsync` direkt aus
+      `assets/store/`, und damit sieht er keinen der Materialgriffe des
+      Spiels. Ohne die Zeile stuende im Katalog ein heller und in der Welt
+      ein dunkler Stein — und der Editor waere ueber den Bestand falsch
+      informiert, den er setzt ([[wov-editor-paritaet]]).
+
+      Der Modellname wird hier gebaut, wie ihn der Ladeweg des Spiels
+      fuehrt (`store/<pfad>`); die Endung `.glb` stoert die Tabelle nicht.
+    */
+    this.letzteToenung = toeneStoreMeshes(ergebnis.meshes, `${STORE_BASIS}/${eintrag.pfad}`);
     this.vorhanden.set(eintrag.pfad, true);
     const wurzel = ergebnis.rootNodes.find((n): n is TransformNode => n instanceof TransformNode) ?? null;
     if (!wurzel) {

@@ -431,7 +431,7 @@ rmSync(WORLDS_DIR, { recursive: true, force: true });
       worldSeed: SEED_STR,
       worldFeatures: false,
       worldVegetation: false,
-      worldsDir: WORLDS_DIR,
+      worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'),
     });
 
   /**
@@ -505,7 +505,7 @@ rmSync(WORLDS_DIR_C, { recursive: true, force: true });
     worldFeatures: false,
     worldVegetation: false,
     worldCreatures: false,
-    worldsDir: WORLDS_DIR_C,
+    worldsDir: WORLDS_DIR_C, kontenDir: resolve(WORLDS_DIR_C, 'konten'),
   });
   serverC.init();
   check('no SpawnSystem when disabled', serverC.spawns === null);

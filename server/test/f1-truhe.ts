@@ -247,7 +247,7 @@ async function testErstbefuellungUmschichtenPersistenz(): Promise<void> {
   console.log('\n[1] Erstbefuellung, Umschichten, Persistenz:');
   const PORT = 2551;
   const WORLD_NAME = 'f1-a';
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: WORLD_NAME });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: WORLD_NAME });
   server.start();
   const chestDef = server.prefabs.getByName('piece_chest_wood')!;
 
@@ -317,7 +317,7 @@ async function testErstbefuellungUmschichtenPersistenz(): Promise<void> {
   client.ws.close();
   server.stop();
 
-  const server2 = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: WORLD_NAME });
+  const server2 = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: WORLD_NAME });
   server2.init();
   const reloaded = server2.zdos.getZDO(ZDOID.fromTuple(sync2.userId, sync2.id));
   check('Persistenz: Truhe nach Neuladen vorhanden', reloaded !== undefined);
@@ -333,7 +333,7 @@ async function testErstbefuellungUmschichtenPersistenz(): Promise<void> {
 async function testAltTrucheGepluendertStartetLeer(): Promise<void> {
   console.log('\n[2] Alt-Truhe (bereits geplündert) startet leer:');
   const PORT = 2552;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'f1-b' });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'f1-b' });
   server.start();
   const chestDef = server.prefabs.getByName('piece_chest_wood')!;
 
@@ -358,7 +358,7 @@ async function testAltTrucheGepluendertStartetLeer(): Promise<void> {
 async function testAusserReichweiteAbgewiesen(): Promise<void> {
   console.log('\n[3] Ausserhalb der Reichweite:');
   const PORT = 2553;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'f1-c' });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'f1-c' });
   server.start();
   const chestDef = server.prefabs.getByName('piece_chest_wood')!;
 

@@ -114,7 +114,7 @@ function sendSetTimeOfDay(ws: WebSocket, seconds: number): void {
 /** Admin darf: Anfrage geht durch, TimeSync broadcastet die neue Zeit. */
 async function testAdminDarf(): Promise<void> {
   const PORT = 2499;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR }); // Default everyoneAdmin: true
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten') }); // Default everyoneAdmin: true
   server.start();
 
   let initialTimeOfDay: number | null = null;
@@ -153,7 +153,7 @@ async function testNichtAdminDarfNicht(): Promise<void> {
   const PORT = 2500;
   // Eigener worldName — sonst laedt dieser Server den Spielstand, den
   // testAdminDarf() gerade erst gespeichert hat (gleiches WORLDS_DIR).
-  const server = createWovServer({ port: PORT, everyoneAdmin: false, worldsDir: WORLDS_DIR, worldName: 'ohne-rechte' });
+  const server = createWovServer({ port: PORT, everyoneAdmin: false, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'ohne-rechte' });
   server.start();
 
   let sawInteractResult = false;

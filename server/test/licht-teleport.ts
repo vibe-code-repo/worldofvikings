@@ -165,7 +165,7 @@ async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
   const server = createWovServer({
     port: PORT,
-    worldsDir: resolve(TMP, 'worlds'),
+    worldsDir: resolve(TMP, 'worlds'), kontenDir: resolve(TMP, 'konten'),
     saveIntervalMs: 3600_000,
   });
   server.start();

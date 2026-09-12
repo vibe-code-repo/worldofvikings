@@ -355,7 +355,7 @@ async function verbindeUndStelle(
 async function testSichtbarkeit(): Promise<void> {
   console.log('\n[1] Gegenseitige Sichtbarkeit:');
   const PORT = 2560;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'g3-sichtbarkeit', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g3-sichtbarkeit', saveIntervalMs: 3600_000 });
   server.start();
   try {
     // ── Reihenfolge ist hier die eigentliche Zusicherung ──────────────
@@ -488,7 +488,7 @@ async function testSichtbarkeit(): Promise<void> {
 async function testChatReichweite(): Promise<void> {
   console.log('\n[2] Chat mit Reichweite (F14) — ueber echte Pakete an fuenf echte Peers:');
   const PORT = 2561;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'g3-chat', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g3-chat', saveIntervalMs: 3600_000 });
   server.start();
   try {
     const sender = await verbindeUndStelle(server, 'Sender', PORT, 0, 0);
@@ -580,7 +580,7 @@ async function testChatReichweite(): Promise<void> {
 async function testGleichzeitigesBauen(): Promise<void> {
   console.log('\n[3] Gleichzeitiges Bauen am selben Ort — Ist-Zustand:');
   const PORT = 2562;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'g3-bauen', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g3-bauen', saveIntervalMs: 3600_000 });
   server.start();
   try {
     // GrabMenhir (bau_menhir): reine Materialkosten (12 Stone), kein
@@ -651,7 +651,7 @@ async function testGleichzeitigesBauen(): Promise<void> {
 async function testTrucheZuZweit(): Promise<void> {
   console.log('\n[4] Truhe zu zweit — kein Verdoppeln:');
   const PORT = 2563;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'g3-truhe', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g3-truhe', saveIntervalMs: 3600_000 });
   server.start();
   try {
     const chestDef = server.prefabs.getByName('piece_chest_wood')!;
@@ -737,7 +737,7 @@ async function testTrucheZuZweit(): Promise<void> {
 async function testPeerGeht(): Promise<void> {
   console.log('\n[5] Ein Peer geht — der andere merkt es, Zustand wird aufgeraeumt:');
   const PORT = 2564;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'g3-peer-geht', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g3-peer-geht', saveIntervalMs: 3600_000 });
   server.start();
   try {
     const bleibt = await verbindeUndStelle(server, 'Bleibt', PORT, 0, 0);

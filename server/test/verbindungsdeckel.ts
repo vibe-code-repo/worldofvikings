@@ -48,7 +48,7 @@ function warteAufSchliessenOderGnadenfrist(ws: WebSocket, gnadenfristMs: number)
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'verbindungsdeckel' });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'verbindungsdeckel' });
   server.start();
 
   const offeneSockets: WebSocket[] = [];

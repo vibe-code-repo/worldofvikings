@@ -1815,6 +1815,47 @@ for (const [paket, datei, weiche] of liste) {
   }
 }
 
+/*
+ * Waechter gegen genau den Fehler, der server/test/konten/ bis
+ * 12.09.2026 verschmutzt hat (s. WovServer.ServerConfig.kontenDir):
+ * ein Test, der `worldsDir` auf sein eigenes tmp-Verzeichnis umbiegt,
+ * `kontenDir` aber vergisst, landet ueber den DEFAULT_CONFIG-Fallback
+ * wieder in einem geteilten Ordner -- und im schlimmsten Fall in einer
+ * GETRACKTEN Datei, unsichtbar bis zum naechsten `git status`. Ein
+ * gruener Sammellauf, der den Arbeitsbaum trotzdem verschmutzt, ist
+ * kein gruener Lauf.
+ *
+ * Prueft NUR server/test (Ergebnisdateien anderer Pakete sind nicht
+ * dieser Waechter), und nur GETRACKTE Aenderungen ("M"/"D" u.ae.) --
+ * neue Wegwerfdateien unter server/test/tmp-Ordnern sind bereits per
+ * .gitignore aussen vor und wuerden hier sonst jeden Lauf rot faerben.
+ *
+ * Guard against the bug that dirtied server/test/konten/ until
+ * 12.09.2026: a test that redirects worldsDir to its own tmp folder but
+ * forgets kontenDir falls back to a shared (or worse, tracked) path,
+ * invisibly, until the next `git status`. A collective run that leaves
+ * the working tree dirty is not a green run.
+ */
+const gitStatus = spawnSync('git', ['status', '--porcelain', '--', 'server/test'], {
+  cwd: WURZEL,
+  encoding: 'utf-8',
+});
+const schmutzigeZeilen = (gitStatus.stdout ?? '')
+  .split('\n')
+  .filter((zeile) => zeile.trim().length > 0)
+  // Neue, unversionierte Dateien (Status "??") sind kein Fund dieses
+  // Waechters -- die uebliche Spur eines vergessenen kontenDir/worldsDir
+  // sind veraenderte oder neue GETRACKTE Dateien, s. Kopfkommentar.
+  .filter((zeile) => !zeile.startsWith('??'));
+if (schmutzigeZeilen.length > 0) {
+  fehler++;
+  console.log(
+    `\n✗ Test(s) haben getrackte Dateien unter server/test veraendert ` +
+      `(kontenDir/worldsDir vergessen? s. WovServer.ServerConfig.kontenDir):`
+  );
+  for (const zeile of schmutzigeZeilen) console.log(`  ${zeile}`);
+}
+
 console.log(
   `\n${liste.length - fehler - uebersprungen}/${liste.length} Tests grün` +
     (uebersprungen > 0 ? `, ${uebersprungen} übersprungen` : '') +

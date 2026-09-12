@@ -108,7 +108,7 @@ function makeServer(worldSeed: string) {
     // Block A ohnehin leer, der Schalter spart nur den leeren Durchlauf.
     worldFeatures: false,
     worldVegetation: true, // real foliage ZDOs for the roundtrip
-    worldsDir: WORLDS_DIR,
+    worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'),
     // Ohne Layout keine Kuratierung und damit kein Bewuchs — siehe
     // Kopfkommentar.
     worldMode: 'layout',

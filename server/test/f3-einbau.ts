@@ -165,7 +165,7 @@ function warte(ms: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'f3-einbau' });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'f3-einbau' });
   server.start();
 
   try {

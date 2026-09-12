@@ -55,7 +55,7 @@ function makeServer() {
     worldVegetation: false,
     worldCreatures: false,
     dungeonsEnabled: false,
-    worldsDir: WORLDS_DIR,
+    worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'),
   });
 }
 

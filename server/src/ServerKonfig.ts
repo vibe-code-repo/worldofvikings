@@ -368,6 +368,10 @@ export function leseServerKonfig(
       saveIntervalMs: parseDauerMs(world['save-interval'], SAVE_INTERVAL_MS),
       // G1: world saves live next to server.yml (C++ ./worlds)
       worldsDir: resolve(datenVerzeichnis, 'worlds'),
+      // Kontendatenbanken als Geschwister von worlds/ unter server/data --
+      // wie vor der Aufspaltung von WovServer.ServerConfig.kontenDir, nur
+      // jetzt als eigenes Feld statt aus worldsDir per '..' abgeleitet.
+      kontenDir: resolve(datenVerzeichnis, 'konten'),
       // G12: Betriebsmetriken-Schnappschuss fuer den Betriebsdienst
       // (admin/, GET /metriken). Nur der echte Serverstart setzt ihn --
       // Tests, die createWovServer() direkt rufen, bleiben ohne Pfad und

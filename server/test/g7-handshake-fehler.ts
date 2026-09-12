@@ -169,12 +169,14 @@ async function main(): Promise<void> {
   const serverOhnePw = createWovServer({
     port: PORT_KEIN_PW,
     worldsDir: resolve(WORLDS_DIR, 'ohne-pw'),
+    kontenDir: resolve(WORLDS_DIR, 'ohne-pw', 'konten'),
     worldName: 'g7-handshake-ohne-pw',
     saveIntervalMs: 3600_000,
   });
   const serverMitPw = createWovServer({
     port: PORT_MIT_PW,
     worldsDir: resolve(WORLDS_DIR, 'mit-pw'),
+    kontenDir: resolve(WORLDS_DIR, 'mit-pw', 'konten'),
     worldName: 'g7-handshake-mit-pw',
     password: 'geheim',
     saveIntervalMs: 3600_000,

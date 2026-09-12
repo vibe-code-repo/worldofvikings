@@ -135,7 +135,7 @@ function hoereAufInteractResult(ws: WebSocket, log: InteractResultMsg[]): void {
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'g7-bauen', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-bauen', saveIntervalMs: 3600_000 });
   server.start();
 
   try {

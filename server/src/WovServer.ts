@@ -186,6 +186,32 @@ export interface ServerConfig {
   /** G1: directory holding <worldName>.db.zst saves (C++ ./worlds). */
   worldsDir: string;
   /**
+   * Ordner der Kontendatenbanken (`<kontenDir>/<worldName>.db`). War bis
+   * 12.09.2026 keine eigene Konfiguration, sondern fest aus `worldsDir`
+   * abgeleitet (`resolve(worldsDir, '..', 'konten')`) -- fuer den echten
+   * Betrieb richtig (`server/data/worlds` und `server/data/konten` sind
+   * Geschwister unter `server/data`), fuer Tests aber ein stiller Fehler:
+   * Ein Test, der `worldsDir` wie ueblich auf `server/test/tmp-xyz`
+   * umbiegt, landete ueber das `..` doch wieder in `server/test/konten/`
+   * -- demselben getrackten Ordner wie jeder andere Test, und mit dem
+   * Klarnamen der Welt als Dateiname. Deckte sich der Weltname mit einer
+   * eingecheckten Fixture, ueberschrieb der Testlauf sie und hinterliess
+   * WAL/SHM-Dateien; `git status` war danach schmutzig und der naechste
+   * `tools/wov-update.sh` verweigerte die Arbeit.
+   *
+   * Jetzt ein eigenes Feld, genau wie `worldsDir` selbst: main.ts setzt es
+   * auf den echten Ordner, jeder Test, der `worldsDir` umbiegt, muss
+   * `kontenDir` genauso mitgeben (ueblicherweise als Unterordner desselben
+   * Testverzeichnisses) -- sonst faellt es sofort auf, statt erst beim
+   * naechsten Update.
+   *
+   * Ports the same story to English: previously derived from `worldsDir`
+   * via `..`, which silently escaped a test's own tmp directory back into
+   * the tracked `server/test/konten/` whenever worldsDir lived under
+   * `server/test/`. Now a first-class field a test must set explicitly.
+   */
+  kontenDir: string;
+  /**
    * G12: Pfad, unter dem einmal je Sekunde ein Betriebsmetriken-
    * Schnappschuss abgelegt wird (der Betriebsdienst admin/ liest ihn,
    * s. dessen GET /metriken). OPTIONAL und standardmaessig UNGESETZT:
@@ -265,6 +291,10 @@ const DEFAULT_CONFIG: ServerConfig = {
   // main.ts pins this to <server>/data/worlds; cwd-relative fallback so a
   // bare createWovServer() (tests, tools) still has a sane default.
   worldsDir: resolve(process.cwd(), 'data', 'worlds'),
+  // Sibling of worldsDir's default, matching the production layout
+  // (server/data/worlds and server/data/konten under server/data) --
+  // see ServerConfig.kontenDir for why this is no longer derived via '..'.
+  kontenDir: resolve(process.cwd(), 'data', 'konten'),
 };
 
 export class WovServer {
@@ -557,7 +587,7 @@ export class WovServer {
     // vorhandene Proxy-Regel fuer play(.dev).world-of-vikings.com.
     // Begruendung ausfuehrlich in KontoApi.ts.
     this.kontenDb = new Kontendatenbank(
-      resolve(this.config.worldsDir, '..', 'konten', `${this.config.worldName}.db`),
+      resolve(this.config.kontenDir, `${this.config.worldName}.db`),
     );
     // Ausprobieren ohne Registrierung (server.yml `standard-konto:`).
     // Direkt hier, wo die Kontendatenbank geoeffnet wird -- Begruendung

@@ -570,6 +570,30 @@ if [ "$ZWEIG" != "main" ]; then
   exit 1
 fi
 
+# server/test/konten/ war bis 12.09.2026 ein GETRACKTER Fixture-Ordner,
+# den Servertests ueber einen Pfadfehler in WovServer.ServerConfig
+# tatsaechlich als Kontendatenbank-Ordner benutzten (`..` von worldsDir
+# abgeleitet statt eines eigenen Feldes) — genau das machte einen
+# Testlauf zur lokalen Aenderung und diesen Check hier rot. Behoben:
+# jeder Test setzt jetzt sein eigenes `kontenDir` in sein eigenes
+# tmp-Verzeichnis, und der Ordner selbst steht in .gitignore. Taucht
+# trotzdem etwas darin auf, ist das kein gewoehnlicher Schmutz, sondern
+# ein Rueckfall in genau diesen Fehler — eigene Meldung statt der
+# generischen "Arbeitsbaum ist nicht sauber" weiter unten, die den Grund
+# nicht nennen wuerde.
+if [ -n "$(ls -A "$WURZEL/server/test/konten" 2>/dev/null)" ]; then
+  echo "ABBRUCH: server/test/konten/ ist nicht leer." >&2
+  echo >&2
+  ls -A "$WURZEL/server/test/konten" | sed 's/^/    /' >&2
+  echo >&2
+  echo "Das ist der Rueckfall in den kontenDir-Fehler (s. Kopfkommentar" >&2
+  echo "WovServer.ServerConfig.kontenDir): ein Test hat worldsDir auf ein" >&2
+  echo "eigenes Testverzeichnis umgebogen, kontenDir aber vergessen, und" >&2
+  echo "landete damit wieder in diesem geteilten Ordner." >&2
+  echo "Es wurde NICHTS getan: kein Pull, kein npm ci, kein Dienst gestoppt." >&2
+  exit 1
+fi
+
 SCHMUTZ="$(git status --porcelain)"
 if [ -n "$SCHMUTZ" ]; then
   echo "ABBRUCH: Der Arbeitsbaum ist nicht sauber." >&2

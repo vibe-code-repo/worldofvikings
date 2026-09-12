@@ -255,7 +255,7 @@ async function main(): Promise<void> {
 
   const server = createWovServer({
     port: PORT,
-    worldsDir: resolve(tmp, 'worlds'),
+    worldsDir: resolve(tmp, 'worlds'), kontenDir: resolve(tmp, 'konten'),
     saveIntervalMs: 3_600_000,
   });
   server.start();

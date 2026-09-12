@@ -44,7 +44,7 @@ function check(name: string, cond: boolean, detail = ''): void {
 
 // createWovServer ohne init(): Der Konstruktor verdrahtet nur Subsysteme,
 // writeZDO hängt an keinem Weltzustand.
-const server = createWovServer({ port: 2499, worldsDir: '/tmp/wov-d6-test-unused' });
+const server = createWovServer({ port: 2499, worldsDir: '/tmp/wov-d6-test-unused', kontenDir: '/tmp/wov-d6-test-unused-konten' });
 const schreibe = (server as unknown as {
   writeZDO(w: Writer, zdo: ZDO, peerRev: number | undefined): void;
 }).writeZDO.bind(server);

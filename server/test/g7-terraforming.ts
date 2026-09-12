@@ -125,7 +125,7 @@ function sendTerrainOp(ws: WebSocket, pos: Vector3, settings: TerrainOpSettings)
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, worldName: 'g7-terraforming', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-terraforming', saveIntervalMs: 3600_000 });
   server.start();
 
   try {
@@ -168,7 +168,7 @@ async function main(): Promise<void> {
     server.saveWorld();
     const serverB = createWovServer({
       port: PORT + 1, // nur init(), nie gebunden
-      worldsDir: WORLDS_DIR,
+      worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'),
       worldName: 'g7-terraforming',
     });
     serverB.init();

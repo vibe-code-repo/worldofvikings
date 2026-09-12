@@ -125,7 +125,7 @@ console.log("\n[2] Admin-Befehl 'marke':");
     worldFeatures: false,
     worldVegetation: false,
     worldCreatures: false,
-    worldsDir: WORLDS_DIR_ADMIN,
+    worldsDir: WORLDS_DIR_ADMIN, kontenDir: resolve(WORLDS_DIR_ADMIN, 'konten'),
   });
   server.init();
 
@@ -215,7 +215,7 @@ console.log('\n[3] Speichern/Laden (WovServer.saveWorld/loadWorld):');
       worldFeatures: false,
       worldVegetation: false,
       worldCreatures: false,
-      worldsDir: WORLDS_DIR,
+      worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'),
     });
   }
 
@@ -363,7 +363,7 @@ console.log('\n[6] Eikthyr-Kill setzt die Marke:');
     worldFeatures: false,
     worldVegetation: false,
     worldCreatures: false,
-    worldsDir: WORLDS_DIR,
+    worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'),
   });
   server.init();
 

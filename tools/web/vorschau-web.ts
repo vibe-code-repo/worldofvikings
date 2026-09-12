@@ -451,7 +451,7 @@ export class Vorschau {
     // 1,62 m; nur die beiden Querachsen werden auf rund ein Drittel der
     // bisherigen Staerke gebracht. Gleichmaessiges Skalieren hatte aus dem
     // 3-cm-Schaft in der Vorschau einen fast unterarmdicken Pfosten gemacht.
-    modell.scaling.set(0.36, 1.65, 0.36);
+    modell.scaling.set(0.55, 1.65, 0.55);
     // Die Hand sitzt rund 1,06 m über dem Boden. Dieser Versatz legt das
     // Metallende auf den Boden und lässt die verzierte Spitze nach oben.
     // Kein seitlicher Modellversatz: Die Griffachse laeuft durch den von

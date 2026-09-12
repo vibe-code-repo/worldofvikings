@@ -260,10 +260,44 @@ export const DEFAULTS: GameSettings = {
   chromaticAberration: true,
   antiAliasing: true,
   depthOfField: true,
+  /**
+   * Voreinstellung AUS — und seit F3 (12.09.2026) aus einem anderen Grund
+   * als vorher.
+   *
+   * Bis dahin stand hier ein Effekt, der EXAKT NICHTS gemalt hat: Der
+   * Verdeckungspuffer war über die ganze Fläche auf Rotkanal 0 (GEMESSEN,
+   * 400×225, 34 Durchläufe je Sekunde), und was ankam, war allein der
+   * Konstantterm des Komposit-Shaders — das ganze Bild 10 % heller. Beides
+   * ist repariert (`engine/StrahlenAnker.ts`): Der Anker ist jetzt eine
+   * eigene Lichtquelle im Puffer, und ein angehängter Pass ohne Sonne im
+   * Bild lässt das Bild in Ruhe.
+   *
+   * Aus bleibt er trotzdem, und zwar aus dem Grund, der immer schon zählte:
+   * Er rendert eine eigene VERDECKUNGS-PASSAGE der ganzen Szene. Das ist
+   * mit unserer Vegetation der teuerste Posten der Pipeline, und der Nutzer
+   * hat den Framerate-Verfall ausdrücklich als Problem benannt. Wer den
+   * Kranz will, schaltet ihn ein; wer nichts einstellt, bezahlt ihn nicht.
+   *
+   * Der Abnahmezeuge, der eine Rückkehr des alten Zustands verhindert:
+   * `PostProcessing.strahlenPufferProbe()` muss einen Rotkanal > 0 melden.
+   *
+   * Default OFF — no longer because the effect is inert (that is fixed),
+   * but because it costs a full extra scene pass.
+   */
   sunShafts: false,
   ambientOcclusion: false,
-  // Voreinstellung AUS — der Effekt tauscht ein Artefakt gegen ein
-  // anderes, das gehört gesehen und nicht verordnet.
+  /**
+   * Voreinstellung AUS — der Effekt tauscht ein Artefakt gegen ein
+   * anderes, das gehört gesehen und nicht verordnet.
+   *
+   * Was er seit F3 überhaupt erst tauscht: Bis zum Entsperren des
+   * Halton-Versatzes (`PostProcessing.entsperreTaaJitter`) mischte TAA
+   * identische Bilder — im Stand änderte sich fast nichts (Kantenmass
+   * −2,2 %), in Bewegung war es ein reiner Weichzeichner (−19,6 %). Jetzt
+   * liefert der Schalter das, wofür er da ist: zeitliche Glättung gegen
+   * Vegetationsflimmern IN BEWEGUNG. Kantenqualität im Standbild kommt
+   * weiterhin von MSAA/FXAA (`antiAliasing`).
+   */
   temporalAA: false,
   pointerLock: true,
   showObjectNames: false,

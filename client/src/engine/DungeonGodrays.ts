@@ -47,26 +47,61 @@
  * nicht die Behebung eines Lecks. Die Reihenfolge dort (erst aus der Liste,
  * dann `dispose`) ist aus demselben Grund weiter richtig.
  *
- * Das ECHTE Leck liegt woanders und hat mit den Listen nichts zu tun:
- * `mesh = undefined` im Konstruktor unten heisst nicht „kein Mesh", sondern
- * `CreateDefaultMesh` (Zeile 479) — eine 1-m-Plane mit
- * `emissiveColor = (1,1,1)` bei (0,0,0). `PostProcess.dispose()` raeumt
- * `this.mesh` NIRGENDS ab, also bleibt bei jedem Aus-und-wieder-Ein ein
- * weiteres selbstleuchtendes Billboard samt `StandardMaterial` in der Szene.
- * Sichtbar ist er obendrein, in der Kamerapassage wie in der Verdeckung.
- * `PostProcessing.setSunShafts()` behandelt beides seit A1
- * (`mesh.setEnabled(false)` beim Bauen, Mesh und Material beim Abraeumen);
- * hier ist es BEWUSST NOCH OFFEN — A1 durfte an dieser Datei nur den
- * Kommentar anfassen, und die Zahl gehoert in eine Dungeon-Messung, nicht in
- * eine Aussenmessung.
+ * ── Der Anker: seit F3 unser eigener (12.09.2026) ────────────────────
+ * Hier stand, das ECHTE Leck sei Babylons voreingestellter Anker —
+ * `mesh = undefined` im Konstruktor heisst nicht „kein Mesh", sondern
+ * `CreateDefaultMesh` (Zeile 479): eine 1-m-Plane mit
+ * `emissiveColor = (1,1,1)` bei (0,0,0), die `PostProcess.dispose()` nirgends
+ * abraeumt. Das stimmt, war aber die kleinere Haelfte. Die groessere: Dieser
+ * Anker wird in der Verdeckungspassage ueber `material.bind(world, mesh)`
+ * gebunden, und `Material.prototype.bind` ist in Babylon 8.56 ein LEERER
+ * RUMPF (`material.js:859`) — `StandardMaterial` ueberschreibt nur
+ * `bindForSubMesh`. Der Anker bekommt also nie eine Projektionsmatrix, der
+ * Puffer bleibt schwarz, und der Effekt kostet eine volle Szenenpassage fuer
+ * ein Bild, in dem sich nichts aendert. Draussen ist genau das GEMESSEN
+ * worden (Rotkanal 0 ueber 400x225, Analyse „Licht und Farbe" C2); innen ist
+ * die Bauart dieselbe.
+ *
+ * Das Mittel dagegen liegt fertig daneben: `StrahlenAnker` (dort steht die
+ * ganze Begruendung) — eigenes Mesh, `ShaderMaterial` ueber
+ * `setMaterialForRenderPass`, aus dem Farbbild heraus ueber `layerMask = 0`,
+ * in die Verdeckung hinein ueber `getCustomRenderList`. Draussen ist es seit
+ * F3 eingebaut und gemessen (Rotkanal 0 -> 255).
+ *
+ * ── Warum es hier TROTZDEM nicht eingebaut ist (F3, 12.09.2026) ───────
+ * Es ist erprobt worden und hat funktioniert — und genau das war das
+ * Ergebnis: Mit einem 3-m-Anker an der Muendung (etwas weniger als eine
+ * Zelle) fuellte die weisse Quelle **17,8 %** des Verdeckungspuffers
+ * (16.044 von 90.000 Bildpunkten, GEMESSEN in einem frisch erzeugten
+ * 2.0-Steingrab), und der radiale Blur machte daraus eine ausgebrannte
+ * weisse Flaeche ueber dem halben Bild. Draussen sind es 0,13 %.
+ *
+ * Der Grund ist nicht der Anker, sondern die Eichung: `BELICHTUNG`,
+ * `GEWICHT` und `DICHTE` unten sind woertlich von der Sonne uebernommen
+ * und danach nie an einem Bild geprueft worden — sie KONNTEN es nicht
+ * sein, denn der Puffer war immer schwarz. Eine Quelle, die aus 3 m
+ * Entfernung einen ganzen Zellendurchmesser einnimmt, braucht andere
+ * Zahlen als eine, die 1400 m weit weg 4° misst. Die gehoeren in eine
+ * Dungeon-Messung mit einem Zielband, nicht in eine Aussenmessung und
+ * erst recht nicht ins Augenmass.
+ *
+ * Bis dahin bleibt es hier bei dem, was ohne Zielband belegbar ist: der
+ * Komposit-Shader ohne den 10-%-Konstantterm (die Korrektur ist global und
+ * greift auch fuer diesen Pass — ein angehaengter Dungeon-Godray hat das
+ * Grab bisher um 10 % aufgehellt, ohne einen einzigen Strahl zu zeigen).
+ * Der Effekt zeigt damit weiter nichts; er luegt aber auch nicht mehr.
  *
  * Correction (A1): `RenderTargetTexture.dispose()` removes itself from every
  * camera in 8.56.2, so the manual splice below is idempotence, not a leak fix.
- * The real leak is the internal billboard mesh at the origin, which no dispose
- * path touches — handled in PostProcessing since A1, still open here.
+ * The anchor fix from F3 is deliberately NOT wired up here: it works (measured),
+ * but at 3 m the source covers 17.8 % of the occlusion buffer against 0.13 %
+ * outdoors, and the exposure/weight/density below were copied from the sun and
+ * never checked against a picture. That calibration needs its own barrow
+ * measurement.
  */
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { korrigiereStrahlenKomposit } from './StrahlenAnker';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { Scene } from '@babylonjs/core/scene';
 import type { dungeon2 } from '@wov/shared';
@@ -148,6 +183,9 @@ export class DungeonGodrays {
       // dieselbe Passage und zeigt nichts.
       // Without shafts do not build at all: no source, same cost, no picture.
       if (this.schaechte.length === 0) return;
+      // Vor der ersten Uebersetzung des Komposit-Shaders (s. Kopf): sonst
+      // ist ein angehaengter Pass ein 10-%-Aufheller auf dem ganzen Bild.
+      korrigiereStrahlenKomposit();
       const vls = new VolumetricLightScatteringPostProcess(
         'dungeon2Godrays',
         // WICHTIG: getrennte Verhaeltnisse. Eine EINZELNE Zahl setzt Babylon auf

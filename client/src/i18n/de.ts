@@ -41,7 +41,7 @@ export const de = {
   'settings.water_quality': 'Wasserqualität',
   'settings.dungeon_quality': 'Dungeon-Grafik',
   'settings.anti_aliasing': 'Kantenglättung',
-  'settings.temporal_aa': 'Zeitliche Glättung (TAA)',
+  'settings.temporal_aa': 'Zeitliche Glättung (TAA, in Bewegung)',
   'settings.performance_profile': '100-FPS-Profil',
   'settings.bloom': 'Bloom',
   'settings.motion_blur': 'Bewegungsunschärfe',

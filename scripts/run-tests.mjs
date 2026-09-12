@@ -631,6 +631,16 @@ const KERN = [
   // lokalen Klon (client/src/ui/Anmeldung.ts) haengt vollstaendig an
   // dieser HTTP-API. Echter node:http-Server, Sekunden.
   ['server', 'test/konto-lokal.ts'],
+  // Herkunft.ts hinter einem Reverse-Proxy: Loopback-Peer + X-Forwarded-For/
+  // X-Real-IP wird geglaubt, jede andere Peer-Adresse nicht; und zwei
+  // Herkuenfte sperren sich in der Anmelde-Drossel nicht gegenseitig.
+  // Echter node:http-Server, Sekunden.
+  ['server', 'test/konto-herkunft.ts'],
+  // Registrierungs-Drossel (fuenf je Herkunft je Stunde, dann 429 mit
+  // Retry-After) — `registrieren()` hatte bisher gar keine. Eigene Uhr
+  // (Date.now gestellt) fuer den Ablauf des Fensters. Echter node:http-
+  // Server, Sekunden.
+  ['server', 'test/konto-registrierung-drossel.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die

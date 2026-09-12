@@ -12,6 +12,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer, type Server } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { herkunftErmitteln } from './Herkunft.js';
 
 export interface AcceptResult {
   socket: WebSocket;
@@ -68,7 +69,11 @@ export class WebSocketAcceptor {
     });
 
     this.wss.on('connection', (socket: WebSocket, req: IncomingMessage) => {
-      const address = req.socket.remoteAddress ?? 'unknown';
+      // herkunftErmitteln(): hinter nginx (deploy/nginx/wov-lab.conf, /ws)
+      // ist req.socket.remoteAddress sonst IMMER 127.0.0.1, fuer jeden
+      // Spieler gleich — siehe Herkunft.ts. Dieselbe Luecke wie in
+      // KontoApi.ts, hier nur ohne die Anmelde-Drossel als Symptom.
+      const address = herkunftErmitteln(req);
       console.log(`[Acceptor] New connection from ${address}`);
       this.onConnection?.(socket, address);
     });

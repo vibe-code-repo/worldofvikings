@@ -41,6 +41,7 @@
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
 import { Kontendatenbank, type Charakter } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
@@ -57,6 +58,22 @@ const MAX_KOERPER_BYTES = 4096;
 /** Failed logins per IP: five in fifteen minutes, then a pause. */
 const FEHLVERSUCHE_MAX = 5;
 const FEHLVERSUCHE_FENSTER_MS = 15 * 60 * 1000;
+
+/**
+ * Registrations per origin: five per hour, then 429.
+ *
+ * `registrieren()` called neither `gesperrt()` nor `fehlversuchZaehlen()`
+ * — the login throttle only ever counted FAILED logins, and registering
+ * an account has no such thing as a "wrong password" to fail on. Twenty
+ * registrations in a row all answered 201. Same map/window shape as the
+ * login throttle, but its own counter and its own map: registering is
+ * not a failure mode of logging in, and sharing one map would let a
+ * string of failed logins from an origin also start blocking its
+ * registrations, or the reverse — two unrelated limits with no reason to
+ * share a budget.
+ */
+const REGISTRIERUNG_MAX = 5;
+const REGISTRIERUNG_FENSTER_MS = 60 * 60 * 1000;
 
 interface KontoTokenPayload { k: number; i: number; e: number }
 
@@ -82,6 +99,7 @@ export interface Serverzustand {
 export class KontoApi {
   private readonly kontoSchluessel: Buffer;
   private readonly fehlversuche = new Map<string, { anzahl: number; bis: number }>();
+  private readonly registrierungen = new Map<string, { anzahl: number; bis: number }>();
 
   constructor(
     private readonly db: Kontendatenbank,
@@ -193,6 +211,19 @@ export class KontoApi {
   }
 
   private async registrieren(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const ip = this.herkunft(req);
+    const sperre = this.registrierungGesperrt(ip);
+    if (sperre.gesperrt) {
+      res.setHeader('Retry-After', String(sperre.retryNachSek));
+      return this.json(res, 429, { error: 'too-many-registrations' });
+    }
+    // Zaehlen, BEVOR ueberhaupt geprueft oder gehasht wird: die Drossel
+    // soll den Aufwand fuer diese Herkunft begrenzen, nicht nur die Zahl
+    // ihrer erfolgreichen Konten — scrypt (unten, passwortEinlagern) ist
+    // absichtlich das teuerste, was in dieser Methode passiert, und laeuft
+    // deshalb erst NACH dieser Pruefung.
+    this.registrierungZaehlen(ip);
+
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
 
@@ -363,7 +394,7 @@ export class KontoApi {
   // ── Plumbing ────────────────────────────────────────────────────────
 
   private herkunft(req: IncomingMessage): string {
-    return req.socket.remoteAddress ?? 'unknown';
+    return herkunftErmitteln(req);
   }
 
   private gesperrt(ip: string): boolean {
@@ -378,6 +409,25 @@ export class KontoApi {
     const e = this.fehlversuche.get(ip);
     if (!e || jetzt > e.bis) {
       this.fehlversuche.set(ip, { anzahl: 1, bis: jetzt + FEHLVERSUCHE_FENSTER_MS });
+    } else {
+      e.anzahl++;
+    }
+  }
+
+  /** Same shape as `gesperrt()`, its own map — see REGISTRIERUNG_MAX above. */
+  private registrierungGesperrt(ip: string): { gesperrt: boolean; retryNachSek: number } {
+    const e = this.registrierungen.get(ip);
+    if (!e) return { gesperrt: false, retryNachSek: 0 };
+    const jetzt = Date.now();
+    if (jetzt > e.bis) { this.registrierungen.delete(ip); return { gesperrt: false, retryNachSek: 0 }; }
+    return { gesperrt: e.anzahl >= REGISTRIERUNG_MAX, retryNachSek: Math.ceil((e.bis - jetzt) / 1000) };
+  }
+
+  private registrierungZaehlen(ip: string): void {
+    const jetzt = Date.now();
+    const e = this.registrierungen.get(ip);
+    if (!e || jetzt > e.bis) {
+      this.registrierungen.set(ip, { anzahl: 1, bis: jetzt + REGISTRIERUNG_FENSTER_MS });
     } else {
       e.anzahl++;
     }

@@ -1,5 +1,5 @@
 /** Export the approved v3 armor against the exact running game's skin.
- * Usage: tsx tools/export-ironward.mjs armor.glb body.glb output-directory
+ * Usage: tsx tools/export-ironward.mjs armor.glb body.glb output-directory [equipment.json]
  * Source files are read-only. Outputs are seven independent replacement items.
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -8,8 +8,16 @@ import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { IRONWARD_PARTS } from '../shared/src/ironward.ts';
 
-const [armorPath, bodyPath, destination] = process.argv.slice(2);
+const [armorPath, bodyPath, destination, equipmentPath] = process.argv.slice(2);
 assert(armorPath && bodyPath && destination, 'Expected armor.glb body.glb output-directory');
+const equipment = equipmentPath ? JSON.parse(readFileSync(equipmentPath, 'utf8')) : {
+  name: 'Ironward', prefix: 'WoV_Ironward_', parts: IRONWARD_PARTS, hipsAlreadyFixed: false,
+};
+assert(equipment.name && equipment.prefix && Array.isArray(equipment.parts) && equipment.parts.length);
+assert(new Set(equipment.parts.map(p => p.item)).size === equipment.parts.length, 'Duplicate output names');
+const allRegions = equipment.parts.flatMap(p => p.regions);
+assert(new Set(allRegions).size === allRegions.length, 'Regions must belong to one item only');
+assert(equipment.parts.every(p => /^[a-z][a-z0-9_]*$/i.test(p.item)), 'Unsafe output item name');
 const clone = v => JSON.parse(JSON.stringify(v));
 const hash = b => createHash('sha256').update(b).digest('hex');
 function read(path) {
@@ -44,8 +52,8 @@ assert.equal(new Set(names).size, names.length, 'Ambiguous joint names');
 const outDir = resolve(destination);
 mkdirSync(outDir, { recursive: true });
 const report = { version: 1, sourceSha256: source.hash, bodySha256: body.hash, joints: names, items: [] };
-for (const part of IRONWARD_PARTS) {
-  const doc = { asset: { version: '2.0', generator: 'WoV Ironward canonical-skin exporter v1' },
+for (const part of equipment.parts) {
+  const doc = { asset: { version: '2.0', generator: `WoV ${equipment.name} canonical-skin exporter v2` },
     scene: 0, scenes: [{ nodes: [] }], nodes: [], meshes: [], skins: [], materials: [], accessors: [], bufferViews: [], buffers: [] };
   const chunks = []; let offset = 0, corrected = 0, triangles = 0;
   function addAccessor(input, index, bytes = packed(input, index)) {
@@ -72,7 +80,7 @@ for (const part of IRONWARD_PARTS) {
   doc.skins.push(skin);
   const materialMap = new Map();
   for (const region of part.regions) {
-    const node = source.json.nodes.find(n => n.name === `WoV_Ironward_${region}`);
+    const node = source.json.nodes.find(n => n.name === `${equipment.prefix}${region}`);
     assert(node && node.mesh !== undefined, `Missing region ${region}`);
     assert(!node.matrix && !node.translation && !node.rotation && !node.scale, 'Mesh must be in world rest coordinates');
     const mesh = { name: node.name, primitives: [] };
@@ -81,6 +89,7 @@ for (const part of IRONWARD_PARTS) {
       const p = { attributes: {}, indices: addAccessor(source, primitive.indices) };
       triangles += source.json.accessors[primitive.indices].count / 3;
       const mat = source.json.materials[primitive.material];
+      assert(!JSON.stringify(mat).includes('Texture'), 'Only flat-material assets are supported');
       if (!materialMap.has(primitive.material)) {
         materialMap.set(primitive.material, doc.materials.length); doc.materials.push(clone(mat));
       }
@@ -99,7 +108,7 @@ for (const part of IRONWARD_PARTS) {
             const old = bytes.readUIntLE(at, width); let joint = remap[old];
             // Neutral source's Hips lining has reversed upper-leg groups.
             // Plates are already correct. Correct only that cloth primitive.
-            if (region === 'Hips' && mat.name === 'Ironward_cloth' && /^UpperLeg_[LR]$/.test(oldNames[old])) {
+            if (!equipment.hipsAlreadyFixed && region === 'Hips' && mat.name === 'Ironward_cloth' && /^UpperLeg_[LR]$/.test(oldNames[old])) {
               const expected = names.indexOf(positions.readFloatLE(v * 12) > 0 ? 'UpperLeg_L' : 'UpperLeg_R');
               if (joint !== expected) { joint = expected; corrected++; }
             }

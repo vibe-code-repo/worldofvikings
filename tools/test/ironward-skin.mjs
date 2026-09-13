@@ -1,8 +1,9 @@
 /** Actual Babylon GLB loader + animation/skinning gate. No browser or GPU required.
- * tsx tools/test/ironward-skin.mjs body.glb exported-models-directory
+ * tsx tools/test/ironward-skin.mjs body.glb exported-models-directory [--unregistered]
+ * Unregistered sets check deformation only, not the game's item registry/masking.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -10,6 +11,7 @@ import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/index.js';
 import { verifyArmorSkin, updateArmorVisibility } from '../../client/src/player/armorVisibility.ts';
 const [bodyPath, directory] = process.argv.slice(2);
+const unregistered = process.argv.includes('--unregistered');
 const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
 const engine = new NullEngine(); const scene = new Scene(engine);
 const load = path => SceneLoader.ImportMeshAsync('', '', `data:base64,${readFileSync(path).toString('base64')}`, scene, undefined, '.glb');
@@ -18,7 +20,8 @@ for (const group of body.animationGroups) group.stop();
 const armor = [];
 for (const part of manifest.items) {
   const result = await load(join(directory, part.file));
-  verifyArmorSkin(skeleton, result.skeletons[0], `ironward/${part.item}`);
+  if (!unregistered) verifyArmorSkin(skeleton, result.skeletons[0], `ironward/${part.item}`);
+  assert.deepEqual(result.skeletons[0].bones.map(b => b.name), skeleton.bones.map(b => b.name));
   for (let i = 0; i < skeleton.bones.length; i++) {
     const a = skeleton.bones[i].getAbsoluteInverseBindMatrix().asArray();
     const b = result.skeletons[0].bones[i].getAbsoluteInverseBindMatrix().asArray();
@@ -26,9 +29,11 @@ for (const part of manifest.items) {
   }
   for (const mesh of result.meshes.filter(m => m.getTotalVertices())) { mesh.skeleton = skeleton; armor.push(mesh); }
 }
-updateArmorVisibility(scene.meshes, manifest.items.map(p => `ironward/${p.item}`));
-assert(body.meshes.filter(m => m.getTotalVertices()).every(m => !m.isEnabled()), 'Full armor must replace all eleven regions');
-assert(armor.every(m => m.isEnabled()), 'Armor must not mask itself');
+if (!unregistered) {
+  updateArmorVisibility(scene.meshes, manifest.items.map(p => `ironward/${p.item}`));
+  assert(body.meshes.filter(m => m.getTotalVertices()).every(m => !m.isEnabled()), 'Full armor must replace all eleven regions');
+  assert(armor.every(m => m.isEnabled()), 'Armor must not mask itself');
+}
 const frames = [];
 for (const clip of body.animationGroups) {
   clip.start(true); clip.pause();
@@ -45,7 +50,12 @@ for (const clip of body.animationGroups) {
   frames.push(clip.name); clip.stop();
 }
 assert(frames.length >= 3, 'Expected real movement clips');
-updateArmorVisibility(scene.meshes, []);
-assert(body.meshes.filter(m => m.getTotalVertices()).every(m => m.isEnabled()));
-console.log(JSON.stringify({ status: 'PASS', bones: skeleton.bones.length, armorPrimitives: armor.length, clips: frames }, null, 2));
+if (!unregistered) {
+  updateArmorVisibility(scene.meshes, []);
+  assert(body.meshes.filter(m => m.getTotalVertices()).every(m => m.isEnabled()));
+}
+const report = { status: 'PASS', bones: skeleton.bones.length, armorPrimitives: armor.length, clips: frames,
+  samplesPerClip: 4, registryMaskingTested: !unregistered, collisionCertified: false };
+writeFileSync(join(directory, 'animation-validation.json'), JSON.stringify(report, null, 2)+'\n');
+console.log(JSON.stringify(report, null, 2));
 scene.dispose(); engine.dispose();

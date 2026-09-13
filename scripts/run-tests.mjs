@@ -1066,6 +1066,14 @@ const KERN = [
   // Ein misslungener Speichervorgang darf die Welt nicht beschaedigen;
   // wer das erst nach dem Ausrollen merkt, merkt es an der Welt.
   ['admin', 'test/betriebsdienst.ts'],
+  // S6-Notausgang (Roadmap-Karte 0.1, zweiter Weg): die Adminliste ueber
+  // den Betriebsdienst lesen/aendern, wenn everyone-admin auf false steht
+  // und niemand mehr im Spiel an eine Konsole kommt. Echter Prozess wie
+  // betriebsdienst.ts, eigene Datei statt dort mit hineinzuwachsen — eine
+  // andere Frage (Namensaufloesung ueber die Kontendatenbank, Datei- vs.
+  // Arbeitsspeicherstand) als das Weltdokument. Keine Assets, keine GPU,
+  // ~2s.
+  ['admin', 'test/adminliste.ts'],
   // G4 (Testluecken-Durchsicht): ERGAENZT betriebsdienst.ts, deckt nicht
   // ab, was dort schon steht. Unbekannte WOV_INSTANZ (echter Prozessstart,
   // bricht vor jedem Dateizugriff ab), GET /status, GET/PUT /einstellungen/

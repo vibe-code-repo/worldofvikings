@@ -257,6 +257,27 @@ admin liste
 (`server/src/WovServer.ts`'s `registerAdminListeCommands`; stored per-instance in
 `server/data/worlds/admins.<instance>.json`, which is not committed.)
 
+**Locked yourself out?** If `everyone-admin` is already `false` and nobody can
+reach an admin-capable console anymore, the *operations service* (`admin/`,
+§4 above — same token, same local-network guard) can read and edit that same
+file without a game client:
+
+```
+GET    /admin/liste                          # list current entries
+GET    /admin/spieler?suche=<name-fragment>  # find a character's spielerId
+                                              #   (the game console rarely
+                                              #   remembers it verbatim)
+POST   /admin/liste    {"name": "PlayerName"}          # or {"spielerId": "sp_..."}
+DELETE /admin/liste    {"name": "PlayerName"}          # or {"spielerId": "sp_..."}
+```
+
+The lookups go straight to `server/data/konten/<instance>.db` (read-only) and
+to the same `admins.<instance>.json` the console commands use — but this is a
+**separate process** from `wov-server`, which keeps that list in memory. A
+change here only takes effect after the game server restarts (every response
+says so, and `POST /dienst {"dienst":"wov-server","aktion":"restart"}` is the
+one-line way to do it from the same service).
+
 ## 6. Install the systemd services and nginx site
 
 ```bash
@@ -502,7 +523,13 @@ Spielserver samt Webseite aufsetzt.
 5. **`server/data/server.yml`**: Passwort setzen, `everyone-admin: false` (der
    committete Vorgabewert ist `true` — für einen öffentlichen Server ZWINGEND
    ändern!). Admins danach per Chat-/Konsolenbefehl `admin add <Name>` vergeben,
-   nicht in einer Konfigurationsdatei.
+   nicht in einer Konfigurationsdatei. Wer sich dabei aussperrt (kein
+   admin-faehiger Client mehr erreichbar), kommt ueber den Betriebsdienst
+   selbst wieder heran: `GET /admin/spieler?suche=<Namensteil>` findet die
+   spielerId, `POST`/`DELETE /admin/liste` (Koerper `{"name": ...}` oder
+   `{"spielerId": ...}`) aendert `admins.<instanz>.json` direkt — wirkt aber
+   erst nach `POST /dienst {"dienst":"wov-server","aktion":"restart"}`, weil
+   der Spielserver die Liste nur beim Start neu einliest.
 6. **`sudo deploy/install-services.sh`**: installiert die drei Dienste + `wov.target`
    + Kartentimer, verlinkt `deploy/nginx/wov-lab.conf`, baut die Webseite einmalig
    — installiert aber NICHT die Sicherungs-Units (Punkt 10) und reicht `nginx -t`/

@@ -63,6 +63,12 @@ import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { promisify } from 'node:util';
+// S6-Notausgang (Karte 0.1, zweiter Weg): NUR lesend auf der
+// Kontendatenbank, um einen Charakternamen in eine spielerId aufzuloesen.
+// Warum kein Import von server/src/konto/Kontendatenbank.ts trotz
+// gleichem Dateiformat: siehe die lange Begruendung bei ADMINS_DATEI
+// weiter unten.
+import { DatabaseSync } from 'node:sqlite';
 import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
 // Direktimport am Barrel vorbei: shared/src/index.ts geht in den
 // Client-Bundle, und layoutDatei.ts zieht node:fs herein. Gleiche
@@ -143,6 +149,160 @@ const METRIKEN_DATEI = resolve(WURZEL, 'server/data/metriken.json');
 // dasselbe sein. Beide Dienste laufen auf demselben Container im
 // selben Checkout.
 const GENERIERT_ORDNER = resolve(WURZEL, 'assets/generiert');
+
+// ── Adminliste: der zweite Weg (S6, Roadmap-Karte 0.1) ──────────────────
+//
+// Wenn `players.everyone-admin` (server.yml) auf `false` steht, bestimmt
+// allein `server/src/admin/AdminListe.ts` (im Spielserver-Prozess), wer
+// Admin-Befehle nutzen darf. Ein Betreiber ohne laufenden Client/Konsole
+// hatte dafuer bislang NUR Handarbeit an der JSON-Datei auf dem Server.
+// Diese Routen (/admin/liste, /admin/spieler) sind der zweite Weg dahin,
+// ueber denselben Betriebsdienst, der schon server.yml und die
+// Auslieferung bedient.
+//
+// ── Warum dieselbe Datei, aber NICHT dieselbe Klasse ────────────────────
+// `admins.<instanz>.json` in server/data/worlds/ ist exakt der Pfad, den
+// WovServer.ts an `new AdminListe(...)` uebergibt (Begruendung fuer den
+// Ordner statt server.yml steht dort). Ein zweiter Schreiber auf dieselbe
+// Datei ist hier bewusst in Kauf genommen -- genau wie server.yml und die
+// Weltdatei schon von zwei Prozessen angefasst werden (Spielserver
+// schreibt/liest sein Deployment, dieser Dienst pflegt die Konfiguration).
+//
+// Importiert wird `AdminListe` selbst trotzdem NICHT, und ebenso wenig
+// `Kontendatenbank` fuer die Namensaufloesung weiter unten. Grund: Beide
+// haengen (ueber `../net/Identitaet.js`) an `import { ... } from
+// '@wov/shared'` OHNE Direktimport-Pfad -- also am VOLLEN Barrel
+// (shared/src/index.ts), nicht an den einzelnen Modulen, die dieser
+// Prozess sich sonst ueberall bewusst erkauft (s. Kommentar bei
+// layoutDatei.js oben). Ausprobiert: Ein einziger Import von
+// `AdminListe.js` zieht beim Start den kompletten Katalog-Code mit
+// herein (Vegetation/Features/Spawns/Items/Bauteile -- derselbe Code, der
+// sonst nur store:aufbereiten laeuft) samt dessen Konsolenausgabe. Das ist
+// exakt die Kopplung, die dieser Prozess seit seiner Entstehung vermeidet
+// (Kopfkommentar: "Direktimport am Barrel vorbei"). Die Abhilfe waere ein
+// Umbau von Identitaet.ts auf einen Direktimport -- das ist server/src/net,
+// nicht mein Dateibesitz in diesem Auftrag, siehe Bericht.
+//
+// Deshalb: eigene, minimale Lese-/Schreibfunktionen unten, die exakt
+// dasselbe Dateiformat kennen ({spielerId, name, seit}[]) und dieselbe
+// spielerId-Form pruefen ("sp_" + 22 Zeichen Base64url, Identitaet.ts
+// SPIELER_ID_PRAEFIX/-ZUFALLSBYTES) -- Duplikation von etwa 20 Zeilen ist
+// hier der Preis fuer einen Prozess, der weiterhin sauber und leise
+// startet.
+//
+// ── Warum kein Live-Nachladen im Spielserver ────────────────────────────
+// Der Spielserver haelt seine AdminListe im Arbeitsspeicher (geladen
+// einmal beim Start, s. WovServer.ts). Diese Route schreibt nur die
+// Datei -- der laufende Prozess sieht die Aenderung NICHT, bis er neu
+// startet. Ein stiller Unterschied zwischen Datei und Arbeitsspeicher
+// waere die schlechteste Loesung, deshalb sagt jede Antwort hier
+// ehrlich, dass ein Neustart noetig ist (ADMIN_HINWEIS), genau wie die
+// bestehende Antwort bei PUT /einstellungen/server. Ein Datei-Beobachter
+// (fs.watch) in AdminListe.ts, der bei Aenderung neu laedt, waere die
+// sauberere Loesung -- das ist eine Aenderung in server/src/admin/, nicht
+// mein Dateibesitz in diesem Auftrag, siehe Bericht an den Integrator.
+const ADMINS_DATEI = resolve(WELTEN_ORDNER, `admins.${INSTANZ}.json`);
+// Derselbe Pfad, den WovServer.ts aus ServerConfig.kontenDir und
+// worldName ableitet (server/data/konten/<instanz>.db, s.
+// ServerKonfig.ts kontenDir und WovServer.ts this.kontenDb).
+const KONTEN_DB = resolve(WURZEL, 'server/data/konten', `${INSTANZ}.db`);
+/** Wie Identitaet.ts' istSpielerId(), aber ohne den Barrel-Import (s. o.). */
+const SPIELER_ID_MUSTER = /^sp_[A-Za-z0-9_-]{22}$/;
+const ADMIN_HINWEIS =
+  'Wirkt erst nach einem Neustart des Spielservers -- die Admin-Liste liegt im ' +
+  'Arbeitsspeicher des laufenden Prozesses und liest diese Datei nur beim Start. ' +
+  "Neustart ausloesen: POST /dienst { dienst: 'wov-server', aktion: 'restart' }.";
+
+interface BetriebsAdminEintrag { spielerId: string; name: string; seit: string }
+
+function spielerIdGueltig(wert: unknown): wert is string {
+  return typeof wert === 'string' && SPIELER_ID_MUSTER.test(wert);
+}
+
+function adminsLesen(): BetriebsAdminEintrag[] {
+  if (!existsSync(ADMINS_DATEI)) return [];
+  try {
+    const roh = JSON.parse(readFileSync(ADMINS_DATEI, 'utf-8')) as unknown;
+    if (!Array.isArray(roh)) return [];
+    return roh.filter(
+      (e): e is BetriebsAdminEintrag =>
+        !!e && typeof e === 'object' &&
+        spielerIdGueltig((e as Record<string, unknown>).spielerId) &&
+        typeof (e as Record<string, unknown>).name === 'string' &&
+        typeof (e as Record<string, unknown>).seit === 'string'
+    );
+  } catch (fehler) {
+    // Wie AdminListe.laden(): eine kaputte Datei darf die Anzeige nicht
+    // sprengen. Leere Liste ist hier der ehrliche Rueckfall, nicht "alle
+    // sind Admin" oder ein 500er.
+    console.error(`[Admin] ${ADMINS_DATEI} unlesbar: ${(fehler as Error).message}`);
+    return [];
+  }
+}
+
+/** Atomarer Ersatz + Zeitstempel-Sicherung -- derselbe Grundsatz wie bei server.yml. */
+function adminsSchreiben(eintraege: BetriebsAdminEintrag[]): void {
+  mkdirSync(WELTEN_ORDNER, { recursive: true });
+  sichern(ADMINS_DATEI, 20);
+  const tmp = `${ADMINS_DATEI}.tmp`;
+  writeFileSync(tmp, JSON.stringify(eintraege, null, 2));
+  renameSync(tmp, ADMINS_DATEI);
+}
+
+interface KontoTreffer { name: string; spielerId: string; zuletztGespielt: string | null }
+
+function kontoZeileNachAussen(z: { name: string; spieler_id: string; zuletzt_gespielt: number | null }): KontoTreffer {
+  return {
+    name: z.name,
+    spielerId: z.spieler_id,
+    zuletztGespielt: z.zuletzt_gespielt ? new Date(z.zuletzt_gespielt).toISOString() : null,
+  };
+}
+
+/** Namenssuche fuer die Oberflaeche -- ein Betreiber kennt die spielerId nie auswendig. */
+function charaktereSuchen(suche: string, grenze = 20): KontoTreffer[] {
+  if (!existsSync(KONTEN_DB)) return [];
+  const db = new DatabaseSync(KONTEN_DB, { readOnly: true });
+  try {
+    // LIKE-Sonderzeichen escapen, sonst durchsucht "50%" oder "a_b" mehr,
+    // als der Name hergibt.
+    const muster = `%${suche.replace(/[%_\\]/g, (z) => `\\${z}`)}%`;
+    const zeilen = db
+      .prepare(
+        "SELECT name, spieler_id, zuletzt_gespielt FROM charaktere WHERE name LIKE ? ESCAPE '\\' ORDER BY name COLLATE NOCASE LIMIT ?"
+      )
+      .all(muster, grenze) as { name: string; spieler_id: string; zuletzt_gespielt: number | null }[];
+    return zeilen.map(kontoZeileNachAussen);
+  } finally {
+    db.close();
+  }
+}
+
+function charakterNachName(name: string): KontoTreffer | null {
+  if (!existsSync(KONTEN_DB)) return null;
+  const db = new DatabaseSync(KONTEN_DB, { readOnly: true });
+  try {
+    const z = db
+      .prepare('SELECT name, spieler_id, zuletzt_gespielt FROM charaktere WHERE name = ? COLLATE NOCASE')
+      .get(name) as { name: string; spieler_id: string; zuletzt_gespielt: number | null } | undefined;
+    return z ? kontoZeileNachAussen(z) : null;
+  } finally {
+    db.close();
+  }
+}
+
+function charakterNachSpielerId(spielerId: string): KontoTreffer | null {
+  if (!existsSync(KONTEN_DB)) return null;
+  const db = new DatabaseSync(KONTEN_DB, { readOnly: true });
+  try {
+    const z = db
+      .prepare('SELECT name, spieler_id, zuletzt_gespielt FROM charaktere WHERE spieler_id = ?')
+      .get(spielerId) as { name: string; spieler_id: string; zuletzt_gespielt: number | null } | undefined;
+    return z ? kontoZeileNachAussen(z) : null;
+  } finally {
+    db.close();
+  }
+}
 
 /** Dienste, die dieser Prozess anfassen darf. Positivliste, keine Freitexte. */
 const ERLAUBTE_DIENSTE = ['wov-server', 'nginx'] as const;
@@ -679,7 +839,15 @@ function unbekannteRaeume(roh: unknown, doc: { layout: { rooms: { room: string }
 
 type Antwort = { code: number; daten: unknown };
 
-async function behandeln(pfad: string, methode: string, leib: unknown): Promise<Antwort> {
+async function behandeln(
+  pfad: string,
+  methode: string,
+  leib: unknown,
+  // Nur GET /admin/spieler liest hieraus (Namenssuche per ?suche=...).
+  // Alle anderen Routen nehmen ihre Eingabe wie bisher aus `leib`, um
+  // nicht zwei Uebergabewege fuer dieselbe Sache zu haben.
+  parameter: URLSearchParams = new URLSearchParams()
+): Promise<Antwort> {
   // ── Zustand ──
   if (pfad === '/status' && methode === 'GET') {
     const [server, nginx] = await Promise.all([dienstZustand('wov-server'), dienstZustand('nginx')]);
@@ -731,6 +899,97 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
     if (!['start', 'stop', 'restart', 'reload'].includes(aktion ?? '')) return { code: 400, daten: { fehler: 'unbekannte Aktion' } };
     await ausfuehren('systemctl', [aktion!, dienst!]);
     return { code: 200, daten: { dienst, aktion, zustand: await dienstZustand(dienst as Dienst) } };
+  }
+
+  // ── Admin-Liste (S6-Notausgang) ──
+  //
+  // Begruendung fuer Pfad, Dateiform, Barrel-Umgehung und Neustart-Hinweis
+  // steht ausfuehrlich bei ADMINS_DATEI weiter oben.
+  if (pfad === '/admin/liste' && methode === 'GET') {
+    return { code: 200, daten: { admins: adminsLesen(), instanz: INSTANZ, hinweis: ADMIN_HINWEIS } };
+  }
+
+  // Namenssuche: Ohne sie waere die Route nur mit einer 128-Bit-Zufalls-
+  // zahl bedienbar, die kein Betreiber auswendig kennt (Auftrag, Punkt 2).
+  // Liest read-only aus derselben Kontendatenbank, die das Spiel selbst
+  // beim Anlegen eines Charakters befuellt (charaktere.name/spieler_id).
+  if (pfad === '/admin/spieler' && methode === 'GET') {
+    const suche = (parameter.get('suche') ?? '').trim();
+    if (!suche) return { code: 400, daten: { fehler: 'Parameter "suche" fehlt oder ist leer' } };
+    if (suche.length > 100) return { code: 400, daten: { fehler: 'suche: zu lang' } };
+    return {
+      code: 200,
+      daten: {
+        treffer: charaktereSuchen(suche),
+        instanz: INSTANZ,
+        kontendatenbankVorhanden: existsSync(KONTEN_DB),
+      },
+    };
+  }
+
+  if (pfad === '/admin/liste' && methode === 'POST') {
+    const eingabe = (leib ?? {}) as { name?: unknown; spielerId?: unknown };
+    let spielerId: string;
+    let name: string;
+    if (eingabe.spielerId !== undefined) {
+      // Der Weg fuer den Text aus `admin liste` (Konsole/Chat): der
+      // Betreiber hat dort "Name [spielerId]" stehen und kann die
+      // Klammer direkt hier einfuegen.
+      if (!spielerIdGueltig(eingabe.spielerId)) {
+        return { code: 400, daten: { fehler: 'spielerId: ungueltiges Format (erwartet "sp_" + 22 Zeichen)' } };
+      }
+      spielerId = eingabe.spielerId;
+      const eigenerName = typeof eingabe.name === 'string' ? eingabe.name.trim() : '';
+      name = eigenerName || charakterNachSpielerId(spielerId)?.name || spielerId;
+    } else {
+      // Der Weg ueber /admin/spieler?suche=...: Betreiber kennt nur den
+      // Namen, die spielerId kommt aus der Kontendatenbank.
+      const gesucht = typeof eingabe.name === 'string' ? eingabe.name.trim() : '';
+      if (!gesucht) return { code: 400, daten: { fehler: 'name oder spielerId erforderlich' } };
+      const treffer = charakterNachName(gesucht);
+      if (!treffer) {
+        return {
+          code: 404,
+          daten: {
+            fehler: `Unbekannter Spieler: "${gesucht}" (kein Charakter dieses Namens in der Kontendatenbank der Instanz ${INSTANZ} -- GET /admin/spieler?suche=... zum Nachsehen)`,
+          },
+        };
+      }
+      ({ spielerId, name } = treffer);
+    }
+    const aktuelle = adminsLesen();
+    const hinzugefuegt = !aktuelle.some((e) => e.spielerId === spielerId);
+    if (hinzugefuegt) {
+      aktuelle.push({ spielerId, name, seit: new Date().toISOString() });
+      adminsSchreiben(aktuelle);
+    }
+    return { code: 200, daten: { ok: true, hinzugefuegt, admins: aktuelle, hinweis: ADMIN_HINWEIS } };
+  }
+
+  if (pfad === '/admin/liste' && methode === 'DELETE') {
+    const eingabe = (leib ?? {}) as { name?: unknown; spielerId?: unknown };
+    const aktuelle = adminsLesen();
+    let ziel: BetriebsAdminEintrag | undefined;
+    if (eingabe.spielerId !== undefined) {
+      if (!spielerIdGueltig(eingabe.spielerId)) {
+        return { code: 400, daten: { fehler: 'spielerId: ungueltiges Format (erwartet "sp_" + 22 Zeichen)' } };
+      }
+      ziel = aktuelle.find((e) => e.spielerId === eingabe.spielerId);
+    } else if (typeof eingabe.name === 'string' && eingabe.name.trim()) {
+      // Entfernen braucht keine Kontendatenbank: der Name steht schon in
+      // der Admin-Liste selbst (AdminEintrag.name), nur die Suche danach
+      // ist hier case-insensitiv wie die spieler-Namensvergabe im Spiel.
+      const gesucht = eingabe.name.trim().toLowerCase();
+      ziel = aktuelle.find((e) => e.name.toLowerCase() === gesucht);
+    } else {
+      return { code: 400, daten: { fehler: 'name oder spielerId erforderlich' } };
+    }
+    if (!ziel) {
+      return { code: 200, daten: { ok: true, entfernt: false, admins: aktuelle, hinweis: ADMIN_HINWEIS } };
+    }
+    const rest = aktuelle.filter((e) => e.spielerId !== ziel!.spielerId);
+    adminsSchreiben(rest);
+    return { code: 200, daten: { ok: true, entfernt: true, admins: rest, hinweis: ADMIN_HINWEIS } };
   }
 
   // ── Weltdokument ──
@@ -1200,7 +1459,8 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
 
 const dienst = createServer((req, res) => {
   void (async () => {
-    const pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '') || '/';
+    const angefragteUrl = new URL(req.url ?? '/', 'http://x');
+    const pfad = angefragteUrl.pathname.replace(/\/+$/, '') || '/';
     try {
       // Reihenfolge: erst Herkunft, dann Token. Wer gar nicht erst
       // hierhergehoert, soll auch nicht erfahren, ob er einen Token
@@ -1237,8 +1497,12 @@ const dienst = createServer((req, res) => {
         return metrikenAusgeben(res);
       }
 
-      const leib = req.method === 'PUT' || req.method === 'POST' ? await leibLesen(req) : null;
-      const { code, daten } = await behandeln(pfad, req.method ?? 'GET', leib);
+      // DELETE zusaetzlich zu PUT/POST: DELETE /admin/liste braucht einen
+      // Koerper ({name} oder {spielerId}), um zu sagen, WAS entfernt
+      // werden soll -- die URL allein kennt keine Kennung dafuer.
+      const leib =
+        req.method === 'PUT' || req.method === 'POST' || req.method === 'DELETE' ? await leibLesen(req) : null;
+      const { code, daten } = await behandeln(pfad, req.method ?? 'GET', leib, angefragteUrl.searchParams);
       if (code >= 400) console.warn(`[Admin] ${req.method} ${pfad} -> ${code}`);
       json(res, code, daten);
     } catch (fehler) {

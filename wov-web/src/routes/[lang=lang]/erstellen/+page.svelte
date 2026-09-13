@@ -25,6 +25,7 @@
     writeShore,
   } from '$lib/account';
   import '$lib/stil/account.css';
+  import type { EquipmentSetCatalog } from '../../../../../shared/src/equipmentSets';
 
   /**
    * Charaktererstellung — Auswahl, Vorschau und Übergabe an den Spielserver.
@@ -77,6 +78,7 @@
     hairColors: Eintrag[];
     eyeColors: Eintrag[];
     equipment: Eintrag[];
+    equipmentSets?: EquipmentSetCatalog['sets'];
     defaultFigure?: string;
     defaultHairstyle?: string;
     defaultBeard?: string;
@@ -100,7 +102,6 @@
     ladeKoerper(pfad: string): Promise<boolean>;
     setzeWaffe(art: 'schwert' | 'stab' | null): Promise<void>;
     setze(slot: string, datei: string | null): Promise<void>;
-    setzeKoerperRegionenVerdeckt(regionen: readonly string[]): void;
     /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
     setzeHaarfarbe(hex: string): void;
     setzeAugenfarbe(id: string): void;
@@ -190,44 +191,22 @@
     teile: readonly { datei: string; regionen: readonly string[] }[];
   }
 
-  const RUESTUNGSSETS: Readonly<Partial<Record<string, Ruestungsset>>> = {
-    krieger: {
-      name: 'Ironward',
-      teile: [
-        { datei: 'armor/ironward/IronwardHelmet', regionen: ['Head'] },
-        { datei: 'armor/ironward/IronwardCuirass', regionen: ['Torso'] },
-        { datei: 'armor/ironward/IronwardLeggings', regionen: ['Hips'] },
-        { datei: 'armor/ironward/IronwardPauldrons', regionen: ['ArmUpperLeft', 'ArmUpperRight'] },
-        { datei: 'armor/ironward/IronwardBracers', regionen: ['ArmLowerLeft', 'ArmLowerRight'] },
-        { datei: 'armor/ironward/IronwardGauntlets', regionen: ['HandLeft', 'HandRight'] },
-        { datei: 'armor/ironward/IronwardBoots', regionen: ['LegLeft', 'LegRight'] },
-      ],
-    },
-    hexer: {
-      name: 'Ashenveil',
-      teile: [
-        { datei: 'armor/ashenveil/ashenveil_hood', regionen: ['Head'] },
-        { datei: 'armor/ashenveil/ashenveil_shoulders', regionen: ['ArmUpperLeft', 'ArmUpperRight'] },
-        { datei: 'armor/ashenveil/ashenveil_vest', regionen: ['Torso'] },
-        { datei: 'armor/ashenveil/ashenveil_bracers', regionen: ['ArmLowerLeft', 'ArmLowerRight'] },
-        { datei: 'armor/ashenveil/ashenveil_gloves', regionen: ['HandLeft', 'HandRight'] },
-        { datei: 'armor/ashenveil/ashenveil_robe', regionen: ['Hips'] },
-        { datei: 'armor/ashenveil/ashenveil_boots', regionen: ['LegLeft', 'LegRight'] },
-      ],
-    },
-    druide: {
-      name: 'Wildwarden',
-      teile: [
-        { datei: 'armor/wildwarden/wildwarden_crown', regionen: [] },
-        { datei: 'armor/wildwarden/wildwarden_mantle', regionen: ['ArmUpperLeft', 'ArmUpperRight'] },
-        { datei: 'armor/wildwarden/wildwarden_vest', regionen: ['Torso'] },
-        { datei: 'armor/wildwarden/wildwarden_bracers', regionen: ['ArmLowerLeft', 'ArmLowerRight'] },
-        { datei: 'armor/wildwarden/wildwarden_gloves', regionen: ['HandLeft', 'HandRight'] },
-        { datei: 'armor/wildwarden/wildwarden_robe', regionen: ['Hips'] },
-        { datei: 'armor/wildwarden/wildwarden_boots', regionen: ['LegLeft', 'LegRight'] },
-      ],
-    },
+  // Class choices reference stable set IDs; item details come from the generated registry.
+  const CLASS_EQUIPMENT_SETS: Readonly<Record<string, string>> = {
+    krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden',
   };
+  const RUESTUNGSSETS: Readonly<Partial<Record<string, Ruestungsset>>> = $derived.by(() =>
+    Object.fromEntries(Object.entries(CLASS_EQUIPMENT_SETS).flatMap(([classId, setId]) => {
+      const set = daten?.equipmentSets?.find(entry => entry.id === setId);
+      return set ? [[classId, {
+        name: set.name,
+        teile: set.parts.map(part => ({
+          datei: `armor/${part.model.replace(/\.glb$/, '')}`,
+          regionen: part.regions,
+        })),
+      }]] : [];
+    }))
+  );
 
   let detailTab = $state<DetailTab>('koerper');
   let klasseId = $state('krieger');
@@ -358,16 +337,12 @@
     const istAktuell = () =>
       (lauf === undefined || lauf === ladeLauf) && ruestungsAufruf === ruestungsLauf;
     const set = ruestungAn && figur === 'wikinger' ? RUESTUNGSSETS[klasseId] : undefined;
-    if (!set) vorschau.setzeKoerperRegionenVerdeckt([]);
     await Promise.all(
       Array.from({ length: 7 }, (_, index) =>
         vorschau!.setze(`klassenruestung-${index}`, set?.teile[index]?.datei ?? null)
       )
     );
     if (!istAktuell()) return false;
-    vorschau.setzeKoerperRegionenVerdeckt(
-      set ? [...new Set(set.teile.flatMap((teil) => teil.regionen))] : []
-    );
     return true;
   }
 
@@ -459,7 +434,7 @@
       await zeigeKlassenruestung();
     } catch (fehler) {
       ruestungAn = false;
-      vorschau?.setzeKoerperRegionenVerdeckt([]);
+      await zeigeKlassenruestung();
       console.warn('[erstellung] Klassenrüstung ließ sich nicht umschalten:', fehler);
     }
   }

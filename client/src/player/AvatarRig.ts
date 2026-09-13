@@ -50,7 +50,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { faerbeHaar } from './haarfarbe.js';
 import { faerbeAugen } from './augenfarbe.js';
-import { armorByFile } from '@wov/shared';
+import { armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin } from './armorVisibility.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -2292,10 +2292,10 @@ export class AvatarRig {
   private refreshArmorVisibility(): void {
     const active = [...this.getragen.values()].filter(file => (this.teile.get(file)?.length ?? 0) > 0);
     updateArmorVisibility(this.halter?.getChildMeshes() ?? [], active);
-    const helmet = active.some(f => armorByFile(f)?.regions?.includes('Head'));
-    for (const slot of ['frisur', 'bart', 'augenbraue']) {
+    const hidden = hiddenAppearanceForFiles(active);
+    for (const [slot, feature] of Object.entries(APPEARANCE_ATTACHMENTS)) {
       const file = this.getragen.get(slot);
-      if (file) this.zeigeTeil(file, !helmet);
+      if (file) this.zeigeTeil(file, !hidden.has(feature));
     }
   }
 

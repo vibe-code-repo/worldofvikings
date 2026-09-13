@@ -475,7 +475,7 @@ import { ASHENVEIL_PARTS } from '../ashenveil.js';
 const KLEIDUNG: ItemShared[] = [
   ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS, ...ASHENVEIL_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
     icon: p.id, model: null, maxStackSize: 1, weight: p.weight, toolTier: 0,
-    ausruestung: p.equipment, ruestungsteil: p.id })),
+    ausruestung: p.equipment, ruestungsteil: p.id, hideAppearance: p.hideAppearance })),
   {
     name: 'LederBH',
     label: 'Leder-Oberteil',

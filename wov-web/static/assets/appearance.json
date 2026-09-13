@@ -599,6 +599,379 @@
   ],
   "defaultEyeColor": "fjordblau",
   "equipment": [],
+  "equipmentSets": [
+    {
+      "id": "ironward",
+      "version": 3,
+      "name": "Ironward",
+      "figure": "wikinger",
+      "itemIds": [
+        "IronwardHelmet",
+        "IronwardCuirass",
+        "IronwardLeggings",
+        "IronwardPauldrons",
+        "IronwardBracers",
+        "IronwardGauntlets",
+        "IronwardBoots"
+      ],
+      "appearance": {
+        "kopf": "ironward_helm",
+        "oberkoerper": "ironward_brust",
+        "beine": "ironward_hose",
+        "schultern": "ironward_schultern",
+        "unterarme": "ironward_arme",
+        "haende": "ironward_handschuhe",
+        "fuesse": "ironward_stiefel"
+      },
+      "parts": [
+        {
+          "itemId": "IronwardHelmet",
+          "appearanceId": "ironward_helm",
+          "name": "Ironward-Helm",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "ironward/IronwardHelmet.glb",
+          "icon": "ironward_helm.png",
+          "regions": [
+            "Head"
+          ],
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ]
+        },
+        {
+          "itemId": "IronwardCuirass",
+          "appearanceId": "ironward_brust",
+          "name": "Ironward-Brustpanzer",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "ironward/IronwardCuirass.glb",
+          "icon": "ironward_brust.png",
+          "regions": [
+            "Torso"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "IronwardLeggings",
+          "appearanceId": "ironward_hose",
+          "name": "Ironward-Beinschutz",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "ironward/IronwardLeggings.glb",
+          "icon": "ironward_hose.png",
+          "regions": [
+            "Hips"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "IronwardPauldrons",
+          "appearanceId": "ironward_schultern",
+          "name": "Ironward-Schulterschutz",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "ironward/IronwardPauldrons.glb",
+          "icon": "ironward_schultern.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "IronwardBracers",
+          "appearanceId": "ironward_arme",
+          "name": "Ironward-Armschienen",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "ironward/IronwardBracers.glb",
+          "icon": "ironward_arme.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "IronwardGauntlets",
+          "appearanceId": "ironward_handschuhe",
+          "name": "Ironward-Handschuhe",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "ironward/IronwardGauntlets.glb",
+          "icon": "ironward_handschuhe.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "IronwardBoots",
+          "appearanceId": "ironward_stiefel",
+          "name": "Ironward-Panzerstiefel",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "ironward/IronwardBoots.glb",
+          "icon": "ironward_stiefel.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "hideAppearance": []
+        }
+      ]
+    },
+    {
+      "id": "wildwarden",
+      "version": 2,
+      "name": "Waldhüter",
+      "figure": "wikinger",
+      "itemIds": [
+        "wildwarden_crown",
+        "wildwarden_vest",
+        "wildwarden_robe",
+        "wildwarden_mantle",
+        "wildwarden_bracers",
+        "wildwarden_gloves",
+        "wildwarden_boots"
+      ],
+      "appearance": {
+        "kopf": "wildwarden_crown",
+        "oberkoerper": "wildwarden_vest",
+        "beine": "wildwarden_robe",
+        "schultern": "wildwarden_mantle",
+        "unterarme": "wildwarden_bracers",
+        "haende": "wildwarden_gloves",
+        "fuesse": "wildwarden_boots"
+      },
+      "parts": [
+        {
+          "itemId": "wildwarden_crown",
+          "appearanceId": "wildwarden_crown",
+          "name": "Waldhüter-Geweihkrone",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "wildwarden/wildwarden_crown.glb",
+          "icon": "wildwarden_crown.png",
+          "regions": [
+            "Head"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "wildwarden_vest",
+          "appearanceId": "wildwarden_vest",
+          "name": "Waldhüter-Rindenwams",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "wildwarden/wildwarden_vest.glb",
+          "icon": "wildwarden_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "wildwarden_robe",
+          "appearanceId": "wildwarden_robe",
+          "name": "Waldhüter-Waldrobe",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "wildwarden/wildwarden_robe.glb",
+          "icon": "wildwarden_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "wildwarden_mantle",
+          "appearanceId": "wildwarden_mantle",
+          "name": "Waldhüter-Blattschultern",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "wildwarden/wildwarden_mantle.glb",
+          "icon": "wildwarden_mantle.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "wildwarden_bracers",
+          "appearanceId": "wildwarden_bracers",
+          "name": "Waldhüter-Wurzelarmschienen",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "wildwarden/wildwarden_bracers.glb",
+          "icon": "wildwarden_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "wildwarden_gloves",
+          "appearanceId": "wildwarden_gloves",
+          "name": "Waldhüter-Lederhandschuhe",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "wildwarden/wildwarden_gloves.glb",
+          "icon": "wildwarden_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "wildwarden_boots",
+          "appearanceId": "wildwarden_boots",
+          "name": "Waldhüter-Wanderstiefel",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "wildwarden/wildwarden_boots.glb",
+          "icon": "wildwarden_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "hideAppearance": []
+        }
+      ]
+    },
+    {
+      "id": "ashenveil",
+      "version": 1,
+      "name": "Aschenschleier",
+      "figure": "wikinger",
+      "itemIds": [
+        "ashenveil_hood",
+        "ashenveil_vest",
+        "ashenveil_robe",
+        "ashenveil_shoulders",
+        "ashenveil_bracers",
+        "ashenveil_gloves",
+        "ashenveil_boots"
+      ],
+      "appearance": {
+        "kopf": "ashenveil_hood",
+        "oberkoerper": "ashenveil_vest",
+        "beine": "ashenveil_robe",
+        "schultern": "ashenveil_shoulders",
+        "unterarme": "ashenveil_bracers",
+        "haende": "ashenveil_gloves",
+        "fuesse": "ashenveil_boots"
+      },
+      "parts": [
+        {
+          "itemId": "ashenveil_hood",
+          "appearanceId": "ashenveil_hood",
+          "name": "Aschenschleier-Schattenkapuze",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "ashenveil/ashenveil_hood.glb",
+          "icon": "ashenveil_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ]
+        },
+        {
+          "itemId": "ashenveil_vest",
+          "appearanceId": "ashenveil_vest",
+          "name": "Aschenschleier-Brustharnisch",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "ashenveil/ashenveil_vest.glb",
+          "icon": "ashenveil_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "ashenveil_robe",
+          "appearanceId": "ashenveil_robe",
+          "name": "Aschenschleier-Kultistenrobe",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "ashenveil/ashenveil_robe.glb",
+          "icon": "ashenveil_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "ashenveil_shoulders",
+          "appearanceId": "ashenveil_shoulders",
+          "name": "Aschenschleier-Dornenmantel",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "ashenveil/ashenveil_shoulders.glb",
+          "icon": "ashenveil_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "ashenveil_bracers",
+          "appearanceId": "ashenveil_bracers",
+          "name": "Aschenschleier-Runenarmschienen",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "ashenveil/ashenveil_bracers.glb",
+          "icon": "ashenveil_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "ashenveil_gloves",
+          "appearanceId": "ashenveil_gloves",
+          "name": "Aschenschleier-Schattenhandschuhe",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "ashenveil/ashenveil_gloves.glb",
+          "icon": "ashenveil_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "hideAppearance": []
+        },
+        {
+          "itemId": "ashenveil_boots",
+          "appearanceId": "ashenveil_boots",
+          "name": "Aschenschleier-Panzerstiefel",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "ashenveil/ashenveil_boots.glb",
+          "icon": "ashenveil_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "hideAppearance": []
+        }
+      ]
+    }
+  ],
   "timeOfDay": {
     "marks": {
       "0": "Mitternacht",

@@ -9,7 +9,7 @@
  * leveling (Unity TerrainModifier parity) and stay invisible.
  */
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { ARMOR_SLOTS, decodeArmor, appearancePath, armorByFile } from '@wov/shared';
+import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin } from '../player/armorVisibility.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
@@ -1406,10 +1406,14 @@ export class EntityManager {
     const request = {};
     this.armorRequests.set(dyn.root, request);
     const refresh = (): void => {
-      const files = [...dyn.aussehen!.values()].map(v => v.datei);
+      const files = [...dyn.aussehen!.values()]
+        .filter(v => v.wurzel.getChildMeshes().some(mesh => mesh.getTotalVertices() > 0))
+        .map(v => v.datei);
       updateArmorVisibility(dyn.root.getChildMeshes(), files);
-      const helmet = files.some(f => armorByFile(f)?.regions?.includes('Head'));
-      for (const s of ['frisur', 'bart', 'augenbraue']) dyn.aussehen!.get(s)?.wurzel.setEnabled(!helmet);
+      const hidden = hiddenAppearanceForFiles(files);
+      for (const [slot, feature] of Object.entries(APPEARANCE_ATTACHMENTS)) {
+        dyn.aussehen!.get(slot)?.wurzel.setEnabled(!hidden.has(feature));
+      }
     };
 
     // Skelett des Koerpers suchen — an ihm haengen alle Teile.

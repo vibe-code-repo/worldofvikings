@@ -39,6 +39,7 @@ import {
   AUGENBRAUEN, AUGENBRAUE_VORGABE,
   HAARFARBEN, HAARFARBE_VORGABE,
   AUGENFARBEN, AUGENFARBE_VORGABE,
+  equipmentSetCatalog,
   AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
   FRACTION_SUNRISE, FRACTION_MIDDAY, FRACTION_SUNSET,
 } from '../shared/src/index.ts';
@@ -101,6 +102,7 @@ const daten = {
   // Rückwärtskompatibilität im Spielcode bekannt. Die Webseite bietet
   // Kleidung nur noch als vollständige Klassenrüstung an.
   equipment: [],
+  equipmentSets: equipmentSetCatalog().sets,
   // Tageszeit-Marken fuer die Uhrzeit-Auswahl der Webseite.
   //
   // Aus dem Umgebungsmodell abgeleitet, nicht abgeschrieben: die

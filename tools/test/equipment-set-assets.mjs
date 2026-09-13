@@ -12,6 +12,10 @@ async function get(path) {
 }
 const catalog = await (await get('/assets/equipment-sets.json')).json();
 assert.deepEqual(catalog, equipmentSetCatalog(), 'Served catalog must match registered IDs');
+const appearance = await (await get('/assets/appearance.json')).json();
+assert.deepEqual(appearance.equipmentSets, catalog.sets, 'Character creation must receive the same item policies');
+const preview = await (await get('/assets/js/vorschau.js')).text();
+assert(preview.includes('hideAppearance'), 'Served preview must include per-item visibility support');
 for (const set of catalog.sets) {
   for (const part of set.parts) {
     const model = Buffer.from(await (await get('/assets/models/' + part.model)).arrayBuffer());
@@ -22,4 +26,4 @@ for (const set of catalog.sets) {
     assert.equal(icon.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', part.icon);
   }
 }
-console.log('PASS HTTP catalog: 3 sets, 21 GLBs, 21 PNGs; no player login or inventory write');
+console.log('PASS HTTP catalog and character-creation flags: 3 sets, 21 GLBs, 21 PNGs, current preview; no login or inventory write');

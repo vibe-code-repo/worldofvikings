@@ -181,10 +181,11 @@ export function frisurMitGesicht(frisur: string, bart: string, augenbraue: strin
 import { IRONWARD_PARTS } from './ironward.js';
 import { WILDWARDEN_PARTS } from './wildwarden.js';
 import { ASHENVEIL_PARTS } from './ashenveil.js';
+import { hiddenAppearance, type AppearancePolicy } from './appearanceVisibility.js';
 export type Slot = 'oberkoerper' | 'beine' | 'kopf' | 'schultern' | 'unterarme' | 'haende' | 'fuesse';
 export const ARMOR_SLOTS: readonly Slot[] = ['oberkoerper', 'beine', 'kopf', 'schultern', 'unterarme', 'haende', 'fuesse'];
 
-export interface Ruestungsteil {
+export interface Ruestungsteil extends AppearancePolicy {
   readonly id: string;
   readonly datei: string;
   readonly name: string;
@@ -196,9 +197,9 @@ export interface Ruestungsteil {
 export const RUESTUNG: readonly Ruestungsteil[] = [
   { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper' },
   { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine' },
-  ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, figure: 'wikinger' })),
-  ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, figure: 'wikinger' })),
-  ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, figure: 'wikinger' })),
+  ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: 'wikinger' })),
+  ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: 'wikinger' })),
+  ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: 'wikinger' })),
 ] as const;
 
 /** Kennt die Liste diese Frisur? Der Server glaubt dem Client nichts. */
@@ -267,6 +268,13 @@ export function appearancePath(file: string): string {
 
 export function armorByFile(file: string): Ruestungsteil | undefined {
   return RUESTUNG.find(p => appearancePath(p.datei) === appearancePath(file.replace(/\.glb$/i, '')));
+}
+
+export function hiddenAppearanceForFiles(files: readonly string[]) {
+  return hiddenAppearance(files.flatMap(file => {
+    const part = armorByFile(file);
+    return part ? [part] : [];
+  }));
 }
 
 export interface Haarfarbe {

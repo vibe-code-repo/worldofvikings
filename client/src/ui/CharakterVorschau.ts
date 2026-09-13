@@ -49,7 +49,7 @@ import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
 
-import { AUSSEHEN_KOERPER, teilPfad, appearancePath, armorByFile } from '@wov/shared';
+import { AUSSEHEN_KOERPER, teilPfad, appearancePath, armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin } from '../player/armorVisibility.js';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { faerbeAugen } from '../player/augenfarbe.js';
@@ -170,12 +170,13 @@ export class CharakterVorschau {
   async setze(slot: string, datei: string | null): Promise<void> {
     if (!this.teileErlaubt) return;
     if (datei && armorByFile(datei)?.figure === 'wikinger' && !this.bodyFile.startsWith('wikinger/')) datei = null;
-    if (slot === 'frisur' && !this.bodyFile.startsWith('wikingerin/')) datei = null;
+    if (slot === 'frisur' && this.bodyFile.startsWith('wikinger/') && /(?:^|\/)H_01$/.test(datei ?? '')) datei = null;
     if (this.aktuell.get(slot) === (datei ?? '')) return;
 
     const vorher = this.aktuell.get(slot);
     if (vorher) this.zeige(vorher, false);
     this.aktuell.set(slot, datei ?? '');
+    this.refreshVisibility();
     if (!datei) { this.refreshVisibility(); return; }
 
     if (!this.geladen.has(datei)) {
@@ -209,11 +210,11 @@ export class CharakterVorschau {
   }
 
   private refreshVisibility(): void {
-    const active = [...this.aktuell.values()].filter(f => this.geladen.has(f));
+    const active = [...this.aktuell.values()].filter(f => (this.geladen.get(f)?.netze.length ?? 0) > 0);
     updateArmorVisibility(this.scene.meshes, active);
-    const helmet = active.some(f => armorByFile(f)?.regions?.includes('Head'));
-    for (const slot of ['frisur', 'bart', 'augenbraue']) {
-      const f = this.aktuell.get(slot); if (f) this.zeige(f, !helmet);
+    const hidden = hiddenAppearanceForFiles(active);
+    for (const [slot, feature] of Object.entries(APPEARANCE_ATTACHMENTS)) {
+      const f = this.aktuell.get(slot); if (f) this.zeige(f, !hidden.has(feature));
     }
   }
 

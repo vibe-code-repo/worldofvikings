@@ -21,7 +21,10 @@ export function equipmentSetCatalog() {
         itemId: part.item, appearanceId: part.id,
         name: part.name, equipmentSlot: part.equipment, appearanceSlot: part.slot,
         model: `${set.id}/${part.item}.glb`, icon: `${part.id}.png`, regions: part.regions,
+        hideAppearance: part.hideAppearance,
       })),
     })),
   };
 }
+
+export type EquipmentSetCatalog = ReturnType<typeof equipmentSetCatalog>;

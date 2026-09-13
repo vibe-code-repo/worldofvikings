@@ -30,6 +30,24 @@ Run `node_modules/.bin/tsx tools/equipment-sets-json.mjs` to generate `assets/eq
 
 Schema version 1 provides `sets[]` with `id`, `version`, `name`, `figure`, `itemIds`, `appearance`, and `parts`. Each part carries `itemId`, `appearanceId`, `equipmentSlot`, `appearanceSlot`, `model`, `icon`, and `regions`.
 
+## Per-item appearance visibility
+
+Each registered part now also carries `hideAppearance`, a list of `hair`, `beard`, and/or `eyebrows`. Missing or empty lists hide nothing. It is an additive field in catalog schema version 1 and is also exposed on `ItemShared`, `RUESTUNG`, and the generated website `appearance.json` under `equipmentSets`.
+
+- Wildwarden crown: `hideAppearance: []` (all selected cosmetic attachments remain visible).
+- Ashenveil hood and Ironward helmet: `hideAppearance: ['hair', 'beard', 'eyebrows']`.
+- Other current items: `hideAppearance: []`.
+
+`regions` and `hideAppearance` are independent: a crown can replace the Head mesh without hiding its separately selected hair, beard or eyebrows. Across mixed items, the union of hidden features wins. There is no "force show" override that could reveal hair through another equipped helmet.
+
+The shared visibility resolver is used by the local avatar, remote player rendering, inventory preview and website preview. Call it with successfully loaded, currently selected item models only. Recompute after selection changes and load completion; keep cosmetic selection and color unchanged while hidden. A failed or stale load must not hide the body or attachments. Compatible male hairstyles remain available in all four views; the incompatible H_01 export stays blocked.
+
+The website's class-to-set mapping now references stable set IDs; item paths and regions come from the generated catalog, not a second handwritten item list. Regenerate both `equipment-sets.json` and the website `appearance.json`, rebuild `tools/web/vorschau-web.ts` into `wov-web/static/assets/js/vorschau.js`, and build the website when changing registered policies.
+
+No inventory or account migration is required: saved items resolve their current shared definitions by item ID. Do not persist or trust client-supplied visibility flags as gameplay authority. Character selection and login continue to carry item/appearance IDs; the registered definition supplies the policy. This update does not add or grant equipment at login.
+
+Regression test: `client/test/appearance-visibility.ts` exercises all four real rendering paths, catalog/definition consistency, inventory save/load, mixed equipment, delayed/unloaded items, restoration and hair compatibility. It runs in the normal test suite without a GPU or player login.
+
 - Resolve `model` relative to `/assets/models/` (it already ends in `.glb`).
 - Resolve `icon` relative to `/assets/sprites/` (it already ends in `.png`).
 - Use `appearance` as the slot-to-appearance-ID map for previews.

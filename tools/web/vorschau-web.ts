@@ -80,8 +80,8 @@ export class Vorschau {
   private sonne!: DirectionalLight;
   /** Nur die beiden spielbaren Körper können modulare Aussehensteile tragen. */
   private teileErlaubt = true;
-  /** Die alten Frisuren passen geometrisch nur auf den Wikingerin-Kopf. */
-  private frisurenErlaubt = true;
+  /** Für H_01 braucht der neue Wikinger einen eigenen, noch fehlenden Export. */
+  private neuerWikinger = false;
   /** Verhindert, dass Reset und Zufall denselben Körper mehrfach importieren. */
   private koerperDatei = '';
   /** Nur der zuletzt angeforderte Körper darf nach dem asynchronen Import sichtbar werden. */
@@ -91,6 +91,8 @@ export class Vorschau {
   /** Pro Auswahlfeld gewinnt der jüngste Import, auch wenn ein älterer später fertig wird. */
   private readonly teileLaeufe = new Map<string, number>();
   private koerperWurzeln: TransformNode[] = [];
+  /** Sichtbare Segmentnetze des Körpers, für vollständige Rüstungsersatzteile. */
+  private koerperNetze: AbstractMesh[] = [];
   private koerperGruppen: AnimationGroup[] = [];
   /** Klassenwaffen samt Arm- und Greifpose, jeweils nur bei ihrer Klasse. */
   private waffenHalter = new Map<Waffenart, TransformNode>();
@@ -304,6 +306,7 @@ export class Vorschau {
     this.waffenLaden.clear();
     this.waffenSchichten.clear();
     this.koerperWurzeln = [];
+    this.koerperNetze = [];
     this.koerperGruppen = [];
     this.koerperDatei = '';
   }
@@ -333,6 +336,7 @@ export class Vorschau {
     this.skelett?.dispose();
     this.skelett = null;
     this.koerperWurzeln = [];
+    this.koerperNetze = [];
     this.koerperGruppen = [];
     this.koerperDatei = '';
 
@@ -351,7 +355,7 @@ export class Vorschau {
 
     this.koerperDatei = datei;
     this.teileErlaubt = /^(wikinger\/WikingerKoerper|wikingerin\/WikingerinKoerper)$/.test(datei);
-    this.frisurenErlaubt = datei === 'wikingerin/WikingerinKoerper';
+    this.neuerWikinger = datei === 'wikinger/WikingerKoerper';
 
     // Der Synty-Atlas ist für einen nahezu unbeleuchteten Unity-Shader
     // gemalt. Das Spiel tönt ihn deshalb auf dieselben gemessenen Werte;
@@ -391,6 +395,7 @@ export class Vorschau {
     // Figurenknoten hängen. Damit drehen Körper und kompatible Anbauteile
     // gemeinsam, ohne die Händigkeit der glTF-Wurzel selbst anzufassen.
     this.koerperWurzeln = res.meshes.filter((m) => !m.parent);
+    this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
     for (const teil of this.koerperWurzeln) teil.parent = this.figurKnoten;
     this.koerperGruppen = res.animationGroups;
     this.skelett = res.skeletons[0] ?? null;
@@ -546,9 +551,9 @@ export class Vorschau {
 
   async setze(slot: string, datei: string | null): Promise<void> {
     if (!this.teileErlaubt) return;
-    // Schutz auch für andere Aufrufer als die aktuelle Svelte-Seite: Ein
-    // altes, hautgebundenes Haarteil darf nie auf den neuen Wikinger geraten.
-    if (slot === 'frisur' && !this.frisurenErlaubt) datei = null;
+    // Nur H_01 ist das alte, hinter dem neuen Kopf schwebende Haarteil. Die
+    // übrigen 37 Frisuren sind dort ausdrücklich weiter zugelassen.
+    if (slot === 'frisur' && this.neuerWikinger && /(?:^|\/)H_01$/.test(datei ?? '')) datei = null;
     const ziel = datei ?? '';
     if (this.aktuell.get(slot) === ziel && (!datei || this.geladen.has(datei))) return;
     const epoche = this.teileEpoche;
@@ -594,6 +599,19 @@ export class Vorschau {
     // Nach dem Anzeigen faerben — eine frisch geladene Frisur bringt ihr
     // eigenes Material mit und waere sonst wieder platzhalterbraun.
     this.faerbeFrisur();
+  }
+
+  /**
+   * Blendet die vom vollständigen Rüstungsset ersetzten Körpersegmente aus.
+   * Die Rüstungs-GLBs enthalten diese Segmente als passende Innengeometrie;
+   * beides gleichzeitig ergäbe flimmernde, ineinanderliegende Flächen.
+   */
+  setzeKoerperRegionenVerdeckt(regionen: readonly string[]): void {
+    const verdeckt = new Set(regionen);
+    for (const mesh of this.koerperNetze) {
+      const region = [...verdeckt].find((name) => mesh.name.startsWith(`Chr_${name}_`));
+      mesh.setEnabled(!region);
+    }
   }
 
   /**

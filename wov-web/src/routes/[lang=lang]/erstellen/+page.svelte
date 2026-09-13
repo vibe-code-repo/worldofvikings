@@ -98,6 +98,7 @@
     ladeKoerper(pfad: string): Promise<boolean>;
     setzeWaffe(art: 'schwert' | 'stab' | null): Promise<void>;
     setze(slot: string, datei: string | null): Promise<void>;
+    setzeKoerperRegionenVerdeckt(regionen: readonly string[]): void;
     /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
     setzeHaarfarbe(hex: string): void;
     drehe(winkel: number): void;
@@ -147,18 +148,18 @@
   let fussHinweisAn = $state(false);
   /** Verhindert, dass ein älterer Komplett-Ladevorgang eine neuere Wahl überschreibt. */
   let ladeLauf = 0;
+  /** Auch schnelle Klicks auf den Rüstungsschalter folgen „letzte Auswahl gewinnt“. */
+  let ruestungsLauf = 0;
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-haarteil-korrigiert-20260912';
+  const FIGUREN_STAND = 'klassenruestungen-20260913';
 
   let figur = $state('');
   let frisur = $state('');
   let bart = $state('');
   let augenbraue = $state('');
   let haarfarbe = $state('');
-  let ober = $state('');
-  let beine = $state('');
   let spielerName = $state('Viking');
   // Testgestade steht zuerst und ist Vorgabe: Live trägt den neuen Charakter
   // erst, wenn der Stand dorthin ausgerollt ist.
@@ -172,7 +173,7 @@
    */
   let zeit = $state('');
 
-  type DetailTab = 'koerper' | 'gesicht' | 'haare' | 'stil' | 'fahrt';
+  type DetailTab = 'koerper' | 'gesicht' | 'haare' | 'fahrt';
   type Uebersetzung = { de: string; en: string };
   interface Faehigkeit { zeichen: string; name: Uebersetzung; text: Uebersetzung }
   interface Charakterklasse {
@@ -180,9 +181,53 @@
     beschreibung: Uebersetzung; werte: readonly [number, number, number, number, number];
     faehigkeiten: readonly Faehigkeit[];
   }
+  interface Ruestungsset {
+    name: string;
+    teile: readonly { datei: string; regionen: readonly string[] }[];
+  }
+
+  const RUESTUNGSSETS: Readonly<Partial<Record<string, Ruestungsset>>> = {
+    krieger: {
+      name: 'Ironward',
+      teile: [
+        { datei: 'armor/ironward/IronwardHelmet', regionen: ['Head'] },
+        { datei: 'armor/ironward/IronwardCuirass', regionen: ['Torso'] },
+        { datei: 'armor/ironward/IronwardLeggings', regionen: ['Hips'] },
+        { datei: 'armor/ironward/IronwardPauldrons', regionen: ['ArmUpperLeft', 'ArmUpperRight'] },
+        { datei: 'armor/ironward/IronwardBracers', regionen: ['ArmLowerLeft', 'ArmLowerRight'] },
+        { datei: 'armor/ironward/IronwardGauntlets', regionen: ['HandLeft', 'HandRight'] },
+        { datei: 'armor/ironward/IronwardBoots', regionen: ['LegLeft', 'LegRight'] },
+      ],
+    },
+    hexer: {
+      name: 'Ashenveil',
+      teile: [
+        { datei: 'armor/ashenveil/ashenveil_hood', regionen: ['Head'] },
+        { datei: 'armor/ashenveil/ashenveil_shoulders', regionen: ['ArmUpperLeft', 'ArmUpperRight'] },
+        { datei: 'armor/ashenveil/ashenveil_vest', regionen: ['Torso'] },
+        { datei: 'armor/ashenveil/ashenveil_bracers', regionen: ['ArmLowerLeft', 'ArmLowerRight'] },
+        { datei: 'armor/ashenveil/ashenveil_gloves', regionen: ['HandLeft', 'HandRight'] },
+        { datei: 'armor/ashenveil/ashenveil_robe', regionen: ['Hips'] },
+        { datei: 'armor/ashenveil/ashenveil_boots', regionen: ['LegLeft', 'LegRight'] },
+      ],
+    },
+    druide: {
+      name: 'Wildwarden',
+      teile: [
+        { datei: 'armor/wildwarden/wildwarden_crown', regionen: ['Head'] },
+        { datei: 'armor/wildwarden/wildwarden_mantle', regionen: ['ArmUpperLeft', 'ArmUpperRight'] },
+        { datei: 'armor/wildwarden/wildwarden_vest', regionen: ['Torso'] },
+        { datei: 'armor/wildwarden/wildwarden_bracers', regionen: ['ArmLowerLeft', 'ArmLowerRight'] },
+        { datei: 'armor/wildwarden/wildwarden_gloves', regionen: ['HandLeft', 'HandRight'] },
+        { datei: 'armor/wildwarden/wildwarden_robe', regionen: ['Hips'] },
+        { datei: 'armor/wildwarden/wildwarden_boots', regionen: ['LegLeft', 'LegRight'] },
+      ],
+    },
+  };
 
   let detailTab = $state<DetailTab>('koerper');
   let klasseId = $state('krieger');
+  let ruestungAn = $state(false);
   const klassen: readonly Charakterklasse[] = [
     { id: 'krieger', zeichen: '⚔', farbe: '#d58a45', name: { de: 'Krieger', en: 'Warrior' }, rolle: { de: 'Tank / Nahkampf-DPS', en: 'Tank / Melee DPS' }, beschreibung: { de: 'Krieger sind kampferprobte Nahkämpfer, die Wut aufbauen, wenn sie Schaden verursachen oder erleiden.', en: 'Warriors are battle-tested melee fighters who build rage as they deal or receive damage.' }, werte: [23, 20, 22, 10, 11], faehigkeiten: [
       { zeichen: 'ᛏ', name: { de: 'Vorpreschen', en: 'Charge' }, text: { de: 'Stürmt auf einen Gegner zu und betäubt ihn kurz.', en: 'Rush an enemy and briefly stun them.' } },
@@ -199,10 +244,11 @@
     { id: 'druide', zeichen: '☘', farbe: '#c28a3d', name: { de: 'Druide', en: 'Druid' }, rolle: { de: 'Wandel / Heilung', en: 'Shifting / Healing' }, beschreibung: { de: 'Druiden rufen die Kräfte der Wildnis und wechseln ihre Rolle mit der Gestalt.', en: 'Druids call on the wild and change their role with their shape.' }, werte: [15, 18, 18, 21, 23], faehigkeiten: [] },
   ];
   const aktiveKlasse = $derived(klassen.find((eintrag) => eintrag.id === klasseId) ?? klassen[0]);
+  const aktiveRuestung = $derived(RUESTUNGSSETS[klasseId]);
   const wertNamen = $derived(lang === 'de' ? ['Stärke', 'Beweglichkeit', 'Ausdauer', 'Intelligenz', 'Willenskraft'] : ['Strength', 'Agility', 'Stamina', 'Intellect', 'Willpower']);
   const tabs = $derived(lang === 'de'
-    ? [{ id: 'koerper' as const, name: 'Körper' }, { id: 'gesicht' as const, name: 'Gesicht' }, { id: 'haare' as const, name: 'Haare' }, { id: 'stil' as const, name: 'Stil' }, { id: 'fahrt' as const, name: 'Fahrt' }]
-    : [{ id: 'koerper' as const, name: 'Body' }, { id: 'gesicht' as const, name: 'Face' }, { id: 'haare' as const, name: 'Hair' }, { id: 'stil' as const, name: 'Style' }, { id: 'fahrt' as const, name: 'Voyage' }]);
+    ? [{ id: 'koerper' as const, name: 'Körper' }, { id: 'gesicht' as const, name: 'Gesicht' }, { id: 'haare' as const, name: 'Haare' }, { id: 'fahrt' as const, name: 'Fahrt' }]
+    : [{ id: 'koerper' as const, name: 'Body' }, { id: 'gesicht' as const, name: 'Face' }, { id: 'haare' as const, name: 'Hair' }, { id: 'fahrt' as const, name: 'Voyage' }]);
 
   /** Läuft gerade „Recke anlegen und Ticket holen“? */
   let sendet = $state(false);
@@ -214,8 +260,10 @@
   /** Was beim letzten Besuch gewählt war; nur beim Start gelesen. */
   let alt: Record<string, string> = {};
 
-  const oberTeile = $derived(daten?.equipment.filter((r) => r.slot === 'oberkoerper') ?? []);
-  const beinTeile = $derived(daten?.equipment.filter((r) => r.slot === 'beine') ?? []);
+  /** H_01 ist das alte, hinter dem neuen Wikingerkopf schwebende Haarteil. */
+  const frisuren = $derived(
+    daten?.hairstyles.filter((eintrag) => figur !== 'wikinger' || eintrag.id !== 'H_01') ?? []
+  );
   const augenbrauen = $derived(daten?.eyebrows?.filter((a) => a.figure === figur) ?? []);
 
   const gestadeHinweis = $derived(
@@ -248,7 +296,7 @@
         // `server` steht hier nicht mehr drin: Welches Gestade gewählt ist,
         // führt seit den Kontoseiten `wov-gestade` (writeShore), und zwei
         // Orte für dieselbe Angabe laufen früher oder später auseinander.
-        JSON.stringify({ figur, frisur, bart, augenbraue, haarfarbe, ober, beine, name: spielerName, zeit })
+        JSON.stringify({ figur, frisur, bart, augenbraue, haarfarbe, name: spielerName, zeit })
       );
     } catch {
       /* privater Modus: dann eben nicht */
@@ -280,17 +328,9 @@
     if (!vorschau || !daten) return false;
     const istAktuell = () => lauf === undefined || lauf === ladeLauf;
     if (!istAktuell()) return false;
-    // Die modularen Frisuren stammen aus dem alten Wikingerin-Rig. Obwohl
-    // beide Körper dieselben Knochennamen tragen, liegt deren Kopfgeometrie
-    // anders: Auf dem neuen Wikinger schwebt insbesondere der Zopf hinter
-    // dem Schädel. Darum dort ausdrücklich ablegen statt nur die Auswahl zu
-    // verstecken — so verschwindet auch eine zuvor geladene Frisur sicher.
-    await vorschau.setze(
-      'frisur',
-      figur === 'wikingerin'
-        ? datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? '')
-        : null
-    );
+    // Nur H_01 stammt aus der alten Ansicht und liegt beim neuen Wikinger
+    // hinter dem Kopf. Alle übrigen Frisuren bleiben für beide Körper da.
+    await vorschau.setze('frisur', datei(frisuren, frisur) ?? datei(frisuren, frisuren[0]?.id ?? ''));
     if (!istAktuell()) return false;
     // Bärte gibt es im Master nur für den männlichen Grundkörper.
     await vorschau.setze('bart', figur === 'wikinger' ? datei(daten.beards ?? [], bart) : null);
@@ -303,10 +343,27 @@
     // nicht; genau so war es, bevor der Auswaehler ueberhaupt fehlte.
     const ton = (daten.hairColors ?? []).find((h) => h.id === haarfarbe)?.hex ?? '';
     vorschau.setzeHaarfarbe(ton);
-    await vorschau.setze('oberkoerper', datei(daten.equipment, ober));
-    if (!istAktuell()) return false;
-    await vorschau.setze('beine', datei(daten.equipment, beine));
     return istAktuell();
+  }
+
+  /** Legt das vollständige Set der aktiven Klasse an oder räumt es ab. */
+  async function zeigeKlassenruestung(lauf?: number): Promise<boolean> {
+    if (!vorschau) return false;
+    const ruestungsAufruf = ++ruestungsLauf;
+    const istAktuell = () =>
+      (lauf === undefined || lauf === ladeLauf) && ruestungsAufruf === ruestungsLauf;
+    const set = ruestungAn && figur === 'wikinger' ? RUESTUNGSSETS[klasseId] : undefined;
+    if (!set) vorschau.setzeKoerperRegionenVerdeckt([]);
+    await Promise.all(
+      Array.from({ length: 7 }, (_, index) =>
+        vorschau!.setze(`klassenruestung-${index}`, set?.teile[index]?.datei ?? null)
+      )
+    );
+    if (!istAktuell()) return false;
+    vorschau.setzeKoerperRegionenVerdeckt(
+      set ? [...new Set(set.teile.flatMap((teil) => teil.regionen))] : []
+    );
+    return true;
   }
 
   /**
@@ -339,6 +396,7 @@
       await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
       if (!istAktuell()) return;
       if (!await zeigeAussehen(lauf)) return;
+      if (!await zeigeKlassenruestung(lauf)) return;
       // Während Frisur und Kleidung nachladen, kann bereits eine andere
       // Klasse gewählt worden sein. Solange abgleichen, bis genau diese
       // Wahl samt Haltung fertig ist; danach drei echte Renderframes warten.
@@ -375,15 +433,30 @@
     }
   }
 
-  function waehleKlasse(id: string) {
+  async function waehleKlasse(id: string) {
     klasseId = id;
+    ruestungAn = false;
     // Während der Körper noch importiert wird, existiert Hand_R noch nicht.
     // ladeAlles() übernimmt die inzwischen gewählte Klassenwaffe direkt nach
     // dem Import; ein paralleler Ladeversuch würde nur ohne Hand-Anker enden.
-    if (!fertig) return;
-    void vorschau?.setzeWaffe(waffeFuerKlasse(id)).catch((fehler) => {
+    if (!fertig || !vorschau) return;
+    try {
+      await Promise.all([vorschau.setzeWaffe(waffeFuerKlasse(id)), zeigeKlassenruestung()]);
+    } catch (fehler) {
       console.warn('[erstellung] Waffe ließ sich nicht umschalten:', fehler);
-    });
+    }
+  }
+
+  async function schalteKlassenruestung() {
+    if (!aktiveRuestung || figur !== 'wikinger' || !fertig) return;
+    ruestungAn = !ruestungAn;
+    try {
+      await zeigeKlassenruestung();
+    } catch (fehler) {
+      ruestungAn = false;
+      vorschau?.setzeKoerperRegionenVerdeckt([]);
+      console.warn('[erstellung] Klassenrüstung ließ sich nicht umschalten:', fehler);
+    }
   }
 
   function waffeFuerKlasse(id: string): 'schwert' | 'stab' | null {
@@ -393,6 +466,8 @@
   }
 
   async function figurGewechselt() {
+    ruestungAn = false;
+    if (!frisuren.some((eintrag) => eintrag.id === frisur)) frisur = frisuren[0]?.id ?? '';
     if (!augenbrauen.some((a) => a.id === augenbraue)) augenbraue = brauenVorgabe();
     if (figur !== 'wikinger') bart = '';
     merke();
@@ -405,14 +480,12 @@
       wert && liste.some((e) => e.id === wert) ? wert : undefined;
 
     figur = gueltig(daten.figures, alt.figur) ?? daten.defaultFigure ?? daten.figures[0]?.id ?? '';
-    frisur = gueltig(daten.hairstyles, alt.frisur) ?? daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
+    frisur = gueltig(frisuren, alt.frisur) ?? frisuren[0]?.id ?? '';
     bart = gueltig(daten.beards ?? [], alt.bart) ?? daten.defaultBeard ?? '';
     augenbraue = gueltig(daten.eyebrows ?? [], alt.augenbraue) ?? '';
     if (!augenbrauen.some((a) => a.id === augenbraue)) augenbraue = brauenVorgabe();
     haarfarbe =
       gueltig(daten.hairColors, alt.haarfarbe) ?? daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
-    ober = gueltig(daten.equipment, alt.ober) ?? '';
-    beine = gueltig(daten.equipment, alt.beine) ?? '';
     if (alt.name) spielerName = alt.name;
     // Gemerktes prüfen statt übernehmen: Ein unsinniger Wert liesse den
     // Auswahlkasten leer erscheinen, und was hier steht, reist als ?time=
@@ -516,12 +589,11 @@
   async function zufaelligesAussehen() {
     if (!daten) return;
     figur = zufall(daten.figures);
-    frisur = zufall(daten.hairstyles);
+    frisur = zufall(frisuren);
     bart = figur === 'wikinger' && Math.random() > 0.25 ? zufall(daten.beards ?? []) : '';
     augenbraue = zufall(daten.eyebrows?.filter((a) => a.figure === figur) ?? []);
     haarfarbe = zufall(daten.hairColors);
-    ober = zufall(oberTeile, true);
-    beine = zufall(beinTeile, true);
+    ruestungAn = false;
     merke();
     await ladeAlles();
   }
@@ -529,12 +601,11 @@
   async function aussehenZuruecksetzen() {
     if (!daten) return;
     figur = daten.defaultFigure ?? daten.figures[0]?.id ?? '';
-    frisur = daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
+    frisur = frisuren[0]?.id ?? '';
     bart = daten.defaultBeard ?? '';
     augenbraue = brauenVorgabe();
     haarfarbe = daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
-    ober = '';
-    beine = '';
+    ruestungAn = false;
     merke();
     await ladeAlles();
   }
@@ -576,8 +647,8 @@
         // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
         hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
         hairColor: haarfarbe,
-        top: ober,
-        legs: beine,
+        top: '',
+        legs: '',
       });
       const ticket = await play(gestade, token, neu.character.id);
       // `weiter` came from `/anmelden`, forwarded here through the
@@ -707,7 +778,7 @@
             {#each daten?.figures ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
           </select>
         </div>
-        <p class="platzhalter-hinweis">{lang === 'de' ? 'Die Frisurenauswahl ist derzeit für die Wikingerin verfügbar.' : 'Hairstyle selection is currently available for the Viking woman.'}</p>
+        <p class="platzhalter-hinweis">{lang === 'de' ? 'Beide Körper können Frisuren tragen; das fehlerhafte alte Haarteil ist beim Wikinger ausgeblendet.' : 'Both bodies can wear hairstyles; the faulty legacy hair part is hidden for the Viking.'}</p>
       {:else if detailTab === 'gesicht'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-eyebrows">{lang === 'de' ? 'Augenbrauen' : 'Eyebrows'}</label>
@@ -732,49 +803,30 @@
         </div>
         {#if figur !== 'wikinger'}<p class="platzhalter-hinweis">{lang === 'de' ? 'Bärte sind für den männlichen Körper verfügbar.' : 'Beards are available for the male body.'}</p>{/if}
       {:else if detailTab === 'haare'}
-        {#if figur === 'wikingerin'}
-          <div class="erstellen-feld">
-            <label class="feldname" for="create-hairstyle">{t['create.appearance.hair.label']}</label>
-            <div class="waehler">
-              <button type="button" aria-label={t['create.appearance.hair.previous']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
-              <select id="create-hairstyle" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
-                {#each daten?.hairstyles ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
-              </select>
-              <button type="button" aria-label={t['create.appearance.hair.next']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
-            </div>
+        <div class="erstellen-feld">
+          <label class="feldname" for="create-hairstyle">{t['create.appearance.hair.label']}</label>
+          <div class="waehler">
+            <button type="button" aria-label={t['create.appearance.hair.previous']} onclick={() => { frisur = schritt(frisuren, frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+            <select id="create-hairstyle" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
+              {#each frisuren as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
+            </select>
+            <button type="button" aria-label={t['create.appearance.hair.next']} onclick={() => { frisur = schritt(frisuren, frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
           </div>
-          <fieldset class="farbwahl">
-            <legend>{t['create.appearance.haircolor.label']}</legend>
-            {#each daten?.hairColors ?? [] as farbe (farbe.id)}
-              <button
-                type="button"
-                class:aktiv={haarfarbe === farbe.id}
-                style={'--farbton:' + (farbe.hex ?? '#777')}
-                title={eintragName(farbe)}
-                aria-label={eintragName(farbe)}
-                aria-pressed={haarfarbe === farbe.id}
-                onclick={() => { haarfarbe = farbe.id; merke(); void zeigeAussehen(); }}
-              ></button>
-            {/each}
-          </fieldset>
-        {:else}
-          <p class="platzhalter-hinweis">{lang === 'de' ? 'Für den neuen Wikinger stehen noch keine passend exportierten Frisuren zur Verfügung.' : 'No correctly exported hairstyles are available for the new Viking yet.'}</p>
-        {/if}
-      {:else if detailTab === 'stil'}
-        <div class="erstellen-feld">
-          <label class="feldname" for="create-top">{t['create.appearance.chest.label']}</label>
-          <select id="create-top" bind:value={ober} onchange={() => { merke(); void zeigeAussehen(); }}>
-            <option value="">{t['create.appearance.chest.none']}</option>
-            {#each oberTeile as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
-          </select>
         </div>
-        <div class="erstellen-feld">
-          <label class="feldname" for="create-legs">{t['create.appearance.legs.label']}</label>
-          <select id="create-legs" bind:value={beine} onchange={() => { merke(); void zeigeAussehen(); }}>
-            <option value="">{t['create.appearance.legs.none']}</option>
-            {#each beinTeile as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
-          </select>
-        </div>
+        <fieldset class="farbwahl">
+          <legend>{t['create.appearance.haircolor.label']}</legend>
+          {#each daten?.hairColors ?? [] as farbe (farbe.id)}
+            <button
+              type="button"
+              class:aktiv={haarfarbe === farbe.id}
+              style={'--farbton:' + (farbe.hex ?? '#777')}
+              title={eintragName(farbe)}
+              aria-label={eintragName(farbe)}
+              aria-pressed={haarfarbe === farbe.id}
+              onclick={() => { haarfarbe = farbe.id; merke(); void zeigeAussehen(); }}
+            ></button>
+          {/each}
+        </fieldset>
       {:else}
         <div class="erstellen-feld">
           <label class="feldname" for="create-shore">{t['create.voyage.shore.label']}</label>
@@ -829,6 +881,25 @@
     </div>
     <p class="klassen-text">{aktiveKlasse.beschreibung[lang]}</p>
 
+    <div class="ruestungs-vorschau">
+      {#if aktiveRuestung}
+        <button
+          type="button"
+          class:aktiv={ruestungAn}
+          aria-pressed={ruestungAn}
+          disabled={!fertig || figur !== 'wikinger'}
+          onclick={() => { void schalteKlassenruestung(); }}
+        >{ruestungAn
+            ? (lang === 'de' ? 'Rüstung ablegen' : 'Remove armour')
+            : (lang === 'de' ? 'Rüstung anzeigen' : 'Show armour')}</button>
+        <small>{aktiveRuestung.name}{figur !== 'wikinger'
+            ? (lang === 'de' ? ' · für den Wikingerkörper' : ' · for the Viking body')
+            : ''}</small>
+      {:else}
+        <p>{lang === 'de' ? 'Das Rüstungsset dieser Klasse ist noch in Entwicklung.' : 'This class armour set is still in development.'}</p>
+      {/if}
+    </div>
+
     <div class="werte-block">
       <h3>{lang === 'de' ? 'Startwerte' : 'Starting stats'}</h3>
       {#each aktiveKlasse.werte as wert, index}
@@ -859,7 +930,7 @@
         style={'--klasse:' + eintrag.farbe}
         class:aktiv={klasseId === eintrag.id}
         aria-pressed={klasseId === eintrag.id}
-        onclick={() => waehleKlasse(eintrag.id)}
+        onclick={() => { void waehleKlasse(eintrag.id); }}
       ><span class="klassen-icon" aria-hidden="true"><i>{eintrag.zeichen}</i></span><small>{eintrag.name[lang]}</small></button>
     {/each}
   </nav>
@@ -1072,6 +1143,11 @@
   .klasseninfo h2 { color: var(--klasse); font-size: 27px; letter-spacing: 0.04em; }
   .klassen-titel p { margin: 1px 0 0; color: var(--runengold); font-family: var(--schrift-kappen); font-size: 10px; font-weight: 700; text-transform: uppercase; }
   .klassen-text { margin: 14px 6px 17px 0; color: #c2b9a5; font-family: var(--schrift); font-size: 13px; font-style: italic; line-height: 1.65; }
+  .ruestungs-vorschau { display: grid; gap: 5px; margin: -4px 6px 15px 0; }
+  .ruestungs-vorschau button { width: 100%; padding: 9px 12px; border-color: color-mix(in srgb, var(--klasse), transparent 36%); background: linear-gradient(180deg, color-mix(in srgb, var(--klasse), #111 68%), rgba(8, 10, 12, 0.92)); color: #eee8db; font-family: var(--schrift-kappen); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; }
+  .ruestungs-vorschau button:hover, .ruestungs-vorschau button.aktiv { border-color: var(--runengold); box-shadow: 0 0 12px color-mix(in srgb, var(--klasse), transparent 62%); }
+  .ruestungs-vorschau button:disabled { cursor: not-allowed; opacity: 0.52; }
+  .ruestungs-vorschau small, .ruestungs-vorschau p { margin: 0; color: #8f8777; font-size: 9px; letter-spacing: 0.04em; line-height: 1.45; }
   .klasseninfo h3 { margin: 0 0 9px; font-size: 13px; letter-spacing: 0.08em; }
   .werte-block { padding-bottom: 16px; border-bottom: 1px solid rgba(194, 150, 42, 0.18); }
   .wert-zeile { display: grid; grid-template-columns: 94px 1fr 24px; align-items: center; gap: 8px; margin: 5px 0; color: #a99f88; font-size: 11px; }

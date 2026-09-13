@@ -828,9 +828,10 @@ async function main() {
    */
   const aussehenTeile = (): Record<string, string | null> => {
     const teile: Record<string, string | null> = {
-      // Die alten Frisuren sind für den Wikingerin-Kopf gebunden. Auf dem
-      // neuen Wikinger liegt der Zopf sichtbar hinter dem Schädel.
-      frisur: selectedFigure === 'wikingerin' ? frisurZu(selectedHairstyle).datei : null,
+      // Nur H_01 ist der nicht zum neuen Wikingerkopf passende Alt-Export.
+      frisur: selectedFigure === 'wikinger' && frisurZu(selectedHairstyle).id === 'H_01'
+        ? null
+        : frisurZu(selectedHairstyle).datei,
       bart: bartAusFrisur(selectedHairstyle)?.datei ?? null,
       augenbraue: augenbraueAusFrisur(selectedHairstyle)?.datei ?? null,
       oberkoerper: null,

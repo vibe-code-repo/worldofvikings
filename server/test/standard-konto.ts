@@ -17,9 +17,11 @@
  *  3. Ohne Block entsteht kein Konto.
  *  4. `/accounts/status` meldet `standardKonto` nur, wenn der Server
  *     tatsaechlich eines hat.
- *  5. Das Standardkonto ist NIE Admin: `standardKontoSicherstellen` kennt
- *     keine AdminListe (strukturelle Garantie, siehe StandardKonto.ts)
- *     und warnt, wenn `everyone-admin` es trotzdem zum Admin macht.
+ *  5. Ein NICHT markiertes Standardkonto ist NIE Admin:
+ *     `standardKontoSicherstellen` kennt keine AdminListe (strukturelle
+ *     Garantie, siehe StandardKonto.ts), berichtet fuer diese Konten eine
+ *     LEERE Charakterliste und warnt, wenn `everyone-admin` sie trotzdem
+ *     zum Admin macht.
  *  6. `ServerKonfig.leseStandardKonten` (ueber `leseServerKonfig`) prueft
  *     den Block: Name/Charakter/Passwort wie bei der Registrierung.
  *  7. Die LISTENFORM: Zwei Bloecke ergeben zwei Konten (`gast` fuer die
@@ -28,16 +30,28 @@
  *     Namen, die Einzelblock-Form gilt weiter, und ein doppelt
  *     vergebener Name wird beim Lesen abgefangen statt erst an der
  *     UNIQUE-Spalte der Datenbank.
+ *  8. Das ADMINKONTO (Paket 0.1, 13.09.2026): `admin: true` bringt die
+ *     spielerIds der Charaktere auf die echte `AdminListe`, ein Konto
+ *     ohne die Markierung NICHT — das ist die wichtigere der beiden
+ *     Zusagen. Dazu: die Liste entsteht auch fuer ein BESTEHENDES Konto
+ *     neu (geloeschte Datei), `WOV_ADMINKONTO_PASSWORT` schlaegt den
+ *     yml-Wert, und das Passwort eines bestehenden Kontos bleibt trotz
+ *     gesetzter Variable unveraendert.
  *
  * Lauf: npx tsx test/standard-konto.ts   (aus server/)
  */
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { AdminListe } from '../src/admin/AdminListe.js';
 import { KontoApi } from '../src/konto/KontoApi.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
-import { standardKontoSicherstellen } from '../src/konto/StandardKonto.js';
+import {
+  ADMINKONTO_PASSWORT_ENV,
+  ADMINKONTO_STANDARDPASSWORT,
+  standardKontoSicherstellen,
+} from '../src/konto/StandardKonto.js';
 import { leseServerKonfig } from '../src/ServerKonfig.js';
 
 let fehler = 0;
@@ -96,9 +110,18 @@ async function kontoAnlegenUndAnmelden(): Promise<void> {
 
   try {
     // ── Erster Start ────────────────────────────────────────────────
+    let ersterBericht: ReturnType<typeof standardKontoSicherstellen> | undefined;
     const { warnungen: warnBeimErstenStart } = eingefangen(() => {
-      standardKontoSicherstellen(db, vorgabe, false);
+      ersterBericht = standardKontoSicherstellen(db, vorgabe, false);
     });
+    // Die strukturelle Garantie fuer ein NICHT markiertes Konto: Es gibt
+    // gar nichts zu berichten, was der Aufrufer eintragen koennte.
+    pruefe(
+      'unmarkiertes Konto berichtet KEINE Admin-Charaktere',
+      ersterBericht?.adminCharaktere.length === 0,
+      JSON.stringify(ersterBericht?.adminCharaktere),
+    );
+    pruefe('Bericht meldet "neu angelegt"', ersterBericht?.neuAngelegt === true);
     pruefe(
       'keine Admin-Warnung ohne everyone-admin',
       !warnBeimErstenStart.some((w) => w.includes('everyone-admin')),
@@ -405,11 +428,249 @@ async function zweiKontenAusDerListe(): Promise<void> {
   }
 }
 
+// ── 8. Das Adminkonto (Paket 0.1) ─────────────────────────────────────
+/**
+ * Der Aufrufer-Anteil wird hier NACHGEBAUT statt `WovServer` zu starten:
+ * genau die drei Zeilen, die der Konstruktor tut (Bericht holen, ueber
+ * `bericht.adminCharaktere` laufen, `adminListe.hinzufuegen`). Ein echter
+ * `WovServer` braucht Weltdatei, Port und Prefabs — und wuerde ueber die
+ * eigentliche Frage nichts aussagen, die an der Grenze zwischen
+ * `StandardKonto` und `AdminListe` liegt. Die echte Probe gegen einen
+ * laufenden Server steht im Bericht des Auftrags (gast wird abgelehnt).
+ */
+function alsWovServer(
+  db: Kontendatenbank,
+  liste: AdminListe,
+  vorgaben: { name: string; passwort: string; charakter: string; admin?: boolean }[],
+): void {
+  eingefangen(() => {
+    for (const v of vorgaben) {
+      const bericht = standardKontoSicherstellen(db, v, false);
+      for (const c of bericht.adminCharaktere) liste.hinzufuegen(c.spielerId, c.name);
+    }
+  });
+}
+
+function adminkonto(): void {
+  console.log('5. Adminkonto: admin: true kommt auf die Liste, alles andere nicht');
+  const ordner = mkdtempSync(join(tmpdir(), 'wov-adminkonto-'));
+  const listenPfad = join(ordner, 'worlds', 'admins.test.json');
+  const db = new Kontendatenbank(join(ordner, 'konten.db'));
+  const vorgaben = [
+    { name: 'gast', passwort: 'gast', charakter: 'Gast' },
+    { name: 'admin', passwort: ADMINKONTO_STANDARDPASSWORT, charakter: 'Admin', admin: true },
+  ];
+
+  try {
+    const liste = new AdminListe(listenPfad);
+    alsWovServer(db, liste, vorgaben);
+
+    // ── Die Zusage, auf die es ankommt ────────────────────────────
+    const gast = db.kontoNachName('gast');
+    const gastCharaktere = gast ? db.charaktereVonKonto(gast.id) : [];
+    pruefe('gast hat einen Charakter', gastCharaktere.length === 1);
+    pruefe(
+      'gast steht NICHT auf der Adminliste',
+      gastCharaktere.every((c) => !liste.enthaelt(c.spielerId)),
+    );
+
+    const admin = db.kontoNachName('admin');
+    const adminCharaktere = admin ? db.charaktereVonKonto(admin.id) : [];
+    pruefe('Adminkonto hat den Charakter "Admin"', adminCharaktere[0]?.name === 'Admin');
+    pruefe(
+      'Adminkonto steht auf der Adminliste',
+      adminCharaktere.length === 1 && liste.enthaelt(adminCharaktere[0]!.spielerId),
+    );
+    pruefe('Adminliste hat genau einen Eintrag', liste.anzahl === 1, String(liste.anzahl));
+    pruefe('Adminliste wurde auf Platte geschrieben', existsSync(listenPfad));
+
+    // ── Bestehendes Konto, geloeschte Liste ───────────────────────
+    // Genau der Fall aus dem Auftrag: Neuinstallation der Liste. Die
+    // Konten bleiben, server/data/worlds/ ist weg. Ohne den Abgleich bei
+    // JEDEM Start haette die Instanz danach dauerhaft KEINEN Admin —
+    // everyone-admin steht auf false, also koennte niemand mehr
+    // "admin add" aufrufen.
+    rmSync(listenPfad, { force: true });
+    const zweiteListe = new AdminListe(listenPfad);
+    pruefe('geloeschte Liste startet leer', zweiteListe.anzahl === 0);
+    alsWovServer(db, zweiteListe, vorgaben);
+    pruefe(
+      'Adminkonto kommt beim naechsten Start wieder auf die Liste',
+      adminCharaktere.length === 1 && zweiteListe.enthaelt(adminCharaktere[0]!.spielerId),
+    );
+    pruefe('und gast weiterhin nicht', zweiteListe.anzahl === 1, String(zweiteListe.anzahl));
+
+    // ── Passwort eines bestehenden Kontos bleibt ──────────────────
+    // Der Stolperstein, der in der Anleitung steht: Wer die Variable
+    // erst nach dem ersten Start setzt, hat weiterhin das alte Passwort.
+    const hashVorher = db.kontoNachName('admin')?.passwort;
+    alsWovServer(db, zweiteListe, [
+      { name: 'admin', passwort: 'ein-ganz-anderes', charakter: 'Admin', admin: true },
+    ]);
+    pruefe(
+      'Passwort des bestehenden Adminkontos bleibt unveraendert',
+      db.kontoNachName('admin')?.passwort === hashVorher,
+    );
+
+    // ── Ein zweiter Charakter auf dem Adminkonto ──────────────────
+    // `adminCharaktere` meldet ALLE Charaktere des Kontos, nicht nur den
+    // aus der Konfiguration (Begruendung in StandardKonto.ts).
+    const zweiter = admin ? db.charakterAnlegen(admin.id, 'Zweitadmin', {
+      figur: '', frisur: '', haarfarbe: '', ober: '', beine: '',
+    }) : null;
+    pruefe('zweiter Charakter angelegt', zweiter?.ok === true);
+    alsWovServer(db, zweiteListe, vorgaben);
+    pruefe(
+      'auch der zweite Charakter des Adminkontos ist Admin',
+      zweiter?.ok === true && zweiteListe.enthaelt(zweiter.charakter.spielerId),
+    );
+  } finally {
+    db.schliessen();
+    rmSync(ordner, { recursive: true, force: true });
+  }
+}
+
+// ── 8b. WOV_ADMINKONTO_PASSWORT schlaegt server.yml ───────────────────
+function adminPasswortAusUmgebung(): void {
+  console.log('6. WOV_ADMINKONTO_PASSWORT schlaegt den yml-Wert');
+  const verzeichnis = mkdtempSync(join(tmpdir(), 'wov-adminkonto-env-'));
+  mkdirSync(resolve(verzeichnis, 'worlds'), { recursive: true });
+  const vorher = process.env[ADMINKONTO_PASSWORT_ENV];
+
+  const yml = [
+    'server:', '  name: Test', '  port: 2599',
+    'players:', '  max: 4',
+    'standard-konto:',
+    '  - name: gast', '    passwort: gast', '    charakter: Gast',
+    '  - name: admin', `    passwort: ${ADMINKONTO_STANDARDPASSWORT}`,
+    '    charakter: Admin', '    admin: true',
+    '',
+  ].join('\n');
+
+  try {
+    writeFileSync(resolve(verzeichnis, 'server.yml'), yml, 'utf-8');
+
+    // Ohne Variable: der yml-Wert, und `admin` ist markiert.
+    delete process.env[ADMINKONTO_PASSWORT_ENV];
+    const { warnungen: wOhne } = eingefangen(() => {
+      const k = leseServerKonfig(verzeichnis, 'test');
+      pruefe(
+        'ohne Variable gilt der yml-Wert',
+        k.standardKonten?.[1]?.passwort === ADMINKONTO_STANDARDPASSWORT,
+      );
+      pruefe('admin: true kommt durch', k.standardKonten?.[1]?.admin === true);
+      pruefe('gast bleibt unmarkiert', !k.standardKonten?.[0]?.admin);
+    });
+    // Der A14-Riegel darf `admin` nicht fuer einen unbekannten Schluessel
+    // halten -- sonst stuende bei jedem Start eine falsche Warnung im Log.
+    pruefe(
+      '"admin" loest keine "liest niemand"-Warnung aus',
+      !wOhne.some((w) => w.includes('liest niemand')),
+      wOhne.join(' | '),
+    );
+
+    // Mit Variable: sie schlaegt die Datei, aber NUR beim markierten Konto.
+    process.env[ADMINKONTO_PASSWORT_ENV] = 'geheim-und-lang';
+    eingefangen(() => {
+      const k = leseServerKonfig(verzeichnis, 'test');
+      pruefe(
+        'Umgebung schlaegt yml beim Adminkonto',
+        k.standardKonten?.[1]?.passwort === 'geheim-und-lang',
+        k.standardKonten?.[1]?.passwort,
+      );
+      pruefe(
+        'gast behaelt sein Passwort',
+        k.standardKonten?.[0]?.passwort === 'gast',
+        k.standardKonten?.[0]?.passwort,
+      );
+    });
+
+    // Zu kurz: abgelehnt, der yml-Wert bleibt stehen, und es wird gesagt.
+    process.env[ADMINKONTO_PASSWORT_ENV] = 'ab';
+    const { warnungen: wKurz } = eingefangen(() => {
+      const k = leseServerKonfig(verzeichnis, 'test');
+      pruefe(
+        'zu kurze Variable wird verworfen, yml gilt weiter',
+        k.standardKonten?.[1]?.passwort === ADMINKONTO_STANDARDPASSWORT,
+      );
+    });
+    pruefe(
+      'und die Ablehnung steht im Log',
+      wKurz.some((w) => w.includes(ADMINKONTO_PASSWORT_ENV)),
+      wKurz.join(' | '),
+    );
+
+    // Variable gesetzt, aber kein Konto traegt admin: true -> Warnung,
+    // sonst glaubt der Betreiber, er habe etwas gesetzt.
+    writeFileSync(
+      resolve(verzeichnis, 'server.yml'),
+      yml.replace('    admin: true\n', ''),
+      'utf-8',
+    );
+    process.env[ADMINKONTO_PASSWORT_ENV] = 'geheim-und-lang';
+    const { warnungen: wOhneAdmin } = eingefangen(() => {
+      const k = leseServerKonfig(verzeichnis, 'test');
+      pruefe(
+        'ohne markiertes Konto wirkt die Variable nirgends',
+        k.standardKonten?.every((s) => s.passwort !== 'geheim-und-lang') === true,
+      );
+    });
+    pruefe(
+      'und das steht als Warnung im Log',
+      wOhneAdmin.some((w) => w.includes('wirkt nirgends')),
+      wOhneAdmin.join(' | '),
+    );
+  } finally {
+    if (vorher === undefined) delete process.env[ADMINKONTO_PASSWORT_ENV];
+    else process.env[ADMINKONTO_PASSWORT_ENV] = vorher;
+    rmSync(verzeichnis, { recursive: true, force: true });
+  }
+}
+
+// ── 8c. everyone-admin: false laesst einen gewoehnlichen Spieler ohne Rechte ──
+/**
+ * Die Rechtefrage selbst — dieselbe Rechnung wie in
+ * `NetManager.handlePasswordAuth`: `everyoneAdmin || istAdminId(id)`.
+ * NetManager gehoert in diesem Paket einem anderen Bauer; nachgebaut wird
+ * deshalb nur die eine Zeile, gegen die ECHTE AdminListe.
+ */
+function rechteOhneEveryoneAdmin(): void {
+  console.log('7. everyone-admin: false -> nur die Liste vergibt Rechte');
+  const ordner = mkdtempSync(join(tmpdir(), 'wov-adminkonto-rechte-'));
+  const db = new Kontendatenbank(join(ordner, 'konten.db'));
+  try {
+    const liste = new AdminListe(join(ordner, 'worlds', 'admins.test.json'));
+    alsWovServer(db, liste, [
+      { name: 'gast', passwort: 'gast', charakter: 'Gast' },
+      { name: 'admin', passwort: 'admin', charakter: 'Admin', admin: true },
+    ]);
+    const istAdmin = (everyoneAdmin: boolean, id: string): boolean =>
+      everyoneAdmin || liste.enthaelt(id as never);
+
+    const gast = db.kontoNachName('gast');
+    const gastId = gast ? db.charaktereVonKonto(gast.id)[0]!.spielerId : '';
+    const admin = db.kontoNachName('admin');
+    const adminId = admin ? db.charaktereVonKonto(admin.id)[0]!.spielerId : '';
+
+    pruefe('everyone-admin: false -> gast ist KEIN Admin', !istAdmin(false, gastId));
+    pruefe('everyone-admin: false -> admin IST Admin', istAdmin(false, adminId));
+    // Die Gegenprobe: mit dem alten Schalter waere gast wieder Admin --
+    // das ist genau der Zustand, den Paket 0.1 beendet.
+    pruefe('everyone-admin: true -> gast waere wieder Admin', istAdmin(true, gastId));
+  } finally {
+    db.schliessen();
+    rmSync(ordner, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   await kontoAnlegenUndAnmelden();
   ohneBlockKeinKonto();
   serverKonfigValidiert();
   await zweiKontenAusDerListe();
+  adminkonto();
+  adminPasswortAusUmgebung();
+  rechteOhneEveryoneAdmin();
 
   if (fehler > 0) {
     console.error(`\n${fehler} Pruefung(en) fehlgeschlagen`);

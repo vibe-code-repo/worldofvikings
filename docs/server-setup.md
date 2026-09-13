@@ -199,6 +199,11 @@ because their defaults are Mike's lab subnets, not yours:
   already covers it; you only need to touch this if you put another proxy between
   nginx and the admin service.
 
+`WOV_ADMINKONTO_PASSWORT` is the password of the game's admin account. Set it
+**before the first start** — §5a explains why the moment matters and what to do if
+you missed it. It is not in the template because there is no sensible default value
+to put there; leaving it unset means the published default `admin` stays in force.
+
 `WOV_SESSION_SECRET_HEX` is **optional** and not in the template.
 `server/src/WovServer.ts` explains why: without it, the server picks a fresh random
 session secret from memory on every restart, which invalidates every previously
@@ -230,23 +235,21 @@ gameplay/server settings that `server/src/ServerKonfig.ts` actually reads (anyth
 else in the file makes the server refuse to start, by design — see the file's own
 header comment).
 
-Two settings you should change before exposing the server publicly:
+One setting you should change before exposing the server publicly:
 
 ```yaml
 server:
   password: ""          # empty = no password; set one for a private server
 
 players:
-  everyone-admin: true   # committed default — DO NOT ship this to a public server
+  everyone-admin: false  # committed default since 2026-09-13 — leave it at false
 ```
 
-**`everyone-admin: true` makes every connected player an admin.** It's the
-project's own committed default (meant for a single trusted player/lab), not a
-placeholder — set it to `false` for anything public. Once it's `false`, admin
-rights come only from the persistent admin list, which is **not** a config file:
-connect once (while `everyone-admin` is still `true`, or as the first player),
-then grant yourself and others durable admin rights with the in-game/console admin
-chat command:
+**`everyone-admin: true` makes every connected player an admin** — including
+whoever signs in with the `gast`/`gast` account the sign-in page advertises. It was
+the committed default until 2026-09-13 and is now `false`. Leave it there: admin
+rights come from the persistent admin list instead, seeded by the admin account
+described in the next section, and extended in game with
 
 ```
 admin add <PlayerName>
@@ -256,6 +259,86 @@ admin liste
 
 (`server/src/WovServer.ts`'s `registerAdminListeCommands`; stored per-instance in
 `server/data/worlds/admins.<instance>.json`, which is not committed.)
+
+## 5a. The admin account — and its password
+
+A fresh installation needs *someone* who can hand out admin rights, or the admin
+list stays empty forever (`everyone-admin` is `false`, so nobody could run
+`admin add`). That someone is the third `standard-konto:` entry in
+`server/data/server.yml`:
+
+```yaml
+standard-konto:
+  - name: admin
+    passwort: admin
+    charakter: Admin
+    admin: true          # this key is what puts the character on the admin list
+```
+
+`admin: true` makes the server put every character of that account onto
+`server/data/worlds/admins.<instance>.json` at startup — every startup, so
+reinstalling the instance directory or deleting that file does not lock you out.
+Accounts without the key (`gast`, `guest`) are never touched by this; the module
+that creates them (`server/src/konto/StandardKonto.ts`) does not even know the
+admin list exists.
+
+**The password `admin` is published in this repository.** For a laptop clone that
+is exactly what you want. For a reachable server it is an open door, and the game
+server says so in a boxed warning on every start for as long as it is still the
+configured password.
+
+### Setting your own password
+
+Do **not** edit `server/data/server.yml` for this. That file is tracked: your
+password would be reset by the next `git pull --ff-only` (§9) or, worse, end up in
+a commit. Put it in `/etc/wov.env` instead, next to the other per-instance
+settings (§4):
+
+```sh
+WOV_ADMINKONTO_PASSWORT=<your own, at least 4 characters>
+```
+
+The variable beats the value in `server.yml`, and it only applies to entries marked
+`admin: true` — `gast` and `guest` keep their well-known passwords, which is the
+point of them.
+
+### The order matters — read this before your first start
+
+`standardKontoSicherstellen` **never changes the password of an account that
+already exists.** That is deliberate — the config file describes how to *create*
+the account, not what its password must forever be, and a startup that rewrote
+stored credentials from a tracked file would be a nasty surprise. It also means:
+
+> If you start the server once and set `WOV_ADMINKONTO_PASSWORT` afterwards, the
+> account keeps the password it was created with — `admin`. The variable has no
+> effect, and the startup warning will keep telling you so.
+
+So: write the variable into `/etc/wov.env` **before** the first `systemctl start
+wov.target`. If you missed that moment, there is no shortcut — the account API has
+no password-change route today (`server/src/konto/KontoApi.ts` serves `status`,
+`register`, `login`, `me`, `characters` and `characters/<id>/play`, nothing that
+rewrites a password), so the fix is to recreate the account:
+
+```sh
+sudo systemctl stop wov-server
+# 1. set WOV_ADMINKONTO_PASSWORT in /etc/wov.env first — otherwise the next start
+#    just recreates the account with the published default again
+sudo -e /etc/wov.env
+# 2. drop the account. konten.charaktere is ON DELETE CASCADE, so its characters
+#    (and with them the spielerIds the admin list holds) go too.
+sqlite3 server/data/konten/<instance>.db "DELETE FROM konten WHERE benutzername = 'admin';"
+# 3. the old spielerIds are now dead weight in the admin list. Harmless (nobody can
+#    ever present them again — they were random 128-bit ids), but tidy them anyway:
+sudo rm server/data/worlds/admins.<instance>.json
+sudo systemctl start wov-server
+```
+
+The character keeps its name but gets a **new** `spielerId`, so it loses the
+position and inventory saved under the old one. For the admin account, right after
+an install, that is normally nothing.
+
+Check the log afterwards — `journalctl -u wov-server | grep Adminkonto` should
+print `mit eigenem Passwort angelegt` and no longer the boxed warning.
 
 ## 6. Install the systemd services and nginx site
 
@@ -498,11 +581,14 @@ Spielserver samt Webseite aufsetzt.
    `WOV_SESSION_SECRET_HEX` ist optional (ohne sie: neues Geheimnis bei jedem
    Neustart, akzeptierter Normalfall laut Quelltext-Kommentar). Token:
    `/etc/wov-admin.token` selbst anlegen oder den Betriebsdienst beim ersten
-   Start eines erzeugen lassen.
-5. **`server/data/server.yml`**: Passwort setzen, `everyone-admin: false` (der
-   committete Vorgabewert ist `true` — für einen öffentlichen Server ZWINGEND
-   ändern!). Admins danach per Chat-/Konsolenbefehl `admin add <Name>` vergeben,
-   nicht in einer Konfigurationsdatei.
+   Start eines erzeugen lassen. **`WOV_ADMINKONTO_PASSWORT` gehört JETZT hier
+   hinein** — ein Konto, das schon existiert, behält sein Passwort, die Variable
+   wirkt also nur vor dem allerersten Start (§5a).
+5. **`server/data/server.yml`**: Serverpasswort setzen. `everyone-admin` ist seit
+   dem 13.09.2026 auf `false` und bleibt es. Adminrechte hat anfangs allein das
+   Konto `admin` aus dem `standard-konto:`-Block (Passwort siehe Punkt 4!);
+   weitere Admins per Chat-/Konsolenbefehl `admin add <Name>` vergeben, nicht in
+   einer Konfigurationsdatei.
 6. **`sudo deploy/install-services.sh`**: installiert die drei Dienste + `wov.target`
    + Kartentimer, verlinkt `deploy/nginx/wov-lab.conf`, baut die Webseite einmalig
    — installiert aber NICHT die Sicherungs-Units (Punkt 10) und reicht `nginx -t`/

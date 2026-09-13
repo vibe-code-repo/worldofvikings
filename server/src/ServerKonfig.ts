@@ -19,7 +19,10 @@ import { resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
 import { type ServerConfig } from './WovServer.js';
 import { BENUTZERNAME_REGEX, CHARAKTERNAME_REGEX } from './konto/KontoApi.js';
-import { type StandardKontoVorgabe } from './konto/StandardKonto.js';
+import {
+  ADMINKONTO_PASSWORT_ENV,
+  type StandardKontoVorgabe,
+} from './konto/StandardKonto.js';
 import {
   findEnvironment,
   istNebelDichte,
@@ -99,7 +102,7 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
     ],
     dungeons: ['enabled', 'modulbau'],
     wetter: ['umgebung', 'nebeldichte'],
-    'standard-konto': ['name', 'passwort', 'charakter'],
+    'standard-konto': ['name', 'passwort', 'charakter', 'admin'],
     /*
       Der Look-Block. Nur die OBERSTE Ebene steht hier — die
       Unterabschnitte (bloom, vignette, ca, dof, strahlen, himmel,
@@ -214,6 +217,13 @@ function leseStandardKontoBlock(
   const name = String(block.name ?? '');
   const passwort = String(block.passwort ?? '');
   const charakter = String(block.charakter ?? '');
+  /*
+    `=== true` und nicht `?? false`, aus demselben Grund wie bei
+    `dungeons.modulbau` (s. unten): YAML liest "ja"/"on"/1 als
+    Zeichenkette bzw. Zahl, und beides waere wahrheitswertig. Ein
+    Tippfehler im WERT soll KEINE Adminrechte vergeben.
+  */
+  const admin = block.admin === true;
 
   const maengel: string[] = [];
   // "wie bei der Registrierung": dieselben Muster wie in KontoApi.ts, nicht
@@ -234,7 +244,75 @@ function leseStandardKontoBlock(
     return undefined;
   }
 
-  return { name, passwort, charakter };
+  return { name, passwort, charakter, admin };
+}
+
+/**
+ * Umgebungsvariable fuer das Passwort des Adminkontos.
+ *
+ * ── Warum ueberhaupt eine Umgebungsvariable ──────────────────────────
+ * `server/data/server.yml` ist GETRACKT und dieses Repository ist
+ * OEFFENTLICH. Ein dort eingetragenes Adminpasswort ist ein
+ * veroeffentlichtes Adminpasswort — und ein vom Betreiber dort
+ * geaendertes faellt beim naechsten `git pull` auf den Repo-Stand zurueck
+ * (dasselbe Argument wie bei der AdminListe, s. AdminListe.ts). Der
+ * etablierte Weg fuer alles, was eine Instanz von der anderen
+ * unterscheidet, ist `/etc/wov.env` (WOV_INSTANZ, WOV_ADMIN_ADRESSE,
+ * WOV_ALLOWED_HOSTS, ...) — diese Variable gehoert in dieselbe Familie
+ * und ist in `docs/server-setup.md` beschrieben.
+ *
+ * ── Warum ADMINKONTO_ und nicht ADMIN_ ───────────────────────────────
+ * `WOV_ADMIN_ADRESSE`, `WOV_ADMIN_PORT` und `WOV_ADMIN_TOKEN_DATEI`
+ * gehoeren alle dem BETRIEBSDIENST (admin/src/main.ts), nicht dem
+ * Spielkonto. Ein `WOV_ADMIN_PASSWORT` haette in dieser Nachbarschaft
+ * wie das Passwort dieses Dienstes ausgesehen.
+ *
+ * Der Name steht in StandardKonto.ts und nicht hier: `WovServer` nennt
+ * ihn in seiner Startwarnung, und ein Wert-Import von ServerKonfig nach
+ * WovServer waere ein echter Ringschluss (ServerKonfig importiert
+ * `ServerConfig` aus WovServer).
+ */
+
+/**
+ * Setzt das Passwort der als `admin: true` markierten Standardkonten aus
+ * der Umgebung, falls gesetzt. Betrifft NUR markierte Konten: `gast` und
+ * `guest` sind oeffentlich bekannt und sollen es bleiben, ihr Passwort
+ * ueber diese Variable stumm mitzuaendern waere eine Ueberraschung.
+ *
+ * Die Umgebung SCHLAEGT die Datei — anders herum waere die Variable
+ * nutzlos, denn server.yml traegt immer einen Wert.
+ */
+function adminPasswortAusUmgebung(konten: StandardKontoVorgabe[]): void {
+  const ausUmgebung = process.env[ADMINKONTO_PASSWORT_ENV];
+  if (ausUmgebung === undefined || ausUmgebung === '') return;
+
+  const markierte = konten.filter((k) => k.admin);
+  if (markierte.length === 0) {
+    // Sonst glaubt ein Betreiber, er habe das Adminpasswort gesetzt,
+    // waehrend in Wahrheit gar kein Adminkonto konfiguriert ist.
+    console.warn(
+      `[Konfig] ${ADMINKONTO_PASSWORT_ENV} ist gesetzt, aber kein standard-konto: traegt ` +
+        '"admin: true" — die Variable wirkt nirgends',
+    );
+    return;
+  }
+  if (ausUmgebung.length < 4) {
+    // Dieselbe Untergrenze wie im Block. Ablehnen und NICHT still auf das
+    // Standardpasswort zurueckfallen waere hier falsch herum: der yml-Wert
+    // bleibt stehen, und die Warnung sagt, warum.
+    console.warn(
+      `[Konfig] ${ADMINKONTO_PASSWORT_ENV}: Passwort muss mindestens 4 Zeichen haben — ` +
+        'die Variable bleibt unbeachtet, es gilt der Wert aus server.yml',
+    );
+    return;
+  }
+  for (const k of markierte) {
+    k.passwort = ausUmgebung;
+    // Ohne Passwort im Log, versteht sich — nur die Tatsache.
+    console.log(
+      `[Konfig] Passwort des Adminkontos "${k.name}" kommt aus ${ADMINKONTO_PASSWORT_ENV}`,
+    );
+  }
 }
 
 /**
@@ -287,6 +365,10 @@ function leseStandardKonten(yaml: Record<string, unknown>): StandardKontoVorgabe
     }
     konten.push(vorgabe);
   }
+  // ZULETZT, nach dem Verwerfen unbrauchbarer Bloecke: Die Variable soll
+  // ein Konto nicht wiederbeleben, das wegen eines Tippfehlers im Namen
+  // ohnehin nicht entsteht.
+  adminPasswortAusUmgebung(konten);
   return konten;
 }
 

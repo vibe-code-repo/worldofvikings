@@ -52,7 +52,17 @@ players:
   # heute liegt, steht im Kopf dieser Datei; "offline" und
   # "list-send-interval" gehoerten beide zur Steam-Server-Registrierung,
   # die es hier nicht gibt.
-  everyone-admin: true
+  # FALSE seit 13.09.2026 (Paket 0.1). Vorher stand hier `true`, und das
+  # hiess woertlich: JEDER, der sich verbindet, ist Admin. Mit dem auf der
+  # Anmeldeseite veroeffentlichten Konto gast/gast hatte also jeder
+  # Besucher volle Weltgewalt (fly, teleport, spawn, item, abbau, dungeon
+  # und das Aendern der Adminliste selbst).
+  # Adminrechte kommen jetzt allein aus der Adminliste
+  # (server/data/worlds/admins.<instanz>.json, nicht getrackt). Auf die
+  # kommt beim ersten Start der Charakter des unten mit `admin: true`
+  # markierten Standardkontos; weitere vergibt man im Spiel mit
+  # "admin add <Name>".
+  everyone-admin: false
 
 # ── Standardkonto ────────────────────────────────────────────────────
 # EN: The standard account — a way to try the game right away, with no
@@ -99,6 +109,33 @@ players:
 # einzelner Block (die fruehere Form dieser Datei) gilt weiterhin; ein
 # unbrauchbarer Eintrag nimmt die anderen nicht mit, er wird einzeln
 # verworfen und gemeldet.
+#
+# ── Der dritte Eintrag: das Adminkonto (13.09.2026, Paket 0.1) ────────
+# `admin: true` traegt die spielerIds der Charaktere dieses Kontos beim
+# Serverstart in die Adminliste ein
+# (server/data/worlds/admins.<instanz>.json). Es ist der ANFANGSZUSTAND
+# einer frischen Installation: Ohne ihn haette eine neue Instanz seit
+# `everyone-admin: false` ueberhaupt keinen Admin und auch keinen Weg,
+# einen zu ernennen. Der Schluessel fehlt bei den beiden Konten darueber
+# und bedeutet dort `false` — `gast` und `guest` sind und bleiben
+# gewoehnliche Spieler.
+#
+# DAS PASSWORT "admin" STEHT IM OEFFENTLICHEN REPOSITORY. Fuer einen
+# frischen Klon auf dem eigenen Rechner ist das gewollt. Fuer einen
+# erreichbaren Server ist es eine offene Tuer, und der Server sagt das
+# beim Start in einem Kasten, solange hier noch "admin" steht.
+#
+# Eigenes Passwort setzen, OHNE diese getrackte Datei zu aendern (sonst
+# steht es beim naechsten `git pull` wieder auf dem Repo-Stand oder — noch
+# schlimmer — landet in einem Commit):
+#     WOV_ADMINKONTO_PASSWORT=<eigenes>   in /etc/wov.env
+# Die Variable schlaegt den Wert hier und wirkt nur auf die mit
+# `admin: true` markierten Eintraege.
+#
+# ACHTUNG, REIHENFOLGE: Ein BESTEHENDES Konto behaelt sein gespeichertes
+# Passwort (s. o.) — wer die Variable erst nach dem ersten Start setzt,
+# hat weiterhin "admin". Der Weg dann steht in docs/server-setup.md,
+# Abschnitt "Adminkonto".
 standard-konto:
   - name: gast
     passwort: gast
@@ -106,6 +143,10 @@ standard-konto:
   - name: guest
     passwort: guest
     charakter: Guest
+  - name: admin
+    passwort: admin
+    charakter: Admin
+    admin: true
 
 world:
   # Welt und Spielstand bestimmt WOV_INSTANZ (dev|live), nicht diese Datei:

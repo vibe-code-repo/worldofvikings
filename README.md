@@ -44,8 +44,9 @@ it talks to reports the accounts (`GET /accounts/status`, never the passwords th
 They are created once, the same way a real registration is (same password hashing, same
 account database), and an existing password is never overwritten — so changing the
 block below only affects an instance that has not started yet. Neither is ever an
-admin account on its own; the only thing that can make them (or anyone) an admin is
-`players.everyone-admin: true`, and the server warns loudly about that regardless.
+admin account: the module that creates them does not know the admin list exists, and
+`players.everyone-admin` — the one switch that would have made them admins anyway — is
+`false`.
 
 Operators running a real, public instance should disable this before anyone else finds
 the well-known passwords in this public repository — either remove the block from
@@ -63,6 +64,38 @@ standard-konto:
 
 or change each `passwort` to something private. There is no separate on/off switch. A
 single block without the list dashes still works and means exactly one account.
+
+### The admin account
+
+The same block has a third entry, and this one *is* an admin:
+
+```yaml
+  - name: admin
+    passwort: admin
+    charakter: Admin
+    admin: true
+```
+
+`admin: true` puts that account's characters on the server's persistent admin list at
+every start — which is what lets them fly, teleport, spawn items and grant admin rights
+to others (`admin add <PlayerName>`). It exists because `everyone-admin` is `false`: a
+fresh installation would otherwise have no admin at all, and no way to appoint one.
+This is the **initial state** of a clone; on a laptop that is exactly the point.
+
+**On anything reachable from the internet, change the password first.** Not here — this
+file and `server.yml` are both in the repository, so a password written into them is a
+published password, and `git pull` would overwrite it on the next update anyway. Use the
+environment instead, alongside the other per-instance settings in `/etc/wov.env`:
+
+```sh
+WOV_ADMINKONTO_PASSWORT=<your own>
+```
+
+Set it **before the first server start**: an account that already exists keeps its
+stored password, so a variable added later changes nothing. The server prints a boxed
+warning on every start for as long as the account is still on the published default.
+[`docs/server-setup.md`](docs/server-setup.md) §5a has the details — including what to
+do if you started the server first and set the variable second.
 
 ## Local URLs
 

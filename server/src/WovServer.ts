@@ -103,7 +103,11 @@ import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Kontendatenbank } from './konto/Kontendatenbank.js';
 import { KontoApi } from './konto/KontoApi.js';
-import { standardKontoSicherstellen, type StandardKontoVorgabe } from './konto/StandardKonto.js';
+import {
+  ADMINKONTO_PASSWORT_ENV,
+  standardKontoSicherstellen,
+  type StandardKontoVorgabe,
+} from './konto/StandardKonto.js';
 import { Peer } from './net/Peer.js';
 import { Reader } from './io/Reader.js';
 import { Writer } from './io/Writer.js';
@@ -164,9 +168,11 @@ export interface ServerConfig {
   dungeonsEnabled: boolean;
   /**
    * E5: Saal-Bau aus dem Dungeon-Editor (server.yml `dungeons.modulbau`).
-   * Vorgabe FALSE. Zweites Tor neben `peer.isAdmin` — und heute das
-   * einzige, das wirklich schliesst, weil `everyone-admin: true` jeden
-   * verbundenen Client zum Admin macht.
+   * Vorgabe FALSE. Zweites Tor neben `peer.isAdmin`. Bis Paket 0.1 war es
+   * das einzige, das wirklich schloss (`everyone-admin: true` machte jeden
+   * verbundenen Client zum Admin); seither schliesst `peer.isAdmin`
+   * ebenfalls, und dieser Schalter bleibt die zusaetzliche Sperre gegen
+   * einen Admin, der versehentlich Dateien nach assets/generiert/ schreibt.
    */
   dungeonsModulbau: boolean;
   /**
@@ -270,6 +276,26 @@ const DEFAULT_CONFIG: ServerConfig = {
   password: '',
   port: 2456,
   maxPlayers: 10,
+  /*
+    BLEIBT true, obwohl server.yml seit Paket 0.1 (13.09.2026) `false`
+    sagt -- und das ist eine bewusste Entscheidung mit einem bekannten
+    Rest.
+
+    Wofuer diese Vorgabe steht: ein `new WovServer()` OHNE Konfiguration.
+    Das ist in diesem Baum ausschliesslich der Testfall (rund achtzig
+    Aufrufe in server/test/, die Admin-Pakete schicken und keinen
+    everyoneAdmin setzen); ein echter Start liest immer server.yml und
+    bekommt dort `false`.
+
+    Der Rest, der damit stehen bleibt: `leseServerKonfig` faengt einen
+    YAML-Syntaxfehler ab und faehrt mit VOLLSTAENDIGEN Vorgabewerten
+    weiter (Port 2456, fremde Welt, ...), sichtbar als eine Logzeile --
+    dann greift auch dieses `true`. Ein Server, der auf Port 2456 mit
+    fremder Welt hochkommt, ist allerdings ohnehin kaputt und faellt auf.
+    Auf `false` zu ziehen ist der richtige naechste Schritt, verlangt aber
+    ein explizites `everyoneAdmin: true` in den betroffenen Tests und
+    gehoerte damit nicht mehr in dieses Paket.
+  */
   everyoneAdmin: true,
   worldName: 'world',
   worldSeed: 'KxSYuZquuw',
@@ -483,6 +509,18 @@ export class WovServer {
   /** S6 (Security-Review): dauerhafte Admin-Liste ueber stabile Spieler-
    *  IDs — ueberlebt Neustart UND Deploy (Begruendung: AdminListe.ts). */
   readonly adminListe: AdminListe;
+  /**
+   * Was der Konstruktor ueber die als `admin: true` markierten
+   * Standardkonten herausgefunden hat. Gesammelt statt sofort gewarnt,
+   * weil die Warnung nach `init()` gehoert: dort steht schon der
+   * everyone-admin-Kasten, und beide zusammen sind das, was ein Betreiber
+   * beim Start ueber die Rechtelage lesen soll.
+   */
+  private readonly adminkontoHinweise: {
+    name: string;
+    neuAngelegt: boolean;
+    standardpasswortInKonfig: boolean;
+  }[] = [];
 
   // ── Time (C++ m_worldTime, m_startTime, etc.) ─────────────────
   private startTime: number;
@@ -603,7 +641,54 @@ export class WovServer {
     // eines davon nicht angelegt werden kann.
     const standardKonten = this.config.standardKonten ?? [];
     for (const vorgabe of standardKonten) {
-      standardKontoSicherstellen(this.kontenDb, vorgabe, this.config.everyoneAdmin);
+      const bericht = standardKontoSicherstellen(
+        this.kontenDb,
+        vorgabe,
+        this.config.everyoneAdmin,
+      );
+      /*
+        Rechte vergibt der Aufrufer, nicht StandardKonto.ts -- die
+        strukturelle Garantie fuer die NICHT markierten Konten (`gast`,
+        `guest`) bleibt damit erhalten, siehe Kopfkommentar dort.
+        `bericht.adminCharaktere` ist fuer sie IMMER leer, diese Schleife
+        laeuft dann null Mal.
+
+        Warum bei JEDEM Start und nicht nur beim Anlegen des Kontos: Die
+        AdminListe liegt in server/data/worlds/ und ist nicht getrackt --
+        eine Neuinstallation, ein geloeschtes Datenverzeichnis oder eine
+        von Hand entfernte Datei laesst das Konto bestehen und die Liste
+        verschwinden. Ohne diesen Abgleich waere die Instanz dann OHNE
+        jeden Admin, und zwar dauerhaft: everyone-admin steht auf false,
+        also koennte niemand mehr `admin add` aufrufen. `hinzufuegen`
+        selbst ist idempotent und schreibt nur bei echter Aenderung.
+      */
+      for (const c of bericht.adminCharaktere) {
+        if (this.adminListe.hinzufuegen(c.spielerId, c.name)) {
+          console.log(
+            `[Konto] Adminkonto "${vorgabe.name}": Charakter "${c.name}" auf die Admin-Liste gesetzt`,
+          );
+        }
+      }
+      if (vorgabe.admin) {
+        // An `vorgabe.admin` und NICHT an der Laenge der Charakterliste:
+        // Ein markiertes Konto ganz OHNE Charakter (das Anlegen ist
+        // fehlgeschlagen, s. die Fehlermeldung aus StandardKonto.ts) ist
+        // der schlimmste Fall -- die Instanz hat dann keinen Admin. Genau
+        // dann darf die Startmeldung nicht auch noch schweigen.
+        if (bericht.adminCharaktere.length === 0) {
+          console.error(
+            `[Konto] Adminkonto "${vorgabe.name}" hat KEINEN Charakter — diese Instanz hat damit ` +
+              'keinen Admin. Ursache steht in den Zeilen darueber.',
+          );
+        }
+        // Fuer die Startwarnung in init() -- dort steht auch, warum
+        // "bestehendes Konto" und "frisch angelegt" verschieden lauten.
+        this.adminkontoHinweise.push({
+          name: vorgabe.name,
+          neuAngelegt: bericht.neuAngelegt,
+          standardpasswortInKonfig: bericht.standardpasswortInKonfig,
+        });
+      }
     }
     // Der dritte Parameter beantwortet `/accounts/status` fuer die
     // Webseite. Er wird als Funktion uebergeben und nicht als Wert: `this.net`
@@ -614,7 +699,15 @@ export class WovServer {
       plaetze: this.config.maxPlayers,
       tag: this.getDay(),
       welt: this.config.worldName,
-    }), standardKonten.map((k) => k.name));
+      /*
+        OHNE die als `admin: true` markierten Konten. `/accounts/status`
+        ist die Liste, die die Anmeldeseite als "Ausprobieren ohne
+        Registrierung" ANBIETET — dort das Adminkonto zu nennen hiesse,
+        jedem Besucher zu sagen, welchen Benutzernamen er raten soll.
+        Sein Passwort steht ohnehin im oeffentlichen Repo; einen Grund,
+        auch noch den Namen aktiv zu bewerben, gibt es nicht.
+      */
+    }), standardKonten.filter((k) => !k.admin).map((k) => k.name));
 
     this.net = new NetManager({
       port: this.config.port,
@@ -668,6 +761,68 @@ export class WovServer {
       console.warn('║ gewaehrt nur noch die dauerhafte Admin-Liste Rechte (Befehl        ║');
       console.warn('║ "admin liste" / "admin add <Name>").                              ║');
       console.warn('╚══════════════════════════════════════════════════════════════════╝');
+    }
+
+    /*
+      Paket 0.1: Das Adminkonto. Mikes Vorgabe vom 13.09.2026 ist ein
+      Konto `admin` mit dem Passwort `admin` als ANFANGSZUSTAND einer
+      frischen Installation ("es ist ja nur der initiale Zustand"). Fuer
+      einen Laptop ist das genau richtig, fuer den oeffentlich
+      erreichbaren Server ist es eine offene Tuer -- und der Unterschied
+      zwischen beiden ist genau dieser Kasten. Muster: die
+      everyone-admin-Warnung darueber.
+
+      DREI Texte, weil der Server drei verschiedene Dinge WEISS -- und
+      der Unterschied zwischen "weiss" und "vermutet" gehoert in die
+      Meldung, sonst ist sie irgendwann Rauschen:
+
+        (a) frisch angelegt, dokumentiertes Passwort -> GEWISSHEIT. Der
+            Server hat genau dieses Passwort gerade eingelagert.
+        (b) bestehendes Konto, dokumentiertes Passwort in der Konfig ->
+            VERMUTUNG. Gespeichert ist ein scrypt-Hash, und
+            `standardKontoSicherstellen` fasst ihn nie an; der Server kann
+            also nicht sagen, ob das Konto den Vorgabewert noch traegt.
+            Aufgefallen beim Nachstellen: Wer WOV_ADMINKONTO_PASSWORT
+            setzt, startet, und die Variable spaeter wieder entfernt, hat
+            ein Konto mit eigenem Passwort und eine Konfig, die den
+            Vorgabewert nennt. Ein Text, der hier "steht auf dem
+            dokumentierten Passwort" behauptet, waere schlicht falsch.
+        (c) bestehendes Konto, eigenes Passwort in der Konfig -> die
+            umgekehrte Falle: die Konfig wirkt NICHT mehr. Das ist keine
+            Warnung wert, aber eine Zeile, damit niemand glaubt, ein
+            spaeter gesetztes WOV_ADMINKONTO_PASSWORT haette gewirkt.
+    */
+    for (const hinweis of this.adminkontoHinweise) {
+      if (hinweis.standardpasswortInKonfig && hinweis.neuAngelegt) {
+        console.warn('╔══════════════════════════════════════════════════════════════════╗');
+        console.warn('║ ACHTUNG: Das Adminkonto wurde MIT dem dokumentierten Passwort     ║');
+        console.warn('║ angelegt.                                                         ║');
+        console.warn(`║ Konto "${hinweis.name}" hat volle Weltgewalt (fly, teleport, spawn, item,`);
+        console.warn('║ Admin-Liste aendern), und dieses Passwort steht in server.yml, im ║');
+        console.warn('║ README und in docs/server-setup.md — also im oeffentlichen Repo.  ║');
+        console.warn('║ Fuer einen erreichbaren Server ZWINGEND aendern:                  ║');
+        console.warn('║   WOV_ADMINKONTO_PASSWORT=<eigenes> in /etc/wov.env, dann das     ║');
+        console.warn('║   Konto neu anlegen — ein bestehendes Konto behaelt sein          ║');
+        console.warn('║   Passwort (docs/server-setup.md, Abschnitt "Adminkonto").        ║');
+        console.warn('╚══════════════════════════════════════════════════════════════════╝');
+      } else if (hinweis.standardpasswortInKonfig) {
+        console.warn('╔══════════════════════════════════════════════════════════════════╗');
+        console.warn('║ ACHTUNG: server.yml nennt fuer das Adminkonto weiterhin das       ║');
+        console.warn('║ dokumentierte Passwort aus dem oeffentlichen Repo.                ║');
+        console.warn(`║ Konto "${hinweis.name}" bestand schon, gespeichert ist nur ein Hash — ob`);
+        console.warn('║ es den Vorgabewert noch traegt, kann der Server nicht sagen.      ║');
+        console.warn('║ Wurde es damit angelegt, steht die Tuer offen. Pruefen und ggf.   ║');
+        console.warn('║ neu anlegen: docs/server-setup.md, Abschnitt "Adminkonto".        ║');
+        console.warn('╚══════════════════════════════════════════════════════════════════╝');
+      } else if (!hinweis.neuAngelegt) {
+        console.log(
+          `[Konto] Adminkonto "${hinweis.name}" bestand bereits — sein gespeichertes Passwort ` +
+            `bleibt unveraendert, auch wenn ${ADMINKONTO_PASSWORT_ENV} oder server.yml inzwischen ` +
+            'etwas anderes sagen (docs/server-setup.md, Abschnitt "Adminkonto").',
+        );
+      } else {
+        console.log(`[Konto] Adminkonto "${hinweis.name}" mit eigenem Passwort angelegt`);
+      }
     }
 
     // Load prefabs
@@ -3491,11 +3646,12 @@ export class WovServer {
    *   admin remove <Name>      Spieler wieder entfernen
    *
    * Laeuft wie jeder andere Admin-Befehl durch canUseAdminCommands()
-   * (peer.isAdmin) — heute also durch everyone-admin, ganz bewusst: das
-   * Recht, die Liste zu PFLEGEN, ist selbst ein Admin-Recht. Erst wenn
-   * everyone-admin auf false steht, entscheidet ausschliesslich noch
-   * diese Liste, wer diesen Befehl (und alle anderen) ueberhaupt nutzen
-   * darf.
+   * (peer.isAdmin), ganz bewusst: das Recht, die Liste zu PFLEGEN, ist
+   * selbst ein Admin-Recht. Seit Paket 0.1 (everyone-admin: false)
+   * entscheidet ausschliesslich noch diese Liste, wer diesen Befehl (und
+   * alle anderen) ueberhaupt nutzen darf — und ihr erster Eintrag kommt
+   * vom Adminkonto aus `standard-konto:` (StandardKonto.ts), weil sich
+   * eine leere Liste sonst nie fuellen liesse.
    *
    * Namensaufloesung ueber spielerIdFuerName(): der Zielspieler muss
    * schon einmal verbunden gewesen sein (online ODER in savedPlayers) —

@@ -2256,10 +2256,10 @@ export class AvatarRig {
       return;
     }
     for (const [slot, angefordert] of Object.entries(teile)) {
-      // Zweite Sicherung unterhalb aller UI- und Netzwerk-Aufrufer: Die
-      // alten Frisuren haben zwar passende Knochennamen, aber nicht die
-      // Kopfgeometrie des neuen Wikinger-Modells.
-      const datei = slot === 'frisur' && !this.modellDatei.startsWith('wikingerin/')
+      // Zweite Sicherung unterhalb aller Aufrufer: Nur H_01 ist der nicht
+      // zum neuen Wikingerkopf passende Alt-Export.
+      const datei = slot === 'frisur' && this.modellDatei.startsWith('wikinger/')
+        && /(?:^|\/)H_01$/.test(angefordert ?? '')
         ? null
         : angefordert;
       if (this.getragen.get(slot) === (datei ?? '')) continue;

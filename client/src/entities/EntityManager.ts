@@ -1400,9 +1400,9 @@ export class EntityManager {
 
     const [ober, beine] = (u.ruestung ?? '|').split('|');
     const gewuenscht: Record<string, string | null> = {
-      // Gleiche Schutzregel wie für den eigenen Avatar: Die Frisuren aus
-      // dem alten Master passen nur auf den Wikingerin-Kopf.
-      frisur: modell?.startsWith('wikingerin/') && u.frisur && istFrisur(u.frisur)
+      // Nur der H_01-Alt-Export passt nicht zum neuen Wikingerkopf.
+      frisur: u.frisur && istFrisur(u.frisur)
+        && !(modell?.startsWith('wikinger/') && frisurZu(u.frisur).id === 'H_01')
         ? `${AUSSEHEN_ORDNER}/${frisurZu(u.frisur).datei}` : null,
       bart: u.frisur && istFrisur(u.frisur) && bartAusFrisur(u.frisur)
         ? `${AUSSEHEN_ORDNER}/${bartAusFrisur(u.frisur)!.datei}` : null,

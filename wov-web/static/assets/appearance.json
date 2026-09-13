@@ -559,22 +559,7 @@
     }
   ],
   "defaultHairColor": "mittelbraun",
-  "equipment": [
-    {
-      "id": "leder_bh",
-      "file": "R_LederBH",
-      "name": "Leder-Oberteil",
-      "nameEn": "Leather top",
-      "slot": "oberkoerper"
-    },
-    {
-      "id": "leder_shorts",
-      "file": "R_LederShorts",
-      "name": "Lederhose, kurz",
-      "nameEn": "Leather shorts",
-      "slot": "beine"
-    }
-  ],
+  "equipment": [],
   "timeOfDay": {
     "marks": {
       "0": "Mitternacht",

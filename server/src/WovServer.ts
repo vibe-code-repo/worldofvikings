@@ -2741,15 +2741,91 @@ export class WovServer {
   }
 
   /**
-   * Nahkampfschlag: trifft die nächste Kreatur ≤2,8 m vor dem Spieler.
+   * Nahkampfschlag: trifft die nächste Kreatur innerhalb von
+   * NAHKAMPF_REICHWEITE vor dem Spieler — "vor" im Sinne des
+   * Trefferkegels (NAHKAMPF_KEGEL_GRAD um die gemeldete Blickrichtung).
    * Kreaturen-HP leben als ZDO-Member `HEALTH_MEMBER`; ihr Startwert
    * steht in shared/leben.ts und wird beim Spawn geschrieben (s.
    * SpawnSystem.stelleLebenSicher), damit der Client daraus einen
    * Lebensbalken zeichnen kann. Bei 0 stirbt die Kreatur (SpawnSystem
    * räumt den Zustand selbst auf).
    */
-  /** Maximale Wirk-Distanz von Angriff/Ernte zur SERVER-Position (m). */
-  private static readonly NAHKAMPF_REICHWEITE = 8;
+  /**
+   * Reichweite eines Nahkampfschlags in m, gemessen in der XZ-Ebene von
+   * der SERVER-Position zum Ziel-ZDO.
+   *
+   * Bis Paket 0.3 stand hier 8 — und diese eine Zahl war zugleich die
+   * Reichweite UND die Toleranz fuer die vom Client gemeldete Stelle. Ein
+   * Schlag traf damit auf acht Meter, in jede Richtung.
+   *
+   * 3,5 m ist ein ZWISCHENSTAND. Er misst vom Spieler zum ZDO-URSPRUNG
+   * der Kreatur, nicht zu ihrem Koerper — ein Ur (Boar) mit rund 0,7 m
+   * Rumpfradius wird also faktisch schon bei 2,8 m Abstand der Huellen
+   * getroffen. Sobald Paket D2 die Trefferkugel bringt, wird hier gegen
+   * die Kugel gerechnet und die Zahl fein eingestellt.
+   *
+   * Range of one melee swing (m), measured in XZ from the SERVER position.
+   */
+  private static readonly NAHKAMPF_REICHWEITE = 3.5;
+
+  /**
+   * Wie weit die vom Client GEMELDETE Schlagstelle von der Serverposition
+   * abweichen darf (m). Plausibility radius for the client-reported spot.
+   *
+   * GEMESSEN, nicht geraten (13.09.2026): ein Spieler im Browser, ~150
+   * Angriffspakete in Stand, Gehen, Rennen, Strafe, Rueckwaerts und
+   * Springen; verglichen wurde je Paket die gemeldete Stelle mit
+   * `peer.position` beim Empfang.
+   *
+   *   Stand      0,01 m
+   *   in Bewegung  Median 0,43 m · p95 0,95 m · p99 1,09 m · max 1,42 m
+   *
+   * Das deckt sich mit der Zahl, die `client/src/net/Positionsverlauf.ts`
+   * fuer den Abgleich nennt (0,3–0,6 m in Bewegung). Beide Seiten rechnen
+   * dieselbe Bewegung, nur mit verschiedenen Mitteln — Havok-Kapsel gegen
+   * feste Schritte auf der Heightmap; der Rest ist die halbe Netzrunde.
+   *
+   * ACHTUNG bei der Messung: Ein SICHTBARES Chromium-Fenster wird auf
+   * der Messmaschine vom Compositor auf 1 rAF/s gedrosselt. Der Client
+   * integriert dann gegen seinen dt-Deckel (0,1 s) und bleibt scheinbar
+   * 5 m hinter dem Server zurueck. Dieselbe Messung headless: 0,43 m.
+   * Wer hier eine grosse Zahl misst, misst zuerst seine Bildrate — s.
+   * den Kopf von tools/pw-nahkampf-trefferquote.mjs.
+   *
+   * 4 m ist die 1,42 m aus der Messung plus Luft fuer eine schlechte
+   * Leitung: Der Client meldet die Stelle, an der er beim ABSENDEN stand,
+   * der Server vergleicht mit der Stelle beim EMPFANG — bei Lauftempo
+   * 7,5 m/s sind 0,3 s einfache Laufzeit weitere 2,25 m. Enger zu gehen
+   * hiesse, ehrliche Schlaege von Spielern mit Ping zu verwerfen; die
+   * Zahl ist eine Absurditaetsschranke, keine Feinjustierung.
+   */
+  private static readonly SCHLAG_MELDUNG_TOLERANZ = 4;
+
+  /**
+   * Halber Oeffnungswinkel des Trefferkegels in Grad — ein Ziel muss
+   * innerhalb von ±60° um die gemeldete Blickrichtung liegen.
+   *
+   * 120° Gesamtoeffnung ist bewusst weit. Enger waere sauberer gegen
+   * Rueckentreffer, wuergt aber die Dreierkombo ab: Waehrend der drei
+   * Hiebe laeuft die Kreatur um den Spieler herum, und der Spieler dreht
+   * mit der Maus nach. Trifft Hieb 2 nicht mehr, weil das Ziel inzwischen
+   * 70° seitlich steht, bricht die Kette mitten im Schlag — genau das,
+   * was sich "kaputt" anfuehlt. Gemessen mit
+   * tools/pw-nahkampf-trefferquote.mjs: 60 von 60 ehrlichen Schlaegen
+   * treffen (frontal, waehrend eines Schwenks von −55° bis +55° mit
+   * laufender Kombo, und fest auf 45°), 0 von 20 aus dem Ruecken.
+   */
+  private static readonly NAHKAMPF_KEGEL_GRAD = 60;
+
+  /**
+   * Unterhalb dieses Abstands (m) gilt der Kegel NICHT.
+   *
+   * Steht die Kreatur praktisch im Spieler, ist die Richtung zu ihr
+   * reines Rauschen — ein Vorzeichenwechsel um wenige Zentimeter wuerde
+   * ueber Treffer oder Fehlschlag entscheiden. Ein Gegner, der einem im
+   * Nacken klebt, muss getroffen werden koennen.
+   */
+  private static readonly NAHKAMPF_KEGEL_MINDESTABSTAND = 0.8;
 
   /**
    * Angriff/Ernte nur nah an der SERVER-Position — vorher wirkte ein
@@ -2758,18 +2834,55 @@ export class WovServer {
    * 350-ms-Cooldown (SCHLAG_COOLDOWN_MS) ist entfallen: A4 (Security-
    * Review) drosselt PacketType.Attack schon in NetManager.handlePacket,
    * VOR diesem Handler.
+   *
+   * Seit Paket 0.3 prueft das nur noch die PLAUSIBILITAET der Meldung.
+   * Gewirkt wird ausschliesslich um `peer.position` (s. handleAttack) —
+   * die gemeldete Stelle waehlt kein Ziel mehr aus. Der Test bleibt
+   * trotzdem stehen: Er ist die letzte Stelle, an der die Behauptung des
+   * Clients ueberhaupt noch mit der Serverwahrheit abgeglichen wird, und
+   * ein Paket, das sie um Kilometer verfehlt, ist kein Spielzug.
    */
   private schlagErlaubt(peer: Peer, pos: Vector3): boolean {
     const dx = pos.x - peer.position.x;
     const dz = pos.z - peer.position.z;
-    const r = WovServer.NAHKAMPF_REICHWEITE;
+    const r = WovServer.SCHLAG_MELDUNG_TOLERANZ;
     return Number.isFinite(pos.x) && Number.isFinite(pos.z) && dx * dx + dz * dz <= r * r;
+  }
+
+  /**
+   * Liegt `ziel` im Trefferkegel um die Blickrichtung `yaw`, von `von` aus
+   * gesehen? Is the target inside the swing cone?
+   *
+   * Die Blickbasis ist die des Clients (PlayerController.update):
+   * forward = (−sin yaw, −cos yaw). Yaw 0 schaut also nach −Z. Diese
+   * Basis steht auch im Client so im Kommentar; weicht sie je ab, treffen
+   * Spieler ins Leere, ohne dass ein Test das merkt — deshalb steht sie
+   * hier ausgeschrieben und nicht als blosses Math.sin/Math.cos-Paar.
+   */
+  private imTrefferkegel(von: Vector3, yaw: number, ziel: Vector3): boolean {
+    const dx = ziel.x - von.x;
+    const dz = ziel.z - von.z;
+    const abstand = Math.hypot(dx, dz);
+    if (abstand < WovServer.NAHKAMPF_KEGEL_MINDESTABSTAND) return true;
+    // Ein Client ohne Yaw-Feld (oder mit NaN) darf nicht heimlich alles
+    // treffen — aber auch nicht heimlich nichts. NaN faellt hier durch,
+    // und das ist die richtige Seite: ein Paket ohne brauchbare
+    // Blickrichtung ist kein gezielter Schlag.
+    if (!Number.isFinite(yaw)) return false;
+    const vorX = -Math.sin(yaw);
+    const vorZ = -Math.cos(yaw);
+    const kosinus = (vorX * dx + vorZ * dz) / abstand;
+    return kosinus >= Math.cos((WovServer.NAHKAMPF_KEGEL_GRAD * Math.PI) / 180);
   }
 
   private handleAttack(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
     if (!this.schlagErlaubt(peer, pos)) return;
-    reader.readFloat32(); // yaw — später für Trefferwinkel
+    // Der Yaw wurde bis Paket 0.3 gelesen und weggeworfen. Er ist die
+    // einzige Blickrichtung, die der Server ueberhaupt kennt:
+    // handlePlayerInput liest `lookYaw` zwar, legt ihn aber nicht am Peer
+    // ab. Er kommt also aus dem Angriffspaket oder gar nicht.
+    const yaw = reader.readFloat32();
     let waffe = '';
     try {
       waffe = reader.readString();
@@ -2790,19 +2903,45 @@ export class WovServer {
     peer.staminaZuletztVerbraucht = nachSchlag.zuletztVerbraucht;
     this.sendPlayerState(peer);
     const schaden = WAFFEN_SCHADEN[waffe] ?? 4; // Faust
+    /*
+      Gesucht wird um die SERVER-Position, nicht um die gemeldete.
+
+      Vorher stand hier `pos` — die Stelle, die der Client behauptet. Wer
+      ein eigenes Paket schrieb, suchte sich damit den Punkt aus, an dem
+      sein Schlag wirkt; die Reichweitenpruefung oben liess dafuer acht
+      Meter Spielraum, und die gemeldete Stelle durfte am aeusseren Rand
+      davon liegen. `peer.position` ist seit dem 11.09. selbst gerechnet
+      (world/Spielerbewegung.ts, gegen Gelaende UND Hindernisse) und damit
+      belastbar genug, um der Anker zu sein.
+
+      Der Preis ist der Versatz zwischen beiden Wahrheiten. Er ist
+      gemessen und klein (Median 0,43 m, max 1,42 m — s.
+      SCHLAG_MELDUNG_TOLERANZ), also weit unter der Reichweite.
+    */
+    const von = peer.position;
     let ziel: import('./zdo/ZDO.js').ZDO | null = null;
-    let best = 2.8 * 2.8;
-    for (const zdo of this.zdosVon(peer).getZDOsInRadius(pos, 3.5)) {
+    let best = WovServer.NAHKAMPF_REICHWEITE ** 2;
+    for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
       if ((flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI)) === 0n) continue;
-      const d = (zdo.position.x - pos.x) ** 2 + (zdo.position.z - pos.z) ** 2;
-      if (d < best) {
-        best = d;
-        ziel = zdo;
-      }
+      const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
+      if (d >= best) continue;
+      // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen
+      // Wurzelzug je Kandidat, der Abstand nur zwei Multiplikationen.
+      if (!this.imTrefferkegel(von, yaw, zdo.position)) continue;
+      best = d;
+      ziel = zdo;
     }
-    if (!ziel) return this.handleHarvest(peer, pos, waffe);
+    /*
+      Kein Wesen im Kegel → Ernte. Auch die faellt jetzt um die
+      Serverposition aus, aus demselben Grund wie oben.
+
+      OHNE Kegel, absichtlich: Ein Baum steht still, er umkreist niemanden,
+      und ein Fehlschlag beim Faellen ist kein Kampfgefuehl, sondern nur
+      Aerger. Die Ernte hat ihre eigenen, engeren Reichweiten (3,2 m).
+    */
+    if (!ziel) return this.handleHarvest(peer, von, waffe);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
     this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der

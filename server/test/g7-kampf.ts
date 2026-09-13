@@ -14,9 +14,14 @@
  *     zurueck (A2 im Draht, nicht nur in der reinen Funktion).
  *  2. Ausdauerverbrauch: < 8 Punkte verweigert den Schlag komplett (kein
  *     Abzug, kein Treffer); genug Punkte kostet exakt 8.
- *  3. Reichweite: ein Angriff auf eine Position > NAHKAMPF_REICHWEITE (8 m)
- *     von der SERVER-Position aus bleibt wirkungslos — keine Ausdauer, kein
- *     Treffer.
+ *  3. Plausibilitaet der Meldung: ein Angriff, dessen gemeldete Stelle
+ *     weiter als SCHLAG_MELDUNG_TOLERANZ (4 m) von der SERVER-Position
+ *     entfernt ist, bleibt wirkungslos — keine Ausdauer, kein Treffer.
+ *  3b. Reichweite, Kegel und Anker (Paket 0.3): Ein Ziel im Ruecken wird
+ *     NICHT getroffen, ein Ziel 4 m seitlich NICHT, ein Ziel 1,5 m vorn
+ *     schon. Und: die Zielsuche haengt an der SERVER-Position, nicht an
+ *     der gemeldeten — ein Paket, das eine Kreatur weitab nennt, aber
+ *     plausibel nah gemeldet ist, trifft diese Kreatur nicht.
  *  4. Cooldown ueber die Drossel: zwei Attack-Pakete ohne Pause — nur EINS
  *     zaehlt (STANDARD_DROSSEL: Attack-Eimergroesse 1). Der naechste Schlag
  *     nach der Fuellzeit (350 ms) zaehlt wieder normal — legitimes,
@@ -100,6 +105,10 @@ function sendAdmin(ws: WebSocket, line: string): void {
   ws.send(Buffer.concat([Buffer.from([P.AdminCommand]), w.toBuffer()]));
 }
 
+/**
+ * `yaw` ist die Blickrichtung wie der Client sie meldet:
+ * forward = (−sin yaw, −cos yaw). Yaw 0 schaut also nach −Z.
+ */
 function sendAttack(ws: WebSocket, pos: Vector3, waffe: string, yaw = 0): void {
   const w = new Writer();
   w.writeVector3(pos);
@@ -116,7 +125,20 @@ interface InteractResultMsg {
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-kampf', saveIntervalMs: 3600_000 });
+  // everyoneAdmin AUSDRUECKLICH: Seit Paket 0.1 ist die Vorgabe `false`
+  // (s. DEFAULT_CONFIG in WovServer.ts). Ohne diese Zeile wies der Server
+  // jedes `teleport` dieses Tests mit "Admin commands are not allowed"
+  // ab — und weil der Test den Rueckgabewert nie las, blieb er gruen und
+  // spielte alle Abschnitte still an derselben Stelle durch. Die Ziele
+  // frueherer Abschnitte standen dann noch in Reichweite der spaeteren.
+  const server = createWovServer({
+    port: PORT,
+    worldsDir: WORLDS_DIR,
+    kontenDir: resolve(WORLDS_DIR, 'konten'),
+    worldName: 'g7-kampf',
+    saveIntervalMs: 3600_000,
+    everyoneAdmin: true,
+  });
   server.start();
 
   try {
@@ -134,29 +156,71 @@ async function main(): Promise<void> {
       });
     });
 
-    sendAdmin(ws, 'teleport 0 0');
-    await warte(200);
-    const peer = server.net.getPeers().find((p) => p.name === 'Kaempfer');
-    if (!peer) throw new Error('Peer nicht gefunden');
-    // AxeFlint gehoert ohnehin zur Server-Startausruestung jedes Neulings
-    // (WovServer.ts, START-Liste) — Club NICHT, das ist die Grundlage fuer
-    // den Fallback-Nachweis in [1].
-
     const skeletonHash = getStableHash('Skeleton');
     const boarHash = getStableHash('Boar');
     const hp = (zdo: ZDO): number => zdo.getInt(HEALTH_MEMBER);
 
+    /**
+     * Seit Paket 0.3 sucht `handleAttack` um die SERVER-Position, nicht
+     * mehr um die gemeldete. Zwei Folgen fuer diesen Test:
+     *
+     *  • Jedes Ziel muss NEBEN DEM SPIELER stehen, nicht irgendwo.
+     *  • Mehrere Ziele in Reichweite konkurrieren — der Schlag nimmt das
+     *    naechste im Kegel. Die Ziele stehen deshalb sternfoermig in vier
+     *    Richtungen, 90° auseinander; der Kegel (±60°) laesst je Schlag
+     *    genau eines zu.
+     *
+     * Blickbasis wie im Client: forward = (−sin yaw, −cos yaw).
+     */
+    const YAW_MINUS_Z = 0;
+    const YAW_MINUS_X = Math.PI / 2;
+    const YAW_PLUS_Z = Math.PI;
+    const YAW_PLUS_X = (3 * Math.PI) / 2;
+
+    /** Punkt in `abstand` m Richtung `yaw` von `von` aus. */
+    const vorn = (von: Vector3, yaw: number, abstand: number): Vector3 => ({
+      x: von.x - Math.sin(yaw) * abstand,
+      y: von.y,
+      z: von.z - Math.cos(yaw) * abstand,
+    });
+
+    /**
+     * Frischer, leerer Platz — jeder Abschnitt bekommt seinen eigenen.
+     *
+     * Der Teleport wird NACHGEPRUEFT. Schlaegt er fehl (fehlende
+     * Admin-Rechte), stehen alle Abschnitte uebereinander und die
+     * Reichweiten-/Kegelpruefungen messen die Ziele des vorigen
+     * Abschnitts mit — gruen, aber wertlos.
+     */
+    async function neuerPlatz(x: number, z: number): Promise<Vector3> {
+      sendAdmin(ws, `teleport ${x} ${z}`);
+      await warte(300);
+      const p = peer!.position;
+      if (Math.hypot(p.x - x, p.z - z) > 1) {
+        throw new Error(`Teleport nach ${x},${z} hat nicht gewirkt (Spieler steht bei ${p.x},${p.z})`);
+      }
+      return { ...p };
+    }
+
+    const peer = server.net.getPeers().find((p) => p.name === 'Kaempfer');
+    if (!peer) throw new Error('Peer nicht gefunden');
+    await neuerPlatz(0, 0);
+    // AxeFlint gehoert ohnehin zur Server-Startausruestung jedes Neulings
+    // (WovServer.ts, START-Liste) — Club NICHT, das ist die Grundlage fuer
+    // den Fallback-Nachweis in [1].
+
     // ── [1] Schaden aus dem Inventar ──────────────────────────────
     console.log('\n[1] Schaden nur fuer besessene Waffen (A2 im Draht):');
-    const skelA = server.zdos.createZDO(skeletonHash, { x: 3, y: 0, z: 3 });
-    const skelB = server.zdos.createZDO(skeletonHash, { x: -3, y: 0, z: -3 });
-    const skelC = server.zdos.createZDO(skeletonHash, { x: 3, y: 0, z: -3 });
+    let mitte = { ...peer.position };
+    const skelA = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_Z, 2));
+    const skelB = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_X, 2));
+    const skelC = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_PLUS_Z, 2));
 
-    sendAttack(ws, skelA.position, ''); // Faust
+    sendAttack(ws, mitte, '', YAW_MINUS_Z); // Faust
     await warte(400);
-    sendAttack(ws, skelB.position, 'AxeFlint'); // besessene Waffe
+    sendAttack(ws, mitte, 'AxeFlint', YAW_MINUS_X); // besessene Waffe
     await warte(400);
-    sendAttack(ws, skelC.position, 'Club'); // NICHT besessen → Faust
+    sendAttack(ws, mitte, 'Club', YAW_PLUS_Z); // NICHT besessen → Faust
     await warte(400);
 
     const faustSchaden = 20 - hp(skelA);
@@ -172,42 +236,100 @@ async function main(): Promise<void> {
 
     // ── [2] Ausdauerverbrauch ──────────────────────────────────────
     console.log('\n[2] Ausdauerverbrauch:');
-    const skelStam = server.zdos.createZDO(skeletonHash, { x: 0, y: 0, z: -6 });
+    const skelStam = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_PLUS_X, 2));
     peer.stamina = 5;
-    sendAttack(ws, skelStam.position, '');
+    sendAttack(ws, mitte, '', YAW_PLUS_X);
     await warte(400);
     check('< 8 Ausdauer: kein Treffer', hp(skelStam) === 0, `hp=${hp(skelStam)}`);
     check('< 8 Ausdauer: kein Abzug', peer.stamina === 5, `stamina=${peer.stamina}`);
 
     peer.stamina = 100;
-    sendAttack(ws, skelStam.position, '');
+    sendAttack(ws, mitte, '', YAW_PLUS_X);
     await warte(400);
     check('genug Ausdauer: Treffer', hp(skelStam) === 20 - faustSchaden, `hp=${hp(skelStam)}`);
     check('genug Ausdauer: Abzug exakt 8', peer.stamina === 92, `stamina=${peer.stamina}`);
 
-    // ── [3] Reichweite ───────────────────────────────────────────
-    console.log('\n[3] Reichweite (Server-Position massgeblich):');
+    // ── [3] Plausibilitaet der gemeldeten Stelle ──────────────────
+    console.log('\n[3] Gemeldete Stelle muss zur Server-Position passen:');
     const skelFern = server.zdos.createZDO(skeletonHash, { x: 5000, y: 0, z: 5000 });
     sendAttack(ws, skelFern.position, '');
     await warte(400);
-    check('ausser Reichweite: kein Treffer', hp(skelFern) === 0, `hp=${hp(skelFern)}`);
-    check('ausser Reichweite: keine Ausdauer verbraucht', peer.stamina === 92, `stamina=${peer.stamina}`);
+    check('unplausible Meldung: kein Treffer', hp(skelFern) === 0, `hp=${hp(skelFern)}`);
+    check('unplausible Meldung: keine Ausdauer verbraucht', peer.stamina === 92, `stamina=${peer.stamina}`);
+
+    // ── [3b] Reichweite, Kegel und Anker (Paket 0.3) ─────────────
+    console.log('\n[3b] Reichweite, Trefferkegel und Anker der Zielsuche:');
+    mitte = await neuerPlatz(400, 400);
+    peer.stamina = 100;
+
+    // Ruecken: 2 m HINTER dem Spieler, also gegen die Blickrichtung.
+    const skelRuecken = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_PLUS_Z, 2));
+    sendAttack(ws, mitte, '', YAW_MINUS_Z);
+    await warte(400);
+    check('Ziel im Ruecken trifft NICHT', hp(skelRuecken) === 0, `hp=${hp(skelRuecken)}`);
+    server.zdos.destroyZDO(skelRuecken.zdoid);
+
+    // 4 m seitlich: ausserhalb des Kegels UND ausserhalb der Reichweite.
+    peer.stamina = 100;
+    const skelSeite = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_X, 4));
+    sendAttack(ws, mitte, '', YAW_MINUS_Z);
+    await warte(400);
+    check('Ziel 4 m seitlich trifft NICHT', hp(skelSeite) === 0, `hp=${hp(skelSeite)}`);
+    server.zdos.destroyZDO(skelSeite.zdoid);
+
+    // 4 m GERADEAUS: im Kegel, aber ausserhalb der Reichweite (3,5 m).
+    // Trennt die beiden neuen Regeln voneinander — faellt nur der Kegel
+    // weg, bleibt dieser Fall trotzdem rot.
+    peer.stamina = 100;
+    const skelWeitVorn = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_Z, 4));
+    sendAttack(ws, mitte, '', YAW_MINUS_Z);
+    await warte(400);
+    check('Ziel 4 m GERADEAUS trifft NICHT (Reichweite 3,5 m)', hp(skelWeitVorn) === 0, `hp=${hp(skelWeitVorn)}`);
+    server.zdos.destroyZDO(skelWeitVorn.zdoid);
+
+    // 1,5 m vorn: der Normalfall, muss treffen.
+    peer.stamina = 100;
+    const skelVorn = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_Z, 1.5));
+    sendAttack(ws, mitte, '', YAW_MINUS_Z);
+    await warte(400);
+    check('Ziel 1,5 m vorn TRIFFT', hp(skelVorn) === 20 - faustSchaden, `hp=${hp(skelVorn)}`);
+    server.zdos.destroyZDO(skelVorn.zdoid);
+
+    /*
+      Anker: Die Suche haengt an der SERVER-Position, nicht an der
+      gemeldeten. Die Kreatur steht 6 m vorn — ausser Reichweite. Gemeldet
+      wird eine Stelle 3 m vorn: plausibel (< 4 m Toleranz) und zugleich
+      nur 3 m von der Kreatur entfernt. Vor Paket 0.3 suchte der Server um
+      genau diese gemeldete Stelle und haette getroffen.
+    */
+    peer.stamina = 100;
+    const skelAnker = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_Z, 6));
+    sendAttack(ws, vorn(mitte, YAW_MINUS_Z, 3), '', YAW_MINUS_Z);
+    await warte(400);
+    check(
+      'gemeldete Stelle waehlt kein Ziel aus (Anker = Server-Position)',
+      hp(skelAnker) === 0,
+      `hp=${hp(skelAnker)}`
+    );
+    server.zdos.destroyZDO(skelAnker.zdoid);
 
     // ── [4] Cooldown ueber die Drossel ────────────────────────────
     console.log('\n[4] Cooldown ueber die Drossel (Attack-Eimergroesse 1):');
-    const skelBurst = server.zdos.createZDO(skeletonHash, { x: 6, y: 0, z: 0 });
-    sendAttack(ws, skelBurst.position, ''); // sollte zaehlen
-    sendAttack(ws, skelBurst.position, ''); // sollte von der Drossel verworfen werden
+    mitte = await neuerPlatz(600, 600);
+    peer.stamina = 100;
+    const skelBurst = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_Z, 2));
+    sendAttack(ws, mitte, '', YAW_MINUS_Z); // sollte zaehlen
+    sendAttack(ws, mitte, '', YAW_MINUS_Z); // sollte von der Drossel verworfen werden
     await warte(350);
     check(
       'Stossangriff: nur EIN Treffer zaehlt',
       hp(skelBurst) === 20 - faustSchaden,
       `hp=${hp(skelBurst)} (erwartet ${20 - faustSchaden})`
     );
-    check('Stossangriff: nur EIN Ausdauerabzug', peer.stamina === 84, `stamina=${peer.stamina}`);
+    check('Stossangriff: nur EIN Ausdauerabzug', peer.stamina === 92, `stamina=${peer.stamina}`);
 
     await warte(400); // Fuellzeit abwarten — Eimer wieder voll
-    sendAttack(ws, skelBurst.position, ''); // legitimer Folgeschlag, langsamer getaktet
+    sendAttack(ws, mitte, '', YAW_MINUS_Z); // legitimer Folgeschlag, langsamer getaktet
     await warte(300);
     check(
       'legitimer Folgeschlag NACH der Fuellzeit zaehlt normal',
@@ -217,13 +339,15 @@ async function main(): Promise<void> {
 
     // ── [5] Tod und Beute ────────────────────────────────────────
     console.log('\n[5] Tod und Beute (Boar → garantiert RawMeat):');
-    const boar = server.zdos.createZDO(boarHash, { x: 0, y: 0, z: 6 });
+    mitte = await neuerPlatz(800, 800);
+    const boar = server.zdos.createZDO(boarHash, vorn(mitte, YAW_MINUS_Z, 2));
     const boarZdoid = boar.zdoid;
     const rawMeatVorher = peer.inventar.countOf('RawMeat');
     let tot = false;
     for (let i = 0; i < 8 && !tot; i++) {
       await warte(400);
-      sendAttack(ws, boar.position, 'AxeFlint');
+      peer.stamina = 100;
+      sendAttack(ws, mitte, 'AxeFlint', YAW_MINUS_Z);
       await warte(250);
       tot = server.zdos.getZDO(boarZdoid) === undefined;
     }

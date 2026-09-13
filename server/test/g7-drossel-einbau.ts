@@ -95,10 +95,11 @@ function sendAdmin(ws: WebSocket, line: string): void {
   ws.send(Buffer.concat([Buffer.from([P.AdminCommand]), w.toBuffer()]));
 }
 
-function sendAttack(ws: WebSocket, pos: Vector3, waffe = ''): void {
+/** `yaw`: Blickrichtung wie der Client sie meldet, forward = (−sin, −cos). */
+function sendAttack(ws: WebSocket, pos: Vector3, waffe = '', yaw = 0): void {
   const w = new Writer();
   w.writeVector3(pos);
-  w.writeFloat32(0);
+  w.writeFloat32(yaw);
   w.writeString(waffe);
   ws.send(Buffer.concat([Buffer.from([P.Attack]), w.toBuffer()]));
 }
@@ -126,7 +127,16 @@ function sendPlayerInput(ws: WebSocket, seq: number): void {
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-drossel-einbau', saveIntervalMs: 3600_000 });
+  // everyoneAdmin AUSDRUECKLICH — seit Paket 0.1 ist die Vorgabe `false`,
+  // und das `teleport 0 0` unten wurde seitdem stillschweigend abgewiesen.
+  const server = createWovServer({
+    port: PORT,
+    worldsDir: WORLDS_DIR,
+    kontenDir: resolve(WORLDS_DIR, 'konten'),
+    worldName: 'g7-drossel-einbau',
+    saveIntervalMs: 3600_000,
+    everyoneAdmin: true,
+  });
   server.start();
 
   try {
@@ -190,14 +200,27 @@ async function main(): Promise<void> {
     // ── [2c] Angriffe im menschlichen Tempo — jeder trifft ──────────
     console.log('\n[2c] Angriffe alle 400 ms (> 350 ms Fuellzeit) — treffen JEDES Mal:');
     const skelHash = getStableHash('Skeleton');
-    const ziele = [
-      server.zdos.createZDO(skelHash, { x: 3, y: 0, z: 3 }),
-      server.zdos.createZDO(skelHash, { x: -3, y: 0, z: 3 }),
-      server.zdos.createZDO(skelHash, { x: 3, y: 0, z: -3 }),
-    ];
-    for (const ziel of ziele) {
+    /*
+      Seit Paket 0.3 sucht handleAttack um die SERVER-Position und nur im
+      Trefferkegel (±60° um den gemeldeten Yaw, Reichweite 3,5 m). Die drei
+      Ziele stehen deshalb 2 m um den Spieler, 90° auseinander, und jeder
+      Schlag meldet die Blickrichtung zu SEINEM Ziel. Vorher lagen sie auf
+      festen Weltkoordinaten und wurden ueber die gemeldete Stelle
+      ausgewaehlt — beides gibt es nicht mehr. Geprueft wird hier
+      unveraendert nur die Drossel: dass alle drei Schlaege durchkommen.
+    */
+    const mitte = { ...peer.position };
+    const yaws = [0, Math.PI / 2, Math.PI];
+    const ziele = yaws.map((yaw) =>
+      server.zdos.createZDO(skelHash, {
+        x: mitte.x - Math.sin(yaw) * 2,
+        y: mitte.y,
+        z: mitte.z - Math.cos(yaw) * 2,
+      })
+    );
+    for (let i = 0; i < ziele.length; i++) {
       await warte(400);
-      sendAttack(ws, ziel.position, '');
+      sendAttack(ws, mitte, '', yaws[i]);
       await warte(200);
     }
     const treffer = ziele.filter((z) => z.getInt(HEALTH_MEMBER) > 0 && z.getInt(HEALTH_MEMBER) < 20).length;

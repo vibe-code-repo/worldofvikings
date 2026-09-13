@@ -6,10 +6,14 @@
  * Die drei Reichweiten sind aus vorhandenen Referenzgrössen abgeleitet,
  * nicht frei erfunden:
  *
- *  - WHISPER (Flüstern): 12 m. Deutlich über der Nahkampfreichweite
- *    (WovServer.NAHKAMPF_REICHWEITE = 8 m — "man steht sich gegenüber"),
- *    aber klar unter einer ganzen Zone. Flüstern soll man nur hören,
- *    wenn man buchstäblich daneben steht.
+ *  - WHISPER (Flüstern): 12 m. Deutlich über der Nahkampfreichweite —
+ *    "man steht sich gegenüber" —, aber klar unter einer ganzen Zone.
+ *    Flüstern soll man nur hören, wenn man buchstäblich daneben steht.
+ *    (Bezugsgrösse war WovServer.NAHKAMPF_REICHWEITE = 8 m. Seit Paket
+ *    0.3 stehen dort 3,5 m; die 12 bleiben trotzdem. Sie waren nie ein
+ *    Vielfaches der Reichweite, sondern die Distanz, auf die man sich
+ *    noch zuraunt — wer flüstern will, soll nicht erst in Schlagweite
+ *    treten müssen.)
  *  - NORMAL: 64 m = ZONE_SIZE (shared/src/constants.ts). Eine Zone ist
  *    im Server ohnehin die Einheit, in der Objekte/Kreaturen gruppiert
  *    und geladen werden (ZDOManager) — normales Reden trägt so weit wie

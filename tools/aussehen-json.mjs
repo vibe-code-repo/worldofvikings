@@ -6,10 +6,10 @@
  * Die Schluessel dieser Datei sind Drahtformat: sie werden von
  * wov-web (/erstellen, /konto) gelesen und heissen deshalb englisch,
  * wie alles andere zwischen Server und Browser. Die WERTE bleiben,
- * wie shared/src/aussehen.ts sie fuehrt -- 'wikingerin', 'H_01',
- * 'leder_bh' sind Kennungen, die im Weltspeicher und in der
- * Kontendatenbank liegen. Sie zu uebersetzen waere eine
- * Datenwanderung, kein Umbenennen.
+ * wie shared/src/aussehen.ts sie fuehrt -- 'wikingerin' und 'H_01'
+ * sind Kennungen, die im Weltspeicher und in der Kontendatenbank
+ * liegen. Sie zu uebersetzen waere eine Datenwanderung, kein
+ * Umbenennen.
  *
  *   node_modules/.bin/tsx tools/aussehen-json.mjs [--aus <datei>]
  *
@@ -38,7 +38,7 @@ import {
   BAERTE, BART_VORGABE,
   AUGENBRAUEN, AUGENBRAUE_VORGABE,
   HAARFARBEN, HAARFARBE_VORGABE,
-  RUESTUNG, AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
+  AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
   FRACTION_SUNRISE, FRACTION_MIDDAY, FRACTION_SUNSET,
 } from '../shared/src/index.ts';
 
@@ -87,10 +87,10 @@ const daten = {
     id: h.id, name: h.name, nameEn: englischeHaarfarben[h.id] ?? h.name, hex: h.hex,
   })),
   defaultHairColor: HAARFARBE_VORGABE,
-  equipment: RUESTUNG.map((r) => ({
-    id: r.id, file: r.datei, name: r.name,
-    nameEn: r.id === 'leder_bh' ? 'Leather top' : 'Leather shorts', slot: r.slot,
-  })),
+  // Die beiden alten Lederteile bleiben ausschließlich als
+  // Rückwärtskompatibilität im Spielcode bekannt. Die Webseite bietet
+  // Kleidung nur noch als vollständige Klassenrüstung an.
+  equipment: [],
   // Tageszeit-Marken fuer die Uhrzeit-Auswahl der Webseite.
   //
   // Aus dem Umgebungsmodell abgeleitet, nicht abgeschrieben: die

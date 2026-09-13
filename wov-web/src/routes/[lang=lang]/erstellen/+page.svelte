@@ -60,9 +60,9 @@
    *
    * Die FELDNAMEN sind englisch, weil sie Drahtformat sind — dieselbe
    * Datei liest auch /konto. Die WERTE (`id`, `slot`) bleiben, wie
-   * `shared/aussehen.ts` sie fuehrt: `wikingerin`, `H_01`, `leder_bh`,
-   * `oberkoerper`. Sie stehen im Weltspeicher und in der
-   * Kontendatenbank; sie zu uebersetzen waere eine Datenwanderung.
+   * `shared/aussehen.ts` sie fuehrt: `wikingerin` und `H_01` stehen im
+   * Weltspeicher und in der Kontendatenbank; sie zu uebersetzen waere
+   * eine Datenwanderung.
    */
   interface Eintrag {
     /** sRGB-Hex, nur bei Haarfarben belegt. */
@@ -153,7 +153,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'klassenruestungen-20260913';
+  const FIGUREN_STAND = 'altstil-entfernt-20260913';
 
   let figur = $state('');
   let frisur = $state('');

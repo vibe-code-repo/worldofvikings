@@ -128,6 +128,7 @@ const STANDARD_AUSSEHEN = {
   figur: FIGUR_VORGABE,
   frisur: FRISUR_VORGABE,
   haarfarbe: '',
+  augenfarbe: 'fjordblau',
   ober: '',
   beine: '',
 };

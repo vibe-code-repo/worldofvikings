@@ -572,7 +572,8 @@ export class GameSocket {
     frisurId: string,
     oberkoerperId: string,
     beineId: string,
-    haarfarbeId: string
+    haarfarbeId: string,
+    augenfarbeId: string
   ): void {
     const w = new BinaryWriter();
     w.writeString(frisurId);
@@ -583,6 +584,9 @@ export class GameSocket {
     // liegen — die Frisur kommt an, nur die Farbe nicht. Vorne
     // eingeschoben waere das Paket fuer ihn Unsinn.
     w.writeString(haarfarbeId);
+    // Wie die Haarfarbe hinten angehaengt: Ein aelterer Server ignoriert
+    // den Rest, statt die bestehenden Felder falsch zu lesen.
+    w.writeString(augenfarbeId);
     this.sendPacket(PacketType.SetAussehen, w.toUint8Array());
   }
 

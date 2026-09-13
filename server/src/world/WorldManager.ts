@@ -106,6 +106,8 @@ export interface SavedPlayer {
   frisur?: string;
   /** Fehlt bei Spielstaenden von vor dem 23.08.2026 — dann Vorgabe. */
   haarfarbe?: string;
+  /** Fehlt bei aelteren Spielstaenden — dann gilt Fjordblau. */
+  augenfarbe?: string;
   ruestung?: string;
 }
 

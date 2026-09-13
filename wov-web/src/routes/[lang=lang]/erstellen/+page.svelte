@@ -75,12 +75,14 @@
     beards: Eintrag[];
     eyebrows: Eintrag[];
     hairColors: Eintrag[];
+    eyeColors: Eintrag[];
     equipment: Eintrag[];
     defaultFigure?: string;
     defaultHairstyle?: string;
     defaultBeard?: string;
     defaultEyebrows?: Record<string, string>;
     defaultHairColor?: string;
+    defaultEyeColor?: string;
     /**
      * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
      *
@@ -101,6 +103,7 @@
     setzeKoerperRegionenVerdeckt(regionen: readonly string[]): void;
     /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
     setzeHaarfarbe(hex: string): void;
+    setzeAugenfarbe(id: string): void;
     drehe(winkel: number): void;
     blickZurueck(): void;
     dispose(): void;
@@ -153,13 +156,14 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wildwarden-kopf-20260913';
+  const FIGUREN_STAND = 'augenfarben-20260913';
 
   let figur = $state('');
   let frisur = $state('');
   let bart = $state('');
   let augenbraue = $state('');
   let haarfarbe = $state('');
+  let augenfarbe = $state('');
   let spielerName = $state('Viking');
   // Testgestade steht zuerst und ist Vorgabe: Live trägt den neuen Charakter
   // erst, wenn der Stand dorthin ausgerollt ist.
@@ -296,7 +300,7 @@
         // `server` steht hier nicht mehr drin: Welches Gestade gewählt ist,
         // führt seit den Kontoseiten `wov-gestade` (writeShore), und zwei
         // Orte für dieselbe Angabe laufen früher oder später auseinander.
-        JSON.stringify({ figur, frisur, bart, augenbraue, haarfarbe, name: spielerName, zeit })
+        JSON.stringify({ figur, frisur, bart, augenbraue, haarfarbe, augenfarbe, name: spielerName, zeit })
       );
     } catch {
       /* privater Modus: dann eben nicht */
@@ -343,6 +347,7 @@
     // nicht; genau so war es, bevor der Auswaehler ueberhaupt fehlte.
     const ton = (daten.hairColors ?? []).find((h) => h.id === haarfarbe)?.hex ?? '';
     vorschau.setzeHaarfarbe(ton);
+    vorschau.setzeAugenfarbe(augenfarbe);
     return istAktuell();
   }
 
@@ -486,6 +491,8 @@
     if (!augenbrauen.some((a) => a.id === augenbraue)) augenbraue = brauenVorgabe();
     haarfarbe =
       gueltig(daten.hairColors, alt.haarfarbe) ?? daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
+    augenfarbe =
+      gueltig(daten.eyeColors, alt.augenfarbe) ?? daten.defaultEyeColor ?? daten.eyeColors[0]?.id ?? '';
     if (alt.name) spielerName = alt.name;
     // Gemerktes prüfen statt übernehmen: Ein unsinniger Wert liesse den
     // Auswahlkasten leer erscheinen, und was hier steht, reist als ?time=
@@ -593,6 +600,7 @@
     bart = figur === 'wikinger' && Math.random() > 0.25 ? zufall(daten.beards ?? []) : '';
     augenbraue = zufall(daten.eyebrows?.filter((a) => a.figure === figur) ?? []);
     haarfarbe = zufall(daten.hairColors);
+    augenfarbe = zufall(daten.eyeColors);
     ruestungAn = false;
     merke();
     await ladeAlles();
@@ -605,6 +613,7 @@
     bart = daten.defaultBeard ?? '';
     augenbraue = brauenVorgabe();
     haarfarbe = daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
+    augenfarbe = daten.defaultEyeColor ?? daten.eyeColors[0]?.id ?? '';
     ruestungAn = false;
     merke();
     await ladeAlles();
@@ -647,6 +656,7 @@
         // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
         hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
         hairColor: haarfarbe,
+        eyeColor: augenfarbe,
         top: '',
         legs: '',
       });
@@ -802,6 +812,20 @@
           </div>
         </div>
         {#if figur !== 'wikinger'}<p class="platzhalter-hinweis">{lang === 'de' ? 'Bärte sind für den männlichen Körper verfügbar.' : 'Beards are available for the male body.'}</p>{/if}
+        <fieldset class="farbwahl">
+          <legend>{lang === 'de' ? 'Augenfarbe' : 'Eye colour'}</legend>
+          {#each daten?.eyeColors ?? [] as farbe (farbe.id)}
+            <button
+              type="button"
+              class:aktiv={augenfarbe === farbe.id}
+              style={'--farbton:' + (farbe.hex ?? '#777')}
+              title={eintragName(farbe)}
+              aria-label={eintragName(farbe)}
+              aria-pressed={augenfarbe === farbe.id}
+              onclick={() => { augenfarbe = farbe.id; merke(); void zeigeAussehen(); }}
+            ></button>
+          {/each}
+        </fieldset>
       {:else if detailTab === 'haare'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-hairstyle">{t['create.appearance.hair.label']}</label>

@@ -34,6 +34,11 @@ import {
   HAARFARBE_VORGABE,
   haarfarbeZu,
   istHaarfarbe,
+  AUGENFARBEN,
+  AUGENFARBE_MEMBER,
+  AUGENFARBE_VORGABE,
+  augenfarbeZu,
+  istAugenfarbe,
 } from '@wov/shared';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -62,6 +67,12 @@ for (const h of HAARFARBEN) {
   pruefe(`"${h.id}": hat einen Namen`, h.name.trim().length > 0, h.name);
 }
 pruefe('Member heisst wie erwartet', HAARFARBE_MEMBER === 'haarfarbe', HAARFARBE_MEMBER);
+pruefe('Augenfarben sind eindeutig', new Set(AUGENFARBEN.map((a) => a.id)).size === AUGENFARBEN.length);
+pruefe('Augenvorgabe steht in der Liste', istAugenfarbe(AUGENFARBE_VORGABE));
+pruefe('Augen-Member heisst wie erwartet', AUGENFARBE_MEMBER === 'augenfarbe', AUGENFARBE_MEMBER);
+for (const a of AUGENFARBEN) {
+  pruefe(`Augenfarbe "${a.id}": UV im Atlas`, a.uv.every((n) => n >= 0 && n <= 1));
+}
 
 console.log('\n[2] Der Server glaubt dem Client nicht');
 for (const boese of ['', 'gibtsnicht', '#8C3A17', '../../etc/passwd', 'MITTELBRAUN']) {
@@ -71,6 +82,8 @@ for (const boese of [null, undefined, 42, {}, ['mittelbraun']]) {
   pruefe(`abgelehnt: ${JSON.stringify(boese) ?? 'undefined'}`, !istHaarfarbe(boese));
 }
 pruefe('angenommen: erste Farbe der Liste', istHaarfarbe(HAARFARBEN[0]!.id), HAARFARBEN[0]!.id);
+pruefe('unbekannte Augenfarbe abgelehnt', !istAugenfarbe('pink'));
+pruefe('unbekannte Augenfarbe → Vorgabe', augenfarbeZu('pink').id === AUGENFARBE_VORGABE);
 
 console.log('\n[3] Rueckfall auf die Vorgabe');
 pruefe('unbekannt → Vorgabe', haarfarbeZu('gibtsnicht').id === HAARFARBE_VORGABE);
@@ -147,12 +160,14 @@ neu.writeString('H_03');
 neu.writeString('leder_bh');
 neu.writeString('leder_shorts');
 neu.writeString('fuchsrot');
+neu.writeString('waldgruen');
 const r2 = new Reader(neu.toBuffer());
 r2.readString();
 r2.readString();
 r2.readString();
 pruefe('neues Paket hat noch Daten', r2.remaining() > 0, `${r2.remaining()} Byte`);
 pruefe('vierter Wert ist die Farbe', r2.readString() === 'fuchsrot');
+pruefe('fuenfter Wert ist die Augenfarbe', r2.readString() === 'waldgruen');
 
 if (fehler === 0) {
   console.log('\n=== F18 Haarfarbe: ALLE PRUEFUNGEN BESTANDEN ===');

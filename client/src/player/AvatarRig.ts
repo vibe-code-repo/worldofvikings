@@ -49,6 +49,7 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { faerbeHaar } from './haarfarbe.js';
+import { faerbeAugen } from './augenfarbe.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
@@ -387,6 +388,9 @@ export class AvatarRig {
   private modell: TransformNode | null = null;
   /** Skelett des geladenen Koerpers — Traeger fuer alle nachgeladenen Teile. */
   private skelett: import('@babylonjs/core/Bones/skeleton').Skeleton | null = null;
+  /** Koerpernetze fuer die Augenfarbe; Ruestungsnetze gehoeren nicht dazu. */
+  private koerperNetze: AbstractMesh[] = [];
+  private augenfarbe = '';
   /** Knoten, unter dem Koerper und Teile haengen (traegt Massstab und Hoehe). */
   private halter: TransformNode | null = null;
   /**
@@ -745,6 +749,8 @@ export class AvatarRig {
       // Tönung auftragen, bevor das erste Bild steht — Begründung und
       // Messung stehen an `FIGUR_TOENUNG` (shared/src/figuren.ts).
       toeneFigurMeshes(res.meshes, this.modellDatei);
+      this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+      if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
 
       // JETZT vermessen, vor dem Umhängen: Solange die Meshes am
       // Szenenwurzel hängen, IST ihr Weltmaß das Modellmaß. Nach
@@ -2282,6 +2288,12 @@ export class AvatarRig {
   setzeHaarfarbe(hex: string): void {
     this.haarHex = hex;
     this.faerbeFrisur();
+  }
+
+  /** Augenfarbe setzen; darf wie das restliche Aussehen vor dem Laden kommen. */
+  setzeAugenfarbe(id: string): void {
+    this.augenfarbe = id;
+    if (this.koerperNetze.length) faerbeAugen(this.koerperNetze, id);
   }
 
   private faerbeFrisur(): void {

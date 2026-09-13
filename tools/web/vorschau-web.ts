@@ -49,6 +49,7 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
+import { faerbeAugen } from '../../client/src/player/augenfarbe.js';
 
 interface Teil {
   netze: AbstractMesh[];
@@ -75,6 +76,7 @@ export class Vorschau {
   private readonly aktuell = new Map<string, string>();
   /** sRGB-Hex der Haarfarbe; leer = Farbe des Modells stehen lassen. */
   private haarHex = '';
+  private augenfarbe = '';
   private zerstoert = false;
   private beobachter: ResizeObserver | null = null;
   private sonne!: DirectionalLight;
@@ -396,6 +398,7 @@ export class Vorschau {
     // gemeinsam, ohne die Händigkeit der glTF-Wurzel selbst anzufassen.
     this.koerperWurzeln = res.meshes.filter((m) => !m.parent);
     this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+    if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
     for (const teil of this.koerperWurzeln) teil.parent = this.figurKnoten;
     this.koerperGruppen = res.animationGroups;
     this.skelett = res.skeletons[0] ?? null;
@@ -629,6 +632,12 @@ export class Vorschau {
   setzeHaarfarbe(hex: string): void {
     this.haarHex = hex;
     this.faerbeFrisur();
+  }
+
+  /** Augenfarbe als Kennung aus appearance.json. */
+  setzeAugenfarbe(id: string): void {
+    this.augenfarbe = id;
+    if (this.koerperNetze.length) faerbeAugen(this.koerperNetze, id);
   }
 
   private faerbeFrisur(): void {

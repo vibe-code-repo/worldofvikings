@@ -342,8 +342,9 @@ export enum PacketType {
    */
   WeltWetter = 72,
   /**
-   * Client → Server: Frisur und Ruestung (SetAussehen). Payload: drei
-   * Strings — frisurId, oberkoerperId, beineId; Leerstring heisst "nichts".
+   * Client → Server: Frisur und Ruestung (SetAussehen). Payload: fuenf
+   * Strings — frisurId, oberkoerperId, beineId, haarfarbeId,
+   * augenfarbeId; Leerstring heisst bei Ruestung "nichts".
    *
    * EIGENES PAKET statt Felder an SetFigur: Ein Feld an ein bestehendes
    * Paket zu haengen verschiebt dessen Aufbau, und ein noch offener Tab
@@ -400,6 +401,17 @@ export enum PacketType {
    * Bauformular.
    */
   DungeonModulLoeschErgebnis = 77,
+  /**
+   * Server → eigener Client: das autoritative Aussehen des angemeldeten
+   * Charakters. Payload: sechs Strings — Figur, Frisur, Haarfarbe,
+   * Augenfarbe, Oberkoerper, Beine.
+   *
+   * Es kommt vor ServerConfig, damit der Client gleich das richtige
+   * Koerpermodell baut. Ein Ticket traegt absichtlich keine Aussehensdaten,
+   * und ein ZDO-Vollstand kaeme dafuer zu spaet. Additiv, damit alte
+   * Clients das unbekannte Paket folgenlos ignorieren.
+   */
+  EigenesAussehen = 78,
 }
 
 // === Vector3 (Vector.h) ===

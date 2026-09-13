@@ -51,6 +51,7 @@ import '@babylonjs/loaders/glTF';
 
 import { AUSSEHEN_KOERPER, teilPfad } from '@wov/shared';
 import { faerbeHaar } from '../player/haarfarbe.js';
+import { faerbeAugen } from '../player/augenfarbe.js';
 import { toeneFigurMeshes } from '../engine/FigurToenung.js';
 
 const WURZEL = '/assets/models/';
@@ -72,6 +73,8 @@ export class CharakterVorschau {
   private aktuell = new Map<string, string>();   // Slot → Dateiname
   /** sRGB-Hex; leer = Farbe des Modells stehen lassen. */
   private haarHex = '';
+  private augenfarbe = '';
+  private koerperNetze: AbstractMesh[] = [];
   private zerstoert = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -131,6 +134,8 @@ export class CharakterVorschau {
     // Dieselbe Tönung wie im Spiel — sonst steht im Anmeldebildschirm
     // eine andere Figur als danach auf dem Feld (s. FIGUR_TOENUNG).
     toeneFigurMeshes(res.meshes, datei);
+    this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+    if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
     this.skelett = res.skeletons[0] ?? null;
 
     // Ruhezyklus über denselben Namensabgleich wie AvatarRig — nicht
@@ -177,6 +182,11 @@ export class CharakterVorschau {
   setzeHaarfarbe(hex: string): void {
     this.haarHex = hex;
     this.faerbeFrisur();
+  }
+
+  setzeAugenfarbe(id: string): void {
+    this.augenfarbe = id;
+    if (this.koerperNetze.length) faerbeAugen(this.koerperNetze, id);
   }
 
   private faerbeFrisur(): void {

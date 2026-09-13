@@ -292,6 +292,47 @@ export function haarfarbeZu(id: string | null | undefined): Haarfarbe {
   );
 }
 
+export interface Augenfarbe {
+  /** Stabile Kennung — Konto, Spielstand und ZDO speichern nur diese. */
+  readonly id: string;
+  readonly name: string;
+  /** Farbe fuer den Auswahlpunkt auf der Webseite. */
+  readonly hex: string;
+  /**
+   * Mittelpunkt eines einfarbigen Feldes im bestehenden Figurenatlas.
+   * Die Augen-Vertices werden dorthin umgelegt; dadurch braucht jede
+   * Augenfarbe weder ein zweites Material noch eine zweite Koerperdatei.
+   */
+  readonly uv: readonly [number, number];
+}
+
+/**
+ * Natuerliche Augenfarben aus bereits vorhandenen Flaechen des
+ * Synty-Figurenatlas. Die UV-Punkte wurden in der 1024er Atlastextur
+ * gemessen und liegen jeweils weit innerhalb eines einfarbigen Feldes.
+ */
+export const AUGENFARBEN: readonly Augenfarbe[] = [
+  { id: 'fjordblau', name: 'Fjordblau', hex: '#49667E', uv: [0.01171875, 0.990234375] },
+  { id: 'eisblau', name: 'Eisblau', hex: '#5A92AD', uv: [0.35986328125, 0.48193359375] },
+  { id: 'waldgruen', name: 'Waldgrün', hex: '#5A8A5A', uv: [0.29736328125, 0.48193359375] },
+  { id: 'hasel', name: 'Hasel', hex: '#947952', uv: [0.20361328125, 0.48193359375] },
+  { id: 'bernstein', name: 'Bernstein', hex: '#C19A52', uv: [0.35205078125, 0.36474609375] },
+  { id: 'schiefergrau', name: 'Schiefergrau', hex: '#7B757B', uv: [0.42236328125, 0.48193359375] },
+] as const;
+
+export const AUGENFARBE_VORGABE = 'fjordblau';
+
+export function istAugenfarbe(id: unknown): boolean {
+  return typeof id === 'string' && AUGENFARBEN.some((a) => a.id === id);
+}
+
+export function augenfarbeZu(id: string | null | undefined): Augenfarbe {
+  return (
+    AUGENFARBEN.find((a) => a.id === id) ??
+    AUGENFARBEN.find((a) => a.id === AUGENFARBE_VORGABE)!
+  );
+}
+
 /** Pfad einer Teildatei, relativ zu assets/models/. */
 export function teilPfad(datei: string): string {
   return `${AUSSEHEN_ORDNER}/${datei}.glb`;
@@ -306,3 +347,4 @@ export function teilPfad(datei: string): string {
 export const FRISUR_MEMBER = 'frisur';
 export const RUESTUNG_MEMBER = 'ruestung';
 export const HAARFARBE_MEMBER = 'haarfarbe';
+export const AUGENFARBE_MEMBER = 'augenfarbe';

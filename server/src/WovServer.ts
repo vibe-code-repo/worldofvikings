@@ -41,12 +41,15 @@ import {
   istFigur,
   istFrisur,
   istHaarfarbe,
+  istAugenfarbe,
   istRuestung,
   FRISUR_MEMBER,
   HAARFARBE_MEMBER,
+  AUGENFARBE_MEMBER,
   RUESTUNG_MEMBER,
   FRISUR_VORGABE,
   HAARFARBE_VORGABE,
+  AUGENFARBE_VORGABE,
 } from '@wov/shared';
 import type { Biome, Vector3, ZoneID } from '@wov/shared';
 import {
@@ -1592,8 +1595,37 @@ export class WovServer {
   // ── Peer lifecycle ─────────────────────────────────────────────
 
   private onPeerAuthenticated(peer: Peer): void {
-    // D6: world info first — the client builds its GeoManager from this
-    // and swaps the placeholder terrain for the real world (D3).
+    // Das autoritative Aussehen muss VOR ServerConfig zum eigenen Client:
+    // dessen Handler baut unmittelbar die Spielfigur. Das Ticket selbst
+    // traegt bewusst nur die Identitaet und keine veraenderlichen Werte.
+    let saved: SavedPlayer | undefined;
+    if (!peer.nurEditor) {
+      saved = this.ermittleGespeichertenStand(peer);
+      const ausKonto = this.kontenDb.charakterZuSpielerId(peer.spielerId);
+      peer.figur = saved?.figur && istFigur(saved.figur)
+        ? saved.figur : ausKonto && istFigur(ausKonto.figur) ? ausKonto.figur : FIGUR_VORGABE;
+      peer.frisur = saved?.frisur && istFrisur(saved.frisur)
+        ? saved.frisur : ausKonto && istFrisur(ausKonto.frisur) ? ausKonto.frisur : FRISUR_VORGABE;
+      peer.haarfarbe = saved?.haarfarbe && istHaarfarbe(saved.haarfarbe)
+        ? saved.haarfarbe : ausKonto && istHaarfarbe(ausKonto.haarfarbe)
+          ? ausKonto.haarfarbe : HAARFARBE_VORGABE;
+      peer.augenfarbe = saved?.augenfarbe && istAugenfarbe(saved.augenfarbe)
+        ? saved.augenfarbe : ausKonto && istAugenfarbe(ausKonto.augenfarbe)
+          ? ausKonto.augenfarbe : AUGENFARBE_VORGABE;
+      peer.ruestung = typeof saved?.ruestung === 'string'
+        ? saved.ruestung : ausKonto ? `${ausKonto.ober}|${ausKonto.beine}` : '|';
+      const [ober = '', beine = ''] = peer.ruestung.split('|');
+      peer.sendPacketWith(PacketType.EigenesAussehen, (w) => {
+        w.writeString(peer.figur);
+        w.writeString(peer.frisur);
+        w.writeString(peer.haarfarbe);
+        w.writeString(peer.augenfarbe);
+        w.writeString(ober);
+        w.writeString(beine);
+      });
+    }
+    // D6: Weltinfo direkt nach dem eigenen Aussehen — der Client baut
+    // daraus seinen GeoManager und tauscht das Platzhalterterrain (D3).
     //
     // ── Warum das VOR dem Editor-Zweig steht (E8) ──────────────────
     // Bis E8 stand es dahinter, und damit bekam eine Editor-Verbindung
@@ -1668,7 +1700,6 @@ export class WovServer {
     // Create player character ZDO — spawn at the saved position (G1) or on
     // the real ground at the world spawn (D6)
     const playerPrefab = this.prefabs.getByName('Player');
-    const saved = this.ermittleGespeichertenStand(peer);
     // Nie in einer Instanz wieder einsteigen. Sie überlebt keinen
     // Neustart, und ihre Koordinaten bedeuten in der Oberwelt nichts.
     // `onPeerQuit` legt die Rückkehrposition ab; das hier ist der Gurt für
@@ -1706,32 +1737,13 @@ export class WovServer {
     // Spiel aendern (Charakterfenster, sendAussehen), und dann ist der
     // Spielstand die lebende Wahrheit -- die Kontendatenbank haelt nur
     // den Anlegestand.
-    const ausKonto = this.kontenDb.charakterZuSpielerId(peer.spielerId);
-
-    peer.figur = saved?.figur && istFigur(saved.figur)
-      ? saved.figur
-      : ausKonto && istFigur(ausKonto.figur)
-        ? ausKonto.figur
-        : FIGUR_VORGABE;
     characterZDO.setString(FIGUR_MEMBER, peer.figur);
 
     // Aussehen aus dem Spielstand — gleiche Begruendung wie bei der Figur:
     // Ueber die ZDO-Member sehen ALLE anderen Spieler dieselbe Frisur.
-    peer.frisur = saved?.frisur && istFrisur(saved.frisur)
-      ? saved.frisur
-      : ausKonto && istFrisur(ausKonto.frisur)
-        ? ausKonto.frisur
-        : FRISUR_VORGABE;
-    peer.haarfarbe =
-      saved?.haarfarbe && istHaarfarbe(saved.haarfarbe) ? saved.haarfarbe : HAARFARBE_VORGABE;
-    // Ruestung wandert als "ober|beine" durch einen einzigen String.
-    peer.ruestung = typeof saved?.ruestung === 'string'
-      ? saved.ruestung
-      : ausKonto
-        ? `${ausKonto.ober}|${ausKonto.beine}`
-        : '|';
     characterZDO.setString(FRISUR_MEMBER, peer.frisur);
     characterZDO.setString(HAARFARBE_MEMBER, peer.haarfarbe);
+    characterZDO.setString(AUGENFARBE_MEMBER, peer.augenfarbe);
     characterZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
 
     // Server-Inventar (Review-Punkt 8): aus dem Save wiederherstellen,
@@ -1813,6 +1825,7 @@ export class WovServer {
       figur: peer.figur,
       frisur: peer.frisur,
       haarfarbe: peer.haarfarbe,
+      augenfarbe: peer.augenfarbe,
       ruestung: peer.ruestung,
     });
     // Destroy player character ZDO
@@ -3549,27 +3562,32 @@ export class WovServer {
     // 23.08.2026 sendet drei Strings. `readString()` auf einem leeren
     // Rest wuerfe und risse die Verbindung ab — fuer eine Haarfarbe.
     const haarfarbe = reader.remaining() > 0 ? reader.readString() : peer.haarfarbe;
+    const augenfarbe = reader.remaining() > 0 ? reader.readString() : peer.augenfarbe;
     if (
       !istFrisur(frisur) ||
       !istRuestung(ober) ||
       !istRuestung(beine) ||
-      !istHaarfarbe(haarfarbe)
+      !istHaarfarbe(haarfarbe) ||
+      !istAugenfarbe(augenfarbe)
     ) {
       console.warn(
         `[WoV] SetAussehen von "${peer.name}" abgelehnt: ` +
           `frisur="${frisur.slice(0, 24)}" ober="${ober.slice(0, 24)}" ` +
           `beine="${beine.slice(0, 24)}" haarfarbe="${haarfarbe.slice(0, 24)}" ` +
+          `augenfarbe="${augenfarbe.slice(0, 24)}" ` +
           `— steht nicht in shared/aussehen.ts`
       );
       return;
     }
     peer.frisur = frisur;
     peer.haarfarbe = haarfarbe;
+    peer.augenfarbe = augenfarbe;
     peer.ruestung = `${ober}|${beine}`;
     const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) {
       charZDO.setString(FRISUR_MEMBER, frisur);
       charZDO.setString(HAARFARBE_MEMBER, haarfarbe);
+      charZDO.setString(AUGENFARBE_MEMBER, augenfarbe);
       charZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
     }
   }
@@ -5443,6 +5461,7 @@ export class WovServer {
         figur: peer.figur,
         frisur: peer.frisur,
         haarfarbe: peer.haarfarbe,
+        augenfarbe: peer.augenfarbe,
         ruestung: peer.ruestung,
         inventar: peer.inventar.serialize(),
       });

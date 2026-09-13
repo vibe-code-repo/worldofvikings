@@ -45,6 +45,9 @@ import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
 import { Kontendatenbank, type Charakter } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
+import {
+  AUGENFARBE_VORGABE, istAugenfarbe, istFigur, istFrisur, istHaarfarbe, istRuestung,
+} from '@wov/shared';
 
 /** Origins allowed to call this API from a browser. */
 const ERLAUBTE_URSPRUENGE = new Set([
@@ -343,17 +346,31 @@ export class KontoApi {
     const name = String(k.name ?? '').trim();
     if (!CHARAKTERNAME_REGEX.test(name)) return this.json(res, 400, { error: 'name-invalid' });
 
+    const figur = String(k.figure ?? '');
+    const frisur = String(k.hairstyle ?? '');
+    const haarfarbe = String(k.hairColor ?? '');
+    // Fehlendes Feld bleibt waehrend des gemeinsamen Rollouts kompatibel
+    // mit einem noch offenen Erstellungsformular vom vorherigen Stand.
+    const augenfarbe = String(k.eyeColor ?? AUGENFARBE_VORGABE);
+    const ober = String(k.top ?? '');
+    const beine = String(k.legs ?? '');
+    if (!istFigur(figur) || !istFrisur(frisur) || !istHaarfarbe(haarfarbe) ||
+        !istAugenfarbe(augenfarbe) || !istRuestung(ober) || !istRuestung(beine)) {
+      return this.json(res, 400, { error: 'appearance-invalid' });
+    }
+
     // Wire field -> database column. The two vocabularies are separate on
     // purpose: the columns in `Kontendatenbank.ts` still read `figur`,
     // `frisur`, `ober`, `beine` because renaming them would be an ALTER
     // TABLE on live data, not a rename. The translation lives here and in
     // `nachAussen()` below — those two are the only places that know both.
     const r = this.db.charakterAnlegen(kontoId, name, {
-      figur: String(k.figure ?? ''),
-      frisur: String(k.hairstyle ?? ''),
-      haarfarbe: String(k.hairColor ?? ''),
-      ober: String(k.top ?? ''),
-      beine: String(k.legs ?? ''),
+      figur,
+      frisur,
+      haarfarbe,
+      augenfarbe,
+      ober,
+      beine,
     });
     if (!r.ok) return this.json(res, 409, { error: r.fehler });
     console.log(`[Konto] Charakter "${name}" fuer Konto ${kontoId}`);
@@ -517,6 +534,7 @@ function nachAussen(c: Charakter): Record<string, unknown> {
   return {
     id: c.id, name: c.name, figure: c.figur, hairstyle: c.frisur,
     hairColor: c.haarfarbe,
+    eyeColor: c.augenfarbe,
     top: c.ober, legs: c.beine,
     created: c.erstellt, lastPlayed: c.zuletztGespielt,
   };

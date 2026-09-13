@@ -38,6 +38,7 @@ import {
   BAERTE, BART_VORGABE,
   AUGENBRAUEN, AUGENBRAUE_VORGABE,
   HAARFARBEN, HAARFARBE_VORGABE,
+  AUGENFARBEN, AUGENFARBE_VORGABE,
   AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
   FRACTION_SUNRISE, FRACTION_MIDDAY, FRACTION_SUNSET,
 } from '../shared/src/index.ts';
@@ -53,6 +54,11 @@ const englischeHaarfarben = {
   mittelbraun: 'Medium brown', hellbraun: 'Light brown', aschblond: 'Ash blonde',
   weizenblond: 'Wheat blonde', hellblond: 'Light blonde', fuchsrot: 'Fox red',
   kupfer: 'Copper red', eisgrau: 'Ice grey', schneeweiss: 'Snow white',
+};
+
+const englischeAugenfarben = {
+  fjordblau: 'Fjord blue', eisblau: 'Ice blue', waldgruen: 'Forest green',
+  hasel: 'Hazel', bernstein: 'Amber', schiefergrau: 'Slate grey',
 };
 
 const daten = {
@@ -87,6 +93,10 @@ const daten = {
     id: h.id, name: h.name, nameEn: englischeHaarfarben[h.id] ?? h.name, hex: h.hex,
   })),
   defaultHairColor: HAARFARBE_VORGABE,
+  eyeColors: AUGENFARBEN.map((a) => ({
+    id: a.id, name: a.name, nameEn: englischeAugenfarben[a.id] ?? a.name, hex: a.hex,
+  })),
+  defaultEyeColor: AUGENFARBE_VORGABE,
   // Die beiden alten Lederteile bleiben ausschließlich als
   // Rückwärtskompatibilität im Spielcode bekannt. Die Webseite bietet
   // Kleidung nur noch als vollständige Klassenrüstung an.
@@ -111,7 +121,7 @@ const daten = {
 mkdirSync(dirname(AUS), { recursive: true });
 writeFileSync(AUS, JSON.stringify(daten, null, 2) + '\n', 'utf8');
 console.log(
-  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Baerte, %d Augenbrauen, %d Ruestungsteile, %d Haarfarben',
+  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Baerte, %d Augenbrauen, %d Ruestungsteile, %d Haarfarben, %d Augenfarben',
   AUS, daten.figures.length, daten.hairstyles.length, daten.beards.length, daten.eyebrows.length,
-  daten.equipment.length, daten.hairColors.length
+  daten.equipment.length, daten.hairColors.length, daten.eyeColors.length
 );

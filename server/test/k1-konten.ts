@@ -66,6 +66,7 @@ try {
     figur: 'wikingerin',
     frisur: 'H_03',
     haarfarbe: 'fuchsrot',
+    augenfarbe: 'waldgruen',
     ober: 'leder_bh',
     beine: '',
   };
@@ -74,6 +75,7 @@ try {
   assert.equal(c1.ok && c2.ok, true, 'mehrere Charaktere je Konto');
 
   assert.equal(db.charaktereVonKonto(kontoId).length, 2);
+  assert.equal(db.charaktereVonKonto(kontoId)[0]!.augenfarbe, 'waldgruen');
 
   // Jeder Charakter traegt eine EIGENE, gueltige spielerId -- das ist der
   // Grund, warum das Weltformat unangetastet bleibt.

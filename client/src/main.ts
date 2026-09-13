@@ -55,8 +55,10 @@ import {
   modellDateiZu,
   FRISUR_VORGABE,
   HAARFARBE_VORGABE,
+  AUGENFARBE_VORGABE,
   istFrisur,
   istHaarfarbe,
+  istAugenfarbe,
   istRuestung,
   frisurZu,
   bartAusFrisur,
@@ -439,6 +441,7 @@ async function main() {
     top: ausAdresse.get('top'),
     legs: ausAdresse.get('legs'),
     hairColor: ausAdresse.get('hairColor'),
+    eyeColor: ausAdresse.get('eyeColor'),
     // Wunschstunde (0-23) — die Seite bietet sie nur fuer das Testgestade an.
     time: ausAdresse.get('time'),
   };
@@ -563,17 +566,21 @@ async function main() {
   const storedFigure = stored('wov-figur');
   const storedHairstyle = stored('wov-frisur');
   const storedHairColor = stored('wov-haarfarbe');
-  const selectedFigure = vonSeite.figure && istFigur(vonSeite.figure)
+  const storedEyeColor = stored('wov-augenfarbe');
+  let selectedFigure = vonSeite.figure && istFigur(vonSeite.figure)
     ? vonSeite.figure
     : istFigur(storedFigure) ? storedFigure : FIGUR_VORGABE;
-  const selectedHairstyle = vonSeite.hairstyle && istFrisur(vonSeite.hairstyle)
+  let selectedHairstyle = vonSeite.hairstyle && istFrisur(vonSeite.hairstyle)
     ? vonSeite.hairstyle
     : istFrisur(storedHairstyle) ? storedHairstyle : FRISUR_VORGABE;
-  const selectedHairColor = vonSeite.hairColor && istHaarfarbe(vonSeite.hairColor)
+  let selectedHairColor = vonSeite.hairColor && istHaarfarbe(vonSeite.hairColor)
     ? vonSeite.hairColor
     : istHaarfarbe(storedHairColor) ? storedHairColor : HAARFARBE_VORGABE;
-  const selectedTop = armourFor(vonSeite.top, 'oberkoerper');
-  const selectedLegs = armourFor(vonSeite.legs, 'beine');
+  let selectedEyeColor = vonSeite.eyeColor && istAugenfarbe(vonSeite.eyeColor)
+    ? vonSeite.eyeColor
+    : istAugenfarbe(storedEyeColor) ? storedEyeColor : AUGENFARBE_VORGABE;
+  let selectedTop = armourFor(vonSeite.top, 'oberkoerper');
+  let selectedLegs = armourFor(vonSeite.legs, 'beine');
   const playerName = vonSeite.name?.slice(0, 24) || 'Viking';
   const requestedHour = (() => {
     if (vonSeite.time === null) return null;
@@ -864,7 +871,7 @@ async function main() {
 
   /** Kennungen statt Dateinamen — genau das, was SetAussehen erwartet. */
   const aussehenKennungen = (): {
-    frisur: string; ober: string; beine: string; haarfarbe: string;
+    frisur: string; ober: string; beine: string; haarfarbe: string; augenfarbe: string;
   } => {
     const g = equipment?.aussehen() ?? {};
     return {
@@ -872,6 +879,7 @@ async function main() {
       ober: g.oberkoerper ?? '',
       beine: g.beine ?? '',
       haarfarbe: selectedHairColor,
+      augenfarbe: selectedEyeColor,
     };
   };
 
@@ -879,7 +887,9 @@ async function main() {
     () => equipment,
     aussehenTeile,
     i18n,
-    modellDateiZu(selectedFigure)
+    () => modellDateiZu(selectedFigure),
+    () => haarfarbeZu(selectedHairColor).hex,
+    () => selectedEyeColor,
   );
 
   /**
@@ -906,7 +916,8 @@ async function main() {
     void player?.avatar.setzeAussehen(aussehenFuerRig());
     const k = aussehenKennungen();
     player?.avatar.setzeHaarfarbe(haarfarbeZu(k.haarfarbe).hex);
-    socket?.sendAussehen(k.frisur, k.ober, k.beine, k.haarfarbe);
+    player?.avatar.setzeAugenfarbe(k.augenfarbe);
+    socket?.sendAussehen(k.frisur, k.ober, k.beine, k.haarfarbe, k.augenfarbe);
     charakterPanel.zeichne();
   };
 
@@ -1368,6 +1379,7 @@ async function main() {
     // sich das Aussehen und zieht es nach, sobald der Koerper da ist.
     void player.avatar.setzeAussehen(aussehenFuerRig());
     player.avatar.setzeHaarfarbe(haarfarbeZu(selectedHairColor).hex);
+    player.avatar.setzeAugenfarbe(selectedEyeColor);
     // Pruefzugang, NUR im Entwicklungsmodus — wie bei der Vorschau. Ohne
     // ihn laesst sich von aussen nicht messen, ob ein Kleidungsstueck am
     // Koerper sitzt; Babylon liegt als ES-Modul vor und nichts ist global.
@@ -2189,6 +2201,28 @@ async function main() {
       }
     });
 
+    // Kommt vor ServerConfig: So baut `buildWorld` bereits den richtigen
+    // Koerper und nicht kurz die lokale Vorgabe. Das Konto/der Spielstand
+    // ist bei einer Ticket-Anmeldung die einzige Wahrheit.
+    socket.on(PacketType.EigenesAussehen, (reader) => {
+      const figur = reader.readString();
+      const frisur = reader.readString();
+      const haarfarbe = reader.readString();
+      const augenfarbe = reader.readString();
+      const ober = reader.readString();
+      const beine = reader.readString();
+      // Ohne Ticket stammt die Wahl aus diesem Client und wird unmittelbar
+      // danach per SetFigur/SetAussehen gemeldet. Der vorlaeufige
+      // Serverstand darf sie nicht kurz vor dem Weltaufbau ueberschreiben.
+      if (!mitTicket) return;
+      if (istFigur(figur)) selectedFigure = figur;
+      if (istFrisur(frisur)) selectedHairstyle = frisur;
+      if (istHaarfarbe(haarfarbe)) selectedHairColor = haarfarbe;
+      if (istAugenfarbe(augenfarbe)) selectedEyeColor = augenfarbe;
+      selectedTop = armourFor(ober, 'oberkoerper');
+      selectedLegs = armourFor(beine, 'beine');
+    });
+
     // Wettervorgabe des Servers (server.yml `wetter:`) — kommt direkt
     // hinter der ServerConfig, s. WovServer.onPeerAuthenticated.
     socket.on(PacketType.WeltWetter, (reader) => {
@@ -2764,7 +2798,7 @@ async function main() {
         // sich selbst richtig — die anderen bekaemen die Vorgabefrisur.
         socket?.sendAussehen(
           selectedHairstyle, selectedTop, selectedLegs,
-          selectedHairColor
+          selectedHairColor, selectedEyeColor
         );
       }
       reconnectVersuch = 0;

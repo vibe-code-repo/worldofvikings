@@ -41,6 +41,7 @@ interface Konto { username: string; email: string }
 interface Charakter {
   id: number; name: string; figure: string; hairstyle: string;
   hairColor: string; top: string; legs: string;
+  eyeColor: string;
 }
 interface AuthAntwort { token: string; account: Konto; characters: Charakter[] }
 interface MeAntwort { account: Konto; characters: Charakter[] }
@@ -162,7 +163,7 @@ export class Anmeldung {
       const r = await ruf<{ character: Charakter }>('/accounts/characters', {
         methode: 'POST',
         token: this.kontoToken,
-        koerper: { name, figure: 'wikingerin', hairstyle: 'H_01', hairColor: 'mittelbraun', top: '', legs: '' },
+        koerper: { name, figure: 'wikingerin', hairstyle: 'H_01', hairColor: 'mittelbraun', eyeColor: 'fjordblau', top: '', legs: '' },
       });
       this.charaktere = [...this.charaktere, r.character];
     } catch (e) {

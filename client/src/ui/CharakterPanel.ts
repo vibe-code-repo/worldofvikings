@@ -70,7 +70,9 @@ export class CharakterPanel {
      * Koerperdatei der gewaehlten Figur unter /assets/models/, MIT Endung
      * (`modellDateiZu(figur)`). Fehlt sie, zeigt das Fenster die Wikingerin.
      */
-    private readonly modellDatei?: string
+    private readonly modellDatei: () => string,
+    private readonly haarfarbe: () => string,
+    private readonly augenfarbe: () => string,
   ) {
     this.wurzel = document.createElement('div');
     this.wurzel.id = 'charakter-fenster';
@@ -197,7 +199,7 @@ export class CharakterPanel {
       const mod = await import('./CharakterVorschau.js');
       if (marke !== this.oeffnungsZaehler) return; // inzwischen geschlossen
       this.vorschau = new mod.CharakterVorschau(this.leinwand);
-      await this.vorschau.ladeKoerper(this.modellDatei);
+      await this.vorschau.ladeKoerper(this.modellDatei());
       if (marke !== this.oeffnungsZaehler) {
         this.vorschau.dispose();
         this.vorschau = null;
@@ -215,6 +217,8 @@ export class CharakterPanel {
   /** Der Figur im Fenster anziehen, was die Ausrüstung sagt. */
   private async ziehePassendAn(): Promise<void> {
     if (!this.vorschau) return;
+    this.vorschau.setzeHaarfarbe(this.haarfarbe());
+    this.vorschau.setzeAugenfarbe(this.augenfarbe());
     for (const [slot, datei] of Object.entries(this.aussehenTeile())) {
       await this.vorschau.setze(slot, datei);
     }

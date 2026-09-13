@@ -58,6 +58,7 @@ import type { KollisionsForm, NpcEinordnung, SteinKitConfig } from '@wov/shared'
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { erzeugeSteinKitMaterial, mergeSteinKit } from '../engine/DungeonSteinMaterial.js';
 import { faerbeHaar } from '../player/haarfarbe.js';
+import { faerbeAugen } from '../player/augenfarbe.js';
 import { StaticColliderSet } from '../engine/Physics';
 
 import {
@@ -555,6 +556,8 @@ interface DynamicEntity {
    * betroffenen Slot austauscht statt alles neu zu laden.
    */
   aussehen?: Map<string, { datei: string; wurzel: TransformNode }>;
+  haarfarbe?: string;
+  augenfarbe?: string;
   /** Letztes Server-Ziel — updateDynamics() gleitet pro Frame dorthin. */
   ziel?: { pos: Vector3; rot: Quaternion };
   /**
@@ -1354,11 +1357,18 @@ export class EntityManager {
       // Sync traegt sie hierher.
       const modell = u.figur ? modellZu(u.figur) : def.model;
       void this.applyDynamic(u, def.name, modell, def.animation, belebt).then(() => {
+        if (u.augenfarbe !== undefined) {
+          const dyn = this.dynamics.get(u.key);
+          if (dyn && dyn.augenfarbe !== u.augenfarbe) {
+            faerbeAugen(dyn.root.getChildMeshes(), u.augenfarbe);
+            dyn.augenfarbe = u.augenfarbe;
+          }
+        }
         // Frisur und Ruestung NACH dem Koerper: Sie brauchen dessen
         // Skelett. Fehlt der Member, traegt der Spieler nichts — kein
         // Rueckfall auf eine Vorgabefrisur, sonst saehe man bei jedem
         // Fremden etwas anderes als er selbst.
-        if (u.frisur !== undefined || u.ruestung !== undefined) {
+        if (u.frisur !== undefined || u.ruestung !== undefined || u.haarfarbe !== undefined) {
           void this.setzeFremdesAussehen(u, modell);
         }
       });
@@ -1411,10 +1421,18 @@ export class EntityManager {
       oberkoerper: ruestungZu(ober) ? `${AUSSEHEN_ORDNER}/${ruestungZu(ober)!.datei}` : null,
       beine: ruestungZu(beine) ? `${AUSSEHEN_ORDNER}/${ruestungZu(beine)!.datei}` : null,
     };
+    const haarfarbe = haarfarbeZu(u.haarfarbe);
+    const haarfarbeGeaendert = dyn.haarfarbe !== undefined && dyn.haarfarbe !== haarfarbe.id;
+    dyn.haarfarbe = haarfarbe.id;
 
     for (const [slot, datei] of Object.entries(gewuenscht)) {
       const alt = dyn.aussehen.get(slot);
-      if ((alt?.datei ?? null) === datei) continue;
+      if ((alt?.datei ?? null) === datei) {
+        if (alt && haarfarbeGeaendert && (slot === 'frisur' || slot === 'bart' || slot === 'augenbraue')) {
+          faerbeHaar(alt.wurzel.getChildMeshes(), haarfarbe.hex, true);
+        }
+        continue;
+      }
       if (alt) {
         alt.wurzel.dispose(false, false);
         dyn.aussehen.delete(slot);
@@ -1443,7 +1461,7 @@ export class EntityManager {
       // Instanzen. Ohne Klon faerbte der erste Spieler mit dieser
       // Frisur alle anderen mit (s. haarfarbe.ts).
       if (slot === 'frisur' || slot === 'bart' || slot === 'augenbraue') {
-        faerbeHaar(netze, haarfarbeZu(u.haarfarbe).hex, true);
+        faerbeHaar(netze, haarfarbe.hex, true);
       }
       dyn.aussehen.set(slot, { datei, wurzel });
     }

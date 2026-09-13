@@ -655,6 +655,7 @@ const KERN = [
     brauchtModelle('assets/models/wikingerin/WikingerinKoerper.glb'),
   ],
   ['server', 'test/f18-haarfarbe.ts'],
+  ['client', 'test/augenfarbe.ts'],
   ['server', 'test/f19-wettervorgabe.ts'],
   // G12 (Roadmap): Betriebsmetriken -- reine Auswertung (Zaehler,
   // Sekundenabschluss, Prometheus-Formatierung), kein Server/Socket noetig

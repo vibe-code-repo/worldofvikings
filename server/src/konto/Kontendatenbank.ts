@@ -99,6 +99,7 @@ export interface Charakter {
   figur: string;
   frisur: string;
   haarfarbe: string;
+  augenfarbe: string;
   ober: string;
   beine: string;
   erstellt: number;
@@ -185,6 +186,7 @@ export class Kontendatenbank {
    */
   private spaltenNachziehen(): void {
     this.spalteNachziehen('charaktere', 'haarfarbe', "TEXT NOT NULL DEFAULT ''");
+    this.spalteNachziehen('charaktere', 'augenfarbe', "TEXT NOT NULL DEFAULT 'fjordblau'");
   }
 
   /**
@@ -227,6 +229,7 @@ export class Kontendatenbank {
         figur            TEXT NOT NULL,
         frisur           TEXT NOT NULL,
         haarfarbe        TEXT NOT NULL DEFAULT '',
+        augenfarbe       TEXT NOT NULL DEFAULT 'fjordblau',
         ober             TEXT NOT NULL DEFAULT '',
         beine            TEXT NOT NULL DEFAULT '',
         erstellt         INTEGER NOT NULL,
@@ -353,24 +356,25 @@ export class Kontendatenbank {
   charakterAnlegen(
     kontoId: number,
     name: string,
-    aussehen: { figur: string; frisur: string; haarfarbe: string; ober: string; beine: string },
+    aussehen: { figur: string; frisur: string; haarfarbe: string; augenfarbe?: string; ober: string; beine: string },
   ): { ok: true; charakter: Charakter } | { ok: false; fehler: KontoFehler } {
     const spielerId = spielerIdErzeugen();
     const altlastUserId = BigInt(getStableHash(spielerId) & 0x7fffffff);
     const jetzt = Date.now();
+    const voll = { ...aussehen, augenfarbe: aussehen.augenfarbe ?? 'fjordblau' };
     try {
       const r = this.db
         .prepare(`INSERT INTO charaktere
-          (konto_id, spieler_id, altlast_user_id, name, figur, frisur, haarfarbe, ober, beine, erstellt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          (konto_id, spieler_id, altlast_user_id, name, figur, frisur, haarfarbe, augenfarbe, ober, beine, erstellt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(kontoId, spielerId, altlastUserId.toString(16), name,
-             aussehen.figur, aussehen.frisur, aussehen.haarfarbe,
-             aussehen.ober, aussehen.beine, jetzt);
+             voll.figur, voll.frisur, voll.haarfarbe, voll.augenfarbe,
+             voll.ober, voll.beine, jetzt);
       return {
         ok: true,
         charakter: {
           id: Number(r.lastInsertRowid), kontoId, spielerId, altlastUserId, name,
-          ...aussehen, erstellt: jetzt, zuletztGespielt: null,
+          ...voll, erstellt: jetzt, zuletztGespielt: null,
         },
       };
     } catch (e) {
@@ -567,6 +571,7 @@ export class Kontendatenbank {
       figur: String(z.figur),
       frisur: String(z.frisur),
       haarfarbe: String(z.haarfarbe ?? ''),
+      augenfarbe: String(z.augenfarbe ?? 'fjordblau'),
       ober: String(z.ober),
       beine: String(z.beine),
       erstellt: Number(z.erstellt),

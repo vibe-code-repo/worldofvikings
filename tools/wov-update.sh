@@ -833,6 +833,12 @@ fi
 # seine Abhängigkeiten deshalb nicht mitinstalliert.
 echo
 echo "▶ Webseite bauen"
+# Die beiden Dateien sind erzeugte Abbilder der gemeinsamen Listen bzw.
+# der Vorschauquelle. Direkt vor dem Webseitenbau erneuern, damit eine
+# Aenderung an shared/aussehen.ts nicht mit einer alten Auswahl oder ein
+# neuer Vorschauweg mit einem alten Browserbuendel ausgeliefert wird.
+node_modules/.bin/tsx tools/aussehen-json.mjs --aus wov-web/static/assets/appearance.json
+node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js
 (cd wov-web && npm ci --include=dev && npm run build && bash tools/ohne-js-pruefen.sh)
 
 # ── 8. Dienste starten ───────────────────────────────────────────────

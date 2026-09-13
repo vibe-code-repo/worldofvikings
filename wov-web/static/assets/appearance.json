@@ -559,6 +559,45 @@
     }
   ],
   "defaultHairColor": "mittelbraun",
+  "eyeColors": [
+    {
+      "id": "fjordblau",
+      "name": "Fjordblau",
+      "nameEn": "Fjord blue",
+      "hex": "#49667E"
+    },
+    {
+      "id": "eisblau",
+      "name": "Eisblau",
+      "nameEn": "Ice blue",
+      "hex": "#5A92AD"
+    },
+    {
+      "id": "waldgruen",
+      "name": "Waldgrün",
+      "nameEn": "Forest green",
+      "hex": "#5A8A5A"
+    },
+    {
+      "id": "hasel",
+      "name": "Hasel",
+      "nameEn": "Hazel",
+      "hex": "#947952"
+    },
+    {
+      "id": "bernstein",
+      "name": "Bernstein",
+      "nameEn": "Amber",
+      "hex": "#C19A52"
+    },
+    {
+      "id": "schiefergrau",
+      "name": "Schiefergrau",
+      "nameEn": "Slate grey",
+      "hex": "#7B757B"
+    }
+  ],
+  "defaultEyeColor": "fjordblau",
   "equipment": [],
   "timeOfDay": {
     "marks": {

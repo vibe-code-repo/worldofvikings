@@ -1334,6 +1334,11 @@ export class WovServer {
           this.sendPlayerState(peer);
         }
       }
+      // Adminrechte offener Sitzungen an die Liste angleichen. Im
+      // selben 1-Sekunden-Takt und nicht in einem eigenen Timer, aus
+      // demselben Grund wie der Rest dieses Blocks. Warum ueberhaupt
+      // getaktet und nicht nur beim Befehl: s. gleicheAdminrechteAb().
+      this.gleicheAdminrechteAb();
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
       this.dungeons.tick(now);
       this.eventTick(now);
@@ -2256,13 +2261,18 @@ export class WovServer {
     const moveY = reader.readFloat32();
     const running = reader.readBool();
     const jumping = reader.readBool();
-    // lookYaw/lookPitch/jumping are read for protocol completeness but not
-    // used server-side yet (character rotation, jump physics — later).
+    // lookPitch/jumping are read for protocol completeness but not used
+    // server-side yet (jump physics — later).
 
     peer.lastInputSeq = seq;
 
     // Server-authoritative movement
     const now = Date.now();
+    // `lookYaw` wurde bis heute gelesen und weggeworfen — genau daran
+    // hing der Nahkampf-Kegel in der Luft (s. handleAttack). Der 20-Hz-
+    // Eingabestrom ist die dichteste Blickmeldung, die es gibt; sie
+    // fuehrt `peer.blickYaw`, gegen den der Kegel dann rechnet.
+    this.fuehreBlickNach(peer, lookYaw, now);
     // real elapsed time between input packets (fall speed needs wall time)
     const deltaSec = peer.lastInputTime > 0 ? Math.min((now - peer.lastInputTime) / 1000, 0.5) : 1 / 30;
     peer.lastInputTime = now;
@@ -2743,7 +2753,8 @@ export class WovServer {
   /**
    * Nahkampfschlag: trifft die nächste Kreatur innerhalb von
    * NAHKAMPF_REICHWEITE vor dem Spieler — "vor" im Sinne des
-   * Trefferkegels (NAHKAMPF_KEGEL_GRAD um die gemeldete Blickrichtung).
+   * Trefferkegels (NAHKAMPF_KEGEL_GRAD um die vom Server GEFUEHRTE
+   * Blickrichtung, s. fuehreBlickNach).
    * Kreaturen-HP leben als ZDO-Member `HEALTH_MEMBER`; ihr Startwert
    * steht in shared/leben.ts und wird beim Spawn geschrieben (s.
    * SpawnSystem.stelleLebenSicher), damit der Client daraus einen
@@ -2803,7 +2814,8 @@ export class WovServer {
 
   /**
    * Halber Oeffnungswinkel des Trefferkegels in Grad — ein Ziel muss
-   * innerhalb von ±60° um die gemeldete Blickrichtung liegen.
+   * innerhalb von ±60° um die gefuehrte Blickrichtung liegen
+   * (fuehreBlickNach; bis zum 13.09. war es die im Paket behauptete).
    *
    * 120° Gesamtoeffnung ist bewusst weit. Enger waere sauberer gegen
    * Rueckentreffer, wuergt aber die Dreierkombo ab: Waehrend der drei
@@ -2828,6 +2840,87 @@ export class WovServer {
   private static readonly NAHKAMPF_KEGEL_MINDESTABSTAND = 0.8;
 
   /**
+   * Hoechste Drehgeschwindigkeit (rad/s), die der Server einer gemeldeten
+   * Blickrichtung zwischen zwei Meldungen zugesteht. 15 rad/s sind rund
+   * 860°/s — eine halbe Drehung in 0,21 s.
+   *
+   * ── WELCHE ZUSAGE HIER UEBERHAUPT DRINSTEHT ─────────────────────────
+   * KEINE ueber die Wahrheit der Blickrichtung. Sie kommt vom Client,
+   * jede einzelne Meldung, und der Server hat nichts, woran er sie
+   * messen koennte (die Kamera steht im Browser). Was er messen kann,
+   * ist die FOLGE der Meldungen gegen die Uhr: Eine Figur, die sich in
+   * 50 ms um 180° dreht, hat sich nicht gedreht, sondern ist umgesprungen.
+   * Die Zusage lautet deshalb: *Der Server schlaegt immer in die
+   * Richtung, die der Client ueber einen zusammenhaengenden Verlauf
+   * gemeldet hat — wer nach hinten treffen will, muss sich vorher
+   * wirklich umdrehen und ist dabei fuer alle sichtbar abgewandt.*
+   * Nicht mehr. Ein Client, der zwei Sekunden lang ehrlich nach hinten
+   * blickt und dann zuschlaegt, trifft nach hinten; das ist der
+   * Normalfall des Spiels und kein Angriff.
+   *
+   * ── WARUM 15 UND NICHT WENIGER ──────────────────────────────────────
+   * Die Maus des Clients rechnet mit MOUSE_SENSITIVITY = 0,0022 rad je
+   * Zaehlschritt (client/src/player/PlayerController.ts). Eine halbe
+   * Drehung sind damit rund 1 430 Zaehlschritte — bei 800 dpi etwa 4,5 cm
+   * Handweg, bei 1 600 dpi 2,3 cm. Ein Handriss von 1 m/s liefert das in
+   * unter 50 ms, also mit weit ueber 60 rad/s. Eine Grenze, die ehrliche
+   * Risser NIE einholt, gaebe es also nicht — sie muesste so hoch liegen,
+   * dass sie nichts mehr bremst.
+   *
+   * Deshalb kostet ein Ueberschreiten hier auch keinen Fehlschlag,
+   * sondern nur Nachlauf: Die gefuehrte Richtung wird an die Grenze
+   * GEKLEMMT, nicht verworfen, und holt die echte binnen weniger
+   * Meldungen ein (bei 20 Hz: 0,75 rad je Paket). Der Kegel ist ±60°
+   * breit, ein Nachlauf unter 60° faellt also gar nicht auf. Nach einem
+   * vollen Riss um 180° ist der Rueckstand nach 0,14 s wieder unter 60°,
+   * nach 0,21 s bei null — kuerzer als die Schlagsperre der Drossel
+   * (350 ms).
+   *
+   * GEMESSEN am laufenden Spiel (13.09.2026,
+   * tools/pw-nahkampf-drehung.mjs — echte Mausereignisse durch den
+   * InputManager, Gegner im Ruecken, herumreissen und schlagen):
+   *   Riss 480–640°/s, sofort geklickt      10/10 Treffer
+   *   Riss 480–640°/s, nach 200 ms geklickt 10/10 Treffer
+   *   Blick springt in EINEM Bild um 180°, sofort geklickt   0/10
+   *   dasselbe, nach 200 ms geklickt                        10/10
+   * Nur der Sprung in einem einzigen Bild verliert Schlaege, und auch
+   * der nur, wenn im selben Augenblick geklickt wird — eine Bewegung,
+   * die keine Hand erzeugt. Der ehrliche Betrieb bleibt unberuehrt:
+   * tools/pw-nahkampf-trefferquote.mjs meldet nach dieser Aenderung
+   * unveraendert 60/60 ehrliche Treffer und 0/20 aus dem Ruecken.
+   *
+   * Maximum turn rate (rad/s) granted between two look reports.
+   */
+  private static readonly BLICK_DREHRATE_MAX = 15;
+
+  /**
+   * Hoechstalter (s) einer Blickmeldung, das beim Nachfuehren als
+   * Drehzeit ANGERECHNET wird.
+   *
+   * Ohne diesen Deckel waere die Grenze wirkungslos: Wer seine
+   * Eingabepakete zurueckhaelt, sammelt Drehguthaben und darf danach
+   * springen — bei 350 ms Schlagtakt (Drossel) waeren das 5,2 rad, also
+   * jede Richtung. Angerechnet wird deshalb hoechstens die Zeit, die
+   * zwischen zwei Meldungen eines ehrlichen Clients ohnehin liegt; wer
+   * nichts meldet, verdient auch kein Guthaben.
+   *
+   * 0,05 s ist genau der Sendetakt des Clients: PlayerInput geht fest
+   * mit 20 Hz raus (client/src/main.ts, INPUT_SEND_RATE_MS = 50 ms),
+   * ununterbrochen, auch im Stehen. Ein ehrlicher Spieler verliert
+   * dadurch NICHTS — er schoepft den Deckel mit jedem Paket voll aus.
+   * Verlorene oder verspaetete Eingabepakete kosten ihn nur Nachlauf
+   * (0,75 rad je Paket statt mehr auf einen Schlag), keinen Schlag.
+   *
+   * Und das ist zugleich die Obergrenze dessen, was eine LUEGE im
+   * Angriffspaket noch bewegen kann: 0,75 rad ≈ 43°. Zusammen mit dem
+   * Kegel (±60°) reicht ein Schlag damit hoechstens ~103° zur Seite —
+   * nach hinten (180°) kommt niemand mehr, ohne sich wirklich zu drehen.
+   * Ein groesserer Deckel macht genau diese Zahl groesser: mit 0,1 s
+   * waeren es 146°, und der Rundumschlag waere nur halb tot.
+   */
+  private static readonly BLICK_ALTERSDECKEL_S = 0.05;
+
+  /**
    * Angriff/Ernte nur nah an der SERVER-Position — vorher wirkte ein
    * Schlag an jeder Weltposition (Review-Punkt 4). handleHarvest erbt die
    * Pruefung ueber handleAttack. Der frueher hier gefuehrte feste
@@ -2850,8 +2943,75 @@ export class WovServer {
   }
 
   /**
+   * Winkel auf (−π, π] bringen — sonst ist die Differenz zweier
+   * Blickrichtungen einmal 0,1 rad und einmal 6,2 rad, je nachdem, wie
+   * oft der Client schon herumgedreht hat.
+   */
+  private static normalisiereWinkel(w: number): number {
+    const zwei = 2 * Math.PI;
+    const r = ((w + Math.PI) % zwei + zwei) % zwei;
+    return r - Math.PI;
+  }
+
+  /**
+   * Eine gemeldete Blickrichtung in die gefuehrte einarbeiten und die
+   * neue gefuehrte zurueckgeben (null, solange es gar keine gibt).
+   *
+   * Feed one reported look direction into the tracked one.
+   *
+   * Die Regel ist eine einzige: zwischen zwei Meldungen darf sich der
+   * Blick um hoechstens BLICK_DREHRATE_MAX mal der (gedeckelten)
+   * Zwischenzeit bewegen. Was darueber hinausgeht, wird GEKLEMMT, nicht
+   * verworfen — die Begruendung steht bei BLICK_DREHRATE_MAX.
+   *
+   * PlayerInput und Attack laufen bewusst durch DIESELBE Funktion: Sonst
+   * waere die Luecke nur umgezogen. Wer im Angriffspaket nicht mehr
+   * springen darf, springt eben im Eingabepaket unmittelbar davor — es
+   * kostete ihn ein Paket und keine Zeit. So gibt es je Peer genau EINEN
+   * Blickverlauf, in den jede Meldung eingerechnet wird, egal aus
+   * welchem Paket sie stammt.
+   *
+   * Die ERSTE brauchbare Meldung wird unbesehen uebernommen: Ein frisch
+   * verbundener Peer hat keine Vorgeschichte, gegen die man sie halten
+   * koennte, und "steht anfangs zwangsweise nach −Z" waere eine
+   * erfundene Wahrheit. Gewonnen ist damit nichts fuer einen Angreifer —
+   * eine einmalige freie Richtung hat auch, wer sich einfach hinstellt
+   * und hinschaut.
+   */
+  private fuehreBlickNach(peer: Peer, gemeldet: number, jetzt: number): number | null {
+    // NaN/Infinity gar nicht erst einarbeiten: Ein einziges NaN machte
+    // `blickYaw` dauerhaft unbrauchbar, und der Kegel liesse danach
+    // entweder alles oder nichts durch. Die vorige gefuehrte Richtung
+    // bleibt stehen — sie ist die letzte, die Sinn ergab.
+    if (!Number.isFinite(gemeldet)) return peer.blickYaw;
+    const ziel = WovServer.normalisiereWinkel(gemeldet);
+
+    if (peer.blickYaw === null) {
+      peer.blickYaw = ziel;
+      peer.blickYawZeit = jetzt;
+      return ziel;
+    }
+
+    const dt = Math.min(
+      Math.max((jetzt - peer.blickYawZeit) / 1000, 0),
+      WovServer.BLICK_ALTERSDECKEL_S
+    );
+    const erlaubt = WovServer.BLICK_DREHRATE_MAX * dt;
+    const differenz = WovServer.normalisiereWinkel(ziel - peer.blickYaw);
+    peer.blickYaw =
+      Math.abs(differenz) <= erlaubt
+        ? ziel
+        : WovServer.normalisiereWinkel(peer.blickYaw + Math.sign(differenz) * erlaubt);
+    peer.blickYawZeit = jetzt;
+    return peer.blickYaw;
+  }
+
+  /**
    * Liegt `ziel` im Trefferkegel um die Blickrichtung `yaw`, von `von` aus
    * gesehen? Is the target inside the swing cone?
+   *
+   * `yaw` ist die GEFUEHRTE Richtung aus fuehreBlickNach, nicht der Wert
+   * aus dem Angriffspaket — der Unterschied ist der ganze Befund 1.
    *
    * Die Blickbasis ist die des Clients (PlayerController.update):
    * forward = (−sin yaw, −cos yaw). Yaw 0 schaut also nach −Z. Diese
@@ -2878,11 +3038,34 @@ export class WovServer {
   private handleAttack(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
     if (!this.schlagErlaubt(peer, pos)) return;
-    // Der Yaw wurde bis Paket 0.3 gelesen und weggeworfen. Er ist die
-    // einzige Blickrichtung, die der Server ueberhaupt kennt:
-    // handlePlayerInput liest `lookYaw` zwar, legt ihn aber nicht am Peer
-    // ab. Er kommt also aus dem Angriffspaket oder gar nicht.
-    const yaw = reader.readFloat32();
+    /*
+      Der im Paket BEHAUPTETE Blickwinkel. Bis heute war er die einzige
+      Blickrichtung, die der Server kannte, und der Kegel rechnete
+      ungeprueft gegen ihn — ein Angreifer-Skript hat damit bei
+      unveraenderter, ehrlicher Position und ohne sich je zu drehen vier
+      von sechs sternfoermig verteilten Zielen getroffen, darunter das im
+      Ruecken (Befund 1, 13.09.2026).
+
+      Jetzt ist er nur noch eine MELDUNG unter anderen: Er geht durch
+      dieselbe Nachfuehrung wie der `lookYaw` der Eingabepakete und darf
+      die gefuehrte Richtung nur um das bewegen, was seit der letzten
+      Meldung drehbar war (fuehreBlickNach). Geschlagen wird danach mit
+      der GEFUEHRTEN Richtung, nicht mit der behaupteten.
+
+      Warum der behauptete Winkel trotzdem noch einfliesst, statt ihn
+      einfach zu verwerfen: Er ist die FRISCHESTE Blickmeldung, die es zu
+      diesem Schlag gibt — das Eingabepaket davor ist bis zu 50 ms alt,
+      und in einer schnellen Drehung sind das bis zu 0,75 rad. Ihn
+      wegzuwerfen hiesse, jeden Schlag waehrend einer Drehung um genau
+      diesen Betrag daneben zu legen.
+    */
+    const behaupteterYaw = reader.readFloat32();
+    // Kein gefuehrter Blick (kein einziges brauchbares Blickfeld bisher)
+    // → NaN, und imTrefferkegel() faellt darueber auf "kein Ziel". Das
+    // ist die richtige Seite: ein Schlag ohne jede Blickrichtung ist kein
+    // gezielter Schlag. Der Weg zur Ernte bleibt offen (die kennt keinen
+    // Kegel).
+    const yaw = this.fuehreBlickNach(peer, behaupteterYaw, Date.now()) ?? NaN;
     let waffe = '';
     try {
       waffe = reader.readString();
@@ -3833,6 +4016,9 @@ export class WovServer {
             message: `Unbekannter Spieler: "${name}" (muss schon einmal verbunden gewesen sein)` };
         }
         const neu = this.adminListe.hinzufuegen(id, name);
+        // Sofort an den offenen Sitzungen nachziehen — in BEIDE
+        // Richtungen, Begruendung bei gleicheAdminrechteAb().
+        if (neu) this.gleicheAdminrechteAb();
         return { ok: true, active: false,
           message: neu ? `${name} [${id}] ist jetzt dauerhaft Admin` : `${name} war schon Admin` };
       }
@@ -3844,7 +4030,31 @@ export class WovServer {
         if (!id) {
           return { ok: false, active: false, message: `Unbekannter Spieler: "${name}"` };
         }
+        /*
+          Der LETZTE Admin darf sich nicht selbst aussperren.
+
+          Dieselbe Bremse steht schon beim `bann`-Befehl, und aus genau
+          demselben Grund (dort ausfuehrlich begruendet): Seit
+          `everyone-admin: false` ist diese Liste der einzige Weg zu
+          Rechten, und `admin add` braucht einen Admin. Wer den letzten
+          Eintrag entfernt, hat einen Server ohne jeden Admin — zurueck
+          kommt man nur noch ueber die Datei auf der Platte oder die
+          Adminroute des Betriebsdienstes, also nur mit Zugang zur
+          Maschine. Das ist eine Huerde in der Bedienung, keine Ausnahme
+          in der Berechtigung: Wer wirklich alle Admins loswerden will,
+          traegt vorher einen zweiten ein und entfernt dann beide, oder
+          er nimmt den Weg ueber den Betriebsdienst.
+        */
+        if (this.adminListe.enthaelt(id) && this.adminListe.anzahl <= 1) {
+          return { ok: false, active: false,
+            message: `${name} ist der letzte Admin. Erst "admin add <Name>" fuer jemand anderen, sonst steht der Server ohne Admin da.` };
+        }
         const weg = this.adminListe.entfernen(id);
+        // Wirkung SOFORT, nicht erst beim naechsten Anmelden: Ein
+        // uebernommenes Adminkonto ist genau der Fall, in dem man nicht
+        // warten kann, bis der andere von sich aus die Verbindung
+        // beendet (Befund 3).
+        if (weg) this.gleicheAdminrechteAb();
         return { ok: true, active: false,
           message: weg ? `${name} [${id}] ist kein dauerhafter Admin mehr` : `${name} war nicht in der Admin-Liste` };
       }
@@ -3852,6 +4062,80 @@ export class WovServer {
       return { ok: false, active: false,
         message: 'Aufruf: admin liste | admin add <Name> | admin remove <Name>' };
     });
+  }
+
+  /**
+   * Die Rechte OFFENER Sitzungen an die Adminliste angleichen.
+   * Re-check every open session against the admin list.
+   *
+   * ── Das Problem ─────────────────────────────────────────────────────
+   * `peer.isAdmin` entstand bisher genau EINMAL, im Handshake
+   * (NetManager.handlePasswordAuth), und wurde danach nie wieder gegen
+   * die Liste gehalten. Ein Angreifer-Skript hat auf EINER offenen
+   * Verbindung `admin remove Admin` ausgefuehrt — Liste danach
+   * nachweislich leer — und unmittelbar danach, ohne neu zu verbinden,
+   * `fly` benutzt: "Fly mode ON" (Befund 3, 13.09.2026). Ein
+   * uebernommenes Adminkonto blieb also bis zum SELBSTGEWAEHLTEN
+   * Verbindungsende voll handlungsfaehig, und das ist genau der Fall, in
+   * dem man sofortige Wirkung braucht.
+   *
+   * ── Warum nachziehen und nicht trennen ──────────────────────────────
+   * `bann` und `kick` trennen (net.trenneGebannte()), weil dort die
+   * PERSON weg soll. Hier soll sie bleiben: `admin remove` nimmt Rechte,
+   * kein Spielrecht — wer gerade in einem Dungeon steht, soll dafuer
+   * nicht aus der Welt fliegen. Getrennt wird deshalb nicht; entzogen
+   * wird sofort. Der Unterschied zu heute ist nicht die Haerte, sondern
+   * dass der stille Zustand "Liste sagt nein, Sitzung sagt ja" nicht
+   * mehr existiert.
+   *
+   * Der Flug hoert mit dem Recht auf: Er ist die einzige Adminwirkung,
+   * die OHNE weiteren Befehl weiterlaeuft (handlePlayerInput fragt nur
+   * `peer.flying` ab, nicht `peer.isAdmin`) — bliebe er stehen, koennte
+   * ein Entzogener die Welt weiter ueberfliegen.
+   *
+   * ── Beide Richtungen ────────────────────────────────────────────────
+   * Auch das Hinzufuegen wirkt sofort. Dieselbe Begruendung von der
+   * anderen Seite: "Liste sagt ja, Sitzung sagt nein" ist genauso
+   * unerklaerlich, und ein frisch ernannter Admin, der sich erst neu
+   * verbinden muss, ist einfach nur kaputt.
+   *
+   * Aufgerufen von `admin add`/`admin remove` und im Sekundentakt aus
+   * update(). Der Takt ist noetig, weil die Liste auch von AUSSEN
+   * wandert (Adminroute des Betriebsdienstes, Handanlegen an der Datei —
+   * AdminListe.abgleichen liest die Datei dann neu ein); ohne ihn
+   * bliebe die Luecke fuer genau diese Wege offen. Er kostet eine
+   * `alle()`-Abfrage je Sekunde, also ein statSync und im Regelfall
+   * keinen einzigen Dateizugriff mehr.
+   */
+  private gleicheAdminrechteAb(): void {
+    // Bei `everyone-admin: true` ist die Liste nicht das Tor (s.
+    // NetManager.handlePasswordAuth: ODER-Verknuepfung). Dann darf ein
+    // fehlender Listeneintrag auch keine Rechte wegnehmen.
+    if (this.config.everyoneAdmin) return;
+    const berechtigt = new Set(this.adminListe.alle().map((e) => e.spielerId));
+    for (const peer of this.net.getPeers()) {
+      // Ohne spielerId gibt es nichts abzugleichen (noch nicht
+      // angemeldet) — und ein leerer String darf nie in der Menge
+      // stehen, sonst haengte die Berechtigung an einer Leerstelle.
+      if (!peer.spielerId) continue;
+      const soll = berechtigt.has(peer.spielerId);
+      if (soll === peer.isAdmin) continue;
+      peer.isAdmin = soll;
+      if (!soll && peer.flying) {
+        peer.flying = false;
+        peer.sendPacketWith(PacketType.AdminEvent, (w) => {
+          w.writeString('fly');
+          w.writeBool(false);
+          w.writeString('Fly mode OFF (Adminrechte entzogen)');
+        });
+      }
+      peer.sendPacketWith(PacketType.AdminEvent, (w) => {
+        w.writeString('admin');
+        w.writeBool(false);
+        w.writeString(soll ? 'Du hast jetzt Adminrechte.' : 'Deine Adminrechte wurden entzogen.');
+      });
+      console.log(`[Admin] "${peer.name}" — Rechte an der Liste nachgezogen: isAdmin=${soll}`);
+    }
   }
 
   /**

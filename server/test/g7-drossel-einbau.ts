@@ -113,12 +113,12 @@ function sendPlacePiece(ws: WebSocket, prefabHash: number, pos: Vector3): void {
   ws.send(Buffer.concat([Buffer.from([P.PlacePiece]), w.toBuffer()]));
 }
 
-function sendPlayerInput(ws: WebSocket, seq: number): void {
+function sendPlayerInput(ws: WebSocket, seq: number, lookYaw = 0): void {
   const w = new Writer();
   w.writeInt32(seq);
   w.writeFloat32(0); // moveX — bewusst reglos: nur die Drosselung zaehlt hier, nicht die Bewegung
   w.writeFloat32(0); // moveZ
-  w.writeFloat32(0); // lookYaw
+  w.writeFloat32(lookYaw); // lookYaw — fuehrt serverseitig die Blickrichtung nach
   w.writeFloat32(0); // lookPitch
   w.writeFloat32(0); // moveY
   w.writeBool(false); // running
@@ -218,8 +218,21 @@ async function main(): Promise<void> {
         z: mitte.z - Math.cos(yaw) * 2,
       })
     );
+    /*
+      Zwischen den Schlaegen wird EHRLICH gedreht — mit Eingabepaketen im
+      Client-Takt, so wie es der Browser tut. Seit dem 13.09. fuehrt der
+      Server die Blickrichtung selbst nach und laesst sie nur mit
+      begrenzter Drehrate wandern (WovServer.fuehreBlickNach); ein Schlag,
+      der 90° in eine nie gemeldete Richtung geht, trifft nicht mehr. Die
+      Wartezeit von 400 ms bleibt dabei genau erhalten, sie ist jetzt nur
+      mit den Paketen gefuellt, die ein echter Client ohnehin schickt.
+    */
+    let drehSeq = ANZAHL_INPUTS;
     for (let i = 0; i < ziele.length; i++) {
-      await warte(400);
+      for (let t = 0; t < 400; t += 50) {
+        sendPlayerInput(ws, ++drehSeq, yaws[i]!);
+        await warte(50);
+      }
       sendAttack(ws, mitte, '', yaws[i]);
       await warte(200);
     }

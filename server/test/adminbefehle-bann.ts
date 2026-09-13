@@ -42,6 +42,12 @@
  *      Befehl legt trotzdem eine Huerde davor (Ziel steht auf der
  *      Adminliste → Ablehnung mit Verweis auf `admin remove`), damit sich
  *      niemand den letzten Admin wegbannt. Beide Haelften stehen hier.
+ *   5. Adminrechte folgen der Liste MITTEN in der Sitzung (Befund 3 des
+ *      Angreifer-Reviews): ein Eintrag von aussen wirkt sofort, ein
+ *      `admin remove` nimmt Rechte und Flug an der offenen Verbindung —
+ *      ohne sie zu trennen.
+ *   6. Und der letzte Admin kann sich nicht mehr selbst aussperren
+ *      (Befund 4) — mit einem zweiten Admin auf der Liste geht es.
  *
  * Ablauf: npx tsx server/test/adminbefehle-bann.ts   (aus der Wurzel)
  */
@@ -375,6 +381,76 @@ async function main(): Promise<void> {
     check('und der Verweis sagt, wie man es doch tut',
       geschuetzt.includes('admin remove'), geschuetzt);
     check('nichts wurde eingetragen', innen.kontenDb.bannListe().length === 0);
+
+    // ── 6. Rechte folgen der Liste, MITTEN in der Sitzung ───────────
+    /*
+      Befund 3 des Angreifer-Reviews (13.09.): `peer.isAdmin` entstand
+      genau einmal, im Handshake, und wurde danach nie wieder gegen die
+      Liste gehalten. Auf EINER offenen Verbindung liess sich
+      `admin remove` ausfuehren — Liste nachweislich leer — und danach
+      ohne Neuverbinden weiter `fly` benutzen. Ein uebernommenes
+      Adminkonto blieb also bis zum selbstgewaehlten Verbindungsende
+      handlungsfaehig.
+
+      Beide Richtungen stehen hier, denn beide sind derselbe stille
+      Widerspruch:
+        - Eintrag kommt dazu → die offene Sitzung DARF sofort.
+        - Eintrag faellt weg  → die offene Sitzung darf sofort NICHT mehr,
+          und ein laufender Flug hoert auf.
+      Der Gast steht seit dem Abschnitt davor auf der Liste — dort direkt
+      in die AdminListe geschrieben, also am Befehl VORBEI. Genau so
+      kommen Aenderungen der Adminroute des Betriebsdienstes herein, und
+      dass sie ankommen, ist der halbe Punkt dieses Abschnitts.
+    */
+    const flyGastAlsAdmin = await gastSitzung2.befehl('fly');
+    check('ein Eintrag von aussen wirkt in der OFFENEN Sitzung',
+      flyGastAlsAdmin.includes('Fly mode ON'), flyGastAlsAdmin);
+    const gastPeer = server.net.getPeers().find((p) => p.name === 'Gast');
+    check('der Gast fliegt jetzt wirklich', gastPeer?.flying === true);
+
+    const entzogen = await adminSitzung2.befehl('admin remove Gast');
+    check('"admin remove" nimmt den Eintrag heraus',
+      entzogen.includes('kein dauerhafter Admin mehr'), entzogen);
+    check('der Entzug wirkt an derselben offenen Verbindung sofort',
+      gastPeer?.isAdmin === false, `isAdmin=${gastPeer?.isAdmin}`);
+    check('und beendet den laufenden Flug', gastPeer?.flying === false,
+      `flying=${gastPeer?.flying}`);
+    const flyDanach = await gastSitzung2.befehl('fly');
+    check('derselbe Draht darf NICHT mehr fliegen (kein Neuverbinden noetig)',
+      !flyDanach.includes('Fly mode'), flyDanach);
+    check('der Entzogene bleibt aber verbunden — Rechte weg, nicht die Person',
+      !gastSitzung2.geschlossen);
+
+    // ── 7. Der letzte Admin sperrt sich nicht selbst aus ─────────────
+    /*
+      Befund 4: `admin remove <eigener Name>` durch den EINZIGEN Admin
+      leerte die Liste, und danach gab es ueber das Spiel keinen Weg
+      zurueck — `admin add` braucht ja einen Admin. Dieselbe Bremse
+      stand schon beim `bann`-Befehl; sie fehlte nur hier.
+    */
+    check('vor der Probe steht genau ein Admin auf der Liste',
+      innen.adminListe.alle().length === 1, JSON.stringify(innen.adminListe.alle()));
+    const selbstEntzug = await adminSitzung2.befehl('admin remove Admin');
+    check('der letzte Admin wird nicht entfernt', selbstEntzug.includes('letzte Admin'), selbstEntzug);
+    check('und die Liste hat ihn noch', innen.adminListe.enthaelt(adminCharakter!.spielerId),
+      JSON.stringify(innen.adminListe.alle()));
+    const flyNochImmer = await adminSitzung2.befehl('fly');
+    check('er darf weiterhin Adminbefehle', flyNochImmer.includes('Fly mode'), flyNochImmer);
+
+    // Mit einem zweiten Admin auf der Liste geht es sehr wohl — die
+    // Bremse haengt an "der letzte", nicht an "ein Admin".
+    innen.adminListe.hinzufuegen(gastCharakter!.spielerId, 'Gast');
+    await adminSitzung2.befehl('admin remove Admin');
+    // Gelesen wird die LISTE, nicht die Antwortzeile: Das Nachziehen der
+    // Rechte schickt selbst ein AdminEvent ("Deine Adminrechte wurden
+    // entzogen."), und das kommt vor der Antwort auf den Befehl an — der
+    // Einzeiler-Empfaenger dieses Tests faengt also das erste von beiden.
+    check('mit einem zweiten Admin auf der Liste geht der Entzug durch',
+      !innen.adminListe.enthaelt(adminCharakter!.spielerId),
+      JSON.stringify(innen.adminListe.alle()));
+    const adminPeer = server.net.getPeers().find((p) => p.name === 'Admin');
+    check('auch der sich selbst Entziehende verliert die Rechte sofort',
+      adminPeer?.isAdmin === false, `isAdmin=${adminPeer?.isAdmin}`);
 
     gastSitzung2.ws.close();
     adminSitzung.ws.close();

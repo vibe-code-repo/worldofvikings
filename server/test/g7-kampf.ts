@@ -22,6 +22,11 @@
  *     schon. Und: die Zielsuche haengt an der SERVER-Position, nicht an
  *     der gemeldeten — ein Paket, das eine Kreatur weitab nennt, aber
  *     plausibel nah gemeldet ist, trifft diese Kreatur nicht.
+ *  3c. Der Server fuehrt die Blickrichtung SELBST (Befund 1 des
+ *     Angreifer-Reviews, 13.09.): Ein Angriffspaket mit gelogenem Yaw
+ *     trifft das Ziel im Ruecken nicht mehr, waehrend derselbe Schlag
+ *     nach einer ehrlich gemeldeten Drehung sehr wohl trifft. Dazu der
+ *     Rundumschlag im Kleinen: drei Ziele, gelogene Yaws, ein Treffer.
  *  4. Cooldown ueber die Drossel: zwei Attack-Pakete ohne Pause — nur EINS
  *     zaehlt (STANDARD_DROSSEL: Attack-Eimergroesse 1). Der naechste Schlag
  *     nach der Fuellzeit (350 ms) zaehlt wieder normal — legitimes,
@@ -52,6 +57,7 @@ const P = {
   VersionCheck: 1,
   PasswordAuth: 2,
   PeerInfo: 3,
+  PlayerInput: 40,
   InteractResult: 45,
   Attack: 46,
   AdminCommand: 53,
@@ -106,8 +112,51 @@ function sendAdmin(ws: WebSocket, line: string): void {
 }
 
 /**
+ * Ein Eingabepaket wie das des echten Clients: stehend (moveX/moveZ 0),
+ * aber MIT Blickrichtung. Genau dieses Feld fuehrt seit dem 13.09. die
+ * server-eigene Blickrichtung nach (WovServer.fuehreBlickNach).
+ *
+ * Wire-Format: seq, moveX, moveZ, lookYaw, lookPitch, moveY, running,
+ * jumping (s. shared/src/protocol.ts, PlayerInputPacket).
+ */
+let eingabeSeq = 0;
+function sendInput(ws: WebSocket, yaw: number): void {
+  const w = new Writer();
+  w.writeInt32(++eingabeSeq);
+  w.writeFloat32(0);
+  w.writeFloat32(0);
+  w.writeFloat32(yaw);
+  w.writeFloat32(0);
+  w.writeFloat32(0);
+  w.writeBool(false);
+  w.writeBool(false);
+  ws.send(Buffer.concat([Buffer.from([P.PlayerInput]), w.toBuffer()]));
+}
+
+/**
+ * EHRLICH in eine Richtung drehen — so, wie es der Browser tut: 20 Hz
+ * Eingabepakete, bis der Server die Richtung uebernommen hat.
+ *
+ * Warum das noetig ist: Der Server laesst seine gefuehrte Blickrichtung
+ * nur mit begrenzter Drehrate wandern (BLICK_DREHRATE_MAX, 15 rad/s).
+ * Eine halbe Drehung braucht darum rund 0,21 s Meldungen — im Spiel
+ * genau die Zeit, die die Figur sichtbar zum Umdrehen braucht. Ein Test,
+ * der die Richtung "einfach setzt", misst nicht den Spielfall.
+ */
+async function blicke(ws: WebSocket, yaw: number, dauerMs = 400): Promise<void> {
+  for (let t = 0; t < dauerMs; t += 50) {
+    sendInput(ws, yaw);
+    await warte(50);
+  }
+}
+
+/**
  * `yaw` ist die Blickrichtung wie der Client sie meldet:
- * forward = (−sin yaw, −cos yaw). Yaw 0 schaut also nach −Z.
+ * forward = (−sin yaw, −cos yaw). Yaw 0 schaut also nach −Z. Seit dem
+ * 13.09. ist der Wert nur noch eine MELDUNG: Der Server rechnet den
+ * Kegel gegen seine eigene, nachgefuehrte Richtung (fuehreBlickNach) —
+ * wer hier etwas anderes einsetzt als das, was `sendInput` vorher
+ * gemeldet hat, luegt, und genau das prueft Abschnitt [3c].
  */
 function sendAttack(ws: WebSocket, pos: Vector3, waffe: string, yaw = 0): void {
   const w = new Writer();
@@ -216,10 +265,16 @@ async function main(): Promise<void> {
     const skelB = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_X, 2));
     const skelC = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_PLUS_Z, 2));
 
+    // Vor jedem Schlag EHRLICH hindrehen. Ohne diese Zeilen schluege der
+    // Test in eine Richtung, die er dem Server nie gemeldet hat — der
+    // Kegel rechnet seit dem 13.09. gegen die GEFUEHRTE Blickrichtung.
+    await blicke(ws, YAW_MINUS_Z);
     sendAttack(ws, mitte, '', YAW_MINUS_Z); // Faust
     await warte(400);
+    await blicke(ws, YAW_MINUS_X);
     sendAttack(ws, mitte, 'AxeFlint', YAW_MINUS_X); // besessene Waffe
     await warte(400);
+    await blicke(ws, YAW_PLUS_Z);
     sendAttack(ws, mitte, 'Club', YAW_PLUS_Z); // NICHT besessen → Faust
     await warte(400);
 
@@ -237,6 +292,10 @@ async function main(): Promise<void> {
     // ── [2] Ausdauerverbrauch ──────────────────────────────────────
     console.log('\n[2] Ausdauerverbrauch:');
     const skelStam = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_PLUS_X, 2));
+    // Erst drehen, DANN die Ausdauer setzen: Waehrend der Eingabepakete
+    // laeuft die Ausdauerregel mit, und ein vorher gesetzter Wert waere
+    // hinterher ein anderer.
+    await blicke(ws, YAW_PLUS_X);
     peer.stamina = 5;
     sendAttack(ws, mitte, '', YAW_PLUS_X);
     await warte(400);
@@ -252,6 +311,8 @@ async function main(): Promise<void> {
     // ── [3] Plausibilitaet der gemeldeten Stelle ──────────────────
     console.log('\n[3] Gemeldete Stelle muss zur Server-Position passen:');
     const skelFern = server.zdos.createZDO(skeletonHash, { x: 5000, y: 0, z: 5000 });
+    await blicke(ws, YAW_MINUS_Z);
+    peer.stamina = 92;
     sendAttack(ws, skelFern.position, '');
     await warte(400);
     check('unplausible Meldung: kein Treffer', hp(skelFern) === 0, `hp=${hp(skelFern)}`);
@@ -260,6 +321,7 @@ async function main(): Promise<void> {
     // ── [3b] Reichweite, Kegel und Anker (Paket 0.3) ─────────────
     console.log('\n[3b] Reichweite, Trefferkegel und Anker der Zielsuche:');
     mitte = await neuerPlatz(400, 400);
+    await blicke(ws, YAW_MINUS_Z);
     peer.stamina = 100;
 
     // Ruecken: 2 m HINTER dem Spieler, also gegen die Blickrichtung.
@@ -312,6 +374,104 @@ async function main(): Promise<void> {
       `hp=${hp(skelAnker)}`
     );
     server.zdos.destroyZDO(skelAnker.zdoid);
+
+    // ── [3c] Der Server fuehrt den Blick selbst (Befund 1) ────────
+    /*
+      Bis zum 13.09. rechnete der Kegel gegen den Gierwinkel, den das
+      ANGRIFFSPAKET behauptete. `handlePlayerInput` las `lookYaw` zwar,
+      legte ihn aber nie am Peer ab — der Server hatte also gar keine
+      eigene Blickrichtung, gegen die er die Behauptung haette halten
+      koennen. Ein Angreifer-Skript hat das live vorgefuehrt: ehrliche
+      Position, Ziel im Ruecken, gelogener Yaw — Treffer; und ein
+      Rundumschlag mit je neu gewaehltem Yaw traf vier von sechs
+      sternfoermig verteilten Zielen, ohne dass die Figur sich je
+      gedreht hat.
+
+      Geprueft wird hier genau der Unterschied zwischen MELDEN und
+      DREHEN. Alle drei Faelle stehen an derselben Stelle, mit
+      derselben Kreatur im Ruecken:
+        a) ehrlich hinschauen, ehrlich schlagen  → Treffer
+        b) vorwaerts melden, rueckwaerts schlagen → KEIN Treffer
+        c) sich wirklich umdrehen, dann schlagen  → wieder Treffer
+      (c) ist die wichtigere Haelfte: Eine Sperre, die auch das ehrliche
+      Umdrehen verschluckt, waere schlimmer als die Luecke.
+    */
+    mitte = await neuerPlatz(500, 500);
+    const innen = peer as unknown as { blickYaw: number | null };
+
+    // a) Ehrlich: hinschauen und schlagen.
+    await blicke(ws, YAW_MINUS_Z);
+    peer.stamina = 100;
+    const skelEhrlich = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_MINUS_Z, 2));
+    sendAttack(ws, mitte, '', YAW_MINUS_Z);
+    await warte(400);
+    check('ehrlicher Schlag nach vorn TRIFFT', hp(skelEhrlich) === 20 - faustSchaden, `hp=${hp(skelEhrlich)}`);
+    server.zdos.destroyZDO(skelEhrlich.zdoid);
+
+    // b) DER BEFUND: Eingaben melden weiter nach vorn, das Angriffspaket
+    //    behauptet die Gegenrichtung. Die Position bleibt ehrlich.
+    await blicke(ws, YAW_MINUS_Z);
+    peer.stamina = 100;
+    const skelLuege = server.zdos.createZDO(skeletonHash, vorn(mitte, YAW_PLUS_Z, 2));
+    sendAttack(ws, mitte, '', YAW_PLUS_Z);
+    await warte(400);
+    check('gelogener Yaw trifft NICHT ins Ruecken-Ziel', hp(skelLuege) === 0, `hp=${hp(skelLuege)}`);
+    check(
+      'die Luege hat den gefuehrten Blick nur um das Erlaubte bewegt (<= 0,75 rad)',
+      innen.blickYaw !== null && Math.abs(innen.blickYaw) <= 0.76,
+      `blickYaw=${innen.blickYaw?.toFixed(3)}`
+    );
+
+    // c) Gegenprobe: wirklich umdrehen (Eingabepakete melden die Drehung),
+    //    dann derselbe Schlag auf dasselbe Ziel.
+    await blicke(ws, YAW_PLUS_Z);
+    peer.stamina = 100;
+    sendAttack(ws, mitte, '', YAW_PLUS_Z);
+    await warte(400);
+    check(
+      'nach ehrlichem Umdrehen trifft derselbe Schlag',
+      hp(skelLuege) === 20 - faustSchaden,
+      `hp=${hp(skelLuege)}`
+    );
+    server.zdos.destroyZDO(skelLuege.zdoid);
+
+    /*
+      Der Rundumschlag, klein nachgebaut: drei Ziele im Abstand von 120°,
+      Eingaben durchgehend nach −Z, und je Ziel ein Angriffspaket mit
+      passend gelogenem Yaw. Getroffen werden darf nur das vordere.
+
+      120° ist mit Bedacht gewaehlt und nicht 90°: Ein einzelnes
+      Angriffspaket darf den gefuehrten Blick um bis zu 0,75 rad (43°)
+      mitnehmen — es ist die frischeste Blickmeldung zu diesem Schlag
+      (s. BLICK_ALTERSDECKEL_S). Zusammen mit dem Kegel (±60°) reicht ein
+      Schlag damit rund 103° zur Seite. Das ist die Zusage, die dieser
+      Test festhaelt: kein Treffer nach hinten und keiner ueber die
+      Schulter — nicht "auf ein Grad genau nach vorn".
+    */
+    mitte = await neuerPlatz(700, 700);
+    const stern = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3].map((yaw) => ({
+      yaw,
+      zdo: server.zdos.createZDO(skeletonHash, vorn(mitte, yaw, 2)),
+    }));
+    await blicke(ws, YAW_MINUS_Z);
+    for (const ziel of stern) {
+      peer.stamina = 100;
+      sendAttack(ws, mitte, '', ziel.yaw); // gelogen, ausser beim ersten
+      await warte(450); // Drossel: ein Schlag je 350 ms
+      // Zwischen den Schlaegen weiter ehrlich nach vorn melden — genau
+      // das tat das Angreifer-Skript auch, seine Figur stand still.
+      sendInput(ws, YAW_MINUS_Z);
+    }
+    // Getroffen = das ZDO hat einen HEALTH-Eintrag bekommen. Ein nie
+    // getroffenes ZDO hat gar keinen und liest sich als 0 — ein Vergleich
+    // gegen den Startwert (20) haette hier ALLE als getroffen gezaehlt.
+    const getroffen = stern.filter((z) => hp(z.zdo) > 0).map((z) => Math.round((z.yaw * 180) / Math.PI));
+    check(
+      'Rundumschlag mit gelogenem Yaw trifft nur das Ziel VORN',
+      getroffen.length === 1 && getroffen[0] === 0,
+      `getroffen bei ${getroffen.join('°, ')}°`
+    );
+    for (const ziel of stern) server.zdos.destroyZDO(ziel.zdo.zdoid);
 
     // ── [4] Cooldown ueber die Drossel ────────────────────────────
     console.log('\n[4] Cooldown ueber die Drossel (Attack-Eimergroesse 1):');

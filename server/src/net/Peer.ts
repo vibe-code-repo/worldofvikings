@@ -194,6 +194,27 @@ export class Peer {
   /** Timestamp of the last input packet (D6 gravity delta time) */
   lastInputTime: number;
 
+  /**
+   * Server-gefuehrte Blickrichtung (rad, Basis wie im Client:
+   * forward = (−sin yaw, −cos yaw)). `null` = dieser Peer hat noch keine
+   * einzige brauchbare Blickmeldung geschickt.
+   *
+   * WAS DAS IST UND WAS NICHT: Der Wert kommt aus CLIENTMELDUNGEN
+   * (PlayerInput, Attack) und ist damit keine unabhaengige Wahrheit —
+   * anders als `position`, die der Server seit dem 11.09. selbst rechnet.
+   * Er ist eine VERFOLGTE Groesse: `WovServer.fuehreBlickNach()` laesst
+   * ihn je Meldung nur um so viel wandern, wie sich seit der letzten
+   * Meldung ueberhaupt drehen laesst. Damit kann ein Client seine
+   * Blickrichtung nicht mehr fuer ein einzelnes Paket umspringen lassen
+   * (Nahkampf-Trefferkegel, s. WovServer.handleAttack).
+   *
+   * Tracked look direction — client-reported, but rate-limited so it
+   * cannot teleport from one packet to the next.
+   */
+  blickYaw: number | null = null;
+  /** Zeitstempel (ms) der Meldung, aus der `blickYaw` stammt. */
+  blickYawZeit = 0;
+
   constructor(socket: WebSocket, name: string, userId: bigint) {
     this.socket = socket;
     this.name = name;

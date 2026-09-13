@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-13T13:13:01.844Z",
+ "erzeugt": "2026-09-13T13:54:56.559Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 245,
- "gemessen": 245,
+ "anzahl": 259,
+ "gemessen": 259,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -5492,6 +5492,370 @@
      "dauer": 1.033
     }
    ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_female_boots": {
+   "datei": "seidraven/seidraven_female_boots.glb",
+   "foliage": false,
+   "bytes": 698636,
+   "huelle": {
+    "min": [
+     -0.168,
+     0,
+     -0.11
+    ],
+    "max": [
+     0.167,
+     0.341,
+     0.106
+    ]
+   },
+   "breite": 0.335,
+   "hoehe": 0.341,
+   "tiefe": 0.216,
+   "dreiecke": 5226,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_female_bracers": {
+   "datei": "seidraven/seidraven_female_bracers.glb",
+   "foliage": false,
+   "bytes": 240348,
+   "huelle": {
+    "min": [
+     -0.264,
+     0.563,
+     -0.065
+    ],
+    "max": [
+     0.264,
+     0.701,
+     0.038
+    ]
+   },
+   "breite": 0.528,
+   "hoehe": 0.138,
+   "tiefe": 0.103,
+   "dreiecke": 1692,
+   "materialien": 3,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_female_gloves": {
+   "datei": "seidraven/seidraven_female_gloves.glb",
+   "foliage": false,
+   "bytes": 531904,
+   "huelle": {
+    "min": [
+     -0.321,
+     0.469,
+     -0.029
+    ],
+    "max": [
+     0.318,
+     0.604,
+     0.08
+    ]
+   },
+   "breite": 0.638,
+   "hoehe": 0.136,
+   "tiefe": 0.11,
+   "dreiecke": 3760,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_female_hood": {
+   "datei": "seidraven/seidraven_female_hood.glb",
+   "foliage": false,
+   "bytes": 667408,
+   "huelle": {
+    "min": [
+     -0.082,
+     0.822,
+     -0.112
+    ],
+    "max": [
+     0.082,
+     1.057,
+     0.099
+    ]
+   },
+   "breite": 0.164,
+   "hoehe": 0.236,
+   "tiefe": 0.211,
+   "dreiecke": 4859,
+   "materialien": 8,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_female_robe": {
+   "datei": "seidraven/seidraven_female_robe.glb",
+   "foliage": false,
+   "bytes": 655112,
+   "huelle": {
+    "min": [
+     -0.137,
+     0.283,
+     -0.135
+    ],
+    "max": [
+     0.136,
+     0.662,
+     0.131
+    ]
+   },
+   "breite": 0.273,
+   "hoehe": 0.379,
+   "tiefe": 0.266,
+   "dreiecke": 5269,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_female_shoulders": {
+   "datei": "seidraven/seidraven_female_shoulders.glb",
+   "foliage": false,
+   "bytes": 534364,
+   "huelle": {
+    "min": [
+     -0.664,
+     0.657,
+     -0.146
+    ],
+    "max": [
+     0.664,
+     1.153,
+     0.046
+    ]
+   },
+   "breite": 1.328,
+   "hoehe": 0.496,
+   "tiefe": 0.191,
+   "dreiecke": 4094,
+   "materialien": 8,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_female_vest": {
+   "datei": "seidraven/seidraven_female_vest.glb",
+   "foliage": false,
+   "bytes": 548004,
+   "huelle": {
+    "min": [
+     -0.094,
+     0.639,
+     -0.103
+    ],
+    "max": [
+     0.115,
+     0.857,
+     0.115
+    ]
+   },
+   "breite": 0.209,
+   "hoehe": 0.217,
+   "tiefe": 0.218,
+   "dreiecke": 3896,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_male_boots": {
+   "datei": "seidraven/seidraven_male_boots.glb",
+   "foliage": false,
+   "bytes": 152340,
+   "huelle": {
+    "min": [
+     -0.201,
+     -0.006,
+     -0.136
+    ],
+    "max": [
+     0.201,
+     0.404,
+     0.183
+    ]
+   },
+   "breite": 0.402,
+   "hoehe": 0.41,
+   "tiefe": 0.319,
+   "dreiecke": 1336,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_male_bracers": {
+   "datei": "seidraven/seidraven_male_bracers.glb",
+   "foliage": false,
+   "bytes": 81672,
+   "huelle": {
+    "min": [
+     -0.802,
+     1.29,
+     -0.13
+    ],
+    "max": [
+     0.802,
+     1.432,
+     0.055
+    ]
+   },
+   "breite": 1.604,
+   "hoehe": 0.143,
+   "tiefe": 0.185,
+   "dreiecke": 500,
+   "materialien": 3,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_male_gloves": {
+   "datei": "seidraven/seidraven_male_gloves.glb",
+   "foliage": false,
+   "bytes": 101688,
+   "huelle": {
+    "min": [
+     -1.024,
+     1.294,
+     -0.113
+    ],
+    "max": [
+     1.024,
+     1.418,
+     0.075
+    ]
+   },
+   "breite": 2.048,
+   "hoehe": 0.124,
+   "tiefe": 0.189,
+   "dreiecke": 608,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_male_hood": {
+   "datei": "seidraven/seidraven_male_hood.glb",
+   "foliage": false,
+   "bytes": 124880,
+   "huelle": {
+    "min": [
+     -0.155,
+     1.435,
+     -0.182
+    ],
+    "max": [
+     0.155,
+     1.895,
+     0.217
+    ]
+   },
+   "breite": 0.31,
+   "hoehe": 0.46,
+   "tiefe": 0.398,
+   "dreiecke": 886,
+   "materialien": 8,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_male_robe": {
+   "datei": "seidraven/seidraven_male_robe.glb",
+   "foliage": false,
+   "bytes": 234740,
+   "huelle": {
+    "min": [
+     -0.224,
+     0.38,
+     -0.222
+    ],
+    "max": [
+     0.224,
+     0.99,
+     0.222
+    ]
+   },
+   "breite": 0.448,
+   "hoehe": 0.611,
+   "tiefe": 0.444,
+   "dreiecke": 2288,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_male_shoulders": {
+   "datei": "seidraven/seidraven_male_shoulders.glb",
+   "foliage": false,
+   "bytes": 321528,
+   "huelle": {
+    "min": [
+     -1.225,
+     1.241,
+     -0.26
+    ],
+    "max": [
+     1.225,
+     2.03,
+     0.103
+    ]
+   },
+   "breite": 2.45,
+   "hoehe": 0.789,
+   "tiefe": 0.363,
+   "dreiecke": 2528,
+   "materialien": 8,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "seidraven/seidraven_male_vest": {
+   "datei": "seidraven/seidraven_male_vest.glb",
+   "foliage": false,
+   "bytes": 144648,
+   "huelle": {
+    "min": [
+     -0.249,
+     0.828,
+     -0.19
+    ],
+    "max": [
+     0.249,
+     1.508,
+     0.241
+    ]
+   },
+   "breite": 0.498,
+   "hoehe": 0.68,
+   "tiefe": 0.431,
+   "dreiecke": 930,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
    "meshlos": false,
    "skins": 1
   },

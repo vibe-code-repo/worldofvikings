@@ -16,14 +16,30 @@ const appearance = await (await get('/assets/appearance.json')).json();
 assert.deepEqual(appearance.equipmentSets, catalog.sets, 'Character creation must receive the same item policies');
 const preview = await (await get('/assets/js/vorschau.js')).text();
 assert(preview.includes('hideAppearance'), 'Served preview must include per-item visibility support');
+for (const tag of ['bodyVariant', 'bodyProfile', 'legacy-female-v1']) {
+  assert(preview.includes(tag), `Served preview must include ${tag}`);
+}
+let itemCount = 0;
 for (const set of catalog.sets) {
   for (const part of set.parts) {
+    itemCount++;
     const model = Buffer.from(await (await get('/assets/models/' + part.model)).arrayBuffer());
     assert.equal(model.subarray(0, 4).toString(), 'glTF', part.model);
     assert.equal(model.readUInt32LE(4), 2, part.model);
     assert.equal(model.readUInt32LE(8), model.length, part.model);
+    if (set.familyId === 'seidraven') {
+      const gltf = JSON.parse(model.subarray(20, 20 + model.readUInt32LE(12)).toString());
+      const meshes = gltf.meshes.filter(mesh => mesh.primitives?.length);
+      assert(meshes.length > 0, `${part.itemId}: renderable meshes`);
+      for (const mesh of meshes) {
+        assert.equal(mesh.extras?.itemId, part.itemId);
+        assert.equal(mesh.extras?.bodyVariant, part.bodyVariant);
+        assert.equal(mesh.extras?.bodyProfile, part.bodyProfile);
+      }
+      assert.deepEqual(part.hideAppearance, part.appearanceSlot === 'kopf' ? ['hair', 'beard', 'eyebrows'] : []);
+    }
     const icon = Buffer.from(await (await get('/assets/sprites/' + part.icon)).arrayBuffer());
     assert.equal(icon.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', part.icon);
   }
 }
-console.log('PASS HTTP catalog and character-creation flags: 3 sets, 21 GLBs, 21 PNGs, current preview; no login or inventory write');
+console.log(`PASS HTTP catalog and character-creation flags: ${catalog.sets.length} sets, ${itemCount} GLBs, ${itemCount} PNGs, body profiles, visibility tags and current preview; no login or inventory write`);

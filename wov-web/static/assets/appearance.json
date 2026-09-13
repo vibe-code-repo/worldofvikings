@@ -7,12 +7,16 @@
       "id": "wikinger",
       "model": "wikinger/WikingerKoerper",
       "name": "Wikinger",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
       "nameEn": "Viking"
     },
     {
       "id": "wikingerin",
       "model": "wikingerin/WikingerinKoerper",
       "name": "Wikingerin",
+      "bodyVariant": "female",
+      "bodyProfile": "legacy-female-v1",
       "nameEn": "Viking woman"
     }
   ],
@@ -605,6 +609,9 @@
       "version": 3,
       "name": "Ironward",
       "figure": "wikinger",
+      "familyId": "ironward",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
       "itemIds": [
         "IronwardHelmet",
         "IronwardCuirass",
@@ -639,7 +646,10 @@
             "hair",
             "beard",
             "eyebrows"
-          ]
+          ],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "IronwardCuirass",
@@ -652,7 +662,10 @@
           "regions": [
             "Torso"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "IronwardLeggings",
@@ -665,7 +678,10 @@
           "regions": [
             "Hips"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "IronwardPauldrons",
@@ -679,7 +695,10 @@
             "ArmUpperLeft",
             "ArmUpperRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "IronwardBracers",
@@ -693,7 +712,10 @@
             "ArmLowerLeft",
             "ArmLowerRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "IronwardGauntlets",
@@ -707,7 +729,10 @@
             "HandLeft",
             "HandRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "IronwardBoots",
@@ -721,7 +746,10 @@
             "LegLeft",
             "LegRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         }
       ]
     },
@@ -730,6 +758,9 @@
       "version": 3,
       "name": "Waldhüter",
       "figure": "wikinger",
+      "familyId": "wildwarden",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
       "itemIds": [
         "wildwarden_crown",
         "wildwarden_vest",
@@ -758,7 +789,10 @@
           "model": "wildwarden/wildwarden_crown.glb",
           "icon": "wildwarden_crown.png",
           "regions": [],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "wildwarden_vest",
@@ -771,7 +805,10 @@
           "regions": [
             "Torso"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "wildwarden_robe",
@@ -784,7 +821,10 @@
           "regions": [
             "Hips"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "wildwarden_mantle",
@@ -798,7 +838,10 @@
             "ArmUpperLeft",
             "ArmUpperRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "wildwarden_bracers",
@@ -812,7 +855,10 @@
             "ArmLowerLeft",
             "ArmLowerRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "wildwarden_gloves",
@@ -826,7 +872,10 @@
             "HandLeft",
             "HandRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "wildwarden_boots",
@@ -840,7 +889,10 @@
             "LegLeft",
             "LegRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         }
       ]
     },
@@ -849,6 +901,9 @@
       "version": 1,
       "name": "Aschenschleier",
       "figure": "wikinger",
+      "familyId": "ashenveil",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
       "itemIds": [
         "ashenveil_hood",
         "ashenveil_vest",
@@ -883,7 +938,10 @@
             "hair",
             "beard",
             "eyebrows"
-          ]
+          ],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "ashenveil_vest",
@@ -896,7 +954,10 @@
           "regions": [
             "Torso"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "ashenveil_robe",
@@ -909,7 +970,10 @@
           "regions": [
             "Hips"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "ashenveil_shoulders",
@@ -923,7 +987,10 @@
             "ArmUpperLeft",
             "ArmUpperRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "ashenveil_bracers",
@@ -937,7 +1004,10 @@
             "ArmLowerLeft",
             "ArmLowerRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "ashenveil_gloves",
@@ -951,7 +1021,10 @@
             "HandLeft",
             "HandRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
         },
         {
           "itemId": "ashenveil_boots",
@@ -965,7 +1038,308 @@
             "LegLeft",
             "LegRight"
           ],
-          "hideAppearance": []
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        }
+      ]
+    },
+    {
+      "id": "seidraven_male",
+      "version": 1,
+      "name": "Seidraven",
+      "figure": "wikinger",
+      "familyId": "seidraven",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
+      "itemIds": [
+        "seidraven_male_hood",
+        "seidraven_male_vest",
+        "seidraven_male_robe",
+        "seidraven_male_shoulders",
+        "seidraven_male_bracers",
+        "seidraven_male_gloves",
+        "seidraven_male_boots"
+      ],
+      "appearance": {
+        "kopf": "seidraven_male_hood",
+        "oberkoerper": "seidraven_male_vest",
+        "beine": "seidraven_male_robe",
+        "schultern": "seidraven_male_shoulders",
+        "unterarme": "seidraven_male_bracers",
+        "haende": "seidraven_male_gloves",
+        "fuesse": "seidraven_male_boots"
+      },
+      "parts": [
+        {
+          "itemId": "seidraven_male_hood",
+          "appearanceId": "seidraven_male_hood",
+          "name": "Seidraven-Runenhelm",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "seidraven/seidraven_male_hood.glb",
+          "icon": "seidraven_male_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "seidraven_male_vest",
+          "appearanceId": "seidraven_male_vest",
+          "name": "Seidraven-Lamellenharnisch",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "seidraven/seidraven_male_vest.glb",
+          "icon": "seidraven_male_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "seidraven_male_robe",
+          "appearanceId": "seidraven_male_robe",
+          "name": "Seidraven-Runenschurz",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "seidraven/seidraven_male_robe.glb",
+          "icon": "seidraven_male_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "seidraven_male_shoulders",
+          "appearanceId": "seidraven_male_shoulders",
+          "name": "Seidraven-Rabenlichtschultern",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "seidraven/seidraven_male_shoulders.glb",
+          "icon": "seidraven_male_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "seidraven_male_bracers",
+          "appearanceId": "seidraven_male_bracers",
+          "name": "Seidraven-Runenarmschienen",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "seidraven/seidraven_male_bracers.glb",
+          "icon": "seidraven_male_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "seidraven_male_gloves",
+          "appearanceId": "seidraven_male_gloves",
+          "name": "Seidraven-Handschuhe",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "seidraven/seidraven_male_gloves.glb",
+          "icon": "seidraven_male_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "seidraven_male_boots",
+          "appearanceId": "seidraven_male_boots",
+          "name": "Seidraven-Runenstiefel",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "seidraven/seidraven_male_boots.glb",
+          "icon": "seidraven_male_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        }
+      ]
+    },
+    {
+      "id": "seidraven_female",
+      "version": 1,
+      "name": "Seidraven",
+      "figure": "wikingerin",
+      "familyId": "seidraven",
+      "bodyVariant": "female",
+      "bodyProfile": "legacy-female-v1",
+      "itemIds": [
+        "seidraven_female_hood",
+        "seidraven_female_vest",
+        "seidraven_female_robe",
+        "seidraven_female_shoulders",
+        "seidraven_female_bracers",
+        "seidraven_female_gloves",
+        "seidraven_female_boots"
+      ],
+      "appearance": {
+        "kopf": "seidraven_female_hood",
+        "oberkoerper": "seidraven_female_vest",
+        "beine": "seidraven_female_robe",
+        "schultern": "seidraven_female_shoulders",
+        "unterarme": "seidraven_female_bracers",
+        "haende": "seidraven_female_gloves",
+        "fuesse": "seidraven_female_boots"
+      },
+      "parts": [
+        {
+          "itemId": "seidraven_female_hood",
+          "appearanceId": "seidraven_female_hood",
+          "name": "Seidraven-Runenhelm",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "seidraven/seidraven_female_hood.glb",
+          "icon": "seidraven_female_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "seidraven_female_vest",
+          "appearanceId": "seidraven_female_vest",
+          "name": "Seidraven-Lamellenharnisch",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "seidraven/seidraven_female_vest.glb",
+          "icon": "seidraven_female_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "seidraven_female_robe",
+          "appearanceId": "seidraven_female_robe",
+          "name": "Seidraven-Runenschurz",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "seidraven/seidraven_female_robe.glb",
+          "icon": "seidraven_female_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "seidraven_female_shoulders",
+          "appearanceId": "seidraven_female_shoulders",
+          "name": "Seidraven-Rabenlichtschultern",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "seidraven/seidraven_female_shoulders.glb",
+          "icon": "seidraven_female_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "seidraven_female_bracers",
+          "appearanceId": "seidraven_female_bracers",
+          "name": "Seidraven-Runenarmschienen",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "seidraven/seidraven_female_bracers.glb",
+          "icon": "seidraven_female_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "seidraven_female_gloves",
+          "appearanceId": "seidraven_female_gloves",
+          "name": "Seidraven-Handschuhe",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "seidraven/seidraven_female_gloves.glb",
+          "icon": "seidraven_female_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "seidraven_female_boots",
+          "appearanceId": "seidraven_female_boots",
+          "name": "Seidraven-Runenstiefel",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "seidraven/seidraven_female_boots.glb",
+          "icon": "seidraven_female_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
         }
       ]
     }

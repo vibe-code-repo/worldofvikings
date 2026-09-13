@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-12T07:09:12.232Z",
+ "erzeugt": "2026-09-13T11:42:43.055Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 226,
- "gemessen": 226,
+ "anzahl": 247,
+ "gemessen": 247,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -4936,6 +4936,188 @@
    "meshlos": false,
    "skins": 0
   },
+  "ashenveil/ashenveil_boots": {
+   "datei": "ashenveil/ashenveil_boots.glb",
+   "foliage": false,
+   "bytes": 136388,
+   "huelle": {
+    "min": [
+     -0.203,
+     -0.006,
+     -0.141
+    ],
+    "max": [
+     0.203,
+     0.407,
+     0.196
+    ]
+   },
+   "breite": 0.406,
+   "hoehe": 0.413,
+   "tiefe": 0.337,
+   "dreiecke": 1144,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ashenveil/ashenveil_bracers": {
+   "datei": "ashenveil/ashenveil_bracers.glb",
+   "foliage": false,
+   "bytes": 92376,
+   "huelle": {
+    "min": [
+     -0.802,
+     1.29,
+     -0.13
+    ],
+    "max": [
+     0.802,
+     1.432,
+     0.047
+    ]
+   },
+   "breite": 1.604,
+   "hoehe": 0.143,
+   "tiefe": 0.177,
+   "dreiecke": 540,
+   "materialien": 3,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ashenveil/ashenveil_gloves": {
+   "datei": "ashenveil/ashenveil_gloves.glb",
+   "foliage": false,
+   "bytes": 101540,
+   "huelle": {
+    "min": [
+     -1.024,
+     1.294,
+     -0.113
+    ],
+    "max": [
+     1.024,
+     1.418,
+     0.075
+    ]
+   },
+   "breite": 2.048,
+   "hoehe": 0.124,
+   "tiefe": 0.189,
+   "dreiecke": 608,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ashenveil/ashenveil_hood": {
+   "datei": "ashenveil/ashenveil_hood.glb",
+   "foliage": false,
+   "bytes": 147360,
+   "huelle": {
+    "min": [
+     -0.245,
+     1.396,
+     -0.176
+    ],
+    "max": [
+     0.245,
+     2.18,
+     0.264
+    ]
+   },
+   "breite": 0.491,
+   "hoehe": 0.784,
+   "tiefe": 0.44,
+   "dreiecke": 1140,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ashenveil/ashenveil_robe": {
+   "datei": "ashenveil/ashenveil_robe.glb",
+   "foliage": false,
+   "bytes": 434324,
+   "huelle": {
+    "min": [
+     -0.3,
+     0.15,
+     -0.28
+    ],
+    "max": [
+     0.3,
+     0.979,
+     0.25
+    ]
+   },
+   "breite": 0.601,
+   "hoehe": 0.829,
+   "tiefe": 0.53,
+   "dreiecke": 3552,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ashenveil/ashenveil_shoulders": {
+   "datei": "ashenveil/ashenveil_shoulders.glb",
+   "foliage": false,
+   "bytes": 204824,
+   "huelle": {
+    "min": [
+     -0.562,
+     1.228,
+     -0.203
+    ],
+    "max": [
+     0.562,
+     1.727,
+     0.122
+    ]
+   },
+   "breite": 1.124,
+   "hoehe": 0.499,
+   "tiefe": 0.325,
+   "dreiecke": 1772,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ashenveil/ashenveil_vest": {
+   "datei": "ashenveil/ashenveil_vest.glb",
+   "foliage": false,
+   "bytes": 85016,
+   "huelle": {
+    "min": [
+     -0.249,
+     0.828,
+     -0.172
+    ],
+    "max": [
+     0.249,
+     1.508,
+     0.218
+    ]
+   },
+   "breite": 0.498,
+   "hoehe": 0.68,
+   "tiefe": 0.39,
+   "dreiecke": 446,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
   "clutter_default": {
    "datei": "clutter_default.glb",
    "foliage": false,
@@ -5091,6 +5273,188 @@
    "animationen": [],
    "meshlos": false,
    "skins": 0
+  },
+  "ironward/IronwardBoots": {
+   "datei": "ironward/IronwardBoots.glb",
+   "foliage": false,
+   "bytes": 123196,
+   "huelle": {
+    "min": [
+     -0.192,
+     -0.005,
+     -0.15
+    ],
+    "max": [
+     0.192,
+     0.437,
+     0.175
+    ]
+   },
+   "breite": 0.384,
+   "hoehe": 0.442,
+   "tiefe": 0.325,
+   "dreiecke": 1104,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ironward/IronwardBracers": {
+   "datei": "ironward/IronwardBracers.glb",
+   "foliage": false,
+   "bytes": 91772,
+   "huelle": {
+    "min": [
+     -0.803,
+     1.293,
+     -0.127
+    ],
+    "max": [
+     0.803,
+     1.429,
+     0.034
+    ]
+   },
+   "breite": 1.605,
+   "hoehe": 0.136,
+   "tiefe": 0.161,
+   "dreiecke": 712,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ironward/IronwardCuirass": {
+   "datei": "ironward/IronwardCuirass.glb",
+   "foliage": false,
+   "bytes": 137660,
+   "huelle": {
+    "min": [
+     -0.25,
+     0.827,
+     -0.207
+    ],
+    "max": [
+     0.25,
+     1.509,
+     0.252
+    ]
+   },
+   "breite": 0.5,
+   "hoehe": 0.681,
+   "tiefe": 0.459,
+   "dreiecke": 1206,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ironward/IronwardGauntlets": {
+   "datei": "ironward/IronwardGauntlets.glb",
+   "foliage": false,
+   "bytes": 176084,
+   "huelle": {
+    "min": [
+     -1.026,
+     1.292,
+     -0.116
+    ],
+    "max": [
+     1.026,
+     1.404,
+     0.077
+    ]
+   },
+   "breite": 2.053,
+   "hoehe": 0.112,
+   "tiefe": 0.193,
+   "dreiecke": 1444,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ironward/IronwardHelmet": {
+   "datei": "ironward/IronwardHelmet.glb",
+   "foliage": false,
+   "bytes": 92696,
+   "huelle": {
+    "min": [
+     -0.151,
+     1.433,
+     -0.159
+    ],
+    "max": [
+     0.151,
+     1.826,
+     0.208
+    ]
+   },
+   "breite": 0.302,
+   "hoehe": 0.393,
+   "tiefe": 0.367,
+   "dreiecke": 604,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ironward/IronwardLeggings": {
+   "datei": "ironward/IronwardLeggings.glb",
+   "foliage": false,
+   "bytes": 96308,
+   "huelle": {
+    "min": [
+     -0.187,
+     0.379,
+     -0.162
+    ],
+    "max": [
+     0.187,
+     0.966,
+     0.18
+    ]
+   },
+   "breite": 0.374,
+   "hoehe": 0.587,
+   "tiefe": 0.343,
+   "dreiecke": 784,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "ironward/IronwardPauldrons": {
+   "datei": "ironward/IronwardPauldrons.glb",
+   "foliage": false,
+   "bytes": 167832,
+   "huelle": {
+    "min": [
+     -0.552,
+     1.28,
+     -0.163
+    ],
+    "max": [
+     0.552,
+     1.496,
+     0.065
+    ]
+   },
+   "breite": 1.104,
+   "hoehe": 0.216,
+   "tiefe": 0.228,
+   "dreiecke": 1612,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
   },
   "npc_1_walk": {
    "datei": "npc_1_walk.glb",
@@ -6202,6 +6566,188 @@
      "dauer": 0.917
     }
    ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wildwarden/wildwarden_boots": {
+   "datei": "wildwarden/wildwarden_boots.glb",
+   "foliage": false,
+   "bytes": 115620,
+   "huelle": {
+    "min": [
+     -0.196,
+     -0.004,
+     -0.136
+    ],
+    "max": [
+     0.196,
+     0.403,
+     0.137
+    ]
+   },
+   "breite": 0.392,
+   "hoehe": 0.407,
+   "tiefe": 0.273,
+   "dreiecke": 1000,
+   "materialien": 3,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wildwarden/wildwarden_bracers": {
+   "datei": "wildwarden/wildwarden_bracers.glb",
+   "foliage": false,
+   "bytes": 115112,
+   "huelle": {
+    "min": [
+     -0.802,
+     1.285,
+     -0.13
+    ],
+    "max": [
+     0.802,
+     1.437,
+     0.034
+    ]
+   },
+   "breite": 1.604,
+   "hoehe": 0.152,
+   "tiefe": 0.164,
+   "dreiecke": 876,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wildwarden/wildwarden_crown": {
+   "datei": "wildwarden/wildwarden_crown.glb",
+   "foliage": false,
+   "bytes": 112984,
+   "huelle": {
+    "min": [
+     -0.351,
+     1.435,
+     -0.149
+    ],
+    "max": [
+     0.351,
+     2.135,
+     0.185
+    ]
+   },
+   "breite": 0.703,
+   "hoehe": 0.7,
+   "tiefe": 0.334,
+   "dreiecke": 728,
+   "materialien": 9,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wildwarden/wildwarden_gloves": {
+   "datei": "wildwarden/wildwarden_gloves.glb",
+   "foliage": false,
+   "bytes": 90500,
+   "huelle": {
+    "min": [
+     -1.024,
+     1.294,
+     -0.113
+    ],
+    "max": [
+     1.024,
+     1.419,
+     0.075
+    ]
+   },
+   "breite": 2.048,
+   "hoehe": 0.124,
+   "tiefe": 0.189,
+   "dreiecke": 512,
+   "materialien": 3,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wildwarden/wildwarden_mantle": {
+   "datei": "wildwarden/wildwarden_mantle.glb",
+   "foliage": false,
+   "bytes": 315000,
+   "huelle": {
+    "min": [
+     -0.528,
+     1.263,
+     -0.226
+    ],
+    "max": [
+     0.528,
+     1.557,
+     0.126
+    ]
+   },
+   "breite": 1.056,
+   "hoehe": 0.293,
+   "tiefe": 0.352,
+   "dreiecke": 2140,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wildwarden/wildwarden_robe": {
+   "datei": "wildwarden/wildwarden_robe.glb",
+   "foliage": false,
+   "bytes": 423308,
+   "huelle": {
+    "min": [
+     -0.323,
+     0.13,
+     -0.292
+    ],
+    "max": [
+     0.323,
+     0.967,
+     0.262
+    ]
+   },
+   "breite": 0.646,
+   "hoehe": 0.837,
+   "tiefe": 0.553,
+   "dreiecke": 3084,
+   "materialien": 11,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wildwarden/wildwarden_vest": {
+   "datei": "wildwarden/wildwarden_vest.glb",
+   "foliage": false,
+   "bytes": 182528,
+   "huelle": {
+    "min": [
+     -0.249,
+     0.828,
+     -0.208
+    ],
+    "max": [
+     0.249,
+     1.508,
+     0.245
+    ]
+   },
+   "breite": 0.498,
+   "hoehe": 0.68,
+   "tiefe": 0.452,
+   "dreiecke": 1106,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
    "meshlos": false,
    "skins": 1
   }

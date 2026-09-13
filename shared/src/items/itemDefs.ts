@@ -471,8 +471,9 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
  */
 import { IRONWARD_PARTS } from '../ironward.js';
 import { WILDWARDEN_PARTS } from '../wildwarden.js';
+import { ASHENVEIL_PARTS } from '../ashenveil.js';
 const KLEIDUNG: ItemShared[] = [
-  ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
+  ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS, ...ASHENVEIL_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
     icon: p.id, model: null, maxStackSize: 1, weight: p.weight, toolTier: 0,
     ausruestung: p.equipment, ruestungsteil: p.id })),
   {

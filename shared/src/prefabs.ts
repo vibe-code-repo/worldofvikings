@@ -1299,9 +1299,11 @@ const EIGENE_MODELLE_ALT: readonly string[] = [
  */
 import { IRONWARD_PARTS } from './ironward.js';
 import { WILDWARDEN_PARTS } from './wildwarden.js';
+import { ASHENVEIL_PARTS } from './ashenveil.js';
 export const EIGENE_MODELLE: readonly string[] = [
   ...IRONWARD_PARTS.map(p => `ironward/${p.item}`),
   ...WILDWARDEN_PARTS.map(p => `wildwarden/${p.item}`),
+  ...ASHENVEIL_PARTS.map(p => `ashenveil/${p.item}`),
   ...EIGENE_MODELLE_ALT,
   ...STORE_MODELL_NAMEN,
 ];

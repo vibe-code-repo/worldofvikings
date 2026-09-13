@@ -84,6 +84,7 @@ function brauchtPython() {
 }
 
 const KERN = [
+  ['server/test', 'equipment-sets.ts'],
   ['client/test', 'ironward.ts'],
   ['server/test', 'ironward.ts'],
   /*

@@ -1,5 +1,5 @@
 /** Actual Babylon GLB loader + animation/skinning gate. No browser or GPU required.
- * tsx tools/test/ironward-skin.mjs body.glb exported-models-directory
+ * tsx tools/test/ironward-skin.mjs body.glb exported-models-directory [--family=ashenveil]
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import '@babylonjs/loaders/glTF/index.js';
 import { verifyArmorSkin, updateArmorVisibility } from '../../client/src/player/armorVisibility.ts';
 const [bodyPath, directory] = process.argv.slice(2);
 const family = process.argv.find(a => a.startsWith('--family='))?.split('=')[1] ?? 'ironward';
-assert(['ironward', 'wildwarden'].includes(family), 'Unknown armor family');
+assert(['ironward', 'wildwarden', 'ashenveil'].includes(family), 'Unknown armor family');
 const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
 const engine = new NullEngine(); const scene = new Scene(engine);
 const load = path => SceneLoader.ImportMeshAsync('', '', `data:base64,${readFileSync(path).toString('base64')}`, scene, undefined, '.glb');

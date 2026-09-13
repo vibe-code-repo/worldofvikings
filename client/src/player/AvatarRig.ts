@@ -51,7 +51,8 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { faerbeHaar } from './haarfarbe.js';
 import { faerbeAugen } from './augenfarbe.js';
 import { armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
-import { updateArmorVisibility, verifyArmorSkin } from './armorVisibility.js';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from './armorVisibility.js';
+import { canWearArmor } from '@wov/shared';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
@@ -752,6 +753,7 @@ export class AvatarRig {
       // Tönung auftragen, bevor das erste Bild steht — Begründung und
       // Messung stehen an `FIGUR_TOENUNG` (shared/src/figuren.ts).
       toeneFigurMeshes(res.meshes, this.modellDatei);
+      prepareLegacyFemaleBody(res.meshes, this.modellDatei);
       this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
       if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
 
@@ -2266,7 +2268,8 @@ export class AvatarRig {
     }
     const loads: Promise<void>[] = [];
     for (const [slot, angefordert] of Object.entries(teile)) {
-      const incompatible = angefordert && armorByFile(angefordert)?.figure === 'wikinger' && !this.modellDatei.startsWith('wikinger/');
+      const armor = angefordert ? armorByFile(angefordert) : undefined;
+      const incompatible = armor && !canWearArmor(armor, this.modellDatei);
       // Rüstungen bleiben auf ihren Zielkörper beschränkt. Von den alten
       // Frisuren ist dagegen nur H_01 mit dem neuen Wikingerkopf unvereinbar.
       const datei = incompatible || (slot === 'frisur'

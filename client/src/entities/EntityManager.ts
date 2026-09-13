@@ -10,7 +10,8 @@
  */
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
-import { updateArmorVisibility, verifyArmorSkin } from '../player/armorVisibility.js';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from '../player/armorVisibility.js';
+import { canWearArmor } from '@wov/shared';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -1435,7 +1436,7 @@ export class EntityManager {
         ? `${AUSSEHEN_ORDNER}/${augenbraueAusFrisur(u.frisur)!.datei}` : null,
       ...Object.fromEntries(ARMOR_SLOTS.map(s => {
         const p = ruestungZu(parts[s]);
-        return [s, p && (!p.figure || u.figur === p.figure) ? appearancePath(p.datei) : null];
+        return [s, p && canWearArmor(p, u.figur) ? appearancePath(p.datei) : null];
       })),
     };
     const haarfarbe = haarfarbeZu(u.haarfarbe);
@@ -3220,6 +3221,7 @@ export class EntityManager {
       // dynamicPose) den Prefab-Namen drauflegen.
       root.name = prefabName;
       dyn = { root, anim: wunschAnim };
+      if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);
       if (belebt) {
         dyn.gang = {
           basisPos: new Vector3(u.position.x, u.position.y, u.position.z),

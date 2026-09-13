@@ -8,13 +8,13 @@ import { Reader } from '../src/io/Reader.js';
 
 const catalog = equipmentSetCatalog();
 assert.equal(catalog.schemaVersion, 1);
-assert.deepEqual(catalog.sets.map(set => set.id), ['ironward', 'wildwarden', 'ashenveil']);
+assert.deepEqual(catalog.sets.map(set => set.id), ['ironward', 'wildwarden', 'ashenveil', 'seidraven_male', 'seidraven_female']);
 const ids = new Set<string>();
 for (const set of catalog.sets) {
   assert.equal(set.parts.length, 7);
-  assert.equal(set.figure, 'wikinger');
+  assert.equal(set.figure, set.bodyVariant === 'female' ? 'wikingerin' : 'wikinger');
   assert.deepEqual(new Set(Object.keys(set.appearance)), new Set(ARMOR_SLOTS));
-  assert.equal(new Set(set.parts.flatMap(part => [...part.regions])).size, 11);
+  assert.equal(new Set(set.parts.flatMap(part => [...part.regions])).size, set.id === 'wildwarden' ? 10 : 11);
   assert.deepEqual(set.itemIds, set.parts.map(part => part.itemId));
   for (const part of set.parts) {
     assert(!ids.has(part.itemId), `Duplicate item: ${part.itemId}`); ids.add(part.itemId);
@@ -55,4 +55,4 @@ assert(peer.inventar.all.every(item => item.equipped));
 equip({});
 assert.equal(peer.ruestung, '|');
 assert(peer.inventar.all.every(item => !item.equipped));
-console.log('PASS equipment sets: 21 items, stable IDs, slots, body masks, ownership and no implicit grant');
+console.log('PASS equipment sets: 35 items, stable IDs, slots, body masks, ownership and no implicit grant');

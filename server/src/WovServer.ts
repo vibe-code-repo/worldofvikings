@@ -8,7 +8,7 @@
  * and whitelist sets.
  */
 
-import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory } from '@wov/shared';
+import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory } from '@wov/shared';
 import {
   EVENT_CHANCE,
   EVENT_INTERVAL_MS,
@@ -2728,6 +2728,8 @@ export class WovServer {
   private inventarSync(peer: Peer): void {
     const parts = decodeArmor(peer.ruestung);
     for (const [slot, id] of Object.entries(parts)) {
+      const armor = ruestungZu(id);
+      if (armor && !canWearArmor(armor, peer.figur)) { delete parts[slot]; continue; }
       if (ruestungZu(id)?.figure && !peer.inventar.all.some(i => i.shared.ruestungsteil === id)) delete parts[slot];
     }
     peer.ruestung = encodeArmor(parts);

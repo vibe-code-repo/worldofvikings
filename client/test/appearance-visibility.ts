@@ -49,7 +49,7 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   });
   const refresh = () => (kind === 'avatar' ? context.refreshArmorVisibility() : context.refreshVisibility());
   selected.set('kopf', crownFile); refresh();
-  assert(!head.isEnabled(), kind + ': crown still replaces the head');
+  assert(head.isEnabled(), kind + ': crown retains the textured head');
   assert(cosmetics.every(mesh => mesh.isEnabled()), kind + ': crown keeps all selected cosmetics');
   selected.set('kopf', hoodFile); refresh();
   assert(head.isEnabled() && cosmetics.every(mesh => mesh.isEnabled()), kind + ': unloaded/failed hood hides nothing');
@@ -102,7 +102,7 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   const attachmentsVisible = (visible: boolean) =>
     ['frisur', 'bart', 'augenbraue'].every(slot => dynamic.aussehen.get(slot)?.wurzel.isEnabled() === visible);
   await equip('wildwarden_crown');
-  assert(!head.isEnabled() && attachmentsVisible(true), 'Remote crown keeps all cosmetics');
+  assert(head.isEnabled() && attachmentsVisible(true), 'Remote crown keeps the head and all cosmetics');
   await equip('ashenveil_hood');
   assert(!head.isEnabled() && attachmentsVisible(false), 'Remote hood hides all cosmetics');
   await equip('wildwarden_crown');

@@ -40,6 +40,7 @@ import {
   HAARFARBEN, HAARFARBE_VORGABE,
   AUGENFARBEN, AUGENFARBE_VORGABE,
   equipmentSetCatalog,
+  armorBodyForFigure,
   AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
   FRACTION_SUNRISE, FRACTION_MIDDAY, FRACTION_SUNSET,
 } from '../shared/src/index.ts';
@@ -68,6 +69,8 @@ const daten = {
   body: AUSSEHEN_KOERPER,
   figures: FIGUREN.map((f) => ({
     id: f.id, model: f.modell, name: f.name,
+    bodyVariant: armorBodyForFigure(f.id)?.bodyVariant,
+    bodyProfile: armorBodyForFigure(f.id)?.bodyProfile,
     nameEn: f.id === 'wikingerin' ? 'Viking woman' : 'Viking',
   })),
   defaultFigure: FIGUR_VORGABE,

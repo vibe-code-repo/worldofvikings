@@ -50,7 +50,8 @@ import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
 
 import { AUSSEHEN_KOERPER, teilPfad, appearancePath, armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
-import { updateArmorVisibility, verifyArmorSkin } from '../player/armorVisibility.js';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from '../player/armorVisibility.js';
+import { canWearArmor } from '@wov/shared';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { faerbeAugen } from '../player/augenfarbe.js';
 import { toeneFigurMeshes } from '../engine/FigurToenung.js';
@@ -139,6 +140,7 @@ export class CharakterVorschau {
     // Dieselbe Tönung wie im Spiel — sonst steht im Anmeldebildschirm
     // eine andere Figur als danach auf dem Feld (s. FIGUR_TOENUNG).
     toeneFigurMeshes(res.meshes, datei);
+    prepareLegacyFemaleBody(res.meshes, datei);
     this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
     if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
     this.skelett = res.skeletons[0] ?? null;
@@ -169,7 +171,7 @@ export class CharakterVorschau {
    */
   async setze(slot: string, datei: string | null): Promise<void> {
     if (!this.teileErlaubt) return;
-    if (datei && armorByFile(datei)?.figure === 'wikinger' && !this.bodyFile.startsWith('wikinger/')) datei = null;
+    if (datei && armorByFile(datei) && !canWearArmor(armorByFile(datei)!, this.bodyFile)) datei = null;
     if (slot === 'frisur' && this.bodyFile.startsWith('wikinger/') && /(?:^|\/)H_01$/.test(datei ?? '')) datei = null;
     if (this.aktuell.get(slot) === (datei ?? '')) return;
 

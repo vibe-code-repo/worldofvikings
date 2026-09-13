@@ -105,6 +105,9 @@ export * from './wildwarden.js';
 export * from './ashenveil.js';
 export * from './equipmentSets.js';
 export * from './appearanceVisibility.js';
+export * from './armorCompatibility.js';
+export * from './seidraven.js';
+export * from './legacyFemaleRegions.js';
 export * from './wetterVorgabe.js';
 export * from './lookProfil.js';
 // Die Himmelsfelder aus A5/A12. Eigene Datei, solange `lookProfil.ts`

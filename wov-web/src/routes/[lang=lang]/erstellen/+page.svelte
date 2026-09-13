@@ -26,6 +26,7 @@
   } from '$lib/account';
   import '$lib/stil/account.css';
   import type { EquipmentSetCatalog } from '../../../../../shared/src/equipmentSets';
+  import { canWearArmor } from '../../../../../shared/src/armorCompatibility';
 
   /**
    * Charaktererstellung — Auswahl, Vorschau und Übergabe an den Spielserver.
@@ -193,11 +194,11 @@
 
   // Class choices reference stable set IDs; item details come from the generated registry.
   const CLASS_EQUIPMENT_SETS: Readonly<Record<string, string>> = {
-    krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden',
+    krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven',
   };
   const RUESTUNGSSETS: Readonly<Partial<Record<string, Ruestungsset>>> = $derived.by(() =>
     Object.fromEntries(Object.entries(CLASS_EQUIPMENT_SETS).flatMap(([classId, setId]) => {
-      const set = daten?.equipmentSets?.find(entry => entry.id === setId);
+      const set = daten?.equipmentSets?.find(entry => (entry.familyId ?? entry.id) === setId && canWearArmor(entry, figur));
       return set ? [[classId, {
         name: set.name,
         teile: set.parts.map(part => ({
@@ -336,7 +337,7 @@
     const ruestungsAufruf = ++ruestungsLauf;
     const istAktuell = () =>
       (lauf === undefined || lauf === ladeLauf) && ruestungsAufruf === ruestungsLauf;
-    const set = ruestungAn && figur === 'wikinger' ? RUESTUNGSSETS[klasseId] : undefined;
+    const set = ruestungAn ? RUESTUNGSSETS[klasseId] : undefined;
     await Promise.all(
       Array.from({ length: 7 }, (_, index) =>
         vorschau!.setze(`klassenruestung-${index}`, set?.teile[index]?.datei ?? null)
@@ -886,14 +887,12 @@
           type="button"
           class:aktiv={ruestungAn}
           aria-pressed={ruestungAn}
-          disabled={!fertig || figur !== 'wikinger'}
+          disabled={!fertig}
           onclick={() => { void schalteKlassenruestung(); }}
         >{ruestungAn
             ? (lang === 'de' ? 'Rüstung ablegen' : 'Remove armour')
             : (lang === 'de' ? 'Rüstung anzeigen' : 'Show armour')}</button>
-        <small>{aktiveRuestung.name}{figur !== 'wikinger'
-            ? (lang === 'de' ? ' · für den Wikingerkörper' : ' · for the Viking body')
-            : ''}</small>
+        <small>{aktiveRuestung.name}</small>
       {:else}
         <p>{lang === 'de' ? 'Das Rüstungsset dieser Klasse ist noch in Entwicklung.' : 'This class armour set is still in development.'}</p>
       {/if}

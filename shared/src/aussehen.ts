@@ -181,11 +181,13 @@ export function frisurMitGesicht(frisur: string, bart: string, augenbraue: strin
 import { IRONWARD_PARTS } from './ironward.js';
 import { WILDWARDEN_PARTS } from './wildwarden.js';
 import { ASHENVEIL_PARTS } from './ashenveil.js';
+import { SEIDRAVEN_PARTS } from './seidraven.js';
+import { canWearArmor, type ArmorBodyPolicy } from './armorCompatibility.js';
 import { hiddenAppearance, type AppearancePolicy } from './appearanceVisibility.js';
 export type Slot = 'oberkoerper' | 'beine' | 'kopf' | 'schultern' | 'unterarme' | 'haende' | 'fuesse';
 export const ARMOR_SLOTS: readonly Slot[] = ['oberkoerper', 'beine', 'kopf', 'schultern', 'unterarme', 'haende', 'fuesse'];
 
-export interface Ruestungsteil extends AppearancePolicy {
+export interface Ruestungsteil extends AppearancePolicy, ArmorBodyPolicy {
   readonly id: string;
   readonly datei: string;
   readonly name: string;
@@ -195,11 +197,12 @@ export interface Ruestungsteil extends AppearancePolicy {
 }
 
 export const RUESTUNG: readonly Ruestungsteil[] = [
-  { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper' },
-  { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine' },
-  ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: 'wikinger' })),
-  ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: 'wikinger' })),
-  ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: 'wikinger' })),
+  { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper', bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' },
+  { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine', bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' },
+  ...SEIDRAVEN_PARTS.map(p => ({ ...p, datei: `seidraven/${p.item}` })),
+  ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
+  ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
+  ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
 ] as const;
 
 /** Kennt die Liste diese Frisur? Der Server glaubt dem Client nichts. */
@@ -257,7 +260,7 @@ export function validArmorParts(value: unknown, figure?: string): value is Recor
   return Object.entries(value).every(([slot, id]) => {
     if (!ARMOR_SLOTS.includes(slot as Slot) || typeof id !== 'string') return false;
     const part = ruestungZu(id);
-    return id === '' || (!!part && part.slot === slot && (!part.figure || !figure || part.figure === figure));
+    return id === '' || (!!part && part.slot === slot && (!figure || canWearArmor(part, figure)));
   });
 }
 

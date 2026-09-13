@@ -52,7 +52,8 @@ import '@babylonjs/loaders/glTF';
 import { faerbeAugen } from '../../client/src/player/augenfarbe.js';
 import { armorByFile, hiddenAppearanceForFiles } from '../../shared/src/aussehen.js';
 import { APPEARANCE_ATTACHMENTS } from '../../shared/src/appearanceVisibility.js';
-import { updateArmorVisibility, verifyArmorSkin } from '../../client/src/player/armorVisibility.js';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from '../../client/src/player/armorVisibility.js';
+import { canWearArmor } from '@wov/shared';
 
 interface Teil {
   netze: AbstractMesh[];
@@ -359,6 +360,7 @@ export class Vorschau {
     }
 
     this.koerperDatei = datei;
+    prepareLegacyFemaleBody(res.meshes, datei);
     this.teileErlaubt = /^(wikinger\/WikingerKoerper|wikingerin\/WikingerinKoerper)$/.test(datei);
     this.neuerWikinger = datei === 'wikinger/WikingerKoerper';
 
@@ -558,7 +560,7 @@ export class Vorschau {
   async setze(slot: string, datei: string | null): Promise<void> {
     if (!this.teileErlaubt) return;
     const armor = datei ? armorByFile(datei.replace(/^armor\//, '')) : undefined;
-    if (armor?.figure === 'wikinger' && !this.neuerWikinger) datei = null;
+    if (armor && !canWearArmor(armor, this.koerperDatei)) datei = null;
     // Nur H_01 ist das alte, hinter dem neuen Kopf schwebende Haarteil. Die
     // übrigen 37 Frisuren sind dort ausdrücklich weiter zugelassen.
     if (slot === 'frisur' && this.neuerWikinger && /(?:^|\/)H_01$/.test(datei ?? '')) datei = null;

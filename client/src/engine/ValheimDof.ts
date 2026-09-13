@@ -119,6 +119,7 @@ uniform float focusDistance;   // Meter
 uniform float focusSize;       // Totzone (focalSize)
 uniform float apertureTerm;    // 1/(1-aperture)-1
 uniform float maxRadius;       // Pixel
+uniform vec2 gaussianRange;
 
 // Zerstreuungskreis an einer Bildstelle, 0 = scharf, 1 = maximal weich.
 float cocAt(vec2 uv) {
@@ -126,6 +127,9 @@ float cocAt(vec2 uv) {
   // Wo nichts gerendert wurde (Himmel), steht 0 im Puffer — das ist nicht
   // "direkt vor der Kamera", sondern unendlich weit weg.
   if (z <= 0.0) z = 1.0e6;
+  if (gaussianRange.y > gaussianRange.x) {
+    return clamp((z - gaussianRange.x) / (gaussianRange.y - gaussianRange.x), 0.0, 1.0);
+  }
   float rel = (z - focusDistance) / max(z, 1.0e-4);
   // clamp bei 0 statt bei -1: nearBlur ist im Original aus.
   float c = clamp(rel * apertureTerm, 0.0, 1.0);
@@ -204,7 +208,7 @@ export class ValheimDof {
     this.pp = new PostProcess(
       'valheimDof',
       SHADER,
-      ['texelSize', 'focusDistance', 'focusSize', 'apertureTerm', 'maxRadius'],
+      ['texelSize', 'focusDistance', 'focusSize', 'apertureTerm', 'maxRadius', 'gaussianRange'],
       ['depthSampler'],
       1.0,
       null, // NICHT über den ctor anhängen — die Position ist wichtig
@@ -257,8 +261,13 @@ export class ValheimDof {
         Autofokus war bis 70 m knackscharf — genau der Unterschied, den
         F18 meint.
       */
+      const gaussian = look().dof;
+      const farBlur = gaussian.gaussianEnd > gaussian.gaussianStart;
+      effect.setFloat2('gaussianRange', farBlur ? gaussian.gaussianStart : 0, farBlur ? gaussian.gaussianEnd : 0);
       const p = this.profilDof;
-      if (p) {
+      if (farBlur) {
+        effect.setFloat('maxRadius', gaussian.gaussianRadius * h / 1080 * this.blurScale);
+      } else if (p) {
         const f = p.brennweite / 1000;
         const maxCoC = (p.brennweite / p.blende) * f / Math.max(p.fokus - f, 1e-4);
         effect.setFloat('focusDistance', p.fokus);

@@ -71,6 +71,11 @@ const NEU = process.argv.includes('--neu');
  */
 const DATEIEN = [
   {
+    quelle: 'terrain-moss-village.png',
+    ziel: 'terrain-moss-village.png',
+    zweck: 'Village moss diffuse (Tile 11); brighter than the forest moss',
+  },
+  {
     quelle: 'terrain-rock-moss.png',
     ziel: 'terrain-rock-moss.png',
     zweck: 'Diffuse-Karte des hellen Hangfelses (Tile 5 Cliff)',

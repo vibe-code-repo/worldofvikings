@@ -36,6 +36,7 @@ import type { Scene } from '@babylonjs/core/scene';
 import { Biome, STORE_GRAS_AKTIV, WATER_LEVEL, fbm } from '@wov/shared';
 import type { ClientWorld } from '../world/World';
 import { ClutterWindPlugin } from './ClutterWindPlugin';
+import { fogVisibilityDistance } from './fogVisibility';
 import { modelBaseUrl, modelDateiName } from './assetUrls';
 
 // Der Schalter wohnt in `shared` und wird hier nur weitergereicht: Beide
@@ -1344,19 +1345,15 @@ export class GrassClutter {
    * recompute the shared clutterDistanceScale uniform from the current
    * quality setting × fog visibility (see the BUILD_RADIUS doc above).
    *
-   * fogDensity is the scene's current EXP2 fog density (same value fed to
-   * TerrainSplat/scene.fogDensity). For that formula, opacity reaches 90%
-   * at distance sqrt(ln 10) / density — rendering clutter further out than
-   * that is wasted (it's already all but invisible in the murk) and, in
-   * genuinely foggy weather, hides the vanish boundary anyway. This only
-   * ever SHORTENS the user's chosen quality distance, never extends it
-   * (clear weather has effectively infinite fog-visibility here).
+   * Read the actual scene fog mode. Density has no effect in linear fog,
+   * and disabled fog must not shorten grass visibility. The 90% opacity
+   * distance follows the same equation as the terrain and mesh shaders.
    */
   update(dt: number, fogDensity: number): void {
     this.time += dt;
     ClutterWindPlugin.time = this.time;
     const qualityScale = VEGETATION_QUALITY_SCALE[this.quality];
-    const fogVisibility90 = fogDensity > 1e-5 ? Math.sqrt(Math.LN10) / fogDensity : Infinity;
+    const fogVisibility90 = fogVisibilityDistance(this.scene.fogEnabled, this.scene.fogMode, fogDensity, this.scene.fogStart, this.scene.fogEnd);
     const fogCapScale = (fogVisibility90 * 1.2) / FOG_REFERENCE_FADE;
     ClutterWindPlugin.distanceScale = Math.max(0.6, Math.min(qualityScale, fogCapScale));
     if (!this.ready) return;

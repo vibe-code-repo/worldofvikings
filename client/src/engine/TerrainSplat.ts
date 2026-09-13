@@ -301,7 +301,7 @@ export const HANG_TILE: readonly number[] = [
  * Asche bei `Basalt`.
  */
 export const FELS_TILE: readonly number[] = [
-  /*  0 Grass     */ TILE.Cliff,
+  /*  0 Grass     */ TILE.Rock,
   /*  1 Forest    */ TILE.Rock,
   /*  2 Dirt      */ TILE.Rock,
   /*  3 Cleared   */ TILE.Rock,

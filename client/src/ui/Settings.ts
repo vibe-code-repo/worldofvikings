@@ -284,7 +284,7 @@ export const DEFAULTS: GameSettings = {
    * Default OFF — no longer because the effect is inert (that is fixed),
    * but because it costs a full extra scene pass.
    */
-  sunShafts: false,
+  sunShafts: true,
   ambientOcclusion: false,
   /**
    * Voreinstellung AUS — der Effekt tauscht ein Artefakt gegen ein

@@ -811,7 +811,23 @@ function buildEnvironments(): readonly EnvSetup[] {
 }
 
 /** All known weathers — hand-tuned defaults with envData.json merged in. */
-export const ENVIRONMENTS: readonly EnvSetup[] = buildEnvironments();
+const builtEnvironments = buildEnvironments();
+const villageBase = builtEnvironments.find((env) => env.name === ENV_KLAR_COMIC)!;
+export const ENV_VILLAGE = 'Village';
+export const ENVIRONMENTS: readonly EnvSetup[] = [...builtEnvironments, {
+  ...villageBase, name: ENV_VILLAGE,
+  fogColorDay: c(0.3745098, 0.56013644, 0.7490196),
+  fogColorEvening: c(0.3670686, 0.5490065, 0.7341366),
+  fogColorSunDay: c(0.3745098, 0.56013644, 0.7490196),
+  fogColorSunEvening: c(0.3670686, 0.5490065, 0.7341366),
+  fogDensityMorning: 0.015, fogDensityDay: 0.015,
+  fogDensityEvening: 0.015, fogDensityNight: 0.015,
+  sunColorDay: c(1, 0.883333, 0.75),
+  sunColorEvening: c(0.98013, 0.865781, 0.735098),
+  // Unity units differ; retain the measured Babylon scale and scene intensity ratio.
+  lightIntensityDay: villageBase.lightIntensityDay * 2 / 2.3,
+  lightIntensityEvening: villageBase.lightIntensityDay * 2 / 2.3,
+}];
 
 const ENV_BY_NAME: ReadonlyMap<string, EnvSetup> = new Map(
   ENVIRONMENTS.map((e) => [e.name, e])

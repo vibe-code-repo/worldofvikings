@@ -40,6 +40,7 @@
  * `sanitizeWorldLayout`-Läufe fest, damit eine künftige Änderung dort
  * hier auffällt statt als stille Drift.
  */
+import { VILLAGE_REGION } from '@wov/shared/src/villageBiome.js';
 import {
   ASCHE_FLORA_NAMEN,
   GRASLAND_FLORA_NAMEN,
@@ -112,6 +113,12 @@ const MISCHWALD_FLORA_NAMEN: readonly string[] = [
 ];
 
 export const REGION_VORLAGEN: readonly RegionVorlage[] = [
+  {
+    id: 'village-grove', name: 'Dorfhain', sinnbild: '🌳',
+    hinweis: 'Lichtes Startbiom mit Laubbäumen, gruppierten Büschen und moosigen Klippen. ' +
+      'Verwendet die kuratierte Dorfpalette; Dichte und Abstände bleiben im Editor anpassbar.',
+    werte: VILLAGE_REGION,
+  },
   {
     id: 'startwiese',
     name: 'Startwiese',

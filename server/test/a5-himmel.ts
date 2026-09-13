@@ -194,7 +194,11 @@ function verlaufStehtInDenDaten(): void {
   const h = profil.himmel.horizont;
   ok(z.trim().toLowerCase() !== h.trim().toLowerCase(), `zenit ${z} ist nicht horizont ${h}`);
   if (h.trim() === 'nebel') {
-    ok(false, 'horizont steht wieder auf `nebel` — dann gibt es keinen zweiten Stuetzpunkt');
+    const village = findEnvironment('Village');
+    ok(profil.nebelmodus === 'exp2' && village?.fogDensityDay === 0.015,
+      'Village horizon follows its measured exp2 haze');
+    ok(Boolean(village && village.fogColorDay.b > village.fogColorDay.r),
+      'Dynamic village horizon retains blue haze');
     return;
   }
   const zc = hex(z);

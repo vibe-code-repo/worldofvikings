@@ -717,6 +717,12 @@ const KERN = [
   // haelt sowohl das Offenbleiben bis zum Limit als auch die sofortige
   // Trennung darueber hinaus fest.
   ['server', 'test/verbindungsdeckel.ts'],
+  // Bannliste (Paket 0.5): ein gesperrter Zugang kommt nicht herein und
+  // fliegt sofort, wenn er schon drin ist. E2E ueber echte WebSocket-
+  // Verbindungen an einem echten NetManager, mit echter SQLite im
+  // tmp-Ordner — die Ablehnung entscheidet sich erst hinter Nonce und
+  // Tokenpruefung, und ein Bann muss einen Neustart ueberleben.
+  ['server', 'test/bannliste.ts'],
   // Die zwei Client-Tests der Kernliste. Beide kommen ohne Assets, Browser
   // und GPU aus — das ist die Bedingung, um hier zu stehen.
   //

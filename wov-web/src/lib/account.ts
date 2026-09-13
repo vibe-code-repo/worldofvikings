@@ -189,6 +189,7 @@ export interface Character {
   hairstyle: string;
   hairColor: string;
   eyeColor: string;
+  classId: string;
   top: string;
   legs: string;
   /** Epoch milliseconds — the database stores numbers, not ISO strings. */
@@ -666,6 +667,7 @@ export function createCharacter(
     hairstyle: string;
     hairColor: string;
     eyeColor: string;
+    classId: string;
     top: string;
     legs: string;
   },

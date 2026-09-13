@@ -82,6 +82,8 @@ export class Peer {
   haarfarbe: string = '';
   /** Kennung aus AUGENFARBEN (shared/aussehen.ts). */
   augenfarbe: string = '';
+  klasse: string = '';
+  starterSetGranted: string = '';
   /**
    * Getragene Ruestung als "oberkoerperId|beineId" — ein leerer Teil
    * heisst "nichts angezogen". Zusammengefasst statt zweier Felder, damit

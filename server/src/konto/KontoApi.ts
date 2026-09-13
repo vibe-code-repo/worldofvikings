@@ -46,7 +46,7 @@ import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
 import { Kontendatenbank, type Charakter } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
 import {
-  AUGENFARBE_VORGABE, istAugenfarbe, istFigur, istFrisur, istHaarfarbe, istRuestung,
+  AUGENFARBE_VORGABE, istAugenfarbe, istFigur, istFrisur, istHaarfarbe, istRuestung, isCharacterClass,
 } from '@wov/shared';
 
 /** Origins allowed to call this API from a browser. */
@@ -347,6 +347,10 @@ export class KontoApi {
     if (!CHARAKTERNAME_REGEX.test(name)) return this.json(res, 400, { error: 'name-invalid' });
 
     const figur = String(k.figure ?? '');
+    const klasse = k.classId ?? '';
+    if (klasse !== '' && !isCharacterClass(klasse)) {
+      return this.json(res, 400, { error: 'class-invalid' });
+    }
     const frisur = String(k.hairstyle ?? '');
     const haarfarbe = String(k.hairColor ?? '');
     // Fehlendes Feld bleibt waehrend des gemeinsamen Rollouts kompatibel
@@ -369,6 +373,7 @@ export class KontoApi {
       frisur,
       haarfarbe,
       augenfarbe,
+      klasse: String(klasse),
       ober,
       beine,
     });
@@ -535,6 +540,7 @@ function nachAussen(c: Charakter): Record<string, unknown> {
     id: c.id, name: c.name, figure: c.figur, hairstyle: c.frisur,
     hairColor: c.haarfarbe,
     eyeColor: c.augenfarbe,
+    classId: c.klasse,
     top: c.ober, legs: c.beine,
     created: c.erstellt, lastPlayed: c.zuletztGespielt,
   };

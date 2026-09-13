@@ -153,7 +153,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'altstil-entfernt-20260913';
+  const FIGUREN_STAND = 'wildwarden-kopf-20260913';
 
   let figur = $state('');
   let frisur = $state('');
@@ -214,7 +214,7 @@
     druide: {
       name: 'Wildwarden',
       teile: [
-        { datei: 'armor/wildwarden/wildwarden_crown', regionen: ['Head'] },
+        { datei: 'armor/wildwarden/wildwarden_crown', regionen: [] },
         { datei: 'armor/wildwarden/wildwarden_mantle', regionen: ['ArmUpperLeft', 'ArmUpperRight'] },
         { datei: 'armor/wildwarden/wildwarden_vest', regionen: ['Torso'] },
         { datei: 'armor/wildwarden/wildwarden_bracers', regionen: ['ArmLowerLeft', 'ArmLowerRight'] },

@@ -4,7 +4,7 @@
  * selbst navigieren lassen und erhält eine Standkennung gegen HTML-Caches.
  */
 (() => {
-  const STAND = '20260913-altstil-entfernt';
+  const STAND = '20260913-wildwarden-kopf';
   const SELECTOR = 'a.nav-play, a.mobil-fahrt, a.gate-play';
   const EDITOR_PATHS = new Set(['/de/erstellen', '/en/create']);
 

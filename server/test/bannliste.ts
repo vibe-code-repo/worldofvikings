@@ -24,10 +24,11 @@
  * Versionspruefung, Nonce und Tokenpruefung — und ein Attrappen-Peer haette
  * genau diesen Pfad nicht.
  *
- * Warum NetManager direkt statt createWovServer: Die Verdrahtung
- * (`bannPruefen` an den Konstruktor) liegt in WovServer.ts, das in diesem
- * Umbau einem anderen Bauer gehoert. Der Test zieht sie hier selbst — und
- * dokumentiert damit zugleich, wie sie dort auszusehen hat.
+ * Warum NetManager direkt statt createWovServer: Dieser Test prueft die
+ * MECHANIK (Handshake, Bannarten, Fristen) und zieht die Verdrahtung
+ * selbst, damit er ohne Welt und ohne Konto-API auskommt. Ob sie im
+ * echten Server wirklich haengt, ist eine andere Frage — die beantwortet
+ * server/test/adminbefehle-bann.ts an einem echten createWovServer.
  *
  * Echte SQLite in einem tmp-Ordner (Muster server/test/konto-lokal.ts):
  * ein Bann muss einen Neustart ueberleben, das kann eine Map nicht zeigen.

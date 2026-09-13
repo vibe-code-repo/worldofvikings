@@ -48,8 +48,9 @@ export interface NetManagerConfig {
   sessionSecret: Buffer;
   /**
    * S6 (Security-Review): zusaetzliche Admin-Berechtigung ueber die
-   * stabile Spieler-ID, NEBEN `everyoneAdmin` (das bleibt Mikes
-   * Handgriff und wird hier nicht abgeschaltet). Peer.isAdmin ist die
+   * stabile Spieler-ID. Seit dem 13.09.2026 steht `everyoneAdmin` per
+   * Vorgabe auf false, diese Funktion ist damit der Regelweg zu Rechten
+   * und nicht mehr die Ergaenzung. Peer.isAdmin ist die
    * ODER-Verknuepfung beider Quellen.
    */
   istAdminId: (id: SpielerId) => boolean;

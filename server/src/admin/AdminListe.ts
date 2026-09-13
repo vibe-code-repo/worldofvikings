@@ -2,12 +2,13 @@
  * AdminListe — dauerhafte Admin-Berechtigung ueber stabile Spieler-IDs
  * (Roadmap S6, Security-Review).
  *
- * Hintergrund: `players.everyone-admin: true` (server.yml) macht heute
- * JEDEN verbundenen Spieler zum Admin. Das bleibt Mikes eigener Handgriff
- * und wird hier NICHT abgeschaltet — diese Liste ist eine ZUSAETZLICHE,
- * dauerhafte Berechtigung fuer den Tag, an dem everyone-admin auf false
- * steht: dann bestimmt allein diese Liste (ueber die spielerId aus F3),
- * wer weiterhin Admin-Befehle nutzen darf.
+ * Hintergrund: `players.everyone-admin` machte bis zum 13.09.2026 JEDEN
+ * verbundenen Spieler zum Admin. Seit Paket 0.1 steht der Schalter im
+ * Repo auf `false`, und damit ist DIESE Liste die Berechtigung — nicht
+ * mehr eine zusaetzliche neben ihr. Wer hier mit seiner spielerId (F3)
+ * steht, darf Admin-Befehle nutzen; wer nicht, nicht. Ihr erster Eintrag
+ * kommt vom Adminkonto aus `standard-konto:` (StandardKonto.ts), weil
+ * sich eine leere Liste sonst nie fuellen liesse.
  *
  * ── Warum server/data/worlds/ und NICHT server/data/server.yml ─────────
  * server.yml ist GIT-VERSIONIERT und wird bei jedem Deploy (`git pull`,

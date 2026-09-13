@@ -260,6 +260,34 @@ admin liste
 (`server/src/WovServer.ts`'s `registerAdminListeCommands`; stored per-instance in
 `server/data/worlds/admins.<instance>.json`, which is not committed.)
 
+### Keeping people out
+
+The same console has three more commands (`registerBannCommands`), backed by a
+`banns` table in `server/data/konten/<instance>.db`:
+
+```
+kick <Name>                                 disconnect, no ban — they can return at once
+bann <Name> [30m|2h|7d|dauerhaft] [reason]  ban the ACCOUNT behind that character
+bann herkunft <Name> [duration] [reason]    ban the address of an open connection
+bann liste                                  every ban currently in force
+entbann <Name> | entbann herkunft <addr>    lift it
+```
+
+Three things worth knowing before you use them:
+
+* `bann <Name>` bans the **account**, not the one character, so a second
+  character of the same person is covered — including one that is online right
+  now, who is disconnected together with the named one. Only a connection
+  without an account (no sign-in) falls back to a ban on its player id.
+* A ban applies to **admins too**. It is checked during the handshake, before
+  the server decides whether the arriving player is an admin, so there is no
+  exemption. The *command* still refuses a target that is on the admin list and
+  tells you to run `admin remove <Name>` first — that guard exists so nobody
+  bans the last admin by accident, since `admin add` then has no one left to
+  run it.
+* A duration is optional and, if given, comes directly after the name;
+  everything after it is the reason, which the banned player gets to read.
+
 ## 5a. The admin account — and its password
 
 A fresh installation needs *someone* who can hand out admin rights, or the admin

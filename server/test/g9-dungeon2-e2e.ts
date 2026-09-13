@@ -204,6 +204,12 @@ async function main(): Promise<void> {
   const server = createWovServer({
     port: PORT,
     worldsDir: resolve(TMP, 'worlds'), kontenDir: resolve(TMP, 'konten'),
+    // Diese Probe schickt Adminpakete und prueft NICHT die Rechtevergabe:
+    // seit dem 13.09.2026 ist die Vorgabe `everyoneAdmin: false`, also
+    // steht die Erlaubnis hier ausdruecklich (frueher kam sie aus der
+    // Vorgabe, was den Test von einer Sicherheitseinstellung abhaengig
+    // machte, ohne dass er das sagte).
+    everyoneAdmin: true,
     saveIntervalMs: 3600_000,
   });
   server.start();

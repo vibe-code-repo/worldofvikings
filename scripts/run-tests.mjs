@@ -723,6 +723,16 @@ const KERN = [
   // tmp-Ordner — die Ablehnung entscheidet sich erst hinter Nonce und
   // Tokenpruefung, und ein Bann muss einen Neustart ueberleben.
   ['server', 'test/bannliste.ts'],
+  // Die NAHT der drei Sicherheits-Pakete (13.09.2026): everyone-admin:
+  // false, das Adminkonto und die Bannliste ergeben zusammen EINE
+  // Berechtigungskette, und jedes der drei war fuer sich gruen. Dieser
+  // Test laeuft an einem echten createWovServer die ganze Kette ab
+  // (Konto -> Charakter -> spielerId -> Adminliste -> peer.isAdmin ->
+  // Befehl), macht die Gegenprobe mit `gast` und prueft bann/entbann/
+  // kick. Vor allem prueft er die eine Zeile `bannPruefen:` am
+  // NetManager-Konstruktor — fehlt sie, ist die ganze Bannliste
+  // wirkungslos, und zwar ohne Symptom.
+  ['server', 'test/adminbefehle-bann.ts'],
   // Die zwei Client-Tests der Kernliste. Beide kommen ohne Assets, Browser
   // und GPU aus — das ist die Bedingung, um hier zu stehen.
   //

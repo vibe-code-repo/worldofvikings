@@ -117,9 +117,10 @@ export const STANDARD_DROSSEL: ReadonlyMap<PacketType, DrosselKonfiguration> = n
   // wenigen Klicks anschlagen, Dauerfeuer eines Skripts aber schon.
   [PacketType.ContainerAction, { eimergroesse: 6, fuellrateProSekunde: 1 / 0.25 }],
 
-  // AdminCommand ist getippter Text und heute wegen everyone-admin:true
-  // wirkungslos gegated (siehe Befund) — gerade deshalb soll wenigstens
-  // die RATE nicht offen sein. Ein Mensch tippt keine 5 Befehle pro
+  // AdminCommand ist getippter Text. Seit everyone-admin:false ist das
+  // Berechtigungstor echt (Adminliste), die RATE bleibt trotzdem begrenzt
+  // — auch ein Admin soll den Server nicht mit Befehlen ueberfahren
+  // koennen. Ein Mensch tippt keine 5 Befehle pro
   // Sekunde; ein Stoß von 3 deckt das Ausprobieren mehrerer Kurzbefehle
   // in Folge ab.
   [PacketType.AdminCommand, { eimergroesse: 3, fuellrateProSekunde: 1 }],

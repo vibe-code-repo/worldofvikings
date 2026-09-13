@@ -101,7 +101,7 @@ import { Spielerbewegung } from './world/Spielerbewegung.js';
 // nicht daran wachsen.
 import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
-import { Kontendatenbank } from './konto/Kontendatenbank.js';
+import { Kontendatenbank, type BannArt } from './konto/Kontendatenbank.js';
 import { KontoApi } from './konto/KontoApi.js';
 import {
   ADMINKONTO_PASSWORT_ENV,
@@ -277,26 +277,24 @@ const DEFAULT_CONFIG: ServerConfig = {
   port: 2456,
   maxPlayers: 10,
   /*
-    BLEIBT true, obwohl server.yml seit Paket 0.1 (13.09.2026) `false`
-    sagt -- und das ist eine bewusste Entscheidung mit einem bekannten
-    Rest.
+    FALSE, wie server.yml seit Paket 0.1 (13.09.2026).
 
-    Wofuer diese Vorgabe steht: ein `new WovServer()` OHNE Konfiguration.
-    Das ist in diesem Baum ausschliesslich der Testfall (rund achtzig
-    Aufrufe in server/test/, die Admin-Pakete schicken und keinen
-    everyoneAdmin setzen); ein echter Start liest immer server.yml und
-    bekommt dort `false`.
+    Diese Vorgabe steht fuer ein `new WovServer()` OHNE Konfiguration.
+    Das ist im Betrieb nie der Fall -- ein echter Start liest server.yml
+    --, mit EINER Ausnahme: `leseServerKonfig` faengt einen
+    YAML-Syntaxfehler ab und faehrt mit vollstaendigen Vorgabewerten
+    weiter. Stuende hier `true`, machte ein verrutschter Doppelpunkt in
+    server.yml jeden Besucher zum Admin, und zwar leise: die eine
+    Logzeile dazu geht in einem Startlog unter, und der Server laeuft
+    ansonsten. Ein Rueckfall darf Rechte entziehen, nicht vergeben.
 
-    Der Rest, der damit stehen bleibt: `leseServerKonfig` faengt einen
-    YAML-Syntaxfehler ab und faehrt mit VOLLSTAENDIGEN Vorgabewerten
-    weiter (Port 2456, fremde Welt, ...), sichtbar als eine Logzeile --
-    dann greift auch dieses `true`. Ein Server, der auf Port 2456 mit
-    fremder Welt hochkommt, ist allerdings ohnehin kaputt und faellt auf.
-    Auf `false` zu ziehen ist der richtige naechste Schritt, verlangt aber
-    ein explizites `everyoneAdmin: true` in den betroffenen Tests und
-    gehoerte damit nicht mehr in dieses Paket.
+    Der Preis steht in den Tests: rund achtzig `createWovServer(...)` in
+    server/test/ schicken Admin-Pakete und verliessen sich auf die alte
+    Vorgabe. Die betroffenen Dateien setzen `everyoneAdmin: true` jetzt
+    ausdruecklich -- was sie ohnehin ehrlicher macht, denn sie pruefen
+    Admin-Funktionen, nicht die Rechtevergabe.
   */
-  everyoneAdmin: true,
+  everyoneAdmin: false,
   worldName: 'world',
   worldSeed: 'KxSYuZquuw',
   wetterVorgabe: WETTER_VORGABE_AUS,
@@ -583,6 +581,7 @@ export class WovServer {
     this.registerSpawnCommand();
     this.registerAbbauCommand();
     this.registerAdminListeCommands();
+    this.registerBannCommands();
     this.registerMarkeCommand();
     // Karten-Marker: Eingangs-Änderungen an alle Peers verteilen.
     this.dungeons.onEntrancesChanged = () => {
@@ -721,6 +720,21 @@ export class WovServer {
       // Der Name kommt aus dem Konto, nicht aus der Behauptung des
       // Browsers -- Begruendung in NetManager.handlePasswordAuth.
       charakterZuSpielerId: (id) => this.kontenDb.charakterZuSpielerId(id),
+      /*
+        Die Bannliste, angeschlossen (Pakete 0.5 und 0.1 zusammengefuehrt).
+        Ohne dieses eine Feld bleibt `bannPruefen` im NetManager undefined
+        und die ganze Liste ist wirkungslos: Banns stuenden in der
+        Datenbank, `bann liste` zaehlte sie auf, und trotzdem kaeme jeder
+        herein. Ein Fehler ohne Symptom — deshalb steht er hier als
+        Kommentar UND als Pruefung (server/test/adminbefehle-bann.ts).
+
+        Die Pruefung laeuft VOR der Admin-Entscheidung (Reihenfolge in
+        handlePasswordAuth): ein Bann gilt auch fuer einen Admin. Dass
+        sich dabei niemand versehentlich selbst oder den letzten Admin
+        aussperrt, regelt der Befehl, nicht diese Zeile — s.
+        registerBannCommands().
+      */
+      bannPruefen: (zugang) => this.kontenDb.bannFuerZugang(zugang),
     });
 
     // Time
@@ -3698,6 +3712,218 @@ export class WovServer {
 
       return { ok: false, active: false,
         message: 'Aufruf: admin liste | admin add <Name> | admin remove <Name>' };
+    });
+  }
+
+  /**
+   * `kick` / `bann` / `entbann` — die Bedienoberflaeche der Bannliste
+   * (Paket 0.5; die Datenhaltung steht in Kontendatenbank.ts, das
+   * Hinauswerfen in NetManager.trenneGebannte()).
+   *
+   * Warum diese drei zusammen in einer Methode stehen: `kick` ohne `bann`
+   * ist eine Bitte (der Geworfene verbindet sich sofort wieder), `bann`
+   * ohne `kick` erwischt den nicht, der schon drin ist. Beide teilen sich
+   * dieselbe Namensaufloesung, und die ist der eigentliche Inhalt.
+   *
+   * ── Namensaufloesung: Konto zuerst, spielerId als Rueckfall ──────────
+   * Ein Admin tippt einen Namen. Gemeint ist fast immer die PERSON, nicht
+   * die eine Figur — deshalb loest `bann` ueber die Kontendatenbank auf
+   * und bannt das KONTO, was alle Charaktere dieser Person einschliesst,
+   * auch die, die gerade nicht online sind. Nur wenn zu dem Namen gar
+   * kein Konto gehoert (eine Verbindung ohne Anmeldung bekommt eine
+   * gewuerfelte spielerId und keine Kontozeile), faellt der Befehl auf
+   * einen Spielerbann zurueck. Beides findet auch Abwesende: die
+   * Kontendatenbank ueber `charakterNachName`, der Rueckfall ueber
+   * `spielerIdFuerName` (online ODER savedPlayers).
+   *
+   * ── Gilt ein Bann auch fuer einen Admin? JA ─────────────────────────
+   * Strukturell: die Bannpruefung im Handshake laeuft VOR der Zeile, die
+   * `peer.isAdmin` setzt (NetManager.handlePasswordAuth) — ein gebannter
+   * Admin kommt nicht herein, und das soll auch so sein. Ein
+   * uebernommenes Adminkonto ist genau der Fall, in dem man einen Bann
+   * BRAUCHT, und eine Ausnahme waere die einzige Luecke, die niemand
+   * schliessen koennte.
+   *
+   * Die Gegenprobe ist trotzdem noetig, denn seit `everyone-admin: false`
+   * ist die Adminliste der einzige Weg zu Rechten: wer den letzten Admin
+   * bannt, hat den Server dauerhaft ohne Admin, und `admin add` braucht
+   * einen Admin. Deshalb LEHNT DER BEFEHL ab, wenn das Ziel auf der
+   * Adminliste steht (oder man selbst ist) und verlangt vorher
+   * `admin remove <Name>`. Das ist eine Huerde in der Bedienung, keine
+   * Ausnahme in der Berechtigung — ein Bann, der auf anderem Weg in die
+   * Datenbank kommt, wirkt gegen jeden.
+   *
+   * ── Herkunftsbann ───────────────────────────────────────────────────
+   * `bann herkunft <Name> ...` bannt die Adresse einer GERADE OFFENEN
+   * Verbindung (NetManager.herkunftVon). Nur online, absichtlich: eine
+   * Adresse, die man nicht mehr sieht, ist geraten. Sie wird auch nicht
+   * zurueckgemeldet — die Ablehnung nennt den Spielernamen, nicht die IP.
+   */
+  private registerBannCommands(): void {
+    /** `30m`, `2h`, `7d`, `dauerhaft`/`permanent` → ms-Zeitpunkt oder null. */
+    const fristLesen = (wort: string): { bis: number | null } | null => {
+      const w = wort.toLowerCase();
+      if (w === 'dauerhaft' || w === 'permanent' || w === 'immer') return { bis: null };
+      const m = /^(\d+)(m|h|d|t)$/.exec(w);
+      if (!m) return null;
+      const zahl = Number(m[1]);
+      if (zahl <= 0) return null;
+      const faktor = m[2] === 'm' ? 60_000 : m[2] === 'h' ? 3_600_000 : 86_400_000;
+      return { bis: Date.now() + zahl * faktor };
+    };
+
+    const fristText = (bis: number | null): string =>
+      bis === null ? 'dauerhaft' : `bis ${new Date(bis).toLocaleString('de-DE')}`;
+
+    /**
+     * Steht zu diesem Bannziel ein Eintrag auf der Adminliste? Bei einem
+     * Kontobann werden ALLE Charaktere des Kontos geprueft — sonst
+     * schuetzt die Huerde nur den einen Namen, der getippt wurde, und der
+     * Zweitcharakter desselben Admins faellt still mit.
+     */
+    const trifftAdmin = (art: BannArt, wert: string, kontoId: number | null): boolean => {
+      if (art === 'spieler') return this.adminListe.enthaelt(wert as SpielerId);
+      if (art === 'konto' && kontoId !== null) {
+        return this.kontenDb
+          .charaktereVonKonto(kontoId)
+          .some((c) => this.adminListe.enthaelt(c.spielerId));
+      }
+      return false;
+    };
+
+    this.adminCommands.register('kick', (peer, args) => {
+      const name = args.join(' ').trim();
+      if (!name) return { ok: false, active: false, message: 'Aufruf: kick <Name>' };
+      if (name === peer.name) {
+        return { ok: false, active: false, message: 'Dich selbst kannst du nicht werfen' };
+      }
+      const getroffen = this.net.kick(name);
+      return getroffen
+        ? { ok: true, active: false, message: `${name} wurde getrennt (kein Bann — er kann sofort wiederkommen)` }
+        : { ok: false, active: false, message: `${name} ist nicht verbunden` };
+    });
+
+    this.adminCommands.register('bann', (peer, args) => {
+      const sub = (args[0] ?? '').toLowerCase();
+
+      if (sub === 'liste' || sub === 'list') {
+        const banns = this.kontenDb.bannListe();
+        if (banns.length === 0) return { ok: true, active: false, message: 'Keine wirksamen Banns' };
+        // Der rohe Wert eines Kontobanns ist eine Zeilennummer ("konto 1")
+        // — damit laesst sich `entbann` nicht bedienen. Wo es einen
+        // Benutzernamen gibt, steht deshalb der.
+        const zeilen = banns
+          .map((b) => {
+            const klar = b.art === 'konto'
+              ? this.kontenDb.kontoNachId(Number(b.wert))?.benutzername ?? b.wert
+              : b.wert;
+            return `${b.art} ${klar} (${fristText(b.bis)}${b.grund ? `, ${b.grund}` : ''})`;
+          })
+          .join('; ');
+        return { ok: true, active: false, message: `${banns.length} Banns: ${zeilen}` };
+      }
+
+      const aufHerkunft = sub === 'herkunft' || sub === 'ip';
+      const rest = aufHerkunft ? args.slice(1) : args;
+      const name = (rest.shift() ?? '').trim();
+      if (!name) {
+        return { ok: false, active: false,
+          message: 'Aufruf: bann <Name> [30m|2h|7d|dauerhaft] [Grund] | bann herkunft <Name> ... | bann liste' };
+      }
+      if (name === peer.name) {
+        return { ok: false, active: false, message: 'Dich selbst kannst du nicht bannen' };
+      }
+
+      // Frist ist optional und steht, wenn ueberhaupt, direkt hinter dem
+      // Namen. Ist das naechste Wort keine Frist, gehoert es zum Grund —
+      // sonst muesste jeder Bann eine Frist mitschleppen, nur damit ein
+      // Grund dahinter passt.
+      let bis: number | null = null;
+      if (rest.length > 0) {
+        const frist = fristLesen(rest[0]!);
+        if (frist) { bis = frist.bis; rest.shift(); }
+      }
+      const grund = rest.join(' ').trim();
+
+      let art: BannArt;
+      let wert: string;
+      let kontoId: number | null = null;
+      if (aufHerkunft) {
+        const ziel = this.net.getPeers().find((p) => p.name === name);
+        if (!ziel) {
+          return { ok: false, active: false,
+            message: `${name} ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen` };
+        }
+        const herkunft = this.net.herkunftVon(ziel);
+        if (!herkunft) {
+          return { ok: false, active: false, message: `Herkunft von ${name} ist unbekannt` };
+        }
+        art = 'herkunft';
+        wert = herkunft;
+      } else {
+        const charakter = this.kontenDb.charakterNachName(name);
+        if (charakter) {
+          art = 'konto';
+          wert = String(charakter.kontoId);
+          kontoId = charakter.kontoId;
+        } else {
+          const id = this.spielerIdFuerName(name);
+          if (!id) {
+            return { ok: false, active: false,
+              message: `Unbekannter Spieler: "${name}" (kein Konto dieses Namens und nie verbunden gewesen)` };
+          }
+          art = 'spieler';
+          wert = id;
+        }
+      }
+
+      if (trifftAdmin(art, wert, kontoId)) {
+        return { ok: false, active: false,
+          message: `${name} steht auf der Admin-Liste. Erst "admin remove ${name}", dann bannen — sonst sperrt man sich womoeglich den letzten Admin aus.` };
+      }
+
+      this.kontenDb.bannSetzen(art, wert, { grund, gesetztVon: peer.name, bis });
+      // NACH dem Eintrag: trenneGebannte() fragt dieselbe Funktion wie der
+      // Handshake und erwischt damit auch den Zweitcharakter desselben
+      // Kontos, der nebenher online ist.
+      const getroffen = this.net.trenneGebannte();
+      const wen = getroffen.length > 0 ? ` — getrennt: ${getroffen.map((p) => p.name).join(', ')}` : '';
+      const wasText = art === 'herkunft' ? `Herkunft von ${name}` : art === 'konto' ? `Konto von ${name}` : name;
+      return { ok: true, active: false,
+        message: `${wasText} gebannt (${fristText(bis)}${grund ? `, ${grund}` : ''})${wen}` };
+    });
+
+    this.adminCommands.register('entbann', (_peer, args) => {
+      const sub = (args[0] ?? '').toLowerCase();
+      const aufHerkunft = sub === 'herkunft' || sub === 'ip';
+      const rest = aufHerkunft ? args.slice(1) : args;
+      const name = rest.join(' ').trim();
+      if (!name) {
+        return { ok: false, active: false,
+          message: 'Aufruf: entbann <Name> | entbann herkunft <Adresse>' };
+      }
+
+      // Bei einer Herkunft ist der getippte Text schon der Wert — die
+      // Adresse steht in `bann liste`, und der Gebannte ist ja gerade
+      // NICHT verbunden, also gibt es nichts abzulesen.
+      if (aufHerkunft) {
+        const weg = this.kontenDb.bannAufheben('herkunft', name);
+        return { ok: weg, active: false,
+          message: weg ? `Herkunftsbann auf ${name} aufgehoben` : `Kein Herkunftsbann auf ${name}` };
+      }
+
+      // Beide Arten probieren, in derselben Reihenfolge, in der `bann`
+      // sie vergibt — der Admin soll nicht wissen muessen, ob sein
+      // Gegenueber damals ein Konto hatte.
+      const charakter = this.kontenDb.charakterNachName(name);
+      if (charakter && this.kontenDb.bannAufheben('konto', String(charakter.kontoId))) {
+        return { ok: true, active: false, message: `Kontobann auf ${name} aufgehoben` };
+      }
+      const id = this.spielerIdFuerName(name);
+      if (id && this.kontenDb.bannAufheben('spieler', id)) {
+        return { ok: true, active: false, message: `Spielerbann auf ${name} aufgehoben` };
+      }
+      return { ok: false, active: false, message: `Kein Bann auf ${name} gefunden` };
     });
   }
 

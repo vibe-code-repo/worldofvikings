@@ -114,7 +114,11 @@ function sendSetTimeOfDay(ws: WebSocket, seconds: number): void {
 /** Admin darf: Anfrage geht durch, TimeSync broadcastet die neue Zeit. */
 async function testAdminDarf(): Promise<void> {
   const PORT = 2499;
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten') }); // Default everyoneAdmin: true
+  // `everyoneAdmin` steht seit dem 13.09.2026 per Vorgabe auf FALSE
+  // (Sicherheitspaket 0.1). Diese Probe schickt Adminpakete, prueft aber
+  // nicht die Rechtevergabe — deshalb hier ausdruecklich erlaubt, statt
+  // sich still auf eine Sicherheitseinstellung zu stuetzen.
+  const server = createWovServer({ port: PORT, everyoneAdmin: true, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten') });
   server.start();
 
   let initialTimeOfDay: number | null = null;

@@ -7,12 +7,13 @@
  * handler; the result goes back to the requesting peer as AdminEvent
  * (command / active / message) so the client HUD mirrors server state.
  *
- * PERMISSIONS: gated on `peer.isAdmin`, which the NetManager sets from the
- * server config (`players.everyone-admin`). The project currently runs with
- * everyone-admin: true, so the admin mode is effectively unprotected — to
- * lock it down later, set everyone-admin: false and grant peer.isAdmin from
- * the admin list instead. All commands funnel through the single gate
- * canUseAdminCommands() below.
+ * PERMISSIONS: gated on `peer.isAdmin`, which the NetManager sets at the
+ * handshake. Since 2026-09-13 `players.everyone-admin` is `false` in the
+ * committed server.yml, so that flag no longer hands rights to everybody:
+ * what grants them is the persistent admin list keyed by spielerId
+ * (server/src/admin/AdminListe.ts), seeded by the `admin: true` account in
+ * `standard-konto:`. This gate is therefore a real one — all commands
+ * funnel through canUseAdminCommands() below.
  */
 
 import { WATER_LEVEL } from '@wov/shared';
@@ -28,9 +29,10 @@ export interface AdminResult {
 export type AdminCommandHandler = (peer: Peer, args: string[]) => AdminResult;
 
 /**
- * Single permission gate for all admin commands.
- * Currently everyone is admin (server config `players.everyone-admin: true`);
- * tighten here (admin list, per-command permissions) when needed.
+ * Single permission gate for all admin commands. `peer.isAdmin` is decided
+ * once, at the handshake, from `players.everyone-admin` OR the persistent
+ * admin list — so a rights change reaches a player with their next connect,
+ * not mid-session. Per-command permissions, if ever needed, belong here.
  */
 export function canUseAdminCommands(peer: Peer): boolean {
   return peer.isAdmin;

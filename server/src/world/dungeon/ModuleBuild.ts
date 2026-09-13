@@ -17,11 +17,12 @@
  * still anders.
  *
  * ── Die zwei Tore ────────────────────────────────────────────────────
- * `peer.isAdmin` schützt heute nichts: `server/data/server.yml` trägt
- * `everyone-admin: true`, jeder verbundene Client ist Admin. Der zweite
- * Schalter `dungeons.modulbau` (Vorgabe FALSE) ist deshalb nicht Gürtel
- * zum Hosenträger, sondern das einzige Schloss, das heute wirklich zu
- * ist. Beide müssen zutreffen.
+ * `peer.isAdmin` schützt seit dem 13.09.2026 wirklich: `server.yml` trägt
+ * `everyone-admin: false`, Rechte kommen nur noch aus der dauerhaften
+ * Adminliste. Der zweite Schalter `dungeons.modulbau` (Vorgabe FALSE)
+ * bleibt daneben stehen — er trennt "darf Adminbefehle" von "darf die
+ * Weltgeometrie umbauen", zwei verschiedene Fragen. Beide müssen
+ * zutreffen.
  *
  * ── Der Name kommt aus dem Mass, nicht aus dem Formular ──────────────
  * `Gen_StoneVaultHall<cx>x<cz>[r<raster>]`, vom Server gebildet (Mikes
@@ -257,8 +258,7 @@ function schreibeRegistry(verzeichnis: string, module: readonly RegistryModul[])
 export function baueModul(kontext: ModulBauKontext, wunsch: ModulBauWunsch): ModulBauAntwort {
   const nein = (meldung: string): ModulBauAntwort => ({ ok: false, meldung });
 
-  // (1) Tor eins: der Peer. Heute wirkungslos (everyone-admin), deshalb
-  // steht Tor zwei daneben und nicht statt seiner.
+  // (1) Tor eins: der Peer (Adminliste, s. Kopfkommentar).
   if (!kontext.istAdmin) return nein('Keine Berechtigung');
   // (2) Tor zwei: der Schalter. Vorgabe FALSE.
   if (!kontext.modulbauErlaubt) {

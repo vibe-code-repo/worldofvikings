@@ -77,9 +77,10 @@ The same block has a third entry, and this one *is* an admin:
 ```
 
 `admin: true` puts that account's characters on the server's persistent admin list at
-every start — which is what lets them fly, teleport, spawn items and grant admin rights
-to others (`admin add <PlayerName>`). It exists because `everyone-admin` is `false`: a
-fresh installation would otherwise have no admin at all, and no way to appoint one.
+every start — which is what lets them fly, teleport, spawn items, grant admin rights to
+others (`admin add <PlayerName>`) and keep people out (`kick`, `bann`, `entbann`; see
+`docs/server-setup.md` §5). It exists because `everyone-admin` is `false`: a fresh
+installation would otherwise have no admin at all, and no way to appoint one.
 This is the **initial state** of a clone; on a laptop that is exactly the point.
 
 **On anything reachable from the internet, change the password first.** Not here — this

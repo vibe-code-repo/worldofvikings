@@ -29,12 +29,13 @@ for (const set of catalog.sets) {
     assert.equal(model.readUInt32LE(8), model.length, part.model);
     if (set.familyId === 'seidraven') {
       const gltf = JSON.parse(model.subarray(20, 20 + model.readUInt32LE(12)).toString());
-      const meshes = gltf.meshes.filter(mesh => mesh.primitives?.length);
-      assert(meshes.length > 0, `${part.itemId}: renderable meshes`);
-      for (const mesh of meshes) {
-        assert.equal(mesh.extras?.itemId, part.itemId);
-        assert.equal(mesh.extras?.bodyVariant, part.bodyVariant);
-        assert.equal(mesh.extras?.bodyProfile, part.bodyProfile);
+      const meshNodes = gltf.nodes.filter(node => node.mesh !== undefined);
+      assert(meshNodes.length > 0, `${part.itemId}: renderable mesh nodes`);
+      for (const node of meshNodes) {
+        assert.equal(node.extras?.itemId, part.itemId);
+        assert.equal(node.extras?.bodyVariant, part.bodyVariant);
+        assert.equal(node.extras?.bodyProfile, part.bodyProfile);
+        assert(part.regions.includes(node.extras?.replaces));
       }
       assert.deepEqual(part.hideAppearance, part.appearanceSlot === 'kopf' ? ['hair', 'beard', 'eyebrows'] : []);
     }

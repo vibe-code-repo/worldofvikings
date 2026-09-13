@@ -5,7 +5,9 @@ import bpy, json, sys
 from pathlib import Path
 from mathutils import Vector
 
-model_dir, output_dir = map(Path, sys.argv[sys.argv.index('--') + 1:])
+args = sys.argv[sys.argv.index('--') + 1:]
+model_dir, output_dir = map(Path, args[:2])
+prefix = args[2] if len(args) > 2 else 'WoV_Ironward_'
 output_dir.mkdir(parents=True, exist_ok=True)
 manifest = json.loads((model_dir / 'manifest.json').read_text())
 for part in manifest['items']:
@@ -14,7 +16,8 @@ for part in manifest['items']:
     scene = bpy.context.scene
     for obj in scene.objects:
         if obj.type == 'ARMATURE': obj.data.pose_position = 'REST'
-    meshes = [o for o in scene.objects if o.type == 'MESH' and o.name.startswith('WoV_Ironward_')]
+    meshes = [o for o in scene.objects if o.type == 'MESH' and o.name.startswith(prefix)]
+    assert meshes, 'No replacement meshes matched the supplied prefix'
     # A single member of a pair makes the silhouette legible at 64 pixels.
     chosen = [o for o in meshes if len(part['regions']) == 1 or part['regions'][0] in o.name]
     for obj in meshes: obj.hide_render = obj not in chosen
@@ -52,5 +55,5 @@ for part in manifest['items']:
     scene.render.resolution_percentage = 100; scene.render.film_transparent = True
     scene.render.image_settings.file_format = 'PNG'; scene.render.image_settings.color_mode = 'RGBA'
     scene.view_settings.view_transform = 'AgX'
-    scene.render.filepath = str(output_dir / (part['id'] + '.png'))
+    scene.render.filepath = str(output_dir / (part.get('id', part['item']) + '.png'))
     bpy.ops.render.render(write_still=True)

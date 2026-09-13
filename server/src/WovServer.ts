@@ -8,7 +8,7 @@
  * and whitelist sets.
  */
 
-import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, IRONWARD_PARTS, Inventory } from '@wov/shared';
+import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory } from '@wov/shared';
 import {
   EVENT_CHANCE,
   EVENT_INTERVAL_MS,
@@ -1640,6 +1640,7 @@ export class WovServer {
       frisur: peer.frisur,
       haarfarbe: peer.haarfarbe,
       ruestung: peer.ruestung,
+      inventar: peer.inventar.serialize(),
     });
     // Destroy player character ZDO
     if (!peer.characterID.isNone()) {
@@ -3676,19 +3677,21 @@ export class WovServer {
       const sub = (args.shift() ?? '').toLowerCase();
       // Explicit, idempotent test-set delivery, including offline characters.
       // Stage the whole inventory first: a full bag must never get half a set.
-      if (sub === 'ironward') {
+      if (sub === 'ironward' || sub === 'wildwarden') {
+        const parts = sub === 'ironward' ? IRONWARD_PARTS : WILDWARDEN_PARTS;
+        const label = sub === 'ironward' ? 'Ironward' : 'Waldhüter';
         if (this.speichertGerade) return { ok: false, active: false, message: 'Sicherung läuft; bitte gleich erneut versuchen. Nichts verändert.' };
         const name = args.join(' ').trim();
-        if (!name) return { ok: false, active: false, message: 'Aufruf: item ironward <Spielername>' };
+        if (!name) return { ok: false, active: false, message: `Aufruf: item ${sub} <Spielername>` };
         const online = this.net.getPeers().filter(p => !p.nurEditor && p.name.toLowerCase() === name.toLowerCase());
         const saved = [...this.savedPlayers.entries()].filter(([, p]) => p.name.toLowerCase() === name.toLowerCase());
         if (online.length > 1 || (!online.length && saved.length !== 1)) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
         const target = online[0]; const record = saved[0];
-        if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: 'Ironward benötigt den männlichen Wikinger-Körper' };
+        if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };
         const snapshot = target?.inventar.serialize() ?? record?.[1].inventar;
         if (!snapshot) return { ok: false, active: false, message: 'Kein gespeichertes Inventar vorhanden' };
         const staged = new Inventory(); staged.load(snapshot); let added = 0;
-        for (const part of IRONWARD_PARTS) {
+        for (const part of parts) {
           if (staged.countOf(part.item)) continue;
           if (staged.addItem(findItem(part.item)!, 1)) return { ok: false, active: false, message: 'Nicht genug Platz für das vollständige Set; nichts verändert' };
           added++;
@@ -3696,7 +3699,7 @@ export class WovServer {
         if (target) { target.inventar.load(staged.serialize()); this.inventarSync(target); }
         else record![1].inventar = staged.serialize();
         void this.saveWorldAsync();
-        return { ok: true, active: false, message: `${name}: Ironward vollständig (7/7), ${added} neue Gegenstände. Sicherung angefordert.` };
+        return { ok: true, active: false, message: `${name}: ${label} vollständig (7/7), ${added} neue Gegenstände. Sicherung angefordert.` };
       }
       if (sub !== 'give' && sub !== 'gib') {
         return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };

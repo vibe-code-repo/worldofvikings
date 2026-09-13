@@ -10,6 +10,8 @@ import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/index.js';
 import { verifyArmorSkin, updateArmorVisibility } from '../../client/src/player/armorVisibility.ts';
 const [bodyPath, directory] = process.argv.slice(2);
+const family = process.argv.find(a => a.startsWith('--family='))?.split('=')[1] ?? 'ironward';
+assert(['ironward', 'wildwarden'].includes(family), 'Unknown armor family');
 const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
 const engine = new NullEngine(); const scene = new Scene(engine);
 const load = path => SceneLoader.ImportMeshAsync('', '', `data:base64,${readFileSync(path).toString('base64')}`, scene, undefined, '.glb');
@@ -18,7 +20,7 @@ for (const group of body.animationGroups) group.stop();
 const armor = [];
 for (const part of manifest.items) {
   const result = await load(join(directory, part.file));
-  verifyArmorSkin(skeleton, result.skeletons[0], `ironward/${part.item}`);
+  verifyArmorSkin(skeleton, result.skeletons[0], `${family}/${part.item}`);
   for (let i = 0; i < skeleton.bones.length; i++) {
     const a = skeleton.bones[i].getAbsoluteInverseBindMatrix().asArray();
     const b = result.skeletons[0].bones[i].getAbsoluteInverseBindMatrix().asArray();
@@ -26,7 +28,7 @@ for (const part of manifest.items) {
   }
   for (const mesh of result.meshes.filter(m => m.getTotalVertices())) { mesh.skeleton = skeleton; armor.push(mesh); }
 }
-updateArmorVisibility(scene.meshes, manifest.items.map(p => `ironward/${p.item}`));
+updateArmorVisibility(scene.meshes, manifest.items.map(p => `${family}/${p.item}`));
 assert(body.meshes.filter(m => m.getTotalVertices()).every(m => !m.isEnabled()), 'Full armor must replace all eleven regions');
 assert(armor.every(m => m.isEnabled()), 'Armor must not mask itself');
 const frames = [];

@@ -470,8 +470,9 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
  * die ersten zwei Buchstaben der Beschriftung statt eines kaputten Bildes.
  */
 import { IRONWARD_PARTS } from '../ironward.js';
+import { WILDWARDEN_PARTS } from '../wildwarden.js';
 const KLEIDUNG: ItemShared[] = [
-  ...IRONWARD_PARTS.map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
+  ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
     icon: p.id, model: null, maxStackSize: 1, weight: p.weight, toolTier: 0,
     ausruestung: p.equipment, ruestungsteil: p.id })),
   {

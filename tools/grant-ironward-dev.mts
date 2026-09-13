@@ -11,10 +11,19 @@ import { zstdDecompressSync } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import { WebSocket } from 'ws';
 import { GameSocket } from '../client/src/net/GameSocket.js';
-import { PacketType, IRONWARD_PARTS } from '@wov/shared';
+import { PacketType, IRONWARD_PARTS, WILDWARDEN_PARTS } from '@wov/shared';
 import { parse as parseYaml } from 'yaml';
 
 const name = process.argv[2]; const apply = process.argv.includes('--apply');
+const family = process.argv.find(a => a.startsWith('--set='))?.split('=')[1] ?? 'ironward';
+assert(['ironward', 'wildwarden'].includes(family), 'Unknown armor set');
+const parts = family === 'ironward' ? IRONWARD_PARTS : WILDWARDEN_PARTS;
+const label = family === 'ironward' ? 'Ironward' : 'Waldhüter';
+// Explicit normal login is useful for repairing a missing inventory and checking
+// a relog. Never use it while the target character is playing.
+const gameSession = process.argv.includes('--game-session');
+const verifySets = process.argv.includes('--verify-sets');
+assert(!verifySets || (gameSession && !apply), 'Verification requires a read-only game session');
 assert(name && !/[\r\n]/.test(name), 'Expected character name');
 const env = Object.fromEntries(readFileSync('/etc/wov.env', 'utf8').split('\n').flatMap(line => {
   const match = /^([A-Z_]+)=(.*)$/.exec(line.trim()); return match ? [[match[1], match[2]]] : [];
@@ -44,10 +53,12 @@ Object.assign(globalThis, {
   WebSocket, window: { setInterval, clearInterval },
   localStorage: { getItem: () => ticket, setItem: (_: string, value: string) => { ticket = value; } },
 });
-const socket = new GameSocket('ws://127.0.0.1:2467', character.name, true);
+let receivedInventory: any[] | undefined;
+const socket = new GameSocket('ws://127.0.0.1:2467', character.name, !gameSession);
+socket.on(PacketType.InventorySync, reader => { receivedInventory = JSON.parse(reader.readString()); });
 const result = await new Promise<string>((resolve, reject) => {
   const timeout = setTimeout(() => { socket.disconnect(); reject(new Error('Admin request timed out')); }, 15000);
-  socket.on(PacketType.PeerInfo, () => socket.sendAdminCommand(apply ? `item ironward ${character.name}` : 'spieler online'));
+  socket.on(PacketType.PeerInfo, () => socket.sendAdminCommand(apply ? `item ${family} ${character.name}` : 'spieler online'));
   socket.on(PacketType.AdminEvent, reader => {
     reader.readString(); reader.readBool(); const message = reader.readString();
     clearTimeout(timeout); socket.disconnect(); resolve(message);
@@ -55,13 +66,18 @@ const result = await new Promise<string>((resolve, reject) => {
   socket.connect();
 });
 console.log(result);
+if (verifySets) {
+  assert([...IRONWARD_PARTS, ...WILDWARDEN_PARTS].every(part => receivedInventory?.some(i => i.name === part.item && i.stack >= 1)),
+    'Normal login did not restore all fourteen items');
+  console.log('PASS: Normal login received all fourteen armor items from the server.');
+}
 if (apply) {
-  assert(result.includes('Ironward vollständig (7/7)'), 'Delivery rejected');
+  assert(result.includes(`${label} vollständig (7/7)`), 'Delivery rejected');
   let verified = false;
   for (let attempt = 0; attempt < 30; attempt++) {
     const save = JSON.parse(zstdDecompressSync(readFileSync('/opt/worldofvikings/server/data/worlds/dev.db.zst')).toString());
     const player = save.players.find((p: any) => p.spielerId === character.spieler_id);
-    verified = IRONWARD_PARTS.every(part => player?.inventar?.some((i: any) => i.name === part.item && i.stack >= 1));
+    verified = parts.every(part => player?.inventar?.some((i: any) => i.name === part.item && i.stack >= 1));
     if (verified) break;
     await new Promise(resolve => setTimeout(resolve, 1000));
   }

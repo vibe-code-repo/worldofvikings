@@ -202,7 +202,7 @@
       return set ? [[classId, {
         name: set.name,
         teile: set.parts.map(part => ({
-          datei: `armor/${part.model.replace(/\.glb$/, '')}`,
+          datei: part.model.replace(/\.glb$/, ''),
           regionen: part.regions,
         })),
       }]] : [];
@@ -429,7 +429,7 @@
   }
 
   async function schalteKlassenruestung() {
-    if (!aktiveRuestung || figur !== 'wikinger' || !fertig) return;
+    if (!aktiveRuestung || !fertig) return;
     ruestungAn = !ruestungAn;
     try {
       await zeigeKlassenruestung();

@@ -3576,9 +3576,23 @@ export class WovServer {
     // 23.08.2026 sendet drei Strings. `readString()` auf einem leeren
     // Rest wuerfe und risse die Verbindung ab — fuer eine Haarfarbe.
     const haarfarbe = reader.remaining() > 0 ? reader.readString() : peer.haarfarbe;
-    const augenfarbe = reader.remaining() > 0 ? reader.readString() : peer.augenfarbe;
+    /*
+     * Zwei additive Protokollstaende muessen sich hier ueberlappen:
+     * Ruestungsclients von vor der Augenfarben-Auswahl schicken als
+     * fuenften String bereits das JSON der Zusatz-Slots. Neue Clients
+     * schicken erst die Augenfarbe und danach dieses JSON. Eine bekannte
+     * Augenfarben-Kennung unterscheidet beide Formen eindeutig.
+     */
+    const fuenfterWert = reader.remaining() > 0 ? reader.readString() : '';
+    const hatAugenfarbe = istAugenfarbe(fuenfterWert);
+    const augenfarbe = hatAugenfarbe
+      ? fuenfterWert
+      : istAugenfarbe(peer.augenfarbe) ? peer.augenfarbe : AUGENFARBE_VORGABE;
+    const ruestungsJson = hatAugenfarbe
+      ? reader.remaining() > 0 ? reader.readString() : ''
+      : fuenfterWert;
     let extra: unknown = {};
-    try { if (reader.remaining() > 0) extra = JSON.parse(reader.readString()); }
+    try { if (ruestungsJson) extra = JSON.parse(ruestungsJson); }
     catch { this.inventarSync(peer); return; }
     if (!validArmorParts(extra, peer.figur)) { this.inventarSync(peer); return; }
     const parts = { ...extra, oberkoerper: ober, beine };

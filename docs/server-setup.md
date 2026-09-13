@@ -340,6 +340,28 @@ an install, that is normally nothing.
 Check the log afterwards — `journalctl -u wov-server | grep Adminkonto` should
 print `mit eigenem Passwort angelegt` and no longer the boxed warning.
 
+**Locked yourself out?** If `everyone-admin` is already `false` and nobody can
+reach an admin-capable console anymore, the *operations service* (`admin/`,
+§4 above — same token, same local-network guard) can read and edit that same
+file without a game client:
+
+```
+GET    /admin/liste                          # list current entries
+GET    /admin/spieler?suche=<name-fragment>  # find a character's spielerId
+                                              #   (the game console rarely
+                                              #   remembers it verbatim)
+POST   /admin/liste    {"name": "PlayerName"}          # or {"spielerId": "sp_..."}
+DELETE /admin/liste    {"name": "PlayerName"}          # or {"spielerId": "sp_..."}
+```
+
+The lookups go straight to `server/data/konten/<instance>.db` (read-only) and
+to the same `admins.<instance>.json` the console commands use. This is a
+**separate process** from `wov-server`, but no restart is needed: the game
+server re-reads that file whenever its timestamp or size changed, which it
+checks before every permission lookup (`server/src/admin/AdminListe.ts`). A
+player who reconnects after the edit has the new rights; one who is already
+online keeps the rights of the moment they signed in.
+
 ## 6. Install the systemd services and nginx site
 
 ```bash
@@ -588,7 +610,12 @@ Spielserver samt Webseite aufsetzt.
    dem 13.09.2026 auf `false` und bleibt es. Adminrechte hat anfangs allein das
    Konto `admin` aus dem `standard-konto:`-Block (Passwort siehe Punkt 4!);
    weitere Admins per Chat-/Konsolenbefehl `admin add <Name>` vergeben, nicht in
-   einer Konfigurationsdatei.
+   einer Konfigurationsdatei. Wer sich dabei aussperrt (kein admin-fähiger
+   Client mehr erreichbar), kommt über den Betriebsdienst wieder heran:
+   `GET /admin/spieler?suche=<Namensteil>` findet die spielerId,
+   `POST`/`DELETE /admin/liste` (Körper `{"name": ...}` oder `{"spielerId": ...}`)
+   ändert `admins.<instanz>.json` direkt — und wirkt ohne Neustart, weil der
+   Spielserver die Datei vor jeder Abfrage auf Änderungen prüft (§5a).
 6. **`sudo deploy/install-services.sh`**: installiert die drei Dienste + `wov.target`
    + Kartentimer, verlinkt `deploy/nginx/wov-lab.conf`, baut die Webseite einmalig
    — installiert aber NICHT die Sicherungs-Units (Punkt 10) und reicht `nginx -t`/

@@ -49,7 +49,8 @@ import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
 
-import { AUSSEHEN_KOERPER, teilPfad } from '@wov/shared';
+import { AUSSEHEN_KOERPER, teilPfad, appearancePath, armorByFile } from '@wov/shared';
+import { updateArmorVisibility, verifyArmorSkin } from '../player/armorVisibility.js';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { faerbeAugen } from '../player/augenfarbe.js';
 import { toeneFigurMeshes } from '../engine/FigurToenung.js';
@@ -76,6 +77,9 @@ export class CharakterVorschau {
   private augenfarbe = '';
   private koerperNetze: AbstractMesh[] = [];
   private zerstoert = false;
+  private bodyFile = '';
+  private defaultRadius = 1.35;
+  private readonly pendingParts = new Map<string, Promise<Teil>>();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, { preserveDrawingBuffer: false }, true);
@@ -95,7 +99,7 @@ export class CharakterVorschau {
     kamera.attachControl(canvas, true);
 
     new HemisphericLight('himmel', new Vector3(0, 1, 0), this.scene).intensity = 0.75;
-    const sonne = new DirectionalLight('sonne', new Vector3(-0.4, -0.8, 0.5), this.scene);
+    const sonne = new DirectionalLight('sonne', new Vector3(-0.4, -0.8, -0.5), this.scene);
     sonne.intensity = 1.6;
 
     this.engine.runRenderLoop(() => {
@@ -128,7 +132,8 @@ export class CharakterVorschau {
    * ist die Wikingerin; die Figurenwahl reicht ihren eigenen durch.
    */
   async ladeKoerper(datei: string = teilPfad(AUSSEHEN_KOERPER)): Promise<void> {
-    this.teileErlaubt = datei === teilPfad(AUSSEHEN_KOERPER);
+    this.bodyFile = datei;
+    this.teileErlaubt = /^(wikinger|wikingerin)\//.test(datei);
     const res = await SceneLoader.ImportMeshAsync(
       '', WURZEL, datei, this.scene);
     // Dieselbe Tönung wie im Spiel — sonst steht im Anmeldebildschirm
@@ -137,6 +142,17 @@ export class CharakterVorschau {
     this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
     if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
     this.skelett = res.skeletons[0] ?? null;
+    const camera = this.scene.activeCamera as ArcRotateCamera;
+    let low = Infinity, high = -Infinity;
+    for (const mesh of res.meshes.filter(m => m.getTotalVertices())) {
+      mesh.computeWorldMatrix(true);
+      low = Math.min(low, mesh.getBoundingInfo().boundingBox.minimumWorld.y);
+      high = Math.max(high, mesh.getBoundingInfo().boundingBox.maximumWorld.y);
+    }
+    const height = Math.max(.5, high - low);
+    this.defaultRadius = height * 1.8;
+    camera.target.set(0, (high + low) / 2, 0); camera.radius = this.defaultRadius;
+    camera.upperRadiusLimit = height * 2.5; camera.lowerRadiusLimit = height * .8;
 
     // Ruhezyklus über denselben Namensabgleich wie AvatarRig — nicht
     // "der erste Clip", denn die Reihenfolge im glTF ist alphabetisch
@@ -153,29 +169,52 @@ export class CharakterVorschau {
    */
   async setze(slot: string, datei: string | null): Promise<void> {
     if (!this.teileErlaubt) return;
+    if (datei && armorByFile(datei)?.figure === 'wikinger' && !this.bodyFile.startsWith('wikinger/')) datei = null;
+    if (slot === 'frisur' && !this.bodyFile.startsWith('wikingerin/')) datei = null;
     if (this.aktuell.get(slot) === (datei ?? '')) return;
 
     const vorher = this.aktuell.get(slot);
     if (vorher) this.zeige(vorher, false);
     this.aktuell.set(slot, datei ?? '');
-    if (!datei) return;
+    if (!datei) { this.refreshVisibility(); return; }
 
     if (!this.geladen.has(datei)) {
+      let pending = this.pendingParts.get(datei);
+      if (!pending) {
+        pending = (async () => {
       const res = await SceneLoader.ImportMeshAsync(
-        '', WURZEL, teilPfad(datei), this.scene);
+        '', WURZEL, `${appearancePath(datei!)}.glb`, this.scene);
       const netze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+      try { verifyArmorSkin(this.skelett, res.skeletons[0] ?? null, datei!); }
+      catch (error) { for (const m of res.meshes.filter(m => !m.parent)) m.dispose(); throw error; }
       for (const m of netze) {
         // Das Skelett des KÖRPERS aufziehen, nicht das mitgelieferte.
         if (this.skelett) m.skeleton = this.skelett;
       }
       // Das eigene Skelett bleibt ungenutzt liegen; freigeben würde die
       // Netze mitreissen, die noch auf seine Bindematrizen zeigen.
-      this.geladen.set(datei, { netze, eigenes: res.skeletons[0] ?? null });
+      return { netze, eigenes: res.skeletons[0] ?? null };
+        })();
+        this.pendingParts.set(datei, pending);
+      }
+      try { this.geladen.set(datei, await pending); }
+      finally { this.pendingParts.delete(datei); }
     }
-    this.zeige(datei, true);
+    if (this.zerstoert) return;
+    this.zeige(datei, [...this.aktuell.values()].includes(datei));
     // Nach dem Anzeigen faerben: Eine frisch geladene Frisur bringt ihr
     // eigenes Material mit und waere sonst wieder platzhalterbraun.
     this.faerbeFrisur();
+    this.refreshVisibility();
+  }
+
+  private refreshVisibility(): void {
+    const active = [...this.aktuell.values()].filter(f => this.geladen.has(f));
+    updateArmorVisibility(this.scene.meshes, active);
+    const helmet = active.some(f => armorByFile(f)?.regions?.includes('Head'));
+    for (const slot of ['frisur', 'bart', 'augenbraue']) {
+      const f = this.aktuell.get(slot); if (f) this.zeige(f, !helmet);
+    }
   }
 
   /** Haarfarbe setzen; gilt auch fuer jede spaeter gewaehlte Frisur. */
@@ -207,7 +246,7 @@ export class CharakterVorschau {
   /** Blickrichtung zurücksetzen — für den Knopf neben der Vorschau. */
   blickZurueck(): void {
     const k = this.scene.activeCamera as ArcRotateCamera | null;
-    if (k) { k.alpha = Math.PI / 2; k.beta = Math.PI / 2.35; k.radius = 1.35; }
+    if (k) { k.alpha = Math.PI / 2; k.beta = Math.PI / 2.35; k.radius = this.defaultRadius; }
   }
 
   /** Nur fuer den Pruefzugang im Entwicklungsmodus. */

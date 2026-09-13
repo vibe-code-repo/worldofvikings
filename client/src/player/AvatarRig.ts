@@ -50,6 +50,8 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { faerbeHaar } from './haarfarbe.js';
 import { faerbeAugen } from './augenfarbe.js';
+import { armorByFile } from '@wov/shared';
+import { updateArmorVisibility, verifyArmorSkin } from './armorVisibility.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
@@ -446,6 +448,7 @@ export class AvatarRig {
   private readonly teile = new Map<string, import('@babylonjs/core/Meshes/abstractMesh').AbstractMesh[]>();
   /** Was gerade in welchem Slot steckt. */
   private readonly getragen = new Map<string, string>();
+  private readonly loadingParts = new Map<string, Promise<void>>();
   /** Die für die Pose relevanten Knochen des geladenen Modells. */
   private readonly knochen: {
     huefte: Bone | null; rumpf: Bone | null; kopf: Bone | null;
@@ -2261,23 +2264,39 @@ export class AvatarRig {
       this.offenesAussehen = { ...(this.offenesAussehen ?? {}), ...teile };
       return;
     }
+    const loads: Promise<void>[] = [];
     for (const [slot, angefordert] of Object.entries(teile)) {
-      // Zweite Sicherung unterhalb aller Aufrufer: Nur H_01 ist der nicht
-      // zum neuen Wikingerkopf passende Alt-Export.
-      const datei = slot === 'frisur' && this.modellDatei.startsWith('wikinger/')
-        && /(?:^|\/)H_01$/.test(angefordert ?? '')
+      const incompatible = angefordert && armorByFile(angefordert)?.figure === 'wikinger' && !this.modellDatei.startsWith('wikinger/');
+      // Rüstungen bleiben auf ihren Zielkörper beschränkt. Von den alten
+      // Frisuren ist dagegen nur H_01 mit dem neuen Wikingerkopf unvereinbar.
+      const datei = incompatible || (slot === 'frisur'
+        && this.modellDatei.startsWith('wikinger/')
+        && /(?:^|\/)H_01$/.test(angefordert ?? ''))
         ? null
         : angefordert;
       if (this.getragen.get(slot) === (datei ?? '')) continue;
       const vorher = this.getragen.get(slot);
       if (vorher) this.zeigeTeil(vorher, false);
       this.getragen.set(slot, datei ?? '');
-      if (datei) await this.ladeTeil(datei);
+      if (datei) loads.push(this.ladeTeil(datei));
     }
+    this.refreshArmorVisibility();
+    await Promise.all(loads);
     // Nach dem Laden faerben, nicht davor: Eine gerade gewechselte
     // Frisur bringt ihr eigenes Material mit und waere sonst wieder
     // platzhalterbraun.
     this.faerbeFrisur();
+    this.refreshArmorVisibility();
+  }
+
+  private refreshArmorVisibility(): void {
+    const active = [...this.getragen.values()].filter(file => (this.teile.get(file)?.length ?? 0) > 0);
+    updateArmorVisibility(this.halter?.getChildMeshes() ?? [], active);
+    const helmet = active.some(f => armorByFile(f)?.regions?.includes('Head'));
+    for (const slot of ['frisur', 'bart', 'augenbraue']) {
+      const file = this.getragen.get(slot);
+      if (file) this.zeigeTeil(file, !helmet);
+    }
   }
 
   /**
@@ -2309,12 +2328,25 @@ export class AvatarRig {
   }
 
   private async ladeTeil(datei: string): Promise<void> {
+    const pending = this.loadingParts.get(datei);
+    if (pending) { await pending; return; }
+    const task = this.loadPartOnce(datei);
+    this.loadingParts.set(datei, task);
+    try { await task; } finally { this.loadingParts.delete(datei); }
+  }
+
+  private async loadPartOnce(datei: string): Promise<void> {
     if (!this.teile.has(datei)) {
       try {
         const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
         const res = await SceneLoader.ImportMeshAsync(
           '', '/assets/models/', `${datei}.glb`, this.halter!.getScene());
         const netze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+        try { verifyArmorSkin(this.skelett, res.skeletons[0] ?? null, datei); }
+        catch (error) {
+          for (const m of res.meshes) if (!m.parent) m.dispose(false, true);
+          throw error;
+        }
         // NUR die elternlosen Knoten umhaengen — genau wie beim Koerper
         // weiter oben. Der glTF-Import legt ueber die Netze einen
         // `__root__`-Knoten, der die Haendigkeit von glTF nach Babylon
@@ -2339,7 +2371,7 @@ export class AvatarRig {
         return;
       }
     }
-    this.zeigeTeil(datei, true);
+    this.zeigeTeil(datei, [...this.getragen.values()].includes(datei));
   }
 
   private zeigeTeil(datei: string, sichtbar: boolean): void {

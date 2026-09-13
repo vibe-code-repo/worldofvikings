@@ -30,6 +30,50 @@
  * dev and live keep separate files, like their worlds do. The test realm
  * is reset and broken on purpose; real credentials have no business
  * living there.
+ *
+ * ── Die Bannliste, und WORAUF sie bannt ──────────────────────────────
+ * Seit der Server oeffentlich erreichbar ist und die Registrierung offen
+ * steht, braucht es eine Moeglichkeit, jemanden dauerhaft fernzuhalten.
+ * Die eigentliche Frage ist nicht, wie man das speichert, sondern WORAUF
+ * gebannt wird — und jede Antwort fuer sich allein ist falsch:
+ *
+ *   • Nur der CHARAKTER (spielerId)? Ein zweiter Charakter ist im selben
+ *     Konto in zehn Sekunden angelegt. Das waere ein Kick mit Nachhall,
+ *     kein Bann.
+ *   • Nur das KONTO? Das ist die richtige Standardantwort — ein Konto
+ *     buendelt alle Charaktere einer Person, und der Name, unter dem ein
+ *     Admin bannt, haengt genau dort. Aber ein neues Konto ist in einer
+ *     Minute angelegt; die Registrierung ist nur auf fuenf je Stunde und
+ *     Herkunft gedrosselt.
+ *   • Nur die HERKUNFT (IP)? Trifft Unbeteiligte hinter demselben
+ *     Anschluss: Wohnheim, Mobilfunk-CGNAT, ein Haushalt. Als Dauerzustand
+ *     ist das eine Kollektivstrafe.
+ *
+ * Deshalb DREI Bannarten in EINER Tabelle (`banns.art`), mit klarer
+ * Rollenverteilung:
+ *   'konto'    — der Normalfall, das was ein Admin meint.
+ *   'spieler'  — fuer Verbindungen OHNE Konto. Die gibt es weiterhin: wer
+ *                den Spielclient ohne Anmeldung oeffnet, bekommt eine vom
+ *                Server gewuerfelte spielerId und gar keine Kontozeile
+ *                (NetManager.handlePasswordAuth). Bei solchen Gaesten
+ *                greift ein Kontobann ins Leere.
+ *   'herkunft' — die Notbremse gegen jemanden, der im Minutentakt neue
+ *                Konten anlegt. ABSICHTLICH das grobe Werkzeug, und
+ *                deshalb am besten befristet (`bis`) — gerade WEIL sie
+ *                Unbeteiligte trifft. Erzwungen wird die Befristung hier
+ *                nicht: eine Regel, die der Admin im Ernstfall nicht
+ *                umgehen kann, ist keine Hilfe, sondern ein zweites
+ *                Problem.
+ *
+ * Befristung: `bis` ist ein Zeitstempel in ms, NULL heisst dauerhaft.
+ * Abgelaufene Banns wirken nicht mehr (jede Pruefung filtert nach Zeit),
+ * werden aber nicht im selben Moment geloescht — die Zeile ist auch
+ * Chronik. `abgelaufeneAufraeumen()` raeumt sie beim Serverstart weg.
+ *
+ * ENGLISH, in one sentence: bans live in one table with three possible
+ * subjects — account (the default), player identity (for account-less
+ * guests) and origin address (the blunt last resort, best time-limited) —
+ * each optionally expiring at `bis`.
  */
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
@@ -59,6 +103,28 @@ export interface Charakter {
   beine: string;
   erstellt: number;
   zuletztGespielt: number | null;
+}
+
+/**
+ * Worauf ein Bann zielt — Begruendung der drei Arten im Kopfkommentar.
+ *
+ * Die Werte sind die Strings, die auch in der Spalte `banns.art` stehen und
+ * die der Adminbefehl entgegennimmt; sie sind damit Teil eines Vertrags und
+ * werden nicht umbenannt.
+ */
+export type BannArt = 'konto' | 'spieler' | 'herkunft';
+
+export interface Bann {
+  id: number;
+  art: BannArt;
+  /** Konto-ID als Text, spielerId oder Herkunfts-Adresse — je nach `art`. */
+  wert: string;
+  grund: string;
+  /** Wer den Bann gesetzt hat (Spielername oder ''), nur fuer die Chronik. */
+  gesetztVon: string;
+  gesetzt: number;
+  /** Zeitstempel in ms, ab dem der Bann nicht mehr wirkt. null = dauerhaft. */
+  bis: number | null;
 }
 
 /** Everything that can go wrong in a way the caller must tell apart. */
@@ -94,6 +160,10 @@ export class Kontendatenbank {
     this.db.exec('PRAGMA foreign_keys = ON');
     this.schemaAnlegen();
     this.spaltenNachziehen();
+    // Beim Start einmal ausmisten. Abgelaufene Banns wirken ohnehin nicht
+    // mehr (jede Pruefung filtert nach Zeit) — das hier haelt nur die
+    // Liste lesbar, die sich ein Admin anschaut.
+    this.abgelaufeneAufraeumen();
   }
 
   /**
@@ -107,16 +177,31 @@ export class Kontendatenbank {
    *
    * Idempotent by construction: it asks what is there and adds only what
    * is missing, so it may run on every start.
+   *
+   * Nur SPALTEN brauchen diesen Weg. Eine ganze neue TABELLE (`banns`)
+   * waechst einer bestehenden Datenbank von selbst zu, weil
+   * CREATE TABLE IF NOT EXISTS sie dort schlicht anlegt — sie steht
+   * deshalb in schemaAnlegen() und nicht hier.
    */
   private spaltenNachziehen(): void {
+    this.spalteNachziehen('charaktere', 'haarfarbe', "TEXT NOT NULL DEFAULT ''");
+  }
+
+  /**
+   * Eine einzelne Spalte nachziehen, falls sie fehlt.
+   *
+   * Als Helfer herausgezogen, damit die naechste Erweiterung eine Zeile ist
+   * und nicht wieder ein handgeschriebenes PRAGMA-Stueck — die Sorte
+   * Wiederholung, bei der beim dritten Mal das console.log fehlt.
+   */
+  private spalteNachziehen(tabelle: string, spalte: string, definition: string): void {
     const vorhanden = new Set(
-      (this.db.prepare('PRAGMA table_info(charaktere)').all() as Record<string, unknown>[])
+      (this.db.prepare(`PRAGMA table_info(${tabelle})`).all() as Record<string, unknown>[])
         .map((z) => String(z.name)),
     );
-    if (!vorhanden.has('haarfarbe')) {
-      this.db.exec("ALTER TABLE charaktere ADD COLUMN haarfarbe TEXT NOT NULL DEFAULT ''");
-      console.log('[Konto] Spalte charaktere.haarfarbe nachgezogen');
-    }
+    if (vorhanden.has(spalte)) return;
+    this.db.exec(`ALTER TABLE ${tabelle} ADD COLUMN ${spalte} ${definition}`);
+    console.log(`[Konto] Spalte ${tabelle}.${spalte} nachgezogen`);
   }
 
   private schemaAnlegen(): void {
@@ -148,6 +233,30 @@ export class Kontendatenbank {
         zuletzt_gespielt INTEGER
       );
       CREATE INDEX IF NOT EXISTS charaktere_nach_konto ON charaktere(konto_id);
+    `);
+
+    // Bannliste. Kein Fremdschluessel auf konten(id), und das ist Absicht:
+    // ein geloeschtes Konto darf seinen Bann nicht mitnehmen, und eine
+    // Herkunfts-Adresse hat gar kein Konto, auf das sie zeigen koennte.
+    //
+    // COLLATE NOCASE auf `wert` aus demselben Grund wie bei den Namen:
+    // eine spielerId oder IPv6-Adresse in anderer Schreibweise darf nicht
+    // an einem Bann vorbeirutschen.
+    //
+    // Der eindeutige Index ueber (art, wert) macht das Setzen zu einem
+    // Ersetzen: zweimal denselben Zugang bannen aendert Grund und Frist,
+    // statt eine zweite, halb vergessene Zeile anzulegen.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS banns (
+        id          INTEGER PRIMARY KEY,
+        art         TEXT NOT NULL,
+        wert        TEXT NOT NULL COLLATE NOCASE,
+        grund       TEXT NOT NULL DEFAULT '',
+        gesetzt_von TEXT NOT NULL DEFAULT '',
+        gesetzt     INTEGER NOT NULL,
+        bis         INTEGER
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS banns_eindeutig ON banns(art, wert);
     `);
   }
 
@@ -308,6 +417,138 @@ export class Kontendatenbank {
     const r = this.db.prepare('DELETE FROM charaktere WHERE id = ? AND konto_id = ?')
       .run(charakterId, kontoId);
     return Number(r.changes) > 0;
+  }
+
+  /**
+   * Charakter zu einem Namen — die Bruecke vom Adminbefehl zur Bannliste.
+   *
+   * Ein Admin tippt einen Spielernamen, die Bannliste braucht eine Konto-ID
+   * oder eine spielerId. Ohne diese Abfrage muesste der Befehl den Namen im
+   * NetManager suchen und koennte damit nur bannen, wer GERADE verbunden
+   * ist — genau der Fall, der beim Nachtragen eines Banns nicht gilt.
+   *
+   * NOCASE liegt schon auf der Spalte, also findet auch "bjorn" den Bjorn.
+   */
+  charakterNachName(name: string): Charakter | null {
+    const z = this.db
+      .prepare('SELECT * FROM charaktere WHERE name = ?')
+      .get(name) as Record<string, unknown> | undefined;
+    return z ? this.zuCharakter(z) : null;
+  }
+
+  // ── Bannliste ───────────────────────────────────────────────────────
+  //
+  // Worauf gebannt wird und warum es drei Arten sind: Kopfkommentar.
+
+  /**
+   * Bann setzen oder einen bestehenden ueberschreiben.
+   *
+   * `bis` ist ein Zeitstempel in ms oder null fuer dauerhaft. Ein bereits
+   * abgelaufenes `bis` ist erlaubt und ergibt einen Bann, der sofort nicht
+   * mehr wirkt — das ist kein Fehlerfall, sondern dieselbe Rechnung wie bei
+   * jedem anderen Zeitpunkt, und der Test nutzt es genau so.
+   */
+  bannSetzen(
+    art: BannArt,
+    wert: string,
+    angaben: { grund?: string; gesetztVon?: string; bis?: number | null } = {},
+  ): Bann {
+    const jetzt = Date.now();
+    const grund = angaben.grund ?? '';
+    const gesetztVon = angaben.gesetztVon ?? '';
+    const bis = angaben.bis ?? null;
+    // ON CONFLICT statt DELETE+INSERT: der zweite Bann auf denselben
+    // Zugang aktualisiert Grund und Frist, ohne dass zwischendurch eine
+    // Luecke entsteht, in der niemand gebannt ist.
+    this.db
+      .prepare(`INSERT INTO banns (art, wert, grund, gesetzt_von, gesetzt, bis)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(art, wert) DO UPDATE SET
+          grund = excluded.grund, gesetzt_von = excluded.gesetzt_von,
+          gesetzt = excluded.gesetzt, bis = excluded.bis`)
+      .run(art, wert, grund, gesetztVon, jetzt, bis);
+    const z = this.db
+      .prepare('SELECT * FROM banns WHERE art = ? AND wert = ?')
+      .get(art, wert) as Record<string, unknown>;
+    return this.zuBann(z);
+  }
+
+  /** Bann aufheben. false, wenn gar keiner eingetragen war. */
+  bannAufheben(art: BannArt, wert: string): boolean {
+    const r = this.db.prepare('DELETE FROM banns WHERE art = ? AND wert = ?').run(art, wert);
+    return Number(r.changes) > 0;
+  }
+
+  /** Ein einzelner, JETZT wirksamer Bann — null, wenn keiner oder abgelaufen. */
+  bannPruefen(art: BannArt, wert: string, jetzt = Date.now()): Bann | null {
+    const z = this.db
+      .prepare('SELECT * FROM banns WHERE art = ? AND wert = ? AND (bis IS NULL OR bis > ?)')
+      .get(art, wert, jetzt) as Record<string, unknown> | undefined;
+    return z ? this.zuBann(z) : null;
+  }
+
+  /**
+   * Die eine Frage, die der Spielserver stellt: darf dieser Zugang herein?
+   *
+   * Nimmt alles, was zum Zeitpunkt der Anmeldung bekannt ist, und prueft
+   * alle drei Arten in einem Aufruf — samt dem Umweg spielerId → Charakter
+   * → Konto, den NetManager sonst selbst gehen muesste. Genau diesen Umweg
+   * soll er nicht kennen: er weiss nichts von Konten (deshalb bekommt er
+   * auch nur eine Funktion, nicht die Datenbank).
+   *
+   * Reihenfolge ist Absicht: der spezifischste Bann zuerst, damit die
+   * Ablehnung den Grund nennt, der wirklich gemeint war, und der
+   * Herkunftsbann — der Unbeteiligte treffen kann — zuletzt.
+   *
+   * `herkunft` darf leer sein (dann wird sie nicht geprueft); `spielerId`
+   * ebenso, fuer eine Pruefung, bevor eine Identitaet feststeht.
+   */
+  bannFuerZugang(
+    zugang: { spielerId?: string | null; herkunft?: string | null },
+    jetzt = Date.now(),
+  ): Bann | null {
+    const spielerId = zugang.spielerId ?? '';
+    if (spielerId) {
+      const eigener = this.bannPruefen('spieler', spielerId, jetzt);
+      if (eigener) return eigener;
+      const charakter = this.charakterZuSpielerId(spielerId as SpielerId);
+      if (charakter) {
+        const ausKonto = this.bannPruefen('konto', String(charakter.kontoId), jetzt);
+        if (ausKonto) return ausKonto;
+      }
+    }
+    const herkunft = zugang.herkunft ?? '';
+    if (herkunft) {
+      const ausHerkunft = this.bannPruefen('herkunft', herkunft, jetzt);
+      if (ausHerkunft) return ausHerkunft;
+    }
+    return null;
+  }
+
+  /** Alle JETZT wirksamen Banns, aeltester zuerst — fuer eine Adminanzeige. */
+  bannListe(jetzt = Date.now()): Bann[] {
+    const zeilen = this.db
+      .prepare('SELECT * FROM banns WHERE bis IS NULL OR bis > ? ORDER BY gesetzt')
+      .all(jetzt) as Record<string, unknown>[];
+    return zeilen.map((z) => this.zuBann(z));
+  }
+
+  /** Abgelaufene Zeilen loeschen; liefert, wie viele es waren. */
+  abgelaufeneAufraeumen(jetzt = Date.now()): number {
+    const r = this.db.prepare('DELETE FROM banns WHERE bis IS NOT NULL AND bis <= ?').run(jetzt);
+    return Number(r.changes);
+  }
+
+  private zuBann(z: Record<string, unknown>): Bann {
+    return {
+      id: Number(z.id),
+      art: String(z.art) as BannArt,
+      wert: String(z.wert),
+      grund: String(z.grund ?? ''),
+      gesetztVon: String(z.gesetzt_von ?? ''),
+      gesetzt: Number(z.gesetzt),
+      bis: z.bis === null || z.bis === undefined ? null : Number(z.bis),
+    };
   }
 
   private zuCharakter(z: Record<string, unknown>): Charakter {

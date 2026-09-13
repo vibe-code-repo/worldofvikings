@@ -68,6 +68,37 @@ export interface NetManagerConfig {
    * dependency pointing one way.
    */
   charakterZuSpielerId?: (id: SpielerId) => { name: string } | null;
+  /**
+   * Darf dieser Zugang herein? null = ja, sonst der wirksame Bann.
+   *
+   * Wieder eine Funktion und nicht die Datenbank, aus demselben Grund wie
+   * bei `charakterZuSpielerId`: worauf gebannt wird (Konto, Spieler-ID,
+   * Herkunft) und wie sich das aufloest, entscheidet Kontendatenbank.ts —
+   * NetManager stellt nur die Frage und traegt das Ergebnis vor.
+   *
+   * Fehlt die Funktion, gibt es keine Bannliste und niemand wird
+   * abgewiesen. Das ist der Zustand jedes Tests, der NetManager ohne
+   * Konten hochzieht, und darf ihn nicht zum Absturz bringen.
+   */
+  bannPruefen?: (zugang: { spielerId: SpielerId | null; herkunft: string })
+    => { grund: string; bis: number | null } | null;
+}
+
+/**
+ * Ablehnungstext fuer einen gebannten Zugang.
+ *
+ * Der Spieler soll lesen koennen, WARUM und BIS WANN — eine wortlose
+ * Trennung ist von einem Serverfehler nicht zu unterscheiden, und dann
+ * versucht er es im Minutentakt weiter.
+ */
+function bannMeldung(bann: { grund: string; bis: number | null }): string {
+  const grund = bann.grund.trim();
+  const teil = grund ? `: ${grund}` : '';
+  if (bann.bis === null) return `Zugang dauerhaft gesperrt${teil}`;
+  // Datum in Ortszeit des SERVERS, mit ausgeschriebenem Zeitzonenkuerzel —
+  // eine blanke Zahl waere fuer den Gesperrten nicht lesbar.
+  const bis = new Date(bann.bis).toLocaleString('de-DE', { timeZoneName: 'short' });
+  return `Zugang gesperrt bis ${bis}${teil}`;
 }
 
 /**
@@ -105,6 +136,21 @@ export class NetManager {
    * Log-Flood-Ziel war (siehe handlePacket).
    */
   private readonly drossel = new Drossel();
+
+  /**
+   * Herkunfts-Adresse je Verbindung, Schluessel `peer.verbindungsId`.
+   *
+   * Warum eine Map und kein Feld an Peer: Peer.ts gehoert in diesem Umbau
+   * einem anderen Bauer, und die Adresse ist ohnehin eine Eigenschaft der
+   * VERBINDUNG, nicht des Spielers — genau wie verbindungsId, an dem sie
+   * hier haengt. Wird in handleDisconnect wieder herausgenommen, sonst
+   * waechst sie wie der Drosselzustand unbegrenzt weiter.
+   *
+   * Der Wert kommt aus herkunftErmitteln() (WebSocketAcceptor), NICHT aus
+   * socket.remoteAddress: hinter nginx waere das fuer jeden Spieler
+   * 127.0.0.1, und ein Herkunftsbann wuerde dann alle aussperren.
+   */
+  private readonly herkunftJeVerbindung = new Map<string, string>();
 
   /** Callbacks for server integration */
   onPeerAuthenticated: ((peer: Peer) => void) | null = null;
@@ -166,6 +212,7 @@ export class NetManager {
     // Create a temporary peer (name assigned after auth)
     const peer = new Peer(socket, `pending_${address}`, 0n);
     this.connectedPeers.push(peer);
+    this.herkunftJeVerbindung.set(peer.verbindungsId, address);
 
     socket.binaryType = 'nodebuffer';
 
@@ -356,6 +403,30 @@ export class NetManager {
       altlastUserId = BigInt(getStableHash(spielerId) & 0x7fffffff);
     }
 
+    // Bannpruefung — hier, und nicht frueher oder spaeter.
+    //
+    // Frueher geht nicht: vor tokenPruefen() steht die Identitaet noch gar
+    // nicht fest, und ein Bann auf eine vom Client BEHAUPTETE Kennung waere
+    // wertlos (dieselbe Falle wie beim Namen, s. unten).
+    //
+    // Spaeter waere schaedlich: gleich darunter loest eine zurueckkehrende
+    // Identitaet ihre eigene aeltere Verbindung ab. Ein Gebannter koennte
+    // sonst zwar nicht herein, aber mit jedem Versuch die noch laufende
+    // Sitzung desselben Kontos abschiessen — und wer den Bann waehrend des
+    // Spiels kassiert, wuerde sich selbst hinauswerfen.
+    //
+    // Die Herkunft kommt aus herkunftErmitteln() (WebSocketAcceptor) und
+    // NICHT aus socket.remoteAddress; hinter dem Proxy waere die fuer alle
+    // gleich.
+    const herkunft = this.herkunftJeVerbindung.get(peer.verbindungsId) ?? '';
+    const bann = this.config.bannPruefen?.({ spielerId, herkunft }) ?? null;
+    if (bann) {
+      peer.status = ConnectionStatus.ErrorBanned;
+      console.warn(`[NetManager] Gebannter Zugang abgewiesen (spielerId: ${spielerId}, Herkunft: ${herkunft || 'unbekannt'})`);
+      peer.disconnect(bannMeldung(bann));
+      return;
+    }
+
     // The NAME comes from the account, not from the client.
     //
     // Until 2026-08-24 the browser sent it and the server believed it, so
@@ -441,6 +512,7 @@ export class NetManager {
     // nehmen — sonst waechst die Map in Drossel.ts mit jedem jemals
     // verbundenen Peer unbegrenzt weiter (siehe Drossel.ts Kopfkommentar).
     this.drossel.raeumeAufFuerPeer(peer.verbindungsId);
+    this.herkunftJeVerbindung.delete(peer.verbindungsId);
 
     const connIdx = this.connectedPeers.indexOf(peer);
     if (connIdx !== -1) this.connectedPeers.splice(connIdx, 1);
@@ -509,8 +581,63 @@ export class NetManager {
   kick(identifier: string): Peer | undefined {
     const peer = this.findPeerByName(identifier);
     if (peer) {
+      peer.status = ConnectionStatus.ErrorKicked;
       peer.disconnect('Kicked by admin');
+      // Synchron aufraeumen statt auf das close-Ereignis zu warten: bis
+      // dahin stuende der Geworfene weiter in onlinePeers, taucht in der
+      // Spielerliste auf und belegt seinen Namen. Genau dasselbe tut
+      // handlePasswordAuth beim Abloesen einer alten Verbindung.
+      this.handleDisconnect(peer);
     }
     return peer;
+  }
+
+  /**
+   * Alle jetzt gebannten Verbindungen hinauswerfen.
+   *
+   * Eine Bannliste, die nur beim Anmelden greift, ist eine Bitte: wer schon
+   * drin ist, bleibt drin, bis er von selbst geht. Der Adminbefehl traegt
+   * den Bann in die Datenbank ein und ruft danach DIESE Methode — sie
+   * fragt fuer jede offene Verbindung dieselbe Funktion wie der Handshake
+   * (config.bannPruefen) und wirft raus, wer nicht mehr herein duerfte.
+   *
+   * Dass hier nicht "wirf Spieler X raus" steht, ist Absicht: der Aufrufer
+   * muss dann nicht wissen, ob der Bann auf Konto, Spieler-ID oder
+   * Herkunft lag, und ein Kontobann erwischt auch den zweiten Charakter
+   * derselben Person, der gerade nebenher online ist. Der Preis ist eine
+   * Abfrage je verbundenem Peer — bei einer zweistelligen Spielerzahl und
+   * einem Adminbefehl als Ausloeser ist das keine Rechnung wert.
+   *
+   * Liefert die getrennten Peers zurueck, damit der Befehl melden kann,
+   * wen es getroffen hat.
+   */
+  trenneGebannte(): Peer[] {
+    if (!this.config.bannPruefen) return [];
+    const getroffen: Peer[] = [];
+    // Kopie: handleDisconnect veraendert beide Listen waehrend des Laufs.
+    for (const peer of [...this.onlinePeers, ...this.connectedPeers]) {
+      if (!peer.authenticated) continue;
+      const herkunft = this.herkunftJeVerbindung.get(peer.verbindungsId) ?? '';
+      const bann = this.config.bannPruefen({ spielerId: peer.spielerId || null, herkunft });
+      if (!bann) continue;
+      peer.status = ConnectionStatus.ErrorBanned;
+      peer.disconnect(bannMeldung(bann));
+      this.handleDisconnect(peer);
+      getroffen.push(peer);
+    }
+    return getroffen;
+  }
+
+  /**
+   * Herkunfts-Adresse einer offenen Verbindung, '' wenn unbekannt.
+   *
+   * Damit kann der Adminbefehl `bann <Name> herkunft` die Adresse dessen
+   * bannen, der gerade verbunden ist — ohne sie irgendwo hinschreiben zu
+   * muessen, wo sie nicht hingehoert. Sie steht bewusst NICHT an Peer:
+   * eine IP ist kein Spielzustand, und je weniger Code sie sieht, desto
+   * weniger Wege gibt es, sie versehentlich zu verschicken.
+   */
+  herkunftVon(peer: Peer): string {
+    return this.herkunftJeVerbindung.get(peer.verbindungsId) ?? '';
   }
 }

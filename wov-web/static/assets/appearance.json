@@ -1424,6 +1424,7 @@
       "name": "Glutzorn",
       "figure": "wikinger",
       "familyId": "emberrage",
+      "classId": "berserker",
       "bodyVariant": "male",
       "bodyProfile": "wov-male-v1",
       "itemIds": [
@@ -1594,6 +1595,7 @@
       "name": "Glutzorn",
       "figure": "wikingerin",
       "familyId": "emberrage",
+      "classId": "berserker",
       "bodyVariant": "female",
       "bodyProfile": "legacy-female-v1",
       "itemIds": [

@@ -67,6 +67,7 @@ try {
   for (const [index, [classId, figure]] of [
     ['krieger', 'wikinger'], ['hexer', 'wikinger'], ['druide', 'wikinger'],
     ['seherin', 'wikinger'], ['seherin', 'wikingerin'],
+    ['berserker', 'wikinger'], ['berserker', 'wikingerin'],
   ].entries()) {
     const name = `Starter${String.fromCharCode(65 + index)}`;
     const { character } = await post('/characters', { ...appearance, name, classId, figure }, 201);
@@ -99,7 +100,7 @@ try {
     assert.deepEqual(peer.inventar.serialize(), expected, 'Reconnect/restart never grants a second set');
     await disconnect(ws, name);
   }
-  console.log('PASS starter sets E2E: HTTP creation, all five set variants, inventory delivery, reconnect and server restart');
+  console.log('PASS starter sets E2E: HTTP creation, all seven set variants, inventory delivery, reconnect and server restart');
 } finally {
   for (const ws of sockets) ws.terminate();
   server.stop();

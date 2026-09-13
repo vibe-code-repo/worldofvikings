@@ -11,6 +11,8 @@ for (const [classId, figure, setId] of [
   ['krieger', 'wikinger', 'ironward'], ['hexer', 'wikinger', 'ashenveil'],
   ['druide', 'wikinger', 'wildwarden'], ['seherin', 'wikinger', 'seidraven_male'],
   ['seherin', 'wikingerin', 'seidraven_female'],
+  ['berserker', 'wikinger', 'emberrage_male'],
+  ['berserker', 'wikingerin', 'emberrage_female'],
 ]) {
   const inventory = new Inventory();
   inventory.addItem(findItem('Hammer')!, 1);
@@ -68,4 +70,4 @@ try {
   assert.equal(db.charakterZuSpielerId(playerId)?.klasse, '', 'Existing characters are not assigned a guessed class');
   db.schliessen();
 } finally { rmSync(dir, { recursive: true, force: true }); }
-console.log('PASS starter sets: all five variants, persistence, no duplicate grants, full-bag atomicity and old-account migration');
+console.log('PASS starter sets: all seven variants, persistence, no duplicate grants, full-bag atomicity and old-account migration');

@@ -4,6 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import sharp from 'sharp';
 const root=process.cwd();
 const server=http.createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
@@ -40,6 +41,17 @@ try {
       return {variant,loaded,hidden,bones:v.skelett.bones.length,glow:true};
     },variant);
     await page.waitForTimeout(1000);
+    await page.evaluate(()=>window.preview.scene.animationGroups.forEach(g=>g.pause()));
+    const glowOn=await page.screenshot();
+    await page.evaluate(()=>window.preview.scene.effectLayers.find(l=>l.name==='Emberrage_equipment_glow').isEnabled=false);
+    await page.waitForTimeout(200);
+    const glowOff=await page.screenshot();
+    const a=await sharp(glowOn).raw().toBuffer(),b=await sharp(glowOff).raw().toBuffer();
+    const changed=a.reduce((n,v,i)=>n+(Math.abs(v-b[i])>2?1:0),0);
+    assert(changed>100,'Glow must change actual rendered pixels');
+    result.glowChangedChannels=changed;
+    await page.evaluate(()=>window.preview.scene.effectLayers.find(l=>l.name==='Emberrage_equipment_glow').isEnabled=true);
+    await page.waitForTimeout(100);
     await page.screenshot({path:path.join(root,`.armor-test/emberrage-${variant}-browser.png`)});
     const restored=await page.evaluate(async()=>{
       const v=window.preview;

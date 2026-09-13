@@ -70,3 +70,20 @@ are not a world-wide FPS guarantee.
 During validation the concurrent Emberrage release added 14 equipment assets.
 Its updated main manifest is incorporated before the final full test run.
 This change does not modify equipment assets.
+
+## Existing DEV save
+
+A restart preserves previously generated vegetation. The offline tool
+`tools/refresh-village-save.ts INPUT OUTPUT` reseeds only natural foliage
+in region `insel-1`, including harvested vegetation, using the same shared
+scatter function and saved terrain edits. It supports the current v3 DEV
+layout with locations disabled. It never writes the input file; duplicate
+IDs and changes to players, terrain, progression, visited zones or retained
+objects abort the operation. Existing non-foliage objects get a 5 m clearing.
+Run against a stopped server's backed-up save before installing the output.
+
+The verified dry run retained 16,190 objects and all six player records,
+replacing 13,740 natural foliage objects with 13,942 across 195 visited zones.
+Explicit layout placements and objects with an owner are also protected.
+The entire save is not reset. This is an intentional biome reseed, not a
+general automatic migration for future layout edits.

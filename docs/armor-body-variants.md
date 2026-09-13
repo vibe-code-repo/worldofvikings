@@ -1,6 +1,6 @@
 # Armor body variants and Seidraven legacy-female fitting
 
-Implemented in the isolated DEV worktree `/opt/wov-worktrees/seidraven-body-variants`, branch `codex/seidraven-body-variants`. No production deployment, running-DEV rollout, inventory grant, body-file replacement or account migration is part of this change.
+Implemented in the isolated DEV worktree `/opt/wov-worktrees/seidraven-body-variants`, branch `codex/seidraven-body-variants`. Deployed to running wov-dev (CT 102) on 2026-09-13 at approximately 13:58 UTC, code `6bbcc4d`, after merging the intervening DEV/Wildwarden fixes. No old-LIVE deployment, inventory grant, body-file replacement or account migration.
 
 ## One compatibility policy
 
@@ -39,3 +39,11 @@ The complete female set is 28,796 triangles: 21,030 triangles are the unchanged 
 - Existing four-path appearance visibility tests pass after updating stale Wildwarden crown assertions to the current head-preserving behavior.
 
 The wider repository suite runs in an isolated checkout without the complete asset store; asset-dependent skips/environment failures are not evidence of a complete release gate. Neither these numeric tests nor selected Blender previews certify collision freedom, mixed animation layers, or the final in-game glow halo. Runtime bloom configuration remains separate integration work.
+
+## Deployed integration
+
+`/assets/equipment-sets.json` and `/assets/appearance.json` expose identical set policies. The served preview was rebuilt and its cache key advanced to `seidraven-body-variants-v1-20260913`. HTTP verification passed for all five sets, 35 GLBs and 35 icons, including Seidraven mesh-node body tags and replacement regions. All three services are active; website/client return HTTP 200 and the game socket endpoint returns the expected HTTP 426. No account was logged into for the smoke test.
+
+Rollback materials are in `/var/backups/wov/seidraven-20260913-UFMzDv/`: previous code, website build, catalogs and VERSION, plus the deployed Seidraven assets. Roll back code, website and both JSON catalogs together; do not restore world/account data. Assets are not tracked in Git, and no new GitHub asset release was published. A fresh clone using the previous release package will not obtain these files automatically.
+
+CT 102 currently serves both DEV hostnames and `world-of-vikings.com`; those routes share this deployment. The old wov-live container was not touched. Login/start-item grants and runtime bloom remain separate work.

@@ -36,7 +36,10 @@ assert.equal(catalog.sets[0].parts[0].appearanceId, 'ironward_helm');
 assert.deepEqual(catalog.sets[2].itemIds, ['ashenveil_hood', 'ashenveil_vest', 'ashenveil_robe',
   'ashenveil_shoulders', 'ashenveil_bracers', 'ashenveil_gloves', 'ashenveil_boots']);
 
-const server = Object.create(WovServer.prototype) as any;
+const server = Object.create(WovServer.prototype) as {
+  zdosVon: () => { getZDO: () => { setString: () => void } };
+  handleSetAussehen: (peer: unknown, reader: Reader) => void;
+};
 server.zdosVon = () => ({ getZDO: () => ({ setString: () => {} }) });
 const peer = { name: 'EquipmentCatalogTest', figur: 'wikinger', frisur: 'H_01', haarfarbe: 'mittelbraun',
   ruestung: '|', inventar: new Inventory(), sendPacketWith: () => {} };

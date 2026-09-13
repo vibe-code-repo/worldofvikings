@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-13T11:42:43.055Z",
+ "erzeugt": "2026-09-13T13:13:01.844Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 247,
- "gemessen": 247,
+ "anzahl": 245,
+ "gemessen": 245,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -6462,58 +6462,6 @@
    "dreiecke": 11848,
    "materialien": 1,
    "bilder": 0,
-   "animationen": [],
-   "meshlos": false,
-   "skins": 1
-  },
-  "wikingerin/R_LederBH": {
-   "datei": "wikingerin/R_LederBH.glb",
-   "foliage": false,
-   "bytes": 366156,
-   "huelle": {
-    "min": [
-     -0.089,
-     0.608,
-     -0.073
-    ],
-    "max": [
-     0.088,
-     0.855,
-     0.076
-    ]
-   },
-   "breite": 0.178,
-   "hoehe": 0.247,
-   "tiefe": 0.149,
-   "dreiecke": 2759,
-   "materialien": 1,
-   "bilder": 1,
-   "animationen": [],
-   "meshlos": false,
-   "skins": 1
-  },
-  "wikingerin/R_LederShorts": {
-   "datei": "wikingerin/R_LederShorts.glb",
-   "foliage": false,
-   "bytes": 763460,
-   "huelle": {
-    "min": [
-     -0.119,
-     0.39,
-     -0.085
-    ],
-    "max": [
-     0.118,
-     0.661,
-     0.078
-    ]
-   },
-   "breite": 0.237,
-   "hoehe": 0.271,
-   "tiefe": 0.163,
-   "dreiecke": 3525,
-   "materialien": 1,
-   "bilder": 1,
    "animationen": [],
    "meshlos": false,
    "skins": 1

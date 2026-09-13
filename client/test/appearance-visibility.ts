@@ -31,7 +31,7 @@ const engine = new NullEngine();
 for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   const scene = new Scene(engine);
   const head = CreateBox('Chr_Head_Male_00', {}, scene);
-  const crown = CreateBox('WoV_Wildwarden_Head', {}, scene);
+  const crown = CreateBox('WoV_Wildwarden_Crown', {}, scene);
   const hood = CreateBox('WoV_Ashenveil_Head', {}, scene);
   const cosmetics = ['hair', 'beard', 'eyebrows'].map(name => CreateBox(name, {}, scene));
   const prefix = kind === 'web-preview' ? 'armor/' : '';
@@ -49,7 +49,7 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   });
   const refresh = () => (kind === 'avatar' ? context.refreshArmorVisibility() : context.refreshVisibility());
   selected.set('kopf', crownFile); refresh();
-  assert(head.isEnabled(), kind + ': crown retains the textured head');
+  assert(head.isEnabled(), kind + ': attachment crown preserves the textured head');
   assert(cosmetics.every(mesh => mesh.isEnabled()), kind + ': crown keeps all selected cosmetics');
   selected.set('kopf', hoodFile); refresh();
   assert(head.isEnabled() && cosmetics.every(mesh => mesh.isEnabled()), kind + ': unloaded/failed hood hides nothing');
@@ -58,7 +58,7 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   cosmetics[0].setEnabled(true); refresh();
   assert(!cosmetics[0].isEnabled(), kind + ': late hair load respects the hood');
   selected.set('kopf', crownFile); refresh();
-  assert(cosmetics.every(mesh => mesh.isEnabled()), kind + ': hood to crown restores cosmetics');
+  assert(head.isEnabled() && cosmetics.every(mesh => mesh.isEnabled()), kind + ': hood to crown restores head and cosmetics');
   selected.delete('kopf'); refresh();
   assert(head.isEnabled() && cosmetics.every(mesh => mesh.isEnabled()), kind + ': unequip restores everything');
   assert.equal(selected.get('frisur'), 'H_02', kind + ': selection is never erased by hiding');
@@ -102,11 +102,11 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   const attachmentsVisible = (visible: boolean) =>
     ['frisur', 'bart', 'augenbraue'].every(slot => dynamic.aussehen.get(slot)?.wurzel.isEnabled() === visible);
   await equip('wildwarden_crown');
-  assert(head.isEnabled() && attachmentsVisible(true), 'Remote crown keeps the head and all cosmetics');
+  assert(head.isEnabled() && attachmentsVisible(true), 'Remote crown keeps the textured head and all cosmetics');
   await equip('ashenveil_hood');
   assert(!head.isEnabled() && attachmentsVisible(false), 'Remote hood hides all cosmetics');
   await equip('wildwarden_crown');
-  assert(attachmentsVisible(true), 'Remote crown restores cosmetics');
+  assert(head.isEnabled() && attachmentsVisible(true), 'Remote crown restores the head and cosmetics');
   await equip('');
   assert(head.isEnabled() && attachmentsVisible(true), 'Remote removal restores body and cosmetics');
   scene.dispose();

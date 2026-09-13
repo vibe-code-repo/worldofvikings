@@ -84,6 +84,8 @@ function brauchtPython() {
 }
 
 const KERN = [
+  ['client/test', 'ironward.ts'],
+  ['server/test', 'ironward.ts'],
   /*
     Ein Ursprung im Container (12.09.2026): Textnachweis über
     deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,

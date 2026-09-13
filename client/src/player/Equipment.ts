@@ -151,17 +151,18 @@ export class Equipment {
 
   /** Drops the held item's model if the item left the inventory. */
   syncWithInventory(): void {
-    let handBetroffen = false;
-    let geaendert = false;
-    for (const [slot, item] of [...this.slots]) {
-      if (this.inventory.all.includes(item)) continue;
-      this.slots.delete(slot);
-      geaendert = true;
-      if (slot === 'waffe') handBetroffen = true;
+    const before = JSON.stringify([...this.slots].map(([s, i]) => [s, i.shared.name]));
+    const hand = this.rightItem;
+    this.slots.clear();
+    for (const item of this.inventory.all) {
+      if (item.shared.ruestungsteil && item.equipped) this.slots.set(this.slotFuer(item), item);
     }
-    if (!geaendert) return;
-    if (handBetroffen) void this.refreshModel();
-    this.emit();
+    // Weapons remain client-selected; snapshots replace object identities.
+    const newHand = hand && this.inventory.all.find(i => i.shared.name === hand.shared.name);
+    if (newHand) { newHand.equipped = true; this.slots.set('waffe', newHand); }
+    if (hand && !newHand) void this.refreshModel();
+    const after = JSON.stringify([...this.slots].map(([s, i]) => [s, i.shared.name]));
+    if (before !== after) this.emit();
   }
 
   private async refreshModel(): Promise<void> {

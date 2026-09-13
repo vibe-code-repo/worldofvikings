@@ -29,6 +29,9 @@ export type AusruestungsSlot =
   | 'armreif'
   | 'ring1'
   | 'ring2'
+  | 'schultern'
+  | 'unterarme'
+  | 'haende'
   | 'waffe';
 
 export interface SlotDef {
@@ -41,7 +44,7 @@ export interface SlotDef {
    * Slots mit `teilSlot` verändern das Aussehen der Figur; ein Ring
    * bleibt vorerst reine Buchführung, weil es dafür kein Modell gibt.
    */
-  readonly teilSlot?: 'oberkoerper' | 'beine';
+  readonly teilSlot?: import('./aussehen.js').Slot;
 }
 
 /**
@@ -59,11 +62,14 @@ export interface SlotDef {
  * gesamte Anordnung — und man sähe nicht, was das Spiel vorsieht.
  */
 export const AUSRUESTUNG_SLOTS: readonly SlotDef[] = [
-  { id: 'kopf', name: 'Kopf', seite: 'links' },
+  { id: 'kopf', name: 'Kopf', seite: 'links', teilSlot: 'kopf' },
   { id: 'halskette', name: 'Halskette', seite: 'links' },
   { id: 'hemd', name: 'Hemd', seite: 'links', teilSlot: 'oberkoerper' },
   { id: 'hose', name: 'Hose', seite: 'links', teilSlot: 'beine' },
-  { id: 'schuhe', name: 'Schuhe', seite: 'links' },
+  { id: 'schuhe', name: 'Schuhe', seite: 'links', teilSlot: 'fuesse' },
+  { id: 'schultern', name: 'Schultern', seite: 'rechts', teilSlot: 'schultern' },
+  { id: 'unterarme', name: 'Unterarme', seite: 'rechts', teilSlot: 'unterarme' },
+  { id: 'haende', name: 'Handschuhe', seite: 'rechts', teilSlot: 'haende' },
   { id: 'armreif', name: 'Armreif', seite: 'rechts' },
   { id: 'ring1', name: 'Ring', seite: 'rechts' },
   { id: 'ring2', name: 'Ring', seite: 'rechts' },

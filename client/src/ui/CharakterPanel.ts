@@ -215,9 +215,7 @@ export class CharakterPanel {
   /** Der Figur im Fenster anziehen, was die Ausrüstung sagt. */
   private async ziehePassendAn(): Promise<void> {
     if (!this.vorschau) return;
-    for (const [slot, datei] of Object.entries(this.aussehenTeile())) {
-      await this.vorschau.setze(slot, datei);
-    }
+    await Promise.all(Object.entries(this.aussehenTeile()).map(([slot, datei]) => this.vorschau!.setze(slot, datei)));
   }
 
   /** Neu zeichnen — nach jeder Änderung an der Ausrüstung. */

@@ -178,18 +178,23 @@ export function frisurMitGesicht(frisur: string, bart: string, augenbraue: strin
  * jede neue Kombination von Hand ausgeschlossen werden; mit Slots
  * ergibt sich der Ausschluss von selbst.
  */
-export type Slot = 'oberkoerper' | 'beine';
+import { IRONWARD_PARTS } from './ironward.js';
+export type Slot = 'oberkoerper' | 'beine' | 'kopf' | 'schultern' | 'unterarme' | 'haende' | 'fuesse';
+export const ARMOR_SLOTS: readonly Slot[] = ['oberkoerper', 'beine', 'kopf', 'schultern', 'unterarme', 'haende', 'fuesse'];
 
 export interface Ruestungsteil {
   readonly id: string;
   readonly datei: string;
   readonly name: string;
   readonly slot: Slot;
+  readonly regions?: readonly string[];
+  readonly figure?: string;
 }
 
 export const RUESTUNG: readonly Ruestungsteil[] = [
   { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper' },
   { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine' },
+  ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, figure: 'wikinger' })),
 ] as const;
 
 /** Kennt die Liste diese Frisur? Der Server glaubt dem Client nichts. */
@@ -219,6 +224,45 @@ export function frisurZu(id: string | null | undefined): Frisur {
 
 export function ruestungZu(id: string | null | undefined): Ruestungsteil | null {
   return RUESTUNG.find((r) => r.id === id) ?? null;
+}
+
+/** Legacy top|legs prefix remains readable; additional slots use a JSON suffix. */
+export function encodeArmor(parts: Record<string, string>): string {
+  const extra = Object.fromEntries(ARMOR_SLOTS.filter(s => s !== 'oberkoerper' && s !== 'beine' && parts[s]).map(s => [s, parts[s]]));
+  return `${parts.oberkoerper ?? ''}|${parts.beine ?? ''}${Object.keys(extra).length ? `|${JSON.stringify(extra)}` : ''}`;
+}
+
+export function decodeArmor(value: string | null | undefined): Record<string, string> {
+  if (typeof value !== 'string') return {};
+  const [top = '', legs = '', ...suffix] = value.split('|');
+  const result: Record<string, string> = { oberkoerper: top, beine: legs };
+  if (suffix.length) {
+    try {
+      const extra = JSON.parse(suffix.join('|')) as Record<string, unknown>;
+      if (extra && !Array.isArray(extra)) for (const s of ARMOR_SLOTS) {
+        if (s !== 'oberkoerper' && s !== 'beine' && typeof extra[s] === 'string') result[s] = extra[s] as string;
+      }
+    } catch { /* Old or malformed saves must not break loading. */ }
+  }
+  return Object.fromEntries(Object.entries(result).filter(([s, id]) => ruestungZu(id)?.slot === s));
+}
+
+export function validArmorParts(value: unknown, figure?: string): value is Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.entries(value).every(([slot, id]) => {
+    if (!ARMOR_SLOTS.includes(slot as Slot) || typeof id !== 'string') return false;
+    const part = ruestungZu(id);
+    return id === '' || (!!part && part.slot === slot && (!part.figure || !figure || part.figure === figure));
+  });
+}
+
+/** A path with a folder is already relative to assets/models. */
+export function appearancePath(file: string): string {
+  return file.includes('/') ? file : `${AUSSEHEN_ORDNER}/${file}`;
+}
+
+export function armorByFile(file: string): Ruestungsteil | undefined {
+  return RUESTUNG.find(p => appearancePath(p.datei) === appearancePath(file.replace(/\.glb$/i, '')));
 }
 
 export interface Haarfarbe {

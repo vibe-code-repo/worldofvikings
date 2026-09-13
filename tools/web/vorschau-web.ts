@@ -360,7 +360,9 @@ export class Vorschau {
     }
 
     this.koerperDatei = datei;
-    prepareLegacyFemaleBody(res.meshes, datei);
+    if (res.skeletons[0]?.bones.some(bone => bone.name === 'L_Thigh')) {
+      prepareLegacyFemaleBody(res.meshes, datei);
+    }
     this.teileErlaubt = /^(wikinger\/WikingerKoerper|wikingerin\/WikingerinKoerper)$/.test(datei);
     this.neuerWikinger = datei === 'wikinger/WikingerKoerper';
 

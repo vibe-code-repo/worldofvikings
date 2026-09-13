@@ -158,7 +158,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'augenfarben-seidraven-v1-20260913';
+  const FIGUREN_STAND = 'seidraven-web-rig-v2-20260913';
 
   let figur = $state('');
   let frisur = $state('');
@@ -202,7 +202,9 @@
       return set ? [[classId, {
         name: set.name,
         teile: set.parts.map(part => ({
-          datei: `armor/${part.model.replace(/\.glb$/, '')}`,
+          // The web body uses the newer female rig; its fitted export is
+          // shipped with the website, while game assets keep the legacy rig.
+          datei: `${set.id === 'seidraven_female' ? 'armor/' : ''}${part.model.replace(/\.glb$/, '')}`,
           regionen: part.regions,
         })),
       }]] : [];
@@ -429,7 +431,7 @@
   }
 
   async function schalteKlassenruestung() {
-    if (!aktiveRuestung || figur !== 'wikinger' || !fertig) return;
+    if (!aktiveRuestung || !fertig) return;
     ruestungAn = !ruestungAn;
     try {
       await zeigeKlassenruestung();

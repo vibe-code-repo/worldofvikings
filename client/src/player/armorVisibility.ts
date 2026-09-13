@@ -18,7 +18,7 @@ export function updateArmorVisibility(meshes: readonly AbstractMesh[], activeFil
   const regions = new Set(activeFiles.flatMap(f => armorByFile(f)?.regions ?? []));
   for (const mesh of meshes) {
     if (updateLegacyFemaleMask(mesh, regions)) continue;
-    const region = /(?:Chr_|WoV_BodyBase_(?:Male|Female)_)(Head|Torso|Hips|ArmUpperLeft|ArmUpperRight|ArmLowerLeft|ArmLowerRight|HandLeft|HandRight|LegLeft|LegRight)(?:_Male_\d+)?(?:$|[. ])/.exec(mesh.name)?.[1];
+    const region = /(?:Chr_|WoV_BodyBase_(?:Male|Female)_)(Head|Torso|Hips|ArmUpperLeft|ArmUpperRight|ArmLowerLeft|ArmLowerRight|HandLeft|HandRight|LegLeft|LegRight)(?:_(?:Male|Female)_\d+)?(?:$|[. ])/.exec(mesh.name)?.[1];
     if (region) mesh.setEnabled(!regions.has(region));
   }
 }

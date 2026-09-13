@@ -610,6 +610,7 @@
       "name": "Ironward",
       "figure": "wikinger",
       "familyId": "ironward",
+      "classId": "krieger",
       "bodyVariant": "male",
       "bodyProfile": "wov-male-v1",
       "itemIds": [
@@ -759,6 +760,7 @@
       "name": "Waldhüter",
       "figure": "wikinger",
       "familyId": "wildwarden",
+      "classId": "druide",
       "bodyVariant": "male",
       "bodyProfile": "wov-male-v1",
       "itemIds": [
@@ -902,6 +904,7 @@
       "name": "Aschenschleier",
       "figure": "wikinger",
       "familyId": "ashenveil",
+      "classId": "hexer",
       "bodyVariant": "male",
       "bodyProfile": "wov-male-v1",
       "itemIds": [
@@ -1051,6 +1054,7 @@
       "name": "Seidraven",
       "figure": "wikinger",
       "familyId": "seidraven",
+      "classId": "seherin",
       "bodyVariant": "male",
       "bodyProfile": "wov-male-v1",
       "itemIds": [
@@ -1200,6 +1204,7 @@
       "name": "Seidraven",
       "figure": "wikingerin",
       "familyId": "seidraven",
+      "classId": "seherin",
       "bodyVariant": "female",
       "bodyProfile": "legacy-female-v1",
       "itemIds": [

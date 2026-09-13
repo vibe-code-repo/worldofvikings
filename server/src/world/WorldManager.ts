@@ -108,6 +108,8 @@ export interface SavedPlayer {
   haarfarbe?: string;
   /** Fehlt bei aelteren Spielstaenden — dann gilt Fjordblau. */
   augenfarbe?: string;
+  klasse?: string;
+  starterSetGranted?: string;
   ruestung?: string;
 }
 

@@ -158,7 +158,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'augenfarben-20260913';
+  const FIGUREN_STAND = 'augenfarben-wildwarden-v3-20260913';
 
   let figur = $state('');
   let frisur = $state('');

@@ -642,6 +642,8 @@
           "regions": [
             "Head"
           ],
+          "previewModel": "ironward/IronwardHelmet.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [
             "hair",
             "beard",
@@ -662,6 +664,8 @@
           "regions": [
             "Torso"
           ],
+          "previewModel": "ironward/IronwardCuirass.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -678,6 +682,8 @@
           "regions": [
             "Hips"
           ],
+          "previewModel": "ironward/IronwardLeggings.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -695,6 +701,8 @@
             "ArmUpperLeft",
             "ArmUpperRight"
           ],
+          "previewModel": "ironward/IronwardPauldrons.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -712,6 +720,8 @@
             "ArmLowerLeft",
             "ArmLowerRight"
           ],
+          "previewModel": "ironward/IronwardBracers.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -729,6 +739,8 @@
             "HandLeft",
             "HandRight"
           ],
+          "previewModel": "ironward/IronwardGauntlets.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -746,6 +758,8 @@
             "LegLeft",
             "LegRight"
           ],
+          "previewModel": "ironward/IronwardBoots.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -789,6 +803,8 @@
           "model": "wildwarden/wildwarden_crown.glb",
           "icon": "wildwarden_crown.png",
           "regions": [],
+          "previewModel": "wildwarden/wildwarden_crown.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -805,6 +821,8 @@
           "regions": [
             "Torso"
           ],
+          "previewModel": "wildwarden/wildwarden_vest.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -821,6 +839,8 @@
           "regions": [
             "Hips"
           ],
+          "previewModel": "wildwarden/wildwarden_robe.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -838,6 +858,8 @@
             "ArmUpperLeft",
             "ArmUpperRight"
           ],
+          "previewModel": "wildwarden/wildwarden_mantle.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -855,6 +877,8 @@
             "ArmLowerLeft",
             "ArmLowerRight"
           ],
+          "previewModel": "wildwarden/wildwarden_bracers.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -872,6 +896,8 @@
             "HandLeft",
             "HandRight"
           ],
+          "previewModel": "wildwarden/wildwarden_gloves.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -889,6 +915,8 @@
             "LegLeft",
             "LegRight"
           ],
+          "previewModel": "wildwarden/wildwarden_boots.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -934,6 +962,8 @@
           "regions": [
             "Head"
           ],
+          "previewModel": "ashenveil/ashenveil_hood.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [
             "hair",
             "beard",
@@ -954,6 +984,8 @@
           "regions": [
             "Torso"
           ],
+          "previewModel": "ashenveil/ashenveil_vest.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -970,6 +1002,8 @@
           "regions": [
             "Hips"
           ],
+          "previewModel": "ashenveil/ashenveil_robe.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -987,6 +1021,8 @@
             "ArmUpperLeft",
             "ArmUpperRight"
           ],
+          "previewModel": "ashenveil/ashenveil_shoulders.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1004,6 +1040,8 @@
             "ArmLowerLeft",
             "ArmLowerRight"
           ],
+          "previewModel": "ashenveil/ashenveil_bracers.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1021,6 +1059,8 @@
             "HandLeft",
             "HandRight"
           ],
+          "previewModel": "ashenveil/ashenveil_gloves.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1038,6 +1078,8 @@
             "LegLeft",
             "LegRight"
           ],
+          "previewModel": "ashenveil/ashenveil_boots.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1083,6 +1125,8 @@
           "regions": [
             "Head"
           ],
+          "previewModel": "seidraven/seidraven_male_hood.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [
             "hair",
             "beard",
@@ -1103,6 +1147,8 @@
           "regions": [
             "Torso"
           ],
+          "previewModel": "seidraven/seidraven_male_vest.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1119,6 +1165,8 @@
           "regions": [
             "Hips"
           ],
+          "previewModel": "seidraven/seidraven_male_robe.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1136,6 +1184,8 @@
             "ArmUpperLeft",
             "ArmUpperRight"
           ],
+          "previewModel": "seidraven/seidraven_male_shoulders.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1153,6 +1203,8 @@
             "ArmLowerLeft",
             "ArmLowerRight"
           ],
+          "previewModel": "seidraven/seidraven_male_bracers.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1170,6 +1222,8 @@
             "HandLeft",
             "HandRight"
           ],
+          "previewModel": "seidraven/seidraven_male_gloves.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1187,6 +1241,8 @@
             "LegLeft",
             "LegRight"
           ],
+          "previewModel": "seidraven/seidraven_male_boots.glb",
+          "previewBodyProfile": "wov-male-v1",
           "hideAppearance": [],
           "figure": "wikinger",
           "bodyVariant": "male",
@@ -1232,6 +1288,8 @@
           "regions": [
             "Head"
           ],
+          "previewModel": "armor/seidraven/seidraven_female_hood.glb",
+          "previewBodyProfile": "wov-female-v1",
           "hideAppearance": [
             "hair",
             "beard",
@@ -1252,6 +1310,8 @@
           "regions": [
             "Torso"
           ],
+          "previewModel": "armor/seidraven/seidraven_female_vest.glb",
+          "previewBodyProfile": "wov-female-v1",
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
@@ -1268,6 +1328,8 @@
           "regions": [
             "Hips"
           ],
+          "previewModel": "armor/seidraven/seidraven_female_robe.glb",
+          "previewBodyProfile": "wov-female-v1",
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
@@ -1285,6 +1347,8 @@
             "ArmUpperLeft",
             "ArmUpperRight"
           ],
+          "previewModel": "armor/seidraven/seidraven_female_shoulders.glb",
+          "previewBodyProfile": "wov-female-v1",
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
@@ -1302,6 +1366,8 @@
             "ArmLowerLeft",
             "ArmLowerRight"
           ],
+          "previewModel": "armor/seidraven/seidraven_female_bracers.glb",
+          "previewBodyProfile": "wov-female-v1",
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
@@ -1319,6 +1385,8 @@
             "HandLeft",
             "HandRight"
           ],
+          "previewModel": "armor/seidraven/seidraven_female_gloves.glb",
+          "previewBodyProfile": "wov-female-v1",
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
@@ -1336,6 +1404,348 @@
             "LegLeft",
             "LegRight"
           ],
+          "previewModel": "armor/seidraven/seidraven_female_boots.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        }
+      ]
+    },
+    {
+      "id": "emberrage_male",
+      "version": 1,
+      "name": "Glutzorn",
+      "figure": "wikinger",
+      "familyId": "emberrage",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
+      "itemIds": [
+        "emberrage_male_hood",
+        "emberrage_male_vest",
+        "emberrage_male_robe",
+        "emberrage_male_shoulders",
+        "emberrage_male_bracers",
+        "emberrage_male_gloves",
+        "emberrage_male_boots"
+      ],
+      "appearance": {
+        "kopf": "emberrage_male_hood",
+        "oberkoerper": "emberrage_male_vest",
+        "beine": "emberrage_male_robe",
+        "schultern": "emberrage_male_shoulders",
+        "unterarme": "emberrage_male_bracers",
+        "haende": "emberrage_male_gloves",
+        "fuesse": "emberrage_male_boots"
+      },
+      "parts": [
+        {
+          "itemId": "emberrage_male_hood",
+          "appearanceId": "emberrage_male_hood",
+          "name": "Glutzorn-Spalthelm",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "emberrage/emberrage_male_hood.glb",
+          "icon": "emberrage_male_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "previewModel": "emberrage/emberrage_male_hood.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "emberrage_male_vest",
+          "appearanceId": "emberrage_male_vest",
+          "name": "Glutzorn-Schwarzstahlharnisch",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "emberrage/emberrage_male_vest.glb",
+          "icon": "emberrage_male_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "previewModel": "emberrage/emberrage_male_vest.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "emberrage_male_robe",
+          "appearanceId": "emberrage_male_robe",
+          "name": "Glutzorn-Runenschurz",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "emberrage/emberrage_male_robe.glb",
+          "icon": "emberrage_male_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "previewModel": "emberrage/emberrage_male_robe.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "emberrage_male_shoulders",
+          "appearanceId": "emberrage_male_shoulders",
+          "name": "Glutzorn-Bruchschultern",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "emberrage/emberrage_male_shoulders.glb",
+          "icon": "emberrage_male_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "previewModel": "emberrage/emberrage_male_shoulders.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "emberrage_male_bracers",
+          "appearanceId": "emberrage_male_bracers",
+          "name": "Glutzorn-Armschienen",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "emberrage/emberrage_male_bracers.glb",
+          "icon": "emberrage_male_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "previewModel": "emberrage/emberrage_male_bracers.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "emberrage_male_gloves",
+          "appearanceId": "emberrage_male_gloves",
+          "name": "Glutzorn-Panzerhandschuhe",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "emberrage/emberrage_male_gloves.glb",
+          "icon": "emberrage_male_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "previewModel": "emberrage/emberrage_male_gloves.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "emberrage_male_boots",
+          "appearanceId": "emberrage_male_boots",
+          "name": "Glutzorn-Stiefel",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "emberrage/emberrage_male_boots.glb",
+          "icon": "emberrage_male_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "previewModel": "emberrage/emberrage_male_boots.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        }
+      ]
+    },
+    {
+      "id": "emberrage_female",
+      "version": 1,
+      "name": "Glutzorn",
+      "figure": "wikingerin",
+      "familyId": "emberrage",
+      "bodyVariant": "female",
+      "bodyProfile": "legacy-female-v1",
+      "itemIds": [
+        "emberrage_female_hood",
+        "emberrage_female_vest",
+        "emberrage_female_robe",
+        "emberrage_female_shoulders",
+        "emberrage_female_bracers",
+        "emberrage_female_gloves",
+        "emberrage_female_boots"
+      ],
+      "appearance": {
+        "kopf": "emberrage_female_hood",
+        "oberkoerper": "emberrage_female_vest",
+        "beine": "emberrage_female_robe",
+        "schultern": "emberrage_female_shoulders",
+        "unterarme": "emberrage_female_bracers",
+        "haende": "emberrage_female_gloves",
+        "fuesse": "emberrage_female_boots"
+      },
+      "parts": [
+        {
+          "itemId": "emberrage_female_hood",
+          "appearanceId": "emberrage_female_hood",
+          "name": "Glutzorn-Spalthelm",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "emberrage/emberrage_female_hood.glb",
+          "icon": "emberrage_female_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "previewModel": "armor/emberrage/emberrage_female_hood.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "emberrage_female_vest",
+          "appearanceId": "emberrage_female_vest",
+          "name": "Glutzorn-Schwarzstahlharnisch",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "emberrage/emberrage_female_vest.glb",
+          "icon": "emberrage_female_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "previewModel": "armor/emberrage/emberrage_female_vest.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "emberrage_female_robe",
+          "appearanceId": "emberrage_female_robe",
+          "name": "Glutzorn-Runenschurz",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "emberrage/emberrage_female_robe.glb",
+          "icon": "emberrage_female_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "previewModel": "armor/emberrage/emberrage_female_robe.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "emberrage_female_shoulders",
+          "appearanceId": "emberrage_female_shoulders",
+          "name": "Glutzorn-Bruchschultern",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "emberrage/emberrage_female_shoulders.glb",
+          "icon": "emberrage_female_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "previewModel": "armor/emberrage/emberrage_female_shoulders.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "emberrage_female_bracers",
+          "appearanceId": "emberrage_female_bracers",
+          "name": "Glutzorn-Armschienen",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "emberrage/emberrage_female_bracers.glb",
+          "icon": "emberrage_female_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "previewModel": "armor/emberrage/emberrage_female_bracers.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "emberrage_female_gloves",
+          "appearanceId": "emberrage_female_gloves",
+          "name": "Glutzorn-Panzerhandschuhe",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "emberrage/emberrage_female_gloves.glb",
+          "icon": "emberrage_female_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "previewModel": "armor/emberrage/emberrage_female_gloves.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "emberrage_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "emberrage_female_boots",
+          "appearanceId": "emberrage_female_boots",
+          "name": "Glutzorn-Stiefel",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "emberrage/emberrage_female_boots.glb",
+          "icon": "emberrage_female_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "previewModel": "armor/emberrage/emberrage_female_boots.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "emberrage_red",
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",

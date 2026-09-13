@@ -158,7 +158,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'seidraven-web-rig-v2-20260913';
+  const FIGUREN_STAND = 'emberrage-glow-v1-20260913';
 
   let figur = $state('');
   let frisur = $state('');
@@ -194,7 +194,7 @@
 
   // Class choices reference stable set IDs; item details come from the generated registry.
   const CLASS_EQUIPMENT_SETS: Readonly<Record<string, string>> = {
-    krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven',
+    krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven', berserker: 'emberrage',
   };
   const RUESTUNGSSETS: Readonly<Partial<Record<string, Ruestungsset>>> = $derived.by(() =>
     Object.fromEntries(Object.entries(CLASS_EQUIPMENT_SETS).flatMap(([classId, setId]) => {
@@ -204,7 +204,7 @@
         teile: set.parts.map(part => ({
           // The web body uses the newer female rig; its fitted export is
           // shipped with the website, while game assets keep the legacy rig.
-          datei: `${set.id === 'seidraven_female' ? 'armor/' : ''}${part.model.replace(/\.glb$/, '')}`,
+          datei: (part.previewModel ?? part.model).replace(/\.glb$/, ''),
           regionen: part.regions,
         })),
       }]] : [];

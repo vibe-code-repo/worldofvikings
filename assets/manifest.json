@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-13T13:54:56.559Z",
+ "erzeugt": "2026-09-13T15:05:44.675Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 259,
- "gemessen": 259,
+ "anzahl": 273,
+ "gemessen": 273,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -5247,6 +5247,370 @@
    "animationen": [],
    "meshlos": false,
    "skins": 0
+  },
+  "emberrage/emberrage_female_boots": {
+   "datei": "emberrage/emberrage_female_boots.glb",
+   "foliage": false,
+   "bytes": 625560,
+   "huelle": {
+    "min": [
+     -0.17,
+     0,
+     -0.11
+    ],
+    "max": [
+     0.17,
+     0.341,
+     0.115
+    ]
+   },
+   "breite": 0.341,
+   "hoehe": 0.341,
+   "tiefe": 0.225,
+   "dreiecke": 4462,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_female_bracers": {
+   "datei": "emberrage/emberrage_female_bracers.glb",
+   "foliage": false,
+   "bytes": 241512,
+   "huelle": {
+    "min": [
+     -0.265,
+     0.563,
+     -0.068
+    ],
+    "max": [
+     0.265,
+     0.701,
+     0.059
+    ]
+   },
+   "breite": 0.53,
+   "hoehe": 0.138,
+   "tiefe": 0.127,
+   "dreiecke": 1652,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_female_gloves": {
+   "datei": "emberrage/emberrage_female_gloves.glb",
+   "foliage": false,
+   "bytes": 530016,
+   "huelle": {
+    "min": [
+     -0.326,
+     0.469,
+     -0.031
+    ],
+    "max": [
+     0.323,
+     0.604,
+     0.08
+    ]
+   },
+   "breite": 0.648,
+   "hoehe": 0.135,
+   "tiefe": 0.112,
+   "dreiecke": 3728,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_female_hood": {
+   "datei": "emberrage/emberrage_female_hood.glb",
+   "foliage": false,
+   "bytes": 639304,
+   "huelle": {
+    "min": [
+     -0.116,
+     0.831,
+     -0.106
+    ],
+    "max": [
+     0.115,
+     1.144,
+     0.113
+    ]
+   },
+   "breite": 0.231,
+   "hoehe": 0.314,
+   "tiefe": 0.219,
+   "dreiecke": 4587,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_female_robe": {
+   "datei": "emberrage/emberrage_female_robe.glb",
+   "foliage": false,
+   "bytes": 646324,
+   "huelle": {
+    "min": [
+     -0.139,
+     0.298,
+     -0.135
+    ],
+    "max": [
+     0.138,
+     0.662,
+     0.139
+    ]
+   },
+   "breite": 0.277,
+   "hoehe": 0.364,
+   "tiefe": 0.274,
+   "dreiecke": 5137,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_female_shoulders": {
+   "datei": "emberrage/emberrage_female_shoulders.glb",
+   "foliage": false,
+   "bytes": 415336,
+   "huelle": {
+    "min": [
+     -0.234,
+     0.657,
+     -0.12
+    ],
+    "max": [
+     0.234,
+     0.864,
+     0.084
+    ]
+   },
+   "breite": 0.468,
+   "hoehe": 0.207,
+   "tiefe": 0.204,
+   "dreiecke": 3258,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_female_vest": {
+   "datei": "emberrage/emberrage_female_vest.glb",
+   "foliage": false,
+   "bytes": 524500,
+   "huelle": {
+    "min": [
+     -0.096,
+     0.639,
+     -0.126
+    ],
+    "max": [
+     0.115,
+     0.857,
+     0.119
+    ]
+   },
+   "breite": 0.212,
+   "hoehe": 0.217,
+   "tiefe": 0.245,
+   "dreiecke": 3752,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_male_boots": {
+   "datei": "emberrage/emberrage_male_boots.glb",
+   "foliage": false,
+   "bytes": 94612,
+   "huelle": {
+    "min": [
+     -0.203,
+     -0.004,
+     -0.138
+    ],
+    "max": [
+     0.203,
+     0.41,
+     0.201
+    ]
+   },
+   "breite": 0.407,
+   "hoehe": 0.414,
+   "tiefe": 0.339,
+   "dreiecke": 572,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_male_bracers": {
+   "datei": "emberrage/emberrage_male_bracers.glb",
+   "foliage": false,
+   "bytes": 82812,
+   "huelle": {
+    "min": [
+     -0.802,
+     1.279,
+     -0.136
+    ],
+    "max": [
+     0.802,
+     1.443,
+     0.097
+    ]
+   },
+   "breite": 1.604,
+   "hoehe": 0.164,
+   "tiefe": 0.232,
+   "dreiecke": 460,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_male_gloves": {
+   "datei": "emberrage/emberrage_male_gloves.glb",
+   "foliage": false,
+   "bytes": 100384,
+   "huelle": {
+    "min": [
+     -1.024,
+     1.294,
+     -0.113
+    ],
+    "max": [
+     1.024,
+     1.435,
+     0.075
+    ]
+   },
+   "breite": 2.048,
+   "hoehe": 0.141,
+   "tiefe": 0.189,
+   "dreiecke": 576,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_male_hood": {
+   "datei": "emberrage/emberrage_male_hood.glb",
+   "foliage": false,
+   "bytes": 96784,
+   "huelle": {
+    "min": [
+     -0.218,
+     1.435,
+     -0.17
+    ],
+    "max": [
+     0.218,
+     2.059,
+     0.244
+    ]
+   },
+   "breite": 0.436,
+   "hoehe": 0.623,
+   "tiefe": 0.414,
+   "dreiecke": 614,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_male_robe": {
+   "datei": "emberrage/emberrage_male_robe.glb",
+   "foliage": false,
+   "bytes": 224980,
+   "huelle": {
+    "min": [
+     -0.238,
+     0.38,
+     -0.227
+    ],
+    "max": [
+     0.238,
+     0.989,
+     0.227
+    ]
+   },
+   "breite": 0.476,
+   "hoehe": 0.609,
+   "tiefe": 0.454,
+   "dreiecke": 2156,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_male_shoulders": {
+   "datei": "emberrage/emberrage_male_shoulders.glb",
+   "foliage": false,
+   "bytes": 205044,
+   "huelle": {
+    "min": [
+     -0.528,
+     1.201,
+     -0.227
+    ],
+    "max": [
+     0.528,
+     1.657,
+     0.18
+    ]
+   },
+   "breite": 1.056,
+   "hoehe": 0.457,
+   "tiefe": 0.407,
+   "dreiecke": 1692,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "emberrage/emberrage_male_vest": {
+   "datei": "emberrage/emberrage_male_vest.glb",
+   "foliage": false,
+   "bytes": 121136,
+   "huelle": {
+    "min": [
+     -0.249,
+     0.828,
+     -0.232
+    ],
+    "max": [
+     0.249,
+     1.508,
+     0.242
+    ]
+   },
+   "breite": 0.498,
+   "hoehe": 0.68,
+   "tiefe": 0.474,
+   "dreiecke": 786,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
   },
   "grasscross": {
    "datei": "grasscross.glb",

@@ -5,6 +5,14 @@ import { canWearArmor, MALE_ARMOR_BODY, FEMALE_ARMOR_BODY, SEIDRAVEN_MALE_PARTS,
 import { WovServer } from '../src/WovServer.js';
 import { Writer } from '../src/io/Writer.js';
 import { Reader } from '../src/io/Reader.js';
+import { EMBERRAGE_PARTS } from '@wov/shared';
+for (const part of EMBERRAGE_PARTS) {
+  const item = findItem(part.item)!;
+  assert.equal(item.vfxProfile, 'emberrage_red');
+  assert.equal(ruestungZu(part.id)?.bodyProfile, part.bodyProfile);
+  assert(canWearArmor(item, part.figure));
+  assert(!canWearArmor(item, part.figure === 'wikinger' ? 'wikingerin' : 'wikinger'));
+}
 
 assert(canWearArmor(MALE_ARMOR_BODY,'wikinger/WikingerKoerper.glb'));
 assert(canWearArmor(FEMALE_ARMOR_BODY,'wikingerin'));

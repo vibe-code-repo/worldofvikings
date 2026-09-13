@@ -10,7 +10,7 @@
  */
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
-import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from '../player/armorVisibility.js';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
 import { canWearArmor } from '@wov/shared';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
@@ -1457,7 +1457,7 @@ export class EntityManager {
         refresh();
       }
       if (!datei) continue;
-      const wurzel = await this.assets.instantiate(datei);
+      const wurzel = await this.assets.instantiate(armorFileForSkeleton(datei, skelett));
       if (!wurzel) continue;
       if (dyn.root.isDisposed() || this.armorRequests.get(dyn.root) !== request) { wurzel.dispose(); return; }
       try { verifyArmorSkin(skelett, wurzel.getChildMeshes().find(m => m.skeleton)?.skeleton ?? null, datei); }

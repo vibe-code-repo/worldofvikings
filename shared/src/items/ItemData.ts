@@ -25,6 +25,7 @@ import type { ArmorBodyPolicy } from '../armorCompatibility.js';
 
 /** Shared, immutable definition of an item type. */
 export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
+  readonly vfxProfile?: 'emberrage_red';
   /** Prefab name, also the stacking key. Matches shared/src/prefabData.json. */
   name: string;
   /** Display name. */

@@ -8,6 +8,7 @@
  * and whitelist sets.
  */
 
+import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory } from '@wov/shared';
 import {
   EVENT_CHANCE,
   EVENT_INTERVAL_MS,
@@ -114,7 +115,6 @@ import {
   ZONE_SIZE,
   findItem, ITEM_DEFS,
   REZEPTE,
-  type Inventory,
   packContainer,
   unpackContainer,
   TRUHE_INHALT_MEMBER,
@@ -1640,6 +1640,7 @@ export class WovServer {
       frisur: peer.frisur,
       haarfarbe: peer.haarfarbe,
       ruestung: peer.ruestung,
+      inventar: peer.inventar.serialize(),
     });
     // Destroy player character ZDO
     if (!peer.characterID.isNone()) {
@@ -2533,6 +2534,17 @@ export class WovServer {
 
   /** Autoritativen Inventarstand an den Client schicken. */
   private inventarSync(peer: Peer): void {
+    const parts = decodeArmor(peer.ruestung);
+    for (const [slot, id] of Object.entries(parts)) {
+      if (ruestungZu(id)?.figure && !peer.inventar.all.some(i => i.shared.ruestungsteil === id)) delete parts[slot];
+    }
+    peer.ruestung = encodeArmor(parts);
+    if (peer.characterID) this.zdosVon(peer).getZDO(peer.characterID)?.setString(RUESTUNG_MEMBER, peer.ruestung);
+    const remaining = new Set(Object.values(parts));
+    for (const item of peer.inventar.all) {
+      if (!item.shared.ruestungsteil) continue;
+      item.equipped = remaining.delete(item.shared.ruestungsteil);
+    }
     peer.sendPacketWith(PacketType.InventorySync, (w) => {
       w.writeString(JSON.stringify(peer.inventar.serialize()));
     });
@@ -3058,6 +3070,15 @@ export class WovServer {
     // 23.08.2026 sendet drei Strings. `readString()` auf einem leeren
     // Rest wuerfe und risse die Verbindung ab — fuer eine Haarfarbe.
     const haarfarbe = reader.remaining() > 0 ? reader.readString() : peer.haarfarbe;
+    let extra: unknown = {};
+    try { if (reader.remaining() > 0) extra = JSON.parse(reader.readString()); }
+    catch { this.inventarSync(peer); return; }
+    if (!validArmorParts(extra, peer.figur)) { this.inventarSync(peer); return; }
+    const parts = { ...extra, oberkoerper: ober, beine };
+    if (!validArmorParts(parts, peer.figur) || Object.values(parts).some(id =>
+      id && ruestungZu(id)?.figure && !peer.inventar.all.some(i => i.shared.ruestungsteil === id))) {
+      this.inventarSync(peer); return;
+    }
     if (
       !istFrisur(frisur) ||
       !istRuestung(ober) ||
@@ -3074,7 +3095,11 @@ export class WovServer {
     }
     peer.frisur = frisur;
     peer.haarfarbe = haarfarbe;
-    peer.ruestung = `${ober}|${beine}`;
+    peer.ruestung = encodeArmor(parts);
+    const remaining = new Set(Object.values(parts));
+    for (const item of peer.inventar.all) {
+      if (item.shared.ruestungsteil) item.equipped = remaining.delete(item.shared.ruestungsteil);
+    }
     const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) {
       charZDO.setString(FRISUR_MEMBER, frisur);
@@ -3650,6 +3675,32 @@ export class WovServer {
     // zum Ausprobieren bekommen, ohne dass man den Spielstand anfasst.
     this.adminCommands.register('item', (peer, args) => {
       const sub = (args.shift() ?? '').toLowerCase();
+      // Explicit, idempotent test-set delivery, including offline characters.
+      // Stage the whole inventory first: a full bag must never get half a set.
+      if (sub === 'ironward' || sub === 'wildwarden') {
+        const parts = sub === 'ironward' ? IRONWARD_PARTS : WILDWARDEN_PARTS;
+        const label = sub === 'ironward' ? 'Ironward' : 'Waldhüter';
+        if (this.speichertGerade) return { ok: false, active: false, message: 'Sicherung läuft; bitte gleich erneut versuchen. Nichts verändert.' };
+        const name = args.join(' ').trim();
+        if (!name) return { ok: false, active: false, message: `Aufruf: item ${sub} <Spielername>` };
+        const online = this.net.getPeers().filter(p => !p.nurEditor && p.name.toLowerCase() === name.toLowerCase());
+        const saved = [...this.savedPlayers.entries()].filter(([, p]) => p.name.toLowerCase() === name.toLowerCase());
+        if (online.length > 1 || (!online.length && saved.length !== 1)) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
+        const target = online[0]; const record = saved[0];
+        if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };
+        const snapshot = target?.inventar.serialize() ?? record?.[1].inventar;
+        if (!snapshot) return { ok: false, active: false, message: 'Kein gespeichertes Inventar vorhanden' };
+        const staged = new Inventory(); staged.load(snapshot); let added = 0;
+        for (const part of parts) {
+          if (staged.countOf(part.item)) continue;
+          if (staged.addItem(findItem(part.item)!, 1)) return { ok: false, active: false, message: 'Nicht genug Platz für das vollständige Set; nichts verändert' };
+          added++;
+        }
+        if (target) { target.inventar.load(staged.serialize()); this.inventarSync(target); }
+        else record![1].inventar = staged.serialize();
+        void this.saveWorldAsync();
+        return { ok: true, active: false, message: `${name}: ${label} vollständig (7/7), ${added} neue Gegenstände. Sicherung angefordert.` };
+      }
       if (sub !== 'give' && sub !== 'gib') {
         return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };
       }
@@ -4617,6 +4668,9 @@ export class WovServer {
 
     const players = new Map(this.savedPlayers);
     for (const peer of this.net.getPeers()) {
+      // Editor sessions have no character/inventory and may share a player ID.
+      // They must never overwrite that character's saved state.
+      if (peer.nurEditor) continue;
       // F3 (Security-Review): unter der spielerId, nicht mehr unter dem
       // Namen — ueberschreibt hier zuverlaessig einen evtl. noch unter
       // dem NAMEN liegenden Alteintrag desselben Spielers nicht (anderer

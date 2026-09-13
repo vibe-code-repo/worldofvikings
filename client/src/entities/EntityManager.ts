@@ -9,6 +9,8 @@
  * leveling (Unity TerrainModifier parity) and stay invisible.
  */
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { ARMOR_SLOTS, decodeArmor, appearancePath, armorByFile } from '@wov/shared';
+import { updateArmorVisibility, verifyArmorSkin } from '../player/armorVisibility.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -1383,6 +1385,7 @@ export class EntityManager {
    * direkt um, sitzt das Teil gespiegelt — genau dieser Fehler ist beim
    * eigenen Avatar schon einmal passiert.
    */
+  private readonly armorRequests = new WeakMap<TransformNode, object>();
   private async setzeFremdesAussehen(u: ZDOEntityUpdate, modell: string | null): Promise<void> {
     const dyn = this.dynamics.get(u.key);
     if (!dyn) return;
@@ -1390,6 +1393,14 @@ export class EntityManager {
     // die zusätzliche Geometrie-Kompatibilität wird je Slot geprüft.
     if (u.figur && !/^(wikinger\/|wikingerin\/)/.test(modellZu(u.figur))) return;
     dyn.aussehen ??= new Map();
+    const request = {};
+    this.armorRequests.set(dyn.root, request);
+    const refresh = (): void => {
+      const files = [...dyn.aussehen!.values()].map(v => v.datei);
+      updateArmorVisibility(dyn.root.getChildMeshes(), files);
+      const helmet = files.some(f => armorByFile(f)?.regions?.includes('Head'));
+      for (const s of ['frisur', 'bart', 'augenbraue']) dyn.aussehen!.get(s)?.wurzel.setEnabled(!helmet);
+    };
 
     // Skelett des Koerpers suchen — an ihm haengen alle Teile.
     let skelett = null as import('@babylonjs/core/Bones/skeleton').Skeleton | null;
@@ -1398,7 +1409,7 @@ export class EntityManager {
     }
     if (!skelett) return;
 
-    const [ober, beine] = (u.ruestung ?? '|').split('|');
+    const parts = decodeArmor(u.ruestung ?? '|');
     const gewuenscht: Record<string, string | null> = {
       // Gleiche Schutzregel wie für den eigenen Avatar: Die Frisuren aus
       // dem alten Master passen nur auf den Wikingerin-Kopf.
@@ -1408,8 +1419,10 @@ export class EntityManager {
         ? `${AUSSEHEN_ORDNER}/${bartAusFrisur(u.frisur)!.datei}` : null,
       augenbraue: u.frisur && istFrisur(u.frisur) && augenbraueAusFrisur(u.frisur)
         ? `${AUSSEHEN_ORDNER}/${augenbraueAusFrisur(u.frisur)!.datei}` : null,
-      oberkoerper: ruestungZu(ober) ? `${AUSSEHEN_ORDNER}/${ruestungZu(ober)!.datei}` : null,
-      beine: ruestungZu(beine) ? `${AUSSEHEN_ORDNER}/${ruestungZu(beine)!.datei}` : null,
+      ...Object.fromEntries(ARMOR_SLOTS.map(s => {
+        const p = ruestungZu(parts[s]);
+        return [s, p && (!p.figure || u.figur === p.figure) ? appearancePath(p.datei) : null];
+      })),
     };
 
     for (const [slot, datei] of Object.entries(gewuenscht)) {
@@ -1418,10 +1431,14 @@ export class EntityManager {
       if (alt) {
         alt.wurzel.dispose(false, false);
         dyn.aussehen.delete(slot);
+        refresh();
       }
       if (!datei) continue;
       const wurzel = await this.assets.instantiate(datei);
       if (!wurzel) continue;
+      if (dyn.root.isDisposed() || this.armorRequests.get(dyn.root) !== request) { wurzel.dispose(); return; }
+      try { verifyArmorSkin(skelett, wurzel.getChildMeshes().find(m => m.skeleton)?.skeleton ?? null, datei); }
+      catch (error) { wurzel.dispose(); console.warn(error); continue; }
       // Das Rennen um denselben Slot verlieren: Ein zweites Update kann
       // waehrend des Ladens dasselbe getan haben.
       if (!this.dynamics.has(u.key) || dyn.aussehen.has(slot)) {
@@ -1446,6 +1463,7 @@ export class EntityManager {
         faerbeHaar(netze, haarfarbeZu(u.haarfarbe).hex, true);
       }
       dyn.aussehen.set(slot, { datei, wurzel });
+      refresh();
     }
   }
 

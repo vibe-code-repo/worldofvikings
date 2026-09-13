@@ -6624,11 +6624,11 @@
   "wildwarden/wildwarden_crown": {
    "datei": "wildwarden/wildwarden_crown.glb",
    "foliage": false,
-   "bytes": 112984,
+   "bytes": 89992,
    "huelle": {
     "min": [
      -0.351,
-     1.435,
+     1.69,
      -0.149
     ],
     "max": [
@@ -6638,10 +6638,10 @@
     ]
    },
    "breite": 0.703,
-   "hoehe": 0.7,
+   "hoehe": 0.445,
    "tiefe": 0.334,
-   "dreiecke": 728,
-   "materialien": 9,
+   "dreiecke": 568,
+   "materialien": 8,
    "bilder": 0,
    "animationen": [],
    "meshlos": false,

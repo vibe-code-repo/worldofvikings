@@ -5,7 +5,7 @@ import { ASHENVEIL_PARTS } from './ashenveil.js';
 /** Stable set IDs, separate from asset revisions. This catalog grants no items. */
 export const EQUIPMENT_SETS = [
   { id: 'ironward', version: 3, name: 'Ironward', figure: 'wikinger', parts: IRONWARD_PARTS },
-  { id: 'wildwarden', version: 2, name: 'Waldhüter', figure: 'wikinger', parts: WILDWARDEN_PARTS },
+  { id: 'wildwarden', version: 3, name: 'Waldhüter', figure: 'wikinger', parts: WILDWARDEN_PARTS },
   { id: 'ashenveil', version: 1, name: 'Aschenschleier', figure: 'wikinger', parts: ASHENVEIL_PARTS },
 ] as const;
 

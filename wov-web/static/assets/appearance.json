@@ -727,7 +727,7 @@
     },
     {
       "id": "wildwarden",
-      "version": 2,
+      "version": 3,
       "name": "Waldhüter",
       "figure": "wikinger",
       "itemIds": [
@@ -757,9 +757,7 @@
           "appearanceSlot": "kopf",
           "model": "wildwarden/wildwarden_crown.glb",
           "icon": "wildwarden_crown.png",
-          "regions": [
-            "Head"
-          ],
+          "regions": [],
           "hideAppearance": []
         },
         {

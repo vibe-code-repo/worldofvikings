@@ -9,7 +9,7 @@ import { Equipment } from '../src/player/Equipment.js';
 
 const parts = Object.fromEntries(WILDWARDEN_PARTS.map(p => [p.slot, p.id]));
 assert.equal(WILDWARDEN_PARTS.length, 7);
-assert.equal(new Set(WILDWARDEN_PARTS.flatMap(p => [...p.regions])).size, 11);
+assert.equal(new Set(WILDWARDEN_PARTS.flatMap(p => [...p.regions])).size, 10);
 assert.equal(ARMOR_SLOTS.length, 7);
 assert.deepEqual(decodeArmor(encodeArmor(parts)), parts);
 assert.deepEqual(decodeArmor('|'), {});
@@ -19,8 +19,9 @@ assert(validArmorParts(parts, 'wikinger'));
 assert(!validArmorParts(parts, 'wikingerin'));
 for (const bad of [null, [], { kopf: 'wildwarden_vest' }, { kopf: '../../escape' }, { foo: '' }, { kopf: 1 }]) assert(!validArmorParts(bad));
 const engine = new NullEngine(); const scene = new Scene(engine);
-const meshes = WILDWARDEN_PARTS.flatMap(p => p.regions.map(r => new Mesh(`clone:Chr_${r}_Male_00`, scene)));
-const armorMesh = new Mesh('WoV_Wildwarden_Head', scene);
+const headMesh = new Mesh('clone:Chr_Head_Male_00', scene);
+const meshes = [...WILDWARDEN_PARTS.flatMap(p => p.regions.map(r => new Mesh(`clone:Chr_${r}_Male_00`, scene))), headMesh];
+const armorMesh = new Mesh('WoV_Wildwarden_Crown', scene);
 for (const p of WILDWARDEN_PARTS) {
   const item = findItem(p.item)!;
   assert(item); assert.equal(item.ruestungsteil, p.id); assert.equal(slotDef(item.ausruestung)?.teilSlot, p.slot);
@@ -31,7 +32,8 @@ for (const p of WILDWARDEN_PARTS) {
   assert(armorMesh.isEnabled());
 }
 updateArmorVisibility(meshes, WILDWARDEN_PARTS.map(p => appearancePath(ruestungZu(p.id)!.datei)));
-assert(meshes.every(m => !m.isEnabled()));
+assert(meshes.filter(m => m !== headMesh).every(m => !m.isEnabled()));
+assert(headMesh.isEnabled(), 'The attachment-only crown must preserve the textured head');
 updateArmorVisibility(meshes, []); assert(meshes.every(m => m.isEnabled()));
 assert.throws(() => verifyArmorSkin(null, null, 'wildwarden/wildwarden_crown'));
 const inventory = new Inventory();
@@ -45,4 +47,4 @@ assert(!equipment.imSlot('kopf'));
 inventory.load(snapshot.filter(i => i.name !== 'wildwarden_gloves')); equipment.syncWithInventory();
 assert(!equipment.imSlot('haende'));
 scene.dispose(); engine.dispose();
-console.log('PASS Wildwarden: seven item slots, serialization, filtering, replacement masks and inventory snapshots');
+console.log('PASS Wildwarden: seven item slots, attachment crown, serialization, filtering, replacement masks and inventory snapshots');

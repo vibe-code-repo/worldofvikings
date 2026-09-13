@@ -51,6 +51,7 @@ import '@babylonjs/loaders/glTF';
 
 import { AUSSEHEN_KOERPER, teilPfad, appearancePath, armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
+import { stabilizeHeadSkin } from '../player/headSkin.js';
 import { canWearArmor } from '@wov/shared';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { faerbeAugen } from '../player/augenfarbe.js';
@@ -142,6 +143,7 @@ export class CharakterVorschau {
     toeneFigurMeshes(res.meshes, datei);
     prepareLegacyFemaleBody(res.meshes, datei);
     this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+    stabilizeHeadSkin(this.koerperNetze);
     if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
     this.skelett = res.skeletons[0] ?? null;
     const camera = this.scene.activeCamera as ArcRotateCamera;
@@ -194,6 +196,7 @@ export class CharakterVorschau {
         // Das Skelett des KÖRPERS aufziehen, nicht das mitgelieferte.
         if (this.skelett) m.skeleton = this.skelett;
       }
+      if (slot === 'frisur') stabilizeHeadSkin(this.koerperNetze, netze);
       // Das eigene Skelett bleibt ungenutzt liegen; freigeben würde die
       // Netze mitreissen, die noch auf seine Bindematrizen zeigen.
       return { netze, eigenes: res.skeletons[0] ?? null };

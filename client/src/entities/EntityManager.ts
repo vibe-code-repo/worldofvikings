@@ -11,6 +11,7 @@
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
+import { stabilizeHeadSkin } from '../player/headSkin.js';
 import { canWearArmor } from '@wov/shared';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
@@ -1478,6 +1479,7 @@ export class EntityManager {
         m.skeleton = skelett;
         m.isPickable = false;
       }
+      if (slot === 'frisur') stabilizeHeadSkin(dyn.root.getChildMeshes(), netze);
       // MIT Klon: Diese Netze stammen aus dem Container-Cache, und
       // `instantiateModelsToScene` teilt Materialien zwischen allen
       // Instanzen. Ohne Klon faerbte der erste Spieler mit dieser
@@ -3222,6 +3224,7 @@ export class EntityManager {
       root.name = prefabName;
       dyn = { root, anim: wunschAnim };
       if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);
+      if (model) stabilizeHeadSkin(root.getChildMeshes());
       if (belebt) {
         dyn.gang = {
           basisPos: new Vector3(u.position.x, u.position.y, u.position.z),

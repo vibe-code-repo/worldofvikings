@@ -52,6 +52,7 @@ import { faerbeHaar } from './haarfarbe.js';
 import { faerbeAugen } from './augenfarbe.js';
 import { armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from './armorVisibility.js';
+import { stabilizeHeadSkin } from './headSkin.js';
 import { canWearArmor } from '@wov/shared';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -755,6 +756,7 @@ export class AvatarRig {
       toeneFigurMeshes(res.meshes, this.modellDatei);
       prepareLegacyFemaleBody(res.meshes, this.modellDatei);
       this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+      stabilizeHeadSkin(this.koerperNetze);
       if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
 
       // JETZT vermessen, vor dem Umhängen: Solange die Meshes am
@@ -2365,6 +2367,7 @@ export class AvatarRig {
           m.isPickable = false;
           m.alphaIndex = 0;
         }
+        if (/^(?:wikingerin\/)?H_\d+$/.test(datei)) stabilizeHeadSkin(this.koerperNetze, netze);
         // Das mitgelieferte Skelett bleibt ungenutzt liegen; freigeben
         // wuerde die Netze mitreissen, die auf seine Bindematrizen zeigen.
         this.teile.set(datei, netze);

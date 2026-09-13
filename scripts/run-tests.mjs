@@ -85,6 +85,7 @@ function brauchtPython() {
 
 const KERN = [
   ['client/test', 'appearance-visibility.ts'],
+  ['client/test', 'head-skin.ts'],
   ['server/test', 'equipment-sets.ts'],
   ['server/test', 'starter-sets.ts'],
   ['server/test', 'starter-sets-e2e.ts'],

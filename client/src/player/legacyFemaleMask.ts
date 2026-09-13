@@ -10,7 +10,8 @@ const masks = new WeakMap<AbstractMesh, MaskState>();
 export function prepareLegacyFemaleBody(meshes: readonly AbstractMesh[], figure: string): void {
   if (armorBodyForFigure(figure)?.bodyProfile !== 'legacy-female-v1') return;
   for (const mesh of meshes) {
-    if (!(mesh instanceof Mesh) || !mesh.skeleton || masks.has(mesh)) continue;
+    if (!(mesh instanceof Mesh) || !mesh.skeleton || masks.has(mesh)
+        || !mesh.skeleton.bones.some(b => b.name === 'L_Thigh')) continue;
     const indices = mesh.getIndices();
     const joints = mesh.getVerticesData(VertexBuffer.MatricesIndicesKind);
     const weights = mesh.getVerticesData(VertexBuffer.MatricesWeightsKind);

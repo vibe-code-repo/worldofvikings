@@ -87,6 +87,8 @@ const KERN = [
   ['client', 'test/village-biome.ts'],
   ['client/test', 'appearance-visibility.ts'],
   ['server/test', 'equipment-sets.ts'],
+  ['server/test', 'starter-sets.ts'],
+  ['server/test', 'starter-sets-e2e.ts'],
   ['server/test', 'armor-body-variants.ts'],
   ['client/test', 'ironward.ts'],
   ['server/test', 'ironward.ts'],

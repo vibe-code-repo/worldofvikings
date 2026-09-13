@@ -1301,11 +1301,13 @@ import { IRONWARD_PARTS } from './ironward.js';
 import { WILDWARDEN_PARTS } from './wildwarden.js';
 import { ASHENVEIL_PARTS } from './ashenveil.js';
 import { SEIDRAVEN_PARTS } from './seidraven.js';
+import { EMBERRAGE_PARTS } from './emberrage.js';
 export const EIGENE_MODELLE: readonly string[] = [
   ...IRONWARD_PARTS.map(p => `ironward/${p.item}`),
   ...WILDWARDEN_PARTS.map(p => `wildwarden/${p.item}`),
   ...ASHENVEIL_PARTS.map(p => `ashenveil/${p.item}`),
   ...SEIDRAVEN_PARTS.map(p => `seidraven/${p.item}`),
+  ...EMBERRAGE_PARTS.map(p => `emberrage/${p.item}`),
   ...EIGENE_MODELLE_ALT,
   ...STORE_MODELL_NAMEN,
 ];

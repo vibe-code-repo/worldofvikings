@@ -26,6 +26,7 @@
   } from '$lib/account';
   import '$lib/stil/account.css';
   import type { EquipmentSetCatalog } from '../../../../../shared/src/equipmentSets';
+  import { CLASS_EQUIPMENT_FAMILIES } from '../../../../../shared/src/equipmentSets';
   import { canWearArmor } from '../../../../../shared/src/armorCompatibility';
 
   /**
@@ -158,7 +159,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'seidraven-web-rig-v2-20260913';
+  const FIGUREN_STAND = 'emberrage-glow-v1-20260913';
 
   let figur = $state('');
   let frisur = $state('');
@@ -193,18 +194,15 @@
   }
 
   // Class choices reference stable set IDs; item details come from the generated registry.
-  const CLASS_EQUIPMENT_SETS: Readonly<Record<string, string>> = {
-    krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven',
-  };
   const RUESTUNGSSETS: Readonly<Partial<Record<string, Ruestungsset>>> = $derived.by(() =>
-    Object.fromEntries(Object.entries(CLASS_EQUIPMENT_SETS).flatMap(([classId, setId]) => {
+    Object.fromEntries(Object.entries(CLASS_EQUIPMENT_FAMILIES).flatMap(([classId, setId]) => {
       const set = daten?.equipmentSets?.find(entry => (entry.familyId ?? entry.id) === setId && canWearArmor(entry, figur));
       return set ? [[classId, {
         name: set.name,
         teile: set.parts.map(part => ({
           // The web body uses the newer female rig; its fitted export is
           // shipped with the website, while game assets keep the legacy rig.
-          datei: `${set.id === 'seidraven_female' ? 'armor/' : ''}${part.model.replace(/\.glb$/, '')}`,
+          datei: (part.previewModel ?? part.model).replace(/\.glb$/, ''),
           regionen: part.regions,
         })),
       }]] : [];
@@ -282,7 +280,7 @@
         // `server` steht hier nicht mehr drin: Welches Gestade gewählt ist,
         // führt seit den Kontoseiten `wov-gestade` (writeShore), und zwei
         // Orte für dieselbe Angabe laufen früher oder später auseinander.
-        JSON.stringify({ figur, frisur, bart, augenbraue, haarfarbe, augenfarbe, name: spielerName, zeit })
+        JSON.stringify({ figur, frisur, bart, augenbraue, haarfarbe, augenfarbe, klasseId, name: spielerName, zeit })
       );
     } catch {
       /* privater Modus: dann eben nicht */
@@ -418,6 +416,7 @@
 
   async function waehleKlasse(id: string) {
     klasseId = id;
+    merke();
     ruestungAn = false;
     // Während der Körper noch importiert wird, existiert Hand_R noch nicht.
     // ladeAlles() übernimmt die inzwischen gewählte Klassenwaffe direkt nach
@@ -459,6 +458,7 @@
 
   function vorgabenWaehlen() {
     if (!daten) return;
+    if (klassen.some(k => k.id === alt.klasseId)) klasseId = alt.klasseId;
     const gueltig = (liste: Eintrag[], wert?: string) =>
       wert && liste.some((e) => e.id === wert) ? wert : undefined;
 
@@ -635,6 +635,7 @@
         hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
         hairColor: haarfarbe,
         eyeColor: augenfarbe,
+        classId: klasseId,
         top: '',
         legs: '',
       });

@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "sourceSha256": "cc3f9c43218af9226f171a8f46155434174a1b7b3d2e896dd5ecc59df1d4c6d3",
+  "bodySha256": "132b1484c54343fee1fc2ec609a7281a16345effe15e74f8388fae1c0ce7ca91",
+  "joints": [
+    "Root",
+    "Hips",
+    "Hips_Attachment",
+    "Spine_01",
+    "Spine_02",
+    "Spine_03",
+    "Back_Attachment",
+    "Cape_Attachment_01",
+    "Cape_Attachment_02",
+    "Cape_Attachment_03",
+    "Cape_Attachment_04",
+    "Chest_Attachment",
+    "Clavicle_L",
+    "Shoulder_Attachment_L",
+    "Shoulder_L",
+    "Elbow_L",
+    "Elbow_Attachment_L",
+    "Hand_L",
+    "Finger_01",
+    "Finger_02",
+    "Finger_03",
+    "Finger_04",
+    "IndexFinger_01",
+    "IndexFinger_02",
+    "IndexFinger_03",
+    "IndexFinger_04",
+    "Thumb_01",
+    "Thumb_02",
+    "Thumb_03",
+    "Clavicle_R",
+    "Shoulder_Attachment_R",
+    "Shoulder_R",
+    "Elbow_R",
+    "Elbow_Attachment_R",
+    "Hand_R",
+    "Finger_01 1",
+    "Finger_02 1",
+    "Finger_03 1",
+    "Finger_04 1",
+    "IndexFinger_01 1",
+    "IndexFinger_02 1",
+    "IndexFinger_03 1",
+    "IndexFinger_04 1",
+    "Thumb_01 1",
+    "Thumb_02 1",
+    "Thumb_03 1",
+    "Neck",
+    "Head",
+    "Eyebrows",
+    "Eyes",
+    "Head_Attachment",
+    "UpperLeg_L",
+    "LowerLeg_L",
+    "Ankle_L",
+    "Ball_L",
+    "Toes_L",
+    "Knee_Attachment_L",
+    "UpperLeg_R",
+    "LowerLeg_R",
+    "Ankle_R",
+    "Ball_R",
+    "Toes_R",
+    "Knee_Attachment_R"
+  ],
+  "items": [
+    {
+      "item": "emberrage_female_hood",
+      "label": "Glutzorn-Spalthelmer",
+      "regions": [
+        "Head"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [
+        "hair",
+        "beard",
+        "eyebrows"
+      ],
+      "vfx": {
+        "emissive": true,
+        "profile": "emberrage_red",
+        "attachedToItem": true
+      },
+      "file": "emberrage_female_hood.glb",
+      "triangles": 628,
+      "bytes": 96644,
+      "sha256": "ca9525497f3c6ea78d74ef05f293968069555a7539da97b8ec37c4cfb584ac2b",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "emberrage_female_shoulders",
+      "label": "Glutzorn-Bruchschultern",
+      "regions": [
+        "ArmUpperLeft",
+        "ArmUpperRight"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "emberrage_red",
+        "attachedToItem": true
+      },
+      "file": "emberrage_female_shoulders.glb",
+      "triangles": 1692,
+      "bytes": 202800,
+      "sha256": "6841ceaf81b6db6a4d490399c906023c8bda39c0f75ee75a69057a0175b52c53",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "emberrage_female_vest",
+      "label": "Glutzorn-Schwarzstahlharnisch",
+      "regions": [
+        "Torso"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "emberrage_red",
+        "attachedToItem": true
+      },
+      "file": "emberrage_female_vest.glb",
+      "triangles": 858,
+      "bytes": 128832,
+      "sha256": "b2e0575c9798d2a68ef568db7010979ee699388185d51f3d3b2b6520a6747d41",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "emberrage_female_bracers",
+      "label": "Glutzorn-Armschienen",
+      "regions": [
+        "ArmLowerLeft",
+        "ArmLowerRight"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "emberrage_red",
+        "attachedToItem": true
+      },
+      "file": "emberrage_female_bracers.glb",
+      "triangles": 460,
+      "bytes": 80572,
+      "sha256": "f30ac088b555ee7778030418bf7ab7f72c7a475c2c86dd572fcf97c755d4b102",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "emberrage_female_gloves",
+      "label": "Glutzorn-Panzerhandschuhe",
+      "regions": [
+        "HandLeft",
+        "HandRight"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "emberrage_red",
+        "attachedToItem": true
+      },
+      "file": "emberrage_female_gloves.glb",
+      "triangles": 576,
+      "bytes": 98144,
+      "sha256": "aebcad550fe9b4c77d7c814a08ea8934ffd00c8612712f38d44e628abbafe556",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "emberrage_female_robe",
+      "label": "Glutzorn-Runenschurz",
+      "regions": [
+        "Hips"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "emberrage_red",
+        "attachedToItem": true
+      },
+      "file": "emberrage_female_robe.glb",
+      "triangles": 2152,
+      "bytes": 222528,
+      "sha256": "a3a0cc6e3bac279980214a2819d5865a806873be16307e420c735afd66cb3e58",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "emberrage_female_boots",
+      "label": "Glutzorn-Stiefel",
+      "regions": [
+        "LegLeft",
+        "LegRight"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "emberrage_red",
+        "attachedToItem": true
+      },
+      "file": "emberrage_female_boots.glb",
+      "triangles": 572,
+      "bytes": 92196,
+      "sha256": "688879fe59ed8043991622f0b689ebdcb95807a4ae831ad1d461e5cde0e28a66",
+      "correctedHipJointEntries": 0
+    }
+  ]
+}

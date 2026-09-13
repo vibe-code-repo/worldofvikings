@@ -27,7 +27,7 @@ for (const set of catalog.sets) {
     assert.equal(model.subarray(0, 4).toString(), 'glTF', part.model);
     assert.equal(model.readUInt32LE(4), 2, part.model);
     assert.equal(model.readUInt32LE(8), model.length, part.model);
-    if (set.familyId === 'seidraven') {
+    if (['seidraven','emberrage'].includes(set.familyId)) {
       const gltf = JSON.parse(model.subarray(20, 20 + model.readUInt32LE(12)).toString());
       const meshNodes = gltf.nodes.filter(node => node.mesh !== undefined);
       assert(meshNodes.length > 0, `${part.itemId}: renderable mesh nodes`);
@@ -41,6 +41,13 @@ for (const set of catalog.sets) {
     }
     const icon = Buffer.from(await (await get('/assets/sprites/' + part.icon)).arrayBuffer());
     assert.equal(icon.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', part.icon);
+    if (set.familyId === 'emberrage') {
+      assert.equal(part.vfxProfile, 'emberrage_red');
+      const web = Buffer.from(await (await get('/assets/models/' + part.previewModel)).arrayBuffer());
+      const doc = JSON.parse(web.subarray(20,20+web.readUInt32LE(12)));
+      assert(doc.materials.some(m=>m.name === 'Emberrage_glow'));
+      assert.equal(doc.skins[0].joints.length, set.figure === 'wikingerin' ? 63 : 71);
+    }
   }
 }
 console.log(`PASS HTTP catalog and character-creation flags: ${catalog.sets.length} sets, ${itemCount} GLBs, ${itemCount} PNGs, body profiles, visibility tags and current preview; no login or inventory write`);

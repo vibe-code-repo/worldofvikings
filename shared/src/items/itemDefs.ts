@@ -473,10 +473,12 @@ import { IRONWARD_PARTS } from '../ironward.js';
 import { WILDWARDEN_PARTS } from '../wildwarden.js';
 import { ASHENVEIL_PARTS } from '../ashenveil.js';
 import { SEIDRAVEN_PARTS } from '../seidraven.js';
+import { EMBERRAGE_PARTS } from '../emberrage.js';
 const KLEIDUNG: ItemShared[] = [
-  ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS, ...ASHENVEIL_PARTS, ...SEIDRAVEN_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
+  ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS, ...ASHENVEIL_PARTS, ...SEIDRAVEN_PARTS, ...EMBERRAGE_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
     icon: p.id, model: null, maxStackSize: 1, weight: p.weight, toolTier: 0,
     ausruestung: p.equipment, ruestungsteil: p.id, hideAppearance: p.hideAppearance,
+    ...('vfxProfile' in p ? { vfxProfile: p.vfxProfile } : {}),
     bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile, figure: p.figure })),
   {
     name: 'LederBH',

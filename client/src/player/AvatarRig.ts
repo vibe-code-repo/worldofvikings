@@ -51,7 +51,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { faerbeHaar } from './haarfarbe.js';
 import { faerbeAugen } from './augenfarbe.js';
 import { armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
-import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from './armorVisibility.js';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from './armorVisibility.js';
 import { canWearArmor } from '@wov/shared';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -2343,7 +2343,7 @@ export class AvatarRig {
       try {
         const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
         const res = await SceneLoader.ImportMeshAsync(
-          '', '/assets/models/', `${datei}.glb`, this.halter!.getScene());
+          '', '/assets/models/', `${armorFileForSkeleton(datei, this.skelett)}.glb`, this.halter!.getScene());
         const netze = res.meshes.filter((m) => m.getTotalVertices() > 0);
         try { verifyArmorSkin(this.skelett, res.skeletons[0] ?? null, datei); }
         catch (error) {

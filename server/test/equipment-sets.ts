@@ -8,7 +8,7 @@ import { Reader } from '../src/io/Reader.js';
 
 const catalog = equipmentSetCatalog();
 assert.equal(catalog.schemaVersion, 1);
-assert.deepEqual(catalog.sets.map(set => set.id), ['ironward', 'wildwarden', 'ashenveil', 'seidraven_male', 'seidraven_female']);
+assert.deepEqual(catalog.sets.map(set => set.id), ['ironward', 'wildwarden', 'ashenveil', 'seidraven_male', 'seidraven_female', 'emberrage_male', 'emberrage_female']);
 const ids = new Set<string>();
 for (const set of catalog.sets) {
   assert.equal(set.parts.length, 7);
@@ -58,4 +58,4 @@ assert(peer.inventar.all.every(item => item.equipped));
 equip({});
 assert.equal(peer.ruestung, '|');
 assert(peer.inventar.all.every(item => !item.equipped));
-console.log('PASS equipment sets: 35 items, stable IDs, slots, body masks, ownership and no implicit grant');
+console.log('PASS equipment sets: 49 items, stable IDs, slots, body masks, ownership and no implicit grant');

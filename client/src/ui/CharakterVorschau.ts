@@ -50,7 +50,7 @@ import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
 
 import { AUSSEHEN_KOERPER, teilPfad, appearancePath, armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
-import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from '../player/armorVisibility.js';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
 import { canWearArmor } from '@wov/shared';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { faerbeAugen } from '../player/augenfarbe.js';
@@ -186,7 +186,7 @@ export class CharakterVorschau {
       if (!pending) {
         pending = (async () => {
       const res = await SceneLoader.ImportMeshAsync(
-        '', WURZEL, `${appearancePath(datei!)}.glb`, this.scene);
+        '', WURZEL, `${armorFileForSkeleton(appearancePath(datei!), this.skelett)}.glb`, this.scene);
       const netze = res.meshes.filter((m) => m.getTotalVertices() > 0);
       try { verifyArmorSkin(this.skelett, res.skeletons[0] ?? null, datei!); }
       catch (error) { for (const m of res.meshes.filter(m => !m.parent)) m.dispose(); throw error; }

@@ -107,6 +107,7 @@ export * from './equipmentSets.js';
 export * from './appearanceVisibility.js';
 export * from './armorCompatibility.js';
 export * from './seidraven.js';
+export * from './emberrage.js';
 export * from './legacyFemaleRegions.js';
 export * from './wetterVorgabe.js';
 export * from './lookProfil.js';

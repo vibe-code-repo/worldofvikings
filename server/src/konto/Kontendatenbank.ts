@@ -100,6 +100,7 @@ export interface Charakter {
   frisur: string;
   haarfarbe: string;
   augenfarbe: string;
+  klasse: string;
   ober: string;
   beine: string;
   erstellt: number;
@@ -187,6 +188,7 @@ export class Kontendatenbank {
   private spaltenNachziehen(): void {
     this.spalteNachziehen('charaktere', 'haarfarbe', "TEXT NOT NULL DEFAULT ''");
     this.spalteNachziehen('charaktere', 'augenfarbe', "TEXT NOT NULL DEFAULT 'fjordblau'");
+    this.spalteNachziehen('charaktere', 'klasse', "TEXT NOT NULL DEFAULT ''");
   }
 
   /**
@@ -230,6 +232,7 @@ export class Kontendatenbank {
         frisur           TEXT NOT NULL,
         haarfarbe        TEXT NOT NULL DEFAULT '',
         augenfarbe       TEXT NOT NULL DEFAULT 'fjordblau',
+        klasse           TEXT NOT NULL DEFAULT '',
         ober             TEXT NOT NULL DEFAULT '',
         beine            TEXT NOT NULL DEFAULT '',
         erstellt         INTEGER NOT NULL,
@@ -356,20 +359,20 @@ export class Kontendatenbank {
   charakterAnlegen(
     kontoId: number,
     name: string,
-    aussehen: { figur: string; frisur: string; haarfarbe: string; augenfarbe?: string; ober: string; beine: string },
+    aussehen: { figur: string; frisur: string; haarfarbe: string; augenfarbe?: string; klasse?: string; ober: string; beine: string },
   ): { ok: true; charakter: Charakter } | { ok: false; fehler: KontoFehler } {
     const spielerId = spielerIdErzeugen();
     const altlastUserId = BigInt(getStableHash(spielerId) & 0x7fffffff);
     const jetzt = Date.now();
-    const voll = { ...aussehen, augenfarbe: aussehen.augenfarbe ?? 'fjordblau' };
+    const voll = { ...aussehen, augenfarbe: aussehen.augenfarbe ?? 'fjordblau', klasse: aussehen.klasse ?? '' };
     try {
       const r = this.db
         .prepare(`INSERT INTO charaktere
-          (konto_id, spieler_id, altlast_user_id, name, figur, frisur, haarfarbe, augenfarbe, ober, beine, erstellt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          (konto_id, spieler_id, altlast_user_id, name, figur, frisur, haarfarbe, augenfarbe, ober, beine, erstellt, klasse)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(kontoId, spielerId, altlastUserId.toString(16), name,
              voll.figur, voll.frisur, voll.haarfarbe, voll.augenfarbe,
-             voll.ober, voll.beine, jetzt);
+             voll.ober, voll.beine, jetzt, voll.klasse);
       return {
         ok: true,
         charakter: {
@@ -572,6 +575,7 @@ export class Kontendatenbank {
       frisur: String(z.frisur),
       haarfarbe: String(z.haarfarbe ?? ''),
       augenfarbe: String(z.augenfarbe ?? 'fjordblau'),
+      klasse: String(z.klasse ?? ''),
       ober: String(z.ober),
       beine: String(z.beine),
       erstellt: Number(z.erstellt),

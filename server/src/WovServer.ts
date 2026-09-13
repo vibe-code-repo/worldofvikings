@@ -9,6 +9,7 @@
  */
 
 import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory } from '@wov/shared';
+import { grantStarterSet } from './konto/StarterSet.js';
 import {
   EVENT_CHANCE,
   EVENT_INTERVAL_MS,
@@ -1602,6 +1603,8 @@ export class WovServer {
     if (!peer.nurEditor) {
       saved = this.ermittleGespeichertenStand(peer);
       const ausKonto = this.kontenDb.charakterZuSpielerId(peer.spielerId);
+      peer.klasse = ausKonto?.klasse || saved?.klasse || '';
+      peer.starterSetGranted = saved?.starterSetGranted ?? '';
       peer.figur = saved?.figur && istFigur(saved.figur)
         ? saved.figur : ausKonto && istFigur(ausKonto.figur) ? ausKonto.figur : FIGUR_VORGABE;
       peer.frisur = saved?.frisur && istFrisur(saved.frisur)
@@ -1758,17 +1761,14 @@ export class WovServer {
         // Das Nordschwert, damit der Schwerthieb des Wikingers von Anfang
         // an eine Klinge hat (10.09.2026).
         ['SwordNorth', 1],
-        // Kleidung als GEGENSTAENDE: Seit sie in Ausruestungsslots liegt,
-        // waere ein neuer Charakter sonst nackt und haette keinen Weg,
-        // daran etwas zu aendern -- die Teile lassen sich (noch) nirgends
-        // herstellen oder finden.
-        ['LederBH', 1], ['LederShorts', 1],
+        // Class armor is delivered separately after restoring the inventory.
       ];
       for (const [name, menge] of START) {
         const def = findItem(name);
         if (def) peer.inventar.addItem(def, menge);
       }
     }
+    peer.starterSetGranted = grantStarterSet(peer.inventar, peer.klasse, peer.figur, peer.starterSetGranted);
     this.inventarSync(peer);
     // Piece-Budget: eigene Bauten einmalig zählen (15k-ZDO-Scan, nur Login).
     const meineId = peer.userId.toString();
@@ -1826,6 +1826,8 @@ export class WovServer {
       frisur: peer.frisur,
       haarfarbe: peer.haarfarbe,
       augenfarbe: peer.augenfarbe,
+      klasse: peer.klasse,
+      starterSetGranted: peer.starterSetGranted,
       ruestung: peer.ruestung,
       inventar: peer.inventar.serialize(),
     });
@@ -5532,6 +5534,8 @@ export class WovServer {
         frisur: peer.frisur,
         haarfarbe: peer.haarfarbe,
         augenfarbe: peer.augenfarbe,
+        klasse: peer.klasse,
+        starterSetGranted: peer.starterSetGranted,
         ruestung: peer.ruestung,
         inventar: peer.inventar.serialize(),
       });

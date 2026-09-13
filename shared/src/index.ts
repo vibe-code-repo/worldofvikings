@@ -101,6 +101,7 @@ export * from './figuren.js';
 export * from './aussehen.js';
 export * from './ausruestung.js';
 export * from './ironward.js';
+export * from './wildwarden.js';
 export * from './wetterVorgabe.js';
 export * from './lookProfil.js';
 // Die Himmelsfelder aus A5/A12. Eigene Datei, solange `lookProfil.ts`

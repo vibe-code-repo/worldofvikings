@@ -179,6 +179,7 @@ export function frisurMitGesicht(frisur: string, bart: string, augenbraue: strin
  * ergibt sich der Ausschluss von selbst.
  */
 import { IRONWARD_PARTS } from './ironward.js';
+import { WILDWARDEN_PARTS } from './wildwarden.js';
 export type Slot = 'oberkoerper' | 'beine' | 'kopf' | 'schultern' | 'unterarme' | 'haende' | 'fuesse';
 export const ARMOR_SLOTS: readonly Slot[] = ['oberkoerper', 'beine', 'kopf', 'schultern', 'unterarme', 'haende', 'fuesse'];
 
@@ -195,6 +196,7 @@ export const RUESTUNG: readonly Ruestungsteil[] = [
   { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper' },
   { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine' },
   ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, figure: 'wikinger' })),
+  ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, figure: 'wikinger' })),
 ] as const;
 
 /** Kennt die Liste diese Frisur? Der Server glaubt dem Client nichts. */

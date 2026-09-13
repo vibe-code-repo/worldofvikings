@@ -67,7 +67,7 @@ try {
   for (const [index, [classId, figure]] of [
     ['krieger', 'wikinger'], ['hexer', 'wikinger'], ['druide', 'wikinger'],
     ['seherin', 'wikinger'], ['seherin', 'wikingerin'],
-    ['berserker', 'wikinger'], ['berserker', 'wikingerin'],
+    ['runenmagier', 'wikinger'], ['runenmagier', 'wikingerin'],
   ].entries()) {
     const name = `Starter${String.fromCharCode(65 + index)}`;
     const { character } = await post('/characters', { ...appearance, name, classId, figure }, 201);

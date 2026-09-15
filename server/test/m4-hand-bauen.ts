@@ -18,10 +18,10 @@
  * welche Richtung ein Gang weiterlaeuft. `connIndex` macht genau das
  * moeglich, ohne den Seed-Pfad (`generateDungeonLayout`) zu beruehren.
  *
- * Dieser Test ist ABSICHTLICH ROT, solange `attachRoom` den Parameter nicht
- * kennt (s. Pruefung 2 unten) — s. Befund am Dateiende nach dem ersten Lauf.
- * Er ist so formuliert, dass er nach der Umsetzung OHNE AENDERUNG gruen
- * wird: die Signatur-Annahme ist ein rein additiver letzter Parameter.
+ * Dieser Test war ABSICHTLICH ROT, solange `attachRoom` den Parameter nicht
+ * kannte (s. Pruefung 2 unten) — mit der M4-Umsetzung kennt die Funktion ihn,
+ * und der Test ist OHNE AENDERUNG gruen geworden: die Signatur-Annahme war
+ * ein rein additiver letzter Parameter.
  *
  * Pruefungen:
  *  1. Startlayout (Seed 7): `computeOpenConnections` liefert 0 offene
@@ -58,15 +58,14 @@
  * genau das bildet dieser Test jetzt nach: ein `StoneVaultWall` wird
  * entfernt, DAS oeffnet die Kante, an der Pruefung 2 ansetzt.
  *
- * ── Wie der Test ROT ist ────────────────────────────────────────────────
- * Kein Kompilierfehler: `attachRoom` wird an den beiden Stellen, die den
- * 5. Parameter brauchen, bewusst als `(attachRoom as any)(...)` aufgerufen
- * — `tsx`/esbuild entfernt beim Transpilieren ohnehin nur Typen (kein
- * Type-Checking), und `test/` ist nicht in `server/tsconfig.json`
- * eingeschlossen; ein spaeteres `tsc --noEmit` liefe also so oder so nicht
- * gegen die 4-Parameter-Signatur. Der `any`-Cast macht das ausdruecklich
- * und stellt sicher, dass ROT und GRUEN allein von der LAUFZEIT-Antwort
- * von `attachRoom` abhaengen, nicht vom Zufall einer Typpruef-Konfiguration.
+ * ── Warum der Test frueher ROT war ──────────────────────────────────────
+ * Solange `attachRoom` den 5. Parameter nicht kannte, wurde er ueberzaehlig
+ * uebergeben (JS erlaubt das) und beide Enden lieferten dasselbe Ergebnis.
+ * Mit der M4-Umsetzung nimmt die Funktion `connIndex` als additiven
+ * Parameter entgegen; der Aufruf unten ist seither ein gewoehnlicher
+ * Fuenf-Argument-Aufruf. `test/` bleibt aus `server/tsconfig.json`
+ * ausgeschlossen (s. Ablage-Hinweis oben), ROT und GRUEN haengen allein an
+ * der LAUFZEIT-Antwort von `attachRoom`.
  *
  * Tatsaechlich ROT (Lauf vom 3.9.2026, Seed 7): genau 2 von 15 Pruefungen,
  * beide Symptome DESSELBEN Fehlers — `attachRoom` ignoriert den 5.
@@ -222,13 +221,12 @@ for (let versuch = 0; versuch < MAX_SEED_VERSUCHE; versuch++) {
     const kandidatNachEntfernenOffen = computeOpenConnections(kandidat, KIT_NAME);
     if (kandidatNachEntfernenOffen.length === 0) continue; // Bedingung (a) verletzt.
     for (const o of kandidatNachEntfernenOffen.filter((c) => c.type === corridorConnType)) {
-      // Signatur-ANNAHME (s. Kopfkommentar): additiver 5. Parameter connIndex.
-      // Vor der Umsetzung ignoriert `attachRoom` ihn schlicht (JS erlaubt
-      // ueberzaehlige Argumente) — dann liefern beide Aufrufe dasselbe
-      // Ergebnis und Pruefung 2 unten schlaegt als ASSERTION fehl, nicht als
-      // Kompilierfehler (tsx/esbuild transpiliert typlos, s. Befund unten).
-      const a = (attachRoom as any)(kandidat, KIT_NAME, o, 'StoneVaultCorridor', 0);
-      const b = (attachRoom as any)(kandidat, KIT_NAME, o, 'StoneVaultCorridor', 1);
+      // `connIndex` ist der additiv ergaenzte 5. Parameter von `attachRoom`
+      // (`shared/src/dungeonGenerator.ts`); seit der M4-Umsetzung nimmt die
+      // Funktion ihn entgegen, ein gewoehnlicher Fuenf-Argument-Aufruf
+      // genuegt.
+      const a = attachRoom(kandidat, KIT_NAME, o, 'StoneVaultCorridor', 0);
+      const b = attachRoom(kandidat, KIT_NAME, o, 'StoneVaultCorridor', 1);
       if (a.ok && b.ok) {
         layoutOffen = kandidat;
         open = kandidatNachEntfernenOffen;

@@ -112,20 +112,41 @@ export function brauchtStore() {
   ist das ein Befund, und der Test wird rot; deshalb prueft die Weiche
   ausdruecklich nur auf die Ordner und nicht auf die Dateien.
 
+  Seit dem 15.09.2026 werden die Gruende GESAMMELT statt kurzgeschlossen:
+  Fehlen beide Ordner, nennt die Meldung beide — und die
+  Altbestand-Verzweigung bleibt auch dann pruefbar, wenn der Speicher
+  fehlt. Genau daran scheiterte `pruefe-weichen.mjs` im CI-Checkout, wo
+  `assets/store` UND `assets/textures` fehlen (der Abbruch beim Speicher
+  verschluckte den Altbestand-Fall).
+
   Skips when either asset folder is missing entirely; missing single
   files inside them stay a finding.
 */
 export function brauchtBodenQuellen() {
   const speicher = brauchtStore();
   return () => {
+    /*
+      Beide Vorbedingungen werden GESAMMELT, nicht nacheinander
+      kurzgeschlossen: Wer `assets/store` UND `assets/textures` fehlen hat
+      (der CI-Checkout, ein frischer Arbeitsbaum), soll in der Meldung
+      beide Namen sehen — und `pruefe-weichen.mjs` kann die
+      Altbestand-Verzweigung nur dann pruefen, wenn ein fehlender Speicher
+      sie nicht vorher verschluckt. Fehlt nur einer, nennt die Meldung nur
+      ihn.
+    */
+    const gruende = [];
     const s = speicher();
-    if (s !== null) return s;
+    if (s !== null) gruende.push(s);
     if (process.env.WOV_OHNE_ALTBESTAND === '1') {
-      return 'WOV_OHNE_ALTBESTAND=1 gesetzt — Altbestand-Texturen von Hand abgeschaltet (Probe des CI-Falls)';
+      gruende.push(
+        'WOV_OHNE_ALTBESTAND=1 gesetzt — Altbestand-Texturen von Hand abgeschaltet (Probe des CI-Falls)',
+      );
+    } else if (!existsSync(resolve(WURZEL, 'assets/textures'))) {
+      gruende.push(
+        'assets/textures fehlt — die zwei Altbestand-Zeilen (Asche, Lava-Maske) kommen von dort (ln -s ~/worldofvikings/assets/textures assets/textures)',
+      );
     }
-    return existsSync(resolve(WURZEL, 'assets/textures'))
-      ? null
-      : 'assets/textures fehlt — die zwei Altbestand-Zeilen (Asche, Lava-Maske) kommen von dort (ln -s ~/worldofvikings/assets/textures assets/textures)';
+    return gruende.length === 0 ? null : gruende.join(' | ');
   };
 }
 

@@ -7,7 +7,9 @@ import { Writer } from '../src/io/Writer.js';
 import { AdminCommandRegistry } from '../src/admin/AdminCommands.js';
 
 // Private handlers are intentionally exercised, not reimplemented in the test.
-const server = Object.create(WovServer.prototype) as any;
+// The probe is deliberately partial: known members stay typed, the rest open.
+type ServerProbe = WovServer & Record<string, unknown>;
+const server = Object.create(WovServer.prototype) as ServerProbe;
 const zdoValues = new Map<string, string>();
 server.zdosVon = () => ({ getZDO: () => ({ setString: (k: string, v: string) => zdoValues.set(k, v) }) });
 const peer = { name: 'Gast', figur: 'wikinger', frisur: 'H_01', haarfarbe: 'mittelbraun', ruestung: '|', inventar: new Inventory(), sendPacketWith: () => {} };
@@ -35,12 +37,12 @@ const saved = { name: 'Gast', figur: 'wikinger', inventar: original.serialize(),
 server.savedPlayers = new Map([['test-player', saved]]);
 let saves = 0; server.saveWorldAsync = async () => { saves++; };
 server.registerSpawnCommand();
-const admin = { isAdmin: true } as any;
+const admin = { isAdmin: true };
 let result = server.adminCommands.execute(admin, 'item wildwarden Gast'); assert(result.ok, result.message);
 assert.equal(saved.inventar.length, 8); assert.deepEqual(saved.position, { x: 4, y: 5, z: 6 });
 result = server.adminCommands.execute(admin, 'item wildwarden Gast'); assert(result.ok);
 assert.match(result.message, /0 neue/); assert.equal(saved.inventar.length, 8); assert.equal(saves, 2);
-assert(!server.adminCommands.execute({ isAdmin: false } as any, 'item wildwarden Gast').ok);
+assert(!server.adminCommands.execute({ isAdmin: false }, 'item wildwarden Gast').ok);
 assert(!server.adminCommands.execute(admin, 'item wildwarden Nobody').ok);
 const full = new Inventory(); for (let i = 0; i < 32; i++) full.addItem(findItem('Hammer')!, 1);
 saved.inventar = full.serialize(); const before = JSON.stringify(saved.inventar);

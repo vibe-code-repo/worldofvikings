@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { WovServer } from '../src/WovServer.js';
 import { Inventory, IRONWARD_PARTS, findItem } from '@wov/shared';
 
-const server = Object.create(WovServer.prototype) as any;
+// Private handlers are intentionally exercised; the probe is deliberately
+// partial: known members stay typed, the rest stays open.
+type ServerProbe = WovServer & Record<string, unknown>;
+const server = Object.create(WovServer.prototype) as ServerProbe;
 server.savedPlayers = new Map();
 const inventory = new Inventory();
 inventory.addItem(findItem('Hammer')!, 1);

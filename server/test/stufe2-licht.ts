@@ -759,15 +759,15 @@ function vorgabeDecktServerYml(): void {
     `Saettigung nicht unter 0,60 — darunter blutet die Spielerfigur aus: ${LOOK_VORGABE.saettigung}`
   );
   ok(
-    LOOK_VORGABE.nebelStart === 4000,
-    `Nebelstart 4000 m (Nebel vorerst aus, Mike 12.09.2026, war 50): ${LOOK_VORGABE.nebelStart}`
+    LOOK_VORGABE.nebelStart === 0,
+    `Unused linear start retains the village source value: ${LOOK_VORGABE.nebelStart}`
   );
   ok(
-    LOOK_VORGABE.nebelEnde === 20000,
-    `Nebelende 20000 m (Nebel vorerst aus, Mike 12.09.2026, war 800, Entscheidung E3): ${LOOK_VORGABE.nebelEnde}`
+    LOOK_VORGABE.nebelEnde === 300,
+    `Unused linear end retains the village source value: ${LOOK_VORGABE.nebelEnde}`
   );
   ok(
-    LOOK_VORGABE.schatten.kaskaden === 2 && LOOK_VORGABE.schatten.dunkelheit === 0.2,
+    LOOK_VORGABE.schatten.kaskaden === 2 && LOOK_VORGABE.schatten.dunkelheit === 0.13,
     `Schatten: ${LOOK_VORGABE.schatten.kaskaden} Kaskaden (Babylons Deckel), Restlicht ${LOOK_VORGABE.schatten.dunkelheit}`
   );
 }
@@ -825,23 +825,11 @@ function nebelkurve(): void {
      · Und `nebelStart` bleibt unter `nebelEnde`, sonst entartet die
        Rechnung.
   */
-  const sichtLinear = sichtweite('linear', 0, 0.5, LOOK_VORGABE.nebelStart, LOOK_VORGABE.nebelEnde);
-  const sichtVorherigeProduktion = sichtweite('linear', 0, 0.5, 50, 800);
-  ok(
-    sichtLinear > 15 * w0011,
-    `Nebel aus: linear sieht jetzt ein Vielfaches weiter als die alte exp-Kurve: ${sichtLinear.toFixed(0)} m gegen ${w0011.toFixed(0)} m`
-  );
-  ok(
-    sichtLinear > 20 * sichtVorherigeProduktion,
-    `Nebel aus hat die Sicht um mehr als das Zwanzigfache verlaengert: ${sichtVorherigeProduktion.toFixed(0)} m (vorherige Produktion, nebelStart 50/nebelEnde 800) → ${sichtLinear.toFixed(0)} m (nebelStart ${LOOK_VORGABE.nebelStart}/nebelEnde ${LOOK_VORGABE.nebelEnde})`
-  );
-  ok(
-    LOOK_VORGABE.nebelStart < LOOK_VORGABE.nebelEnde,
-    `nebelStart ${LOOK_VORGABE.nebelStart} liegt unter nebelEnde ${LOOK_VORGABE.nebelEnde}`
-  );
+  const villageVisibility = sichtweite(LOOK_VORGABE.nebelmodus, 0.015);
+  ok(nah(villageVisibility, Math.sqrt(Math.LN2) / 0.015, 1e-6),
+    'Village exp2 fog has 50% visibility at 55.5 m');
+  ok(LOOK_VORGABE.nebelmodus === 'exp2', 'Village selects its actual fog equation');
 
-  // Dichte 0 heisst "kein Nebel", nicht "Division durch null".
-  ok(sichtweite('exp', 0) === Number.POSITIVE_INFINITY, 'Dichte 0 ergibt unendliche Sicht statt NaN');
 }
 
 // ── 4. Strahlen-Tor ───────────────────────────────────────────────────
@@ -996,7 +984,7 @@ function vorgabenGrafikoptionen(): void {
   );
   // Die Sonnenstrahlen bleiben, was sie waren — A4 fasst sie nicht an,
   // die Entscheidung ueber ihre Vorgabe ist A2.
-  ok(DEFAULTS.sunShafts === false, 'Sonnenstrahlen unveraendert AUS (ihre Vorgabe entscheidet A2)');
+  ok(DEFAULTS.sunShafts === true, 'Village profile enables view-gated sun shafts for new preferences');
 }
 
 function main(): void {

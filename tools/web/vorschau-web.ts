@@ -50,6 +50,10 @@ import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
 import { faerbeAugen } from '../../client/src/player/augenfarbe.js';
+import { armorByFile, hiddenAppearanceForFiles } from '../../shared/src/aussehen.js';
+import { APPEARANCE_ATTACHMENTS } from '../../shared/src/appearanceVisibility.js';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from '../../client/src/player/armorVisibility.js';
+import { canWearArmor } from '@wov/shared';
 
 interface Teil {
   netze: AbstractMesh[];
@@ -356,6 +360,9 @@ export class Vorschau {
     }
 
     this.koerperDatei = datei;
+    if (res.skeletons[0]?.bones.some(bone => bone.name === 'L_Thigh')) {
+      prepareLegacyFemaleBody(res.meshes, datei);
+    }
     this.teileErlaubt = /^(wikinger\/WikingerKoerper|wikingerin\/WikingerinKoerper)$/.test(datei);
     this.neuerWikinger = datei === 'wikinger/WikingerKoerper';
 
@@ -554,6 +561,8 @@ export class Vorschau {
 
   async setze(slot: string, datei: string | null): Promise<void> {
     if (!this.teileErlaubt) return;
+    const armor = datei ? armorByFile(datei.replace(/^armor\//, '')) : undefined;
+    if (armor && !canWearArmor(armor, this.koerperDatei)) datei = null;
     // Nur H_01 ist das alte, hinter dem neuen Kopf schwebende Haarteil. Die
     // übrigen 37 Frisuren sind dort ausdrücklich weiter zugelassen.
     if (slot === 'frisur' && this.neuerWikinger && /(?:^|\/)H_01$/.test(datei ?? '')) datei = null;
@@ -565,6 +574,7 @@ export class Vorschau {
     const vorher = this.aktuell.get(slot);
     if (vorher) this.zeige(vorher, false);
     this.aktuell.set(slot, ziel);
+    this.refreshVisibility();
     if (!datei) return;
 
     if (!this.geladen.has(datei)) {
@@ -573,6 +583,12 @@ export class Vorschau {
       // in 1,00 m Groesse neben einer 1,80 m grossen Figur.
       for (const teil of res.meshes.filter((m) => !m.parent)) teil.parent = this.figurKnoten;
       const netze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+      try { verifyArmorSkin(this.skelett, res.skeletons[0] ?? null, datei.replace(/^armor\//, '')); }
+      catch (error) {
+        for (const root of res.meshes.filter(mesh => mesh.parent === this.figurKnoten)) root.dispose(false, true);
+        for (const skeleton of res.skeletons) skeleton.dispose();
+        throw error;
+      }
       for (const m of netze) {
         // Das Skelett des KOERPERS aufziehen, nicht das mitgelieferte:
         // sonst stuende die Frisur in der Bindepose, waehrend der Koerper
@@ -602,6 +618,20 @@ export class Vorschau {
     // Nach dem Anzeigen faerben — eine frisch geladene Frisur bringt ihr
     // eigenes Material mit und waere sonst wieder platzhalterbraun.
     this.faerbeFrisur();
+    this.refreshVisibility();
+  }
+
+  /** Derive masks from loaded items; late cosmetic loads cannot escape an active hood. */
+  private refreshVisibility(): void {
+    const active = [...this.aktuell.values()]
+      .filter(file => (this.geladen.get(file)?.netze.length ?? 0) > 0)
+      .map(file => file.replace(/^armor\//, ''));
+    updateArmorVisibility(this.koerperNetze, active);
+    const hidden = hiddenAppearanceForFiles(active);
+    for (const [slot, feature] of Object.entries(APPEARANCE_ATTACHMENTS)) {
+      const file = this.aktuell.get(slot);
+      if (file) this.zeige(file, !hidden.has(feature));
+    }
   }
 
   /**

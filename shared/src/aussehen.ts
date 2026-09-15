@@ -178,18 +178,34 @@ export function frisurMitGesicht(frisur: string, bart: string, augenbraue: strin
  * jede neue Kombination von Hand ausgeschlossen werden; mit Slots
  * ergibt sich der Ausschluss von selbst.
  */
-export type Slot = 'oberkoerper' | 'beine';
+import { IRONWARD_PARTS } from './ironward.js';
+import { WILDWARDEN_PARTS } from './wildwarden.js';
+import { ASHENVEIL_PARTS } from './ashenveil.js';
+import { SEIDRAVEN_PARTS } from './seidraven.js';
+import { EMBERRAGE_PARTS } from './emberrage.js';
+import { canWearArmor, type ArmorBodyPolicy } from './armorCompatibility.js';
+import { hiddenAppearance, type AppearancePolicy } from './appearanceVisibility.js';
+export type Slot = 'oberkoerper' | 'beine' | 'kopf' | 'schultern' | 'unterarme' | 'haende' | 'fuesse';
+export const ARMOR_SLOTS: readonly Slot[] = ['oberkoerper', 'beine', 'kopf', 'schultern', 'unterarme', 'haende', 'fuesse'];
 
-export interface Ruestungsteil {
+export interface Ruestungsteil extends AppearancePolicy, ArmorBodyPolicy {
+  readonly vfxProfile?: 'emberrage_red';
   readonly id: string;
   readonly datei: string;
   readonly name: string;
   readonly slot: Slot;
+  readonly regions?: readonly string[];
+  readonly figure?: string;
 }
 
 export const RUESTUNG: readonly Ruestungsteil[] = [
-  { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper' },
-  { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine' },
+  { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper', bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' },
+  { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine', bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' },
+  ...SEIDRAVEN_PARTS.map(p => ({ ...p, datei: `seidraven/${p.item}` })),
+  ...EMBERRAGE_PARTS.map(p => ({ ...p, datei: `emberrage/${p.item}` })),
+  ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
+  ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
+  ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
 ] as const;
 
 /** Kennt die Liste diese Frisur? Der Server glaubt dem Client nichts. */
@@ -219,6 +235,52 @@ export function frisurZu(id: string | null | undefined): Frisur {
 
 export function ruestungZu(id: string | null | undefined): Ruestungsteil | null {
   return RUESTUNG.find((r) => r.id === id) ?? null;
+}
+
+/** Legacy top|legs prefix remains readable; additional slots use a JSON suffix. */
+export function encodeArmor(parts: Record<string, string>): string {
+  const extra = Object.fromEntries(ARMOR_SLOTS.filter(s => s !== 'oberkoerper' && s !== 'beine' && parts[s]).map(s => [s, parts[s]]));
+  return `${parts.oberkoerper ?? ''}|${parts.beine ?? ''}${Object.keys(extra).length ? `|${JSON.stringify(extra)}` : ''}`;
+}
+
+export function decodeArmor(value: string | null | undefined): Record<string, string> {
+  if (typeof value !== 'string') return {};
+  const [top = '', legs = '', ...suffix] = value.split('|');
+  const result: Record<string, string> = { oberkoerper: top, beine: legs };
+  if (suffix.length) {
+    try {
+      const extra = JSON.parse(suffix.join('|')) as Record<string, unknown>;
+      if (extra && !Array.isArray(extra)) for (const s of ARMOR_SLOTS) {
+        if (s !== 'oberkoerper' && s !== 'beine' && typeof extra[s] === 'string') result[s] = extra[s] as string;
+      }
+    } catch { /* Old or malformed saves must not break loading. */ }
+  }
+  return Object.fromEntries(Object.entries(result).filter(([s, id]) => ruestungZu(id)?.slot === s));
+}
+
+export function validArmorParts(value: unknown, figure?: string): value is Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.entries(value).every(([slot, id]) => {
+    if (!ARMOR_SLOTS.includes(slot as Slot) || typeof id !== 'string') return false;
+    const part = ruestungZu(id);
+    return id === '' || (!!part && part.slot === slot && (!figure || canWearArmor(part, figure)));
+  });
+}
+
+/** A path with a folder is already relative to assets/models. */
+export function appearancePath(file: string): string {
+  return file.includes('/') ? file : `${AUSSEHEN_ORDNER}/${file}`;
+}
+
+export function armorByFile(file: string): Ruestungsteil | undefined {
+  return RUESTUNG.find(p => appearancePath(p.datei) === appearancePath(file.replace(/\.glb$/i, '')));
+}
+
+export function hiddenAppearanceForFiles(files: readonly string[]) {
+  return hiddenAppearance(files.flatMap(file => {
+    const part = armorByFile(file);
+    return part ? [part] : [];
+  }));
 }
 
 export interface Haarfarbe {

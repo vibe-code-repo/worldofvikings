@@ -9,6 +9,9 @@
  * leveling (Unity TerrainModifier parity) and stay invisible.
  */
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
+import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
+import { canWearArmor } from '@wov/shared';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -1393,6 +1396,7 @@ export class EntityManager {
    * direkt um, sitzt das Teil gespiegelt — genau dieser Fehler ist beim
    * eigenen Avatar schon einmal passiert.
    */
+  private readonly armorRequests = new WeakMap<TransformNode, object>();
   private async setzeFremdesAussehen(u: ZDOEntityUpdate, modell: string | null): Promise<void> {
     const dyn = this.dynamics.get(u.key);
     if (!dyn) return;
@@ -1400,6 +1404,18 @@ export class EntityManager {
     // die zusätzliche Geometrie-Kompatibilität wird je Slot geprüft.
     if (u.figur && !/^(wikinger\/|wikingerin\/)/.test(modellZu(u.figur))) return;
     dyn.aussehen ??= new Map();
+    const request = {};
+    this.armorRequests.set(dyn.root, request);
+    const refresh = (): void => {
+      const files = [...dyn.aussehen!.values()]
+        .filter(v => v.wurzel.getChildMeshes().some(mesh => mesh.getTotalVertices() > 0))
+        .map(v => v.datei);
+      updateArmorVisibility(dyn.root.getChildMeshes(), files);
+      const hidden = hiddenAppearanceForFiles(files);
+      for (const [slot, feature] of Object.entries(APPEARANCE_ATTACHMENTS)) {
+        dyn.aussehen!.get(slot)?.wurzel.setEnabled(!hidden.has(feature));
+      }
+    };
 
     // Skelett des Koerpers suchen — an ihm haengen alle Teile.
     let skelett = null as import('@babylonjs/core/Bones/skeleton').Skeleton | null;
@@ -1408,7 +1424,7 @@ export class EntityManager {
     }
     if (!skelett) return;
 
-    const [ober, beine] = (u.ruestung ?? '|').split('|');
+    const parts = decodeArmor(u.ruestung ?? '|');
     const gewuenscht: Record<string, string | null> = {
       // Nur der H_01-Alt-Export passt nicht zum neuen Wikingerkopf.
       frisur: u.frisur && istFrisur(u.frisur)
@@ -1418,8 +1434,10 @@ export class EntityManager {
         ? `${AUSSEHEN_ORDNER}/${bartAusFrisur(u.frisur)!.datei}` : null,
       augenbraue: u.frisur && istFrisur(u.frisur) && augenbraueAusFrisur(u.frisur)
         ? `${AUSSEHEN_ORDNER}/${augenbraueAusFrisur(u.frisur)!.datei}` : null,
-      oberkoerper: ruestungZu(ober) ? `${AUSSEHEN_ORDNER}/${ruestungZu(ober)!.datei}` : null,
-      beine: ruestungZu(beine) ? `${AUSSEHEN_ORDNER}/${ruestungZu(beine)!.datei}` : null,
+      ...Object.fromEntries(ARMOR_SLOTS.map(s => {
+        const p = ruestungZu(parts[s]);
+        return [s, p && canWearArmor(p, u.figur) ? appearancePath(p.datei) : null];
+      })),
     };
     const haarfarbe = haarfarbeZu(u.haarfarbe);
     const haarfarbeGeaendert = dyn.haarfarbe !== undefined && dyn.haarfarbe !== haarfarbe.id;
@@ -1436,10 +1454,14 @@ export class EntityManager {
       if (alt) {
         alt.wurzel.dispose(false, false);
         dyn.aussehen.delete(slot);
+        refresh();
       }
       if (!datei) continue;
-      const wurzel = await this.assets.instantiate(datei);
+      const wurzel = await this.assets.instantiate(armorFileForSkeleton(datei, skelett));
       if (!wurzel) continue;
+      if (dyn.root.isDisposed() || this.armorRequests.get(dyn.root) !== request) { wurzel.dispose(); return; }
+      try { verifyArmorSkin(skelett, wurzel.getChildMeshes().find(m => m.skeleton)?.skeleton ?? null, datei); }
+      catch (error) { wurzel.dispose(); console.warn(error); continue; }
       // Das Rennen um denselben Slot verlieren: Ein zweites Update kann
       // waehrend des Ladens dasselbe getan haben.
       if (!this.dynamics.has(u.key) || dyn.aussehen.has(slot)) {
@@ -1464,6 +1486,7 @@ export class EntityManager {
         faerbeHaar(netze, haarfarbe.hex, true);
       }
       dyn.aussehen.set(slot, { datei, wurzel });
+      refresh();
     }
   }
 
@@ -3198,6 +3221,7 @@ export class EntityManager {
       // dynamicPose) den Prefab-Namen drauflegen.
       root.name = prefabName;
       dyn = { root, anim: wunschAnim };
+      if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);
       if (belebt) {
         dyn.gang = {
           basisPos: new Vector3(u.position.x, u.position.y, u.position.z),

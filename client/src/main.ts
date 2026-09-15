@@ -21,6 +21,7 @@
  * (?seed=<seed> optional); useful for quick dev/Playwright probes.
  */
 import { Engine, WebGPUEngine } from '@babylonjs/core/Engines';
+import { ARMOR_SLOTS, appearancePath } from '@wov/shared';
 import { EngineInstrumentation } from '@babylonjs/core/Instrumentation/engineInstrumentation';
 import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation';
 import '@babylonjs/core/Engines/WebGPU/Extensions/engine.query';
@@ -841,8 +842,7 @@ async function main() {
         : frisurZu(selectedHairstyle).datei,
       bart: bartAusFrisur(selectedHairstyle)?.datei ?? null,
       augenbraue: augenbraueAusFrisur(selectedHairstyle)?.datei ?? null,
-      oberkoerper: null,
-      beine: null,
+      ...Object.fromEntries(ARMOR_SLOTS.map(s => [s, null])),
     };
     const getragen = equipment?.aussehen() ?? {};
     for (const [slot, kennung] of Object.entries(getragen)) {
@@ -864,7 +864,7 @@ async function main() {
     const teile = aussehenTeile();
     const mitOrdner: Record<string, string | null> = {};
     for (const [slot, datei] of Object.entries(teile)) {
-      mitOrdner[slot] = datei ? `${AUSSEHEN_ORDNER}/${datei}` : null;
+      mitOrdner[slot] = datei ? appearancePath(datei) : null;
     }
     return mitOrdner;
   };
@@ -917,7 +917,9 @@ async function main() {
     const k = aussehenKennungen();
     player?.avatar.setzeHaarfarbe(haarfarbeZu(k.haarfarbe).hex);
     player?.avatar.setzeAugenfarbe(k.augenfarbe);
-    socket?.sendAussehen(k.frisur, k.ober, k.beine, k.haarfarbe, k.augenfarbe);
+    socket?.sendAussehen(
+      k.frisur, k.ober, k.beine, k.haarfarbe, k.augenfarbe, equipment?.aussehen()
+    );
     charakterPanel.zeichne();
   };
 
@@ -2460,6 +2462,7 @@ async function main() {
       if (!inventory) return;
       try {
         inventory.load(JSON.parse(json));
+        equipment?.syncWithInventory();
       } catch {
         console.error('[Client] InventorySync: kaputtes JSON');
       }

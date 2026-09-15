@@ -573,7 +573,8 @@ export class GameSocket {
     oberkoerperId: string,
     beineId: string,
     haarfarbeId: string,
-    augenfarbeId: string
+    augenfarbeId: string,
+    armor: Record<string, string> = {}
   ): void {
     const w = new BinaryWriter();
     w.writeString(frisurId);
@@ -587,6 +588,7 @@ export class GameSocket {
     // Wie die Haarfarbe hinten angehaengt: Ein aelterer Server ignoriert
     // den Rest, statt die bestehenden Felder falsch zu lesen.
     w.writeString(augenfarbeId);
+    w.writeString(JSON.stringify(armor));
     this.sendPacket(PacketType.SetAussehen, w.toUint8Array());
   }
 

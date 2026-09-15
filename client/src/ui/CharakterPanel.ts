@@ -219,9 +219,7 @@ export class CharakterPanel {
     if (!this.vorschau) return;
     this.vorschau.setzeHaarfarbe(this.haarfarbe());
     this.vorschau.setzeAugenfarbe(this.augenfarbe());
-    for (const [slot, datei] of Object.entries(this.aussehenTeile())) {
-      await this.vorschau.setze(slot, datei);
-    }
+    await Promise.all(Object.entries(this.aussehenTeile()).map(([slot, datei]) => this.vorschau!.setze(slot, datei)));
   }
 
   /** Neu zeichnen — nach jeder Änderung an der Ausrüstung. */

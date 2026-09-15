@@ -206,10 +206,12 @@ const tab = tabelle(512) as { tiles: { tile: number; name: string; quelle: strin
      aussieht als der Hang daneben — ohne Fehlermeldung.
 */
 {
+  const villageMoss = tab.tiles.find((t) => t.quelle === 'moss-village');
+  check('village slopes use their brighter moss source', villageMoss?.farbe === 'terrain-moss-village', String(villageMoss?.farbe));
   const moosZeilen = tab.tiles.filter((t) => t.quelle === 'moss');
   check(
     'die Moosschicht wünscht sich die Karte des Vorbilds',
-    moosZeilen.length >= 3 && moosZeilen.every((t) => t.farbeGewuenscht === 'terrain-moss-dark'),
+    moosZeilen.length === 2 && moosZeilen.every((t) => t.farbeGewuenscht === 'terrain-moss-dark'),
     moosZeilen.map((t) => `${String(t.tile)}:${t.farbeGewuenscht}`).join(' ')
   );
   check(
@@ -712,20 +714,20 @@ check(
     check('die Zeilen des Stapels lassen sich messen', false, m.stderr.slice(0, 200));
   } else {
     check(
-      'Moos steht in Tile 1 und Tile 11 mit derselben Helligkeit',
-      Math.abs(luma['1']! - luma['11']!) < 1e-4,
+      'Village moss is brighter than forest moss without recolouring either source',
+      luma['11']! > luma['1']! * 1.8 && luma['11']! < luma['1']! * 2.2,
       `${luma['1']!.toFixed(5)} / ${luma['11']!.toFixed(5)}`
     );
     const v = luma['5']! / luma['11']!;
     if (moosGebaut) {
       check(
-        'Hangfels zu Moos trifft das Verhältnis der zwei Karten des Vorbilds (4,77)',
-        v > 4.3 && v < 5.2,
+        'Village cliff to moss ratio matches the imported source maps (2.34)',
+        v > 2.1 && v < 2.6,
         `${v.toFixed(2)} (Tile 5 ${luma['5']!.toFixed(5)}, Tile 11 ${luma['11']!.toFixed(5)})`
       );
       check(
-        'die Moosschicht liegt bei der linearen Luma des Vorbilds (0,0180)',
-        luma['11']! > 0.016 && luma['11']! < 0.020,
+        'Village moss linear luminance matches its source (0.0367)',
+        luma['11']! > 0.034 && luma['11']! < 0.039,
         luma['11']!.toFixed(5)
       );
     } else {

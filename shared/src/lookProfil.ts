@@ -1,3 +1,5 @@
+// 2026-09-13: Village profile supersedes historical Level1/no-fog trials below.
+// Current rationale and validation: design/village-biome.md.
 /**
  * Das Look-Profil — Tonemapping, Nachbearbeitung, Himmel, Schatten, Nebel
  * als EIN Datensatz, den Client und Server gleich lesen.
@@ -121,6 +123,11 @@ export interface LookGrading {
 
 export interface LookDof {
   an: boolean;
+  /** Far blur in metres; gaussianEnd = 0 selects the existing bokeh/autofocus path. */
+  gaussianStart: number;
+  gaussianEnd: number;
+  /** Maximum radius at 1080p. */
+  gaussianRadius: number;
   /**
    * Fokusentfernung in METERN (URP `focusDistance`).
    *
@@ -588,7 +595,7 @@ export const LOOK_VORGABE: LookProfil = {
     `WoV_Original_Atlas` sichtbar sind.
   */
   saettigung: 0.65,
-  nebelmodus: 'linear',
+  nebelmodus: 'exp2',
   /*
     ── Nebelstart 15 → 50 m ───────────────────────────────────────────
     Bei 15 m liegt schon ueber dem Nahbereich Dunst; im Bild ist das der
@@ -624,8 +631,8 @@ export const LOOK_VORGABE: LookProfil = {
     liegt. Rueckweg zu den gemessenen Werten oben: nebelStart 50,
     nebelEnde 800.
   */
-  nebelStart: 4000,
-  nebelEnde: 20000,
+  nebelStart: 0,
+  nebelEnde: 300,
   nebelWaerme: 0,
   // Die Dorf-Zeile der Entscheidung E1, roh (0,9800831 / 0,92229587 /
   // 1,0) mit Offset −0,044477392, in Hex gerundet (Rundungsfehler
@@ -647,10 +654,10 @@ export const LOOK_VORGABE: LookProfil = {
     lichterStart: 0.55,
     lichterEnde: 1.0,
   },
-  bloom: { an: true, schwelle: 0.35, staerke: 0.55, skala: 0.5, kernel: 32 },
+  bloom: { an: true, schwelle: 1.0, staerke: 2.0, skala: 0.5, kernel: 32 },
   vignette: { an: true, staerke: 0.686, farbe: '#0d0a08' },
   ca: { an: true, staerke: 3.0 },
-  dof: { an: true, fokus: 2.0, blende: 6.0, brennweite: 47 },
+  dof: { an: true, fokus: 2.0, blende: 6.0, brennweite: 47, gaussianStart: 30, gaussianEnd: 50, gaussianRadius: 0.5 },
   strahlen: {
     an: true,
     ankerAbstand: 1400,
@@ -661,7 +668,7 @@ export const LOOK_VORGABE: LookProfil = {
     gewicht: 0.5,
     dichte: 0.94,
   },
-  himmel: { zenit: '#6B8798', horizont: '#8D9598', 'sonnenglühen': 0.2, ...LOOK_HIMMEL_PLUS_VORGABE },
+  himmel: { zenit: '#6B8798', horizont: 'nebel', 'sonnenglühen': 0.2, ...LOOK_HIMMEL_PLUS_VORGABE },
   // `kaskaden: 2` ist kein Geschmack, sondern der Deckel, den Babylons
   // `CascadedShadowGenerator` ohnehin zieht (`MIN_CASCADES_COUNT`); eine 1
   // hier waere nur eine falsche Auskunft. `dunkelheit` ist Babylons
@@ -669,7 +676,7 @@ export const LOOK_VORGABE: LookProfil = {
   // Schlagschatten als Form lesbar werden. Die Gesamthelligkeit trug
   // dazu bis zur Runde 2 `kontrast 0,84`; seit dessen Rueckbau auf 1,0
   // steht sie allein an `belichtung` und an den Materialfarben.
-  schatten: { aufloesung: 1024, reichweite: 50, kaskaden: 2, dunkelheit: 0.2, rasten: true },
+  schatten: { aufloesung: 1024, reichweite: 50, kaskaden: 2, dunkelheit: 0.13, rasten: true },
 };
 
 // ── Nebelkurve ───────────────────────────────────────────────────────
@@ -761,6 +768,9 @@ const BEREICHE: ReadonlyMap<string, readonly [number, number]> = new Map([
   ['look.grading.schattenEnde', [0, 2]],
   ['look.grading.lichterStart', [0, 2]],
   ['look.grading.lichterEnde', [0, 2]],
+  ['look.dof.gaussianStart', [0, 1000]],
+  ['look.dof.gaussianEnd', [0, 2000]],
+  ['look.dof.gaussianRadius', [0, 8]],
   ['look.dof.fokus', [0.1, 2000]],
   ['look.dof.blende', [0.5, 64]],
   ['look.dof.brennweite', [1, 600]],
@@ -845,6 +855,12 @@ export function pruefeLook(roh: unknown, pfad = 'look'): LookFehler[] {
     const nm = (roh as Record<string, unknown>).nebelmodus;
     if (typeof nm === 'string' && !['exp', 'exp2', 'linear'].includes(nm)) {
       fehler.push({ pfad: 'look.nebelmodus', grund: `erwartet exp|exp2|linear, bekam "${nm}"` });
+    }
+  }
+  if (pfad === 'look.dof') {
+    const dof = { ...LOOK_VORGABE.dof, ...roh as object };
+    if (dof.gaussianEnd !== 0 && dof.gaussianEnd <= dof.gaussianStart) {
+      fehler.push({ pfad: 'look.dof.gaussianEnd', grund: 'must exceed gaussianStart, or be 0 to select bokeh' });
     }
   }
   return fehler;

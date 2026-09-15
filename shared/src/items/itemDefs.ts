@@ -469,7 +469,17 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
  * ItemData.ts). Ein Sprite gibt es noch nicht — `itemVisual()` zeigt dann
  * die ersten zwei Buchstaben der Beschriftung statt eines kaputten Bildes.
  */
+import { IRONWARD_PARTS } from '../ironward.js';
+import { WILDWARDEN_PARTS } from '../wildwarden.js';
+import { ASHENVEIL_PARTS } from '../ashenveil.js';
+import { SEIDRAVEN_PARTS } from '../seidraven.js';
+import { EMBERRAGE_PARTS } from '../emberrage.js';
 const KLEIDUNG: ItemShared[] = [
+  ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS, ...ASHENVEIL_PARTS, ...SEIDRAVEN_PARTS, ...EMBERRAGE_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
+    icon: p.id, model: null, maxStackSize: 1, weight: p.weight, toolTier: 0,
+    ausruestung: p.equipment, ruestungsteil: p.id, hideAppearance: p.hideAppearance,
+    ...('vfxProfile' in p ? { vfxProfile: p.vfxProfile } : {}),
+    bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile, figure: p.figure })),
   {
     name: 'LederBH',
     label: 'Leder-Oberteil',
@@ -481,6 +491,7 @@ const KLEIDUNG: ItemShared[] = [
     toolTier: 0,
     ausruestung: 'hemd',
     ruestungsteil: 'leder_bh',
+    bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin',
   },
   {
     name: 'LederShorts',
@@ -493,6 +504,7 @@ const KLEIDUNG: ItemShared[] = [
     toolTier: 0,
     ausruestung: 'hose',
     ruestungsteil: 'leder_shorts',
+    bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin',
   },
 ];
 

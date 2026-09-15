@@ -764,6 +764,9 @@ echo "▶ Store aufbereiten"
 npm run store:aufbereiten
 npm run store:boden
 
+# Der ausgelieferte Set-Katalog muss vor den Konsistenztests zum Code passen.
+node_modules/.bin/tsx tools/equipment-sets-json.mjs
+
 # ── 6. Das Tor ───────────────────────────────────────────────────────
 # NACKT, ohne Pipe, ohne "| tail -1", ohne "|| true". Der Exit-Code einer
 # Pipeline ist der des letzten Glieds; "npm run typecheck 2>&1 | tail -1"

@@ -4,6 +4,8 @@
   import { invalidateAll } from '$app/navigation';
   import { datumZeit } from '$lib/formate';
   import { localeFrom, messages } from '$lib/i18n';
+  import ForumReaktionen from '$lib/ForumReaktionen.svelte';
+  import type { ReactionCount } from '@wov/shared';
   import {
     bearbeiteBeitrag,
     eigenesKonto,
@@ -22,6 +24,7 @@
   */
   interface Beitrag {
     id: number;
+    threadId: number;
     authorName: string;
     authorCharacterId: number | null;
     bodyMd: string;
@@ -29,6 +32,7 @@
     createdAt: number;
     editedAt: number | null;
     deletedAt: number | null;
+    reactions: readonly ReactionCount[];
   }
 
   let { post }: { post: Beitrag } = $props();
@@ -137,6 +141,7 @@
   {/if}
 
   {#if !post.deletedAt && !bearbeiten}
+    <ForumReaktionen postId={post.id} threadId={post.threadId} reactions={post.reactions} {angemeldet} />
     <div class="werkzeuge">
       {#if meiner}
         <button type="button" class="werkzeug" onclick={oeffneBearbeiten}>{t['thing.write.edit']}</button>

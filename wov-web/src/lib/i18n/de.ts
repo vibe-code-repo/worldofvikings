@@ -396,6 +396,12 @@ export const de = {
   'thing.write.error.too-fast': 'Zu schnell — bitte einen Moment warten.',
   'thing.write.error.locked': 'Dieses Thema ist gesperrt.',
   'thing.write.error.net': 'Verbindung fehlgeschlagen.',
+  'thing.write.error.deleted': 'Der Beitrag ist entfernt.',
+  'thing.write.error.reaction-invalid': 'Unbekannte Reaktion.',
+  /* Die drei Reaktionen (shared/forum/types.ts: REACTION_KINDS). */
+  'thing.reactions.hail': 'Beifall',
+  'thing.reactions.laugh': 'Gelächter',
+  'thing.reactions.mourn': 'Klage',
   /* Forum M5: melden und moderieren. */
   'thing.mod.report': 'Melden',
   'thing.mod.report_prompt': 'Grund der Meldung (optional):',

@@ -36,6 +36,7 @@ import {
   THREAD_TITLE_MAX,
   THREAD_TITLE_MIN,
   isBoardSlug,
+  isReactionKind,
   type ThreadPage,
   type ThreadView,
 } from '@wov/shared';
@@ -51,10 +52,13 @@ const PRAEFIX = '/forum';
 const MAX_KOERPER_BYTES = 64 * 1024;
 
 /** Drossel: je Konto und Art hoechstens `max` in `fenster` Millisekunden. */
-const DROSSEL: Record<'thread' | 'post' | 'report', { max: number; fenster: number }> = {
+const DROSSEL: Record<'thread' | 'post' | 'report' | 'reaction', { max: number; fenster: number }> = {
   thread: { max: 3, fenster: 5 * 60_000 },
   post: { max: 5, fenster: 30_000 },
   report: { max: 5, fenster: 10 * 60_000 },
+  // Reaktionen sind billig und werden gern mehrfach geklickt; die Grenze
+  // ist nur ein Schutz gegen Schleifen, kein Gespraechstakt.
+  reaction: { max: 30, fenster: 30_000 },
 };
 
 /** Konto-Id aus der Anfrage, oder null. Wird von KontoApi gestellt. */
@@ -127,7 +131,7 @@ export class ForumApi {
     }
 
     const thema = /^\/forum\/threads\/(\d+)$/.exec(pfad);
-    if (m === 'GET' && thema) return this.thread(res, Number(thema[1]), seiteAus(url));
+    if (m === 'GET' && thema) return this.thread(req, res, Number(thema[1]), seiteAus(url));
 
     const antwort = /^\/forum\/threads\/(\d+)\/posts$/.exec(pfad);
     if (m === 'POST' && antwort) return this.neuerBeitrag(req, res, Number(antwort[1]));
@@ -135,6 +139,12 @@ export class ForumApi {
     const post = /^\/forum\/posts\/(\d+)$/.exec(pfad);
     if (m === 'PATCH' && post) return this.bearbeiteBeitrag(req, res, Number(post[1]));
     if (m === 'DELETE' && post) return this.loescheBeitrag(req, res, Number(post[1]));
+
+    const reaktion = /^\/forum\/posts\/(\d+)\/reactions$/.exec(pfad);
+    if (m === 'POST' && reaktion) return this.reaktion(req, res, Number(reaktion[1]));
+
+    const themaReaktionen = /^\/forum\/threads\/(\d+)\/reactions$/.exec(pfad);
+    if (m === 'GET' && themaReaktionen) return this.themaReaktionen(req, res, Number(themaReaktionen[1]));
 
     const meldung = /^\/forum\/posts\/(\d+)\/report$/.exec(pfad);
     if (m === 'POST' && meldung) return this.melden(req, res, Number(meldung[1]));
@@ -171,12 +181,14 @@ export class ForumApi {
     this.json(res, 200, antwort);
   }
 
-  private thread(res: ServerResponse, id: number, page: number): void {
+  private thread(req: IncomingMessage, res: ServerResponse, id: number, page: number): void {
     const thread = this.db.threadById(id);
     if (!thread) return this.json(res, 404, { error: 'unknown-thread' });
     const gesamt = this.db.countPosts(id);
     const { page: p, pageCount, offset } = blaettern(gesamt, page);
-    const posts = this.db.listPosts(id, FORUM_PAGE_SIZE, offset);
+    // Das Kontotoken ist hier FREIWILLIG: Es entscheidet nur, ob die eigene
+    // Reaktion als `me` mitkommt. Ohne Anmeldung bleibt das Lesen offen.
+    const posts = this.db.listPosts(id, FORUM_PAGE_SIZE, offset, this.kontoIdAus(req));
     const antwort: ThreadView = { thread, posts, page: p, pageCount };
     this.json(res, 200, antwort);
   }
@@ -284,6 +296,49 @@ export class ForumApi {
     this.json(res, 403, { error: 'not-yours' });
   }
 
+  // ── Reaktionen ──────────────────────────────────────────────────────
+
+  /**
+   * Eine Reaktion setzen oder zuruecknehmen. Angemeldet noetig, ein
+   * geloeschter Beitrag nimmt keine Reaktionen mehr an (er ist nur noch
+   * ein Platzhalter). Die Art kommt aus der festen Liste — ein unbekannter
+   * Wert ist ein 400, kein stiller Fremdeintrag.
+   */
+  private async reaktion(req: IncomingMessage, res: ServerResponse, postId: number): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+
+    const eigen = this.db.postOwnership(postId);
+    if (!eigen) return this.json(res, 404, { error: 'unknown-post' });
+    if (eigen.deletedAt !== null) return this.json(res, 409, { error: 'deleted' });
+
+    const k = await this.koerper(req).catch(() => null);
+    const kind = k ? String(k.kind ?? '') : '';
+    if (!isReactionKind(kind)) return this.json(res, 400, { error: 'reaction-invalid' });
+
+    if (!this.erlaubt(kontoId, 'reaction')) return this.json(res, 429, { error: 'too-fast' });
+
+    const r = this.db.reactionToggle(postId, kontoId, kind);
+    this.json(res, 200, r);
+  }
+
+  /**
+   * Alle Reaktionen eines Themas in EINER Antwort. Das gibt es, weil die
+   * serverseitig gebaute Seite die EIGENE Reaktion nicht kennen kann: Das
+   * Kontotoken liegt im Browser (`localStorage`), nicht in einem Cookie.
+   * Die Seite rendert deshalb die Zahlen, und der angemeldete Browser holt
+   * sich einmal je Thema den Stand mit `me` nach.
+   */
+  private themaReaktionen(req: IncomingMessage, res: ServerResponse, threadId: number): void {
+    if (!this.db.threadById(threadId)) return this.json(res, 404, { error: 'unknown-thread' });
+    const karte = this.db.reaktionenVonThema(threadId, this.kontoIdAus(req));
+    const reactions: Array<{ postId: number; kind: string; count: number; me: boolean }> = [];
+    for (const [postId, liste] of karte) {
+      for (const r of liste) reactions.push({ postId, kind: r.kind, count: r.count, me: r.me });
+    }
+    this.json(res, 200, { reactions });
+  }
+
   // ── Melden und Moderation ───────────────────────────────────────────
 
   /**
@@ -373,7 +428,7 @@ export class ForumApi {
   }
 
   /** Zeitfenster-Drossel je Konto und Art. */
-  private erlaubt(kontoId: number, art: 'thread' | 'post' | 'report', now = Date.now()): boolean {
+  private erlaubt(kontoId: number, art: 'thread' | 'post' | 'report' | 'reaction', now = Date.now()): boolean {
     const { max, fenster } = DROSSEL[art];
     const key = `${art}:${kontoId}`;
     const liste = (this.zeiten.get(key) ?? []).filter((t) => now - t < fenster);

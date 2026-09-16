@@ -20,6 +20,8 @@
  * keeps "not found" and "game server down" apart.
  */
 
+import type { ReactionCount } from '@wov/shared';
+
 const GAME_API = process.env.WOV_GAME_API ?? 'http://127.0.0.1:2467';
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -53,6 +55,7 @@ export interface PostRow {
   createdAt: number;
   editedAt: number | null;
   deletedAt: number | null;
+  reactions: readonly ReactionCount[];
 }
 
 export interface ThreadPage {

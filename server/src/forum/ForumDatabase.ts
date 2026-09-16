@@ -39,6 +39,8 @@ import {
   type BoardOverview,
   type BoardSlug,
   type PostView,
+  type ReactionCount,
+  type ReactionKind,
   type ThreadSummary,
 } from '@wov/shared';
 
@@ -121,6 +123,22 @@ export class ForumDatabase {
         resolved_by_name   TEXT
       );
       CREATE INDEX IF NOT EXISTS reports_offen ON reports(resolved_at, created_at);
+      /*
+        Reaktionen: je Konto, Beitrag und Art hoechstens EINE Stimme. Der
+        Primaerschluessel ist die Regel selbst — ein zweites „Beifall" ist
+        damit kein Zaehlfehler, sondern ein Konflikt, den die Toggle-Logik
+        als „schon da" liest. Die Konto-Id ist bewusst NICHT der Charakter:
+        Wer reagiert, ist die Person hinter dem Konto; mehrere Charaktere
+        sollen nicht mehrfach stimmen koennen.
+      */
+      CREATE TABLE IF NOT EXISTS reactions (
+        post_id    INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        konto_id   INTEGER NOT NULL,
+        kind       TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (post_id, konto_id, kind)
+      );
+      CREATE INDEX IF NOT EXISTS reactions_nach_post ON reactions(post_id, kind);
     `);
   }
 
@@ -261,11 +279,16 @@ export class ForumDatabase {
   }
 
   /** Beitraege eines Themas in Schreibreihenfolge (geloeschte als Platzhalter). */
-  listPosts(threadId: number, limit: number, offset: number): PostView[] {
+  listPosts(threadId: number, limit: number, offset: number, kontoId: number | null = null): PostView[] {
     const zeilen = this.db
       .prepare('SELECT * FROM posts WHERE thread_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?')
       .all(threadId, limit, offset) as Record<string, unknown>[];
-    return zeilen.map((z) => this.zuPost(z));
+    const posts = zeilen.map((z) => this.zuPost(z));
+    // Reaktionen in EINER Abfrage fuer die ganze Seite, nicht je Beitrag.
+    // `kontoId` ist optional: Ohne Anmeldung bleiben alle `me` falsch, die
+    // Zaehlung stimmt trotzdem — Lesen ist oeffentlich.
+    const karte = this.reaktionenFuer(posts.map((p) => p.id), kontoId);
+    return posts.map((p) => ({ ...p, reactions: karte.get(p.id) ?? [] }));
   }
 
   /**
@@ -426,6 +449,72 @@ export class ForumDatabase {
     }
   }
 
+  // ── Reaktionen ──────────────────────────────────────────────────────
+
+  /**
+   * Setzt oder nimmt EINE Reaktion zurueck — ein Toggle, kein Zaehler.
+   * Liefert den neuen Stand fuer genau diese Art, damit die Oberflaeche
+   * nicht raten muss.
+   */
+  reactionToggle(
+    postId: number,
+    kontoId: number,
+    kind: ReactionKind,
+    now = Date.now(),
+  ): { count: number; me: boolean } {
+    const vorhanden = this.db
+      .prepare('SELECT 1 FROM reactions WHERE post_id = ? AND konto_id = ? AND kind = ?')
+      .get(postId, kontoId, kind) !== undefined;
+    if (vorhanden) {
+      this.db
+        .prepare('DELETE FROM reactions WHERE post_id = ? AND konto_id = ? AND kind = ?')
+        .run(postId, kontoId, kind);
+    } else {
+      this.db
+        .prepare('INSERT INTO reactions (post_id, konto_id, kind, created_at) VALUES (?, ?, ?, ?)')
+        .run(postId, kontoId, kind, now);
+    }
+    const z = this.db
+      .prepare('SELECT COUNT(*) AS n FROM reactions WHERE post_id = ? AND kind = ?')
+      .get(postId, kind) as Record<string, unknown>;
+    return { count: Number(z.n), me: !vorhanden };
+  }
+
+  /** Reaktionen eines ganzen Themas, nach Beitrag gebuendelt. */
+  reaktionenVonThema(threadId: number, kontoId: number | null): Map<number, ReactionCount[]> {
+    const zeilen = this.db
+      .prepare('SELECT id FROM posts WHERE thread_id = ?')
+      .all(threadId) as Record<string, unknown>[];
+    return this.reaktionenFuer(zeilen.map((z) => Number(z.id)), kontoId);
+  }
+
+  /** Reaktionen mehrerer Beitraege, nach Beitrag gebuendelt. */
+  private reaktionenFuer(ids: readonly number[], kontoId: number | null): Map<number, ReactionCount[]> {
+    const karte = new Map<number, ReactionCount[]>();
+    if (ids.length === 0) return karte;
+    const platzhalter = ids.map(() => '?').join(', ');
+    // `MAX(...)` in einem Durchgang: dieselbe Abfrage sagt Zahl UND ob die
+    // Anfrage dabei ist. `-1` als Konto kann nie vorkommen (Ids sind > 0).
+    const zeilen = this.db
+      .prepare(`SELECT post_id, kind, COUNT(*) AS n,
+          MAX(CASE WHEN konto_id = ? THEN 1 ELSE 0 END) AS me
+        FROM reactions WHERE post_id IN (${platzhalter})
+        GROUP BY post_id, kind
+        ORDER BY post_id, kind`)
+      .all(kontoId ?? -1, ...ids) as Record<string, unknown>[];
+    for (const z of zeilen) {
+      const postId = Number(z.post_id);
+      const liste = karte.get(postId) ?? [];
+      liste.push({
+        kind: String(z.kind) as ReactionKind,
+        count: Number(z.n),
+        me: Number(z.me) !== 0,
+      });
+      karte.set(postId, liste);
+    }
+    return karte;
+  }
+
   schliessen(): void {
     this.db.close();
   }
@@ -465,6 +554,8 @@ export class ForumDatabase {
       createdAt: Number(z.created_at),
       editedAt: z.edited_at === null || z.edited_at === undefined ? null : Number(z.edited_at),
       deletedAt: z.deleted_at === null || z.deleted_at === undefined ? null : Number(z.deleted_at),
+      // Leer als Grundzustand; `listPosts` fuellt die echten Zahlen.
+      reactions: [],
     };
   }
 }

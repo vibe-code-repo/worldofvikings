@@ -56,6 +56,35 @@ export const POST_BODY_MAX = 20000;
 /** Eintraege je Seite. Eine Zahl fuer Themenlisten und Beitragslisten. */
 export const FORUM_PAGE_SIZE = 20;
 
+/**
+ * Die Reaktionen auf einen Beitrag — eine kleine FESTE Liste. Sie steht
+ * hier und nicht in der Datenbank, weil sie ein Vertrag zwischen beiden
+ * Seiten ist: Der Server lehnt unbekannte Arten ab, die Oberflaeche
+ * beschriftet genau diese drei. Ein neuer Wert ist damit eine bewusste
+ * Aenderung an einer Stelle, kein Datenbankinhalt, der irgendwann
+ * unuebersetzt auf einer Seite auftaucht.
+ *
+ * Die Beschriftungen stehen in der Sprachdatei unter
+ * `thing.reactions.<kind>` — Text gehoert in die Uebersetzung, nicht in
+ * den Vertrag.
+ */
+export const REACTION_KINDS = ['hail', 'laugh', 'mourn'] as const;
+
+export type ReactionKind = (typeof REACTION_KINDS)[number];
+
+/** True for one of the known reaction kinds. */
+export function isReactionKind(value: unknown): value is ReactionKind {
+  return typeof value === 'string' && (REACTION_KINDS as readonly string[]).includes(value);
+}
+
+/** Eine Reaktion samt Zahl und der Angabe, ob sie vom Fragenden stammt. */
+export interface ReactionCount {
+  readonly kind: ReactionKind;
+  readonly count: number;
+  /** True, wenn das Konto der Anfrage diese Reaktion gesetzt hat. */
+  readonly me: boolean;
+}
+
 /** Ein Brett samt den Zahlen, die die Uebersicht zeigt. */
 export interface BoardOverview {
   readonly slug: BoardSlug;
@@ -95,6 +124,13 @@ export interface PostView {
   readonly createdAt: number;
   readonly editedAt: number | null;
   readonly deletedAt: number | null;
+  /**
+   * Nur die Arten, die wirklich vorkommen; eine Art ohne Stimmen fehlt in
+   * der Liste (statt mit 0 dazustehen). `me` ist nur dann wahr, wenn die
+   * Anfrage angemeldet war — die Anzeige braucht das fuer den eigenen
+   * Zustand, nicht fuer die Zaehlung.
+   */
+  readonly reactions: readonly ReactionCount[];
 }
 
 /** Eine Seite einer Themenliste. */

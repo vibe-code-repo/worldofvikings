@@ -195,6 +195,60 @@ async function main(): Promise<void> {
   const unbekannt = await frage(api, 'GET', '/forum/boards/gibt-es-nicht/threads');
   check('unbekanntes Brett ⇒ 404', unbekannt.res.status === 404);
 
+  // ── Reaktionen (M6) ────────────────────────────────────────────────
+  // Ein eigenes Thema, damit die Sperr-/Loeschfaelle unten es nicht beruehren.
+  angemeldet = 2;
+  const rt = await frage(api, 'POST', '/forum/boards/clans/threads',
+    { title: 'Reaktionen', body: 'Probe', characterId: 5 });
+  check('Reaktionsthema angelegt ⇒ 201', rt.res.status === 201);
+  const rThread = Number(json(rt.res).threadId);
+  const rPost = Number(json(rt.res).postId);
+
+  angemeldet = null;
+  check('Reaktion ohne Token ⇒ 401',
+    (await frage(api, 'POST', `/forum/posts/${rPost}/reactions`, { kind: 'hail' })).res.status === 401);
+
+  angemeldet = 1;
+  check('unbekannte Reaktion ⇒ 400',
+    (await frage(api, 'POST', `/forum/posts/${rPost}/reactions`, { kind: 'quatsch' })).res.status === 400);
+
+  const hail1 = json((await frage(api, 'POST', `/forum/posts/${rPost}/reactions`, { kind: 'hail' })).res);
+  check('Reaktion setzen ⇒ count 1, me true', hail1.count === 1 && hail1.me === true);
+
+  const mitMe = (json((await frage(api, 'GET', `/forum/threads/${rThread}`)).res)
+    .posts as Array<Record<string, unknown>>)[0]!;
+  check('eigene Reaktion kommt im Thema als me mit',
+    (mitMe.reactions as Array<Record<string, unknown>>)
+      .some((r) => r.kind === 'hail' && r.count === 1 && r.me === true));
+
+  angemeldet = 2;
+  const hail2 = json((await frage(api, 'POST', `/forum/posts/${rPost}/reactions`, { kind: 'hail' })).res);
+  check('zweites Konto zaehlt hoch ⇒ count 2', hail2.count === 2 && hail2.me === true);
+
+  angemeldet = null;
+  const gastSicht = (json((await frage(api, 'GET', `/forum/threads/${rThread}`)).res)
+    .posts as Array<Record<string, unknown>>)[0]!;
+  check('Gast sieht die Zahl, aber kein me',
+    (gastSicht.reactions as Array<Record<string, unknown>>)
+      .some((r) => r.kind === 'hail' && r.count === 2 && r.me === false));
+
+  angemeldet = 1;
+  const zurueck = json((await frage(api, 'POST', `/forum/posts/${rPost}/reactions`, { kind: 'hail' })).res);
+  check('nochmal klicken nimmt zurueck ⇒ count 1, me false',
+    zurueck.count === 1 && zurueck.me === false);
+
+  const themenStand = json((await frage(api, 'GET', `/forum/threads/${rThread}/reactions`)).res)
+    .reactions as Array<Record<string, unknown>>;
+  check('Themenstand bringt die Reaktion des Fragenden',
+    themenStand.some((r) => r.postId === rPost && r.kind === 'hail' && r.me === false && r.count === 1));
+
+  angemeldet = 2;
+  check('eigenen Beitrag entfernen ⇒ 200',
+    (await frage(api, 'DELETE', `/forum/posts/${rPost}`)).res.status === 200);
+  angemeldet = 1;
+  check('geloeschter Beitrag nimmt keine Reaktion mehr ⇒ 409',
+    (await frage(api, 'POST', `/forum/posts/${rPost}/reactions`, { kind: 'hail' })).res.status === 409);
+
   // ── Moderation (M5) ────────────────────────────────────────────────
   angemeldet = 1;
   moderator = false;

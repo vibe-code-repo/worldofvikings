@@ -367,6 +367,12 @@ export const en: Messages = {
   'thing.write.error.too-fast': 'Too fast — please wait a moment.',
   'thing.write.error.locked': 'This thread is locked.',
   'thing.write.error.net': 'Connection failed.',
+  'thing.write.error.deleted': 'The post is gone.',
+  'thing.write.error.reaction-invalid': 'Unknown reaction.',
+  /* The three reactions (shared/forum/types.ts: REACTION_KINDS). */
+  'thing.reactions.hail': 'Hail',
+  'thing.reactions.laugh': 'Laugh',
+  'thing.reactions.mourn': 'Mourn',
   /* Forum M5: reporting and moderating. */
   'thing.mod.report': 'Report',
   'thing.mod.report_prompt': 'Reason (optional):',

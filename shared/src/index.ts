@@ -14,6 +14,9 @@ export * from './constants.js';
 export * from './types.js';
 export * from './protocol.js';
 export * from './hash.js';
+// Das Thing (Forum): Typen, Brett-Slugs und Eingabegrenzen, die Server UND
+// SSR-Dienst teilen. Reine Typen/Konstanten, keine Nebenwirkung.
+export * from './forum/types.js';
 export * from './prefabs.js';
 // Der Asset-Speicher: Typen und Stellschrauben von Hand, die Daten
 // erzeugt (tools/store-prefabs.mjs).

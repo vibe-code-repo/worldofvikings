@@ -90,6 +90,20 @@ const KERN = [
   ['server/test', 'starter-sets.ts'],
   ['server/test', 'starter-sets-e2e.ts'],
   ['server/test', 'armor-body-variants.ts'],
+  /*
+    Das Thing (Forum), Stufe M1: die Datenschicht. Reine SQLite-Arbeit in
+    einer Wegwerfdatei, kein Netz, kein Server, kein assets/ — laeuft
+    deshalb im CI-Checkout wie auf wov-dev. Der Waechter haelt die Fragen
+    fest, auf die sich die API still verlaesst: sechs Bretter, mitgefuehrte
+    Zaehler, Reihenfolge „angeheftet zuerst, dann letzte Regung", Blaettern
+    ohne Verlust, Beitraege in Schreibreihenfolge.
+  */
+  ['server/test', 'forum-database.ts'],
+  /*
+    Das Thing, M1: die lesende API (Wege, Blaettern, 404 statt leerer
+    Liste). Fake-Request/Response, kein Netz — dieselbe Weiche wie oben.
+  */
+  ['server/test', 'forum-api.ts'],
   ['client/test', 'ironward.ts'],
   ['server/test', 'ironward.ts'],
   /*

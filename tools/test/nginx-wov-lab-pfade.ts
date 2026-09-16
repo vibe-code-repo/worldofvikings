@@ -38,6 +38,7 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
   { weg: '/api/*.json (statische Daten der Webseite)', muster: /location\s+~\s+\^\/api\/[^\n{]*\\\.json[^\n{]*\{/ },
   { weg: '/api/accounts/ (Konten-API des Spielservers)', muster: /location\s+\/api\/accounts\/\s*\{/ },
+  { weg: '/api/forum/ (Das Thing, Foren-API des Spielservers)', muster: /location\s+\/api\/forum\/\s*\{/ },
   { weg: '/accounts/ (Konten-API, bare, fuer den eingebauten Anmeldedialog)', muster: /location\s+\/accounts\/\s*\{/ },
   { weg: '/api/ (Betriebsdienst)', muster: /location\s+\/api\/\s*\{/ },
   { weg: '/assets/ (Webseite: Schriften/Bilder, VOR den Spiel-Assets)', muster: /location\s+\/assets\/\s*\{[^}]*wov-web\/build\/assets\/[^}]*\}/ },

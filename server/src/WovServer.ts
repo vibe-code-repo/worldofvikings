@@ -8,7 +8,7 @@
  * and whitelist sets.
  */
 
-import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory } from '@wov/shared';
+import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import {
   EVENT_CHANCE,
@@ -108,6 +108,8 @@ import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Kontendatenbank, type BannArt } from './konto/Kontendatenbank.js';
 import { KontoApi } from './konto/KontoApi.js';
+import { ForumDatabase } from './forum/ForumDatabase.js';
+import { ForumApi } from './forum/ForumApi.js';
 import {
   ADMINKONTO_PASSWORT_ENV,
   standardKontoSicherstellen,
@@ -222,6 +224,19 @@ export interface ServerConfig {
    */
   kontenDir: string;
   /**
+   * Ordner der Forendatenbank (`<forumDir>/<worldName>.db`). Eigene Datei
+   * je Gestade und bewusst NICHT in `kontenDir`: Foren- und Kontendaten
+   * wachsen unabhaengig, und ein Forum darf neu aufgebaut werden, ohne ein
+   * Passwort zu beruehren. Ein Test, der `worldsDir`/`kontenDir` umbiegt,
+   * muss `forumDir` genauso mitgeben — sonst schreibt er in den echten
+   * Ordner (dieselbe Falle wie bei `kontenDir`, s. dort).
+   *
+   * Why a field of its own instead of deriving it from kontenDir via '..':
+   * same reason kontenDir is not derived from worldsDir. A test that
+   * redirects its data dirs must redirect this one too, loudly.
+   */
+  forumDir: string;
+  /**
    * G12: Pfad, unter dem einmal je Sekunde ein Betriebsmetriken-
    * Schnappschuss abgelegt wird (der Betriebsdienst admin/ liest ihn,
    * s. dessen GET /metriken). OPTIONAL und standardmaessig UNGESETZT:
@@ -328,6 +343,9 @@ const DEFAULT_CONFIG: ServerConfig = {
   // (server/data/worlds and server/data/konten under server/data) --
   // see ServerConfig.kontenDir for why this is no longer derived via '..'.
   kontenDir: resolve(process.cwd(), 'data', 'konten'),
+  // Sibling of kontenDir, matching the production layout (server/data/forum
+  // next to server/data/konten) -- own field for the same reason.
+  forumDir: resolve(process.cwd(), 'data', 'forum'),
 };
 
 export class WovServer {
@@ -342,6 +360,8 @@ export class WovServer {
   readonly net: NetManager;
   /** Konten und Charaktere. Eigene Datei je Instanz, wie die Welt. */
   private readonly kontenDb: Kontendatenbank;
+  /** Das Thing: Forendaten. Eigene Datei je Instanz, getrennt von den Konten. */
+  private readonly forumDb: ForumDatabase;
   /** Extensible admin command concept (fly, later teleport/god/...). */
   readonly adminCommands: AdminCommandRegistry;
   /** F5: gesetzte Fortschrittsmarken (GlobalKey) — s. WeltMarken.ts Kopfkommentar. */
@@ -635,6 +655,11 @@ export class WovServer {
     this.kontenDb = new Kontendatenbank(
       resolve(this.config.kontenDir, `${this.config.worldName}.db`),
     );
+    // Das Thing. Eigene Datei je Gestade (s. ForumDatabase.ts); die sechs
+    // Bretter legt der Konstruktor idempotent aus BOARD_SLUGS an.
+    this.forumDb = new ForumDatabase(
+      resolve(this.config.forumDir, `${this.config.worldName}.db`),
+    );
     // Ausprobieren ohne Registrierung (server.yml `standard-konto:`).
     // Direkt hier, wo die Kontendatenbank geoeffnet wird -- Begruendung
     // (Idempotenz, Passwort-Handling, warum kein AdminListe-Zugriff) in
@@ -712,9 +737,14 @@ export class WovServer {
       */
     }), standardKonten.filter((k) => !k.admin).map((k) => k.name));
 
+    // Das Thing haengt am SELBEN Port wie die Konten: erst die Konten,
+    // dann das Forum. `behandle` gibt `false` zurueck, wenn der Pfad nicht
+    // ihm gehoert — so bleibt die 426-Gesundheitspruefung fuer alles andere.
+    const forumApi = new ForumApi(this.forumDb);
+
     this.net = new NetManager({
       port: this.config.port,
-      httpBehandler: (req, res) => kontoApi.behandle(req, res),
+      httpBehandler: (req, res) => kontoApi.behandle(req, res) || forumApi.behandle(req, res),
       password: this.config.password,
       serverName: this.config.name,
       maxPlayers: this.config.maxPlayers,

@@ -512,6 +512,9 @@ export function leseServerKonfig(
       // wie vor der Aufspaltung von WovServer.ServerConfig.kontenDir, nur
       // jetzt als eigenes Feld statt aus worldsDir per '..' abgeleitet.
       kontenDir: resolve(datenVerzeichnis, 'konten'),
+      // Das Thing — eigene Datei je Gestade, Geschwister von konten/
+      // (Begruendung in ServerConfig.forumDir).
+      forumDir: resolve(datenVerzeichnis, 'forum'),
       // G12: Betriebsmetriken-Schnappschuss fuer den Betriebsdienst
       // (admin/, GET /metriken). Nur der echte Serverstart setzt ihn --
       // Tests, die createWovServer() direkt rufen, bleiben ohne Pfad und

@@ -422,6 +422,18 @@ export class KontoApi {
     return `${b64}.${sig}`;
   }
 
+  /**
+   * Konto-Id aus dem Token dieser Anfrage, oder null — fuer den FORUM-Dienst.
+   *
+   * Eine duenne, oeffentliche Huelle um `kontoAus`: Der Token-Aufbau bleibt
+   * genau hier (eine Quelle), das Forum fragt nur. So gibt es keinen
+   * zweiten Ort, an dem die Signaturpruefung nachgebaut und irgendwann
+   * falsch nachgebaut werden koennte.
+   */
+  kontoIdAus(req: IncomingMessage): number | null {
+    return this.kontoAus(req);
+  }
+
   /** Account id from the Authorization header, or null. */
   private kontoAus(req: IncomingMessage): number | null {
     // X-WoV-Account zuerst: Authorization wird vom Proxy vor dev geleert.

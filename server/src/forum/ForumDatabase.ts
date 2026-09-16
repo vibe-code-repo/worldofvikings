@@ -245,6 +245,75 @@ export class ForumDatabase {
     return zeilen.map((z) => this.zuPost(z));
   }
 
+  /**
+   * Eigentum und Zustand eines Beitrags — fuer Bearbeiten und Loeschen.
+   *
+   * Bewusst getrennt von `listPosts`: Die Anzeige braucht den Autor-NAMEN,
+   * die Rechtepruefung die Autor-KONTO-ID. Letztere gehoert nicht in die
+   * oeffentliche Antwort, deshalb steht sie in keinem `PostView`.
+   */
+  postOwnership(id: number): {
+    id: number;
+    threadId: number;
+    authorKontoId: number | null;
+    deletedAt: number | null;
+  } | null {
+    const z = this.db
+      .prepare('SELECT id, thread_id, author_konto_id, deleted_at FROM posts WHERE id = ?')
+      .get(id) as Record<string, unknown> | undefined;
+    if (!z) return null;
+    return {
+      id: Number(z.id),
+      threadId: Number(z.thread_id),
+      authorKontoId: z.author_konto_id === null || z.author_konto_id === undefined
+        ? null
+        : Number(z.author_konto_id),
+      deletedAt: z.deleted_at === null || z.deleted_at === undefined ? null : Number(z.deleted_at),
+    };
+  }
+
+  /**
+   * Bearbeitet einen EIGENEN, nicht geloeschten Beitrag. false, wenn es
+   * ihn nicht gibt, er jemand anderem gehoert oder schon entfernt ist.
+   * Die Pruefung sitzt in der WHERE-Klausel, nicht davor — so gibt es
+   * keinen Weg, an dem ein fremder Beitrag getroffen werden koennte.
+   */
+  editPost(postId: number, kontoId: number, body: string, editorName: string, now = Date.now()): boolean {
+    const r = this.db
+      .prepare(`UPDATE posts SET body_md = ?, edited_at = ?, edited_by_name = ?
+        WHERE id = ? AND author_konto_id = ? AND deleted_at IS NULL`)
+      .run(body, now, editorName, postId, kontoId);
+    return Number(r.changes) > 0;
+  }
+
+  /**
+   * Entfernt einen EIGENEN Beitrag als Platzhalter (Soft-Delete) und zieht
+   * die Beitragszahl des Themas nach. Der Text bleibt in der Zeile stehen
+   * (Chronik, Nachvollziehbarkeit), nur `deleted_at` wird gesetzt; die
+   * Anzeige ersetzt ihn durch „Dieser Beitrag wurde entfernt."
+   */
+  softDeletePost(postId: number, kontoId: number, now = Date.now()): boolean {
+    this.db.exec('BEGIN');
+    try {
+      const r = this.db
+        .prepare(`UPDATE posts SET deleted_at = ? WHERE id = ? AND author_konto_id = ? AND deleted_at IS NULL`)
+        .run(now, postId, kontoId);
+      if (Number(r.changes) > 0) {
+        // max(0, …): Ein geloeschter Eroeffnungsbeitrag darf die Zahl nicht
+        // unter null druecken.
+        this.db
+          .prepare(`UPDATE threads SET post_count = max(0, post_count - 1)
+            WHERE id = (SELECT thread_id FROM posts WHERE id = ?)`)
+          .run(postId);
+      }
+      this.db.exec('COMMIT');
+      return Number(r.changes) > 0;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
   schliessen(): void {
     this.db.close();
   }

@@ -740,7 +740,19 @@ export class WovServer {
     // Das Thing haengt am SELBEN Port wie die Konten: erst die Konten,
     // dann das Forum. `behandle` gibt `false` zurueck, wenn der Pfad nicht
     // ihm gehoert — so bleibt die 426-Gesundheitspruefung fuer alles andere.
-    const forumApi = new ForumApi(this.forumDb);
+    //
+    // Schreiben prueft dasselbe Kontotoken wie die Konten-API
+    // (`kontoApi.kontoIdAus`) und loest den genannten Charakter ueber die
+    // Kontendatenbank auf — ein Client kann sich keinen fremden Namen und
+    // keinen fremden Charakter aneignen.
+    const forumApi = new ForumApi(
+      this.forumDb,
+      (req) => kontoApi.kontoIdAus(req),
+      (kontoId, charakterId) => {
+        const c = this.kontenDb.charakterVonKonto(kontoId, charakterId);
+        return c ? { id: c.id, name: c.name } : null;
+      },
+    );
 
     this.net = new NetManager({
       port: this.config.port,

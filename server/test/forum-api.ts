@@ -44,6 +44,8 @@ interface FakeAntwort {
 
 /** Konto-Id, die die Anfrage „traegt"; null = nicht angemeldet. */
 let angemeldet: number | null = null;
+/** Ist das angemeldete Konto Moderator? */
+let moderator = false;
 
 /** Zwei Konten mit je einem Charakter: 1→3 „Runa", 2→5 „Bjorn". */
 const NAMEN: Record<string, string> = { '1:3': 'Runa', '2:5': 'Bjorn' };
@@ -56,6 +58,7 @@ function fakeApi(db: ForumDatabase): ForumApi {
       const name = NAMEN[`${kontoId}:${charakterId}`];
       return name ? { id: charakterId, name } : null;
     },
+    () => moderator,
   );
 }
 
@@ -191,6 +194,51 @@ async function main(): Promise<void> {
   check('Seite 999 wird geklemmt, nicht 404', seiteWeit.res.status === 200);
   const unbekannt = await frage(api, 'GET', '/forum/boards/gibt-es-nicht/threads');
   check('unbekanntes Brett ⇒ 404', unbekannt.res.status === 404);
+
+  // ── Moderation (M5) ────────────────────────────────────────────────
+  angemeldet = 1;
+  moderator = false;
+  check('GET /forum/moderator ⇒ false fuer Nicht-Moderator',
+    (json((await frage(api, 'GET', '/forum/moderator')).res).moderator) === false);
+  check('GET /forum/reports ohne Moderator ⇒ 403',
+    (await frage(api, 'GET', '/forum/reports')).res.status === 403);
+  check('Anheften ohne Moderator ⇒ 403',
+    (await frage(api, 'POST', `/forum/threads/${threadId}/pin`, { value: true })).res.status === 403);
+
+  const gemeldet = await frage(api, 'POST', `/forum/posts/${zweiterPost}/report`, { reason: 'Beleidigung' });
+  check('Beitrag melden ⇒ 201', gemeldet.res.status === 201);
+
+  moderator = true;
+  check('GET /forum/moderator ⇒ true fuer Moderator',
+    (json((await frage(api, 'GET', '/forum/moderator')).res).moderator) === true);
+
+  const meldungen = json((await frage(api, 'GET', '/forum/reports')).res).reports as Array<Record<string, unknown>>;
+  check('offene Meldung erscheint mit Autor und Grund',
+    Array.isArray(meldungen) && meldungen.length === 1
+      && meldungen[0]!.authorName === 'Bjorn' && meldungen[0]!.grund === 'Beleidigung');
+  check('Meldung erledigen ⇒ 200',
+    (await frage(api, 'POST', `/forum/reports/${meldungen[0]!.id}/resolve`)).res.status === 200);
+  check('erledigte Meldung faellt aus der Liste',
+    (json((await frage(api, 'GET', '/forum/reports')).res).reports as unknown[]).length === 0);
+
+  check('Moderator heftet an ⇒ 200',
+    (await frage(api, 'POST', `/forum/threads/${threadId}/pin`, { value: true })).res.status === 200);
+  const nachPin = json((await frage(api, 'GET', `/forum/threads/${threadId}`)).res).thread as { pinned?: boolean };
+  check('Thema ist angeheftet', nachPin?.pinned === true);
+
+  check('Moderator sperrt ⇒ 200',
+    (await frage(api, 'POST', `/forum/threads/${threadId}/lock`, { value: true })).res.status === 200);
+  angemeldet = 1;
+  check('Antwort auf gesperrtes Thema ⇒ 409',
+    (await frage(api, 'POST', `/forum/threads/${threadId}/posts`, { body: 'x', characterId: 3 })).res.status === 409);
+
+  check('Moderator verschiebt ⇒ 200',
+    (await frage(api, 'POST', `/forum/threads/${threadId}/move`, { board: 'forge' })).res.status === 200);
+  const forgeListe = json((await frage(api, 'GET', '/forum/boards/forge/threads')).res).threads as Array<Record<string, unknown>>;
+  check('Thema steht jetzt im Zielbrett', forgeListe.some((t) => t.id === threadId));
+
+  check('Moderator loescht einen fremden Beitrag ⇒ 200',
+    (await frage(api, 'DELETE', `/forum/posts/${zweiterPost}`)).res.status === 200);
 
   db.schliessen();
 }

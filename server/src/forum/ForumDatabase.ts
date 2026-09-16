@@ -49,6 +49,19 @@ export interface ForumAutor {
   readonly name: string;
 }
 
+/** Eine offene Meldung mit dem, was eine Moderation zum Entscheiden braucht. */
+export interface MeldungRow {
+  readonly id: number;
+  readonly postId: number;
+  readonly threadId: number;
+  readonly board: string;
+  readonly threadTitle: string;
+  readonly authorName: string;
+  readonly bodyMd: string;
+  readonly grund: string;
+  readonly createdAt: number;
+}
+
 export class ForumDatabase {
   private readonly db: DatabaseSync;
 
@@ -98,6 +111,16 @@ export class ForumDatabase {
         deleted_at          INTEGER
       );
       CREATE INDEX IF NOT EXISTS posts_nach_thema ON posts(thread_id, created_at);
+      CREATE TABLE IF NOT EXISTS reports (
+        id                 INTEGER PRIMARY KEY,
+        post_id            INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        reporter_konto_id  INTEGER,
+        grund              TEXT NOT NULL DEFAULT '',
+        created_at         INTEGER NOT NULL,
+        resolved_at        INTEGER,
+        resolved_by_name   TEXT
+      );
+      CREATE INDEX IF NOT EXISTS reports_offen ON reports(resolved_at, created_at);
     `);
   }
 
@@ -301,6 +324,95 @@ export class ForumDatabase {
       if (Number(r.changes) > 0) {
         // max(0, …): Ein geloeschter Eroeffnungsbeitrag darf die Zahl nicht
         // unter null druecken.
+        this.db
+          .prepare(`UPDATE threads SET post_count = max(0, post_count - 1)
+            WHERE id = (SELECT thread_id FROM posts WHERE id = ?)`)
+          .run(postId);
+      }
+      this.db.exec('COMMIT');
+      return Number(r.changes) > 0;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  // ── Moderation ──────────────────────────────────────────────────────
+
+  /** Eine Meldung zu einem Beitrag. Liefert die Meldungs-Id. */
+  reportPost(postId: number, kontoId: number | null, grund: string, now = Date.now()): number {
+    const r = this.db
+      .prepare('INSERT INTO reports (post_id, reporter_konto_id, grund, created_at) VALUES (?, ?, ?, ?)')
+      .run(postId, kontoId, grund, now);
+    return Number(r.lastInsertRowid);
+  }
+
+  /**
+   * Offene Meldungen, aelteste zuerst, samt Thema und Autor.
+   *
+   * Ein JOIN ueber drei Tabellen, obwohl die Forendaten in EINER Datei
+   * liegen — genau dafuer ist die eigene Datei da. Der Meldende bleibt
+   * draussen: Wer gemeldet hat, geht die Moderation nichts an.
+   */
+  offeneMeldungen(): MeldungRow[] {
+    const zeilen = this.db
+      .prepare(`SELECT r.id, r.post_id, r.grund, r.created_at,
+          p.thread_id, p.author_name, p.body_md,
+          t.board, t.title
+        FROM reports r
+        JOIN posts p ON p.id = r.post_id
+        JOIN threads t ON t.id = p.thread_id
+        WHERE r.resolved_at IS NULL
+        ORDER BY r.created_at ASC`)
+      .all() as Record<string, unknown>[];
+    return zeilen.map((z) => ({
+      id: Number(z.id),
+      postId: Number(z.post_id),
+      threadId: Number(z.thread_id),
+      board: String(z.board),
+      threadTitle: String(z.title),
+      authorName: String(z.author_name),
+      bodyMd: String(z.body_md),
+      grund: String(z.grund),
+      createdAt: Number(z.created_at),
+    }));
+  }
+
+  meldungErledigen(id: number, modName: string, now = Date.now()): boolean {
+    const r = this.db
+      .prepare('UPDATE reports SET resolved_at = ?, resolved_by_name = ? WHERE id = ? AND resolved_at IS NULL')
+      .run(now, modName, id);
+    return Number(r.changes) > 0;
+  }
+
+  threadAnheften(id: number, pinned: boolean): boolean {
+    const r = this.db.prepare('UPDATE threads SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id);
+    return Number(r.changes) > 0;
+  }
+
+  threadSperren(id: number, locked: boolean): boolean {
+    const r = this.db.prepare('UPDATE threads SET locked = ? WHERE id = ?').run(locked ? 1 : 0, id);
+    return Number(r.changes) > 0;
+  }
+
+  threadVerschieben(id: number, board: BoardSlug): boolean {
+    const r = this.db.prepare('UPDATE threads SET board = ? WHERE id = ?').run(board, id);
+    return Number(r.changes) > 0;
+  }
+
+  /**
+   * Entfernt einen BELIEBIGEN Beitrag (Moderation), Soft-Delete — dieselbe
+   * Wirkung wie das eigene Loeschen, nur ohne die Eigentumsgrenze. Die
+   * Grenze zieht der Aufrufer (ForumApi), nicht diese Methode; sie kennt
+   * nur die Zeile.
+   */
+  postEntfernenModerativ(postId: number, now = Date.now()): boolean {
+    this.db.exec('BEGIN');
+    try {
+      const r = this.db
+        .prepare('UPDATE posts SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL')
+        .run(now, postId);
+      if (Number(r.changes) > 0) {
         this.db
           .prepare(`UPDATE threads SET post_count = max(0, post_count - 1)
             WHERE id = (SELECT thread_id FROM posts WHERE id = ?)`)

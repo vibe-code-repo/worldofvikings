@@ -752,6 +752,14 @@ export class WovServer {
         const c = this.kontenDb.charakterVonKonto(kontoId, charakterId);
         return c ? { id: c.id, name: c.name } : null;
       },
+      // Moderator = Admin, und zwar ueber dieselbe Liste wie im Spiel: Ein
+      // Konto ist Moderator, wenn EINER seiner Charaktere auf der
+      // Admin-Liste steht. `everyoneAdmin` gilt auch hier — auf dem
+      // Testgestade ist ohnehin jeder Admin.
+      (kontoId) => {
+        if (this.config.everyoneAdmin) return true;
+        return this.kontenDb.charaktereVonKonto(kontoId).some((c) => this.adminListe.enthaelt(c.spielerId));
+      },
     );
 
     this.net = new NetManager({

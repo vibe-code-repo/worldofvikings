@@ -51,15 +51,18 @@ const PRAEFIX = '/forum';
 const MAX_KOERPER_BYTES = 64 * 1024;
 
 /** Drossel: je Konto und Art hoechstens `max` in `fenster` Millisekunden. */
-const DROSSEL: Record<'thread' | 'post', { max: number; fenster: number }> = {
+const DROSSEL: Record<'thread' | 'post' | 'report', { max: number; fenster: number }> = {
   thread: { max: 3, fenster: 5 * 60_000 },
   post: { max: 5, fenster: 30_000 },
+  report: { max: 5, fenster: 10 * 60_000 },
 };
 
 /** Konto-Id aus der Anfrage, oder null. Wird von KontoApi gestellt. */
 export type KontoAus = (req: IncomingMessage) => number | null;
 /** Charakter des Kontos, oder null — die Rechtepruefung beim Schreiben. */
 export type CharakterAus = (kontoId: number, charakterId: number) => { id: number; name: string } | null;
+/** Ist dieses Konto Moderator? Wird vom Spielserver gestellt (Adminliste). */
+export type IstModerator = (kontoId: number) => boolean;
 
 export class ForumApi {
   /** Zeitstempel je `art:kontoId` fuer die Drossel. */
@@ -74,6 +77,8 @@ export class ForumApi {
      */
     private readonly kontoIdAus: KontoAus = () => null,
     private readonly charakterAus: CharakterAus = () => null,
+    /** Moderator? Vorgabe: niemand — Moderation bleibt in Tests aus. */
+    private readonly istModerator: IstModerator = () => false,
   ) {}
 
   /**
@@ -130,6 +135,22 @@ export class ForumApi {
     const post = /^\/forum\/posts\/(\d+)$/.exec(pfad);
     if (m === 'PATCH' && post) return this.bearbeiteBeitrag(req, res, Number(post[1]));
     if (m === 'DELETE' && post) return this.loescheBeitrag(req, res, Number(post[1]));
+
+    const meldung = /^\/forum\/posts\/(\d+)\/report$/.exec(pfad);
+    if (m === 'POST' && meldung) return this.melden(req, res, Number(meldung[1]));
+
+    if (m === 'GET' && pfad === `${PRAEFIX}/moderator`) return this.moderatorStatus(req, res);
+    if (m === 'GET' && pfad === `${PRAEFIX}/reports`) return this.meldungen(req, res);
+
+    const erledigen = /^\/forum\/reports\/(\d+)\/resolve$/.exec(pfad);
+    if (m === 'POST' && erledigen) return this.moderatorErledigt(req, res, Number(erledigen[1]));
+
+    const anheften = /^\/forum\/threads\/(\d+)\/pin$/.exec(pfad);
+    if (m === 'POST' && anheften) return this.threadSchalter(req, res, Number(anheften[1]), 'pin');
+    const sperren = /^\/forum\/threads\/(\d+)\/lock$/.exec(pfad);
+    if (m === 'POST' && sperren) return this.threadSchalter(req, res, Number(sperren[1]), 'lock');
+    const verschieben = /^\/forum\/threads\/(\d+)\/move$/.exec(pfad);
+    if (m === 'POST' && verschieben) return this.threadSchalter(req, res, Number(verschieben[1]), 'move');
 
     this.json(res, 404, { error: 'unknown-endpoint' });
   }
@@ -246,10 +267,98 @@ export class ForumApi {
 
     const eigen = this.db.postOwnership(postId);
     if (!eigen) return this.json(res, 404, { error: 'unknown-post' });
-    if (eigen.authorKontoId !== kontoId) return this.json(res, 403, { error: 'not-yours' });
 
-    const ok = this.db.softDeletePost(postId, kontoId);
+    /*
+      Eigener Beitrag ODER Moderator. Die Grenze steht HIER, nicht in der
+      Datenbank (die kennt nur Zeilen): Der eigene Weg zieht die
+      Eigentumsgrenze in SQL, der Moderationsweg nicht.
+    */
+    if (eigen.authorKontoId === kontoId) {
+      const ok = this.db.softDeletePost(postId, kontoId);
+      return this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+    }
+    if (this.istModerator(kontoId)) {
+      const ok = this.db.postEntfernenModerativ(postId);
+      return this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+    }
+    this.json(res, 403, { error: 'not-yours' });
+  }
+
+  // ── Melden und Moderation ───────────────────────────────────────────
+
+  /**
+   * Eine Meldung. Jeder Angemeldete darf melden — auch den eigenen
+   * Beitrag (das ist unsinnig, aber harmlos); die Moderation entscheidet.
+   * Der Grund ist frei und wird auf 500 Zeichen gekappt.
+   */
+  private async melden(req: IncomingMessage, res: ServerResponse, postId: number): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+
+    const eigen = this.db.postOwnership(postId);
+    if (!eigen) return this.json(res, 404, { error: 'unknown-post' });
+    if (!this.erlaubt(kontoId, 'report')) return this.json(res, 429, { error: 'too-fast' });
+
+    const k = await this.koerper(req).catch(() => null);
+    const grund = k ? String(k.reason ?? '').trim().slice(0, 500) : '';
+    const id = this.db.reportPost(postId, kontoId, grund);
+    this.json(res, 201, { reportId: id });
+  }
+
+  /** Meldet, ob das eigene Konto Moderator ist — die Oberflaeche fragt das. */
+  private moderatorStatus(req: IncomingMessage, res: ServerResponse): void {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    this.json(res, 200, { moderator: this.istModerator(kontoId) });
+  }
+
+  private meldungen(req: IncomingMessage, res: ServerResponse): void {
+    if (this.modKonto(req, res) === null) return;
+    this.json(res, 200, { reports: this.db.offeneMeldungen() });
+  }
+
+  private moderatorErledigt(req: IncomingMessage, res: ServerResponse, id: number): void {
+    if (this.modKonto(req, res) === null) return;
+    const ok = this.db.meldungErledigen(id, '');
     this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+  }
+
+  /** Anheften, Sperren, Verschieben — ein Weg, drei Faelle. */
+  private async threadSchalter(
+    req: IncomingMessage,
+    res: ServerResponse,
+    id: number,
+    art: 'pin' | 'lock' | 'move',
+  ): Promise<void> {
+    if (this.modKonto(req, res) === null) return;
+    const k = await this.koerper(req).catch(() => null);
+
+    if (art === 'move') {
+      const board = k ? String(k.board ?? '') : '';
+      if (!isBoardSlug(board)) return this.json(res, 400, { error: 'board-invalid' });
+      const ok = this.db.threadVerschieben(id, board);
+      return this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+    }
+
+    const wert = k ? k.value !== false : true;
+    const ok = art === 'pin'
+      ? this.db.threadAnheften(id, Boolean(wert))
+      : this.db.threadSperren(id, Boolean(wert));
+    this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+  }
+
+  /** Konto-Id, wenn Moderator; sonst 401/403 gesetzt und null. */
+  private modKonto(req: IncomingMessage, res: ServerResponse): number | null {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) {
+      this.json(res, 401, { error: 'not-signed-in' });
+      return null;
+    }
+    if (!this.istModerator(kontoId)) {
+      this.json(res, 403, { error: 'not-moderator' });
+      return null;
+    }
+    return kontoId;
   }
 
   // ── Helfer ──────────────────────────────────────────────────────────
@@ -264,7 +373,7 @@ export class ForumApi {
   }
 
   /** Zeitfenster-Drossel je Konto und Art. */
-  private erlaubt(kontoId: number, art: 'thread' | 'post', now = Date.now()): boolean {
+  private erlaubt(kontoId: number, art: 'thread' | 'post' | 'report', now = Date.now()): boolean {
     const { max, fenster } = DROSSEL[art];
     const key = `${art}:${kontoId}`;
     const liste = (this.zeiten.get(key) ?? []).filter((t) => now - t < fenster);

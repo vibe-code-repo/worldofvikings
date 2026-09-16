@@ -760,6 +760,9 @@ export class WovServer {
         if (this.config.everyoneAdmin) return true;
         return this.kontenDb.charaktereVonKonto(kontoId).some((c) => this.adminListe.enthaelt(c.spielerId));
       },
+      // `@Name` aufloesen: derselbe Weg wie der Adminbefehl, der einen
+      // Charakter zu einem Namen sucht (`charakterNachName`).
+      (name) => this.kontenDb.charakterNachName(name)?.kontoId ?? null,
     );
 
     this.net = new NetManager({

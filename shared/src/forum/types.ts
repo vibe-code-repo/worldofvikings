@@ -176,3 +176,26 @@ export interface SearchPage {
   /** Treffer gesamt — die Anzeige nennt die Zahl, nicht nur die Seite. */
   readonly total: number;
 }
+
+/**
+ * Die Arten einer Benachrichtigung: eine Antwort in einem abonnierten Thema
+ * oder eine Erwaehnung (`@Name`). Mehr gibt es bewusst nicht — jede weitere
+ * Art waere eine Regel mehr, die erklaert werden muss.
+ */
+export const NOTIFICATION_KINDS = ['reply', 'mention'] as const;
+
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/** Eine Benachrichtigung fuer ein Konto, wie die Glocke sie zeigt. */
+export interface ForumNotification {
+  readonly id: number;
+  readonly kind: NotificationKind;
+  readonly threadId: number;
+  readonly postId: number;
+  /** Name des Charakters, der geschrieben hat (Kopie, wie im Beitrag). */
+  readonly fromName: string;
+  /** Erste Zeilen des Beitrags, ohne Markdown-Zeichen. */
+  readonly excerpt: string;
+  readonly createdAt: number;
+  readonly readAt: number | null;
+}

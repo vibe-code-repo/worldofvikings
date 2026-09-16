@@ -47,8 +47,8 @@ let angemeldet: number | null = null;
 /** Ist das angemeldete Konto Moderator? */
 let moderator = false;
 
-/** Zwei Konten mit je einem Charakter: 1→3 „Runa", 2→5 „Bjorn". */
-const NAMEN: Record<string, string> = { '1:3': 'Runa', '2:5': 'Bjorn' };
+/** Drei Konten mit je einem Charakter: 1→3 „Runa", 2→5 „Bjorn", 3→7 „Sigrid". */
+const NAMEN: Record<string, string> = { '1:3': 'Runa', '2:5': 'Bjorn', '3:7': 'Sigrid' };
 
 function fakeApi(db: ForumDatabase): ForumApi {
   return new ForumApi(
@@ -59,6 +59,11 @@ function fakeApi(db: ForumDatabase): ForumApi {
       return name ? { id: charakterId, name } : null;
     },
     () => moderator,
+    // `@Name` aufloesen: Charaktername zurueck zum Konto (wie WovServer).
+    (name) => {
+      const eintrag = Object.entries(NAMEN).find(([, n]) => n === name);
+      return eintrag ? Number(eintrag[0].split(':')[0]) : null;
+    },
   );
 }
 
@@ -285,6 +290,69 @@ async function main(): Promise<void> {
   await frage(api, 'DELETE', `/forum/posts/${sPost}`);
   const nachSuchWeg = json((await frage(api, 'GET', '/forum/search?q=Haithabu')).res).results as unknown[];
   check('geloeschter Beitrag faellt aus der Suche', nachSuchWeg.length === 0);
+
+  // ── Erwaehnungen, Abos, Benachrichtigungen (M6) ────────────────────
+  angemeldet = 1;
+  const nt = await frage(api, 'POST', '/forum/boards/steadings/threads',
+    { title: 'Frage an alle', body: 'Wer kennt @Sigrid?', characterId: 3 });
+  check('Thema mit Erwaehnung angelegt ⇒ 201', nt.res.status === 201);
+  const nThread = Number(json(nt.res).threadId);
+
+  angemeldet = 3;
+  const sigridErste = json((await frage(api, 'GET', '/forum/notifications')).res);
+  check('Erwaehnte bekommt eine Meldung (mention)',
+    (sigridErste.notifications as Array<Record<string, unknown>>)
+      .some((n) => n.kind === 'mention' && n.fromName === 'Runa'));
+  check('ungelesen zaehlt mit', sigridErste.unread === 1);
+
+  angemeldet = 1;
+  check('Eroeffner folgt sich selbst',
+    json((await frage(api, 'GET', `/forum/threads/${nThread}/subscribe`)).res).subscribed === true);
+
+  angemeldet = 2;
+  await frage(api, 'POST', `/forum/threads/${nThread}/posts`, { body: 'Ich kenne sie.', characterId: 5 });
+  angemeldet = 1;
+  const runaNotif = json((await frage(api, 'GET', '/forum/notifications')).res);
+  check('Abonnent bekommt eine Antwort-Meldung (reply)',
+    (runaNotif.notifications as Array<Record<string, unknown>>)
+      .some((n) => n.kind === 'reply' && n.fromName === 'Bjorn'));
+
+  // Runa liest ihre Meldungen, damit der naechste Zaehler eindeutig ist.
+  await frage(api, 'POST', '/forum/notifications/read', {});
+
+  angemeldet = 2;
+  await frage(api, 'POST', '/forum/notifications/read', {});
+  check('alles gelesen ⇒ unread 0',
+    json((await frage(api, 'GET', '/forum/notifications')).res).unread === 0);
+
+  // Abbestellen: Konto 2 will nichts mehr hoeren.
+  check('Abbestellen ⇒ subscribed false',
+    json((await frage(api, 'POST', `/forum/threads/${nThread}/subscribe`, { value: false })).res)
+      .subscribed === false);
+  const bjornVorher = (json((await frage(api, 'GET', '/forum/notifications')).res)
+    .notifications as unknown[]).length;
+
+  angemeldet = 3;
+  await frage(api, 'POST', `/forum/threads/${nThread}/posts`, { body: 'Ein Nachtrag.', characterId: 7 });
+  angemeldet = 2;
+  const bjornNach = (json((await frage(api, 'GET', '/forum/notifications')).res)
+    .notifications as unknown[]).length;
+  check('Abbestellter bekommt nichts Neues', bjornNach === bjornVorher);
+  angemeldet = 1;
+  check('Abonnent bekommt die naechste Antwort (unread 1)',
+    json((await frage(api, 'GET', '/forum/notifications')).res).unread === 1);
+
+  // Erwaehnung eines Abonnenten: nur EINE Meldung, keine zweite.
+  // Konto 2 schreibt (folgt nicht mehr), erwaehnt Sigrid — die folgt, also
+  // bekommt sie die Antwort und NICHT zusaetzlich die Erwaehnung.
+  angemeldet = 2;
+  await frage(api, 'POST', `/forum/threads/${nThread}/posts`, { body: 'Danke @Sigrid.', characterId: 5 });
+  angemeldet = 3;
+  const sigridNach = json((await frage(api, 'GET', '/forum/notifications')).res)
+    .notifications as Array<Record<string, unknown>>;
+  check('erwaehnter Abonnent bekommt keine zweite Meldung',
+    sigridNach.filter((n) => n.kind === 'mention').length === 1
+      && sigridNach.filter((n) => n.kind === 'reply').length === 1);
 
   // ── Moderation (M5) ────────────────────────────────────────────────
   angemeldet = 1;

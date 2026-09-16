@@ -38,6 +38,8 @@ import {
   isBoardSlug,
   type BoardOverview,
   type BoardSlug,
+  type ForumNotification,
+  type NotificationKind,
   type PostView,
   type ReactionCount,
   type ReactionKind,
@@ -144,6 +146,37 @@ export class ForumDatabase {
       );
       CREATE INDEX IF NOT EXISTS reactions_nach_post ON reactions(post_id, kind);
       /*
+        Abos: Wer einem Thema folgt, bekommt eine Benachrichtigung bei jeder
+        neuen Antwort. Der Eroeffner und jeder, der antwortet, landen hier
+        automatisch (INSERT OR IGNORE) — niemand muss „folgen" druecken, um
+        eine Antwort auf die eigene Frage zu sehen. Die Tabelle ist damit
+        eine Absichtserklaerung UND ein Nebenprodukt; das ist gewollt.
+      */
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        thread_id  INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+        konto_id   INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (thread_id, konto_id)
+      );
+      /*
+        Benachrichtigungen tragen eine KOPIE von Name und Ausschnitt: Die
+        Meldung soll lesbar bleiben, auch wenn der Beitrag spaeter
+        bearbeitet oder geloescht wird — sie erzaehlt, was war.
+      */
+      CREATE TABLE IF NOT EXISTS notifications (
+        id         INTEGER PRIMARY KEY,
+        konto_id   INTEGER NOT NULL,
+        art        TEXT NOT NULL,
+        thread_id  INTEGER NOT NULL,
+        post_id    INTEGER NOT NULL,
+        from_name  TEXT NOT NULL,
+        excerpt    TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        read_at    INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS notifications_nach_konto
+        ON notifications(konto_id, read_at, created_at);
+      /*
         Volltextsuche ueber Titel und Text (FTS5, im mitgelieferten SQLite
         enthalten). Die rowid IST die Beitrags-Id — damit braucht es keine
         eigene Zuordnungsspalte und keinen zweiten Schluessel im JOIN.
@@ -198,6 +231,8 @@ export class ForumDatabase {
         .run(threadId, autor.kontoId, autor.charakterId, autor.name, body, now);
       this.db.prepare('UPDATE threads SET post_count = 1 WHERE id = ?').run(threadId);
       this.suchindexEinsetzen(Number(p.lastInsertRowid));
+      // Wer fragt, will die Antwort sehen: Der Eroeffner folgt sich selbst.
+      if (autor.kontoId !== null) this.abonnieren(threadId, autor.kontoId, now);
       this.db.exec('COMMIT');
       return { threadId, postId: Number(p.lastInsertRowid) };
     } catch (e) {
@@ -219,6 +254,8 @@ export class ForumDatabase {
         .prepare('UPDATE threads SET last_post_at = ?, post_count = post_count + 1 WHERE id = ?')
         .run(now, threadId);
       this.suchindexEinsetzen(Number(p.lastInsertRowid));
+      // Wer antwortet, will die naechste Antwort sehen (s. subscriptions).
+      if (autor.kontoId !== null) this.abonnieren(threadId, autor.kontoId, now);
       this.db.exec('COMMIT');
       return Number(p.lastInsertRowid);
     } catch (e) {
@@ -544,6 +581,89 @@ export class ForumDatabase {
       karte.set(postId, liste);
     }
     return karte;
+  }
+
+  // ── Abos und Benachrichtigungen ─────────────────────────────────────
+
+  /** Einem Thema folgen. Doppeltes Folgen ist kein Fehler (INSERT OR IGNORE). */
+  abonnieren(threadId: number, kontoId: number, now = Date.now()): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO subscriptions (thread_id, konto_id, created_at) VALUES (?, ?, ?)')
+      .run(threadId, kontoId, now);
+  }
+
+  abbestellen(threadId: number, kontoId: number): void {
+    this.db
+      .prepare('DELETE FROM subscriptions WHERE thread_id = ? AND konto_id = ?')
+      .run(threadId, kontoId);
+  }
+
+  istAbonniert(threadId: number, kontoId: number): boolean {
+    return this.db
+      .prepare('SELECT 1 FROM subscriptions WHERE thread_id = ? AND konto_id = ?')
+      .get(threadId, kontoId) !== undefined;
+  }
+
+  abonnenten(threadId: number): number[] {
+    const zeilen = this.db
+      .prepare('SELECT konto_id FROM subscriptions WHERE thread_id = ?')
+      .all(threadId) as Record<string, unknown>[];
+    return zeilen.map((z) => Number(z.konto_id));
+  }
+
+  benachrichtigungAnlegen(
+    kontoId: number,
+    art: NotificationKind,
+    threadId: number,
+    postId: number,
+    fromName: string,
+    excerpt: string,
+    now = Date.now(),
+  ): number {
+    const r = this.db
+      .prepare(`INSERT INTO notifications
+        (konto_id, art, thread_id, post_id, from_name, excerpt, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(kontoId, art, threadId, postId, fromName, excerpt, now);
+    return Number(r.lastInsertRowid);
+  }
+
+  /** Die juengsten Benachrichtigungen eines Kontos, neueste zuerst. */
+  benachrichtigungen(kontoId: number, limit: number): ForumNotification[] {
+    const zeilen = this.db
+      .prepare(`SELECT * FROM notifications WHERE konto_id = ?
+        ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(kontoId, limit) as Record<string, unknown>[];
+    return zeilen.map((z) => ({
+      id: Number(z.id),
+      kind: String(z.art) as NotificationKind,
+      threadId: Number(z.thread_id),
+      postId: Number(z.post_id),
+      fromName: String(z.from_name),
+      excerpt: String(z.excerpt),
+      createdAt: Number(z.created_at),
+      readAt: z.read_at === null || z.read_at === undefined ? null : Number(z.read_at),
+    }));
+  }
+
+  ungelesene(kontoId: number): number {
+    const z = this.db
+      .prepare('SELECT COUNT(*) AS n FROM notifications WHERE konto_id = ? AND read_at IS NULL')
+      .get(kontoId) as Record<string, unknown>;
+    return Number(z.n);
+  }
+
+  /** Alle bis `bisId` als gelesen markieren; `null` heisst „alle". */
+  benachrichtigungenLesen(kontoId: number, bisId: number | null, now = Date.now()): number {
+    const r = bisId === null
+      ? this.db
+          .prepare('UPDATE notifications SET read_at = ? WHERE konto_id = ? AND read_at IS NULL')
+          .run(now, kontoId)
+      : this.db
+          .prepare(`UPDATE notifications SET read_at = ?
+            WHERE konto_id = ? AND read_at IS NULL AND id <= ?`)
+          .run(now, kontoId, bisId);
+    return Number(r.changes);
   }
 
   // ── Suche ───────────────────────────────────────────────────────────

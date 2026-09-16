@@ -63,12 +63,17 @@ const DROSSEL: Record<'thread' | 'post' | 'report' | 'reaction', { max: number; 
   reaction: { max: 30, fenster: 30_000 },
 };
 
+/** Wie viele Benachrichtigungen die Glocke hoechstens liefert. */
+const NOTIFICATION_LIMIT = 50;
+
 /** Konto-Id aus der Anfrage, oder null. Wird von KontoApi gestellt. */
 export type KontoAus = (req: IncomingMessage) => number | null;
 /** Charakter des Kontos, oder null — die Rechtepruefung beim Schreiben. */
 export type CharakterAus = (kontoId: number, charakterId: number) => { id: number; name: string } | null;
 /** Ist dieses Konto Moderator? Wird vom Spielserver gestellt (Adminliste). */
 export type IstModerator = (kontoId: number) => boolean;
+/** Konto zu einem Charakternamen — loest eine `@Name`-Erwaehnung auf. */
+export type KontoNachName = (name: string) => number | null;
 
 export class ForumApi {
   /** Zeitstempel je `art:kontoId` fuer die Drossel. */
@@ -85,6 +90,11 @@ export class ForumApi {
     private readonly charakterAus: CharakterAus = () => null,
     /** Moderator? Vorgabe: niemand — Moderation bleibt in Tests aus. */
     private readonly istModerator: IstModerator = () => false,
+    /**
+     * Konto zu einem Charakternamen. Vorgabe: niemand — ohne Kontendaten
+     * loest keine Erwaehnung auf, und das ist der richtige Rueckfall.
+     */
+    private readonly kontoNachName: KontoNachName = () => null,
   ) {}
 
   /**
@@ -165,7 +175,87 @@ export class ForumApi {
     const verschieben = /^\/forum\/threads\/(\d+)\/move$/.exec(pfad);
     if (m === 'POST' && verschieben) return this.threadSchalter(req, res, Number(verschieben[1]), 'move');
 
+    const abo = /^\/forum\/threads\/(\d+)\/subscribe$/.exec(pfad);
+    if (abo) {
+      if (m === 'GET') return this.aboStatus(req, res, Number(abo[1]));
+      if (m === 'POST') return this.aboSchalter(req, res, Number(abo[1]));
+    }
+
+    if (m === 'GET' && pfad === `${PRAEFIX}/notifications`) return this.benachrichtigungen(req, res);
+    if (m === 'POST' && pfad === `${PRAEFIX}/notifications/read`) return this.benachrichtigungenGelesen(req, res);
+
     this.json(res, 404, { error: 'unknown-endpoint' });
+  }
+
+  // ── Abos und Benachrichtigungen ─────────────────────────────────────
+
+  /**
+   * Abonnenten und Erwaehnte ueber einen neuen Beitrag unterrichten.
+   *
+   * Der Autor selbst wird nie benachrichtigt, und wer schon als Abonnent
+   * eine Meldung bekommt, wird nicht zusaetzlich als Erwaehnung
+   * angeschrieben — eine Antwort ist eine Antwort. Wer NICHT folgt und
+   * nicht erwaehnt wird, hoert nichts: Kein Grund, alle zu wecken.
+   */
+  private benachrichtige(
+    threadId: number,
+    postId: number,
+    autor: ForumAutor,
+    body: string,
+    now: number,
+  ): void {
+    // `-1` als „schon erledigt": Diese Konto-Id gibt es nicht.
+    const fertig = new Set<number>([autor.kontoId ?? -1]);
+    for (const kontoId of this.db.abonnenten(threadId)) {
+      if (fertig.has(kontoId)) continue;
+      this.db.benachrichtigungAnlegen(kontoId, 'reply', threadId, postId, autor.name, auszug(body), now);
+      fertig.add(kontoId);
+    }
+    for (const name of erwaehnungen(body)) {
+      const kontoId = this.kontoNachName(name);
+      if (kontoId === null || fertig.has(kontoId)) continue;
+      this.db.benachrichtigungAnlegen(kontoId, 'mention', threadId, postId, autor.name, auszug(body), now);
+      fertig.add(kontoId);
+    }
+  }
+
+  private aboStatus(req: IncomingMessage, res: ServerResponse, threadId: number): void {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    if (!this.db.threadById(threadId)) return this.json(res, 404, { error: 'unknown-thread' });
+    this.json(res, 200, { subscribed: this.db.istAbonniert(threadId, kontoId) });
+  }
+
+  private async aboSchalter(req: IncomingMessage, res: ServerResponse, threadId: number): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    if (!this.db.threadById(threadId)) return this.json(res, 404, { error: 'unknown-thread' });
+
+    const k = await this.koerper(req).catch(() => null);
+    const wert = k ? k.value !== false : true;
+    if (wert) this.db.abonnieren(threadId, kontoId);
+    else this.db.abbestellen(threadId, kontoId);
+    this.json(res, 200, { subscribed: this.db.istAbonniert(threadId, kontoId) });
+  }
+
+  private benachrichtigungen(req: IncomingMessage, res: ServerResponse): void {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    this.json(res, 200, {
+      notifications: this.db.benachrichtigungen(kontoId, NOTIFICATION_LIMIT),
+      unread: this.db.ungelesene(kontoId),
+    });
+  }
+
+  /** `{ upTo: id }` markiert bis dorthin, ohne Angabe alles. */
+  private async benachrichtigungenGelesen(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    const k = await this.koerper(req).catch(() => null);
+    const roh = k ? Number(k.upTo) : Number.NaN;
+    const bisId = Number.isInteger(roh) && roh > 0 ? roh : null;
+    this.db.benachrichtigungenLesen(kontoId, bisId);
+    this.json(res, 200, { unread: this.db.ungelesene(kontoId) });
   }
 
   // ── Lesen ───────────────────────────────────────────────────────────
@@ -242,6 +332,9 @@ export class ForumApi {
     if (!this.erlaubt(kontoId, 'thread')) return this.json(res, 429, { error: 'too-fast' });
 
     const r = this.db.createThread(brett, titel, autor, body);
+    // Erwaehnungen schon im Eroeffnungsbeitrag: Abonnenten gibt es hier
+    // noch keine (ausser dem Autor), aber `@Name` soll auch hier greifen.
+    this.benachrichtige(r.threadId, r.postId, autor, body, Date.now());
     this.json(res, 201, { threadId: r.threadId, postId: r.postId });
   }
 
@@ -268,6 +361,7 @@ export class ForumApi {
     if (!this.erlaubt(kontoId, 'post')) return this.json(res, 429, { error: 'too-fast' });
 
     const postId = this.db.createPost(themaId, autor, body);
+    this.benachrichtige(themaId, postId, autor, body, Date.now());
     this.json(res, 201, { postId });
   }
 
@@ -486,6 +580,31 @@ export class ForumApi {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(koerper));
   }
+}
+
+/**
+ * `@Name`-Erwaehnungen aus einem Text: ohne Doppelte, hoechstens zehn.
+ *
+ * Der Ausdruck deckt Buchstaben (auch ueber ASCII hinaus), Ziffern, `_`
+ * und `-` ab und verlangt mindestens zwei Zeichen — ein `@` mitten im
+ * Satz soll keine halbe Erwaehnung erzeugen.
+ */
+function erwaehnungen(body: string): string[] {
+  const namen = new Set<string>();
+  for (const treffer of body.matchAll(/@([\p{L}\p{N}_-]{2,32})/gu)) {
+    namen.add(treffer[1]!);
+    if (namen.size >= 10) break;
+  }
+  return [...namen];
+}
+
+/** Erste Zeilen als Fliesstext — grobe Markdown-Zeichen weg, Laenge gedeckelt. */
+function auszug(body: string): string {
+  return body
+    .replace(/[#*_>`~[\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160);
 }
 
 /** `page` aus der URL, auf >= 1 gebracht; Muell wird zu 1. */

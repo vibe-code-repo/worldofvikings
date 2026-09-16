@@ -33,10 +33,12 @@ import {
   FORUM_PAGE_SIZE,
   POST_BODY_MAX,
   POST_BODY_MIN,
+  SEARCH_QUERY_MAX,
   THREAD_TITLE_MAX,
   THREAD_TITLE_MIN,
   isBoardSlug,
   isReactionKind,
+  type SearchPage,
   type ThreadPage,
   type ThreadView,
 } from '@wov/shared';
@@ -123,6 +125,7 @@ export class ForumApi {
     const m = req.method ?? 'GET';
 
     if (m === 'GET' && pfad === `${PRAEFIX}/boards`) return this.boards(res);
+    if (m === 'GET' && pfad === `${PRAEFIX}/search`) return this.suche(res, url);
 
     const themen = /^\/forum\/boards\/([a-z_]+)\/threads$/.exec(pfad);
     if (themen) {
@@ -169,6 +172,25 @@ export class ForumApi {
 
   private boards(res: ServerResponse): void {
     this.json(res, 200, { boards: this.db.boardList() });
+  }
+
+  /**
+   * Volltextsuche. Oeffentlich wie das Lesen, und bewusst grosszuegig im
+   * Fehlerfall: Eine leere oder zu lange Anfrage liefert eine LEERE Liste
+   * (Seite 1 von 1), keinen 400 — die Suchseite soll auch dann stehen.
+   */
+  private suche(res: ServerResponse, url: URL): void {
+    const text = (url.searchParams.get('q') ?? '').trim().slice(0, SEARCH_QUERY_MAX);
+    const seite = seiteAus(url);
+    const erste = this.db.search(text, FORUM_PAGE_SIZE, Math.max(0, (seite - 1) * FORUM_PAGE_SIZE));
+    const pageCount = Math.max(1, Math.ceil(erste.gesamt / FORUM_PAGE_SIZE));
+    const page = Math.min(seite, pageCount);
+    // Nur wenn die Seite geklemmt wurde, ein zweites Mal lesen.
+    const results = page === seite
+      ? erste.treffer
+      : this.db.search(text, FORUM_PAGE_SIZE, (page - 1) * FORUM_PAGE_SIZE).treffer;
+    const antwort: SearchPage = { results, page, pageCount, total: erste.gesamt };
+    this.json(res, 200, antwort);
   }
 
   private boardThreads(res: ServerResponse, slug: string, page: number): void {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
-  import { localeFrom, messages, type MessageKey } from '$lib/i18n';
+  import { localeFrom, messages, localizedPath, type MessageKey } from '$lib/i18n';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -32,6 +32,17 @@
     <i>{t['thing.intro.name']}</i>
     {t['thing.intro.suffix']}
   </p>
+
+  <form class="suche" method="GET" action={localizedPath(lang, '/thing/suche')} role="search">
+    <input
+      type="search"
+      name="q"
+      placeholder={t['thing.search.placeholder']}
+      aria-label={t['thing.search.placeholder']}
+      maxlength="120"
+    />
+    <button type="submit" class="knopf">{t['thing.search.button']}</button>
+  </form>
 
   {#if !data.erreichbar}
     <div class="hinweis">
@@ -85,6 +96,27 @@
     color: var(--text-matt);
     font-size: 17px;
     line-height: 1.65;
+  }
+
+  .suche {
+    display: flex;
+    gap: 0.6rem;
+    margin: 0 0 1.6rem;
+    max-width: 34rem;
+  }
+  .suche input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.8rem;
+    border: 1px solid var(--umriss);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text);
+    font-size: 16px;
+  }
+  .suche input:focus {
+    outline: none;
+    border-color: var(--primaer);
   }
 
   .boards {

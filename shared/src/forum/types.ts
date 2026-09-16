@@ -56,6 +56,9 @@ export const POST_BODY_MAX = 20000;
 /** Eintraege je Seite. Eine Zahl fuer Themenlisten und Beitragslisten. */
 export const FORUM_PAGE_SIZE = 20;
 
+/** Laengste Suchanfrage, die die API annimmt (danach gekappt). */
+export const SEARCH_QUERY_MAX = 120;
+
 /**
  * Die Reaktionen auf einen Beitrag — eine kleine FESTE Liste. Sie steht
  * hier und nicht in der Datenbank, weil sie ein Vertrag zwischen beiden
@@ -147,4 +150,29 @@ export interface ThreadView {
   readonly posts: readonly PostView[];
   readonly page: number;
   readonly pageCount: number;
+}
+
+/**
+ * Ein Suchtreffer. Er zeigt auf den BEITRAG, nicht auf das Thema: Gefunden
+ * wird Text, und die Stelle soll sichtbar sein. `snippet` ist reiner Text
+ * (die API setzt ABSICHTLICH keine Markierungen) — die Oberflaeche zeigt
+ * ihn ungeparst an, damit aus der Datenbank kein HTML wird.
+ */
+export interface SearchHit {
+  readonly postId: number;
+  readonly threadId: number;
+  readonly board: BoardSlug;
+  readonly title: string;
+  readonly authorName: string;
+  readonly createdAt: number;
+  readonly snippet: string;
+}
+
+/** Eine Seite einer Trefferliste. */
+export interface SearchPage {
+  readonly results: readonly SearchHit[];
+  readonly page: number;
+  readonly pageCount: number;
+  /** Treffer gesamt — die Anzeige nennt die Zahl, nicht nur die Seite. */
+  readonly total: number;
 }

@@ -373,6 +373,14 @@ export const en: Messages = {
   'thing.reactions.hail': 'Hail',
   'thing.reactions.laugh': 'Laugh',
   'thing.reactions.mourn': 'Mourn',
+  /* Search (M6). */
+  'thing.search.heading': 'Search the Thing',
+  'thing.search.placeholder': 'Word or part of a word …',
+  'thing.search.button': 'Search',
+  'thing.search.for': 'Search for',
+  'thing.search.hits': 'hits',
+  'thing.search.empty': 'No hits.',
+  'thing.search.in': 'in',
   /* Forum M5: reporting and moderating. */
   'thing.mod.report': 'Report',
   'thing.mod.report_prompt': 'Reason (optional):',

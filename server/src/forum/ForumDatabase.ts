@@ -41,6 +41,7 @@ import {
   type PostView,
   type ReactionCount,
   type ReactionKind,
+  type SearchHit,
   type ThreadSummary,
 } from '@wov/shared';
 
@@ -77,6 +78,9 @@ export class ForumDatabase {
     // Idempotent: INSERT OR IGNORE, damit ein Neustart nichts doppelt und
     // eine spaetere Reihenfolgeaenderung uebernommen wird.
     this.ensureBoards(BOARD_SLUGS);
+    // Bestehende Beitraege in den Suchindex nachtragen (idempotent): Eine
+    // Datei aus der Zeit vor der Suche haette sonst einen leeren Index.
+    this.suchindexNachziehen();
   }
 
   private schemaAnlegen(): void {
@@ -139,6 +143,21 @@ export class ForumDatabase {
         PRIMARY KEY (post_id, konto_id, kind)
       );
       CREATE INDEX IF NOT EXISTS reactions_nach_post ON reactions(post_id, kind);
+      /*
+        Volltextsuche ueber Titel und Text (FTS5, im mitgelieferten SQLite
+        enthalten). Die rowid IST die Beitrags-Id — damit braucht es keine
+        eigene Zuordnungsspalte und keinen zweiten Schluessel im JOIN.
+        thread_id und board stehen unindexiert daneben, weil die
+        Trefferliste sie zeigen soll, ohne das Thema erneut zu lesen.
+        Gepflegt wird die Tabelle von HAND an jeder Schreibstelle (kein
+        Trigger): So bleibt im Quelltext sichtbar, wo Index und Wahrheit
+        auseinandergehen koennten, und eine Textaenderung zieht genau eine
+        Zeile nach.
+      */
+      CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
+        title, body_md, thread_id UNINDEXED, board UNINDEXED,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
     `);
   }
 
@@ -178,6 +197,7 @@ export class ForumDatabase {
           VALUES (?, ?, ?, ?, ?, ?)`)
         .run(threadId, autor.kontoId, autor.charakterId, autor.name, body, now);
       this.db.prepare('UPDATE threads SET post_count = 1 WHERE id = ?').run(threadId);
+      this.suchindexEinsetzen(Number(p.lastInsertRowid));
       this.db.exec('COMMIT');
       return { threadId, postId: Number(p.lastInsertRowid) };
     } catch (e) {
@@ -198,6 +218,7 @@ export class ForumDatabase {
       this.db
         .prepare('UPDATE threads SET last_post_at = ?, post_count = post_count + 1 WHERE id = ?')
         .run(now, threadId);
+      this.suchindexEinsetzen(Number(p.lastInsertRowid));
       this.db.exec('COMMIT');
       return Number(p.lastInsertRowid);
     } catch (e) {
@@ -329,6 +350,7 @@ export class ForumDatabase {
       .prepare(`UPDATE posts SET body_md = ?, edited_at = ?, edited_by_name = ?
         WHERE id = ? AND author_konto_id = ? AND deleted_at IS NULL`)
       .run(body, now, editorName, postId, kontoId);
+    if (Number(r.changes) > 0) this.suchindexEinsetzen(postId);
     return Number(r.changes) > 0;
   }
 
@@ -351,6 +373,7 @@ export class ForumDatabase {
           .prepare(`UPDATE threads SET post_count = max(0, post_count - 1)
             WHERE id = (SELECT thread_id FROM posts WHERE id = ?)`)
           .run(postId);
+        this.suchindexEntfernen(postId);
       }
       this.db.exec('COMMIT');
       return Number(r.changes) > 0;
@@ -420,6 +443,13 @@ export class ForumDatabase {
 
   threadVerschieben(id: number, board: BoardSlug): boolean {
     const r = this.db.prepare('UPDATE threads SET board = ? WHERE id = ?').run(board, id);
+    if (Number(r.changes) > 0) {
+      // Das Brett steht auch im Suchindex; ein Umzug muss ihn nachziehen.
+      const zeilen = this.db
+        .prepare('SELECT id FROM posts WHERE thread_id = ?')
+        .all(id) as Record<string, unknown>[];
+      for (const z of zeilen) this.suchindexEinsetzen(Number(z.id));
+    }
     return Number(r.changes) > 0;
   }
 
@@ -440,6 +470,7 @@ export class ForumDatabase {
           .prepare(`UPDATE threads SET post_count = max(0, post_count - 1)
             WHERE id = (SELECT thread_id FROM posts WHERE id = ?)`)
           .run(postId);
+        this.suchindexEntfernen(postId);
       }
       this.db.exec('COMMIT');
       return Number(r.changes) > 0;
@@ -515,6 +546,84 @@ export class ForumDatabase {
     return karte;
   }
 
+  // ── Suche ───────────────────────────────────────────────────────────
+
+  /**
+   * Volltextsuche ueber Titel und Text. Der Suchtext wird in
+   * Anfuehrungszeichen gesetzt und je Wort als Praefix gesucht — ein `"`
+   * oder ein FTS-Operator in der Eingabe kann die Abfrage damit nicht
+   * zerreissen (genau dafuer wird NICHT die rohe Eingabe an MATCH
+   * gereicht).
+   *
+   * `snippet` kommt ohne Markierungen: Die Datenbank liefert Text, die
+   * Oberflaeche zeigt Text. Aus dem Index wird nie HTML.
+   */
+  search(text: string, limit: number, offset: number): { gesamt: number; treffer: SearchHit[] } {
+    const ausdruck = ftsAusdruck(text);
+    if (!ausdruck) return { gesamt: 0, treffer: [] };
+
+    const gesamt = Number(
+      (this.db
+        .prepare(`SELECT COUNT(*) AS n FROM posts_fts f
+          JOIN posts p ON p.id = f.rowid
+          WHERE posts_fts MATCH ? AND p.deleted_at IS NULL`)
+        .get(ausdruck) as Record<string, unknown>).n,
+    );
+
+    const zeilen = this.db
+      .prepare(`SELECT f.rowid AS post_id, f.thread_id, f.board, f.title,
+          snippet(posts_fts, 1, '', '', '…', 14) AS snippet,
+          t.author_name, p.created_at
+        FROM posts_fts f
+        JOIN threads t ON t.id = f.thread_id
+        JOIN posts p ON p.id = f.rowid
+        WHERE posts_fts MATCH ? AND p.deleted_at IS NULL
+        ORDER BY rank
+        LIMIT ? OFFSET ?`)
+      .all(ausdruck, limit, offset) as Record<string, unknown>[];
+
+    const treffer = zeilen.map((z) => {
+      const board = String(z.board);
+      return {
+        postId: Number(z.post_id),
+        threadId: Number(z.thread_id),
+        board: isBoardSlug(board) ? board : BOARD_SLUGS[0],
+        title: String(z.title),
+        authorName: String(z.author_name),
+        createdAt: Number(z.created_at),
+        snippet: String(z.snippet ?? ''),
+      } satisfies SearchHit;
+    });
+    return { gesamt, treffer };
+  }
+
+  /** Traegt fehlende, nicht geloeschte Beitraege in den Index nach. */
+  private suchindexNachziehen(): void {
+    this.db.exec(`
+      INSERT INTO posts_fts (rowid, title, body_md, thread_id, board)
+      SELECT p.id, t.title, p.body_md, p.thread_id, t.board
+      FROM posts p JOIN threads t ON t.id = p.thread_id
+      WHERE p.deleted_at IS NULL
+        AND p.id NOT IN (SELECT rowid FROM posts_fts)
+    `);
+  }
+
+  /** Eine Zeile im Index auf den aktuellen Stand bringen (loeschen+setzen). */
+  private suchindexEinsetzen(postId: number): void {
+    this.db.prepare('DELETE FROM posts_fts WHERE rowid = ?').run(postId);
+    this.db
+      .prepare(`INSERT INTO posts_fts (rowid, title, body_md, thread_id, board)
+        SELECT p.id, t.title, p.body_md, p.thread_id, t.board
+        FROM posts p JOIN threads t ON t.id = p.thread_id
+        WHERE p.id = ? AND p.deleted_at IS NULL`)
+      .run(postId);
+  }
+
+  /** Eine Zeile aus dem Index nehmen (geloeschter Beitrag). */
+  private suchindexEntfernen(postId: number): void {
+    this.db.prepare('DELETE FROM posts_fts WHERE rowid = ?').run(postId);
+  }
+
   schliessen(): void {
     this.db.close();
   }
@@ -558,4 +667,19 @@ export class ForumDatabase {
       reactions: [],
     };
   }
+}
+
+/**
+ * Suchtext in einen FTS5-Ausdruck verwandeln, oder null.
+ *
+ * Jedes Wort wird zitiert und als Praefix gesucht: `"schmie"*` findet
+ * „Schmiede", und ein Anführungszeichen oder ein FTS-Operator in der
+ * Eingabe bleibt harmlos (ein unzitiertes `-` oder `*` waere sonst ein
+ * Syntaxfehler mitten in der Abfrage). Acht Woerter reichen; mehr ist
+ * kein Suchbegriff, sondern ein Absatz.
+ */
+function ftsAusdruck(text: string): string | null {
+  const woerter = text.trim().split(/\s+/).filter(Boolean).slice(0, 8);
+  if (woerter.length === 0) return null;
+  return woerter.map((w) => `"${w.replace(/"/g, '""')}"*`).join(' ');
 }

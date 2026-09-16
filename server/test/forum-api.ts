@@ -249,6 +249,43 @@ async function main(): Promise<void> {
   check('geloeschter Beitrag nimmt keine Reaktion mehr ⇒ 409',
     (await frage(api, 'POST', `/forum/posts/${rPost}/reactions`, { kind: 'hail' })).res.status === 409);
 
+  // ── Suche (M6) ─────────────────────────────────────────────────────
+  angemeldet = 2;
+  const st = await frage(api, 'POST', '/forum/boards/voyages/threads',
+    { title: 'Langschiff', body: 'Wir suchen den Schmied von Haithabu.', characterId: 5 });
+  check('Suchthema angelegt ⇒ 201', st.res.status === 201);
+  const sThread = Number(json(st.res).threadId);
+  const sPost = Number(json(st.res).postId);
+
+  const fund = json((await frage(api, 'GET', '/forum/search?q=Haithabu')).res);
+  const treffer = fund.results as Array<Record<string, unknown>>;
+  check('Suche findet den Beitrag',
+    treffer.length === 1 && treffer[0]!.threadId === sThread && treffer[0]!.authorName === 'Bjorn');
+  check('Treffer nennt Thema, Brett und Ausschnitt',
+    treffer[0]!.title === 'Langschiff' && treffer[0]!.board === 'voyages'
+      && String(treffer[0]!.snippet).includes('Haithabu'));
+
+  const praefix = json((await frage(api, 'GET', '/forum/search?q=schmie')).res)
+    .results as Array<Record<string, unknown>>;
+  // „Beim Schmied." aus dem ersten Thema ist hier noch vorhanden — gesucht
+  // wird der Praefix, also muss der neue Beitrag DARUNTER sein.
+  check('Praefix findet „Schmied"', praefix.some((h) => h.threadId === sThread));
+
+  const nichts = json((await frage(api, 'GET', '/forum/search?q=GibtEsNicht')).res).results as unknown[];
+  check('kein Treffer ⇒ leere Liste', nichts.length === 0);
+
+  const leereSuche = json((await frage(api, 'GET', '/forum/search?q=')).res);
+  check('leere Anfrage ⇒ leere Liste, Seite 1',
+    (leereSuche.results as unknown[]).length === 0 && leereSuche.page === 1);
+
+  const stoerend = await frage(api, 'GET', `/forum/search?q=${encodeURIComponent('" - *')}`);
+  check('FTS-Sonderzeichen zerlegen die Abfrage nicht ⇒ 200', stoerend.res.status === 200);
+
+  angemeldet = 2;
+  await frage(api, 'DELETE', `/forum/posts/${sPost}`);
+  const nachSuchWeg = json((await frage(api, 'GET', '/forum/search?q=Haithabu')).res).results as unknown[];
+  check('geloeschter Beitrag faellt aus der Suche', nachSuchWeg.length === 0);
+
   // ── Moderation (M5) ────────────────────────────────────────────────
   angemeldet = 1;
   moderator = false;

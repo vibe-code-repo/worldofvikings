@@ -138,6 +138,38 @@ export async function ladeThemaSeite(
   };
 }
 
+/** Ein Suchtreffer, wie die Suchseite ihn braucht. */
+export interface SuchTreffer {
+  postId: number;
+  threadId: number;
+  board: string;
+  title: string;
+  authorName: string;
+  createdAt: number;
+  snippet: string;
+}
+
+export async function ladeSuche(
+  fetch: Fetcher,
+  q: string,
+  seite: number,
+): Promise<Ergebnis<{ results: SuchTreffer[]; page: number; pageCount: number; total: number }>> {
+  const r = await hole<{ results?: unknown; page?: unknown; pageCount?: unknown; total?: unknown }>(
+    fetch,
+    `/forum/search?q=${encodeURIComponent(q)}&page=${seite}`,
+  );
+  if (!r.ok) return r;
+  return {
+    ok: true,
+    data: {
+      results: Array.isArray(r.data.results) ? (r.data.results as SuchTreffer[]) : [],
+      page: zahlOder(r.data.page, 1),
+      pageCount: zahlOder(r.data.pageCount, 1),
+      total: zahlOder(r.data.total, 0),
+    },
+  };
+}
+
 /** Zahl oder Vorgabe — schuetzt die Seite vor einer Ueberraschung an der Grenze. */
 function zahlOder(v: unknown, vorgabe: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : vorgabe;

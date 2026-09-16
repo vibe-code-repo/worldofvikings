@@ -402,6 +402,14 @@ export const de = {
   'thing.reactions.hail': 'Beifall',
   'thing.reactions.laugh': 'Gelächter',
   'thing.reactions.mourn': 'Klage',
+  /* Suche (M6). */
+  'thing.search.heading': 'Suche im Thing',
+  'thing.search.placeholder': 'Wort oder Satzteil …',
+  'thing.search.button': 'Suchen',
+  'thing.search.for': 'Suche nach',
+  'thing.search.hits': 'Treffer',
+  'thing.search.empty': 'Keine Treffer.',
+  'thing.search.in': 'in',
   /* Forum M5: melden und moderieren. */
   'thing.mod.report': 'Melden',
   'thing.mod.report_prompt': 'Grund der Meldung (optional):',

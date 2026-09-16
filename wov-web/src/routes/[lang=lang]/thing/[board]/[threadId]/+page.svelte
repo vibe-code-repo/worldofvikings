@@ -1,6 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
+  import ForumBeitrag from '$lib/ForumBeitrag.svelte';
+  import ForumSchreiben from '$lib/ForumSchreiben.svelte';
   import { localeFrom, messages, type MessageKey } from '$lib/i18n';
   import { datumZeit } from '$lib/formate';
   import type { PageData } from './$types';
@@ -12,7 +14,8 @@
 
   const iso = (ms: number) => new Date(ms).toISOString();
   const brettName = (slug: string) => t[`thing.boards.${slug}.name` as MessageKey];
-  const seiteUrl = (n: number) => `/${lang}/thing/${data.thread?.board ?? ''}/${data.thread?.id ?? ''}?page=${n}`;
+  const seiteUrl = (n: number) =>
+    `/${lang}/thing/${data.thread?.board ?? ''}/${data.thread?.id ?? ''}?page=${n}`;
 </script>
 
 {#if data.thread}
@@ -29,23 +32,7 @@
     </p>
 
     {#each data.posts as post (post.id)}
-      <article class="beitrag">
-        <header>
-          <span class="autor">{post.authorName}</span>
-          <span class="zeit">{datumZeit(iso(post.createdAt), lang)}</span>
-          {#if post.editedAt}<span class="bearbeitet">{t['thing.post.edited']}</span>{/if}
-        </header>
-        {#if post.deletedAt}
-          <p class="entfernt">{t['thing.post.deleted']}</p>
-        {:else}
-          <!--
-            `{@html}` ist hier zulaessig: Die Zeichenkette stammt aus
-            `renderMarkdown` (markdown-it, `html: false`, sichere Link- und
-            Bild-Attribute) und wird serverseitig erzeugt.
-          -->
-          <div class="inhalt">{@html post.html}</div>
-        {/if}
-      </article>
+      <ForumBeitrag {post} />
     {/each}
 
     {#if data.pageCount > 1}
@@ -60,6 +47,12 @@
           <a href={seiteUrl(data.page + 1)}>{t['thing.pager.next']}</a>
         {:else}<span></span>{/if}
       </nav>
+    {/if}
+
+    {#if data.thread.locked}
+      <div class="hinweis">{t['thing.thread.locked']}</div>
+    {:else}
+      <ForumSchreiben modus="antwort" threadId={data.thread.id} />
     {/if}
   </main>
 {:else}
@@ -95,80 +88,6 @@
     margin: 0 0 1.4rem;
     color: var(--umriss);
     font-size: 14px;
-  }
-
-  .beitrag {
-    margin-bottom: 1.1rem;
-    padding: 0.9rem 1.1rem;
-    border: 1px solid var(--umriss);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-  .beitrag header {
-    display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    margin-bottom: 0.5rem;
-  }
-  .autor {
-    color: var(--primaer);
-    font-weight: 600;
-  }
-  .zeit {
-    color: var(--umriss);
-    font-size: 13px;
-  }
-  .bearbeitet {
-    margin-left: auto;
-    color: var(--umriss);
-    font-size: 12px;
-    font-style: italic;
-  }
-
-  /* Der gerenderte Markdown-Inhalt. */
-  .inhalt {
-    color: var(--text);
-    line-height: 1.65;
-    overflow-wrap: anywhere;
-  }
-  .inhalt :global(p) {
-    margin: 0 0 0.7rem;
-  }
-  .inhalt :global(p:last-child) {
-    margin-bottom: 0;
-  }
-  .inhalt :global(a) {
-    color: var(--primaer);
-  }
-  .inhalt :global(code) {
-    font-family: ui-monospace, monospace;
-    font-size: 0.92em;
-    background: rgba(255, 255, 255, 0.06);
-    padding: 0.05em 0.3em;
-    border-radius: 4px;
-  }
-  .inhalt :global(pre) {
-    overflow-x: auto;
-    padding: 0.7rem 0.9rem;
-    background: rgba(0, 0, 0, 0.25);
-    border-radius: 6px;
-  }
-  .inhalt :global(blockquote) {
-    margin: 0.6rem 0;
-    padding-left: 0.8rem;
-    border-left: 3px solid var(--umriss);
-    color: var(--text-matt);
-  }
-  .inhalt :global(img) {
-    max-width: 100%;
-    height: auto;
-    border-radius: 6px;
-  }
-
-  .entfernt {
-    margin: 0;
-    color: var(--umriss);
-    font-style: italic;
   }
 
   .pager {

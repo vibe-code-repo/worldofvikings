@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
+  import ForumSchreiben from '$lib/ForumSchreiben.svelte';
   import { localeFrom, messages, type MessageKey } from '$lib/i18n';
   import { datumKurz, vorWieLange } from '$lib/formate';
   import type { PageData } from './$types';
@@ -30,52 +31,56 @@
 
   {#if !data.erreichbar}
     <div class="hinweis"><b>{t['thing.unreachable']}</b></div>
-  {:else if data.threads.length === 0}
-    <div class="hinweis">{t['thing.board.empty']}</div>
   {:else}
-    <div class="tafel tafel-tabelle">
-      <div class="rollbar">
-        <table class="tabelle">
-          <thead>
-            <tr>
-              <th>{t['thing.threads.table.thread']}</th>
-              <th class="zahl">{t['thing.threads.table.replies']}</th>
-              <th class="zahl">{t['thing.threads.table.last']}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each data.threads as thema (thema.id)}
+    {#if data.threads.length === 0}
+      <div class="hinweis">{t['thing.board.empty']}</div>
+    {:else}
+      <div class="tafel tafel-tabelle">
+        <div class="rollbar">
+          <table class="tabelle">
+            <thead>
               <tr>
-                <td class="thread">
-                  <a class="thread-titel" href={themenUrl(thema.id)}>{thema.title}</a>
-                  {#if thema.pinned}<span class="marke">{t['thing.thread.pinned']}</span>{/if}
-                  {#if thema.locked}<span class="marke">{t['thing.thread.locked']}</span>{/if}
-                  <span class="meta">
-                    {t['thing.threads.opened_by']} {thema.authorName} · {datumKurz(iso(thema.createdAt), lang)}
-                  </span>
-                </td>
-                <td class="zahl">{Math.max(0, thema.postCount - 1)}</td>
-                <td class="zahl">{vorWieLange(iso(thema.lastPostAt), lang)}</td>
+                <th>{t['thing.threads.table.thread']}</th>
+                <th class="zahl">{t['thing.threads.table.replies']}</th>
+                <th class="zahl">{t['thing.threads.table.last']}</th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {#each data.threads as thema (thema.id)}
+                <tr>
+                  <td class="thread">
+                    <a class="thread-titel" href={themenUrl(thema.id)}>{thema.title}</a>
+                    {#if thema.pinned}<span class="marke">{t['thing.thread.pinned']}</span>{/if}
+                    {#if thema.locked}<span class="marke">{t['thing.thread.locked']}</span>{/if}
+                    <span class="meta">
+                      {t['thing.threads.opened_by']} {thema.authorName} · {datumKurz(iso(thema.createdAt), lang)}
+                    </span>
+                  </td>
+                  <td class="zahl">{Math.max(0, thema.postCount - 1)}</td>
+                  <td class="zahl">{vorWieLange(iso(thema.lastPostAt), lang)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
 
-    {#if data.pageCount > 1}
-      <nav class="pager" aria-label="Seiten">
-        {#if data.page > 1}
-          <a href={seiteUrl(data.page - 1)}>{t['thing.pager.prev']}</a>
-        {:else}<span></span>{/if}
-        <span class="pager-stand">
-          {t['thing.pager.page']} {data.page} {t['thing.pager.of']} {data.pageCount}
-        </span>
-        {#if data.page < data.pageCount}
-          <a href={seiteUrl(data.page + 1)}>{t['thing.pager.next']}</a>
-        {:else}<span></span>{/if}
-      </nav>
+      {#if data.pageCount > 1}
+        <nav class="pager" aria-label="Seiten">
+          {#if data.page > 1}
+            <a href={seiteUrl(data.page - 1)}>{t['thing.pager.prev']}</a>
+          {:else}<span></span>{/if}
+          <span class="pager-stand">
+            {t['thing.pager.page']} {data.page} {t['thing.pager.of']} {data.pageCount}
+          </span>
+          {#if data.page < data.pageCount}
+            <a href={seiteUrl(data.page + 1)}>{t['thing.pager.next']}</a>
+          {:else}<span></span>{/if}
+        </nav>
+      {/if}
     {/if}
+
+    <ForumSchreiben modus="thema" brett={data.board} />
   {/if}
 </main>
 

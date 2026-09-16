@@ -110,6 +110,10 @@ export type KanonischerPfad = OhneSprachpraefix<RouteId>;
 export const SLUGS = {
   '/saga': { de: 'saga', en: 'saga' },
   '/thing': { de: 'thing', en: 'thing' },
+  /* Die interne Meldungsliste (Moderation) — gleicher Slug in beiden
+     Sprachen; sie steht in keiner Navigation, wird aber wie jede Seite unter
+     `[lang=lang]/` hier geführt. */
+  '/thing/meldungen': { de: 'thing/meldungen', en: 'thing/meldungen' },
   /* Same word in both languages, like `saga` and `thing` — a German
      `/de/wissen` against an English `/en/wiki` would be two names for one
      page where the English one is already the German one too. */

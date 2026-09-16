@@ -9,6 +9,7 @@
     eigenesKonto,
     fehlerSchluessel,
     loescheBeitrag,
+    melde,
   } from '$lib/forumClient';
 
   /*
@@ -37,14 +38,17 @@
   const iso = (ms: number) => new Date(ms).toISOString();
 
   let meiner = $state(false);
+  let angemeldet = $state(false);
+  let meldung = $state('');
   let bearbeiten = $state(false);
   let entwurf = $state('');
   let busy = $state(false);
   let fehler = $state('');
 
   onMount(async () => {
-    if (post.authorCharacterId === null) return;
     const konto = await eigenesKonto();
+    angemeldet = konto.angemeldet;
+    if (post.authorCharacterId === null) return;
     meiner = konto.charaktere.some((c) => c.id === post.authorCharacterId);
   });
 
@@ -83,6 +87,24 @@
       busy = false;
     }
   }
+
+  /** Eine Meldung: eine Nachricht an die Moderation, keine Handlung. */
+  async function melden(): Promise<void> {
+    if (busy) return;
+    const grund = typeof window !== 'undefined'
+      ? (window.prompt(t['thing.mod.report_prompt']) ?? '')
+      : '';
+    fehler = '';
+    busy = true;
+    try {
+      await melde(post.id, grund);
+      meldung = t['thing.mod.reported'];
+    } catch (err) {
+      fehler = t[fehlerSchluessel(err)];
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <article class="beitrag">
@@ -114,10 +136,15 @@
     <div class="inhalt">{@html post.html}</div>
   {/if}
 
-  {#if meiner && !post.deletedAt && !bearbeiten}
+  {#if !post.deletedAt && !bearbeiten}
     <div class="werkzeuge">
-      <button type="button" class="werkzeug" onclick={oeffneBearbeiten}>{t['thing.write.edit']}</button>
-      <button type="button" class="werkzeug" onclick={loeschen} disabled={busy}>{t['thing.write.delete']}</button>
+      {#if meiner}
+        <button type="button" class="werkzeug" onclick={oeffneBearbeiten}>{t['thing.write.edit']}</button>
+        <button type="button" class="werkzeug" onclick={loeschen} disabled={busy}>{t['thing.write.delete']}</button>
+      {:else if angemeldet}
+        <button type="button" class="werkzeug" onclick={melden} disabled={busy}>{t['thing.mod.report']}</button>
+      {/if}
+      {#if meldung}<span class="gemeldet">{meldung}</span>{/if}
     </div>
   {/if}
 </article>
@@ -228,5 +255,9 @@
   .fehler {
     margin: 0.4rem 0 0;
     color: #e39a8f;
+  }
+  .gemeldet {
+    color: var(--text-matt);
+    font-size: 13px;
   }
 </style>

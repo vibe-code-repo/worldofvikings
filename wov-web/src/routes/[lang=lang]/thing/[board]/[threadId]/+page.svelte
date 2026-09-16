@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import ForumBeitrag from '$lib/ForumBeitrag.svelte';
+  import ForumModeration from '$lib/ForumModeration.svelte';
   import ForumSchreiben from '$lib/ForumSchreiben.svelte';
   import { localeFrom, messages, type MessageKey } from '$lib/i18n';
   import { datumZeit } from '$lib/formate';
@@ -30,6 +31,8 @@
     <p class="meta-kopf">
       {t['thing.threads.opened_by']} {data.thread.authorName} · {datumZeit(iso(data.thread.createdAt), lang)}
     </p>
+
+    <ForumModeration thread={data.thread} />
 
     {#each data.posts as post (post.id)}
       <ForumBeitrag {post} />

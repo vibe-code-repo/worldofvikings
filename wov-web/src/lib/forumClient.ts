@@ -94,6 +94,45 @@ export function loescheBeitrag(postId: number): Promise<{ ok: true }> {
   return sende(`/posts/${postId}`, 'DELETE');
 }
 
+// ── Melden und Moderieren (M5) ────────────────────────────────────────
+
+export function melde(postId: number, reason: string): Promise<{ reportId: number }> {
+  return sende(`/posts/${postId}/report`, 'POST', { reason });
+}
+
+export function holeModerator(): Promise<{ moderator: boolean }> {
+  return sende('/moderator', 'GET');
+}
+
+export function threadSchalter(
+  threadId: number,
+  art: 'pin' | 'lock',
+  wert: boolean,
+): Promise<{ ok: true }> {
+  return sende(`/threads/${threadId}/${art}`, 'POST', { value: wert });
+}
+
+/** Eine offene Meldung, wie `GET /forum/reports` sie liefert. */
+export interface Meldung {
+  id: number;
+  postId: number;
+  threadId: number;
+  board: string;
+  threadTitle: string;
+  authorName: string;
+  bodyMd: string;
+  grund: string;
+  createdAt: number;
+}
+
+export function holeMeldungen(): Promise<{ reports: Meldung[] }> {
+  return sende('/reports', 'GET');
+}
+
+export function erledigeMeldung(id: number): Promise<{ ok: true }> {
+  return sende(`/reports/${id}/resolve`, 'POST');
+}
+
 /** Charaktere des angemeldeten Kontos — einmal je Sitzung geladen, dann gemerkt. */
 export interface EigenesKonto {
   angemeldet: boolean;

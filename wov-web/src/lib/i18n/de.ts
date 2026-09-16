@@ -630,6 +630,10 @@ export const de = {
   'account.page.logged_in_as': 'Angemeldet als',
   'account.page.email': 'E-Mail',
   'account.page.empty': 'Auf diesem Server steht noch kein Recke. Erschaffe den ersten.',
+  'account.avatar.label': 'Avatar',
+  'account.avatar.hint':
+    'Dein Avatar ist der Recke, der dich im Thing und später im Spiel nach aussen vertritt.',
+  'account.avatar.none': 'Kein Avatar',
   'account.page.created': 'erschaffen am',
   'account.page.last_seen': 'zuletzt auf Fahrt',
   'account.page.never_sailed': 'noch nie auf Fahrt',

@@ -571,6 +571,10 @@ export const en: Messages = {
   'account.page.logged_in_as': 'Signed in as',
   'account.page.email': 'E-mail',
   'account.page.empty': 'No hero stands on this server yet. Create the first one.',
+  'account.avatar.label': 'Avatar',
+  'account.avatar.hint':
+    'Your avatar is the hero who represents you in the Thing and, later, in the game.',
+  'account.avatar.none': 'No avatar',
   'account.page.created': 'created on',
   'account.page.last_seen': 'last voyage',
   'account.page.never_sailed': 'never sailed',

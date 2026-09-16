@@ -213,6 +213,8 @@ export interface AuthResponse {
 export interface Me {
   account: Account;
   characters: Character[];
+  /** Konto-Avatar (Charakter-Id) oder null — Das Thing, M4. */
+  avatar?: number | null;
 }
 
 export interface Ticket {
@@ -655,7 +657,21 @@ export function login(shore: ShoreId, username: string, password: string): Promi
 }
 
 export function me(shore: ShoreId, token: string): Promise<Me> {
-  return call<Me>(shore, '/accounts/me', { method: 'GET', token });
+  return call(shore, '/accounts/me', { method: 'GET', token });
+}
+
+/**
+ * Setzt den Konto-Avatar (Das Thing, M4). `null` loescht die Wahl.
+ *
+ * Der Server prueft, dass der Charakter dem Konto gehoert; ein fremder
+ * Charakter ergibt 404, kein stilles Uebernehmen.
+ */
+export function setAvatar(
+  shore: ShoreId,
+  token: string,
+  characterId: number | null,
+): Promise<{ avatar: number | null }> {
+  return call(shore, '/accounts/avatar', { method: 'POST', token, body: { characterId } });
 }
 
 export function createCharacter(

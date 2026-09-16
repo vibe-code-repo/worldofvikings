@@ -35,8 +35,7 @@
 
   {#if !data.erreichbar}
     <div class="hinweis">
-      <b>Der Forendienst ist gerade nicht erreichbar.</b>
-      Die Bretter werden geladen, sobald der Spielserver wieder antwortet.
+      <b>{t['thing.unreachable']}</b>
     </div>
   {:else}
     <div class="tafel tafel-tabelle boards">

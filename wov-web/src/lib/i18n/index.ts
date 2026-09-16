@@ -90,7 +90,19 @@ export function messages(l: Locale): Messages {
  * did not, the prerender entries in `svelte.config.js` would fail the build
  * with a 404. Nothing about this is silent — that is on purpose.
  */
-type OhneSprachpraefix<R> = R extends `/[lang=lang]/${infer P}` ? `/${P}` : never;
+type OhneSprachpraefix<R> = R extends `/[lang=lang]/${infer P}`
+  ? P extends `${string}[${string}`
+    ? never
+    : `/${P}`
+  : never;
+
+/**
+ * Die dynamischen Unterrouten (z. B. `/thing/[board]`, `/thing/[board]/[threadId]`)
+ * sind hier ABSICHTLICH ausgenommen: Sie tragen keinen eigenen
+ * veroeffentlichten Slug, sondern erben den Pfad ihrer Elterseite. Stuenden
+ * sie in `KanonischerPfad`, verlangte `SLUGS` fuer jede von ihnen eine
+ * Zeile — eine Uebersetzung, die es gar nicht gibt.
+ */
 
 /** Every page under `[lang=lang]/`, by its canonical (German) folder name. */
 export type KanonischerPfad = OhneSprachpraefix<RouteId>;

@@ -15,8 +15,12 @@
     "ohne-js": "bash tools/ohne-js-pruefen.sh",
     "ausrollen": "bash tools/ausrollen.sh"
   },
+  "dependencies": {
+    "markdown-it": "^14.1.0"
+  },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",
+    "@types/markdown-it": "^14.1.2",
     "@sveltejs/kit": "^2.70.3",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "svelte": "^5.57.0",

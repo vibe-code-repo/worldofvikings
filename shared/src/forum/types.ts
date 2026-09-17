@@ -191,6 +191,8 @@ export interface ForumNotification {
   readonly id: number;
   readonly kind: NotificationKind;
   readonly threadId: number;
+  /** Brett des Themas — als Kopie, damit der Link ohne zweiten Blick geht. */
+  readonly board: BoardSlug;
   readonly postId: number;
   /** Name des Charakters, der geschrieben hat (Kopie, wie im Beitrag). */
   readonly fromName: string;

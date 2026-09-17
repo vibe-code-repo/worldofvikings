@@ -168,6 +168,7 @@ export class ForumDatabase {
         konto_id   INTEGER NOT NULL,
         art        TEXT NOT NULL,
         thread_id  INTEGER NOT NULL,
+        board      TEXT NOT NULL,
         post_id    INTEGER NOT NULL,
         from_name  TEXT NOT NULL,
         excerpt    TEXT NOT NULL,
@@ -615,6 +616,7 @@ export class ForumDatabase {
     kontoId: number,
     art: NotificationKind,
     threadId: number,
+    board: BoardSlug,
     postId: number,
     fromName: string,
     excerpt: string,
@@ -622,9 +624,9 @@ export class ForumDatabase {
   ): number {
     const r = this.db
       .prepare(`INSERT INTO notifications
-        (konto_id, art, thread_id, post_id, from_name, excerpt, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(kontoId, art, threadId, postId, fromName, excerpt, now);
+        (konto_id, art, thread_id, board, post_id, from_name, excerpt, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(kontoId, art, threadId, board, postId, fromName, excerpt, now);
     return Number(r.lastInsertRowid);
   }
 
@@ -638,6 +640,7 @@ export class ForumDatabase {
       id: Number(z.id),
       kind: String(z.art) as NotificationKind,
       threadId: Number(z.thread_id),
+      board: isBoardSlug(String(z.board)) ? (String(z.board) as BoardSlug) : BOARD_SLUGS[0],
       postId: Number(z.post_id),
       fromName: String(z.from_name),
       excerpt: String(z.excerpt),

@@ -381,6 +381,15 @@ export const en: Messages = {
   'thing.search.hits': 'hits',
   'thing.search.empty': 'No hits.',
   'thing.search.in': 'in',
+  /* Following and notifications (M6). */
+  'thing.follow.on': 'Follow this thread',
+  'thing.follow.off': 'Stop following',
+  'thing.notifications.bell': 'Notifications',
+  'thing.notifications.heading': 'Notifications',
+  'thing.notifications.empty': 'Nothing new.',
+  'thing.notifications.reply': 'replied',
+  'thing.notifications.mention': 'mentioned you',
+  'thing.notifications.all_read': 'Mark all as read',
   /* Forum M5: reporting and moderating. */
   'thing.mod.report': 'Report',
   'thing.mod.report_prompt': 'Reason (optional):',

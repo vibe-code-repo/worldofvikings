@@ -13,7 +13,7 @@
  * carrying the account token in `x-wov-account`.
  */
 import { me, readToken, signedInShore } from './account';
-import type { ReactionCount, ReactionKind } from '@wov/shared';
+import type { ForumNotification, ReactionCount, ReactionKind } from '@wov/shared';
 import type { MessageKey } from './i18n';
 
 const BASIS = '/api/forum';
@@ -185,6 +185,28 @@ export function holeThemenReaktionen(
     });
   reaktionsCache.set(threadId, p);
   return p;
+}
+
+// ── Abos und Benachrichtigungen ───────────────────────────────────────
+
+export function aboStatus(threadId: number): Promise<{ subscribed: boolean }> {
+  return sende(`/threads/${threadId}/subscribe`, 'GET');
+}
+
+export function aboSchalter(threadId: number, value: boolean): Promise<{ subscribed: boolean }> {
+  return sende(`/threads/${threadId}/subscribe`, 'POST', { value });
+}
+
+export function holeBenachrichtigungen(): Promise<{
+  notifications: ForumNotification[];
+  unread: number;
+}> {
+  return sende('/notifications', 'GET');
+}
+
+/** `upTo` fehlt = alles als gelesen markieren. */
+export function leseBenachrichtigungen(upTo?: number): Promise<{ unread: number }> {
+  return sende('/notifications/read', 'POST', upTo === undefined ? {} : { upTo });
 }
 
 /** Charaktere des angemeldeten Kontos — einmal je Sitzung geladen, dann gemerkt. */

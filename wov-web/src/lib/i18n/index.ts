@@ -116,6 +116,8 @@ export const SLUGS = {
   '/thing/meldungen': { de: 'thing/meldungen', en: 'thing/meldungen' },
   /* Die Suche — eigener Slug je Sprache, weil sie in der Navigation steht. */
   '/thing/suche': { de: 'thing/suche', en: 'thing/search' },
+  /* Die Benachrichtigungen — die Glocke fuehrt hierher. */
+  '/thing/benachrichtigungen': { de: 'thing/benachrichtigungen', en: 'thing/notifications' },
   /* Same word in both languages, like `saga` and `thing` — a German
      `/de/wissen` against an English `/en/wiki` would be two names for one
      page where the English one is already the German one too. */

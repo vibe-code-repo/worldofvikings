@@ -410,6 +410,15 @@ export const de = {
   'thing.search.hits': 'Treffer',
   'thing.search.empty': 'Keine Treffer.',
   'thing.search.in': 'in',
+  /* Folgen und Benachrichtigungen (M6). */
+  'thing.follow.on': 'Diesem Thema folgen',
+  'thing.follow.off': 'Nicht mehr folgen',
+  'thing.notifications.bell': 'Benachrichtigungen',
+  'thing.notifications.heading': 'Benachrichtigungen',
+  'thing.notifications.empty': 'Nichts Neues.',
+  'thing.notifications.reply': 'hat geantwortet',
+  'thing.notifications.mention': 'hat dich erwähnt',
+  'thing.notifications.all_read': 'Alle als gelesen',
   /* Forum M5: melden und moderieren. */
   'thing.mod.report': 'Melden',
   'thing.mod.report_prompt': 'Grund der Meldung (optional):',

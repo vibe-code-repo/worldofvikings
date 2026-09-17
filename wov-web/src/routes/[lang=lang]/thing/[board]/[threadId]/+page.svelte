@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import ForumBeitrag from '$lib/ForumBeitrag.svelte';
+  import ForumAbo from '$lib/ForumAbo.svelte';
   import ForumModeration from '$lib/ForumModeration.svelte';
   import ForumSchreiben from '$lib/ForumSchreiben.svelte';
   import { localeFrom, messages, type MessageKey } from '$lib/i18n';
@@ -33,6 +34,7 @@
     </p>
 
     <ForumModeration thread={data.thread} />
+    <ForumAbo threadId={data.thread.id} />
 
     {#each data.posts as post (post.id)}
       <ForumBeitrag {post} />

@@ -30,6 +30,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
+  BOARD_SLUGS,
   FORUM_PAGE_SIZE,
   POST_BODY_MAX,
   POST_BODY_MIN,
@@ -206,15 +207,16 @@ export class ForumApi {
   ): void {
     // `-1` als „schon erledigt": Diese Konto-Id gibt es nicht.
     const fertig = new Set<number>([autor.kontoId ?? -1]);
+    const board = this.db.threadById(threadId)?.board ?? BOARD_SLUGS[0];
     for (const kontoId of this.db.abonnenten(threadId)) {
       if (fertig.has(kontoId)) continue;
-      this.db.benachrichtigungAnlegen(kontoId, 'reply', threadId, postId, autor.name, auszug(body), now);
+      this.db.benachrichtigungAnlegen(kontoId, 'reply', threadId, board, postId, autor.name, auszug(body), now);
       fertig.add(kontoId);
     }
     for (const name of erwaehnungen(body)) {
       const kontoId = this.kontoNachName(name);
       if (kontoId === null || fertig.has(kontoId)) continue;
-      this.db.benachrichtigungAnlegen(kontoId, 'mention', threadId, postId, autor.name, auszug(body), now);
+      this.db.benachrichtigungAnlegen(kontoId, 'mention', threadId, board, postId, autor.name, auszug(body), now);
       fertig.add(kontoId);
     }
   }

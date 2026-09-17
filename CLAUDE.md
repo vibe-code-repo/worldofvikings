@@ -1,91 +1,15 @@
-# World of Vikings — Arbeitsregeln fuer dieses Repo
+# CLAUDE.md
 
-## Die Entwicklung findet auf Englisch statt
+The working rules for this repository live in **[`AGENTS.md`](AGENTS.md)**. Read
+that file first; it applies to every session, human or agent.
 
-Neuer Quelltext, Bezeichner, Kommentare und Dokumentation IM REPO werden
-englisch geschrieben. Das Repo liegt oeffentlich auf GitHub, und Englisch
-ist dort die Verkehrssprache.
+This file only exists as a pointer, so that a session which looks for
+`CLAUDE.md` alone still finds the contract. **New rules go into `AGENTS.md`, not
+here.**
 
-**Der Altbestand ist deutsch und bleibt es.** Bezeichner wie
-`figurKnoten` oder `ueberaufloesung`, die deutschen Kommentare und
-`Docs/` stammen aus der Zeit davor. Die Regel gilt ab dem 23.08.2026 und
-NICHT rueckwirkend -- eine Uebersetzung des Bestands waere ein eigenes
-Vorhaben. Wer neue Zeilen in eine deutsche Datei schreibt, moege sich am
-umgebenden Stil orientieren, statt eine Datei halb umzustellen.
+The German version of these rules as it stood until 2026-09-17 (commit
+`e6c4446`) remains in the git history:
 
-**Englisch heisst ALLES, was wir schreiben** -- nicht nur Kommentare:
-Bezeichner, CSS-Klassennamen, i18n-Schluessel, Dateinamen, Testdaten und
-erfundene Beispielnamen. Am 24.08.2026 fiel es an einem Testrecken namens
-`ReckeWeb39108` auf: Der englische Begriff ist `character`, und was fuer
-den Quelltext gilt, gilt auch fuer den Namen, den ein Testskript wuerfelt.
-
-Das SPIELWELT-VOKABULAR der sichtbaren Texte ist davon nicht betroffen.
-Auf der deutschen Seite heissen Spielfiguren weiter „Recken", die Karte
-„Die Karte" und das Forum „Das Thing" -- das ist die Uebersetzung, nicht
-der Code. Nur der Schluessel darueber ist englisch.
-
-## Commit-Nachrichten: Englisch, darunter eine deutsche Uebersetzung
-
+```bash
+git show e6c4446:CLAUDE.md
 ```
-Editor: one click places ONE island -- the shape tool ends after it
-
-Why ... (the reasoning, not a list of the diff)
-
---- Deutsche Übersetzung ---
-
-Editor: Ein Klick setzt EINE Insel -- Formen-Werkzeug endet danach
-
-Warum ... (die Begruendung)
-```
-
-Die erste Zeile ist der ENGLISCHE Betreff -- das ist, was
-`git log --oneline` zeigt.
-
-**Warum trotzdem deutsch dazu:** Die Commit-Texte dieses Projekts sind
-ungewoehnlich ausfuehrlich und tragen die Begruendung; sie sind
-Dokumentation, nicht nur Etikett. Sie sollen auch auf Deutsch lesbar
-bleiben.
-
-**Stil:** die Wirkung nennen, nicht die Datei. „Editor: one click places
-ONE island" ist besser als „update SpawnPanel.ts". Der Fliesstext traegt
-die BEGRUENDUNG -- warum so und nicht anders, was gemessen wurde, was
-offen bleibt. Rueckverweise auf Roadmap-Kennungen (`F17`, `G7`,
-`Review 11/12/27`) gehoeren dazu, wo es sie gibt.
-
-Projekteigene Begriffe ohne sinnvolle Uebersetzung bleiben stehen:
-Dateinamen, die `__vb`-Haken, `wov-web`, die Roadmap-Kennungen.
-
-## Zeilenenden: nicht plattmachen
-
-105 der 544 versionierten Dateien tragen noch **CRLF** aus dem
-urspruenglichen Windows-Import; eine `.gitattributes`, die das
-vereinheitlicht, gibt es nicht.
-
-Pythons `pathlib.read_text()` wandelt CRLF beim Lesen still in LF um und
-`write_text()` schreibt LF zurueck. Ein Skript ueber viele Dateien macht
-daraus unbeabsichtigt einen Diff ueber die GANZEN Dateien. Deshalb binaer
-lesen und schreiben (`read_bytes`/`write_bytes`) oder
-`open(..., newline='')`.
-
-Gegenprobe: Steht in `git diff --shortstat` ein Vielfaches der erwarteten
-Zeilenzahl, sind es die Zeilenenden.
-
-## Nur auf DEV arbeiten
-
-Aenderungen entstehen immer auf `wov-dev` (CT 102, SSH-Alias `wov-bau`).
-Nie direkt auf `wov-live` — dorthin kommt Code ueber `git pull` bzw.
-`tools/wov-update.sh`.
-
-## Vor dem Schreiben Aenderungszeiten pruefen
-
-An diesem Repo arbeiten mehrere Sitzungen parallel, und es wird selten
-committet. Vor dem ersten Schreiben in eine Datei `stat` oder
-`git status` ansehen: Ein Ueberschreiben fremder, nicht committeter
-Arbeit ist endgueltig.
-
-## Die Webseite liegt in `wov-web/`
-
-Eigenes npm-Projekt im selben Repo, **bewusst kein Workspace** — sonst
-zoege `npm ci` an der Wurzel SvelteKit und Vite auf jeden Container, auch
-auf den reinen Spielserver. Sie bringt eigene `node_modules` und einen
-eigenen Lockfile mit. Ausgerollt wird mit `wov-web/tools/ausrollen.sh`.

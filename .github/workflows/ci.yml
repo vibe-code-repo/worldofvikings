@@ -3,6 +3,10 @@ name: CI
 on:
   push:
   pull_request:
+  # merge_group ist noch nicht in Gebrauch (keine Merge Queue bei diesem
+  # Volumen), steht aber schon hier, damit die Umstellung spaeter nur eine
+  # Einstellung im Ruleset ist und kein zweiter CI-Umbau.
+  merge_group:
 
 jobs:
   build:
@@ -36,3 +40,10 @@ jobs:
       - run: npm test
         env:
           WOV_OHNE_MODELLE: "1"
+
+      # Das Bauen war bisher nicht Teil der Pruefung, obwohl es der Schritt
+      # ist, den DEV und LIVE spaeter fahren. Der Client-Build allein braucht
+      # hier rund 20 Sekunden -- billig genug, um Fehler zu finden, die
+      # typecheck und Tests nicht sehen (fehlende Importe im Bundle,
+      # Rollup-Aufloesung, tsc des shared-Pakets).
+      - run: npm run build

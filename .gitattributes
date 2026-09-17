@@ -1,0 +1,41 @@
+# Line endings are handled in a separate, announced change (see AGENTS.md,
+# section 6). A global `* text=auto eol=lf` is deliberately NOT set here yet:
+# it would renormalize every legacy CRLF file at once and invalidate all
+# branches open at that moment. Binary and generated files are marked below;
+# none of these rules rewrites a text file.
+
+# Binary: never diff as text, never convert.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.glb binary
+*.gltf binary
+*.fbx binary
+*.blend binary
+*.babylon binary
+*.ktx2 binary
+*.hdr binary
+*.exr binary
+*.zip binary
+*.gz binary
+*.7z binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+
+# Generated or vendored: keep them out of review noise. `linguist-generated`
+# collapses the file in the GitHub diff, it does not hide it.
+package-lock.json -diff linguist-generated
+shared/src/featurePiecesData.json linguist-generated
+shared/src/roomPiecesData.json linguist-generated
+shared/src/dungeonsData.json linguist-generated
+shared/src/prefabs.json linguist-generated
+wov-web/static/assets/js/vorschau.js linguist-generated

@@ -228,12 +228,14 @@ export interface ServerConfig {
    * je Gestade und bewusst NICHT in `kontenDir`: Foren- und Kontendaten
    * wachsen unabhaengig, und ein Forum darf neu aufgebaut werden, ohne ein
    * Passwort zu beruehren. Ein Test, der `worldsDir`/`kontenDir` umbiegt,
-   * muss `forumDir` genauso mitgeben — sonst schreibt er in den echten
-   * Ordner (dieselbe Falle wie bei `kontenDir`, s. dort).
+   * braucht `forumDir` NICHT mehr mitzugeben: Fehlt es, leitet der
+   * Konstruktor es als Geschwister von `kontenDir` ab — so landet auch
+   * der aelteste Test nicht im echten Ordner (s. Konstruktor).
    *
    * Why a field of its own instead of deriving it from kontenDir via '..':
    * same reason kontenDir is not derived from worldsDir. A test that
-   * redirects its data dirs must redirect this one too, loudly.
+   * redirects its data dirs no longer has to redirect this one too; the
+   * constructor fills it in as a sibling of kontenDir when it is missing.
    */
   forumDir: string;
   /**
@@ -561,7 +563,27 @@ export class WovServer {
   readonly serverUserId: bigint;
 
   constructor(config: Partial<ServerConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    /*
+      `forumDir` nachziehen, wenn nur `kontenDir` gesetzt wurde.
+
+      Die meisten Tests und Werkzeuge biegen `worldsDir`/`kontenDir` auf
+      ein eigenes tmp-Verzeichnis um — `forumDir` entstand aber erst mit
+      „Das Thing" (16.09.2026), also NACH diesen Aufrufen. Ohne diese
+      Zeile faellt jeder von ihnen auf die Vorgabe von `DEFAULT_CONFIG`
+      zurueck und legt seine Forendatenbank in den ECHTEN Ordner
+      `server/data/forum/` — genau das ist beim ersten vollen Testlauf
+      passiert und hinterliess Laufzeitdateien im Arbeitsbaum.
+
+      Die Ableitung ist dieselbe wie in `ServerKonfig`: `forum` als
+      Geschwister von `konten` unter dem Datenverzeichnis. main.ts setzt
+      `forumDir` weiterhin ausdruecklich; diese Zeile greift nur, wenn es
+      fehlt UND ein anderes Datenverzeichnis bekannt ist.
+    */
+    const ergaenzt: Partial<ServerConfig> =
+      config.forumDir === undefined && config.kontenDir !== undefined
+        ? { ...config, forumDir: resolve(config.kontenDir, '..', 'forum') }
+        : config;
+    this.config = { ...DEFAULT_CONFIG, ...ergaenzt };
     this.serverUserId = 1n; // Server is always user 1
 
     // Initialize subsystems

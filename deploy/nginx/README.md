@@ -4,6 +4,15 @@ Ein Ursprung fuer den Container wov-lab: nginx auf Port 80 verteilt an
 Webseite, Spiel-Client, Editor, beide APIs und die Assets — siehe den
 Kopfkommentar in `wov-lab.conf` fuer die Wegeliste und die Begruendungen.
 
+Seit „Das Thing" (16.09.2026) ist der Weg `/` KEIN statischer Ordner mehr:
+Die Webseite laeuft mit `adapter-node`, und nginx reicht `/` an
+`wov-web.service` (127.0.0.1:3000) weiter. Die gehashten Buendel
+(`/_app/immutable/`), die Web-Assets (`/assets/`) und die statischen Daten
+(`/api/*.json`) liegen weiter als Dateien unter `wov-web/build/client` und
+werden von nginx direkt ausgeliefert. Ohne laufenden `wov-web.service`
+antwortet `/` mit 502 — nach jedem `npm run build` also
+`systemctl restart wov-web` (tut `tools/wov-update.sh`).
+
 Nicht zu verwechseln mit `deploy/nginx-live.conf` (Container wov-live,
 zwei Hostnamen `play.*`/`editor.*`, statischer Client-Build, Kompression).
 Beide Dateien duerfen auseinanderlaufen — es sind zwei verschiedene
@@ -54,7 +63,6 @@ echte Konfiguration laufen (`nginx -t -c ...` bzw. ein Testcontainer) —
 keine zweite Wahrheit ueber die Regeln.
 
 `tools/test/nginx-wov-lab-pfade.ts` liest `wov-lab.conf` als Text und
-prueft, dass alle sieben Wege (`/`, `/play/`, `/editor/`, `/api/accounts/`,
-`/api/`, `/assets/`, `/ws`) je einen `location`-Block haben — ein
+prueft, dass alle erwarteten Wege je einen passenden Block haben — ein
 Textnachweis, kein Ersatz fuer den echten Server. Er steht in der
 KERN-Liste (`scripts/run-tests.mjs`, `npm test`).

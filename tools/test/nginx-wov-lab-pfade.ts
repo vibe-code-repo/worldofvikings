@@ -33,7 +33,10 @@ interface Erwartung {
 }
 
 const ERWARTUNGEN: Erwartung[] = [
-  { weg: '/ (Webseite)', muster: /location\s+\/\s*\{/ },
+  {
+    weg: '/ (Webseite, gerendert vom Node-Dienst)',
+    muster: /location\s+\/\s*\{[^}]*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
+  },
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
   { weg: '/api/*.json (statische Daten der Webseite)', muster: /location\s+~\s+\^\/api\/[^\n{]*\\\.json[^\n{]*\{/ },
@@ -41,9 +44,22 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: '/api/forum/ (Das Thing, Foren-API des Spielservers)', muster: /location\s+\/api\/forum\/\s*\{/ },
   { weg: '/accounts/ (Konten-API, bare, fuer den eingebauten Anmeldedialog)', muster: /location\s+\/accounts\/\s*\{/ },
   { weg: '/api/ (Betriebsdienst)', muster: /location\s+\/api\/\s*\{/ },
-  { weg: '/assets/ (Webseite: Schriften/Bilder, VOR den Spiel-Assets)', muster: /location\s+\/assets\/\s*\{[^}]*wov-web\/build\/assets\/[^}]*\}/ },
+  {
+    weg: '/assets/ (Webseite: Schriften/Bilder, VOR den Spiel-Assets)',
+    muster: /location\s+\/assets\/\s*\{[^}]*wov-web\/build\/client\/assets\/[^}]*\}/,
+  },
   { weg: '@spiel-assets (Fallback: Modelle/Texturen/Audio)', muster: /location\s+@spiel-assets\s*\{[^}]*\/opt\/worldofvikings\/assets\/[^}]*\}/ },
   { weg: '/ws (Spielserver-WebSocket)', muster: /location\s+\/ws\s*\{/ },
+  /*
+    Der statische Wurzelordner zeigt seit dem Node-Adapter auf
+    `build/client` (Buendel, Assets, /api/*.json) — nicht mehr auf `build`.
+    Faellt das zurueck, liefert nginx die Buendel aus dem falschen Ordner
+    und jede Seite steht ohne Stil da.
+  */
+  {
+    weg: 'root zeigt auf wov-web/build/client',
+    muster: /root\s+\/opt\/worldofvikings\/wov-web\/build\/client\s*;/,
+  },
   /*
     Seit `world-of-vikings.com` ohne Basic-Auth auf diesen Container zeigt
     (12.09.2026), haengt an drei Bloecken ein Riegel gegen den

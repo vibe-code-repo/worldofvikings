@@ -3,6 +3,7 @@
   import { HAUPTNAV, FAHRT, FAHRT_STAND } from './seiten';
   import { LOCALES, localeFrom, localizedPath, messages, stripLocale } from './i18n';
   import { ACCOUNT_EVENT, type ShoreId, readAccountName, signedInShore } from './account';
+  import ForumGlocke from './ForumGlocke.svelte';
 
   /**
    * Sprache und Texte kommen aus der Adresse, nicht aus einem Store.
@@ -192,6 +193,8 @@
         `.kopf-angemeldet` im Stilteil) — ein zweiter Knopf hätte als
         nächstes die Punktereihe gekostet.
       -->
+      <ForumGlocke />
+
       {#if konto}
         <a
           class="knopf knopf-rand account-link account-link-an"

@@ -90,7 +90,19 @@ export function messages(l: Locale): Messages {
  * did not, the prerender entries in `svelte.config.js` would fail the build
  * with a 404. Nothing about this is silent — that is on purpose.
  */
-type OhneSprachpraefix<R> = R extends `/[lang=lang]/${infer P}` ? `/${P}` : never;
+type OhneSprachpraefix<R> = R extends `/[lang=lang]/${infer P}`
+  ? P extends `${string}[${string}`
+    ? never
+    : `/${P}`
+  : never;
+
+/**
+ * Die dynamischen Unterrouten (z. B. `/thing/[board]`, `/thing/[board]/[threadId]`)
+ * sind hier ABSICHTLICH ausgenommen: Sie tragen keinen eigenen
+ * veroeffentlichten Slug, sondern erben den Pfad ihrer Elterseite. Stuenden
+ * sie in `KanonischerPfad`, verlangte `SLUGS` fuer jede von ihnen eine
+ * Zeile — eine Uebersetzung, die es gar nicht gibt.
+ */
 
 /** Every page under `[lang=lang]/`, by its canonical (German) folder name. */
 export type KanonischerPfad = OhneSprachpraefix<RouteId>;
@@ -98,6 +110,19 @@ export type KanonischerPfad = OhneSprachpraefix<RouteId>;
 export const SLUGS = {
   '/saga': { de: 'saga', en: 'saga' },
   '/thing': { de: 'thing', en: 'thing' },
+  /* Die interne Meldungsliste (Moderation) — gleicher Slug in beiden
+     Sprachen; sie steht in keiner Navigation, wird aber wie jede Seite unter
+     `[lang=lang]/` hier geführt. */
+  '/thing/meldungen': { de: 'thing/meldungen', en: 'thing/meldungen' },
+  /* Die Suche — eigener Slug je Sprache, weil sie in der Navigation steht. */
+  '/thing/suche': { de: 'thing/suche', en: 'thing/search' },
+  /* Die Benachrichtigungen — die Glocke fuehrt hierher. */
+  '/thing/benachrichtigungen': { de: 'thing/benachrichtigungen', en: 'thing/notifications' },
+  /* Das oeffentliche Reckenprofil. Der Ordner selbst hat keine Seite, nur
+     den dynamischen Kindpfad `/thing/recke/[id]` — der Waechter verlangt
+     trotzdem eine Zeile, weil `recke` keinen Platzhalter traegt. Gleicher
+     Slug in beiden Sprachen; die Sprache bleibt der Praefix. */
+  '/thing/recke': { de: 'thing/recke', en: 'thing/recke' },
   /* Same word in both languages, like `saga` and `thing` — a German
      `/de/wissen` against an English `/en/wiki` would be two names for one
      page where the English one is already the German one too. */

@@ -8,7 +8,7 @@
  * and whitelist sets.
  */
 
-import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory } from '@wov/shared';
+import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import {
   EVENT_CHANCE,
@@ -108,6 +108,8 @@ import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Kontendatenbank, type BannArt } from './konto/Kontendatenbank.js';
 import { KontoApi } from './konto/KontoApi.js';
+import { ForumDatabase } from './forum/ForumDatabase.js';
+import { ForumApi } from './forum/ForumApi.js';
 import {
   ADMINKONTO_PASSWORT_ENV,
   standardKontoSicherstellen,
@@ -222,6 +224,21 @@ export interface ServerConfig {
    */
   kontenDir: string;
   /**
+   * Ordner der Forendatenbank (`<forumDir>/<worldName>.db`). Eigene Datei
+   * je Gestade und bewusst NICHT in `kontenDir`: Foren- und Kontendaten
+   * wachsen unabhaengig, und ein Forum darf neu aufgebaut werden, ohne ein
+   * Passwort zu beruehren. Ein Test, der `worldsDir`/`kontenDir` umbiegt,
+   * braucht `forumDir` NICHT mehr mitzugeben: Fehlt es, leitet der
+   * Konstruktor es als Geschwister von `kontenDir` ab — so landet auch
+   * der aelteste Test nicht im echten Ordner (s. Konstruktor).
+   *
+   * Why a field of its own instead of deriving it from kontenDir via '..':
+   * same reason kontenDir is not derived from worldsDir. A test that
+   * redirects its data dirs no longer has to redirect this one too; the
+   * constructor fills it in as a sibling of kontenDir when it is missing.
+   */
+  forumDir: string;
+  /**
    * G12: Pfad, unter dem einmal je Sekunde ein Betriebsmetriken-
    * Schnappschuss abgelegt wird (der Betriebsdienst admin/ liest ihn,
    * s. dessen GET /metriken). OPTIONAL und standardmaessig UNGESETZT:
@@ -328,6 +345,9 @@ const DEFAULT_CONFIG: ServerConfig = {
   // (server/data/worlds and server/data/konten under server/data) --
   // see ServerConfig.kontenDir for why this is no longer derived via '..'.
   kontenDir: resolve(process.cwd(), 'data', 'konten'),
+  // Sibling of kontenDir, matching the production layout (server/data/forum
+  // next to server/data/konten) -- own field for the same reason.
+  forumDir: resolve(process.cwd(), 'data', 'forum'),
 };
 
 export class WovServer {
@@ -342,6 +362,8 @@ export class WovServer {
   readonly net: NetManager;
   /** Konten und Charaktere. Eigene Datei je Instanz, wie die Welt. */
   private readonly kontenDb: Kontendatenbank;
+  /** Das Thing: Forendaten. Eigene Datei je Instanz, getrennt von den Konten. */
+  private readonly forumDb: ForumDatabase;
   /** Extensible admin command concept (fly, later teleport/god/...). */
   readonly adminCommands: AdminCommandRegistry;
   /** F5: gesetzte Fortschrittsmarken (GlobalKey) — s. WeltMarken.ts Kopfkommentar. */
@@ -541,7 +563,27 @@ export class WovServer {
   readonly serverUserId: bigint;
 
   constructor(config: Partial<ServerConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    /*
+      `forumDir` nachziehen, wenn nur `kontenDir` gesetzt wurde.
+
+      Die meisten Tests und Werkzeuge biegen `worldsDir`/`kontenDir` auf
+      ein eigenes tmp-Verzeichnis um — `forumDir` entstand aber erst mit
+      „Das Thing" (16.09.2026), also NACH diesen Aufrufen. Ohne diese
+      Zeile faellt jeder von ihnen auf die Vorgabe von `DEFAULT_CONFIG`
+      zurueck und legt seine Forendatenbank in den ECHTEN Ordner
+      `server/data/forum/` — genau das ist beim ersten vollen Testlauf
+      passiert und hinterliess Laufzeitdateien im Arbeitsbaum.
+
+      Die Ableitung ist dieselbe wie in `ServerKonfig`: `forum` als
+      Geschwister von `konten` unter dem Datenverzeichnis. main.ts setzt
+      `forumDir` weiterhin ausdruecklich; diese Zeile greift nur, wenn es
+      fehlt UND ein anderes Datenverzeichnis bekannt ist.
+    */
+    const ergaenzt: Partial<ServerConfig> =
+      config.forumDir === undefined && config.kontenDir !== undefined
+        ? { ...config, forumDir: resolve(config.kontenDir, '..', 'forum') }
+        : config;
+    this.config = { ...DEFAULT_CONFIG, ...ergaenzt };
     this.serverUserId = 1n; // Server is always user 1
 
     // Initialize subsystems
@@ -635,6 +677,11 @@ export class WovServer {
     this.kontenDb = new Kontendatenbank(
       resolve(this.config.kontenDir, `${this.config.worldName}.db`),
     );
+    // Das Thing. Eigene Datei je Gestade (s. ForumDatabase.ts); die sechs
+    // Bretter legt der Konstruktor idempotent aus BOARD_SLUGS an.
+    this.forumDb = new ForumDatabase(
+      resolve(this.config.forumDir, `${this.config.worldName}.db`),
+    );
     // Ausprobieren ohne Registrierung (server.yml `standard-konto:`).
     // Direkt hier, wo die Kontendatenbank geoeffnet wird -- Begruendung
     // (Idempotenz, Passwort-Handling, warum kein AdminListe-Zugriff) in
@@ -712,9 +759,37 @@ export class WovServer {
       */
     }), standardKonten.filter((k) => !k.admin).map((k) => k.name));
 
+    // Das Thing haengt am SELBEN Port wie die Konten: erst die Konten,
+    // dann das Forum. `behandle` gibt `false` zurueck, wenn der Pfad nicht
+    // ihm gehoert — so bleibt die 426-Gesundheitspruefung fuer alles andere.
+    //
+    // Schreiben prueft dasselbe Kontotoken wie die Konten-API
+    // (`kontoApi.kontoIdAus`) und loest den genannten Charakter ueber die
+    // Kontendatenbank auf — ein Client kann sich keinen fremden Namen und
+    // keinen fremden Charakter aneignen.
+    const forumApi = new ForumApi(
+      this.forumDb,
+      (req) => kontoApi.kontoIdAus(req),
+      (kontoId, charakterId) => {
+        const c = this.kontenDb.charakterVonKonto(kontoId, charakterId);
+        return c ? { id: c.id, name: c.name } : null;
+      },
+      // Moderator = Admin, und zwar ueber dieselbe Liste wie im Spiel: Ein
+      // Konto ist Moderator, wenn EINER seiner Charaktere auf der
+      // Admin-Liste steht. `everyoneAdmin` gilt auch hier — auf dem
+      // Testgestade ist ohnehin jeder Admin.
+      (kontoId) => {
+        if (this.config.everyoneAdmin) return true;
+        return this.kontenDb.charaktereVonKonto(kontoId).some((c) => this.adminListe.enthaelt(c.spielerId));
+      },
+      // `@Name` aufloesen: derselbe Weg wie der Adminbefehl, der einen
+      // Charakter zu einem Namen sucht (`charakterNachName`).
+      (name) => this.kontenDb.charakterNachName(name)?.kontoId ?? null,
+    );
+
     this.net = new NetManager({
       port: this.config.port,
-      httpBehandler: (req, res) => kontoApi.behandle(req, res),
+      httpBehandler: (req, res) => kontoApi.behandle(req, res) || forumApi.behandle(req, res),
       password: this.config.password,
       serverName: this.config.name,
       maxPlayers: this.config.maxPlayers,

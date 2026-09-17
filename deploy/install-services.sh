@@ -10,9 +10,10 @@
 #   journalctl -fu wov-server     # Logs
 #
 # ── Was sich mit Block A geändert hat ────────────────────────────────
-# Es gibt genau DREI Dienste — wov-server, wov-client, wov-admin — und sie
-# sind auf dev und live Zeichen für Zeichen identisch. Der Unterschied
-# zwischen den Containern steckt allein in /etc/wov.env, das alle drei per
+# Es gibt genau VIER Dienste — wov-server, wov-client, wov-admin und seit
+# „Das Thing" (16.09.2026) wov-web — und sie sind auf dev und live Zeichen
+# für Zeichen identisch. Der Unterschied zwischen den
+# Containern steckt allein in /etc/wov.env, das alle vier per
 # EnvironmentFile= lesen. Deshalb ersetzt dieses Skript die Units bei jedem
 # Lauf, /etc/wov.env aber NIE: die Units gehören dem Code, die Umgebung
 # gehört dem Container.
@@ -30,7 +31,7 @@ UNIT_DST="/etc/systemd/system"
 ENV_DATEI="/etc/wov.env"
 ENV_VORLAGE="$PROJECT_DIR/deploy/wov.env.beispiel"
 
-DIENSTE=(wov-server.service wov-client.service wov-admin.service)
+DIENSTE=(wov-server.service wov-client.service wov-admin.service wov-web.service)
 # wov-karten ist ein oneshot mit Timer, kein Dauerdienst — deshalb nicht in
 # DIENSTE, aber sehr wohl in UNITS: Die Dateien gehoeren dem Code und werden
 # auf beiden Containern abgelegt. Aktiviert wird der Timer nur auf dev
@@ -112,9 +113,12 @@ else
 fi
 
 # ── Webseite bauen ───────────────────────────────────────────────────
-# nginx liefert / aus wov-web/build — ohne einen ersten Build stünde dort
-# nichts, sobald die Site verlinkt ist. tools/wov-update.sh hält das bei
-# jedem künftigen Pull nach; hier ist es der EINMALIGE erste Bau.
+# nginx liefert / seit „Das Thing" (16.09.2026) NICHT MEHR als Dateien aus,
+# sondern reicht es an wov-web.service weiter (deploy/nginx/wov-lab.conf).
+# Der Dienst braucht deshalb einen gebauten Baum (build/index.js) — ohne
+# ersten Build bliebe die Webseite nach dem Verlinken der Site ein 502.
+# tools/wov-update.sh hält das bei jedem künftigen Pull nach; hier ist es
+# der EINMALIGE erste Bau.
 if [[ -d "$PROJECT_DIR/wov-web" ]]; then
   echo "→ Webseite bauen (wov-web)"
   (cd "$PROJECT_DIR/wov-web" && npm ci --include=dev && bash tools/ausrollen.sh) || \
@@ -129,7 +133,7 @@ if [[ "${1:-}" != "--no-enable" ]]; then
   # aus den Quellen ausliefert, wäre dort ein offener Nebeneingang. Die Unit
   # wird trotzdem installiert (sie ist auf beiden Containern dieselbe
   # Datei) — nur eben nicht aktiviert.
-  ZU_AKTIVIEREN=(wov.target wov-server.service wov-admin.service)
+  ZU_AKTIVIEREN=(wov.target wov-server.service wov-admin.service wov-web.service)
   if [[ "$INSTANZ" == "dev" ]]; then
     ZU_AKTIVIEREN+=(wov-client.service)
     # Der Kartenlauf rendert BEIDE Instanzen aus den beiden Weltdateien, die
@@ -161,7 +165,7 @@ Fertig. Projekt: $PROJECT_DIR
   sudo tools/wov-update.sh       Container auf den Stand von origin/main bringen
 
 Ein Ursprung (nginx, Port 80 — deploy/nginx/wov-lab.conf):
-  http://<host>/            Webseite (wov-web)
+  http://<host>/            Webseite (wov-web.service, SvelteKit/Node)
   http://<host>/play/       Spiel-Client
   http://<host>/editor/     Editor
   http://<host>/api/accounts/  Konten-API
@@ -169,6 +173,7 @@ Ein Ursprung (nginx, Port 80 — deploy/nginx/wov-lab.conf):
   ws://<host>/ws                Spielserver
 
 Direkt, ohne nginx (zum Nachmessen, nicht die Aussenadresse):
+Webseite (dev): http://127.0.0.1:3000
 Client (dev):  http://<host>:5274
 Spielserver:   ws://<host>:2467
 Betriebsdienst: http://<WOV_ADMIN_ADRESSE>:<WOV_ADMIN_PORT>/status

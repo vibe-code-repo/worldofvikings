@@ -5,7 +5,9 @@ Description=World of Vikings — Server + Client
 #   systemctl stop wov.target
 # wov-admin gehoert dazu: 'systemctl start wov.target' liess den Betriebsdienst
 # bisher aus, obwohl er die Gegenstelle der Editor-Einstellungsseite ist.
-Wants=wov-server.service wov-client.service wov-admin.service
+# wov-web ebenso: Seit „Das Thing" (16.09.2026) ist die oeffentliche Webseite
+# ein Node-Dienst — ohne ihn antwortet nginx auf / mit 502.
+Wants=wov-server.service wov-client.service wov-admin.service wov-web.service
 After=network-online.target
 
 [Install]

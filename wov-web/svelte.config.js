@@ -1,49 +1,40 @@
-import adapter from '@sveltejs/adapter-static';
+import adapter from '@sveltejs/adapter-node';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /**
  * SvelteKit-Konfiguration von world-of-vikings.com.
  *
- * ── Warum adapter-static und nicht der Node-Adapter ──────────────────
- * Die Seite wird von nginx im Container CT 103 aus /var/www/wov
- * ausgeliefert — ohne Node-Prozess, ohne Reverse-Proxy dahinter. Genau so
- * soll es bleiben: Ein Schaufenster, das einen laufenden Dienst braucht,
- * fällt aus, wenn der Dienst ausfällt. Der Build wirft deshalb fertige
- * HTML-Dateien aus, und alles, was danach passiert, ist Dateien
- * ausliefern.
+ * ── Warum adapter-node (geaendert am 16.09.2026) ─────────────────────
+ * Bis hierher war die Seite mit `adapter-static` vollstaendig vorgerendert
+ * und wurde von nginx als Dateien ausgeliefert — ein Schaufenster, das
+ * keinen laufenden Dienst braucht. Mit dem Forum („Das Thing") aendert
+ * sich EIN Bereich: Themenseiten entstehen aus der Datenbank und sollen
+ * fuer Suchmaschinen als fertiges HTML ankommen. Das geht nur mit
+ * Rendering bei der Anfrage.
  *
- * ── Warum ALLES vorgerendert wird ────────────────────────────────────
- * Die Seite war vor dem Umbau ohne JavaScript vollständig lesbar. Das war
- * kein Zufall, sondern die ausdrückliche Begründung im Kopf der alten
- * index.html, und Block H der Roadmap führt es als Stärke. Ein
- * clientseitig gerendertes Svelte (so macht es World of ClaudeCraft)
- * hätte das aufgegeben — und mit ihm die Link-Vorschauen und die
- * Suchmaschinen, für die H2 und H9 gerade erst Arbeit vorsehen.
+ * Der Node-Adapter kann beides: Die BESTEHENDEN Seiten bleiben
+ * vorgerendert (`prerender = true` in `src/routes/+layout.ts`), nur die
+ * Forum-Routen setzen `prerender = false` und rendern bei jeder Anfrage.
+ * Preis der Umstellung: Die Seite haengt jetzt an einem kleinen,
+ * ueberwachten Node-Dienst statt an statischen Dateien. Die Alternative —
+ * ein zweites SvelteKit-Projekt nur fuers Forum — haette die gemeinsame
+ * Huelle (Kopf/Fuss/i18n/account) dupliziert oder einen Paketumbau
+ * verlangt; ein Projekt mit zwei Renderarten ist der kleinere Preis.
  *
- * Vorgerendert heißt: Svelte baut die Seiten zur Bauzeit einmal zu HTML.
- * Im Browser übernimmt danach nur noch, was Bewegung braucht (Kartenbetrachter,
- * Weltstatus, Ruhmestafel) — und wo das ausfällt, steht trotzdem der Text.
+ * ── Warum die Seiten weiter vorgerendert werden ──────────────────────
+ * Die Seite war schon einmal ohne JavaScript vollstaendig lesbar, und das
+ * ist eine Staerke (Roadmap H). Vorgerendert heisst: Svelte baut die
+ * Seiten zur Bauzeit einmal zu HTML; der Node-Dienst liefert sie danach
+ * als fertige Dateien aus. Nur das Forum rendert live.
  *
- * ── Warum keine Schrägstriche am Ende ────────────────────────────────
- * trailingSlash bleibt auf 'never' (Vorgabe). Damit schreibt der Adapter
- * `build/saga.html` statt `build/saga/index.html`, und die Dateinamen sind
- * Zeichen für Zeichen dieselben wie vor dem Umbau. Alte Links auf
- * `/saga.html` gehen weiter, `/saga` ebenso (nginx: try_files $uri $uri.html).
- * Welche der beiden die richtige ist, sagt das <link rel="canonical"> je
- * Seite — das ist der Duplicate-Content-Teil von Roadmap H2.
+ * ── Warum keine Schraegstriche am Ende ───────────────────────────────
+ * trailingSlash bleibt auf 'never'. Das <link rel="canonical"> je Seite
+ * sagt, welche Adresse die richtige ist (Roadmap H2).
  */
 export default {
   preprocess: vitePreprocess(),
   kit: {
-    adapter: adapter({
-      pages: 'build',
-      assets: 'build',
-      // Kein Fallback: Jede Adresse dieser Seite ist zur Bauzeit bekannt.
-      // Ein SPA-Fallback würde für Tippfehler eine 200 statt einer 404
-      // liefern und damit Suchmaschinen Seiten vorgaukeln, die es nicht gibt.
-      fallback: undefined,
-      strict: true,
-    }),
+    adapter: adapter({ out: 'build' }),
     /**
      * Die Content-Security-Policy.
      *

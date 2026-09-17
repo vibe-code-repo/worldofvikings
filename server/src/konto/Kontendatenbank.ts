@@ -189,6 +189,12 @@ export class Kontendatenbank {
     this.spalteNachziehen('charaktere', 'haarfarbe', "TEXT NOT NULL DEFAULT ''");
     this.spalteNachziehen('charaktere', 'augenfarbe', "TEXT NOT NULL DEFAULT 'fjordblau'");
     this.spalteNachziehen('charaktere', 'klasse', "TEXT NOT NULL DEFAULT ''");
+    // Das AVATAR des Kontos (M4, Das Thing): welcher eigene Charakter den
+    // Menschen nach aussen vertritt. NULL heisst „noch keiner gewaehlt".
+    // Eine Spalte auf `konten`, nicht auf `charaktere`: Der Avatar ist eine
+    // Eigenschaft des Kontos, nicht des Charakters — und ein Charakter kann
+    // geloescht werden, ohne den Datensatz des Kontos zu zerstoeren.
+    this.spalteNachziehen('konten', 'avatar_charakter_id', 'INTEGER');
   }
 
   /**
@@ -441,6 +447,46 @@ export class Kontendatenbank {
       .prepare('SELECT * FROM charaktere WHERE name = ?')
       .get(name) as Record<string, unknown> | undefined;
     return z ? this.zuCharakter(z) : null;
+  }
+
+  /**
+   * Charakter zu einer Id — fuer den OEFFENTLICHEN Charakterdatensatz
+   * (`GET /accounts/characters/:id`) und den Avatar.
+   *
+   * Oeffentlich heisst: Name und Aussehen, sonst nichts. Konten-Id,
+   * spielerId und altlastUserId bleiben hier drin; `nachAussen` in der
+   * KontoApi gibt nur weiter, was jeder sehen darf.
+   */
+  charakterNachId(id: number): Charakter | null {
+    const z = this.db.prepare('SELECT * FROM charaktere WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return z ? this.zuCharakter(z) : null;
+  }
+
+  // ── Avatar ──────────────────────────────────────────────────────────
+
+  /** Der gewaehlte Avatar dieses Kontos, oder null. */
+  avatarVon(kontoId: number): number | null {
+    const z = this.db
+      .prepare('SELECT avatar_charakter_id FROM konten WHERE id = ?')
+      .get(kontoId) as Record<string, unknown> | undefined;
+    if (!z || z.avatar_charakter_id === null || z.avatar_charakter_id === undefined) return null;
+    return Number(z.avatar_charakter_id);
+  }
+
+  /**
+   * Setzt den Avatar. `null` loescht die Wahl.
+   *
+   * Die Zugehoerigkeit zum Konto prueft die API (`charakterVonKonto`), bevor
+   * sie hier aufruft — dieselbe Trennung wie beim Bann: Datenbank kennt nur
+   * die Zeile, die Regel kennt der Aufrufer. Ein Fremd-Avatar kaeme damit gar
+   * nicht erst bis hierher.
+   */
+  avatarSetzen(kontoId: number, charakterId: number | null): void {
+    this.db
+      .prepare('UPDATE konten SET avatar_charakter_id = ? WHERE id = ?')
+      .run(charakterId, kontoId);
   }
 
   // ── Bannliste ───────────────────────────────────────────────────────

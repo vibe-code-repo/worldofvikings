@@ -1,0 +1,646 @@
+/**
+ * Das Thing — HTTP-API am Spielport (2467): Lesen UND Schreiben.
+ *
+ * ── Warum am Spielport und nicht am Betriebsdienst ───────────────────
+ * Dieselbe Begruendung wie in `KontoApi.ts`: Port 2467 traegt den
+ * vorhandenen Proxy-Weg (`/api/accounts/` → 2467) und damit auch
+ * `/api/forum/`. Ein eigener Port haette einen zweiten Proxy-Block, ein
+ * zweites Zertifikat und wieder eine Host-Weiche gebraucht.
+ *
+ * ── Lesen oeffentlich, Schreiben mit Kontotoken ──────────────────────
+ * Lesen braucht kein Konto — das Forum soll lesbar sein, bevor jemand
+ * eines hat (und Suchmaschinen sollen es lesen koennen). Schreiben
+ * verlangt das Kontotoken, das `KontoApi` prueft: Der Browser schickt es
+ * im Kopf `x-wov-account` (oder `Authorization`), wie bei der Konten-API.
+ * Kein CSRF-Fall, weil nichts automatisch mitgeschickt wird.
+ *
+ * ── Wer schreibt: das Konto, sichtbar der Charakter ──────────────────
+ * Der Client nennt eine Charakter-Id; der Server prueft, dass sie DEM
+ * Konto gehoert (`charakterAus`), und nimmt den Namen von dort. Ein
+ * Client kann sich also weder einen fremden Namen noch einen fremden
+ * Charakter aneignen.
+ *
+ * ── Drossel ──────────────────────────────────────────────────────────
+ * Ein einfaches Zeitfenster je Konto und Art (Thread/Beitrag). Die
+ * vorhandene `Drossel.ts` ist auf Spielpakete geschluesselt und passt
+ * hier nicht; die Regel ist deshalb bewusst klein und lokal.
+ *
+ * The Thing's HTTP API on the game port: public reads, account-token
+ * writes, character-owned authorship, a small per-account throttle.
+ */
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import {
+  BOARD_SLUGS,
+  FORUM_PAGE_SIZE,
+  POST_BODY_MAX,
+  POST_BODY_MIN,
+  SEARCH_QUERY_MAX,
+  THREAD_TITLE_MAX,
+  THREAD_TITLE_MIN,
+  isBoardSlug,
+  isReactionKind,
+  type SearchPage,
+  type ThreadPage,
+  type ThreadView,
+} from '@wov/shared';
+import { ForumDatabase, type ForumAutor } from './ForumDatabase.js';
+
+/** Origins allowed to call this API from a browser (same set as KontoApi). */
+const ERLAUBTE_URSPRUENGE = new Set([
+  'https://world-of-vikings.com',
+  'https://www.world-of-vikings.com',
+]);
+
+const PRAEFIX = '/forum';
+const MAX_KOERPER_BYTES = 64 * 1024;
+
+/** Drossel: je Konto und Art hoechstens `max` in `fenster` Millisekunden. */
+const DROSSEL: Record<'thread' | 'post' | 'report' | 'reaction', { max: number; fenster: number }> = {
+  thread: { max: 3, fenster: 5 * 60_000 },
+  post: { max: 5, fenster: 30_000 },
+  report: { max: 5, fenster: 10 * 60_000 },
+  // Reaktionen sind billig und werden gern mehrfach geklickt; die Grenze
+  // ist nur ein Schutz gegen Schleifen, kein Gespraechstakt.
+  reaction: { max: 30, fenster: 30_000 },
+};
+
+/** Wie viele Benachrichtigungen die Glocke hoechstens liefert. */
+const NOTIFICATION_LIMIT = 50;
+
+/** Wie viele Eroeffnungen/Beitraege ein oeffentliches Profil zeigt. */
+const CHARACTER_ACTIVITY_LIMIT = 25;
+
+/** Konto-Id aus der Anfrage, oder null. Wird von KontoApi gestellt. */
+export type KontoAus = (req: IncomingMessage) => number | null;
+/** Charakter des Kontos, oder null — die Rechtepruefung beim Schreiben. */
+export type CharakterAus = (kontoId: number, charakterId: number) => { id: number; name: string } | null;
+/** Ist dieses Konto Moderator? Wird vom Spielserver gestellt (Adminliste). */
+export type IstModerator = (kontoId: number) => boolean;
+/** Konto zu einem Charakternamen — loest eine `@Name`-Erwaehnung auf. */
+export type KontoNachName = (name: string) => number | null;
+
+export class ForumApi {
+  /** Zeitstempel je `art:kontoId` fuer die Drossel. */
+  private readonly zeiten = new Map<string, number[]>();
+
+  constructor(
+    private readonly db: ForumDatabase,
+    /**
+     * Konto-Id aus dem Token. Vorgabe: niemand ist angemeldet — so bleibt
+     * der Dienst in Tests ohne Konten benutzbar, und Schreiben ist dann
+     * schlicht gesperrt (401), nicht kaputt.
+     */
+    private readonly kontoIdAus: KontoAus = () => null,
+    private readonly charakterAus: CharakterAus = () => null,
+    /** Moderator? Vorgabe: niemand — Moderation bleibt in Tests aus. */
+    private readonly istModerator: IstModerator = () => false,
+    /**
+     * Konto zu einem Charakternamen. Vorgabe: niemand — ohne Kontendaten
+     * loest keine Erwaehnung auf, und das ist der richtige Rueckfall.
+     */
+    private readonly kontoNachName: KontoNachName = () => null,
+  ) {}
+
+  /**
+   * A request handler in the shape `WebSocketAcceptor` expects: returns
+   * true when the path is ours, false so the caller can fall back to its
+   * old 426 behaviour.
+   */
+  behandle(req: IncomingMessage, res: ServerResponse): boolean {
+    const url = new URL(req.url ?? '/', 'http://x');
+    const pfad = url.pathname.replace(/\/+$/, '') || '/';
+    if (pfad !== PRAEFIX && !pfad.startsWith(`${PRAEFIX}/`)) return false;
+
+    const ursprung = req.headers.origin;
+    if (ursprung && ERLAUBTE_URSPRUENGE.has(ursprung)) {
+      res.setHeader('Access-Control-Allow-Origin', ursprung);
+      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-wov-account');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+      res.setHeader('Vary', 'Origin');
+    }
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204).end();
+      return true;
+    }
+
+    void this.leite(req, res, pfad, url).catch((e) => {
+      console.error('[Forum] unerwarteter Fehler:', e);
+      if (!res.headersSent) this.json(res, 500, { error: 'server-error' });
+    });
+    return true;
+  }
+
+  private async leite(
+    req: IncomingMessage,
+    res: ServerResponse,
+    pfad: string,
+    url: URL,
+  ): Promise<void> {
+    const m = req.method ?? 'GET';
+
+    if (m === 'GET' && pfad === `${PRAEFIX}/boards`) return this.boards(res);
+    if (m === 'GET' && pfad === `${PRAEFIX}/search`) return this.suche(res, url);
+
+    const aktivitaet = /^\/forum\/characters\/(\d+)\/activity$/.exec(pfad);
+    if (m === 'GET' && aktivitaet) return this.charakterAktivitaet(res, Number(aktivitaet[1]));
+
+    const themen = /^\/forum\/boards\/([a-z_]+)\/threads$/.exec(pfad);
+    if (themen) {
+      if (m === 'GET') return this.boardThreads(res, themen[1]!, seiteAus(url));
+      if (m === 'POST') return this.neuesThema(req, res, themen[1]!);
+    }
+
+    const thema = /^\/forum\/threads\/(\d+)$/.exec(pfad);
+    if (m === 'GET' && thema) return this.thread(req, res, Number(thema[1]), seiteAus(url));
+
+    const antwort = /^\/forum\/threads\/(\d+)\/posts$/.exec(pfad);
+    if (m === 'POST' && antwort) return this.neuerBeitrag(req, res, Number(antwort[1]));
+
+    const post = /^\/forum\/posts\/(\d+)$/.exec(pfad);
+    if (m === 'PATCH' && post) return this.bearbeiteBeitrag(req, res, Number(post[1]));
+    if (m === 'DELETE' && post) return this.loescheBeitrag(req, res, Number(post[1]));
+
+    const reaktion = /^\/forum\/posts\/(\d+)\/reactions$/.exec(pfad);
+    if (m === 'POST' && reaktion) return this.reaktion(req, res, Number(reaktion[1]));
+
+    const themaReaktionen = /^\/forum\/threads\/(\d+)\/reactions$/.exec(pfad);
+    if (m === 'GET' && themaReaktionen) return this.themaReaktionen(req, res, Number(themaReaktionen[1]));
+
+    const meldung = /^\/forum\/posts\/(\d+)\/report$/.exec(pfad);
+    if (m === 'POST' && meldung) return this.melden(req, res, Number(meldung[1]));
+
+    if (m === 'GET' && pfad === `${PRAEFIX}/moderator`) return this.moderatorStatus(req, res);
+    if (m === 'GET' && pfad === `${PRAEFIX}/reports`) return this.meldungen(req, res);
+
+    const erledigen = /^\/forum\/reports\/(\d+)\/resolve$/.exec(pfad);
+    if (m === 'POST' && erledigen) return this.moderatorErledigt(req, res, Number(erledigen[1]));
+
+    const anheften = /^\/forum\/threads\/(\d+)\/pin$/.exec(pfad);
+    if (m === 'POST' && anheften) return this.threadSchalter(req, res, Number(anheften[1]), 'pin');
+    const sperren = /^\/forum\/threads\/(\d+)\/lock$/.exec(pfad);
+    if (m === 'POST' && sperren) return this.threadSchalter(req, res, Number(sperren[1]), 'lock');
+    const verschieben = /^\/forum\/threads\/(\d+)\/move$/.exec(pfad);
+    if (m === 'POST' && verschieben) return this.threadSchalter(req, res, Number(verschieben[1]), 'move');
+
+    const abo = /^\/forum\/threads\/(\d+)\/subscribe$/.exec(pfad);
+    if (abo) {
+      if (m === 'GET') return this.aboStatus(req, res, Number(abo[1]));
+      if (m === 'POST') return this.aboSchalter(req, res, Number(abo[1]));
+    }
+
+    if (m === 'GET' && pfad === `${PRAEFIX}/notifications`) return this.benachrichtigungen(req, res);
+    if (m === 'POST' && pfad === `${PRAEFIX}/notifications/read`) return this.benachrichtigungenGelesen(req, res);
+
+    this.json(res, 404, { error: 'unknown-endpoint' });
+  }
+
+  // ── Abos und Benachrichtigungen ─────────────────────────────────────
+
+  /**
+   * Abonnenten und Erwaehnte ueber einen neuen Beitrag unterrichten.
+   *
+   * Der Autor selbst wird nie benachrichtigt, und wer schon als Abonnent
+   * eine Meldung bekommt, wird nicht zusaetzlich als Erwaehnung
+   * angeschrieben — eine Antwort ist eine Antwort. Wer NICHT folgt und
+   * nicht erwaehnt wird, hoert nichts: Kein Grund, alle zu wecken.
+   */
+  private benachrichtige(
+    threadId: number,
+    postId: number,
+    autor: ForumAutor,
+    body: string,
+    now: number,
+  ): void {
+    // `-1` als „schon erledigt": Diese Konto-Id gibt es nicht.
+    const fertig = new Set<number>([autor.kontoId ?? -1]);
+    const board = this.db.threadById(threadId)?.board ?? BOARD_SLUGS[0];
+    for (const kontoId of this.db.abonnenten(threadId)) {
+      if (fertig.has(kontoId)) continue;
+      this.db.benachrichtigungAnlegen(kontoId, 'reply', threadId, board, postId, autor.name, auszug(body), now);
+      fertig.add(kontoId);
+    }
+    for (const name of erwaehnungen(body)) {
+      const kontoId = this.kontoNachName(name);
+      if (kontoId === null || fertig.has(kontoId)) continue;
+      this.db.benachrichtigungAnlegen(kontoId, 'mention', threadId, board, postId, autor.name, auszug(body), now);
+      fertig.add(kontoId);
+    }
+  }
+
+  private aboStatus(req: IncomingMessage, res: ServerResponse, threadId: number): void {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    if (!this.db.threadById(threadId)) return this.json(res, 404, { error: 'unknown-thread' });
+    this.json(res, 200, { subscribed: this.db.istAbonniert(threadId, kontoId) });
+  }
+
+  private async aboSchalter(req: IncomingMessage, res: ServerResponse, threadId: number): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    if (!this.db.threadById(threadId)) return this.json(res, 404, { error: 'unknown-thread' });
+
+    const k = await this.koerper(req).catch(() => null);
+    const wert = k ? k.value !== false : true;
+    if (wert) this.db.abonnieren(threadId, kontoId);
+    else this.db.abbestellen(threadId, kontoId);
+    this.json(res, 200, { subscribed: this.db.istAbonniert(threadId, kontoId) });
+  }
+
+  private benachrichtigungen(req: IncomingMessage, res: ServerResponse): void {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    this.json(res, 200, {
+      notifications: this.db.benachrichtigungen(kontoId, NOTIFICATION_LIMIT),
+      unread: this.db.ungelesene(kontoId),
+    });
+  }
+
+  /** `{ upTo: id }` markiert bis dorthin, ohne Angabe alles. */
+  private async benachrichtigungenGelesen(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    const k = await this.koerper(req).catch(() => null);
+    const roh = k ? Number(k.upTo) : Number.NaN;
+    const bisId = Number.isInteger(roh) && roh > 0 ? roh : null;
+    this.db.benachrichtigungenLesen(kontoId, bisId);
+    this.json(res, 200, { unread: this.db.ungelesene(kontoId) });
+  }
+
+  // ── Lesen ───────────────────────────────────────────────────────────
+
+  private boards(res: ServerResponse): void {
+    this.json(res, 200, { boards: this.db.boardList() });
+  }
+
+  /**
+   * Was ein Charakter im Thing geschrieben hat — oeffentlich, ohne Konto.
+   * Ein unbekannter Charakter ist KEIN 404: Die Forendatenbank kennt keine
+   * Charaktere, nur Beitraege. Wer nichts geschrieben hat, bekommt leere
+   * Listen; ob es den Recken gibt, weiss allein die Konten-API.
+   */
+  private charakterAktivitaet(res: ServerResponse, charakterId: number): void {
+    this.json(res, 200, {
+      threads: this.db.threadsVonCharakter(charakterId, CHARACTER_ACTIVITY_LIMIT),
+      posts: this.db.postsVonCharakter(charakterId, CHARACTER_ACTIVITY_LIMIT),
+    });
+  }
+
+  /**
+   * Volltextsuche. Oeffentlich wie das Lesen, und bewusst grosszuegig im
+   * Fehlerfall: Eine leere oder zu lange Anfrage liefert eine LEERE Liste
+   * (Seite 1 von 1), keinen 400 — die Suchseite soll auch dann stehen.
+   */
+  private suche(res: ServerResponse, url: URL): void {
+    const text = (url.searchParams.get('q') ?? '').trim().slice(0, SEARCH_QUERY_MAX);
+    const seite = seiteAus(url);
+    const erste = this.db.search(text, FORUM_PAGE_SIZE, Math.max(0, (seite - 1) * FORUM_PAGE_SIZE));
+    const pageCount = Math.max(1, Math.ceil(erste.gesamt / FORUM_PAGE_SIZE));
+    const page = Math.min(seite, pageCount);
+    // Nur wenn die Seite geklemmt wurde, ein zweites Mal lesen.
+    const results = page === seite
+      ? erste.treffer
+      : this.db.search(text, FORUM_PAGE_SIZE, (page - 1) * FORUM_PAGE_SIZE).treffer;
+    const antwort: SearchPage = { results, page, pageCount, total: erste.gesamt };
+    this.json(res, 200, antwort);
+  }
+
+  private boardThreads(res: ServerResponse, slug: string, page: number): void {
+    const brett = this.db.boardBySlug(slug);
+    if (!brett) return this.json(res, 404, { error: 'unknown-board' });
+    const gesamt = this.db.countThreads(brett.slug);
+    const { page: p, pageCount, offset } = blaettern(gesamt, page);
+    const threads = this.db.listThreads(brett.slug, FORUM_PAGE_SIZE, offset);
+    const antwort: ThreadPage = { threads, page: p, pageCount };
+    this.json(res, 200, antwort);
+  }
+
+  private thread(req: IncomingMessage, res: ServerResponse, id: number, page: number): void {
+    const thread = this.db.threadById(id);
+    if (!thread) return this.json(res, 404, { error: 'unknown-thread' });
+    const gesamt = this.db.countPosts(id);
+    const { page: p, pageCount, offset } = blaettern(gesamt, page);
+    // Das Kontotoken ist hier FREIWILLIG: Es entscheidet nur, ob die eigene
+    // Reaktion als `me` mitkommt. Ohne Anmeldung bleibt das Lesen offen.
+    const posts = this.db.listPosts(id, FORUM_PAGE_SIZE, offset, this.kontoIdAus(req));
+    const antwort: ThreadView = { thread, posts, page: p, pageCount };
+    this.json(res, 200, antwort);
+  }
+
+  // ── Schreiben ───────────────────────────────────────────────────────
+
+  private async neuesThema(req: IncomingMessage, res: ServerResponse, brett: string): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    if (!isBoardSlug(brett)) return this.json(res, 404, { error: 'unknown-board' });
+
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+
+    const autor = this.autorAus(kontoId, k.characterId);
+    if (!autor) return this.json(res, 400, { error: 'character-invalid' });
+
+    const titel = String(k.title ?? '').trim();
+    const body = String(k.body ?? '').trim();
+    if (titel.length < THREAD_TITLE_MIN || titel.length > THREAD_TITLE_MAX) {
+      return this.json(res, 400, { error: 'title-invalid' });
+    }
+    if (body.length < POST_BODY_MIN || body.length > POST_BODY_MAX) {
+      return this.json(res, 400, { error: 'body-invalid' });
+    }
+
+    // Die Drossel steht NACH den Pruefungen: Ein Tippfehler darf kein
+    // Kontingent verbrauchen. Gezaehlt wird, was wirklich geschrieben wird.
+    if (!this.erlaubt(kontoId, 'thread')) return this.json(res, 429, { error: 'too-fast' });
+
+    const r = this.db.createThread(brett, titel, autor, body);
+    // Erwaehnungen schon im Eroeffnungsbeitrag: Abonnenten gibt es hier
+    // noch keine (ausser dem Autor), aber `@Name` soll auch hier greifen.
+    this.benachrichtige(r.threadId, r.postId, autor, body, Date.now());
+    this.json(res, 201, { threadId: r.threadId, postId: r.postId });
+  }
+
+  private async neuerBeitrag(req: IncomingMessage, res: ServerResponse, themaId: number): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+
+    const thema = this.db.threadById(themaId);
+    if (!thema) return this.json(res, 404, { error: 'unknown-thread' });
+    if (thema.locked) return this.json(res, 409, { error: 'locked' });
+
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+
+    const autor = this.autorAus(kontoId, k.characterId);
+    if (!autor) return this.json(res, 400, { error: 'character-invalid' });
+
+    const body = String(k.body ?? '').trim();
+    if (body.length < POST_BODY_MIN || body.length > POST_BODY_MAX) {
+      return this.json(res, 400, { error: 'body-invalid' });
+    }
+
+    // Erst pruefen, dann drosseln (s. neuesThema).
+    if (!this.erlaubt(kontoId, 'post')) return this.json(res, 429, { error: 'too-fast' });
+
+    const postId = this.db.createPost(themaId, autor, body);
+    this.benachrichtige(themaId, postId, autor, body, Date.now());
+    this.json(res, 201, { postId });
+  }
+
+  private async bearbeiteBeitrag(req: IncomingMessage, res: ServerResponse, postId: number): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+
+    const eigen = this.db.postOwnership(postId);
+    if (!eigen) return this.json(res, 404, { error: 'unknown-post' });
+    if (eigen.authorKontoId !== kontoId) return this.json(res, 403, { error: 'not-yours' });
+    if (eigen.deletedAt !== null) return this.json(res, 409, { error: 'deleted' });
+
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+
+    const autor = this.autorAus(kontoId, k.characterId);
+    if (!autor) return this.json(res, 400, { error: 'character-invalid' });
+
+    const body = String(k.body ?? '').trim();
+    if (body.length < POST_BODY_MIN || body.length > POST_BODY_MAX) {
+      return this.json(res, 400, { error: 'body-invalid' });
+    }
+
+    const ok = this.db.editPost(postId, kontoId, body, autor.name);
+    this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+  }
+
+  private loescheBeitrag(req: IncomingMessage, res: ServerResponse, postId: number): void {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+
+    const eigen = this.db.postOwnership(postId);
+    if (!eigen) return this.json(res, 404, { error: 'unknown-post' });
+
+    /*
+      Eigener Beitrag ODER Moderator. Die Grenze steht HIER, nicht in der
+      Datenbank (die kennt nur Zeilen): Der eigene Weg zieht die
+      Eigentumsgrenze in SQL, der Moderationsweg nicht.
+    */
+    if (eigen.authorKontoId === kontoId) {
+      const ok = this.db.softDeletePost(postId, kontoId);
+      return this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+    }
+    if (this.istModerator(kontoId)) {
+      const ok = this.db.postEntfernenModerativ(postId);
+      return this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+    }
+    this.json(res, 403, { error: 'not-yours' });
+  }
+
+  // ── Reaktionen ──────────────────────────────────────────────────────
+
+  /**
+   * Eine Reaktion setzen oder zuruecknehmen. Angemeldet noetig, ein
+   * geloeschter Beitrag nimmt keine Reaktionen mehr an (er ist nur noch
+   * ein Platzhalter). Die Art kommt aus der festen Liste — ein unbekannter
+   * Wert ist ein 400, kein stiller Fremdeintrag.
+   */
+  private async reaktion(req: IncomingMessage, res: ServerResponse, postId: number): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+
+    const eigen = this.db.postOwnership(postId);
+    if (!eigen) return this.json(res, 404, { error: 'unknown-post' });
+    if (eigen.deletedAt !== null) return this.json(res, 409, { error: 'deleted' });
+
+    const k = await this.koerper(req).catch(() => null);
+    const kind = k ? String(k.kind ?? '') : '';
+    if (!isReactionKind(kind)) return this.json(res, 400, { error: 'reaction-invalid' });
+
+    if (!this.erlaubt(kontoId, 'reaction')) return this.json(res, 429, { error: 'too-fast' });
+
+    const r = this.db.reactionToggle(postId, kontoId, kind);
+    this.json(res, 200, r);
+  }
+
+  /**
+   * Alle Reaktionen eines Themas in EINER Antwort. Das gibt es, weil die
+   * serverseitig gebaute Seite die EIGENE Reaktion nicht kennen kann: Das
+   * Kontotoken liegt im Browser (`localStorage`), nicht in einem Cookie.
+   * Die Seite rendert deshalb die Zahlen, und der angemeldete Browser holt
+   * sich einmal je Thema den Stand mit `me` nach.
+   */
+  private themaReaktionen(req: IncomingMessage, res: ServerResponse, threadId: number): void {
+    if (!this.db.threadById(threadId)) return this.json(res, 404, { error: 'unknown-thread' });
+    const karte = this.db.reaktionenVonThema(threadId, this.kontoIdAus(req));
+    const reactions: Array<{ postId: number; kind: string; count: number; me: boolean }> = [];
+    for (const [postId, liste] of karte) {
+      for (const r of liste) reactions.push({ postId, kind: r.kind, count: r.count, me: r.me });
+    }
+    this.json(res, 200, { reactions });
+  }
+
+  // ── Melden und Moderation ───────────────────────────────────────────
+
+  /**
+   * Eine Meldung. Jeder Angemeldete darf melden — auch den eigenen
+   * Beitrag (das ist unsinnig, aber harmlos); die Moderation entscheidet.
+   * Der Grund ist frei und wird auf 500 Zeichen gekappt.
+   */
+  private async melden(req: IncomingMessage, res: ServerResponse, postId: number): Promise<void> {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+
+    const eigen = this.db.postOwnership(postId);
+    if (!eigen) return this.json(res, 404, { error: 'unknown-post' });
+    if (!this.erlaubt(kontoId, 'report')) return this.json(res, 429, { error: 'too-fast' });
+
+    const k = await this.koerper(req).catch(() => null);
+    const grund = k ? String(k.reason ?? '').trim().slice(0, 500) : '';
+    const id = this.db.reportPost(postId, kontoId, grund);
+    this.json(res, 201, { reportId: id });
+  }
+
+  /** Meldet, ob das eigene Konto Moderator ist — die Oberflaeche fragt das. */
+  private moderatorStatus(req: IncomingMessage, res: ServerResponse): void {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    this.json(res, 200, { moderator: this.istModerator(kontoId) });
+  }
+
+  private meldungen(req: IncomingMessage, res: ServerResponse): void {
+    if (this.modKonto(req, res) === null) return;
+    this.json(res, 200, { reports: this.db.offeneMeldungen() });
+  }
+
+  private moderatorErledigt(req: IncomingMessage, res: ServerResponse, id: number): void {
+    if (this.modKonto(req, res) === null) return;
+    const ok = this.db.meldungErledigen(id, '');
+    this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+  }
+
+  /** Anheften, Sperren, Verschieben — ein Weg, drei Faelle. */
+  private async threadSchalter(
+    req: IncomingMessage,
+    res: ServerResponse,
+    id: number,
+    art: 'pin' | 'lock' | 'move',
+  ): Promise<void> {
+    if (this.modKonto(req, res) === null) return;
+    const k = await this.koerper(req).catch(() => null);
+
+    if (art === 'move') {
+      const board = k ? String(k.board ?? '') : '';
+      if (!isBoardSlug(board)) return this.json(res, 400, { error: 'board-invalid' });
+      const ok = this.db.threadVerschieben(id, board);
+      return this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+    }
+
+    const wert = k ? k.value !== false : true;
+    const ok = art === 'pin'
+      ? this.db.threadAnheften(id, Boolean(wert))
+      : this.db.threadSperren(id, Boolean(wert));
+    this.json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown' });
+  }
+
+  /** Konto-Id, wenn Moderator; sonst 401/403 gesetzt und null. */
+  private modKonto(req: IncomingMessage, res: ServerResponse): number | null {
+    const kontoId = this.kontoIdAus(req);
+    if (kontoId === null) {
+      this.json(res, 401, { error: 'not-signed-in' });
+      return null;
+    }
+    if (!this.istModerator(kontoId)) {
+      this.json(res, 403, { error: 'not-moderator' });
+      return null;
+    }
+    return kontoId;
+  }
+
+  // ── Helfer ──────────────────────────────────────────────────────────
+
+  /** Charakter des Kontos aufloesen; null, wenn fremd, fehlend oder unbrauchbar. */
+  private autorAus(kontoId: number, roh: unknown): ForumAutor | null {
+    const id = Number(roh);
+    if (!Number.isInteger(id) || id <= 0) return null;
+    const c = this.charakterAus(kontoId, id);
+    if (!c) return null;
+    return { kontoId, charakterId: c.id, name: c.name };
+  }
+
+  /** Zeitfenster-Drossel je Konto und Art. */
+  private erlaubt(kontoId: number, art: 'thread' | 'post' | 'report' | 'reaction', now = Date.now()): boolean {
+    const { max, fenster } = DROSSEL[art];
+    const key = `${art}:${kontoId}`;
+    const liste = (this.zeiten.get(key) ?? []).filter((t) => now - t < fenster);
+    if (liste.length >= max) {
+      this.zeiten.set(key, liste);
+      return false;
+    }
+    liste.push(now);
+    this.zeiten.set(key, liste);
+    return true;
+  }
+
+  /** JSON-Koerper lesen, gedeckelt; null bei zu gross, leer oder Muell. */
+  private async koerper(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+    const teile: Buffer[] = [];
+    let groesse = 0;
+    for await (const stueck of req) {
+      const b = stueck as Buffer;
+      groesse += b.length;
+      if (groesse > MAX_KOERPER_BYTES) return null;
+      teile.push(b);
+    }
+    if (groesse === 0) return null;
+    try {
+      return JSON.parse(Buffer.concat(teile).toString('utf8')) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  private json(res: ServerResponse, status: number, koerper: unknown): void {
+    if (res.headersSent) return;
+    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(koerper));
+  }
+}
+
+/**
+ * `@Name`-Erwaehnungen aus einem Text: ohne Doppelte, hoechstens zehn.
+ *
+ * Der Ausdruck deckt Buchstaben (auch ueber ASCII hinaus), Ziffern, `_`
+ * und `-` ab und verlangt mindestens zwei Zeichen — ein `@` mitten im
+ * Satz soll keine halbe Erwaehnung erzeugen.
+ */
+function erwaehnungen(body: string): string[] {
+  const namen = new Set<string>();
+  for (const treffer of body.matchAll(/@([\p{L}\p{N}_-]{2,32})/gu)) {
+    namen.add(treffer[1]!);
+    if (namen.size >= 10) break;
+  }
+  return [...namen];
+}
+
+/** Erste Zeilen als Fliesstext — grobe Markdown-Zeichen weg, Laenge gedeckelt. */
+function auszug(body: string): string {
+  return body
+    .replace(/[#*_>`~[\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160);
+}
+
+/** `page` aus der URL, auf >= 1 gebracht; Muell wird zu 1. */
+function seiteAus(url: URL): number {
+  const roh = Number(url.searchParams.get('page') ?? '1');
+  return Number.isFinite(roh) && roh >= 1 ? Math.floor(roh) : 1;
+}
+
+/**
+ * Seite, Seitenzahl und Versatz aus einer Gesamtzahl. `page` wird auf den
+ * gueltigen Bereich geklemmt — eine Seite hinter dem Ende liefert eine
+ * leere Liste und nicht „unbekannt".
+ */
+function blaettern(gesamt: number, page: number): { page: number; pageCount: number; offset: number } {
+  const pageCount = Math.max(1, Math.ceil(gesamt / FORUM_PAGE_SIZE));
+  const p = Math.min(Math.max(1, page), pageCount);
+  return { page: p, pageCount, offset: (p - 1) * FORUM_PAGE_SIZE };
+}

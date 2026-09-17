@@ -53,7 +53,13 @@
                     {#if thema.pinned}<span class="marke">{t['thing.thread.pinned']}</span>{/if}
                     {#if thema.locked}<span class="marke">{t['thing.thread.locked']}</span>{/if}
                     <span class="meta">
-                      {t['thing.threads.opened_by']} {thema.authorName} · {datumKurz(iso(thema.createdAt), lang)}
+                      {t['thing.threads.opened_by']}
+                      {#if thema.authorCharacterId}
+                        <a class="autor-link" href={`/${lang}/thing/recke/${thema.authorCharacterId}`}
+                          >{thema.authorName}</a
+                        >
+                      {:else}{thema.authorName}{/if}
+                      · {datumKurz(iso(thema.createdAt), lang)}
                     </span>
                   </td>
                   <td class="zahl">{Math.max(0, thema.postCount - 1)}</td>
@@ -130,6 +136,14 @@
     margin-top: 0.25rem;
     color: var(--umriss);
     font-size: 13px;
+  }
+  .autor-link {
+    color: var(--text-matt);
+    text-decoration: none;
+  }
+  .autor-link:hover {
+    color: var(--primaer);
+    text-decoration: underline;
   }
   .marke {
     display: inline-block;

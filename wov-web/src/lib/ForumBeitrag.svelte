@@ -113,7 +113,11 @@
 
 <article class="beitrag">
   <header>
-    <span class="autor">{post.authorName}</span>
+    {#if post.authorCharacterId}
+      <a class="autor" href={`/${lang}/thing/recke/${post.authorCharacterId}`}>{post.authorName}</a>
+    {:else}
+      <span class="autor">{post.authorName}</span>
+    {/if}
     <span class="zeit">{datumZeit(iso(post.createdAt), lang)}</span>
     {#if post.editedAt}<span class="bearbeitet">{t['thing.post.edited']}</span>{/if}
   </header>
@@ -171,6 +175,10 @@
   .autor {
     color: var(--primaer);
     font-weight: 600;
+    text-decoration: none;
+  }
+  a.autor:hover {
+    text-decoration: underline;
   }
   .zeit {
     color: var(--umriss);

@@ -201,3 +201,22 @@ export interface ForumNotification {
   readonly createdAt: number;
   readonly readAt: number | null;
 }
+
+/**
+ * Ein Beitrag im oeffentlichen Profil: derselbe Beitrag, dazu sein Brett.
+ * `PostView` allein kennt das Brett nicht (es steht am Thema), aber der
+ * Profil-Link soll ohne einen zweiten Blick dorthin fuehren.
+ */
+export interface CharacterPostView extends PostView {
+  readonly board: BoardSlug;
+}
+
+/**
+ * Was ein Charakter im Thing geschrieben hat — die Grundlage des
+ * oeffentlichen Profils. Nur Eroeffnungen und Beitraege, keine Reaktionen:
+ * Das Profil erzaehlt, was jemand gesagt hat, nicht was er angeklickt hat.
+ */
+export interface CharacterActivity {
+  readonly threads: readonly ThreadSummary[];
+  readonly posts: readonly CharacterPostView[];
+}

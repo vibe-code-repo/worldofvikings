@@ -30,7 +30,13 @@
 
     <h1>{data.thread.title}</h1>
     <p class="meta-kopf">
-      {t['thing.threads.opened_by']} {data.thread.authorName} · {datumZeit(iso(data.thread.createdAt), lang)}
+      {t['thing.threads.opened_by']}
+      {#if data.thread.authorCharacterId}
+        <a class="autor-link" href={`/${lang}/thing/recke/${data.thread.authorCharacterId}`}
+          >{data.thread.authorName}</a
+        >
+      {:else}{data.thread.authorName}{/if}
+      · {datumZeit(iso(data.thread.createdAt), lang)}
     </p>
 
     <ForumModeration thread={data.thread} />
@@ -93,6 +99,14 @@
     margin: 0 0 1.4rem;
     color: var(--umriss);
     font-size: 14px;
+  }
+  .autor-link {
+    color: var(--text-matt);
+    text-decoration: none;
+  }
+  .autor-link:hover {
+    color: var(--primaer);
+    text-decoration: underline;
   }
 
   .pager {

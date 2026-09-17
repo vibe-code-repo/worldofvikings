@@ -38,6 +38,7 @@ import {
   isBoardSlug,
   type BoardOverview,
   type BoardSlug,
+  type CharacterPostView,
   type ForumNotification,
   type NotificationKind,
   type PostView,
@@ -350,6 +351,31 @@ export class ForumDatabase {
     return posts.map((p) => ({ ...p, reactions: karte.get(p.id) ?? [] }));
   }
 
+  /** Themen, die ein Charakter eroeffnet hat (neueste Regung zuerst). */
+  threadsVonCharakter(charakterId: number, limit: number): ThreadSummary[] {
+    const zeilen = this.db
+      .prepare('SELECT * FROM threads WHERE author_character_id = ? ORDER BY last_post_at DESC LIMIT ?')
+      .all(charakterId, limit) as Record<string, unknown>[];
+    return zeilen.map((z) => this.zuThread(z));
+  }
+
+  /** Nicht geloeschte Beitraege eines Charakters, neueste zuerst. */
+  postsVonCharakter(charakterId: number, limit: number): CharacterPostView[] {
+    const zeilen = this.db
+      .prepare(`SELECT p.*, t.board AS thread_board
+        FROM posts p JOIN threads t ON t.id = p.thread_id
+        WHERE p.author_character_id = ? AND p.deleted_at IS NULL
+        ORDER BY p.created_at DESC LIMIT ?`)
+      .all(charakterId, limit) as Record<string, unknown>[];
+    return zeilen.map((z) => {
+      const board = String(z.thread_board);
+      return {
+        ...this.zuPost(z),
+        board: isBoardSlug(board) ? board : BOARD_SLUGS[0],
+      };
+    });
+  }
+
   /**
    * Eigentum und Zustand eines Beitrags — fuer Bearbeiten und Loeschen.
    *
@@ -549,8 +575,7 @@ export class ForumDatabase {
     return { count: Number(z.n), me: !vorhanden };
   }
 
-  /** Reaktionen eines ganzen Themas, nach Beitrag gebuendelt. */
-  reaktionenVonThema(threadId: number, kontoId: number | null): Map<number, ReactionCount[]> {
+  /** Reaktionen eines ganzen Themas, nach Beitrag gebuendelt. */  reaktionenVonThema(threadId: number, kontoId: number | null): Map<number, ReactionCount[]> {
     const zeilen = this.db
       .prepare('SELECT id FROM posts WHERE thread_id = ?')
       .all(threadId) as Record<string, unknown>[];

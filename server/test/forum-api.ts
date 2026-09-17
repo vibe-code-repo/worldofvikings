@@ -354,6 +354,19 @@ async function main(): Promise<void> {
     sigridNach.filter((n) => n.kind === 'mention').length === 1
       && sigridNach.filter((n) => n.kind === 'reply').length === 1);
 
+  // ── Oeffentliches Profil (M6) ──────────────────────────────────────
+  const profil = json((await frage(api, 'GET', '/forum/characters/3/activity')).res);
+  check('Profil listet die Eroeffnungen des Charakters',
+    (profil.threads as Array<Record<string, unknown>>)
+      .some((t) => t.authorName === 'Runa' && t.authorCharacterId === 3));
+  check('Profil listet nur lebende eigene Beitraege',
+    (profil.posts as Array<Record<string, unknown>>)
+      .every((p) => p.authorName === 'Runa' && p.deletedAt === null));
+
+  const fremd = json((await frage(api, 'GET', '/forum/characters/999/activity')).res);
+  check('unbekannter Charakter ⇒ leere Listen, kein 404',
+    (fremd.threads as unknown[]).length === 0 && (fremd.posts as unknown[]).length === 0);
+
   // ── Moderation (M5) ────────────────────────────────────────────────
   angemeldet = 1;
   moderator = false;

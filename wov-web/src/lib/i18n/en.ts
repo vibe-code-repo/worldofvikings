@@ -390,6 +390,18 @@ export const en: Messages = {
   'thing.notifications.reply': 'replied',
   'thing.notifications.mention': 'mentioned you',
   'thing.notifications.all_read': 'Mark all as read',
+  /* Public profile (M6). */
+  'thing.profile.heading': 'Warrior profile',
+  'thing.profile.since': 'Warrior since',
+  'thing.profile.last_played': 'last played',
+  'thing.profile.appearance': 'Appearance',
+  'thing.profile.hair': 'Hairstyle',
+  'thing.profile.hair_color': 'Hair color',
+  'thing.profile.eye_color': 'Eye color',
+  'thing.profile.threads': 'Threads started',
+  'thing.profile.posts': 'Posts',
+  'thing.profile.empty': 'Nothing written yet.',
+  'thing.profile.unknown': 'No such warrior.',
   /* Forum M5: reporting and moderating. */
   'thing.mod.report': 'Report',
   'thing.mod.report_prompt': 'Reason (optional):',

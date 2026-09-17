@@ -419,6 +419,18 @@ export const de = {
   'thing.notifications.reply': 'hat geantwortet',
   'thing.notifications.mention': 'hat dich erwähnt',
   'thing.notifications.all_read': 'Alle als gelesen',
+  /* Oeffentliches Profil (M6). */
+  'thing.profile.heading': 'Reckenprofil',
+  'thing.profile.since': 'Recke seit',
+  'thing.profile.last_played': 'zuletzt gespielt',
+  'thing.profile.appearance': 'Aussehen',
+  'thing.profile.hair': 'Frisur',
+  'thing.profile.hair_color': 'Haarfarbe',
+  'thing.profile.eye_color': 'Augenfarbe',
+  'thing.profile.threads': 'Eröffnete Themen',
+  'thing.profile.posts': 'Beiträge',
+  'thing.profile.empty': 'Noch nichts geschrieben.',
+  'thing.profile.unknown': 'Diesen Recken gibt es nicht.',
   /* Forum M5: melden und moderieren. */
   'thing.mod.report': 'Melden',
   'thing.mod.report_prompt': 'Grund der Meldung (optional):',

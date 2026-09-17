@@ -118,6 +118,11 @@ export const SLUGS = {
   '/thing/suche': { de: 'thing/suche', en: 'thing/search' },
   /* Die Benachrichtigungen — die Glocke fuehrt hierher. */
   '/thing/benachrichtigungen': { de: 'thing/benachrichtigungen', en: 'thing/notifications' },
+  /* Das oeffentliche Reckenprofil. Der Ordner selbst hat keine Seite, nur
+     den dynamischen Kindpfad `/thing/recke/[id]` — der Waechter verlangt
+     trotzdem eine Zeile, weil `recke` keinen Platzhalter traegt. Gleicher
+     Slug in beiden Sprachen; die Sprache bleibt der Praefix. */
+  '/thing/recke': { de: 'thing/recke', en: 'thing/recke' },
   /* Same word in both languages, like `saga` and `thing` — a German
      `/de/wissen` against an English `/en/wiki` would be two names for one
      page where the English one is already the German one too. */

@@ -67,6 +67,9 @@ const DROSSEL: Record<'thread' | 'post' | 'report' | 'reaction', { max: number; 
 /** Wie viele Benachrichtigungen die Glocke hoechstens liefert. */
 const NOTIFICATION_LIMIT = 50;
 
+/** Wie viele Eroeffnungen/Beitraege ein oeffentliches Profil zeigt. */
+const CHARACTER_ACTIVITY_LIMIT = 25;
+
 /** Konto-Id aus der Anfrage, oder null. Wird von KontoApi gestellt. */
 export type KontoAus = (req: IncomingMessage) => number | null;
 /** Charakter des Kontos, oder null — die Rechtepruefung beim Schreiben. */
@@ -137,6 +140,9 @@ export class ForumApi {
 
     if (m === 'GET' && pfad === `${PRAEFIX}/boards`) return this.boards(res);
     if (m === 'GET' && pfad === `${PRAEFIX}/search`) return this.suche(res, url);
+
+    const aktivitaet = /^\/forum\/characters\/(\d+)\/activity$/.exec(pfad);
+    if (m === 'GET' && aktivitaet) return this.charakterAktivitaet(res, Number(aktivitaet[1]));
 
     const themen = /^\/forum\/boards\/([a-z_]+)\/threads$/.exec(pfad);
     if (themen) {
@@ -264,6 +270,19 @@ export class ForumApi {
 
   private boards(res: ServerResponse): void {
     this.json(res, 200, { boards: this.db.boardList() });
+  }
+
+  /**
+   * Was ein Charakter im Thing geschrieben hat — oeffentlich, ohne Konto.
+   * Ein unbekannter Charakter ist KEIN 404: Die Forendatenbank kennt keine
+   * Charaktere, nur Beitraege. Wer nichts geschrieben hat, bekommt leere
+   * Listen; ob es den Recken gibt, weiss allein die Konten-API.
+   */
+  private charakterAktivitaet(res: ServerResponse, charakterId: number): void {
+    this.json(res, 200, {
+      threads: this.db.threadsVonCharakter(charakterId, CHARACTER_ACTIVITY_LIMIT),
+      posts: this.db.postsVonCharakter(charakterId, CHARACTER_ACTIVITY_LIMIT),
+    });
   }
 
   /**

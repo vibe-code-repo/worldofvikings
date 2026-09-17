@@ -138,8 +138,59 @@ export async function ladeThemaSeite(
   };
 }
 
-/** Ein Suchtreffer, wie die Suchseite ihn braucht. */
-export interface SuchTreffer {
+/** Ein Beitrag im Profil: der Beitrag plus sein Brett (fuer den Link). */
+export interface AktivitaetsPost extends PostRow {
+  board: string;
+}
+
+/** Der oeffentliche Charakterdatensatz (`GET /accounts/characters/:id`). */
+export interface OeffentlicherCharakter {
+  id: number;
+  name: string;
+  hairstyle: string;
+  hairColor: string;
+  eyeColor: string;
+  figure: string;
+  classId: string;
+  created: number;
+  lastPlayed: number;
+}
+
+/**
+ * Den oeffentlichen Charakter holen. Er liegt in der Konten-API, nicht in
+ * der Forums-API — fuer das Profil braucht es beides, und der Weg ist
+ * derselbe Spielserver.
+ */
+export async function ladeCharakter(
+  fetch: Fetcher,
+  id: number,
+): Promise<Ergebnis<{ character: OeffentlicherCharakter }>> {
+  const r = await hole<{ character?: unknown }>(fetch, `/accounts/characters/${id}`);
+  if (!r.ok) return r;
+  const c = r.data.character as OeffentlicherCharakter | undefined;
+  if (!c || typeof c !== 'object') return { ok: false, status: 0 };
+  return { ok: true, data: { character: c } };
+}
+
+export async function ladeCharakterAktivitaet(
+  fetch: Fetcher,
+  id: number,
+): Promise<Ergebnis<{ threads: ThreadRow[]; posts: AktivitaetsPost[] }>> {
+  const r = await hole<{ threads?: unknown; posts?: unknown }>(
+    fetch,
+    `/forum/characters/${id}/activity`,
+  );
+  if (!r.ok) return r;
+  return {
+    ok: true,
+    data: {
+      threads: Array.isArray(r.data.threads) ? (r.data.threads as ThreadRow[]) : [],
+      posts: Array.isArray(r.data.posts) ? (r.data.posts as AktivitaetsPost[]) : [],
+    },
+  };
+}
+
+/** Ein Suchtreffer, wie die Suchseite ihn braucht. */export interface SuchTreffer {
   postId: number;
   threadId: number;
   board: string;

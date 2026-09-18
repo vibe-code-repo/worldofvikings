@@ -11,6 +11,7 @@ import random
 import sys
 from pathlib import Path
 from mathutils import Vector, Matrix
+from mathutils.bvhtree import BVHTree
 
 ARGS = sys.argv[sys.argv.index('--') + 1:]
 ROOT = Path(ARGS[0]).resolve()
@@ -27,7 +28,7 @@ PARTS = [
     {'item': 'wildwarden_vest', 'label': 'Rindenwams', 'regions': ['Torso']},
     {'item': 'wildwarden_bracers', 'label': 'Wurzelarmschienen', 'regions': ['ArmLowerLeft', 'ArmLowerRight']},
     {'item': 'wildwarden_gloves', 'label': 'Lederhandschuhe', 'regions': ['HandLeft', 'HandRight']},
-    {'item': 'wildwarden_robe', 'label': 'Geteilte Waldrobe', 'regions': ['Hips']},
+    {'item': 'wildwarden_robe', 'label': 'Waldrobe', 'regions': ['Hips']},
     {'item': 'wildwarden_boots', 'label': 'Wanderstiefel', 'regions': ['LegLeft', 'LegRight']},
 ]
 scene = bpy.context.scene
@@ -142,15 +143,60 @@ def sleeve(name, points, radii, slot, bone, material, segments=12):
 
 
 def robe_weights(obj):
-    """Independent left/right cloth panels, continuous hip/knee blending."""
+    """Continuous skirt skin: blend both legs across the front/back centre."""
     groups = {n: obj.vertex_groups.get(n) or obj.vertex_groups.new(name=n) for n in ['Hips', 'UpperLeg_L', 'UpperLeg_R', 'LowerLeg_L', 'LowerLeg_R']}
     for v in obj.data.vertices:
-        side = 'L' if v.co.x > 0 else 'R'
-        hip = min(1, max(0, (v.co.z-.71)/.20))
-        knee = min(.42, max(0, (.47-v.co.z)*1.15)) * (1-hip)
-        for name, weight in [('Hips', hip), ('UpperLeg_'+side, 1-hip-knee), ('LowerLeg_'+side, knee)]:
+        hip = min(1, max(0, (v.co.z-.70)/.20))
+        knee = min(.90, max(0, (.53-v.co.z)/.30)) * (1-hip)
+        # Spread opposing strides over the hem instead of one narrow centre strip.
+        blend_width = .20 + .40*min(1, max(0, (.80-v.co.z)/.50))
+        left = min(1, max(0, .5+v.co.x/blend_width))
+        weights = [('Hips', hip)]
+        for side, fraction in [('L', left), ('R', 1-left)]:
+            weights += [('UpperLeg_'+side, (1-hip-knee)*fraction), ('LowerLeg_'+side, knee*fraction)]
+        for name, weight in weights:
             if weight > 0:
                 groups[name].add([v.index], weight, 'REPLACE')
+
+
+def binding_surface(obj):
+    """Capture a triangulated rest surface for ornament weight interpolation."""
+    obj.data.calc_loop_triangles()
+    points = [v.co.copy() for v in obj.data.vertices]
+    triangles = [tuple(t.vertices) for t in obj.data.loop_triangles]
+    weights = [{obj.vertex_groups[g.group].name: g.weight for g in v.groups if g.weight > 0}
+               for v in obj.data.vertices]
+    return BVHTree.FromPolygons(points, triangles, all_triangles=True), points, triangles, weights
+
+
+def attach_to_surface(obj, surface, conform=False, offset=0):
+    """Decoration inherits the underlying garment's interpolated skinning."""
+    tree, points, triangles, weights = surface
+    obj.vertex_groups.clear()
+    for v in obj.data.vertices:
+        hit, normal, face, _ = tree.find_nearest(v.co)
+        a, b, c = triangles[face]
+        u, w, p = points[b]-points[a], points[c]-points[a], hit-points[a]
+        uu, ww, uw = u.dot(u), w.dot(w), u.dot(w)
+        determinant = uu*ww-uw*uw
+        assert abs(determinant) > 1e-16
+        beta = (ww*p.dot(u)-uw*p.dot(w))/determinant
+        gamma = (uu*p.dot(w)-uw*p.dot(u))/determinant
+        if conform:
+            # Leaf outline, front ridge and back centre remain distinct layers.
+            clearance = .020 if v.index == 8 else (.006 if v.index == 9 else .009)
+            v.co = hit+normal*(clearance+offset)
+        combined = {}
+        for index, factor in [(a, 1-beta-gamma), (b, beta), (c, gamma)]:
+            for name, weight in weights[index].items():
+                combined[name] = combined.get(name, 0)+max(0, factor)*weight
+        strongest = sorted(combined.items(), key=lambda kv: kv[1], reverse=True)[:4]
+        total = sum(weight for _, weight in strongest)
+        assert total > 0
+        for name, weight in strongest:
+            if weight > 0:
+                group = obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
+                group.add([v.index], weight/total, 'REPLACE')
 
 
 # Complete source regions form the undergarment. Head and hands retain exposed skin.
@@ -183,17 +229,17 @@ for slot, src in base.items():
         polygon.use_smooth = False
         if slot.startswith('Hand') and abs(polygon.center.x) < .875:
             polygon.material_index = 1
-    # Fix only the known reversed upper-leg assignments in source Hips lining.
+    # Correct reversed thigh assignments without a discontinuity at x=0.
     if slot == 'Hips':
         vg = {g.index: g.name for g in obj.vertex_groups}
         for v in obj.data.vertices:
-            for entry in list(v.groups):
-                name, weight = vg[entry.group], entry.weight
-                if name in ['UpperLeg_L', 'UpperLeg_R']:
-                    expected = 'UpperLeg_L' if v.co.x > 0 else 'UpperLeg_R'
-                    if name != expected:
-                        obj.vertex_groups[name].remove([v.index])
-                        obj.vertex_groups[expected].add([v.index], weight, 'ADD')
+            thigh = sum(g.weight for g in v.groups if vg[g.group] in ['UpperLeg_L', 'UpperLeg_R'])
+            left = min(1, max(0, .5+v.co.x/.08))
+            for name, fraction in [('UpperLeg_L', left), ('UpperLeg_R', 1-left)]:
+                group = obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
+                group.remove([v.index])
+                if thigh*fraction > 0:
+                    group.add([v.index], thigh*fraction, 'REPLACE')
     pieces[slot].append(obj)
 
 # Layered bark scales conform to a torso-shaped envelope, front and back.
@@ -213,47 +259,61 @@ for sign in [-1, 1]:
 leaf('Heartwood_medallion', (0, -.213, 1.36), (0, -.224, 1.24), .037, (0, -1, 0), 'Torso', 'Spine_03', 'gold', .008)
 leaf('Heartwood_jade', (0, -.228, 1.345), (0, -.238, 1.264), .022, (0, -1, 0), 'Torso', 'Spine_03', 'jade', .012)
 
-# Eight independent long skirt panels: a split at the centre front/back lets legs separate.
+# Bark and collar follow the body-derived vest, including torso bending.
+vest_surface = binding_surface(pieces['Torso'][0])
+for obj in pieces['Torso'][1:]:
+    attach_to_surface(obj, vest_surface)
+
+# One continuous A-line robe shell, not eight independently opening panels.
+levels = [(.926,.195,.155),(.84,.214,.174),(.73,.235,.194),(.62,.253,.216),
+          (.51,.267,.230),(.41,.281,.242),(.31,.291,.249),(.21,.302,.256),(.13,.308,.261)]
+segments = 24
+vertices = []
+for row, (z, rx, ry) in enumerate(levels):
+    for col in range(segments):
+        angle = col*2*math.pi/segments
+        pleat = 1 + .025*math.cos(angle*8)
+        vertices.append((rx*math.sin(angle)*pleat, .015-ry*math.cos(angle)*pleat, z))
+faces = []
+for row in range(len(levels)-1):
+    for col in range(segments):
+        a, b = row*segments+col, row*segments+(col+1) % segments
+        faces.extend([(a,b,b+segments),(a,b+segments,a+segments)])
+robe = mesh('Continuous_robe_foundation', vertices, faces, 'Hips', 'leather')
+robe_weights(robe)
+robe_surface = binding_surface(robe)
+bpy.context.view_layer.objects.active = robe
+mod = robe.modifiers.new('Hem_thickness', 'SOLIDIFY'); mod.thickness = .004
+bpy.ops.object.modifier_apply(modifier=mod.name)
+robe['continuous_circumference'] = True
 for sector in range(8):
-    start_angle = sector*math.pi/4 + .023
-    end_angle = (sector+1)*math.pi/4 - .023
-    vertices = []
-    levels = [(.926, .189, .150), (.74, .217, .162), (.51, .237, .188), (.30, .260, .207), (.145, .275, .216)]
-    for level, (z, rx, ry) in enumerate(levels):
-        for j in range(3):
-            angle = start_angle+(end_angle-start_angle)*j/2
-            vertices.append((rx*math.sin(angle), .015-ry*math.cos(angle), z-(.030 if level == 4 and j == 1 else 0)))
-    faces = [(k*3+j, k*3+j+1, (k+1)*3+j+1, (k+1)*3+j) for k in range(4) for j in range(2)]
-    obj = mesh('Split_robe_%d' % sector, vertices, faces, 'Hips', 'leather')
-    robe_weights(obj)
-    bpy.context.view_layer.objects.active = obj
-    mod = obj.modifiers.new('Hem_thickness', 'SOLIDIFY'); mod.thickness = .004
-    bpy.ops.object.modifier_apply(modifier=mod.name)
+    start_angle = sector*math.pi/4
+    end_angle = (sector+1)*math.pi/4
     # Individual overlapping bark scales create the woven surface, not a texture.
-    for row, (z, rx, ry) in enumerate([(.72, .223, .171), (.57, .241, .190), (.42, .258, .207), (.27, .278, .225)]):
+    for row, (z, rx, ry) in enumerate([(.76,.232,.191),(.59,.268,.226),(.42,.290,.251),(.26,.307,.269)]):
         for col in range(2):
             angle = start_angle+(end_angle-start_angle)*(.27+col*.46)
             p = Vector((rx*math.sin(angle), .015-ry*math.cos(angle), z))
             obj = leaf('Robe_bark_scale', p+Vector((0, 0, .095)), p-Vector((0, 0, .080)), .047,
                        (math.sin(angle), -math.cos(angle), 0), 'Hips', None,
                        'bark' if (sector+row+col) % 3 else 'bark_dark', .008)
-            robe_weights(obj)
+            attach_to_surface(obj, robe_surface, conform=True)
     for col in range(3):
         angle = start_angle+(end_angle-start_angle)*(.12+col*.38)
-        p = Vector((.285*math.sin(angle), .015-.232*math.cos(angle), .16))
+        p = Vector((.319*math.sin(angle), .015-.276*math.cos(angle), .17))
         obj = leaf('Golden_hem_leaf', p+Vector((0, 0, .085)), p-Vector((0, 0, .035)), .026,
                    (math.sin(angle), -math.cos(angle), 0), 'Hips', None, 'antler', .004)
-        robe_weights(obj)
+        attach_to_surface(obj, robe_surface, conform=True)
 sleeve('Woven_belt', [(0, .015, .906), (0, .015, .967)], [(.160, .201)]*2, 'Hips', 'Hips', 'bark_dark')
 for z in [.908, .957]:
     sleeve('Belt_piping', [(0, .015, z), (0, .015, z+.008)], [(.164, .205)]*2, 'Hips', 'Hips', 'gold')
 leaf('Belt_seed', (0, -.163, .963), (0, -.171, .904), .031, (0, -1, 0), 'Hips', 'Hips', 'jade')
 for i in range(14):
     angle = (i+.5)*2*math.pi/14
-    p = Vector((.203*math.sin(angle), .015-.170*math.cos(angle), .905))
+    p = Vector((.214*math.sin(angle), .015-.177*math.cos(angle), .905))
     obj = leaf('Waist_foliage', p, p+Vector((.030*math.sin(angle), -.025*math.cos(angle), -.17-(i % 2)*.035)), .040,
                (math.sin(angle), -math.cos(angle), 0), 'Hips', None, 'leaf' if i % 2 else 'leaf_dark')
-    robe_weights(obj)
+    attach_to_surface(obj, robe_surface, conform=True, offset=.017)
 
 # Arm coordinates derive from joint heads; right bone tail axes are not mirrored.
 rng = random.Random(731)
@@ -265,21 +325,14 @@ for side, suffix, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:
     upper, lower = 'ArmUpper'+word, 'ArmLower'+word
     ub, lb = 'Shoulder_'+suffix, 'Elbow_'+suffix
     sleeve('Mantle_leather_base', [shoulder+axis*.015, shoulder+axis*.13, shoulder+axis*.225], [(.12, .12), (.11, .11), (.086, .086)], upper, ub, 'bark_dark')
-    # Three twig fans and 36 thick, folded leaves on each shoulder.
-    for j in range(3):
-        p = shoulder+Vector((side*.025, (j-1)*.080, .085))
-        q = p+Vector((side*.10, (j-1)*.025, .24))
-        tip = q+Vector((side*.015, (j-1)*.035, .13))
-        branch('Mantle_branch', [p, p.lerp(q, .6), q, tip], [.018, .012, .007, .0015], upper, ub)
-        branch('Mantle_twig', [p.lerp(q, .72), q+Vector((side*.100, -.035, .060))], [.009, .001], upper, ub, 'antler')
-        leaf('Branch_sprout', q, q+Vector((side*.022, -.038, .080)), .018, (0, -1, 0), upper, ub, 'leaf')
-    for row in range(4):
-        for j in range(9):
-            angle = -math.pi*.66+j*math.pi*1.32/8
+    # Foliage only: five overlapping leaf tiers, no shoulder branches or twigs.
+    for row in range(5):
+        for j in range(11):
+            angle = -math.pi*.69+j*math.pi*1.38/10+(row % 2)*.035
             radial = Vector((0, math.sin(angle), math.cos(angle)))
-            root = shoulder+axis*(.015+row*.054)+radial*(.116-row*.007)
-            tip = root+axis*(.135+rng.uniform(-.016, .024))+radial*(.053+rng.uniform(-.01, .012))
-            leaf('Mantle_leaf', root, tip, .034+rng.uniform(-.005, .005), radial, upper, ub,
+            root = shoulder+axis*(.004+row*.042)+radial*(.125-row*.007)
+            tip = root+axis*(.125+rng.uniform(-.016, .024))+radial*(.042+rng.uniform(-.01, .012))
+            leaf('Mantle_leaf', root, tip, .038+rng.uniform(-.005, .005), radial, upper, ub,
                  ['leaf', 'leaf_dark', 'leaf', 'leaf_light'][(row+j) % 4], .010)
     fore = (hand-elbow).normalized()
     sleeve('Leather_bracer', [elbow.lerp(hand, .13), elbow.lerp(hand, .43), elbow.lerp(hand, .92)], [(.079, .071), (.075, .071), (.057, .052)], lower, lb, 'antler')
@@ -301,6 +354,9 @@ for x, suffix, slot in [(-.113, 'R', 'LegLeft'), (.113, 'L', 'LegRight')]:
     for z in [.13, .29, .365]:
         sleeve('Boot_wrap', [(x, .022, z), (x, .022, z+.017)], [(.114 if z > .2 else .094, .083 if z > .2 else .069)]*2, slot, 'LowerLeg_'+suffix, 'bark_light')
     leaf('Boot_cuff_leaf', (x, -.097, .395), (x, -.098, .285), .040, (0, -1, 0), slot, 'LowerLeg_'+suffix, 'leaf_dark')
+    boot_surface = binding_surface(pieces[slot][0])
+    for obj in pieces[slot][1:]:
+        attach_to_surface(obj, boot_surface)
 
 # Open antler crown: the face remains the actual source head, weighted to Neck.
 sleeve('Crown_band', [(0, .005, 1.715), (0, .005, 1.742)], [(.144, .146), (.140, .143)], 'Head', 'Neck', 'bark_dark', 16)
@@ -416,6 +472,8 @@ def render(name):
 
 
 report = {'source': source_path, 'name': 'Wildwarden', 'slots': {}, 'pose_checks': [],
+          'version': 2, 'robe_foundation': 'continuous', 'shoulder_branches': 0,
+          'decoration_binding': 'barycentric garment weights',
           'collision_certified': False, 'cloth_simulation': False, 'source_overwritten': False}
 for slot, obj in armor.items():
     obj.data.calc_loop_triangles()

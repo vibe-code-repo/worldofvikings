@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout } from '@wov/shared';
-import { hashNormalisieren, holeWeltdokument, schreibeWeltdokument } from '../src/editor/weltdokument';
+import { basisNachBestaetigung, hashNormalisieren, holeWeltdokument, schreibeWeltdokument } from '../src/editor/weltdokument';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
@@ -38,7 +38,8 @@ interface Aufruf {
   kopf: Record<string, string>;
   rumpf: string | undefined;
 }
-type Antwortmuster = { status: number; rumpf?: unknown; roh?: string; kopf?: Record<string, string> } | 'netz';
+type FesteAntwort = { status: number; rumpf?: unknown; roh?: string; kopf?: Record<string, string> } | 'netz';
+type Antwortmuster = FesteAntwort | ((aufruf: Aufruf) => FesteAntwort);
 
 function attrappe(antworten: Antwortmuster[]): { fetchFn: typeof fetch; aufrufe: Aufruf[] } {
   const aufrufe: Aufruf[] = [];
@@ -48,7 +49,8 @@ function attrappe(antworten: Antwortmuster[]): { fetchFn: typeof fetch; aufrufe:
       kopf: { ...(init?.headers as Record<string, string> | undefined) },
       rumpf: init?.body as string | undefined,
     });
-    const a = antworten[Math.min(aufrufe.length - 1, antworten.length - 1)]!;
+    const roh = antworten[Math.min(aufrufe.length - 1, antworten.length - 1)]!;
+    const a = typeof roh === 'function' ? roh(aufrufe[aufrufe.length - 1]!) : roh;
     if (a === 'netz') throw new Error('ECONNREFUSED');
     return new Response(a.roh ?? JSON.stringify(a.rumpf ?? {}), { status: a.status, headers: a.kopf });
   }) as typeof fetch;
@@ -71,6 +73,10 @@ console.log('▶ GET: Hash aus Rumpf und ETag');
   s = await holeWeltdokument(attrappe([{ status: 200, rumpf: gueltig }]).fetchFn);
   check('Ohne Hash (Server vor K0.2): hash === null, Dokument trotzdem da', s.erreichbar && s.hash === null && s.layout.regions.length === echt.regions.length);
   check('hashNormalisieren: leer/Zahl/undefined → null', hashNormalisieren('') === null && hashNormalisieren('""') === null && hashNormalisieren(5) === null && hashNormalisieren(undefined) === null);
+  check('hashNormalisieren toleriert Leerzeichen nach W/: W/ "abc" → abc, W/  "abc" → abc, W/"abc" → abc', hashNormalisieren('W/ "abc"') === 'abc' && hashNormalisieren('W/  "abc"') === 'abc' && hashNormalisieren('W/"abc"') === 'abc', JSON.stringify([hashNormalisieren('W/ "abc"'), hashNormalisieren('W/  "abc"')]));
+  check('hashNormalisieren: gewöhnlicher Wert, Anführungszeichen, Randleerzeichen', hashNormalisieren('abc') === 'abc' && hashNormalisieren('"abc"') === 'abc' && hashNormalisieren('  "abc" ') === 'abc');
+  s = await holeWeltdokument(attrappe([{ status: 200, rumpf: gueltig, kopf: { ETag: 'W/ "leer"' } }]).fetchFn);
+  check('ETag W/ "…" (mit Leerzeichen) wird beim Lesen geglättet', s.erreichbar && s.hash === 'leer');
 }
 
 // ── 2. POST mit Basis ────────────────────────────────────────────────
@@ -164,6 +170,47 @@ console.log('▶ Ablauf: laden → speichern → speichern → 409 → kein weit
   check('Insgesamt 3 POSTs, der 409-Zweig löste keinen vierten aus', posts(aufrufe) === 3, `POSTs=${posts(aufrufe)}`);
 }
 
+// ── 7b. Nicht-dev: bestätigte Ersetzung nimmt die frisch gelesene Basis (B3) ──
+console.log('▶ Nicht-dev: „Ja, überschreiben" mit frischer Basis');
+{
+  /** Ein Server, der die Basis prüft; jemand anders hat auf h7 gespeichert, der Editor kennt noch h1. */
+  const server = (): { antworten: Antwortmuster[]; aufrufe: () => Aufruf[]; fetchFn: typeof fetch } => {
+    const antworten: Antwortmuster[] = [
+      { status: 200, rumpf: { ok: true, message: 'x', instanz: 'live', datei: 'live.json', layout: echt, hash: 'h7' } },
+      (a) =>
+        a.kopf['If-Match'] === '"h7"'
+          ? { status: 200, rumpf: { ok: true, message: 'Gespeichert', hash: 'h8' } }
+          : { status: 409, rumpf: { ok: false, fehler: 'veraltet', aktuell: 'h7', message: 'veraltet' } },
+      (a) =>
+        a.kopf['If-Match'] === '"h7"'
+          ? { status: 200, rumpf: { ok: true, message: 'Gespeichert', hash: 'h8' } }
+          : { status: 409, rumpf: { ok: false, fehler: 'veraltet', aktuell: 'h7', message: 'veraltet' } },
+    ];
+    const { fetchFn, aufrufe } = attrappe(antworten);
+    return { antworten, aufrufe: () => aufrufe, fetchFn };
+  };
+  {
+    const s = server();
+    const frisch = await holeWeltdokument(s.fetchFn); // die Vorprüfung des Editors
+    const basis = basisNachBestaetigung('h1', frisch);
+    check('Vorprüfung liefert h7, die Basis nach der Bestätigung ist h7 (nicht die alte h1)', frisch.erreichbar && frisch.hash === 'h7' && basis === 'h7', String(basis));
+    const a = await schreibeWeltdokument(echt, basis, s.fetchFn);
+    check('Bestätigte Ersetzung: 1 POST, 200, kein 409 und kein zweiter Dialog', a.art === 'ok' && posts(s.aufrufe()) === 1, `POSTs=${posts(s.aufrufe())}, art=${a.art}`);
+    check('… mit If-Match "h7"; neue Basis h8', s.aufrufe()[1]?.kopf['If-Match'] === '"h7"' && a.art === 'ok' && a.hash === 'h8');
+  }
+  {
+    // Gegenprobe: mit der alten Basis (Stand 5eb78eb) läuft dieselbe Bestätigung in den 409.
+    const s = server();
+    await holeWeltdokument(s.fetchFn);
+    const a = await schreibeWeltdokument(echt, 'h1', s.fetchFn);
+    check('Gegenprobe alte Basis h1: 409 (art=veraltet) — der Fehler, den B3 beschreibt', a.art === 'veraltet', a.art);
+  }
+  const unlesbar = await holeWeltdokument(attrappe(['netz']).fetchFn);
+  check('Vorprüfung nicht lesbar: bisherige Basis bleibt', basisNachBestaetigung('h1', unlesbar) === 'h1');
+  const ohneHash = await holeWeltdokument(attrappe([{ status: 200, rumpf: { ok: true, message: 'x', layout: echt } }]).fetchFn);
+  check('Vorprüfung ohne Hash (Server vor K0.2): bisherige Basis bleibt', basisNachBestaetigung('h1', ohneHash) === 'h1' && basisNachBestaetigung(null, ohneHash) === null);
+}
+
 // ── 8. Quelltextprüfung: der Editor benutzt den Speicherweg ──────────
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
@@ -174,7 +221,8 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   const speichern = q.slice(von, bis);
   const abgleich = q.slice(bis, ende);
   check('inDieWeltSpeichern und veraltetAbgleichen gefunden', von > 0 && bis > von && ende > bis);
-  check('inDieWeltSpeichern schickt die Basis: schreibeWeltdokument(sauber, serverHash)', /schreibeWeltdokument\(sauber, serverHash\)/.test(speichern));
+  check('inDieWeltSpeichern schickt die Basis: schreibeWeltdokument(sauber, basis), basis beginnt bei serverHash', /let basis = serverHash;/.test(speichern) && /schreibeWeltdokument\(sauber, basis\)/.test(speichern));
+  check('… und nimmt nach bestätigter Frischprüfung deren Hash (basisNachBestaetigung(serverHash, stand)) — erst NACH dem „ja"', /if \(wahl !== 'ja'\) \{[\s\S]*?return false;\s*\}\s*[^]*?basis = basisNachBestaetigung\(serverHash, stand\);/.test(speichern));
   check('… und ruft nirgends selbst fetch(…) für den POST auf', !/fetch\(/.test(speichern.slice(speichern.indexOf('Speichere nach'))));
   check('… merkt sich den neuen Hash nach Erfolg', /serverHash = antwort\.hash/.test(speichern));
   check('… bei 409 wird abgeglichen statt überschrieben', /antwort\.art === 'veraltet'[\s\S]*veraltetAbgleichen\(sauber\)/.test(speichern));

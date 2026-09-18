@@ -69,6 +69,7 @@ import type { DungeonVorschau3d } from './DungeonVorschau3d';
 import { befundSchwere } from './befundSchwere';
 import {
   alter,
+  basisNachBestaetigung,
   entwurfStandLesen,
   gleich,
   holeWeltdokument,
@@ -78,7 +79,7 @@ import {
   vergleiche,
   type EntwurfsQuelle,
 } from './weltdokument';
-import { EntwurfsSpeicher, browserUmgebung } from './entwurfsSpeicher';
+import { EntwurfsSpeicher, UebernahmeSchritte, browserUmgebung } from './entwurfsSpeicher';
 import { frage, unterschiedsTafel, vorhang } from './AbgleichDialog';
 // NUR der Typ: Der Katalog selbst kommt per dynamischem import() erst beim
 // ersten Öffnen (s. Werkzeugleiste). Statisch eingebunden zöge er Babylon
@@ -282,14 +283,26 @@ const FORMEN: readonly FormDef[] = [
  * Steht hier oben, weil `ladeEntwurf()` ihn sofort braucht; die Funktionen,
  * die der Rückruf nutzt, laufen erst, wenn das Modul fertig ist.
  */
+const uebernahmeSchritte = new UebernahmeSchritte<WorldLayout>();
 const entwurfsSpeicher = new EntwurfsSpeicher({
   ...browserUmgebung(),
   aktuell: () => layout,
   beiFremdem: (fremd) => {
-    merkeSchritt();
+    // Übernahmen sind EINE Schrittklasse (s. UebernahmeSchritte): Nur die
+    // erste nach einer eigenen Änderung legt einen Schritt an, sonst füllte
+    // eine Flut fremder Schreibvorgänge den Stapel und verdrängte den
+    // eigenen Stand, obwohl die Meldung unten ihn verspricht.
+    if (uebernahmeSchritte.brauchtSchritt(vergangenheit, layout)) merkeSchritt();
+    else zukunft.length = 0;
     layout = fremd;
     gewaehlt = null;
+    // Halbfertiges Werkzeug gehört zum verdrängten Stand: ein angefangener
+    // Fluss, Polygonzug, Startpunkt-Klick oder Form-Griff würde sonst in den
+    // fremden Entwurf hineingeschrieben.
     griff = null;
+    flussPunkte = [];
+    polygonPunkte = [];
+    startpunktModus = null;
     alles('bearbeitet', false);
     vorschauAnstossen();
     shell.meldung(
@@ -414,10 +427,28 @@ function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): void {
   // inzwischen geändert. Der Speicher hat NICHT geschrieben, sondern
   // `beiFremdem` (oben) den fremden Stand übernommen — mehr ist hier nicht
   // zu tun.
-  if (entwurfsSpeicher.schreiben(layout, quelle, welt.instanz) === 'voll') {
+  const ergebnis = entwurfsSpeicher.schreiben(layout, quelle, welt.instanz);
+  if (ergebnis === 'voll') {
     shell.meldung('Entwurf zu groß für localStorage — bitte als JSON exportieren!', true);
+  } else if (ergebnis === 'ohne-zettel') {
+    // Der Entwurf ist gespeichert, nur der Begleitzettel nicht. Einmal
+    // sagen, nicht bei jeder Bewegung eines Griffs.
+    if (!zettelHinweisGezeigt) {
+      zettelHinweisGezeigt = true;
+      shell.meldung('Entwurf gespeichert — der Speicher ist fast voll (Begleitzettel fehlt).');
+    }
+  } else {
+    zettelHinweisGezeigt = false;
   }
 }
+let zettelHinweisGezeigt = false;
+
+// Beim Verlassen der Seite Ereignis und Kanal aushängen. `persisted`: Die
+// Seite kommt aus dem Vor-/Zurück-Zwischenspeicher wieder und behielte
+// nichts von dem, was hier ausgehängt würde — dann bleibt alles stehen.
+window.addEventListener('pagehide', (e) => {
+  if (!e.persisted) entwurfsSpeicher.schliessen();
+});
 
 // ── Undo/Redo (Review-Punkt 18) ──────────────────────────────────────
 // `layout` wird überall immutabel ersetzt — ein Snapshot je Änderung
@@ -455,6 +486,7 @@ function wiederherstellen(): void {
     return;
   }
   vergangenheit.push(layout);
+  if (vergangenheit.length > 50) vergangenheit.shift(); // wie in merkeSchritt
   layout = wieder;
   gewaehlt = null;
   alles();
@@ -3140,6 +3172,9 @@ async function inDieWeltSpeichern(): Promise<boolean> {
     return false;
   }
 
+  // Basis für den POST. Nach einer bestätigten Frischprüfung ist es der
+  // Stand, den der Nutzer eben gesehen hat, sonst der zuletzt gelesene.
+  let basis = serverHash;
   if (welt.instanz !== 'dev') {
     // Frisch holen statt `serverKanon` zu benutzen: Zwischen dem Start
     // des Editors und diesem Klick können Stunden liegen, und in denen
@@ -3171,12 +3206,16 @@ async function inDieWeltSpeichern(): Promise<boolean> {
       shell.meldung('Speichern abgebrochen — auf dem Server hat sich nichts geändert.');
       return false;
     }
+    // Der Nutzer hat GENAU diesen Stand gesehen und zu ersetzen zugestimmt;
+    // mit der alten Basis liefe seine Bestätigung in einen 409 und einen
+    // zweiten Dialog.
+    basis = basisNachBestaetigung(serverHash, stand);
   }
 
   shell.meldung(`Speichere nach ${weltName()} …`);
   // Mit der zuletzt gelesenen Basis: Hat inzwischen jemand anders
   // gespeichert, antwortet der Server 409, und es wird NICHTS geschrieben.
-  const antwort = await schreibeWeltdokument(sauber, serverHash);
+  const antwort = await schreibeWeltdokument(sauber, basis);
   if (antwort.art === 'ok') {
     shell.meldung(`${antwort.message} — Server neu starten, damit die Welt sie lädt.`);
     // Ab jetzt sind Entwurf und Serverstand deckungsgleich. Ohne diese

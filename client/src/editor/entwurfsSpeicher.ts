@@ -107,12 +107,53 @@ export interface EntwurfsSpeicherOptionen {
 }
 
 export type SchreibErgebnis =
-  /** Geschrieben. */
+  /** Entwurf und Begleitzettel geschrieben. */
   | 'ok'
+  /**
+   * Der ENTWURF ist geschrieben, nur der Begleitzettel (Uhr, Instanz,
+   * Stempel) nicht — die Quote reichte für den Entwurf, aber nicht mehr für
+   * die paar Byte danach. Nichts ging verloren; „Speicher voll" wäre hier
+   * eine falsche Diagnose.
+   */
+  | 'ohne-zettel'
   /** Speicher voll oder nicht verfügbar — der Aufrufer muss es melden. */
   | 'voll'
   /** Ein fremder Stand stand im Weg; nichts geschrieben, `beiFremdem` lief. */
   | 'fremd';
+
+/**
+ * Entscheidet, wann eine Übernahme einen eigenen Rückgängig-Schritt braucht.
+ *
+ * Übernahmen sind EINE Schrittklasse: Der erste fremde Stand nach einer
+ * eigenen Änderung legt den eigenen Stand auf den Stapel; jeder weitere
+ * fremde Stand, solange dieser Schritt noch oben liegt, legt nichts mehr an.
+ * Sonst belegte jeder fremde Schreibvorgang einen der 50 Plätze — der
+ * Testflug schreibt bei jedem gesetzten Objekt —, und nach 51 wäre der
+ * eigene Stand aus dem Stapel gefallen, während die Meldung weiter behauptet,
+ * er liege unter „Rückgängig".
+ *
+ * Erkannt wird der Übernahmeschritt an der Identität des Layouts, das die
+ * letzte Übernahme abgelegt hat: Layouts werden im Editor nur ersetzt, nie
+ * verändert, dasselbe Objekt oben auf dem Stapel ist also derselbe Stand.
+ * Macht der Nutzer danach etwas (oder Rückgängig), liegt oben ein anderes
+ * Objekt, und die nächste Übernahme legt wieder einen Schritt an.
+ */
+export class UebernahmeSchritte<T> {
+  private marke: T | null = null;
+
+  /**
+   * `true`: der Aufrufer muss `aktuell` JETZT als Schritt ablegen (dasselbe
+   * Objekt, nicht eine Kopie). `false`: oben liegt schon der eigene Stand
+   * vor der ersten Übernahme — nichts ablegen, aber den Wiederherstellen-
+   * Stapel leeren, denn der gehörte zum verdrängten fremden Stand.
+   */
+  brauchtSchritt(vergangenheit: readonly T[], aktuell: T): boolean {
+    const oben = vergangenheit[vergangenheit.length - 1];
+    if (this.marke !== null && oben === this.marke) return false;
+    this.marke = aktuell;
+    return true;
+  }
+}
 
 function zufallsId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -245,9 +286,16 @@ export class EntwurfsSpeicher {
     const zeit = this.jetzt();
     try {
       this.speicher.setItem(ENTWURF_KEY, roh);
-      this.bekannt = roh;
-      // Der Zettel NACH dem Entwurf: Reisst die Quote, fehlt lieber der
-      // Zettel als der Entwurf.
+    } catch {
+      return 'voll'; // der Entwurf selbst passt nicht: NICHTS geschrieben
+    }
+    // Ab hier steht der Entwurf im Speicher, was danach auch schiefgeht.
+    this.bekannt = roh;
+    // Der Zettel NACH dem Entwurf: Reisst die Quote, fehlt lieber der
+    // Zettel als der Entwurf — und der Entwurf wird deswegen nicht als
+    // „nicht gespeichert" gemeldet.
+    let ergebnis: SchreibErgebnis = 'ok';
+    try {
       this.speicher.setItem(
         STAND_KEY,
         JSON.stringify({
@@ -259,14 +307,14 @@ export class EntwurfsSpeicher {
         } satisfies EntwurfsStand)
       );
     } catch {
-      return 'voll';
+      ergebnis = 'ohne-zettel';
     }
     try {
       this.kanal?.postMessage({ typ: 'entwurf', tabId: this.tabId, geaendertUm: zeit });
     } catch {
       // Ein geschlossener Kanal ist kein Grund, den Speichervorgang zu melden.
     }
-    return 'ok';
+    return ergebnis;
   }
 }
 

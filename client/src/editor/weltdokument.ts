@@ -41,11 +41,11 @@ import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
 
 /**
  * Der Entwurfsschlüssel. Er hiess schon immer so und heisst weiter so:
- * client/src/main.ts liest und schreibt ihn im Testflug an einem guten
- * Dutzend Stellen mit dem nackten String. Ihn hier instanzabhängig zu
- * machen (`wov-editor-layout-dev` …) wäre die technisch sauberere
- * Trennung — sie würde aber genau die Datei anfassen müssen, die
- * ausserhalb dieses Umbaus liegt, und stillschweigend zwei Entwürfe
+ * der Testflug-Code des Spielclients (`?offline=1&layout=editor`) liest und
+ * schreibt ihn an mehreren Stellen mit dem nackten String. Ihn hier
+ * instanzabhängig zu machen (`wov-editor-layout-dev` …) wäre die technisch
+ * sauberere Trennung — sie würde aber genau den Testflug-Code anfassen
+ * müssen, der ausserhalb dieses Umbaus liegt, und stillschweigend zwei Entwürfe
  * anlegen, zwischen denen niemand umschalten kann. Stattdessen merkt
  * sich `EntwurfsStand.instanz`, für WELCHE Welt der Entwurf gedacht war
  * — abweichende Instanz ist dann eine Warnung im Dialog statt einer
@@ -221,8 +221,20 @@ export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<S
  */
 export function hashNormalisieren(roh: unknown): string | null {
   if (typeof roh !== 'string') return null;
-  const t = roh.trim().replace(/^W\//, '').replace(/^"(.*)"$/, '$1').trim();
+  const t = roh.trim().replace(/^W\/\s*/, '').replace(/^"(.*)"$/, '$1').trim();
   return t === '' ? null : t;
+}
+
+/**
+ * Basis für einen Schreibvorgang, den der Nutzer gegen einen FRISCH gelesenen
+ * Serverstand bestätigt hat („Ja, überschreiben" nach der Gegenüberstellung):
+ * genau dieser Stand ist es, den er gesehen und zu ersetzen zugestimmt hat.
+ * Mit der alten Basis liefe die bestätigte Ersetzung in einen 409 und einen
+ * zweiten Dialog. Konnte der Stand nicht gelesen werden oder trägt keinen
+ * Hash, bleibt es bei der bisherigen Basis.
+ */
+export function basisNachBestaetigung(bisher: string | null, frisch: ServerStand): string | null {
+  return frisch.erreichbar && frisch.hash !== null ? frisch.hash : bisher;
 }
 
 /** Ausgang von `schreibeWeltdokument`. */

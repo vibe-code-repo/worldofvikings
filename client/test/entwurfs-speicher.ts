@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
 import {
   EntwurfsSpeicher,
+  UebernahmeSchritte,
   type EreignisQuelle,
   type FremdInfo,
   type Kanal,
@@ -56,8 +57,10 @@ class Profil {
   /** true: Ereignisse und Kanalnachrichten sammeln sich, bis `zustellen()`. */
   zurueckhalten = false;
   private wartend: (() => void)[] = [];
-  /** Beim nächsten setItem einen Quotenfehler werfen. */
+  /** Jedes setItem wirft einen Quotenfehler. */
   quotaFehler = false;
+  /** Nur setItem auf diesen Schlüssel wirft einen Quotenfehler. */
+  quotaSchluessel: string | null = null;
   /** getItem wirft (blockierte Website-Daten). */
   lesenKaputt = false;
 
@@ -72,7 +75,7 @@ class Profil {
   }
 
   setItem(von: object | null, k: string, v: string): void {
-    if (this.quotaFehler) throw new Error('QuotaExceededError');
+    if (this.quotaFehler || this.quotaSchluessel === k) throw new Error('QuotaExceededError');
     this.daten.set(k, v);
     this.schreibvorgaenge++;
     // Wie im Browser: das Ereignis geht an alle ANDEREN Tabs, nie an den Schreiber.
@@ -137,21 +140,34 @@ class KanalAttrappe implements Kanal {
 
 /**
  * Das Verhalten des Editors, so knapp wie im Editor: `merkeSchritt` legt
- * den Stand auf den Stapel; jede Änderung schreibt sofort den Entwurf;
- * `beiFremdem` = `merkeSchritt(); layout = fremd` und KEIN Zurückschreiben
- * (editorMain.ts, `entwurfsSpeicher`; die Quelltextprüfung unten hält beides
- * am echten Code fest).
+ * den Stand auf den Stapel (Grenze 50); jede Änderung schreibt sofort den
+ * Entwurf; `beiFremdem` legt nur für die erste Übernahme nach einer eigenen
+ * Änderung einen Schritt an (`UebernahmeSchritte`, dieselbe Klasse wie im
+ * Editor), leert sonst den Wiederherstellen-Stapel und schreibt NICHT
+ * zurück (editorMain.ts, `entwurfsSpeicher`; die Quelltextprüfung unten hält
+ * das am echten Code fest).
  */
 class EditorAttrappe {
   layout: WorldLayout;
   readonly vergangenheit: WorldLayout[] = [];
+  zukunft: WorldLayout[] = [];
   fremdUebernahmen = 0;
+  /** Wie oft die Meldung „dein bisheriger Stand liegt unter Rückgängig" käme. */
+  meldungen = 0;
+  /** Wie oft beim Melden der Stand vor der Übernahme NICHT im Stapel lag. */
+  falscheMeldungen = 0;
   letzteInfo: FremdInfo | null = null;
   readonly speicher: EntwurfsSpeicher;
+  private readonly schritte = new UebernahmeSchritte<WorldLayout>();
+  private merkeSchritt(): void {
+    this.vergangenheit.push(this.layout);
+    if (this.vergangenheit.length > 50) this.vergangenheit.shift();
+    this.zukunft.length = 0;
+  }
   constructor(
     readonly name: string,
     profil: Profil,
-    opt: { ereignisse?: boolean; kanal?: boolean; jetzt?: () => number } = {}
+    opt: { ereignisse?: boolean; kanal?: boolean; jetzt?: () => number; alteLogik?: boolean } = {}
   ) {
     const tab = this;
     this.speicher = new EntwurfsSpeicher({
@@ -162,23 +178,39 @@ class EditorAttrappe {
       jetzt: opt.jetzt,
       aktuell: () => this.layout,
       beiFremdem: (fremd, info) => {
-        this.vergangenheit.push(this.layout);
+        const vorher = this.layout;
+        // `alteLogik`: der Stand 5eb78eb — jede Übernahme legt einen Schritt an.
+        if (opt.alteLogik) this.merkeSchritt();
+        else if (this.schritte.brauchtSchritt(this.vergangenheit, this.layout)) this.merkeSchritt();
+        else this.zukunft.length = 0;
         this.layout = fremd;
         this.fremdUebernahmen++;
         this.letzteInfo = info;
+        this.meldungen++;
+        // Die Meldung sagt: der bisherige EIGENE Stand liegt unter Rückgängig.
+        // Bei der ersten Übernahme ist `vorher` der eigene Stand; bei den
+        // folgenden liegt er schon im Stapel, und `vorher` ist fremd.
+        if (this.eigenerStand !== null && !this.vergangenheit.includes(this.eigenerStand)) this.falscheMeldungen++;
+        void vorher;
       },
     });
     this.layout = this.speicher.lesen() ?? basis;
   }
+  /** Der letzte EIGENE Stand — die Größe, deren Erreichbarkeit die Meldung zusagt. */
+  eigenerStand: WorldLayout | null = null;
   /** Eine Änderung im Editor: Schritt merken, Layout ersetzen, Entwurf schreiben. */
   aendern(f: (l: WorldLayout) => WorldLayout): string {
-    this.vergangenheit.push(this.layout);
+    this.merkeSchritt();
     this.layout = f(this.layout);
+    this.eigenerStand = this.layout;
     return this.speicher.schreiben(this.layout, 'bearbeitet', 'dev');
   }
   rueckgaengig(): void {
     const v = this.vergangenheit.pop();
-    if (v) this.layout = v;
+    if (v) {
+      this.zukunft.push(this.layout);
+      this.layout = v;
+    }
   }
 }
 
@@ -401,6 +433,79 @@ console.log('▶ Platzieren-Werkzeug und Rückgängig');
   check('Nachgestellt: Rückgängig → n', anzahl(l) === n, `${n} → ${n + 1} → ${anzahl(l)}`);
 }
 
+// ── 8b. Übernahmen fluten den Rückgängig-Stapel nicht (B1) ───────────
+console.log('▶ 50 eigene Schritte + k fremde Schreibvorgänge');
+{
+  const fremdeLayout = (j: number): WorldLayout => layoutMitPlatzierung(basis, 'Beech1', 100 + 5 * j, 100 + 5 * j, 0);
+  const zeilen: string[] = [];
+  const lauf = (k: number, alteLogik: boolean): { erreichbar: boolean; genau: boolean; stapel: number; uebernahmen: number; falsch: number } => {
+    const profil = new Profil();
+    profil.daten.set(ENTWURF_KEY, JSON.stringify(basis));
+    const b = new EditorAttrappe('tab-b', profil, { alteLogik });
+    for (let i = 0; i < 50; i++) b.aendern(setze(1000 + i));
+    const eigen = b.layout;
+    for (let j = 0; j < k; j++) profil.testflugSchreibt(fremdeLayout(j));
+    const erreichbar = k === 0 ? b.layout === eigen : b.vergangenheit.includes(eigen);
+    const stapel = b.vergangenheit.length;
+    b.rueckgaengig();
+    return { erreichbar, genau: k === 0 || b.layout === eigen, stapel, uebernahmen: b.fremdUebernahmen, falsch: b.falscheMeldungen };
+  };
+  for (const k of [0, 1, 2, 5, 51, 200]) {
+    const r = lauf(k, false);
+    zeilen.push(`k=${String(k).padStart(3)}  Stapel=${r.stapel}  Übernahmen=${r.uebernahmen}  eigener Stand erreichbar=${r.erreichbar}  1× Strg+Z liefert ihn=${r.genau}  falsche Meldungen=${r.falsch}`);
+    check(`k=${k}: Übernahmen=${r.uebernahmen}, letzter eigener Stand per Rückgängig erreichbar (1× Strg+Z), 0 falsche Meldungen, Stapel ≤ 50`, r.uebernahmen === k && r.erreichbar && r.genau && r.falsch === 0 && r.stapel <= 50, `Stapel=${r.stapel}`);
+  }
+  console.log(zeilen.map((z) => `      ${z}`).join('\n'));
+  // Gegenprobe: mit der alten Logik (jede Übernahme ein Schritt) ist der Test rot.
+  const alt51 = lauf(51, true);
+  const alt50 = lauf(50, true);
+  check('Gegenprobe alte Logik k=50: eigener Stand gerade noch im Stapel', alt50.erreichbar);
+  check('Gegenprobe alte Logik k=51: eigener Stand AUS DEM STAPEL GEFALLEN, Meldung falsch', !alt51.erreichbar && alt51.falsch > 0, `erreichbar=${alt51.erreichbar}, falsche Meldungen=${alt51.falsch}, Stapel=${alt51.stapel}`);
+
+  // Nach einer eigenen Änderung zählt wieder die erste Übernahme.
+  const profil = new Profil();
+  profil.daten.set(ENTWURF_KEY, JSON.stringify(basis));
+  const b = new EditorAttrappe('tab-b', profil);
+  b.aendern(setze(1000));
+  profil.testflugSchreibt(fremdeLayout(0));
+  profil.testflugSchreibt(fremdeLayout(1));
+  const nachFlut = b.vergangenheit.length;
+  const eigen2 = b.aendern(setze(1001)) === 'ok' ? b.layout : null;
+  profil.testflugSchreibt(fremdeLayout(2));
+  check('Eigene Änderung dazwischen: die nächste Übernahme legt wieder einen Schritt an (Stapel +2: Änderung, Übernahme)', b.vergangenheit.length === nachFlut + 2 && eigen2 !== null && b.vergangenheit.includes(eigen2), `Stapel ${nachFlut} → ${b.vergangenheit.length}`);
+  // Wiederherstellen-Stapel: gehört zum verdrängten Stand und wird auch dann geleert, wenn KEIN neuer Schritt angelegt wird.
+  const profil2 = new Profil();
+  profil2.daten.set(ENTWURF_KEY, JSON.stringify(basis));
+  const c = new EditorAttrappe('tab-c', profil2);
+  c.aendern(setze(1000));
+  profil2.testflugSchreibt(fremdeLayout(0)); // legt den Schritt an
+  const stapelC = c.vergangenheit.length;
+  c.zukunft = [fremdeLayout(9)];
+  profil2.testflugSchreibt(fremdeLayout(1)); // legt keinen an
+  check('Zweite Übernahme legt keinen Schritt an, leert aber den Wiederherstellen-Stapel', c.vergangenheit.length === stapelC && c.zukunft.length === 0, `Stapel=${c.vergangenheit.length}, zukunft=${c.zukunft.length}`);
+}
+
+// ── 8c. Quota trifft nur den Begleitzettel (B2) ──────────────────────
+console.log('▶ Quota nur beim Begleitzettel');
+{
+  const { profil, a, b } = zweiTabs();
+  profil.quotaSchluessel = STAND_KEY;
+  const r = a.aendern(setze(P1));
+  check('Ergebnis \u201Eohne-zettel\u201C, nicht \u201Evoll\u201C', r === 'ohne-zettel', `Ergebnis=${r}`);
+  check('Der Entwurf IST geschrieben (4 Platzierungen, P1)', anzahl(gespeichert(profil)) === 4 && hat(gespeichert(profil), P1), beide(profil));
+  check('Der andere Tab bekommt ihn trotzdem (Kanal/Ereignis): 4 Platzierungen', b.fremdUebernahmen === 1 && anzahl(b.layout) === 4);
+  const w2 = a.aendern(setze(P2));
+  check('Nächster Schreibvorgang von A: kein falsches \u201Efremd\u201C (bekannt war gesetzt), Entwurf 5 Platzierungen', w2 === 'ohne-zettel' && anzahl(gespeichert(profil)) === 5, `Ergebnis=${w2}`);
+  profil.quotaSchluessel = null;
+  check('Quota wieder frei: \u201Eok\u201C', a.aendern(setze(P1 + 1)) === 'ok');
+  // Entwurf selbst passt nicht → weiter 'voll'
+  const p2 = new Profil();
+  p2.daten.set(ENTWURF_KEY, JSON.stringify(basis));
+  const c = new EditorAttrappe('tab-c', p2);
+  p2.quotaSchluessel = ENTWURF_KEY;
+  check('Quota trifft den Entwurf selbst: weiter \u201Evoll\u201C', c.aendern(setze(P1)) === 'voll' && anzahl(gespeichert(p2)) === 3);
+}
+
 // ── 9. Quelltextprüfung an editorMain.ts ─────────────────────────────
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
@@ -420,6 +525,13 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('… legt den Rückgängig-Punkt VOR der Übernahme an', iM >= 0 && iL > iM, `Positionen ${iM} < ${iL}`);
   check('… und schreibt nicht zurück: alles(…, false)', /alles\('bearbeitet', false\)/.test(rueckruf));
   check('… und meldet es', rueckruf.includes('Entwurf aus einem anderen Tab übernommen'));
+  check('… legt den Schritt nur über UebernahmeSchritte an (eine Schrittklasse)', /if \(uebernahmeSchritte\.brauchtSchritt\(vergangenheit, layout\)\) merkeSchritt\(\);\s*else zukunft\.length = 0;/.test(rueckruf));
+  check('… setzt halbfertige Werkzeuge zurück: griff, flussPunkte, polygonPunkte, startpunktModus', /griff = null;/.test(rueckruf) && /flussPunkte = \[\];/.test(rueckruf) && /polygonPunkte = \[\];/.test(rueckruf) && /startpunktModus = null;/.test(rueckruf));
+  const wieder = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
+  check('wiederherstellen() hält die 50er-Grenze', /vergangenheit\.push\(layout\);\s*if \(vergangenheit\.length > 50\) vergangenheit\.shift\(\)/.test(wieder));
+  const speichern = /function speichereEntwurf\([\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
+  check('speichereEntwurf: \u201Ezu groß\u201C nur bei \u201Evoll\u201C, \u201Eohne-zettel\u201C hat eine eigene, harmlose Meldung', /=== 'voll'\) \{\s*shell\.meldung\('Entwurf zu groß/.test(speichern) && /'ohne-zettel'\) \{[\s\S]*?Begleitzettel fehlt/.test(speichern) && (speichern.match(/zu groß/g) ?? []).length === 1);
+  check('pagehide hängt den Speicher aus (nicht bei bfcache: persisted)', /addEventListener\('pagehide', \(e\) => \{\s*if \(!e\.persisted\) entwurfsSpeicher\.schliessen\(\);/.test(quelle));
   check('Der Editor liest und schreibt den Entwurf nur noch über den Speicher (kein entwurfSchreiben/entwurfLesen mehr)', !/\bentwurfSchreiben\s*\(/.test(quelle) && !/\bentwurfLesen\s*\(/.test(quelle));
   check('Der Abgleich beim Start prüft zuerst auf fremde Änderungen (abgleichen() vor lesen())', quelle.indexOf('entwurfsSpeicher.abgleichen()') > 0 && quelle.indexOf('entwurfsSpeicher.abgleichen()') < quelle.indexOf('const entwurf = entwurfsSpeicher.lesen()'));
 }

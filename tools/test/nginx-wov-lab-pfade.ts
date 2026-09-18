@@ -7,9 +7,14 @@
  * zuerst geprüft werden.
  *
  * ── Warum ein Textnachweis und keine echte nginx-Prüfung ─────────────
- * Diese Maschine hat kein installiertes nginx (`which nginx` — nichts).
- * `tools/dev-ursprung.mjs` bildet die Regeln als Node-Proxy nach und
- * bekommt seine eigene Browser-Probe; DIESER Test hält nur die Konfi-
+ * Entstanden ist der Test auf einer Maschine ohne nginx. Auf wov-dev
+ * gibt es `/usr/sbin/nginx` (1.26.3): dort lassen sich die Wege mit einem
+ * eigenen nginx auf eigenem Präfix und eigenem Port wirklich fahren — so
+ * wurde zuletzt die Editor-Umleitung belegt. Der Test bleibt trotzdem ein
+ * Textnachweis, weil er in `npm test` auch auf Rechnern laufen soll, auf
+ * denen nginx nicht installiert ist, ohne Ports, ohne Upstreams und ohne
+ * Rechte. `tools/dev-ursprung.mjs` bildet die Regeln als Node-Proxy nach
+ * und bekommt seine eigene Browser-Probe; DIESER Test hält nur die Konfi-
  * gurationsdatei selbst fest, damit ein Umbenennen oder Löschen eines
  * Wegs (z. B. beim Umstieg auf gebaute Bündel statt Vite-Dev) sofort
  * rot wird — unabhängig davon, ob gerade ein nginx läuft oder nicht.
@@ -30,12 +35,21 @@ interface Erwartung {
   weg: string;
   /** Wonach in der Datei gesucht wird — ein location-Kopf, der den Weg trägt. */
   muster: RegExp;
+  /**
+   * Kommentare vor dem Suchen entfernen. Nötig in BEIDE Richtungen, wo die
+   * Erwartung auf „vor dem ersten `location`" achtet: Ein Kommentar mit der
+   * Direktive träfe, auch wenn sie selbst fehlt; und ein Kommentar, der das
+   * Wort `location` nennt, ließe die echte Direktive dahinter durchfallen.
+   */
+  ohneKommentare?: boolean;
 }
 
 const ERWARTUNGEN: Erwartung[] = [
   {
     weg: '/ (Webseite, gerendert vom Node-Dienst)',
-    muster: /location\s+\/\s*\{[^}]*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
+    // `(?:[^{}]|\{[^{}]*\})*`: der Block enthaelt seit der Editor-Umleitung ein
+    // eigenes `if (...) { ... }` — ein nacktes `[^}]*` endete an dessen Klammer.
+    muster: /location\s+\/\s*\{(?:[^{}]|\{[^{}]*\})*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
   },
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
@@ -68,10 +82,39 @@ const ERWARTUNGEN: Erwartung[] = [
     Betriebsdienst mit beigelegtem Admin-Token offen im Netz.
   */
   { weg: 'Schalter $oeffentlich wird gesetzt', muster: /set\s+\$oeffentlich\s+0;/ },
-  { weg: 'Schalter erkennt world-of-vikings.com', muster: /if\s*\(\$host[\s\S]{0,80}?world-of-vikings/ },
+  // Verankert auf den Namen selbst: `[\s\S]{0,80}?world-of-vikings` traefe auch den
+  // Editor-Schalter unten und hielte den Test gruen, obwohl `$oeffentlich` fehlt.
+  { weg: 'Schalter erkennt world-of-vikings.com', muster: /if\s*\(\$host\s*~\*\s*"\^\(www\\\.\)\?world-of-vikings\\\.com\$"\)/ },
   { weg: '/api/ (Betriebsdienst) ist unter dem oeffentlichen Namen dicht', muster: /location\s+\/api\/\s*\{[^}]*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
   { weg: '/editor/ ist unter dem oeffentlichen Namen dicht', muster: /location\s+=\s*\/editor\/\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
   { weg: '/editor (ohne Schraegstrich) ebenso', muster: /location\s+=\s*\/editor\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
+  /*
+    Der Editor-Name (`editor.dev.world-of-vikings.com`, Proxy-Host 16) landete
+    seit dem einen Ursprung auf der Webseite: `/` gehoert `location /`, und
+    die Datei entscheidet nur nach dem Pfad. Zwei Haelften gehoeren zusammen —
+    der Schalter auf den Namen und die Umleitung als ERSTE Anweisung von
+    `location /`. 302, nicht 301: ein Browser merkt sich 301 dauerhaft.
+  */
+  {
+    weg: 'Schalter $editor_name wird gesetzt und erkennt editor.dev',
+    muster: /set\s+\$editor_name\s+0;\s*if\s*\(\$host\s*~\*\s*"\^editor\\\.dev\\\.world-of-vikings\\\.com\$"\)\s*\{\s*set\s+\$editor_name\s+1;/,
+  },
+  /*
+    `absolute_redirect off;` steht auf der `server`-Ebene, VOR dem ersten
+    `location`. Nur in `location /` wirkte es nicht auf `= /editor` und
+    `= /play`, deren 301 dann weiter `http://<Host>:<Port>/…` trügen —
+    hinter dem Proxy Manager, wo TLS endet, ein Sprung von `https://` auf
+    `http://`. Ohne Kommentare gelesen, siehe `ohneKommentare`.
+  */
+  {
+    weg: 'absolute_redirect off; auf der server-Ebene (vor dem ersten location)',
+    muster: /server\s*\{(?:(?!\blocation\b)[\s\S])*?\babsolute_redirect\s+off\s*;/,
+    ohneKommentare: true,
+  },
+  {
+    weg: 'location / leitet den Editor-Namen zuerst per 302 auf /editor/',
+    muster: /location\s+\/\s*\{\s*(?:#[^\n]*\n\s*)*if\s*\(\$editor_name\)\s*\{\s*return\s+302\s+\/editor\/;\s*\}/,
+  },
 ];
 
 function main(): void {
@@ -84,8 +127,9 @@ function main(): void {
   }
 
   let fehler = 0;
-  for (const { weg, muster } of ERWARTUNGEN) {
-    const treffer = muster.test(text);
+  const ohneKommentare = text.replace(/(^|\s)#.*$/gm, '$1');
+  for (const { weg, muster, ohneKommentare: ohne } of ERWARTUNGEN) {
+    const treffer = muster.test(ohne ? ohneKommentare : text);
     console.log(`${treffer ? 'OK  ' : 'FEHL'}  ${weg}`);
     if (!treffer) fehler++;
   }

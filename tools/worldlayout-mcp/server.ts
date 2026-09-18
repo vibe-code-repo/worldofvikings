@@ -17,29 +17,44 @@
  *
  * Jede Änderung läuft durch sanitizeWorldLayout — die KI kann das Dokument
  * nicht in einen Zustand bringen, den der Spielserver ablehnen würde.
- * `layout_deploy` schreibt atomar und startet den wov-Server neu (systemd).
+ * `layout_deploy` startet den wov-Server neu (systemd).
+ *
+ * ── Ein Schreiber: der Betriebsdienst ────────────────────────────────
+ * Dieser Prozess liest und schreibt die Weltdatei NICHT selbst. Er spricht
+ * mit dem Betriebsdienst (admin/): GET /api/worldlayout liefert Dokument
+ * und Hash, jede Änderung geht als POST /api/worldlayout MIT diesem Hash
+ * als Basis zurück. Hat der Editor (oder ein zweiter MCP-Aufruf) in der
+ * Zwischenzeit gespeichert, antwortet der Betriebsdienst mit 409, und das
+ * Werkzeug meldet es, statt die fremde Änderung zu überschreiben.
+ *
+ * Wo der Betriebsdienst steht, kommt aus derselben Umgebung wie bei seinen
+ * anderen Kunden (client/vite.config.ts):
+ *   WOV_ADMIN_URL           ganze Adresse; überschreibt alles Folgende
+ *   WOV_ADMIN_ADRESSE/PORT  Vorgabe 127.0.0.1 : 2468 (im Betrieb setzt die
+ *                           Unit die Adresse aus /etc/wov.env)
+ *   WOV_ADMIN_TOKEN         das Vorschalter-Token direkt, sonst
+ *   WOV_ADMIN_TOKEN_DATEI   Datei mit dem Token (Vorgabe /etc/wov-admin.token)
+ * Der Betriebsdienst lässt nur das lokale Netz herein und verlangt das
+ * Token (Kopf x-wov-token).
  *
  * ── Gefahrlos ausprobieren ────────────────────────────────────────────
- * Ohne weitere Angabe schreiben die *_set/*_delete-Werkzeuge in
- * server/data/welten/<instanz>.json — bei WOV_INSTANZ=dev (Standard) also
- * in Mikes TABU-Spielstand. Zum Erproben stattdessen auf eine Kopie
- * zeigen:
+ * Ohne weitere Angabe ändern die *_set/*_delete-Werkzeuge das Dokument des
+ * laufenden Betriebsdienstes — bei WOV_INSTANZ=dev (Standard) also Mikes
+ * TABU-Spielstand. Zum Erproben stattdessen einen eigenen Betriebsdienst
+ * auf einer Kopie starten (WOV_WURZEL auf ein Wegwerfverzeichnis,
+ * WOV_ADMIN_PORT=0, eigene WOV_ADMIN_TOKEN_DATEI — `probe.ts` macht genau
+ * das) und ihn über WOV_ADMIN_URL ansprechen.
  *
- *   cp server/data/welten/dev.json /tmp/layout-probe.json
- *   WOV_LAYOUT_PFAD=/tmp/layout-probe.json npx tsx tools/worldlayout-mcp/server.ts
- *
- * `layout_deploy` verweigert die Arbeit, solange WOV_LAYOUT_PFAD gesetzt
- * ist: Ein echter Neustart würde ohnehin die ECHTE Instanzdatei laden, und
- * Teständerungen an der Kopie blieben unsichtbar — das wäre eine falsche
- * Erfolgsmeldung. `probe.ts` fährt automatisch gegen eine eigene
- * /tmp-Kopie, siehe dort.
+ * `layout_deploy` verweigert die Arbeit, solange WOV_ADMIN_URL gesetzt ist:
+ * Ein Neustart des lokalen wov-Servers lädt die Weltdatei DIESER Instanz,
+ * nicht die des angesprochenen Betriebsdienstes — Teständerungen blieben
+ * unsichtbar, und eine Erfolgsmeldung wäre falsch.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { execFileSync } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import {
   sanitizeWorldLayout,
   pruefeLayout,
@@ -61,37 +76,92 @@ import {
   type PlacementDef,
   type BiomeName,
 } from '@wov/shared';
-import { weltDatei } from '@wov/shared/src/instanz.js';
-// Sicherung mit Rotation und atomares Schreiben standen hier bis Block
-// A/16 ein zweites Mal im Quelltext — dieselbe Logik wie im Speicherweg
-// des Editors, nur mit anderer Fehlerbehandlung. Jetzt gibt es genau eine
-// Stelle, die das Weltdokument schreibt. Direktimport am Barrel vorbei,
-// weil layoutDatei.ts node:fs zieht und der Barrel in den Client-Bundle
-// geht (siehe Kopfkommentar dort).
-import { layoutLesen, layoutSchreiben } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { PLATZIERUNGEN_GRENZE } from '@wov/shared/src/worldlayout/layoutDatei.js';
 
-const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-/** Die echte Weltdatei der Instanz — Referenz fuer die layout_deploy-Bremse unten. */
-const ECHTER_LAYOUT_PFAD = weltDatei(WURZEL);
-/**
- * WOV_LAYOUT_PFAD ueberschreibt das Ziel — fuers Erproben gegen eine Kopie
- * unter /tmp, siehe Kopfkommentar. Ohne die Variable unveraendert die
- * echte Instanzdatei.
- */
-const LAYOUT_PFAD = process.env.WOV_LAYOUT_PFAD
-  ? resolve(process.env.WOV_LAYOUT_PFAD)
-  : ECHTER_LAYOUT_PFAD;
+// Der Betriebsdienst ist der einzige Schreiber der Weltdatei — dieser
+// Prozess redet nur mit ihm, siehe Kopfkommentar. Aus layoutDatei.ts kommt
+// nur die Zahl der Platzierungs-Obergrenze, keine Lese- oder Schreibfunktion.
+const ADMIN_URL = (
+  process.env.WOV_ADMIN_URL ??
+  `http://${process.env.WOV_ADMIN_ADRESSE ?? '127.0.0.1'}:${process.env.WOV_ADMIN_PORT ?? 2468}`
+).replace(/\/+$/, '');
+const ADMIN_TOKEN_DATEI = process.env.WOV_ADMIN_TOKEN_DATEI ?? '/etc/wov-admin.token';
 
-function lade(): WorldLayout {
-  return layoutLesen(LAYOUT_PFAD);
+/** Bei jedem Aufruf frisch gelesen: Ein erst später angelegtes Token soll ohne Neustart greifen. */
+function adminToken(): string {
+  const direkt = process.env.WOV_ADMIN_TOKEN?.trim();
+  if (direkt) return direkt;
+  try {
+    const t = readFileSync(ADMIN_TOKEN_DATEI, 'utf-8').trim();
+    if (t) return t;
+  } catch {
+    /* fällt in die Meldung unten */
+  }
+  throw new Error(
+    `Kein Token für den Betriebsdienst: weder WOV_ADMIN_TOKEN noch ${ADMIN_TOKEN_DATEI} ist lesbar.`
+  );
 }
 
-function schreibe(layout: WorldLayout): void {
-  // Anders als vorher bricht ein Fehler beim Sichern den Vorgang ab,
-  // statt ihn nur zu protokollieren und trotzdem zu schreiben: Wenn die
-  // Sicherung nicht angelegt werden kann, ist das genau der Moment, in
-  // dem man sie hinterher gebraucht hätte.
-  layoutSchreiben(LAYOUT_PFAD, layout);
+async function adminAnfrage(
+  methode: 'GET' | 'POST',
+  leib?: unknown
+): Promise<{ status: number; daten: Record<string, unknown> }> {
+  let antwort: Response;
+  try {
+    antwort = await fetch(`${ADMIN_URL}/api/worldlayout`, {
+      method: methode,
+      headers: {
+        'x-wov-token': adminToken(),
+        ...(leib !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      body: leib !== undefined ? JSON.stringify(leib) : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (fehler) {
+    throw new Error(
+      `Betriebsdienst ${ADMIN_URL} nicht erreichbar: ${(fehler as Error).message} — läuft er, und stimmen ` +
+        `WOV_ADMIN_URL bzw. WOV_ADMIN_ADRESSE/WOV_ADMIN_PORT?`
+    );
+  }
+  let daten: Record<string, unknown> = {};
+  try {
+    daten = (await antwort.json()) as Record<string, unknown>;
+  } catch {
+    /* kein JSON — der Statuscode sagt genug */
+  }
+  return { status: antwort.status, daten };
+}
+
+const meldungVon = (daten: Record<string, unknown>): string =>
+  String(daten.message ?? daten.fehler ?? 'keine Meldung');
+
+/** Dokument UND Hash, aus einer einzigen Antwort — der Hash ist die Basis für das spätere Schreiben. */
+async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
+  const { status, daten } = await adminAnfrage('GET');
+  if (status !== 200) throw new Error(`Betriebsdienst: GET /api/worldlayout -> ${status}: ${meldungVon(daten)}`);
+  const layout = sanitizeWorldLayout(daten.layout);
+  if (!layout || typeof daten.hash !== 'string') {
+    throw new Error('Betriebsdienst lieferte kein gültiges Weltdokument mit Hash');
+  }
+  return { layout, hash: daten.hash };
+}
+
+/**
+ * Schreibt über den Betriebsdienst, mit dem beim Lesen erhaltenen Hash als
+ * Basis. Ein Fehler (auch 409) wirft — der Aufrufer meldet ihn als
+ * Werkzeugfehler, statt ihn zu verschlucken und trotzdem „Gespeichert" zu
+ * sagen.
+ */
+async function schreibe(layout: WorldLayout, basis: string): Promise<void> {
+  const { status, daten } = await adminAnfrage('POST', { ...layout, basis });
+  if (status === 200) return;
+  if (status === 409) {
+    throw new Error(
+      'Nichts gespeichert: Das Weltdokument hat sich seit dem Lesen geändert (Editor oder ein anderer ' +
+        'Aufruf hat gespeichert). Bitte layout_get aufrufen und die Änderung erneut machen.'
+    );
+  }
+  throw new Error(`Nichts gespeichert: Betriebsdienst antwortet ${status}: ${meldungVon(daten)}`);
 }
 
 /** Kompakte Zusammenfassung fürs Gespräch statt des vollen Dokuments. */
@@ -234,8 +304,8 @@ const placementSchema = z.object({
 
 const mcp = new McpServer({ name: 'worldlayout', version: '1.0.0' });
 
-mcp.tool('layout_get', 'Aktuelles WorldLayout als Zusammenfassung + JSON', {}, () => {
-  const layout = lade();
+mcp.tool('layout_get', 'Aktuelles WorldLayout als Zusammenfassung + JSON', {}, async () => {
+  const { layout } = await lade();
   return {
     content: [{ type: 'text', text: `${zusammenfassung(layout)}\n\n${JSON.stringify(layout)}` }],
   };
@@ -247,8 +317,8 @@ mcp.tool(
     'Vegetations-/Location-/Spawn-Namen, Fremdmodelle, unbekannte Routenverweise, ' +
     'NPC-Angaben an einem Prefab ohne Vorgabe, fehlender Startpunkt.',
   {},
-  () => {
-    const befunde = pruefeLayout(lade());
+  async () => {
+    const befunde = pruefeLayout((await lade()).layout);
     if (befunde.length === 0) {
       return { content: [{ type: 'text', text: 'Keine Befunde.' }] };
     }
@@ -261,8 +331,8 @@ mcp.tool(
   'region_set',
   'Region anlegen oder (bei vorhandener id) vollständig ersetzen. Z-Ordnung: neue Regionen liegen oben.',
   { region: regionSchema },
-  ({ region }) => {
-    const layout = lade();
+  async ({ region }) => {
+    const { layout, hash } = await lade();
     const ohne = layout.regions.filter((r) => r.id !== region.id);
     const neu = sanitizeWorldLayout({
       ...layout,
@@ -274,18 +344,18 @@ mcp.tool(
         isError: true,
       };
     }
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
   }
 );
 
-mcp.tool('region_delete', 'Region löschen', { id: z.string() }, ({ id }) => {
-  const layout = lade();
+mcp.tool('region_delete', 'Region löschen', { id: z.string() }, async ({ id }) => {
+  const { layout, hash } = await lade();
   if (!layout.regions.some((r) => r.id === id)) {
     return { content: [{ type: 'text', text: `Unbekannte Region: ${id}` }], isError: true };
   }
   const neu = { ...layout, regions: layout.regions.filter((r) => r.id !== id) };
-  schreibe(neu);
+  await schreibe(neu, hash);
   return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
 });
 
@@ -298,8 +368,8 @@ mcp.tool(
   'continent_set',
   'Kontinent anlegen oder (bei vorhandener id) vollständig ersetzen.',
   { kontinent: continentSchema },
-  ({ kontinent }) => {
-    const layout = lade();
+  async ({ kontinent }) => {
+    const { layout, hash } = await lade();
     const neu = sanitizeWorldLayout({
       ...layout,
       continents: ersetzeNachId(layout.continents, kontinent as unknown as ContinentDef),
@@ -310,7 +380,7 @@ mcp.tool(
         isError: true,
       };
     }
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
   }
 );
@@ -320,13 +390,13 @@ mcp.tool(
   'Kontinent löschen. Regionen mit dieser continentId werden NICHT nachgezogen — ' +
     'die Zuordnung verwaist still, wie auch layout_pruefen es (noch) nicht meldet.',
   { id: z.string() },
-  ({ id }) => {
-    const layout = lade();
+  async ({ id }) => {
+    const { layout, hash } = await lade();
     if (!layout.continents.some((k) => k.id === id)) {
       return { content: [{ type: 'text', text: `Unbekannter Kontinent: ${id}` }], isError: true };
     }
     const neu = { ...layout, continents: layout.continents.filter((k) => k.id !== id) };
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
   }
 );
@@ -335,8 +405,8 @@ mcp.tool(
   'river_set',
   'Fluss anlegen oder (bei vorhandener id) vollständig ersetzen.',
   { fluss: riverSchema },
-  ({ fluss }) => {
-    const layout = lade();
+  async ({ fluss }) => {
+    const { layout, hash } = await lade();
     const neu = sanitizeWorldLayout({
       ...layout,
       rivers: ersetzeNachId(layout.rivers, fluss as unknown as RiverDef),
@@ -344,18 +414,18 @@ mcp.tool(
     if (!neu || !(neu.rivers ?? []).some((r) => r.id === fluss.id)) {
       return { content: [{ type: 'text', text: 'Abgelehnt: Fluss übersteht sanitize nicht.' }], isError: true };
     }
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
   }
 );
 
-mcp.tool('river_delete', 'Fluss löschen', { id: z.string() }, ({ id }) => {
-  const layout = lade();
+mcp.tool('river_delete', 'Fluss löschen', { id: z.string() }, async ({ id }) => {
+  const { layout, hash } = await lade();
   if (!(layout.rivers ?? []).some((r) => r.id === id)) {
     return { content: [{ type: 'text', text: `Unbekannter Fluss: ${id}` }], isError: true };
   }
   const neu = { ...layout, rivers: (layout.rivers ?? []).filter((r) => r.id !== id) };
-  schreibe(neu);
+  await schreibe(neu, hash);
   return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
 });
 
@@ -363,8 +433,8 @@ mcp.tool(
   'lake_set',
   'See anlegen oder (bei vorhandener id) vollständig ersetzen.',
   { see: lakeSchema },
-  ({ see }) => {
-    const layout = lade();
+  async ({ see }) => {
+    const { layout, hash } = await lade();
     const neu = sanitizeWorldLayout({
       ...layout,
       lakes: ersetzeNachId(layout.lakes, see as unknown as LakeDef),
@@ -372,18 +442,18 @@ mcp.tool(
     if (!neu || !(neu.lakes ?? []).some((l) => l.id === see.id)) {
       return { content: [{ type: 'text', text: 'Abgelehnt: See übersteht sanitize nicht.' }], isError: true };
     }
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
   }
 );
 
-mcp.tool('lake_delete', 'See löschen', { id: z.string() }, ({ id }) => {
-  const layout = lade();
+mcp.tool('lake_delete', 'See löschen', { id: z.string() }, async ({ id }) => {
+  const { layout, hash } = await lade();
   if (!(layout.lakes ?? []).some((l) => l.id === id)) {
     return { content: [{ type: 'text', text: `Unbekannter See: ${id}` }], isError: true };
   }
   const neu = { ...layout, lakes: (layout.lakes ?? []).filter((l) => l.id !== id) };
-  schreibe(neu);
+  await schreibe(neu, hash);
   return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
 });
 
@@ -392,8 +462,8 @@ mcp.tool(
   'Route anlegen oder (bei vorhandener id) vollständig ersetzen — Platzierungen ' +
     'verweisen per `route`-Feld darauf (siehe placement_set).',
   { route: routeSchema },
-  ({ route }) => {
-    const layout = lade();
+  async ({ route }) => {
+    const { layout, hash } = await lade();
     const neu = sanitizeWorldLayout({
       ...layout,
       routes: ersetzeNachId(layout.routes, route as unknown as RouteDef),
@@ -401,7 +471,7 @@ mcp.tool(
     if (!neu || !(neu.routes ?? []).some((r) => r.id === route.id)) {
       return { content: [{ type: 'text', text: 'Abgelehnt: Route übersteht sanitize nicht.' }], isError: true };
     }
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
   }
 );
@@ -411,13 +481,13 @@ mcp.tool(
   'Route löschen. Platzierungen, die per `route` darauf verwiesen, bleiben stehen — ' +
     'layout_pruefen meldet die verwaiste Referenz.',
   { id: z.string() },
-  ({ id }) => {
-    const layout = lade();
+  async ({ id }) => {
+    const { layout, hash } = await lade();
     if (!(layout.routes ?? []).some((r) => r.id === id)) {
       return { content: [{ type: 'text', text: `Unbekannte Route: ${id}` }], isError: true };
     }
     const neu = { ...layout, routes: (layout.routes ?? []).filter((r) => r.id !== id) };
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
   }
 );
@@ -427,10 +497,22 @@ mcp.tool(
   'Platzierung anlegen oder (bei identischem Prefab + auf den Meter gerundeter Position ' +
     '— layoutKennung, wie der Server sie einer ZDO zuordnet) ersetzen.',
   { platzierung: placementSchema },
-  ({ platzierung }) => {
-    const layout = lade();
+  async ({ platzierung }) => {
+    const { layout, hash } = await lade();
     const kennung = layoutKennung(platzierung);
     const ohne = (layout.placements ?? []).filter((p) => layoutKennung(p) !== kennung);
+    // Der Sanitizer schneidet still bei PLATZIERUNGEN_GRENZE ab und liesse die
+    // NEUE Platzierung (sie steht hinten) wortlos fallen — die Meldung unten
+    // würde dann die falsche Ursache nennen.
+    if (ohne.length + 1 > PLATZIERUNGEN_GRENZE) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Abgelehnt: das Weltdokument nimmt höchstens ${PLATZIERUNGEN_GRENZE} Platzierungen auf.`,
+        }],
+        isError: true,
+      };
+    }
     const neu = sanitizeWorldLayout({
       ...layout,
       placements: [...ohne, platzierung as unknown as PlacementDef],
@@ -444,7 +526,7 @@ mcp.tool(
         isError: true,
       };
     }
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gespeichert (${kennung}).\n${zusammenfassung(neu)}` }] };
   }
 );
@@ -454,8 +536,8 @@ mcp.tool(
   'Platzierung(en) an Prefab + Position löschen — trifft ALLE Einträge mit derselben ' +
     'layoutKennung (auf den Meter gerundet teilen sie sich die Kennung, siehe types.ts).',
   { prefab: z.string(), x: z.number(), z: z.number() },
-  ({ prefab, x, z: zz }) => {
-    const layout = lade();
+  async ({ prefab, x, z: zz }) => {
+    const { layout, hash } = await lade();
     const kennung = layoutKennung({ prefab, x, z: zz });
     const bestehend = layout.placements ?? [];
     const uebrig = bestehend.filter((p) => layoutKennung(p) !== kennung);
@@ -463,7 +545,7 @@ mcp.tool(
       return { content: [{ type: 'text', text: `Keine Platzierung mit Kennung ${kennung}` }], isError: true };
     }
     const neu = { ...layout, placements: uebrig };
-    schreibe(neu);
+    await schreibe(neu, hash);
     const anzahl = bestehend.length - uebrig.length;
     return {
       content: [{
@@ -479,8 +561,8 @@ mcp.tool(
   'Welt-Startpunkt setzen — greift, wenn die Fraktion des Spielers keinen eigenen ' +
     'Kontinent-Spawn hat (siehe continent_set).',
   { x: z.number(), z: z.number() },
-  ({ x, z: zz }) => {
-    const layout = lade();
+  async ({ x, z: zz }) => {
+    const { layout, hash } = await lade();
     const neu = sanitizeWorldLayout({ ...layout, defaultSpawn: [x, zz] });
     if (!neu || !neu.defaultSpawn) {
       return {
@@ -488,7 +570,7 @@ mcp.tool(
         isError: true,
       };
     }
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
   }
 );
@@ -497,15 +579,15 @@ mcp.tool(
   'defaultSpawn_clear',
   'Welt-Startpunkt entfernen (Spawn fällt auf Ursprung/Kontinent-Spawn zurück).',
   {},
-  () => {
-    const layout = lade();
+  async () => {
+    const { layout, hash } = await lade();
     const ohneSpawn: Record<string, unknown> = { ...layout };
     delete ohneSpawn.defaultSpawn;
     const neu = sanitizeWorldLayout(ohneSpawn);
     if (!neu) {
       return { content: [{ type: 'text', text: 'Unerwartet abgelehnt.' }], isError: true };
     }
-    schreibe(neu);
+    await schreibe(neu, hash);
     return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
   }
 );
@@ -514,8 +596,8 @@ mcp.tool(
   'layout_probe',
   'Weltprobe an Punkten: Biom und Höhe, wie der Spielserver sie rechnen wird (RegionGeo). punkte = [[x,z],…]',
   { punkte: z.array(z.tuple([z.number(), z.number()])).min(1).max(64), seed: z.string().optional() },
-  ({ punkte, seed }) => {
-    const layout = lade();
+  async ({ punkte, seed }) => {
+    const { layout } = await lade();
     const geo = createGeo({ mode: 'layout', worldSeed: getStableHash(seed ?? layout.detailSeed), layout });
     const zeilen = punkte.map(([x, zz]) => {
       const region = geo instanceof RegionGeo ? geo.regionAt(x, zz)?.id ?? 'offene See' : '?';
@@ -529,19 +611,20 @@ mcp.tool(
   'layout_deploy',
   'Welt veröffentlichen: Dokument ist bereits gespeichert — startet den wov-Server neu, damit die Layout-Welt sie lädt. ACHTUNG: wirft alle Spieler kurz aus dem Spiel.',
   {},
-  () => {
-    // Läuft dieser Prozess über WOV_LAYOUT_PFAD gegen eine Testkopie, würde
-    // ein echter Neustart trotzdem die ECHTE Instanzdatei laden — die
-    // Teständerungen blieben unsichtbar, und eine Erfolgsmeldung hier wäre
-    // schlicht falsch. Siehe Kopfkommentar "Gefahrlos ausprobieren".
-    if (LAYOUT_PFAD !== ECHTER_LAYOUT_PFAD) {
+  async () => {
+    // Zeigt dieser Prozess über WOV_ADMIN_URL auf einen eigens gestarteten
+    // Betriebsdienst (Testkopie), würde ein echter Neustart trotzdem die
+    // Weltdatei DIESER Instanz laden — die Teständerungen blieben
+    // unsichtbar, und eine Erfolgsmeldung hier wäre schlicht falsch. Siehe
+    // Kopfkommentar "Gefahrlos ausprobieren".
+    if (process.env.WOV_ADMIN_URL) {
       return {
         content: [{
           type: 'text',
           text:
-            `Verweigert: dieser Server arbeitet über WOV_LAYOUT_PFAD auf ${LAYOUT_PFAD}. ` +
-            `Ein Neustart würde stattdessen ${ECHTER_LAYOUT_PFAD} laden — deine Teständerungen ` +
-            `blieben unsichtbar. layout_deploy nur ohne WOV_LAYOUT_PFAD aufrufen.`,
+            `Verweigert: dieser Server arbeitet über WOV_ADMIN_URL auf ${ADMIN_URL}. ` +
+            `Ein Neustart würde stattdessen die Weltdatei der lokalen Instanz laden — deine ` +
+            `Teständerungen blieben unsichtbar. layout_deploy nur ohne WOV_ADMIN_URL aufrufen.`,
         }],
         isError: true,
       };
@@ -555,4 +638,4 @@ mcp.tool(
 
 const transport = new StdioServerTransport();
 await mcp.connect(transport);
-console.error(`[worldlayout-mcp] bereit — Dokument: ${LAYOUT_PFAD}`);
+console.error(`[worldlayout-mcp] bereit — Betriebsdienst: ${ADMIN_URL}`);

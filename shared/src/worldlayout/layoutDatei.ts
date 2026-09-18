@@ -35,13 +35,18 @@
  * 3000 geänderten Zeilen versteckt die eine Änderung, auf die es ankam.
  */
 
+import { createHash, randomBytes } from 'node:crypto';
 import {
+  closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
+  rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -70,9 +75,84 @@ export class LayoutUngueltig extends Error {
   }
 }
 
+/**
+ * So viele Platzierungen nimmt der Sanitizer an (`placements.slice(0, 2000)`
+ * in sanitize.ts) — alles dahinter schneidet er OHNE Meldung ab. Die Zahl
+ * steht dort als Literal; hier wird sie ein zweites Mal benannt, damit
+ * `layoutSchreiben` das Überschreiten VOR dem Sanitizer melden kann, statt
+ * dass ein Speichervorgang stillschweigend Platzierungen verliert.
+ */
+export const PLATZIERUNGEN_GRENZE = 2000;
+
+/**
+ * Das Dokument hat mehr als `PLATZIERUNGEN_GRENZE` Platzierungen (gezählt am
+ * ROHEN Dokument, vor dem Sanitizer). Eine Unterklasse von `LayoutUngueltig`,
+ * damit jeder Aufrufer, der sie nicht eigens kennt, sie als „Dokument
+ * unbrauchbar" behandelt und nicht als Serverfehler; der Betriebsdienst
+ * fängt sie vorher und antwortet 422.
+ */
+export class LayoutZuVielePlatzierungen extends LayoutUngueltig {
+  constructor(
+    readonly anzahl: number,
+    readonly grenze: number = PLATZIERUNGEN_GRENZE
+  ) {
+    super(`${anzahl} Platzierungen — mehr als ${grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`);
+    this.name = 'LayoutZuVielePlatzierungen';
+  }
+}
+
+/**
+ * Die mitgeschickte Basis passt nicht zur Datei auf der Platte: Zwischen
+ * Lesen und Schreiben hat jemand anderes gespeichert. `aktuell` ist der Hash
+ * der Datei JETZT (null, wenn sie fehlt) — der Aufrufer kann daraus neu
+ * lesen und mergen.
+ */
+export class LayoutVeraltet extends Error {
+  constructor(readonly aktuell: string | null) {
+    super('Weltdokument veraltet — die Datei hat sich seit dem Lesen geändert');
+    this.name = 'LayoutVeraltet';
+  }
+}
+
+/**
+ * Die Sperrdatei blieb über die Wartezeit hinaus in der Hand eines anderen
+ * Schreibers. Kein Fehler des Dokuments, kein Fehler des Servers: „später
+ * noch einmal".
+ */
+export class LayoutGesperrt extends Error {
+  constructor(meldung: string) {
+    super(meldung);
+    this.name = 'LayoutGesperrt';
+  }
+}
+
 /** Die verbindliche Byte-Darstellung des Weltdokuments. Siehe Kopf. */
 export function layoutText(layout: WorldLayout): string {
   return JSON.stringify(layout, null, 2);
+}
+
+/**
+ * Der Stand einer Weltdatei: SHA-256 (hex, klein) über die BYTES, so wie sie
+ * auf der Platte liegen — nicht über das geprüfte Dokument. Zwei Dateien mit
+ * demselben geprüften Inhalt, aber anderer Formatierung, haben verschiedene
+ * Stände; genau das ist gewollt, denn überschrieben würde die Formatierung
+ * auch.
+ */
+export function layoutHash(bytes: Buffer | string): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+/**
+ * Stand der Datei auf der Platte, oder null, wenn es sie nicht gibt. Andere
+ * Lesefehler (Rechte, Verzeichnis statt Datei) werfen.
+ */
+export function layoutDateiHash(pfad: string): string | null {
+  try {
+    return layoutHash(readFileSync(pfad));
+  } catch (fehler) {
+    if ((fehler as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw fehler;
+  }
 }
 
 /**
@@ -84,15 +164,28 @@ export function layoutText(layout: WorldLayout): string {
  * zeigt der Editor Felder an, die der Server anschliessend wegwirft.
  */
 export function layoutLesen(pfad: string): WorldLayout {
+  return layoutLesenMitHash(pfad).layout;
+}
+
+/**
+ * Wie `layoutLesen`, liefert aber den Hash der gelesenen Bytes mit. Die
+ * Datei wird EINMAL gelesen: Hash und Dokument stammen aus denselben Bytes,
+ * also gehört die Basis, mit der der Aufrufer später schreibt, wirklich zu
+ * dem Dokument, das er gesehen hat. Zwei Lesevorgänge hintereinander
+ * könnten dazwischen einen fremden Schreibvorgang erwischen.
+ */
+export function layoutLesenMitHash(pfad: string): { layout: WorldLayout; hash: string } {
+  let bytes: Buffer;
   let roh: unknown;
   try {
-    roh = JSON.parse(readFileSync(pfad, 'utf-8'));
+    bytes = readFileSync(pfad);
+    roh = JSON.parse(bytes.toString('utf-8'));
   } catch (fehler) {
     throw new LayoutUngueltig(`${basename(pfad)} nicht lesbar: ${(fehler as Error).message}`);
   }
   const sauber = sanitizeWorldLayout(roh);
   if (!sauber) throw new LayoutUngueltig(`${basename(pfad)} ist kein gültiges WorldLayout`);
-  return sauber;
+  return { layout: sauber, hash: layoutHash(bytes) };
 }
 
 /**
@@ -118,6 +211,134 @@ export function layoutSichern(pfad: string, behalten = SICHERUNGEN_BEHALTEN): st
   return ziel;
 }
 
+/** So lange wartet `layoutSchreiben` auf eine fremde Sperre, bevor es `LayoutGesperrt` wirft. */
+export const SPERRE_WARTEN_MS = 3000;
+/** Ab diesem Alter (mtime) gilt eine Sperre als verwaist und wird gebrochen. */
+export const SPERRE_VERALTET_MS = 30_000;
+
+export interface SchreibOptionen {
+  /** Hash der Datei, auf die sich der Schreiber bezieht. Fehlt er, wird ohne Vergleich geschrieben. */
+  basis?: string | null;
+  sperreWartenMs?: number;
+  sperreVeraltetMs?: number;
+}
+
+function platzierungenZaehlen(eingabe: unknown): number {
+  if (typeof eingabe !== 'object' || eingabe === null) return 0;
+  const p = (eingabe as { placements?: unknown }).placements;
+  return Array.isArray(p) ? p.length : 0;
+}
+
+interface Sperre {
+  pfad: string;
+  marke: string;
+}
+
+/** Synchron schlafen: `layoutSchreiben` ist synchron, ein Busy-Loop würde die CPU grundlos verbrennen. */
+function schlafen(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function zufall(): string {
+  return randomBytes(6).toString('hex');
+}
+
+/**
+ * Bricht eine verwaiste Sperre. Gibt true zurück, wenn sich am Zustand der
+ * Sperre etwas geändert hat (gebrochen ODER inzwischen weg oder erneuert) —
+ * der Aufrufer versucht es dann sofort noch einmal.
+ *
+ * Nicht `unlink`, sondern `rename` auf einen eindeutigen Namen: Vorher wird
+ * noch einmal geprüft, dass es dieselbe Datei ist (Inode und mtime), die
+ * eben als veraltet erkannt wurde. Zwei Wartende, die dieselbe verwaiste
+ * Sperre sehen, brechen sie so nicht nacheinander — der zweite würde sonst
+ * die frische Sperre des ersten löschen.
+ */
+function verwaisteSperreBrechen(sperrPfad: string, veraltetMs: number): boolean {
+  try {
+    const gesehen = statSync(sperrPfad);
+    const alter = Date.now() - gesehen.mtimeMs;
+    if (alter <= veraltetMs) return false;
+    const jetzt = statSync(sperrPfad);
+    if (jetzt.ino !== gesehen.ino || jetzt.mtimeMs !== gesehen.mtimeMs) return true;
+    const beiseite = `${sperrPfad}.verwaist.${process.pid}.${zufall()}`;
+    renameSync(sperrPfad, beiseite);
+    rmSync(beiseite, { force: true });
+    console.warn(
+      `[layoutDatei] verwaiste Sperre ${basename(sperrPfad)} gebrochen (${Math.round(alter / 1000)} s alt)`
+    );
+    return true;
+  } catch (fehler) {
+    if ((fehler as NodeJS.ErrnoException).code === 'ENOENT') return true;
+    throw fehler;
+  }
+}
+
+function sperreNehmen(pfad: string, wartenMs: number, veraltetMs: number): Sperre {
+  const sperrPfad = `${pfad}.lock`;
+  const marke = `${process.pid}.${zufall()}`;
+  const ende = Date.now() + wartenMs;
+  for (;;) {
+    try {
+      const fd = openSync(sperrPfad, 'wx');
+      try {
+        writeFileSync(fd, marke);
+      } catch (fehler) {
+        rmSync(sperrPfad, { force: true });
+        throw fehler;
+      } finally {
+        closeSync(fd);
+      }
+      return { pfad: sperrPfad, marke };
+    } catch (fehler) {
+      if ((fehler as NodeJS.ErrnoException).code !== 'EEXIST') throw fehler;
+    }
+    const geaendert = verwaisteSperreBrechen(sperrPfad, veraltetMs);
+    if (Date.now() >= ende) {
+      throw new LayoutGesperrt(
+        `${basename(pfad)} ist gesperrt — ein anderer Schreiber hält ${basename(sperrPfad)} ` +
+          `seit mehr als ${wartenMs} ms`
+      );
+    }
+    if (!geaendert) schlafen(5 + Math.floor(Math.random() * 15));
+  }
+}
+
+function sperreGehoertUns(sperre: Sperre): boolean {
+  try {
+    return readFileSync(sperre.pfad, 'utf-8') === sperre.marke;
+  } catch {
+    return false;
+  }
+}
+
+/** Gibt nur frei, was uns gehört: eine fremde, frische Sperre bleibt liegen. */
+function sperreFreigeben(sperre: Sperre): void {
+  if (sperreGehoertUns(sperre)) rmSync(sperre.pfad, { force: true });
+  else console.warn(`[layoutDatei] Sperre ${basename(sperre.pfad)} gehörte beim Freigeben nicht mehr uns`);
+}
+
+/**
+ * Räumt Tmp-Dateien weg, die ein abgestürzter Schreiber hinterlassen hat.
+ * Nur unter der Sperre und nur ab einem Alter, in dem kein lebender
+ * Schreiber mehr daran arbeiten kann. Der feste Tmp-Name von früher wurde
+ * beim nächsten Schreiben überschrieben; die eindeutigen Namen würden sich
+ * sonst über Abstürze hinweg ansammeln.
+ */
+function tmpLeichenRaeumen(pfad: string, veraltetMs: number): void {
+  const ordner = dirname(pfad);
+  const muster = new RegExp(`^${basename(pfad).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.\\d+\\.[0-9a-f]+\\.tmp$`);
+  for (const f of readdirSync(ordner)) {
+    if (!muster.test(f)) continue;
+    const voll = resolve(ordner, f);
+    try {
+      if (Date.now() - statSync(voll).mtimeMs > veraltetMs) rmSync(voll, { force: true });
+    } catch {
+      /* zwischen readdir und stat verschwunden — auch gut */
+    }
+  }
+}
+
 /**
  * Weltdokument prüfen, sichern und atomar schreiben — der EINZIGE
  * Schreibweg auf die Weltdatei.
@@ -140,12 +361,39 @@ export function layoutSichern(pfad: string, behalten = SICHERUNGEN_BEHALTEN): st
  * mitten im Schreiben hinterlässt die alte Datei vollständig, nie eine
  * halbe. Direkt in die Zieldatei zu schreiben hiesse, dass der
  * Spielserver beim Start eine abgeschnittene Welt lesen könnte.
+ * Der Tmp-Name ist je Aufruf eindeutig (`<pfad>.<pid>.<zufall>.tmp`); ein
+ * fester Name ließe zwei Prozesse in dieselbe Tmp-Datei schreiben.
+ *
+ * ── Basis und Sperre ─────────────────────────────────────────────────
+ * Mit `optionen.basis` (Hash der Datei, wie ihn `layoutHash` bildet) wird
+ * nur geschrieben, wenn die Datei noch genau so aussieht: sonst
+ * `LayoutVeraltet`, Datei unverändert. Ohne Basis gilt weiter „wer zuletzt
+ * speichert, gewinnt". Vergleich, Sicherung und Rename laufen unter einer
+ * Sperrdatei (`<pfad>.lock`, `open(..., 'wx')`), weil Vergleich und Rename
+ * über Prozessgrenzen sonst nicht atomar sind. Die Sperre schützt
+ * Schreiber voreinander, nicht Leser: Leser sehen dank Rename immer eine
+ * ganze Datei.
+ *
+ * ── Die Grenze der Sperre ────────────────────────────────────────────
+ * Eine Sperre, die ein abgestürzter Prozess hinterlassen hat, wird nach
+ * `SPERRE_VERALTET_MS` gebrochen. Ein Schreiber, der so lange stillsteht
+ * und danach erwacht, kann mit dem neuen Halter zusammentreffen; die
+ * Prüfung `sperreGehoertUns` vor dem Rename verkleinert dieses Fenster auf
+ * Mikrosekunden, schließt es aber nicht ganz. Für einen Dienst, der Sekunden
+ * hält und in Millisekunden schreibt, ist das die richtige Größenordnung.
  */
 export function layoutSchreiben(
   pfad: string,
   eingabe: unknown,
-  behalten = SICHERUNGEN_BEHALTEN
-): { layout: WorldLayout; sicherung: string | null; text: string } {
+  behalten = SICHERUNGEN_BEHALTEN,
+  optionen: SchreibOptionen = {}
+): { layout: WorldLayout; sicherung: string | null; text: string; hash: string } {
+  // Gezählt am ROHEN Dokument, vor dem Sanitizer: Der schneidet still bei
+  // 2000 ab, und ein Editor, der 2001 hält, würde eine Platzierung
+  // verlieren, ohne dass jemand es erfährt.
+  const anzahl = platzierungenZaehlen(eingabe);
+  if (anzahl > PLATZIERUNGEN_GRENZE) throw new LayoutZuVielePlatzierungen(anzahl);
+  const veraltetMs = optionen.sperreVeraltetMs ?? SPERRE_VERALTET_MS;
   const layout = sanitizeWorldLayout(eingabe);
   if (!layout) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
   // ── Warum diese zusätzliche Hürde ──────────────────────────────────
@@ -171,10 +419,36 @@ export function layoutSchreiben(
     );
   }
   const text = layoutText(layout);
-  const sicherung = layoutSichern(pfad, behalten);
   mkdirSync(dirname(pfad), { recursive: true });
-  const tmp = `${pfad}.tmp`;
-  writeFileSync(tmp, text);
-  renameSync(tmp, pfad);
-  return { layout, sicherung, text };
+  const sperre = sperreNehmen(pfad, optionen.sperreWartenMs ?? SPERRE_WARTEN_MS, veraltetMs);
+  try {
+    // Der Vergleich steht INNERHALB der Sperre, sonst wäre er wertlos: Zwischen
+    // einem Vergleich davor und dem Rename könnte ein zweiter Prozess seine
+    // Datei hinlegen, und beide hielten sich für die Basis.
+    if (optionen.basis !== undefined && optionen.basis !== null) {
+      const aktuell = layoutDateiHash(pfad);
+      if (aktuell !== optionen.basis) throw new LayoutVeraltet(aktuell);
+    }
+    tmpLeichenRaeumen(pfad, veraltetMs);
+    const sicherung = layoutSichern(pfad, behalten);
+    const tmp = `${pfad}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+    try {
+      writeFileSync(tmp, text);
+      // Letzte Prüfung vor dem einen Schritt, der nicht zurückzunehmen ist:
+      // Wurde die Sperre inzwischen als verwaist gebrochen (Prozess stand
+      // länger als die Frist still), gehört die Datei jemand anderem.
+      if (!sperreGehoertUns(sperre)) {
+        throw new LayoutGesperrt(
+          `Sperre auf ${basename(pfad)} während des Schreibens verloren — nichts geschrieben`
+        );
+      }
+      renameSync(tmp, pfad);
+    } catch (fehler) {
+      rmSync(tmp, { force: true });
+      throw fehler;
+    }
+    return { layout, sicherung, text, hash: layoutHash(text) };
+  } finally {
+    sperreFreigeben(sperre);
+  }
 }

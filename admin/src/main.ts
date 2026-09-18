@@ -56,7 +56,7 @@
  *           WOV_ADMIN_TOKEN_DATEI, WOV_NAHE_NETZE, WOV_PROXY_ADRESSEN,
  *           WOV_LOG_STROEME_MAX
  */
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync, renameSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
@@ -74,8 +74,11 @@ import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
 // Client-Bundle, und layoutDatei.ts zieht node:fs herein. Gleiche
 // Begruendung wie bei instanz.ts eine Zeile hoeher.
 import {
+  LayoutGesperrt,
   LayoutUngueltig,
-  layoutLesen,
+  LayoutVeraltet,
+  LayoutZuVielePlatzierungen,
+  layoutLesenMitHash,
   layoutSchreiben,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
@@ -357,9 +360,13 @@ const token = tokenBeschaffen();
 
 // ── Kleine Helfer ─────────────────────────────────────────────────────
 
-function json(res: ServerResponse, code: number, daten: unknown): void {
+function json(res: ServerResponse, code: number, daten: unknown, kopf: Record<string, string> = {}): void {
   const leib = JSON.stringify(daten);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(leib) });
+  res.writeHead(code, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(leib),
+    ...kopf,
+  });
   res.end(leib);
 }
 
@@ -838,7 +845,21 @@ function unbekannteRaeume(roh: unknown, doc: { layout: { rooms: { room: string }
 
 // ── Routen ────────────────────────────────────────────────────────────
 
-type Antwort = { code: number; daten: unknown };
+// `kopf`: zusaetzliche Antwortkopfzeilen (bisher nur der ETag des Weltdokuments).
+type Antwort = { code: number; daten: unknown; kopf?: Record<string, string> };
+
+/**
+ * Die Basis aus einem If-Match-Wert oder dem Rumpffeld `basis`: der nackte
+ * Hash. Ein ETag steht in Anfuehrungszeichen (`"<hash>"`), ein schwacher
+ * zusaetzlich mit `W/`; beides wird abgestreift. Alles andere — auch eine
+ * Liste oder `*` — bleibt, wie es ist, und passt dann zu keinem Hash: Eine
+ * Basis, die nicht eindeutig einen Stand benennt, darf nicht als „passt"
+ * durchgehen.
+ */
+function basisHash(roh: string): string {
+  const s = roh.trim().replace(/^W\//, '');
+  return s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
+}
 
 async function behandeln(
   pfad: string,
@@ -847,7 +868,9 @@ async function behandeln(
   // Nur GET /admin/spieler liest hieraus (Namenssuche per ?suche=...).
   // Alle anderen Routen nehmen ihre Eingabe wie bisher aus `leib`, um
   // nicht zwei Uebergabewege fuer dieselbe Sache zu haben.
-  parameter: URLSearchParams = new URLSearchParams()
+  parameter: URLSearchParams = new URLSearchParams(),
+  // Nur POST /api/worldlayout liest hieraus (If-Match).
+  kopfzeilen: IncomingHttpHeaders = {}
 ): Promise<Antwort> {
   // ── Zustand ──
   if (pfad === '/status' && methode === 'GET') {
@@ -1022,14 +1045,21 @@ async function behandeln(
       const fehlt = `${basename(LAYOUT_DATEI)} fehlt (Instanz ${INSTANZ}) — WOV_INSTANZ und server/data/welten/ pruefen.`;
       return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
     }
-    const layout = layoutLesen(LAYOUT_DATEI);
+    // Basisversion (E0): Der Hash gehoert zu den BYTES auf der Platte, aus
+    // denen `layout` eben gelesen wurde (eine Lesung, keine zwei). Er steht
+    // als ETag-Kopf UND im Rumpf — der Editor liest den Rumpf, ein
+    // Zwischenspeicher oder curl -i sieht den Kopf. Der Client schickt ihn
+    // beim Speichern als If-Match bzw. `basis` zurueck.
+    const { layout, hash } = layoutLesenMitHash(LAYOUT_DATEI);
     return {
       code: 200,
+      kopf: { ETag: `"${hash}"` },
       daten: {
         ok: true,
         message: `${basename(LAYOUT_DATEI)}: ${layout.regions.length} Region(en), ${layout.placements?.length ?? 0} Platzierung(en)`,
         instanz: INSTANZ,
         datei: basename(LAYOUT_DATEI),
+        hash,
         layout,
       },
     };
@@ -1330,19 +1360,84 @@ async function behandeln(
     // einem Struktur-Check begnuegen. Dieser Prozess laeuft unter tsx und
     // kann es. Damit gilt: Was auf der Platte landet, haette der
     // Spielserver auch akzeptiert.
-    const { layout, sicherung, text } = layoutSchreiben(LAYOUT_DATEI, leib);
-    return {
-      code: 200,
-      daten: {
-        ok: true,
-        message:
-          `Gespeichert in ${basename(LAYOUT_DATEI)}: ${layout.regions.length} Region(en), ` +
-          `${layout.placements?.length ?? 0} Platzierung(en)`,
-        instanz: INSTANZ,
-        sicherung: sicherung ? basename(sicherung) : null,
-        bytes: Buffer.byteLength(text),
-      },
-    };
+    //
+    // Basisversion (E0): Der Rumpf IST das Dokument; ein zusaetzliches
+    // Feld `basis` auf oberster Ebene benennt den Hash, auf den sich der
+    // Schreiber bezieht (der Kopf If-Match tut dasselbe und gewinnt). Es
+    // wird abgetrennt, bevor das Dokument den Sanitizer sieht. Ohne Basis
+    // wird in E0 noch angenommen, laut und im Antwort-JSON vermerkt; die
+    // Pflicht kommt spaeter, damit der Editor erst umgestellt werden kann.
+    let dokument: unknown = leib;
+    let rumpfBasis: unknown;
+    if (typeof leib === 'object' && leib !== null && !Array.isArray(leib) && 'basis' in leib) {
+      const { basis: b, ...rest } = leib as Record<string, unknown>;
+      rumpfBasis = b;
+      dokument = rest;
+    }
+    const kopfBasis = kopfzeilen['if-match'];
+    let basis: string | null = null;
+    if (typeof kopfBasis === 'string') basis = basisHash(kopfBasis);
+    else if (typeof rumpfBasis === 'string') basis = basisHash(rumpfBasis);
+    else if (rumpfBasis !== undefined && rumpfBasis !== null) {
+      throw new LayoutUngueltig('basis muss ein Hash-Text sein');
+    }
+    if (basis === null) {
+      console.warn(
+        `[Admin] POST /api/worldlayout OHNE Basis (weder If-Match noch basis) — ` +
+          `${basename(LAYOUT_DATEI)} wird ueberschrieben, wer zuletzt speichert, gewinnt`
+      );
+    }
+    try {
+      const { layout, sicherung, text, hash } = layoutSchreiben(LAYOUT_DATEI, dokument, undefined, { basis });
+      return {
+        code: 200,
+        kopf: { ETag: `"${hash}"` },
+        daten: {
+          ok: true,
+          message:
+            `Gespeichert in ${basename(LAYOUT_DATEI)}: ${layout.regions.length} Region(en), ` +
+            `${layout.placements?.length ?? 0} Platzierung(en)`,
+          instanz: INSTANZ,
+          sicherung: sicherung ? basename(sicherung) : null,
+          bytes: Buffer.byteLength(text),
+          hash,
+          ...(basis === null ? { ohneBasis: true } : {}),
+        },
+      };
+    } catch (fehler) {
+      // Zusatzfelder `ok`/`message` neben `fehler`: Der bestehende Client
+      // liest nur diese beiden, und eine Ablehnung soll bei ihm nicht als
+      // leere Meldung ankommen.
+      if (fehler instanceof LayoutVeraltet) {
+        const meldung = 'Das Weltdokument hat sich seit dem Laden geaendert — neu laden und erneut speichern.';
+        console.warn(`[Admin] POST /api/worldlayout -> 409 veraltet (Basis ${basis}, aktuell ${fehler.aktuell})`);
+        return {
+          code: 409,
+          ...(fehler.aktuell ? { kopf: { ETag: `"${fehler.aktuell}"` } } : {}),
+          daten: { ok: false, fehler: 'veraltet', aktuell: fehler.aktuell, message: meldung },
+        };
+      }
+      if (fehler instanceof LayoutZuVielePlatzierungen) {
+        console.warn(
+          `[Admin] POST /api/worldlayout -> 422 zu-viele-platzierungen: ${fehler.anzahl} > ${fehler.grenze}, nichts gespeichert`
+        );
+        return {
+          code: 422,
+          daten: {
+            ok: false,
+            fehler: 'zu-viele-platzierungen',
+            anzahl: fehler.anzahl,
+            grenze: fehler.grenze,
+            message: fehler.message,
+          },
+        };
+      }
+      if (fehler instanceof LayoutGesperrt) {
+        console.warn(`[Admin] POST /api/worldlayout -> 503: ${fehler.message}`);
+        return { code: 503, daten: { ok: false, fehler: 'gesperrt', message: fehler.message } };
+      }
+      throw fehler;
+    }
   }
 
   // ── Testwelt: die Karte einmal frisch erzeugen lassen ────────────────
@@ -1503,9 +1598,15 @@ const dienst = createServer((req, res) => {
       // werden soll -- die URL allein kennt keine Kennung dafuer.
       const leib =
         req.method === 'PUT' || req.method === 'POST' || req.method === 'DELETE' ? await leibLesen(req) : null;
-      const { code, daten } = await behandeln(pfad, req.method ?? 'GET', leib, angefragteUrl.searchParams);
+      const { code, daten, kopf } = await behandeln(
+        pfad,
+        req.method ?? 'GET',
+        leib,
+        angefragteUrl.searchParams,
+        req.headers
+      );
       if (code >= 400) console.warn(`[Admin] ${req.method} ${pfad} -> ${code}`);
-      json(res, code, daten);
+      json(res, code, daten, kopf);
     } catch (fehler) {
       // Ein unbrauchbares Dokument ist ein Fehler des Absenders, kein
       // Serverfehler — und vor allem: An dieser Stelle ist auf der Platte

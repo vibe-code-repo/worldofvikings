@@ -28,6 +28,13 @@
  * the id (140.4 -> 140.5) keeps its ZDO. World 6: the real world document
  * (a copy of server/data/welten/dev.json) boots twice and moves no revision.
  *
+ * World 7: `placements` of the wrong type (null, object, text, number) in the
+ * raw document removes NOTHING and warns; only a missing field or an empty array
+ * means "no placements" and clears the orphans. World 8: several ZDOs that
+ * carry one id are cut down to ONE (the nearest, stamped one), and a placement
+ * with an unknown prefab leaves its ZDO alone and warns. World 9: a player
+ * piece is recognised whatever the member type of `spieler` is.
+ *
  * World 2: (f) two placements with exactly the same prefab and position stay
  * ONE ZDO (pinned here, the decision belongs to a later card), (g) a player
  * piece of the same prefab next to a NEW placement is never adopted, (h) a
@@ -452,6 +459,117 @@ const bewegt = [...dev2].filter(([id, rev]) => dev1.get(id) !== rev).length;
 check('(dev) the document places many objects (sanity)', dev1.size >= 100, `${dev1.size} layout ZDOs`);
 check('(dev) a reboot with the unchanged document moves 0 revisions', bewegt === 0 && dev2.size === dev1.size, `${bewegt} of ${dev2.size} moved, ${dev1.size} before`);
 check('(dev) ... and logs 0 gespawnt, 0 aktualisiert', boot6b.zeilen.some((z) => /\b0 gespawnt, 0 aktualisiert/.test(z)), boot6b.zeilen.join(' | '));
+
+// ── World 7: a `placements` field of the wrong type ─────────────────
+console.log('\n[13] World 7: placements null / object / text / number remove nothing; missing and [] clear');
+const Q1 = { prefab: 'woodwall', x: 100, z: 100 };
+const Q2 = { prefab: 'piece_chest_wood', x: 120, z: 100 };
+const boot7a = starte('welt7', dokument(BASIS_VORHER, [Q1, Q2]));
+const v1 = boot7a.server;
+const q1 = eines(v1, Q1)!;
+const q2 = eines(v1, Q2)!;
+q1.setInt('zzZustand', 7); // state that lives on the instance and cannot come back from the document
+q2.setInt('zzZustand', 7);
+const q1Id = q1.zdoid.toString();
+const q2Id = q2.zdoid.toString();
+v1.saveWorld();
+for (const [bad, typ] of [[null, 'null'], [{}, 'object'], ['nope', 'string'], [42, 'number']] as const) {
+  const b = starte('welt7', { ...dokument(BASIS_VORHER, [Q1, Q2]), placements: bad });
+  const dabei = b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '');
+  const zustand = dabei.filter((z) => z.getInt('zzZustand') === 7).length;
+  check(
+    `(B1) placements = ${JSON.stringify(bad)}: nothing removed, both ZDOs and their state are there`,
+    dabei.length === 2 && zustand === 2 && dabei.some((z) => z.zdoid.toString() === q1Id) && dabei.some((z) => z.zdoid.toString() === q2Id),
+    `${dabei.length} layout ZDOs, ${zustand} with state`
+  );
+  check(
+    `(B1) ... and it warns: placements unlesbar (${typ})`,
+    b.zeilen.some((z) => z.includes(`placements unlesbar (${typ})`) && z.includes('unangetastet')) && !b.zeilen.some((z) => /\d+ entfernt/.test(z)),
+    b.zeilen.join(' | ')
+  );
+}
+const ohneFeld = dokument(BASIS_VORHER, []);
+delete ohneFeld.placements;
+for (const [doc, name] of [[ohneFeld, 'missing'], [dokument(BASIS_VORHER, []), '[]']] as const) {
+  const b = starte('welt7', doc);
+  const uebrig7 = b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '');
+  check(`(B1) placements ${name}: means "none", the orphans are cleared`, uebrig7.length === 0 && b.zeilen.some((z) => /2 entfernt/.test(z)), `${uebrig7.length} left; ${b.zeilen.join(' | ')}`);
+}
+
+// ── World 8: one id, several ZDOs; unknown prefab ───────────────────
+console.log('\n[14] World 8: three ZDOs with one id are cut down to one; an unknown prefab keeps its ZDO');
+const DUP = { prefab: 'woodwall', x: 600, z: 100 };
+const UNB = { prefab: 'woodwall', x: 100, z: 100 };
+const boot8a = starte('welt8', dokument(BASIS_VORHER, [DUP, UNB]));
+const x1 = boot8a.server;
+const woodwall8 = x1.prefabs.getByName('woodwall')!.hash;
+const dupOriginal = eines(x1, DUP)!;
+// The state a server that adopted by proximity leaves behind: further ZDOs with the same id, no stamp.
+const dupB = x1.zdos.createZDO(woodwall8, { x: 600, y: x1.getGroundHeight(600, 100) - 0.5, z: 100 });
+dupB.setString(LAYOUT_ID_MEMBER, layoutKennung(DUP));
+const dupC = x1.zdos.createZDO(woodwall8, { x: 600.2, y: x1.getGroundHeight(600.2, 100) - 0.5, z: 100 });
+dupC.setString(LAYOUT_ID_MEMBER, layoutKennung(DUP));
+const dupOriginalId = dupOriginal.zdoid.toString();
+// The prefab of this one has since vanished from the registry: the ZDO keeps the id of the unknown name.
+const UNBEKANNT = { prefab: 'gibtsnicht', x: 100, z: 100 };
+const unbZdo = eines(x1, UNB)!;
+unbZdo.setString(LAYOUT_ID_MEMBER, layoutKennung(UNBEKANNT));
+const unbId = unbZdo.zdoid.toString();
+const unbY = unbZdo.position.y;
+check('(B2) the state has three ZDOs with one id', nachKennung(x1, layoutKennung(DUP)).length === 3, `${nachKennung(x1, layoutKennung(DUP)).length}`);
+x1.saveWorld();
+const boot8b = starte('welt8', dokument(BASIS_NACHHER, [DUP, UNBEKANNT]));
+const x2 = boot8b.server;
+console.log(`     log: ${boot8b.zeilen.join(' | ')}`);
+const dupNach = nachKennung(x2, layoutKennung(DUP));
+check('(B2) after the boot exactly ONE ZDO carries the id (the nearest, stamped one)', dupNach.length === 1 && dupNach[0]!.zdoid.toString() === dupOriginalId, `${dupNach.length}: ${dupNach.map((z) => z.zdoid.toString()).join(', ')}`);
+check(
+  '(B2) ... standing on the ground, stamped',
+  dupNach.length === 1 && nahe(dupNach[0]!.position.y, x2.getGroundHeight(600, 100), 1e-6) && dupNach[0]!.getString(LAYOUT_SOLL_MEMBER) !== '',
+  dupNach[0] ? `y=${dupNach[0].position.y} ground=${x2.getGroundHeight(600, 100)} stamp='${dupNach[0].getString(LAYOUT_SOLL_MEMBER)}'` : 'none'
+);
+check('(B2) ... and the log counts them', boot8b.zeilen.some((z) => /2 überzählige Layout-ZDOs mit gleicher Kennung entfernt/.test(z)), boot8b.zeilen.join(' | '));
+const unbNach = x2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === unbId);
+check(
+  '(B3) unknown prefab: the ZDO with that id is not removed and not touched',
+  unbNach !== undefined && unbNach.getString(LAYOUT_ID_MEMBER) === layoutKennung(UNBEKANNT) && nahe(unbNach.position.y, unbY, 1e-9),
+  unbNach ? `y=${unbNach.position.y} was ${unbY}, ground now ${x2.getGroundHeight(100, 100).toFixed(3)}` : 'removed'
+);
+check('(B3) ... 0 entfernt, 1 unbekannt', boot8b.zeilen.some((z) => /\b0 entfernt, 1 unbekannt/.test(z)), boot8b.zeilen.join(' | '));
+check('(B3) ... and a warning names the id and the prefab', boot8b.zeilen.some((z) => z.includes(layoutKennung(UNBEKANNT)) && z.includes("'gibtsnicht'") && /bleibt unangetastet/.test(z)), boot8b.zeilen.join(' | '));
+
+// ── World 9: `spieler` of any member type ───────────────────────────
+console.log('\n[15] World 9: a player piece is a player piece whatever the type of `spieler` is');
+const SP4 = [
+  { prefab: 'woodwall', x: 700, z: 100, typ: 'int' },
+  { prefab: 'woodwall', x: 720, z: 100, typ: 'float' },
+  { prefab: 'woodwall', x: 740, z: 100, typ: 'long' },
+  { prefab: 'woodwall', x: 760, z: 100, typ: 'string' },
+] as const;
+const boot9a = starte('welt9', dokument(BASIS_VORHER, []));
+const y1 = boot9a.server;
+const gebaut = SP4.map((e) => {
+  const z = y1.zdos.createZDO(y1.prefabs.getByName(e.prefab)!.hash, { x: e.x + 0.05, y: y1.getGroundHeight(e.x + 0.05, e.z + 0.05), z: e.z + 0.05 });
+  if (e.typ === 'int') z.setInt('spieler', 1);
+  else if (e.typ === 'float') z.setFloat('spieler', 1);
+  else if (e.typ === 'long') z.setLong('spieler', 1n);
+  else z.setString('spieler', '1');
+  z.setString(LAYOUT_ID_MEMBER, layoutKennung(e));
+  return { id: z.zdoid.toString(), pos: { ...z.position } };
+});
+y1.saveWorld();
+const boot9b = starte('welt9', dokument(BASIS_VORHER, SP4.map((e) => ({ prefab: e.prefab, x: e.x, z: e.z }))));
+console.log(`     log: ${boot9b.zeilen.join(' | ')}`);
+SP4.forEach((e, i) => {
+  const z = boot9b.server.zdos.getAllZDOs().find((q) => q.zdoid.toString() === gebaut[i]!.id);
+  const eigenes = nachKennung(boot9b.server, layoutKennung(e));
+  check(
+    `(B4) spieler as ${e.typ}: the piece is freed, not moved, not adopted`,
+    z !== undefined && z.getString(LAYOUT_ID_MEMBER) === '' && nahe(z.position.x, gebaut[i]!.pos.x, 1e-9) && nahe(z.position.y, gebaut[i]!.pos.y, 1e-9) && eigenes.length === 1 && eigenes[0]!.zdoid.toString() !== gebaut[i]!.id,
+    z ? `layoutId='${z.getString(LAYOUT_ID_MEMBER)}' x=${z.position.x}, ${eigenes.length} own ZDO(s)` : 'destroyed'
+  );
+});
+check('(B4) the log counts 4 freed player pieces', boot9b.zeilen.some((z) => /4 Spielerbau\(ten\)/.test(z)), boot9b.zeilen.join(' | '));
 
 rmSync(WURZEL, { recursive: true, force: true });
 if (fehler > 0) {

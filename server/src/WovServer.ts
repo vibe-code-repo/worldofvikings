@@ -1152,8 +1152,20 @@ export class WovServer {
     const layout = sanitizeWorldLayout(this.worldLayoutRaw);
     // Ein Dokument ohne Platzierungen ist gültig und heißt „keine": Der
     // Abgleich räumt dann die Layout-ZDOs ab, die sonst für immer stünden.
-    // Nur ein unlesbares Dokument (null) lässt die Welt in Ruhe.
+    // „Bewusst leer" heißt aber nur: das Feld `placements` fehlt oder ist ein
+    // Array (auch ein leeres). Steht dort etwas anderes (null, Objekt, Text,
+    // Zahl), hat der Sanitizer es stillschweigend zu „fehlt" gemacht — und ein
+    // Tippfehler in der Datei würde die ganze Welt abräumen. Dann bleibt alles
+    // stehen. Ein unlesbares Dokument (null) lässt die Welt ebenfalls in Ruhe.
     if (!layout) return;
+    const rohPlacements = (this.worldLayoutRaw as { placements?: unknown } | null)?.placements;
+    if (rohPlacements !== undefined && !Array.isArray(rohPlacements)) {
+      console.warn(
+        `[WoV] Layout-Abgleich: placements unlesbar (${rohPlacements === null ? 'null' : typeof rohPlacements}) ` +
+          `– Layout-Objekte bleiben unangetastet`
+      );
+      return;
+    }
     const ergebnis = layoutAbgleich(
       {
         zdos: this.zdos,
@@ -1185,6 +1197,15 @@ export class WovServer {
     );
     if (!layout.placements?.length && ergebnis.entfernt > 0) {
       console.warn(`[WoV] Layout-Abgleich: Dokument ohne Platzierungen — ${ergebnis.entfernt} verwaiste ZDO(s) entfernt`);
+    }
+    if (ergebnis.ueberzaehlig > 0) {
+      console.warn(`[WoV] Layout-Abgleich: ${ergebnis.ueberzaehlig} überzählige Layout-ZDOs mit gleicher Kennung entfernt`);
+    }
+    for (const u of ergebnis.unbekanntePrefabs) {
+      console.warn(
+        `[WoV] Layout-Hinweis: Platzierung ${u.kennung}: Prefab '${u.prefab}' unbekannt` +
+          (u.zdoVorhanden ? ' — das vorhandene ZDO mit dieser Kennung bleibt unangetastet' : ' — übersprungen')
+      );
     }
     if (ergebnis.freigegeben > 0) {
       console.log(`[WoV] Layout-Abgleich: ${ergebnis.freigegeben} Spielerbau(ten) von einer veralteten Layout-Kennung befreit`);

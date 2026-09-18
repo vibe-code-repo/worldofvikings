@@ -75,9 +75,22 @@ const TOLERANZ = {
 const SKALA_MEMBER = 'scaleScalar';
 const SKALA_HASH = getStableHash(SKALA_MEMBER);
 
-/** Spielerbauten gehören dem Spieler, nicht dem Dokument. */
+const SPIELER_HASH = getStableHash('spieler');
+
+/**
+ * Spielerbauten gehören dem Spieler, nicht dem Dokument.
+ *
+ * Die Marke `spieler=1` schreibt der Server als Int (`handlePlacePiece`).
+ * Gelesen wird sie hier ohne Blick auf den Member-TYP: Ein Spielstand, in dem
+ * sie als Float, Long oder Text steht, ist trotzdem ein Spielerbau — `getInt`
+ * lieferte für ihn 0, und der Abgleich hätte ihn übernommen und verschoben.
+ */
 function istSpielerbau(zdo: ZDO): boolean {
-  return zdo.getInt('spieler') === 1;
+  const wert = zdo.getMember(SPIELER_HASH)?.value;
+  if (typeof wert === 'number') return wert === 1;
+  if (typeof wert === 'bigint') return wert === 1n;
+  if (typeof wert === 'string') return wert.trim() === '1';
+  return false;
 }
 
 /**
@@ -166,6 +179,13 @@ export interface LayoutAbgleichErgebnis {
   freigegeben: number;
   /** Kennungen neuer Platzierungen, die genau über einem fremden Spielerbau stehen. */
   ueberSpielerbau: string[];
+  /** ZDOs mit einer Kennung, die schon ein anderes ZDO trägt: über das eine hinaus entfernt. */
+  ueberzaehlig: number;
+  /**
+   * Platzierungen, deren Prefab die Registry nicht kennt. Ein vorhandenes ZDO
+   * mit dieser Kennung bleibt unangetastet (nicht entfernt, nicht nachgeführt).
+   */
+  unbekanntePrefabs: { kennung: string; prefab: string; zdoVorhanden: boolean }[];
 }
 
 /**
@@ -203,6 +223,8 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
     aufRoute: 0,
     freigegeben: 0,
     ueberSpielerbau: [],
+    ueberzaehlig: 0,
+    unbekanntePrefabs: [],
   };
   // Kennung je Eintrag: Prefab + gerundete Position (layoutKennung in
   // shared). Damit lassen sich beim Boot ZDOs entfernen, deren Eintrag der
@@ -223,6 +245,7 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
     return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z }] : [];
   });
   const nachKennung = new Map<string, ZDO>();
+  const gruppen = new Map<string, ZDO[]>();
   const zurueckgestellt: ZDO[] = [];
   for (const zdo of zdos.getAllZDOs()) {
     const id = zdo.getString(LAYOUT_ID_MEMBER);
@@ -251,13 +274,56 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
     // Routen-NPC ist beim nächsten Boot IRGENDWO auf seiner Runde, die
     // Nähe-Prüfung unten fände ihn also nicht wieder und spawnte bei jedem
     // Start einen weiteren. Die Kennung wandert dagegen mit ihm mit.
-    nachKennung.set(id, zdo);
+    const gruppe = gruppen.get(id);
+    if (gruppe) gruppe.push(zdo);
+    else gruppen.set(id, [zdo]);
+  }
+  // Eine Kennung führt EIN ZDO — so viele, wie der Abgleich unten je Kennung
+  // braucht (auch mehrere bitgleiche Platzierungen teilen sich eines, das
+  // entscheidet K1.1). Ein Spielstand von einem Server, der per Nähe
+  // übernahm, kann mehrere tragen: Das nächste an der Platzierung (bei
+  // Gleichstand das gestempelte) bleibt, die übrigen gehen. Sonst führte der
+  // Abgleich nur eines nach, und die anderen stünden mit ihrem alten Boden
+  // für immer da.
+  const ersteJeKennung = new Map<string, PlacementDef>();
+  for (const p of placements) if (!ersteJeKennung.has(kennung(p))) ersteJeKennung.set(kennung(p), p);
+  for (const [id, liste] of gruppen) {
+    if (liste.length === 1) {
+      nachKennung.set(id, liste[0]!);
+      continue;
+    }
+    const p = ersteJeKennung.get(id)!;
+    const hash = kontext.prefabs.getByName(p.prefab)?.hash;
+    const passend = hash === undefined ? liste : liste.filter((z) => z.prefabHash === hash);
+    const kandidaten = passend.length > 0 ? passend : liste;
+    let bleibt = kandidaten[0]!;
+    const abstand = (z: ZDO): number => Math.hypot(z.position.x - p.x, z.position.z - p.z);
+    for (const z of kandidaten) {
+      const naeher = abstand(z) < abstand(bleibt) - 1e-9;
+      const gleichweit = Math.abs(abstand(z) - abstand(bleibt)) <= 1e-9;
+      if (naeher || (gleichweit && liesStempel(z) !== null && liesStempel(bleibt) === null)) bleibt = z;
+    }
+    nachKennung.set(id, bleibt);
+    for (const z of liste) {
+      if (z === bleibt) continue;
+      zdos.destroyZDO(z.zdoid);
+      ergebnis.ueberzaehlig++;
+    }
   }
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
   for (const p of placements) {
     const prefab = kontext.prefabs.getByName(p.prefab);
     if (!prefab) {
+      // Ein vorhandenes ZDO mit dieser Kennung bleibt, wie es ist: Es steht
+      // unter einer gewollten Kennung, wird also nicht als verwaist entfernt,
+      // und ohne bekanntes Prefab gibt es nichts, wonach der Abgleich es
+      // ausrichten könnte. Der Aufrufer meldet es im Log.
       ergebnis.unbekannt++;
+      ergebnis.unbekanntePrefabs.push({
+        kennung: kennung(p),
+        prefab: p.prefab,
+        zdoVorhanden: nachKennung.has(kennung(p)),
+      });
       continue;
     }
     const boden = kontext.bodenHoehe(p.x, p.z);

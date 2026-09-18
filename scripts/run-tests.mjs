@@ -967,6 +967,9 @@ const KERN = [
   // Texel. Rechnet Babylons Kaskadenteilung nach (an der Messung geeicht) und
   // prueft die ausgelieferte Look-Vorgabe gegen eine Mindestreichweite.
   ['client', 'test/schatten-kaskadengrenze.ts'],
+  // G19 (A3): TAA gehoert hinter alle anderen Paesse; nach dem Umschalten
+  // eines anderen Effekts stand es vorn (12 von 12 Umschaltungen).
+  ['client', 'test/taa-reihenfolge.ts'],
   // Die Schattenzeile des Farbprofils (`look.grading.schatten*`) stand bis
   // 12.09.2026 auf der Eins und tat nichts; seit sie den gemessenen Wert
   // traegt, haengt das halbe Bild an vier Zahlen, die niemand ansieht. Der

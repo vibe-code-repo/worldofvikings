@@ -127,6 +127,26 @@ const MOTION_SAMPLES = 10;
 const MSAA_SAMPLES = 4;
 /** Name der TAA-Pipeline — auch der Schlüssel beim An-/Abhängen der Kamera. */
 const TAA_NAME = 'valheimTaa';
+
+/**
+ * Stehen TAA und sein Kopierpass als LETZTE belegte Einträge der Kamerakette?
+ *
+ * Reine Funktion über die Namen der Kette (`camera._postProcesses`; freie
+ * Plätze sind `null`), damit die Reihenfolge ohne GPU prüfbar ist. `TAA` und
+ * `TAAPass` heissen so in Babylons `TAARenderingPipeline`.
+ *
+ * Gemessen 18.09.2026: Nach dem Einschalten steht TAA hinten, nach JEDEM
+ * späteren Umschalten von Bloom, Tiefenunschärfe, FXAA, Bewegungsunschärfe
+ * oder SSAO steht es direkt hinter `valheimDof` — die Pipeline hängt ihre
+ * Pässe bei jedem Umschalten NEU ans Ende und lässt TAA davor stehen. Hinten
+ * hat es die dunklen Einbrüche im Stand von 0,064 auf 0,000 % gesenkt, vorn
+ * (nach dem Umschalten) nur auf 0,0025 %.
+ */
+export function taaStehtHinten(kette: readonly ({ name: string } | null | undefined)[]): boolean {
+  const belegt = kette.filter((p): p is { name: string } => !!p);
+  const n = belegt.length;
+  return n >= 2 && belegt[n - 2]!.name === 'TAA' && belegt[n - 1]!.name === 'TAAPass';
+}
 /**
  * Zahl der akkumulierten Abtastmuster (Babylon-Vorgabe 16).
  *
@@ -325,6 +345,8 @@ export class PostProcessing {
   private readonly taa: TAARenderingPipeline;
   /** Sitzt die Jitter-Ersetzung? Zeuge, kein Schalter (s. entsperreTaaJitter). */
   private taaEntsperrt = false;
+  /** Wie oft TAA wieder ans Ende der Kette gehängt werden musste — Zeuge, kein Schalter. */
+  private taaNeuAngehaengt = 0;
   private readonly ssao: SSAO2RenderingPipeline;
   private ssaoAn = false;
   /**
@@ -641,6 +663,7 @@ export class PostProcessing {
       profil.ca.an && this.letzteOptionen.chromaticAberration;
     this.setDepthOfField(profil.dof.an && this.letzteOptionen.depthOfField);
     this.setSunShafts(profil.strahlen.an && this.letzteOptionen.sunShafts);
+    this.haengeTaaAnsEnde();
     /*
       ZULETZT, aus demselben Grund wie in `apply()`: Die drei Zeilen
       darüber hängen Pässe an und ab, also steht erst jetzt fest, welcher
@@ -666,6 +689,7 @@ export class PostProcessing {
     this.setSunShafts(opts.sunShafts && this.profil.strahlen.an);
     this.setSSAO(opts.ambientOcclusion);
     this.setTemporalAA(opts.temporalAA);
+    this.haengeTaaAnsEnde();
     this.syncGeometryBuffer();
     // ZULETZT: Erst jetzt steht fest, welcher Pass vorne in der Kette hängt.
     this.setzeMsaa(opts.antiAliasing);
@@ -709,6 +733,32 @@ export class PostProcessing {
     if (!this.taa.isSupported) return;
     if (this.taa.isEnabled === enabled) return;
     this.taa.isEnabled = enabled;
+  }
+
+  /**
+   * TAA wieder hinter alle anderen Pässe hängen (G19, A3).
+   *
+   * Der Konstruktor begründet, warum TAA HINTEN stehen muss: davor laufen
+   * Tiefenunschärfe und Bewegungsunschärfe mit Matrizen aus der verwackelten
+   * Kamera und tragen den Halton-Versatz zurück ins fertige Bild. Diese
+   * Reihenfolge stellt sich beim Einschalten von selbst ein — und geht beim
+   * nächsten Umschalten eines beliebigen anderen Effekts verloren, weil
+   * `DefaultRenderingPipeline` ihre Pässe dann neu ans Ende hängt (und der
+   * Strahlenpass beim Überqueren seines Tors, s. haengeStrahlenAn).
+   *
+   * Aus- und Einschalten der Pipeline ist billig (`_isDirty` bleibt falsch, es
+   * wird nichts neu gebaut), setzt aber die TAA-Historie zurück: ein Bild ohne
+   * Glättung. Deshalb nur, wenn die Reihenfolge wirklich nicht stimmt.
+   *
+   * Re-attaches TAA behind every other pass once something else re-appended
+   * its own after it; cheap, and a no-op while the order is right.
+   */
+  private haengeTaaAnsEnde(): void {
+    if (!this.taa.isSupported || !this.taa.isEnabled) return;
+    if (taaStehtHinten(this.camera._postProcesses)) return;
+    this.taa.isEnabled = false;
+    this.taa.isEnabled = true;
+    this.taaNeuAngehaengt++;
   }
 
   /**
@@ -834,6 +884,9 @@ export class PostProcessing {
    */
   update(dt: number, sunDir?: { x: number; y: number; z: number }): void {
     this.dof?.update(dt);
+    // Jedes Bild eine Leseprobe: auch das Tor des Strahlenpasses hängt zur
+    // Laufzeit Pässe an und ab.
+    this.haengeTaaAnsEnde();
     if (this.shafts && sunDir) {
       // Die Quelle muss weit genug weg sein, dass sie sich beim Laufen nicht
       // mitbewegt — sonst wandert der Kranz mit dem Spieler statt am Himmel
@@ -1045,6 +1098,8 @@ export class PostProcessing {
    */
   get taaMesswerte(): {
     an: boolean;
+    hinten: boolean;
+    neuAngehaengt: number;
     unterstuetzt: boolean;
     entsperrt: boolean;
     proben: number;
@@ -1056,6 +1111,8 @@ export class PostProcessing {
     const m = this.camera.getProjectionMatrix().m;
     return {
       an: this.taa.isEnabled,
+      hinten: taaStehtHinten(this.camera._postProcesses),
+      neuAngehaengt: this.taaNeuAngehaengt,
       unterstuetzt: this.taa.isSupported,
       entsperrt: this.taaEntsperrt,
       proben: this.taa.samples,

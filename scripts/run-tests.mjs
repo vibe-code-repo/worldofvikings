@@ -108,6 +108,19 @@ const KERN = [
   ['client/test', 'ironward.ts'],
   ['server/test', 'ironward.ts'],
   /*
+    Canonical-skin exporter on tiny synthetic GLBs (no Blender, no assets):
+    an item without replaced regions (the Wildwarden crown) is exported from
+    its `sourceRegions` and tagged `extras.attachment`; a replacement keeps
+    `extras.replaces`; inconsistent definitions are rejected.
+  */
+  ['tools/test', 'armor-export-attachment.mjs'],
+  /*
+    Wildwarden: PARTS in tools/build-druid-armor.py (read as text by python3,
+    Blender is not started), the item registry and the seven shipped GLBs
+    must agree on items, replaced regions (ten) and the crown attachment.
+  */
+  ['tools/test', 'wildwarden-pipeline.mjs', brauchtPython()],
+  /*
     Ein Ursprung im Container (12.09.2026): Textnachweis über
     deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,
     /editor/, /api/accounts/, /api/, /assets/, /ws) stehen als eigener

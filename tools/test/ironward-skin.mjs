@@ -10,6 +10,7 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/index.js';
+import { armorByFile } from '@wov/shared';
 import { verifyArmorSkin, updateArmorVisibility } from '../../client/src/player/armorVisibility.ts';
 const [bodyPath, directory] = process.argv.slice(2);
 const family = process.argv.find(a => a.startsWith('--family='))?.split('=')[1] ?? 'ironward';
@@ -34,7 +35,12 @@ for (const part of manifest.items) {
 }
 if (!unregistered) {
   updateArmorVisibility(scene.meshes, manifest.items.map(p => `${family}/${p.item}`));
-  assert(body.meshes.filter(m => m.getTotalVertices()).every(m => !m.isEnabled()), 'Full armor must replace all eleven regions');
+  // The registry decides which regions a set hides: an attachment such as the Wildwarden crown hides none.
+  const replaced = new Set(manifest.items.flatMap(p => armorByFile(`${family}/${p.item}`)?.regions ?? []));
+  assert(replaced.size > 0, 'The registry knows no replaced region for these items; wrong --family?');
+  const hidden = body.meshes.filter(m => m.getTotalVertices() && !m.isEnabled());
+  assert.equal(hidden.length, replaced.size, `Full armor must hide exactly its ${replaced.size} registered regions`);
+  assert(hidden.every(m => [...replaced].some(region => m.name.includes(region))), 'Only registered regions may be hidden');
   assert(armor.every(m => m.isEnabled()), 'Armor must not mask itself');
 }
 const frames = [];

@@ -17,6 +17,9 @@ assert(equipment.name && equipment.prefix && Array.isArray(equipment.parts) && e
 assert(new Set(equipment.parts.map(p => p.item)).size === equipment.parts.length, 'Duplicate output names');
 const allRegions = equipment.parts.flatMap(p => p.regions);
 assert(new Set(allRegions).size === allRegions.length, 'Regions must belong to one item only');
+assert(equipment.parts.every(p => (p.sourceRegions ?? p.regions).length), 'Every item needs export geometry');
+assert(equipment.parts.every(p => p.regions.every(region => (p.sourceRegions ?? p.regions).includes(region))),
+  'Every replaced region must have matching export geometry');
 assert(equipment.parts.every(p => /^[a-z][a-z0-9_]*$/i.test(p.item)), 'Unsafe output item name');
 const clone = v => JSON.parse(JSON.stringify(v));
 const hash = b => createHash('sha256').update(b).digest('hex');
@@ -79,9 +82,11 @@ for (const part of equipment.parts) {
   skin.inverseBindMatrices = addAccessor(body, canonicalSkin.inverseBindMatrices);
   doc.skins.push(skin);
   const materialMap = new Map();
-  for (const region of part.regions) {
-    const node = source.json.nodes.find(n => n.name === `${equipment.prefix}${region}`);
-    assert(node && node.mesh !== undefined, `Missing region ${region}`);
+  // sourceRegions lists the geometry to export; regions lists which body regions it hides.
+  // An item may export geometry that replaces nothing (an attachment such as a crown).
+  for (const sourceRegion of part.sourceRegions ?? part.regions) {
+    const node = source.json.nodes.find(n => n.name === `${equipment.prefix}${sourceRegion}`);
+    assert(node && node.mesh !== undefined, `Missing source region ${sourceRegion}`);
     assert(!node.matrix && !node.translation && !node.rotation && !node.scale, 'Mesh must be in world rest coordinates');
     const mesh = { name: node.name, primitives: [] };
     for (const primitive of source.json.meshes[node.mesh].primitives) {
@@ -117,7 +122,7 @@ for (const part of equipment.parts) {
             const old = bytes.readUIntLE(at, width); let joint = remap[old];
             // Neutral source's Hips lining has reversed upper-leg groups.
             // Plates are already correct. Correct only that cloth primitive.
-            if (!equipment.hipsAlreadyFixed && region === 'Hips' && mat.name === 'Ironward_cloth' && /^UpperLeg_[LR]$/.test(oldNames[old])) {
+            if (!equipment.hipsAlreadyFixed && sourceRegion === 'Hips' && mat.name === 'Ironward_cloth' && /^UpperLeg_[LR]$/.test(oldNames[old])) {
               const expected = names.indexOf(positions.readFloatLE(v * 12) > 0 ? 'UpperLeg_L' : 'UpperLeg_R');
               if (joint !== expected) { joint = expected; corrected++; }
             }
@@ -131,7 +136,9 @@ for (const part of equipment.parts) {
       mesh.primitives.push(p);
     }
     doc.scenes[0].nodes.push(doc.nodes.length);
-    doc.nodes.push({ name: node.name, mesh: doc.meshes.length, skin: 0, extras: { replaces: region,
+    const replaces = part.regions.includes(sourceRegion) ? sourceRegion : undefined;
+    doc.nodes.push({ name: node.name, mesh: doc.meshes.length, skin: 0, extras: {
+      ...(replaces ? { replaces } : { attachment: true }),
       itemId: part.item, bodyVariant: part.bodyVariant ?? equipment.bodyVariant,
       bodyProfile: part.bodyProfile ?? equipment.bodyProfile } });
     doc.meshes.push(mesh);

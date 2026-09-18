@@ -20,10 +20,12 @@ RENDERS = ROOT / 'renders'
 RENDERS.mkdir(exist_ok=True)
 QUICK = '--quick' in ARGS
 PREFIX = 'WoV_Wildwarden_'
-SLOTS = ['Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft',
-         'ArmLowerRight', 'LegLeft', 'LegRight', 'Head', 'HandLeft', 'HandRight']
+BODY_SLOTS = ['Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft',
+              'ArmLowerRight', 'LegLeft', 'LegRight', 'Head', 'HandLeft', 'HandRight']
+REPLACEMENT_SLOTS = [slot for slot in BODY_SLOTS if slot != 'Head']
+SLOTS = REPLACEMENT_SLOTS + ['Crown']
 PARTS = [
-    {'item': 'wildwarden_crown', 'label': 'Geweihkrone', 'regions': ['Head']},
+    {'item': 'wildwarden_crown', 'label': 'Geweihkrone', 'regions': [], 'sourceRegions': ['Crown']},
     {'item': 'wildwarden_mantle', 'label': 'Blattschultern', 'regions': ['ArmUpperLeft', 'ArmUpperRight']},
     {'item': 'wildwarden_vest', 'label': 'Rindenwams', 'regions': ['Torso']},
     {'item': 'wildwarden_bracers', 'label': 'Wurzelarmschienen', 'regions': ['ArmLowerLeft', 'ArmLowerRight']},
@@ -34,7 +36,7 @@ PARTS = [
 scene = bpy.context.scene
 rig = bpy.data.objects['WoV_Player_Armature']
 source_path = bpy.data.filepath
-base = {s: bpy.data.objects['WoV_BodyBase_Male_' + s] for s in SLOTS}
+base = {s: bpy.data.objects['WoV_BodyBase_Male_' + s] for s in BODY_SLOTS}
 pose = {b.name: b.matrix_basis.copy() for b in rig.pose.bones}
 rig.data.pose_position = 'REST'
 bpy.context.view_layer.update()
@@ -199,8 +201,11 @@ def attach_to_surface(obj, surface, conform=False, offset=0):
                 group.add([v.index], weight/total, 'REPLACE')
 
 
-# Complete source regions form the undergarment. Head and hands retain exposed skin.
+# Complete replaced source regions form the undergarment. Hands retain exposed skin;
+# Head is deliberately absent because the crown is only an attachment.
 for slot, src in base.items():
+    if slot not in REPLACEMENT_SLOTS:
+        continue
     obj = src.copy()
     obj.data = src.data.copy()
     obj.name = 'Wildwarden_' + slot + '_lining'
@@ -358,20 +363,20 @@ for x, suffix, slot in [(-.113, 'R', 'LegLeft'), (.113, 'L', 'LegRight')]:
     for obj in pieces[slot][1:]:
         attach_to_surface(obj, boot_surface)
 
-# Open antler crown: the face remains the actual source head, weighted to Neck.
-sleeve('Crown_band', [(0, .005, 1.715), (0, .005, 1.742)], [(.144, .146), (.140, .143)], 'Head', 'Neck', 'bark_dark', 16)
+# Open antler crown: an attachment only. The textured game head remains visible.
+sleeve('Crown_band', [(0, .005, 1.715), (0, .005, 1.742)], [(.144, .146), (.140, .143)], 'Crown', 'Neck', 'bark_dark', 16)
 for side in [-1, 1]:
     path = [(side*.106, .016, 1.74), (side*.195, .018, 1.80), (side*.253, .030, 1.91), (side*.259, .044, 2.035), (side*.225, .050, 2.135)]
-    branch('Crown_antler', path, [.030, .027, .021, .013, .0015], 'Head', 'Neck', 'antler')
-    branch('Crown_outer_tine', [path[1], (side*.302, .017, 1.863), (side*.35, .02, 1.962)], [.020, .010, .0015], 'Head', 'Neck', 'antler')
-    branch('Crown_inner_tine', [path[2], (side*.171, .021, 1.984), (side*.165, .024, 2.052)], [.016, .008, .0015], 'Head', 'Neck', 'antler')
-    branch('Crown_high_tine', [path[3], (side*.31, .06, 2.087)], [.010, .001], 'Head', 'Neck', 'antler')
+    branch('Crown_antler', path, [.030, .027, .021, .013, .0015], 'Crown', 'Neck', 'antler')
+    branch('Crown_outer_tine', [path[1], (side*.302, .017, 1.863), (side*.35, .02, 1.962)], [.020, .010, .0015], 'Crown', 'Neck', 'antler')
+    branch('Crown_inner_tine', [path[2], (side*.171, .021, 1.984), (side*.165, .024, 2.052)], [.016, .008, .0015], 'Crown', 'Neck', 'antler')
+    branch('Crown_high_tine', [path[3], (side*.31, .06, 2.087)], [.010, .001], 'Crown', 'Neck', 'antler')
     for i in range(4):
         leaf('Crown_laurel', (side*(.025+i*.028), -.142+i*.013, 1.720),
              (side*(.060+i*.025), -.147+i*.013, 1.775+(i % 2)*.014), .023,
-             (0, -1, 0), 'Head', 'Neck', 'leaf' if i % 2 else 'leaf_dark')
-leaf('Crown_seed_frame', (0, -.151, 1.823), (0, -.161, 1.690), .033, (0, -1, 0), 'Head', 'Neck', 'gold')
-leaf('Crown_seed_stone', (0, -.165, 1.793), (0, -.177, 1.711), .019, (0, -1, 0), 'Head', 'Neck', 'jade', .014)
+             (0, -1, 0), 'Crown', 'Neck', 'leaf' if i % 2 else 'leaf_dark')
+leaf('Crown_seed_frame', (0, -.151, 1.823), (0, -.161, 1.690), .033, (0, -1, 0), 'Crown', 'Neck', 'gold')
+leaf('Crown_seed_stone', (0, -.165, 1.793), (0, -.177, 1.711), .019, (0, -1, 0), 'Crown', 'Neck', 'jade', .014)
 
 # Join each replacement region and bind every component to the shared source rig.
 armor = {}
@@ -390,8 +395,11 @@ for slot, objects in pieces.items():
     obj.matrix_world = world
     modifier = obj.modifiers.new('Shared_body_skin', 'ARMATURE')
     modifier.object = rig
-    obj['replaces'] = slot
-    obj['complete_source_region_retained'] = True
+    if slot in BODY_SLOTS:
+        obj['replaces'] = slot
+        obj['complete_source_region_retained'] = True
+    else:
+        obj['attachment'] = True
     obj['hips_source_weights_corrected'] = slot == 'Hips'
     armor[slot] = obj
 rig.data.pose_position = 'POSE'
@@ -402,6 +410,7 @@ def visible(slots):
     for slot in SLOTS:
         armor[slot].hide_render = slot not in slots
         armor[slot].hide_set(slot not in slots)
+    for slot in BODY_SLOTS:
         base[slot].hide_render = slot in slots
         base[slot].hide_set(slot in slots)
 
@@ -472,7 +481,8 @@ def render(name):
 
 
 report = {'source': source_path, 'name': 'Wildwarden', 'slots': {}, 'pose_checks': [],
-          'version': 2, 'robe_foundation': 'continuous', 'shoulder_branches': 0,
+          'version': 3, 'robe_foundation': 'continuous', 'shoulder_branches': 0,
+          'head_attachment_only': True,
           'decoration_binding': 'barycentric garment weights',
           'collision_certified': False, 'cloth_simulation': False, 'source_overwritten': False}
 for slot, obj in armor.items():
@@ -492,7 +502,7 @@ if not QUICK:
     camera('back'); render('03_Wildwarden_Back')
     camera()
     for i, part in enumerate(PARTS):
-        visible(part['regions']); render('%02d_%s' % (10+i, part['item']))
+        visible(part.get('sourceRegions', part['regions'])); render('%02d_%s' % (10+i, part['item']))
     visible([]); render('00_Body_Reference')
     visible(SLOTS)
     cam.data.ortho_scale = .96
@@ -544,7 +554,7 @@ def export(filename, objects):
 if not QUICK:
     export('WoV_Wildwarden_Armor.glb', list(armor.values()))
     for part in PARTS:
-        export(part['item']+'.glb', [armor[s] for s in part['regions']])
+        export(part['item']+'.glb', [armor[s] for s in part.get('sourceRegions', part['regions'])])
     visible(SLOTS)
     bpy.ops.wm.save_as_mainfile(filepath=str(ROOT/'WoV_Wildwarden_Armor.blend'))
 (ROOT/'validation.json').write_text(json.dumps(report, indent=2)+'\n')

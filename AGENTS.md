@@ -79,7 +79,7 @@ for n in 0 1 2 3 4 5 6 7 8; do mkdir /opt/wov-worktrees/.slots/$n 2>/dev/null &&
 echo "slot=$n"                            # empty: all nine taken, wait
 
 SLUG=<topic>; AGENT=<claude|codex|deepseek|human>
-git worktree add /opt/wov-worktrees/$SLUG -b agent/$AGENT/$SLUG origin/main
+git worktree add --no-track /opt/wov-worktrees/$SLUG -b agent/$AGENT/$SLUG origin/main
 cat > /opt/wov-worktrees/.slots/$n/claim <<EOF
 branch:   agent/$AGENT/$SLUG
 worktree: /opt/wov-worktrees/$SLUG

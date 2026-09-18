@@ -74,12 +74,13 @@ import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
 // Client-Bundle, und layoutDatei.ts zieht node:fs herein. Gleiche
 // Begruendung wie bei instanz.ts eine Zeile hoeher.
 import {
+  LayoutFeldUngueltig,
   LayoutGesperrt,
   LayoutUngueltig,
   LayoutVeraltet,
   LayoutZuVielePlatzierungen,
   layoutLesenMitHash,
-  layoutSchreiben,
+  layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
 // geschickt wie beim Server. Der Editor soll sehen, was auch der
@@ -1388,7 +1389,11 @@ async function behandeln(
       );
     }
     try {
-      const { layout, sicherung, text, hash } = layoutSchreiben(LAYOUT_DATEI, dokument, undefined, { basis });
+      // Async: Wartet ein fremder Schreiber auf der Sperre, bleibt die
+      // Ereignisschleife frei (/status, /metriken, der Log-Strom laufen weiter).
+      const { layout, sicherung, text, hash } = await layoutSchreibenAsync(LAYOUT_DATEI, dokument, undefined, {
+        basis,
+      });
       return {
         code: 200,
         kopf: { ETag: `"${hash}"` },
@@ -1430,6 +1435,13 @@ async function behandeln(
             grenze: fehler.grenze,
             message: fehler.message,
           },
+        };
+      }
+      if (fehler instanceof LayoutFeldUngueltig) {
+        console.warn(`[Admin] POST /api/worldlayout -> 422 ungueltig: Feld ${fehler.feld} ist keine Liste, nichts gespeichert`);
+        return {
+          code: 422,
+          daten: { ok: false, fehler: 'ungueltig', feld: fehler.feld, message: fehler.message },
         };
       }
       if (fehler instanceof LayoutGesperrt) {

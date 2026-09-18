@@ -38,8 +38,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   closeSync,
+  constants,
   copyFileSync,
   existsSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -50,6 +52,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { hostname } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { sanitizeWorldLayout } from './sanitize.js';
 import type { WorldLayout } from './types.js';
@@ -196,12 +199,29 @@ export function layoutLesenMitHash(pfad: string): { layout: WorldLayout; hash: s
  * Die Namen tragen den ISO-Zeitstempel, deshalb sortiert ein einfaches
  * `.sort()` sie chronologisch — kein `statSync` pro Datei nötig, und das
  * Ergebnis hängt nicht an mtime-Werten, die ein `cp -a` verschieben kann.
+ *
+ * Zwei Sicherungen in derselben Millisekunde bekämen denselben Namen, und
+ * die zweite überschriebe die erste. Deshalb wird der Zeitstempel um eine
+ * Millisekunde hochgezählt, bis der Name frei ist; das hält die Namen
+ * eindeutig UND in der Reihenfolge des Entstehens. `COPYFILE_EXCL` macht aus
+ * „Name frei?" und „anlegen" einen Schritt, falls doch jemand dazwischenkommt.
  */
 export function layoutSichern(pfad: string, behalten = SICHERUNGEN_BEHALTEN): string | null {
   if (!existsSync(pfad)) return null;
-  const stempel = new Date().toISOString().replace(/[:.]/g, '-');
-  const ziel = `${pfad}.${stempel}.bak`;
-  copyFileSync(pfad, ziel);
+  let t = Date.now();
+  let ziel: string;
+  for (;;) {
+    ziel = `${pfad}.${new Date(t).toISOString().replace(/[:.]/g, '-')}.bak`;
+    if (!existsSync(ziel)) {
+      try {
+        copyFileSync(pfad, ziel, constants.COPYFILE_EXCL);
+        break;
+      } catch (fehler) {
+        if ((fehler as NodeJS.ErrnoException).code !== 'EEXIST') throw fehler;
+      }
+    }
+    t++;
+  }
   const ordner = dirname(pfad);
   const name = basename(pfad);
   const alte = readdirSync(ordner)
@@ -211,10 +231,42 @@ export function layoutSichern(pfad: string, behalten = SICHERUNGEN_BEHALTEN): st
   return ziel;
 }
 
+// ══ Sperre ════════════════════════════════════════════════════════════
+//
+// Die Sperrdatei `<pfad>.lock` trägt, wem sie gehört:
+//     { pid, start, host, marke }
+// `start` ist die Startzeit des Prozesses (Linux: /proc/<pid>/stat, Feld 22),
+// damit eine WIEDERVERWENDETE pid nicht für den Besitzer gehalten wird.
+//
+// ── Wann eine Sperre gebrochen wird ──────────────────────────────────
+// NUR, wenn ihr Besitzer nachweislich nicht mehr lebt: `kill(pid, 0)` meldet
+// ESRCH, der Prozess ist ein Zombie, oder unter dieser pid läuft ein anderer
+// Prozess (Startzeit passt nicht). Dann SOFORT — ein Absturz zwischen Sperre
+// und Rename soll den nächsten Speichervorgang nicht 30 s lang aussperren.
+// Die Sperre eines LEBENDEN Besitzers wird nie gebrochen, egal wie alt: Ein
+// langsamer Schreiber (GC-Pause, volle Platte, angehaltener Container) bleibt
+// Besitzer, bis er fertig ist. Früher brach ein Wartender jede Sperre ab 30 s,
+// und der langsame Schreiber benannte danach seinen Tmp-Stand über den des
+// anderen — ein Lost Update trotz Sperre.
+//
+// Nicht entscheidbar ist der Besitzer bei einem anderen Rechnernamen (gemeinsames
+// Dateisystem; `kill` wirkt nur lokal): Diese Sperre bleibt liegen, der Aufrufer
+// bekommt `LayoutGesperrt` mit dem Namen des Besitzers.
+//
+// Eine Sperre OHNE lesbare Besitzangabe (von Hand angelegt, oder ein Prozess
+// stürzte in den Mikrosekunden zwischen `open` und `write` ab) hat keinen
+// Besitzer, den man prüfen könnte; sie gilt ab `sperreVeraltetMs` als Müll.
+
 /** So lange wartet `layoutSchreiben` auf eine fremde Sperre, bevor es `LayoutGesperrt` wirft. */
 export const SPERRE_WARTEN_MS = 3000;
-/** Ab diesem Alter (mtime) gilt eine Sperre als verwaist und wird gebrochen. */
+/**
+ * Alter, ab dem (a) eine Sperre ohne lesbare Besitzangabe als Müll gebrochen
+ * und (b) eine liegengebliebene Tmp-Datei weggeräumt wird. Die Sperre eines
+ * lebenden Besitzers hängt NICHT davon ab.
+ */
 export const SPERRE_VERALTET_MS = 30_000;
+/** Ab diesem Alter einer von einem lebenden Prozess gehaltenen Sperre gibt es eine Logzeile. */
+const SPERRE_LOGGEN_AB_MS = 30_000;
 
 export interface SchreibOptionen {
   /** Hash der Datei, auf die sich der Schreiber bezieht. Fehlt er, wird ohne Vergleich geschrieben. */
@@ -223,111 +275,270 @@ export interface SchreibOptionen {
   sperreVeraltetMs?: number;
 }
 
-function platzierungenZaehlen(eingabe: unknown): number {
-  if (typeof eingabe !== 'object' || eingabe === null) return 0;
-  const p = (eingabe as { placements?: unknown }).placements;
-  return Array.isArray(p) ? p.length : 0;
+export type SchreibErgebnis = { layout: WorldLayout; sicherung: string | null; text: string; hash: string };
+
+interface SperrInfo {
+  pid: number;
+  start: string | null;
+  host: string;
+  marke: string;
 }
 
 interface Sperre {
   pfad: string;
-  marke: string;
-}
-
-/** Synchron schlafen: `layoutSchreiben` ist synchron, ein Busy-Loop würde die CPU grundlos verbrennen. */
-function schlafen(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  inhalt: string;
 }
 
 function zufall(): string {
   return randomBytes(6).toString('hex');
 }
 
-/**
- * Bricht eine verwaiste Sperre. Gibt true zurück, wenn sich am Zustand der
- * Sperre etwas geändert hat (gebrochen ODER inzwischen weg oder erneuert) —
- * der Aufrufer versucht es dann sofort noch einmal.
- *
- * Nicht `unlink`, sondern `rename` auf einen eindeutigen Namen: Vorher wird
- * noch einmal geprüft, dass es dieselbe Datei ist (Inode und mtime), die
- * eben als veraltet erkannt wurde. Zwei Wartende, die dieselbe verwaiste
- * Sperre sehen, brechen sie so nicht nacheinander — der zweite würde sonst
- * die frische Sperre des ersten löschen.
- */
-function verwaisteSperreBrechen(sperrPfad: string, veraltetMs: number): boolean {
+/** Synchron schlafen: ein Busy-Loop würde die CPU grundlos verbrennen. Nur für den synchronen Schreibweg. */
+function schlafen(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+const pauseMs = (): number => 5 + Math.floor(Math.random() * 15);
+
+/** Startzeit und Zustand eines Prozesses aus /proc (Linux); null, wo es das nicht gibt. */
+function prozessDaten(pid: number): { start: string; zustand: string } | null {
   try {
-    const gesehen = statSync(sperrPfad);
-    const alter = Date.now() - gesehen.mtimeMs;
-    if (alter <= veraltetMs) return false;
-    const jetzt = statSync(sperrPfad);
-    if (jetzt.ino !== gesehen.ino || jetzt.mtimeMs !== gesehen.mtimeMs) return true;
-    const beiseite = `${sperrPfad}.verwaist.${process.pid}.${zufall()}`;
-    renameSync(sperrPfad, beiseite);
-    rmSync(beiseite, { force: true });
-    console.warn(
-      `[layoutDatei] verwaiste Sperre ${basename(sperrPfad)} gebrochen (${Math.round(alter / 1000)} s alt)`
-    );
-    return true;
-  } catch (fehler) {
-    if ((fehler as NodeJS.ErrnoException).code === 'ENOENT') return true;
-    throw fehler;
+    const s = readFileSync(`/proc/${pid}/stat`, 'utf-8');
+    // Der Prozessname (Feld 2) steht in Klammern und darf selbst Klammern und
+    // Leerzeichen enthalten — deshalb ab der LETZTEN Klammer zählen. Danach
+    // beginnt Feld 3 (Zustand); Feld 22 (Startzeit) ist das 20. Element.
+    const rest = s.slice(s.lastIndexOf(')') + 2).split(' ');
+    return rest[19] === undefined ? null : { start: rest[19], zustand: rest[0] ?? '' };
+  } catch {
+    return null;
   }
 }
 
-function sperreNehmen(pfad: string, wartenMs: number, veraltetMs: number): Sperre {
+function sperreInhalt(): string {
+  const info: SperrInfo = {
+    pid: process.pid,
+    start: prozessDaten(process.pid)?.start ?? null,
+    host: hostname(),
+    marke: zufall(),
+  };
+  return JSON.stringify(info);
+}
+
+function sperreLesen(text: string): SperrInfo | null {
+  try {
+    const o = JSON.parse(text) as Partial<SperrInfo> | null;
+    if (
+      o !== null &&
+      typeof o === 'object' &&
+      Number.isInteger(o.pid) &&
+      (o.pid as number) > 0 &&
+      typeof o.host === 'string' &&
+      typeof o.marke === 'string' &&
+      (o.start === null || typeof o.start === 'string')
+    ) {
+      return o as SperrInfo;
+    }
+  } catch {
+    /* kein JSON */
+  }
+  return null;
+}
+
+function besitzerPruefen(info: SperrInfo): 'lebt' | 'tot' | 'unbekannt' {
+  if (info.host !== hostname()) return 'unbekannt';
+  try {
+    process.kill(info.pid, 0);
+  } catch (fehler) {
+    const code = (fehler as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return 'tot';
+    return code === 'EPERM' ? 'lebt' : 'unbekannt';
+  }
+  const jetzt = prozessDaten(info.pid);
+  if (jetzt !== null) {
+    if (jetzt.zustand === 'Z') return 'tot'; // beendet, aber noch nicht abgeholt
+    if (info.start !== null && jetzt.start !== info.start) return 'tot'; // pid wiederverwendet
+  }
+  return 'lebt';
+}
+
+type Urteil =
+  | { art: 'frei' }
+  | { art: 'brechen'; roh: string; pid: number | null; grund: string }
+  | { art: 'besetzt'; beschreibung: string; alterMs: number };
+
+function sperreBeurteilen(sperrPfad: string, veraltetMs: number): Urteil {
+  let roh: string;
+  let alterMs: number;
+  try {
+    roh = readFileSync(sperrPfad, 'utf-8');
+    alterMs = Date.now() - statSync(sperrPfad).mtimeMs;
+  } catch (fehler) {
+    if ((fehler as NodeJS.ErrnoException).code === 'ENOENT') return { art: 'frei' };
+    throw fehler;
+  }
+  const info = sperreLesen(roh);
+  if (info === null) {
+    if (alterMs > veraltetMs) {
+      return { art: 'brechen', roh, pid: null, grund: `ohne lesbare Besitzangabe, ${Math.round(alterMs / 1000)} s alt` };
+    }
+    return { art: 'besetzt', beschreibung: 'Sperre ohne lesbare Besitzangabe', alterMs };
+  }
+  switch (besitzerPruefen(info)) {
+    case 'tot':
+      return { art: 'brechen', roh, pid: info.pid, grund: `Besitzer pid ${info.pid} lebt nicht mehr` };
+    case 'lebt':
+      return { art: 'besetzt', beschreibung: `gehalten von pid ${info.pid}, der lebt`, alterMs };
+    default:
+      return {
+        art: 'besetzt',
+        beschreibung: `gehalten von pid ${info.pid} auf ${info.host} (ob er lebt, lässt sich von hier nicht prüfen)`,
+        alterMs,
+      };
+  }
+}
+
+const dateiMuster = (pfad: string, mitte: string): RegExp =>
+  new RegExp(`^${basename(pfad).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.${mitte}$`);
+
+/** Tmp-Dateien eines Prozesses, von dem feststeht, dass er nicht mehr lebt, sofort wegräumen. */
+function tmpVonToterpidRaeumen(pfad: string, pid: number): void {
+  const ordner = dirname(pfad);
+  const muster = dateiMuster(pfad, `${pid}\\.[0-9a-f]+\\.tmp`);
+  for (const f of readdirSync(ordner)) if (muster.test(f)) rmSync(resolve(ordner, f), { force: true });
+}
+
+/**
+ * Bricht eine Sperre, deren Besitzer tot ist. Nicht `unlink`, sondern `rename`
+ * auf einen eindeutigen Namen, und danach wird geprüft, dass WIRKLICH die
+ * beurteilte Sperre weggeräumt wurde: Zwischen Urteil und Rename kann ein
+ * anderer Wartender dieselbe tote Sperre gebrochen und eine frische angelegt
+ * haben — die hätten wir dann gerade ihrem lebenden Besitzer entzogen. In dem
+ * Fall legen wir sie zurück; dass er sie nicht mehr hält, merkt er an seiner
+ * Prüfung `sperreGehoertUns` vor dem Rename und bricht ab, statt zu schreiben.
+ */
+function sperreBrechen(sperrPfad: string, pfad: string, u: { roh: string; pid: number | null; grund: string }): void {
+  const beiseite = `${pfad}.${process.pid}.${zufall()}.tmp`;
+  try {
+    renameSync(sperrPfad, beiseite);
+  } catch (fehler) {
+    if ((fehler as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw fehler;
+  }
+  let jetzt: string | null;
+  try {
+    jetzt = readFileSync(beiseite, 'utf-8');
+  } catch {
+    jetzt = null;
+  }
+  if (jetzt !== u.roh) {
+    try {
+      linkSync(beiseite, sperrPfad);
+      console.warn(`[layoutDatei] ${basename(sperrPfad)}: fremde frische Sperre versehentlich weggenommen und zurückgelegt`);
+    } catch {
+      console.warn(`[layoutDatei] ${basename(sperrPfad)}: fremde frische Sperre weggenommen, Zurücklegen scheiterte`);
+    }
+    rmSync(beiseite, { force: true });
+    return;
+  }
+  rmSync(beiseite, { force: true });
+  if (u.pid !== null) tmpVonToterpidRaeumen(pfad, u.pid);
+  console.warn(`[layoutDatei] verwaiste Sperre ${basename(sperrPfad)} gebrochen: ${u.grund}`);
+}
+
+function sperreAnlegen(sperrPfad: string): Sperre | null {
+  const inhalt = sperreInhalt();
+  let fd: number;
+  try {
+    fd = openSync(sperrPfad, 'wx');
+  } catch (fehler) {
+    if ((fehler as NodeJS.ErrnoException).code === 'EEXIST') return null;
+    throw fehler;
+  }
+  try {
+    writeFileSync(fd, inhalt);
+  } catch (fehler) {
+    closeSync(fd);
+    rmSync(sperrPfad, { force: true });
+    throw fehler;
+  }
+  closeSync(fd);
+  return { pfad: sperrPfad, inhalt };
+}
+
+type Versuch = { sperre: Sperre } | { besetzt: string; alterMs: number };
+
+/** Ein Versuch, die Sperre zu bekommen — wartet nicht. Bricht dabei nur, was nachweislich verwaist ist. */
+function sperreVersuchen(pfad: string, veraltetMs: number): Versuch {
   const sperrPfad = `${pfad}.lock`;
-  const marke = `${process.pid}.${zufall()}`;
+  for (let i = 0; i < 5; i++) {
+    const sperre = sperreAnlegen(sperrPfad);
+    if (sperre) return { sperre };
+    const u = sperreBeurteilen(sperrPfad, veraltetMs);
+    if (u.art === 'besetzt') return { besetzt: u.beschreibung, alterMs: u.alterMs };
+    if (u.art === 'brechen') sperreBrechen(sperrPfad, pfad, u);
+  }
+  return { besetzt: 'die Sperre wechselt laufend den Besitzer', alterMs: 0 };
+}
+
+function gesperrt(pfad: string, v: { besetzt: string; alterMs: number }, wartenMs: number): LayoutGesperrt {
+  const alter = Math.round(v.alterMs / 1000);
+  if (v.alterMs >= SPERRE_LOGGEN_AB_MS) {
+    console.warn(`[layoutDatei] ${basename(pfad)}.lock seit ${alter} s ${v.besetzt} — wird NICHT gebrochen`);
+  }
+  return new LayoutGesperrt(
+    `${basename(pfad)} ist gesperrt (${v.besetzt}, Sperre ${alter} s alt) — nach ${wartenMs} ms aufgegeben`
+  );
+}
+
+function sperreNehmen(pfad: string, wartenMs: number, veraltetMs: number): Sperre {
   const ende = Date.now() + wartenMs;
   for (;;) {
-    try {
-      const fd = openSync(sperrPfad, 'wx');
-      try {
-        writeFileSync(fd, marke);
-      } catch (fehler) {
-        rmSync(sperrPfad, { force: true });
-        throw fehler;
-      } finally {
-        closeSync(fd);
-      }
-      return { pfad: sperrPfad, marke };
-    } catch (fehler) {
-      if ((fehler as NodeJS.ErrnoException).code !== 'EEXIST') throw fehler;
-    }
-    const geaendert = verwaisteSperreBrechen(sperrPfad, veraltetMs);
-    if (Date.now() >= ende) {
-      throw new LayoutGesperrt(
-        `${basename(pfad)} ist gesperrt — ein anderer Schreiber hält ${basename(sperrPfad)} ` +
-          `seit mehr als ${wartenMs} ms`
-      );
-    }
-    if (!geaendert) schlafen(5 + Math.floor(Math.random() * 15));
+    const v = sperreVersuchen(pfad, veraltetMs);
+    if ('sperre' in v) return v.sperre;
+    if (Date.now() >= ende) throw gesperrt(pfad, v, wartenMs);
+    schlafen(pauseMs());
+  }
+}
+
+/**
+ * Wie `sperreNehmen`, wartet aber mit `setTimeout` statt zu schlafen: Die
+ * Ereignisschleife des Betriebsdienstes bleibt frei (GET /status u. a.
+ * antworten weiter), während ein fremder Schreiber die Sperre hält.
+ */
+async function sperreNehmenAsync(pfad: string, wartenMs: number, veraltetMs: number): Promise<Sperre> {
+  const ende = Date.now() + wartenMs;
+  for (;;) {
+    const v = sperreVersuchen(pfad, veraltetMs);
+    if ('sperre' in v) return v.sperre;
+    if (Date.now() >= ende) throw gesperrt(pfad, v, wartenMs);
+    await new Promise<void>((fertig) => setTimeout(fertig, pauseMs()));
   }
 }
 
 function sperreGehoertUns(sperre: Sperre): boolean {
   try {
-    return readFileSync(sperre.pfad, 'utf-8') === sperre.marke;
+    return readFileSync(sperre.pfad, 'utf-8') === sperre.inhalt;
   } catch {
     return false;
   }
 }
 
-/** Gibt nur frei, was uns gehört: eine fremde, frische Sperre bleibt liegen. */
+/** Gibt nur frei, was uns gehört: eine fremde Sperre bleibt liegen. */
 function sperreFreigeben(sperre: Sperre): void {
   if (sperreGehoertUns(sperre)) rmSync(sperre.pfad, { force: true });
   else console.warn(`[layoutDatei] Sperre ${basename(sperre.pfad)} gehörte beim Freigeben nicht mehr uns`);
 }
 
 /**
- * Räumt Tmp-Dateien weg, die ein abgestürzter Schreiber hinterlassen hat.
+ * Räumt Tmp-Dateien weg, die ein abgestürzter Schreiber hinterlassen hat —
+ * `<datei>.<pid>.<zufall>.tmp` und den festen Namen `<datei>.tmp` von früher.
  * Nur unter der Sperre und nur ab einem Alter, in dem kein lebender
- * Schreiber mehr daran arbeiten kann. Der feste Tmp-Name von früher wurde
- * beim nächsten Schreiben überschrieben; die eindeutigen Namen würden sich
- * sonst über Abstürze hinweg ansammeln.
+ * Schreiber mehr daran arbeiten kann. (Die Tmp-Dateien eines Besitzers, der
+ * beim Sperrbruch als tot erkannt wird, räumt `sperreBrechen` sofort weg.)
  */
 function tmpLeichenRaeumen(pfad: string, veraltetMs: number): void {
   const ordner = dirname(pfad);
-  const muster = new RegExp(`^${basename(pfad).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.\\d+\\.[0-9a-f]+\\.tmp$`);
+  const muster = dateiMuster(pfad, '(?:\\d+\\.[0-9a-f]+\\.)?tmp');
   for (const f of readdirSync(ordner)) {
     if (!muster.test(f)) continue;
     const voll = resolve(ordner, f);
@@ -336,6 +547,120 @@ function tmpLeichenRaeumen(pfad: string, veraltetMs: number): void {
     } catch {
       /* zwischen readdir und stat verschwunden — auch gut */
     }
+  }
+}
+
+// ══ Schreiben ═════════════════════════════════════════════════════════
+
+/**
+ * Felder, die ein Array sein müssen, wenn sie da sind. Der Sanitizer nimmt bei
+ * einem Nicht-Array einfach eine leere Liste — ein Editor, der versehentlich
+ * ein Objekt (eine Map) statt einer Liste schickt, löschte damit den gesamten
+ * Bestand mit 200 OK. `regions` fehlt hier absichtlich: Ein Dokument ohne
+ * Regionen wird ohnehin verworfen (siehe unten, 400).
+ */
+const LISTENFELDER = ['placements', 'continents', 'routes', 'rivers', 'lakes'] as const;
+
+/**
+ * Ein Listenfeld ist vorhanden, aber kein Array. Unterklasse von
+ * `LayoutUngueltig`; der Betriebsdienst fängt sie vorher und antwortet 422 mit
+ * dem Feldnamen.
+ */
+export class LayoutFeldUngueltig extends LayoutUngueltig {
+  constructor(readonly feld: string) {
+    super(`Feld "${feld}" ist vorhanden, aber keine Liste — verworfen; nichts gespeichert`);
+    this.name = 'LayoutFeldUngueltig';
+  }
+}
+
+function listenPruefen(eingabe: unknown): void {
+  if (typeof eingabe !== 'object' || eingabe === null || Array.isArray(eingabe)) return;
+  for (const feld of LISTENFELDER) {
+    const wert = Object.prototype.hasOwnProperty.call(eingabe, feld)
+      ? (eingabe as Record<string, unknown>)[feld]
+      : undefined;
+    if (wert !== undefined && !Array.isArray(wert)) throw new LayoutFeldUngueltig(feld);
+  }
+}
+
+function platzierungenZaehlen(eingabe: unknown): number {
+  if (typeof eingabe !== 'object' || eingabe === null) return 0;
+  const p = (eingabe as { placements?: unknown }).placements;
+  return Array.isArray(p) ? p.length : 0;
+}
+
+/** Alles, was vor der Sperre feststehen kann: Prüfung des Rohdokuments, Sanitizer, Text. */
+function schreibenVorbereiten(eingabe: unknown): { layout: WorldLayout; text: string } {
+  // Beides am ROHEN Dokument, vor dem Sanitizer: Der schneidet bei 2000
+  // Platzierungen still ab und macht aus einem Nicht-Array eine leere Liste.
+  listenPruefen(eingabe);
+  const anzahl = platzierungenZaehlen(eingabe);
+  if (anzahl > PLATZIERUNGEN_GRENZE) throw new LayoutZuVielePlatzierungen(anzahl);
+  const layout = sanitizeWorldLayout(eingabe);
+  if (!layout) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
+  // ── Warum diese zusätzliche Hürde ──────────────────────────────────
+  // Der Sanitizer klemmt und verwirft, aber er WIRFT nicht: Ein Dokument
+  //     { version: 1, name: "x", regions: "kein Array" }
+  // kommt als vollständig gültiges Layout mit NULL Regionen heraus —
+  // offene See. Genau das fällt aus einem halb übertragenen Upload, einem
+  // vertauschten Feld oder einem Editor-Zustand heraus, der noch nichts
+  // geladen hatte. Ohne diese Zeile ersetzte so ein Fehlgriff eine Welt
+  // mit 158 Platzierungen durch 102 Bytes Wasser, und zwar mit 200 OK.
+  //
+  // Der alte Struktur-Check im Vite-Plugin hat das nebenbei mit erledigt
+  // (`Array.isArray(sauber.regions)`); beim Umstieg auf die STRENGE
+  // Prüfung wäre diese Zusicherung sonst verlorengegangen — die strengere
+  // Prüfung ist an dieser einen Stelle die nachsichtigere.
+  //
+  // Nur beim SCHREIBEN, nicht beim Lesen: Wer eine leere Datei von Hand
+  // hinlegt, soll sie noch öffnen und reparieren können.
+  if (layout.regions.length === 0) {
+    throw new LayoutUngueltig(
+      'Weltdokument ohne eine einzige Region — verworfen. Das wäre eine Welt aus offener See; ' +
+        'wahrscheinlich ist das Dokument unvollständig übertragen worden.'
+    );
+  }
+  return { layout, text: layoutText(layout) };
+}
+
+/** Der Teil, der die Sperre HÄLT: Basisvergleich, Sicherung, Tmp-Datei, Rename. Rein synchron, ohne `await`. */
+function unterSperreSchreiben(
+  pfad: string,
+  sperre: Sperre,
+  v: { layout: WorldLayout; text: string },
+  behalten: number,
+  optionen: SchreibOptionen
+): SchreibErgebnis {
+  try {
+    // Der Vergleich steht INNERHALB der Sperre, sonst wäre er wertlos: Zwischen
+    // einem Vergleich davor und dem Rename könnte ein zweiter Prozess seine
+    // Datei hinlegen, und beide hielten sich für die Basis.
+    if (optionen.basis !== undefined && optionen.basis !== null) {
+      const aktuell = layoutDateiHash(pfad);
+      if (aktuell !== optionen.basis) throw new LayoutVeraltet(aktuell);
+    }
+    tmpLeichenRaeumen(pfad, optionen.sperreVeraltetMs ?? SPERRE_VERALTET_MS);
+    const sicherung = layoutSichern(pfad, behalten);
+    const tmp = `${pfad}.${process.pid}.${zufall()}.tmp`;
+    try {
+      writeFileSync(tmp, v.text);
+      // Letzte Prüfung vor dem einen Schritt, der nicht zurückzunehmen ist.
+      // Seit die Sperre eines lebenden Besitzers nie gebrochen wird, kann sie
+      // nur noch fehlen, wenn jemand sie von Hand entfernt hat oder ein
+      // Sperrbruch zwei gleichzeitige Wartende erwischte (siehe sperreBrechen).
+      if (!sperreGehoertUns(sperre)) {
+        throw new LayoutGesperrt(
+          `Sperre auf ${basename(pfad)} während des Schreibens verloren — nichts geschrieben`
+        );
+      }
+      renameSync(tmp, pfad);
+    } catch (fehler) {
+      rmSync(tmp, { force: true });
+      throw fehler;
+    }
+    return { layout: v.layout, sicherung, text: v.text, hash: layoutHash(v.text) };
+  } finally {
+    sperreFreigeben(sperre);
   }
 }
 
@@ -372,83 +697,46 @@ function tmpLeichenRaeumen(pfad: string, veraltetMs: number): void {
  * Sperrdatei (`<pfad>.lock`, `open(..., 'wx')`), weil Vergleich und Rename
  * über Prozessgrenzen sonst nicht atomar sind. Die Sperre schützt
  * Schreiber voreinander, nicht Leser: Leser sehen dank Rename immer eine
- * ganze Datei.
+ * ganze Datei. Wann eine Sperre gebrochen wird, steht bei „Sperre" oben.
  *
- * ── Die Grenze der Sperre ────────────────────────────────────────────
- * Eine Sperre, die ein abgestürzter Prozess hinterlassen hat, wird nach
- * `SPERRE_VERALTET_MS` gebrochen. Ein Schreiber, der so lange stillsteht
- * und danach erwacht, kann mit dem neuen Halter zusammentreffen; die
- * Prüfung `sperreGehoertUns` vor dem Rename verkleinert dieses Fenster auf
- * Mikrosekunden, schließt es aber nicht ganz. Für einen Dienst, der Sekunden
- * hält und in Millisekunden schreibt, ist das die richtige Größenordnung.
+ * Diese Fassung wartet auf eine fremde Sperre SYNCHRON (bis
+ * `sperreWartenMs`) und hält dabei den ganzen Prozess an. Ein Dienst, der
+ * nebenbei andere Anfragen bedient, nimmt `layoutSchreibenAsync`.
  */
 export function layoutSchreiben(
   pfad: string,
   eingabe: unknown,
   behalten = SICHERUNGEN_BEHALTEN,
   optionen: SchreibOptionen = {}
-): { layout: WorldLayout; sicherung: string | null; text: string; hash: string } {
-  // Gezählt am ROHEN Dokument, vor dem Sanitizer: Der schneidet still bei
-  // 2000 ab, und ein Editor, der 2001 hält, würde eine Platzierung
-  // verlieren, ohne dass jemand es erfährt.
-  const anzahl = platzierungenZaehlen(eingabe);
-  if (anzahl > PLATZIERUNGEN_GRENZE) throw new LayoutZuVielePlatzierungen(anzahl);
-  const veraltetMs = optionen.sperreVeraltetMs ?? SPERRE_VERALTET_MS;
-  const layout = sanitizeWorldLayout(eingabe);
-  if (!layout) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
-  // ── Warum diese zusätzliche Hürde ──────────────────────────────────
-  // Der Sanitizer klemmt und verwirft, aber er WIRFT nicht: Ein Dokument
-  //     { version: 1, name: "x", regions: "kein Array" }
-  // kommt als vollständig gültiges Layout mit NULL Regionen heraus —
-  // offene See. Genau das fällt aus einem halb übertragenen Upload, einem
-  // vertauschten Feld oder einem Editor-Zustand heraus, der noch nichts
-  // geladen hatte. Ohne diese Zeile ersetzte so ein Fehlgriff eine Welt
-  // mit 158 Platzierungen durch 102 Bytes Wasser, und zwar mit 200 OK.
-  //
-  // Der alte Struktur-Check im Vite-Plugin hat das nebenbei mit erledigt
-  // (`Array.isArray(sauber.regions)`); beim Umstieg auf die STRENGE
-  // Prüfung wäre diese Zusicherung sonst verlorengegangen — die strengere
-  // Prüfung ist an dieser einen Stelle die nachsichtigere.
-  //
-  // Nur beim SCHREIBEN, nicht beim Lesen: Wer eine leere Datei von Hand
-  // hinlegt, soll sie noch öffnen und reparieren können.
-  if (layout.regions.length === 0) {
-    throw new LayoutUngueltig(
-      'Weltdokument ohne eine einzige Region — verworfen. Das wäre eine Welt aus offener See; ' +
-        'wahrscheinlich ist das Dokument unvollständig übertragen worden.'
-    );
-  }
-  const text = layoutText(layout);
+): SchreibErgebnis {
+  const v = schreibenVorbereiten(eingabe);
   mkdirSync(dirname(pfad), { recursive: true });
-  const sperre = sperreNehmen(pfad, optionen.sperreWartenMs ?? SPERRE_WARTEN_MS, veraltetMs);
-  try {
-    // Der Vergleich steht INNERHALB der Sperre, sonst wäre er wertlos: Zwischen
-    // einem Vergleich davor und dem Rename könnte ein zweiter Prozess seine
-    // Datei hinlegen, und beide hielten sich für die Basis.
-    if (optionen.basis !== undefined && optionen.basis !== null) {
-      const aktuell = layoutDateiHash(pfad);
-      if (aktuell !== optionen.basis) throw new LayoutVeraltet(aktuell);
-    }
-    tmpLeichenRaeumen(pfad, veraltetMs);
-    const sicherung = layoutSichern(pfad, behalten);
-    const tmp = `${pfad}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-    try {
-      writeFileSync(tmp, text);
-      // Letzte Prüfung vor dem einen Schritt, der nicht zurückzunehmen ist:
-      // Wurde die Sperre inzwischen als verwaist gebrochen (Prozess stand
-      // länger als die Frist still), gehört die Datei jemand anderem.
-      if (!sperreGehoertUns(sperre)) {
-        throw new LayoutGesperrt(
-          `Sperre auf ${basename(pfad)} während des Schreibens verloren — nichts geschrieben`
-        );
-      }
-      renameSync(tmp, pfad);
-    } catch (fehler) {
-      rmSync(tmp, { force: true });
-      throw fehler;
-    }
-    return { layout, sicherung, text, hash: layoutHash(text) };
-  } finally {
-    sperreFreigeben(sperre);
-  }
+  const sperre = sperreNehmen(
+    pfad,
+    optionen.sperreWartenMs ?? SPERRE_WARTEN_MS,
+    optionen.sperreVeraltetMs ?? SPERRE_VERALTET_MS
+  );
+  return unterSperreSchreiben(pfad, sperre, v, behalten, optionen);
+}
+
+/**
+ * Wie `layoutSchreiben`, wartet aber auf eine fremde Sperre, ohne die
+ * Ereignisschleife anzuhalten. Nur das WARTEN ist asynchron; sobald die
+ * Sperre da ist, läuft der Rest ohne `await` durch — im selben Prozess kann
+ * sich also nie ein zweiter Schreiber in die Sperre drängen.
+ */
+export async function layoutSchreibenAsync(
+  pfad: string,
+  eingabe: unknown,
+  behalten = SICHERUNGEN_BEHALTEN,
+  optionen: SchreibOptionen = {}
+): Promise<SchreibErgebnis> {
+  const v = schreibenVorbereiten(eingabe);
+  mkdirSync(dirname(pfad), { recursive: true });
+  const sperre = await sperreNehmenAsync(
+    pfad,
+    optionen.sperreWartenMs ?? SPERRE_WARTEN_MS,
+    optionen.sperreVeraltetMs ?? SPERRE_VERALTET_MS
+  );
+  return unterSperreSchreiben(pfad, sperre, v, behalten, optionen);
 }

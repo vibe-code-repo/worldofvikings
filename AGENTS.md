@@ -11,12 +11,12 @@ not there**.
 
 ## 1. Start here
 
-- **Look before you write.** Several sessions work on this repository in parallel
-  and they commit rarely. Run `git status` and check the modification time of
-  every file you are about to touch. Overwriting someone else's uncommitted work
-  is final.
-- **One task, one worktree, one branch, one pull request.** Never work in the
-  main checkout. See section 3.
+- **One session, one worktree, one branch, one pull request.** Several sessions
+  work on this repository at the same time. Never work in the main checkout and
+  never in another session's worktree. Section 3 is the recipe.
+- **Look before you write.** Run `git status` before your first edit. A file you
+  did not change yourself that shows up as modified means you are in the wrong
+  directory — stop, do not "clean it up".
 - **`npm ci`, never `npm install`.** `npm install` rewrites `package-lock.json`,
   and that file has exactly one writer at a time (section 3).
 - **Expect no assets.** `assets/` is deliberately not in the repository. Fetch
@@ -47,26 +47,132 @@ Thing" — that is the translation, not the code. Only the key above it is
 English. Project terms without a sensible translation stay as they are: file
 names, the `__vb` hooks, `wov-web`, the roadmap identifiers.
 
-## 3. Parallel work: one task, one worktree, one branch, one pull request
+## 3. Parallel work: one session, one worktree, one branch, one pull request
 
-Several agents work on this repository at the same time. The rules below exist
-so that they cannot overwrite or duplicate each other.
+Several sessions — humans and agents, often three or four at once — work on
+this repository at the same time. Git worktrees make that safe: every worktree
+is its own directory with its own checked-out branch and its own index, while
+all of them share one object store. A session edits, builds and commits in its
+worktree and never sees the half-finished files of another. The rules below keep
+it that way.
 
-- **Worktree.** One worktree per task, never two sessions in one checkout.
-  On the build host (`wov-bau`) they live in `/opt/wov-worktrees/<slug>`;
-  anywhere else `../wov-<slug>` next to the main checkout is fine. Delete the
-  worktree once its pull request is merged.
+### 3.1 Layout on the build host (`wov-bau`)
+
+| Path | What it is | Who writes there |
+|---|---|---|
+| `/opt/worldofvikings` | the DEV deployment. It follows `main` by fast-forward only | nobody edits; only the rollout runs `git merge --ff-only origin/main` |
+| `/opt/wov-worktrees/<slug>` | one worktree per task | exactly one session |
+| `/opt/wov-worktrees/.slots/<n>/claim` | who holds slot `n`, on which branch, which paths | the session holding the slot |
+
+Anywhere else (a personal clone), use `../wov-<slug>` next to your checkout
+and the same rules.
+
+### 3.2 Starting a task
+
+```bash
+cd /opt/worldofvikings && git fetch --prune origin
+cat /opt/wov-worktrees/.slots/*/claim     # who is working on what, which paths
+
+# Claim a slot. mkdir is atomic: of two sessions, exactly one gets slot n.
+mkdir -p /opt/wov-worktrees/.slots
+for n in 0 1 2 3 4 5 6 7 8; do mkdir /opt/wov-worktrees/.slots/$n 2>/dev/null && break; n=; done
+echo "slot=$n"                            # empty: all nine taken, wait
+
+SLUG=<topic>; AGENT=<claude|codex|deepseek|human>
+git worktree add /opt/wov-worktrees/$SLUG -b agent/$AGENT/$SLUG origin/main
+cat > /opt/wov-worktrees/.slots/$n/claim <<EOF
+branch:   agent/$AGENT/$SLUG
+worktree: /opt/wov-worktrees/$SLUG
+since:    $(date -Iminutes)
+task:     <identifier from the task list>
+paths:    <the paths this task will touch>
+EOF
+
+cd /opt/wov-worktrees/$SLUG
+npm ci
+npm run assets:holen                      # only if the task needs assets
+```
+
+Read the claims before you write yours. If a path you need is already claimed,
+wait or ask — do not take it.
+
+Fetch your **own** asset copy. Do not symlink `assets/` into
+`/opt/worldofvikings/assets`: tools that regenerate assets would write through
+the link into the running DEV deployment.
+
+### 3.3 Ports and running instances
+
+Slot `n` owns these ports, and nothing else:
+
+| Service | Port | How to set it |
+|---|---|---|
+| game server | `247n` | `port:` in `server/data/server.yml` (see below) |
+| client (Vite) | `529n` | `WOV_CLIENT_PORT=529n WOV_SPIEL_PORT=247n` |
+| admin service | `248n` | `WOV_ADMIN_PORT=248n` |
+
+The game server reads its port only from `server/data/server.yml`, which is
+tracked. Change it in your worktree and restore it before every commit
+(`git checkout -- server/data/server.yml`); `git diff --stat` must not list it
+in a pull request. The DEV services on `2467`, `2468`, `5274` and `3000` belong
+to `/opt/worldofvikings` — never stop or restart them from a task.
+
+Full test runs share a few fixed ports and collide when two run at once, and
+frame-time measurements are skewed by a neighbour that renders. Serialise both:
+
+```bash
+flock /opt/wov-worktrees/.slots/test.lock npm test
+flock /opt/wov-worktrees/.slots/measure.lock node tools/pw-fps-bench.mjs
+```
+
+`typecheck`, `lint` and `build` run in parallel without a lock.
+
+### 3.4 While you work
+
+- **Commit early, push early.** `git push -u origin HEAD` after the first
+  commit, then open the pull request as a draft with the paths from your claim.
+  A branch without a pull request is invisible work. If `gh` is missing on your
+  machine, push and hand the compare link
+  (`https://github.com/vibe-code-repo/worldofvikings/compare/main...<branch>?expand=1`)
+  to the human.
+- **Stay in your worktree.** Do not `cd` into another worktree or into
+  `/opt/worldofvikings` to edit, and do not `git checkout` another branch in
+  yours: the branch belongs to the worktree.
+- **No `git stash`.** The stash is shared by all worktrees of the repository;
+  another session can pop your changes. Commit a work-in-progress instead.
+- **Never touch what is not yours:** no `git worktree remove`, `git branch -D`,
+  `git worktree prune` or `git gc` for other sessions' worktrees and branches.
+  A worktree that looks abandoned is reported to the human, not deleted.
+- **Keep up with `main`.** `git fetch origin && git rebase origin/main` before
+  you mark the pull request ready; resolve conflicts in your branch, never on
+  `main`.
+
+### 3.5 Finishing
+
+Once the pull request is merged (or closed), clean up everything that belongs to
+the slot — a run that leaves the machine dirty is not finished:
+
+```bash
+cd /opt/worldofvikings
+git worktree remove /opt/wov-worktrees/$SLUG
+git branch -D agent/$AGENT/$SLUG          # the remote branch is deleted on merge
+rm -r /opt/wov-worktrees/.slots/$n
+```
+
+Stop your own server, client and test processes first and check with
+`ss -ltn | grep -E ":(247|248|529)$n\b"` that the slot's ports are free.
+
+### 3.6 Branches, ownership and hot files
+
 - **Branch.** New branches are named `agent/<agent>/<topic>`, for example
   `agent/codex/seidraven-body-variants`. The older `codex/*`, `perf/*` and
   `fix/*` branches keep their names; the `agent/` prefix is there so that agent
   work is recognisable in `git branch`.
-- **Pull request early.** A branch without a pull request is invisible work. Do
-  not let a branch outlive its task: a pull request nobody has touched for three
-  days is either finished or closed. At most three open branches and one open
-  pull request per agent at a time.
+- **Lifetime.** Do not let a branch outlive its task: a pull request nobody has
+  touched for three days is either finished or closed. One open pull request
+  per session at a time.
 - **Paths are the unit of ownership, not files.** Write down the paths your task
-  touches in the pull request body before you start. Two tasks must not claim
-  the same path; if they do, one of them waits.
+  touches in the claim and in the pull request body before you start. Two tasks
+  must not claim the same path; if they do, one of them waits.
 - **Hot files have one writer at a time:** `package.json`, `package-lock.json`,
   `.github/**`, `AGENTS.md`, `CLAUDE.md`, `tsconfig.json`, `eslint.config.mjs`
   and the shared tables `shared/src/*Data.json`. Announce the change in the task

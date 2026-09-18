@@ -147,14 +147,26 @@ export type SchreibErgebnis =
  * Strg+Z auf den Übernahmestand legte dasselbe Objekt später wieder oben ab.
  * Im Zweifel legt die Übernahme einen Schritt zu viel an, nie einen zu wenig.
  *
- * Die Wiederherstellen-Stapel gehören dem Nutzer: Nur eine neue eigene
- * Änderung (`merke`) verwirft ihn, eine Übernahme nicht — Wiederherstellen
- * setzt danach den eigenen Stand wieder ein und legt den fremden auf den
- * Rückgängig-Stapel; nichts geht dabei verloren.
+ * Der Wiederherstellen-Stapel gehört zum verdrängten Stand: Eine Übernahme
+ * verwirft ihn (wie eine eigene Änderung). Bliebe er stehen, könnte ein
+ * späteres Strg+Y einen eigenen, ÄLTEREN Stand sofort in den gemeinsamen
+ * Entwurf schreiben und die fremde Arbeit dort verdrängen — bei einem
+ * Schreiber ohne Zuhörer (dem Testflug) unwiederbringlich. Wie viele
+ * Wiederherstellen-Schritte dabei entfallen, meldet `uebernahme`, damit der
+ * Editor es dem Nutzer sagen kann. Der EIGENE Stand vor der Übernahme bleibt
+ * per Strg+Z erreichbar, und Strg+Z bringt danach den fremden Stand per
+ * Strg+Y zurück.
  *
  * DOM-frei und ohne Wissen vom Editor: `aktuell` ist immer der gerade
  * angezeigte Stand, den der Aufrufer danach ersetzt.
  */
+export interface UebernahmeErgebnis {
+  /** Es wurde ein Rückgängig-Schritt angelegt. */
+  schritt: boolean;
+  /** Anzahl der dabei entfallenen Wiederherstellen-Schritte. */
+  verworfen: number;
+}
+
 export class SchrittVerlauf<T> {
   readonly vergangenheit: T[] = [];
   readonly zukunft: T[] = [];
@@ -175,14 +187,17 @@ export class SchrittVerlauf<T> {
   }
 
   /**
-   * Ein fremder Entwurf ersetzt den angezeigten. Liefert `true`, wenn dabei
-   * ein Schritt angelegt wurde (`aktuell` liegt jetzt oben).
+   * Ein fremder Entwurf ersetzt den angezeigten. `schritt`: dabei wurde ein
+   * Schritt angelegt (`aktuell` liegt jetzt oben). `verworfen`: so viele
+   * Wiederherstellen-Schritte sind entfallen.
    */
-  uebernahme(aktuell: T): boolean {
-    if (this.uebernahmeOben) return false;
+  uebernahme(aktuell: T): UebernahmeErgebnis {
+    const verworfen = this.zukunft.length;
+    this.zukunft.length = 0;
+    if (this.uebernahmeOben) return { schritt: false, verworfen };
     this.ablegen(aktuell);
     this.uebernahmeOben = true;
-    return true;
+    return { schritt: true, verworfen };
   }
 
   /** Strg+Z: der vorige Stand, oder `undefined`, wenn keiner da ist. */
@@ -190,6 +205,8 @@ export class SchrittVerlauf<T> {
     if (this.vergangenheit.length === 0) return undefined;
     const vorher = this.vergangenheit.pop() as T;
     this.zukunft.push(aktuell);
+    // Dieselbe Grenze wie beim Rückgängig-Stapel; die ältesten Wiederherstellen-Stände fallen zuerst.
+    if (this.zukunft.length > this.grenze) this.zukunft.shift();
     this.uebernahmeOben = false;
     return vorher;
   }

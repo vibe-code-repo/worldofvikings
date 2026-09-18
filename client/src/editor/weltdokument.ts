@@ -117,6 +117,18 @@ export type ServerStand =
     }
   | { erreichbar: false; grund: string };
 
+/**
+ * Braucht das Ersetzen des angezeigten Entwurfs durch `ersatz` einen
+ * Rückgängig-Schritt? Immer, wenn dabei etwas verloren ginge: also bei jedem
+ * abweichenden Entwurf — auch einem, der nur Flüsse, Seen, Kontinente oder
+ * Routen enthält. Keinen Schritt bekommen nur der gleiche Entwurf (nichts
+ * geht verloren) und der wirklich leere Startzustand (sonst löschte das erste
+ * Strg+Z die frisch geladene Welt).
+ */
+export function brauchtSchrittVorErsetzen(aktuell: WorldLayout, ersatz: WorldLayout): boolean {
+  return !gleich(aktuell, ersatz) && !gleich(aktuell, leeresLayout());
+}
+
 /** Leeres Dokument — der Startzustand ohne Entwurf und ohne Server. */
 export function leeresLayout(): WorldLayout {
   return {

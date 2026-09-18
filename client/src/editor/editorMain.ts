@@ -70,6 +70,7 @@ import { befundSchwere } from './befundSchwere';
 import {
   alter,
   basisNachBestaetigung,
+  brauchtSchrittVorErsetzen,
   entwurfStandLesen,
   gleich,
   holeWeltdokument,
@@ -291,7 +292,7 @@ const entwurfsSpeicher = new EntwurfsSpeicher({
     // erste nach einer eigenen Änderung legt einen Schritt an, sonst füllte
     // eine Flut fremder Schreibvorgänge den Stapel und verdrängte den
     // eigenen Stand, obwohl die Meldung unten ihn verspricht.
-    verlauf.uebernahme(layout);
+    const { verworfen } = verlauf.uebernahme(layout);
     layout = fremd;
     gewaehlt = null;
     // Halbfertiges Werkzeug gehört zum verdrängten Stand: ein angefangener
@@ -304,7 +305,8 @@ const entwurfsSpeicher = new EntwurfsSpeicher({
     alles('bearbeitet', false);
     vorschauAnstossen();
     shell.meldung(
-      'Entwurf aus einem anderen Tab übernommen — dein bisheriger Stand liegt unter Rückgängig (Strg+Z).',
+      'Entwurf aus einem anderen Tab übernommen — dein bisheriger Stand liegt unter Rückgängig (Strg+Z).' +
+        (verworfen > 0 ? ' Wiederherstellen ist nach der Übernahme nicht mehr möglich.' : ''),
       true
     );
   },
@@ -3855,7 +3857,7 @@ async function weltAbgleich(): Promise<void> {
     // Inhalt (auch ein eben von einem anderen Tab übernommener) bleibt per
     // Strg+Z erreichbar. Der leere Startzustand bekommt keinen Schritt —
     // sonst löschte das erste Strg+Z die frisch geladene Welt.
-    if (!gleich(layout, stand.layout) && (layout.regions.length > 0 || (layout.placements?.length ?? 0) > 0)) {
+    if (brauchtSchrittVorErsetzen(layout, stand.layout)) {
       merkeSchritt();
     } else {
       verlauf.ohneSchritt(); // ersetzt ohne Schritt: die Übernahme-Regel beginnt neu

@@ -32,7 +32,9 @@ import {
   entwurfLesen,
   entwurfSchreiben,
   entwurfStandLesen,
+  brauchtSchrittVorErsetzen,
   layoutMitPlatzierung,
+  leeresLayout,
 } from '../src/editor/weltdokument';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -165,7 +167,7 @@ interface VerlaufLike {
   readonly vergangenheit: WorldLayout[];
   readonly zukunft: WorldLayout[];
   merke(aktuell: WorldLayout): void;
-  uebernahme(aktuell: WorldLayout): boolean;
+  uebernahme(aktuell: WorldLayout): unknown;
   zurueck(aktuell: WorldLayout): WorldLayout | undefined;
   vor(aktuell: WorldLayout): WorldLayout | undefined;
   ohneSchritt(): void;
@@ -210,6 +212,35 @@ class Verlauf88277f5 extends Verlauf5eb78eb {
     this.marke = a;
     this.merke(a);
     return true;
+  }
+}
+
+/** Stand 10fac0b: Flag statt Identität, aber die Übernahme lässt den Wiederherstellen-Stapel stehen; `zurueck` kappt ihn nicht. */
+class Verlauf10fac0b extends Verlauf5eb78eb {
+  private oben = false;
+  override merke(a: WorldLayout): void {
+    super.merke(a);
+    this.oben = false;
+  }
+  override uebernahme(a: WorldLayout): boolean {
+    if (this.oben) return false;
+    this.vergangenheit.push(a);
+    if (this.vergangenheit.length > 50) this.vergangenheit.shift();
+    this.oben = true;
+    return true;
+  }
+  override zurueck(a: WorldLayout): WorldLayout | undefined {
+    const v = super.zurueck(a);
+    if (v) this.oben = false;
+    return v;
+  }
+  override vor(a: WorldLayout): WorldLayout | undefined {
+    const w = super.vor(a);
+    if (w) this.oben = false;
+    return w;
+  }
+  override ohneSchritt(): void {
+    this.oben = false;
   }
 }
 
@@ -539,17 +570,24 @@ console.log('▶ 50 eigene Schritte + k fremde Schreibvorgänge');
   const eigen2 = b.aendern(setze(1001)) === 'ok' ? b.layout : null;
   profil.testflugSchreibt(fremdeLayout(2));
   check('Eigene Änderung dazwischen: die nächste Übernahme legt wieder einen Schritt an (Stapel +2: Änderung, Übernahme)', b.vergangenheit.length === nachFlut + 2 && eigen2 !== null && b.vergangenheit.includes(eigen2), `Stapel ${nachFlut} → ${b.vergangenheit.length}`);
-  // Der Wiederherstellen-Stapel gehört dem Nutzer: eine Übernahme verwirft ihn nicht.
+  // Der Wiederherstellen-Stapel gehört zum verdrängten Stand: Eine Übernahme verwirft ihn und meldet, wie viele Schritte entfallen sind.
+  const v2 = new SchrittVerlauf<string>();
+  v2.merke('a');
+  v2.merke('b');
+  v2.zurueck('c'); // Wiederherstellen-Stapel: 1 Schritt
+  const u1 = v2.uebernahme('x');
+  const u2 = v2.uebernahme('y');
+  check('Übernahme verwirft den Wiederherstellen-Ast und meldet ihn: 1 Schritt entfallen, Schritt angelegt', u1.verworfen === 1 && u1.schritt && v2.zukunft.length === 0, JSON.stringify(u1));
+  check('… die zweite Übernahme in Folge: nichts mehr zu verwerfen, kein neuer Schritt', u2.verworfen === 0 && !u2.schritt, JSON.stringify(u2));
   const profil2 = new Profil();
   profil2.daten.set(ENTWURF_KEY, JSON.stringify(basis));
   const c = new EditorAttrappe('tab-c', profil2);
   c.aendern(setze(1000));
   c.aendern(setze(1001));
-  c.rueckgaengig(); // Wiederherstellen-Stapel: 1 Eintrag
+  c.rueckgaengig();
   const zuk = c.zukunft.length;
   profil2.testflugSchreibt(fremdeLayout(0));
-  profil2.testflugSchreibt(fremdeLayout(1));
-  check('Übernahmen lassen den Wiederherstellen-Stapel stehen (Redo-Ast nur durch eine eigene Änderung verloren)', zuk === 1 && c.zukunft.length === 1, `zukunft ${zuk} → ${c.zukunft.length}`);
+  check('Im Editor-Modell: Übernahme nach Strg+Z leert den Wiederherstellen-Stapel (1 → 0), Strg+Y danach ohne Wirkung', zuk === 1 && c.zukunft.length === 0 && c.verlauf.vor(c.layout) === undefined, `zukunft ${zuk} → ${c.zukunft.length}`);
 }
 
 // ── 8b2. SchrittVerlauf: Grenze und Umkehrbarkeit ────────────────────
@@ -565,16 +603,43 @@ console.log('▶ SchrittVerlauf: Grenze 50, Umkehrbarkeit');
   check('vor(1) → 2 und die Grenze 2 hält auch hier (Stapel ≤ 2)', k.vor(1) === 2 && k.vergangenheit.length <= 2, `Länge=${k.vergangenheit.length}`);
   const l = new SchrittVerlauf<number>();
   check('leer: zurueck und vor liefern undefined, ohne den Stapel zu ändern', l.zurueck(1) === undefined && l.vor(1) === undefined && l.vergangenheit.length === 0 && l.zukunft.length === 0);
+  // A2: beide Stapel bleiben unter der Grenze — 50 eigene Schritte, 50× Strg+Z, dann 200× [fremd, Strg+Z]
+  {
+    const w = new SchrittVerlauf<number>();
+    let cur = 0;
+    for (let i = 1; i <= 50; i++) {
+      w.merke(cur);
+      cur = i;
+    }
+    for (let i = 0; i < 50; i++) cur = w.zurueck(cur) as number;
+    let maxV = w.vergangenheit.length;
+    let maxZ = w.zukunft.length;
+    let erreichbar = true;
+    for (let j = 0; j < 200; j++) {
+      w.uebernahme(cur); // die Meldung sagt: der bisherige Stand (cur) liegt unter Rückgängig
+      if (!w.vergangenheit.includes(cur)) erreichbar = false;
+      cur = 1000 + j; // fremder Stand
+      cur = w.zurueck(cur) as number; // Strg+Z zurück auf den eigenen
+      maxV = Math.max(maxV, w.vergangenheit.length);
+      maxZ = Math.max(maxZ, w.zukunft.length);
+    }
+    check('50 eigene + 50× Strg+Z + 200× [fremd, Strg+Z]: beide Stapel ≤ 50 (Rückgängig max ' + maxV + ', Wiederherstellen max ' + maxZ + ')', maxV <= 50 && maxZ <= 50, `v=${maxV}, z=${maxZ}, am Ende v=${w.vergangenheit.length}, z=${w.zukunft.length}`);
+    check('… und der von der Übernahme-Meldung zugesagte Stand war bei jeder der 200 Übernahmen im Rückgängig-Stapel', erreichbar);
+    const kappe = new SchrittVerlauf<number>(3);
+    for (let i = 0; i < 3; i++) kappe.merke(i);
+    for (let i = 0; i < 3; i++) kappe.zurueck(10 + i);
+    check('zurueck() kappt den Wiederherstellen-Stapel mit derselben Grenze (Grenze 3: Länge ≤ 3)', kappe.zukunft.length <= 3, `Länge=${kappe.zukunft.length}`);
+  }
   const u = new SchrittVerlauf<number | undefined>();
   u.merke(undefined);
   check('Ein abgelegter Wert undefined wird nicht mit „leer" verwechselt', u.zurueck(1) === undefined && u.zukunft.length === 1);
 }
 
 // ── 8b3. Erschöpfende Prüfung: alle Folgen bis Länge 7 ────────────────
-console.log('▶ Erschöpfend: alle Folgen bis Länge 7 über {eigen, import, fremd, undo, redo}');
+console.log('▶ Erschöpfend: alle Folgen bis Länge 7 über {eigen, import, fremd, undo, redo, laden}');
 {
-  type Zug = 'eigen' | 'import' | 'fremd' | 'undo' | 'redo';
-  const ZUEGE: readonly Zug[] = ['eigen', 'import', 'fremd', 'undo', 'redo'];
+  type Zug = 'eigen' | 'import' | 'fremd' | 'undo' | 'redo' | 'laden';
+  const ZUEGE: readonly Zug[] = ['eigen', 'import', 'fremd', 'undo', 'redo', 'laden'];
   interface St {
     id: number;
     art: 'start' | 'eigen' | 'import' | 'fremd';
@@ -584,20 +649,34 @@ console.log('▶ Erschöpfend: alle Folgen bis Länge 7 über {eigen, import, fr
   type Folge = readonly Zug[];
   interface Ergebnis {
     folgen: number;
-    /** Übernahmen, bei denen der zuvor angezeigte (nicht-fremde bzw. letzte nicht-fremde) Stand nicht per Rückgängig erreichbar war = die Meldung wäre falsch. */
-    falscheMeldungen: number;
     uebernahmen: number;
-    /** Ein nicht-fremder Stand ist aus Stapel, Wiederherstellen-Stapel und Anzeige verschwunden, ohne dass eine eigene Änderung den Wiederherstellen-Ast verworfen hat. */
+    /** (1) Übernahmen, bei denen der zuvor angezeigte (nicht-fremde bzw. letzte nicht-fremde) Stand nicht per Rückgängig erreichbar war = die Meldung wäre falsch. */
+    falscheMeldungen: number;
+    /** (2) Ein nicht-fremder Stand ist aus Stapel, Wiederherstellen-Stapel und Anzeige verschwunden, ohne dass eine eigene Änderung oder eine Übernahme den Wiederherstellen-Ast verworfen hat. */
     verluste: number;
-    /** Der Wiederherstellen-Stapel hat sich anders verändert als durch Rückgängig/Wiederherstellen/eigene Änderung. */
+    /** (3a) Der Wiederherstellen-Stapel hat sich anders verändert als durch Rückgängig/Wiederherstellen (±1) und durch eigene Änderung/Import/Übernahme (leer). */
     redoVerstoesse: number;
+    /** (3b) Der Stand eines Schreibers OHNE Zuhörer (Testflug) im localStorage wurde durch Wiederherstellen, Laden oder Rückgängig-ohne-Rückweg verdrängt — statt nur durch eigene Änderung/Import (oder Strg+Z, das ihn per Strg+Y zurückbringt). */
+    speicherVerstoesse: number;
+    /** Zur Auskunft: Folgen, in denen Strg+Z den fremden Stand aus dem Speicher verdrängt hat (der Weg zurück ist Strg+Y). */
+    undoVerdraengt: number;
     kuerzesteMeldung: Folge | null;
     kuerzesterVerlust: Folge | null;
     kuerzesterRedo: Folge | null;
+    kuerzesterSpeicher: Folge | null;
+  }
+  interface Lauf {
+    meldung: boolean;
+    verlust: boolean;
+    redo: boolean;
+    speicher: boolean;
+    undoVerdraengt: boolean;
+    uebernahmen: number;
+    falsche: number;
   }
 
   /** Eine Folge durchspielen; Verstöße je Invariante zählen. */
-  const spielen = (folge: Folge, neu: () => VerlaufLike, importMerkt: boolean): { meldung: boolean; verlust: boolean; redo: boolean; uebernahmen: number; falsche: number } => {
+  const spielen = (folge: Folge, neu: () => VerlaufLike, importMerkt: boolean): Lauf => {
     const v = neu();
     let id = 0;
     const st = (art: St['art'], eigener: St | null): St => {
@@ -618,16 +697,13 @@ console.log('▶ Erschöpfend: alle Folgen bis Länge 7 über {eigen, import, fr
     };
     let aktuell = st('start', null);
     const alle = new Set<St>([aktuell]); // nicht-fremde Stände, die noch da sein müssen
-    let meldung = false;
-    let verlust = false;
-    let redo = false;
-    let uebernahmen = 0;
-    let falsche = 0;
+    let imSpeicher: St = aktuell; // was im localStorage steht (der Editor schreibt bei jeder Änderung, Rückgängig und Wiederherstellen)
+    let fStand: St | null = null; // Stand des Schreibers ohne Zuhörer, solange er noch im Speicher steht
+    const r: Lauf = { meldung: false, verlust: false, redo: false, speicher: false, undoVerdraengt: false, uebernahmen: 0, falsche: 0 };
     for (const zug of folge) {
       const vorher = aktuell;
       const zukunftVorher = v.zukunft.map((l) => stVon.get(l)!);
-      const zukunftVorherLayouts = [...v.zukunft];
-      let verwirftRedo = false;
+      let verwirftRedo = false; // eigene Änderung/Import/Übernahme: der Wiederherstellen-Ast darf entfallen
       if (zug === 'eigen' || zug === 'import') {
         const neuSt = st(zug, null);
         if (zug === 'eigen' || importMerkt) {
@@ -636,51 +712,70 @@ console.log('▶ Erschöpfend: alle Folgen bis Länge 7 über {eigen, import, fr
         }
         aktuell = neuSt;
         alle.add(neuSt);
+        imSpeicher = neuSt;
       } else if (zug === 'fremd') {
-        const vor = aktuell;
-        const basisStand = vor.art !== 'fremd' ? vor : vor.eigener!;
-        v.uebernahme(layoutFuer(vor));
+        const basisStand = vorher.art !== 'fremd' ? vorher : vorher.eigener!;
+        v.uebernahme(layoutFuer(vorher));
+        verwirftRedo = true;
         const f = st('fremd', basisStand);
-        uebernahmen++;
+        r.uebernahmen++;
         // Die Meldung „dein bisheriger Stand liegt unter Rückgängig" behauptet: der letzte nicht-fremde Stand ist im Stapel.
         if (!v.vergangenheit.some((l) => stVon.get(l) === basisStand)) {
-          meldung = true;
-          falsche++;
+          r.meldung = true;
+          r.falsche++;
         }
         aktuell = f;
+        imSpeicher = f; // der Testflug schreibt, der Editor übernimmt OHNE zurückzuschreiben
+        fStand = f;
         // Fremder Stand ist NIE in `alle`: er darf durch den nächsten ersetzt werden.
       } else if (zug === 'undo') {
         const x = v.zurueck(layoutFuer(aktuell));
-        if (x !== undefined) aktuell = stVon.get(x)!;
-      } else {
+        if (x !== undefined) {
+          aktuell = stVon.get(x)!;
+          imSpeicher = aktuell;
+        }
+      } else if (zug === 'redo') {
         const x = v.vor(layoutFuer(aktuell));
-        if (x !== undefined) aktuell = stVon.get(x)!;
+        if (x !== undefined) {
+          aktuell = stVon.get(x)!;
+          imSpeicher = aktuell;
+        }
+      } else {
+        // laden: der Stand wird vom Server ohne Schritt ersetzt, INHALTLICH unverändert (sonst wäre es eine eigene Änderung)
+        v.ohneSchritt();
       }
-      // Redo-Standard: nur eine eigene Änderung verwirft den Wiederherstellen-Ast.
+      // (3a) Wiederherstellen-Stapel: nur Rückgängig (+1), Wiederherstellen (−1), eigene Änderung/Import/Übernahme (leer) verändern ihn.
       const zukunftNachher = v.zukunft.map((l) => stVon.get(l)!);
-      if (!verwirftRedo) {
-        const erwartet =
-          zug === 'undo' && zukunftNachher.length === zukunftVorher.length + 1
-            ? [...zukunftVorher, vorher]
-            : zug === 'redo' && zukunftNachher.length === zukunftVorher.length - 1
-              ? zukunftVorher.slice(0, -1)
-              : zukunftVorher;
-        if (zukunftNachher.length !== erwartet.length || zukunftNachher.some((x, i) => x !== erwartet[i])) redo = true;
-      }
-      // Kein Verlust: jeder nicht-fremde Stand ist im Stapel, im Wiederherstellen-Stapel oder angezeigt — ausser dem Wiederherstellen-Ast, den eine eigene Änderung verwirft.
+      const erwartet: St[] = verwirftRedo
+        ? []
+        : zug === 'undo' && zukunftNachher.length === zukunftVorher.length + 1
+          ? [...zukunftVorher, vorher]
+          : zug === 'redo' && zukunftNachher.length === zukunftVorher.length - 1
+            ? zukunftVorher.slice(0, -1)
+            : zukunftVorher;
+      if (zukunftNachher.length !== erwartet.length || zukunftNachher.some((x, i) => x !== erwartet[i])) r.redo = true;
+      // (2) Kein Verlust: jeder nicht-fremde Stand ist im Stapel, im Wiederherstellen-Stapel oder angezeigt — ausser dem Wiederherstellen-Ast, den eine eigene Änderung oder Übernahme verwirft.
       const erreichbar = new Set<St>([aktuell, ...v.vergangenheit.map((l) => stVon.get(l)!), ...v.zukunft.map((l) => stVon.get(l)!)]);
-      const erlaubt = new Set<St>(verwirftRedo ? zukunftVorherLayouts.map((l) => stVon.get(l)!) : []);
+      const erlaubt = new Set<St>(verwirftRedo ? zukunftVorher : []);
       for (const x of [...alle]) {
         if (erreichbar.has(x)) continue;
-        if (erlaubt.has(x)) {
-          alle.delete(x);
-          continue;
-        }
-        verlust = true;
+        if (!erlaubt.has(x)) r.verlust = true;
         alle.delete(x);
       }
+      // (3b) Der Stand des Schreibers ohne Zuhörer im Speicher: verdrängt nur durch eigene Änderung/Import — oder durch Strg+Z, das ihn per Strg+Y zurückbringt.
+      if (fStand !== null && imSpeicher !== fStand) {
+        if (zug === 'eigen' || zug === 'import') {
+          // erlaubt
+        } else if (zug === 'undo') {
+          r.undoVerdraengt = true;
+          if (!v.zukunft.some((l) => stVon.get(l) === fStand)) r.speicher = true; // der Rückweg fehlt
+        } else {
+          r.speicher = true; // Strg+Y, Laden, … dürfen ihn nie verdrängen
+        }
+        fStand = null;
+      }
     }
-    return { meldung, verlust, redo, uebernahmen, falsche };
+    return r;
   };
 
   const alleFolgen = (tiefe: number): Folge[] => {
@@ -695,52 +790,64 @@ console.log('▶ Erschöpfend: alle Folgen bis Länge 7 über {eigen, import, fr
   };
   const FOLGEN = alleFolgen(7);
   const pruefe = (neu: () => VerlaufLike, importMerkt: boolean): Ergebnis => {
-    const e: Ergebnis = { folgen: 0, falscheMeldungen: 0, uebernahmen: 0, verluste: 0, redoVerstoesse: 0, kuerzesteMeldung: null, kuerzesterVerlust: null, kuerzesterRedo: null };
+    const e: Ergebnis = { folgen: 0, uebernahmen: 0, falscheMeldungen: 0, verluste: 0, redoVerstoesse: 0, speicherVerstoesse: 0, undoVerdraengt: 0, kuerzesteMeldung: null, kuerzesterVerlust: null, kuerzesterRedo: null, kuerzesterSpeicher: null };
+    const kuerzer = (alt: Folge | null, f: Folge): Folge => (!alt || f.length < alt.length ? f : alt);
     for (const f of FOLGEN) {
       const r = spielen(f, neu, importMerkt);
       e.folgen++;
       e.uebernahmen += r.uebernahmen;
       e.falscheMeldungen += r.falsche;
-      if (r.meldung && (!e.kuerzesteMeldung || f.length < e.kuerzesteMeldung.length)) e.kuerzesteMeldung = f;
+      if (r.meldung) e.kuerzesteMeldung = kuerzer(e.kuerzesteMeldung, f);
       if (r.verlust) {
         e.verluste++;
-        if (!e.kuerzesterVerlust || f.length < e.kuerzesterVerlust.length) e.kuerzesterVerlust = f;
+        e.kuerzesterVerlust = kuerzer(e.kuerzesterVerlust, f);
       }
       if (r.redo) {
         e.redoVerstoesse++;
-        if (!e.kuerzesterRedo || f.length < e.kuerzesterRedo.length) e.kuerzesterRedo = f;
+        e.kuerzesterRedo = kuerzer(e.kuerzesterRedo, f);
       }
+      if (r.speicher) {
+        e.speicherVerstoesse++;
+        e.kuerzesterSpeicher = kuerzer(e.kuerzesterSpeicher, f);
+      }
+      if (r.undoVerdraengt) e.undoVerdraengt++;
     }
     return e;
   };
   const zeige = (name: string, e: Ergebnis): void =>
     console.log(
-      `      ${name}: Folgen=${e.folgen}, Übernahmen=${e.uebernahmen}, falsche Meldungen=${e.falscheMeldungen}, Verlust-Folgen=${e.verluste}, Redo-Verstöße=${e.redoVerstoesse}` +
+      `      ${name}: Folgen=${e.folgen}, Übernahmen=${e.uebernahmen}, falsche Meldungen=${e.falscheMeldungen}, Verlust-Folgen=${e.verluste}, Redo-Verstöße=${e.redoVerstoesse}, Speicher-Verstöße=${e.speicherVerstoesse} (Strg+Z verdrängt, mit Rückweg: ${e.undoVerdraengt})` +
         `${e.kuerzesteMeldung ? ` · kürzeste falsche Meldung: ${e.kuerzesteMeldung.join('→')}` : ''}` +
         `${e.kuerzesterVerlust ? ` · kürzester Verlust: ${e.kuerzesterVerlust.join('→')}` : ''}` +
-        `${e.kuerzesterRedo ? ` · kürzester Redo-Verstoß: ${e.kuerzesterRedo.join('→')}` : ''}`
+        `${e.kuerzesterRedo ? ` · kürzester Redo-Verstoß: ${e.kuerzesterRedo.join('→')}` : ''}` +
+        `${e.kuerzesterSpeicher ? ` · kürzester Speicher-Verstoß: ${e.kuerzesterSpeicher.join('→')}` : ''}`
     );
 
   const neuE = pruefe(() => new SchrittVerlauf<WorldLayout>(), true);
   zeige('SchrittVerlauf (jetzt)', neuE);
-  check('Anzahl der geprüften Folgen: 5+5²+…+5⁷ = 97655', neuE.folgen === 97655, String(neuE.folgen));
+  check('Anzahl der geprüften Folgen: 6+6²+…+6⁷ = 335922', neuE.folgen === 335922, String(neuE.folgen));
   check('SchrittVerlauf: 0 falsche Meldungen in allen Folgen', neuE.falscheMeldungen === 0 && neuE.uebernahmen > 0, `Übernahmen=${neuE.uebernahmen}, falsch=${neuE.falscheMeldungen}`);
   check('SchrittVerlauf: 0 Folgen mit Verlust eines nicht-fremden Stands', neuE.verluste === 0, `Verlust-Folgen=${neuE.verluste}`);
-  check('SchrittVerlauf: 0 Verstöße gegen „Redo-Ast nur durch eigene Änderung verloren"', neuE.redoVerstoesse === 0, `Verstöße=${neuE.redoVerstoesse}`);
+  check('SchrittVerlauf: 0 Verstöße gegen „Redo-Ast geht nur durch eigene Änderung oder Übernahme verloren"', neuE.redoVerstoesse === 0, `Verstöße=${neuE.redoVerstoesse}`);
+  check('SchrittVerlauf: 0 Folgen, in denen der Stand des Schreibers ohne Zuhörer im Speicher verdrängt wird (ausser durch eigene Änderung/Import oder Strg+Z mit Rückweg)', neuE.speicherVerstoesse === 0, `Verstöße=${neuE.speicherVerstoesse}`);
 
   // Die Prüfung muss die früheren Fehler FINDEN (sonst wäre sie wertlos).
+  const st10 = pruefe(() => new Verlauf10fac0b(), true); // Stand 10fac0b: Übernahme lässt den Wiederherstellen-Stapel stehen
   const id1 = pruefe(() => new Verlauf88277f5(), false); // Stand 88277f5: Identität, Import ohne Schritt
   const id2 = pruefe(() => new Verlauf88277f5(), true); // dasselbe, aber Import mit Schritt
   const alt = pruefe(() => new Verlauf5eb78eb(), true); // mit Import-Schritt: nur die Übernahme-Regel von 5eb78eb ist der Prüfling
+  zeige('10fac0b (Übernahme lässt Wiederherstellen stehen)', st10);
   zeige('88277f5 (Identität, Import ohne Schritt)', id1);
   zeige('88277f5 (Identität, Import mit Schritt)', id2);
   zeige('5eb78eb (jede Übernahme ein Schritt, Import mit Schritt)', alt);
+  check('Gegenprobe 10fac0b: eigen→undo→fremd→redo (Länge 4) verdrängt den Stand des Testflugs aus dem Speicher; kürzeste Länge überhaupt = 4', spielen(['eigen', 'undo', 'fremd', 'redo'], () => new Verlauf10fac0b(), true).speicher && st10.kuerzesterSpeicher?.length === 4 && st10.speicherVerstoesse > 0, `${st10.kuerzesterSpeicher?.join('→') ?? 'nichts'} (${st10.speicherVerstoesse} Folgen)`);
+  check('Dieselbe Folge mit SchrittVerlauf: Strg+Y ist nach der Übernahme wirkungslos, der Speicher behält den Stand des Testflugs', !spielen(['eigen', 'undo', 'fremd', 'redo'], () => new SchrittVerlauf<WorldLayout>(), true).speicher);
+  check('Gegenprobe 10fac0b: Redo-Verstöße gefunden (die Übernahme verwarf den Wiederherstellen-Ast nicht)', st10.redoVerstoesse > 0, `Verstöße=${st10.redoVerstoesse}`);
   check('Gegenprobe 88277f5: fremd→import→fremd (Länge 3) wird als falsche Meldung gefunden; kürzeste Länge überhaupt = 3', spielen(['fremd', 'import', 'fremd'], () => new Verlauf88277f5(), false).meldung && id1.kuerzesteMeldung?.length === 3, id1.kuerzesteMeldung?.join('→') ?? 'nichts');
   check('Gegenprobe 88277f5: fremd→undo→eigen→fremd (Länge 4) wird gefunden, auch wenn der Import einen Schritt anlegt; kürzeste Länge = 4', spielen(['fremd', 'undo', 'eigen', 'fremd'], () => new Verlauf88277f5(), true).meldung && id2.kuerzesteMeldung?.length === 4, id2.kuerzesteMeldung?.join('→') ?? 'nichts');
   check('Dieselben zwei Folgen sind mit SchrittVerlauf in Ordnung', !spielen(['fremd', 'import', 'fremd'], () => new SchrittVerlauf<WorldLayout>(), true).meldung && !spielen(['fremd', 'undo', 'eigen', 'fremd'], () => new SchrittVerlauf<WorldLayout>(), true).meldung);
   check('Gegenprobe 88277f5: Verlust-Folgen gefunden (Identität + Import)', id1.verluste > 0 && id2.verluste > 0, `${id1.verluste} / ${id2.verluste}`);
-  check('Gegenprobe 88277f5 leert den Wiederherstellen-Stapel bei Übernahme: Redo-Verstöße gefunden', id1.redoVerstoesse > 0, `Verstöße=${id1.redoVerstoesse}`);
-  check('Gegenprobe 5eb78eb: bis Länge 7 keine falsche Meldung (die Flut braucht k ≥ 51, s. o.) — aber Redo-Verstöße', alt.falscheMeldungen === 0 && alt.redoVerstoesse > 0, `falsch=${alt.falscheMeldungen}, Redo=${alt.redoVerstoesse}`);
+  check('Gegenprobe 5eb78eb: bis Länge 7 keine falsche Meldung (die Flut braucht k ≥ 51, s. o.)', alt.falscheMeldungen === 0, `falsch=${alt.falscheMeldungen}`);
 }
 
 // ── 8c. Quota trifft nur den Begleitzettel (B2) ──────────────────────
@@ -817,6 +924,21 @@ console.log('▶ Rückkehr aus dem Vor-/Zurück-Zwischenspeicher');
   check('Der Speicher ist bei bfcache-Rückkehr NICHT geschlossen (pagehide schliesst nur bei !persisted): ein späteres Ereignis kommt an', (() => { a.aendern(setze(P2)); return b.fremdUebernahmen === 2 && hat(b.layout, P2); })());
 }
 
+// ── 8f. Ersetzen des Entwurfs beim Start: wann ein Rückgängig-Schritt (A5) ──
+console.log('▶ Start-Abgleich: Schritt vor dem Ersetzen');
+{
+  const server = { ...basis, name: 'Server-Welt' } as WorldLayout;
+  const nurSee = { ...leeresLayout(), lakes: [{ id: 'see-1', x: 100, z: 100, radius: 200, depth: 8 }] } as WorldLayout;
+  const nurSeed = { ...leeresLayout(), detailSeed: 'anderer-seed' } as WorldLayout;
+  const mitRegion = { ...leeresLayout(), regions: basis.regions.slice(0, 1) } as WorldLayout;
+  check('Der Entwurf enthält NUR einen See (keine Region, keine Platzierung): Schritt nötig', brauchtSchrittVorErsetzen(nurSee, server), 'lakes=1');
+  check('Der Entwurf weicht nur im detailSeed ab: Schritt nötig', brauchtSchrittVorErsetzen(nurSeed, server));
+  check('Der Entwurf hat eine Region: Schritt nötig', brauchtSchrittVorErsetzen(mitRegion, server));
+  check('Der Entwurf gleicht dem Serverstand: kein Schritt (nichts geht verloren)', !brauchtSchrittVorErsetzen(server, server));
+  check('Der wirklich leere Startzustand: kein Schritt (sonst löschte das erste Strg+Z die Welt)', !brauchtSchrittVorErsetzen(leeresLayout(), server));
+  check('Flüsse und Kontinente zählen wie Seen: ein Entwurf nur mit Kontinent braucht einen Schritt', brauchtSchrittVorErsetzen({ ...leeresLayout(), continents: basis.continents.slice(0, 1) } as WorldLayout, server) || basis.continents.length === 0, `Kontinente im Testdokument: ${basis.continents.length}`);
+}
+
 // ── 9. Quelltextprüfung an editorMain.ts ─────────────────────────────
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
@@ -836,7 +958,8 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('… legt den Rückgängig-Punkt VOR der Übernahme an (verlauf.uebernahme(layout) vor layout = fremd)', iM >= 0 && iL > iM, `Positionen ${iM} < ${iL}`);
   check('… und schreibt nicht zurück: alles(…, false)', /alles\('bearbeitet', false\)/.test(rueckruf));
   check('… und meldet es', rueckruf.includes('Entwurf aus einem anderen Tab übernommen'));
-  check('… entscheidet über den Schritt nur im SchrittVerlauf (eine Schrittklasse, Flag statt Objektidentität) und verwirft den Wiederherstellen-Stapel nicht', !/zukunft/.test(rueckruf) && !/brauchtSchritt|UebernahmeSchritte|uebernahmeSchritte/.test(quelle));
+  check('… entscheidet über den Schritt nur im SchrittVerlauf (eine Schrittklasse, Flag statt Objektidentität), ohne eigenen Zugriff auf den Wiederherstellen-Stapel', !/zukunft/.test(rueckruf) && !/brauchtSchritt\(|UebernahmeSchritte|uebernahmeSchritte/.test(quelle));
+  check('… und sagt bei verworfenem Wiederherstellen-Ast dazu, dass Wiederherstellen nicht mehr möglich ist', /const \{ verworfen \} = verlauf\.uebernahme\(layout\);/.test(rueckruf) && /verworfen > 0 \? ' Wiederherstellen ist nach der Übernahme nicht mehr möglich\.'/.test(rueckruf));
   check('… setzt halbfertige Werkzeuge zurück: griff, flussPunkte, polygonPunkte, startpunktModus', /griff = null;/.test(rueckruf) && /flussPunkte = \[\];/.test(rueckruf) && /polygonPunkte = \[\];/.test(rueckruf) && /startpunktModus = null;/.test(rueckruf));
   const wieder = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const zurueck = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
@@ -848,6 +971,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Der Editor liest und schreibt den Entwurf nur noch über den Speicher (kein entwurfSchreiben/entwurfLesen mehr)', !/\bentwurfSchreiben\s*\(/.test(quelle) && !/\bentwurfLesen\s*\(/.test(quelle));
   const abgleichTeil = quelle.slice(quelle.indexOf('async function weltAbgleich'));
   check('Der Abgleich beim Start prüft zuerst auf fremde Änderungen (abgleichen() vor lesen())', abgleichTeil.indexOf('entwurfsSpeicher.abgleichen()') > 0 && abgleichTeil.indexOf('entwurfsSpeicher.abgleichen()') < abgleichTeil.indexOf('const entwurf = entwurfsSpeicher.lesen()'));
+  check('Start-Abgleich: der Schritt vor dem Ersetzen hängt an brauchtSchrittVorErsetzen(layout, stand.layout) — nicht mehr an Regionen/Platzierungen', /if \(brauchtSchrittVorErsetzen\(layout, stand\.layout\)\) \{\s*merkeSchritt\(\);/.test(abgleichTeil) && !/layout\.regions\.length > 0 \|\| \(layout\.placements/.test(quelle));
   check('Laden vom Server ohne Schritt setzt die Übernahme-Regel zurück (verlauf.ohneSchritt())', /else \{\s*verlauf\.ohneSchritt\(\);[^}]*\}\s*layout = stand\.layout;/.test(abgleichTeil));
 
   // Jede Zuweisung an `layout` ausser den bekannten legt vorher einen Schritt an.

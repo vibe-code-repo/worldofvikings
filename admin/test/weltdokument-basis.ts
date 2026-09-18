@@ -792,7 +792,10 @@ try {
     check('… in der Reihenfolge ihres Entstehens (Inhalt = jeweils vorheriger Stand)', baks.length === 5 && baks.every((n, i) => readFileSync(resolve(DIREKT, n), 'utf-8') === stande[i]));
     for (let i = 6; i <= 17; i++) layoutSchreiben(bPfad, koerper(`stand-${i}`));
     check('nach 17 Schreibvorgängen bleiben genau 10 Sicherungen (die Grenze)', bakNamen().length === 10, `= ${bakNamen().length}`);
-    check('… und es sind die neuesten (die 10 Stände vor dem letzten)', readFileSync(resolve(DIREKT, bakNamen()[9]!), 'utf-8') === sollText(koerper('stand-16')));
+    // `at(-1)` statt Index 9: Auf einem Stand mit Namenskollisionen gibt es weniger als 10 Sicherungen,
+    // und der Test soll dann an der Behauptung scheitern, nicht an einem Absturz, der die Abschnitte danach verschluckt.
+    const juengste = bakNamen().at(-1);
+    check('… und es sind die neuesten (die 10 Stände vor dem letzten)', juengste !== undefined && readFileSync(resolve(DIREKT, juengste), 'utf-8') === sollText(koerper('stand-16')));
   }
 
   // ── 20) B6: Tmp-Leiche im alten Schema (<datei>.tmp) wird geräumt ────

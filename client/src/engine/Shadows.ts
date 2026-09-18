@@ -247,6 +247,37 @@ export function schattenLambda(stufe: number, hundertFpsProfil: boolean): number
 }
 
 /**
+ * Den Basis-Effekt eines Schattenklons beim Tiefen-Wrapper anmelden (G20).
+ *
+ * ── Warum das noetig ist ─────────────────────────────────────────────
+ * Ein Vegetationsklon (`schattenVegetation_*`, `layerMask 0`) wird nie im
+ * Farbpass gezeichnet. Babylons `ShadowDepthWrapper` baut den Tiefen-Shader
+ * eines Sub-Meshes aber aus dem Effekt, den das Basismaterial im FARBPASS
+ * fuer genau diesen Sub-Mesh anlegt (`_subMeshToEffect`, gefuellt ueber
+ * `onEffectCreatedObservable`). Fuer den Klon geschieht das nie: der Wrapper
+ * hat keine Vorlage, `generator.isReady()` bleibt dauerhaft `false`, und der
+ * Schattenpass ueberspringt das Mesh ohne Meldung. Gemessen 18.09.2026: 0 von
+ * 17 Laub-Klonen bereit, Laubschatten 0,005 % der Bildflaeche gegen 10,68 %
+ * mit den Quellen. Materialien OHNE Wrapper (Rinde, Fels) sind nicht betroffen
+ * — deshalb warfen bis dahin nur die Staemme.
+ *
+ * Der Aufruf legt den Effekt an, wie es der Farbpass taete, nur ohne zu
+ * zeichnen. `hasThinInstances` MUSS schon stimmen, sonst wird die Vorlage ohne
+ * INSTANCES-Define gebaut und der Tiefen-Shader zeichnet keine Instanzen.
+ *
+ * Registers the clone's base effect with the material's depth wrapper; the
+ * clone never renders in the colour pass, so nobody else ever would.
+ * Returns false when the clone's material has no wrapper (nothing to do).
+ */
+export function meldeKlonAnBasisEffekt(klon: Mesh): boolean {
+  const material = klon.material;
+  const teil = klon.subMeshes?.[0];
+  if (!material?.shadowDepthWrapper || !teil) return false;
+  material.isReadyForSubMesh(klon, teil, klon.hasThinInstances);
+  return true;
+}
+
+/**
  * Kleinste Modellhöhe, die noch Schatten werfen darf (Meter).
  *
  * ── Warum eine gemessene Höhe und keine Namensliste (G5) ─────────────
@@ -434,7 +465,22 @@ interface VegetationsSchattenMaster {
   maxSkala: number;
   gepackterRadius: number;
   bereit: boolean;
+  /**
+   * Hat der Tiefen-Wrapper des Klons seine Vorlage (G20)? Erst dann darf der
+   * Klon die Quelle ersetzen — sonst stuende das Laub in der Zwischenzeit
+   * ohne Werfer da. Ohne Wrapper (Rinde, Fels) ist das sofort wahr.
+   */
+  tiefeBereit: boolean;
+  /** Versuche seit dem letzten Erfolg — Notbremse gegen ein Material, das nie bereit wird. */
+  tiefeVersuche: number;
 }
+
+/**
+ * Bilder, die ein Klon auf seine Tiefenwirkung warten darf, bevor er aufgibt.
+ * Ein Shader braucht wenige Bilder; wer nach ~10 s (bei 120 Bildern/s) nicht
+ * bereit ist, wird es nicht mehr — dann bleibt die Quelle Werfer.
+ */
+const TIEFE_MAX_VERSUCHE = 1200;
 
 export class Shadows {
   private generator: CascadedShadowGenerator | null = null;
@@ -474,6 +520,10 @@ export class Shadows {
   private readonly vegetationsQuellen = new Set<AbstractMesh>();
   private readonly vegetationsKlone = new Set<AbstractMesh>();
   private readonly vegetationsPackPending = new Set<VegetationsSchattenMaster>();
+  /** Klone, die auf ihren Tiefen-Shader warten; die Quelle wirft solange weiter (G20). */
+  private readonly vegetationsTiefePending = new Set<VegetationsSchattenMaster>();
+  /** Wie oft der Basis-Effekt eines Klons angemeldet wurde (Zeuge fuer die Kosten von G20). */
+  private tiefeAnmeldungen = 0;
   /*
     ── E27 (aus) → G6 (an) ────────────────────────────────────────────
     Hier stand: „Der E26-Weg ist vorerst deaktiviert. Im Live-Test
@@ -646,6 +696,8 @@ export class Shadows {
         maxSkala: 1,
         gepackterRadius: Number.NaN,
         bereit: false,
+        tiefeBereit: false,
+        tiefeVersuche: 0,
       };
       this.vegetationsSchatten.set(quelle, stand);
       this.vegetationsKlone.add(schatten);
@@ -669,6 +721,7 @@ export class Shadows {
     if (an === this.vegetationsInstanzKeulung) return;
     this.vegetationsInstanzKeulung = an;
     this.vegetationsPackPending.clear();
+    this.vegetationsTiefePending.clear();
     for (const stand of this.vegetationsSchatten.values()) {
       if (an) {
         stand.bereit = false;
@@ -754,6 +807,7 @@ export class Shadows {
     if (!daten || daten.length === 0) {
       stand.schatten.thinInstanceSetBuffer('matrix', null, 16, false);
       stand.schatten.setEnabled(false);
+      this.vegetationsTiefePending.delete(stand);
       stand.aktiv = 0;
       stand.maxSkala = 1;
       stand.gepackterRadius = 0;
@@ -781,10 +835,68 @@ export class Shadows {
 
     // Erst NACH vollständigem Pufferwechsel umschalten: Es gibt in keinem
     // Frame eine Lücke zwischen sichtbarer Quelle und Schattenklon.
+    //
+    // ── G20: ... und erst, wenn der Klon auch wirklich werfen KANN ──────
+    // Ein Klon mit Tiefen-Wrapper (Laub) braucht die Vorlage des Farbpasses,
+    // die er nie bekommt (s. meldeKlonAnBasisEffekt). Ohne den Aufruf unten
+    // stuende er als Werfer in der Liste und wuerfe nichts, waehrend die
+    // Quelle schon abgemeldet ist: Laub ohne Schatten, dauerhaft. Bis der
+    // Shader steht, wirft deshalb die Quelle weiter (tick → tiefeNachziehen).
+    const braucheWrapper = daten !== null && daten.length > 0 && !!stand.schatten.material?.shadowDepthWrapper;
+    if (braucheWrapper && stand.aktiv > 0 && !stand.tiefeBereit) {
+      stand.tiefeVersuche = 0;
+      this.vegetationsTiefePending.add(stand);
+      this.tiefeAnmeldungen++;
+      meldeKlonAnBasisEffekt(stand.schatten);
+      return;
+    }
+    this.uebergebeAnKlon(stand);
+  }
+
+  /** Die Quelle gibt den Wurf an ihren gepackten Klon ab. */
+  private uebergebeAnKlon(stand: VegetationsSchattenMaster): void {
     this.vegetationsQuellen.add(stand.quelle);
     this.entferneWerfer(stand.quelle);
     this.nimmAuf(stand.schatten);
     stand.bereit = true;
+  }
+
+  /**
+   * Klone mit Tiefen-Wrapper bis zur Wurfbereitschaft begleiten (G20).
+   *
+   * Je Bild: meldet der Generator den Klon bereit, uebernimmt er den Wurf von
+   * der Quelle. Sonst wird der Aufruf wiederholt — der Shader kompiliert
+   * asynchron, und `isReady()` bleibt bis dahin `false`. Nach
+   * TIEFE_MAX_VERSUCHEN gibt der Klon auf (die Quelle wirft weiter, mit
+   * Meldung), damit ein kaputtes Material nicht ewig pro Bild gepruft wird.
+   */
+  private tiefeNachziehen(): void {
+    const g = this.generator;
+    if (!g || this.vegetationsTiefePending.size === 0) return;
+    for (const stand of this.vegetationsTiefePending) {
+      const teil = stand.schatten.subMeshes?.[0];
+      // Ohne Instanzen NICHT anmelden: Der Basis-Effekt entstuende ohne
+      // INSTANCES-Define, und der Tiefen-Shader zeichnete spaeter keine
+      // Instanzen. Beim naechsten Packen mit Instanzen kommt der Klon neu hierher.
+      if (!this.vegetationsInstanzKeulung || !teil || stand.schatten.isDisposed() || stand.aktiv === 0) {
+        this.vegetationsTiefePending.delete(stand);
+        continue;
+      }
+      if (g.isReady(teil, true, false)) {
+        stand.tiefeBereit = true;
+        this.vegetationsTiefePending.delete(stand);
+        this.uebergebeAnKlon(stand);
+        continue;
+      }
+      this.tiefeAnmeldungen++;
+      meldeKlonAnBasisEffekt(stand.schatten);
+      if (++stand.tiefeVersuche >= TIEFE_MAX_VERSUCHE) {
+        this.vegetationsTiefePending.delete(stand);
+        console.warn(
+          `[shadows] Schattenklon ${stand.schatten.name} wird nicht bereit — die Quelle wirft weiter`
+        );
+      }
+    }
   }
 
   /**
@@ -955,6 +1067,7 @@ export class Shadows {
       this.werferHuelleDirty = false;
       this.generator.freezeShadowCastersBoundingInfo = true;
     }
+    this.tiefeNachziehen();
     const budgetEnde = performance.now() + WERFER_BUDGET_MS;
 
     // Schattenpuffer und Werfer-Scan teilen sich EIN Zeitbudget. Ein
@@ -1021,6 +1134,10 @@ export class Shadows {
     aktiv: number;
     pending: number;
     radiusMax: number;
+    /** Klone, die noch auf ihren Tiefen-Shader warten (G20). */
+    tiefeWartend: number;
+    /** Anmeldungen des Basis-Effekts seit dem Start (G20). */
+    tiefeAnmeldungen: number;
   } {
     let gesamt = 0;
     let aktiv = 0;
@@ -1039,6 +1156,8 @@ export class Shadows {
       aktiv,
       pending: this.vegetationsPackPending.size,
       radiusMax,
+      tiefeWartend: this.vegetationsTiefePending.size,
+      tiefeAnmeldungen: this.tiefeAnmeldungen,
     };
   }
 
@@ -1235,6 +1354,7 @@ export class Shadows {
     if (!stand) return;
     this.vegetationsSchatten.delete(mesh as Mesh);
     this.vegetationsPackPending.delete(stand);
+    this.vegetationsTiefePending.delete(stand);
     this.vegetationsKlone.delete(stand.schatten);
     // Erst abmelden, dann entsorgen — dieselbe Reihenfolge, aus der der
     // Kopf von entferneWerfer() oben seine Begruendung bezieht.
@@ -1446,9 +1566,12 @@ export class Shadows {
       for (const stand of this.vegetationsSchatten.values()) {
         stand.schatten.setEnabled(false);
         stand.bereit = false;
+        // Ein neuer Generator kennt die Tiefen-Shader der Klone noch nicht.
+        stand.tiefeBereit = false;
         this.vegetationsQuellen.delete(stand.quelle);
         this.vegetationsPackPending.add(stand);
       }
+      this.vegetationsTiefePending.clear();
     }
 
     for (const m of this.scene.meshes) this.nimmAuf(m);
@@ -1506,5 +1629,6 @@ export class Shadows {
     this.vegetationsQuellen.clear();
     this.vegetationsKlone.clear();
     this.vegetationsPackPending.clear();
+    this.vegetationsTiefePending.clear();
   }
 }

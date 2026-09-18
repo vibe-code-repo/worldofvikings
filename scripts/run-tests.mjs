@@ -957,6 +957,12 @@ const KERN = [
   // Schattenfassung. Der GPU-lose Test haelt 2 x 1024 px / 80 m fest und
   // prueft zugleich, dass alle normalen Stufen unveraendert bleiben.
   ['client', 'test/schatten-profil.ts'],
+  // G20 (18.09.2026): Ein Vegetationsklon (layerMask 0) wird nie im Farbpass
+  // gezeichnet; sein Tiefen-Shader braucht aber die Vorlage genau dieses
+  // Passes, sonst warf das Laub seit G6 keinen Schatten mehr. Der Test haelt
+  // fest: Vorlage wird angemeldet, die Quelle wirft bis zur Bereitschaft
+  // weiter, ein Klon ohne Instanzen wird nicht angemeldet. NullEngine, <1 s.
+  ['client', 'test/schatten-laub-klon.ts'],
   // Die Schattenzeile des Farbprofils (`look.grading.schatten*`) stand bis
   // 12.09.2026 auf der Eins und tat nichts; seit sie den gemessenen Wert
   // traegt, haengt das halbe Bild an vier Zahlen, die niemand ansieht. Der

@@ -95,6 +95,7 @@ import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
+import { layoutAbgleich } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
@@ -1149,92 +1150,25 @@ export class WovServer {
     if (this.config.worldMode !== 'layout') return;
     const layout = sanitizeWorldLayout(this.worldLayoutRaw);
     if (!layout?.placements?.length) return;
-    let neu = 0;
-    let unbekannt = 0;
-    // Kennung je Eintrag: Prefab + gerundete Position (layoutKennung in
-    // shared). Damit lassen sich beim Boot ZDOs entfernen, deren Eintrag der
-    // Designer gelöscht hat (vorher blieben sie für immer stehen,
-    // Review-Punkt 13) — und der Client findet über denselben Member den
-    // Layout-Eintrag zu einer Instanz wieder (Namensschild).
-    const kennung = layoutKennung;
-    const gewollt = new Set(layout.placements.map(kennung));
-    let entfernt = 0;
-    // Im selben Durchlauf einen Index über die Kennung aufbauen: Ein
-    // Routen-NPC ist beim nächsten Boot IRGENDWO auf seiner Runde, die
-    // Nähe-Prüfung unten fände ihn also nicht wieder und spawnte bei jedem
-    // Start einen weiteren. Die Kennung wandert dagegen mit ihm mit.
-    const nachKennung = new Map<string, ZDO>();
-    for (const zdo of this.zdos.getAllZDOs()) {
-      const id = zdo.getString(LAYOUT_ID_MEMBER);
-      if (!id) continue;
-      if (!gewollt.has(id)) {
-        this.zdos.destroyZDO(zdo.zdoid);
-        entfernt++;
-        continue;
-      }
-      nachKennung.set(id, zdo);
-    }
-    const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
-    let aufRoute = 0;
-    for (const p of layout.placements) {
-      const prefab = this.prefabs.getByName(p.prefab);
-      if (!prefab) {
-        unbekannt++;
-        continue;
-      }
-      const y = this.getGroundHeight(p.x, p.z);
-      const pos = { x: p.x, y, z: p.z };
-      let zdo = nachKennung.get(kennung(p));
-      if (zdo && zdo.prefabHash !== prefab.hash) zdo = undefined;
-      if (!zdo) {
-        const vorhanden = this.zdos
-          .getZDOsInRadius(pos, 1)
-          .find((z) => z.prefabHash === prefab.hash && Math.hypot(z.position.x - p.x, z.position.z - p.z) < 0.5);
-        zdo = vorhanden;
-      }
-      if (!zdo) {
-        const yaw = p.yaw ?? 0;
-        zdo = this.zdos.createZDO(prefab.hash, pos);
-        zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-        if (p.scale !== undefined && Math.abs(p.scale - 1) > 1e-3) zdo.setFloat('scaleScalar', p.scale);
-        zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
-        neu++;
-      } else if (zdo.getString(LAYOUT_ID_MEMBER) !== kennung(p)) {
-        // Über die NÄHE wiedergefunden (ZDO aus einem Save von vor der
-        // Kennung): Member nachtragen. Sonst bliebe das Objekt für immer
-        // ohne Herkunft — der Client könnte ihm kein Namensschild
-        // zuordnen, und beim nächsten Löschen im Editor bliebe es stehen.
-        zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
-      }
-      // Trefferpunkte für alles, was eine FIGUR ist. Die Prüfung auf
-      // `istNpcPrefab` ist nicht Zierde: In derselben Schleife entstehen
-      // auch Häuser, Steine und Bäume, und die tragen `health` bereits mit
-      // einer ganz anderen Bedeutung (handleHarvest zählt damit die
-      // Axtschläge bis zum Fällen). Ein Lebensbalken über einer Fichte
-      // wäre das kleinere Übel — ein Startwert aus der Figurentabelle in
-      // ihrem Ernte-Zähler das größere.
-      if (istNpcPrefab(p.prefab) && zdo.getInt(HEALTH_MEMBER) <= 0) {
-        zdo.setInt(HEALTH_MEMBER, maxLeben(p.prefab));
-        zdo.revision.reviseData();
-        zdo.dirty = true;
-      }
-      // Route anhängen. Ein unbekannter Name lässt das Objekt schlicht
-      // stehen (pruefeLayout meldet ihn unten) — eine halb gespawnte Welt
-      // wäre der schlechtere Tausch.
-      const route = p.route ? routen.get(p.route) : undefined;
-      if (route) {
-        // Der NPC gehört jetzt der Route: Aus der Kreatur-Simulation
-        // nehmen, sonst zerren Wander-KI und Route an derselben Position
-        // (NPC_1-ZDOs werden beim Boot adoptiert, s. init()).
-        this.spawns?.entlasse(zdo);
-        this.routen?.registriere(zdo, route);
-        aufRoute++;
-      }
-    }
-    if (aufRoute > 0) console.log(`[WoV] Layout-Routen: ${aufRoute} NPC(s) laufen eine Route`);
-    if (neu > 0 || unbekannt > 0 || entfernt > 0) {
+    const ergebnis = layoutAbgleich(
+      {
+        zdos: this.zdos,
+        prefabs: this.prefabs,
+        bodenHoehe: (x, z) => this.getGroundHeight(x, z),
+        anRoute: (zdo, route) => {
+          // Der NPC gehört jetzt der Route: Aus der Kreatur-Simulation
+          // nehmen, sonst zerren Wander-KI und Route an derselben Position
+          // (NPC_1-ZDOs werden beim Boot adoptiert, s. init()).
+          this.spawns?.entlasse(zdo);
+          this.routen?.registriere(zdo, route);
+        },
+      },
+      layout
+    );
+    if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
+    if (ergebnis.gespawnt > 0 || ergebnis.unbekannt > 0 || ergebnis.entfernt > 0) {
       console.log(
-        `[WoV] Layout-Platzierungen: ${neu} gespawnt, ${entfernt} verwaiste entfernt, ${unbekannt} unbekannte Prefabs übersprungen`
+        `[WoV] Layout-Platzierungen: ${ergebnis.gespawnt} gespawnt, ${ergebnis.entfernt} verwaiste entfernt, ${ergebnis.unbekannt} unbekannte Prefabs übersprungen`
       );
     }
     // Inhaltlicher Bericht (Review-Punkt 32): unbekannte Namen und ein

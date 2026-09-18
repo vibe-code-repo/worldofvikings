@@ -35,7 +35,9 @@ interface Erwartung {
 const ERWARTUNGEN: Erwartung[] = [
   {
     weg: '/ (Webseite, gerendert vom Node-Dienst)',
-    muster: /location\s+\/\s*\{[^}]*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
+    // `(?:[^{}]|\{[^{}]*\})*`: der Block enthaelt seit der Editor-Umleitung ein
+    // eigenes `if (...) { ... }` — ein nacktes `[^}]*` endete an dessen Klammer.
+    muster: /location\s+\/\s*\{(?:[^{}]|\{[^{}]*\})*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
   },
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
@@ -68,10 +70,27 @@ const ERWARTUNGEN: Erwartung[] = [
     Betriebsdienst mit beigelegtem Admin-Token offen im Netz.
   */
   { weg: 'Schalter $oeffentlich wird gesetzt', muster: /set\s+\$oeffentlich\s+0;/ },
-  { weg: 'Schalter erkennt world-of-vikings.com', muster: /if\s*\(\$host[\s\S]{0,80}?world-of-vikings/ },
+  // Verankert auf den Namen selbst: `[\s\S]{0,80}?world-of-vikings` traefe auch den
+  // Editor-Schalter unten und hielte den Test gruen, obwohl `$oeffentlich` fehlt.
+  { weg: 'Schalter erkennt world-of-vikings.com', muster: /if\s*\(\$host\s*~\*\s*"\^\(www\\\.\)\?world-of-vikings\\\.com\$"\)/ },
   { weg: '/api/ (Betriebsdienst) ist unter dem oeffentlichen Namen dicht', muster: /location\s+\/api\/\s*\{[^}]*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
   { weg: '/editor/ ist unter dem oeffentlichen Namen dicht', muster: /location\s+=\s*\/editor\/\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
   { weg: '/editor (ohne Schraegstrich) ebenso', muster: /location\s+=\s*\/editor\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
+  /*
+    Der Editor-Name (`editor.dev.world-of-vikings.com`, Proxy-Host 16) landete
+    seit dem einen Ursprung auf der Webseite: `/` gehoert `location /`, und
+    die Datei entscheidet nur nach dem Pfad. Zwei Haelften gehoeren zusammen —
+    der Schalter auf den Namen und die Umleitung als ERSTE Anweisung von
+    `location /`. 302, nicht 301: ein Browser merkt sich 301 dauerhaft.
+  */
+  {
+    weg: 'Schalter $editor_name wird gesetzt und erkennt editor.dev',
+    muster: /set\s+\$editor_name\s+0;\s*if\s*\(\$host\s*~\*\s*"\^editor\\\.dev\\\.world-of-vikings\\\.com\$"\)\s*\{\s*set\s+\$editor_name\s+1;/,
+  },
+  {
+    weg: 'location / leitet den Editor-Namen zuerst per 302 auf /editor/',
+    muster: /location\s+\/\s*\{\s*(?:#[^\n]*\n\s*)*if\s*\(\$editor_name\)\s*\{\s*return\s+302\s+\/editor\/;\s*\}/,
+  },
 ];
 
 function main(): void {

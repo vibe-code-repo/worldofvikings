@@ -69,15 +69,16 @@ import type { DungeonVorschau3d } from './DungeonVorschau3d';
 import { befundSchwere } from './befundSchwere';
 import {
   alter,
-  entwurfLesen,
-  entwurfSchreiben,
   entwurfStandLesen,
   gleich,
   holeWeltdokument,
+  layoutMitPlatzierung,
   leeresLayout,
+  schreibeWeltdokument,
   vergleiche,
   type EntwurfsQuelle,
 } from './weltdokument';
+import { EntwurfsSpeicher, browserUmgebung } from './entwurfsSpeicher';
 import { frage, unterschiedsTafel, vorhang } from './AbgleichDialog';
 // NUR der Typ: Der Katalog selbst kommt per dynamischem import() erst beim
 // ersten Öffnen (s. Werkzeugleiste). Statisch eingebunden zöge er Babylon
@@ -280,6 +281,36 @@ const FORMEN: readonly FormDef[] = [
  * Entwurf ein Vorschaubild und keine Arbeitsgrundlage — der Unterschied,
  * an dem der ganze Schritt hängt.
  */
+/**
+ * Der Entwurf im localStorage, gegen fremde Schreiber abgesichert
+ * (entwurfsSpeicher.ts). Der Offline-Testflug öffnet sich in einem zweiten
+ * Tab und schreibt in DENSELBEN Schlüssel; ohne diesen Speicher überschrieb
+ * die nächste Editor-Änderung seine Arbeit still.
+ *
+ * `beiFremdem` läuft, wenn dort ein abweichender Stand steht — per
+ * `storage`-Ereignis, per BroadcastChannel oder beim Schreibversuch. Der
+ * eigene Stand wandert vorher in den Rückgängig-Stapel (`merkeSchritt`),
+ * der fremde wird der Entwurf. Zurückgeschrieben wird nicht (`alles(…,
+ * false)`): Sonst sähe der andere Tab unsere Übernahme als fremde Änderung.
+ * Steht hier oben, weil `ladeEntwurf()` ihn sofort braucht; die Funktionen,
+ * die der Rückruf nutzt, laufen erst, wenn das Modul fertig ist.
+ */
+const entwurfsSpeicher = new EntwurfsSpeicher({
+  ...browserUmgebung(),
+  aktuell: () => layout,
+  beiFremdem: (fremd) => {
+    merkeSchritt();
+    layout = fremd;
+    gewaehlt = null;
+    griff = null;
+    alles('bearbeitet', false);
+    vorschauAnstossen();
+    shell.meldung(
+      'Entwurf aus einem anderen Tab übernommen — dein bisheriger Stand liegt unter Rückgängig (Strg+Z).',
+      true
+    );
+  },
+});
 let layout: WorldLayout = ladeEntwurf();
 /**
  * Welche Welt bearbeiten wir? Kommt AUSSCHLIESSLICH aus der Antwort des
@@ -295,6 +326,13 @@ let welt: { instanz: string | null; datei: string | null } = { instanz: null, da
  * Server?" — der Speicherknopf beantwortet sie (s. faerbeSpeicherKnopf).
  */
 let serverKanon: string | null = null;
+/**
+ * Stand des Serverdokuments (Hash), so wie ihn der Editor zuletzt gelesen
+ * bzw. selbst geschrieben hat — die Basis für `If-Match` beim Speichern.
+ * `null`, solange der Server keinen liefert; dann wird ohne Basis
+ * gespeichert, wie vor K0.2.
+ */
+let serverHash: string | null = null;
 /**
  * Muss hier oben stehen und nicht bei den übrigen Speicher-Funktionen:
  * Der Werkzeugleisten-Block weiter unten läuft beim Laden des Moduls und
@@ -361,7 +399,7 @@ let griff: { regionId: string; art: 'mitte' | 'radius' | number } | null = null;
 const GRIFF_PX = 7;
 
 function ladeEntwurf(): WorldLayout {
-  return entwurfLesen() ?? leeresLayout();
+  return entwurfsSpeicher.lesen() ?? leeresLayout();
 }
 
 /**
@@ -372,7 +410,11 @@ function ladeEntwurf(): WorldLayout {
  * aus einem Import".
  */
 function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): void {
-  if (!entwurfSchreiben(layout, quelle, welt.instanz)) {
+  // 'fremd': ein anderer Tab (Testflug, zweiter Editor) hat den Entwurf
+  // inzwischen geändert. Der Speicher hat NICHT geschrieben, sondern
+  // `beiFremdem` (oben) den fremden Stand übernommen — mehr ist hier nicht
+  // zu tun.
+  if (entwurfsSpeicher.schreiben(layout, quelle, welt.instanz) === 'voll') {
     shell.meldung('Entwurf zu groß für localStorage — bitte als JSON exportieren!', true);
   }
 }
@@ -1268,11 +1310,9 @@ overlay.addEventListener('pointerdown', (e) => {
     return;
   }
   if (werkzeug === 'platzieren') {
-    const placements = [
-      ...(layout.placements ?? []),
-      { prefab: spawnPrefab, x: Math.round(wx), z: Math.round(wz), yaw: Math.random() * Math.PI * 2 },
-    ];
-    layout = { ...layout, placements };
+    // Ohne diesen Schritt war ein gesetztes Objekt nicht rückgängig zu machen.
+    merkeSchritt();
+    layout = layoutMitPlatzierung(layout, spawnPrefab, wx, wz, Math.random() * Math.PI * 2);
     speichereEntwurf();
     seiteBauen();
     zeichneOverlay();
@@ -3134,31 +3174,95 @@ async function inDieWeltSpeichern(): Promise<boolean> {
   }
 
   shell.meldung(`Speichere nach ${weltName()} …`);
-  try {
-    const r = await fetch('/api/worldlayout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sauber),
-    });
-    const a = (await r.json()) as { ok: boolean; message: string };
-    shell.meldung(
-      a.ok ? `${a.message} — Server neu starten, damit die Welt sie lädt.` : a.message,
-      !a.ok
-    );
-    if (a.ok) {
-      // Ab jetzt sind Entwurf und Serverstand deckungsgleich. Ohne diese
-      // zwei Zeilen fragte der Abgleich beim nächsten Öffnen nach einem
-      // Unterschied, den es nicht mehr gibt — und man lernt, den Dialog
-      // wegzuklicken. Genau das darf er nie werden.
-      serverKanon = JSON.stringify(sauber);
-      speichereEntwurf('server');
-      faerbeSpeicherKnopf();
-    }
-    return a.ok;
-  } catch (err) {
-    shell.meldung(`Speichern fehlgeschlagen: ${String(err)}`, true);
+  // Mit der zuletzt gelesenen Basis: Hat inzwischen jemand anders
+  // gespeichert, antwortet der Server 409, und es wird NICHTS geschrieben.
+  const antwort = await schreibeWeltdokument(sauber, serverHash);
+  if (antwort.art === 'ok') {
+    shell.meldung(`${antwort.message} — Server neu starten, damit die Welt sie lädt.`);
+    // Ab jetzt sind Entwurf und Serverstand deckungsgleich. Ohne diese
+    // Zeilen fragte der Abgleich beim nächsten Öffnen nach einem
+    // Unterschied, den es nicht mehr gibt — und man lernt, den Dialog
+    // wegzuklicken. Genau das darf er nie werden. Der neue Hash ist die
+    // Basis des nächsten Speicherns.
+    serverKanon = JSON.stringify(sauber);
+    serverHash = antwort.hash;
+    speichereEntwurf('server');
+    faerbeSpeicherKnopf();
+    return true;
+  }
+  if (antwort.art === 'veraltet') {
+    await veraltetAbgleichen(sauber);
     return false;
   }
+  shell.meldung(antwort.message, true);
+  return false;
+}
+
+/**
+ * Der Server hat die Basis des Editors abgelehnt (409): Jemand anders hat
+ * die Welt seit dem Laden gespeichert. Statt zu überschreiben, holt der
+ * Editor den aktuellen Stand und zeigt dieselbe Gegenüberstellung wie beim
+ * Start (weltdokument.vergleiche, AbgleichDialog). Beide Antworten sind
+ * bewusst: den Serverstand laden (der eigene Entwurf bleibt per Strg+Z
+ * erreichbar) oder den Entwurf behalten — dann gilt der jetzt gesehene
+ * Serverstand als Basis, und erst ein NEUES Speichern ersetzt ihn. Kein
+ * Aufruf hier schreibt auf den Server.
+ */
+async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
+  const schirm = vorhang(`Aktueller Serverstand von ${weltName()} wird geholt …`);
+  const stand = await holeWeltdokument();
+  schirm.schliessen();
+  if (!stand.erreichbar) {
+    shell.meldung(
+      `Nicht gespeichert: ${weltName()} hat sich auf dem Server geändert, der aktuelle Stand ` +
+        `liess sich aber nicht lesen (${stand.grund}).`,
+      true
+    );
+    return;
+  }
+  const wahl = await frage(
+    'Der Server hat sich geändert',
+    unterschiedsTafel(
+      `Seit du ${weltName()} geladen hast, wurde die Welt auf dem Server von jemand anderem ` +
+        'gespeichert. Es wurde NICHTS geschrieben.\nLinks steht der aktuelle Serverstand, rechts dein Entwurf.',
+      `Server (${stand.datei ?? '?'}, aktuell)`,
+      'dein Entwurf',
+      vergleiche(stand.layout, sauber)
+    ),
+    [
+      {
+        id: 'server',
+        text: '⬇ Serverstand laden',
+        hinweis: 'Dein Entwurf bleibt unter Rückgängig (Strg+Z) erreichbar.',
+        betont: true,
+      },
+      {
+        id: 'entwurf',
+        text: '✎ Entwurf behalten',
+        hinweis: 'Der Serverstand bleibt vorerst unangetastet — bis du erneut speicherst und ihn damit ersetzt.',
+        warnung: true,
+      },
+    ],
+    { text: '⬇ Entwurf vorher als JSON sichern', tun: entwurfExportieren }
+  );
+  // Beide Wege haben den aktuellen Serverstand gesehen: Er ist ab jetzt die
+  // Basis. Ohne diese Zeilen liefe jedes weitere Speichern erneut in 409.
+  serverHash = stand.hash;
+  serverKanon = JSON.stringify(stand.layout);
+  if (wahl === 'server') {
+    merkeSchritt();
+    layout = stand.layout;
+    gewaehlt = null;
+    alles('server');
+    vorschauAnstossen();
+    shell.meldung(`${stand.message} — Serverstand geladen, dein Entwurf liegt unter Rückgängig.`);
+    return;
+  }
+  faerbeSpeicherKnopf();
+  shell.meldung(
+    `Entwurf behalten — ${weltName()} auf dem Server ist unverändert, bis du erneut speicherst.`,
+    true
+  );
 }
 
 // ── Karte live testen ────────────────────────────────────────────────
@@ -3621,8 +3725,8 @@ function pruefberichtBauen(): void {
   }
 }
 
-function alles(quelle: EntwurfsQuelle = 'bearbeitet'): void {
-  speichereEntwurf(quelle);
+function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): void {
+  if (entwurfSchreiben) speichereEntwurf(quelle);
   seiteBauen();
   pruefberichtBauen();
   weltSektionBauen();
@@ -3693,9 +3797,21 @@ async function weltAbgleich(): Promise<void> {
   shell.instanzZeigen(stand.instanz, stand.datei, stand.message);
   faerbeSpeicherKnopf();
   serverKanon = JSON.stringify(stand.layout);
+  serverHash = stand.hash;
 
-  const entwurf = entwurfLesen();
+  // Hat ein anderer Tab seit dem Start den Entwurf geändert, ist das jetzt
+  // der Entwurf — sonst behielte „Entwurf behalten" den älteren Stand und
+  // schriebe ihn später über den neueren.
+  entwurfsSpeicher.abgleichen();
+  const entwurf = entwurfsSpeicher.lesen();
   const uebernehmen = (grund: string): void => {
+    // Was hier verworfen wird, soll nicht spurlos weg sein: ein Entwurf mit
+    // Inhalt (auch ein eben von einem anderen Tab übernommener) bleibt per
+    // Strg+Z erreichbar. Der leere Startzustand bekommt keinen Schritt —
+    // sonst löschte das erste Strg+Z die frisch geladene Welt.
+    if (!gleich(layout, stand.layout) && (layout.regions.length > 0 || (layout.placements?.length ?? 0) > 0)) {
+      merkeSchritt();
+    }
     layout = stand.layout;
     gewaehlt = null;
     alles('server');

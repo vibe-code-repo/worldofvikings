@@ -80,6 +80,13 @@ export interface EntwurfsStand {
   /** Instanz, die beim Schreiben offen war — `null`, wenn unbekannt. */
   instanz: string | null;
   quelle: EntwurfsQuelle;
+  /**
+   * Stempel des schreibenden Editor-Tabs (entwurfsSpeicher.ts): Zeitpunkt in
+   * ms und Tab-Kennung. Fehlt bei Zetteln aus älteren Editorfassungen; der
+   * Testflug schreibt keinen.
+   */
+  geaendertUm?: number;
+  tabId?: string;
 }
 
 /**
@@ -101,6 +108,12 @@ export type ServerStand =
       instanz: string | null;
       datei: string | null;
       message: string;
+      /**
+       * Stand des Dokuments auf dem Server (ETag bzw. Rumpffeld `hash`) — die
+       * Basis, die beim Speichern zurückgeschickt wird. `null`, solange die
+       * Gegenstelle keinen liefert; dann wird wie früher ohne Basis gespeichert.
+       */
+      hash: string | null;
     }
   | { erreichbar: false; grund: string };
 
@@ -133,10 +146,10 @@ export function leeresLayout(): WorldLayout {
  * sowieso braucht, und stammt im Betriebsdienst aus derselben Konstante
  * `INSTANZ` — dieselbe Wahrheit, ein Rundlauf weniger.
  */
-export async function holeWeltdokument(): Promise<ServerStand> {
+export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<ServerStand> {
   let antwort: Response;
   try {
-    antwort = await fetch('/api/worldlayout', {
+    antwort = await fetchFn('/api/worldlayout', {
       method: 'GET',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
@@ -160,6 +173,7 @@ export async function holeWeltdokument(): Promise<ServerStand> {
     message?: string;
     instanz?: string;
     datei?: string;
+    hash?: unknown;
     layout?: unknown;
   };
   try {
@@ -196,6 +210,118 @@ export async function holeWeltdokument(): Promise<ServerStand> {
     instanz: daten.instanz ?? null,
     datei: daten.datei ?? null,
     message: daten.message ?? '',
+    hash: hashNormalisieren(daten.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
+  };
+}
+
+/**
+ * Hash aus Rumpffeld oder Kopfzeile in eine Form bringen: ohne
+ * Anführungszeichen und ohne schwaches Präfix (`W/"…"`). `null` für alles,
+ * was kein nichtleerer Text ist.
+ */
+export function hashNormalisieren(roh: unknown): string | null {
+  if (typeof roh !== 'string') return null;
+  const t = roh.trim().replace(/^W\//, '').replace(/^"(.*)"$/, '$1').trim();
+  return t === '' ? null : t;
+}
+
+/** Ausgang von `schreibeWeltdokument`. */
+export type SchreibAntwort =
+  | { art: 'ok'; message: string; hash: string | null }
+  /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
+  | { art: 'veraltet'; message: string; aktuell: string | null }
+  | { art: 'zu-viele-platzierungen'; message: string; anzahl: number; grenze: number }
+  | { art: 'fehler'; message: string };
+
+/**
+ * Das Dokument auf den Server schreiben — mit der zuletzt gelesenen Basis.
+ *
+ * Die Basis geht im Kopf `If-Match: "<hash>"` mit und NICHT als Rumpffeld:
+ * der Rumpf ist das Dokument selbst, und ein Zusatzfeld darin verwürfe die
+ * Sanitisierung stillschweigend. Ohne bekannten Hash (`basis === null`, z. B.
+ * eine Gegenstelle ohne K0.2) geht die Anfrage ohne Kopf hinaus, wie bisher.
+ *
+ * Kein Wiederholen und kein „dann eben ohne Basis": Bei 409 wird nichts
+ * gesendet, der Aufrufer zeigt den aktuellen Stand und lässt entscheiden.
+ *
+ * Bewusst DOM-frei und mit hereingereichtem `fetch`, damit der Speicherweg
+ * ohne Editorfenster prüfbar ist (client/test/editor-speichern-basis.ts).
+ */
+export async function schreibeWeltdokument(
+  layout: WorldLayout,
+  basis: string | null,
+  fetchFn: typeof fetch = fetch
+): Promise<SchreibAntwort> {
+  const kopf: Record<string, string> = { 'Content-Type': 'application/json' };
+  const b = hashNormalisieren(basis);
+  if (b) kopf['If-Match'] = `"${b}"`;
+
+  let antwort: Response;
+  try {
+    antwort = await fetchFn('/api/worldlayout', { method: 'POST', headers: kopf, body: JSON.stringify(layout) });
+  } catch (fehler) {
+    return { art: 'fehler', message: `Speichern fehlgeschlagen: ${String(fehler)}` };
+  }
+
+  let d: {
+    ok?: boolean;
+    message?: string;
+    fehler?: string;
+    aktuell?: unknown;
+    hash?: unknown;
+    anzahl?: unknown;
+    grenze?: unknown;
+  } = {};
+  try {
+    d = JSON.parse(await antwort.text()) as typeof d;
+  } catch {
+    // Kein JSON: unten aus dem Statuscode entscheiden.
+  }
+
+  if (antwort.status === 409) {
+    return {
+      art: 'veraltet',
+      message: 'Die Welt auf dem Server hat sich seit dem Laden geändert — nichts geschrieben.',
+      aktuell: hashNormalisieren(d.aktuell) ?? hashNormalisieren(antwort.headers?.get('ETag')),
+    };
+  }
+  if (antwort.status === 422 && d.fehler === 'zu-viele-platzierungen') {
+    const anzahl = Number(d.anzahl);
+    const grenze = Number(d.grenze);
+    if (Number.isFinite(anzahl) && Number.isFinite(grenze)) {
+      return {
+        art: 'zu-viele-platzierungen',
+        anzahl,
+        grenze,
+        message: `Zu viele Platzierungen: ${anzahl} (Grenze ${grenze}) — nicht gespeichert.`,
+      };
+    }
+  }
+  if (antwort.ok && d.ok !== false) {
+    return {
+      art: 'ok',
+      message: d.message ?? 'Gespeichert',
+      hash: hashNormalisieren(d.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
+    };
+  }
+  return { art: 'fehler', message: d.message ?? d.fehler ?? `HTTP ${antwort.status}` };
+}
+
+/**
+ * Das Layout mit einer zusätzlichen Platzierung. Ersetzt das Layout, statt
+ * es zu ändern: Der Rückgängig-Stapel des Editors hält Schnappschüsse, und
+ * nur ein unverändertes altes Layout ist ein brauchbarer Schnappschuss.
+ */
+export function layoutMitPlatzierung(
+  layout: WorldLayout,
+  prefab: string,
+  x: number,
+  z: number,
+  yaw: number
+): WorldLayout {
+  return {
+    ...layout,
+    placements: [...(layout.placements ?? []), { prefab, x: Math.round(x), z: Math.round(z), yaw }],
   };
 }
 
@@ -233,6 +359,8 @@ export function entwurfStandLesen(): EntwurfsStand | null {
       zeit: d.zeit,
       instanz: typeof d.instanz === 'string' ? d.instanz : null,
       quelle: d.quelle === 'server' || d.quelle === 'import' ? d.quelle : 'bearbeitet',
+      ...(typeof d.geaendertUm === 'number' ? { geaendertUm: d.geaendertUm } : {}),
+      ...(typeof d.tabId === 'string' ? { tabId: d.tabId } : {}),
     };
   } catch {
     return null;
@@ -243,6 +371,10 @@ export function entwurfStandLesen(): EntwurfsStand | null {
  * Entwurf samt Begleitzettel schreiben. `false` heisst „Speicher voll"
  * — der Aufrufer muss das melden, sonst arbeitet jemand eine Stunde in
  * einem Entwurf, der beim Neuladen weg ist.
+ *
+ * UNGESCHÜTZT: schreibt, ohne nachzusehen, was unter dem Schlüssel steht.
+ * Der Editor benutzt seit K0.3 `EntwurfsSpeicher.schreiben`
+ * (entwurfsSpeicher.ts), das nie über einen fremden Stand hinweg schreibt.
  */
 export function entwurfSchreiben(
   layout: WorldLayout,

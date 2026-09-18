@@ -25,10 +25,7 @@ import {
   createGeo,
   sanitizeWorldLayout,
   pruefeLayout,
-  LAYOUT_ID_MEMBER,
   HEALTH_MEMBER,
-  layoutKennung,
-  istNpcPrefab,
   maxLeben,
   type IGeo,
   HeightmapProvider,
@@ -95,7 +92,7 @@ import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
-import { layoutAbgleich } from './world/layoutAbgleich.js';
+import { layoutAbgleich, layoutObjekteAufBoden } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
@@ -1140,8 +1137,9 @@ export class WovServer {
    * Platzierungen auch in bereits generierten Zonen. Idempotent über eine
    * Kennung im ZDO-Member `layoutId`, ersatzweise eine Nähe-Prüfung
    * (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save werden nicht
-   * dupliziert. Entfernen einer Platzierung entfernt bereits gespawnte
-   * Objekte NICHT (dafür Welt-Reset oder Admin-Abbau).
+   * dupliziert, sondern an das Dokument angeglichen (Drehung, Skalierung,
+   * Position). Gelöschte Platzierungen nehmen ihr ZDO mit. Die Einzelheiten
+   * stehen in `world/layoutAbgleich.ts`.
    *
    * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
    * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
@@ -1155,6 +1153,7 @@ export class WovServer {
         zdos: this.zdos,
         prefabs: this.prefabs,
         bodenHoehe: (x, z) => this.getGroundHeight(x, z),
+        bodenAbstand: (hash) => this.foliageOffset.get(hash) ?? 0,
         anRoute: (zdo, route) => {
           // Der NPC gehört jetzt der Route: Aus der Kreatur-Simulation
           // nehmen, sonst zerren Wander-KI und Route an derselben Position
@@ -1166,11 +1165,10 @@ export class WovServer {
       layout
     );
     if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
-    if (ergebnis.gespawnt > 0 || ergebnis.unbekannt > 0 || ergebnis.entfernt > 0) {
-      console.log(
-        `[WoV] Layout-Platzierungen: ${ergebnis.gespawnt} gespawnt, ${ergebnis.entfernt} verwaiste entfernt, ${ergebnis.unbekannt} unbekannte Prefabs übersprungen`
-      );
-    }
+    console.log(
+      `[WoV] Layout-Abgleich: ${ergebnis.gespawnt} gespawnt, ${ergebnis.aktualisiert} aktualisiert, ` +
+        `${ergebnis.unveraendert} unverändert, ${ergebnis.entfernt} entfernt, ${ergebnis.unbekannt} unbekannt (Prefab übersprungen)`
+    );
     // Inhaltlicher Bericht (Review-Punkt 32): unbekannte Namen und ein
     // fehlender Startpunkt stehen jetzt im Boot-Log statt still zu bleiben.
     for (const b of pruefeLayout(layout)) {
@@ -5373,6 +5371,21 @@ export class WovServer {
       }
       if (angepasst > 0) {
         console.log(`[WoV] Vegetation: ${angepasst} ZDO(s) auf aktuellen Boden nachgesetzt`);
+      }
+      // Dasselbe für handplatzierte Layout-Objekte (Häuser, Steine, Figuren):
+      // Ihr y stammt aus dem Boden von damals. Spielerbauten und Routen-NPCs
+      // bleiben stehen, wo sie sind (s. layoutObjekteAufBoden).
+      const layoutDoc = this.config.worldMode === 'layout' ? sanitizeWorldLayout(this.worldLayoutRaw) : null;
+      if (layoutDoc) {
+        const versetzt = layoutObjekteAufBoden(
+          this.zdos,
+          layoutDoc,
+          (x, z) => this.getGroundHeight(x, z),
+          (hash) => offsetByHash.get(hash) ?? 0
+        );
+        if (versetzt > 0) {
+          console.log(`[WoV] Layout-Objekte: ${versetzt} ZDO(s) auf aktuellen Boden nachgesetzt`);
+        }
       }
     }
 

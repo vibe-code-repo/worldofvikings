@@ -19,9 +19,11 @@ not there**.
   directory — stop, do not "clean it up".
 - **`npm ci`, never `npm install`.** `npm install` rewrites `package-lock.json`,
   and that file has exactly one writer at a time (section 3).
-- **Expect no assets.** `assets/` is deliberately not in the repository. Fetch
-  the asset package with `npm run assets:holen` when the task needs it; the test
-  runner copes without it (`WOV_OHNE_MODELLE=1`, section 5).
+- **Expect no assets.** `assets/` is deliberately not in the repository, and the
+  asset package is deliberately not published yet: `npm run assets:holen` ends
+  in a 404, and that is not a bug to fix. When a task needs assets, copy them
+  from the DEV deployment (section 3.2); the test runner copes without them
+  (`WOV_OHNE_MODELLE=1`, section 5).
 
 ## 2. Language: English
 
@@ -90,13 +92,14 @@ EOF
 
 cd /opt/wov-worktrees/$SLUG
 npm ci
-npm run assets:holen                      # only if the task needs assets
+# only if the task needs assets: a copy, never a symlink (see below)
+rsync -a --exclude /manifest.json /opt/worldofvikings/assets/ assets/
 ```
 
 Read the claims before you write yours. If a path you need is already claimed,
 wait or ask — do not take it.
 
-Fetch your **own** asset copy. Do not symlink `assets/` into
+Take your **own** asset copy. Do not symlink `assets/` into
 `/opt/worldofvikings/assets`: tools that regenerate assets would write through
 the link into the running DEV deployment.
 
@@ -158,7 +161,9 @@ git branch -D agent/$AGENT/$SLUG          # the remote branch is deleted on merg
 rm -r /opt/wov-worktrees/.slots/$n
 ```
 
-Stop your own server, client and test processes first and check with
+Stop your own server, client and test processes first — by the PIDs you
+started, never with `pkill -f <pattern>`: on shared machines a pattern such as
+`org.blender.Blender` also matches other sessions' processes. Then check with
 `ss -ltn | grep -E ":(247|248|529)$n\b"` that the slot's ports are free.
 
 ### 3.6 Branches, ownership and hot files

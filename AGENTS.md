@@ -93,7 +93,7 @@ EOF
 cd /opt/wov-worktrees/$SLUG
 npm ci
 # only if the task needs assets: a copy, never a symlink (see below)
-rsync -a --exclude manifest.json /opt/worldofvikings/assets/ assets/
+rsync -a --exclude /manifest.json /opt/worldofvikings/assets/ assets/
 ```
 
 Read the claims before you write yours. If a path you need is already claimed,

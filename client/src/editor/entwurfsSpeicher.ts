@@ -64,6 +64,8 @@ export const ENTWURF_KANAL = 'wov-editor-entwurf';
 export interface KvSpeicher {
   getItem(schluessel: string): string | null;
   setItem(schluessel: string, wert: string): void;
+  /** Fehlt bei einem Speicher, der nichts entfernen kann; dann bleibt ein alter Zettel stehen. */
+  removeItem?(schluessel: string): void;
 }
 
 /** Der Teil von `window`, der `storage`-Ereignisse liefert. */
@@ -113,7 +115,10 @@ export type SchreibErgebnis =
    * Der ENTWURF ist geschrieben, nur der Begleitzettel (Uhr, Instanz,
    * Stempel) nicht — die Quote reichte für den Entwurf, aber nicht mehr für
    * die paar Byte danach. Nichts ging verloren; „Speicher voll" wäre hier
-   * eine falsche Diagnose.
+   * eine falsche Diagnose. Ein alter Zettel wird dabei ENTFERNT: Er würde
+   * sonst Zeit, Quelle und Instanz eines früheren Stands zum neuen Entwurf
+   * behaupten (der Startdialog liest ihn). Kein Zettel ist die wahrere
+   * Auskunft als ein falscher.
    */
   | 'ohne-zettel'
   /** Speicher voll oder nicht verfügbar — der Aufrufer muss es melden. */
@@ -122,36 +127,85 @@ export type SchreibErgebnis =
   | 'fremd';
 
 /**
- * Entscheidet, wann eine Übernahme einen eigenen Rückgängig-Schritt braucht.
+ * Rückgängig-/Wiederherstellen-Stapel des Editors — samt der Regel, wann eine
+ * Übernahme fremder Entwürfe einen Schritt anlegt.
  *
- * Übernahmen sind EINE Schrittklasse: Der erste fremde Stand nach einer
- * eigenen Änderung legt den eigenen Stand auf den Stapel; jeder weitere
- * fremde Stand, solange dieser Schritt noch oben liegt, legt nichts mehr an.
- * Sonst belegte jeder fremde Schreibvorgang einen der 50 Plätze — der
- * Testflug schreibt bei jedem gesetzten Objekt —, und nach 51 wäre der
- * eigene Stand aus dem Stapel gefallen, während die Meldung weiter behauptet,
- * er liege unter „Rückgängig".
+ * Übernahmen sind EINE Schrittklasse: Die erste nach einer eigenen Änderung
+ * legt den eigenen Stand auf den Stapel; jede weitere, solange seither nichts
+ * anderes geschehen ist, legt nichts mehr an. Sonst belegte jeder fremde
+ * Schreibvorgang einen der 50 Plätze (der Testflug schreibt bei jedem
+ * gesetzten Objekt), und nach 51 wäre der eigene Stand aus dem Stapel
+ * gefallen, während die Meldung weiter behauptet, er liege unter „Rückgängig".
  *
- * Erkannt wird der Übernahmeschritt an der Identität des Layouts, das die
- * letzte Übernahme abgelegt hat: Layouts werden im Editor nur ersetzt, nie
- * verändert, dasselbe Objekt oben auf dem Stapel ist also derselbe Stand.
- * Macht der Nutzer danach etwas (oder Rückgängig), liegt oben ein anderes
- * Objekt, und die nächste Übernahme legt wieder einen Schritt an.
+ * Die Entscheidung hängt an einem ausdrücklichen Zustand, nicht an der
+ * Identität eines Layout-Objekts: `uebernahmeOben` heisst „oben auf dem
+ * Stapel liegt der Stand vor einer Übernahme, und seitdem gab es nur
+ * Übernahmen". JEDE andere Zustandsänderung setzt es zurück — eigene Änderung
+ * und Import (`merke`), Rückgängig (`zurueck`), Wiederherstellen (`vor`) und
+ * das Ersetzen ohne Schritt (`ohneSchritt`: Laden vom Server, Start). Eine
+ * Identitätsprüfung verwechselte „derselbe Stand" mit „derselbe Schritt": ein
+ * Strg+Z auf den Übernahmestand legte dasselbe Objekt später wieder oben ab.
+ * Im Zweifel legt die Übernahme einen Schritt zu viel an, nie einen zu wenig.
+ *
+ * Die Wiederherstellen-Stapel gehören dem Nutzer: Nur eine neue eigene
+ * Änderung (`merke`) verwirft ihn, eine Übernahme nicht — Wiederherstellen
+ * setzt danach den eigenen Stand wieder ein und legt den fremden auf den
+ * Rückgängig-Stapel; nichts geht dabei verloren.
+ *
+ * DOM-frei und ohne Wissen vom Editor: `aktuell` ist immer der gerade
+ * angezeigte Stand, den der Aufrufer danach ersetzt.
  */
-export class UebernahmeSchritte<T> {
-  private marke: T | null = null;
+export class SchrittVerlauf<T> {
+  readonly vergangenheit: T[] = [];
+  readonly zukunft: T[] = [];
+  private uebernahmeOben = false;
+
+  constructor(private readonly grenze = 50) {}
+
+  private ablegen(stand: T): void {
+    this.vergangenheit.push(stand);
+    if (this.vergangenheit.length > this.grenze) this.vergangenheit.shift();
+  }
+
+  /** Eigene Änderung (oder Import) steht bevor: den jetzigen Stand ablegen. */
+  merke(aktuell: T): void {
+    this.ablegen(aktuell);
+    this.zukunft.length = 0;
+    this.uebernahmeOben = false;
+  }
 
   /**
-   * `true`: der Aufrufer muss `aktuell` JETZT als Schritt ablegen (dasselbe
-   * Objekt, nicht eine Kopie). `false`: oben liegt schon der eigene Stand
-   * vor der ersten Übernahme — nichts ablegen, aber den Wiederherstellen-
-   * Stapel leeren, denn der gehörte zum verdrängten fremden Stand.
+   * Ein fremder Entwurf ersetzt den angezeigten. Liefert `true`, wenn dabei
+   * ein Schritt angelegt wurde (`aktuell` liegt jetzt oben).
    */
-  brauchtSchritt(vergangenheit: readonly T[], aktuell: T): boolean {
-    const oben = vergangenheit[vergangenheit.length - 1];
-    if (this.marke !== null && oben === this.marke) return false;
-    this.marke = aktuell;
+  uebernahme(aktuell: T): boolean {
+    if (this.uebernahmeOben) return false;
+    this.ablegen(aktuell);
+    this.uebernahmeOben = true;
     return true;
+  }
+
+  /** Strg+Z: der vorige Stand, oder `undefined`, wenn keiner da ist. */
+  zurueck(aktuell: T): T | undefined {
+    if (this.vergangenheit.length === 0) return undefined;
+    const vorher = this.vergangenheit.pop() as T;
+    this.zukunft.push(aktuell);
+    this.uebernahmeOben = false;
+    return vorher;
+  }
+
+  /** Strg+Y: der nächste Stand, oder `undefined`. */
+  vor(aktuell: T): T | undefined {
+    if (this.zukunft.length === 0) return undefined;
+    const wieder = this.zukunft.pop() as T;
+    this.ablegen(aktuell);
+    this.uebernahmeOben = false;
+    return wieder;
+  }
+
+  /** Der Stand wurde OHNE Schritt ersetzt (Laden vom Server): die Regel neu beginnen. */
+  ohneSchritt(): void {
+    this.uebernahmeOben = false;
   }
 }
 
@@ -294,20 +348,27 @@ export class EntwurfsSpeicher {
     // Der Zettel NACH dem Entwurf: Reisst die Quote, fehlt lieber der
     // Zettel als der Entwurf — und der Entwurf wird deswegen nicht als
     // „nicht gespeichert" gemeldet.
+    const zettel = JSON.stringify({
+      zeit: new Date(zeit).toISOString(),
+      instanz,
+      quelle,
+      geaendertUm: zeit,
+      tabId: this.tabId,
+    } satisfies EntwurfsStand);
     let ergebnis: SchreibErgebnis = 'ok';
     try {
-      this.speicher.setItem(
-        STAND_KEY,
-        JSON.stringify({
-          zeit: new Date(zeit).toISOString(),
-          instanz,
-          quelle,
-          geaendertUm: zeit,
-          tabId: this.tabId,
-        } satisfies EntwurfsStand)
-      );
+      this.speicher.setItem(STAND_KEY, zettel);
     } catch {
+      // Den alten Zettel entfernen (schafft nebenbei Platz) und noch einmal
+      // versuchen; gelingt auch das nicht, bleibt der Entwurf ohne Zettel.
       ergebnis = 'ohne-zettel';
+      try {
+        this.speicher.removeItem?.(STAND_KEY);
+        this.speicher.setItem(STAND_KEY, zettel);
+        ergebnis = 'ok';
+      } catch {
+        // Zettel bleibt weg (oder, ohne removeItem, veraltet).
+      }
     }
     try {
       this.kanal?.postMessage({ typ: 'entwurf', tabId: this.tabId, geaendertUm: zeit });

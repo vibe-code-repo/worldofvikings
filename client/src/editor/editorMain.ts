@@ -79,7 +79,7 @@ import {
   vergleiche,
   type EntwurfsQuelle,
 } from './weltdokument';
-import { EntwurfsSpeicher, UebernahmeSchritte, browserUmgebung } from './entwurfsSpeicher';
+import { EntwurfsSpeicher, SchrittVerlauf, browserUmgebung } from './entwurfsSpeicher';
 import { frage, unterschiedsTafel, vorhang } from './AbgleichDialog';
 // NUR der Typ: Der Katalog selbst kommt per dynamischem import() erst beim
 // ersten Öffnen (s. Werkzeugleiste). Statisch eingebunden zöge er Babylon
@@ -283,17 +283,15 @@ const FORMEN: readonly FormDef[] = [
  * Steht hier oben, weil `ladeEntwurf()` ihn sofort braucht; die Funktionen,
  * die der Rückruf nutzt, laufen erst, wenn das Modul fertig ist.
  */
-const uebernahmeSchritte = new UebernahmeSchritte<WorldLayout>();
 const entwurfsSpeicher = new EntwurfsSpeicher({
   ...browserUmgebung(),
   aktuell: () => layout,
   beiFremdem: (fremd) => {
-    // Übernahmen sind EINE Schrittklasse (s. UebernahmeSchritte): Nur die
+    // Übernahmen sind EINE Schrittklasse (s. SchrittVerlauf): Nur die
     // erste nach einer eigenen Änderung legt einen Schritt an, sonst füllte
     // eine Flut fremder Schreibvorgänge den Stapel und verdrängte den
     // eigenen Stand, obwohl die Meldung unten ihn verspricht.
-    if (uebernahmeSchritte.brauchtSchritt(vergangenheit, layout)) merkeSchritt();
-    else zukunft.length = 0;
+    verlauf.uebernahme(layout);
     layout = fremd;
     gewaehlt = null;
     // Halbfertiges Werkzeug gehört zum verdrängten Stand: ein angefangener
@@ -449,16 +447,22 @@ let zettelHinweisGezeigt = false;
 window.addEventListener('pagehide', (e) => {
   if (!e.persisted) entwurfsSpeicher.schliessen();
 });
+// Eine Seite im Zwischenspeicher bekommt keine `storage`-Ereignisse. Bei der
+// Rückkehr (`persisted`) nachsehen, was inzwischen im Entwurf steht — sonst
+// zeigte der Editor bis zur nächsten eigenen Änderung einen veralteten Stand.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) entwurfsSpeicher.abgleichen();
+});
 
 // ── Undo/Redo (Review-Punkt 18) ──────────────────────────────────────
 // `layout` wird überall immutabel ersetzt — ein Snapshot je Änderung
 // genügt. Strg+Z / Strg+Y (bzw. Strg+Shift+Z).
-const vergangenheit: WorldLayout[] = [];
-const zukunft: WorldLayout[] = [];
+// Stapel und Regel „wann legt eine Übernahme einen Schritt an" stecken in
+// `SchrittVerlauf` (entwurfsSpeicher.ts), damit beides ohne Editorfenster
+// prüfbar ist; hier steht nur die Verdrahtung mit `layout`.
+const verlauf = new SchrittVerlauf<WorldLayout>();
 function merkeSchritt(): void {
-  vergangenheit.push(layout);
-  if (vergangenheit.length > 50) vergangenheit.shift();
-  zukunft.length = 0;
+  verlauf.merke(layout);
 }
 /**
  * Wirkung unverändert, nur aus dem Tastatur-Zweig herausgezogen: Seit die
@@ -467,26 +471,23 @@ function merkeSchritt(): void {
  * Handlung sein und nicht deren Zwilling.
  */
 function rueckgaengig(): void {
-  const vorher = vergangenheit.pop();
-  if (!vorher) {
+  const vorher = verlauf.zurueck(layout);
+  if (vorher === undefined) {
     shell.meldung('Nichts mehr rückgängig zu machen.');
     return;
   }
-  zukunft.push(layout);
   layout = vorher;
   gewaehlt = null;
   alles();
   vorschauAnstossen();
-  shell.meldung(`Rückgängig (${vergangenheit.length} weitere Schritte)`);
+  shell.meldung(`Rückgängig (${verlauf.vergangenheit.length} weitere Schritte)`);
 }
 function wiederherstellen(): void {
-  const wieder = zukunft.pop();
-  if (!wieder) {
+  const wieder = verlauf.vor(layout);
+  if (wieder === undefined) {
     shell.meldung('Nichts wiederherzustellen.');
     return;
   }
-  vergangenheit.push(layout);
-  if (vergangenheit.length > 50) vergangenheit.shift(); // wie in merkeSchritt
   layout = wieder;
   gewaehlt = null;
   alles();
@@ -1533,6 +1534,7 @@ function polygonSchliessen(): void {
     shape: { kind: 'polygon', points: punkte },
     edgeFalloff: 400,
   };
+  merkeSchritt(); // das Schliessen war bisher nicht rückgängig zu machen
   layout = { ...layout, regions: [...layout.regions, region] };
   polygonPunkte = [];
   gewaehlt = region.id;
@@ -2614,6 +2616,7 @@ function seiteBauen(): void {
       if (i < layout.regions.length - 1) {
         const arr = [...layout.regions];
         [arr[i], arr[i + 1]] = [arr[i + 1]!, arr[i]!];
+        merkeSchritt(); // wie jede andere Änderung: rückgängig zu machen
         layout = { ...layout, regions: arr };
         alles(); vorschauAnstossen();
       }
@@ -2911,6 +2914,10 @@ function weltFeldBauen(): void {
               s = sanitizeWorldLayout(JSON.parse(t));
             } catch { /* kein JSON — fällt in den Fehlerzweig unten */ }
             if (s) {
+              // Ohne Schritt wäre der vorige Entwurf nach dem Import nirgends
+              // mehr — und die Übernahme-Regel des Verlaufs ginge von einem
+              // Stapel aus, der zum angezeigten Stand nicht mehr passt.
+              merkeSchritt();
               layout = s;
               gewaehlt = null;
               alles('import');
@@ -3850,6 +3857,8 @@ async function weltAbgleich(): Promise<void> {
     // sonst löschte das erste Strg+Z die frisch geladene Welt.
     if (!gleich(layout, stand.layout) && (layout.regions.length > 0 || (layout.placements?.length ?? 0) > 0)) {
       merkeSchritt();
+    } else {
+      verlauf.ohneSchritt(); // ersetzt ohne Schritt: die Übernahme-Regel beginnt neu
     }
     layout = stand.layout;
     gewaehlt = null;

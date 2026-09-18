@@ -53,6 +53,7 @@ import { faerbeAugen } from '../../client/src/player/augenfarbe.js';
 import { armorByFile, hiddenAppearanceForFiles } from '../../shared/src/aussehen.js';
 import { APPEARANCE_ATTACHMENTS } from '../../shared/src/appearanceVisibility.js';
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody } from '../../client/src/player/armorVisibility.js';
+import { stabilizeHeadSkin } from '../../client/src/player/headSkin.js';
 import { canWearArmor } from '@wov/shared';
 
 interface Teil {
@@ -405,6 +406,7 @@ export class Vorschau {
     // gemeinsam, ohne die Händigkeit der glTF-Wurzel selbst anzufassen.
     this.koerperWurzeln = res.meshes.filter((m) => !m.parent);
     this.koerperNetze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+    stabilizeHeadSkin(this.koerperNetze);
     if (this.augenfarbe) faerbeAugen(this.koerperNetze, this.augenfarbe);
     for (const teil of this.koerperWurzeln) teil.parent = this.figurKnoten;
     this.koerperGruppen = res.animationGroups;
@@ -600,6 +602,7 @@ export class Vorschau {
         wurzeln: res.meshes.filter((m) => m.parent === this.figurKnoten),
         skelette: res.skeletons,
       };
+      if (slot === 'frisur') stabilizeHeadSkin(this.koerperNetze, netze);
       // ImportMeshAsync schaltet Netze sofort ein. Zuerst ausblenden und
       // erst nach dem Lauf-Abgleich freigeben, sonst blitzt eine alte
       // Frisur auf oder bleibt nach schnellem Weiterklicken sogar stehen.

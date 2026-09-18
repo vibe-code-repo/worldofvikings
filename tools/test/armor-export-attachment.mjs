@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -125,7 +125,19 @@ try {
   const hiddenWithoutGeometry = run('hidden', [{ item: 'test_crown', regions: ['Head'], sourceRegions: ['Crown'] }]);
   assert.notEqual(hiddenWithoutGeometry.status, 0);
   assert.match(hiddenWithoutGeometry.stderr, /Every replaced region must have matching export geometry/);
-  console.log('PASS canonical-skin exporter: crown exported as attachment (1 node, no replaces), vest replaces Torso, 2 invalid definitions rejected');
+
+  // 3. No source region may belong to two items (or twice to one): the same mesh would be drawn twice.
+  const sharedSource = run('sharedsource', [
+    { item: 'test_vest', regions: ['Torso'] },
+    { item: 'test_crown', regions: [], sourceRegions: ['Torso'] },
+  ]);
+  assert.notEqual(sharedSource.status, 0);
+  assert.match(sharedSource.stderr, /Source regions must belong to one item only: Torso/);
+  assert(!existsSync(sharedSource.dir), 'A rejected definition must not write anything');
+  const twiceInOne = run('twice', [{ item: 'test_crown', regions: [], sourceRegions: ['Crown', 'Crown'] }]);
+  assert.notEqual(twiceInOne.status, 0);
+  assert.match(twiceInOne.stderr, /Source regions must belong to one item only: Crown/);
+  console.log('PASS canonical-skin exporter: crown exported as attachment (1 node, no replaces), vest replaces Torso, 4 invalid definitions rejected');
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

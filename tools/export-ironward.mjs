@@ -20,6 +20,10 @@ assert(new Set(allRegions).size === allRegions.length, 'Regions must belong to o
 assert(equipment.parts.every(p => (p.sourceRegions ?? p.regions).length), 'Every item needs export geometry');
 assert(equipment.parts.every(p => p.regions.every(region => (p.sourceRegions ?? p.regions).includes(region))),
   'Every replaced region must have matching export geometry');
+// Geometry is exported once: two items sharing a source region would draw the same mesh twice.
+const sourceRegions = equipment.parts.flatMap(p => p.sourceRegions ?? p.regions);
+const sharedSources = [...new Set(sourceRegions.filter((region, i) => sourceRegions.indexOf(region) !== i))];
+assert(!sharedSources.length, `Source regions must belong to one item only: ${sharedSources.join(', ')}`);
 assert(equipment.parts.every(p => /^[a-z][a-z0-9_]*$/i.test(p.item)), 'Unsafe output item name');
 const clone = v => JSON.parse(JSON.stringify(v));
 const hash = b => createHash('sha256').update(b).digest('hex');

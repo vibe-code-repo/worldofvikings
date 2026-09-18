@@ -74,13 +74,15 @@ import {
   Pruefer ruft `python3` also wirklich auf; fehlt es, misst er nichts und
   wuerde still gruen bleiben. Deshalb hier die Weiche und nicht dort.
 
-  Skips when python3 is missing (the checker shells out to it).
+  Skips when python3 is missing (the checker shells out to it). `was` names
+  what the test asks python3 about; it ends up in the skip reason, so the
+  reason names the test's own dependency and not another test's.
 */
-function brauchtPython() {
+function brauchtPython(was) {
   return () =>
     spawnSync('python3', ['-c', 'pass'], { encoding: 'utf-8' }).status === 0
       ? null
-      : 'python3 fehlt — das Fels-Höhenfeld wird per python3 befragt';
+      : `python3 fehlt — ${was} wird per python3 befragt`;
 }
 
 const KERN = [
@@ -119,7 +121,15 @@ const KERN = [
     Blender is not started), the item registry and the seven shipped GLBs
     must agree on items, replaced regions (ten) and the crown attachment.
   */
-  ['tools/test', 'wildwarden-pipeline.mjs', brauchtPython()],
+  ['tools/test', 'wildwarden-pipeline.mjs', brauchtPython('die Bautabelle von Wildwarden')],
+  /*
+    The skin gate itself (tools/test/ironward-skin.mjs) on synthetic GLBs
+    written from the item registry, so no Blender and no assets: every
+    registered family passes complete; GLB extras that disagree with the
+    registry, a part missing from the manifest or from disk, a wrong body and
+    an unknown family each fail with their own message. ~10 s.
+  */
+  ['tools/test', 'armor-skin-gate.mjs'],
   /*
     Ein Ursprung im Container (12.09.2026): Textnachweis über
     deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,
@@ -1705,7 +1715,7 @@ const KERN = [
   // das Dreiecksbudget von 1500 je Wandpaneel. Befragt `felsrelief.py` per
   // `python3 --dump`; kein Blender, kein `assets/`, ~1 s.
   // F3: the rock front layer's block lattice — seam, bounding box, budget.
-  ['tools/elements', 'pruefung/fels-frontschicht.mjs', brauchtPython()],
+  ['tools/elements', 'pruefung/fels-frontschicht.mjs', brauchtPython('das Fels-Höhenfeld')],
   /*
     Mass A (05.09.2026): der WAECHTER ueber die Kollisionstrennung. Die
     Fels-Frontschicht darf seit heute 18 statt 9 cm tief sein — aber nur,

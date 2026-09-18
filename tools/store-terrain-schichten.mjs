@@ -171,6 +171,7 @@ const ZEILEN = 16;
  * `farbe` und `normale` sind Dateinamen ohne Endung unter `STORE`.
  */
 export const SCHICHTEN = {
+  'moss-village': { farbe: 'terrain-moss-village', normale: 'terrain-moss-normal', kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
   'gravel-path': { farbe: 'terrain-gravel-path', normale: 'terrain-gravel-normal', kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
   'rock-a': { farbe: 'terrain-rock-a', normale: 'terrain-rock-a-normal', kachelMeter: 5, normalStaerke: 1.5, metallic: 0.2, smoothness: 0.2 },
   'grass-a': { farbe: 'terrain-grass-a', normale: 'terrain-grass-normal', kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
@@ -288,7 +289,7 @@ export const ZUORDNUNG = [
   /* 8  Heath      */ { name: 'Heath', schicht: 'grass-b', toenung: [1, 1, 1] },
   /* 9  Sand       */ { name: 'Sand', schicht: 'gravel-path', toenung: [1, 1, 1] },
   /* 10 SwampMud   */ { name: 'SwampMud', schicht: 'moss', toenung: [1, 1, 1] },
-  /* 11 Moss       */ { name: 'Moss', schicht: 'moss', toenung: [1, 1, 1] },
+  /* 11 Moss       */ { name: 'Moss', schicht: 'moss-village', toenung: [1, 1, 1] },
   /* 12 Paved      */ { name: 'Paved', schicht: 'gravel-path', toenung: [1, 1, 1] },
   /* 13 SwampDark  */ { name: 'SwampDark', schicht: 'gravel', toenung: [1, 1, 1] },
   /* 14 Basalt     */ { name: 'Basalt', schicht: 'rock-rough', toenung: [1, 1, 1] },

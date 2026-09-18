@@ -11,8 +11,8 @@ for (const [classId, figure, setId] of [
   ['krieger', 'wikinger', 'ironward'], ['hexer', 'wikinger', 'ashenveil'],
   ['druide', 'wikinger', 'wildwarden'], ['seherin', 'wikinger', 'seidraven_male'],
   ['seherin', 'wikingerin', 'seidraven_female'],
-  ['berserker', 'wikinger', 'emberrage_male'],
-  ['berserker', 'wikingerin', 'emberrage_female'],
+  ['runenmagier', 'wikinger', 'emberrage_male'],
+  ['runenmagier', 'wikingerin', 'emberrage_female'],
 ]) {
   const inventory = new Inventory();
   inventory.addItem(findItem('Hammer')!, 1);
@@ -33,7 +33,7 @@ for (const [classId, figure, setId] of [
   assert.equal(grantStarterSet(restarted, classId!, figure!, marker), marker);
   assert.deepEqual(restarted.serialize(), before, 'Relog never replaces sold/dropped starter items');
 }
-for (const [classId, figure] of [['', 'wikinger'], ['jaeger', 'wikinger'], ['krieger', 'wikingerin'], ['invalid', 'wikinger']]) {
+for (const [classId, figure] of [['', 'wikinger'], ['jaeger', 'wikinger'], ['berserker', 'wikinger'], ['berserker', 'wikingerin'], ['krieger', 'wikingerin'], ['invalid', 'wikinger']]) {
   const inventory = new Inventory();
   assert.equal(grantStarterSet(inventory, classId!, figure!, ''), '');
   assert.equal(inventory.all.length, 0);

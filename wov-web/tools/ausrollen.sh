@@ -6,11 +6,19 @@
 # 12.09.2026) ────────────────────────────────────────────────────────
 # wov-lab braucht KEIN Ausrollen mehr im alten Sinn: Der Container ist
 # der Bauort UND der Auslieferort zugleich (tools/wov-update.sh baut
-# `wov-web` dort, wo `git pull` den Quellbaum ohnehin hinlegt), und
-# `deploy/nginx/wov-lab.conf` zeigt `root` direkt auf `wov-web/build` —
-# denselben Ordner, den `npm run build` gerade eben gefuellt hat. Der
-# Vorgabeweg unten baut deshalb NUR NOCH LOKAL und kopiert nichts mehr:
-# es gibt keinen zweiten Ort mehr, an den zu kopieren waere.
+# `wov-web` dort, wo `git pull` den Quellbaum ohnehin hinlegt).
+#
+# ── Geaendert mit "Das Thing" (16.09.2026) ─────────────────────────────
+# Die Seite laeuft jetzt mit adapter-node: `npm run build` erzeugt
+# `build/index.js` (den Dienst) neben `build/client/` (Buendel, Assets,
+# statische Daten) und `build/prerendered/` (die vorgerenderten Seiten).
+# nginx zeigt deshalb NICHT mehr auf `build` als Dateien, sondern reicht
+# `/` an `wov-web.service` weiter (deploy/nginx/wov-lab.conf); die
+# gehashten Buendel und `/assets/` liefert nginx weiter direkt aus
+# `build/client`. Der Vorgabeweg unten baut deshalb NUR NOCH LOKAL und
+# kopiert nichts: es gibt keinen zweiten Ort mehr, an den zu kopieren
+# waere. Nach dem Bau muss der Dienst neu starten, damit er den neuen
+# Baum liest — das tut tools/wov-update.sh (Dienste-Reigen).
 #
 #   tools/ausrollen.sh             baut lokal (wov-lab, Vorgabe)
 #
@@ -47,7 +55,9 @@ if [[ "${1:-}" != "--fern" ]]; then
   echo "→ Skripte parsebar?"
   (cd "$WOV_WEB/build" && find . -name '*.js' -exec node --check {} \; && echo '  alle ok')
 
-  echo "fertig. nginx (deploy/nginx/wov-lab.conf) liefert bereits aus $WOV_WEB/build."
+  echo "fertig. wov-web.service liest $WOV_WEB/build; nginx (deploy/nginx/wov-lab.conf)"
+  echo "reicht / an den Dienst weiter, die Buendel unter build/client liefert es direkt."
+  echo "Damit der Dienst den neuen Baum liest, danach: sudo systemctl restart wov-web"
   exit 0
 fi
 

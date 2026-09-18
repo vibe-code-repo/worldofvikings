@@ -3,19 +3,24 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "world-of-vikings.com — SvelteKit, vollstaendig vorgerendert",
+  "description": "world-of-vikings.com — SvelteKit; Seiten vorgerendert, Forum serverseitig gerendert",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "vorschau": "vite build && vite preview",
+    "start": "node build",
+    "vorschau": "vite build && node build",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "lint": "biome check .",
     "format": "biome check --write .",
     "ohne-js": "bash tools/ohne-js-pruefen.sh",
     "ausrollen": "bash tools/ausrollen.sh"
   },
+  "dependencies": {
+    "markdown-it": "^14.1.0"
+  },
   "devDependencies": {
-    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/adapter-node": "^5.2.0",
+    "@types/markdown-it": "^14.1.2",
     "@sveltejs/kit": "^2.70.3",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "svelte": "^5.57.0",

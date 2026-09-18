@@ -83,8 +83,54 @@ const TOL = 1e-4;
 // ─────────────────────────────────────────────────────────────────────────
 // Ein unabhängiger glTF-2.0-Leser (siehe Kopfkommentar)
 // ─────────────────────────────────────────────────────────────────────────
+/*
+  Minimaler glTF-2.0-Ausschnitt, den dieser Leser anfasst. Bewusst NUR die
+  Felder, die unten wirklich gelesen werden: ein `any` wäre die bequeme,
+  aber stumme Wahl — ein Tippfehler in `json.accessors` fiele erst zur
+  Laufzeit auf. Diese Schnittstellen sind die Spezifikationsfelder, auf
+  die sich der Leser verlässt (glTF 2.0, §5 Accessors / §3.6 Meshes).
+*/
+interface GlbAccessor {
+  readonly bufferView?: number;
+  readonly byteOffset?: number;
+  readonly componentType: number;
+  readonly count: number;
+  readonly type: string;
+  readonly min: number[];
+  readonly max: number[];
+}
+interface GlbBufferView {
+  readonly byteOffset?: number;
+  readonly byteLength?: number;
+}
+interface GlbPrimitive {
+  readonly attributes: Record<string, number>;
+  readonly indices: number;
+  readonly material?: number;
+}
+interface GlbMesh {
+  readonly name?: string;
+  readonly primitives: GlbPrimitive[];
+}
+interface GlbMaterial {
+  readonly name: string;
+}
+interface GlbNode {
+  readonly name?: string;
+  readonly translation?: number[];
+  readonly rotation?: number[];
+  readonly scale?: number[];
+}
+interface GlbJson {
+  readonly accessors: GlbAccessor[];
+  readonly bufferViews: GlbBufferView[];
+  readonly meshes: GlbMesh[];
+  readonly materials: GlbMaterial[];
+  readonly nodes?: GlbNode[];
+}
+
 interface GlbInhalt {
-  readonly json: any;
+  readonly json: GlbJson;
   readonly nodeName: string | undefined;
   readonly meshName: string | undefined;
   readonly materialName: string | undefined;
@@ -116,17 +162,17 @@ function leseGlb(bytes: Uint8Array): GlbInhalt {
   if (view.getUint32(16, true) !== 0x4e4f534a) throw new Error('Chunk 0 ist nicht JSON');
   const json = JSON.parse(
     new TextDecoder().decode(bytes.subarray(20, 20 + jsonLen))
-  ) as any;
+  ) as GlbJson;
   const binLen = view.getUint32(20 + jsonLen, true);
   if (view.getUint32(24 + jsonLen, true) !== 0x004e4942) throw new Error('Chunk 1 ist nicht BIN');
   const binAb = 28 + jsonLen;
   if (binAb + binLen > bytes.byteLength) throw new Error('BIN-Chunk ragt aus der Datei');
 
-  const accessors = json.accessors as any[];
-  const views = json.bufferViews as any[];
+  const accessors = json.accessors;
+  const views = json.bufferViews;
   const komponenten: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
 
-  const roh = (index: number): { a: any; ab: number; n: number } => {
+  const roh = (index: number): { a: GlbAccessor; ab: number; n: number } => {
     const a = accessors[index];
     const v = views[a.bufferView];
     return {
@@ -235,9 +281,9 @@ check(einzel.materialName === STONE_MATERIAL_NAME, `Material heisst ${STONE_MATE
 check(einzel.normals !== null, 'NORMAL ist da');
 check(einzel.uvs === null, 'TEXCOORD_0 ist NICHT da (Vorgabe: triplanar braucht keins)');
 check(
-  einzel.json.nodes[0].translation === undefined &&
-    einzel.json.nodes[0].rotation === undefined &&
-    einzel.json.nodes[0].scale === undefined,
+  einzel.json.nodes?.[0]?.translation === undefined &&
+    einzel.json.nodes?.[0]?.rotation === undefined &&
+    einzel.json.nodes?.[0]?.scale === undefined,
   'Knoten ohne Transformation — Ursprung ist der Bauraum-Ursprung'
 );
 check(einzel.indexComponentType === CT_USHORT, 'Indextyp UNSIGNED_SHORT bei 24 Ecken');

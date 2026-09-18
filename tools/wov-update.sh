@@ -125,7 +125,7 @@ else
   WURZEL="$PWD"
 fi
 
-DIENSTE=(wov-server wov-client wov-admin)
+DIENSTE=(wov-server wov-client wov-admin wov-web)
 ENV_DATEI=/etc/wov.env
 ADMIN_TOKEN_DATEI=/etc/wov-admin.token
 
@@ -371,6 +371,31 @@ gesundheit_pruefen() {
       sleep 2
     done
   fi
+
+  if printf '%s\n' "${GESTARTET[@]:-}" | grep -qx 'wov-web'; then
+    echo
+    echo "▶ Gesundheitsprüfung: Webseite http://127.0.0.1:3000/"
+    local web_code web_beginn=$SECONDS
+    while :; do
+      web_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:3000/" || true)"
+      if [ "$web_code" = "200" ]; then
+        echo "  ✓ 200 nach $((SECONDS - web_beginn)) s"
+        break
+      fi
+      if [ "$(systemctl is-failed wov-web.service 2>/dev/null || true)" = "failed" ]; then
+        echo "  ✗ wov-web ist failed" >&2
+        journalctl -u wov-web -n 40 --no-pager >&2
+        exit 1
+      fi
+      if [ $((SECONDS - web_beginn)) -ge 60 ]; then
+        echo "  ✗ nach 60 s keine brauchbare Antwort (zuletzt HTTP '$web_code')." >&2
+        echo "    '000' heisst: nichts lauscht — wov-web.service pruefen." >&2
+        journalctl -u wov-web -n 40 --no-pager >&2
+        exit 1
+      fi
+      sleep 2
+    done
+  fi
 }
 
 # ── Trockenlauf: Bauen/Sichern/Tauschen/Zurücknehmen in $1 durchspielen ──
@@ -512,7 +537,7 @@ fi
 # systemctl stop räumt die ganze cgroup ab. Liefe dieses Skript aus einer
 # der Units heraus — etwa vom Betriebsdienst gestartet —, würde es sich
 # beim Stoppen selbst erschießen, mitten zwischen Pull und npm ci.
-if grep -qE 'wov-(server|client|admin)\.service' /proc/self/cgroup 2>/dev/null; then
+if grep -qE 'wov-(server|client|admin|web)\.service' /proc/self/cgroup 2>/dev/null; then
   echo "ABBRUCH: Dieses Skript läuft innerhalb einer wov-Unit." >&2
   echo "Es stoppt die Dienste und würde sich dabei selbst beenden." >&2
   echo "Von einer normalen Sitzung aus aufrufen (ssh, dann sudo)." >&2

@@ -102,9 +102,9 @@ export interface GameSettings {
    */
   depthOfField: boolean;
   /**
-   * Sonnenstrahlen (GraphicsSettingBool.SunShafts). Im Original an, bei uns
-   * aus — der Effekt kostet eine komplette zusätzliche Szenenpassage und
-   * halbiert die Bildrate. Begründung siehe PostProcessing.setSunShafts().
+   * Sun shafts are enabled for fresh settings, as in the source game.
+   * The current renderer gates the pass by sun visibility and uses a
+   * reduced occlusion buffer; saved user choices remain authoritative.
    */
   sunShafts: boolean;
   /**
@@ -284,7 +284,7 @@ export const DEFAULTS: GameSettings = {
    * Default OFF — no longer because the effect is inert (that is fixed),
    * but because it costs a full extra scene pass.
    */
-  sunShafts: false,
+  sunShafts: true,
   ambientOcclusion: false,
   /**
    * Voreinstellung AUS — der Effekt tauscht ein Artefakt gegen ein

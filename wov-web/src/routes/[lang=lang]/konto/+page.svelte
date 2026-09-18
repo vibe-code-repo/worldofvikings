@@ -24,6 +24,7 @@
     readShore,
     readToken,
     signedInShore,
+    setAvatar,
     writeAccountName,
     writeShore,
   } from '$lib/account';
@@ -63,11 +64,34 @@
   let loading = $state(false);
   let account = $state<Account | null>(null);
   let characters = $state<Character[]>([]);
+  /** Der Konto-Avatar (Charakter-Id) oder null — Das Thing, M4. */
+  let avatar = $state<number | null>(null);
+  let avatarBusy = $state(false);
   let error = $state<MessageKey | null>(null);
   /** The character the delete question is currently standing for. */
   let deleteAsk = $state<number | null>(null);
   /** The character a call is running for — locks only that one's buttons. */
   let busy = $state<number | null>(null);
+
+  /**
+   * Den Avatar setzen (Das Thing, M4). Der Server prueft, dass der Charakter
+   * dem Konto gehoert; hier wird nur der Zustand nachgezogen und ein Fehler
+   * als Satz gezeigt.
+   */
+  async function avatarChanged(): Promise<void> {
+    const token = readToken(shore);
+    if (!token) return;
+    avatarBusy = true;
+    error = null;
+    try {
+      const r = await setAvatar(shore, token, avatar);
+      avatar = r.avatar;
+    } catch (err) {
+      error = err instanceof ApiError ? errorMessageKey(err.key) : errorMessageKey('unknown');
+    } finally {
+      avatarBusy = false;
+    }
+  }
 
   /* -------------------------------------------------------- appearance */
 
@@ -113,6 +137,7 @@
       signedIn = false;
       account = null;
       characters = [];
+      avatar = null;
       return;
     }
     loading = true;
@@ -120,6 +145,7 @@
       const data = await me(shore, token);
       account = data.account;
       characters = data.characters;
+      avatar = data.avatar ?? null;
       signedIn = true;
       // Die frischeste Auskunft über den Namen, die es gibt — sie geht
       // gleich an die Kopfleiste weiter, die ihn sonst selbst erfragen
@@ -131,6 +157,7 @@
         signedIn = false;
         account = null;
         characters = [];
+        avatar = null;
       } else {
         // A server error or a broken connection is NOT a confirmed sign-in.
         // This used to say `signedIn = true`: the page then showed the
@@ -351,6 +378,29 @@
       {:else}
         {#if characters.length === 0}
           <p class="account-empty">{t['account.page.empty']}</p>
+        {/if}
+        {#if characters.length > 0}
+          <!--
+            Das AVATAR (Das Thing, M4): welcher eigene Recke den Menschen
+            nach aussen vertritt. Eine Auswahl, kein Textfeld — der Server
+            kennt nur die eigenen Charaktere.
+          -->
+          <div class="account-avatar">
+            <label class="account-label" for="account-avatar">{t['account.avatar.label']}</label>
+            <select
+              class="account-input"
+              id="account-avatar"
+              bind:value={avatar}
+              onchange={() => void avatarChanged()}
+              disabled={avatarBusy}
+            >
+              <option value={null}>{t['account.avatar.none']}</option>
+              {#each characters as c (c.id)}
+                <option value={c.id}>{c.name}</option>
+              {/each}
+            </select>
+            <p class="account-hint">{t['account.avatar.hint']}</p>
+          </div>
         {/if}
         <div class="account-list">
           {#each characters as c (c.id)}

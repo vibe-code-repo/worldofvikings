@@ -10,7 +10,7 @@ export function isCharacterClass(value: unknown): value is typeof CHARACTER_CLAS
   return typeof value === 'string' && CHARACTER_CLASSES.some(id => id === value);
 }
 export const CLASS_EQUIPMENT_FAMILIES: Readonly<Record<string, string>> = {
-  krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven', berserker: 'emberrage',
+  krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven', runenmagier: 'emberrage',
 };
 
 /** Server chooses the complete, compatible set; the client never chooses item IDs. */

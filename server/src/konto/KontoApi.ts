@@ -179,12 +179,18 @@ export class KontoApi {
     if (pfad === '/accounts/login' && m === 'POST') return this.anmelden(req, res);
     if (pfad === '/accounts/me' && m === 'GET') return this.ich(req, res);
     if (pfad === '/accounts/characters' && m === 'POST') return this.charakterAnlegen(req, res);
+    if (pfad === '/accounts/avatar' && m === 'POST') return this.avatarSetzen(req, res);
 
     const spielen = /^\/accounts\/characters\/(\d+)\/play$/.exec(pfad);
     if (spielen && m === 'POST') return this.spielen(req, res, Number(spielen[1]));
 
-    const loeschen = /^\/accounts\/characters\/(\d+)$/.exec(pfad);
-    if (loeschen && m === 'DELETE') return this.charakterLoeschen(req, res, Number(loeschen[1]));
+    const einzelCharakter = /^\/accounts\/characters\/(\d+)$/.exec(pfad);
+    if (einzelCharakter && m === 'GET') {
+      return this.charakterOeffentlich(res, Number(einzelCharakter[1]));
+    }
+    if (einzelCharakter && m === 'DELETE') {
+      return this.charakterLoeschen(req, res, Number(einzelCharakter[1]));
+    }
 
     this.json(res, 404, { error: 'unknown-endpoint' });
   }
@@ -284,6 +290,7 @@ export class KontoApi {
       token: this.kontoTokenAusstellen(r.konto.id),
       account: { username: r.konto.benutzername, email: r.konto.email },
       characters: [],
+      avatar: null,
     });
   }
 
@@ -322,6 +329,7 @@ export class KontoApi {
       token: this.kontoTokenAusstellen(konto.id),
       account: { username: konto.benutzername, email: konto.email },
       characters: this.db.charaktereVonKonto(konto.id).map(nachAussen),
+      avatar: this.db.avatarVon(konto.id),
     });
   }
 
@@ -333,6 +341,7 @@ export class KontoApi {
     this.json(res, 200, {
       account: { username: konto.benutzername, email: konto.email },
       characters: this.db.charaktereVonKonto(kontoId).map(nachAussen),
+      avatar: this.db.avatarVon(kontoId),
     });
   }
 
@@ -392,6 +401,47 @@ export class KontoApi {
   }
 
   /**
+   * Ein Charakter OHNE Anmeldung — Name und Aussehen, sonst nichts.
+   *
+   * Der Zweck ist der Avatar und das oeffentliche Reckenprofil: Das Thing
+   * zeigt den Charakter eines Beitrags, die Ruestkammer spaeter dasselbe.
+   * `nachAussen` gibt nur weiter, was ohnehin oeffentlich ist (Name,
+   * Aussehen, Zeitstempel) — keine Konto-Id, keine spielerId.
+   */
+  private charakterOeffentlich(res: ServerResponse, id: number): void {
+    const c = this.db.charakterNachId(id);
+    if (!c) return this.json(res, 404, { error: 'unknown' });
+    this.json(res, 200, { character: nachAussen(c) });
+  }
+
+  /**
+   * Setzt den Avatar des Kontos (Das Thing, M4). Angemeldet noetig; der
+   * Charakter muss DEM Konto gehoeren (`charakterVonKonto`), sonst 404.
+   * `characterId: null` loescht die Wahl.
+   */
+  private async avatarSetzen(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const kontoId = this.kontoAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+
+    if (k.characterId === null || k.characterId === undefined || k.characterId === '') {
+      this.db.avatarSetzen(kontoId, null);
+      return this.json(res, 200, { avatar: null });
+    }
+
+    const id = Number(k.characterId);
+    if (!Number.isInteger(id) || id <= 0) return this.json(res, 400, { error: 'character-invalid' });
+
+    const c = this.db.charakterVonKonto(kontoId, id);
+    if (!c) return this.json(res, 404, { error: 'unknown' });
+
+    this.db.avatarSetzen(kontoId, id);
+    this.json(res, 200, { avatar: id });
+  }
+
+  /**
    * Hand out a PLAYER token for one character — the ticket into the world.
    *
    * This is the only place where an account turns into a game identity,
@@ -420,6 +470,18 @@ export class KontoApi {
     const b64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
     const sig = createHmac('sha256', this.kontoSchluessel).update(b64).digest('base64url');
     return `${b64}.${sig}`;
+  }
+
+  /**
+   * Konto-Id aus dem Token dieser Anfrage, oder null — fuer den FORUM-Dienst.
+   *
+   * Eine duenne, oeffentliche Huelle um `kontoAus`: Der Token-Aufbau bleibt
+   * genau hier (eine Quelle), das Forum fragt nur. So gibt es keinen
+   * zweiten Ort, an dem die Signaturpruefung nachgebaut und irgendwann
+   * falsch nachgebaut werden koennte.
+   */
+  kontoIdAus(req: IncomingMessage): number | null {
+    return this.kontoAus(req);
   }
 
   /** Account id from the Authorization header, or null. */

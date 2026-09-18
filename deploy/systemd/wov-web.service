@@ -1,0 +1,52 @@
+[Unit]
+# Die Webseite als Dienst, seit „Das Thing" (16.09.2026).
+#
+# Bis dahin war world-of-vikings.com mit adapter-static vollstaendig
+# vorgerendert und nginx lieferte nur Dateien — kein laufender Prozess
+# noetig. Mit dem Forum entstehen Themenseiten aus der Datenbank und
+# sollen trotzdem als fertiges HTML ankommen; das geht nur mit Rendering
+# bei der Anfrage. Der Node-Adapter kann beides in EINEM Dienst: die
+# bestehenden Seiten bleiben vorgerendert, nur die Forum-Routen rendern
+# live (wov-web/svelte.config.js).
+#
+# Damit haengt die oeffentliche Webseite an diesem Dienst. Faellt er aus,
+# antwortet nginx mit 502 — deshalb Restart=always und die
+# Gesundheitspruefung in tools/wov-update.sh.
+Description=World of Vikings — Webseite und Das Thing (SvelteKit/Node, Port 3000)
+Documentation=file:///opt/worldofvikings/deploy/nginx/README.md
+After=network-online.target wov-server.service
+Wants=network-online.target
+# Ohne gebauten Baum gibt es nichts zu starten. `build/index.js` entsteht in
+# tools/wov-update.sh (Schritt „Webseite bauen"); ein Neustart davor faende
+# nur Trümmer vor und liefe in eine Endlosschleife.
+ConditionPathExists=/opt/worldofvikings/wov-web/build/index.js
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/worldofvikings/wov-web
+# Vorgaben ZUERST, /etc/wov.env DANACH: Was der Container setzt, gewinnt.
+# ORIGIN und PORT gehoeren hierher, weil sie fuer JEDE Instanz gelten; eine
+# Ausnahme (etwa ein anderer oeffentlicher Name) traegt /etc/wov.env nach.
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+# ORIGIN = die OEFFENTLICHE Adresse. SvelteKit baut daraus canonical- und
+# hreflang-Adressen sowie die Pruefung von Formularzielen; ohne den Wert
+# stuende in jeder Seite http://127.0.0.1:3000.
+Environment=ORIGIN=https://world-of-vikings.com
+# Die Forum-Seiten holen ihre Daten serverseitig beim Spielserver ab.
+Environment=WOV_GAME_API=http://127.0.0.1:2467
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-/etc/wov.env
+ExecStart=/usr/bin/node build
+Restart=always
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wov-web
+
+[Install]
+WantedBy=multi-user.target

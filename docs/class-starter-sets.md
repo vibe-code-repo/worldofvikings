@@ -10,6 +10,7 @@ verwenden dieselbe Zuordnung in `shared/src/equipmentSets.ts`:
 | Hexer | Ashenveil | Wikinger |
 | Druide | Wildwarden | Wikinger |
 | Seherin | Seidraven | Wikinger und Wikingerin |
+| Runenmagier | Glutzorn / Emberrage | Wikinger und Wikingerin |
 
 Beim ersten Spieleinstieg kommt das vollständige kompatible Set ins Inventar,
 unabhängig vom Vorschauschalter „Rüstung anzeigen“. Es wird nicht automatisch
@@ -33,4 +34,4 @@ des vorhandenen Charakters zu seiner Klasse; sie wird nicht geraten.
 
 Prüfungen: `server/test/starter-sets.ts` testet Zuordnung, volle Inventare und
 Migration. `server/test/starter-sets-e2e.ts` prüft die echte HTTP-Erstellung und
-WebSocket-Anmeldung für alle fünf Varianten sowie Wiederanmeldung und Neustart.
+WebSocket-Anmeldung für alle sieben Varianten sowie Wiederanmeldung und Neustart.

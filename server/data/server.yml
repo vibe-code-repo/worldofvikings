@@ -1,3 +1,5 @@
+# 2026-09-13: Village profile supersedes historical Level1/no-fog trials below.
+# Current rationale and validation: design/village-biome.md.
 # World of Vikings Server Configuration
 # Aufbau übernommen aus der data/server.yml des C++-Referenzservers
 #
@@ -261,7 +263,7 @@ wetter:
   # Name einer Umgebung aus shared/src/envData.json (Clear, Misty, Rain,
   # ThunderStorm, LightRain, Snow, SwampRain, ...). Leer = wuerfeln wie
   # bisher. Ein unbekannter Name wird beim Start gemeldet und ignoriert.
-  umgebung: Klar-Comic
+  umgebung: Village
   # Feste Nebeldichte. Leer oder fehlend = der Tageszeit folgen — und das
   # ist bei Klar-Comic die richtige Wahl: Dieses Wetter bringt seine vier
   # Dichten fuer die exp-Kurve selbst mit (0,0009 bis 0,0025), eine feste
@@ -480,9 +482,9 @@ look:
   # dem, was im Sichtbereich je gerendert wird, also erscheint kein
   # Nebel. Der Rueckweg zu den gemessenen Werten oben ist nebelStart 50 /
   # nebelEnde 800.
-  nebelmodus: linear
-  nebelStart: 4000
-  nebelEnde: 20000
+  nebelmodus: exp2
+  nebelStart: 0
+  nebelEnde: 300
   nebelWaerme: 0
   # ── Grading: die ganze Farbhandschrift des Vorbilds ──────────────────
   # `ShadowsMidtonesHighlights` ist die EINZIGE Komponente, die in Level1
@@ -539,8 +541,8 @@ look:
   # Effekt und keine Zahl (F15).
   bloom:
     an: true
-    schwelle: 0.35
-    staerke: 0.55
+    schwelle: 1.0
+    staerke: 2.0
     skala: 0.5
     kernel: 32
   # UMGERECHNET, nicht kopiert: URPs `intensity 0,25` und Babylons
@@ -578,6 +580,9 @@ look:
   # anliegt — deutlich frueher als unser bisheriger Autofokus (scharf bis
   # 70 m).
   dof:
+    gaussianStart: 30
+    gaussianEnd: 50
+    gaussianRadius: 0.5
     an: true
     fokus: 2.0
     blende: 6.0
@@ -639,7 +644,7 @@ look:
   # `lookProfil.ts`); fehlen sie hier, gelten die kalibrierten Vorgaben.
   himmel:
     zenit: '#6B8798'
-    horizont: '#8D9598'
+    horizont: nebel
     sonnenglühen: 0.2
   # ── Schatten: 50 m, ZWEI Kaskaden ────────────────────────────────────
   # Die Reichweite 50 m stammt aus dem URP-Asset der Stufe „Balanced"
@@ -705,5 +710,5 @@ look:
     aufloesung: 1024
     reichweite: 50
     kaskaden: 2
-    dunkelheit: 0.20
+    dunkelheit: 0.13
     rasten: true

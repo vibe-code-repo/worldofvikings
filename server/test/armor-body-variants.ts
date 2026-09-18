@@ -35,7 +35,8 @@ assert(validArmorParts(female.appearance,'wikingerin'));
 assert(!validArmorParts(female.appearance,'wikinger'));
 assert(!validArmorParts({...female.appearance,kopf:male.appearance.kopf},'wikingerin'));
 
-const server=Object.create(WovServer.prototype) as any;
+type ServerProbe = WovServer & Record<string, unknown>;
+const server=Object.create(WovServer.prototype) as ServerProbe;
 server.zdosVon=()=>({getZDO:()=>({setString:()=>{}})});
 const peer={name:'ArmorBodyVariantTest',figur:'wikingerin',frisur:'H_02',haarfarbe:'mittelbraun',ruestung:'|',inventar:new Inventory(),sendPacketWith:()=>{}};
 for(const part of [...SEIDRAVEN_MALE_PARTS,...SEIDRAVEN_FEMALE_PARTS])peer.inventar.addItem(findItem(part.item)!,1);

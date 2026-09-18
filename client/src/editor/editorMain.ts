@@ -269,19 +269,6 @@ const FORMEN: readonly FormDef[] = [
 
 // ── Zustand ──────────────────────────────────────────────────────────
 /**
- * Der Startwert ist BEWUSST weiter der Browser-Entwurf und nicht der
- * Serverstand: Der Editor baut sein Fenster synchron auf, der Server
- * antwortet asynchron. Auf die Antwort zu warten hiesse, eine Sekunde
- * lang eine leere Seite zu zeigen und danach jede Zeile hier unten in
- * einen Rückruf zu verschieben.
- *
- * Der Entwurf ist in dieser Sekunde aber NICHT bedienbar: `weltAbgleich`
- * (ganz unten) legt sofort einen Vorhang über das Fenster und nimmt ihn
- * erst weg, wenn feststeht, welcher Stand gilt. Damit ist der frühe
- * Entwurf ein Vorschaubild und keine Arbeitsgrundlage — der Unterschied,
- * an dem der ganze Schritt hängt.
- */
-/**
  * Der Entwurf im localStorage, gegen fremde Schreiber abgesichert
  * (entwurfsSpeicher.ts). Der Offline-Testflug öffnet sich in einem zweiten
  * Tab und schreibt in DENSELBEN Schlüssel; ohne diesen Speicher überschrieb
@@ -311,6 +298,19 @@ const entwurfsSpeicher = new EntwurfsSpeicher({
     );
   },
 });
+/**
+ * Der Startwert ist BEWUSST weiter der Browser-Entwurf und nicht der
+ * Serverstand: Der Editor baut sein Fenster synchron auf, der Server
+ * antwortet asynchron. Auf die Antwort zu warten hiesse, eine Sekunde
+ * lang eine leere Seite zu zeigen und danach jede Zeile hier unten in
+ * einen Rückruf zu verschieben.
+ *
+ * Der Entwurf ist in dieser Sekunde aber NICHT bedienbar: `weltAbgleich`
+ * (ganz unten) legt sofort einen Vorhang über das Fenster und nimmt ihn
+ * erst weg, wenn feststeht, welcher Stand gilt. Damit ist der frühe
+ * Entwurf ein Vorschaubild und keine Arbeitsgrundlage — der Unterschied,
+ * an dem der ganze Schritt hängt.
+ */
 let layout: WorldLayout = ladeEntwurf();
 /**
  * Welche Welt bearbeiten wir? Kommt AUSSCHLIESSLICH aus der Antwort des

@@ -15,14 +15,16 @@
  *
  * World 2: (f) two placements with exactly the same prefab and position stay
  * ONE ZDO (pinned here, the decision belongs to a later card), (g) a player
- * piece of the same prefab next to a NEW placement is never adopted.
+ * piece of the same prefab next to a NEW placement is never adopted, (h) a
+ * hand-placed piece of vegetation keeps the ground offset the load-time
+ * re-seating uses (no flipping between ground and ground + offset).
  *
  * Run: npx tsx test/layout-abgleich.ts   (from server/)
  */
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LAYOUT_ID_MEMBER, getStableHash, layoutKennung } from '@wov/shared';
+import { FOLIAGE, LAYOUT_ID_MEMBER, getStableHash, layoutKennung } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
 
@@ -227,14 +229,23 @@ check('scale 2 -> 1: scaleScalar member removed', !z2b.hasMember(getStableHash('
 console.log('\n[5] World 2: two identical placements; a player piece next to a new placement');
 const D1 = { prefab: 'wood_wall_roof', x: 220, z: 100 };
 const NEU = { prefab: 'woodwall', x: 300, z: 100 };
-const w1 = starte('welt2', dokument(BASIS_VORHER, [D1, { ...D1 }])).server;
+const BAUM = { prefab: 'environment-sm-env-rock-cliff-02-1', x: 260, z: 100 };
+const w1 = starte('welt2', dokument(BASIS_VORHER, [D1, { ...D1 }, BAUM])).server;
+const baumOffset = FOLIAGE.find((f) => f.prefabHash === w1.prefabs.getByName(BAUM.prefab)?.hash)?.groundOffset ?? 0;
+const baum1 = eines(w1, BAUM)!;
+const baumY1 = baum1.position.y;
+const baumRev1 = baum1.revision.raw;
+check('(h) vegetation prefab has a ground offset (else the check proves nothing)', baumOffset !== 0, `${baumOffset}`);
+check('(h) spawned at ground + offset', nahe(baumY1, w1.getGroundHeight(BAUM.x, BAUM.z) + baumOffset, 1e-6), `y=${baumY1} ground=${w1.getGroundHeight(BAUM.x, BAUM.z)} offset=${baumOffset}`);
 const anzahl1 = nachKennung(w1, layoutKennung(D1)).length;
 const spielerNah = w1.zdos.createZDO(w1.prefabs.getByName(NEU.prefab)!.hash, { x: 300.1, y: w1.getGroundHeight(300.1, 100), z: 100 });
 spielerNah.setInt('spieler', 1);
 const spielerNahId = spielerNah.zdoid.toString();
 const spielerNahPos = { ...spielerNah.position };
 w1.saveWorld();
-const w2 = starte('welt2', dokument(BASIS_VORHER, [D1, { ...D1 }, NEU])).server;
+const w2 = starte('welt2', dokument(BASIS_VORHER, [D1, { ...D1 }, BAUM, NEU])).server;
+const baum2 = eines(w2, BAUM)!;
+check('(h) after a reboot: same y, same revision', nahe(baum2.position.y, baumY1, 1e-6) && baum2.revision.raw === baumRev1, `y=${baum2.position.y} was ${baumY1}, rev ${baum2.revision.raw} was ${baumRev1}`);
 const anzahl2 = nachKennung(w2, layoutKennung(D1)).length;
 check('(f) two identical placements: ONE ZDO before and after (pinned)', anzahl1 === 1 && anzahl2 === 1, `${anzahl1} -> ${anzahl2}`);
 const nah2 = w2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === spielerNahId)!;

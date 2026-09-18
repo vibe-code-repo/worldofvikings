@@ -706,9 +706,29 @@ look:
   # Schattenrestlicht (D/A ≈ 3,3). Dieselbe Zahl, anderer Weg. Der Weg
   # des Vorbilds hiesse, das Grundlicht auf das Sechsfache zu heben und
   # die Bodenkalibrierung der Stufe 2 neu zu fahren — ein eigener Block.
+  # ── G18 (18.09.2026): 1024 → 2048 px, lambda 0,8 → 0,3, Blend 0,1 → 0,2 ─
+  # Am laufenden Generator gelesen (minZ 0,5, 50 m, 2 Kaskaden): Mit lambda
+  # 0,8 endete die scharfe Nahkaskade bei 9,05 m, dahinter trug EINE Karte
+  # 5,4-fach groebere Texel (2,26 → 12,22 cm). Das ist das „scharf erst beim
+  # Hinlaufen". Jetzt endet sie bei 19,2 m, Texel 2,40 / 5,96 cm (Sprung
+  # 2,5-fach, auf den letzten 3,8 m verblendet).
+  #
+  # Kosten (pw-fps-bench, 3 x 200 m Sprint, Median von n Laeufen, p50/p95/p99
+  # in ms; Einzellaeufe streuen um rund 1 ms):
+  #                              Insel 10077/−18723       Wald am Start
+  #   vorher (main, n=4)         10,6 / 14,9 / 18,2       9,2 / 13,4 / 17,9
+  #   nur Laub-Fix (G20, n=2)    11,0 / 14,8 / 18,0      10,3 / 14,8 / 19,1
+  #   dieser Look (n=4)          10,9 / 15,2 / 18,2      10,2 / 14,7 / 18,9
+  # Die Wald-Kosten stammen vom Laub-Fix (die Laubkronen werfen wieder), nicht
+  # von diesem Look. Wer die 25 m will (lambda 0,1, Blend 0,25): Insel +1,9 ms
+  # p50 (12,5 / 17,1 / 20,4). Wer nichts zahlen will: 1024 px mit lambda 0,3
+  # hat dieselbe Grenze bei 4,8 / 11,9 cm (10,4 / 14,3 / 17,8).
+  # Die Stufe „Mittel" deckelt die Aufloesung seither bei 2048 (SHADOW_LEVELS).
   schatten:
-    aufloesung: 1024
+    aufloesung: 2048
     reichweite: 50
     kaskaden: 2
     dunkelheit: 0.13
     rasten: true
+    lambda: 0.3
+    ueberblendung: 0.2

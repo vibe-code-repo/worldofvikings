@@ -191,6 +191,18 @@ export interface LookSchatten {
   dunkelheit: number;
   /** Kaskadengrenzen auf das Texelraster rasten (`stabilizeCascades`). */
   rasten: boolean;
+  /**
+   * Teilung der Kaskaden zwischen gleichmaessig (0) und logarithmisch (1)
+   * — Babylons `lambda`. Sie legt fest, WO die scharfe Nahkaskade endet:
+   * bei minZ 0,5, 50 m und zwei Kaskaden liegt die Grenze bei 25,3 m
+   * (lambda 0), 19,2 m (0,3) und 9,05 m (0,8).
+   */
+  lambda: number;
+  /**
+   * Breite der Ueberblendung zwischen zwei Kaskaden als Anteil der
+   * naeheren (Babylons `cascadeBlendPercentage`).
+   */
+  ueberblendung: number;
 }
 
 export interface LookProfil {
@@ -676,7 +688,20 @@ export const LOOK_VORGABE: LookProfil = {
   // Schlagschatten als Form lesbar werden. Die Gesamthelligkeit trug
   // dazu bis zur Runde 2 `kontrast 0,84`; seit dessen Rueckbau auf 1,0
   // steht sie allein an `belichtung` und an den Materialfarben.
-  schatten: { aufloesung: 1024, reichweite: 50, kaskaden: 2, dunkelheit: 0.13, rasten: true },
+  //
+  // G18 (18.09.2026): 2048 px, lambda 0,3, Ueberblendung 0,2 (vorher 1024 /
+  // 0,8 / 0,1). Die scharfe Nahkaskade endete bei 9,05 m, dahinter trug eine
+  // Karte 5,4-fach groebere Texel (2,26 → 12,22 cm). Jetzt endet sie bei
+  // 19,2 m, Texel 2,40 / 5,96 cm (Sprung 2,5-fach, ueber 3,8 m verblendet).
+  schatten: {
+    aufloesung: 2048,
+    reichweite: 50,
+    kaskaden: 2,
+    dunkelheit: 0.13,
+    rasten: true,
+    lambda: 0.3,
+    ueberblendung: 0.2,
+  },
 };
 
 // ── Nebelkurve ───────────────────────────────────────────────────────
@@ -793,6 +818,8 @@ const BEREICHE: ReadonlyMap<string, readonly [number, number]> = new Map([
   ['look.schatten.aufloesung', [128, 4096]],
   ['look.schatten.reichweite', [10, 2000]],
   ['look.schatten.dunkelheit', [0, 1]],
+  ['look.schatten.lambda', [0, 1]],
+  ['look.schatten.ueberblendung', [0, 0.5]],
 ]);
 
 /** Ein Befund der Prüfung: Pfad und was daran nicht stimmt. */

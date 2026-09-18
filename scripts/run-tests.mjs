@@ -963,6 +963,10 @@ const KERN = [
   // fest: Vorlage wird angemeldet, die Quelle wirft bis zur Bereitschaft
   // weiter, ein Klon ohne Instanzen wird nicht angemeldet. NullEngine, <1 s.
   ['client', 'test/schatten-laub-klon.ts'],
+  // G18: Die scharfe Nahkaskade endete bei 9 m, dahinter 5,4-fach groebere
+  // Texel. Rechnet Babylons Kaskadenteilung nach (an der Messung geeicht) und
+  // prueft die ausgelieferte Look-Vorgabe gegen eine Mindestreichweite.
+  ['client', 'test/schatten-kaskadengrenze.ts'],
   // Die Schattenzeile des Farbprofils (`look.grading.schatten*`) stand bis
   // 12.09.2026 auf der Eins und tat nichts; seit sie den gemessenen Wert
   // traegt, haengt das halbe Bild an vier Zahlen, die niemand ansieht. Der

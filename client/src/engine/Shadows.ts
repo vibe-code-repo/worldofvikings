@@ -103,7 +103,12 @@ export interface ShadowLevel {
 export const SHADOW_LEVELS: readonly (ShadowLevel | null)[] = [
   null, // Aus — nicht im Original, siehe Kopfkommentar
   { kaskaden: 2, distanz: 80, aufloesung: 512 },
-  { kaskaden: 3, distanz: 120, aufloesung: 1024 },
+  // Deckel 2048 seit G18 (18.09.2026, vorher 1024): Der Look (`look.schatten.
+  // aufloesung`) bestimmt, was tatsaechlich gebaut wird, die Stufe ist nur
+  // die Obergrenze, die der Spieler mit seiner Wahl bezahlen kann. Bei 1024 px
+  // reicht die scharfe Nahkaskade nur bis 9 m (Texel 2,3 cm), dahinter 12,2 cm;
+  // 2048 px mit lambda 0,3 (Vorgabe) halten 2,4 cm bis 19 m und 6,0 cm bis 50 m.
+  { kaskaden: 3, distanz: 120, aufloesung: 2048 },
   // Hoechste Stufe: 4096 statt 2048 — gemessen 17.08.2026 nachts gegen das
   // Kriseln des Bodenschattens (E15). Vierfache Texelzahl auf gleicher
   // Flaeche, also die Dichte von 75 m bei 2048, nur mit VOLLEN Fernschatten.
@@ -241,9 +246,58 @@ export function schattenMitLook(
  * restlichen 67 m tragen — genau der sichtbare Sprung von scharf zu weich.
  * Lambda 0,20 verschiebt die Grenze auf rund 33 m und teilt 33/47 m. Die
  * zweite Kaskade gewinnt dadurch ebenfalls Texeldichte, ohne dritten Pass.
+ *
+ * `lambdaProfil` ist die Look-Entscheidung (`look.schatten.lambda`); nur das
+ * 100-FPS-Profil auf Stufe 1 behaelt seinen eigenen, gemessenen Wert — das
+ * ist ein Hardwarepreis, kein Look.
  */
-export function schattenLambda(stufe: number, hundertFpsProfil: boolean): number {
-  return hundertFpsProfil && stufe === 1 ? 0.20 : 0.80;
+export function schattenLambda(stufe: number, hundertFpsProfil: boolean, lambdaProfil = 0.8): number {
+  return hundertFpsProfil && stufe === 1 ? 0.20 : lambdaProfil;
+}
+
+/**
+ * Breite der Kaskadenueberblendung (Anteil der Nahkaskade, `cascadeBlendPercentage`).
+ *
+ * Wie `schattenLambda`: Der Look bestimmt, das 100-FPS-Profil auf Stufe 1
+ * behaelt seine 0,20 (dort gibt es nur einen Uebergang, s. setLevel).
+ */
+export function schattenUeberblendung(
+  stufe: number,
+  hundertFpsProfil: boolean,
+  ueberblendungProfil = 0.10
+): number {
+  return hundertFpsProfil && stufe === 1 ? 0.20 : ueberblendungProfil;
+}
+
+/**
+ * Wo Babylons `CascadedShadowGenerator` seine Kaskaden trennt (Sichttiefe in m).
+ *
+ * Nachgerechnet aus `_splitFrustum` (cascadedShadowGenerator.js): Mischung aus
+ * gleichmaessiger und logarithmischer Teilung, `lambda` 0 = gleichmaessig,
+ * 1 = logarithmisch. Als reine Funktion, damit der Sprung von scharf zu weich
+ * ohne GPU nachrechenbar ist; am laufenden Generator stimmt sie mit
+ * `_viewSpaceFrustumsZ` ueberein (9,05 / 50 m bei minZ 0,5, 50 m, 2 Kaskaden,
+ * lambda 0,8 — gemessen).
+ *
+ * Mirrors Babylon's split rule so the near-cascade reach can be tested
+ * without a GPU.
+ */
+export function kaskadenGrenzen(
+  naheEbene: number,
+  reichweite: number,
+  kaskaden: number,
+  lambda: number
+): number[] {
+  const grenzen: number[] = [];
+  const bereich = reichweite - naheEbene;
+  const verhaeltnis = reichweite / naheEbene;
+  for (let i = 0; i < kaskaden; i++) {
+    const p = (i + 1) / kaskaden;
+    const logarithmisch = naheEbene * verhaeltnis ** p;
+    const gleichmaessig = naheEbene + bereich * p;
+    grenzen.push(lambda * (logarithmisch - gleichmaessig) + gleichmaessig);
+  }
+  return grenzen;
 }
 
 /**
@@ -633,6 +687,14 @@ export class Shadows {
       gerastet: g.stabilizeCascades,
       dunkelheit: +g.darkness.toFixed(3),
       lambda: +g.lambda.toFixed(3),
+      ueberblendung: +g.cascadeBlendPercentage.toFixed(3),
+      // Sichttiefe, in der Kaskade i endet (m) — der Ort des Sprungs von scharf zu weich.
+      grenzen: kaskadenGrenzen(
+        this.scene.activeCamera?.minZ ?? 0.5,
+        g.shadowMaxZ,
+        g.numCascades,
+        g.lambda
+      ).map((v) => +v.toFixed(2)),
       pcf: g.usePercentageCloserFiltering,
       werfer: g.getShadowMap()?.renderList?.length ?? 0,
     };
@@ -1428,11 +1490,15 @@ export class Shadows {
     // Babylons Standard 0,1 mischt nur auf den letzten zehn Prozent einer
     // Kaskade. Zwanzig Prozent verdecken den Wechsel frueher, ohne einen
     // weiteren Schattenpass oder zusaetzliche Werfer zu erzeugen.
-    g.cascadeBlendPercentage = this.hundertFpsProfil && i === 1 ? 0.20 : 0.10;
+    g.cascadeBlendPercentage = schattenUeberblendung(
+      i,
+      this.hundertFpsProfil,
+      this.profil.schatten.ueberblendung
+    );
     // Logarithmischere Aufteilung der vier Kaskaden: schiebt Texeldichte in
     // den Nahbereich, wo der Spieler steht. Babylons Vorgabe ist 0,5.
     // Gemessen: 0,80 traegt, 0,95 ist bereits schlechter (2,04 gegen 2,44 %).
-    g.lambda = schattenLambda(i, this.hundertFpsProfil);
+    g.lambda = schattenLambda(i, this.hundertFpsProfil, this.profil.schatten.lambda);
     // `autoCalcDepthBounds` BEWUSST AUS: Es klingt richtig (der
     // Tiefenbereich passt sich dem Gelände an), zieht aber einen
     // zusätzlichen Tiefen-Renderpass über die ganze Szene nach sich —

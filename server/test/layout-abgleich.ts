@@ -13,17 +13,35 @@
  * the SAME document again and proves that nothing is rewritten (revisions
  * unchanged); boot 4 drops a scale and proves the member goes away.
  *
+ * World 3 (wandering NPC, server-held object): the sync stamp. (i) an NPC that
+ * wandered away while the document is unchanged stays where it is and keeps its
+ * wander anchor, (j) an NPC whose placement the designer moved goes there
+ * TOGETHER WITH its anchor, (k) an object the server holds 3 m above the ground
+ * stays there (unchanged document; and even when the ground changes), (l) a state
+ * without stamps (a save written before the stamp) does not teleport a wandering
+ * creature and aligns a static object once.
+ *
+ * World 4: a player piece that still carries a layout id (state left by the
+ * previous sync) loses it -- exactly ONE ZDO keeps the id; a new placement right
+ * above a player piece warns; a document without placements removes every
+ * orphaned layout ZDO. World 5: a placement pushed across the rounding edge of
+ * the id (140.4 -> 140.5) keeps its ZDO. World 6: the real world document
+ * (a copy of server/data/welten/dev.json) boots twice and moves no revision.
+ *
  * World 2: (f) two placements with exactly the same prefab and position stay
  * ONE ZDO (pinned here, the decision belongs to a later card), (g) a player
  * piece of the same prefab next to a NEW placement is never adopted, (h) a
  * hand-placed piece of vegetation keeps the ground offset the load-time
- * re-seating uses (no flipping between ground and ground + offset).
+ * re-seating uses (no flipping between ground and ground + offset). Only the
+ * twelve environment-sm-env-* prefabs have an offset != 0; no vegetation
+ * placement of dev.json is one of them, so (h) is a guard for the future.
  *
  * Run: npx tsx test/layout-abgleich.ts   (from server/)
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { FOLIAGE, LAYOUT_ID_MEMBER, getStableHash, layoutKennung } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
@@ -38,6 +56,9 @@ function check(name: string, ok: boolean, detail = ''): void {
   }
 }
 const nahe = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
+const HIER = dirname(fileURLToPath(import.meta.url));
+// Spelled out on purpose (not imported): the same file has to run against an older tree.
+const LAYOUT_SOLL_MEMBER = 'layoutSoll';
 
 const SEED = 'LayoutAbgleich1';
 const WURZEL = mkdtempSync(join(tmpdir(), 'wov-layout-abgleich-'));
@@ -82,18 +103,23 @@ function starte(welt: string, doc: Record<string, unknown>) {
     worldMode: 'layout',
     worldLayoutPath: layoutPfad,
   });
-  // The boot log line of the sync is part of the evidence.
+  // The boot log lines of the sync (and its warnings) are part of the evidence.
   const zeilen: string[] = [];
-  const orig = console.log;
-  console.log = (...a: unknown[]): void => {
-    const z = a.map(String).join(' ');
-    if (z.includes('Layout-')) zeilen.push(z);
-    orig(...a);
-  };
+  const orig = { log: console.log, warn: console.warn };
+  const faenge =
+    (weiter: (...a: unknown[]) => void) =>
+    (...a: unknown[]): void => {
+      const z = a.map(String).join(' ');
+      if (z.includes('Layout-')) zeilen.push(z);
+      weiter(...a);
+    };
+  console.log = faenge(orig.log);
+  console.warn = faenge(orig.warn);
   try {
     server.init();
   } finally {
-    console.log = orig;
+    console.log = orig.log;
+    console.warn = orig.warn;
   }
   return { server, zeilen };
 }
@@ -105,6 +131,11 @@ const eines = (server: Server, p: { prefab: string; x: number; z: number }): ZDO
   nachKennung(server, layoutKennung(p))[0];
 /** Rotation about the vertical axis in degrees. */
 const yawGrad = (z: ZDO): number => (2 * Math.atan2(z.rotation.y, z.rotation.w) * 180) / Math.PI;
+/** Wander anchor of a creature the SpawnSystem simulates (private state, read for the test). */
+const heimat = (server: Server, id: string): { x: number; y: number; z: number } | undefined =>
+  (server.spawns as unknown as { creatures: Map<string, { home: { x: number; y: number; z: number } }> }).creatures.get(id)?.home;
+const layoutRevisionen = (server: Server): Map<string, number> =>
+  new Map(server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER)).map((z) => [z.zdoid.toString(), z.revision.raw]));
 const winkelDiff = (a: number, b: number): number => Math.abs((((a - b) % 360) + 540) % 360 - 180);
 
 // ── World 1 ─────────────────────────────────────────────────────────
@@ -189,6 +220,7 @@ check('(d) player piece (spieler=1) keeps its y', spielerB !== undefined && nahe
 
 const fossilB = s2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === fossilId);
 check('(d) player piece with a stale layout id is not removed', fossilB !== undefined);
+check('(d) ... and the stale layout id is taken off it', fossilB !== undefined && fossilB.getString(LAYOUT_ID_MEMBER) === '', `layoutId='${fossilB?.getString(LAYOUT_ID_MEMBER)}'`);
 check(
   '(d) ... and keeps its y although the ground under it rose',
   fossilB !== undefined && nahe(fossilB.position.y, fossilYVorher, 1e-9),
@@ -230,28 +262,196 @@ console.log('\n[5] World 2: two identical placements; a player piece next to a n
 const D1 = { prefab: 'wood_wall_roof', x: 220, z: 100 };
 const NEU = { prefab: 'woodwall', x: 300, z: 100 };
 const BAUM = { prefab: 'environment-sm-env-rock-cliff-02-1', x: 260, z: 100 };
-const w1 = starte('welt2', dokument(BASIS_VORHER, [D1, { ...D1 }, BAUM])).server;
+// A vegetation prefab that dev.json really uses (ground offset 0).
+const TREE = { prefab: 'Eiche2', x: 280, z: 100 };
+const w1 = starte('welt2', dokument(BASIS_VORHER, [D1, { ...D1 }, BAUM, TREE])).server;
 const baumOffset = FOLIAGE.find((f) => f.prefabHash === w1.prefabs.getByName(BAUM.prefab)?.hash)?.groundOffset ?? 0;
 const baum1 = eines(w1, BAUM)!;
 const baumY1 = baum1.position.y;
 const baumRev1 = baum1.revision.raw;
 check('(h) vegetation prefab has a ground offset (else the check proves nothing)', baumOffset !== 0, `${baumOffset}`);
 check('(h) spawned at ground + offset', nahe(baumY1, w1.getGroundHeight(BAUM.x, BAUM.z) + baumOffset, 1e-6), `y=${baumY1} ground=${w1.getGroundHeight(BAUM.x, BAUM.z)} offset=${baumOffset}`);
+const treeA = eines(w1, TREE)!;
+const treeY1 = treeA.position.y;
+const treeRev1 = treeA.revision.raw;
+check('(h2) dev.json vegetation prefab: spawned exactly on the ground (offset 0)', nahe(treeY1, w1.getGroundHeight(TREE.x, TREE.z), 1e-6), `y=${treeY1} ground=${w1.getGroundHeight(TREE.x, TREE.z)}`);
 const anzahl1 = nachKennung(w1, layoutKennung(D1)).length;
 const spielerNah = w1.zdos.createZDO(w1.prefabs.getByName(NEU.prefab)!.hash, { x: 300.1, y: w1.getGroundHeight(300.1, 100), z: 100 });
 spielerNah.setInt('spieler', 1);
 const spielerNahId = spielerNah.zdoid.toString();
 const spielerNahPos = { ...spielerNah.position };
 w1.saveWorld();
-const w2 = starte('welt2', dokument(BASIS_VORHER, [D1, { ...D1 }, BAUM, NEU])).server;
+const boot2w = starte('welt2', dokument(BASIS_VORHER, [D1, { ...D1 }, BAUM, TREE, NEU]));
+const w2 = boot2w.server;
 const baum2 = eines(w2, BAUM)!;
 check('(h) after a reboot: same y, same revision', nahe(baum2.position.y, baumY1, 1e-6) && baum2.revision.raw === baumRev1, `y=${baum2.position.y} was ${baumY1}, rev ${baum2.revision.raw} was ${baumRev1}`);
+check('(g) a new placement right above a player piece logs a warning', boot2w.zeilen.some((z) => z.includes(layoutKennung(NEU)) && /Spielerbau/.test(z)), boot2w.zeilen.join(' | '));
+const tree2 = eines(w2, TREE)!;
+check('(h2) ... and after a reboot: same y, same revision', nahe(tree2.position.y, treeY1, 1e-6) && tree2.revision.raw === treeRev1, `y=${tree2.position.y} was ${treeY1}, rev ${tree2.revision.raw} was ${treeRev1}`);
 const anzahl2 = nachKennung(w2, layoutKennung(D1)).length;
 check('(f) two identical placements: ONE ZDO before and after (pinned)', anzahl1 === 1 && anzahl2 === 1, `${anzahl1} -> ${anzahl2}`);
 const nah2 = w2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === spielerNahId)!;
 check('(g) player piece next to a new placement is not adopted', nah2 !== undefined && nah2.getString(LAYOUT_ID_MEMBER) === '');
 check('(g) player piece did not move', nah2 !== undefined && nahe(nah2.position.x, spielerNahPos.x, 1e-9) && nahe(nah2.position.y, spielerNahPos.y, 1e-9));
 check('(g) the new placement got its own ZDO', nachKennung(w2, layoutKennung(NEU)).length === 1 && nachKennung(w2, layoutKennung(NEU))[0]!.zdoid.toString() !== spielerNahId);
+
+// ── World 3: the sync stamp ─────────────────────────────────────────
+console.log('\n[6] World 3, boot 1: a wandering NPC, an object the server holds 3 m up, a static one');
+const W1 = { prefab: 'NPC_1', x: 180, z: 100 }; // no route: the SpawnSystem lets it wander
+const H1 = { prefab: 'woodwall', x: 200, z: 100 };
+const S1 = { prefab: 'piece_chest_wood', x: 220, z: 100 };
+const boot3a = starte('welt3', dokument(BASIS_VORHER, [W1, H1, S1]));
+const t1 = boot3a.server;
+const wesenA = eines(t1, W1)!;
+const heldA = eines(t1, H1)!;
+const staticA = eines(t1, S1)!;
+const wesenId = wesenA.zdoid.toString();
+const heldId = heldA.zdoid.toString();
+const staticId = staticA.zdoid.toString();
+check('(stamp) every layout ZDO carries the sync stamp after the first boot', [wesenA, heldA, staticA].every((z) => z.getString(LAYOUT_SOLL_MEMBER) !== ''), wesenA.getString(LAYOUT_SOLL_MEMBER));
+// The creature has wandered 7 m; the server holds the wall 3 m above the ground.
+const wandert = { x: 186.5, y: t1.getGroundHeight(186.5, 103.5), z: 103.5 };
+t1.zdos.updateZDOZone(wesenA, wandert);
+const gehalten = { x: H1.x, y: heldA.position.y + 3, z: H1.z };
+t1.zdos.updateZDOZone(heldA, gehalten);
+t1.saveWorld();
+const dok3 = dokument(BASIS_VORHER, [W1, H1, S1]);
+
+console.log('\n[7] World 3, boot 2: document unchanged -> nothing of the server state is reset');
+const boot3b = starte('welt3', dok3);
+const t2 = boot3b.server;
+console.log(`     log: ${boot3b.zeilen.join(' | ')}`);
+const wesenB = t2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === wesenId)!;
+const heimatB = heimat(t2, wesenId);
+check(
+  '(i) wandered NPC keeps its position (document unchanged)',
+  nahe(wesenB.position.x, wandert.x, 1e-6) && nahe(wesenB.position.y, wandert.y, 1e-6) && nahe(wesenB.position.z, wandert.z, 1e-6),
+  `(${wesenB.position.x}, ${wesenB.position.y}, ${wesenB.position.z}) wandered to (${wandert.x}, ${wandert.y}, ${wandert.z})`
+);
+check(
+  '(i) ... and its wander anchor is where it was saved (no offset)',
+  heimatB !== undefined && Math.hypot(heimatB.x - wesenB.position.x, heimatB.z - wesenB.position.z) <= 0.01,
+  heimatB ? `anchor (${heimatB.x}, ${heimatB.z}) offset ${Math.hypot(heimatB.x - wesenB.position.x, heimatB.z - wesenB.position.z).toFixed(3)} m` : 'no anchor (NPC not simulated)'
+);
+const heldB = t2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === heldId)!;
+check('(k) an object the server holds 3 m up stays there (document and ground unchanged)', nahe(heldB.position.y, gehalten.y, 1e-9), `y=${heldB.position.y} held at ${gehalten.y}`);
+check('(k) the boot logged 0 aktualisiert', boot3b.zeilen.some((z) => /\b0 aktualisiert/.test(z)), boot3b.zeilen.join(' | '));
+t2.saveWorld();
+
+console.log('\n[8] World 3, boot 3: NPC placement moved 0.4 m and the ground rose');
+const W1neu = { ...W1, x: 180.4 }; // same id key: round(180.4) = 180
+const boot3c = starte('welt3', dokument(BASIS_NACHHER, [W1neu, H1, S1]));
+const t3 = boot3c.server;
+console.log(`     log: ${boot3c.zeilen.join(' | ')}`);
+const wesenC = t3.zdos.getAllZDOs().find((z) => z.zdoid.toString() === wesenId)!;
+const heimatC = heimat(t3, wesenId);
+check(
+  '(j) NPC moved to the new placement position, same ZDO',
+  wesenC !== undefined && nahe(wesenC.position.x, 180.4, 1e-3) && nahe(wesenC.position.z, 100, 1e-3) && nahe(wesenC.position.y, t3.getGroundHeight(180.4, 100), 0.05),
+  `(${wesenC?.position.x}, ${wesenC?.position.y}, ${wesenC?.position.z})`
+);
+check(
+  '(j) ... and its wander anchor moved with it (offset 0 +-0.01 m)',
+  heimatC !== undefined && wesenC !== undefined && Math.hypot(heimatC.x - wesenC.position.x, heimatC.z - wesenC.position.z) <= 0.01 && nahe(heimatC.y, wesenC.position.y, 0.01),
+  heimatC && wesenC ? `anchor (${heimatC.x}, ${heimatC.y}, ${heimatC.z}) NPC (${wesenC.position.x}, ${wesenC.position.y}, ${wesenC.position.z})` : 'no anchor'
+);
+const bodenH = t3.getGroundHeight(H1.x, H1.z);
+const heldC = t3.zdos.getAllZDOs().find((z) => z.zdoid.toString() === heldId)!;
+check('(k) the ground under the held object rose (else the check proves nothing)', bodenH - gehalten.y + 3 >= 0.5, `ground now ${bodenH.toFixed(3)}, was ${(gehalten.y - 3).toFixed(3)}`);
+check('(k) ... the held object still stays where the server put it (not on the stamped height)', nahe(heldC.position.y, gehalten.y, 1e-9), `y=${heldC.position.y} held at ${gehalten.y}`);
+const staticC = t3.zdos.getAllZDOs().find((z) => z.zdoid.toString() === staticId)!;
+check('the static object follows the ground', nahe(staticC.position.y, t3.getGroundHeight(S1.x, S1.z), 1e-6), `y=${staticC.position.y} ground=${t3.getGroundHeight(S1.x, S1.z)}`);
+// Simulate a save written before the stamp existed: strip the stamps, let the NPC wander again.
+const wandert2 = { x: 184, y: t3.getGroundHeight(184, 102), z: 102 };
+t3.zdos.updateZDOZone(wesenC, wandert2);
+const yawWesenVorher = yawGrad(wesenC);
+for (const z of t3.zdos.getAllZDOs()) if (z.getString(LAYOUT_ID_MEMBER)) z.removeMember(getStableHash(LAYOUT_SOLL_MEMBER));
+t3.saveWorld();
+
+console.log('\n[9] World 3, boot 4: a state WITHOUT stamps (save from before the stamp), yaw changed');
+const boot3d = starte('welt3', dokument(BASIS_NACHHER, [{ ...W1neu, yaw: 1 }, H1, { ...S1, yaw: 1 }]));
+const t4 = boot3d.server;
+console.log(`     log: ${boot3d.zeilen.join(' | ')}`);
+const wesenD = t4.zdos.getAllZDOs().find((z) => z.zdoid.toString() === wesenId)!;
+check('(l) legacy wandering NPC is not teleported', nahe(wesenD.position.x, wandert2.x, 1e-6) && nahe(wesenD.position.z, wandert2.z, 1e-6), `(${wesenD.position.x}, ${wesenD.position.z}) wandered to (${wandert2.x}, ${wandert2.z})`);
+check('(l) ... and its yaw is not rewritten', winkelDiff(yawGrad(wesenD), yawWesenVorher) <= 0.01, `yaw=${yawGrad(wesenD).toFixed(3)} was ${yawWesenVorher.toFixed(3)}`);
+check('(l) ... but it is stamped now', wesenD.getString(LAYOUT_SOLL_MEMBER) !== '', wesenD.getString(LAYOUT_SOLL_MEMBER));
+const staticD = t4.zdos.getAllZDOs().find((z) => z.zdoid.toString() === staticId)!;
+check('(l) legacy static object: aligned once (yaw 1 rad) and stamped', winkelDiff(yawGrad(staticD), (1 * 180) / Math.PI) <= 0.01 && staticD.getString(LAYOUT_SOLL_MEMBER) !== '', `yaw=${yawGrad(staticD).toFixed(3)} deg, stamp='${staticD.getString(LAYOUT_SOLL_MEMBER)}'`);
+const heldD = t4.zdos.getAllZDOs().find((z) => z.zdoid.toString() === heldId)!;
+check('(l) legacy static object held 3 m up: aligned once to the ground (as before the stamp)', nahe(heldD.position.y, t4.getGroundHeight(H1.x, H1.z), 1e-6), `y=${heldD.position.y} ground=${t4.getGroundHeight(H1.x, H1.z)}`);
+
+// ── World 4: player pieces and empty documents ──────────────────────
+console.log('\n[10] World 4: a player piece that still carries a layout id; a document without placements');
+const PA = { prefab: 'woodwall', x: 300, z: 100 };
+const PB = { prefab: 'woodwall', x: 320, z: 100 };
+const boot4a = starte('welt4', dokument(BASIS_VORHER, []));
+const u1 = boot4a.server;
+const woodwall = u1.prefabs.getByName('woodwall')!.hash;
+// The state an older server left behind: it adopted the player's wall by proximity and wrote the id on it.
+const baut1 = u1.zdos.createZDO(woodwall, { x: 300.05, y: u1.getGroundHeight(300.05, 100.05), z: 100.05 });
+baut1.setInt('spieler', 1);
+baut1.setString(LAYOUT_ID_MEMBER, layoutKennung(PA));
+const baut1Id = baut1.zdoid.toString();
+const baut1Pos = { ...baut1.position };
+const baut2 = u1.zdos.createZDO(woodwall, { x: 320.1, y: u1.getGroundHeight(320.1, 100), z: 100 });
+baut2.setInt('spieler', 1);
+const baut2Id = baut2.zdoid.toString();
+u1.saveWorld();
+const boot4b = starte('welt4', dokument(BASIS_VORHER, [PA, PB]));
+const u2 = boot4b.server;
+console.log(`     log: ${boot4b.zeilen.join(' | ')}`);
+const mitId = nachKennung(u2, layoutKennung(PA));
+check('(A2) exactly ONE ZDO carries the id of the placement', mitId.length === 1 && mitId[0]!.zdoid.toString() !== baut1Id, `${mitId.length} ZDO(s): ${mitId.map((z) => z.zdoid.toString()).join(', ')}`);
+const baut1B = u2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === baut1Id)!;
+check(
+  '(A2) the player piece stays where it was, without a layout id',
+  baut1B !== undefined && baut1B.getString(LAYOUT_ID_MEMBER) === '' && nahe(baut1B.position.x, baut1Pos.x, 1e-9) && nahe(baut1B.position.y, baut1Pos.y, 1e-9) && nahe(baut1B.position.z, baut1Pos.z, 1e-9),
+  `layoutId='${baut1B?.getString(LAYOUT_ID_MEMBER)}'`
+);
+check('(A2) the log counts the freed player piece', boot4b.zeilen.some((z) => /1 Spielerbau\(ten\)/.test(z)), boot4b.zeilen.join(' | '));
+const naheB = u2.zdos.getZDOsInRadius({ x: PB.x, y: 0, z: PB.z }, 1).filter((z) => z.prefabHash === woodwall);
+check('(A2) a placement right above a player piece: both objects stay', naheB.length === 2, `${naheB.length}`);
+check('(A2) ... with a warning line', boot4b.zeilen.some((z) => z.includes(layoutKennung(PB)) && /Spielerbau/.test(z) && !/befreit/.test(z)), boot4b.zeilen.join(' | '));
+check('(A2) the player piece under the new placement has no layout id', (u2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === baut2Id)?.getString(LAYOUT_ID_MEMBER) ?? 'x') === '');
+u2.saveWorld();
+
+const boot4c = starte('welt4', dokument(BASIS_VORHER, []));
+const u3 = boot4c.server;
+console.log(`     log: ${boot4c.zeilen.join(' | ')}`);
+const uebrig = u3.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '' && z.getInt('spieler') !== 1);
+check('(A4) a document without placements removes the orphaned layout ZDOs', uebrig.length === 0, `${uebrig.length} left`);
+check('(A4) ... and logs how many', boot4c.zeilen.some((z) => /2 entfernt/.test(z)) && boot4c.zeilen.some((z) => /ohne Platzierungen — 2/.test(z)), boot4c.zeilen.join(' | '));
+check('(A4) ... but player pieces stay', [baut1Id, baut2Id].every((id) => u3.zdos.getAllZDOs().some((z) => z.zdoid.toString() === id)));
+
+// ── World 5: the rounding edge of the id ────────────────────────────
+console.log('\n[11] World 5: a placement pushed across the rounding edge of its id');
+const K1 = { prefab: 'piece_chest_wood', x: 140.4, z: 100 }; // id "@140"
+const K2 = { ...K1, x: 140.5 }; // id "@141"
+const boot5a = starte('welt5', dokument(BASIS_VORHER, [K1]));
+const kz1 = eines(boot5a.server, K1)!;
+const kzId = kz1.zdoid.toString();
+boot5a.server.saveWorld();
+const boot5b = starte('welt5', dokument(BASIS_VORHER, [K2]));
+console.log(`     log: ${boot5b.zeilen.join(' | ')}`);
+const kz2 = eines(boot5b.server, K2);
+check('(A3) 140.4 -> 140.5 changes the id key but keeps the ZDO id', kz2 !== undefined && kz2.zdoid.toString() === kzId, `${kzId} -> ${kz2?.zdoid.toString()}`);
+check('(A3) ... 0 spawned, 0 removed', boot5b.zeilen.some((z) => /\b0 gespawnt/.test(z) && /\b0 entfernt/.test(z)), boot5b.zeilen.join(' | '));
+check('(A3) ... at the new position, one layout ZDO in the world', kz2 !== undefined && nahe(kz2.position.x, 140.5, 1e-3) && boot5b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER)).length === 1, `x=${kz2?.position.x}`);
+
+// ── World 6: the real world document ────────────────────────────────
+console.log('\n[12] World 6: a copy of server/data/welten/dev.json boots twice and moves nothing');
+const devDoc = JSON.parse(readFileSync(resolve(HIER, '../data/welten/dev.json'), 'utf8')) as Record<string, unknown>;
+const boot6a = starte('welt6', devDoc);
+const dev1 = layoutRevisionen(boot6a.server);
+boot6a.server.saveWorld();
+const boot6b = starte('welt6', devDoc);
+console.log(`     log: ${boot6b.zeilen.join(' | ')}`);
+const dev2 = layoutRevisionen(boot6b.server);
+const bewegt = [...dev2].filter(([id, rev]) => dev1.get(id) !== rev).length;
+check('(dev) the document places many objects (sanity)', dev1.size >= 100, `${dev1.size} layout ZDOs`);
+check('(dev) a reboot with the unchanged document moves 0 revisions', bewegt === 0 && dev2.size === dev1.size, `${bewegt} of ${dev2.size} moved, ${dev1.size} before`);
+check('(dev) ... and logs 0 gespawnt, 0 aktualisiert', boot6b.zeilen.some((z) => /\b0 gespawnt, 0 aktualisiert/.test(z)), boot6b.zeilen.join(' | '));
 
 rmSync(WURZEL, { recursive: true, force: true });
 if (fehler > 0) {

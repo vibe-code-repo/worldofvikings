@@ -5,7 +5,30 @@
  * Aus `WovServer.spawnLayoutPlacements` herausgezogen, damit sich der
  * Abgleich ohne einen ganzen Server testen lässt (Kontext-Parameter statt
  * `this`). Was hier steht, läuft beim BOOT, nachdem der Spielstand geladen
- * ist: So erscheinen neue Platzierungen auch in bereits generierten Zonen.
+ * und die Kreaturen adoptiert sind: So erscheinen neue Platzierungen auch in
+ * bereits generierten Zonen.
+ *
+ * ── Der Soll-Stempel ─────────────────────────────────────────────────
+ * Jedes Layout-ZDO trägt den Member `layoutSoll`: einen Fingerabdruck der
+ * Dokumentwerte, die zuletzt angewendet wurden (x, z, yaw, Skalierung), und
+ * die Bodenhöhe an der Dokumentposition zu diesem Zeitpunkt. Damit weiß der
+ * Abgleich, WAS SICH GEÄNDERT HAT, statt bei jedem Boot alles auf das
+ * Dokument zurückzusetzen:
+ *
+ *   - Fingerabdruck == Stempel: Der Designer hat nichts geändert. Position,
+ *     Drehung und Skalierung gehören jetzt dem Server und dem Spiel — ein
+ *     Dorfbewohner, der weggewandert ist, bleibt dort, ein Objekt, das der
+ *     Server bewusst 3 m über dem Boden hält, bleibt dort. Nur die
+ *     Bodenhöhe wird nachgeführt, und auch nur bei einem Objekt, das noch
+ *     genau auf der gestempelten Höhe steht (also von niemandem bewegt
+ *     wurde).
+ *   - Fingerabdruck != Stempel: Der Designer hat gedreht, skaliert oder
+ *     verschoben. Die Dokumentwerte werden angewendet und neu gestempelt.
+ *     Ein Wesen, das ein Server-System bewegt (wandernder NPC, Boss), wird
+ *     dabei samt seinem Wander-Anker an die neue Stelle gesetzt.
+ *   - Kein Stempel (Spielstand von vor dem Stempel): Ein bewegtes Wesen wird
+ *     NICHT versetzt, nur gestempelt — sein Zustand ist der von damals. Ein
+ *     statisches Objekt wird einmal an das Dokument angeglichen.
  */
 
 import type { PlacementDef, RouteDef, WorldLayout } from '@wov/shared';
@@ -20,6 +43,11 @@ import {
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
+
+/** ZDO-Member mit dem Soll-Stempel (s. Kopfkommentar). */
+export const LAYOUT_SOLL_MEMBER = 'layoutSoll';
+const SOLL_HASH = getStableHash(LAYOUT_SOLL_MEMBER);
+const LAYOUT_ID_HASH = getStableHash(LAYOUT_ID_MEMBER);
 
 /**
  * Toleranzen, unterhalb derer der Abgleich NICHTS schreibt. Jede Änderung
@@ -36,6 +64,12 @@ const TOLERANZ = {
   skala: 1e-3,
   /** 1 - |Skalarprodukt| der Quaternionen: 1e-9 sind rund 0,005 Grad. */
   drehung: 1e-9,
+  /** Meter, um die sich der Boden an der Dokumentposition ändern muss. */
+  boden: 0.05,
+  /** Meter in x/z und y, bis zu denen ein Objekt noch „auf seinem Platz" steht. */
+  stehtNoch: 0.05,
+  /** Nähe (m), ab der eine Platzierung ein gleichartiges ZDO übernimmt. */
+  naehe: 0.5,
 } as const;
 
 const SKALA_MEMBER = 'scaleScalar';
@@ -54,6 +88,35 @@ function istSpielerbau(zdo: ZDO): boolean {
  */
 function laeuftRoute(layout: WorldLayout, p: PlacementDef): boolean {
   return p.route !== undefined && (layout.routes ?? []).some((r) => r.id === p.route);
+}
+
+/** Skalierung, wie sie im ZDO stehen soll: 0 = kein Member (Prefab-Vorgabe). */
+function sollSkala(p: PlacementDef): number {
+  return p.scale !== undefined && Math.abs(p.scale - 1) > TOLERANZ.skala ? p.scale : 0;
+}
+
+/** Was der Designer an einer Platzierung ändern kann (und was der Stempel festhält). */
+function fingerabdruck(p: PlacementDef): string {
+  return `${p.x},${p.z},${p.yaw ?? 0},${sollSkala(p)}`;
+}
+
+interface Stempel {
+  readonly fingerabdruck: string;
+  /** Bodenhöhe an der Dokumentposition zum Zeitpunkt des Anwendens. */
+  readonly boden: number;
+}
+
+function stempelText(fp: string, boden: number): string {
+  return `${fp}@${boden.toFixed(3)}`;
+}
+
+/** null: kein (oder ein unlesbarer) Stempel — Zustand aus einem Spielstand von vor dem Stempel. */
+function liesStempel(zdo: ZDO): Stempel | null {
+  const roh = zdo.getString(LAYOUT_SOLL_MEMBER);
+  const i = roh.lastIndexOf('@');
+  if (i < 0 || i === roh.length - 1) return null;
+  const boden = Number(roh.slice(i + 1));
+  return Number.isFinite(boden) ? { fingerabdruck: roh.slice(0, i), boden } : null;
 }
 
 /** Alles, was der Abgleich von der Welt braucht. */
@@ -75,6 +138,18 @@ export interface LayoutAbgleichKontext {
    * derselben Position.
    */
   readonly anRoute: (zdo: ZDO, route: RouteDef) => void;
+  /**
+   * Bewegt ein Server-System dieses ZDO von sich aus (wandernder NPC,
+   * Boss, Kreatur der Spawn-Tabelle)? Dann gehört seine Lage nach dem
+   * ersten Stempel dem Server, nicht dem Dokument.
+   */
+  readonly wirdBewegt: (zdo: ZDO) => boolean;
+  /**
+   * Setzt den Wander-Anker eines bewegten Wesens auf seine AKTUELLE
+   * Position. Der Abgleich ruft es, nachdem er das Wesen versetzt hat —
+   * sonst liefe es zu seiner alten Wandergegend zurück.
+   */
+  readonly verankere: (zdo: ZDO) => void;
 }
 
 /** Zahlen des Abgleichs — die Logzeile und der Test lesen sie. */
@@ -87,6 +162,10 @@ export interface LayoutAbgleichErgebnis {
   entfernt: number;
   unbekannt: number;
   aufRoute: number;
+  /** Spielerbauten, denen eine veraltete Kennung abgenommen wurde. */
+  freigegeben: number;
+  /** Kennungen neuer Platzierungen, die genau über einem fremden Spielerbau stehen. */
+  ueberSpielerbau: string[];
 }
 
 /**
@@ -95,20 +174,26 @@ export interface LayoutAbgleichErgebnis {
  * Idempotent über eine Kennung im ZDO-Member `layoutId`, ersatzweise eine
  * Nähe-Prüfung (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save
  * werden nicht dupliziert. Entfernt werden ZDOs, deren Eintrag der
- * Designer gelöscht hat.
+ * Designer gelöscht hat (auch der letzte: ein Dokument ohne Platzierungen
+ * räumt alle Layout-ZDOs ab).
  *
- * Ein gefundenes ZDO wird an das Dokument ANGEGLICHEN: Position, Drehung
- * und Skalierung. Ohne das wäre jede Änderung im Editor, die die Kennung
- * (Prefab + auf Meter gerundete Position) nicht ändert, nach dem Neustart
- * unsichtbar — Drehen, Skalieren, Verschieben um weniger als einen Meter.
- * Spielerbauten (`spieler=1`) sind für den Abgleich unsichtbar: Sie werden
- * weder gefunden noch verschoben noch entfernt.
+ * Ein gefundenes ZDO wird an das Dokument ANGEGLICHEN, soweit sich das
+ * Dokument geändert hat (Soll-Stempel, s. Kopfkommentar): Drehung,
+ * Skalierung und Position. Ohne das wäre jede Änderung im Editor, die die
+ * Kennung (Prefab + auf Meter gerundete Position) nicht ändert, nach dem
+ * Neustart unsichtbar.
+ *
+ * Spielerbauten (`spieler=1`) gehören dem Spieler: Sie werden weder
+ * gefunden noch verschoben noch entfernt. Trägt einer noch eine Kennung
+ * (Zustand von einem Server, der Spielerbauten per Nähe übernahm), wird
+ * sie ihm abgenommen — es darf nie zwei ZDOs mit derselben Kennung geben.
  *
  * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
  * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
  */
 export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayout): LayoutAbgleichErgebnis {
   const { zdos } = kontext;
+  const placements = layout.placements ?? [];
   const ergebnis: LayoutAbgleichErgebnis = {
     gespawnt: 0,
     aktualisiert: 0,
@@ -116,6 +201,8 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
     entfernt: 0,
     unbekannt: 0,
     aufRoute: 0,
+    freigegeben: 0,
+    ueberSpielerbau: [],
   };
   // Kennung je Eintrag: Prefab + gerundete Position (layoutKennung in
   // shared). Damit lassen sich beim Boot ZDOs entfernen, deren Eintrag der
@@ -123,31 +210,60 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
   // Review-Punkt 13) — und der Client findet über denselben Member den
   // Layout-Eintrag zu einer Instanz wieder (Namensschild).
   const kennung = layoutKennung;
-  const gewollt = new Set((layout.placements ?? []).map(kennung));
-  // Im selben Durchlauf einen Index über die Kennung aufbauen: Ein
-  // Routen-NPC ist beim nächsten Boot IRGENDWO auf seiner Runde, die
-  // Nähe-Prüfung unten fände ihn also nicht wieder und spawnte bei jedem
-  // Start einen weiteren. Die Kennung wandert dagegen mit ihm mit.
+  const gewollt = new Set(placements.map(kennung));
+  // Wo die Platzierungen stehen (nur bekannte Prefabs): Ein ZDO, dessen
+  // Kennung nicht mehr gewollt ist, aber unter 0,5 m neben einer
+  // Platzierung desselben Prefabs steht, ist DASSELBE Objekt, das der
+  // Designer über die Rundungsgrenze der Kennung geschoben hat (140,4 →
+  // 140,5 wechselt „@140" zu „@141"). Es wird nicht zerstört, sondern von
+  // der Nähesuche unten übernommen — mit seiner ZDO-Id und allem, was daran
+  // hängt.
+  const ziele = placements.flatMap((p) => {
+    const prefab = kontext.prefabs.getByName(p.prefab);
+    return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z }] : [];
+  });
   const nachKennung = new Map<string, ZDO>();
+  const zurueckgestellt: ZDO[] = [];
   for (const zdo of zdos.getAllZDOs()) {
     const id = zdo.getString(LAYOUT_ID_MEMBER);
-    if (!id || istSpielerbau(zdo)) continue;
-    if (!gewollt.has(id)) {
-      zdos.destroyZDO(zdo.zdoid);
-      ergebnis.entfernt++;
+    if (!id) continue;
+    if (istSpielerbau(zdo)) {
+      zdo.removeMember(LAYOUT_ID_HASH);
+      zdo.removeMember(SOLL_HASH);
+      ergebnis.freigegeben++;
       continue;
     }
+    if (!gewollt.has(id)) {
+      const nah = ziele.some(
+        (t) =>
+          t.hash === zdo.prefabHash &&
+          Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < TOLERANZ.naehe
+      );
+      if (nah) {
+        zurueckgestellt.push(zdo);
+      } else {
+        zdos.destroyZDO(zdo.zdoid);
+        ergebnis.entfernt++;
+      }
+      continue;
+    }
+    // Im selben Durchlauf einen Index über die Kennung aufbauen: Ein
+    // Routen-NPC ist beim nächsten Boot IRGENDWO auf seiner Runde, die
+    // Nähe-Prüfung unten fände ihn also nicht wieder und spawnte bei jedem
+    // Start einen weiteren. Die Kennung wandert dagegen mit ihm mit.
     nachKennung.set(id, zdo);
   }
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
-  for (const p of layout.placements ?? []) {
+  for (const p of placements) {
     const prefab = kontext.prefabs.getByName(p.prefab);
     if (!prefab) {
       ergebnis.unbekannt++;
       continue;
     }
-    const y = kontext.bodenHoehe(p.x, p.z) + kontext.bodenAbstand(prefab.hash);
-    const pos = { x: p.x, y, z: p.z };
+    const boden = kontext.bodenHoehe(p.x, p.z);
+    const abstand = kontext.bodenAbstand(prefab.hash);
+    const pos = { x: p.x, y: boden + abstand, z: p.z };
+    const fp = fingerabdruck(p);
     let zdo = nachKennung.get(kennung(p));
     if (zdo && zdo.prefabHash !== prefab.hash) zdo = undefined;
     if (!zdo) {
@@ -157,30 +273,42 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
           (z) =>
             z.prefabHash === prefab.hash &&
             !istSpielerbau(z) &&
-            Math.hypot(z.position.x - p.x, z.position.z - p.z) < 0.5
+            Math.hypot(z.position.x - p.x, z.position.z - p.z) < TOLERANZ.naehe
         );
       zdo = vorhanden;
     }
     if (!zdo) {
+      // Steht schon ein fremdes Bauwerk genau hier? Zwei Objekte sind dann
+      // in Ordnung (das Bauwerk gehört dem Spieler), aber der Designer soll
+      // es im Boot-Log lesen können.
+      const ueber = zdos
+        .getZDOsInRadius(pos, 1)
+        .some(
+          (z) =>
+            z.prefabHash === prefab.hash &&
+            istSpielerbau(z) &&
+            Math.hypot(z.position.x - p.x, z.position.z - p.z) < TOLERANZ.naehe
+        );
+      if (ueber) ergebnis.ueberSpielerbau.push(kennung(p));
       zdo = zdos.createZDO(prefab.hash, pos);
       zdo.rotation = yawQuaternion(p.yaw ?? 0);
       const skala = sollSkala(p);
       if (skala !== 0) zdo.setFloat(SKALA_MEMBER, skala);
       zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
+      zdo.setString(LAYOUT_SOLL_MEMBER, stempelText(fp, boden));
       ergebnis.gespawnt++;
+    } else if (
+      gleicheAn(kontext, zdo, p, {
+        kennung: kennung(p),
+        fingerabdruck: fp,
+        boden,
+        abstand,
+        route: laeuftRoute(layout, p),
+      })
+    ) {
+      ergebnis.aktualisiert++;
     } else {
-      let geschrieben = false;
-      if (zdo.getString(LAYOUT_ID_MEMBER) !== kennung(p)) {
-        // Über die NÄHE wiedergefunden (ZDO aus einem Save von vor der
-        // Kennung): Member nachtragen. Sonst bliebe das Objekt für immer
-        // ohne Herkunft — der Client könnte ihm kein Namensschild
-        // zuordnen, und beim nächsten Löschen im Editor bliebe es stehen.
-        zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
-        geschrieben = true;
-      }
-      if (gleicheAn(zdos, zdo, p, pos, laeuftRoute(layout, p))) geschrieben = true;
-      if (geschrieben) ergebnis.aktualisiert++;
-      else ergebnis.unveraendert++;
+      ergebnis.unveraendert++;
     }
     // Trefferpunkte für alles, was eine FIGUR ist. Die Prüfung auf
     // `istNpcPrefab` ist nicht Zierde: In derselben Schleife entstehen
@@ -203,30 +331,100 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
       ergebnis.aufRoute++;
     }
   }
+  // Zurückgestellte, die keine Platzierung übernommen hat (sie fand ein
+  // anderes ZDO): jetzt wirklich verwaist.
+  for (const zdo of zurueckgestellt) {
+    if (gewollt.has(zdo.getString(LAYOUT_ID_MEMBER)) || zdo.destroyed) continue;
+    zdos.destroyZDO(zdo.zdoid);
+    ergebnis.entfernt++;
+  }
   return ergebnis;
 }
 
-/** Skalierung, wie sie im ZDO stehen soll: 0 = kein Member (Prefab-Vorgabe). */
-function sollSkala(p: PlacementDef): number {
-  return p.scale !== undefined && Math.abs(p.scale - 1) > TOLERANZ.skala ? p.scale : 0;
+interface Angleich {
+  readonly kennung: string;
+  readonly fingerabdruck: string;
+  /** Boden an der Dokumentposition, jetzt. */
+  readonly boden: number;
+  readonly abstand: number;
+  readonly route: boolean;
 }
 
 /**
- * Drehung, Skalierung und (außer bei Routen-NPCs) Position eines gefundenen
- * ZDO auf die Platzierung setzen — aber NUR, was sich um mehr als die
- * Toleranz unterscheidet. Gibt zurück, ob etwas geschrieben wurde.
+ * Ein gefundenes ZDO auf den Stand des Dokuments bringen — soweit der
+ * Soll-Stempel es verlangt (s. Kopfkommentar). Schreibt nur, was sich um
+ * mehr als die Toleranz unterscheidet. Gibt zurück, ob irgendetwas
+ * geschrieben wurde.
  */
-function gleicheAn(
-  zdos: ZDOManager,
+function gleicheAn(kontext: LayoutAbgleichKontext, zdo: ZDO, p: PlacementDef, a: Angleich): boolean {
+  let geschrieben = false;
+  if (zdo.getString(LAYOUT_ID_MEMBER) !== a.kennung) {
+    // Über die NÄHE wiedergefunden (ZDO aus einem Save von vor der
+    // Kennung, oder über die Rundungsgrenze geschoben): Member nachtragen.
+    // Sonst bliebe das Objekt für immer ohne Herkunft — der Client könnte
+    // ihm kein Namensschild zuordnen, und beim nächsten Löschen im Editor
+    // bliebe es stehen.
+    zdo.setString(LAYOUT_ID_MEMBER, a.kennung);
+    geschrieben = true;
+  }
+  const stempel = liesStempel(zdo);
+  // Ein Wesen, das ein Server-System bewegt, aber keine Route läuft: seine
+  // Lage gehört nach dem ersten Stempel dem Server.
+  const wesen = !a.route && kontext.wirdBewegt(zdo);
+  let neuStempeln = stempel === null || stempel.fingerabdruck !== a.fingerabdruck;
+
+  if (stempel === null) {
+    // Spielstand von vor dem Stempel. Ein bewegtes Wesen steht, wo es
+    // gewandert ist — so wie vor diesem Umbau; nur stempeln. Alles andere
+    // wird einmal an das Dokument angeglichen.
+    if (!wesen && anwenden(kontext, zdo, p, a, false)) geschrieben = true;
+  } else if (stempel.fingerabdruck !== a.fingerabdruck) {
+    // Der Designer hat etwas geändert: Dokumentwerte anwenden, und ein
+    // bewegtes Wesen samt Wander-Anker an die neue Stelle.
+    if (anwenden(kontext, zdo, p, a, wesen)) geschrieben = true;
+  } else if (!a.route && !wesen && Math.abs(a.boden - stempel.boden) > TOLERANZ.boden) {
+    // Dokument unverändert, aber der Boden unter dem Objekt hat sich
+    // geändert (Region, Fluss, Einebnen, Terraforming). Das Objekt zieht
+    // nur mit, wenn es noch genau dort steht, wo der Stempel es hinstellte:
+    // was der Server oder das Spiel bewegt hat, bleibt stehen.
+    const stand = zdo.position;
+    const alt = stempel.boden + a.abstand;
+    if (
+      Math.abs(stand.y - alt) <= TOLERANZ.stehtNoch &&
+      Math.abs(stand.x - p.x) <= TOLERANZ.stehtNoch &&
+      Math.abs(stand.z - p.z) <= TOLERANZ.stehtNoch
+    ) {
+      zdo.position = { x: stand.x, y: a.boden + a.abstand, z: stand.z };
+      zdo.revision.reviseData();
+      zdo.dirty = true;
+      geschrieben = true;
+    }
+    neuStempeln = true; // die gesehene Bodenhöhe merken, auch wenn nichts bewegt wurde
+  }
+
+  if (neuStempeln) {
+    zdo.setString(LAYOUT_SOLL_MEMBER, stempelText(a.fingerabdruck, a.boden));
+    geschrieben = true;
+  }
+  return geschrieben;
+}
+
+/**
+ * Drehung, Skalierung und (außer bei Routen-NPCs) Position auf die
+ * Platzierung setzen. `verankern`: ein Server-System bewegt das Wesen — sein
+ * Wander-Anker geht mit an die neue Position.
+ */
+function anwenden(
+  kontext: LayoutAbgleichKontext,
   zdo: ZDO,
   p: PlacementDef,
-  soll: { x: number; y: number; z: number },
-  folgtRoute: boolean
+  a: Angleich,
+  verankern: boolean
 ): boolean {
   let geaendert = false;
   // Lage und Drehung gehören bei einem Routen-NPC dem Läufer: Er steht
   // irgendwo auf seiner Runde und schaut in Laufrichtung.
-  if (!folgtRoute) {
+  if (!a.route) {
     const q = yawQuaternion(p.yaw ?? 0);
     const r = zdo.rotation;
     // q und -q sind dieselbe Drehung — der Betrag des Skalarprodukts zählt.
@@ -235,7 +433,9 @@ function gleicheAn(
       zdo.rotation = q;
       geaendert = true;
     }
+    const soll = { x: p.x, y: a.boden + a.abstand, z: p.z };
     const pos = zdo.position;
+    let versetzt = false;
     if (
       Math.abs(pos.x - soll.x) > TOLERANZ.lage ||
       Math.abs(pos.z - soll.z) > TOLERANZ.lage ||
@@ -243,13 +443,15 @@ function gleicheAn(
     ) {
       // Über den Manager, damit ein Sprung über eine Zonengrenze das ZDO
       // auch im Zonenindex umhängt.
-      zdos.updateZDOZone(zdo, { x: soll.x, y: soll.y, z: soll.z });
+      kontext.zdos.updateZDOZone(zdo, soll);
+      versetzt = true;
       geaendert = true;
     }
     if (geaendert) {
       zdo.revision.reviseData();
       zdo.dirty = true;
     }
+    if (versetzt && verankern) kontext.verankere(zdo);
   }
   const skala = sollSkala(p);
   if (skala === 0) {
@@ -259,37 +461,4 @@ function gleicheAn(
     geaendert = true;
   }
   return geaendert;
-}
-
-/**
- * Layout-Objekte beim Laden auf die aktuelle Bodenhöhe setzen.
- *
- * Die y-Werte im Spielstand stammen aus dem Boden ZUM SPEICHERZEITPUNKT.
- * Ändert der Designer danach das Gelände (Region, Fluss, Einebnen), schweben
- * Häuser oder stecken im Hang — bisher setzte der Server nur Vegetation
- * nach, Layout-Objekte nicht. Ausgenommen sind Spielerbauten (`spieler=1`,
- * sie stehen dort, wo der Spieler sie hingestellt hat) und Routen-NPCs
- * (die Höhe schreibt der Läufer bei jedem Schritt selbst).
- *
- * Gibt die Zahl der bewegten ZDOs zurück.
- */
-export function layoutObjekteAufBoden(
-  zdos: ZDOManager,
-  layout: WorldLayout,
-  bodenHoehe: (x: number, z: number) => number,
-  bodenAbstand: (prefabHash: number) => number
-): number {
-  const aufRoute = new Set((layout.placements ?? []).filter((p) => laeuftRoute(layout, p)).map(layoutKennung));
-  let bewegt = 0;
-  for (const zdo of zdos.getAllZDOs()) {
-    const id = zdo.getString(LAYOUT_ID_MEMBER);
-    if (!id || istSpielerbau(zdo) || aufRoute.has(id)) continue;
-    const soll = bodenHoehe(zdo.position.x, zdo.position.z) + bodenAbstand(zdo.prefabHash);
-    if (Math.abs(zdo.position.y - soll) <= TOLERANZ.hoehe) continue;
-    zdo.position = { x: zdo.position.x, y: soll, z: zdo.position.z };
-    zdo.revision.reviseData();
-    zdo.dirty = true;
-    bewegt++;
-  }
-  return bewegt;
 }

@@ -34,6 +34,8 @@ import {
   terrainCompNachBase64,
   terrainCompAusBase64,
   istEigenesModell,
+  SPAWN_TABLE,
+  type SpawnEntry,
   GlobalKey,
   FIGUR_MEMBER,
   FIGUR_VORGABE,
@@ -92,7 +94,7 @@ import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
-import { layoutAbgleich, layoutObjekteAufBoden } from './world/layoutAbgleich.js';
+import { layoutAbgleich } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
@@ -1137,9 +1139,10 @@ export class WovServer {
    * Platzierungen auch in bereits generierten Zonen. Idempotent über eine
    * Kennung im ZDO-Member `layoutId`, ersatzweise eine Nähe-Prüfung
    * (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save werden nicht
-   * dupliziert, sondern an das Dokument angeglichen (Drehung, Skalierung,
-   * Position). Gelöschte Platzierungen nehmen ihr ZDO mit. Die Einzelheiten
-   * stehen in `world/layoutAbgleich.ts`.
+   * dupliziert, sondern an das Dokument angeglichen, soweit der Designer
+   * etwas geändert hat (Soll-Stempel: Drehung, Skalierung, Position).
+   * Gelöschte Platzierungen nehmen ihr ZDO mit. Die Einzelheiten stehen in
+   * `world/layoutAbgleich.ts`.
    *
    * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
    * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
@@ -1147,7 +1150,10 @@ export class WovServer {
   private spawnLayoutPlacements(): void {
     if (this.config.worldMode !== 'layout') return;
     const layout = sanitizeWorldLayout(this.worldLayoutRaw);
-    if (!layout?.placements?.length) return;
+    // Ein Dokument ohne Platzierungen ist gültig und heißt „keine": Der
+    // Abgleich räumt dann die Layout-ZDOs ab, die sonst für immer stünden.
+    // Nur ein unlesbares Dokument (null) lässt die Welt in Ruhe.
+    if (!layout) return;
     const ergebnis = layoutAbgleich(
       {
         zdos: this.zdos,
@@ -1161,6 +1167,14 @@ export class WovServer {
           this.spawns?.entlasse(zdo);
           this.routen?.registriere(zdo, route);
         },
+        wirdBewegt: (zdo) => this.wanderEintrag(zdo.prefabHash) !== null,
+        verankere: (zdo) => {
+          // Neu adoptieren: Der Wander-Anker ist die Position beim Adoptieren.
+          const entry = this.wanderEintrag(zdo.prefabHash);
+          if (!entry) return;
+          this.spawns?.entlasse(zdo);
+          this.spawns?.adoptSingle(zdo, entry);
+        },
       },
       layout
     );
@@ -1169,11 +1183,37 @@ export class WovServer {
       `[WoV] Layout-Abgleich: ${ergebnis.gespawnt} gespawnt, ${ergebnis.aktualisiert} aktualisiert, ` +
         `${ergebnis.unveraendert} unverändert, ${ergebnis.entfernt} entfernt, ${ergebnis.unbekannt} unbekannt (Prefab übersprungen)`
     );
+    if (!layout.placements?.length && ergebnis.entfernt > 0) {
+      console.warn(`[WoV] Layout-Abgleich: Dokument ohne Platzierungen — ${ergebnis.entfernt} verwaiste ZDO(s) entfernt`);
+    }
+    if (ergebnis.freigegeben > 0) {
+      console.log(`[WoV] Layout-Abgleich: ${ergebnis.freigegeben} Spielerbau(ten) von einer veralteten Layout-Kennung befreit`);
+    }
+    for (const k of ergebnis.ueberSpielerbau) {
+      console.warn(`[WoV] Layout-Hinweis: Platzierung ${k} steht genau über einem Spielerbau — beide Objekte bleiben`);
+    }
     // Inhaltlicher Bericht (Review-Punkt 32): unbekannte Namen und ein
     // fehlender Startpunkt stehen jetzt im Boot-Log statt still zu bleiben.
     for (const b of pruefeLayout(layout)) {
       console.warn(`[WoV] Layout-Hinweis (${b.wo}): ${b.text}`);
     }
+  }
+
+  /**
+   * Der Wander-Eintrag, mit dem das SpawnSystem dieses Prefab führt (NPC,
+   * Boss, Kreatur der Tabelle) — oder null, wenn es nichts bewegt und der
+   * Layout-Abgleich das Objekt als ruhend behandelt. Dieselbe Auswahl wie
+   * bei der Adoption in init(), inklusive der Prüfung auf ein eigenes Modell.
+   */
+  private wanderEintrag(prefabHash: number): SpawnEntry | null {
+    if (!this.spawns) return null;
+    const entry: SpawnEntry | undefined =
+      prefabHash === getStableHash('NPC_1')
+        ? NPC_ENTRY
+        : prefabHash === EIKTHYR_HASH
+          ? BOSS_ENTRY
+          : SPAWN_TABLE.find((e) => getStableHash(e.prefab) === prefabHash);
+    return entry && istEigenesModell(entry.prefab) ? entry : null;
   }
 
   /**
@@ -5371,21 +5411,6 @@ export class WovServer {
       }
       if (angepasst > 0) {
         console.log(`[WoV] Vegetation: ${angepasst} ZDO(s) auf aktuellen Boden nachgesetzt`);
-      }
-      // Dasselbe für handplatzierte Layout-Objekte (Häuser, Steine, Figuren):
-      // Ihr y stammt aus dem Boden von damals. Spielerbauten und Routen-NPCs
-      // bleiben stehen, wo sie sind (s. layoutObjekteAufBoden).
-      const layoutDoc = this.config.worldMode === 'layout' ? sanitizeWorldLayout(this.worldLayoutRaw) : null;
-      if (layoutDoc) {
-        const versetzt = layoutObjekteAufBoden(
-          this.zdos,
-          layoutDoc,
-          (x, z) => this.getGroundHeight(x, z),
-          (hash) => offsetByHash.get(hash) ?? 0
-        );
-        if (versetzt > 0) {
-          console.log(`[WoV] Layout-Objekte: ${versetzt} ZDO(s) auf aktuellen Boden nachgesetzt`);
-        }
       }
     }
 

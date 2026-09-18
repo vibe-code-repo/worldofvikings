@@ -1166,6 +1166,19 @@ export class WovServer {
       );
       return;
     }
+    // Dasselbe Loch in anderer Form: Ein Array mit Einträgen, von dem der
+    // Sanitizer ALLE verwirft (Text, leere Objekte, kaputte Koordinaten), ist
+    // nicht „bewusst leer" — die Welt bliebe ohne einen einzigen Eintrag
+    // zurück und alle Layout-ZDOs gingen mit. Werden nur einige verworfen,
+    // verlieren deren Objekte ihr ZDO (wie bisher), aber das steht im Log.
+    const rohAnzahl = Array.isArray(rohPlacements) ? rohPlacements.length : 0;
+    const gueltigeAnzahl = layout.placements?.length ?? 0;
+    if (rohAnzahl > 0 && gueltigeAnzahl === 0) {
+      console.warn(
+        `[WoV] Layout-Abgleich: placements: alle ${rohAnzahl} Einträge verworfen – Layout-Objekte bleiben unangetastet`
+      );
+      return;
+    }
     const ergebnis = layoutAbgleich(
       {
         zdos: this.zdos,
@@ -1200,6 +1213,12 @@ export class WovServer {
     }
     if (ergebnis.ueberzaehlig > 0) {
       console.warn(`[WoV] Layout-Abgleich: ${ergebnis.ueberzaehlig} überzählige Layout-ZDOs mit gleicher Kennung entfernt`);
+    }
+    if (rohAnzahl > gueltigeAnzahl) {
+      console.warn(
+        `[WoV] Layout-Abgleich: placements: ${rohAnzahl - gueltigeAnzahl} von ${rohAnzahl} Einträgen verworfen – ` +
+          `deren Layout-Objekte wurden entfernt`
+      );
     }
     for (const u of ergebnis.unbekanntePrefabs) {
       console.warn(

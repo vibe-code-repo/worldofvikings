@@ -35,6 +35,10 @@
  * with an unknown prefab leaves its ZDO alone and warns. World 9: a player
  * piece is recognised whatever the member type of `spieler` is.
  *
+ * World 10: a `placements` array whose entries the sanitizer ALL drops is not
+ * "empty on purpose" either (nothing removed, warning); when only some are
+ * dropped their ZDOs go, and the log names how many.
+ *
  * World 2: (f) two placements with exactly the same prefab and position stay
  * ONE ZDO (pinned here, the decision belongs to a later card), (g) a player
  * piece of the same prefab next to a NEW placement is never adopted, (h) a
@@ -570,6 +574,43 @@ SP4.forEach((e, i) => {
   );
 });
 check('(B4) the log counts 4 freed player pieces', boot9b.zeilen.some((z) => /4 Spielerbau\(ten\)/.test(z)), boot9b.zeilen.join(' | '));
+
+// ── World 10: entries the sanitizer drops ───────────────────────────
+console.log('\n[16] World 10: a placements array the sanitizer empties completely vs. partly');
+const R1 = { prefab: 'woodwall', x: 100, z: 100 };
+const R2 = { prefab: 'piece_chest_wood', x: 120, z: 100 };
+const R3 = { prefab: 'woodwall', x: 140, z: 100 };
+const boot10a = starte('welt10', dokument(BASIS_VORHER, [R1, R2, R3]));
+const r1s = boot10a.server;
+const r1Ids = [R1, R2, R3].map((p) => eines(r1s, p)!.zdoid.toString());
+for (const p of [R1, R2, R3]) eines(r1s, p)!.setInt('zzZustand', 7);
+r1s.saveWorld();
+for (const [roh, n] of [[['x', 'y'], 2], [[{}], 1], [[[]], 1], [[{ prefab: 'woodwall', x: 99999999, z: 100 }, { prefab: 'woodwall', x: 'abc', z: 1 }, 5], 3]] as const) {
+  const b = starte('welt10', { ...dokument(BASIS_VORHER, [R1, R2, R3]), placements: roh });
+  const dabei = b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '');
+  check(
+    `(B1b) placements ${JSON.stringify(roh)}: all ${n} entries dropped -> nothing removed, state kept`,
+    dabei.length === 3 && dabei.every((z) => z.getInt('zzZustand') === 7) && r1Ids.every((id) => dabei.some((z) => z.zdoid.toString() === id)),
+    `${dabei.length} layout ZDOs`
+  );
+  check(
+    `(B1b) ... and it warns: alle ${n} Einträge verworfen`,
+    b.zeilen.some((z) => z.includes(`placements: alle ${n} Einträge verworfen`) && z.includes('unangetastet')) && !b.zeilen.some((z) => /\d+ entfernt/.test(z)),
+    b.zeilen.join(' | ')
+  );
+}
+const teil = starte('welt10', { ...dokument(BASIS_VORHER, [R1, R2]), placements: [R1, R2, { prefab: 'woodwall', x: 99999999, z: 100 }] });
+const teilDabei = teil.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '');
+check(
+  '(B1b) 2 valid + 1 invalid entry: exactly the ZDO of the dropped one goes',
+  teilDabei.length === 2 && teilDabei.some((z) => z.zdoid.toString() === r1Ids[0]) && teilDabei.some((z) => z.zdoid.toString() === r1Ids[1]) && !teilDabei.some((z) => z.zdoid.toString() === r1Ids[2]),
+  `${teilDabei.length} left: ${teilDabei.map((z) => z.zdoid.toString()).join(', ')}`
+);
+check(
+  '(B1b) ... with a warning that names 1 dropped entry, and 1 entfernt in the count',
+  teil.zeilen.some((z) => /placements: 1 von 3 Einträgen verworfen/.test(z)) && teil.zeilen.some((z) => /\b1 entfernt/.test(z)),
+  teil.zeilen.join(' | ')
+);
 
 rmSync(WURZEL, { recursive: true, force: true });
 if (fehler > 0) {

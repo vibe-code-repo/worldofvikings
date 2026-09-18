@@ -95,6 +95,10 @@ async function werker(): Promise<void> {
       pausiereVorRenameMs?: number;
       /** Datei, die der Schreiber anlegt (Inhalt: seine pid), sobald er in der Pause steht. */
       markerPfad?: string;
+      /** renameSync der Sperrdatei (= der Bruch einer Sperre) um so viele ms verzögern. */
+      pausiereVorSperrbruchMs?: number;
+      /** linkSync scheitern lassen (Dateisystem ohne harte Links): das Zurücklegen einer Sperre misslingt. */
+      linkScheitert?: boolean;
       sperreWartenMs?: number;
       sperreVeraltetMs?: number;
     };
@@ -111,14 +115,22 @@ async function werker(): Promise<void> {
       // Die Verzögerung sitzt im WERKZEUGPROZESS (renameSync wird ersetzt), nicht im Code unter
       // Test: So läuft dieselbe Probe auch gegen einen Stand, der davon nichts weiß.
       const echtesRename = fs.renameSync;
-      if (b.pausiereVorRenameMs) {
+      const echtesLink = fs.linkSync;
+      const warteHier = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+      if (b.pausiereVorRenameMs || b.pausiereVorSperrbruchMs || b.linkScheitert) {
         (fs as { renameSync: typeof echtesRename }).renameSync = ((von: string, nach: string) => {
-          if (nach === b.pfad) {
+          if (b.pausiereVorRenameMs && nach === b.pfad) {
             if (b.markerPfad) writeFileSync(b.markerPfad, String(process.pid));
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, b.pausiereVorRenameMs!);
+            warteHier(b.pausiereVorRenameMs);
           }
+          if (b.pausiereVorSperrbruchMs && von === `${b.pfad}.lock`) warteHier(b.pausiereVorSperrbruchMs);
           return echtesRename(von, nach);
         }) as typeof echtesRename;
+        if (b.linkScheitert) {
+          (fs as { linkSync: typeof echtesLink }).linkSync = (() => {
+            throw Object.assign(new Error('EPERM: simulated, no hard links'), { code: 'EPERM' });
+          }) as typeof echtesLink;
+        }
         syncBuiltinESMExports();
       }
       for (let i = 0; i < (b.anzahl ?? 1); i++) {
@@ -138,6 +150,7 @@ async function werker(): Promise<void> {
         }
       }
       (fs as { renameSync: typeof echtesRename }).renameSync = echtesRename;
+      (fs as { linkSync: typeof echtesLink }).linkSync = echtesLink;
       syncBuiltinESMExports();
       console.log(JSON.stringify({ ok, veraltet, andere, erfolge, hashes }));
     } else {
@@ -388,7 +401,7 @@ try {
     }
     check('422 ungueltig: Prüfsumme vorher = nachher, keine Sicherung', plattenHash() === hL && sicherungen() === bakL);
     await warte(150);
-    check('422 ungueltig: Logzeile im Betriebsdienst', /422 ungueltig: Feld placements ist keine Liste/.test(protokoll));
+    check('422 ungueltig: Logzeile im Betriebsdienst', /422 ungueltig: Feld "placements" ist vorhanden, aber keine Liste/.test(protokoll));
     const ohneFeld = await anfrage('POST', { leib: (({ placements: _p, ...rest }) => rest)(koerper('ohne-platzierungen')), ifMatch: `"${hL}"` });
     check('placements fehlt ganz → weiterhin 200 (kein Fehler, nur eine leere Liste)', ohneFeld.status === 200, `= ${ohneFeld.status}`);
     const hL2 = plattenHash();
@@ -594,10 +607,11 @@ try {
     const hH = await holeHash();
     const marker = resolve(ORDNER, 'halter.marker');
     const leerlauf: number[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 21; i++) {
       const t = Date.now();
       await fetch(`http://127.0.0.1:${port}/status`, { headers: { 'x-wov-token': TOKEN } });
       leerlauf.push(Date.now() - t);
+      await warte(10);
     }
     const halterFertig = halter.fragen({ cmd: 'direkt', pfad: WELT_DATEI, basis: null, startAt: 0, anzahl: 1, tag: 'halter', pausiereVorRenameMs: 1800, markerPfad: marker });
     for (let i = 0; i < 200 && !existsSync(marker); i++) await warte(20);
@@ -615,8 +629,15 @@ try {
     await halterFertig;
     const msPost = Date.now() - tPost;
     const maximum = Math.max(...proben);
-    console.log(`# Ereignisschleife: /status ohne Sperre max ${Math.max(...leerlauf)} ms; mit fremder Sperre ${proben.length} Proben, max ${maximum} ms; wartender POST → ${w.status} nach ${msPost} ms`);
-    check('Sperre gehalten: GET /status antwortet immer in < 50 ms', maximum < 50, `max ${maximum} ms, Proben ${proben.join(',')}`);
+    // Grenze aus der Basislinie DIESES Laufs (die erste Probe, der Kaltstart, zählt nicht) und ein fester
+    // Boden von 500 ms: Streuung und Last einer vollen Maschine (gemessen bis ~160 ms) reißen sie nicht,
+    // die alte Blockade (~3000 ms, ein synchron wartender Betriebsdienst) immer.
+    const grundlinie = leerlauf.slice(1).sort((x, y) => x - y);
+    const median = grundlinie[Math.floor(grundlinie.length / 2)]!;
+    const grenze = Math.max(500, 4 * median + 50);
+    console.log(`# Ereignisschleife: /status ohne Sperre Median ${median} ms, max ${Math.max(...grundlinie)} ms (${grundlinie.length} Proben, erste verworfen); mit fremder Sperre ${proben.length} Proben, max ${maximum} ms, Grenze ${grenze} ms; wartender POST → ${w.status} nach ${msPost} ms`);
+    check('Sperre gehalten: GET /status bleibt weit unter der alten Blockade (≤ max(500 ms, 4 × Median + 50))', maximum <= grenze, `max ${maximum} ms > Grenze ${grenze} ms, Proben ${proben.join(',')}`);
+    check('Sperre gehalten: genug Proben im Fenster (≥ 20), damit das Maximum etwas aussagt', proben.length >= 20, `= ${proben.length}`);
     check('Sperre gehalten: der wartende POST hat gewartet (≥ 1 s) und ist danach 409 (Halter hat geschrieben), nicht 503', w.status === 409 && msPost >= 1000, `= ${w.status} nach ${msPost} ms`);
     check('Sperre gehalten: der 409 nennt den Hash des Halters', w.daten.aktuell === plattenHash());
     halter.kind.stdin!.end();
@@ -691,8 +712,13 @@ try {
       // anderer Rechner: nicht entscheidbar → bleibt
       sperreSchreiben({ pid: totePid, start: null, host: 'ein-anderer-rechner', marke: 'fern' });
       r = versuch({ sperreWartenMs: 250 });
-      check('Besitzer auf anderem Rechner: nicht entscheidbar, Sperre bleibt', !r.ok && r.name === 'LayoutGesperrt' && existsSync(lockDatei), JSON.stringify(r));
+      check('Besitzer auf anderem Rechner, frisch: nicht entscheidbar, Sperre bleibt', !r.ok && r.name === 'LayoutGesperrt' && existsSync(lockDatei), JSON.stringify(r));
       rmSync(lockDatei);
+      log.length = 0;
+      sperreSchreiben({ pid: totePid, start: null, host: 'ein-anderer-rechner', marke: 'fern-alt' }, 60_000);
+      r = versuch({ sperreWartenMs: 2000 });
+      check('Besitzer auf anderem Rechner, Sperre 60 s alt: als verwaist gebrochen, Schreiben gelingt', r.ok && r.ms < 500, JSON.stringify(r));
+      check('… laute Logzeile mit Rechner, pid und Alter', log.some((z) => new RegExp(`verwaiste Sperre .* gebrochen: ACHTUNG Besitzer pid ${totePid} auf Rechner ein-anderer-rechner .* 60 s alt`).test(z)), log.join(' | '));
 
       // ohne Besitzangabe: jung bleibt, alt ist Müll
       sperreSchreiben('hier hat jemand von Hand etwas hingelegt');
@@ -812,6 +838,123 @@ try {
     layoutSchreiben(lPfad, koerper('alt-danach-2'));
     check('… eine frische bleibt liegen', existsSync(alt));
     rmSync(alt);
+  }
+
+  // ══ Dritte Runde (Angriff 2): fremder Rechner, Zurücklegen, Müll-Arrays, Freigabe ══
+
+  // ── 21) Sperre eines fremden Rechners darf nicht ewig halten ────────
+  {
+    const lock = `${WELT_DATEI}.lock`;
+    const fremd = { pid: 999999, start: '12345', host: 'editor-container-7f3a', marke: 'fern' };
+    let hF = await holeHash();
+    writeFileSync(lock, JSON.stringify(fremd));
+    const vor2h = new Date(Date.now() - 7_200_000);
+    utimesSync(lock, vor2h, vor2h);
+    let t0 = Date.now();
+    const alt = await anfrage('POST', { leib: koerper('nach-fremder-sperre'), ifMatch: `"${hF}"` });
+    const ms = Date.now() - t0;
+    console.log(`# Fremdrechner-Sperre, 2 h alt: erster POST → ${alt.status} nach ${ms} ms`);
+    check('fremder Rechner, Sperre 2 h alt: erster POST = 200', alt.status === 200, `= ${alt.status} ${JSON.stringify(alt.daten)}`);
+    check('… und nicht erst nach der Wartezeit (< 1 s)', ms < 1000, `= ${ms} ms`);
+    await warte(150);
+    check('… laute Logzeile mit Rechner, pid und Alter', /verwaiste Sperre .* gebrochen: ACHTUNG Besitzer pid 999999 auf Rechner editor-container-7f3a .* 7200 s alt/.test(protokoll));
+    check('… die Sperre ist weg', !existsSync(lock));
+    hF = await holeHash();
+    const vorher = plattenHash();
+    writeFileSync(lock, JSON.stringify({ ...fremd, marke: 'fern2' })); // frisch
+    t0 = Date.now();
+    const frisch = await anfrage('POST', { leib: koerper('gegen-frische-fremde-sperre'), ifMatch: `"${hF}"` });
+    const ms2 = Date.now() - t0;
+    console.log(`# Fremdrechner-Sperre, frisch: POST → ${frisch.status} nach ${ms2} ms, Retry-After ${frisch.kopf.get('retry-after')}`);
+    check('fremder Rechner, frische Sperre (< 30 s): 503', frisch.status === 503 && frisch.daten.fehler === 'gesperrt', `= ${frisch.status}`);
+    check('503 trägt den Kopf Retry-After', frisch.kopf.get('retry-after') === '3', `= ${frisch.kopf.get('retry-after')}`);
+    check('503-Meldung nennt pid und Rechner des Halters', /pid 999999/.test(String(frisch.daten.message)) && /editor-container-7f3a/.test(String(frisch.daten.message)), String(frisch.daten.message));
+    check('frische fremde Sperre: Datei unverändert, Sperre bleibt liegen', plattenHash() === vorher && JSON.parse(readFileSync(lock, 'utf-8')).marke === 'fern2');
+    rmSync(lock);
+  }
+
+  // ── 22) Zurücklegen einer weggenommenen Sperre scheitert: nicht weiterschreiben ─
+  // Der Brecher B beurteilt eine tote Sperre und pausiert vor seinem Bruch-rename; das Opfer A
+  // bricht dieselbe Sperre, legt seine eigene an und steht hinter der Besitzprüfung, kurz
+  // vor dem rename. B wacht auf, nimmt A's frische Sperre weg — und linkSync scheitert.
+  {
+    const iPfad = resolve(DIREKT, 'injektion.json');
+    writeFileSync(iPfad, sollText(koerper('injektion-start')));
+    const kurz = spawn(process.execPath, ['-e', '0']);
+    await new Promise<void>((f) => kurz.once('exit', () => f()));
+    let doppelt = 0;
+    let unpassend = 0;
+    let bGesperrt = 0;
+    const RUNDEN = 20;
+    for (let r = 0; r < RUNDEN; r++) {
+      writeFileSync(`${iPfad}.lock`, JSON.stringify({ pid: kurz.pid, start: null, host: hostname(), marke: `tot-i-${r}` }));
+      const basis = sha(readFileSync(iPfad));
+      const t = Date.now() + 60;
+      const [b, a] = (await Promise.all([
+        wa.fragen({ cmd: 'direkt', pfad: iPfad, basis, startAt: t, anzahl: 1, tag: `i${r}B`, pausiereVorSperrbruchMs: 500, linkScheitert: true }),
+        wb.fragen({ cmd: 'direkt', pfad: iPfad, basis, startAt: t + 100, anzahl: 1, tag: `i${r}A`, pausiereVorRenameMs: 900 }),
+      ])) as Array<{ ok: number; andere: string[]; hashes: string[] }>;
+      const erfolge = b.ok + a.ok;
+      const gemeldet = [...b.hashes, ...a.hashes];
+      if (erfolge > 1) doppelt++;
+      if (erfolge !== 1 || gemeldet[0] !== sha(readFileSync(iPfad))) unpassend++;
+      if (b.andere.length === 1 && /^LayoutGesperrt/.test(b.andere[0]!)) bGesperrt++;
+    }
+    console.log(`# Injektion Zurücklegen scheitert: ${RUNDEN} Runden, Doppelerfolge ${doppelt}, Runden ohne genau einen Sieger mit richtigem Hash ${unpassend}, B als LayoutGesperrt abgewiesen ${bGesperrt}`);
+    check(`Zurücklegen scheitert: in ${RUNDEN}/${RUNDEN} Runden KEIN Doppelerfolg`, doppelt === 0, `${doppelt} Doppelerfolge`);
+    check(`… und in jeder Runde genau ein Erfolg, dessen gemeldeter Hash auf der Platte liegt`, unpassend === 0, `${unpassend} Runden`);
+    check(`… der Brecher meldet ehrlich LayoutGesperrt (die Injektion greift in ${RUNDEN}/${RUNDEN} Runden)`, bGesperrt === RUNDEN, `${bGesperrt}`);
+    check('Injektion: keine .lock/.tmp zurückgeblieben', !readdirSync(DIREKT).some((f) => f.startsWith('injektion.json.') && (f.endsWith('.lock') || f.endsWith('.tmp'))));
+  }
+
+  // ── 23) Array aus Müll: nichts geht still verloren ──────────────────
+  {
+    const hM = plattenHash();
+    const bakM = sicherungen();
+    for (const muell of [['x', 'y'], [[]], [{}], [null], [{ prefab: 42, x: 'a' }]]) {
+      const r = await anfrage('POST', { leib: { ...koerper('muell-array'), placements: muell }, ifMatch: `"${hM}"` });
+      check(`placements = ${JSON.stringify(muell)} → 422 ungueltig`, r.status === 422 && r.daten.fehler === 'ungueltig' && r.daten.feld === 'placements' && /keiner der \d+ Einträge/.test(String(r.daten.message)), `= ${r.status} ${JSON.stringify(r.daten)}`);
+    }
+    check('Müll-Array: Prüfsumme vorher = nachher, keine Sicherung', plattenHash() === hM && sicherungen() === bakM);
+    const leerListe = await anfrage('POST', { leib: { ...koerper('leere-liste'), placements: [] }, ifMatch: `"${hM}"` });
+    check('placements = [] → weiterhin 200, kein verworfen-Feld', leerListe.status === 200 && leerListe.daten.verworfen === undefined, `= ${leerListe.status}`);
+    const hN = plattenHash();
+    const teil = await anfrage('POST', { leib: { ...koerper('teil-muell'), placements: [{ prefab: 'Beech1', x: 1, z: 2 }, 'x', { prefab: 'Beech1', x: 3, z: 4 }, null] }, ifMatch: `"${hN}"` });
+    check('2 gültige + 2 Müll → 200 mit verworfen: 2', teil.status === 200 && teil.daten.verworfen === 2, `= ${teil.status} ${JSON.stringify(teil.daten)}`);
+    check('… die zwei gültigen stehen auf der Platte', (JSON.parse(platte().toString('utf-8')) as { placements: unknown[] }).placements.length === 2);
+    await warte(150);
+    check('… Logzeile nennt die verworfenen Platzierungen', /2 ungueltige Platzierung\(en\) im Dokument verworfen, 2 gespeichert/.test(protokoll));
+    const ganz = await anfrage('POST', { leib: koerper('ganz-gueltig', 3), ifMatch: `"${plattenHash()}"` });
+    check('lauter gültige Platzierungen → 200 ohne verworfen-Feld', ganz.status === 200 && ganz.daten.verworfen === undefined);
+  }
+
+  // ── 24) Fehler beim Freigeben der Sperre verfälscht die Antwort nicht ─
+  {
+    const fPfad = resolve(DIREKT, 'freigabe.json');
+    writeFileSync(fPfad, sollText(koerper('freigabe-start')));
+    const echtesRm = fs.rmSync;
+    const geloggt: string[] = [];
+    const errAlt = console.error;
+    console.error = (...a: unknown[]) => void geloggt.push(a.join(' '));
+    (fs as { rmSync: typeof echtesRm }).rmSync = ((p: string, o?: unknown) => {
+      if (String(p).endsWith('.lock')) throw Object.assign(new Error('EROFS: simulated'), { code: 'EROFS' });
+      return echtesRm(p, o as never);
+    }) as typeof echtesRm;
+    syncBuiltinESMExports();
+    let geworfen = '';
+    let ergebnis: { hash?: string } | undefined;
+    try {
+      ergebnis = layoutSchreiben(fPfad, koerper('freigabe-fehler'));
+    } catch (f) {
+      geworfen = (f as Error).message;
+    } finally {
+      (fs as { rmSync: typeof echtesRm }).rmSync = echtesRm;
+      syncBuiltinESMExports();
+      console.error = errAlt;
+    }
+    check('Freigabe scheitert (rmSync wirft): der gelungene Schreibvorgang meldet trotzdem Erfolg', geworfen === '' && ergebnis?.hash === sha(readFileSync(fPfad)), geworfen);
+    check('… der Fehler steht laut im Log', geloggt.some((z) => /konnte nicht freigegeben werden: EROFS/.test(z)), geloggt.join(' | '));
+    rmSync(`${fPfad}.lock`, { force: true });
   }
 
   // stdin schließen beendet die Werkzeugprozesse (ihre Befehlsschleife läuft dann aus).

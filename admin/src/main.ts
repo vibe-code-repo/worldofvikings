@@ -1391,9 +1391,18 @@ async function behandeln(
     try {
       // Async: Wartet ein fremder Schreiber auf der Sperre, bleibt die
       // Ereignisschleife frei (/status, /metriken, der Log-Strom laufen weiter).
-      const { layout, sicherung, text, hash } = await layoutSchreibenAsync(LAYOUT_DATEI, dokument, undefined, {
-        basis,
-      });
+      const { layout, sicherung, text, hash, verworfen } = await layoutSchreibenAsync(
+        LAYOUT_DATEI,
+        dokument,
+        undefined,
+        { basis }
+      );
+      if (verworfen > 0) {
+        console.warn(
+          `[Admin] POST /api/worldlayout: ${verworfen} ungueltige Platzierung(en) im Dokument verworfen, ` +
+            `${layout.placements?.length ?? 0} gespeichert`
+        );
+      }
       return {
         code: 200,
         kopf: { ETag: `"${hash}"` },
@@ -1406,6 +1415,7 @@ async function behandeln(
           sicherung: sicherung ? basename(sicherung) : null,
           bytes: Buffer.byteLength(text),
           hash,
+          ...(verworfen > 0 ? { verworfen } : {}),
           ...(basis === null ? { ohneBasis: true } : {}),
         },
       };
@@ -1438,7 +1448,7 @@ async function behandeln(
         };
       }
       if (fehler instanceof LayoutFeldUngueltig) {
-        console.warn(`[Admin] POST /api/worldlayout -> 422 ungueltig: Feld ${fehler.feld} ist keine Liste, nichts gespeichert`);
+        console.warn(`[Admin] POST /api/worldlayout -> 422 ungueltig: ${fehler.message}`);
         return {
           code: 422,
           daten: { ok: false, fehler: 'ungueltig', feld: fehler.feld, message: fehler.message },
@@ -1446,7 +1456,13 @@ async function behandeln(
       }
       if (fehler instanceof LayoutGesperrt) {
         console.warn(`[Admin] POST /api/worldlayout -> 503: ${fehler.message}`);
-        return { code: 503, daten: { ok: false, fehler: 'gesperrt', message: fehler.message } };
+        // Retry-After: Die Sperre eines Schreibers, der gerade arbeitet, ist in
+        // Millisekunden weg; ein Wiederholen nach ein paar Sekunden ist richtig.
+        return {
+          code: 503,
+          kopf: { 'Retry-After': '3' },
+          daten: { ok: false, fehler: 'gesperrt', message: fehler.message },
+        };
       }
       throw fehler;
     }

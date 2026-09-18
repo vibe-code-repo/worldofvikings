@@ -250,19 +250,34 @@ export function layoutSichern(pfad: string, behalten = SICHERUNGEN_BEHALTEN): st
 // anderen — ein Lost Update trotz Sperre.
 //
 // Nicht entscheidbar ist der Besitzer bei einem anderen Rechnernamen (gemeinsames
-// Dateisystem; `kill` wirkt nur lokal): Diese Sperre bleibt liegen, der Aufrufer
-// bekommt `LayoutGesperrt` mit dem Namen des Besitzers.
+// Dateisystem, oder ein neuer Container mit neuem Namen nach einem Absturz;
+// `kill` wirkt nur lokal). Eine solche Sperre darf nicht ewig halten — der
+// Dienst käme nach einem Neustart nie wieder zum Schreiben: Sie gilt als
+// verwaist, sobald sie älter als `sperreVeraltetMs` (30 s) ist, und wird mit
+// lauter Logzeile (Rechner, pid, Alter) gebrochen. Das Restrisiko — der
+// Besitzer lebt auf dem anderen Rechner und schreibt noch — ist bewusst
+// eingegangen: eine Sperre, die über 30 s hält, ist bei einem Schreibvorgang
+// von Millisekunden ohnehin verdächtig. Jünger als 30 s bleibt sie liegen.
 //
 // Eine Sperre OHNE lesbare Besitzangabe (von Hand angelegt, oder ein Prozess
 // stürzte in den Mikrosekunden zwischen `open` und `write` ab) hat keinen
-// Besitzer, den man prüfen könnte; sie gilt ab `sperreVeraltetMs` als Müll.
+// Besitzer, den man prüfen könnte; sie gilt aus demselben Grund ab
+// `sperreVeraltetMs` als Müll.
+//
+// Bewusst NICHT gebrochen wird die Sperre eines lebenden, aber angehaltenen
+// Prozesses (SIGSTOP, eingefrorener Container): Er lebt, und würde er später
+// weiterlaufen, schriebe er über den Sieger. Der Aufrufer bekommt
+// `LayoutGesperrt` mit pid und Rechner des Besitzers; ab 30 s Alter steht in
+// Meldung und Log, dass ein Eingriff von Hand nötig ist.
 
 /** So lange wartet `layoutSchreiben` auf eine fremde Sperre, bevor es `LayoutGesperrt` wirft. */
 export const SPERRE_WARTEN_MS = 3000;
 /**
- * Alter, ab dem (a) eine Sperre ohne lesbare Besitzangabe als Müll gebrochen
- * und (b) eine liegengebliebene Tmp-Datei weggeräumt wird. Die Sperre eines
- * lebenden Besitzers hängt NICHT davon ab.
+ * Alter (mtime der Sperrdatei), ab dem (a) eine Sperre ohne lesbare
+ * Besitzangabe und (b) eine Sperre, deren Besitzer sich von hier aus nicht
+ * prüfen lässt (anderer Rechnername), als verwaist gebrochen wird, und ab dem
+ * (c) eine liegengebliebene Tmp-Datei weggeräumt wird. Die Sperre eines
+ * lebenden Besitzers auf DIESEM Rechner hängt NICHT davon ab.
  */
 export const SPERRE_VERALTET_MS = 30_000;
 /** Ab diesem Alter einer von einem lebenden Prozess gehaltenen Sperre gibt es eine Logzeile. */
@@ -275,7 +290,14 @@ export interface SchreibOptionen {
   sperreVeraltetMs?: number;
 }
 
-export type SchreibErgebnis = { layout: WorldLayout; sicherung: string | null; text: string; hash: string };
+export type SchreibErgebnis = {
+  layout: WorldLayout;
+  sicherung: string | null;
+  text: string;
+  hash: string;
+  /** So viele rohe Platzierungen hat der Sanitizer verworfen (0 im Normalfall). */
+  verworfen: number;
+};
 
 interface SperrInfo {
   pid: number;
@@ -387,11 +409,27 @@ function sperreBeurteilen(sperrPfad: string, veraltetMs: number): Urteil {
     case 'tot':
       return { art: 'brechen', roh, pid: info.pid, grund: `Besitzer pid ${info.pid} lebt nicht mehr` };
     case 'lebt':
-      return { art: 'besetzt', beschreibung: `gehalten von pid ${info.pid}, der lebt`, alterMs };
+      return { art: 'besetzt', beschreibung: `gehalten von pid ${info.pid} auf Rechner ${info.host}, der lebt`, alterMs };
     default:
+      // Lebendprüfung von hier aus unmöglich (anderer Rechner): nach `veraltetMs`
+      // gilt die Sperre als verwaist. Die pid sagt hier nichts, deshalb werden
+      // auch keine Tmp-Dateien dieser pid geräumt (pid: null).
+      if (alterMs > veraltetMs) {
+        return {
+          art: 'brechen',
+          roh,
+          pid: null,
+          grund:
+            `ACHTUNG Besitzer pid ${info.pid} auf Rechner ${info.host} (dieser Rechner: ${hostname()}) ` +
+            `lässt sich von hier nicht prüfen, Sperre ${Math.round(alterMs / 1000)} s alt (Grenze ` +
+            `${Math.round(veraltetMs / 1000)} s) — als verwaist behandelt, er könnte noch leben`,
+        };
+      }
       return {
         art: 'besetzt',
-        beschreibung: `gehalten von pid ${info.pid} auf ${info.host} (ob er lebt, lässt sich von hier nicht prüfen)`,
+        beschreibung:
+          `gehalten von pid ${info.pid} auf Rechner ${info.host} (ob er lebt, lässt sich von hier nicht ` +
+          `prüfen; ab ${Math.round(veraltetMs / 1000)} s Alter gilt die Sperre als verwaist)`,
         alterMs,
       };
   }
@@ -408,13 +446,20 @@ function tmpVonToterpidRaeumen(pfad: string, pid: number): void {
 }
 
 /**
- * Bricht eine Sperre, deren Besitzer tot ist. Nicht `unlink`, sondern `rename`
- * auf einen eindeutigen Namen, und danach wird geprüft, dass WIRKLICH die
- * beurteilte Sperre weggeräumt wurde: Zwischen Urteil und Rename kann ein
- * anderer Wartender dieselbe tote Sperre gebrochen und eine frische angelegt
- * haben — die hätten wir dann gerade ihrem lebenden Besitzer entzogen. In dem
- * Fall legen wir sie zurück; dass er sie nicht mehr hält, merkt er an seiner
- * Prüfung `sperreGehoertUns` vor dem Rename und bricht ab, statt zu schreiben.
+ * Bricht eine verwaiste Sperre. Nicht `unlink`, sondern `rename` auf einen
+ * eindeutigen Namen, und danach wird geprüft, dass WIRKLICH die beurteilte
+ * Sperre weggeräumt wurde: Zwischen Urteil und Rename kann ein anderer
+ * Wartender dieselbe Sperre gebrochen und eine frische angelegt haben — die
+ * hätten wir dann gerade ihrem lebenden Besitzer entzogen. In dem Fall legen
+ * wir sie zurück.
+ *
+ * Gelingt das Zurücklegen NICHT (Dateisystem ohne harte Links, oder ein Dritter
+ * hat in der Lücke schon eine neue Sperre angelegt), wird NICHT weitergemacht:
+ * `LayoutGesperrt`, nichts geschrieben. Der Besitzer der weggenommenen Sperre
+ * steht vielleicht schon hinter seiner Prüfung `sperreGehoertUns` und schreibt
+ * gleich; schriebe der Brecher jetzt auch, hätten wir zwei Schreiber und einen
+ * gemeldeten Hash, der nicht auf der Platte liegt. So bleibt höchstens EIN
+ * Schreiber übrig, und der Brecher meldet ehrlich 503.
  */
 function sperreBrechen(sperrPfad: string, pfad: string, u: { roh: string; pid: number | null; grund: string }): void {
   const beiseite = `${pfad}.${process.pid}.${zufall()}.tmp`;
@@ -431,14 +476,25 @@ function sperreBrechen(sperrPfad: string, pfad: string, u: { roh: string; pid: n
     jetzt = null;
   }
   if (jetzt !== u.roh) {
+    let zurueck = false;
     try {
       linkSync(beiseite, sperrPfad);
-      console.warn(`[layoutDatei] ${basename(sperrPfad)}: fremde frische Sperre versehentlich weggenommen und zurückgelegt`);
+      zurueck = true;
     } catch {
-      console.warn(`[layoutDatei] ${basename(sperrPfad)}: fremde frische Sperre weggenommen, Zurücklegen scheiterte`);
+      /* unten */
     }
     rmSync(beiseite, { force: true });
-    return;
+    if (zurueck) {
+      console.warn(`[layoutDatei] ${basename(sperrPfad)}: fremde frische Sperre versehentlich weggenommen und zurückgelegt`);
+      return;
+    }
+    console.warn(
+      `[layoutDatei] ${basename(sperrPfad)}: fremde frische Sperre weggenommen, Zurücklegen scheiterte — es wird nicht geschrieben`
+    );
+    throw new LayoutGesperrt(
+      `${basename(pfad)}: beim Brechen einer Sperre wurde die frische Sperre eines anderen Schreibers versehentlich ` +
+        `weggenommen und ließ sich nicht zurücklegen — nichts geschrieben, bitte noch einmal versuchen`
+    );
   }
   rmSync(beiseite, { force: true });
   if (u.pid !== null) tmpVonToterpidRaeumen(pfad, u.pid);
@@ -485,8 +541,12 @@ function gesperrt(pfad: string, v: { besetzt: string; alterMs: number }, wartenM
   if (v.alterMs >= SPERRE_LOGGEN_AB_MS) {
     console.warn(`[layoutDatei] ${basename(pfad)}.lock seit ${alter} s ${v.besetzt} — wird NICHT gebrochen`);
   }
+  const hinweis =
+    v.alterMs >= SPERRE_LOGGEN_AB_MS
+      ? `; läuft der Prozess noch, ist ein Eingriff von Hand nötig (${basename(pfad)}.lock entfernen, wenn er wirklich festhängt)`
+      : '';
   return new LayoutGesperrt(
-    `${basename(pfad)} ist gesperrt (${v.besetzt}, Sperre ${alter} s alt) — nach ${wartenMs} ms aufgegeben`
+    `${basename(pfad)} ist gesperrt (${v.besetzt}, Sperre ${alter} s alt) — nach ${wartenMs} ms aufgegeben${hinweis}`
   );
 }
 
@@ -525,8 +585,20 @@ function sperreGehoertUns(sperre: Sperre): boolean {
 
 /** Gibt nur frei, was uns gehört: eine fremde Sperre bleibt liegen. */
 function sperreFreigeben(sperre: Sperre): void {
-  if (sperreGehoertUns(sperre)) rmSync(sperre.pfad, { force: true });
-  else console.warn(`[layoutDatei] Sperre ${basename(sperre.pfad)} gehörte beim Freigeben nicht mehr uns`);
+  // Wirft nie: Es läuft im `finally` NACH dem Rename. Ein Fehler hier (Ordner
+  // plötzlich schreibgeschützt) würde sonst das Ergebnis eines gelungenen
+  // Schreibvorgangs durch einen Fehler ersetzen, obwohl die Datei längst
+  // geschrieben ist. Die Sperre bleibt dann liegen und gehört einem lebenden
+  // Prozess; das steht laut im Log.
+  try {
+    if (sperreGehoertUns(sperre)) rmSync(sperre.pfad, { force: true });
+    else console.warn(`[layoutDatei] Sperre ${basename(sperre.pfad)} gehörte beim Freigeben nicht mehr uns`);
+  } catch (fehler) {
+    console.error(
+      `[layoutDatei] Sperre ${basename(sperre.pfad)} konnte nicht freigegeben werden: ${(fehler as Error).message} ` +
+        `— sie bleibt liegen und blockiert weitere Schreibvorgänge, bis sie von Hand entfernt wird`
+    );
+  }
 }
 
 /**
@@ -567,8 +639,11 @@ const LISTENFELDER = ['placements', 'continents', 'routes', 'rivers', 'lakes'] a
  * dem Feldnamen.
  */
 export class LayoutFeldUngueltig extends LayoutUngueltig {
-  constructor(readonly feld: string) {
-    super(`Feld "${feld}" ist vorhanden, aber keine Liste — verworfen; nichts gespeichert`);
+  constructor(
+    readonly feld: string,
+    meldung?: string
+  ) {
+    super(meldung ?? `Feld "${feld}" ist vorhanden, aber keine Liste — verworfen; nichts gespeichert`);
     this.name = 'LayoutFeldUngueltig';
   }
 }
@@ -590,7 +665,7 @@ function platzierungenZaehlen(eingabe: unknown): number {
 }
 
 /** Alles, was vor der Sperre feststehen kann: Prüfung des Rohdokuments, Sanitizer, Text. */
-function schreibenVorbereiten(eingabe: unknown): { layout: WorldLayout; text: string } {
+function schreibenVorbereiten(eingabe: unknown): { layout: WorldLayout; text: string; verworfen: number } {
   // Beides am ROHEN Dokument, vor dem Sanitizer: Der schneidet bei 2000
   // Platzierungen still ab und macht aus einem Nicht-Array eine leere Liste.
   listenPruefen(eingabe);
@@ -620,14 +695,28 @@ function schreibenVorbereiten(eingabe: unknown): { layout: WorldLayout; text: st
         'wahrscheinlich ist das Dokument unvollständig übertragen worden.'
     );
   }
-  return { layout, text: layoutText(layout) };
+  // Ein Array voller Müll (`["x", "y"]`, `[[]]`, `[{}]`) ist ein Array und passiert die
+  // Listenprüfung oben; der Sanitizer wirft die Einträge einzeln weg. Dann gingen
+  // alle Platzierungen mit 200 verloren. Roh gegen gefiltert zu vergleichen geht
+  // hier, ohne den Sanitizer anzufassen: Bleibt von mindestens einer nichts übrig,
+  // ist das Feld unbrauchbar (422); wird nur ein Teil verworfen, meldet der
+  // Aufrufer die Zahl.
+  const roh = platzierungenZaehlen(eingabe);
+  const behalten = layout.placements?.length ?? 0;
+  if (roh > 0 && behalten === 0) {
+    throw new LayoutFeldUngueltig(
+      'placements',
+      `Feld "placements": keiner der ${roh} Einträge ist eine gültige Platzierung — verworfen; nichts gespeichert`
+    );
+  }
+  return { layout, text: layoutText(layout), verworfen: roh - behalten };
 }
 
 /** Der Teil, der die Sperre HÄLT: Basisvergleich, Sicherung, Tmp-Datei, Rename. Rein synchron, ohne `await`. */
 function unterSperreSchreiben(
   pfad: string,
   sperre: Sperre,
-  v: { layout: WorldLayout; text: string },
+  v: { layout: WorldLayout; text: string; verworfen: number },
   behalten: number,
   optionen: SchreibOptionen
 ): SchreibErgebnis {
@@ -658,7 +747,7 @@ function unterSperreSchreiben(
       rmSync(tmp, { force: true });
       throw fehler;
     }
-    return { layout: v.layout, sicherung, text: v.text, hash: layoutHash(v.text) };
+    return { layout: v.layout, sicherung, text: v.text, hash: layoutHash(v.text), verworfen: v.verworfen };
   } finally {
     sperreFreigeben(sperre);
   }

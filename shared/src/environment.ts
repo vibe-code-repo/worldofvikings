@@ -222,7 +222,7 @@ export const ENV_DEEP_FOREST = 'DeepForest Mist';
 export const ENV_HEATH_CLEAR = 'Heath clear';
 export const ENV_SWAMP_RAIN = 'SwampRain';
 export const ENV_SNOW = 'Snow';
-export const ENV_DARKLANDS = 'Darklands_dark';
+export const ENV_DEEP_NORTH = 'DeepNorth_dark';
 export const ENV_ASH_RAIN = 'Ashrain';
 export const ENV_MISTLANDS = 'Mistlands_dark';
 /**
@@ -432,7 +432,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
   },
   {
     // Deep North: pale, bleak, dim sun.
-    name: ENV_DARKLANDS,
+    name: ENV_DEEP_NORTH,
     fogColorMorning: c(0.34, 0.4, 0.48),
     fogColorDay: c(0.52, 0.6, 0.7),
     fogColorEvening: c(0.32, 0.36, 0.44),
@@ -846,7 +846,7 @@ const BIOME_ENV: ReadonlyArray<readonly [Biome, string]> = [
   [Biome.Plains, ENV_HEATH_CLEAR],
   [Biome.Mistlands, ENV_MISTLANDS],
   [Biome.AshLands, ENV_ASH_RAIN],
-  [Biome.DeepNorth, ENV_DARKLANDS],
+  [Biome.DeepNorth, ENV_DEEP_NORTH],
   [Biome.Ocean, ENV_MISTY],
 ];
 

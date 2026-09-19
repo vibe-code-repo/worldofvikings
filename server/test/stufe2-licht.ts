@@ -235,7 +235,7 @@ function sonneGehtNichtAus(): void {
 
   for (const env of ENVIRONMENTS) {
     // Hoehlen und Krypten sind AUSDRUECKLICH dunkel (`alwaysDark`, und
-    // z. B. die dunkle Umgebung traegt lightIntensityNight 0). Eine Sonne dort
+    // z. B. DeepNorth_dark traegt lightIntensityNight 0). Eine Sonne dort
     // waere der Fehler, nicht ihr Fehlen.
     if (env.alwaysDark) continue;
     geprueft++;

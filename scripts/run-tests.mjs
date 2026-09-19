@@ -1366,6 +1366,14 @@ const KERN = [
     Himmelskuppel und Licht. Reine Funktion, keine Szene, ~1 s.
   */
   ['shared', 'test/umgebung-tageslauf.ts'],
+  /*
+    Data references: no dangling prefab references in the dungeon data (room
+    furnishing, door types, `childViews` indices) and environment names that
+    stay paired between the `ENV_*` literals, the dungeon mapping and
+    `envData.json`. A half-done rename or removal falls back silently at run
+    time; this makes it loud. Pure data, ~1 s.
+  */
+  ['shared', 'test/daten-verweise.ts'],
   // F1 (Roadmap, Security-Review-Paket 3): Truhen mit echtem, entnehmbarem
   // Inhalt statt des alten Ein-Bit-Schalters. E2E ueber echte WebSocket-
   // Verbindungen (handleTruheOeffnen/handleContainerAction sind private

@@ -790,8 +790,8 @@ const INTERIOR_ENV: ReadonlyMap<string, string> = new Map([
   ['DG_SunkenCrypt', 'SunkenCrypt'],
   ['DG_Cave', 'Caves'],
   ['DG_Hildir_Cave', 'CavesHildir'],
-  ['DG_DvergrBoss', 'Darklands_dark'],
-  ['DG_DvergrTown', 'Darklands_dark'],
+  ['DG_DvergrBoss', 'DeepNorth_dark'],
+  ['DG_DvergrTown', 'DeepNorth_dark'],
   // Modul-Kit ohne eigene Lichtquellen (der 1.0-Generator setzt keine
   // Props): `Crypt` hat lightIntensity 0 und ist ohne Fackeln stockdunkel
   // (Spielprobe 03.09.2026). `Caves` bringt 0,1 Grundlicht mit — genug,

@@ -22,7 +22,12 @@ import {
   EntwurfsSpeicher,
   SchrittVerlauf,
   VerdraengtRing,
+  ALTER_RING_SCHLUESSEL,
   VERDRAENGT_PRAEFIX,
+  alterRingSchluesselEntfernen,
+  serverstandFolge,
+  speicherGrund,
+  type SpeicherGrund,
   type RingSpeicher,
   sollInRing,
   type AbgangsGrund,
@@ -338,11 +343,10 @@ class EditorAttrappe {
       tabId: name,
       jetzt: opt.jetzt,
       aktuell: () => this.layout,
-      // Der Entwurf hat Vorrang vor dem Ring (wie im Editor).
-      platzSchaffen: () => {
-        const frei = this.ring.aeltestenEntfernen();
-        if (frei) this.ringGeopfert++;
-        return frei;
+      // Der Entwurf hat Vorrang vor dem Ring — und der Ring bekommt zurück, was er umsonst hergab (wie im Editor).
+      platzSchaffen: () => this.ring.aeltestenEntfernen(),
+      platzErgebnis: (entwurfPasst) => {
+        this.ringGeopfert += this.ring.opferAbschliessen(entwurfPasst);
       },
       beiVerdraengt: (alt) => {
         if (enthaelt(this.layout, alt) || this.verlauf.zukunft.concat(this.verlauf.vergangenheit).some((x) => enthaelt(x, alt))) return;
@@ -381,23 +385,19 @@ class EditorAttrappe {
     if (sollInRing(grund, herkunft, enthaelt(bezug, stand))) this.ringen(stand, herkunft, grund);
   }
   /**
-   * Wie `speichereEntwurf` im Editor: schreibt und setzt die Meldungen, die kein Aufrufer überschreiben darf.
-   * `true`, wenn eine gesetzt wurde (fremder Stand übernommen, „Entwurf zu groß", „Speicher knapp").
+   * Wie `speichereEntwurf` im Editor — mit denselben reinen Funktionen (`speicherGrund`): schreibt und setzt die
+   * Meldungen, die kein Aufrufer überschreiben darf, und liefert den GRUND ('ok' | 'fremd' | 'voll' | 'knapp').
    */
-  private schreibenMitMeldung(quelle: 'bearbeitet' | 'import' | 'server'): boolean {
+  private schreibenMitMeldung(quelle: 'bearbeitet' | 'import' | 'server'): SpeicherGrund {
     const geopfertVor = this.ringGeopfert;
     const ergebnis = this.speicher.schreiben(this.layout, quelle, 'dev');
+    this.letztesErgebnis = ergebnis;
     const geopfert = this.ringGeopfert - geopfertVor;
     const opfer = geopfert > 0 ? ` Dafür wurden ${geopfert} verdrängte Stände aus dem Ring verworfen (ältester zuerst).` : '';
-    if (ergebnis === 'voll') {
-      this.meldungsVerlauf.push('Entwurf zu groß für localStorage — bitte als JSON exportieren!' + opfer);
-      return true;
-    }
-    if (geopfert > 0) {
-      this.meldungsVerlauf.push(`Speicher knapp — der Entwurf ist gespeichert.${opfer}`);
-      return true;
-    }
-    return ergebnis === 'fremd';
+    const grund = speicherGrund(ergebnis, geopfert);
+    if (grund === 'voll') this.meldungsVerlauf.push('Entwurf zu groß für localStorage — bitte als JSON exportieren!' + opfer);
+    else if (grund === 'knapp') this.meldungsVerlauf.push(`Speicher knapp — der Entwurf ist gespeichert.${opfer}`);
+    return grund;
   }
   /** Ergebnis des letzten Schreibens (für Tests, die den Rückgabewert brauchen). */
   letztesErgebnis: string = 'ok';
@@ -410,23 +410,17 @@ class EditorAttrappe {
     this.layout = f(this.layout);
     if (haltig) this.fremdHaltig.add(this.layout);
     this.eigenerStand = this.layout;
-    const geopfertVor = this.ringGeopfert;
-    const ergebnis = this.speicher.schreiben(this.layout, 'bearbeitet', 'dev');
-    this.letztesErgebnis = ergebnis;
-    const geopfert = this.ringGeopfert - geopfertVor;
-    const opfer = geopfert > 0 ? ` Dafür wurden ${geopfert} verdrängte Stände aus dem Ring verworfen (ältester zuerst).` : '';
-    if (ergebnis === 'voll') this.meldungsVerlauf.push('Entwurf zu groß für localStorage — bitte als JSON exportieren!' + opfer);
-    else if (geopfert > 0) this.meldungsVerlauf.push(`Speicher knapp — der Entwurf ist gespeichert.${opfer}`);
-    return ergebnis;
+    this.schreibenMitMeldung('bearbeitet');
+    return this.letztesErgebnis;
   }
   /** Ersetzen durch einen ANDEREN Entwurf (Import, Serverstand, wieder eingesetzter Stand). */
   ersetzen(neu: WorldLayout): string {
     this.verlauf.merke(this.layout, true);
     this.layout = neu;
     this.eigenerStand = this.layout;
-    const gemeldet = this.schreibenMitMeldung('import');
-    if (!gemeldet) this.meldungsVerlauf.push('Import übernommen');
-    return gemeldet ? 'gemeldet' : 'ok';
+    const grund = this.schreibenMitMeldung('import');
+    if (grund === 'ok') this.meldungsVerlauf.push('Import übernommen');
+    return grund;
   }
   /** Strg+Z — wie `rueckgaengig()` im Editor, samt Meldung und Reihenfolge. */
   rueckgaengig(): void {
@@ -434,27 +428,24 @@ class EditorAttrappe {
     if (v === undefined) return;
     this.layout = v;
     // Wie im Editor: eine schon gesetzte Meldung (fremder Stand übernommen, zu groß, Speicher knapp) bleibt stehen.
-    if (!this.schreibenMitMeldung('bearbeitet')) this.meldungsVerlauf.push(`Rückgängig (${this.verlauf.vergangenheit.length} weitere Schritte)`);
+    if (this.schreibenMitMeldung('bearbeitet') === 'ok') this.meldungsVerlauf.push(`Rückgängig (${this.verlauf.vergangenheit.length} weitere Schritte)`);
   }
   wiederherstellen(): void {
     const w = this.verlauf.vor(this.layout);
     if (w === undefined) return;
     this.layout = w;
-    if (!this.schreibenMitMeldung('bearbeitet')) this.meldungsVerlauf.push('Wiederhergestellt');
+    if (this.schreibenMitMeldung('bearbeitet') === 'ok') this.meldungsVerlauf.push('Wiederhergestellt');
   }
   /** „Serverstand laden" — wie `uebernehmen` im Start-Abgleich: „geladen" nur, wenn es wirklich geladen wurde. */
   serverstandLaden(server: WorldLayout): void {
     if (brauchtSchrittVorErsetzen(this.layout, server)) this.verlauf.merke(this.layout, true);
     else this.verlauf.ohneSchritt();
     this.layout = server;
-    const ergebnis = this.speicher.schreiben(this.layout, 'server', 'dev');
-    this.meldungsVerlauf.push(
-      ergebnis === 'fremd'
-        ? 'Serverstand NICHT geladen — ein anderer Tab hat den Entwurf zwischenzeitlich geändert'
-        : ergebnis === 'voll'
-          ? 'Entwurf zu groß für localStorage — bitte als JSON exportieren!'
-          : 'Serverstand geladen'
-    );
+    // Derselbe Weg wie im Editor (weltAbgleich.uebernehmen und 409): schreiben → Grund → serverstandFolge.
+    const folge = serverstandFolge(this.schreibenMitMeldung('server'));
+    if (folge === 'geladen') this.meldungsVerlauf.push('Serverstand geladen');
+    else if (folge === 'nicht-geladen') this.meldungsVerlauf.push('Serverstand NICHT geladen — ein anderer Tab hat den Entwurf zwischenzeitlich geändert');
+    // 'stehen-lassen': 'voll'/'knapp' haben ihre Meldung schon gesetzt — nichts darüberschreiben.
   }
 }
 
@@ -1537,10 +1528,12 @@ console.log('▶ Quote: voller Ring + grosser Entwurf, harte Quote (5 MiB, 2 Byt
   }
   {
     const { profil, a } = aufbau(1_500_000); // auch mit leerem Ring passt der Entwurf nicht mehr
+    const ringIdsVor = a.ring.liste().map((e) => e.id).join();
+    const belegtVor = profil.belegt();
     const r = a.ersetzen(entwurf);
-    check('Passt der Entwurf auch ohne Ring nicht: „voll“, der Ring ist ganz geleert (Vorrang), der alte Entwurf steht unverändert', a.ring.liste().length === 0 && a.ringGeopfert === 5 && (profil.daten.get(ENTWURF_KEY)?.length ?? 0) === JSON.stringify(basis).length, `${r}, geopfert=${a.ringGeopfert}`);
+    check('Passt der Entwurf auch OHNE Ring nicht: „voll“, der Ring bleibt UNANGETASTET (5 Einträge, derselbe Inhalt, nichts geopfert), der alte Entwurf steht unverändert', a.ring.liste().length === 5 && a.ring.liste().map((e) => e.id).join() === ringIdsVor && a.ringGeopfert === 0 && (profil.daten.get(ENTWURF_KEY)?.length ?? 0) === JSON.stringify(basis).length && profil.belegt() === belegtVor, `${r}, geopfert=${a.ringGeopfert}, Ring=${a.ring.liste().length}`);
     const m = a.meldungsVerlauf[a.meldungsVerlauf.length - 1] ?? '';
-    check('Die Meldung „Entwurf zu groß“ wird von keiner Erfolgsmeldung („Import übernommen“) verdeckt und nennt die geopferten Ring-Einträge', m.startsWith('Entwurf zu groß') && m.includes('5 verdrängte Stände') && !a.meldungsVerlauf.includes('Import übernommen'), a.meldungsVerlauf.join(' | '));
+    check('Die Meldung „Entwurf zu groß“ wird von keiner Erfolgsmeldung („Import übernommen“) verdeckt und behauptet KEIN Opfer („Dafür wurden …“)', m.startsWith('Entwurf zu groß') && !m.includes('Dafür wurden') && !a.meldungsVerlauf.includes('Import übernommen'), a.meldungsVerlauf.join(' | '));
     a.serverstandLaden(entwurf);
     check('Serverstand laden über einem zu grossen Entwurf: „Entwurf zu groß“ statt „Serverstand geladen“', a.meldungsVerlauf[a.meldungsVerlauf.length - 1]!.startsWith('Entwurf zu groß') && !a.meldungsVerlauf.includes('Serverstand geladen'), a.meldungsVerlauf[a.meldungsVerlauf.length - 1]);
     // Strg+Z / Strg+Y über „voll“: die Meldung bleibt
@@ -1579,6 +1572,188 @@ console.log('▶ Ring-Grenze mit Meldung');
   const m2 = b.meldungsVerlauf[b.meldungsVerlauf.length - 1]!;
   check('Erster Ring-Eintrag: gesichert, keine Verwerfen-Meldung', m1.includes('gesichert') && !m1.includes('Ältester') && b.ringVerworfen === 0 || b.ring.liste().length === 1, m1);
   check('Zweiter Eintrag über der Grenze: der älteste (T1) fällt heraus und die Meldung SAGT es („Ältester verdrängter Entwurf verworfen“)', b.ringVerworfen === 1 && m2.includes('Ältester verdrängter Entwurf verworfen') && b.ring.liste().length === 1 && !b.ring.liste().some((e) => hat(e.layout, 3101)), m2);
+}
+
+// ── 8m. Start-Abgleich: Grund statt „gemeldet“ (N1) ─────────────────────
+console.log('▶ Serverstand laden: nur bei übernommenem fremdem Stand „NICHT geladen“');
+{
+  check('serverstandFolge: ok → geladen, fremd → nicht-geladen, voll und knapp → stehen-lassen', serverstandFolge('ok') === 'geladen' && serverstandFolge('fremd') === 'nicht-geladen' && serverstandFolge('voll') === 'stehen-lassen' && serverstandFolge('knapp') === 'stehen-lassen');
+  check('speicherGrund aus Ergebnis und geopferten Ring-Einträgen: fremd/voll gewinnen, geopfert > 0 → knapp, sonst ok (auch ohne-zettel)', speicherGrund('fremd', 3) === 'fremd' && speicherGrund('voll', 2) === 'voll' && speicherGrund('ok', 1) === 'knapp' && speicherGrund('ohne-zettel', 1) === 'knapp' && speicherGrund('ok', 0) === 'ok' && speicherGrund('ohne-zettel', 0) === 'ok');
+  // Der Fehler von 6bdb8f0, als Zeuge: dort galt JEDE gemeldete Meldung als „fremder Stand übernommen“.
+  const alteEntscheidung = (gemeldet: boolean): string => (gemeldet ? 'nicht-geladen' : 'geladen');
+  check('Zeuge des Fehlers: nach der alten Boolean-Regel hieße „voll“ und „knapp“ fälschlich „nicht-geladen“ (ein anderer Tab war nicht beteiligt)', alteEntscheidung(speicherGrund('voll', 0) !== 'ok') === 'nicht-geladen' && alteEntscheidung(speicherGrund('ok', 2) !== 'ok') === 'nicht-geladen' && serverstandFolge(speicherGrund('voll', 0)) !== 'nicht-geladen' && serverstandFolge(speicherGrund('ok', 2)) !== 'nicht-geladen');
+
+  const QUOTE = 2_621_440;
+  const gross = (ziel: number, saat: number): WorldLayout => {
+    const regionen: WorldLayout['regions'][number][] = [];
+    let laenge = JSON.stringify({ ...basis, regions: [], placements: [] }).length;
+    let r = 0;
+    while (laenge < ziel) {
+      const mx = ((saat * 997 + r * 131) % 20000) - 10000;
+      const mz = ((saat * 577 + r * 271) % 20000) - 10000;
+      const rad = 800 + ((saat * 13 + r * 7) % 400);
+      const punkte: [number, number][] = Array.from({ length: 400 }, (_, i) => [Math.round(mx + Math.cos((i / 400) * 2 * Math.PI) * rad), Math.round(mz + Math.sin((i / 400) * 2 * Math.PI) * rad)]);
+      const region = { ...basis.regions[0]!, id: `gross-${saat}-${r++}`, shape: { kind: 'polygon', points: punkte } } as WorldLayout['regions'][number];
+      regionen.push(region);
+      laenge += JSON.stringify(region).length + 1;
+    }
+    return sanitizeWorldLayout({ ...basis, regions: regionen, placements: [] })!;
+  };
+  const entwurf = gross(1_300_000, 99);
+  const aufbau = (filler: number, ringEintraege: number): { profil: Profil; a: EditorAttrappe } => {
+    const profil = new Profil();
+    profil.daten.set(ENTWURF_KEY, JSON.stringify(basis));
+    profil.daten.set('spiel-daten', 'x'.repeat(filler));
+    profil.quotaZeichen = QUOTE;
+    const a = new EditorAttrappe('tab-n1', profil);
+    for (let i = 1; i <= ringEintraege; i++) a.ring.ablegen(gross(190_000, i), 'fremd', 'x');
+    return { profil, a };
+  };
+  {
+    // 'voll': der Serverstand passt nicht, auch nicht ohne Ring; KEIN anderer Tab beteiligt
+    const { a } = aufbau(1_500_000, 0);
+    a.serverstandLaden(entwurf);
+    const m = a.meldungsVerlauf;
+    check('Serverstand laden, Entwurf zu gross (voll): die Meldung „Entwurf zu groß“ steht; KEINE „NICHT geladen“-Behauptung über einen anderen Tab, kein „geladen“', m.length === 1 && m[0]!.startsWith('Entwurf zu groß') && !m.some((x) => x.includes('NICHT geladen')) && !m.includes('Serverstand geladen') && a.fremdUebernahmen === 0, m.join(' | '));
+  }
+  {
+    // 'knapp': der Serverstand passt nur nach einem Ring-Opfer
+    const { a } = aufbau(500_000, 5);
+    a.serverstandLaden(entwurf);
+    const m = a.meldungsVerlauf;
+    check('Serverstand laden, passt nur nach Ring-Opfer (knapp): „Speicher knapp“ steht; keine „NICHT geladen“-Behauptung, kein „geladen“ darüber', m.length === 1 && m[0]!.startsWith('Speicher knapp') && !m.some((x) => x.includes('NICHT geladen')) && a.ringGeopfert >= 1 && a.fremdUebernahmen === 0, m.join(' | '));
+  }
+  {
+    // 'fremd': ein anderer Tab hat den Entwurf geändert (Ereignis bleibt aus) — nur dann „NICHT geladen“
+    const { profil, b } = einTab({ ereignisse: false, kanal: false });
+    b.aendern(setze(P1));
+    profil.testflugSchreibt(layoutMitPlatzierung(gespeichert(profil)!, 'Beech1', 3601, 3601, 1));
+    b.serverstandLaden({ ...basis, name: 'Server-Welt' } as WorldLayout);
+    check('Serverstand laden über einem unbemerkten fremden Stand (fremd): „NICHT geladen“ (und die Übernahme-Meldung davor), kein „geladen“', b.meldungsVerlauf.some((x) => x.startsWith('Serverstand NICHT geladen')) && !b.meldungsVerlauf.includes('Serverstand geladen') && b.fremdUebernahmen === 1, b.meldungsVerlauf.join(' | '));
+    const n = einTab();
+    n.b.serverstandLaden({ ...basis, name: 'Server-Welt' } as WorldLayout);
+    check('Normalfall (ok): „Serverstand geladen“', n.b.meldungsVerlauf[n.b.meldungsVerlauf.length - 1] === 'Serverstand geladen');
+  }
+}
+
+// ── 8n. Der Entwurfs-Vorrang opfert nur, wenn es den Entwurf rettet (N2) ──
+console.log('▶ Ring-Opfer nur, wenn der Entwurf danach passt');
+{
+  const st = (i: number): WorldLayout => layoutMitPlatzierung(basis, 'Beech1', 500 + i, 500 + i, 0);
+  const kvG = (gesamt: number): RingSpeicher & { daten: Map<string, string> } => {
+    const daten = new Map<string, string>();
+    const belegt = (): number => [...daten].reduce((n, [k, v]) => n + k.length + v.length, 0);
+    return {
+      daten,
+      get length() {
+        return daten.size;
+      },
+      key: (i) => [...daten.keys()][i] ?? null,
+      getItem: (k) => daten.get(k) ?? null,
+      removeItem: (k) => void daten.delete(k),
+      setItem: (k, v) => {
+        const alt = daten.get(k);
+        if (belegt() - (alt === undefined ? 0 : k.length + alt.length) + k.length + v.length > gesamt) throw new Error('QuotaExceededError');
+        daten.set(k, v);
+      },
+    };
+  };
+  {
+    // Ring-Ebene: aeltestenEntfernen vorläufig, opferAbschliessen(false) gibt zurück, (true) behält
+    const r = new VerdraengtRing(kvG(Infinity), { tabId: 'tab-o' });
+    for (let i = 1; i <= 3; i++) r.ablegen(st(i), 'fremd', 'x');
+    const vorher = r.liste().map((e) => e.id).join();
+    r.aeltestenEntfernen();
+    r.aeltestenEntfernen();
+    check('Nach zwei vorläufigen Opfern fehlen zwei Einträge', r.liste().length === 1);
+    check('opferAbschliessen(false): die zwei Einträge sind zurück (gleiche Ids, gleicher Inhalt), Ergebnis 0', r.opferAbschliessen(false) === 0 && r.liste().map((e) => e.id).join() === vorher);
+    r.aeltestenEntfernen();
+    check('opferAbschliessen(true): der Eintrag bleibt weg, Ergebnis 1 (gezählt)', r.opferAbschliessen(true) === 1 && r.liste().length === 2 && r.opferAbschliessen(true) === 0);
+  }
+  {
+    // ablegen: passt der NEUE Ring-Eintrag auch nach dem Opfern aller älteren nicht, bleiben die älteren
+    const messen = new VerdraengtRing(kvG(Infinity), { tabId: 'tab-m' });
+    messen.ablegen(st(1), 'fremd', 'x');
+    const groesse = messen.liste()[0]!.groesse;
+    const k = kvG(Math.floor(groesse * 1.5)); // Platz für 1 Eintrag, nicht für 2
+    const r = new VerdraengtRing(k, { tabId: 'tab-m' });
+    r.ablegen(st(1), 'fremd', 'x');
+    const vorher = r.liste().map((e) => e.id).join();
+    // ein Eintrag, der allein nicht in den Speicher passt
+    const riesig = layoutMitPlatzierung(st(2), 'Beech1', 900, 900, 0);
+    const kleinerK = kvG(groesse + 30);
+    const r2 = new VerdraengtRing(kleinerK, { tabId: 'tab-m', maxBytes: 1_000_000 });
+    r2.ablegen(st(1), 'fremd', 'x');
+    const vorher2 = r2.liste().map((e) => e.id).join();
+    const res = r2.ablegen(riesig, 'fremd', 'x');
+    check('Ring-Ablegen: passt der neue Eintrag auch nach dem Opfern der älteren nicht, bleiben die älteren stehen (voll, nichts als verworfen gezählt)', res === 'voll' && r2.liste().map((e) => e.id).join() === vorher2 && r2.verworfen === 0, `${res}, verworfen=${r2.verworfen}`);
+    // gemeinter Fall: passt nach dem Opfern des älteren, wird geopfert und gezählt
+    const ok = r.ablegen(st(3), 'fremd', 'x');
+    check('Gemeinter Fall bleibt: passt der neue Eintrag nach dem Opfern des älteren, wird geopfert und gezählt', ok === 'ok' && r.liste().length === 1 && hat(r.liste()[0]!.layout, 503) && r.verworfen === 1 && vorher !== '', `${ok}, verworfen=${r.verworfen}`);
+  }
+}
+
+// ── 8o. continents als geordnete Folge (N9) ─────────────────────────────
+console.log('▶ enthaelt: Kontinente in Reihenfolge');
+{
+  const k1 = { id: 'k1', name: 'Erste', spawn: [100, 100] as [number, number] };
+  const k2 = { id: 'k2', name: 'Zweite', spawn: [200, 200] as [number, number] };
+  const k3 = { id: 'k3', name: 'Dritte' };
+  const mitK = (continents: unknown[]): WorldLayout => ({ ...basis, continents }) as WorldLayout;
+  check('Kontinente [k1,k2] vs [k2,k1] (der Server nimmt den ERSTEN mit Spawn): NICHT enthalten, in beiden Richtungen', !enthaelt(mitK([k1, k2]), mitK([k2, k1])) && !enthaelt(mitK([k2, k1]), mitK([k1, k2])));
+  check('Gleiche Reihenfolge: [k1,k2] enthält [k1], [k2], [k1,k2]; [k1,k3,k2] enthält [k1,k2]; [k1] enthält [k1,k2] nicht', enthaelt(mitK([k1, k2]), mitK([k1])) && enthaelt(mitK([k1, k2]), mitK([k2])) && enthaelt(mitK([k1, k2]), mitK([k1, k2])) && enthaelt(mitK([k1, k3, k2]), mitK([k1, k2])) && !enthaelt(mitK([k1]), mitK([k1, k2])));
+  check('Übrige Listen bleiben Multimengen (Platzierungen, Flüsse, Seen, Routen unabhängig von der Reihenfolge): Kontrolle mit Seen', enthaelt({ ...basis, lakes: [{ id: 'a', x: 1, z: 1, radius: 5, depth: 1 }, { id: 'b', x: 2, z: 2, radius: 5, depth: 1 }] } as WorldLayout, { ...basis, lakes: [{ id: 'b', x: 2, z: 2, radius: 5, depth: 1 }, { id: 'a', x: 1, z: 1, radius: 5, depth: 1 }] } as WorldLayout));
+  check('Ring-Folge: ein Stand, der nur die Kontinent-Reihenfolge ändert, wird gesichert (Editor-Zeuge)', (() => {
+    const { profil, b } = einTab();
+    profil.testflugSchreibt(mitK([k1, k2]));
+    profil.testflugSchreibt(mitK([k2, k1]));
+    return b.ring.liste().some((e) => e.layout.continents.map((c) => c.id).join() === 'k1,k2');
+  })());
+}
+
+// ── 8p. Alter Sammelschlüssel wird beim Start entfernt (N3) ─────────────
+console.log('▶ Alter Sammelschlüssel');
+{
+  const daten = new Map<string, string>();
+  const sp: RingSpeicher = {
+    get length() {
+      return daten.size;
+    },
+    key: (i) => [...daten.keys()][i] ?? null,
+    getItem: (k) => daten.get(k) ?? null,
+    setItem: (k, v) => void daten.set(k, v),
+    removeItem: (k) => void daten.delete(k),
+  };
+  daten.set(ALTER_RING_SCHLUESSEL, 'x'.repeat(1_600_000));
+  daten.set(VERDRAENGT_PRAEFIX + 'tab-n:1:0', '{}');
+  daten.set(ENTWURF_KEY, '{}');
+  check('Alter Sammelschlüssel (ohne Doppelpunkt) vorhanden: wird entfernt (true)', alterRingSchluesselEntfernen(sp) === true && !daten.has(ALTER_RING_SCHLUESSEL));
+  check('Einträge im neuen Schema und der Entwurf bleiben unberührt', daten.has(VERDRAENGT_PRAEFIX + 'tab-n:1:0') && daten.has(ENTWURF_KEY) && daten.size === 2);
+  check('Ein zweites Mal: nichts zu tun (false), kein Wurf', alterRingSchluesselEntfernen(sp) === false && daten.size === 2);
+  check('Der alte Schlüssel heißt genau wov-editor-verdraengt (ohne Doppelpunkt) und ist nicht das Präfix der neuen', ALTER_RING_SCHLUESSEL === 'wov-editor-verdraengt' && !ALTER_RING_SCHLUESSEL.endsWith(':') && VERDRAENGT_PRAEFIX.startsWith(ALTER_RING_SCHLUESSEL));
+  // Der Fall des Angriffs: der Ballast lässt einen passenden Entwurf scheitern; nach dem Aufräumen passt er
+  const profil = new Profil();
+  profil.quotaZeichen = 2_621_440;
+  profil.daten.set(ENTWURF_KEY, JSON.stringify(basis));
+  profil.daten.set(ALTER_RING_SCHLUESSEL, 'x'.repeat(1_600_000));
+  const a = new EditorAttrappe('tab-alt', profil);
+  const gross = ((): WorldLayout => {
+    const regionen: WorldLayout['regions'][number][] = [];
+    let laenge = 0;
+    let r = 0;
+    while (laenge < 1_100_000) {
+      const rad = 800 + ((r * 7) % 400);
+      const punkte: [number, number][] = Array.from({ length: 400 }, (_, i) => [Math.round(((r * 131) % 20000) - 10000 + Math.cos((i / 400) * 2 * Math.PI) * rad), Math.round(((r * 271) % 20000) - 10000 + Math.sin((i / 400) * 2 * Math.PI) * rad)]);
+      const region = { ...basis.regions[0]!, id: `alt-${r++}`, shape: { kind: 'polygon', points: punkte } } as WorldLayout['regions'][number];
+      regionen.push(region);
+      laenge += JSON.stringify(region).length + 1;
+    }
+    return sanitizeWorldLayout({ ...basis, regions: regionen, placements: [] })!;
+  })();
+  const vorher = a.aendern(() => gross);
+  alterRingSchluesselEntfernen(profil.speicherFuer(a));
+  const nachher = a.aendern(() => gross);
+  check('Mit dem Ballast scheitert ein Entwurf (voll), der ohne ihn passt; nach dem Entfernen wird er geschrieben', vorher === 'voll' && nachher !== 'voll' && (profil.daten.get(ENTWURF_KEY)?.length ?? 0) >= 1_100_000, `${vorher} → ${nachher}`);
 }
 
 // ── 9. Quelltextprüfung an editorMain.ts ─────────────────────────────
@@ -1648,17 +1823,17 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Die Meldungen nennen den Ring: Übernahme, Rückgängig, Wiederherstellen, Import, Serverstand — und ihr Fehlschlag (ACHTUNG … NICHT gesichert)', (quelle.match(/ringHinweis\(ring(?:Vor|Neu)/g) ?? []).length >= 6 && /ACHTUNG: Ein verdrängter Stand konnte NICHT gesichert werden/.test(quelle), String((quelle.match(/ringHinweis\(ring/g) ?? []).length));
 
   // A2: Meldungsreihenfolge
-  check('alles() liefert true, wenn der Schreibversuch einen fremden Stand übernommen hat (speichereEntwurf(…) === \'fremd\')', /function alles\([^)]*\): boolean \{\s*const uebernommen = entwurfSchreiben \? speichereEntwurf\(quelle\) : false;/.test(quelle) && /return uebernommen;/.test(quelle));
+  check('alles() liefert den GRUND (\'ok\' | \'fremd\' | \'voll\' | \'knapp\') von speichereEntwurf, nicht nur „gemeldet“', /function alles\([^)]*\): SpeicherGrund \{\s*const grund: SpeicherGrund = entwurfSchreiben \? speichereEntwurf\(quelle\) : 'ok';/.test(quelle) && /return grund;/.test(quelle));
   const zurueckFn = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const wiederFn = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
-  check('Rückgängig und Wiederherstellen setzen ihre Meldung nur, wenn der Schreibversuch NICHT übernommen hat (const uebernommen = alles(); if (!uebernommen) …)', /const uebernommen = alles\(\);[\s\S]*?if \(!uebernommen\)/.test(zurueckFn) && /const uebernommen = alles\(\);[\s\S]*?if \(!uebernommen\)/.test(wiederFn));
-  check('Serverstand: „NICHT geladen“, wenn der Schreibversuch einen fremden Stand übernommen hat — im Start-Abgleich und nach 409', /const uebernommen = alles\('server'\);[\s\S]*?Serverstand NICHT geladen/.test(abgleichTeil) && /if \(!alles\('server'\)\) \{[\s\S]*?Serverstand geladen/.test(quelle));
-  check('Import und wieder einsetzen: keine eigene Meldung über der der Übernahme (if (!uebernommen))', /const uebernommen = alles\('import'\);[\s\S]*?if \(!uebernommen\)/.test(quelle) && /const uebernommen = alles\(\);\s*vorschauAnstossen\(\);\s*if \(!uebernommen\) \{\s*shell\.meldung\(\s*`Verdrängten Entwurf wieder eingesetzt/.test(sektion));
+  check('Rückgängig und Wiederherstellen setzen ihre Meldung nur, wenn der Schreibversuch NICHT übernommen hat (const grund = alles(); nur bei grund ok …)', /const grund = alles\(\);[\s\S]*?if \(grund === 'ok'\)/.test(zurueckFn) && /const grund = alles\(\);[\s\S]*?if \(grund === 'ok'\)/.test(wiederFn));
+  check('Serverstand: „NICHT geladen“, wenn der Schreibversuch einen fremden Stand übernommen hat — im Start-Abgleich und nach 409', /const folge = serverstandFolge\(alles\('server'\)\);[\s\S]*?if \(folge === 'nicht-geladen'\) \{[\s\S]*?Serverstand NICHT geladen[\s\S]*?if \(folge === 'stehen-lassen'\) return;/.test(abgleichTeil) && /const folge = serverstandFolge\(alles\('server'\)\);[\s\S]*?if \(folge === 'geladen'\) \{[\s\S]*?Serverstand geladen/.test(quelle) && !/alles\('server'\)\) \{/.test(quelle));
+  check('Import und wieder einsetzen: keine eigene Meldung über der der Übernahme (if (grund === \'ok\'))', /const grund = alles\('import'\);[\s\S]*?if \(grund === 'ok'\)/.test(quelle) && /const grund = alles\(\);\s*vorschauAnstossen\(\);\s*if \(grund === 'ok'\) \{\s*shell\.meldung\(\s*`Verdrängten Entwurf wieder eingesetzt/.test(sektion));
 
   // Runde 5: Quote, Vorrang des Entwurfs, Ring-Grenze, Texte
-  check('Entwurf hat Vorrang vor dem Ring: EntwurfsSpeicher bekommt platzSchaffen (ältesten Ring-Eintrag entfernen, ringGeopfert zählen)', /platzSchaffen: \(\) => \{\s*const frei = ring\.aeltestenEntfernen\(\);\s*if \(frei\) ringGeopfert\+\+;\s*return frei;/.test(quelle));
+  check('Entwurf hat Vorrang vor dem Ring: EntwurfsSpeicher bekommt platzSchaffen/platzErgebnis (ältesten Ring-Eintrag vorläufig entfernen; nur wenn der Entwurf passt, zählt das Opfer, sonst bekommt der Ring es zurück)', /platzSchaffen: \(\) => ring\.aeltestenEntfernen\(\),\s*platzErgebnis: \(entwurfPasst\) => \{\s*ringGeopfert \+= ring\.opferAbschliessen\(entwurfPasst\);/.test(quelle));
   const speichernFn = /function speichereEntwurf\([\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
-  check('speichereEntwurf liefert true bei fremdem Stand, „Entwurf zu groß“ und „Speicher knapp“ (geopferte Ring-Einträge genannt) — kein Aufrufer überschreibt sie', /function speichereEntwurf\([^)]*\): boolean/.test(speichernFn) && /let gemeldet = ergebnis === 'fremd';/.test(speichernFn) && /Entwurf zu groß für localStorage[^;]*opferText/.test(speichernFn) && /Speicher knapp — der Entwurf ist gespeichert/.test(speichernFn) && /return gemeldet;/.test(speichernFn));
+  check('speichereEntwurf liefert den Grund bei fremdem Stand, „Entwurf zu groß“ und „Speicher knapp“ (geopferte Ring-Einträge genannt) — kein Aufrufer überschreibt sie', /function speichereEntwurf\([^)]*\): SpeicherGrund/.test(speichernFn) && /const grund = speicherGrund\(ergebnis, geopfert\);/.test(speichernFn) && /Entwurf zu groß für localStorage[^;]*opferText/.test(speichernFn) && /Speicher knapp — der Entwurf ist gespeichert/.test(speichernFn) && /return grund;/.test(speichernFn));
   check('Ring-Schreiben scheitert im eigenen Änderungspfad: ringen() meldet sofort („ACHTUNG … NICHT gesichert“) und zählt', /else if \(r === 'voll'\) \{\s*ringVoll\+\+;[\s\S]*?shell\.meldung\('ACHTUNG: Ein verdrängter Stand konnte NICHT gesichert werden/.test(quelle));
   check('Fällt der älteste Ring-Eintrag wegen der Grenze, sagt es die Meldung („Ältester verdrängter Entwurf verworfen“); ringen() zählt ring.verworfen', /Ältester verdrängter Entwurf verworfen \(der Ring fasst höchstens 5/.test(quelle) && /ringVerworfen \+= ring\.verworfen - verworfenVor;/.test(quelle));
   check('Ring und Speicher tragen dieselbe Tab-Kennung (neueTabId): EntwurfsSpeicher({ …, tabId, … })', /const tabId = neueTabId\(\);/.test(quelle) && /\.\.\.umgebung,\s*tabId,/.test(quelle));
@@ -1668,6 +1843,10 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   const ringQuelle = readFileSync(resolve(HIER, '../src/editor/entwurfsSpeicher.ts'), 'utf-8');
   check('Klassenkommentar ehrlich: „Kein Stand geht still verloren — bis zur Ring-Grenze von 5 Einträgen; darüber wird der älteste mit Meldung verworfen.“ (Verlauf und Ring)', (ringQuelle.replace(/\s*\n\s*\*\s*/g, ' ').match(/bis zur Ring-Grenze von 5 Einträgen; darüber wird der älteste mit Meldung verworfen/g) ?? []).length >= 2, String((ringQuelle.match(/Ring-Grenze von 5/g) ?? []).length));
   check('Ring: ein Schlüssel JE Eintrag (VERDRAENGT_PRAEFIX + id), kein Sammelschlüssel mehr; Ring-Grenze 1.000.000 Zeichen', /VERDRAENGT_PRAEFIX = 'wov-editor-verdraengt:'/.test(ringQuelle) && !/VERDRAENGT_KEY/.test(ringQuelle) && /opt\.maxBytes \?\? 1_000_000/.test(ringQuelle) && /opt\.max \?\? 5/.test(ringQuelle));
+
+  // Runde 6
+  check('Start entfernt einen alten Sammelschlüssel einmal, mit Konsolen-Hinweis: if (alterRingSchluesselEntfernen(umgebung.speicher)) { console.info(… wov-editor-verdraengt … entfernt', /if \(alterRingSchluesselEntfernen\(umgebung\.speicher\)\) \{\s*console\.info\(\s*'\[editor\][^']*wov-editor-verdraengt\) entfernt/.test(quelle));
+  check('Kein `uebernommen`-Boolean-Weg mehr: keine Aufrufstelle wertet alles()/speichereEntwurf() als „übernommen“ (const uebernommen = alles… kommt nicht mehr vor)', !/const uebernommen = alles\(/.test(quelle) && !/if \(!uebernommen\)/.test(quelle) && !/if \(uebernommen\)/.test(quelle));
   const poly = /function polygonSchliessen[\s\S]*?merkeSchritt\(\);[^\n]*\n\s*layout = \{ \.\.\.layout, regions/.test(quelle);
   const hoch = /\[arr\[i\], arr\[i \+ 1\]\] = [^\n]*\n\s*merkeSchritt\(\);[^\n]*\n\s*layout = \{ \.\.\.layout, regions: arr \}/.test(quelle);
   check('Polygon schliessen und „nach oben" (bisher ohne Schritt) legen jetzt einen an', poly && hoch, `polygon=${poly}, nachOben=${hoch}`);

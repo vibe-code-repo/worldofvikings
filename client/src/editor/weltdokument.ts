@@ -131,8 +131,11 @@ export type ServerStand =
  *    anderer Reihenfolge sind verschiedene Welten. `klein.regions` muss also
  *    in derselben Reihenfolge in `gross.regions` vorkommen (dazwischen darf
  *    anderes stehen).
- *  - Platzierungen, Kontinente, Flüsse, Seen und Routen als Multimenge:
- *    Doppelte zählen, `[P]` enthält `[P, P]` nicht.
+ *  - `continents` ebenso als geordnete Folge: Der Server nimmt ohne
+ *    Welt-Startpunkt den ERSTEN Kontinent mit eigenem Spawn; dieselben
+ *    Kontinente in anderer Reihenfolge können einen anderen Startpunkt geben.
+ *  - Platzierungen, Flüsse, Seen und Routen als Multimenge: Doppelte
+ *    zählen, `[P]` enthält `[P, P]` nicht.
  *  - Name, Detail-Seed und Startpunkt müssen übereinstimmen.
  * Elemente werden als JSON verglichen. Im Zweifel `false`: ein Stand zu viel
  * zu sichern kostet nur Platz.
@@ -171,8 +174,8 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     gross.detailSeed === klein.detailSeed &&
     (klein.defaultSpawn === undefined || JSON.stringify(gross.defaultSpawn) === JSON.stringify(klein.defaultSpawn)) &&
     folge(gross.regions, klein.regions) &&
+    folge(gross.continents, klein.continents) &&
     multimenge(gross.placements, klein.placements) &&
-    multimenge(gross.continents, klein.continents) &&
     multimenge(gross.rivers, klein.rivers) &&
     multimenge(gross.lakes, klein.lakes) &&
     multimenge(gross.routes, klein.routes)

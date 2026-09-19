@@ -85,11 +85,15 @@ import {
   EntwurfsSpeicher,
   SchrittVerlauf,
   VerdraengtRing,
+  alterRingSchluesselEntfernen,
   browserUmgebung,
   neueTabId,
+  serverstandFolge,
   sollInRing,
+  speicherGrund,
   type AbgangsGrund,
   type FremdInfo,
+  type SpeicherGrund,
 } from './entwurfsSpeicher';
 import { frage, unterschiedsTafel, vorhang } from './AbgleichDialog';
 // NUR der Typ: Der Katalog selbst kommt per dynamischem import() erst beim
@@ -307,6 +311,12 @@ const umgebung = browserUmgebung();
 /** Eine Kennung für Speicher UND Ring: Die Einträge des Rings tragen sie im Schlüssel. */
 const tabId = neueTabId();
 const ring = new VerdraengtRing(umgebung.speicher, { tabId });
+// Ein Sammelschlüssel der Vorgängerfassung würde als unsichtbarer Ballast in der Quote liegen bleiben: einmal entfernen.
+if (alterRingSchluesselEntfernen(umgebung.speicher)) {
+  console.info(
+    '[editor] Alter Sammelschlüssel der verdrängten Entwürfe (wov-editor-verdraengt) entfernt — der Ring nutzt jetzt einen Schlüssel je Eintrag.'
+  );
+}
 /** Herkunft der von anderen Tabs übernommenen Stände (Layouts werden nur ersetzt, nie verändert). */
 const fremdeStaende = new WeakMap<WorldLayout, FremdInfo>();
 /**
@@ -372,11 +382,11 @@ const entwurfsSpeicher = new EntwurfsSpeicher({
   ...umgebung,
   tabId,
   aktuell: () => layout,
-  // Der Entwurf hat Vorrang vor dem Ring: Passt er nicht, wird der älteste Ring-Eintrag entfernt und neu versucht.
-  platzSchaffen: () => {
-    const frei = ring.aeltestenEntfernen();
-    if (frei) ringGeopfert++;
-    return frei;
+  // Der Entwurf hat Vorrang vor dem Ring: Passt er nicht, wird der älteste Ring-Eintrag entfernt und neu
+  // versucht. Passt er auch ohne Ring nicht, bekommt der Ring zurück, was er umsonst hergab.
+  platzSchaffen: () => ring.aeltestenEntfernen(),
+  platzErgebnis: (entwurfPasst) => {
+    ringGeopfert += ring.opferAbschliessen(entwurfPasst);
   },
   beiVerdraengt: (alt) => {
     // Sicherheitsnetz: ein fremder Stand wurde im Speicher ersetzt. Liegt er
@@ -522,27 +532,27 @@ function ladeEntwurf(): WorldLayout {
  * nächsten Start seinen Satz „dein Entwurf ist 12 Minuten alt und stammt
  * aus einem Import".
  */
-function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): boolean {
+function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): SpeicherGrund {
   // 'fremd': ein anderer Tab (Testflug, zweiter Editor) hat den Entwurf
   // inzwischen geändert. Der Speicher hat NICHT geschrieben, sondern
   // `beiFremdem` (oben) den fremden Stand übernommen — dessen Meldung gilt.
   // 'voll': der Entwurf passt nicht in den Speicher (auch nicht, nachdem der
   // Ring alles freigegeben hat, was er hatte). Beide Meldungen sind wichtiger
-  // als jede Erfolgsmeldung des Aufrufers; darum liefert diese Funktion
-  // `true`, wenn sie eine gesetzt hat, und der Aufrufer überschreibt sie nicht.
+  // als jede Erfolgsmeldung des Aufrufers; darum liefert diese Funktion den
+  // GRUND ('fremd' | 'voll' | 'knapp') statt nur „gemeldet": Der Aufrufer
+  // überschreibt sie nicht, und wer wie der Start-Abgleich eine eigene
+  // Meldung zum Grund hat, kann ihn unterscheiden.
   if (baueAufFremdem && !fremdeStaende.has(layout)) fremdHaltig.add(layout);
   const geopfertVor = ringGeopfert;
   const ergebnis = entwurfsSpeicher.schreiben(layout, quelle, welt.instanz);
   const geopfert = ringGeopfert - geopfertVor;
   const opferText = geopfert > 0 ? ` Dafür wurden ${geopfert} verdrängte Stände aus dem Ring verworfen (ältester zuerst).` : '';
-  let gemeldet = ergebnis === 'fremd';
-  if (ergebnis === 'voll') {
+  const grund = speicherGrund(ergebnis, geopfert);
+  if (grund === 'voll') {
     shell.meldung('Entwurf zu groß für localStorage — bitte als JSON exportieren!' + opferText, true);
-    gemeldet = true;
-  } else if (geopfert > 0) {
+  } else if (grund === 'knapp') {
     // Der Entwurf hat Vorrang vor dem Ring: Er passte nur, weil der Ring Platz gemacht hat.
     shell.meldung(`Speicher knapp — der Entwurf ist gespeichert.${opferText}`, true);
-    gemeldet = true;
   } else if (ergebnis === 'ohne-zettel') {
     // Der Entwurf ist gespeichert, nur der Begleitzettel nicht. Einmal
     // sagen, nicht bei jeder Bewegung eines Griffs.
@@ -553,7 +563,7 @@ function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): boolean {
   } else {
     zettelHinweisGezeigt = false;
   }
-  return gemeldet;
+  return grund;
 }
 let zettelHinweisGezeigt = false;
 
@@ -601,9 +611,9 @@ function rueckgaengig(): void {
   // Hat der Schreibversuch einen fremden Stand gefunden und übernommen, hat
   // `beiFremdem` schon gemeldet, was wirklich geschah — dann nicht mit
   // „Rückgängig" darüberschreiben.
-  const uebernommen = alles();
+  const grund = alles();
   vorschauAnstossen();
-  if (!uebernommen) {
+  if (grund === 'ok') {
     shell.meldung(`Rückgängig (${verlauf.vergangenheit.length} weitere Schritte)` + ringHinweis(ringVor));
   }
 }
@@ -616,9 +626,9 @@ function wiederherstellen(): void {
   layout = wieder;
   gewaehlt = null;
   const ringVor = ringStand();
-  const uebernommen = alles();
+  const grund = alles();
   vorschauAnstossen();
-  if (!uebernommen) shell.meldung('Wiederhergestellt' + ringHinweis(ringVor));
+  if (grund === 'ok') shell.meldung('Wiederhergestellt' + ringHinweis(ringVor));
 }
 window.addEventListener('keydown', (e) => {
   if (!e.ctrlKey) return;
@@ -3047,7 +3057,7 @@ function weltFeldBauen(): void {
               merkeSchritt(true);
               layout = s;
               gewaehlt = null;
-              const uebernommen = alles('import');
+              const grund = alles('import');
               vorschauAnstossen();
               // Ein Import ist ausdrücklich NUR ein Entwurf. Wer eine
               // live.json in einen dev-Editor zieht, hat damit noch nichts
@@ -3055,7 +3065,7 @@ function weltFeldBauen(): void {
               // Speicherknopf danach treffen würde. Hat der Schreibversuch
               // einen fremden Stand gefunden und übernommen, gilt dessen
               // Meldung (der Import steht dann unter Rückgängig).
-              if (!uebernommen) {
+              if (grund === 'ok') {
                 shell.meldung(
                   `Import übernommen — ${s.regions.length} Region(en). Erst „In die Welt speichern" ` +
                     `schreibt ihn nach ${weltName()}.` +
@@ -3432,15 +3442,16 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
     merkeSchritt(true);
     layout = stand.layout;
     gewaehlt = null;
-    // „Serverstand geladen" nur, wenn er wirklich geladen wurde: Hat der
-    // Schreibversuch einen fremden Stand übernommen, gilt dessen Meldung.
-    if (!alles('server')) {
-      vorschauAnstossen();
+    // „Serverstand geladen" nur, wenn er wirklich geladen wurde und nichts
+    // Wichtigeres zu melden ist (serverstandFolge, dieselbe Regel wie im
+    // Start-Abgleich): Bei einem übernommenen fremden Stand, 'voll' oder
+    // 'knapp' steht deren Meldung.
+    const folge = serverstandFolge(alles('server'));
+    vorschauAnstossen();
+    if (folge === 'geladen') {
       shell.meldung(
         `${stand.message} — Serverstand geladen, dein Entwurf liegt unter Rückgängig.` + ringHinweis(ringVor)
       );
-    } else {
-      vorschauAnstossen();
     }
     return;
   }
@@ -3919,9 +3930,9 @@ function ringSektionBauen(): void {
           merkeSchritt(true);
           layout = e.layout;
           gewaehlt = null;
-          const uebernommen = alles();
+          const grund = alles();
           vorschauAnstossen();
-          if (!uebernommen) {
+          if (grund === 'ok') {
             shell.meldung(
               `Verdrängten Entwurf wieder eingesetzt (${e.regionen} Region(en), ${e.platzierungen} Platzierung(en)) — Strg+Z macht es rückgängig.` +
                 ringHinweis(ringVor)
@@ -4014,14 +4025,14 @@ function pruefberichtBauen(): void {
 }
 
 /**
- * Liefert `true`, wenn der Schreibversuch schon eine Meldung gesetzt hat, die
- * kein Aufrufer überschreiben darf: einen fremden Stand gefunden und
- * übernommen (dann steht in der Anzeige dieser, nicht der, den der Aufrufer
- * eben setzen wollte), „Entwurf zu groß" oder „Speicher knapp" mit den
- * geopferten Ring-Einträgen.
+ * Liefert den Grund einer Meldung, die kein Aufrufer überschreiben darf, oder
+ * 'ok': 'fremd' (ein anderer Tab hatte den Entwurf geändert und wurde
+ * übernommen — in der Anzeige steht dieser, nicht der, den der Aufrufer eben
+ * setzen wollte), 'voll' („Entwurf zu groß") oder 'knapp' („Speicher knapp"
+ * mit den geopferten Ring-Einträgen).
  */
-function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): boolean {
-  const uebernommen = entwurfSchreiben ? speichereEntwurf(quelle) : false;
+function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): SpeicherGrund {
+  const grund: SpeicherGrund = entwurfSchreiben ? speichereEntwurf(quelle) : 'ok';
   seiteBauen();
   pruefberichtBauen();
   weltSektionBauen();
@@ -4031,7 +4042,7 @@ function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): 
   // (per Rückgängig) wieder darauf zurückführen — der Punkt am
   // Speicherknopf muss beides mitmachen.
   faerbeSpeicherKnopf();
-  return uebernommen;
+  return grund;
 }
 
 // ── Server-Konsole (Shell-Dock, journalctl via /api/serverlog) ───────
@@ -4115,12 +4126,15 @@ async function weltAbgleich(): Promise<void> {
     }
     layout = stand.layout;
     gewaehlt = null;
-    // „Serverstand geladen" nur, wenn er wirklich geladen wurde: Hat der
-    // Schreibversuch einen fremden Stand gefunden und übernommen, steht
-    // dessen Meldung, und der Serverstand ist NICHT geladen.
-    const uebernommen = alles('server');
+    // „Serverstand geladen" nur, wenn er wirklich geladen wurde (serverstandFolge):
+    //  - 'nicht-geladen': ein anderer Tab hatte den Entwurf geändert und wurde
+    //    übernommen; der Serverstand ist NICHT geladen.
+    //  - 'stehen-lassen': 'voll' oder 'knapp' — deren Meldung steht schon und
+    //    darf weder überschrieben noch mit einer falschen Aussage über einen
+    //    anderen Tab überdeckt werden.
+    const folge = serverstandFolge(alles('server'));
     vorschauAnstossen();
-    if (uebernommen) {
+    if (folge === 'nicht-geladen') {
       shell.meldung(
         'Serverstand NICHT geladen — ein anderer Tab hat den Entwurf zwischenzeitlich geändert; dessen Stand ist übernommen. ' +
           `${weltName()} lässt sich über die Welt-Anzeige erneut holen.` + ringHinweis(ringVor),
@@ -4128,6 +4142,7 @@ async function weltAbgleich(): Promise<void> {
       );
       return;
     }
+    if (folge === 'stehen-lassen') return;
     shell.meldung(`${stand.message} — ${grund}` + ringHinweis(ringVor));
   };
   if (!entwurf) {

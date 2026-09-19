@@ -129,6 +129,12 @@ export interface EntwurfsSpeicherOptionen {
    * Vorrang vor dem Ring.
    */
   platzSchaffen?: () => boolean;
+  /**
+   * Nach einer Folge von `platzSchaffen`-Aufrufen: `true`, der Entwurf passt
+   * jetzt (das Freigegebene bleibt frei); `false`, er passt auch ohne alles,
+   * was frei zu machen war — der Aufrufer gibt es zurück.
+   */
+  platzErgebnis?: (entwurfPasst: boolean) => void;
 }
 
 export type SchreibErgebnis =
@@ -205,6 +211,38 @@ export function sollInRing(grund: AbgangsGrund, herkunft: 'fremd' | 'eigen', abg
     case 'kappe-redo':
       return herkunft === 'fremd';
   }
+}
+
+/**
+ * Warum eine Meldung des Schreibversuchs stehen bleiben muss (Rückgabe von
+ * `speichereEntwurf`/`alles` im Editor):
+ *  - 'ok': nichts gemeldet, der Aufrufer darf seine Erfolgsmeldung setzen;
+ *  - 'fremd': ein anderer Tab hatte den Entwurf geändert und wurde übernommen;
+ *  - 'voll': der Entwurf passt nicht in den Speicher (auch nicht mit leerem Ring);
+ *  - 'knapp': der Entwurf ist gespeichert, aber nur, weil Ring-Einträge Platz gemacht haben.
+ */
+export type SpeicherGrund = 'ok' | 'fremd' | 'voll' | 'knapp';
+
+/** Der Grund aus dem Ergebnis des Speichers und der Zahl der dabei geopferten Ring-Einträge. */
+export function speicherGrund(ergebnis: SchreibErgebnis, geopfert: number): SpeicherGrund {
+  if (ergebnis === 'fremd') return 'fremd';
+  if (ergebnis === 'voll') return 'voll';
+  return geopfert > 0 ? 'knapp' : 'ok';
+}
+
+/** Was der Aufrufer nach dem Schreiben eines Serverstands sagt. */
+export type ServerstandFolge = 'geladen' | 'nicht-geladen' | 'stehen-lassen';
+
+/**
+ * „Serverstand geladen" nur, wenn nichts anderes zu melden ist. Nur bei einem
+ * tatsächlich übernommenen fremden Stand ist der Serverstand NICHT geladen;
+ * bei 'voll' und 'knapp' bleibt deren Meldung stehen (die richtige, und keine
+ * falsche Behauptung über einen anderen Tab darüber).
+ */
+export function serverstandFolge(grund: SpeicherGrund): ServerstandFolge {
+  if (grund === 'ok') return 'geladen';
+  if (grund === 'fremd') return 'nicht-geladen';
+  return 'stehen-lassen';
 }
 
 /**
@@ -391,6 +429,8 @@ export class VerdraengtRing {
   private zaehler = 0;
   /** Wie viele Einträge diese Ring-Instanz wegen der Grenzen (Anzahl/Größe) verworfen hat. */
   verworfen = 0;
+  /** Was der Entwurfs-Vorrang dem Ring vorläufig genommen hat: wird zurückgegeben, wenn der Entwurf trotzdem nicht passt. */
+  private opferLog: { schluessel: string; roh: string }[] = [];
   /** Zerlegte Einträge je Schlüssel: bei jedem Sektionsaufbau nur neu lesen, was sich geändert hat. */
   private readonly cache = new Map<string, { roh: string; eintrag: VerdraengtEintrag | null }>();
 
@@ -489,14 +529,23 @@ export class VerdraengtRing {
     // Ein setItem auf einen NEUEN Schlüssel: kein Lesen-Ändern-Schreiben. Passt es
     // nicht (Quote), wird der älteste Eintrag geopfert und noch einmal versucht.
     const alle = [...liste];
+    const weg: { schluessel: string; roh: string }[] = [];
     for (;;) {
       try {
         this.speicher.setItem(k, text);
         break;
       } catch {
         const alt = alle.shift();
-        if (!alt) return 'voll';
-        this.entfernenSchluessel(VERDRAENGT_PRAEFIX + alt.id);
+        if (!alt) {
+          // Auch ohne die älteren Einträge passt der neue nicht: sie nicht umsonst opfern.
+          this.zurueckschreiben(weg);
+          this.verworfen -= weg.length;
+          return 'voll';
+        }
+        const sk = VERDRAENGT_PRAEFIX + alt.id;
+        const roh = this.speicher.getItem(sk);
+        if (roh !== null) weg.push({ schluessel: sk, roh });
+        this.entfernenSchluessel(sk);
         this.verworfen++;
       }
     }
@@ -518,15 +567,59 @@ export class VerdraengtRing {
     this.entfernenSchluessel(VERDRAENGT_PRAEFIX + id);
   }
 
+  private zurueckschreiben(weg: { schluessel: string; roh: string }[]): void {
+    for (const e of weg) {
+      try {
+        this.speicher.setItem(e.schluessel, e.roh);
+      } catch {
+        // Was sich nicht zurückschreiben lässt, war schon vorher verloren.
+      }
+    }
+  }
+
   /**
    * Den ältesten Eintrag entfernen, um Platz zu schaffen (der Entwurf hat
-   * Vorrang vor dem Ring). `false`, wenn nichts mehr zu entfernen ist.
+   * Vorrang vor dem Ring). `false`, wenn nichts mehr zu entfernen ist. Das
+   * Entfernte wird VORLÄUFIG gemerkt: `opferAbschliessen` entscheidet, ob es
+   * weg bleibt (der Entwurf passt jetzt) oder zurückgegeben wird (er passt
+   * auch ohne Ring nicht, dann wäre das Opfer umsonst).
    */
   aeltestenEntfernen(): boolean {
     const alt = this.liste()[0];
     if (!alt) return false;
-    this.entfernenSchluessel(VERDRAENGT_PRAEFIX + alt.id);
+    const sk = VERDRAENGT_PRAEFIX + alt.id;
+    const roh = this.speicher.getItem(sk);
+    if (roh !== null) this.opferLog.push({ schluessel: sk, roh });
+    this.entfernenSchluessel(sk);
     return true;
+  }
+
+  /** Schließt eine Folge von `aeltestenEntfernen` ab: `behalten` — Entfernte bleiben weg (Anzahl als Ergebnis); sonst werden sie zurückgeschrieben (Ergebnis 0). */
+  opferAbschliessen(behalten: boolean): number {
+    const log = this.opferLog;
+    this.opferLog = [];
+    if (behalten) return log.length;
+    this.zurueckschreiben(log);
+    return 0;
+  }
+}
+
+/** Der Sammelschlüssel der Vorgängerfassung des Rings (ohne Doppelpunkt): Er wird nicht mehr gelesen. */
+export const ALTER_RING_SCHLUESSEL = 'wov-editor-verdraengt';
+
+/**
+ * Entfernt beim Start einen vorhandenen alten Sammelschlüssel: Er würde sonst
+ * als unsichtbarer Ballast in der Quote liegen bleiben (bis zu 2.000.000
+ * Zeichen). `true`, wenn er da war. Die Einträge im neuen Schema (mit
+ * Doppelpunkt) bleiben unberührt.
+ */
+export function alterRingSchluesselEntfernen(speicher: RingSpeicher): boolean {
+  try {
+    if (speicher.getItem(ALTER_RING_SCHLUESSEL) === null) return false;
+    speicher.removeItem(ALTER_RING_SCHLUESSEL);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -549,6 +642,7 @@ export class EntwurfsSpeicher {
   private readonly beiFremdem: (fremd: WorldLayout, info: FremdInfo) => void;
   private readonly beiVerdraengt: ((alt: WorldLayout, neu: WorldLayout) => void) | null;
   private readonly platzSchaffen: (() => boolean) | null;
+  private readonly platzErgebnis: ((entwurfPasst: boolean) => void) | null;
   /** Der Rohtext in `bekannt` stammt von einem anderen Tab und ist seither nicht überschrieben worden. */
   private bekanntFremd = false;
   private readonly beiStorage = (e: { key: string | null }): void => {
@@ -566,6 +660,7 @@ export class EntwurfsSpeicher {
     this.beiFremdem = opt.beiFremdem;
     this.beiVerdraengt = opt.beiVerdraengt ?? null;
     this.platzSchaffen = opt.platzSchaffen ?? null;
+    this.platzErgebnis = opt.platzErgebnis ?? null;
     this.ereignisse?.addEventListener('storage', this.beiStorage);
     if (this.kanal) {
       this.kanal.onmessage = (e) => {
@@ -698,15 +793,22 @@ export class EntwurfsSpeicher {
     const zeit = this.jetzt();
     const altRoh = this.bekannt;
     const altWarFremd = this.bekanntFremd;
+    let platzGeschaffen = false;
     for (;;) {
       try {
         this.speicher.setItem(ENTWURF_KEY, roh);
         break;
       } catch {
         // Passt der Entwurf nicht, gibt der Ring Platz frei — Eintrag für Eintrag, bis er passt.
-        if (!this.platzSchaffen?.()) return 'voll'; // der Entwurf selbst passt nicht: NICHTS geschrieben
+        if (!this.platzSchaffen?.()) {
+          // Auch mit leerem Ring passt er nicht: NICHTS geschrieben, und der Ring bekommt zurück, was er umsonst hergab.
+          if (platzGeschaffen) this.platzErgebnis?.(false);
+          return 'voll';
+        }
+        platzGeschaffen = true;
       }
     }
+    if (platzGeschaffen) this.platzErgebnis?.(true);
     // Ab hier steht der Entwurf im Speicher, was danach auch schiefgeht.
     this.bekannt = roh;
     this.bekanntFremd = false;

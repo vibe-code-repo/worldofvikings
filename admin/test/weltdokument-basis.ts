@@ -696,9 +696,34 @@ try {
       check('lebender Besitzer, Sperre 2 h alt: LayoutGesperrt, NICHT gebrochen', !r.ok && r.name === 'LayoutGesperrt', JSON.stringify(r));
       check('lebender Besitzer: Datei unverändert, Sperre bleibt liegen', readFileSync(zPfad, 'utf-8') === vorher && JSON.parse(readFileSync(lockDatei, 'utf-8')).marke === 'lebend');
       check('lebender Besitzer: Logzeile ab 30 s („wird NICHT gebrochen")', log.some((z) => /wird NICHT gebrochen/.test(z)), log.join(' | '));
-      sperreSchreiben({ pid: process.pid, start: null, host: hostname(), marke: 'lebend2' }, 7_200_000);
-      r = versuch({ sperreWartenMs: 250 });
-      check('lebender Besitzer ohne Startzeit in der Sperre: ebenfalls nie gebrochen', !r.ok && r.name === 'LayoutGesperrt', JSON.stringify(r));
+      // Sperre OHNE Startzeit (Handarbeit, fremdes Werkzeug): Wo es /proc gibt, nicht entscheidbar — eine
+      // wiederverwendete pid ließe sich sonst nicht von dem Besitzer unterscheiden. 30-s-Frist wie beim fremden Rechner.
+      if (meineStartzeit !== null) {
+        const fremdLebend = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
+        try {
+          const fp = fremdLebend.pid!;
+          log.length = 0;
+          sperreSchreiben({ pid: fp, start: null, host: hostname(), marke: 'ohne-start-frisch' }, 5_000);
+          r = versuch({ sperreWartenMs: 250 });
+          check('Sperre ohne Startzeit, fremde lebende pid, 5 s alt: bleibt (LayoutGesperrt)', !r.ok && r.name === 'LayoutGesperrt' && existsSync(lockDatei), JSON.stringify(r));
+          rmSync(lockDatei);
+          sperreSchreiben({ pid: fp, start: null, host: hostname(), marke: 'ohne-start-alt' }, 31_000);
+          r = versuch({ sperreWartenMs: 2000 });
+          check('Sperre ohne Startzeit, fremde lebende pid, 31 s alt: gebrochen, Schreiben gelingt', r.ok && r.ms < 500, JSON.stringify(r));
+          check('… laute Logzeile (pid, Rechner, „Startzeit fehlt“, 31 s)', log.some((z) => z.includes('verwaiste Sperre') && z.includes(`ACHTUNG Besitzer pid ${fp}`) && z.includes('Startzeit fehlt in der Sperre') && / 31 s alt/.test(z)), log.join(' | '));
+          let lebtNoch = true;
+          try {
+            process.kill(fp, 0);
+          } catch {
+            lebtNoch = false;
+          }
+          check('… der fremde Prozess selbst wurde dabei nicht angerührt (lebt weiter)', lebtNoch);
+        } finally {
+          fremdLebend.kill('SIGKILL');
+        }
+      } else {
+        check('Sperre ohne Startzeit: übersprungen (kein /proc)', true);
+      }
 
       // pid wiederverwendet: lebt, aber andere Startzeit
       if (meineStartzeit !== null) {

@@ -251,7 +251,8 @@ export function layoutSichern(pfad: string, behalten = SICHERUNGEN_BEHALTEN): st
 //
 // Nicht entscheidbar ist der Besitzer bei einem anderen Rechnernamen (gemeinsames
 // Dateisystem, oder ein neuer Container mit neuem Namen nach einem Absturz;
-// `kill` wirkt nur lokal). Eine solche Sperre darf nicht ewig halten — der
+// `kill` wirkt nur lokal) und bei einer Sperre ohne Startzeit (von Hand oder aus
+// einem fremden Werkzeug; ohne sie erkennt man eine wiederverwendete pid nicht). Eine solche Sperre darf nicht ewig halten — der
 // Dienst käme nach einem Neustart nie wieder zum Schreiben: Sie gilt als
 // verwaist, sobald sie älter als `sperreVeraltetMs` (30 s) ist, und wird mit
 // lauter Logzeile (Rechner, pid, Alter) gebrochen. Das Restrisiko — der
@@ -373,13 +374,19 @@ function besitzerPruefen(info: SperrInfo): 'lebt' | 'tot' | 'unbekannt' {
   } catch (fehler) {
     const code = (fehler as NodeJS.ErrnoException).code;
     if (code === 'ESRCH') return 'tot';
-    return code === 'EPERM' ? 'lebt' : 'unbekannt';
+    if (code !== 'EPERM') return 'unbekannt';
   }
   const jetzt = prozessDaten(info.pid);
-  if (jetzt !== null) {
-    if (jetzt.zustand === 'Z') return 'tot'; // beendet, aber noch nicht abgeholt
-    if (info.start !== null && jetzt.start !== info.start) return 'tot'; // pid wiederverwendet
+  if (jetzt !== null && jetzt.zustand === 'Z') return 'tot'; // beendet, aber noch nicht abgeholt
+  if (info.start === null) {
+    // Ohne Startzeit lässt sich eine wiederverwendete pid nicht von dem Besitzer unterscheiden
+    // ("irgendein Prozess hat diese pid" ist kein Beweis, dass es unser Besitzer ist). Wo es /proc
+    // gibt, schreibt dieser Code die Startzeit immer; eine Sperre ohne sie stammt von Hand oder
+    // aus einem fremden Werkzeug und gilt als nicht entscheidbar (30-s-Frist wie bei einem fremden
+    // Rechner). Ohne /proc (Nicht-Linux) bleibt es beim `kill`-Ergebnis.
+    return prozessDaten(process.pid) !== null ? 'unbekannt' : 'lebt';
   }
+  if (jetzt !== null && jetzt.start !== info.start) return 'tot'; // pid wiederverwendet
   return 'lebt';
 }
 
@@ -421,15 +428,16 @@ function sperreBeurteilen(sperrPfad: string, veraltetMs: number): Urteil {
           pid: null,
           grund:
             `ACHTUNG Besitzer pid ${info.pid} auf Rechner ${info.host} (dieser Rechner: ${hostname()}) ` +
-            `lässt sich von hier nicht prüfen, Sperre ${Math.round(alterMs / 1000)} s alt (Grenze ` +
-            `${Math.round(veraltetMs / 1000)} s) — als verwaist behandelt, er könnte noch leben`,
+            `lässt sich von hier nicht sicher prüfen (${info.host !== hostname() ? 'anderer Rechner' : 'Startzeit fehlt in der Sperre'}), ` +
+            `Sperre ${Math.round(alterMs / 1000)} s alt (Grenze ${Math.round(veraltetMs / 1000)} s) — ` +
+            `als verwaist behandelt, er könnte noch leben`,
         };
       }
       return {
         art: 'besetzt',
         beschreibung:
           `gehalten von pid ${info.pid} auf Rechner ${info.host} (ob er lebt, lässt sich von hier nicht ` +
-          `prüfen; ab ${Math.round(veraltetMs / 1000)} s Alter gilt die Sperre als verwaist)`,
+          `sicher prüfen; ab ${Math.round(veraltetMs / 1000)} s Alter gilt die Sperre als verwaist)`,
         alterMs,
       };
   }
@@ -733,10 +741,15 @@ function unterSperreSchreiben(
     const tmp = `${pfad}.${process.pid}.${zufall()}.tmp`;
     try {
       writeFileSync(tmp, v.text);
-      // Letzte Prüfung vor dem einen Schritt, der nicht zurückzunehmen ist.
-      // Seit die Sperre eines lebenden Besitzers nie gebrochen wird, kann sie
-      // nur noch fehlen, wenn jemand sie von Hand entfernt hat oder ein
-      // Sperrbruch zwei gleichzeitige Wartende erwischte (siehe sperreBrechen).
+      // Letzte Prüfung vor dem einen Schritt, der nicht zurückzunehmen ist —
+      // aber sie liegt VOR dem Fenster zwischen Prüfung und Rename und schließt
+      // es nicht. Dass hier trotzdem nur einer schreibt, tragen zwei andere
+      // Stellen: Die Sperre eines lebenden Besitzers auf diesem Rechner wird nie
+      // gebrochen (ein Konkurrent kommt gar nicht erst hinein), und ein Brecher,
+      // der die frische Sperre eines anderen weggenommen hat und sie nicht
+      // zurücklegen kann, hört auf (siehe sperreBrechen). Diese Prüfung fängt nur
+      // den Rest ab: eine von Hand entfernte oder als verwaist gebrochene Sperre
+      // (fremder Rechner, fehlende Startzeit, Müll) VOR diesem Punkt.
       if (!sperreGehoertUns(sperre)) {
         throw new LayoutGesperrt(
           `Sperre auf ${basename(pfad)} während des Schreibens verloren — nichts geschrieben`

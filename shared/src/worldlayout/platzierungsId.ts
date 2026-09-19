@@ -86,6 +86,26 @@ function nachId(a: PlacementDef, b: PlacementDef): number {
   return a.id! < b.id! ? -1 : a.id! > b.id! ? 1 : 0;
 }
 
+const zahlVergleich = (a: number | undefined, b: number | undefined): number =>
+  a === b ? 0 : a === undefined ? -1 : b === undefined ? 1 : a < b ? -1 : 1;
+
+/**
+ * Total order over ALL fields of an entry that has no id yet: prefab name as
+ * written (upper and lower case count), x, z, yaw, then the remaining fields.
+ * Deriving ids and folding duplicates in this order makes the result independent
+ * of where the entries happen to stand in the document: two objects on one spot
+ * get their `-2` suffix by what they are, not by which one was listed first.
+ */
+function kanonisch(a: PlacementDef, b: PlacementDef): number {
+  if (a.prefab !== b.prefab) return a.prefab < b.prefab ? -1 : 1;
+  const rest = (p: PlacementDef): string => JSON.stringify([p.scale ?? null, p.route ?? null, p.einebnen ?? null, p.npc ?? null]);
+  const ra = rest(a);
+  const rb = rest(b);
+  return (
+    zahlVergleich(a.x, b.x) || zahlVergleich(a.z, b.z) || zahlVergleich(a.yaw, b.yaw) || (ra === rb ? 0 : ra < rb ? -1 : 1)
+  );
+}
+
 export interface PlatzierungenNormalisiert {
   /** Every entry with a unique `id`, sorted by `id`. */
   placements: PlacementDef[];
@@ -97,8 +117,10 @@ export interface PlatzierungenNormalisiert {
  * Brings a list of already validated placements into the stored form:
  *   1. exact duplicates (all fields equal, position within 1 cm) become ONE entry;
  *   2. explicit ids that are unique are kept (first occurrence wins);
- *   3. every other entry gets a derived id, collisions in document order get `-2`, `-3` …;
- *   4. the list is sorted by id (git merges appends without a conflict).
+ *   3. every other entry gets a derived id, collisions get `-2`, `-3` … in canonical order of the
+ *      entries themselves (see `kanonisch`), NOT in document order;
+ *   4. the list is sorted by id (two appends at different places of the list merge in git;
+ *      two that sort next to each other still conflict).
  *
  * Two entries whose explicit ids differ are never duplicates, however alike
  * they are: someone gave them separate identities on purpose.
@@ -108,7 +130,11 @@ export function platzierungenNormalisieren(eingabe: readonly PlacementDef[]): Pl
   const behalten: PlacementDef[] = [];
   const nachPrefab = new Map<string, PlacementDef[]>();
   const zusammengefasst: string[] = [];
-  for (const roh of eingabe) {
+  // Entries that bring an id keep the document order (the first of two equal ids wins); the
+  // id-less ones come in canonical order, so folding keeps the same representative wherever
+  // the entries stood.
+  const reihenfolge = [...eingabe.filter((e) => e.id !== undefined), ...eingabe.filter((e) => e.id === undefined).sort(kanonisch)];
+  for (const roh of reihenfolge) {
     const e: PlacementDef = { ...roh };
     const kandidaten = nachPrefab.get(e.prefab);
     const gleich = kandidaten?.find(
@@ -129,8 +155,7 @@ export function platzierungenNormalisieren(eingabe: readonly PlacementDef[]): Pl
     if (belegt.has(e.id)) delete e.id;
     else belegt.add(e.id);
   }
-  for (const e of behalten) {
-    if (e.id !== undefined) continue;
+  for (const e of behalten.filter((e) => e.id === undefined).sort(kanonisch)) {
     e.id = freieId(platzierungsIdBasis(e), belegt);
     belegt.add(e.id);
   }

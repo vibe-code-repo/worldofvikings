@@ -2,8 +2,9 @@
  * Stable placement ids (editor stage E1, card K1.1): every placement of a layout
  * document carries an `id`, unique inside the document; documents that predate
  * the field are migrated by a deterministic derivation; the list is written
- * sorted by id so two branches that each append a placement merge without a
- * conflict.
+ * sorted by id, so two branches that each append a placement usually merge
+ * (only entries that land in DIFFERENT places of the sorted list; two entries that
+ * sort next to each other still conflict in git -- see section 8).
  *
  * The checks that need the new API reach it through the module namespace, so the
  * same file runs against an older tree and fails check by check there.
@@ -17,6 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as WL from '../src/worldlayout/index.js';
 import { layoutKennung, pruefeLayout, sanitizeWorldLayout, type WorldLayout } from '../src/worldlayout/index.js';
+import { layoutSchreiben } from '../src/worldlayout/layoutDatei.js';
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -70,7 +72,8 @@ const wild = sauber({
 check('ids: odd prefab names still give valid, unique ids', wild.placements!.length === 3 && wild.placements!.every((p) => ID_RE.test((p as { id?: string }).id ?? '')) && new Set(ids(wild)).size === 3, ids(wild).join(','));
 check('ids: even the longest derived id fits the 64 character limit', ids(wild).every((i) => i.length <= 64), ids(wild).map((i) => i.length).join(','));
 
-// Same rounded spot: document order decides who keeps the plain id.
+// Same rounded spot: the entries themselves decide who keeps the plain id (canonical order:
+// prefab as written, x, z, yaw, ...), NOT their place in the document.
 const kollision = sauber({
   placements: [
     { prefab: 'woodwall', x: 5.2, z: 5, yaw: 1 },
@@ -79,7 +82,47 @@ const kollision = sauber({
   ],
 });
 const kollisionJeYaw = Object.fromEntries((kollision.placements ?? []).map((p) => [p.yaw, (p as { id?: string }).id]));
-check('ids: entries on one spot get -2, -3 in document order', kollisionJeYaw['1'] === 'woodwall_5_5' && kollisionJeYaw['2'] === 'woodwall_5_5-2' && kollisionJeYaw['3'] === 'woodwall_5_5-3', JSON.stringify(kollisionJeYaw));
+check('ids: entries on one spot get -2, -3 in canonical order (x first)', kollisionJeYaw['3'] === 'woodwall_5_5' && kollisionJeYaw['1'] === 'woodwall_5_5-2' && kollisionJeYaw['2'] === 'woodwall_5_5-3', JSON.stringify(kollisionJeYaw));
+
+// ── 1b. The derived id does not depend on the order of the document (B7) ──
+const jeObjekt = (l: WorldLayout): string =>
+  (l.placements ?? []).map((p) => `${(p as { id?: string }).id}=${JSON.stringify({ ...p, id: undefined })}`).join('\n');
+const zweiTannen = [
+  { prefab: 'Tanne4', x: 10, z: 10, yaw: 0 },
+  { prefab: 'Tanne4', x: 10.1, z: 10, yaw: 1 }, // same metre, 10 cm apart
+];
+const vorwaerts = sauber({ placements: zweiTannen });
+const rueckwaerts = sauber({ placements: [...zweiTannen].reverse() });
+const idVon = (l: WorldLayout, yaw: number): string | undefined => (l.placements ?? []).find((p) => p.yaw === yaw)?.id;
+check('order: two objects in one metre get the same id forwards and backwards', idVon(vorwaerts, 0) === idVon(rueckwaerts, 0) && idVon(vorwaerts, 1) === idVon(rueckwaerts, 1) && idVon(vorwaerts, 0) !== idVon(vorwaerts, 1), `${idVon(vorwaerts, 0)}/${idVon(vorwaerts, 1)} vs ${idVon(rueckwaerts, 0)}/${idVon(rueckwaerts, 1)}`);
+const gross = [
+  { prefab: 'Eiche2', x: 10, z: 10 },
+  { prefab: 'eiche2', x: 10, z: 10 }, // same slug, different spelling
+];
+check('order: prefab names that differ only in case get the same id forwards and backwards', jeObjekt(sauber({ placements: gross })) === jeObjekt(sauber({ placements: [...gross].reverse() })), jeObjekt(sauber({ placements: gross })));
+// Randomised: id-less documents with collisions, case variants, negative and rounding-edge
+// coordinates and folded duplicates; every permutation writes the same bytes.
+let zufall = 20260919;
+const zz = (): number => {
+  zufall = (Math.imul(zufall, 1103515245) + 12345) & 0x7fffffff;
+  return zufall / 0x7fffffff;
+};
+const wahl = <T,>(a: readonly T[]): T => a[Math.floor(zz() * a.length)]!;
+let reihenfolgeVerstoesse = 0;
+for (let i = 0; i < 300; i++) {
+  const n = 2 + Math.floor(zz() * 9);
+  const liste = Array.from({ length: n }, () => ({
+    prefab: wahl(['Beech1', 'beech1', 'BEECH1', 'Tanne4', 'A b']),
+    x: wahl([5, 5.2, 5.4, 5.4999, 5.5001, 4.6, -5, -5.5, 100.004, 100]),
+    z: wahl([5, 5.4, -0.4, 100]),
+    ...(zz() < 0.4 ? { yaw: wahl([0, 1, 1.5]) } : {}),
+    ...(zz() < 0.2 ? { scale: wahl([1, 2]) } : {}),
+  }));
+  const ref = text(sauber({ placements: liste }));
+  const gemischt = [...liste].sort(() => zz() - 0.5);
+  if (text(sauber({ placements: [...liste].reverse() })) !== ref || text(sauber({ placements: gemischt })) !== ref) reihenfolgeVerstoesse++;
+}
+check('order: 300 random id-less documents write the same bytes in any order (forwards, backwards, shuffled)', reihenfolgeVerstoesse === 0, `${reihenfolgeVerstoesse} differ`);
 
 // Explicit ids: valid and unique ones stay; an id-less entry never takes one away.
 const explizit = sauber({
@@ -148,6 +191,50 @@ const zweiIds = sauber({
 check('duplicates: two explicit different ids are two entries, however alike', zweiIds.placements!.length === 2);
 check('duplicates: ... and pruefeLayout points at them', pruefeLayout(zweiIds).some((b) => /identischem Inhalt/.test(b.text) && /links/.test(b.text) && /rechts/.test(b.text)), JSON.stringify(pruefeLayout(zweiIds)));
 
+// ── 3b. Folded duplicates are counted apart from dropped entries (B4) ──
+// The write path (`layoutSchreiben`, used by the operating service) reports `verworfen` for entries the
+// sanitizer DROPPED and `zusammengefasst` for exact duplicates it folded; the editor warns "ACHTUNG ...
+// verworfen" only for the former. The count comes back explicitly, it does not hang on the layout object.
+const berichtFn = (WL as unknown as Record<string, unknown>).sanitizeWorldLayoutMitBericht as
+  | ((eingabe: unknown) => { layout: WorldLayout; zusammengefasst: readonly string[] } | null)
+  | undefined;
+const schreibBasis = welt({
+  regions: [{ id: 'r1', biome: 'grassland', shape: { kind: 'circle', x: 0, z: 0, radius: 500 }, edgeFalloff: 100 }],
+  placements: [{ prefab: 'Beech1', x: 5, z: 5 }, { prefab: 'Tanne4', x: 9, z: 9 }],
+});
+const dupEintrag = { prefab: 'Beech1', x: 5.004, z: 5 }; // exact duplicate of the first
+const kaputterEintrag = { prefab: 'Beech1', x: null, z: 5 }; // really dropped
+const schreibDir = mkdtempSync(join(tmpdir(), 'wov-platzierungs-ids-schreiben-'));
+try {
+  const faelle: [string, unknown[], number, number][] = [
+    ['only a duplicate', [dupEintrag], 0, 1],
+    ['only an invalid entry', [kaputterEintrag], 1, 0],
+    ['both', [dupEintrag, kaputterEintrag], 1, 1],
+  ];
+  for (const [name, extra, verworfenErwartet, zusammengefasstErwartet] of faelle) {
+    const r = layoutSchreiben(join(schreibDir, 'welt.json'), { ...schreibBasis, placements: [...(schreibBasis.placements as unknown[]), ...extra] }) as unknown as {
+      verworfen: number;
+      verworfenJeFeld: Record<string, number>;
+      zusammengefasst?: number;
+      zusammengefasstJeFeld?: Record<string, number>;
+      layout: WorldLayout;
+    };
+    check(
+      `write path, ${name}: verworfen ${verworfenErwartet}, zusammengefasst ${zusammengefasstErwartet}, 2 entries written`,
+      r.verworfen === verworfenErwartet &&
+        (r.verworfenJeFeld.placements ?? 0) === verworfenErwartet &&
+        r.zusammengefasst === zusammengefasstErwartet &&
+        (r.zusammengefasstJeFeld?.placements ?? 0) === zusammengefasstErwartet &&
+        r.layout.placements?.length === 2,
+      JSON.stringify({ verworfen: r.verworfen, jeFeld: r.verworfenJeFeld, zusammengefasst: r.zusammengefasst, zusammengefasstJeFeld: r.zusammengefasstJeFeld })
+    );
+  }
+} finally {
+  rmSync(schreibDir, { recursive: true, force: true });
+}
+const bericht = berichtFn?.({ ...schreibBasis, placements: [...(schreibBasis.placements as unknown[]), dupEintrag, kaputterEintrag] });
+check('sanitizeWorldLayoutMitBericht hands the folded duplicates back explicitly (also for a copy of the layout)', bericht?.zusammengefasst.length === 1 && bericht.layout.placements?.length === 2 && berichtFn?.(JSON.parse(JSON.stringify(bericht.layout)))?.zusammengefasst.length === 0);
+
 // ── 4. A coordinate that is not a number drops the entry ─────────────
 const nichtZahl = sauber({
   placements: [
@@ -204,7 +291,9 @@ check('neuePlatzierungsId: for a spot nobody uses it is the plain derived id', n
 const mitNeuer = sanitizeWorldLayout({ ...bestand, placements: [...bestand.placements!, { id: frisch, prefab: 'Beech1', x: 5.1, z: 5, scale: 3 }] })!;
 check('neuePlatzierungsId: the id survives sanitize and all three entries stay', mitNeuer.placements!.length === 3 && ids(mitNeuer).includes(String(frisch)), ids(mitNeuer).join(','));
 
-// ── 8. Two branches that each append a placement merge without conflict ──
+// ── 8. Two branches that each append a placement ─────────────────────
+// Sorted by id, appends that land in different places of the list merge; two appends that sort next
+// to each other still collide (an insertion at the same place). The measured rates are in the report.
 const devPfad = fileURLToPath(new URL('../../server/data/welten/dev.json', import.meta.url));
 const devRoh = JSON.parse(readFileSync(devPfad, 'utf-8')) as Roh;
 const devLayout = sanitizeWorldLayout(devRoh)!;
@@ -223,7 +312,7 @@ try {
   writeFileSync(join(tmp, 'ast-b.json'), mitPlatzierung(devLayout, { prefab: 'ZzzNeu', x: 20, z: 20 }));
   const merge = spawnSync('git', ['merge-file', '-p', join(tmp, 'ast-a.json'), join(tmp, 'basis.json'), join(tmp, 'ast-b.json')], { encoding: 'utf-8' });
   const merged = merge.stdout;
-  check('git: two branches that each append one placement merge with 0 conflicts', merge.status === 0, `exit ${merge.status} (= conflicts), stderr: ${merge.stderr}`);
+  check('git: two branches that each append one placement, sorting far apart, merge with 0 conflicts', merge.status === 0, `exit ${merge.status} (= conflicts), stderr: ${merge.stderr}`);
   let mergedLayout: WorldLayout | null = null;
   try {
     mergedLayout = sanitizeWorldLayout(JSON.parse(merged || 'null'));

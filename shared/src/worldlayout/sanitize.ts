@@ -209,7 +209,24 @@ function sanitizeRegion(input: unknown, bekannteIds: Set<string>): RegionDef | n
   return region;
 }
 
+/** Das geprüfte Dokument samt dem, was der Sanitizer dabei zusammengelegt hat. */
+export interface SanitizeBericht {
+  layout: WorldLayout;
+  /**
+   * Eine Zeile je exaktem Duplikat, das er zu einem Eintrag zusammengefasst hat
+   * (`Prefab @(x, z)`). Zusammengefasst ist nicht verworfen: Es geht kein Objekt
+   * verloren. Wer roh gegen gültig zählt (Schreibweg, Boot), zieht diese Zahl ab.
+   * Sie wird ausdrücklich zurückgegeben und hängt an keinem Objekt, das beim
+   * Kopieren des Layouts verloren gehen könnte.
+   */
+  zusammengefasst: readonly string[];
+}
+
 export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
+  return sanitizeWorldLayoutMitBericht(input)?.layout ?? null;
+}
+
+export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht | null {
   if (typeof input !== 'object' || input === null) return null;
   const d = input as Record<string, unknown>;
   if (d.version !== WORLD_LAYOUT_VERSION) return null;
@@ -389,5 +406,5 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     ...(routes.length > 0 ? { routes } : {}),
   };
   merkeZusammengefasst(layout, zusammengefasst);
-  return layout;
+  return { layout, zusammengefasst };
 }

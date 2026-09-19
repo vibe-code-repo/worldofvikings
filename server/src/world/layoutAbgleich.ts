@@ -42,7 +42,6 @@ import {
   layoutKennung,
   maxLeben,
   platzierungenNormalisieren,
-  zusammengefassteDuplikate,
   yawQuaternion,
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
@@ -296,8 +295,11 @@ export interface LayoutAbgleichErgebnis {
 export function layoutAbgleich(
   kontext: LayoutAbgleichKontext,
   layout: WorldLayout,
-  /** `verworfen`: Einträge, die der Sanitizer aus dem rohen Dokument gestrichen hat. */
-  optionen: { verworfen?: number } = {}
+  /**
+   * `verworfen`: Einträge, die der Sanitizer aus dem rohen Dokument gestrichen hat (roh − gültig);
+   * `zusammengefasst`: davon exakte Duplikate, die er zu einem Eintrag zusammengelegt hat (kein Verlust).
+   */
+  optionen: { verworfen?: number; zusammengefasst?: number } = {}
 ): LayoutAbgleichErgebnis {
   const { zdos } = kontext;
   // Jede Platzierung hat eine `id` (dafür sorgt der Sanitizer). Wer ein
@@ -321,8 +323,10 @@ export function layoutAbgleich(
   };
   // Exakte Duplikate, die der Sanitizer zu einem Eintrag zusammengefasst hat,
   // fehlen in der Zahl der gültigen Einträge, sind aber nichts Verworfenes:
-  // Sie tragen kein ZDO, das ein löschender Boot gefährden könnte.
-  const verworfen = Math.max(0, (optionen.verworfen ?? 0) - zusammengefassteDuplikate(layout).length);
+  // Sie tragen kein ZDO, das ein löschender Boot gefährden könnte. Die Zahl
+  // reicht der Aufrufer ausdrücklich herein (`sanitizeWorldLayoutMitBericht`),
+  // dieselbe wie im Schreibweg — nichts hängt an einem Layout-Objekt.
+  const verworfen = Math.max(0, (optionen.verworfen ?? 0) - (optionen.zusammengefasst ?? 0));
   if (verworfen > 0) ergebnis.ohneLoeschen = { verworfen, stehenGeblieben: 0 };
   // Der ZDO-Member `layoutId` trägt die `id` der Platzierung. Damit lassen
   // sich beim Boot ZDOs entfernen, deren Eintrag der Designer gelöscht hat

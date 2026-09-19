@@ -893,6 +893,7 @@ boot16a.server.saveWorld();
 const boot16b = starte('welt16', dokumentMitIds(NEU16));
 console.log(`     log: ${boot16b.zeilen.filter((z) => /Abgleich/.test(z)).join(' | ')}`);
 const ids16b = NEU16.map((p) => nachId(boot16b.server, p.id));
+check('(K1.1) migration boot: the log line names the number of re-stamped ZDOs', zeileMit(boot16b.zeilen, /0 entfernt, davon 6 auf die Platzierungs-id umgestempelt/), boot16b.zeilen.join(' | '));
 check(
   '(K1.1) migration boot: 0 spawned, 0 removed, all 6 ZDOs re-stamped with their id',
   zeileMit(boot16b.zeilen, /\b0 gespawnt, 6 aktualisiert, 0 unverändert, 0 entfernt/) && ids16b.every((z) => z !== undefined) && layoutZdos(boot16b.server).length === 6 && !layoutZdos(boot16b.server).some((z) => z.getString(LAYOUT_ID_MEMBER).includes('@')),
@@ -905,6 +906,7 @@ const rev16 = layoutRevisionen(boot16b.server);
 
 const boot16c = starte('welt16', dokumentMitIds(NEU16));
 const bewegt16 = layoutZdos(boot16c.server).filter((z) => rev16.get(z.zdoid.toString()) !== z.revision.raw);
+check('(K1.1) second boot: no re-stamp is mentioned any more', !boot16c.zeilen.some((z) => /umgestempelt/.test(z)), boot16c.zeilen.join(' | '));
 check('(K1.1) second boot: 0 revisions moved, 6 unchanged', bewegt16.length === 0 && zeileMit(boot16c.zeilen, /\b0 gespawnt, 0 aktualisiert, 6 unverändert, 0 entfernt/), `${bewegt16.length} moved; ${boot16c.zeilen.filter((z) => /Abgleich:/.test(z)).join(' | ')}`);
 boot16c.server.saveWorld();
 const rev16c = layoutRevisionen(boot16c.server);
@@ -930,6 +932,35 @@ const alteKiste = boot16f.server.zdos.getAllZDOs().find((z) => z.zdoid.toString(
 console.log(`     prefab swap: log: ${boot16f.zeilen.filter((z) => /Abgleich:/.test(z)).join(' | ')}; old ZDO ${zdoIds16[1]} alive: ${alteKiste !== undefined && !alteKiste.destroyed}; new ZDO ${werkbank?.zdoid} marker ${werkbank?.getInt('zzMarke')}`);
 check('(K1.1) prefab swap under one id: the old ZDO is gone, a new one carries the id, its state is not carried over', werkbank !== undefined && werkbank.zdoid.toString() !== zdoIds16[1] && (alteKiste === undefined || alteKiste.destroyed) && werkbank.getInt('zzMarke') === 0 && werkbank.prefabHash === boot16f.server.prefabs.getByName('piece_workbench')!.hash);
 check('(K1.1) ... exactly one ZDO carries the id, 1 spawned and 1 removed in the same boot', layoutZdos(boot16f.server).filter((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-zwei').length === 1 && zeileMit(boot16f.zeilen, /\b1 gespawnt, .* 1 entfernt \(davon 1 überzählig\)/), boot16f.zeilen.join(' | '));
+
+// ── World 17: a folded duplicate is not a dropped entry (K0.1 stays intact) ─
+console.log('\n[24] World 17: a raw exact duplicate does not switch deletion off, a real bad entry still does');
+const G1 = { prefab: 'piece_chest_wood', x: 100, z: 100 };
+const G2 = { prefab: 'piece_chest_wood', x: 120, z: 100 };
+const G3 = { prefab: 'woodwall', x: 140, z: 100 };
+const ohneLoeschen = (zeilen: string[]): string | undefined => zeilen.find((z) => /Layout-Abgleich ohne Löschen/.test(z));
+const bootAnzahl = (server: Server): number => layoutZdos(server).length;
+const kaputt17 = { prefab: 'woodwall', x: null, z: 5 } as unknown as Platzierung;
+const G1dup = { ...G1, x: 100.004 }; // the same object, 4 mm away
+
+// a) the designer deletes G2 and the file holds a raw duplicate of G1: the deletion goes through
+const w17a1 = starte('welt17a', dokument(BASIS_VORHER, [G1, G2, G3]));
+check('(K0.1) world 17a: 3 layout ZDOs before', bootAnzahl(w17a1.server) === 3);
+w17a1.server.saveWorld();
+const w17a2 = starte('welt17a', dokument(BASIS_VORHER, [G1, G1dup, G3]));
+check('(K0.1) raw duplicate: no "ohne Löschen" line, the deleted placement loses its ZDO', ohneLoeschen(w17a2.zeilen) === undefined && bootAnzahl(w17a2.server) === 2 && zeileMit(w17a2.zeilen, /\b1 entfernt/), w17a2.zeilen.join(' | '));
+
+// b) the designer deletes G2 and the file holds a REAL bad entry: nothing is deleted, the line says 1
+const w17b1 = starte('welt17b', dokument(BASIS_VORHER, [G1, G2, G3]));
+w17b1.server.saveWorld();
+const w17b2 = starte('welt17b', dokument(BASIS_VORHER, [G1, kaputt17, G3]));
+check('(K0.1) real bad entry: "ohne Löschen: 1 Einträge verworfen", nothing removed', /ohne Löschen: 1 Einträge verworfen – 1 verwaiste/.test(ohneLoeschen(w17b2.zeilen) ?? '') && bootAnzahl(w17b2.server) === 3 && zeileMit(w17b2.zeilen, /\b0 entfernt/), w17b2.zeilen.join(' | '));
+
+// c) both at once: the duplicate does not count, the line says 1 (not 2)
+const w17c1 = starte('welt17c', dokument(BASIS_VORHER, [G1, G2, G3]));
+w17c1.server.saveWorld();
+const w17c2 = starte('welt17c', dokument(BASIS_VORHER, [G1, G1dup, kaputt17, G3]));
+check('(K0.1) duplicate and real bad entry together: the line says 1, not 2', /ohne Löschen: 1 Einträge verworfen/.test(ohneLoeschen(w17c2.zeilen) ?? '') && bootAnzahl(w17c2.server) === 3, w17c2.zeilen.join(' | '));
 
 rmSync(WURZEL, { recursive: true, force: true });
 if (fehler > 0) {

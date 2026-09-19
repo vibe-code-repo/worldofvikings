@@ -213,7 +213,7 @@ const platz = (l: WorldLayout): readonly PlacementDef[] => l.placements ?? [];
 const klick = (x: number, z: number, shiftKey = false) => ({ weltX: x, weltZ: z, shiftKey });
 const ID_RE = /^[a-z0-9][a-z0-9-_]{0,63}$/;
 
-/** Start document for the scripts: the real dev world (159 objects) plus three we know by id. */
+/** Start document for the scripts: the real dev world (157 objects) plus three we know by id. */
 const start: WorldLayout = sanitizeWorldLayout({
   ...echt,
   placements: [
@@ -327,7 +327,7 @@ async function main(): Promise<void> {
       const nachher = new Map(platz(z.layout).map((p) => [p.id!, JSON.stringify(p)]));
       let veraendert = 0;
       for (const [id, text] of vorher) if (nachher.get(id) !== text) veraendert++;
-      gleich('in the real world: 159+3 existing ids unchanged, +100 new', [veraendert, nachher.size - vorher.size], [0, 100]);
+      gleich('in the real world: 157+3 existing ids unchanged, +100 new', [veraendert, nachher.size - vorher.size], [0, 100]);
       // Shift is what sets on top of an object; without it the click selects the object under the pointer
       const t2 = erzeugePlatzieren({ zufall: () => 0.5 });
       t2.beiZeigerRunter(c0, klick(5, 5, false));

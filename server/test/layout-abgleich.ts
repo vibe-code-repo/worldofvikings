@@ -55,6 +55,16 @@
  * twelve environment-sm-env-* prefabs have an offset != 0; no vegetation
  * placement of dev.json is one of them, so (h) is a guard for the future.
  *
+ * Round 4: an UNKNOWN prefab (typo in the free-text field of the editor) no longer
+ * freezes the clean-up of the whole world: only ZDOs that could belong to it (same
+ * id, or within 1 m of it) are spared, everything else is cleared as usual
+ * (world 6b: dev.json copy with a typo + 10 deleted placements; world 14: typo +
+ * a 0.6 m shift). Entries the sanitizer DROPS still switch deletion off for the
+ * boot, and the warning counts the objects left standing. Placements with one id
+ * that are more than 1 cm apart are different objects and keep one ZDO each (world
+ * 15). "More state" uses the real state members (`truheInhalt`, `looted`, `health`,
+ * door `state`); `scaleScalar` and `anim` do not count (world 13).
+ *
  * Run: npx tsx test/layout-abgleich.ts   (from server/)
  */
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
@@ -479,7 +489,7 @@ const boot6c = starte('welt6', { ...devDoc, placements: kaputt });
 console.log(`     log: ${boot6c.zeilen.join(' | ')}`);
 const dev3 = layoutRevisionen(boot6c.server);
 check('(R3-1) dev.json copy with 158 of 159 broken entries: 0 entfernt, all 157 ZDOs stay', dev3.size === dev1.size && boot6c.zeilen.some((z) => /\b0 entfernt/.test(z)), `${dev3.size} of ${dev1.size} ZDOs alive`);
-check('(R3-1) ... with the loud line naming 158 dropped entries', boot6c.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 158 Einträge verworfen, 0 unbekannte Prefabs/.test(z)), boot6c.zeilen.join(' | '));
+check('(R3-1) ... with the loud line naming 158 dropped entries and the 156 objects left standing', boot6c.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 158 Einträge verworfen – 156 verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen/.test(z)), boot6c.zeilen.join(' | '));
 // The next clean document (the first 150 entries) clears the rest as usual.
 const dev150 = devPlacements.slice(0, 150);
 const kennungen150 = new Set(dev150.map((p) => layoutKennung(p)));
@@ -641,8 +651,8 @@ check(
   `${teilDabei.length} left`
 );
 check(
-  '(R3-1) ... with the loud line "ohne Löschen: 1 Einträge verworfen, 0 unbekannte Prefabs"',
-  teil.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 1 Einträge verworfen, 0 unbekannte Prefabs – verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen/.test(z)) && teil.zeilen.some((z) => /\b0 entfernt/.test(z)),
+  '(R3-1) ... with the loud line "ohne Löschen: 1 Einträge verworfen – 1 verwaiste Layout-Objekte bleiben …"',
+  teil.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 1 Einträge verworfen – 1 verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen/.test(z)) && teil.zeilen.some((z) => /\b0 entfernt/.test(z)),
   teil.zeilen.join(' | ')
 );
 const sauber = starte('welt10', dokument(BASIS_VORHER, [R1, R2]));
@@ -653,8 +663,8 @@ check(
   `${sauberDabei.length} left; ${sauber.zeilen.join(' | ')}`
 );
 
-// ── World 11: unknown prefabs delete nothing either ─────────────────
-console.log('\n[17] World 11: an unknown prefab -- kept when the placement moves, kept next to a duplicate; a clean document then clears');
+// ── World 11: unknown prefabs spare only what belongs to them ────────
+console.log('\n[17] World 11: an unknown prefab spares its own ZDOs (same id / within 1 m); everything else clears as usual');
 const boot11a = starte('welt11', dokument(BASIS_VORHER, []));
 const aa = boot11a.server;
 const woodwall11 = aa.prefabs.getByName('woodwall')!.hash;
@@ -674,25 +684,29 @@ const v3b = mach(U3, 0.2);
 const v11Ids = [v1z, v2z, v3a, v3b].map((z) => z.zdoid.toString());
 const v1Y = v1z.position.y;
 aa.saveWorld();
-const lebt11 = (server: Server): number => server.zdos.getAllZDOs().filter((z) => v11Ids.includes(z.zdoid.toString())).length;
+const lebt11 = (server: Server): string[] => server.zdos.getAllZDOs().map((z) => z.zdoid.toString()).filter((id) => v11Ids.includes(id));
+const nur11 = (server: Server, erwartet: number[]): boolean => {
+  const lebende = lebt11(server).sort();
+  const soll = erwartet.map((i) => v11Ids[i]!).sort();
+  return lebende.length === soll.length && lebende.every((id, i) => id === soll[i]);
+};
 
 const boot11b = starte('welt11', dokument(BASIS_NACHHER, [U1]));
 console.log(`     log: ${boot11b.zeilen.join(' | ')}`);
 const v1B = boot11b.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === v11Ids[0]);
 check('(B3) unknown prefab: the ZDO with that id is not removed and not touched', v1B !== undefined && v1B.getString(LAYOUT_ID_MEMBER) === layoutKennung(U1) && nahe(v1B.position.y, v1Y, 1e-9), v1B ? `y=${v1B.position.y} was ${v1Y}, ground now ${boot11b.server.getGroundHeight(100, 100).toFixed(3)}` : 'removed');
-check('(B3) ... and a warning names the id and the prefab', boot11b.zeilen.some((z) => z.includes(layoutKennung(U1)) && z.includes("'gibtsnicht'") && /bleibt unangetastet/.test(z)), boot11b.zeilen.join(' | '));
-check('(R3-1) ... the loud line names 0 dropped entries and 1 unknown prefab; nothing else was deleted either', boot11b.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 0 Einträge verworfen, 1 unbekannte Prefabs/.test(z)) && lebt11(boot11b.server) === 4 && boot11b.zeilen.some((z) => /\b0 entfernt/.test(z)), `${lebt11(boot11b.server)} of 4 alive; ${boot11b.zeilen.join(' | ')}`);
+check('(B3) ... and a warning names the id, the prefab and the number of spared ZDOs', boot11b.zeilen.some((z) => z.includes(layoutKennung(U1)) && z.includes("'gibtsnicht'") && /1 ZDO\(s\) mit dieser Kennung oder im Umkreis von 1 m bleiben unangetastet/.test(z)), boot11b.zeilen.join(' | '));
+check('(A1) ... NO global lock: the three ZDOs that do not belong to it are cleared as usual', nur11(boot11b.server, [0]) && boot11b.zeilen.some((z) => /\b3 entfernt/.test(z)) && !boot11b.zeilen.some((z) => /ohne Löschen/.test(z)), `alive: ${lebt11(boot11b.server).join(',')}; ${boot11b.zeilen.join(' | ')}`);
 
 const boot11c = starte('welt11', dokument(BASIS_NACHHER, [{ ...U2, x: 200.6 }]));
-const v2C = boot11c.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === v11Ids[1]);
-check('(R3-1) unknown prefab + placement moved by 0.6 m (the id key changes): the ZDO stays', v2C !== undefined && v2C.getString(LAYOUT_ID_MEMBER) === layoutKennung(U2) && lebt11(boot11c.server) === 4, `${lebt11(boot11c.server)} of 4 alive`);
+check('(A1) unknown prefab + placement moved by 0.6 m (the id key changes): its ZDO stays, no second object appears, the rest clears', nur11(boot11c.server, [1]) && boot11c.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '').length === 1, `alive: ${lebt11(boot11c.server).join(',')}`);
 
 const boot11d = starte('welt11', dokument(BASIS_NACHHER, [U3]));
 console.log(`     log: ${boot11d.zeilen.join(' | ')}`);
-check('(R3-1) unknown prefab + duplicate: both ZDOs stay, nothing is cut down', lebt11(boot11d.server) === 4 && !boot11d.zeilen.some((z) => /überzählig/.test(z)), `${lebt11(boot11d.server)} of 4 alive; ${boot11d.zeilen.join(' | ')}`);
+check('(A1) unknown prefab + duplicate: both ZDOs stay, nothing is cut down', nur11(boot11d.server, [2, 3]) && !boot11d.zeilen.some((z) => /überzählig/.test(z)), `alive: ${lebt11(boot11d.server).join(',')}; ${boot11d.zeilen.join(' | ')}`);
 
 const boot11e = starte('welt11', dokument(BASIS_NACHHER, []));
-check('(R3-1) the next CLEAN document (no placements) clears them all as usual', lebt11(boot11e.server) === 0 && boot11e.zeilen.some((z) => /\b4 entfernt/.test(z)) && !boot11e.zeilen.some((z) => /ohne Löschen/.test(z)), `${lebt11(boot11e.server)} alive; ${boot11e.zeilen.join(' | ')}`);
+check('(A1) a document without placements clears them all as usual', lebt11(boot11e.server).length === 0 && boot11e.zeilen.some((z) => /\b4 entfernt/.test(z)) && !boot11e.zeilen.some((z) => /ohne Löschen/.test(z)), `${lebt11(boot11e.server).length} alive; ${boot11e.zeilen.join(' | ')}`);
 
 // ── World 12: no ZDO of the id fits the prefab ──────────────────────
 console.log('\n[18] World 12: no ZDO of an id fits the prefab -> the new one is spawned and the stale ones go in the same boot');
@@ -718,7 +732,7 @@ const boot12c = starte('welt12', dokument(BASIS_VORHER, [CHEST]));
 check('(R3-3) ... and a second boot of the same save has nothing left to clean', nachKennung(boot12c.server, layoutKennung(CHEST)).length === 1, `${nachKennung(boot12c.server, layoutKennung(CHEST)).length}`);
 
 // ── World 13: a full chest beats an empty one at the same distance ───
-console.log('\n[19] World 13: duplicates at the same distance -- the one with more state stays, in both save orders');
+console.log('\n[19] World 13: duplicates at the same distance -- the one with more STATE (real members) stays, in both save orders');
 for (const [welt, volleZuerst] of [['welt13a', false], ['welt13b', true]] as const) {
   const bootA = starte(welt, dokument(BASIS_VORHER, []));
   const sA = bootA.server;
@@ -727,7 +741,12 @@ for (const [welt, volleZuerst] of [['welt13a', false], ['welt13b', true]] as con
   const baue = (dx: number, voll: boolean): string => {
     const z = sA.zdos.createZDO(chest, { x: 600 + dx, y: sA.getGroundHeight(600 + dx, 100), z: 100 });
     z.setString(LAYOUT_ID_MEMBER, layoutKennung(TRUHE));
-    if (voll) z.setString('truhe', '[[Wood,3]]');
+    // The real member of the server (TRUHE_INHALT_MEMBER). The empty one only carries what does not count as state.
+    if (voll) z.setString('truheInhalt', '[[Wood,3]]');
+    else {
+      z.setFloat('scaleScalar', 1.5);
+      z.setString('anim', 'idle');
+    }
     return z.zdoid.toString();
   };
   // Both 0.2 m from the placement (600,100), one to each side; only the order in the save differs.
@@ -738,16 +757,80 @@ for (const [welt, volleZuerst] of [['welt13a', false], ['welt13b', true]] as con
   const bootB = starte(welt, dokument(BASIS_VORHER, [TRUHE]));
   const uebrig13 = nachKennung(bootB.server, layoutKennung(TRUHE));
   check(
-    `(B4) ${volleZuerst ? 'full chest saved first' : 'empty chest saved first'}: the full chest stays with its content, the empty one goes`,
-    uebrig13.length === 1 && uebrig13[0]!.zdoid.toString() === volleId && uebrig13[0]!.getString('truhe') === '[[Wood,3]]',
-    `${uebrig13.length} left: ${uebrig13.map((z) => `${z.zdoid.toString()}='${z.getString('truhe')}'`).join(', ')}`
+    `(A3) ${volleZuerst ? 'full chest (truheInhalt) saved first' : 'empty chest (scaleScalar + anim) saved first'}: the full chest stays with its content, the empty one goes`,
+    uebrig13.length === 1 && uebrig13[0]!.zdoid.toString() === volleId && uebrig13[0]!.getString('truheInhalt') === '[[Wood,3]]',
+    `${uebrig13.length} left: ${uebrig13.map((z) => `${z.zdoid.toString()}='${z.getString('truheInhalt')}'`).join(', ')}`
   );
   check(
-    '(B4) ... and the destroyed ZDO is logged with id, id key and member count',
+    '(A3) ... and the destroyed ZDO is logged with id, id key and state member count (scaleScalar and anim do not count)',
     bootB.zeilen.some((z) => z.includes(`überzähliges ZDO ${leereId} (${layoutKennung(TRUHE)}) mit 0 Zustands-Member(n) entfernt`)),
     bootB.zeilen.join(' | ')
   );
 }
+
+// ── World 6b: dev.json copy with a typo prefab + 10 deleted placements ─
+console.log('\n[20] World 6b: a typo prefab in dev.json plus 10 deleted placements -- the 10 go, the ZDO at the typo stays');
+const boot6e = starte('welt6b', devDoc);
+const devB1 = layoutRevisionen(boot6e.server);
+boot6e.server.saveWorld();
+const typoIndex = 0;
+// The first 10 placements from index 50 on whose id no other placement shares (so exactly 10 ZDOs must go).
+const kennungsZahl = new Map<string, number>();
+for (const p of devPlacements) kennungsZahl.set(layoutKennung(p), (kennungsZahl.get(layoutKennung(p)) ?? 0) + 1);
+const geloescht = devPlacements.map((_, i) => i).filter((i) => i >= 50 && kennungsZahl.get(layoutKennung(devPlacements[i]!)) === 1).slice(0, 10);
+const rest = devPlacements.filter((_, i) => !geloescht.includes(i));
+const mitTypo = rest.map((p) => (p === devPlacements[typoIndex] ? { ...p, prefab: `${p.prefab}x` } : p));
+const bleibenKennungen = new Set(mitTypo.map((p) => layoutKennung(p)));
+const erwartetWeg = new Set(geloescht.map((i) => layoutKennung(devPlacements[i]!)).filter((k) => !bleibenKennungen.has(k))).size;
+const typoKennungAlt = layoutKennung(devPlacements[typoIndex]!);
+const boot6f = starte('welt6b', { ...devDoc, placements: mitTypo });
+console.log(`     log: ${boot6f.zeilen.filter((z) => /Abgleich|Hinweis: Platzierung/.test(z)).join(' | ')}`);
+const devB2 = layoutRevisionen(boot6f.server);
+const typoZdo = boot6f.server.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === typoKennungAlt);
+check(
+  '(A1) dev.json copy, typo prefab + 10 deleted placements: the deleted ones are removed as usual',
+  devB1.size - devB2.size === erwartetWeg && erwartetWeg === 10 && boot6f.zeilen.some((z) => new RegExp(`\\b${erwartetWeg} entfernt`).test(z)) && !boot6f.zeilen.some((z) => /ohne Löschen/.test(z)),
+  `${devB1.size} -> ${devB2.size} ZDOs, expected ${erwartetWeg} removed`
+);
+check('(A1) ... and the ZDO at the typo stays (still carries its old id), and the typo creates no ZDO', typoZdo !== undefined && !boot6f.server.zdos.getAllZDOs().some((z) => z.getString(LAYOUT_ID_MEMBER).includes(`${devPlacements[typoIndex]!.prefab}x@`)), typoZdo ? 'stays' : 'gone');
+check('(A1) ... with a warning naming the typo id, prefab and the number of spared ZDOs', boot6f.zeilen.some((z) => z.includes(`${devPlacements[typoIndex]!.prefab}x@`) && /ZDO\(s\) mit dieser Kennung oder im Umkreis von 1 m bleiben unangetastet/.test(z)), boot6f.zeilen.join(' | '));
+
+// ── World 14: typo + a 0.6 m shift ──────────────────────────────────
+console.log('\n[21] World 14: typo prefab plus a 0.6 m shift -- the ZDO stays, no second object; the fixed name finds it again');
+const W14 = { prefab: 'woodwall', x: 200, z: 100 };
+const boot14a = starte('welt14', dokument(BASIS_VORHER, [W14]));
+const w14Id = eines(boot14a.server, W14)!.zdoid.toString();
+boot14a.server.saveWorld();
+const boot14b = starte('welt14', dokument(BASIS_VORHER, [{ prefab: 'woodwalll', x: 200.6, z: 100 }]));
+const w14b = boot14b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '');
+check('(A1) typo prefab + 0.6 m shift: the old ZDO stays and no second object appears', w14b.length === 1 && w14b[0]!.zdoid.toString() === w14Id, `${w14b.length} layout ZDOs: ${w14b.map((z) => z.zdoid.toString()).join(', ')}`);
+const boot14c = starte('welt14', dokument(BASIS_VORHER, [W14]));
+check('(A1) ... and with the name fixed the same ZDO is found again (0 spawned, 0 removed)', eines(boot14c.server, W14)?.zdoid.toString() === w14Id && boot14c.zeilen.some((z) => /\b0 gespawnt/.test(z) && /\b0 entfernt/.test(z)), boot14c.zeilen.join(' | '));
+
+// ── World 15: same id, different objects ─────────────────────────────
+console.log('\n[22] World 15: placements in the same metre that are more than 1 cm apart are different objects');
+const PAAR = [
+  { prefab: 'woodwall', x: 599.6, z: 100 }, // id @600,100, 0.7 m apart
+  { prefab: 'woodwall', x: 600.3, z: 100 },
+  { prefab: 'woodwall', x: 700.4, z: 100.4 }, // id @700,100, 1.13 m apart
+  { prefab: 'woodwall', x: 699.6, z: 99.6 },
+];
+let letzterStand = '';
+for (let boot = 1; boot <= 3; boot++) {
+  const b = starte('welt15', dokument(BASIS_VORHER, PAAR));
+  const gefunden = PAAR.map((p) => b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '').find((z) => Math.hypot(z.position.x - p.x, z.position.z - p.z) < 1e-3));
+  const proKennung = [layoutKennung(PAAR[0]!), layoutKennung(PAAR[2]!)].map((k) => nachKennung(b.server, k).length);
+  check(
+    `(A4) boot ${boot}: each of the 4 placements has its own ZDO (2 per id), 0 removed`,
+    proKennung[0] === 2 && proKennung[1] === 2 && gefunden.every((z) => z !== undefined) && new Set(gefunden.map((z) => z?.zdoid.toString())).size === 4 && b.zeilen.some((z) => /\b0 entfernt/.test(z)) && !b.zeilen.some((z) => /überzählig/.test(z)),
+    `${proKennung.join('+')} ZDOs; ${b.zeilen.filter((z) => /Abgleich:/.test(z)).join(' | ')}`
+  );
+  if (boot === 1) check('(A4) ... spawned 4 in boot 1', b.zeilen.some((z) => /\b4 gespawnt/.test(z)), b.zeilen.join(' | '));
+  else check(`(A4) ... and boot ${boot} spawns nothing new`, b.zeilen.some((z) => /\b0 gespawnt/.test(z)), b.zeilen.join(' | '));
+  letzterStand = gefunden.map((z) => z?.zdoid.toString()).join(',');
+  b.server.saveWorld();
+}
+check('(A4) the four ZDOs are the same in the last boot as they were placed', letzterStand.split(',').length === 4);
 
 rmSync(WURZEL, { recursive: true, force: true });
 if (fehler > 0) {

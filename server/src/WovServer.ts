@@ -1163,6 +1163,9 @@ export class WovServer {
     // wandern als gewöhnliche Kreaturen um ihren Platz) und `pruefeLayout`
     // schweigt. Einzige Ausnahme: Spielerbauten von einer veralteten Kennung
     // zu befreien ist kein Löschen und läuft trotzdem.
+    // (`layout` ist hier nie null: lehnt der Sanitizer das ganze Dokument ab,
+    // bricht der Boot schon beim Laden ab, s. init(). Der Zweig steht für den
+    // Typ.)
     if (!layout) return;
     const rohPlacements = (this.worldLayoutRaw as { placements?: unknown } | null)?.placements;
     if (rohPlacements !== undefined && !Array.isArray(rohPlacements)) {
@@ -1216,9 +1219,8 @@ export class WovServer {
     );
     if (ergebnis.ohneLoeschen) {
       console.warn(
-        `[WoV] Layout-Abgleich ohne Löschen: ${ergebnis.ohneLoeschen.verworfen} Einträge verworfen, ` +
-          `${ergebnis.ohneLoeschen.unbekannt} unbekannte Prefabs – verwaiste Layout-Objekte bleiben ` +
-          `bis zum nächsten sauberen Dokument stehen`
+        `[WoV] Layout-Abgleich ohne Löschen: ${ergebnis.ohneLoeschen.verworfen} Einträge verworfen – ` +
+          `${ergebnis.ohneLoeschen.stehenGeblieben} verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen`
       );
     }
     if (!layout.placements?.length && ergebnis.entfernt > 0) {
@@ -1232,8 +1234,10 @@ export class WovServer {
     }
     for (const u of ergebnis.unbekanntePrefabs) {
       console.warn(
-        `[WoV] Layout-Hinweis: Platzierung ${u.kennung}: Prefab '${u.prefab}' unbekannt` +
-          (u.zdoVorhanden ? ' — das vorhandene ZDO mit dieser Kennung bleibt unangetastet' : ' — übersprungen')
+        `[WoV] Layout-Hinweis: Platzierung ${u.kennung}: Prefab '${u.prefab}' unbekannt — erzeugt kein ZDO` +
+          (u.geschont > 0
+            ? `; ${u.geschont} ZDO(s) mit dieser Kennung oder im Umkreis von 1 m bleiben unangetastet`
+            : '; kein ZDO betroffen')
       );
     }
     if (ergebnis.freigegeben > 0) {

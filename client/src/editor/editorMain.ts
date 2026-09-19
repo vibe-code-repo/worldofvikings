@@ -3069,6 +3069,13 @@ function weltFeldBauen(): void {
               layout = s;
               gewaehlt = null;
               const grund = alles('import');
+              // Ein Import beruht auf KEINEM Serverstand: Die Basis, die der
+              // vorige Entwurf hatte, gilt nicht für ihn. Ohne sie geht kein
+              // Speichern hinaus (Editor und Testflug), bis der Nutzer im
+              // Abgleich-Dialog entschieden hat („Entwurf behalten" = bewusst
+              // ersetzen). Steht der Import nicht im Speicher ('fremd', 'voll'),
+              // beschreibt die Basis weiter den Entwurf, der dort steht.
+              if (entwurfImSpeicher(grund)) setzeEntwurfBasis(null);
               vorschauAnstossen();
               // Ein Import ist ausdrücklich NUR ein Entwurf. Wer eine
               // live.json in einen dev-Editor zieht, hat damit noch nichts

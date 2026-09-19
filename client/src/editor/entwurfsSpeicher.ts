@@ -46,6 +46,17 @@
  * Jede Prüfung liest den Speicher NEU, statt dem Ereignis zu glauben.
  * Damit ist die Reihenfolge der Ereignisse gleichgültig.
  *
+ * ── Die Basis gilt je BROWSER, nicht je Tab ──────────────────────────
+ * Entwurf und Begleitzettel (`STAND_KEY`, Feld `basis`) liegen je einmal im
+ * localStorage, alle Tabs und der Testflug teilen sie. Entscheidet Tab B im
+ * Dialog „Entwurf behalten" über den Serverstand hB, gilt hB als Basis auch
+ * für Tab A, dessen Dialog noch einen älteren Stand zeigt: Speichert A danach,
+ * ersetzt es hB, ohne dass A's Nutzer ihn gesehen hat. Formal gedeckt (der
+ * Nutzer hat in B ausdrücklich entschieden), aber ohne Warnung in A. Der
+ * Editor prüft vor jedem Speichern, ob ein anderer Tab den Entwurf geändert hat
+ * (`abgleichen`, editorMain `fremderEntwurfUebernommen`); die Basis ist davon
+ * nicht betroffen.
+ *
  * ── Bewusst DOM-frei ─────────────────────────────────────────────────
  * Speicher, Ereignisquelle, Kanal, Uhr und Tab-Kennung werden
  * hereingereicht; der Browser-Standard steht in `browserUmgebung()`. So

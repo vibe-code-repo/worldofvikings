@@ -329,20 +329,33 @@ export function basisNachBestaetigung(bisher: string | null, frisch: ServerStand
 }
 
 /**
- * Nutzertext für „es gibt keine Basis": vom Editor gezeigt, bevor er überhaupt
- * sendet, und für die Antwort 428 des Betriebsdienstes. Nennt den Weg heraus.
+ * Nutzertext für „der Entwurf hat keine Basis“, vom Editor gezeigt, BEVOR er
+ * sendet (nach einem JSON-Import, oder wenn der Betriebsdienst beim Start nicht
+ * erreichbar war und es keinen früheren Serverstand gibt). Nennt den Weg heraus:
+ * das Welt-Feld anklicken holt den Serverstand und öffnet die Gegenüberstellung.
  */
 export const BASIS_FEHLT =
-  'Nicht gespeichert: Der Entwurf hat keinen bekannten Serverstand als Grundlage. ' +
-  'Erst den Serverstand laden oder abgleichen (Instanz-Feld oben links anklicken) — ' +
-  'dann lässt sich speichern.';
+  'Nicht gespeichert: Der Entwurf beruht auf keinem bekannten Serverstand (z. B. nach einem JSON-Import). ' +
+  'Weg heraus: links oben in der Kopfzeile das Feld „WELT" (zeigt den Instanznamen, z. B. „dev") anklicken — ' +
+  'das holt den Serverstand und zeigt die Gegenüberstellung. Dort „Entwurf behalten" wählen ' +
+  '(der Serverstand wird dann beim nächsten Speichern bewusst ersetzt) oder „Serverstand laden", danach speichern.';
+
+/**
+ * Nutzertext für die Antwort 428 des Betriebsdienstes. Bewusst neutral: Der
+ * Dienst verlangt eine Basis; ob der Aufrufer eine mitgeschickt hat und der
+ * Dienst sie nicht erkannte, sagt die Antwort nicht.
+ */
+export const BASIS_VERLANGT =
+  'Nicht gespeichert: Der Betriebsdienst verlangt für das Speichern eine Basis (den Serverstand, auf dem der Entwurf beruht) ' +
+  'und hat nichts geschrieben. Serverstand laden oder abgleichen (Feld „WELT" links oben in der Kopfzeile anklicken) ' +
+  'und dann erneut speichern.';
 
 /** Ausgang von `schreibeWeltdokument`. */
 export type SchreibAntwort =
   | { art: 'ok'; message: string; hash: string | null }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
-  /** Der Betriebsdienst verlangt eine Basis (428) und hat nichts geschrieben: erst den Serverstand laden/abgleichen. */
+  /** Der Betriebsdienst verlangt eine Basis (428) und hat nichts geschrieben: den Serverstand laden/abgleichen. */
   | { art: 'basis-fehlt'; message: string }
   | { art: 'zu-viele-platzierungen'; message: string; anzahl: number; grenze: number }
   | { art: 'fehler'; message: string };
@@ -401,11 +414,12 @@ export async function schreibeWeltdokument(
       aktuell: hashNormalisieren(d.aktuell) ?? hashNormalisieren(antwort.headers?.get('ETag')),
     };
   }
-  // Der Dienst verlangt eine Basis (`If-Match`) und hat KEINE bekommen — der
-  // Editor sendet ohne Basis gar nicht erst (s. editorMain.inDieWeltSpeichern),
-  // also kommt das von einer Gegenstelle oder einem Entwurf ohne Herkunft.
+  // Der Dienst verlangt eine Basis (`If-Match`). Editor und Testflug senden ohne
+  // Basis gar nicht erst (s. editorMain.inDieWeltSpeichern); eine 428 kommt also
+  // von einer Gegenstelle oder einer anderen Dienstfassung — der Text sagt nur,
+  // was sicher ist.
   if (antwort.status === 428) {
-    return { art: 'basis-fehlt', message: BASIS_FEHLT };
+    return { art: 'basis-fehlt', message: BASIS_VERLANGT };
   }
   if (antwort.status === 422 && d.fehler === 'zu-viele-platzierungen') {
     const anzahl = Number(d.anzahl);

@@ -471,6 +471,12 @@ class EditorAttrappe {
     else if (folge === 'nicht-geladen') this.meldungsVerlauf.push('Serverstand NICHT geladen — ein anderer Tab hat den Entwurf zwischenzeitlich geändert');
     // 'stehen-lassen': 'voll'/'knapp' haben ihre Meldung schon gesetzt — nichts darüberschreiben.
   }
+  /** Der Import-Knopf: ersetzen (Quelle 'import'), danach beruht der Entwurf auf keinem Serverstand — Basis null, sofern er im Speicher steht. */
+  importieren(neu: WorldLayout): string {
+    const grund = this.ersetzen(neu);
+    if (entwurfImSpeicher(grund as SpeicherGrund)) this.speicher.basisMerken(null);
+    return grund;
+  }
   /** Der Nutzer wählt im Dialog ausdrücklich „Entwurf behalten": der gezeigte Serverstand wird die Basis (bei 'fremd' nicht). */
   entwurfBehalten(hash: string | null): void {
     const grund = this.schreibenMitMeldung('bearbeitet');
@@ -1946,6 +1952,42 @@ console.log('▶ Basis des Entwurfs: holen ändert sie nicht, Entscheidung und S
     b.aendern(setze(P2));
     check('Ohne Zettel legt der erste Schreibvorgang ihn mit der gemerkten Basis an', zettelBasis(ohne) === 'hm');
   }
+}
+
+// ── 8o. Import: beruht auf keinem Serverstand (E1 K1.0, Nachbesserung 1) ──
+console.log('▶ Import: Basis null; „Entwurf behalten“ danach setzt die gezeigte');
+{
+  const zettelBasis = (p: Profil): string | null => zettelBasisLesen(p.daten.get(STAND_KEY));
+  const profil = new Profil();
+  const a = new EditorAttrappe('A', profil);
+  a.serverstandLaden(basis, 'h1');
+  check('Vorher: der Entwurf beruht auf h1', zettelBasis(profil) === 'h1');
+  const grund = a.importieren(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1));
+  check('Import in den Speicher geschrieben (ok)', grund === 'ok' && hat(gespeichert(profil), P1));
+  check('… danach: kein `basis` im Zettel, basisLesen === null, Zettel quelle = import', zettelBasis(profil) === null && basisLesen(a.speicher) === null && JSON.parse(profil.daten.get(STAND_KEY)!).quelle === 'import', String(zettelBasis(profil)));
+  a.aendern(setze(P2));
+  check('Weiterzeichnen am Import bringt keine Basis zurück (der Speicher erbt nichts)', zettelBasis(profil) === null && basisLesen(a.speicher) === null);
+  a.entwurfBehalten('h2');
+  check('„Entwurf behalten“ im Abgleich-Dialog: die gezeigte Basis h2', zettelBasis(profil) === 'h2' && basisLesen(a.speicher) === 'h2');
+  // Steht der Import nicht im Speicher, bleibt die Basis des dort stehenden Entwurfs
+  const p2 = new Profil();
+  const b = new EditorAttrappe('B', p2);
+  b.serverstandLaden(basis, 'h1');
+  p2.zurueckhalten = true;
+  p2.testflugSchreibt(layoutMitPlatzierung(basis, 'Beech1', P2, P2, 1));
+  const g2 = b.importieren(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1));
+  check('Import bei fremd (nicht geschrieben): die Basis bleibt h1', g2 === 'fremd' && zettelBasis(p2) === 'h1', `${g2} / ${String(zettelBasis(p2))}`);
+  p2.zustellen();
+  p2.zurueckhalten = false;
+  const p3 = new Profil();
+  const c = new EditorAttrappe('C', p3);
+  c.serverstandLaden(basis, 'h1');
+  p3.quotaSchluessel = ENTWURF_KEY;
+  const g3 = c.importieren(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1));
+  check('Import bei „voll“ (nicht geschrieben): die Basis bleibt h1', g3 === 'voll' && zettelBasis(p3) === 'h1', `${g3} / ${String(zettelBasis(p3))}`);
+  p3.quotaSchluessel = null;
+  const kopf = readFileSync(resolve(HIER, '../src/editor/entwurfsSpeicher.ts'), 'utf-8');
+  check('Kopfkommentar von entwurfsSpeicher.ts hält fest: die Basis gilt je BROWSER, nicht je Tab (ein STAND_KEY) — mit der Folge für Tab A', /Die Basis gilt je BROWSER, nicht je Tab/.test(kopf) && /gilt hB als Basis auch\s*\n\s*\*\s*für Tab A/.test(kopf));
 }
 
 console.log('▶ Quelltextprüfung editorMain.ts');

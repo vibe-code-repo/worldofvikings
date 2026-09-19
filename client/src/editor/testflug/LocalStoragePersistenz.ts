@@ -34,7 +34,11 @@ import { zettelBasisLesen, zettelMitBasis } from '../entwurfsSpeicher';
 import type { EntwurfDokument, SpeicherAntwort, TestflugPersistenz } from './TestflugPersistenz';
 
 const OHNE_BASIS =
-  'Speichern aus dem Testflug braucht einen Editor-Stand – bitte einmal im Editor laden/speichern.';
+  'Speichern aus dem Testflug braucht einen Editor-Stand – bitte im Editor den Serverstand abgleichen ' +
+  '(Feld „WELT" links oben anklicken; nach einem JSON-Import nötig) und dort speichern.';
+const VERLANGT =
+  'Der Betriebsdienst verlangt für das Speichern eine Basis und hat nichts geschrieben – ' +
+  'bitte im Editor den Serverstand abgleichen (Feld „WELT" links oben anklicken) und dort speichern.';
 const VERALTET =
   'Die Welt auf dem Server wurde inzwischen geändert und dein Entwurf beruht nicht darauf – ' +
   'nichts überschrieben. Bitte im Editor abgleichen (Serverstand laden oder „Entwurf behalten") und dort speichern.';
@@ -83,8 +87,8 @@ export function localStoragePersistenz(): TestflugPersistenz {
       }
       // Bei 409 bleibt die alte Basis im Zettel: Erst der Editor-Dialog (Serverstand laden oder „Entwurf behalten") ersetzt sie.
       if (antwort.art === 'veraltet') return { ok: false, message: VERALTET } satisfies SpeicherAntwort;
-      // 428: the service wanted a base and got none (not reachable while `zettelBasis` is non-empty) — same advice as without one.
-      if (antwort.art === 'basis-fehlt') return { ok: false, message: OHNE_BASIS } satisfies SpeicherAntwort;
+      // 428: the service demands a base; neutral text (whether one was sent is not the service's statement).
+      if (antwort.art === 'basis-fehlt') return { ok: false, message: VERLANGT } satisfies SpeicherAntwort;
       return { ok: false, message: antwort.message } satisfies SpeicherAntwort;
     },
   };

@@ -166,6 +166,19 @@ try {
     layout = sanitizeWorldLayout({ ...layout, placements: [...(layout.placements ?? []), { prefab: name, x: 5, z: 5 }] })!;
     return editor.schreiben(layout, 'bearbeitet', 'dev');
   };
+  /** `basisLesen()` of the store; `undefined` on a stand without the method (fails by assertion). */
+  const basisLesenOderFehlt = (): string | null | undefined => {
+    const f = (editor as unknown as { basisLesen?: () => string | null }).basisLesen;
+    return f ? f.call(editor) : undefined;
+  };
+  /** The import button: the imported document replaces the draft; it rests on no server state. `mitBasisNull` false = the stand before K1.0 (`7cb7702`), kept as a control. */
+  const editorImportiert = (name: string, mitBasisNull = true): string => {
+    editor.abgleichen();
+    layout = sanitizeWorldLayout(JSON.parse(weltText(name)))!;
+    const grund = speicherModul.speicherGrund(editor.schreiben(layout, 'import', 'dev'), 0);
+    if (mitBasisNull && imSpeicher(grund)) merken(null);
+    return grund;
+  };
   /** inDieWeltSpeichern on success: write the draft first, then move the base if it is in storage. */
   const editorSpeichertInWelt = async (): Promise<string> => {
     editor.abgleichen();
@@ -342,6 +355,38 @@ try {
     merken(null);
     const vor2 = posts();
     check('without any base the editor sends nothing', (await editorSpeichertInWelt()) === 'ohne-basis' && posts() === vor2);
+  }
+  // ── 11. Import: rests on no server state; no save until the dialog decided ──
+  console.log('▶ Import: Basis null → Editor und Testflug senden nichts; Ausweg über den Abgleich → 200');
+  {
+    const sA = await holeWeltdokument();
+    if (!sA.erreichbar) throw new Error(sA.grund);
+    editorLaedtServerstand(sA); // browser with base h(S0) == the server state
+    check('browser has base h(S0) == server', zettelBasis() === sA.hash);
+    // control: the stand before K1.0 kept the base over an import and replaced S0 silently
+    const kontrolle = editorImportiert('IMPORT-KONTROLLE', false);
+    check('control (stand 7cb7702, import keeps the base): the editor save goes out with h(S0) and REPLACES S0 without a question', kontrolle === 'ok' && (await editorSpeichertInWelt()) === 'ok' && nameAufPlatte() === 'IMPORT-KONTROLLE', nameAufPlatte());
+
+    const sB = await holeWeltdokument();
+    if (!sB.erreichbar) throw new Error(sB.grund);
+    editorLaedtServerstand(sB);
+    check('again a browser with base h(S0) == server', zettelBasis() === sB.hash);
+    const summeVorImport = platte();
+    const postsVorImport = posts();
+    check('import written to the draft: ok', editorImportiert('IMPORT-NEU') === 'ok');
+    check('… the note has NO base afterwards (quelle import, basisLesen null)', zettelBasis() === undefined && basisLesenOderFehlt() === null && (JSON.parse(speicher.get(STAND_KEY) ?? '{}') as { quelle?: string }).quelle === 'import', String(zettelBasis()));
+    check('editor save after the import: no POST goes out', (await editorSpeichertInWelt()) === 'ohne-basis' && posts() === postsVorImport);
+    check('… the server file is byte-identical (sha256) and still holds the old state', platte() === summeVorImport && nameAufPlatte() !== 'IMPORT-NEU', nameAufPlatte());
+    flug.aendern(sanitizeWorldLayout(JSON.parse(weltText('IMPORT-NEU')))! as never);
+    const flugNachImport = await flug.speichern(sanitizeWorldLayout(JSON.parse(weltText('IMPORT-NEU')))!);
+    check('flight save after the import: refused, no request, file unchanged', flugNachImport.ok === false && /Editor-Stand/.test(flugNachImport.message) && posts() === postsVorImport && platte() === summeVorImport, JSON.stringify(flugNachImport));
+    check('… and the message names the way out (field WELT at the top left)', /WELT/.test(flugNachImport.message), flugNachImport.message);
+    // the way out: instance field → weltAbgleich fetches the state, dialog, "keep draft" with the SHOWN hash
+    const gezeigt = await holeWeltdokument();
+    check('way out: the dialog fetch alone does not give the import a base', gezeigt.erreichbar && zettelBasis() === undefined);
+    editor.abgleichen();
+    check('"keep draft" (import stays): the base becomes the shown state', gezeigt.erreichbar && editorBehaeltEntwurf(gezeigt.hash) !== 'fremd' && zettelBasis() === gezeigt.hash, String(zettelBasis()));
+    check('… now saving works: the editor replaces the shown state on purpose (200) and the file holds the import', (await editorSpeichertInWelt()) === 'ok' && nameAufPlatte() === 'IMPORT-NEU', nameAufPlatte());
   }
 } finally {
   dienst?.removeAllListeners('exit');

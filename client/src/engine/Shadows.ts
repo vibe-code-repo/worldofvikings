@@ -410,11 +410,18 @@ interface KaskadenStand {
  * Sichtpyramide ragt mehr als `FERN_TAKT_TOLERANZ_M` ueber die alte Karte),
  * wird sofort neu gerendert: schnelle Drehung, Teleport, Zoom.
  *
- * ── Zeuge ─────────────────────────────────────────────────────────────
- * Ein uebersprungenes Bild gegen ein frisches Bild am selben Ort (Insel,
- * Sprint 8 m/s, Wind aus, TAA aus): Anteil der Bildpunkte mit Helligkeits-
- * unterschied > 8 von 255 0,0005 % gegen 0,0024 % zwischen zwei frischen
- * Bildern (Rauschboden); bei 3 Grad Drehung je Bild 0,006 %.
+ * ── Zeuge (tools/pw-schatten-ii-zuordnung.mjs, 19.09.2026) ────────────
+ * Ein uebersprungenes Bild gegen ein frisches Bild am selben Ort, Wind aus,
+ * TAA aus, Anteil der Bildpunkte mit Helligkeitsunterschied > 8 von 255:
+ *   Insel, Kamera mit 8 m/s verschoben   0,0096 % (Rauschboden 0,0010 %)
+ *   Insel, 3 Grad Drehung je Bild        0,0001 %
+ *   Wald, 8 m/s / 3 Grad                 0,0000 % / 0,0002 %
+ *   Lichtung, 2 / 4 / 8 Grad je Bild     0,0001 / 0,0000 / 0,0003 %, dabei rendert
+ *     die Deckungspruefung 3 / 11 / 19 von 120 Bildern sofort neu.
+ * Bewegter Werfer (Quader 3,6 m, 5 und 8 m/s): 17 m (Ueberblendzone) 0,0000 %,
+ * 21 m und 24 m (nur ferne Karte) 0,0000 %. Preis: Wald p50 9,5 -> 9,0 ms,
+ * Insel 9,8 -> 9,5 ms (pw-fps-bench, A B A B A B, n = 3); im Stand auf der
+ * Insel 13,5 -> 11,8 ms.
  *
  * Renders the far cascades only every `takt`-th frame; matrices are frozen
  * with the map so receivers sample with the matrices the map was drawn with.

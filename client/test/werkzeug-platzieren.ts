@@ -424,6 +424,13 @@ async function main(): Promise<void> {
       gleich('release: ONE undo step, ONE operation "aendere" of placements/probe-c', [z.schritte.length, z.vorgaenge.length, z.vorgaenge[0]?.ops.map((o) => `${o.art}/${o.sammlung}/${o.id}`)], [1, 1, ['aendere/placements/probe-c']]);
       const p = platz(z.layout).find((q) => q.id === 'probe-c')!;
       gleich('the object moved by exactly the pointer travel (60, 30), scale kept', [p.x, p.z, p.scale], [5160, 5030, 2]);
+      // a horizontal drag must not nudge the other axis: an object with a fraction keeps it
+      const { z: zf, ctx: cf } = neuerKontext(sanitizeWorldLayout({ ...start, placements: [{ id: 'bruch', prefab: 'Beech1', x: 7000.3, z: 7000.1 }] })!, 'platzieren', 1);
+      const tf = erzeugePlatzieren();
+      tf.beiZeigerRunter(cf, klick(7000.3, 7000.1));
+      tf.beiZeigerBewegt!(cf, klick(7040.3, 7000.1));
+      tf.beiZeigerHoch!(cf, klick(7040.3, 7000.1));
+      gleich('horizontal drag of 40 m: x 7000.3 → 7040.3, z 7000.1 stays', [platz(zf.layout)[0]!.x, platz(zf.layout)[0]!.z], [7040.3, 7000.1]);
       gleich('vorher/nachher of the operation', [z.vorgaenge[0]!.ops[0]!.vorher, z.vorgaenge[0]!.ops[0]!.nachher], [{ id: 'probe-c', prefab: 'Birch1', x: 5100, z: 5000, scale: 2 }, { id: 'probe-c', prefab: 'Birch1', x: 5160, z: 5030, scale: 2 }]);
       gleich('committed once, message names the object and the new place', [z.uebernommen, z.meldungen.at(-1)?.text], [1, 'probe-c verschoben (5160, 5030)']);
       rueckgaengig();
@@ -467,7 +474,7 @@ async function main(): Promise<void> {
       t3.beiZeigerRunter(c3, klick(5000.25, 5000));
       t3.beiZeigerBewegt!(c3, klick(5010.25, 5000));
       t3.beiZeigerHoch!(c3, klick(5010.25, 5000));
-      gleich('overlapping objects: the nearer (probe-b) is dragged, probe-a stays', [platz(z3.layout).find((p) => p.id === 'probe-b')?.x, platz(z3.layout).find((p) => p.id === 'probe-a')?.x], [5010, 5000]);
+      gleich('overlapping objects: the nearer (probe-b) is dragged, probe-a stays (probe-b keeps its 0.3: 5000.3 + 10)', [platz(z3.layout).find((p) => p.id === 'probe-b')?.x, platz(z3.layout).find((p) => p.id === 'probe-a')?.x], [5010.3, 5000]);
     }
 
     // ── Change ─────────────────────────────────────────────────────
@@ -521,6 +528,25 @@ async function main(): Promise<void> {
       check('a prefab name over 64 characters: asked, then refused by the operation (nothing changes)', a().prefab === 'Birch1' && z.meldungen.at(-1)?.fehler === true, z.meldungen.at(-1)?.text);
       while (rueckgaengig());
       check('undo all: the document is byte-equal to the start', kanon(z.layout) === kanon(start));
+    }
+
+    console.log('Picking another tool / a foreign draft (abbrechen) drops selection and drag');
+    {
+      const t = erzeugePlatzieren();
+      const { z, ctx } = neuerKontext(start, 'platzieren', 1);
+      t.beiZeigerRunter(ctx, klick(5100, 5000));
+      t.beiZeigerBewegt!(ctx, klick(5200, 5000));
+      t.abbrechen(ctx);
+      t.beiZeigerHoch!(ctx, klick(5200, 5000));
+      gleich('abbrechen: nothing selected, the pending drag is gone (no step)', [t.auswahlId(), z.schritte.length], [null, 0]);
+      const zz = neuerZeichner();
+      t.zeichneOverlay!(ctx, zz as unknown as CanvasRenderingContext2D);
+      check('…no ring is drawn, and the sidebar shows no object fields', zz.log.length === 0 && !hatFeld(t.seitenleiste!(ctx, neuerHost().host) as unknown as FakeKnoten, 'x des ausgewählten Objekts in Metern'));
+      t.waehle('probe-a');
+      z.aktiv = 'fluss';
+      const z2 = neuerZeichner();
+      t.zeichneOverlay!(ctx, z2 as unknown as CanvasRenderingContext2D);
+      check('a selection is not drawn while another tool is active', z2.log.length === 0);
     }
 
     // ── Delete ─────────────────────────────────────────────────────

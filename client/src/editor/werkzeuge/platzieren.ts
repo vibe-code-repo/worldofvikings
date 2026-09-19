@@ -105,6 +105,9 @@ function grund(r: Extract<WendeErgebnis, { ok: false }>): string {
   return r.art === 'konflikt' ? `Konflikt: ${r.ids.join(', ')} hat sich geändert — nichts geändert` : r.message;
 }
 
+/** `von` moved by `delta` metres: the travel counts in whole metres, the fraction of `von` stays (a horizontal drag must not nudge z). */
+const versetzt = (von: number, delta: number): number => Math.round((von + Math.round(delta)) * 1000) / 1000;
+
 const grad = (rad: number): number => Math.round(((rad * 180) / Math.PI) * 100) / 100;
 const zeigeZahl = (n: number): string => String(Math.round(n * 1000) / 1000);
 /** What a value change amounts to for the world: `undefined` yaw is 0, `undefined` scale is 1. */
@@ -269,8 +272,8 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
       if (!zug) return;
       if (!zug.bewegt && Math.hypot(e.weltX - zug.griffX, e.weltZ - zug.griffZ) < ZUG_PX * ctx.massstab()) return;
       zug.bewegt = true;
-      zug.nachX = Math.round(zug.vonX + e.weltX - zug.griffX);
-      zug.nachZ = Math.round(zug.vonZ + e.weltZ - zug.griffZ);
+      zug.nachX = versetzt(zug.vonX, e.weltX - zug.griffX);
+      zug.nachZ = versetzt(zug.vonZ, e.weltZ - zug.griffZ);
       ctx.neuZeichnen();
     },
 
@@ -282,8 +285,8 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
         ctx.neuZeichnen(); // a plain click: selected, nothing moved
         return;
       }
-      const x = Math.round(z.vonX + e.weltX - z.griffX);
-      const zz = Math.round(z.vonZ + e.weltZ - z.griffZ);
+      const x = versetzt(z.vonX, e.weltX - z.griffX);
+      const zz = versetzt(z.vonZ, e.weltZ - z.griffZ);
       if (gewaehlt !== z.id || !auswahlVon(ctx.layout())) {
         ctx.neuZeichnen(); // undone or replaced in the meantime: nothing to move any more
         return;

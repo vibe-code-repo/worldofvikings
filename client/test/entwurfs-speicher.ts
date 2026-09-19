@@ -2012,13 +2012,20 @@ console.log('▶ Import: Basis null; „Entwurf behalten“ danach setzt die gez
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
   const quelle = readFileSync(resolve(HIER, '../src/editor/editorMain.ts'), 'utf-8');
-  const zweig = /if \(werkzeug === 'platzieren'\) \{([\s\S]*?)\n  \}/.exec(quelle)?.[1] ?? '';
-  const iMerke = zweig.indexOf('merkeSchritt();');
-  const iSetzen = zweig.indexOf('layoutMitPlatzierung(');
-  const iSpeichern = zweig.indexOf('speichereEntwurf();');
-  check('Platzieren-Zweig gefunden', zweig.length > 0);
-  check('merkeSchritt() steht VOR dem Setzen des Layouts', iMerke >= 0 && iSetzen > iMerke && iSpeichern > iSetzen, `Positionen ${iMerke} < ${iSetzen} < ${iSpeichern}`);
-  check('Zufalls-Yaw bleibt (Math.random() * Math.PI * 2)', /Math\.random\(\) \* Math\.PI \* 2/.test(zweig));
+  // Das Platzieren lief früher als Zweig `if (werkzeug === 'platzieren')` in editorMain.ts; es ist ein Registry-Werkzeug
+  // (werkzeuge/platzieren.ts). Dieselben Zusagen, jetzt an der neuen Stelle: (a) vor jeder Änderung wird ein
+  // Rückgängig-Schritt gemerkt und danach der Entwurf gespeichert, (b) die Zufallsdrehung bleibt, ist jetzt aber abschaltbar.
+  const platzierenQuelle = readFileSync(resolve(HIER, '../src/editor/werkzeuge/platzieren.ts'), 'utf-8');
+  const indexQuelle = readFileSync(resolve(HIER, '../src/editor/werkzeuge/index.ts'), 'utf-8');
+  const kontextAendere = /aendere: \(neu\) => \{([\s\S]*?)\n  \},/.exec(quelle)?.[1] ?? '';
+  const kontextUebernommen = /uebernommen: \(\) => \{([\s\S]*?)\n  \},/.exec(quelle)?.[1] ?? '';
+  const iMerke = kontextAendere.indexOf('merkeSchritt();');
+  const iSetzen = kontextAendere.indexOf('layout = neu;');
+  check('Platzieren-Werkzeug gefunden: registriert, kein alter Zweig mehr in editorMain.ts', /erzeugePlatzieren\(\)/.test(indexQuelle) && !/werkzeug === 'platzieren'/.test(quelle) && platzierenQuelle.length > 0);
+  check('Kontext: aendere merkt den Rückgängig-Schritt VOR dem Setzen des Layouts (merkeSchritt vor layout = neu)', kontextAendere.length > 0 && iMerke >= 0 && iSetzen > iMerke, `Positionen ${iMerke} < ${iSetzen}`);
+  check('Werkzeug: jede Änderung (setzen, ändern, entfernen) läuft durch EINE Stelle, die ctx.aendere ruft — und danach ctx.uebernommen()', (platzierenQuelle.match(/^\s*ctx\.aendere\(/gm) ?? []).length === 1 && /fuehreAus\(ctx, 'setzen'/.test(platzierenQuelle) && /fuehreAus\(ctx, 'aendern'/.test(platzierenQuelle) && /fuehreAus\(ctx, 'entfernen'/.test(platzierenQuelle) && (platzierenQuelle.match(/ctx\.uebernommen\(\)/g) ?? []).length >= 3);
+  check('Kontext: uebernommen speichert den Entwurf (alles())', /alles\(\);/.test(kontextUebernommen));
+  check('Zufalls-Yaw bleibt (zufallszahl() * Math.PI * 2, Math.random als Vorgabe) und ist abschaltbar (Schalter, Vorgabe an)', /zufaelligeDrehung \? Math\.round\(zufallszahl\(\) \* Math\.PI \* 2/.test(platzierenQuelle) && /opt\.zufall \?\? Math\.random/.test(platzierenQuelle) && /let zufaelligeDrehung = true;/.test(platzierenQuelle) && /zufaelligeDrehung = !zufaelligeDrehung;/.test(platzierenQuelle));
 
   const rueckruf = /beiFremdem: \(fremd, info\) => \{([\s\S]*?)\n  \},\n\}\);/.exec(quelle)?.[1] ?? '';
   const iM = rueckruf.indexOf('verlauf.uebernahme(layout, fremd);');

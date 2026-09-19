@@ -39,7 +39,7 @@
  *     Ort (Kamera mit Sprinttempo verschoben, dann um 3 Grad je Bild gedreht),
  *     Anteil der Bildpunkte mit Helligkeitsunterschied > 4 / 8 / 16 von 255, dazu
  *     der Rauschboden (zwei frische Bilder am selben Ort);
- *   · Sprint, Segmente von `--segmentM` Metern abwechselnd mit Takt 1 und 2
+ *   · Sprint, Segmente von `--segmentM` Metern im Muster A B B A (Takt 1, 2, 2, 1), gepoolt
  *     (Mittel, p50, p95, p99 je Segment, Zaehler uebersprungen/gerendert/Luecken).
  *
  * ── Grenzen ──────────────────────────────────────────────────────────

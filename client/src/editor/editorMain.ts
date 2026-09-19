@@ -71,6 +71,7 @@ import {
   alter,
   basisNachBestaetigung,
   brauchtSchrittVorErsetzen,
+  enthaelt,
   entwurfStandLesen,
   gleich,
   holeWeltdokument,
@@ -80,7 +81,16 @@ import {
   vergleiche,
   type EntwurfsQuelle,
 } from './weltdokument';
-import { EntwurfsSpeicher, SchrittVerlauf, browserUmgebung } from './entwurfsSpeicher';
+import {
+  EntwurfsSpeicher,
+  SchrittVerlauf,
+  VerdraengtRing,
+  browserUmgebung,
+  sollInRing,
+  type AbgangsGrund,
+  type FremdInfo,
+  type SchreibErgebnis,
+} from './entwurfsSpeicher';
 import { frage, unterschiedsTafel, vorhang } from './AbgleichDialog';
 // NUR der Typ: Der Katalog selbst kommt per dynamischem import() erst beim
 // ersten Öffnen (s. Werkzeugleiste). Statisch eingebunden zöge er Babylon
@@ -284,15 +294,73 @@ const FORMEN: readonly FormDef[] = [
  * Steht hier oben, weil `ladeEntwurf()` ihn sofort braucht; die Funktionen,
  * die der Rückruf nutzt, laufen erst, wenn das Modul fertig ist.
  */
+/**
+ * Der Ring der verdrängten Entwürfe (entwurfsSpeicher.ts): Kein Stand geht
+ * still verloren. Was aus Rückgängig/Wiederherstellen fällt oder von der
+ * Anzeige verdrängt wird, ohne dass sein Inhalt anderswo steht, liegt hier,
+ * und die Sektion „Verdrängte Entwürfe" (Welt-Reiter) setzt es wieder ein.
+ * Zwei Schreiber auf einen Schlüssel ohne Zusammenführen bleiben ein
+ * Grundproblem — das löst erst der Umbau auf IDs/Operationen; bis dahin
+ * ist jeder Stand wiederherstellbar.
+ */
+const umgebung = browserUmgebung();
+const ring = new VerdraengtRing(umgebung.speicher);
+/** Herkunft der von anderen Tabs übernommenen Stände (Layouts werden nur ersetzt, nie verändert). */
+const fremdeStaende = new WeakMap<WorldLayout, FremdInfo>();
+/**
+ * Eigene Stände, die auf einem fremden aufbauen und dessen Inhalt mittragen.
+ * Ein solcher Stand ist beim Hinausfallen so wenig verzichtbar wie der fremde
+ * selbst: `speichereEntwurf` markiert jeden Stand, der nach einem
+ * `merkeSchritt` auf einem fremden oder fremdhaltigen entsteht.
+ */
+const fremdHaltig = new WeakSet<WorldLayout>();
+/** Der nächste geschriebene Stand baut auf einem fremden/fremdhaltigen auf (gesetzt in `merkeSchritt`). */
+let baueAufFremdem = false;
+function istFremdHaltig(stand: WorldLayout): boolean {
+  return fremdeStaende.has(stand) || fremdHaltig.has(stand);
+}
+/** Wie viele Stände seit dem Start in den Ring gingen / nicht gesichert werden konnten. */
+let ringNeu = 0;
+let ringVoll = 0;
+function ringen(stand: WorldLayout, herkunft: 'fremd' | 'eigen', grund: string, tabId: string | null): void {
+  const r = ring.ablegen(stand, herkunft, grund, tabId);
+  if (r === 'ok') ringNeu++;
+  else if (r === 'voll') ringVoll++;
+}
+/** Der Verlauf meldet einen Stand, der ihn verlässt: nach `sollInRing` sichern. */
+function beiAbgang(stand: WorldLayout, grund: AbgangsGrund, bezug: WorldLayout): void {
+  const info = fremdeStaende.get(stand);
+  const herkunft = istFremdHaltig(stand) ? 'fremd' : 'eigen';
+  if (!sollInRing(grund, herkunft, enthaelt(bezug, stand))) return;
+  ringen(stand, herkunft, grund, info ? info.tabId : herkunft === 'eigen' ? entwurfsSpeicher.tabId : null);
+}
+/** Satz für die Meldungen: nennt, was in den Ring ging (seit dem Stand `vorher`/`vorherVoll`). */
+function ringHinweis(vorher: number, vorherVoll: number): string {
+  let t = '';
+  if (ringNeu > vorher) {
+    t += ` ${ringNeu - vorher} Stand/Stände gesichert — Welt-Reiter, „Verdrängte Entwürfe".`;
+  }
+  if (ringVoll > vorherVoll) t += ' ACHTUNG: Ein verdrängter Stand konnte NICHT gesichert werden (Speicher voll)!';
+  return t;
+}
 const entwurfsSpeicher = new EntwurfsSpeicher({
-  ...browserUmgebung(),
+  ...umgebung,
   aktuell: () => layout,
-  beiFremdem: (fremd) => {
+  beiVerdraengt: (alt) => {
+    // Sicherheitsnetz: ein fremder Stand wurde im Speicher ersetzt. Liegt er
+    // in einem Stapel oder wird er angezeigt, ist nichts verloren.
+    if (gleich(layout, alt) || verlauf.enthaelt((x) => gleich(x, alt))) return;
+    ringen(alt, 'fremd', 'ersetzt', null);
+  },
+  beiFremdem: (fremd, info) => {
+    fremdeStaende.set(fremd, info);
+    const ringVor = ringNeu;
+    const ringVollVor = ringVoll;
     // Übernahmen sind EINE Schrittklasse (s. SchrittVerlauf): Nur die
     // erste nach einer eigenen Änderung legt einen Schritt an, sonst füllte
     // eine Flut fremder Schreibvorgänge den Stapel und verdrängte den
     // eigenen Stand, obwohl die Meldung unten ihn verspricht.
-    const { verworfen } = verlauf.uebernahme(layout);
+    const { verworfen } = verlauf.uebernahme(layout, fremd);
     layout = fremd;
     gewaehlt = null;
     // Halbfertiges Werkzeug gehört zum verdrängten Stand: ein angefangener
@@ -306,7 +374,8 @@ const entwurfsSpeicher = new EntwurfsSpeicher({
     vorschauAnstossen();
     shell.meldung(
       'Entwurf aus einem anderen Tab übernommen — dein bisheriger Stand liegt unter Rückgängig (Strg+Z).' +
-        (verworfen > 0 ? ' Wiederherstellen ist nach der Übernahme nicht mehr möglich.' : ''),
+        (verworfen > 0 ? ' Wiederherstellen ist nach der Übernahme nicht mehr möglich.' : '') +
+        ringHinweis(ringVor, ringVollVor),
       true
     );
   },
@@ -422,11 +491,12 @@ function ladeEntwurf(): WorldLayout {
  * nächsten Start seinen Satz „dein Entwurf ist 12 Minuten alt und stammt
  * aus einem Import".
  */
-function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): void {
+function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): SchreibErgebnis {
   // 'fremd': ein anderer Tab (Testflug, zweiter Editor) hat den Entwurf
   // inzwischen geändert. Der Speicher hat NICHT geschrieben, sondern
   // `beiFremdem` (oben) den fremden Stand übernommen — mehr ist hier nicht
   // zu tun.
+  if (baueAufFremdem && !fremdeStaende.has(layout)) fremdHaltig.add(layout);
   const ergebnis = entwurfsSpeicher.schreiben(layout, quelle, welt.instanz);
   if (ergebnis === 'voll') {
     shell.meldung('Entwurf zu groß für localStorage — bitte als JSON exportieren!', true);
@@ -440,6 +510,7 @@ function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): void {
   } else {
     zettelHinweisGezeigt = false;
   }
+  return ergebnis;
 }
 let zettelHinweisGezeigt = false;
 
@@ -462,9 +533,12 @@ window.addEventListener('pageshow', (e) => {
 // Stapel und Regel „wann legt eine Übernahme einen Schritt an" stecken in
 // `SchrittVerlauf` (entwurfsSpeicher.ts), damit beides ohne Editorfenster
 // prüfbar ist; hier steht nur die Verdrahtung mit `layout`.
-const verlauf = new SchrittVerlauf<WorldLayout>();
-function merkeSchritt(): void {
-  verlauf.merke(layout);
+const verlauf = new SchrittVerlauf<WorldLayout>(50, beiAbgang);
+/** `ersetzt`: der Entwurf wird durch einen ANDEREN ersetzt (Import, Serverstand, wieder eingesetzter Stand), nicht weitergebaut. */
+function merkeSchritt(ersetzt = false): void {
+  verlauf.merke(layout, ersetzt);
+  // Ein Ersetzen (Import, Serverstand) baut nicht auf dem alten Stand auf.
+  baueAufFremdem = !ersetzt && istFremdHaltig(layout);
 }
 /**
  * Wirkung unverändert, nur aus dem Tastatur-Zweig herausgezogen: Seit die
@@ -480,9 +554,16 @@ function rueckgaengig(): void {
   }
   layout = vorher;
   gewaehlt = null;
-  alles();
+  const ringVor = ringNeu;
+  const ringVollVor = ringVoll;
+  // Hat der Schreibversuch einen fremden Stand gefunden und übernommen, hat
+  // `beiFremdem` schon gemeldet, was wirklich geschah — dann nicht mit
+  // „Rückgängig" darüberschreiben.
+  const uebernommen = alles();
   vorschauAnstossen();
-  shell.meldung(`Rückgängig (${verlauf.vergangenheit.length} weitere Schritte)`);
+  if (!uebernommen) {
+    shell.meldung(`Rückgängig (${verlauf.vergangenheit.length} weitere Schritte)` + ringHinweis(ringVor, ringVollVor));
+  }
 }
 function wiederherstellen(): void {
   const wieder = verlauf.vor(layout);
@@ -492,9 +573,11 @@ function wiederherstellen(): void {
   }
   layout = wieder;
   gewaehlt = null;
-  alles();
+  const ringVor = ringNeu;
+  const ringVollVor = ringVoll;
+  const uebernommen = alles();
   vorschauAnstossen();
-  shell.meldung('Wiederhergestellt');
+  if (!uebernommen) shell.meldung('Wiederhergestellt' + ringHinweis(ringVor, ringVollVor));
 }
 window.addEventListener('keydown', (e) => {
   if (!e.ctrlKey) return;
@@ -2919,19 +3002,26 @@ function weltFeldBauen(): void {
               // Ohne Schritt wäre der vorige Entwurf nach dem Import nirgends
               // mehr — und die Übernahme-Regel des Verlaufs ginge von einem
               // Stapel aus, der zum angezeigten Stand nicht mehr passt.
-              merkeSchritt();
+              const ringVor = ringNeu;
+              const ringVollVor = ringVoll;
+              merkeSchritt(true);
               layout = s;
               gewaehlt = null;
-              alles('import');
+              const uebernommen = alles('import');
               vorschauAnstossen();
               // Ein Import ist ausdrücklich NUR ein Entwurf. Wer eine
               // live.json in einen dev-Editor zieht, hat damit noch nichts
               // umgestellt — deshalb steht hier, welche Welt der
-              // Speicherknopf danach treffen würde.
-              shell.meldung(
-                `Import übernommen — ${s.regions.length} Region(en). Erst „In die Welt speichern" ` +
-                `schreibt ihn nach ${weltName()}.`
-              );
+              // Speicherknopf danach treffen würde. Hat der Schreibversuch
+              // einen fremden Stand gefunden und übernommen, gilt dessen
+              // Meldung (der Import steht dann unter Rückgängig).
+              if (!uebernommen) {
+                shell.meldung(
+                  `Import übernommen — ${s.regions.length} Region(en). Erst „In die Welt speichern" ` +
+                    `schreibt ihn nach ${weltName()}.` +
+                    ringHinweis(ringVor, ringVollVor)
+                );
+              }
             } else {
               shell.meldung('Import verworfen — kein gültiges WorldLayout.', true);
             }
@@ -3298,12 +3388,21 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
   serverHash = stand.hash;
   serverKanon = JSON.stringify(stand.layout);
   if (wahl === 'server') {
-    merkeSchritt();
+    const ringVor = ringNeu;
+    const ringVollVor = ringVoll;
+    merkeSchritt(true);
     layout = stand.layout;
     gewaehlt = null;
-    alles('server');
-    vorschauAnstossen();
-    shell.meldung(`${stand.message} — Serverstand geladen, dein Entwurf liegt unter Rückgängig.`);
+    // „Serverstand geladen" nur, wenn er wirklich geladen wurde: Hat der
+    // Schreibversuch einen fremden Stand übernommen, gilt dessen Meldung.
+    if (!alles('server')) {
+      vorschauAnstossen();
+      shell.meldung(
+        `${stand.message} — Serverstand geladen, dein Entwurf liegt unter Rückgängig.` + ringHinweis(ringVor, ringVollVor)
+      );
+    } else {
+      vorschauAnstossen();
+    }
     return;
   }
   faerbeSpeicherKnopf();
@@ -3703,6 +3802,97 @@ function weltSektionBauen(): void {
     })
   );
   weltSeite.appendChild(neuBlock);
+  ringSektionBauen();
+}
+
+/**
+ * „Verdrängte Entwürfe": die letzten Stände, die ein Import, eine Übernahme
+ * oder das Verwerfen aus Rückgängig/Wiederherstellen aus dem Verlauf
+ * gedrängt hat (höchstens 5, s. `VerdraengtRing`). „Wieder einsetzen" ist
+ * eine eigene Änderung mit Undo-Schritt.
+ */
+function ringSektionBauen(): void {
+  const eintraege = ring.liste();
+  if (eintraege.length === 0) return;
+  weltSeite.appendChild(
+    el(
+      'div',
+      stil({ 'font-size': '11px', color: F.gedimmt, 'margin-top': '16px', 'margin-bottom': '4px' }),
+      `Verdrängte Entwürfe (${eintraege.length})`
+    )
+  );
+  weltSeite.appendChild(
+    el(
+      'div',
+      stil({ 'font-size': '10.5px', color: F.gedimmt2, 'margin-bottom': '8px', 'line-height': '1.5' }),
+      'Stände, die ein Import, eine Übernahme aus einem anderen Tab oder das Verwerfen von Wiederherstellen aus dem Verlauf gedrängt hat. ' +
+        '„Wieder einsetzen" ist eine eigene Änderung und lässt sich mit Strg+Z zurücknehmen.'
+    )
+  );
+  for (const e of [...eintraege].reverse()) {
+    const zeile = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '8px',
+        padding: '7px 9px',
+        background: F.feld,
+        border: `1px solid ${F.randFeld}`,
+        'border-radius': '7px',
+        'margin-bottom': '6px',
+      })
+    );
+    const text = el(
+      'div',
+      stil({ display: 'flex', 'flex-direction': 'column', gap: '2px', flex: '1', 'min-width': '0' })
+    );
+    text.append(
+      el(
+        'span',
+        stil({ 'font-size': '12px', color: F.text }),
+        `${e.herkunft === 'fremd' ? 'Aus einem anderen Tab' : 'Eigener Stand'} · ${alter(new Date(e.zeit).toISOString())}`
+      ),
+      el(
+        'span',
+        stil({ 'font-size': '10.5px', color: F.gedimmt2 }),
+        `${e.regionen} Region(en), ${e.platzierungen} Platzierung(en)`
+      )
+    );
+    zeile.appendChild(text);
+    zeile.appendChild(
+      knopf(
+        'wieder einsetzen',
+        () => {
+          const ringVor = ringNeu;
+          const ringVollVor = ringVoll;
+          merkeSchritt(true);
+          layout = e.layout;
+          gewaehlt = null;
+          const uebernommen = alles();
+          vorschauAnstossen();
+          if (!uebernommen) {
+            shell.meldung(
+              `Verdrängten Entwurf wieder eingesetzt (${e.regionen} Region(en), ${e.platzierungen} Platzierung(en)) — Strg+Z macht es rückgängig.` +
+                ringHinweis(ringVor, ringVollVor)
+            );
+          }
+        },
+        { hoehe: M.knopfHoeheKlein, titel: 'Setzt diesen Stand als Entwurf ein; der jetzige bleibt unter Rückgängig erreichbar.' }
+      )
+    );
+    zeile.appendChild(
+      knopf(
+        '',
+        () => {
+          ring.entfernen(e.id);
+          weltSektionBauen();
+        },
+        { hoehe: M.knopfHoeheKlein, pfad: PFAD.muelleimer, titel: 'Aus der Liste entfernen (endgültig)', randHover: F.akzent }
+      )
+    );
+    weltSeite.appendChild(zeile);
+  }
 }
 
 function pruefberichtBauen(): void {
@@ -3773,8 +3963,13 @@ function pruefberichtBauen(): void {
   }
 }
 
-function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): void {
-  if (entwurfSchreiben) speichereEntwurf(quelle);
+/**
+ * Liefert `true`, wenn der Schreibversuch einen fremden Stand gefunden und
+ * übernommen hat (dann steht in der Anzeige dieser, nicht der, den der Aufrufer
+ * eben setzen wollte, und die Meldung von `beiFremdem` ist die richtige).
+ */
+function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): boolean {
+  const uebernommen = entwurfSchreiben ? speichereEntwurf(quelle) === 'fremd' : false;
   seiteBauen();
   pruefberichtBauen();
   weltSektionBauen();
@@ -3784,6 +3979,7 @@ function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): 
   // (per Rückgängig) wieder darauf zurückführen — der Punkt am
   // Speicherknopf muss beides mitmachen.
   faerbeSpeicherKnopf();
+  return uebernommen;
 }
 
 // ── Server-Konsole (Shell-Dock, journalctl via /api/serverlog) ───────
@@ -3850,23 +4046,38 @@ async function weltAbgleich(): Promise<void> {
   // Hat ein anderer Tab seit dem Start den Entwurf geändert, ist das jetzt
   // der Entwurf — sonst behielte „Entwurf behalten" den älteren Stand und
   // schriebe ihn später über den neueren.
-  entwurfsSpeicher.abgleichen();
-  const entwurf = entwurfsSpeicher.lesen();
+  // EIN Zugriff auf den Speicher: nachsehen, übernehmen und lesen — sonst
+  // könnte ein fremder Schreibvorgang dazwischenfallen, der danach als
+  // „bekannt" gälte, aber nie übernommen wäre.
+  const entwurf = entwurfsSpeicher.entwurfNachAbgleich();
   const uebernehmen = (grund: string): void => {
     // Was hier verworfen wird, soll nicht spurlos weg sein: ein Entwurf mit
     // Inhalt (auch ein eben von einem anderen Tab übernommener) bleibt per
     // Strg+Z erreichbar. Der leere Startzustand bekommt keinen Schritt —
     // sonst löschte das erste Strg+Z die frisch geladene Welt.
+    const ringVor = ringNeu;
+    const ringVollVor = ringVoll;
     if (brauchtSchrittVorErsetzen(layout, stand.layout)) {
-      merkeSchritt();
+      merkeSchritt(true);
     } else {
       verlauf.ohneSchritt(); // ersetzt ohne Schritt: die Übernahme-Regel beginnt neu
     }
     layout = stand.layout;
     gewaehlt = null;
-    alles('server');
+    // „Serverstand geladen" nur, wenn er wirklich geladen wurde: Hat der
+    // Schreibversuch einen fremden Stand gefunden und übernommen, steht
+    // dessen Meldung, und der Serverstand ist NICHT geladen.
+    const uebernommen = alles('server');
     vorschauAnstossen();
-    shell.meldung(`${stand.message} — ${grund}`);
+    if (uebernommen) {
+      shell.meldung(
+        'Serverstand NICHT geladen — ein anderer Tab hat den Entwurf zwischenzeitlich geändert; dessen Stand ist übernommen. ' +
+          `${weltName()} lässt sich über die Welt-Anzeige erneut holen.` + ringHinweis(ringVor, ringVollVor),
+        true
+      );
+      return;
+    }
+    shell.meldung(`${stand.message} — ${grund}` + ringHinweis(ringVor, ringVollVor));
   };
   if (!entwurf) {
     uebernehmen('vom Server geladen');

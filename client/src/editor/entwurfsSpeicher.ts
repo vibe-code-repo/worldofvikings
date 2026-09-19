@@ -55,7 +55,7 @@
  * Begleitzettel unter `STAND_KEY`.
  */
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
-import { ENTWURF_KEY, STAND_KEY, gleich, type EntwurfsQuelle, type EntwurfsStand } from './weltdokument';
+import { ENTWURF_KEY, STAND_KEY, enthaelt, gleich, type EntwurfsQuelle, type EntwurfsStand } from './weltdokument';
 
 /** Name des BroadcastChannel — eigener Name, damit kein anderer Kanal mithört. */
 export const ENTWURF_KANAL = 'wov-editor-entwurf';
@@ -106,6 +106,14 @@ export interface EntwurfsSpeicherOptionen {
    * schreibt NICHT zurück (Ping-Pong, s. Kopf der Datei).
    */
   beiFremdem: (fremd: WorldLayout, info: FremdInfo) => void;
+  /**
+   * Ein Schreibvorgang ersetzt einen im Speicher stehenden FREMDEN Stand
+   * (übernommen, seither nicht von diesem Tab überschrieben) durch einen
+   * anderen, der ihn nicht enthält. Sicherheitsnetz für den Fall, dass der
+   * fremde Stand in keinem Stapel des Aufrufers mehr liegt: Der Aufrufer
+   * prüft das und sichert ihn dann (Ring der verdrängten Entwürfe).
+   */
+  beiVerdraengt?: (alt: WorldLayout, neu: WorldLayout) => void;
 }
 
 export type SchreibErgebnis =
@@ -125,6 +133,64 @@ export type SchreibErgebnis =
   | 'voll'
   /** Ein fremder Stand stand im Weg; nichts geschrieben, `beiFremdem` lief. */
   | 'fremd';
+
+export interface UebernahmeErgebnis {
+  /** Es wurde ein Rückgängig-Schritt angelegt. */
+  schritt: boolean;
+  /** Anzahl der dabei entfallenen Wiederherstellen-Schritte. */
+  verworfen: number;
+}
+
+/**
+ * Warum ein Stand aus dem Verlauf (oder von der Anzeige) gefallen ist.
+ * Grundlage der Frage „wandert er in den Ring der verdrängten Entwürfe?"
+ * (`sollInRing`).
+ */
+export type AbgangsGrund =
+  /** Eine eigene Änderung verwirft den Wiederherstellen-Ast (Standard-Undo). */
+  | 'redo-eigene-aenderung'
+  /** Import oder Laden ersetzt den Entwurf und verwirft den Wiederherstellen-Ast. */
+  | 'redo-ersetzt'
+  /** Eine Übernahme verwirft den Wiederherstellen-Ast. */
+  | 'redo-uebernahme'
+  /** Eine Übernahme ersetzt einen angezeigten fremden Stand, der in keinem Stapel liegt. */
+  | 'uebernahme-ersetzt'
+  /** Der Rückgängig-Stapel läuft über die Grenze. */
+  | 'kappe-undo'
+  /** Der Wiederherstellen-Stapel läuft über die Grenze. */
+  | 'kappe-redo';
+
+/**
+ * Wird für jeden Stand gerufen, der den Verlauf verlässt, ohne dass ihn
+ * jemand ausdrücklich verworfen hat. `bezug` ist der Stand, der bleibt (bei
+ * einer Übernahme der übernommene, sonst der angezeigte) — enthält er den
+ * verlassenden Stand schon, ist nichts verloren.
+ */
+export type AbgangHoerer<T> = (stand: T, grund: AbgangsGrund, bezug: T) => void;
+
+/**
+ * Die Regel des Rings: Was aus dem Verlauf fällt, ohne dass sein Inhalt
+ * anderswo steht, wird gesichert — ausser dem, was Standard-Undo ohnehin
+ * verwirft: EIGENE Stände, die eine eigene Änderung aus dem Wiederherstellen-
+ * Ast wirft oder die 50er-Grenze vom alten Ende des Rückgängig-Stapels
+ * schiebt. Fremde Stände sind nie verzichtbar; und wenn eine Übernahme, ein
+ * Import oder das Laden einen Wiederherstellen-Ast verwirft, geht auch der
+ * eigene mit in den Ring (das war keine Änderung, die der Nutzer als
+ * Weiterarbeiten im Kopf hat).
+ */
+export function sollInRing(grund: AbgangsGrund, herkunft: 'fremd' | 'eigen', abgedeckt: boolean): boolean {
+  if (abgedeckt) return false;
+  switch (grund) {
+    case 'redo-uebernahme':
+    case 'redo-ersetzt':
+    case 'uebernahme-ersetzt':
+      return true;
+    case 'redo-eigene-aenderung':
+    case 'kappe-undo':
+    case 'kappe-redo':
+      return herkunft === 'fremd';
+  }
+}
 
 /**
  * Rückgängig-/Wiederherstellen-Stapel des Editors — samt der Regel, wann eine
@@ -157,45 +223,65 @@ export type SchreibErgebnis =
  * per Strg+Z erreichbar, und Strg+Z bringt danach den fremden Stand per
  * Strg+Y zurück.
  *
+ * Kein Stand geht still verloren: Jeder Stand, der den Verlauf verlässt
+ * (Wiederherstellen-Ast verworfen, Grenze überschritten, angezeigter fremder
+ * Stand durch die nächste Übernahme ersetzt), wird dem `AbgangHoerer`
+ * gemeldet; der Editor sichert ihn nach `sollInRing` im Ring der verdrängten
+ * Entwürfe (`VerdraengtRing`), aus dem der Nutzer ihn wieder einsetzen kann.
+ *
  * DOM-frei und ohne Wissen vom Editor: `aktuell` ist immer der gerade
  * angezeigte Stand, den der Aufrufer danach ersetzt.
  */
-export interface UebernahmeErgebnis {
-  /** Es wurde ein Rückgängig-Schritt angelegt. */
-  schritt: boolean;
-  /** Anzahl der dabei entfallenen Wiederherstellen-Schritte. */
-  verworfen: number;
-}
-
 export class SchrittVerlauf<T> {
   readonly vergangenheit: T[] = [];
   readonly zukunft: T[] = [];
   private uebernahmeOben = false;
 
-  constructor(private readonly grenze = 50) {}
+  constructor(
+    private readonly grenze = 50,
+    private readonly hoerer?: AbgangHoerer<T>
+  ) {}
 
-  private ablegen(stand: T): void {
+  private ablegen(stand: T, bezug: T): void {
     this.vergangenheit.push(stand);
-    if (this.vergangenheit.length > this.grenze) this.vergangenheit.shift();
+    if (this.vergangenheit.length > this.grenze) {
+      const weg = this.vergangenheit.shift() as T;
+      this.hoerer?.(weg, 'kappe-undo', bezug);
+    }
   }
 
-  /** Eigene Änderung (oder Import) steht bevor: den jetzigen Stand ablegen. */
-  merke(aktuell: T): void {
-    this.ablegen(aktuell);
-    this.zukunft.length = 0;
+  private redoLeeren(grund: AbgangsGrund, bezug: T): number {
+    const weg = this.zukunft.splice(0);
+    for (const s of weg) this.hoerer?.(s, grund, bezug);
+    return weg.length;
+  }
+
+  /**
+   * Eigene Änderung (oder Import/Laden, `ersetzt`) steht bevor: den jetzigen
+   * Stand ablegen. `ersetzt`: der Entwurf wird durch einen ANDEREN ersetzt
+   * (Import, Serverstand) und nicht weitergebaut — dann sichert auch der
+   * verworfene eigene Wiederherstellen-Ast.
+   */
+  merke(aktuell: T, ersetzt = false): void {
+    this.redoLeeren(ersetzt ? 'redo-ersetzt' : 'redo-eigene-aenderung', aktuell);
+    this.ablegen(aktuell, aktuell);
     this.uebernahmeOben = false;
   }
 
   /**
-   * Ein fremder Entwurf ersetzt den angezeigten. `schritt`: dabei wurde ein
-   * Schritt angelegt (`aktuell` liegt jetzt oben). `verworfen`: so viele
-   * Wiederherstellen-Schritte sind entfallen.
+   * Ein fremder Entwurf (`ersatz`) ersetzt den angezeigten. `schritt`: dabei
+   * wurde ein Schritt angelegt (`aktuell` liegt jetzt oben). `verworfen`: so
+   * viele Wiederherstellen-Schritte sind entfallen. Liegt `aktuell` in keinem
+   * Stapel (mehrere Übernahmen in Folge), fällt auch er von der Anzeige.
    */
-  uebernahme(aktuell: T): UebernahmeErgebnis {
-    const verworfen = this.zukunft.length;
-    this.zukunft.length = 0;
-    if (this.uebernahmeOben) return { schritt: false, verworfen };
-    this.ablegen(aktuell);
+  uebernahme(aktuell: T, ersatz?: T): UebernahmeErgebnis {
+    const bezug = ersatz ?? aktuell;
+    const verworfen = this.redoLeeren('redo-uebernahme', bezug);
+    if (this.uebernahmeOben) {
+      this.hoerer?.(aktuell, 'uebernahme-ersetzt', bezug);
+      return { schritt: false, verworfen };
+    }
+    this.ablegen(aktuell, bezug);
     this.uebernahmeOben = true;
     return { schritt: true, verworfen };
   }
@@ -206,7 +292,10 @@ export class SchrittVerlauf<T> {
     const vorher = this.vergangenheit.pop() as T;
     this.zukunft.push(aktuell);
     // Dieselbe Grenze wie beim Rückgängig-Stapel; die ältesten Wiederherstellen-Stände fallen zuerst.
-    if (this.zukunft.length > this.grenze) this.zukunft.shift();
+    if (this.zukunft.length > this.grenze) {
+      const weg = this.zukunft.shift() as T;
+      this.hoerer?.(weg, 'kappe-redo', vorher);
+    }
     this.uebernahmeOben = false;
     return vorher;
   }
@@ -215,7 +304,7 @@ export class SchrittVerlauf<T> {
   vor(aktuell: T): T | undefined {
     if (this.zukunft.length === 0) return undefined;
     const wieder = this.zukunft.pop() as T;
-    this.ablegen(aktuell);
+    this.ablegen(aktuell, wieder);
     this.uebernahmeOben = false;
     return wieder;
   }
@@ -223,6 +312,142 @@ export class SchrittVerlauf<T> {
   /** Der Stand wurde OHNE Schritt ersetzt (Laden vom Server): die Regel neu beginnen. */
   ohneSchritt(): void {
     this.uebernahmeOben = false;
+  }
+
+  /** Liegt ein Stand, auf den `passt` zutrifft, in einem der beiden Stapel? */
+  enthaelt(passt: (stand: T) => boolean): boolean {
+    return this.vergangenheit.some(passt) || this.zukunft.some(passt);
+  }
+}
+
+// ── Ring der verdrängten Entwürfe ────────────────────────────────────
+/** Eigener Schlüssel: der Ring darf den Entwurf nie stören, und umgekehrt. */
+export const VERDRAENGT_KEY = 'wov-editor-verdraengt';
+
+export interface VerdraengtEintrag {
+  id: string;
+  /** ms seit 1970, wann der Stand verdrängt wurde. */
+  zeit: number;
+  herkunft: 'fremd' | 'eigen';
+  /** Kennung des Tabs, der den Stand geschrieben hat, wenn bekannt. */
+  tabId: string | null;
+  grund: string;
+  regionen: number;
+  platzierungen: number;
+  layout: WorldLayout;
+}
+
+export type RingErgebnis =
+  /** Gesichert. */
+  | 'ok'
+  /** Ein gesicherter Eintrag enthält den Stand schon. */
+  | 'schon-da'
+  /** Konnte nicht gesichert werden (zu gross oder Speicher voll) — der Aufrufer muss es melden. */
+  | 'voll';
+
+/**
+ * Die letzten verdrängten Entwürfe unter einem eigenen Schlüssel: höchstens
+ * `max` Einträge und `maxBytes` Zeichen zusammen, der älteste fällt zuerst.
+ * Quotenfehler werden toleriert (`'voll'`), damit der Editor nie an der
+ * Sicherung scheitert. Die Einträge tragen Zeit, Herkunft und Zahlen, damit
+ * der Nutzer sieht, was er wieder einsetzt.
+ */
+export class VerdraengtRing {
+  private readonly max: number;
+  private readonly maxBytes: number;
+  private readonly jetzt: () => number;
+  private zaehler = 0;
+  /** Zuletzt gelesener Rohtext und seine Einträge: die Sektion fragt bei jedem Neuaufbau, und das Zerlegen von bis zu 2 MB soll nicht jedes Mal geschehen. */
+  private cacheRoh: string | null = null;
+  private cacheListe: VerdraengtEintrag[] = [];
+
+  constructor(
+    private readonly speicher: KvSpeicher,
+    opt: { max?: number; maxBytes?: number; jetzt?: () => number } = {}
+  ) {
+    this.max = opt.max ?? 5;
+    this.maxBytes = opt.maxBytes ?? 2_000_000;
+    this.jetzt = opt.jetzt ?? Date.now;
+  }
+
+  /** Die Einträge, älteste zuerst. Unlesbares wird übersprungen. */
+  liste(): VerdraengtEintrag[] {
+    let roh: string | null;
+    try {
+      roh = this.speicher.getItem(VERDRAENGT_KEY);
+    } catch {
+      return [];
+    }
+    if (!roh) return [];
+    if (roh === this.cacheRoh) return [...this.cacheListe];
+    try {
+      const a = JSON.parse(roh) as unknown;
+      if (!Array.isArray(a)) return [];
+      const aus: VerdraengtEintrag[] = [];
+      for (const e of a as Partial<VerdraengtEintrag>[]) {
+        const layout = sanitizeWorldLayout(e?.layout);
+        if (!layout || typeof e.id !== 'string' || typeof e.zeit !== 'number') continue;
+        aus.push({
+          id: e.id,
+          zeit: e.zeit,
+          herkunft: e.herkunft === 'fremd' ? 'fremd' : 'eigen',
+          tabId: typeof e.tabId === 'string' ? e.tabId : null,
+          grund: typeof e.grund === 'string' ? e.grund : '',
+          regionen: layout.regions.length,
+          platzierungen: layout.placements?.length ?? 0,
+          layout,
+        });
+      }
+      this.cacheRoh = roh;
+      this.cacheListe = aus;
+      return [...aus];
+    } catch {
+      return [];
+    }
+  }
+
+  ablegen(layout: WorldLayout, herkunft: 'fremd' | 'eigen', grund: string, tabId: string | null = null): RingErgebnis {
+    const liste = this.liste();
+    if (liste.some((e) => enthaelt(e.layout, layout))) return 'schon-da';
+    liste.push({
+      id: `v${this.jetzt().toString(36)}-${(this.zaehler++).toString(36)}`,
+      zeit: this.jetzt(),
+      herkunft,
+      tabId,
+      grund,
+      regionen: layout.regions.length,
+      platzierungen: layout.placements?.length ?? 0,
+      layout,
+    });
+    // Ältestes zuerst entfernen; der neue Eintrag allein muss in die Grenze passen.
+    while (liste.length > this.max) liste.shift();
+    let text = JSON.stringify(liste);
+    while (text.length > this.maxBytes && liste.length > 1) {
+      liste.shift();
+      text = JSON.stringify(liste);
+    }
+    if (text.length > this.maxBytes) return 'voll'; // der Stand allein ist zu gross
+    for (;;) {
+      try {
+        this.speicher.setItem(VERDRAENGT_KEY, text);
+        return 'ok';
+      } catch {
+        // Quote: einen älteren Eintrag opfern und noch einmal versuchen.
+        if (liste.length <= 1) return 'voll';
+        liste.shift();
+        text = JSON.stringify(liste);
+      }
+    }
+  }
+
+  /** Einen Eintrag entfernen (der Nutzer hat ihn wieder eingesetzt oder verworfen). */
+  entfernen(id: string): void {
+    const liste = this.liste().filter((e) => e.id !== id);
+    try {
+      this.speicher.setItem(VERDRAENGT_KEY, JSON.stringify(liste));
+    } catch {
+      // Ein Eintrag, der sich nicht entfernen lässt, ist harmlos.
+    }
   }
 }
 
@@ -242,6 +467,9 @@ export class EntwurfsSpeicher {
   private readonly jetzt: () => number;
   private readonly aktuell: () => WorldLayout;
   private readonly beiFremdem: (fremd: WorldLayout, info: FremdInfo) => void;
+  private readonly beiVerdraengt: ((alt: WorldLayout, neu: WorldLayout) => void) | null;
+  /** Der Rohtext in `bekannt` stammt von einem anderen Tab und ist seither nicht überschrieben worden. */
+  private bekanntFremd = false;
   private readonly beiStorage = (e: { key: string | null }): void => {
     // `key === null`: der Speicher wurde geleert.
     if (e.key === null || e.key === ENTWURF_KEY) this.pruefe('ereignis', this.aktuell());
@@ -255,6 +483,7 @@ export class EntwurfsSpeicher {
     this.jetzt = opt.jetzt ?? Date.now;
     this.aktuell = opt.aktuell;
     this.beiFremdem = opt.beiFremdem;
+    this.beiVerdraengt = opt.beiVerdraengt ?? null;
     this.ereignisse?.addEventListener('storage', this.beiStorage);
     if (this.kanal) {
       this.kanal.onmessage = (e) => {
@@ -304,7 +533,11 @@ export class EntwurfsSpeicher {
    * gesehen ist, ist `bekannt`.
    */
   private pruefe(wie: FremdWeg, aktuell: WorldLayout): boolean {
-    const roh = this.rohLesen();
+    return this.pruefeRoh(wie, aktuell, this.rohLesen());
+  }
+
+  /** `pruefe` mit einem bereits gelesenen Rohtext — damit Lesen und Entscheiden EIN Zugriff sind. */
+  private pruefeRoh(wie: FremdWeg, aktuell: WorldLayout, roh: string | null | undefined): boolean {
     // Nicht lesbar oder gelöscht: nichts Fremdes zu übernehmen. Ein
     // späteres Schreiben legt den Entwurf neu an.
     if (roh === undefined || roh === null || roh === this.bekannt) return false;
@@ -320,6 +553,7 @@ export class EntwurfsSpeicher {
     // Dasselbe Dokument in anderer Schreibweise (z. B. der Testflug hat
     // nur neu formatiert): nichts zu übernehmen.
     if (gleich(fremd, aktuell)) return false;
+    this.bekanntFremd = true;
     this.beiFremdem(fremd, { wie, ...this.stempelLesen() });
     return true;
   }
@@ -334,16 +568,41 @@ export class EntwurfsSpeicher {
     return this.pruefe('abgleich', this.aktuell());
   }
 
-  /** Entwurf lesen — `null`, wenn keiner da ist. Merkt sich den Rohtext als `bekannt`. */
-  lesen(): WorldLayout | null {
-    const roh = this.rohLesen();
-    this.bekannt = roh ?? null;
+  private parsen(roh: string | null | undefined): WorldLayout | null {
     if (!roh) return null;
     try {
       return sanitizeWorldLayout(JSON.parse(roh));
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Entwurf beim START lesen — `null`, wenn keiner da ist. Merkt sich den
+   * Rohtext als `bekannt`, ohne etwas zu übernehmen: Das ist nur richtig,
+   * solange der Aufrufer genau diesen Stand zu seinem angezeigten macht (der
+   * Editor beim Laden). Wer später neu lesen will, nimmt
+   * `entwurfNachAbgleich`.
+   */
+  lesen(): WorldLayout | null {
+    const roh = this.rohLesen();
+    this.bekannt = roh ?? null;
+    this.bekanntFremd = false;
+    return this.parsen(roh);
+  }
+
+  /**
+   * Den Entwurf für einen Vergleich lesen — mit EINEM Zugriff auf den
+   * Speicher: Steht dort etwas anderes als das, was dieser Tab kennt und
+   * anzeigt, wird es übernommen (`beiFremdem`), und zurück kommt genau
+   * dieser gelesene Stand. So kann zwischen „nachsehen" und „lesen" kein
+   * fremder Schreibvorgang mehr fallen, der danach für `bekannt` gilt, aber
+   * nie übernommen wurde.
+   */
+  entwurfNachAbgleich(): WorldLayout | null {
+    const roh = this.rohLesen();
+    this.pruefeRoh('abgleich', this.aktuell(), roh);
+    return this.parsen(roh);
   }
 
   /**
@@ -355,6 +614,8 @@ export class EntwurfsSpeicher {
     if (this.pruefe('schreiben', layout)) return 'fremd';
     const roh = JSON.stringify(layout);
     const zeit = this.jetzt();
+    const altRoh = this.bekannt;
+    const altWarFremd = this.bekanntFremd;
     try {
       this.speicher.setItem(ENTWURF_KEY, roh);
     } catch {
@@ -362,6 +623,13 @@ export class EntwurfsSpeicher {
     }
     // Ab hier steht der Entwurf im Speicher, was danach auch schiefgeht.
     this.bekannt = roh;
+    this.bekanntFremd = false;
+    // Sicherheitsnetz: Ein fremder Stand, den dieser Schreibvorgang ersetzt,
+    // ohne dass der neue ihn enthält, wird dem Aufrufer gemeldet.
+    if (altWarFremd && this.beiVerdraengt) {
+      const alt = this.parsen(altRoh);
+      if (alt && !enthaelt(layout, alt)) this.beiVerdraengt(alt, layout);
+    }
     // Der Zettel NACH dem Entwurf: Reisst die Quote, fehlt lieber der
     // Zettel als der Entwurf — und der Entwurf wird deswegen nicht als
     // „nicht gespeichert" gemeldet.

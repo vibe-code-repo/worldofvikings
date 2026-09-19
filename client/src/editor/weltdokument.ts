@@ -118,6 +118,37 @@ export type ServerStand =
   | { erreichbar: false; grund: string };
 
 /**
+ * Steckt alles, was `klein` enthält, schon in `gross`? Grundlage der Frage
+ * „geht beim Verdrängen von `klein` etwas verloren, wenn `gross` bleibt?":
+ * Ein Schreiber, der seinen Stand aus dem AKTUELLEN Speicher aufbaut (der
+ * Testflug, main.ts: lesen, Feld ergänzen, zurückschreiben), liefert
+ * Nachfolgestände, die ihre Vorgänger enthalten — die brauchen keine eigene
+ * Sicherung. Verglichen werden die Elemente der Listen (Regionen,
+ * Platzierungen, Kontinente, Flüsse, Seen, Routen) als JSON, dazu Name,
+ * Detail-Seed und Startpunkt. Im Zweifel `false`: ein Stand zu viel zu
+ * sichern kostet nur Platz.
+ */
+export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
+  if (gross === klein) return true;
+  const teil = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
+    if (!k || k.length === 0) return true;
+    const menge = new Set((g ?? []).map((x) => JSON.stringify(x)));
+    return k.every((x) => menge.has(JSON.stringify(x)));
+  };
+  return (
+    gross.name === klein.name &&
+    gross.detailSeed === klein.detailSeed &&
+    (klein.defaultSpawn === undefined || JSON.stringify(gross.defaultSpawn) === JSON.stringify(klein.defaultSpawn)) &&
+    teil(gross.regions, klein.regions) &&
+    teil(gross.placements, klein.placements) &&
+    teil(gross.continents, klein.continents) &&
+    teil(gross.rivers, klein.rivers) &&
+    teil(gross.lakes, klein.lakes) &&
+    teil(gross.routes, klein.routes)
+  );
+}
+
+/**
  * Braucht das Ersetzen des angezeigten Entwurfs durch `ersatz` einen
  * Rückgängig-Schritt? Immer, wenn dabei etwas verloren ginge: also bei jedem
  * abweichenden Entwurf — auch einem, der nur Flüsse, Seen, Kontinente oder

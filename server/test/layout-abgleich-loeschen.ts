@@ -173,18 +173,18 @@ console.log('\n[4] a save from before E1 (old key `Prefab@x,z`): taken over as b
   const z2 = layoutZdos(b2.server, NEU.id)[0];
   check('(a) the explicit-id placement at the old spot takes the ZDO, contents kept', z2 !== undefined && z2.zdoid.toString() === uid && inhalt(z2) === INHALT, `${uid} -> ${z2?.zdoid.toString()}`);
   check('(a) log: 1 re-stamped, 0 spawned, 0 removed', /1 auf die Platzierungs-id umgestempelt|umgestempelt/.test(abgleich(b2.zeilen)) && zahl(abgleich(b2.zeilen), 'gespawnt') === 0 && zahl(abgleich(b2.zeilen), 'entfernt') === 0, abgleich(b2.zeilen));
-  // (b) the placement moved 0.3 m: found by nearness, as before
-  const { uid: uidB } = (() => {
-    const w = 'alte-kennung-nah';
-    const r = ersterBoot(w, alt);
-    const b = starte(w, dokument([alt]));
-    layoutZdos(b.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, layoutKennung(alt));
-    b.server.saveWorld();
-    return { uid: r.uid };
-  })();
-  const b3 = starte('alte-kennung-nah', dokument([{ ...NEU, x: 100.3 }]));
+  // (b) the placement stands 0.15 m from the ZDO but rounds to ANOTHER old key (100.45 -> `@100,100`, 100.6 -> `@101,100`):
+  //     no old key fits, the ZDO is found by nearness, as before
+  const alt2 = { id: ALT_ID, prefab: TRUHE, x: 100.45, z: 100 };
+  const w = 'alte-kennung-nah';
+  const uidB = ersterBoot(w, alt2).uid;
+  const bx = starte(w, dokument([alt2]));
+  layoutZdos(bx.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, layoutKennung(alt2));
+  bx.server.saveWorld();
+  check('(b) fixture: the old key and the new placement round to different keys', layoutKennung(alt2) !== layoutKennung({ ...NEU, x: 100.6 }), `${layoutKennung(alt2)} vs ${layoutKennung({ ...NEU, x: 100.6 })}`);
+  const b3 = starte(w, dokument([{ ...NEU, x: 100.6 }]));
   const z3 = layoutZdos(b3.server, NEU.id)[0];
-  check('(b) 0.3 m away: the ZDO with the old key is found by nearness, contents kept', z3 !== undefined && z3.zdoid.toString() === uidB && inhalt(z3) === INHALT, `${uidB} -> ${z3?.zdoid.toString()}`);
+  check('(b) another old key, 0.15 m away: the ZDO with the old key is found by nearness, contents kept', z3 !== undefined && z3.zdoid.toString() === uidB && inhalt(z3) === INHALT, `${uidB} -> ${z3?.zdoid.toString()}`);
 }
 
 console.log('\n[5] a ZDO WITHOUT a layoutId (no origin) beside a new explicit-id placement: taken over as before');

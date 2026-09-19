@@ -262,6 +262,15 @@ async function main(): Promise<void> {
   } catch (e) {
     console.log(`  (module missing: ${(e as Error).message.split('\n')[0]})`);
   }
+  // The shared id function (a tree without it -- e6a7351 -- gives a stand-in, and every check of it reports ✗ by itself).
+  type IdModul = { frischePlatzierungsId?: (b: unknown, p: { prefab: string; x: number; z: number }, z?: () => number) => string };
+  let idModul = null as IdModul | null;
+  try {
+    idModul = (await import('@wov/shared/src/worldlayout/platzierungsId.js')) as unknown as IdModul;
+  } catch (e) {
+    console.log(`  (id module missing: ${(e as Error).message.split('\n')[0]})`);
+  }
+  const frischeId = (idModul?.frischePlatzierungsId ?? (() => '')) as (b: ReadonlySet<string>, p: { prefab: string; x: number; z: number }, z: () => number) => string;
   try {
     reg = await import('../src/editor/werkzeuge');
   } catch (e) {
@@ -271,13 +280,12 @@ async function main(): Promise<void> {
 
   {
     // On a tree without the module the stand-ins below let every section run and fail check by check.
-    const { erzeugePlatzieren, trefferSuchen, platzierungZuBefund, frischeId, TREFFER_PX, ZUG_PX } =
+    const { erzeugePlatzieren, trefferSuchen, platzierungZuBefund, TREFFER_PX, ZUG_PX } =
       modul ??
       ({
         erzeugePlatzieren: nullWerkzeug,
         trefferSuchen: () => undefined,
         platzierungZuBefund: () => null,
-        frischeId: () => '',
         TREFFER_PX: NaN,
         ZUG_PX: NaN,
       } as unknown as typeof import('../src/editor/werkzeuge/platzieren'));
@@ -784,7 +792,10 @@ async function main(): Promise<void> {
       for (let i = 0; i < 100; i++) l = layoutMitPlatzierung(l, 'Beech1', 5.2, 5.4, 1);
       const ids = platz(l).map((p) => p.id);
       gleich('100 calls at one place: 100 ids, all present and valid', [ids.length, new Set(ids).size, ids.every((i) => typeof i === 'string' && ID_RE.test(i))], [100, 100, true]);
-      gleich('the entry: id first, prefab, rounded position, yaw', platz(l)[0], { id: 'beech1_5_5', prefab: 'Beech1', x: 5, z: 5, yaw: 1 });
+      check('the entry: id first, then prefab, rounded position, yaw; the id is the derived one plus a tail with a letter', (() => {
+        const e = platz(l)[0]!;
+        return Object.keys(e).join(',') === 'id,prefab,x,z,yaw' && /^beech1_5_5-[a-z][0-9a-z]{3}$/.test(e.id!) && e.x === 5 && e.z === 5 && e.yaw === 1;
+      })(), JSON.stringify(platz(l)[0]));
       gleich('the sanitizer keeps all 100 (no fold, no re-id)', [platz(sanitizeWorldLayout(l)!).length, JSON.stringify(platz(sanitizeWorldLayout(l)!).map((p) => p.id!).sort())], [100, JSON.stringify([...ids].sort())]);
     });
 
@@ -945,6 +956,38 @@ async function main(): Promise<void> {
       gleich('a second Backspace (no selection): nothing', z.schritte.length, 1);
     });
 
+    // ── Every way to create a placement gives an id with a tail ────
+    await sektion('Every creator of a placement (editor tool, test flight, MCP, layoutMitPlatzierung) uses the shared id function', () => {
+      const lies = (pfad: string): string => {
+        try {
+          return readFileSync(resolve(EDITOR, pfad), 'utf-8');
+        } catch {
+          return '';
+        }
+      };
+      const testflug = lies('testflug/Testflug.ts');
+      const mcp = (() => {
+        try {
+          return readFileSync(resolve(WURZEL, 'tools/worldlayout-mcp/server.ts'), 'utf-8');
+        } catch {
+          return '';
+        }
+      })();
+      const dok = lies('weltdokument.ts');
+      check('test flight: both places that append a placement give it id: frischePlatzierungsId(...) (2 calls)', (testflug.match(/id: frischePlatzierungsId\(roh, /g) ?? []).length === 2);
+      check('MCP placement_set without an id: frischePlatzierungsId(layout, platzierung), not the derived neuePlatzierungsId', /const neueId = id \?\? frischePlatzierungsId\(layout, platzierung\);/.test(mcp) && !/neuePlatzierungsId/.test(mcp));
+      check('layoutMitPlatzierung: frischePlatzierungsId', /id: frischePlatzierungsId\(layout,/.test(dok) && !/neuePlatzierungsId/.test(dok));
+      // the function itself, on the shared module
+      const belegt = new Set(['beech1_5_5-a000']);
+      const a = frischeId(belegt, { prefab: 'Beech1', x: 5, z: 5 }, () => 0);
+      const b = frischePlatzierungsIdVonLayout();
+      gleich('a taken tail gets a counter; a LAYOUT can be handed over instead of a set of ids', [a, /^beech1_5_5-[a-z][0-9a-z]{3}$/.test(b)], ['beech1_5_5-a000-2', true]);
+      function frischePlatzierungsIdVonLayout(): string {
+        const f = (idModul?.frischePlatzierungsId ?? (() => '')) as (b: unknown, p: { prefab: string; x: number; z: number }) => string;
+        return f({ placements: [{ id: 'beech1_5_5' }] }, { prefab: 'Beech1', x: 5, z: 5 });
+      }
+    });
+
     // ── Source guard ───────────────────────────────────────────────
     console.log('Source guard');
     const haupt = readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8');
@@ -959,9 +1002,9 @@ async function main(): Promise<void> {
     check('editorMain.ts: the wide tile comes from the tool (`kachelBreit`)', /w\.kachelBreit/.test(haupt));
     gleich("KartenHud.ts: no 'platzieren' key in the old tables", hud.match(/^\s*platzieren:/gm) ?? [], []);
     check("index.ts: 'platzieren' left ALTE_WERKZEUGE and is registered", !/ALTE_WERKZEUGE = \[[^\]]*'platzieren'/.test(index) && /erzeugePlatzieren\(\)/.test(index));
-    check('platzieren.ts: every change goes through ops.ts (opSetzen, opAendern, opEntfernen, wende) and the id from frischeId', (() => {
+    check('platzieren.ts: every change goes through ops.ts (opSetzen, opAendern, opEntfernen, wende) and the id from frischePlatzierungsId', (() => {
       const q = readFileSync(resolve(EDITOR, 'werkzeuge', 'platzieren.ts'), 'utf-8');
-      return /opSetzen\(/.test(q) && /opAendern\(/.test(q) && /opEntfernen\(/.test(q) && /\bwende\(/.test(q) && /frischeId\(/.test(q) && !/neuePlatzierungsId\(/.test(q) && !/Math\.random\(\)/.test(q.replace(/opt\.zufall \?\? Math\.random/, ''));
+      return /opSetzen\(/.test(q) && /opAendern\(/.test(q) && /opEntfernen\(/.test(q) && /\bwende\(/.test(q) && /frischePlatzierungsId\(/.test(q) && !/neuePlatzierungsId\(/.test(q) && !/Math\.random\(\)/.test(q.replace(/opt\.zufall \?\? Math\.random/, ''));
     })());
   }
 

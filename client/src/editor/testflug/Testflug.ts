@@ -22,6 +22,7 @@ import {
   sanitizeWorldLayout,
 } from '@wov/shared';
 import type { NpcDef } from '@wov/shared';
+import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { SpawnPanel } from '../SpawnPanel';
 import { RoutenEditor } from '../RoutenEditor';
 import { RoutenVorschau } from '../RoutenVorschau';
@@ -234,6 +235,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (!roh) return;
       const sockel = e.einebnen ? sockelRadius() : undefined;
       const eintrag = {
+        // Eine neue Platzierung bekommt eine id mit Zufallsschwanz (frischePlatzierungsId), nie die abgeleitete.
+        id: frischePlatzierungsId(roh, { prefab: e.prefab, x: wx, z: wz }),
         prefab: e.prefab,
         x: wx,
         z: wz,
@@ -700,6 +703,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         const einst = panel.einstellung;
         const sockel = einst.einebnen ? sockelRadius() : undefined;
         const eintrag = {
+          id: frischePlatzierungsId(roh, { prefab: einst.prefab, x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10 }),
           prefab: einst.prefab,
           x: Math.round(p.x * 10) / 10,
           z: Math.round(p.z * 10) / 10,

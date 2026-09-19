@@ -38,7 +38,7 @@
  * bleiben, nicht in einer Klick-Behandlung stecken.
  */
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
-import { neuePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
+import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 
 /**
  * Der Entwurfsschlüssel. Er hiess schon immer so und heisst weiter so:
@@ -489,9 +489,10 @@ export function layoutMitPlatzierung(
   const gz = Math.round(z);
   return {
     ...layout,
-    // Die Adresse gehört dem Eintrag von Anfang an (`neuePlatzierungsId`): ohne sie könnte er
-    // einem gleichartigen Objekt am selben Ort die abgeleitete id wegnehmen.
-    placements: [...(layout.placements ?? []), { id: neuePlatzierungsId(layout, { prefab, x: gx, z: gz }), prefab, x: gx, z: gz, yaw }],
+    // Die Adresse gehört dem Eintrag von Anfang an (`frischePlatzierungsId`): ohne sie könnte er einem
+    // gleichartigen Objekt am selben Ort die abgeleitete id wegnehmen, und mit der abgeleiteten id allein hielte
+    // der Spielserver ein gelöschtes und neu gesetztes Objekt für dasselbe.
+    placements: [...(layout.placements ?? []), { id: frischePlatzierungsId(layout, { prefab, x: gx, z: gz }), prefab, x: gx, z: gz, yaw }],
   };
 }
 

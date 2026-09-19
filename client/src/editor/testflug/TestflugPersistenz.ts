@@ -17,6 +17,8 @@ import type { NpcDef } from '@wov/shared';
  * beschreibbar: Der Entwurf im localStorage IST das Arbeitsdokument.
  */
 export type EntwurfEintrag = {
+  /** The id of the placement (`frischePlatzierungsId`); the test flight gives every new one its own. */
+  id?: string;
   prefab: string;
   x: number;
   z: number;

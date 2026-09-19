@@ -35,7 +35,8 @@
  * The selection is only an id. It is looked up in the current document each
  * time, so an undo that takes the object away simply leaves nothing selected.
  */
-import { FOLIAGE, LAYOUT_MAX_EXTENT, platzierungsIdBasis, type PlacementDef, type WorldLayout } from '@wov/shared';
+import { FOLIAGE, LAYOUT_MAX_EXTENT, type PlacementDef, type WorldLayout } from '@wov/shared';
+import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { opAendern, opEntfernen, opSetzen, wende, type Op, type OpEntry, type Vorgang, type WendeErgebnis } from '@wov/shared/src/worldlayout/ops.js';
 import { F, PFAD, el, feld, stil } from '../design';
 import type { KartenWerkzeug, WerkzeugKontext } from './typ';
@@ -92,30 +93,6 @@ export function platzierungZuBefund(
   const ref = befund.ref;
   if (ref?.sammlung !== 'placements' || typeof ref.id !== 'string') return null;
   return (layout.placements ?? []).some((p) => p.id === ref.id) ? ref.id : null;
-}
-
-/** Length of the random tail of a new id: a letter and three base-36 characters (26 * 36^3 = 1.2 million). */
-const SCHWANZ = 4;
-
-/**
- * A fresh id for a new placement: the derived id (`platzierungsIdBasis`: prefab and metre) plus `-` and a random
- * tail, unique against `belegt` (the ids of the document, and of what was deleted). The tail starts with a LETTER,
- * so it can never be taken for the counter (`-2`, `-3`) of a derived id: the game server keeps a "derived-form"
- * id apart from an explicit one (server/src/world/layoutAbgleich.ts, `traegtAbgeleiteteId`). If the tail is taken
- * (a fixed random source in a test, or luck) a counter follows it. Fits `ID_RE` and 64 characters: too long a
- * prefab part is cut.
- */
-export function frischeId(belegt: ReadonlySet<string>, p: { prefab: string; x: number; z: number }, zufall: () => number): string {
-  let basis = platzierungsIdBasis(p);
-  if (basis.length > 64 - 1 - SCHWANZ - 5) basis = platzierungsIdBasis({ ...p, prefab: p.prefab.slice(0, 16) });
-  const zahl = Math.min(26 * 36 ** (SCHWANZ - 1) - 1, Math.floor(zufall() * 26 * 36 ** (SCHWANZ - 1)));
-  const schwanz =
-    String.fromCharCode(97 + Math.floor(zahl / 36 ** (SCHWANZ - 1))) +
-    (zahl % 36 ** (SCHWANZ - 1)).toString(36).padStart(SCHWANZ - 1, '0');
-  for (let n = 1; ; n++) {
-    const id = n === 1 ? `${basis}-${schwanz}` : `${basis}-${schwanz}-${n}`;
-    if (!belegt.has(id)) return id;
-  }
 }
 
 const ausserhalb = (...werte: (number | undefined)[]): boolean => werte.some((n) => n !== undefined && !(Math.abs(n) <= LAYOUT_MAX_EXTENT));
@@ -328,7 +305,7 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
       }
       const belegt = new Set<string>(geloescht);
       for (const q of layout.placements ?? []) if (typeof q.id === 'string') belegt.add(q.id);
-      const id = frischeId(belegt, { prefab, x, z }, zufallszahl);
+      const id = frischePlatzierungsId(belegt, { prefab, x, z }, zufallszahl);
       // The turn goes into the document rounded to 0.001 rad (0.06 degrees): 17 digits of a random number are noise.
       const yaw = zufaelligeDrehung ? Math.round(zufallszahl() * Math.PI * 2 * 1000) / 1000 : (drehungGrad * Math.PI) / 180;
       zug = null;

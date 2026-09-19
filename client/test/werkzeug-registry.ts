@@ -8,6 +8,11 @@
  * The same click sequences in the real editor, on `122db70` and on this
  * branch, are compared in the report (Browser run).
  *
+ * Nachbesserung 1: the registry refuses an id twice and an id that still belongs
+ * to a tool on the old path; a tool that throws is caught per call (logged with
+ * its id, that call skipped) and cannot take the others down. Both are checked
+ * with synthetic tools, DOM-free.
+ *
  * The source guard at the end must be red on `122db70`: there the tools are
  * still `if (werkzeug === 'fluss')` branches in `editorMain.ts` and there is
  * no registry module.
@@ -18,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
-import type { SeitenHost } from '../src/editor/werkzeuge/typ';
+import type { KartenWerkzeug, SeitenHost } from '../src/editor/werkzeuge/typ';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
@@ -158,6 +163,75 @@ const echt = sanitizeWorldLayout(JSON.parse(readFileSync(resolve(WURZEL, 'server
 const leer: WorldLayout = { ...echt, rivers: [], lakes: [] };
 const klick = (x: number, z: number, shiftKey = false) => ({ weltX: x, weltZ: z, shiftKey });
 
+/**
+ * A synthetic tool that counts what it is asked. `wirft`: every call throws
+ * (also with a thrown STRING for the click, an `Error` otherwise), so the
+ * guard is measured against both kinds of thrown value.
+ */
+function attrappe(id: string, wirft: boolean) {
+  const z = { klick: 0, doppel: 0, taste: 0, overlay: 0, abbrechen: 0, kachelZusatz: 0, hudZusatz: 0, seite: 0 };
+  const boom = (was: string): never => {
+    throw new Error(`boom ${id}.${was}`);
+  };
+  const w: KartenWerkzeug = {
+    id,
+    titel: id,
+    bild: 'M0 0',
+    kachelName: id,
+    kachelTipp: id,
+    tasten: [['Klick', 'x']],
+    kachelZusatz: () => {
+      z.kachelZusatz++;
+      if (wirft) boom('kachelZusatz');
+      return 'kz';
+    },
+    hudZusatz: () => {
+      z.hudZusatz++;
+      if (wirft) boom('hudZusatz');
+      return 'hz';
+    },
+    beiZeigerRunter: (_ctx, e) => {
+      z.klick++;
+      if (wirft) throw 'boom-string';
+      return e.shiftKey; // true / false pass through
+    },
+    beiDoppelklick: () => {
+      z.doppel++;
+      if (wirft) boom('beiDoppelklick');
+    },
+    beiTaste: (_ctx, e) => {
+      z.taste++;
+      if (wirft) boom('beiTaste');
+      return e.code === 'Escape';
+    },
+    zeichneOverlay: (_ctx, zeichner) => {
+      z.overlay++;
+      zeichner.beginPath();
+      if (wirft) boom('zeichneOverlay');
+      zeichner.stroke();
+    },
+    abbrechen: () => {
+      z.abbrechen++;
+      if (wirft) boom('abbrechen');
+    },
+    seitenleiste: () => {
+      z.seite++;
+      if (wirft) boom('seitenleiste');
+      return fakeKnoten('block') as unknown as HTMLElement;
+    },
+  };
+  return { z, w };
+}
+/** Run `tu`, returning the message it threw (or `null`). */
+function wirftMit(tu: () => unknown): string | null {
+  try {
+    tu();
+    return null;
+  } catch (e) {
+    return (e as Error).message;
+  }
+}
+
 async function main(): Promise<void> {
   console.log('Registry module');
   let reg: typeof import('../src/editor/werkzeuge') | null = null;
@@ -173,6 +247,16 @@ async function main(): Promise<void> {
     console.log(`  (modules missing: ${(e as Error).message.split('\n')[0]})`);
   }
   check('registry, river and lake modules load', reg !== null && flussModul !== null && seeModul !== null);
+  let schutz: typeof import('../src/editor/werkzeuge/schutz') | null = null;
+  try {
+    schutz = await import('../src/editor/werkzeuge/schutz');
+  } catch (e) {
+    console.log(`  (guard module missing: ${(e as Error).message.split('\n')[0]})`);
+  }
+  check(
+    'guard module and registry build API exist (pruefeRegistrierung, schuetze, registriere, ALTE_WERKZEUGE)',
+    schutz !== null && typeof reg?.registriere === 'function' && Array.isArray(reg?.ALTE_WERKZEUGE)
+  );
 
   if (reg && flussModul && seeModul && F) {
     gleich('registry holds exactly fluss, see (in toolbar order)', reg.WERKZEUGE.map((w) => w.id), ['fluss', 'see']);
@@ -343,7 +427,7 @@ async function main(): Promise<void> {
       gleich('no Shift: back to selection', z.aktiv, 'auswahl');
       gleich('committed once', z.uebernommen, 1);
       gleich('message', z.meldungen, [{ text: 'see-1 angelegt (Radius 200 m)', fehler: false }]);
-      gleich('lake is not a course: no double click, no key, no overlay', [see.beiDoppelklick, see.beiTaste, see.zeichneOverlay], [undefined, undefined, undefined]);
+      check('lake is not a course: no double click, no key, no overlay (members absent)', see.beiDoppelklick === undefined && see.beiTaste === undefined && see.zeichneOverlay === undefined);
       see.abbrechen(ctx);
       gleich('abbrechen changes nothing', [z.layout.lakes?.length, z.schritte.length, z.meldungen.length], [1, 1, 1]);
     }
@@ -394,6 +478,140 @@ async function main(): Promise<void> {
     }
   }
 
+
+  // ── Registry build: ids ─────────────────────────────────────────────
+  if (reg && flussModul && seeModul && schutz && typeof reg.registriere === 'function') {
+    console.log('Registry build: ids');
+    gleich('reserved ids = the tools still on the old path', reg.ALTE_WERKZEUGE, ['auswahl', 'form', 'polygon', 'platzieren']);
+    check('no registered tool uses a reserved id', reg.WERKZEUGE.every((w) => !(reg.ALTE_WERKZEUGE as readonly string[]).includes(w.id)));
+    const doppelt = wirftMit(() => reg.registriere(flussModul.erzeugeFluss(), seeModul.erzeugeSee(), flussModul.erzeugeFluss()));
+    check('same id twice: registriere throws', doppelt !== null);
+    check('…the message names the id and says twice', /"fluss"/.test(doppelt ?? '') && /twice/.test(doppelt ?? ''), doppelt ?? '');
+    check('two different ids: fine (returns both, in order)', (() => {
+      const r = reg.registriere(attrappe('a1', false).w, attrappe('a2', false).w);
+      return r.length === 2 && r[0]!.id === 'a1' && r[1]!.id === 'a2';
+    })());
+    for (const id of reg.ALTE_WERKZEUGE) {
+      const m = wirftMit(() => reg.registriere(attrappe(id, false).w));
+      check(`reserved id "${id}": registriere throws`, m !== null && m.includes(`"${id}"`) && /reserved/.test(m) && /ALTE_WERKZEUGE/.test(m), m ?? 'did not throw');
+    }
+    const leerId = wirftMit(() => reg.registriere(attrappe('', false).w));
+    check('empty id: throws', leerId !== null && /empty id/.test(leerId), leerId ?? 'did not throw');
+    check('the pure check without wrapping: duplicate and reserved', (() => {
+      const a = wirftMit(() => schutz.pruefeRegistrierung([{ id: 'x' }, { id: 'x' }], []));
+      const b = wirftMit(() => schutz.pruefeRegistrierung([{ id: 'x' }], ['x']));
+      const c = wirftMit(() => schutz.pruefeRegistrierung([{ id: 'x' }, { id: 'y' }], ['z']));
+      return a !== null && /twice/.test(a) && b !== null && /reserved/.test(b) && c === null;
+    })());
+  } else {
+    check('Registry build: ids -- section could not run (registriere / schuetze missing)', false);
+  }
+
+  // ── Fault isolation per tool ────────────────────────────────────────
+  if (reg && flussModul && seeModul && schutz && typeof reg.registriere === 'function') {
+    console.log('Fault isolation: a tool that throws');
+    const { ctx } = neuerKontext(leer, 'kaputt');
+    const gemeldet: { id: string; aufruf: string; fehler: unknown }[] = [];
+    const senke = (id: string, aufruf: string, fehler: unknown): void => {
+      gemeldet.push({ id, aufruf, fehler });
+    };
+    {
+      const { z, w } = attrappe('kaputt', true);
+      const g = schutz.schuetze(w, senke);
+      const ereignis = { weltX: 1, weltZ: 2, shiftKey: false };
+      gleich('click: does not throw, the click is consumed (true)', wirftMit(() => g.beiZeigerRunter(ctx, ereignis)), null);
+      check('…result true', g.beiZeigerRunter(ctx, ereignis) === true);
+      check('double click: no throw', wirftMit(() => g.beiDoppelklick!(ctx)) === null);
+      check('key: no throw, does NOT end the tool (false)', wirftMit(() => g.beiTaste!(ctx, { code: 'Escape' })) === null && g.beiTaste!(ctx, { code: 'Escape' }) === false);
+      const zz = neuerZeichner();
+      check('overlay: no throw', wirftMit(() => g.zeichneOverlay!(ctx, zz as unknown as CanvasRenderingContext2D)) === null);
+      check('abbrechen: no throw', wirftMit(() => g.abbrechen(ctx)) === null);
+      gleich('kachelZusatz / hudZusatz: empty text', [g.kachelZusatz(), g.hudZusatz()], ['', '']);
+      check('seitenleiste: null', g.seitenleiste!(ctx, neuerHost().host) === null);
+      gleich('every call reached the tool once (or twice where called twice)', [z.klick, z.doppel, z.taste, z.overlay, z.abbrechen, z.kachelZusatz, z.hudZusatz, z.seite], [2, 1, 2, 1, 1, 1, 1, 1]);
+      gleich('every failure was reported with the tool id', [...new Set(gemeldet.map((m) => m.id))], ['kaputt']);
+      gleich('…and with the name of the call', [...new Set(gemeldet.map((m) => m.aufruf))].sort(), ['abbrechen', 'beiDoppelklick', 'beiTaste', 'beiZeigerRunter', 'hudZusatz', 'kachelZusatz', 'seitenleiste', 'zeichneOverlay']);
+      check('…with the thrown value (string and Error alike)', gemeldet.some((m) => m.fehler === 'boom-string') && gemeldet.some((m) => m.fehler instanceof Error && /boom kaputt/.test(m.fehler.message)));
+      const g2 = schutz.schuetze(w, () => {
+        throw new Error('sink broken');
+      });
+      check('a sink that throws does not bring the call down either', wirftMit(() => g2.abbrechen(ctx)) === null);
+    }
+
+    {
+      // the editor's own loops, with a broken tool in the middle
+      const { z: zk, w: kaputt } = attrappe('kaputt', true);
+      const { z: zg, w: gut } = attrappe('gut', false);
+      const { z: zh, w: gut2 } = attrappe('gut2', false);
+      const stumm: unknown[][] = [];
+      const alt = console.error;
+      console.error = (...a: unknown[]) => void stumm.push(a);
+      let liste: KartenWerkzeug[];
+      try {
+        liste = reg.registriere(gut, kaputt, gut2); // default sink = console.error
+        // an exception escaping a loop is a failed check, not a crashed test
+        const fangen = (was: string, tu: () => void): void => {
+          try {
+            tu();
+          } catch (e) {
+            check(`${was}: no exception escapes the loop`, false, String((e as Error).message));
+          }
+        };
+        const zeichner = neuerZeichner();
+        fangen('overlay loop', () => {
+          for (const w of liste) w.zeichneOverlay?.(ctx, zeichner as unknown as CanvasRenderingContext2D);
+        });
+        gleich('overlay loop: the tools before AND after the broken one drew (beginPath+stroke each)', zeichner.log.filter((l) => l === 'beginPath').length + '/' + zeichner.log.filter((l) => l.startsWith('stroke')).length, '3/2');
+        fangen('abbrechen loop', () => {
+          for (const w of liste) w.abbrechen(ctx);
+        });
+        gleich('abbrechen loop (Escape, foreign draft): all three were asked', [zg.abbrechen, zk.abbrechen, zh.abbrechen], [1, 1, 1]);
+        gleich('click on the healthy tool passes its value through (Shift → true, else false)', [liste[0]!.beiZeigerRunter(ctx, { weltX: 0, weltZ: 0, shiftKey: true }), liste[0]!.beiZeigerRunter(ctx, { weltX: 0, weltZ: 0, shiftKey: false })], [true, false]);
+        gleich('Escape on the healthy tool ends it, another key does not', [liste[0]!.beiTaste!(ctx, { code: 'Escape' }), liste[0]!.beiTaste!(ctx, { code: 'KeyA' })], [true, false]);
+        gleich('healthy tools report their texts unchanged', [liste[0]!.kachelZusatz(), liste[2]!.hudZusatz()], ['kz', 'hz']);
+      } finally {
+        console.error = alt;
+      }
+      const ersteMeldung = String(stumm[0]?.[0] ?? '');
+      check('the default sink is console.error with the tool id', stumm.length > 0 && /\[werkzeuge\] tool "kaputt": /.test(ersteMeldung), ersteMeldung);
+      check('the healthy tools reported nothing', stumm.every((m) => /tool "kaputt"/.test(String(m[0]))));
+      // a healthy tool keeps its identity: absent optional members stay absent
+      const sicherSee = reg.registriere(seeModul.erzeugeSee())[0]!;
+      check('optional members the tool lacks stay absent (see: no double click, key, overlay)', sicherSee.beiDoppelklick === undefined && sicherSee.beiTaste === undefined && sicherSee.zeichneOverlay === undefined);
+      check('…and the ones it has are there (river: double click, key, overlay)', (() => {
+        const f = reg.registriere(flussModul.erzeugeFluss())[0]!;
+        return typeof f.beiDoppelklick === 'function' && typeof f.beiTaste === 'function' && typeof f.zeichneOverlay === 'function' && typeof f.seitenleiste === 'function';
+      })());
+    }
+
+    {
+      // the real river tool next to a broken one: its overlay and its clicks still work
+      const alt = console.error;
+      const stumm: unknown[][] = [];
+      console.error = (...a: unknown[]) => void stumm.push(a);
+      try {
+        const [fluss, kaputt] = reg.registriere(flussModul.erzeugeFluss(), attrappe('kaputt', true).w);
+        const k = neuerKontext(leer, 'fluss');
+        fluss.beiZeigerRunter(k.ctx, klick(0, 0));
+        fluss.beiZeigerRunter(k.ctx, klick(400, 0));
+        const zz = neuerZeichner();
+        try {
+          for (const w of [fluss, kaputt]) w.zeichneOverlay?.(k.ctx, zz as unknown as CanvasRenderingContext2D);
+        } catch (e) {
+          check('river next to a broken tool: no exception escapes the overlay loop', false, String((e as Error).message));
+        }
+        check('river overlay drawn although the next tool threw (1 lineTo, 1 stroke)', zz.log.filter((l) => l.startsWith('lineTo')).length === 1 && zz.log.filter((l) => l.startsWith('stroke')).length === 1, zz.log.join('|'));
+        fluss.beiDoppelklick!(k.ctx);
+        gleich('river still closes: 1 river, 1 undo step', [k.z.layout.rivers?.length, k.z.schritte.length], [1, 1]);
+      } finally {
+        console.error = alt;
+      }
+      check('exactly one report (the broken tool, its overlay), none for the river', stumm.length === 1 && /"kaputt": zeichneOverlay/.test(String(stumm[0]?.[0])), `${stumm.length} report(s)`);
+    }
+  } else {
+    check('Fault isolation -- section could not run (registriere / schuetze missing)', false);
+  }
+
   // ── Source guard ─────────────────────────────────────────────────
   console.log('Source guard');
   const haupt = readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8');
@@ -404,6 +622,15 @@ async function main(): Promise<void> {
   gleich('editorMain.ts: no river / lake state or close function left', zustand, []);
   check('editorMain.ts asks the registry', /from '\.\/werkzeuge'/.test(haupt) && /werkzeugMitId\(werkzeug\)\?\.beiZeigerRunter/.test(haupt));
   gleich("KartenHud.ts: no 'fluss' / 'see' key", hud.match(/^\s*(fluss|see):/gm) ?? [], []);
+  const indexQuelle = (() => {
+    try {
+      return readFileSync(resolve(EDITOR, 'werkzeuge', 'index.ts'), 'utf-8');
+    } catch {
+      return '';
+    }
+  })();
+  check('index.ts builds the list with registriere() (check + guard)', /registriere\(erzeugeFluss\(\), erzeugeSee\(\)\)/.test(indexQuelle) && /pruefeRegistrierung\(werkzeuge, ALTE_WERKZEUGE\)/.test(indexQuelle) && /schuetze\(w\)/.test(indexQuelle));
+  check('KartenHud.ts takes its old names from ALTE_WERKZEUGE (one list)', /AltesWerkzeugname = \(typeof ALTE_WERKZEUGE\)\[number\]/.test(hud));
   for (const datei of ['index', 'fluss', 'see', 'typ']) {
     check(`werkzeuge/${datei}.ts has no DOM access at module level`, (() => {
       try {

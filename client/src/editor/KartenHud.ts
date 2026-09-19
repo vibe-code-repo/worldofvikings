@@ -56,7 +56,7 @@
  */
 
 import { baueKuratierungsAuswahl } from './KuratierungsAuswahl';
-import { werkzeugMitId, type RegistrierteId } from './werkzeuge';
+import { werkzeugMitId, type ALTE_WERKZEUGE, type RegistrierteId } from './werkzeuge';
 import {
   BIOME_BY_NAME,
   DEFAULT_BASE_LEVEL,
@@ -96,9 +96,11 @@ export type Ebene = 'biome' | 'hoehe' | 'routen';
 /**
  * Werkzeuge, die noch über die alten Zweige in `editorMain.ts` laufen; ihr
  * Sinnbild und ihre Tastenhilfe stehen unten in diesem Modul. Alle anderen
- * sind registriert (`werkzeuge/index.ts`) und bringen beides selbst mit.
+ * sind registriert (`werkzeuge/index.ts`) und bringen beides selbst mit. Die
+ * Liste ist `ALTE_WERKZEUGE` dort (dieselben Namen sind für die Registry
+ * gesperrt).
  */
-export type AltesWerkzeugname = 'auswahl' | 'form' | 'polygon' | 'platzieren';
+export type AltesWerkzeugname = (typeof ALTE_WERKZEUGE)[number];
 
 /**
  * Werkzeugnamen des Editors. Wortgleich mit der Variablen `werkzeug` in

@@ -17,6 +17,27 @@
  * access to the editor goes through `WerkzeugKontext`, so a tool runs
  * against a fake context in a plain Node test (`client/test/werkzeug-registry.ts`).
  * Only `seitenleiste` builds DOM, and only when the editor calls it.
+ *
+ * Moving a tool from the old path into the registry (selection, island shape,
+ * polygon and placing still run as `if (werkzeug === '<id>')` branches in
+ * `editorMain.ts`; their ids are reserved in `ALTE_WERKZEUGE`, `index.ts`).
+ * ONE change does all of it, because half of it either shadows the old branch
+ * or leaves dead code:
+ *   1. `werkzeuge/<id>.ts`: a factory `erzeuge<Name>(): KartenWerkzeug<'<id>'>`
+ *      with the state that lived in module variables of `editorMain.ts`.
+ *   2. `index.ts`: add `erzeuge<Name>()` to the `registriere(...)` call AND
+ *      remove '<id>' from `ALTE_WERKZEUGE`. Doing only the first throws while
+ *      the registry loads ("id ... is reserved"); doing only the second leaves
+ *      the old branches, which the registry would now shadow.
+ *   3. Delete the old path: the `if (werkzeug === '<id>')` branches (pointer,
+ *      Escape, sidebar block), the tile, the module variables, the entries in
+ *      `WERKZEUG_TEXT`/`hudZusatz` (`editorMain.ts`) and in `WERKZEUG_BILD`/
+ *      `WERKZEUG_TASTEN` (`KartenHud.ts`). Shrinking `ALTE_WERKZEUGE` makes
+ *      the compiler point at those tables.
+ *   4. `client/test/werkzeug-registry.ts`: the tool's checks against a fake
+ *      context, and its id in the list of registered ids.
+ * A tool that throws is caught per call by the registry (`schutz.ts`): the
+ * error is logged with its id and that call is skipped, the editor goes on.
  */
 import type { WorldLayout } from '@wov/shared';
 
@@ -115,6 +136,6 @@ export interface KartenWerkzeug<Id extends string = string> {
    * from another tab replaces the document.
    */
   abbrechen(ctx: WerkzeugKontext): void;
-  /** The tool's block in the sidebar, shown while the tool is active. */
-  seitenleiste?(ctx: WerkzeugKontext, host: SeitenHost): HTMLElement;
+  /** The tool's block in the sidebar, shown while the tool is active (`null` = none). */
+  seitenleiste?(ctx: WerkzeugKontext, host: SeitenHost): HTMLElement | null;
 }

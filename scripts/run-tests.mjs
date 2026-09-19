@@ -1357,6 +1357,7 @@ const KERN = [
   // operations, zone reset.
   // Tool registry: the editor's tools behind one interface (start, abort, keys, bar).
   ['client', 'test/werkzeug-registry.ts'],
+  ['client', 'test/werkzeug-platzieren.ts'],
   // Stable placement ids: the sanitizer derives / keeps / sorts ids, folds exact duplicates.
   ['shared', 'test/platzierungs-ids.ts'],
   // World operations (setze / aendere / entferne, undo, anchors): the pure part ...

@@ -345,14 +345,18 @@ try {
       layoutText(g.daten.layout as WorldLayout) === platte().toString('utf-8')
   );
 
-  // ── 2) Ohne Basis: angenommen, laut, vermerkt ───────────────────────
+  // ── 2) Ohne Basis: abgelehnt (428), nichts geschrieben ──────────────
+  // Bis E0 wurde das mit 200 und `ohneBasis: true` angenommen; seit E1/K1.2 ist
+  // die Basis Pflicht (einzelne Objekte ändert PATCH /api/worldlayout/ops).
+  const h2 = plattenHash();
+  const bak2 = sicherungen();
   const ohne = await anfrage('POST', { leib: koerper('ohne-basis') });
-  check('ohne Basis → 200', ohne.status === 200, `= ${ohne.status}`);
-  check('ohne Basis: ohneBasis === true', ohne.daten.ohneBasis === true);
+  check('ohne Basis → 428', ohne.status === 428, `= ${ohne.status}`);
+  check('ohne Basis: fehler basis-fehlt, ok false, Meldung', ohne.daten.fehler === 'basis-fehlt' && ohne.daten.ok === false && typeof ohne.daten.message === 'string');
   await warte(150); // die Logzeile läuft über eine Pipe und kann der Antwort um einen Takt hinterherkommen
-  check('ohne Basis: Logzeile im Betriebsdienst', /OHNE Basis/.test(protokoll));
-  check('ohne Basis: Datei = Sanitizer-Ergebnis', platte().toString('utf-8') === sollText(koerper('ohne-basis')));
-  check('ohne Basis: hash in der Antwort = Plattenhash', ohne.daten.hash === plattenHash());
+  check('ohne Basis: Logzeile im Betriebsdienst', /428 basis-fehlt/.test(protokoll));
+  check('ohne Basis: Datei unverändert, keine Sicherung', plattenHash() === h2 && sicherungen() === bak2);
+  check('ohne Basis: kein ohneBasis-Vermerk mehr', ohne.daten.ohneBasis === undefined);
 
   // ── 3) If-Match richtig → 200, neuer hash, ETag ─────────────────────
   const hA = await holeHash();
@@ -418,9 +422,9 @@ try {
   await warte(150);
   check('422: Logzeile im Betriebsdienst', /422 zu-viele-platzierungen: 2001 > 2000/.test(protokoll));
   const muell = { ...koerper('muell'), placements: Array.from({ length: 2001 }, () => null) };
-  const zuVieleMuell = await anfrage('POST', { leib: muell });
+  const zuVieleMuell = await anfrage('POST', { leib: muell, ifMatch: `"${hD}"` });
   check('gezählt VOR dem Sanitizer: 2001 Nullen → 422', zuVieleMuell.status === 422 && zuVieleMuell.daten.anzahl === 2001);
-  check('422 (ohne Basis): Datei unverändert', plattenHash() === hD);
+  check('422 (mit Basis): Datei unverändert', plattenHash() === hD);
   const genau = await anfrage('POST', { leib: koerper('genau-2000', 2000), ifMatch: `"${hD}"` });
   check('genau 2000 Platzierungen → 200', genau.status === 200, `= ${genau.status}`);
   check(
@@ -437,7 +441,7 @@ try {
       check(`${feld} als Objekt → 422 ungueltig`, r.status === 422 && r.daten.fehler === 'ungueltig' && r.daten.feld === feld && r.daten.ok === false && typeof r.daten.message === 'string', `= ${r.status} ${JSON.stringify(r.daten)}`);
     }
     for (const wert of ['text', 42, null, true]) {
-      const r = await anfrage('POST', { leib: { ...koerper('feld-kaputt'), placements: wert } });
+      const r = await anfrage('POST', { leib: { ...koerper('feld-kaputt'), placements: wert }, ifMatch: `"${hL}"` });
       check(`placements = ${JSON.stringify(wert)} → 422 ungueltig`, r.status === 422 && r.daten.feld === 'placements', `= ${r.status} ${JSON.stringify(r.daten)}`);
     }
     check('422 ungueltig: Prüfsumme vorher = nachher, keine Sicherung', plattenHash() === hL && sicherungen() === bakL);
@@ -446,7 +450,7 @@ try {
     const ohneFeld = await anfrage('POST', { leib: (({ placements: _p, ...rest }) => rest)(koerper('ohne-platzierungen')), ifMatch: `"${hL}"` });
     check('placements fehlt ganz → weiterhin 200 (kein Fehler, nur eine leere Liste)', ohneFeld.status === 200, `= ${ohneFeld.status}`);
     const hL2 = plattenHash();
-    const regionenKaputt = await anfrage('POST', { leib: { ...koerper('regionen-kaputt'), regions: 'keine Liste' } });
+    const regionenKaputt = await anfrage('POST', { leib: { ...koerper('regionen-kaputt'), regions: 'keine Liste' }, ifMatch: `"${hL2}"` });
     check('regions als Text → weiterhin 400 (Regel „keine Region“, bestehender Vertrag)', regionenKaputt.status === 400, `= ${regionenKaputt.status}`);
     check('… Datei unberührt', plattenHash() === hL2);
   }

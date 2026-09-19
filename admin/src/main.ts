@@ -58,10 +58,10 @@
  */
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync, renameSync, realpathSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 // S6-Notausgang (Karte 0.1, zweiter Weg): NUR lesend auf der
 // Kontendatenbank, um einen Charakternamen in eine spielerId aufzuloesen.
@@ -1060,6 +1060,11 @@ async function behandeln(
         message: `${basename(LAYOUT_DATEI)}: ${layout.regions.length} Region(en), ${layout.placements?.length ?? 0} Platzierung(en)`,
         instanz: INSTANZ,
         datei: basename(LAYOUT_DATEI),
+        // Welche Datei das ist, ohne den Pfad preiszugeben: Der MCP-Server
+        // vergleicht sie mit der Weltdatei SEINES Checkouts und schreibt nur
+        // dorthin (tools/worldlayout-mcp/server.ts). / Which file this is,
+        // without leaking the path.
+        weltKennung: createHash('sha256').update(realpathSync(LAYOUT_DATEI)).digest('hex'),
         hash,
         layout,
       },

@@ -360,6 +360,8 @@ export async function schreibeWeltdokument(
     hash?: unknown;
     anzahl?: unknown;
     grenze?: unknown;
+    verworfen?: unknown;
+    verworfenJeFeld?: unknown;
   } = {};
   try {
     d = JSON.parse(await antwort.text()) as typeof d;
@@ -386,10 +388,37 @@ export async function schreibeWeltdokument(
       };
     }
   }
+  // Gesperrt: ein anderer Vorgang schreibt gerade dieselbe Weltdatei. Nichts
+  // ist verloren, ein zweiter Versuch gelingt fast immer nach Sekunden.
+  if (antwort.status === 503) {
+    const warte = Number(antwort.headers?.get('Retry-After'));
+    return {
+      art: 'fehler',
+      message:
+        'Die Welt wird gerade von einem anderen Vorgang gespeichert – in ein paar Sekunden erneut versuchen' +
+        (Number.isFinite(warte) && warte > 0 ? ` (Retry-After: ${warte} s)` : '') +
+        ' — nichts geschrieben.',
+    };
+  }
   if (antwort.ok && d.ok !== false) {
+    // Hat der Betriebsdienst Einträge verworfen (nur erreichbar mit einem
+    // Fremdschreiber oder einer älteren Editorfassung: Editor und Testflug
+    // schicken schon gefilterte Listen), steht die Zahl in der Meldung.
+    const verworfen = Number(d.verworfen);
+    const jeFeld =
+      d.verworfenJeFeld && typeof d.verworfenJeFeld === 'object'
+        ? Object.entries(d.verworfenJeFeld as Record<string, unknown>)
+            .filter(([, n]) => Number(n) > 0)
+            .map(([feld, n]) => `${feld}: ${Number(n)}`)
+        : [];
+    const hinweis =
+      Number.isFinite(verworfen) && verworfen > 0
+        ? ` — ACHTUNG: ${verworfen} Eintrag/Einträge vom Betriebsdienst verworfen` +
+          (jeFeld.length > 0 ? ` (${jeFeld.join(', ')})` : '')
+        : '';
     return {
       art: 'ok',
-      message: d.message ?? 'Gespeichert',
+      message: (d.message ?? 'Gespeichert') + hinweis,
       hash: hashNormalisieren(d.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
     };
   }

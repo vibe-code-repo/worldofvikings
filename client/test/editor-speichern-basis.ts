@@ -224,11 +224,41 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('inDieWeltSpeichern schickt die Basis: schreibeWeltdokument(sauber, basis), basis beginnt bei serverHash', /let basis = serverHash;/.test(speichern) && /schreibeWeltdokument\(sauber, basis\)/.test(speichern));
   check('… und nimmt nach bestätigter Frischprüfung deren Hash (basisNachBestaetigung(serverHash, stand)) — erst NACH dem „ja"', /if \(wahl !== 'ja'\) \{[\s\S]*?return false;\s*\}\s*[^]*?basis = basisNachBestaetigung\(serverHash, stand\);/.test(speichern));
   check('… und ruft nirgends selbst fetch(…) für den POST auf', !/fetch\(/.test(speichern.slice(speichern.indexOf('Speichere nach'))));
-  check('… merkt sich den neuen Hash nach Erfolg', /serverHash = antwort\.hash/.test(speichern));
+  check('… merkt sich den neuen Hash nach Erfolg (setzeServerHash: Editor UND Begleitzettel)', /setzeServerHash\(antwort\.hash\)/.test(speichern));
   check('… bei 409 wird abgeglichen statt überschrieben', /antwort\.art === 'veraltet'[\s\S]*veraltetAbgleichen\(sauber\)/.test(speichern));
   check('veraltetAbgleichen schreibt selbst NICHT auf den Server (0 POSTs im 409-Zweig)', !/schreibeWeltdokument\(|fetch\(|method: 'POST'/.test(abgleich));
   check('… und benutzt den vorhandenen Abgleich-Dialog (frage, unterschiedsTafel, vergleiche)', /frage\(/.test(abgleich) && /unterschiedsTafel\(/.test(abgleich) && /vergleiche\(stand\.layout, sauber\)/.test(abgleich));
-  check('Der Abgleich beim Start merkt sich den Hash des Servers', /serverHash = stand\.hash;/.test(q.slice(q.indexOf('async function weltAbgleich'))));
+  check('Der Abgleich beim Start merkt sich den Hash des Servers (setzeServerHash)', /setzeServerHash\(stand\.hash\);/.test(q.slice(q.indexOf('async function weltAbgleich'))));
+  check('… nach 409 ebenso', /setzeServerHash\(stand\.hash\);/.test(abgleich));
+  check('Kein Zuweisen von serverHash außerhalb von setzeServerHash (sonst fehlt der Begleitzettel die Basis)', (q.match(/^\s*serverHash = /gm) ?? []).length === 1, String((q.match(/^\s*serverHash = /gm) ?? []).length));
+  check('setzeServerHash trägt die Basis in den Begleitzettel ein (entwurfsSpeicher.basisMerken)', /function setzeServerHash[\s\S]{0,200}entwurfsSpeicher\.basisMerken\(hash\)/.test(q));
+}
+
+// ── 9. Meldungen: 503 gesperrt (B5), verworfene Einträge bei 200 (B4) ──
+console.log('▶ 503 gesperrt und verworfene Einträge');
+{
+  const { fetchFn, aufrufe } = attrappe([
+    { status: 503, rumpf: { ok: false, fehler: 'gesperrt', message: 'dev.json ist gesperrt (gehalten von pid 4711 auf Rechner x)' }, kopf: { 'Retry-After': '3' } },
+  ]);
+  const a = await schreibeWeltdokument(echt, 'h1', fetchFn);
+  check('503: art=fehler, nichts wiederholt (1 Aufruf)', a.art === 'fehler' && aufrufe.length === 1, JSON.stringify(a));
+  check('503: verständliche Meldung („in ein paar Sekunden erneut versuchen"), Retry-After genannt, nichts geschrieben',
+    /in ein paar Sekunden erneut versuchen/.test(a.message) && /Retry-After: 3 s/.test(a.message) && /nichts geschrieben/.test(a.message), a.message);
+  check('503: die technische Sperrmeldung (pid/Rechner) steht nicht in der Nutzermeldung', !/pid|Rechner/.test(a.message), a.message);
+  const ohneKopf = await schreibeWeltdokument(echt, 'h1', attrappe([{ status: 503, rumpf: { ok: false, fehler: 'gesperrt' } }]).fetchFn);
+  check('503 ohne Retry-After: dieselbe Meldung, ohne Zahl', ohneKopf.art === 'fehler' && /in ein paar Sekunden erneut versuchen/.test(ohneKopf.message) && !/Retry-After/.test(ohneKopf.message), ohneKopf.message);
+}
+{
+  const { fetchFn } = attrappe([
+    { status: 200, rumpf: { ok: true, message: 'Gespeichert in dev.json: 1 Platzierung(en)', hash: 'h5', verworfen: 2, verworfenJeFeld: { placements: 2, rivers: 0 } } },
+  ]);
+  const a = await schreibeWeltdokument(echt, 'h1', fetchFn);
+  check('200 mit verworfen=2: art=ok, Hash übernommen', a.art === 'ok' && a.hash === 'h5', JSON.stringify(a));
+  check('… die Erfolgsmeldung nennt die Zahl (2) und das Feld (placements: 2), nicht das Nullfeld', /2 Eintrag/.test(a.message) && /placements: 2/.test(a.message) && !/rivers/.test(a.message), a.message);
+  const still = await schreibeWeltdokument(echt, 'h1', attrappe([{ status: 200, rumpf: { ok: true, message: 'Gespeichert in dev.json', hash: 'h6' } }]).fetchFn);
+  check('200 ohne verworfen: Meldung unverändert', still.art === 'ok' && still.message === 'Gespeichert in dev.json', still.message);
+  const null_ = await schreibeWeltdokument(echt, 'h1', attrappe([{ status: 200, rumpf: { ok: true, message: 'Gespeichert', hash: 'h6', verworfen: 0 } }]).fetchFn);
+  check('200 mit verworfen=0: Meldung unverändert', null_.art === 'ok' && null_.message === 'Gespeichert', null_.message);
 }
 
 console.log(fehler === 0 ? '\nalle Prüfungen bestanden' : `\n${fehler} Prüfung(en) FEHLGESCHLAGEN`);

@@ -1334,6 +1334,10 @@ const KERN = [
   ['client', 'test/editor-speichern-basis.ts'],
   // Offline-flight module (moved out of main.ts): what stays true afterwards.
   ['client', 'test/testflug-modul.ts'],
+  // Publishing from the offline flight carries the server base the editor left
+  // in the draft's companion note: a newer editor save gives 409, nothing is
+  // overwritten; no base, nothing is sent. Real operations service. ~5 s.
+  ['client', 'test/testflug-speichern-basis.ts'],
   // Licht-Hints kommen an der Registry an. Ein Prefab ohne `light` ist
   // nicht kaputt, es ist dunkel — und dunkel faellt nirgends auf.
   ['shared', 'test/licht-hints.ts'],

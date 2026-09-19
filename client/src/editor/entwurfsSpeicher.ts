@@ -60,6 +60,48 @@ import { ENTWURF_KEY, STAND_KEY, enthaelt, gleich, type EntwurfsQuelle, type Ent
 /** Name des BroadcastChannel — eigener Name, damit kein anderer Kanal mithört. */
 export const ENTWURF_KANAL = 'wov-editor-entwurf';
 
+/**
+ * Der Begleitzettel, wie er geschrieben wird: `EntwurfsStand` plus die BASIS —
+ * der Hash des Serverdokuments, den ein Editor zuletzt gelesen oder selbst
+ * geschrieben hat. Wer ohne den Editor auf den Server schreibt (der Testflug,
+ * `LocalStoragePersistenz`), schickt genau diese Basis als `If-Match` mit und
+ * überschreibt so keine neuere Speicherung still. Der Testflug schreibt am
+ * Zettel nur dieses eine Feld (nach einem erfolgreichen Speichern), sonst
+ * nichts: Stempel und Kennung bleiben, wie sie sind.
+ */
+export interface Begleitzettel extends EntwurfsStand {
+  basis?: string;
+}
+
+/** Die Basis aus dem Rohtext des Begleitzettels; `null`, wenn keiner da, nicht lesbar oder ohne Basis. */
+export function zettelBasisLesen(roh: string | null | undefined): string | null {
+  if (!roh) return null;
+  try {
+    const d = JSON.parse(roh) as { basis?: unknown } | null;
+    return d && typeof d.basis === 'string' && d.basis.trim() !== '' ? d.basis : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Der Rohtext des Zettels mit gesetzter (`basis`) bzw. entfernter (`null`)
+ * Basis, alle übrigen Felder unverändert. `null`, wenn es keinen lesbaren
+ * Zettel gibt: einen Zettel aus dem Nichts erfindet diese Funktion nicht.
+ */
+export function zettelMitBasis(roh: string | null | undefined, basis: string | null): string | null {
+  if (!roh) return null;
+  try {
+    const d = JSON.parse(roh) as Record<string, unknown> | null;
+    if (!d || typeof d !== 'object' || Array.isArray(d) || typeof d.zeit !== 'string') return null;
+    if (basis) d.basis = basis;
+    else delete d.basis;
+    return JSON.stringify(d);
+  } catch {
+    return null;
+  }
+}
+
 /** Der Teil von `Storage`, den der Speicher braucht. */
 export interface KvSpeicher {
   getItem(schluessel: string): string | null;
@@ -645,6 +687,8 @@ export class EntwurfsSpeicher {
   private readonly platzErgebnis: ((entwurfPasst: boolean) => void) | null;
   /** Der Rohtext in `bekannt` stammt von einem anderen Tab und ist seither nicht überschrieben worden. */
   private bekanntFremd = false;
+  /** Zuletzt bekannter Serverstand (Hash) für den Begleitzettel, s. `basisMerken`. */
+  private basis: string | null = null;
   private readonly beiStorage = (e: { key: string | null }): void => {
     // `key === null`: der Speicher wurde geleert.
     if (e.key === null || e.key === ENTWURF_KEY) this.pruefe('ereignis', this.aktuell());
@@ -678,6 +722,25 @@ export class EntwurfsSpeicher {
     if (this.kanal) {
       this.kanal.onmessage = null;
       this.kanal.close();
+    }
+  }
+
+  /**
+   * Der Editor kennt einen neuen Serverstand (gelesen oder selbst geschrieben,
+   * `null` = keiner): Er kommt in den Begleitzettel, damit der Testflug ihn als
+   * Basis benutzen kann. Ohne vorhandenen Zettel wird keiner erfunden; der
+   * nächste `schreiben` legt ihn mit dieser Basis an. `true`, wenn ein Zettel
+   * aktualisiert wurde.
+   */
+  basisMerken(hash: string | null): boolean {
+    this.basis = hash;
+    try {
+      const neu = zettelMitBasis(this.speicher.getItem(STAND_KEY), hash);
+      if (neu === null) return false;
+      this.speicher.setItem(STAND_KEY, neu);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -821,13 +884,25 @@ export class EntwurfsSpeicher {
     // Der Zettel NACH dem Entwurf: Reisst die Quote, fehlt lieber der
     // Zettel als der Entwurf — und der Entwurf wird deswegen nicht als
     // „nicht gespeichert" gemeldet.
+    // Die Basis des Zettels bleibt, wie sie ist: Hat der Testflug sie nach
+    // einem eigenen Speichern weitergeschoben, darf ein Editor-Schreibvorgang
+    // sie nicht mit dem älteren Wert dieses Tabs überschreiben. Ohne Zettel
+    // gilt, was dieser Tab zuletzt gemerkt hat.
+    let alterZettel: string | null = null;
+    try {
+      alterZettel = this.speicher.getItem(STAND_KEY);
+    } catch {
+      /* nicht lesbar: dann gilt die gemerkte Basis */
+    }
+    const basis = zettelBasisLesen(alterZettel) ?? this.basis;
     const zettel = JSON.stringify({
       zeit: new Date(zeit).toISOString(),
       instanz,
       quelle,
       geaendertUm: zeit,
       tabId: this.tabId,
-    } satisfies EntwurfsStand);
+      ...(basis ? { basis } : {}),
+    } satisfies Begleitzettel);
     let ergebnis: SchreibErgebnis = 'ok';
     try {
       this.speicher.setItem(STAND_KEY, zettel);

@@ -457,6 +457,15 @@ let serverKanon: string | null = null;
  */
 let serverHash: string | null = null;
 /**
+ * Setzt `serverHash` UND trägt ihn in den Begleitzettel des Entwurfs ein: Der
+ * Testflug speichert nur mit dieser Basis (`LocalStoragePersistenz`) und
+ * überschreibt so keine neuere Speicherung still.
+ */
+function setzeServerHash(hash: string | null): void {
+  serverHash = hash;
+  entwurfsSpeicher.basisMerken(hash);
+}
+/**
  * Muss hier oben stehen und nicht bei den übrigen Speicher-Funktionen:
  * Der Werkzeugleisten-Block weiter unten läuft beim Laden des Moduls und
  * weist das Feld zu — eine `let`-Deklaration NACH ihm läge zu diesem
@@ -3373,7 +3382,7 @@ async function inDieWeltSpeichern(): Promise<boolean> {
     // wegzuklicken. Genau das darf er nie werden. Der neue Hash ist die
     // Basis des nächsten Speicherns.
     serverKanon = JSON.stringify(sauber);
-    serverHash = antwort.hash;
+    setzeServerHash(antwort.hash);
     speichereEntwurf('server');
     faerbeSpeicherKnopf();
     return true;
@@ -3435,7 +3444,7 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
   );
   // Beide Wege haben den aktuellen Serverstand gesehen: Er ist ab jetzt die
   // Basis. Ohne diese Zeilen liefe jedes weitere Speichern erneut in 409.
-  serverHash = stand.hash;
+  setzeServerHash(stand.hash);
   serverKanon = JSON.stringify(stand.layout);
   if (wahl === 'server') {
     const ringVor = ringStand();
@@ -4104,7 +4113,7 @@ async function weltAbgleich(): Promise<void> {
   shell.instanzZeigen(stand.instanz, stand.datei, stand.message);
   faerbeSpeicherKnopf();
   serverKanon = JSON.stringify(stand.layout);
-  serverHash = stand.hash;
+  setzeServerHash(stand.hash);
 
   // Hat ein anderer Tab seit dem Start den Entwurf geändert, ist das jetzt
   // der Entwurf — sonst behielte „Entwurf behalten" den älteren Stand und

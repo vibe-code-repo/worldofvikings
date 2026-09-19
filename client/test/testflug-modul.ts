@@ -111,9 +111,11 @@ let gelesen = 0;
   setItem: (k: string, v: string) => void speicher.set(k, v),
 };
 const abrufe: Array<{ url: string; init: RequestInit }> = [];
+// The server answer the fake returns next (status and body); default: 200 with a new hash.
+let naechsteAntwort: { status: number; rumpf: unknown } = { status: 200, rumpf: { ok: true, message: 'saved', hash: 'h2' } };
 (globalThis as unknown as { fetch: unknown }).fetch = async (url: string, init: RequestInit) => {
   abrufe.push({ url, init });
-  return { json: async () => ({ ok: true, message: 'saved' }) };
+  return new Response(JSON.stringify(naechsteAntwort.rumpf), { status: naechsteAntwort.status });
 };
 const warnungen: string[] = [];
 console.warn = (...teile: unknown[]): void => void warnungen.push(teile.join(' '));
@@ -134,12 +136,28 @@ try {
   const zurueck = p.laden();
   pruefe(zurueck?.placements?.length === 1 && zurueck.eigenesFeld === 7, 'laden must return what aendern wrote, extra fields included');
 
+  // Publishing needs the server base the editor left in the draft's companion
+  // note. Without one nothing is sent (an older save by an editor could be
+  // overwritten silently otherwise).
+  const ohneBasis = await p.speichern({ placements: [] });
+  pruefe(ohneBasis.ok === false && /Editor-Stand/.test(ohneBasis.message), `without a base: refuse with the editor hint, got ${JSON.stringify(ohneBasis)}`);
+  pruefe(abrufe.length === 0, `without a base no request may go out, ${abrufe.length} did`);
+  speicher.set('wov-editor-entwurf-stand', JSON.stringify({ zeit: '2026-09-19T00:00:00.000Z', instanz: 'dev', quelle: 'server', tabId: 'tabA', basis: 'h1' }));
   const antwort = await p.speichern({ placements: [] });
-  pruefe(antwort.ok === true && antwort.message === 'saved', 'speichern must return the parsed server answer');
+  pruefe(antwort.ok === true && antwort.message === 'saved', 'speichern must return the server answer');
   pruefe(abrufe.length === 1, `speichern must call fetch once, called ${abrufe.length}x`);
   pruefe(abrufe[0]?.url === '/api/worldlayout', `wrong endpoint: ${abrufe[0]?.url}`);
   pruefe(abrufe[0]?.init.method === 'POST', 'speichern must POST');
   pruefe(abrufe[0]?.init.body === '{"placements":[]}', `wrong body: ${String(abrufe[0]?.init.body)}`);
+  pruefe((abrufe[0]?.init.headers as Record<string, string> | undefined)?.['If-Match'] === '"h1"', `If-Match must carry the base from the note: ${JSON.stringify(abrufe[0]?.init.headers)}`);
+  const zettelNach = JSON.parse(speicher.get('wov-editor-entwurf-stand') ?? 'null') as Record<string, unknown> | null;
+  pruefe(zettelNach?.basis === 'h2', `after a successful save the note carries the new hash, has ${String(zettelNach?.basis)}`);
+  pruefe(zettelNach?.tabId === 'tabA' && zettelNach?.quelle === 'server' && zettelNach?.zeit === '2026-09-19T00:00:00.000Z', 'the flight changes only `basis` in the note (stamp and tab stay)');
+  naechsteAntwort = { status: 409, rumpf: { fehler: 'veraltet', aktuell: 'h9' } };
+  const veraltet = await p.speichern({ placements: [] });
+  pruefe(veraltet.ok === false && /inzwischen geändert/.test(veraltet.message) && /im Editor abgleichen/.test(veraltet.message), `409: message for the flight, got ${JSON.stringify(veraltet)}`);
+  pruefe((JSON.parse(speicher.get('wov-editor-entwurf-stand') ?? 'null') as { basis?: string }).basis === 'h2', '409 must keep the old base in the note (only the editor replaces it after looking at the server)');
+  naechsteAntwort = { status: 200, rumpf: { ok: true, message: 'saved', hash: 'h2' } };
 
   // start draft
   gelesen = 0;

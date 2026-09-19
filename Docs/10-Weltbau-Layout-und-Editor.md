@@ -370,13 +370,31 @@ und Token findet der Server so (Vorrang von oben nach unten):
 
 Der MCP-Server liest das Token bei jedem Aufruf neu. Läuft der Betriebsdienst
 nicht, sagt die Fehlermeldung, welche Adresse und welche Token-Datei er
-versucht hat. **Vorsicht:** Ohne weitere Angabe zeigt der Server auf den
-Betriebsdienst der Instanz, in der er läuft — auf `wov-dev` also auf die
-DEV-Welt. Zum Erproben einen eigenen Betriebsdienst auf einer Weltkopie
-starten (`WOV_WURZEL`, `WOV_ADMIN_PORT`, `WOV_ADMIN_TOKEN_DATEI`) und den
-MCP-Server mit `WOV_ADMIN_URL` darauf zeigen lassen — dann verweigert
-`layout_deploy` die Arbeit, weil ein Neustart eine andere Weltdatei lüde.
-`tools/worldlayout-mcp/probe.ts` macht genau das.
+versucht hat.
+
+**Schreiben nur in die Welt des eigenen Checkouts.** Ohne weitere Angabe
+zeigt der Server auf den Betriebsdienst 127.0.0.1:2468 — auf `wov-dev` der
+DEV-Dienst, also die DEV-Welt. Deshalb schreiben die `*_set`/`*_delete`-
+Werkzeuge nur, wenn der Dienst die Weltdatei **dieses Checkouts**
+(`server/data/welten/<instanz>.json` des Repos, in dem `server.ts` liegt)
+verwaltet: `GET /api/worldlayout` liefert dafür `weltKennung` (sha256 des
+`realpath` der Weltdatei, bewusst kein Pfad); der Server vergleicht sie mit
+der Kennung seiner eigenen Datei. Stimmt sie nicht oder fehlt sie (älterer
+Dienst), verweigert das Werkzeug mit einer Meldung, die den eigenen Pfad
+nennt; **Lesen bleibt immer erlaubt**. Wer bewusst eine fremde Welt schreiben
+will, setzt `WOV_MCP_FREMDE_WELT=1`. Wer `npm run dev` im selben Checkout
+laufen hat, braucht nichts zu setzen (`scripts/dev.mjs` startet den
+Betriebsdienst mit derselben Wurzel).
+
+Zum Erproben in einem Worktree: eigenen Betriebsdienst auf dem Slot-Port
+starten (`WOV_ADMIN_PORT=248n`; die Wurzel ist der Worktree) und den
+MCP-Server mit demselben `WOV_ADMIN_PORT` ansprechen. Auf einer Weltkopie
+außerhalb des Checkouts (`WOV_WURZEL`=Kopie, eigene `WOV_ADMIN_TOKEN_DATEI`)
+braucht auch der MCP-Server dieselbe `WOV_WURZEL` oder `WOV_MCP_FREMDE_WELT=1`.
+Über `WOV_ADMIN_URL` verweigert `layout_deploy` die Arbeit, weil ein Neustart
+eine andere Weltdatei lüde. `tools/worldlayout-mcp/probe.ts` prüft alles
+davon (eigener Betriebsdienst, eigene und fremde Wurzel, Dienst ohne
+Kennung).
 
 ## Betrieb
 

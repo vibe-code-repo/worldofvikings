@@ -41,13 +41,27 @@
  * ungesetzt als leere Zeichenkette durch. Der Betriebsdienst lässt nur das
  * lokale Netz herein und verlangt das Token (Kopf x-wov-token).
  *
+ * ── Schreiben nur in die Welt dieses Checkouts ────────────────────────
+ * Die *_set/*_delete-Werkzeuge schreiben nur, wenn der angesprochene
+ * Betriebsdienst die Weltdatei DIESES Checkouts verwaltet
+ * (server/data/welten/<instanz>.json des Repos, in dem diese Datei liegt;
+ * WOV_WURZEL überschreibt die Wurzel wie beim Betriebsdienst). Der Dienst
+ * meldet in GET /api/worldlayout die `weltKennung` (sha256 des realpath, kein
+ * Pfad); stimmt sie nicht oder fehlt sie, verweigert das Werkzeug mit einer
+ * Meldung, die den eigenen Pfad nennt. Lesen bleibt immer erlaubt.
+ * WOV_MCP_FREMDE_WELT=1 hebt die Sperre auf, wenn eine fremde Welt bewusst
+ * geschrieben werden soll. Grund: In einem Worktree auf wov-dev zeigt die
+ * Vorgabe (127.0.0.1:2468) auf den DEV-Betriebsdienst, also auf Mikes
+ * TABU-Spielstand.
+ *
  * ── Gefahrlos ausprobieren ────────────────────────────────────────────
- * Ohne weitere Angabe ändern die *_set/*_delete-Werkzeuge das Dokument des
- * laufenden Betriebsdienstes — bei WOV_INSTANZ=dev (Standard) also Mikes
- * TABU-Spielstand. Zum Erproben stattdessen einen eigenen Betriebsdienst
- * auf einer Kopie starten (WOV_WURZEL auf ein Wegwerfverzeichnis,
+ * Einen eigenen Betriebsdienst auf dem Slot-Port starten (`WOV_WURZEL` =
+ * dieser Checkout ist die Vorgabe, `WOV_ADMIN_PORT=248n`) und den
+ * MCP-Server mit demselben WOV_ADMIN_PORT ansprechen. Auf einer Weltkopie
+ * außerhalb des Checkouts (WOV_WURZEL auf ein Wegwerfverzeichnis,
  * WOV_ADMIN_PORT=0, eigene WOV_ADMIN_TOKEN_DATEI — `probe.ts` macht genau
- * das) und ihn über WOV_ADMIN_URL ansprechen.
+ * das) braucht auch der MCP-Server dieselbe WOV_WURZEL, oder
+ * WOV_MCP_FREMDE_WELT=1.
  *
  * `layout_deploy` verweigert die Arbeit, solange WOV_ADMIN_URL gesetzt ist:
  * Ein Neustart des lokalen wov-Servers lädt die Weltdatei DIESER Instanz,
@@ -58,7 +72,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   sanitizeWorldLayout,
@@ -82,6 +97,7 @@ import {
   type BiomeName,
 } from '@wov/shared';
 import { PLATZIERUNGEN_GRENZE } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
 
 // Der Betriebsdienst ist der einzige Schreiber der Weltdatei — dieser
 // Prozess redet nur mit ihm, siehe Kopfkommentar. Aus layoutDatei.ts kommt
@@ -96,6 +112,43 @@ const ADMIN_URL = (
 const ADMIN_TOKEN_DATEIEN = process.env.WOV_ADMIN_TOKEN_DATEI
   ? [process.env.WOV_ADMIN_TOKEN_DATEI]
   : [fileURLToPath(new URL('../../server/data/admin.token', import.meta.url)), '/etc/wov-admin.token'];
+
+// Geschrieben wird nur in die Weltdatei DIESES Checkouts. Der Betriebsdienst
+// meldet mit jedem GET, welche Datei er verwaltet (`weltKennung`, sha256 des
+// realpath, kein Pfad); schreibe() vergleicht sie mit der Kennung der eigenen
+// Datei (Wurzel wie im Betriebsdienst: WOV_WURZEL, sonst dieser Checkout;
+// Instanz über shared/src/instanz.ts). Ohne diese Sperre schriebe ein Agent in
+// einem Worktree per Vorgabe (127.0.0.1:2468) in die DEV-Welt.
+const CHECKOUT_WURZEL = process.env.WOV_WURZEL || fileURLToPath(new URL('../../', import.meta.url));
+const FREMDE_WELT_ERLAUBT = process.env.WOV_MCP_FREMDE_WELT === '1';
+const kennungVon = (datei: string): string => createHash('sha256').update(realpathSync(datei)).digest('hex');
+/** Kennung aus der letzten Antwort des Betriebsdienstes (die Adresse ist je Prozess fest). */
+let verwalteteWeltKennung: string | undefined;
+
+/** Wirft, wenn der angesprochene Betriebsdienst nicht die Weltdatei dieses Checkouts verwaltet. */
+function pruefeEigeneWelt(): void {
+  if (FREMDE_WELT_ERLAUBT) return;
+  const eigene = weltDatei(CHECKOUT_WURZEL, instanzName());
+  let eigeneKennung: string | undefined;
+  try {
+    eigeneKennung = kennungVon(eigene);
+  } catch {
+    /* die eigene Datei fehlt: nichts passt */
+  }
+  if (eigeneKennung !== undefined && eigeneKennung === verwalteteWeltKennung) return;
+  const grund =
+    verwalteteWeltKennung === undefined
+      ? 'Er meldet keine weltKennung (älterer Dienst?).'
+      : eigeneKennung === undefined
+        ? 'Die Weltdatei dieses Checkouts existiert nicht.'
+        : 'Seine weltKennung passt nicht zu dieser Datei.';
+  throw new Error(
+    `Nichts gespeichert: Der Betriebsdienst auf ${ADMIN_URL} verwaltet nicht die Weltdatei dieses Checkouts ` +
+      `(${eigene}). ${grund} Starte einen eigenen Betriebsdienst auf deinem Slot-Port und setze ` +
+      `WOV_ADMIN_PORT/WOV_ADMIN_URL, oder setze WOV_MCP_FREMDE_WELT=1, wenn du bewusst eine fremde Welt ` +
+      `schreiben willst. Lesen bleibt erlaubt.`
+  );
+}
 
 /** Bei jedem Aufruf frisch gelesen: Ein erst später angelegtes Token soll ohne Neustart greifen. */
 function adminToken(): string {
@@ -154,6 +207,7 @@ const meldungVon = (daten: Record<string, unknown>): string =>
 async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
   const { status, daten } = await adminAnfrage('GET');
   if (status !== 200) throw new Error(`Betriebsdienst: GET /api/worldlayout -> ${status}: ${meldungVon(daten)}`);
+  verwalteteWeltKennung = typeof daten.weltKennung === 'string' ? daten.weltKennung : undefined;
   const layout = sanitizeWorldLayout(daten.layout);
   if (!layout || typeof daten.hash !== 'string') {
     throw new Error('Betriebsdienst lieferte kein gültiges Weltdokument mit Hash');
@@ -168,6 +222,7 @@ async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
  * sagen.
  */
 async function schreibe(layout: WorldLayout, basis: string): Promise<void> {
+  pruefeEigeneWelt();
   const { status, daten } = await adminAnfrage('POST', { ...layout, basis });
   if (status === 200) return;
   if (status === 409) {

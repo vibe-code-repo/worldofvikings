@@ -123,28 +123,59 @@ export type ServerStand =
  * Ein Schreiber, der seinen Stand aus dem AKTUELLEN Speicher aufbaut (der
  * Testflug, main.ts: lesen, Feld ergänzen, zurückschreiben), liefert
  * Nachfolgestände, die ihre Vorgänger enthalten — die brauchen keine eigene
- * Sicherung. Verglichen werden die Elemente der Listen (Regionen,
- * Platzierungen, Kontinente, Flüsse, Seen, Routen) als JSON, dazu Name,
- * Detail-Seed und Startpunkt. Im Zweifel `false`: ein Stand zu viel zu
- * sichern kostet nur Platz.
+ * Sicherung.
+ *
+ * Verglichen wird so genau, wie es die Welt unterscheidet:
+ *  - `regions` als geordnete Folge: Ihre Reihenfolge ist die Z-Ordnung
+ *    (spätere überdecken frühere), zwei Dokumente mit denselben Regionen in
+ *    anderer Reihenfolge sind verschiedene Welten. `klein.regions` muss also
+ *    in derselben Reihenfolge in `gross.regions` vorkommen (dazwischen darf
+ *    anderes stehen).
+ *  - Platzierungen, Kontinente, Flüsse, Seen und Routen als Multimenge:
+ *    Doppelte zählen, `[P]` enthält `[P, P]` nicht.
+ *  - Name, Detail-Seed und Startpunkt müssen übereinstimmen.
+ * Elemente werden als JSON verglichen. Im Zweifel `false`: ein Stand zu viel
+ * zu sichern kostet nur Platz.
  */
 export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
   if (gross === klein) return true;
-  const teil = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
+  const folge = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
     if (!k || k.length === 0) return true;
-    const menge = new Set((g ?? []).map((x) => JSON.stringify(x)));
-    return k.every((x) => menge.has(JSON.stringify(x)));
+    const gj = (g ?? []).map((x) => JSON.stringify(x));
+    let i = 0;
+    for (const x of k) {
+      const j = JSON.stringify(x);
+      while (i < gj.length && gj[i] !== j) i++;
+      if (i >= gj.length) return false;
+      i++;
+    }
+    return true;
+  };
+  const multimenge = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
+    if (!k || k.length === 0) return true;
+    const zaehler = new Map<string, number>();
+    for (const x of g ?? []) {
+      const j = JSON.stringify(x);
+      zaehler.set(j, (zaehler.get(j) ?? 0) + 1);
+    }
+    for (const x of k) {
+      const j = JSON.stringify(x);
+      const n = zaehler.get(j) ?? 0;
+      if (n === 0) return false;
+      zaehler.set(j, n - 1);
+    }
+    return true;
   };
   return (
     gross.name === klein.name &&
     gross.detailSeed === klein.detailSeed &&
     (klein.defaultSpawn === undefined || JSON.stringify(gross.defaultSpawn) === JSON.stringify(klein.defaultSpawn)) &&
-    teil(gross.regions, klein.regions) &&
-    teil(gross.placements, klein.placements) &&
-    teil(gross.continents, klein.continents) &&
-    teil(gross.rivers, klein.rivers) &&
-    teil(gross.lakes, klein.lakes) &&
-    teil(gross.routes, klein.routes)
+    folge(gross.regions, klein.regions) &&
+    multimenge(gross.placements, klein.placements) &&
+    multimenge(gross.continents, klein.continents) &&
+    multimenge(gross.rivers, klein.rivers) &&
+    multimenge(gross.lakes, klein.lakes) &&
+    multimenge(gross.routes, klein.routes)
   );
 }
 

@@ -22,7 +22,8 @@ import {
   EntwurfsSpeicher,
   SchrittVerlauf,
   VerdraengtRing,
-  VERDRAENGT_KEY,
+  VERDRAENGT_PRAEFIX,
+  type RingSpeicher,
   sollInRing,
   type AbgangsGrund,
   type EreignisQuelle,
@@ -72,6 +73,18 @@ class Profil {
   quotaEinmalFuer: string | null = null;
   /** getItem wirft (blockierte Website-Daten). */
   lesenKaputt = false;
+  /** Hartes Quoten-Modell: Summe aller Schlüssel- und Wertlängen darf diese Zeichenzahl nicht übersteigen (Chromium: 5 MiB je Ursprung, 2 Byte je Zeichen = 2.621.440). */
+  quotaZeichen: number | null = null;
+  /** Zeichen, die im Speicher belegt sind (Schlüssel + Wert, alle Einträge). */
+  belegt(): number {
+    let n = 0;
+    for (const [k, v] of this.daten) n += k.length + v.length;
+    return n;
+  }
+  /** Eine Aktion, die vor dem nächsten getItem einmal läuft (für verschränkte Zugriffe zweier Tabs). */
+  vorNaechstemLesen: (() => void) | null = null;
+  /** Eine Aktion, die nach dem nächsten setItem einmal läuft. */
+  nachNaechstemSchreiben: (() => void) | null = null;
 
   private zustellenOderMerken(f: () => void): void {
     if (this.zurueckhalten) this.wartend.push(f);
@@ -97,8 +110,16 @@ class Profil {
       this.quotaEinmalFuer = null;
       throw new Error('QuotaExceededError');
     }
+    if (this.quotaZeichen !== null) {
+      const alt = this.daten.get(k);
+      const neu = this.belegt() - (alt === undefined ? 0 : k.length + alt.length) + k.length + v.length;
+      if (neu > this.quotaZeichen) throw new Error('QuotaExceededError');
+    }
     this.daten.set(k, v);
     this.schreibvorgaenge++;
+    const danach = this.nachNaechstemSchreiben;
+    this.nachNaechstemSchreiben = null;
+    danach?.();
     // Wie im Browser: das Ereignis geht an alle ANDEREN Tabs, nie an den Schreiber.
     for (const h of this.hoerer) {
       if (h.tab !== von) this.zustellenOderMerken(() => h.fn({ key: k }));
@@ -106,6 +127,9 @@ class Profil {
   }
   getItem(k: string): string | null {
     if (this.lesenKaputt) throw new Error('SecurityError');
+    const davor = this.vorNaechstemLesen;
+    this.vorNaechstemLesen = null;
+    davor?.();
     return this.daten.get(k) ?? null;
   }
   /** localStorage.clear() in einem anderen Tab. */
@@ -114,8 +138,13 @@ class Profil {
     for (const h of this.hoerer) if (h.tab !== von) this.zustellenOderMerken(() => h.fn({ key: null }));
   }
 
-  speicherFuer(tab: object): KvSpeicher {
+  speicherFuer(tab: object): RingSpeicher {
+    const profil = this;
     return {
+      get length() {
+        return profil.daten.size;
+      },
+      key: (i) => [...profil.daten.keys()][i] ?? null,
       getItem: (k) => this.getItem(k),
       setItem: (k, v) => this.setItem(tab, k, v),
       removeItem: (k) => this.removeItem(tab, k),
@@ -264,7 +293,7 @@ class Verlauf5916752<T = WorldLayout> extends Verlauf5eb78eb<T> {
 class EditorAttrappe {
   layout: WorldLayout;
   readonly verlauf: VerlaufLike;
-  /** Der Ring der verdrängten Entwürfe, im selben Profil-Speicher wie der Entwurf. */
+  /** Der Ring der verdrängten Entwürfe: ein Schlüssel je Eintrag im selben Profil-Speicher wie der Entwurf. */
   readonly ring: VerdraengtRing;
   /** Herkunft übernommener Stände und der eigenen, die auf einem fremden aufbauen (wie `fremdeStaende`/`fremdHaltig` im Editor). */
   private readonly fremdeStaende = new WeakSet<WorldLayout>();
@@ -285,18 +314,20 @@ class EditorAttrappe {
   falscheMeldungen = 0;
   /** Alle Meldungen in der Reihenfolge, wie der Editor sie setzt (die letzte steht am Ende da). */
   readonly meldungsVerlauf: string[] = [];
-  /** Wie viele Stände in den Ring gingen / nicht gesichert werden konnten. */
+  /** Wie viele Stände in den Ring gingen / nicht gesichert werden konnten / den ältesten kosteten / zugunsten des Entwurfs geopfert wurden. */
   ringNeu = 0;
   ringVoll = 0;
+  ringVerworfen = 0;
+  ringGeopfert = 0;
   letzteInfo: FremdInfo | null = null;
   readonly speicher: EntwurfsSpeicher;
   constructor(
     readonly name: string,
     profil: Profil,
-    opt: { ereignisse?: boolean; kanal?: boolean; jetzt?: () => number; verlauf?: VerlaufLike; ohneRing?: boolean } = {}
+    opt: { ereignisse?: boolean; kanal?: boolean; jetzt?: () => number; verlauf?: VerlaufLike; ringMax?: number } = {}
   ) {
     const tab = this;
-    this.ring = new VerdraengtRing(profil.speicherFuer(tab), opt.ohneRing ? { max: 0 } : {});
+    this.ring = new VerdraengtRing(profil.speicherFuer(tab), { tabId: name, max: opt.ringMax ?? 5 });
     this.verlauf =
       opt.verlauf ??
       new SchrittVerlauf<WorldLayout>(50, (stand, grund, bezug) => this.beiAbgang(stand, grund, bezug));
@@ -307,6 +338,12 @@ class EditorAttrappe {
       tabId: name,
       jetzt: opt.jetzt,
       aktuell: () => this.layout,
+      // Der Entwurf hat Vorrang vor dem Ring (wie im Editor).
+      platzSchaffen: () => {
+        const frei = this.ring.aeltestenEntfernen();
+        if (frei) this.ringGeopfert++;
+        return frei;
+      },
       beiVerdraengt: (alt) => {
         if (enthaelt(this.layout, alt) || this.verlauf.zukunft.concat(this.verlauf.vergangenheit).some((x) => enthaelt(x, alt))) return;
         this.ringen(alt, 'fremd', 'ersetzt');
@@ -314,12 +351,15 @@ class EditorAttrappe {
       beiFremdem: (fremd, info) => {
         this.fremdeStaende.add(fremd);
         const vor = this.ringNeu;
+        const verworfenVor = this.ringVerworfen;
         this.verlauf.uebernahme(this.layout, fremd);
         this.layout = fremd;
         this.fremdUebernahmen++;
         this.letzteInfo = info;
         this.meldungen++;
-        this.meldungsVerlauf.push(`Entwurf aus einem anderen Tab übernommen${this.ringNeu > vor ? ` — ${this.ringNeu - vor} gesichert` : ''}`);
+        this.meldungsVerlauf.push(
+          `Entwurf aus einem anderen Tab übernommen${this.ringNeu > vor ? ` — ${this.ringNeu - vor} gesichert` : ''}${this.ringVerworfen > verworfenVor ? ' — Ältester verdrängter Entwurf verworfen' : ''}`
+        );
         // Die Meldung sagt: der bisherige EIGENE Stand liegt unter Rückgängig.
         if (this.eigenerStand !== null && !this.vergangenheit.includes(this.eigenerStand)) this.falscheMeldungen++;
       },
@@ -327,14 +367,40 @@ class EditorAttrappe {
     this.layout = this.speicher.lesen() ?? basis;
   }
   private ringen(stand: WorldLayout, herkunft: 'fremd' | 'eigen', grund: string): void {
+    const verworfenVor = this.ring.verworfen;
     const r = this.ring.ablegen(stand, herkunft, grund, herkunft === 'fremd' ? null : this.name);
+    this.ringVerworfen += this.ring.verworfen - verworfenVor;
     if (r === 'ok') this.ringNeu++;
-    else if (r === 'voll') this.ringVoll++;
+    else if (r === 'voll') {
+      this.ringVoll++;
+      this.meldungsVerlauf.push('ACHTUNG: Ein verdrängter Stand konnte NICHT gesichert werden (Speicher voll)!');
+    }
   }
   private beiAbgang(stand: WorldLayout, grund: AbgangsGrund, bezug: WorldLayout): void {
     const herkunft = this.istHaltig(stand) ? 'fremd' : 'eigen';
     if (sollInRing(grund, herkunft, enthaelt(bezug, stand))) this.ringen(stand, herkunft, grund);
   }
+  /**
+   * Wie `speichereEntwurf` im Editor: schreibt und setzt die Meldungen, die kein Aufrufer überschreiben darf.
+   * `true`, wenn eine gesetzt wurde (fremder Stand übernommen, „Entwurf zu groß", „Speicher knapp").
+   */
+  private schreibenMitMeldung(quelle: 'bearbeitet' | 'import' | 'server'): boolean {
+    const geopfertVor = this.ringGeopfert;
+    const ergebnis = this.speicher.schreiben(this.layout, quelle, 'dev');
+    const geopfert = this.ringGeopfert - geopfertVor;
+    const opfer = geopfert > 0 ? ` Dafür wurden ${geopfert} verdrängte Stände aus dem Ring verworfen (ältester zuerst).` : '';
+    if (ergebnis === 'voll') {
+      this.meldungsVerlauf.push('Entwurf zu groß für localStorage — bitte als JSON exportieren!' + opfer);
+      return true;
+    }
+    if (geopfert > 0) {
+      this.meldungsVerlauf.push(`Speicher knapp — der Entwurf ist gespeichert.${opfer}`);
+      return true;
+    }
+    return ergebnis === 'fremd';
+  }
+  /** Ergebnis des letzten Schreibens (für Tests, die den Rückgabewert brauchen). */
+  letztesErgebnis: string = 'ok';
   /** Der letzte EIGENE Stand — die Größe, deren Erreichbarkeit die Meldung zusagt. */
   eigenerStand: WorldLayout | null = null;
   /** Eine Änderung im Editor: Schritt merken, Layout ersetzen, Entwurf schreiben. */
@@ -344,30 +410,37 @@ class EditorAttrappe {
     this.layout = f(this.layout);
     if (haltig) this.fremdHaltig.add(this.layout);
     this.eigenerStand = this.layout;
-    return this.speicher.schreiben(this.layout, 'bearbeitet', 'dev');
+    const geopfertVor = this.ringGeopfert;
+    const ergebnis = this.speicher.schreiben(this.layout, 'bearbeitet', 'dev');
+    this.letztesErgebnis = ergebnis;
+    const geopfert = this.ringGeopfert - geopfertVor;
+    const opfer = geopfert > 0 ? ` Dafür wurden ${geopfert} verdrängte Stände aus dem Ring verworfen (ältester zuerst).` : '';
+    if (ergebnis === 'voll') this.meldungsVerlauf.push('Entwurf zu groß für localStorage — bitte als JSON exportieren!' + opfer);
+    else if (geopfert > 0) this.meldungsVerlauf.push(`Speicher knapp — der Entwurf ist gespeichert.${opfer}`);
+    return ergebnis;
   }
   /** Ersetzen durch einen ANDEREN Entwurf (Import, Serverstand, wieder eingesetzter Stand). */
   ersetzen(neu: WorldLayout): string {
     this.verlauf.merke(this.layout, true);
     this.layout = neu;
     this.eigenerStand = this.layout;
-    return this.speicher.schreiben(this.layout, 'import', 'dev');
+    const gemeldet = this.schreibenMitMeldung('import');
+    if (!gemeldet) this.meldungsVerlauf.push('Import übernommen');
+    return gemeldet ? 'gemeldet' : 'ok';
   }
   /** Strg+Z — wie `rueckgaengig()` im Editor, samt Meldung und Reihenfolge. */
   rueckgaengig(): void {
     const v = this.verlauf.zurueck(this.layout);
     if (v === undefined) return;
     this.layout = v;
-    const ergebnis = this.speicher.schreiben(this.layout, 'bearbeitet', 'dev');
-    // Wie im Editor: hat der Schreibversuch einen fremden Stand übernommen, gilt dessen Meldung.
-    if (ergebnis !== 'fremd') this.meldungsVerlauf.push(`Rückgängig (${this.verlauf.vergangenheit.length} weitere Schritte)`);
+    // Wie im Editor: eine schon gesetzte Meldung (fremder Stand übernommen, zu groß, Speicher knapp) bleibt stehen.
+    if (!this.schreibenMitMeldung('bearbeitet')) this.meldungsVerlauf.push(`Rückgängig (${this.verlauf.vergangenheit.length} weitere Schritte)`);
   }
   wiederherstellen(): void {
     const w = this.verlauf.vor(this.layout);
     if (w === undefined) return;
     this.layout = w;
-    const ergebnis = this.speicher.schreiben(this.layout, 'bearbeitet', 'dev');
-    if (ergebnis !== 'fremd') this.meldungsVerlauf.push('Wiederhergestellt');
+    if (!this.schreibenMitMeldung('bearbeitet')) this.meldungsVerlauf.push('Wiederhergestellt');
   }
   /** „Serverstand laden" — wie `uebernehmen` im Start-Abgleich: „geladen" nur, wenn es wirklich geladen wurde. */
   serverstandLaden(server: WorldLayout): void {
@@ -375,7 +448,13 @@ class EditorAttrappe {
     else this.verlauf.ohneSchritt();
     this.layout = server;
     const ergebnis = this.speicher.schreiben(this.layout, 'server', 'dev');
-    this.meldungsVerlauf.push(ergebnis === 'fremd' ? 'Serverstand NICHT geladen — ein anderer Tab hat den Entwurf zwischenzeitlich geändert' : 'Serverstand geladen');
+    this.meldungsVerlauf.push(
+      ergebnis === 'fremd'
+        ? 'Serverstand NICHT geladen — ein anderer Tab hat den Entwurf zwischenzeitlich geändert'
+        : ergebnis === 'voll'
+          ? 'Entwurf zu groß für localStorage — bitte als JSON exportieren!'
+          : 'Serverstand geladen'
+    );
   }
 }
 
@@ -1044,7 +1123,7 @@ console.log('▶ Start-Abgleich: Schritt vor dem Ersetzen');
 }
 
 /** EIN Editor-Tab im Profil (der Ring liegt im gemeinsamen Speicher: mit zwei Tabs mischten sich ihre Einträge). */
-function einTab(opt: { ereignisse?: boolean; kanal?: boolean } = {}): { profil: Profil; b: EditorAttrappe } {
+function einTab(opt: { ereignisse?: boolean; kanal?: boolean; ringMax?: number } = {}): { profil: Profil; b: EditorAttrappe } {
   const profil = new Profil();
   profil.daten.set(ENTWURF_KEY, JSON.stringify(basis));
   return { profil, b: new EditorAttrappe('tab-b', profil, opt) };
@@ -1095,14 +1174,22 @@ console.log('▶ Ring der verdrängten Entwürfe: Regel, Grenzen, Wiederherstell
   check('enthaelt: ein Stand mit zusätzlichem Objekt enthält seinen Vorgänger, nicht umgekehrt', enthaelt(l2, l1) && !enthaelt(l1, l2) && enthaelt(l1, l1));
   check('enthaelt: gleiche Regionen/Platzierungen unabhängig von der Reihenfolge; anderer Name oder Seed → nicht enthalten', enthaelt({ ...l2, placements: [...l2.placements!].reverse() } as WorldLayout, l1) && !enthaelt({ ...l2, name: 'anders' } as WorldLayout, l1) && !enthaelt({ ...l2, detailSeed: 'anders' } as WorldLayout, l1));
 
-  // VerdraengtRing: Einträge, Grenzen, Quote
-  const kv = (limit = Infinity): KvSpeicher & { daten: Map<string, string> } => {
+  // VerdraengtRing: ein Schlüssel je Eintrag — Einträge, Grenzen, Quote
+  /** Ein Speicher (Map) mit Ring-Schnittstelle; `gesamt`: Summe aller Schlüssel- und Wertlängen darf das nicht übersteigen. */
+  const kv = (gesamt = Infinity): RingSpeicher & { daten: Map<string, string> } => {
     const daten = new Map<string, string>();
+    const belegt = (): number => [...daten].reduce((n, [k, v]) => n + k.length + v.length, 0);
     return {
       daten,
+      get length() {
+        return daten.size;
+      },
+      key: (i) => [...daten.keys()][i] ?? null,
       getItem: (k) => daten.get(k) ?? null,
+      removeItem: (k) => void daten.delete(k),
       setItem: (k, v) => {
-        if (v.length > limit) throw new Error('QuotaExceededError');
+        const alt = daten.get(k);
+        if (belegt() - (alt === undefined ? 0 : k.length + alt.length) + k.length + v.length > gesamt) throw new Error('QuotaExceededError');
         daten.set(k, v);
       },
     };
@@ -1110,48 +1197,133 @@ console.log('▶ Ring der verdrängten Entwürfe: Regel, Grenzen, Wiederherstell
   const st = (i: number): WorldLayout => layoutMitPlatzierung(basis, 'Beech1', 500 + i, 500 + i, 0);
   let uhr = 1_800_000_000_000;
   const speicher1 = kv();
-  const ring = new VerdraengtRing(speicher1, { jetzt: () => (uhr += 1000) });
+  const ring = new VerdraengtRing(speicher1, { jetzt: () => (uhr += 1000), tabId: 'tab-r' });
   check('leerer Ring: keine Einträge', ring.liste().length === 0);
   check('Ablegen: ok, mit Zeit, Herkunft, tabId, Zahlen (Regionen/Platzierungen)', (() => {
     const r = ring.ablegen(st(1), 'fremd', 'redo-uebernahme', 'tab-x');
     const e = ring.liste()[0];
     return r === 'ok' && e !== undefined && e.herkunft === 'fremd' && e.tabId === 'tab-x' && e.zeit > 0 && e.regionen === basis.regions.length && e.platzierungen === 4 && e.grund === 'redo-uebernahme';
   })(), JSON.stringify(ring.liste()[0] && { ...ring.liste()[0], layout: undefined }));
+  check('Jeder Eintrag ist ein EIGENER Schlüssel wov-editor-verdraengt:<tabId>:<zeit>:<zähler>; die Kennung enthält die Tab-Kennung', (() => {
+    const e = ring.liste()[0]!;
+    return [...speicher1.daten.keys()].filter((k) => k.startsWith(VERDRAENGT_PRAEFIX)).length === 1 && speicher1.daten.has(VERDRAENGT_PRAEFIX + e.id) && e.id.startsWith('tab-r:') && /^tab-r:[0-9a-z]+:[0-9a-z]+$/.test(e.id);
+  })(), ring.liste()[0]!.id);
   check('derselbe Stand noch einmal: schon-da, kein zweiter Eintrag', ring.ablegen(st(1), 'fremd', 'x') === 'schon-da' && ring.liste().length === 1);
   check('ein Stand, den ein Eintrag schon enthält: schon-da', ring.ablegen(basis, 'eigen', 'x') === 'schon-da' && ring.liste().length === 1);
   for (let i = 2; i <= 7; i++) ring.ablegen(st(i), 'fremd', 'x');
-  const ids = ring.liste().map((e) => e.platzierungen);
-  check('höchstens 5 Einträge: 7 verschiedene → 5, der älteste fällt zuerst (übrig: Stand 3…7)', ring.liste().length === 5 && ring.liste().every((e, i) => hat(e.layout, 503 + i)), `Länge=${ring.liste().length}`);
-  void ids;
-  const entryBytes = JSON.stringify(ring.liste()).length / 5;
-  const klein = new VerdraengtRing(kv(), { max: 5, maxBytes: Math.floor(entryBytes * 2.5) });
+  check('höchstens 5 Einträge: 7 verschiedene → 5, der älteste fällt zuerst (übrig: Stand 3…7), 2 als verworfen gezählt', ring.liste().length === 5 && ring.liste().every((e, i) => hat(e.layout, 503 + i)) && ring.verworfen === 2, `Länge=${ring.liste().length}, verworfen=${ring.verworfen}`);
+  const entryBytes = ring.liste()[0]!.groesse;
+  const klein = new VerdraengtRing(kv(), { max: 5, maxBytes: Math.floor(entryBytes * 2.5), tabId: 'tab-k' });
   for (let i = 1; i <= 4; i++) klein.ablegen(st(i), 'fremd', 'x');
-  check('Byte-Grenze: bei Platz für ~2,5 Einträge bleiben höchstens 2, die neuesten', klein.liste().length === 2 && hat(klein.liste()[1]!.layout, 504) && hat(klein.liste()[0]!.layout, 503), `Länge=${klein.liste().length}`);
-  const winzig = new VerdraengtRing(kv(), { max: 5, maxBytes: 100 });
-  winzig.ablegen(st(1), 'fremd', 'x');
-  check('Ein Stand, der allein die Byte-Grenze sprengt: voll, Ring unverändert leer', winzig.liste().length === 0 && new VerdraengtRing(kv(), { maxBytes: 100 }).ablegen(st(1), 'fremd', 'x') === 'voll');
-  const bereits = new VerdraengtRing(kv(), { max: 5, maxBytes: Math.floor(entryBytes * 2.5) });
-  bereits.ablegen(st(1), 'fremd', 'x');
-  bereits.ablegen(st(2), 'fremd', 'x');
-  check('Grosser neuer Stand: ältere fallen, der neue bleibt (Grenze wird eingehalten)', bereits.ablegen(layoutMitPlatzierung(st(3), 'Beech1', 900, 900, 0), 'fremd', 'x') === 'ok' && bereits.liste().length >= 1 && JSON.stringify(bereits.liste()).length <= Math.floor(entryBytes * 2.5) + 400);
-  // Quote: der Speicher nimmt höchstens ~2 Einträge auf
-  const engerKv = kv(Math.floor(entryBytes * 2.2));
-  const eng = new VerdraengtRing(engerKv);
+  check('Byte-Grenze: bei Platz für ~2,5 Einträge bleiben höchstens 2, die neuesten (verworfen: 2)', klein.liste().length === 2 && hat(klein.liste()[1]!.layout, 504) && hat(klein.liste()[0]!.layout, 503) && klein.verworfen === 2, `Länge=${klein.liste().length}, verworfen=${klein.verworfen}`);
+  check('Ein Stand, der allein die Byte-Grenze sprengt: voll, Ring unverändert leer', new VerdraengtRing(kv(), { maxBytes: 100 }).ablegen(st(1), 'fremd', 'x') === 'voll');
+  const eng = new VerdraengtRing(kv(Math.floor(entryBytes * 2.2)), { tabId: 'tab-e' });
   eng.ablegen(st(1), 'fremd', 'x');
   eng.ablegen(st(2), 'fremd', 'x');
   const rQ = eng.ablegen(st(3), 'fremd', 'x');
-  check('Quote: ältere Einträge werden geopfert, der neue kommt hinein (ok, ≤ 2 Einträge, der neueste ist da)', rQ === 'ok' && eng.liste().length <= 2 && hat(eng.liste()[eng.liste().length - 1]!.layout, 503), `${rQ}, Länge=${eng.liste().length}`);
-  const keinPlatz = new VerdraengtRing(kv(50));
-  check('Quote: passt nicht einmal ein Eintrag: voll (der Editor meldet es), kein Wurf', keinPlatz.ablegen(st(1), 'fremd', 'x') === 'voll');
+  check('Quote (Gesamtspeicher für ~2,2 Einträge): der älteste wird geopfert, der neue kommt hinein (ok, ≤ 2 Einträge, der neueste ist da)', rQ === 'ok' && eng.liste().length <= 2 && hat(eng.liste()[eng.liste().length - 1]!.layout, 503) && eng.verworfen >= 1, `${rQ}, Länge=${eng.liste().length}`);
+  check('Quote: passt nicht einmal ein Eintrag: voll (der Editor meldet es), kein Wurf', new VerdraengtRing(kv(50)).ablegen(st(1), 'fremd', 'x') === 'voll');
   const kaputt = kv();
-  kaputt.daten.set(VERDRAENGT_KEY, '{kaputt');
+  kaputt.daten.set(VERDRAENGT_PRAEFIX + 'tab-z:1:0', '{kaputt');
+  kaputt.daten.set('wov-editor-verdraengt', '[{"alt":"Sammelschlüssel der Vorgängerfassung"}]');
+  kaputt.daten.set('anderer-schluessel', 'x');
   const rk = new VerdraengtRing(kaputt);
-  check('Beschädigter Ring-Inhalt: keine Einträge, Ablegen geht trotzdem', rk.liste().length === 0 && rk.ablegen(st(1), 'fremd', 'x') === 'ok' && rk.liste().length === 1);
+  check('Beschädigter Eintrag und fremde Schlüssel (auch der alte Sammelschlüssel) werden übersprungen; Ablegen geht trotzdem', rk.liste().length === 0 && rk.ablegen(st(1), 'fremd', 'x') === 'ok' && rk.liste().length === 1 && kaputt.daten.has('anderer-schluessel'));
   const eid = ring.liste()[0]!.id;
+  const vorher = ring.liste().length;
   ring.entfernen(eid);
-  check('Entfernen: Eintrag weg, die anderen bleiben', !ring.liste().some((e) => e.id === eid) && ring.liste().length === 4);
-  check('Der Ring liegt unter einem EIGENEN Schlüssel (wov-editor-verdraengt), nicht im Entwurf', VERDRAENGT_KEY === 'wov-editor-verdraengt' && (VERDRAENGT_KEY as string) !== ENTWURF_KEY && speicher1.daten.has(VERDRAENGT_KEY) && !speicher1.daten.has(ENTWURF_KEY));
+  check('Entfernen wirkt auf genau EINEN Schlüssel: Eintrag weg, die anderen bleiben', !ring.liste().some((e) => e.id === eid) && ring.liste().length === vorher - 1 && !speicher1.daten.has(VERDRAENGT_PRAEFIX + eid));
+  check('aeltestenEntfernen(): entfernt den ältesten, liefert false bei leerem Ring', (() => {
+    const r = new VerdraengtRing(kv(), { tabId: 'tab-a' });
+    r.ablegen(st(1), 'fremd', 'x');
+    r.ablegen(st(2), 'fremd', 'x');
+    const erster = r.aeltestenEntfernen();
+    const rest = r.liste();
+    const zweiter = r.aeltestenEntfernen();
+    return erster && rest.length === 1 && hat(rest[0]!.layout, 502) && zweiter && !r.aeltestenEntfernen();
+  })());
+
+  // Zwei Tabs, ein Ring
+  const zweiRinge = (uhrFest: number | null = 1_800_000_000_000): { kv: RingSpeicher & { daten: Map<string, string> }; a: VerdraengtRing; b: VerdraengtRing } => {
+    const k = kv();
+    return { kv: k, a: new VerdraengtRing(k, { tabId: 'tab-A', jetzt: () => uhrFest ?? Date.now(), max: 100 }), b: new VerdraengtRing(k, { tabId: 'tab-B', jetzt: () => uhrFest ?? Date.now(), max: 100 }) };
+  };
+  {
+    // Zwei Tabs, GLEICHE Zeit (dieselbe Millisekunde): verschiedene Kennungen, „entfernen“ löscht nur einen
+    const { a, b } = zweiRinge();
+    a.ablegen(st(1), 'fremd', 'x');
+    b.ablegen(st(2), 'fremd', 'x');
+    const ia = a.liste().find((e) => hat(e.layout, 501))!.id;
+    const ib = a.liste().find((e) => hat(e.layout, 502))!.id;
+    check('Zwei Tabs, gleiche Zeit und gleicher Zählerstand: verschiedene Kennungen (tab-A:…, tab-B:…)', ia !== ib && ia.startsWith('tab-A:') && ib.startsWith('tab-B:'), `${ia} / ${ib}`);
+    a.entfernen(ia);
+    check('„entfernen“ des Eintrags von Tab A löscht NUR diesen: der von Tab B bleibt (in beiden Sichten)', a.liste().length === 1 && b.liste().length === 1 && hat(b.liste()[0]!.layout, 502));
+  }
+  {
+    // Der verschränkte Zeuge des Angriffs: Tab B legt zwischen dem Lesen und dem Schreiben von Tab A ab.
+    const { kv: k, a, b } = zweiRinge();
+    let eingeschoben = false;
+    const echtesSet = k.setItem;
+    k.setItem = (key, v) => {
+      // Genau der Augenblick zwischen dem Lesen und dem Schreiben von Tab A: Tab B legt jetzt ab.
+      if (!eingeschoben && key.includes('tab-A')) {
+        eingeschoben = true;
+        b.ablegen(st(2), 'fremd', 'b-zwischendurch');
+      }
+      echtesSet(key, v);
+    };
+    const rA = a.ablegen(st(1), 'fremd', 'a');
+    k.setItem = echtesSet;
+    check('Verschränkt (B legt ab, während A zwischen Lesen und Schreiben steht): beide Einträge bleiben, in beiden Sichten, beide Ablagen ok', eingeschoben && rA === 'ok' && a.liste().some((e) => hat(e.layout, 501)) && a.liste().some((e) => hat(e.layout, 502)) && b.liste().length === 2 && a.liste().length === 2, `A sieht ${a.liste().length}, B sieht ${b.liste().length}`);
+  }
+  {
+    // Erschöpfend: alle Folgen bis Länge 6 über {A legt ab, B legt ab, A entfernt (ihren ältesten sichtbaren), B entfernt (den neuesten sichtbaren)}, gleiche Zeit
+    let folgen = 0;
+    let verstoesse = 0;
+    let kuerzeste: string | null = null;
+    const ops = ['A+', 'B+', 'A-', 'B-'] as const;
+    const durchlaufen = (folge: (typeof ops)[number][]): void => {
+      const { a, b } = zweiRinge();
+      const modell = new Set<string>();
+      let n = 0;
+      let ok = true;
+      for (const op of folge) {
+        if (op === 'A+' || op === 'B+') {
+          const r = (op === 'A+' ? a : b);
+          const vorher = new Set(r.liste().map((e) => e.id));
+          const res = r.ablegen(st(100 + n++), 'fremd', op);
+          const neu = r.liste().filter((e) => !vorher.has(e.id));
+          if (res !== 'ok' || neu.length !== 1) ok = false;
+          else modell.add(neu[0]!.id);
+        } else {
+          const r = op === 'A-' ? a : b;
+          const l = r.liste();
+          const e = op === 'A-' ? l[0] : l[l.length - 1];
+          if (e) {
+            r.entfernen(e.id);
+            modell.delete(e.id);
+          }
+        }
+        const sichtA = a.liste().map((e) => e.id).sort().join();
+        const sichtB = b.liste().map((e) => e.id).sort().join();
+        if (sichtA !== [...modell].sort().join() || sichtB !== sichtA) ok = false;
+      }
+      folgen++;
+      if (!ok) {
+        verstoesse++;
+        if (kuerzeste === null || folge.length < kuerzeste.split(' ').length) kuerzeste = folge.join(' ');
+      }
+    };
+    const rec = (f: (typeof ops)[number][]): void => {
+      if (f.length > 0) durchlaufen(f);
+      if (f.length === 6) return;
+      for (const o of ops) rec([...f, o]);
+    };
+    rec([]);
+    check(`Zwei Tabs am selben Ring, alle Folgen bis Länge 6 über {A legt ab, B legt ab, A entfernt, B entfernt}: ${folgen} Folgen, ${verstoesse} Verstöße (Ring-Inhalt = Modell, beide Sichten gleich, jede Ablage ok)`, folgen === 5460 && verstoesse === 0, kuerzeste ?? 'keine');
+  }
 }
+
 {
   // Der Zeuge des Angriffs: eigen → Testflug T1 → Strg+Z → Testflug T2 — T1 liegt im Ring und lässt sich wieder einsetzen.
   const T = (l: WorldLayout, x: number): WorldLayout => layoutMitPlatzierung(l, 'Beech1', x, x, 1);
@@ -1290,6 +1462,125 @@ console.log('▶ Abgleich: kein Rennen zwischen Nachsehen und Lesen');
   check('lesen() setzt bekannt nur für den Start: nach entwurfNachAbgleich() ist ein zweites Nachsehen still (kein zweiter Fund)', b.speicher.abgleichen() === false && b.fremdUebernahmen === 1);
 }
 
+// ── 8j. enthaelt(): Z-Reihenfolge und Doppelte (B4) ─────────────────────
+console.log('▶ enthaelt: Regionen als geordnete Folge, Listen als Multimenge');
+{
+  const ra = { ...basis.regions[0]!, id: 'reg-a' };
+  const rb = { ...basis.regions[0]!, id: 'reg-b' };
+  const rc = { ...basis.regions[0]!, id: 'reg-c' };
+  const mit = (regions: typeof ra[]): WorldLayout => ({ ...basis, regions }) as WorldLayout;
+  check('Der Zeuge des Angriffs: Regionen [a,b] vs [b,a] (andere Z-Ordnung) → NICHT enthalten, in beiden Richtungen', !enthaelt(mit([ra, rb]), mit([rb, ra])) && !enthaelt(mit([rb, ra]), mit([ra, rb])));
+  check('Gleiche Reihenfolge: [a,b] enthält [a,b], [a] und [b]; [a,c,b] enthält [a,b] (dazwischen darf anderes stehen)', enthaelt(mit([ra, rb]), mit([ra, rb])) && enthaelt(mit([ra, rb]), mit([ra])) && enthaelt(mit([ra, rb]), mit([rb])) && enthaelt(mit([ra, rc, rb]), mit([ra, rb])));
+  check('Reihenfolge ohne Lücke geprüft: [a,c,b] enthält [b,a] nicht; [a] enthält [a,b] nicht (Element fehlt)', !enthaelt(mit([ra, rc, rb]), mit([rb, ra])) && !enthaelt(mit([ra]), mit([ra, rb])));
+  const P = { prefab: 'Beech1', x: 100, z: 100, yaw: 0 };
+  const mitP = (placements: (typeof P)[]): WorldLayout => ({ ...basis, placements }) as WorldLayout;
+  check('Multimenge: [P] enthält [P,P] NICHT (Doppelte zählen), [P,P] enthält [P] und [P,P]', !enthaelt(mitP([P]), mitP([P, P])) && enthaelt(mitP([P, P]), mitP([P])) && enthaelt(mitP([P, P]), mitP([P, P])));
+  check('Multimenge unabhängig von der Reihenfolge: [P,Q] enthält [Q,P]', enthaelt(mitP([P, { ...P, x: 200 }]), mitP([{ ...P, x: 200 }, P])));
+  check('Ein Stand, der nur die Z-Ordnung ändert, wird gesichert: der Ring bekommt ihn (Editor-Zeuge: F1 = [a,b] angezeigt, F2 = [b,a] kommt)', (() => {
+    const { profil, b } = einTab();
+    profil.testflugSchreibt(mit([ra, rb]));
+    profil.testflugSchreibt(mit([rb, ra]));
+    return b.ring.liste().some((e) => e.layout.regions.map((r) => r.id).join() === 'reg-a,reg-b');
+  })());
+}
+
+// ── 8k. Ring und Quote: der Entwurf hat Vorrang (B1) ────────────────────
+console.log('▶ Quote: voller Ring + grosser Entwurf, harte Quote (5 MiB, 2 Byte je Zeichen)');
+{
+  const QUOTE = 2_621_440; // 5 MiB / 2 Byte je UTF-16-Zeichen
+  /** Ein Entwurf mit vielen grossen Regionen, mindestens `ziel` Zeichen als JSON. */
+  const gross = (ziel: number, saat: number): WorldLayout => {
+    const regionen: WorldLayout['regions'][number][] = [];
+    let laenge = JSON.stringify({ ...basis, regions: [], placements: [] }).length;
+    let r = 0;
+    while (laenge < ziel) {
+      // Ein einfacher Vieleck-Umriss (der Sanitizer verwirft entartete Polygone); Mitte und Radius machen jede Region und jeden Stand verschieden.
+      const mx = ((saat * 997 + r * 131) % 20000) - 10000;
+      const mz = ((saat * 577 + r * 271) % 20000) - 10000;
+      const rad = 800 + ((saat * 13 + r * 7) % 400);
+      const punkte: [number, number][] = Array.from({ length: 400 }, (_, i) => [Math.round(mx + Math.cos((i / 400) * 2 * Math.PI) * rad), Math.round(mz + Math.sin((i / 400) * 2 * Math.PI) * rad)]);
+      const region = { ...basis.regions[0]!, id: `gross-${saat}-${r++}`, shape: { kind: 'polygon', points: punkte } } as WorldLayout['regions'][number];
+      regionen.push(region);
+      laenge += JSON.stringify(region).length + 1;
+    }
+    return sanitizeWorldLayout({ ...basis, regions: regionen, placements: [] })!;
+  };
+  const eintragGroesse = JSON.stringify(gross(190_000, 1)).length;
+  check('Testdaten: ein Ring-Stand hat ~190.000 Zeichen, fünf davon ~950.000 (unter der Ring-Grenze von 1.000.000)', eintragGroesse >= 190_000 && eintragGroesse < 200_000, String(eintragGroesse));
+  const entwurf = gross(1_300_000, 99);
+  check('Testdaten: der grosse Entwurf hat ≥ 1.300.000 Zeichen', JSON.stringify(entwurf).length >= 1_300_000, String(JSON.stringify(entwurf).length));
+
+  const aufbau = (filler: number): { profil: Profil; a: EditorAttrappe } => {
+    const profil = new Profil();
+    profil.daten.set(ENTWURF_KEY, JSON.stringify(basis));
+    profil.daten.set('spiel-daten', 'x'.repeat(filler)); // Spielclient, Sitzung, andere Schlüssel desselben Ursprungs
+    profil.quotaZeichen = QUOTE;
+    const a = new EditorAttrappe('tab-q', profil);
+    for (let i = 1; i <= 5; i++) a.ring.ablegen(gross(190_000, i), 'fremd', 'x');
+    return { profil, a };
+  };
+  {
+    const { profil, a } = aufbau(500_000);
+    const ringVor = a.ring.liste().reduce((n, e) => n + e.groesse, 0);
+    const belegtVor = profil.belegt();
+    check('Ausgangslage: Ring voll (5 Einträge, ≤ 1.000.000 Zeichen), Speicher belegt ' + belegtVor + ' von ' + QUOTE, a.ring.liste().length === 5 && ringVor <= 1_000_000 && belegtVor < QUOTE, `Ring=${ringVor}`);
+    // Ohne Vorrang würde der Entwurf scheitern: Rest = QUOTE − belegt + alter Entwurf < 1,3 Mio.
+    const rest = QUOTE - (belegtVor - JSON.stringify(basis).length - ENTWURF_KEY.length);
+    check('… und ohne Platzmachen passte der Entwurf NICHT (frei für den Entwurf: ' + rest + ' < ' + JSON.stringify(entwurf).length + ')', rest < JSON.stringify(entwurf).length, String(rest));
+    const r = a.aendern(() => entwurf);
+    const gespeichertLen = profil.daten.get(ENTWURF_KEY)?.length ?? 0;
+    check('Der grosse Entwurf wird GESCHRIEBEN (nicht „voll“), Speicher innerhalb der Quote', r !== 'voll' && gespeichertLen >= 1_300_000 && profil.belegt() <= QUOTE, `Ergebnis=${r}, Entwurf=${gespeichertLen}, belegt=${profil.belegt()}`);
+    check('Der Ring wurde gekürzt (weniger als 5 Einträge), genau so viele wie als geopfert gezählt', a.ring.liste().length < 5 && a.ringGeopfert === 5 - a.ring.liste().length && a.ringGeopfert >= 1, `Ring=${a.ring.liste().length}, geopfert=${a.ringGeopfert}`);
+    const m = a.meldungsVerlauf[a.meldungsVerlauf.length - 1] ?? '';
+    check('Die Meldung stimmt: „Speicher knapp — der Entwurf ist gespeichert“ mit der Zahl der geopferten Ring-Einträge', m.startsWith('Speicher knapp') && m.includes(`${a.ringGeopfert} verdrängte Stände`), m);
+    check('Die ÄLTESTEN Einträge gingen zuerst (übrig sind die neuesten)', a.ring.liste().every((e, i, l) => i === 0 || l[i - 1]!.zeit <= e.zeit) && a.ring.liste().every((e) => e.layout.regions.some((x) => /^gross-([3-5])-/.test(x.id)) || a.ringGeopfert < 3));
+  }
+  {
+    const { profil, a } = aufbau(1_500_000); // auch mit leerem Ring passt der Entwurf nicht mehr
+    const r = a.ersetzen(entwurf);
+    check('Passt der Entwurf auch ohne Ring nicht: „voll“, der Ring ist ganz geleert (Vorrang), der alte Entwurf steht unverändert', a.ring.liste().length === 0 && a.ringGeopfert === 5 && (profil.daten.get(ENTWURF_KEY)?.length ?? 0) === JSON.stringify(basis).length, `${r}, geopfert=${a.ringGeopfert}`);
+    const m = a.meldungsVerlauf[a.meldungsVerlauf.length - 1] ?? '';
+    check('Die Meldung „Entwurf zu groß“ wird von keiner Erfolgsmeldung („Import übernommen“) verdeckt und nennt die geopferten Ring-Einträge', m.startsWith('Entwurf zu groß') && m.includes('5 verdrängte Stände') && !a.meldungsVerlauf.includes('Import übernommen'), a.meldungsVerlauf.join(' | '));
+    a.serverstandLaden(entwurf);
+    check('Serverstand laden über einem zu grossen Entwurf: „Entwurf zu groß“ statt „Serverstand geladen“', a.meldungsVerlauf[a.meldungsVerlauf.length - 1]!.startsWith('Entwurf zu groß') && !a.meldungsVerlauf.includes('Serverstand geladen'), a.meldungsVerlauf[a.meldungsVerlauf.length - 1]);
+    // Strg+Z / Strg+Y über „voll“: die Meldung bleibt
+    const { profil: p2, a: a2 } = aufbau(1_500_000);
+    a2.aendern(setze(P1)); // kleiner Schritt passt
+    a2.ersetzen(entwurf); // scheitert
+    void p2;
+  }
+  // Der Ring selbst kann nicht mehr gesichert werden (Quote), im eigenen Änderungspfad: sofort gemeldet
+  {
+    const { profil, b } = einTab();
+    b.aendern(setze(P1));
+    profil.testflugSchreibt(layoutMitPlatzierung(gespeichert(profil)!, 'Beech1', 3101, 3101, 1)); // T1 wird übernommen
+    b.rueckgaengig();
+    // Der Testflug schreibt noch (Quote ohne Grenze für ihn); danach, VOR der Übernahme im Editor, ist der Speicher voll.
+    profil.nachNaechstemSchreiben = () => {
+      profil.quotaZeichen = profil.belegt() + 20; // kein Platz mehr für einen Ring-Eintrag
+    };
+    profil.testflugSchreibt(layoutMitPlatzierung(gespeichert(profil)!, 'Beech1', 3102, 3102, 1)); // T2: T1 fällt aus dem Wiederherstellen-Stapel → Ring voll
+    check('Ring-Schreiben scheitert (Speicher voll): sofort gemeldet („ACHTUNG … NICHT gesichert“), gezählt, kein Wurf', b.ringVoll === 1 && b.meldungsVerlauf.some((m) => m.startsWith('ACHTUNG: Ein verdrängter Stand konnte NICHT gesichert werden')), b.meldungsVerlauf.join(' | '));
+  }
+}
+
+// ── 8l. Ring-Grenze: der älteste fällt MIT Meldung heraus (B6) ──────────
+console.log('▶ Ring-Grenze mit Meldung');
+{
+  const T = (l: WorldLayout, x: number): WorldLayout => layoutMitPlatzierung(l, 'Beech1', x, x, 1);
+  const { profil, b } = einTab({ ringMax: 1 });
+  b.aendern(setze(P1));
+  profil.testflugSchreibt(T(gespeichert(profil)!, 3101));
+  b.rueckgaengig();
+  profil.testflugSchreibt(T(gespeichert(profil)!, 3102)); // T1 → Ring (1 Eintrag)
+  const m1 = b.meldungsVerlauf[b.meldungsVerlauf.length - 1]!;
+  b.rueckgaengig();
+  profil.testflugSchreibt(T(gespeichert(profil)!, 3103)); // der Stand mit T2 → Ring, Grenze 1: T1 fällt
+  const m2 = b.meldungsVerlauf[b.meldungsVerlauf.length - 1]!;
+  check('Erster Ring-Eintrag: gesichert, keine Verwerfen-Meldung', m1.includes('gesichert') && !m1.includes('Ältester') && b.ringVerworfen === 0 || b.ring.liste().length === 1, m1);
+  check('Zweiter Eintrag über der Grenze: der älteste (T1) fällt heraus und die Meldung SAGT es („Ältester verdrängter Entwurf verworfen“)', b.ringVerworfen === 1 && m2.includes('Ältester verdrängter Entwurf verworfen') && b.ring.liste().length === 1 && !b.ring.liste().some((e) => hat(e.layout, 3101)), m2);
+}
+
 // ── 9. Quelltextprüfung an editorMain.ts ─────────────────────────────
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
@@ -1345,7 +1636,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Import legt vor dem Ersetzen einen Schritt an', importZweig);
 
   // Ring der verdrängten Entwürfe: Verdrahtung im Editor
-  check('Ring: new VerdraengtRing(umgebung.speicher), Verlauf mit Abgang-Hörer new SchrittVerlauf<WorldLayout>(50, beiAbgang)', /const ring = new VerdraengtRing\(umgebung\.speicher\);/.test(quelle) && /const verlauf = new SchrittVerlauf<WorldLayout>\(50, beiAbgang\);/.test(quelle));
+  check('Ring: new VerdraengtRing(umgebung.speicher), Verlauf mit Abgang-Hörer new SchrittVerlauf<WorldLayout>(50, beiAbgang)', /const ring = new VerdraengtRing\(umgebung\.speicher, \{ tabId \}\);/.test(quelle) && /const verlauf = new SchrittVerlauf<WorldLayout>\(50, beiAbgang\);/.test(quelle));
   const abgangFn = /function beiAbgang\([\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
   check('beiAbgang entscheidet mit sollInRing(grund, herkunft, enthaelt(bezug, stand)) und sichert per ringen()', /sollInRing\(grund, herkunft, enthaelt\(bezug, stand\)\)/.test(abgangFn) && /ringen\(stand, herkunft, grund/.test(abgangFn) && /istFremdHaltig\(stand\)/.test(abgangFn));
   check('Sicherheitsnetz beiVerdraengt: sichert nur, wenn der Stand in keinem Stapel liegt und nicht angezeigt wird', /beiVerdraengt: \(alt\) => \{[\s\S]*?verlauf\.enthaelt\(\(x\) => gleich\(x, alt\)\)[\s\S]*?ringen\(alt, 'fremd', 'ersetzt', null\);/.test(quelle));
@@ -1357,12 +1648,26 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Die Meldungen nennen den Ring: Übernahme, Rückgängig, Wiederherstellen, Import, Serverstand — und ihr Fehlschlag (ACHTUNG … NICHT gesichert)', (quelle.match(/ringHinweis\(ring(?:Vor|Neu)/g) ?? []).length >= 6 && /ACHTUNG: Ein verdrängter Stand konnte NICHT gesichert werden/.test(quelle), String((quelle.match(/ringHinweis\(ring/g) ?? []).length));
 
   // A2: Meldungsreihenfolge
-  check('alles() liefert true, wenn der Schreibversuch einen fremden Stand übernommen hat (speichereEntwurf(…) === \'fremd\')', /function alles\([^)]*\): boolean \{\s*const uebernommen = entwurfSchreiben \? speichereEntwurf\(quelle\) === 'fremd' : false;/.test(quelle) && /return uebernommen;/.test(quelle));
+  check('alles() liefert true, wenn der Schreibversuch einen fremden Stand übernommen hat (speichereEntwurf(…) === \'fremd\')', /function alles\([^)]*\): boolean \{\s*const uebernommen = entwurfSchreiben \? speichereEntwurf\(quelle\) : false;/.test(quelle) && /return uebernommen;/.test(quelle));
   const zurueckFn = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const wiederFn = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   check('Rückgängig und Wiederherstellen setzen ihre Meldung nur, wenn der Schreibversuch NICHT übernommen hat (const uebernommen = alles(); if (!uebernommen) …)', /const uebernommen = alles\(\);[\s\S]*?if \(!uebernommen\)/.test(zurueckFn) && /const uebernommen = alles\(\);[\s\S]*?if \(!uebernommen\)/.test(wiederFn));
   check('Serverstand: „NICHT geladen“, wenn der Schreibversuch einen fremden Stand übernommen hat — im Start-Abgleich und nach 409', /const uebernommen = alles\('server'\);[\s\S]*?Serverstand NICHT geladen/.test(abgleichTeil) && /if \(!alles\('server'\)\) \{[\s\S]*?Serverstand geladen/.test(quelle));
   check('Import und wieder einsetzen: keine eigene Meldung über der der Übernahme (if (!uebernommen))', /const uebernommen = alles\('import'\);[\s\S]*?if \(!uebernommen\)/.test(quelle) && /const uebernommen = alles\(\);\s*vorschauAnstossen\(\);\s*if \(!uebernommen\) \{\s*shell\.meldung\(\s*`Verdrängten Entwurf wieder eingesetzt/.test(sektion));
+
+  // Runde 5: Quote, Vorrang des Entwurfs, Ring-Grenze, Texte
+  check('Entwurf hat Vorrang vor dem Ring: EntwurfsSpeicher bekommt platzSchaffen (ältesten Ring-Eintrag entfernen, ringGeopfert zählen)', /platzSchaffen: \(\) => \{\s*const frei = ring\.aeltestenEntfernen\(\);\s*if \(frei\) ringGeopfert\+\+;\s*return frei;/.test(quelle));
+  const speichernFn = /function speichereEntwurf\([\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
+  check('speichereEntwurf liefert true bei fremdem Stand, „Entwurf zu groß“ und „Speicher knapp“ (geopferte Ring-Einträge genannt) — kein Aufrufer überschreibt sie', /function speichereEntwurf\([^)]*\): boolean/.test(speichernFn) && /let gemeldet = ergebnis === 'fremd';/.test(speichernFn) && /Entwurf zu groß für localStorage[^;]*opferText/.test(speichernFn) && /Speicher knapp — der Entwurf ist gespeichert/.test(speichernFn) && /return gemeldet;/.test(speichernFn));
+  check('Ring-Schreiben scheitert im eigenen Änderungspfad: ringen() meldet sofort („ACHTUNG … NICHT gesichert“) und zählt', /else if \(r === 'voll'\) \{\s*ringVoll\+\+;[\s\S]*?shell\.meldung\('ACHTUNG: Ein verdrängter Stand konnte NICHT gesichert werden/.test(quelle));
+  check('Fällt der älteste Ring-Eintrag wegen der Grenze, sagt es die Meldung („Ältester verdrängter Entwurf verworfen“); ringen() zählt ring.verworfen', /Ältester verdrängter Entwurf verworfen \(der Ring fasst höchstens 5/.test(quelle) && /ringVerworfen \+= ring\.verworfen - verworfenVor;/.test(quelle));
+  check('Ring und Speicher tragen dieselbe Tab-Kennung (neueTabId): EntwurfsSpeicher({ …, tabId, … })', /const tabId = neueTabId\(\);/.test(quelle) && /\.\.\.umgebung,\s*tabId,/.test(quelle));
+  const sektionText = /function ringSektionBauen\(\): void \{[\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
+  check('Sektionstext ehrlich: nennt Übernahme/Import/Laden, dass eine spätere eigene Änderung Standard-Undo ist, und die Grenze von 5 mit Meldung; kein „ein Import … drängt Stände hierher“ ohne Einschränkung', sektionText.includes('Standard-Undo') && sektionText.includes('Höchstens 5 Einträge') && sektionText.includes('mit Meldung heraus') && !sektionText.includes('das Verwerfen von Wiederherstellen aus dem Verlauf gedrängt hat'));
+  check('Sektion zeigt eine gescheiterte Sicherung dauerhaft (ringVoll > 0), auch ohne Einträge', /if \(ringVoll > 0\) \{[\s\S]*?konnte ein verdrängter Stand nicht gesichert werden/.test(sektionText));
+  const ringQuelle = readFileSync(resolve(HIER, '../src/editor/entwurfsSpeicher.ts'), 'utf-8');
+  check('Klassenkommentar ehrlich: „Kein Stand geht still verloren — bis zur Ring-Grenze von 5 Einträgen; darüber wird der älteste mit Meldung verworfen.“ (Verlauf und Ring)', (ringQuelle.replace(/\s*\n\s*\*\s*/g, ' ').match(/bis zur Ring-Grenze von 5 Einträgen; darüber wird der älteste mit Meldung verworfen/g) ?? []).length >= 2, String((ringQuelle.match(/Ring-Grenze von 5/g) ?? []).length));
+  check('Ring: ein Schlüssel JE Eintrag (VERDRAENGT_PRAEFIX + id), kein Sammelschlüssel mehr; Ring-Grenze 1.000.000 Zeichen', /VERDRAENGT_PRAEFIX = 'wov-editor-verdraengt:'/.test(ringQuelle) && !/VERDRAENGT_KEY/.test(ringQuelle) && /opt\.maxBytes \?\? 1_000_000/.test(ringQuelle) && /opt\.max \?\? 5/.test(ringQuelle));
   const poly = /function polygonSchliessen[\s\S]*?merkeSchritt\(\);[^\n]*\n\s*layout = \{ \.\.\.layout, regions/.test(quelle);
   const hoch = /\[arr\[i\], arr\[i \+ 1\]\] = [^\n]*\n\s*merkeSchritt\(\);[^\n]*\n\s*layout = \{ \.\.\.layout, regions: arr \}/.test(quelle);
   check('Polygon schliessen und „nach oben" (bisher ohne Schritt) legen jetzt einen an', poly && hoch, `polygon=${poly}, nachOben=${hoch}`);

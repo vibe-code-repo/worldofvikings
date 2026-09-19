@@ -68,6 +68,13 @@ export interface KvSpeicher {
   removeItem?(schluessel: string): void;
 }
 
+/** Was der Ring braucht: alle Schlüssel durchsuchen und einzelne entfernen (jeder Eintrag ist ein eigener Schlüssel). */
+export interface RingSpeicher extends KvSpeicher {
+  readonly length: number;
+  key(index: number): string | null;
+  removeItem(schluessel: string): void;
+}
+
 /** Der Teil von `window`, der `storage`-Ereignisse liefert. */
 export interface EreignisQuelle {
   addEventListener(art: 'storage', hoerer: (e: { key: string | null }) => void): void;
@@ -114,6 +121,14 @@ export interface EntwurfsSpeicherOptionen {
    * prüft das und sichert ihn dann (Ring der verdrängten Entwürfe).
    */
   beiVerdraengt?: (alt: WorldLayout, neu: WorldLayout) => void;
+  /**
+   * Der ENTWURF passt nicht mehr in den Speicher (Quote): Der Aufrufer macht
+   * Platz (der Editor entfernt den ältesten Eintrag des Rings) und liefert
+   * `true`, wenn er etwas freigegeben hat. Der Speicher versucht es dann
+   * erneut — bis der Entwurf passt oder nichts mehr frei wird. Der Entwurf hat
+   * Vorrang vor dem Ring.
+   */
+  platzSchaffen?: () => boolean;
 }
 
 export type SchreibErgebnis =
@@ -223,11 +238,13 @@ export function sollInRing(grund: AbgangsGrund, herkunft: 'fremd' | 'eigen', abg
  * per Strg+Z erreichbar, und Strg+Z bringt danach den fremden Stand per
  * Strg+Y zurück.
  *
- * Kein Stand geht still verloren: Jeder Stand, der den Verlauf verlässt
- * (Wiederherstellen-Ast verworfen, Grenze überschritten, angezeigter fremder
- * Stand durch die nächste Übernahme ersetzt), wird dem `AbgangHoerer`
- * gemeldet; der Editor sichert ihn nach `sollInRing` im Ring der verdrängten
- * Entwürfe (`VerdraengtRing`), aus dem der Nutzer ihn wieder einsetzen kann.
+ * Kein Stand geht still verloren — bis zur Ring-Grenze von 5 Einträgen;
+ * darüber wird der älteste mit Meldung verworfen. Jeder Stand, der den
+ * Verlauf verlässt (Wiederherstellen-Ast verworfen, Grenze überschritten,
+ * angezeigter fremder Stand durch die nächste Übernahme ersetzt), wird dem
+ * `AbgangHoerer` gemeldet; der Editor sichert ihn nach `sollInRing` im Ring
+ * der verdrängten Entwürfe (`VerdraengtRing`), aus dem der Nutzer ihn wieder
+ * einsetzen kann.
  *
  * DOM-frei und ohne Wissen vom Editor: `aktuell` ist immer der gerade
  * angezeigte Stand, den der Aufrufer danach ersetzt.
@@ -321,10 +338,19 @@ export class SchrittVerlauf<T> {
 }
 
 // ── Ring der verdrängten Entwürfe ────────────────────────────────────
-/** Eigener Schlüssel: der Ring darf den Entwurf nie stören, und umgekehrt. */
-export const VERDRAENGT_KEY = 'wov-editor-verdraengt';
+/**
+ * Jeder Eintrag ist ein EIGENER localStorage-Schlüssel
+ * `wov-editor-verdraengt:<tabId>:<zeit>:<zähler>`; die Liste entsteht durch
+ * Durchsuchen der Schlüssel mit diesem Präfix. So gibt es kein
+ * Lesen-Ändern-Schreiben auf einem Sammelschlüssel mehr, bei dem zwei Tabs,
+ * die gleichzeitig sichern, einander einen Eintrag wegschreiben; und die
+ * Kennung enthält die Tab-Kennung, damit „entfernen" nur den einen Eintrag
+ * trifft.
+ */
+export const VERDRAENGT_PRAEFIX = 'wov-editor-verdraengt:';
 
 export interface VerdraengtEintrag {
+  /** `<tabId>:<zeit>:<zähler>` — der Schlüssel ist `VERDRAENGT_PRAEFIX + id`. */
   id: string;
   /** ms seit 1970, wann der Stand verdrängt wurde. */
   zeit: number;
@@ -334,6 +360,8 @@ export interface VerdraengtEintrag {
   grund: string;
   regionen: number;
   platzierungen: number;
+  /** Zeichen des Eintrags im Speicher (Schlüssel + Wert). */
+  groesse: number;
   layout: WorldLayout;
 }
 
@@ -346,112 +374,164 @@ export type RingErgebnis =
   | 'voll';
 
 /**
- * Die letzten verdrängten Entwürfe unter einem eigenen Schlüssel: höchstens
- * `max` Einträge und `maxBytes` Zeichen zusammen, der älteste fällt zuerst.
- * Quotenfehler werden toleriert (`'voll'`), damit der Editor nie an der
- * Sicherung scheitert. Die Einträge tragen Zeit, Herkunft und Zahlen, damit
- * der Nutzer sieht, was er wieder einsetzt.
+ * Die letzten verdrängten Entwürfe: höchstens `max` (5) Einträge und
+ * `maxBytes` (1.000.000) Zeichen zusammen; darüber fällt der älteste heraus,
+ * und `verworfen` zählt es, damit der Editor es sagen kann. Kein Stand geht
+ * still verloren — bis zur Ring-Grenze von 5 Einträgen; darüber wird der
+ * älteste mit Meldung verworfen. Quotenfehler werden toleriert (`'voll'`),
+ * damit der Editor nie an der Sicherung scheitert; umgekehrt macht der Ring
+ * Platz, wenn der ENTWURF nicht mehr passt (`aeltestenEntfernen`): Der
+ * Entwurf hat Vorrang.
  */
 export class VerdraengtRing {
   private readonly max: number;
   private readonly maxBytes: number;
   private readonly jetzt: () => number;
+  private readonly tabId: string;
   private zaehler = 0;
-  /** Zuletzt gelesener Rohtext und seine Einträge: die Sektion fragt bei jedem Neuaufbau, und das Zerlegen von bis zu 2 MB soll nicht jedes Mal geschehen. */
-  private cacheRoh: string | null = null;
-  private cacheListe: VerdraengtEintrag[] = [];
+  /** Wie viele Einträge diese Ring-Instanz wegen der Grenzen (Anzahl/Größe) verworfen hat. */
+  verworfen = 0;
+  /** Zerlegte Einträge je Schlüssel: bei jedem Sektionsaufbau nur neu lesen, was sich geändert hat. */
+  private readonly cache = new Map<string, { roh: string; eintrag: VerdraengtEintrag | null }>();
 
   constructor(
-    private readonly speicher: KvSpeicher,
-    opt: { max?: number; maxBytes?: number; jetzt?: () => number } = {}
+    private readonly speicher: RingSpeicher,
+    opt: { max?: number; maxBytes?: number; jetzt?: () => number; tabId?: string } = {}
   ) {
     this.max = opt.max ?? 5;
-    this.maxBytes = opt.maxBytes ?? 2_000_000;
+    this.maxBytes = opt.maxBytes ?? 1_000_000;
     this.jetzt = opt.jetzt ?? Date.now;
+    this.tabId = opt.tabId ?? neueTabId();
+  }
+
+  private schluessel(): string[] {
+    const aus: string[] = [];
+    try {
+      for (let i = 0; i < this.speicher.length; i++) {
+        const k = this.speicher.key(i);
+        if (k !== null && k.startsWith(VERDRAENGT_PRAEFIX)) aus.push(k);
+      }
+    } catch {
+      return [];
+    }
+    return aus;
   }
 
   /** Die Einträge, älteste zuerst. Unlesbares wird übersprungen. */
   liste(): VerdraengtEintrag[] {
-    let roh: string | null;
-    try {
-      roh = this.speicher.getItem(VERDRAENGT_KEY);
-    } catch {
-      return [];
-    }
-    if (!roh) return [];
-    if (roh === this.cacheRoh) return [...this.cacheListe];
-    try {
-      const a = JSON.parse(roh) as unknown;
-      if (!Array.isArray(a)) return [];
-      const aus: VerdraengtEintrag[] = [];
-      for (const e of a as Partial<VerdraengtEintrag>[]) {
-        const layout = sanitizeWorldLayout(e?.layout);
-        if (!layout || typeof e.id !== 'string' || typeof e.zeit !== 'number') continue;
-        aus.push({
-          id: e.id,
-          zeit: e.zeit,
-          herkunft: e.herkunft === 'fremd' ? 'fremd' : 'eigen',
-          tabId: typeof e.tabId === 'string' ? e.tabId : null,
-          grund: typeof e.grund === 'string' ? e.grund : '',
-          regionen: layout.regions.length,
-          platzierungen: layout.placements?.length ?? 0,
-          layout,
-        });
+    const aus: VerdraengtEintrag[] = [];
+    const lebende = new Set<string>();
+    for (const k of this.schluessel()) {
+      let roh: string | null;
+      try {
+        roh = this.speicher.getItem(k);
+      } catch {
+        continue;
       }
-      this.cacheRoh = roh;
-      this.cacheListe = aus;
-      return [...aus];
-    } catch {
-      return [];
+      if (roh === null) continue;
+      lebende.add(k);
+      let z = this.cache.get(k);
+      if (!z || z.roh !== roh) {
+        z = { roh, eintrag: this.zerlegen(k, roh) };
+        this.cache.set(k, z);
+      }
+      if (z.eintrag) aus.push(z.eintrag);
     }
+    for (const k of [...this.cache.keys()]) if (!lebende.has(k)) this.cache.delete(k);
+    aus.sort((a, b) => a.zeit - b.zeit || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return aus;
+  }
+
+  private zerlegen(k: string, roh: string): VerdraengtEintrag | null {
+    try {
+      const e = JSON.parse(roh) as Partial<VerdraengtEintrag>;
+      const layout = sanitizeWorldLayout(e?.layout);
+      if (!layout || typeof e.zeit !== 'number') return null;
+      return {
+        id: k.slice(VERDRAENGT_PRAEFIX.length),
+        zeit: e.zeit,
+        herkunft: e.herkunft === 'fremd' ? 'fremd' : 'eigen',
+        tabId: typeof e.tabId === 'string' ? e.tabId : null,
+        grund: typeof e.grund === 'string' ? e.grund : '',
+        regionen: layout.regions.length,
+        platzierungen: layout.placements?.length ?? 0,
+        groesse: k.length + roh.length,
+        layout,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private entfernenSchluessel(k: string): void {
+    try {
+      this.speicher.removeItem(k);
+    } catch {
+      // Ein Eintrag, der sich nicht entfernen lässt, ist harmlos.
+    }
+    this.cache.delete(k);
   }
 
   ablegen(layout: WorldLayout, herkunft: 'fremd' | 'eigen', grund: string, tabId: string | null = null): RingErgebnis {
     const liste = this.liste();
     if (liste.some((e) => enthaelt(e.layout, layout))) return 'schon-da';
-    liste.push({
-      id: `v${this.jetzt().toString(36)}-${(this.zaehler++).toString(36)}`,
-      zeit: this.jetzt(),
+    const zeit = this.jetzt();
+    const id = `${this.tabId}:${zeit.toString(36)}:${(this.zaehler++).toString(36)}`;
+    const k = VERDRAENGT_PRAEFIX + id;
+    const text = JSON.stringify({
+      zeit,
       herkunft,
       tabId,
       grund,
-      regionen: layout.regions.length,
-      platzierungen: layout.placements?.length ?? 0,
       layout,
     });
-    // Ältestes zuerst entfernen; der neue Eintrag allein muss in die Grenze passen.
-    while (liste.length > this.max) liste.shift();
-    let text = JSON.stringify(liste);
-    while (text.length > this.maxBytes && liste.length > 1) {
-      liste.shift();
-      text = JSON.stringify(liste);
-    }
-    if (text.length > this.maxBytes) return 'voll'; // der Stand allein ist zu gross
+    if (k.length + text.length > this.maxBytes) return 'voll'; // der Stand allein sprengt die Grenze
+    // Ein setItem auf einen NEUEN Schlüssel: kein Lesen-Ändern-Schreiben. Passt es
+    // nicht (Quote), wird der älteste Eintrag geopfert und noch einmal versucht.
+    const alle = [...liste];
     for (;;) {
       try {
-        this.speicher.setItem(VERDRAENGT_KEY, text);
-        return 'ok';
+        this.speicher.setItem(k, text);
+        break;
       } catch {
-        // Quote: einen älteren Eintrag opfern und noch einmal versuchen.
-        if (liste.length <= 1) return 'voll';
-        liste.shift();
-        text = JSON.stringify(liste);
+        const alt = alle.shift();
+        if (!alt) return 'voll';
+        this.entfernenSchluessel(VERDRAENGT_PRAEFIX + alt.id);
+        this.verworfen++;
       }
     }
+    // Grenzen: höchstens `max` Einträge und `maxBytes` Zeichen; der älteste fällt zuerst.
+    let summe = k.length + text.length + alle.reduce((n, e) => n + e.groesse, 0);
+    let anzahl = alle.length + 1;
+    while (alle.length > 0 && (anzahl > this.max || summe > this.maxBytes)) {
+      const alt = alle.shift()!;
+      this.entfernenSchluessel(VERDRAENGT_PRAEFIX + alt.id);
+      this.verworfen++;
+      summe -= alt.groesse;
+      anzahl--;
+    }
+    return 'ok';
   }
 
-  /** Einen Eintrag entfernen (der Nutzer hat ihn wieder eingesetzt oder verworfen). */
+  /** Genau einen Eintrag entfernen (der Nutzer hat ihn verworfen). Die Kennung enthält die Tab-Kennung: kein anderer Tab wird getroffen. */
   entfernen(id: string): void {
-    const liste = this.liste().filter((e) => e.id !== id);
-    try {
-      this.speicher.setItem(VERDRAENGT_KEY, JSON.stringify(liste));
-    } catch {
-      // Ein Eintrag, der sich nicht entfernen lässt, ist harmlos.
-    }
+    this.entfernenSchluessel(VERDRAENGT_PRAEFIX + id);
+  }
+
+  /**
+   * Den ältesten Eintrag entfernen, um Platz zu schaffen (der Entwurf hat
+   * Vorrang vor dem Ring). `false`, wenn nichts mehr zu entfernen ist.
+   */
+  aeltestenEntfernen(): boolean {
+    const alt = this.liste()[0];
+    if (!alt) return false;
+    this.entfernenSchluessel(VERDRAENGT_PRAEFIX + alt.id);
+    return true;
   }
 }
 
-function zufallsId(): string {
+/** Eine neue Kennung für einen Editor-Tab (Speicher und Ring tragen dieselbe). */
+export function neueTabId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (c?.randomUUID) return c.randomUUID();
   return `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -468,6 +548,7 @@ export class EntwurfsSpeicher {
   private readonly aktuell: () => WorldLayout;
   private readonly beiFremdem: (fremd: WorldLayout, info: FremdInfo) => void;
   private readonly beiVerdraengt: ((alt: WorldLayout, neu: WorldLayout) => void) | null;
+  private readonly platzSchaffen: (() => boolean) | null;
   /** Der Rohtext in `bekannt` stammt von einem anderen Tab und ist seither nicht überschrieben worden. */
   private bekanntFremd = false;
   private readonly beiStorage = (e: { key: string | null }): void => {
@@ -479,11 +560,12 @@ export class EntwurfsSpeicher {
     this.speicher = opt.speicher;
     this.ereignisse = opt.ereignisse ?? null;
     this.kanal = opt.kanal ?? null;
-    this.tabId = opt.tabId ?? zufallsId();
+    this.tabId = opt.tabId ?? neueTabId();
     this.jetzt = opt.jetzt ?? Date.now;
     this.aktuell = opt.aktuell;
     this.beiFremdem = opt.beiFremdem;
     this.beiVerdraengt = opt.beiVerdraengt ?? null;
+    this.platzSchaffen = opt.platzSchaffen ?? null;
     this.ereignisse?.addEventListener('storage', this.beiStorage);
     if (this.kanal) {
       this.kanal.onmessage = (e) => {
@@ -616,10 +698,14 @@ export class EntwurfsSpeicher {
     const zeit = this.jetzt();
     const altRoh = this.bekannt;
     const altWarFremd = this.bekanntFremd;
-    try {
-      this.speicher.setItem(ENTWURF_KEY, roh);
-    } catch {
-      return 'voll'; // der Entwurf selbst passt nicht: NICHTS geschrieben
+    for (;;) {
+      try {
+        this.speicher.setItem(ENTWURF_KEY, roh);
+        break;
+      } catch {
+        // Passt der Entwurf nicht, gibt der Ring Platz frei — Eintrag für Eintrag, bis er passt.
+        if (!this.platzSchaffen?.()) return 'voll'; // der Entwurf selbst passt nicht: NICHTS geschrieben
+      }
     }
     // Ab hier steht der Entwurf im Speicher, was danach auch schiefgeht.
     this.bekannt = roh;
@@ -670,23 +756,26 @@ export class EntwurfsSpeicher {
  * arbeitet dann wie vorher, nur ohne Schutz.
  */
 export function browserUmgebung(): {
-  speicher: KvSpeicher;
+  speicher: RingSpeicher;
   ereignisse: EreignisQuelle | null;
   kanal: Kanal | null;
 } {
   const g = globalThis as {
-    localStorage?: KvSpeicher;
+    localStorage?: RingSpeicher;
     addEventListener?: unknown;
     BroadcastChannel?: new (name: string) => Kanal;
   };
-  let speicher: KvSpeicher;
+  let speicher: RingSpeicher;
   try {
     if (!g.localStorage) throw new Error('kein localStorage');
     speicher = g.localStorage;
   } catch {
     // Zugriff auf `localStorage` kann selbst werfen (blockierte Website-Daten).
     speicher = {
+      length: 0,
+      key: () => null,
       getItem: () => null,
+      removeItem: () => undefined,
       setItem: () => {
         throw new Error('localStorage nicht verfügbar');
       },

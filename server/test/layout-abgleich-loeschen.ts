@@ -7,12 +7,14 @@
  * the new placement, state and all (a chest kept its contents, a tree its felling count). "Delete the chest
  * and set a chest where it stood" therefore did not delete anything.
  *
- * Now: such a ZDO (id-shaped, no `@`) is taken over only by a placement that carries the id DERIVED from
- * prefab and metre (an entry written without an id of its own: the rounding-edge case of
- * `layout-abgleich.ts`, world 5, stays as it is). A placement with an explicit id -- everything the editor
- * gives out since K1.3 (derived id + a random tail with a letter) -- never takes over the ZDO of another
- * name: the old one is orphaned and removed by the usual rules, the new one is spawned empty. The old key
- * (`Prefab@x,z`, saves from before E1) and a ZDO without a `layoutId` are taken over as before.
+ * Now: such a ZDO (id-shaped, no `@`) is taken over only by a placement whose id the SANITIZER derived itself
+ * (the entry had no id in the file: the rounding-edge case of `layout-abgleich.ts`, world 5, stays as it is;
+ * the sanitizer reports these ids, `abgeleitet`). An entry whose id STANDS in the file has a name of its own --
+ * however derived it looks (157 of 157 entries of the real world file carry an id in derived form) -- and
+ * never takes over the ZDO of another name: the old one is orphaned and removed by the usual rules, the new one
+ * is spawned empty. That holds for the editor's ids (derived + a random tail), for an id the MCP server or a
+ * hand-written file gives in derived form or with a `-2`, and for any other. The old key (`Prefab@x,z`, saves
+ * from before E1) and a ZDO without a `layoutId` are taken over as before.
  *
  * Every check is a real server boot on a temp world (boot 1 builds and saves, boot 2 loads that save and
  * syncs it against the changed document). Run: npx tsx test/layout-abgleich-loeschen.ts   (from server/)
@@ -95,6 +97,8 @@ type Server = ReturnType<typeof starte>['server'];
 const layoutZdos = (s: Server, id: string): ZDO[] => s.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) === id);
 const alleLayoutZdos = (s: Server): ZDO[] => s.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER));
 const inhalt = (z: ZDO): string => z.getString(TRUHE_INHALT_MEMBER);
+const gleichListe = (name: string, ist: readonly string[] | undefined, soll: readonly string[]): void =>
+  check(name, ist !== undefined && JSON.stringify([...ist].sort()) === JSON.stringify([...soll].sort()), `${JSON.stringify(ist)}`);
 const abgleich = (zeilen: string[]): string => zeilen.find((z) => /Layout-Abgleich:/.test(z)) ?? '';
 const zahl = (zeile: string, was: string): number => Number(new RegExp(`(\\d+) ${was}`).exec(zeile)?.[1] ?? NaN);
 // Spelled out on purpose: the same file has to run against a tree from before the change and report every check.
@@ -110,8 +114,25 @@ function ersterBoot(welt: string, alt: Platzierung) {
   return { uid: z1?.zdoid.toString(), boot: b1 };
 }
 
+// ── 0. The sanitizer says which ids it derived itself ──
+console.log('\n[0] sanitizeWorldLayoutMitBericht: `abgeleitet` = the ids the sanitizer derived, not the ones that stood in the file');
+{
+  const bericht = (gemeinsam.sanitizeWorldLayoutMitBericht as (d: unknown) => { abgeleitet?: string[]; layout: { placements?: { id?: string }[] } } | null)(
+    dokument([
+      { prefab: TRUHE, x: 1, z: 1 }, // no id: derived
+      { id: 'piece-chest-wood_5_5', prefab: TRUHE, x: 5, z: 5 }, // an id IN the file that looks derived: a name of its own
+      { id: 'piece-chest-wood_7_7-2', prefab: TRUHE, x: 7, z: 7 }, // the `-N` form, also explicit
+      { id: 'Ungültig Ü', prefab: TRUHE, x: 9, z: 9 }, // an invalid id is not kept: derived
+      { id: 'doppelt', prefab: TRUHE, x: 20, z: 20 },
+      { id: 'doppelt', prefab: TRUHE, x: 30, z: 30 }, // a duplicate id: the second loses it and gets a derived one
+    ])
+  );
+  gleichListe('the ids derived by the sanitizer', bericht?.abgeleitet, ['piece-chest-wood_1_1', 'piece-chest-wood_30_30', 'piece-chest-wood_9_9']);
+  check('explicit ids in derived form are NOT in the list, and are kept', !(bericht?.abgeleitet ?? []).some((i) => i === 'piece-chest-wood_5_5' || i === 'piece-chest-wood_7_7-2') && (bericht?.layout.placements ?? []).some((p) => p.id === 'piece-chest-wood_5_5'));
+}
+
 // ── 1. Delete the chest, set another one where it stood (editor id with a tail) ──
-const ALT_ID = 'piece_chest_wood_100_100'; // derived form, like every id the migration wrote into the world file
+const ALT_ID = 'piece-chest-wood_100_100'; // derived form (`platzierungsIdBasis`), like every id the migration wrote into the world file
 const ALT = { id: ALT_ID, prefab: TRUHE, x: 100, z: 100 };
 
 for (const [name, abstand] of [
@@ -147,10 +168,48 @@ console.log('\n[2] a chest deleted, another prefab set where it stood');
   check('the chest is removed, the wall is a new ZDO', !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid) && layoutZdos(b2.server, 'wand-neu-a1b2').length === 1, abgleich(b2.zeilen));
 }
 
-// ── 3. What still takes over (pinned) ──
-console.log('\n[3] an entry WITHOUT an id of its own (derived id) pushed across the rounding edge keeps the ZDO -- pinned, world 5 of layout-abgleich.ts');
+// ── 2b. An id the MCP server or a hand-written file gives, in derived form: still a NEW object ──
+for (const [name, altId, neuId] of [
+  ['the plain derived form after a delete (MCP placement_set with an explicit id)', `${ALT_ID}-k3x9`, ALT_ID],
+  ['the counter form `-2`', ALT_ID, `${ALT_ID}-2`],
+  ['the counter form `-7`', `${ALT_ID}-k3x9`, `${ALT_ID}-7`],
+] as const) {
+  console.log(`\n[2b] delete + set a chest with an EXPLICIT id in derived form: ${name}`);
+  const welt = `explizit-${neuId}`;
+  const { uid } = ersterBoot(welt, { id: altId, prefab: TRUHE, x: 100, z: 100 });
+  const b2 = starte(welt, dokument([{ id: neuId, prefab: TRUHE, x: 100.3, z: 100 }]));
+  const zeile = abgleich(b2.zeilen);
+  const neu = layoutZdos(b2.server, neuId);
+  check('a NEW ZDO, WITHOUT the old contents, the old one is gone', neu.length === 1 && neu[0]!.zdoid.toString() !== uid && inhalt(neu[0]!) === '' && !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid), `${uid} -> ${neu[0]?.zdoid.toString()}, "${neu[0] ? inhalt(neu[0]) : '-'}"`);
+  check('the log says 1 spawned, 1 removed, 0 re-stamped', zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1 && !/umgestempelt/.test(zeile), zeile);
+}
+
+console.log('\n[2c] two chests in one metre, one of them deleted, an editor chest set where it stood: the other keeps its ZDO and contents');
 {
-  const alt = { id: 'piece_chest_wood_140_100', prefab: TRUHE, x: 140.4, z: 100 };
+  const welt = 'zwei-truhen';
+  const X = { id: ALT_ID, prefab: TRUHE, x: 100.4, z: 100 };
+  const Y = { id: `${ALT_ID}-2`, prefab: TRUHE, x: 100.1, z: 100 };
+  const b1 = starte(welt, dokument([X, Y]));
+  const zx = layoutZdos(b1.server, X.id)[0]!;
+  const zy = layoutZdos(b1.server, Y.id)[0]!;
+  zx.setString(TRUHE_INHALT_MEMBER, '[["Holz",1,0,0]]');
+  zy.setString(TRUHE_INHALT_MEMBER, '[["Stein",2,0,0]]');
+  const uidX = zx.zdoid.toString();
+  const uidY = zy.zdoid.toString();
+  b1.server.saveWorld();
+  const Z = { id: `${ALT_ID}-n000`, prefab: TRUHE, x: 100.4, z: 100 };
+  const b2 = starte(welt, dokument([Y, Z]));
+  const y2 = layoutZdos(b2.server, Y.id)[0];
+  const z2 = layoutZdos(b2.server, Z.id)[0];
+  check('Y (kept): same ZDO, own contents', y2?.zdoid.toString() === uidY && y2 !== undefined && inhalt(y2) === '[["Stein",2,0,0]]');
+  check('X (deleted) is gone; Z is a NEW empty ZDO (not X and not Y)', z2 !== undefined && ![uidX, uidY].includes(z2.zdoid.toString()) && inhalt(z2) === '' && !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uidX), abgleich(b2.zeilen));
+  check('two layout ZDOs, log 1 spawned, 1 removed', alleLayoutZdos(b2.server).length === 2 && zahl(abgleich(b2.zeilen), 'gespawnt') === 1 && zahl(abgleich(b2.zeilen), 'entfernt') === 1, abgleich(b2.zeilen));
+}
+
+// ── 3. What still takes over (pinned) ──
+console.log('\n[3] an entry WITHOUT an id in the file (the sanitizer derives it) pushed across the rounding edge keeps the ZDO -- pinned, world 5 of layout-abgleich.ts');
+{
+  const alt = { id: 'piece-chest-wood_140_100', prefab: TRUHE, x: 140.4, z: 100 };
   const { uid } = ersterBoot('abgeleitet', alt);
   const b2 = starte('abgeleitet', dokument([{ prefab: TRUHE, x: 140.5, z: 100 }])); // no id: the sanitizer derives ..._141_100
   const z = alleLayoutZdos(b2.server)[0];

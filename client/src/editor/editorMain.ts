@@ -535,15 +535,17 @@ const werkzeugKontext: WerkzeugKontext = erzeugeWerkzeugKontext({
   setzeLayout: (neu) => {
     layout = neu;
   },
-  merkeSchritt: () => merkeSchritt(),
+  // Die echten Funktionen, unverpackt: `entwurfs-speicher.ts` prüft, dass genau diese Namen hier stehen (ein
+  // `merkeSchritt: () => undefined` bestünde kein Verhaltenstest, denn der fährt einen Ersatz-Host).
+  merkeSchritt,
   werkzeugId: () => werkzeug,
   zurAuswahl: () => {
     werkzeug = 'auswahl';
   },
-  alles: () => void alles(),
-  vorschauAnstossen: () => vorschauAnstossen(),
-  seiteBauen: () => seiteBauen(),
-  zeichneOverlay: () => zeichneOverlay(),
+  alles,
+  vorschauAnstossen,
+  seiteBauen,
+  zeichneOverlay,
   meldung: (text, fehler) => shell.meldung(text, fehler),
   zuBild: (wx, wz) => zuBild(wx, wz),
   massstab: () => massstab,
@@ -1599,10 +1601,10 @@ overlay.addEventListener('pointerup', (e) => {
   }
   const registriert = werkzeugMitId(werkzeug);
   if (!registriert) return;
-  // Losgelassen außerhalb der Karte (über der Seitenleiste, außerhalb des Fensters): Der Zug endet ohne
-  // Wirkung. Dank Pointer-Capture kommt das Loslassen hier an, die Koordinaten liegen dann außerhalb.
-  const r = overlay.getBoundingClientRect();
-  const drin = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  // Losgelassen NICHT über der Karte selbst (Seitenleiste, außerhalb des Fensters, eine schwebende Bedienfläche
+  // wie Werkzeuganzeige oder Zoom-Knöpfe): Der Zug endet ohne Wirkung. Dank Pointer-Capture kommt das Loslassen
+  // hier an; was der Zeiger wirklich trifft, sagt `elementFromPoint`.
+  const drin = document.elementFromPoint(e.clientX, e.clientY) === overlay;
   if (!drin) {
     registriert.beiZeigerAbbruch?.(werkzeugKontext);
     return;
@@ -2833,6 +2835,7 @@ function weltFeldBauen(): void {
     // Das Werkzeug merkt sich das Prefab auch unter dem Schlüssel, aus dem der
     // 3D-Testflug (Taste B) seines liest — beide Wege sollen dasselbe Objekt meinen.
     platzierenWerkzeug.setzePrefab(prefab);
+    platzierenWerkzeug.setzeModus('setzen'); // „Klick auf die Karte setzt es“
     werkzeug = 'platzieren';
     seiteBauen();
     zeichneOverlay();

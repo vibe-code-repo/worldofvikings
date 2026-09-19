@@ -856,6 +856,31 @@ async function main(): Promise<void> {
       gleich('the badges show the mode: "Anwählen" in ANWAEHLEN, the prefab in SETZEN', [u.hudZusatz(), u.kachelZusatz()], ['Anwählen', 'Anwählen']);
       u.setzeModus('setzen');
       gleich('… and the prefab again in SETZEN', [u.hudZusatz(), u.kachelZusatz()], ['Beech1', 'Beech1']);
+      // B-3: in ANWAEHLEN a click on NOTHING deselects (Delete must not remove an object that is out of the picture)
+      const d1 = erzeugeAnwaehlen();
+      const k4 = neuerKontext(start, 'platzieren', 1);
+      d1.beiZeigerRunter(k4.ctx, klick(5100, 5000));
+      const seiteVor = k4.z.seite;
+      d1.beiZeigerRunter(k4.ctx, klick(25000, 25000)); // the map has moved on: nothing there
+      gleich('ANWAEHLEN: a click on nothing deselects (selection null, sidebar rebuilt, nothing set, no step)', [d1.auswahlId(), k4.z.seite - seiteVor, platz(k4.z.layout).length, k4.z.schritte.length], [null, 1, platz(start).length, 0]);
+      d1.beiTaste!(k4.ctx, { code: 'Delete' });
+      gleich('… and Delete afterwards removes nothing (the object 25 km away stays)', [platz(k4.z.layout).length, k4.z.schritte.length], [platz(start).length, 0]);
+      d1.beiZeigerRunter(k4.ctx, klick(25000, 25000));
+      gleich('a click on nothing without a selection does nothing (no rebuild)', k4.z.seite - seiteVor, 1);
+      // B-4: the mode does not survive the tool
+      const m1 = erzeugeAnwaehlen();
+      const k5 = neuerKontext(start, 'platzieren', 1);
+      k5.z.aktiv = 'fluss'; // another tool is picked; the editor redraws, and every tool's overlay is asked
+      m1.zeichneOverlay!(k5.ctx, neuerZeichner() as unknown as CanvasRenderingContext2D);
+      k5.z.aktiv = 'platzieren';
+      gleich('leaving the tool (a redraw while another tool is active) puts the mode back to SETZEN', m1.modus(), 'setzen');
+      const m2 = erzeugeAnwaehlen();
+      m2.abbrechen(k5.ctx);
+      gleich('picking the tool again (abbrechen) starts in SETZEN', m2.modus(), 'setzen');
+      const m3 = erzeugeAnwaehlen();
+      m3.beiZeigerRunter(k5.ctx, klick(5100, 5000));
+      m3.zeichneOverlay!(k5.ctx, neuerZeichner() as unknown as CanvasRenderingContext2D);
+      gleich('while the tool is active a redraw keeps the mode (and the selection)', [m3.modus(), m3.auswahlId()], ['anwaehlen', 'probe-c']);
       // switching the mode drops a drag in progress
       const v = erzeugeAnwaehlen();
       const k3 = neuerKontext(start, 'platzieren', 1);
@@ -995,6 +1020,8 @@ async function main(): Promise<void> {
     const index = readFileSync(resolve(EDITOR, 'werkzeuge', 'index.ts'), 'utf-8');
     gleich("editorMain.ts: no `werkzeug === 'platzieren'` branch", haupt.match(/werkzeug\s*[!=]==\s*'platzieren'/g) ?? [], []);
     gleich('editorMain.ts: no `spawnPrefab`, no `layoutMitPlatzierung`', haupt.match(/\b(spawnPrefab|layoutMitPlatzierung)\b/g) ?? [], []);
+    check('editorMain.ts: a release counts as "on the map" only when the element under the pointer IS the map (elementFromPoint), so a floating panel over the map aborts the drag like the sidebar', /document\.elementFromPoint\(e\.clientX, e\.clientY\) === overlay/.test(haupt) && !/getBoundingClientRect\(\);\s*const drin/.test(haupt));
+    check('editorMain.ts: the catalog puts the tool into SETZEN ("Klick auf die Karte setzt es")', /platzierenWerkzeug\.setzePrefab\(prefab\);\s*platzierenWerkzeug\.setzeModus\('setzen'\);/.test(haupt));
     check("editorMain.ts: the pointer hooks are CALLED (move, up, cancel), the pointer is captured, Delete is passed on", /\?\.beiZeigerBewegt\?\.\(werkzeugKontext/.test(haupt) && /registriert\.beiZeigerHoch\?\.\(werkzeugKontext/.test(haupt) && /addEventListener\('pointercancel', zeigerAbbruch\)/.test(haupt) && /addEventListener\('lostpointercapture', zeigerAbbruch\)/.test(haupt) && /\.beiZeigerAbbruch\?\.\(werkzeugKontext\)/.test(haupt) && /zeigerId: e\.pointerId/.test(haupt) && /setPointerCapture\(e\.pointerId\)/.test(haupt) && /WERKZEUG_TASTEN_CODES\.has\(e\.code\)/.test(haupt) && /\?\.beiTaste\?\.\(werkzeugKontext, e\)/.test(haupt));
     check('editorMain.ts: the tool keys (Delete, Backspace, P, V) are ignored while an input has the focus and while the catalog is open', /new Set\(\['Delete', 'Backspace', 'KeyP', 'KeyV'\]\)/.test(haupt) && /INPUT\|TEXTAREA\|SELECT/.test(haupt) && /katalogIstOffen\(\)/.test(haupt));
     check('editorMain.ts: the catalog sets the prefab through the tool; the finding jump selects through it', /platzierenWerkzeug\.setzePrefab\(prefab\)/.test(haupt) && /platzierenWerkzeug\.waehle\(id\)/.test(haupt) && /platzierungZuBefund\(layout, b\)/.test(haupt));

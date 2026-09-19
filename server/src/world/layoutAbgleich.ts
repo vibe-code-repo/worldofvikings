@@ -42,7 +42,6 @@ import {
   layoutKennung,
   maxLeben,
   platzierungenNormalisieren,
-  platzierungsIdBasis,
   yawQuaternion,
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
@@ -130,21 +129,6 @@ function laeuftRoute(layout: WorldLayout, p: PlacementDef): boolean {
 
 /** Die ALTE Kennung (Prefab + gerundete Position, vor E1) enthält ein `@` und kann nie eine `id` sein. */
 const istAlteKennung = (layoutId: string): boolean => layoutId.includes('@');
-
-/**
- * Trägt diese Platzierung die aus Prefab und Meter ABGELEITETE id (`platzierungsIdBasis`, bei Kollision `-2`,
- * `-3` …)? Dann hat sie keinen eigenen Namen: Ein Eintrag ohne ausdrückliche id (von Hand oder per MCP
- * geschrieben) bekommt genau diese id vom Sanitizer, und sie ändert sich, wenn er über die Rundungskante eines
- * Meters wandert. Nur für so einen Eintrag ist ein ZDO mit id-förmiger, im Dokument fehlender Kennung
- * „dasselbe Objekt, dessen abgeleitete id sich geändert hat“. Eine ausdrückliche id (der Editor hängt seit K1.3
- * einen Zufallsschwanz mit Buchstaben an) übernimmt nie das ZDO eines anderen Namens: „gelöscht und gleichartig
- * neu gesetzt“ ist ein NEUES Objekt, das alte samt Zustand (Truheninhalt) verschwindet.
- */
-export function traegtAbgeleiteteId(p: PlacementDef): boolean {
-  const basis = platzierungsIdBasis(p);
-  const id = p.id ?? '';
-  return id === basis || (id.startsWith(`${basis}-`) && /^\d+$/.test(id.slice(basis.length + 1)));
-}
 
 /** Skalierung, wie sie im ZDO stehen soll: 0 = kein Member (Prefab-Vorgabe). */
 function sollSkala(p: PlacementDef): number {
@@ -316,15 +300,26 @@ export function layoutAbgleich(
   layout: WorldLayout,
   /**
    * `verworfen`: Einträge, die der Sanitizer aus dem rohen Dokument gestrichen hat (roh − gültig);
-   * `zusammengefasst`: davon exakte Duplikate, die er zu einem Eintrag zusammengelegt hat (kein Verlust).
+   * `zusammengefasst`: davon exakte Duplikate, die er zu einem Eintrag zusammengelegt hat (kein Verlust);
+   * `abgeleitet`: die ids, die der Sanitizer selbst abgeleitet hat, weil der Eintrag in der Rohdatei keine trug
+   * (`sanitizeWorldLayoutMitBericht`). Nur diese Einträge dürfen das ZDO eines verschwundenen Objekts mit
+   * id-förmiger Kennung übernehmen (s. `mitEigenemNamen` unten).
    */
-  optionen: { verworfen?: number; zusammengefasst?: number } = {}
+  optionen: { verworfen?: number; zusammengefasst?: number; abgeleitet?: readonly string[] } = {}
 ): LayoutAbgleichErgebnis {
   const { zdos } = kontext;
   // Jede Platzierung hat eine `id` (dafür sorgt der Sanitizer). Wer ein
   // ungeprüftes Dokument übergibt, bekommt sie hier abgeleitet — dieselbe
   // Ableitung, dieselbe Zusammenfassung exakter Duplikate.
-  const placements = platzierungenNormalisieren(layout.placements ?? []).placements;
+  const normalisiert = platzierungenNormalisieren(layout.placements ?? []);
+  const placements = normalisiert.placements;
+  // Welche Einträge tragen einen EIGENEN Namen? Die, deren id in der Datei stand. Ohne eigenen Namen sind nur die
+  // ids, die der Sanitizer abgeleitet hat (aus dem Bericht des Aufrufers; ein ungeprüftes Dokument, das hier
+  // erst normalisiert wird, liefert seine eigenen). Die FORM der id sagt nichts: In der echten Weltdatei haben
+  // alle 157 Einträge eine id in abgeleiteter Form, die die Migration hineingeschrieben hat — auch ein Eintrag von
+  // Hand oder aus MCP mit `piece-chest-wood_100_100` hat einen Namen, den er selbst gesetzt hat.
+  const abgeleiteteIds = new Set([...(optionen.abgeleitet ?? []), ...normalisiert.abgeleitet]);
+  const mitEigenemNamen = (p: PlacementDef): boolean => !abgeleiteteIds.has(p.id!);
   const ergebnis: LayoutAbgleichErgebnis = {
     gespawnt: 0,
     aktualisiert: 0,
@@ -405,11 +400,13 @@ export function layoutAbgleich(
   // Kennung sich geändert hat (Spielstand von vor E1, Dokument von Hand
   // umgebaut). Es wird nicht zerstört, sondern von der Nähesuche unten
   // übernommen — mit seiner ZDO-Id und allem, was daran hängt.
-  // Nur Platzierungen mit abgeleiteter id dürfen ein ZDO mit id-förmiger, fehlender Kennung übernehmen
-  // (s. `traegtAbgeleiteteId`); die alte Kennung (`@`) übernimmt jede Platzierung wie bisher.
-  const zielVon = (p: PlacementDef): { hash: number; x: number; z: number; abgeleitet: boolean }[] => {
+  // Ein ZDO mit id-förmiger Kennung, die im Dokument fehlt (ein Objekt, das der Designer gelöscht hat), darf nur
+  // ein Eintrag OHNE eigenen Namen übernehmen (dessen abgeleitete id sich geändert hat); ein Eintrag mit eigenem
+  // Namen ist ein NEUES Objekt und erbt nie den Zustand eines gelöschten. Die alte Kennung (`@`, Spielstand von
+  // vor E1) und ein ZDO ohne Kennung übernimmt jede Platzierung wie bisher.
+  const zielVon = (p: PlacementDef): { hash: number; x: number; z: number; ohneNamen: boolean }[] => {
     const prefab = bekannt(p);
-    return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z, abgeleitet: traegtAbgeleiteteId(p) }] : [];
+    return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z, ohneNamen: !mitEigenemNamen(p) }] : [];
   };
   const ziele = placements.flatMap(zielVon);
   const gruppen = new Map<string, ZDO[]>(); // ZDOs je `id`
@@ -432,7 +429,7 @@ export function layoutAbgleich(
     const nurAlte = !istAlteKennung(layoutId); // id-förmig: nur eine Platzierung mit abgeleiteter id darf es übernehmen
     const nah = ziele.some(
       (t) =>
-        (t.abgeleitet || !nurAlte) &&
+        (t.ohneNamen || !nurAlte) &&
         t.hash === zdo.prefabHash &&
         Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < TOLERANZ.naehe
     );
@@ -500,7 +497,7 @@ export function layoutAbgleich(
   // Platzierung mit abgeleiteter id. Sonst stirbt es nach den gewohnten Regeln als verwaist.
   const darfUebernehmen = (z: ZDO, p: PlacementDef): boolean => {
     const kennung = z.getString(LAYOUT_ID_MEMBER);
-    return !kennung || istAlteKennung(kennung) || traegtAbgeleiteteId(p);
+    return !kennung || istAlteKennung(kennung) || !mitEigenemNamen(p);
   };
 
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));

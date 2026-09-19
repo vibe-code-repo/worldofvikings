@@ -12,8 +12,10 @@
  *    The new object is shown selected (fields, delete); the mode stays. Shift has
  *    no meaning here (every click sets), so it does nothing.
  *  - ANWAEHLEN: a click selects the nearest object within `TREFFER_PX` screen
- *    pixels (converted to metres with the map scale), and on nothing does
- *    nothing. Only here does pressing on an object and moving the pointer drag it.
+ *    pixels (converted to metres with the map scale); a click on nothing
+ *    DESELECTS (so that Delete cannot remove an object that is no longer in
+ *    the picture). Only here does pressing on an object and moving the pointer drag it.
+ *    The mode does not survive the tool: leaving it (or picking it again) starts in SETZEN.
  *    The drag is shown as a ghost and committed on release as ONE change: one undo
  *    step, one operation (a PATCH later on), not thirty. A pointer that is
  *    cancelled, or released outside the map, drops the drag without an effect.
@@ -280,7 +282,16 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
       const layout = ctx.layout();
       if (modus === 'anwaehlen') {
         const treffer = trefferSuchen(layout.placements ?? [], e.weltX, e.weltZ, TREFFER_PX * ctx.massstab());
-        if (!treffer) return true; // nothing under the pointer: nothing happens (Escape deselects)
+        if (!treffer) {
+          // Nothing under the pointer: the click deselects, so that a later Delete cannot remove an object that is
+          // no longer in the picture (the map may have moved on since it was selected).
+          if (gewaehlt !== null) {
+            gewaehlt = null;
+            ctx.seiteNeuBauen();
+            ctx.neuZeichnen();
+          }
+          return true;
+        }
         gewaehlt = treffer.id;
         zug = {
           id: treffer.id,
@@ -367,7 +378,11 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
     },
 
     zeichneOverlay(ctx, zeichner) {
-      if (ctx.werkzeugId() !== 'platzieren') return;
+      if (ctx.werkzeugId() !== 'platzieren') {
+        // Called for every tool on every redraw, so a switch to another tool always lands here: the mode is gone with the tool.
+        modus = 'setzen';
+        return;
+      }
       const p = auswahlVon(ctx.layout());
       if (!p) return;
       zeichner.save();
@@ -397,6 +412,7 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
     abbrechen() {
       zug = null;
       gewaehlt = null;
+      modus = 'setzen'; // picked again, Escape, a foreign draft: start in SETZEN
     },
 
     seitenleiste(ctx, host) {

@@ -220,6 +220,13 @@ export interface SanitizeBericht {
    * Kopieren des Layouts verloren gehen könnte.
    */
   zusammengefasst: readonly string[];
+  /**
+   * Die ids, die der Sanitizer selbst aus Prefab und Meter abgeleitet hat, weil der Eintrag in der Rohdatei keine
+   * (gültige, eindeutige) trug. Der Layout-Abgleich des Spielservers lässt nur so einen Eintrag das ZDO eines
+   * verschwundenen Objekts übernehmen, dessen abgeleitete id sich geändert hat; ein Eintrag, der seine id
+   * mitbrachte, ist ein eigenes Objekt (`platzierungenNormalisieren`, `abgeleitet`).
+   */
+  abgeleitet: readonly string[];
 }
 
 export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
@@ -301,7 +308,7 @@ export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht |
   }
   // Exakte Duplikate zusammenfassen, jedem Eintrag eine eindeutige `id` geben,
   // nach `id` sortieren (platzierungsId.ts).
-  const { placements, zusammengefasst } = platzierungenNormalisieren(roheEintraege);
+  const { placements, zusammengefasst, abgeleitet } = platzierungenNormalisieren(roheEintraege);
 
   const rivers: RiverDef[] = [];
   if (Array.isArray(d.rivers)) {
@@ -406,5 +413,5 @@ export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht |
     ...(routes.length > 0 ? { routes } : {}),
   };
   merkeZusammengefasst(layout, zusammengefasst);
-  return { layout, zusammengefasst };
+  return { layout, zusammengefasst, abgeleitet };
 }

@@ -78,9 +78,9 @@ const SCHWANZ = 4;
  * when the id comes back, and keeps its state (a chest keeps its contents) -- `neuePlatzierungsId` gives the
  * plain derived id, which is exactly that id again once the old entry is gone.
  *
- * The tail starts with a LETTER, so it can never be taken for the counter (`-2`, `-3`) of a derived id: the game
- * server keeps a derived-form id apart from an explicit one (`traegtAbgeleiteteId`,
- * server/src/world/layoutAbgleich.ts). If the tail is taken (a fixed random source in a test, or luck) a counter
+ * The tail starts with a LETTER, so it can never be taken for the counter (`-2`, `-3`) of a derived id. (The game
+ * server does not tell by the SHAPE of an id whether it is a name of its own: an id that stands in the world file
+ * is one, however derived it looks; the sanitizer reports which ids it derived itself, `abgeleitet`.) If the tail is taken (a fixed random source in a test, or luck) a counter
  * follows it. The result fits `ID_RE` and 64 characters: a too long prefab part is cut.
  */
 export function frischePlatzierungsId(
@@ -146,6 +146,14 @@ function kanonisch(a: PlacementDef, b: PlacementDef): number {
 export interface PlatzierungenNormalisiert {
   /** Every entry with a unique `id`, sorted by `id`. */
   placements: PlacementDef[];
+  /**
+   * The ids THIS function derived itself: entries that had no id (or lost a duplicate one). An entry whose id
+   * stood in the input is not listed, however much the id looks like a derived one. The game server needs the
+   * difference: only an entry without a name of its own may take over the ZDO of a vanished object whose
+   * derived id changed (a shift across the rounding edge of a metre); an entry that came with an id is a NEW
+   * object when its id is new, and never inherits the state of one that was deleted.
+   */
+  abgeleitet: string[];
   /** One line per exact duplicate that was folded into another entry. */
   zusammengefasst: string[];
 }
@@ -192,13 +200,15 @@ export function platzierungenNormalisieren(eingabe: readonly PlacementDef[]): Pl
     if (belegt.has(e.id)) delete e.id;
     else belegt.add(e.id);
   }
+  const abgeleitet: string[] = [];
   for (const e of behalten.filter((e) => e.id === undefined).sort(kanonisch)) {
     e.id = freieId(platzierungsIdBasis(e), belegt);
     belegt.add(e.id);
+    abgeleitet.push(e.id);
   }
   // `id` first in every entry: the layout text is easier to read and merge that way.
   const placements = behalten.map((e) => idZuerst(e)).sort(nachId);
-  return { placements, zusammengefasst };
+  return { placements, zusammengefasst, abgeleitet };
 }
 
 function idZuerst(e: PlacementDef): PlacementDef {

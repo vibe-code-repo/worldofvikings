@@ -2020,7 +2020,11 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   // steht im Werkzeug. Dem Quelltext bleibt eine Aussage: editorMain.ts benutzt diesen Kontext.
   let kontextModul: typeof import('../src/editor/werkzeuge/kontext') | null = null;
   let platzierenModul: typeof import('../src/editor/werkzeuge/platzieren') | null = null;
+  let seeModul: typeof import('../src/editor/werkzeuge/see') | null = null;
+  let flussModul: typeof import('../src/editor/werkzeuge/fluss') | null = null;
   try {
+    seeModul = await import('../src/editor/werkzeuge/see');
+    flussModul = await import('../src/editor/werkzeuge/fluss');
     kontextModul = await import('../src/editor/werkzeuge/kontext');
     platzierenModul = await import('../src/editor/werkzeuge/platzieren');
   } catch (e) {
@@ -2115,6 +2119,86 @@ console.log('▶ Quelltextprüfung editorMain.ts');
       return neu?.yaw === 1.571;
     })
   );
+  check(
+    '(c2) die anderen Werkzeuge der Registry (See, Fluss) gehen durch DENSELBEN Kontext: je Änderung ändern → speichern, ein Schritt, Undo bytegleich',
+    versuche(() => {
+      const { z, verlauf, ctx } = neuerKontext();
+      const see = seeModul!.erzeugeSee();
+      z.aktiv = 'see';
+      see.beiZeigerRunter(ctx, klick(9000, 9000));
+      const fluss = flussModul!.erzeugeFluss();
+      z.aktiv = 'fluss';
+      fluss.beiZeigerRunter(ctx, klick(100, 100));
+      fluss.beiZeigerRunter(ctx, klick(900, 100));
+      fluss.beiDoppelklick!(ctx);
+      const erwartet = ['merkeSchritt', 'setzeLayout', 'alles', 'vorschau'];
+      let l = z.layout;
+      for (let k = 0; k < 2; k++) l = verlauf.zurueck(l)!;
+      return z.log.join(',') === [...erwartet, ...erwartet].join(',') && z.layout.lakes?.length === (startDokument.lakes?.length ?? 0) + 1 && z.layout.rivers?.length === (startDokument.rivers?.length ?? 0) + 1 && JSON.stringify(l) === JSON.stringify(startDokument);
+    })
+  );
+  // ── Die Verdrahtung in editorMain.ts ──
+  // Die Verhaltensprüfungen oben fahren einen Ersatz-Host. Dass der Editor dem Kontext seine ECHTEN Funktionen gibt,
+  // sagt nur der Aufruf in editorMain.ts: Jedes Glied muss genau die erwartete Form haben (unverpackt: `merkeSchritt`,
+  // `alles`, `vorschauAnstossen`, `seiteBauen`, `zeichneOverlay`; sonst die Einzeiler unten). `merkeSchritt: () => undefined`,
+  // `alles: () => undefined`, ein Glied mehr oder weniger: rot. Ein Editor ohne den Aufruf: jede Prüfung rot.
+  const verdrahtung = ((): Map<string, string> | null => {
+    const a = quelle.indexOf('const werkzeugKontext: WerkzeugKontext = erzeugeWerkzeugKontext({');
+    if (a < 0) return null;
+    const von = quelle.indexOf('{', a + 'const werkzeugKontext: WerkzeugKontext = erzeugeWerkzeugKontext('.length - 1);
+    let tiefe = 0;
+    let bis = -1;
+    for (let k = von; k < quelle.length; k++) {
+      if (quelle[k] === '{') tiefe++;
+      else if (quelle[k] === '}' && --tiefe === 0) {
+        bis = k;
+        break;
+      }
+    }
+    if (bis < 0) return null;
+    const roh = quelle
+      .slice(von + 1, bis)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
+    const eintraege: string[] = [];
+    let aktuell = '';
+    let t = 0;
+    for (const zeichen of roh) {
+      if ('({['.includes(zeichen)) t++;
+      if (')}]'.includes(zeichen)) t--;
+      if (zeichen === ',' && t === 0) {
+        eintraege.push(aktuell);
+        aktuell = '';
+      } else aktuell += zeichen;
+    }
+    if (aktuell.trim() !== '') eintraege.push(aktuell);
+    const karte = new Map<string, string>();
+    for (const e of eintraege) {
+      const n = e.replace(/\s+/g, ' ').replace(/\{ /g, '{ ').trim();
+      if (n === '') continue;
+      karte.set(/^[A-Za-z]+/.exec(n)?.[0] ?? n, n);
+    }
+    return karte;
+  })();
+  const ERWARTET: Record<string, string> = {
+    layout: 'layout: () => layout',
+    setzeLayout: 'setzeLayout: (neu) => { layout = neu; }',
+    merkeSchritt: 'merkeSchritt',
+    werkzeugId: 'werkzeugId: () => werkzeug',
+    zurAuswahl: "zurAuswahl: () => { werkzeug = 'auswahl'; }",
+    alles: 'alles',
+    vorschauAnstossen: 'vorschauAnstossen',
+    seiteBauen: 'seiteBauen',
+    zeichneOverlay: 'zeichneOverlay',
+    meldung: 'meldung: (text, fehler) => shell.meldung(text, fehler)',
+    zuBild: 'zuBild: (wx, wz) => zuBild(wx, wz)',
+    massstab: 'massstab: () => massstab',
+    bestaetige: 'bestaetige: (frage) => window.confirm(frage)',
+  };
+  for (const [name, form] of Object.entries(ERWARTET)) {
+    check(`Verdrahtung in editorMain.ts: \`${name}\` ist ${name === form ? 'die echte Funktion `' + name + '`, unverpackt' : 'genau `' + form + '`'}`, verdrahtung?.get(name) === form, `steht: ${verdrahtung?.get(name) ?? '(fehlt)'}`);
+  }
+  check('Verdrahtung in editorMain.ts: keine weiteren Glieder', verdrahtung !== null && [...verdrahtung.keys()].every((k) => k in ERWARTET), verdrahtung ? [...verdrahtung.keys()].filter((k) => !(k in ERWARTET)).join(',') : 'kein Aufruf');
 
   const rueckruf = /beiFremdem: \(fremd, info\) => \{([\s\S]*?)\n  \},\n\}\);/.exec(quelle)?.[1] ?? '';
   const iM = rueckruf.indexOf('verlauf.uebernahme(layout, fremd);');

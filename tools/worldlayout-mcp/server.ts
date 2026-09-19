@@ -82,6 +82,7 @@ import {
   pruefeLayout,
   layoutBounds,
   layoutKennung,
+  neuePlatzierungsId,
   RegionGeo,
   createGeo,
   getStableHash,
@@ -99,6 +100,7 @@ import {
   type BiomeName,
 } from '@wov/shared';
 import { PLATZIERUNGEN_GRENZE } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { ID_RE } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
 
 // Der Betriebsdienst ist der einzige Schreiber der Weltdatei — dieser
@@ -393,6 +395,13 @@ const routeSchema = z.object({
 });
 
 const placementSchema = z.object({
+  id: z
+    .string()
+    .optional()
+    .describe(
+      'Stabile ID der Platzierung (a-z, 0-9, - und _, höchstens 64 Zeichen). Vorhanden: diese Platzierung wird ' +
+        'ersetzt, ist sie neu, wird sie mit dieser ID angelegt. Fehlt sie: neue Platzierung mit frisch vergebener ID.'
+    ),
   prefab: z.string().describe('Prefab-Name aus der Registry'),
   x: z.number(),
   z: z.number(),
@@ -595,64 +604,97 @@ mcp.tool(
 
 mcp.tool(
   'placement_set',
-  'Platzierung anlegen oder (bei identischem Prefab + auf den Meter gerundeter Position ' +
-    '— layoutKennung, wie der Server sie einer ZDO zuordnet) ersetzen.',
-  { platzierung: placementSchema },
-  async ({ platzierung }) => {
+  'Platzierung anlegen oder ersetzen. Mit `id` (die layout_get je Platzierung liefert) wird genau diese ' +
+    'Platzierung ersetzt bzw. mit dieser ID angelegt; ohne `id` entsteht IMMER eine neue Platzierung mit frisch ' +
+    'vergebener ID (auch im selben Meter wie eine bestehende). `ersetzeKennung` ist der veraltete Rückfall: die ' +
+    'alte Kennung `Prefab@x,z` wird auf die eine Platzierung mit dieser Kennung aufgelöst.',
+  { platzierung: placementSchema, ersetzeKennung: z.string().optional() },
+  async ({ platzierung, ersetzeKennung }) => {
     const { layout, hash } = await lade();
-    const kennung = layoutKennung(platzierung);
-    const ohne = (layout.placements ?? []).filter((p) => layoutKennung(p) !== kennung);
+    const bestehend = layout.placements ?? [];
+    const fehler = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
+    let id = platzierung.id;
+    let hinweis = '';
+    if (id === undefined && ersetzeKennung !== undefined) {
+      const treffer = bestehend.filter((p) => layoutKennung(p) === ersetzeKennung);
+      if (treffer.length === 0) return fehler(`Abgelehnt: keine Platzierung mit der alten Kennung ${ersetzeKennung}.`);
+      if (treffer.length > 1) {
+        return fehler(
+          `Abgelehnt: die alte Kennung ${ersetzeKennung} ist mehrdeutig (${treffer.map((p) => p.id).join(', ')}) — ` +
+            'bitte die `id` angeben.'
+        );
+      }
+      id = treffer[0]!.id;
+      hinweis = ` Hinweis: Adressieren über die alte Kennung ist veraltet — die id dieser Platzierung ist ${id}.`;
+    }
+    if (id !== undefined && !ID_RE.test(id)) {
+      return fehler('Abgelehnt: ungültige id (erlaubt: a-z, 0-9, - und _, höchstens 64 Zeichen, nicht mit - oder _ beginnen).');
+    }
+    const neueId = id ?? neuePlatzierungsId(layout, platzierung);
+    const ersetzt = bestehend.some((p) => p.id === neueId);
+    const ohne = bestehend.filter((p) => p.id !== neueId);
     // Der Sanitizer schneidet still bei PLATZIERUNGEN_GRENZE ab und liesse die
-    // NEUE Platzierung (sie steht hinten) wortlos fallen — die Meldung unten
-    // würde dann die falsche Ursache nennen.
+    // NEUE Platzierung wortlos fallen — die Meldung unten würde dann die
+    // falsche Ursache nennen.
     if (ohne.length + 1 > PLATZIERUNGEN_GRENZE) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Abgelehnt: das Weltdokument nimmt höchstens ${PLATZIERUNGEN_GRENZE} Platzierungen auf.`,
-        }],
-        isError: true,
-      };
+      return fehler(`Abgelehnt: das Weltdokument nimmt höchstens ${PLATZIERUNGEN_GRENZE} Platzierungen auf.`);
     }
     const neu = sanitizeWorldLayout({
       ...layout,
-      placements: [...ohne, platzierung as unknown as PlacementDef],
+      placements: [...ohne, { ...platzierung, id: neueId } as unknown as PlacementDef],
     });
-    if (!neu || !(neu.placements ?? []).some((p) => layoutKennung(p) === kennung)) {
-      return {
-        content: [{
-          type: 'text',
-          text: 'Abgelehnt: Platzierung übersteht sanitize nicht (Prefab/Position prüfen).',
-        }],
-        isError: true,
-      };
+    if (!neu || !(neu.placements ?? []).some((p) => p.id === neueId)) {
+      return fehler('Abgelehnt: Platzierung übersteht sanitize nicht (Prefab/Position prüfen).');
     }
     await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gespeichert (${kennung}).\n${zusammenfassung(neu)}` }] };
+    return {
+      content: [{
+        type: 'text',
+        text: `Gespeichert (id ${neueId}, ${ersetzt ? 'ersetzt' : 'neu angelegt'}).${hinweis}\n${zusammenfassung(neu)}`,
+      }],
+    };
   }
 );
 
 mcp.tool(
   'placement_delete',
-  'Platzierung(en) an Prefab + Position löschen — trifft ALLE Einträge mit derselben ' +
-    'layoutKennung (auf den Meter gerundet teilen sie sich die Kennung, siehe types.ts).',
-  { prefab: z.string(), x: z.number(), z: z.number() },
-  async ({ prefab, x, z: zz }) => {
+  'Platzierung über ihre `id` löschen. Rückfall (veraltet): `prefab` + `x` + `z` lösen sich über die alte ' +
+    'Kennung auf, aber nur, wenn genau EINE Platzierung so heißt — sonst wird abgelehnt und die ids werden genannt.',
+  {
+    id: z.string().optional(),
+    prefab: z.string().optional(),
+    x: z.number().optional(),
+    z: z.number().optional(),
+  },
+  async ({ id, prefab, x, z: zz }) => {
     const { layout, hash } = await lade();
-    const kennung = layoutKennung({ prefab, x, z: zz });
     const bestehend = layout.placements ?? [];
-    const uebrig = bestehend.filter((p) => layoutKennung(p) !== kennung);
-    if (uebrig.length === bestehend.length) {
-      return { content: [{ type: 'text', text: `Keine Platzierung mit Kennung ${kennung}` }], isError: true };
+    const fehler = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
+    let ziel: string;
+    let hinweis = '';
+    if (id !== undefined) {
+      ziel = id;
+    } else if (prefab !== undefined && x !== undefined && zz !== undefined) {
+      const kennung = layoutKennung({ prefab, x, z: zz });
+      const treffer = bestehend.filter((p) => layoutKennung(p) === kennung);
+      if (treffer.length === 0) return fehler(`Keine Platzierung mit Kennung ${kennung}`);
+      if (treffer.length > 1) {
+        return fehler(
+          `Abgelehnt: die alte Kennung ${kennung} ist mehrdeutig (${treffer.map((p) => p.id).join(', ')}) — ` +
+            'bitte die `id` angeben.'
+        );
+      }
+      ziel = treffer[0]!.id!;
+      hinweis = ` Hinweis: Adressieren über Prefab und Position ist veraltet — die id war ${ziel}.`;
+    } else {
+      return fehler('Abgelehnt: `id` angeben (oder, veraltet, `prefab` + `x` + `z`).');
     }
+    const uebrig = bestehend.filter((p) => p.id !== ziel);
+    if (uebrig.length === bestehend.length) return fehler(`Keine Platzierung mit id ${ziel}`);
     const neu = { ...layout, placements: uebrig };
     await schreibe(neu, hash);
-    const anzahl = bestehend.length - uebrig.length;
     return {
-      content: [{
-        type: 'text',
-        text: `${anzahl} Platzierung(en) gelöscht (${kennung}).\n${zusammenfassung(neu)}`,
-      }],
+      content: [{ type: 'text', text: `Platzierung gelöscht (id ${ziel}).${hinweis}\n${zusammenfassung(neu)}` }],
     };
   }
 );

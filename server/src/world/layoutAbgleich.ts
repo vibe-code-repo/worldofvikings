@@ -41,6 +41,8 @@ import {
   istNpcPrefab,
   layoutKennung,
   maxLeben,
+  platzierungenNormalisieren,
+  zusammengefassteDuplikate,
   yawQuaternion,
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
@@ -72,8 +74,6 @@ const TOLERANZ = {
   stehtNoch: 0.05,
   /** Nähe (m), ab der eine Platzierung ein gleichartiges ZDO übernimmt. */
   naehe: 0.5,
-  /** Meter, bis zu denen zwei Platzierungen mit gleicher Kennung EIN Objekt sind (1 cm). */
-  gleicherOrt: 0.01,
   /** Meter um eine Platzierung mit unbekanntem Prefab, in denen ZDOs geschont werden. */
   schonzone: 1.0,
 } as const;
@@ -221,11 +221,18 @@ export interface LayoutAbgleichErgebnis {
   aufRoute: number;
   /** Spielerbauten, denen eine veraltete Kennung abgenommen wurde. */
   freigegeben: number;
-  /** Kennungen neuer Platzierungen, die genau über einem fremden Spielerbau stehen. */
+  /**
+   * ZDOs, deren `layoutId` in diesem Boot auf die `id` ihrer Platzierung
+   * geschrieben wurde: die einmalige Migration von der alten Kennung (Prefab +
+   * gerundete Position) und die Übernahme über die Nähe. Sie zählen auch bei
+   * `aktualisiert`; im Boot danach ist es 0.
+   */
+  umgestempelt: number;
+  /** `id`s neuer Platzierungen, die genau über einem fremden Spielerbau stehen. */
   ueberSpielerbau: string[];
   /** ZDOs, die über die Zahl der verschiedenen Platzierungen ihrer Kennung hinaus da waren, und entfernt wurden. */
   ueberzaehlig: number;
-  /** Jedes überzählig entfernte ZDO: Id, Kennung und Zahl der Zustands-Member (für das Log). */
+  /** Jedes überzählig entfernte ZDO: Id, seine `layoutId` (Feld `kennung`) und Zahl der Zustands-Member (für das Log). */
   ueberzaehligeZdos: { id: string; kennung: string; member: number }[];
   /**
    * Gesetzt, wenn der Sanitizer Einträge des Dokuments verworfen hat: Dieser
@@ -234,9 +241,10 @@ export interface LayoutAbgleichErgebnis {
    */
   ohneLoeschen: { verworfen: number; stehenGeblieben: number } | null;
   /**
-   * Platzierungen, deren Prefab die Registry nicht kennt. Sie erzeugen nie ein
-   * ZDO. Die ZDOs, die zu ihnen gehören könnten (gleiche Kennung oder im
-   * Umkreis von 1 m), bleiben unangetastet: `geschont` zählt sie.
+   * Platzierungen, deren Prefab die Registry nicht kennt (`kennung` ist ihre
+   * `id`). Sie erzeugen nie ein ZDO. Die ZDOs, die zu ihnen gehören könnten
+   * (gleiche `id` oder alte Kennung, oder im Umkreis von 1 m), bleiben
+   * unangetastet: `geschont` zählt sie.
    */
   unbekanntePrefabs: { kennung: string; prefab: string; geschont: number }[];
 }
@@ -244,8 +252,9 @@ export interface LayoutAbgleichErgebnis {
 /**
  * Handplatzierte Objekte des WorldLayouts materialisieren.
  *
- * Idempotent über eine Kennung im ZDO-Member `layoutId`, ersatzweise eine
- * Nähe-Prüfung (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save
+ * Idempotent über die `id` der Platzierung im ZDO-Member `layoutId`,
+ * ersatzweise die alte Kennung (Spielstand von vor E1, wird umgestempelt) und
+ * eine Nähe-Prüfung (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save
  * werden nicht dupliziert. Entfernt werden ZDOs, deren Eintrag der
  * Designer gelöscht hat (auch der letzte: ein Dokument ohne Platzierungen
  * räumt alle Layout-ZDOs ab).
@@ -262,17 +271,18 @@ export interface LayoutAbgleichErgebnis {
  *     werden nur die ZDOs, die zu ihm gehören könnten (gleiche Kennung oder
  *     im Umkreis von 1 m seiner Position). Alles andere räumt normal ab.
  *
- * Eine Kennung führt so viele ZDOs, wie es VERSCHIEDENE Platzierungen mit ihr
- * gibt: Zwei Platzierungen im selben Meter, die mehr als 1 cm auseinander
- * liegen, sind zwei Objekte. Positionsgleiche Duplikate (<= 1 cm) teilen sich
- * ein ZDO (das entscheidet K1.1). Jede Platzierung bekommt das nächste noch
- * freie ZDO ihrer Kennung; fehlt eines, entsteht ein neues. Überzählig ist
- * nur, was darüber hinausgeht.
+ * Eine `id` führt genau ein ZDO. Zwei Platzierungen im selben Meter oder sogar
+ * im selben Zentimeter sind zwei Objekte mit zwei `id`s (exakte Duplikate hat
+ * der Sanitizer schon zu einem Eintrag zusammengefasst). Wechselt das Prefab
+ * einer Platzierung bei gleicher `id`, wird das alte ZDO ersetzt: ein neues
+ * entsteht, das alte geht im selben Boot (samt Zustand — Truheninhalt eines
+ * anderen Prefabs wäre am neuen sinnlos). Verschieben ändert die `id` nicht:
+ * dasselbe ZDO wandert mit, der Zustand bleibt.
  *
  * Ein gefundenes ZDO wird an das Dokument ANGEGLICHEN, soweit sich das
  * Dokument geändert hat (Soll-Stempel, s. Kopfkommentar): Drehung,
  * Skalierung und Position. Ohne das wäre jede Änderung im Editor, die die
- * Kennung (Prefab + auf Meter gerundete Position) nicht ändert, nach dem
+ * `id` nicht ändert (also jede außer Löschen und Neuanlegen), nach dem
  * Neustart unsichtbar.
  *
  * Spielerbauten (`spieler=1`) gehören dem Spieler: Sie werden weder
@@ -290,7 +300,10 @@ export function layoutAbgleich(
   optionen: { verworfen?: number } = {}
 ): LayoutAbgleichErgebnis {
   const { zdos } = kontext;
-  const placements = layout.placements ?? [];
+  // Jede Platzierung hat eine `id` (dafür sorgt der Sanitizer). Wer ein
+  // ungeprüftes Dokument übergibt, bekommt sie hier abgeleitet — dieselbe
+  // Ableitung, dieselbe Zusammenfassung exakter Duplikate.
+  const placements = platzierungenNormalisieren(layout.placements ?? []).placements;
   const ergebnis: LayoutAbgleichErgebnis = {
     gespawnt: 0,
     aktualisiert: 0,
@@ -299,44 +312,60 @@ export function layoutAbgleich(
     unbekannt: 0,
     aufRoute: 0,
     freigegeben: 0,
+    umgestempelt: 0,
     ueberSpielerbau: [],
     ueberzaehlig: 0,
     ueberzaehligeZdos: [],
     ohneLoeschen: null,
     unbekanntePrefabs: [],
   };
-  const verworfen = optionen.verworfen ?? 0;
+  // Exakte Duplikate, die der Sanitizer zu einem Eintrag zusammengefasst hat,
+  // fehlen in der Zahl der gültigen Einträge, sind aber nichts Verworfenes:
+  // Sie tragen kein ZDO, das ein löschender Boot gefährden könnte.
+  const verworfen = Math.max(0, (optionen.verworfen ?? 0) - zusammengefassteDuplikate(layout).length);
   if (verworfen > 0) ergebnis.ohneLoeschen = { verworfen, stehenGeblieben: 0 };
-  // Kennung je Eintrag: Prefab + gerundete Position (layoutKennung in
-  // shared). Damit lassen sich beim Boot ZDOs entfernen, deren Eintrag der
-  // Designer gelöscht hat (vorher blieben sie für immer stehen,
-  // Review-Punkt 13) — und der Client findet über denselben Member den
-  // Layout-Eintrag zu einer Instanz wieder (Namensschild).
-  const kennung = layoutKennung;
-  const gewollt = new Set(placements.map(kennung));
+  // Der ZDO-Member `layoutId` trägt die `id` der Platzierung. Damit lassen
+  // sich beim Boot ZDOs entfernen, deren Eintrag der Designer gelöscht hat
+  // (vorher blieben sie für immer stehen, Review-Punkt 13) — und der Client
+  // findet über denselben Member den Layout-Eintrag zu einer Instanz wieder
+  // (Namensschild).
+  const gewollt = new Set(placements.map((p) => p.id!));
+  // Spielstände von vor E1 tragen dort noch die ALTE Kennung (Prefab +
+  // gerundete Position). Sie enthält ein `@` und kann nie eine `id` sein; ihr
+  // ZDO wird beim ersten Boot der passenden Platzierung zugeordnet und auf die
+  // `id` umgestempelt — kein Spawn, kein Löschen.
+  const nachAlterKennung = new Map<string, PlacementDef[]>();
+  for (const p of placements) {
+    const k = layoutKennung(p);
+    const liste = nachAlterKennung.get(k);
+    if (liste) liste.push(p);
+    else nachAlterKennung.set(k, [p]);
+  }
   ergebnis.freigegeben = befreieSpielerbauten(zdos);
   const bekannt = (p: PlacementDef): { hash: number } | undefined => kontext.prefabs.getByName(p.prefab);
 
   // Unbekannte Prefabs: was zu ihnen gehören könnte, wird geschont.
   const unbekannte = placements.filter((p) => !bekannt(p));
-  const gehoertZu = (zdo: ZDO, id: string, p: PlacementDef): boolean =>
-    id === kennung(p) || Math.hypot(zdo.position.x - p.x, zdo.position.z - p.z) <= TOLERANZ.schonzone;
-  const geschont = (zdo: ZDO, id: string): boolean => unbekannte.some((p) => gehoertZu(zdo, id, p));
+  const gehoertZu = (zdo: ZDO, layoutId: string, p: PlacementDef): boolean =>
+    layoutId === p.id ||
+    layoutId === layoutKennung(p) ||
+    Math.hypot(zdo.position.x - p.x, zdo.position.z - p.z) <= TOLERANZ.schonzone;
+  const geschont = (zdo: ZDO, layoutId: string): boolean => unbekannte.some((p) => gehoertZu(zdo, layoutId, p));
   for (const p of unbekannte) {
     let n = 0;
     for (const zdo of zdos.getAllZDOs()) {
-      const id = zdo.getString(LAYOUT_ID_MEMBER);
-      if (id && gehoertZu(zdo, id, p)) n++;
+      const layoutId = zdo.getString(LAYOUT_ID_MEMBER);
+      if (layoutId && gehoertZu(zdo, layoutId, p)) n++;
     }
     ergebnis.unbekannt++;
-    ergebnis.unbekanntePrefabs.push({ kennung: kennung(p), prefab: p.prefab, geschont: n });
+    ergebnis.unbekanntePrefabs.push({ kennung: p.id!, prefab: p.prefab, geschont: n });
   }
   // Darf dieses ZDO in diesem Boot zerstört werden? Nein, wenn es zu einem
   // unbekannten Prefab gehören könnte, und nein, wenn der Sanitizer Einträge
   // verworfen hat (dann zählt es als stehen geblieben).
   const gezaehlt = new Set<ZDO>();
-  const darfLoeschen = (zdo: ZDO, id: string): boolean => {
-    if (geschont(zdo, id)) return false;
+  const darfLoeschen = (zdo: ZDO, layoutId: string): boolean => {
+    if (geschont(zdo, layoutId)) return false;
     if (ergebnis.ohneLoeschen) {
       if (!gezaehlt.has(zdo)) {
         gezaehlt.add(zdo);
@@ -348,107 +377,93 @@ export function layoutAbgleich(
   };
 
   // Wo die Platzierungen stehen (nur bekannte Prefabs): Ein ZDO, dessen
-  // Kennung nicht mehr gewollt ist, aber unter 0,5 m neben einer
-  // Platzierung desselben Prefabs steht, ist DASSELBE Objekt, das der
-  // Designer über die Rundungsgrenze der Kennung geschoben hat (140,4 →
-  // 140,5 wechselt „@140" zu „@141"). Es wird nicht zerstört, sondern von
-  // der Nähesuche unten übernommen — mit seiner ZDO-Id und allem, was daran
-  // hängt.
+  // Kennung zu keiner Platzierung passt, aber unter 0,5 m neben einer
+  // Platzierung desselben Prefabs steht, ist DASSELBE Objekt, dessen alte
+  // Kennung sich geändert hat (Spielstand von vor E1, Dokument von Hand
+  // umgebaut). Es wird nicht zerstört, sondern von der Nähesuche unten
+  // übernommen — mit seiner ZDO-Id und allem, was daran hängt.
   const ziele = placements.flatMap((p) => {
     const prefab = bekannt(p);
     return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z }] : [];
   });
-  const gruppen = new Map<string, ZDO[]>();
+  const gruppen = new Map<string, ZDO[]>(); // ZDOs je `id`
+  const alteGruppen = new Map<string, ZDO[]>(); // ZDOs je alter Kennung
   const zurueckgestellt: ZDO[] = [];
   for (const zdo of zdos.getAllZDOs()) {
-    const id = zdo.getString(LAYOUT_ID_MEMBER);
-    if (!id) continue;
-    if (!gewollt.has(id)) {
-      const nah = ziele.some(
-        (t) =>
-          t.hash === zdo.prefabHash &&
-          Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < TOLERANZ.naehe
-      );
-      if (nah) {
-        zurueckgestellt.push(zdo);
-      } else if (darfLoeschen(zdo, id)) {
-        zdos.destroyZDO(zdo.zdoid);
-        ergebnis.entfernt++;
-      }
-      continue;
-    }
+    const layoutId = zdo.getString(LAYOUT_ID_MEMBER);
+    if (!layoutId) continue;
     // Im selben Durchlauf einen Index über die Kennung aufbauen: Ein
     // Routen-NPC ist beim nächsten Boot IRGENDWO auf seiner Runde, die
     // Nähe-Prüfung unten fände ihn also nicht wieder und spawnte bei jedem
     // Start einen weiteren. Die Kennung wandert dagegen mit ihm mit.
-    const gruppe = gruppen.get(id);
-    if (gruppe) gruppe.push(zdo);
-    else gruppen.set(id, [zdo]);
+    const index = gewollt.has(layoutId) ? gruppen : nachAlterKennung.has(layoutId) ? alteGruppen : null;
+    if (index) {
+      const gruppe = index.get(layoutId);
+      if (gruppe) gruppe.push(zdo);
+      else index.set(layoutId, [zdo]);
+      continue;
+    }
+    const nah = ziele.some(
+      (t) =>
+        t.hash === zdo.prefabHash &&
+        Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < TOLERANZ.naehe
+    );
+    if (nah) {
+      zurueckgestellt.push(zdo);
+    } else if (darfLoeschen(zdo, layoutId)) {
+      zdos.destroyZDO(zdo.zdoid);
+      ergebnis.entfernt++;
+    }
   }
 
-  // Zuordnung: Platzierungen mit gleicher Kennung, die höchstens 1 cm
-  // auseinander liegen, sind EIN Objekt (Vertreter = die erste); weiter
-  // auseinander sind es verschiedene Objekte. Je Objekt das nächste noch freie
-  // ZDO der Kennung (bei Gleichstand das mit mehr Zustand, dann das
-  // gestempelte, dann die Reihenfolge im Spielstand).
-  const objektVon = new Map<PlacementDef, PlacementDef>();
-  const zdoJeObjekt = new Map<PlacementDef, ZDO>();
+  // Zuordnung Platzierung → ZDO. Eine `id` führt genau EIN ZDO (dasselbe
+  // Prefab; bei mehreren das nächste, bei Gleichstand das mit mehr Zustand,
+  // dann das gestempelte, dann die Reihenfolge im Spielstand). Was darüber
+  // hinaus die gleiche Kennung trägt, ist überzählig.
+  const zdoJe = new Map<PlacementDef, ZDO>();
   const beansprucht = new Set<ZDO>();
-  const stale: { zdo: ZDO; id: string }[] = [];
-  const nachKennungPlacements = new Map<string, PlacementDef[]>();
+  // ZDOs, deren Prefab nicht mehr zur Platzierung passt (Prefab-Wechsel bei
+  // gleicher `id`, oder ein ZDO mit falschem Prefab an einer alten Kennung):
+  // Sie gehen, sobald unten das neue entstanden ist (im selben Boot).
+  const stale: { zdo: ZDO; layoutId: string; besitzer: PlacementDef[] }[] = [];
+  const ueberzaehligEntfernen = (z: ZDO, layoutId: string): void => {
+    if (!darfLoeschen(z, layoutId)) return;
+    meldeUeberzaehlig(ergebnis, z, layoutId);
+    zdos.destroyZDO(z.zdoid);
+    ergebnis.entfernt++;
+    ergebnis.ueberzaehlig++;
+  };
   for (const p of placements) {
-    if (!bekannt(p)) continue;
-    const liste = nachKennungPlacements.get(kennung(p));
-    if (liste) liste.push(p);
-    else nachKennungPlacements.set(kennung(p), [p]);
-  }
-  for (const [id, liste] of nachKennungPlacements) {
-    const vertreter: PlacementDef[] = [];
-    for (const p of liste) {
-      const v = vertreter.find((r) => Math.hypot(r.x - p.x, r.z - p.z) <= TOLERANZ.gleicherOrt);
-      if (v) objektVon.set(p, v);
-      else {
-        vertreter.push(p);
-        objektVon.set(p, p);
-      }
+    const prefab = bekannt(p);
+    const alle = gruppen.get(p.id!) ?? [];
+    if (!prefab || alle.length === 0) continue;
+    const passend = alle.filter((z) => z.prefabHash === prefab.hash);
+    if (passend.length === 0) {
+      for (const z of alle) stale.push({ zdo: z, layoutId: p.id!, besitzer: [p] });
+      continue;
     }
-    const alle = gruppen.get(id) ?? [];
-    if (alle.length === 0) continue;
-    const hash = bekannt(liste[0]!)!.hash;
+    const z = ordneZu([p], passend).get(p)!;
+    zdoJe.set(p, z);
+    beansprucht.add(z);
+    for (const rest of alle) if (rest !== z) ueberzaehligEntfernen(rest, p.id!);
+  }
+  // Alte Kennungen (Migration): Platzierungen einer Kennung, die noch kein ZDO
+  // haben, bekommen die ZDOs dieser Kennung — das nächste zuerst.
+  for (const [alteKennung, alle] of alteGruppen) {
+    const besitzer = nachAlterKennung.get(alteKennung)!.filter((p) => bekannt(p));
+    if (besitzer.length === 0) continue;
+    const hash = bekannt(besitzer[0]!)!.hash;
     const passend = alle.filter((z) => z.prefabHash === hash);
-    const frei = [...passend];
-    for (const v of vertreter) {
-      if (frei.length === 0) break;
-      const abstand = (z: ZDO): number => Math.hypot(z.position.x - v.x, z.position.z - v.z);
-      let bleibt = frei[0]!;
-      for (const z of frei) {
-        const naeher = abstand(z) < abstand(bleibt) - 1e-9;
-        const gleichweit = Math.abs(abstand(z) - abstand(bleibt)) <= 1e-9;
-        // Bei Gleichstand entscheidet der ZUSTAND (eine volle Truhe schlägt
-        // eine leere), dann der Stempel, dann die Reihenfolge im Spielstand.
-        // Sonst hinge es von der Dateireihenfolge ab, welches Exemplar mit
-        // seinem Inhalt geht.
-        const mehrZustand = zustand(z) > zustand(bleibt);
-        const gleichZustand = zustand(z) === zustand(bleibt);
-        const gestempelt = liesStempel(z) !== null && liesStempel(bleibt) === null;
-        if (naeher || (gleichweit && (mehrZustand || (gleichZustand && gestempelt)))) bleibt = z;
-      }
-      frei.splice(frei.indexOf(bleibt), 1);
-      zdoJeObjekt.set(v, bleibt);
-      beansprucht.add(bleibt);
+    if (passend.length === 0) {
+      for (const z of alle) stale.push({ zdo: z, layoutId: alteKennung, besitzer });
+      continue;
+    }
+    for (const [p, z] of ordneZu(besitzer.filter((p) => !zdoJe.has(p)), passend)) {
+      zdoJe.set(p, z);
+      beansprucht.add(z);
     }
     for (const z of alle) {
-      if (beansprucht.has(z)) continue;
-      if (passend.length === 0) {
-        // Kein ZDO der Kennung passt zum Prefab: Sie gehen, sobald unten das
-        // neue entstanden ist (im selben Boot).
-        stale.push({ zdo: z, id });
-      } else if (darfLoeschen(z, id)) {
-        meldeUeberzaehlig(ergebnis, z, id);
-        zdos.destroyZDO(z.zdoid);
-        ergebnis.entfernt++;
-        ergebnis.ueberzaehlig++;
-      }
+      if (!beansprucht.has(z)) ueberzaehligEntfernen(z, alteKennung);
     }
   }
 
@@ -462,8 +477,7 @@ export function layoutAbgleich(
     const abstand = kontext.bodenAbstand(prefab.hash);
     const pos = { x: p.x, y: boden + abstand, z: p.z };
     const fp = fingerabdruck(p);
-    const vertreter = objektVon.get(p)!;
-    let zdo = zdoJeObjekt.get(vertreter);
+    let zdo = zdoJe.get(p);
     if (!zdo) {
       // Ein ZDO, das schon zu einer anderen Platzierung gehört, wird nicht
       // übernommen: Jedes verschiedene Objekt bekommt sein eigenes.
@@ -477,7 +491,7 @@ export function layoutAbgleich(
             Math.hypot(z.position.x - p.x, z.position.z - p.z) < TOLERANZ.naehe
         );
       if (zdo) {
-        zdoJeObjekt.set(vertreter, zdo);
+        zdoJe.set(p, zdo);
         beansprucht.add(zdo);
       }
     }
@@ -493,20 +507,20 @@ export function layoutAbgleich(
             istSpielerbau(z) &&
             Math.hypot(z.position.x - p.x, z.position.z - p.z) < TOLERANZ.naehe
         );
-      if (ueber) ergebnis.ueberSpielerbau.push(kennung(p));
+      if (ueber) ergebnis.ueberSpielerbau.push(p.id!);
       zdo = zdos.createZDO(prefab.hash, pos);
       zdo.rotation = yawQuaternion(p.yaw ?? 0);
       const skala = sollSkala(p);
       if (skala !== 0) zdo.setFloat(SKALA_MEMBER, skala);
-      zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
+      zdo.setString(LAYOUT_ID_MEMBER, p.id!);
       zdo.setString(LAYOUT_SOLL_MEMBER, stempelText(fp, boden));
-      zdoJeObjekt.set(vertreter, zdo);
+      zdoJe.set(p, zdo);
       beansprucht.add(zdo);
-      neuErzeugt.add(kennung(p));
+      neuErzeugt.add(p.id!);
       ergebnis.gespawnt++;
     } else if (
-      gleicheAn(kontext, zdo, p, {
-        kennung: kennung(p),
+      gleicheAn(kontext, ergebnis, zdo, p, {
+        id: p.id!,
         fingerabdruck: fp,
         boden,
         abstand,
@@ -538,14 +552,17 @@ export function layoutAbgleich(
       ergebnis.aufRoute++;
     }
   }
-  // Passte kein ZDO einer Kennung zum Prefab, ist oben ein neues entstanden:
-  // Die unpassenden gehen im selben Boot, damit nach ihm die Kennung nur noch
-  // die neuen ZDOs trägt (sonst räumte erst der nächste Boot auf und zerstörte
-  // dann etwas, das dieser bewusst behalten hat).
-  for (const { zdo, id } of stale) {
-    if (!neuErzeugt.has(id) || zdo.destroyed || beansprucht.has(zdo) || zdo.getString(LAYOUT_ID_MEMBER) !== id) continue;
-    if (!darfLoeschen(zdo, id)) continue;
-    meldeUeberzaehlig(ergebnis, zdo, id);
+  // Passte kein ZDO einer `id` zum Prefab, ist oben ein neues entstanden: Die
+  // unpassenden gehen im selben Boot, damit nach ihm die `id` nur noch das
+  // neue ZDO trägt (sonst räumte erst der nächste Boot auf und zerstörte dann
+  // etwas, das dieser bewusst behalten hat). Das ist der Prefab-Wechsel bei
+  // gleicher `id`: Das alte ZDO samt Zustand wird ERSETZT, nicht umgewandelt —
+  // Truheninhalt und Ernte-Zähler eines anderen Prefabs wären am neuen sinnlos.
+  for (const { zdo, layoutId, besitzer } of stale) {
+    if (!besitzer.some((p) => neuErzeugt.has(p.id!))) continue;
+    if (zdo.destroyed || beansprucht.has(zdo) || zdo.getString(LAYOUT_ID_MEMBER) !== layoutId) continue;
+    if (!darfLoeschen(zdo, layoutId)) continue;
+    meldeUeberzaehlig(ergebnis, zdo, layoutId);
     zdos.destroyZDO(zdo.zdoid);
     ergebnis.entfernt++;
     ergebnis.ueberzaehlig++;
@@ -553,9 +570,9 @@ export function layoutAbgleich(
   // Zurückgestellte, die keine Platzierung übernommen hat (sie fand ein
   // anderes ZDO): jetzt wirklich verwaist.
   for (const zdo of zurueckgestellt) {
-    const id = zdo.getString(LAYOUT_ID_MEMBER);
-    if (gewollt.has(id) || zdo.destroyed) continue;
-    if (!darfLoeschen(zdo, id)) continue;
+    const layoutId = zdo.getString(LAYOUT_ID_MEMBER);
+    if (gewollt.has(layoutId) || zdo.destroyed) continue;
+    if (!darfLoeschen(zdo, layoutId)) continue;
     zdos.destroyZDO(zdo.zdoid);
     ergebnis.entfernt++;
   }
@@ -566,8 +583,41 @@ function meldeUeberzaehlig(ergebnis: LayoutAbgleichErgebnis, zdo: ZDO, kennung: 
   ergebnis.ueberzaehligeZdos.push({ id: zdo.zdoid.toString(), kennung, member: zustand(zdo) });
 }
 
+/**
+ * Platzierungen und ZDOs einander zuordnen, kürzester Abstand zuerst. Bei
+ * gleichem Abstand (auf 1e-9 m) entscheidet der ZUSTAND (eine volle Truhe
+ * schlägt eine leere), dann der Stempel, dann die Reihenfolge: Platzierung in
+ * Dokumentreihenfolge, ZDO in Spielstandreihenfolge. Sonst hinge es von der
+ * Dateireihenfolge ab, welches Exemplar mit seinem Inhalt geht. Jede
+ * Platzierung und jedes ZDO kommt höchstens einmal vor.
+ */
+function ordneZu(placements: readonly PlacementDef[], zdoListe: readonly ZDO[]): Map<PlacementDef, ZDO> {
+  const paare: { p: number; z: number; abstand: number }[] = [];
+  placements.forEach((p, i) =>
+    zdoListe.forEach((z, j) =>
+      paare.push({ p: i, z: j, abstand: Math.round(Math.hypot(z.position.x - p.x, z.position.z - p.z) * 1e9) })
+    )
+  );
+  paare.sort(
+    (a, b) =>
+      a.abstand - b.abstand ||
+      zustand(zdoListe[b.z]!) - zustand(zdoListe[a.z]!) ||
+      Number(liesStempel(zdoListe[b.z]!) !== null) - Number(liesStempel(zdoListe[a.z]!) !== null) ||
+      a.p - b.p ||
+      a.z - b.z
+  );
+  const ergebnis = new Map<PlacementDef, ZDO>();
+  const vergeben = new Set<number>();
+  for (const { p, z } of paare) {
+    if (ergebnis.has(placements[p]!) || vergeben.has(z)) continue;
+    ergebnis.set(placements[p]!, zdoListe[z]!);
+    vergeben.add(z);
+  }
+  return ergebnis;
+}
+
 interface Angleich {
-  readonly kennung: string;
+  readonly id: string;
   readonly fingerabdruck: string;
   /** Boden an der Dokumentposition, jetzt. */
   readonly boden: number;
@@ -581,15 +631,21 @@ interface Angleich {
  * mehr als die Toleranz unterscheidet. Gibt zurück, ob irgendetwas
  * geschrieben wurde.
  */
-function gleicheAn(kontext: LayoutAbgleichKontext, zdo: ZDO, p: PlacementDef, a: Angleich): boolean {
+function gleicheAn(
+  kontext: LayoutAbgleichKontext,
+  ergebnis: LayoutAbgleichErgebnis,
+  zdo: ZDO,
+  p: PlacementDef,
+  a: Angleich
+): boolean {
   let geschrieben = false;
-  if (zdo.getString(LAYOUT_ID_MEMBER) !== a.kennung) {
-    // Über die NÄHE wiedergefunden (ZDO aus einem Save von vor der
-    // Kennung, oder über die Rundungsgrenze geschoben): Member nachtragen.
-    // Sonst bliebe das Objekt für immer ohne Herkunft — der Client könnte
-    // ihm kein Namensschild zuordnen, und beim nächsten Löschen im Editor
-    // bliebe es stehen.
-    zdo.setString(LAYOUT_ID_MEMBER, a.kennung);
+  if (zdo.getString(LAYOUT_ID_MEMBER) !== a.id) {
+    // Über die alte Kennung (Spielstand von vor E1) oder die NÄHE
+    // wiedergefunden: `id` eintragen. Sonst bliebe das Objekt für immer ohne
+    // Herkunft — der Client könnte ihm kein Namensschild zuordnen, und beim
+    // nächsten Löschen im Editor bliebe es stehen.
+    zdo.setString(LAYOUT_ID_MEMBER, a.id);
+    ergebnis.umgestempelt++;
     geschrieben = true;
   }
   const stempel = liesStempel(zdo);

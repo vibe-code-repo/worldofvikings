@@ -223,6 +223,17 @@ export interface RegionDef {
  * so überleben Platzierungen jede Höhenänderung des Layouts.
  */
 export interface PlacementDef {
+  /**
+   * Stabile Kennung, im Dokument eindeutig, gleiches Format wie Regions-IDs.
+   * `sanitizeWorldLayout` gibt JEDER Platzierung eine (für Dokumente von vor
+   * dem Feld abgeleitet aus Prefab und Position, `platzierungsId.ts`) und
+   * schreibt die Liste nach ihr sortiert. Sie ist die Adresse des Objekts:
+   * Der Server stempelt sie ins ZDO (`LAYOUT_ID_MEMBER`), Operationen und
+   * Werkzeuge verweisen darauf. Im TYP nur deshalb optional, damit ein
+   * Werkzeug einen Eintrag vor dem Sanitisieren bauen kann — eine frische
+   * gibt `neuePlatzierungsId`.
+   */
+  id?: string;
   /** Prefab-Name (Registry); unbekannte Namen ignoriert der Server. */
   prefab: string;
   x: number;
@@ -265,7 +276,7 @@ export interface PlacementDef {
 
 /**
  * ZDO-Member, in dem der Server die Herkunft einer gespawnten
- * Platzierung führt — `layoutKennung` des Eintrags.
+ * Platzierung führt — seit E1 die `id` des Eintrags (davor: `layoutKennung`).
  *
  * Er ist zugleich der SCHLÜSSEL, über den der Client eine Instanz ihrem
  * Layout-Eintrag zuordnet (Namensschild): Das Dokument hat er ohnehin
@@ -277,13 +288,14 @@ export interface PlacementDef {
 export const LAYOUT_ID_MEMBER = 'layoutId';
 
 /**
- * Kennung eines Layout-Eintrags: Prefab + gerundete Position.
+ * ALTE Kennung eines Layout-Eintrags: Prefab + gerundete Position. Bis E1 war
+ * das der Wert von `LAYOUT_ID_MEMBER`; ein Spielstand von damals trägt sie noch
+ * an seinen ZDOs. Der Server ordnet sie beim ersten Boot der `id` der passenden
+ * Platzierung zu und stempelt um (`layoutAbgleich`), der Client nimmt sie als
+ * Rückfall. Sie enthält immer ein `@` und ist damit nie eine gültige `id`.
  *
- * Bewusst aus dem INHALT abgeleitet und keine vergebene ID — das
- * Dokument wird von Hand, vom Editor und vom MCP-Server geschrieben, und
- * keiner dieser Wege könnte eine Zählernummer verlässlich fortführen.
- * Zwei Objekte im selben Meter sind der Preis dafür (dann teilen sie
- * sich die Kennung); das ist beim Setzen bereits Deckungsgleichheit.
+ * Nicht mehr als Adresse verwenden: Sie wechselt, wenn das Objekt über eine
+ * Rundungsgrenze wandert, und mehrere Objekte im selben Meter teilen sie.
  */
 export function layoutKennung(p: { prefab: string; x: number; z: number }): string {
   return `${p.prefab}@${Math.round(p.x)},${Math.round(p.z)}`;

@@ -19,7 +19,8 @@ import { FEATURES } from '../features.js';
 import { SPAWN_TABLE } from '../spawnData.js';
 import { PREFABS_BY_NAME, istEigenesModell } from '../prefabs.js';
 import { istNpcPrefab } from '../npc.js';
-import type { WorldLayout } from './types.js';
+import type { PlacementDef, WorldLayout } from './types.js';
+import { gleicherInhalt, zusammengefassteDuplikate } from './platzierungsId.js';
 
 export interface LayoutBefund {
   /** Regions-ID bzw. 'placements' — wo der Fund liegt. */
@@ -98,6 +99,7 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
       });
     }
   }
+  befunde.push(...platzierungsBefunde(layout));
   for (const [name, anzahl] of fremdeModelle) {
     befunde.push({
       wo: 'placements',
@@ -127,6 +129,46 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
       art: 'welt',
       text: 'Kein Startpunkt gesetzt (defaultSpawn oder continent.spawn) — Spawn liegt am Ursprung',
     });
+  }
+  return befunde;
+}
+
+/**
+ * Befunde zu den Platzierungs-IDs. Alles nur HINWEISE (`art: 'welt'` stuft der
+ * Editor als Hinweis ein): Der Sanitizer hat die Lage schon bereinigt, hier
+ * steht, was er dabei getan hat oder nicht tun durfte.
+ */
+function platzierungsBefunde(layout: WorldLayout): LayoutBefund[] {
+  const befunde: LayoutBefund[] = [];
+  // Was der Sanitizer beim Erzeugen DIESES Layouts zusammengefasst hat.
+  for (const zeile of zusammengefassteDuplikate(layout)) {
+    befunde.push({ wo: 'placements', art: 'welt', text: `exaktes Duplikat zu einem Eintrag zusammengefasst: ${zeile}` });
+  }
+  const ids = new Set<string>();
+  const doppelt = new Set<string>();
+  const nachPrefab = new Map<string, PlacementDef[]>();
+  const beschreibung = (p: PlacementDef): string => p.id ?? `${p.prefab} @(${p.x}, ${p.z})`;
+  for (const p of layout.placements ?? []) {
+    if (p.id !== undefined) {
+      if (ids.has(p.id) && !doppelt.has(p.id)) {
+        doppelt.add(p.id);
+        befunde.push({ wo: 'placements', art: 'welt', text: `Platzierungs-ID mehrfach vergeben: ${p.id}` });
+      }
+      ids.add(p.id);
+    }
+    // Zwei Einträge mit gleichem Inhalt, die der Sanitizer NICHT zusammenlegt
+    // (verschiedene ausdrückliche IDs) oder die noch nicht sanitisiert sind.
+    const gleiche = nachPrefab.get(p.prefab);
+    const zwilling = gleiche?.find((q) => gleicherInhalt(q, p));
+    if (zwilling) {
+      befunde.push({
+        wo: 'placements',
+        art: 'welt',
+        text: `Platzierungen mit identischem Inhalt: ${beschreibung(zwilling)} und ${beschreibung(p)}`,
+      });
+    }
+    if (gleiche) gleiche.push(p);
+    else nachPrefab.set(p.prefab, [p]);
   }
   return befunde;
 }

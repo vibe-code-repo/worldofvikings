@@ -951,6 +951,22 @@ try {
     check('… Logzeile nennt die verworfenen Platzierungen', /2 ungueltige Platzierung\(en\) im Dokument verworfen, 2 gespeichert/.test(protokoll));
     const ganz = await anfrage('POST', { leib: koerper('ganz-gueltig', 3), ifMatch: `"${plattenHash()}"` });
     check('lauter gültige Platzierungen → 200 ohne verworfen-Feld', ganz.status === 200 && ganz.daten.verworfen === undefined);
+
+    // Dieselbe Regel für Kontinente, Flüsse und Seen (roh ≥ 1, nach dem Sanitizer 0 → 422 mit Feldnamen).
+    const hK2 = plattenHash();
+    const bakK2 = sicherungen();
+    for (const feld of ['continents', 'rivers', 'lakes']) {
+      for (const muell of [['x', 'y'], [{}], [[]], [null]]) {
+        const r = await anfrage('POST', { leib: { ...koerper('muell-liste'), [feld]: muell }, ifMatch: `"${hK2}"` });
+        check(`${feld} = ${JSON.stringify(muell)} → 422 ungueltig, feld ${feld}`, r.status === 422 && r.daten.fehler === 'ungueltig' && r.daten.feld === feld && /keiner der \d+ Einträge/.test(String(r.daten.message)), `= ${r.status} ${JSON.stringify(r.daten).slice(0, 160)}`);
+      }
+    }
+    check('Müll in Kontinenten/Flüssen/Seen: Prüfsumme vorher = nachher, keine Sicherung', plattenHash() === hK2 && sicherungen() === bakK2);
+    const halb = await anfrage('POST', { leib: { ...koerper('halb-muell'), continents: [{ id: 'nord', name: 'Nordland' }, 'x'] }, ifMatch: `"${hK2}"` });
+    check('Kontinente: ein gültiger + ein Müll-Eintrag → weiterhin 200 (nur „alles verloren“ ist ein Fehler)', halb.status === 200, `= ${halb.status}`);
+    // routes bewusst NICHT: Der Routen-Editor legt Entwürfe mit points: [] an, die der Sanitizer absichtlich verwirft.
+    const entwurf = await anfrage('POST', { leib: { ...koerper('route-entwurf'), routes: [{ id: 'route-1', points: [], mode: 'loop' }] }, ifMatch: `"${plattenHash()}"` });
+    check('routes: Entwurf ohne Wegpunkte (nur er) → 200, die Route entfällt (Sanitizer verwirft sie absichtlich)', entwurf.status === 200 && (JSON.parse(platte().toString('utf-8')) as { routes?: unknown }).routes === undefined, `= ${entwurf.status}`);
   }
 
   // ── 24) Fehler beim Freigeben der Sperre verfälscht die Antwort nicht ─

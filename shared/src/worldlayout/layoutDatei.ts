@@ -666,11 +666,27 @@ function listenPruefen(eingabe: unknown): void {
   }
 }
 
-function platzierungenZaehlen(eingabe: unknown): number {
+function listeZaehlen(eingabe: unknown, feld: string): number {
   if (typeof eingabe !== 'object' || eingabe === null) return 0;
-  const p = (eingabe as { placements?: unknown }).placements;
+  const p = (eingabe as Record<string, unknown>)[feld];
   return Array.isArray(p) ? p.length : 0;
 }
+
+const platzierungenZaehlen = (eingabe: unknown): number => listeZaehlen(eingabe, 'placements');
+
+/**
+ * Listen, bei denen „roh ≥ 1 Eintrag, nach dem Sanitizer 0“ ein unbrauchbares Feld ist.
+ * `routes` fehlt mit Grund: Der Sanitizer verwirft dort ABSICHTLICH eine Route ohne
+ * Wegpunkt, und der Routen-Editor legt genau so einen Entwurf an (`points: []`, siehe
+ * RoutenEditor.neueRoute). Wäre das eine 422, ließe sich ein Dokument, dessen einzige
+ * Route noch ein Entwurf ist, nicht mehr speichern. `regions` fehlt, weil ein Dokument
+ * ohne Regionen ohnehin verworfen wird (400).
+ */
+const LISTEN_ALLES_VERLOREN = [
+  ['continents', 'Kontinent', (l: WorldLayout): number => l.continents.length],
+  ['rivers', 'Fluss', (l: WorldLayout): number => l.rivers?.length ?? 0],
+  ['lakes', 'See', (l: WorldLayout): number => l.lakes?.length ?? 0],
+] as const;
 
 /** Alles, was vor der Sperre feststehen kann: Prüfung des Rohdokuments, Sanitizer, Text. */
 function schreibenVorbereiten(eingabe: unknown): { layout: WorldLayout; text: string; verworfen: number } {
@@ -716,6 +732,17 @@ function schreibenVorbereiten(eingabe: unknown): { layout: WorldLayout; text: st
       'placements',
       `Feld "placements": keiner der ${roh} Einträge ist eine gültige Platzierung — verworfen; nichts gespeichert`
     );
+  }
+  // Dieselbe Regel für Kontinente, Flüsse und Seen: Ein Array voller Müll löschte sonst die
+  // ganze Liste mit 200. (Ein nur TEILWEISE verworfener Bestand wird dort nicht gemeldet.)
+  for (const [feld, name, behalteneZahl] of LISTEN_ALLES_VERLOREN) {
+    const rohZahl = listeZaehlen(eingabe, feld);
+    if (rohZahl > 0 && behalteneZahl(layout) === 0) {
+      throw new LayoutFeldUngueltig(
+        feld,
+        `Feld "${feld}": keiner der ${rohZahl} Einträge ist ein gültiger ${name} — verworfen; nichts gespeichert`
+      );
+    }
   }
   return { layout, text: layoutText(layout), verworfen: roh - behalten };
 }

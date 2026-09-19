@@ -116,8 +116,10 @@ console.log('Schatten G18: Kaskadengrenze');
     constructor(readonly mapSize: number) {}
     addShadowCaster(): void {}
     getShadowMap() {
-      return { renderList: [] as unknown[] };
+      // Das Uebrige, was FernKaskadenTakt beim Einhaengen anfasst (G15).
+      return { renderList: [] as unknown[], getRenderLayers: () => 2 };
     }
+    _computeMatrices(): void {}
     dispose(): void {}
   }
   const engine = new NullEngine();

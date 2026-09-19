@@ -21,7 +21,7 @@
  *
  * Checks:
  *  1. prepareFeatures books a plausible number of feature instances
- *     (C++ PostGeoInit, 146 features from features.pkg).
+ *     (post-geo init, 146 features from features.pkg).
  *  2. Placement determinism: two fresh worlds book BIT-IDENTICAL instance
  *     lists — prepareFeatures consumes no time-seeded rng.
  *  3. StartTemple is booked in zone (0,0), close to the origin, above water
@@ -30,7 +30,7 @@
  *     23 piece ZDOs + 1 LocationProxy with 'location'/'seed' int members.
  *  5. Cross-world determinism after generation: vegetation + proxy ZDOs are
  *     bit-identical; piece ZDOs match as prefab multiset (randomRotation is
- *     intentionally NOT deterministic — C++ time-seeds it).
+ *     intentionally NOT deterministic — the reference time-seeds it).
  *  6. ClearAreas suppress vegetation inside the temple clearing.
  *  7. Vegetation count drops below the E2 no-features baseline (clearAreas).
  *
@@ -83,7 +83,7 @@ function expectedTemplePieces(center: { x: number; y: number; z: number }): Arra
 
 /** Mirrors the live server (server.yml): location overrides on, legacy
  *  AshLands noise (modern FastNoise is Phase B5 — WovServer forces
- *  legacy until then; placement in AshLands deviates from C++ until B5,
+ *  legacy until then; placement in AshLands deviates from the reference until B5,
  *  documented in Docs/Bekannte Einschränkungen #6). */
 function buildWorld(): { zm: ZoneManager; zdos: ZDOManager } {
   const geo = new GeoManager(SEED, { worldGenVersion: 2, ashlandsModernNoise: false });
@@ -250,7 +250,7 @@ if (templeProxies.length === 1 && temple) {
 // ── [5] Cross-world determinism after generation ──────────────────
 console.log(`\n[4] Post-generation determinism (randomRotation excluded):`);
 // Location pieces share prefabs with foliage (Pickable_*, Bush01, ...) and
-// randomRotation features rotate them non-deterministically (C++ time-seed).
+// randomRotation features rotate them non-deterministically (reference time-seed).
 // Exclude the footprint of every placed location from the vegetation dump.
 const nearProxy = (z: ZDO, proxies: ZDO[], radius: number): boolean =>
   proxies.some(

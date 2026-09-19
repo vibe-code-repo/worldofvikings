@@ -181,8 +181,8 @@ console.log(
   die beim nächsten neuen Modell nachgezogen werden muss.
 
   Warum nicht mehr: Von den 454 festen Speicher-Prefabs fallen 61 aus,
-  weil ihre Netze durchweg `DefaultMaterial` tragen (AssetRippers
-  Platzhalter — der Client blendet sie aus, sie sind also auch im Bild
+  weil ihre Netze durchweg `DefaultMaterial` tragen (Platzhalter
+  des Extraktions-Exports — der Client blendet sie aus, sie sind also auch im Bild
   nicht da), und weitere über den Namensfilter WEICHE_VEGETATION oder
   weil sie unter MIN_HINDERNISHOEHE bleiben. `fehlend` zählt vor allem
   den ALTBESTAND unter `assets/models/`, der auf dieser Maschine nicht

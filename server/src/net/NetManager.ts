@@ -1,16 +1,12 @@
 /**
  * NetManager — manages all connected peers, handshake, and packet routing.
- * 1:1 port of NetManager.h from the C++ reference server.
+ * 1:1 port of the reference server's net manager.
  *
- * C++ reference:
- *   class INetManager {
- *     Map<string, int32> m_sessionIndexes;
- *     vector<Peer::Ptr> m_connectedPeers;
- *     vector<Peer::Ptr> m_onlinePeers;
- *     unique_ptr<IAcceptor> m_acceptor;
- *     string m_passwordHash, m_passwordSalt;
- *     ...
- *   };
+ * State held (as in the reference):
+ *   - session indexes
+ *   - connected peers and online peers
+ *   - the acceptor
+ *   - password hash and salt
  *
  * Transport: WebSocket (replaces Steam Networking Sockets).
  */
@@ -186,7 +182,7 @@ export class NetManager {
   }
 
   update(deltaMs: number): void {
-    // Periodic player list broadcast (C++ SendPlayerList)
+    // Periodic player list broadcast
     this.playerListAccumulator += deltaMs;
     if (this.playerListAccumulator >= 2000) {
       this.playerListAccumulator = 0;
@@ -559,7 +555,7 @@ export class NetManager {
     }
   }
 
-  // ── Peer lookup (C++ FindPeer*) ──────────────────────────────────
+  // ── Peer lookup ──────────────────────────────────────────────────
 
   findPeerByName(name: string): Peer | undefined {
     return this.onlinePeers.find(p => p.name === name);

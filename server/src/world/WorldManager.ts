@@ -1,21 +1,20 @@
 /**
  * WorldManager — world persistence (save/load).
- * 1:1 concept port of WorldManager.cpp from the C++ reference server.
+ * 1:1 concept port of the reference server's world persistence.
  *
- * C++ reference:
- *   IWorldManager::WriteFileDB  — .db: WORLD version, worldTime (double),
- *     ZDOManager::Save (persistent ZDOs), ZoneManager::Save (generated
- *     zones, globalKeys, features), RandomEventManager::Save
- *   IWorldManager::LoadFileDB   — same order on the way back
- *   IWorldManager::WriteFileMeta — .fwl: name, seedName, seed, uid,
- *     worldGenVersion, startingGlobalKeys
+ * Reference layout:
+ *   Save (.db): WORLD version, worldTime (double), persistent ZDOs,
+ *     zone state (generated zones, globalKeys, features), random events
+ *   Load: same order on the way back
+ *   Meta (.fwl): name, seedName, seed, uid, worldGenVersion,
+ *     startingGlobalKeys
  *   backups: .db-<timestamp>.zstd (zstd-compressed copies)
  *
  * Container format is OUR OWN (JSON envelope, zstd-compressed via
- * node:zlib) — not binary-compatible with the C++ .db DataWriter layout.
- * The content mirrors the C++ save exactly: meta (= .fwl) + worldTime +
- * generated zones (= ZoneManager::Save) + player positions + persistent
- * ZDO snapshots (= ZDOManager::Save). RandomEvents are a later Phase-G
+ * node:zlib) — not binary-compatible with the reference .db layout.
+ * The content mirrors the reference save exactly: meta (= .fwl) + worldTime +
+ * generated zones + player positions + persistent
+ * ZDO snapshots. RandomEvents are a later Phase-G
  * item (not yet implemented on either side of the port).
  */
 
@@ -48,7 +47,7 @@ const SAVE_CHUNK_BUDGET_MS = 8;
 const SAVE_BLOCK_ZEICHEN = 256 * 1024;
 
 /**
- * Bump when the envelope layout changes (C++ WORLD version constant).
+ * Bump when the envelope layout changes (the reference's WORLD version constant).
  *
  * v3 (D9): `terrainOps` (unbegrenzt wachsende Operationsliste) ist durch
  * `terrainComps` (Endzustand je Zone) ersetzt. v1/v2 werden weiter GELESEN
@@ -115,25 +114,25 @@ export interface SavedPlayer {
 
 export interface WorldSaveData {
   version: number;
-  /** C++ .fwl meta (name/seed/uid/worldGenVersion) folded into the envelope. */
+  /** .fwl meta (name/seed/uid/worldGenVersion) folded into the envelope. */
   meta: {
     worldName: string;
     worldSeed: string;
     worldGenVersion: number;
-    /** ISO timestamp — diagnostics only (C++ encodes it in backup filenames). */
+    /** ISO timestamp — diagnostics only (the reference encodes it in backup filenames). */
     savedAt: string;
     /** Hash des WorldLayout-Dokuments (Layout-Modus) — Warnung bei Drift. */
     layoutHash?: number;
   };
-  /** C++ m_worldTime (double, seconds). */
+  /** World time (double, seconds). */
   worldTime: number;
-  /** C++ ZoneManager::Save generated-zone list (x, y pairs). */
+  /** Generated-zone list (x, y pairs). */
   zones: Array<[number, number]>;
   /** Player positions by name — see WovServer.saveWorld for why these
-   *  are not saved as ZDOs (C++ reconciles character ZDOs by session; we
+   *  are not saved as ZDOs (the reference reconciles character ZDOs by session; we
    *  exclude them and restore positions by name instead). */
   players: SavedPlayer[];
-  /** C++ ZDOManager::Save — persistent ZDOs only (prefab-flag filtered). */
+  /** Persistent ZDOs only (prefab-flag filtered). */
   zdos: Array<Record<string, unknown>>;
   /**
    * v2: Spieler-Terraforming als Operationsliste. Wird nur noch GELESEN
@@ -196,14 +195,14 @@ export class WorldManager {
     private readonly layoutHash: number | null = null
   ) {}
 
-  /** C++ GetWorldPath(..., ".db") — one save per world name. */
+  /** Save path (".db") — one save per world name. */
   get savePath(): string {
     return join(this.worldsDir, `${this.worldName}.db.zst`);
   }
 
   /**
-   * C++ WriteFileDB + CopyCompressDB backup: rotate the current save to
-   * `.prev` (simplified single rotation; C++ keeps timestamped backups),
+   * Save + backup: rotate the current save to
+   * `.prev` (simplified single rotation; the reference keeps timestamped backups),
    * then write atomically (tmp + rename — a crash mid-write can never
    * truncate the good save).
    */
@@ -322,9 +321,9 @@ export class WorldManager {
   }
 
   /**
-   * C++ LoadFileDB. Returns null (→ fresh world) when the save is missing,
+   * Load. Returns null (→ fresh world) when the save is missing,
    * corrupt, from a format version we don't understand, or from a different
-   * seed (the C++ server refuses seed mismatches the same way — loading
+   * seed (the reference server refuses seed mismatches the same way — loading
    * ZDOs into the wrong world would strand objects in a changed terrain).
    */
   load(): WorldSaveData | null {

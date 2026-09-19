@@ -1,21 +1,12 @@
 /**
  * Peer — represents a connected client.
- * 1:1 port of Peer.h from the C++ reference server.
+ * 1:1 port of the reference server's peer.
  *
- * C++ reference:
- *   class Peer : public enable_shared_from_this<Peer>,
- *                public RpcBase<shared_ptr<Peer>> {
- *     Map<ZDOID, pair<Rev, float>> m_zdos;  // known ZDOs per peer
- *     Set<ZDOID> m_forceSend;
- *     Set<ZDOID> m_invalidSector;
- *     string m_name;
- *     ISocket::Ptr m_socket;
- *     Vector3f m_pos;
- *     ZDOID m_characterID;
- *     BitPack<uint8, 1, 1, 1, 5> m_pack;  // visible, gated, ...
- *     Map<string, string> m_syncData;
- *     ...
- *   };
+ * State held (as in the reference):
+ *   - known ZDOs per peer (revision + time)
+ *   - force-send set and invalid-sector set
+ *   - name, socket, position, character ZDOID
+ *   - packed flags (visible, gated, ...) and the sync data map
  *
  * Transport: WebSocket (replaces SteamSocket).
  */
@@ -35,7 +26,7 @@ import type { SpielerId } from './Identitaet.js';
 // den ZDO-Saetzen hochrechnen -- s. Kopfkommentar von ../Metriken.ts.
 import { erfasseSyncBytes } from '../Metriken.js';
 
-/** ZDO tracking entry per peer (matches C++ pair<Rev, float>) */
+/** ZDO tracking entry per peer (revision + time pair, as in the reference) */
 export interface PeerZDOEntry {
   dataRevision: number;
   ownerRevision: number;
@@ -249,7 +240,7 @@ export class Peer {
     this.lastInputTime = 0;
   }
 
-  // ── ZDO tracking (C++ m_zdos) ──────────────────────────────────
+  // ── ZDO tracking (known ZDOs) ──────────────────────────────────
 
   /** Check if a ZDO is outdated for this peer. */
   isOutdatedZDO(zdoid: ZDOID, dataRev: number, ownerRev: number): boolean {
@@ -302,7 +293,7 @@ export class Peer {
     this.knownZDOs.delete(zdoid.toString());
   }
 
-  /** Force-send a ZDO next tick (C++ ForceSendZDO). */
+  /** Force-send a ZDO next tick. */
   forceSendZDO(zdoid: ZDOID): void {
     this.forceSend.add(zdoid.toString());
   }

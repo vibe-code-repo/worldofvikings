@@ -1,6 +1,6 @@
 /**
  * WovServer — central server orchestrator.
- * Structural port of the C++ reference server's central orchestrator.
+ * Structural port of the reference server's central orchestrator.
  *
  * The reference type holds the same state this class does: server settings,
  * a task list, the server ID, start/previous/current update timestamps, the
@@ -160,14 +160,14 @@ export interface ServerConfig {
   worldName: string;
   worldSeed: string;
   saveIntervalMs: number;
-  // Worldgen (D6) — C++ ServerSettings world* flags (server.yml world section)
+  // Worldgen (D6) — the world* flags (server.yml world section)
   worldGenVersion: number;
   worldBlendSmoothStep: boolean;
   worldBilinearHeight: boolean;
   worldRiverAffectsOcean: boolean;
   worldAshlandsModernNoise: boolean;
   worldDisableDistantRivers: boolean;
-  // Phase E/F — zone population flags (C++ world.features/vegetation/creatures)
+  // Phase E/F — zone population flags (world.features/vegetation/creatures)
   worldFeatures: boolean;
   worldVegetation: boolean;
   worldLocationOverrides: boolean;
@@ -193,9 +193,9 @@ export interface ServerConfig {
    * dieses Feld.
    */
   generiertDir: string;
-  /** G2: server-side creature spawning/wander (C++ world.creatures flag). */
+  /** G2: server-side creature spawning/wander (world.creatures flag). */
   worldCreatures: boolean;
-  /** G1: directory holding <worldName>.db.zst saves (C++ ./worlds). */
+  /** G1: directory holding <worldName>.db.zst saves. */
   worldsDir: string;
   /**
    * Ordner der Kontendatenbanken (`<kontenDir>/<worldName>.db`). War bis
@@ -324,13 +324,13 @@ const DEFAULT_CONFIG: ServerConfig = {
   worldBlendSmoothStep: true,
   worldBilinearHeight: false,
   worldRiverAffectsOcean: false,
-  // C++ reference default is true; modern FastNoise AshLands
-  // ported in Phase B5 — same terrain as the C++ server and the client
+  // The reference default is true; modern FastNoise AshLands
+  // ported in Phase B5 — same terrain as the reference server and the client
   worldAshlandsModernNoise: true,
   worldDisableDistantRivers: false,
   worldFeatures: true,
   worldVegetation: true,
-  // C++ experimental-location-overrides (server.yml world section)
+  // Experimental location overrides (server.yml world section)
   worldLocationOverrides: false,
   dungeonsEnabled: true,
   dungeonsModulbau: false,
@@ -508,7 +508,7 @@ export class WovServer {
   get aggro(): AggroSystem {
     return this.hauptwelt.aggro;
   }
-  /** G1: world persistence (C++ IWorldManager) — created in init(). */
+  /** G1: world persistence — created in init(). */
   worldManager!: WorldManager;
   /** Phase G: dungeon documents, entrances and instances. */
   readonly dungeons: DungeonManager;
@@ -546,7 +546,7 @@ export class WovServer {
     standardpasswortInKonfig: boolean;
   }[] = [];
 
-  // ── Time (C++ m_worldTime, m_startTime, etc.) ─────────────────
+  // ── Time (world time, start time, etc.) ───────────────────────
   private startTime: number;
   private prevUpdateTime: number;
   private worldTime: number; // seconds
@@ -835,7 +835,7 @@ export class WovServer {
     this.net.onPacket = (peer, type, reader) => this.onPacket(peer, type, reader);
   }
 
-  // ── Lifecycle (C++ init/update/uninit, Start/Stop) ─────────────
+  // ── Lifecycle (init/update/uninit, Start/Stop) ─────────────────
 
   init(): void {
     console.log('[WoV] Initializing...');
@@ -922,7 +922,7 @@ export class WovServer {
     this.prefabs.registerDefaults();
 
     // D6: world generation (lakes/rivers/streams + heightmap provider).
-    // This is the same GeoManager the C++ server and the client run —
+    // This is the same GeoManager the reference server and the client run —
     // identical seed ⇒ identical world.
     const t0 = Date.now();
     // Layout-Modus: das WorldLayout-Dokument von Platte lesen. Fehlt oder
@@ -995,7 +995,7 @@ export class WovServer {
       if (entrance) this.dungeons.spawnEntranceHull(entrance);
     };
 
-    // F2: C++ PostGeoInit — book ALL feature instances globally, once,
+    // F2: post-geo init — book ALL feature instances globally, once,
     // before any zone generates (StartTemple existence enforced inside).
     // Placement-Cache: gültig für exakt (Seed, genVersion, Layout-Hash,
     // Feature-Anzahl) — sonst neu würfeln und Cache erneuern.
@@ -1073,7 +1073,7 @@ export class WovServer {
       this.dungeons.backfillFromFeatures(booked, getStableHash(this.config.worldSeed));
     }
 
-    // G1: C++ WorldManager::LoadFileDB — restore worldTime, generated
+    // G1: load the save file — restore worldTime, generated
     // zones and persistent ZDOs when a save exists (fresh world otherwise).
     // Must run AFTER prepareFeatures: restored zones skip generation, and
     // restoreGeneratedZones replays their terrain modifiers against the
@@ -1370,7 +1370,7 @@ export class WovServer {
     console.log('[WoV] Server stopped');
   }
 
-  // ── Main update loop (C++ update()) ────────────────────────────
+  // ── Main update loop (update()) ────────────────────────────────
 
   /** Letzter Timeout-Prüflauf (alle ~5 s reicht). */
   private letzteTimeoutPruefung = 0;
@@ -1392,8 +1392,8 @@ export class WovServer {
     // Update network (player list, etc.)
     this.net.update(deltaMs);
 
-    // E3: generate vegetation zones around players (C++ TryGenerateNearbyZones
-    // per peer; budgeted drain instead of C++'s blocking inline generation)
+    // E3: generate vegetation zones around players (nearby-zone generation
+    // per peer; budgeted drain instead of blocking inline generation)
     const peers = this.net.getPeers();
     if (peers.length > 0) {
       // JEDE Welt tickt, nicht nur die Hauptwelt — und jede mit den
@@ -1424,7 +1424,7 @@ export class WovServer {
       }
     }
 
-    // ZDO sync at fixed interval (C++ ZDO send-interval: 50ms)
+    // ZDO sync at fixed interval (ZDO send interval: 50ms)
     this.zdoSyncAccumulator += deltaMs;
     if (this.zdoSyncAccumulator >= ZDO_SEND_INTERVAL_MS) {
       this.zdoSyncAccumulator -= ZDO_SEND_INTERVAL_MS;
@@ -1498,7 +1498,7 @@ export class WovServer {
     }
   }
 
-  /** C++ sends the world clock periodically; see update() for why. */
+  /** The world clock is sent periodically; see update() for why. */
   private sendTimeSync(peer: Peer): void {
     peer.sendPacketWith(PacketType.TimeSync, (w) => {
       w.writeFloat64(this.worldTime);
@@ -1507,7 +1507,7 @@ export class WovServer {
     });
   }
 
-  // ── ZDO Sync (C++ IZDOManager::SendZDOs) ───────────────────────
+  // ── ZDO Sync (sending ZDOs) ────────────────────────────────────
 
   /**
    * G-POP: 4 Zonen = 256 m, wie der Terrain-Radius des Clients — bei 192 m
@@ -2746,7 +2746,7 @@ export class WovServer {
   private naechstesEvent = 0;
 
   /**
-   * RandomEvents (C++ RandomEventManager, stark verschlankt): alle
+   * RandomEvents (stark verschlankt): alle
    * EVENT_INTERVAL_MS mit EVENT_CHANCE ein Überfall auf einen zufälligen
    * Spieler in der Oberwelt — "Der Wald bewegt sich": Greydwarf-Rudel
    * spawnt im Ring um den Spieler. Die Kreaturen übernimmt danach das
@@ -5371,7 +5371,7 @@ export class WovServer {
     return null;
   }
 
-  // ── Time helpers (C++ GetDay, GetTimeOfDay) ────────────────────
+  // ── Time helpers (getDay, getTimeOfDay) ────────────────────────
 
   getDay(): number {
     return Math.floor((this.worldTime - TIME_DAY) / WORLD_TIME_LENGTH);
@@ -5390,9 +5390,8 @@ export class WovServer {
   // ── Persistence ────────────────────────────────────────────────
 
   /**
-   * C++ WorldManager::LoadFileDB (order preserved): worldTime →
-   * ZoneManager::Load (generated zones) → ZDOManager::Load (persistent
-   * ZDOs). Player positions load into savedPlayers and are applied in
+   * Loads the save file (reference order preserved): worldTime →
+   * generated zones → persistent ZDOs. Player positions load into savedPlayers and are applied in
    * onPeerAuthenticated. No save file / mismatch → fresh world.
    */
   private loadWorld(): void {
@@ -5491,9 +5490,9 @@ export class WovServer {
   }
 
   /**
-   * C++ WorldManager::WriteFileDB. Persistent ZDOs are filtered by the
-   * PREFAB flag — C++ ZDO::IsPersistent() returns GetPrefab().IsPersistent()
-   * (ZDO.h:1146), the ZDO instance flag is never set. Player character ZDOs
+   * Writes the save file. Persistent ZDOs are filtered by the
+   * PREFAB flag — the reference's persistence check returns the prefab's
+   * persistent flag, the ZDO instance flag is never set. Player character ZDOs
    * are excluded: their owner session ends at shutdown, so after a restart
    * they would linger as ghosts next to the fresh character ZDO every
    * reconnecting peer gets. Positions live in the players[] section instead
@@ -5594,8 +5593,8 @@ export class WovServer {
    * Der synchrone Teil beider Save-Wege: Welche ZDOs, Spieler und Zonen
    * gehören in diesen Save.
    *
-   * Persistente ZDOs werden über das PREFAB-Flag gefiltert — C++
-   * ZDO::IsPersistent() liefert GetPrefab().IsPersistent() (ZDO.h:1146),
+   * Persistente ZDOs werden über das PREFAB-Flag gefiltert — die
+   * Persistenzprüfung der Referenz liefert das Persistent-Flag des Prefabs,
    * das Instanz-Flag wird nie gesetzt. Spieler-ZDOs bleiben draußen: Ihre
    * Besitzer-Sitzung endet beim Herunterfahren, nach einem Neustart stünden
    * sie als Geister neben dem frischen Charakter-ZDO jedes zurückkehrenden

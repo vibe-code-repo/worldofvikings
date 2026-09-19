@@ -1,13 +1,13 @@
 /**
- * Binary Writer — 1:1 port of DataStream.h (Writer) from the C++ reference server.
+ * Binary Writer — 1:1 port of the reference server's data-stream writer.
  *
  * Writes primitive types, strings, byte arrays, Vector3, Quaternion
  * to a little-endian binary buffer with auto-growth.
  *
- * C++ reference:
- *   Writer::internal_write_bytes(char const*, size_t)
- *   Writer::write_varint(int32)  — ZigZag + LEB128
- *   Streamer<T> for arithmetic, string, Vector3, Quaternion
+ * Reference behavior:
+ *   - raw byte writes
+ *   - varint (int32) — ZigZag + LEB128
+ *   - arithmetic types, strings, Vector3, Quaternion
  */
 
 import { Stream } from './Stream.js';
@@ -120,7 +120,7 @@ export class Writer extends Stream {
   }
 
   // ── Varint (ZigZag + LEB128) ─────────────────────────────────────
-  // C++ reference: Writer::write_varint(int32)
+  // Reference: varint write (int32)
 
   writeVarInt(value: number): this {
     // ZigZag encode: (n << 1) ^ (n >> 31)
@@ -138,8 +138,8 @@ export class Writer extends Stream {
   }
 
   // ── String ───────────────────────────────────────────────────────
-  // C++ reference: Streamer<T> for char containers
-  //   write_varint(length) + raw UTF-8 bytes
+  // Reference: string write
+  //   varint(length) + raw UTF-8 bytes
 
   writeString(value: string): this {
     if (value.length === 0) {
@@ -231,7 +231,7 @@ export class Writer extends Stream {
   }
 
   // ── Finalize ─────────────────────────────────────────────────────
-  // C++ reference: Writer::serialize() returns vector<char>(buf)
+  // Reference: serialize returns a copy of the written bytes
 
   toBuffer(): Buffer {
     return Buffer.from(this.buf.subarray(0, this.pos));
@@ -239,7 +239,7 @@ export class Writer extends Stream {
 
   /**
    * Static convenience: serialize values into a Buffer.
-   * C++ reference: Writer::serialize(var1, var2, ...)
+   * Reference: serialize a list of values in one call.
    */
   static serialize(writeFn: (w: Writer) => void): Buffer {
     const w = new Writer();

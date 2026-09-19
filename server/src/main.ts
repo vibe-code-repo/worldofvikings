@@ -1,6 +1,6 @@
 /**
  * Server entry point.
- * 1:1 port of the C++ reference server's entry point: switch into the
+ * 1:1 port of the reference server's entry point: switch into the
  * data directory, build the server, start it.
  */
 

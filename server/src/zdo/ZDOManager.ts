@@ -1,18 +1,12 @@
 /**
  * ZDOManager — manages all ZDOs, sector-based storage, and network sync.
- * 1:1 port of ZDOManager.h from the C++ reference server.
+ * 1:1 port of the reference server's ZDO manager.
  *
- * C++ reference:
- *   class IZDOManager {
- *     array<ZDO::reference_set, WORLD_INNER_ZDIAMETER^2> m_objectsBySector;
- *     Map<ZoneID, ZDO::reference_set> m_objectsBySectorOuter;
- *     Map<Hash, ZDO::reference_set> m_objectsByPrefab;
- *     ZDO::unique_set m_objectsByID;
- *     ZDO::soft_set m_erasedZDOs;
- *     ZDO::soft_list m_destroySendList;
- *     uint32 m_nextUid;
- *     ...
- *   };
+ * State held (as in the reference):
+ *   - ZDOs by sector: a WORLD_INNER_ZDIAMETER^2 grid plus a map for outer zones
+ *   - ZDOs by prefab hash and by ID
+ *   - erased ZDOs and the destroy send list
+ *   - the next server-owned uid counter
  */
 
 import type { Hash, ZoneID, Vector3, Quaternion } from '@wov/shared';
@@ -102,7 +96,7 @@ export class ZDOManager {
   }
 
   // ── ZDO Creation ─────────────────────────────────────────────────
-  // C++ reference: IZDOManager::CreateZDO(Hash prefabHash, Vector3 pos, Quaternion rot)
+  // Reference: create a ZDO from (prefabHash, pos, rot)
 
   /**
    * Die Kennung dieses ZDO-Raums für eine VORGEGEBENE Objektnummer.
@@ -153,11 +147,11 @@ export class ZDOManager {
   }
 
   /**
-   * Bulk-restore ZDOs from persistence snapshots (C++ ZDOManager::Load).
+   * Bulk-restore ZDOs from persistence snapshots.
    * Restored ZDOs are neither dirty nor new (fromSnapshot resets both), so
    * the first sync after a restart is not a re-send storm — clients learn
    * them through the normal interest-management path. nextUid is advanced
-   * past every restored server-owned id (C++ saves m_nextUid explicitly;
+   * past every restored server-owned id (the reference saves the counter explicitly;
    * recomputing from the max loaded id is equivalent since ids are only
    * ever handed out monotonically). Returns the restored count.
    */
@@ -269,7 +263,7 @@ export class ZDOManager {
   }
 
   // ── ZDO Destruction ──────────────────────────────────────────────
-  // C++ reference: IZDOManager::DestroyZDO(ZDOID)
+  // Reference: destroy a ZDO by its ZDOID
 
   destroyZDO(zdoid: ZDOID): boolean {
     const key = zdoid.toString();
@@ -293,7 +287,7 @@ export class ZDOManager {
   }
 
   // ── ZDO Movement (zone change) ───────────────────────────────────
-  // C++ reference: IZDOManager::_InvalidateZDOZone(ZDO::reference)
+  // Reference: invalidate the ZDO's zone
 
   updateZDOZone(zdo: ZDO, newPosition: Vector3): void {
     const newZone = worldToZone(newPosition);
@@ -309,7 +303,7 @@ export class ZDOManager {
   }
 
   // ── Network Sync ─────────────────────────────────────────────────
-  // C++ reference: IZDOManager::SendZDOs(Peer::Ptr)
+  // Reference: send ZDOs to a peer
   // Called every ZDO_SEND_INTERVAL_MS
 
   /** Collect dirty ZDOs for a given zone set (interest management). */

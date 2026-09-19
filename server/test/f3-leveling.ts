@@ -1,8 +1,8 @@
 /**
  * F4 smoke test — terrain leveling for locations (Unity TerrainModifier parity).
  *
- * The C++ reference server does NOT level terrain under locations (its
- * TerrainModifier.cpp only feeds ClearArea params). Without leveling,
+ * The reference server does NOT level terrain under locations (its
+ * terrain modifier only feeds ClearArea params). Without leveling,
  * location pieces booked relative to the feature center float up to ~5m on
  * slopes (user-reported Phase-F regression). The leveling is baked into
  * Heightmap.heights on server (ground truth) and client (rendering) with
@@ -10,7 +10,7 @@
  *
  * Checks:
  *  1. getTerrainLeveling rule: yml entry (WoodHouse2) > clearArea rule
- *     (StartTemple: exteriorRadius, C++ defaults) > none (ShipSetting01).
+ *     (StartTemple: exteriorRadius, reference defaults) > none (ShipSetting01).
  *  2. Synthetic modifier on a slope: plateau exact, band blends monotonically,
  *     far field untouched, square vs radial distance norm.
  *  3. Integration: mit leerer Feature-Tabelle wird nichts gebucht und

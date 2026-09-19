@@ -61,7 +61,7 @@ export interface WeltBauplan {
   readonly id: string;
   readonly geo: IGeo;
   readonly heightmaps: HeightmapProvider;
-  /** C++ GeoManager()->GetSeed() = getStableHash(worldSeed). */
+  /** The geo manager's seed = getStableHash(worldSeed). */
   readonly zonenSeed: number;
   readonly zonenOptionen?: ZoneManagerOptions;
   /** Kreaturen-Spawnsystem anlegen? (server.yml `world.creatures`) */

@@ -1,20 +1,13 @@
 /**
  * ZDO — Zone Data Object.
- * 1:1 port of ZDO.h from the C++ reference server.
+ * 1:1 port of the reference server's ZDO.
  *
- * C++ reference:
- *   class ZDO {
- *     class Rev { BitPack<uint32, 23, 9> m_pack; };
- *     ZDOID m_id;
- *     Hash m_prefabHash;
- *     Vector3f m_position;
- *     Quaternion m_rotation;
- *     Rev m_rev;
- *     member_map m_members;  // hash -> variant<float,vec3,quat,int,long,string,bytes>
- *     ...
- *   };
+ * State held (as in the reference):
+ *   - id, prefab hash, position, rotation
+ *   - revision (23-bit data + 9-bit owner, packed into a uint32)
+ *   - members: hash -> float / vec3 / quat / int / long / string / bytes
  *
- * Member types (from ZDO.h NETWORK_* constants):
+ * Member types (network type constants):
  *   0=Float, 1=Vec3, 2=Quat, 3=Int, 4=Long, 5=String, 6=ByteArray
  */
 
@@ -24,7 +17,7 @@ import { BitPack32 } from '../util/BitPack.js';
 import { getStableHash } from '../util/Hash.js';
 
 // ── ZDO Revision (ZDO::Rev) ────────────────────────────────────────
-// C++ reference: BitPack<uint32, 23, 32-23>
+// Reference: bit pack of a uint32 as 23 + (32-23) bits
 //   DATA_REVISION_PACK_INDEX = 0 (23 bits)
 //   OWNER_REVISION_PACK_INDEX = 1 (9 bits)
 
@@ -156,7 +149,7 @@ export class ZDO {
   }
 
   // ── Member access ────────────────────────────────────────────────
-  // C++ reference: ZDO::Set/Get with hash-based keys
+  // Reference: set/get with hash-based keys
 
   private memberHash(name: string): number {
     return getStableHash(name);

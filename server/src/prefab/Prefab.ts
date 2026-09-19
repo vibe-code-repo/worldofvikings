@@ -1,15 +1,9 @@
 /**
  * Prefab — object type definition.
- * 1:1 port of Prefab.h from the C++ reference server.
+ * 1:1 port of the reference server's prefab.
  *
- * C++ reference:
- *   class Prefab {
- *     string m_name;
- *     Vector3f m_localScale;
- *     Flag m_flags;  // uint64 bitfield
- *     Hash m_hash;
- *     ...
- *   };
+ * State held (as in the reference): name, local scale, flags (uint64
+ * bitfield) and hash.
  */
 
 import type { Hash, Vector3, ObjectType } from '@wov/shared';

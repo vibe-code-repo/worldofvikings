@@ -1,6 +1,6 @@
 /**
  * Quaternion math utilities.
- * 1:1 port of Quaternion.h from the C++ reference server.
+ * 1:1 port of the reference server's quaternion math.
  */
 
 import type { Quaternion, Vector3 } from '@wov/shared';
@@ -110,7 +110,6 @@ export function quatRotateVec3(q: Quaternion, v: Vector3): Vector3 {
 }
 
 /**
- * C++ reference: Quaternion::ToEuler
  * Returns euler angles in radians (pitch, yaw, roll).
  */
 export function quatToEuler(q: Quaternion): Vector3 {

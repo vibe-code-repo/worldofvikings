@@ -1,9 +1,9 @@
 /**
  * SpawnSystem (Phase G2) — server-side creature spawning + wander behavior.
  *
- * There is NO C++ reference for this system: in the original architecture
- * the owning Unity client runs the SpawnSystem (ZoneSystem.m_spawnLists),
- * the C++ server only replicates the resulting creature ZDOs. Our browser
+ * There is NO reference implementation for this system: in the original
+ * architecture the owning client runs the spawning, the reference server
+ * only replicates the resulting creature ZDOs. Our browser
  * architecture has no privileged client, so spawning lives server-side
  * here, driven by the AUTHORED table in shared/spawnData.ts (no vanilla
  * reference data exists — documented in Bekannte Einschränkungen #26).
@@ -22,7 +22,7 @@
  *     bandwidth without touching the movement granularity.
  *
  * Determinism: simTime is the only clock; inject a seeded XorShiftRandom
- * via options for reproducible tests (C++ parity: the original client-side
+ * via options for reproducible tests (reference parity: the original client-side
  * spawning is not world-deterministic either — same as randomRotation).
  *
  * Persistence: creature prefabs carry PERSISTENT in the pkg, so spawned
@@ -128,8 +128,8 @@ export class SpawnSystem {
     options: SpawnSystemOptions = {}
   ) {
     this.table = nurEigeneModelle(options.table ?? SPAWN_TABLE);
-    // C++ parity: time-seeded default RNG (VUtilsRandom.cpp:53-55, same as
-    // location randomRotation) — tests inject a seeded one.
+    // Reference parity: time-seeded default RNG (same as location
+    // randomRotation) — tests inject a seeded one.
     this.rng = options.rng ?? new XorShiftRandom((Date.now() & 0x7fffffff) | 0);
     this.despawnRadius = options.despawnRadius ?? SPAWN_DESPAWN_RADIUS;
     this.simRadius = options.simRadius ?? SPAWN_SIM_RADIUS;
@@ -235,7 +235,7 @@ export class SpawnSystem {
     this.simTime += deltaSec;
 
     if (peerPositions.length === 0) {
-      // Nobody online: nothing simulates, nothing despawns (C++ parity:
+      // Nobody online: nothing simulates, nothing despawns (reference parity:
       // persistent creatures simply sleep with no clients connected).
       return;
     }

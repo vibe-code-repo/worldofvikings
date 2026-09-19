@@ -1,13 +1,9 @@
 /**
  * ZDOID — Zone Data Object Identifier.
- * 1:1 port of ZDOID.h from the C++ reference server.
+ * 1:1 port of the reference server's ZDOID.
  *
- * C++ reference:
- *   class ZDOID {
- *     BitPack<uint32, USERID_BITS, ID_BITS> m_pack;
- *     static array<int64, capacity> INDEXED_USERID;
- *     ...
- *   };
+ * State held (as in the reference): a uint32 bit pack of
+ * USERID_BITS + ID_BITS, and a static indexed UserID table.
  *
  * The ZDOID packs a UserID index and an ID into a single uint32.
  * UserIDs are stored in a static indexed array to save bits.
@@ -22,7 +18,7 @@ const ID_BITS = 32 - USERID_BITS; // 22 bits for the object ID
 const BIT_SHARING = 4; // first 4 indices reserved for ordinal bit sharing
 
 export class ZDOID {
-  /** Static indexed UserID table (matches C++ INDEXED_USERID) */
+  /** Static indexed UserID table (as in the reference) */
   private static INDEXED_USERID: bigint[] = new Array(1 << USERID_BITS).fill(0n);
 
   /** Packed value: [userIDIndex: USERID_BITS][id: ID_BITS] */

@@ -319,7 +319,6 @@ export function layoutAbgleich(
 
   // Unbekannte Prefabs: was zu ihnen gehören könnte, wird geschont.
   const unbekannte = placements.filter((p) => !bekannt(p));
-  const unbekannteKennungen = new Set(unbekannte.map(kennung));
   const gehoertZu = (zdo: ZDO, id: string, p: PlacementDef): boolean =>
     id === kennung(p) || Math.hypot(zdo.position.x - p.x, zdo.position.z - p.z) <= TOLERANZ.schonzone;
   const geschont = (zdo: ZDO, id: string): boolean => unbekannte.some((p) => gehoertZu(zdo, id, p));

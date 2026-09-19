@@ -28,6 +28,8 @@
  * Run: npx tsx shared/test/daten-verweise.ts   (from the repo root)
  */
 
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { getStableHash } from '../src/hash.js';
 import * as environmentModule from '../src/environment.js';
 import { ENVIRONMENTS, findEnvironment } from '../src/environment.js';
@@ -74,6 +76,23 @@ interface DungeonEntry {
 const RAEUME = roomPiecesData.rooms as unknown as Record<string, RoomEntry>;
 const KITS = dungeonsData.dungeons as unknown as DungeonEntry[];
 const PREFAB_NAMEN = new Set((prefabData.prefabs as { name: string }[]).map((p) => p.name));
+const GOLDEN_PFAD = fileURLToPath(new URL('./golden/raum-verweise.json', import.meta.url));
+
+/**
+ * Per room: a hash over, for every random-spawn group in order, the prefab
+ * names its `childViews` indices resolve to. Independent of the numeric
+ * index values, dependent on what they point at.
+ */
+function raumDigests(): Record<string, number> {
+  const aus: Record<string, number> = {};
+  for (const [raum, r] of Object.entries(RAEUME)) {
+    const zeilen = r.randomSpawns.map(
+      (s, g) => `${g}:${s.childViews.map((i) => r.netViews[i]?.prefabName ?? '?').join(',')}`
+    );
+    aus[raum] = getStableHash(zeilen.join('|'));
+  }
+  return aus;
+}
 
 function abschnittVerweise(): void {
   console.log('\n1. Dungeon data references');
@@ -128,6 +147,27 @@ function abschnittVerweise(): void {
     'every randomSpawns.childViews index points at an existing net view of its room',
     ausserhalb.length === 0,
     `${gruppen} groups, ${ausserhalb.length} out of range${ausserhalb.length ? `: ${zeige(ausserhalb)}` : ''}`
+  );
+
+  // An index that still lies in range but points at a neighbour passes the
+  // range check above. So the prefab NAME each index resolves to is pinned per
+  // room (a hash over the resolved names of every group). Deliberate edits to
+  // the room data change the pin: review, then rewrite it with
+  //   npx tsx shared/test/daten-verweise.ts --golden-schreiben
+  const digest = raumDigests();
+  if (process.argv.includes('--golden-schreiben')) {
+    writeFileSync(GOLDEN_PFAD, JSON.stringify(digest, null, 1) + '\n');
+    console.log(`  wrote ${Object.keys(digest).length} room digests to ${GOLDEN_PFAD}`);
+  }
+  const golden = (existsSync(GOLDEN_PFAD) ? JSON.parse(readFileSync(GOLDEN_PFAD, 'utf8')) : {}) as Record<string, number>;
+  const abweichend = [
+    ...Object.keys(digest).filter((raum) => golden[raum] !== digest[raum]),
+    ...Object.keys(golden).filter((raum) => !(raum in digest)),
+  ];
+  check(
+    'every childViews index still resolves to the prefab it resolved to when pinned',
+    abweichend.length === 0 && Object.keys(golden).length > 0,
+    `${Object.keys(digest).length} rooms pinned, ${abweichend.length} differ${abweichend.length ? `: ${zeige(abweichend)}` : ''}`
   );
 
   // Removed prefabs: by hash, in every place a hash or a name can sit.
@@ -229,6 +269,21 @@ function abschnittUmgebungen(): void {
     'every weather named in the biome tables of envData.json exists there',
     biomeOhne.length === 0,
     `${biomeRefs.length} references${biomeOhne.length ? `; missing: ${zeige(biomeOhne)}` : ''}`
+  );
+
+  // The merge in environment.ts goes through a Map by name, so a duplicate
+  // record in the data file never shows up in ENVIRONMENTS: check the file itself.
+  const datensatzNamen = (envData.environments as { name: string }[]).map((e) => e.name);
+  const doppeltImDatensatz = datensatzNamen.filter((n, i) => datensatzNamen.indexOf(n) !== i);
+  check(
+    'no two records in envData.json share a name',
+    doppeltImDatensatz.length === 0,
+    doppeltImDatensatz.length ? zeige(doppeltImDatensatz) : `${datensatzNamen.length} records`
+  );
+  check(
+    'envData.json count equals the number of its records',
+    (envData as { count: number }).count === datensatzNamen.length,
+    `count ${(envData as { count: number }).count}, records ${datensatzNamen.length}`
   );
 
   const gleichnamig = new Map<string, number>();

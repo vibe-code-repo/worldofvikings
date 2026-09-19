@@ -52,7 +52,7 @@ const paare: readonly { name: string; erzeuger: string; verbraucher: readonly st
   {
     name: 'skyDome',
     erzeuger: `${engineDir}SkyDome.ts`,
-    verbraucher: [`${engineDir}PostProcessing.ts`, `${engineDir}Shadows.ts`, `${engineDir}WaterRefraction.ts`],
+    verbraucher: [`${engineDir}PostProcessing.ts`, `${engineDir}WaterRefraction.ts`],
   },
   { name: 'wovSSAO', erzeuger: `${engineDir}PostProcessing.ts`, verbraucher: [`${engineDir}DungeonAtmosphere.ts`] },
   { name: 'wovTaa', erzeuger: `${engineDir}PostProcessing.ts`, verbraucher: [] },
@@ -63,7 +63,8 @@ const paare: readonly { name: string; erzeuger: string; verbraucher: readonly st
   { name: 'WaterPlugin', erzeuger: `${engineDir}WaterPlugin.ts`, verbraucher: [] },
 ];
 for (const p of paare) {
-  const wort = new RegExp(`(^|[^A-Za-z0-9_])${p.name}([^A-Za-z0-9_]|$)`);
+  // als Zeichenkette in einfachen oder doppelten Anfuehrungszeichen: Kommentare, die den Namen nennen, zaehlen nicht
+  const wort = new RegExp(`['"]${p.name}['"]`);
   pruefe(wort.test(lies(p.erzeuger)), `${p.name}: Erzeuger ${p.erzeuger}`);
   for (const v of p.verbraucher) pruefe(wort.test(lies(v)), `${p.name}: Verbraucher ${v}`);
 }

@@ -203,6 +203,13 @@ export interface LookSchatten {
    * naeheren (Babylons `cascadeBlendPercentage`).
    */
   ueberblendung: number;
+  /**
+   * Takt der fernen Kaskaden (G15): 1 = jedes Bild neu, 2 = jedes zweite Bild.
+   * Zwischen zwei Renderbildern bleiben Karte UND Matrizen der fernen
+   * Kaskaden stehen (nur die Nahkaskade wird neu gerechnet), solange die
+   * Sichtpyramide noch in der alten Karte liegt. Ganze Zahl von 1 bis 4.
+   */
+  fernTakt: number;
 }
 
 export interface LookProfil {
@@ -701,6 +708,7 @@ export const LOOK_VORGABE: LookProfil = {
     rasten: true,
     lambda: 0.3,
     ueberblendung: 0.2,
+    fernTakt: 2,
   },
 };
 
@@ -820,6 +828,7 @@ const BEREICHE: ReadonlyMap<string, readonly [number, number]> = new Map([
   ['look.schatten.dunkelheit', [0, 1]],
   ['look.schatten.lambda', [0, 1]],
   ['look.schatten.ueberblendung', [0, 0.5]],
+  ['look.schatten.fernTakt', [1, 4]],
 ]);
 
 /** Ein Befund der Prüfung: Pfad und was daran nicht stimmt. */

@@ -601,6 +601,10 @@ function lookGeprueft(): void {
   ok(pruefeLook({ schatten: { lambda: 0.1, ueberblendung: 0.25 } }).length === 0, 'look.schatten.lambda und .ueberblendung sind bekannte Regler');
   ok(pruefeLook({ schatten: { lambda: 8 } }).length === 1, 'lambda 8 statt 0,8 wird gemeldet');
   ok(pruefeLook({ schatten: { ueberblendung: 20 } }).length === 1, 'ueberblendung 20 statt 0,2 wird gemeldet');
+  // G15: Takt der fernen Kaskaden.
+  ok(pruefeLook({ schatten: { fernTakt: 2 } }).length === 0, 'look.schatten.fernTakt ist ein bekannter Regler');
+  ok(pruefeLook({ schatten: { fernTakt: 9 } }).length === 1, 'fernTakt 9 (Bereich 1 bis 4) wird gemeldet');
+  ok(pruefeLook({ schatten: { fernTakt: 0 } }).length === 1, 'fernTakt 0 wird gemeldet');
   // Ein NEGATIVER Grading-Offset ist gueltig und seit dem 12.09.2026 der
   // Normalfall: Die Dorf-Schattenzeile traegt −0,044477392, und ein
   // positiver Offset wirkt in dieser Zeile vierfach. Waere der Bereich
@@ -631,6 +635,10 @@ function lookGeprueft(): void {
       typeof altBlock.schatten.lambda === 'number' &&
       typeof altBlock.schatten.ueberblendung === 'number',
     'ein Schattenblock ohne lambda/ueberblendung bekommt beide aus der Vorgabe'
+  );
+  ok(
+    altBlock.schatten.fernTakt === LOOK_VORGABE.schatten.fernTakt && typeof altBlock.schatten.fernTakt === 'number',
+    'ein Schattenblock ohne fernTakt bekommt ihn aus der Vorgabe'
   );
 
   // Der Draht bis zum Start: leseLookVorgabe wirft.

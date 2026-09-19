@@ -63,6 +63,7 @@ import { CascadedShadowGenerator } from '@babylonjs/core/Lights/Shadows/cascaded
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
 import { Material } from '@babylonjs/core/Materials/material';
 import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
@@ -317,6 +318,212 @@ export function kaskadenGrenzen(
     grenzen.push(lambda * (logarithmisch - gleichmaessig) + gleichmaessig);
   }
   return grenzen;
+}
+
+/**
+ * Toleranz der Deckungspruefung in Metern (G15): So weit darf die Sichtpyramide
+ * ueber den Rand der alten Karte hinausragen, bevor die ferne Kaskade neu
+ * gerendert wird. 0,3 m sind bei 6 cm Texeln fuenf Texel am aeussersten Rand
+ * der Ferne — gemessen bei Sprinttempo (8 m/s, 13 cm je Bild) und bei
+ * 3 Grad Drehung je Bild sprang die Pruefung in 1 von 16 Bildern an.
+ */
+export const FERN_TAKT_TOLERANZ_M = 0.3;
+
+/**
+ * Liegen alle Ecken in der Karte, mit der sie zuletzt gerendert wurde? (G15)
+ *
+ * Reine Rechnung: die Ecken (Weltraum) durch die Matrix der Kaskade
+ * (`_transformMatrices[i]`, Babylon-Reihenfolge) in den Kartenraum, x und y
+ * muessen in [-1, 1] liegen, erweitert um `toleranzM` Meter. `halbeKante` ist
+ * die halbe Kantenlaenge der Karte in Metern (`(max.x - min.x) / 2`).
+ *
+ * The pyramid corners against the OLD map: true while they all fall inside,
+ * with a tolerance in metres.
+ */
+export function kaskadeDeckt(
+  matrix: ArrayLike<number>,
+  halbeKante: number,
+  ecken: ReadonlyArray<{ x: number; y: number; z: number }>,
+  toleranzM = FERN_TAKT_TOLERANZ_M
+): boolean {
+  if (!(halbeKante > 0)) return false;
+  const grenze = 1 + Math.max(0, toleranzM) / halbeKante;
+  const m = matrix;
+  for (const e of ecken) {
+    const w = e.x * m[3]! + e.y * m[7]! + e.z * m[11]! + m[15]!;
+    if (!(Math.abs(w) > 1e-9)) return false;
+    const x = (e.x * m[0]! + e.y * m[4]! + e.z * m[8]! + m[12]!) / w;
+    const y = (e.x * m[1]! + e.y * m[5]! + e.z * m[9]! + m[13]!) / w;
+    if (!(Math.abs(x) <= grenze) || !(Math.abs(y) <= grenze)) return false;
+  }
+  return true;
+}
+
+/** Was von einem `CascadedShadowGenerator` privat ist und der Takt anfassen muss. */
+interface KaskadenIntern {
+  numCascades: number;
+  getShadowMap(): { getRenderLayers(): number } | null;
+  _computeMatrices(): void;
+  _viewMatrices: Matrix[];
+  _projectionMatrices: Matrix[];
+  _transformMatrices: Matrix[];
+  _transformMatricesAsArray: Float32Array;
+  _cascadeMinExtents: Vector3[];
+  _cascadeMaxExtents: Vector3[];
+  _frustumCenter: Vector3[];
+  _shadowCameraPos: Vector3[];
+  _frustumCornersWorldSpace: Vector3[][];
+}
+
+/** Die Zustandsgroessen EINER fernen Kaskade, die zusammen ihre Karte beschreiben. */
+interface KaskadenStand {
+  view: Matrix;
+  projektion: Matrix;
+  transform: Matrix;
+  feld: Float32Array;
+  min: Vector3;
+  max: Vector3;
+  mitte: Vector3;
+  kamera: Vector3;
+}
+
+/**
+ * Die fernen Kaskaden nur jedes `takt`-te Bild neu rendern (G15).
+ *
+ * ── Warum ─────────────────────────────────────────────────────────────
+ * Babylons `CascadedShadowGenerator` rendert alle Kaskaden in jedem Bild
+ * (`refreshRate` greift dort nicht, s. `setLevel`), und die Laubkronen kosten
+ * in der fernen Karte mehr als in der nahen: Wald 0,76 gegen 0,30 ms GPU,
+ * Insel 2,33 gegen 1,39 ms — bei 20 bzw. 16 Zeichenaufrufen. Weder Instanz-
+ * noch Dreieckszahl erklaeren das (exaktes Keulen je Kaskade nahm 80 % der
+ * Dreiecke und 0,1 ms), die ferne Karte ist an die Flaeche der Kronen im Kasten
+ * gebunden. Die ferne Karte aendert sich langsam: sie liegt ab ~19 m, ein
+ * Sprinttempo von 8 m/s verschiebt sie um 13 cm je Bild, das sind zwei Texel.
+ *
+ * ── Wie ───────────────────────────────────────────────────────────────
+ * In einem uebersprungenen Bild bleiben Karte UND Matrizen der fernen Kaskaden
+ * stehen: `_computeMatrices` rechnet wie immer, danach werden die alten Werte
+ * zurueckgeschrieben, und die Karte rendert nur ihre erste Lage
+ * (`getRenderLayers`). Die Empfaenger tasten damit mit genau den Matrizen
+ * ab, mit denen die Karte gezeichnet wurde — der Schatten steht, er hinkt
+ * nicht hinterher, er ist nur ein Bild alt. Bricht die Deckung (die neue
+ * Sichtpyramide ragt mehr als `FERN_TAKT_TOLERANZ_M` ueber die alte Karte),
+ * wird sofort neu gerendert: schnelle Drehung, Teleport, Zoom.
+ *
+ * ── Zeuge ─────────────────────────────────────────────────────────────
+ * Ein uebersprungenes Bild gegen ein frisches Bild am selben Ort (Insel,
+ * Sprint 8 m/s, Wind aus, TAA aus): Anteil der Bildpunkte mit Helligkeits-
+ * unterschied > 8 von 255 0,0005 % gegen 0,0024 % zwischen zwei frischen
+ * Bildern (Rauschboden); bei 3 Grad Drehung je Bild 0,006 %.
+ *
+ * Renders the far cascades only every `takt`-th frame; matrices are frozen
+ * with the map so receivers sample with the matrices the map was drawn with.
+ */
+export class FernKaskadenTakt {
+  private readonly stand: KaskadenStand[] = [];
+  /** Bilder seit dem letzten Rendern der fernen Kaskaden. */
+  private seit = Number.MAX_SAFE_INTEGER;
+  private bild = Number.NaN;
+  private ueberspringen = false;
+  /** Zaehler fuer Messung und Test. */
+  uebersprungen = 0;
+  gerendert = 0;
+  /** Bilder, in denen die Deckungspruefung ein Ueberspringen verhindert hat. */
+  luecken = 0;
+
+  constructor(
+    private readonly g: KaskadenIntern,
+    private readonly takt: () => number,
+    private readonly bildKennung: () => number
+  ) {}
+
+  /** Den Generator anschliessen: ersetzt seine `_computeMatrices` und die Zahl der Lagen. */
+  einhaengen(): void {
+    const g = this.g;
+    const karte = g.getShadowMap();
+    if (!karte) return;
+    const lagen = karte.getRenderLayers();
+    const original = g._computeMatrices.bind(g);
+    g._computeMatrices = () => this.berechne(original);
+    karte.getRenderLayers = () => (this.ueberspringen ? 1 : lagen);
+  }
+
+  private berechne(original: () => void): void {
+    const g = this.g;
+    const takt = Math.max(1, Math.min(4, Math.floor(this.takt()) || 1));
+    const fern = g.numCascades - 1;
+    if (takt <= 1 || fern < 1) {
+      this.ueberspringen = false;
+      original();
+      return;
+    }
+    // Ein Bild kann `_computeMatrices` mehrfach rufen (Bereitschaftspruefung
+    // und Rendern): entschieden wird einmal je Bild, danach gilt der Entscheid.
+    const kennung = this.bildKennung();
+    const neuesBild = kennung !== this.bild;
+    // Der Stand VOR diesem Bild — nur er wird gegebenenfalls zurueckgeschrieben.
+    this.sichere(fern);
+    original();
+    if (neuesBild) {
+      this.bild = kennung;
+      let ok = this.seit + 1 < takt;
+      if (ok) {
+        for (let i = 1; i <= fern && ok; i++) {
+          const alt = this.stand[i - 1]!;
+          const halb = (alt.max.x - alt.min.x) / 2;
+          ok = kaskadeDeckt(alt.transform.m, halb, g._frustumCornersWorldSpace[i]!);
+        }
+        if (!ok) this.luecken++;
+      }
+      this.ueberspringen = ok;
+      this.seit = ok ? this.seit + 1 : 0;
+      if (ok) this.uebersprungen++;
+      else this.gerendert++;
+    }
+    if (this.ueberspringen) this.stelleWiederHer(fern);
+  }
+
+  private sichere(fern: number): void {
+    const g = this.g;
+    for (let i = 1; i <= fern; i++) {
+      let s = this.stand[i - 1];
+      if (!s) {
+        s = this.stand[i - 1] = {
+          view: new Matrix(),
+          projektion: new Matrix(),
+          transform: new Matrix(),
+          feld: new Float32Array(16),
+          min: new Vector3(),
+          max: new Vector3(),
+          mitte: new Vector3(),
+          kamera: new Vector3(),
+        };
+      }
+      s.view.copyFrom(g._viewMatrices[i]!);
+      s.projektion.copyFrom(g._projectionMatrices[i]!);
+      s.transform.copyFrom(g._transformMatrices[i]!);
+      for (let k = 0; k < 16; k++) s.feld[k] = g._transformMatricesAsArray[i * 16 + k]!;
+      s.min.copyFrom(g._cascadeMinExtents[i]!);
+      s.max.copyFrom(g._cascadeMaxExtents[i]!);
+      s.mitte.copyFrom(g._frustumCenter[i]!);
+      s.kamera.copyFrom(g._shadowCameraPos[i]!);
+    }
+  }
+
+  private stelleWiederHer(fern: number): void {
+    const g = this.g;
+    for (let i = 1; i <= fern; i++) {
+      const s = this.stand[i - 1]!;
+      g._viewMatrices[i]!.copyFrom(s.view);
+      g._projectionMatrices[i]!.copyFrom(s.projektion);
+      g._transformMatrices[i]!.copyFrom(s.transform);
+      g._transformMatricesAsArray.set(s.feld, i * 16);
+      g._cascadeMinExtents[i]!.copyFrom(s.min);
+      g._cascadeMaxExtents[i]!.copyFrom(s.max);
+      g._frustumCenter[i]!.copyFrom(s.mitte);
+      g._shadowCameraPos[i]!.copyFrom(s.kamera);
+    }
+  }
 }
 
 /**
@@ -583,6 +790,8 @@ export class Shadows {
    */
   private werferPendingSet: Set<AbstractMesh> | null = null;
   private werferCfg: ShadowLevel | null = null;
+  /** G15: Takt der fernen Kaskaden, je Generator neu angelegt (setLevel). */
+  private fernTakt: FernKaskadenTakt | null = null;
   /**
    * E26: Sichtbares Vegetationsmesh und Schattenmesh besitzen absichtlich
    * verschiedene Geometrien. `mesh.clone()` wäre hier falsch: Babylons
@@ -716,6 +925,10 @@ export class Shadows {
       ).map((v) => +v.toFixed(2)),
       pcf: g.usePercentageCloserFiltering,
       werfer: g.getShadowMap()?.renderList?.length ?? 0,
+      fernTakt: this.profil.schatten.fernTakt,
+      fernUebersprungen: this.fernTakt?.uebersprungen ?? 0,
+      fernGerendert: this.fernTakt?.gerendert ?? 0,
+      fernLuecken: this.fernTakt?.luecken ?? 0,
     };
   }
 
@@ -1681,6 +1894,13 @@ export class Shadows {
     // der Werferliste ansetzen (darfWerfen weiter oben) oder an der
     // Kaskadenzahl — nicht an der Bildrate der Karte.
     this.generator = g;
+    // G15: die fernen Kaskaden im Takt. Der Takt liest den Look bei jedem Bild.
+    this.fernTakt = new FernKaskadenTakt(
+      g as unknown as KaskadenIntern,
+      () => this.profil.schatten.fernTakt,
+      () => this.scene.getFrameId()
+    );
+    this.fernTakt.einhaengen();
 
     // Eine andere Distanz verändert den konservativen Packradius. Bis die
     // budgetierten Klone neu stehen, bleiben die vollständigen Quellen als
@@ -1706,6 +1926,7 @@ export class Shadows {
     if (!this.generator) return;
     this.generator.dispose();
     this.generator = null;
+    this.fernTakt = null;
     for (const m of this.scene.meshes) {
       if (m.getClassName() !== 'InstancedMesh') m.receiveShadows = false;
     }

@@ -956,6 +956,7 @@ const KERN = [
   // NullEngine, kein `assets/`, <1 s.
   ['client', 'test/schatten-master-vergessen.ts'],
   ['client', 'test/schatten-buchhaltung.ts'],
+  ['client', 'test/schatten-fern-takt.ts'],
   // Das 100-FPS-Profil nutzt auf der niedrigen Stufe eine eigene
   // Schattenfassung. Der GPU-lose Test haelt 2 x 1024 px / 80 m fest und
   // prueft zugleich, dass alle normalen Stufen unveraendert bleiben.

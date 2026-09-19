@@ -82,6 +82,7 @@ import {
   layoutLesenMitHash,
   layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { weltOpsBehandeln } from './routen/weltOps.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
 // geschickt wie beim Server. Der Editor soll sehen, was auch der
 // Spielserver sieht — ein Rohtext koennte Raeume enthalten, die dort
@@ -1369,6 +1370,9 @@ async function behandeln(
     };
   }
 
+  // Einzelne Objekte aendern statt das ganze Dokument ersetzen (Editor E1, K1.2).
+  if (pfad === '/api/worldlayout/ops' && methode === 'PATCH') return weltOpsBehandeln(leib, { datei: LAYOUT_DATEI, instanz: INSTANZ });
+
   if (pfad === '/api/worldlayout' && methode === 'POST') {
     // Gepruefte wird mit sanitizeWorldLayout, der STRENGEN Pruefung —
     // die Vite-Konfig konnte @wov/shared nicht laden und musste sich mit
@@ -1380,8 +1384,10 @@ async function behandeln(
     // Feld `basis` auf oberster Ebene benennt den Hash, auf den sich der
     // Schreiber bezieht (der Kopf If-Match tut dasselbe und gewinnt). Es
     // wird abgetrennt, bevor das Dokument den Sanitizer sieht. Ohne Basis
-    // wird in E0 noch angenommen, laut und im Antwort-JSON vermerkt; die
-    // Pflicht kommt spaeter, damit der Editor erst umgestellt werden kann.
+    // wird nichts geschrieben (428): Editor, Testflug und MCP schicken seit
+    // E0 eine, und ein Schreiber ohne Basis koennte jede fremde Aenderung
+    // stillschweigend ueberschreiben. Einzelne Objekte aendert
+    // PATCH /api/worldlayout/ops, das braucht keine Basis.
     let dokument: unknown = leib;
     let rumpfBasis: unknown;
     if (typeof leib === 'object' && leib !== null && !Array.isArray(leib) && 'basis' in leib) {
@@ -1397,10 +1403,11 @@ async function behandeln(
       throw new LayoutUngueltig('basis muss ein Hash-Text sein');
     }
     if (basis === null) {
-      console.warn(
-        `[Admin] POST /api/worldlayout OHNE Basis (weder If-Match noch basis) — ` +
-          `${basename(LAYOUT_DATEI)} wird ueberschrieben, wer zuletzt speichert, gewinnt`
-      );
+      const meldung =
+        'Speichern ohne Basis: If-Match (oder das Feld "basis") mit dem Hash aus GET /api/worldlayout fehlt — ' +
+        'nichts geschrieben. Erst lesen, dann mit dem gelesenen Hash speichern.';
+      console.warn(`[Admin] POST /api/worldlayout -> 428 basis-fehlt: ${basename(LAYOUT_DATEI)} nicht geschrieben`);
+      return { code: 428, daten: { ok: false, fehler: 'basis-fehlt', message: meldung } };
     }
     try {
       // Async: Wartet ein fremder Schreiber auf der Sperre, bleibt die
@@ -1431,7 +1438,6 @@ async function behandeln(
           hash,
           // `verworfen` = Summe (Zahl, wie bisher), `verworfenJeFeld` = dieselbe Zahl je Liste.
           ...(verworfen > 0 ? { verworfen, verworfenJeFeld } : {}),
-          ...(basis === null ? { ohneBasis: true } : {}),
         },
       };
     } catch (fehler) {
@@ -1640,7 +1646,9 @@ const dienst = createServer((req, res) => {
       // Koerper ({name} oder {spielerId}), um zu sagen, WAS entfernt
       // werden soll -- die URL allein kennt keine Kennung dafuer.
       const leib =
-        req.method === 'PUT' || req.method === 'POST' || req.method === 'DELETE' ? await leibLesen(req) : null;
+        req.method === 'PUT' || req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE'
+          ? await leibLesen(req)
+          : null;
       const { code, daten, kopf } = await behandeln(
         pfad,
         req.method ?? 'GET',

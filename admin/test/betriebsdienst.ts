@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout } from '@wov/shared/src/worldlayout/sanitize.js';
-import { layoutSichern, layoutText } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { layoutHash, layoutSichern, layoutText } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
 // AP15.0: Wächter für GET /api/dungeons2 und GET /api/dungeons2/:id — ein
 // echtes 2.0-Dokument erzeugen statt eines von Hand getippten Objekts, damit
@@ -151,11 +151,14 @@ function anfrage(opt: {
   weiter?: string;
   quelle?: string;
   leib?: string;
+  /** Hash der Datei, auf die sich der Schreiber bezieht (If-Match); POST /api/worldlayout verlangt ihn seit E1/K1.2. */
+  basis?: string;
 }): Promise<Antwort> {
   return new Promise((fertig, scheitern) => {
     const kopf: Record<string, string> = {};
     if (opt.token !== null) kopf['x-wov-token'] = opt.token ?? TOKEN;
     if (opt.weiter) kopf['x-forwarded-for'] = opt.weiter;
+    if (opt.basis) kopf['if-match'] = `"${opt.basis}"`;
     if (opt.leib !== undefined) {
       kopf['content-type'] = 'application/json';
       kopf['content-length'] = String(Buffer.byteLength(opt.leib));
@@ -266,6 +269,7 @@ try {
     pfad: '/api/worldlayout',
     methode: 'POST',
     leib: JSON.stringify({ version: 1, name: 'ohne alles', regions: 'keine Liste' }),
+    basis: layoutHash(SOLL),
   });
   check('kaputtes Dokument → 400', kaputt.code === 400, `= ${kaputt.code} ${kaputt.text}`);
   check('kaputtes Dokument: Datei unveraendert', aufDerPlatte() === SOLL);
@@ -285,6 +289,7 @@ try {
     pfad: '/api/worldlayout',
     methode: 'POST',
     leib: JSON.stringify({ ...WELT, version: 2 }),
+    basis: layoutHash(SOLL),
   });
   check('falsche Dokumentversion → 400', falscheVersion.code === 400, `= ${falscheVersion.code}`);
   check('falsche Dokumentversion: Datei unveraendert', aufDerPlatte() === SOLL);
@@ -303,6 +308,7 @@ try {
     pfad: '/api/worldlayout',
     methode: 'POST',
     leib: JSON.stringify(roh),
+    basis: layoutHash(SOLL),
   });
   check('gueltiges Dokument → 200', gespeichert.code === 200, `= ${gespeichert.code} ${gespeichert.text}`);
   check('Antwort traegt ok:true', gespeichert.daten.ok === true);

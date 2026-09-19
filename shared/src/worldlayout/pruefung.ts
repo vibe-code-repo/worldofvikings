@@ -21,6 +21,8 @@ import { PREFABS_BY_NAME, istEigenesModell } from '../prefabs.js';
 import { istNpcPrefab } from '../npc.js';
 import type { PlacementDef, WorldLayout } from './types.js';
 import { gleicherInhalt, zusammengefassteDuplikate } from './platzierungsId.js';
+import { MAX_KANDIDATEN } from './compile.js';
+import { ueberlappungsGruppen, type UeberlappungsGruppe } from './kartenAuswertung.js';
 
 export interface LayoutBefund {
   /** Regions-ID bzw. 'placements' — wo der Fund liegt. */
@@ -130,7 +132,49 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
       text: 'Kein Startpunkt gesetzt (defaultSpawn oder continent.spawn) — Spawn liegt am Ursprung',
     });
   }
+  befunde.push(...ueberlappungsBefunde(layout));
   return befunde;
+}
+
+/**
+ * Zuletzt gerechnete Überlappungsgruppen samt dem Schlüssel der Geometrie, aus
+ * der sie stammen. Die Rechnung läuft über das Zellraster jeder Region und
+ * kostet in der Dev-Welt (19 Regionen, 40 km) rund 180 ms, die übrige Prüfung
+ * zusammen etwa 1 ms — und der Editor ruft `pruefeLayout` bei jedem Neuaufbau
+ * mehrfach. Ein Schlüssel aus dem INHALT statt einer Objekt-Identität, weil
+ * das Layout im Editor an Ort und Stelle verändert wird: Eine Identität bliebe
+ * dabei gleich, während sich die Form ändert.
+ */
+let ueberlappungsCache: { schluessel: string; gruppen: UeberlappungsGruppe[] } | undefined;
+
+/**
+ * Zellüberlappungen (Block 0.11): Rasterzellen, in denen mehr Regionen als
+ * MAX_KANDIDATEN konkurrieren. Das Kompilat (compile.ts, `fuelleChunk`) verwirft
+ * dort ohne Meldung die Region mit dem niedrigsten Index; die Karte kann an
+ * der Stelle dann eine andere Region zeigen, als eingegeben wurde. Wie bei den
+ * Platzierungs-Befunden nur ein HINWEIS (`art: 'welt'`).
+ *
+ * Eine Zeile je Regionen-Kombination, nicht je Zelle: In der Dev-Welt sind es
+ * 893 Zellen in vier Kombinationen, s. `ueberlappungsGruppen`. `wo` ist
+ * 'welt', keine Regions-ID, weil der Befund mehreren Regionen gilt.
+ */
+function ueberlappungsBefunde(layout: WorldLayout): LayoutBefund[] {
+  // Mit höchstens MAX_KANDIDATEN Regionen kann keine Zelle überlaufen.
+  if (layout.regions.length <= MAX_KANDIDATEN) return [];
+  // Gelesen wird nur, was `zellUeberlappungen` liest: Reihenfolge, ID, Form
+  // und Randabfall der Regionen.
+  const schluessel = JSON.stringify(layout.regions.map((r) => [r.id, r.edgeFalloff, r.shape]));
+  if (ueberlappungsCache?.schluessel !== schluessel) {
+    ueberlappungsCache = { schluessel, gruppen: ueberlappungsGruppen(layout) };
+  }
+  return ueberlappungsCache.gruppen.map((g) => ({
+    wo: 'welt',
+    art: 'welt',
+    text:
+      `Zellüberlappung: ${g.regionen.length} Regionen (${g.regionen.join(', ')}) konkurrieren in ` +
+      `${g.zellenAnzahl} Zelle${g.zellenAnzahl === 1 ? '' : 'n'} um (${Math.round(g.mitteX)}, ${Math.round(g.mitteZ)}), ` +
+      `x ${g.minX}…${g.maxX}, z ${g.minZ}…${g.maxZ} — das Kompilat merkt sich nur ${MAX_KANDIDATEN} je Zelle`,
+  }));
 }
 
 /**

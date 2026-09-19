@@ -52,6 +52,8 @@ server/data/forum/
 # Spielserver ueberschrieben -- Laufzeitzustand wie die Spielstaende oben,
 # gehoert nicht ins Repo.
 server/data/metriken.json
+# Daily metrics log (one JSON line per second, rotated, 14 days kept), same origin.
+server/data/metriken-*.jsonl
 # Rohmaterial: Unity-AssetBundles (Willybach HD u. a.)
 screenshots/newtexture/
 *.bundle

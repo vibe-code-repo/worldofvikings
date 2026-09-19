@@ -44,10 +44,34 @@ export interface MetrikSchnappschuss {
   syncBytesProSekunde: number;
   /** Zahl verbundener Peers. */
   peers: number;
+
+  // Tick split (block 0.12). Per tick: total = welten + sync + rest, where
+  // `rest` is the remainder (total minus the two measured phases), so the
+  // three parts add up to `tickDauerMs*` by construction. All values are
+  // per-second averages over ALL ticks of that second (a tick in which a
+  // phase did not run counts as 0 ms for it) and the per-second maximum of
+  // the single phase, both in ms rounded to 0.01.
+
+  /** Per-world tick loop (WovServer.update -> Welt.tick for every world that
+   *  has a player): zone generation, spawns, routes, aggro. */
+  tickWeltenMsDurchschnitt: number;
+  tickWeltenMsMax: number;
+  /** ZDO sync (WovServer.syncZDOs), which runs every 50 ms, so on about two
+   *  of three ticks. */
+  tickSyncMsDurchschnitt: number;
+  tickSyncMsMax: number;
+  /** Everything else in the tick: network update, time sync, admin rights,
+   *  dungeons, events, the metric writes of the previous second. */
+  tickRestMsDurchschnitt: number;
+  tickRestMsMax: number;
+  /** How often zone generation stopped because its per-tick time budget was
+   *  used up with zones still queued (ZoneManager.update). Summed over all
+   *  worlds, per second. */
+  zonenBudgetAbbrueche: number;
 }
 
 /**
- * Prometheus-Textformat (Exposition Format 0.0.4) von Hand — sieben feste
+ * Prometheus-Textformat (Exposition Format 0.0.4) von Hand — feste
  * Werte ohne Labels/Historie, eine Bibliothek waere hier ueberbaut.
  *
  * `jetztMs` kommt bewusst als Parameter herein statt Date.now() hier drin
@@ -60,7 +84,11 @@ export function formatierePrometheus(schnappschuss: MetrikSchnappschuss, jetztMs
   const alterSekunden = Math.max(0, Math.round(((jetztMs - schnappschuss.zeitMs) / 1000) * 10) / 10);
 
   const zeilen: string[] = [];
-  const gauge = (name: string, hilfe: string, wert: number): void => {
+  const gauge = (name: string, hilfe: string, wert: number | undefined): void => {
+    // A snapshot file written by an older server has no split fields: skip
+    // the gauge rather than print `undefined`, which would make the whole
+    // scrape unparseable.
+    if (typeof wert !== 'number') return;
     zeilen.push(`# HELP ${name} ${hilfe}`);
     zeilen.push(`# TYPE ${name} gauge`);
     zeilen.push(`${name} ${wert}`);
@@ -71,6 +99,13 @@ export function formatierePrometheus(schnappschuss: MetrikSchnappschuss, jetztMs
   gauge('wov_tick_anzahl', 'Zahl der Ticks in der letzten vollen Sekunde (Sollwert 30)', schnappschuss.tickAnzahl);
   gauge('wov_zdo_anzahl', 'Aktuelle Zahl lebender ZDOs', schnappschuss.zdoAnzahl);
   gauge('wov_sync_bytes_pro_sekunde', 'Ueber ZDO-Sync und andere Pakete gesendete Bytes in der letzten vollen Sekunde', schnappschuss.syncBytesProSekunde);
+  gauge('wov_tick_welten_ms_avg', 'Mittlere Dauer der Welt-Ticks (Zonen, Spawns, Routen, Aggro) je Tick in Millisekunden', schnappschuss.tickWeltenMsDurchschnitt);
+  gauge('wov_tick_welten_ms_max', 'Groesste Dauer der Welt-Ticks eines Ticks der letzten vollen Sekunde in Millisekunden', schnappschuss.tickWeltenMsMax);
+  gauge('wov_tick_sync_ms_avg', 'Mittlere Dauer des ZDO-Syncs je Tick in Millisekunden', schnappschuss.tickSyncMsDurchschnitt);
+  gauge('wov_tick_sync_ms_max', 'Groesste Dauer des ZDO-Syncs eines Ticks der letzten vollen Sekunde in Millisekunden', schnappschuss.tickSyncMsMax);
+  gauge('wov_tick_rest_ms_avg', 'Mittlere Dauer des uebrigen Ticks (Netz, TimeSync, Dungeons, Ereignisse) in Millisekunden', schnappschuss.tickRestMsDurchschnitt);
+  gauge('wov_tick_rest_ms_max', 'Groesste Dauer des uebrigen Ticks in der letzten vollen Sekunde in Millisekunden', schnappschuss.tickRestMsMax);
+  gauge('wov_zonen_budget_abbrueche', 'Zonenaufbau-Abbrueche wegen Zeitbudget in der letzten vollen Sekunde', schnappschuss.zonenBudgetAbbrueche);
   gauge('wov_peers', 'Zahl verbundener Spieler', schnappschuss.peers);
   gauge('wov_metriken_alter_sekunden', 'Alter dieses Schnappschusses in Sekunden — hoch heisst: Spielserver haengt oder ist weg', alterSekunden);
 

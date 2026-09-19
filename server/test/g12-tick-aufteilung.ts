@@ -1,0 +1,269 @@
+/**
+ * G12 / Block 0.12 — die Tick-Aufteilung im ECHTEN Server.
+ *
+ * g12-metriken.ts prueft die Zaehler und den Schreiber fuer sich. Dieser Test
+ * prueft die Verdrahtung: Stempelt WovServer.update() die beiden Phasen
+ * wirklich, zaehlt ZoneManager.update() die Budget-Abbrueche wirklich, und
+ * kommt beides als Zeile im Tageslog an? Ein Regler, der nichts verstellt,
+ * faellt sonst nicht auf — die Zahlen stuenden auf 0 und niemand wuerde
+ * es merken.
+ *
+ * Ein echter WovServer, ein echter WebSocket-Client (Handshake wie
+ * g3-mehrspieler-e2e.ts), der in grossen Spruengen wandert und damit
+ * Zonenaufbau erzwingt.
+ *
+ *  A) Normalbetrieb: Welten + Sync + Rest ergeben je Zeile die Gesamtdauer
+ *     (Toleranz 0,015 ms: drei Rundungen auf 0,01), jede Phase ist im Lauf
+ *     einmal messbar, Budget-Abbrueche kommen an, die Schnappschussdatei
+ *     ist die letzte Zeile des Logs.
+ *  B) Das Tageslog laesst sich nicht schreiben (an seinem Namen steht ein
+ *     Ordner): der Server laeuft weiter (Ticks, Schnappschuss), und die
+ *     Warnung kommt genau einmal.
+ *
+ * Wartet nie eine feste Zeit, sondern auf Zeugen (Zeilen im Log).
+ *
+ * Port 2575 (frei laut Kopfkommentaren der uebrigen Tests).
+ *
+ * Lauf: npx tsx test/g12-tick-aufteilung.ts   (aus server/)
+ */
+import WebSocket from "ws";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { antwortBerechnen } from "../src/net/Identitaet.js";
+import { createWovServer } from "../src/WovServer.js";
+import { Reader } from "../src/io/Reader.js";
+import { Writer } from "../src/io/Writer.js";
+import type { MetrikSchnappschuss } from "@wov/shared/src/metrik.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TMP = resolve(__dirname, "tmp-g12-tick-aufteilung");
+const PORT = 2575;
+rmSync(TMP, { recursive: true, force: true });
+mkdirSync(TMP, { recursive: true });
+
+let failures = 0;
+function check(label: string, ok: boolean, detail = ""): void {
+  console.log(`  ${ok ? "PASS" : "FAIL"}  ${label}${detail ? " — " + detail : ""}`);
+  if (!ok) failures++;
+}
+
+const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+async function warteAuf(bedingung: () => boolean, timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (!bedingung()) {
+    if (Date.now() - start >= timeoutMs) return false;
+    await warte(50);
+  }
+  return true;
+}
+
+function verbinde(name: string): Promise<WebSocket> {
+  return new Promise((res, rej) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+    ws.binaryType = "nodebuffer";
+    let authSent = false;
+    const to = setTimeout(() => rej(new Error("Timeout beim Handshake")), 8000);
+    ws.on("message", (data: Buffer) => {
+      const type = data.readUInt8(0);
+      const reader = new Reader(Buffer.from(data.subarray(1)));
+      if (type === 1) {
+        ws.send(Buffer.concat([Buffer.from([1]), new Writer().writeInt32(2).toBuffer()]));
+      } else if (type === 68) {
+        if (authSent) return;
+        authSent = true;
+        const w = new Writer();
+        w.writeString(antwortBerechnen(reader.readString(), ""));
+        w.writeString(name);
+        w.writeString("");
+        ws.send(Buffer.concat([Buffer.from([2]), w.toBuffer()]));
+      } else if (type === 3) {
+        clearTimeout(to);
+        res(ws);
+      }
+    });
+    ws.on("error", rej);
+  });
+}
+
+const teleport = (ws: WebSocket, x: number, z: number): void => {
+  const w = new Writer();
+  w.writeString(`teleport ${Math.round(x)} ${Math.round(z)}`);
+  ws.send(Buffer.concat([Buffer.from([53]), w.toBuffer()]));
+};
+
+const zeilenVon = (datei: string): MetrikSchnappschuss[] =>
+  existsSync(datei)
+    ? readFileSync(datei, "utf-8")
+        .split("\n")
+        .filter((z) => z.length > 0)
+        .map((z) => JSON.parse(z) as MetrikSchnappschuss)
+    : [];
+
+/** Startet Server + wandernden Client, ruft `lauf` auf und raeumt danach auf. */
+async function mitServer(
+  ordner: string,
+  lauf: (wandern: () => void) => Promise<void>,
+): Promise<void> {
+  const welt = resolve(TMP, ordner, "welt");
+  const metriken = resolve(TMP, ordner, "metriken");
+  mkdirSync(metriken, { recursive: true });
+  const server = createWovServer({
+    port: PORT,
+    everyoneAdmin: true,
+    worldsDir: welt,
+    kontenDir: resolve(welt, "konten"),
+    worldName: "g12-" + ordner,
+    saveIntervalMs: 3600_000,
+    metrikenDatei: resolve(metriken, "metriken.json"),
+  });
+  server.start();
+  let ws: WebSocket | undefined;
+  let schritt = 0;
+  try {
+    ws = await verbinde("Wanderer");
+    // Grosse Spruenge auf einer wachsenden Spirale: jeder Sprung landet in
+    // Zonen, die es noch nicht gibt, der Aufbau ueberschreitet das Tick-Budget.
+    const wandern = (): void => {
+      const r = 1500 + 100 * schritt;
+      teleport(ws!, r * Math.cos((schritt * 1000) / r), r * Math.sin((schritt * 1000) / r));
+      schritt++;
+    };
+    await lauf(wandern);
+  } finally {
+    ws?.close();
+    server.stop();
+  }
+}
+
+// ── A) Normalbetrieb ────────────────────────────────────────────────
+console.log("\n[A] Aufteilung im Tageslog:");
+{
+  const metriken = resolve(TMP, "a", "metriken");
+  await mitServer("a", async (wandern) => {
+    const log = (): MetrikSchnappschuss[] => {
+      const heute = new Date().toISOString().slice(0, 10);
+      return zeilenVon(resolve(metriken, `metriken-${heute}.jsonl`)).filter((z) => z.peers === 1);
+    };
+    const wanderer = setInterval(wandern, 200);
+    const genug = await warteAuf(() => {
+      const z = log();
+      return z.length >= 4 && z.some((l) => l.zonenBudgetAbbrueche > 0);
+    }, 30_000);
+    clearInterval(wanderer);
+    check("Zeugen: mindestens vier Sekundenzeilen mit Client und ein Budget-Abbruch", genug);
+
+    const zeilen = log();
+    const abweichung = Math.max(
+      ...zeilen.map((z) =>
+        Math.abs(
+          z.tickWeltenMsDurchschnitt +
+            z.tickSyncMsDurchschnitt +
+            z.tickRestMsDurchschnitt -
+            z.tickDauerMsDurchschnitt,
+        ),
+      ),
+    );
+    check(
+      "Welten + Sync + Rest = Gesamt je Zeile (Toleranz 0,015 ms)",
+      abweichung <= 0.0151,
+      `groesste Abweichung ${abweichung.toFixed(4)} ms`,
+    );
+    const weltenGesamt = zeilen.reduce((s, z) => s + z.tickWeltenMsDurchschnitt * z.tickAnzahl, 0);
+    check(
+      "Welten-Phase wurde gemessen (Summe > 1 ms)",
+      weltenGesamt > 1,
+      `${weltenGesamt.toFixed(1)} ms`,
+    );
+    check(
+      "Sync-Phase wurde gemessen (ein Maximum > 0)",
+      zeilen.some((z) => z.tickSyncMsMax > 0),
+      `max ${Math.max(...zeilen.map((z) => z.tickSyncMsMax))} ms`,
+    );
+    check(
+      "keine Phase ist laenger als der laengste Tick (Rundung 0,01)",
+      zeilen.every(
+        (z) =>
+          z.tickWeltenMsMax <= z.tickDauerMsMax + 0.011 &&
+          z.tickSyncMsMax <= z.tickDauerMsMax + 0.011,
+      ),
+    );
+    check(
+      "Budget-Abbrueche sind angekommen",
+      zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0) > 0,
+      `${zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0)}`,
+    );
+    check(
+      "jede Zeile hat 20 bis 40 Ticks (Sollwert 30)",
+      zeilen.slice(1).every((z) => z.tickAnzahl >= 20 && z.tickAnzahl <= 40),
+      zeilen.map((z) => z.tickAnzahl).join(","),
+    );
+
+    const snapshot = JSON.parse(
+      readFileSync(resolve(metriken, "metriken.json"), "utf-8"),
+    ) as MetrikSchnappschuss;
+    const alle = zeilenVon(
+      resolve(metriken, `metriken-${new Date().toISOString().slice(0, 10)}.jsonl`),
+    );
+    check(
+      "Schnappschussdatei ist eine Zeile des Logs",
+      alle.some((z) => JSON.stringify(z) === JSON.stringify(snapshot)),
+    );
+  });
+}
+
+// ── B) Tageslog nicht schreibbar ────────────────────────────────────
+console.log("\n[B] Tageslog nicht schreibbar:");
+{
+  const metriken = resolve(TMP, "b", "metriken");
+  mkdirSync(metriken, { recursive: true });
+  // Der Name des heutigen Logs ist ein Ordner: appendFile scheitert mit EISDIR.
+  mkdirSync(resolve(metriken, `metriken-${new Date().toISOString().slice(0, 10)}.jsonl`));
+  const warnungen: string[] = [];
+  const echteWarnung = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    const text = args.map(String).join(" ");
+    if (text.includes("Metrics")) warnungen.push(text);
+    else echteWarnung(...args);
+  };
+  try {
+    await mitServer("b", async () => {
+      const snapshotDatei = resolve(metriken, "metriken.json");
+      const stand = (): MetrikSchnappschuss | undefined =>
+        existsSync(snapshotDatei)
+          ? (JSON.parse(readFileSync(snapshotDatei, "utf-8")) as MetrikSchnappschuss)
+          : undefined;
+      // Zeuge: der Schnappschuss wird ueber mehrere Sekunden weitergeschrieben,
+      // obwohl das Log jedes Mal scheitert.
+      await warteAuf(() => stand() !== undefined, 10_000);
+      const erster = stand()?.zeitMs ?? 0;
+      const weiter = await warteAuf(() => (stand()?.zeitMs ?? 0) >= erster + 3000, 15_000);
+      check("Server laeuft weiter: Schnappschuss wird ueber 3 s fortgeschrieben", weiter);
+      check(
+        "Server tickt weiter (Sollwert 30 je Sekunde)",
+        (stand()?.tickAnzahl ?? 0) >= 20,
+        `${stand()?.tickAnzahl}`,
+      );
+    });
+  } finally {
+    console.warn = echteWarnung;
+  }
+  check(
+    "Warnung kam genau einmal in 3+ s (Drossel 1/min)",
+    warnungen.length === 1,
+    `${warnungen.length}`,
+  );
+  check(
+    "Warnung nennt das Ziel und den Pfad",
+    warnungen[0]?.includes("jsonl") === true && warnungen[0]?.includes(".jsonl") === true,
+    warnungen[0] ?? "",
+  );
+}
+
+rmSync(TMP, { recursive: true, force: true });
+console.log(
+  failures === 0
+    ? "\n=== G12 Tick-Aufteilung: ALL PASSED ==="
+    : `\n=== G12 Tick-Aufteilung: ${failures} FAILED ===`,
+);
+process.exit(failures === 0 ? 0 : 1);

@@ -133,14 +133,14 @@ import {
   TRUHE_LOOTED_MEMBER,
 } from '@wov/shared';
 import { resolve } from 'path';
-import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { waehleChatEmpfaenger, kuerzeChatText } from './spiel/ChatReichweite.js';
 // G12: Betriebsmetriken (Tick-Dauer, ZDO-Anzahl, Sync-Bytes/s, Peers) --
 // eigenes schmales Modul, s. dessen Kopfkommentar fuer die Abgrenzung zu
 // Zeitmessung.ts.
-import { erfasseTick, schliesseSekundeAb } from './Metriken.js';
+import { erfasseTick, schliesseSekundeAb, MetrikSchreiber } from './Metriken.js';
 import type { MetrikSchnappschuss } from '@wov/shared/src/metrik.js';
 // G12 Schritt 1: strukturierte Logs hinter einem Schalter, s. Kopfkommentar.
 import { strukturLog } from './util/StrukturLog.js';
@@ -1352,9 +1352,11 @@ export class WovServer {
     this.updateTimer = setInterval(() => {
       // G12: EIN Zeitstempelpaar je Tick, kein Profiling im Inneren von
       // update() -- billig genug, um immer zu laufen (s. Metriken.ts).
+      // Die zwei Phasen (Welten, Sync) stempelt update() selbst und legt
+      // sie in tickWeltenMs/tickSyncMs ab; "Rest" ist die Differenz.
       const t0 = performance.now();
       this.update();
-      erfasseTick(performance.now() - t0);
+      erfasseTick(performance.now() - t0, this.tickWeltenMs, this.tickSyncMs);
     }, TICK_MS);
 
     // Periodic world save — D8: asynchron, damit die 30-Minuten-Sicherung
@@ -1388,7 +1390,17 @@ export class WovServer {
   /** Letzter Timeout-Prüflauf (alle ~5 s reicht). */
   private letzteTimeoutPruefung = 0;
 
+  /**
+   * Durations of the two measured tick phases, written by update() and read
+   * by the tick timer right after it returns. Plain numbers on the instance:
+   * nothing is allocated per tick.
+   */
+  private tickWeltenMs = 0;
+  private tickSyncMs = 0;
+
   private update(): void {
+    this.tickWeltenMs = 0;
+    this.tickSyncMs = 0;
     const timeoutJetzt = Date.now();
     if (timeoutJetzt - this.letzteTimeoutPruefung > 5000) {
       this.letzteTimeoutPruefung = timeoutJetzt;
@@ -1424,6 +1436,7 @@ export class WovServer {
         if (liste) liste.push(p.position);
         else positionenJeWelt.set(p.worldId, [p.position]);
       }
+      const weltenStart = performance.now();
       for (const welt of this.welten.values()) {
         const positionen = positionenJeWelt.get(welt.id);
         if (!positionen?.length) continue;
@@ -1435,13 +1448,16 @@ export class WovServer {
           );
         }
       }
+      this.tickWeltenMs = performance.now() - weltenStart;
     }
 
     // ZDO sync at fixed interval (ZDO send interval: 50ms)
     this.zdoSyncAccumulator += deltaMs;
     if (this.zdoSyncAccumulator >= ZDO_SEND_INTERVAL_MS) {
       this.zdoSyncAccumulator -= ZDO_SEND_INTERVAL_MS;
+      const syncStart = performance.now();
       this.syncZDOs();
+      this.tickSyncMs = performance.now() - syncStart;
     }
 
     // Send time sync every second. Previously TimeSync was only sent at
@@ -1484,31 +1500,21 @@ export class WovServer {
     }
   }
 
+  /** G12: writes snapshot and daily log (`MetrikSchreiber`); created on first use. */
+  private metrikSchreiber?: MetrikSchreiber;
+
   /**
-   * G12: Schnappschuss fuer den Betriebsdienst rausschreiben. Optional
-   * (s. `metrikenDatei` in ServerConfig) -- ohne Pfad passiert nichts,
-   * die Akkumulatoren wurden in schliesseSekundeAb() trotzdem schon
-   * geleert.
-   *
-   * Erst in eine `.tmp`-Datei, dann umbenennen: derselbe Grund wie beim
-   * Weltsave (s. saveWorldAsync) -- ein Leser (admin/) soll nie eine
-   * Datei sehen, die mitten im Schreiben steht. Bei 1x/Sekunde und
-   * wenigen hundert Bytes ist der zusaetzliche Rename-Syscall billig.
+   * G12: Schnappschuss fuer den Betriebsdienst rausschreiben und als Zeile an
+   * das Tageslog haengen. Optional (s. `metrikenDatei` in ServerConfig) --
+   * ohne Pfad passiert nichts, die Akkumulatoren wurden in
+   * schliesseSekundeAb() trotzdem schon geleert. Fehler schluckt und meldet
+   * (gedrosselt) der Schreiber selbst, s. Metriken.ts.
    */
   private schreibeMetriken(schnappschuss: MetrikSchnappschuss): void {
     const pfad = this.config.metrikenDatei;
     if (!pfad) return;
-    try {
-      const tmp = `${pfad}.tmp`;
-      writeFileSync(tmp, JSON.stringify(schnappschuss));
-      renameSync(tmp, pfad);
-    } catch (fehler) {
-      // Ein Metrik-Ausfall darf den Spielbetrieb nicht stoeren -- nur
-      // sichtbar machen. Kein wiederholtes Alarmieren noetig, das laeuft
-      // ohnehin nur 1x/Sekunde und der naechste Durchgang versucht es
-      // wieder.
-      console.error(`[WoV] Metrik-Datei konnte nicht geschrieben werden: ${(fehler as Error).message}`);
-    }
+    this.metrikSchreiber ??= new MetrikSchreiber(pfad);
+    this.metrikSchreiber.schreibe(schnappschuss);
   }
 
   /** The world clock is sent periodically; see update() for why. */

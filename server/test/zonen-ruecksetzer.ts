@@ -500,6 +500,45 @@ for (const [name, setze] of [
   }
 }
 
+// ── 8a. B1 gemischt: Erzeuger neu (markiert), Besitzer alt (ohne Marke) ─
+// Das ist der Fall des Angriffs auf den echten Spielstand: Nachbar mit GENAU EINEM markierten
+// Objekt (dem Grenzobjekt) und sonst nur Altbestand.
+{
+  const A: ZoneID = { x: 2, y: 1 };
+  const B: ZoneID = { x: 3, y: 1 };
+  const kante = A.x * 64 + 32;
+  const aufbau = (): Welt => {
+    const w = welt(DOK_A);
+    w.zm.erzeugeZone(A);
+    w.zm.erzeugeZone(B);
+    for (const z of menge(w.zdos, B)) z.removeMember(getStableHash(STREU_MEMBER)); // B: Altzone
+    const grenz = menge(w.zdos, A).find((z) => z.position.x > 100 && z.position.x < 150)!;
+    w.zdos.updateZDOZone(grenz, { x: kante, y: grenz.position.y, z: grenz.position.z });
+    return w;
+  };
+  const doppelte = (w: Welt): number => {
+    const seen = new Map<string, number>();
+    for (const o of w.zdos.getAllZDOs()) seen.set(zeile(o), (seen.get(zeile(o)) ?? 0) + 1);
+    return [...seen.values()].filter((n) => n > 1).length;
+  };
+  const basis = aufbau();
+  const gesamt = basis.zdos.totalZDOCount;
+  for (const [name, folge] of [
+    ['Erzeuger, dann Besitzer', [A, B]],
+    ['Besitzer, dann Erzeuger', [B, A]],
+    ['Erzeuger, Besitzer, Erzeuger', [A, B, A]],
+    ['Besitzer, Erzeuger, Besitzer', [B, A, B]],
+  ] as const) {
+    const w = aufbau();
+    const rs = folge.map((z) => setzeZoneZurueck({ ...w.kontext, protokoll: () => undefined }, z, { alt: true }));
+    check(
+      `8a gemischt, ${name}: keine Verdopplung, kein Verlust`,
+      rs.every((r) => r.status === 'neu-gestreut') && w.zdos.totalZDOCount === gesamt && doppelte(w) === 0,
+      `(gesamt ${w.zdos.totalZDOCount}/${gesamt}, doppelt ${doppelte(w)})`
+    );
+  }
+}
+
 // ── 8b. Alte Kantenobjekte ohne Marke: die Neuerzeugung erkennt ihr eigenes Doppel ─
 {
   const A: ZoneID = { x: 2, y: 1 };

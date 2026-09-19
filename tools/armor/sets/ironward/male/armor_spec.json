@@ -1,0 +1,19 @@
+{
+  "name": "WoV Ironward",
+  "version": 3,
+  "source_blend": "WoV_BodyBase_Male.blend",
+  "design_reference": "Dark steel and bronze armor concept; new body-derived geometry",
+  "construction": "complete weighted replacement garment plus rigid low-poly plates",
+  "garment_clearance_m": 0.003,
+  "plate_thickness_m": 0.009,
+  "ring_segments": 10,
+  "target_max_triangles_armor": 18000,
+  "materials": {
+    "steel": [0.135, 0.205, 0.275, 0.72, 0.32],
+    "edge": [0.45, 0.285, 0.105, 0.75, 0.34],
+    "dark_steel": [0.062, 0.095, 0.137, 0.65, 0.39],
+    "cloth": [0.022, 0.036, 0.044, 0.0, 0.95],
+    "leather": [0.073, 0.039, 0.020, 0.0, 0.81],
+    "teal": [0.018, 0.120, 0.135, 0.0, 0.88]
+  }
+}

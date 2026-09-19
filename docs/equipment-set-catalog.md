@@ -26,7 +26,7 @@ Inventory item IDs are the strings accepted by `findItem`, not numeric database 
 
 ## Website handoff
 
-Run `node_modules/.bin/tsx tools/equipment-sets-json.mjs` to generate `assets/equipment-sets.json`. DEV serves it at `/assets/equipment-sets.json`. This is separate from the older appearance list and does not require changing the website in this task.
+Run `node_modules/.bin/tsx tools/armor/catalog/equipment-sets-json.mjs` to generate `assets/equipment-sets.json`. DEV serves it at `/assets/equipment-sets.json`. This is separate from the older appearance list and does not require changing the website in this task.
 
 Schema version 1 provides `sets[]` with `id`, `version`, `name`, `figure`, `itemIds`, `appearance`, and `parts`. Each part carries `itemId`, `appearanceId`, `equipmentSlot`, `appearanceSlot`, `model`, `icon`, and `regions`.
 
@@ -66,9 +66,9 @@ The other character-editor task still needs to save this choice and implement it
 
 - `server/test/equipment-sets.ts`: all 21 IDs resolve, slots/masks match, ownership is enforced, appearance requests do not grant items, owned Ashenveil equips and unequips.
 - Existing Ironward and Wildwarden server tests and the Ironward client test remain green.
-- `tools/test/ironward-skin.mjs BODY ASHENVEIL_MODELS --family=ashenveil`: canonical 71-bone skin, full-set body masking/restoration, 53 primitives, 28 animation clips with four samples each.
+- `tools/armor/test/skin-gate.mjs BODY ASHENVEIL_MODELS --family=ashenveil`: canonical 71-bone skin, full-set body masking/restoration, 53 primitives, 28 animation clips with four samples each.
 - Shared/server/client/admin typechecks and client production build pass.
-- `tools/test/equipment-set-assets.mjs http://127.0.0.1/`: read-only delivery check for the catalog, all 21 model files and all 21 icons. Does not log in to a player account.
+- `tools/armor/test/equipment-set-assets.mjs http://127.0.0.1/`: read-only delivery check for the catalog, all 21 model files and all 21 icons. Does not log in to a player account.
 
 The asset manifest was regenerated on DEV and now includes all 21 armor models; Ironward and Wildwarden had previously been missing from that manifest despite existing on disk.
 

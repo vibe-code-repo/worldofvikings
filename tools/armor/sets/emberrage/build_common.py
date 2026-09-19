@@ -1,12 +1,14 @@
 """Build original Emberrage replacement armor; reuse the proven fitting/export scaffold.
 
+Shared implementation. Run it through the per-body entry points male/build.py and
+female/build.py (the latter appends --female). Directly:
 Blender -b WoV_BodyBase_{Male,Female}.blend --python THIS -- OUTPUT [--female] [--quick]
 Only the common initialization/helpers and final validation/export sections are reused.
 The Seidraven design section is never executed. Markers are asserted to fail closed.
 """
 from pathlib import Path
 
-scaffold = Path(__file__).with_name('build-seidraven-armor.py').read_text()
+scaffold = (Path(__file__).resolve().parent.parent / 'seidraven' / 'build_common.py').read_text()
 start = '# New geometry inspired by the supplied silhouette'
 end = '# Join each replacement region and bind every component'
 assert scaffold.count(start) == scaffold.count(end) == 1

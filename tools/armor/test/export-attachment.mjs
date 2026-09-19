@@ -1,5 +1,5 @@
 /** Canonical-skin exporter: attachments and replacements, on tiny synthetic GLBs.
- * tsx tools/test/armor-export-attachment.mjs
+ * tsx tools/armor/test/export-attachment.mjs
  * No Blender, no assets, no network. An item whose `regions` are empty exports
  * the geometry named by `sourceRegions` and marks it `extras.attachment`
  * (the Wildwarden crown); it must not carry `extras.replaces`.
@@ -11,9 +11,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
+const root = fileURLToPath(new URL('../../../', import.meta.url));
 const tsx = join(root, 'node_modules/.bin/tsx');
-const exporter = join(root, 'tools/export-ironward.mjs');
+const exporter = join(root, 'tools/armor/export/export-armor.mjs');
 
 function glb(json, bin) {
   const text = Buffer.from(JSON.stringify(json));

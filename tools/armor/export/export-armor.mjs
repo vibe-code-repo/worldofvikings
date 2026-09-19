@@ -1,12 +1,12 @@
 /** Export the approved v3 armor against the exact running game's skin.
- * Usage: tsx tools/export-ironward.mjs armor.glb body.glb output-directory [equipment.json]
+ * Usage: tsx tools/armor/export/export-armor.mjs armor.glb body.glb output-directory [equipment.json]
  * Source files are read-only. Outputs are seven independent replacement items.
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { IRONWARD_PARTS } from '../shared/src/ironward.ts';
+import { IRONWARD_PARTS } from '../../../shared/src/ironward.ts';
 
 const [armorPath, bodyPath, destination, equipmentPath] = process.argv.slice(2);
 assert(armorPath && bodyPath && destination, 'Expected armor.glb body.glb output-directory');

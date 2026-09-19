@@ -115,21 +115,21 @@ const KERN = [
     its `sourceRegions` and tagged `extras.attachment`; a replacement keeps
     `extras.replaces`; inconsistent definitions are rejected.
   */
-  ['tools/test', 'armor-export-attachment.mjs'],
+  ['tools/armor/test', 'export-attachment.mjs'],
   /*
-    Wildwarden: PARTS in tools/build-druid-armor.py (read as text by python3,
+    Wildwarden: PARTS in tools/armor/sets/wildwarden/male/build.py (read as text by python3,
     Blender is not started), the item registry and the seven shipped GLBs
     must agree on items, replaced regions (ten) and the crown attachment.
   */
-  ['tools/test', 'wildwarden-pipeline.mjs', brauchtPython('die Bautabelle von Wildwarden')],
+  ['tools/armor/test', 'wildwarden-pipeline.mjs', brauchtPython('die Bautabelle von Wildwarden')],
   /*
-    The skin gate itself (tools/test/ironward-skin.mjs) on synthetic GLBs
+    The skin gate itself (tools/armor/test/skin-gate.mjs) on synthetic GLBs
     written from the item registry, so no Blender and no assets: every
     registered family passes complete; GLB extras that disagree with the
     registry, a part missing from the manifest or from disk, a wrong body and
     an unknown family each fail with their own message. ~10 s.
   */
-  ['tools/test', 'armor-skin-gate.mjs'],
+  ['tools/armor/test', 'skin-gate-selftest.mjs'],
   /*
     Ein Ursprung im Container (12.09.2026): Textnachweis über
     deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,

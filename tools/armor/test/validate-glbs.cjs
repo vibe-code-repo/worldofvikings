@@ -1,5 +1,5 @@
 /** Validate the native exports and canonical-skin exports of one armor directory.
- * node tools/test/validate-armor-glbs.cjs asset-directory validator-package-path
+ * node tools/armor/test/validate-glbs.cjs asset-directory validator-package-path
  */
 const fs = require('node:fs');
 const path = require('node:path');

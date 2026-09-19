@@ -6,7 +6,7 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/index.js';
-import { prepareLegacyFemaleBody, updateLegacyFemaleMask } from '../../client/src/player/legacyFemaleMask.ts';
+import { prepareLegacyFemaleBody, updateLegacyFemaleMask } from '../../../client/src/player/legacyFemaleMask.ts';
 
 const [root, reference] = process.argv.slice(2);
 const report = {};

@@ -23,7 +23,7 @@ This does not add class starting-item grants. Character creation still sends its
 
 Asset output: `/home/mike/wov-assets/PlayerCharacter/Armor/Seidraven_v1/Female_Legacy_v1/`.
 
-`tools/fit-seidraven-legacy-female.py` reads the prior female authoring armor and the actual `wikingerin/WikingerinKoerper` GLB. It removes the prior lining, fits ornaments with explicit anatomical rest-frame transforms (not bone renaming alone), transfers weights to the 51-bone legacy rig, and rebuilds lining from an exact partition of the actual female body. Wings use rigid `L_Clavicle` / `R_Clavicle` binding. Original files remain unchanged.
+`tools/armor/sets/seidraven/female/fit-legacy.py` reads the prior female authoring armor and the actual `wikingerin/WikingerinKoerper` GLB. It removes the prior lining, fits ornaments with explicit anatomical rest-frame transforms (not bone renaming alone), transfers weights to the 51-bone legacy rig, and rebuilds lining from an exact partition of the actual female body. Wings use rigid `L_Clavicle` / `R_Clavicle` binding. Original files remain unchanged.
 
 The shipped female body is monolithic. `prepareLegacyFemaleBody` marks only freshly loaded body meshes and creates independent geometry per character. `updateLegacyFemaleMask` hides exact triangle partitions by skin-bone contribution, using the same classifier as the fitted lining. Vertices, UVs, textures and weights remain intact. Removing equipment restores the exact original index list; cosmetics and other characters are not affected. No replacement base-body GLB needs deploying.
 

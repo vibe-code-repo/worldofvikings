@@ -1,5 +1,5 @@
 /** DEV only. Uses the existing authenticated admin protocol, never edits a save.
- * tsx tools/grant-ironward-dev.mts Gast [--apply]
+ * tsx tools/armor/dev/grant-set-dev.mts Gast [--apply]
  * Without --apply: inspect online players only. Session is editor-only so it
  * neither moves the character nor disconnects their running game session.
  * Uses normal login for the configured test account. Credentials and tokens
@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { zstdDecompressSync } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import { WebSocket } from 'ws';
-import { GameSocket } from '../client/src/net/GameSocket.js';
+import { GameSocket } from '../../../client/src/net/GameSocket.js';
 import { PacketType, IRONWARD_PARTS, WILDWARDEN_PARTS } from '@wov/shared';
 import { parse as parseYaml } from 'yaml';
 

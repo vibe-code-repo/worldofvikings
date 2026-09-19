@@ -4,8 +4,8 @@ import { Scene } from '@babylonjs/core/scene';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
-import { createEmberrageGlow, syncEmberrageGlow } from '../web/emberrage-glow.js';
-import { armorFileForSkeleton } from '../../client/src/player/armorVisibility.js';
+import { createEmberrageGlow, syncEmberrageGlow } from '../../web/emberrage-glow.js';
+import { armorFileForSkeleton } from '../../../client/src/player/armorVisibility.js';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 
 const engine = new NullEngine();

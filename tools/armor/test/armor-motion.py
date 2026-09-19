@@ -2,6 +2,7 @@
 
 Blender -b armor.blend --python-exit-code 1 --python THIS -- master.blend OUTPUT
 Optional --quick checks three clips and produces only a three-pose contact sheet.
+Use --prefix=WoV_Ashenveil_ to test another set; the default is WoV_Wildwarden_.
 """
 import bpy
 import json
@@ -14,9 +15,13 @@ args = sys.argv[sys.argv.index('--')+1:]
 master_path, output_path = Path(args[0]), Path(args[1])
 output_path.mkdir(parents=True, exist_ok=True)
 quick = '--quick' in args
+compact = '--compact' in args
+prefix = next((a.split('=',1)[1] for a in args if a.startswith('--prefix=')), 'WoV_Wildwarden_')
+assert prefix.startswith('WoV_') and prefix.endswith('_') and prefix.replace('_','').isalnum()
+family = prefix[4:-1]
 scene = bpy.context.scene
 rig = bpy.data.objects['WoV_Player_Armature']
-armor = [o for o in scene.objects if o.type == 'MESH' and o.name.startswith('WoV_Wildwarden_')]
+armor = [o for o in scene.objects if o.type == 'MESH' and o.name.startswith(prefix)]
 assert len(armor) == 11
 names = ['Idle1', 'WalkFwd', 'CrouchIdle1'] if quick else [
     'Idle1', 'WalkFwd', 'WalkBwd', 'WalkStrafeLeft', 'RunFwd', 'RunStrafeLeft',
@@ -76,6 +81,19 @@ def geometry(obj):
 report = {'asset': bpy.data.filepath, 'master': str(master_path), 'rest_matrix_error': matrix_error,
           'method': 'every integer source frame; selected stills and montage',
           'collisions_certified': False, 'runtime_layers_tested': False, 'clips': []}
+wing_vertices = {}
+for obj in armor:
+    for bone in ['Shoulder_Attachment_L', 'Shoulder_Attachment_R']:
+        group = obj.vertex_groups.get(bone)
+        if not group:
+            continue
+        indices = [v.index for v in obj.data.vertices
+                   if len(v.groups) == 1 and v.groups[0].group == group.index and abs(v.groups[0].weight-1) < 1e-6]
+        if indices:
+            points = np.array([list(obj.data.vertices[i].co)+[1] for i in indices])
+            wing_vertices[(obj.name,bone)] = (indices,points)
+report['wing_attachment_vertices'] = sum(len(indices) for indices,_ in wing_vertices.values())
+report['wing_max_attachment_error_m'] = 0
 robe = next(o for o in armor if o.name.endswith('_Hips'))
 rest_points = np.array([list(robe.matrix_world@v.co) for v in robe.data.vertices])
 edges = np.array([list(e.vertices) for e in robe.data.edges])
@@ -95,6 +113,15 @@ for name, action in actions.items():
         for obj in armor:
             p = geometry(obj)
             assert np.isfinite(p).all(), (name, frame, obj.name)
+            for bone in ['Shoulder_Attachment_L', 'Shoulder_Attachment_R']:
+                if (obj.name,bone) not in wing_vertices:
+                    continue
+                indices, rest = wing_vertices[(obj.name,bone)]
+                matrix = np.array(rig.matrix_world @ rig.pose.bones[bone].matrix @ rig.data.bones[bone].matrix_local.inverted())
+                expected = (rest @ matrix.T)[:,:3]
+                error = float(np.abs(p[indices]-expected).max())
+                report['wing_max_attachment_error_m'] = max(report['wing_max_attachment_error_m'],error)
+                assert error < 1e-5, (name,frame,obj.name,bone,error)
             all_points.append(p)
             if obj.name.endswith(('_LegLeft', '_LegRight')):
                 boots_min = min(boots_min, float(p[:,2].min()))
@@ -124,7 +151,7 @@ def view(name='front'):
     center = rig.matrix_world@rig.pose.bones['Hips'].head
     focus = Vector((center.x, center.y, 1.06))
     cam.location = focus+Vector({'front': (0,-7,.3), 'side': (7,-.3,.3), 'back': (0,7,.3)}[name])
-    cam.data.ortho_scale = 2.50
+    cam.data.ortho_scale = 2.95 if wing_vertices else 2.50
     aim(cam, focus)
     scene.render.resolution_x = scene.render.resolution_y = 1000
     scene.render.resolution_percentage = 100
@@ -142,7 +169,7 @@ if not quick:
         action = actions[name]
         frame = min(int(action.frame_range[1]), frame)
         activate(name, frame)
-        for direction in ['front','side','back']:
+        for direction in (['front'] if compact else ['front','side','back']):
             view(direction)
             render(name+'_'+str(frame)+'_'+direction)
 
@@ -150,7 +177,7 @@ if not quick:
     activate('Idle1', 31)
     view('front')
     scene.frame_start, scene.frame_end = 1, 120
-    bpy.ops.wm.save_as_mainfile(filepath=str(output_path/'WoV_Wildwarden_Motion_Review.blend'))
+    bpy.ops.wm.save_as_mainfile(filepath=str(output_path/('WoV_'+family+'_Motion_Review.blend')))
 
 # Side-by-side colored garment comparison using actual evaluated geometry.
 snapshots = []
@@ -162,7 +189,7 @@ for col, (name, frame) in enumerate([('Idle1',31), ('WalkFwd',9), ('CrouchIdle1'
         data = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), depsgraph=dg)
         for v in data.vertices:
             point = obj.matrix_world@v.co
-            v.co = (point.x-center.x+(col-1)*1.55, point.y-center.y, point.z)
+            v.co = (point.x-center.x+(col-1)*(2.65 if wing_vertices else 1.55), point.y-center.y, point.z)
         snap = bpy.data.objects.new('Snapshot_'+name+'_'+obj.name, data)
         scene.collection.objects.link(snap)
         snapshots.append(snap)
@@ -170,8 +197,8 @@ for obj in armor:
     obj.hide_render = True
 cam.location = (1,-9,2.5)
 aim(cam, (0,0,1.10))
-cam.data.ortho_scale = 5.25
-scene.render.resolution_x = 1800
+cam.data.ortho_scale = 8.2 if wing_vertices else 5.25
+scene.render.resolution_x = 2400 if wing_vertices else 1800
 scene.render.resolution_y = 950
 render('Movement_Overview')
 report['total_frames'] = sum(c['evaluated_frames'] for c in report['clips'])

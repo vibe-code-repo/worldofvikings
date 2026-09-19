@@ -42,17 +42,43 @@
  *    are right. Building several `entferne` ops from ONE snapshot
  *    (`ids.map(id => opEntfernen(stand, s, id))`) names anchors that an
  *    earlier op of the same Vorgang deletes; building them one after the
- *    other names only anchors that still stand. `wende` therefore places an
- *    entry whose anchor is missing (or itself waiting) provisionally and,
- *    after the last op, moves it right behind its anchor, repeating until
- *    nothing moves. Snapshot and running builds restore the same bytes.
+ *    other names only anchors that still stand. `wende` therefore lets an
+ *    entry whose anchor is missing (or itself waiting) WAIT and, after the
+ *    last op and the limit check, sets all waiting entries in ONE pass: behind
+ *    their anchor, a chain of waiting entries as a chain. Snapshot and running
+ *    builds restore the same bytes.
  *  - A position that cannot be established is REPORTED, never guessed
  *    silently: when the anchor is gone for good, or the op names only a
  *    number (`index`, the last known position, used as the fallback), the
  *    entry goes to the clamped number and `wende` lists its id in
  *    `positionUngenau`. The caller sees it; the service passes it on. A
- *    `setze` with neither `nach` nor `index` appends and is exact.
+ *    `setze` with neither `nach` nor `index` appends and is exact. Cycles of
+ *    anchors (A behind B, B behind A, or an entry behind itself) are such a
+ *    case: one entry of the cycle is reported.
+ *  - Two ops that name the SAME anchor: the later one goes directly behind it
+ *    and pushes the earlier one back. That is not reported, because it is
+ *    exactly how the undo of two NEIGHBOURING deletions built one after the
+ *    other comes out right (after the first is gone, the second names the
+ *    same entry in front). A client that names one anchor twice for unrelated
+ *    inserts gets that order.
+ *  - PLACEMENTS ARE UNORDERED. The sanitizer keeps them sorted by id, so no
+ *    position can be honoured: for `placements` `nach` and `index` are
+ *    ignored, the entry is simply added, and `positionUngenau` never names
+ *    one. Tests of placements look at membership and content, not at the place.
+ *  - COST. `wende` does its work in time linear in the size of the Vorgang
+ *    and of the lists: waiting entries are placed in one pass (a map from
+ *    anchor to the entries behind it, no repeated search), so a chain or a
+ *    cycle of anchors costs no more than any other op, and there is no pass
+ *    that repeats. The limits of a collection are checked BEFORE any position
+ *    work, so a Vorgang that would overflow one is refused for the price of
+ *    reading it. A Vorgang cannot make the service work harder than its size.
  *  - Neither decides whether an op stands; ids and `vorher` do.
+ *  - `vorgangId`. A leading `~` marks an UNDO Vorgang: `invertiere` adds it
+ *    or, when there already is one, strips it, so inverting twice gives the
+ *    original id. A client that sends an undo Vorgang names it that way; the
+ *    service does not check who sends a `~`. A `vorgangId` has NO idempotence
+ *    meaning (yet): the service applies a Vorgang as often as it is sent, and
+ *    a repeat fails on its own (`vorher` no longer fits, or the id exists).
  *
  * Pure and DOM-free: no file access, so the editor can use the same code to
  * build ops and to predict what the service will do. The file side lives in
@@ -115,7 +141,6 @@ const ID_RE = /^[a-z0-9][a-z0-9-_]{0,63}$/;
 // One optional leading `~` marks an undo Vorgang (see `invertiere`); a client id never carries it,
 // so 127 characters plus the mark always fit into 128 and inverting is an exact involution.
 const VORGANG_ID_RE = /^~?[A-Za-z0-9._:-]{1,127}$/;
-const VORGANG_ID_MAX = 128;
 const INDEX_MAX = 1_000_000;
 
 export type WendeErgebnis =
@@ -215,6 +240,72 @@ function kanonisch(sammlung: OpCollection, eintrag: OpEntry, san: LayoutSanitize
   return e && e.id === eintrag.id ? e : null;
 }
 
+/** An entry that waits for its anchor: `nach` is missing or itself waiting when the op runs. */
+interface Wartend {
+  id: string;
+  nach: string;
+  /** The `index` of the op: where the entry goes when its anchor never turns up. */
+  index: number | undefined;
+}
+
+/**
+ * Set the waiting entries of one list behind their anchors, in ONE pass.
+ *
+ * `liste` holds them at stand-in places. They are taken out; the rest keeps its order. Each fixed entry is
+ * followed by the waiting entries that name it, the LAST op first (the later of two ops with one anchor
+ * ends directly behind it), each followed by the ones that name it in turn: a depth-first walk over a map
+ * from anchor to the entries behind it, every entry visited once. What that walk does not reach has no
+ * usable anchor: it is missing for good, or the anchors form a cycle. Those are set at their stand-in
+ * number (clamped) and REPORTED; the entries hanging off them follow them. Never more than linear.
+ */
+function wartendeSetzen(liste: OpEntry[], folge: readonly Wartend[]): { liste: OpEntry[]; ungenau: string[] } {
+  const inListe = new Map<string, OpEntry>();
+  for (const e of liste) inListe.set(e.id, e);
+  // An id can wait twice when it was set, deleted and set again; the last one counts, a deleted one not at all.
+  const letzte = new Map<string, Wartend>();
+  for (const w of folge) if (inListe.has(w.id)) letzte.set(w.id, w);
+  const wartend = folge.filter((w) => letzte.get(w.id) === w);
+  if (wartend.length === 0) return { liste, ungenau: [] };
+
+  const dahinter = new Map<string, Wartend[]>(); // anchor id → waiting entries naming it, in op order
+  for (const w of wartend) {
+    const l = dahinter.get(w.nach);
+    if (l) l.push(w);
+    else dahinter.set(w.nach, [w]);
+  }
+  const besucht = new Set<string>();
+  const ausgeben = (start: Wartend, ziel: OpEntry[]): void => {
+    const stapel = [start];
+    while (stapel.length > 0) {
+      const w = stapel.pop()!;
+      if (besucht.has(w.id)) continue;
+      besucht.add(w.id);
+      ziel.push(inListe.get(w.id)!);
+      // Pushed in op order, so the last op is taken first and its whole subtree before the next sibling.
+      for (const k of dahinter.get(w.id) ?? []) stapel.push(k);
+    }
+  };
+
+  const aus: OpEntry[] = [];
+  for (const e of liste) {
+    if (letzte.has(e.id)) continue;
+    aus.push(e);
+    const k = dahinter.get(e.id);
+    if (k) for (let i = k.length - 1; i >= 0; i--) ausgeben(k[i]!, aus);
+  }
+  const ungenau: string[] = [];
+  const stelleSetzen = (w: Wartend): void => {
+    const teil: OpEntry[] = [];
+    ausgeben(w, teil);
+    aus.splice(Math.min(w.index ?? aus.length, aus.length), 0, ...teil);
+    ungenau.push(w.id);
+  };
+  // First those whose anchor does not exist at all, then what is left: cycles.
+  for (const w of wartend) if (!besucht.has(w.id) && !letzte.has(w.nach)) stelleSetzen(w);
+  for (const w of wartend) if (!besucht.has(w.id)) stelleSetzen(w);
+  return { liste: aus, ungenau };
+}
+
 /**
  * Apply a Vorgang to a layout. Returns the new layout, or why not. Nothing
  * is mutated; the input layout is not touched.
@@ -248,28 +339,35 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
   if (!basis) return { ok: false, art: 'ungueltig', message: 'Ausgangsdokument ist kein gültiges Weltdokument' };
 
   const arbeit = new Map<OpCollection, OpEntry[]>();
+  const vorhandene = new Map<OpCollection, Set<string>>(); // the ids of each working list, for O(1) lookups
   const liste = (s: OpCollection): OpEntry[] => {
     let l = arbeit.get(s);
     if (!l) {
       l = [...eintraegeVon(basis, s)];
       arbeit.set(s, l);
+      vorhandene.set(s, new Set(l.map((e) => e.id)));
     }
     return l;
   };
-  // Entries placed provisionally because their anchor was missing or itself waiting (see the header).
-  const offen: { sammlung: OpCollection; id: string; nach: string }[] = [];
-  const offenIds = new Set<string>();
+  // Entries that wait for their anchor (missing, or itself waiting); they are set in one pass after the ops.
+  const wartende = new Map<OpCollection, { ids: Set<string>; folge: Wartend[] }>();
   const nurZahl: { sammlung: OpCollection; id: string }[] = [];
   const einfuegen = (l: OpEntry[], eintrag: OpEntry, op: Op): void => {
-    if (op.nach === null) {
+    const da = vorhandene.get(op.sammlung)!;
+    if (op.sammlung === 'placements') {
+      l.push(eintrag); // unordered, see the header
+    } else if (op.nach === null) {
       l.splice(0, 0, eintrag);
     } else if (typeof op.nach === 'string') {
-      const a = l.findIndex((e) => e.id === op.nach);
-      if (a >= 0) l.splice(a + 1, 0, eintrag);
-      else l.splice(Math.min(op.index ?? l.length, l.length), 0, eintrag);
-      if (a < 0 || offenIds.has(op.nach)) {
-        offen.push({ sammlung: op.sammlung, id: op.id, nach: op.nach });
-        offenIds.add(op.id);
+      let w = wartende.get(op.sammlung);
+      if (da.has(op.nach) && !w?.ids.has(op.nach)) {
+        l.splice(l.findIndex((e) => e.id === op.nach) + 1, 0, eintrag);
+      } else {
+        // The place is a stand-in until the entry is set behind its anchor; it may also be all it gets.
+        l.splice(Math.min(op.index ?? l.length, l.length), 0, eintrag);
+        if (!w) wartende.set(op.sammlung, (w = { ids: new Set(), folge: [] }));
+        w.ids.add(op.id);
+        w.folge.push({ id: op.id, nach: op.nach, index: op.index });
       }
     } else if (op.index !== undefined) {
       l.splice(Math.min(op.index, l.length), 0, eintrag);
@@ -279,59 +377,45 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
     }
   };
   const stellen: { sammlung: OpCollection; id: string }[] = [];
+  const stellenSchluessel = new Set<string>();
   const konflikt = (op: Op): void => {
-    if (!stellen.some((s) => s.sammlung === op.sammlung && s.id === op.id)) stellen.push({ sammlung: op.sammlung, id: op.id });
+    const k = `${op.sammlung}/${op.id}`;
+    if (stellenSchluessel.has(k)) return;
+    stellenSchluessel.add(k);
+    stellen.push({ sammlung: op.sammlung, id: op.id });
   };
 
   for (const op of ops) {
     const l = liste(op.sammlung);
-    const pos = l.findIndex((e) => e.id === op.id);
-    const aktuell = pos >= 0 ? l[pos] : undefined;
+    const da = vorhandene.get(op.sammlung)!;
     if (op.art === 'setze') {
-      if (aktuell) {
+      if (da.has(op.id)) {
         konflikt(op);
         continue;
       }
       einfuegen(l, nachherKanon.get(op)!, op);
+      da.add(op.id);
       continue;
     }
+    const pos = da.has(op.id) ? l.findIndex((e) => e.id === op.id) : -1;
+    const aktuell = pos >= 0 ? l[pos] : undefined;
     const soll = vorherText.get(op);
     if (!aktuell || soll === null || soll === undefined || JSON.stringify(aktuell) !== soll) {
       konflikt(op);
       continue;
     }
-    if (op.art === 'aendere') l[pos] = nachherKanon.get(op)!;
-    else l.splice(pos, 1);
+    if (op.art === 'aendere') {
+      l[pos] = nachherKanon.get(op)!;
+    } else {
+      l.splice(pos, 1);
+      da.delete(op.id);
+    }
   }
   if (stellen.length > 0) {
     return { ok: false, art: 'konflikt', ids: [...new Set(stellen.map((s) => s.id))], stellen };
   }
 
-  // Move every waiting entry right behind its anchor; repeat, because an anchor may move too.
-  for (let durchgang = 0; durchgang < 2 * offen.length + 2; durchgang++) {
-    let bewegt = false;
-    for (const o of offen) {
-      const l = arbeit.get(o.sammlung)!;
-      const a = l.findIndex((e) => e.id === o.nach);
-      const i = l.findIndex((e) => e.id === o.id);
-      if (a < 0 || i < 0 || i === a + 1) continue;
-      const [e] = l.splice(i, 1);
-      l.splice(l.findIndex((x) => x.id === o.nach) + 1, 0, e!);
-      bewegt = true;
-    }
-    if (!bewegt) break;
-  }
-  const positionUngenau = [...nurZahl];
-  for (const o of offen) {
-    const l = arbeit.get(o.sammlung)!;
-    const a = l.findIndex((e) => e.id === o.nach);
-    const i = l.findIndex((e) => e.id === o.id);
-    if (i >= 0 && a + 1 !== i) positionUngenau.push({ sammlung: o.sammlung, id: o.id });
-  }
-  // An entry that a later op of the same Vorgang deleted again has no position to report.
-  const uebrig = positionUngenau.filter((p) => arbeit.get(p.sammlung)!.some((e) => e.id === p.id));
-
-  const kandidat: Record<string, unknown> = { ...basis };
+  // The limits come BEFORE any position work (see COST in the header).
   for (const [sammlung, l] of arbeit) {
     const grenze = OP_LIMITS[sammlung];
     if (l.length > grenze) {
@@ -344,8 +428,19 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
         message: `${l.length} ${sammlung} — mehr als ${grenze} nimmt das Weltdokument nicht auf; nichts geändert`,
       };
     }
-    kandidat[sammlung] = l;
   }
+
+  const positionUngenau = [...nurZahl];
+  for (const [sammlung, w] of wartende) {
+    const r = wartendeSetzen(arbeit.get(sammlung)!, w.folge);
+    arbeit.set(sammlung, r.liste);
+    for (const id of r.ungenau) positionUngenau.push({ sammlung, id });
+  }
+  // An entry that a later op of the same Vorgang deleted again has no position to report.
+  const uebrig = positionUngenau.filter((p) => vorhandene.get(p.sammlung)!.has(p.id));
+
+  const kandidat: Record<string, unknown> = { ...basis };
+  for (const [sammlung, l] of arbeit) kandidat[sammlung] = l;
   const neu = san(kandidat);
   if (!neu) return { ok: false, art: 'ungueltig', message: 'Ergebnis ist kein gültiges Weltdokument' };
   // The sanitizer cuts and drops without a word; a Vorgang must not lose an entry that way.
@@ -372,13 +467,14 @@ const UMKEHR_MARKE = '~';
  * whether the ops were built from one snapshot or one after the other; see
  * POSITION in the header. Inverting twice gives the original Vorgang, `vorgangId`
  * included: the id of an undo Vorgang is the original with a leading `~`
- * (or without it, when the original already has one).
+ * (or without it, when the original already has one). It never throws: an id
+ * that `pruefeVorgang` would refuse (longer than 127 characters) gives an
+ * inverse that `wende` refuses in the same clean way (422).
  */
 export function invertiere(vorgang: Vorgang): Vorgang {
   const vorgangId = vorgang.vorgangId.startsWith(UMKEHR_MARKE)
     ? vorgang.vorgangId.slice(UMKEHR_MARKE.length)
     : `${UMKEHR_MARKE}${vorgang.vorgangId}`;
-  if (vorgangId.length > VORGANG_ID_MAX) throw new Error(`invertiere: vorgangId "${vorgang.vorgangId.slice(0, 20)}…" ist zu lang`);
   const ops: Op[] = [];
   for (const op of [...vorgang.ops].reverse()) {
     const kopie = (e: OpEntry | undefined): OpEntry | undefined => (e ? (structuredClone(e) as OpEntry) : undefined);

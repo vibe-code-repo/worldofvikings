@@ -33,7 +33,8 @@
  * in shared/src/worldlayout/ops.ts). When that is not possible (the anchor is
  * gone for good, or the op named only a number) the Vorgang is still applied,
  * the entry goes to the clamped number, and the 200 carries
- * `positionUngenau: [ids]`. The caller decides whether that order will do.
+ * `positionUngenau: [{ sammlung, id }]`. The caller decides whether that order
+ * will do. (Placements are unordered and never reported.)
  *
  * ── Creating the world file ──────────────────────────────────────────
  * PATCH needs a file; POST /api/worldlayout needs a base, and a file that does
@@ -42,11 +43,19 @@
  * exists the answer is 412 with its hash: the base for a normal save. (412
  * rather than 409: RFC 9110 names 412 for a failed If-None-Match on an unsafe
  * method, and it keeps "already there" apart from "changed under you".)
- * Creation runs through the queue below, so two creations in this process
- * cannot both win; against a second PROCESS creating the same file in the
- * same instant it is not atomic, but only this service writes the file.
+ *
+ * The creation is EXCLUSIVE across processes: the document is written to a
+ * file of its own next to the world file (the same write path as every save:
+ * sanitizer, limits, lock, atomic rename) and then published with `link()`,
+ * which fails with EEXIST when the target exists. Of two services creating the
+ * same file in the same instant exactly one link succeeds; the other answers
+ * 412 and its file is removed again. (The exclusion is the atomic `link()`, not
+ * the write lock: the lock of `layoutDatei` belongs to the target path and
+ * cannot express "only if missing".) The queue below additionally keeps the
+ * creations of this process in order.
  */
-import { existsSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { existsSync, linkSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 import {
   LayoutGesperrt,
@@ -75,7 +84,7 @@ export interface OpsOptionen {
 type Konfliktstelle = { sammlung: OpCollection; id: string; eintrag: OpEntry | null };
 
 export type OpsErgebnis =
-  | { art: 'ok'; hash: string; sicherung: string | null; layout: WorldLayout; versuche: number; positionUngenau: string[] }
+  | { art: 'ok'; hash: string; sicherung: string | null; layout: WorldLayout; versuche: number; positionUngenau: { sammlung: OpCollection; id: string }[] }
   | { art: 'konflikt'; ids: string[]; aktuell: string; stellen: Konfliktstelle[] }
   | { art: 'grenze'; sammlung: OpCollection; anzahl: number; grenze: number; message: string }
   | { art: 'ungueltig'; message: string }
@@ -111,7 +120,7 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
         sicherung: geschrieben.sicherung,
         layout: geschrieben.layout,
         versuche: versuch,
-        positionUngenau: [...new Set(r.positionUngenau.map((p) => p.id))],
+        positionUngenau: r.positionUngenau,
       };
     } catch (fehler) {
       if (fehler instanceof LayoutVeraltet) continue;
@@ -148,14 +157,32 @@ export function opsAnwenden(pfad: string, eingabe: unknown, optionen: OpsOptione
 export type AnlegenErgebnis = { art: 'angelegt'; ergebnis: SchreibErgebnis } | { art: 'existiert'; hash: string };
 
 /**
- * Write `dokument` as the world file, but only if there is none. Same write path as every other save
- * (sanitizer, limits), so an invalid document throws exactly as it does for POST /api/worldlayout.
+ * Write `dokument` as the world file, but only if there is none: exclusive across processes (see "Creating
+ * the world file" above). Same write path as every other save (sanitizer, limits), so an invalid document
+ * throws exactly as it does for POST /api/worldlayout, and nothing is left behind.
  */
 export function weltAnlegen(pfad: string, dokument: unknown): Promise<AnlegenErgebnis> {
   return inWarteschlange(pfad, async () => {
-    const hash = layoutDateiHash(pfad);
-    if (hash !== null) return { art: 'existiert', hash } as const;
-    return { art: 'angelegt', ergebnis: await layoutSchreibenAsync(pfad, dokument) } as const;
+    const vorhanden = layoutDateiHash(pfad);
+    if (vorhanden !== null) return { art: 'existiert', hash: vorhanden } as const;
+    const eigene = `${pfad}.anlegen-${process.pid}-${randomBytes(6).toString('hex')}`;
+    try {
+      const ergebnis = await layoutSchreibenAsync(eigene, dokument);
+      // The target may appear (or vanish) between the check above and here; a few rounds are plenty.
+      for (let versuch = 0; versuch < 3; versuch++) {
+        try {
+          linkSync(eigene, pfad);
+          return { art: 'angelegt', ergebnis } as const;
+        } catch (fehler) {
+          if ((fehler as NodeJS.ErrnoException).code !== 'EEXIST') throw fehler;
+          const jetzt = layoutDateiHash(pfad);
+          if (jetzt !== null) return { art: 'existiert', hash: jetzt } as const;
+        }
+      }
+      throw new LayoutGesperrt(`${basename(pfad)}: Anlegen scheitert, die Datei erscheint und verschwindet — später noch einmal`);
+    } finally {
+      rmSync(eigene, { force: true });
+    }
   });
 }
 

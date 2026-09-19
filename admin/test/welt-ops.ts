@@ -30,6 +30,14 @@
  *  9. B3: a missing world file can be created with `If-None-Match: *` (201);
  *     an existing one answers 412 with its hash; two creations at once → one 201;
  * 10. B4: a body over the limit → 413 (POST and PATCH), the service stays usable.
+ *
+ * Round 2 after the attack:
+ * 11. A1: the attack input (1,000 `setze` with a missing anchor + a 2-cycle) is
+ *     refused in milliseconds and no other request waits for it (GET < 200 ms);
+ *     within the limits the same input is applied and its positions are reported;
+ * 12. A3: two services on ONE world root, both told to create the missing file
+ *     at the same instant, 20 rounds → every round exactly one 201 and one 412;
+ * 13. A6: reported positions are `{ sammlung, id }`.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
@@ -504,7 +512,7 @@ try {
     const s1 = await ops({ vorgangId: 'a-weg-2', ops: [{ art: 'entferne', sammlung: 'regions', id: wald2.id, vorher: wald2, nach: heim2.id, index: 2 }] });
     const s2 = await ops({ vorgangId: 'fremd-anker', ops: [{ art: 'entferne', sammlung: 'regions', id: heim2.id, vorher: heim2, nach: 'z-neu', index: 1 }] });
     const s3 = await ops({ vorgangId: '~a-weg-2', ops: [{ art: 'setze', sammlung: 'regions', id: wald2.id, nachher: wald2, nach: heim2.id, index: 2 }] });
-    check('anchor deleted by the stranger: the undo is 200 but names the region in positionUngenau', s1.status === 200 && s2.status === 200 && s3.status === 200 && JSON.stringify(s3.daten.positionUngenau) === JSON.stringify([wald.id]) && typeof s3.daten.hinweis === 'string', `${s3.status} ${JSON.stringify(s3.daten).slice(0, 250)}`);
+    check('anchor deleted by the stranger: the undo is 200 but names the region in positionUngenau', s1.status === 200 && s2.status === 200 && s3.status === 200 && JSON.stringify(s3.daten.positionUngenau) === JSON.stringify([{ sammlung: 'regions', id: wald.id }]) && typeof s3.daten.hinweis === 'string', `${s3.status} ${JSON.stringify(s3.daten).slice(0, 250)}`);
     check('…and the region is in the file, at the clamped number', reihenfolge().includes(wald.id) && reihenfolge().indexOf(wald.id) === 2, reihenfolge().join());
   }
 
@@ -588,6 +596,83 @@ try {
     const q = await gross('PATCH', '/api/worldlayout/ops');
     check('a 9 MB body on PATCH → 413', q.status === 413 && q.daten.fehler === 'anfrage-zu-gross', `${q.status}`);
     check('nothing written, and the service still answers', plattenHash() === vorHash && (await anfrage('GET', '/api/worldlayout')).status === 200);
+  }
+
+  // ── 13) A1: the attack input costs milliseconds and blocks nobody ──
+  {
+    const vorHash = plattenHash();
+    const mit = (sammlung: string, id: string, nach: string, nachher: Record<string, unknown>): unknown => ({ art: 'setze', sammlung, id, nachher, nach });
+    // 1,000 setze whose anchors do not exist + a 2-cycle: over the limit of lakes, so 422 grenze, and fast.
+    const seeOp = (id: string, nach: string): unknown => mit('lakes', id, nach, { id, x: 1, z: 1, radius: 30 });
+    const bremse = { vorgangId: 'bremse', ops: [seeOp('do-a', 'do-b'), seeOp('do-b', 'do-a'), ...Array.from({ length: 1000 }, (_, i) => seeOp(`f-${i}`, `fehlt-${i}`))] };
+    const t0 = Date.now();
+    const bremsePatch = ops(bremse);
+    // While the PATCH is being worked on, the service must answer other requests at once.
+    const gets: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const g0 = Date.now();
+      await anfrage('GET', '/api/worldlayout');
+      gets.push(Date.now() - g0);
+    }
+    const b = await bremsePatch;
+    const dauer = Date.now() - t0;
+    console.log(`# attack over HTTP: PATCH ${b.status} in ${dauer} ms; GET meanwhile [${gets.join(', ')}] ms`);
+    check('the attack input → 422 grenze, in under 2 s', b.status === 422 && b.daten.fehler === 'grenze' && dauer < 2000, `${b.status} ${dauer} ms`);
+    check('…and a GET during it answers in under 200 ms (the first one, which would have waited)', gets[0]! < 200 && Math.max(...gets) < 200, gets.join());
+    check('…nothing written', plattenHash() === vorHash);
+
+    // Within the limits (routes hold 256) the same shape is applied, and every position without an anchor is reported.
+    const routeOp = (id: string, nach: string): unknown => mit('routes', id, nach, { id, points: [[0, 0]], mode: 'loop' });
+    const im = { vorgangId: 'im-limit', ops: [routeOp('ro-a', 'ro-b'), routeOp('ro-b', 'ro-a'), ...Array.from({ length: 200 }, (_, i) => routeOp(`ro-${i}`, `fehlt-${i}`))] };
+    const t1 = Date.now();
+    const r = await ops(im);
+    const gemeldet = (r.daten.positionUngenau as { sammlung: string; id: string }[] | undefined) ?? [];
+    check('the same shape within the limits: 200 in under 2 s', r.status === 200 && Date.now() - t1 < 2000, `${r.status} ${Date.now() - t1} ms`);
+    check(
+      'reported positions are { sammlung, id } objects (A6): 200 missing anchors + 1 of the cycle',
+      gemeldet.length === 201 && gemeldet.every((p) => p.sammlung === 'routes' && typeof p.id === 'string') && typeof r.daten.hinweis === 'string',
+      `${gemeldet.length} ${JSON.stringify(gemeldet.slice(0, 2))}`
+    );
+    check('…and all 202 entries are in the file', (gelesen().routes ?? []).filter((x) => x.id.startsWith('ro-')).length === 202);
+  }
+
+  // ── 14) A3: two services, one world root, the same instant: exactly one creation wins ──
+  {
+    const wurzel3 = mkdtempSync(resolve(tmpdir(), 'wov-welt-ops-zwei-'));
+    const tokenDatei3 = resolve(wurzel3, 'token');
+    writeFileSync(tokenDatei3, `${TOKEN}\n`);
+    const welten3 = resolve(wurzel3, 'server/data/welten');
+    const datei3 = resolve(welten3, 'dev.json');
+    try {
+      const pA = await dienstStarten(wurzel3, tokenDatei3, '0');
+      const pB = await dienstStarten(wurzel3, tokenDatei3, '0');
+      const doc = ausgangsDokument(false);
+      let beide201 = 0;
+      let genauEins = 0;
+      let restEinBoden = 0;
+      let siegerStimmt = 0;
+      const RUNDEN = 20;
+      for (let runde = 0; runde < RUNDEN; runde++) {
+        rmSync(datei3, { force: true });
+        const [x, y] = await Promise.all([
+          anfrage('POST', '/api/worldlayout', { port: pA, leib: { ...doc, name: `A-${runde}` }, ifNoneMatch: '*' }),
+          anfrage('POST', '/api/worldlayout', { port: pB, leib: { ...doc, name: `B-${runde}` }, ifNoneMatch: '*' }),
+        ]);
+        const codes = [x.status, y.status].sort().join();
+        if (codes === '201,201') beide201++;
+        if (codes === '201,412') genauEins++;
+        const dateien = readdirSync(welten3).sort();
+        if (dateien.join() === 'dev.json') restEinBoden++;
+        const sieger = x.status === 201 ? `A-${runde}` : `B-${runde}`;
+        if (existsSync(datei3) && (JSON.parse(readFileSync(datei3, 'utf-8')) as { name: string }).name === sieger) siegerStimmt++;
+      }
+      console.log(`# two services, one root, ${RUNDEN} rounds: ${genauEins} × (201,412), ${beide201} × (201,201); leftovers clean in ${restEinBoden}, winner's document in the file ${siegerStimmt}`);
+      check(`two services creating the same file at once: ${RUNDEN}/${RUNDEN} rounds exactly one 201 and one 412`, genauEins === RUNDEN && beide201 === 0, `${genauEins} ok, ${beide201} double 201`);
+      check('…the loser leaves nothing behind (only dev.json in the directory), every round', restEinBoden === RUNDEN, `${restEinBoden}/${RUNDEN}`);
+      check('…and the file holds the winner\'s document, every round', siegerStimmt === RUNDEN, `${siegerStimmt}/${RUNDEN}`);
+    } finally {
+      rmSync(wurzel3, { recursive: true, force: true });
+    }
   }
 } finally {
   // Only the PIDs this test started.

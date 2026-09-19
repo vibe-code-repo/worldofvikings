@@ -10,11 +10,19 @@
  * `nach` (anchor), ops built from ONE snapshot, a stale position, and the
  * exact involution of `vorgangId` under `invertiere`.
  *
+ * Round 2 after the attack (A1, A2, A6, A7): the cost of anchor resolution
+ * (the input of the attack, timed in a child process with a hard timeout),
+ * placements as an UNORDERED collection (K1.1 sorts them by id), reported
+ * positions as `{ sammlung, id }`, and `invertiere` that never throws.
+ *
  * Placements get their `id` from card K1.1. As long as the sanitizer in this
  * tree drops that field, the test injects a stand-in that keeps it (same
  * shape K1.1 promises); once K1.1 is in, the real sanitizer is used and the
  * stand-in is bypassed. The first lines of the output say which one ran.
  */
+import { spawnSync } from 'node:child_process';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout } from '../src/worldlayout/sanitize.js';
 import type { WorldLayout } from '../src/worldlayout/types.js';
 import {
@@ -73,6 +81,8 @@ function sanitizeMitPlatzierungsIds(eingabe: unknown): WorldLayout | null {
     ids.add(id);
     platzierungen.push({ id, ...q });
   }
+  // K1.1 keeps placements sorted by id (code-unit order); the stand-in does the same, so that both give the same bytes.
+  platzierungen.sort((a, b) => ((a as { id: string }).id < (b as { id: string }).id ? -1 : (a as { id: string }).id > (b as { id: string }).id ? 1 : 0));
   const aus: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(basis)) {
     if (k === 'placements') continue;
@@ -179,6 +189,21 @@ function setzeAn(layout: WorldLayout, s: OpCollection, nachher: OpEntry, index: 
 
 const D = ausgang();
 const D_BYTES = bytes(D);
+
+// ── The attack input of round 2 (A1): setze ops on one collection whose anchors do not exist, plus a 2-cycle ──
+function bremse(s: OpCollection, n: number): Vorgang {
+  const mit = (id: string, nach: string): Op => ({ art: 'setze', sammlung: s, id, nachher: { ...neuerEintrag(s), id }, nach });
+  return vg('bremse', mit('do-a', 'do-b'), mit('do-b', 'do-a'), ...Array.from({ length: n }, (_, i) => mit(`f-${i}`, `fehlt-${i}`)));
+}
+if (process.argv[2] === 'zeit') {
+  // Child mode: one attack Vorgang, timed; the parent gives it a hard timeout.
+  const [, , , nText, sammlung] = process.argv;
+  const v = bremse(sammlung as OpCollection, Number(nText));
+  const t0 = performance.now();
+  const r = wende(D, v, san);
+  console.log(JSON.stringify({ ms: Math.round(performance.now() - t0), art: r.ok ? 'ok' : r.art, gemeldet: r.ok ? r.positionUngenau.length : 0 }));
+  process.exit(0);
+}
 check(
   'base document has entries in all six collections',
   OP_COLLECTIONS.every((s) => liste(D, s).length > 0),
@@ -190,7 +215,13 @@ for (const s of OP_COLLECTIONS) {
   const vorhandenId = liste(D, s)[1]!.id;
   const neu = neuerEintrag(s);
   const r1 = wende(D, vg('a', opSetzen(s, neu)), san);
-  check(`${s}: setze adds the entry at the end`, r1.ok && liste(r1.layout, s).at(-1)?.id === neu.id && liste(r1.layout, s).length === liste(D, s).length + 1);
+  // Placements are unordered (the sanitizer sorts them by id): membership, not the place.
+  check(
+    `${s}: setze adds the entry${s === 'placements' ? '' : ' at the end'}`,
+    r1.ok &&
+      liste(r1.layout, s).length === liste(D, s).length + 1 &&
+      (s === 'placements' ? liste(r1.layout, s).some((e) => e.id === neu.id) : liste(r1.layout, s).at(-1)?.id === neu.id)
+  );
   const geaendert = veraendert(s, liste(D, s)[1]!);
   const r2 = wende(D, vg('b', opAendern(D, s, geaendert)), san);
   check(
@@ -550,6 +581,98 @@ function zufallsVorgangMomentaufnahme(stand: WorldLayout, name: string): Vorgang
   check('an undo id of 128 characters (mark + 127) is accepted', wende(D, vg(`~${'c'.repeat(127)}`, op), san).ok);
   check('two marks are refused: an id cannot be confused with an undo of an undo', !wende(D, vg('~~x', op), san).ok);
   check('inverting is injective: X and ~X swap, nothing else maps onto them', invertiere(vg('X', op)).vorgangId === '~X' && invertiere(vg('~X', op)).vorgangId === 'X' && invertiere(vg('zurueck:X', op)).vorgangId === '~zurueck:X');
+}
+
+// ── A1: what the anchors cost. The attack input, timed in a child process with a hard timeout ──
+{
+  const hier = dirname(fileURLToPath(import.meta.url));
+  const zeit = (sammlung: OpCollection, n: number): { ms: number; art: string; gemeldet: number } | null => {
+    // `node --import tsx`: ONE process, so the timeout really ends it (the `tsx` wrapper would leave a child).
+    const lauf = spawnSync(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), 'zeit', String(n), sammlung], {
+      cwd: hier,
+      encoding: 'utf-8',
+      timeout: 15_000,
+      killSignal: 'SIGKILL',
+    });
+    if (lauf.status !== 0) return null;
+    return JSON.parse(lauf.stdout.trim().split('\n').at(-1)!) as { ms: number; art: string; gemeldet: number };
+  };
+  for (const [sammlung, n, erwartet] of [
+    ['lakes', 1000, 'grenze'],
+    ['lakes', 4998, 'grenze'], // the ops limit: 4998 + the two of the cycle = 5000
+    ['regions', 500, 'ok'], // under the limit of 512: the position work really runs
+  ] as const) {
+    const z = zeit(sammlung, n);
+    console.log(`# attack ${sammlung} n=${n}: ${z ? `${z.ms} ms → ${z.art}, ${z.gemeldet} reported` : 'DID NOT FINISH in 15 s'}`);
+    check(`attack input, ${n} setze with a missing anchor + a 2-cycle on ${sammlung}: ${erwartet}, in under 2 s`, z !== null && z.art === erwartet && z.ms < 2000, JSON.stringify(z));
+    if (erwartet === 'ok') check('…every entry without a usable anchor is reported (500 missing anchors + 1 of the cycle)', z !== null && z.gemeldet >= 500, `= ${z?.gemeldet}`);
+  }
+}
+{
+  // What the cheaper resolution must still get right.
+  const s: OpCollection = 'regions';
+  const setze = (id: string, nach: string | null, index?: number): Op => ({
+    art: 'setze',
+    sammlung: s,
+    id,
+    nachher: { ...neuerEintrag(s), id },
+    nach,
+    ...(index !== undefined ? { index } : {}),
+  });
+  const r0 = ids(D, s);
+  const kette = wende(D, vg('kette', setze('k-c', 'k-b'), setze('k-b', 'gibt-es-nicht', 1)), san);
+  check('a chain hanging off a missing anchor: the root is placed at its number and reported, the rest sits behind it', kette.ok && ids(kette.layout, s).join() === [r0[0], 'k-b', 'k-c', ...r0.slice(1)].join() && pu(kette).map((p) => p.id).join() === 'k-b', kette.ok ? `${ids(kette.layout, s).join()} / ${pu(kette).map((p) => p.id).join()}` : 'failed');
+  const zyklus = wende(D, vg('z', setze('z-x', 'z-y'), setze('z-y', 'z-x')), san);
+  check('a 2-cycle: both are in, exactly one is reported, the other stands right behind it', zyklus.ok && pu(zyklus).length === 1 && ids(zyklus.layout, s).indexOf('z-y') === ids(zyklus.layout, s).indexOf('z-x') + 1, zyklus.ok ? ids(zyklus.layout, s).join() : 'failed');
+  const selbst = wende(D, vg('selbst', setze('s-a', 's-a')), san);
+  check('an entry behind itself: in, and reported', selbst.ok && ids(selbst.layout, s).includes('s-a') && pu(selbst).length === 1);
+  const dreier = wende(D, vg('drei', setze('t-a', 't-c'), setze('t-b', 't-a'), setze('t-c', 't-b')), san);
+  check('a 3-cycle: all three are in, one is reported', dreier.ok && ['t-a', 't-b', 't-c'].every((id) => ids(dreier.layout, s).includes(id)) && pu(dreier).length === 1);
+  const gleicherAnker = wende(D, vg('gleich', setze('g-u', r0[1]!), setze('g-v', r0[1]!)), san);
+  check('two ops naming one anchor: the later goes directly behind it, the earlier is pushed back, nothing is reported', gleicherAnker.ok && ids(gleicherAnker.layout, s).join() === [r0[0], r0[1], 'g-v', 'g-u', ...r0.slice(2)].join() && pu(gleicherAnker).length === 0, gleicherAnker.ok ? ids(gleicherAnker.layout, s).join() : 'failed');
+  // ...and that is what makes this exact: two neighbouring deletions built one after the other name the same entry in front.
+  const zweiWeg = vg('zwei-weg', opEntfernen(D, s, r0[1]!), opEntfernen(nimm(wende(D, vg('e1', opEntfernen(D, s, r0[1]!)), san)), s, r0[2]!));
+  check('the undo of two neighbouring deletions (both name the same predecessor) is exact and reports nothing', zweiWeg.ops[0]!.nach === zweiWeg.ops[1]!.nach && bytes(nimm(wende(nimm(wende(D, zweiWeg, san)), invertiere(zweiWeg), san))) === D_BYTES && pu(wende(nimm(wende(D, zweiWeg, san)), invertiere(zweiWeg), san)).length === 0);
+  const weit = wende(D, vg('weit', setze('w-x', 'gibt-es-nicht', 999)), san);
+  check('a stand-in number past the end is clamped: the entry is last, reported', weit.ok && ids(weit.layout, s).at(-1) === 'w-x' && pu(weit).length === 1);
+  check('a reported position carries the collection: { sammlung, id }', pu(weit)[0]?.sammlung === s && pu(weit)[0]?.id === 'w-x');
+}
+
+// ── A2: placements are unordered; no position is honoured or reported ──
+{
+  const s: OpCollection = 'placements';
+  const neu = { ...neuerEintrag(s), id: 'pl-ohne-platz' };
+  const zaehlt = liste(D, s).length;
+  const mitPosition = [
+    { art: 'setze', sammlung: s, id: neu.id, nachher: neu, nach: null, index: 0 },
+    { art: 'setze', sammlung: s, id: neu.id, nachher: neu, nach: 'gibt-es-nicht', index: 3 },
+    { art: 'setze', sammlung: s, id: neu.id, nachher: neu, index: 5 },
+  ] as Op[];
+  for (const op of mitPosition) {
+    const r = wende(D, vg('plz', op), san);
+    check(`placements ignore the position (${JSON.stringify({ nach: op.nach, index: op.index })}): added, nothing reported`, r.ok && liste(r.layout, s).length === zaehlt + 1 && liste(r.layout, s).some((e) => e.id === neu.id) && pu(r).length === 0, r.ok ? String(pu(r).length) : 'failed');
+  }
+  const weg = vg('plz-weg', opEntfernen(D, s, liste(D, s)[3]!.id));
+  const zurueck = wende(nimm(wende(D, weg, san)), invertiere(weg), san);
+  check('placements: delete + undo gives the bytes back, nothing reported', zurueck.ok && bytes(zurueck.layout) === D_BYTES && pu(zurueck).length === 0);
+}
+
+// ── A7: a Vorgang id over the limit is refused cleanly; invertiere never throws ──
+{
+  const op = opEntfernen(D, 'lakes', liste(D, 'lakes')[0]!.id);
+  const lang = vg('l'.repeat(128), op);
+  const r = wende(D, lang, san);
+  check('a 128-character vorgangId is refused by the check (ungueltig), nothing thrown', !r.ok && r.art === 'ungueltig' && /vorgangId/.test(r.message));
+  let geworfen = false;
+  let umkehr: Vorgang | null = null;
+  try {
+    umkehr = invertiere(lang);
+  } catch {
+    geworfen = true;
+  }
+  check('invertiere of such a Vorgang does not throw and inverts exactly', !geworfen && umkehr !== null && umkehr.vorgangId === `~${'l'.repeat(128)}` && invertiere(umkehr).vorgangId === lang.vorgangId);
+  const rUmkehr = umkehr ? wende(D, umkehr, san) : null;
+  check('…and wende refuses that inverse cleanly too (ungueltig)', rUmkehr !== null && !rUmkehr.ok && rUmkehr.art === 'ungueltig');
 }
 
 // ── verschmelze ─────────────────────────────────────────────────────

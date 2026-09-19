@@ -850,9 +850,11 @@ const KERN = [
   // echten Server-Unterprozess (stdio), alle Werkzeuge vorhanden UND ihre
   // Wirkung im Dokument geprueft (Regionsregler, Kontinent/Fluss/See/
   // Route/Platzierung/Startpunkt, layout_pruefen, die meadows-Ablehnung,
-  // die layout_deploy-Bremse unter WOV_LAYOUT_PFAD). Schreibt NIE in
-  // server/data/welten/ -- baut sich eine eigene Welt unter /tmp und raeumt
-  // sie in `finally` wieder weg (s. Kopfkommentar der Testdatei). ~2-3s.
+  // die layout_deploy-Bremse unter WOV_ADMIN_URL). Der MCP-Server schreibt
+  // die Weltdatei nicht selbst, sondern spricht mit dem Betriebsdienst; die
+  // Probe startet dafuer einen EIGENEN Betriebsdienst auf einer Kopie der
+  // Welt unter /tmp und raeumt sie in `finally` wieder weg, schreibt also NIE
+  // in server/data/welten/ (s. Kopfkommentar der Testdatei). ~2-3s.
   ['tools/worldlayout-mcp', 'probe.ts'],
   // Kuratierungskatalog (Roadmap B3): Katalogaufbau aus FOLIAGE/FEATURES/
   // SPAWN_TABLE, Suche und ordnungserhaltendes Hinzufuegen/Entfernen fuer
@@ -1330,6 +1332,25 @@ const KERN = [
   // Kein Socket, kein Server — reine Dokument- und Instanzpruefung, Sekunden.
   ['server', 'test/g8-dungeon-deko.ts'],
   ['server', 'test/g9-editor-verbindung.ts'],
+  // Editor E0 (world document and world building): the layout sync boots a
+  // real server, the base version runs the real operations service, the
+  // client tests run the editor modules against a fake localStorage / fetch.
+  // Layout sync in place: a document edit reaches the saved ZDOs of a world
+  // that boots again (rotation, scale, shift, ground; sync stamp; mass-loss rule).
+  ['server', 'test/layout-abgleich.ts'],
+  // Base version of the world document: ETag / If-Match / 409 / 422 and the
+  // lock across processes. ~80 s (two 37 s lock holders).
+  ['admin', 'test/weltdokument-basis.ts'],
+  // Draft store: two tabs, one localStorage key; undo stack, evicted ring.
+  ['client', 'test/entwurfs-speicher.ts'],
+  // Editor save path with a base version, against a fetch fake.
+  ['client', 'test/editor-speichern-basis.ts'],
+  // Offline-flight module (moved out of main.ts): what stays true afterwards.
+  ['client', 'test/testflug-modul.ts'],
+  // Publishing from the offline flight carries the server base the editor left
+  // in the draft's companion note: a newer editor save gives 409, nothing is
+  // overwritten; no base, nothing is sent. Real operations service. ~5 s.
+  ['client', 'test/testflug-speichern-basis.ts'],
   // Licht-Hints kommen an der Registry an. Ein Prefab ohne `light` ist
   // nicht kaputt, es ist dunkel — und dunkel faellt nirgends auf.
   ['shared', 'test/licht-hints.ts'],

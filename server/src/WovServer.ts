@@ -25,10 +25,7 @@ import {
   createGeo,
   sanitizeWorldLayout,
   pruefeLayout,
-  LAYOUT_ID_MEMBER,
   HEALTH_MEMBER,
-  layoutKennung,
-  istNpcPrefab,
   maxLeben,
   type IGeo,
   HeightmapProvider,
@@ -37,6 +34,8 @@ import {
   terrainCompNachBase64,
   terrainCompAusBase64,
   istEigenesModell,
+  SPAWN_TABLE,
+  type SpawnEntry,
   GlobalKey,
   FIGUR_MEMBER,
   FIGUR_VORGABE,
@@ -95,6 +94,7 @@ import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
+import { befreieSpielerbauten, layoutAbgleich } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
@@ -1139,8 +1139,10 @@ export class WovServer {
    * Platzierungen auch in bereits generierten Zonen. Idempotent über eine
    * Kennung im ZDO-Member `layoutId`, ersatzweise eine Nähe-Prüfung
    * (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save werden nicht
-   * dupliziert. Entfernen einer Platzierung entfernt bereits gespawnte
-   * Objekte NICHT (dafür Welt-Reset oder Admin-Abbau).
+   * dupliziert, sondern an das Dokument angeglichen, soweit der Designer
+   * etwas geändert hat (Soll-Stempel: Drehung, Skalierung, Position).
+   * Gelöschte Platzierungen nehmen ihr ZDO mit. Die Einzelheiten stehen in
+   * `world/layoutAbgleich.ts`.
    *
    * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
    * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
@@ -1148,100 +1150,139 @@ export class WovServer {
   private spawnLayoutPlacements(): void {
     if (this.config.worldMode !== 'layout') return;
     const layout = sanitizeWorldLayout(this.worldLayoutRaw);
-    if (!layout?.placements?.length) return;
-    let neu = 0;
-    let unbekannt = 0;
-    // Kennung je Eintrag: Prefab + gerundete Position (layoutKennung in
-    // shared). Damit lassen sich beim Boot ZDOs entfernen, deren Eintrag der
-    // Designer gelöscht hat (vorher blieben sie für immer stehen,
-    // Review-Punkt 13) — und der Client findet über denselben Member den
-    // Layout-Eintrag zu einer Instanz wieder (Namensschild).
-    const kennung = layoutKennung;
-    const gewollt = new Set(layout.placements.map(kennung));
-    let entfernt = 0;
-    // Im selben Durchlauf einen Index über die Kennung aufbauen: Ein
-    // Routen-NPC ist beim nächsten Boot IRGENDWO auf seiner Runde, die
-    // Nähe-Prüfung unten fände ihn also nicht wieder und spawnte bei jedem
-    // Start einen weiteren. Die Kennung wandert dagegen mit ihm mit.
-    const nachKennung = new Map<string, ZDO>();
-    for (const zdo of this.zdos.getAllZDOs()) {
-      const id = zdo.getString(LAYOUT_ID_MEMBER);
-      if (!id) continue;
-      if (!gewollt.has(id)) {
-        this.zdos.destroyZDO(zdo.zdoid);
-        entfernt++;
-        continue;
-      }
-      nachKennung.set(id, zdo);
-    }
-    const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
-    let aufRoute = 0;
-    for (const p of layout.placements) {
-      const prefab = this.prefabs.getByName(p.prefab);
-      if (!prefab) {
-        unbekannt++;
-        continue;
-      }
-      const y = this.getGroundHeight(p.x, p.z);
-      const pos = { x: p.x, y, z: p.z };
-      let zdo = nachKennung.get(kennung(p));
-      if (zdo && zdo.prefabHash !== prefab.hash) zdo = undefined;
-      if (!zdo) {
-        const vorhanden = this.zdos
-          .getZDOsInRadius(pos, 1)
-          .find((z) => z.prefabHash === prefab.hash && Math.hypot(z.position.x - p.x, z.position.z - p.z) < 0.5);
-        zdo = vorhanden;
-      }
-      if (!zdo) {
-        const yaw = p.yaw ?? 0;
-        zdo = this.zdos.createZDO(prefab.hash, pos);
-        zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-        if (p.scale !== undefined && Math.abs(p.scale - 1) > 1e-3) zdo.setFloat('scaleScalar', p.scale);
-        zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
-        neu++;
-      } else if (zdo.getString(LAYOUT_ID_MEMBER) !== kennung(p)) {
-        // Über die NÄHE wiedergefunden (ZDO aus einem Save von vor der
-        // Kennung): Member nachtragen. Sonst bliebe das Objekt für immer
-        // ohne Herkunft — der Client könnte ihm kein Namensschild
-        // zuordnen, und beim nächsten Löschen im Editor bliebe es stehen.
-        zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
-      }
-      // Trefferpunkte für alles, was eine FIGUR ist. Die Prüfung auf
-      // `istNpcPrefab` ist nicht Zierde: In derselben Schleife entstehen
-      // auch Häuser, Steine und Bäume, und die tragen `health` bereits mit
-      // einer ganz anderen Bedeutung (handleHarvest zählt damit die
-      // Axtschläge bis zum Fällen). Ein Lebensbalken über einer Fichte
-      // wäre das kleinere Übel — ein Startwert aus der Figurentabelle in
-      // ihrem Ernte-Zähler das größere.
-      if (istNpcPrefab(p.prefab) && zdo.getInt(HEALTH_MEMBER) <= 0) {
-        zdo.setInt(HEALTH_MEMBER, maxLeben(p.prefab));
-        zdo.revision.reviseData();
-        zdo.dirty = true;
-      }
-      // Route anhängen. Ein unbekannter Name lässt das Objekt schlicht
-      // stehen (pruefeLayout meldet ihn unten) — eine halb gespawnte Welt
-      // wäre der schlechtere Tausch.
-      const route = p.route ? routen.get(p.route) : undefined;
-      if (route) {
-        // Der NPC gehört jetzt der Route: Aus der Kreatur-Simulation
-        // nehmen, sonst zerren Wander-KI und Route an derselben Position
-        // (NPC_1-ZDOs werden beim Boot adoptiert, s. init()).
-        this.spawns?.entlasse(zdo);
-        this.routen?.registriere(zdo, route);
-        aufRoute++;
-      }
-    }
-    if (aufRoute > 0) console.log(`[WoV] Layout-Routen: ${aufRoute} NPC(s) laufen eine Route`);
-    if (neu > 0 || unbekannt > 0 || entfernt > 0) {
-      console.log(
-        `[WoV] Layout-Platzierungen: ${neu} gespawnt, ${entfernt} verwaiste entfernt, ${unbekannt} unbekannte Prefabs übersprungen`
+    // Ein Dokument ohne Platzierungen ist gültig und heißt „keine": Der
+    // Abgleich räumt dann die Layout-ZDOs ab, die sonst für immer stünden.
+    // „Bewusst leer" heißt aber nur: das Feld `placements` fehlt oder ist ein
+    // Array (auch ein leeres). Steht dort etwas anderes (null, Objekt, Text,
+    // Zahl), hat der Sanitizer es stillschweigend zu „fehlt" gemacht — und ein
+    // Tippfehler in der Datei würde die ganze Welt abräumen. Dann bleibt alles
+    // stehen. Ein unlesbares Dokument (null) lässt die Welt ebenfalls in Ruhe.
+    //
+    // Was dieser frühe Rücksprung mitnimmt: Der Abgleich läuft gar nicht, also
+    // werden in diesem Boot auch Routen-NPCs NICHT beim Läufer angemeldet (sie
+    // wandern als gewöhnliche Kreaturen um ihren Platz) und `pruefeLayout`
+    // schweigt. Einzige Ausnahme: Spielerbauten von einer veralteten Kennung
+    // zu befreien ist kein Löschen und läuft trotzdem.
+    // (`layout` ist hier nie null: lehnt der Sanitizer das ganze Dokument ab,
+    // bricht der Boot schon beim Laden ab, s. init(). Der Zweig steht für den
+    // Typ.)
+    if (!layout) return;
+    const rohPlacements = (this.worldLayoutRaw as { placements?: unknown } | null)?.placements;
+    if (rohPlacements !== undefined && !Array.isArray(rohPlacements)) {
+      this.meldeUnlesbar(
+        `placements unlesbar (${rohPlacements === null ? 'null' : typeof rohPlacements}) – Layout-Objekte bleiben unangetastet`
       );
+      return;
+    }
+    // Dasselbe Loch in anderer Form: Ein Array mit Einträgen, von dem der
+    // Sanitizer ALLE verwirft (Text, leere Objekte, kaputte Koordinaten), ist
+    // nicht „bewusst leer" — die Welt bliebe ohne einen einzigen Eintrag
+    // zurück und alle Layout-ZDOs gingen mit. Werden nur einige verworfen,
+    // löscht dieser Boot ebenfalls nichts (s. `layoutAbgleich`, `ohneLoeschen`).
+    const rohAnzahl = Array.isArray(rohPlacements) ? rohPlacements.length : 0;
+    const gueltigeAnzahl = layout.placements?.length ?? 0;
+    if (rohAnzahl > 0 && gueltigeAnzahl === 0) {
+      this.meldeUnlesbar(`placements: alle ${rohAnzahl} Einträge verworfen – Layout-Objekte bleiben unangetastet`);
+      return;
+    }
+    const ergebnis = layoutAbgleich(
+      {
+        zdos: this.zdos,
+        prefabs: this.prefabs,
+        bodenHoehe: (x, z) => this.getGroundHeight(x, z),
+        bodenAbstand: (hash) => this.foliageOffset.get(hash) ?? 0,
+        anRoute: (zdo, route) => {
+          // Der NPC gehört jetzt der Route: Aus der Kreatur-Simulation
+          // nehmen, sonst zerren Wander-KI und Route an derselben Position
+          // (NPC_1-ZDOs werden beim Boot adoptiert, s. init()).
+          this.spawns?.entlasse(zdo);
+          this.routen?.registriere(zdo, route);
+        },
+        wirdBewegt: (zdo) => this.wanderEintrag(zdo.prefabHash) !== null,
+        verankere: (zdo) => {
+          // Neu adoptieren: Der Wander-Anker ist die Position beim Adoptieren.
+          const entry = this.wanderEintrag(zdo.prefabHash);
+          if (!entry) return;
+          this.spawns?.entlasse(zdo);
+          this.spawns?.adoptSingle(zdo, entry);
+        },
+      },
+      layout,
+      { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl) }
+    );
+    if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
+    console.log(
+      `[WoV] Layout-Abgleich: ${ergebnis.gespawnt} gespawnt, ${ergebnis.aktualisiert} aktualisiert, ` +
+        `${ergebnis.unveraendert} unverändert, ${ergebnis.entfernt} entfernt` +
+        (ergebnis.ueberzaehlig > 0 ? ` (davon ${ergebnis.ueberzaehlig} überzählig)` : '') +
+        `, ${ergebnis.unbekannt} unbekannt (Prefab übersprungen)`
+    );
+    if (ergebnis.ohneLoeschen) {
+      console.warn(
+        `[WoV] Layout-Abgleich ohne Löschen: ${ergebnis.ohneLoeschen.verworfen} Einträge verworfen – ` +
+          `${ergebnis.ohneLoeschen.stehenGeblieben} verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen`
+      );
+    }
+    if (!layout.placements?.length && ergebnis.entfernt > 0) {
+      console.warn(`[WoV] Layout-Abgleich: Dokument ohne Platzierungen — ${ergebnis.entfernt} verwaiste ZDO(s) entfernt`);
+    }
+    if (ergebnis.ueberzaehlig > 0) {
+      console.warn(`[WoV] Layout-Abgleich: ${ergebnis.ueberzaehlig} überzählige Layout-ZDOs mit gleicher Kennung entfernt`);
+      for (const u of ergebnis.ueberzaehligeZdos) {
+        console.warn(`[WoV] Layout-Abgleich: überzähliges ZDO ${u.id} (${u.kennung}) mit ${u.member} Zustands-Member(n) entfernt`);
+      }
+    }
+    for (const u of ergebnis.unbekanntePrefabs) {
+      console.warn(
+        `[WoV] Layout-Hinweis: Platzierung ${u.kennung}: Prefab '${u.prefab}' unbekannt — erzeugt kein ZDO` +
+          (u.geschont > 0
+            ? `; ${u.geschont} ZDO(s) mit dieser Kennung oder im Umkreis von 1 m bleiben unangetastet`
+            : '; kein ZDO betroffen')
+      );
+    }
+    if (ergebnis.freigegeben > 0) {
+      console.log(`[WoV] Layout-Abgleich: ${ergebnis.freigegeben} Spielerbau(ten) von einer veralteten Layout-Kennung befreit`);
+    }
+    for (const k of ergebnis.ueberSpielerbau) {
+      console.warn(`[WoV] Layout-Hinweis: Platzierung ${k} steht genau über einem Spielerbau — beide Objekte bleiben`);
     }
     // Inhaltlicher Bericht (Review-Punkt 32): unbekannte Namen und ein
     // fehlender Startpunkt stehen jetzt im Boot-Log statt still zu bleiben.
     for (const b of pruefeLayout(layout)) {
       console.warn(`[WoV] Layout-Hinweis (${b.wo}): ${b.text}`);
     }
+  }
+
+  /**
+   * Frühe Rückkehr des Layout-Abgleichs (Dokument nicht lesbar): Warnzeile mit
+   * dem Hinweis auf die Nebenwirkung, und die Spielerbauten trotzdem von
+   * veralteten Kennungen befreien (kein Löschen).
+   */
+  private meldeUnlesbar(grund: string): void {
+    console.warn(
+      `[WoV] Layout-Abgleich: ${grund} (in diesem Boot werden Routen-NPCs nicht beim Läufer angemeldet)`
+    );
+    const frei = befreieSpielerbauten(this.zdos);
+    if (frei > 0) {
+      console.log(`[WoV] Layout-Abgleich: ${frei} Spielerbau(ten) von einer veralteten Layout-Kennung befreit`);
+    }
+  }
+
+  /**
+   * Der Wander-Eintrag, mit dem das SpawnSystem dieses Prefab führt (NPC,
+   * Boss, Kreatur der Tabelle) — oder null, wenn es nichts bewegt und der
+   * Layout-Abgleich das Objekt als ruhend behandelt. Dieselbe Auswahl wie
+   * bei der Adoption in init(), inklusive der Prüfung auf ein eigenes Modell.
+   */
+  private wanderEintrag(prefabHash: number): SpawnEntry | null {
+    if (!this.spawns) return null;
+    const entry: SpawnEntry | undefined =
+      prefabHash === getStableHash('NPC_1')
+        ? NPC_ENTRY
+        : prefabHash === EIKTHYR_HASH
+          ? BOSS_ENTRY
+          : SPAWN_TABLE.find((e) => getStableHash(e.prefab) === prefabHash);
+    return entry && istEigenesModell(entry.prefab) ? entry : null;
   }
 
   /**

@@ -41,11 +41,11 @@ import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
 
 /**
  * Der Entwurfsschlüssel. Er hiess schon immer so und heisst weiter so:
- * client/src/main.ts liest und schreibt ihn im Testflug an einem guten
- * Dutzend Stellen mit dem nackten String. Ihn hier instanzabhängig zu
- * machen (`wov-editor-layout-dev` …) wäre die technisch sauberere
- * Trennung — sie würde aber genau die Datei anfassen müssen, die
- * ausserhalb dieses Umbaus liegt, und stillschweigend zwei Entwürfe
+ * der Testflug-Code des Spielclients (`?offline=1&layout=editor`) liest und
+ * schreibt ihn an mehreren Stellen mit dem nackten String. Ihn hier
+ * instanzabhängig zu machen (`wov-editor-layout-dev` …) wäre die technisch
+ * sauberere Trennung — sie würde aber genau den Testflug-Code anfassen
+ * müssen, der ausserhalb dieses Umbaus liegt, und stillschweigend zwei Entwürfe
  * anlegen, zwischen denen niemand umschalten kann. Stattdessen merkt
  * sich `EntwurfsStand.instanz`, für WELCHE Welt der Entwurf gedacht war
  * — abweichende Instanz ist dann eine Warnung im Dialog statt einer
@@ -80,6 +80,13 @@ export interface EntwurfsStand {
   /** Instanz, die beim Schreiben offen war — `null`, wenn unbekannt. */
   instanz: string | null;
   quelle: EntwurfsQuelle;
+  /**
+   * Stempel des schreibenden Editor-Tabs (entwurfsSpeicher.ts): Zeitpunkt in
+   * ms und Tab-Kennung. Fehlt bei Zetteln aus älteren Editorfassungen; der
+   * Testflug schreibt keinen.
+   */
+  geaendertUm?: number;
+  tabId?: string;
 }
 
 /**
@@ -101,8 +108,91 @@ export type ServerStand =
       instanz: string | null;
       datei: string | null;
       message: string;
+      /**
+       * Stand des Dokuments auf dem Server (ETag bzw. Rumpffeld `hash`) — die
+       * Basis, die beim Speichern zurückgeschickt wird. `null`, solange die
+       * Gegenstelle keinen liefert; dann wird wie früher ohne Basis gespeichert.
+       */
+      hash: string | null;
     }
   | { erreichbar: false; grund: string };
+
+/**
+ * Steckt alles, was `klein` enthält, schon in `gross`? Grundlage der Frage
+ * „geht beim Verdrängen von `klein` etwas verloren, wenn `gross` bleibt?":
+ * Ein Schreiber, der seinen Stand aus dem AKTUELLEN Speicher aufbaut (der
+ * Testflug, main.ts: lesen, Feld ergänzen, zurückschreiben), liefert
+ * Nachfolgestände, die ihre Vorgänger enthalten — die brauchen keine eigene
+ * Sicherung.
+ *
+ * Verglichen wird so genau, wie es die Welt unterscheidet:
+ *  - `regions` als geordnete Folge: Ihre Reihenfolge ist die Z-Ordnung
+ *    (spätere überdecken frühere), zwei Dokumente mit denselben Regionen in
+ *    anderer Reihenfolge sind verschiedene Welten. `klein.regions` muss also
+ *    in derselben Reihenfolge in `gross.regions` vorkommen (dazwischen darf
+ *    anderes stehen).
+ *  - `continents` ebenso als geordnete Folge: Der Server nimmt ohne
+ *    Welt-Startpunkt den ERSTEN Kontinent mit eigenem Spawn; dieselben
+ *    Kontinente in anderer Reihenfolge können einen anderen Startpunkt geben.
+ *  - Platzierungen, Flüsse, Seen und Routen als Multimenge: Doppelte
+ *    zählen, `[P]` enthält `[P, P]` nicht.
+ *  - Name, Detail-Seed und Startpunkt müssen übereinstimmen.
+ * Elemente werden als JSON verglichen. Im Zweifel `false`: ein Stand zu viel
+ * zu sichern kostet nur Platz.
+ */
+export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
+  if (gross === klein) return true;
+  const folge = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
+    if (!k || k.length === 0) return true;
+    const gj = (g ?? []).map((x) => JSON.stringify(x));
+    let i = 0;
+    for (const x of k) {
+      const j = JSON.stringify(x);
+      while (i < gj.length && gj[i] !== j) i++;
+      if (i >= gj.length) return false;
+      i++;
+    }
+    return true;
+  };
+  const multimenge = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
+    if (!k || k.length === 0) return true;
+    const zaehler = new Map<string, number>();
+    for (const x of g ?? []) {
+      const j = JSON.stringify(x);
+      zaehler.set(j, (zaehler.get(j) ?? 0) + 1);
+    }
+    for (const x of k) {
+      const j = JSON.stringify(x);
+      const n = zaehler.get(j) ?? 0;
+      if (n === 0) return false;
+      zaehler.set(j, n - 1);
+    }
+    return true;
+  };
+  return (
+    gross.name === klein.name &&
+    gross.detailSeed === klein.detailSeed &&
+    (klein.defaultSpawn === undefined || JSON.stringify(gross.defaultSpawn) === JSON.stringify(klein.defaultSpawn)) &&
+    folge(gross.regions, klein.regions) &&
+    folge(gross.continents, klein.continents) &&
+    multimenge(gross.placements, klein.placements) &&
+    multimenge(gross.rivers, klein.rivers) &&
+    multimenge(gross.lakes, klein.lakes) &&
+    multimenge(gross.routes, klein.routes)
+  );
+}
+
+/**
+ * Braucht das Ersetzen des angezeigten Entwurfs durch `ersatz` einen
+ * Rückgängig-Schritt? Immer, wenn dabei etwas verloren ginge: also bei jedem
+ * abweichenden Entwurf — auch einem, der nur Flüsse, Seen, Kontinente oder
+ * Routen enthält. Keinen Schritt bekommen nur der gleiche Entwurf (nichts
+ * geht verloren) und der wirklich leere Startzustand (sonst löschte das erste
+ * Strg+Z die frisch geladene Welt).
+ */
+export function brauchtSchrittVorErsetzen(aktuell: WorldLayout, ersatz: WorldLayout): boolean {
+  return !gleich(aktuell, ersatz) && !gleich(aktuell, leeresLayout());
+}
 
 /** Leeres Dokument — der Startzustand ohne Entwurf und ohne Server. */
 export function leeresLayout(): WorldLayout {
@@ -133,10 +223,10 @@ export function leeresLayout(): WorldLayout {
  * sowieso braucht, und stammt im Betriebsdienst aus derselben Konstante
  * `INSTANZ` — dieselbe Wahrheit, ein Rundlauf weniger.
  */
-export async function holeWeltdokument(): Promise<ServerStand> {
+export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<ServerStand> {
   let antwort: Response;
   try {
-    antwort = await fetch('/api/worldlayout', {
+    antwort = await fetchFn('/api/worldlayout', {
       method: 'GET',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
@@ -160,6 +250,7 @@ export async function holeWeltdokument(): Promise<ServerStand> {
     message?: string;
     instanz?: string;
     datei?: string;
+    hash?: unknown;
     layout?: unknown;
   };
   try {
@@ -196,6 +287,159 @@ export async function holeWeltdokument(): Promise<ServerStand> {
     instanz: daten.instanz ?? null,
     datei: daten.datei ?? null,
     message: daten.message ?? '',
+    hash: hashNormalisieren(daten.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
+  };
+}
+
+/**
+ * Hash aus Rumpffeld oder Kopfzeile in eine Form bringen: ohne
+ * Anführungszeichen und ohne schwaches Präfix (`W/"…"`). `null` für alles,
+ * was kein nichtleerer Text ist.
+ */
+export function hashNormalisieren(roh: unknown): string | null {
+  if (typeof roh !== 'string') return null;
+  const t = roh.trim().replace(/^W\/\s*/, '').replace(/^"(.*)"$/, '$1').trim();
+  return t === '' ? null : t;
+}
+
+/**
+ * Basis für einen Schreibvorgang, den der Nutzer gegen einen FRISCH gelesenen
+ * Serverstand bestätigt hat („Ja, überschreiben" nach der Gegenüberstellung):
+ * genau dieser Stand ist es, den er gesehen und zu ersetzen zugestimmt hat.
+ * Mit der alten Basis liefe die bestätigte Ersetzung in einen 409 und einen
+ * zweiten Dialog. Konnte der Stand nicht gelesen werden oder trägt keinen
+ * Hash, bleibt es bei der bisherigen Basis.
+ */
+export function basisNachBestaetigung(bisher: string | null, frisch: ServerStand): string | null {
+  return frisch.erreichbar && frisch.hash !== null ? frisch.hash : bisher;
+}
+
+/** Ausgang von `schreibeWeltdokument`. */
+export type SchreibAntwort =
+  | { art: 'ok'; message: string; hash: string | null }
+  /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
+  | { art: 'veraltet'; message: string; aktuell: string | null }
+  | { art: 'zu-viele-platzierungen'; message: string; anzahl: number; grenze: number }
+  | { art: 'fehler'; message: string };
+
+/**
+ * Das Dokument auf den Server schreiben — mit der zuletzt gelesenen Basis.
+ *
+ * Die Basis geht im Kopf `If-Match: "<hash>"` mit und NICHT als Rumpffeld:
+ * der Rumpf ist das Dokument selbst, und ein Zusatzfeld darin verwürfe die
+ * Sanitisierung stillschweigend. Ohne bekannten Hash (`basis === null`, z. B.
+ * eine Gegenstelle ohne K0.2) geht die Anfrage ohne Kopf hinaus, wie bisher.
+ *
+ * Kein Wiederholen und kein „dann eben ohne Basis": Bei 409 wird nichts
+ * gesendet, der Aufrufer zeigt den aktuellen Stand und lässt entscheiden.
+ *
+ * Bewusst DOM-frei und mit hereingereichtem `fetch`, damit der Speicherweg
+ * ohne Editorfenster prüfbar ist (client/test/editor-speichern-basis.ts).
+ */
+export async function schreibeWeltdokument(
+  layout: WorldLayout,
+  basis: string | null,
+  fetchFn: typeof fetch = fetch
+): Promise<SchreibAntwort> {
+  const kopf: Record<string, string> = { 'Content-Type': 'application/json' };
+  const b = hashNormalisieren(basis);
+  if (b) kopf['If-Match'] = `"${b}"`;
+
+  let antwort: Response;
+  try {
+    antwort = await fetchFn('/api/worldlayout', { method: 'POST', headers: kopf, body: JSON.stringify(layout) });
+  } catch (fehler) {
+    return { art: 'fehler', message: `Speichern fehlgeschlagen: ${String(fehler)}` };
+  }
+
+  let d: {
+    ok?: boolean;
+    message?: string;
+    fehler?: string;
+    aktuell?: unknown;
+    hash?: unknown;
+    anzahl?: unknown;
+    grenze?: unknown;
+    verworfen?: unknown;
+    verworfenJeFeld?: unknown;
+  } = {};
+  try {
+    d = JSON.parse(await antwort.text()) as typeof d;
+  } catch {
+    // Kein JSON: unten aus dem Statuscode entscheiden.
+  }
+
+  if (antwort.status === 409) {
+    return {
+      art: 'veraltet',
+      message: 'Die Welt auf dem Server hat sich seit dem Laden geändert — nichts geschrieben.',
+      aktuell: hashNormalisieren(d.aktuell) ?? hashNormalisieren(antwort.headers?.get('ETag')),
+    };
+  }
+  if (antwort.status === 422 && d.fehler === 'zu-viele-platzierungen') {
+    const anzahl = Number(d.anzahl);
+    const grenze = Number(d.grenze);
+    if (Number.isFinite(anzahl) && Number.isFinite(grenze)) {
+      return {
+        art: 'zu-viele-platzierungen',
+        anzahl,
+        grenze,
+        message: `Zu viele Platzierungen: ${anzahl} (Grenze ${grenze}) — nicht gespeichert.`,
+      };
+    }
+  }
+  // Gesperrt: ein anderer Vorgang schreibt gerade dieselbe Weltdatei. Nichts
+  // ist verloren, ein zweiter Versuch gelingt fast immer nach Sekunden.
+  if (antwort.status === 503) {
+    const warte = Number(antwort.headers?.get('Retry-After'));
+    return {
+      art: 'fehler',
+      message:
+        'Die Welt wird gerade von einem anderen Vorgang gespeichert – in ein paar Sekunden erneut versuchen' +
+        (Number.isFinite(warte) && warte > 0 ? ` (Retry-After: ${warte} s)` : '') +
+        ' — nichts geschrieben.',
+    };
+  }
+  if (antwort.ok && d.ok !== false) {
+    // Hat der Betriebsdienst Einträge verworfen (nur erreichbar mit einem
+    // Fremdschreiber oder einer älteren Editorfassung: Editor und Testflug
+    // schicken schon gefilterte Listen), steht die Zahl in der Meldung.
+    const verworfen = Number(d.verworfen);
+    const jeFeld =
+      d.verworfenJeFeld && typeof d.verworfenJeFeld === 'object'
+        ? Object.entries(d.verworfenJeFeld as Record<string, unknown>)
+            .filter(([, n]) => Number(n) > 0)
+            .map(([feld, n]) => `${feld}: ${Number(n)}`)
+        : [];
+    const hinweis =
+      Number.isFinite(verworfen) && verworfen > 0
+        ? ` — ACHTUNG: ${verworfen} Eintrag/Einträge vom Betriebsdienst verworfen` +
+          (jeFeld.length > 0 ? ` (${jeFeld.join(', ')})` : '')
+        : '';
+    return {
+      art: 'ok',
+      message: (d.message ?? 'Gespeichert') + hinweis,
+      hash: hashNormalisieren(d.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
+    };
+  }
+  return { art: 'fehler', message: d.message ?? d.fehler ?? `HTTP ${antwort.status}` };
+}
+
+/**
+ * Das Layout mit einer zusätzlichen Platzierung. Ersetzt das Layout, statt
+ * es zu ändern: Der Rückgängig-Stapel des Editors hält Schnappschüsse, und
+ * nur ein unverändertes altes Layout ist ein brauchbarer Schnappschuss.
+ */
+export function layoutMitPlatzierung(
+  layout: WorldLayout,
+  prefab: string,
+  x: number,
+  z: number,
+  yaw: number
+): WorldLayout {
+  return {
+    ...layout,
+    placements: [...(layout.placements ?? []), { prefab, x: Math.round(x), z: Math.round(z), yaw }],
   };
 }
 
@@ -233,6 +477,8 @@ export function entwurfStandLesen(): EntwurfsStand | null {
       zeit: d.zeit,
       instanz: typeof d.instanz === 'string' ? d.instanz : null,
       quelle: d.quelle === 'server' || d.quelle === 'import' ? d.quelle : 'bearbeitet',
+      ...(typeof d.geaendertUm === 'number' ? { geaendertUm: d.geaendertUm } : {}),
+      ...(typeof d.tabId === 'string' ? { tabId: d.tabId } : {}),
     };
   } catch {
     return null;
@@ -243,6 +489,10 @@ export function entwurfStandLesen(): EntwurfsStand | null {
  * Entwurf samt Begleitzettel schreiben. `false` heisst „Speicher voll"
  * — der Aufrufer muss das melden, sonst arbeitet jemand eine Stunde in
  * einem Entwurf, der beim Neuladen weg ist.
+ *
+ * UNGESCHÜTZT: schreibt, ohne nachzusehen, was unter dem Schlüssel steht.
+ * Der Editor benutzt seit K0.3 `EntwurfsSpeicher.schreiben`
+ * (entwurfsSpeicher.ts), das nie über einen fremden Stand hinweg schreibt.
  */
 export function entwurfSchreiben(
   layout: WorldLayout,

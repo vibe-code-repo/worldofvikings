@@ -79,7 +79,7 @@ function bau(takt: number) {
     schatten: { ...LOOK_VORGABE.schatten, fernTakt: takt },
   };
   shadows.setLevel(2);
-  const g = (shadows as unknown as { generator: { getShadowMap(): { getRenderLayers(): number; onBeforeBindObservable: { notifyObservers(x: unknown): void } }; getCascadeTransformMatrix(i: number): { m: Float32Array | number[] }; getCascadeMinExtents(i: number): Vector3 } }).generator;
+  const g = (shadows as unknown as { generator: { getShadowMap(): { getRenderLayers(): number; onBeforeBindObservable: { notifyObservers(x: unknown): void } }; getCascadeTransformMatrix(i: number): { m: Float32Array | number[] }; getCascadeMinExtents(i: number): Vector3; _transformMatricesAsArray: Float32Array } }).generator;
   const karte = g.getShadowMap();
   let bild = 0;
   (scene as unknown as { getFrameId: () => number }).getFrameId = () => bild;
@@ -95,6 +95,9 @@ function bau(takt: number) {
       lagen: karte.getRenderLayers(),
       nah: Array.from(g.getCascadeTransformMatrix(0).m),
       fern: Array.from(g.getCascadeTransformMatrix(1).m),
+      // Das Feld, aus dem der Shader `lightMatrix` liest (`bindShadowLight`), nicht die Matrix-Objekte.
+      nahFeld: Array.from(g._transformMatricesAsArray.slice(0, 16)),
+      fernFeld: Array.from(g._transformMatricesAsArray.slice(16, 32)),
     };
   };
   const gleich = (a: number[], b: number[]) => a.every((v, i) => v === b[i]);
@@ -118,8 +121,14 @@ function bau(takt: number) {
   for (let i = 1; i < 8; i += 2) {
     pruefe(t.gleich(b[i]!.fern, b[i - 1]!.fern), `Bild ${i}: die ferne Kaskade hat sich im uebersprungenen Bild bewegt — die Empfaenger tasteten mit falschen Matrizen ab`);
     pruefe(!t.gleich(b[i]!.nah, b[i - 1]!.nah), `Bild ${i}: die Nahkaskade steht im uebersprungenen Bild still`);
+    // Der Shader liest das FELD, nicht die Matrix-Objekte: bitgleich zum letzten Renderbild.
+    pruefe(t.gleich(b[i]!.fernFeld, b[i - 1]!.fernFeld), `Bild ${i}: das Feld der fernen Kaskade (Quelle der Empfaengermatrizen) hat sich im uebersprungenen Bild bewegt`);
+    pruefe(!t.gleich(b[i]!.nahFeld, b[i - 1]!.nahFeld), `Bild ${i}: das Feld der Nahkaskade steht im uebersprungenen Bild still`);
   }
-  for (let i = 2; i < 8; i += 2) pruefe(!t.gleich(b[i]!.fern, b[i - 1]!.fern), `Bild ${i}: die ferne Kaskade wurde im Renderbild nicht neu berechnet`);
+  for (let i = 2; i < 8; i += 2) {
+    pruefe(!t.gleich(b[i]!.fern, b[i - 1]!.fern), `Bild ${i}: die ferne Kaskade wurde im Renderbild nicht neu berechnet`);
+    pruefe(!t.gleich(b[i]!.fernFeld, b[i - 1]!.fernFeld), `Bild ${i}: das Feld der fernen Kaskade wurde im Renderbild nicht neu berechnet`);
+  }
   pruefe(t.takter.uebersprungen === 4 && t.takter.gerendert === 4, `Zaehler ${t.takter.uebersprungen}/${t.takter.gerendert}, erwartet 4/4`);
   t.ende();
 }
@@ -154,6 +163,7 @@ function bau(takt: number) {
   pruefe(b.every((x) => x.lagen === 2), 'Takt 1 rendert nicht in jedem Bild beide Lagen');
   pruefe(b.every((x, i) => i === 0 || !t.gleich(x.fern, b[i - 1]!.fern)), 'Takt 1 friert die ferne Kaskade ein');
   pruefe(t.takter.uebersprungen === 0, 'Takt 1 zaehlt uebersprungene Bilder');
+  pruefe(t.takter.gerendert === 4, `Takt 1: Zaehler gerendert ${t.takter.gerendert}, erwartet 4 (ein Bild, ein Zaehler)`);
   t.ende();
 
   const u = bau(2);

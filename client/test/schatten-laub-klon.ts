@@ -252,6 +252,29 @@ function wrapperKenntSubMesh(m: Mesh): boolean {
     'ein wartender Klon ohne anstehendes Packen wird nicht mehr angemeldet — er wuerde nie bereit'
   );
 
+  // H4: Ein entsorgter Klon, der zugleich zum Packen ansteht, verlaesst die
+  // Warteliste SOFORT — der Skip fuer wartende Klone steht hinter der
+  // Aufraeumpruefung. Ohne Spielerposition packt tick() nicht (Rueckkehr nach
+  // tiefeNachziehen), der Test sieht so allein die Warteliste.
+  {
+    const innen = shadows as unknown as {
+      vegetationsSchatten: Map<Mesh, { schatten: Mesh }>;
+      vegetationsPackPending: Set<unknown>;
+      letzteX: number;
+    };
+    const stand = innen.vegetationsSchatten.get(laub)!;
+    pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 1, 'Vorbedingung H4: der Klon wartet');
+    innen.vegetationsPackPending.add(stand);
+    stand.schatten.dispose();
+    innen.letzteX = Number.NaN;
+    shadows.tick();
+    pruefe(
+      shadows.vegetationsSchattenStats().tiefeWartend === 0,
+      'ein entsorgter Klon bleibt in der Warteliste, weil er zugleich zum Packen ansteht (H4)'
+    );
+    innen.vegetationsPackPending.clear();
+  }
+
   intern.generator = null;
   shadows.dispose();
   scene.dispose();

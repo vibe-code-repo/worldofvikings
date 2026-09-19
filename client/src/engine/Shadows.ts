@@ -393,8 +393,8 @@ interface KaskadenStand {
  * ── Warum ─────────────────────────────────────────────────────────────
  * Babylons `CascadedShadowGenerator` rendert alle Kaskaden in jedem Bild
  * (`refreshRate` greift dort nicht, s. `setLevel`), und die Laubkronen kosten
- * in der fernen Karte mehr als in der nahen: Wald 0,76 gegen 0,30 ms GPU,
- * Insel 2,33 gegen 1,39 ms — bei 20 bzw. 16 Zeichenaufrufen. Weder Instanz-
+ * in der fernen Karte mehr als in der nahen: Wald 0,97 gegen 0,44 ms GPU,
+ * Insel 2,40 gegen 1,37 ms — bei 20 bzw. 16 Zeichenaufrufen. Weder Instanz-
  * noch Dreieckszahl erklaeren das (exaktes Keulen je Kaskade nahm 80 % der
  * Dreiecke und 0,1 ms), die ferne Karte ist an die Flaeche der Kronen im Kasten
  * gebunden. Die ferne Karte aendert sich langsam: sie liegt ab ~19 m, ein
@@ -462,6 +462,11 @@ export class FernKaskadenTakt {
     if (takt <= 1 || fern < 1) {
       this.ueberspringen = false;
       original();
+      const kennung = this.bildKennung();
+      if (kennung !== this.bild) {
+        this.bild = kennung;
+        this.gerendert++;
+      }
       return;
     }
     // Ein Bild kann `_computeMatrices` mehrfach rufen (Bereitschaftspruefung
@@ -1186,16 +1191,6 @@ export class Shadows {
     const g = this.generator;
     if (!g || this.vegetationsTiefePending.size === 0) return;
     for (const stand of this.vegetationsTiefePending) {
-      // ── Wer gleich neu gepackt wird, wartet auf das Packen (M1) ────────
-      // tick() ruft diese Methode VOR der Packschleife. Steht der Klon in
-      // vegetationsPackPending, gilt sein `aktiv` nur bis dahin: faellt der
-      // Ring beim Packen leer, war die Anmeldung hier vergeblich (ein
-      // Aufruf zu viel im Zaehler und im Farbeffekt-Cache). Das Packen
-      // entscheidet — es meldet neu an, wenn der Klon Instanzen behaelt, und
-      // nimmt ihn sonst selbst aus der Warteliste (packeVegetationsMaster).
-      // A clone about to be repacked waits for the pack: it decides whether
-      // there is anything left to register.
-      if (this.vegetationsPackPending.has(stand)) continue;
       const teil = stand.schatten.subMeshes?.[0];
       // Ohne Instanzen NICHT anmelden (der Basis-Effekt entstuende ohne
       // INSTANCES-Define, der Tiefen-Shader zeichnete spaeter keine Instanzen):
@@ -1208,6 +1203,18 @@ export class Shadows {
         this.vegetationsTiefePending.delete(stand);
         continue;
       }
+      // Erst NACH der Aufraeumpruefung (H4): ein entsorgter Klon, der zugleich
+      // zum Packen ansteht, verlaesst die Warteliste sofort statt erst beim naechsten Packen.
+      // ── Wer gleich neu gepackt wird, wartet auf das Packen (M1) ────────
+      // tick() ruft diese Methode VOR der Packschleife. Steht der Klon in
+      // vegetationsPackPending, gilt sein `aktiv` nur bis dahin: faellt der
+      // Ring beim Packen leer, war die Anmeldung hier vergeblich (ein
+      // Aufruf zu viel im Zaehler und im Farbeffekt-Cache). Das Packen
+      // entscheidet — es meldet neu an, wenn der Klon Instanzen behaelt, und
+      // nimmt ihn sonst selbst aus der Warteliste (packeVegetationsMaster).
+      // A clone about to be repacked waits for the pack: it decides whether
+      // there is anything left to register.
+      if (this.vegetationsPackPending.has(stand)) continue;
       if (g.isReady(teil, true, false)) {
         stand.tiefeBereit = true;
         this.vegetationsTiefePending.delete(stand);

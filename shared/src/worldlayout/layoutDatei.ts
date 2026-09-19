@@ -55,7 +55,7 @@ import {
 import { hostname } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { sanitizeWorldLayout } from './sanitize.js';
+import { sanitizeWorldLayout, sanitizeWorldLayoutMitBericht } from './sanitize.js';
 import type { WorldLayout } from './types.js';
 
 /**
@@ -332,6 +332,13 @@ export type SchreibErgebnis = {
   verworfen: number;
   /** Dasselbe je Liste (`placements`, `continents`, `routes`, `rivers`, `lakes`); nur Felder mit Verlust stehen drin. */
   verworfenJeFeld: Record<string, number>;
+  /**
+   * So viele exakte Duplikate hat der Sanitizer zu einem Eintrag zusammengefasst (heute nur
+   * `placements`). Das ist KEIN Verlust und zählt deshalb nicht bei `verworfen`.
+   */
+  zusammengefasst: number;
+  /** Dasselbe je Liste; nur Felder mit zusammengefassten Einträgen stehen drin. */
+  zusammengefasstJeFeld: Record<string, number>;
 };
 
 interface SperrInfo {
@@ -828,14 +835,17 @@ function schreibenVorbereiten(eingabe: unknown): {
   text: string;
   verworfen: number;
   verworfenJeFeld: Record<string, number>;
+  zusammengefasst: number;
+  zusammengefasstJeFeld: Record<string, number>;
 } {
   // Beides am ROHEN Dokument, vor dem Sanitizer: Der schneidet bei 2000
   // Platzierungen still ab und macht aus einem Nicht-Array eine leere Liste.
   listenPruefen(eingabe);
   const anzahl = platzierungenZaehlen(eingabe);
   if (anzahl > PLATZIERUNGEN_GRENZE) throw new LayoutZuVielePlatzierungen(anzahl);
-  const layout = sanitizeWorldLayout(eingabe);
-  if (!layout) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
+  const bericht = sanitizeWorldLayoutMitBericht(eingabe);
+  if (!bericht) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
+  const layout = bericht.layout;
   // ── Warum diese zusätzliche Hürde ──────────────────────────────────
   // Der Sanitizer klemmt und verwirft, aber er WIRFT nicht: Ein Dokument
   //     { version: 1, name: "x", regions: "kein Array" }
@@ -862,30 +872,47 @@ function schreibenVorbereiten(eingabe: unknown): {
   // Listenprüfung oben; der Sanitizer wirft die Einträge einzeln weg. Dann gingen alle
   // Einträge des Feldes mit 200 verloren. Roh gegen gefiltert zu vergleichen geht hier,
   // ohne den Sanitizer anzufassen (Regeln: siehe LISTEN).
+  // Zusammengefasste exakte Duplikate fehlen in `behalten`, sind aber nichts Verworfenes: Sie werden
+  // getrennt gezählt (`zusammengefasst`), sonst meldete der Editor „ACHTUNG … verworfen" für einen Eintrag,
+  // der nur mit seinem Zwilling zusammenfiel. Die Zahl kommt ausdrücklich vom Sanitizer.
+  const zusammengefasstJeFeld: Record<string, number> = {};
+  let zusammengefasst = 0;
+  if (bericht.zusammengefasst.length > 0) {
+    zusammengefasstJeFeld.placements = bericht.zusammengefasst.length;
+    zusammengefasst = bericht.zusammengefasst.length;
+  }
   const verworfenJeFeld: Record<string, number> = {};
   let verworfen = 0;
   for (const liste of LISTEN) {
     const roh = listeZaehlen(eingabe, liste.feld);
     const behalten = liste.behalten(layout);
+    const gefaltet = zusammengefasstJeFeld[liste.feld] ?? 0;
     if (roh > 0 && behalten === 0) {
       throw new LayoutFeldUngueltig(
         liste.feld,
         `Feld "${liste.feld}": keiner der ${roh} Einträge ist ${liste.name} — verworfen; nichts gespeichert`
       );
     }
-    if (roh > behalten) {
-      verworfenJeFeld[liste.feld] = roh - behalten;
-      verworfen += roh - behalten;
+    if (roh > behalten + gefaltet) {
+      verworfenJeFeld[liste.feld] = roh - behalten - gefaltet;
+      verworfen += roh - behalten - gefaltet;
     }
   }
-  return { layout, text: layoutText(layout), verworfen, verworfenJeFeld };
+  return { layout, text: layoutText(layout), verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld };
 }
 
 /** Der Teil, der die Sperre HÄLT: Basisvergleich, Sicherung, Tmp-Datei, Rename. Rein synchron, ohne `await`. */
 function unterSperreSchreiben(
   pfad: string,
   sperre: Sperre,
-  v: { layout: WorldLayout; text: string; verworfen: number; verworfenJeFeld: Record<string, number> },
+  v: {
+    layout: WorldLayout;
+    text: string;
+    verworfen: number;
+    verworfenJeFeld: Record<string, number>;
+    zusammengefasst: number;
+    zusammengefasstJeFeld: Record<string, number>;
+  },
   behalten: number,
   optionen: SchreibOptionen
 ): SchreibErgebnis {
@@ -928,6 +955,8 @@ function unterSperreSchreiben(
       hash: layoutHash(v.text),
       verworfen: v.verworfen,
       verworfenJeFeld: v.verworfenJeFeld,
+      zusammengefasst: v.zusammengefasst,
+      zusammengefasstJeFeld: v.zusammengefasstJeFeld,
     };
   } finally {
     sperreFreigeben(sperre);

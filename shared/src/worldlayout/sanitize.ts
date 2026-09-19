@@ -34,8 +34,16 @@ import {
   type RouteDef,
   type WorldLayout,
 } from './types.js';
+import { ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
 
-const ID_RE = /^[a-z0-9][a-z0-9-_]{0,63}$/;
+// Über diese Datei nach außen (index.ts lässt sie ohnehin durch): die Werkzeuge, die eine Platzierung anlegen.
+export {
+  neuePlatzierungsId,
+  platzierungenNormalisieren,
+  platzierungsIdBasis,
+  zusammengefassteDuplikate,
+} from './platzierungsId.js';
+
 const MAX_REGIONS = 512;
 const MAX_CONTINENTS = 32;
 const MAX_POLYGON_POINTS = 512;
@@ -49,8 +57,10 @@ function klemm(v: unknown, min: number, max: number, fallback: number): number {
 }
 
 function koordinate(v: unknown): number | null {
-  const n = Number(v);
-  if (!Number.isFinite(n) || Math.abs(n) > LAYOUT_MAX_EXTENT) return null;
+  // Nur eine ZAHL ist eine Koordinate: `Number(null)` und `Number('')` sind 0
+  // und hätten einen Eintrag mit `"x": null` still an den Ursprung gesetzt.
+  if (typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > LAYOUT_MAX_EXTENT) return null;
+  const n = v;
   // Auf Millimeter runden — stabilisiert JSON-Roundtrips und Kompilierung.
   return Math.round(n * 1000) / 1000;
 }
@@ -199,7 +209,24 @@ function sanitizeRegion(input: unknown, bekannteIds: Set<string>): RegionDef | n
   return region;
 }
 
+/** Das geprüfte Dokument samt dem, was der Sanitizer dabei zusammengelegt hat. */
+export interface SanitizeBericht {
+  layout: WorldLayout;
+  /**
+   * Eine Zeile je exaktem Duplikat, das er zu einem Eintrag zusammengefasst hat
+   * (`Prefab @(x, z)`). Zusammengefasst ist nicht verworfen: Es geht kein Objekt
+   * verloren. Wer roh gegen gültig zählt (Schreibweg, Boot), zieht diese Zahl ab.
+   * Sie wird ausdrücklich zurückgegeben und hängt an keinem Objekt, das beim
+   * Kopieren des Layouts verloren gehen könnte.
+   */
+  zusammengefasst: readonly string[];
+}
+
 export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
+  return sanitizeWorldLayoutMitBericht(input)?.layout ?? null;
+}
+
+export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht | null {
   if (typeof input !== 'object' || input === null) return null;
   const d = input as Record<string, unknown>;
   if (d.version !== WORLD_LAYOUT_VERSION) return null;
@@ -242,7 +269,7 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     }
   }
 
-  const placements: PlacementDef[] = [];
+  const roheEintraege: PlacementDef[] = [];
   if (Array.isArray(d.placements)) {
     for (const p of d.placements.slice(0, 2000)) {
       if (typeof p !== 'object' || p === null) continue;
@@ -252,6 +279,9 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
       const z = koordinate(o.z);
       if (x === null || z === null) continue;
       const eintrag: PlacementDef = { prefab: o.prefab, x, z };
+      // Eine ungültige `id` wird nicht verworfen, sondern unten abgeleitet:
+      // Der Eintrag selbst ist in Ordnung, nur seine Adresse fehlt.
+      if (typeof o.id === 'string' && ID_RE.test(o.id)) eintrag.id = o.id;
       // Nur die SCHREIBWEISE prüfen, nicht die Existenz der Route: Ob es
       // sie gibt, meldet pruefeLayout — wie bei `continentId` an der
       // Region hängt die Auflösung am Verwendungsort, nicht am Schema.
@@ -266,16 +296,23 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
       }
       const npc = sanitizeNpc(o.npc);
       if (npc) eintrag.npc = npc;
-      placements.push(eintrag);
+      roheEintraege.push(eintrag);
     }
   }
+  // Exakte Duplikate zusammenfassen, jedem Eintrag eine eindeutige `id` geben,
+  // nach `id` sortieren (platzierungsId.ts).
+  const { placements, zusammengefasst } = platzierungenNormalisieren(roheEintraege);
 
   const rivers: RiverDef[] = [];
   if (Array.isArray(d.rivers)) {
+    const ids = new Set<string>();
     for (const r of d.rivers.slice(0, 256)) {
       if (typeof r !== 'object' || r === null) continue;
       const o = r as Record<string, unknown>;
-      if (typeof o.id !== 'string' || !ID_RE.test(o.id)) continue;
+      // Eine doppelte ID verwirft den zweiten Eintrag (wie bei Regionen und
+      // Routen): Zwei Flüsse mit einer Adresse wären für jede Operation
+      // uneindeutig. Das Zählen der verworfenen Einträge (layoutDatei) meldet es.
+      if (typeof o.id !== 'string' || !ID_RE.test(o.id) || ids.has(o.id)) continue;
       if (!Array.isArray(o.points) || o.points.length < 2 || o.points.length > MAX_POLYGON_POINTS) continue;
       const points: [number, number][] = [];
       let ok = true;
@@ -287,6 +324,7 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
         points.push([x, z]);
       }
       if (!ok) continue;
+      ids.add(o.id);
       const fluss: RiverDef = { id: o.id, points, width: klemm(o.width, 4, 400, 30) };
       if (o.depth !== undefined) fluss.depth = klemm(o.depth, 1, 60, 6);
       rivers.push(fluss);
@@ -295,13 +333,15 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
 
   const lakes: LakeDef[] = [];
   if (Array.isArray(d.lakes)) {
+    const ids = new Set<string>();
     for (const l of d.lakes.slice(0, 256)) {
       if (typeof l !== 'object' || l === null) continue;
       const o = l as Record<string, unknown>;
-      if (typeof o.id !== 'string' || !ID_RE.test(o.id)) continue;
+      if (typeof o.id !== 'string' || !ID_RE.test(o.id) || ids.has(o.id)) continue;
       const x = koordinate(o.x);
       const z = koordinate(o.z);
       if (x === null || z === null) continue;
+      ids.add(o.id);
       const see: LakeDef = { id: o.id, x, z, radius: klemm(o.radius, 8, 5000, 200) };
       if (o.depth !== undefined) see.depth = klemm(o.depth, 1, 60, 8);
       lakes.push(see);
@@ -353,7 +393,7 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     if (sx !== null && sz !== null) defaultSpawn = [sx, sz];
   }
 
-  return {
+  const layout: WorldLayout = {
     version: WORLD_LAYOUT_VERSION,
     name: d.name,
     detailSeed,
@@ -365,4 +405,6 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     ...(lakes.length > 0 ? { lakes } : {}),
     ...(routes.length > 0 ? { routes } : {}),
   };
+  merkeZusammengefasst(layout, zusammengefasst);
+  return { layout, zusammengefasst };
 }

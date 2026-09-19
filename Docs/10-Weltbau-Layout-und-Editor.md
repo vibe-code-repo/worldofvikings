@@ -427,6 +427,24 @@ Kennung).
   `npm ci --include=dev`, typecheck und Tests OHNE Pipe, auf live
   Client-Build nach `dist.neu` mit Tausch, Dienste starten,
   Gesundheitsprüfung bis 120 s auf HTTP 426 an Port 2467.
+- **Ausrollen mit Platzierungs-ids (E1, K1.1): nach dem ersten Boot nicht
+  ohne Spielstand-Rücksicherung zurückrollen.** Der erste Boot mit den ids
+  stempelt jedes Layout-ZDO auf die `id` seiner Platzierung um (echter
+  DEV-Spielstand: `0 gespawnt, 157 aktualisiert, 0 entfernt`, 157 von 157
+  umgestempelt). Der ALTE Servercode kennt diese Werte nicht: Er findet
+  die ZDOs nur über die Nähe (gleiches Prefab, unter 0,5 m) wieder und
+  stempelt sie zurück auf die alte Kennung. Wer nicht auf seinem
+  Platzierungspunkt steht, geht dabei verloren: Im Versuch
+  (Kopie des DEV-Spielstands, Angriff 1 auf K1.1) waren das die zwei
+  fahrenden Routen-NPCs (`voelva` auf `route-1`, `surtr` auf `route-2`) —
+  `2 gespawnt, 155 aktualisiert, 2 entfernt`, neue ZDO-Ids, Position wieder
+  am Platzierungspunkt, Zustand weg (4 Member vorher, 3 nachher). Der
+  dritte Routen-NPC blieb nur, weil er zufällig unter 0,5 m von seinem
+  Platz stand. Ein Rückrollen vor dem ersten Boot mit den ids ist
+  folgenlos; danach zuerst den Spielstand (`worlds/<instanz>.db.zst`)
+  sichern und im Zweifel zurückspielen, nicht den Code zurückrollen.
+  Vorwärts heilt es sich (`0 gespawnt, 157 aktualisiert, 0 entfernt`), der
+  verlorene Zustand kommt aber nicht wieder.
 - Tests (Runner `scripts/run-tests.mjs`, Docs/09 P26): `npm test` fährt die
   Kernliste (20 Dateien), `npm test -- --alle` zusätzlich die drei langen
   Läufe. Für dieses Dokument einschlägig: `shared/test/worldlayout.ts`,
@@ -490,10 +508,10 @@ und nehmen so Sanitisierung, Editor/MCP und Deploy mit.
   die ZDO-Revision steigt gedrosselt mit 4 Hz — beides wie bei den
   Kreaturen. Ein Routen-NPC wird dabei aus der Kreatur-Simulation
   entlassen, sonst zöge die Wander-KI an derselben Position.
-- **Wiedererkennung über die Kennung**: Platzierungen werden beim Boot
-  über den ZDO-Member `layoutId` wiedergefunden, nicht mehr nur über die
-  Nähe zum Eintrag — ein Routen-NPC steht beim nächsten Start ja irgendwo
-  auf seiner Runde.
+- **Wiedererkennung über die `id`**: Platzierungen werden beim Boot
+  über den ZDO-Member `layoutId` (die `id` der Platzierung, `PlacementDef.id`; zum Ausrollen s. „Betrieb")
+  wiedergefunden, nicht mehr nur über die Nähe zum Eintrag — ein Routen-NPC
+  steht beim nächsten Start ja irgendwo auf seiner Runde.
 - **Animation**: Der Server schreibt den Bewegungszustand in den
   ZDO-Member `anim` (`idle`/`walk`, nur bei Wechsel). Der Client startet
   die gleichnamige AnimationGroup der Instanz
@@ -600,17 +618,19 @@ Datenmodell: `shared/src/npc.ts` — `Fraktion`, `NpcRolle`,
   `?? 'zivil'` schreiben.
 - **Im Dokument stehen nur die Abweichungen.** Ein Eintrag ohne `npc`
   behält keinen — der Round-Trip ist stabil, und **beide** Weltdateien
-  (`welten/dev.json`, `welten/live.json`; live führt 17 Regionen und 159
+  (`welten/dev.json`, `welten/live.json`; live führt 17 Regionen und 157
   Platzierungen) gehen bytegleich durch den Sanitizer (Test in
   `shared/test/worldlayout.ts`).
 
 **Zum Client — ohne ein einziges zusätzliches Byte pro Tick:**
 
 - *Online*: Der Server setzt beim Spawnen ohnehin den ZDO-Member
-  `layoutId` (`LAYOUT_ID_MEMBER`, Wert `layoutKennung(p)` =
-  `Prefab@x,z`); er wandert mit einem laufenden NPC mit. Der Client hat
+  `layoutId` (`LAYOUT_ID_MEMBER`, Wert `p.id`, die stabile Kennung der
+  Platzierung; bis E1 war es `layoutKennung(p)` = `Prefab@x,z`, das der Client
+  als Rückfall für alte Spielstände noch kennt); er wandert mit einem
+  laufenden NPC mit. Der Client hat
   das Weltdokument ohnehin (Paket `WorldLayoutData`) und baut daraus die
-  Tabelle Kennung → `NpcEinordnung` (`main.ts`, `buildWorld`) — der
+  Tabelle `id` → `NpcEinordnung` (`main.ts`, `buildWorld`) — der
   `EntityManager` verknüpft beides beim ZDO-Update
   (`setzeNpcQuelle`/`npcEinordnung`). Name, Rolle und Stufe ändern sich
   nie; sie in jeden Positions-Tick zu legen wäre der naheliegende, aber

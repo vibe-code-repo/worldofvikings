@@ -192,21 +192,22 @@ const mitNpc = sanitizeWorldLayout({
   continents: [],
   regions: [],
   placements: [
+    // Ausdrückliche IDs p0..p7 halten die Reihenfolge (die Liste wird nach `id` sortiert).
     // Alles gültig — kommt unverändert durch.
-    { prefab: 'Voelva', x: 0, z: 0, npc: { name: 'Sigrun', rolle: 'quest', fraktion: 'wikinger', stufe: 12, quest: 'verfuegbar' } },
+    { id: 'p0', prefab: 'Voelva', x: 0, z: 0, npc: { name: 'Sigrun', rolle: 'quest', fraktion: 'wikinger', stufe: 12, quest: 'verfuegbar' } },
     // Unbekannte Werte werden WEGGELASSEN (nicht auf einen Standard
     // gezwungen) — dann greift die Prefab-Vorgabe.
-    { prefab: 'Surtr', x: 10, z: 0, npc: { rolle: 'buergermeister', fraktion: 'elfen', quest: 'vielleicht', stufe: 7 } },
+    { id: 'p1', prefab: 'Surtr', x: 10, z: 0, npc: { rolle: 'buergermeister', fraktion: 'elfen', quest: 'vielleicht', stufe: 7 } },
     // Stufe wird geklemmt, leerer Name fällt weg.
-    { prefab: 'Voelva', x: 20, z: 0, npc: { name: '   ', stufe: 999 } },
-    { prefab: 'Voelva', x: 30, z: 0, npc: { stufe: -5 } },
+    { id: 'p2', prefab: 'Voelva', x: 20, z: 0, npc: { name: '   ', stufe: 999 } },
+    { id: 'p3', prefab: 'Voelva', x: 30, z: 0, npc: { stufe: -5 } },
     // Nur Unsinn drin → gar kein npc-Feld.
-    { prefab: 'Voelva', x: 40, z: 0, npc: { rolle: 'quatsch' } },
-    { prefab: 'Voelva', x: 50, z: 0, npc: 'kein Objekt' },
+    { id: 'p4', prefab: 'Voelva', x: 40, z: 0, npc: { rolle: 'quatsch' } },
+    { id: 'p5', prefab: 'Voelva', x: 50, z: 0, npc: 'kein Objekt' },
     // Überlanger Name wird gekürzt statt die Platzierung zu verwerfen.
-    { prefab: 'Voelva', x: 60, z: 0, npc: { name: 'x'.repeat(200) } },
+    { id: 'p6', prefab: 'Voelva', x: 60, z: 0, npc: { name: 'x'.repeat(200) } },
     // Ohne npc bleibt es dabei — der Round-Trip-Fall des Bestands.
-    { prefab: 'Beech1', x: 70, z: 0 },
+    { id: 'p7', prefab: 'Beech1', x: 70, z: 0 },
   ],
 })!.placements!;
 check('npc: vollständige Angabe bleibt', JSON.stringify(mitNpc[0]!.npc) === JSON.stringify({ name: 'Sigrun', rolle: 'quest', fraktion: 'wikinger', stufe: 12, quest: 'verfuegbar' }));

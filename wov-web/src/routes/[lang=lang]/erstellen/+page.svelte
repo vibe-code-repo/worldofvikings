@@ -109,6 +109,12 @@
     setzeAugenfarbe(id: string): void;
     drehe(winkel: number): void;
     blickZurueck(): void;
+    /**
+     * Kopf-Zoom. Optional: Ein noch gecachtes älteres Bündel kennt ihn nicht,
+     * und die Seite muss damit weiter funktionieren.
+     */
+    zoomeKopf?(nah?: boolean): void;
+    beiKopfZustand?: ((zustand: { nah: boolean; ueber: boolean }) => void) | null;
     dispose(): void;
   }
 
@@ -152,6 +158,15 @@
   let hinweisText = $state<string | null>(null);
   let fertig = $state(false);
   let fussHinweisAn = $state(false);
+  /** Steht die Kamera im Kopf-Porträt (oder fährt sie dorthin)? Kommt aus der Vorschau. */
+  let kopfNah = $state(false);
+  /** Ist der Mauszeiger über dem Kopf? Kommt aus der Vorschau. */
+  let kopfUeber = $state(false);
+  /** Kennt das geladene Vorschau-Bündel den Kopf-Zoom? Ein altes, gecachtes kennt ihn nicht. */
+  let kopfZoomBereit = $state(false);
+  /** Nach dem ersten Kopf-Zoom der Sitzung wird die Markierung nur noch beim Überfahren gezeigt. */
+  let kopfZoomGesehen = $state(false);
+  const KOPFZOOM_SPEICHER = 'wov-kopfzoom';
   /** Verhindert, dass ein älterer Komplett-Ladevorgang eine neuere Wahl überschreibt. */
   let ladeLauf = 0;
   /** Auch schnelle Klicks auf den Rüstungsschalter folgen „letzte Auswahl gewinnt“. */
@@ -159,7 +174,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'emberrage-glow-v1-20260913';
+  const FIGUREN_STAND = 'kopf-zoom-v1-20260919';
 
   let figur = $state('');
   let frisur = $state('');
@@ -190,7 +205,7 @@
   }
   interface Ruestungsset {
     name: string;
-    teile: readonly { datei: string; regionen: readonly string[] }[];
+    teile: readonly { datei: string; regionen: readonly string[]; slot: string }[];
   }
 
   // Class choices reference stable set IDs; item details come from the generated registry.
@@ -204,6 +219,7 @@
           // shipped with the website, while game assets keep the legacy rig.
           datei: (part.previewModel ?? part.model).replace(/\.glb$/, ''),
           regionen: part.regions,
+          slot: part.appearanceSlot,
         })),
       }]] : [];
     }))
@@ -212,6 +228,11 @@
   let detailTab = $state<DetailTab>('koerper');
   let klasseId = $state('krieger');
   let ruestungAn = $state(false);
+  /**
+   * Helm ausgeblendet? Reine Vorschau: bleibt über Klassen- und Figurwechsel
+   * stehen, wird nicht gemerkt und nicht ans Spiel übergeben.
+   */
+  let helmAus = $state(false);
   const klassen: readonly Charakterklasse[] = [
     { id: 'krieger', zeichen: '⚔', farbe: '#d58a45', name: { de: 'Krieger', en: 'Warrior' }, rolle: { de: 'Tank / Nahkampf-DPS', en: 'Tank / Melee DPS' }, beschreibung: { de: 'Krieger sind kampferprobte Nahkämpfer, die Wut aufbauen, wenn sie Schaden verursachen oder erleiden.', en: 'Warriors are battle-tested melee fighters who build rage as they deal or receive damage.' }, werte: [23, 20, 22, 10, 11], faehigkeiten: [
       { zeichen: 'ᛏ', name: { de: 'Vorpreschen', en: 'Charge' }, text: { de: 'Stürmt auf einen Gegner zu und betäubt ihn kurz.', en: 'Rush an enemy and briefly stun them.' } },
@@ -229,6 +250,7 @@
   ];
   const aktiveKlasse = $derived(klassen.find((eintrag) => eintrag.id === klasseId) ?? klassen[0]);
   const aktiveRuestung = $derived(RUESTUNGSSETS[klasseId]);
+  const hatHelm = $derived(aktiveRuestung?.teile.some((teil) => teil.slot === 'kopf') ?? false);
   const wertNamen = $derived(lang === 'de' ? ['Stärke', 'Beweglichkeit', 'Ausdauer', 'Intelligenz', 'Willenskraft'] : ['Strength', 'Agility', 'Stamina', 'Intellect', 'Willpower']);
   const tabs = $derived(lang === 'de'
     ? [{ id: 'koerper' as const, name: 'Körper' }, { id: 'gesicht' as const, name: 'Gesicht' }, { id: 'haare' as const, name: 'Haare' }, { id: 'fahrt' as const, name: 'Fahrt' }]
@@ -338,10 +360,20 @@
     const istAktuell = () =>
       (lauf === undefined || lauf === ladeLauf) && ruestungsAufruf === ruestungsLauf;
     const set = ruestungAn ? RUESTUNGSSETS[klasseId] : undefined;
+    // `helmAus` wird hier, im selben Atemzug wie `ruestungAn`, gelesen: Die
+    // Vorschau setzt jeden Slot sofort, der letzte Aufruf gewinnt, und so kann
+    // nach schnellen Klicks weder ein Helm ohne Rüstung noch eine Rüstung mit
+    // dem falschen Helmzustand stehen bleiben. Die Slotnummern bleiben stabil;
+    // der Helm ist nur ein Slot, der `null` bekommt.
+    const helmWeg = helmAus;
     await Promise.all(
-      Array.from({ length: 7 }, (_, index) =>
-        vorschau!.setze(`klassenruestung-${index}`, set?.teile[index]?.datei ?? null)
-      )
+      Array.from({ length: 7 }, (_, index) => {
+        const teil = set?.teile[index];
+        return vorschau!.setze(
+          `klassenruestung-${index}`,
+          teil && !(helmWeg && teil.slot === 'kopf') ? teil.datei : null,
+        );
+      })
     );
     if (!istAktuell()) return false;
     return true;
@@ -441,6 +473,24 @@
     }
   }
 
+  async function schalteHelm() {
+    if (!fertig || !ruestungAn || !hatHelm) return;
+    const vorher = helmAus;
+    helmAus = !vorher;
+    try {
+      await zeigeKlassenruestung();
+    } catch (fehler) {
+      // Ließ sich der Helm nicht laden, bleibt er ausgeblendet.
+      helmAus = vorher;
+      console.warn('[erstellung] Helm ließ sich nicht umschalten:', fehler);
+      try {
+        await zeigeKlassenruestung();
+      } catch {
+        /* schon gemeldet */
+      }
+    }
+  }
+
   function waffeFuerKlasse(id: string): 'schwert' | 'stab' | null {
     if (id === 'krieger') return 'schwert';
     if (id === 'druide') return 'stab';
@@ -515,6 +565,19 @@
           Vorschau: new (leinwand: HTMLCanvasElement, wurzel: string) => Vorschau;
         };
         vorschau = new modul.Vorschau(leinwand, modellWurzel);
+        kopfZoomBereit = typeof vorschau.zoomeKopf === 'function';
+        vorschau.beiKopfZustand = (zustand) => {
+          kopfNah = zustand.nah;
+          kopfUeber = zustand.ueber;
+          if (zustand.nah && !kopfZoomGesehen) {
+            kopfZoomGesehen = true;
+            try {
+              sessionStorage.setItem(KOPFZOOM_SPEICHER, '1');
+            } catch {
+              /* privater Modus: dann gilt es nur für diese Seite */
+            }
+          }
+        };
       } catch (e) {
         console.error('[erstellung] vorschau.js', e);
         hinweisText = fuelle(t['create.stage.hint.module_missing'], {
@@ -541,6 +604,9 @@
     vorschau = null;
     fertig = false;
     fussHinweisAn = false;
+    kopfNah = false;
+    kopfUeber = false;
+    kopfZoomBereit = false;
     hinweisText = null;
   }
 
@@ -660,6 +726,11 @@
   onMount(async () => {
     try {
       alt = JSON.parse(localStorage.getItem(SPEICHER) ?? '{}');
+    } catch {
+      /* egal */
+    }
+    try {
+      kopfZoomGesehen = sessionStorage.getItem(KOPFZOOM_SPEICHER) === '1';
     } catch {
       /* egal */
     }
@@ -868,11 +939,35 @@
         : (lang === 'de' ? 'Der Recke wird gerufen …' : 'Summoning your Viking …')}</p>
     </div>
     <canvas bind:this={leinwand} class:bereit={fertig}></canvas>
+    <!--
+      Markierung am Kopf. Rein zur Anzeige (pointer-events: none): Der Klick
+      geht an die Leinwand. Ort und Größe liefert die Vorschau als
+      CSS-Variablen an dieser Bühne (--kopf-x, --kopf-y, --kopf-r).
+    -->
+    <div
+      class="kopf-marke"
+      class:sichtbar={fertig && kopfZoomBereit && !kopfNah && (!kopfZoomGesehen || kopfUeber)}
+      class:ueber={kopfUeber}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" focusable="false"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M10 10l4.5 4.5M4.5 6.5h4M6.5 4.5v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+    </div>
     <div class="buehne-hinweis nur-vorlesen" aria-live="polite" class:fertig>{hinweisText ?? t['create.stage.hint.loading']}</div>
     <div class="buehne-werkzeug">
       <button type="button" title={t['create.stage.rotate_left']} onclick={() => vorschau?.drehe(-0.35)}>↺</button>
       <button type="button" title={t['create.stage.reset_view']} onclick={() => vorschau?.blickZurueck()}>⌂</button>
       <button type="button" title={t['create.stage.rotate_right']} onclick={() => vorschau?.drehe(0.35)}>↻</button>
+      <button
+        type="button"
+        class:aktiv={kopfNah}
+        title={kopfNah ? t['create.stage.zoom_out'] : t['create.stage.zoom_head']}
+        aria-label={t['create.stage.zoom_head']}
+        aria-pressed={kopfNah}
+        disabled={!fertig || !kopfZoomBereit}
+        onclick={() => vorschau?.zoomeKopf?.()}
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M10 10l4.5 4.5M4.5 6.5h4{kopfNah ? '' : 'M6.5 4.5v4'}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+      </button>
     </div>
     <p class="buehne-fuss">{fussHinweisAn ? t['create.footer.hint'] : ''}</p>
   </section>
@@ -895,6 +990,17 @@
         >{ruestungAn
             ? (lang === 'de' ? 'Rüstung ablegen' : 'Remove armour')
             : (lang === 'de' ? 'Rüstung anzeigen' : 'Show armour')}</button>
+        {#if ruestungAn && hatHelm}
+          <button
+            type="button"
+            class="helm-schalter"
+            class:aktiv={helmAus}
+            aria-pressed={helmAus}
+            disabled={!fertig}
+            data-testid="helm-schalter"
+            onclick={() => { void schalteHelm(); }}
+          >{helmAus ? t['create.helmet.show'] : t['create.helmet.hide']}</button>
+        {/if}
         <small>{aktiveRuestung.name}</small>
       {:else}
         <p>{lang === 'de' ? 'Das Rüstungsset dieser Klasse ist noch in Entwicklung.' : 'This class armour set is still in development.'}</p>
@@ -1136,6 +1242,48 @@
   .buehne-hinweis.fertig { display: none; }
   .buehne-werkzeug { position: absolute; right: 12px; bottom: 34px; display: flex; gap: 5px; z-index: 3; }
   .buehne-werkzeug button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; font-size: 14px; backdrop-filter: blur(5px); }
+  .buehne-werkzeug button:disabled { cursor: not-allowed; opacity: 0.52; }
+  .buehne-werkzeug button.aktiv { border-color: var(--runengold); color: var(--runengold); background: rgba(182, 139, 37, 0.17); }
+
+  /*
+    Kopfmarkierung: dünner Ring in Runengold um den Kopf, mit einer kleinen
+    Lupe am Rand. Ort und Größe kommen aus der Vorschau (--kopf-x/-y/-r in
+    Pixeln, bezogen auf diese Bühne). Sichtbar, sobald die Figur steht,
+    deutlicher über der Bühne und am deutlichsten über dem Kopf selbst. Nach
+    dem ersten Kopf-Zoom der Sitzung zeigt die Seite sie nur noch beim
+    Überfahren des Kopfes (Klasse `sichtbar`).
+  */
+  .kopf-marke {
+    position: absolute;
+    z-index: 2;
+    left: var(--kopf-x, 50%);
+    top: var(--kopf-y, 30%);
+    width: calc(var(--kopf-r, 0px) * 2);
+    height: calc(var(--kopf-r, 0px) * 2);
+    transform: translate(-50%, -50%);
+    border: 1px solid color-mix(in srgb, var(--runengold), transparent 35%);
+    border-radius: 50%;
+    box-shadow: 0 0 16px rgba(255, 215, 0, 0.1), inset 0 0 14px rgba(255, 215, 0, 0.06);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  .kopf-marke.sichtbar { opacity: 0.4; animation: kopf-puls 2.8s ease-in-out infinite; }
+  .buehne:hover .kopf-marke.sichtbar { opacity: 0.8; }
+  .kopf-marke.sichtbar.ueber { opacity: 1; border-color: var(--runengold); }
+  .kopf-marke svg {
+    position: absolute;
+    right: 8%;
+    top: 8%;
+    transform: translate(50%, -50%);
+    box-sizing: content-box;
+    padding: 4px;
+    border: 1px solid color-mix(in srgb, var(--runengold), transparent 40%);
+    border-radius: 50%;
+    background: rgba(9, 11, 16, 0.78);
+    color: var(--runengold);
+  }
+  @keyframes kopf-puls { 50% { transform: translate(-50%, -50%) scale(1.05); } }
   .buehne-fuss { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: max-content; max-width: 92%; margin: 0; color: rgba(225, 216, 196, 0.72); font-size: 10px; text-align: center; }
 
   .klasseninfo { grid-column: 3; grid-row: 2; align-self: stretch; overflow: auto; padding: 10px 0 12px 20px; border-left: 1px solid rgba(208, 157, 32, 0.22); background: linear-gradient(90deg, rgba(5, 8, 9, 0.48), rgba(4, 6, 7, 0.16)); backdrop-filter: blur(3px); }
@@ -1148,6 +1296,7 @@
   .ruestungs-vorschau button { width: 100%; padding: 9px 12px; border-color: color-mix(in srgb, var(--klasse), transparent 36%); background: linear-gradient(180deg, color-mix(in srgb, var(--klasse), #111 68%), rgba(8, 10, 12, 0.92)); color: #eee8db; font-family: var(--schrift-kappen); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; }
   .ruestungs-vorschau button:hover, .ruestungs-vorschau button.aktiv { border-color: var(--runengold); box-shadow: 0 0 12px color-mix(in srgb, var(--klasse), transparent 62%); }
   .ruestungs-vorschau button:disabled { cursor: not-allowed; opacity: 0.52; }
+  .ruestungs-vorschau button.helm-schalter { padding: 6px 12px; font-size: 9px; }
   .ruestungs-vorschau small, .ruestungs-vorschau p { margin: 0; color: #8f8777; font-size: 9px; letter-spacing: 0.04em; line-height: 1.45; }
   .klasseninfo h3 { margin: 0 0 9px; font-size: 13px; letter-spacing: 0.08em; }
   .werte-block { padding-bottom: 16px; border-bottom: 1px solid rgba(194, 150, 42, 0.18); }
@@ -1210,5 +1359,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .runenportal, .runenportal::before, .runenkern, .runenring { animation: none; }
+    .kopf-marke { transition: none; }
+    .kopf-marke.sichtbar { animation: none; }
   }
 </style>

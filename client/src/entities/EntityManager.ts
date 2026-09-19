@@ -2757,6 +2757,13 @@ export class EntityManager {
     // Werferliste stehen.
     for (const proto of masters) {
       if (proto.isEnabled() || proto.thinInstanceCount > 0) schreibeInstanzen(proto, null);
+      // Dem Schattensystem dasselbe melden (G16 a): Wechselt der Bucket vom
+      // Voll- in den Zellbetrieb, hielt der Vollmaster dort seine Buchung
+      // samt Klon und warf weiter Schatten fuer einen Bestand, den er nicht
+      // mehr zeichnet. `null` leert die Buchung; ein Master, der nie
+      // gemeldet war, bekommt dadurch keine (Shadows.setVegetationsInstanzen).
+      // Tell the shadow system too: the full master's booking must be emptied.
+      this.meldeVegetationsSchatten(bucket, proto, null);
     }
 
     // Zellzuordnung aus DERSELBEN Quelle wie der Umkreis-Index: der

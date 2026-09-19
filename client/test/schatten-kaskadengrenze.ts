@@ -14,11 +14,19 @@
  * Kaskaden und Aufloesung steht. Ein Rueckfall auf Babylons Vorgaben
  * (`cascadeBlendPercentage = 0.1`) in `setLevel` faellt damit auf.
  *
+ * Dritter Teil (H1): die Naht selbst. Der echte `CascadedShadowGenerator`
+ * baut sich auf der NullEngine, wenn die Engine CSM meldet und ein Stellvertreter
+ * die GL-Konstanten liefert; dann laeuft `erzeugeGenerator` ungeaendert und der
+ * Test liest Aufloesung, Kaskaden, lambda und Ueberblendung am ECHTEN Objekt.
+ * Eine feste 1024 im Rumpf der Naht faellt damit auf (die Attrappe oben sieht
+ * nur das Argument, nicht, was der Generator daraus macht).
+ *
  * Lauf: npx tsx client/test/schatten-kaskadengrenze.ts
  */
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { LOOK_VORGABE } from '../../shared/src/lookProfil.js';
 import {
@@ -108,8 +116,10 @@ console.log('Schatten G18: Kaskadengrenze');
     constructor(readonly mapSize: number) {}
     addShadowCaster(): void {}
     getShadowMap() {
-      return { renderList: [] as unknown[] };
+      // Das Uebrige, was FernKaskadenTakt beim Einhaengen anfasst (G15).
+      return { renderList: [] as unknown[], getRenderLayers: () => 2 };
     }
+    _computeMatrices(): void {}
     dispose(): void {}
   }
   const engine = new NullEngine();
@@ -156,6 +166,53 @@ console.log('Schatten G18: Kaskadengrenze');
   shadows.setLevel(1);
   pruefe(letzter().lambda === 0.2, `100-FPS-Profil: lambda ${letzter().lambda}, erwartet 0,2 (nicht der Look-Wert)`);
   pruefe(letzter().cascadeBlendPercentage === 0.2, `100-FPS-Profil: Ueberblendung ${letzter().cascadeBlendPercentage}, erwartet 0,2`);
+
+  shadows.dispose();
+  scene.dispose();
+  engine.dispose();
+}
+
+// ── H1 Die Naht selbst: der echte Generator ──────────────────────────
+{
+  const engine = new NullEngine();
+  // Die NullEngine meldet kein CSM und hat kein GL. Beides ist Kulisse fuer den
+  // Konstruktor; gezeichnet wird nichts. Der Stellvertreter antwortet auf jede
+  // Konstante mit 0 und auf jeden Aufruf mit sich selbst.
+  (engine as unknown as { _features: { supportCSM: boolean } })._features.supportCSM = true;
+  const stellvertreter: unknown = new Proxy(function () {}, {
+    get: (_ziel, name) => (name === Symbol.toPrimitive || name === 'valueOf' ? () => 0 : stellvertreter),
+    apply: () => stellvertreter,
+    set: () => true,
+  });
+  (engine as unknown as { _gl: unknown })._gl = stellvertreter;
+  const scene = new Scene(engine);
+  scene.activeCamera = new FreeCamera('kamera', new Vector3(0, 2, 0), scene);
+  const sonne = new DirectionalLight('sonne', new Vector3(0.3, -1, 0.2), scene);
+  const shadows = new Shadows(scene, sonne);
+  const intern = shadows as unknown as { profil: typeof LOOK_VORGABE };
+  const werte = () => {
+    const w = shadows.messwerte() as Record<string, number | boolean | null>;
+    return w;
+  };
+
+  shadows.setLevel(2);
+  const v = LOOK_VORGABE.schatten;
+  pruefe(werte().aufloesung === v.aufloesung, `echter Generator: Aufloesung ${werte().aufloesung}, Vorgabe ${v.aufloesung} (feste Zahl in der Naht?)`);
+  pruefe(werte().kaskaden === Math.max(MIN_KASKADEN, v.kaskaden), `echter Generator: Kaskaden ${werte().kaskaden}`);
+  pruefe(werte().lambda === v.lambda, `echter Generator: lambda ${werte().lambda}, Vorgabe ${v.lambda}`);
+  pruefe(werte().ueberblendung === v.ueberblendung, `echter Generator: Ueberblendung ${werte().ueberblendung}, Vorgabe ${v.ueberblendung}`);
+  pruefe(werte().dunkelheit === v.dunkelheit && werte().gerastet === v.rasten, 'echter Generator: Dunkelheit/Rasten kommen nicht an');
+  pruefe(werte().reichweite === v.reichweite, `echter Generator: Reichweite ${werte().reichweite}, Vorgabe ${v.reichweite}`);
+
+  // Ein anderes Profil, damit die Vorgabe nicht zufaellig die richtige Zahl hat.
+  intern.profil = {
+    ...LOOK_VORGABE,
+    schatten: { ...v, lambda: 0.05, ueberblendung: 0.25, aufloesung: 1024, kaskaden: 3, reichweite: 70, dunkelheit: 0.4, rasten: false },
+  };
+  shadows.setLevel(3);
+  pruefe(werte().aufloesung === 1024, `echter Generator: Aufloesung ${werte().aufloesung}, Look 1024`);
+  pruefe(werte().kaskaden === 3 && werte().reichweite === 70, `echter Generator: Kaskaden/Reichweite ${werte().kaskaden} / ${werte().reichweite}`);
+  pruefe(werte().lambda === 0.05 && werte().ueberblendung === 0.25, `echter Generator: lambda/Ueberblendung ${werte().lambda} / ${werte().ueberblendung}`);
 
   shadows.dispose();
   scene.dispose();

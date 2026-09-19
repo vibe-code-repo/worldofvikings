@@ -737,3 +737,7 @@ look:
     rasten: true
     lambda: 0.3
     ueberblendung: 0.2
+    # G15: Die ferne Kaskade (ab ~19 m) wird nur jedes zweite Bild neu
+    # gerendert, mit eingefrorenen Matrizen und Deckungspruefung (s.
+    # `FernKaskadenTakt` in Shadows.ts). 1 = jedes Bild wie bisher.
+    fernTakt: 2

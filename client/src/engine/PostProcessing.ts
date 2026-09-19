@@ -147,6 +147,26 @@ export function taaStehtHinten(kette: readonly ({ name: string } | null | undefi
   const n = belegt.length;
   return n >= 2 && belegt[n - 2]!.name === 'TAA' && belegt[n - 1]!.name === 'TAAPass';
 }
+
+/**
+ * Platz von TAA in der Kette, wenn es hinten steht — sonst -1 (M2).
+ *
+ * Ein Pass, der zur Laufzeit dazukommt (der Strahlenpass am Tor), gehoert
+ * DAVOR: an dieser Stelle eingefuegt, bleibt TAA hinten und muss nicht
+ * neu angehaengt werden (das kostete ein Bild ohne Glaettung, die
+ * History wird zurueckgesetzt). Der Index bezieht sich auf das Feld mit
+ * seinen freien Plaetzen, wie `attachPostProcess` ihn erwartet.
+ *
+ * Where TAA sits when it is last, else -1: a pass attached at run time goes
+ * in front of it, so TAA never has to be re-attached.
+ */
+export function taaPlatzWennHinten(kette: readonly ({ name: string } | null | undefined)[]): number {
+  if (!taaStehtHinten(kette)) return -1;
+  for (let i = kette.length - 1; i >= 0; i--) {
+    if (kette[i]?.name === 'TAA') return i;
+  }
+  return -1;
+}
 /**
  * Zahl der akkumulierten Abtastmuster (Babylon-Vorgabe 16).
  *
@@ -884,9 +904,6 @@ export class PostProcessing {
    */
   update(dt: number, sunDir?: { x: number; y: number; z: number }): void {
     this.dof?.update(dt);
-    // Jedes Bild eine Leseprobe: auch das Tor des Strahlenpasses hängt zur
-    // Laufzeit Pässe an und ab.
-    this.haengeTaaAnsEnde();
     if (this.shafts && sunDir) {
       // Die Quelle muss weit genug weg sein, dass sie sich beim Laufen nicht
       // mitbewegt — sonst wandert der Kranz mit dem Spieler statt am Himmel
@@ -995,6 +1012,13 @@ export class PostProcessing {
       // Anhaengen ein Wert aus einem anderen Blickwinkel darin.
       if (this.strahlenAngehaengt) this.shafts.exposure = this.profil.strahlen.exposure * tor;
     }
+    // Jedes Bild eine Leseprobe, und zwar NACH dem Tor (M2): Der Strahlenpass
+    // wird dort an die Kette gehaengt, eine Probe davor sah ihn erst im
+    // Folgebild und liess TAA ein Bild lang vor ihm stehen. Der Pass wird vor
+    // TAA eingefuegt (strahlenZielplatz), diese Probe ist der Rueckhalt fuer
+    // alles, was trotzdem hinter TAA landet.
+    // Read the chain AFTER the gate: the gate is what may append a pass.
+    this.haengeTaaAnsEnde();
   }
 
   /**
@@ -1223,8 +1247,21 @@ export class PostProcessing {
         break;
       }
     }
+    // Steht TAA hinten, gehoert der Strahlenpass DAVOR (M2): am Ende der Kette
+    // stuende er hinter TAA, und die Korrektur kostete einen History-Reset.
+    // Nie vor den ersten belegten Platz (MSAA, s. oben) — steht TAA dort selbst
+    // vorn, bleibt es beim Ende und haengeTaaAnsEnde() raeumt danach auf.
+    const taaPlatz = taaPlatzWennHinten(kette);
     const merk = this.strahlenPlatz;
-    if (merk > ersterBelegt && merk < kette.length && kette[merk] === null) return merk;
+    if (
+      merk > ersterBelegt &&
+      merk < kette.length &&
+      kette[merk] === null &&
+      (taaPlatz < 0 || merk < taaPlatz)
+    ) {
+      return merk;
+    }
+    if (taaPlatz > ersterBelegt) return taaPlatz;
     return null;
   }
 

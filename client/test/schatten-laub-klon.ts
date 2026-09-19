@@ -155,8 +155,17 @@ function wrapperKenntSubMesh(m: Mesh): boolean {
     shadows.setVegetationsInstanzen(laubB, matrizen);
     shadows.tick();
     pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 1, 'ein neuer Klon wartet nicht auf seinen Shader');
+    const vorLeerlauf = shadows.vegetationsSchattenStats().tiefeAnmeldungen;
     shadows.setPlayerPosition(9000, 9000); // alle Instanzen fallen aus dem Ring
     shadows.tick();
+    // M1: In dem Bild, in dem der Ring leerlaeuft, wird nichts mehr angemeldet.
+    // tick() ruft tiefeNachziehen() VOR dem Packen; der Klon hatte da noch
+    // `aktiv` 3 und wurde noch einmal angemeldet, obwohl das Packen ihn gleich
+    // darauf aus der Warteliste nimmt.
+    pruefe(
+      shadows.vegetationsSchattenStats().tiefeAnmeldungen === vorLeerlauf,
+      `der Zaehler zaehlt einen Aufruf zu viel: ${vorLeerlauf} -> ${shadows.vegetationsSchattenStats().tiefeAnmeldungen} im Bild, in dem der Ring leerlaeuft (M1)`
+    );
     // Schon nach EINEM Tick: Der Klon verlaesst die Warteliste beim Packen,
     // nicht erst im naechsten Durchlauf (dort wuerde er noch einmal angemeldet).
     pruefe(
@@ -183,6 +192,94 @@ function wrapperKenntSubMesh(m: Mesh): boolean {
   engine.dispose();
 }
 
+
+// ── M1 Gegenprobe: ein wartender Klon, der beim Packen Instanzen BEHAELT ─
+// wird vom Packen angemeldet — genau einmal je Bild, nicht zusaetzlich von
+// tiefeNachziehen() davor. Eigene Instanz, damit kein anderer Klon mitzaehlt.
+{
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const shadows = new Shadows(scene, new DirectionalLight('sonne', new Vector3(0.3, -1, 0.2), scene));
+  const liste: Mesh[] = [];
+  const fake = {
+    freezeShadowCastersBoundingInfo: false,
+    numCascades: 2,
+    shadowMaxZ: 50,
+    addShadowCaster: (m: Mesh) => {
+      if (!liste.includes(m)) liste.push(m);
+    },
+    getShadowMap: () => ({
+      get renderList() {
+        return liste;
+      },
+      set renderList(neu: Mesh[]) {
+        liste.length = 0;
+        liste.push(...neu);
+      },
+    }),
+    isReady: () => false, // der Shader wird nie fertig
+    dispose: () => undefined,
+  };
+  const intern = shadows as unknown as { generator: unknown; stufe: number };
+  intern.generator = fake;
+  intern.stufe = 2;
+
+  const laub = prototyp(scene, 'leaves_c', true);
+  const matrizen = new Float32Array(16 * 3);
+  for (let i = 0; i < 3; i++) {
+    matrizen.set(EINHEIT, i * 16);
+    matrizen[i * 16 + 12] = i * 2;
+  }
+  shadows.setPlayerPosition(0, 0);
+  shadows.setVegetationsInstanzen(laub, matrizen);
+  shadows.tick(); // packt und meldet an
+  const st1 = shadows.vegetationsSchattenStats();
+  pruefe(st1.tiefeWartend === 1 && st1.tiefeAnmeldungen === 1, `Vorbedingung: ein wartender Klon, ${st1.tiefeAnmeldungen} Anmeldung(en)`);
+
+  shadows.setVegetationsInstanzen(laub, matrizen); // steht wieder zum Packen an, der Klon wartet noch
+  shadows.tick();
+  const st2 = shadows.vegetationsSchattenStats();
+  pruefe(
+    st2.tiefeAnmeldungen === 2,
+    `ein wartender, neu gepackter Klon wurde ${st2.tiefeAnmeldungen - st1.tiefeAnmeldungen} Mal angemeldet, erwartet 1`
+  );
+  pruefe(st2.tiefeWartend === 1, 'der Klon wartet nach dem Neupacken nicht mehr auf seinen Shader');
+
+  // Ohne anstehendes Packen meldet tiefeNachziehen() weiter je Bild an (eine Wiederholung).
+  shadows.tick();
+  pruefe(
+    shadows.vegetationsSchattenStats().tiefeAnmeldungen === 3,
+    'ein wartender Klon ohne anstehendes Packen wird nicht mehr angemeldet — er wuerde nie bereit'
+  );
+
+  // H4: Ein entsorgter Klon, der zugleich zum Packen ansteht, verlaesst die
+  // Warteliste SOFORT — der Skip fuer wartende Klone steht hinter der
+  // Aufraeumpruefung. Ohne Spielerposition packt tick() nicht (Rueckkehr nach
+  // tiefeNachziehen), der Test sieht so allein die Warteliste.
+  {
+    const innen = shadows as unknown as {
+      vegetationsSchatten: Map<Mesh, { schatten: Mesh }>;
+      vegetationsPackPending: Set<unknown>;
+      letzteX: number;
+    };
+    const stand = innen.vegetationsSchatten.get(laub)!;
+    pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 1, 'Vorbedingung H4: der Klon wartet');
+    innen.vegetationsPackPending.add(stand);
+    stand.schatten.dispose();
+    innen.letzteX = Number.NaN;
+    shadows.tick();
+    pruefe(
+      shadows.vegetationsSchattenStats().tiefeWartend === 0,
+      'ein entsorgter Klon bleibt in der Warteliste, weil er zugleich zum Packen ansteht (H4)'
+    );
+    innen.vegetationsPackPending.clear();
+  }
+
+  intern.generator = null;
+  shadows.dispose();
+  scene.dispose();
+  engine.dispose();
+}
 
 if (fehler > 0) {
   console.error(`\n${fehler} Fehler`);

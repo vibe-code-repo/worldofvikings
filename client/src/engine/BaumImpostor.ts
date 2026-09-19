@@ -22,8 +22,7 @@
  * und Schattenpass.
  *
  * ── Vorbild ──────────────────────────────────────────────────────────
- * ClaudeCrafts produktives System (Three.js): foliage_impostor.ts,
- * foliage_impostor_core.ts, foliage_collapse.ts. Übernommen sind die
+ * Das produktive System des Schwesterprojekts (Three.js). Übernommen sind die
  * GESETZE (Ansichtspaar-Blend, geneigte Zylindernormale, Clearfarbe
  * Kronengrün, Sprites nie in die Werferliste). NICHT übernommen ist der
  * Code — andere Engine, andere Fallstricke. Die bewussten Abweichungen

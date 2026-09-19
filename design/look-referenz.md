@@ -317,10 +317,10 @@ Horizont IST die Nebelfarbe, `look.himmel.horizont: nebel`), von
 (0,68 / 0,73 / 0,79) auf (0,83 / 0,87 / 0,92).
 
 Weiter geht es an dieser Schraube nicht: `fogColor` ist eine sRGB-Farbe
-mit Anschlag bei 1,0, und `ValheimSky` leitet den Zenit als
+mit Anschlag bei 1,0, und die Himmelsfarben-Ableitung leitet den Zenit als
 0,45/0,55/0,80 des Horizonts ab — die Bildluma des Himmels lässt sich so
 um höchstens etwa ×1,3 heben, gebraucht wären ×1,6. Der Rest sitzt in
-`ValheimSky.ts` (Zenitableitung) und in der Belichtung, und beides
+der Himmelsfarben-Ableitung (Zenit) und in der Belichtung, und beides
 gehörte dieser Runde nicht. Deshalb bleibt `Hangfels/Himmel` bei 0,84
 statt 0,73 stehen; das ist der benannte Rest, nicht ein übersehener.
 
@@ -346,7 +346,7 @@ statt 0,73 stehen; das ist der benannte Rest, nicht ein übersehener.
 ## Nachtrag 10.09.2026 (2): die Spezifikation schlägt das Bild
 
 Seit `design/original-boden.md` gibt es eine zweite Quelle, und sie ist
-die stärkere: Zahlen aus den SPIELDATEIEN von Tale of Dark Lands statt
+die stärkere: Zahlen aus den SPIELDATEIEN des Vorbildspiels statt
 aus Screenshots. Wo beide etwas sagen, gilt die Spezifikation; diese
 Datei bleibt für das, was nur ein Bild hergibt — die VERHÄLTNISSE.
 
@@ -486,7 +486,7 @@ weil eine Tönung [1,283 / 0,614 / 0,224] sie dorthin gerechnet hat.
 
 ## Nachtrag 11.09.2026: Himmel (A5), Nebelwand (A6), Sonnenhof (A12), Schatten (A7)
 
-Bauer „Himmel und Licht", Block A der [[Roadmap — ToDL-MMORPG (Labor)]].
+Bauer „Himmel und Licht", Block A der Roadmap (Vault-Notiz „Roadmap — Labor“).
 Zeuge für alles hier: `~/wov-lab-mess/himmel-mess.mjs`, Bilder und
 Rohwerte unter `~/.cache/wov-lab/a5-*`, `a6-*`, `a7-*`, `a12-*`.
 
@@ -572,7 +572,7 @@ Regler, was sein Name sagt: 0,20 → 11 %, 0,34 → 24 %, 0,50 → 41 % des
 Himmels.
 
 **(2) Die CPU-Fassung des Himmels war nie nachgezogen worden.**
-`ValheimSky.himmelsFarbeToRef()` — die Quelle des Umgebungslichts —
+Die Himmelsfarben-Funktion `himmelsFarbeToRef()` — die Quelle des Umgebungslichts —
 rechnete den Sonnenschein mit `pow(cos, 8)`, der Shader längst mit dem
 Profilwert (`sonnenglühen` 0,2 → 176). Acht ist ein Lappen von 23°
 Halbwertsbreite, 176 einer von 5°: Das Umgebungslicht trug eine

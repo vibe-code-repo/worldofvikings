@@ -2,12 +2,12 @@
  * Prueft das Triplanar-Material-Plugin OHNE GPU.
  * Checks the triplanar material plugin WITHOUT a GPU.
  *
- * Das ist das Muster aus WoCs `worn_stone_shader.test.ts`, das
+ * Das ist das Muster eines Shader-Tests des Schwesterprojekts, das
  * `ARCHITECTURE.md` AP10 als Pruefkriterium 1 vorschreibt: den erzeugten
  * Shader-Quelltext je Grafikstufe ansehen. Ein Shader, den nur die GPU je zu
  * sehen bekommt, ist bis zum ersten Bild ungeprueft — und dann faellt er als
  * schwarze Wand auf, nicht als Fehlermeldung.
- * This is the pattern of WoC's `worn_stone_shader.test.ts` that
+ * This is the pattern of a sister-project shader test that
  * `ARCHITECTURE.md` AP10 prescribes as criterion 1: look at the generated
  * shader source per graphics tier.
  *

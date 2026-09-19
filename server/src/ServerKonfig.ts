@@ -474,14 +474,14 @@ export function leseServerKonfig(
       // Name des radialen Seed-Ports (Übergangspfad, s. server.yml).
       worldMode: world.mode === 'layout' ? 'layout' : 'valheim',
       worldLayoutPath: layoutPfad,
-      // worldgen flags (C++ ServerSettings defaults: smoothstep=true, bilinear=false,
+      // worldgen flags (reference defaults: smoothstep=true, bilinear=false,
       // ashlands-modern-noise=true)
       worldBlendSmoothStep: (world['experimental-biome-blend-smoothstep'] as boolean) ?? true,
       worldBilinearHeight: (world['experimental-bilinear-height-sampling'] as boolean) ?? false,
       worldRiverAffectsOcean: (world['experimental-river-affects-ocean'] as boolean) ?? false,
       worldAshlandsModernNoise: (world['experimental-ashlands-modern-noise'] as boolean) ?? true,
       worldDisableDistantRivers: (world['experimental-disable-distant-rivers'] as boolean) ?? false,
-      // Phase E/F zone population flags (C++ defaults: all true / overrides false)
+      // Phase E/F zone population flags (reference defaults: all true / overrides false)
       worldFeatures: (world.features as boolean) ?? true,
       worldVegetation: (world.vegetation as boolean) ?? true,
       worldLocationOverrides: (world['experimental-location-overrides'] as boolean) ?? false,
@@ -499,14 +499,14 @@ export function leseServerKonfig(
         als Zeichenkette, und eine nicht-leere Zeichenkette wäre wahr.
       */
       dungeonsModulbau: dungeons.modulbau === true,
-      // G2: creature spawning (C++ world.creatures default true)
+      // G2: creature spawning (world.creatures default true)
       worldCreatures: (world.creatures as boolean) ?? true,
       // A14: vorher stand world.save-interval in server.yml, ohne dass hier
       // etwas davon las -- der Default kam ausschliesslich aus
       // SAVE_INTERVAL_MS in WovServer.ts. Jetzt wirkt eine Aenderung wirklich
       // (WovServer.start() armiert damit seinen Speichertakt).
       saveIntervalMs: parseDauerMs(world['save-interval'], SAVE_INTERVAL_MS),
-      // G1: world saves live next to server.yml (C++ ./worlds)
+      // G1: world saves live next to server.yml
       worldsDir: resolve(datenVerzeichnis, 'worlds'),
       // Kontendatenbanken als Geschwister von worlds/ unter server/data --
       // wie vor der Aufspaltung von WovServer.ServerConfig.kontenDir, nur

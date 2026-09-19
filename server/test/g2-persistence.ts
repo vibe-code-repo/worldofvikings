@@ -1,7 +1,7 @@
 /**
  * G1 smoke test — world persistence (WorldManager save/load roundtrip).
  *
- * Mirrors C++ WorldManager::WriteFileDB/LoadFileDB semantics: worldTime,
+ * Mirrors the reference save/load semantics: worldTime,
  * generated zones and persistent ZDOs survive a restart; player positions
  * roundtrip through the players[] section (character ZDOs are excluded to
  * avoid ghosts). Der Regressionswaechter: Wiederhergestellte Zonen
@@ -10,7 +10,7 @@
  *
  * Checks:
  *  1. Server A: generate zone (0,0) (foliage), set worldTime,
- *     inject a player → saveWorld writes a zstd envelope with the C++-shaped
+ *     inject a player → saveWorld writes a zstd envelope with the reference-shaped
  *     sections (meta/worldTime/zones/players/zdos); re-save rotates .prev.
  *  2. Fresh server B on the same worldsDir: loads worldTime, generated
  *     zones, all persistent ZDOs; saved player state present; zones.update
@@ -160,7 +160,7 @@ check('A: persistent ZDOs present (foliage)', persistentOnA > 0, `${persistentOn
 serverA.saveWorld();
 check('save file written', existsSync(SAVE_FILE), SAVE_FILE);
 
-// Envelope shape (C++ .fwl meta + .db sections, JSON+zstd container)
+// Envelope shape (reference meta + db sections, JSON+zstd container)
 const envelope = JSON.parse(zstdDecompressSync(readFileSync(SAVE_FILE)).toString('utf-8')) as WorldSaveData;
 check(`envelope version ${SAVE_FORMAT_VERSION}`, envelope.version === SAVE_FORMAT_VERSION);
 check(
@@ -229,7 +229,7 @@ check(
 // zone (0,0)'s loaded ZDOs stay untouched (keine doppelte Vegetation).
 // G-POP: the generation queue is now sorted nearest-first, so the 200ms
 // budget generates the DIRECT NEIGHBORS of (0,0) first — and their foliage
-// groupRadius legitimately spills into ZDO-zone (0,0) (C++-faithful, see
+// groupRadius legitimately spills into ZDO-zone (0,0) (reference-faithful, see
 // e2-vegetation). Nachbar-Ueberhang bringt NEUE Eintraege an anderen
 // Positionen; eine zweite Streuung von (0,0) waere deterministisch und
 // legte jeden geladenen Eintrag ein zweites Mal an derselben Stelle ab.

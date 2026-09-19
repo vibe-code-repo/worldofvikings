@@ -2,16 +2,16 @@
  * Ganzzahlige Positions- und Seed-Hashes des Dungeon-Generators 2.0.
  * Integer position and seed hashes for dungeon generator 2.0.
  *
- * Quelle: `design/ARCHITECTURE.md` W6/W7/W8, vertieft in `design/woc-analysis.md`
- * §3. Der dortige Befund ist die Regel hier: Jeder Hash, den Server UND Client
+ * Quelle: `design/ARCHITECTURE.md` W6/W7/W8, vertieft in der Analyse des
+ * Schwesterprojekts, §3. Der dortige Befund ist die Regel hier: Jeder Hash, den Server UND Client
  * auswerten, ist GANZZAHLIG (`Math.imul`-Kette) — niemals trigonometrisch
  * (`Math.sin`/`Math.cos` sind in ECMAScript nicht bitgenau spezifiziert, siehe
- * die Falle in WoCs `tombSlotRoll`/`hash2`).
- * Source: `design/ARCHITECTURE.md` W6/W7/W8, detailed in `design/woc-analysis.md`
- * §3. Its finding is the rule here: every hash that both server AND client
+ * die Falle in `tombSlotRoll`/`hash2` des Schwesterprojekts).
+ * Source: `design/ARCHITECTURE.md` W6/W7/W8, detailed in the sister-project
+ * analysis, §3. Its finding is the rule here: every hash that both server AND client
  * evaluate is INTEGER (`Math.imul` chain) — never trigonometric (`Math.sin`/
- * `Math.cos` are not bit-exactly specified in ECMAScript, see the trap in WoC's
- * `tombSlotRoll`/`hash2`).
+ * `Math.cos` are not bit-exactly specified in ECMAScript, see the trap in the
+ * sister project's `tombSlotRoll`/`hash2`).
  *
  * Dieses Modul ist rein: kein Babylon, kein DOM, kein `node:`, kein
  * `Math.random`, keine Uhr, keine Trigonometrie.
@@ -54,13 +54,13 @@ function verruehren(zustand: number, wert: number): number {
 /**
  * Mischt einen Basis-Seed mit einem Salzwert zu einem neuen, unabhaengigen
  * Strom-Seed. Das ist die "Seed-Mischung statt geteiltem Strom fuer getrennte
- * Belange" aus `woc-analysis.md` §3 (`mixSeed`), Grundlage von W7: ein eigener
+ * Belange" aus der Schwesterprojekt-Analyse §3 (`mixSeed`), Grundlage von W7: ein eigener
  * `XorShiftRandom`-Strom je Stempel (`mische(seeds.deko, stempel.id)`) bzw. je
  * Anker (`mische(seeds.deko, anker.id)`), damit eine zusaetzliche Ziehung in
  * einem Strom die anderen nie verschiebt.
  * Mixes a base seed with a salt into a new, independent stream seed. This is
  * the "seed mixing instead of a shared stream for separate concerns" from
- * `woc-analysis.md` §3 (`mixSeed`), the basis of W7: an own `XorShiftRandom`
+ * the sister-project analysis §3 (`mixSeed`), the basis of W7: an own `XorShiftRandom`
  * stream per stamp (`mische(seeds.deko, stempel.id)`) or per anchor
  * (`mische(seeds.deko, anker.id)`), so an extra draw in one stream never
  * shifts the others.

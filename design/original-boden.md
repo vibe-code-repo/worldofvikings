@@ -1,8 +1,8 @@
 # Boden wie im Original — Spezifikation aus den Spieldaten
 
 Gemessen am 10.09.2026 **aus den Spieldateien**, nicht aus Screenshots:
-`~/.steam/steam/steamapps/common/Tale of Dark Lands/Tale of Dark Lands_Data`
-(Unity 2022.3.62f2, URP, Farbraum **Linear**), gelesen mit UnityPy 1.25.3.
+Installationsordner des Vorbildspiels
+(Unity 2022.3.62f2, URP, Farbraum **Linear**), gelesen mit einem Unity-Extraktionswerkzeug (Version 1.25.3).
 MonoBehaviour-Felder (Volume, VolumeProfile, URP-Asset) über Typetrees aus
 den DLLs des Spiels selbst (`…_Data/Managed/`).
 
@@ -473,7 +473,7 @@ könnte: das Spiel hat genau ein `VolumeProfile` je Szene (12 Stück,
 | F27 | NormalScale | Moos **1,2** · Rockwall 3 **1,5** · Meadow_Rock_Moss **2,0** · Sand 3,0. Maximum aller **benutzten** Ebenen: **3,0** | Cliff **5**, Rock 1,5, Grass 2 | `TerrainSplat.ts` | NormalScale 5 gibt es im Spiel nur auf der unbenutzten Rough-Ebene. **Auf 2,0 (mit F26) bzw. höchstens 3,0 deckeln.** |
 | F28 | Grashöhe | **0,50–0,75 m** (hoch), **0,25–0,38 m** (kurz, am Hang) | 0,77–0,94 m | `GrassClutter.ts` `storeScale.prefabScale.y = 3.0` | **Das Labor ist ~25 % zu hoch.** Die Schätzung „0,64–1,04 m aus dem Bild" (look-referenz.md) misst die Büschel gegen eine Figur, die näher an der Kamera steht. Die Daten sagen 0,50–0,75 m. **`prefabScale.y` von 3,0 auf ~2,4 senken.** |
 | F29 | Zwei Grashöhen | **ja** — hoch überall, kurz gezielt am Steilhang (30–50°+) | `meadowsGrass` + `meadowsGrassShort` unterscheiden sich nur in Menge/Höhe, nicht nach Neigung (`maxTiltCos` cos 25 bei beiden) | `GrassClutter.ts` | **Übernehmen:** kurzes Gras an den Hang binden statt in die Ebene. Das ist es, was Bild 2 zeigt. |
-| F30 | Grasfarbe | `healthyColor` = `dryColor` = **weiß** — die Farbe kommt allein aus dem Prefab-Material | „weisse Halm-Maske × Terrainfarbe" (`terrainTint: true`) | `GrassClutter.ts` (~Z. 751) | **Der Kommentar „Der Mechanismus stammt aus dem Original" stimmt für dieses Original nicht.** Tale of Dark Lands tönt seine Detail-Meshes nicht. Entweder abschalten oder als bewusste eigene Entscheidung kennzeichnen. |
+| F30 | Grasfarbe | `healthyColor` = `dryColor` = **weiß** — die Farbe kommt allein aus dem Prefab-Material | „weisse Halm-Maske × Terrainfarbe" (`terrainTint: true`) | `GrassClutter.ts` (~Z. 751) | **Der Kommentar „Der Mechanismus stammt aus dem Original" stimmt für dieses Original nicht.** Das Vorbildspiel tönt seine Detail-Meshes nicht. Entweder abschalten oder als bewusste eigene Entscheidung kennzeichnen. |
 | F31 | Gras-Sichtweite | **70 m** (`m_DetailObjectDistance`) | Fade 20 → 35 m | `GrassClutter.ts` `fadeMin/fadeMax` | **Übernehmen prüfen.** Unser Gras endet doppelt so früh. Kostenfrage, aber der Unterschied ist sichtbar. |
 | F32 | Grasdichte | nicht absolut ableitbar (s. §B) | 200 + 250 je 100 m² = 4,5/m² | `GrassClutter.ts` `amount` | **Am Bild kalibrieren**, mit `deckungHell` gegen die 17 % aus `look-referenz.md`. Die Datenlage erlaubt hier keine Zielzahl. |
 | F33 | Blumen/Farne | Blumen 93 % unter 15°, Farne 58 % unter 15° | `meadowsFern` `maxTiltCos` cos 18, Höhenfenster 1–4 m | `GrassClutter.ts` | Passt in der Richtung. Blumen fehlen als eigene Art. |

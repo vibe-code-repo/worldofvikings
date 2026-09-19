@@ -2,9 +2,8 @@
  * Shared prefab registry — single source of truth for prefab definitions
  * used by both server (spawning/logic) and client (rendering/assets).
  *
- * The base data (name, localScale, flags) is parsed 1:1 from the C++
- * reference server's prefabs.pkg (data/prefabs.pkg, see
- * PrefabManager::Register in dessen library/src/PrefabManager.cpp)
+ * The base data (name, localScale, flags) is parsed 1:1 from the
+ * reference server's prefabs.pkg (data/prefabs.pkg)
  * into prefabData.json — regenerate with:
  *
  *   npm run parse:prefabs
@@ -18,7 +17,7 @@
  *             (NOT applied to the real model — GLBs render at their
  *             natural size × pkg localScale × ZDO "scaleScalar")
  *
- * The prefab hash is ALWAYS getStableHash(name) — identical to the C++
+ * The prefab hash is ALWAYS getStableHash(name) — identical to the reference
  * server (verified: all 3447 pkg hashes match), so hashes stay
  * compatible with prefabs.pkg data.
  */
@@ -940,7 +939,7 @@ const HINTS_BY_NAME: ReadonlyMap<string, PrefabDef> = new Map(
 );
 
 /**
- * Full prefab registry: every prefab from the C++ server's prefabs.pkg
+ * Full prefab registry: every prefab from the reference server's prefabs.pkg
  * with its original localScale and flags, plus render hints merged in.
  * Legacy hint-only prefabs (not present in the pkg) are appended so the
  * demo world keeps working.
@@ -1495,7 +1494,7 @@ export function isRenderable(def: PrefabDef): boolean {
   if (def.name === 'Flies') return false;
   // Pickable_DolmenTreasure (found 2026-07-25 as the last remaining
   // permanent placeholder box, 6 instances in Dolmen locations): its GLB
-  // export is a 0-mesh empty hierarchy (AssetRipper found no MeshRenderer
+  // export is a 0-mesh empty hierarchy (the extraction found no MeshRenderer
   // for it in the Unity project either — the visible loot in a Dolmen is
   // the separate "treasure_pile" decoration piece; this prefab is purely
   // the invisible pickup trigger). Hiding it matches the original, where

@@ -26,7 +26,7 @@
  *  1. Radialwelt: 81 Zonen entstehen, aber kein Bewuchs.
  *  2. Layoutwelt mit Kuratierung: Bewuchs entsteht, und zwar reichlich.
  *  3. Determinismus: zwei frische Läufe ergeben BITGLEICHE ZDO-Abzüge
- *     (gleicher Seed ⇒ gleiche Welt, wie beim C++-Server).
+ *     (gleicher Seed ⇒ gleiche Welt, wie beim Referenz-Server).
  *  4. Platzierung: Positionen endlich, y in plausibler Geländespanne,
  *     Skalierung im Rahmen des Streueintrags.
  *  5. Zonenbuchhaltung — die hängt nicht am Bewuchs und bleibt radial.
@@ -237,7 +237,7 @@ const again = w1.zm.update([{ x: 0, y: 36.05, z: 0 }], 60_000);
 check('re-update idempotent', again === 0, `${again} new zones`);
 
 // Moving the player one zone east generates exactly the new column.
-// C++ zone of x: floor((x+32)/64) — x=64 → zone 1, coverage x∈[-3,5]
+// Zone of x: floor((x+32)/64) — x=64 → zone 1, coverage x∈[-3,5]
 // vs. previous [-4,4] ⇒ only column x=5 (z∈[-4,4]) is new = 9 zones.
 const moved = w1.zm.update([{ x: 64, y: 36, z: 0 }], 60_000);
 check('player move generates new zones', moved === 9, `${moved} new zones (expect 9)`);

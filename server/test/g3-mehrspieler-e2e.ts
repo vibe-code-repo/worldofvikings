@@ -422,7 +422,7 @@ async function testSichtbarkeit(): Promise<void> {
     // Zerstoerungszweig gerufen (server/src/WovServer.ts, Zeile ~975),
     // nirgends sonst. Der dafuer vorgesehene Mechanismus existiert zwar
     // im Peer (server/src/net/Peer.ts: invalidateSector()/
-    // invalidSectors, 1:1-Port von C++ m_invalidSector), wird aber im
+    // invalidSectors, 1:1-Port der Referenz), wird aber im
     // GANZEN Projekt nirgends aufgerufen — toter Code.
     //
     // Folge: Ein Spieler, der wegspaziert (statt die Verbindung zu

@@ -1,10 +1,10 @@
 /**
  * Spawn table (Phase G2) — AUTHORED, not ported.
  *
- * The C++ reference server contains NO server-side
+ * The reference server contains NO server-side
  * creature spawn system: in the original architecture the owning Unity
  * client runs the SpawnSystem (its rules live in ZoneSystem.m_spawnLists,
- * which neither repo has). The C++ server merely replicates the resulting
+ * which neither repo has). The reference server merely replicates the resulting
  * creature ZDOs. Our browser architecture has no privileged "owning"
  * client, so spawning is server-side here — and since no reference data
  * exists, this table is authored from scratch, tuned to the vanilla feel

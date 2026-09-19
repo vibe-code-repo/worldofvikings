@@ -1,8 +1,8 @@
 /**
  * Kampfeffekte — Schwert-Slash, Trefferblitz, Blut, Paradefunke.
  *
- * Nachbau der Effekte des Originals (Steam-Fassung, am 11.09.2026 per
- * UnityPy aus den Spieldaten gelesen, Notiz `wov-unity-export-inventur`):
+ * Nachbau der Effekte des Originals (Steam-Fassung, am 11.09.2026
+ * aus den Spieldaten gelesen, Notiz `wov-unity-export-inventur`):
  *
  *  - Slash: EIN Quad (Original 3,5 m, Lebensdauer 0,25 s) mit der Textur
  *    `SwordSlash` — ein Flipbook aus 4×2 Halbmonden. Der Verzerrungs-
@@ -35,7 +35,7 @@ import { Constants } from '@babylonjs/core/Engines/constants';
 const VFX = '/assets/vfx/';
 /**
  * Slash nach dem Original — Werte des Partikelsystems SwordSlashEffect2
- * unter „Sword North Weapon" (Steam-Fassung, 11.09.2026 per UnityPy):
+ * unter „Sword North Weapon" (Steam-Fassung, 11.09.2026):
  * EIN Quad 3,5 × 1,75 m (startSize3D 3,5/1,75/3,5), Render-Ausrichtung
  * „Local" unter ThirdPersonSlashParent (Position 0/1,05/1,62, Drehung
  * X→Y, Y→Z): Die Quadbreite steht SENKRECHT (oben), die Quadhoehe zeigt

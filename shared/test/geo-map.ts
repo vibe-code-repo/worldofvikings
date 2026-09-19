@@ -3,7 +3,7 @@
  *
  *   worldmap-<seed>-ts.png    biome map from the TS GeoManager port
  *                             (biome colors, height shading, rivers, lakes)
- *   worldmap-<seed>-cpp.png   same rendering from the C++ export coarse grid
+ *   worldmap-<seed>-cpp.png   same rendering from the reference export coarse grid
  *                             (geo_samples.csv, 661x661 @ 32m)
  *   worldmap-<seed>-diff.png  per-cell biome comparison (red = mismatch)
  *
@@ -185,19 +185,19 @@ const tsPath = join(outDir, `worldmap-${seedName}-ts.png`);
 writeFileSync(tsPath, encodePng(size, size, img));
 console.log(`wrote ${tsPath}`);
 
-// ── 2. C++ map from export coarse grid + 3. biome diff ────────────
+// ── 2. Reference map from export coarse grid + 3. biome diff ──────
 
-let cppRows: Map<string, string[]>;
+let refRows: Map<string, string[]>;
 try {
   const lines = readFileSync(join(exportDir, 'geo_samples.csv'), 'utf8').split('\n');
-  cppRows = new Map();
+  refRows = new Map();
   let inCoarse = false;
   for (const line of lines) {
     if (line.startsWith('# grid=coarse')) inCoarse = true;
     else if (line.startsWith('# end grid=coarse')) inCoarse = false;
     else if (inCoarse && line.length > 0 && line[0] !== 'x') {
       const p = line.split(',');
-      cppRows.set(`${p[0]},${p[1]}`, p);
+      refRows.set(`${p[0]},${p[1]}`, p);
     }
   }
 } catch {
@@ -208,7 +208,7 @@ try {
 const HALF = 10560;
 const STEP = 32;
 const N = 661;
-const cppImg = Buffer.alloc(N * N * 3);
+const refImg = Buffer.alloc(N * N * 3);
 const diffImg = Buffer.alloc(N * N * 3);
 let biomeMismatch = 0;
 let missing = 0;
@@ -217,13 +217,13 @@ for (let row = 0; row < N; row++) {
   const pxRow = N - 1 - row; // north up
   for (let col = 0; col < N; col++) {
     const wx = -HALF + col * STEP;
-    const p = cppRows.get(`${wx},${wy}`);
+    const p = refRows.get(`${wx},${wy}`);
     if (!p) {
       missing++;
       continue;
     }
     const refBiome = Number(p[2]);
-    setPx(cppImg, N, col, pxRow, shade(refBiome, Number(p[7])));
+    setPx(refImg, N, col, pxRow, shade(refBiome, Number(p[7])));
     const tsBiome = geo.getBiome(wx, wy);
     if (tsBiome !== refBiome) {
       biomeMismatch++;
@@ -233,31 +233,31 @@ for (let row = 0; row < N; row++) {
     }
   }
 }
-console.log(`coarse grid: ${cppRows.size} cells (${missing} missing), biome mismatches: ${biomeMismatch}`);
+console.log(`coarse grid: ${refRows.size} cells (${missing} missing), biome mismatches: ${biomeMismatch}`);
 
-// rivers from the C++ export
+// rivers from the reference export
 const rpLines = readFileSync(join(exportDir, 'geo_riverpoints.csv'), 'utf8').split('\n');
-const cppPts: { px: number; py: number; w: number }[] = [];
+const refPts: { px: number; py: number; w: number }[] = [];
 for (const line of rpLines) {
   if (line.startsWith('P,')) {
     const [px, py, w] = line.slice(2).split(',').map(Number);
-    cppPts.push({ px, py, w });
+    refPts.push({ px, py, w });
   }
 }
-const toPxCpp = (wx: number, wy: number): [number, number] => [
+const toPxRef = (wx: number, wy: number): [number, number] => [
   ((wx + HALF) / STEP),
   (N - 1 - (wy + HALF) / STEP),
 ];
-drawRivers(cppImg, N, N, toPxCpp, 1 / STEP, [cppPts]);
-const [csx, csy] = toPxCpp(0, 0);
+drawRivers(refImg, N, N, toPxRef, 1 / STEP, [refPts]);
+const [csx, csy] = toPxRef(0, 0);
 for (let d = -4; d <= 4; d++) {
-  setPx(cppImg, N, Math.round(csx) + d, Math.round(csy), [230, 60, 60]);
-  setPx(cppImg, N, Math.round(csx), Math.round(csy) + d, [230, 60, 60]);
+  setPx(refImg, N, Math.round(csx) + d, Math.round(csy), [230, 60, 60]);
+  setPx(refImg, N, Math.round(csx), Math.round(csy) + d, [230, 60, 60]);
 }
 
-const cppPath = join(outDir, `worldmap-${seedName}-cpp.png`);
-writeFileSync(cppPath, encodePng(N, N, cppImg));
+const refPath = join(outDir, `worldmap-${seedName}-cpp.png`);
+writeFileSync(refPath, encodePng(N, N, refImg));
 const diffPath = join(outDir, `worldmap-${seedName}-diff.png`);
 writeFileSync(diffPath, encodePng(N, N, diffImg));
-console.log(`wrote ${cppPath}`);
+console.log(`wrote ${refPath}`);
 console.log(`wrote ${diffPath}`);

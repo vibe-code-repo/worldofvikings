@@ -1,8 +1,8 @@
 /**
  * G4 smoke test — creature spawning + wander behavior (Phase G2).
  *
- * The SpawnSystem is server-side (the C++ reference has none — in the
- * original architecture the owning Unity client spawns; documented in
+ * The SpawnSystem is server-side (the reference has none — in the
+ * original architecture the owning client spawns; documented in
  * Bekannte Einschränkungen #26). It runs off the AUTHORED table in
  * shared/spawnData.ts: ring spawns around players with biome/altitude
  * gates, per-player + global caps, wander/flee simulation, 130m despawn,

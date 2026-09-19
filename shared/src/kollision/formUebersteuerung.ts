@@ -21,7 +21,7 @@
  * ({@link kollisionsForm}), auf Client und Server aus derselben Zeile.
  *
  * ── Was hier steht und warum ─────────────────────────────────────────
- * Die fünf GROSSEN BÜSCHE. Im Vorbild (Tale of Dark Lands) tragen sie
+ * Die fünf GROSSEN BÜSCHE. Im Vorbild tragen sie
  * eine stehende Kapsel von r 0,65 m und 3,5–4,6 m Höhe; kleine Büsche
  * und Gras sind durchlässig (Vermessung der Original-Spieldaten,
  * Abschnitt C). Unser Speicher-Katalog führt alle fünf als

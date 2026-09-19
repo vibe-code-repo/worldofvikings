@@ -228,7 +228,7 @@ const MAX_FALL_SPEED = 40;
  *
  * NICHT der Unity-Default 9.81: Das Vorbild stellt die Weltgravitation in den
  * ProjectSettings auf −20 (`m_Gravity.m_Y` in PhysicsManager.json des
- * AssetRipper-Exports). Alles, was fällt, fällt im Original doppelt so
+ * Extraktions-Exports). Alles, was fällt, fällt im Original doppelt so
  * schnell wie auf der Erde.
  */
 const GRAVITY = new Vector3(0, -20, 0);

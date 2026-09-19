@@ -1,13 +1,8 @@
 /**
  * PrefabManager — registry of all prefab definitions.
- * 1:1 port of PrefabManager.h from the C++ reference server.
+ * 1:1 port of the reference server's prefab manager.
  *
- * C++ reference:
- *   class IPrefabManager {
- *     Map<Hash, Prefab> m_prefabsByHash;
- *     Map<string, Prefab> m_prefabsByName;
- *     ...
- *   };
+ * State held (as in the reference): prefabs by hash and prefabs by name.
  *
  * Prefab data is loaded from prefabs.pkg (compressed package).
  */

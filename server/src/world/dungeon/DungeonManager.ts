@@ -25,8 +25,7 @@
  *     instance slot. Never saved with the world (loot state resets on
  *     server restart — dungeons regenerate).
  *
- * C++ reference: DungeonManager.cpp / DungeonGenerator.cpp (the generation
- * itself lives in shared/src/dungeonGenerator.ts).
+ * The generation itself lives in shared/src/dungeonGenerator.ts.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'fs';
@@ -616,7 +615,7 @@ export class DungeonManager {
    * ZoneManager has PREPARED (booked), not just the generated ones — on an
    * existing save the already-generated zones never run generateFeature
    * again, and the world map should still show every crypt/cave. Seed is
-   * derived position-based like C++ DungeonGenerator::GetSeed.
+   * derived position-based like the reference dungeon generator's seed.
    */
   backfillFromFeatures(
     instances: ReadonlyArray<{ zoneKey: string; featureName: string; dgPrefabHash: number; pos: Vector3 }>,
@@ -1164,7 +1163,7 @@ export class DungeonManager {
   }
 
   /**
-   * Regeneration (C++ TryRegenerateDungeon-Idee): leere Instanzen werden
+   * Regeneration (Idee der Referenz): leere Instanzen werden
    * nach DUNGEON_REGEN_INTERVAL_MS abgerissen — der nächste Besuch
    * materialisiert frisch (Loot/Kreaturen zurück). Periodisch aufrufen.
    */

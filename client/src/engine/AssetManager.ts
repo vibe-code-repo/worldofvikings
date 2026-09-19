@@ -8,7 +8,7 @@
  * a prefab; the container is cached and either instantiated per entity
  * (dynamic) or used as thin-instance masters (static vegetation/pieces).
  *
- * Material fixes vs. the AssetRipper dummy shaders (same lessons as the
+ * Material fixes vs. the extraction export's dummy shaders (same lessons as the
  * old client, Docs/02 §4): Unity vegetation renders as alpha-cutout,
  * double-sided cards — the export is OPAQUE single-sided. Textures that
  * actually use their alpha channel are detected via a downscaled readback
@@ -428,7 +428,7 @@ export class AssetManager {
   /**
    * Instantiate a fresh hierarchy for a dynamic entity. Null = no model —
    * either the GLB failed to load, or it's a mesh-less bone rig (the same
-   * AssetRipper export gap already found on Boar/Greydwarf: the eponymous
+   * export gap already found on Boar/Greydwarf: the eponymous
    * GLB is 0 renderable meshes; callers are expected to fall back to a
    * differently-named "_fixed"/body variant or a placeholder).
    */
@@ -651,7 +651,7 @@ export class AssetManager {
       }
       // Submeshes ohne echtes Material überspringen.
       //
-      // "DefaultMaterial" ist der Platzhalter, den AssetRipper einsetzt,
+      // "DefaultMaterial" ist der Platzhalter, den der Extraktions-Export einsetzt,
       // wenn im Unity-Projekt kein Material am Renderer hing — er hat
       // keine Textur und rendert als weisse Fläche. In 42 Modellen kommt
       // das vor, unter anderem in Bush01, Bush01_heath und BlueberryBush:
@@ -798,7 +798,7 @@ export class AssetManager {
    *
    * ── Warum das nötig ist ─────────────────────────────────────────────
    * Die glTF-Spezifikation setzt `metallicFactor` auf 1, wenn ein Material
-   * nichts anderes sagt — und die AssetRipper-Exporte sagen nichts anderes:
+   * nichts anderes sagt — und die Extraktions-Exporte sagen nichts anderes:
    * gemessen in der laufenden Szene hatten 129 von 130 PBR-Materialien
    * `metallic = 1`, KEINES eine Metallic-Map.
    *
@@ -965,7 +965,7 @@ export class AssetManager {
     // ── Was die Datei SAGT, schlägt was die Statistik VERMUTET ──────────
     //
     // Der Alpha-Test unten wird aus Texel-Anteilen ERRATEN. Das war
-    // richtig, solange alle Modelle aus dem AssetRipper-Export kamen: Die
+    // richtig, solange alle Modelle aus dem Extraktions-Export kamen: Die
     // schreiben durchgehend `alphaMode: OPAQUE`, auch für Laubkarten, und
     // ohne Raten bliebe jedes Blatt ein volles Rechteck.
     //
@@ -1073,8 +1073,8 @@ export class AssetManager {
       material.transparencyMode = Material.MATERIAL_ALPHATEST;
       material.alphaCutOff = 0.5;
       material.backFaceCulling = false;
-      material.useAlphaFromAlbedoTexture = true; // AssetRipper leaves this off
-      tex.hasAlpha = true; // AssetRipper writes opaque RGBA — alpha is real
+      material.useAlphaFromAlbedoTexture = true; // the export leaves this off
+      tex.hasAlpha = true; // the export writes opaque RGBA — alpha is real
       // Wind NUR auf Pflanzen. Der Alpha-Cutout allein reicht als Kriterium
       // nicht: Stroh- und Reetdächer sind ebenfalls freigestellte Karten und
       // bekamen dadurch denselben Sway — die Dachteile der Hütte am
@@ -1393,7 +1393,7 @@ function zuMaster(mesh: Mesh, welt?: Matrix): PrefabMaster {
   // world-matrix determinant (Meshes/mesh.js, _getWorldMatrixDeterminant),
   // computed once per mesh — not per thin instance. A negative
   // determinant here (mirrored node somewhere in the GLB hierarchy, e.g.
-  // AssetRipper's Unity->glTF handedness conversion) would normally be
+  // the export's Unity->glTF handedness conversion) would normally be
   // compensated automatically while the mesh keeps that hierarchy. Once
   // we flatten it into `localMatrix` and reset the master to identity
   // below (determinant +1), that compensation is lost and the mesh

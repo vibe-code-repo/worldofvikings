@@ -1,8 +1,8 @@
 /**
- * Feature (zone location) registry (Phase F) — C++ IZoneManager::Feature
+ * Feature (zone location) registry (Phase F) — feature
  * entries parsed 1:1 from the server's features.pkg
  * (tools/prefab-parser/parse-features.ts), in pkg order (order matters:
- * m_features is iterated for placement).
+ * the feature list is iterated for placement).
  *
  * BUNDLE-SCHNITT: Hier steht nur noch der KOPF jedes Features — die 23 228
  * Pieces liegen getrennt in featurePiecesData.json hinter `featurePieces.ts`.
@@ -14,18 +14,16 @@
  * vorberechneter `pieceRadius` im Kopf. Wer die echten Pieces braucht (nur
  * der Server: Platzierung, Camp-Backfill, Dungeon-Erkennung), holt sie ueber
  * `getFeaturePieces(name)`.
- *
- * C++ reference: ZoneManager.cpp:48-157 (pkg read), ZoneManager.h:71-114.
  */
 
 import featuresData from './featuresData.json';
 import { getStableHash } from './hash.js';
 import { istEigenesModell } from './prefabs.js';
 
-/** C++ IZoneManager::Feature (ZoneManager.h:71-114). */
+/** One zone-location feature. */
 export interface Feature {
   readonly name: string;
-  /** get_stable_hash(name) — C++ m_hash. */
+  /** get_stable_hash(name). */
   readonly hash: number;
   readonly biome: number;
   readonly biomeArea: number;

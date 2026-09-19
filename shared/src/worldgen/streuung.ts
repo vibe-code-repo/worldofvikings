@@ -1,7 +1,7 @@
 /**
  * Vegetationsstreuung — geteilt zwischen Server und Editor-Vorschau.
  *
- * Portiert aus `IZoneManager::PopulateFoliage` (ZoneManager.cpp:625-819)
+ * Portiert aus der Vegetationsstreuung des Referenz-Zonenmanagers
  * und bis 08/2026 nur im Server vorhanden. Der Grund fuer den Umzug
  * hierher ist derselbe wie bei `worldlayout/routenlauf.ts`:
  *
@@ -40,18 +40,18 @@ import type { RegionGeo } from './RegionGeo.js';
 
 const f32 = Math.fround;
 
-/** C++ (float)(VUtils::PI * 2.0). */
+/** (float)(PI * 2.0). */
 const PI2_F = f32(Math.PI * 2);
-/** C++ (float)(VUtils::PI / 180.0). */
+/** (float)(PI / 180.0). */
 const DEG2RAD_F = f32(Math.PI / 180);
-/** std::numeric_limits<float>::min() — smallest POSITIVE float. */
+/** Smallest POSITIVE float32. */
 const FLOAT_MIN_POSITIVE = 1.1754943508222875e-38;
-/** std::numeric_limits<float>::max(). */
+/** Largest float32. */
 const FLOAT_MAX = 3.4028234663852886e38;
-/** C++ Vector3f::FORWARD. */
+/** Forward unit vector (0, 0, 1). */
 const FORWARD: Vector3 = { x: 0, y: 0, z: 1 };
 
-/** C++ IZoneManager::ClearArea (m_center, m_semiWidth). */
+/** Clear area (center, half-width). */
 export interface ClearArea {
   center: Vector3;
   radius: number;
@@ -76,7 +76,7 @@ export interface StreuWelt {
   readonly regionGeo: RegionGeo | null;
 }
 
-/** C++ IZoneManager::InsideClearArea (rechteckig, ZoneManager.cpp:822-833). */
+/** Punkt innerhalb einer Freifläche (rechteckig). */
 function insideClearArea(areas: readonly ClearArea[], p: Vector3): boolean {
   for (const a of areas) {
     if (
@@ -91,7 +91,7 @@ function insideClearArea(areas: readonly ClearArea[], p: Vector3): boolean {
   return false;
 }
 
-/** C++ IZoneManager::OverlapsClearArea (2D, ZoneManager.cpp:835-846). */
+/** Kreis überlappt eine Freifläche (2D). */
 function overlapsClearArea(
   areas: readonly ClearArea[],
   p: Vector3,
@@ -106,7 +106,7 @@ function overlapsClearArea(
   return false;
 }
 
-/** C++ IZoneManager::GetRandomPointInRadius (ZoneManager.cpp:617-622). */
+/** Zufälliger Punkt im Radius um einen Mittelpunkt. */
 function getRandomPointInRadius(
   state: XorShiftRandom,
   center: Vector3,
@@ -122,11 +122,11 @@ function getRandomPointInRadius(
 }
 
 /**
- * C++ IZoneManager::GetTerrainDelta (ZoneManager.cpp:1365-1387) — zehn
+ * Gelaendedelta — zehn
  * Zufallsproben auf der ROHEN GeoManager-Hoehe, nicht auf der Heightmap.
  *
- * Die zehn Ziehungen laufen auch dann, wenn die Grenzen 0/0 sind (C++
- * ruft die Funktion bedingungslos) — sie gehoeren zum Zufallsstrom.
+ * Die zehn Ziehungen laufen auch dann, wenn die Grenzen 0/0 sind (die
+ * Referenz ruft die Funktion bedingungslos) — sie gehoeren zum Zufallsstrom.
  */
 function getTerrainDelta(
   geo: GeoManager,
@@ -173,7 +173,7 @@ export function streueZone(
     if (!heightmap.haveBiome(veg.biome as Biome)) continue;
 
     // Same state for all instances of this vegetation in this zone+world.
-    // int32 wrap on the sum (C++ signed overflow wraps on MSVC x64).
+    // int32 wrap on the sum (the reference's signed overflow wraps).
     const state = new XorShiftRandom(
       (welt.seed + Math.imul(zoneX, 4271) + Math.imul(zoneY, 9187) + veg.prefabHash) | 0
     );
@@ -242,20 +242,20 @@ export function streueZone(
 
         // Random rotations — drawn BEFORE any checks (rng order is
         // load-bearing for world determinism).
-        // C++ `state.range(0, 360)` resolves to the INT overload!
+        // The reference's `state.range(0, 360)` resolves to the INT overload!
         const rotY = state.rangeInt(0, 360);
         const scale = state.rangeFloat(veg.scaleMin, veg.scaleMax);
         const rotX = state.rangeFloat(-veg.randTilt, veg.randTilt);
         const rotZ = state.rangeFloat(-veg.randTilt, veg.randTilt);
 
-        // ── GetGroundData (ZoneManager.cpp:1399-1425) ────────────
+        // ── GetGroundData ────────────────────────────────────────
         // Heightmap/biome/normal come from the zone AT THE POSITION
         // (may differ from the zone being populated near borders).
         const otherHeightmap = welt.heightmaps.getZoneAt(pos.x, pos.z);
         pos.y = welt.heightmaps.getGroundHeightRaycast(pos.x, pos.z);
         const biome = otherHeightmap.getBiome(pos.x, pos.z);
         const biomeArea = otherHeightmap.getBiomeArea();
-        // C++ ignores GetWorldNormal's bool; in-zone positions never fail.
+        // The reference ignores GetWorldNormal's bool; in-zone positions never fail.
         const normal = otherHeightmap.getWorldNormal(pos.x, pos.z) ?? { x: 0, y: 1, z: 0 };
 
         // Die Biom-Maske. Sie ist für EIGENE Flora seit Block A

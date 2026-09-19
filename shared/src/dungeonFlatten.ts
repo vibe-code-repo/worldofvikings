@@ -47,7 +47,7 @@ function vAdd(a: Vector3, b: Vector3): Vector3 {
 /**
  * Resolve a layout into concrete prefab instances: one room shell per
  * placed room (geometry + colliders come from the room GLB), every net
- * view contained in the rooms (chests, spawners, torches — C++ PlaceRoom
+ * view contained in the rooms (chests, spawners, torches — the room
  * furnishing), and the doors. All in local dungeon space.
  *
  * Rooms unknown to the base kit are skipped (sanitize prevents them on
@@ -71,7 +71,7 @@ export function flattenLayout(layout: DungeonLayout, baseName: string): Flattene
       roomIndex,
     });
 
-    // C++ PlaceRoom: pos1 = pos + rot * view.pos, rot1 = rot * view.rot.
+    // Room furnishing: pos1 = pos + rot * view.pos, rot1 = rot * view.rot.
     for (const view of getRoomPieces(room.name).netViews) {
       pieces.push({
         kind: 'netView',

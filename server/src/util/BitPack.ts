@@ -1,18 +1,13 @@
 /**
  * BitPack — compile-time bitfield packing.
- * 1:1 port of BitPack.h from the C++ reference server.
+ * 1:1 port of the reference server's bit-pack helper.
  *
- * C++ reference:
- *   template<typename T, std::size_t... Bits>
- *   class BitPack {
- *     T m_value;
- *     get<I>() / set<I>(value)
- *   };
+ * The pack holds one integer value and gets/sets each field by index.
  *
  * Used by:
- *   - ZDOID: BitPack<uint32, USERID_BITS, ID_BITS>
- *   - ZDO::Rev: BitPack<uint32, 23, 9> (data revision, owner revision)
- *   - Peer::m_pack: BitPack<uint8, 1, 1, 1, 5> (visible, gated, ...)
+ *   - ZDOID: uint32 packed as USERID_BITS + ID_BITS
+ *   - ZDO revision: uint32 packed as 23 + 9 bits (data revision, owner revision)
+ *   - Peer flags: uint8 packed as 1 + 1 + 1 + 5 bits (visible, gated, ...)
  *
  * This TS version stores the packed value in a number (32-bit) or bigint (64-bit).
  */

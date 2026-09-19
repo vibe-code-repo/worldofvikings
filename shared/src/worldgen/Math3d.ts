@@ -1,15 +1,15 @@
 /**
- * Phase E — f32 3D math for vegetation placement: 1:1 ports of the C++
- * Vector3f/Quaternion operations used by PopulateFoliage.
+ * Phase E — f32 3D math for vegetation placement: 1:1 ports of the reference
+ * Vector3/Quaternion operations used by the foliage placement.
  *
- * C++ reference:
- *   Quaternion::euler         (Quaternion.cpp:150-177) — all float32
- *   Quaternion::look_rotation (Quaternion.cpp:180-238)
- *   Quaternion::operator*(Vector3f) (Quaternion.cpp:97-118)
- *   Vector3f::cross / normal  (Vector.h)
+ * Ported operations:
+ *   Quaternion euler          — all float32
+ *   Quaternion look_rotation
+ *   Quaternion * Vector3
+ *   Vector3 cross / normal
  *
  * All arithmetic is float32-emulated via Math.fround per operation, like the
- * rest of the worldgen port. std::sin/cos on floats (sinf/cosf) can differ
+ * rest of the worldgen port. The reference's float sin/cos can differ
  * from Math.sin/cos in the last bit — same accepted 1-ulp class as the C6
  * river points.
  */
@@ -19,7 +19,7 @@ import type { Vector3, Quaternion } from '../types.js';
 const f32 = Math.fround;
 const DEG2RAD = f32(0.0174532924);
 
-/** C++ Vector3f::cross. */
+/** Vector3 cross product. */
 export function crossF(a: Vector3, b: Vector3): Vector3 {
   return {
     x: f32(f32(a.y * b.z) - f32(a.z * b.y)),
@@ -28,14 +28,14 @@ export function crossF(a: Vector3, b: Vector3): Vector3 {
   };
 }
 
-/** C++ Vector3f::normal() — v / magnitude (float32). */
+/** Vector3 normal — v / magnitude (float32). */
 export function normalF(v: Vector3): Vector3 {
   const m = f32(Math.sqrt(f32(f32(f32(v.x * v.x) + f32(v.y * v.y)) + f32(v.z * v.z))));
   if (m === 0) return { x: 0, y: 0, z: 0 };
   return { x: f32(v.x / m), y: f32(v.y / m), z: f32(v.z / m) };
 }
 
-/** C++ Quaternion::euler(x°, y°, z°) (Quaternion.cpp:150-177). */
+/** Quaternion from Euler angles (x°, y°, z°). */
 export function quatEuler(x: number, y: number, z: number): Quaternion {
   const yaw = f32(x * DEG2RAD);
   const sinYawOver2 = f32(Math.sin(f32(yaw * 0.5)));
@@ -63,8 +63,8 @@ export function quatEuler(x: number, y: number, z: number): Quaternion {
   };
 }
 
-/** C++ Quaternion::operator*(Quaternion rhs) (Quaternion.cpp:120-125).
- *  All float32; C++ evaluates each component left-to-right as f32 ops. */
+/** Quaternion product a * rhs.
+ *  All float32; each component is evaluated left-to-right as f32 ops. */
 export function quatMul(a: Quaternion, rhs: Quaternion): Quaternion {
   return {
     x: f32(
@@ -82,7 +82,7 @@ export function quatMul(a: Quaternion, rhs: Quaternion): Quaternion {
   };
 }
 
-/** C++ Quaternion::operator*(Vector3f) — rotate point by quaternion. */
+/** Rotate a point by a quaternion. */
 export function quatMulVec3(q: Quaternion, point: Vector3): Vector3 {  const x2 = f32(q.x * 2);
   const y2 = f32(q.y * 2);
   const z2 = f32(q.z * 2);
@@ -118,7 +118,7 @@ export function quatMulVec3(q: Quaternion, point: Vector3): Vector3 {  const x2 
   };
 }
 
-/** C++ Quaternion::look_rotation(forward, up) (Quaternion.cpp:180-238). */
+/** Quaternion look_rotation(forward, up). */
 export function quatLookRotation(forwardIn: Vector3, upIn: Vector3): Quaternion {
   const forward = normalF(forwardIn);
   const right = normalF(crossF(upIn, forward));

@@ -1,6 +1,6 @@
 /**
  * Vector3 math utilities.
- * 1:1 port of Vector.h / VUtilsMath.h from the C++ reference server.
+ * 1:1 port of the reference server's vector math.
  */
 
 import type { Vector3 } from '@wov/shared';
@@ -82,7 +82,6 @@ export function vec3Equals(a: Vector3, b: Vector3, epsilon = 1e-6): boolean {
 }
 
 /**
- * C++ reference: VUtilsMath::MagnitudeXZ
  * Horizontal distance (ignoring Y axis).
  */
 export function vec3MagnitudeXZ(v: Vector3): number {

@@ -1,9 +1,9 @@
 /**
  * Stable hash functions.
- * Delegates to the shared 1:1 port of `get_stable_hash` from the C++
+ * Delegates to the shared 1:1 port of `get_stable_hash` from the
  * reference server, so client and server always agree on hashes.
  *
- * C++ reference: get_stable_hash(std::string_view) -> Hash (int32)
+ * Reference signature: string -> Hash (int32)
  */
 
 import type { Hash } from '@wov/shared';

@@ -56,7 +56,7 @@ Zwei Konsequenzen für den Renderer:
    **unterschiedlichen Kurven**.
 
 **Verifiziertes Timing** — die Phasenanker lagen bereits im Repo, 1:1 aus dem
-C++-Referenzserver portiert (`shared/src/constants.ts`):
+Referenzserver portiert (`shared/src/constants.ts`):
 
 ```
 WORLD_TIME_LENGTH = 1800 s  → Fraktion 1.0     voller Zyklus (30 min)
@@ -115,18 +115,18 @@ Wasser steht statt auf Bergkuppen.
 
 **Farbwerte.** Struktur und Timing sind verifiziert; die konkreten
 Farb-Zahlen in `ENVIRONMENTS` waren handabgestimmte Annäherungen. Ground truth
-holte `node tools/dump-envsetup.mjs <assetripper-export>` aus dem lokalen
+holte `node tools/dump-envsetup.mjs <export-ordner>` aus dem lokalen
 Export nach `shared/src/envData.json` — die Datei wurde leer ausgeliefert und
 überschrieb nach dem Lauf feldweise die Defaults (gleiches Muster wie
 `prefabData.json`), inklusive neuer Namen wie `Crypt`.
 
-⚠️ **Der Lauf ist seit dem 16.08.2026 nicht wiederholbar** — der AssetRipper-Export ist
+⚠️ **Der Lauf ist seit dem 16.08.2026 nicht wiederholbar** — der Extraktions-Export ist
 gelöscht (siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md)). Das ist folgenlos, weil
 `envData.json` gefüllt im Repo liegt: 39 Wetter mit echten Werten, und Zahlen in einer
 Quelldatei brauchen die Quelle nicht mehr. Es heißt aber, dass eine spätere Korrektur
 dieser Werte von Hand erfolgen muss statt aus dem Export.
 
-### 2.1b Himmel — `ValheimSky.ts`
+### 2.1b Himmel — Sky-Modul des Clients
 
 **Babylons `SkyMaterial` war hier falsch, nicht nur suboptimal.**
 `@babylonjs/materials/sky` implementiert das **Preetham-Tageslichtmodell**:
@@ -158,8 +158,8 @@ technisch weiter, ist aber gegenstandslos — es gibt sie nicht mehr, und
 [07-Grafik-Konzept.md](07-Grafik-Konzept.md) rät ohnehin davon ab.
 
 **Verifikation: `node tools/pw-sky-verify.mjs`.** Roher GLSL lässt sich nicht
-von `tsc` prüfen, also bündelt das Skript den echten `ValheimSky` samt
-Shared-Modell, rendert ihn in Chromium (SwiftShader) und misst statt zu
+von `tsc` prüfen, also bündelt das Skript das echte Sky-Modul samt
+Shared-Modell, rendert es in Chromium (SwiftShader) und misst statt zu
 schauen — 10 Assertions, u. a.:
 
 - Shader kompiliert fehlerfrei, Material wird ready, keine NaN-Pixel
@@ -235,7 +235,7 @@ Alle vier Effekte sind — wie im Original (`GraphicsSettingBool`) — einzeln �
 
 ## 3. Terrain
 
-- **Datenquelle:** `shared/worldgen` (Heightmap, GeoManager — gegen C++ verifiziert). **Kein Placeholder-Terrain** wie im Three.js-Client.
+- **Datenquelle:** `shared/worldgen` (Heightmap, GeoManager — gegen die Referenz verifiziert). **Kein Placeholder-Terrain** wie im Three.js-Client.
 - **Chunk-Mesh:** pro Zone (64×64 m, ein Sektor) ein Mesh via `VertexData`: Positionen + Normalen aus Heightmap, UVs für Splat-Mapping.
 - **Texturierung:** Custom-`NodeMaterial` mit Biom-Splatting (Wiese/Wald/Sumpf/Berg/Planes-Texturen + Neigung → Fels, Höhe → Schnee). Splat-Gewichte serverseitig/shared berechenbar (Biom-Blend existiert bereits im shared Code).
 - **LOD/Streaming:** Ring-Puffer um den Spieler (z. B. Radius 5 Zonen voll, 6–10 vereinfacht). Höhen per Heightmap-Downsample für Fern-Chunks.
@@ -251,7 +251,7 @@ Alle vier Effekte sind — wie im Original (`GraphicsSettingBool`) — einzeln �
 
 **Asset-Stand (2026-07-27, überholt):** Alle 16 Tiles in `terrain_d_array.png` sind gefüllt (per `tools/png-stats.mjs --slices 16` mit korrekter Rückrechnung der PNG-Zeilenfilter gemessen — eine frühere Prüfung ohne Filter-Rückrechnung war nur indikativ). Der damalige Abgleich gegen den Asset-Ordner des Prototyps ergab: von den Texturen **und** Modellen, die die three.js-Referenz benutzt, fehlt keine einzige.
 
-⚠️ **Diese Prüfung ist seit dem 16.08.2026 hinfällig** — und zwar nicht, weil sie falsch war, sondern weil ihre Bezugsgröße weg ist. Der Asset-Ordner des Prototyps und der AssetRipper-Export existieren auf keinem Container mehr; `terrain_d_array.png` und alle Normal-Maps erzeugt `tools/terrain-texturen.py` selbst, mit den vom Shader vorgegebenen Maßen und der Tile-Reihenfolge aus dem `TILE`-Enum. Die Frage „fehlt uns etwas gegenüber der Referenz?" hat sich damit erledigt; an ihre Stelle tritt „stimmen unsere erzeugten Karten mit dem überein, was der Shader erwartet?" — siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
+⚠️ **Diese Prüfung ist seit dem 16.08.2026 hinfällig** — und zwar nicht, weil sie falsch war, sondern weil ihre Bezugsgröße weg ist. Der Asset-Ordner des Prototyps und der Extraktions-Export existieren auf keinem Container mehr; `terrain_d_array.png` und alle Normal-Maps erzeugt `tools/terrain-texturen.py` selbst, mit den vom Shader vorgegebenen Maßen und der Tile-Reihenfolge aus dem `TILE`-Enum. Die Frage „fehlt uns etwas gegenüber der Referenz?" hat sich damit erledigt; an ihre Stelle tritt „stimmen unsere erzeugten Karten mit dem überein, was der Shader erwartet?" — siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
 
 ### 3.2 Warum der Boden trotzdem flach aussieht — gemessen, nicht geraten
 
@@ -387,7 +387,7 @@ Ausgelöst durch die Meldung „merkwürdige braune Spiegelungen, ein Wellenlaye
 1. **Fernwasser ist jetzt ein RING** (`buildWaterRing` in `Terrain.ts`) mit exaktem Loch für die Nahfläche, auf gleicher Höhe und mit **demselben Material**. Vorher lag dort eine 2048-m-**Vollfläche** bei `WATER_LEVEL − 0.05`, also unter dem gesamten Nahwasser und über jedem Strandgrund darunter — ohne Plugin, ohne Tiefenlogik, ohne Schaum, opak. Sie war der „Wellenlayer"; bei Qualität 0 standen zusätzlich zwei Lagen à 0.82 übereinander (effektiv 0.97 Deckkraft = die „kaputte Transparenz"). Damit entfiel auch der 5-cm-Höhenversatz, der die Sortierung beim Untertauchen kippen ließ.
 2. **Ein Glanzpfad statt vier.** `specularColor` des StandardMaterials auf Schwarz; Fresnel-Sockel (0.10) und der energetisch falsche `× 0.75`-Deckel entfernt; die Mikroneigung steckt jetzt in einem `sheen`-Term an der echten Wellensteilheit. Sonnenglitzern mit demselben Fresnel-Gewicht, echter Sonnenfarbe und Nachtsperre.
 3. **UBO** von 16 auf 9 Einträge, nach std140 sortiert (erst vec4/vec3, dann vec2, dann float). Reine Modulkonstanten stehen als GLSL-`const` im Shader.
-4. **Himmelsspiegelung richtungsabhängig.** `SKY_GRADIENT_GLSL` aus `ValheimSky.ts` wird von Kuppel *und* Wasser benutzt, im Wasser an `reflect(-viewDir, normal)` ausgewertet. Vorher las das Wasser stumpf `fogColorSun`, also den Sonnenton unabhängig von der Blickrichtung — mit bis zu 75 % Mischanteil ergab das ein flächendeckendes Braun. **Das war die Hauptursache der gemeldeten braunen Spiegelungen.**
+4. **Himmelsspiegelung richtungsabhängig.** `SKY_GRADIENT_GLSL` aus dem Sky-Modul des Clients wird von Kuppel *und* Wasser benutzt, im Wasser an `reflect(-viewDir, normal)` ausgewertet. Vorher las das Wasser stumpf `fogColorSun`, also den Sonnenton unabhängig von der Blickrichtung — mit bis zu 75 % Mischanteil ergab das ein flächendeckendes Braun. **Das war die Hauptursache der gemeldeten braunen Spiegelungen.**
 5. **Normal-Maps im Plugin statt als `bumpTexture`.** Nur so lassen sie sich tiefen- und distanzabhängig dämpfen (`wShore`/`wFar`) und auf **Weltkoordinaten** kacheln. Über die Mesh-UV ergab `uScale = 48` je nach Fläche 10,7 m bzw. 42,7 m Kachelung — dieselbe Textur in zwei Größen mit sichtbarem Bruch an der Grenze.
 6. **Render-Order explizit**: Wasser in Gruppe 1 mit `setRenderingAutoClearDepthStencil(1, false, …)`, `transparencyMode` wird beim Qualitätswechsel mitgeschaltet statt aus der Deckkraft geraten.
 7. **Tiefe per Pixel** (siehe oben) — Uferlinie und Schaumsaum folgen der Küste statt dem 4-m-Gitter.

@@ -1,48 +1,33 @@
 /**
- * ZoneManager (Phase E+F) — 1:1 port of C++ IZoneManager zone population.
+ * ZoneManager (Phase E+F) — 1:1 port of the reference zone population.
  *
- * C++ reference:
- *   IZoneManager::TryGenerateNearbyZones  (ZoneManager.cpp:538-558)
- *   IZoneManager::TryPollGenerateZone     (ZoneManager.cpp:575-590)
- *   IZoneManager::PopulateZone            (ZoneManager.cpp:592-609)
- *   IZoneManager::PopulateFoliage         (ZoneManager.cpp:625-819)
- *   IZoneManager::GetRandomPointInRadius  (ZoneManager.cpp:617-622)
- *   IZoneManager::GetTerrainDelta         (ZoneManager.cpp:1365-1387)
- *   IZoneManager::GetGroundData           (ZoneManager.cpp:1399-1425)
- *   IZoneManager::InsideClearArea         (ZoneManager.cpp:822-833)
- *   IZoneManager::OverlapsClearArea       (ZoneManager.cpp:835-846)
- *   IZoneManager::PostGeoInit             (ZoneManager.cpp:858-886)
- *   ::CheckSurroundingTerrain             (ZoneManager.cpp:944-974)
- *   IZoneManager::PrepareFeatures         (ZoneManager.cpp:977-1119)
- *   IZoneManager::HaveLocationInRange     (ZoneManager.cpp:1120-1133)
- *   IZoneManager::GetRandomPointInZone    (ZoneManager.cpp:1135-1142)
- *   IZoneManager::GetRandomZone           (ZoneManager.cpp:1144-1155)
- *   IZoneManager::TryGenerateFeature      (ZoneManager.cpp:1158-1234)
- *   IZoneManager::RemoveUngeneratedFeatures (ZoneManager.cpp:1237-1252)
- *   IZoneManager::GenerateFeature         (ZoneManager.cpp:1254-1331)
- *   IZoneManager::GenerateLocationProxy   (ZoneManager.cpp:1335-1343)
- *   ZDOManager::Instantiate               (ZDOManager.cpp:395-429)
- *   ZDO::SetLocalScale                    (ZDO.h:1065-1079)
+ * Ported statement by statement from the reference implementation: nearby-zone
+ * generation and polling, zone and foliage population, random points in a
+ * radius/zone/world, terrain delta and ground data, clear-area tests, the
+ * post-geo-init feature placement (surrounding-terrain check, feature
+ * preparation, location-in-range test, per-feature generation, removal of
+ * ungenerated features, location proxy) and prefab instantiation with local
+ * scale.
  *
  * Deviations (all documented, none affect placement determinism):
- *   - C++ generates zones inline on the peer tick (blocking). We enqueue
- *     and drain with a per-tick time budget to avoid server hitches;
- *     zone SET and per-zone ORDER around each player match C++
+ *   - The reference generates zones inline on the peer tick (blocking). We
+ *     enqueue and drain with a per-tick time budget to avoid server hitches;
+ *     zone SET and per-zone ORDER around each player match the reference
  *     (center first, then the (NEAR+DISTANT) square).
  *   - DUNGEON-flag pieces (dungeons.enabled=true) are skipped + counted
  *     (dungeon interior generation is Phase G).
  *   - zone_ctrl / creature spawning (PopulateZone tail) is out of scope.
  *
  * Determinism notes (load-bearing for identical worlds):
- *   - rng draws happen BEFORE the placement checks, in C++ order.
- *   - rot_y uses the INT range overload (C++ `state.range(0, 360)`).
+ *   - rng draws happen BEFORE the placement checks, in reference order.
+ *   - rot_y uses the INT range overload (`state.range(0, 360)`).
  *   - per-entry seed: (seed + zx*4271 + zy*9187 + prefabHash) with int32 wrap.
- *   - PrepareFeatures consumes GeoManager::GetTerrainDelta (10 rng draws) on
+ *   - Feature preparation consumes the terrain delta (10 rng draws) on
  *     EVERY candidate point that passes altitude+forest checks — even when
- *     the delta limits are 0/0 (C++ calls it unconditionally).
- *   - Location randomRotation uses a TIME-seeded rng in C++
- *     (VUtils::Random::State() default ctor, VUtilsRandom.cpp:53-55) — it is
- *     deliberately NOT world-deterministic; we mirror that with a random seed.
+ *     the delta limits are 0/0 (the reference calls it unconditionally).
+ *   - Location randomRotation uses a TIME-seeded rng in the reference
+ *     (default-constructed random state) — it is deliberately NOT
+ *     world-deterministic; we mirror that with a random seed.
  */
 
 import {
@@ -94,57 +79,57 @@ import type { PrefabDef } from '@wov/shared';
 
 const f32 = Math.fround;
 
-// ── C++ ZoneManager.h constants ─────────────────────────────────────
+// ── Reference zone constants ────────────────────────────────────────
 const NEAR_ZRADIUS = 2;
 const DISTANT_ZRADIUS = 2;
-/** C++ WORLD_INNER_ZRADIUS = 10500 / 64 (int division!) = 164. */
+/** Inner world radius in zones: 10500 / 64 (int division!) = 164. */
 const WORLD_INNER_ZRADIUS = Math.floor(10500 / 64);
 
-/** C++ (float)(VUtils::PI * 2.0). */
+/** float32 of PI * 2 (computed in double first). */
 const PI2_F = f32(Math.PI * 2);
-/** C++ (float)(VUtils::PI / 180.0). */
+/** float32 of PI / 180 (computed in double first). */
 const DEG2RAD_F = f32(Math.PI / 180);
 
-/** std::numeric_limits<float>::min() — smallest POSITIVE float. */
+/** Smallest POSITIVE float32. */
 const FLOAT_MIN_POSITIVE = 1.1754943508222875e-38;
-/** std::numeric_limits<float>::max(). */
+/** Largest float32. */
 const FLOAT_MAX = 3.4028234663852886e38;
-/** std::numeric_limits<float>::epsilon() * 8 (ZDO::SetLocalScale). */
+/** float32 epsilon * 8 (local-scale tolerance). */
 const EPSILON_X8 = 1.1920928955078125e-7 * 8;
 
-/** C++ Vector3f::FORWARD. */
+/** Forward unit vector. */
 const FORWARD: Vector3 = { x: 0, y: 0, z: 1 };
 
-/** C++ LOCATION_PROXY_PREFAB (ZoneManager.h) — get_stable_hash("LocationProxy"). */
+/** Location proxy prefab hash — getStableHash("LocationProxy"). */
 const LOCATION_PROXY_HASH = getStableHash('LocationProxy');
 
-/** C++ (float)UNITS_PER_ZONE / 2.f — GetRandomPointInZone half-extent. */
+/** Half of ZONE_UNITS as float32 — random-point-in-zone half-extent. */
 const HALF_ZONE_F = f32(ZONE_UNITS / 2);
 
-/** C++ GetRandomZone rejection radius (world edge). */
+/** Random-zone rejection radius (world edge). */
 const FEATURE_WORLD_EDGE = 10000;
 
-/** C++ IZoneManager::ClearArea (m_center, m_semiWidth). */
+/** Clear area (center, half-width). */
 interface ClearArea {
   center: Vector3;
   radius: number;
 }
 
-/** C++ IZoneManager::Feature::Instance (feature ref + placed position). */
+/** Placed feature instance (feature ref + placed position). */
 interface FeatureInstance {
   feature: Feature;
   pos: Vector3;
 }
 
-/** C++ ServerSettings world.* flags relevant to zone population. */
+/** World flags relevant to zone population. */
 export interface ZoneManagerOptions {
-  /** C++ worldFeatures — location placement (default true). */
+  /** worldFeatures — location placement (default true). */
   worldFeatures?: boolean;
-  /** C++ worldVegetation — foliage placement (default true). */
+  /** worldVegetation — foliage placement (default true). */
   worldVegetation?: boolean;
-  /** C++ experimental-location-overrides (default false). */
+  /** experimental-location-overrides (default false). */
   locationOverrides?: boolean;
-  /** C++ dungeonsEnabled — DUNGEON pieces are skipped when true (default true). */
+  /** dungeonsEnabled — DUNGEON pieces are skipped when true (default true). */
   dungeonsEnabled?: boolean;
 }
 
@@ -152,22 +137,22 @@ function zoneKey(x: number, y: number): string {
   return `${x},${y}`;
 }
 
-/** C++ IZoneManager::is_inside_world_radius. */
+/** True when the zone lies inside the inner world radius. */
 function isInsideWorldRadius(x: number, y: number): boolean {
   return x * x + y * y < WORLD_INNER_ZRADIUS * WORLD_INNER_ZRADIUS;
 }
 
-/** C++ IZoneManager::ZoneToWorldPos — (zone.x * 64, 0, zone.y * 64). */
+/** Zone to world position — (zone.x * 64, 0, zone.y * 64). */
 function zoneToWorldPos(zone: ZoneID): Vector3 {
   return { x: zone.x * ZONE_UNITS, y: 0, z: zone.y * ZONE_UNITS };
 }
 
-/** C++ Vector3f::magnitude — sqrt(x²+y²+z²), all float32. */
+/** Vector magnitude — sqrt(x²+y²+z²), all float32. */
 function mag3f(v: Vector3): number {
   return f32(Math.sqrt(f32(f32(f32(v.x * v.x) + f32(v.y * v.y)) + f32(v.z * v.z))));
 }
 
-/** C++ Vector3f::distance_to — sqrt of sq_distance_to, all float32. */
+/** Distance between two points — sqrt of the squared distance, all float32. */
 function dist3f(a: Vector3, b: Vector3): number {
   const dx = f32(a.x - b.x);
   const dy = f32(a.y - b.y);
@@ -175,7 +160,7 @@ function dist3f(a: Vector3, b: Vector3): number {
   return f32(Math.sqrt(f32(f32(f32(dx * dx) + f32(dy * dy)) + f32(dz * dz))));
 }
 
-/** C++ IZoneManager::GetRandomPointInRadius (ZoneManager.cpp:617-622). */
+/** Random point within a radius around a center. */
 function getRandomPointInRadius(
   state: XorShiftRandom,
   center: Vector3,
@@ -191,7 +176,7 @@ function getRandomPointInRadius(
   };
 }
 
-/** C++ IZoneManager::InsideClearArea (rectangular test, ZoneManager.cpp:822-833). */
+/** Inside-clear-area test (rectangular). */
 function insideClearArea(areas: readonly ClearArea[], p: Vector3): boolean {
   for (const a of areas) {
     if (
@@ -206,14 +191,14 @@ function insideClearArea(areas: readonly ClearArea[], p: Vector3): boolean {
   return false;
 }
 
-/** C++ IZoneManager::OverlapsClearArea (2D, ZoneManager.cpp:835-846). */
+/** Overlaps-clear-area test (2D). */
 function overlapsClearArea(
   areas: readonly ClearArea[],
   p: Vector3,
   radius: number
 ): boolean {
   for (const a of areas) {
-    // VUtils::Math::sq_distance_to (float math)
+    // Squared distance (float math)
     const dx = f32(p.x - a.center.x);
     const dz = f32(p.z - a.center.z);
     const d = f32(f32(dx * dx) + f32(dz * dz));
@@ -224,15 +209,15 @@ function overlapsClearArea(
 }
 
 export class ZoneManager {
-  /** C++ m_generatedZones. */
+  /** Zones already generated. */
   private readonly generated = new Set<string>();
   /** Enqueued but not yet generated (budget deferral). */
   private readonly pending = new Set<string>();
   private readonly queue: ZoneID[] = [];
 
-  /** C++ m_generatedFeatures — keyed by WorldToZonePos(instance pos). */
+  /** Generated features — keyed by the zone of the instance position. */
   private readonly generatedFeatures = new Map<string, FeatureInstance>();
-  /** C++ PostGeoInit ran (features placed). */
+  /** Post-geo-init ran (features placed). */
   private featuresPrepared = false;
 
   private readonly worldFeatures: boolean;
@@ -272,7 +257,7 @@ export class ZoneManager {
     private readonly geo: GeoManager,
     private readonly heightmaps: HeightmapProvider,
     private readonly zdos: ZDOManager,
-    /** C++ GeoManager()->GetSeed() = getStableHash(worldSeed). */
+    /** Geo seed = getStableHash(worldSeed). */
     private readonly seed: number,
     options: ZoneManagerOptions = {}
   ) {
@@ -324,7 +309,7 @@ export class ZoneManager {
     return this.generated.has(zoneKey(zone.x, zone.y));
   }
 
-  /** Generated zones for the world save (C++ ZoneManager::Save zone list). */
+  /** Generated zones for the world save (the saved zone list). */
   getGeneratedZones(): Array<[number, number]> {
     return [...this.generated].map((key) => {
       const sep = key.indexOf(',');
@@ -333,8 +318,8 @@ export class ZoneManager {
   }
 
   /**
-   * Restore generated zones from a world save (C++ ZoneManager::Load zone
-   * list). Marking the zones generated is what prevents re-generation —
+   * Restore generated zones from a world save (the saved zone list).
+   * Marking the zones generated is what prevents re-generation —
    * the zone's objects come back from the save's ZDO section instead, so
    * nothing duplicates. But two generation-time side effects live OUTSIDE
    * the ZDO set and must be replayed here:
@@ -365,8 +350,8 @@ export class ZoneManager {
 
   /**
    * Server-tick entry point: enqueue missing zones around every peer
-   * (C++ TryGenerateNearbyZones per peer), then drain with a time budget
-   * (C++ blocks inline; we spread over ticks to avoid hitches).
+   * (nearby-zone generation per peer), then drain with a time budget
+   * (the reference blocks inline; we spread over ticks to avoid hitches).
    * Returns the number of zones generated this call.
    */
   update(peerPositions: readonly Vector3[], budgetMs = 12): number {
@@ -423,16 +408,16 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::TryGenerateNearbyZones (ZoneManager.cpp:538-558):
+   * Nearby-zone generation:
    * center zone first, then the full (NEAR+DISTANT) square, z outer / x inner.
-   * C++ polls+generates inline; we enqueue in the same order.
+   * The reference polls+generates inline; we enqueue in the same order.
    */
   private enqueueNearbyZones(refPoint: Vector3): void {
     const zx = HeightmapProvider.worldToZone(refPoint.x);
     const zy = HeightmapProvider.worldToZone(refPoint.z);
 
     const tryEnqueue = (x: number, y: number): void => {
-      // C++ TryPollGenerateZone guard: is_inside_world_radius && !generated
+      // Generation guard: inside the world radius && !generated
       // (im Layout-Modus: Layout-Bbox statt Weltradius, s. zoneErlaubt)
       if (!this.zoneErlaubt(x, y)) return;
       const key = zoneKey(x, y);
@@ -454,8 +439,8 @@ export class ZoneManager {
   }
 
   /**
-   * C++ GenerateZoneBlocking / TryPollGenerateZone success path:
-   * mark generated, PopulateZone (ZoneManager.cpp:592-609):
+   * Zone generation success path:
+   * mark generated, populate the zone:
    * features (worldFeatures) → foliage (worldVegetation) → zone_ctrl
    * (worldCreatures — creature system out of scope).
    * Returns false when the zone was already generated.
@@ -468,7 +453,7 @@ export class ZoneManager {
     const clearAreas = this.worldFeatures ? this.tryGenerateFeature(zone) : [];
     if (this.worldFeatures) {
       // INVARIANTE: Vegetation steht NIE auf Terrain, das ein Location-
-      // Modifier verändert (Ebnung + Glättungsband). C++ kennt das Problem
+      // Modifier verändert (Ebnung + Glättungsband). Das Vorbild kennt das Problem
       // nicht, weil es Höhen nie anfasst — unser F4-Leveling schon, und
       // gebackene Vegetations-y brechen, sobald sich der Boden darunter
       // nachträglich hebt oder senkt. Zwei Löcher stopft dieser Block:
@@ -500,8 +485,8 @@ export class ZoneManager {
   }
 
   /**
-   * C++ ZDOManager::Instantiate prefab-flag handling (ZDOManager.cpp:395-429):
-   * SYNC_INITIAL_SCALE ⇒ SetLocalScale(m_localScale, allowIdentity=false).
+   * Prefab-flag handling on instantiate:
+   * SYNC_INITIAL_SCALE ⇒ set the local scale (allowIdentity=false).
    */
   private applyInitialScale(zdo: ZDO, prefab: PrefabDef | undefined): void {
     if (!prefab || (prefab.flags & PrefabFlag.SYNC_INITIAL_SCALE) === 0n) return;
@@ -537,14 +522,14 @@ export class ZoneManager {
       heightmap,
       clearAreas,
       (fund) => {
-        // C++ ZDOManager::Instantiate(prefab, pos) + SetRotation
+        // Instantiate the prefab at the position + set rotation
         const zdo = this.zdos.createZDO(fund.prefabHash, fund.position, fund.rotation);
 
-        // C++ Instantiate: SYNC_INITIAL_SCALE ⇒ SetLocalScale (ZDO.h:1065)
+        // Instantiate: SYNC_INITIAL_SCALE ⇒ set the local scale
         const prefab = PREFABS_BY_NAME.get(fund.prefabName)!;
         this.applyInitialScale(zdo, prefab);
 
-        // C++: only written when the random scale differs from the
+        // Only written when the random scale differs from the
         // prefab default; allowIdentity=true writes even scale==1.
         if (fund.scale !== prefab.localScale.x) {
           zdo.setFloat('scaleScalar', fund.scale);
@@ -554,8 +539,8 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::GetTerrainDelta (ZoneManager.cpp:1365-1387) —
-   * 10 random samples, RAW GeoManager height (not the heightmap).
+   * Terrain delta —
+   * 10 random samples, RAW geo height (not the heightmap).
    * Returns max − min (slopeDirection out-param unused by foliage).
    */
   private getTerrainDelta(
@@ -582,9 +567,9 @@ export class ZoneManager {
   // ════════════════════════════════════════════════════════════════
 
   /**
-   * C++ IZoneManager::PostGeoInit (ZoneManager.cpp:858-886) — runs ONCE at
+   * Post-geo-init feature placement — runs ONCE at
    * server start, before any zone generates. Places all feature instances
-   * into m_generatedFeatures (they materialize per-zone in TryGenerateFeature).
+   * into the generated-features map (they materialize per-zone in feature generation).
    */
   /**
    * Placement-Cache (Review-Punkt 14): Das Ergebnis von prepareFeatures ist
@@ -614,11 +599,11 @@ export class ZoneManager {
   }
 
   prepareFeatures(): void {
-    // C++: "Will be empty if world failed to load"
+    // Will be empty if the world failed to load
     if (this.generatedFeatures.size > 0 || this.featuresPrepared) return;
 
     // Der StartTemple ist der Weltspawn der RADIALWELT: Sie kennt keinen
-    // anderen Startpunkt, C++ setzt den Spieler auf den Tempelsockel.
+    // anderen Startpunkt, das Vorbild setzt den Spieler auf den Tempelsockel.
     // Deshalb stand hier eine harte Ausnahme, und fuer die Radialwelt ist
     // sie weiterhin die richtige Frage — fehlt der Tempel, erscheinen dort
     // alle Spieler ersatzweise am Ursprung, der offener Ozean sein kann.
@@ -649,7 +634,7 @@ export class ZoneManager {
       if (startTemple) this.prepareFeature(startTemple);
     } else {
       const t0 = Date.now();
-      // FEATURES is in pkg order (C++ m_features, presorted by priority)
+      // FEATURES is in pkg order (presorted by priority)
       for (const feature of FEATURES) {
         this.prepareFeature(feature);
       }
@@ -661,9 +646,9 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::PrepareFeatures (ZoneManager.cpp:977-1119) — place all
-   * instances of ONE feature. rng: one State(seed + feature.m_hash) per
-   * feature, consumed in exact C++ order (zone draws, then per-point draws,
+   * Feature preparation — place all
+   * instances of ONE feature. rng: one State(seed + feature.hash) per
+   * feature, consumed in exact reference order (zone draws, then per-point draws,
    * then the unconditional 10-sample terrain delta per surviving point).
    */
   private prepareFeature(feature: Feature): void {
@@ -674,7 +659,7 @@ export class ZoneManager {
     if (this.layoutBiomeMask !== null && (feature.biome & this.layoutBiomeMask) === 0) {
       return;
     }
-    // C++ CountNrOfLocation inlined: count already-placed instances of this
+    // Count already-placed instances of this
     // feature (always 0 here — each feature is prepared exactly once).
     let spawnedLocations = 0;
     for (const inst of this.generatedFeatures.values()) {
@@ -776,7 +761,7 @@ export class ZoneManager {
           }
         }
 
-        // C++ calls GeoManager::GetTerrainDelta UNCONDITIONALLY here —
+        // The reference calls the terrain delta UNCONDITIONALLY here —
         // the 10 rng draws happen even when the delta limits are 0/0.
         const delta = this.getTerrainDelta(state, point, feature.exteriorRadius);
         if (delta > feature.maxTerrainDelta || delta < feature.minTerrainDelta) {
@@ -831,7 +816,7 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::GetRandomZone (ZoneManager.cpp:1144-1155).
+   * Random zone.
    * num = (int)range / 64 (integer division); zone coords drawn with the INT
    * range overload; rejected while the zone-center magnitude ≥ 10000.
    */
@@ -859,7 +844,7 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::GetRandomPointInZone (ZoneManager.cpp:1135-1142).
+   * Random point in a zone.
    * num = 32.f; x/z = range(-num + locationRadius, num - locationRadius)
    * (float overload — NOT swapped when inverted); pos = zone*64 + (x, 0, z).
    */
@@ -877,7 +862,7 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::HaveLocationInRange (ZoneManager.cpp:1120-1133) —
+   * Location-in-range test —
    * true when an instance of the same feature (or same non-empty group) is
    * within minDistanceFromSimilar (3D float distance).
    */
@@ -895,7 +880,7 @@ export class ZoneManager {
   }
 
   /**
-   * C++ ::CheckSurroundingTerrain (ZoneManager.cpp:944-974) — count samples
+   * Surrounding-terrain check — count samples
    * on the perimeter circle whose height clears minAltitude (anti-island
    * check from location-overrides).
    */
@@ -908,7 +893,7 @@ export class ZoneManager {
   ): boolean {
     let validPoints = 0;
     for (let i = 0; i < numSamples; i++) {
-      // C++: (2.0f * 3.14159265f * i) / numSamples — f32 throughout
+      // (2.0f * 3.14159265f * i) / numSamples — f32 throughout
       const angle = f32(f32(f32(2 * 3.14159265) * i) / numSamples);
       const checkX = f32(center.x + f32(radius * f32(Math.cos(angle))));
       const checkZ = f32(center.z + f32(radius * f32(Math.sin(angle))));
@@ -920,9 +905,8 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::TryGenerateFeature (ZoneManager.cpp:1158-1234) —
-   * materialize the feature instance booked for this zone (if any).
-   * Returns the ClearAreas for PopulateFoliage.
+   * Materialize the feature instance booked for this zone (if any).
+   * Returns the ClearAreas for foliage population.
    */
   private tryGenerateFeature(zone: ZoneID): ClearArea[] {
     const clearAreas: ClearArea[] = [];
@@ -932,10 +916,10 @@ export class ZoneManager {
     const feature = inst.feature;
     const position: Vector3 = { ...inst.pos };
 
-    // m_snapToWater is Mistlands only
+    // snapToWater is Mistlands only
     if (feature.snapToWater) position.y = WATER_LEVEL;
 
-    // [HEIGHTFIX-04]: m_clearArea ⇒ exteriorRadius; else terrain_modifiers.yml
+    // [HEIGHTFIX-04]: clearArea ⇒ exteriorRadius; else terrain_modifiers.yml
     // level_radius (prevents vegetation inside terrain-modified areas).
     if (feature.clearArea) {
       clearAreas.push({ center: { ...position }, radius: feature.exteriorRadius });
@@ -963,9 +947,9 @@ export class ZoneManager {
         return def !== undefined && (def.flags & PrefabFlag.DUNGEON) !== 0n;
       });
     if (feature.randomRotation && !hatDungeonPiece) {
-      // C++ VUtils::Random::State() default ctor is TIME-seeded
-      // (VUtilsRandom.cpp:53-55) — location rotation is deliberately NOT
-      // world-deterministic in C++ either; mirror with a random seed.
+      // The reference's default-constructed random state is TIME-seeded —
+      // location rotation is deliberately NOT world-deterministic there
+      // either; mirror with a random seed.
       const n = new XorShiftRandom((Math.random() * 0x100000000) | 0).rangeInt(0, 16);
       rot = quatEuler(0, f32(n * 22.5), 0);
     }
@@ -989,7 +973,7 @@ export class ZoneManager {
   }
 
   /**
-   * F4 terrain leveling (Unity TerrainModifier parity — the C++ server
+   * F4 terrain leveling (Unity TerrainModifier parity — the reference server
    * does NOT level terrain; without this pieces float up to ~5m on
    * slopes). Called from tryGenerateFeature at GENERATION time:
    * booked-but-removed unique features (Haldor) never register a modifier,
@@ -1014,10 +998,10 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::GenerateFeature (ZoneManager.cpp:1254-1331) —
+   * Feature generation —
    * instantiate all pieces + the LocationProxy ZDO.
    *
-   * NOTE: C++ creates State(seed) but only dungeon generation consumes it;
+   * NOTE: The reference creates State(seed) but only dungeon generation consumes it;
    * RandomSpawn chances are parsed but never rolled — ALL pieces spawn.
    */
   private generateFeature(
@@ -1033,7 +1017,7 @@ export class ZoneManager {
     for (const piece of getFeaturePieces(feature.name)) {
       const prefab = findPrefabByHash(piece.prefabHash);
 
-      // pieceWorldPos = pos + rot * piece.m_pos (f32 adds)
+      // pieceWorldPos = pos + rot * piece.pos (f32 adds)
       const rotated = quatMulVec3(rot, piece.pos);
       const pieceWorldPos: Vector3 = {
         x: f32(pos.x + rotated.x),
@@ -1041,13 +1025,13 @@ export class ZoneManager {
         z: f32(pos.z + rotated.z),
       };
 
-      // C++: dungeonsEnabled && DUNGEON flag ⇒ DungeonManager. Phase G:
+      // dungeonsEnabled && DUNGEON flag ⇒ DungeonManager. Phase G:
       // the DG_* piece itself never spawns — instead the hook registers a
       // world entrance mapped to a dungeon instance document. The hook gets
       // the FEATURE position (ground level), not the piece position: DG
       // pieces sit at +5000 y inside the location prefab, and the entrance
       // (map marker, enter radius, hull) belongs at the location.
-      // When dungeons are disabled C++ spawns the piece normally.
+      // When dungeons are disabled the piece spawns normally.
       if (
         this.dungeonsEnabled &&
         prefab &&
@@ -1089,7 +1073,7 @@ export class ZoneManager {
       );
     }
 
-    // GenerateLocationProxy (ZoneManager.cpp:1335-1343) — carries the
+    // Location proxy — carries the
     // location hash + zone seed for client-side location model generation.
     const proxy = this.zdos.createZDO(LOCATION_PROXY_HASH, { ...pos }, rot);
     this.applyInitialScale(proxy, findPrefabByHash(LOCATION_PROXY_HASH));
@@ -1098,7 +1082,7 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::RemoveUngeneratedFeatures (ZoneManager.cpp:1237-1252) —
+   * Removal of ungenerated features —
    * unique features: drop booked instances whose zone isn't generated yet.
    */
   private removeUngeneratedFeatures(feature: Feature): void {

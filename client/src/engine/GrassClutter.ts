@@ -23,7 +23,7 @@
  *
  * Asset note: clutter_default/plane/fern/vass/lily GLBs were copied from
  * the reference asset folder (they are identical in both exports); the
- * real clutter textures were copied from the AssetRipper export (the
+ * real clutter textures were copied from the extraction export (the
  * 0-byte stubs in assets/textures are a known export gap — see the
  * Analyse doc, same class as G-TEX2).
  */
@@ -477,7 +477,7 @@ const B = Biome;
  * from the live-client scene dump". Nachgezählt sind es 13, und zwar seit
  * dem allerersten Commit (`402c20d`) — der 14. ist beim Port aus der
  * three.js-Referenz nie angekommen. Welcher es war, lässt sich nicht mehr
- * feststellen: Der AssetRipper-Export ist seit Block A gelöscht. Die Frage
+ * feststellen: Der Extraktions-Export ist seit Block A gelöscht. Die Frage
  * ist damit auch keine mehr — seit Block A ist die Tabelle unsere eigene,
  * und die Texturen dazu erzeugt `tools/clutter-texturen.py`.
  *

@@ -1,12 +1,7 @@
 /**
  * WebSocketAcceptor — accepts incoming WebSocket connections.
- * Replaces the Steam-based acceptor of the C++ reference server.
- *
- * C++ reference:
- *   class AcceptorSteam : public IAcceptor {
- *     HSteamListenSocket m_listenSocket;
- *     ...
- *   };
+ * Replaces the Steam-based acceptor of the reference server, which holds
+ * a single listen socket.
  */
 
 import { WebSocketServer, WebSocket } from 'ws';

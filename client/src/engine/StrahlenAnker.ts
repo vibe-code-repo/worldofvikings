@@ -271,7 +271,7 @@ export class StrahlenAnker {
         uniforms: ['worldViewProjection'],
         // Ohne explizite Sprache sucht ShaderMaterial unter WebGPU nach einer
         // WGSL-Datei; Vite beantwortet den unbekannten Pfad mit index.html
-        // (dieselbe Falle wie in ValheimSky.ts).
+        // (dieselbe Falle wie in der Himmelskuppel).
         shaderLanguage: ShaderLanguage.GLSL,
       },
       // `storeEffectOnSubMeshes` — das ist der Schalter, an dem der erste

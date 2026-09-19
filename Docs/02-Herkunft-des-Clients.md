@@ -8,9 +8,9 @@ Die wichtigste strategische Entscheidung: **Server, Shared-Code, Tools und Asset
 
 | Quelle (Prototyp) | Ziel (dieses Repo) | Bemerkung |
 |---|---|---|
-| `shared/` (komplett) | `shared/` | **Kernstück.** Enthält die gegen C++ verifizierte Weltgenerierung (FastNoise, GeoManager, Heightmap, Perlin — Phasen B–D laut Analyse abgeschlossen), alle Datenpakete als JSON (vegetation, features, prefabs, spawn, terrainModifiers) und das Netzwerk-Protokoll |
+| `shared/` (komplett) | `shared/` | **Kernstück.** Enthält die gegen die Referenz verifizierte Weltgenerierung (FastNoise, GeoManager, Heightmap, Perlin — Phasen B–D laut Analyse abgeschlossen), alle Datenpakete als JSON (vegetation, features, prefabs, spawn, terrainModifiers) und das Netzwerk-Protokoll |
 | `server/` (komplett) | `server/` | Authoritativer Server: ZDO, Prefab, Zone, Spawn, Net, IO. Engine-unabhängig |
-| `tools/` | `tools/` | GLB-Inspektion, Playwright-Shots, Prefab-Parser, AssetRipper-Export + Logs |
+| `tools/` | `tools/` | GLB-Inspektion, Playwright-Shots, Prefab-Parser, Extraktions-Export + Logs |
 | Asset-Ordner des Prototyps | `assets/` (Verweis) | 7463 GLBs / 4,8 GB, Sprites, Manifest. Nicht kopieren — per Vite-`publicDir`/Symlink einbinden wie bisher |
 | `server/data/` | `server/data/` | server.yml, Welten |
 
@@ -57,12 +57,12 @@ Die wichtigste strategische Entscheidung: **Server, Shared-Code, Tools und Asset
 
 Diese Fehler des Three.js-Clients **nicht mitportieren**:
 
-1. **Keine Höhen-Normalisierung ("render hints")**: Modelle in Originalmaß laden (GLBs sind maßstabs-korrekt, AssetRipper-Export in Unity-Metern). Keine Stauchung auf geratene Zielhöhen.
+1. **Keine Höhen-Normalisierung ("render hints")**: Modelle in Originalmaß laden (GLBs sind maßstabs-korrekt, Extraktions-Export in Unity-Metern). Keine Stauchung auf geratene Zielhöhen.
 2. **Zufalls-Scale + Rotation aus den Spawndaten anwenden**: z. B. Tanne Schwarzwald 2,0–2,5× (→ 22–27 m). Server liefert Scale/Rotation im ZDO/Spawn — Client wendet sie an. Aktuell spawnen Bäume ohne beides.
 3. **Alpha-Cutout + DoubleSided für Nadel-/Laub-Planes**: `material.alphaMode = ALPHATEST`, `backFaceCulling = false` für Foliage — sonst "falsche Tannenform".
-4. **Kreaturen-GLBs ohne Meshes**: `Neck.glb`, `Greyling.glb`, `Troll.glb` sind Bone-Rigs ohne Meshes (Stand 2026-07-25). Meshed-Varianten suchen/nach-exportieren (`tools/assetripper/export`); `*_fixed.glb`-Muster (Boar/Deer/Greydwarf) als Vorlage. Spawn-Tabellen erst erweitern, wenn Assets da sind.
+4. **Kreaturen-GLBs ohne Meshes**: `Neck.glb`, `Greyling.glb`, `Troll.glb` sind Bone-Rigs ohne Meshes (Stand 2026-07-25). Meshed-Varianten suchen/nach-exportieren (Extraktions-Ordner unter `tools/`); `*_fixed.glb`-Muster (Boar/Deer/Greydwarf) als Vorlage. Spawn-Tabellen erst erweitern, wenn Assets da sind.
 5. **Instancing von Anfang an**: Der alte Client lief mit ~6 FPS ohne Instancing. Vegetation/Props kommen im Babylon-Client **nur** als Thin Instances, nie als Einzel-Meshes.
-6. **Audio**: Fremdaufnahmen werden **nicht** übernommen. Die `.ogg` aus dem AssetRipper-Export sind gelöscht; `assets/audio/` enthält nur eigenes Material (siehe [04](04-Asset-Pipeline.md), Schritt 3).
+6. **Audio**: Fremdaufnahmen werden **nicht** übernommen. Die `.ogg` aus dem Extraktions-Export sind gelöscht; `assets/audio/` enthält nur eigenes Material (siehe [04](04-Asset-Pipeline.md), Schritt 3).
 
 ## 5. Vorgehen beim Kopieren
 

@@ -8,7 +8,7 @@ erstellt: 2026-08-30
 
 Grundlage: [[Dungeon Generator 2.0]] (Beschlüsse), Code-Analyse von
 `client/src/engine/PbrNebelFix.ts`, `NebelRichtung.ts`, `StandardGammaFix.ts`,
-`FackelLicht.ts`, `Lighting.ts`, `ValheimDof.ts`, `PostProcessing.ts` sowie
+`FackelLicht.ts`, `Lighting.ts`, dem Schärfentiefe-Pass, `PostProcessing.ts` sowie
 `BaumImpostor.ts`, `GrassClutter.ts`, `HuegelGras.ts` (Instancing-Muster) und
 `client/package.json` (Babylon 8.0.0, `@babylonjs/materials`, `@babylonjs/havok`).
 
@@ -339,8 +339,8 @@ GeometryBufferRenderer als Ausweichroute. Für echtes SSR (Reflectivity-
 Qualität) führt daran aber kein Weg vorbei — der GeometryBufferRenderer
 liefert keine Reflectivity-MRT. Konsequenz: entweder
 
-1. den fehlenden Side-Effect-Import gezielt nachziehen (nach dem in
-   `ValheimDof.ts` vorgeführten Muster:
+1. den fehlenden Side-Effect-Import gezielt nachziehen (nach dem im
+   Schärfentiefe-Pass vorgeführten Muster:
    `import '@babylonjs/core/Rendering/geometryBufferRendererSceneComponent'`
    → Analogon `import '@babylonjs/core/Rendering/prePassRendererSceneComponent'`)
    und den PrePassRenderer als **zweite, komplette Zusatzpassage** neben

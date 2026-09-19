@@ -1,8 +1,8 @@
 /**
  * Binary Stream base class.
- * 1:1 port of DataStream.h (Stream) from the C++ reference server.
+ * 1:1 port of the reference server's data-stream base class.
  *
- * All data is little-endian (matching the C++ static_assert).
+ * All data is little-endian (as in the reference).
  */
 
 export class Stream {

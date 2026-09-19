@@ -222,7 +222,7 @@ function toWorld(local: Vector3, pos: Vector3, rot: Quaternion): Vector3 {
  * Saat für die Deko-Varianten, aus der Position abgeleitet.
  *
  * Bewusst dieselbe Rechnung wie im 1.0-Pfad (`roomSeed`,
- * `dungeonGenerator.ts`, nach DungeonGenerator.cpp:595) — zwei Wege dürfen
+ * `dungeonGenerator.ts`, nach der Referenz) — zwei Wege dürfen
  * denselben Raum am selben Ort nicht verschieden dekorieren. Kopiert statt
  * importiert, weil `dungeonGenerator.ts` in diesem Meilenstein nicht
  * angefasst wird; der Ausgleich ist diese Notiz.

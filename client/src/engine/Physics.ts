@@ -56,7 +56,7 @@ import { skalierungsStufe } from '@wov/shared';
 /**
  * Gravitation (m/s²) — das Original weicht vom Unity-Default ab: die
  * ProjectSettings des Spiels stehen auf −20 (`m_Gravity.m_Y` in
- * PhysicsManager.json des AssetRipper-Exports). Muss mit der Gravitation
+ * PhysicsManager.json des Extraktions-Exports). Muss mit der Gravitation
  * im PlayerController übereinstimmen, sonst fallen Spieler und Weltobjekte
  * unterschiedlich schnell.
  */

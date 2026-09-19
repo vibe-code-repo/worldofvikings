@@ -142,9 +142,9 @@ function wetterVollstaendig(): void {
     Hier standen #ffe4c6 (Sonne) und #a3afbd (Nebel) — die Zahlen aus
     `village1.json` des SCHWESTERPROJEKTS. Sie sind nicht falsch
     gemessen, sie sind nur nicht mehr das Vorbild: Gemessen wird jetzt
-    gegen Tale of Dark Lands, Szene Level1 (design/original-boden.md §D).
+    gegen die Referenzszene Level1 (design/original-boden.md §D).
 
-    Und weil dessen Sonne FEST steht, ist die Prüfung eine andere
+    Und weil deren Sonne FEST steht, ist die Prüfung eine andere
     geworden. Das Vorbild hat EINE Sonnenfarbe und EINEN Nebel; im
     Keyframe-Modell heisst das: Die gewichtete Summe bei 17 h muss
     denselben Wert liefern wie der TAG-Keyframe. Genau dafür ist
@@ -235,7 +235,7 @@ function sonneGehtNichtAus(): void {
 
   for (const env of ENVIRONMENTS) {
     // Hoehlen und Krypten sind AUSDRUECKLICH dunkel (`alwaysDark`, und
-    // z. B. Darklands_dark traegt lightIntensityNight 0). Eine Sonne dort
+    // z. B. die dunkle Umgebung traegt lightIntensityNight 0). Eine Sonne dort
     // waere der Fehler, nicht ihr Fehlen.
     if (env.alwaysDark) continue;
     geprueft++;
@@ -484,7 +484,7 @@ function abendStuetzpunkt(): void {
     0,735 und `direkt` = 1,467. Alle drei sind gegen `village1.json` des
     Schwesterprojekts kalibriert gewesen (#ffe4c6 x 3,0 gegen #a8bcd0 x
     1,1). Diese Vorlage ist nicht mehr das Ziel — gemessen wird gegen
-    Tale of Dark Lands, und dessen Sonne steht FEST.
+    die Referenz, und deren Sonne steht FEST.
 
     Was an ihre Stelle tritt, ist keine kleinere Zusage, sondern eine
     andere: Der ABSOLUTE Pegel gehoert seit dieser Runde `look.belichtung`

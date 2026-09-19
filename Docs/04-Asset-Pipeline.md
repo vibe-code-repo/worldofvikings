@@ -1,6 +1,6 @@
 # 04 — Asset-Pipeline
 
-> **Stand 16.08.2026.** Dieses Dokument beschrieb bis dahin den AssetRipper-Weg: einen
+> **Stand 16.08.2026.** Dieses Dokument beschrieb bis dahin den Extraktions-Weg: einen
 > fremden Client entpacken, GLBs kopieren, Manifest anreichern. Dieser Weg ist beendet. Das Projekt baut
 > seine Modelle ausschließlich selbst. Der alte Weg steht weiter unten — er erklärt, woher
 > die 7.463 Modelle kamen, mit denen zwei Monate lang entwickelt wurde, und warum sie
@@ -128,7 +128,7 @@ Ausdrücklich nicht geblieben ist Mod-Material: `hdClutter` und die Texturen aus
 
 ---
 
-## Der alte Weg (22.07. – 16.08.2026) — AssetRipper
+## Der alte Weg (22.07. – 16.08.2026) — Extraktion
 
 Er gehört hierher, weil er zwei Monate Projektgeschichte erklärt: fast jede Messung in
 [03](03-Rendering-und-Engine.md) und [07](07-Grafik-Konzept.md) ist an diesen Dateien
@@ -137,7 +137,7 @@ entstanden, und viele Befunde gelten weiter.
 | Schritt | Werkzeug | Ergebnis |
 |---|---|---|
 | Quelle | lokaler Client-Export (Linux-Client 0.221.12) | — |
-| Extraktion | AssetRipper 1.3.14.0 (GUI), PNG-Export, DirectExport, StaticMeshSeparation | `tools/assetripper/export/` |
+| Extraktion | Extraktionswerkzeug (GUI), PNG-Export, DirectExport, StaticMeshSeparation | Extraktions-Ordner unter `tools/` |
 | Modelle | 1:1-Kopie der PrefabHierarchyObject-GLBs | **7463 GLB, 4,8 GB**, Texturen eingebettet |
 | Sprites | Item-Icons | 1595 Icons |
 | Audio | **entfiel schon damals** — die 3318 `.ogg` des Exports wurden gelöscht, Fremdaufnahmen kamen nie zum Einsatz | — |
@@ -159,7 +159,7 @@ unbrauchbar (2.639 von 2.763 PNGs waren 0-Byte-Stubs, kein einziges der 7.471 GL
 Animationen oder Skins — Einschränkungen 28/28b/33 im Analyse-Bericht).
 
 Am 16.08.2026 wurde der Export von live gelöscht: 11.869 Dateien, 5,1 GB.
-`tools/assetripper/` enthält nur noch `compile_time.txt` und `openapi.json`.
+Der Extraktions-Ordner unter `tools/` enthält nur noch `compile_time.txt` und `openapi.json`.
 `tools/asset-extractor/` katalogisierte ohnehin nur Bundles und war nie die echte Pipeline.
 
 **Damit hinfällige Pläne aus der alten Fassung dieses Dokuments** (sie standen hier als

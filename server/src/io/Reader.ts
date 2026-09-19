@@ -1,14 +1,12 @@
 /**
- * Binary Reader — 1:1 port of DataStream.h (Reader) from the C++ reference server.
+ * Binary Reader — 1:1 port of the reference server's data-stream reader.
  *
  * Reads primitive types, strings, byte arrays, Vector3, Quaternion
  * from a little-endian binary buffer.
  *
- * C++ reference:
- *   template<class T> requires std::is_arithmetic_v<T>
- *   struct Streamer<T> { ... internal_read_bytes ... };
- *
- *   Varint encoding for int32 (ZigZag + LEB128).
+ * Reference behavior:
+ *   - raw byte reads for arithmetic types
+ *   - varint encoding for int32 (ZigZag + LEB128).
  */
 
 import { Stream } from './Stream.js';
@@ -99,7 +97,7 @@ export class Reader extends Stream {
   }
 
   // ── Varint (ZigZag + LEB128) ─────────────────────────────────────
-  // C++ reference: Reader::read_varint()
+  // Reference: varint read
 
   readVarInt(): number {
     let result = 0;
@@ -119,8 +117,8 @@ export class Reader extends Stream {
   }
 
   // ── String ───────────────────────────────────────────────────────
-  // C++ reference: Streamer<T> for char-value_type containers
-  //   write_varint(length) + raw bytes
+  // Reference: string read
+  //   varint(length) + raw bytes
 
   readString(): string {
     const len = this.readVarInt();

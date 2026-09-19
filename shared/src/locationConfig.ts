@@ -1,13 +1,12 @@
 /**
- * Location config (Phase F) — the C++ server's two location YAML configs,
+ * Location config (Phase F) — the reference server's two location YAML configs,
  * converted offline to JSON (tools/prefab-parser/parse-yml-configs.ts):
  *
- *   terrainModifiers  — C++ TerrainModifier::GetFeatureModifierParams
- *     (TerrainModifier.cpp:148-160): ClearArea radius/offset for features
+ *   terrainModifiers  — feature modifier params:
+ *     ClearArea radius/offset for features
  *     whose pkg clearArea flag is false but which flatten terrain
  *     client-side (houses, runestones, …).
- *   locationOverrides — C++ ServerSettings::locationOverrides
- *     (ZoneManager.cpp:1000-1013, 1068-1084, 1259-1266): per-location
+ *   locationOverrides — per-location settings overrides: per-location
  *     min-altitude, surrounding terrain check, snap-to-terrain.
  *     Only active when the server enables experimental-location-overrides.
  */
@@ -18,14 +17,14 @@ import { getStableHash } from './hash.js';
 import type { Feature } from './features.js';
 
 export interface TerrainModifierParams {
-  /** C++ level_radius — ClearArea radius. */
+  /** `level_radius` — ClearArea radius. */
   readonly radius: number;
-  /** C++ level_offset (unused for ClearArea, kept for Phase G terrain mods). */
+  /** `level_offset` (unused for ClearArea, kept for Phase G terrain mods). */
   readonly offset: number;
 }
 
 /**
- * C++ TerrainModifier::GetFeatureModifierParams — hash-keyed lookup
+ * Feature modifier params — hash-keyed lookup
  * (get_stable_hash(featureName)). Returns null when the feature has no
  * modifier config.
  */
@@ -54,7 +53,7 @@ const MODIFIERS_BY_HASH: ReadonlyMap<number, ModifierJson> = new Map(
  *
  * In the original, location prefabs carry Unity TerrainModifier
  * components that flatten the ground under the location (client-side).
- * The C++ reference server does NOT level terrain — this is a deliberate,
+ * The reference server does NOT level terrain — this is a deliberate,
  * documented deviation with Unity parity: without it, location pieces
  * float on slopes (pieces are booked relative to the feature center).
  *
@@ -63,9 +62,9 @@ const MODIFIERS_BY_HASH: ReadonlyMap<number, ModifierJson> = new Map(
  *     Runestone_*, Dolmen*, SunkenCrypt, TrollCave, StoneTower, …)
  *     → the yml parameters.
  *  2. Otherwise feature.clearArea (StartTemple, boss altars, …)
- *     → levelRadius = exteriorRadius, everything else = C++
- *     GetFeatureModifierParams defaults (TerrainModifier.cpp:148-160:
- *     offset −0.2, smoothRadius 7, smoothPower 3, square true).
+ *     → levelRadius = exteriorRadius, everything else = the
+ *     feature modifier defaults
+ *     (offset −0.2, smoothRadius 7, smoothPower 3, square true).
  *  3. Otherwise → null (no leveling: boulders, ships, tar pits, …).
  */
 export function getTerrainLeveling(feature: Feature): ModifierJson | null {
@@ -105,7 +104,7 @@ export interface SurroundingCheck {
   readonly radiusMultiplier: number;
 }
 
-/** C++ ServerSettings::LocationOverride. */
+/** Per-location override settings. */
 export interface LocationOverride {
   /** >= 0 overrides the feature's minAltitude; < 0 keeps the original. */
   readonly minAltitude: number;
@@ -115,7 +114,7 @@ export interface LocationOverride {
 
 const OVERRIDES = locationOverridesData.overrides as Record<string, LocationOverride>;
 
-/** C++ VAL_SETTINGS.locationOverrides lookup by feature name. */
+/** Location override lookup by feature name. */
 export function getLocationOverride(featureName: string): LocationOverride | null {
   return OVERRIDES[featureName] ?? null;
 }

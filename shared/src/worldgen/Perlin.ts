@@ -1,15 +1,15 @@
 /**
- * Unity-compatible 2D Perlin noise — 1:1 port of `VUtils::Math::PerlinNoise`
- * from the C++ reference server (HEIGHTFIX-02 double-precision variant).
+ * Unity-compatible 2D Perlin noise — 1:1 port of the reference server's
+ * `PerlinNoise` (HEIGHTFIX-02 double-precision variant).
  *
- * This is UnityEngine.Mathf.PerlinNoise, reverse-engineered by the reference
+ * This is Unity's Mathf.PerlinNoise, reverse-engineered by the reference
  * project, with its "HEIGHTFIX-02" patch: all intermediates are
  * computed in DOUBLE precision. Since JS numbers are float64, the port is
  * bit-exact without any float32 emulation — as long as callers pass the same
- * argument values. (Where the C++ caller computes the ARGUMENT in float32,
+ * argument values. (Where the reference caller computes the ARGUMENT in float32,
  * the fround happens at the call site in GeoManager.ts, not here.)
  *
- * C++ reference (library/src/VUtilsMath.cpp):
+ * Reference algorithm:
  *
  *   static double myfade(double t) { return t*t*t*(t*(t*6.0-15.0)+10.0); }
  *   static double mylerp(double t, double a, double b) { return a + t*(b-a); }
@@ -21,7 +21,7 @@
  *   }
  *
  *   double PerlinNoise(double x, double y) {
- *     x = std::abs(x); y = std::abs(y);
+ *     x = abs(x); y = abs(y);
  *     int X = (int)x & 0xFF, Y = (int)y & 0xFF;
  *     x -= (int)x; y -= (int)y;
  *     int A = p[X] + Y, B = p[X+1] + Y;
@@ -32,12 +32,12 @@
  *     return (res + 0.69) / 1.483;
  *   }
  *
- * The permutation table below was extracted programmatically from the C++
- * source (512 entries = the 256-value Ken Perlin permutation duplicated;
+ * The permutation table below was extracted programmatically from the
+ * reference source (512 entries = the 256-value Ken Perlin permutation duplicated;
  * verified: first half is a true permutation of 0..255, second half identical).
  */
 
-// Base 256-value permutation (C++ p[] first half; the C++ array repeats it).
+// Base 256-value permutation (first half of the reference's p[]; the array repeats it).
 const PERM_BASE: readonly number[] = [
   151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225,
   140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148,
@@ -57,7 +57,7 @@ const PERM_BASE: readonly number[] = [
   222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180,
 ];
 
-/** C++ p[512] — the base permutation duplicated (indices up to p[511] used). */
+/** p[512] — the base permutation duplicated (indices up to p[511] used). */
 const p = new Uint8Array(512);
 for (let i = 0; i < 512; i++) p[i] = PERM_BASE[i & 0xff];
 
@@ -77,14 +77,14 @@ function mygrad(hash: number, x: number, y: number): number {
 }
 
 /**
- * C++ `VUtils::Math::PerlinNoise(double x, double y)`.
+ * 2D Perlin noise on doubles.
  * Result roughly in [0, 1) (centered around ~0.465; NOT centered on 0.5).
  */
 export function perlinNoise(x: number, y: number): number {
   x = Math.abs(x);
   y = Math.abs(y);
 
-  // C++ (int)x — truncation; inputs in worldgen stay well below 2^31.
+  // (int)x — truncation; inputs in worldgen stay well below 2^31.
   const xi = Math.trunc(x);
   const yi = Math.trunc(y);
   const X = xi & 0xff;

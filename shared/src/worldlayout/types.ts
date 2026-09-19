@@ -49,7 +49,7 @@ export type BiomeName =
   | 'ashlands'
   | 'deepnorth';
 
-/** Autorname → Bitmasken-Biom (shared/src/types.ts, Werte aus C++ Types.h). */
+/** Autorname → Bitmasken-Biom (shared/src/types.ts, Werte aus der Referenz). */
 export const BIOME_BY_NAME: ReadonlyMap<BiomeName, Biome> = new Map([
   ['grassland', Biome.Meadows],
   ['blackforest', Biome.BlackForest],

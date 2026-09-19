@@ -2,15 +2,15 @@
  * B5 smoke test — modern Ashlands height (ASHLANDS_2.0) behind the
  * worldAshlandsModernNoise flag.
  *
- * The bit-exact end-to-end verification against the C++ golden dumps is
+ * The bit-exact end-to-end verification against the reference golden dumps is
  * geo-compare.ts (AshLands skip removed in B5); this file only checks the
  * flag dispatch and basic output sanity:
  *  1. Legacy mode still works (no FastNoise constructed, mask = 0).
  *  2. Modern mode returns finite heights without throwing.
  *  3. The lava mask is in [0,1] and actually varies (non-zero somewhere
  *     deep in the Ashlands — it is the whole point of B5).
- *  4. preGeneration heights are identical between the two modes (C++
- *     always uses the legacy/pregen formula for river/stream generation).
+ *  4. preGeneration heights are identical between the two modes (the
+ *     reference always uses the legacy/pregen formula for river/stream generation).
  *  5. Modern ≠ legacy height somewhere (the feature actually changes the
  *     terrain — otherwise the port would be suspect).
  *

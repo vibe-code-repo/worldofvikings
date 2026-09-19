@@ -50,7 +50,7 @@ spielbaren Welt (Außenkante ±8 192 m):
   Instanzen sehen weder die Oberwelt noch einander; Betreten/Verlassen ist
   ein Teleport. Das `objectsBySectorOuter`-Lager des ZDOManagers trägt die
   Koordinaten nativ, **keine Protokolländerung am ZDO-Sync nötig**.
-- Idee nach dem Vorbild von world-of-claudecraft (`instanceOrigin`-Muster).
+- Idee: Instanz-Ursprung-Muster (`instanceOrigin`).
 
 Konsequenzen im Server (`WovServer.ts`):
 - `update()`: Peers im Band treiben weder Vegetations-Zonen noch Spawns an.
@@ -66,7 +66,7 @@ Konsequenzen im Server (`WovServer.ts`):
 
 ```
 dungeons.pkg (Referenzserver)
-  └─ tools/prefab-parser/parse-dungeons.ts        (Format: DungeonManager.cpp:19-201)
+  └─ tools/prefab-parser/parse-dungeons.ts        (Referenzformat)
       ├─ shared/src/dungeonsData.json             13 DG_*-Generatoren, 392 Räume (Kopf)
       │   └─ shared/src/dungeons.ts               DungeonDef/RoomDef/Connection-Registry
       │       ├─ shared/src/dungeonGenerator.ts   Generator + Editor-Helfer
@@ -96,7 +96,7 @@ ZNetView-Prefabs — `shared/src/prefabs.ts` hängt sie mit `flags = 0n` an die
 Registry (renderbar, statisch, nicht persistent).
 
 ⚠️ **Hier stand: „Alle 392 Raumnamen haben ein GLB unter `assets/models/`."** Das galt,
-solange dort der AssetRipper-Export lag. Seit dem 16.08.2026 stehen in `assets/models/`
+solange dort der Extraktions-Export lag. Seit dem 16.08.2026 stehen in `assets/models/`
 119 selbst gebaute GLBs, und **keine einzige** davon ist ein Dungeon-Raum. Die
 Datengrundlage — `dungeonsData.json`, `roomPiecesData.json`, die Naht dazwischen — ist
 davon unberührt und wird von `shared/test/weltdaten-schnitt.ts` weiter geprüft; es fehlt
@@ -106,8 +106,8 @@ die Geometrie, nicht die Beschreibung. Wer eigene Räume baut, braucht deshalb n
 ## Generator
 
 `generateDungeonLayout(def, seed, settings?)` in
-`shared/src/dungeonGenerator.ts` — 1:1-Port des C++-Algorithmus
-(DungeonGenerator.cpp), aber in **lokalem Raum um den Ursprung** (der
+`shared/src/dungeonGenerator.ts` — 1:1-Port des Referenz-Algorithmus,
+aber in **lokalem Raum um den Ursprung** (der
 Entrance-Connector des Startraums landet exakt auf (0,0,0)):
 
 1. `PlaceStartRoom` — zufälliger Entrance-Raum.

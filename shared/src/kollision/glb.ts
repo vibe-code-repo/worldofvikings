@@ -32,7 +32,7 @@
  *
  *   • `_col`-Netze sind NIE Bild und ERSETZEN die Kollision.
  *   • Trägt eine Datei LOD-Stufen (`lod0…`, `lod1…`), zählt nur `lod0`.
- *   • `DefaultMaterial` ist AssetRippers Platzhalter für „am Renderer
+ *   • `DefaultMaterial` ist der Platzhalter des Extraktions-Exports für „am Renderer
  *     hing kein Material" — im Bild eine weisse Fläche, in 42 Modellen
  *     vorhanden, und im Client abgeschaltet.
  *

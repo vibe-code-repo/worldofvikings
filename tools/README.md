@@ -272,7 +272,7 @@ Boden nicht neu.
 | Werkzeug | Zweck |
 |---|---|
 | `asset-extractor/` | Workspace-Paket, `npm run extract:assets`. SoftRef-Ordner als Argument oder `WOV_SOFTREF_DIR`. |
-| `prefab-parser/` | Workspace-Paket, `npm run parse:prefabs` → `prefabData.json`. Datenordner der Referenzdateien: `WOV_PKG_DIR` (Vorgabe `../pkg-data` neben dem Projekt). |
+| `prefab-parser/` | Workspace-Paket, `npm run parse:prefabs` → `prefabData.json`. Datenordner der Referenzdateien: `WOV_PKG_DIR` (Vorgabe: der Ordner pkg-data neben dem Projektordner). |
 | `asset-export/` | Arbeitsverzeichnis des Asset-Exports (Ex- und Import); `export/`, `temp/` und Binärdateien sind gitignoriert. |
 | `extract-texture-arrays.py` | Holt `Texture2DArray` und `Texture3D` aus dem Client — der normale Export enthält nur `Texture2D`, der Boden liegt dort aber als Array vor. Bundle-Pfad `WOV_CLIENT_BUNDLE`. |
 | `dump-envsetup.mjs` | Extrahiert die echten Lichtwerte des Vorbilds für `shared/src/environment.ts`. |

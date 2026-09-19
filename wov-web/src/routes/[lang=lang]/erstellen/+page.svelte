@@ -114,7 +114,7 @@
      * und die Seite muss damit weiter funktionieren.
      */
     zoomeKopf?(nah?: boolean): void;
-    beiKopfZustand?: ((zustand: { nah: boolean; ueber: boolean }) => void) | null;
+    beiKopfZustand?: ((zustand: { nah: boolean; ueber: boolean; gueltig?: boolean }) => void) | null;
     dispose(): void;
   }
 
@@ -162,6 +162,8 @@
   let kopfNah = $state(false);
   /** Ist der Mauszeiger über dem Kopf? Kommt aus der Vorschau. */
   let kopfUeber = $state(false);
+  /** Gibt es eine gültige Kopfposition (Körper steht)? Nur dann darf die Markierung zu sehen sein. */
+  let kopfGueltig = $state(false);
   /** Kennt das geladene Vorschau-Bündel den Kopf-Zoom? Ein altes, gecachtes kennt ihn nicht. */
   let kopfZoomBereit = $state(false);
   /** Nach dem ersten Kopf-Zoom der Sitzung wird die Markierung nur noch beim Überfahren gezeigt. */
@@ -174,7 +176,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'kopf-zoom-v1-20260919';
+  const FIGUREN_STAND = 'kopf-zoom-v2-20260919';
 
   let figur = $state('');
   let frisur = $state('');
@@ -569,6 +571,7 @@
         vorschau.beiKopfZustand = (zustand) => {
           kopfNah = zustand.nah;
           kopfUeber = zustand.ueber;
+          kopfGueltig = zustand.gueltig === true;
           if (zustand.nah && !kopfZoomGesehen) {
             kopfZoomGesehen = true;
             try {
@@ -606,6 +609,7 @@
     fussHinweisAn = false;
     kopfNah = false;
     kopfUeber = false;
+    kopfGueltig = false;
     kopfZoomBereit = false;
     hinweisText = null;
   }
@@ -946,7 +950,8 @@
     -->
     <div
       class="kopf-marke"
-      class:sichtbar={fertig && kopfZoomBereit && !kopfNah && (!kopfZoomGesehen || kopfUeber)}
+      class:gueltig={kopfGueltig}
+      class:sichtbar={fertig && kopfZoomBereit && kopfGueltig && !kopfNah && (!kopfZoomGesehen || kopfUeber)}
       class:ueber={kopfUeber}
       aria-hidden="true"
     >
@@ -1274,6 +1279,8 @@
     pointer-events: none;
     transition: opacity 0.35s ease;
   }
+  /* Ohne gültige Kopfposition (Körperwechsel, vor dem ersten Bild): sofort weg, ohne Blende. */
+  .kopf-marke:not(.gueltig) { opacity: 0; transition: none; animation: none; }
   .kopf-marke.sichtbar { opacity: 0.4; animation: kopf-puls 2.8s ease-in-out infinite; }
   .buehne:hover .kopf-marke.sichtbar { opacity: 0.8; }
   .kopf-marke.sichtbar.ueber { opacity: 1; border-color: var(--runengold); }

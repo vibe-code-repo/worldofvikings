@@ -33,6 +33,7 @@ import {
   SAVE_INTERVAL_MS,
   WETTER_AUTOMATISCH,
   type WetterVorgabe,
+  type WorldMode,
 } from '@wov/shared';
 
 /**
@@ -79,7 +80,7 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
   // Nachschlagen die geerbte FUNKTION statt `undefined` -- und
   // `bekannt.includes(...)` wirft. Der Wurf landet im Sammel-catch von
   // `leseServerKonfig`, der Server startet dann mit VOLLSTAENDIGEN
-  // Vorgabewerten: Port 2456 statt 2467, `worldMode: 'valheim'` statt
+  // Vorgabewerten: Port 2456 statt 2467, `worldMode: 'radial'` statt
   // `layout`, fremder Weltname. Sichtbar waere davon genau eine Logzeile.
   // Gefunden am 21.08.2026 von der Gegenprobe, die genau danach gesucht hat.
   Object.create(null) as Record<string, readonly string[]>,
@@ -114,6 +115,30 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
     look: Object.keys(LOOK_VORGABE),
   }
 );
+
+/** Früherer Name des radialen Weltmodus; wird nur noch beim Lesen angenommen. */
+const RADIAL_ALTNAME = 'valheim';
+
+/**
+ * `world.mode` aus der server.yml → Weltmodus.
+ *
+ * Der radiale Modus hieß früher `valheim`. Der Altname bleibt gültig und
+ * wird auf `radial` abgebildet, mit genau EINER Warnung je Aufruf — der
+ * Wert steht in keinem Spielstand, keinem Weltdokument und keinem
+ * Netzpaket (Save-Meta: worldName, worldSeed, worldGenVersion, savedAt,
+ * layoutHash; das Netz trägt nur das Bit FLAG_LAYOUT_MODE), also ändert
+ * die Abbildung keine Welt. Alles außer `layout` ist wie bisher radial.
+ */
+export function weltmodusAusWert(wert: unknown): WorldMode {
+  if (wert === 'layout') return 'layout';
+  if (wert === RADIAL_ALTNAME) {
+    console.warn(
+      `[Konfig] server.yml world.mode: "${RADIAL_ALTNAME}" ist der alte Name von "radial" — ` +
+        'bitte "radial" eintragen; es gilt "radial"',
+    );
+  }
+  return 'radial';
+}
 
 /**
  * Alle Schluessel des YAML-Dokuments, die `leseServerKonfig` NICHT liest.
@@ -470,9 +495,9 @@ export function leseServerKonfig(
       //-running server / an existing save (see client/src/main.ts header).
       worldSeed: process.env.WORLD_SEED || (world.seed as string) || 'KxSYuZquuw',
       // Kartengenerierungs-Umbau: 'layout' liest die designer-definierte
-      // Welt aus server/data/welten/<instanz>.json, 'valheim' bleibt der
-      // Name des radialen Seed-Ports (Übergangspfad, s. server.yml).
-      worldMode: world.mode === 'layout' ? 'layout' : 'valheim',
+      // Welt aus server/data/welten/<instanz>.json, 'radial' ist der
+      // radiale Seed-Port (Übergangspfad, s. server.yml).
+      worldMode: weltmodusAusWert(world.mode),
       worldLayoutPath: layoutPfad,
       // worldgen flags (reference defaults: smoothstep=true, bilinear=false,
       // ashlands-modern-noise=true)

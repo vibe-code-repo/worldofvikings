@@ -111,12 +111,22 @@ function warteBusy(ms: number): void {
 /** Injected delays (ms) of scenario A: known sizes the split has to give back. */
 const SYNC_VERZOEGERUNG = 3;
 const WELT_VERZOEGERUNG = 2;
+/** Zeugen des Patches: Er muss wirklich eine Welt erreicht haben und gelaufen sein. */
+let weltenGepatcht = 0;
+let weltTickAufrufe = 0;
 
-/** Startet Server + wandernden Client, ruft `lauf` auf und raeumt danach auf. */
+/**
+ * Startet Server + wandernden Client, ruft `lauf` auf und raeumt danach auf.
+ *
+ * `nachStart` laeuft NACH `server.start()`: Die Welten entstehen erst in
+ * `init()`, das `start()` aufruft — vorher ist `welten` leer, und ein Patch
+ * ueber die Welten laeuft ins Leere. `init()` ist synchron und der Tick-Takt
+ * ein Timer, also ist zwischen `start()` und dem Patch noch kein Tick gelaufen.
+ */
 async function mitServer(
   ordner: string,
   lauf: (wandern: () => void) => Promise<void>,
-  vorStart: (server: ReturnType<typeof createWovServer>) => void = () => undefined,
+  nachStart: (server: ReturnType<typeof createWovServer>) => void = () => undefined,
 ): Promise<void> {
   const welt = resolve(TMP, ordner, "welt");
   const metriken = resolve(TMP, ordner, "metriken");
@@ -130,8 +140,8 @@ async function mitServer(
     saveIntervalMs: 3600_000,
     metrikenDatei: resolve(metriken, "metriken.json"),
   });
-  vorStart(server);
   server.start();
+  nachStart(server);
   let ws: WebSocket | undefined;
   let schritt = 0;
   try {
@@ -168,6 +178,37 @@ console.log("\n[A] Aufteilung im Tageslog:");
       }, 30_000);
       clearInterval(wanderer);
       check("Zeugen: mindestens vier Sekundenzeilen mit Client und ein Budget-Abbruch", genug);
+
+      // Ruhe: Ohne neue Spruenge baut sich der Rueckstand der Zonen ab, danach
+      // kostet ein Welt-Tick nichts ausser der eingespeisten Verzoegerung. NUR
+      // dann laesst sich die Groesse der Welten-Phase gegen die 2 ms halten:
+      // waehrend des Wanderns steht dort die echte Zonenerzeugung (rund 18 ms
+      // je Tick), neben der ein Stempel, der die Haelfte oder nichts misst,
+      // die Schwelle von 2 ms trotzdem uebersteht. Ruhe heisst hier: drei
+      // Zeilen in Folge ohne Budget-Abbruch — ueber den Zaehler, nicht ueber
+      // die Welten-Zeit, die geprueft werden soll.
+      const ruhig = await warteAuf(() => {
+        const z = log();
+        return z.length >= 3 && z.slice(-3).every((l) => l.zonenBudgetAbbrueche === 0 && l.tickAnzahl >= 20);
+      }, 30_000);
+      check("Zeugen: der Zonenrueckstand ist abgebaut (drei Zeilen ohne Budget-Abbruch)", ruhig);
+      const ruhe = log().slice(-3);
+      const ruheMittel = (f: (z: MetrikSchnappschuss) => number): number =>
+        ruhe.reduce((s, z) => s + f(z), 0) / Math.max(1, ruhe.length);
+      const ruheWelten = ruheMittel((z) => z.tickWeltenMsDurchschnitt);
+      const ruheSync = ruheMittel((z) => z.tickSyncMsDurchschnitt);
+      const ruheRest = ruheMittel((z) => z.tickRestMsDurchschnitt);
+      check(
+        "Ruhe: die Welten-Phase ist die eingespeiste Verzoegerung (Mittel 2,0 bis 2,5 ms, gemessen rund 2,04)",
+        ruhe.length === 3 && ruheWelten >= WELT_VERZOEGERUNG && ruheWelten <= WELT_VERZOEGERUNG + 0.5,
+        `${ruheWelten.toFixed(2)} ms`,
+      );
+      check(
+        "Ruhe: die Sync-Phase ist die eingespeiste Verzoegerung an zwei von drei Ticks (Mittel 1,7 bis 2,4 ms, gemessen rund 2,0)",
+        ruhe.length === 3 && ruheSync >= 1.7 && ruheSync <= 2.4,
+        `${ruheSync.toFixed(2)} ms`,
+      );
+      check("Ruhe: der Rest bleibt klein (Mittel unter 0,5 ms)", ruhe.length === 3 && ruheRest < 0.5, `${ruheRest.toFixed(2)} ms`);
 
       const zeilen = log();
       const abweichung = Math.max(
@@ -217,6 +258,11 @@ console.log("\n[A] Aufteilung im Tageslog:");
       check(
         "Sync-Maximum mindestens die Verzoegerung",
         Math.max(...voll.map((z) => z.tickSyncMsMax)) >= SYNC_VERZOEGERUNG,
+      );
+      check(
+        "Zeugen: der Welten-Patch hat mindestens eine Welt erreicht und ist gelaufen",
+        weltenGepatcht >= 1 && weltTickAufrufe > 0,
+        `${weltenGepatcht} Welt(en), ${weltTickAufrufe} Aufrufe`,
       );
       check(
         "Welt-Verzoegerung von 2 ms kommt in der Welten-Phase an (Mittel je Tick mindestens 2 ms)",
@@ -273,9 +319,11 @@ console.log("\n[A] Aufteilung im Tageslog:");
       for (const welt of innen.welten.values()) {
         const tickOriginal = welt.tick.bind(welt);
         welt.tick = (...args: unknown[]): unknown => {
+          weltTickAufrufe++;
           warteBusy(WELT_VERZOEGERUNG);
           return tickOriginal(...args);
         };
+        weltenGepatcht++;
       }
     },
   );

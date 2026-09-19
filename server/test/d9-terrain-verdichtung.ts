@@ -108,7 +108,7 @@ function opFolge(anzahl: number, spanne = 150): Array<{ x: number; y: number; z:
 
 function neuerProvider(): HeightmapProvider {
   return new HeightmapProvider(
-    createGeo({ mode: 'valheim', worldSeed: getStableHash(SEED) }),
+    createGeo({ mode: 'radial', worldSeed: getStableHash(SEED) }),
     { blendSmoothStep: true, bilinearSampling: false }
   );
 }

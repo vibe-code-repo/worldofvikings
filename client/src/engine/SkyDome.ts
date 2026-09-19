@@ -100,7 +100,7 @@ const SHADER_NAME = 'skyDome';
  * Stand VOR A5 wiederherstellt: eine gleichmässige Kuppel auf genau
  * diesem Wert. Der Betrieb liest Zenit und Horizont aus dem Profil.
  *
- * The single sky colour the reference was calibrated on; kept for the
+ * The single sky colour the comparison project was calibrated on; kept for the
  * `?sky=flach` diagnostic switch, which restores the pre-A5 flat dome.
  */
 const VOR_A5_HIMMEL = '#819195';
@@ -188,7 +188,7 @@ vec3 vhSkyGradient(vec3 dir, vec3 horizon, vec3 zenith, vec3 sunGlow, vec3 toSun
     0,28 landet bei Exponent 65 und damit bei 8,4° Halbwertsbreite.
 
     A12: a second, wider halo term — one term cannot be both a
-    few-degree core and a ~9-degree glow, and the reference has both.
+    few-degree core and a ~9-degree glow, and the comparison project has both.
   */
   float hofExp = mix(90.0, 1.5, clamp(haloBreite, 0.0, 1.0));
   float hof = pow(sunDot, hofExp) * clamp(haloStaerke, 0.0, 1.0);

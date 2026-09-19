@@ -156,10 +156,11 @@ world:
   #   Spielstand server/data/worlds/<instanz>.db.zst
   # Der Weltname war der einzige Grund, warum server.yml nie mitdeployed
   # werden durfte. Siehe shared/src/instanz.ts.
-  # Kartengenerierung: 'valheim' = radialer Seed-Port (Übergangspfad, der
-  # Name des Modus stammt noch aus der Anfangszeit und bleibt, weil
-  # bestehende Spielstände ihn tragen),
+  # Kartengenerierung: 'radial' = radialer Seed-Port (Übergangspfad),
   # 'layout' = designer-definierte Welt aus der layout-Datei (relativ zu data/).
+  # Der frühere Name 'valheim' wird noch als Alias gelesen (eine Warnung
+  # beim Start, danach gilt 'radial'); der Wert steht in keinem Spielstand,
+  # keinem Weltdokument und keinem Netzpaket, nur in dieser Datei.
   # Achtung: Der Modus muss zum Save passen — ein Save aus dem radialen
   # Modus gehört nicht unter eine layout-Welt (andere Weltform).
   mode: layout
@@ -477,11 +478,14 @@ look:
   # ausserhalb ihres Bands 0,53 ± 0,08 liegt, hat der Tonemapper zu
   # verantworten und nicht diese Zeile — bei Nebelstart 15 steht sie
   # genauso daneben.
-  # ── Nebel vorerst aus (Mike, 12.09.2026) ────────────────────────────
-  # Linear jenseits der Sichtweite: Start und Ende liegen beide hinter
-  # dem, was im Sichtbereich je gerendert wird, also erscheint kein
-  # Nebel. Der Rueckweg zu den gemessenen Werten oben ist nebelStart 50 /
-  # nebelEnde 800.
+  # ── Nebelkurve: exp2 (seit 13.09.2026) ──────────────────────────────
+  # Bis 12.09.2026 stand hier `linear` jenseits der Sichtweite („Nebel
+  # vorerst aus", Mike); seither gilt `exp2`, der Nebel ist also an. Die
+  # Dichte kommt aus dem Wetter, nicht aus diesem Block. `nebelStart` und
+  # `nebelEnde` werden nur bei `nebelmodus: linear` gelesen und sind bei
+  # exp2 ohne Wirkung; 0 / 300 stehen hier nur als gueltige Platzhalter.
+  # Der Rueckweg zu den gemessenen Linearwerten oben ist
+  # `nebelmodus: linear`, nebelStart 50 / nebelEnde 800.
   nebelmodus: exp2
   nebelStart: 0
   nebelEnde: 300

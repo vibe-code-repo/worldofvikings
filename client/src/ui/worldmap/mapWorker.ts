@@ -101,7 +101,7 @@ function bauen(req: MapBuildRequest): void {
   if (req.span && req.radius) setzeKartenMasse(req.span, req.radius);
 
   const geo = createGeo({
-    mode: req.layout ? 'layout' : 'valheim',
+    mode: req.layout ? 'layout' : 'radial',
     worldSeed: getStableHash(req.seed),
     layout: req.layout,
     settings: {

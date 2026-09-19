@@ -287,6 +287,34 @@ const jsonlDateien = (ordner: string): string[] =>
   check('1n. Fehler beim Loeschen wird als prune gemeldet', warnungen.length === 1 && warnungen[0]!.includes('prune'), true);
 }
 
+{
+  // Ein Zeitstempel, der kein Datum ist (NaN, Infinity): `toISOString` wirft.
+  // Das ist ein Schreibfehler wie jeder andere — eine Warnung, kein Wurf aus
+  // schreibe() (im Server waere das eine Ausnahme im Tick-Timer).
+  for (const [name, zeit] of [['NaN', Number.NaN], ['Infinity', Number.POSITIVE_INFINITY]] as const) {
+    const ordner = resolve(TMP, `zeit-ungueltig-${name}`);
+    mkdirSync(ordner);
+    const warnungen: string[] = [];
+    const w = new MetrikSchreiber(resolve(ordner, 'metriken.json'), (t) => warnungen.push(t));
+    let geworfen = '';
+    try {
+      w.schreibe(schnapp(zeit));
+    } catch (fehler) {
+      geworfen = (fehler as Error).message;
+    }
+    check(`1o. Zeitstempel ${name} wirft nicht aus schreibe()`, geworfen, '');
+    check(`1o. ${name}: Schnappschuss wurde trotzdem geschrieben`, existsSync(resolve(ordner, 'metriken.json')), true);
+    check(`1o. ${name}: kein Tageslog fuer ein Datum, das es nicht gibt`, jsonlDateien(ordner).length, 0);
+    check(`1o. ${name}: genau eine Warnung, sie nennt das Ziel und die Ursache`, warnungen.length === 1 && warnungen[0]!.includes('jsonl') && warnungen[0]!.includes('Invalid time value'), true);
+
+    // Danach geht es normal weiter: Log wird angelegt, das Aufraeumen laeuft beim ersten gueltigen Tag.
+    writeFileSync(resolve(ordner, 'metriken-2026-01-01.jsonl'), '{}\n');
+    w.schreibe(schnapp(T0));
+    check(`1o. ${name}: danach normaler Schreibvorgang`, jsonlDateien(ordner).includes(tagName(T0)), true);
+    check(`1o. ${name}: danach laeuft das Aufraeumen (altes Log weg)`, jsonlDateien(ordner).includes('metriken-2026-01-01.jsonl'), false);
+  }
+}
+
 rmSync(TMP, { recursive: true, force: true });
 
 // ── 2) formatierePrometheus gegen einen von Hand gebauten Schnappschuss. ──

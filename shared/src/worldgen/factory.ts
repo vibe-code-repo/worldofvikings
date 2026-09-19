@@ -2,9 +2,10 @@
  * Geo-Factory — die eine Stelle, an der entschieden wird, WELCHE
  * Weltgenerierung eine Welt bekommt.
  *
- * `valheim` ist der Name des bisherigen 1:1-Ports (radiales Seed-Weltbild);
- * `layout` wird die designer-definierte Regionen-Welt (RegionGeo, Phase 2
- * des Kartengenerierungs-Umbaus). Server, Client und Karten-Worker gehen
+ * `radial` ist der bisherige 1:1-Port (radiales Seed-Weltbild, Übergangspfad;
+ * der frühere Name wird nur noch in `ServerKonfig` als Alias gelesen);
+ * `layout` ist die designer-definierte Regionen-Welt (RegionGeo,
+ * Phase 2 des Kartengenerierungs-Umbaus). Server, Client und Karten-Worker gehen
  * alle über diese Factory, damit der Modus an genau einem Ort wohnt.
  */
 
@@ -22,7 +23,7 @@ import { sanitizeWorldLayout } from '../worldlayout/index.js';
  */
 export type IGeo = GeoManager;
 
-export type WorldMode = 'valheim' | 'layout';
+export type WorldMode = 'radial' | 'layout';
 
 export interface GeoConfig {
   mode: WorldMode;

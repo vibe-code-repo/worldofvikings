@@ -66,7 +66,8 @@ server/data/welten/<instanz>.json      (Autorformat, JSON, klein, in Git)
   Vertrags: `shared/test/worldlayout.ts` hält für BEIDE Weltdateien fest,
   dass sie bytegleich durch den Sanitizer gehen.
 - `createGeo({mode})` (shared/src/worldgen/factory.ts) ist die Modus-Weiche:
-  `valheim` (radialer Übergangspfad) oder `layout`.
+  `radial` (radialer Übergangspfad; der frühere Name `valheim` wird beim
+  Lesen der `server.yml` noch als Alias angenommen) oder `layout`.
 - Im Layout-Modus ist der **detailSeed DES DOKUMENTS** maßgeblich — auf
   Server, Client und MCP-Probe identisch.
 - Der Server kündigt das Layout per ServerConfig-Flag (Bit 5) an und sendet

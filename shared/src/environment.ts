@@ -8,8 +8,9 @@
  * model, not inventing a curve.
  *
  * ── Verified field set ────────────────────────────────────────────────
- * The field list below is 1:1 the surface of the reference environment
- * record, as exposed by a third-party YAML exporter for that format:
+ * The field list below is 1:1 the surface of the comparison project's
+ * environment record, as exposed by a third-party YAML exporter for that
+ * format:
  *
  *   fogColor{Morning,Day,Evening,Night}       base fog color
  *   fogColorSun{Morning,Day,Evening,Night}    fog color TOWARDS the sun
@@ -95,7 +96,7 @@ export interface EnvSetup {
   sunColorDay: EnvColor;
   sunColorEvening: EnvColor;
   sunColorNight: EnvColor;
-  /** Ambient has only two keys in the reference data, not four. */
+  /** Ambient has only two keys in the comparison project's data, not four. */
   ambColorDay: EnvColor;
   ambColorNight: EnvColor;
   lightIntensityDay: number;
@@ -103,7 +104,7 @@ export interface EnvSetup {
   /*
     ── Die zwei optionalen Abend-Schlüssel (09.09.2026) ───────────────
 
-    Das Referenzmodell kennt für Grundlicht und Sonnenstärke nur einen
+    Das Modell des Vergleichsprojekts kennt für Grundlicht und Sonnenstärke nur einen
     TAG- und einen NACHT-Wert und blendet beide mit dem TAGGEWICHT
     ineinander. Für ein Wetter, das ein ABEND ist, ist das eine
     Zwangsjacke: Bei Tagesbruchteil 0,7083 (17 h) liegt das Taggewicht
@@ -129,7 +130,7 @@ export interface EnvSetup {
     Zahl wäre eine dritte Wahrheit — dieselbe Regel, nach der Morgen-
     und Nacht-Keyframes von `Klar-Comic` aus `Clear` übernommen sind.
 
-    Two optional EVENING keys. The reference model interpolates ambient
+    Two optional EVENING keys. The comparison project's model interpolates ambient
     and light intensity between a day and a night key only; at 17 h the
     day weight is 0.408, so an evening cannot get brighter than the
     night key allows. Absent, `evaluateEnv` behaves exactly as before.
@@ -1214,7 +1215,7 @@ function mischeDichte(env: EnvSetup, w: PhaseWeights, tagAnteil: number): number
 /**
  * Das TAGSEITIGE Gewicht für die beiden optionalen Abend-Schlüssel.
  *
- * Grundlicht und Sonnenstärke werden im Referenzmodell nicht wie die
+ * Grundlicht und Sonnenstärke werden im Modell des Vergleichsprojekts nicht wie die
  * Farben ADDIERT, sondern zwischen Nacht und Tag INTERPOLIERT
  * (im Original für das Ambient; für die Stärke siehe die Begründung
  * bei `lightIntensity` unten). Ein Abend-Stützpunkt muss diese Form

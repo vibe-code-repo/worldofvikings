@@ -44,7 +44,7 @@ export class Prefab {
     };
   }
 
-  // ── Flag checks (Prefab.h) ───────────────────────────────────────
+  // ── Flag checks ──────────────────────────────────────────────────
 
   allFlagsPresent(required: bigint): boolean {
     return (this.flags & required) === required;
@@ -129,7 +129,7 @@ export class Prefab {
     return (this.flags & PrefabFlag.TERRAIN_MODIFIER) !== 0n;
   }
 
-  // ── Object Type derivation (Prefab.h GetObjectType) ──────────────
+  // ── Object Type derivation ───────────────────────────────────────
 
   getObjectType(): ObjectType {
     if (this.isPiece()) return 1; // Piece

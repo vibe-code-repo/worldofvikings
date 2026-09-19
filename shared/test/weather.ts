@@ -29,7 +29,7 @@ function check(label: string, ok: boolean, detail = ''): void {
 
 console.log(`timing: envDuration=${ENVIRONMENT_DURATION}s windPeriod=${WIND_PERIOD_DURATION}s\n`);
 
-// Timing must come from the extraction, not the C# field defaults (20/10).
+// Timing must come from the extraction, not the original's field defaults (20/10).
 check('Wetterdauer aus den Assets', ENVIRONMENT_DURATION === 666, `${ENVIRONMENT_DURATION}s`);
 check('Windperiode aus den Assets', WIND_PERIOD_DURATION === 1000, `${WIND_PERIOD_DURATION}s`);
 
@@ -154,9 +154,9 @@ check(
   `max. Schritt ${maxStep.toFixed(4)}/s bei dt=1s`
 );
 
-// ── windData: die Semantik, die EnvMan an die Shader gibt ──────────
+// ── windData: die Semantik, die der Wettermanager des Originals an die Shader gibt ──
 // Der Sinn der beiden Vektoren: Verbraucher mischen ihre WIRKUNG, nicht
-// den Vektor (WaterVolume.CalcWave). Dafür muss wind1 während der Rampe
+// den Vektor (Wellenberechnung des Wasservolumens). Dafür muss wind1 während der Rampe
 // stehenbleiben und alpha sauber von 0 nach 1 laufen.
 const mgr3 = new WeatherManager(Biome.Meadows, 0);
 mgr3.update(0, 0);
@@ -206,8 +206,8 @@ check('alpha wächst monoton', alphaMonoton);
 check('wind1 steht während der Rampe still', wind1Stabil);
 
 // ── Niederschlag ───────────────────────────────────────────────────
-// Die Zuordnung ist aus den Flags abgeleitet, weil EnvSetup.m_psystems
-// (die Partikel-Prefabs) nicht im Export liegt. Geprüft wird deshalb, dass
+// Die Zuordnung ist aus den Flags abgeleitet, weil die Liste der
+// Partikel-Prefabs eines Wetters nicht im Export liegt. Geprüft wird deshalb, dass
 // sie zu den Flags passt, die das Original tatsächlich mitliefert.
 const nachTyp = new Map<string, string[]>();
 for (const e of ENVIRONMENTS) {

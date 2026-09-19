@@ -1,9 +1,9 @@
 # Boden wie im Original — Spezifikation aus den Spieldaten
 
 Gemessen am 10.09.2026 **aus den Spieldateien**, nicht aus Screenshots:
-Installationsordner des Vorbildspiels
+Installationsordner des Originals
 (Unity 2022.3.62f2, URP, Farbraum **Linear**), gelesen mit einem Unity-Extraktionswerkzeug (Version 1.25.3).
-MonoBehaviour-Felder (Volume, VolumeProfile, URP-Asset) über Typetrees aus
+Komponentenfelder (Volume, VolumeProfile, URP-Asset) über Typetrees aus
 den DLLs des Spiels selbst (`…_Data/Managed/`).
 
 * Alle Rohwerte je Szene und Terrain: **`~/wov-lab-mess/original-boden.json`** (904 kB)
@@ -42,7 +42,7 @@ Ort, und die Zahlen von TerrainL1 gelten für alle drei Bilder.
 
 TerrainL1 ist **200 × 200 m groß und 29,4 m hoch**. Das Höhenfeld hat
 513² Punkte auf 0,39 m Raster; die Höhennormierung ist `h/32767 ×
-scale.y`, geprüft gegen `m_MinMaxPatchHeights` (0,049045 gegen 0,049043)
+scale.y`, geprüft gegen die Patch-Höhengrenzen des Terrains (0,049045 gegen 0,049043)
 und gegen `~/wov-assets/Assets/TerrainData/TerrainL1.glb`
 (Y max = 29,4259 m). Ein 30-m-Hügel kann das Bergpanorama aus Bild 3
 nicht erzeugen.
@@ -71,7 +71,7 @@ Terrain-Material: **`TerrainLit`**, Shader
 `Universal Render Pipeline/Terrain/Lit`, einziges Keyword
 `_TERRAIN_INSTANCED_PERPIXEL_NORMAL`. **Kein** `_TERRAIN_BLEND_HEIGHT`,
 **kein** `_MASKMAP` — keine Schicht hat eine Maskentextur, alle
-`MaskMapRemap` stehen auf 0…1. `m_DrawInstanced` = true.
+`MaskMapRemap` stehen auf 0…1. Instanziertes Zeichnen ist an.
 
 | # | Schicht | Diffuse | Normal | Kachel | Metallic | Glätte | NormalScale |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -83,8 +83,8 @@ Terrain-Material: **`TerrainLit`**, Shader
 | 5 | Terrain_Meadow_Rock_Moss_01 | Rock_Moss_Texture_01 | Rock_Moss_Normals | 7 m | 0,00 | 0,00 | 2,0 |
 | 6 | Ani Dark Pebbles_Sand under water | …under water | Ani Pebbles_Sand_normals | 2 m | 0,75 | 0,10 | 3,0 |
 
-`m_TileOffset` ist bei allen [0, 0], `m_Specular` bei allen schwarz,
-`m_DiffuseRemapMin/Max` bei allen 0…1 — also keine Remaps im Spiel.
+Der Kachel-Versatz ist bei allen [0, 0], die Specular-Farbe bei allen schwarz,
+der Diffuse-Remap (Min/Max) bei allen 0…1 — also keine Remaps im Spiel.
 
 ### Die gemessene Rampe — Verteilung über Neigungsbänder
 
@@ -215,12 +215,12 @@ Zwei Dinge fallen auf:
 
 Detailkarte **1024 × 1024** (32 Patches × 32 Samples), also
 **0,195 m je Detailzelle**. 17 Detail-Prototypen.
-Terrain-Komponente: `m_DetailObjectDistance` **70 m**,
-`m_DetailObjectDensity` **1,0**, `m_HeightmapPixelError` 15,
-`m_SplatMapDistance` (Basemap) 1000 m, `m_TreeDistance` 500 m,
-`m_TreeBillboardDistance` 50 m, `m_ShadowCastingMode` 2 (TwoSided).
+Terrain-Komponente: Detail-Distanz **70 m**,
+Detail-Dichte **1,0**, Heightmap-Pixelfehler 15,
+Splatmap-Distanz (Basemap) 1000 m, Baum-Distanz 500 m,
+Baum-Billboard-Distanz 50 m, Schattenmodus 2 (TwoSided).
 `WavingGrassTint` = (0,70 / 0,60 / 0,50), Strength/Amount/Speed je 0,5.
-`m_DetailScatterMode` = 0 (InstanceCountMode).
+Detail-Streumodus = 0 (InstanceCountMode).
 
 **Die Höhen sind Skalen, keine Meter.** `minHeight`/`maxHeight`
 multiplizieren die Prefab-Höhe. Die Prefab-Maße unten sind aus der
@@ -263,11 +263,11 @@ kein Lesefehler (geprüft, siehe unten).
 nur in der Ebene. Blumen sind bei > 22° praktisch aus.
 
 > **Wie belastbar ist die Deckungszahl?** Die Karte ist korrekt
-> dekodiert: `m_Patches.coverage` ist layer-major (Zeilenperiode 32
+> dekodiert: `coverage` ist layer-major (Zeilenperiode 32
 > nachgewiesen), und die mittlere Nachbardifferenz liegt bei 5,6 gegen
 > 100 bei einer Zufallskontrolle — es ist eine gemalte Karte, kein
 > Rauschen. **Nicht** ableitbar ist die absolute Instanzzahl je m²:
-> `m_DetailScatterMode` = 0 und der Zusammenhang von `coverage`,
+> der Detail-Streumodus = 0 und der Zusammenhang von `coverage`,
 > `density` und `detailObjectDensity` sitzt in Unitys Terrain-Engine.
 > Belastbar sind Verhältnis der Arten, Ort und Größe — die absolute
 > Dichte muss im Labor am Bild kalibriert werden.
@@ -287,15 +287,15 @@ keine Zufallsstreuung außer bei Tree_1A3.
 | 3 | Tree_1B3 | 29,66 m | 0,50 | 14,8 m | 49 | 12,25/ha |
 | 4 | Pine_1B4 | 30,09 m | 0,50 | 15,0 m | 51 | 12,75/ha |
 
-`bendFactor` = 0 bei allen, `m_TreeCrossFadeLength` 5 m,
-`m_BakeLightProbesForTrees` = true. Die fünf Arten sind fast gleich
+`bendFactor` = 0 bei allen, Baum-Überblendlänge 5 m,
+Lichtsonden-Backen für Bäume = true. Die fünf Arten sind fast gleich
 häufig — der Autor hat bewusst gemischt, nicht dominieren lassen.
 
 ---
 
 ## D Licht, Ambient, Nebel, Himmel, Reflexion — Level1
 
-Farben sind so serialisiert, wie Unity sie ablegt: `Light.m_Color` und
+Farben sind so serialisiert, wie Unity sie ablegt: die Lichtfarbe und
 die `RenderSettings`-Farben in **Gamma/sRGB**. Die JSON führt je Farbe
 den Rohwert, den sRGB-Hex und **beide** Umrechnungen mit.
 
@@ -311,7 +311,7 @@ den Rohwert, den sRGB-Hex und **beide** Umrechnungen mit.
 | Schatten | Soft (Typ 2), Stärke **1,0**, Bias 0,05 / NormalBias **0,0** |
 | Farbtemperatur | 5000 K, **aber `useColorTemperature` = false** → wirkt nicht |
 | Bounce (indirekt) | 1,0 |
-| Lightmaps | keine (`m_Lightmaps` leer, `m_LightmapsMode` 1) — alles Echtzeit |
+| Lightmaps | keine (Lightmap-Liste leer, Lightmap-Modus 1) — alles Echtzeit |
 
 Das zweite Licht ist ein **Punktlicht** (`Light`, Intensität 30,
 #2681FF, ohne Schatten) — eine lokale blaue Aufhellung, kein Sonnenlicht.
@@ -320,16 +320,16 @@ Das zweite Licht ist ein **Punktlicht** (`Light`, Intensität 30,
 
 | Größe | Wert |
 | --- | --- |
-| `m_AmbientMode` | **0 = Skybox** |
-| `m_AmbientIntensity` | 1,0 |
+| Ambient-Modus | **0 = Skybox** |
+| Ambient-Intensität | 1,0 |
 | Skybox-Material | **`Sky1 L1`**, Shader `Skybox/Cubemap` |
 | `_Tint` | **#B2D1FE** = (0,697 / 0,821 / 0,996) |
 | `_Exposure` | **0,8** |
 | `_Rotation` | 0 |
-| Reflexion | `m_DefaultReflectionMode` 0 (Skybox), Auflösung 128, Intensität 1,0, 1 Bounce |
+| Reflexion | Standard-Reflexionsmodus 0 (Skybox), Auflösung 128, Intensität 1,0, 1 Bounce |
 | ReflectionProbes | **0 Stück in der Szene** |
 
-> **`m_AmbientSkyColor` / `EquatorColor` / `GroundColor` sind wirkungslos.**
+> **Die Ambient-Farben für Himmel, Horizont und Boden sind wirkungslos.**
 > Sie stehen auf Unitys Vorgabe (0,212/0,227/0,259 · 0,114/0,125/0,133 ·
 > 0,047/0,043/0,035) und werden bei `AmbientMode = Skybox` nicht
 > benutzt. Wer sie überträgt, überträgt eine Zahl, die im Vorbild nichts
@@ -340,12 +340,12 @@ Das zweite Licht ist ein **Punktlicht** (`Light`, Intensität 30,
 
 | Größe | Wert |
 | --- | --- |
-| `m_Fog` | an |
-| `m_FogMode` | **1 = Linear** |
-| `m_LinearFogStart` | **15 m** |
-| `m_LinearFogEnd` | **200 m** |
-| `m_FogColor` | **#73A7FF** = (0,450 / 0,654 / 1,000) — kräftiges Blau |
-| `m_FogDensity` | 0,01 — **im Linear-Modus unbenutzt** |
+| Nebel | an |
+| Nebelmodus | **1 = Linear** |
+| Linear-Nebel Start | **15 m** |
+| Linear-Nebel Ende | **200 m** |
+| Nebelfarbe | **#73A7FF** = (0,450 / 0,654 / 1,000) — kräftiges Blau |
+| Nebeldichte | 0,01 — **im Linear-Modus unbenutzt** |
 
 Der Nebel ist die stärkste Einzelgröße im Bild: bei 200 m Endweite und
 einer Kameraweite von 1200 m sind die Berge des Panoramas **voll
@@ -389,7 +389,7 @@ Ein Volume je Szene, gelesen über Typetrees aus
 Volumes: `Postprocessing` (global, Priorität 1, Gewicht 1,0 → **das
 wirksame**), `Postprocessing Underwater` (lokal, isGlobal = 0) und
 `PauseBlur` (Gewicht 0). Profil: **`FantasyL1`**.
-`PostprocessingSetter.cs` (die einzige Look-Klasse im Spiel) schaltet
+Das Setter-Skript für das Postprocessing (die einzige Look-Klasse im Spiel) schaltet
 das Volume nur ein und aus — **es überschreibt keinen Wert**.
 
 | Komponente | aktiv | gesetzte Werte |
@@ -454,8 +454,8 @@ könnte: das Spiel hat genau ein `VolumeProfile` je Szene (12 Stück,
 | F8 | Sonnenfarbe | **#FFC98C** (1,000 / 0,788 / 0,549) | Tag (1,00 / 0,96 / 0,90) | `environment.ts` `sunColorDay` | **Übernehmen.** Das Vorbild fährt am Tag eine deutlich wärmere Sonne als wir. |
 | F9 | Sonnenintensität | **2,3** | 1,55 (Tag) / 2,67 (Abend) | `environment.ts` `lightIntensityDay` | Nicht direkt übertragbar (URP-Lux gegen Babylon). Als **Verhältnis** benutzen: Sonne zu Ambient. |
 | F10 | Sonnenstand | **Elevation 50°, Azimut 150°**, fest | `sunAngle: 46`, tagesabhängig | `environment.ts` | Der Referenzort/-zeitpunkt sollte **50°** treffen, wenn gegen die Bilder gemessen wird. Unser Tageslauf bleibt. |
-| F11 | Ambient | **Skybox-Cubemap**, Tint #B2D1FE, Exposure 0,8 | flache Farbe (0,86 / 0,95 / 1,00) | `environment.ts` `ambColorDay` | **Nicht 1 : 1 übertragbar** (wir haben keine Cubemap-Ambient). Ersatz: eine Gradient-Ambient aus dem Tint, nicht aus `m_AmbientSkyColor` — das ist im Vorbild tot (s. §D). |
-| F12 | `m_AmbientSkyColor` u. a. | **wirkungslos** (Unity-Vorgabe, AmbientMode = Skybox) | — | — | **Nicht übertragen.** Wer diese Zahl abschreibt, schreibt eine Vorgabe ab. |
+| F11 | Ambient | **Skybox-Cubemap**, Tint #B2D1FE, Exposure 0,8 | flache Farbe (0,86 / 0,95 / 1,00) | `environment.ts` `ambColorDay` | **Nicht 1 : 1 übertragbar** (wir haben keine Cubemap-Ambient). Ersatz: eine Gradient-Ambient aus dem Tint, nicht aus der Ambient-Sky-Farbe — das ist im Vorbild tot (s. §D). |
+| F12 | Ambient-Sky-Farbe u. a. | **wirkungslos** (Unity-Vorgabe, AmbientMode = Skybox) | — | — | **Nicht übertragen.** Wer diese Zahl abschreibt, schreibt eine Vorgabe ab. |
 | F13 | Schattenweite | **50 m, 1 Kaskade** (Balanced) | 120 m | `server.yml` `look.schatten.reichweite` | Bewusste Abweichung möglich (unsere Welt ist offener). Aber die Notiz „40 m, zwei Kaskaden" im `server.yml` **korrigieren**: wirksam sind 50 m / 1 Kaskade. |
 | F14 | Schattendunkelheit | Stärke **1,0** (Level1), 0,87 (Village1) | 0,42 Restlicht | `server.yml` `look.schatten.dunkelheit` | Nicht direkt vergleichbar (URP füllt den Schatten über Ambient auf). Nach F11 neu messen. |
 | F15 | Bloom | threshold **0,35**, intensity **0,55**, Dirt 12,0 | 0,85 / 0,22, kein Dirt | `server.yml` `look.bloom` | **Umrechnen, Richtung klar:** Das Vorbild blüht viel früher und stärker. Unsere Schwelle 0,85 lässt fast nichts durch. Die Dirt-Textur ist ein eigener Effekt, den wir nicht haben. |
@@ -467,14 +467,14 @@ könnte: das Spiel hat genau ein `VolumeProfile` je Szene (12 Stück,
 | F21 | **Steigungsrampe** | **gemalte Karte**; 66 % Mischtexel; Fels nur 16,9 % Fläche; bei ≥ 45° nur 0,425 Felsgewicht | Formel: Hang 15→30°, Fels 30→40° (Anteil 0,85), Rau 40→50° | `TerrainSplat.ts` `RAMPEN` | **Erfindung des Labors** (bewusst, aber falsch kalibriert). Sofort besser: Schwellen aus der gemessenen Verteilung (F22) und ein **Deckel** auf den Felsanteil. |
 | F22 | Fels-Flächenanteil | **16,9 %** gemalt | eine 30°-Regel liefert 34,0 % | `TerrainSplat.ts` `RAMPEN.fels` | **Halbieren.** Entweder Schwelle auf ~40° (22,0 %) plus `anteil` 0,75, oder — besser — eine Rauschmaske, die den Fels auf ~17 % drückt und ihn nicht an Höhenlinien kleben lässt. |
 | F23 | Übergangsbreite | **2,7–4,3 m** Median (Level1), 4–24 m (Village1) | `smoothstep` über 10–15° | `TerrainSplat.ts` | Die Grad-Spanne ist am Hang etwas anderes als eine Meterbreite. **Nachrechnen:** Bei 30° Hang entsprechen 10° Spanne ≈ 3–5 m — das passt zufällig gut. Zahlen belassen, aber die Begründung auf diese Messung stützen. |
-| F24 | Zeilentönungen | **es gibt keine** — alle Schichten sind unverfälschte Texturen, `m_DiffuseRemap` 0…1, `m_Specular` schwarz | 16 Tönungen, u. a. Cliff (1,283 / 0,614 / 0,224), Moss (0,623 / 0,46 / 0,473) | `tools/store-terrain-schichten.mjs` | **Erfindung des Labors.** Das Original färbt keine Bodentextur um. Vorschlag: alle Tönungen schrittweise auf [1, 1, 1] und den Unterschied über F5–F8/F11 holen. |
+| F24 | Zeilentönungen | **es gibt keine** — alle Schichten sind unverfälschte Texturen, Diffuse-Remap 0…1, Specular schwarz | 16 Tönungen, u. a. Cliff (1,283 / 0,614 / 0,224), Moss (0,623 / 0,46 / 0,473) | `tools/store-terrain-schichten.mjs` | **Erfindung des Labors.** Das Original färbt keine Bodentextur um. Vorschlag: alle Tönungen schrittweise auf [1, 1, 1] und den Unterschied über F5–F8/F11 holen. |
 | F25 | **Falsche Rockwall-Variante** | Level1 und Village1 benutzen `Ani Dark Rockwall **3**`: Metallic **0,20**, Glätte 0,20, **Kachel 5 m** | Tile 4 (Rock) = `Ani Dark Rockwall` (Metallic **0,85**, Kachel **2 m**) | `TerrainSplat.ts` `SCHICHT_OBERFLAECHE[4]` | Das Spiel hat **drei** Rockwall-Ebenen mit **derselben Diffuse-Textur** (PathID 96) und verschiedener Oberfläche: `Ani Dark Rockwall` (0,85 / 2 m), `…2` (0,785 / 5 m), `…3` (**0,20 / 5 m**). Das Labor hat die erste erwischt — **die Referenzbilder stammen aber aus Level1, und Level1 fährt die dritte.** Der Kommentar bei `FELS_TILE` beschreibt richtig, warum 0,85 „wie Erde" aussieht; **die Lösung ist Metallic 0,20 und Kachel 5 m, nicht ein anderes Tile.** |
 | F26 | **Cliff kopiert eine tote Ebene** | `Terrain_Meadow_Rock_Rough_01` wird von **keinem einzigen Terrain im Spiel** benutzt | Tile 5 (Cliff) = genau diese Ebene (Metallic 0, Kachel 3 m, NormalScale 5) | `TerrainSplat.ts` `SCHICHT_OBERFLAECHE[5]` | Die Übertragung ist buchstabengetreu — nur ist die Vorlage im Spiel unbenutzt. Der helle Fels, den die Bilder wirklich zeigen, ist **`Terrain_Meadow_Rock_Moss_01`** (Metallic 0, Glätte 0, **Kachel 7 m**, **NormalScale 2,0**; 5,7 % in Level1, 6,8 % in Village1, 10,7 % in Level2). **Cliff auf diese Werte umstellen.** |
 | F27 | NormalScale | Moos **1,2** · Rockwall 3 **1,5** · Meadow_Rock_Moss **2,0** · Sand 3,0. Maximum aller **benutzten** Ebenen: **3,0** | Cliff **5**, Rock 1,5, Grass 2 | `TerrainSplat.ts` | NormalScale 5 gibt es im Spiel nur auf der unbenutzten Rough-Ebene. **Auf 2,0 (mit F26) bzw. höchstens 3,0 deckeln.** |
 | F28 | Grashöhe | **0,50–0,75 m** (hoch), **0,25–0,38 m** (kurz, am Hang) | 0,77–0,94 m | `GrassClutter.ts` `storeScale.prefabScale.y = 3.0` | **Das Labor ist ~25 % zu hoch.** Die Schätzung „0,64–1,04 m aus dem Bild" (look-referenz.md) misst die Büschel gegen eine Figur, die näher an der Kamera steht. Die Daten sagen 0,50–0,75 m. **`prefabScale.y` von 3,0 auf ~2,4 senken.** |
 | F29 | Zwei Grashöhen | **ja** — hoch überall, kurz gezielt am Steilhang (30–50°+) | `meadowsGrass` + `meadowsGrassShort` unterscheiden sich nur in Menge/Höhe, nicht nach Neigung (`maxTiltCos` cos 25 bei beiden) | `GrassClutter.ts` | **Übernehmen:** kurzes Gras an den Hang binden statt in die Ebene. Das ist es, was Bild 2 zeigt. |
 | F30 | Grasfarbe | `healthyColor` = `dryColor` = **weiß** — die Farbe kommt allein aus dem Prefab-Material | „weisse Halm-Maske × Terrainfarbe" (`terrainTint: true`) | `GrassClutter.ts` (~Z. 751) | **Der Kommentar „Der Mechanismus stammt aus dem Original" stimmt für dieses Original nicht.** Das Vorbildspiel tönt seine Detail-Meshes nicht. Entweder abschalten oder als bewusste eigene Entscheidung kennzeichnen. |
-| F31 | Gras-Sichtweite | **70 m** (`m_DetailObjectDistance`) | Fade 20 → 35 m | `GrassClutter.ts` `fadeMin/fadeMax` | **Übernehmen prüfen.** Unser Gras endet doppelt so früh. Kostenfrage, aber der Unterschied ist sichtbar. |
+| F31 | Gras-Sichtweite | **70 m** (Detail-Distanz des Terrains) | Fade 20 → 35 m | `GrassClutter.ts` `fadeMin/fadeMax` | **Übernehmen prüfen.** Unser Gras endet doppelt so früh. Kostenfrage, aber der Unterschied ist sichtbar. |
 | F32 | Grasdichte | nicht absolut ableitbar (s. §B) | 200 + 250 je 100 m² = 4,5/m² | `GrassClutter.ts` `amount` | **Am Bild kalibrieren**, mit `deckungHell` gegen die 17 % aus `look-referenz.md`. Die Datenlage erlaubt hier keine Zielzahl. |
 | F33 | Blumen/Farne | Blumen 93 % unter 15°, Farne 58 % unter 15° | `meadowsFern` `maxTiltCos` cos 18, Höhenfenster 1–4 m | `GrassClutter.ts` | Passt in der Richtung. Blumen fehlen als eigene Art. |
 | F34 | Baumdichte | **64/ha**, 5 Arten fast gleich häufig, 4,6–19,1 m | — | — | Als Zielzahl für die Wiese übernehmen. |
@@ -574,7 +574,7 @@ Rand im ganzen Splat).
 
 | Prüfung | Ergebnis |
 | --- | --- |
-| Höhennormierung `/32767` | `h.max()/32767` = 0,049043 gegen `m_MinMaxPatchHeights.max()` = 0,049045; GLB-Export Y max 29,4259 m = 0,049043 × 600 |
+| Höhennormierung `/32767` | `h.max()/32767` = 0,049043 gegen die maximale Patch-Höhe = 0,049045; GLB-Export Y max 29,4259 m = 0,049043 × 600 |
 | Alphamap-Orientierung | Fels-gegen-Neigung-Korrelation **0,431** ohne Spiegelung gegen 0,098 mit — die ungespiegelte Lesart ist richtig |
 | Detail-Patch-Dekodierung | layer-major bestätigt (Zeilenperiode 32); mittlere Nachbardifferenz **5,6** gegen **100** bei Zufallskontrolle |
 | Doppelte Detail-Ebenen (1 = 5, 8 = 9) | echte Duplikate in den Daten, kein Lesefehler (Arrays elementweise verglichen) |

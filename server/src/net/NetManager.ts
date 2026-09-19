@@ -8,7 +8,7 @@
  *   - the acceptor
  *   - password hash and salt
  *
- * Transport: WebSocket (replaces Steam Networking Sockets).
+ * Transport: WebSocket (replaces the socket layer of the reference server).
  */
 
 import type { WebSocket } from 'ws';

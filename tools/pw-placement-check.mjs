@@ -127,7 +127,7 @@ check('Boden steigt', after3 - before3 > 1.0, `${(after3 - before3).toFixed(3)} 
 // mehr als die 0,4 s PLACE_DELAY. Ein Test dafür würde die Umgebung messen,
 // nicht den Code. Der Wert steht als Konstante in PlacementController.
 
-// ── 3. Einebnen auf Fußhöhe (m_allowAltGroundPlacement) ───────────
+// ── 3. Einebnen auf Fußhöhe (Alternativ-Bodenplatzierung) ──────────
 console.log('── Einebnen ──');
 await moveTo(0, 20);
 await page.evaluate(() => window.__dbg.placement.selectPiece('levelground'));

@@ -1,14 +1,14 @@
 /**
  * SettingsStore — persisted, user-adjustable render settings.
  *
- * Mirrors two graphics settings of the original (GraphicsSettingInt enum —
- * see the local asset export for the decompiled source and the
- * localization strings this project uses verbatim):
- *  - "Vegetationsqualität" (settings_vegetation, GraphicsSettingInt.Vegetation)
+ * Mirrors two graphics settings of the original (its integer quality
+ * settings; the localization strings are the ones this project uses
+ * verbatim):
+ *  - "Vegetationsqualität" (settings_vegetation)
  *    → GrassClutter's clutter render/fade distance (GrassClutter.ts,
  *    VEGETATION_QUALITY_SCALE).
- *  - "Detailgrad" (settings_lod, "Draw distance / level of detail",
- *    GraphicsSettingInt.LOD) → TerrainManager's near/far ring radius
+ *  - "Detailgrad" (settings_lod, "Draw distance / level of detail")
+ *    → TerrainManager's near/far ring radius
  *    (Terrain.ts, DETAIL_PRESETS).
  *
  * Both use the real game's 4 quality levels (Niedrig/Mittel/Hoch/Sehr
@@ -30,8 +30,8 @@ export interface GameSettings {
    * Der wirksamste Performance-Regler überhaupt: Die Kosten des
    * Fragment-Shaders — Gras, Terrain, Post-Processing — wachsen mit der
    * PIXELZAHL, also quadratisch. 75 % bedeutet 44 % weniger Pixel.
-   * Das Original hat dafür "Target3DResolutionVertical" plus einen
-   * Upscaling-Algorithmus (GraphicsSettingInt).
+   * Das Original hat dafür eine vertikale 3D-Zielauflösung plus einen
+   * Upscaling-Algorithmus.
    */
   renderScale: number;
   /**
@@ -41,8 +41,8 @@ export interface GameSettings {
   grassDensity: number;
   /**
    * Schattenqualität (Index in SHADOW_LEVELS: Aus/Niedrig/Mittel/Hoch).
-   * Die drei oberen Stufen sind die Original-Werte aus
-   * GraphicsSettingsManager.ApplyQualitySettings() — siehe Shadows.ts.
+   * Die drei oberen Stufen sind die Original-Werte aus dem
+   * Qualitätsprofil des Grafikmanagers — siehe Shadows.ts.
    */
   shadowQuality: number;
   /**
@@ -76,7 +76,7 @@ export interface GameSettings {
    */
   dungeonQuality: number;
   /**
-   * Ferne Schatten (GraphicsSettingBool.DistantShadows, im Original an).
+   * Ferne Schatten (im Original an).
    * Aus: Kleinzeug wirft nicht mehr, und Werfer jenseits der halben
    * Kaskadendistanz fallen weg — siehe Shadows.darfWerfen().
    */
@@ -91,18 +91,18 @@ export interface GameSettings {
    */
   hundertFpsProfil: boolean;
   /** Post-Process-Schalter — dieselben, die das Original als Grafikoption
-   *  anbietet (GraphicsSettingBool). Werte/Herkunft: engine/PostProcessing.ts. */
+   *  anbietet. Werte/Herkunft: engine/PostProcessing.ts. */
   bloom: boolean;
   motionBlur: boolean;
   chromaticAberration: boolean;
   antiAliasing: boolean;
   /**
-   * Tiefenunschärfe (Fernunschärfe). Im Original eine echte Grafikoption
-   * (GraphicsSettingBool.DepthOfField), dort standardmäßig AN.
+   * Tiefenunschärfe (Fernunschärfe). Im Original eine echte Grafikoption,
+   * dort standardmäßig AN.
    */
   depthOfField: boolean;
   /**
-   * Sun shafts are enabled for fresh settings, as in the source game.
+   * Sun shafts are enabled for fresh settings, as in the original.
    * The current renderer gates the pass by sun visibility and uses a
    * reduced occlusion buffer; saved user choices remain authoritative.
    */
@@ -191,7 +191,7 @@ export const DEFAULTS: GameSettings = {
   grassDensity: 3, // volle Dichte
   /**
    * "Mittel" (3 Kaskaden, 120 m, 1024 px) — eine Stufe unter dem Original
-   * (`m_shadowQuality = 2` entspricht hier Index 3).
+   * (Stufe 2 des Originals entspricht hier Index 3).
    *
    * Stand hier bis 2026-08-01 auf "Aus", mit dieser Messung vom 30.07.:
    *
@@ -207,8 +207,9 @@ export const DEFAULTS: GameSettings = {
    * `blockMaterialDirtyMechanism` — siehe SonnenSchattenBlock.ts und
    * Shadows.nodeMaterialsNeuUebersetzen()). Seit dem Fix empfangen BODEN
    * und Gras. Den Kosten steht damit ein Gegenwert
-   * gegenüber: Ohne Schatten ist der warm/kalt-Kontrast aus dem EnvSetup
-   * (warme Sonne, blaues Ambient) nirgends sichtbar, weil es keine
+   * gegenüber: Ohne Schatten ist der warm/kalt-Kontrast aus dem
+   * Umgebungsprofil des Originals (warme Sonne, blaues Ambient) nirgends
+   * sichtbar, weil es keine
    * Fläche gibt, auf der die Sonne fehlt — der Hauptgrund für den
    * flachen Bildeindruck (Docs/07-Grafik-Konzept.md, Ursache B).
    *

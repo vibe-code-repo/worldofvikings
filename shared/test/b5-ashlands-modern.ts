@@ -99,7 +99,7 @@ for (const [x, y] of points) {
     break;
   }
 }
-check('preGeneration height identical in both modes (C++ parity)', pregenSame);
+check('preGeneration height identical in both modes (reference parity)', pregenSame);
 
 // [4] modern differs from legacy somewhere (the feature changes terrain)
 let differs = false;

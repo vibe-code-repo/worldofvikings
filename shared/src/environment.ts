@@ -35,7 +35,7 @@
  * The phase anchors come from constants.ts, which was ported 1:1 from the
  * reference server:
  *
- *   WORLD_TIME_LENGTH = 1800 s   full cycle (30 min)  → EnvMan.m_dayLengthSec
+ *   WORLD_TIME_LENGTH = 1800 s   full cycle (30 min)  → day length of the original
  *   TIME_MORNING      =  240 s   → fraction 0.1333    sunrise
  *   TIME_DAY          =  270 s   → fraction 0.15      full daylight
  *   TIME_AFTERNOON    =  900 s   → fraction 0.5       midday
@@ -113,7 +113,7 @@ export interface EnvSetup {
     (09.09.2026): Selbst `ambColorDay` auf reines Weiss gedreht bringt
     bei 17 h nur ×1,10 — nötig waren ×2,23.
 
-    Das Schwesterprojekt hat diesen Zwang nicht, weil sein Lichtaufbau
+    Das Vergleichsprojekt hat diesen Zwang nicht, weil sein Lichtaufbau
     STATISCH ist: `content/worlds/village1.json` schreibt
     `sun.intensity` 3,0 und `ambient.intensity` 1,1 hin, ohne
     Tageszeit. Was hier fehlte, war also keine Farbe, sondern der
@@ -143,9 +143,9 @@ export interface EnvSetup {
   /** Cloud coverage of the sky dome, 0..1 (vanilla default 0). */
   rainCloudAlpha: number;
   /**
-   * Wind strength range of this weather, 0..1. EnvMan.UpdateWind rolls a
-   * noise value in 0..1 and lerps between these two, so the weather is what
-   * decides breeze vs. gale — see WindManager.
+   * Wind strength range of this weather, 0..1. The original's wind update
+   * rolls a noise value in 0..1 and lerps between these two, so the weather is
+   * what decides breeze vs. gale — see WindManager.
    */
   windMin: number;
   windMax: number;
@@ -161,7 +161,7 @@ export interface EnvSetup {
 /**
  * Fields the hand-tuned table below does not spell out, so its entries stay
  * readable. envData.json overwrites every one of them for the weathers the
- * extraction knows — which, with a full EnvMan dump, is all of them.
+ * extraction knows — which, with a full dump, is all of them.
  */
 const ENV_EXTRAS = {
   windMin: 0.1,
@@ -493,7 +493,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     // einem Asset-Export neu, ein Eintrag dort wäre beim nächsten Lauf weg.
     //
     // Das Profil ist ein ABEND (Sonnenrichtung [0.58,−0.45,0.68] des
-    // Schwesterprojekts, Elevation 27°), nicht ein Tagesmittel. Getroffen
+    // Vergleichsprojekts, Elevation 27°), nicht ein Tagesmittel. Getroffen
     // wird es bei Tagesbruchteil 0,7083 (= 17 h): `phaseWeights` liefert
     // dort Tag 0,408 und Abend 0,604, und `elevationFactor` × sunAngle 46
     // ergibt 26,8° — die 27° des Vorbilds auf eine Zehntelstunde genau.
@@ -508,7 +508,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     // (0,98 / 0,772 / 0,538) — 18 h ist damit kein Sonderfall mehr.
     //
     // Herleitung der Abend-Werte aus dem `lighting`-Block von
-    // village1.json (Stand main a81cee3). Gesucht ist nicht der
+    // village1.json des Vergleichsprojekts. Gesucht ist nicht der
     // KEYFRAME-Wert, sondern die gewichtete Summe bei 17 h:
     //
     //   Sonne   0,408·Tag + 0,604·Abend = (1.012, 0.899, 0.766)
@@ -520,13 +520,13 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     // Die Farben stehen als SRGB, wie jede EnvColor in dieser Datei —
     // `Lighting.inLinear()` wandelt sie. Wer die Hex-Werte aus
     // village1.json vorlinearisiert einträgt, linearisiert doppelt: zu
-    // dunkel und zu satt (Analyse §4, „Gamma-Fallen").
+    // dunkel und zu satt (Analyse des Vergleichsprojekts §4, „Gamma-Fallen").
     //
     // NEBELDICHTEN sind neu gerechnet und nicht aus `Clear` übernommen:
     // Dieses Wetter läuft auf der exp-Kurve, `Clear` auf exp2. Bei 0,0011
     // liegt die halbe Sichtbarkeit auf 630 m (`sichtweite()` in
     // shared/src/lookProfil.ts) — dieselbe Sicht wie exp 0,0005 mit der
-    // 2,2-Potenz, die der Boden des Schwesterprojekts anwendet und dieser
+    // 2,2-Potenz, die der Boden des Vergleichsprojekts anwendet und dieser
     // Client nirgends.
     //
     // fogColorSun* == fogColor* IN DEN DATEN. Der neue Look hat EINE kühle
@@ -551,7 +551,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
       ── Klar-Comic trägt seit dem 10.09.2026 die Zahlen des VORBILDS ───
 
       Bis hierher war dieses Wetter aus dem `lighting`-Block von
-      `village1.json` des Schwesterprojekts abgeleitet und am Bild
+      `village1.json` des Vergleichsprojekts abgeleitet und am Bild
       nachjustiert. Jetzt stehen hier die Werte, die der Vermesser aus
       den Spieldateien des Vorbilds gelesen hat
       (`design/original-boden.md` §D, Szene Level1 — die Szene, aus der
@@ -600,7 +600,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
          Übernommen ist deshalb der TINT als Farbe des Grundlichts; die
          HÖHE des Grundlichts ist am Bild kalibriert (`look.belichtung`,
          s. server.yml). Ausdrücklich NICHT übernommen sind
-         `m_AmbientSkyColor`/`EquatorColor`/`GroundColor`: Sie stehen im
+         die Farbfelder für Himmel, Horizont und Boden: Sie stehen im
          Vorbild auf Unitys Vorgabe und sind bei `AmbientMode = Skybox`
          wirkungslos (§D, F12) — wer sie abschreibt, schreibt eine
          Vorgabe ab.
@@ -622,7 +622,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     */
     fogColorMorning: c(0.3, 0.31, 0.34),
     /*
-      #73A7FF = (0,450 / 0,654 / 1,000), `m_FogColor` der Szene Level1.
+      #73A7FF = (0,450 / 0,654 / 1,000), die Nebelfarbe der Szene Level1.
 
       Das ist ein KRÄFTIGES Blau und nicht der helle Dunst, der hier bis
       gestern stand (0,83 / 0,87 / 0,92). Zusammen mit `linear 15 → 200 m`
@@ -652,8 +652,8 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
       Die vier Dichten sind ab jetzt WIRKUNGSLOS und bleiben trotzdem
       stehen: Das Look-Profil fährt `nebelmodus: linear`, und im
       Linear-Modus liest weder Babylon noch die Nebelkette des Bodens
-      `fogDensity` (genau wie im Vorbild, wo `m_FogDensity` 0,01 neben
-      `m_FogMode = 1` steht und nichts tut). Wer das Profil auf `exp`
+      `fogDensity` (genau wie im Vorbild, wo die Nebeldichte 0,01 neben
+      dem Nebelmodus 1 steht und nichts tut). Wer das Profil auf `exp`
       zurückdreht, bekommt die alte, am Bild kalibrierte Kurve zurück —
       deshalb werden die Zahlen nicht gelöscht.
     */
@@ -662,7 +662,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     fogDensityEvening: 0.0012,
     fogDensityNight: 0.0025,
     sunColorMorning: c(1.0, 0.75, 0.55),
-    // #FFC98C — `Light.m_Color` der Sonne von Level1, sRGB wie jede
+    // #FFC98C — die Lichtfarbe der Sonne von Level1, sRGB wie jede
     // EnvColor dieser Datei (`Lighting.inLinear()` wandelt sie).
     sunColorDay: c(1.0, 0.788, 0.549),
     // Tag · 0,98013 — s. die Rechnung im Kopf dieses Blocks.
@@ -837,7 +837,7 @@ export function findEnvironment(name: string): EnvSetup | undefined {
   return ENV_BY_NAME.get(name);
 }
 
-/** Vanilla default weather per biome (EnvMan.m_biomeEnvironments). */
+/** Vanilla default weather per biome (the original's per-biome weather table). */
 const BIOME_ENV: ReadonlyArray<readonly [Biome, string]> = [
   [Biome.Meadows, ENV_CLEAR],
   [Biome.BlackForest, ENV_DEEP_FOREST],
@@ -957,7 +957,7 @@ function elevationFactor(dayFraction: number): number {
 }
 
 /**
- * Die vier Phasengewichte aus EnvMan.cs:272-275 — Nacht, Tag, Morgen,
+ * Die vier Phasengewichte aus dem Original — Nacht, Tag, Morgen,
  * Abend.
  *
  * Das ist KEIN Blend zwischen zwei benachbarten Keyframes, auch wenn es
@@ -974,8 +974,8 @@ function elevationFactor(dayFraction: number): number {
  * 2026-07-29. Mit den echten Gewichten ist zu dieser Uhrzeit
  * ausschliesslich das Nacht-Keyframe aktiv, und das ist grau.
  *
- * m_sunHorizonTransitionH = 0.08, m_sunHorizonTransitionL = 0.02
- * (EnvMan.cs:46/48). Die Asymmetrie ist gewollt: Der Morgen steigt
+ * Die zwei Sonnen-Horizontübergänge stehen im Original auf 0.08 und 0.02.
+ * Die Asymmetrie ist gewollt: Der Morgen steigt
  * schnell an und klingt langsam aus, der Abend umgekehrt.
  *
  * ── SEIT DEM 12.09.2026 SIND DIESE VIER ZAHLEN NUR NOCH DIE MISCHUNG ──
@@ -1216,7 +1216,7 @@ function mischeDichte(env: EnvSetup, w: PhaseWeights, tagAnteil: number): number
  *
  * Grundlicht und Sonnenstärke werden im Referenzmodell nicht wie die
  * Farben ADDIERT, sondern zwischen Nacht und Tag INTERPOLIERT
- * (EnvMan.cs:711 für das Ambient; für die Stärke siehe die Begründung
+ * (im Original für das Ambient; für die Stärke siehe die Begründung
  * bei `lightIntensity` unten). Ein Abend-Stützpunkt muss diese Form
  * behalten, sonst wäre er ein zweites Rechenmodell im selben Objekt.
  *
@@ -1275,7 +1275,7 @@ function mischeStaerke(env: EnvSetup, w: PhaseWeights, tagAnteil: number): numbe
 
 /**
  * Interpolate an EnvSetup at a given day fraction (0 = midnight,
- * 0.5 = midday). This is the Babylon-side equivalent of EnvMan.SetEnv.
+ * 0.5 = midday). This is the Babylon-side equivalent of the original's environment blend.
  */
 export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
   // alwaysDark (caves/crypts): the whole cycle is pinned to the night
@@ -1305,7 +1305,7 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
 
   const fogColor = mischeKeyframes(env, 'fogColor', w, tagAnteil);
   /*
-    EnvMan.cs:705 — der Sonnennebel wird gegen den normalen Nebel
+    Im Original: der Sonnennebel wird gegen den normalen Nebel
     zurückgemischt, sobald weder Tag noch Nacht klar dominieren.
 
     Gefragt wird jetzt die EINE Uhr statt zweier Phasengewichte: `w.day`
@@ -1328,7 +1328,7 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
     },
     fogDensity: mischeDichte(env, w, tagAnteil),
     sunColor: mischeKeyframes(env, 'sunColor', w, tagAnteil),
-    // EnvMan.cs:711 — RenderSettings.ambientLight = Lerp(night, day, dayInt).
+    // Original: Umgebungslicht = Lerp(Nacht, Tag, Tagesanteil).
     // Seit dem 09.09.2026 durch `mischeAmbient()`, das GENAU diese Zeile
     // rechnet, solange kein `ambColorEvening` gesetzt ist.
     ambColor: mischeAmbient(env, w, tagAnteil),
@@ -1344,7 +1344,7 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
       09.09.2026; die Reihe steht im Test `stufe2-licht.ts`).
 
       Die Zeile darunter — das Umgebungslicht — machte es die ganze Zeit
-      richtig: `Lerp(night, day, dayInt)`, mit EnvMan.cs:711 als Beleg.
+      richtig: `Lerp(Nacht, Tag, Tagesanteil)`, wie im Original.
       Diese hier war die einzige Stelle, an der zwei Phasengewichte
       ADDIERT wurden, und zwei Gewichte zu addieren, die gleichzeitig
       durch null gehen, ergibt null.
@@ -1361,7 +1361,7 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
 
       Interpolated, not summed: at day fractions 0.25 and 0.75 both
       weights are exactly zero and the sum went black twice per cycle.
-      The ambient line below always did it this way (EnvMan Lerp).
+      The ambient line below always did it this way (the original's Lerp).
 
       Seit dem 09.09.2026 steht die Interpolation in `mischeStaerke()` —
       dieselbe Zeile, solange kein `lightIntensityEvening` gesetzt ist.
@@ -1400,7 +1400,7 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
   };
 }
 
-/** Seconds within the current day → 0..1 fraction (EnvMan.GetDayFraction). */
+/** Seconds within the current day → 0..1 fraction. */
 export function dayFractionFromSeconds(timeOfDaySeconds: number): number {
   const f = (timeOfDaySeconds / WORLD_TIME_LENGTH) % 1;
   return (f + 1) % 1;

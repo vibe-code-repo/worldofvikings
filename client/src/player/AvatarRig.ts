@@ -41,10 +41,10 @@
  *
  * Der Bewegungs-Input folgt dem Original-Modell: Dessen Humanoid
  * steuert den Animator nicht über benannte Zustände, sondern über die
- * kontinuierlichen Floats `forward_speed`/`sideway_speed` (ZSyncAnimation)
+ * kontinuierlichen Floats `forward_speed`/`sideway_speed`
  * — hier entsprechend `speed` statt eines Zustandsnamens; die Wahl
  * zwischen Gehen und Rennen kommt zusätzlich aus der Spielerabsicht
- * (Shift), genau wie das `Character.m_run` des Vorbilds.
+ * (Shift), genau wie der eigene Laufzustand des Vorbilds.
  */
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
@@ -155,11 +155,11 @@ const IK_HUB_MAX = 0.5;
 /** Ein-/Ausblenden des Fuss-IK (Sprung, Modellwechsel). */
 const IK_BLENDE = 0.15;
 /**
- * Nach dem Vorbild (Opsive CharacterIK.PositionLowerBody, dekompiliert
- * unter ~/wov-assets/Scripts): die Huefte folgt dem Gelaende unter den
- * Fuessen mit 4/s (m_HipsPositionAdjustmentSpeed), ein Fuss-IK-Gewicht
- * steigt mit 10/s (m_FootWeightActiveAdjustmentSpeed) und faellt mit 2/s
- * (m_FootWeightInactiveAdjustmentSpeed). Gehoben wird NUR ein Fuss, der
+ * Nach dem Vorbild (Fuss-IK des dort eingesetzten Charakter-Kits): die
+ * Huefte folgt dem Gelaende unter den Fuessen mit 4/s (Tempo der
+ * Hueftanpassung), ein Fuss-IK-Gewicht steigt mit 10/s (Tempo beim
+ * Aktivieren) und faellt mit 2/s (Tempo beim Deaktivieren). Gehoben wird
+ * NUR ein Fuss, der
  * sonst im Boden steckte; ein Fuss ueber dem Boden bleibt bei der
  * Animation. Genau das unterscheidet das Original vom ersten Anlauf am
  * 10.09., der jeden Fuss jedes Bild auf den Boden zog (wabbelige Beine)
@@ -172,8 +172,8 @@ const IK_GEWICHT_AUS = 2;
 /** Boden weiter unter dem Fuss als das zaehlt nicht mehr (Kante, Grube). */
 const IK_REICHWEITE = 0.9;
 /**
- * m_FootOffsetAdjustment des Originals (0,005 im Spielerprefab der Steam-
- * Fassung, ausgelesen am 10.09.2026): Der Fuss wird 5 mm tiefer gesetzt
+ * Fussversatz-Anpassung des Originals (0,005 im Spielerprefab, ausgelesen
+ * am 10.09.2026): Der Fuss wird 5 mm tiefer gesetzt
  * als seine Ruhehoehe ueber dem Boden, damit die Sohle nie sichtbar
  * schwebt.
  */
@@ -1723,7 +1723,7 @@ export class AvatarRig {
    * @param maxSpeed Bezugsgeschwindigkeit für die volle Ausschlagsamplitude
    * @param rennt   Spielerabsicht (Shift) — entscheidet zwischen Geh- und
    *                Rennzyklus. Wie im Vorbild ist das ein eigener Zustand
-   *                (`Character.m_run`) und nicht bloss eine Schwelle auf der
+   *                und nicht bloss eine Schwelle auf der
    *                Geschwindigkeit.
    * @param inDerLuft Kein Bodenkontakt — schaltet auf den Sprungclip, der
    *                Vorrang vor allen anderen hat.

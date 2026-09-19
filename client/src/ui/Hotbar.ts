@@ -1,6 +1,6 @@
 /**
- * Hotbar — the 8 slots of inventory row 0 (C# Inventory.GetHotbar,
- * HotkeyBar.cs). Keys 1-8 equip/unequip, matching ZInput's Hotbar1..Hotbar8.
+ * Hotbar — the 8 slots of inventory row 0, as in the original. Keys 1-8
+ * equip/unequip, matching the original's hotbar key bindings 1..8.
  *
  * Plain DOM like the rest of the UI; see ui/theme.ts for why.
  */

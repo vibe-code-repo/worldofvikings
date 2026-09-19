@@ -1,9 +1,9 @@
 /**
- * Weather selection and wind — port of the EnvMan parts that decide WHICH
- * weather is active and HOW HARD the wind blows.
+ * Weather selection and wind — port of the original's weather-manager parts
+ * that decide WHICH weather is active and HOW HARD the wind blows.
  *
- * C# reference: EnvMan.UpdateEnvironment / SelectWeightedEnvironment and
- * EnvMan.UpdateWind / AddWindOctave. environment.ts already holds the
+ * Reference: the original's weighted weather draw and wind update (octave
+ * noise). environment.ts already holds the
  * per-weather lighting keyframes; this file is the layer above it.
  *
  * ── Everything here is a pure function of the world time ─────────────
@@ -11,10 +11,10 @@
  * Unity's seeded PRNG — no state is synchronised between machines. Two
  * clients showing the same second show the same storm from the same angle.
  * Reproducing that means reproducing the PRNG, which XorShiftRandom does
- * (it is Unity's generator, reverse-engineered by the reference project).
+ * (it is Unity's generator, reverse-engineered by the comparison project).
  *
- * So: no randomness that is not seeded, and integer division where C# had
- * `long`s — `timeSec / (m_windPeriodDuration / octave)` truncates twice,
+ * So: no randomness that is not seeded, and integer division where the original had
+ * 64-bit integers — `timeSec / (wind period / octave)` truncates twice,
  * and getting that wrong desynchronises the wind from vanilla.
  *
  * The transitions (weather cross-fade, wind ramp) are the one part that IS
@@ -27,10 +27,10 @@ import { ENVIRONMENTS, findEnvironment, environmentForBiome, type EnvSetup } fro
 import { Biome } from './types.js';
 import { XorShiftRandom } from './worldgen/Random.js';
 
-// ── Timing (EnvMan prefab values, not the C# field defaults) ─────────
+// ── Timing (weather-manager prefab values, not the source defaults) ──
 //
-// The C# source shows m_environmentDuration = 20 and m_windPeriodDuration
-// = 10, but both are serialised fields that the EnvMan prefab overrides —
+// The source shows an environment duration of 20 and a wind period of
+// 10, but both are serialised fields that the prefab overrides —
 // the real values are 666 and 1000. Taking the source defaults would cycle
 // the weather 30x too fast, so these come from the extraction.
 
@@ -56,7 +56,7 @@ export const WEATHER_TRANSITION_DURATION = TIMING.transitionDuration ?? 10;
 /** Seconds the wet look fades in/out — slower than the lighting blend. */
 export const WET_TRANSITION_DURATION = TIMING.wetTransitionDuration ?? 15;
 
-// ── Biome weather tables (EnvMan.m_biomes) ──────────────────────────
+// ── Biome weather tables (original per-biome lists) ─────────────────
 
 /** One candidate weather with its draw weight. */
 export interface WeatherEntry {
@@ -92,7 +92,7 @@ function buildBiomeWeather(): ReadonlyMap<number, readonly WeatherEntry[]> {
 
 const BIOME_WEATHER = buildBiomeWeather();
 
-/** Biome bits in the order EnvMan lists them — first match wins. */
+/** Biome bits in the order the original lists them — first match wins. */
 const BIOME_ORDER: readonly Biome[] = [
   Biome.Meadows,
   Biome.BlackForest,
@@ -119,13 +119,13 @@ function resolveBiomeBit(biome: Biome): Biome | null {
 
 // ── Weather selection ───────────────────────────────────────────────
 
-/** Which weather period a world time falls into. C#: `sec / m_environmentDuration`. */
+/** Which weather period a world time falls into: seconds / environment duration. */
 export function weatherPeriod(timeSec: number): number {
   return Math.floor(timeSec / ENVIRONMENT_DURATION);
 }
 
 /**
- * C# SelectWeightedEnvironment. Entries flagged as an Ashlands/DeepNorth
+ * Weighted draw. Entries flagged as an Ashlands/DeepNorth
  * override are excluded from the draw — they replace the result afterwards
  * when the player is actually there.
  */
@@ -157,7 +157,7 @@ export interface WeatherOptions {
  * The weather for a biome at a world time. Deterministic: same seconds and
  * same biome always give the same answer, on every machine.
  *
- * C# seeds with `Random.InitState((int)period)` — note the cast to int, so
+ * The original seeds the PRNG with the period as an int — note the cast, so
  * the period index is what drives the draw, not the raw time.
  */
 export function selectWeather(biome: Biome, timeSec: number, opts: WeatherOptions = {}): EnvSetup {
@@ -186,8 +186,8 @@ export interface WindNoise {
 }
 
 /**
- * C# AddWindOctave. Both divisions are integer divisions on `long`s:
- * `m_windPeriodDuration / octave` first, then `timeSec / that`. Doing them
+ * One wind octave. Both divisions are 64-bit integer divisions:
+ * wind period / octave first, then `timeSec / that`. Doing them
  * in floating point would make the octaves drift against vanilla.
  */
 function addWindOctave(timeSec: number, octave: number, acc: WindNoise): void {
@@ -244,9 +244,9 @@ export function windFor(env: EnvSetup, timeSec: number): Wind {
 
 // ── Precipitation ───────────────────────────────────────────────────
 //
-// The original hangs the actual particles off EnvSetup.m_psystems — an
-// array of prefab references that EnvMan simply enables and disables
-// (SetParticleArrayEnabled). Those prefabs are NOT in our asset export, so
+// The original hangs the actual particles off a per-weather array of
+// prefab references that its weather manager simply enables and disables.
+// Those prefabs are NOT in our asset export, so
 // which system belongs to which weather cannot be read out; it is derived
 // from the flags instead, which the extraction does have:
 //
@@ -286,8 +286,8 @@ export interface WeatherState {
   /** Current wind, already interpolated — for gameplay (sailing, particles). */
   wind: Wind;
   /**
-   * The two wind vectors and their blend, as EnvMan hands them to the
-   * shaders (_GlobalWind1/_GlobalWind2/_GlobalWindAlpha).
+   * The two wind vectors and their blend, as the original hands them to
+   * its shaders (two wind vectors plus a blend alpha).
    *
    * Consumers must interpolate their RESULT, not these vectors — see
    * WaterVolume.CalcWave, which evaluates the wave twice and lerps the two
@@ -322,7 +322,7 @@ export class WeatherManager {
   /** Wind at the start of the current ramp. */
   private windFrom: Wind;
   private windTo: Wind;
-  /** C# m_windTransitionTimer: -1 = keine Rampe, sonst Sekunden seit Start. */
+  /** Rampen-Timer: -1 = keine Rampe, sonst Sekunden seit Start. */
   private windTimer = -1;
   private wind: Wind;
   /** Set by setDebugWind — overrides the simulated wind while present. */
@@ -346,7 +346,7 @@ export class WeatherManager {
   }
 
   /**
-   * Force a fixed wind, as EnvMan.SetDebugWind does. Angle in degrees
+   * Force a fixed wind, as the original's debug wind does. Angle in degrees
    * (0 = north), intensity 0..1. Bypasses the octaves and the transition
    * so a test can hold a known vector steady.
    */
@@ -359,14 +359,14 @@ export class WeatherManager {
     };
   }
 
-  /** C# EnvMan.ResetDebugWind. */
+  /** Releases the forced wind. */
   clearDebugWind(): void {
     this.debug = null;
   }
 
   /**
-   * Force a specific weather, as EnvMan's `environmentOverride` does —
-   * it short-circuits UpdateEnvironment before the weighted draw. Null
+   * Force a specific weather, as the original's environment override does —
+   * it short-circuits the weather update before the weighted draw. Null
    * hands control back to the biome table.
    */
   setEnvironmentOverride(name: string | null): boolean {
@@ -435,9 +435,9 @@ export class WeatherManager {
   }
 
   /**
-   * C# UpdateWindTransition: a new target starts a ramp, and while one is
-   * running further targets are ignored — SetTargetWind returns early on
-   * `m_windTransitionTimer >= 0`. Without that guard the wind would chase
+   * Wind transition: a new target starts a ramp, and while one is
+   * running further targets are ignored — the original returns early while
+   * the ramp timer is >= 0. Without that guard the wind would chase
    * every gust octave and never settle.
    */
   private updateWind(timeSec: number, dt: number): void {
@@ -451,8 +451,8 @@ export class WeatherManager {
       return;
     }
 
-    // C# SetTargetWind: ein neues Ziel wird nur angenommen, wenn gerade
-    // keine Rampe läuft (`m_windTransitionTimer >= 0` kehrt früh zurück).
+    // Ein neues Ziel wird nur angenommen, wenn gerade
+    // keine Rampe läuft (bei Rampen-Timer >= 0 kehrt das Original früh zurück).
     // Ohne diese Sperre jagt der Wind jeder Gust-Oktave hinterher und
     // kommt nie zur Ruhe.
     if (this.windTimer < 0) {
@@ -468,7 +468,7 @@ export class WeatherManager {
       }
     }
 
-    // C# UpdateWindTransition.
+    // Advance the ramp.
     if (this.windTimer >= 0) {
       this.windTimer += dt;
       const a = clamp(this.windTimer / WIND_TRANSITION_DURATION, 0, 1);
@@ -487,13 +487,13 @@ export class WeatherManager {
   }
 
 
-  /** C# EnvMan.GetWindForce — direction scaled by strength. Basis for sailing. */
+  /** Wind force — direction scaled by strength. Basis for sailing. */
   get windForce(): { x: number; z: number } {
     return { x: this.wind.dirX * this.wind.intensity, z: this.wind.dirZ * this.wind.intensity };
   }
 
   /**
-   * C# EnvMan.GetWindData. While no transition runs, wind1 IS the current
+   * Wind data for the shaders. While no transition runs, wind1 IS the current
    * wind and alpha is 0 — the same convention the original uses.
    */
   get windData(): { wind1: Wind; wind2: Wind; alpha: number } {
@@ -501,12 +501,12 @@ export class WeatherManager {
     return { wind1: this.windFrom, wind2: this.windTo, alpha };
   }
 
-  /** C# EnvMan.GetWindDir — unit vector in XZ. */
+  /** Wind direction — unit vector in XZ. */
   get windDir(): { x: number; z: number } {
     return { x: this.wind.dirX, z: this.wind.dirZ };
   }
 
-  /** C# EnvMan.GetWindIntensity — 0.05..1. */
+  /** Wind intensity — 0.05..1. */
   get windIntensity(): number {
     return this.wind.intensity;
   }

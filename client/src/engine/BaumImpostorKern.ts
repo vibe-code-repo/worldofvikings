@@ -53,7 +53,7 @@ export const IMPOSTOR_GRENZE_M_VORGABE = 240;
  * benachbarten Ansichten wird geblendet, der harte Wechsel liegt also bei
  * 22,5 Grad Kamerabewegung um den Baum herum.
  *
- * Die Referenz (das Schwesterprojekt)
+ * Das Vergleichsprojekt
  * nimmt 12 fuer Baeume, aber ihre Sprites stehen ab 234 m in einem Fenster,
  * das deutlich tiefer reicht als unsere 576 m. Bei uns liegt der weiteste
  * Sprite rund 300 m weg; um dort das Ansichtspaar zu wechseln, muss die
@@ -73,7 +73,7 @@ export const ATLAS_KANTE_PX = 2048;
  * Groesse EINER Ansichtszelle im Atlas.
  *
  * Dimensioniert nach der ANZEIGEDISTANZ, nicht nach dem Modell (Regel aus
- * der Referenz). Die Brennweite in Bildpunkten ist H/(2*tan(fov/2)) mit
+ * dem Vergleichsprojekt). Die Brennweite in Bildpunkten ist H/(2*tan(fov/2)) mit
  * fov = 1,05 rad (PlayerController.ts: `camera.fov = 1.05`), bei 1440 px
  * Bildhoehe also 1238 px. Damit misst
  *
@@ -130,7 +130,7 @@ export const IMPOSTOR_MIN_HOEHE_M = 1.5;
  * eine warme Licht- und eine dunkle Rueckseite zeigt. Genau daran wird die
  * Uebergabegrenze als Ring im Wald sichtbar.
  *
- * Wert aus der Referenz (IMPOSTOR_NORMAL_TILT 0.4): haelt mittags rund
+ * Wert aus dem Vergleichsprojekt (Neigung 0.4): haelt mittags rund
  * 83 % der Hoch-Normalen-Antwort und gewinnt an der Morgenkante Faktor 11.
  */
 export const IMPOSTOR_NEIGUNG = 0.4;
@@ -142,7 +142,7 @@ export const IMPOSTOR_NEIGUNG = 0.4;
  * das ganze Sprite. Mit ihr schattiert sie wie ein stehender ZYLINDER und
  * traegt selbst eine Licht- und eine Schattenseite — das ist der
  * Unterschied zwischen "ferner Wald" und "aufgestellte Pappkameraden".
- * Wert aus der Referenz (IMPOSTOR_NORMAL_FAN 1.05).
+ * Wert aus dem Vergleichsprojekt (Faecherung 1.05).
  */
 export const IMPOSTOR_FAECHER = 1.05;
 
@@ -200,8 +200,8 @@ export interface UvRechteck {
  * Das feste Atlasraster.
  *
  * ── Warum ein festes Gitter und kein Regalpacker ─────────────────────
- * Die Referenz packt EINMAL, weil sie beim Weltaufbau ihr ganzes Inventar
- * kennt. WoV streamt Prefabs nach: `AssetManager.getMasters()` ist
+ * Das Vergleichsprojekt packt EINMAL, weil es beim Weltaufbau sein ganzes
+ * Inventar kennt. WoV streamt Prefabs nach: `AssetManager.getMasters()` ist
  * asynchron, und ob eine Fichte4 je auftaucht, entscheidet sich erst,
  * wenn der Spieler dorthin laeuft. Ein Packer muesste den Atlas dann
  * umpacken — also alle bereits gebackenen Zeilen neu backen, mitten im
@@ -211,7 +211,7 @@ export interface UvRechteck {
  * gross das Modell ist) und schenkt dafuer die Nachreichbarkeit: Eine
  * neue Zeile wird in den bereits stehenden Atlas hineingemalt, ohne dass
  * eine einzige vorhandene sich bewegt. Das ist die zentrale bewusste
- * Abweichung von der Referenz.
+ * Abweichung vom Vergleichsprojekt.
  */
 export function atlasRaster(): {
   /** Zeilen (= Archetypen) nebeneinander in einer Rasterlinie. */
@@ -396,8 +396,8 @@ export function zellLage(
  * Sprite gezeichnet wird.
  *
  * ── Warum ein einziges if/else und keine zwei Shader-Fenster ─────────
- * Die Referenz loest dieselbe Aufgabe mit zwei Shadern und einer
- * byteweise identischen GLSL-Zeile in beiden — und haelt in ihrem eigenen
+ * Das Vergleichsprojekt loest dieselbe Aufgabe mit zwei Shadern und einer
+ * byteweise identischen GLSL-Zeile in beiden — und haelt in seinem eigenen
  * Quelltext fest, dass Treiber-Kontraktion das brechen KANN.
  * In Babylon waeren das zwei
  * Material-Plugins in zwei Effekten, also noch mehr Spielraum.

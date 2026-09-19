@@ -137,7 +137,7 @@ entstanden, und viele Befunde gelten weiter.
 | Schritt | Werkzeug | Ergebnis |
 |---|---|---|
 | Quelle | lokaler Client-Export (Linux-Client 0.221.12) | — |
-| Extraktion | Extraktionswerkzeug (GUI), PNG-Export, DirectExport, StaticMeshSeparation | Extraktions-Ordner unter `tools/` |
+| Extraktion | Extraktionswerkzeug 1.3.14.0 (GUI), PNG-Export, DirectExport, StaticMeshSeparation | `tools/asset-export/export/` |
 | Modelle | 1:1-Kopie der PrefabHierarchyObject-GLBs | **7463 GLB, 4,8 GB**, Texturen eingebettet |
 | Sprites | Item-Icons | 1595 Icons |
 | Audio | **entfiel schon damals** — die 3318 `.ogg` des Exports wurden gelöscht, Fremdaufnahmen kamen nie zum Einsatz | — |
@@ -159,7 +159,7 @@ unbrauchbar (2.639 von 2.763 PNGs waren 0-Byte-Stubs, kein einziges der 7.471 GL
 Animationen oder Skins — Einschränkungen 28/28b/33 im Analyse-Bericht).
 
 Am 16.08.2026 wurde der Export von live gelöscht: 11.869 Dateien, 5,1 GB.
-Der Extraktions-Ordner unter `tools/` enthält nur noch `compile_time.txt` und `openapi.json`.
+`tools/asset-export/` ist seitdem leer: die Restdateien `compile_time.txt` und `openapi.json` sind entfernt, der Ordner bleibt als gitignorierter Arbeitsplatz für einen neuen Export.
 `tools/asset-extractor/` katalogisierte ohnehin nur Bundles und war nie die echte Pipeline.
 
 **Damit hinfällige Pläne aus der alten Fassung dieses Dokuments** (sie standen hier als

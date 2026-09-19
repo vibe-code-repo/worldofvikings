@@ -1,18 +1,18 @@
 /**
  * Build mode: aiming, the ghost marker and triggering terrain operations.
  *
- * C# reference: Player.UpdatePlacement / UpdatePlacementGhost / PieceRayTest /
- * TryPlacePiece, plus Attack.SpawnOnHitTerrain for the pickaxe.
+ * Reference: the original's placement update, ghost update, piece ray test
+ * and piece placement, plus its spawn-on-hit-terrain attack for the pickaxe.
  *
  * Two input paths, exactly as in the original:
  *
- *   Hoe / Cultivator          m_buildPieces is set -> build mode
+ *   Hoe / Cultivator          build pieces are set -> build mode
  *     RMB   toggles the mode menu
  *     LMB   applies the selected piece's terrain op (0.4 s cooldown)
  *     Shift target height falls back to the raycast hit (levelground only)
  *
- *   Pickaxe                   m_buildPieces is 0 -> plain attack
- *     LMB   applies m_spawnOnHitTerrain directly, no ghost, no menu
+ *   Pickaxe                   no build pieces -> plain attack
+ *     LMB   applies its spawn-on-hit-terrain effect directly, no ghost, no menu
  */
 
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
@@ -35,7 +35,7 @@ import type { ClientWorld } from '../world/World';
 import type { PlayerController } from './PlayerController';
 import type { Equipment } from './Equipment';
 
-/** C# Player.m_maxPlaceDistance. */
+/** Maximum placement distance (m) of the original. */
 const MAX_PLACE_DISTANCE = 5;
 /**
  * Wheel-adjustable brush size — not in the original, where every piece has a
@@ -58,13 +58,13 @@ const SCALE_STEP_FINE = 0.1;
 const FINE_BELOW = 1;
 /** Hard ceiling in metres, whatever the multiplier works out to. */
 const RADIUS_CAP = 12;
-/** C# Player.m_placeDelay. */
+/** Placement delay (s) of the original. */
 const PLACE_DELAY = 0.4;
 /**
- * Ray length. C# PieceRayTest casts 50 m and only then checks the distance
- * against m_maxPlaceDistance — it must not stop at the reach, because the ray
- * starts at the CAMERA, which sits on a 4.5 m third-person boom behind the
- * player. A ray capped at the reach never even gets down to the ground.
+ * Ray length. The original's piece ray test casts 50 m and only then checks
+ * the distance against the maximum placement distance — it must not stop at
+ * the reach, because the ray starts at the CAMERA, which sits on a 4.5 m
+ * third-person boom behind the player. A ray capped at the reach never even gets down to the ground.
  */
 const RAY_MAX = 50;
 /** Ray-march step; refined by bisection afterwards. */
@@ -89,7 +89,7 @@ export interface PlacementHit {
 }
 
 export class PlacementController {
-  /** Selected piece per tool — C# PieceTable.m_selectedPiece (per category). */
+  /** Selected piece per tool — the original keeps it per category. */
   private readonly selected = new Map<string, string>();
   /** Brush-size multiplier per piece, kept while the tool stays equipped. */
   private readonly radiusScale = new Map<string, number>();
@@ -275,7 +275,7 @@ export class PlacementController {
     // context-menu gesture, and making it reliable across browsers cost more
     // than the key does. While the menu is up the cursor is free, so picking a
     // mode is a plain left click on a tile — placement stays blocked meanwhile,
-    // exactly as C# UpdatePlacement does on Hud.IsPieceSelectionVisible.
+    // exactly as the original's placement update does while the piece menu is open.
     if (this.menuOpen) {
       // Keys 1-8 pick a mode (main.ts); the wheel does the same without leaving
       // the current grip, and a left click just confirms and closes. The mouse
@@ -323,7 +323,7 @@ export class PlacementController {
     this.lastUse = now;
   }
 
-  /** Height rule from C# UpdatePlacementGhost (the m_allowAltGroundPlacement branch). */
+  /** Height rule from the original's ghost update (the alternate ground-placement branch). */
   private targetSettings(piece: PieceDef): TerrainOpSettings {
     return this.scaledOp(piece.terrainOp);
   }
@@ -370,7 +370,7 @@ export class PlacementController {
   }
 
   /**
-   * C# PieceRayTest, adapted: terrain meshes are isPickable = false (picking
+   * The original's piece ray test, adapted: terrain meshes are isPickable = false (picking
    * them would need an octree per chunk), so this marches the camera ray
    * against the heightmap analytically instead.
    *

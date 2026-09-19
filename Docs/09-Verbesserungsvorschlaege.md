@@ -302,13 +302,13 @@ dort.)*
     dem Vorgänger-Repo und worldofvikings (Hardlinks/`/root/shared-assets`);
     `tsc-log.txt` eingecheckt (veraltet); `tools/worldlayout-mcp` fehlt
     in den Workspaces; `probe.ts` ohne Assertions; `.mcp.json` mit
-    hartkodiertem Pfad; `.gitignore`-Lücken beim Extraktions-Ordner unter `tools/`.
+    hartkodiertem Pfad; `.gitignore`-Lücken bei `tools/asset-export/`.
     ✅ **weitgehend erledigt:** `tools/worldlayout-mcp` steht in den
     Workspaces, `.mcp.json` trägt einen relativen Pfad, `tsc-log.txt`
-    ist weg, der Extraktions-Ordner unter `tools/` fällt unter `.gitignore`. Die
+    ist weg, `tools/asset-export/` fällt unter `.gitignore`. Die
     Platten-Deduplizierung hat sich am 16.08.2026 von selbst erledigt:
     Der Fremdexport ist gelöscht (11.869 Dateien, 5,1 GB), `assets/`
-    trägt 212 eigene Dateien / 158 MB. Der Extraktions-Ordner unter `tools/` ist auf
+    trägt 212 eigene Dateien / 158 MB. `tools/asset-export/` ist auf
     32 KB geschrumpft — womit auch die Werkzeuge, die aus dem Export
     lesen (`dump-envsetup.mjs`, `recover-textures.mjs`), keine Quelle
     mehr haben.

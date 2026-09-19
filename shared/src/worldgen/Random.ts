@@ -3,24 +3,24 @@
  * random state.
  *
  * This is THE random generator Unity uses (Random.InitState / Random.Range /
- * Random.value), reverse-engineered by the reference project. It drives all
+ * Random.value), reverse-engineered by the comparison project. It drives all
  * randomized world generation in GeoManager (seed offsets, river/stream
  * placement), so it must reproduce the exact same sequence as the reference server.
  *
- * Reference algorithm:
+ * Algorithm:
  *
  *   Random(int32 seed) {
- *     m_seed[0] = (uint32)seed;
- *     m_seed[1] = m_seed[0] * 0x6c078965 + 1;
- *     m_seed[2] = m_seed[1] * 0x6c078965 + 1;
- *     m_seed[3] = m_seed[2] * 0x6c078965 + 1;
+ *     state[0] = (uint32)seed;
+ *     state[1] = state[0] * 0x6c078965 + 1;
+ *     state[2] = state[1] * 0x6c078965 + 1;
+ *     state[3] = state[2] * 0x6c078965 + 1;
  *   }
  *
  *   uint32 next_int() {
- *     uint32 mut1 = (m_seed[0] << 11) ^ m_seed[0];
- *     m_seed[0] = m_seed[1]; m_seed[1] = m_seed[2]; m_seed[2] = m_seed[3];
- *     mut1 = (((m_seed[3] >> 11) ^ mut1) >> 8) ^ m_seed[3] ^ mut1;
- *     m_seed[3] = mut1;
+ *     uint32 mut1 = (state[0] << 11) ^ state[0];
+ *     state[0] = state[1]; state[1] = state[2]; state[2] = state[3];
+ *     mut1 = (((state[3] >> 11) ^ mut1) >> 8) ^ state[3] ^ mut1;
+ *     state[3] = mut1;
  *     return mut1;
  *   }
  *
@@ -60,7 +60,7 @@ export class XorShiftRandom {
   private s3: number;
 
   constructor(seed: number) {
-    // m_seed[0] = (u32)seed; m_seed[i+1] = m_seed[i] * 0x6c078965 + 1 (u32 wrap)
+    // state[0] = (u32)seed; state[i+1] = state[i] * 0x6c078965 + 1 (u32 wrap)
     this.s0 = seed >>> 0;
     this.s1 = (Math.imul(this.s0, 0x6c078965) + 1) >>> 0;
     this.s2 = (Math.imul(this.s1, 0x6c078965) + 1) >>> 0;

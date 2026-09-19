@@ -164,7 +164,7 @@ check('save file written', existsSync(SAVE_FILE), SAVE_FILE);
 const envelope = JSON.parse(zstdDecompressSync(readFileSync(SAVE_FILE)).toString('utf-8')) as WorldSaveData;
 check(`envelope version ${SAVE_FORMAT_VERSION}`, envelope.version === SAVE_FORMAT_VERSION);
 check(
-  'meta carries world identity (C++ .fwl)',
+  'meta carries world identity (reference world file)',
   envelope.meta.worldName === 'world' &&
     envelope.meta.worldSeed === SEED &&
     envelope.meta.worldGenVersion === 2
@@ -195,7 +195,7 @@ check(
 );
 
 serverA.saveWorld(); // second save → backup rotation
-check('previous save rotated to .prev (C++ backup)', existsSync(`${SAVE_FILE}.prev`));
+check('previous save rotated to .prev (reference backup)', existsSync(`${SAVE_FILE}.prev`));
 
 // ── [2] Server B: fresh process, same worldsDir → load ──────────
 console.log('\n[2] Server B: fresh server loads the save:');

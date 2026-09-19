@@ -20,8 +20,8 @@
  *
  * Beides ist hier behoben:
  *
- *  · **Der Wind wird eingefroren** (`EnvMan.SetDebugWind` über
- *    `__vb.setWind`), Richtung und Böigkeit fest, nach JEDEM
+ *  · **Der Wind wird eingefroren** (der Debug-Wind des Wettermanagers
+ *    über `__vb.setWind`), Richtung und Böigkeit fest, nach JEDEM
  *    Zustandswechsel neu gesetzt. Erst damit sind zwei Zustände
  *    vergleichbar.
  *  · **Gemessen wird ZAPPELN, nicht Änderung.** Je Bildpunkt wird das

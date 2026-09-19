@@ -1,7 +1,7 @@
 /**
- * Build pieces per tool — Unity `PieceTable` / `Piece`.
+ * Build pieces per tool — the original's piece tables and pieces.
  *
- * C# reference: PieceTable.cs, Piece.cs, Player.SetPlaceMode.
+ * Reference: the original's piece table, piece and place-mode logic.
  *
  * Simplified against the original: it keeps a 15×6 grid with 8 categories
  * because the hammer has hundreds of build pieces. The hoe has four modes and
@@ -28,12 +28,12 @@ export interface PieceDef {
   /** Reserved for the hammer's category tabs; all ground pieces are 0. */
   category: number;
   /**
-   * C# Piece.m_groundPiece — the piece clips to the terrain and shows no
+   * Ground piece — the piece clips to the terrain and shows no
    * cursor marker of its own.
    */
   groundPiece: boolean;
   /**
-   * C# Piece.m_allowAltGroundPlacement. When set, the target height is the
+   * Alternative ground placement. When set, the target height is the
    * ground under the PLAYER's feet rather than the raycast hit; holding
    * AltPlace (shift) switches back to the hit point.
    *
@@ -44,7 +44,7 @@ export interface PieceDef {
   terrainOp: TerrainOpSettings;
 
   // Cost levers — parsed from the original but not enforced yet.
-  /** `raise` costs 4 stone (m_recover: 0, so it is not refunded). */
+  /** `raise` costs 4 stone (no recovery, so it is not refunded). */
   resources?: ReadonlyArray<{ item: string; amount: number }>;
   /** `raise` additionally needs a workbench within 20 m. */
   craftingStation?: string;
@@ -209,7 +209,7 @@ export const PIECES: Record<string, PieceDef> = {
   },
 };
 
-/** Which modes each tool offers — C# ItemData.SharedData.m_buildPieces. */
+/** Which modes each tool offers — the original's build-piece list. */
 Object.assign(PIECES, {
   bau_boden: bau('bau_boden', 'Holzboden 2×2', 'wood_floor', 'wood_floor', [{ item: 'Wood', amount: 2 }]),
   bau_wand: bau('bau_wand', 'Holzwand', 'wood_floor', 'woodwall', [{ item: 'Wood', amount: 2 }]),
@@ -297,7 +297,7 @@ export function piecesFor(table: string): PieceDef[] {
   return (PIECE_TABLES[table] ?? []).map((n) => PIECES[n]).filter(Boolean);
 }
 
-/** The pickaxe's terrain hit — C# m_spawnOnHitTerrain -> digg_v3. */
+/** The pickaxe's terrain hit — spawn-on-terrain-hit -> digg_v3. */
 export const TERRAIN_HIT_OPS: Record<string, TerrainOpSettings> = {
   digg: DIGG,
 };

@@ -23,10 +23,10 @@ import { formUebersteuerung } from './formUebersteuerung.js';
  * Welche Prefab-KLASSEN den Spieler blockieren.
  *
  * Das ist die eigentliche Regel des Originals: Unity entscheidet über
- * Layer, und Character.cs nimmt genau die soliden davon —
- *   s_groundRayMask = LayerMask.GetMask("Default", "static_solid",
- *       "Default_small", "piece", "terrain", "blocker", "vehicle")
- * (Character.cs:518). Die Layer-Zuordnung je Prefab liegt nicht im
+ * Layer, und der Charakter nimmt genau die soliden davon —
+ *   Bodenstrahl-Layer: "Default", "static_solid", "Default_small",
+ *       "piece", "terrain", "blocker", "vehicle"
+ * Die Layer-Zuordnung je Prefab liegt nicht im
  * Export (die Prefab-Roots fehlen, nur Sub-Meshes wurden extrahiert),
  * also bilden die Flags dieselbe Einteilung ab.
  *

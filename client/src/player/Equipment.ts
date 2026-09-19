@@ -1,13 +1,13 @@
 /**
- * What the player currently holds — Unity `Humanoid` equipment slots, reduced
- * to the one slot we need.
+ * What the player currently holds — the original's humanoid equipment slots,
+ * reduced to the one slot we need.
  *
- * C# reference: Humanoid.cs EquipItem/UnequipItem/ToggleEquipped,
- * Player.cs UseHotbarItem, Humanoid.SetupEquipment.
+ * Reference: the original's equip, unequip and toggle-equipped logic, its
+ * hotbar use-item action and its equipment setup.
  *
  * Two original rules are kept:
- *  - A Tool occupies BOTH hands (Humanoid.EquipItem, Tool branch), so there is
- *    exactly one held item.
+ *  - A Tool occupies BOTH hands (the original's equip logic, tool branch),
+ *    so there is exactly one held item.
  *  - Equipping an item whose definition has a piece table puts the player into
  *    build mode; equipping anything else leaves it. That is the whole
  *    mechanism by which the hoe opens its build menu.
@@ -99,7 +99,7 @@ export class Equipment {
     return this.rightItem?.shared.pieceTable ?? null;
   }
 
-  /** C# Player.InPlaceMode. */
+  /** The original's placement mode. */
   get inPlaceMode(): boolean {
     return this.pieceTable !== null;
   }
@@ -113,7 +113,7 @@ export class Equipment {
     for (const fn of this.listeners) fn();
   }
 
-  /** C# Humanoid.ToggleEquipped — equipping the held item unequips it. */
+  /** The original's toggle-equipped — equipping the held item unequips it. */
   toggle(item: ItemStack): void {
     const slot = this.slotFuer(item);
     if (this.slots.get(slot) === item) this.unequip(slot);
@@ -143,7 +143,7 @@ export class Equipment {
     this.emit();
   }
 
-  /** C# Player.UseHotbarItem — index is 0-based here, 1-based in the original. */
+  /** The original's hotbar use-item action — index is 0-based here, 1-based in the original. */
   useHotbar(index: number): void {
     const item = this.inventory.hotbar()[index];
     if (item) this.toggle(item);

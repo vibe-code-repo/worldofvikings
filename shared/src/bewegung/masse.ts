@@ -102,7 +102,7 @@ export const STEIGUNGS_GRENZE_COS = 0.5;
 /**
  * Was noch eine Stufe ist und keine Wand, in m.
  *
- * ORIGINAL: `m_MaxStepHeight` = 0,4 — und genau die steht hier, seit die
+ * ORIGINAL: maximale Stufenhoehe = 0,4 — und genau die steht hier, seit die
  * Spieldaten vermessen sind (vorher 0,45 aus dem Vorbild-Entwurf).
  *
  * Dieselbe Zahl an drei Stellen, und das ist der Punkt: Die unteren
@@ -116,7 +116,7 @@ export const STUFEN_HOEHE = 0.4;
 /**
  * Wie weit unter den Fuessen der Boden noch „klebt", in m.
  *
- * ORIGINAL: `m_StickToGroundDistance` = 0,3. Liegt der Boden nicht weiter
+ * ORIGINAL: Bodenhaftdistanz = 0,3. Liegt der Boden nicht weiter
  * darunter, wird die Figur aufgesetzt statt fallen gelassen. Ohne diese
  * Zahl flattert eine Figur, die eine Treppe hinunterlaeuft oder ueber eine
  * Gelaendekante rollt, im Wechsel zwischen „faellt" und „steht" — und

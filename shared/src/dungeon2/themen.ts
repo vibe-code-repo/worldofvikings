@@ -94,7 +94,7 @@ export interface ThemenProfil {
   /** Verweis auf den Triplanar-Materialsatz des Bauers. / Builder material set. */
   readonly materialSatz: string;
   /**
-   * Name der Innen-Umgebung (Unity `Location.m_interiorEnvironment`) — die
+   * Name der Innen-Umgebung (im Original ein Feld der Location) — die
    * Beleuchtung, die der Client in dieser Instanz erzwingt. Der Altbestand
    * fuehrt dieselbe Zuordnung als `interiorEnvironment(base)` ueber das Kit
    * (`shared/src/dungeons.ts`); 2.0 hat keine Kits mehr, also traegt sie das

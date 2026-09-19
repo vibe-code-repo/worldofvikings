@@ -2,12 +2,12 @@
  * Player inventory — 1:1 model of the reference implementation's `Inventory`.
  *
  * Deliberately a FLAT LIST with a grid position per item, not a 2D array. That
- * is how the original stores it (`List<ItemData>` + `m_gridPos`), and it keeps
+ * is how the original stores it (list + grid position per item), and it keeps
  * three things simple: stacking (scan for a matching partial stack), the
  * hotbar (just the items with gridY === 0), and serialization (no holes to
  * encode).
  *
- * Player grid is 8×4 (Humanoid.cs:67), so row 0 gives the 8 hotbar slots.
+ * Player grid is 8×4, so row 0 gives the 8 hotbar slots.
  */
 
 import {
@@ -21,7 +21,7 @@ import { findItem } from './itemDefs.js';
 
 export const INVENTORY_WIDTH = 8;
 export const INVENTORY_HEIGHT = 4;
-/** Hotbar is row 0 of the inventory — C# Inventory.GetHotbar. */
+/** Hotbar is row 0 of the inventory. */
 export const HOTBAR_SIZE = INVENTORY_WIDTH;
 
 export class Inventory {
@@ -66,7 +66,7 @@ export class Inventory {
 
   /**
    * Adds `amount` items, filling partial stacks first, then empty slots.
-   * Returns how many did NOT fit (0 on full success) — C# AddItem semantics.
+   * Returns how many did NOT fit (0 on full success) — same semantics as the original.
    */
   addItem(shared: ItemShared, amount = 1, quality = 1): number {
     let left = amount;
@@ -171,7 +171,7 @@ export class Inventory {
     return true;
   }
 
-  /** C# Inventory.FindEmptySlot — top-down for tools/weapons, bottom-up else. */
+  /** Finds an empty slot — top-down for tools/weapons, bottom-up else. */
   private findEmptySlot(fromTop: boolean): [number, number] | null {
     const rows = fromTop
       ? [...Array(this.height).keys()]

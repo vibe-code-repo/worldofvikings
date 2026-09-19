@@ -50,7 +50,7 @@
  * Sie stammen seit dem 10.09.2026 aus den TerrainLayer-Assets des
  * VORBILDS selbst (`design/original-boden.md`, Tabelle in §A und die
  * Gesamtliste „Alle TerrainLayer des Spiels"), nicht mehr aus
- * `village1.json` des Schwesterprojekts. Welche Store-Textur welche
+ * `village1.json` des Vergleichsprojekts. Welche Store-Textur welche
  * Ebene ist, steht in derselben Tabelle:
  *
  *   Store-Datei          Ebene im Vorbild             Kachel  Met.  Glätte  Nrm
@@ -242,7 +242,7 @@ export const SCHICHTEN = {
  * ── Warum jede Tönung auf [1, 1, 1] steht (10.09.2026) ───────────────
  * Weil das Vorbild keine hat. `design/original-boden.md` §A, gelesen aus
  * den Spieldateien selbst: Alle sieben TerrainLayer von TerrainL1 tragen
- * `m_DiffuseRemapMin/Max` 0…1 und `m_Specular` schwarz — die Textur geht
+ * den Diffuse-Remap-Bereich 0…1 und eine schwarze Spekularfarbe — die Textur geht
  * unverfälscht in den Splat, und dasselbe gilt für die zwölf übrigen
  * Terrains des Spiels. Es gibt im ganzen Vorbild keinen Regler, der eine
  * Bodentextur umfärbt (Abweichung F24).
@@ -273,7 +273,7 @@ export const SCHICHTEN = {
  * — geraten wird hier keine mehr.
  *
  * No tint on any row any more: the original never recolours a terrain
- * texture (every `m_DiffuseRemap` 0…1, every `m_Specular` black). Colour
+ * texture (every diffuse remap range 0…1, every specular colour black). Colour
  * comes from sun, ambient, fog and grading instead — see
  * design/original-boden.md §A and F24.
  */

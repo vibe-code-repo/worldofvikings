@@ -11,14 +11,14 @@
  * `random_foam.png`, `water_foam.png` — alle leer.
  *
  * ── Die Rettung ─────────────────────────────────────────────────────
- * Die Bilddaten sind NICHT verloren. Unter
- *   <Client-Export>/extracted_assets/Texture2D/
+ * Die Bilddaten sind NICHT verloren. Im Texturordner des Client-Exports
+ *   (`Texture2D/`)
  * liegen 1.605 echte PNGs — nur nach Unity-PathID benannt
  * (`unnamed_<PathID>.png`) statt nach Klarnamen. Die Zuordnung liefern
- * die Material-Assets unter
- *   <Client-Export>/extracted_assets/Material/
- * die BEIDES enthalten: einen Klarnamen (`m_Name`, z. B. "water") und
- * die Textur-Slots mit ihren PathIDs (`m_SavedProperties.m_TexEnvs`,
+ * die Material-Assets im Materialordner des Client-Exports
+ *   (`Material/`)
+ * die BEIDES enthalten: einen Klarnamen (das Namensfeld, z. B. "water") und
+ * die Textur-Slots mit ihren PathIDs (die Textur-Slot-Liste der Materialeigenschaften,
  * z. B. `_FoamTex` → PathID -305452523777261620).
  *
  * Damit lässt sich jede Textur, die von einem benannten Material

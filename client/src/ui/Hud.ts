@@ -5,7 +5,7 @@
 import { Fehlersammler, type Schweregrad, type FehlerAnzeige } from './Fehlermeldungen';
 import type { GameI18n } from '../i18n';
 
-/** Fadenkreuz im Normalzustand — `s_whiteHalfAlpha` des Originals. */
+/** Fadenkreuz im Normalzustand — Weiss bei halber Deckkraft wie im Original. */
 const FK_NORMAL = 'rgba(255,255,255,.5)';
 /** Fadenkreuz auf einem Ziel — `Color.yellow`, also voll deckend. */
 const FK_ZIEL = 'rgba(255,255,0,1)';
@@ -66,8 +66,8 @@ export class Hud {
   /**
    * Fadenkreuz in der Bildmitte — die Richtung, in die die Figur losläuft.
    *
-   * Aussehen nach dem Original: `Hud.UpdateCrosshair` färbt das Fadenkreuz
-   * mit `s_whiteHalfAlpha`, also Weiss bei halber Deckkraft, und schaltet
+   * Aussehen nach dem Original: Das Fadenkreuz ist Weiss bei halber
+   * Deckkraft und schaltet
    * auf Gelb, sobald etwas Anvisiertes einen Namen hat. Die Gelbfärbung
    * fehlt hier noch; sie bräuchte die Anbindung an ObjectLabels.
    *
@@ -152,7 +152,7 @@ export class Hud {
 
   /**
    * Kurzlebige Bildschirmmeldung (Serverantworten wie "Dungeon betreten",
-   * Äquivalent zum MessageHud oben links des Vorbilds). Ersetzt eine noch stehende
+   * Äquivalent zur Meldungsanzeige oben links des Vorbilds). Ersetzt eine noch stehende
    * Meldung statt zu stapeln.
    */
   meldung(text: string): void {

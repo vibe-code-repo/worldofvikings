@@ -1,7 +1,7 @@
 /**
  * G-TEX (Babylon-Port) — die Original-Terrain-Texturen als Splat-Shader.
  *
- * Babylon-Äquivalent zum three.js-Prototyp (dessen Terrain.ts, siehe
+ * Babylon-Äquivalent zur three.js-Version des Vergleichsprojekts (deren Terrain.ts, siehe
  * Docs/Analyse-Modelle-und-Weltgenerierung.md „G-TEX"):
  * statt Vertex-Farben sampelt ein NodeMaterial die 16 gestapelten
  * Original-Tiles (`terrain_d_array.png`, 256×4096) mit den
@@ -9,7 +9,7 @@
  * ⇒ weiche Biomübergänge. Variety-Noise (`TerrainVarietyNoise.png`) rotiert
  * die Tile-UVs gegen sichtbare Kachelung und moduliert die Helligkeit.
  *
- * Regeln (im Fragment, identisch zur three.js-Version):
+ * Regeln (im Fragment, identisch zur three.js-Version des Vergleichsprojekts):
  *  - 4 Eck-Tiles pro Vertex (BIOME_TILE), Gewichte = cornerBiomes ×
  *    Smoothstep(tx/ty) — dieselbe Mathe wie Heightmap.ts build().
  *  - Sand-Band an der Wasserlinie, Fels (rock/cliff-Tile) auf steilen
@@ -138,7 +138,7 @@ const STORE_TEX_BASE = '/assets/generiert/terrain/';
  * Was eine Schicht ist, ausser einer Farbe (Analyse §2 „Boden").
  *
  * Die Zahlen stehen im `terrain`-Block der Zone `village` von
- * `content/worlds/village1.json` des Schwesterprojekts, wo sie am Bild
+ * `content/worlds/village1.json` des Vergleichsprojekts, wo sie am Bild
  * kalibriert wurden (ADR-0032). Sie stehen HIER ein zweites Mal, weil
  * der Shader sie beim Bau braucht und `assets/generiert/` erst zur
  * Laufzeit da ist. Dass beide Listen dieselben sind, prüft
@@ -164,7 +164,7 @@ export interface SchichtOberflaeche {
  * Metall, `GLOSS_BASIS` als Glätte. Sie sollen aussehen wie vorher.
  *
  * ── Die Zahlen kommen seit dem 10.09.2026 aus dem VORBILD ────────────
- * Nicht mehr aus `village1.json` des Schwesterprojekts, sondern aus den
+ * Nicht mehr aus `village1.json` des Vergleichsprojekts, sondern aus den
  * TerrainLayer-Assets des Vorbilds selbst
  * (`design/original-boden.md` §A). Zwei Zeilen ändern sich dabei, und
  * beide sind Korrekturen mit einem sichtbaren Befund dahinter:
@@ -545,7 +545,7 @@ export function triplanarGewichte(
 
 /**
  * Wie viel vom Himmel den Boden erreicht (Analogon zu `sky.groundReflection`
- * des Schwesterprojekts, ADR-0032).
+ * des Vergleichsprojekts, ADR-0032).
  *
  * 1,0 hiesse: Der Boden sieht die ganze Halbkugel. Er sieht sie nicht —
  * er steht in einer Welt aus Bäumen und Hängen. Der Wert ist der eine
@@ -718,8 +718,8 @@ function cnst2(name: string, value: Vector2): InputBlock {
 }
 
 // ── Glanz, wie ihn `Heightmap_basematerial` beschreibt ──────────────
-// Ausgelesen aus extracted_assets/Material (m_Floats des Materials mit
-// m_Name "Heightmap_basematerial"). Das Terrain ist als Ganzes matt,
+// Ausgelesen aus dem Materialexport des Originals (Fließkommawerte des
+// Materials "Heightmap_basematerial"). Das Terrain ist als Ganzes matt,
 // aber NICHT überall gleich matt: Fels und Schnee haben eigene Werte.
 /** `_Glossiness` — der Grundwert für alles, was weder Fels noch Schnee ist. */
 const GLOSS_BASIS = 0.1;
@@ -888,7 +888,7 @@ export class TerrainSplatMaterial {
    *
    * Der Modus ist Babylons eigener Code (0 aus, 1 EXP, 2 EXP2,
    * 3 LINEAR) und ausdrücklich KEIN 0/1-Schalter. Genau daran ist es im
-   * Schwesterprojekt einmal gescheitert (ADR-0041): Dort stand „1, wenn
+   * Vergleichsprojekt einmal gescheitert (ADR-0041): Dort stand „1, wenn
    * die Szene linear nebelt", und als die Welt auf eine exponentielle
    * Kurve umgestellt wurde, fiel der Boden aus dem Nebel heraus, während
    * alles, was darauf stand, weiter hazte. Im Diff unsichtbar, auf dem
@@ -992,12 +992,12 @@ export class TerrainSplatMaterial {
     clipPos.output.connectTo(vertexOut.vector);
 
     // ── Textures ────────────────────────────────────────────────────
-    // three.js reference: wrapS=Repeat, wrapT=ClampToEdge (T-wrap is done
+    // Comparison project (three.js): wrapS=Repeat, wrapT=ClampToEdge (T-wrap is done
     // in-shader via fract — see splatLayer/fracUV below); flipY=false so
     // layer L sits at V∈[L/16,(L+1)/16] top→bottom, matching the
     // extraction-export tile order (Babylon: invertY=false mirrors flipY=false).
     // Maximale anisotrope Filterung für ALLE Terrain-Texturen. Das ist der
-    // entscheidende Schärfe-Unterschied zur three.js-Referenz, die
+    // entscheidende Schärfe-Unterschied zum Vergleichsprojekt (three.js), das
     // `terrain.setAnisotropy(renderer.capabilities.getMaxAnisotropy())`
     // (üblich 16×) setzt, während Babylons Default bei 4 liegt. Terrain
     // wird praktisch immer in flachem Winkel betrachtet — genau dort
@@ -1075,7 +1075,7 @@ export class TerrainSplatMaterial {
 
     // ── Variety-Noise-UV-Rotation + fract(uv) ───────────────────────
     // Die Tile-UVs werden pro Pixel um einen aus der Variety-Noise
-    // gelesenen Winkel gedreht (Referenz: Terrain.ts des Prototyps,
+    // gelesenen Winkel gedreht (Vergleichsprojekt: Terrain.ts,
     //   float ang = nz.r * 6.2831853;
     //   vec2 uv = mat2(ca, sa, -sa, ca) * wuv;
     // ). Ohne diese Drehung wiederholt sich jede Tile-Textur stur im
@@ -1083,7 +1083,7 @@ export class TerrainSplatMaterial {
     // Nutzer als "Boden braucht noch Texturen" gemeldet hat.
     //
     // Das war hier zwischenzeitlich mit dem Vermerk "erzeugt harte Nähte
-    // an jeder Noise-Grenze" abgeschaltet. Die Referenz fährt dieselbe
+    // an jeder Noise-Grenze" abgeschaltet. Das Vergleichsprojekt fährt dieselbe
     // Rotation auf denselben absoluten Welt-UVs ohne dieses Problem: der
     // Winkel ändert sich durch die bilineare Filterung der Noise-Textur
     // stetig, und das anschließende fract() + der 0.02-Inset in
@@ -1123,7 +1123,7 @@ export class TerrainSplatMaterial {
     // (1.00 mit vs. 1.20 ohne) — großflächige Verzerrung ist für diese Metrik
     // unsichtbar, deshalb war der Blick aufs Bild nötig. Der ursprüngliche
     // Projektkommentar ("erzeugt harte Nähte / Artefakte") war also korrekt;
-    // die Rotation der Referenz ist hier nicht übertragbar.
+    // die Rotation des Vergleichsprojekts ist hier nicht übertragbar.
     tileUV.output.connectTo(fracUVOp.input);
     const fracUV = new VectorSplitterBlock('fracUV');
     fracUVOp.output.connectTo(fracUV.xyIn);
@@ -1726,13 +1726,13 @@ export class TerrainSplatMaterial {
     const sandLerp = new LerpBlock('sandLerp'); colBright.output.connectTo(sandLerp.left); sandSample.connectTo(sandLerp.right); sandK.output.connectTo(sandLerp.gradient);
 
     // ── Fels auf steilen Flanken ────────────────────────────────────
-    // Exakt die Werte der three.js-Referenz (Prototyp,
+    // Exakt die Werte des Vergleichsprojekts (three.js,
     // Terrain.ts): rockK = clamp((0.72 - ny) / 0.25, 0, 1) * 0.85.
     //
     // HINWEIS: Hier stand zwischenzeitlich eine Variante mit Schwelle
     // 0.85, schmalerer Rampe (/0.10) und rauschverschobener Schwelle, um
     // den gesprenkelten Fels/Moos-Rand aus einem Original-Screenshot
-    // nachzubauen. Das war eine Eigenerfindung ohne Beleg — die Referenz
+    // nachzubauen. Das war eine Eigenerfindung ohne Beleg — das Vergleichsprojekt
     // benutzt genau die glatte Rampe unten, ganz ohne Rauschen. Der
     // körnige Eindruck im Original entsteht nicht im Blend, sondern aus
     // der Tile-Textur selbst plus der UV-Rotation (oben) und den
@@ -1973,14 +1973,14 @@ export class TerrainSplatMaterial {
     // ── G-TEX2: Tile-Normal-Maps ────────────────────────────────────
     // Ohne diese Ebene ist das Terrain nur eine flach beleuchtete
     // Farbfläche — genau der "wir sehen immer noch das Standard-Terrain
-    // als Untergrund"-Eindruck, den der Nutzer gemeldet hat. Die
-    // three.js-Referenz (Terrain.ts des Prototyps, G-TEX2) benutzt sie;
+    // als Untergrund"-Eindruck, den der Nutzer gemeldet hat. Das
+    // Vergleichsprojekt (Terrain.ts, G-TEX2) benutzt sie;
     // bei uns lagen die Dateien zwar vor (256², valide Tangent-Space-Maps),
     // wurden aber nie gesampelt.
     //
     // Der Rip enthält KEIN 16-Ebenen-Normal-Array, nur drei
-    // Rauheitsgruppen. Die Zuordnung Tile→Gruppe unten ist 1:1 aus der
-    // Referenz gespiegelt (`tileNormalGroup`).
+    // Rauheitsgruppen. Die Zuordnung Tile→Gruppe unten ist 1:1 aus dem
+    // Vergleichsprojekt gespiegelt (`tileNormalGroup`).
     // ── Normal-Maps: die eigenen des Originals statt drei Sammelgruppen ──
     // `Heightmap_basematerial` führt neben dem Normal-Array fünf EIGENE
     // Normal-Maps, jede mit einem Slot, der sagt, wofür sie da ist:
@@ -2283,7 +2283,7 @@ export class TerrainSplatMaterial {
       metallicAus = o.metallic!;
       glaetteAus = o.glaette!;
     } else {
-      const normalStrength = cnst('normalStrength', 0.7); // Referenzwert uNormalStrength
+      const normalStrength = cnst('normalStrength', 0.7); // Wert des Vergleichsprojekts (uNormalStrength)
       const perturb = new CustomBlock('terrainNormal');
       perturb.options = {
         name: 'terrainNormal',
@@ -2342,7 +2342,7 @@ export class TerrainSplatMaterial {
           '  nc = mix(nc, nSnow, clamp(schnee, 0.0, 1.0));',
           '  vec3 mapN = nc * 2.0 - 1.0;',
           '  mapN.xy *= strength;',
-          // Tangentenfreie Störung (Schüler-Technik, wie in der Referenz):
+          // Tangentenfreie Störung (Schüler-Technik, wie im Vergleichsprojekt):
           // unsere Terrain-Geometrie führt keine Tangenten mit, deshalb wird
           // die Basis pro Pixel aus den Screen-Space-Ableitungen von
           // Weltposition und UV rekonstruiert. Braucht Ableitungen — in
@@ -2560,7 +2560,7 @@ export class TerrainSplatMaterial {
     // eigene Farbe mehr — sie IST eine Spiegelung. Ohne etwas zum
     // Spiegeln wird sie schwarz, und zwar genau so schwarz, wie die
     // Metall-Requisiten dieses Clients es nachts werden
-    // (`AssetManager.setzeMetallgrad`). Das Schwesterprojekt löst es mit
+    // (`AssetManager.setzeMetallgrad`). Das Vergleichsprojekt löst es mit
     // `sky.groundReflection`, einem Verlaufshimmel als Umgebungslicht
     // (ADR-0032); hier steht dasselbe, nur ohne Cubemap: eine Richtung
     // in den Verlauf einsetzen kostet ein paar Rechenschritte, ein
@@ -2602,8 +2602,8 @@ export class TerrainSplatMaterial {
     // Verlauf in seinen zwei Farben linear ist, geht das geschlossen:
     // `HIMMEL_IRRADIANZ` (zwei Zahlentripel) statt eines Integrals.
     //
-    // ── Was das Schwesterprojekt an dieser Stelle tut ────────────────
-    // `packages/engine/src/terrain-shader.ts`, `environmentLight()`:
+    // ── Was das Vergleichsprojekt an dieser Stelle tut ───────────────
+    // `environmentLight()` in seinem Terrain-Shader:
     // dieselbe Split-Sum-Zerlegung, dieselbe Lazarov-BRDF, dieselbe
     // Zeile `lit = albedo·(1−metallic)·direct + environmentLight(...)`,
     // und derselbe EINE Abtastwert. Dass der Boden dort trotzdem hell
@@ -2648,7 +2648,7 @@ export class TerrainSplatMaterial {
           // beide einbinden könnten.
           //
           // Hier stand `pow(hoch, 0.45)` mit einer Abdunklung unter dem
-          // Horizont; das ist die Form des SCHWESTERPROJEKTS
+          // Horizont; das ist die Form des VERGLEICHSPROJEKTS
           // (sky-shader.ts), nicht die der Kuppel, die über diesem Boden
           // steht. `pow` hat bei hoch = 0 eine unendliche Steigung und
           // setzt damit eine harte Kante genau auf den Horizont — der
@@ -2763,7 +2763,7 @@ export class TerrainSplatMaterial {
     // `scene.fogMode` (`syncLighting()` schiebt ihn nach) und rechnet
     // ALLE vier Fälle. OHNE Potenz: Der Rest dieses Clients (Standard
     // über `StandardGammaFix`, PBR über `PbrNebelFix`) rechnet den Nebel
-    // ebenfalls ohne `pow(fog, 2.2)`; das Schwesterprojekt braucht die
+    // ebenfalls ohne `pow(fog, 2.2)`; das Vergleichsprojekt braucht die
     // Potenz nur, weil Babylons PBR-Pfad dort `toLinearSpace(fog)`
     // anwendet. Sie hier zu übernehmen hiesse, den Boden gegen die
     // beiden anderen Pfade dieses Clients zu verstimmen.

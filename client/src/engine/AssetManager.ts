@@ -769,7 +769,7 @@ export class AssetManager {
   /**
    * Alpha-cutout + double-sided detection for foliage (see header).
    *
-   * Mirrors the three.js reference of the first prototype (AssetManager
+   * Mirrors the comparison project's three.js version (AssetManager
    * applyAlphaCutoutIfNeeded: alphaTest=0.5 + DoubleSide on any texture
    * with an alpha channel) — with refinements verified against the
    * Babylon source in node_modules (not by screenshot guessing):
@@ -815,8 +815,8 @@ export class AssetManager {
    * vor grauem Dunst — war der Anlass für diese Korrektur.
    *
    * ── Woher der Wert kommt ────────────────────────────────────────────
-   * Aus den 1.489 Original-Materialien mit `_Metallic` in
-   * des Fremdexports (`extracted_assets/Material/`): 1.299 davon stehen auf 0,
+   * Aus den 1.489 Original-Materialien mit `_Metallic` im
+   * Materialexport des Originals: 1.299 davon stehen auf 0,
    * also 87 %. Rinde, Laub, Fels, Holz, Stoff — alles Dielektrika. Auf 1
    * stehen 153, praktisch ausschliesslich Erzadern, Metallwaffen und
    * -rüstungen; die deckt METALLISCH ab.
@@ -843,8 +843,8 @@ export class AssetManager {
       Name war die einzige verbliebene Auskunft. Der Store hat dieses
       Problem nicht: Seine GLBs tragen `metallicFactor` im Material, und er
       ist bei allen 151 Vegetations- und allen Requisitenmaterialien 0
-      (Synty POLYGON arbeitet ohne Metall — s. `Analyse — Look-Übertragung
-      ins Labor`, §2 „Geometrie und Material").
+      (Synty POLYGON arbeitet ohne Metall — s. die Look-Analyse,
+      §2 „Geometrie und Material").
 
       Angewandt richtete die Regel deshalb nur Schaden an. Sie trifft im
       Store `Metal_PolygonFantasyKingdom_Mat_01_A 5` (Ring) und `SM_Item_Crystal_04`
@@ -1469,7 +1469,7 @@ function zuMaster(mesh: Mesh, welt?: Matrix): PrefabMaster {
  * Materialien, die im Original wirklich metallisch sind.
  *
  * Abgeleitet aus den 158 Materialien mit `_Metallic >= 0.9` in
- * `extracted_assets/Material/` des Fremdexports — das sind Erzadern
+ * Materialexport des Originals — das sind Erzadern
  * (`silverore`, `rock_silver_internal`), Metallwaffen und -rüstungen
  * (`blackmetalsword`, `BronzeArmorMesh_Mat`, `SilverShield_Mat`), Schmiede
  * und Kochgerät (`Forge_mat`, `MeadCauldron_MAT`, `Vise_mat`) sowie
@@ -1524,7 +1524,7 @@ function isFoliageMaterial(name: string): boolean {
  *
  * Gebautes bleibt starr — im Original tragen nur Vegetationsmaterialien
  * die Sway-Parameter (_SwayDistance und _SwaySpeed, siehe
- * extracted_assets/Material). Bauteile heissen durchgehend "wood_...",
+ * Materialexport). Bauteile heissen durchgehend "wood_...",
  * "stone_..." oder "iron_...", Vegetation trägt Artnamen. Der Prefab-Name
  * ist der verlässlichste Anhaltspunkt, den wir zur Ladezeit haben.
  */

@@ -16,7 +16,7 @@ import { ZDOID } from './ZDOID.js';
 import { BitPack32 } from '../util/BitPack.js';
 import { getStableHash } from '../util/Hash.js';
 
-// ── ZDO Revision (ZDO::Rev) ────────────────────────────────────────
+// ── ZDO Revision ───────────────────────────────────────────────────
 // Reference: bit pack of a uint32 as 23 + (32-23) bits
 //   DATA_REVISION_PACK_INDEX = 0 (23 bits)
 //   OWNER_REVISION_PACK_INDEX = 1 (9 bits)
@@ -95,7 +95,7 @@ export interface ZDOMember {
   rev: number;
 }
 
-// ── ZDO Flags (from ZDO.h MACHINE_* / NETWORK_* constants) ─────────
+// ── ZDO Flags (machine / network constants) ────────────────────────
 
 export enum ZDOFlags {
   NONE = 0,

@@ -22,7 +22,7 @@
  * und Schattenpass.
  *
  * ── Vorbild ──────────────────────────────────────────────────────────
- * Das produktive System des Schwesterprojekts (Three.js). Übernommen sind die
+ * Das produktive System des Vergleichsprojekts (Three.js). Übernommen sind die
  * GESETZE (Ansichtspaar-Blend, geneigte Zylindernormale, Clearfarbe
  * Kronengrün, Sprites nie in die Werferliste). NICHT übernommen ist der
  * Code — andere Engine, andere Fallstricke. Die bewussten Abweichungen
@@ -31,7 +31,7 @@
  *   1. Festes Atlasraster statt Regalpacker (WoV streamt Prefabs nach).
  *   2. Zuteilung echt/Sprite auf der CPU in EINER Schleife statt über
  *      zwei Shader mit identischer GLSL-Zeile (s. BaumImpostorKern.
- *      teileZelle — die Referenz dokumentiert selbst, dass ihre Variante
+ *      teileZelle — das Vergleichsprojekt dokumentiert selbst, dass seine Variante
  *      an Treiber-Kontraktion brechen kann).
  *   3. Der Atlas trägt REINES ALBEDO, nicht eine eingebackene
  *      Hemisphärenbeleuchtung (s. backMaterial()).
@@ -99,7 +99,7 @@ export const IMPOSTOR_PRAEFIX = 'impostor';
 /**
  * Clearfarbe des Atlas: mittleres Kronengrün bei Alpha 0.
  *
- * Aus der Referenz übernommen (0x86a868) samt Begründung: Die Mipkette
+ * Aus dem Vergleichsprojekt übernommen (0x86a868) samt Begründung: Die Mipkette
  * mittelt Randtexel gegen die Clearfarbe. Bei Schwarz kippen ferne
  * Sprites — deren tiefe Mips FAST NUR solche Mittelwerte sind — nach
  * dunklen Silhouetten. Alpha 0, damit der Alphaschnitt den Hintergrund
@@ -116,7 +116,7 @@ const KRONEN_GRUEN = new Color4(0.24, 0.39, 0.15, 0);
  *
  * Harte Null, keine kleine Amplitude: Ein Findling oder eine Steinbank,
  * die in der Buschböe mitschwingt, liest sich aus jeder Entfernung
- * kaputt (Regel aus der Referenz, IMPOSTOR_CATEGORY_WIND rock 0).
+ * kaputt (Regel aus dem Vergleichsprojekt: Windkategorie Fels = 0).
  */
 const STARR = /(rock|stein|fels|findling|silvervein|minerock|boulder)/i;
 
@@ -182,7 +182,7 @@ const ZWEI_PI = '6.283185307179586';
  *  (a) Spekular ist NULL (specularColor schwarz). Er ist der einzige
  *      Term, der nicht mit dem Atlas-Texel multipliziert wird, und läge
  *      auf einer flachen Karte mit glatter synthetischer Normale als
- *      gleichmässige Farbfläche über der Textur (die Referenz misst
+ *      gleichmässige Farbfläche über der Textur (das Vergleichsprojekt misst
  *      Faktor 2,2 zu hell mit, 1,6 ohne).
  *  (b) Die Schattierungsnormale ist eine geneigte, gefächerte
  *      ZYLINDER-Normale statt einer Hoch-Normalen (s.
@@ -361,7 +361,7 @@ class BaumImpostorPlugin extends MaterialPluginBase {
           // Die Instanzmatrix trägt AUSSCHLIESSLICH die Translation
           // (Grösse und Gierwinkel liegen in aImpKarte), und das Mesh
           // selbst steht im Ursprung. Damit IST der lokale Raum der
-          // Weltraum, und die ganze Rückrechnung der Referenz
+          // Weltraum, und die ganze Rückrechnung des Vergleichsprojekts
           // (un-rotieren, durch die Skala teilen, Normalen mit der Skala
           // multiplizieren) entfällt ersatzlos. Das ist die billigste
           // und zugleich fehlerärmste Bauform.
@@ -383,7 +383,7 @@ class BaumImpostorPlugin extends MaterialPluginBase {
           // ⚠ Ein Vorzeichendreher hier SPIEGELT DEN GANZEN ANSICHTSRING.
           // Der Wald sieht dabei völlig richtig aus; nur wer einen
           // EINZELNEN Baum an der Uebergabegrenze umrundet, sieht die
-          // falsche Seite. Die Referenz warnt an genau dieser Stelle
+          // falsche Seite. Das Vergleichsprojekt warnt an genau dieser Stelle
           // namentlich davor.
           float impWinkel = aImpKarte.z - atan(gImpFwd.x, gImpFwd.z);
           float impRel = fract(impWinkel / ${ZWEI_PI});
@@ -435,7 +435,7 @@ class BaumImpostorPlugin extends MaterialPluginBase {
           //
           // Die Instanzmatrix ist eine reine Translation, ihre
           // Normalenmatrix also die Einheit — es braucht weder
-          // Un-Rotation noch die Skalen-Multiplikation der Referenz.
+          // Un-Rotation noch die Skalen-Multiplikation des Vergleichsprojekts.
           float impFan = position.x * ${(2 * IMPOSTOR_FAECHER).toFixed(6)};
           vec3 impSeit = gImpFwd * cos(impFan) + gImpRight * sin(impFan);
           normalUpdated = normalize(mix(vec3(0.0, 1.0, 0.0), impSeit, ${IMPOSTOR_NEIGUNG.toFixed(
@@ -612,7 +612,7 @@ export class BaumImpostor {
     // Rueckseiten per gl_FrontFacing umdrehen — bei einer echten
     // doppelseitigen Blattkarte richtig, bei unserer SYNTHETISCHEN
     // Zylindernormalen falsch: Licht- und Schattenseite kippten. Die
-    // Referenz macht diesen Flip aus demselben Grund von Hand wieder
+    // Vergleichsprojekt macht diesen Flip aus demselben Grund von Hand wieder
     // rueckgaengig (`normal *= faceDirection`). Ein Sprite dreht sich der
     // Kamera ohnehin zu; Rueckseiten entstehen praktisch nicht, und wenn,
     // dann ist die ungeflippte Normale die richtige.
@@ -824,8 +824,8 @@ export class BaumImpostor {
    * Ein billiges, UNBELEUCHTETES Backmaterial zu einem Quellmaterial.
    *
    * ── Warum der Atlas reines Albedo trägt ─────────────────────────────
-   * Die Referenz backt mit einem Hemisphären-Rig (BAKE_SKY 1.15*PI,
-   * BAKE_GROUND 0.62*PI) und beleuchtet die Karte danach NOCHMALS. Das
+   * Das Vergleichsprojekt backt mit einem Hemisphären-Rig (Himmel 1.15*PI,
+   * Boden 0.62*PI) und beleuchtet die Karte danach NOCHMALS. Das
    * gibt dem Sprite innere Form, kostet aber die schwierigste
    * Kalibrierung des ganzen Pakets: Die PI-Faktoren heben Lamberts 1/PI
    * auf, das THREES MeshLambertMaterial einrechnet — Babylons
@@ -844,7 +844,7 @@ export class BaumImpostor {
    * auf 60 Bildpunkten liegt das unter der Wahrnehmungsschwelle; wenn
    * die Sprites im Bild dennoch flach lesen, ist das Hemisphären-Rig der
    * nächste Schritt — und dann MIT Nachmessung gegen einen echten Baum,
-   * nicht mit den PI-Faktoren der Referenz.
+   * nicht mit den PI-Faktoren des Vergleichsprojekts.
    *
    * ── Wie "unbeleuchtet" hier zustandekommt ───────────────────────────
    * default.fragment rechnet
@@ -1019,7 +1019,7 @@ export class BaumImpostor {
         const o = n * 16;
         // Reine TRANSLATION. Grösse und Gierwinkel liegen in aImpKarte —
         // dadurch ist der lokale Raum des Shaders der Weltraum und die
-        // Rückrechnung der Referenz entfällt (s. Vertexshader).
+        // Rückrechnung des Vergleichsprojekts entfällt (s. Vertexshader).
         mat[o] = 1;
         mat[o + 5] = 1;
         mat[o + 10] = 1;

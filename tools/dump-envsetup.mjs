@@ -5,15 +5,15 @@
  * and TIMING from verified sources, but its colour numbers are hand-tuned
  * approximations. This tool replaces them with ground truth from a local
  * asset export — the same route that produced the verified clutter
- * table (zonesystem_typetree.json / clutter_render_info.json).
+ * table (the exported type-tree and render-info JSON).
  *
  *   node tools/dump-envsetup.mjs <export-dir> [--out shared/src/envData.json]
  *
- * <export-dir> is anything containing the exported EnvSetup assets, e.g.
+ * <export-dir> is anything containing the exported environment-setup assets, e.g.
  *   tools/asset-export/export/ExportedProject/Assets
  * Point it as deep as you like; the whole tree is walked.
  *
- * EnvSetup objects are Unity ScriptableObjects, so the exporter writes them
+ * Environment-setup objects are Unity ScriptableObjects, so the exporter writes them
  * either as Unity YAML (`.asset`) or as JSON, depending on export settings,
  * and it may or may not keep Unity's `m_` field prefix. The parser below is
  * deliberately shape-tolerant rather than assuming one layout: it locates
@@ -33,7 +33,7 @@ const COLOR_FIELDS = [
 const FLOAT_FIELDS = [
   'fogDensityMorning', 'fogDensityDay', 'fogDensityEvening', 'fogDensityNight',
   'lightIntensityDay', 'lightIntensityNight', 'sunAngle',
-  // Wind: EnvMan.UpdateWind lerps the gust strength between these two per
+  // Wind: the original's weather manager lerps the gust strength between these two per
   // weather, so they are what makes a storm feel different from a clear day.
   'windMin', 'windMax',
   'rainCloudAlpha',
@@ -44,7 +44,7 @@ const BOOL_FIELDS = [
   'isWet', 'isCold', 'isColdAtNight', 'isFreezing', 'isFreezingAtNight',
 ];
 
-/** Marker fields: a file needs these to count as an EnvSetup. */
+/** Marker fields: a file needs these to count as an environment setup. */
 const MARKERS = ['fogColorDay', 'ambColorDay', 'sunColorDay'];
 
 const SCAN_EXT = /\.(asset|yaml|yml|json|txt|prefab)$/i;
@@ -70,7 +70,7 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** `m_FogColorDay` / `fogColorDay` / `"FogColorDay"` → one regex per field. */
+/** `fogColorDay` / `"FogColorDay"`, with or without the `m_` prefix → one regex per field. */
 function fieldPattern(field) {
   // allow an optional m_ prefix and any casing of the first character
   return new RegExp(`["']?(?:m_)?${field}["']?\\s*[:=]\\s*`, 'i');
@@ -150,17 +150,17 @@ function extract(text, path) {
   return { env, missing };
 }
 
-// ── structured JSON path (EnvMan dumps) ─────────────────────────────
+// ── structured JSON path (weather-manager dumps) ────────────────────
 //
-// The regex scanner above assumes ONE EnvSetup per file, which holds for
-// the exporter's ScriptableObject files. A raw EnvMan dump is the other
-// shape: a single object carrying all 23 environments nested under
-// m_environments, plus the biome weather tables and the timing constants.
+// The regex scanner above assumes ONE environment setup per file, which holds for
+// the exporter's ScriptableObject files. A raw weather-manager dump is the other
+// shape: a single object carrying all 23 environments nested in one list,
+// plus the biome weather tables and the timing constants.
 // Feeding that to the regex scanner would smear fields across weathers —
-// the first m_fogColorDay in the file would win for every one of them. So
-// when a file parses as JSON and looks like an EnvMan, read it properly.
+// the first day fog colour in the file would win for every one of them. So
+// when a file parses as JSON and looks like a weather-manager dump, read it properly.
 
-/** `m_windMin` → `windMin`, tolerating both spellings. */
+/** Reads a field under its plain or its `m_`-prefixed name, tolerating both spellings. */
 function pick(obj, field) {
   const v = obj[`m_${field}`];
   return v === undefined ? obj[field] : v;
@@ -170,7 +170,7 @@ function colorFrom(v) {
   if (!v || typeof v !== 'object') return null;
   const { r, g, b } = v;
   if (typeof r !== 'number' || typeof g !== 'number' || typeof b !== 'number') return null;
-  return { r, g, b }; // alpha is carried in the dump but unused by EnvSetup
+  return { r, g, b }; // alpha is carried in the dump but unused by the environment setup
 }
 
 function envFromObject(o) {
@@ -194,7 +194,7 @@ function envFromObject(o) {
   return env;
 }
 
-/** Biome weather tables — EnvMan.m_biomes, the input to SelectWeightedEnvironment. */
+/** Biome weather tables — the input of the weighted weather pick. */
 function biomesFromObject(root) {
   const list = pick(root, 'biomes');
   if (!Array.isArray(list)) return null;
@@ -220,7 +220,7 @@ function biomesFromObject(root) {
   return out.length ? out : null;
 }
 
-/** Timing constants. The C# field defaults are overridden in the prefab. */
+/** Timing constants. The field defaults in code are overridden in the prefab. */
 function timingFromObject(root) {
   const out = {};
   for (const f of [
@@ -239,7 +239,7 @@ function timingFromObject(root) {
 }
 
 /**
- * Returns { envs, biomes, timing } for an EnvMan-shaped JSON, else null.
+ * Returns { envs, biomes, timing } for a weather-manager-shaped JSON, else null.
  */
 function extractEnvMan(text) {
   if (!/^\s*\{/.test(text)) return null;
@@ -286,7 +286,7 @@ console.log(`[dump-envsetup] scanning ${files.length} candidate files…`);
 
 const found = [];
 let partial = 0;
-/** Biome tables / timing, from whichever EnvMan dump carried the most weathers. */
+/** Biome tables / timing, from whichever weather-manager dump carried the most weathers. */
 let envMan = null;
 for (const path of files) {
   let text;
@@ -295,7 +295,7 @@ for (const path of files) {
   } catch {
     continue;
   }
-  // An EnvMan dump holds every weather at once — take that route first.
+  // A weather-manager dump holds every weather at once — take that route first.
   const man = extractEnvMan(text);
   if (man) {
     if (!envMan || man.envs.length > envMan.envs.length) envMan = { ...man, path };
@@ -352,7 +352,7 @@ const payload = {
   count: envs.length,
   environments: envs,
 };
-// Only an EnvMan dump carries these; a per-asset export leaves them out and
+// Only a weather-manager dump carries these; a per-asset export leaves them out and
 // environment.ts falls back to its own table.
 if (envMan?.biomes) payload.biomes = envMan.biomes;
 if (envMan?.timing) payload.timing = envMan.timing;

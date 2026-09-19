@@ -9,8 +9,8 @@
  * Das Plugin gehört an ALLE Materialien eines Gewächses, Rinde
  * eingeschlossen. Im Original tragen Stamm und Blatt dieselben
  * Sway-Parameter — `birch_bark` und `birch_leaf2` stehen beide auf
- * `_SwayDistance 20, _Height 35, _SwaySpeed 15` (extracted_assets/
- * Material), und 11 weitere Rinden- und Stammmaterialien haben ebenfalls
+ * `_SwayDistance 20, _Height 35, _SwaySpeed 15` (Materialexport des
+ * Originals), und 11 weitere Rinden- und Stammmaterialien haben ebenfalls
  * welche. Der Baum biegt sich damit als eine Einheit.
  *
  * Hing es nur am Laub, schwang die belaubte Karte, während der Ast
@@ -47,7 +47,7 @@ export class WindPlugin extends MaterialPluginBase {
   static strength = 0.38;
   /**
    * Wind direction in XZ and its 0..1 strength, fed from WeatherManager
-   * (EnvMan.GetWindForce). Statics because every foliage material shares
+   * (the original's wind force). Statics because every foliage material shares
    * one wind — the same reason the original puts it in a global shader vector.
    *
    * Defaults reproduce the old fixed sway until someone sets them, so a
@@ -58,9 +58,9 @@ export class WindPlugin extends MaterialPluginBase {
   /** 0.05..1 — the gust strength of the current weather. */
   static intensity = 0.5;
   /**
-   * Second wind vector and the blend towards it — EnvMan's _GlobalWind2 /
-   * _GlobalWindAlpha. The sway is evaluated for BOTH vectors and the two
-   * offsets are mixed, exactly as WaterVolume.CalcWave does with its wave
+   * Second wind vector and the blend towards it — the original's second
+   * global wind and blend. The sway is evaluated for BOTH vectors and the two
+   * offsets are mixed, exactly as the original's water does with its wave
    * heights. Interpolating the vector instead would push it through zero
    * on a ~180° shift and the foliage would briefly go still.
    */
@@ -237,7 +237,7 @@ export class WindPlugin extends MaterialPluginBase {
           vec3 ursprung = vbObjektUrsprung();
           vec3 o1 = windOffset(position, ursprung, windDir.xy, windDir.z, windTime, windStrength);
           vec3 o2 = windOffset(position, ursprung, windDir2.xy, windDir2.z, windTime, windStrength);
-          // Die WIRKUNG mischen, nicht die Vektoren (WaterVolume.CalcWave).
+          // Die WIRKUNG mischen, nicht die Vektoren (wie bei der Wasserwelle).
           vec3 o = mix(o1, o2, windAlpha);
           positionUpdated.x += o.x;
           positionUpdated.z += o.z;

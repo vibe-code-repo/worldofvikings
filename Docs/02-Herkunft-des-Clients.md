@@ -60,7 +60,7 @@ Diese Fehler des Three.js-Clients **nicht mitportieren**:
 1. **Keine Höhen-Normalisierung ("render hints")**: Modelle in Originalmaß laden (GLBs sind maßstabs-korrekt, Extraktions-Export in Unity-Metern). Keine Stauchung auf geratene Zielhöhen.
 2. **Zufalls-Scale + Rotation aus den Spawndaten anwenden**: z. B. Tanne Schwarzwald 2,0–2,5× (→ 22–27 m). Server liefert Scale/Rotation im ZDO/Spawn — Client wendet sie an. Aktuell spawnen Bäume ohne beides.
 3. **Alpha-Cutout + DoubleSided für Nadel-/Laub-Planes**: `material.alphaMode = ALPHATEST`, `backFaceCulling = false` für Foliage — sonst "falsche Tannenform".
-4. **Kreaturen-GLBs ohne Meshes**: `Neck.glb`, `Greyling.glb`, `Troll.glb` sind Bone-Rigs ohne Meshes (Stand 2026-07-25). Meshed-Varianten suchen/nach-exportieren (Extraktions-Ordner unter `tools/`); `*_fixed.glb`-Muster (Boar/Deer/Greydwarf) als Vorlage. Spawn-Tabellen erst erweitern, wenn Assets da sind.
+4. **Kreaturen-GLBs ohne Meshes**: `Neck.glb`, `Greyling.glb`, `Troll.glb` sind Bone-Rigs ohne Meshes (Stand 2026-07-25). Meshed-Varianten suchen/nach-exportieren (`tools/asset-export/`); `*_fixed.glb`-Muster (Boar/Deer/Greydwarf) als Vorlage. Spawn-Tabellen erst erweitern, wenn Assets da sind.
 5. **Instancing von Anfang an**: Der alte Client lief mit ~6 FPS ohne Instancing. Vegetation/Props kommen im Babylon-Client **nur** als Thin Instances, nie als Einzel-Meshes.
 6. **Audio**: Fremdaufnahmen werden **nicht** übernommen. Die `.ogg` aus dem Extraktions-Export sind gelöscht; `assets/audio/` enthält nur eigenes Material (siehe [04](04-Asset-Pipeline.md), Schritt 3).
 

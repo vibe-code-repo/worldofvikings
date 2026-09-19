@@ -2,10 +2,10 @@
  * Dungeons Parser — reads dungeons.pkg from the reference
  * server's data export and exports all dungeon generators with their
  * complete room kits (sizes, connections, contained net views, random
- * spawns) as JSON. This is the data the Unity Room/RoomConnection
+ * spawns) as JSON. This is the data the original's room and room-connection
  * components carry, which the GLB exports do not contain.
  *
- * Binary format (reference server, dungeon loader, lines 19-201):
+ * Binary format (reference server, dungeon loader):
  *
  *   header:
  *     string  comment            (.NET BinaryWriter: 7-bit varint length + UTF-8)

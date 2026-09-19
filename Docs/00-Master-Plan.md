@@ -62,7 +62,7 @@ Auch `hdClutter` und die HD-Mod-Texturen sind restlos entfernt — dieselbe Frag
 
 ### Weltmodell: Layout statt radialem Seed-Kreis *(03.08.2026)*
 
-Der Plan übernahm das Weltmodell des Vorbilds mitsamt seiner Form: eine radiale Insel um den Ursprung, alles aus einem Seed, Progression über die Distanz zum Weltzentrum. Das ist portiert, verifiziert und läuft — als `world.mode: valheim`, dem eingefrorenen Übergangspfad.
+Der Plan übernahm das Weltmodell des Vorbilds mitsamt seiner Form: eine radiale Insel um den Ursprung, alles aus einem Seed, Progression über die Distanz zum Weltzentrum. Das ist portiert, verifiziert und läuft — als `world.mode: radial`, dem eingefrorenen Übergangspfad.
 
 Die Welt des Projekts entsteht heute aus einem **WorldLayout-Dokument** (`world.mode: layout`): Regionen als Polygone und Kreise mit Biom und Terrainparametern auf unbegrenzter Karte, alles außerhalb ist Ozean; der Server kompiliert das Dokument zu einem Distanzfeld. Das Perlin-Detail *innerhalb* einer Region stammt weiterhin aus den Original-Biomhöhenfunktionen — der Port ist also nicht verworfen, sondern umgehängt. Näheres in [10-Weltbau-Layout-und-Editor.md](10-Weltbau-Layout-und-Editor.md).
 
@@ -212,7 +212,7 @@ des Repos geführt — die Roadmap ist ihr Vorgänger und bleibt als Historie st
 | Netzwerk | WebSocket + Binary (bisheriges Protokoll), **Port 2467** | Client-Unabhängigkeit bewahren; eigener Port, damit die Vorgängerprojekte parallel laufen können (geplant war 2466, s. Port-Tabelle) |
 | Asset-Format | glTF/GLB + KTX2 | Babylon lädt beides nativ (`KhronosTextureBasisU`, Draco) |
 | Assets | **Eigenbau**, Whitelist `EIGENE_MODELLE` | Abweichung 16.08.2026: ein Browserspiel liefert seine Assets an jeden Besucher aus — siehe oben |
-| Weltmodell | **WorldLayout-Dokument** statt radialem Seed-Kreis | Gesetzte Fraktionen, Startpunkte und Geographie lassen sich nicht auswürfeln; der radiale Port bleibt als `world.mode: valheim` eingefroren |
+| Weltmodell | **WorldLayout-Dokument** statt radialem Seed-Kreis | Gesetzte Fraktionen, Startpunkte und Geographie lassen sich nicht auswürfeln; der radiale Port bleibt als `world.mode: radial` eingefroren |
 | Physik | Havok (WASM) via `@babylonjs/havok` | Offizielles Plugin, performant |
 | Persistenz | ~~SQLite~~ **JSON+zstd-Envelope** (`WorldManager.ts`) | Bewusste Abweichung (2026-08): ein Save pro Welt, atomar (tmp+rename), `.prev`-Rotation — SQLite brächte hier nur Abhängigkeiten, keine Vorteile |
 | Build | Vite (Client, **Dev-Port 5274**), tsx (Server), npm-Workspaces | Bewährt im Vorgänger; eigener Dev-Port. Der Server hat **keinen** Build — die Unit startet `node_modules/.bin/tsx` direkt aus dem Quellbaum |

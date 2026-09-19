@@ -254,7 +254,7 @@ export const DEFAULTS: GameSettings = {
    * den Einstellungen (`SettingsPanel.ts`, `settings.motion_blur`), mit
    * denselben Werten. Geprüft in `server/test/stufe2-licht.ts`.
    *
-   * Default OFF (A4): the reference profile does not establish it for the
+   * Default OFF (A4): the comparison project's profile does not establish it for the
    * look we ship, and it drags a full geometry pass along. The option stays.
    */
   motionBlur: false,

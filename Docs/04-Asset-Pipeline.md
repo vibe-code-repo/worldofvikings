@@ -159,7 +159,7 @@ unbrauchbar (2.639 von 2.763 PNGs waren 0-Byte-Stubs, kein einziges der 7.471 GL
 Animationen oder Skins — Einschränkungen 28/28b/33 im Analyse-Bericht).
 
 Am 16.08.2026 wurde der Export von live gelöscht: 11.869 Dateien, 5,1 GB.
-`tools/asset-export/` ist seitdem leer: die Restdateien `compile_time.txt` und `openapi.json` sind entfernt, der Ordner bleibt als gitignorierter Arbeitsplatz für einen neuen Export.
+`tools/asset-export/` ist seitdem leer: die Restdateien `compile_time.txt` und `openapi.json` sind entfernt, und da git keine leeren Ordner führt, fehlt der Ordner in einem frischen Klon. Ignoriert sind dort nur `export/`, `temp/`, `*.exe`, `*.zip` und `*.dll` (`.gitignore`); der Ordner selbst ist nicht ignoriert. Für einen neuen Export ist `tools/asset-export/export/` der vorgesehene Arbeitsplatz.
 `tools/asset-extractor/` katalogisierte ohnehin nur Bundles und war nie die echte Pipeline.
 
 **Damit hinfällige Pläne aus der alten Fassung dieses Dokuments** (sie standen hier als

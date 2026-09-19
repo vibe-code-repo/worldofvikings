@@ -1,5 +1,5 @@
 /**
- * Lighting — the reference environment manager reproduced on Babylon.
+ * Lighting — the comparison project's environment manager reproduced on Babylon.
  *
  * All keyframe data and the interpolation live in the shared environment
  * model (`shared/src/environment.ts`, which documents what is verified and
@@ -8,7 +8,7 @@
  * the sky dome and the fog.
  *
  * ── Why the fog needs special handling ───────────────────────────────
- * The reference fog is EXP2 distance fog with TWO colours per keyframe:
+ * The comparison project's fog is EXP2 distance fog with TWO colours per keyframe:
  * `fogColor*` looking away from the sun and `fogColorSun*` looking towards
  * it. That directional, sun-tinted haze is the most recognisable part of
  * the look we are after — a single flat fog colour never gets there, no
@@ -135,7 +135,7 @@ const AMBIENT_ANTEIL_HIMMEL = 0.5;
 
 /**
  * Seconds to cross-fade when the environment changes (biome border).
- * The reference eases between environments rather than snapping.
+ * The comparison project eases between environments rather than snapping.
  */
 const ENV_BLEND_SECONDS = 4;
 

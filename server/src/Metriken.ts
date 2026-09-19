@@ -184,16 +184,22 @@ export class MetrikSchreiber {
     }
 
     const ordner = dirname(this.schnappschussDatei);
-    const tag = tagVon(schnappschuss.zeitMs);
-    const datei = join(ordner, `metriken-${tag}.jsonl`);
+    // `tagVon` sits inside the try: a timestamp that is not a date (NaN,
+    // Infinity) makes `toISOString` throw, and that must end as a warning like
+    // any other write failure, not as an exception out of the tick timer.
+    let tag: string | undefined;
+    let datei = ordner;
     try {
+      tag = tagVon(schnappschuss.zeitMs);
+      datei = join(ordner, `metriken-${tag}.jsonl`);
       appendFileSync(datei, zeile + '\n');
     } catch (fehler) {
       this.warne('jsonl', schnappschuss.zeitMs, datei, fehler);
     }
 
     // Prune on the first write and on every day change, not every second.
-    if (tag !== this.letzterTag) {
+    // Without a valid day there is nothing to prune against.
+    if (tag !== undefined && tag !== this.letzterTag) {
       this.letzterTag = tag;
       this.raeumeAuf(ordner, schnappschuss.zeitMs);
     }

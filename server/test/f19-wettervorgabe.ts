@@ -41,7 +41,7 @@ function pruefe(name: string, bedingung: boolean, detail = ''): void {
 /**
  * Liest eine server.yml aus einem Wegwerfverzeichnis.
  *
- * `mode: valheim` ist Absicht: Im Layout-Modus beendet leseServerKonfig
+ * `mode: radial` ist Absicht: Im Layout-Modus beendet leseServerKonfig
  * den Prozess, wenn die Weltdatei fehlt (bewusst, s. dort) — der Test
  * wuerde dann nicht scheitern, sondern verschwinden.
  */
@@ -51,7 +51,7 @@ function konfigMit(wetterBlock: string): ReturnType<typeof leseServerKonfig> {
     mkdirSync(join(dir, 'welten'), { recursive: true });
     writeFileSync(
       join(dir, 'server.yml'),
-      `server:\n  name: Test\nworld:\n  mode: valheim\n${wetterBlock}`,
+      `server:\n  name: Test\nworld:\n  mode: radial\n${wetterBlock}`,
       'utf-8'
     );
     return leseServerKonfig(dir, 'test');

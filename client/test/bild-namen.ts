@@ -7,10 +7,12 @@
  * fehlte im Strahlenpass; die Dungeon-Atmosphaere liesse die Aussen-SSAO an der
  * Kamera. Dieser Test haelt die Paare zusammen:
  *   [1] Laufzeit: die echte Kuppel traegt den Namen, den die Verbraucher suchen.
- *   [2] Quelltext: Erzeuger und Verbraucher nennen denselben Namen, und keine
- *       Datei nennt einen der frueheren Namen.
+ *   [2] Quelltext: Erzeuger und Verbraucher nennen denselben Namen.
+ *   [3] Alle Quelldateien unter client/src, shared/src, server/src, admin/src
+ *       und tools: keine nennt einen der frueheren Namen.
+ *   [4] Die fruehere Vorsilbe steht nur noch an den benannten Ausnahmestellen.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
@@ -74,7 +76,7 @@ pruefe(/const NIE_WERFEN =\s*\/\^\([^)]*\bskyDome\|/.test(schatten), 'NIE_WERFEN
 pruefe(/const NIE_EMPFANGEN = \/\^\([^)]*\bskyDome\|/.test(schatten), 'NIE_EMPFANGEN nennt skyDome');
 pruefe(/n === 'skyDome'/.test(lies(`${engineDir}WaterRefraction.ts`)), 'WaterRefraction schliesst skyDome namentlich aus');
 
-console.log('\n[3] Die frueheren Namen kommen nirgends mehr vor');
+console.log('\n[3] Die frueheren Namen kommen in keiner Quelldatei mehr vor');
 // Die fruehere Vorsilbe wird zusammengesetzt, damit diese Datei sie nicht selbst traegt.
 const VOR = ['valhe', 'im'].join('');
 const frueher = [
@@ -89,21 +91,63 @@ const frueher = [
   'MotionBlur',
   'Water',
 ].flatMap((n) => [`${VOR}${n}`, `${VOR[0]!.toUpperCase()}${VOR.slice(1)}${n}`, `${VOR.toUpperCase()}${n.toUpperCase()}`]);
-const dateien = [
-  ...['PostProcessing', 'Shadows', 'Lighting', 'DungeonAtmosphere', 'WaterPlugin', 'WaterRefraction', 'Terrain', 'SkyDome', 'FarDof'].map(
-    (n) => `${engineDir}${n}.ts`
-  ),
-  'shared/src/lookProfil.ts',
-  'client/test/taa-reihenfolge.ts',
-  'client/test/wasser-refraktion.ts',
-  'tools/pw-sky-verify.mjs',
-  'Docs/07-Grafik-Konzept.md',
-];
-for (const f of dateien) {
-  const inhalt = lies(f);
-  const treffer = frueher.filter((n) => inhalt.includes(n));
-  pruefe(treffer.length === 0, `${f} ohne frueheren Namen${treffer.length ? ` (gefunden: ${treffer.join(', ')})` : ''}`);
+
+/** Alle Quelldateien der fuenf Wurzeln — kein Blick auf eine feste Dateiliste. */
+const WURZELN = ['client/src', 'shared/src', 'server/src', 'admin/src', 'tools'] as const;
+const QUELL_ENDUNGEN = /\.(?:ts|tsx|mts|cts|js|mjs|cjs|py|sh|json|md)$/;
+const UEBERSPRINGEN = new Set(['node_modules', 'dist', 'out', 'export', 'temp', '__pycache__', '.git']);
+function quellen(rel: string, aus: string[] = []): string[] {
+  for (const e of readdirSync(resolve(WURZEL, rel), { withFileTypes: true })) {
+    if (UEBERSPRINGEN.has(e.name)) continue;
+    const pfad = `${rel}/${e.name}`;
+    if (e.isDirectory()) quellen(pfad, aus);
+    else if (QUELL_ENDUNGEN.test(e.name)) aus.push(pfad);
+  }
+  return aus;
 }
+const alleQuellen = WURZELN.flatMap((w) => quellen(w));
+pruefe(alleQuellen.length > 300, `${alleQuellen.length} Quelldateien unter ${WURZELN.join(', ')} gelesen`);
+pruefe(alleQuellen.includes('client/src/entities/EntityManager.ts'), 'auch Dateien ausserhalb von engine/ sind dabei (entities/EntityManager.ts)');
+const inhalte = new Map(alleQuellen.map((f) => [f, lies(f)] as const));
+const alteNamen = [...inhalte].filter(([, text]) => frueher.some((n) => text.includes(n)));
+pruefe(
+  alteNamen.length === 0,
+  `keine Quelldatei nennt einen der frueheren Namen${alteNamen.length ? ` (gefunden in: ${alteNamen.map(([f]) => f).join(', ')})` : ''}`
+);
+
+console.log('\n[4] Die fruehere Vorsilbe kommt nur an den benannten Ausnahmestellen vor');
+// Jede Ausnahme nennt Datei und Grund; `zeile` schraenkt sie auf Zeilen ein, die diesem Muster
+// entsprechen — ohne `zeile` ist die ganze Datei die benannte Stelle.
+const SCHLUESSEL = new RegExp(`${VOR}-babylon-settings-v1`);
+const ausnahmen: readonly { datei: string; grund: string; zeile?: RegExp }[] = [
+  { datei: 'server/src/ServerKonfig.ts', grund: 'liest den alten Kartenmodus-Namen als Alias (eine Warnung)' },
+  { datei: 'client/src/ui/Settings.ts', grund: 'STORAGE_KEY der gespeicherten Einstellungen (T22, zurueckgestellt)', zeile: SCHLUESSEL },
+  { datei: 'tools/pw-gpu-diagnose.mjs', grund: 'liest den STORAGE_KEY', zeile: SCHLUESSEL },
+  { datei: 'tools/dungeon2-e2e.mjs', grund: 'liest den STORAGE_KEY', zeile: SCHLUESSEL },
+  { datei: 'tools/pw-dungeon2-playdev.mjs', grund: 'liest den STORAGE_KEY', zeile: SCHLUESSEL },
+  { datei: 'tools/recover-textures.mjs', grund: 'liest die Umgebungsvariable des frueheren Namens weiter', zeile: new RegExp(`${VOR.toUpperCase()}_CLIENT`) },
+  { datei: 'tools/README.md', grund: 'nennt diese Umgebungsvariable als veraltet', zeile: new RegExp(`${VOR.toUpperCase()}_CLIENT`) },
+];
+const vorsilbe = new RegExp(VOR, 'i');
+const ausnahmeVon = new Map(ausnahmen.map((a) => [a.datei, a] as const));
+const genutzt = new Set<string>();
+const fremde: string[] = [];
+for (const [datei, text] of inhalte) {
+  if (!vorsilbe.test(text)) continue;
+  const a = ausnahmeVon.get(datei);
+  if (!a) {
+    fremde.push(datei);
+    continue;
+  }
+  genutzt.add(datei);
+  if (a.zeile) {
+    const falsch = text.split('\n').filter((z) => vorsilbe.test(z) && !a.zeile!.test(z));
+    pruefe(falsch.length === 0, `${datei}: nur ${a.grund}${falsch.length ? ` (andere Zeile: ${falsch[0]!.trim().slice(0, 80)})` : ''}`);
+  }
+}
+pruefe(fremde.length === 0, `Vorsilbe nur in benannten Dateien${fremde.length ? ` (zusaetzlich in: ${fremde.join(', ')})` : ''}`);
+// Eine Ausnahme ohne Treffer ist keine mehr: sie gehoert dann aus der Liste gestrichen.
+for (const a of ausnahmen) pruefe(genutzt.has(a.datei), `Ausnahme ${a.datei} wird gebraucht (${a.grund})`);
 
 if (fehler > 0) {
   console.error(`\n${fehler} FEHLGESCHLAGEN`);

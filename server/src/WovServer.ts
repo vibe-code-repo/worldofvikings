@@ -2,10 +2,10 @@
  * WovServer — central server orchestrator.
  * Structural port of the reference server's central orchestrator.
  *
- * The reference type holds the same state this class does: server settings,
- * a task list, the server ID, start/previous/current update timestamps, the
- * world time and its multiplier, a run-state flag and the blacklist, admin
- * and whitelist sets.
+ * The comparison project's counterpart type holds the same state this class
+ * does: server settings, a task list, the server ID, start/previous/current
+ * update timestamps, the world time and its multiplier, a run-state flag and
+ * the blacklist, admin and whitelist sets.
  */
 
 import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
@@ -269,7 +269,7 @@ export interface ServerConfig {
    */
   standardKonten?: StandardKontoVorgabe[];
   /** Kartengenerierungs-Umbau: 'layout' = designer-definierte Welt. */
-  worldMode: 'valheim' | 'layout';
+  worldMode: 'radial' | 'layout';
   /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
   worldLayoutPath: string;
   /**
@@ -338,7 +338,7 @@ const DEFAULT_CONFIG: ServerConfig = {
   dungeonsModulbau: false,
   generiertDir: GENERIERT_DIR,
   worldCreatures: true,
-  worldMode: 'valheim',
+  worldMode: 'radial',
   worldLayoutPath: 'data/welten/dev.json',
   // main.ts pins this to <server>/data/worlds; cwd-relative fallback so a
   // bare createWovServer() (tests, tools) still has a sane default.
@@ -1549,7 +1549,7 @@ export class WovServer {
    *
    *  1. Das Sichtfenster kommt aus dem Cache (D7, `ZonenFenster`) und ist
    *     bereits ringweise nach Entfernung sortiert.
-   *  2. Ein Bandbreitenbudget je Peer (C# ZDOMan.SendZDOs): Was in diesem
+   *  2. Ein Bandbreitenbudget je Peer (wie im Original): Was in diesem
    *     Tick nicht mehr hineinpasst, bleibt schmutzig und geht im nächsten
    *     raus. Weil die Liste nah-zuerst läuft, verliert dabei immer das
    *     Entfernteste — genau richtig.
@@ -1584,8 +1584,8 @@ export class WovServer {
     const tick = Math.floor(this.worldTime * 1000);
 
     for (const peer of peers) {
-      // Bandbreitenbudget (C# ZDOMan.SendZDOs:
-      //   num = 10240 - sendQueueSize; if (num < 2048) return;).
+      // Bandbreitenbudget (wie im Original: 10240 minus Sendewarteschlange;
+      // unter 2048 wird in diesem Tick nichts gesendet).
       // Der Socket-Rückstau ist das Maß dafür, wie viel die Leitung des
       // Peers gerade wirklich abnimmt. Wer schon zusteht, bekommt nichts
       // obendrauf — genau das verhindert, dass ein einziger langsamer
@@ -2701,7 +2701,7 @@ export class WovServer {
   );
 
   /**
-   * C# StaticPhysics (m_fall/m_pushUp): Bäume, Felsen und Pickables sitzen
+   * Statische Physik (Fallen und Anheben): Bäume, Felsen und Pickables sitzen
    * auf dem Boden — wird der unter ihnen weggegraben, fallen sie nach,
    * wird er aufgeschüttet, hebt es sie an. Das Original prüft dafür träge
    * pro Objekt (SlowUpdate) und lässt den Besitzer die ZDO-Position

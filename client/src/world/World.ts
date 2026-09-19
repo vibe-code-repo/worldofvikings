@@ -55,7 +55,7 @@ export function createWorld(
   const layoutSeed = layout ? sanitizeWorldLayout(layout)?.detailSeed : undefined;
   const worldSeed = getStableHash(layoutSeed ?? seed);
   const geo = createGeo({
-    mode: layout ? 'layout' : 'valheim',
+    mode: layout ? 'layout' : 'radial',
     worldSeed,
     layout,
     settings: {

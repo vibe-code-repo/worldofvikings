@@ -1398,7 +1398,7 @@ async function main() {
     // Bewuchs der Grabhügel-Kuppel: streut Wiesenhalme direkt auf die
     // Modelldreiecke, weil das Gelände-Gras nur die Heightmap kennt.
     huegelGras = new HuegelGras(scene, assets, grass);
-    // Niederschlag (EnvSetup.m_psystems im Original) — folgt dem Spieler
+    // Niederschlag (Partikelsysteme der Umgebung im Original) — folgt dem Spieler
     // und wird vom Wind schräg gestellt, s. Precipitation.ts.
     precipitation = new Precipitation(scene);
     // Namensschilder über den Objekten (Einstellung "Objektnamen anzeigen").
@@ -1417,7 +1417,7 @@ async function main() {
 
     // Havok statt handgestrickter Abstandsprüfungen: im Original ist der
     // Character ein Rigidbody mit CapsuleCollider und PhysX löst die
-    // Kontakte auf (Character.cs). Das WASM lädt asynchron — bis dahin
+    // Kontakte auf. Das WASM lädt asynchron — bis dahin
     // läuft die Bewegung über den Heightmap-Clamp, danach übernehmen
     // Kapsel und Kollider.
     const terrainRef = terrain;
@@ -1836,7 +1836,7 @@ async function main() {
       },
       playerY: () => player?.position.y ?? null,
       playerPos: () => (player ? { x: player.position.x, z: player.position.z } : null),
-      // Wind festhalten (EnvMan.SetDebugWind) und die Sway-Amplitude
+      // Wind festhalten (Debug-Wind des Originals) und die Sway-Amplitude
       // hochdrehen, damit die Shader-Wirkung im Bild messbar wird.
       setWind: (grad: number, staerke: number, amp?: number) => {
         weather?.setDebugWind(grad, staerke);
@@ -2772,7 +2772,7 @@ async function main() {
         zeitWunsch = null;
       }
       // Absolute world seconds — this is what seeds the weather and the
-      // wind (EnvMan derives both from the clock, nothing is synced), so
+      // wind (the original derives both from the clock, nothing is synced), so
       // it has to be kept rather than dropped.
       worldTime = reader.readFloat64();
       const timeOfDay = reader.readFloat64(); // seconds within the day
@@ -3155,7 +3155,7 @@ async function main() {
       // The counterpart to terrain streaming: the builder catches up here.
       dungeon2Instanz?.weiterbauen();
     }
-    // Weather follows the biome under the player (EnvMan.m_biomeEnvironments);
+    // Weather follows the biome under the player (the biome's environment list);
     // Lighting cross-fades, so calling this every frame is cheap and smooth.
     // Keep the clock running between TimeSync packets — see `worldTime`.
     worldTime += dt;
@@ -3171,19 +3171,19 @@ async function main() {
     const wx = weather.update(worldTime, dt);
     if (imDungeon) {
       // Phase G: im Dungeon zählt das Interior-Environment der Instanz
-      // (alwaysDark — Unity EnvZone via Location.m_interiorEnvironment),
+      // (alwaysDark — die Innenraum-Umgebung der Location),
       // nicht das Biom-Wetter der Oberwelt.
       lighting.setEnvironmentByName(dungeonEnv);
     } else if (!envPinned) {
-      // The weather is picked here (EnvMan.UpdateEnvironment); Lighting does
+      // The weather is picked here (the original's environment update); Lighting does
       // the cross-fade, so only the target is handed over.
       lighting.setEnvironmentByName(wx.to.name);
     }
     lighting.apply(dt);
     // Ein Wind für die ganze Szene — und zwar BEIDE Vektoren plus Blend,
-    // wie EnvMan sie als _GlobalWind1/_GlobalWind2/_GlobalWindAlpha setzt.
+    // wie das Original sie als zwei Windvektoren plus Alpha an die Shader gibt.
     // Jeder Shader wertet seine Auslenkung für beide aus und mischt die
-    // Ergebnisse (WaterVolume.CalcWave); den Vektor zu mischen würde ihn
+    // Ergebnisse (wie die Wellenberechnung des Originals); den Vektor zu mischen würde ihn
     // bei einem 180°-Wechsel durch Null schicken.
     const { wind1, wind2, alpha } = wx.windData;
     WindPlugin.dirX = wind1.dirX;
@@ -3542,7 +3542,7 @@ async function main() {
         `dof ${post?.debugLine ?? '-'}\n` +
         `schatten ${shadows?.info ?? '-'}  fackeln ${lightPool?.info ?? '-'}\n` +
         // Wind: Richtung als Kompasswinkel und Stärke 0..1, plus die Nässe.
-        // Beides folgt dem Wetter (EnvMan) und ist die Basis fürs Segeln.
+        // Beides folgt dem Wetter und ist die Basis fürs Segeln.
         `kollision ${entities.colliderStats.bodies} inst / ${entities.colliderStats.havok} havok / ` +
         `${entities.colliderStats.prefabs} prefabs / ${entities.colliderStats.ohneForm} ohne form\n` +
         (weather

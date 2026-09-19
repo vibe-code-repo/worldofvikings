@@ -1,21 +1,20 @@
-# WoC-Analyse: Wie World of ClaudeCraft Dungeons baut
+# Analyse: Wie ein Referenzprojekt Dungeons baut
 
-**Quelle:** `https://github.com/levy-street/world-of-claudecraft`, flacher Klon vom 30.08.2026, Stand `57025e0`.
-Klon liegt unter `/tmp/claude-1000/-home-mike-Nextcloud-Brain/9c8d23de-d8ff-4aeb-aa74-c375c734aefa/scratchpad/woc`.
+**Quelle:** flacher Klon eines fremden Referenz-Repos vom 30.08.2026, Stand `57025e0`.
 Alle Datei:Zeile-Angaben beziehen sich auf diesen Stand. Bezug: [[Dungeon Generator 2.0]].
 
-**Wichtigste Korrektur vorweg:** WoC baut die *Architektur nicht zur Laufzeit aus Dreiecken*. Es setzt fertige
+**Wichtigste Korrektur vorweg:** Das Referenzprojekt baut die *Architektur nicht zur Laufzeit aus Dreiecken*. Es setzt fertige
 GLB-Module (KayKit Dungeon Remastered) instanziert auf Positionen, die aus reinen Zahlen-Layouts berechnet werden
 (`src/render/dungeon.ts:1-6`). Übertragbar ist also **nicht** der Geometriebau, sondern die **Datendisziplin**:
 ein Layout, aus dem Darstellung *und* Kollision abgeleitet werden, deterministisch aus einem Deskriptor erzeugt,
 und ein triplanares Oberflächen-Layer über allem. Unser Beschluss (Geometrie aus Zellen zur Laufzeit) ist die
-konsequentere Fassung derselben Idee — und löst mehrere Klassen von WoC-Schmerzen, die unten benannt sind, bauartbedingt.
+konsequentere Fassung derselben Idee — und löst mehrere Klassen von Schmerzen des Referenzprojekts, die unten benannt sind, bauartbedingt.
 
 ---
 
 ## 1. Schichtung und Systemgrenze
 
-WoC hat **eine** Simulation, die in drei Wirten läuft (Browser, Node-Server, headless). Erzwungen wird das nicht
+Das Referenzprojekt hat **eine** Simulation, die in drei Wirten läuft (Browser, Node-Server, headless). Erzwungen wird das nicht
 durch Konvention, sondern durch einen Dauertest: `tests/architecture.test.ts:1-38` scannt `src/sim/` und lässt
 keinen Import von `three`, `render/`, `ui/`, `net/`, keinen DOM-Zugriff und keine Zufalls- oder Zeitquelle außerhalb
 des gesetzten Rng zu. Der Server importiert exakt dieselben Module (`server/admin_db.ts:1` importiert `../src/sim/...`).
@@ -55,7 +54,7 @@ Die Stil-Daten sind vom Layout getrennt: `InteriorStyle` (`:177-190`) trägt Fac
 multiplikative Wand-/Bodentönungen. Der Kommentar dort ist genau unser „Theme per Tint + Material-Seed“-Beschluss:
 dasselbe Kit wird pro Lauf neu eingefärbt, statt neue Assets zu bauen (`:164-176`).
 
-**Für uns:** Das Feldschema ist nicht direkt übernehmbar (WoC ist parametrisch-rechteckig, wir sind zellbasiert),
+**Für uns:** Das Feldschema ist nicht direkt übernehmbar (das Referenzprojekt ist parametrisch-rechteckig, wir sind zellbasiert),
 aber die *Trennung* ist es: `Layout` (Struktur) ⟂ `Style` (Farbe/Material) ⟂ `Plan` (Spawns/Objekte). Und die
 Regel „was gerendert wird, aber nicht kollidiert, steht als eigenes Feld im Layout“ (`illusionWalls`) statt als
 Sonderfall im Renderer.
@@ -93,7 +92,7 @@ Bausteine:
 ### Abweichung, die uns betrifft (wichtig)
 
 `tombSlotRoll` und der Render-Hash `hash2` (`src/render/dungeon.ts:452-455`) sind **`Math.sin`-basiert**:
-`Math.sin(a*127.1 + b*311.7) * 43758.5453`. `Math.sin` ist in ECMAScript **nicht bitgenau spezifiziert**. In WoC
+`Math.sin(a*127.1 + b*311.7) * 43758.5453`. `Math.sin` ist in ECMAScript **nicht bitgenau spezifiziert**. Im Referenzprojekt
 fällt das nicht auf, weil Server und Client faktisch V8 sind. Bei uns läuft der Collider-Bau auf dem Node-Server
 und die Darstellung in beliebigen Browser-Engines — ein Firefox-Client kann dann eine andere Sargform stehen
 haben als der Server berechnet. **Regel für uns: jeder Hash, den Server *und* Client auswerten, ist ganzzahlig**
@@ -128,15 +127,15 @@ Korrektur, kein Kopieren.
 **Für uns übertragbar:**
 
 - Der **Archetyp-als-Funktion**-Trick ist auch zellbasiert gültig: das Profil erzeugt dann nicht ein Polygon,
-  sondern eine Zellmaske (`zelleAktiv(cx,cz)`). Wir gewinnen dabei sogar: die in WoC dokumentierte
+  sondern eine Zellmaske (`zelleAktiv(cx,cz)`). Wir gewinnen dabei sogar: die im Referenzprojekt dokumentierte
   Treppenstufen-Kante der Bodenmaske (siehe §7) entfällt, weil die Zelle *die* Auflösung ist.
 - Die **Validierungsstufe mit Rückfall** ist Pflicht: sternförmig/einfach ersetzen wir durch
   Zusammenhang + Erreichbarkeit (Flood-Fill vom Eingang zum Boss), und bei Durchfall wird deterministisch auf
   eine einfache Form zurückgefallen — nicht neu gewürfelt (neu würfeln kostet Determinismus-Klarheit).
-- Die **freie Achse** (WoC: Mittelgang) sollten wir als „garantierter Pfad“ übernehmen: eine
+- Die **freie Achse** (Referenzprojekt: Mittelgang) sollten wir als „garantierter Pfad“ übernehmen: eine
   Zellen-Rückgratkette, die kein Stempel überschreiben darf. Ohne so eine Invariante wird jede
   Erreichbarkeitsprüfung zu einer Schleife, die auch scheitern kann.
-- **Getrennte Rng-Ströme pro Aspekt**, nicht nur pro Etage — hier gehen wir bewusst weiter als WoC.
+- **Getrennte Rng-Ströme pro Aspekt**, nicht nur pro Etage — hier gehen wir bewusst weiter als das Referenzprojekt.
   `mixSeed(seed, SALT_LAYOUT)`, `SALT_DRESSING`, `SALT_SPAWNS`. Dann kostet das Nachjustieren der Deko keine
   Neuwürfelung der Räume, und `rift_gen.ts:280-284` beschreibt einen Schmerz, den wir nie haben.
 
@@ -163,7 +162,7 @@ Korrektur, kein Kopieren.
 
 **Babylon-Abweichungen (unsere Seite):**
 
-| WoC / three.js | World of Vikings / Babylon 8 |
+| Referenzprojekt / three.js | World of Vikings / Babylon 8 |
 |---|---|
 | `mergeGeometries` über GLB-Submeshes | entfällt — wir bauen `VertexData` direkt; stattdessen lohnt das *Zusammenfassen ganzer Räume* zu wenigen Meshes (`VertexData.merge` bzw. eigene Puffer) |
 | `THREE.InstancedMesh` pro Modulart | **Thin Instances** (`thinInstanceSetBuffer('matrix', …)`) für Deko-Wiederholer; für unsere Wände/Böden meist *gar keine* Instanzen, weil zusammengebackene Geometrie billiger ist als tausende gleicher Quader |
@@ -172,7 +171,7 @@ Korrektur, kein Kopieren.
 | implizite Matrixaktualisierung | `mesh.freezeWorldMatrix()`, `material.freeze()`, `scene.blockMaterialDirtyMechanism` beim Bau; sonst zahlen wir den Aufbau jedes Bild neu |
 | ein Material pro Pack, geklonte Tönungen | in Babylon Tönung über *Instanz-Farbe* oder Material-Instanzen; Achtung: jede Materialvariante = eigener Shader-Compile |
 
-WoC hat außerdem eine **Ressourcen-Buchhaltung**, die wir 1:1 brauchen und in Babylon sogar dringender:
+Das Referenzprojekt hat außerdem eine **Ressourcen-Buchhaltung**, die wir 1:1 brauchen und in Babylon sogar dringender:
 `interior_resource_lifecycle.ts:14-22` führt pro Innenraum-Wurzel eine Registry, die nur Ressourcen *ohne*
 „geteilt“-Markierung aufnimmt (`markSharedGeometry`/`markSharedMaterial`/`markSharedTexture`, benutzt in
 `dungeon.ts:403`, `:396`). Beim Abbau einer Instanz wird nur Eigenes freigegeben. In Babylon ist
@@ -229,20 +228,20 @@ low-poly, the detail suggests material, never photoreal.*“ (`:31-33`) — das 
   Albedo/Normale/Reflectivity müssen gegen die Babylon-8-Quelle verifiziert werden** — das gehört in die
   Babylon-Recherche, nicht in die Annahme. Muster existiert bereits im Client (PbrNebelFix, NebelRichtung,
   StandardGammaFix).
-- **Varyings geschenkt.** WoC muss `vWornWorldPos`/`vWornWorldNormal` selbst deklarieren und im Vertex-Shader
+- **Varyings geschenkt.** Das Referenzprojekt muss `vWornWorldPos`/`vWornWorldNormal` selbst deklarieren und im Vertex-Shader
   die Instanzmatrix von Hand anwenden (`:728-752`). Babylons PBR liefert `vPositionW` und `vNormalW` bereits
   weltraumtransformiert, inklusive Instanzen. **Ein ganzer Fehlerkanal fällt bei uns weg.**
-- **Programm-Cache-Schlüssel.** WoC muss `customProgramCacheKey` von Hand bauen (`:956-980`) und dabei
+- **Programm-Cache-Schlüssel.** Das Referenzprojekt muss `customProgramCacheKey` von Hand bauen (`:956-980`) und dabei
   Familie, Texturbereitschaft, Tap-Zahl, Projektionsmodus, Blendbänder und den Schlüssel des Vorgänger-Hooks
   hineinkodieren — weil three.js sonst zwei verschiedene Materialien in dasselbe Programm zusammenfallen lässt.
   Babylon macht das über `getClassName()` + `prepareDefines()`/`getUniforms()` des Plugins selbst; wir dürfen den
   three.js-Trick **nicht** nachbauen, aber wir müssen jeden tier-abhängigen Wert als **Define** führen (nicht als
   Uniform), sonst rekompiliert Babylon beim Stufenwechsel nicht.
-- **Klon-Falle.** In three.js verliert `Material.clone()` den `onBeforeCompile`-Hook; WoC rettet sich mit einem
+- **Klon-Falle.** In three.js verliert `Material.clone()` den `onBeforeCompile`-Hook; das Referenzprojekt rettet sich mit einem
   JSON-fähigen `userData.surfaceDetailSpec`, aus dem `material_clone_hooks.ts` das Layer neu anhängt
   (`:652-661`). Ob Babylons `Material.clone()` Plugins mitnimmt, ist **zu prüfen** — wenn nicht, brauchen wir
   dieselbe Wiederanheft-Spezifikation.
-- **Grafikstufen.** WoC hat ein einziges `GFX`-Objekt mit monotoner Leiter und `gfxTierAtLeast(tier, floor)`
+- **Grafikstufen.** Das Referenzprojekt hat ein einziges `GFX`-Objekt mit monotoner Leiter und `gfxTierAtLeast(tier, floor)`
   (`src/render/gfx.ts:36-51`), Knöpfe wie `surfaceDetail`, `surfaceDetailTaps`, `surfaceDetailClampK`
   (`:175-179`), plus URL-Override `?gfx=…` und einen Dev-Killschalter pro Layer (`?worndetail=off`,
   `worn_stone.ts:645-647`). Das ist genau unsere „Grafikstufen, je Effekt schaltbar“-Anforderung und sollte in
@@ -252,9 +251,9 @@ low-poly, the detail suggests material, never photoreal.*“ (`:31-33`) — das 
   genauso machbar (Plugin `getCustomCode` direkt aufrufen) und ist die einzige Art, Tier-Regressionen ohne GPU zu
   fangen.
 
-### Was WoC *nicht* hat und wir bauen müssen
+### Was das Referenzprojekt *nicht* hat und wir bauen müssen
 
-Material-**Blending** nach Weltlage (Moos unten, Feuchte in Ecken, Schmutz, Risse) gibt es in WoC nicht als
+Material-**Blending** nach Weltlage (Moos unten, Feuchte in Ecken, Schmutz, Risse) gibt es im Referenzprojekt nicht als
 Shader-Term; die Varianz kommt aus multiplikativen Tönungen pro Variante (`emit()`, `dungeon.ts:1546-1560`,
 `marshMaterial`/`drownedMaterial` `:1501-1511`). Unser Höhen-/Krümmungs-Blending ist ein echter Zusatz — und der
 richtige Ort dafür ist derselbe Plugin-Fragmentblock, in dem das Triplanar-Sampling schon läuft, weil dort
@@ -264,7 +263,7 @@ Weltposition und Weltnormale bereits vorliegen.
 
 ## 7. Die Lücken-Lehre — teuer bezahltes Wissen
 
-Das ist der Abschnitt, für den sich die Analyse allein schon lohnt. WoC hat vier verschiedene Lücken-Klassen
+Das ist der Abschnitt, für den sich die Analyse allein schon lohnt. Das Referenzprojekt hat vier verschiedene Lücken-Klassen
 erlebt und jede in einem Kommentar dokumentiert.
 
 ### 7.1 Das falsche Layout am Renderer
@@ -334,7 +333,7 @@ ist immer der **vollständige Deskriptor** (Seed + Etage + Layout-Version), niem
 
 ### 7.5 Die Bodenmaske stuft ab
 
-`dungeon.ts:1856-1858`: „*Boundary tiles will stair-step; accepted for this kit.*“ WoC akzeptiert an gekrümmten
+`dungeon.ts:1856-1858`: „*Boundary tiles will stair-step; accepted for this kit.*“ Das Referenzprojekt akzeptiert an gekrümmten
 Wänden eine 4-Einheiten-Treppe zwischen Boden und Wand. Bei Laufzeitgeometrie brauchen wir das nicht zu
 akzeptieren — aber wir sollten die Entscheidung bewusst treffen: Zellauflösung so wählen, dass die Stufe
 *gewollt* aussieht (Barrow-Stil verträgt rechtwinklige Kanten hervorragend), statt später gegen sie anzubauen.
@@ -358,7 +357,7 @@ bevor Mike hinsieht.
 
 ## 8. Höhen: Darstellung und Sim müssen dieselbe Funktion sein
 
-Die Bossbühne ist in WoC **kein** Collider, sondern eine Höhenfunktion: `DAIS_HEIGHT = 0.6`
+Die Bossbühne ist im Referenzprojekt **kein** Collider, sondern eine Höhenfunktion: `DAIS_HEIGHT = 0.6`
 (`dungeon_layout.ts:42-49`) wird vom Renderer als Podest gestapelt *und* von der Sim als Bodenerhebung gelesen,
 `daisLiftAt(layout, lx, lz)` (`:986-992`), das `world.ts groundHeight` addiert. Der Kommentar nennt beide
 Konsequenzen: der Boss steht *auf* der Bühne statt knietief darin, und der Spieler geht die Kante hoch wie eine
@@ -367,7 +366,7 @@ Bordsteinkante, weil 0.6 unter `MAX_STEP_HEIGHT` liegt. Dasselbe für Rift-Platt
 
 **Für uns:** Jede sichtbare Erhebung braucht eine `hoeheAn(x,z)`-Funktion in `shared/`, die Server und Client
 gleichermaßen auswerten — und die Höhen müssen bewusst unter oder über der Stufenhöhe des Bewegungscodes liegen,
-das ist eine Design-Entscheidung, kein Zufallswert. Bei Zellen ist das einfacher als bei WoC: die Zelle trägt ihre
+das ist eine Design-Entscheidung, kein Zufallswert. Bei Zellen ist das einfacher als im Referenzprojekt: die Zelle trägt ihre
 Bodenhöhe ohnehin (unser Datenmodell sieht „Boden, Höhen, Wandflags“ vor).
 
 Verwandt: die „standable tops“-Konstanten (`dungeon_layout.ts:51-85`) sind aus den GLBs **ausgemessen**
@@ -380,7 +379,7 @@ weil wir sie erzeugen.** Diese ganze Konstantenklasse existiert bei uns nicht.
 
 ## 9. Instanz-Anbindung: hier weichen wir am deutlichsten ab
 
-WoC hat **keine** Instanz-Infrastruktur im eigentlichen Sinn. Alle Instanzen liegen als **Koordinatenbänder in
+Das Referenzprojekt hat **keine** Instanz-Infrastruktur im eigentlichen Sinn. Alle Instanzen liegen als **Koordinatenbänder in
 derselben Weltebene**: `instanceOrigin(dungeonIndex, slot)` (`src/sim/data.ts:1007-1016`) liefert
 `x = 900 + index*600`, `z = -1250 + slot*500`; Delves ab `x ≥ 4800` (`:1150-1152`), Arena ab 4200, Rifts danach.
 Zugehörigkeit ist eine **x-Bereichsabfrage** (`isDelvePos`, `:1157-1159`), und die Slot-Rückrechnung ist eine
@@ -397,11 +396,11 @@ Adapter). Konsequenzen für den Adapter:
 2. **Über die Leitung geht der Deskriptor, nicht die Geometrie** — das übernehmen wir unverändert
    (`rift_gen.ts:4-6`). Konkret: Instanz-Dokument trägt `{seed, tiefe, layoutVersion}`; Server und Client bauen
    daraus dasselbe.
-3. **`layoutVersion` ist Pflicht** und ist unser Zusatz gegenüber WoC. WoC kann seine Generator-Zahlen jederzeit
+3. **`layoutVersion` ist Pflicht** und ist unser Zusatz gegenüber dem Referenzprojekt. Das Referenzprojekt kann seine Generator-Zahlen jederzeit
    ändern, weil Läufe kurzlebig sind; unsere Instanzen sind persistent. Ändert sich der Generator, muss ein
    bestehendes Instanz-Dokument entweder die alte Version weiterbauen oder bewusst verworfen werden. Ohne dieses
    Feld ist jeder Generator-Commit eine stille Datenmigration.
-4. **Stabile Objekt-IDs.** WoC leitet Objekte aus der Ziehreihenfolge ab (`planObjects`, Reihenfolge in
+4. **Stabile Objekt-IDs.** Das Referenzprojekt leitet Objekte aus der Ziehreihenfolge ab (`planObjects`, Reihenfolge in
    `generateRiftFloor:838-870` bzw. `planObjects`). Für ZDO-Persistenz (geöffnete Truhe, entriegelte Tür) brauchen wir IDs aus der
    *Layout-Position* (Zellindex + Rolle), nicht aus dem Zählerstand — sonst wandert der Zustand einer Truhe auf
    eine andere, sobald sich irgendetwas an der Generierung ändert.
@@ -434,7 +433,7 @@ Adapter). Konsequenzen für den Adapter:
 
 **Bewusst anders machen:**
 
-| Thema | WoC | Wir |
+| Thema | Referenzprojekt | Wir |
 |---|---|---|
 | Architektur-Geometrie | GLB-Module, instanziert | zur Laufzeit aus Zellen erzeugt → Lücken- und Maßklasse entfällt |
 | Raumform | Halbbreiten-Profil → Polygon, sternförmig validiert | Zellmaske, Zusammenhang + Erreichbarkeit validiert |
@@ -449,7 +448,7 @@ Adapter). Konsequenzen für den Adapter:
 
 - Exakte `CUSTOM_*`-Injektionsmarken des Babylon-8-PBR-Fragmentshaders und ihre Reihenfolge relativ zu
   Albedo / Normale / Reflectivity.
-- Ob `Material.clone()` Plugins überträgt (sonst brauchen wir WoCs Wiederanheft-Spezifikation,
+- Ob `Material.clone()` Plugins überträgt (sonst brauchen wir die Wiederanheft-Spezifikation des Referenzprojekts,
   `worn_stone.ts:652-661`).
 - Thin Instances vs. zusammengebackene Raumgeometrie: ab welcher Wiederholungszahl lohnt was — das ist eine
   **Messung**, keine Annahme.

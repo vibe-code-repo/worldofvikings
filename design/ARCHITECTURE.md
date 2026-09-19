@@ -68,7 +68,7 @@ Worktree `/home/mike/wov-wt-dungeon2`, Branch `dungeon-generator-2` ab `origin/m
    └───────────────────────────────────────────────────────────────────────┘
 ```
 
-**Die harte Grenze wird durch einen Dauertest erzwungen, nicht durch Disziplin.** WoC hat dafür
+**Die harte Grenze wird durch einen Dauertest erzwungen, nicht durch Disziplin.** Das Referenzprojekt hat dafür
 `tests/architecture.test.ts` (`woc-analysis.md` §1). Unsere Fassung: `shared/test/dungeon2-schichten.ts` scannt
 `shared/src/dungeon2/**` und lässt nicht zu: `@babylonjs/*`, `node:*`, `window`/`document`, `Math.random`,
 `Date.now`, `performance.now`, `Math.sin`/`Math.cos` in Hash-Pfaden. Das ist billig und verhindert genau den
@@ -200,7 +200,7 @@ Das ist ein echter Kanalkonflikt: Der dritte Kanal ist einmal Metallic, einmal H
 Begründung: Von den acht Materialien ist genau eines metallisch (Nr. 6). Ein voller Texturkanal für einen Wert,
 der auf sieben von acht Layern konstant 0 ist, ist verschwendet — Height dagegen wird pro Texel gebraucht
 (Parallax) und lässt sich nicht durch eine Konstante ersetzen. Der Metallwert wandert als
-`metallProLayer[]`-Uniform ins Theme-Struct. Das ist genau WoCs Lösung, dort als gemessene Familien-Konstante
+`metallProLayer[]`-Uniform ins Theme-Struct. Das ist genau die Lösung des Referenzprojekts, dort als gemessene Familien-Konstante
 `metalMean` (`worn_stone.ts:76-105`).
 
 **Und: Array, nicht Atlas** (render-technik gewinnt gegen die implizite Einzeltextur-Annahme des Material-Plans).
@@ -236,9 +236,9 @@ dürfen nie als `materialTag` einer Zelle auftauchen — `validateLayout()` prü
 
 **Entscheidung: `XorShiftRandom` bleibt — der Einwand trifft ihn nicht.** Nachgelesen: der Generator ist
 uint32-basiert (`Math.imul`, `>>>`), `nextFloat()` ist per `Math.fround` bit-exakt auf float32 normiert, und die
-Kopf-Doku belegt die Bit-Treue gegen die C++-Referenz. Er ist damit genau so engine-unabhängig wie mulberry32 und
+Kopf-Doku belegt die Bit-Treue gegen die Referenz. Er ist damit genau so engine-unabhängig wie mulberry32 und
 zusätzlich projektweit erprobt.
-**Aber der Kern des WoC-Einwands gilt trotzdem, an anderer Stelle:** `XorShiftRandom.insideUnitCircle()` benutzt
+**Aber der Kern des Einwands aus dem Referenzprojekt gilt trotzdem, an anderer Stelle:** `XorShiftRandom.insideUnitCircle()` benutzt
 `Math.cos`/`Math.sin` und warnt selbst davor („can differ by ~1 ulp"). **Regel: kein Dungeon-2.0-Pfad ruft
 `insideUnitCircle()` auf**, und kein geteilter Hash ist trigonometrisch. Alle Positions-Hashes gehen durch
 `hashing.ts` (`Math.imul`-Kette). Der Schichtentest verbietet `Math.sin`/`Math.cos` in `dungeon2/`.
@@ -311,10 +311,10 @@ Laufgefühl), und autoritative Bewegung ist später eine reine Server-Entscheidu
 ### W11 — Blend-Gewichte: weiche Potenz oder Dominanz-Kollaps?
 
 - `render-tech.md` §1.1: `pow(abs(n), SCHAERFE)` mit Schärfe 3–6, normalisiert.
-- `woc-analysis.md` §6: WoCs Kollaps `w = normalize(pow(|n|,4))`, dann `w = normalize(max(w - 0.15, 0))` — macht
+- `woc-analysis.md` §6: Kollaps des Referenzprojekts `w = normalize(pow(|n|,4))`, dann `w = normalize(max(w - 0.15, 0))` — macht
   achsnahe Flächen **exakt** one-hot und erlaubt einen Ein-Tap-Schnellpfad.
 
-**Entscheidung: Dominanz-Kollaps (woc-analyse gewinnt).** Für ein Barrow aus ruhigen, achsausgerichteten Quadern
+**Entscheidung: Dominanz-Kollaps (die Referenz-Analyse gewinnt).** Für ein Barrow aus ruhigen, achsausgerichteten Quadern
 ist praktisch jede Fläche innerhalb von ~33° zu einer Achse — Triplanar kostet uns damit fast überall **einen
 Tap statt drei**. Das ist das entscheidende Performance-Argument für Stufe Mittel und keine Stilfrage.
 `SCHAERFE` bleibt als Theme-Parameter erhalten (Exponent vor dem Kollaps), der Subtraktionsschwellwert 0.15 wird
@@ -504,7 +504,7 @@ sieht dieser Dungeon aus", nicht „woher kommt er".
 | `materialTag ≤ 5` | Overlays (6–9) sind Blend-Layer, keine Zellmaterialien (W5) |
 | Alle Ganzzahlfelder sind ganzzahlig und endlich | Der Grundsatz aus §3.1, geprüft statt gehofft |
 | `pruefsumme` stimmt mit `layoutPruefsumme()` überein | Der Zeuge |
-| **Ein garantiertes Rückgrat vom Eingang zum tiefsten Pflichtraum, das kein Stempel überschreiben darf** | WoCs Mittelgang-Invariante (`rift_gen.ts:56`) — ohne sie kann jede Erreichbarkeitsprüfung scheitern statt zu terminieren |
+| **Ein garantiertes Rückgrat vom Eingang zum tiefsten Pflichtraum, das kein Stempel überschreiben darf** | Mittelgang-Invariante des Referenzprojekts (`rift_gen.ts:56`) — ohne sie kann jede Erreichbarkeitsprüfung scheitern statt zu terminieren |
 
 ### 3.8 Bauer-Vertrag (`BauErgebnis`) — ebenfalls eingefroren
 
@@ -530,8 +530,8 @@ Die fünf Vertragsregeln:
    Client-Adapter über `BauStueck.art`. Sonst fiele ein Spieler auf Niedrig durch einen Boden, den er nicht sieht.
 
 **Eine geteilte Kantenfunktion, nicht zwei gleiche.** `zellKanteZuQuader(zelle, kante, gitter)` liefert Mitte,
-Größe und Vierteldrehung — Sichtgeometrie **und** Kollision rufen dieselbe Funktion. Das ist die Übersetzung von
-WoCs `splitRun()`/`polygonWallSegments`-Paarung in unsere Welt und der Grund, warum die dortige Phantomwand-/
+Größe und Vierteldrehung — Sichtgeometrie **und** Kollision rufen dieselbe Funktion. Das ist die Übersetzung der
+`splitRun()`/`polygonWallSegments`-Paarung des Referenzprojekts in unsere Welt und der Grund, warum die dortige Phantomwand-/
 Ecklücken-Klasse bei uns bauartbedingt entfällt.
 
 ---
@@ -648,7 +648,7 @@ Dateien: `shared/src/dungeon2/builder.ts`, `shared/test/dungeon2-builder.ts`,
 `shared/test/dungeon2-paritaet.ts`.
 
 **Prüfkriterium (Messung) — das wichtigste Paket, drei Tests:**
-1. **Paritätstest** (die Übersetzung von WoCs `rift_wall_render_parity.test.ts`): *Jede gezeichnete Wandfläche
+1. **Paritätstest** (die Übersetzung von `rift_wall_render_parity.test.ts` aus dem Referenzprojekt): *Jede gezeichnete Wandfläche
    liegt auf Kollision, und jeder Wand-Kollisionskörper ist visuell gedeckt.* Mittellinien werden abgetastet
    (Schrittweite 1 m, Enden um 0,15 m eingezogen), gegen aufgeblähte Körper geprüft, gesweept über ≥50 Seeds und
    alle Ebenen. **Beide Richtungen** — Lücken sind symmetrisch, es gibt sie als Loch und als Überhang.
@@ -734,7 +734,7 @@ Vier Fragen, alle **am installierten Babylon 8.0.0 nachgemessen, nicht aus der E
 1. Die exakten `CUSTOM_*`-Injektionsmarken des PBR-Fragmentshaders für Albedo / Normale / Reflectivity / AO und
    ihre Reihenfolge. `NebelRichtung.ts` zeigt, warum: derselbe Include heißt in `default.fragment` `color` und in
    `pbr.fragment` `finalColor`.
-2. Ob `Material.clone()` Plugins überträgt. Wenn nicht, brauchen wir WoCs Wiederanheft-Spezifikation.
+2. Ob `Material.clone()` Plugins überträgt. Wenn nicht, brauchen wir die Wiederanheft-Spezifikation des Referenzprojekts.
 3. Sampler- und Uniform-Budget am realen Dungeon-Wand-Material **gemeinsam** über alle fünf Plugins
    (`StandardGammaFix`, `PbrNebelFix`, `NebelRichtung`, `FackelLicht`, Triplanar) plus Shadow-Maps plus
    Environment-Probe, gegen `engine.getCaps()`. Vorbild für die Laufzeit-Kapazitätsprüfung mit Fallback:
@@ -780,7 +780,7 @@ A/B-Messung ohne Codeänderung geht.
 Dateien: `client/src/engine/DungeonMaterial.ts`, `client/src/engine/DungeonAtmosphere.ts` (nur SSAO in M1).
 
 **Prüfkriterium (Messung vor Bild):**
-1. **Shader-Textprüfung ohne GPU** (WoCs `worn_stone_shader.test.ts`-Muster): `getCustomCode()` je Stufe direkt
+1. **Shader-Textprüfung ohne GPU** (Muster aus `worn_stone_shader.test.ts` des Referenzprojekts): `getCustomCode()` je Stufe direkt
    aufrufen und den erzeugten Quelltext prüfen — Niedrig enthält keinen Blending-Block, Hoch enthält den
    Parallax-`#ifdef`. Das ist die einzige Art, Tier-Regressionen ohne GPU zu fangen.
 2. **fps auf Stufe Mittel** im Testgrab, gemessen über **Strecke**, nicht Zeit; Ziel 60 auf Mittelklasse.
@@ -824,7 +824,7 @@ ein Fünftel); `getSpawnPoint()` → `BauErgebnis.spawnPunkt`; `dekoAngleichen()
 
 **Objekt-IDs kommen aus der Layout-Position (Zellindex + Rolle), nie aus der Ziehreihenfolge** — sonst wandert der
 ZDO-Zustand einer geöffneten Truhe auf eine andere, sobald sich irgendetwas an der Generierung ändert.
-`layoutVersion` gehört ins Instanz-Dokument: unsere Instanzen sind persistent (WoC-Läufe sind es nicht), ohne
+`layoutVersion` gehört ins Instanz-Dokument: unsere Instanzen sind persistent (die Läufe des Referenzprojekts sind es nicht), ohne
 dieses Feld ist jeder Generator-Commit eine stille Datenmigration.
 
 **Unverändert bleibt:** die komplette Eingangs-Registry, `getOrCreateInstance`/`destroyInstance` samt
@@ -918,7 +918,7 @@ ersten Thema festliegen, die Blockgröße darf bis zur ersten Messung auf Stufe 
 Dokument, ist also migrierbar).
 
 **R3 — Die Babylon-Injektionsmarken sind unbekannt.** AP8 misst sie; bis dahin ist `DungeonMaterial.ts` nicht
-planbar. Wenn die Marken nicht das leisten, was WoCs `onBeforeCompile`+Chunk-Replace leistet, kann Triplanar
+planbar. Wenn die Marken nicht das leisten, was `onBeforeCompile`+Chunk-Replace im Referenzprojekt leistet, kann Triplanar
 teurer oder umständlicher werden als geplant. Rückfallebene: `NodeMaterial` statt GLSL im Plugin — mehr
 Wartbarkeit, weniger Kontrolle, und die Grafikstufen-Defines müssten anders gelöst werden.
 

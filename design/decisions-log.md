@@ -650,8 +650,8 @@ Türhöhe bis zur höheren Deckenoberkante).
 
 **Grund:** Ohne ihn sieht man vom höheren Raum aus über die Decke des niedrigeren
 hinweg in den Fels. Das ist der klassische Leak, er hat kein Symptom in einer
-Invariantenprüfung des Layouts, und er ist genau die Klasse, die WoCs
-Paritätstest gefunden hat. Die Sabotage-Probe (Sturz weglassen) macht die
+Invariantenprüfung des Layouts, und er ist genau die Klasse, die der
+Paritätstest des Referenzprojekts gefunden hat. Die Sabotage-Probe (Sturz weglassen) macht die
 Hüllenprüfung rot.
 
 ---
@@ -1482,7 +1482,7 @@ sich sonst ein Material teilen und hätten dieselben Risse.
 
 **Entscheidung:** `DungeonAtmosphere.ts` baut eine zweite
 `SSAO2RenderingPipeline` (`dungeon2SSAO`) und trennt beim Betreten die
-Außenwelt-Pipeline (`valheimSSAO`) von der Kamera — aber nur, wenn sie an dieser
+Außenwelt-Pipeline von der Kamera — aber nur, wenn sie an dieser
 Kamera überhaupt hing, und hängt genau die beim Verlassen zurück.
 `maxZ = 60 m`, `radius = 0.45 m`.
 

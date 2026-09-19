@@ -100,6 +100,8 @@ async function werker(): Promise<void> {
       pausiereVorSperrbruchMs?: number;
       /** linkSync scheitern lassen (Dateisystem ohne harte Links): das Zurücklegen einer Sperre misslingt. */
       linkScheitert?: boolean;
+      /** Vor dem Schreiben der Tmp-Datei so viele ms stehen (der Halter hält dann schon die Sperre). */
+      pausiereVorTmpMs?: number;
       /** Im Werkzeugprozess einen fremden Rechnernamen vortäuschen (die Sperre trägt ihn dann). */
       fremderHost?: string;
       /** Im Werkzeugprozess /proc unlesbar machen (die Sperre trägt dann keine Startzeit). */
@@ -135,10 +137,28 @@ async function werker(): Promise<void> {
         syncBuiltinESMExports();
       }
       const warteHier = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+      const echtesWrite = fs.writeFileSync;
+      let markiert = false;
+      const markiere = (): void => {
+        if (b.markerPfad && !markiert) {
+          markiert = true;
+          echtesWrite(b.markerPfad, String(process.pid));
+        }
+      };
+      if (b.pausiereVorTmpMs) {
+        (fs as { writeFileSync: typeof echtesWrite }).writeFileSync = ((p: unknown, ...rest: unknown[]) => {
+          if (typeof p === 'string' && p.startsWith(`${b.pfad}.`) && p.endsWith('.tmp')) {
+            markiere();
+            warteHier(b.pausiereVorTmpMs!);
+          }
+          return (echtesWrite as (...a: unknown[]) => unknown)(p, ...rest);
+        }) as typeof echtesWrite;
+        syncBuiltinESMExports();
+      }
       if (b.pausiereVorRenameMs || b.pausiereVorSperrbruchMs || b.linkScheitert) {
         (fs as { renameSync: typeof echtesRename }).renameSync = ((von: string, nach: string) => {
           if (b.pausiereVorRenameMs && nach === b.pfad) {
-            if (b.markerPfad) writeFileSync(b.markerPfad, String(process.pid));
+            markiere();
             warteHier(b.pausiereVorRenameMs);
           }
           if (b.pausiereVorSperrbruchMs && von === `${b.pfad}.lock`) warteHier(b.pausiereVorSperrbruchMs);
@@ -171,6 +191,7 @@ async function werker(): Promise<void> {
       (fs as { linkSync: typeof echtesLink }).linkSync = echtesLink;
       (os as { hostname: () => string }).hostname = echterHost;
       (fs as { readFileSync: unknown }).readFileSync = echtesRead;
+      (fs as { writeFileSync: typeof echtesWrite }).writeFileSync = echtesWrite;
       syncBuiltinESMExports();
       console.log(JSON.stringify({ ok, veraltet, andere, erfolge, hashes }));
     } else {
@@ -547,7 +568,7 @@ try {
     check('frische Sperre ohne Besitzangabe: LayoutGesperrt nach kurzer Wartezeit', fehlerName === 'LayoutGesperrt', `= "${fehlerName}"`);
     check('frische Sperre ohne Besitzangabe: Datei unverändert', readFileSync(sPfad, 'utf-8') === beiDerFrischen);
     check('frische Sperre ohne Besitzangabe: bleibt liegen', readFileSync(`${sPfad}.lock`, 'utf-8') === 'lebender-prozess');
-    rmSync(`${sPfad}.lock`);
+    rmSync(`${sPfad}.lock`, { force: true });
 
     // (Tmp-Dateien und ihr Besitz: siehe Abschnitt 27.)
 
@@ -727,11 +748,11 @@ try {
           sperreSchreiben({ pid: fp, start: null, host: hostname(), marke: 'ohne-start-frisch' }, 5_000);
           r = versuch({ sperreWartenMs: 250 });
           check('Sperre ohne Startzeit, fremde lebende pid, 5 s alt: bleibt (LayoutGesperrt)', !r.ok && r.name === 'LayoutGesperrt' && existsSync(lockDatei), JSON.stringify(r));
-          rmSync(lockDatei);
+          rmSync(lockDatei, { force: true });
           sperreSchreiben({ pid: fp, start: null, host: hostname(), marke: 'ohne-start-mittel' }, 31_000);
           r = versuch({ sperreWartenMs: 250 });
           check('Sperre ohne Startzeit, fremde lebende pid, 31 s alt: bleibt (die Frist ist 10 min, der Halter kann noch schreiben)', !r.ok && r.name === 'LayoutGesperrt' && existsSync(lockDatei), JSON.stringify(r));
-          rmSync(lockDatei);
+          rmSync(lockDatei, { force: true });
           sperreSchreiben({ pid: fp, start: null, host: hostname(), marke: 'ohne-start-alt' }, 660_000);
           r = versuch({ sperreWartenMs: 2000 });
           check('Sperre ohne Startzeit, fremde lebende pid, 11 min alt: gebrochen, Schreiben gelingt', r.ok && r.ms < 500, JSON.stringify(r));
@@ -763,12 +784,12 @@ try {
       sperreSchreiben({ pid: totePid, start: null, host: 'ein-anderer-rechner', marke: 'fern' });
       r = versuch({ sperreWartenMs: 250 });
       check('Besitzer auf anderem Rechner, frisch: nicht entscheidbar, Sperre bleibt', !r.ok && r.name === 'LayoutGesperrt' && existsSync(lockDatei), JSON.stringify(r));
-      rmSync(lockDatei);
+      rmSync(lockDatei, { force: true });
       log.length = 0;
       sperreSchreiben({ pid: totePid, start: null, host: 'ein-anderer-rechner', marke: 'fern-mittel' }, 60_000);
       r = versuch({ sperreWartenMs: 250 });
       check('Besitzer auf anderem Rechner, Sperre 60 s alt: bleibt (Frist 10 min)', !r.ok && r.name === 'LayoutGesperrt' && existsSync(lockDatei), JSON.stringify(r));
-      rmSync(lockDatei);
+      rmSync(lockDatei, { force: true });
       sperreSchreiben({ pid: totePid, start: null, host: 'ein-anderer-rechner', marke: 'fern-alt' }, 660_000);
       r = versuch({ sperreWartenMs: 2000 });
       check('Besitzer auf anderem Rechner, Sperre 11 min alt: als verwaist gebrochen, Schreiben gelingt', r.ok && r.ms < 500, JSON.stringify(r));
@@ -804,7 +825,7 @@ try {
       console.log(`# async: ${dauer} ms gewartet, in der Zeit ${takte} Takte à 5 ms`);
       check('async gesperrt: LayoutGesperrt nach ~600 ms', name === 'LayoutGesperrt' && dauer >= 550, `${name} nach ${dauer} ms`);
       check('async gesperrt: Ereignisschleife lief weiter (≥ 60 Takte in 600 ms)', takte >= 60, `${takte} Takte`);
-      rmSync(lockDatei);
+      rmSync(lockDatei, { force: true });
       // im selben Prozess: 10 gleichzeitige Schreiber, eine Basis → 1 Erfolg
       const hZ = sha(readFileSync(zPfad));
       const ergebnisse = await Promise.all(
@@ -891,7 +912,7 @@ try {
     writeFileSync(alt, 'frisch');
     layoutSchreiben(lPfad, koerper('alt-danach-2'));
     check('… eine frische bleibt liegen', existsSync(alt));
-    rmSync(alt);
+    rmSync(alt, { force: true });
   }
 
   // ══ Dritte Runde (Angriff 2): fremder Rechner, Zurücklegen, Müll-Arrays, Freigabe ══
@@ -924,7 +945,7 @@ try {
     check('503 trägt den Kopf Retry-After', frisch.kopf.get('retry-after') === '3', `= ${frisch.kopf.get('retry-after')}`);
     check('503-Meldung nennt pid und Rechner des Halters', /pid 999999/.test(String(frisch.daten.message)) && /editor-container-7f3a/.test(String(frisch.daten.message)), String(frisch.daten.message));
     check('frische fremde Sperre: Datei unverändert, Sperre bleibt liegen', plattenHash() === vorher && JSON.parse(readFileSync(lock, 'utf-8')).marke === 'fern2');
-    rmSync(lock);
+    rmSync(lock, { force: true });
   }
 
   // ── 22) Zurücklegen einer weggenommenen Sperre scheitert: nicht weiterschreiben ─
@@ -1057,7 +1078,8 @@ try {
   // ══ Vierte Runde (Angriff 3): unprüfbarer Halter, eigene Leiche, Tmp-Besitz ═════
 
   // ── 25) F1: Halter, den man nicht prüfen kann — Herzschlag, 10-min-Frist, kein Doppelerfolg ─
-  // Der Halter steht 35 s zwischen Besitzprüfung und rename (die Pause sitzt im Werkzeugprozess); ein
+  // Der Halter steht 25 s vor dem Schreiben der Tmp-Datei und weitere 12 s zwischen Besitzprüfung und rename
+  // (die Pausen sitzen im Werkzeugprozess, so wie ein hängender Systemaufruf wirkt); ein
   // zweiter Schreiber wartet bis zu 60 s. Zwei Formen des „nicht entscheidbar“: ein fremder Rechnername
   // (im Halter ersetzt) und eine Sperre ohne Startzeit (im Halter liest /proc nicht). Früher brach der
   // Wartende die Sperre nach 30 s, und beide meldeten Erfolg.
@@ -1073,7 +1095,7 @@ try {
         const hF = sha(readFileSync(pfadF));
         const marker = resolve(ORDNER, `herzschlag-${i}.marker`);
         const [halter, schreiber] = await Promise.all([werkerStarten(), werkerStarten()]);
-        const halterFertig = halter.fragen({ cmd: 'direkt', pfad: pfadF, basis: hF, startAt: 0, anzahl: 1, tag: `H${i}`, pausiereVorRenameMs: 35_000, markerPfad: marker, ...fall.halter });
+        const halterFertig = halter.fragen({ cmd: 'direkt', pfad: pfadF, basis: hF, startAt: 0, anzahl: 1, tag: `H${i}`, pausiereVorTmpMs: 25_000, pausiereVorRenameMs: 12_000, markerPfad: marker, ...fall.halter });
         for (let n = 0; n < 300 && !existsSync(marker); n++) await warte(50);
         const tMarker = Date.now();
         const lockInfo = JSON.parse(readFileSync(`${pfadF}.lock`, 'utf-8')) as { host: string; start: string | null };
@@ -1095,7 +1117,7 @@ try {
       check(`${fall.name}: die Sperre trägt wirklich die nicht prüfbare Besitzangabe`, fall.pruefe(lockInfo), JSON.stringify(lockInfo));
       check(`${fall.name}: Herzschlag — mtime nach 12 s Halten jünger als 6 s`, alter[0]! < 6000, `= ${Math.round(alter[0]!)} ms`);
       check(`${fall.name}: Herzschlag — mtime nach 27 s Halten jünger als 6 s`, alter[1]! < 6000, `= ${Math.round(alter[1]!)} ms`);
-      check(`${fall.name}: KEIN Doppelerfolg bei 35 s Haltedauer (genau 1 Erfolg)`, h.ok + a.ok === 1, `Halter ${h.ok}, Wartender ${a.ok}`);
+      check(`${fall.name}: KEIN Doppelerfolg bei 37 s Haltedauer (genau 1 Erfolg)`, h.ok + a.ok === 1, `Halter ${h.ok}, Wartender ${a.ok}`);
       check(`${fall.name}: der Halter gewinnt, der Wartende wird als veraltet abgewiesen, ohne anderen Fehler`, h.ok === 1 && a.veraltet === 1 && a.andere.length === 0, JSON.stringify({ h, a }));
       check(`${fall.name}: der gemeldete Hash des Gewinners liegt auf der Platte`, h.hashes[0] === sha(readFileSync(pfadF)));
       check(`${fall.name}: keine .lock/.tmp zurückgeblieben`, !readdirSync(DIREKT).some((f) => f.startsWith(`herzschlag-`) && f.includes('.json.') && (f.endsWith('.lock') || f.endsWith('.tmp'))));
@@ -1107,31 +1129,43 @@ try {
     const ePfad = resolve(DIREKT, 'eigene-leiche.json');
     writeFileSync(ePfad, sollText(koerper('leiche-start')));
     const echtesRm = fs.rmSync;
-    const errAlt = console.error;
-    const warnAlt3 = console.warn;
     const geloggt: string[] = [];
-    console.error = () => undefined;
-    console.warn = (...a: unknown[]) => void geloggt.push(a.join(' '));
-    try {
-      const modul = (await import('@wov/shared/src/worldlayout/layoutDatei.js')) as Record<string, unknown>;
-      const asyncSchreiben = modul.layoutSchreibenAsync as ((p: string, e: unknown, b?: number, o?: Record<string, unknown>) => Promise<{ hash: string }>) | undefined;
-      for (const weg of ['synchron', 'asynchron (Weg des Betriebsdienstes)']) {
-        (fs as { rmSync: typeof echtesRm }).rmSync = ((p: string, o?: unknown) => {
-          if (String(p).endsWith('.lock')) throw Object.assign(new Error('EROFS: simulated'), { code: 'EROFS' });
-          return echtesRm(p, o as never);
-        }) as typeof echtesRm;
-        syncBuiltinESMExports();
-        try {
+    // Nur um den Aufruf herum Log erfassen (`check` schreibt seine FAIL-Zeilen über console.error und darf nicht verschluckt werden).
+    const erfassen = async <T,>(fn: () => Promise<T> | T): Promise<T> => {
+      const errAlt = console.error;
+      const warnAlt3 = console.warn;
+      console.error = (...a: unknown[]) => void geloggt.push(a.join(' '));
+      console.warn = (...a: unknown[]) => void geloggt.push(a.join(' '));
+      try {
+        return await fn();
+      } finally {
+        console.error = errAlt;
+        console.warn = warnAlt3;
+      }
+    };
+    const modul = (await import('@wov/shared/src/worldlayout/layoutDatei.js')) as Record<string, unknown>;
+    const asyncSchreiben = modul.layoutSchreibenAsync as ((p: string, e: unknown, b?: number, o?: Record<string, unknown>) => Promise<{ hash: string }>) | undefined;
+    for (const weg of ['synchron', 'asynchron (Weg des Betriebsdienstes)']) {
+      rmSync(`${ePfad}.lock`, { force: true }); // Ein Rest der vorigen Runde (auf einem Stand ohne die Regel) soll die nächste nicht beeinflussen
+      (fs as { rmSync: typeof echtesRm }).rmSync = ((p: string, o?: unknown) => {
+        if (String(p).endsWith('.lock')) throw Object.assign(new Error('EROFS: simulated'), { code: 'EROFS' });
+        return echtesRm(p, o as never);
+      }) as typeof echtesRm;
+      syncBuiltinESMExports();
+      try {
+        await erfassen(async () => {
           if (weg === 'synchron') layoutSchreiben(ePfad, koerper('mit-freigabefehler'));
           else await asyncSchreiben!(ePfad, koerper('mit-freigabefehler-async'));
-        } finally {
-          (fs as { rmSync: typeof echtesRm }).rmSync = echtesRm;
-          syncBuiltinESMExports();
-        }
-        check(`eigene Leiche (${weg}): nach dem Freigabefehler liegt die Sperre noch da`, existsSync(`${ePfad}.lock`));
-        geloggt.length = 0;
-        const t = Date.now();
-        let ergebnis = '';
+        });
+      } finally {
+        (fs as { rmSync: typeof echtesRm }).rmSync = echtesRm;
+        syncBuiltinESMExports();
+      }
+      check(`eigene Leiche (${weg}): nach dem Freigabefehler liegt die Sperre noch da`, existsSync(`${ePfad}.lock`));
+      geloggt.length = 0;
+      const t = Date.now();
+      let ergebnis = '';
+      await erfassen(async () => {
         try {
           if (weg === 'synchron') layoutSchreiben(ePfad, koerper('nach-leiche'), undefined, { sperreWartenMs: 500 });
           else await asyncSchreiben!(ePfad, koerper('nach-leiche-async'), undefined, { sperreWartenMs: 500 });
@@ -1139,21 +1173,17 @@ try {
         } catch (f) {
           ergebnis = (f as Error).name;
         }
-        const ms = Date.now() - t;
-        check(`eigene Leiche (${weg}): der NÄCHSTE Schreibvorgang gelingt sofort (kein Dauer-503)`, ergebnis === 'ok' && ms < 400, `${ergebnis} nach ${ms} ms`);
-        check(`eigene Leiche (${weg}): Logzeile „eigene Sperrleiche“`, geloggt.some((z) => /verwaiste Sperre .* gebrochen: eigene Sperrleiche/.test(z)), geloggt.join(' | '));
-        check(`eigene Leiche (${weg}): danach keine .lock`, !existsSync(`${ePfad}.lock`));
-      }
-      // Eine Sperre, die dieser Prozess GERADE hält, wird nicht als Leiche gebrochen: 5 gleichzeitige asynchrone Schreiber.
-      const hE = sha(readFileSync(ePfad));
-      const r5 = await Promise.all(Array.from({ length: 5 }, (_, i) => asyncSchreiben!(ePfad, koerper(`gleichzeitig-e-${i}`), undefined, { basis: hE }).then(() => 'ok', (f: Error) => f.name)));
-      check('eigene Leiche: eine GERADE gehaltene eigene Sperre wird nicht gebrochen (5 gleichzeitige, 1 ok, 4 veraltet)', r5.filter((x) => x === 'ok').length === 1 && r5.filter((x) => x === 'LayoutVeraltet').length === 4, r5.join(','));
-    } finally {
-      console.error = errAlt;
-      console.warn = warnAlt3;
-      (fs as { rmSync: typeof echtesRm }).rmSync = echtesRm;
-      syncBuiltinESMExports();
+      });
+      const ms = Date.now() - t;
+      check(`eigene Leiche (${weg}): der NÄCHSTE Schreibvorgang gelingt sofort (kein Dauer-503)`, ergebnis === 'ok' && ms < 400, `${ergebnis} nach ${ms} ms`);
+      check(`eigene Leiche (${weg}): Logzeile „eigene Sperrleiche“`, geloggt.some((z) => /verwaiste Sperre .* gebrochen: eigene Sperrleiche/.test(z)), geloggt.join(' | '));
+      check(`eigene Leiche (${weg}): danach keine .lock`, !existsSync(`${ePfad}.lock`));
     }
+    // Eine Sperre, die dieser Prozess GERADE hält, wird nicht als Leiche gebrochen: 5 gleichzeitige asynchrone Schreiber.
+    rmSync(`${ePfad}.lock`, { force: true });
+    const hE = sha(readFileSync(ePfad));
+    const r5 = await Promise.all(Array.from({ length: 5 }, (_, i) => asyncSchreiben!(ePfad, koerper(`gleichzeitig-e-${i}`), undefined, { basis: hE }).then(() => 'ok', (f: Error) => f.name)));
+    check('eigene Leiche: eine GERADE gehaltene eigene Sperre wird nicht gebrochen (5 gleichzeitige, 1 ok, 4 veraltet)', r5.filter((x) => x === 'ok').length === 1 && r5.filter((x) => x === 'LayoutVeraltet').length === 4, r5.join(','));
   }
 
   // ── 27) F8: Tmp-Dateien werden nur geräumt, wenn ihr Besitzer nachweislich tot ist ─
@@ -1180,7 +1210,8 @@ try {
       check('Tmp-Datei eines LEBENDEN Prozesses, 31 s alt, bleibt liegen', existsSync(b));
       check('Tmp-Datei eines Lebenden, 11 min alt (pid womöglich wiederverwendet): wird geräumt', !existsSync(c));
       check('Tmp-Datei im alten festen Namen (ohne pid), 31 s alt, bleibt liegen', existsSync(d));
-      rmSync(b);
+      rmSync(b, { force: true });
+      writeFileSync(d, 'halb'); // (auf einem Stand, der die 31 s alte Datei schon geräumt hat, fehlt sie hier)
       utimesSync(d, vor(660_000), vor(660_000));
       layoutSchreiben(tPfad2, koerper('raeumt-tmp-2'));
       check('Tmp-Datei im alten festen Namen, 11 min alt: wird geräumt', !existsSync(d));

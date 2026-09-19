@@ -135,7 +135,7 @@ for (const z of zones) {
 
   if (hFail > 0 || mFail > 0) ok = false;
   const mPart = singleBiomeNoMask
-    ? ' | vegMask: skipped (C++ uninitialized `float mask;` — UB garbage, see header)'
+    ? ' | vegMask: skipped (reference uninitialized `float mask;` — UB garbage, see header)'
     : ` | vegMask: ${mExact} exact, ${mNear} 1-2ulp, ${mFail} >2ulp`;
   console.log(
     `  ${ok ? 'PASS' : 'FAIL'}  ${label.padEnd(14)} heights: ${hExact} exact, ${hNear} 1-2ulp, ${hFail} >2ulp` +

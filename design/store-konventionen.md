@@ -87,9 +87,9 @@ scaling            = (1, 1, −1)
 ```
 
 Ausmultipliziert ist das `Ry(π) · diag(1,1,−1) = diag(−1, 1, 1)` — eine
-Spiegelung in x. Genau das steht auch im Schwesterprojekt
-(`packages/asset-system/src/scene-placement.ts`, `tooling/asset-pipeline/seating.ts`:
-„The net effect of that root on a position is a mirror in x“).
+Spiegelung in x. Genau das steht auch im Vergleichsprojekt
+(Szenenplatzierung und Sitzwerkzeug:
+„der Nettoeffekt dieser Wurzel auf eine Position ist eine Spiegelung in x“).
 
 **Trotzdem ist nichts spiegelverkehrt.** `diag(−1,1,1)` ist dieselbe Abbildung
 wie `Ry(π) ∘ diag(1,1,−1)`: die Umrechnung von rechtshändig (glTF) auf
@@ -140,13 +140,13 @@ Konkret heisst „unangetastet“:
 * `__root__.scaling` niemals **setzen**, nur **multiplizieren**
   (`scaling.scaleInPlace(faktor)`). Ein zugewiesenes positives `scaling` löscht
   das `−1` in z und stülpt das Modell um. (Dieselbe Falle ist im
-  Schwesterprojekt kommentiert.)
+  Vergleichsprojekt kommentiert.)
 * Die dynamische Wurzel bleibt in der Kette; Netze nicht direkt umhängen.
 * Auf dem Bucket-Weg nichts an `sideOrientation` nachbessern — `zuMaster()`
   macht das bereits und würde doppelt wirken.
 
-Anders liegt der Fall nur beim **Gelände**: das Schwesterprojekt löscht dort
-den Loader-Root ganz (`clearLoaderTransform`), weil ein 0…300-Tile sonst bei
+Anders liegt der Fall nur beim **Gelände**: das Vergleichsprojekt löscht dort
+den Loader-Root ganz, weil ein 0…300-Tile sonst bei
 −300…0 läge. Für Prefabs gilt das nicht.
 
 ### 3.2 Zusätzliche Drehung um y: **0°**
@@ -199,7 +199,7 @@ die Kiste sonst 8 Meter neben dem Modell.
 
 Dasselbe gilt für **Platzierungen**: übernimmt der Integrator irgendwann
 Positionen aus der Ursprungsszene des Stores, müssen die x-Koordinaten
-mitgespiegelt werden (das Schwesterprojekt konjugiert die ganze Matrix,
+mitgespiegelt werden (das Vergleichsprojekt konjugiert die ganze Matrix,
 `S·M·S` mit `S = diag(−1,1,1)`). Ein einzelnes Modell sieht richtig aus; ein
 Ensemble aus Kitteilen steht ohne diese Spiegelung seitenverkehrt zusammen.
 

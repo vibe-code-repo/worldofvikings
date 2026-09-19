@@ -31,8 +31,8 @@ Sonnenstands-Formel ab. Jedes Wetter ist ein Datensatz mit
 Tagesfraktion interpoliert. Den Look nachzubilden heißt daher, *dieses
 Datenmodell* nachzubilden — implementiert in `shared/src/environment.ts`.
 
-**Verifiziertes Feldset** (1:1 die EnvSetup-Oberfläche, die Expand World Data
-aus Vanilla-Objekten nach YAML schreibt):
+**Verifiziertes Feldset** (1:1 die Feldliste des Wetterdatensatzes, wie sie ein Welt-Datenexport
+aus den Objekten des Originals nach YAML schreibt):
 
 | Feld | Keys | Default |
 |---|---|---|
@@ -81,7 +81,7 @@ damit es nie von unten durchs Terrain scheint), `HemisphericLight` für
 Ambient, `SkyMaterial` mit der *echten* Sonnenposition (nachts unter dem
 Horizont, damit die Kuppel von selbst abdunkelt), Turbidity an die
 Nebeldichte gekoppelt. Wetter folgt dem Biom unter dem Spieler
-(`EnvMan.m_biomeEnvironments`) und blendet über ~4 s über.
+(Biom-Wetterzuordnung des Originals) und blendet über ~4 s über.
 
 **Nebel-Status.** `FOGMODE_EXP2` (identisch zu Unitys Exponential-Squared).
 Babylons Nebelfarbe ist ein *szenenweites* Uniform (`vFogColor`,
@@ -148,7 +148,7 @@ Die Kuppel wird daher aus demselben `EnvState` gespeist:
 | Sonnen-Glow | `state.fogColorSun` → gleiche Keyframes wie der Nebel |
 | Sonne/Mond | Scheibe an der *echten* Sonnenrichtung (nachts untergegangen) |
 | Sterne | blenden mit der Nacht ein, von Wolken maskiert |
-| Wolken | prozedurales FBM, Deckung aus `EnvSetup.rainCloudAlpha` |
+| Wolken | prozedurales FBM, Deckung aus `rainCloudAlpha` des Wetterdatensatzes |
 
 Alles prozedural — **braucht nichts aus dem 4,9-GB-Export**. (Rückblickend die
 folgenreichste Entscheidung dieses Kapitels: Als der Export im August gelöscht wurde,
@@ -205,7 +205,7 @@ sonst als 0.2–0.9-„Naht" gemeldet.
 
 ### 2.4 Volumetrics & Postprocesses — `PostProcessing.ts` ✅
 
-Umgesetzt mit den **echten Werten des Originals**. Quelle: das Ingame-Post-Process-Profil (Unity PostProcessing-Stack v2) aus dem entpackten Client, `extracted_assets/MonoBehaviour/unnamed_-5654458244375810705.json`.
+Umgesetzt mit den **echten Werten des Originals**. Quelle: das Ingame-Post-Process-Profil (Unity PostProcessing-Stack v2) aus dem entpackten Client.
 
 | Effekt | Original | Bei uns |
 |---|---|---|
@@ -213,7 +213,7 @@ Umgesetzt mit den **echten Werten des Originals**. Quelle: das Ingame-Post-Proce
 | Motion Blur | an — shutterAngle 150°, 10 Samples | an — `motionStrength` 150/360, 10 Samples |
 | Chromatic Aberration | an — intensity 0.15 | an — `aberrationAmount` 4.5 px (0.15 × Babylon-Default 30) |
 | Color Grading | an — Tonemapper *Neutral*, contrast 1.2, exposure 1.0 | an — `TONEMAPPING_KHR_PBR_NEUTRAL`, contrast 1.2, exposure 1.0 |
-| Depth of Field | **aus** (`m_Enabled = 0`) | aus |
+| Depth of Field | **aus** (im Profil deaktiviert) | aus |
 | Anti-Aliasing | aus (wäre TAA) | **FXAA an** — Abweichung, s. u. |
 | Ambient Occlusion | an — intensity 1.0, radius 0.15 | **nicht umgesetzt** — s. u. |
 | Vignette / Grain / LUT / SSR / EyeAdaptation | aus | aus |
@@ -223,7 +223,7 @@ Das erklärt den vom Nutzer gemeldeten Unterschied („unser Bild wirkt hart, da
 **Bewusste Abweichungen**
 - *FXAA statt TAA:* Babylons `DefaultRenderingPipeline` hat kein TAA. Ohne jedes AA flimmern unsere Alpha-Cutout-Grashalme deutlich stärker als im Original, das TAA-Historie hat.
 - *Kein SSAO:* Babylons SSAO2 braucht einen zusätzlichen Pass über die gesamte (bereits schwere) Terrain- und Clutter-Geometrie. Bei radius 0.15 ist der Effekt sehr kleinräumig — der schwächste Beitrag zum Gesamtbild, bewusst zurückgestellt.
-- *`temperature -8` weggelassen:* Babylons `ImageProcessingConfiguration` kennt keine Kelvin-Temperatur (nur Hue/Density/Saturation/Exposure). Weggelassen statt schlecht approximiert; der Farbton kommt bei uns ohnehin aus dem EnvSetup-Modell.
+- *`temperature -8` weggelassen:* Babylons `ImageProcessingConfiguration` kennt keine Kelvin-Temperatur (nur Hue/Density/Saturation/Exposure). Weggelassen statt schlecht approximiert; der Farbton kommt bei uns ohnehin aus dem Wettermodell.
 
 **Zwei Babylon-Fallstricke beim Motion Blur** (beide in `PostProcessing.ts` behandelt):
 1. Der Default-Pfad ruft `scene.enablePrePassRenderer()` — diese Methode **existiert bei den granularen Babylon-Imports dieses Projekts nicht** und bricht zur Laufzeit mit „is not a function" ab. Lösung: `forceGeometryBuffer = true` (letztes ctor-Argument); dessen Scene-Component importiert `motionBlurPostProcess.js` selbst.
@@ -235,23 +235,23 @@ Alle vier Effekte sind — wie im Original (`GraphicsSettingBool`) — einzeln �
 
 ## 3. Terrain
 
-- **Datenquelle:** `shared/worldgen` (Heightmap, GeoManager — gegen die Referenz verifiziert). **Kein Placeholder-Terrain** wie im Three.js-Client.
+- **Datenquelle:** `shared/worldgen` (Heightmap, GeoManager — gegen die Referenz verifiziert). **Kein Placeholder-Terrain** wie im three.js-Client des Vergleichsprojekts.
 - **Chunk-Mesh:** pro Zone (64×64 m, ein Sektor) ein Mesh via `VertexData`: Positionen + Normalen aus Heightmap, UVs für Splat-Mapping.
 - **Texturierung:** Custom-`NodeMaterial` mit Biom-Splatting (Wiese/Wald/Sumpf/Berg/Planes-Texturen + Neigung → Fels, Höhe → Schnee). Splat-Gewichte serverseitig/shared berechenbar (Biom-Blend existiert bereits im shared Code).
 - **LOD/Streaming:** Ring-Puffer um den Spieler (z. B. Radius 5 Zonen voll, 6–10 vereinfacht). Höhen per Heightmap-Downsample für Fern-Chunks.
-- **UV-Rotation aus der Variety-Noise (`TerrainSplat.ts`):** Die Tile-UVs werden pro Pixel um `noise.r · 2π` gedreht (three.js-Referenz: `vec2 uv = mat2(ca,sa,-sa,ca) * wuv`). Ohne diese Drehung wiederholt sich jede Tile-Textur stur im 2-m-Raster — genau der gleichförmig gekachelte Boden, den der Nutzer als „Boden braucht noch Texturen" gemeldet hat. War hier mit dem Vermerk „erzeugt harte Nähte" abgeschaltet; die Referenz fährt dieselbe Rotation auf denselben absoluten Welt-UVs ohne das Problem (der Winkel ändert sich durch die bilineare Filterung stetig, `fract()` + 0.02-Inset in `sampleLayer()` fangen den Rest ab — beides bei uns identisch vorhanden).
+- **UV-Rotation aus der Variety-Noise (`TerrainSplat.ts`):** Die Tile-UVs werden pro Pixel um `noise.r · 2π` gedreht (three.js-Vergleichsprojekt: `vec2 uv = mat2(ca,sa,-sa,ca) * wuv`). Ohne diese Drehung wiederholt sich jede Tile-Textur stur im 2-m-Raster — genau der gleichförmig gekachelte Boden, den der Nutzer als „Boden braucht noch Texturen" gemeldet hat. War hier mit dem Vermerk „erzeugt harte Nähte" abgeschaltet; das Vergleichsprojekt fährt dieselbe Rotation auf denselben absoluten Welt-UVs ohne das Problem (der Winkel ändert sich durch die bilineare Filterung stetig, `fract()` + 0.02-Inset in `sampleLayer()` fangen den Rest ab — beides bei uns identisch vorhanden).
 - **Fels an Hängen:** `rockK = clamp((0.87 − ny)/0.15, 0, 1) · 0.85` — die Rampe beginnt bei **30°** Hangneigung und ist bei **44°** voll ausgefahren.
-  - ⚠️ **Korrektur 16.08.2026 (Roadmap E4).** Hier stand bis heute die Referenzformel `clamp((0.72 − ny)/0.25, 0, 1) · 0.85` als aktueller Stand. Das war seit der Nachmessung überholt — der Code führt die Werte oben. Damit sind **drei** Stände auseinanderzuhalten:
-    1. `0.72 / 0.25` — die three.js-Referenz. Ihre Rampe *beginnt* erst bei 44°.
+  - ⚠️ **Korrektur 16.08.2026 (Roadmap E4).** Hier stand bis heute die Formel des Vergleichsprojekts `clamp((0.72 − ny)/0.25, 0, 1) · 0.85` als aktueller Stand. Das war seit der Nachmessung überholt — der Code führt die Werte oben. Damit sind **drei** Stände auseinanderzuhalten:
+    1. `0.72 / 0.25` — das three.js-Vergleichsprojekt. Seine Rampe *beginnt* erst bei 44°.
     2. `0.85` + schmale, rauschverschobene Rampe — eine **frei erfundene** Variante, die den gesprenkelten Fels/Moos-Rand eines Screenshots nachbauen sollte. Zurückgenommen und nicht wieder aufzunehmen: Der körnige Eindruck im Original entsteht nicht im Blend, sondern aus der Tile-Textur, der UV-Rotation und den Tile-Normal-Maps.
-    3. `0.87 / 0.15` — **der heutige Stand, abgestimmt statt rekonstruiert.** Grundlage ist die Auszählung der Vertex-Normalen über 40 Chunks: 80,7 % des Geländes liegen unter 26°, 12,4 % bei 26–35°, 4,7 % bei 35–44°, **2,2 % über 44°**. Mit der Referenzschwelle konnte Fels also auf 2 % der Fläche überhaupt erscheinen und war erst ab 62° voll ausgefahren — auf 0,03 % der Vertices. Genau das war die Meldung „Berghänge ohne Steintextur". Die heutige Rampe trifft die ~13 % Hangfläche und lässt die 80 % Flachland unberührt.
+    3. `0.87 / 0.15` — **der heutige Stand, abgestimmt statt rekonstruiert.** Grundlage ist die Auszählung der Vertex-Normalen über 40 Chunks: 80,7 % des Geländes liegen unter 26°, 12,4 % bei 26–35°, 4,7 % bei 35–44°, **2,2 % über 44°**. Mit der Schwelle des Vergleichsprojekts konnte Fels also auf 2 % der Fläche überhaupt erscheinen und war erst ab 62° voll ausgefahren — auf 0,03 % der Vertices. Genau das war die Meldung „Berghänge ohne Steintextur". Die heutige Rampe trifft die ~13 % Hangfläche und lässt die 80 % Flachland unberührt.
   - Der Original-Shader führt die Schwelle selbst, liegt im Export aber nur als 0-Byte-Datei vor (die Materialdaten nennen keine). Eine bit-genaue Rekonstruktion ist damit nicht möglich — deshalb abgestimmt, und deshalb steht die Herleitung hier.
 - **Tile-Normal-Maps (G-TEX2) ✅:** Blend über dieselben Eckgewichte wie die Diffuse-Tiles, dann tangentenfreie Störung nach Schüler (Basis pro Pixel aus `dFdx/dFdy` von Weltposition und UV) — unsere Terrain-Geometrie führt keine Tangenten mit. Umgesetzt als `CustomBlock` im NodeMaterial (echtes GLSL statt Blockgraph). **Ohne diese Ebene ist das Terrain nur eine flach beleuchtete Farbfläche** — genau der vom Nutzer gemeldete „wir sehen immer noch das Standard-Terrain als Untergrund"-Eindruck. Wichtig: beleuchtet wird mit der gestörten Normalen, die Fels-/Schnee-Schwellen benutzen weiter die **geometrische** (sonst flackern Fels- und Schneegrenzen mit dem Texturdetail).
-  - ⚠️ **Korrektur 16.08.2026 — es sind sieben Karten, nicht drei.** Hier stand: „`terraintile_n_0/1/2.png`; der Rip enthält kein 16-Ebenen-Normal-Array, nur drei Rauheitsgruppen; die Zuordnung Tile→Gruppe ist 1:1 aus der Referenz gespiegelt." Das beschrieb die Grenze des Exports, nicht die des Materials: `Heightmap_basematerial` führt neben dem Array **fünf eigene** Normal-Maps mit sprechenden Slots (`_CliffNormal`, `_ForestNormal`, `_SnowNormal`, `_PavedNormal`, `_CultivatedNormal`), und die drei „Rauheitsgruppen" waren nichts als die entpackten Layer 0–2 desselben Arrays — Fels bekam damit dieselbe Körnung wie Sumpfschlamm. `normalTexs` in `TerrainSplat.ts` hat heute sieben Einträge (`terraintile_n_0`, `forest_n`, `terraintile_n_1`, `cultivated_n`, `gouacherock_big_n`, `paved_n`, `snow_normal`). `terraintile_n_2` gibt es nicht mehr.
+  - ⚠️ **Korrektur 16.08.2026 — es sind sieben Karten, nicht drei.** Hier stand: „`terraintile_n_0/1/2.png`; der Rip enthält kein 16-Ebenen-Normal-Array, nur drei Rauheitsgruppen; die Zuordnung Tile→Gruppe ist 1:1 aus dem Vergleichsprojekt gespiegelt." Das beschrieb die Grenze des Exports, nicht die des Materials: `Heightmap_basematerial` führt neben dem Array **fünf eigene** Normal-Maps mit sprechenden Slots (`_CliffNormal`, `_ForestNormal`, `_SnowNormal`, `_PavedNormal`, `_CultivatedNormal`), und die drei „Rauheitsgruppen" waren nichts als die entpackten Layer 0–2 desselben Arrays — Fels bekam damit dieselbe Körnung wie Sumpfschlamm. `normalTexs` in `TerrainSplat.ts` hat heute sieben Einträge (`terraintile_n_0`, `forest_n`, `terraintile_n_1`, `cultivated_n`, `gouacherock_big_n`, `paved_n`, `snow_normal`). `terraintile_n_2` gibt es nicht mehr.
 
-**Asset-Stand (2026-07-27, überholt):** Alle 16 Tiles in `terrain_d_array.png` sind gefüllt (per `tools/png-stats.mjs --slices 16` mit korrekter Rückrechnung der PNG-Zeilenfilter gemessen — eine frühere Prüfung ohne Filter-Rückrechnung war nur indikativ). Der damalige Abgleich gegen den Asset-Ordner des Prototyps ergab: von den Texturen **und** Modellen, die die three.js-Referenz benutzt, fehlt keine einzige.
+**Asset-Stand (2026-07-27, überholt):** Alle 16 Tiles in `terrain_d_array.png` sind gefüllt (per `tools/png-stats.mjs --slices 16` mit korrekter Rückrechnung der PNG-Zeilenfilter gemessen — eine frühere Prüfung ohne Filter-Rückrechnung war nur indikativ). Der damalige Abgleich gegen den Asset-Ordner des Prototyps ergab: von den Texturen **und** Modellen, die das three.js-Vergleichsprojekt benutzt, fehlt keine einzige.
 
-⚠️ **Diese Prüfung ist seit dem 16.08.2026 hinfällig** — und zwar nicht, weil sie falsch war, sondern weil ihre Bezugsgröße weg ist. Der Asset-Ordner des Prototyps und der Extraktions-Export existieren auf keinem Container mehr; `terrain_d_array.png` und alle Normal-Maps erzeugt `tools/terrain-texturen.py` selbst, mit den vom Shader vorgegebenen Maßen und der Tile-Reihenfolge aus dem `TILE`-Enum. Die Frage „fehlt uns etwas gegenüber der Referenz?" hat sich damit erledigt; an ihre Stelle tritt „stimmen unsere erzeugten Karten mit dem überein, was der Shader erwartet?" — siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
+⚠️ **Diese Prüfung ist seit dem 16.08.2026 hinfällig** — und zwar nicht, weil sie falsch war, sondern weil ihre Bezugsgröße weg ist. Der Asset-Ordner des Prototyps und der Extraktions-Export existieren auf keinem Container mehr; `terrain_d_array.png` und alle Normal-Maps erzeugt `tools/terrain-texturen.py` selbst, mit den vom Shader vorgegebenen Maßen und der Tile-Reihenfolge aus dem `TILE`-Enum. Die Frage „fehlt uns etwas gegenüber dem Vergleichsprojekt?" hat sich damit erledigt; an ihre Stelle tritt „stimmen unsere erzeugten Karten mit dem überein, was der Shader erwartet?" — siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
 
 ### 3.2 Warum der Boden trotzdem flach aussieht — gemessen, nicht geraten
 
@@ -301,9 +301,9 @@ Nach der Klarstellung „es geht um das Terrain, nicht das Gras" wurde erstmals 
 
 Die Tile-Werte sind **sRGB**, wurden aber als lineare Werte beleuchtet — und das ImageProcessing hängt am Ende nochmal die Gamma-Kurve an. Der Boden kam dadurch doppelt so hell heraus wie die Quelldatei; bei ohnehin kontrastarmen Kacheln bleibt ein ausgewaschener Pastellteppich, in dem die Textur faktisch unsichtbar ist. Sättigung 26 % → **61 %** (VB: 53 %).
 
-**Fix:** `TextureBlock.convertToLinearSpace = true` auf den Diffuse-Tiles — das direkte Gegenstück zu `array.colorSpace = THREE.SRGBColorSpace` in der Referenz. Bewusst **nur** dort: Noise- und Normal-Maps sind Daten, keine Farben, und bleiben linear.
+**Fix:** `TextureBlock.convertToLinearSpace = true` auf den Diffuse-Tiles — das direkte Gegenstück zu `array.colorSpace = THREE.SRGBColorSpace` im Vergleichsprojekt. Bewusst **nur** dort: Noise- und Normal-Maps sind Daten, keine Farben, und bleiben linear.
 
-**UV-Rotation endgültig deaktiviert.** Der A/B am nackten Terrain zeigt mit Rotation großflächig verschmierte Wirbel statt Grasstruktur, ohne Rotation eine saubere gefleckte Oberfläche. ⚠️ **Methodenlehre:** Die Nachbardifferenz-Metrik erfasst das *nicht* (1.00 mit vs. 1.20 ohne) — großflächige Verzerrung ist für sie unsichtbar. Frühere Runden hatten die Rotation allein anhand dieser Zahl freigesprochen; erst der Blick aufs Bild entschied. Der ursprüngliche Projektkommentar („erzeugt Artefakte") war korrekt, die Rotation der Referenz ist hier nicht übertragbar.
+**UV-Rotation endgültig deaktiviert.** Der A/B am nackten Terrain zeigt mit Rotation großflächig verschmierte Wirbel statt Grasstruktur, ohne Rotation eine saubere gefleckte Oberfläche. ⚠️ **Methodenlehre:** Die Nachbardifferenz-Metrik erfasst das *nicht* (1.00 mit vs. 1.20 ohne) — großflächige Verzerrung ist für sie unsichtbar. Frühere Runden hatten die Rotation allein anhand dieser Zahl freigesprochen; erst der Blick aufs Bild entschied. Der ursprüngliche Projektkommentar („erzeugt Artefakte") war korrekt, die Rotation des Vergleichsprojekts ist hier nicht übertragbar.
 
 ### 3.3 Direkter Vergleich mit dem Prototyp (2026-07-27, zweite Runde)
 
@@ -316,13 +316,13 @@ Auf erneute Meldung „Texturen immer noch nicht sichtbar" wurde der Prototyp lo
 
 **Kernbefund: eine Farb-Pipeline-Differenz, keine Asset- oder Splat-Differenz.** Der Blaukanal war bei uns auf 2 zerquetscht — hyper-gesättigtes Neongrün, halbierte Tonwert-Varianz. Geclippte Kanäle löschen genau die Textur-Tonwerte aus, die als „man sieht die Texturen nicht" wahrgenommen werden. VB rendert linear + `ACESFilmicToneMapping`; wir renderten Gamma + KHR-Neutral (hue-erhaltend, entsättigt nicht).
 
-Der echte Terrain-Shader (`Heightmap.json`-Dump, `m_PropInfo` lesbar) lieferte nebenbei die vollständige Slot-Liste: u. a. `_ColorVarietyNoise` („Color Variation" — Farbfleckigkeit des Bodens, Textur nicht im Export), getrennte Normal-Maps je Untergrundtyp, `_Tess`/`_Displacement`. Kompilierter Fragment-Code ist im Dump **nicht** enthalten (nur GPU-Programm-Referenzen) — die Referenz bleibt daher der Prototyp.
+Der echte Terrain-Shader (Materialexport, Eigenschaftsliste lesbar) lieferte nebenbei die vollständige Slot-Liste: u. a. `_ColorVarietyNoise` („Color Variation" — Farbfleckigkeit des Bodens, Textur nicht im Export), getrennte Normal-Maps je Untergrundtyp, `_Tess`/`_Displacement`. Kompilierter Fragment-Code ist im Dump **nicht** enthalten (nur GPU-Programm-Referenzen) — als Vorlage bleibt daher der Prototyp.
 
 **Änderungen** (jeweils einzeln per A/B-Render geprüft):
 1. **Anisotrope Filterung** auf Maximum für alle Terrain-Texturen (`TerrainSplat.ts`; VB: `getMaxAnisotropy()`, wir vorher Babylon-Default 4). Headless nicht messbar (SwiftShader meldet 16×, ignoriert es aber praktisch); auf echter GPU der Standard-Fix gegen matschigen Boden im flachen Blickwinkel.
 2. **Kontrast 1.2 → 1.0** (`PostProcessing.ts`): Unity wendet die 1.2 in linearem HDR an, bei uns traf sie das fertige LDR/Gamma-Bild. Messung: praktisch wirkungslos auf die Sättigungskrise (Blau blieb 2) — der Crush kam nicht aus dem Post-Processing; trotzdem korrekt, den falsch übertragenen Wert zu neutralisieren.
 3. **ACES-Experiment VERWORFEN**: Tonemapping testweise auf ACES (wie VB) — machte es messbar schlechter (RGB(26,61,2) → (6,37,0)), weil Babylons ACES hier auf Gamma-LDR-Input trifft und doppelt abdunkelt. Zurück auf KHR-Neutral.
-4. **Die eigentliche Ursache — doppelte Grün-Multiplikation im Gras** (`GrassClutter.ts`): Der Meadows-Tint multipliziert die Terrainfarbe (`grass_terrain_color.png`, ø(89,119,66)) auf die Halme. Das Original-Design erwartet dafür eine WEISSE Halm-Textur — unsere generierten Atlanten sind aber bereits voll grün (ø(81,122,46)). Grün × Grün = Neonteppich mit zerquetschtem Blaukanal. **Der Beweis über die Referenz:** im Prototyp ist `grass_terrain_color.png` ein 0-Byte-Stub — der Tint-Load schlägt dort fehl, Fallback Weiß, einfache Färbung, korrekter Look. Fix: Tönung neutralisiert (Referenz-Parität), wieder aktivierbar sobald ein echter weißer Halm-Atlas existiert.
+4. **Die eigentliche Ursache — doppelte Grün-Multiplikation im Gras** (`GrassClutter.ts`): Der Meadows-Tint multipliziert die Terrainfarbe (`grass_terrain_color.png`, ø(89,119,66)) auf die Halme. Das Original-Design erwartet dafür eine WEISSE Halm-Textur — unsere generierten Atlanten sind aber bereits voll grün (ø(81,122,46)). Grün × Grün = Neonteppich mit zerquetschtem Blaukanal. **Der Beweis über das Vergleichsprojekt:** im Prototyp ist `grass_terrain_color.png` ein 0-Byte-Stub — der Tint-Load schlägt dort fehl, Fallback Weiß, einfache Färbung, korrekter Look. Fix: Tönung neutralisiert (Parität zum Vergleichsprojekt), wieder aktivierbar sobald ein echter weißer Halm-Atlas existiert.
 
 Plausibler ist **Höhe/Parallax**: dasselbe Material setzt `_Parallax: 0.02`, `_Displacement: 0.05` und `_Tess: 4.0` — das Original tesselliert und verschiebt den Boden anhand einer Höhenkarte. Solange nicht belegt ist, dass diese Höhenkarte der Albedo-Alpha ist, bleibt der Kanal ungenutzt statt geraten.
 
@@ -332,11 +332,11 @@ Plausibler ist **Höhe/Parallax**: dasselbe Material setzt `_Parallax: 0.02`, `_
 
 ### 3.1 Wasser — `WaterPlugin.ts` ✅
 
-Vorlage ist der echte Water-Shader. Shader-Quellcode ließ sich aus dem Export nicht gewinnen, wohl aber die Property-Deklarationen (`m_PropInfo.m_Props`) — daraus ist die Struktur eindeutig: `_Normal` + `_NormalFine` (zwei Normal-Ebenen), `_ColorTop`/`_ColorBottom`/`_ColorBottomShallow` (Tiefen-Farbverlauf), `_FoamTex`/`_FoamHighTex`/`_RandomFoamTex`/`_CurlTex` sowie `_FoamDepth`/`_ShoreFade`/`_DepthFade`/`_WaterEdge` (Schaum als Funktion der Wassertiefe = klassischer Ufer-Schaum, **keine** gemalte Maske). Die passenden Texturen liegen bereits im Projekt und heißen exakt wie die Shader-Slots (`foam.png`, `foam_highres.png`, `random_foam.png`).
+Vorlage ist der echte Water-Shader. Shader-Quellcode ließ sich aus dem Export nicht gewinnen, wohl aber die Property-Deklarationen — daraus ist die Struktur eindeutig: `_Normal` + `_NormalFine` (zwei Normal-Ebenen), `_ColorTop`/`_ColorBottom`/`_ColorBottomShallow` (Tiefen-Farbverlauf), `_FoamTex`/`_FoamHighTex`/`_RandomFoamTex`/`_CurlTex` sowie `_FoamDepth`/`_ShoreFade`/`_DepthFade`/`_WaterEdge` (Schaum als Funktion der Wassertiefe = klassischer Ufer-Schaum, **keine** gemalte Maske). Die passenden Texturen liegen bereits im Projekt und heißen exakt wie die Shader-Slots (`foam.png`, `foam_highres.png`, `random_foam.png`).
 
-**Wellen: die ECHTE Formel.** Aus dem dekompilierten `WaterVolume.cs` portiert (`GetWaterSurface`/`CalcWave`/`CreateWave`/`TrochSin`) — zehn trochoidale Oktaven (spitze Kämme, flache Täler), Amplitude skaliert mit `mix(0, windIntensity, depth01)`, `depth01 = clamp01(tiefe/10)`. Läuft im **Vertex-Shader**; auf der CPU wären zehn Oktaven × zwei TrochSin je Vertex (~330k Trigonometrie-Aufrufe bei 16,6k Vertices) pro Frame nicht bezahlbar.
+**Wellen: die ECHTE Formel.** Aus dem Wellencode des Originals portiert — zehn trochoidale Oktaven (spitze Kämme, flache Täler), Amplitude skaliert mit `mix(0, windIntensity, depth01)`, `depth01 = clamp01(tiefe/10)`. Läuft im **Vertex-Shader**; auf der CPU wären zehn Oktaven × zwei TrochSin je Vertex (~330k Trigonometrie-Aufrufe bei 16,6k Vertices) pro Frame nicht bezahlbar.
 
-⚠️ **Behobener Fehler:** Eine frühere Eigenbau-Variante dämpfte die Wellen mit `× (1 − 0.65·shore)` ausgerechnet am Ufer auf 35 % — und verhinderte damit genau das Überspülen des Strands, das das Original zeigt (vom Nutzer gemeldet: „das Wasser überflutet den Strand nicht, Pfützen heben und senken sich nicht"). Das Original dämpft zwar auch zum Ufer hin, aber über **10 m** statt 2,5 m und mit einer Rohamplitude, die selbst bei 1 m Tiefe noch Dezimeter- bis Meterhub übrig lässt. Die three.js-Referenz dämpft überhaupt nicht — dort ist genau das der Grund, warum ihr Strand sichtbar überspült wird.
+⚠️ **Behobener Fehler:** Eine frühere Eigenbau-Variante dämpfte die Wellen mit `× (1 − 0.65·shore)` ausgerechnet am Ufer auf 35 % — und verhinderte damit genau das Überspülen des Strands, das das Original zeigt (vom Nutzer gemeldet: „das Wasser überflutet den Strand nicht, Pfützen heben und senken sich nicht"). Das Original dämpft zwar auch zum Ufer hin, aber über **10 m** statt 2,5 m und mit einer Rohamplitude, die selbst bei 1 m Tiefe noch Dezimeter- bis Meterhub übrig lässt. Das three.js-Vergleichsprojekt dämpft überhaupt nicht — dort ist genau das der Grund, warum ihr Strand sichtbar überspült wird.
 
 Weiter umgesetzt als `MaterialPluginBase` auf dem StandardMaterial (Muster wie `ClutterWindPlugin`), damit Beleuchtung und Nebel erhalten bleiben:
 - **Ufer-Schaum** aus `_FoamTex` + `_RandomFoamTex`, gegenseitig per UV-Versatz verzerrt (Ersatz für die nicht exportierte `_CurlTex`). Stärke aus der **effektiven** Tiefe (Grundtiefe + aktueller Wellenhub) ⇒ der Saum wandert mit der Brandung.
@@ -345,7 +345,7 @@ Weiter umgesetzt als `MaterialPluginBase` auf dem StandardMaterial (Muster wie `
 
 ⚠️ **Zweiter behobener Fehler:** Der Schaum sampelte **leere Dateien**. Die gerippten Schaumtexturen waren 0 Byte — siehe Einschränkung 33 in [Analyse-Modelle-und-Weltgenerierung.md](Analyse-Modelle-und-Weltgenerierung.md): 2.639 von 2.763 PNGs im Asset-Ordner waren leere Stubs. Die Bilddaten waren aber nur namenlos, nicht verloren; sie wurden über `tools/recover-textures.mjs` aus dem PathID-benannten Texture2D-Dump zurückgeholt. Nicht im Export enthalten: `_CurlTex`, `_FoamHighTex`, `_BubbleTexture`.
 
-**Zahlenwerte aus dem echten `water`-Material** (`m_Floats`/`m_Colors` des Materials mit `m_Name: "water"`) — vorher standen hier durchweg Schätzwerte, die teils deutlich danebenlagen:
+**Zahlenwerte aus dem echten `water`-Material** (Float- und Farbwerte des Materials „water") — vorher standen hier durchweg Schätzwerte, die teils deutlich danebenlagen:
 
 | Eigenschaft | vorher (geschätzt) | echt |
 |---|---|---|

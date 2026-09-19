@@ -1,7 +1,7 @@
 # Migrationsplan — Differenzen & Aufgaben zur Server-Parität
 
 **Datum:** 26.07.2026
-**Referenz-Projekt (Soll):** der erste Prototyp (Three.js, feature-vollständig)
+**Vergleichsprojekt (Soll):** der erste Prototyp (Three.js, feature-vollständig)
 **Ziel-Projekt (Ist):** dieses Repo (Babylon.js 8, WebGPU/WebGL2)
 **Grundlage:** `Docs/Analyse-Modelle-und-Weltgenerierung.md` (Umsetzungsplan Phase A–G)
 
@@ -10,9 +10,9 @@
 > ## 📌 Momentaufnahme vom 26.07.2026 — überholt, aber nicht falsch
 >
 > Dieses Dokument ist eine **Bestandsaufnahme eines Tages** und wird nicht fortgeschrieben.
-> Es hält fest, wie weit der Babylon-Client am 26.07.2026 hinter der Three.js-Referenz
+> Es hält fest, wie weit der Babylon-Client am 26.07.2026 hinter dem Three.js-Vergleichsprojekt
 > zurücklag und in welcher Reihenfolge die Lücken geschlossen werden sollten. Genau als
-> solches ist es weiter wertvoll: Die Spalte „Wichtige Erkenntnisse aus der Referenz" ist
+> solches ist es weiter wertvoll: Die Spalte „Wichtige Erkenntnisse aus dem Vergleichsprojekt" ist
 > eine Liste von Fallen, die man sonst ein zweites Mal baut.
 >
 > **Was seither anders gekommen ist, in Stichworten:**
@@ -20,8 +20,8 @@
 > - **Die Namen stimmen nicht mehr.** Das Projekt heißt World of Vikings; das Shared-Paket
 >   ist `@wov/shared`, der Server `WovServer.ts`. Das Vorgänger-Repo und der Prototyp
 >   sind hier Namen aus der Migrationszeit.
-> - **Die Referenz ist keine mehr.** Der Three.js-Prototyp diente als Soll, bis der
->   Babylon-Client sie eingeholt hatte. Vergleiche gegen sie stehen nur noch als
+> - **Das Vergleichsprojekt ist keins mehr.** Der Three.js-Prototyp diente als Soll, bis der
+>   Babylon-Client es eingeholt hatte. Vergleiche gegen es stehen nur noch als
 >   historische Messungen in [03-Rendering-und-Engine.md](03-Rendering-und-Engine.md).
 > - **Der Aufgabenplan M0–M3 ist weitgehend abgearbeitet und teils überholt.** Schatten,
 >   Tag/Nacht-Nebel, Interpolation, Fern-Ring, Wasser, Weltkarte, HUD und Login existieren
@@ -43,7 +43,7 @@
 >   `client/test/welt-abgleich.ts`.
 >
 > **Was aus dieser Bestandsaufnahme weiterhin gilt:** Das Kapitel „Wichtige Erkenntnisse aus
-> der Referenz“ (ganz unten) ist keine Momentaufnahme, sondern eine Fallensammlung — die
+> dem Vergleichsprojekt“ (ganz unten) ist keine Momentaufnahme, sondern eine Fallensammlung — die
 > gilt unverändert und ist keine Aufgabe, die sich „erledigen“ ließe.
 >
 > **Zum genannten Fern-Terrain-Ring:** Die Vault-Roadmap führt ihn (Stand ihrer Anlage) noch
@@ -65,7 +65,7 @@
 
 ## TL;DR
 
-1. **Server & Shared sind bereits 1:1 portiert.** `server/src`, `shared/src` und alle Tests sind inhaltlich identisch mit der Three.js-Referenz (einzig der alte Paketname und CRLF-Zeilenenden weichen ab). Die gesamte Server-Logik (ZoneManager, PopulateFoliage, prepareFeatures, Persistenz, SpawnSystem, Admin-Fly, TimeSync, ServerConfig-Paket, Gravitation, viewRadius 4) **existiert bereits im Babylon-Repo**.
+1. **Server & Shared sind bereits 1:1 portiert.** `server/src`, `shared/src` und alle Tests sind inhaltlich identisch mit dem Three.js-Vergleichsprojekt (einzig der alte Paketname und CRLF-Zeilenenden weichen ab). Die gesamte Server-Logik (ZoneManager, PopulateFoliage, prepareFeatures, Persistenz, SpawnSystem, Admin-Fly, TimeSync, ServerConfig-Paket, Gravitation, viewRadius 4) **existiert bereits im Babylon-Repo**.
 2. **Die eigentliche Arbeit liegt ausschließlich im Client.** Der Babylon-Client ist ein frischer Neuaufbau (~2 340 Zeilen in 15 Dateien) gegenüber dem reifen Three.js-Client (~4 300 Zeilen). Er rendert Welt + Gras + Entities bereits, aber ihm fehlen fast alle Produktiv-Features der Phasen D–G.
 3. **Kritischster Blocker: der ServerConfig-Handshake fehlt.** Der Babylon-Client baut seinen GeoManager aus einem **hartkodierten Seed** (`world/World.ts`) statt aus dem ServerConfig-Paket (Typ 52). Läuft der Server mit anderem Seed/Flags, rendern Client und Server **verschiedene Welten**. Das ist die einzige Stelle, an der Client und Server faktisch auseinanderlaufen können.
 4. **Vier Feature-Blöcke fehlen komplett** (AssetLog, Weltkarte, Fern-Terrain-Ring, Fly-Modus), ~15 weitere sind nur teilweise portiert (Schatten, Tag/Nacht-Fog, Interpolation, Placeholder/Retry/Throttle, Wasser, Kamera, HUD/Login).
@@ -139,7 +139,7 @@
 - **Skalierung:** Babylon-Client nutzt GLB-Naturgröße × scaleScalar (die three.js-Höhen-Normalisierungs-Falle wurde nie eingebaut). ✅
 - **Doppel-Transform-Fix:** Master-Meshes detachen + Identity nach Capture (26.07). ✅
 - **Alpha-Cutout-Kette:** `transparencyMode = MATERIAL_ALPHATEST` + `alphaCutOff = 0.5` + `useAlphaFromAlbedoTexture` + `hasAlpha` (26.07). ✅
-- **GrassClutter:** nahezu 1:1 inkl. Wind, Player-Push, Dither-Fade, dropZones. ✅ — aber (26.07) `grass_meadows`/`grass_meadows_short`/`grass_heath` sind kaputte Extraktions-Exporte (Blatt-Kunst in einem schmalen Streifen statt über die 3 UV-Spalten des `grasscross`-Meshs verteilt, siehe `tools/gen-grass-texture.py`-Kommentar). Die generierten Ersatztexturen lagen bereits im Texturordner des Prototyps (`*_gen.png`), waren aber nirgendwo verdrahtet — jetzt in `GrassClutter.ts` als `texture: 'grass_meadows_gen'`/`'grass_heath_gen'` referenziert + Dateien nach `assets/textures/` kopiert. `grass_heath_redflower.png` war zusätzlich 0 Byte (kaputte Kopie) — aus dem Clutter-Texturordner des Prototyps nachkopiert. `grass_toon1_yellow.png` (swampGrass) hat dieselbe Alpha-Signatur wie das kaputte `grass_meadows_short.png` (statistisch identisch, per Spalten-Sampling verglichen), nur subtiler: Alpha über volle Höhe verteilt, aber nur 1px-Linien statt Blattfläche — bei Renderdistanz praktisch unsichtbar. Ergänzt in `gen-grass-texture.py` (dritte Palette, Sumpf-Gelbgrün) → `grass_toon1_yellow_gen.png`. **Gleicher Fix fehlt noch im Prototyp** (three.js-Referenz hat dasselbe Problem, `_gen`-Dateien liegen dort ungenutzt daneben).
+- **GrassClutter:** nahezu 1:1 inkl. Wind, Player-Push, Dither-Fade, dropZones. ✅ — aber (26.07) `grass_meadows`/`grass_meadows_short`/`grass_heath` sind kaputte Extraktions-Exporte (Blatt-Kunst in einem schmalen Streifen statt über die 3 UV-Spalten des `grasscross`-Meshs verteilt, siehe `tools/gen-grass-texture.py`-Kommentar). Die generierten Ersatztexturen lagen bereits im Texturordner des Prototyps (`*_gen.png`), waren aber nirgendwo verdrahtet — jetzt in `GrassClutter.ts` als `texture: 'grass_meadows_gen'`/`'grass_heath_gen'` referenziert + Dateien nach `assets/textures/` kopiert. `grass_heath_redflower.png` war zusätzlich 0 Byte (kaputte Kopie) — aus dem Clutter-Texturordner des Prototyps nachkopiert. `grass_toon1_yellow.png` (swampGrass) hat dieselbe Alpha-Signatur wie das kaputte `grass_meadows_short.png` (statistisch identisch, per Spalten-Sampling verglichen), nur subtiler: Alpha über volle Höhe verteilt, aber nur 1px-Linien statt Blattfläche — bei Renderdistanz praktisch unsichtbar. Ergänzt in `gen-grass-texture.py` (dritte Palette, Sumpf-Gelbgrün) → `grass_toon1_yellow_gen.png`. **Gleicher Fix fehlt noch im Prototyp** (das three.js-Vergleichsprojekt hat dasselbe Problem, `_gen`-Dateien liegen dort ungenutzt daneben).
 - **ClutterWindPlugin war komplett wirkungslos (26.07, gravierendster Fund):** `MaterialPluginBase`-Konstruktor hat `enable = false` als Default (6. Parameter) — der Aufruf `super(material, 'ClutterWind', 210, { CLUTTERWIND: true })` hat den Plugin nie in `_activePlugins` aufgenommen. Ohne das läuft `getUniforms()` zwar (Uniform-Deklarationen `clutterTime` etc. stehen im Shader), aber `getCustomCode()` (Wind-Sway, Distanz-Fade/Shrink, Player-Push) und `bindForSubMesh()` (die Uniform-Werte) laufen **nie** — die komplette Gras-Optik war seit Einführung des Plugins tot, nur die (nutzlosen, nie gesetzten) Uniform-Deklarationen waren sichtbar. Per Live-Shader-Dump (`effect.fragmentSourceCode`/`vertexSourceCode`) verifiziert, nicht nur vermutet. Zusätzlich zwei Folgefehler, die erst nach dem Enable-Fix auffielen (Shader-Compile-Fehler):
   - `scene.vEyePosition` existiert nicht — die UBO hat keinen Instanznamen, der Uniform heißt schlicht `vEyePosition` (wie im Babylon-Kern-Shader).
   - `varying float vClutterFade;` (+ die `clutterHash`-Funktion) standen am Injection-Point `CUSTOM_VERTEX_MAIN_BEGIN`/`CUSTOM_FRAGMENT_MAIN_BEGIN` — **innerhalb** von `main()`. Babylon übersetzt `varying`→`out`/`in` für WebGL2/GLSL300es; ein Storage-Qualifier auf einer lokalen Variable ist ein GLSL-Fehler. Verschoben nach `CUSTOM_VERTEX_DEFINITIONS`/`CUSTOM_FRAGMENT_DEFINITIONS` (vor `main()`).
@@ -156,7 +156,7 @@
 
 *Ohne diese Punkte kann Client ≠ Server-Welt rendern bzw. bleiben Objekte unsichtbar.*
 
-| # | Aufgabe | Babylon-Datei | Referenz (Three.js) | Aufwand |
+| # | Aufgabe | Babylon-Datei | Vergleichsprojekt (Three.js) | Aufwand |
 |---|---|---|---|---|
 | M0.1 | **ServerConfig-Handshake (Typ 52)**: Paket in `GameSocket`/`main.ts` empfangen (worldName, seed, genVersion, Flags-Byte), `createWorld(seed, flags)` damit live bauen, erst danach Terrain/Gras/Entities initialisieren; Platzhalter-Terrain bis dahin. Hartkodierten Seed in `World.ts` ersetzen. | `main.ts`, `net/GameSocket.ts`, `world/World.ts` | `main.ts` (initTerrain-Swap), `GameSocket.ts` | M |
 | M0.2 | **StaticInstancer Placeholder→GLB-Swap**: Placeholder-Box pro Bucket bis Modell geladen; Rebuild-Bedingung um `isPlaceholder`-Flag erweitern (1-Mesh-GLB-Bug aus three.js vermeiden!); Statik ohne Modell sichtbar statt unsichtbar. | `entities/EntityManager.ts` | `StaticInstancer.ts` (rebuildBucket, Fix 25.07) | M |
@@ -166,12 +166,12 @@
 
 ### Phase M1 — Visuelle Treue & Bewegung (P1) 🟠
 
-*Bringt den Look und das Spielgefühl auf Referenz-Niveau.*
+*Bringt den Look und das Spielgefühl auf das Niveau des Vergleichsprojekts.*
 
-| # | Aufgabe | Babylon-Datei | Referenz | Aufwand |
+| # | Aufgabe | Babylon-Datei | Vergleichsprojekt | Aufwand |
 |---|---|---|---|---|
 | M1.1 | **Schatten**: ShadowGenerator (CSM oder 2048-Map), sun-follow auf Spieler, PCF-Filter; Entities/Terrain cast+receive. | `engine/Lighting.ts`, `entities/EntityManager.ts`, `engine/Terrain.ts` | `Renderer.ts` (PCFSoft, shadow-follow) | M |
-| M1.2 | **ACES-Tone-Mapping** + ImageProcessing-Config (contrast/exposure passend zum Referenz-Look). | `engine/Lighting.ts` / Scene-Setup | `Renderer.ts` (ACESFilmicToneMapping) | S |
+| M1.2 | **ACES-Tone-Mapping** + ImageProcessing-Config (contrast/exposure passend zum Look des Vergleichsprojekts). | `engine/Lighting.ts` / Scene-Setup | `Renderer.ts` (ACESFilmicToneMapping) | S |
 | M1.3 | **Tag/Nacht Fog-Farben + -Dichten**: `updateDayNight`-Logik portieren — Fog-Farbe/Dichte, Sun-Intensität/-Farbe, Ambient, Sky pro Tageszeit (Tag 0,0028 / Dämmerung 0,0032 / Nacht 0,0042 aus G-POP). | `engine/Lighting.ts`, `main.ts` (TimeSync→worldTime) | `Renderer.updateDayNight` | M |
 | M1.4 | **G2-Interpolation**: Ziel-Position/Rotation pro dynamischem ZDO (`zdoTargets`), exp.-Glättung (τ≈80 ms) + Snap >15 m gegen Teleport-Zucken; Remote-Spieler einbezogen. | `entities/EntityManager.ts` | `Renderer.ts` (zdoTargets, ENTITY_LERP_RATE, ENTITY_SNAP_DIST) | M |
 | M1.5 | **Remote-Player-Meshes**: Capsule+Kopf-Mesh pro Remote-Peer (`updateRemotePlayer`/`removeRemotePlayer`), eigene ZDOs des eigenen Spielers überspringen (`ownUserId`-Filter existiert in ZDOSync). | `entities/EntityManager.ts`, `player/` | `Renderer.updateRemotePlayer`, `createCharacterMesh` | M |
@@ -180,20 +180,20 @@
 
 ### Phase M2 — Vollständigkeit & Komfort (P2) 🟡
 
-| # | Aufgabe | Babylon-Datei | Referenz | Aufwand |
+| # | Aufgabe | Babylon-Datei | Vergleichsprojekt | Aufwand |
 |---|---|---|---|---|
 | M2.1 | **Weltkarte (M)**: progressives Offscreen-Rendering (~12 Zeilen/Frame) aus `geo.getBiome`, 4096-m-Fenster, Biomfarben, yaw-rotierter Player-Pfeil, M/Esc-Toggle, Pointer-Lock-Handling. Benötigt M0.1 (live geo). | `ui/WorldMap.ts` (neu), `main.ts` | `ui/WorldMap.ts` | M |
 | M2.2 | **Kamera**: Orbit mit Pitch (±~80°), Wheel-Zoom (2–16 m), Terrain-Kollision (`cam.y ≥ getTerrainHeight + 0,5`). | `player/PlayerController.ts`, `engine/InputManager.ts` (Wheel) | `Renderer.ts` (Kamera) | M |
 | M2.3 | **Login/Connect-Screen**: Name/Passwort/Server-URL/Tageszeit; erst nach Auth die Welt aufbauen; `sendSetTimeOfDay`. | `ui/` (neu), `main.ts`, `net/GameSocket.ts` | `main.ts` (Connect-Screen) | M |
 | M2.4 | **HUD vollständig**: Health/Stamina, Player-Count, PlayerList, Chat-Anzeige, worldTime/serverDay, FPS; AdminEvent-Toast. | `ui/Hud.ts`, `main.ts` | `main.ts` (HUD-DOM) | M |
-| M2.5 | **AssetLog**: Ring-Buffer (500), Dedupe, `window.__assetLog`, POST-Batching `/__asset-log` (Vite-Plugin-Senke wie Referenz), Verdrahtung an loadModel/loadSprite/updateZDOEntity/setInstance. | `engine/AssetLog.ts` (neu), `vite.config.ts`, `AssetManager.ts`, `EntityManager.ts` | `AssetLog.ts`, `vite.config.ts` (assetLogSink) | M |
+| M2.5 | **AssetLog**: Ring-Buffer (500), Dedupe, `window.__assetLog`, POST-Batching `/__asset-log` (Vite-Plugin-Senke wie im Vergleichsprojekt), Verdrahtung an loadModel/loadSprite/updateZDOEntity/setInstance. | `engine/AssetLog.ts` (neu), `vite.config.ts`, `AssetManager.ts`, `EntityManager.ts` | `AssetLog.ts`, `vite.config.ts` (assetLogSink) | M |
 | M2.6 | **Placeholder mit Namensschild**: prozedurale Canvas-Textur (deterministische Farbe, 2-zeiliger Name, Font-Skalierung) für Dynamic + Static Placeholder. | `engine/AssetManager.ts`, `entities/EntityManager.ts` | `AssetManager.getPlaceholder` | S |
 | M2.7 | **G-TEX2 Normal-Map-Bump**: 3 Normal-Tiles (`terraintile_n_0/1/2`), tileNormalGroup, tangentenfreie Screen-Space-Perturbation, eigenes Ready-Gate. | `engine/TerrainSplat.ts` | `Terrain.ts` (injectSplatShader Bump) | M |
 | M2.8 | **Vertex-Color-Fallback**: D5-Bake als `uSplatReady=0`-Fallback bis Texturen geladen. | `engine/TerrainSplat.ts`, `engine/Terrain.ts` | `Terrain.ts` (CPU-Vertexfärbung) | M |
 
 ### Phase M3 — Nachzügler (P3) ⚪
 
-| # | Aufgabe | Referenz | Aufwand |
+| # | Aufgabe | Vergleichsprojekt | Aufwand |
 |---|---|---|---|
 | M3.1 | `loadSprite` + Item-Icon-Pfad (Sprite-Billboards für Pickables/Items) | `AssetManager.loadSprite`, `findPrefabByHash`-Sprite | M |
 | M3.2 | Anisotropie-Setup (GPU-Max) für Terrain-Texturen | `Terrain.ts` (setAnisotropy) | XS |
@@ -216,7 +216,7 @@ M1.6 Fern-Ring ──► M1.7 Wasser (Far-Water gehört zum Ring)
 
 ---
 
-## Wichtige Erkenntnisse aus der Referenz (nicht erneut falsch machen)
+## Wichtige Erkenntnisse aus dem Vergleichsprojekt (nicht erneut falsch machen)
 
 1. **1-Mesh-GLB-Placeholder-Bug (25.07):** Rebuild-Bedingung darf nicht nur auf `capacity`/`meshes.length === sourceMeshes.length` prüfen — sonst bleibt bei 1-Mesh-GLBs die Box für immer. Immer `isPlaceholder`-Flag prüfen.
 2. **Fern-Ring-Abräumen (G-POP-Regression #2):** Fern-Chunks müssen disposed werden, sobald sie vollständig nah-abgedeckt sind — sonst übermalen grobe 4-m-Strides das Detail-Terrain.

@@ -54,7 +54,7 @@ import { PBRBaseMaterial } from '@babylonjs/core/Materials/PBR/pbrBaseMaterial';
 import type { Material } from '@babylonjs/core/Materials/material';
 import { Color3, Color4, Vector3 } from '@babylonjs/core/Maths/math';
 import { Scene } from '@babylonjs/core/scene';
-import { ValheimSky } from './ValheimSky';
+import { SkyDome } from './SkyDome';
 import {
   Biome,
   WORLD_TIME_LENGTH,
@@ -152,7 +152,7 @@ const inColor3 = (c: EnvColor, ziel: Color3): Color3 => ziel.set(c.r, c.g, c.b);
 
 /**
  * ── Farbraum ─────────────────────────────────────────────────────────
- * Die EnvSetup-Werte sind Unity-Inspector-Farben, also GAMMA (sRGB).
+ * Die Werte des Umgebungsmodells sind Unity-Inspector-Farben, also GAMMA (sRGB).
  * Das Original rendert im Linear-Farbraum, Unity konvertiert sie deshalb beim
  * Setzen von `RenderSettings.ambientLight` / `Light.color` selbst.
  *
@@ -231,7 +231,7 @@ const UMGEBUNGS_INTENSITAET = 1;
 export class Lighting {
   readonly sun: DirectionalLight;
   readonly ambient: HemisphericLight;
-  readonly sky: ValheimSky;
+  readonly sky: SkyDome;
 
   /**
    * Grundhelligkeit einer Dungeon-Instanz (0..1) oder `null` = Oberwelt.
@@ -247,7 +247,7 @@ export class Lighting {
    */
   private dungeonAmbient: number | null = null;
 
-  /** 0..1, 0 = midnight, 0.5 = midday (EnvMan day fraction). */
+  /** 0..1, 0 = midnight, 0.5 = midday (the original's day fraction). */
   timeOfDay = 0.33;
   paused = false;
   /**
@@ -347,9 +347,9 @@ export class Lighting {
    * 0,868): Der Boden bekam 0,2258 statt 0,0678, also das 3,3-fache
    * dessen, was die Wände sehen.
    *
-   * Das Schwesterprojekt macht es in `bindSceneLighting()`
-   * (`packages/engine/src/terrain.ts`) genau so: `sun.diffuse.scale(
-   * sun.intensity)` und `fill.diffuse.scale(fill.intensity)`.
+   * Das Vergleichsprojekt macht es in `bindSceneLighting()` genau so:
+   * `sun.diffuse.scale(sun.intensity)` und
+   * `fill.diffuse.scale(fill.intensity)`.
    *
    * Beschrieben werden sie am ENDE von `apply()`, NACH der
    * Dungeon-Dämpfung — davor stünde wieder die ungedämpfte Zahl darin.
@@ -383,7 +383,7 @@ export class Lighting {
 
     // Sky dome fed from the same EnvState as the fog — see the sky dome
     // module for why Babylon's SkyMaterial (Preetham) cannot match the fog colour.
-    this.sky = new ValheimSky(scene);
+    this.sky = new SkyDome(scene);
 
     // ── Umgebungslicht aus der Himmelskuppel (Grafik-Konzept Stufe 5) ──
     //
@@ -410,7 +410,7 @@ export class Lighting {
       ── Die Nebelkurve kommt aus dem Look-Profil ──────────────────────
 
       Hier stand fest `FOGMODE_EXP2`. Die Kurve ist aber genau die
-      Eigenschaft, die dieses Bild von dem des Schwesterprojekts trennt:
+      Eigenschaft, die dieses Bild von dem des Vergleichsprojekts trennt:
       exp2 ist nah flach und fern steil, exp faellt gleichmaessig — und
       "keine Luftperspektive im Spielbereich" ist genau die Beschwerde,
       die ADR-0041 drueben behoben hat.

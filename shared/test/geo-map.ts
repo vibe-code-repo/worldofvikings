@@ -3,7 +3,7 @@
  *
  *   worldmap-<seed>-ts.png    biome map from the TS GeoManager port
  *                             (biome colors, height shading, rivers, lakes)
- *   worldmap-<seed>-cpp.png   same rendering from the reference export coarse grid
+ *   worldmap-<seed>-ref.png   same rendering from the reference export coarse grid
  *                             (geo_samples.csv, 661x661 @ 32m)
  *   worldmap-<seed>-diff.png  per-cell biome comparison (red = mismatch)
  *
@@ -201,7 +201,7 @@ try {
     }
   }
 } catch {
-  console.log('(no C++ export found — skipping cpp/diff images)');
+  console.log('(no reference export found — skipping ref/diff images)');
   process.exit(0);
 }
 
@@ -255,7 +255,7 @@ for (let d = -4; d <= 4; d++) {
   setPx(refImg, N, Math.round(csx), Math.round(csy) + d, [230, 60, 60]);
 }
 
-const refPath = join(outDir, `worldmap-${seedName}-cpp.png`);
+const refPath = join(outDir, `worldmap-${seedName}-ref.png`);
 writeFileSync(refPath, encodePng(N, N, refImg));
 const diffPath = join(outDir, `worldmap-${seedName}-diff.png`);
 writeFileSync(diffPath, encodePng(N, N, diffImg));

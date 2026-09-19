@@ -1,6 +1,6 @@
 /**
  * WebSocketAcceptor — accepts incoming WebSocket connections.
- * Replaces the Steam-based acceptor of the reference server, which holds
+ * Replaces the acceptor of the reference server, which holds
  * a single listen socket.
  */
 

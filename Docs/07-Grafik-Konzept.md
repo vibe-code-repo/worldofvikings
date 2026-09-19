@@ -139,7 +139,7 @@ blauarme Farbe statt Tönung über die Terrainfarbe.
 `Docs/03` notiert, der Original-Mechanismus sei gescheitert, weil *„`clutter_default.glb`
 auf den 256²-Atlas ausgelegt ist"* und es *„die zum Original passende Clutter-Geometrie"*
 brauche. **Das trifft nicht zu.** Der UV-Dump zeigt: `clutter_default.glb` und die
-Original-Geometrie `grasscross.glb` (Extraktions-Ordner unter `tools/`) haben ein
+Original-Geometrie `grasscross.glb` (`tools/asset-export/`) haben ein
 **identisches UV-Layout** (drei Spalten u 0.01–0.37 / 0.37–0.66 / 0.66–0.97, v 0.03–0.99,
 je 48 Vertices). Es *ist* bereits die Originalgeometrie.
 
@@ -162,7 +162,7 @@ Fix liegt in der Mip-Kette, nicht in dickeren Halmen.
 
 ### Ursache D — Nebel ist eine flache Farbschicht statt Atmosphäre
 
-Der Zwei-Farben-Nebel des EnvSetup-Modells (`fogColor` weg von der Sonne, `fogColorSun` zu
+Der Zwei-Farben-Nebel des Wettermodells (`fogColor` weg von der Sonne, `fogColorSun` zu
 ihr) wird **einmal pro Frame auf der CPU** gemischt (`Lighting.ts:294-305`) und als
 szenenweites Uniform gesetzt — der Tint ist über das ganze Bild konstant. Zusätzlich ist der
 Nebel rein distanzbasiert (`FOGMODE_EXP2`): es gibt keinen **Höhennebel**, also keinen Dunst
@@ -193,7 +193,7 @@ WebGPU laufen soll: `Material.ForceGLSL = true`.
 
 ## Was bereits gut ist (nicht anfassen)
 
-Das EnvSetup/EnvMan-Datenmodell (39 echte Wetter in `shared/src/envData.json`), die
+Das Wetter-Datenmodell des Originals (39 echte Wetter in `shared/src/envData.json`), die
 Himmelskuppel mit `Horizont == scene.fogColor`, das Wasser mit der echten trochoidalen
 Wellenformel, das Terrain-Splatting samt Gamma-Fix und Normal-Maps, der DOF-Nachbau.
 
@@ -363,8 +363,8 @@ der Kamera. Wirksam ist MSAA aber ausschließlich dort, wo die Szene rasterisier
 das ist der Kopf der gesamten Kette. Zur Laufzeit nachgesehen sah die Kette so aus:
 
 ```
-valheimDof, null ×11, highlights, horizontal blur, vertical blur,
-bloomMerge, imageProcessing, ChromaticAberration, fxaa, valheimMotionBlur
+farDof, null ×11, highlights, horizontal blur, vertical blur,
+bloomMerge, imageProcessing, ChromaticAberration, fxaa, wovMotionBlur
 ```
 
 Die elf Lücken stammen vom Ab- und Wiederanhängen der Pipeline-Pässe bei jedem Umschalten.
@@ -693,7 +693,7 @@ die bereits lineare Himmelsfarbe ein zweites Mal — derselbe Fehlertyp wie Ursa
 
 Für den **diffusen** Anteil braucht PBR `sphericalPolynomial`. Der Getter würde die Textur
 zurücklesen (teuer), **der Setter existiert aber ebenfalls** — also die Kugelharmonischen
-analytisch aus dem EnvSetup rechnen (~128 fibonacci-verteilte Richtungen, ~0,5 ms alle paar
+analytisch aus dem Wetterdatensatz rechnen (~128 fibonacci-verteilte Richtungen, ~0,5 ms alle paar
 Sekunden) und setzen. `SKY_GRADIENT_GLSL` ist im Sky-Modul des Clients bereits als eigenständige
 Funktion gekapselt; die CPU-Portierung sind ein Dutzend Zeilen und garantiert, dass IBL,
 Kuppel, Wasser und Nebel dieselbe Quelle haben.
@@ -963,7 +963,7 @@ auf eine Welt, für die er nicht gedacht war.
 > zurückgenommen werden.
 
 **Nebenbefund, korrigiert:** Der Dateikopf sprach von „14 enabled entries". Es sind **13**,
-und zwar seit dem ersten Commit — der vierzehnte ist beim Port aus der three.js-Referenz nie
+und zwar seit dem ersten Commit — der vierzehnte ist beim Port aus dem three.js-Vergleichsprojekt nie
 angekommen. Welcher, lässt sich nicht mehr feststellen, weil der Export gelöscht ist. Seit
 Block A ist die Tabelle ohnehin unsere eigene.
 
@@ -1021,7 +1021,7 @@ Bildpunkte sich von Bild zu Bild ÄNDERN. Das misst überwiegend legitime Bewegu
 Grashalm, der sich neigt, ändert seine Bildpunkte —, und der gesuchte Effekt ging darin
 unter. Dazu kam, dass das Wettersystem die Böigkeit fortlaufend ändert: Derselbe Zustand kam
 über drei Sitzungen auf 4,51 / 2,23 / 1,55 %. Beides ist behoben — der Wind wird über
-`EnvMan.SetDebugWind` eingefroren und nach jedem Zustandswechsel neu festgenagelt, und
+`setDebugWind` des Wettermodells eingefroren und nach jedem Zustandswechsel neu festgenagelt, und
 gemessen wird **Zappeln** statt Änderung: Je Bildpunkt wird das VORZEICHEN der
 Helligkeitsänderung verfolgt. Eine sich neigende Blattkante wird über mehrere Bilder monoton
 heller oder dunkler; Flimmern springt hin und her.
@@ -1417,7 +1417,7 @@ deshalb bewusst am Ende, wenn die tatsächlichen Kosten gemessen sind.
 
 ⚠️ **Woher die LOD-Stufen kommen, hat sich umgekehrt (16.08.2026).** Hier stand: „Die
 LOD-Stufen liegen in den Prefab-Ordnern des Rips
-(Extraktions-Ordner unter `tools/`, 6–7 GLBs je Baum)" — es war also ein
+(`tools/asset-export/`, 6–7 GLBs je Baum)" — es war also ein
 reines Verdrahtungsproblem. Den Rip gibt es nicht mehr, und unsere eigenen Bäume haben
 genau eine Stufe.
 
@@ -1448,7 +1448,7 @@ deshalb erst gemessen, ob sie noch nötig ist.
   Derselbe Grundsatz hat inzwischen auch den Fremdexport selbst erledigt (siehe
   [04-Asset-Pipeline.md](04-Asset-Pipeline.md)).
 - **Triplanar-Terrain**, **`terrain_n_array.png`**, **Wolken-/Sterntexturen**: geringer
-  Gewinn bzw. würden die Kopplung des prozeduralen Himmels an das EnvSetup schwächen.
+  Gewinn bzw. würden die Kopplung des prozeduralen Himmels an das Wettermodell schwächen.
 - **Höher aufgelöste Bodentexturen**: existieren im Original schlicht nicht (Wiesenkachel hat
   Nachbardifferenz 0,91 — die Textur *ist* flach).
 

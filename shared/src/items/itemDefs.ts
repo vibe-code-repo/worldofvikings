@@ -1,5 +1,5 @@
 /**
- * Item definitions. Values marked "verified" come from the MonoBehaviour dumps
+ * Item definitions. Values marked "verified" come from the component dumps
  * under the local asset export — the rest are plausible
  * placeholders for fields nothing reads yet.
  *
@@ -60,7 +60,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     attackStamina: 3,
   },
   {
-    // verified: $item_hoe, m_itemType 19, maxDurability 200, drain 1, stamina 5
+    // verified: $item_hoe, item type 19, maxDurability 200, drain 1, stamina 5
     name: 'Hoe',
     label: 'Hacke (Hoe)',
     itemType: ItemType.Tool,
@@ -97,8 +97,8 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     attackStamina: 5,
   },
   {
-    // verified: $item_pickaxe_antler, m_itemType 14, no piece table,
-    // m_spawnOnHitTerrain -> digg_v3. Digs through the attack path, not build
+    // verified: $item_pickaxe_antler, item type 14, no piece table,
+    // spawn-on-terrain-hit -> digg_v3. Digs through the attack path, not build
     // mode — that is why it has no piece table.
     name: 'PickaxeAntler',
     label: 'Geweihspitzhacke',

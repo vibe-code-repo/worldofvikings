@@ -78,17 +78,18 @@ const KAMERA_BODEN_ABSTAND = 0.5;
 /**
  * Absprunggeschwindigkeit nach oben (m/s).
  *
- * Das Original gibt `m_jumpForce = 10.0` an (Character-MonoBehaviour,
- * extracted_assets/MonoBehaviour — derselbe Wert in allen gefundenen
- * Character-Dumps) und wendet ihn als `ForceMode.VelocityChange` an, also
- * direkt als Geschwindigkeit (Character.Jump: `jump += normalized *
- * (m_jumpForce * num2 - num4)`, danach `ForceJump` → `linearVelocity`).
+ * Das Original gibt eine Sprungkraft von 10.0 an (derselbe Wert in allen
+ * gefundenen Komponentenexporten des Charakters) und wendet sie als
+ * `ForceMode.VelocityChange` an, also direkt als Geschwindigkeit (die
+ * Sprungberechnung addiert die skalierte Sprungkraft, gemindert um einen
+ * Korrekturterm, auf die Bewegung; danach wird das Ergebnis als
+ * `linearVelocity` gesetzt).
  *
  * Der Wert wird 1:1 übernommen. Die dritte Größe, die dazu gehört, ist
  * Die Gravitation des Vorbilds — und die ist NICHT der Unity-Default: die
- * ProjectSettings des Spiels stehen auf −20 m/s² (PhysicsManager.json,
- * `m_Gravity.m_Y = -20`, siehe GRAVITY unten). Der Charakter hat keine
- * eigene Fallbeschleunigung, er läuft mit `m_body.useGravity = true` in
+ * ProjectSettings des Spiels stehen auf −20 m/s² (Physik-Export, Gravitation
+ * y = -20, siehe GRAVITY unten). Der Charakter hat keine eigene
+ * Fallbeschleunigung, er läuft mit eingeschalteter Körpergravitation in
  * genau dieser Weltgravitation.
  *
  * Zusammen ergibt das eine Scheitelhöhe von v²/2g = 100/40 = 2.5 m bei
@@ -119,7 +120,7 @@ const FALL_SCHWELLE = 4;
  * als „stuerzt" gilt. Beim Hinunterlaufen an Haengen verliert der
  * Kollider immer wieder fuer ein paar Bilder den Kontakt — ohne Verzug
  * flackerte dort die Sprung-/Fallanimation (Mike, 10.09.2026). Das
- * Original (Opsive) wartet ebenfalls, bevor es „Fall" zeigt.
+ * Original wartet ebenfalls, bevor es „Fall" zeigt.
  */
 const STURZ_VERZUG = 0.25;
 /**
@@ -160,7 +161,7 @@ const SICHT_GLAETTUNG_S = 0.15;
  */
 const KAMERA_HOEHEN_GLAETTUNG_S = 0.2;
 
-// ── Physics body (C# Character: Rigidbody + CapsuleCollider) ─────────
+// ── Physics body (Rigidbody + CapsuleCollider) ───────────────────────
 /*
  * Die drei Kapselzahlen kommen seit dem 11.09.2026 aus `@wov/shared`
  * (`shared/src/bewegung/masse.ts`) statt hier zu stehen.
@@ -227,9 +228,8 @@ const MAX_FALL_SPEED = 40;
  * Erdbeschleunigung (m/s²) — wie in Physics.ts.
  *
  * NICHT der Unity-Default 9.81: Das Vorbild stellt die Weltgravitation in den
- * ProjectSettings auf −20 (`m_Gravity.m_Y` in PhysicsManager.json des
- * Extraktions-Exports). Alles, was fällt, fällt im Original doppelt so
- * schnell wie auf der Erde.
+ * ProjectSettings auf −20 (Gravitation y im Physik-Export des Originals).
+ * Alles, was fällt, fällt im Original doppelt so schnell wie auf der Erde.
  */
 const GRAVITY = new Vector3(0, -20, 0);
 /**
@@ -240,11 +240,11 @@ const FLUGZEIT = (2 * JUMP_SPEED) / Math.abs(GRAVITY.y);
 /**
  * Wie schnell sich die Figur in ihre Laufrichtung dreht (rad/s).
  *
- * Aus dem Original übernommen: `Character.m_turnSpeed = 300` Grad/s, und
- * `m_runTurnSpeed` steht auf demselben Wert — Rennen dreht also nicht
- * anders als Gehen. Bei 300°/s ist eine Kehrtwende nach 0,6 s vollzogen:
- * schnell genug, dass die Steuerung direkt wirkt, langsam genug, dass die
- * Drehung als Bewegung sichtbar wird statt zu springen.
+ * Aus dem Original übernommen: Drehgeschwindigkeit 300 Grad/s, und die
+ * Drehgeschwindigkeit beim Rennen steht auf demselben Wert — Rennen dreht
+ * also nicht anders als Gehen. Bei 300°/s ist eine Kehrtwende nach 0,6 s
+ * vollzogen: schnell genug, dass die Steuerung direkt wirkt, langsam genug,
+ * dass die Drehung als Bewegung sichtbar wird statt zu springen.
  */
 const TURN_SPEED = (300 * Math.PI) / 180;
 const DOWN = new Vector3(0, -1, 0);
@@ -262,9 +262,9 @@ export class PlayerController {
    * Mausbewegung mit. Jetzt kreist die Kamera im Stand um eine stehende
    * Figur; erst beim Losgehen dreht sie sich in die Laufrichtung.
    *
-   * So macht es auch das Original: `Character.UpdateRotation` nimmt als
-   * Ziel `Quaternion.LookRotation(m_moveDir)`, sobald ein Bewegungswunsch
-   * anliegt — die Figur schaut also dorthin, wo sie hinläuft, und nicht
+   * So macht es auch das Original: Die Rotationsaktualisierung des Charakters
+   * nimmt als Ziel `Quaternion.LookRotation` der Bewegungsrichtung, sobald ein
+   * Bewegungswunsch anliegt — die Figur schaut also dorthin, wo sie hinläuft, und nicht
    * starr dorthin, wo die Kamera hinsieht.
    */
   private _figurYaw = 0;
@@ -516,8 +516,8 @@ export class PlayerController {
 
   // ── Physics ──────────────────────────────────────────────────────
   //
-  // C# Character carries a Rigidbody plus a CapsuleCollider and lets PhysX
-  // resolve contacts (Character.cs:234/236). Same arrangement on Havok: the
+  // The original's character carries a Rigidbody plus a CapsuleCollider and
+  // lets PhysX resolve contacts. Same arrangement on Havok: the
   // capsule is driven by setting its horizontal velocity, gravity and every
   // collision response come from the engine — which is what makes a tree
   // actually stop you, including sliding along it, without re-inventing any
@@ -718,7 +718,7 @@ export class PlayerController {
     // fortschreiben.
     // Rutschen zählt als Bodenkontakt, nicht als freier Fall: Wer an einem
     // zu steilen Hang abrutscht, berührt den Boden trotzdem. Das Vorbild führt
-    // dafür ein eigenes `m_groundContact`, das ebenfalls beide Fälle deckt.
+    // dafür einen eigenen Bodenkontakt-Zustand, der ebenfalls beide Fälle deckt.
     // Ohne das summiert sich an jeder Steigung Fallgeschwindigkeit auf.
     const supported = support.supportedState !== CharacterSupportedState.UNSUPPORTED;
     const current = c.getVelocity();
@@ -1107,7 +1107,7 @@ export class PlayerController {
     // nicht die Kamerarichtung — beim Geradeauslaufen ist das dasselbe
     // (man läuft zum Fadenkreuz), beim seitlichen Ausweichen dreht sich
     // die Figur dorthin, wo sie tatsächlich hingeht, und läuft damit immer
-    // vorwärts. Das entspricht `LookRotation(m_moveDir)` im Original.
+    // vorwärts. Das entspricht `LookRotation` auf die Bewegungsrichtung im Original.
     if (moving) {
       // Umkehrung der Basis oben: forward = (-sin yaw, -cos yaw).
       const zielYaw = Math.atan2(-wx, -wz);

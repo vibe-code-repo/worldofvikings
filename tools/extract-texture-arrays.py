@@ -3,15 +3,15 @@
 extract-texture-arrays.py — Texture2DArrays und Texture3D aus dem Client holen.
 
 ── Warum es dieses Werkzeug gibt ────────────────────────────────────
-Der vorhandene Client-Export unter `extracted_assets/`
+Der vorhandene Client-Export
 enthält NUR `Texture2D`. Der Boden liegt dort aber als `Texture2DArray`
 vor, und genau die beiden fehlten deshalb komplett:
 
     terrain_d_array   256×256, 16 Layer   (_DiffuseArrayTex)
     terrain_n_array   256×256,  4 Layer   (_NormalArrayTex)
 
-Beide hängen am Terrain-Material `Heightmap_basematerial`
-(`extracted_assets/Material/unnamed_7.json`), zusammen mit zwölf
+Beide hängen am Terrain-Material
+(im Materialordner des Exports), zusammen mit zwölf
 weiteren Slots — von denen im Export nur vier lagen.
 
 ── Wo die Daten stecken ─────────────────────────────────────────────
@@ -21,13 +21,13 @@ aus einem AssetBundle unter
     <client-export>/StreamingAssets/SoftRef/Bundles/c4210710
 
 Das Bundle enthält 291.921 Objekte; die Pixel selbst liegen nicht im
-Objekt, sondern per `m_StreamData` in der begleitenden `.resS`-Ressource
+Objekt, sondern per Streaming-Verweis in der begleitenden `.resS`-Ressource
 (Offset + Länge). Das Python-Paket zum Lesen von Unity-Bundles löst diesen
 Verweis nicht selbst auf — `obj.read().image` wirft "Texture2D has no image data". Deshalb
 liest dieses Skript den `.resS`-Block von Hand.
 
 ── Das Format ───────────────────────────────────────────────────────
-`m_Format` ist hier Unitys GraphicsFormat, nicht das TextureFormat-Enum:
+Das Formatfeld ist hier Unitys GraphicsFormat, nicht das TextureFormat-Enum:
 
     108 = BC7 SRGB   (terrain_d_array)
     109 = BC7 UNorm  (terrain_n_array)
@@ -62,7 +62,7 @@ dieselbe Falle wie bei `water_normals_real.png`, siehe WaterPlugin.ts.
 
 ── CurlNoise (Texture3D) ────────────────────────────────────────────
 Der letzte Slot des Terrain-Materials ist ein 128³-Volumen. Es liegt
-NICHT im .resS, sondern inline im Objekt, und `m_Format = 48` heisst
+NICHT im .resS, sondern inline im Objekt, und die Formatkennung 48 heisst
 R16G16B16A16_SFloat: 8 Byte je Texel, gemessener Wertebereich
 -1.0908 .. 2.7246. Die drei Farbkanäle unterscheiden sich (echtes
 Vektorfeld, wie bei Curl-Noise zu erwarten), Alpha ist konstant 2.0 und
@@ -93,7 +93,7 @@ BUNDLE = os.environ.get(
     '/root/client-export/StreamingAssets/SoftRef/Bundles/c4210710',
 )
 
-# PathIDs aus Heightmap_basematerial. Als int-Literal und nicht aus dem
+# PathIDs aus dem Terrain-Material. Als int-Literal und nicht aus dem
 # Material-JSON gelesen: die IDs sind 64-bit, und json.load() rundet sie
 # in Pythons float-Pfad kaputt, sobald sie über 2^53 liegen.
 ARRAYS = {

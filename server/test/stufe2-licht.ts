@@ -140,7 +140,7 @@ function wetterVollstaendig(): void {
   /*
     ── Das Ziel ist seit dem 10.09.2026 ein anderes ────────────────────
     Hier standen #ffe4c6 (Sonne) und #a3afbd (Nebel) — die Zahlen aus
-    `village1.json` des SCHWESTERPROJEKTS. Sie sind nicht falsch
+    `village1.json` des VERGLEICHSPROJEKTS. Sie sind nicht falsch
     gemessen, sie sind nur nicht mehr das Vorbild: Gemessen wird jetzt
     gegen die Referenzszene Level1 (design/original-boden.md §D).
 
@@ -482,7 +482,7 @@ function abendStuetzpunkt(): void {
 
     Drei Zahlen: Sonnenstaerke 2,219 bei 17 h, Grundlicht-Leuchtdichte
     0,735 und `direkt` = 1,467. Alle drei sind gegen `village1.json` des
-    Schwesterprojekts kalibriert gewesen (#ffe4c6 x 3,0 gegen #a8bcd0 x
+    Vergleichsprojekts kalibriert gewesen (#ffe4c6 x 3,0 gegen #a8bcd0 x
     1,1). Diese Vorlage ist nicht mehr das Ziel — gemessen wird gegen
     die Referenz, und deren Sonne steht FEST.
 
@@ -824,7 +824,7 @@ function nebelkurve(): void {
 
   // Die Rechnung aus dem Kopf der Wetterdaten: exp 0,0011 ohne Potenz ist
   // dieselbe Sicht wie exp 0,0005 MIT der 2,2-Potenz, die der Boden des
-  // Schwesterprojekts anwendet. pow(exp(-d·z), 2.2) = exp(-2.2·d·z).
+  // Vergleichsprojekts anwendet. pow(exp(-d·z), 2.2) = exp(-2.2·d·z).
   const w0011 = sichtweite('exp', 0.0011);
   const w0005mitPotenz = sichtweite('exp', 0.0005 * 2.2);
   ok(nah(w0011, w0005mitPotenz, 1), `exp 0,0011 ohne Potenz = exp 0,0005 mit pow 2,2 (${w0011.toFixed(0)} m)`);

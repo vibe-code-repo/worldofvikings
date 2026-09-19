@@ -244,7 +244,7 @@ function netzAusMastern(
  *
  * Bei 32 m deckt die kleinste Abfrage (Fadenkreuz, 5 m) 1–4 Zellen ab, die
  * Namensschilder (40 m) 4–9, die Minimap (70 m) 9–25. Es ist die halbe
- * Kantenlänge einer ZoneSystem-Zone des Originals (64 m) — bewusst feiner,
+ * Kantenlänge einer Zone des Originals (64 m) — bewusst feiner,
  * weil die typische Abfrage hier viel kleiner ist als eine ganze Zone.
  */
 const INDEX_ZELLE_M = 32;
@@ -293,7 +293,7 @@ const zellenSchluessel = (cx: number, cz: number): number =>
  * vervierfacht die Zellenzahl.
  *
  * 128 m ist das 4-fache von INDEX_ZELLE_M (32) und das Doppelte einer
- * ZoneSystem-Zone des Originals (64): gross genug, dass ein
+ * Zone des Originals (64): gross genug, dass ein
  * Streaming-Gebiet von rund 640 m in eine überschaubare Zahl Zellen
  * zerfällt (≈ 25 belegte je Prefab statt 400 bei 32 m), klein genug,
  * dass die Entfernungsprüfung wirklich beisst.
@@ -309,7 +309,7 @@ const RENDER_ZELLE_M = 384;
 /**
  * Harte Obergrenze der Instanzen je Zell-Master (E19 c).
  *
- * Übernommen vom Vorbild: Dessen InstanceRenderer bündelt höchstens
+ * Übernommen vom Vorbild: Dessen Instanz-Renderer bündelt höchstens
  * 1024 Instanzen je Gruppe und prüft das Frustum pro Gruppe. Eine dichte
  * 128-m-Zelle kann mehr als das halten (leaves_merged hat insgesamt bis
  * 3391), deshalb hält jede Zelle eine LISTE von Meshes und füllt sie in
@@ -356,7 +356,7 @@ const ZELL_MAX_INSTANZEN = 1024;
 // CPU in WebGL-Zeichenaufrufen (546 -> 1128 bei 128 m). Der Schnitt ist
 // damit kein fps-Hebel FUER SICH, sondern der UNTERBAU fuer den Schritt,
 // der beide Kurven zugleich senkt: das Impostor-Fernfeld (Roadmap E10-
-// Revision nach ClaudeCraft-Vorbild) — ferne Zellen werden nicht kleiner
+// Revision nach dem Vergleichsprojekt) — ferne Zellen werden nicht kleiner
 // gezeichnet, sondern durch 2-Dreiecke-Sprites ERSETZT.
 //
 // ── REAKTIVIERT (18.08.2026), weil genau dieser Schritt jetzt da ist ─
@@ -2104,7 +2104,7 @@ export class EntityManager {
     if (!this.physicsEnabled) return;
     if (this.colliderless.has(bucket.prefabName)) return;
     // Dungeon-Räume (Phase G) sind IMMER solide — ihre Flags sind 0n, weil
-    // sie keine ZNetView-Prefabs sind; das Flag-Gate unten griffe nicht.
+    // sie keine Netzwerk-Prefabs des Originals sind; das Flag-Gate unten griffe nicht.
     const dungeonRoom = getRoomByHash(bucket.prefabHash) !== undefined;
     // Begehbare Bauwerke umgehen das Flag-Gatter aus DEMSELBEN Grund wie
     // Dungeon-Räume: Sie tragen nur PERSISTENT, und das steht nicht in

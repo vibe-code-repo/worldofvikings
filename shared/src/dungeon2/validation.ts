@@ -288,9 +288,9 @@ export function validateZellgitter(layout: DungeonLayout2, gitter: ZellenGitter)
   });
 
   // ── rueckgrat ──────────────────────────────────────────────────────────
-  // Mittelgang-Invariante des Schwesterprojekts (ARCHITECTURE §3.7 letzte
+  // Mittelgang-Invariante des Vergleichsprojekts (ARCHITECTURE §3.7 letzte
   // Zeile): ein garantiertes Rueckgrat vom Eingang zum tiefsten Pflichtraum.
-  // The sister project's spine invariant (ARCHITECTURE §3.7 last row): a
+  // The comparison project's spine invariant (ARCHITECTURE §3.7 last row): a
   // guaranteed backbone from the entrance to the deepest mandatory room.
   //
   // ENTSCHEIDUNG (siehe `design/decisions-log.md` AP2-3): Das eingefrorene

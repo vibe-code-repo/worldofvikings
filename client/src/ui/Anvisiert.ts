@@ -2,10 +2,9 @@
  * Was steht gerade unter dem Fadenkreuz?
  *
  * Das Original färbt sein Fadenkreuz gelb, sobald das anvisierte Objekt
- * einen Namen hat (`Hud.UpdateCrosshair`: `m_crosshair.color =
- * m_hoverName.text.Length > 0 ? Color.yellow : s_whiteHalfAlpha`). Den
- * Namen liefert dort `Player.FindHoverObject` per Strahl aus der Kamera,
- * begrenzt auf `m_maxInteractDistance = 5` Meter.
+ * einen Namen hat, sonst bleibt es weiss bei halber Deckkraft. Den Namen
+ * liefert dort die Zielsuche per Strahl aus der Kamera, begrenzt auf
+ * 5 Meter Interaktionsreichweite.
  *
  * ── Warum kein Strahl ────────────────────────────────────────────────
  * `scene.pickWithRay` liefe hier ins Leere: Die gespawnten Objekte stehen
@@ -30,7 +29,7 @@ import type { EntityManager, StatischeInstanz } from '../entities/EntityManager'
 
 /**
  * Reichweite in Metern, gemessen vom Spieler. Aus dem Original:
- * `Player.m_maxInteractDistance = 5`.
+ * maximale Interaktionsdistanz 5.
  */
 const REICHWEITE = 5;
 /**

@@ -1,7 +1,7 @@
 /**
  * ClutterWindPlugin — wind sway + camera push + distance shrink/fade for
- * the grass clutter (Babylon-Port of the three.js injectClutterShader,
- * GrassClutter.ts des ersten Prototyps).
+ * the grass clutter (Babylon-Port of the comparison project's three.js
+ * injectClutterShader, its GrassClutter.ts).
  *
  * Vertex stage (per instance): blades shrink smoothly toward 5% size across
  * [fadeMin, fadeMax*jitter], sway by vertex height with a per-instance
@@ -106,7 +106,7 @@ export class ClutterWindPlugin extends MaterialPluginBase {
   static dirX = 0;
   static dirZ = -1;
   static intensity = 0.5;
-  /** Zweiter Windvektor + Blend (EnvMan _GlobalWind2/_GlobalWindAlpha).
+  /** Zweiter Windvektor + Blend (wie beim globalen Wind des Originals).
    *  Gemischt wird die Auslenkung, nicht der Vektor — s. WindPlugin. */
   static dir2X = 0;
   static dir2Z = -1;
@@ -421,7 +421,7 @@ export class ClutterWindPlugin extends MaterialPluginBase {
           // ── Auf der Welle schwimmen ───────────────────────────────
           // Seerosen und Schilf werden bei der Platzierung starr auf den
           // Wasserspiegel gesetzt (GrassClutter: snapToWater, im Original
-          // ClutterSystem.cs:449 genauso). Die Oberfläche selbst steht
+          // genauso). Die Oberfläche selbst steht
           // aber nicht still: WaterPlugin verschiebt sie im Vertexshader
           // um CalcWave. Solange das Wasser per Alpha durchsichtig war,
           // fiel das kaum auf; seit es blickdicht rendert (_SrcBlend One,

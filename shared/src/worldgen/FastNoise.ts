@@ -10,11 +10,11 @@
  *
  * Bit-exactness notes:
  *  - All noise math is double in the reference — JS float64 matches directly.
- *  - m_cellularJitter is a FLOAT (0.45f) in the reference: the TS port stores
+ *  - The cellular jitter is a FLOAT (0.45f) in the reference: the TS port stores
  *    Math.fround(0.45) = 0.44999998807907104 (the reference source
- *    stresses this — "CLIENT USES 0.45f (float), NOT double!").
+ *    stresses this: the client uses the float, NOT the double).
  *  - SetFrequency(0.01f) widens an f32 to double — same fround here.
- *  - The hash uses C#-style unchecked 32-bit signed overflow — emulated
+ *  - The hash uses unchecked 32-bit signed overflow — emulated
  *    with Math.imul at every multiply (order preserved).
  *  - FastFloor/FastRound truncate toward zero ((int)f in the reference) exactly like
  *    the original library — this is NOT Math.floor for negative integers
@@ -23,7 +23,7 @@
 
 const f32 = Math.fround;
 
-// ── Lookup tables (verbatim from FastNoise.h) ─────────────────────
+// ── Lookup tables (verbatim from the reference tables) ─────────────────────
 
 /** GRAD_2D — 8 gradient directions. */
 const GRAD_2D: ReadonlyArray<readonly [number, number]> = [
@@ -297,7 +297,7 @@ const CELL_2D: ReadonlyArray<readonly [number, number]> = [
   [-0.7743120193481445, -0.6328039765357971],
 ];
 
-// ── Hash / grad helpers (C# unchecked int32 semantics via Math.imul) ──
+// ── Hash / grad helpers (unchecked int32 semantics via Math.imul) ──
 
 /** 2D hash — magic numbers 1619, 31337, 60493. */
 function hash2D(seed: number, x: number, y: number): number {
@@ -379,7 +379,7 @@ export class FastNoise {
     this.fractalBounding = 1.0 / ampFractal;
   }
 
-  /** GetCellular — SingleCellular(m_seed, x * m_frequency, y * m_frequency). */
+  /** GetCellular — SingleCellular(seed, x * frequency, y * frequency). */
   getCellular(x: number, y: number): number {
     return this.singleCellular(this.seed, x * this.frequency, y * this.frequency);
   }
@@ -492,7 +492,7 @@ export class FastNoise {
 
   /**
    * SingleSimplexFractalFBM — octave seeds are ++seed, lacunarity 2,
-   * gain 0.5, sum scaled by m_fractalBounding.
+   * gain 0.5, sum scaled by the fractal bounding.
    */
   private singleSimplexFractalFBM(x: number, y: number): number {
     let seed = this.seed;

@@ -152,7 +152,7 @@ worldofvikings/
 │           ├── WorldMap.ts        # Port aus dem Prototyp
 │           └── Inventory.ts
 ├── tools/                     # ÜBERNOMMEN aus dem Prototyp
-│   ├── Extraktions-Ordner/
+│   ├── asset-export/
 │   ├── prefab-parser/
 │   └── *.mjs / *.ts           # GLB-Inspektions- & Playwright-Tools
 └── assets/                    # Symlink/Kopie des Asset-Ordners

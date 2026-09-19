@@ -161,7 +161,7 @@ export function look(): LookProfil {
  * Gemischt statt ersetzt: `server.yml` gibt fast immer nur einzelne
  * Regler an, und ein `{ bloom: { staerke: 0.4 } }`, das Schwelle und
  * Kernel auf `undefined` setzt, wäre ein Regler, der etwas anderes tut
- * als er sagt (die Falle, die ADR-0040 im Schwesterprojekt bezahlt hat).
+ * als er sagt (die Falle, die ADR-0040 im Vergleichsprojekt bezahlt hat).
  */
 export function setzeLook(teil: unknown): LookProfil {
   aktuell = mischeLook(teil);
@@ -188,7 +188,7 @@ export function beiLook(f: Beobachter): () => void {
  * `#rrggbb` → Color3 in LINEAR.
  *
  * Die Hex-Werte des Profils sind SRGB (sie stammen aus dem
- * Unity-Inspector des Schwesterprojekts). Diese Pipeline füttert alles
+ * Unity-Inspector des Vergleichsprojekts). Diese Pipeline füttert alles
  * linear — wer sie roh in ein Uniform schreibt, bekommt ein zu helles,
  * zu sattes Bild. Genau dafür gibt es diese eine Funktion, statt an vier
  * Stellen `new Color3(...)` mit der Frage „war das jetzt Gamma?".

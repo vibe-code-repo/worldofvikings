@@ -62,8 +62,8 @@ function check(name: string, ok: boolean, detail = ''): void {
 
 // ── (a) Keine Zeile trägt eine Tönung ────────────────────────────────
 /*
-  Das Vorbild färbt keine Bodentextur um: alle `m_DiffuseRemapMin/Max`
-  stehen auf 0…1, alle `m_Specular` sind schwarz, und das gilt für ALLE
+  Das Vorbild färbt keine Bodentextur um: alle Diffuse-Remap-Bereiche
+  stehen auf 0…1, alle Spekularfarben sind schwarz, und das gilt für ALLE
   zwölf Terrains des Spiels (design/original-boden.md §A, F24). Die
   Farbe kommt aus Sonne, Grundlicht, Nebel und Grading — vier Stellen,
   die jede ihre eigene gemessene Zahl haben.
@@ -570,7 +570,7 @@ async function laubZensus(): Promise<void> {
     const text = readFileSync(spez, 'utf8');
     for (const [was, muster] of [
       ['die Schichttabelle (Tabelle A)', /Ani Dark Rockwall 3/],
-      ['die Nebelzahlen', /m_LinearFogStart/],
+      ['die Nebelzahlen', /Linear-Nebel Start \| \*\*15 m\*\*/],
       ['die Grading-Zahlen', /ShadowsMidtonesHighlights/],
     ] as const) {
       check(`original-boden.md führt ${was}`, muster.test(text));

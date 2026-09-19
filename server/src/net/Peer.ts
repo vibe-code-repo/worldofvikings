@@ -8,7 +8,7 @@
  *   - name, socket, position, character ZDOID
  *   - packed flags (visible, gated, ...) and the sync data map
  *
- * Transport: WebSocket (replaces SteamSocket).
+ * Transport: WebSocket (replaces the socket layer of the reference server).
  */
 
 import type { Vector3, ZoneID, ConnectionStatus } from '@wov/shared';
@@ -347,8 +347,8 @@ export class Peer {
   }
 
   /**
-   * Bytes, die der Socket noch nicht losgeworden ist (C# ISocket::
-   * GetSendQueueSize). Das ist die Größe, gegen die
+   * Bytes, die der Socket noch nicht losgeworden ist (Sendewarteschlange
+   * des Originals). Das ist die Größe, gegen die
    * ZDO_MAX_SEND_THRESHOLD/ZDO_MIN_SEND_THRESHOLD im Original gemessen
    * werden: Ein Peer mit vollem Puffer bekommt nichts obendrauf, sonst
    * wächst der Rückstand schneller, als die Leitung ihn abträgt.

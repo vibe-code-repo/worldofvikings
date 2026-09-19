@@ -1,8 +1,8 @@
 /**
  * Precipitation — rain, snow and ash falling around the player.
  *
- * C# reference: EnvMan enables/disables EnvSetup.m_psystems
- * (SetParticleArrayEnabled), and GlobalWind pushes the wind into each
+ * Reference: the original's weather manager enables/disables the weather's
+ * particle systems, and the global wind pushes the wind into each
  * system's velocityOverLifetime. Those psystem PREFABS are not in our
  * asset export, so which system a weather uses is derived from its flags
  * instead — see precipitationOf() in shared/weather.ts. The timing is
@@ -14,7 +14,7 @@
  * world. Same here: one box emitter overhead, moved every frame. That
  * keeps the count in the low thousands no matter how far you travel.
  *
- * The wind matters twice over: it tilts the fall (GlobalWind's
+ * The wind matters twice over: it tilts the fall (the global wind's
  * velocityOverLifetime.x/z) and, for rain, stretches the drops along
  * their travel direction so a storm reads as driving rain rather than as
  * dots drifting sideways.
@@ -213,7 +213,7 @@ export class Precipitation {
     this.system.maxLifeTime = ((SPAWN_HEIGHT + 6) / s.minSpeed) * tiltLen;
 
     // Fall direction: straight down plus the wind's sideways push. This is
-    // GlobalWind's velocityOverLifetime, folded into the emit direction
+    // the global wind's velocityOverLifetime, folded into the emit direction
     // because a Babylon ParticleSystem has no per-axis velocity module.
     //
     // NORMALISED on purpose: Babylon multiplies the direction by emitPower,

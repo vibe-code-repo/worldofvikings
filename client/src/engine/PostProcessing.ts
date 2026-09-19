@@ -2,9 +2,8 @@
  * PostProcessing — Nachbildung des Original-Post-Process-Stacks.
  *
  * Quelle der Werte: das Ingame-Post-Process-Profil des Vorbilds (Unity
- * PostProcessing-Stack v2) aus dem Asset-Export,
- * `extracted_assets/MonoBehaviour/
- *  unnamed_-5654458244375810705.json`. Gemessene Defaults dort:
+ * PostProcessing-Stack v2) aus dem Asset-Export der
+ * Komponentendaten. Gemessene Defaults dort:
  *
  *   Bloom                AN   intensity 0.3, threshold 0.7, softKnee 0.7,
  *                             radius 5.0, antiFlicker 1
@@ -13,16 +12,16 @@
  *   Color Grading        AN   Tonemapper "Neutral", contrast 1.2,
  *                             temperature -8, postExposure 1.0
  *   Ambient Occlusion    AN   intensity 1.0, radius 0.15, 10 Samples
- *   Depth of Field       AUS  (m_Enabled = 0)  ← irreführend, siehe unten
+ *   Depth of Field       AUS  (Enabled = 0)    ← irreführend, siehe unten
  *   Anti-Aliasing        AUS  (im Profil deaktiviert; wäre TAA)
  *   Vignette/Grain/LUT/SSR/EyeAdaptation  AUS
  *
  * ACHTUNG beim DOF: Dass es in diesem Profil aus ist, heißt NICHT, dass
  * das Vorbild keine Tiefenunschärfe hat. Es benutzt dafür eine
  * zweite, unabhängige Komponente auf derselben Kamera — den alten Image
- * Effect `UnityStandardAssets.ImageEffects.DepthOfField`, gesteuert von
- * `CameraEffects.cs`, standardmäßig AN. Genau daher kommt die weiche
- * Ferne, die hier lange gefehlt hat; nachgebildet in engine/ValheimDof.ts.
+ * Effect für Tiefenunschärfe, gesteuert von der
+ * Kameraeffekt-Komponente, standardmäßig AN. Genau daher kommt die weiche
+ * Ferne, die hier lange gefehlt hat; nachgebildet in engine/FarDof.ts.
  *
  * Das erklärt den vom Nutzer bemängelten Unterschied: unser Bild war
  * "hart"/clean, das Original ist durch Bloom + Motion Blur + leichte
@@ -32,7 +31,7 @@
  *  - Anti-Aliasing: Original nutzt TAA und hat es in DIESEM Profil aus.
  *    Wir nutzen FXAA plus 4×MSAA auf der Szenenpassage — als EINE
  *    Nutzeroption abschaltbar, genau wie im echten Spiel
- *    (GraphicsSettingBool.AntiAliasing). Die beiden greifen an
+ *    (Grafikoption Anti-Aliasing). Die beiden greifen an
  *    verschiedenen Kanten, siehe setzeMsaa().
  *
  *    ⚠ Hier stand bis 17.08.2026: "Babylon hat kein TAA in der
@@ -51,10 +50,10 @@
  *    ImageProcessingConfiguration keine direkte Entsprechung
  *    (ColorCurves kennt Hue/Density/Saturation/Exposure, keine Kelvin-
  *    Temperatur). Weggelassen statt schlecht approximiert — der Nebel-
- *    und Ambient-Ton kommt bei uns ohnehin aus dem EnvSetup-Modell.
+ *    und Ambient-Ton kommt bei uns ohnehin aus dem Umgebungsmodell.
  *
  * Alle vier Effekte, die das Original als Grafikoption anbietet
- * (GraphicsSettingBool: Bloom, DepthOfField, MotionBlur,
+ * (Grafikoptionen: Bloom, DepthOfField, MotionBlur,
  * ChromaticAberration, AntiAliasing), sind hier ebenfalls einzeln
  * schaltbar — siehe ui/Settings.ts.
  */
@@ -67,7 +66,7 @@ import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imagePro
 import { ColorCurves } from '@babylonjs/core/Materials/colorCurves';
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { ValheimDof } from './ValheimDof';
+import { FarDof } from './FarDof';
 import {
   ankerDurchmesser,
   kompositKorrigiert,
@@ -126,7 +125,7 @@ const MOTION_SAMPLES = 10;
  */
 const MSAA_SAMPLES = 4;
 /** Name der TAA-Pipeline — auch der Schlüssel beim An-/Abhängen der Kamera. */
-const TAA_NAME = 'valheimTaa';
+const TAA_NAME = 'wovTaa';
 
 /**
  * Stehen TAA und sein Kopierpass als LETZTE belegte Einträge der Kamerakette?
@@ -137,7 +136,7 @@ const TAA_NAME = 'valheimTaa';
  *
  * Gemessen 18.09.2026: Nach dem Einschalten steht TAA hinten, nach JEDEM
  * späteren Umschalten von Bloom, Tiefenunschärfe, FXAA, Bewegungsunschärfe
- * oder SSAO steht es direkt hinter `valheimDof` — die Pipeline hängt ihre
+ * oder SSAO steht es direkt hinter `farDof` — die Pipeline hängt ihre
  * Pässe bei jedem Umschalten NEU ans Ende und lässt TAA davor stehen. Hinten
  * hat es die dunklen Einbrüche im Stand von 0,064 auf 0,000 % gesenkt, vorn
  * (nach dem Umschalten) nur auf 0,0025 %.
@@ -300,7 +299,7 @@ const SSAO_RATIO = 0.5;
  */
 const SSAO_MAX_Z = 1000;
 /** Name der Pipeline — wird zum An- und Abhängen an die Kamera gebraucht. */
-const SSAO_NAME = 'valheimSSAO';
+const SSAO_NAME = 'wovSSAO';
 
 /** Kamera-Vorwaerts im lokalen Raum — Konstante, s. `update()`. */
 const VORWAERTS = new Vector3(0, 0, 1);
@@ -328,7 +327,7 @@ export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
   motionBlur: false,
   chromaticAberration: true,
   antiAliasing: true,
-  // Original-Voreinstellung: GraphicsSettingsManager.cs:46 → true.
+  // Original-Voreinstellung: true.
   depthOfField: true,
   // Bewusst AUS trotz Original-Default — siehe Kostenhinweis in setSunShafts().
   sunShafts: false,
@@ -340,7 +339,7 @@ export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
   temporalAA: false,
 };
 
-/** Woran der Autofokus sich orientiert — siehe ValheimDof.autoFocus(). */
+/** Woran der Autofokus sich orientiert — siehe FarDof.autoFocus(). */
 export interface FocusSource {
   groundHeight: (x: number, z: number) => number;
   waterLevel: number;
@@ -351,7 +350,7 @@ export class PostProcessing {
   private readonly scene: Scene;
   private readonly camera: Camera;
   private motionBlur: MotionBlurPostProcess | null = null;
-  private dof: ValheimDof | null = null;
+  private dof: FarDof | null = null;
   private shafts: VolumetricLightScatteringPostProcess | null = null;
   /**
    * Der weisse Anker im Verdeckungspuffer (F3).
@@ -461,8 +460,8 @@ export class PostProcessing {
     // eingehängt glättet TAA das, was der Spieler wirklich sieht.
     //
     // Ein Versuch, die Pässe per `attachPostProcess(pp, 0)` nach vorn zu
-    // holen (derselbe Griff wie bei ValheimDof), war gebaut, hat sauber
-    // umsortiert — `TAA(s4)` vorn, `valheimDof` auf s1 — und ist wegen
+    // holen (derselbe Griff wie bei FarDof), war gebaut, hat sauber
+    // umsortiert — `TAA(s4)` vorn, `farDof` auf s1 — und ist wegen
     // dieser Messung wieder entfernt worden.
     //
     // Die Pipeline entsteht hier oben trotzdem zuerst: Das ist die
@@ -539,13 +538,13 @@ export class PostProcessing {
     this.ssao.samples = SSAO_SAMPLES;
     this.ssao.maxZ = SSAO_MAX_Z;
 
-    this.pipeline = new DefaultRenderingPipeline('valheimPost', true, scene, [camera]);
+    this.pipeline = new DefaultRenderingPipeline('wovPost', true, scene, [camera]);
 
 
     // Das DOF DIESER Pipeline bleibt aus — es ist Babylons physikalisches
     // Kameramodell (Blende/Brennweite) und verwischt auch den Vordergrund.
     // Die Unschärfe des Vorbilds ist eine reine Fernunschärfe und hängt separat
-    // an der Kamera, siehe ValheimDof.
+    // an der Kamera, siehe FarDof.
     this.pipeline.depthOfFieldEnabled = false;
     this.pipeline.grainEnabled = false;
     this.pipeline.sharpenEnabled = false;
@@ -572,7 +571,7 @@ export class PostProcessing {
    * Messung richtig und der Schluss an eine andere Frage gebunden:
    *
    *  · „ACES gilt": begründet damit, dass ACES dunkler UND flauer ist
-   *    als Neutral (ADR-0040 des Schwesterprojekts: Neutral 0,70
+   *    als Neutral (ADR-0040 des Vergleichsprojekts: Neutral 0,70
    *    mittlere Sättigung, ACES 0,52) und „bunter" das Gegenteil des
    *    Ziels sei. Das Ziel war damals eine Sättigung um 0,45.
    *  · „gar keiner": begründet damit, dass alle neun SPIEL-Level
@@ -794,7 +793,7 @@ export class PostProcessing {
    * kostete dort Bandbreite, ohne eine einzige Kante zu glätten — deshalb
    * setzt die Schleife alle übrigen ausdrücklich auf 1 zurück.
    *
-   * Welcher Pass der erste ist, wechselt im Betrieb: `ValheimDof` hängt
+   * Welcher Pass der erste ist, wechselt im Betrieb: `FarDof` hängt
    * sich mit `attachPostProcess(pp, 0)` bewusst ganz nach vorn, und die
    * DefaultRenderingPipeline hängt ihre Pässe bei jedem Umschalten neu an.
    * Deshalb wird die Kette hier gelesen statt geraten — das ist derselbe
@@ -861,7 +860,7 @@ export class PostProcessing {
    * ohne Gras sind es rund 60 weniger.
    *
    * Sichtbar ist das nicht: Der einzige Abnehmer der Tiefe ist die
-   * FERN-Unschärfe (ValheimDof, Autofokus im zweistelligen Meterbereich).
+   * FERN-Unschärfe (FarDof, Autofokus im zweistelligen Meterbereich).
    * Grashalme stehen im Nahbereich und verschwinden ohnehin spätestens bei
    * ~60 m (ClutterWindPlugin-Fade); ihre Fragmente bekommen jetzt die Tiefe
    * des Bodens dahinter, der praktisch dieselbe ist. Was der Effekt
@@ -1271,8 +1270,8 @@ export class PostProcessing {
   }
 
   /**
-   * Sonnenstrahlen — `SunShafts` des Vorbilds (GraphicsSettingBool.SunShafts,
-   * gesetzt in CameraEffects.SetSunShafts). Das Original benutzt den
+   * Sonnenstrahlen — `SunShafts` des Vorbilds (Grafikoption
+   * „Sonnenstrahlen", gesetzt von der Kameraeffekt-Komponente). Das Original benutzt den
    * Unity-Image-Effect gleichen Namens; Babylons direkter Gegenpart ist
    * `VolumetricLightScatteringPostProcess` (radiales Blur ausgehend von der
    * Lichtquelle im Bildraum, dasselbe Verfahren).
@@ -1347,7 +1346,7 @@ export class PostProcessing {
       // auf dem ganzen Bild, ganz gleich, was `exposure` sagt.
       korrigiereStrahlenKomposit();
       const vls = new VolumetricLightScatteringPostProcess(
-        'valheimSunShafts',
+        'wovSunShafts',
         // Verdeckung klein (dort liegen die Kosten), Ausgabe VOLL — die
         // Begründung steht im Block oben, sie ist nicht optisch.
         { passRatio: 0.25, postProcessRatio: 1 },
@@ -1366,7 +1365,7 @@ export class PostProcessing {
       /*
         ── Die Kuppel raus aus der Verdeckung (ADR-0042, Punkt 2) ──────
 
-        `ValheimSky.mesh` traegt `infiniteDistance` — es reitet mit der
+        `SkyDome.mesh` traegt `infiniteDistance` — es reitet mit der
         Kamera und liegt in der Tiefe VOR dem Anker, den `update()` in
         `ankerAbstand` Metern setzt. In der Verdeckungspassage schreibt
         es damit eine Wand ueber den ganzen Himmel, hinter der der Anker
@@ -1379,7 +1378,7 @@ export class PostProcessing {
         The sky dome rides with the camera and would bury the anchor
         behind a depth wall in the occlusion pass. Everything else stays.
       */
-      const kuppel = this.scene.getMeshByName('valheimSky');
+      const kuppel = this.scene.getMeshByName('skyDome');
       if (kuppel) vls.excludedMeshes.push(kuppel);
       /*
         ── Der voreingestellte Anker: weiter aus, aber nicht mehr allein ──
@@ -1562,7 +1561,7 @@ export class PostProcessing {
 
   private setDepthOfField(enabled: boolean): void {
     if (enabled && !this.dof && this.focusSource) {
-      this.dof = new ValheimDof(
+      this.dof = new FarDof(
         this.scene,
         this.camera,
         this.focusSource.groundHeight,
@@ -1603,7 +1602,7 @@ export class PostProcessing {
   private setMotionBlur(enabled: boolean): void {
     if (enabled && !this.motionBlur) {
       this.motionBlur = new MotionBlurPostProcess(
-        'valheimMotionBlur',
+        'wovMotionBlur',
         this.scene,
         1.0,
         this.camera,

@@ -1,8 +1,8 @@
 /**
  * GrassClutter — G-VEG (Babylon-Port): the original clutter system.
  *
- * Port of the three.js reference (the first prototype's GrassClutter.ts,
- * itself a faithful port of the dumped ClutterSystem.cs + ZoneSystem data —
+ * Port of the comparison project's three.js version (itself a faithful
+ * port of the original's clutter system and zone data —
  * see Docs/Analyse-Modelle-und-Weltgenerierung.md G-VEG/G-VEG2/G-VEG3).
  *
  * Original algorithm: 10m patches, 45m radius, per-entry deterministic RNG,
@@ -22,7 +22,7 @@
  *    TerrainManager dependency (no getBiomeAt helper needed).
  *
  * Asset note: clutter_default/plane/fern/vass/lily GLBs were copied from
- * the reference asset folder (they are identical in both exports); the
+ * the comparison project's asset folder (they are identical in both exports); the
  * real clutter textures were copied from the extraction export (the
  * 0-byte stubs in assets/textures are a known export gap — see the
  * Analyse doc, same class as G-TEX2).
@@ -45,7 +45,7 @@ import { modelBaseUrl, modelDateiName } from './assetUrls';
 // nicht in der Welt. Die Begründung steht bei der Konstante selbst.
 export { STORE_GRAS_AKTIV };
 
-/** Original m_grassPatchSize / m_distance from the dumped scene (documentation
+/** Original grass patch size / distance from the scene data (documentation
  *  reference only — see BUILD_RADIUS below for the value that actually gates
  *  cell construction). */
 const PATCH = 10;
@@ -53,7 +53,7 @@ const DISTANCE = 45;
 /** Cell = 4×4 patches = 40m — one InstancedMesh per cell per entry. */
 const CELL_PATCHES = 4;
 const CELL_SIZE = PATCH * CELL_PATCHES;
-/** In-game amount scale (the 1.5 in the scene dump is the main-menu hack). */
+/** In-game amount scale (the 1.5 in the original scene data is the main-menu hack). */
 const AMOUNT_SCALE = 1.0;
 /**
  * Wählbare Grasdichten (Faktor auf die Halmzahl pro Patch).
@@ -65,11 +65,11 @@ const AMOUNT_SCALE = 1.0;
  * Zeichnen. Vom Nutzer gemessen: ohne Gras 80 fps statt 45.
  *
  * Die Stufen 0.25 / 0.5 / 1.0 sind NICHT gegriffen, sondern genau das,
- * was das Original tut (ClutterSystem.cs, Zweig über `m_quality`):
+ * was das Original tut (je nach Grafikstufe):
  *
- *   Quality.Low => clutter.m_amount / 4
- *   Quality.Med => clutter.m_amount / 2
- *   _           => clutter.m_amount
+ *   niedrig => Menge / 4
+ *   mittel  => Menge / 2
+ *   sonst   => Menge
  *
  * Das Original regelt die Grasmenge also über die ANZAHL, nicht über die
  * Sichtweite — dass wir bisher nur letztere hatten, war die Abweichung.
@@ -102,11 +102,11 @@ interface ClutterEntry {
   readonly terrainTint: boolean;
   /** _MainTex scale U (forest materials tile 2× horizontally). */
   readonly texRepeatU: number;
-  /** InstanceRenderer m_scale — baked into every instance matrix. */
+  /** Instance scale of the prefab — baked into every instance matrix. */
   readonly prefabScale: readonly [number, number, number];
   readonly scaleMin: number;
   readonly scaleMax: number;
-  readonly maxTiltCos: number; // cos(rad(m_maxTilt))
+  readonly maxTiltCos: number; // cos(rad(max tilt))
   /**
    * MINDESTneigung, als Kosinus — die Umkehrung von `maxTiltCos`.
    *
@@ -132,8 +132,8 @@ interface ClutterEntry {
   /**
    * Liegt die Pflanze AUF dem Wasser und hebt und senkt sich mit der Welle?
    *
-   * Kein Originalfeld — der vollständige `ClutterSystem.Clutter`-Datensatz
-   * kennt nur `m_snapToWater` (auf den Wasserspiegel setzen) und hebt gar
+   * Kein Originalfeld — der vollständige Clutter-Datensatz des Originals
+   * kennt nur „auf den Wasserspiegel setzen" (snapToWater) und hebt gar
    * nichts mit dem Wellengang. Für Seerosen brauchen wir die Ergänzung
    * trotzdem: Sie liegen flach an der Oberfläche, und seit das Wasser
    * blickdicht rendert, verschluckt sie jeder Wellenberg (bei 1,5 m
@@ -151,7 +151,7 @@ interface ClutterEntry {
   readonly forestMin: number;
   readonly forestMax: number;
   /**
-   * C# ClutterSystem.Clutter.m_onCleared / m_onUncleared, with the original's
+   * The original's cleared / uncleared flags, with its
    * defaults (uncleared only). "Cleared" is ground the player painted — dirt
    * path, cultivated soil or paving; grass does not grow back on it.
    */
@@ -390,8 +390,8 @@ export function spitzenKontrast(v: {
 /**
  * Tönungsstreuung je Büschel — gegen den „gestempelten" Bestand.
  *
- * Die Analyse „Look-Übertragung ins Labor" (§2 „Vegetation") hält fest,
- * woran der Vorbild-Shader seine Lebendigkeit hat: Die Laub- und
+ * Die Look-Analyse (§2 „Vegetation") hält fest,
+ * woran der Shader des Vorbilds seine Lebendigkeit hat: Die Laub- und
  * Halmfarbe ist Grundton × zwei Weltraum-Rauschskalen. Unser Clutter
  * kennt kein Rauschen — jedes Büschel eines Eintrags trägt exakt dieselbe
  * Farbe, und eine Wiese aus 45.000 identischen Büscheln liest sich als
@@ -476,7 +476,7 @@ const B = Biome;
  * Der Kopf dieser Datei sprach bis zum 16.08.2026 von „14 enabled entries
  * from the live-client scene dump". Nachgezählt sind es 13, und zwar seit
  * dem allerersten Commit (`402c20d`) — der 14. ist beim Port aus der
- * three.js-Referenz nie angekommen. Welcher es war, lässt sich nicht mehr
+ * Vergleichsprojekt nie angekommen. Welcher es war, lässt sich nicht mehr
  * feststellen: Der Extraktions-Export ist seit Block A gelöscht. Die Frage
  * ist damit auch keine mehr — seit Block A ist die Tabelle unsere eigene,
  * und die Texturen dazu erzeugt `tools/clutter-texturen.py`.
@@ -498,7 +498,7 @@ const B = Biome;
  * authentischer Wert trifft damit auf eine Welt, für die er nicht gedacht
  * war.
  *
- * Bewusst NICHT eigenmächtig geändert: Die 4.0 stammt aus dem Dump. Ob der
+ * Bewusst NICHT eigenmächtig geändert: Die 4.0 stammt aus den Originaldaten. Ob der
  * Farn hochwandert oder die Wiesen heruntergehen, ist eine Entscheidung
  * über die Bildsprache — dieselbe Lehre wie bei der Fels-Schwelle (E4), wo
  * ein frei erfundener Ersatzwert später zurückgenommen werden musste.
@@ -563,7 +563,7 @@ const ENTRIES: readonly ClutterEntry[] = ROH_ENTRIES.filter(
  *
  * BUG 2 (reported, screenshot): even once cells build on time, the fade
  * boundary itself looks unnatural — every blade of a given entry shares
- * the *exact same* fadeMin/fadeMax (the dumped per-entry values), so an
+ * the *exact same* fadeMin/fadeMax (the original per-entry values), so an
  * entire field vanishes along one perfectly circular line around the
  * player. In low-fog weather (e.g. the "Clear" env) that line is fully
  * exposed as a hard "wall" between detailed 3D grass and flat terrain
@@ -991,7 +991,7 @@ export class GrassClutter {
         new ClutterWindPlugin(material, {
           swayAmp: entry.swayAmp,
           pushDist: entry.pushDist,
-          // Raw dumped values — the quality/fog scale is applied dynamically
+          // Raw original values — the quality/fog scale is applied dynamically
           // every frame via ClutterWindPlugin.distanceScale (see update()),
           // not baked in here, so it can react to fog changes and to the
           // user changing the "Vegetationsqualität" setting mid-game.
@@ -1384,7 +1384,7 @@ export class GrassClutter {
    * Remove the blades inside a circle — the tool-sized counterpart to
    * dropZones(), and what a terrain operation actually needs.
    *
-   * C# reference: ClutterSystem.ResetGrass(center, radius), which only touches
+   * Reference: the original's grass reset around a point, which only touches
    * the 8 m patches within the radius. Dropping whole zones instead (a zone is
    * 64 m, and it spans up to nine 40 m cells here) made a 2 m hoe stroke wipe
    * and rebuild grass across more than a hundred metres — visible as a large
@@ -1548,8 +1548,8 @@ export class GrassClutter {
             }
             if ((this.world.geo.getBiome(x, z) & entry.biome) === 0) continue;
 
-            // C# GenerateVegPatch: the m_onCleared/m_onUncleared test against
-            // Heightmap.IsCleared. With the original's defaults this is what
+            // The original's cleared/uncleared test against the terrain's
+            // cleared flag. With the original's defaults this is what
             // keeps grass off a painted path, paving or cultivated soil — and
             // it is checked on every rebuild, so it survives reloading.
             const onCleared = entry.onCleared ?? false;

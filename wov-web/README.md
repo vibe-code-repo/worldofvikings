@@ -4,12 +4,12 @@ Die öffentliche Seite von World of Vikings. Getrennt vom Spiel-Repo, so wie sie
 auch getrennt läuft: eigener Container, eigener Quellbaum.
 
 **SvelteKit 2 · Svelte 5 · Vite 8 · TypeScript · Biome** — dieselbe Werkzeugkette
-wie [World of ClaudeCraft](https://github.com/levy-street/world-of-claudecraft),
+wie im Vergleichsprojekt, einem anderen Browser-Spiel-Projekt,
 mit einem Unterschied, der hier zählt (siehe unten).
 
-## Was hier anders ist als bei ClaudeCraft
+## Was hier anders ist als beim Vergleichsprojekt
 
-ClaudeCraft rendert im Browser: mehrere HTML-Einstiege, Svelte clientseitig
+Das Vergleichsprojekt rendert im Browser: mehrere HTML-Einstiege, Svelte clientseitig
 gemountet, kein Prerendering. Für ein Spiel ist das richtig — dort ist die Seite
 die Anwendung.
 

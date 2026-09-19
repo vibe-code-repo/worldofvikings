@@ -1,8 +1,8 @@
 /**
  * WaterWave — die Wellenformel des Originals als GLSL-Baustein.
  *
- * Portiert aus `WaterVolume.CalcWave`/`CreateWave`/`TrochSin` des
- * dekompilierten Clients. Sie steht hier und nicht im WaterPlugin, weil
+ * Portiert aus der Wellenberechnung (`CalcWave`/`CreateWave`/`TrochSin`)
+ * des Original-Clients. Sie steht hier und nicht im WaterPlugin, weil
  * ZWEI Shader dasselbe Ergebnis brauchen:
  *
  *  - die Wasseroberfläche selbst (WaterPlugin), und
@@ -37,8 +37,8 @@ export const WAVE_DEPTH_SCALE = 10;
  * waren die "braunen Wellen" (die Fläche blieb stehen und zeigte nackten
  * Sandgrund).
  *
- * Im Original gibt es dafür `WaterVolume.m_surfaceOffset`
- * (WaterVolume.cs:20, addiert in GetWaterSurface Zeile 176). Das Feld
+ * Im Original gibt es dafür ein Versatzfeld der Wasserfläche
+ * (addiert bei der Berechnung der Wasseroberfläche). Das Feld
  * wird im Prefab gesetzt und ist im Asset-Export nicht enthalten, sein
  * Wert also nicht direkt auslesbar. Der hier gemessene Ausgleich stellt
  * her, was er leisten muss: eine Wasseroberfläche, die im Mittel auf dem
@@ -51,12 +51,12 @@ export const WAVE_MEAN_OFFSET = 1.417;
  * `wCalcWave(wp, depth01, time, wind, wdir)`; `wp` ist (WeltX, WeltZ).
  *
  * Die Oktavenrichtungen sind fest verdrahtet wie im Original
- * (`s_createWaveDirections`); nur Oktave 0 läuft in Windrichtung.
+ * (feste Richtungstabelle); nur Oktave 0 läuft in Windrichtung.
  */
 export const WAVE_GLSL = /* glsl */ `
   const float WATER_DEPTH_SCALE = ${WAVE_DEPTH_SCALE.toFixed(1)};
 
-  // WaterVolume.TrochSin — spitze Kämme, flache Täler
+  // Trochoiden-Sinus — spitze Kämme, flache Täler
   float wTrochSin(float x, float k) { return sin(x - cos(x) * k) * 0.5 + 0.5; }
 
   /**
@@ -78,7 +78,7 @@ export const WAVE_GLSL = /* glsl */ `
     return buckel * auslauf;
   }
 
-  // WaterVolume.CreateWave. wp = (WeltX, WeltZ); im Original
+  // Einzelwelle. wp = (WeltX, WeltZ); im Original
   // v = -(pos.z*dir + pos.x*tangent), tangent = senkrecht zu dir.
   float wCreateWave(vec2 wp, float t, float speed, float len, float height, vec2 dir, float sharp) {
     vec2 tang = vec2(-dir.y, dir.x);
@@ -88,9 +88,9 @@ export const WAVE_GLSL = /* glsl */ `
           * wTrochSin(n * 0.123 + v.x * 0.13123 * len, sharp) - 0.2) * height;
   }
 
-  // WaterVolume.CalcWave — 10 Oktaven (speed, waveLength, height,
-  // sharpness). Oktave 0 läuft in WINDRICHTUNG (s_createWaveDirections[0]
-  // = wind.xz im Original), die übrigen neun haben feste Richtungen.
+  // Wellensumme — 10 Oktaven (speed, waveLength, height,
+  // sharpness). Oktave 0 läuft in WINDRICHTUNG (Richtung 0 = wind.xz
+  // im Original), die übrigen neun haben feste Richtungen.
   float wCalcWave(vec2 wp, float depth01, float time, float wind, vec2 wdir) {
     float t = time / 20.0;
     float s = 0.0;

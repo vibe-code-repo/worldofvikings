@@ -1,10 +1,11 @@
 /**
  * Build menu — the mode picker of the equipped tool.
  *
- * C# reference: Hud.TogglePieceSelection / UpdatePieceList / OnLeftClickPiece.
+ * Reference: the original's piece-selection toggle, piece list update and
+ * left-click handler.
  * Opened with the right mouse button, closed with RMB or Escape; while it is
- * open the original blocks placement entirely (Player.UpdatePlacement returns
- * early on Hud.IsPieceSelectionVisible).
+ * open the original blocks placement entirely (its placement update returns
+ * early while the piece menu is visible).
  *
  * The original lays pieces out on a 15×6 grid with category tabs because the
  * hammer has hundreds of them. A hoe has five modes, so this is a single row.
@@ -99,9 +100,9 @@ export class PieceSelection {
   }
 
   /**
-   * Pick a mode and go straight back to playing — C# OnLeftClickPiece hides the
-   * window after picking. Must run inside a user gesture (mousedown or keydown)
-   * because of the pointer-lock request at the end.
+   * Pick a mode and go straight back to playing — the original's left-click
+   * handler hides the window after picking. Must run inside a user gesture
+   * (mousedown or keydown) because of the pointer-lock request at the end.
    */
   pick(name: string): void {
     this.placement.selectPiece(name);

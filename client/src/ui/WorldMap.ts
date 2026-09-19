@@ -101,9 +101,8 @@ export interface WorldMapOptions {
    * Admin: Strg+Klick auf die Karte. Fehlt der Rückruf, ist die Funktion
    * abgeschaltet (und der Hinweis in der Kopfzeile bleibt weg).
    *
-   * Vorbild ist dessen Debug-Teleport (`Minimap.OnMapMiddleClick` →
-   * `DebugTeleport`), dort an Strg+MITTELklick. Im Browser ist die
-   * mittlere Taste unzuverlässig (Autoscroll, oft gar nicht vorhanden),
+   * Vorbild ist der Debug-Teleport des Originals, dort an Strg+MITTELklick.
+   * Im Browser ist die mittlere Taste unzuverlässig (Autoscroll, oft gar nicht vorhanden),
    * deshalb hört das hier zusätzlich auf die linke.
    */
   aufTeleport?: (x: number, z: number) => void;
@@ -863,8 +862,8 @@ export class WorldMap {
    * liefert keinen Treffer und wird still verworfen.
    *
    * Wie im Original schließt sich die Karte danach — man will ja sehen,
-   * wo man gelandet ist (`Minimap.DebugTeleport` ruft dort
-   * `SetMapMode(MapMode.Small)`).
+   * wo man gelandet ist (der Debug-Teleport des Originals schaltet dort
+   * auf die kleine Karte um).
    */
   private teleportAn(px: number, py: number): void {
     const scene = this.scene;

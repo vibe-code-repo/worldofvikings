@@ -20,7 +20,7 @@ Der Kern des Servers ist der 1:1-Port des Referenzservers. Er wurde im ersten Pr
 | `ZoneManager` | `world/ZoneManager.ts` | ✅ vorhanden |
 | Höhenkarten-, Geo- und Rausch-Module | `shared/src/worldgen/*` | ✅ **gegen die Referenz verifiziert** (Analyse: Phase B–D abgeschlossen, Weltkarten-Diff vorhanden) |
 | `WorldManager` | `world/WorldManager.ts` | ✅ vorhanden |
-| `NetManager` / `Peer` / Socket-Schicht | `net/NetManager.ts, Peer.ts, WebSocketAcceptor.ts` | ✅ WebSocket statt Steam Sockets |
+| `NetManager` / `Peer` / Socket-Schicht | `net/NetManager.ts, Peer.ts, WebSocketAcceptor.ts` | ✅ WebSocket statt nativer Sockets |
 | RPC-Definitionen | `net/Rpc.ts` | ✅ vorhanden |
 | `Reader` / `Writer` / `Stream` | `io/Reader.ts, Writer.ts, Stream.ts` | ✅ vorhanden |
 | Spawn-Logik | `world/SpawnSystem.ts` | ✅ vorhanden |

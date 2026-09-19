@@ -14,7 +14,7 @@
  * Kopf, Groesse, Connectors) braucht der Client wirklich: der Raum-Katalog
  * fuer die Prefab-Registry und der Dungeon-Editor.
  *
- * Reference: dungeon loader, lines 19-201 (pkg read).
+ * Reference: the reference server's dungeon loader (pkg read).
  */
 
 import dungeonsData from './dungeonsData.json';
@@ -779,9 +779,9 @@ export function ambientLichtVon(doc: DungeonDocument): number {
 export const MAX_DUNGEON_AMBIENT = 3;
 
 /**
- * Interior lighting environment per dungeon base (Unity
- * Location.m_interiorEnvironment — the EnvZone the location prefab forces
- * inside its interior box). Names must exist in envData.json.
+ * Interior lighting environment per dungeon base (the original's
+ * per-location interior environment — the environment zone the location
+ * prefab forces inside its interior box). Names must exist in envData.json.
  */
 const INTERIOR_ENV: ReadonlyMap<string, string> = new Map([
   ['DG_ForestCrypt', 'Crypt'],

@@ -130,7 +130,7 @@ function check(name: string, cond: boolean, detail = ''): void {
 console.log('=== F2 location placement smoke test ===');
 
 // ── [1+2] prepareFeatures: count + determinism ────────────────────
-console.log(`\n[1] prepareFeatures (C++ PostGeoInit):`);
+console.log(`\n[1] prepareFeatures (reference post-geo init):`);
 const t0 = Date.now();
 const p1 = buildWorld();
 p1.zm.prepareFeatures();

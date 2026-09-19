@@ -1,5 +1,5 @@
 /**
- * Inventory overlay — the 8×4 grid from Humanoid.cs:67, opened with I.
+ * Inventory overlay — the 8×4 grid of the original, opened with I.
  * (Tab belongs to the tool menu here; see PieceSelection.)
  *
  * Drag & drop uses pointer events rather than HTML5 drag-and-drop: the latter

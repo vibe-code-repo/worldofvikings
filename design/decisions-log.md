@@ -651,7 +651,7 @@ Türhöhe bis zur höheren Deckenoberkante).
 **Grund:** Ohne ihn sieht man vom höheren Raum aus über die Decke des niedrigeren
 hinweg in den Fels. Das ist der klassische Leak, er hat kein Symptom in einer
 Invariantenprüfung des Layouts, und er ist genau die Klasse, die der
-Paritätstest des Referenzprojekts gefunden hat. Die Sabotage-Probe (Sturz weglassen) macht die
+Paritätstest des Vergleichsprojekts gefunden hat. Die Sabotage-Probe (Sturz weglassen) macht die
 Hüllenprüfung rot.
 
 ---

@@ -101,7 +101,7 @@ export function bewegungsSchritt(
   });
 
   // Senkrecht: Der Boden „klebt" bis `BODEN_KLEBEN` unter den Fuessen
-  // (Original `m_StickToGroundDistance`) — wer eine Treppe hinunterlaeuft
+  // (so auch im Original) — wer eine Treppe hinunterlaeuft
   // oder ueber eine Gelaendekante rollt, wird aufgesetzt statt fallen
   // gelassen; erst darunter faellt die Figur mit fester Rate. `null`
   // heisst „hier ist kein Boden" und laesst die Hoehe stehen (in der

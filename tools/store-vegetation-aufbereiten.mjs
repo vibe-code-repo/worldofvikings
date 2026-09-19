@@ -30,7 +30,7 @@
  *   Rinde Birke tree-1a3-0-…           0.632 / 0.616 / 0.560   beige
  *   Pilz      sm-plant-mushrooms-02-…  0.334 / 0.292 / 0.235   braun
  *
- * Das bestätigt den Befund aus dem Schwesterprojekt, aber genauer als
+ * Das bestätigt den Befund aus dem Vergleichsprojekt, aber genauer als
  * erwartet: Die LAUB- und NADEL-Atlanten sind Helligkeitsmasken (R = G =
  * B auf die dritte Stelle), die RINDEN- und GRAS-Atlanten dagegen sind
  * farbig. Rinde braucht also keine Tönung, Laub braucht sie zwingend.

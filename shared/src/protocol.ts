@@ -1,6 +1,6 @@
 /**
  * Network protocol definitions for Client <-> Server communication.
- * Replaces Steam Networking Sockets with WebSocket + einem
+ * Replaces the original's socket layer with WebSocket + einem
  * handgeschriebenen Binaerformat (kein MessagePack) — Port
  * des Datenstroms des Referenzservers, siehe server/src/io/{Reader,Writer}.ts.
  *

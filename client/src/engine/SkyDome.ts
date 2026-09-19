@@ -1,5 +1,5 @@
 /**
- * ValheimSky — stylised sky dome driven by the SAME environment data as the fog.
+ * SkyDome — stylised sky dome driven by the SAME environment data as the fog.
  *
  * ── Why not Babylon's SkyMaterial ────────────────────────────────────
  * `@babylonjs/materials/sky` implements the **Preetham analytic daylight
@@ -23,7 +23,7 @@
  *   sun glow = state.sunColor         → ties the glow to the same keyframes
  *   sun/moon disc at the TRUE sun direction (below horizon at night)
  *   stars    fade in with night, masked by clouds
- *   clouds   procedural FBM, coverage from EnvSetup.rainCloudAlpha
+ *   clouds   procedural FBM, coverage from the environment model's rainCloudAlpha
  *
  * ── Stand nach Block A (A5, A6, A12) ─────────────────────────────────
  * Bis zum 11.09.2026 standen `zenit` und `horizont` beide auf `#819195`
@@ -90,7 +90,7 @@ import {
 } from '@wov/shared';
 import { beiLook, hexLinear, HORIZONT_AUS_NEBEL, look, type LookProfil } from './lookProfil';
 
-const SHADER_NAME = 'valheimSky';
+const SHADER_NAME = 'skyDome';
 
 /**
  * Die Himmelsfarbe, auf der `design/look-referenz.md` kalibriert ist —
@@ -160,14 +160,14 @@ vec3 vhSkyGradient(vec3 dir, vec3 horizon, vec3 zenith, vec3 sunGlow, vec3 toSun
   // Breiter Glow: hält die Abendwärme über den Himmel verteilt.
   //
   // Die Schärfe kommt aus 'look.himmel.sonnenglühen' und folgt der
-  // Abbildung des Schwesterprojekts (sky-shader.ts): 0 = harte kleine
+  // Abbildung des Vergleichsprojekts: 0 = harte kleine
   // Scheibe (Exponent 220), 1 = über den halben Himmel (Exponent 3).
   // Der Profilwert 0,2 landet bei 176 — deutlich enger als die 8,0, die
   // hier fest standen. Das ist gewollt: Die alte 8,0 kam aus einer Zeit,
   // in der der Glow die ZWEITE Nebelfarbe trug und den halben Himmel
   // wärmen musste. Er trägt jetzt die Sonnenfarbe, und die gehört um die
   // Sonne herum, nicht über den ganzen Himmel.
-  // Sharpness follows the sister project's mapping: 0 = hard disc, 1 = wide.
+  // Sharpness follows the comparison project's mapping: 0 = hard disc, 1 = wide.
   float schaerfe = mix(220.0, 3.0, clamp(glutBreite, 0.0, 1.0));
   float sunDot = max(dot(dir, toSun), 0.0);
   float kern = pow(sunDot, schaerfe) * 0.55;
@@ -237,7 +237,7 @@ uniform vec3 uSunGlow;      // = EnvState.sunColor
 uniform vec3 uSunColor;     // = EnvState.sunColor
 uniform vec3 uSunDir;       // TRUE sun direction, y<0 after sunset
 uniform float uNight;       // 0 = full day, 1 = full night
-uniform float uCloud;       // coverage 0..1 (EnvSetup.rainCloudAlpha)
+uniform float uCloud;       // coverage 0..1 (rain cloud alpha of the environment)
 uniform float uGlutBreite;  // look.himmel.sonnenglühen, 0..1
 uniform float uHaloBreite;  // look.himmel.haloBreite, 0..1        (A12)
 uniform float uHaloStaerke; // look.himmel.haloStaerke, 0..1       (A12)
@@ -482,7 +482,7 @@ function registerShader(): void {
   registered = true;
 }
 
-export class ValheimSky {
+export class SkyDome {
   readonly mesh: Mesh;
   /**
    * Würfelkarte des Himmels für die Wasserspiegelung — mit Wolken,
@@ -617,7 +617,7 @@ export class ValheimSky {
     registerShader();
 
     this.material = new ShaderMaterial(
-      'valheimSkyMat',
+      'skyDomeMat',
       scene,
       SHADER_NAME,
       {
@@ -644,7 +644,7 @@ export class ValheimSky {
         ],
         // Der Quelltext oben liegt im GLSL-Store. Ohne die explizite Sprache
         // sucht ShaderMaterial unter WebGPU nach einer WGSL-Datei namens
-        // valheimSky.fragment.fx; Vite beantwortet den unbekannten Pfad mit
+        // skyDome.fragment.fx; Vite beantwortet den unbekannten Pfad mit
         // index.html, das danach als WGSL geparst wird (schwarzes Bild).
         shaderLanguage: ShaderLanguage.GLSL,
       }
@@ -655,7 +655,7 @@ export class ValheimSky {
     this.material.fogEnabled = false;
 
     this.mesh = MeshBuilder.CreateSphere(
-      'valheimSky',
+      'skyDome',
       { segments: 48, diameter: radius * 2 },
       scene
     );
@@ -739,7 +739,7 @@ export class ValheimSky {
         null,
         () => {
           tex.coordinatesMode = Texture.SKYBOX_MODE;
-          const mat = new StandardMaterial('valheimSkyCubemap', scene);
+          const mat = new StandardMaterial('skyDomeCubemap', scene);
           mat.backFaceCulling = false;
           mat.disableLighting = true;
           mat.reflectionTexture = tex;
@@ -747,15 +747,15 @@ export class ValheimSky {
           mat.specularColor.set(0, 0, 0);
           mat.fogEnabled = false;
           this.mesh.material = mat;
-          console.info('[ValheimSky] ?sky=cubemap — Original-Würfelkarte statt Verlauf (nur lokal).');
+          console.info('[SkyDome] ?sky=cubemap — Original-Würfelkarte statt Verlauf (nur lokal).');
         },
         (meldung) => {
           tex.dispose();
-          console.warn('[ValheimSky] ?sky=cubemap: Würfelkarte fehlt, Kuppel bleibt:', meldung);
+          console.warn('[SkyDome] ?sky=cubemap: Würfelkarte fehlt, Kuppel bleibt:', meldung);
         },
       );
     } catch (e) {
-      console.warn('[ValheimSky] ?sky=cubemap fehlgeschlagen, Kuppel bleibt:', e);
+      console.warn('[SkyDome] ?sky=cubemap fehlgeschlagen, Kuppel bleibt:', e);
     }
   }
 
@@ -820,7 +820,7 @@ export class ValheimSky {
    *
    * Für Bauer „Boden": Der Splat braucht einen HIMMELSTERM für Schichten
    * mit Metallic 0,5–0,95, sonst wird Fels schwarz (`groundReflection` im
-   * Schwesterprojekt, Analyse §4). Bis diese Auskunft existierte, blieb
+   * Vergleichsprojekt, Analyse §4). Bis diese Auskunft existierte, blieb
    * dort nur `scene.fogColor` — das ist der HORIZONT und sagt nichts
    * darüber, was senkrecht über der Fläche steht.
    *
@@ -899,7 +899,7 @@ export class ValheimSky {
     */
     if (!this.horizontAusNebel) Color3.LerpToRef(this.profilHorizont, horizon, night, horizon);
     // Zenith: a deeper, slightly bluer version of the horizon. Derived
-    // rather than authored so any EnvSetup — including ones only the dump
+    // rather than authored so any environment — including ones only the dump
     // tool knows about — gets a sane sky without extra data.
     //
     // Der Blau-Sockel ist mit dem Horizont mitgewandert: 0.04 war ein

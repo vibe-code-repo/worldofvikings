@@ -2,14 +2,14 @@
  * Shadows — kaskadierte Sonnenschatten nach dem Vorbild des Originals.
  *
  * ── Die Werte stammen aus dem Client ─────────────────────────────────
- * `GraphicsSettingsManager.ApplyQualitySettings()` schaltet Unitys
- * QualitySettings je nach `m_shadowQuality`:
+ * Die Grafikeinstellungen des Clients schalten Unitys
+ * QualitySettings je nach Schattenqualität:
  *
  *   Stufe 0  shadowCascades 2   shadowDistance  80 m   ShadowResolution.Low
  *   Stufe 1  shadowCascades 3   shadowDistance 120 m   ShadowResolution.Medium
  *   Stufe 2  shadowCascades 4   shadowDistance 150 m   ShadowResolution.High
  *
- * Voreinstellung im Original ist Stufe 2 (`m_shadowQuality = 2`).
+ * Voreinstellung im Original ist Stufe 2 (Schattenqualität = 2).
  *
  * Babylons `CascadedShadowGenerator` ist der direkte Gegenpart zu Unitys
  * kaskadierten Schattenkarten für gerichtetes Licht — Kaskadenzahl und
@@ -48,8 +48,8 @@
  * ── Werfen und Empfangen sind getrennt ───────────────────────────────
  * Clutter ist von den WERFERN ausgenommen: Zehntausende Alpha-getestete
  * Halme durch vier Kaskaden zu schicken ist der teuerste denkbare Posten
- * und im Ergebnis kaum sichtbar. Der `InstanceRenderer` des Vorbilds hat dafür
- * ein eigenes Flag (`m_shadowCasting`); wir setzen es für Gras auf aus.
+ * und im Ergebnis kaum sichtbar. Der Instanz-Renderer des Vorbilds hat dafür
+ * ein eigenes Flag („Schatten werfen"); wir setzen es für Gras auf aus.
  *
  * EMPFANGEN darf das Gras dagegen sehr wohl — das kostet nur eine
  * Abtastung im Fragment-Shader und keinen einzigen zusätzlichen
@@ -201,7 +201,7 @@ export function schattenKonfiguration(stufe: number, hundertFpsProfil: boolean):
  *
  *  · `reichweite` ERSETZT die Distanz der Stufe. Sie ist eine
  *    Look-Entscheidung: Das Vorbild faehrt 50 m mit EINER Kaskade, das
- *    Schwesterprojekt 120 m. Wer sie in server.yml eintraegt, will sie
+ *    Vergleichsprojekt 120 m. Wer sie in server.yml eintraegt, will sie
  *    sehen, auch wenn sie laenger ist als die Stufe vorsah — ein stiller
  *    Deckel waere ein Regler, der bei der Haelfte der Werte nichts tut.
  *
@@ -646,7 +646,7 @@ export const MIN_WURF_HOEHE_M = 0.35;
  * - `clutter*`  Gras: jede Kaskade rendert die Werferliste komplett neu,
  *   und Clutter stellt mit Abstand die meisten Meshes. Empfangen darf es
  *   trotzdem — siehe NIE_EMPFANGEN.
- * - `valheimSky`/Himmelskuppel: Hintergrund, hat keine Tiefe
+ * - `skyDome`/Himmelskuppel: Hintergrund, hat keine Tiefe
  * - `water*`: Wasseroberfläche wirft keinen brauchbaren Schatten. Das
  *   Präfix deckt Nahwasser (`water`) und Fernwasser-Ring (`waterRing`) ab.
  * - `precipEmitter`: unsichtbarer Knoten für die Partikel
@@ -667,7 +667,7 @@ export const MIN_WURF_HOEHE_M = 0.35;
  *   auf `^` verankerten Regex.
  */
 const NIE_WERFEN =
-  /^(clutter|impostor|valheimSky|sky|water|precipEmitter|col_|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
+  /^(clutter|impostor|skyDome|sky|water|precipEmitter|col_|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
 
 /**
  * Reine Kollisionsnetze aus der GLB (Konvention `_col`, s. AssetManager-
@@ -698,7 +698,7 @@ const NIE_WERFEN_SUFFIX = /_col$/i;
  */
 const SCHATTEN_VEGETATION_PRAEFIX = 'schattenVegetation_';
 
-const NIE_EMPFANGEN = /^(schattenVegetation_|valheimSky|sky|water|precipEmitter|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
+const NIE_EMPFANGEN = /^(schattenVegetation_|skyDome|sky|water|precipEmitter|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
 
 /**
  * Prefabs, die bei abgeschalteten "fernen Schatten" nicht mehr werfen.
@@ -1752,7 +1752,7 @@ export class Shadows {
       2,04 % frei) bleibt gueltig — sie hat nur eine ANDERE Frage
       beantwortet als die, die der Look stellt.
 
-      Der Look stellt diese: Das Schwesterprojekt fuehrt ein einzelnes
+      Der Look stellt diese: Das Vergleichsprojekt fuehrt ein einzelnes
       2048er-Ortho-Fenster, das der Kamera folgt und dabei auf das
       Texelraster gerastet wird (ADR-0039). Ohne diese Rasterung KRIECHT
       jede Schattenkante beim Gehen — nicht beim Sonnenlauf, beim GEHEN,
@@ -1851,7 +1851,7 @@ export class Shadows {
       Babylons `darkness` ist der ANTEIL LICHT, der im Schatten
       uebrigbleibt: 0 = stockschwarz (Babylons Vorgabe, und das stand
       hier bisher unausgesprochen), 1 = gar kein Schatten. Das Profil des
-      Schwesterprojekts nennt 0,42, und das ist in dieser Bedeutung ein
+      Vergleichsprojekts nennt 0,42, und das ist in dieser Bedeutung ein
       vergleichsweise HELLER Schatten — genau die Richtung, in die dieses
       Bild muss: Die Vorher-Messung am Referenzort liegt bei Luma 36,5 im
       nahen Boden, das Zielbild bei 55.

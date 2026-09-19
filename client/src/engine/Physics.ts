@@ -1,8 +1,8 @@
 /**
  * Physics — Havok, standing in for Unity's PhysX.
  *
- * The original does not hand-roll collision: Character carries a Rigidbody and a
- * CapsuleCollider (Character.cs:234/236) and PhysX resolves the rest. The
+ * The original does not hand-roll collision: the character carries a Rigidbody and a
+ * CapsuleCollider and PhysX resolves the rest. The
  * closest equivalent available to us is Havok, which Babylon ships as a
  * WASM plugin — so this file wires that up rather than approximating
  * collision with distance checks.
@@ -55,8 +55,8 @@ import { skalierungsStufe } from '@wov/shared';
 
 /**
  * Gravitation (m/s²) — das Original weicht vom Unity-Default ab: die
- * ProjectSettings des Spiels stehen auf −20 (`m_Gravity.m_Y` in
- * PhysicsManager.json des Extraktions-Exports). Muss mit der Gravitation
+ * ProjectSettings des Spiels stehen auf −20 (Gravitation im
+ * Export der Physik-Einstellungen). Muss mit der Gravitation
  * im PlayerController übereinstimmen, sonst fallen Spieler und Weltobjekte
  * unterschiedlich schnell.
  */

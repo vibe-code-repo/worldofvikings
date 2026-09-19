@@ -1,5 +1,5 @@
 /**
- * Inventory parity checks (Unity Inventory.cs).
+ * Inventory parity checks against the original.
  *
  * The properties that matter for feel:
  *  1. Stacking merges into partial stacks and respects maxStackSize.

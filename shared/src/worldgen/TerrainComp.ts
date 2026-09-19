@@ -1,11 +1,9 @@
 /**
- * Player terrain modification — 1:1 port of Unity `TerrainComp` (the delta-based
- * system the original uses today, not the legacy object-based `TerrainModifier`).
+ * Player terrain modification — 1:1 port of the original's terrain component
+ * (the delta-based system it uses today, not the legacy object-based modifier).
  *
- * C# reference: the original `TerrainComp` component
- *   LevelTerrain   (:335-360)  RaiseTerrain (:362-417)
- *   SmoothTerrain  (:419-448)  PaintCleared (:450-505)
- *   ApplyToHeightmap (:242-277)
+ * Reference: the original terrain component — level, raise, smooth,
+ * paint-clear and apply-to-heightmap operations.
  *
  * Model: the procedural height stays untouched; every edit lives in two delta
  * grids over it. Final height per vertex is
@@ -15,26 +13,26 @@
  * which is why the original caps digging/raising at ±8 m and why the terrain snaps
  * back to the generated shape once the deltas are cleared.
  *
- * All arithmetic goes through f32 (`Math.fround`), including the C# special
- * cases (`power === 3` uses t*t*t, `power === 1` skips Mathf.Pow) — client and
- * server must produce bit-identical results, otherwise predicted and
- * authoritative terrain drift apart. Same convention as
+ * All arithmetic goes through f32 (`Math.fround`), including the special
+ * cases of the original (`power === 3` uses t*t*t, `power === 1` skips the
+ * power call) — client and server must produce bit-identical results,
+ * otherwise predicted and authoritative terrain drift apart. Same convention as
  * `Heightmap.applyTerrainModifiers`.
  *
  * Unity differences: our `heights` are absolute world Y (Unity subtracts the
- * zone transform, which sits at y=0 anyway), and m_scale is always 1, so
- * `radius / m_scale` collapses to `radius`.
+ * zone transform, which sits at y=0 anyway), and the component scale is
+ * always 1, so `radius / scale` collapses to `radius`.
  */
 
 import { E_WIDTH, ZONE_UNITS, type Heightmap } from './Heightmap.js';
 
 const f32 = Math.fround;
 
-/** C# Heightmap.c_LevelMaxDelta — level/raise cap against the generated height. */
+/** Level/raise cap against the generated height. */
 export const LEVEL_MAX_DELTA = 8;
-/** C# Heightmap.c_SmoothMaxDelta. */
+/** Smooth-delta cap. */
 export const SMOOTH_MAX_DELTA = 1;
-/** C# Heightmap.AtMaxWorldLevelDepth — no more stone drops below this. */
+/** No more stone drops below this. */
 export const AT_MAX_DEPTH = 7.95;
 
 /**
@@ -47,7 +45,7 @@ export const AT_MAX_DEPTH = 7.95;
  */
 const GRID = 65 * 65;
 
-/** C# TerrainModifier.PaintType. */
+/** Paint types, as in the original. */
 export const enum PaintType {
   Dirt = 0,
   Cultivate = 1,
@@ -57,8 +55,8 @@ export const enum PaintType {
 }
 
 /**
- * C# TerrainOp.Settings — field order matches Settings.Serialize so the wire
- * format can mirror the original if we ever need it.
+ * Terrain operation settings — field order matches the original's
+ * serialization so the wire format can mirror it if we ever need it.
  */
 export interface TerrainOpSettings {
   levelOffset: number;
@@ -79,7 +77,7 @@ export interface TerrainOpSettings {
 }
 
 /**
- * C# TerrainOp.Settings field defaults. Spread this and override what a tool
+ * Terrain operation defaults. Spread this and override what a tool
  * actually enables, so a new operation never silently inherits a stale radius.
  */
 export const TERRAIN_OP_DEFAULTS: TerrainOpSettings = {
@@ -100,7 +98,7 @@ export const TERRAIN_OP_DEFAULTS: TerrainOpSettings = {
   paintRadius: 2,
 };
 
-/** C# TerrainOp.Settings.GetRadius — largest radius of the enabled operations. */
+/** Largest radius of the enabled operations. */
 export function opRadius(s: TerrainOpSettings): number {
   let r = 0;
   if (s.level && s.levelRadius > r) r = s.levelRadius;
@@ -193,7 +191,7 @@ export class TerrainComp {
     this._modifiedPaint = new Uint8Array(GRID);
   }
 
-  /** C# Heightmap.AtMaxWorldLevelDepth — dug out as deep as the game allows. */
+  /** Dug out as deep as the game allows. */
   atMaxDepth(index: number): boolean {
     const ld = this._levelDelta;
     return ld !== null && ld[index] <= -AT_MAX_DEPTH;
@@ -225,7 +223,7 @@ function mathfLerpF(a: number, b: number, t: number): number {
 }
 
 /**
- * C# TerrainComp.LevelTerrain (:335-360). Flat plateau at `wy`, NO falloff.
+ * Level operation. Flat plateau at `wy`, NO falloff.
  * `square` skips the radial test entirely (Chebyshev box), it does not change
  * the weighting. Folds any pending smooth delta into the level delta.
  */
@@ -273,7 +271,7 @@ export function levelTerrain(
 }
 
 /**
- * C# TerrainComp.RaiseTerrain (:362-417). `delta > 0` only raises, `delta < 0`
+ * Raise operation. `delta > 0` only raises, `delta < 0`
  * only lowers. With `square` there is NO falloff at all (factor stays 1);
  * otherwise the factor is (1 − d/r)^power, and power 0 also means no falloff.
  */
@@ -341,7 +339,7 @@ export function raiseTerrain(
 }
 
 /**
- * C# TerrainComp.SmoothTerrain (:419-448). Blends toward `wy` with
+ * Smooth operation. Blends toward `wy` with
  * t = 1 − (d/r)^power, capped at ±1 m.
  *
  * Note: the original takes a `square` parameter and never reads it — smoothing
@@ -396,7 +394,7 @@ export function smoothTerrain(
 }
 
 /**
- * C# TerrainComp.PaintCleared (:453-495). Blends the paint mask toward the
+ * Paint-clear operation. Blends the paint mask toward the
  * target colour with
  *
  *     f = (1 - clamp01(d / r))^0.1
@@ -432,7 +430,7 @@ export function paintCleared(
   const mask = comp.paintMask!;
   const modified = comp.modifiedPaint!;
 
-  // Target colour per paint type (C# Heightmap.m_paintMask* constants).
+  // Target colour per paint type (paint-mask constants of the original).
   let tr = 0;
   let tg = 0;
   let tb = 0;
@@ -505,7 +503,7 @@ export interface OperationResult {
 }
 
 /**
- * C# TerrainComp.InternalDoOperation (:279-333) — Level → Raise → Smooth →
+ * Operation dispatch — Level → Raise → Smooth →
  * Paint, in exactly that order.
  *
  * Height and paint rects are reported separately: painting a path changes no

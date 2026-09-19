@@ -4,7 +4,7 @@
  *
  * WARUM ES DIESES WERKZEUG GIBT:
  * Die Spieleranimationen des Vorbilds liegen im Client als Unity-HUMANOID-Clips vor
- * (`extracted_assets/AnimationClip/`, 299 Stück): keine Knochenkurven,
+ * (Ordner `AnimationClip/` des Exports, 299 Stück): keine Knochenkurven,
  * sondern 130 Muskel-DoFs im Mecanim-Muscle-Space (alle Bindings auf
  * `path: 0`). Zum Zurückrechnen bräuchte man das Avatar-Asset mit den
  * Achsen- und Muskelgrenzen — das ist im Export nicht enthalten. Auch die

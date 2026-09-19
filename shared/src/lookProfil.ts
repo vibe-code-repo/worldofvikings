@@ -17,9 +17,9 @@
  *
  * ── Farbraum ─────────────────────────────────────────────────────────
  * Farben stehen hier als Hex-Zeichenketten und sind SRGB — genau wie die
- * Werte in `village1.json` des Schwesterprojekts, aus denen sie stammen.
+ * Werte in `village1.json` des Vergleichsprojekts, aus denen sie stammen.
  * Wer sie benutzt, wandelt selbst nach Linear (`Color3.toLinearSpace`),
- * so wie `Lighting.ts` es mit den EnvSetup-Farben tut. Hier roh eine
+ * so wie `Lighting.ts` es mit den Farben des Umgebungsmodells tut. Hier roh eine
  * Linearisierung einzubauen hiesse, sie beim nächsten Leser doppelt zu
  * machen — die Gamma-Falle, die diese Codebasis schon zweimal bezahlt hat
  * (StandardGammaFix, PbrNebelFix).
@@ -34,7 +34,7 @@ export type Tonemapping = 'aces' | 'neutral' | 'aus';
  * `exp` = lineare Extinktion, `exp2` = quadratische, `linear` = Babylons
  * FOGMODE_LINEAR: voll sichtbar bis `nebelStart`, ab `nebelEnde` ganz
  * Nebel, dazwischen geradlinig. Das ist die Kurve des Vorbilds
- * (`m_FogMode = 1`, design/original-boden.md §D) — und die einzige der
+ * (Nebelmodus linear, design/original-boden.md §D) — und die einzige der
  * drei, die zwei ENTFERNUNGEN statt einer Dichte braucht.
  */
 export type Nebelmodus = 'exp' | 'exp2' | 'linear';
@@ -131,7 +131,7 @@ export interface LookDof {
   /**
    * Fokusentfernung in METERN (URP `focusDistance`).
    *
-   * Ersetzt den Autofokus, den `ValheimDof` bisher gefahren hat: Das
+   * Ersetzt den Autofokus, den `FarDof` bisher gefahren hat: Das
    * Vorbild fokussiert FEST auf 2 m und laesst alles dahinter gleich
    * weich werden — es gibt dort keinen Strahl, der die Entfernung sucht.
    */
@@ -228,7 +228,7 @@ export interface LookProfil {
    * (`~/.cache/wov-lab/licht-nachher-dorf.png`, erster Anlauf).
    *
    * Der Faktor ist ausserdem die Form, in der `village1.json` des
-   * Schwesterprojekts die Zahl führt (`saturation: 0.68`) — eine
+   * Vergleichsprojekts die Zahl führt (`saturation: 0.68`) — eine
    * Umrechnung im Kopf beim Abschreiben ist die zweite Fehlerquelle,
    * die diese Wahl beseitigt. Umgerechnet wird an genau EINER Stelle,
    * in `PostProcessing.wendeLookAn()`.
@@ -243,7 +243,7 @@ export interface LookProfil {
    * Entfernung, ab der `linear` zu nebeln beginnt (Meter).
    *
    * Nur bei `nebelmodus: linear` gelesen — genau wie im Vorbild, wo
-   * `m_FogDensity` neben `m_FogMode = 1` steht und nichts tut.
+   * die Nebeldichte neben dem linearen Nebelmodus steht und nichts tut.
    */
   nebelStart: number;
   /** Entfernung, ab der `linear` voll deckt (Meter). */
@@ -275,7 +275,7 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
  * Die Vorgabe: das am Bild kalibrierte „Klar-Comic"-Profil.
  *
  * Herkunft der Zahlen ist der `lighting`-Block von `village1.json` im
- * Schwesterprojekt (Sonne #ffe4c6, Nebel exp/#a3afbd, ACES 1,15/1,1,
+ * Vergleichsprojekt (Sonne #ffe4c6, Nebel exp/#a3afbd, ACES 1,15/1,1,
  * Sättigung 0,68, Bloom 0,85/0,22, Vignette 1,2 #0d0a08, Schatten
  * 2048/120 m/0,42). Vier Zahlen weichen ab, und jede Abweichung ist
  * gemessen statt gewählt:
@@ -311,7 +311,7 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
  *    `PostProcessing.ts` („auf unserer Gamma-LDR-Pipeline dunkelt ACES
  *    doppelt ab"), und diese Reihe bestätigt es an einer zweiten Szene.
  *
- *    Der WIDERSPRUCH zu ADR-0040 des Schwesterprojekts ist keiner:
+ *    Der WIDERSPRUCH zu ADR-0040 des Vergleichsprojekts ist keiner:
  *    Dort ist gemessen, dass Neutral BUNTER ist als ACES (0,70 gegen
  *    0,52) — und genau deshalb steht hier 0,45 statt 0,68. Beide
  *    Projekte zielen auf dasselbe ERGEBNIS (~0,45 gemessene Sättigung);
@@ -322,12 +322,12 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
  *    ACES bleibt eine Zeile in server.yml entfernt (`tonemapping: aces`).
  *
  *  · `nebelmodus: exp` mit der Dichte AUS DEM WETTER, nicht 0,0005: Der
- *    Boden des Schwesterprojekts potenziert den Nebelfaktor mit 2,2,
+ *    Boden des Vergleichsprojekts potenziert den Nebelfaktor mit 2,2,
  *    dieser Client tut das nirgends. `pow(exp(-d·z), 2.2) = exp(-2.2·d·z)`
  *    — dieselbe Sicht braucht hier also die 2,2-fache Dichte. Das ist
  *    kein Näherungswert, sondern eine Identität; `sichtweite()` unten
  *    rechnet sie nach.
- *  · `ca` und `dof` bleiben AN. Das Schwesterprojekt hat beides nicht,
+ *  · `ca` und `dof` bleiben AN. Das Vergleichsprojekt hat beides nicht,
  *    das Vorbild zeigt beides (Farbsäume am Schild, unscharfe Ferne).
  *  · `saettigung` steht als FAKTOR (0,68), so wie village1.json sie
  *    führt — nicht als Babylons Reglerwert. Die Umrechnung auf dessen
@@ -917,7 +917,7 @@ function pfadWert(wurzel: unknown, pfad: string): unknown {
  * Vorgabe + Teilangabe → vollständiges Profil.
  *
  * Die Unterabschnitte werden EINZELN gemischt und nicht ersetzt. Genau
- * dieser Fehler steht als Falle in ADR-0040 des Schwesterprojekts: Ein
+ * dieser Fehler steht als Falle in ADR-0040 des Vergleichsprojekts: Ein
  * `{ bloom: { staerke: 0.4 } }` würde sonst Schwelle, Skala und Kernel
  * auf `undefined` setzen und der Regler täte etwas anderes als er sagt.
  */

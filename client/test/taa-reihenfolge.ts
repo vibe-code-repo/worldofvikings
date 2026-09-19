@@ -39,19 +39,19 @@ console.log('TAA-Reihenfolge (G19, A3)');
 {
   const kette = (...namen: (string | null)[]) => namen.map((n) => (n === null ? null : { name: n }));
   pruefe(
-    taaStehtHinten(kette('valheimDof', 'imageProcessing', 'fxaa', 'TAA', 'TAAPass')),
+    taaStehtHinten(kette('farDof', 'imageProcessing', 'fxaa', 'TAA', 'TAAPass')),
     'TAA am Ende wird als „nicht hinten" gemeldet'
   );
   pruefe(
-    taaStehtHinten(kette('valheimDof', 'TAA', null, 'imageProcessing', 'TAAPass', null)) === false,
+    taaStehtHinten(kette('farDof', 'TAA', null, 'imageProcessing', 'TAAPass', null)) === false,
     'TAAPass nach einem Fremdpass bedeutet: TAA steht nicht mehr hinten'
   );
   pruefe(
-    taaStehtHinten(kette('valheimDof', 'TAA', 'TAAPass', 'highlights', 'imageProcessing', 'fxaa')) === false,
+    taaStehtHinten(kette('farDof', 'TAA', 'TAAPass', 'highlights', 'imageProcessing', 'fxaa')) === false,
     'nach dem Umschalten von Bloom steht TAA vorn — das war der gemessene Fehler'
   );
   pruefe(
-    taaStehtHinten(kette('valheimDof', 'imageProcessing', 'fxaa', 'valheimMotionBlur', 'TAA', 'TAAPass', null, null)),
+    taaStehtHinten(kette('farDof', 'imageProcessing', 'fxaa', 'wovMotionBlur', 'TAA', 'TAAPass', null, null)),
     'freie Plaetze am Kettenende (null) duerfen die Pruefung nicht stoeren'
   );
   pruefe(taaStehtHinten(kette('TAA', 'TAAPass', 'fxaa')) === false, 'TAA ganz vorn wurde als hinten gemeldet');
@@ -64,14 +64,14 @@ console.log('TAA-Reihenfolge (G19, A3)');
 {
   type Kette = ({ name: string } | null)[];
   const schlecht = (): Kette => [
-    { name: 'valheimDof' },
+    { name: 'farDof' },
     { name: 'TAA' },
     { name: 'TAAPass' },
     { name: 'highlights' },
     { name: 'imageProcessing' },
     { name: 'fxaa' },
   ];
-  const gut = (): Kette => [{ name: 'valheimDof' }, { name: 'imageProcessing' }, { name: 'fxaa' }, { name: 'TAA' }, { name: 'TAAPass' }];
+  const gut = (): Kette => [{ name: 'farDof' }, { name: 'imageProcessing' }, { name: 'fxaa' }, { name: 'TAA' }, { name: 'TAAPass' }];
   const OPTIONEN = {
     bloom: true,
     chromaticAberration: true,
@@ -203,11 +203,11 @@ console.log('TAA-Reihenfolge (G19, A3)');
   }
   const VOR = { x: 0, y: 0, z: 1 }; // Sonne in Blickrichtung: Tor offen
   const HINTER = { x: 0, y: 0, z: -1 }; // Sonne im Ruecken: Tor zu
-  const gut = ['valheimDof', 'imageProcessing', 'fxaa', 'TAA', 'TAAPass'];
+  const gut = ['farDof', 'imageProcessing', 'fxaa', 'TAA', 'TAAPass'];
 
   pruefe(taaPlatzWennHinten(gut.map((n) => ({ name: n }))) === 3, 'taaPlatzWennHinten findet TAA nicht');
   pruefe(
-    taaPlatzWennHinten(['valheimDof', 'TAA', 'TAAPass', 'fxaa'].map((n) => ({ name: n }))) === -1,
+    taaPlatzWennHinten(['farDof', 'TAA', 'TAAPass', 'fxaa'].map((n) => ({ name: n }))) === -1,
     'taaPlatzWennHinten meldet einen Platz, obwohl TAA nicht hinten steht'
   );
 
@@ -229,7 +229,7 @@ console.log('TAA-Reihenfolge (G19, A3)');
   }
   // 3. Alter Platz des Strahlenpasses liegt vor TAA: er geht dorthin zurueck.
   {
-    const t = torBau(['valheimDof', null, 'imageProcessing', 'fxaa', 'TAA', 'TAAPass'], 1);
+    const t = torBau(['farDof', null, 'imageProcessing', 'fxaa', 'TAA', 'TAAPass'], 1);
     t.bild(VOR);
     pruefe(t.kette[1] === t.shafts, `der Strahlenpass kam nicht auf seinen alten Platz zurueck: ${namen(t.kette)}`);
     pruefe(taaStehtHinten(t.kette) && t.schreibe.length === 0, 'Rueckkehr auf den alten Platz kostet TAA die Reihenfolge');

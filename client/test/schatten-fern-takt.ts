@@ -166,6 +166,12 @@ function bau(takt: number) {
   pruefe(t.takter.gerendert === 4, `Takt 1: Zaehler gerendert ${t.takter.gerendert}, erwartet 4 (ein Bild, ein Zaehler)`);
   t.ende();
 
+  // Takt 1 mit doppeltem Aufruf je Bild: der Zaehler zaehlt Bilder, nicht Aufrufe.
+  const z = bau(1);
+  for (let i = 0; i < 6; i++) z.lauf(0, i * 0.13, 0, 10, true);
+  pruefe(z.takter.gerendert === 6, `Takt 1, jedes Bild ruft zweimal: Zaehler gerendert ${z.takter.gerendert}, erwartet 6 (ein Bild, ein Zaehler)`);
+  z.ende();
+
   const u = bau(2);
   const c: Array<ReturnType<typeof u.lauf>> = [];
   for (let i = 0; i < 6; i++) c.push(u.lauf(0, i * 0.13, 0, 10, true)); // jedes Bild ruft zweimal

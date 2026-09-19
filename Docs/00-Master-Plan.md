@@ -13,12 +13,12 @@ vom „Vorgänger-Repo" sprechen, ist der damalige Stand gemeint.)*
 >
 > Beides steht im Abschnitt „Was 08/2026 anders kam".
 >
-> Was unverändert gilt: der authoritative TypeScript-Server als 1:1-Port der C++-Logik, die
+> Was unverändert gilt: der authoritative TypeScript-Server als 1:1-Port der Referenzlogik, die
 > geteilte Weltgenerierung in `shared/`, Babylon.js im Client.
 
 ## Ziel
 
-Einen quelloffenen C++-Referenzserver als **Browsergame auf Basis von Babylon.js** portieren — mit einem authoritativen TypeScript-Server (1:1-Nachbau der C++-Logik).
+Einen quelloffenen Referenzserver als **Browsergame auf Basis von Babylon.js** portieren — mit einem authoritativen TypeScript-Server (1:1-Nachbau der Referenzlogik).
 
 > Bis 08/2026 stand hier „mit Original-Assets aus dem Dedicated Server". Das war der
 > ursprüngliche Weg: Der entpackte Client lieferte Modelle, Texturen und Zahlenwerte frei
@@ -33,13 +33,13 @@ Dieses Projekt ist der Nachfolger des ersten Prototyps (Three.js). Der hat die M
 
 | Projekt | Rolle | Stand |
 |---|---|---|
-| Referenzserver | C++ (126 Quelldateien: ZDO, Prefabs, Weltgen, Dungeons, Netzwerk) | Referenz, bleibt unverändert |
+| Referenzserver | Quelloffen (126 Quelldateien: ZDO, Prefabs, Weltgen, Dungeons, Netzwerk) | Referenz, bleibt unverändert |
 | Erster Prototyp | Three.js: Server + Shared + Tools + Assets weitgehend fertig, Client früh (Terrain, Grass, Instancing, WorldMap) | Wird als Code-Spender und Referenz genutzt |
 | Dieses Projekt | Babylon.js-Client + wiederverwendeter Server | Neu |
 
 **Zentrale Erkenntnis:** Der Server (`server/`) und die geteilte Weltgenerierung (`shared/`) des Prototyps sind **engine-unabhängiges TypeScript**. Sie werden nahezu 1:1 übernommen. Nur der Client (Rendering) wird mit Babylon.js neu gebaut.
 
-*(Die Erkenntnis hat getragen: Der Import lief am 26.07.2026, Server und Shared kamen unverändert durch. Was danach am Server gewachsen ist — Layout-Welt, Routen, Dungeons —, hat im C++-Vorbild keine Entsprechung; siehe [05](05-Server-Architektur.md).)*
+*(Die Erkenntnis hat getragen: Der Import lief am 26.07.2026, Server und Shared kamen unverändert durch. Was danach am Server gewachsen ist — Layout-Welt, Routen, Dungeons —, hat im Vorbild keine Entsprechung; siehe [05](05-Server-Architektur.md).)*
 
 ---
 
@@ -89,7 +89,7 @@ Die **Live-Welt** ist am 16.08.2026 neu entstanden (Weltschnitt): 17 Regionen, 1
                          │ WebSocket (Binary / MessagePack)
 ┌────────────────────────┴─────────────────────────────────────┐
 │              AUTHORITATIVE SERVER (ÜBERNOMMEN)                │
-│  Node.js + TypeScript (1:1 Port des C++-Referenzservers)     │
+│  Node.js + TypeScript (1:1 Port des Referenzservers)         │
 │                                                              │
 │  ZDOManager │ PrefabManager │ ZoneManager │ Heightmap        │
 │  WorldManager (Persistenz) │ NetManager (Peers, RPC)         │
@@ -152,7 +152,7 @@ worldofvikings/
 │           ├── WorldMap.ts        # Port aus dem Prototyp
 │           └── Inventory.ts
 ├── tools/                     # ÜBERNOMMEN aus dem Prototyp
-│   ├── assetripper/
+│   ├── Extraktions-Ordner/
 │   ├── prefab-parser/
 │   └── *.mjs / *.ts           # GLB-Inspektions- & Playwright-Tools
 └── assets/                    # Symlink/Kopie des Asset-Ordners
@@ -208,7 +208,7 @@ des Repos geführt — die Roadmap ist ihr Vorgänger und bleibt als Historie st
 |---|---|---|
 | Client-Engine | **Babylon.js 7+/8+** | Clustered Lighting, CSM, Volumetrics, Havok, GUI, Inspector — alles eingebaut |
 | Rendering-Backend | WebGPU (Fallback WebGL2) | `WebGPUEngine`, identischer Szenen-Code |
-| Server-Sprache | TypeScript (Node.js) | Wie gehabt; 1:1-Mapping der C++-Klassen |
+| Server-Sprache | TypeScript (Node.js) | Wie gehabt; 1:1-Mapping der Referenzklassen |
 | Netzwerk | WebSocket + Binary (bisheriges Protokoll), **Port 2467** | Client-Unabhängigkeit bewahren; eigener Port, damit die Vorgängerprojekte parallel laufen können (geplant war 2466, s. Port-Tabelle) |
 | Asset-Format | glTF/GLB + KTX2 | Babylon lädt beides nativ (`KhronosTextureBasisU`, Draco) |
 | Assets | **Eigenbau**, Whitelist `EIGENE_MODELLE` | Abweichung 16.08.2026: ein Browserspiel liefert seine Assets an jeden Besucher aus — siehe oben |

@@ -139,7 +139,7 @@ blauarme Farbe statt Tönung über die Terrainfarbe.
 `Docs/03` notiert, der Original-Mechanismus sei gescheitert, weil *„`clutter_default.glb`
 auf den 256²-Atlas ausgelegt ist"* und es *„die zum Original passende Clutter-Geometrie"*
 brauche. **Das trifft nicht zu.** Der UV-Dump zeigt: `clutter_default.glb` und die
-Original-Geometrie `assetripper/export/Assets/PrefabHierarchyObject/grasscross.glb` haben ein
+Original-Geometrie `grasscross.glb` (Extraktions-Ordner unter `tools/`) haben ein
 **identisches UV-Layout** (drei Spalten u 0.01–0.37 / 0.37–0.66 / 0.66–0.97, v 0.03–0.99,
 je 48 Vertices). Es *ist* bereits die Originalgeometrie.
 
@@ -177,7 +177,7 @@ in Senken und über Wasser, der im Original die Tiefenstaffelung trägt.
   hat — es fehlen alle Kontaktschatten an Grasfüßen, Steinauflagen, Terrainfalten.
 - **MSAA wirkt nicht, selbst wenn man es setzt.** `pipeline.samples`
   (`postProcessRenderPipeline.js:162-175`) fasst nur den ersten PostProcess *der Pipeline*
-  an; die Szene rendert aber in `ValheimDof.ts:219`, das sich mit
+  an; die Szene rendert aber im Schärfentiefe-Pass (Zeile 219 des Clients), der sich mit
   `camera.attachPostProcess(pp, 0)` davorhängt. Es bleibt nur FXAA.
 
 ### Randbedingung — der faktische Zielpfad ist WebGL2, nicht WebGPU
@@ -686,7 +686,7 @@ Nebel und Grundlicht aus **einer** Quelle.
 
 ### Stufe 5 — IBL aus der vorhandenen Sky-Probe (~4 h)
 
-Die Probe existiert bereits (`ValheimSky.ts:314-317`, 128², Refresh alle 15 Frames, für das
+Die Probe existiert bereits (Himmelskuppel, Sky-Modul des Clients, Zeilen 314–317, 128², Refresh alle 15 Frames, für das
 Wasser) — die Renderkosten laufen also schon heute. Zwei Änderungen an der Konstruktion:
 `useFloat: true` (erhält Werte > 1, ~0,8 MB) und `linearSpace: true` (sonst linearisiert PBR
 die bereits lineare Himmelsfarbe ein zweites Mal — derselbe Fehlertyp wie Ursache A).
@@ -694,7 +694,7 @@ die bereits lineare Himmelsfarbe ein zweites Mal — derselbe Fehlertyp wie Ursa
 Für den **diffusen** Anteil braucht PBR `sphericalPolynomial`. Der Getter würde die Textur
 zurücklesen (teuer), **der Setter existiert aber ebenfalls** — also die Kugelharmonischen
 analytisch aus dem EnvSetup rechnen (~128 fibonacci-verteilte Richtungen, ~0,5 ms alle paar
-Sekunden) und setzen. `SKY_GRADIENT_GLSL` ist in `ValheimSky.ts` bereits als eigenständige
+Sekunden) und setzen. `SKY_GRADIENT_GLSL` ist im Sky-Modul des Clients bereits als eigenständige
 Funktion gekapselt; die CPU-Portierung sind ein Dutzend Zeilen und garantiert, dass IBL,
 Kuppel, Wasser und Nebel dieselbe Quelle haben.
 
@@ -714,7 +714,7 @@ Versehen — für unsere eigenen Materialien gilt dieselbe Wahl, jetzt aus eigen
 über den Materialnamen, weil die GLB-Materialnamen die Unity-Namen *sind*; 161 direkte
 `<name>_n.png`-Treffer in `assets/textures/`, darunter alle bildfüllenden (`beech_leaf`,
 `beech_bark`, `oak_bark`, `birch_bark`, `Bush01`), plus eine Alias-Tabelle von ~20
-Einträgen für den Rest. Diese Rechnung stand auf dem AssetRipper-Export. In
+Einträgen für den Rest. Diese Rechnung stand auf dem Extraktions-Export. In
 `assets/textures/` liegen heute 66 Dateien, sämtlich selbst erzeugt, und die einzigen
 `_n`-Karten darunter (`forest_n`, `cultivated_n`, `paved_n`, `gouacherock_big_n`,
 `snow_normal`) gehören dem Terrain. Für `eiche_bark`, `hasel_leaf`, `granit_fels` und die
@@ -1174,7 +1174,7 @@ Ghosting auszumachen.
 > Matrizen aus derselben, nun verwackelten Kamera ziehen. Die tragen den Jitter ins fertige
 > Bild zurück, wo ihn niemand mehr herausmittelt.
 >
-> Die Umsortierung war gebaut, hat sauber funktioniert (`TAA(s4)` vorn, `valheimDof` auf s1)
+> Die Umsortierung war gebaut, hat sauber funktioniert (`TAA(s4)` vorn, der Schärfentiefe-Pass auf s1)
 > und ist wegen dieser Messung wieder entfernt worden.
 
 **Noch offen:** Gemessen wurde mit stehendem Spieler. Ghosting bei schneller Eigenbewegung —
@@ -1304,7 +1304,7 @@ Materialien, also zwei Master. Ein gemeinsames Material lässt
 Gebaut als GLB-Operation (`tools/baum-material-zusammenlegen.mjs`) und **nicht** in
 `baum-generieren.py`, weil das Rezept nicht läuft: Blender ist auf `wov-dev` nicht
 installiert, und die Quelltexturen `PineTree_01.png`, `Pine_tree_texture_d.png`,
-`birch_leaf.png`, `birch_bark.png` sind mit dem AssetRipper-Export gelöscht. Sie stecken
+`birch_leaf.png`, `birch_bark.png` sind mit dem Extraktions-Export gelöscht. Sie stecken
 noch als eingebettete Bilder in den GLBs und werden vom Werkzeug wieder herausgeschrieben.
 
 **Was dabei herauskam — strukturell genau wie erwartet:**
@@ -1417,7 +1417,7 @@ deshalb bewusst am Ende, wenn die tatsächlichen Kosten gemessen sind.
 
 ⚠️ **Woher die LOD-Stufen kommen, hat sich umgekehrt (16.08.2026).** Hier stand: „Die
 LOD-Stufen liegen in den Prefab-Ordnern des Rips
-(`assetripper/export/Assets/world/Props/<Baum>/`, 6–7 GLBs je Baum)" — es war also ein
+(Extraktions-Ordner unter `tools/`, 6–7 GLBs je Baum)" — es war also ein
 reines Verdrahtungsproblem. Den Rip gibt es nicht mehr, und unsere eigenen Bäume haben
 genau eine Stufe.
 

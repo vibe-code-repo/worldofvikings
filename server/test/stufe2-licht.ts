@@ -597,6 +597,10 @@ function lookGeprueft(): void {
   ok(pruefeLook({ grading: { mittenTon: '#fff5ef' } }).length === 1, 'ein unbekannter Grading-Schluessel wird gemeldet');
   ok(pruefeLook({ schatten: { kaskaden: 1 } }).length === 0, 'look.schatten.kaskaden ist ein bekannter Regler');
   ok(pruefeLook({ schatten: { dunkelheit: 42 } }).length === 1, 'dunkelheit 42 statt 0,42 wird gemeldet');
+  // G18: Teilung und Ueberblendung der Kaskaden sind Look-Regler mit Bereich.
+  ok(pruefeLook({ schatten: { lambda: 0.1, ueberblendung: 0.25 } }).length === 0, 'look.schatten.lambda und .ueberblendung sind bekannte Regler');
+  ok(pruefeLook({ schatten: { lambda: 8 } }).length === 1, 'lambda 8 statt 0,8 wird gemeldet');
+  ok(pruefeLook({ schatten: { ueberblendung: 20 } }).length === 1, 'ueberblendung 20 statt 0,2 wird gemeldet');
   // Ein NEGATIVER Grading-Offset ist gueltig und seit dem 12.09.2026 der
   // Normalfall: Die Dorf-Schattenzeile traegt −0,044477392, und ein
   // positiver Offset wirkt in dieser Zeile vierfach. Waere der Bereich
@@ -617,6 +621,17 @@ function lookGeprueft(): void {
     'Teilangabe im Unterabschnitt laesst die uebrigen Regler stehen'
   );
   ok(mischeLook({ unbekannt: 1 }).tonemapping === LOOK_VORGABE.tonemapping, 'unbekannter Schluessel beim Mischen ist wirkungslos');
+  // Ein server.yml aus der Zeit vor G18 kennt lambda/ueberblendung nicht: Die
+  // Vorgabe fuellt sie, der Block darf nicht mit `undefined` ankommen.
+  const altBlock = mischeLook({ schatten: { dunkelheit: 0.2, rasten: false } });
+  ok(
+    altBlock.schatten.dunkelheit === 0.2 &&
+      altBlock.schatten.lambda === LOOK_VORGABE.schatten.lambda &&
+      altBlock.schatten.ueberblendung === LOOK_VORGABE.schatten.ueberblendung &&
+      typeof altBlock.schatten.lambda === 'number' &&
+      typeof altBlock.schatten.ueberblendung === 'number',
+    'ein Schattenblock ohne lambda/ueberblendung bekommt beide aus der Vorgabe'
+  );
 
   // Der Draht bis zum Start: leseLookVorgabe wirft.
   const werfe = (yaml: Record<string, unknown>): boolean => {
@@ -769,6 +784,14 @@ function vorgabeDecktServerYml(): void {
   ok(
     LOOK_VORGABE.schatten.kaskaden === 2 && LOOK_VORGABE.schatten.dunkelheit === 0.13,
     `Schatten: ${LOOK_VORGABE.schatten.kaskaden} Kaskaden (Babylons Deckel), Restlicht ${LOOK_VORGABE.schatten.dunkelheit}`
+  );
+  ok(
+    typeof LOOK_VORGABE.schatten.lambda === 'number' &&
+      LOOK_VORGABE.schatten.lambda >= 0 &&
+      LOOK_VORGABE.schatten.lambda <= 1 &&
+      typeof LOOK_VORGABE.schatten.ueberblendung === 'number' &&
+      LOOK_VORGABE.schatten.ueberblendung > 0,
+    `Schatten: Kaskadenteilung lambda ${LOOK_VORGABE.schatten.lambda}, Ueberblendung ${LOOK_VORGABE.schatten.ueberblendung}`
   );
 }
 

@@ -103,7 +103,31 @@ export interface ShadowLevel {
 export const SHADOW_LEVELS: readonly (ShadowLevel | null)[] = [
   null, // Aus — nicht im Original, siehe Kopfkommentar
   { kaskaden: 2, distanz: 80, aufloesung: 512 },
-  { kaskaden: 3, distanz: 120, aufloesung: 1024 },
+  // Deckel 2048 seit G18 (18.09.2026, vorher 1024): Der Look (`look.schatten.
+  // aufloesung`) bestimmt, was tatsaechlich gebaut wird, die Stufe ist nur
+  // die Obergrenze, die der Spieler mit seiner Wahl bezahlen kann. Bei 1024 px
+  // reicht die scharfe Nahkaskade nur bis 9 m (Texel 2,3 cm), dahinter 12,2 cm;
+  // 2048 px mit lambda 0,3 (Vorgabe) halten 2,4 cm bis 19 m und 6,0 cm bis 50 m.
+  //
+  // PREIS, in Zahlen: Speicher. Je Kaskade 2048^2 x 4 Byte = 16,8 MB, bei den
+  // zwei Kaskaden der Vorgabe 33,6 MB statt 8,4 MB bei 1024 px — das Vierfache
+  // auf der Stufe, die die Spieler standardmaessig haben (`shadowQuality 2`).
+  // Zeit auf der schweren Insel: +0,3 ms p50 gegen main (im Rauschen, n=4),
+  // s. `server.yml`, `look.schatten`. Wer den Speicher nicht hat, setzt
+  // `look.schatten.aufloesung` auf 1024 und behaelt die Grenze bei 19 m.
+  { kaskaden: 3, distanz: 120, aufloesung: 2048 },
+  // ── Stufe 3 („Hoch") und der Block darunter ───────────────────────────
+  // Seit G18 (18.09.2026) sind Stufe 2 und 3 AUFLOESUNGSGLEICH (2048 px).
+  // Der Look ersetzt Kaskadenzahl und Reichweite beider Stufen
+  // (`schattenMitLook`); mit der ausgelieferten Vorgabe (2 Kaskaden, 50 m)
+  // ergeben sie dasselbe Bild zum selben Preis. Nur bei einem Look ohne diese
+  // Werte (kaskaden 0) unterscheiden sie sich: 4 Kaskaden und 150 m statt 3
+  // und 120 m.
+  //
+  // Der Block unten beschreibt einen ZURUECKGENOMMENEN Zustand (4096 px auf
+  // dieser Stufe, 17.08.2026) und bleibt als Messprotokoll stehen — die Zahl
+  // in `aufloesung` unten ist 2048, nicht 4096.
+  //
   // Hoechste Stufe: 4096 statt 2048 — gemessen 17.08.2026 nachts gegen das
   // Kriseln des Bodenschattens (E15). Vierfache Texelzahl auf gleicher
   // Flaeche, also die Dichte von 75 m bei 2048, nur mit VOLLEN Fernschatten.
@@ -241,9 +265,89 @@ export function schattenMitLook(
  * restlichen 67 m tragen — genau der sichtbare Sprung von scharf zu weich.
  * Lambda 0,20 verschiebt die Grenze auf rund 33 m und teilt 33/47 m. Die
  * zweite Kaskade gewinnt dadurch ebenfalls Texeldichte, ohne dritten Pass.
+ *
+ * `lambdaProfil` ist die Look-Entscheidung (`look.schatten.lambda`); nur das
+ * 100-FPS-Profil auf Stufe 1 behaelt seinen eigenen, gemessenen Wert — das
+ * ist ein Hardwarepreis, kein Look.
  */
-export function schattenLambda(stufe: number, hundertFpsProfil: boolean): number {
-  return hundertFpsProfil && stufe === 1 ? 0.20 : 0.80;
+export function schattenLambda(stufe: number, hundertFpsProfil: boolean, lambdaProfil = 0.8): number {
+  return hundertFpsProfil && stufe === 1 ? 0.20 : lambdaProfil;
+}
+
+/**
+ * Breite der Kaskadenueberblendung (Anteil der Nahkaskade, `cascadeBlendPercentage`).
+ *
+ * Wie `schattenLambda`: Der Look bestimmt, das 100-FPS-Profil auf Stufe 1
+ * behaelt seine 0,20 (dort gibt es nur einen Uebergang, s. setLevel).
+ */
+export function schattenUeberblendung(
+  stufe: number,
+  hundertFpsProfil: boolean,
+  ueberblendungProfil = 0.10
+): number {
+  return hundertFpsProfil && stufe === 1 ? 0.20 : ueberblendungProfil;
+}
+
+/**
+ * Wo Babylons `CascadedShadowGenerator` seine Kaskaden trennt (Sichttiefe in m).
+ *
+ * Nachgerechnet aus `_splitFrustum` (cascadedShadowGenerator.js): Mischung aus
+ * gleichmaessiger und logarithmischer Teilung, `lambda` 0 = gleichmaessig,
+ * 1 = logarithmisch. Als reine Funktion, damit der Sprung von scharf zu weich
+ * ohne GPU nachrechenbar ist; am laufenden Generator stimmt sie mit
+ * `_viewSpaceFrustumsZ` ueberein (9,05 / 50 m bei minZ 0,5, 50 m, 2 Kaskaden,
+ * lambda 0,8 — gemessen).
+ *
+ * Mirrors Babylon's split rule so the near-cascade reach can be tested
+ * without a GPU.
+ */
+export function kaskadenGrenzen(
+  naheEbene: number,
+  reichweite: number,
+  kaskaden: number,
+  lambda: number
+): number[] {
+  const grenzen: number[] = [];
+  const bereich = reichweite - naheEbene;
+  const verhaeltnis = reichweite / naheEbene;
+  for (let i = 0; i < kaskaden; i++) {
+    const p = (i + 1) / kaskaden;
+    const logarithmisch = naheEbene * verhaeltnis ** p;
+    const gleichmaessig = naheEbene + bereich * p;
+    grenzen.push(lambda * (logarithmisch - gleichmaessig) + gleichmaessig);
+  }
+  return grenzen;
+}
+
+/**
+ * Den Basis-Effekt eines Schattenklons beim Tiefen-Wrapper anmelden (G20).
+ *
+ * ── Warum das noetig ist ─────────────────────────────────────────────
+ * Ein Vegetationsklon (`schattenVegetation_*`, `layerMask 0`) wird nie im
+ * Farbpass gezeichnet. Babylons `ShadowDepthWrapper` baut den Tiefen-Shader
+ * eines Sub-Meshes aber aus dem Effekt, den das Basismaterial im FARBPASS
+ * fuer genau diesen Sub-Mesh anlegt (`_subMeshToEffect`, gefuellt ueber
+ * `onEffectCreatedObservable`). Fuer den Klon geschieht das nie: der Wrapper
+ * hat keine Vorlage, `generator.isReady()` bleibt dauerhaft `false`, und der
+ * Schattenpass ueberspringt das Mesh ohne Meldung. Gemessen 18.09.2026: 0 von
+ * 17 Laub-Klonen bereit, Laubschatten 0,005 % der Bildflaeche gegen 10,68 %
+ * mit den Quellen. Materialien OHNE Wrapper (Rinde, Fels) sind nicht betroffen
+ * — deshalb warfen bis dahin nur die Staemme.
+ *
+ * Der Aufruf legt den Effekt an, wie es der Farbpass taete, nur ohne zu
+ * zeichnen. `hasThinInstances` MUSS schon stimmen, sonst wird die Vorlage ohne
+ * INSTANCES-Define gebaut und der Tiefen-Shader zeichnet keine Instanzen.
+ *
+ * Registers the clone's base effect with the material's depth wrapper; the
+ * clone never renders in the colour pass, so nobody else ever would.
+ * Returns false when the clone's material has no wrapper (nothing to do).
+ */
+export function meldeKlonAnBasisEffekt(klon: Mesh): boolean {
+  const material = klon.material;
+  const teil = klon.subMeshes?.[0];
+  if (!material?.shadowDepthWrapper || !teil) return false;
+  material.isReadyForSubMesh(klon, teil, klon.hasThinInstances);
+  return true;
 }
 
 /**
@@ -434,7 +538,22 @@ interface VegetationsSchattenMaster {
   maxSkala: number;
   gepackterRadius: number;
   bereit: boolean;
+  /**
+   * Hat der Tiefen-Wrapper des Klons seine Vorlage (G20)? Erst dann darf der
+   * Klon die Quelle ersetzen — sonst stuende das Laub in der Zwischenzeit
+   * ohne Werfer da. Ohne Wrapper (Rinde, Fels) ist das sofort wahr.
+   */
+  tiefeBereit: boolean;
+  /** Versuche seit dem letzten Erfolg — Notbremse gegen ein Material, das nie bereit wird. */
+  tiefeVersuche: number;
 }
+
+/**
+ * Bilder, die ein Klon auf seine Tiefenwirkung warten darf, bevor er aufgibt.
+ * Ein Shader braucht wenige Bilder; wer nach ~10 s (bei 120 Bildern/s) nicht
+ * bereit ist, wird es nicht mehr — dann bleibt die Quelle Werfer.
+ */
+const TIEFE_MAX_VERSUCHE = 1200;
 
 export class Shadows {
   private generator: CascadedShadowGenerator | null = null;
@@ -474,6 +593,10 @@ export class Shadows {
   private readonly vegetationsQuellen = new Set<AbstractMesh>();
   private readonly vegetationsKlone = new Set<AbstractMesh>();
   private readonly vegetationsPackPending = new Set<VegetationsSchattenMaster>();
+  /** Klone, die auf ihren Tiefen-Shader warten; die Quelle wirft solange weiter (G20). */
+  private readonly vegetationsTiefePending = new Set<VegetationsSchattenMaster>();
+  /** Wie oft der Basis-Effekt eines Klons angemeldet wurde (Zeuge fuer die Kosten von G20). */
+  private tiefeAnmeldungen = 0;
   /*
     ── E27 (aus) → G6 (an) ────────────────────────────────────────────
     Hier stand: „Der E26-Weg ist vorerst deaktiviert. Im Live-Test
@@ -583,6 +706,14 @@ export class Shadows {
       gerastet: g.stabilizeCascades,
       dunkelheit: +g.darkness.toFixed(3),
       lambda: +g.lambda.toFixed(3),
+      ueberblendung: +g.cascadeBlendPercentage.toFixed(3),
+      // Sichttiefe, in der Kaskade i endet (m) — der Ort des Sprungs von scharf zu weich.
+      grenzen: kaskadenGrenzen(
+        this.scene.activeCamera?.minZ ?? 0.5,
+        g.shadowMaxZ,
+        g.numCascades,
+        g.lambda
+      ).map((v) => +v.toFixed(2)),
       pcf: g.usePercentageCloserFiltering,
       werfer: g.getShadowMap()?.renderList?.length ?? 0,
     };
@@ -646,6 +777,8 @@ export class Shadows {
         maxSkala: 1,
         gepackterRadius: Number.NaN,
         bereit: false,
+        tiefeBereit: false,
+        tiefeVersuche: 0,
       };
       this.vegetationsSchatten.set(quelle, stand);
       this.vegetationsKlone.add(schatten);
@@ -669,6 +802,7 @@ export class Shadows {
     if (an === this.vegetationsInstanzKeulung) return;
     this.vegetationsInstanzKeulung = an;
     this.vegetationsPackPending.clear();
+    this.vegetationsTiefePending.clear();
     for (const stand of this.vegetationsSchatten.values()) {
       if (an) {
         stand.bereit = false;
@@ -781,10 +915,72 @@ export class Shadows {
 
     // Erst NACH vollständigem Pufferwechsel umschalten: Es gibt in keinem
     // Frame eine Lücke zwischen sichtbarer Quelle und Schattenklon.
+    //
+    // ── G20: ... und erst, wenn der Klon auch wirklich werfen KANN ──────
+    // Ein Klon mit Tiefen-Wrapper (Laub) braucht die Vorlage des Farbpasses,
+    // die er nie bekommt (s. meldeKlonAnBasisEffekt). Ohne den Aufruf unten
+    // stuende er als Werfer in der Liste und wuerfe nichts, waehrend die
+    // Quelle schon abgemeldet ist: Laub ohne Schatten, dauerhaft. Bis der
+    // Shader steht, wirft deshalb die Quelle weiter (tick → tiefeNachziehen).
+    // Ohne Instanzen gibt es nichts anzumelden (Effekt ohne INSTANCES-Define)
+    // und nichts abzuwarten — ein zuvor wartender Klon verlaesst die Liste
+    // SOFORT, nicht erst im naechsten Tick.
+    if (stand.aktiv === 0) this.vegetationsTiefePending.delete(stand);
+    const braucheWrapper = daten !== null && daten.length > 0 && !!stand.schatten.material?.shadowDepthWrapper;
+    if (braucheWrapper && stand.aktiv > 0 && !stand.tiefeBereit) {
+      stand.tiefeVersuche = 0;
+      this.vegetationsTiefePending.add(stand);
+      this.tiefeAnmeldungen++;
+      meldeKlonAnBasisEffekt(stand.schatten);
+      return;
+    }
+    this.uebergebeAnKlon(stand);
+  }
+
+  /** Die Quelle gibt den Wurf an ihren gepackten Klon ab. */
+  private uebergebeAnKlon(stand: VegetationsSchattenMaster): void {
     this.vegetationsQuellen.add(stand.quelle);
     this.entferneWerfer(stand.quelle);
     this.nimmAuf(stand.schatten);
     stand.bereit = true;
+  }
+
+  /**
+   * Klone mit Tiefen-Wrapper bis zur Wurfbereitschaft begleiten (G20).
+   *
+   * Je Bild: meldet der Generator den Klon bereit, uebernimmt er den Wurf von
+   * der Quelle. Sonst wird der Aufruf wiederholt — der Shader kompiliert
+   * asynchron, und `isReady()` bleibt bis dahin `false`. Nach
+   * TIEFE_MAX_VERSUCHEN gibt der Klon auf (die Quelle wirft weiter, mit
+   * Meldung), damit ein kaputtes Material nicht ewig pro Bild gepruft wird.
+   */
+  private tiefeNachziehen(): void {
+    const g = this.generator;
+    if (!g || this.vegetationsTiefePending.size === 0) return;
+    for (const stand of this.vegetationsTiefePending) {
+      const teil = stand.schatten.subMeshes?.[0];
+      // Ohne Instanzen NICHT anmelden: Der Basis-Effekt entstuende ohne
+      // INSTANCES-Define, und der Tiefen-Shader zeichnete spaeter keine
+      // Instanzen. Beim naechsten Packen mit Instanzen kommt der Klon neu hierher.
+      if (!this.vegetationsInstanzKeulung || !teil || stand.schatten.isDisposed() || stand.aktiv === 0) {
+        this.vegetationsTiefePending.delete(stand);
+        continue;
+      }
+      if (g.isReady(teil, true, false)) {
+        stand.tiefeBereit = true;
+        this.vegetationsTiefePending.delete(stand);
+        this.uebergebeAnKlon(stand);
+        continue;
+      }
+      this.tiefeAnmeldungen++;
+      meldeKlonAnBasisEffekt(stand.schatten);
+      if (++stand.tiefeVersuche >= TIEFE_MAX_VERSUCHE) {
+        this.vegetationsTiefePending.delete(stand);
+        console.warn(
+          `[shadows] Schattenklon ${stand.schatten.name} wird nicht bereit — die Quelle wirft weiter`
+        );
+      }
+    }
   }
 
   /**
@@ -955,6 +1151,7 @@ export class Shadows {
       this.werferHuelleDirty = false;
       this.generator.freezeShadowCastersBoundingInfo = true;
     }
+    this.tiefeNachziehen();
     const budgetEnde = performance.now() + WERFER_BUDGET_MS;
 
     // Schattenpuffer und Werfer-Scan teilen sich EIN Zeitbudget. Ein
@@ -1021,6 +1218,10 @@ export class Shadows {
     aktiv: number;
     pending: number;
     radiusMax: number;
+    /** Klone, die noch auf ihren Tiefen-Shader warten (G20). */
+    tiefeWartend: number;
+    /** Anmeldungen des Basis-Effekts seit dem Start (G20). */
+    tiefeAnmeldungen: number;
   } {
     let gesamt = 0;
     let aktiv = 0;
@@ -1039,6 +1240,8 @@ export class Shadows {
       aktiv,
       pending: this.vegetationsPackPending.size,
       radiusMax,
+      tiefeWartend: this.vegetationsTiefePending.size,
+      tiefeAnmeldungen: this.tiefeAnmeldungen,
     };
   }
 
@@ -1235,11 +1438,25 @@ export class Shadows {
     if (!stand) return;
     this.vegetationsSchatten.delete(mesh as Mesh);
     this.vegetationsPackPending.delete(stand);
+    this.vegetationsTiefePending.delete(stand);
     this.vegetationsKlone.delete(stand.schatten);
     // Erst abmelden, dann entsorgen — dieselbe Reihenfolge, aus der der
     // Kopf von entferneWerfer() oben seine Begruendung bezieht.
     this.entferneWerfer(stand.schatten);
     stand.schatten.dispose();
+  }
+
+  /**
+   * Der eine Ort, an dem der echte Generator entsteht.
+   *
+   * Eine Naht fuer Tests: `CascadedShadowGenerator` laeuft nicht auf der
+   * NullEngine, ein Test ersetzt diese Methode an der Instanz und prueft, was
+   * `setLevel` aus Stufe und Look-Profil am Generator einstellt (lambda,
+   * Ueberblendung, Reichweite, Kaskaden). Vorher konnte ein Rueckfall auf
+   * Babylons Vorgaben (`cascadeBlendPercentage = 0.1`) durch keinen Test fallen.
+   */
+  private erzeugeGenerator(aufloesung: number): CascadedShadowGenerator {
+    return new CascadedShadowGenerator(aufloesung, this.sonne);
   }
 
   /** Stufe setzen (Index in SHADOW_LEVELS). */
@@ -1257,7 +1474,7 @@ export class Shadows {
     // wird neu angelegt statt umkonfiguriert.
     this.abbauen();
 
-    const g = new CascadedShadowGenerator(cfg.aufloesung, this.sonne);
+    const g = this.erzeugeGenerator(cfg.aufloesung);
     g.numCascades = cfg.kaskaden;
     g.shadowMaxZ = cfg.distanz;
     // ── Kaskadenverteilung: gemessen 17.08.2026 nachts (E15) ─────────
@@ -1308,11 +1525,15 @@ export class Shadows {
     // Babylons Standard 0,1 mischt nur auf den letzten zehn Prozent einer
     // Kaskade. Zwanzig Prozent verdecken den Wechsel frueher, ohne einen
     // weiteren Schattenpass oder zusaetzliche Werfer zu erzeugen.
-    g.cascadeBlendPercentage = this.hundertFpsProfil && i === 1 ? 0.20 : 0.10;
+    g.cascadeBlendPercentage = schattenUeberblendung(
+      i,
+      this.hundertFpsProfil,
+      this.profil.schatten.ueberblendung
+    );
     // Logarithmischere Aufteilung der vier Kaskaden: schiebt Texeldichte in
     // den Nahbereich, wo der Spieler steht. Babylons Vorgabe ist 0,5.
     // Gemessen: 0,80 traegt, 0,95 ist bereits schlechter (2,04 gegen 2,44 %).
-    g.lambda = schattenLambda(i, this.hundertFpsProfil);
+    g.lambda = schattenLambda(i, this.hundertFpsProfil, this.profil.schatten.lambda);
     // `autoCalcDepthBounds` BEWUSST AUS: Es klingt richtig (der
     // Tiefenbereich passt sich dem Gelände an), zieht aber einen
     // zusätzlichen Tiefen-Renderpass über die ganze Szene nach sich —
@@ -1446,9 +1667,12 @@ export class Shadows {
       for (const stand of this.vegetationsSchatten.values()) {
         stand.schatten.setEnabled(false);
         stand.bereit = false;
+        // Ein neuer Generator kennt die Tiefen-Shader der Klone noch nicht.
+        stand.tiefeBereit = false;
         this.vegetationsQuellen.delete(stand.quelle);
         this.vegetationsPackPending.add(stand);
       }
+      this.vegetationsTiefePending.clear();
     }
 
     for (const m of this.scene.meshes) this.nimmAuf(m);
@@ -1506,5 +1730,6 @@ export class Shadows {
     this.vegetationsQuellen.clear();
     this.vegetationsKlone.clear();
     this.vegetationsPackPending.clear();
+    this.vegetationsTiefePending.clear();
   }
 }

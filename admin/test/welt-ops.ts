@@ -530,23 +530,25 @@ try {
       const kaputt = await anfrage('POST', '/api/worldlayout', { port: port2, leib: { version: 1, name: 'x', regions: 'keine Liste' }, ifNoneMatch: '*' });
       check('an invalid document with If-None-Match: * is refused (400), nothing written', kaputt.status === 400 && fehlt(), `${kaputt.status}`);
       const angelegt = await anfrage('POST', '/api/worldlayout', { port: port2, leib: doc, ifNoneMatch: '*' });
-      const hash2 = sha(readFileSync(datei2));
-      check('If-None-Match: * on a missing file → 201, file = sanitizer output', angelegt.status === 201 && angelegt.daten.ok === true && readFileSync(datei2, 'utf-8') === soll, `${angelegt.status} ${JSON.stringify(angelegt.daten).slice(0, 200)}`);
+      // Guarded reads: on a tree without this feature the file is not there, and the run should go on and report.
+      const dateiHash = (): string => (existsSync(datei2) ? sha(readFileSync(datei2)) : 'fehlt');
+      const hash2 = dateiHash();
+      check('If-None-Match: * on a missing file → 201, file = sanitizer output', angelegt.status === 201 && angelegt.daten.ok === true && existsSync(datei2) && readFileSync(datei2, 'utf-8') === soll, `${angelegt.status} ${JSON.stringify(angelegt.daten).slice(0, 200)}`);
       check('…the answer carries the file hash and the ETag; GET now reads it', angelegt.daten.hash === hash2 && angelegt.kopf.get('etag') === `"${hash2}"` && (await anfrage('GET', '/api/worldlayout', { port: port2 })).daten.hash === hash2);
       const nochmal = await anfrage('POST', '/api/worldlayout', { port: port2, leib: { ...doc, name: 'anders' }, ifNoneMatch: '*' });
-      const dateiDanach = readdirSync(dirname(datei2)).sort();
-      check('the same again → 412 existiert with the current hash, file unchanged, no backup', nochmal.status === 412 && nochmal.daten.fehler === 'existiert' && nochmal.daten.aktuell === hash2 && nochmal.kopf.get('etag') === `"${hash2}"` && sha(readFileSync(datei2)) === hash2 && dateiDanach.join() === 'dev.json', `${nochmal.status} ${dateiDanach.join()}`);
+      const dateiDanach = existsSync(dirname(datei2)) ? readdirSync(dirname(datei2)).sort() : [];
+      check('the same again → 412 existiert with the current hash, file unchanged, no backup', nochmal.status === 412 && nochmal.daten.fehler === 'existiert' && nochmal.daten.aktuell === hash2 && nochmal.kopf.get('etag') === `"${hash2}"` && dateiHash() === hash2 && dateiDanach.join() === 'dev.json', `${nochmal.status} ${dateiDanach.join()}`);
       const weiter = await anfrage('POST', '/api/worldlayout', { port: port2, leib: { ...doc, name: 'weiter' }, ifMatch: `"${hash2}"` });
       check('the hash from the 412 / 201 is the base for the normal save → 200', weiter.status === 200);
       // Two creations at the same instant: exactly one wins.
-      rmSync(datei2);
+      rmSync(datei2, { force: true });
       const [c1, c2] = await Promise.all([
         anfrage('POST', '/api/worldlayout', { port: port2, leib: { ...doc, name: 'eins' }, ifNoneMatch: '*' }),
         anfrage('POST', '/api/worldlayout', { port: port2, leib: { ...doc, name: 'zwei' }, ifNoneMatch: '*' }),
       ]);
       check('two creations at once: exactly one 201 and one 412', [c1.status, c2.status].sort().join() === '201,412', `${c1.status} ${c2.status}`);
       const sieger = c1.status === 201 ? 'eins' : 'zwei';
-      check('…and the file holds the winner\'s document', (JSON.parse(readFileSync(datei2, 'utf-8')) as { name: string }).name === sieger);
+      check('…and the file holds the winner\'s document', existsSync(datei2) && (JSON.parse(readFileSync(datei2, 'utf-8')) as { name: string }).name === sieger);
     } finally {
       rmSync(wurzel2, { recursive: true, force: true });
     }
@@ -561,7 +563,7 @@ try {
   {
     const vorHash = plattenHash();
     const gross = (methode: 'POST' | 'PATCH', pfad: string): Promise<{ status: number; daten: Record<string, unknown>; verbindung: string | undefined }> =>
-      new Promise((fertig, scheitern) => {
+      new Promise((fertig) => {
         const koerper = Buffer.from(`{"x":"${'x'.repeat(9_000_000)}"}`);
         let geantwortet = false;
         const req = httpRequest(
@@ -576,7 +578,8 @@ try {
           }
         );
         // The service may close before the last byte is written: that is not an error once it has answered.
-        req.on('error', (e) => (geantwortet ? undefined : scheitern(e)));
+        // Without an answer it counts as status 0, a failed check instead of a crash of the whole run.
+        req.on('error', (e) => (geantwortet ? undefined : fertig({ status: 0, daten: { fehler: String(e) }, verbindung: undefined })));
         req.end(koerper);
       });
     const p = await gross('POST', '/api/worldlayout');

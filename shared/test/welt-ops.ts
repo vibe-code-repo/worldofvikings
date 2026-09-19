@@ -164,6 +164,8 @@ const liste = (l: WorldLayout, s: OpCollection): readonly OpEntry[] =>
   ((l as unknown as Record<string, unknown>)[s] as readonly OpEntry[] | undefined) ?? [];
 const vg = (vorgangId: string, ...ops: Op[]): Vorgang => ({ vorgangId, ops });
 const ids = (l: WorldLayout, s: OpCollection): string[] => liste(l, s).map((e) => e.id);
+/** What `wende` reports as inexact ([] for a failure, and for a tree that does not report at all). */
+const pu = (r: WendeErgebnis): { sammlung: OpCollection; id: string }[] => (r.ok ? (r.positionUngenau ?? []) : []);
 /**
  * `setze` at a position, as plain data: the entry in front is the anchor (`nach`), the number the fallback.
  * Written out here instead of calling `opEinfuegen` so that the property tests run unchanged against an
@@ -510,16 +512,16 @@ function zufallsVorgangMomentaufnahme(stand: WorldLayout, name: string): Vorgang
   // A foreign writer deletes the entry in front instead: the anchor is gone.
   const ohneAnker = nimm(wende(nachWeg, vg('anker-weg', opEntfernen(nachWeg, s, r[0]!)), san));
   const undo2 = wende(ohneAnker, invertiere(weg), san);
-  check('anchor deleted meanwhile: the undo still stands but REPORTS the entry', undo2.ok && undo2.positionUngenau.length === 1 && undo2.positionUngenau[0]!.id === r[1] && undo2.positionUngenau[0]!.sammlung === s, JSON.stringify(undo2.ok ? undo2.positionUngenau : undo2));
+  check('anchor deleted meanwhile: the undo still stands but REPORTS the entry', undo2.ok && pu(undo2).length === 1 && pu(undo2)[0]!.id === r[1] && pu(undo2)[0]!.sammlung === s, JSON.stringify(pu(undo2)));
   check('…the entry is there, at the clamped number', undo2.ok && ids(undo2.layout, s).includes(r[1]!) && liste(undo2.layout, s).length === liste(ohneAnker, s).length + 1);
   // A number alone (no anchor) is unverified: applied, but always reported.
   const nurZahl = wende(D, vg('zahl', { art: 'setze', sammlung: s, id: 'nur-zahl', nachher: { ...neuerEintrag(s), id: 'nur-zahl' }, index: 1 } as Op), san);
-  check('a setze with only a number is reported', nurZahl.ok && nurZahl.positionUngenau.length === 1);
+  check('a setze with only a number is reported', nurZahl.ok && pu(nurZahl).length === 1);
   const anhaengen = wende(D, vg('ende', opSetzen(s, neuerEintrag(s))), san);
   const vorn = wende(D, vg('vorn', { art: 'setze', sammlung: s, id: 'ganz-vorn', nachher: { ...neuerEintrag(s), id: 'ganz-vorn' }, nach: null } as Op), san);
-  check('append (no position) and nach: null (first) are exact, nothing reported', anhaengen.ok && anhaengen.positionUngenau.length === 0 && vorn.ok && vorn.positionUngenau.length === 0 && ids(vorn.layout, s)[0] === 'ganz-vorn');
+  check('append (no position) and nach: null (first) are exact, nothing reported', anhaengen.ok && pu(anhaengen).length === 0 && vorn.ok && pu(vorn).length === 0 && ids(vorn.layout, s)[0] === 'ganz-vorn');
   const unbekannt = wende(D, vg('unb', { art: 'setze', sammlung: s, id: 'irrlaeufer', nachher: { ...neuerEintrag(s), id: 'irrlaeufer' }, nach: 'gibt-es-nicht' } as Op), san);
-  check('an anchor that never existed: appended and reported', unbekannt.ok && unbekannt.positionUngenau.length === 1 && ids(unbekannt.layout, s).at(-1) === 'irrlaeufer');
+  check('an anchor that never existed: appended and reported', unbekannt.ok && pu(unbekannt).length === 1 && ids(unbekannt.layout, s).at(-1) === 'irrlaeufer');
   const kaputt = wende(D, vg('k', { art: 'setze', sammlung: s, id: 'x-1', nachher: { ...neuerEintrag(s), id: 'x-1' }, nach: 'Bad Id' } as Op), san);
   check('a malformed anchor is ungueltig', !kaputt.ok && kaputt.art === 'ungueltig');
   const opBauer = typeof opEinfuegen === 'function' ? opEinfuegen(D, s, { ...neuerEintrag(s), id: 'eingefuegt' }, 2) : null;

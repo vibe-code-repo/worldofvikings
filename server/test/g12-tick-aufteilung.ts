@@ -100,10 +100,23 @@ const zeilenVon = (datei: string): MetrikSchnappschuss[] =>
         .map((z) => JSON.parse(z) as MetrikSchnappschuss)
     : [];
 
+/** Busy-wait, so the delay shows up as CPU time of exactly the phase it sits in. */
+function warteBusy(ms: number): void {
+  const bis = performance.now() + ms;
+  while (performance.now() < bis) {
+    /* spin */
+  }
+}
+
+/** Injected delays (ms) of scenario A: known sizes the split has to give back. */
+const SYNC_VERZOEGERUNG = 3;
+const WELT_VERZOEGERUNG = 2;
+
 /** Startet Server + wandernden Client, ruft `lauf` auf und raeumt danach auf. */
 async function mitServer(
   ordner: string,
   lauf: (wandern: () => void) => Promise<void>,
+  vorStart: (server: ReturnType<typeof createWovServer>) => void = () => undefined,
 ): Promise<void> {
   const welt = resolve(TMP, ordner, "welt");
   const metriken = resolve(TMP, ordner, "metriken");
@@ -117,6 +130,7 @@ async function mitServer(
     saveIntervalMs: 3600_000,
     metrikenDatei: resolve(metriken, "metriken.json"),
   });
+  vorStart(server);
   server.start();
   let ws: WebSocket | undefined;
   let schritt = 0;
@@ -140,76 +154,131 @@ async function mitServer(
 console.log("\n[A] Aufteilung im Tageslog:");
 {
   const metriken = resolve(TMP, "a", "metriken");
-  await mitServer("a", async (wandern) => {
-    const log = (): MetrikSchnappschuss[] => {
-      const heute = new Date().toISOString().slice(0, 10);
-      return zeilenVon(resolve(metriken, `metriken-${heute}.jsonl`)).filter((z) => z.peers === 1);
-    };
-    const wanderer = setInterval(wandern, 200);
-    const genug = await warteAuf(() => {
-      const z = log();
-      return z.length >= 4 && z.some((l) => l.zonenBudgetAbbrueche > 0);
-    }, 30_000);
-    clearInterval(wanderer);
-    check("Zeugen: mindestens vier Sekundenzeilen mit Client und ein Budget-Abbruch", genug);
+  await mitServer(
+    "a",
+    async (wandern) => {
+      const log = (): MetrikSchnappschuss[] => {
+        const heute = new Date().toISOString().slice(0, 10);
+        return zeilenVon(resolve(metriken, `metriken-${heute}.jsonl`)).filter((z) => z.peers === 1);
+      };
+      const wanderer = setInterval(wandern, 200);
+      const genug = await warteAuf(() => {
+        const z = log();
+        return z.length >= 4 && z.some((l) => l.zonenBudgetAbbrueche > 0);
+      }, 30_000);
+      clearInterval(wanderer);
+      check("Zeugen: mindestens vier Sekundenzeilen mit Client und ein Budget-Abbruch", genug);
 
-    const zeilen = log();
-    const abweichung = Math.max(
-      ...zeilen.map((z) =>
-        Math.abs(
-          z.tickWeltenMsDurchschnitt +
-            z.tickSyncMsDurchschnitt +
-            z.tickRestMsDurchschnitt -
-            z.tickDauerMsDurchschnitt,
+      const zeilen = log();
+      const abweichung = Math.max(
+        ...zeilen.map((z) =>
+          Math.abs(
+            z.tickWeltenMsDurchschnitt +
+              z.tickSyncMsDurchschnitt +
+              z.tickRestMsDurchschnitt -
+              z.tickDauerMsDurchschnitt,
+          ),
         ),
-      ),
-    );
-    check(
-      "Welten + Sync + Rest = Gesamt je Zeile (Toleranz 0,015 ms)",
-      abweichung <= 0.0151,
-      `groesste Abweichung ${abweichung.toFixed(4)} ms`,
-    );
-    const weltenGesamt = zeilen.reduce((s, z) => s + z.tickWeltenMsDurchschnitt * z.tickAnzahl, 0);
-    check(
-      "Welten-Phase wurde gemessen (Summe > 1 ms)",
-      weltenGesamt > 1,
-      `${weltenGesamt.toFixed(1)} ms`,
-    );
-    check(
-      "Sync-Phase wurde gemessen (ein Maximum > 0)",
-      zeilen.some((z) => z.tickSyncMsMax > 0),
-      `max ${Math.max(...zeilen.map((z) => z.tickSyncMsMax))} ms`,
-    );
-    check(
-      "keine Phase ist laenger als der laengste Tick (Rundung 0,01)",
-      zeilen.every(
-        (z) =>
-          z.tickWeltenMsMax <= z.tickDauerMsMax + 0.011 &&
-          z.tickSyncMsMax <= z.tickDauerMsMax + 0.011,
-      ),
-    );
-    check(
-      "Budget-Abbrueche sind angekommen",
-      zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0) > 0,
-      `${zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0)}`,
-    );
-    check(
-      "jede Zeile hat 20 bis 40 Ticks (Sollwert 30)",
-      zeilen.slice(1).every((z) => z.tickAnzahl >= 20 && z.tickAnzahl <= 40),
-      zeilen.map((z) => z.tickAnzahl).join(","),
-    );
+      );
+      check(
+        "Welten + Sync + Rest = Gesamt je Zeile (Toleranz 0,015 ms)",
+        abweichung <= 0.0151,
+        `groesste Abweichung ${abweichung.toFixed(4)} ms`,
+      );
+      const weltenGesamt = zeilen.reduce(
+        (s, z) => s + z.tickWeltenMsDurchschnitt * z.tickAnzahl,
+        0,
+      );
+      check(
+        "Welten-Phase wurde gemessen (Summe > 1 ms)",
+        weltenGesamt > 1,
+        `${weltenGesamt.toFixed(1)} ms`,
+      );
+      check(
+        "Sync-Phase wurde gemessen (ein Maximum > 0)",
+        zeilen.some((z) => z.tickSyncMsMax > 0),
+        `max ${Math.max(...zeilen.map((z) => z.tickSyncMsMax))} ms`,
+      );
 
-    const snapshot = JSON.parse(
-      readFileSync(resolve(metriken, "metriken.json"), "utf-8"),
-    ) as MetrikSchnappschuss;
-    const alle = zeilenVon(
-      resolve(metriken, `metriken-${new Date().toISOString().slice(0, 10)}.jsonl`),
-    );
-    check(
-      "Schnappschussdatei ist eine Zeile des Logs",
-      alle.some((z) => JSON.stringify(z) === JSON.stringify(snapshot)),
-    );
-  });
+      // The injected delays: 3 ms in every sync (it runs every 50 ms, i.e. on
+      // two of three ticks), 2 ms in every world tick while a player is in.
+      // Skip the first line: it belongs to the second the client connected in.
+      const voll = zeilen.slice(1);
+      const mittel = (f: (z: MetrikSchnappschuss) => number): number =>
+        voll.reduce((s, z) => s + f(z), 0) / voll.length;
+      const syncMittel = mittel((z) => z.tickSyncMsDurchschnitt);
+      const weltenMittel = mittel((z) => z.tickWeltenMsDurchschnitt);
+      const restMittel = mittel((z) => z.tickRestMsDurchschnitt);
+      check(
+        "Sync-Verzoegerung von 3 ms kommt in der Sync-Phase an (Mittel je Tick 1,5 bis 3,5 ms)",
+        syncMittel >= 1.5 && syncMittel <= 3.5,
+        `${syncMittel.toFixed(2)} ms`,
+      );
+      check(
+        "Sync-Maximum mindestens die Verzoegerung",
+        Math.max(...voll.map((z) => z.tickSyncMsMax)) >= SYNC_VERZOEGERUNG,
+      );
+      check(
+        "Welt-Verzoegerung von 2 ms kommt in der Welten-Phase an (Mittel je Tick mindestens 2 ms)",
+        weltenMittel >= WELT_VERZOEGERUNG,
+        `${weltenMittel.toFixed(2)} ms`,
+      );
+      check(
+        "die Verzoegerungen landen NICHT im Rest (Mittel unter 1 ms)",
+        restMittel < 1,
+        `${restMittel.toFixed(2)} ms`,
+      );
+      check(
+        "keine Phase ist laenger als der laengste Tick (Rundung 0,01)",
+        zeilen.every(
+          (z) =>
+            z.tickWeltenMsMax <= z.tickDauerMsMax + 0.011 &&
+            z.tickSyncMsMax <= z.tickDauerMsMax + 0.011,
+        ),
+      );
+      check(
+        "Budget-Abbrueche sind angekommen",
+        zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0) > 0,
+        `${zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0)}`,
+      );
+      check(
+        "jede Zeile hat 20 bis 40 Ticks (Sollwert 30)",
+        zeilen.slice(1).every((z) => z.tickAnzahl >= 20 && z.tickAnzahl <= 40),
+        zeilen.map((z) => z.tickAnzahl).join(","),
+      );
+
+      const snapshot = JSON.parse(
+        readFileSync(resolve(metriken, "metriken.json"), "utf-8"),
+      ) as MetrikSchnappschuss;
+      const alle = zeilenVon(
+        resolve(metriken, `metriken-${new Date().toISOString().slice(0, 10)}.jsonl`),
+      );
+      check(
+        "Schnappschussdatei ist eine Zeile des Logs",
+        alle.some((z) => JSON.stringify(z) === JSON.stringify(snapshot)),
+      );
+    },
+    (server) => {
+      // Known delays inside the two phases. What the split reports has to
+      // match them, or it measures something else than it claims.
+      const innen = server as unknown as {
+        syncZDOs: () => void;
+        welten: Map<string, { tick: (...args: unknown[]) => unknown }>;
+      };
+      const syncOriginal = innen.syncZDOs.bind(server);
+      innen.syncZDOs = (): void => {
+        warteBusy(SYNC_VERZOEGERUNG);
+        syncOriginal();
+      };
+      for (const welt of innen.welten.values()) {
+        const tickOriginal = welt.tick.bind(welt);
+        welt.tick = (...args: unknown[]): unknown => {
+          warteBusy(WELT_VERZOEGERUNG);
+          return tickOriginal(...args);
+        };
+      }
+    },
+  );
 }
 
 // ── B) Tageslog nicht schreibbar ────────────────────────────────────

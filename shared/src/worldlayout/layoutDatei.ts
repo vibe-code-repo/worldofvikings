@@ -296,8 +296,10 @@ export type SchreibErgebnis = {
   sicherung: string | null;
   text: string;
   hash: string;
-  /** So viele rohe Platzierungen hat der Sanitizer verworfen (0 im Normalfall). */
+  /** So viele rohe Einträge (Summe über alle Listen) hat der Sanitizer verworfen; 0 im Normalfall. */
   verworfen: number;
+  /** Dasselbe je Liste (`placements`, `continents`, `routes`, `rivers`, `lakes`); nur Felder mit Verlust stehen drin. */
+  verworfenJeFeld: Record<string, number>;
 };
 
 interface SperrInfo {
@@ -675,21 +677,43 @@ function listeZaehlen(eingabe: unknown, feld: string): number {
 const platzierungenZaehlen = (eingabe: unknown): number => listeZaehlen(eingabe, 'placements');
 
 /**
- * Listen, bei denen „roh ≥ 1 Eintrag, nach dem Sanitizer 0“ ein unbrauchbares Feld ist.
- * `routes` fehlt mit Grund: Der Sanitizer verwirft dort ABSICHTLICH eine Route ohne
- * Wegpunkt, und der Routen-Editor legt genau so einen Entwurf an (`points: []`, siehe
- * RoutenEditor.neueRoute). Wäre das eine 422, ließe sich ein Dokument, dessen einzige
- * Route noch ein Entwurf ist, nicht mehr speichern. `regions` fehlt, weil ein Dokument
- * ohne Regionen ohnehin verworfen wird (400).
+ * Die Listen des Dokuments, deren rohe Einträge der Sanitizer einzeln verwirft. Für jede gilt:
+ *  - Bleibt von mindestens einem rohen Eintrag NICHTS übrig (`["x","y"]`, `[[]]`, `[{}]`),
+ *    ist das Feld unbrauchbar: 422, sonst ginge die ganze Liste mit 200 verloren.
+ *  - Wird nur ein Teil verworfen, meldet der Aufrufer die Zahl je Feld (`verworfenJeFeld`).
+ *
+ * `routes` hat eine Ausnahme mit Grund: Der Sanitizer verwirft eine Route ohne Wegpunkt
+ * ABSICHTLICH, und der Routen-Editor legt genau so einen Entwurf an (`points: []`, siehe
+ * RoutenEditor.neueRoute). Besteht die rohe Liste NUR aus solchen Entwürfen, ist das kein
+ * Müll: 200, die Entwürfe entfallen und stehen in `verworfenJeFeld`. Sobald ein Eintrag
+ * dabei ist, der kein Entwurf ist (Text, `{}`, `null`, …), gilt wieder 422.
+ * `regions` steht nicht in der Tabelle: Ein Dokument ohne Regionen wird ohnehin verworfen (400).
  */
-const LISTEN_ALLES_VERLOREN = [
-  ['continents', 'Kontinent', (l: WorldLayout): number => l.continents.length],
-  ['rivers', 'Fluss', (l: WorldLayout): number => l.rivers?.length ?? 0],
-  ['lakes', 'See', (l: WorldLayout): number => l.lakes?.length ?? 0],
+const LISTEN = [
+  { feld: 'placements', name: 'eine gültige Platzierung', behalten: (l: WorldLayout): number => l.placements?.length ?? 0 },
+  { feld: 'continents', name: 'ein gültiger Kontinent', behalten: (l: WorldLayout): number => l.continents.length },
+  { feld: 'routes', name: 'eine gültige Route', behalten: (l: WorldLayout): number => l.routes?.length ?? 0, entwurf: true },
+  { feld: 'rivers', name: 'ein gültiger Fluss', behalten: (l: WorldLayout): number => l.rivers?.length ?? 0 },
+  { feld: 'lakes', name: 'ein gültiger See', behalten: (l: WorldLayout): number => l.lakes?.length ?? 0 },
 ] as const;
 
+/** Eine Route ohne Wegpunkte: der Entwurf des Routen-Editors, den der Sanitizer absichtlich verwirft. */
+function istRoutenEntwurf(eintrag: unknown): boolean {
+  return (
+    typeof eintrag === 'object' &&
+    eintrag !== null &&
+    Array.isArray((eintrag as { points?: unknown }).points) &&
+    (eintrag as { points: unknown[] }).points.length === 0
+  );
+}
+
 /** Alles, was vor der Sperre feststehen kann: Prüfung des Rohdokuments, Sanitizer, Text. */
-function schreibenVorbereiten(eingabe: unknown): { layout: WorldLayout; text: string; verworfen: number } {
+function schreibenVorbereiten(eingabe: unknown): {
+  layout: WorldLayout;
+  text: string;
+  verworfen: number;
+  verworfenJeFeld: Record<string, number>;
+} {
   // Beides am ROHEN Dokument, vor dem Sanitizer: Der schneidet bei 2000
   // Platzierungen still ab und macht aus einem Nicht-Array eine leere Liste.
   listenPruefen(eingabe);
@@ -720,38 +744,38 @@ function schreibenVorbereiten(eingabe: unknown): { layout: WorldLayout; text: st
     );
   }
   // Ein Array voller Müll (`["x", "y"]`, `[[]]`, `[{}]`) ist ein Array und passiert die
-  // Listenprüfung oben; der Sanitizer wirft die Einträge einzeln weg. Dann gingen
-  // alle Platzierungen mit 200 verloren. Roh gegen gefiltert zu vergleichen geht
-  // hier, ohne den Sanitizer anzufassen: Bleibt von mindestens einer nichts übrig,
-  // ist das Feld unbrauchbar (422); wird nur ein Teil verworfen, meldet der
-  // Aufrufer die Zahl.
-  const roh = platzierungenZaehlen(eingabe);
-  const behalten = layout.placements?.length ?? 0;
-  if (roh > 0 && behalten === 0) {
-    throw new LayoutFeldUngueltig(
-      'placements',
-      `Feld "placements": keiner der ${roh} Einträge ist eine gültige Platzierung — verworfen; nichts gespeichert`
-    );
-  }
-  // Dieselbe Regel für Kontinente, Flüsse und Seen: Ein Array voller Müll löschte sonst die
-  // ganze Liste mit 200. (Ein nur TEILWEISE verworfener Bestand wird dort nicht gemeldet.)
-  for (const [feld, name, behalteneZahl] of LISTEN_ALLES_VERLOREN) {
-    const rohZahl = listeZaehlen(eingabe, feld);
-    if (rohZahl > 0 && behalteneZahl(layout) === 0) {
-      throw new LayoutFeldUngueltig(
-        feld,
-        `Feld "${feld}": keiner der ${rohZahl} Einträge ist ein gültiger ${name} — verworfen; nichts gespeichert`
-      );
+  // Listenprüfung oben; der Sanitizer wirft die Einträge einzeln weg. Dann gingen alle
+  // Einträge des Feldes mit 200 verloren. Roh gegen gefiltert zu vergleichen geht hier,
+  // ohne den Sanitizer anzufassen (Regeln und Ausnahme: siehe LISTEN).
+  const verworfenJeFeld: Record<string, number> = {};
+  let verworfen = 0;
+  for (const liste of LISTEN) {
+    const roh = listeZaehlen(eingabe, liste.feld);
+    const behalten = liste.behalten(layout);
+    if (roh > 0 && behalten === 0) {
+      const nurEntwuerfe =
+        'entwurf' in liste &&
+        (((eingabe as Record<string, unknown>)[liste.feld] as unknown[]).every(istRoutenEntwurf));
+      if (!nurEntwuerfe) {
+        throw new LayoutFeldUngueltig(
+          liste.feld,
+          `Feld "${liste.feld}": keiner der ${roh} Einträge ist ${liste.name} — verworfen; nichts gespeichert`
+        );
+      }
+    }
+    if (roh > behalten) {
+      verworfenJeFeld[liste.feld] = roh - behalten;
+      verworfen += roh - behalten;
     }
   }
-  return { layout, text: layoutText(layout), verworfen: roh - behalten };
+  return { layout, text: layoutText(layout), verworfen, verworfenJeFeld };
 }
 
 /** Der Teil, der die Sperre HÄLT: Basisvergleich, Sicherung, Tmp-Datei, Rename. Rein synchron, ohne `await`. */
 function unterSperreSchreiben(
   pfad: string,
   sperre: Sperre,
-  v: { layout: WorldLayout; text: string; verworfen: number },
+  v: { layout: WorldLayout; text: string; verworfen: number; verworfenJeFeld: Record<string, number> },
   behalten: number,
   optionen: SchreibOptionen
 ): SchreibErgebnis {
@@ -787,7 +811,14 @@ function unterSperreSchreiben(
       rmSync(tmp, { force: true });
       throw fehler;
     }
-    return { layout: v.layout, sicherung, text: v.text, hash: layoutHash(v.text), verworfen: v.verworfen };
+    return {
+      layout: v.layout,
+      sicherung,
+      text: v.text,
+      hash: layoutHash(v.text),
+      verworfen: v.verworfen,
+      verworfenJeFeld: v.verworfenJeFeld,
+    };
   } finally {
     sperreFreigeben(sperre);
   }

@@ -1391,7 +1391,7 @@ async function behandeln(
     try {
       // Async: Wartet ein fremder Schreiber auf der Sperre, bleibt die
       // Ereignisschleife frei (/status, /metriken, der Log-Strom laufen weiter).
-      const { layout, sicherung, text, hash, verworfen } = await layoutSchreibenAsync(
+      const { layout, sicherung, text, hash, verworfen, verworfenJeFeld } = await layoutSchreibenAsync(
         LAYOUT_DATEI,
         dokument,
         undefined,
@@ -1399,8 +1399,8 @@ async function behandeln(
       );
       if (verworfen > 0) {
         console.warn(
-          `[Admin] POST /api/worldlayout: ${verworfen} ungueltige Platzierung(en) im Dokument verworfen, ` +
-            `${layout.placements?.length ?? 0} gespeichert`
+          `[Admin] POST /api/worldlayout: ${verworfen} ungueltige(r) Eintrag/Eintraege im Dokument verworfen ` +
+            `(${Object.entries(verworfenJeFeld).map(([feld, n]) => `${feld} ${n}`).join(', ')}), Rest gespeichert`
         );
       }
       return {
@@ -1415,7 +1415,8 @@ async function behandeln(
           sicherung: sicherung ? basename(sicherung) : null,
           bytes: Buffer.byteLength(text),
           hash,
-          ...(verworfen > 0 ? { verworfen } : {}),
+          // `verworfen` = Summe (Zahl, wie bisher), `verworfenJeFeld` = dieselbe Zahl je Liste.
+          ...(verworfen > 0 ? { verworfen, verworfenJeFeld } : {}),
           ...(basis === null ? { ohneBasis: true } : {}),
         },
       };

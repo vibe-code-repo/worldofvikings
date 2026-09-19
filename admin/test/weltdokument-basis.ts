@@ -945,28 +945,47 @@ try {
     check('placements = [] → weiterhin 200, kein verworfen-Feld', leerListe.status === 200 && leerListe.daten.verworfen === undefined, `= ${leerListe.status}`);
     const hN = plattenHash();
     const teil = await anfrage('POST', { leib: { ...koerper('teil-muell'), placements: [{ prefab: 'Beech1', x: 1, z: 2 }, 'x', { prefab: 'Beech1', x: 3, z: 4 }, null] }, ifMatch: `"${hN}"` });
-    check('2 gültige + 2 Müll → 200 mit verworfen: 2', teil.status === 200 && teil.daten.verworfen === 2, `= ${teil.status} ${JSON.stringify(teil.daten)}`);
+    check('2 gültige + 2 Müll → 200 mit verworfen: 2 und verworfenJeFeld {placements: 2}', teil.status === 200 && teil.daten.verworfen === 2 && JSON.stringify(teil.daten.verworfenJeFeld) === '{"placements":2}', `= ${teil.status} ${JSON.stringify(teil.daten)}`);
     check('… die zwei gültigen stehen auf der Platte', (JSON.parse(platte().toString('utf-8')) as { placements: unknown[] }).placements.length === 2);
     await warte(150);
-    check('… Logzeile nennt die verworfenen Platzierungen', /2 ungueltige Platzierung\(en\) im Dokument verworfen, 2 gespeichert/.test(protokoll));
+    check('… Logzeile nennt die verworfenen Einträge je Feld', /2 ungueltige\(r\) Eintrag\/Eintraege im Dokument verworfen \(placements 2\)/.test(protokoll));
     const ganz = await anfrage('POST', { leib: koerper('ganz-gueltig', 3), ifMatch: `"${plattenHash()}"` });
-    check('lauter gültige Platzierungen → 200 ohne verworfen-Feld', ganz.status === 200 && ganz.daten.verworfen === undefined);
+    check('lauter gültige Platzierungen → 200 ohne verworfen-Felder', ganz.status === 200 && ganz.daten.verworfen === undefined && ganz.daten.verworfenJeFeld === undefined);
 
-    // Dieselbe Regel für Kontinente, Flüsse und Seen (roh ≥ 1, nach dem Sanitizer 0 → 422 mit Feldnamen).
+    // Dieselbe Regel für JEDE Liste (roh ≥ 1, nach dem Sanitizer 0 → 422 mit Feldnamen), und Teilverwurf → 200 mit Zahl.
     const hK2 = plattenHash();
     const bakK2 = sicherungen();
-    for (const feld of ['continents', 'rivers', 'lakes']) {
+    for (const feld of ['continents', 'routes', 'rivers', 'lakes']) {
       for (const muell of [['x', 'y'], [{}], [[]], [null]]) {
         const r = await anfrage('POST', { leib: { ...koerper('muell-liste'), [feld]: muell }, ifMatch: `"${hK2}"` });
-        check(`${feld} = ${JSON.stringify(muell)} → 422 ungueltig, feld ${feld}`, r.status === 422 && r.daten.fehler === 'ungueltig' && r.daten.feld === feld && /keiner der \d+ Einträge/.test(String(r.daten.message)), `= ${r.status} ${JSON.stringify(r.daten).slice(0, 160)}`);
+        check(`${feld} = ${JSON.stringify(muell)} → 422 ungueltig, feld ${feld}`, r.status === 422 && r.daten.fehler === 'ungueltig' && r.daten.feld === feld && r.daten.ok === false && /keiner der \d+ Einträge/.test(String(r.daten.message)), `= ${r.status} ${JSON.stringify(r.daten).slice(0, 160)}`);
       }
     }
-    check('Müll in Kontinenten/Flüssen/Seen: Prüfsumme vorher = nachher, keine Sicherung', plattenHash() === hK2 && sicherungen() === bakK2);
-    const halb = await anfrage('POST', { leib: { ...koerper('halb-muell'), continents: [{ id: 'nord', name: 'Nordland' }, 'x'] }, ifMatch: `"${hK2}"` });
-    check('Kontinente: ein gültiger + ein Müll-Eintrag → weiterhin 200 (nur „alles verloren“ ist ein Fehler)', halb.status === 200, `= ${halb.status}`);
-    // routes bewusst NICHT: Der Routen-Editor legt Entwürfe mit points: [] an, die der Sanitizer absichtlich verwirft.
-    const entwurf = await anfrage('POST', { leib: { ...koerper('route-entwurf'), routes: [{ id: 'route-1', points: [], mode: 'loop' }] }, ifMatch: `"${plattenHash()}"` });
-    check('routes: Entwurf ohne Wegpunkte (nur er) → 200, die Route entfällt (Sanitizer verwirft sie absichtlich)', entwurf.status === 200 && (JSON.parse(platte().toString('utf-8')) as { routes?: unknown }).routes === undefined, `= ${entwurf.status}`);
+    check('Müll in allen Listen: Prüfsumme vorher = nachher, keine Sicherung', plattenHash() === hK2 && sicherungen() === bakK2);
+    const gueltig: Record<string, unknown> = {
+      placements: { prefab: 'Beech1', x: 1, z: 2 },
+      continents: { id: 'nord', name: 'Nordland' },
+      routes: { id: 'route-1', points: [[0, 0], [5, 5]], mode: 'loop' },
+      rivers: { id: 'fluss-1', points: [[0, 0], [100, 100]], width: 20 },
+      lakes: { id: 'see-1', x: 10, z: 10, radius: 50 },
+    };
+    for (const feld of Object.keys(gueltig)) {
+      const r = await anfrage('POST', { leib: { ...koerper('ein-gueltig-ein-muell'), [feld]: [gueltig[feld], 'x'] }, ifMatch: `"${plattenHash()}"` });
+      const inDatei = (JSON.parse(platte().toString('utf-8')) as Record<string, unknown[] | undefined>)[feld];
+      check(`${feld}: 1 gültig + 1 Müll → 200 mit verworfen: 1, verworfenJeFeld {${feld}: 1}, genau 1 Eintrag auf der Platte`, r.status === 200 && r.daten.verworfen === 1 && JSON.stringify(r.daten.verworfenJeFeld) === JSON.stringify({ [feld]: 1 }) && inDatei?.length === 1, `= ${r.status} ${JSON.stringify(r.daten).slice(0, 200)}`);
+    }
+    // Mehrere Felder in einem Dokument: Summe und Aufteilung, Logzeile.
+    const gemischt = await anfrage('POST', { leib: { ...koerper('gemischt-muell'), placements: [{ prefab: 'Beech1', x: 1, z: 2 }, 'a', 'b'], routes: [{ id: 'route-1', points: [[0, 0]], mode: 'loop' }, null] }, ifMatch: `"${plattenHash()}"` });
+    check('zwei Felder mit Verlust → verworfen: 3, verworfenJeFeld {placements: 2, routes: 1}', gemischt.status === 200 && gemischt.daten.verworfen === 3 && JSON.stringify(gemischt.daten.verworfenJeFeld) === '{"placements":2,"routes":1}', `= ${gemischt.status} ${JSON.stringify(gemischt.daten)}`);
+    await warte(150);
+    check('… Logzeile nennt beide Felder', /3 ungueltige\(r\) Eintrag\/Eintraege im Dokument verworfen \(placements 2, routes 1\)/.test(protokoll));
+    // routes-Ausnahme: nur Entwürfe des Routen-Editors (points: []) sind kein Müll, sobald etwas anderes dabei ist, wieder 422.
+    const hR = plattenHash();
+    const entwurf = await anfrage('POST', { leib: { ...koerper('route-entwurf'), routes: [{ id: 'route-1', points: [], mode: 'loop' }] }, ifMatch: `"${hR}"` });
+    check('routes: nur ein Entwurf ohne Wegpunkte → 200, verworfenJeFeld {routes: 1}, die Route entfällt', entwurf.status === 200 && JSON.stringify(entwurf.daten.verworfenJeFeld) === '{"routes":1}' && (JSON.parse(platte().toString('utf-8')) as { routes?: unknown }).routes === undefined, `= ${entwurf.status} ${JSON.stringify(entwurf.daten).slice(0, 200)}`);
+    const hR2 = plattenHash();
+    const entwurfUndMuell = await anfrage('POST', { leib: { ...koerper('route-entwurf-muell'), routes: [{ id: 'route-1', points: [], mode: 'loop' }, 'x'] }, ifMatch: `"${hR2}"` });
+    check('routes: Entwurf + Müll-Eintrag → 422 (nicht mehr „nur Entwürfe“)', entwurfUndMuell.status === 422 && entwurfUndMuell.daten.feld === 'routes' && plattenHash() === hR2, `= ${entwurfUndMuell.status}`);
   }
 
   // ── 24) Fehler beim Freigeben der Sperre verfälscht die Antwort nicht ─

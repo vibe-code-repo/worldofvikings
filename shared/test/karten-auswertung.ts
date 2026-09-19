@@ -11,6 +11,7 @@ import {
   zellUeberlappungen,
 } from '../src/worldlayout/kartenAuswertung.js';
 import { MAX_KANDIDATEN } from '../src/worldlayout/compile.js';
+import { pruefeLayout } from '../src/worldlayout/pruefung.js';
 import type { RegionDef, WorldLayout } from '../src/worldlayout/types.js';
 
 let fehler = 0;
@@ -105,6 +106,73 @@ check('MAX_KANDIDATEN ist die dokumentierte Herkunft der "4"', MAX_KANDIDATEN ==
     gB !== undefined && Math.hypot(gB.mitteX - 30000, gB.mitteZ - 30000) < 200
   );
   check('Summe der Gruppen-Zellen entspricht der Rohliste', gruppen.reduce((s, g) => s + g.zellenAnzahl, 0) === zellUeberlappungen(l).length);
+}
+
+// ── Block 0.11: pruefeLayout meldet die Überlappungen ────────────────────
+
+const ueberlappungsBefunde = (l: WorldLayout) => pruefeLayout(l).filter((b) => b.text.startsWith('Zellüberlappung'));
+
+{
+  // Genau MAX_KANDIDATEN Regionen am Punkt: kein Befund.
+  const l = welt(Array.from({ length: MAX_KANDIDATEN }, (_, i) => kreis(`r${i}`, 0, 0, 300, 'grassland', 20)));
+  check(`prüfung: ${MAX_KANDIDATEN} Regionen am Punkt → kein Überlappungsbefund`, ueberlappungsBefunde(l).length === 0);
+}
+
+{
+  // MAX_KANDIDATEN + 1: ein Befund je KOMBINATION, nicht je Zelle. Radius
+  // 300 macht aus der einen Kombination Hunderte Zellen.
+  const n = MAX_KANDIDATEN + 1;
+  const regionen = Array.from({ length: n }, (_, i) => kreis(`r${i}`, 0, 0, 300, 'grassland', 20));
+  const l = welt([...regionen, kreis('fern', 50000, 50000, 300)]);
+  const zellen = zellUeberlappungen(l);
+  const befunde = ueberlappungsBefunde(l);
+  check('prüfung: Rohliste hat viele Zellen (Vorbedingung)', zellen.length > 50, `${zellen.length}`);
+  check('prüfung: ein Befund für die eine Kombination', befunde.length === 1, `${befunde.length}`);
+  const b = befunde[0] ?? { wo: '', art: '', text: '' };
+  check("prüfung: art ist 'welt' (Hinweis im Editor)", b.art === 'welt', b.art);
+  check("prüfung: wo ist 'welt', keine Regions-ID (gilt mehreren Regionen)", b.wo === 'welt', b.wo);
+  check('prüfung: nennt alle beteiligten Regionen', regionen.every((r) => b.text.includes(r.id)), b.text);
+  check('prüfung: nennt die Regionen, die nicht beteiligt sind, nicht', !b.text.includes('fern'), b.text);
+  check('prüfung: nennt die Zellzahl der Gruppe', b.text.includes(` ${zellen.length} Zellen `), b.text);
+  check('prüfung: nennt die Schwelle', b.text.includes(`nur ${MAX_KANDIDATEN} je Zelle`), b.text);
+}
+
+{
+  // Zwei Cluster, zwei Kombinationen, zwei Befunde.
+  const a = Array.from({ length: MAX_KANDIDATEN + 1 }, (_, i) => kreis(`a${i}`, 0, 0, 60, 'grassland', 20));
+  const b = Array.from({ length: MAX_KANDIDATEN + 2 }, (_, i) => kreis(`b${i}`, 30000, 30000, 60, 'swamp', 20));
+  const befunde = ueberlappungsBefunde(welt([...a, ...b]));
+  check('prüfung: zwei Cluster → zwei Befunde', befunde.length === 2, `${befunde.length}`);
+}
+
+{
+  // Das Layout wird im Editor an Ort und Stelle verändert. Die Prüfung
+  // rechnet sich nicht über eine Objekt-Identität fest: Wird die Form
+  // verändert, muss der Befund folgen (und zurück).
+  const regionen = Array.from({ length: MAX_KANDIDATEN + 1 }, (_, i) => kreis(`r${i}`, 0, 0, 200, 'grassland', 20));
+  const l = welt(regionen);
+  check('in-place: Ausgangslage meldet', ueberlappungsBefunde(l).length === 1);
+  check('in-place: zweiter Aufruf, gleiches Ergebnis', ueberlappungsBefunde(l).length === 1);
+  regionen[0]!.shape = { kind: 'circle', x: 40000, z: 40000, radius: 200 };
+  check('in-place: Region weggeschoben → kein Befund mehr', ueberlappungsBefunde(l).length === 0);
+  regionen[0]!.shape = { kind: 'circle', x: 0, z: 0, radius: 200 };
+  check('in-place: Region zurück → Befund wieder da', ueberlappungsBefunde(l).length === 1);
+  regionen.pop();
+  l.regions = regionen;
+  check('in-place: Region entfernt → MAX_KANDIDATEN übrig → kein Befund', ueberlappungsBefunde(l).length === 0);
+}
+
+{
+  // Nur der Randabfall entscheidet: Die fünfte Region liegt 2 km entfernt und
+  // erreicht den Ursprung erst mit einem großen edgeFalloff.
+  const vier = Array.from({ length: MAX_KANDIDATEN }, (_, i) => kreis(`r${i}`, 0, 0, 200, 'grassland', 20));
+  const fuenfte = kreis('rand', 2000, 0, 100, 'grassland', 20);
+  const l = welt([...vier, fuenfte]);
+  check('randabfall: klein → kein Befund', ueberlappungsBefunde(l).length === 0);
+  fuenfte.edgeFalloff = 5000;
+  check('randabfall: groß (in place) → Befund', ueberlappungsBefunde(l).length === 1);
+  fuenfte.edgeFalloff = 20;
+  check('randabfall: wieder klein (in place) → kein Befund', ueberlappungsBefunde(l).length === 0);
 }
 
 // ── B7: Flächenrechnung ─────────────────────────────────────────────────

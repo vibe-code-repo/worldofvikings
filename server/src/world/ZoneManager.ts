@@ -75,6 +75,7 @@ import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { flattenLayout } from '@wov/shared/src/dungeonFlatten.js';
 import { markiereStreu, zdoStand } from './zonenRuecksetzer.js';
 import { ZDOManager } from '../zdo/ZDOManager.js';
+import { erfasseBudgetAbbruch } from '../Metriken.js';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { PrefabDef } from '@wov/shared';
 
@@ -400,7 +401,11 @@ export class ZoneManager {
     let generated = 0;
     const deadline = Date.now() + budgetMs;
     while (this.queue.length > 0) {
-      if (Date.now() >= deadline) break;
+      if (Date.now() >= deadline) {
+        // Budget used up with zones still queued: deferred to the next tick.
+        erfasseBudgetAbbruch();
+        break;
+      }
       const zone = this.queue.shift()!;
       this.pending.delete(zoneKey(zone.x, zone.y));
       if (this.generateZone(zone)) generated++;

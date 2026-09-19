@@ -154,10 +154,10 @@ try {
     if (imSpeicher(grund)) merken(st.hash);
     return grund;
   };
-  /** The dialog answer "keep draft": the SHOWN state becomes the base (not with a foreign draft pending). */
+  /** The dialog answer "keep draft": the SHOWN state becomes the base — only if the draft is in storage (not with a foreign draft pending, not when it did not fit). */
   const editorBehaeltEntwurf = (gezeigt: string | null): string => {
     const grund = speicherModul.speicherGrund(editor.schreiben(layout, 'bearbeitet', 'dev'), 0);
-    if (grund !== 'fremd') merken(gezeigt);
+    if (imSpeicher(grund)) merken(gezeigt);
     return grund;
   };
   /** An edit in the editor: take over what the flight wrote meanwhile, change, write the draft. */

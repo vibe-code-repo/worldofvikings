@@ -3510,11 +3510,14 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
     return;
   }
   faerbeSpeicherKnopf();
-  // Hat während des Dialogs ein anderer Tab den Entwurf geändert, wurde über
-  // DEN nicht entschieden: übernehmen, keine Basis setzen.
-  if (entwurfsSpeicher.abgleichen()) return;
+  // Den behaltenen Entwurf (wie im Start-Abgleich) in den Speicher schreiben: Die
+  // Basis beschreibt den Entwurf IM SPEICHER. Steht er dort nicht ('voll') oder hat
+  // ein anderer Tab ihn ersetzt ('fremd': über DEN wurde nicht entschieden), gibt es
+  // keine Basis, und deren Meldung gilt.
+  const behalten = speichereEntwurf(entwurfStandLesen()?.quelle ?? 'bearbeitet');
+  if (!entwurfImSpeicher(behalten)) return;
   setzeEntwurfBasis(stand.hash);
-  shell.meldung(behaltenMeldung(weltName()), true);
+  if (behalten === 'ok') shell.meldung(behaltenMeldung(weltName()), true);
 }
 
 // ── Karte live testen ────────────────────────────────────────────────
@@ -4269,10 +4272,11 @@ async function weltAbgleich(): Promise<void> {
   // Ausdrückliche Entscheidung des Nutzers: Ab jetzt ist der gezeigte Serverstand
   // die Basis des Entwurfs, und das nächste Speichern (auch aus dem Testflug)
   // ersetzt ihn. NUR der Stand, den der Dialog gezeigt hat (`stand.hash`) — hat
-  // inzwischen jemand noch etwas gespeichert, bleibt das ein 409. Bei 'fremd'
-  // hat ein anderer Tab den Entwurf geändert, über den hier nicht entschieden
-  // wurde: keine Basis, dessen Meldung gilt.
-  if (behalten === 'fremd') return;
+  // inzwischen jemand noch etwas gespeichert, bleibt das ein 409. Steht der
+  // Entwurf nicht im Speicher ('voll') oder hat ein anderer Tab ihn ersetzt
+  // ('fremd': darüber wurde hier nicht entschieden): keine Basis, deren
+  // Meldung gilt.
+  if (!entwurfImSpeicher(behalten)) return;
   setzeEntwurfBasis(stand.hash);
   if (behalten === 'ok') {
     shell.meldung(behaltenMeldung(weltName()), true);

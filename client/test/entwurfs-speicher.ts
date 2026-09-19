@@ -477,10 +477,10 @@ class EditorAttrappe {
     if (entwurfImSpeicher(grund as SpeicherGrund)) this.speicher.basisMerken(null);
     return grund;
   }
-  /** Der Nutzer wählt im Dialog ausdrücklich „Entwurf behalten": der gezeigte Serverstand wird die Basis (bei 'fremd' nicht). */
+  /** Der Nutzer wählt im Dialog ausdrücklich „Entwurf behalten": der gezeigte Serverstand wird die Basis — nur wenn der Entwurf im Speicher steht (nicht bei 'fremd' und 'voll'). */
   entwurfBehalten(hash: string | null): void {
     const grund = this.schreibenMitMeldung('bearbeitet');
-    if (grund !== 'fremd') this.speicher.basisMerken(hash);
+    if (entwurfImSpeicher(grund)) this.speicher.basisMerken(hash);
   }
 }
 
@@ -1935,6 +1935,25 @@ console.log('▶ Basis des Entwurfs: holen ändert sie nicht, Entscheidung und S
     a.serverstandLaden(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1), 'h9');
     check('Serverstand laden bei „voll" (Entwurf nicht gespeichert): die Basis bleibt h1 — der gespeicherte Entwurf beruht weiter auf h1', a.letztesErgebnis === 'voll' && zettelBasis(profil) === 'h1', `${a.letztesErgebnis} / ${String(zettelBasis(profil))}`);
     profil.quotaSchluessel = null;
+  }
+
+  // „Entwurf behalten“ bei werfendem setItem: keine Basis für einen Entwurf, der nicht im Speicher steht (Start- UND 409-Dialog)
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1');
+    profil.quotaSchluessel = ENTWURF_KEY; // setItem auf den Entwurf wirft
+    a.entwurfBehalten('h2');
+    check('„Entwurf behalten“ bei werfendem setItem (Grund voll): die Basis bleibt h1, nicht h2', a.letztesErgebnis === 'voll' && zettelBasis(profil) === 'h1' && basisLesen(a.speicher) === 'h1', `${a.letztesErgebnis} / ${String(zettelBasis(profil))}`);
+    check('… der Testflug speichert danach weiter nur mit h1 (kein Ersetzen auf Grund einer Entscheidung, die nicht im Speicher steht): Server h2 → 409', (dienst.hash = 'h2', testflugSpeichert(profil, 'hT') === '409'));
+    profil.quotaSchluessel = null;
+    profil.quotaFehler = true; // jedes setItem wirft (auch der Zettel)
+    a.entwurfBehalten('h3');
+    check('… ebenso, wenn JEDES setItem wirft: die Basis bleibt', a.letztesErgebnis === 'voll' && zettelBasis(profil) === 'h1', `${a.letztesErgebnis} / ${String(zettelBasis(profil))}`);
+    profil.quotaFehler = false;
+    a.entwurfBehalten('h2');
+    check('… danach (Speicher wieder da): „behalten“ setzt die gezeigte Basis h2', zettelBasis(profil) === 'h2');
   }
 
   // Der Zettel trägt beim Editor-Schreiben die Basis weiter (auch die vom Testflug vorgeschobene)

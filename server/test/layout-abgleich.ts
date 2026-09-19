@@ -71,7 +71,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FOLIAGE, LAYOUT_ID_MEMBER, getStableHash, layoutKennung, platzierungsIdBasis } from '@wov/shared';
+import * as gemeinsam from '@wov/shared';
+import { FOLIAGE, LAYOUT_ID_MEMBER, getStableHash, layoutKennung } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
 
@@ -154,6 +155,13 @@ function starte(welt: string, doc: Record<string, unknown>) {
 }
 type Server = ReturnType<typeof starte>['server'];
 
+// Spelled out on purpose (not imported by name): the same file has to run against a tree from
+// before E1, where the "id" of a placement is the old key -- the checks then fail one by one.
+const platzierungsIdBasis = ((gemeinsam as unknown as Record<string, unknown>).platzierungsIdBasis ?? layoutKennung) as (p: {
+  prefab: string;
+  x: number;
+  z: number;
+}) => string;
 /**
  * Since E1 the ZDO member carries the placement `id`; the documents of this test
  * carry none, so the sanitizer derives it from prefab and position. A test that
@@ -494,14 +502,14 @@ check('(dev) the document places many objects (sanity)', dev1.size >= 100, `${de
 check('(dev) a reboot with the unchanged document moves 0 revisions', bewegt === 0 && dev2.size === dev1.size, `${bewegt} of ${dev2.size} moved, ${dev1.size} before`);
 check('(dev) ... and logs 0 gespawnt, 0 aktualisiert', boot6b.zeilen.some((z) => /\b0 gespawnt, 0 aktualisiert/.test(z)), boot6b.zeilen.join(' | '));
 
-// 158 of 159 entries written with a German decimal comma ("100,00"): the sanitizer drops them all but the first.
+// All entries but the first written with a German decimal comma ("100,00"): the sanitizer drops them.
 const devPlacements = devDoc.placements as { x: number; z: number; prefab: string }[];
 const kaputt = devPlacements.map((p, i) => (i === 0 ? p : { ...p, x: p.x.toFixed(2).replace('.', ','), z: p.z.toFixed(2).replace('.', ',') }));
 const boot6c = starte('welt6', { ...devDoc, placements: kaputt });
 console.log(`     log: ${boot6c.zeilen.join(' | ')}`);
 const dev3 = layoutRevisionen(boot6c.server);
-check('(R3-1) dev.json copy with 158 of 159 broken entries: 0 entfernt, all 157 ZDOs stay', dev3.size === dev1.size && boot6c.zeilen.some((z) => /\b0 entfernt/.test(z)), `${dev3.size} of ${dev1.size} ZDOs alive`);
-check('(R3-1) ... with the loud line naming 158 dropped entries and the 156 objects left standing', boot6c.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 158 Einträge verworfen – 156 verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen/.test(z)), boot6c.zeilen.join(' | '));
+check(`(R3-1) dev.json copy with ${devPlacements.length - 1} of ${devPlacements.length} broken entries: 0 entfernt, all ${dev1.size} ZDOs stay`, dev3.size === dev1.size && boot6c.zeilen.some((z) => /\b0 entfernt/.test(z)), `${dev3.size} of ${dev1.size} ZDOs alive`);
+check(`(R3-1) ... with the loud line naming ${devPlacements.length - 1} dropped entries and the ${dev1.size - 1} objects left standing`, boot6c.zeilen.some((z) => new RegExp(`Layout-Abgleich ohne Löschen: ${devPlacements.length - 1} Einträge verworfen – ${dev1.size - 1} verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen`).test(z)), boot6c.zeilen.join(' | '));
 // The next clean document (the first 150 entries) clears the rest as usual.
 const dev150 = devPlacements.slice(0, 150);
 const kennungen150 = new Set(dev150.map((p) => layoutKennung(p)));
@@ -794,8 +802,11 @@ const rest = devPlacements.filter((_, i) => !geloescht.includes(i));
 const mitTypo = rest.map((p) => (p === devPlacements[typoIndex] ? { ...p, prefab: `${p.prefab}x` } : p));
 const bleibenKennungen = new Set(mitTypo.map((p) => layoutKennung(p)));
 const erwartetWeg = new Set(geloescht.map((i) => layoutKennung(devPlacements[i]!)).filter((k) => !bleibenKennungen.has(k))).size;
-const typoIdAlt = idVon(devPlacements[typoIndex]!);
-const typoIdNeu = idVon({ ...devPlacements[typoIndex]!, prefab: `${devPlacements[typoIndex]!.prefab}x` });
+// dev.json carries explicit ids since K1.1, so the typo does not change the id of the placement.
+// (A copy without ids would derive the id from the typo -- `typoIdAbgeleitet`.)
+const typoIdAlt = (devPlacements[typoIndex] as { id?: string }).id ?? idVon(devPlacements[typoIndex]!);
+const typoIdAbgeleitet = idVon({ ...devPlacements[typoIndex]!, prefab: `${devPlacements[typoIndex]!.prefab}x` });
+const typoIdImLog = (devPlacements[typoIndex] as { id?: string }).id ?? typoIdAbgeleitet;
 const boot6f = starte('welt6b', { ...devDoc, placements: mitTypo });
 console.log(`     log: ${boot6f.zeilen.filter((z) => /Abgleich|Hinweis: Platzierung/.test(z)).join(' | ')}`);
 const devB2 = layoutRevisionen(boot6f.server);
@@ -805,8 +816,8 @@ check(
   devB1.size - devB2.size === erwartetWeg && erwartetWeg === 10 && boot6f.zeilen.some((z) => new RegExp(`\\b${erwartetWeg} entfernt`).test(z)) && !boot6f.zeilen.some((z) => /ohne Löschen/.test(z)),
   `${devB1.size} -> ${devB2.size} ZDOs, expected ${erwartetWeg} removed`
 );
-check('(A1) ... and the ZDO at the typo stays (still carries its old id), and the typo creates no ZDO', typoZdo !== undefined && !boot6f.server.zdos.getAllZDOs().some((z) => z.getString(LAYOUT_ID_MEMBER) === typoIdNeu), typoZdo ? 'stays' : 'gone');
-check('(A1) ... with a warning naming the typo id, prefab and the number of spared ZDOs', boot6f.zeilen.some((z) => z.includes(typoIdNeu) && /ZDO\(s\) mit dieser Kennung oder im Umkreis von 1 m bleiben unangetastet/.test(z)), boot6f.zeilen.join(' | '));
+check('(A1) ... and the ZDO at the typo stays (still carries its old id), and the typo creates no ZDO', typoZdo !== undefined && boot6f.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) === typoIdAlt).length === 1 && (typoIdAbgeleitet === typoIdAlt || !boot6f.server.zdos.getAllZDOs().some((z) => z.getString(LAYOUT_ID_MEMBER) === typoIdAbgeleitet)), typoZdo ? 'stays' : 'gone');
+check('(A1) ... with a warning naming the typo id, prefab and the number of spared ZDOs', boot6f.zeilen.some((z) => z.includes(typoIdImLog) && /ZDO\(s\) mit dieser Kennung oder im Umkreis von 1 m bleiben unangetastet/.test(z)), boot6f.zeilen.join(' | '));
 
 // ── World 14: typo + a 0.6 m shift ──────────────────────────────────
 console.log('\n[21] World 14: typo prefab plus a 0.6 m shift -- the ZDO stays, no second object; the fixed name finds it again');
@@ -868,7 +879,10 @@ const zeileMit = (zeilen: string[], re: RegExp): boolean => zeilen.some((z) => /
 const boot16a = starte('welt16', dokument(BASIS_VORHER, ALT16));
 const zdoIds16 = ALT16.map((p, i) => {
   // The second of the two in one metre carries the derived id `...-2` (document order).
-  const z = i === 5 ? layoutZdos(boot16a.server).find((q) => q.getString(LAYOUT_ID_MEMBER) === `${idVon(p)}-2`)! : eines(boot16a.server, p)!;
+  const z =
+    i === 5
+      ? (layoutZdos(boot16a.server).find((q) => q.getString(LAYOUT_ID_MEMBER) === `${idVon(p)}-2`) ?? nachKennung(boot16a.server, layoutKennung(p))[1]!)
+      : eines(boot16a.server, p)!;
   z.setString(LAYOUT_ID_MEMBER, layoutKennung(p));
   z.setInt('zzMarke', 10 + i);
   return z.zdoid.toString();

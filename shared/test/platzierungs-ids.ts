@@ -131,7 +131,7 @@ check('duplicates: exact duplicates (all fields equal, within 1 cm) become one e
 check('duplicates: 2 cm apart, another yaw or another npc block is NOT a duplicate', dup.placements!.filter((p) => p.prefab === 'Voelva').length === 2 && dup.placements!.filter((p) => p.prefab === 'Beech1').length === 3);
 const befunde = pruefeLayout(dup).filter((b) => /Duplikat/.test(b.text));
 check('duplicates: pruefeLayout reports the folded duplicate', befunde.length === 1 && /Beech1/.test(befunde[0]!.text), JSON.stringify(befunde));
-check('duplicates: the report is a note, not an error', befunde.every((b) => b.art === 'welt'));
+check('duplicates: the report is a note, not an error', befunde.length === 1 && befunde.every((b) => b.art === 'welt'));
 const dupMitId = sauber({
   placements: [
     { prefab: 'Beech1', x: 1, z: 1 },
@@ -224,7 +224,12 @@ try {
   const merge = spawnSync('git', ['merge-file', '-p', join(tmp, 'ast-a.json'), join(tmp, 'basis.json'), join(tmp, 'ast-b.json')], { encoding: 'utf-8' });
   const merged = merge.stdout;
   check('git: two branches that each append one placement merge with 0 conflicts', merge.status === 0, `exit ${merge.status} (= conflicts), stderr: ${merge.stderr}`);
-  const mergedLayout = sanitizeWorldLayout(JSON.parse(merged || 'null'));
+  let mergedLayout: WorldLayout | null = null;
+  try {
+    mergedLayout = sanitizeWorldLayout(JSON.parse(merged || 'null'));
+  } catch {
+    /* conflict markers in the text: not a document, the check below fails */
+  }
   check('git: the merged document holds both new placements', mergedLayout !== null && (mergedLayout.placements ?? []).length === (devLayout.placements ?? []).length + 2, `${mergedLayout?.placements?.length} of ${(devLayout.placements ?? []).length + 2}`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

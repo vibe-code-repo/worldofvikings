@@ -104,7 +104,10 @@ import type { GegenstandsKatalog } from './GegenstandsKatalog';
 // Die schwebenden Bedienflächen über der Karte (Werkzeuganzeige, Zoom,
 // Ebenen, Übersicht, Eigenschaftskarte). Statisch eingebunden, weil sie
 // nichts nachladen — sie zeichnen nur DOM über den beiden Leinwänden.
-import { KartenHud, type Werkzeugname } from './KartenHud';
+import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHud';
+// Werkzeug-Registry: Fluss und See leben in `werkzeuge/`, hier nur der Zugriff.
+import { WERKZEUGE, werkzeugMitId } from './werkzeuge';
+import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
 // Das Gestaltungssystem des Editors. Literale Farbwerte in dieser Datei
 // waren bis hierher der Normalfall ('#1d2431', '#3a3325', '#e8d48a' …) —
 // sechs Dateien mit je eigener Palette, und jede vergessene Zeile blieb
@@ -408,7 +411,7 @@ const entwurfsSpeicher = new EntwurfsSpeicher({
     // Fluss, Polygonzug, Startpunkt-Klick oder Form-Griff würde sonst in den
     // fremden Entwurf hineingeschrieben.
     griff = null;
-    flussPunkte = [];
+    for (const w of WERKZEUGE) w.abbrechen(werkzeugKontext);
     polygonPunkte = [];
     startpunktModus = null;
     alles('bearbeitet', false);
@@ -490,7 +493,7 @@ let zurueckKnopf: HTMLButtonElement | null = null;
  */
 let katalogOeffnen: (() => void) | null = null;
 let gewaehlt: string | null = null;
-let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' | 'see' = 'auswahl';
+let werkzeug: Werkzeugname = 'auswahl';
 /**
  * Startpunkt-Klickmodus (Aufgabe B2): 'welt' -> naechster Kartenklick
  * setzt `layout.defaultSpawn`; { continentId } -> setzt `continent.spawn`
@@ -498,20 +501,6 @@ let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' | 'see' = 
  * s. Kommentar bei weltSektionBauen().
  */
 let startpunktModus: StartpunktZiel | null = null;
-/** Offener Flusslauf (Weltbau B) + Breite/Tiefe des Werkzeugs. */
-let flussPunkte: [number, number][] = [];
-let flussBreite = 40;
-let flussTiefe = 8;
-/**
- * Radius/Tiefe des See-Werkzeugs (Aufgabe B5). Ein See ist Mittelpunkt +
- * Radius (LakeDef), kein Punktzug wie der Fluss — ein Klick setzt ihn
- * fertig, es gibt kein "Abschließen". Vorgaben wie `sanitizeWorldLayout`
- * sie einem See ohne Angabe zuweist (radius 200, depth 8), damit ein per
- * Feld unverändert gesetzter See exakt das ergibt, was die Sanitisierung
- * ohnehin annähme.
- */
-let seeRadius = 200;
-let seeTiefe = 8;
 /** Gewählte vordefinierte Form + Basisgröße (m) des Form-Werkzeugs. */
 let gewaehlteForm = 'kreis';
 let formGroesse = 1500;
@@ -529,6 +518,34 @@ let mitteZ = 0;
  */
 let griff: { regionId: string; art: 'mitte' | 'radius' | number } | null = null;
 const GRIFF_PX = 7;
+
+/**
+ * Was ein registriertes Werkzeug (`werkzeuge/`) am Editor tun darf. Jedes
+ * Mitglied ist eine Handlung, die die alten `if (werkzeug === ...)`-Zweige
+ * unmittelbar auf dem Modulzustand ausführten. Nur Funktionen und
+ * Lesezugriffe zur Laufzeit: Das Objekt darf hier oben stehen, obwohl
+ * `zuBild` und `massstab` weiter unten entstehen.
+ */
+const werkzeugKontext: WerkzeugKontext = {
+  layout: () => layout,
+  aendere: (neu) => {
+    merkeSchritt();
+    layout = neu;
+  },
+  werkzeugId: () => werkzeug,
+  zurAuswahl: () => {
+    werkzeug = 'auswahl';
+  },
+  uebernommen: () => {
+    alles();
+    vorschauAnstossen();
+  },
+  seiteNeuBauen: () => seiteBauen(),
+  neuZeichnen: () => zeichneOverlay(),
+  meldung: (text, fehler) => shell.meldung(text, fehler),
+  zuBild: (wx, wz) => zuBild(wx, wz),
+  massstab: () => massstab,
+};
 
 function ladeEntwurf(): WorldLayout {
   return entwurfsSpeicher.lesen() ?? leeresLayout();
@@ -1012,25 +1029,21 @@ const zeigeFuerBetrieb = (m: SeitenBetriebsart): void => {
 // NACH den beiden Zeichenflächen eingehängt: Die Reihenfolge im DOM
 // entscheidet, was oben liegt. Der Hud gehört über das Overlay, sonst
 // fingen die Zeichenflächen seine Klicks ab.
-const WERKZEUG_TEXT: Record<Werkzeugname, string> = {
+const WERKZEUG_TEXT: Record<AltesWerkzeugname, string> = {
   auswahl: 'Auswahl',
   form: 'Insel-Form setzen',
   polygon: 'Polygon zeichnen',
   platzieren: 'Objekt platzieren',
-  fluss: 'Fluss zeichnen',
-  see: 'See setzen',
 };
 /** Die Mono-Plakette der Werkzeuganzeige — je Werkzeug die Zahl, die es führt. */
 function hudZusatz(): string {
+  const registriert = werkzeugMitId(werkzeug);
+  if (registriert) return registriert.hudZusatz();
   switch (werkzeug) {
     case 'form':
       return `${FORMEN.find((f) => f.id === gewaehlteForm)?.name ?? ''} ${formGroesse} m`;
     case 'polygon':
       return `${polygonPunkte.length} Punkte`;
-    case 'fluss':
-      return `${flussPunkte.length} Punkte · ${flussBreite} m`;
-    case 'see':
-      return `Radius ${seeRadius} m`;
     case 'platzieren':
       return spawnPrefab;
     default:
@@ -1104,7 +1117,7 @@ function hudAktualisieren(): void {
       layout,
       gewaehlt,
       werkzeug,
-      werkzeugText: WERKZEUG_TEXT[werkzeug],
+      werkzeugText: werkzeugMitId(werkzeug)?.titel ?? WERKZEUG_TEXT[werkzeug as AltesWerkzeugname],
       zusatzText: hudZusatz(),
       massstab,
       mitteX,
@@ -1254,21 +1267,11 @@ function zeichneOverlay(): void {
     ctx.fillStyle = F.wasserFlaeche;
     ctx.fill();
   }
-  // Offener Flusslauf des Werkzeugs
-  if (flussPunkte.length > 0) {
-    ctx.strokeStyle = F.wasser;
-    ctx.lineWidth = Math.max(2, flussBreite / massstab);
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    flussPunkte.forEach(([x, z], i) => {
-      const [px, py] = zuBild(x, z);
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    });
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.lineWidth = 1.5;
-  }
+  // Halbfertige Züge der registrierten Werkzeuge (offener Flusslauf): an
+  // derselben Stelle der Zeichenreihenfolge wie vorher, und für JEDES
+  // Werkzeug, nicht nur das aktive — ein angefangener Fluss bleibt beim
+  // Wechsel des Werkzeugs stehen, wie er es immer getan hat.
+  for (const w of WERKZEUGE) w.zeichneOverlay?.(werkzeugKontext, ctx);
 
   // Handplatzierte Objekte als grüne Punkte
   for (const p of layout.placements ?? []) {
@@ -1462,6 +1465,11 @@ overlay.addEventListener('pointerdown', (e) => {
     }
   }
 
+  // Registrierte Werkzeuge zuerst; was sie nicht beanspruchen, fällt auf die
+  // alten Zweige und zuletzt auf die Auswahl.
+  const ereignis = { weltX: wx, weltZ: wz, shiftKey: e.shiftKey };
+  if (werkzeugMitId(werkzeug)?.beiZeigerRunter(werkzeugKontext, ereignis)) return;
+
   if (werkzeug === 'form') {
     const form = FORMEN.find((f) => f.id === gewaehlteForm) ?? FORMEN[0]!;
     const region: RegionDef = {
@@ -1494,38 +1502,6 @@ overlay.addEventListener('pointerdown', (e) => {
     speichereEntwurf();
     seiteBauen();
     zeichneOverlay();
-    return;
-  }
-  if (werkzeug === 'fluss') {
-    flussPunkte.push([Math.round(wx), Math.round(wz)]);
-    seiteBauen();
-    zeichneOverlay();
-    return;
-  }
-  if (werkzeug === 'see') {
-    // Mittelpunkt + Radius statt Punktzug (LakeDef) — ein Klick reicht,
-    // anders als beim Fluss gibt es kein offenes Werkzeugobjekt, das erst
-    // noch abgeschlossen werden müsste.
-    let n = 1;
-    while ((layout.lakes ?? []).some((l) => l.id === `see-${n}`)) n++;
-    merkeSchritt();
-    layout = {
-      ...layout,
-      lakes: [
-        ...(layout.lakes ?? []),
-        { id: `see-${n}`, x: Math.round(wx), z: Math.round(wz), radius: seeRadius, depth: seeTiefe },
-      ],
-    };
-    // Wie das Form-Werkzeug: ein Klick = EIN See, Shift hält das
-    // Werkzeug für Serien aktiv.
-    if (!e.shiftKey) werkzeug = 'auswahl';
-    alles();
-    vorschauAnstossen();
-    shell.meldung(
-      e.shiftKey
-        ? `see-${n} angelegt (Radius ${seeRadius} m) — Werkzeug bleibt aktiv (Shift)`
-        : `see-${n} angelegt (Radius ${seeRadius} m)`
-    );
     return;
   }
   if (werkzeug === 'polygon') {
@@ -1620,41 +1596,21 @@ overlay.addEventListener('pointerup', () => {
 });
 overlay.addEventListener('dblclick', () => {
   polygonSchliessen();
-  flussSchliessen();
+  werkzeugMitId(werkzeug)?.beiDoppelklick?.(werkzeugKontext);
 });
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' && (werkzeug === 'polygon' || werkzeug === 'fluss')) {
-    polygonPunkte = [];
-    flussPunkte = [];
-    werkzeug = 'auswahl';
-    seiteBauen();
-    zeichneOverlay();
-  }
-});
-
-/** Offenen Flusslauf ins Layout übernehmen (mind. 2 Punkte). */
-function flussSchliessen(): void {
-  if (werkzeug !== 'fluss') return;
-  const punkte = flussPunkte.filter(
-    (p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1]![0], p[1] - a[i - 1]![1]) > 1
-  );
-  if (punkte.length < 2) {
-    shell.meldung(`Ein Fluss braucht mindestens 2 Punkte (aktuell ${punkte.length}).`, true);
-    return;
-  }
-  let n = 1;
-  while ((layout.rivers ?? []).some((r) => r.id === `fluss-${n}`)) n++;
-  merkeSchritt();
-  layout = {
-    ...layout,
-    rivers: [...(layout.rivers ?? []), { id: `fluss-${n}`, points: punkte, width: flussBreite, depth: flussTiefe }],
-  };
-  flussPunkte = [];
+  if (e.code !== 'Escape') return;
+  // Escape beendet Polygon und die registrierten Werkzeuge, die es
+  // beanspruchen (Fluss). Dabei fällt JEDER halbfertige Zug weg, nicht nur
+  // der des aktiven Werkzeugs — unverändert.
+  const beansprucht = werkzeugMitId(werkzeug)?.beiTaste?.(werkzeugKontext, e) === true;
+  if (werkzeug !== 'polygon' && !beansprucht) return;
+  polygonPunkte = [];
+  for (const w of WERKZEUGE) w.abbrechen(werkzeugKontext);
   werkzeug = 'auswahl';
-  alles();
-  vorschauAnstossen();
-  shell.meldung(`fluss-${n} angelegt (${punkte.length} Punkte, ${flussBreite} m breit)`);
-}
+  seiteBauen();
+  zeichneOverlay();
+});
 
 /**
  * Offenes Polygon in eine Region verwandeln. Drei Wege führen hierher —
@@ -1722,6 +1678,13 @@ function breiterKnopf(text: string, cb: () => void, pfad?: string): HTMLButtonEl
 const hinweisZeile = (text: string): HTMLDivElement =>
   el('div', stil({ 'font-size': '11px', 'line-height': '1.5', color: F.gedimmt }), text);
 
+/** Die Bausteine, die ein registriertes Werkzeug für seinen Seitenleisten-Block bekommt. */
+const seitenHost: SeitenHost = {
+  hinweis: hinweisZeile,
+  beschriftet: (text, inhalt) => beschriftet(text, inhalt),
+  breiterKnopf: (text, cb, pfad) => breiterKnopf(text, cb, pfad),
+};
+
 /** Beschriftung im Entwurfsstil über einem Bedienelement. */
 function beschriftet(text: string, inhalt: HTMLElement): HTMLDivElement {
   const s = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '5px' }));
@@ -1737,7 +1700,7 @@ function beschriftet(text: string, inhalt: HTMLElement): HTMLDivElement {
  * DOM: Suchtext, gewählte Filtermarke, aufgeklappte Baumknoten. Genau
  * wie `werkzeug` es seit jeher tut.
  */
-type WerkzeugId = 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' | 'see';
+type WerkzeugId = Werkzeugname;
 type FilterId = 'alle' | 'inseln' | 'gewaesser' | 'objekte' | 'fehler';
 type Platzierung = NonNullable<WorldLayout['placements']>[number];
 let suchtext = '';
@@ -1880,7 +1843,8 @@ function seiteBauen(): void {
     // Unverändert: Das Werkzeug beginnt mit leerem Zug — ein halbes
     // Polygon aus dem letzten Anlauf gehört niemandem.
     if (id === 'polygon') polygonPunkte = [];
-    if (id === 'fluss') flussPunkte = [];
+    // Ein registriertes Werkzeug beginnt ebenfalls mit leerem Zug (Fluss).
+    werkzeugMitId(id)?.abbrechen(werkzeugKontext);
     seiteBauen();
     zeichneOverlay();
   };
@@ -1940,20 +1904,7 @@ function seiteBauen(): void {
       'Punkte klicken; schließen: Klick auf den Startpunkt, den ✓-Knopf oder Doppelklick. Esc bricht ab.',
       polygonPunkte.length ? `${polygonPunkte.length} P.` : ''
     ),
-    kachel(
-      'fluss',
-      'Fluss',
-      PFAD.fluss,
-      'Verlauf klicken; abschließen: ✓-Knopf oder Doppelklick. Esc bricht ab.',
-      flussPunkte.length ? `${flussPunkte.length} P.` : ''
-    ),
-    kachel(
-      'see',
-      'See',
-      PFAD.see,
-      'Klick setzt den Mittelpunkt und legt den See sofort an. Shift für Serien.',
-      `${seeRadius} m`
-    ),
+    ...WERKZEUGE.map((w) => kachel(w.id, w.kachelName, w.bild, w.kachelTipp, w.kachelZusatz())),
     // Fünfte Kachel über beide Spalten: Das Mockup zeigt vier
     // Zeichenwerkzeuge, der Editor hat fünf. „Objekt platzieren" ist
     // keins zum Wegkürzen — es ist der einzige Weg, einen Baum von Hand
@@ -2014,61 +1965,9 @@ function seiteBauen(): void {
     );
     seite.appendChild(block);
   }
-  if (werkzeug === 'fluss') {
-    const block = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '8px' }));
-    const zeile = el('div', stil({ display: 'flex', gap: '8px' }));
-    zeile.append(
-      feld(
-        String(flussBreite),
-        (v) => {
-          flussBreite = Math.min(400, Math.max(4, Number(v) || flussBreite));
-          seiteBauen();
-          zeichneOverlay();
-        },
-        { mono: true, einheit: 'm', titel: 'Breite in Metern' }
-      ),
-      feld(
-        String(flussTiefe),
-        (v) => {
-          flussTiefe = Math.min(60, Math.max(1, Number(v) || flussTiefe));
-          seiteBauen();
-          zeichneOverlay();
-        },
-        { mono: true, einheit: 'm', titel: 'Tiefe unter der Wasserlinie (m)' }
-      )
-    );
-    block.appendChild(beschriftet('Breite / Tiefe', zeile));
-    if (flussPunkte.length >= 2) {
-      block.appendChild(breiterKnopf(`Fluss abschließen (${flussPunkte.length} Punkte)`, flussSchliessen, PFAD.haken));
-    }
-    block.appendChild(hinweisZeile('Verlauf klicken; abschließen: ✓-Knopf oder Doppelklick. Esc bricht ab.'));
-    seite.appendChild(block);
-  }
-  if (werkzeug === 'see') {
-    const block = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '8px' }));
-    const zeile = el('div', stil({ display: 'flex', gap: '8px' }));
-    zeile.append(
-      feld(
-        String(seeRadius),
-        (v) => {
-          seeRadius = Math.min(5000, Math.max(8, Number(v) || seeRadius));
-          seiteBauen();
-        },
-        { mono: true, einheit: 'm', titel: 'Radius in Metern' }
-      ),
-      feld(
-        String(seeTiefe),
-        (v) => {
-          seeTiefe = Math.min(60, Math.max(1, Number(v) || seeTiefe));
-          seiteBauen();
-        },
-        { mono: true, einheit: 'm', titel: 'Tiefe unter der Wasserlinie (m)' }
-      )
-    );
-    block.appendChild(beschriftet('Radius / Tiefe', zeile));
-    block.appendChild(hinweisZeile('Klick setzt den Mittelpunkt und legt den See sofort an. Shift für Serien.'));
-    seite.appendChild(block);
-  }
+  // Seitenleisten-Block des aktiven registrierten Werkzeugs (Fluss, See).
+  const werkzeugBlock = werkzeugMitId(werkzeug)?.seitenleiste?.(werkzeugKontext, seitenHost);
+  if (werkzeugBlock) seite.appendChild(werkzeugBlock);
   if (werkzeug === 'platzieren') {
     const block = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '8px' }));
     const prefabFeld = feld(

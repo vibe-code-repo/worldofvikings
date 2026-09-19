@@ -56,6 +56,7 @@
  */
 
 import { baueKuratierungsAuswahl } from './KuratierungsAuswahl';
+import { werkzeugMitId, type ALTE_WERKZEUGE, type RegistrierteId } from './werkzeuge';
 import {
   BIOME_BY_NAME,
   DEFAULT_BASE_LEVEL,
@@ -93,12 +94,22 @@ import {
 export type Ebene = 'biome' | 'hoehe' | 'routen';
 
 /**
+ * Werkzeuge, die noch über die alten Zweige in `editorMain.ts` laufen; ihr
+ * Sinnbild und ihre Tastenhilfe stehen unten in diesem Modul. Alle anderen
+ * sind registriert (`werkzeuge/index.ts`) und bringen beides selbst mit. Die
+ * Liste ist `ALTE_WERKZEUGE` dort (dieselben Namen sind für die Registry
+ * gesperrt).
+ */
+export type AltesWerkzeugname = (typeof ALTE_WERKZEUGE)[number];
+
+/**
  * Werkzeugnamen des Editors. Wortgleich mit der Variablen `werkzeug` in
  * `editorMain.ts` — bewusst als Vereinigungstyp und nicht als `string`,
  * damit ein umbenanntes Werkzeug hier einen Übersetzungsfehler auslöst
- * statt still die falsche Tastenhilfe zu zeigen.
+ * statt still die falsche Tastenhilfe zu zeigen. Die registrierten Namen
+ * werden aus der Registry abgeleitet.
  */
-export type Werkzeugname = 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' | 'see';
+export type Werkzeugname = AltesWerkzeugname | RegistrierteId;
 
 /** Momentaufnahme des Editorzustands, aus der das Hud sich aufbaut. */
 export interface HudUmgebung {
@@ -243,13 +254,11 @@ const taste = (text: string): HTMLSpanElement =>
  * beliebiges Symbol — und ein Symbol, das nicht mitwechselt, liest man
  * nach zwei Tagen gar nicht mehr.
  */
-const WERKZEUG_BILD: Record<Werkzeugname, string> = {
+const WERKZEUG_BILD: Record<AltesWerkzeugname, string> = {
   auswahl: PFAD.raster,
   form: PFAD.inselForm,
   polygon: PFAD.polygon,
   platzieren: PFAD.platzieren,
-  fluss: PFAD.fluss,
-  see: PFAD.see,
 };
 
 /**
@@ -260,7 +269,7 @@ const WERKZEUG_BILD: Record<Werkzeugname, string> = {
  *   Esc bricht genau diese beiden ab,
  *   Platzieren bleibt nach dem Setzen von sich aus aktiv.
  */
-const WERKZEUG_TASTEN: Record<Werkzeugname, ReadonlyArray<readonly [string, string]>> = {
+const WERKZEUG_TASTEN: Record<AltesWerkzeugname, ReadonlyArray<readonly [string, string]>> = {
   auswahl: [
     ['Klick', 'wählen'],
     ['Ziehen', 'verschieben'],
@@ -274,15 +283,6 @@ const WERKZEUG_TASTEN: Record<Werkzeugname, ReadonlyArray<readonly [string, stri
     ['Klick', 'Punkt'],
     ['Doppelklick', 'schließen'],
     ['Esc', 'abbrechen'],
-  ],
-  fluss: [
-    ['Klick', 'Punkt'],
-    ['Doppelklick', 'schließen'],
-    ['Esc', 'abbrechen'],
-  ],
-  see: [
-    ['Klick', 'setzen'],
-    ['Shift', 'Serie'],
   ],
   platzieren: [['Klick', 'setzen']],
 };
@@ -441,7 +441,8 @@ export class KartenHud {
         padding: '0 12px',
       })
     );
-    const bild = sinnbild(WERKZEUG_BILD[u.werkzeug], 13, 2);
+    const registriert = werkzeugMitId(u.werkzeug);
+    const bild = sinnbild(registriert?.bild ?? WERKZEUG_BILD[u.werkzeug as AltesWerkzeugname], 13, 2);
     bild.style.color = F.akzent;
     leiste.append(
       bild,
@@ -465,7 +466,7 @@ export class KartenHud {
         'font-size': '11.5px',
       })
     );
-    WERKZEUG_TASTEN[u.werkzeug].forEach(([k, w], i) => {
+    (registriert?.tasten ?? WERKZEUG_TASTEN[u.werkzeug as AltesWerkzeugname]).forEach(([k, w], i) => {
       if (i > 0) hilfe.appendChild(strich(14));
       hilfe.append(taste(k), document.createTextNode(` ${w}`));
     });

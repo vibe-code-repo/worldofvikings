@@ -2648,8 +2648,8 @@ export class TerrainSplatMaterial {
           // beide einbinden könnten.
           //
           // Hier stand `pow(hoch, 0.45)` mit einer Abdunklung unter dem
-          // Horizont; das ist die Form des VERGLEICHSPROJEKTS
-          // (sky-shader.ts), nicht die der Kuppel, die über diesem Boden
+          // Horizont; das ist die Form des VERGLEICHSPROJEKTS,
+          // nicht die der Kuppel, die über diesem Boden
           // steht. `pow` hat bei hoch = 0 eine unendliche Steigung und
           // setzt damit eine harte Kante genau auf den Horizont — der
           // Grund, warum die Himmelskuppel auf `1 − e^(−3,2·y)` gewechselt ist.

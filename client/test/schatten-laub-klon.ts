@@ -157,6 +157,12 @@ function wrapperKenntSubMesh(m: Mesh): boolean {
     pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 1, 'ein neuer Klon wartet nicht auf seinen Shader');
     shadows.setPlayerPosition(9000, 9000); // alle Instanzen fallen aus dem Ring
     shadows.tick();
+    // Schon nach EINEM Tick: Der Klon verlaesst die Warteliste beim Packen,
+    // nicht erst im naechsten Durchlauf (dort wuerde er noch einmal angemeldet).
+    pruefe(
+      shadows.vegetationsSchattenStats().tiefeWartend === 0,
+      'ein Klon, dessen Instanzen ausfallen, bleibt bis zum naechsten Tick in der Warteliste'
+    );
     shadows.tick();
     const st = shadows.vegetationsSchattenStats();
     pruefe(st.aktiv === 0, `Klone halten Instanzen ausserhalb des Rings: aktiv ${st.aktiv}`);

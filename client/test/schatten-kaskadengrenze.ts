@@ -8,10 +8,21 @@
  * minZ 0,5, 50 m, zwei Kaskaden); vorher endete die Nahkaskade bei 9 m und
  * die zweite Karte trug 5,4-fach groebere Texel.
  *
+ * Zweiter Teil: der WEG vom Look-Profil zum Generator. `Shadows.setLevel` baut
+ * den Generator ueber die Naht `erzeugeGenerator`; ein Test ersetzt sie durch
+ * eine Attrappe und liest, was am Ende an lambda, Ueberblendung, Reichweite,
+ * Kaskaden und Aufloesung steht. Ein Rueckfall auf Babylons Vorgaben
+ * (`cascadeBlendPercentage = 0.1`) in `setLevel` faellt damit auf.
+ *
  * Lauf: npx tsx client/test/schatten-kaskadengrenze.ts
  */
+import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
+import { Scene } from '@babylonjs/core/scene';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { LOOK_VORGABE } from '../../shared/src/lookProfil.js';
 import {
+  Shadows,
   MIN_KASKADEN,
   SHADOW_LEVELS,
   kaskadenGrenzen,
@@ -78,6 +89,78 @@ console.log('Schatten G18: Kaskadengrenze');
   );
 }
 
+
+// ── Look-Profil → Generator (setLevel) ───────────────────────────────
+{
+  class GeneratorAttrappe {
+    numCascades = 0;
+    shadowMaxZ = 0;
+    stabilizeCascades = false;
+    cascadeBlendPercentage = 0.1; // Babylons Vorgabe
+    lambda = 0.5; // Babylons Vorgabe
+    darkness = 0;
+    bias = 0;
+    normalBias = 0;
+    autoCalcDepthBounds = true;
+    freezeShadowCastersBoundingInfo = false;
+    usePercentageCloserFiltering = false;
+    filteringQuality = -1;
+    constructor(readonly mapSize: number) {}
+    addShadowCaster(): void {}
+    getShadowMap() {
+      return { renderList: [] as unknown[] };
+    }
+    dispose(): void {}
+  }
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const sonne = new DirectionalLight('sonne', new Vector3(0.3, -1, 0.2), scene);
+  const shadows = new Shadows(scene, sonne);
+  const gebaut: GeneratorAttrappe[] = [];
+  const intern = shadows as unknown as { erzeugeGenerator: (a: number) => unknown; profil: typeof LOOK_VORGABE };
+  intern.erzeugeGenerator = (aufloesung: number) => {
+    const g = new GeneratorAttrappe(aufloesung);
+    gebaut.push(g);
+    return g;
+  };
+  const letzter = (): GeneratorAttrappe => gebaut[gebaut.length - 1]!;
+
+  // 1. Die ausgelieferte Vorgabe kommt am Generator an.
+  shadows.setLevel(2);
+  const v = LOOK_VORGABE.schatten;
+  pruefe(gebaut.length === 1, `setLevel(2) hat ${gebaut.length} Generatoren gebaut`);
+  pruefe(letzter().lambda === v.lambda, `Generator-lambda ${letzter().lambda}, Vorgabe ${v.lambda}`);
+  pruefe(
+    letzter().cascadeBlendPercentage === v.ueberblendung,
+    `Generator-Ueberblendung ${letzter().cascadeBlendPercentage}, Vorgabe ${v.ueberblendung} (Rueckfall auf Babylons 0,1?)`
+  );
+  pruefe(letzter().numCascades === Math.max(MIN_KASKADEN, v.kaskaden), `Generator-Kaskaden ${letzter().numCascades}`);
+  pruefe(letzter().shadowMaxZ === v.reichweite, `Generator-Reichweite ${letzter().shadowMaxZ}, Vorgabe ${v.reichweite}`);
+  pruefe(letzter().mapSize === v.aufloesung, `Generator-Aufloesung ${letzter().mapSize}, Vorgabe ${v.aufloesung}`);
+  pruefe(letzter().darkness === v.dunkelheit && letzter().stabilizeCascades === v.rasten, 'Dunkelheit/Rasten kommen nicht an');
+
+  // 2. Ein ANDERER Profilwert kommt ebenso an (nicht nur die Vorgabe zufaellig richtig).
+  intern.profil = {
+    ...LOOK_VORGABE,
+    schatten: { ...v, lambda: 0.05, ueberblendung: 0.25, aufloesung: 1024, kaskaden: 3, reichweite: 70, dunkelheit: 0.4, rasten: false },
+  };
+  shadows.setLevel(3);
+  pruefe(letzter().lambda === 0.05, `Profil-lambda 0,05 kam als ${letzter().lambda} an`);
+  pruefe(letzter().cascadeBlendPercentage === 0.25, `Profil-Ueberblendung 0,25 kam als ${letzter().cascadeBlendPercentage} an`);
+  pruefe(letzter().numCascades === 3 && letzter().shadowMaxZ === 70, `Kaskaden/Reichweite: ${letzter().numCascades} / ${letzter().shadowMaxZ}`);
+  pruefe(letzter().mapSize === 1024, `Aufloesung ${letzter().mapSize}: Look 1024 unter dem Deckel 2048`);
+  pruefe(letzter().darkness === 0.4 && letzter().stabilizeCascades === false, 'Profil-Dunkelheit/Rasten kommen nicht an');
+
+  // 3. Das 100-FPS-Profil auf Stufe 1 behaelt seine eigenen Werte.
+  shadows.setHundertFpsProfil(true);
+  shadows.setLevel(1);
+  pruefe(letzter().lambda === 0.2, `100-FPS-Profil: lambda ${letzter().lambda}, erwartet 0,2 (nicht der Look-Wert)`);
+  pruefe(letzter().cascadeBlendPercentage === 0.2, `100-FPS-Profil: Ueberblendung ${letzter().cascadeBlendPercentage}, erwartet 0,2`);
+
+  shadows.dispose();
+  scene.dispose();
+  engine.dispose();
+}
 
 if (fehler > 0) {
   console.error(`\n${fehler} Fehler`);

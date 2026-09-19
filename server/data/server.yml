@@ -724,6 +724,11 @@ look:
   # p50 (12,5 / 17,1 / 20,4). Wer nichts zahlen will: 1024 px mit lambda 0,3
   # hat dieselbe Grenze bei 4,8 / 11,9 cm (10,4 / 14,3 / 17,8).
   # Die Stufe „Mittel" deckelt die Aufloesung seither bei 2048 (SHADOW_LEVELS).
+  #
+  # SPEICHER, der eigentliche Preis: je Kaskade 2048² x 4 Byte = 16,8 MB, bei
+  # zwei Kaskaden 33,6 MB statt 8,4 MB bei 1024 px — das Vierfache auf der
+  # Stufe, die Spieler standardmaessig haben. Wer den VRAM nicht hat, setzt
+  # `aufloesung` auf 1024 (Grenze bleibt bei 19 m, Texel 4,8 / 11,9 cm).
   schatten:
     aufloesung: 2048
     reichweite: 50

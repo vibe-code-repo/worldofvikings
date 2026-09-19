@@ -108,7 +108,26 @@ export const SHADOW_LEVELS: readonly (ShadowLevel | null)[] = [
   // die Obergrenze, die der Spieler mit seiner Wahl bezahlen kann. Bei 1024 px
   // reicht die scharfe Nahkaskade nur bis 9 m (Texel 2,3 cm), dahinter 12,2 cm;
   // 2048 px mit lambda 0,3 (Vorgabe) halten 2,4 cm bis 19 m und 6,0 cm bis 50 m.
+  //
+  // PREIS, in Zahlen: Speicher. Je Kaskade 2048^2 x 4 Byte = 16,8 MB, bei den
+  // zwei Kaskaden der Vorgabe 33,6 MB statt 8,4 MB bei 1024 px — das Vierfache
+  // auf der Stufe, die die Spieler standardmaessig haben (`shadowQuality 2`).
+  // Zeit auf der schweren Insel: +0,3 ms p50 gegen main (im Rauschen, n=4),
+  // s. `server.yml`, `look.schatten`. Wer den Speicher nicht hat, setzt
+  // `look.schatten.aufloesung` auf 1024 und behaelt die Grenze bei 19 m.
   { kaskaden: 3, distanz: 120, aufloesung: 2048 },
+  // ── Stufe 3 („Hoch") und der Block darunter ───────────────────────────
+  // Seit G18 (18.09.2026) sind Stufe 2 und 3 AUFLOESUNGSGLEICH (2048 px).
+  // Der Look ersetzt Kaskadenzahl und Reichweite beider Stufen
+  // (`schattenMitLook`); mit der ausgelieferten Vorgabe (2 Kaskaden, 50 m)
+  // ergeben sie dasselbe Bild zum selben Preis. Nur bei einem Look ohne diese
+  // Werte (kaskaden 0) unterscheiden sie sich: 4 Kaskaden und 150 m statt 3
+  // und 120 m.
+  //
+  // Der Block unten beschreibt einen ZURUECKGENOMMENEN Zustand (4096 px auf
+  // dieser Stufe, 17.08.2026) und bleibt als Messprotokoll stehen — die Zahl
+  // in `aufloesung` unten ist 2048, nicht 4096.
+  //
   // Hoechste Stufe: 4096 statt 2048 — gemessen 17.08.2026 nachts gegen das
   // Kriseln des Bodenschattens (E15). Vierfache Texelzahl auf gleicher
   // Flaeche, also die Dichte von 75 m bei 2048, nur mit VOLLEN Fernschatten.
@@ -869,7 +888,6 @@ export class Shadows {
     if (!daten || daten.length === 0) {
       stand.schatten.thinInstanceSetBuffer('matrix', null, 16, false);
       stand.schatten.setEnabled(false);
-      this.vegetationsTiefePending.delete(stand);
       stand.aktiv = 0;
       stand.maxSkala = 1;
       stand.gepackterRadius = 0;
@@ -904,6 +922,10 @@ export class Shadows {
     // stuende er als Werfer in der Liste und wuerfe nichts, waehrend die
     // Quelle schon abgemeldet ist: Laub ohne Schatten, dauerhaft. Bis der
     // Shader steht, wirft deshalb die Quelle weiter (tick → tiefeNachziehen).
+    // Ohne Instanzen gibt es nichts anzumelden (Effekt ohne INSTANCES-Define)
+    // und nichts abzuwarten — ein zuvor wartender Klon verlaesst die Liste
+    // SOFORT, nicht erst im naechsten Tick.
+    if (stand.aktiv === 0) this.vegetationsTiefePending.delete(stand);
     const braucheWrapper = daten !== null && daten.length > 0 && !!stand.schatten.material?.shadowDepthWrapper;
     if (braucheWrapper && stand.aktiv > 0 && !stand.tiefeBereit) {
       stand.tiefeVersuche = 0;
@@ -1424,6 +1446,19 @@ export class Shadows {
     stand.schatten.dispose();
   }
 
+  /**
+   * Der eine Ort, an dem der echte Generator entsteht.
+   *
+   * Eine Naht fuer Tests: `CascadedShadowGenerator` laeuft nicht auf der
+   * NullEngine, ein Test ersetzt diese Methode an der Instanz und prueft, was
+   * `setLevel` aus Stufe und Look-Profil am Generator einstellt (lambda,
+   * Ueberblendung, Reichweite, Kaskaden). Vorher konnte ein Rueckfall auf
+   * Babylons Vorgaben (`cascadeBlendPercentage = 0.1`) durch keinen Test fallen.
+   */
+  private erzeugeGenerator(aufloesung: number): CascadedShadowGenerator {
+    return new CascadedShadowGenerator(aufloesung, this.sonne);
+  }
+
   /** Stufe setzen (Index in SHADOW_LEVELS). */
   setLevel(stufe: number): void {
     const i = Math.max(0, Math.min(SHADOW_LEVELS.length - 1, stufe));
@@ -1439,7 +1474,7 @@ export class Shadows {
     // wird neu angelegt statt umkonfiguriert.
     this.abbauen();
 
-    const g = new CascadedShadowGenerator(cfg.aufloesung, this.sonne);
+    const g = this.erzeugeGenerator(cfg.aufloesung);
     g.numCascades = cfg.kaskaden;
     g.shadowMaxZ = cfg.distanz;
     // ── Kaskadenverteilung: gemessen 17.08.2026 nachts (E15) ─────────

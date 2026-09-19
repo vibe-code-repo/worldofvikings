@@ -5,7 +5,11 @@
       "args": [
         "tsx",
         "tools/worldlayout-mcp/server.ts"
-      ]
+      ],
+      "env": {
+        "WOV_ADMIN_ADRESSE": "${WOV_ADMIN_ADRESSE:-127.0.0.1}",
+        "WOV_ADMIN_PORT": "${WOV_ADMIN_PORT:-2468}"
+      }
     }
   }
 }

@@ -33,9 +33,13 @@
  *   WOV_ADMIN_ADRESSE/PORT  Vorgabe 127.0.0.1 : 2468 (im Betrieb setzt die
  *                           Unit die Adresse aus /etc/wov.env)
  *   WOV_ADMIN_TOKEN         das Vorschalter-Token direkt, sonst
- *   WOV_ADMIN_TOKEN_DATEI   Datei mit dem Token (Vorgabe /etc/wov-admin.token)
- * Der Betriebsdienst lässt nur das lokale Netz herein und verlangt das
- * Token (Kopf x-wov-token).
+ *   WOV_ADMIN_TOKEN_DATEI   Datei mit dem Token. Ohne Angabe gilt, was der
+ *                           Rechner hat: server/data/admin.token im Checkout
+ *                           (das legt `npm run dev` an, scripts/dev.mjs) und
+ *                           danach /etc/wov-admin.token (Betrieb, root-only)
+ * Leere Werte zählen als nicht gesetzt: `.mcp.json` reicht die Variablen
+ * ungesetzt als leere Zeichenkette durch. Der Betriebsdienst lässt nur das
+ * lokale Netz herein und verlangt das Token (Kopf x-wov-token).
  *
  * ── Gefahrlos ausprobieren ────────────────────────────────────────────
  * Ohne weitere Angabe ändern die *_set/*_delete-Werkzeuge das Dokument des
@@ -55,6 +59,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   sanitizeWorldLayout,
   pruefeLayout,
@@ -82,23 +87,31 @@ import { PLATZIERUNGEN_GRENZE } from '@wov/shared/src/worldlayout/layoutDatei.js
 // Prozess redet nur mit ihm, siehe Kopfkommentar. Aus layoutDatei.ts kommt
 // nur die Zahl der Platzierungs-Obergrenze, keine Lese- oder Schreibfunktion.
 const ADMIN_URL = (
-  process.env.WOV_ADMIN_URL ??
-  `http://${process.env.WOV_ADMIN_ADRESSE ?? '127.0.0.1'}:${process.env.WOV_ADMIN_PORT ?? 2468}`
+  process.env.WOV_ADMIN_URL ||
+  `http://${process.env.WOV_ADMIN_ADRESSE || '127.0.0.1'}:${process.env.WOV_ADMIN_PORT || 2468}`
 ).replace(/\/+$/, '');
-const ADMIN_TOKEN_DATEI = process.env.WOV_ADMIN_TOKEN_DATEI ?? '/etc/wov-admin.token';
+// Dieselbe Quelle wie der Proxy in client/vite.config.ts: das Token, das
+// `npm run dev` im Checkout anlegt (scripts/dev.mjs, gitignored), sonst das
+// des Betriebs. Ein ausdrücklich gesetztes WOV_ADMIN_TOKEN_DATEI gilt allein.
+const ADMIN_TOKEN_DATEIEN = process.env.WOV_ADMIN_TOKEN_DATEI
+  ? [process.env.WOV_ADMIN_TOKEN_DATEI]
+  : [fileURLToPath(new URL('../../server/data/admin.token', import.meta.url)), '/etc/wov-admin.token'];
 
 /** Bei jedem Aufruf frisch gelesen: Ein erst später angelegtes Token soll ohne Neustart greifen. */
 function adminToken(): string {
   const direkt = process.env.WOV_ADMIN_TOKEN?.trim();
   if (direkt) return direkt;
-  try {
-    const t = readFileSync(ADMIN_TOKEN_DATEI, 'utf-8').trim();
-    if (t) return t;
-  } catch {
-    /* fällt in die Meldung unten */
+  for (const datei of ADMIN_TOKEN_DATEIEN) {
+    try {
+      const t = readFileSync(datei, 'utf-8').trim();
+      if (t) return t;
+    } catch {
+      /* nächste Datei, sonst die Meldung unten */
+    }
   }
   throw new Error(
-    `Kein Token für den Betriebsdienst: weder WOV_ADMIN_TOKEN noch ${ADMIN_TOKEN_DATEI} ist lesbar.`
+    `Kein Token für den Betriebsdienst: weder WOV_ADMIN_TOKEN noch ${ADMIN_TOKEN_DATEIEN.join(' / ')} ist lesbar ` +
+      `(läuft \`npm run dev\` in diesem Checkout, oder WOV_ADMIN_TOKEN_DATEI setzen).`
   );
 }
 
@@ -106,12 +119,14 @@ async function adminAnfrage(
   methode: 'GET' | 'POST',
   leib?: unknown
 ): Promise<{ status: number; daten: Record<string, unknown> }> {
+  // Vor dem try: ein fehlendes Token ist keine „nicht erreichbar"-Meldung wert.
+  const token = adminToken();
   let antwort: Response;
   try {
     antwort = await fetch(`${ADMIN_URL}/api/worldlayout`, {
       method: methode,
       headers: {
-        'x-wov-token': adminToken(),
+        'x-wov-token': token,
         ...(leib !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: leib !== undefined ? JSON.stringify(leib) : undefined,

@@ -57,10 +57,11 @@ server/data/welten/<instanz>.json      (Autorformat, JSON, klein, in Git)
 - **Geschrieben wird das Dokument an genau einer Stelle**:
   `shared/src/worldlayout/layoutDatei.ts` (`layoutLesen`, `layoutSichern`,
   `layoutSchreiben`). Sanitisierung, zeitgestempelte Sicherung (letzte 10)
-  und atomares `.tmp` + `rename` stecken dort; Betriebsdienst und MCP-Server
-  benutzen dieselbe Funktion. *Vorher lag derselbe Dreisatz zweimal herum —
-  im MCP-Server und im Speicher-Plugin von `client/vite.config.ts` —, und
-  nur eine der beiden Kopien prüfte streng.* Die Byte-Darstellung
+  und atomares `.tmp` + `rename` stecken dort; der Betriebsdienst ist der
+  einzige Prozess, der sie aufruft (der MCP-Server geht über ihn, s. „MCP-
+  Server"). *Vorher lag derselbe Dreisatz zweimal herum — im MCP-Server und
+  im Speicher-Plugin von `client/vite.config.ts` —, und nur eine der beiden
+  Kopien prüfte streng.* Die Byte-Darstellung
   (`JSON.stringify(…, null, 2)`, ohne Schlusszeilenumbruch) ist Teil des
   Vertrags: `shared/test/worldlayout.ts` hält für BEIDE Weltdateien fest,
   dass sie bytegleich durch den Sanitizer gehen.
@@ -347,13 +348,35 @@ In `.mcp.json` eingebunden; KI-gestützter Weltbau im Gespräch:
 `layout_get`, `region_set`, `region_delete` (sanitize-gesichert),
 `layout_probe` (Höhe/Biom/Region wie der Spielserver) und `layout_deploy`
 (systemd-Neustart von `wov-server`; der Start dauert seit der Abschaltung
-der Locations ~2 s). Er arbeitet auf `weltDatei(WURZEL)`, also auf der
-Datei der Instanz, in der er läuft, und schreibt über dieselbe
-`layoutDatei.layoutSchreiben` wie der Betriebsdienst — daher auch dieselbe
-Sicherung (`<instanz>.json.<ts>.bak`, letzte 10) und dieselbe
-Byte-Darstellung. *Vorher trug er seine eigene Kopie dieses Ablaufs; sie
-fing einen Fehler beim Sichern ab und schrieb trotzdem — genau der Fall,
-in dem man die Sicherung gebraucht hätte.*
+der Locations ~2 s). **Er schreibt die Weltdatei nicht selbst**, sondern
+spricht mit dem Betriebsdienst (`admin/`): `GET /api/worldlayout` liefert
+Dokument und Hash, jede Änderung geht als `POST /api/worldlayout` mit
+diesem Hash als Basis (`If-Match`) zurück. Dadurch gelten für ihn dieselbe
+Sicherung (`<instanz>.json.<ts>.bak`, letzte 10), dieselbe Byte-Darstellung
+und dieselbe Sperre wie für den Editor. Hat der Editor oder ein zweiter
+Aufruf in der Zwischenzeit gespeichert (`409`), meldet das Werkzeug es,
+statt die fremde Änderung zu überschreiben; mehr als 2.000 Platzierungen
+lehnt der Betriebsdienst mit `422` ab. *Vorher schrieb der MCP-Server die
+Datei selbst, an der Basisprüfung vorbei: ein Werkzeugaufruf konnte eine
+Editor-Sitzung stumm überschreiben, und ein Editor-Speichern den Aufruf.*
+
+**Einrichtung ohne Handarbeit.** `.mcp.json` trägt kein Geheimnis. Adresse
+und Token findet der Server so (Vorrang von oben nach unten):
+
+| | Mitwirkende lokal (`npm run dev`) | `wov-dev` |
+|---|---|---|
+| Adresse | `WOV_ADMIN_URL`, sonst `WOV_ADMIN_ADRESSE` : `WOV_ADMIN_PORT`, Vorgabe `127.0.0.1:2468` | dieselbe Vorgabe; `/etc/wov.env` setzt `127.0.0.1:2468` |
+| Token | `WOV_ADMIN_TOKEN`, sonst `WOV_ADMIN_TOKEN_DATEI`, sonst `server/data/admin.token` im Checkout — die Datei, die `scripts/dev.mjs` dem Betriebsdienst und dem Vite-Proxy gemeinsam vorgibt und die der Betriebsdienst beim ersten Start anlegt | `/etc/wov-admin.token` (root-only) |
+
+Der MCP-Server liest das Token bei jedem Aufruf neu. Läuft der Betriebsdienst
+nicht, sagt die Fehlermeldung, welche Adresse und welche Token-Datei er
+versucht hat. **Vorsicht:** Ohne weitere Angabe zeigt der Server auf den
+Betriebsdienst der Instanz, in der er läuft — auf `wov-dev` also auf die
+DEV-Welt. Zum Erproben einen eigenen Betriebsdienst auf einer Weltkopie
+starten (`WOV_WURZEL`, `WOV_ADMIN_PORT`, `WOV_ADMIN_TOKEN_DATEI`) und den
+MCP-Server mit `WOV_ADMIN_URL` darauf zeigen lassen — dann verweigert
+`layout_deploy` die Arbeit, weil ein Neustart eine andere Weltdatei lüde.
+`tools/worldlayout-mcp/probe.ts` macht genau das.
 
 ## Betrieb
 

@@ -94,7 +94,7 @@ import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
-import { layoutAbgleich } from './world/layoutAbgleich.js';
+import { befreieSpielerbauten, layoutAbgleich } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
@@ -1157,12 +1157,17 @@ export class WovServer {
     // Zahl), hat der Sanitizer es stillschweigend zu „fehlt" gemacht — und ein
     // Tippfehler in der Datei würde die ganze Welt abräumen. Dann bleibt alles
     // stehen. Ein unlesbares Dokument (null) lässt die Welt ebenfalls in Ruhe.
+    //
+    // Was dieser frühe Rücksprung mitnimmt: Der Abgleich läuft gar nicht, also
+    // werden in diesem Boot auch Routen-NPCs NICHT beim Läufer angemeldet (sie
+    // wandern als gewöhnliche Kreaturen um ihren Platz) und `pruefeLayout`
+    // schweigt. Einzige Ausnahme: Spielerbauten von einer veralteten Kennung
+    // zu befreien ist kein Löschen und läuft trotzdem.
     if (!layout) return;
     const rohPlacements = (this.worldLayoutRaw as { placements?: unknown } | null)?.placements;
     if (rohPlacements !== undefined && !Array.isArray(rohPlacements)) {
-      console.warn(
-        `[WoV] Layout-Abgleich: placements unlesbar (${rohPlacements === null ? 'null' : typeof rohPlacements}) ` +
-          `– Layout-Objekte bleiben unangetastet`
+      this.meldeUnlesbar(
+        `placements unlesbar (${rohPlacements === null ? 'null' : typeof rohPlacements}) – Layout-Objekte bleiben unangetastet`
       );
       return;
     }
@@ -1170,13 +1175,11 @@ export class WovServer {
     // Sanitizer ALLE verwirft (Text, leere Objekte, kaputte Koordinaten), ist
     // nicht „bewusst leer" — die Welt bliebe ohne einen einzigen Eintrag
     // zurück und alle Layout-ZDOs gingen mit. Werden nur einige verworfen,
-    // verlieren deren Objekte ihr ZDO (wie bisher), aber das steht im Log.
+    // löscht dieser Boot ebenfalls nichts (s. `layoutAbgleich`, `ohneLoeschen`).
     const rohAnzahl = Array.isArray(rohPlacements) ? rohPlacements.length : 0;
     const gueltigeAnzahl = layout.placements?.length ?? 0;
     if (rohAnzahl > 0 && gueltigeAnzahl === 0) {
-      console.warn(
-        `[WoV] Layout-Abgleich: placements: alle ${rohAnzahl} Einträge verworfen – Layout-Objekte bleiben unangetastet`
-      );
+      this.meldeUnlesbar(`placements: alle ${rohAnzahl} Einträge verworfen – Layout-Objekte bleiben unangetastet`);
       return;
     }
     const ergebnis = layoutAbgleich(
@@ -1223,6 +1226,9 @@ export class WovServer {
     }
     if (ergebnis.ueberzaehlig > 0) {
       console.warn(`[WoV] Layout-Abgleich: ${ergebnis.ueberzaehlig} überzählige Layout-ZDOs mit gleicher Kennung entfernt`);
+      for (const u of ergebnis.ueberzaehligeZdos) {
+        console.warn(`[WoV] Layout-Abgleich: überzähliges ZDO ${u.id} (${u.kennung}) mit ${u.member} Zustands-Member(n) entfernt`);
+      }
     }
     for (const u of ergebnis.unbekanntePrefabs) {
       console.warn(
@@ -1240,6 +1246,21 @@ export class WovServer {
     // fehlender Startpunkt stehen jetzt im Boot-Log statt still zu bleiben.
     for (const b of pruefeLayout(layout)) {
       console.warn(`[WoV] Layout-Hinweis (${b.wo}): ${b.text}`);
+    }
+  }
+
+  /**
+   * Frühe Rückkehr des Layout-Abgleichs (Dokument nicht lesbar): Warnzeile mit
+   * dem Hinweis auf die Nebenwirkung, und die Spielerbauten trotzdem von
+   * veralteten Kennungen befreien (kein Löschen).
+   */
+  private meldeUnlesbar(grund: string): void {
+    console.warn(
+      `[WoV] Layout-Abgleich: ${grund} (in diesem Boot werden Routen-NPCs nicht beim Läufer angemeldet)`
+    );
+    const frei = befreieSpielerbauten(this.zdos);
+    if (frei > 0) {
+      console.log(`[WoV] Layout-Abgleich: ${frei} Spielerbau(ten) von einer veralteten Layout-Kennung befreit`);
     }
   }
 

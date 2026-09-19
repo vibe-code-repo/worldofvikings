@@ -41,7 +41,11 @@
  * deletes NOTHING (one rule for both) -- it still updates, stamps, spawns and
  * frees player pieces; the next clean document then clears as usual (worlds 10,
  * 11, and the dev.json copy in world 6). World 12: when no ZDO of an id fits the
- * prefab, the new one is spawned and the stale ones go in the SAME boot.
+ * prefab, the new one is spawned and the stale ones go in the SAME boot. World 13:
+ * among duplicates at the same distance the ZDO with more state stays (a full chest
+ * beats an empty one), in either save order, and every destroyed one is logged.
+ * The early return for an unreadable `placements` still frees player pieces of a
+ * stale id (world 7).
  *
  * World 2: (f) two placements with exactly the same prefab and position stay
  * ONE ZDO (pinned here, the decision belongs to a later card), (g) a player
@@ -491,6 +495,13 @@ const boot7a = starte('welt7', dokument(BASIS_VORHER, [Q1, Q2]));
 const v1 = boot7a.server;
 const q1 = eines(v1, Q1)!;
 const q2 = eines(v1, Q2)!;
+// A player piece a previous server adopted by proximity: it still carries a layout id.
+const SPB = { prefab: 'woodwall', x: 300, z: 100 };
+const spb = v1.zdos.createZDO(v1.prefabs.getByName('woodwall')!.hash, { x: 300.05, y: v1.getGroundHeight(300.05, 100.05), z: 100.05 });
+spb.setInt('spieler', 1);
+spb.setString(LAYOUT_ID_MEMBER, layoutKennung(SPB));
+const spbId = spb.zdoid.toString();
+const spbPos = { ...spb.position };
 q1.setInt('zzZustand', 7); // state that lives on the instance and cannot come back from the document
 q2.setInt('zzZustand', 7);
 const q1Id = q1.zdoid.toString();
@@ -505,12 +516,30 @@ for (const [bad, typ] of [[null, 'null'], [{}, 'object'], ['nope', 'string'], [4
     dabei.length === 2 && zustand === 2 && dabei.some((z) => z.zdoid.toString() === q1Id) && dabei.some((z) => z.zdoid.toString() === q2Id),
     `${dabei.length} layout ZDOs, ${zustand} with state`
   );
+  const spbNach = b.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === spbId);
+  check(
+    `(B8) placements = ${JSON.stringify(bad)}: the player piece is still freed of its stale id (no deletion) and stays put`,
+    spbNach !== undefined && spbNach.getString(LAYOUT_ID_MEMBER) === '' && nahe(spbNach.position.x, spbPos.x, 1e-9) && nahe(spbNach.position.y, spbPos.y, 1e-9) && b.zeilen.some((z) => /1 Spielerbau\(ten\)/.test(z)),
+    `layoutId='${spbNach?.getString(LAYOUT_ID_MEMBER)}'; ${b.zeilen.join(' | ')}`
+  );
+  check(
+    `(B8) ... and the warning names the side effect (route NPCs are not registered in this boot)`,
+    b.zeilen.some((z) => z.includes(`placements unlesbar (${typ})`) && z.includes('Routen-NPCs nicht beim Läufer angemeldet')),
+    b.zeilen.join(' | ')
+  );
   check(
     `(B1) ... and it warns: placements unlesbar (${typ})`,
     b.zeilen.some((z) => z.includes(`placements unlesbar (${typ})`) && z.includes('unangetastet')) && !b.zeilen.some((z) => /\d+ entfernt/.test(z)),
     b.zeilen.join(' | ')
   );
 }
+const alleWeg = starte('welt7', { ...dokument(BASIS_VORHER, [Q1, Q2]), placements: ['x'] });
+const spbAlle = alleWeg.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === spbId);
+check(
+  '(B8) placements = ["x"] (all dropped): player piece freed as well, warning names the route side effect',
+  spbAlle !== undefined && spbAlle.getString(LAYOUT_ID_MEMBER) === '' && alleWeg.zeilen.some((z) => z.includes('alle 1 Einträge verworfen') && z.includes('Routen-NPCs nicht beim Läufer angemeldet')),
+  alleWeg.zeilen.join(' | ')
+);
 const ohneFeld = dokument(BASIS_VORHER, []);
 delete ohneFeld.placements;
 for (const [doc, name] of [[ohneFeld, 'missing'], [dokument(BASIS_VORHER, []), '[]']] as const) {
@@ -687,6 +716,38 @@ check(
 check('(R3-3) ... spawned 1, removed the 2 stale ones in the same boot (counted)', boot12b.zeilen.some((z) => /\b1 gespawnt, .* 2 entfernt \(davon 2 überzählig\)/.test(z)), boot12b.zeilen.join(' | '));
 const boot12c = starte('welt12', dokument(BASIS_VORHER, [CHEST]));
 check('(R3-3) ... and a second boot of the same save has nothing left to clean', nachKennung(boot12c.server, layoutKennung(CHEST)).length === 1, `${nachKennung(boot12c.server, layoutKennung(CHEST)).length}`);
+
+// ── World 13: a full chest beats an empty one at the same distance ───
+console.log('\n[19] World 13: duplicates at the same distance -- the one with more state stays, in both save orders');
+for (const [welt, volleZuerst] of [['welt13a', false], ['welt13b', true]] as const) {
+  const bootA = starte(welt, dokument(BASIS_VORHER, []));
+  const sA = bootA.server;
+  const chest = sA.prefabs.getByName('piece_chest_wood')!.hash;
+  const TRUHE = { prefab: 'piece_chest_wood', x: 600, z: 100 };
+  const baue = (dx: number, voll: boolean): string => {
+    const z = sA.zdos.createZDO(chest, { x: 600 + dx, y: sA.getGroundHeight(600 + dx, 100), z: 100 });
+    z.setString(LAYOUT_ID_MEMBER, layoutKennung(TRUHE));
+    if (voll) z.setString('truhe', '[[Wood,3]]');
+    return z.zdoid.toString();
+  };
+  // Both 0.2 m from the placement (600,100), one to each side; only the order in the save differs.
+  const ids = volleZuerst ? [baue(0.2, true), baue(-0.2, false)] : [baue(-0.2, false), baue(0.2, true)];
+  const volleId = volleZuerst ? ids[0]! : ids[1]!;
+  const leereId = volleZuerst ? ids[1]! : ids[0]!;
+  sA.saveWorld();
+  const bootB = starte(welt, dokument(BASIS_VORHER, [TRUHE]));
+  const uebrig13 = nachKennung(bootB.server, layoutKennung(TRUHE));
+  check(
+    `(B4) ${volleZuerst ? 'full chest saved first' : 'empty chest saved first'}: the full chest stays with its content, the empty one goes`,
+    uebrig13.length === 1 && uebrig13[0]!.zdoid.toString() === volleId && uebrig13[0]!.getString('truhe') === '[[Wood,3]]',
+    `${uebrig13.length} left: ${uebrig13.map((z) => `${z.zdoid.toString()}='${z.getString('truhe')}'`).join(', ')}`
+  );
+  check(
+    '(B4) ... and the destroyed ZDO is logged with id, id key and member count',
+    bootB.zeilen.some((z) => z.includes(`überzähliges ZDO ${leereId} (${layoutKennung(TRUHE)}) mit 0 Zustands-Member(n) entfernt`)),
+    bootB.zeilen.join(' | ')
+  );
+}
 
 rmSync(WURZEL, { recursive: true, force: true });
 if (fehler > 0) {

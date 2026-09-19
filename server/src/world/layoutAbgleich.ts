@@ -77,6 +77,11 @@ const SKALA_HASH = getStableHash(SKALA_MEMBER);
 
 const SPIELER_HASH = getStableHash('spieler');
 
+/** Wie viel Zustand am Exemplar hängt: alle Member außer den beiden, die der Abgleich selbst setzt. */
+function zustandsMember(zdo: ZDO): number {
+  return zdo.memberCount - (zdo.hasMember(LAYOUT_ID_HASH) ? 1 : 0) - (zdo.hasMember(SOLL_HASH) ? 1 : 0);
+}
+
 /**
  * Spielerbauten gehören dem Spieler, nicht dem Dokument.
  *
@@ -132,6 +137,25 @@ function liesStempel(zdo: ZDO): Stempel | null {
   return Number.isFinite(boden) ? { fingerabdruck: roh.slice(0, i), boden } : null;
 }
 
+/**
+ * Spielerbauten von einer veralteten Layout-Kennung befreien (Kennung und
+ * Stempel ab) und die Zahl zurückgeben. Das ist kein Löschen: der Bau bleibt,
+ * wo er ist. Läuft auch dort, wo der Server sonst nichts anfasst (unlesbares
+ * `placements`), damit ein Spielstand von einem Server, der Spielerbauten per
+ * Nähe übernahm, seine doppelten Kennungen nicht bis zum nächsten sauberen
+ * Boot behält.
+ */
+export function befreieSpielerbauten(zdos: ZDOManager): number {
+  let n = 0;
+  for (const zdo of zdos.getAllZDOs()) {
+    if (!zdo.getString(LAYOUT_ID_MEMBER) || !istSpielerbau(zdo)) continue;
+    zdo.removeMember(LAYOUT_ID_HASH);
+    zdo.removeMember(SOLL_HASH);
+    n++;
+  }
+  return n;
+}
+
 /** Alles, was der Abgleich von der Welt braucht. */
 export interface LayoutAbgleichKontext {
   readonly zdos: ZDOManager;
@@ -181,6 +205,8 @@ export interface LayoutAbgleichErgebnis {
   ueberSpielerbau: string[];
   /** ZDOs mit einer Kennung, die schon ein anderes ZDO trägt: über das eine hinaus entfernt. */
   ueberzaehlig: number;
+  /** Jedes überzählig entfernte ZDO: Id, Kennung und Zahl der Zustands-Member (für das Log). */
+  ueberzaehligeZdos: { id: string; kennung: string; member: number }[];
   /**
    * Gesetzt, wenn dieser Boot NICHTS löscht (s. `layoutAbgleich`): Der
    * Sanitizer hat Einträge des Dokuments verworfen oder ein Prefab ist
@@ -237,6 +263,7 @@ export function layoutAbgleich(
     freigegeben: 0,
     ueberSpielerbau: [],
     ueberzaehlig: 0,
+    ueberzaehligeZdos: [],
     ohneLoeschen: null,
     unbekanntePrefabs: [],
   };
@@ -271,18 +298,13 @@ export function layoutAbgleich(
     const prefab = kontext.prefabs.getByName(p.prefab);
     return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z }] : [];
   });
+  ergebnis.freigegeben = befreieSpielerbauten(zdos);
   const nachKennung = new Map<string, ZDO>();
   const gruppen = new Map<string, ZDO[]>();
   const zurueckgestellt: ZDO[] = [];
   for (const zdo of zdos.getAllZDOs()) {
     const id = zdo.getString(LAYOUT_ID_MEMBER);
     if (!id) continue;
-    if (istSpielerbau(zdo)) {
-      zdo.removeMember(LAYOUT_ID_HASH);
-      zdo.removeMember(SOLL_HASH);
-      ergebnis.freigegeben++;
-      continue;
-    }
     if (!gewollt.has(id)) {
       const nah = ziele.some(
         (t) =>
@@ -328,11 +350,19 @@ export function layoutAbgleich(
     for (const z of kandidaten) {
       const naeher = abstand(z) < abstand(bleibt) - 1e-9;
       const gleichweit = Math.abs(abstand(z) - abstand(bleibt)) <= 1e-9;
-      if (naeher || (gleichweit && liesStempel(z) !== null && liesStempel(bleibt) === null)) bleibt = z;
+      // Bei Gleichstand entscheidet der ZUSTAND (mehr Member: eine volle Truhe
+      // schlägt eine leere), dann der Stempel, dann die Reihenfolge im
+      // Spielstand. Sonst hinge es von der Dateireihenfolge ab, welches
+      // Exemplar mit seinem Inhalt geht.
+      const mehrZustand = zustandsMember(z) > zustandsMember(bleibt);
+      const gleichZustand = zustandsMember(z) === zustandsMember(bleibt);
+      const gestempelt = liesStempel(z) !== null && liesStempel(bleibt) === null;
+      if (naeher || (gleichweit && (mehrZustand || (gleichZustand && gestempelt)))) bleibt = z;
     }
     nachKennung.set(id, bleibt);
     for (const z of liste) {
       if (z === bleibt || !loeschen) continue;
+      meldeUeberzaehlig(ergebnis, z, id);
       zdos.destroyZDO(z.zdoid);
       ergebnis.entfernt++;
       ergebnis.ueberzaehlig++;
@@ -434,6 +464,7 @@ export function layoutAbgleich(
   for (const [id, alt] of nachKennung) {
     const neu = neuErzeugt.get(id);
     if (!neu || neu === alt || alt.destroyed || !loeschen) continue;
+    meldeUeberzaehlig(ergebnis, alt, id);
     zdos.destroyZDO(alt.zdoid);
     ergebnis.entfernt++;
     ergebnis.ueberzaehlig++;
@@ -446,6 +477,10 @@ export function layoutAbgleich(
     ergebnis.entfernt++;
   }
   return ergebnis;
+}
+
+function meldeUeberzaehlig(ergebnis: LayoutAbgleichErgebnis, zdo: ZDO, kennung: string): void {
+  ergebnis.ueberzaehligeZdos.push({ id: zdo.zdoid.toString(), kennung, member: zustandsMember(zdo) });
 }
 
 interface Angleich {

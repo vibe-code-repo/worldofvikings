@@ -11,7 +11,7 @@ abdeckt — Farn, Strauch, Waldboden, Heideblume, Schilf und Seerose.
 `ENTRIES` in `client/src/engine/GrassClutter.ts` nennt elf Texturen.
 Drei davon (`grass_meadows_gen`, `grass_heath_gen`,
 `grass_toon1_yellow_gen`) zeichnet `gen-grass-texture.py`. Die
-restlichen acht stammten aus dem AssetRipper-Export und hatten kein
+restlichen acht stammten aus dem Fremdexport und hatten kein
 Rezept — auf einem frischen Checkout fehlten sie also, obwohl `assets/`
 gitignored ist und damit nichts anderes uebrig bleibt als sie zu
 rechnen. Zusammen decken sie den gesamten Bodenbewuchs ausserhalb der

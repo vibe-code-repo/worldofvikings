@@ -1,25 +1,30 @@
 /**
  * Asset Extractor — reads Unity AssetBundle manifest and catalogs available bundles.
  *
- * Quelle: der lokale Dedicated-Server-Export (StreamingAssets/SoftRef/)
+ * Source: a local export of the game's server files (StreamingAssets/SoftRef/).
+ * Pass the SoftRef directory as the first argument or set WOV_SOFTREF_DIR;
+ * the default is ../../../../server-export/StreamingAssets/SoftRef.
  *
  * The SoftRef system uses hash-named bundles with a YAML manifest describing
  * dependencies between bundles.
  *
- * Full extraction of Unity .assets requires external tools:
- *   - AssetRipper (https://github.com/AssetRipper/AssetRipper)
- *   - UABE (Unity Asset Bundle Extractor)
+ * Full extraction of Unity .assets requires an external Unity asset exporter
+ * (a GUI exporter or a bundle extractor); none is bundled here.
  *
  * This script catalogs the bundles and prepares the extraction pipeline.
  */
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, join } from 'path';
+import { resolve, join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { parse as parseYaml } from 'yaml';
 
-// Paths
-const VALHEIM_SERVER = resolve(__dirname, '../../../../Valheim dedicated server');
-const SOFTREF_DIR = join(VALHEIM_SERVER, 'valheim_server_Data/StreamingAssets/SoftRef');
+// Paths (this package is an ES module: `__dirname` does not exist there)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SOFTREF_DIR =
+  process.argv[2] ??
+  process.env.WOV_SOFTREF_DIR ??
+  resolve(__dirname, '../../../../server-export/StreamingAssets/SoftRef');
 const BUNDLES_DIR = join(SOFTREF_DIR, 'Bundles');
 const OUTPUT_DIR = resolve(__dirname, '../../assets');
 
@@ -38,7 +43,7 @@ function main(): void {
   // Check source exists
   if (!existsSync(SOFTREF_DIR)) {
     console.error(`[ERROR] SoftRef directory not found: ${SOFTREF_DIR}`);
-    console.error('Make sure the dedicated server files are present.');
+    console.error('Pass the SoftRef directory as an argument or set WOV_SOFTREF_DIR.');
     process.exit(1);
   }
 
@@ -115,7 +120,7 @@ function main(): void {
   console.log('Bundle catalog written to assets/catalog/bundles.json');
   console.log();
   console.log('NEXT STEPS for full asset extraction:');
-  console.log('  1. Download AssetRipper: https://github.com/AssetRipper/AssetRipper');
+  console.log('  1. Get a Unity asset exporter that can open AssetBundles.');
   console.log('  2. Open each bundle from:');
   console.log(`     ${BUNDLES_DIR}`);
   console.log('  3. Export as glTF/GLB to:');

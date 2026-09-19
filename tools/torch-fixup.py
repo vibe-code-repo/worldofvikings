@@ -45,8 +45,8 @@ scan.
    positions are taken unchanged — measured 27.08.2026, see
    `tools/steingrab-erzeugen.py`, `in_spielachsen_spiegeln`. Geometry is
    therefore mirrored along x relative to its position. Own models have
-   to be exported pre-mirrored; imported Valheim assets already carry
-   that conversion from AssetRipper.
+   to be exported pre-mirrored; imported third-party assets already carry
+   that conversion from the export.
 
 Run with `--measure-only` first. It prints the bounding box and the
 island sizes and writes nothing — orientation is the one step worth

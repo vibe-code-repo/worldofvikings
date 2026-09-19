@@ -1,9 +1,9 @@
 /**
- * Features Parser — reads features.pkg from the C++ reference
- * server and exports all zone locations (features) as
+ * Features Parser — reads features.pkg from the reference
+ * server's data export and exports all zone locations (features) as
  * JSON for the browser game (used by the server's location placement, Phase F).
  *
- * Binary format (reference server, ZoneManager.cpp:48-157):
+ * Binary format (reference server, zone manager, lines 48-157):
  *
  *   header:
  *     string  comment            (.NET BinaryWriter: 7-bit varint length + UTF-8)
@@ -36,8 +36,8 @@
  *       int32   prefabIndexCount
  *       uint16  prefabIndex × count       → applies to those pieces
  *
- * C++ merges each RandomSpawn into the referenced pieces
- * (ZoneManager.cpp:137-152); we do the same and store it on the piece.
+ * The reference merges each RandomSpawn into the referenced pieces
+ * (zone manager, lines 137-152); we do the same and store it on the piece.
  *
  * Usage: npm run parse --workspace=tools/prefab-parser -- [path-to-features.pkg]
  *        (or: npx tsx tools/prefab-parser/parse-features.ts [path])
@@ -49,7 +49,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_PKG = resolve(__dirname, '../../../referenz-server/data/features.pkg');
+const PKG_DIR = process.env.WOV_PKG_DIR ?? resolve(__dirname, '../../../pkg-data');
+const DEFAULT_PKG = resolve(PKG_DIR, 'features.pkg');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 interface ParsedRandomSpawn {
@@ -171,11 +172,11 @@ function main(): void {
       });
     }
 
-    // RandomSpawns — merged into the referenced pieces (C++ ZoneManager.cpp:118-153)
+    // RandomSpawns — merged into the referenced pieces (reference zone manager, lines 118-153)
     const spawnCount = reader.readInt32();
     for (let s = 0; s < spawnCount; s++) {
       const chanceToSpawn = reader.readFloat();
-      reader.readInt32(); // unknown (outdoor/indoor flag?) — parsed, unused (like C++)
+      reader.readInt32(); // unknown (outdoor/indoor flag?) — parsed, unused (like the reference)
       const flags1 = reader.readUInt8();
       reader.readUInt8(); // flags2
       reader.readUInt8(); // flags3
@@ -299,7 +300,7 @@ class BinReader {
     return v;
   }
 
-  /** C++ DataReader read<bool> — 1 byte. */
+  /** Reference DataReader read<bool> — 1 byte. */
   readBool(): boolean {
     return this.buf[this.pos++] !== 0;
   }

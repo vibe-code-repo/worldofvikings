@@ -18,7 +18,7 @@
  * Weil das Rezept derzeit nicht läuft. `tools/baeume-bauen.sh` braucht
  * Blender (auf `wov-dev` nicht installiert) und die Quelltexturen
  * `PineTree_01.png`, `Pine_tree_texture_d.png`, `birch_leaf.png` und
- * `birch_bark.png` — die sind mit dem AssetRipper-Export gelöscht worden
+ * `birch_bark.png` — die sind mit dem Fremdexport gelöscht worden
  * und existieren nirgends mehr. Die 148 GLBs unter `assets/models` sind
  * der einzige Bestand, und `assets/` liegt nicht im Repo.
  *

@@ -27,13 +27,13 @@
  *     `fogColor*` away from it). This directional, sun-tinted fog is the
  *     single most characteristic part of the look we are after, and it is
  *     why a plain single-color `scene.fogColor` never gets there.
- *     Babylon's built-in fog is single-color → see ValheimFogPlugin.
+ *     Babylon's built-in fog is single-color → see the client's fog plugin.
  *  2. Ambient has only day/night keys while fog/sun have four, so the
  *     two are interpolated on DIFFERENT curves.
  *
  * ── Verified timing ──────────────────────────────────────────────────
  * The phase anchors come from constants.ts, which was ported 1:1 from the
- * C++ reference server:
+ * reference server:
  *
  *   WORLD_TIME_LENGTH = 1800 s   full cycle (30 min)  → EnvMan.m_dayLengthSec
  *   TIME_MORNING      =  240 s   → fraction 0.1333    sunrise
@@ -52,7 +52,7 @@
  * vanilla look, NOT extracted values — they are the one part of this file
  * that is not ground truth. Replace them with real data via
  *
- *   node tools/dump-envsetup.mjs <AssetRipper-export-dir>
+ *   node tools/dump-envsetup.mjs <export-dir>
  *
  * which writes shared/src/envData.json from a local asset export
  * (same approach that produced the verified clutter table).
@@ -553,7 +553,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
       Bis hierher war dieses Wetter aus dem `lighting`-Block von
       `village1.json` des Schwesterprojekts abgeleitet und am Bild
       nachjustiert. Jetzt stehen hier die Werte, die der Vermesser aus
-      den Spieldateien von Tale of Dark Lands gelesen hat
+      den Spieldateien des Vorbilds gelesen hat
       (`design/original-boden.md` §D, Szene Level1 — die Szene, aus der
       ALLE DREI Referenzbilder stammen):
 
@@ -729,7 +729,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
       ── A5 (11.09.2026): 0,06 war keine geringe Deckung, sondern keine ─
 
       Die Kuppel rechnet ihre Wolkendichte gegen die Schwelle
-      `1,25 − deckung · 1,15` (`ValheimSky.ts`). Bei 0,06 steht die
+      `1,25 − deckung · 1,15` (Himmelskuppel im Client). Bei 0,06 steht die
       Schwelle auf 1,181, während das FBM der Lagen im Mittel rund 0,8
       erreicht und nur in Spitzen darüber kommt — es gab also nicht
       wenige Wolken, sondern in keinem Bild eine. Genau das steht in der
@@ -1092,7 +1092,7 @@ export function tagseitenAnteil(elevation: number): number {
 /**
  * Der Nachtanteil der Himmelskuppel — dieselbe Grösse, andere Rampe.
  *
- * Die Kuppel hing schon immer am Sonnenstand (`ValheimSky.update`), aber
+ * Die Kuppel hing schon immer am Sonnenstand (dem `update` der Himmelskuppel), aber
  * mit zwei nirgends benannten Zahlen mitten im Code. Sie stehen jetzt
  * hier, neben der Uhr, die das Licht fährt: Damit kann keine der beiden
  * Rampen still von der anderen wegwandern, und der Widerspruch, der das

@@ -1,12 +1,12 @@
 /**
- * YAML config converter (Phase F) — converts the C++ server's two location
+ * YAML config converter (Phase F) — converts the reference server's two location
  * YAML configs into JSON for the shared package, same offline pattern as the
  * pkg parsers (no runtime YAML dependency in shared/client):
  *
  *   data/terrain_modifiers.yml  → shared/src/terrainModifiers.json
- *     (TerrainModifier.cpp:44-77 — ClearArea radius/offset per feature name)
+ *     (terrain modifier, lines 44-77 — ClearArea radius/offset per feature name)
  *   data/location-overrides.yml → shared/src/locationOverrides.json
- *     (ServerSettings locationOverrides — ZoneManager.cpp:1000-1013, 1068-1084,
+ *     (ServerSettings locationOverrides — zone manager, lines 1000-1013, 1068-1084,
  *      1259-1266; only active when experimental-location-overrides: true)
  *
  * Usage: npx tsx tools/prefab-parser/parse-yml-configs.ts
@@ -19,7 +19,8 @@ import { parse as parseYaml } from 'yaml';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DATA_DIR = resolve(__dirname, '../../../referenz-server/data');
+// Data directory: WOV_PKG_DIR, else ../../../pkg-data next to this project.
+const DATA_DIR = process.env.WOV_PKG_DIR ?? resolve(__dirname, '../../../pkg-data');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 function main(): void {
@@ -38,7 +39,7 @@ function main(): void {
     { levelRadius: number; levelOffset: number; smoothRadius: number; smoothPower: number; square: boolean }
   > = {};
   for (const [name, cfg] of Object.entries(tmRaw)) {
-    // C++ defaults (TerrainModifier.cpp:60-64)
+    // Reference defaults (terrain modifier, lines 60-64)
     modifiers[name] = {
       levelRadius: (cfg.level_radius as number) ?? 5.0,
       levelOffset: (cfg.level_offset as number) ?? -0.2,
@@ -76,7 +77,7 @@ function main(): void {
     if (cfg === null || typeof cfg !== 'object') continue;
     const sc = (cfg['surrounding-check'] ?? {}) as Record<string, unknown>;
     overrides[name] = {
-      // C++ semantics: minAltitude < 0 = use original (LocationOverride default)
+      // Reference semantics: minAltitude < 0 = use original (LocationOverride default)
       minAltitude: (cfg['min-altitude'] as number) ?? -1,
       snapToTerrain: (cfg['snap-to-terrain'] as boolean) ?? false,
       surroundingCheck: {

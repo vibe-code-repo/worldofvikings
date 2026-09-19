@@ -10,7 +10,7 @@ Erzeugt die sechs Clutter-Meshes fuer `client/src/engine/GrassClutter.ts`.
 `assets/` ist vollstaendig gitignored. Was dort liegt und kein Rezept
 unter `tools/` hat, ist auf einem frischen Checkout schlicht weg — und
 genau das war der Fall: Die sechs GLBs, die `MESH_FILES` in
-GrassClutter.ts auflistet, stammten aus dem AssetRipper-Export und
+GrassClutter.ts auflistet, stammten aus dem Fremdexport und
 hatten nie einen Erzeuger. Ergebnis war ein 404 auf
 `clutter_default.glb` und damit gar kein Bodenbewuchs mehr, denn
 GrassClutter.load() bricht beim ersten fehlenden Mesh komplett ab
@@ -34,7 +34,7 @@ schlechtere Weg, aus drei Gruenden:
 3. Der Container laesst sich direkt schreiben und damit auch direkt
    garantieren. Das Projekt hatte schon einmal GLBs, bei denen
    `buffers[0].byteLength` nicht zur Laenge des BIN-Chunks passte
-   (Docs/06-Roadmap.md, „AssetRipper-GLBs"; dafuer existiert bis heute
+   (Docs/06-Roadmap.md, Eintrag zu den GLB-Puffergroessen; dafuer existiert bis heute
    `tools/fix-glb-buffer-length.mjs`). `glb_schreiben()` unten leitet
    beide Zahlen aus derselben Variablen ab, der Fehler ist damit
    strukturell ausgeschlossen.

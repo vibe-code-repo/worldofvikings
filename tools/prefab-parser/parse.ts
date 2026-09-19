@@ -1,9 +1,9 @@
 /**
- * Prefab Parser — reads prefabs.pkg from the C++ reference server
+ * Prefab Parser — reads prefabs.pkg from the reference server's data export
  * and exports all prefab definitions as JSON for the
  * browser game (shared registry used by server and client).
  *
- * Binary format (verified against the reference server's PrefabManager.cpp
+ * Binary format (verified against the reference server's prefab manager
  * and a hex dump of the file):
  *
  *   header:
@@ -16,9 +16,10 @@
  *     float32 localScale.x
  *     float32 localScale.y
  *     float32 localScale.z
- *     uint64  flags              (Prefab::Flag bitfield, see Prefab.h)
+ *     uint64  flags              (prefab flag bitfield of the reference)
  *
  * Usage: npm run parse --workspace=tools/prefab-parser -- [path-to-prefabs.pkg]
+ *        (default directory: WOV_PKG_DIR, else ../../../pkg-data next to this project)
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
@@ -27,8 +28,9 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Default: the C++ reference server's data directory next to this project
-const DEFAULT_PKG = resolve(__dirname, '../../../referenz-server/data/prefabs.pkg');
+// Default: the reference server's data directory (WOV_PKG_DIR), else next to this project
+const PKG_DIR = process.env.WOV_PKG_DIR ?? resolve(__dirname, '../../../pkg-data');
+const DEFAULT_PKG = resolve(PKG_DIR, 'prefabs.pkg');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 interface ParsedPrefab {

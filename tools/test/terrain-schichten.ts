@@ -748,7 +748,7 @@ check(
 
   Geprüft wird nicht die Herleitung, sondern das Ergebnis — gegen eine
   stumpfe Summe über 20 000 Richtungen desselben Verlaufs, den
-  `vhSkyGradient` in ValheimSky.ts zeichnet. Zwei Wege zur selben Zahl.
+  `vhSkyGradient` im Himmelskuppel-Shader (client/src/engine) zeichnet. Zwei Wege zur selben Zahl.
 */
 function irradianzStumpf(ny: number): { wH: number; wZ: number } {
   // Kosinusgewichtete Halbkugel um N, N in der xy-Ebene bei Winkel a.

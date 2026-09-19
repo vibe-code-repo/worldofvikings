@@ -159,7 +159,7 @@ bpy.context.scene.camera = kam
 
 # ── Cutout nachrüsten ────────────────────────────────────────────────
 # Der glTF-Import setzt CLIP nur, wenn alphaMode MASK im Modell steht. Der
-# AssetRipper-Export der Original-Prefabs meldet aber OPAQUE, obwohl die
+# Fremdexport der Original-Prefabs meldet aber OPAQUE, obwohl die
 # Texturen echte Alphakanäle haben — im Spiel repariert das erst die
 # Cutout-Erkennung im AssetManager zur Laufzeit.
 #

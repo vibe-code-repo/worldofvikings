@@ -1018,7 +1018,7 @@ def in_spielachsen_spiegeln(obj):
 
     ── Warum die Spiegelung hierher gehoert und nicht in den Client ──
     Die Weltkoordinaten des Spiels sind die der Vorlage, also
-    linkshaendig. Die Fremdmodelle kommen ueber AssetRipper aus derselben
+    linkshaendig. Die Fremdmodelle kommen ueber den Fremdexport aus derselben
     linkshaendigen Quelle und tragen dessen Umrechnung bereits in sich —
     fuer sie hebt Babylons `__root__` genau das wieder auf, und alles
     passt. Ein Blender-Export mit `export_yup` macht diese Umrechnung

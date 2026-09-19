@@ -38,7 +38,13 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CLIENT = process.env.VALHEIM_CLIENT ?? '/root/Valheim_Client';
+// WOV_CLIENT_EXPORT names the export directory. The former variable name
+// VALHEIM_CLIENT is still read so existing setups keep working; it is
+// deprecated and answered with a hint.
+if (process.env.WOV_CLIENT_EXPORT === undefined && process.env.VALHEIM_CLIENT !== undefined) {
+  console.error('Hinweis: VALHEIM_CLIENT ist veraltet, bitte WOV_CLIENT_EXPORT setzen.');
+}
+const CLIENT = process.env.WOV_CLIENT_EXPORT ?? process.env.VALHEIM_CLIENT ?? '/root/client-export';
 const MAT_DIR = join(CLIENT, 'extracted_assets', 'Material');
 const TEX_DIR = join(CLIENT, 'extracted_assets', 'Texture2D');
 const OUT_DIR = join(ROOT, 'assets', 'textures');
@@ -53,7 +59,7 @@ if (!materialName) {
   process.exit(2);
 }
 if (!existsSync(MAT_DIR) || !existsSync(TEX_DIR)) {
-  console.error(`Client-Export nicht gefunden unter ${CLIENT} (per VALHEIM_CLIENT überschreibbar)`);
+  console.error(`Client-Export nicht gefunden unter ${CLIENT} (per WOV_CLIENT_EXPORT überschreibbar)`);
   process.exit(2);
 }
 

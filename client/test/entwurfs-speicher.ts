@@ -27,7 +27,6 @@ import {
   ALTER_RING_SCHLUESSEL,
   VERDRAENGT_PRAEFIX,
   alterRingSchluesselEntfernen,
-  entwurfImSpeicher,
   serverstandFolge,
   speicherGrund,
   zettelBasisLesen,
@@ -41,6 +40,7 @@ import {
   type Kanal,
   type KvSpeicher,
 } from '../src/editor/entwurfsSpeicher';
+import * as speicherModul from '../src/editor/entwurfsSpeicher';
 import {
   ENTWURF_KEY,
   STAND_KEY,
@@ -51,6 +51,15 @@ import {
   layoutMitPlatzierung,
   leeresLayout,
 } from '../src/editor/weltdokument';
+
+// Optional access: a stand without the export fails by assertion, not by aborting the run.
+const entwurfImSpeicher = (g: SpeicherGrund): boolean =>
+  (speicherModul as { entwurfImSpeicher?: (x: SpeicherGrund) => boolean }).entwurfImSpeicher?.(g) ?? false;
+
+const basisLesen = (sp: EntwurfsSpeicher): string | null | undefined => {
+  const f = (sp as unknown as { basisLesen?: () => string | null }).basisLesen;
+  return f ? f.call(sp) : undefined; // undefined: a stand without basisLesen fails by assertion
+};
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
@@ -1808,18 +1817,18 @@ console.log('▶ Basis des Entwurfs: holen ändert sie nicht, Entscheidung und S
   {
     const profil = new Profil();
     const a = new EditorAttrappe('A', profil);
-    check('Ohne Zettel erfindet basisMerken keinen (false) und basisLesen kennt die gemerkte Basis', a.speicher.basisMerken('h1') === false && !profil.daten.has(STAND_KEY) && a.speicher.basisLesen() === 'h1');
+    check('Ohne Zettel erfindet basisMerken keinen (false) und basisLesen kennt die gemerkte Basis', a.speicher.basisMerken('h1') === false && !profil.daten.has(STAND_KEY) && basisLesen(a.speicher) === 'h1');
     a.serverstandLaden(basis, 'h1');
-    check('Serverstand laden (ok): der Zettel trägt die Basis h1, basisLesen liest sie', zettelBasis(profil) === 'h1' && a.speicher.basisLesen() === 'h1', String(zettelBasis(profil)));
+    check('Serverstand laden (ok): der Zettel trägt die Basis h1, basisLesen liest sie', zettelBasis(profil) === 'h1' && basisLesen(a.speicher) === 'h1', String(zettelBasis(profil)));
     check('Der Zettel bleibt sonst unverändert lesbar (Stempel, quelle=server)', JSON.parse(profil.daten.get(STAND_KEY)!).quelle === 'server' && JSON.parse(profil.daten.get(STAND_KEY)!).tabId === 'A');
     a.speicher.basisMerken(null);
-    check('basisMerken(null) entfernt die Basis: Zettel ohne Basis, basisLesen === null (dann geht nichts auf den Server)', zettelBasis(profil) === null && a.speicher.basisLesen() === null);
+    check('basisMerken(null) entfernt die Basis: Zettel ohne Basis, basisLesen === null (dann geht nichts auf den Server)', zettelBasis(profil) === null && basisLesen(a.speicher) === null);
     const b = new EditorAttrappe('B', profil);
     profil.daten.set(STAND_KEY, '{kaputt');
     b.speicher.basisMerken('hx');
-    check('Kaputter Zettel: basisLesen fällt auf die gemerkte Basis zurück, basisMerken erfindet keinen Zettel', b.speicher.basisLesen() === 'hx' && profil.daten.get(STAND_KEY) === '{kaputt');
+    check('Kaputter Zettel: basisLesen fällt auf die gemerkte Basis zurück, basisMerken erfindet keinen Zettel', basisLesen(b.speicher) === 'hx' && profil.daten.get(STAND_KEY) === '{kaputt');
     profil.lesenKaputt = true;
-    check('Speicher nicht lesbar: basisLesen wirft nicht (gemerkte Basis), basisMerken meldet false', b.speicher.basisLesen() === 'hx' && b.speicher.basisMerken('hy') === false);
+    check('Speicher nicht lesbar: basisLesen wirft nicht (gemerkte Basis), basisMerken meldet false', basisLesen(b.speicher) === 'hx' && b.speicher.basisMerken('hy') === false);
     profil.lesenKaputt = false;
     check('entwurfImSpeicher: ok und knapp ja; fremd und voll nein', entwurfImSpeicher('ok') && entwurfImSpeicher('knapp') && !entwurfImSpeicher('fremd') && !entwurfImSpeicher('voll'));
   }
@@ -1834,14 +1843,14 @@ console.log('▶ Basis des Entwurfs: holen ändert sie nicht, Entscheidung und S
     check('Vorbereitung: der Entwurf beruht auf h1', zettelBasis(profil) === 'h1');
     dienst.hash = 'h2'; // ein anderer Browser speichert S2
     // Start-Abgleich: der Editor holt S2 und öffnet den Dialog — bis zur Antwort ändert sich NICHTS an der Basis.
-    check('Dialog offen: die Basis des Entwurfs ist weiter h1 (Holen ändert sie nicht)', zettelBasis(profil) === 'h1' && a.speicher.basisLesen() === 'h1');
+    check('Dialog offen: die Basis des Entwurfs ist weiter h1 (Holen ändert sie nicht)', zettelBasis(profil) === 'h1' && basisLesen(a.speicher) === 'h1');
     profil.testflugSchreibt(layoutMitPlatzierung(a.layout, 'Beech1', 3333, 3333, 1)); // Testflug setzt ein Objekt
     check('Testflug speichert bei offenem Dialog: 409 (nichts ersetzt)', testflugSpeichert(profil, 'hT') === '409' && dienst.hash === 'h2', `Dienst-Hash ${dienst.hash}`);
     check('… die Basis bleibt h1 (nur der Nutzer kann sie ändern)', zettelBasis(profil) === 'h1');
     // Dialog: „Entwurf behalten" — ausdrücklich der gezeigte Stand h2
     a.speicher.abgleichen();
     a.entwurfBehalten('h2');
-    check('„Entwurf behalten": die Basis ist jetzt h2 (der gezeigte Stand)', zettelBasis(profil) === 'h2' && a.speicher.basisLesen() === 'h2');
+    check('„Entwurf behalten": die Basis ist jetzt h2 (der gezeigte Stand)', zettelBasis(profil) === 'h2' && basisLesen(a.speicher) === 'h2');
     check('Testflug speichert danach: 200 (bewusste Entscheidung), die Basis rückt auf hT', testflugSpeichert(profil, 'hT') === '200' && dienst.hash === 'hT' && zettelBasis(profil) === 'hT');
   }
   {
@@ -1857,7 +1866,7 @@ console.log('▶ Basis des Entwurfs: holen ändert sie nicht, Entscheidung und S
     check('„Serverstand übernehmen": Entwurf = S2 und Basis = h2', hat(gespeichert(profil), P2) && !hat(gespeichert(profil), P1) && zettelBasis(profil) === 'h2');
     profil.testflugSchreibt(layoutMitPlatzierung(s2, 'Beech1', 4444, 4444, 1)); // eigene Änderung im Testflug
     check('Testflug speichert mit eigener Änderung: 200', testflugSpeichert(profil, 'h3') === '200' && dienst.hash === 'h3');
-    check('… der Editor liest danach die vom Testflug weitergeschobene Basis (basisLesen: h3)', a.speicher.basisLesen() === 'h3');
+    check('… der Editor liest danach die vom Testflug weitergeschobene Basis (basisLesen: h3)', basisLesen(a.speicher) === 'h3');
   }
   // Während der Dialog offen ist, speichert jemand S3: Entscheidung über S2 gilt nicht für S3
   {

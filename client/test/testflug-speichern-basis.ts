@@ -133,6 +133,8 @@ try {
   };
 
   // ── The editor, as far as the base is concerned (calls as in editorMain.ts) ──
+  /** `entwurfImSpeicher`; the fallback keeps the run going on a stand where the export does not exist yet. */
+  const imSpeicher = (g: string): boolean => speicherModul.entwurfImSpeicher?.(g) ?? (g === 'ok' || g === 'knapp');
   let layout: WorldLayout = weltLeer();
   const editor = new EntwurfsSpeicher({
     speicher: kv,
@@ -149,7 +151,7 @@ try {
     editor.abgleichen(); // storage events of the browser: a draft change by the flight has arrived by now
     layout = st.layout;
     const grund = speicherModul.speicherGrund(editor.schreiben(layout, 'server', 'dev'), 0);
-    if (speicherModul.entwurfImSpeicher?.(grund)) merken(st.hash);
+    if (imSpeicher(grund)) merken(st.hash);
     return grund;
   };
   /** The dialog answer "keep draft": the SHOWN state becomes the base (not with a foreign draft pending). */
@@ -172,7 +174,7 @@ try {
     const antwort = await schreibeWeltdokument(layout, b);
     if (antwort.art !== 'ok') return antwort.art;
     const grund = speicherModul.speicherGrund(editor.schreiben(layout, 'server', 'dev'), 0);
-    if (speicherModul.entwurfImSpeicher?.(grund)) merken(antwort.hash);
+    if (imSpeicher(grund)) merken(antwort.hash);
     return 'ok';
   };
 

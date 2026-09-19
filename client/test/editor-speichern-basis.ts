@@ -18,7 +18,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout } from '@wov/shared';
-import { BASIS_FEHLT, basisNachBestaetigung, hashNormalisieren, holeWeltdokument, schreibeWeltdokument } from '../src/editor/weltdokument';
+import * as weltdokument from '../src/editor/weltdokument';
+import { basisNachBestaetigung, hashNormalisieren, holeWeltdokument, schreibeWeltdokument } from '../src/editor/weltdokument';
+
+// Optional access: a stand without the export fails by assertion, not by aborting the run.
+const BASIS_FEHLT = (weltdokument as { BASIS_FEHLT?: string }).BASIS_FEHLT ?? '(BASIS_FEHLT fehlt)';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');

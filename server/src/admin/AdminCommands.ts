@@ -17,7 +17,6 @@
  */
 
 import { HeightmapProvider, WATER_LEVEL } from '@wov/shared';
-import { instanzName } from '@wov/shared/src/instanz.js';
 import type { Peer } from '../net/Peer.js';
 import {
   MAX_RADIUS_ZONEN,
@@ -53,10 +52,11 @@ export interface AdminUmgebung {
   /** Bodenhöhe an einer Weltstelle (für `teleport`). */
   bodenHoehe(x: number, z: number): number;
   /**
-   * Setzt die Zonen im Quadrat um die Zone (zx, zy) zurück (`zone reset`).
-   * Fehlt sie, gibt es den Befehl in dieser Umgebung nicht.
+   * Setzt die Zonen im Quadrat um die Zone (zx, zy) zurück (`zone reset`);
+   * `alt` erlaubt die Ersatzregel für Zonen ohne Marke. Fehlt sie, gibt es
+   * den Befehl in dieser Umgebung nicht.
    */
-  zonenRuecksetzen?(zx: number, zy: number, radius: number): ZonenErgebnis[];
+  zonenRuecksetzen?(zx: number, zy: number, radius: number, alt: boolean): ZonenErgebnis[];
 }
 
 export class AdminCommandRegistry {
@@ -110,33 +110,39 @@ export class AdminCommandRegistry {
   }
 
   /**
-   * `zone reset <x> <z> [radiusInZonen=0]` — Streuung schon erzeugter Zonen
-   * neu würfeln (Weltkoordinaten). Nur auf der Dev-Instanz oder mit
-   * `WOV_ZONEN_RUECKSETZER=1`; was dabei stehen bleibt und was abgelehnt
-   * wird, steht in `world/zonenRuecksetzer.ts`.
+   * `zone reset <x> <z> [radiusInZonen=0] [alt]` — Streuung schon erzeugter
+   * Zonen neu würfeln (Weltkoordinaten). Nur wenn `WOV_INSTANZ` ausdrücklich
+   * `dev` ist oder `WOV_ZONEN_RUECKSETZER=1`; was dabei stehen bleibt und was
+   * abgelehnt wird, steht in `world/zonenRuecksetzer.ts`. `alt` erlaubt die
+   * Ersatzregel für Zonen, die vor der Herkunftsmarke erzeugt wurden.
    */
   private zoneBefehl(args: string[]): AdminResult {
-    const aufruf = `Aufruf: zone reset <x> <z> [radiusInZonen=0] (Weltkoordinaten, Radius 0..${MAX_RADIUS_ZONEN})`;
+    const aufruf =
+      `Aufruf: zone reset <x> <z> [radiusInZonen=0] [alt] ` +
+      `(Weltkoordinaten, Radius 0..${MAX_RADIUS_ZONEN}; alt = Zonen ohne Marke erzwingen)`;
     if (args[0]?.toLowerCase() !== 'reset') return { ok: false, active: false, message: aufruf };
-    let erlaubt = false;
-    try {
-      erlaubt = ruecksetzerErlaubt(instanzName(), process.env.WOV_ZONEN_RUECKSETZER);
-    } catch {
-      erlaubt = false;
-    }
-    if (!erlaubt || !this.umgebung?.zonenRuecksetzen) {
+    if (
+      !ruecksetzerErlaubt(process.env.WOV_INSTANZ, process.env.WOV_ZONEN_RUECKSETZER) ||
+      !this.umgebung?.zonenRuecksetzen
+    ) {
       return {
         ok: false,
         active: false,
-        message: 'zone reset ist nur auf der Dev-Instanz erlaubt (oder mit WOV_ZONEN_RUECKSETZER=1)',
+        message:
+          'zone reset ist nur erlaubt, wenn WOV_INSTANZ ausdrücklich dev ist ' +
+          '(oder mit WOV_ZONEN_RUECKSETZER=1)',
       };
     }
+    const rest = args.slice(3);
+    const alt = rest.some((t) => t.toLowerCase() === 'alt');
+    const zahlen = rest.filter((t) => t.toLowerCase() !== 'alt');
     const x = Number(args[1]);
     const z = Number(args[2]);
-    const radius = args[3] === undefined ? 0 : Number(args[3]);
+    const radius = zahlen[0] === undefined ? 0 : Number(zahlen[0]);
     if (
       args[1] === undefined ||
       args[2] === undefined ||
+      zahlen.length > 1 ||
       !Number.isFinite(x) ||
       !Number.isFinite(z) ||
       !Number.isInteger(radius) ||
@@ -148,7 +154,8 @@ export class AdminCommandRegistry {
     const ergebnisse = this.umgebung.zonenRuecksetzen(
       HeightmapProvider.worldToZone(x),
       HeightmapProvider.worldToZone(z),
-      radius
+      radius,
+      alt
     );
     return {
       ok: ergebnisse.some((e) => e.status === 'neu-gestreut'),

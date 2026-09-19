@@ -600,12 +600,13 @@ export class WovServer {
     // `init()`, der Aufruf erfolgt aber immer später (bei einem Befehl).
     this.adminCommands = new AdminCommandRegistry({
       bodenHoehe: (x, z) => this.getGroundHeight(x, z),
-      zonenRuecksetzen: (zx, zy, radius) =>
+      zonenRuecksetzen: (zx, zy, radius, alt) =>
         setzeZonenZurueck(
           { zdos: this.zdos, heightmaps: this.heightmaps, zones: this.zones },
           zx,
           zy,
-          radius
+          radius,
+          { alt }
         ),
     });
     // Phase G: dungeon system — documents live next to the world saves.

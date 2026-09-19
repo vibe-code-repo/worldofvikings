@@ -3,17 +3,23 @@
  * neu und lässt alles andere stehen.
  *
  * Geprüft wird, mit Zahlen:
- *  1. Die Streuung markiert, was sie anlegt (`streu = 1`), und nur das.
+ *  1. Die Streuung markiert, was sie anlegt (`streu` = Kennung der erzeugenden
+ *     Zone), und nur das.
  *  2. Nach einem Dokumentwechsel (anderer Bewuchs-Regler) trifft der Reset
  *     die Zone so, wie eine frische Erzeugung mit dem neuen Dokument sie
  *     gebaut hätte — Stückzahl und jede einzelne Pflanze auf ±0.
  *  3. Layout-Objekte, Adminbäume (ohne Marke), Kreaturen bleiben unberührt.
  *  4. Zonen mit Spielerbau (Int, Float, Text) oder Terraforming werden
  *     abgelehnt, und zwar ohne ein einziges ZDO zu verändern.
- *  5. Alte Zonen ohne Marke: Ersatzregel — die Grenze wird als Zahl benannt.
- *  6. Der Befehl ist ohne `dev`-Instanz und ohne Umgebungsvariable gesperrt.
+ *  5. Alte Zonen ohne Marke: Ersatzregel nur mit `alt`, ohne `alt` Ablehnung
+ *     mit der Zahl der Objekte; jedes entfernte Objekt steht im Protokoll.
+ *  6. Der Befehl ist nur bei ausdrücklichem `WOV_INSTANZ=dev` oder
+ *     `WOV_ZONEN_RUECKSETZER=1` frei — sonst gesperrt, auch ohne gesetzte Instanz.
  *  7. Die Änderung geht über die normale Replikation: Zerstörungsliste und
  *     Dirty-Menge, kein Client-Umbau.
+ *  8. Ein Objekt exakt auf der Zonengrenze verdoppelt sich nicht und geht nicht
+ *     verloren, in jeder Reihenfolge der Zonen (Herkunft statt Lage).
+ *  9. Beschädigte Pflanzen werden gezählt; 10. Marke packen, Altform 1.
  *
  * Lauf: npx tsx server/test/zonen-ruecksetzer.ts   (aus der Wurzel)
  */
@@ -39,11 +45,15 @@ import {
   MAX_RADIUS_ZONEN,
   STREU_MEMBER,
   ablehnungsGrund,
+  formatiereErgebnis,
   istMarkiertStreu,
   setzeZoneZurueck,
   setzeZonenZurueck,
   type RuecksetzKontext,
 } from '../src/world/zonenRuecksetzer.js';
+// Namensraum-Import: Was erst mit der Nachbesserung hinzukam, fehlt auf dem alten Stand
+// als Wert (nicht als Bindungsfehler) — so schlägt der Test dort mit Prüfungen fehl, statt zu stürzen.
+import * as Rueck from '../src/world/zonenRuecksetzer.js';
 
 const SEED = getStableHash('ZonenRuecksetzer');
 
@@ -162,8 +172,8 @@ const alleA = menge(a.zdos, ZONE);
 const markiertA = alleA.filter(istMarkiertStreu);
 check('1 die Streuung legt ZDOs an', alleA.length > 20, `(${alleA.length})`);
 check(
-  '1 jedes Streu-ZDO trägt die Marke, keines fehlt',
-  markiertA.length === alleA.length && alleA.every((z) => z.getInt(STREU_MEMBER) === 1),
+  '1 jedes Streu-ZDO trägt die Marke mit der Herkunftszone, keines fehlt',
+  markiertA.length === alleA.length && alleA.every((z) => z.getInt(STREU_MEMBER) === Rueck.packeHerkunft?.(ZONE)),
   `(${markiertA.length} von ${alleA.length})`
 );
 check(
@@ -346,7 +356,7 @@ for (const [name, setze] of [
   check('4 abgelehnte Zonen verändern nichts', gleich(abzug(n.zdos), vor));
 }
 
-// ── 5. Alte Zone ohne Marke: Ersatzregel ─────────────────────────────
+// ── 5. Alte Zone ohne Marke: Ersatzregel nur mit "alt" ───────────────
 {
   const alt = welt(DOK_A);
   const zone = { x: -3, y: -1 };
@@ -360,34 +370,239 @@ for (const [name, setze] of [
   const tier = alt.zdos.createZDO(getStableHash('Deer'), { ...mz, z: mz.z + 4 });
   const bauwerk = alt.zdos.createZDO(baum, { ...mz, z: mz.z - 4 });
   bauwerk.setInt('spieler', 1); // Spielerbau: dann wird die Zone ohnehin abgelehnt
-  const abgelehnt = setzeZoneZurueck(alt.kontext, zone);
-  check('5 alte Zone mit Spielerbau → abgelehnt', abgelehnt.status === 'abgelehnt');
+  const abgelehnt = setzeZoneZurueck(alt.kontext, zone, { alt: true });
+  check('5 alte Zone mit Spielerbau → auch mit alt abgelehnt', abgelehnt.status === 'abgelehnt');
   alt.zdos.destroyZDO(bauwerk.zdoid);
 
   const b2 = neustart(alt, DOK_B);
-  const r = setzeZoneZurueck(b2.kontext, zone);
-  check('5 Ersatzregel wird gemeldet', r.status === 'neu-gestreut' && r.ersatzregel);
+  b2.zdos.consumeDestroyList(); // Reste aus dem Aufbau (zerstörter Spielerbau)
+  const vorAbzug = abzug(b2.zdos);
+  const zeilenLog: string[] = [];
+  const ohneAlt = setzeZoneZurueck({ ...b2.kontext, protokoll: (l) => zeilenLog.push(l) }, zone);
+  const erwartet = streu.length + 1; // Streu + Adminbaum: die Ersatzregel kann sie nicht trennen
   check(
-    '5 alte Zone: entfernt = Streu + Adminbaum (Grenze)',
-    r.entfernt === streu.length + 1,
+    '5 alte Zone OHNE alt → abgelehnt, nennt die Zahl der Objekte, die die Ersatzregel träfe',
+    ohneAlt.status === 'abgelehnt' && new RegExp(`träfe ${erwartet} `).test(ohneAlt.grund),
+    `(${ohneAlt.grund})`
+  );
+  check(
+    '5 alte Zone OHNE alt: 0 ZDOs verändert, nichts protokolliert',
+    gleich(abzug(b2.zdos), vorAbzug) && zeilenLog.length === 0 && b2.zdos.consumeDestroyList().length === 0
+  );
+  const r = setzeZoneZurueck({ ...b2.kontext, protokoll: (l) => zeilenLog.push(l) }, zone, { alt: true });
+  check(
+    '5 mit alt: Ersatzregel greift, Zahl in der Rückmeldung',
+    r.status === 'neu-gestreut' && r.ersatzregel === erwartet && /nach Ersatzregel entfernt/.test(formatiereErgebnis([r])),
+    `(${r.ersatzregel})`
+  );
+  check(
+    '5 mit alt: entfernt = Streu + Adminbaum (Grenze)',
+    r.entfernt === erwartet,
     `(${r.entfernt} = ${streu.length} Streu + 1 Adminbaum)`
   );
-  check('5 alte Zone: Adminbaum weg (nicht von Streuung zu unterscheiden)', b2.zdos.getZDO(adminB.zdoid) === undefined);
   check(
-    '5 alte Zone: Layout-Baum (layoutId) und Kreatur bleiben',
+    '5 mit alt: JEDES entfernte Objekt steht im Protokoll (Prefab, Lage)',
+    zeilenLog.length === erwartet &&
+      zeilenLog.every((l) => /Ersatzregel entfernt .+ \(-?\d+\.\d+, -?\d+\.\d+, -?\d+\.\d+\), Zone -3,-1/.test(l)) &&
+      zeilenLog.some((l) => l.includes(`(${adminB.position.x.toFixed(2)}, `)),
+    `(${zeilenLog.length} Zeilen; z. B. ${zeilenLog[0]})`
+  );
+  check('5 mit alt: Adminbaum weg (nicht von Streuung zu unterscheiden)', b2.zdos.getZDO(adminB.zdoid) === undefined);
+  check(
+    '5 mit alt: Layout-Baum (layoutId) und Kreatur bleiben',
     b2.zdos.getZDO(lay.zdoid) === lay && b2.zdos.getZDO(tier.zdoid) === tier
   );
   const c2 = welt(DOK_B);
   c2.zm.erzeugeZone(zone);
   check(
-    '5 alte Zone: danach Sollwert der frischen Erzeugung',
+    '5 mit alt: danach Sollwert der frischen Erzeugung',
     r.gestreut === menge(c2.zdos, zone).length,
     `(${r.gestreut} / ${menge(c2.zdos, zone).length})`
   );
-  // Jetzt trägt die Zone Marken: ein neuer Adminbaum überlebt den nächsten Reset.
+  // Jetzt trägt die Zone Marken: ein neuer Adminbaum überlebt den nächsten Reset, auch ohne alt.
   const neuerAdminBaum = b2.zdos.createZDO(baum, { ...mz, x: mz.x - 9 });
-  setzeZoneZurueck(b2.kontext, zone);
-  check('5 nach dem ersten Reset trägt die Zone Marken: Adminbaum überlebt', b2.zdos.getZDO(neuerAdminBaum.zdoid) === neuerAdminBaum);
+  const nochmal = setzeZoneZurueck(b2.kontext, zone);
+  check(
+    '5 nach dem ersten Reset trägt die Zone Marken: ohne alt möglich, Adminbaum überlebt',
+    nochmal.status === 'neu-gestreut' && b2.zdos.getZDO(neuerAdminBaum.zdoid) === neuerAdminBaum && nochmal.ersatzregel === 0
+  );
+}
+
+// ── Kahle Alt-Zone: die Ersatzregel träfe nichts, also kein alt nötig ───
+{
+  const w = welt(insel([]));
+  const zone = { x: 2, y: 2 };
+  w.zm.erzeugeZone(zone);
+  const r = setzeZoneZurueck(w.kontext, zone);
+  check('5 kahle Zone ohne Verdacht: Reset ohne alt möglich', r.status === 'neu-gestreut' && r.entfernt === 0, `(${r.status})`);
+}
+
+// ── 8. B1: Objekt auf der Zonengrenze — Herkunft entscheidet, nicht die Lage ─
+{
+  const A: ZoneID = { x: 2, y: 1 };
+  const B: ZoneID = { x: 3, y: 1 }; // besitzt die Kante x = 160 nach worldToZone
+  const kante = A.x * 64 + 32;
+  const aufbau = (): { w: Welt; grenz: ZDO } => {
+    const w = welt(DOK_A);
+    w.zm.erzeugeZone(A);
+    w.zm.erzeugeZone(B);
+    const grenz = menge(w.zdos, A).find((z) => z.position.x > 100 && z.position.x < 150)!;
+    w.zdos.updateZDOZone(grenz, { x: kante, y: grenz.position.y, z: grenz.position.z });
+    return { w, grenz };
+  };
+  const herkunftAnzahl = (w: Welt, z: ZoneID): number =>
+    w.zdos.getAllZDOs().filter((o) => Rueck.herkunftDerMarke?.(o)?.x === z.x && Rueck.herkunftDerMarke?.(o)?.y === z.y).length;
+  const doppelte = (w: Welt): number => {
+    const seen = new Map<string, number>();
+    for (const o of w.zdos.getAllZDOs()) seen.set(zeile(o), (seen.get(zeile(o)) ?? 0) + 1);
+    return [...seen.values()].filter((n) => n > 1).length;
+  };
+  const basis = aufbau();
+  const soll = { gesamt: basis.w.zdos.totalZDOCount, a: herkunftAnzahl(basis.w, A), b: herkunftAnzahl(basis.w, B) };
+  check(
+    '8 Grenzobjekt liegt nach worldToZone in der Nachbarzone (der Test stellt den Fall her)',
+    HeightmapProvider.worldToZone(basis.grenz.position.x) === B.x && Rueck.herkunftDerMarke?.(basis.grenz)?.x === A.x,
+    `(x = ${basis.grenz.position.x}, Herkunft ${JSON.stringify(Rueck.herkunftDerMarke?.(basis.grenz))})`
+  );
+  for (const [name, folge] of [
+    ['Erzeuger, dann Besitzer', [A, B]],
+    ['Besitzer, dann Erzeuger', [B, A]],
+    ['Erzeuger, Besitzer, Erzeuger', [A, B, A]],
+    ['Besitzer, Erzeuger, Besitzer', [B, A, B]],
+  ] as const) {
+    const { w } = aufbau();
+    const rs = folge.map((z) => setzeZoneZurueck(w.kontext, z));
+    check(
+      `8 ${name}: keine Verdopplung, kein Verlust`,
+      rs.every((r) => r.status === 'neu-gestreut') &&
+        w.zdos.totalZDOCount === soll.gesamt &&
+        herkunftAnzahl(w, A) === soll.a &&
+        herkunftAnzahl(w, B) === soll.b &&
+        doppelte(w) === 0,
+      `(gesamt ${w.zdos.totalZDOCount}/${soll.gesamt}, A ${herkunftAnzahl(w, A)}/${soll.a}, B ${herkunftAnzahl(w, B)}/${soll.b}, doppelt ${doppelte(w)})`
+    );
+  }
+  // Radius-Reset über beide Zonen, in beiden Reihenfolgen (Radius 1 um A: Mitte zuerst; um B: B zuerst).
+  for (const [name, mx] of [['Radius 1 um A (Erzeuger zuerst)', A.x], ['Radius 1 um B (Besitzer zuerst)', B.x]] as const) {
+    const { w } = aufbau();
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.zm.erzeugeZone({ x: mx + dx, y: 1 + dy });
+    const vorGesamt = w.zdos.totalZDOCount;
+    const vorA = herkunftAnzahl(w, A);
+    const rs = setzeZonenZurueck(w.kontext, mx, 1, 1);
+    check(
+      `8 ${name}: keine Verdopplung, kein Verlust`,
+      rs.every((r) => r.status === 'neu-gestreut') &&
+        w.zdos.totalZDOCount === vorGesamt &&
+        herkunftAnzahl(w, A) === vorA &&
+        doppelte(w) === 0,
+      `(gesamt ${w.zdos.totalZDOCount}/${vorGesamt}, A ${herkunftAnzahl(w, A)}/${vorA}, doppelt ${doppelte(w)})`
+    );
+  }
+}
+
+// ── 8b. Alte Kantenobjekte ohne Marke: die Neuerzeugung erkennt ihr eigenes Doppel ─
+{
+  const A: ZoneID = { x: 2, y: 1 };
+  const kante = A.x * 64 + 32;
+  const w = welt(DOK_A);
+  w.zm.erzeugeZone(A);
+  for (const z of menge(w.zdos, A)) z.removeMember(getStableHash(STREU_MEMBER)); // Altzone
+  const vorlage = menge(w.zdos, A)[0]!;
+  const eigenesAlt = w.zdos.createZDO(vorlage.prefabHash, { x: kante, y: 3, z: A.y * 64 + 5 });
+  const fremdesAlt = w.zdos.createZDO(vorlage.prefabHash, { x: kante, y: 3, z: A.y * 64 - 9 });
+  const log: string[] = [];
+  // Stellvertreter für "die Streuung erzeugt genau auf der Kante" (der echte Fall ist selten: 1 von ~6500).
+  const zones = {
+    isZoneGenerated: (z: ZoneID): boolean => w.zm.isZoneGenerated(z),
+    getFeatureInstance: (z: ZoneID) => w.zm.getFeatureInstance(z),
+    nimmZoneZurueck: (z: ZoneID): boolean => w.zm.nimmZoneZurueck(z),
+    erzeugeZone: (z: ZoneID): boolean => {
+      const ok = w.zm.erzeugeZone(z);
+      const neu = w.zdos.createZDO(eigenesAlt.prefabHash, { x: kante, y: 3, z: A.y * 64 + 5 });
+      neu.setInt(STREU_MEMBER, Rueck.packeHerkunft?.(z) ?? 1);
+      return ok;
+    },
+  };
+  const r = setzeZoneZurueck({ ...w.kontext, zones, protokoll: (l) => log.push(l) }, A, { alt: true });
+  const ander = (o: ZDO): boolean => o.position.x === kante && o.position.z === A.y * 64 + 5;
+  check(
+    '8b eigenes Kantenobjekt: alt weg, genau ein neues an der Stelle',
+    r.kantenDoppel === 1 &&
+      w.zdos.getZDO(eigenesAlt.zdoid) === undefined &&
+      w.zdos.getAllZDOs().filter(ander).length === 1 &&
+      log.some((l) => /Kantenobjekt als Doppel/.test(l)),
+    `(kantenDoppel ${r.kantenDoppel}, an der Stelle ${w.zdos.getAllZDOs().filter(ander).length})`
+  );
+  check(
+    '8b fremdes Kantenobjekt (Neuerzeugung erzeugt es nicht): bleibt, kein Verlust',
+    w.zdos.getZDO(fremdesAlt.zdoid) === fremdesAlt
+  );
+}
+
+// ── 9. B3: beschädigte Pflanzen werden gezählt ───────────────────────
+{
+  const w = welt(DOK_A);
+  const zone = { x: 2, y: 1 };
+  w.zm.erzeugeZone(zone);
+  const ziele = menge(w.zdos, zone).slice(0, 3);
+  for (const z of ziele) z.setInt('health', 42);
+  const r = setzeZoneZurueck(w.kontext, zone);
+  check(
+    '9 angeschlagene Pflanzen: zurückgesetzt und in der Rückmeldung gezählt',
+    r.status === 'neu-gestreut' &&
+      r.beschaedigt === 3 &&
+      /3 beschädigte Pflanzen zurückgesetzt/.test(formatiereErgebnis([r])) &&
+      ziele.every((z) => w.zdos.getZDO(z.zdoid) === undefined) &&
+      menge(w.zdos, zone).every((z) => !z.hasMember(getStableHash('health'))),
+    `(${r.beschaedigt})`
+  );
+  const glatt = setzeZoneZurueck(w.kontext, zone);
+  check('9 ohne Beschädigung steht nichts davon in der Rückmeldung', glatt.beschaedigt === 0 && !/beschädigte/.test(formatiereErgebnis([glatt])));
+}
+
+// ── 10. Marke: Herkunft packen, Altform 1 ────────────────────────────
+{
+  const gesehen = new Set<number>();
+  let ok = true;
+  for (let x = -170; x <= 170; x++) {
+    for (let y = -170; y <= 170; y++) {
+      const wert = Rueck.packeHerkunft?.({ x, y }) ?? 0;
+      if (wert < 2 || gesehen.has(wert)) ok = false;
+      gesehen.add(wert);
+    }
+  }
+  check('10 Herkunft: 116 281 Zonen, jede Kennung >= 2 und eindeutig', ok && gesehen.size === 341 * 341, `(${gesehen.size})`);
+  const dummy = welt(DOK_A).zdos.createZDO(baum, { x: 0, y: 0, z: 0 });
+  let rundlauf = true;
+  for (const z of [{ x: 0, y: 0 }, { x: -1, y: 1 }, { x: -170, y: 170 }, { x: 16383, y: -16384 }]) {
+    dummy.setInt(STREU_MEMBER, Rueck.packeHerkunft?.(z) ?? 1);
+    const h = Rueck.herkunftDerMarke?.(dummy);
+    if (!h || h.x !== z.x || h.y !== z.y) rundlauf = false;
+  }
+  check('10 Herkunft: Rundlauf über negative und Randzonen', rundlauf);
+  check('10 Außerhalb ±16384 Zonen: Marke ohne Herkunft (1)', Rueck.packeHerkunft?.({ x: 20000, y: 0 }) === 1);
+  dummy.setInt(STREU_MEMBER, 1);
+  check('10 Altform streu = 1: keine Herkunft', Rueck.herkunftDerMarke?.(dummy) === null);
+
+  // Zone voller Altform-Marken (streu = 1): wie eine unmarkierte behandelt — Ersatzregel nur mit alt.
+  const w = welt(DOK_A);
+  const zone = { x: 2, y: 1 };
+  w.zm.erzeugeZone(zone);
+  const menge1 = menge(w.zdos, zone);
+  for (const z of menge1) z.setInt(STREU_MEMBER, 1);
+  const abgelehnt = setzeZoneZurueck(w.kontext, zone);
+  check(
+    '10 Zone mit Altform-Marken (1): ohne alt abgelehnt, nichts verändert',
+    abgelehnt.status === 'abgelehnt' && new RegExp(`träfe ${menge1.length} `).test(abgelehnt.grund) && w.zdos.totalZDOCount === menge1.length,
+    `(${abgelehnt.grund})`
+  );
+  const erzwungen = setzeZoneZurueck({ ...w.kontext, protokoll: () => undefined }, zone, { alt: true });
+  check(
+    '10 Zone mit Altform-Marken (1): mit alt zurückgesetzt, danach neue Herkunftsmarken',
+    erzwungen.status === 'neu-gestreut' &&
+      erzwungen.entfernt === menge1.length &&
+      menge(w.zdos, zone).every((z) => Rueck.herkunftDerMarke?.(z)?.x === zone.x)
+  );
 }
 
 // ── Radius ───────────────────────────────────────────────────────────
@@ -415,13 +630,23 @@ for (const [name, setze] of [
 
 // ── 6. Befehl und Freigabe ───────────────────────────────────────────
 {
-  const aufrufe: Array<[number, number, number]> = [];
+  const aufrufe: Array<[number, number, number, boolean]> = [];
   const registry = new AdminCommandRegistry({
     bodenHoehe: () => 0,
-    zonenRuecksetzen: (zx, zy, r) => {
-      aufrufe.push([zx, zy, r]);
+    zonenRuecksetzen: (zx, zy, r, alt) => {
+      aufrufe.push([zx, zy, r, alt]);
       return [
-        { zone: { x: zx, y: zy }, status: 'neu-gestreut', grund: '', entfernt: 4, gestreut: 5, ersatzregel: false, ms: 1.5 },
+        {
+          zone: { x: zx, y: zy },
+          status: 'neu-gestreut',
+          grund: '',
+          entfernt: 4,
+          gestreut: 5,
+          ersatzregel: 0,
+          beschaedigt: 2,
+          kantenDoppel: 0,
+          ms: 1.5,
+        },
       ];
     },
   });
@@ -435,20 +660,56 @@ for (const [name, setze] of [
   try {
     setzeEnv('live', undefined);
     const gesperrt = registry.execute(admin, 'zone reset 128 64');
-    check('6 live ohne Variable → abgelehnt', !gesperrt.ok && /nur auf der Dev-Instanz/.test(gesperrt.message) && aufrufe.length === 0, `(${gesperrt.message})`);
+    check('6 live ohne Variable → abgelehnt', !gesperrt.ok && /ausdrücklich dev/.test(gesperrt.message) && aufrufe.length === 0, `(${gesperrt.message})`);
     setzeEnv('live', '0');
     check('6 live mit WOV_ZONEN_RUECKSETZER=0 → abgelehnt', !registry.execute(admin, 'zone reset 128 64').ok && aufrufe.length === 0);
     setzeEnv('live', '1');
     const frei = registry.execute(admin, 'zone reset 128 64 2');
-    check('6 live mit WOV_ZONEN_RUECKSETZER=1 → erlaubt, Weltkoordinaten → Zone', frei.ok && aufrufe.length === 1 && aufrufe[0]!.join() === '2,1,2', `(${aufrufe[0]})`);
+    check('6 live mit WOV_ZONEN_RUECKSETZER=1 → erlaubt, Weltkoordinaten → Zone', frei.ok && aufrufe.length === 1 && aufrufe[0]!.join() === '2,1,2,false', `(${aufrufe[0]})`);
     check('6 Rückmeldung nennt entfernt / neu gestreut / ms', /4 entfernt, 5 neu gestreut \(1.5 ms\)/.test(frei.message), `(${frei.message.split('\n')[0]})`);
+    check('6 Rückmeldung nennt die beschädigten Pflanzen', /2 beschädigte Pflanzen zurückgesetzt/.test(frei.message));
     setzeEnv('dev', undefined);
     check('6 dev → erlaubt', registry.execute(admin, 'zone reset 0 0').ok && aufrufe.length === 2);
-    setzeEnv(undefined, undefined);
-    check('6 ohne WOV_INSTANZ gilt dev → erlaubt', registry.execute(admin, 'zone reset -33 96').ok && aufrufe[2]!.join() === '-1,2,0', `(${aufrufe[2]})`);
+    setzeEnv('dev', '0');
+    check('6 dev mit Variable 0 → erlaubt (dev genügt)', registry.execute(admin, 'zone reset 0 0').ok && aufrufe.length === 3);
+    // B4: Zweifel schließt. Ohne ausdrückliches dev (kein Rückfall) und ohne Variable: gesperrt.
+    for (const inst of [undefined, '', '  ', 'DEV', ' dev ', 'liv', 'production', 'dev2']) {
+      setzeEnv(inst, undefined);
+      const n = aufrufe.length;
+      check(`6 WOV_INSTANZ=${JSON.stringify(inst)} ohne Variable → gesperrt`, !registry.execute(admin, 'zone reset 0 0').ok && aufrufe.length === n);
+    }
+    setzeEnv(undefined, '1');
+    check('6 ohne WOV_INSTANZ, aber WOV_ZONEN_RUECKSETZER=1 → erlaubt', registry.execute(admin, 'zone reset -33 96').ok && aufrufe[aufrufe.length - 1]!.join() === '-1,2,0,false');
+    for (const f of ['true', ' 1', '01', 'yes']) {
+      setzeEnv('live', f);
+      const n = aufrufe.length;
+      check(`6 live mit WOV_ZONEN_RUECKSETZER=${JSON.stringify(f)} → gesperrt (nur genau 1)`, !registry.execute(admin, 'zone reset 0 0').ok && aufrufe.length === n);
+    }
     setzeEnv('dev', undefined);
+    // alt-Zusatz
+    const vor = aufrufe.length;
+    registry.execute(admin, 'zone reset 128 64 alt');
+    registry.execute(admin, 'zone reset 128 64 2 alt');
+    registry.execute(admin, 'zone reset 128 64 ALT 3');
+    registry.execute(admin, 'zone reset 128 64 1');
+    check(
+      '6 alt-Zusatz: Radius optional, Reihenfolge frei, ohne alt = false',
+      aufrufe.slice(vor).map((a) => a.join()).join('|') === '2,1,0,true|2,1,2,true|2,1,3,true|2,1,1,false',
+      `(${aufrufe.slice(vor).map((a) => a.join()).join('|')})`
+    );
     const vorher = aufrufe.length;
-    for (const zeileText of ['zone', 'zone reset', 'zone reset 1', 'zone reset a b', 'zone reset 0 0 -1', 'zone reset 0 0 1.5', `zone reset 0 0 ${MAX_RADIUS_ZONEN + 1}`, 'zone jetzt 0 0']) {
+    for (const zeileText of [
+      'zone',
+      'zone reset',
+      'zone reset 1',
+      'zone reset a b',
+      'zone reset 0 0 -1',
+      'zone reset 0 0 1.5',
+      `zone reset 0 0 ${MAX_RADIUS_ZONEN + 1}`,
+      'zone reset 0 0 1 2',
+      'zone reset 0 0 alt alt 1 2',
+      'zone jetzt 0 0',
+    ]) {
       const r = registry.execute(admin, zeileText);
       check(`6 "${zeileText}" → Aufruf-Hinweis, nichts ausgeführt`, !r.ok && /Aufruf: zone reset/.test(r.message) && aufrufe.length === vorher, `(${r.message.slice(0, 40)})`);
     }

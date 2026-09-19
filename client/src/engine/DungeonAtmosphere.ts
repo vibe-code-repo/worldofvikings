@@ -96,15 +96,15 @@ const PIPELINE_NAME = 'dungeon2SSAO';
 
 /**
  * Pipelines, die beim Betreten von der Kamera getrennt werden.
- * `PostProcessing.ts` nennt die Aussen-Pipeline `valheimSSAO`; sie steht hier
+ * `PostProcessing.ts` nennt die Aussen-Pipeline `wovSSAO`; sie steht hier
  * als Zeichenkette und nicht als Import, weil `PostProcessing.ts` sie nicht
  * exportiert und ein Import nur wegen eines Namens die ganze Nachbearbeitung in
  * den Dungeon-Pfad zoege.
  * Pipelines detached from the camera on entering. `PostProcessing.ts` calls the
- * outdoor pipeline `valheimSSAO`; it stands here as a string because importing
+ * outdoor pipeline `wovSSAO`; it stands here as a string because importing
  * it for a name alone would drag the whole post pipeline into this path.
  */
-const FREMDE_PIPELINES: readonly string[] = ['valheimSSAO'];
+const FREMDE_PIPELINES: readonly string[] = ['wovSSAO'];
 
 /** Abtastzahl je Stufe. / Sample count per tier. */
 const PROBEN_JE_STUFE: Readonly<Record<DungeonGrafikStufe, number>> = {

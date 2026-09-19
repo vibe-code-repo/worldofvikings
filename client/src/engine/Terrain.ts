@@ -281,7 +281,7 @@ const WATER_ALPHA_FALLBACK = 0.9;
  * Bildproblem (Roadmap G9, Tor T1).
  *
  * Die NAHT darueber — wo die Nebelwand auf die Himmelskuppel trifft —
- * gehoert nicht hierher: Sie loest `ValheimSky.ts` (A6), indem die
+ * gehoert nicht hierher: Sie loest `SkyDome.ts` (A6), indem die
  * Kuppel in ihrem untersten Band selbst zur Nebelfarbe wird. Gemessen an
  * der Pose `wasserkante`: ΔRGB 3,6 zwischen dem Band 0,3°…1,2° ueber und
  * unter dem Horizont.

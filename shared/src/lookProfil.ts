@@ -131,7 +131,7 @@ export interface LookDof {
   /**
    * Fokusentfernung in METERN (URP `focusDistance`).
    *
-   * Ersetzt den Autofokus, den `ValheimDof` bisher gefahren hat: Das
+   * Ersetzt den Autofokus, den `FarDof` bisher gefahren hat: Das
    * Vorbild fokussiert FEST auf 2 m und laesst alles dahinter gleich
    * weich werden — es gibt dort keinen Strahl, der die Entfernung sucht.
    */

@@ -646,7 +646,7 @@ export const MIN_WURF_HOEHE_M = 0.35;
  * - `clutter*`  Gras: jede Kaskade rendert die Werferliste komplett neu,
  *   und Clutter stellt mit Abstand die meisten Meshes. Empfangen darf es
  *   trotzdem — siehe NIE_EMPFANGEN.
- * - `valheimSky`/Himmelskuppel: Hintergrund, hat keine Tiefe
+ * - `skyDome`/Himmelskuppel: Hintergrund, hat keine Tiefe
  * - `water*`: Wasseroberfläche wirft keinen brauchbaren Schatten. Das
  *   Präfix deckt Nahwasser (`water`) und Fernwasser-Ring (`waterRing`) ab.
  * - `precipEmitter`: unsichtbarer Knoten für die Partikel
@@ -667,7 +667,7 @@ export const MIN_WURF_HOEHE_M = 0.35;
  *   auf `^` verankerten Regex.
  */
 const NIE_WERFEN =
-  /^(clutter|impostor|valheimSky|sky|water|precipEmitter|col_|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
+  /^(clutter|impostor|skyDome|sky|water|precipEmitter|col_|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
 
 /**
  * Reine Kollisionsnetze aus der GLB (Konvention `_col`, s. AssetManager-
@@ -698,7 +698,7 @@ const NIE_WERFEN_SUFFIX = /_col$/i;
  */
 const SCHATTEN_VEGETATION_PRAEFIX = 'schattenVegetation_';
 
-const NIE_EMPFANGEN = /^(schattenVegetation_|valheimSky|sky|water|precipEmitter|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
+const NIE_EMPFANGEN = /^(schattenVegetation_|skyDome|sky|water|precipEmitter|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
 
 /**
  * Prefabs, die bei abgeschalteten "fernen Schatten" nicht mehr werfen.

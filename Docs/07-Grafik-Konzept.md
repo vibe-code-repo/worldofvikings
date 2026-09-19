@@ -363,8 +363,8 @@ der Kamera. Wirksam ist MSAA aber ausschließlich dort, wo die Szene rasterisier
 das ist der Kopf der gesamten Kette. Zur Laufzeit nachgesehen sah die Kette so aus:
 
 ```
-valheimDof, null ×11, highlights, horizontal blur, vertical blur,
-bloomMerge, imageProcessing, ChromaticAberration, fxaa, valheimMotionBlur
+farDof, null ×11, highlights, horizontal blur, vertical blur,
+bloomMerge, imageProcessing, ChromaticAberration, fxaa, wovMotionBlur
 ```
 
 Die elf Lücken stammen vom Ab- und Wiederanhängen der Pipeline-Pässe bei jedem Umschalten.

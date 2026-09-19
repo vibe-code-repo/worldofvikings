@@ -101,7 +101,7 @@ export function gehoertHinein(mesh: AbstractMesh): boolean {
   // Die Himmelskuppel umspannt die ganze Szene, ihre Bounding-Box reicht
   // damit zwangsläufig unter die Wasserlinie — durchs Wasser gesehen hat
   // sie trotzdem nichts zu suchen.
-  if (n === 'valheimSky') return false;
+  if (n === 'skyDome') return false;
   // E23: Die gestreuten Landschaftsobjekte stehen laut FOLIAGE-Regel über
   // der Wasserlinie. Ihre Thin-Instance-Master spannen aber EINE Hülle über
   // alle Vorkommen auf. Auf der Referenzinsel reichten deren Unterkanten bis

@@ -1,5 +1,5 @@
 /**
- * ValheimSky — stylised sky dome driven by the SAME environment data as the fog.
+ * SkyDome — stylised sky dome driven by the SAME environment data as the fog.
  *
  * ── Why not Babylon's SkyMaterial ────────────────────────────────────
  * `@babylonjs/materials/sky` implements the **Preetham analytic daylight
@@ -90,7 +90,7 @@ import {
 } from '@wov/shared';
 import { beiLook, hexLinear, HORIZONT_AUS_NEBEL, look, type LookProfil } from './lookProfil';
 
-const SHADER_NAME = 'valheimSky';
+const SHADER_NAME = 'skyDome';
 
 /**
  * Die Himmelsfarbe, auf der `design/look-referenz.md` kalibriert ist —
@@ -482,7 +482,7 @@ function registerShader(): void {
   registered = true;
 }
 
-export class ValheimSky {
+export class SkyDome {
   readonly mesh: Mesh;
   /**
    * Würfelkarte des Himmels für die Wasserspiegelung — mit Wolken,
@@ -617,7 +617,7 @@ export class ValheimSky {
     registerShader();
 
     this.material = new ShaderMaterial(
-      'valheimSkyMat',
+      'skyDomeMat',
       scene,
       SHADER_NAME,
       {
@@ -644,7 +644,7 @@ export class ValheimSky {
         ],
         // Der Quelltext oben liegt im GLSL-Store. Ohne die explizite Sprache
         // sucht ShaderMaterial unter WebGPU nach einer WGSL-Datei namens
-        // valheimSky.fragment.fx; Vite beantwortet den unbekannten Pfad mit
+        // skyDome.fragment.fx; Vite beantwortet den unbekannten Pfad mit
         // index.html, das danach als WGSL geparst wird (schwarzes Bild).
         shaderLanguage: ShaderLanguage.GLSL,
       }
@@ -655,7 +655,7 @@ export class ValheimSky {
     this.material.fogEnabled = false;
 
     this.mesh = MeshBuilder.CreateSphere(
-      'valheimSky',
+      'skyDome',
       { segments: 48, diameter: radius * 2 },
       scene
     );
@@ -739,7 +739,7 @@ export class ValheimSky {
         null,
         () => {
           tex.coordinatesMode = Texture.SKYBOX_MODE;
-          const mat = new StandardMaterial('valheimSkyCubemap', scene);
+          const mat = new StandardMaterial('skyDomeCubemap', scene);
           mat.backFaceCulling = false;
           mat.disableLighting = true;
           mat.reflectionTexture = tex;
@@ -747,15 +747,15 @@ export class ValheimSky {
           mat.specularColor.set(0, 0, 0);
           mat.fogEnabled = false;
           this.mesh.material = mat;
-          console.info('[ValheimSky] ?sky=cubemap — Original-Würfelkarte statt Verlauf (nur lokal).');
+          console.info('[SkyDome] ?sky=cubemap — Original-Würfelkarte statt Verlauf (nur lokal).');
         },
         (meldung) => {
           tex.dispose();
-          console.warn('[ValheimSky] ?sky=cubemap: Würfelkarte fehlt, Kuppel bleibt:', meldung);
+          console.warn('[SkyDome] ?sky=cubemap: Würfelkarte fehlt, Kuppel bleibt:', meldung);
         },
       );
     } catch (e) {
-      console.warn('[ValheimSky] ?sky=cubemap fehlgeschlagen, Kuppel bleibt:', e);
+      console.warn('[SkyDome] ?sky=cubemap fehlgeschlagen, Kuppel bleibt:', e);
     }
   }
 

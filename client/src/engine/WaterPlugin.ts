@@ -95,7 +95,7 @@ import { RawCubeTexture } from '@babylonjs/core/Materials/Textures/rawCubeTextur
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { Color3, Vector4 } from '@babylonjs/core/Maths/math';
 import { WATER_LEVEL } from '@wov/shared';
-import { SKY_GRADIENT_GLSL } from './ValheimSky';
+import { SKY_GRADIENT_GLSL } from './SkyDome';
 import { WAVE_GLSL } from './WaterWave';
 import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture';
 import type { Material } from '@babylonjs/core/Materials/material';
@@ -201,7 +201,7 @@ function tonUeberlagern(
  *  • Das Fernwasser (`_LOD`) trägt am meisten (0,75). Es stösst am
  *    Horizont direkt an den Nebel; laufen die beiden auseinander, ist die
  *    Naht eine sichtbare Kante — dieselbe Begründung, mit der die Analyse
- *    für `ValheimSky` „Horizont = Nebelfarbe lassen" verlangt.
+ *    für `SkyDome` „Horizont = Nebelfarbe lassen" verlangt.
  *  • Der tiefe Grund (0,55) und die Fläche darüber (0,35) folgen
  *    schwächer: Sie stehen im Nahbereich, wo die Materialfarbe das Bild
  *    macht.
@@ -387,7 +387,7 @@ export class WaterPlugin extends MaterialPluginBase {
    * diesem Injektionspunkt weder Himmelsfarben noch Lichtrichtung als
    * Varying bereit.
    *
-   * Die drei Himmelsfarben speisen `vhSkyGradient` (ValheimSky.ts), das
+   * Die drei Himmelsfarben speisen `vhSkyGradient` (SkyDome.ts), das
    * an der SPIEGELRICHTUNG ausgewertet wird. Vorher stand hier eine
    * einzelne Farbe, die stumpf auf `fogColorSun` gesetzt wurde — also
    * immer den Sonnenton zeigte, egal wohin man blickt. Das war der
@@ -437,7 +437,7 @@ export class WaterPlugin extends MaterialPluginBase {
   /** (originX, originZ, 1/Kachelgrösse, 0) — siehe WaterDepthMap.info. */
   static groundInfo: Vector4 = new Vector4(0, 0, 1 / 512, 0);
   /**
-   * Würfelkarte des Himmels (ValheimSky.probe) für die Spiegelung. Bis
+   * Würfelkarte des Himmels (SkyDome.probe) für die Spiegelung. Bis
    * ihr erster Durchlauf fertig ist — und wenn sie fehlt — bleibt es beim
    * analytischen Verlauf.
    */
@@ -464,7 +464,7 @@ export class WaterPlugin extends MaterialPluginBase {
   private readonly leerCube: RawCubeTexture;
 
   constructor(material: Material, scene: Scene) {
-    super(material, 'ValheimWater', 220, { VALHEIMWATER: true }, true, true);
+    super(material, 'WaterPlugin', 220, { WATERPLUGIN: true }, true, true);
     const load = (file: string): Texture => {
       const t = new Texture(TEX_BASE + file, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
       t.wrapU = t.wrapV = Texture.WRAP_ADDRESSMODE;
@@ -600,7 +600,7 @@ export class WaterPlugin extends MaterialPluginBase {
         // (originX, originZ, 1/Kachelgrösse, 0) der Grundhöhen-Textur.
         { name: 'waterGroundInfo', size: 4, type: 'vec4' },
         // ── dann vec3 ────────────────────────────────────────────────
-        // Die drei Himmelsfarben für vhSkyGradient (ValheimSky.ts).
+        // Die drei Himmelsfarben für vhSkyGradient (SkyDome.ts).
         { name: 'waterSkyHorizon', size: 3, type: 'vec3' },
         { name: 'waterSkyZenith', size: 3, type: 'vec3' },
         { name: 'waterSkySunGlow', size: 3, type: 'vec3' },
@@ -706,7 +706,7 @@ export class WaterPlugin extends MaterialPluginBase {
       CUSTOM_FRAGMENT_DEFINITIONS: /* glsl */ `
         varying float vWaveY;
 
-        // Himmelsverlauf, geteilt mit der Kuppel — siehe ValheimSky.ts.
+        // Himmelsverlauf, geteilt mit der Kuppel — siehe SkyDome.ts.
         ${SKY_GRADIENT_GLSL}
 
         uniform sampler2D waterFoamTex;
@@ -1008,7 +1008,7 @@ export class WaterPlugin extends MaterialPluginBase {
 
           // ── Spiegelung: EIN Term, richtungsabhängig ────────────────
           // Der Himmel wird an der SPIEGELRICHTUNG ausgewertet, mit
-          // derselben Funktion, die die Kuppel zeichnet (ValheimSky.ts).
+          // derselben Funktion, die die Kuppel zeichnet (SkyDome.ts).
           // Bei streifendem Blick zeigt R fast waagerecht → Horizontfarbe
           // (= scene.fogColor, die Farbe, in die der Nebel ohnehin
           // läuft); bei steilem Blick nach oben → Zenit.
@@ -1028,7 +1028,7 @@ export class WaterPlugin extends MaterialPluginBase {
           vec3 spiegelRichtung = reflect(-viewDirW, nrm);
           vec3 himmel = vhSkyGradient(spiegelRichtung, waterSkyHorizon, waterSkyZenith,
                                       waterSkySunGlow, toSun, waterScreenRefr.w);
-          // Sobald die Würfelkarte der Himmelskuppel steht (ValheimSky.probe),
+          // Sobald die Würfelkarte der Himmelskuppel steht (SkyDome.probe),
           // ersetzt sie den Verlauf: sie enthält denselben Verlauf, aber
           // zusätzlich Wolken, Sterne und die Sonnenscheibe. Kein Mischen,
           // das wäre eine Doppelung — der Verlauf ist der Fallback, bis

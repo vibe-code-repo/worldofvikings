@@ -34,7 +34,7 @@ import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
 import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
-import { ValheimSky } from '${join(ROOT, 'client/src/engine/ValheimSky.ts').replace(/\\/g, '/')}';
+import { SkyDome } from '${join(ROOT, 'client/src/engine/SkyDome.ts').replace(/\\/g, '/')}';
 import { findEnvironment, evaluateEnv, ENV_CLEAR } from '${join(ROOT, 'shared/src/index.ts').replace(/\\/g, '/')}';
 
 const errors = [];
@@ -50,7 +50,7 @@ cam.minZ = 0.1;
 cam.maxZ = 10000;
 cam.fov = 1.2;
 
-const sky = new ValheimSky(scene, 3000);
+const sky = new SkyDome(scene, 3000);
 const env = findEnvironment(ENV_CLEAR);
 
 window.__probe = async (frac, pitch) => {

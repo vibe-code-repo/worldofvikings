@@ -54,7 +54,7 @@ import { PBRBaseMaterial } from '@babylonjs/core/Materials/PBR/pbrBaseMaterial';
 import type { Material } from '@babylonjs/core/Materials/material';
 import { Color3, Color4, Vector3 } from '@babylonjs/core/Maths/math';
 import { Scene } from '@babylonjs/core/scene';
-import { ValheimSky } from './ValheimSky';
+import { SkyDome } from './SkyDome';
 import {
   Biome,
   WORLD_TIME_LENGTH,
@@ -231,7 +231,7 @@ const UMGEBUNGS_INTENSITAET = 1;
 export class Lighting {
   readonly sun: DirectionalLight;
   readonly ambient: HemisphericLight;
-  readonly sky: ValheimSky;
+  readonly sky: SkyDome;
 
   /**
    * Grundhelligkeit einer Dungeon-Instanz (0..1) oder `null` = Oberwelt.
@@ -383,7 +383,7 @@ export class Lighting {
 
     // Sky dome fed from the same EnvState as the fog — see the sky dome
     // module for why Babylon's SkyMaterial (Preetham) cannot match the fog colour.
-    this.sky = new ValheimSky(scene);
+    this.sky = new SkyDome(scene);
 
     // ── Umgebungslicht aus der Himmelskuppel (Grafik-Konzept Stufe 5) ──
     //

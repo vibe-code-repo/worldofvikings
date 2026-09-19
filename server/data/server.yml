@@ -573,7 +573,7 @@ look:
   # focusDistance 2,0 m, aperture 6,0, focalLength 47 mm (§E; die
   # gaussianStart/End 70/100 gelten nur im Gauss-Modus und sind hier
   # wirkungslos). Wie daraus ein Unschaerferadius wird, steht in
-  # client/src/engine/ValheimDof.ts — kurz: URP rechnet
+  # client/src/engine/FarDof.ts — kurz: URP rechnet
   # maxCoC = (f/N) · (f/1000) / (P − f/1000) = 0,1885, und das mal 14
   # Bildpunkten ergibt rund 2,6 px. Eine milde, aber ueber die ganze
   # Ferne gleichmaessige Weichzeichnung, die schon ab etwa 10 m voll
@@ -634,7 +634,7 @@ look:
   #
   # Die NAHT am Meereshorizont, die hier als offene Frage (F36) stand,
   # schliesst A6: Die Kuppel wird in ihrem untersten Band (2,0°) selbst
-  # zur Nebelfarbe. Der Regler dafuer sitzt in `ValheimSky.ts` — er ist
+  # zur Nebelfarbe. Der Regler dafuer sitzt in `SkyDome.ts` — er ist
   # keine Look-Entscheidung, sondern die Bedingung dafuer, dass diese
   # beiden Farben ueberhaupt frei waehlbar sind.
   #

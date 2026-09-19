@@ -1,5 +1,5 @@
 /**
- * ValheimDof — die Fern-Unschärfe des Vorbilds.
+ * FarDof — die Fern-Unschärfe des Vorbilds.
  *
  * ── Warum es diese Datei überhaupt gibt ──────────────────────────────
  * `PostProcessing.ts` hielt bisher fest: "Depth of Field AUS — im
@@ -106,7 +106,7 @@ const FOCUS_RATE = -60 * Math.log(1 - 0.2);
  */
 const FOCUS_INTERVAL = 0.12;
 
-const SHADER = 'valheimDof';
+const SHADER = 'farDof';
 
 Effect.ShadersStore[`${SHADER}FragmentShader`] = /* glsl */ `
 precision highp float;
@@ -168,7 +168,7 @@ void main(void) {
 }
 `;
 
-export class ValheimDof {
+export class FarDof {
   private readonly pp: PostProcess;
 
   /**
@@ -206,7 +206,7 @@ export class ValheimDof {
     const engine = scene.getEngine();
     const hdr = engine.getCaps().textureHalfFloatRender;
     this.pp = new PostProcess(
-      'valheimDof',
+      'farDof',
       SHADER,
       ['texelSize', 'focusDistance', 'focusSize', 'apertureTerm', 'maxRadius', 'gaussianRange'],
       ['depthSampler'],

@@ -42,7 +42,7 @@ pruefe(gehoertHinein(box('terrain_0_0', WATER_LEVEL + 20)), 'Terrain bleibt imme
 pruefe(!gehoertHinein(box('terrain_far_0_0', WATER_LEVEL - 20)), 'Fernterrain bleibt ausgeschlossen');
 pruefe(!gehoertHinein(box('waterRing', WATER_LEVEL - 1)), 'Wasser rendert sich nicht selbst');
 pruefe(!gehoertHinein(box('clutter_halme', WATER_LEVEL - 1)), 'Clutter bleibt ausgeschlossen');
-pruefe(!gehoertHinein(box('valheimSky', WATER_LEVEL - 100)), 'Himmel bleibt ausgeschlossen');
+pruefe(!gehoertHinein(box('skyDome', WATER_LEVEL - 100)), 'Himmel bleibt ausgeschlossen');
 
 console.log('\n[2] Echte Höhenprüfung für nicht gestreute Objekte');
 pruefe(gehoertHinein(box('halbVersunkenerStein', WATER_LEVEL - 0.4)), 'eingetauchtes Objekt bleibt sichtbar');

@@ -22,7 +22,7 @@
  * zweite, unabhängige Komponente auf derselben Kamera — den alten Image
  * Effect `UnityStandardAssets.ImageEffects.DepthOfField`, gesteuert von
  * `CameraEffects.cs`, standardmäßig AN. Genau daher kommt die weiche
- * Ferne, die hier lange gefehlt hat; nachgebildet in engine/ValheimDof.ts.
+ * Ferne, die hier lange gefehlt hat; nachgebildet in engine/FarDof.ts.
  *
  * Das erklärt den vom Nutzer bemängelten Unterschied: unser Bild war
  * "hart"/clean, das Original ist durch Bloom + Motion Blur + leichte
@@ -67,7 +67,7 @@ import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imagePro
 import { ColorCurves } from '@babylonjs/core/Materials/colorCurves';
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { ValheimDof } from './ValheimDof';
+import { FarDof } from './FarDof';
 import {
   ankerDurchmesser,
   kompositKorrigiert,
@@ -126,7 +126,7 @@ const MOTION_SAMPLES = 10;
  */
 const MSAA_SAMPLES = 4;
 /** Name der TAA-Pipeline — auch der Schlüssel beim An-/Abhängen der Kamera. */
-const TAA_NAME = 'valheimTaa';
+const TAA_NAME = 'wovTaa';
 
 /**
  * Stehen TAA und sein Kopierpass als LETZTE belegte Einträge der Kamerakette?
@@ -137,7 +137,7 @@ const TAA_NAME = 'valheimTaa';
  *
  * Gemessen 18.09.2026: Nach dem Einschalten steht TAA hinten, nach JEDEM
  * späteren Umschalten von Bloom, Tiefenunschärfe, FXAA, Bewegungsunschärfe
- * oder SSAO steht es direkt hinter `valheimDof` — die Pipeline hängt ihre
+ * oder SSAO steht es direkt hinter `farDof` — die Pipeline hängt ihre
  * Pässe bei jedem Umschalten NEU ans Ende und lässt TAA davor stehen. Hinten
  * hat es die dunklen Einbrüche im Stand von 0,064 auf 0,000 % gesenkt, vorn
  * (nach dem Umschalten) nur auf 0,0025 %.
@@ -300,7 +300,7 @@ const SSAO_RATIO = 0.5;
  */
 const SSAO_MAX_Z = 1000;
 /** Name der Pipeline — wird zum An- und Abhängen an die Kamera gebraucht. */
-const SSAO_NAME = 'valheimSSAO';
+const SSAO_NAME = 'wovSSAO';
 
 /** Kamera-Vorwaerts im lokalen Raum — Konstante, s. `update()`. */
 const VORWAERTS = new Vector3(0, 0, 1);
@@ -340,7 +340,7 @@ export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
   temporalAA: false,
 };
 
-/** Woran der Autofokus sich orientiert — siehe ValheimDof.autoFocus(). */
+/** Woran der Autofokus sich orientiert — siehe FarDof.autoFocus(). */
 export interface FocusSource {
   groundHeight: (x: number, z: number) => number;
   waterLevel: number;
@@ -351,7 +351,7 @@ export class PostProcessing {
   private readonly scene: Scene;
   private readonly camera: Camera;
   private motionBlur: MotionBlurPostProcess | null = null;
-  private dof: ValheimDof | null = null;
+  private dof: FarDof | null = null;
   private shafts: VolumetricLightScatteringPostProcess | null = null;
   /**
    * Der weisse Anker im Verdeckungspuffer (F3).
@@ -461,8 +461,8 @@ export class PostProcessing {
     // eingehängt glättet TAA das, was der Spieler wirklich sieht.
     //
     // Ein Versuch, die Pässe per `attachPostProcess(pp, 0)` nach vorn zu
-    // holen (derselbe Griff wie bei ValheimDof), war gebaut, hat sauber
-    // umsortiert — `TAA(s4)` vorn, `valheimDof` auf s1 — und ist wegen
+    // holen (derselbe Griff wie bei FarDof), war gebaut, hat sauber
+    // umsortiert — `TAA(s4)` vorn, `farDof` auf s1 — und ist wegen
     // dieser Messung wieder entfernt worden.
     //
     // Die Pipeline entsteht hier oben trotzdem zuerst: Das ist die
@@ -539,13 +539,13 @@ export class PostProcessing {
     this.ssao.samples = SSAO_SAMPLES;
     this.ssao.maxZ = SSAO_MAX_Z;
 
-    this.pipeline = new DefaultRenderingPipeline('valheimPost', true, scene, [camera]);
+    this.pipeline = new DefaultRenderingPipeline('wovPost', true, scene, [camera]);
 
 
     // Das DOF DIESER Pipeline bleibt aus — es ist Babylons physikalisches
     // Kameramodell (Blende/Brennweite) und verwischt auch den Vordergrund.
     // Die Unschärfe des Vorbilds ist eine reine Fernunschärfe und hängt separat
-    // an der Kamera, siehe ValheimDof.
+    // an der Kamera, siehe FarDof.
     this.pipeline.depthOfFieldEnabled = false;
     this.pipeline.grainEnabled = false;
     this.pipeline.sharpenEnabled = false;
@@ -794,7 +794,7 @@ export class PostProcessing {
    * kostete dort Bandbreite, ohne eine einzige Kante zu glätten — deshalb
    * setzt die Schleife alle übrigen ausdrücklich auf 1 zurück.
    *
-   * Welcher Pass der erste ist, wechselt im Betrieb: `ValheimDof` hängt
+   * Welcher Pass der erste ist, wechselt im Betrieb: `FarDof` hängt
    * sich mit `attachPostProcess(pp, 0)` bewusst ganz nach vorn, und die
    * DefaultRenderingPipeline hängt ihre Pässe bei jedem Umschalten neu an.
    * Deshalb wird die Kette hier gelesen statt geraten — das ist derselbe
@@ -861,7 +861,7 @@ export class PostProcessing {
    * ohne Gras sind es rund 60 weniger.
    *
    * Sichtbar ist das nicht: Der einzige Abnehmer der Tiefe ist die
-   * FERN-Unschärfe (ValheimDof, Autofokus im zweistelligen Meterbereich).
+   * FERN-Unschärfe (FarDof, Autofokus im zweistelligen Meterbereich).
    * Grashalme stehen im Nahbereich und verschwinden ohnehin spätestens bei
    * ~60 m (ClutterWindPlugin-Fade); ihre Fragmente bekommen jetzt die Tiefe
    * des Bodens dahinter, der praktisch dieselbe ist. Was der Effekt
@@ -1347,7 +1347,7 @@ export class PostProcessing {
       // auf dem ganzen Bild, ganz gleich, was `exposure` sagt.
       korrigiereStrahlenKomposit();
       const vls = new VolumetricLightScatteringPostProcess(
-        'valheimSunShafts',
+        'wovSunShafts',
         // Verdeckung klein (dort liegen die Kosten), Ausgabe VOLL — die
         // Begründung steht im Block oben, sie ist nicht optisch.
         { passRatio: 0.25, postProcessRatio: 1 },
@@ -1366,7 +1366,7 @@ export class PostProcessing {
       /*
         ── Die Kuppel raus aus der Verdeckung (ADR-0042, Punkt 2) ──────
 
-        `ValheimSky.mesh` traegt `infiniteDistance` — es reitet mit der
+        `SkyDome.mesh` traegt `infiniteDistance` — es reitet mit der
         Kamera und liegt in der Tiefe VOR dem Anker, den `update()` in
         `ankerAbstand` Metern setzt. In der Verdeckungspassage schreibt
         es damit eine Wand ueber den ganzen Himmel, hinter der der Anker
@@ -1379,7 +1379,7 @@ export class PostProcessing {
         The sky dome rides with the camera and would bury the anchor
         behind a depth wall in the occlusion pass. Everything else stays.
       */
-      const kuppel = this.scene.getMeshByName('valheimSky');
+      const kuppel = this.scene.getMeshByName('skyDome');
       if (kuppel) vls.excludedMeshes.push(kuppel);
       /*
         ── Der voreingestellte Anker: weiter aus, aber nicht mehr allein ──
@@ -1562,7 +1562,7 @@ export class PostProcessing {
 
   private setDepthOfField(enabled: boolean): void {
     if (enabled && !this.dof && this.focusSource) {
-      this.dof = new ValheimDof(
+      this.dof = new FarDof(
         this.scene,
         this.camera,
         this.focusSource.groundHeight,
@@ -1603,7 +1603,7 @@ export class PostProcessing {
   private setMotionBlur(enabled: boolean): void {
     if (enabled && !this.motionBlur) {
       this.motionBlur = new MotionBlurPostProcess(
-        'valheimMotionBlur',
+        'wovMotionBlur',
         this.scene,
         1.0,
         this.camera,

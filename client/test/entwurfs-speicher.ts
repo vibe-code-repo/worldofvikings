@@ -7,7 +7,9 @@
  * Rückgängig-Stapel. Ohne Browser: eine Attrappe für localStorage,
  * `storage`-Ereignisse und BroadcastChannel, gemeinsam für alle „Tabs" eines
  * „Profils". Die Attrappe kann Ereignisse zurückhalten (Tab im Hintergrund)
- * und einen Schreiber OHNE Stempel nachbilden (der Testflug, main.ts).
+ * und einen Schreiber OHNE Stempel nachbilden (der Testflug, main.ts): Er
+ * schreibt den Entwurf und, nach einem gelungenen Speichern in die Welt, das
+ * eine Feld `basis` des Begleitzettels (LocalStoragePersistenz), sonst nichts.
  *
  * Zusätzlich Quelltextprüfungen an editorMain.ts für das, was sich ohne
  * Editorfenster nicht ausführen lässt (Platzieren-Zweig, Rückruf).
@@ -27,6 +29,8 @@ import {
   alterRingSchluesselEntfernen,
   serverstandFolge,
   speicherGrund,
+  zettelBasisLesen,
+  zettelMitBasis,
   type SpeicherGrund,
   type RingSpeicher,
   sollInRing,
@@ -36,17 +40,26 @@ import {
   type Kanal,
   type KvSpeicher,
 } from '../src/editor/entwurfsSpeicher';
+import * as speicherModul from '../src/editor/entwurfsSpeicher';
 import {
   ENTWURF_KEY,
   STAND_KEY,
   entwurfLesen,
-  entwurfSchreiben,
   entwurfStandLesen,
   brauchtSchrittVorErsetzen,
   enthaelt,
   layoutMitPlatzierung,
   leeresLayout,
 } from '../src/editor/weltdokument';
+
+// Optional access: a stand without the export fails by assertion, not by aborting the run.
+const entwurfImSpeicher = (g: SpeicherGrund): boolean =>
+  (speicherModul as { entwurfImSpeicher?: (x: SpeicherGrund) => boolean }).entwurfImSpeicher?.(g) ?? false;
+
+const basisLesen = (sp: EntwurfsSpeicher): string | null | undefined => {
+  const f = (sp as unknown as { basisLesen?: () => string | null }).basisLesen;
+  return f ? f.call(sp) : undefined; // undefined: a stand without basisLesen fails by assertion
+};
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
@@ -176,9 +189,14 @@ class Profil {
     }
   }
 
-  /** Der Testflug: schreibt NUR den Entwurf, ohne Stempel und ohne Kanal — main.ts. */
+  /** Der Testflug ändert den Entwurf: schreibt den Entwurf, ohne Stempel, ohne Kanal, ohne den Zettel anzufassen. */
   testflugSchreibt(layout: unknown): void {
     this.setItem(null, ENTWURF_KEY, JSON.stringify(layout));
+  }
+  /** Der Testflug hat gespeichert (200): am Begleitzettel ändert sich NUR das Feld `basis` (LocalStoragePersistenz.basisNachziehen). */
+  testflugSpeichertBasis(hash: string | null): void {
+    const neu = zettelMitBasis(this.daten.get(STAND_KEY), hash);
+    if (neu !== null) this.setItem(null, STAND_KEY, neu);
   }
 }
 
@@ -436,16 +454,33 @@ class EditorAttrappe {
     this.layout = w;
     if (this.schreibenMitMeldung('bearbeitet') === 'ok') this.meldungsVerlauf.push('Wiederhergestellt');
   }
-  /** „Serverstand laden" — wie `uebernehmen` im Start-Abgleich: „geladen" nur, wenn es wirklich geladen wurde. */
-  serverstandLaden(server: WorldLayout): void {
+  /**
+   * „Serverstand laden" — wie `uebernehmen` im Start-Abgleich: „geladen" nur, wenn es wirklich geladen wurde.
+   * Mit `hash` (der Serverstand kam mit einer Kennung): Erst NACH dem Schreiben des Entwurfs beruht er auf ihr —
+   * und nur, wenn er im Speicher steht (`entwurfImSpeicher`), sonst bleibt die Basis des Zettels, wie sie war.
+   */
+  serverstandLaden(server: WorldLayout, hash?: string | null): void {
     if (brauchtSchrittVorErsetzen(this.layout, server)) this.verlauf.merke(this.layout, true);
     else this.verlauf.ohneSchritt();
     this.layout = server;
     // Derselbe Weg wie im Editor (weltAbgleich.uebernehmen und 409): schreiben → Grund → serverstandFolge.
-    const folge = serverstandFolge(this.schreibenMitMeldung('server'));
+    const grund = this.schreibenMitMeldung('server');
+    if (hash !== undefined && entwurfImSpeicher(grund)) this.speicher.basisMerken(hash);
+    const folge = serverstandFolge(grund);
     if (folge === 'geladen') this.meldungsVerlauf.push('Serverstand geladen');
     else if (folge === 'nicht-geladen') this.meldungsVerlauf.push('Serverstand NICHT geladen — ein anderer Tab hat den Entwurf zwischenzeitlich geändert');
     // 'stehen-lassen': 'voll'/'knapp' haben ihre Meldung schon gesetzt — nichts darüberschreiben.
+  }
+  /** Der Import-Knopf: ersetzen (Quelle 'import'), danach beruht der Entwurf auf keinem Serverstand — Basis null, sofern er im Speicher steht. */
+  importieren(neu: WorldLayout): string {
+    const grund = this.ersetzen(neu);
+    if (entwurfImSpeicher(grund as SpeicherGrund)) this.speicher.basisMerken(null);
+    return grund;
+  }
+  /** Der Nutzer wählt im Dialog ausdrücklich „Entwurf behalten": der gezeigte Serverstand wird die Basis — nur wenn der Entwurf im Speicher steht (nicht bei 'fremd' und 'voll'). */
+  entwurfBehalten(hash: string | null): void {
+    const grund = this.schreibenMitMeldung('bearbeitet');
+    if (entwurfImSpeicher(grund)) this.speicher.basisMerken(hash);
   }
 }
 
@@ -628,8 +663,14 @@ console.log('▶ Grenzfälle');
 }
 
 // ── 7. Vergleichsprobe: der ALTE Schreibweg verliert P1 ──────────────
-console.log('▶ Vergleichsprobe: alter Schreibweg (entwurfSchreiben ohne Prüfung)');
+console.log('▶ Vergleichsprobe: alter Schreibweg (ungeprüft schreiben)');
 {
+  /** Der Schreibweg vor K0.3 (Stand-in für das entfernte `entwurfSchreiben`): Entwurf, dann Zettel, ohne nachzusehen. */
+  const entwurfSchreiben = (layout: WorldLayout, quelle: string, instanz: string | null): void => {
+    const ls = (globalThis as { localStorage: { setItem(k: string, v: string): void } }).localStorage;
+    ls.setItem(ENTWURF_KEY, JSON.stringify(layout));
+    ls.setItem(STAND_KEY, JSON.stringify({ zeit: new Date().toISOString(), instanz, quelle }));
+  };
   const profil = new Profil();
   profil.daten.set(ENTWURF_KEY, JSON.stringify(basis));
   (globalThis as { localStorage?: unknown }).localStorage = {
@@ -1454,6 +1495,19 @@ console.log('▶ Abgleich: kein Rennen zwischen Nachsehen und Lesen');
 }
 
 // ── 8j. enthaelt(): Z-Reihenfolge und Doppelte (B4) ─────────────────────
+console.log('▶ enthaelt: das Feld `id` einer Platzierung zählt nicht (K1.1 vergibt Kennungen nach dem Sanitizer)');
+{
+  type MitId = { prefab: string; x: number; z: number; yaw?: number; id?: string };
+  const stand = (ps: MitId[]): WorldLayout => ({ ...basis, placements: ps }) as unknown as WorldLayout;
+  const P = (x: number, id?: string): MitId => ({ prefab: 'Beech1', x, z: x, yaw: 0.5, ...(id ? { id } : {}) });
+  check('Nur die `id` einer Platzierung unterscheidet die Stände: enthaelt = true (beide Richtungen)', enthaelt(stand([P(10, 'a1')]), stand([P(10, 'b7')])) && enthaelt(stand([P(10, 'b7')]), stand([P(10, 'a1')])));
+  check('Ring-Eintrag mit `id`, frisch gebauter Stand ohne: enthaelt = true (der Fall aus K1.1)', enthaelt(stand([P(10, 'a1'), P(20, 'a2')]), stand([P(10), P(20)])) && enthaelt(stand([P(10), P(20)]), stand([P(10, 'a1')])));
+  check('Andere Position: enthaelt = false, auch wenn die `id` gleich ist', !enthaelt(stand([P(10, 'a1')]), stand([P(11, 'a1')])));
+  check('Andere Felder (prefab, yaw) zählen weiter', !enthaelt(stand([P(10, 'a1')]), stand([{ ...P(10, 'a1'), prefab: 'Beech2' }])) && !enthaelt(stand([P(10, 'a1')]), stand([{ ...P(10, 'a1'), yaw: 1 }])));
+  check('Multimenge bleibt eine Multimenge: [P] enthält [P, P] nicht, auch mit verschiedenen `id`', !enthaelt(stand([P(10, 'a1')]), stand([P(10, 'b1'), P(10, 'b2')])) && enthaelt(stand([P(10, 'a1'), P(10, 'a2')]), stand([P(10, 'b1'), P(10)])));
+  check('Ein Feld `id` an anderen Listen (Regionen) bleibt Teil des Vergleichs (unverändert)', !enthaelt({ ...basis, regions: [{ ...basis.regions[0]!, id: 'x' }] } as WorldLayout, { ...basis, regions: [{ ...basis.regions[0]!, id: 'y' }] } as WorldLayout));
+}
+
 console.log('▶ enthaelt: Regionen als geordnete Folge, Listen als Multimenge');
 {
   const ra = { ...basis.regions[0]!, id: 'reg-a' };
@@ -1757,6 +1811,204 @@ console.log('▶ Alter Sammelschlüssel');
 }
 
 // ── 9. Quelltextprüfung an editorMain.ts ─────────────────────────────
+// ── 8n. Basis des Entwurfs (E1 K1.0): der Zettel führt den Serverstand, auf dem der Entwurf BERUHT ──
+console.log('▶ Basis des Entwurfs: holen ändert sie nicht, Entscheidung und Speichern schon');
+{
+  /** Ein Betriebsdienst-Modell: Hash des Serverdokuments; der Testflug speichert nur mit passender Basis (If-Match). */
+  const dienst = { hash: 'h1', layout: basis, posts: 0 };
+  const zettelBasis = (p: Profil): string | null => zettelBasisLesen(p.daten.get(STAND_KEY));
+  /** LocalStoragePersistenz.speichern gegen das Modell: Basis aus dem Zettel, 409 bei Abweichung, bei 200 rückt nur `basis` vor. */
+  const testflugSpeichert = (p: Profil, neuerHash: string): '200' | '409' | 'ohne-basis' => {
+    const b = zettelBasis(p);
+    if (b === null) return 'ohne-basis';
+    dienst.posts++;
+    if (b !== dienst.hash) return '409';
+    dienst.hash = neuerHash;
+    p.testflugSpeichertBasis(neuerHash);
+    return '200';
+  };
+  const neuerDienst = (hash: string): void => {
+    dienst.hash = hash;
+    dienst.posts = 0;
+  };
+
+  // Zettel-Grundlagen
+  {
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    check('Ohne Zettel erfindet basisMerken keinen (false) und basisLesen kennt die gemerkte Basis', a.speicher.basisMerken('h1') === false && !profil.daten.has(STAND_KEY) && basisLesen(a.speicher) === 'h1');
+    a.serverstandLaden(basis, 'h1');
+    check('Serverstand laden (ok): der Zettel trägt die Basis h1, basisLesen liest sie', zettelBasis(profil) === 'h1' && basisLesen(a.speicher) === 'h1', String(zettelBasis(profil)));
+    check('Der Zettel bleibt sonst unverändert lesbar (Stempel, quelle=server)', JSON.parse(profil.daten.get(STAND_KEY)!).quelle === 'server' && JSON.parse(profil.daten.get(STAND_KEY)!).tabId === 'A');
+    a.speicher.basisMerken(null);
+    check('basisMerken(null) entfernt die Basis: Zettel ohne Basis, basisLesen === null (dann geht nichts auf den Server)', zettelBasis(profil) === null && basisLesen(a.speicher) === null);
+    const b = new EditorAttrappe('B', profil);
+    profil.daten.set(STAND_KEY, '{kaputt');
+    b.speicher.basisMerken('hx');
+    check('Kaputter Zettel: basisLesen fällt auf die gemerkte Basis zurück, basisMerken erfindet keinen Zettel', basisLesen(b.speicher) === 'hx' && profil.daten.get(STAND_KEY) === '{kaputt');
+    profil.lesenKaputt = true;
+    check('Speicher nicht lesbar: basisLesen wirft nicht (gemerkte Basis), basisMerken meldet false', basisLesen(b.speicher) === 'hx' && b.speicher.basisMerken('hy') === false);
+    profil.lesenKaputt = false;
+    check('entwurfImSpeicher: ok und knapp ja; fremd und voll nein', entwurfImSpeicher('ok') && entwurfImSpeicher('knapp') && !entwurfImSpeicher('fremd') && !entwurfImSpeicher('voll'));
+  }
+
+  // S5: Entwurf auf S1, fremder Schreiber speichert S2, der Editor HOLT S2 — Dialog noch offen
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1'); // der Editor hat S1 geladen
+    a.aendern(setze(P1)); // eigene Arbeit auf S1
+    check('Vorbereitung: der Entwurf beruht auf h1', zettelBasis(profil) === 'h1');
+    dienst.hash = 'h2'; // ein anderer Browser speichert S2
+    // Start-Abgleich: der Editor holt S2 und öffnet den Dialog — bis zur Antwort ändert sich NICHTS an der Basis.
+    check('Dialog offen: die Basis des Entwurfs ist weiter h1 (Holen ändert sie nicht)', zettelBasis(profil) === 'h1' && basisLesen(a.speicher) === 'h1');
+    profil.testflugSchreibt(layoutMitPlatzierung(a.layout, 'Beech1', 3333, 3333, 1)); // Testflug setzt ein Objekt
+    check('Testflug speichert bei offenem Dialog: 409 (nichts ersetzt)', testflugSpeichert(profil, 'hT') === '409' && dienst.hash === 'h2', `Dienst-Hash ${dienst.hash}`);
+    check('… die Basis bleibt h1 (nur der Nutzer kann sie ändern)', zettelBasis(profil) === 'h1');
+    // Dialog: „Entwurf behalten" — ausdrücklich der gezeigte Stand h2
+    a.speicher.abgleichen();
+    a.entwurfBehalten('h2');
+    check('„Entwurf behalten": die Basis ist jetzt h2 (der gezeigte Stand)', zettelBasis(profil) === 'h2' && basisLesen(a.speicher) === 'h2');
+    check('Testflug speichert danach: 200 (bewusste Entscheidung), die Basis rückt auf hT', testflugSpeichert(profil, 'hT') === '200' && dienst.hash === 'hT' && zettelBasis(profil) === 'hT');
+  }
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1');
+    a.aendern(setze(P1));
+    dienst.hash = 'h2';
+    // Dialog: „Serverstand übernehmen" — der Entwurf IST S2 und beruht auf h2
+    const s2 = layoutMitPlatzierung(basis, 'Beech1', P2, P2, 1);
+    a.serverstandLaden(s2, 'h2');
+    check('„Serverstand übernehmen": Entwurf = S2 und Basis = h2', hat(gespeichert(profil), P2) && !hat(gespeichert(profil), P1) && zettelBasis(profil) === 'h2');
+    profil.testflugSchreibt(layoutMitPlatzierung(s2, 'Beech1', 4444, 4444, 1)); // eigene Änderung im Testflug
+    check('Testflug speichert mit eigener Änderung: 200', testflugSpeichert(profil, 'h3') === '200' && dienst.hash === 'h3');
+    check('… der Editor liest danach die vom Testflug weitergeschobene Basis (basisLesen: h3)', basisLesen(a.speicher) === 'h3');
+  }
+  // Während der Dialog offen ist, speichert jemand S3: Entscheidung über S2 gilt nicht für S3
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1');
+    a.aendern(setze(P1));
+    dienst.hash = 'h2'; // gesehen im Dialog
+    dienst.hash = 'h3'; // danach, noch vor der Antwort im Dialog
+    a.entwurfBehalten('h2'); // der Nutzer sah h2
+    check('Behalten gilt nur für den GEZEIGTEN Stand h2: der inzwischen gespeicherte h3 wird nicht ersetzt (Testflug: 409)', testflugSpeichert(profil, 'hT') === '409' && dienst.hash === 'h3');
+  }
+
+  // Die Fälle, in denen die Basis NICHT vorrücken darf
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1');
+    // Ein anderer Tab hat den Entwurf geändert; das Ereignis ist noch unterwegs → 'fremd'
+    profil.zurueckhalten = true;
+    profil.testflugSchreibt(layoutMitPlatzierung(basis, 'Beech1', P2, P2, 1));
+    a.serverstandLaden(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1), 'h9');
+    check('Serverstand laden bei fremd (Entwurf wurde nicht geschrieben): die Basis bleibt h1, nicht h9', a.letztesErgebnis === 'fremd' && zettelBasis(profil) === 'h1', `${a.letztesErgebnis} / ${String(zettelBasis(profil))}`);
+    profil.zustellen();
+    profil.zurueckhalten = false;
+  }
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1');
+    profil.zurueckhalten = true;
+    profil.testflugSchreibt(layoutMitPlatzierung(basis, 'Beech1', P2, P2, 1));
+    a.entwurfBehalten('h9');
+    check('„Entwurf behalten", während ein anderer Tab den Entwurf geändert hat (fremd): keine Basis — über DEN Entwurf wurde nicht entschieden', a.letztesErgebnis === 'fremd' && zettelBasis(profil) === 'h1', String(zettelBasis(profil)));
+    profil.zustellen();
+    profil.zurueckhalten = false;
+  }
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1');
+    profil.quotaSchluessel = ENTWURF_KEY; // der Entwurf passt nicht mehr in den Speicher
+    a.serverstandLaden(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1), 'h9');
+    check('Serverstand laden bei „voll" (Entwurf nicht gespeichert): die Basis bleibt h1 — der gespeicherte Entwurf beruht weiter auf h1', a.letztesErgebnis === 'voll' && zettelBasis(profil) === 'h1', `${a.letztesErgebnis} / ${String(zettelBasis(profil))}`);
+    profil.quotaSchluessel = null;
+  }
+
+  // „Entwurf behalten“ bei werfendem setItem: keine Basis für einen Entwurf, der nicht im Speicher steht (Start- UND 409-Dialog)
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1');
+    profil.quotaSchluessel = ENTWURF_KEY; // setItem auf den Entwurf wirft
+    a.entwurfBehalten('h2');
+    check('„Entwurf behalten“ bei werfendem setItem (Grund voll): die Basis bleibt h1, nicht h2', a.letztesErgebnis === 'voll' && zettelBasis(profil) === 'h1' && basisLesen(a.speicher) === 'h1', `${a.letztesErgebnis} / ${String(zettelBasis(profil))}`);
+    check('… der Testflug speichert danach weiter nur mit h1 (kein Ersetzen auf Grund einer Entscheidung, die nicht im Speicher steht): Server h2 → 409', (dienst.hash = 'h2', testflugSpeichert(profil, 'hT') === '409'));
+    profil.quotaSchluessel = null;
+    profil.quotaFehler = true; // jedes setItem wirft (auch der Zettel)
+    a.entwurfBehalten('h3');
+    check('… ebenso, wenn JEDES setItem wirft: die Basis bleibt', a.letztesErgebnis === 'voll' && zettelBasis(profil) === 'h1', `${a.letztesErgebnis} / ${String(zettelBasis(profil))}`);
+    profil.quotaFehler = false;
+    a.entwurfBehalten('h2');
+    check('… danach (Speicher wieder da): „behalten“ setzt die gezeigte Basis h2', zettelBasis(profil) === 'h2');
+  }
+
+  // Der Zettel trägt beim Editor-Schreiben die Basis weiter (auch die vom Testflug vorgeschobene)
+  {
+    neuerDienst('h1');
+    const profil = new Profil();
+    const a = new EditorAttrappe('A', profil);
+    a.serverstandLaden(basis, 'h1');
+    profil.testflugSpeichertBasis('h5');
+    a.aendern(setze(P1));
+    check('Ein Editor-Schreibvorgang lässt die vom Testflug vorgeschobene Basis h5 stehen', zettelBasis(profil) === 'h5');
+    const ohne = new Profil();
+    const b = new EditorAttrappe('B', ohne);
+    b.speicher.basisMerken('hm');
+    b.aendern(setze(P2));
+    check('Ohne Zettel legt der erste Schreibvorgang ihn mit der gemerkten Basis an', zettelBasis(ohne) === 'hm');
+  }
+}
+
+// ── 8o. Import: beruht auf keinem Serverstand (E1 K1.0, Nachbesserung 1) ──
+console.log('▶ Import: Basis null; „Entwurf behalten“ danach setzt die gezeigte');
+{
+  const zettelBasis = (p: Profil): string | null => zettelBasisLesen(p.daten.get(STAND_KEY));
+  const profil = new Profil();
+  const a = new EditorAttrappe('A', profil);
+  a.serverstandLaden(basis, 'h1');
+  check('Vorher: der Entwurf beruht auf h1', zettelBasis(profil) === 'h1');
+  const grund = a.importieren(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1));
+  check('Import in den Speicher geschrieben (ok)', grund === 'ok' && hat(gespeichert(profil), P1));
+  check('… danach: kein `basis` im Zettel, basisLesen === null, Zettel quelle = import', zettelBasis(profil) === null && basisLesen(a.speicher) === null && JSON.parse(profil.daten.get(STAND_KEY)!).quelle === 'import', String(zettelBasis(profil)));
+  a.aendern(setze(P2));
+  check('Weiterzeichnen am Import bringt keine Basis zurück (der Speicher erbt nichts)', zettelBasis(profil) === null && basisLesen(a.speicher) === null);
+  a.entwurfBehalten('h2');
+  check('„Entwurf behalten“ im Abgleich-Dialog: die gezeigte Basis h2', zettelBasis(profil) === 'h2' && basisLesen(a.speicher) === 'h2');
+  // Steht der Import nicht im Speicher, bleibt die Basis des dort stehenden Entwurfs
+  const p2 = new Profil();
+  const b = new EditorAttrappe('B', p2);
+  b.serverstandLaden(basis, 'h1');
+  p2.zurueckhalten = true;
+  p2.testflugSchreibt(layoutMitPlatzierung(basis, 'Beech1', P2, P2, 1));
+  const g2 = b.importieren(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1));
+  check('Import bei fremd (nicht geschrieben): die Basis bleibt h1', g2 === 'fremd' && zettelBasis(p2) === 'h1', `${g2} / ${String(zettelBasis(p2))}`);
+  p2.zustellen();
+  p2.zurueckhalten = false;
+  const p3 = new Profil();
+  const c = new EditorAttrappe('C', p3);
+  c.serverstandLaden(basis, 'h1');
+  p3.quotaSchluessel = ENTWURF_KEY;
+  const g3 = c.importieren(layoutMitPlatzierung(basis, 'Beech1', P1, P1, 1));
+  check('Import bei „voll“ (nicht geschrieben): die Basis bleibt h1', g3 === 'voll' && zettelBasis(p3) === 'h1', `${g3} / ${String(zettelBasis(p3))}`);
+  p3.quotaSchluessel = null;
+  const kopf = readFileSync(resolve(HIER, '../src/editor/entwurfsSpeicher.ts'), 'utf-8');
+  check('Kopfkommentar von entwurfsSpeicher.ts hält fest: die Basis gilt je BROWSER, nicht je Tab (ein STAND_KEY) — mit der Folge für Tab A', /Die Basis gilt je BROWSER, nicht je Tab/.test(kopf) && /gilt hB als Basis auch\s*\n\s*\*\s*für Tab A/.test(kopf));
+}
+
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
   const quelle = readFileSync(resolve(HIER, '../src/editor/editorMain.ts'), 'utf-8');
@@ -1777,7 +2029,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('… und meldet es', rueckruf.includes('Entwurf aus einem anderen Tab übernommen'));
   check('… entscheidet über den Schritt nur im SchrittVerlauf (eine Schrittklasse, Flag statt Objektidentität), ohne eigenen Zugriff auf den Wiederherstellen-Stapel', !/zukunft/.test(rueckruf) && !/brauchtSchritt\(|UebernahmeSchritte|uebernahmeSchritte/.test(quelle));
   check('… und sagt bei verworfenem Wiederherstellen-Ast dazu, dass Wiederherstellen nicht mehr möglich ist', /const \{ verworfen \} = verlauf\.uebernahme\(layout, fremd\);/.test(rueckruf) && /verworfen > 0 \? ' Wiederherstellen ist nach der Übernahme nicht mehr möglich\.'/.test(rueckruf));
-  check('… setzt halbfertige Werkzeuge zurück: griff, flussPunkte, polygonPunkte, startpunktModus', /griff = null;/.test(rueckruf) && /flussPunkte = \[\];/.test(rueckruf) && /polygonPunkte = \[\];/.test(rueckruf) && /startpunktModus = null;/.test(rueckruf));
+  check('… setzt halbfertige Werkzeuge zurück: griff, alle Registry-Werkzeuge (abbrechen), polygonPunkte, startpunktModus', /griff = null;/.test(rueckruf) && /for \(const w of WERKZEUGE\) w\.abbrechen\(werkzeugKontext\);/.test(rueckruf) && /polygonPunkte = \[\];/.test(rueckruf) && /startpunktModus = null;/.test(rueckruf));
   const wieder = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const zurueck = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   check('Editor benutzt den SchrittVerlauf: merkeSchritt → verlauf.merke(layout), Strg+Z → verlauf.zurueck(layout), Strg+Y → verlauf.vor(layout) (Grenze 50 liegt in der Klasse)', /function merkeSchritt\(ersetzt = false\): void \{\s*verlauf\.merke\(layout, ersetzt\);/.test(quelle) && /verlauf\.zurueck\(layout\)/.test(zurueck) && /verlauf\.vor\(layout\)/.test(wieder) && !/const vergangenheit|const zukunft/.test(quelle));
@@ -1827,7 +2079,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   const zurueckFn = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const wiederFn = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   check('Rückgängig und Wiederherstellen setzen ihre Meldung nur, wenn der Schreibversuch NICHT übernommen hat (const grund = alles(); nur bei grund ok …)', /const grund = alles\(\);[\s\S]*?if \(grund === 'ok'\)/.test(zurueckFn) && /const grund = alles\(\);[\s\S]*?if \(grund === 'ok'\)/.test(wiederFn));
-  check('Serverstand: „NICHT geladen“, wenn der Schreibversuch einen fremden Stand übernommen hat — im Start-Abgleich und nach 409', /const folge = serverstandFolge\(alles\('server'\)\);[\s\S]*?if \(folge === 'nicht-geladen'\) \{[\s\S]*?Serverstand NICHT geladen[\s\S]*?if \(folge === 'stehen-lassen'\) return;/.test(abgleichTeil) && /const folge = serverstandFolge\(alles\('server'\)\);[\s\S]*?if \(folge === 'geladen'\) \{[\s\S]*?Serverstand geladen/.test(quelle) && !/alles\('server'\)\) \{/.test(quelle));
+  check('Serverstand: „NICHT geladen“, wenn der Schreibversuch einen fremden Stand übernommen hat — im Start-Abgleich und nach 409', /const geschrieben = alles\('server'\);\s*const folge = serverstandFolge\(geschrieben\);[\s\S]*?if \(folge === 'nicht-geladen'\) \{[\s\S]*?Serverstand NICHT geladen[\s\S]*?if \(folge === 'stehen-lassen'\) return;/.test(abgleichTeil) && /const grund = alles\('server'\);\s*const folge = serverstandFolge\(grund\);[\s\S]*?if \(folge === 'geladen'\) \{[\s\S]*?Serverstand geladen/.test(quelle) && !/serverstandFolge\(alles\(/.test(quelle) && !/alles\('server'\)\) \{/.test(quelle));
   check('Import und wieder einsetzen: keine eigene Meldung über der der Übernahme (if (grund === \'ok\'))', /const grund = alles\('import'\);[\s\S]*?if \(grund === 'ok'\)/.test(quelle) && /const grund = alles\(\);\s*vorschauAnstossen\(\);\s*if \(grund === 'ok'\) \{\s*shell\.meldung\(\s*`Verdrängten Entwurf wieder eingesetzt/.test(sektion));
 
   // Runde 5: Quote, Vorrang des Entwurfs, Ring-Grenze, Texte

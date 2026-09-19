@@ -73,6 +73,7 @@ import type {
 // Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
 import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { flattenLayout } from '@wov/shared/src/dungeonFlatten.js';
+import { markiereStreu, zdoStand } from './zonenRuecksetzer.js';
 import { ZDOManager } from '../zdo/ZDOManager.js';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { PrefabDef } from '@wov/shared';
@@ -479,7 +480,9 @@ export class ZoneManager {
       }
     }
     if (this.worldVegetation) {
+      const stand = zdoStand(this.zdos, zone);
       this.populateFoliage(heightmap, clearAreas);
+      markiereStreu(this.zdos, zone, stand);
     }
     return true;
   }
@@ -1185,5 +1188,19 @@ export class ZoneManager {
   /** Test/diagnostic access: number of booked feature instances. */
   get preparedFeatureCount(): number {
     return this.generatedFeatures.size;
+  }
+
+  /**
+   * Zonen-Rücksetzer (zonenRuecksetzer.ts): nimmt eine Zone aus `generated`,
+   * damit `erzeugeZone` sie neu aufbauen kann. Liefert false, wenn sie gar
+   * nicht erzeugt war.
+   */
+  nimmZoneZurueck(zone: ZoneID): boolean {
+    return this.generated.delete(zoneKey(zone.x, zone.y));
+  }
+
+  /** Erzeugt eine Zone sofort statt über die Warteschlange; false, wenn sie schon erzeugt war. */
+  erzeugeZone(zone: ZoneID): boolean {
+    return this.generateZone(zone);
   }
 }

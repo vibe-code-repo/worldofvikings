@@ -68,6 +68,7 @@ import type { Dungeon2Vorschau } from './dungeon2/Dungeon2Vorschau';
 import type { DungeonVorschau3d } from './DungeonVorschau3d';
 import { befundSchwere } from './befundSchwere';
 import {
+  BASIS_FEHLT,
   alter,
   basisNachBestaetigung,
   brauchtSchrittVorErsetzen,
@@ -87,6 +88,7 @@ import {
   VerdraengtRing,
   alterRingSchluesselEntfernen,
   browserUmgebung,
+  entwurfImSpeicher,
   neueTabId,
   serverstandFolge,
   sollInRing,
@@ -104,7 +106,10 @@ import type { GegenstandsKatalog } from './GegenstandsKatalog';
 // Die schwebenden Bedienflächen über der Karte (Werkzeuganzeige, Zoom,
 // Ebenen, Übersicht, Eigenschaftskarte). Statisch eingebunden, weil sie
 // nichts nachladen — sie zeichnen nur DOM über den beiden Leinwänden.
-import { KartenHud, type Werkzeugname } from './KartenHud';
+import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHud';
+// Werkzeug-Registry: Fluss und See leben in `werkzeuge/`, hier nur der Zugriff.
+import { WERKZEUGE, werkzeugMitId } from './werkzeuge';
+import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
 // Das Gestaltungssystem des Editors. Literale Farbwerte in dieser Datei
 // waren bis hierher der Normalfall ('#1d2431', '#3a3325', '#e8d48a' …) —
 // sechs Dateien mit je eigener Palette, und jede vergessene Zeile blieb
@@ -408,7 +413,7 @@ const entwurfsSpeicher = new EntwurfsSpeicher({
     // Fluss, Polygonzug, Startpunkt-Klick oder Form-Griff würde sonst in den
     // fremden Entwurf hineingeschrieben.
     griff = null;
-    flussPunkte = [];
+    for (const w of WERKZEUGE) w.abbrechen(werkzeugKontext);
     polygonPunkte = [];
     startpunktModus = null;
     alles('bearbeitet', false);
@@ -450,19 +455,19 @@ let welt: { instanz: string | null; datei: string | null } = { instanz: null, da
  */
 let serverKanon: string | null = null;
 /**
- * Stand des Serverdokuments (Hash), so wie ihn der Editor zuletzt gelesen
- * bzw. selbst geschrieben hat — die Basis für `If-Match` beim Speichern.
- * `null`, solange der Server keinen liefert; dann wird ohne Basis
- * gespeichert, wie vor K0.2.
+ * Die BASIS des Entwurfs — der Serverstand (Hash), auf dem er beruht — ist die
+ * im Begleitzettel (`entwurfsSpeicher.basisLesen`). Sie ist NICHT „der zuletzt
+ * gelesene Serverstand": Ein Editor, der einen Serverstand nur holt und dem
+ * Nutzer zeigt, ändert sie nicht. Erst `setzeEntwurfBasis` setzt sie, und nur
+ *   (1) nachdem Serverinhalt in den Entwurf geschrieben wurde (Start ohne
+ *       Entwurf, Serverstand laden/übernehmen),
+ *   (2) nach einem gelungenen Speichern in die Welt,
+ *   (3) wenn der Nutzer im Dialog ausdrücklich „Entwurf behalten" wählt.
+ * Der Testflug speichert mit genau dieser Basis (`LocalStoragePersistenz`), der
+ * Editor ebenso (`inDieWeltSpeichern`); der Betriebsdienst lehnt jeden anderen
+ * Stand mit 409 ab. `null`: keine bekannt, dann geht nichts auf den Server.
  */
-let serverHash: string | null = null;
-/**
- * Setzt `serverHash` UND trägt ihn in den Begleitzettel des Entwurfs ein: Der
- * Testflug speichert nur mit dieser Basis (`LocalStoragePersistenz`) und
- * überschreibt so keine neuere Speicherung still.
- */
-function setzeServerHash(hash: string | null): void {
-  serverHash = hash;
+function setzeEntwurfBasis(hash: string | null): void {
   entwurfsSpeicher.basisMerken(hash);
 }
 /**
@@ -490,7 +495,7 @@ let zurueckKnopf: HTMLButtonElement | null = null;
  */
 let katalogOeffnen: (() => void) | null = null;
 let gewaehlt: string | null = null;
-let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' | 'see' = 'auswahl';
+let werkzeug: Werkzeugname = 'auswahl';
 /**
  * Startpunkt-Klickmodus (Aufgabe B2): 'welt' -> naechster Kartenklick
  * setzt `layout.defaultSpawn`; { continentId } -> setzt `continent.spawn`
@@ -498,20 +503,6 @@ let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' | 'see' = 
  * s. Kommentar bei weltSektionBauen().
  */
 let startpunktModus: StartpunktZiel | null = null;
-/** Offener Flusslauf (Weltbau B) + Breite/Tiefe des Werkzeugs. */
-let flussPunkte: [number, number][] = [];
-let flussBreite = 40;
-let flussTiefe = 8;
-/**
- * Radius/Tiefe des See-Werkzeugs (Aufgabe B5). Ein See ist Mittelpunkt +
- * Radius (LakeDef), kein Punktzug wie der Fluss — ein Klick setzt ihn
- * fertig, es gibt kein "Abschließen". Vorgaben wie `sanitizeWorldLayout`
- * sie einem See ohne Angabe zuweist (radius 200, depth 8), damit ein per
- * Feld unverändert gesetzter See exakt das ergibt, was die Sanitisierung
- * ohnehin annähme.
- */
-let seeRadius = 200;
-let seeTiefe = 8;
 /** Gewählte vordefinierte Form + Basisgröße (m) des Form-Werkzeugs. */
 let gewaehlteForm = 'kreis';
 let formGroesse = 1500;
@@ -529,6 +520,34 @@ let mitteZ = 0;
  */
 let griff: { regionId: string; art: 'mitte' | 'radius' | number } | null = null;
 const GRIFF_PX = 7;
+
+/**
+ * Was ein registriertes Werkzeug (`werkzeuge/`) am Editor tun darf. Jedes
+ * Mitglied ist eine Handlung, die die alten `if (werkzeug === ...)`-Zweige
+ * unmittelbar auf dem Modulzustand ausführten. Nur Funktionen und
+ * Lesezugriffe zur Laufzeit: Das Objekt darf hier oben stehen, obwohl
+ * `zuBild` und `massstab` weiter unten entstehen.
+ */
+const werkzeugKontext: WerkzeugKontext = {
+  layout: () => layout,
+  aendere: (neu) => {
+    merkeSchritt();
+    layout = neu;
+  },
+  werkzeugId: () => werkzeug,
+  zurAuswahl: () => {
+    werkzeug = 'auswahl';
+  },
+  uebernommen: () => {
+    alles();
+    vorschauAnstossen();
+  },
+  seiteNeuBauen: () => seiteBauen(),
+  neuZeichnen: () => zeichneOverlay(),
+  meldung: (text, fehler) => shell.meldung(text, fehler),
+  zuBild: (wx, wz) => zuBild(wx, wz),
+  massstab: () => massstab,
+};
 
 function ladeEntwurf(): WorldLayout {
   return entwurfsSpeicher.lesen() ?? leeresLayout();
@@ -1012,25 +1031,21 @@ const zeigeFuerBetrieb = (m: SeitenBetriebsart): void => {
 // NACH den beiden Zeichenflächen eingehängt: Die Reihenfolge im DOM
 // entscheidet, was oben liegt. Der Hud gehört über das Overlay, sonst
 // fingen die Zeichenflächen seine Klicks ab.
-const WERKZEUG_TEXT: Record<Werkzeugname, string> = {
+const WERKZEUG_TEXT: Record<AltesWerkzeugname, string> = {
   auswahl: 'Auswahl',
   form: 'Insel-Form setzen',
   polygon: 'Polygon zeichnen',
   platzieren: 'Objekt platzieren',
-  fluss: 'Fluss zeichnen',
-  see: 'See setzen',
 };
 /** Die Mono-Plakette der Werkzeuganzeige — je Werkzeug die Zahl, die es führt. */
 function hudZusatz(): string {
+  const registriert = werkzeugMitId(werkzeug);
+  if (registriert) return registriert.hudZusatz();
   switch (werkzeug) {
     case 'form':
       return `${FORMEN.find((f) => f.id === gewaehlteForm)?.name ?? ''} ${formGroesse} m`;
     case 'polygon':
       return `${polygonPunkte.length} Punkte`;
-    case 'fluss':
-      return `${flussPunkte.length} Punkte · ${flussBreite} m`;
-    case 'see':
-      return `Radius ${seeRadius} m`;
     case 'platzieren':
       return spawnPrefab;
     default:
@@ -1104,7 +1119,7 @@ function hudAktualisieren(): void {
       layout,
       gewaehlt,
       werkzeug,
-      werkzeugText: WERKZEUG_TEXT[werkzeug],
+      werkzeugText: werkzeugMitId(werkzeug)?.titel ?? WERKZEUG_TEXT[werkzeug as AltesWerkzeugname],
       zusatzText: hudZusatz(),
       massstab,
       mitteX,
@@ -1254,21 +1269,11 @@ function zeichneOverlay(): void {
     ctx.fillStyle = F.wasserFlaeche;
     ctx.fill();
   }
-  // Offener Flusslauf des Werkzeugs
-  if (flussPunkte.length > 0) {
-    ctx.strokeStyle = F.wasser;
-    ctx.lineWidth = Math.max(2, flussBreite / massstab);
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    flussPunkte.forEach(([x, z], i) => {
-      const [px, py] = zuBild(x, z);
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    });
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.lineWidth = 1.5;
-  }
+  // Halbfertige Züge der registrierten Werkzeuge (offener Flusslauf): an
+  // derselben Stelle der Zeichenreihenfolge wie vorher, und für JEDES
+  // Werkzeug, nicht nur das aktive — ein angefangener Fluss bleibt beim
+  // Wechsel des Werkzeugs stehen, wie er es immer getan hat.
+  for (const w of WERKZEUGE) w.zeichneOverlay?.(werkzeugKontext, ctx);
 
   // Handplatzierte Objekte als grüne Punkte
   for (const p of layout.placements ?? []) {
@@ -1462,6 +1467,11 @@ overlay.addEventListener('pointerdown', (e) => {
     }
   }
 
+  // Registrierte Werkzeuge zuerst; was sie nicht beanspruchen, fällt auf die
+  // alten Zweige und zuletzt auf die Auswahl.
+  const ereignis = { weltX: wx, weltZ: wz, shiftKey: e.shiftKey };
+  if (werkzeugMitId(werkzeug)?.beiZeigerRunter(werkzeugKontext, ereignis)) return;
+
   if (werkzeug === 'form') {
     const form = FORMEN.find((f) => f.id === gewaehlteForm) ?? FORMEN[0]!;
     const region: RegionDef = {
@@ -1494,38 +1504,6 @@ overlay.addEventListener('pointerdown', (e) => {
     speichereEntwurf();
     seiteBauen();
     zeichneOverlay();
-    return;
-  }
-  if (werkzeug === 'fluss') {
-    flussPunkte.push([Math.round(wx), Math.round(wz)]);
-    seiteBauen();
-    zeichneOverlay();
-    return;
-  }
-  if (werkzeug === 'see') {
-    // Mittelpunkt + Radius statt Punktzug (LakeDef) — ein Klick reicht,
-    // anders als beim Fluss gibt es kein offenes Werkzeugobjekt, das erst
-    // noch abgeschlossen werden müsste.
-    let n = 1;
-    while ((layout.lakes ?? []).some((l) => l.id === `see-${n}`)) n++;
-    merkeSchritt();
-    layout = {
-      ...layout,
-      lakes: [
-        ...(layout.lakes ?? []),
-        { id: `see-${n}`, x: Math.round(wx), z: Math.round(wz), radius: seeRadius, depth: seeTiefe },
-      ],
-    };
-    // Wie das Form-Werkzeug: ein Klick = EIN See, Shift hält das
-    // Werkzeug für Serien aktiv.
-    if (!e.shiftKey) werkzeug = 'auswahl';
-    alles();
-    vorschauAnstossen();
-    shell.meldung(
-      e.shiftKey
-        ? `see-${n} angelegt (Radius ${seeRadius} m) — Werkzeug bleibt aktiv (Shift)`
-        : `see-${n} angelegt (Radius ${seeRadius} m)`
-    );
     return;
   }
   if (werkzeug === 'polygon') {
@@ -1620,41 +1598,21 @@ overlay.addEventListener('pointerup', () => {
 });
 overlay.addEventListener('dblclick', () => {
   polygonSchliessen();
-  flussSchliessen();
+  werkzeugMitId(werkzeug)?.beiDoppelklick?.(werkzeugKontext);
 });
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' && (werkzeug === 'polygon' || werkzeug === 'fluss')) {
-    polygonPunkte = [];
-    flussPunkte = [];
-    werkzeug = 'auswahl';
-    seiteBauen();
-    zeichneOverlay();
-  }
-});
-
-/** Offenen Flusslauf ins Layout übernehmen (mind. 2 Punkte). */
-function flussSchliessen(): void {
-  if (werkzeug !== 'fluss') return;
-  const punkte = flussPunkte.filter(
-    (p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1]![0], p[1] - a[i - 1]![1]) > 1
-  );
-  if (punkte.length < 2) {
-    shell.meldung(`Ein Fluss braucht mindestens 2 Punkte (aktuell ${punkte.length}).`, true);
-    return;
-  }
-  let n = 1;
-  while ((layout.rivers ?? []).some((r) => r.id === `fluss-${n}`)) n++;
-  merkeSchritt();
-  layout = {
-    ...layout,
-    rivers: [...(layout.rivers ?? []), { id: `fluss-${n}`, points: punkte, width: flussBreite, depth: flussTiefe }],
-  };
-  flussPunkte = [];
+  if (e.code !== 'Escape') return;
+  // Escape beendet Polygon und die registrierten Werkzeuge, die es
+  // beanspruchen (Fluss). Dabei fällt JEDER halbfertige Zug weg, nicht nur
+  // der des aktiven Werkzeugs — unverändert.
+  const beansprucht = werkzeugMitId(werkzeug)?.beiTaste?.(werkzeugKontext, e) === true;
+  if (werkzeug !== 'polygon' && !beansprucht) return;
+  polygonPunkte = [];
+  for (const w of WERKZEUGE) w.abbrechen(werkzeugKontext);
   werkzeug = 'auswahl';
-  alles();
-  vorschauAnstossen();
-  shell.meldung(`fluss-${n} angelegt (${punkte.length} Punkte, ${flussBreite} m breit)`);
-}
+  seiteBauen();
+  zeichneOverlay();
+});
 
 /**
  * Offenes Polygon in eine Region verwandeln. Drei Wege führen hierher —
@@ -1722,6 +1680,13 @@ function breiterKnopf(text: string, cb: () => void, pfad?: string): HTMLButtonEl
 const hinweisZeile = (text: string): HTMLDivElement =>
   el('div', stil({ 'font-size': '11px', 'line-height': '1.5', color: F.gedimmt }), text);
 
+/** Die Bausteine, die ein registriertes Werkzeug für seinen Seitenleisten-Block bekommt. */
+const seitenHost: SeitenHost = {
+  hinweis: hinweisZeile,
+  beschriftet: (text, inhalt) => beschriftet(text, inhalt),
+  breiterKnopf: (text, cb, pfad) => breiterKnopf(text, cb, pfad),
+};
+
 /** Beschriftung im Entwurfsstil über einem Bedienelement. */
 function beschriftet(text: string, inhalt: HTMLElement): HTMLDivElement {
   const s = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '5px' }));
@@ -1737,7 +1702,7 @@ function beschriftet(text: string, inhalt: HTMLElement): HTMLDivElement {
  * DOM: Suchtext, gewählte Filtermarke, aufgeklappte Baumknoten. Genau
  * wie `werkzeug` es seit jeher tut.
  */
-type WerkzeugId = 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' | 'see';
+type WerkzeugId = Werkzeugname;
 type FilterId = 'alle' | 'inseln' | 'gewaesser' | 'objekte' | 'fehler';
 type Platzierung = NonNullable<WorldLayout['placements']>[number];
 let suchtext = '';
@@ -1880,7 +1845,8 @@ function seiteBauen(): void {
     // Unverändert: Das Werkzeug beginnt mit leerem Zug — ein halbes
     // Polygon aus dem letzten Anlauf gehört niemandem.
     if (id === 'polygon') polygonPunkte = [];
-    if (id === 'fluss') flussPunkte = [];
+    // Ein registriertes Werkzeug beginnt ebenfalls mit leerem Zug (Fluss).
+    werkzeugMitId(id)?.abbrechen(werkzeugKontext);
     seiteBauen();
     zeichneOverlay();
   };
@@ -1940,20 +1906,7 @@ function seiteBauen(): void {
       'Punkte klicken; schließen: Klick auf den Startpunkt, den ✓-Knopf oder Doppelklick. Esc bricht ab.',
       polygonPunkte.length ? `${polygonPunkte.length} P.` : ''
     ),
-    kachel(
-      'fluss',
-      'Fluss',
-      PFAD.fluss,
-      'Verlauf klicken; abschließen: ✓-Knopf oder Doppelklick. Esc bricht ab.',
-      flussPunkte.length ? `${flussPunkte.length} P.` : ''
-    ),
-    kachel(
-      'see',
-      'See',
-      PFAD.see,
-      'Klick setzt den Mittelpunkt und legt den See sofort an. Shift für Serien.',
-      `${seeRadius} m`
-    ),
+    ...WERKZEUGE.map((w) => kachel(w.id, w.kachelName, w.bild, w.kachelTipp, w.kachelZusatz())),
     // Fünfte Kachel über beide Spalten: Das Mockup zeigt vier
     // Zeichenwerkzeuge, der Editor hat fünf. „Objekt platzieren" ist
     // keins zum Wegkürzen — es ist der einzige Weg, einen Baum von Hand
@@ -2014,61 +1967,9 @@ function seiteBauen(): void {
     );
     seite.appendChild(block);
   }
-  if (werkzeug === 'fluss') {
-    const block = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '8px' }));
-    const zeile = el('div', stil({ display: 'flex', gap: '8px' }));
-    zeile.append(
-      feld(
-        String(flussBreite),
-        (v) => {
-          flussBreite = Math.min(400, Math.max(4, Number(v) || flussBreite));
-          seiteBauen();
-          zeichneOverlay();
-        },
-        { mono: true, einheit: 'm', titel: 'Breite in Metern' }
-      ),
-      feld(
-        String(flussTiefe),
-        (v) => {
-          flussTiefe = Math.min(60, Math.max(1, Number(v) || flussTiefe));
-          seiteBauen();
-          zeichneOverlay();
-        },
-        { mono: true, einheit: 'm', titel: 'Tiefe unter der Wasserlinie (m)' }
-      )
-    );
-    block.appendChild(beschriftet('Breite / Tiefe', zeile));
-    if (flussPunkte.length >= 2) {
-      block.appendChild(breiterKnopf(`Fluss abschließen (${flussPunkte.length} Punkte)`, flussSchliessen, PFAD.haken));
-    }
-    block.appendChild(hinweisZeile('Verlauf klicken; abschließen: ✓-Knopf oder Doppelklick. Esc bricht ab.'));
-    seite.appendChild(block);
-  }
-  if (werkzeug === 'see') {
-    const block = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '8px' }));
-    const zeile = el('div', stil({ display: 'flex', gap: '8px' }));
-    zeile.append(
-      feld(
-        String(seeRadius),
-        (v) => {
-          seeRadius = Math.min(5000, Math.max(8, Number(v) || seeRadius));
-          seiteBauen();
-        },
-        { mono: true, einheit: 'm', titel: 'Radius in Metern' }
-      ),
-      feld(
-        String(seeTiefe),
-        (v) => {
-          seeTiefe = Math.min(60, Math.max(1, Number(v) || seeTiefe));
-          seiteBauen();
-        },
-        { mono: true, einheit: 'm', titel: 'Tiefe unter der Wasserlinie (m)' }
-      )
-    );
-    block.appendChild(beschriftet('Radius / Tiefe', zeile));
-    block.appendChild(hinweisZeile('Klick setzt den Mittelpunkt und legt den See sofort an. Shift für Serien.'));
-    seite.appendChild(block);
-  }
+  // Seitenleisten-Block des aktiven registrierten Werkzeugs (Fluss, See).
+  const werkzeugBlock = werkzeugMitId(werkzeug)?.seitenleiste?.(werkzeugKontext, seitenHost);
+  if (werkzeugBlock) seite.appendChild(werkzeugBlock);
   if (werkzeug === 'platzieren') {
     const block = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '8px' }));
     const prefabFeld = feld(
@@ -3067,6 +2968,13 @@ function weltFeldBauen(): void {
               layout = s;
               gewaehlt = null;
               const grund = alles('import');
+              // Ein Import beruht auf KEINEM Serverstand: Die Basis, die der
+              // vorige Entwurf hatte, gilt nicht für ihn. Ohne sie geht kein
+              // Speichern hinaus (Editor und Testflug), bis der Nutzer im
+              // Abgleich-Dialog entschieden hat („Entwurf behalten" = bewusst
+              // ersetzen). Steht der Import nicht im Speicher ('fremd', 'voll'),
+              // beschreibt die Basis weiter den Entwurf, der dort steht.
+              if (entwurfImSpeicher(grund)) setzeEntwurfBasis(null);
               vorschauAnstossen();
               // Ein Import ist ausdrücklich NUR ein Entwurf. Wer eine
               // live.json in einen dev-Editor zieht, hat damit noch nichts
@@ -3076,8 +2984,9 @@ function weltFeldBauen(): void {
               // Meldung (der Import steht dann unter Rückgängig).
               if (grund === 'ok') {
                 shell.meldung(
-                  `Import übernommen — ${s.regions.length} Region(en). Erst „In die Welt speichern" ` +
-                    `schreibt ihn nach ${weltName()}.` +
+                  `Import übernommen — ${s.regions.length} Region(en), noch nicht gespeichert. Der Import beruht auf keinem ` +
+                    `bekannten Serverstand: Zum Speichern nach ${weltName()} zuerst das Feld „WELT" links oben anklicken ` +
+                    `(holt den Serverstand, zeigt die Gegenüberstellung), dort „Entwurf behalten" wählen, dann „In die Welt speichern".` +
                     ringHinweis(ringVor)
                 );
               }
@@ -3317,6 +3226,12 @@ function faerbeSpeicherKnopf(): void {
  *      Gegenüberstellung gescheitert.
  */
 async function inDieWeltSpeichern(): Promise<boolean> {
+  // Ein anderer Tab (zweiter Editor, Testflug) kann den Entwurf geändert haben,
+  // ohne dass das Ereignis schon angekommen ist. Die Basis kommt aus dem
+  // Begleitzettel und gehört zum Entwurf im Speicher: Ginge `layout` (ein
+  // älterer Stand) mit der Basis eines neueren Entwurfs hinaus, ersetzte er
+  // still, was der Nutzer nie gesehen hat. Erst übernehmen, dann speichern.
+  if (fremderEntwurfUebernommen()) return false;
   const sauber = sanitizeWorldLayout(layout);
   if (!sauber) {
     shell.meldung('Entwurf ist unbrauchbar — nicht gespeichert.', true);
@@ -3330,9 +3245,9 @@ async function inDieWeltSpeichern(): Promise<boolean> {
     return false;
   }
 
-  // Basis für den POST. Nach einer bestätigten Frischprüfung ist es der
-  // Stand, den der Nutzer eben gesehen hat, sonst der zuletzt gelesene.
-  let basis = serverHash;
+  // Basis für den POST: der Serverstand, auf dem der Entwurf beruht. Nach einer
+  // bestätigten Frischprüfung ist es der Stand, den der Nutzer eben gesehen hat.
+  let basis = entwurfsSpeicher.basisLesen();
   if (welt.instanz !== 'dev') {
     // Frisch holen statt `serverKanon` zu benutzen: Zwischen dem Start
     // des Editors und diesem Klick können Stunden liegen, und in denen
@@ -3367,12 +3282,21 @@ async function inDieWeltSpeichern(): Promise<boolean> {
     // Der Nutzer hat GENAU diesen Stand gesehen und zu ersetzen zugestimmt;
     // mit der alten Basis liefe seine Bestätigung in einen 409 und einen
     // zweiten Dialog.
-    basis = basisNachBestaetigung(serverHash, stand);
+    // Die Frage dauerte, so lange sie dauerte: Hat ein anderer Tab den Entwurf
+    // inzwischen geändert, gilt die Bestätigung nicht für diesen Stand.
+    if (fremderEntwurfUebernommen()) return false;
+    basis = basisNachBestaetigung(basis, stand);
+  }
+  // Ohne Basis geht nichts hinaus (der Betriebsdienst lehnt es ohnehin mit 428
+  // ab): Der Entwurf beruht auf keinem bekannten Serverstand — erst laden/abgleichen.
+  if (basis === null) {
+    shell.meldung(BASIS_FEHLT, true);
+    return false;
   }
 
   shell.meldung(`Speichere nach ${weltName()} …`);
-  // Mit der zuletzt gelesenen Basis: Hat inzwischen jemand anders
-  // gespeichert, antwortet der Server 409, und es wird NICHTS geschrieben.
+  // Mit der Basis des Entwurfs: Hat inzwischen jemand anders gespeichert,
+  // antwortet der Server 409, und es wird NICHTS geschrieben.
   const antwort = await schreibeWeltdokument(sauber, basis);
   if (antwort.art === 'ok') {
     shell.meldung(`${antwort.message} — Server neu starten, damit die Welt sie lädt.`);
@@ -3382,8 +3306,10 @@ async function inDieWeltSpeichern(): Promise<boolean> {
     // wegzuklicken. Genau das darf er nie werden. Der neue Hash ist die
     // Basis des nächsten Speicherns.
     serverKanon = JSON.stringify(sauber);
-    setzeServerHash(antwort.hash);
-    speichereEntwurf('server');
+    // Erst den Entwurf schreiben, dann die Basis weiterschieben — und nur,
+    // wenn er wirklich im Speicher steht ('fremd': ein anderer Tab hat ihn
+    // inzwischen ersetzt, dessen Basis bleibt).
+    if (entwurfImSpeicher(speichereEntwurf('server'))) setzeEntwurfBasis(antwort.hash);
     faerbeSpeicherKnopf();
     return true;
   }
@@ -3396,14 +3322,31 @@ async function inDieWeltSpeichern(): Promise<boolean> {
 }
 
 /**
+ * Nimmt einen Entwurf, den ein anderer Tab seit dem letzten Abgleich
+ * geschrieben hat, sofort über (`beiFremdem` zeigt die Meldung). Liefert `true`,
+ * wenn das geschah: Dann ist `layout` nicht mehr der Stand, den der Aufrufer
+ * gerade speichern wollte, und er bricht ab — mit einem Satz, der sagt warum.
+ */
+function fremderEntwurfUebernommen(): boolean {
+  if (!entwurfsSpeicher.abgleichen()) return false;
+  shell.meldung(
+    'Nicht gespeichert: Ein anderer Tab hat den Entwurf inzwischen geändert und wurde übernommen — ' +
+      'bitte prüfen und dann erneut speichern.',
+    true
+  );
+  return true;
+}
+
+/**
  * Der Server hat die Basis des Editors abgelehnt (409): Jemand anders hat
  * die Welt seit dem Laden gespeichert. Statt zu überschreiben, holt der
  * Editor den aktuellen Stand und zeigt dieselbe Gegenüberstellung wie beim
  * Start (weltdokument.vergleiche, AbgleichDialog). Beide Antworten sind
  * bewusst: den Serverstand laden (der eigene Entwurf bleibt per Strg+Z
- * erreichbar) oder den Entwurf behalten — dann gilt der jetzt gesehene
- * Serverstand als Basis, und erst ein NEUES Speichern ersetzt ihn. Kein
- * Aufruf hier schreibt auf den Server.
+ * erreichbar; dann beruht der Entwurf auf ihm) oder den Entwurf behalten —
+ * dann ist der gezeigte Serverstand die Basis, und das nächste Speichern
+ * (auch aus dem Testflug) ersetzt ihn. Bis zur Antwort im Dialog bleibt die
+ * Basis des Entwurfs, wie sie war. Kein Aufruf hier schreibt auf den Server.
  */
 async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
   const schirm = vorhang(`Aktueller Serverstand von ${weltName()} wird geholt …`);
@@ -3436,15 +3379,15 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
       {
         id: 'entwurf',
         text: '✎ Entwurf behalten',
-        hinweis: 'Der Serverstand bleibt vorerst unangetastet — bis du erneut speicherst und ihn damit ersetzt.',
+        hinweis: 'Dein Entwurf gilt: Der Serverstand wird beim nächsten Speichern ersetzt — auch aus dem Testflug.',
         warnung: true,
       },
     ],
     { text: '⬇ Entwurf vorher als JSON sichern', tun: entwurfExportieren }
   );
-  // Beide Wege haben den aktuellen Serverstand gesehen: Er ist ab jetzt die
-  // Basis. Ohne diese Zeilen liefe jedes weitere Speichern erneut in 409.
-  setzeServerHash(stand.hash);
+  // Beide Wege haben den aktuellen Serverstand gesehen; die Basis des Entwurfs
+  // ändert sich aber erst mit der Entscheidung, und nur so: Serverstand laden
+  // → der Entwurf IST er; Entwurf behalten → ausdrücklich der gezeigte Stand.
   serverKanon = JSON.stringify(stand.layout);
   if (wahl === 'server') {
     const ringVor = ringStand();
@@ -3455,7 +3398,9 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
     // Wichtigeres zu melden ist (serverstandFolge, dieselbe Regel wie im
     // Start-Abgleich): Bei einem übernommenen fremden Stand, 'voll' oder
     // 'knapp' steht deren Meldung.
-    const folge = serverstandFolge(alles('server'));
+    const grund = alles('server');
+    const folge = serverstandFolge(grund);
+    if (entwurfImSpeicher(grund)) setzeEntwurfBasis(stand.hash);
     vorschauAnstossen();
     if (folge === 'geladen') {
       shell.meldung(
@@ -3465,10 +3410,14 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
     return;
   }
   faerbeSpeicherKnopf();
-  shell.meldung(
-    `Entwurf behalten — ${weltName()} auf dem Server ist unverändert, bis du erneut speicherst.`,
-    true
-  );
+  // Den behaltenen Entwurf (wie im Start-Abgleich) in den Speicher schreiben: Die
+  // Basis beschreibt den Entwurf IM SPEICHER. Steht er dort nicht ('voll') oder hat
+  // ein anderer Tab ihn ersetzt ('fremd': über DEN wurde nicht entschieden), gibt es
+  // keine Basis, und deren Meldung gilt.
+  const behalten = speichereEntwurf(entwurfStandLesen()?.quelle ?? 'bearbeitet');
+  if (!entwurfImSpeicher(behalten)) return;
+  setzeEntwurfBasis(stand.hash);
+  if (behalten === 'ok') shell.meldung(behaltenMeldung(weltName()), true);
 }
 
 // ── Karte live testen ────────────────────────────────────────────────
@@ -4113,7 +4062,10 @@ async function weltAbgleich(): Promise<void> {
   shell.instanzZeigen(stand.instanz, stand.datei, stand.message);
   faerbeSpeicherKnopf();
   serverKanon = JSON.stringify(stand.layout);
-  setzeServerHash(stand.hash);
+  // Hier wird die Basis des Entwurfs NICHT angefasst: Der Serverstand ist nur
+  // geholt und noch nicht entschieden. Bis zur Antwort im Dialog (die auch
+  // Stunden dauern kann) beruht der Entwurf weiter auf dem Stand, auf dem er
+  // beruhte — der Testflug läuft in dieser Zeit in 409, statt still zu ersetzen.
 
   // Hat ein anderer Tab seit dem Start den Entwurf geändert, ist das jetzt
   // der Entwurf — sonst behielte „Entwurf behalten" den älteren Stand und
@@ -4141,7 +4093,10 @@ async function weltAbgleich(): Promise<void> {
     //  - 'stehen-lassen': 'voll' oder 'knapp' — deren Meldung steht schon und
     //    darf weder überschrieben noch mit einer falschen Aussage über einen
     //    anderen Tab überdeckt werden.
-    const folge = serverstandFolge(alles('server'));
+    const geschrieben = alles('server');
+    const folge = serverstandFolge(geschrieben);
+    // Erst JETZT ist Serverinhalt der Entwurf — und beruht auf diesem Stand.
+    if (entwurfImSpeicher(geschrieben)) setzeEntwurfBasis(stand.hash);
     vorschauAnstossen();
     if (folge === 'nicht-geladen') {
       shell.meldung(
@@ -4195,7 +4150,7 @@ async function weltAbgleich(): Promise<void> {
       {
         id: 'entwurf',
         text: '✎ Entwurf behalten',
-        hinweis: 'Der Serverstand bleibt vorerst unangetastet — bis du speicherst.',
+        hinweis: 'Dein Entwurf gilt: Der Serverstand wird beim nächsten Speichern ersetzt — auch aus dem Testflug.',
         warnung: Boolean(fremd),
       },
     ],
@@ -4213,10 +4168,25 @@ async function weltAbgleich(): Promise<void> {
   // auf die JETZT offene Instanz umschreiben — sonst warnte der nächste
   // Start weiter vor einer Instanz-Verwechslung, die der Nutzer bereits
   // gesehen und bewusst in Kauf genommen hat.
-  speichereEntwurf(zettel?.quelle ?? 'bearbeitet');
-  shell.meldung(
-    `Entwurf behalten — ${weltName()} auf dem Server ist unverändert, bis du speicherst.`,
-    true
+  const behalten = speichereEntwurf(zettel?.quelle ?? 'bearbeitet');
+  // Ausdrückliche Entscheidung des Nutzers: Ab jetzt ist der gezeigte Serverstand
+  // die Basis des Entwurfs, und das nächste Speichern (auch aus dem Testflug)
+  // ersetzt ihn. NUR der Stand, den der Dialog gezeigt hat (`stand.hash`) — hat
+  // inzwischen jemand noch etwas gespeichert, bleibt das ein 409. Steht der
+  // Entwurf nicht im Speicher ('voll') oder hat ein anderer Tab ihn ersetzt
+  // ('fremd': darüber wurde hier nicht entschieden): keine Basis, deren
+  // Meldung gilt.
+  if (!entwurfImSpeicher(behalten)) return;
+  setzeEntwurfBasis(stand.hash);
+  if (behalten === 'ok') {
+    shell.meldung(behaltenMeldung(weltName()), true);
+  }
+}
+/** Was nach „Entwurf behalten" gesagt wird: der Serverstand wird beim nächsten Speichern ersetzt. */
+function behaltenMeldung(welt: string): string {
+  return (
+    `Entwurf behalten — ${welt} auf dem Server bleibt vorerst unverändert, wird aber beim nächsten ` +
+    'Speichern (auch aus dem Testflug) durch deinen Entwurf ersetzt.'
   );
 }
 

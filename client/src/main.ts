@@ -1340,16 +1340,22 @@ async function main() {
     sockelFreiflaechen = (sockelLayout?.placements ?? [])
       .filter((p) => p.einebnen !== undefined)
       .map((p) => ({ x: p.x, z: p.z, r: p.einebnen! }));
-    // Nachschlagewerk für die Namensschilder: Kennung → Einordnung. Der
-    // Server schickt an jeder gespawnten Instanz nur die Kennung (ZDO-Member
-    // `layoutId`, steht dort ohnehin) — Name, Rolle, Fraktion, Stufe und
+    // Nachschlagewerk für die Namensschilder: `id` → Einordnung. Der
+    // Server schickt an jeder gespawnten Instanz nur die `id` der Platzierung
+    // (ZDO-Member `layoutId`, steht dort ohnehin) — Name, Rolle, Fraktion, Stufe und
     // Quest-Zustand holt der Client aus dem Dokument, das er längst hat.
     // Dieselben Angaben in jeden Positions-Tick zu legen wäre die
     // naheliegende, aber teure Lösung: Sie ändern sich nie.
     const npcNachKennung = new Map<string, NpcEinordnung>();
     for (const p of sockelLayout?.placements ?? []) {
       const e = loeseNpcAuf(p.prefab, p.npc);
-      if (e) npcNachKennung.set(layoutKennung(p), e);
+      if (!e) continue;
+      // Ein Spielstand von vor den Platzierungs-IDs trägt noch die alte Kennung
+      // (Prefab + gerundete Position) am ZDO, bis der Server ihn umgestempelt
+      // hat: Sie bleibt als Rückfall. Beide Schreibweisen können sich nie
+      // treffen (die alte enthält ein `@`, eine `id` nie).
+      if (p.id !== undefined) npcNachKennung.set(p.id, e);
+      npcNachKennung.set(layoutKennung(p), e);
     }
     world = createWorld(seed, settings, layout);
     console.log('[world] GeoManager ready, ground(0,0) =', world.getGroundHeight(0, 0));

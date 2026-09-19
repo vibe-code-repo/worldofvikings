@@ -24,6 +24,7 @@ import {
   PacketType,
   createGeo,
   sanitizeWorldLayout,
+  sanitizeWorldLayoutMitBericht,
   pruefeLayout,
   HEALTH_MEMBER,
   maxLeben,
@@ -92,6 +93,7 @@ import { ZDOID } from './zdo/ZDOID.js';
 import { PrefabManager } from './prefab/PrefabManager.js';
 import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
+import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { befreieSpielerbauten, layoutAbgleich } from './world/layoutAbgleich.js';
@@ -599,6 +601,14 @@ export class WovServer {
     // `init()`, der Aufruf erfolgt aber immer später (bei einem Befehl).
     this.adminCommands = new AdminCommandRegistry({
       bodenHoehe: (x, z) => this.getGroundHeight(x, z),
+      zonenRuecksetzen: (zx, zy, radius, alt) =>
+        setzeZonenZurueck(
+          { zdos: this.zdos, heightmaps: this.heightmaps, zones: this.zones },
+          zx,
+          zy,
+          radius,
+          { alt }
+        ),
     });
     // Phase G: dungeon system — documents live next to the world saves.
     // Je Instanz ein eigener Unterordner: entrances.json bildet WELT-Eingänge
@@ -1149,7 +1159,8 @@ export class WovServer {
    */
   private spawnLayoutPlacements(): void {
     if (this.config.worldMode !== 'layout') return;
-    const layout = sanitizeWorldLayout(this.worldLayoutRaw);
+    const bericht = sanitizeWorldLayoutMitBericht(this.worldLayoutRaw);
+    const layout = bericht?.layout ?? null;
     // Ein Dokument ohne Platzierungen ist gültig und heißt „keine": Der
     // Abgleich räumt dann die Layout-ZDOs ab, die sonst für immer stünden.
     // „Bewusst leer" heißt aber nur: das Feld `placements` fehlt oder ist ein
@@ -1208,13 +1219,15 @@ export class WovServer {
         },
       },
       layout,
-      { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl) }
+      // Zusammengefasste exakte Duplikate sind nichts Verworfenes (dieselbe Zahl wie im Schreibweg).
+      { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0 }
     );
     if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
     console.log(
       `[WoV] Layout-Abgleich: ${ergebnis.gespawnt} gespawnt, ${ergebnis.aktualisiert} aktualisiert, ` +
         `${ergebnis.unveraendert} unverändert, ${ergebnis.entfernt} entfernt` +
         (ergebnis.ueberzaehlig > 0 ? ` (davon ${ergebnis.ueberzaehlig} überzählig)` : '') +
+        (ergebnis.umgestempelt > 0 ? `, davon ${ergebnis.umgestempelt} auf die Platzierungs-id umgestempelt` : '') +
         `, ${ergebnis.unbekannt} unbekannt (Prefab übersprungen)`
     );
     if (ergebnis.ohneLoeschen) {

@@ -14,12 +14,16 @@
  * fehlgeschlagenen Check.
  *
  * Schreibsperre: Der MCP-Server schreibt nur in die Weltdatei SEINES
- * Checkouts. Die Probe gibt ihm die Testwurzel als Checkout (WOV_WURZEL, wie
- * beim Betriebsdienst); der Abschnitt „Schreibsperre" prüft zusätzlich, dass
- * `weltKennung` im GET steht, ein Server mit fremder Wurzel nichts schreibt
- * (Datei und Sicherungen unverändert), WOV_MCP_FREMDE_WELT=1 es erlaubt und
- * ein Dienst ohne Kennung ebenfalls abgewiesen wird, ohne dass ein POST
- * ankommt.
+ * Checkouts. Sein Checkout ist der Ordner, in dem `server.ts` liegt; die
+ * Probe legt deshalb je Wurzel eine KOPIE von `server.ts` hinein
+ * (`checkoutAnlegen`, mit einem Symlink auf die node_modules), statt dem Server
+ * eine Wurzel per Umgebung zu geben — die liest er nicht. Der Abschnitt
+ * „Schreibsperre" prüft: `weltKennung` steht im GET, ein Server in fremder
+ * Wurzel schreibt nichts (Datei und Sicherungen unverändert), auch nicht mit
+ * einem gesetzten WOV_WURZEL, WOV_MCP_FREMDE_WELT=1 erlaubt es, ein Symlink
+ * aus dem Checkout hinaus wird verweigert (Datei und Ordner), ein Checkout
+ * unter einem Symlink-Ordner bleibt erlaubt, und ein Dienst ohne Kennung wird
+ * abgewiesen, ohne dass ein POST ankommt.
  *
  *   npx tsx tools/worldlayout-mcp/probe.ts
  */
@@ -29,7 +33,7 @@ import {
   getDefaultEnvironment,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { resolve, dirname } from 'node:path';
@@ -42,8 +46,23 @@ const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 // den Ursprung (Land bei (0,0), offene See weit draußen) reicht für alle
 // Checks unten und ist unabhängig von Mikes tatsächlichem Weltstand.
 const TEST_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-'));
-// Eine zweite Wurzel: der „fremde Checkout" der Schreibsperre-Prüfung.
+// Weitere Wurzeln für die Schreibsperre-Prüfung: ein fremder Checkout mit
+// eigener Welt, einer ohne Weltdatei, zwei mit Symlink aus dem Checkout hinaus,
+// ein Symlink-Elternordner auf die Testwurzel.
 const FREMD_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-fremd-'));
+const LEER_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-leer-'));
+const SYMDATEI_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-symdatei-'));
+const SYMORDNER_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-symordner-'));
+const ELTERNLINK = resolve(tmpdir(), `worldlayout-mcp-probe-link-${process.pid}`);
+
+/** Ein „Checkout": eine Kopie von server.ts an derselben Stelle relativ zur Wurzel, mit den node_modules des Repos. */
+function checkoutAnlegen(wurzel: string): void {
+  mkdirSync(resolve(wurzel, 'tools/worldlayout-mcp'), { recursive: true });
+  copyFileSync(resolve(WURZEL, 'tools/worldlayout-mcp/server.ts'), resolve(wurzel, 'tools/worldlayout-mcp/server.ts'));
+  symlinkSync(resolve(WURZEL, 'node_modules'), resolve(wurzel, 'node_modules'));
+  // Wie im Repo: .ts-Dateien sind ES-Module (Top-Level-await in server.ts).
+  writeFileSync(resolve(wurzel, 'package.json'), '{ "type": "module" }\n');
+}
 const TOKEN = 'probe-token-4711';
 const TOKEN_DATEI = resolve(TEST_WURZEL, 'token');
 mkdirSync(resolve(TEST_WURZEL, 'server/data/welten'), { recursive: true });
@@ -101,8 +120,10 @@ function dienstStarten(): Promise<{ kind: ChildProcess; url: string }> {
 
 /** Räumt die Testwurzeln samt Weltdatei und Sicherungen weg. */
 function aufraeumen(): void {
-  rmSync(TEST_WURZEL, { recursive: true, force: true });
-  rmSync(FREMD_WURZEL, { recursive: true, force: true });
+  rmSync(ELTERNLINK, { force: true });
+  for (const w of [TEST_WURZEL, FREMD_WURZEL, LEER_WURZEL, SYMDATEI_WURZEL, SYMORDNER_WURZEL]) {
+    rmSync(w, { recursive: true, force: true });
+  }
 }
 
 let fehler = 0;
@@ -122,16 +143,17 @@ let client: Client | undefined;
 let dienst: ChildProcess | undefined;
 try {
   const gestartet = await dienstStarten();
+  checkoutAnlegen(TEST_WURZEL);
   dienst = gestartet.kind;
   const t = new StdioClientTransport({
     command: 'npx',
     args: ['tsx', 'tools/worldlayout-mcp/server.ts'],
-    cwd: WURZEL,
+    cwd: TEST_WURZEL,
     // env wird bei Angabe NICHT gemergt, sondern ersetzt (SDK-Doku) —
     // deshalb erst die Standardauswahl holen und die Betriebsdienst-Angaben
     // ergänzen, statt versehentlich PATH & Co. zu verlieren (npx würde sonst
     // nicht mehr gefunden).
-    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: gestartet.url, WOV_ADMIN_TOKEN: TOKEN, WOV_WURZEL: TEST_WURZEL },
+    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: gestartet.url, WOV_ADMIN_TOKEN: TOKEN },
   });
   const c = new Client({ name: 'probe', version: '1.0.0' });
   client = c;
@@ -338,11 +360,17 @@ try {
     const t = await r.text();
     return { text: t, json: JSON.parse(t) as Record<string, unknown> };
   };
-  const mcpStarten = async (extra: Record<string, string>, url = gestartet.url): Promise<Client> => {
+  /** Startet den MCP-Server, den die Kopie in `wurzel` darstellt (deren Checkout er ist). */
+  const mcpStarten = async (
+    wurzel: string,
+    extra: Record<string, string> = {},
+    url = gestartet.url,
+    cwd = wurzel
+  ): Promise<Client> => {
     const tr = new StdioClientTransport({
       command: 'npx',
       args: ['tsx', 'tools/worldlayout-mcp/server.ts'],
-      cwd: WURZEL,
+      cwd,
       env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN, ...extra },
     });
     const k = new Client({ name: 'probe-sperre', version: '1.0.0' });
@@ -350,6 +378,8 @@ try {
     return k;
   };
   const platzierung = { platzierung: { prefab: 'Beech1', x: 7, z: 8 } };
+  const weltMitName = (name: string): string =>
+    JSON.stringify({ version: 1, name, detailSeed: 'x', continents: [], regions: [] });
 
   // (1) Der GET nennt die Weltkennung, aber keinen Pfad.
   const antwort = await dienstGet(gestartet.url);
@@ -357,13 +387,21 @@ try {
   check('GET /api/worldlayout enthält weltKennung (64 Hex)', /^[0-9a-f]{64}$/.test(String(antwort.json.weltKennung)), String(antwort.json.weltKennung));
   check('weltKennung = sha256(realpath der Weltdatei)', antwort.json.weltKennung === erwarteteKennung);
   check('GET verrät keinen Pfad der Wurzel', !antwort.text.includes(TEST_WURZEL));
+  // Der Aufruf von realpathSync im GET steht in einem try: ein Wurf dort wäre sonst ein 500 statt
+  // einer Antwort ohne Kennung (die Datei kann zwischen existsSync und realpathSync verschwinden).
+  const adminQuelle = readFileSync(resolve(WURZEL, 'admin/src/main.ts'), 'utf-8');
+  check(
+    'GET: realpathSync(LAYOUT_DATEI) steht in einem try (kein 500 bei verschwundener Datei)',
+    /try\s*\{\s*weltKennung\s*=[^;]*realpathSync\(LAYOUT_DATEI\)[^;]*;\s*\}\s*catch/.test(adminQuelle)
+  );
 
   // (2) Eigener Checkout = verwaltete Welt: der lange Lauf oben hat geschrieben (alle *_set ok).
 
   // (3) Fremder Checkout: Lesen ja, Schreiben nein — Datei und Sicherungen unverändert.
+  checkoutAnlegen(FREMD_WURZEL);
   mkdirSync(resolve(FREMD_WURZEL, 'server/data/welten'), { recursive: true });
-  writeFileSync(resolve(FREMD_WURZEL, 'server/data/welten/dev.json'), JSON.stringify({ version: 1, name: 'Fremd', detailSeed: 'x', continents: [], regions: [] }));
-  const fremd = await mcpStarten({ WOV_WURZEL: FREMD_WURZEL });
+  writeFileSync(resolve(FREMD_WURZEL, 'server/data/welten/dev.json'), weltMitName('Fremd'));
+  const fremd = await mcpStarten(FREMD_WURZEL);
   try {
     const sumVorher = pruefsumme();
     const dateienVorher = sicherungen();
@@ -391,8 +429,31 @@ try {
     await fremd.close();
   }
 
-  // Ein Checkout ohne eigene Weltdatei: auch nichts, mit deutlicher Begründung.
-  const ohneDatei = await mcpStarten({ WOV_WURZEL: resolve(FREMD_WURZEL, 'gibt-es-nicht') });
+  // (3b) Ein gesetztes WOV_WURZEL hebelt die Sperre nicht aus: der fremde Checkout bekommt die
+  // Wurzel des Dienstes per Umgebung und schreibt trotzdem nicht; der eigene ignoriert eine
+  // abweichende. Ohne WOV_MCP_FREMDE_WELT=1 gilt die Umgebungsvariable nirgends.
+  const umgebung = await mcpStarten(FREMD_WURZEL, { WOV_WURZEL: TEST_WURZEL });
+  try {
+    const sumVorher = pruefsumme();
+    const r = await umgebung.callTool({ name: 'placement_set', arguments: platzierung });
+    check('WOV_WURZEL=<Wurzel des Dienstes> im fremden Checkout: Schreiben verweigert', istFehler(r) && /verwaltet nicht/.test(text(r)), text(r));
+    check('WOV_WURZEL=<Wurzel des Dienstes>: Weltdatei unverändert', pruefsumme() === sumVorher);
+  } finally {
+    await umgebung.close();
+  }
+  const eigenMitEnv = await mcpStarten(TEST_WURZEL, { WOV_WURZEL: FREMD_WURZEL });
+  try {
+    const r = await eigenMitEnv.callTool({ name: 'placement_set', arguments: platzierung });
+    check('WOV_WURZEL=<fremde Wurzel> im eigenen Checkout wird ignoriert: schreibt in die eigene Welt', !istFehler(r), text(r));
+    const weg = await eigenMitEnv.callTool({ name: 'placement_delete', arguments: { prefab: 'Beech1', x: 7, z: 8 } });
+    check('WOV_WURZEL ignoriert: placement_delete räumt auf', !istFehler(weg), text(weg));
+  } finally {
+    await eigenMitEnv.close();
+  }
+
+  // (3c) Ein Checkout ohne eigene Weltdatei: auch nichts, mit deutlicher Begründung.
+  checkoutAnlegen(LEER_WURZEL);
+  const ohneDatei = await mcpStarten(LEER_WURZEL);
   try {
     const r = await ohneDatei.callTool({ name: 'placement_set', arguments: platzierung });
     check('Checkout ohne Weltdatei: Schreiben verweigert, sagt warum', istFehler(r) && /existiert nicht/.test(text(r)), text(r));
@@ -400,8 +461,45 @@ try {
     await ohneDatei.close();
   }
 
+  // (3d) Symlink aus dem Checkout hinaus: Die eigene Weltdatei ist nur ein Verweis auf die vom
+  // Dienst verwaltete. Die Kennungen wären gleich; die Sperre muss trotzdem greifen.
+  checkoutAnlegen(SYMDATEI_WURZEL);
+  mkdirSync(resolve(SYMDATEI_WURZEL, 'server/data/welten'), { recursive: true });
+  symlinkSync(weltDateiPfad, resolve(SYMDATEI_WURZEL, 'server/data/welten/dev.json'));
+  checkoutAnlegen(SYMORDNER_WURZEL);
+  mkdirSync(resolve(SYMORDNER_WURZEL, 'server/data'), { recursive: true });
+  symlinkSync(resolve(TEST_WURZEL, 'server/data/welten'), resolve(SYMORDNER_WURZEL, 'server/data/welten'));
+  for (const [was, wurzel] of [
+    ['Weltdatei ist ein Symlink aus dem Checkout hinaus', SYMDATEI_WURZEL],
+    ['Ordner welten/ ist ein Symlink aus dem Checkout hinaus', SYMORDNER_WURZEL],
+  ] as const) {
+    const sym = await mcpStarten(wurzel);
+    try {
+      const sumVorher = pruefsumme();
+      const dateienVorher = sicherungen();
+      const lesen = await sym.callTool({ name: 'layout_get', arguments: {} });
+      check(`${was}: layout_get (Lesen) bleibt erlaubt`, !istFehler(lesen), text(lesen).slice(0, 80));
+      const r = await sym.callTool({ name: 'placement_set', arguments: platzierung });
+      check(`${was}: Schreiben verweigert, Meldung nennt den Symlink`, istFehler(r) && /Symlink/.test(text(r)), text(r));
+      check(`${was}: Weltdatei und Sicherungen unverändert`, pruefsumme() === sumVorher && sicherungen() === dateienVorher);
+    } finally {
+      await sym.close();
+    }
+  }
+  // Ein Checkout UNTER einem Symlink-Ordner (wie /opt/wov-worktrees, wenn es ein Link wäre) bleibt erlaubt.
+  symlinkSync(TEST_WURZEL, ELTERNLINK);
+  const ueberLink = await mcpStarten(TEST_WURZEL, {}, gestartet.url, ELTERNLINK);
+  try {
+    const r = await ueberLink.callTool({ name: 'placement_set', arguments: platzierung });
+    check('Checkout unter einem Symlink-Ordner: Schreiben erlaubt', !istFehler(r), text(r));
+    const weg = await ueberLink.callTool({ name: 'placement_delete', arguments: { prefab: 'Beech1', x: 7, z: 8 } });
+    check('Checkout unter einem Symlink-Ordner: placement_delete räumt auf', !istFehler(weg), text(weg));
+  } finally {
+    await ueberLink.close();
+  }
+
   // (4) Bewusst fremde Welt: WOV_MCP_FREMDE_WELT=1 erlaubt es.
-  const bewusst = await mcpStarten({ WOV_WURZEL: FREMD_WURZEL, WOV_MCP_FREMDE_WELT: '1' });
+  const bewusst = await mcpStarten(FREMD_WURZEL, { WOV_MCP_FREMDE_WELT: '1' });
   try {
     const sumVorher = pruefsumme();
     const r = await bewusst.callTool({ name: 'placement_set', arguments: platzierung });
@@ -429,7 +527,7 @@ try {
   });
   await new Promise<void>((fertig) => altDienst.listen(0, '127.0.0.1', fertig));
   const altPort = (altDienst.address() as { port: number }).port;
-  const alt = await mcpStarten({ WOV_WURZEL: TEST_WURZEL }, `http://127.0.0.1:${altPort}`);
+  const alt = await mcpStarten(TEST_WURZEL, {}, `http://127.0.0.1:${altPort}`);
   try {
     const r = await alt.callTool({ name: 'placement_set', arguments: platzierung });
     check('Dienst ohne weltKennung: Schreiben verweigert', istFehler(r) && /keine weltKennung/.test(text(r)), text(r));

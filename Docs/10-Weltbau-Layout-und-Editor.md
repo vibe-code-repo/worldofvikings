@@ -381,16 +381,21 @@ verwaltet: `GET /api/worldlayout` liefert dafür `weltKennung` (sha256 des
 `realpath` der Weltdatei, bewusst kein Pfad); der Server vergleicht sie mit
 der Kennung seiner eigenen Datei. Stimmt sie nicht oder fehlt sie (älterer
 Dienst), verweigert das Werkzeug mit einer Meldung, die den eigenen Pfad
-nennt; **Lesen bleibt immer erlaubt**. Wer bewusst eine fremde Welt schreiben
-will, setzt `WOV_MCP_FREMDE_WELT=1`. Wer `npm run dev` im selben Checkout
-laufen hat, braucht nichts zu setzen (`scripts/dev.mjs` startet den
-Betriebsdienst mit derselben Wurzel).
+nennt; **Lesen bleibt immer erlaubt**. Ein Symlink auf der eigenen Weltdatei
+oder einem Ordner darüber, der aus dem Checkout hinauszeigt, gilt nicht als
+„eigene" Welt (er löste sich auf dieselbe Datei wie die fremde auf) und wird
+verweigert; Symlinks innerhalb des Checkouts sind erlaubt. `WOV_WURZEL` liest
+der MCP-Server nicht (ein gesetztes, abweichendes wird auf stderr gemeldet und
+ignoriert). Wer bewusst eine fremde Welt schreiben will, setzt
+`WOV_MCP_FREMDE_WELT=1`. Wer `npm run dev` im selben Checkout laufen hat,
+braucht nichts zu setzen (`scripts/dev.mjs` startet den Betriebsdienst mit
+derselben Wurzel).
 
 Zum Erproben in einem Worktree: eigenen Betriebsdienst auf dem Slot-Port
 starten (`WOV_ADMIN_PORT=248n`; die Wurzel ist der Worktree) und den
 MCP-Server mit demselben `WOV_ADMIN_PORT` ansprechen. Auf einer Weltkopie
 außerhalb des Checkouts (`WOV_WURZEL`=Kopie, eigene `WOV_ADMIN_TOKEN_DATEI`)
-braucht auch der MCP-Server dieselbe `WOV_WURZEL` oder `WOV_MCP_FREMDE_WELT=1`.
+braucht der MCP-Server `WOV_MCP_FREMDE_WELT=1`.
 Über `WOV_ADMIN_URL` verweigert `layout_deploy` die Arbeit, weil ein Neustart
 eine andere Weltdatei lüde. `tools/worldlayout-mcp/probe.ts` prüft alles
 davon (eigener Betriebsdienst, eigene und fremde Wurzel, Dienst ohne

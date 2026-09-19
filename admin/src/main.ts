@@ -1052,6 +1052,15 @@ async function behandeln(
     // Zwischenspeicher oder curl -i sieht den Kopf. Der Client schickt ihn
     // beim Speichern als If-Match bzw. `basis` zurueck.
     const { layout, hash } = layoutLesenMitHash(LAYOUT_DATEI);
+    // Verschwindet die Datei zwischen `existsSync` und hier, fehlt die
+    // Kennung nur (statt eines 500): Der MCP-Server verweigert das Schreiben
+    // dann. / A vanished file only drops the kennung instead of a 500.
+    let weltKennung: string | undefined;
+    try {
+      weltKennung = createHash('sha256').update(realpathSync(LAYOUT_DATEI)).digest('hex');
+    } catch {
+      /* ohne Kennung antworten */
+    }
     return {
       code: 200,
       kopf: { ETag: `"${hash}"` },
@@ -1064,7 +1073,7 @@ async function behandeln(
         // vergleicht sie mit der Weltdatei SEINES Checkouts und schreibt nur
         // dorthin (tools/worldlayout-mcp/server.ts). / Which file this is,
         // without leaking the path.
-        weltKennung: createHash('sha256').update(realpathSync(LAYOUT_DATEI)).digest('hex'),
+        ...(weltKennung ? { weltKennung } : {}),
         hash,
         layout,
       },

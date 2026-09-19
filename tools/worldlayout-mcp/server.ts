@@ -45,9 +45,10 @@
  * Die *_set/*_delete-Werkzeuge schreiben nur, wenn der angesprochene
  * Betriebsdienst die Weltdatei DIESES Checkouts verwaltet
  * (server/data/welten/<instanz>.json des Repos, in dem diese Datei liegt;
- * WOV_WURZEL überschreibt die Wurzel wie beim Betriebsdienst). Der Dienst
- * meldet in GET /api/worldlayout die `weltKennung` (sha256 des realpath, kein
- * Pfad); stimmt sie nicht oder fehlt sie, verweigert das Werkzeug mit einer
+ * WOV_WURZEL wird NICHT gelesen). Der Dienst meldet in GET /api/worldlayout
+ * die `weltKennung` (sha256 des realpath, kein Pfad); stimmt sie nicht oder
+ * fehlt sie, oder zeigt die eigene Weltdatei (bzw. ein Ordner darüber) über
+ * einen Symlink aus dem Checkout hinaus, verweigert das Werkzeug mit einer
  * Meldung, die den eigenen Pfad nennt. Lesen bleibt immer erlaubt.
  * WOV_MCP_FREMDE_WELT=1 hebt die Sperre auf, wenn eine fremde Welt bewusst
  * geschrieben werden soll. Grund: In einem Worktree auf wov-dev zeigt die
@@ -59,9 +60,9 @@
  * dieser Checkout ist die Vorgabe, `WOV_ADMIN_PORT=248n`) und den
  * MCP-Server mit demselben WOV_ADMIN_PORT ansprechen. Auf einer Weltkopie
  * außerhalb des Checkouts (WOV_WURZEL auf ein Wegwerfverzeichnis,
- * WOV_ADMIN_PORT=0, eigene WOV_ADMIN_TOKEN_DATEI — `probe.ts` macht genau
- * das) braucht auch der MCP-Server dieselbe WOV_WURZEL, oder
- * WOV_MCP_FREMDE_WELT=1.
+ * WOV_ADMIN_PORT=0, eigene WOV_ADMIN_TOKEN_DATEI) braucht der MCP-Server
+ * WOV_MCP_FREMDE_WELT=1. `probe.ts` legt stattdessen eine Kopie dieses
+ * Servers in die Testwurzel: dort IST sie der eigene Checkout.
  *
  * `layout_deploy` verweigert die Arbeit, solange WOV_ADMIN_URL gesetzt ist:
  * Ein Neustart des lokalen wov-Servers lädt die Weltdatei DIESER Instanz,
@@ -74,6 +75,7 @@ import { z } from 'zod';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   sanitizeWorldLayout,
@@ -116,11 +118,31 @@ const ADMIN_TOKEN_DATEIEN = process.env.WOV_ADMIN_TOKEN_DATEI
 // Geschrieben wird nur in die Weltdatei DIESES Checkouts. Der Betriebsdienst
 // meldet mit jedem GET, welche Datei er verwaltet (`weltKennung`, sha256 des
 // realpath, kein Pfad); schreibe() vergleicht sie mit der Kennung der eigenen
-// Datei (Wurzel wie im Betriebsdienst: WOV_WURZEL, sonst dieser Checkout;
-// Instanz über shared/src/instanz.ts). Ohne diese Sperre schriebe ein Agent in
-// einem Worktree per Vorgabe (127.0.0.1:2468) in die DEV-Welt.
-const CHECKOUT_WURZEL = process.env.WOV_WURZEL || fileURLToPath(new URL('../../', import.meta.url));
+// Datei (Wurzel: der Checkout, in dem diese Datei liegt; Instanz über
+// shared/src/instanz.ts). Ohne diese Sperre schriebe ein Agent in einem
+// Worktree per Vorgabe (127.0.0.1:2468) in die DEV-Welt.
+//
+// Die Wurzel ist FEST der Checkout dieser Datei. `WOV_WURZEL` (die Wurzel-
+// Übersteuerung des Betriebsdienstes) wird hier nicht gelesen: aus einem
+// Nutzerprofil käme sie ohne jede Bestätigung, und `/opt/worldofvikings` als
+// „eigene" Welt hebelte die Sperre aus. Wer eine fremde Welt will, setzt
+// WOV_MCP_FREMDE_WELT=1 — ausdrücklich, für diesen einen Start.
+const CHECKOUT_WURZEL = fileURLToPath(new URL('../../', import.meta.url));
 const FREMDE_WELT_ERLAUBT = process.env.WOV_MCP_FREMDE_WELT === '1';
+const wurzelEnv = process.env.WOV_WURZEL;
+const wurzelEnvAbweichend = (): boolean => {
+  try {
+    return realpathSync(wurzelEnv!) !== realpathSync(CHECKOUT_WURZEL);
+  } catch {
+    return true;
+  }
+};
+if (wurzelEnv && !FREMDE_WELT_ERLAUBT && wurzelEnvAbweichend()) {
+  console.error(
+    `[worldlayout-mcp] WOV_WURZEL=${wurzelEnv} wird ignoriert: geschrieben wird nur in die Welt ` +
+      `dieses Checkouts (${CHECKOUT_WURZEL}). Eine fremde Welt braucht WOV_MCP_FREMDE_WELT=1.`
+  );
+}
 const kennungVon = (datei: string): string => createHash('sha256').update(realpathSync(datei)).digest('hex');
 /** Kennung aus der letzten Antwort des Betriebsdienstes (die Adresse ist je Prozess fest). */
 let verwalteteWeltKennung: string | undefined;
@@ -130,14 +152,23 @@ function pruefeEigeneWelt(): void {
   if (FREMDE_WELT_ERLAUBT) return;
   const eigene = weltDatei(CHECKOUT_WURZEL, instanzName());
   let eigeneKennung: string | undefined;
+  let ausserhalb = false;
   try {
-    eigeneKennung = kennungVon(eigene);
+    const echt = realpathSync(eigene);
+    const wurzelEcht = realpathSync(CHECKOUT_WURZEL);
+    // Ein Symlink (auf der Datei oder einem Ordner darüber), der aus dem
+    // Checkout hinauszeigt, machte die fremde Datei zur „eigenen": beide
+    // lösen sich auf dasselbe Ziel auf. Symlinks INNERHALB des Checkouts und
+    // ein Checkout unter einem Symlink-Ordner bleiben erlaubt.
+    if (echt.startsWith(wurzelEcht + sep)) eigeneKennung = kennungVon(echt);
+    else ausserhalb = true;
   } catch {
     /* die eigene Datei fehlt: nichts passt */
   }
   if (eigeneKennung !== undefined && eigeneKennung === verwalteteWeltKennung) return;
-  const grund =
-    verwalteteWeltKennung === undefined
+  const grund = ausserhalb
+    ? 'Die Weltdatei dieses Checkouts zeigt über einen Symlink aus dem Checkout hinaus.'
+    : verwalteteWeltKennung === undefined
       ? 'Er meldet keine weltKennung (älterer Dienst?).'
       : eigeneKennung === undefined
         ? 'Die Weltdatei dieses Checkouts existiert nicht.'

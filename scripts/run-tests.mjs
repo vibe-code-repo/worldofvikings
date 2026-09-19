@@ -1351,6 +1351,20 @@ const KERN = [
   // in the draft's companion note: a newer editor save gives 409, nothing is
   // overwritten; no base, nothing is sent. Real operations service. ~5 s.
   ['client', 'test/testflug-speichern-basis.ts'],
+  // Editor E1 (integration I1): tool registry, stable placement ids, world
+  // operations, zone reset.
+  // Tool registry: the editor's tools behind one interface (start, abort, keys, bar).
+  ['client', 'test/werkzeug-registry.ts'],
+  // Stable placement ids: the sanitizer derives / keeps / sorts ids, folds exact duplicates.
+  ['shared', 'test/platzierungs-ids.ts'],
+  // World operations (setze / aendere / entferne, undo, anchors): the pure part ...
+  ['shared', 'test/welt-ops.ts'],
+  // ... and PATCH /api/worldlayout/ops plus the 428 on a POST without a base,
+  // against the real operations service on a copy of the world.
+  ['admin', 'test/welt-ops.ts'],
+  // `zone reset` re-scatters generated zones and leaves layout objects, player
+  // builds and admin trees alone.
+  ['server', 'test/zonen-ruecksetzer.ts'],
   // Licht-Hints kommen an der Registry an. Ein Prefab ohne `light` ist
   // nicht kaputt, es ist dunkel — und dunkel faellt nirgends auf.
   ['shared', 'test/licht-hints.ts'],

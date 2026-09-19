@@ -135,13 +135,23 @@ export type ServerStand =
  *    Welt-Startpunkt den ERSTEN Kontinent mit eigenem Spawn; dieselben
  *    Kontinente in anderer Reihenfolge können einen anderen Startpunkt geben.
  *  - Platzierungen, Flüsse, Seen und Routen als Multimenge: Doppelte
- *    zählen, `[P]` enthält `[P, P]` nicht.
+ *    zählen, `[P]` enthält `[P, P]` nicht. Bei Platzierungen bleibt das Feld
+ *    `id` außen vor: Es ist eine Kennung, kein Inhalt, und frisch gebaute
+ *    Stände (`layoutMitPlatzierung`) tragen keine, Ring-Einträge schon.
  *  - Name, Detail-Seed und Startpunkt müssen übereinstimmen.
  * Elemente werden als JSON verglichen. Im Zweifel `false`: ein Stand zu viel
  * zu sichern kostet nur Platz.
  */
 export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
   if (gross === klein) return true;
+  /** Textform einer Platzierung ohne das Feld `id` (die übrigen Felder in ihrer Reihenfolge). */
+  const ohneId = (p: unknown): string => {
+    if (p && typeof p === 'object' && !Array.isArray(p) && 'id' in p) {
+      const { id: _id, ...rest } = p as Record<string, unknown>;
+      return JSON.stringify(rest);
+    }
+    return JSON.stringify(p);
+  };
   const folge = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
     if (!k || k.length === 0) return true;
     const gj = (g ?? []).map((x) => JSON.stringify(x));
@@ -154,15 +164,19 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     }
     return true;
   };
-  const multimenge = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
+  const multimenge = (
+    g: readonly unknown[] | undefined,
+    k: readonly unknown[] | undefined,
+    schluessel: (x: unknown) => string = (x) => JSON.stringify(x)
+  ): boolean => {
     if (!k || k.length === 0) return true;
     const zaehler = new Map<string, number>();
     for (const x of g ?? []) {
-      const j = JSON.stringify(x);
+      const j = schluessel(x);
       zaehler.set(j, (zaehler.get(j) ?? 0) + 1);
     }
     for (const x of k) {
-      const j = JSON.stringify(x);
+      const j = schluessel(x);
       const n = zaehler.get(j) ?? 0;
       if (n === 0) return false;
       zaehler.set(j, n - 1);
@@ -175,7 +189,7 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     (klein.defaultSpawn === undefined || JSON.stringify(gross.defaultSpawn) === JSON.stringify(klein.defaultSpawn)) &&
     folge(gross.regions, klein.regions) &&
     folge(gross.continents, klein.continents) &&
-    multimenge(gross.placements, klein.placements) &&
+    multimenge(gross.placements, klein.placements, ohneId) &&
     multimenge(gross.rivers, klein.rivers) &&
     multimenge(gross.lakes, klein.lakes) &&
     multimenge(gross.routes, klein.routes)
@@ -314,11 +328,35 @@ export function basisNachBestaetigung(bisher: string | null, frisch: ServerStand
   return frisch.erreichbar && frisch.hash !== null ? frisch.hash : bisher;
 }
 
+/**
+ * Nutzertext für „der Entwurf hat keine Basis“, vom Editor gezeigt, BEVOR er
+ * sendet (nach einem JSON-Import, oder wenn der Betriebsdienst beim Start nicht
+ * erreichbar war und es keinen früheren Serverstand gibt). Nennt den Weg heraus:
+ * das Welt-Feld anklicken holt den Serverstand und öffnet die Gegenüberstellung.
+ */
+export const BASIS_FEHLT =
+  'Nicht gespeichert: Der Entwurf beruht auf keinem bekannten Serverstand (z. B. nach einem JSON-Import). ' +
+  'Weg heraus: links oben in der Kopfzeile das Feld „WELT" (zeigt den Instanznamen, z. B. „dev") anklicken — ' +
+  'das holt den Serverstand und zeigt die Gegenüberstellung. Dort „Entwurf behalten" wählen ' +
+  '(der Serverstand wird dann beim nächsten Speichern bewusst ersetzt) oder „Serverstand laden", danach speichern.';
+
+/**
+ * Nutzertext für die Antwort 428 des Betriebsdienstes. Bewusst neutral: Der
+ * Dienst verlangt eine Basis; ob der Aufrufer eine mitgeschickt hat und der
+ * Dienst sie nicht erkannte, sagt die Antwort nicht.
+ */
+export const BASIS_VERLANGT =
+  'Nicht gespeichert: Der Betriebsdienst verlangt für das Speichern eine Basis (den Serverstand, auf dem der Entwurf beruht) ' +
+  'und hat nichts geschrieben. Serverstand laden oder abgleichen (Feld „WELT" links oben in der Kopfzeile anklicken) ' +
+  'und dann erneut speichern.';
+
 /** Ausgang von `schreibeWeltdokument`. */
 export type SchreibAntwort =
   | { art: 'ok'; message: string; hash: string | null }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
+  /** Der Betriebsdienst verlangt eine Basis (428) und hat nichts geschrieben: den Serverstand laden/abgleichen. */
+  | { art: 'basis-fehlt'; message: string }
   | { art: 'zu-viele-platzierungen'; message: string; anzahl: number; grenze: number }
   | { art: 'fehler'; message: string };
 
@@ -375,6 +413,13 @@ export async function schreibeWeltdokument(
       message: 'Die Welt auf dem Server hat sich seit dem Laden geändert — nichts geschrieben.',
       aktuell: hashNormalisieren(d.aktuell) ?? hashNormalisieren(antwort.headers?.get('ETag')),
     };
+  }
+  // Der Dienst verlangt eine Basis (`If-Match`). Editor und Testflug senden ohne
+  // Basis gar nicht erst (s. editorMain.inDieWeltSpeichern); eine 428 kommt also
+  // von einer Gegenstelle oder einer anderen Dienstfassung — der Text sagt nur,
+  // was sicher ist.
+  if (antwort.status === 428) {
+    return { art: 'basis-fehlt', message: BASIS_VERLANGT };
   }
   if (antwort.status === 422 && d.fehler === 'zu-viele-platzierungen') {
     const anzahl = Number(d.anzahl);
@@ -482,34 +527,6 @@ export function entwurfStandLesen(): EntwurfsStand | null {
     };
   } catch {
     return null;
-  }
-}
-
-/**
- * Entwurf samt Begleitzettel schreiben. `false` heisst „Speicher voll"
- * — der Aufrufer muss das melden, sonst arbeitet jemand eine Stunde in
- * einem Entwurf, der beim Neuladen weg ist.
- *
- * UNGESCHÜTZT: schreibt, ohne nachzusehen, was unter dem Schlüssel steht.
- * Der Editor benutzt seit K0.3 `EntwurfsSpeicher.schreiben`
- * (entwurfsSpeicher.ts), das nie über einen fremden Stand hinweg schreibt.
- */
-export function entwurfSchreiben(
-  layout: WorldLayout,
-  quelle: EntwurfsQuelle,
-  instanz: string | null
-): boolean {
-  try {
-    localStorage.setItem(ENTWURF_KEY, JSON.stringify(layout));
-    // Der Begleitzettel wird NACH dem Entwurf geschrieben: Reisst die
-    // Quote, fehlt lieber der Zettel als der Entwurf.
-    localStorage.setItem(
-      STAND_KEY,
-      JSON.stringify({ zeit: new Date().toISOString(), instanz, quelle } satisfies EntwurfsStand)
-    );
-    return true;
-  } catch {
-    return false;
   }
 }
 

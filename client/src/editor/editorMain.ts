@@ -68,6 +68,7 @@ import type { Dungeon2Vorschau } from './dungeon2/Dungeon2Vorschau';
 import type { DungeonVorschau3d } from './DungeonVorschau3d';
 import { befundSchwere } from './befundSchwere';
 import {
+  BASIS_FEHLT,
   alter,
   basisNachBestaetigung,
   brauchtSchrittVorErsetzen,
@@ -87,6 +88,7 @@ import {
   VerdraengtRing,
   alterRingSchluesselEntfernen,
   browserUmgebung,
+  entwurfImSpeicher,
   neueTabId,
   serverstandFolge,
   sollInRing,
@@ -453,19 +455,19 @@ let welt: { instanz: string | null; datei: string | null } = { instanz: null, da
  */
 let serverKanon: string | null = null;
 /**
- * Stand des Serverdokuments (Hash), so wie ihn der Editor zuletzt gelesen
- * bzw. selbst geschrieben hat — die Basis für `If-Match` beim Speichern.
- * `null`, solange der Server keinen liefert; dann wird ohne Basis
- * gespeichert, wie vor K0.2.
+ * Die BASIS des Entwurfs — der Serverstand (Hash), auf dem er beruht — ist die
+ * im Begleitzettel (`entwurfsSpeicher.basisLesen`). Sie ist NICHT „der zuletzt
+ * gelesene Serverstand": Ein Editor, der einen Serverstand nur holt und dem
+ * Nutzer zeigt, ändert sie nicht. Erst `setzeEntwurfBasis` setzt sie, und nur
+ *   (1) nachdem Serverinhalt in den Entwurf geschrieben wurde (Start ohne
+ *       Entwurf, Serverstand laden/übernehmen),
+ *   (2) nach einem gelungenen Speichern in die Welt,
+ *   (3) wenn der Nutzer im Dialog ausdrücklich „Entwurf behalten" wählt.
+ * Der Testflug speichert mit genau dieser Basis (`LocalStoragePersistenz`), der
+ * Editor ebenso (`inDieWeltSpeichern`); der Betriebsdienst lehnt jeden anderen
+ * Stand mit 409 ab. `null`: keine bekannt, dann geht nichts auf den Server.
  */
-let serverHash: string | null = null;
-/**
- * Setzt `serverHash` UND trägt ihn in den Begleitzettel des Entwurfs ein: Der
- * Testflug speichert nur mit dieser Basis (`LocalStoragePersistenz`) und
- * überschreibt so keine neuere Speicherung still.
- */
-function setzeServerHash(hash: string | null): void {
-  serverHash = hash;
+function setzeEntwurfBasis(hash: string | null): void {
   entwurfsSpeicher.basisMerken(hash);
 }
 /**
@@ -2966,6 +2968,13 @@ function weltFeldBauen(): void {
               layout = s;
               gewaehlt = null;
               const grund = alles('import');
+              // Ein Import beruht auf KEINEM Serverstand: Die Basis, die der
+              // vorige Entwurf hatte, gilt nicht für ihn. Ohne sie geht kein
+              // Speichern hinaus (Editor und Testflug), bis der Nutzer im
+              // Abgleich-Dialog entschieden hat („Entwurf behalten" = bewusst
+              // ersetzen). Steht der Import nicht im Speicher ('fremd', 'voll'),
+              // beschreibt die Basis weiter den Entwurf, der dort steht.
+              if (entwurfImSpeicher(grund)) setzeEntwurfBasis(null);
               vorschauAnstossen();
               // Ein Import ist ausdrücklich NUR ein Entwurf. Wer eine
               // live.json in einen dev-Editor zieht, hat damit noch nichts
@@ -3216,6 +3225,12 @@ function faerbeSpeicherKnopf(): void {
  *      Gegenüberstellung gescheitert.
  */
 async function inDieWeltSpeichern(): Promise<boolean> {
+  // Ein anderer Tab (zweiter Editor, Testflug) kann den Entwurf geändert haben,
+  // ohne dass das Ereignis schon angekommen ist. Die Basis kommt aus dem
+  // Begleitzettel und gehört zum Entwurf im Speicher: Ginge `layout` (ein
+  // älterer Stand) mit der Basis eines neueren Entwurfs hinaus, ersetzte er
+  // still, was der Nutzer nie gesehen hat. Erst übernehmen, dann speichern.
+  if (fremderEntwurfUebernommen()) return false;
   const sauber = sanitizeWorldLayout(layout);
   if (!sauber) {
     shell.meldung('Entwurf ist unbrauchbar — nicht gespeichert.', true);
@@ -3229,9 +3244,9 @@ async function inDieWeltSpeichern(): Promise<boolean> {
     return false;
   }
 
-  // Basis für den POST. Nach einer bestätigten Frischprüfung ist es der
-  // Stand, den der Nutzer eben gesehen hat, sonst der zuletzt gelesene.
-  let basis = serverHash;
+  // Basis für den POST: der Serverstand, auf dem der Entwurf beruht. Nach einer
+  // bestätigten Frischprüfung ist es der Stand, den der Nutzer eben gesehen hat.
+  let basis = entwurfsSpeicher.basisLesen();
   if (welt.instanz !== 'dev') {
     // Frisch holen statt `serverKanon` zu benutzen: Zwischen dem Start
     // des Editors und diesem Klick können Stunden liegen, und in denen
@@ -3266,12 +3281,21 @@ async function inDieWeltSpeichern(): Promise<boolean> {
     // Der Nutzer hat GENAU diesen Stand gesehen und zu ersetzen zugestimmt;
     // mit der alten Basis liefe seine Bestätigung in einen 409 und einen
     // zweiten Dialog.
-    basis = basisNachBestaetigung(serverHash, stand);
+    // Die Frage dauerte, so lange sie dauerte: Hat ein anderer Tab den Entwurf
+    // inzwischen geändert, gilt die Bestätigung nicht für diesen Stand.
+    if (fremderEntwurfUebernommen()) return false;
+    basis = basisNachBestaetigung(basis, stand);
+  }
+  // Ohne Basis geht nichts hinaus (der Betriebsdienst lehnt es ohnehin mit 428
+  // ab): Der Entwurf beruht auf keinem bekannten Serverstand — erst laden/abgleichen.
+  if (basis === null) {
+    shell.meldung(BASIS_FEHLT, true);
+    return false;
   }
 
   shell.meldung(`Speichere nach ${weltName()} …`);
-  // Mit der zuletzt gelesenen Basis: Hat inzwischen jemand anders
-  // gespeichert, antwortet der Server 409, und es wird NICHTS geschrieben.
+  // Mit der Basis des Entwurfs: Hat inzwischen jemand anders gespeichert,
+  // antwortet der Server 409, und es wird NICHTS geschrieben.
   const antwort = await schreibeWeltdokument(sauber, basis);
   if (antwort.art === 'ok') {
     shell.meldung(`${antwort.message} — Server neu starten, damit die Welt sie lädt.`);
@@ -3281,8 +3305,10 @@ async function inDieWeltSpeichern(): Promise<boolean> {
     // wegzuklicken. Genau das darf er nie werden. Der neue Hash ist die
     // Basis des nächsten Speicherns.
     serverKanon = JSON.stringify(sauber);
-    setzeServerHash(antwort.hash);
-    speichereEntwurf('server');
+    // Erst den Entwurf schreiben, dann die Basis weiterschieben — und nur,
+    // wenn er wirklich im Speicher steht ('fremd': ein anderer Tab hat ihn
+    // inzwischen ersetzt, dessen Basis bleibt).
+    if (entwurfImSpeicher(speichereEntwurf('server'))) setzeEntwurfBasis(antwort.hash);
     faerbeSpeicherKnopf();
     return true;
   }
@@ -3295,14 +3321,31 @@ async function inDieWeltSpeichern(): Promise<boolean> {
 }
 
 /**
+ * Nimmt einen Entwurf, den ein anderer Tab seit dem letzten Abgleich
+ * geschrieben hat, sofort über (`beiFremdem` zeigt die Meldung). Liefert `true`,
+ * wenn das geschah: Dann ist `layout` nicht mehr der Stand, den der Aufrufer
+ * gerade speichern wollte, und er bricht ab — mit einem Satz, der sagt warum.
+ */
+function fremderEntwurfUebernommen(): boolean {
+  if (!entwurfsSpeicher.abgleichen()) return false;
+  shell.meldung(
+    'Nicht gespeichert: Ein anderer Tab hat den Entwurf inzwischen geändert und wurde übernommen — ' +
+      'bitte prüfen und dann erneut speichern.',
+    true
+  );
+  return true;
+}
+
+/**
  * Der Server hat die Basis des Editors abgelehnt (409): Jemand anders hat
  * die Welt seit dem Laden gespeichert. Statt zu überschreiben, holt der
  * Editor den aktuellen Stand und zeigt dieselbe Gegenüberstellung wie beim
  * Start (weltdokument.vergleiche, AbgleichDialog). Beide Antworten sind
  * bewusst: den Serverstand laden (der eigene Entwurf bleibt per Strg+Z
- * erreichbar) oder den Entwurf behalten — dann gilt der jetzt gesehene
- * Serverstand als Basis, und erst ein NEUES Speichern ersetzt ihn. Kein
- * Aufruf hier schreibt auf den Server.
+ * erreichbar; dann beruht der Entwurf auf ihm) oder den Entwurf behalten —
+ * dann ist der gezeigte Serverstand die Basis, und das nächste Speichern
+ * (auch aus dem Testflug) ersetzt ihn. Bis zur Antwort im Dialog bleibt die
+ * Basis des Entwurfs, wie sie war. Kein Aufruf hier schreibt auf den Server.
  */
 async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
   const schirm = vorhang(`Aktueller Serverstand von ${weltName()} wird geholt …`);
@@ -3335,15 +3378,15 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
       {
         id: 'entwurf',
         text: '✎ Entwurf behalten',
-        hinweis: 'Der Serverstand bleibt vorerst unangetastet — bis du erneut speicherst und ihn damit ersetzt.',
+        hinweis: 'Dein Entwurf gilt: Der Serverstand wird beim nächsten Speichern ersetzt — auch aus dem Testflug.',
         warnung: true,
       },
     ],
     { text: '⬇ Entwurf vorher als JSON sichern', tun: entwurfExportieren }
   );
-  // Beide Wege haben den aktuellen Serverstand gesehen: Er ist ab jetzt die
-  // Basis. Ohne diese Zeilen liefe jedes weitere Speichern erneut in 409.
-  setzeServerHash(stand.hash);
+  // Beide Wege haben den aktuellen Serverstand gesehen; die Basis des Entwurfs
+  // ändert sich aber erst mit der Entscheidung, und nur so: Serverstand laden
+  // → der Entwurf IST er; Entwurf behalten → ausdrücklich der gezeigte Stand.
   serverKanon = JSON.stringify(stand.layout);
   if (wahl === 'server') {
     const ringVor = ringStand();
@@ -3354,7 +3397,9 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
     // Wichtigeres zu melden ist (serverstandFolge, dieselbe Regel wie im
     // Start-Abgleich): Bei einem übernommenen fremden Stand, 'voll' oder
     // 'knapp' steht deren Meldung.
-    const folge = serverstandFolge(alles('server'));
+    const grund = alles('server');
+    const folge = serverstandFolge(grund);
+    if (entwurfImSpeicher(grund)) setzeEntwurfBasis(stand.hash);
     vorschauAnstossen();
     if (folge === 'geladen') {
       shell.meldung(
@@ -3364,10 +3409,14 @@ async function veraltetAbgleichen(sauber: WorldLayout): Promise<void> {
     return;
   }
   faerbeSpeicherKnopf();
-  shell.meldung(
-    `Entwurf behalten — ${weltName()} auf dem Server ist unverändert, bis du erneut speicherst.`,
-    true
-  );
+  // Den behaltenen Entwurf (wie im Start-Abgleich) in den Speicher schreiben: Die
+  // Basis beschreibt den Entwurf IM SPEICHER. Steht er dort nicht ('voll') oder hat
+  // ein anderer Tab ihn ersetzt ('fremd': über DEN wurde nicht entschieden), gibt es
+  // keine Basis, und deren Meldung gilt.
+  const behalten = speichereEntwurf(entwurfStandLesen()?.quelle ?? 'bearbeitet');
+  if (!entwurfImSpeicher(behalten)) return;
+  setzeEntwurfBasis(stand.hash);
+  if (behalten === 'ok') shell.meldung(behaltenMeldung(weltName()), true);
 }
 
 // ── Karte live testen ────────────────────────────────────────────────
@@ -4012,7 +4061,10 @@ async function weltAbgleich(): Promise<void> {
   shell.instanzZeigen(stand.instanz, stand.datei, stand.message);
   faerbeSpeicherKnopf();
   serverKanon = JSON.stringify(stand.layout);
-  setzeServerHash(stand.hash);
+  // Hier wird die Basis des Entwurfs NICHT angefasst: Der Serverstand ist nur
+  // geholt und noch nicht entschieden. Bis zur Antwort im Dialog (die auch
+  // Stunden dauern kann) beruht der Entwurf weiter auf dem Stand, auf dem er
+  // beruhte — der Testflug läuft in dieser Zeit in 409, statt still zu ersetzen.
 
   // Hat ein anderer Tab seit dem Start den Entwurf geändert, ist das jetzt
   // der Entwurf — sonst behielte „Entwurf behalten" den älteren Stand und
@@ -4040,7 +4092,10 @@ async function weltAbgleich(): Promise<void> {
     //  - 'stehen-lassen': 'voll' oder 'knapp' — deren Meldung steht schon und
     //    darf weder überschrieben noch mit einer falschen Aussage über einen
     //    anderen Tab überdeckt werden.
-    const folge = serverstandFolge(alles('server'));
+    const geschrieben = alles('server');
+    const folge = serverstandFolge(geschrieben);
+    // Erst JETZT ist Serverinhalt der Entwurf — und beruht auf diesem Stand.
+    if (entwurfImSpeicher(geschrieben)) setzeEntwurfBasis(stand.hash);
     vorschauAnstossen();
     if (folge === 'nicht-geladen') {
       shell.meldung(
@@ -4094,7 +4149,7 @@ async function weltAbgleich(): Promise<void> {
       {
         id: 'entwurf',
         text: '✎ Entwurf behalten',
-        hinweis: 'Der Serverstand bleibt vorerst unangetastet — bis du speicherst.',
+        hinweis: 'Dein Entwurf gilt: Der Serverstand wird beim nächsten Speichern ersetzt — auch aus dem Testflug.',
         warnung: Boolean(fremd),
       },
     ],
@@ -4112,10 +4167,25 @@ async function weltAbgleich(): Promise<void> {
   // auf die JETZT offene Instanz umschreiben — sonst warnte der nächste
   // Start weiter vor einer Instanz-Verwechslung, die der Nutzer bereits
   // gesehen und bewusst in Kauf genommen hat.
-  speichereEntwurf(zettel?.quelle ?? 'bearbeitet');
-  shell.meldung(
-    `Entwurf behalten — ${weltName()} auf dem Server ist unverändert, bis du speicherst.`,
-    true
+  const behalten = speichereEntwurf(zettel?.quelle ?? 'bearbeitet');
+  // Ausdrückliche Entscheidung des Nutzers: Ab jetzt ist der gezeigte Serverstand
+  // die Basis des Entwurfs, und das nächste Speichern (auch aus dem Testflug)
+  // ersetzt ihn. NUR der Stand, den der Dialog gezeigt hat (`stand.hash`) — hat
+  // inzwischen jemand noch etwas gespeichert, bleibt das ein 409. Steht der
+  // Entwurf nicht im Speicher ('voll') oder hat ein anderer Tab ihn ersetzt
+  // ('fremd': darüber wurde hier nicht entschieden): keine Basis, deren
+  // Meldung gilt.
+  if (!entwurfImSpeicher(behalten)) return;
+  setzeEntwurfBasis(stand.hash);
+  if (behalten === 'ok') {
+    shell.meldung(behaltenMeldung(weltName()), true);
+  }
+}
+/** Was nach „Entwurf behalten" gesagt wird: der Serverstand wird beim nächsten Speichern ersetzt. */
+function behaltenMeldung(welt: string): string {
+  return (
+    `Entwurf behalten — ${welt} auf dem Server bleibt vorerst unverändert, wird aber beim nächsten ` +
+    'Speichern (auch aus dem Testflug) durch deinen Entwurf ersetzt.'
   );
 }
 

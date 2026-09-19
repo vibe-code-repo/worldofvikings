@@ -8,8 +8,9 @@
  *                            409 { fehler: 'veraltet', aktuell }
  *                            422 { fehler: 'zu-viele-platzierungen', anzahl, grenze }
  *                            Erfolg: Antwort mit neuem `hash`
- * Solange K0.2 nicht gemergt ist, liefert der Server keinen Hash: dann geht
- * der POST ohne Basis hinaus, wie bisher.
+ *                            428 { fehler: 'basis-fehlt', message } (E1: POST ohne Basis)
+ * Die Funktion `schreibeWeltdokument` selbst sendet auf Wunsch auch ohne Basis
+ * (Abschnitt 3); der EDITOR tut das nie (Abschnitt 8: ohne Basis kein POST).
  *
  * Lauf:  npx tsx test/editor-speichern-basis.ts
  */
@@ -17,7 +18,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout } from '@wov/shared';
+import * as weltdokument from '../src/editor/weltdokument';
 import { basisNachBestaetigung, hashNormalisieren, holeWeltdokument, schreibeWeltdokument } from '../src/editor/weltdokument';
+
+// Optional access: a stand without the export fails by assertion, not by aborting the run.
+const BASIS_FEHLT = (weltdokument as { BASIS_FEHLT?: string }).BASIS_FEHLT ?? '(BASIS_FEHLT fehlt)';
+const BASIS_VERLANGT = (weltdokument as { BASIS_VERLANGT?: string }).BASIS_VERLANGT ?? '(BASIS_VERLANGT fehlt)';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
@@ -220,18 +226,71 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   const ende = q.indexOf('\n}\n', bis);
   const speichern = q.slice(von, bis);
   const abgleich = q.slice(bis, ende);
+  const start = q.slice(q.indexOf('async function weltAbgleich'), q.indexOf('// ── Start ──'));
+  const zaehle = (re: RegExp, text: string): number => (text.match(re) ?? []).length;
   check('inDieWeltSpeichern und veraltetAbgleichen gefunden', von > 0 && bis > von && ende > bis);
-  check('inDieWeltSpeichern schickt die Basis: schreibeWeltdokument(sauber, basis), basis beginnt bei serverHash', /let basis = serverHash;/.test(speichern) && /schreibeWeltdokument\(sauber, basis\)/.test(speichern));
-  check('… und nimmt nach bestätigter Frischprüfung deren Hash (basisNachBestaetigung(serverHash, stand)) — erst NACH dem „ja"', /if \(wahl !== 'ja'\) \{[\s\S]*?return false;\s*\}\s*[^]*?basis = basisNachBestaetigung\(serverHash, stand\);/.test(speichern));
-  check('… und ruft nirgends selbst fetch(…) für den POST auf', !/fetch\(/.test(speichern.slice(speichern.indexOf('Speichere nach'))));
-  check('… merkt sich den neuen Hash nach Erfolg (setzeServerHash: Editor UND Begleitzettel)', /setzeServerHash\(antwort\.hash\)/.test(speichern));
+
+  // — Speichern: die Basis ist die des ENTWURFS, ohne Basis geht nichts hinaus —
+  check('inDieWeltSpeichern: die Basis beginnt bei der Basis des Entwurfs (entwurfsSpeicher.basisLesen), nicht bei einem „zuletzt gelesenen" Stand', /let basis = entwurfsSpeicher\.basisLesen\(\);/.test(speichern) && !/serverHash/.test(q));
+  check('… schickt sie: schreibeWeltdokument(sauber, basis)', /schreibeWeltdokument\(sauber, basis\)/.test(speichern));
+  check('… und nimmt nach bestätigter Frischprüfung deren Hash (basisNachBestaetigung(basis, stand)) — erst NACH dem „ja"', /if \(wahl !== 'ja'\) \{[\s\S]*?return false;\s*\}\s*[^]*?basis = basisNachBestaetigung\(basis, stand\);/.test(speichern));
+  const iNull = speichern.indexOf('if (basis === null)');
+  const iPost = speichern.indexOf('schreibeWeltdokument(sauber, basis)');
+  check('… ohne Basis geht KEIN POST hinaus: `if (basis === null)` mit BASIS_FEHLT steht vor dem POST und bricht ab', iNull > 0 && iPost > iNull && /if \(basis === null\) \{\s*shell\.meldung\(BASIS_FEHLT, true\);\s*return false;\s*\}/.test(speichern), `Positionen ${iNull} < ${iPost}`);
+  check('… ruft nirgends selbst fetch(…) für den POST auf', !/fetch\(/.test(speichern.slice(speichern.indexOf('Speichere nach'))));
+  const iGuard = speichern.indexOf('if (fremderEntwurfUebernommen()) return false;');
+  const iSauber = speichern.indexOf('const sauber = sanitizeWorldLayout(layout);');
+  const iFrage = speichern.indexOf('await frage(');
+  const iGuard2 = speichern.indexOf('if (fremderEntwurfUebernommen()) return false;', iGuard + 1);
+  check('… ein anderer Tab, der den Entwurf inzwischen geändert hat, wird VOR dem Lesen von `layout` übernommen und nach der Rückfrage noch einmal (dann Abbruch, kein POST)', iGuard >= 0 && iGuard < iSauber && iFrage > iSauber && iGuard2 > iFrage && iGuard2 < iPost, `Positionen ${iGuard} < ${iSauber} < ${iFrage} < ${iGuard2} < ${iPost}`);
+  check('… bei Erfolg wird der Entwurf geschrieben und die Basis erst DANACH, nur wenn er im Speicher steht: entwurfImSpeicher(speichereEntwurf(\'server\')) → setzeEntwurfBasis(antwort.hash)', /if \(entwurfImSpeicher\(speichereEntwurf\('server'\)\)\) setzeEntwurfBasis\(antwort\.hash\);/.test(speichern));
   check('… bei 409 wird abgeglichen statt überschrieben', /antwort\.art === 'veraltet'[\s\S]*veraltetAbgleichen\(sauber\)/.test(speichern));
+  check('… 428 (art basis-fehlt) fällt in `shell.meldung(antwort.message, true)`: kein POST-Wiederholen, keine Basis erfunden', /shell\.meldung\(antwort\.message, true\);\s*return false;\s*\}/.test(speichern) && !/basis-fehlt/.test(speichern));
+
+  // — Abgleich: HOLEN ändert die Basis nicht —
+  check('Kein serverHash und kein setzeServerHash mehr im Editor (die Basis ist die des Entwurfs, nicht der zuletzt gelesene Serverstand)', !/serverHash|setzeServerHash/.test(q));
+  check('basisMerken wird nur in setzeEntwurfBasis aufgerufen (Editor UND Begleitzettel), an keiner anderen Stelle', zaehle(/entwurfsSpeicher\.basisMerken\(/g, q) === 1 && /function setzeEntwurfBasis\(hash: string \| null\): void \{\s*entwurfsSpeicher\.basisMerken\(hash\);\s*\}/.test(q));
+  check('setzeEntwurfBasis hat genau sechs Aufrufer: Start-Abgleich (Übernahme, Behalten), Speichern, 409-Abgleich (Laden, Behalten), Import (null)', zaehle(/\bsetzeEntwurfBasis\(/g, q) === 1 + 6, String(zaehle(/\bsetzeEntwurfBasis\(/g, q)));
+  const iWahl = start.indexOf('const wahl = await frage(');
+  const iErster = start.indexOf('setzeEntwurfBasis(');
+  const iZweiter = start.indexOf('setzeEntwurfBasis(', iErster + 1);
+  const iAlles = start.indexOf("const geschrieben = alles('server');");
+  const iFrueh = start.indexOf('const entwurf = entwurfsSpeicher.entwurfNachAbgleich();');
+  check('Start-Abgleich: kein setzeEntwurfBasis beim bloßen Holen — der erste Aufruf steht in uebernehmen NACH alles(\'server\'), der zweite NACH der Dialogantwort', iWahl > 0 && iFrueh > 0 && iAlles > iFrueh && iErster > iAlles && iErster < iWahl && iZweiter > iWahl && start.indexOf('setzeEntwurfBasis(', iZweiter + 1) === -1, `Positionen ${iFrueh} < ${iAlles} < ${iErster} < ${iWahl} < ${iZweiter}`);
+  check('… der erste Aufruf nur, wenn der Entwurf im Speicher steht: if (entwurfImSpeicher(geschrieben)) setzeEntwurfBasis(stand.hash)', /if \(entwurfImSpeicher\(geschrieben\)\) setzeEntwurfBasis\(stand\.hash\);/.test(start));
+  check('… „Entwurf behalten" setzt die gezeigte Basis (stand.hash) nur, wenn der Entwurf im Speicher steht: if (!entwurfImSpeicher(behalten)) return; davor (weder bei fremd noch bei voll)', /const behalten = speichereEntwurf\([^)]*\);[\s\S]*?if \(!entwurfImSpeicher\(behalten\)\) return;\s*setzeEntwurfBasis\(stand\.hash\);/.test(start));
+  check('… und sagt deutlich, dass der Serverstand beim nächsten Speichern (auch aus dem Testflug) ersetzt wird — im Knopf und in der Meldung', /Serverstand wird beim nächsten Speichern ersetzt — auch aus dem Testflug/.test(start) && /function behaltenMeldung/.test(q) && /Speichern \(auch aus dem Testflug\) durch deinen Entwurf ersetzt/.test(q));
+  check('409-Abgleich: kein setzeEntwurfBasis vor der Dialogantwort', abgleich.indexOf('setzeEntwurfBasis(') > abgleich.indexOf('const wahl = await frage('), String(abgleich.indexOf('setzeEntwurfBasis(')));
+  check('… „Serverstand laden": Basis nach alles(\'server\'), nur bei im Speicher stehendem Entwurf', /const grund = alles\('server'\);[\s\S]*?if \(entwurfImSpeicher\(grund\)\) setzeEntwurfBasis\(stand\.hash\);/.test(abgleich));
+  check('… „Entwurf behalten" (409): der Entwurf wird geschrieben (wie im Start-Abgleich), die gezeigte Basis nur bei im Speicher stehendem Entwurf (weder fremd noch voll), mit deutlicher Meldung', /const behalten = speichereEntwurf\([^;]*\);\s*if \(!entwurfImSpeicher\(behalten\)\) return;\s*setzeEntwurfBasis\(stand\.hash\);\s*if \(behalten === 'ok'\) shell\.meldung\(behaltenMeldung\(weltName\(\)\), true\);/.test(abgleich));
+  check('… und beide „behalten"-Wege prüfen entwurfImSpeicher wie die „laden"-Wege: jeder der sechs Aufrufer (außer Import-null) steht hinter einer entwurfImSpeicher-Prüfung', zaehle(/entwurfImSpeicher\(/g, q) >= 6, String(zaehle(/entwurfImSpeicher\(/g, q)));
+  // — Import: beruht auf keinem Serverstand —
+  const iImport = q.indexOf("const grund = alles('import');");
+  const importZweig = q.slice(iImport, q.indexOf("vorschauAnstossen();", iImport) + 40);
+  check('Import: nach dem Schreiben des importierten Entwurfs ist die Basis null (if (entwurfImSpeicher(grund)) setzeEntwurfBasis(null)) — er beruht auf keinem Serverstand', iImport > 0 && /const grund = alles\('import'\);[\s\S]*?if \(entwurfImSpeicher\(grund\)\) setzeEntwurfBasis\(null\);/.test(importZweig));
+  // — der Ausweg aus „keine Basis“: das Welt-Feld → Abgleich-Dialog → „Entwurf behalten“, auch auf dev —
+  const feld = q.slice(q.indexOf('function weltFeldBauen'), q.indexOf('function weltFeldBauen') + 900);
+  const faerbe = q.slice(q.indexOf('function faerbeSpeicherKnopf'), q.indexOf('function faerbeSpeicherKnopf') + 700);
+  check('Ausweg erreichbar: das Welt-Feld ruft weltAbgleich() (Klick), und faerbeSpeicherKnopf baut es bei JEDEM Aufruf (weltFeldBauen() vor jedem return, keine Bedingung an die Instanz)', /void weltAbgleich\(\)/.test(feld) && /weltFeldBauen\(\);\s*if \(!speicherKnopf\) return;/.test(faerbe) && !/instanz [!=]== 'dev'/.test(feld));
+  check('… der Abgleich-Dialog bietet „Entwurf behalten“ unabhängig von der Instanz (kein `dev`-Zweig zwischen Dialog und Basis)', start.includes("id: 'entwurf'") && !/instanz [!=]== 'dev'/.test(start));
+  check('… und die Meldung „keine Basis“ nennt genau diesen Weg (Feld „WELT“, Gegenüberstellung, „Entwurf behalten“)', /Feld „WELT"/.test(BASIS_FEHLT) && /Entwurf behalten/.test(BASIS_FEHLT) && /Serverstand laden/.test(BASIS_FEHLT) && /JSON-Import/.test(BASIS_FEHLT), BASIS_FEHLT);
   check('veraltetAbgleichen schreibt selbst NICHT auf den Server (0 POSTs im 409-Zweig)', !/schreibeWeltdokument\(|fetch\(|method: 'POST'/.test(abgleich));
   check('… und benutzt den vorhandenen Abgleich-Dialog (frage, unterschiedsTafel, vergleiche)', /frage\(/.test(abgleich) && /unterschiedsTafel\(/.test(abgleich) && /vergleiche\(stand\.layout, sauber\)/.test(abgleich));
-  check('Der Abgleich beim Start merkt sich den Hash des Servers (setzeServerHash)', /setzeServerHash\(stand\.hash\);/.test(q.slice(q.indexOf('async function weltAbgleich'))));
-  check('… nach 409 ebenso', /setzeServerHash\(stand\.hash\);/.test(abgleich));
-  check('Kein Zuweisen von serverHash außerhalb von setzeServerHash (sonst fehlt der Begleitzettel die Basis)', (q.match(/^\s*serverHash = /gm) ?? []).length === 1, String((q.match(/^\s*serverHash = /gm) ?? []).length));
-  check('setzeServerHash trägt die Basis in den Begleitzettel ein (entwurfsSpeicher.basisMerken)', /function setzeServerHash[\s\S]{0,200}entwurfsSpeicher\.basisMerken\(hash\)/.test(q));
+}
+
+// ── 8b. 428: der Betriebsdienst verlangt eine Basis ──────────────────
+console.log('▶ 428: Basis fehlt — verständlich melden, nichts wiederholen');
+{
+  const { fetchFn, aufrufe } = attrappe([{ status: 428, rumpf: { ok: false, fehler: 'basis-fehlt', message: 'If-Match fehlt' } }]);
+  const a = await schreibeWeltdokument(echt, null, fetchFn);
+  check('art=basis-fehlt (nicht „fehler" mit dem technischen Dienst-Text)', a.art === 'basis-fehlt', JSON.stringify(a));
+  check('… die Meldung sagt: nicht gespeichert, der Dienst verlangt eine Basis, Serverstand laden/abgleichen', /Nicht gespeichert/.test(a.message) && /verlangt/.test(a.message) && /Serverstand laden oder abgleichen/.test(a.message) && a.message === BASIS_VERLANGT, a.message);
+  check('… NEUTRAL: behauptet nicht, der Entwurf habe keine Basis / es sei keine gesendet worden (auch bei einem 428 auf einen POST MIT Basis)', !/keinen bekannten Serverstand|keine Basis|nicht gesendet|ohne Basis/.test(a.message), a.message);
+  const mitBasis = await schreibeWeltdokument(echt, 'h1', attrappe([{ status: 428, rumpf: { ok: false, fehler: 'basis-fehlt' } }]).fetchFn);
+  check('428 auf einen POST mit gesendeter Basis: dieselbe neutrale Meldung', mitBasis.art === 'basis-fehlt' && mitBasis.message === BASIS_VERLANGT && !/keinen bekannten Serverstand/.test(mitBasis.message));
+  check('… genau ein POST, kein Wiederholen', aufrufe.length === 1 && posts(aufrufe) === 1);
+  const roh = await schreibeWeltdokument(echt, null, attrappe([{ status: 428, roh: '<html>' }]).fetchFn);
+  check('428 ohne JSON: dieselbe Meldung', roh.art === 'basis-fehlt' && roh.message === BASIS_VERLANGT);
 }
 
 // ── 9. Meldungen: 503 gesperrt (B5), verworfene Einträge bei 200 (B4) ──

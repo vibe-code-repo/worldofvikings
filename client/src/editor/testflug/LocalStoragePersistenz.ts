@@ -6,12 +6,27 @@
  * Die einzige Umsetzung heute: Arbeitsentwurf im localStorage-Eintrag des
  * Karten-Editors, Speichern in die Serverdatei über denselben Endpunkt.
  *
- * Publishing carries the server base the editor last knew (hash in the
- * draft's companion note, `STAND_KEY`) as `If-Match`: a newer save by an
- * editor is answered with 409 and nothing is overwritten. Without a known base
- * nothing is sent. / Speichern schickt die Basis aus dem Begleitzettel des
- * Entwurfs als `If-Match`: eine neuere Editor-Speicherung wird nie still
- * überschrieben; ohne bekannte Basis geht nichts hinaus.
+ * Publishing carries the base of the DRAFT (the server state it rests on;
+ * `basis` in the draft's companion note, `STAND_KEY`) as `If-Match`. The editor
+ * sets that base only when server content went into the draft, after a
+ * successful save, or when the user explicitly chose "keep draft"; merely
+ * fetching a newer server state does not move it. So a save from here that
+ * would replace a server state the draft does not rest on and the user has not
+ * decided about is answered with 409 and nothing is overwritten. The one
+ * deliberate way to replace it is the editor dialog's "keep draft": from then on
+ * the next save (also from here) replaces the state the user was shown. Without
+ * a known base nothing is sent.
+ *
+ * Speichern schickt die Basis des ENTWURFS (den Serverstand, auf dem er beruht;
+ * Feld `basis` im Begleitzettel) als `If-Match`. Der Editor setzt sie nur, wenn
+ * Serverinhalt in den Entwurf kam, nach einem gelungenen Speichern oder wenn
+ * der Nutzer ausdrücklich „Entwurf behalten" wählt; ein bloss geholter neuerer
+ * Serverstand ändert sie nicht. Ein Speichern von hier, das einen Serverstand
+ * ersetzen würde, auf dem der Entwurf nicht beruht und über den der Nutzer
+ * nicht entschieden hat, wird mit 409 abgelehnt. Der einzige bewusste Weg,
+ * ihn zu ersetzen, ist „Entwurf behalten" im Editor-Dialog: danach ersetzt das
+ * nächste Speichern (auch von hier) den Stand, den der Nutzer gesehen hat.
+ * Ohne bekannte Basis geht nichts hinaus.
  */
 import type { WorldLayout } from '@wov/shared';
 import { STAND_KEY, schreibeWeltdokument } from '../weltdokument';
@@ -19,9 +34,14 @@ import { zettelBasisLesen, zettelMitBasis } from '../entwurfsSpeicher';
 import type { EntwurfDokument, SpeicherAntwort, TestflugPersistenz } from './TestflugPersistenz';
 
 const OHNE_BASIS =
-  'Speichern aus dem Testflug braucht einen Editor-Stand – bitte einmal im Editor laden/speichern.';
+  'Speichern aus dem Testflug braucht einen Editor-Stand – bitte im Editor den Serverstand abgleichen ' +
+  '(Feld „WELT" links oben anklicken; nach einem JSON-Import nötig) und dort speichern.';
+const VERLANGT =
+  'Der Betriebsdienst verlangt für das Speichern eine Basis und hat nichts geschrieben – ' +
+  'bitte im Editor den Serverstand abgleichen (Feld „WELT" links oben anklicken) und dort speichern.';
 const VERALTET =
-  'Die Welt auf dem Server wurde inzwischen geändert – bitte im Editor abgleichen und dort speichern.';
+  'Die Welt auf dem Server wurde inzwischen geändert und dein Entwurf beruht nicht darauf – ' +
+  'nichts überschrieben. Bitte im Editor abgleichen (Serverstand laden oder „Entwurf behalten") und dort speichern.';
 
 /** Basis aus dem Begleitzettel; `null` bei fehlendem oder nicht lesbarem Zettel bzw. Speicher. */
 function zettelBasis(): string | null {
@@ -65,8 +85,10 @@ export function localStoragePersistenz(): TestflugPersistenz {
         basisNachziehen(antwort.hash);
         return { ok: true, message: antwort.message } satisfies SpeicherAntwort;
       }
-      // Bei 409 bleibt die alte Basis im Zettel: Erst der Editor, der den neuen Stand gesehen hat, ersetzt sie.
+      // Bei 409 bleibt die alte Basis im Zettel: Erst der Editor-Dialog (Serverstand laden oder „Entwurf behalten") ersetzt sie.
       if (antwort.art === 'veraltet') return { ok: false, message: VERALTET } satisfies SpeicherAntwort;
+      // 428: the service demands a base; neutral text (whether one was sent is not the service's statement).
+      if (antwort.art === 'basis-fehlt') return { ok: false, message: VERLANGT } satisfies SpeicherAntwort;
       return { ok: false, message: antwort.message } satisfies SpeicherAntwort;
     },
   };

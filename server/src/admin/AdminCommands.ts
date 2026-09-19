@@ -16,8 +16,15 @@
  * funnel through canUseAdminCommands() below.
  */
 
-import { WATER_LEVEL } from '@wov/shared';
+import { HeightmapProvider, WATER_LEVEL } from '@wov/shared';
+import { instanzName } from '@wov/shared/src/instanz.js';
 import type { Peer } from '../net/Peer.js';
+import {
+  MAX_RADIUS_ZONEN,
+  formatiereErgebnis,
+  ruecksetzerErlaubt,
+} from '../world/zonenRuecksetzer.js';
+import type { ZonenErgebnis } from '../world/zonenRuecksetzer.js';
 
 export interface AdminResult {
   ok: boolean;
@@ -45,6 +52,11 @@ export function canUseAdminCommands(peer: Peer): boolean {
 export interface AdminUmgebung {
   /** Bodenhöhe an einer Weltstelle (für `teleport`). */
   bodenHoehe(x: number, z: number): number;
+  /**
+   * Setzt die Zonen im Quadrat um die Zone (zx, zy) zurück (`zone reset`).
+   * Fehlt sie, gibt es den Befehl in dieser Umgebung nicht.
+   */
+  zonenRuecksetzen?(zx: number, zy: number, radius: number): ZonenErgebnis[];
 }
 
 export class AdminCommandRegistry {
@@ -61,6 +73,8 @@ export class AdminCommandRegistry {
           : 'Fly mode OFF',
       };
     });
+
+    this.register('zone', (_peer, args) => this.zoneBefehl(args));
 
     /**
      * `teleport <x> <z>` — den Spieler an eine Weltstelle versetzen.
@@ -93,6 +107,54 @@ export class AdminCommandRegistry {
         message: `Teleportiert nach ${x.toFixed(0)}, ${z.toFixed(0)} (Höhe ${y.toFixed(1)})`,
       };
     });
+  }
+
+  /**
+   * `zone reset <x> <z> [radiusInZonen=0]` — Streuung schon erzeugter Zonen
+   * neu würfeln (Weltkoordinaten). Nur auf der Dev-Instanz oder mit
+   * `WOV_ZONEN_RUECKSETZER=1`; was dabei stehen bleibt und was abgelehnt
+   * wird, steht in `world/zonenRuecksetzer.ts`.
+   */
+  private zoneBefehl(args: string[]): AdminResult {
+    const aufruf = `Aufruf: zone reset <x> <z> [radiusInZonen=0] (Weltkoordinaten, Radius 0..${MAX_RADIUS_ZONEN})`;
+    if (args[0]?.toLowerCase() !== 'reset') return { ok: false, active: false, message: aufruf };
+    let erlaubt = false;
+    try {
+      erlaubt = ruecksetzerErlaubt(instanzName(), process.env.WOV_ZONEN_RUECKSETZER);
+    } catch {
+      erlaubt = false;
+    }
+    if (!erlaubt || !this.umgebung?.zonenRuecksetzen) {
+      return {
+        ok: false,
+        active: false,
+        message: 'zone reset ist nur auf der Dev-Instanz erlaubt (oder mit WOV_ZONEN_RUECKSETZER=1)',
+      };
+    }
+    const x = Number(args[1]);
+    const z = Number(args[2]);
+    const radius = args[3] === undefined ? 0 : Number(args[3]);
+    if (
+      args[1] === undefined ||
+      args[2] === undefined ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(z) ||
+      !Number.isInteger(radius) ||
+      radius < 0 ||
+      radius > MAX_RADIUS_ZONEN
+    ) {
+      return { ok: false, active: false, message: aufruf };
+    }
+    const ergebnisse = this.umgebung.zonenRuecksetzen(
+      HeightmapProvider.worldToZone(x),
+      HeightmapProvider.worldToZone(z),
+      radius
+    );
+    return {
+      ok: ergebnisse.some((e) => e.status === 'neu-gestreut'),
+      active: false,
+      message: formatiereErgebnis(ergebnisse),
+    };
   }
 
   register(name: string, handler: AdminCommandHandler): void {

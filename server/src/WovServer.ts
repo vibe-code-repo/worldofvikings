@@ -92,6 +92,7 @@ import { ZDOID } from './zdo/ZDOID.js';
 import { PrefabManager } from './prefab/PrefabManager.js';
 import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
+import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { befreieSpielerbauten, layoutAbgleich } from './world/layoutAbgleich.js';
@@ -599,6 +600,13 @@ export class WovServer {
     // `init()`, der Aufruf erfolgt aber immer später (bei einem Befehl).
     this.adminCommands = new AdminCommandRegistry({
       bodenHoehe: (x, z) => this.getGroundHeight(x, z),
+      zonenRuecksetzen: (zx, zy, radius) =>
+        setzeZonenZurueck(
+          { zdos: this.zdos, heightmaps: this.heightmaps, zones: this.zones },
+          zx,
+          zy,
+          radius
+        ),
     });
     // Phase G: dungeon system — documents live next to the world saves.
     // Je Instanz ein eigener Unterordner: entrances.json bildet WELT-Eingänge

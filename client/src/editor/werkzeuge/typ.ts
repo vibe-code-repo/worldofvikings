@@ -8,18 +8,20 @@
  * (`editorMain.ts`) only asks the registry which tool is active and hands
  * it the events -- it does not know what a river or a lake is any more.
  *
- * The interface has exactly what the two tools that use it (river, lake)
- * need. A hook nobody exercises is guessing; when a later tool needs one
- * (pointer move, pointer up ...), it is added here together with its call
- * site and a test, not before.
+ * The interface has exactly what the tools that use it (river, lake, placing)
+ * need. A hook nobody exercises is guessing; when a later tool needs one, it
+ * is added here together with its call site and a test, not before. The
+ * placing tool brought pointer move and pointer up (a drag) and the
+ * confirmation dialog; call sites in `editorMain.ts`, tests in
+ * `client/test/werkzeug-platzieren.ts`.
  *
  * DOM-free on purpose: `ZeigerEreignis` is not a `PointerEvent`, and all
  * access to the editor goes through `WerkzeugKontext`, so a tool runs
  * against a fake context in a plain Node test (`client/test/werkzeug-registry.ts`).
  * Only `seitenleiste` builds DOM, and only when the editor calls it.
  *
- * Moving a tool from the old path into the registry (selection, island shape,
- * polygon and placing still run as `if (werkzeug === '<id>')` branches in
+ * Moving a tool from the old path into the registry (selection, island shape
+ * and polygon still run as `if (werkzeug === '<id>')` branches in
  * `editorMain.ts`; their ids are reserved in `ALTE_WERKZEUGE`, `index.ts`).
  * ONE change does all of it, because half of it either shadows the old branch
  * or leaves dead code:
@@ -40,6 +42,7 @@
  * error is logged with its id and that call is skipped, the editor goes on.
  */
 import type { WorldLayout } from '@wov/shared';
+import type { Vorgang } from '@wov/shared/src/worldlayout/ops.js';
 
 /** A click on the map with the picking already done. */
 export interface ZeigerEreignis {
@@ -66,8 +69,19 @@ export interface WerkzeugKontext {
    * Replace the document by `neu` AS ONE UNDO STEP: pushes the current
    * document onto the undo stack, then assigns. Does not save or redraw --
    * call `uebernommen()` after the tool has set its own state.
+   *
+   * `vorgang` is the world operation (`shared/src/worldlayout/ops.ts`) whose
+   * result `neu` is, for a tool that builds its change as one. The editor
+   * keeps snapshots for undo and does not use it yet; it is the hand-over
+   * point for sending the same change as a PATCH (stage E2), and it is what
+   * a test looks at to see WHAT the tool asked for.
    */
-  aendere(neu: WorldLayout): void;
+  aendere(neu: WorldLayout, vorgang?: Vorgang): void;
+  /**
+   * Ask the user a yes/no question and wait for the answer (synchronous:
+   * the editor uses the browser's `confirm`). `false` = declined.
+   */
+  bestaetige(frage: string): boolean;
   /** Id of the tool that is active right now. */
   werkzeugId(): string;
   /** Back to the selection tool (state only: no redraw, see `uebernommen`). */
@@ -104,6 +118,8 @@ export interface KartenWerkzeug<Id extends string = string> {
   readonly bild: string;
   /** Label of the tile in the sidebar grid. */
   readonly kachelName: string;
+  /** The tile spans both columns of the grid (the last, wide one). */
+  readonly kachelBreit?: boolean;
   /** Tooltip of the tile. */
   readonly kachelTipp: string;
   /** Key help in the HUD: pairs of (key, effect). */
@@ -120,12 +136,25 @@ export interface KartenWerkzeug<Id extends string = string> {
    * then treats it as a plain selection click.
    */
   beiZeigerRunter(ctx: WerkzeugKontext, e: ZeigerEreignis): boolean;
+  /**
+   * The pointer moves over the map while this tool is active (with or without
+   * a button pressed: the tool knows from its own state whether it is in the
+   * middle of a drag). Called for every move, so keep it cheap.
+   */
+  beiZeigerBewegt?(ctx: WerkzeugKontext, e: ZeigerEreignis): void;
+  /**
+   * The primary button is released (or the pointer is cancelled) while this
+   * tool is active. The editor captures the pointer when the tool has this
+   * hook, so the release arrives even when it happens outside the map.
+   */
+  beiZeigerHoch?(ctx: WerkzeugKontext, e: ZeigerEreignis): void;
   /** Double click while this tool is active. */
   beiDoppelklick?(ctx: WerkzeugKontext): void;
   /**
-   * Key press while this tool is active. `true` = the key ENDS this tool
-   * (Escape): the editor then discards every half-finished stroke
-   * (`abbrechen` of all tools) and returns to the selection tool.
+   * Key press while this tool is active: Escape, and Delete (not while an input
+   * field has the focus). `true` for Escape = the key ENDS this tool: the
+   * editor then discards every half-finished stroke (`abbrechen` of all tools)
+   * and returns to the selection tool. The result for Delete is ignored.
    */
   beiTaste?(ctx: WerkzeugKontext, e: TastenEreignis): boolean;
   /** Draw the tool state onto the overlay canvas. Called for every tool, active or not. */

@@ -63,6 +63,7 @@ function neuerKontext(start: WorldLayout, aktiv: string) {
       z.schritte.push(z.layout);
       z.layout = neu;
     },
+    bestaetige: () => true,
     werkzeugId: () => z.aktiv,
     zurAuswahl: () => {
       z.aktiv = 'auswahl';
@@ -259,8 +260,8 @@ async function main(): Promise<void> {
   );
 
   if (reg && flussModul && seeModul && F) {
-    gleich('registry holds exactly fluss, see (in toolbar order)', reg.WERKZEUGE.map((w) => w.id), ['fluss', 'see']);
-    check('werkzeugMitId finds a registered tool', reg.werkzeugMitId('fluss')?.id === 'fluss' && reg.werkzeugMitId('see')?.id === 'see');
+    gleich('registry holds exactly fluss, see, platzieren (in toolbar order)', reg.WERKZEUGE.map((w) => w.id), ['fluss', 'see', 'platzieren']);
+    check('werkzeugMitId finds a registered tool', reg.werkzeugMitId('fluss')?.id === 'fluss' && reg.werkzeugMitId('see')?.id === 'see' && reg.werkzeugMitId('platzieren')?.id === 'platzieren');
     check('werkzeugMitId: unregistered ids fall through', reg.werkzeugMitId('auswahl') === undefined && reg.werkzeugMitId('polygon') === undefined && reg.werkzeugMitId('') === undefined);
     for (const w of reg.WERKZEUGE) {
       check(`${w.id}: tile, HUD and key help are filled`, w.titel !== '' && w.kachelName !== '' && w.kachelTipp !== '' && w.bild.startsWith('M') && w.tasten.length >= 2);
@@ -482,7 +483,7 @@ async function main(): Promise<void> {
   // ── Registry build: ids ─────────────────────────────────────────────
   if (reg && flussModul && seeModul && schutz && typeof reg.registriere === 'function') {
     console.log('Registry build: ids');
-    gleich('reserved ids = the tools still on the old path', reg.ALTE_WERKZEUGE, ['auswahl', 'form', 'polygon', 'platzieren']);
+    gleich('reserved ids = the tools still on the old path', reg.ALTE_WERKZEUGE, ['auswahl', 'form', 'polygon']);
     check('no registered tool uses a reserved id', reg.WERKZEUGE.every((w) => !(reg.ALTE_WERKZEUGE as readonly string[]).includes(w.id)));
     const doppelt = wirftMit(() => reg.registriere(flussModul.erzeugeFluss(), seeModul.erzeugeSee(), flussModul.erzeugeFluss()));
     check('same id twice: registriere throws', doppelt !== null);
@@ -497,6 +498,9 @@ async function main(): Promise<void> {
     }
     const leerId = wirftMit(() => reg.registriere(attrappe('', false).w));
     check('empty id: throws', leerId !== null && /empty id/.test(leerId), leerId ?? 'did not throw');
+    const keine = wirftMit(() => reg.registriere());
+    check('an EMPTY registry: registriere throws, naming the list', keine !== null && /list is empty/.test(keine) && /werkzeuge\/index\.ts/.test(keine), keine ?? 'did not throw');
+    check('the pure check: no tool throws, one tool does not', wirftMit(() => schutz.pruefeRegistrierung([], [])) !== null && wirftMit(() => schutz.pruefeRegistrierung([{ id: 'x' }], [])) === null);
     check('the pure check without wrapping: duplicate and reserved', (() => {
       const a = wirftMit(() => schutz.pruefeRegistrierung([{ id: 'x' }, { id: 'x' }], []));
       const b = wirftMit(() => schutz.pruefeRegistrierung([{ id: 'x' }], ['x']));
@@ -536,6 +540,40 @@ async function main(): Promise<void> {
         throw new Error('sink broken');
       });
       check('a sink that throws does not bring the call down either', wirftMit(() => g2.abbrechen(ctx)) === null);
+    }
+
+    {
+      // A hook that returns a Promise breaks the contract (`async` hooks): a rejection must be
+      // reported like a throw, must not surface as an unhandled rejection, and the call counts as skipped.
+      console.log('Fault isolation: a hook that returns a Promise');
+      const gemeldet: { id: string; aufruf: string; fehler: unknown }[] = [];
+      let unbehandelt = 0;
+      const beiUnbehandelt = (): void => void unbehandelt++;
+      process.on('unhandledRejection', beiUnbehandelt);
+      const { w } = attrappe('asynchron', false);
+      const asynchron: KartenWerkzeug = {
+        ...w,
+        beiZeigerRunter: (async () => {
+          throw new Error('async click boom');
+        }) as unknown as KartenWerkzeug['beiZeigerRunter'],
+        beiTaste: (async () => true) as unknown as KartenWerkzeug['beiTaste'],
+        beiDoppelklick: async () => {
+          throw 'async-string';
+        },
+      };
+      const g = schutz.schuetze(asynchron, (id, aufruf, fehler) => void gemeldet.push({ id, aufruf, fehler }));
+      const ereignis = { weltX: 1, weltZ: 2, shiftKey: false };
+      check('rejected async click: no throw, replacement value true (the click is consumed)', wirftMit(() => g.beiZeigerRunter(ctx, ereignis)) === null && g.beiZeigerRunter(ctx, ereignis) === true);
+      check('fulfilled async key: replacement value false, NOT the Promise', g.beiTaste!(ctx, { code: 'Escape' }) === false);
+      check('rejected async double click: no throw', wirftMit(() => g.beiDoppelklick!(ctx)) === null);
+      gleich('nothing is reported before the Promises settle (the call itself returned at once)', gemeldet.length, 0);
+      await new Promise((fertig) => setTimeout(fertig, 30));
+      process.off('unhandledRejection', beiUnbehandelt);
+      gleich('one report per call (2 clicks, 1 key, 1 double click)', gemeldet.map((m) => m.aufruf).sort(), ['beiDoppelklick', 'beiTaste', 'beiZeigerRunter', 'beiZeigerRunter']);
+      check('a rejection is reported as what it carries (Error and string alike)', gemeldet.some((m) => m.fehler instanceof Error && /async click boom/.test(m.fehler.message)) && gemeldet.some((m) => m.fehler === 'async-string'));
+      check('a fulfilled Promise is reported as a contract violation', gemeldet.some((m) => m.aufruf === 'beiTaste' && m.fehler instanceof Error && /returned a Promise/.test(m.fehler.message)));
+      check('every report names the tool id', gemeldet.every((m) => m.id === 'asynchron'));
+      gleich('no unhandled rejection reached the process', unbehandelt, 0);
     }
 
     {
@@ -620,7 +658,7 @@ async function main(): Promise<void> {
   gleich("editorMain.ts: no `werkzeug === 'fluss'` / `=== 'see'`", vergleiche, []);
   const zustand = haupt.match(/\b(flussPunkte|flussBreite|flussTiefe|seeRadius|seeTiefe|flussSchliessen)\b/g) ?? [];
   gleich('editorMain.ts: no river / lake state or close function left', zustand, []);
-  check('editorMain.ts asks the registry', /from '\.\/werkzeuge'/.test(haupt) && /werkzeugMitId\(werkzeug\)\?\.beiZeigerRunter/.test(haupt));
+  check('editorMain.ts asks the registry', /from '\.\/werkzeuge'/.test(haupt) && /const registriert = werkzeugMitId\(werkzeug\);/.test(haupt) && /registriert\?\.beiZeigerRunter\(werkzeugKontext/.test(haupt));
   gleich("KartenHud.ts: no 'fluss' / 'see' key", hud.match(/^\s*(fluss|see):/gm) ?? [], []);
   const indexQuelle = (() => {
     try {
@@ -629,9 +667,9 @@ async function main(): Promise<void> {
       return '';
     }
   })();
-  check('index.ts builds the list with registriere() (check + guard)', /registriere\(erzeugeFluss\(\), erzeugeSee\(\)\)/.test(indexQuelle) && /pruefeRegistrierung\(werkzeuge, ALTE_WERKZEUGE\)/.test(indexQuelle) && /schuetze\(w\)/.test(indexQuelle));
+  check('index.ts builds the list with registriere() (check + guard)', /registriere\(erzeugeFluss\(\), erzeugeSee\(\), erzeugePlatzieren\(\)\)/.test(indexQuelle) && /pruefeRegistrierung\(werkzeuge, ALTE_WERKZEUGE\)/.test(indexQuelle) && /schuetze\(w\)/.test(indexQuelle));
   check('KartenHud.ts takes its old names from ALTE_WERKZEUGE (one list)', /AltesWerkzeugname = \(typeof ALTE_WERKZEUGE\)\[number\]/.test(hud));
-  for (const datei of ['index', 'fluss', 'see', 'typ']) {
+  for (const datei of ['index', 'fluss', 'see', 'platzieren', 'typ']) {
     check(`werkzeuge/${datei}.ts has no DOM access at module level`, (() => {
       try {
         const q = readFileSync(resolve(EDITOR, 'werkzeuge', `${datei}.ts`), 'utf-8');

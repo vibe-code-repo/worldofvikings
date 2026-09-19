@@ -38,6 +38,7 @@
  * bleiben, nicht in einer Klick-Behandlung stecken.
  */
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
+import { neuePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 
 /**
  * Der Entwurfsschlüssel. Er hiess schon immer so und heisst weiter so:
@@ -136,8 +137,8 @@ export type ServerStand =
  *    Kontinente in anderer Reihenfolge können einen anderen Startpunkt geben.
  *  - Platzierungen, Flüsse, Seen und Routen als Multimenge: Doppelte
  *    zählen, `[P]` enthält `[P, P]` nicht. Bei Platzierungen bleibt das Feld
- *    `id` außen vor: Es ist eine Kennung, kein Inhalt, und frisch gebaute
- *    Stände (`layoutMitPlatzierung`) tragen keine, Ring-Einträge schon.
+ *    `id` außen vor: Es ist eine Kennung, kein Inhalt, und Stände von vor
+ *    dem Feld tragen keine, Ring-Einträge und `layoutMitPlatzierung` schon.
  *  - Name, Detail-Seed und Startpunkt müssen übereinstimmen.
  * Elemente werden als JSON verglichen. Im Zweifel `false`: ein Stand zu viel
  * zu sichern kostet nur Platz.
@@ -474,6 +475,8 @@ export async function schreibeWeltdokument(
  * Das Layout mit einer zusätzlichen Platzierung. Ersetzt das Layout, statt
  * es zu ändern: Der Rückgängig-Stapel des Editors hält Schnappschüsse, und
  * nur ein unverändertes altes Layout ist ein brauchbarer Schnappschuss.
+ * Der Editor selbst setzt Objekte seit dem Objekt-Werkzeug (`werkzeuge/platzieren.ts`)
+ * über Vorgänge; diese Funktion bauen noch die Tests des Entwurfsspeichers.
  */
 export function layoutMitPlatzierung(
   layout: WorldLayout,
@@ -482,9 +485,13 @@ export function layoutMitPlatzierung(
   z: number,
   yaw: number
 ): WorldLayout {
+  const gx = Math.round(x);
+  const gz = Math.round(z);
   return {
     ...layout,
-    placements: [...(layout.placements ?? []), { prefab, x: Math.round(x), z: Math.round(z), yaw }],
+    // Die Adresse gehört dem Eintrag von Anfang an (`neuePlatzierungsId`): ohne sie könnte er
+    // einem gleichartigen Objekt am selben Ort die abgeleitete id wegnehmen.
+    placements: [...(layout.placements ?? []), { id: neuePlatzierungsId(layout, { prefab, x: gx, z: gz }), prefab, x: gx, z: gz, yaw }],
   };
 }
 

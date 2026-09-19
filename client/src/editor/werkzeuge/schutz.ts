@@ -3,12 +3,14 @@
  * `client/test/werkzeug-registry.ts`):
  *
  *  - `pruefeRegistrierung` runs once when the registry is built and refuses a
- *    list that would silently break routing: an id twice, an empty id, or an
- *    id that still belongs to a tool on the old path.
+ *    list that would silently break routing: no tool at all, an id twice, an
+ *    empty id, or an id that still belongs to a tool on the old path.
  *  - `schuetze` wraps one tool so that a tool which throws cannot take the
  *    editor down. Every call the editor makes is caught per tool: the error is
  *    reported (with the tool id) and THAT call is skipped; the other tools, the
- *    overlay, the sidebar and the save button keep running.
+ *    overlay, the sidebar and the save button keep running. Hooks are
+ *    synchronous: one that returns a Promise (an `async` hook) is reported
+ *    too, a rejection like a throw, and its value is never used.
  */
 import type { KartenWerkzeug } from './typ';
 
@@ -25,6 +27,12 @@ export function pruefeRegistrierung(
   werkzeuge: ReadonlyArray<{ readonly id: string }>,
   reserviert: readonly string[]
 ): void {
+  if (werkzeuge.length === 0) {
+    throw new Error(
+      'Tool registry: the list is empty (werkzeuge/index.ts). The editor needs at least one tool; ' +
+        'with none, every toolbar tile, click and key would silently do nothing.'
+    );
+  }
   const gesehen = new Set<string>();
   for (const { id } of werkzeuge) {
     if (typeof id !== 'string' || id === '') {
@@ -62,19 +70,36 @@ export const anKonsole: FehlerSenke = (id, aufruf, fehler) => {
  * not end the tool), `kachelZusatz`/`hudZusatz` `""`, `seitenleiste` `null`,
  * the others nothing. Optional members the tool does not have stay absent, so
  * the editor's `?.` calls keep their meaning. The sink itself may not throw.
+ *
+ * A hook that returns a Promise breaks the contract (the editor needs the
+ * result NOW): the call counts as skipped, so it gets the same replacement
+ * value as a throw, and the Promise is reported when it settles -- a rejection
+ * as the error it carries, a fulfilment as a contract violation. Nothing is
+ * left to surface as an unhandled rejection.
  */
 export function schuetze<T extends KartenWerkzeug>(w: T, senke: FehlerSenke = anKonsole): T {
+  const melde = (aufruf: string, fehler: unknown): void => {
+    try {
+      senke(w.id, aufruf, fehler);
+    } catch {
+      // reporting must not bring the editor down either
+    }
+  };
   const sicher =
     <A extends unknown[], R>(aufruf: string, tu: (...a: A) => R, sonst: R) =>
     (...a: A): R => {
       try {
-        return tu(...a);
-      } catch (fehler) {
-        try {
-          senke(w.id, aufruf, fehler);
-        } catch {
-          // reporting must not bring the editor down either
+        const ergebnis: unknown = tu(...a);
+        if (istThenable(ergebnis)) {
+          Promise.resolve(ergebnis).then(
+            () => melde(aufruf, new Error(`tool "${w.id}": ${aufruf} returned a Promise; tool hooks are synchronous and its result is ignored`)),
+            (fehler: unknown) => melde(aufruf, fehler)
+          );
+          return sonst;
         }
+        return ergebnis as R;
+      } catch (fehler) {
+        melde(aufruf, fehler);
         return sonst;
       }
     };
@@ -85,9 +110,14 @@ export function schuetze<T extends KartenWerkzeug>(w: T, senke: FehlerSenke = an
     beiZeigerRunter: sicher('beiZeigerRunter', (c, e) => w.beiZeigerRunter(c, e), true),
     abbrechen: sicher('abbrechen', (c) => w.abbrechen(c), undefined),
   };
+  if (w.beiZeigerBewegt) g.beiZeigerBewegt = sicher('beiZeigerBewegt', (c, e) => w.beiZeigerBewegt!(c, e), undefined);
+  if (w.beiZeigerHoch) g.beiZeigerHoch = sicher('beiZeigerHoch', (c, e) => w.beiZeigerHoch!(c, e), undefined);
   if (w.beiDoppelklick) g.beiDoppelklick = sicher('beiDoppelklick', (c) => w.beiDoppelklick!(c), undefined);
   if (w.beiTaste) g.beiTaste = sicher('beiTaste', (c, e) => w.beiTaste!(c, e), false);
   if (w.zeichneOverlay) g.zeichneOverlay = sicher('zeichneOverlay', (c, z) => w.zeichneOverlay!(c, z), undefined);
   if (w.seitenleiste) g.seitenleiste = sicher('seitenleiste', (c, h) => w.seitenleiste!(c, h), null);
   return g as T;
 }
+
+const istThenable = (v: unknown): v is PromiseLike<unknown> =>
+  (typeof v === 'object' || typeof v === 'function') && v !== null && typeof (v as { then?: unknown }).then === 'function';

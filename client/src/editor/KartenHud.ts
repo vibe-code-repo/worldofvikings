@@ -258,7 +258,6 @@ const WERKZEUG_BILD: Record<AltesWerkzeugname, string> = {
   auswahl: PFAD.raster,
   form: PFAD.inselForm,
   polygon: PFAD.polygon,
-  platzieren: PFAD.platzieren,
 };
 
 /**
@@ -266,8 +265,7 @@ const WERKZEUG_BILD: Record<AltesWerkzeugname, string> = {
  * `editorMain.ts`, nicht ausgedacht:
  *   Form und See halten sich mit Shift für Serien offen,
  *   Polygon und Fluss sammeln Punkte und schließen per Doppelklick,
- *   Esc bricht genau diese beiden ab,
- *   Platzieren bleibt nach dem Setzen von sich aus aktiv.
+ *   Esc bricht genau diese beiden ab.
  */
 const WERKZEUG_TASTEN: Record<AltesWerkzeugname, ReadonlyArray<readonly [string, string]>> = {
   auswahl: [
@@ -284,7 +282,6 @@ const WERKZEUG_TASTEN: Record<AltesWerkzeugname, ReadonlyArray<readonly [string,
     ['Doppelklick', 'schließen'],
     ['Esc', 'abbrechen'],
   ],
-  platzieren: [['Klick', 'setzen']],
 };
 
 const EBENEN: ReadonlyArray<readonly [Ebene, string]> = [

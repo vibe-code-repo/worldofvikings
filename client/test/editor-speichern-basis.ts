@@ -275,6 +275,9 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Ausweg erreichbar: das Welt-Feld ruft weltAbgleich() (Klick), und faerbeSpeicherKnopf baut es bei JEDEM Aufruf (weltFeldBauen() vor jedem return, keine Bedingung an die Instanz)', /void weltAbgleich\(\)/.test(feld) && /weltFeldBauen\(\);\s*if \(!speicherKnopf\) return;/.test(faerbe) && !/instanz [!=]== 'dev'/.test(feld));
   check('… der Abgleich-Dialog bietet „Entwurf behalten“ unabhängig von der Instanz (kein `dev`-Zweig zwischen Dialog und Basis)', start.includes("id: 'entwurf'") && !/instanz [!=]== 'dev'/.test(start));
   check('… und die Meldung „keine Basis“ nennt genau diesen Weg (Feld „WELT“, Gegenüberstellung, „Entwurf behalten“)', /Feld „WELT"/.test(BASIS_FEHLT) && /Entwurf behalten/.test(BASIS_FEHLT) && /Serverstand laden/.test(BASIS_FEHLT) && /JSON-Import/.test(BASIS_FEHLT), BASIS_FEHLT);
+  // — die Erfolgsmeldung nach dem Import darf nicht zum Speichern raten, das ohne Basis abgelehnt wird —
+  const importMeldung = q.slice(q.indexOf('Import übernommen —'), q.indexOf('Import übernommen —') + 600);
+  check('Import: die Meldung nennt den Weg über das Feld „WELT“ und „Entwurf behalten“ (kein „Erst „In die Welt speichern“ schreibt ihn“ mehr, das nach dem Import zu BASIS_FEHLT führt)', importMeldung.includes('Feld „WELT"') && importMeldung.includes('Entwurf behalten') && !/Erst „In die Welt speichern" /.test(importMeldung), importMeldung.slice(0, 160));
   check('veraltetAbgleichen schreibt selbst NICHT auf den Server (0 POSTs im 409-Zweig)', !/schreibeWeltdokument\(|fetch\(|method: 'POST'/.test(abgleich));
   check('… und benutzt den vorhandenen Abgleich-Dialog (frage, unterschiedsTafel, vergleiche)', /frage\(/.test(abgleich) && /unterschiedsTafel\(/.test(abgleich) && /vergleiche\(stand\.layout, sauber\)/.test(abgleich));
 }

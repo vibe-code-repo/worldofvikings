@@ -82,7 +82,7 @@ import {
   layoutLesenMitHash,
   layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { weltOpsBehandeln } from './routen/weltOps.js';
+import { weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
 // geschickt wie beim Server. Der Editor soll sehen, was auch der
 // Spielserver sieht — ein Rohtext koennte Raeume enthalten, die dort
@@ -372,12 +372,15 @@ function json(res: ServerResponse, code: number, daten: unknown, kopf: Record<st
   res.end(leib);
 }
 
+/** Der Rumpf ueberschreitet die Grenze von `leibLesen`: 413, nicht 500 (der Absender hat sie gerissen, nicht wir). */
+class AnfrageZuGross extends Error {}
+
 async function leibLesen(req: IncomingMessage, grenze = 8_000_000): Promise<unknown> {
   const teile: Buffer[] = [];
   let gesamt = 0;
   for await (const stueck of req) {
     gesamt += (stueck as Buffer).length;
-    if (gesamt > grenze) throw new Error('Anfrage zu gross');
+    if (gesamt > grenze) throw new AnfrageZuGross(`Anfrage zu gross (mehr als ${grenze} Bytes)`);
     teile.push(stueck as Buffer);
   }
   if (gesamt === 0) return null;
@@ -1022,9 +1025,9 @@ async function behandeln(
   //
   // Pfadname und Methode bleiben, was sie im Vite-Plugin waren: POST
   // /api/worldlayout. Deutsche Endpunktnamen waeren Kosmetik und gehoeren
-  // nicht in denselben Umbau — der Client bleibt bis auf Textmeldungen
-  // unangetastet, damit die ZWEITE Aufrufstelle (client/src/main.ts,
-  // RoutenEditor) nicht vergessen werden kann.
+  // nicht in denselben Umbau. Dazu kamen (Editor E1): PATCH
+  // /api/worldlayout/ops fuer einzelne Objekte (keine Basis noetig) und
+  // POST mit `If-None-Match: *`, das die Weltdatei anlegt, wenn sie fehlt.
   //
   // Die Antwortform { ok, message } ist ebenfalls die des Vite-Plugins.
   // Der Editor liest genau diese zwei Felder; ein huebscheres Schema
@@ -1388,6 +1391,12 @@ async function behandeln(
     // E0 eine, und ein Schreiber ohne Basis koennte jede fremde Aenderung
     // stillschweigend ueberschreiben. Einzelne Objekte aendert
     // PATCH /api/worldlayout/ops, das braucht keine Basis.
+    //
+    // Eine FEHLENDE Weltdatei hat keinen Hash, den man als Basis schicken
+    // koennte (GET liefert 404). Sie legt `If-None-Match: *` an: geschrieben
+    // wird nur, wenn es die Datei nicht gibt, sonst 412 mit dem Hash der
+    // vorhandenen (die Basis fuer den normalen Weg). Zusammen mit If-Match /
+    // basis ist der Kopf ein Widerspruch (400). Siehe weltOps.ts.
     let dokument: unknown = leib;
     let rumpfBasis: unknown;
     if (typeof leib === 'object' && leib !== null && !Array.isArray(leib) && 'basis' in leib) {
@@ -1402,22 +1411,41 @@ async function behandeln(
     else if (rumpfBasis !== undefined && rumpfBasis !== null) {
       throw new LayoutUngueltig('basis muss ein Hash-Text sein');
     }
-    if (basis === null) {
+    const kopfNeu = kopfzeilen['if-none-match'];
+    const anlegen = kopfNeu !== undefined;
+    if (anlegen) {
+      if (typeof kopfNeu !== 'string' || kopfNeu.trim() !== '*') {
+        throw new LayoutUngueltig('If-None-Match: nur * wird verstanden (Datei nur anlegen, wenn sie fehlt)');
+      }
+      if (basis !== null) throw new LayoutUngueltig('If-None-Match: * und If-Match / basis schliessen sich aus');
+    } else if (basis === null) {
       const meldung =
         'Speichern ohne Basis: If-Match (oder das Feld "basis") mit dem Hash aus GET /api/worldlayout fehlt — ' +
-        'nichts geschrieben. Erst lesen, dann mit dem gelesenen Hash speichern.';
+        'nichts geschrieben. Erst lesen, dann mit dem gelesenen Hash speichern; fehlt die Weltdatei ganz, ' +
+        'legt sie POST mit If-None-Match: * an.';
       console.warn(`[Admin] POST /api/worldlayout -> 428 basis-fehlt: ${basename(LAYOUT_DATEI)} nicht geschrieben`);
       return { code: 428, daten: { ok: false, fehler: 'basis-fehlt', message: meldung } };
     }
     try {
       // Async: Wartet ein fremder Schreiber auf der Sperre, bleibt die
       // Ereignisschleife frei (/status, /metriken, der Log-Strom laufen weiter).
-      const { layout, sicherung, text, hash, verworfen, verworfenJeFeld } = await layoutSchreibenAsync(
-        LAYOUT_DATEI,
-        dokument,
-        undefined,
-        { basis }
-      );
+      let geschrieben;
+      if (anlegen) {
+        const a = await weltAnlegen(LAYOUT_DATEI, dokument);
+        if (a.art === 'existiert') {
+          const meldung = `${basename(LAYOUT_DATEI)} gibt es schon — nichts geschrieben. Lesen (GET) und mit dem Hash als If-Match speichern.`;
+          console.warn(`[Admin] POST /api/worldlayout -> 412 existiert (If-None-Match: *, aktuell ${a.hash})`);
+          return {
+            code: 412,
+            kopf: { ETag: `"${a.hash}"` },
+            daten: { ok: false, fehler: 'existiert', aktuell: a.hash, message: meldung },
+          };
+        }
+        geschrieben = a.ergebnis;
+      } else {
+        geschrieben = await layoutSchreibenAsync(LAYOUT_DATEI, dokument, undefined, { basis });
+      }
+      const { layout, sicherung, text, hash, verworfen, verworfenJeFeld } = geschrieben;
       if (verworfen > 0) {
         console.warn(
           `[Admin] POST /api/worldlayout: ${verworfen} ungueltige(r) Eintrag/Eintraege im Dokument verworfen ` +
@@ -1425,12 +1453,12 @@ async function behandeln(
         );
       }
       return {
-        code: 200,
+        code: anlegen ? 201 : 200,
         kopf: { ETag: `"${hash}"` },
         daten: {
           ok: true,
           message:
-            `Gespeichert in ${basename(LAYOUT_DATEI)}: ${layout.regions.length} Region(en), ` +
+            `${anlegen ? 'Angelegt' : 'Gespeichert'} in ${basename(LAYOUT_DATEI)}: ${layout.regions.length} Region(en), ` +
             `${layout.placements?.length ?? 0} Platzierung(en)`,
           instanz: INSTANZ,
           sicherung: sicherung ? basename(sicherung) : null,
@@ -1664,6 +1692,12 @@ const dienst = createServer((req, res) => {
       // NICHTS passiert. layoutSchreiben prueft, bevor es sichert oder
       // schreibt. Das ist die wichtigste Zusicherung des ganzen Endpunkts:
       // Ein misslungener Speichervorgang darf die Welt nicht beschaedigen.
+      if (fehler instanceof AnfrageZuGross) {
+        console.warn(`[Admin] ${req.method} ${pfad} -> 413: ${fehler.message}`);
+        // Der Rest des Rumpfs bleibt ungelesen: Die Verbindung wird nach der Antwort geschlossen, sonst
+        // haengt die naechste Anfrage auf derselben Keep-Alive-Verbindung an den uebrigen Bytes.
+        return json(res, 413, { ok: false, fehler: 'anfrage-zu-gross', message: fehler.message }, { Connection: 'close' });
+      }
       const eingabefehler = fehler instanceof LayoutUngueltig || fehler instanceof SyntaxError;
       const code = eingabefehler ? 400 : 500;
       const meldung = (fehler as Error).message;

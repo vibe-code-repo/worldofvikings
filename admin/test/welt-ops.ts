@@ -22,10 +22,19 @@
  *  5. a held lock → 503 with Retry-After, nothing written;
  *  6. token / origin guards as for /api/worldlayout;
  *  7. POST /api/worldlayout without If-Match / basis → 428, file unchanged.
+ *
+ * Round 1 after the attack:
+ *  8. B1/B2 over HTTP: several ops built from one snapshot restore the list
+ *     exactly; a foreign insert at the front does not shift an undo; a deleted
+ *     anchor is REPORTED (`positionUngenau`), never silent;
+ *  9. B3: a missing world file can be created with `If-None-Match: *` (201);
+ *     an existing one answers 412 with its hash; two creations at once → one 201;
+ * 10. B4: a body over the limit → 413 (POST and PATCH), the service stays usable.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,20 +155,21 @@ const gelesen = (): WorldLayout => JSON.parse(platte().toString('utf-8')) as Wor
 const sicherungen = (): number => readdirSync(WELTEN).filter((f) => f.startsWith('dev.json.') && f.endsWith('.bak')).length;
 const seeText = (l: WorldLayout | undefined, id: string): Eintrag | undefined => (l?.lakes ?? []).find((x) => x.id === id) as unknown as Eintrag | undefined;
 
-let protokoll = '';
 const kinder: ChildProcess[] = [];
 
-function dienstStarten(): Promise<number> {
+/** One operations service on `wurzel`; the first one takes the slot port, further ones a free port. */
+function dienstStarten(wurzel = ORDNER, tokenDatei = TOKEN_DATEI, portText = process.env.WOV_TEST_ADMIN_PORT ?? '0'): Promise<number> {
   return new Promise((fertig, scheitern) => {
+    let protokoll = '';
     const kind = spawn(TSX, ['src/main.ts'], {
       cwd: ADMIN,
       env: {
         ...process.env,
-        WOV_WURZEL: ORDNER,
+        WOV_WURZEL: wurzel,
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
-        WOV_ADMIN_PORT: process.env.WOV_TEST_ADMIN_PORT ?? '0',
-        WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
+        WOV_ADMIN_PORT: portText,
+        WOV_ADMIN_TOKEN_DATEI: tokenDatei,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -201,14 +211,15 @@ console.log(`# service on 127.0.0.1:${port}, root ${ORDNER}`);
 async function anfrage(
   methode: 'GET' | 'POST' | 'PATCH',
   pfad: string,
-  opt: { leib?: unknown; roh?: string; token?: string | null; weiter?: string; ifMatch?: string } = {}
+  opt: { leib?: unknown; roh?: string; token?: string | null; weiter?: string; ifMatch?: string; ifNoneMatch?: string; port?: number } = {}
 ): Promise<{ status: number; kopf: Headers; daten: Record<string, unknown> }> {
-  const r = await fetch(`http://127.0.0.1:${port}${pfad}`, {
+  const r = await fetch(`http://127.0.0.1:${opt.port ?? port}${pfad}`, {
     method: methode,
     headers: {
       ...(opt.token === null ? {} : { 'x-wov-token': opt.token ?? TOKEN }),
       ...(opt.weiter ? { 'x-forwarded-for': opt.weiter } : {}),
       ...(opt.ifMatch !== undefined ? { 'if-match': opt.ifMatch } : {}),
+      ...(opt.ifNoneMatch !== undefined ? { 'if-none-match': opt.ifNoneMatch } : {}),
       ...(opt.leib !== undefined || opt.roh !== undefined ? { 'content-type': 'application/json' } : {}),
     },
     body: opt.roh ?? (opt.leib !== undefined ? JSON.stringify(opt.leib) : undefined),
@@ -443,6 +454,137 @@ try {
     check('POST with the base is unchanged: 200, no ohneBasis mark', mitBasis.status === 200 && mitBasis.daten.ohneBasis === undefined);
     const imRumpf = await anfrage('POST', '/api/worldlayout', { leib: { ...g.layout, basis: plattenHash() } });
     check('POST with `basis` in the body is unchanged: 200', imRumpf.status === 200);
+  }
+
+  // ── 10) B1/B2 over HTTP: positions ─────────────────────────────────
+  {
+    // B1: two neighbouring lakes deleted from ONE snapshot; the undo (the ops reversed, each as a `setze`
+    // behind its predecessor) must give the list back exactly. Written out by hand, the way a client would.
+    const g = await holeStand();
+    const seen = g.layout.lakes as unknown as Eintrag[];
+    const a = seen[20]!;
+    const b = seen[21]!;
+    const vorherListe = JSON.stringify(g.layout.lakes);
+    const weg = await ops({
+      vorgangId: 'markieren',
+      ops: [
+        { art: 'entferne', sammlung: 'lakes', id: a.id, vorher: a, nach: seen[19]!.id, index: 20 },
+        { art: 'entferne', sammlung: 'lakes', id: b.id, vorher: b, nach: a.id, index: 21 }, // same snapshot: its anchor is the lake deleted just before
+      ],
+    });
+    check('two neighbouring lakes deleted from one snapshot → 200', weg.status === 200 && (gelesen().lakes?.length ?? 0) === seen.length - 2, `${weg.status}`);
+    const zurueck = await ops({
+      vorgangId: '~markieren',
+      ops: [
+        { art: 'setze', sammlung: 'lakes', id: b.id, nachher: b, nach: a.id, index: 21 },
+        { art: 'setze', sammlung: 'lakes', id: a.id, nachher: a, nach: seen[19]!.id, index: 20 },
+      ],
+    });
+    check('…and the undo restores the list byte for byte, nothing reported', zurueck.status === 200 && JSON.stringify(gelesen().lakes) === vorherListe && zurueck.daten.positionUngenau === undefined, `${zurueck.status} ${JSON.stringify(zurueck.daten).slice(0, 200)}`);
+  }
+  {
+    // B2: A deletes a region; a stranger inserts at the front; A's undo must land behind A's old predecessor.
+    const g = await holeStand();
+    const regionen = g.layout.regions as unknown as Eintrag[];
+    const heim = regionen[0]!;
+    const wald = regionen[1]!;
+    const reihenfolge = (): string[] => gelesen().regions.map((r) => r.id);
+    const vorher = reihenfolge();
+    const r1 = await ops({ vorgangId: 'a-weg', ops: [{ art: 'entferne', sammlung: 'regions', id: wald.id, vorher: wald, nach: heim.id, index: 1 }] });
+    const neu = { id: 'z-neu', biome: 'grassland', shape: { kind: 'circle', x: 5000, z: 5000, radius: 300 }, edgeFalloff: 300 };
+    const r2 = await ops({ vorgangId: 'fremd-vorn', ops: [{ art: 'setze', sammlung: 'regions', id: 'z-neu', nachher: neu, nach: null, index: 0 }] });
+    const r3 = await ops({ vorgangId: '~a-weg', ops: [{ art: 'setze', sammlung: 'regions', id: wald.id, nachher: wald, nach: heim.id, index: 1 }] });
+    const soll = ['z-neu', ...vorher];
+    check('A deletes, a stranger inserts at the front, A undoes: 3 × 200', r1.status === 200 && r2.status === 200 && r3.status === 200, `${r1.status} ${r2.status} ${r3.status}`);
+    check('…the region lands behind its old predecessor, exactly', JSON.stringify(reihenfolge()) === JSON.stringify(soll) && r3.daten.positionUngenau === undefined, `${reihenfolge().join()} ≠ ${soll.join()}`);
+    // The anchor itself is deleted by the stranger: the undo is applied but REPORTS the region.
+    const stand2 = await holeStand();
+    const heim2 = (stand2.layout.regions as unknown as Eintrag[]).find((r) => r.id === heim.id)!;
+    const wald2 = (stand2.layout.regions as unknown as Eintrag[]).find((r) => r.id === wald.id)!;
+    const s1 = await ops({ vorgangId: 'a-weg-2', ops: [{ art: 'entferne', sammlung: 'regions', id: wald2.id, vorher: wald2, nach: heim2.id, index: 2 }] });
+    const s2 = await ops({ vorgangId: 'fremd-anker', ops: [{ art: 'entferne', sammlung: 'regions', id: heim2.id, vorher: heim2, nach: 'z-neu', index: 1 }] });
+    const s3 = await ops({ vorgangId: '~a-weg-2', ops: [{ art: 'setze', sammlung: 'regions', id: wald2.id, nachher: wald2, nach: heim2.id, index: 2 }] });
+    check('anchor deleted by the stranger: the undo is 200 but names the region in positionUngenau', s1.status === 200 && s2.status === 200 && s3.status === 200 && JSON.stringify(s3.daten.positionUngenau) === JSON.stringify([wald.id]) && typeof s3.daten.hinweis === 'string', `${s3.status} ${JSON.stringify(s3.daten).slice(0, 250)}`);
+    check('…and the region is in the file, at the clamped number', reihenfolge().includes(wald.id) && reihenfolge().indexOf(wald.id) === 2, reihenfolge().join());
+  }
+
+  // ── 11) B3: the world file can be created ──────────────────────────
+  {
+    const wurzel2 = mkdtempSync(resolve(tmpdir(), 'wov-welt-ops-neu-'));
+    const tokenDatei2 = resolve(wurzel2, 'token');
+    writeFileSync(tokenDatei2, `${TOKEN}\n`);
+    const datei2 = resolve(wurzel2, 'server/data/welten/dev.json'); // neither the file nor its directory exist
+    try {
+      const port2 = await dienstStarten(wurzel2, tokenDatei2, '0');
+      const doc = ausgangsDokument(false);
+      const soll = layoutText(sanitizeWorldLayout(doc)!);
+      const fehlt = (): boolean => !existsSync(datei2);
+      const g404 = await anfrage('GET', '/api/worldlayout', { port: port2 });
+      check('missing file: GET → 404', g404.status === 404 && fehlt());
+      const ohne = await anfrage('POST', '/api/worldlayout', { port: port2, leib: doc });
+      check('missing file: POST without a base → 428, and the message names the way out', ohne.status === 428 && /If-None-Match/.test(String(ohne.daten.message)) && fehlt(), `${ohne.status}`);
+      const beides = await anfrage('POST', '/api/worldlayout', { port: port2, leib: doc, ifNoneMatch: '*', ifMatch: `"${'0'.repeat(64)}"` });
+      check('If-None-Match: * together with If-Match → 400, nothing written', beides.status === 400 && fehlt(), `${beides.status}`);
+      const fremdWert = await anfrage('POST', '/api/worldlayout', { port: port2, leib: doc, ifNoneMatch: '"abc"' });
+      check('If-None-Match with anything but * → 400, nothing written', fremdWert.status === 400 && fehlt(), `${fremdWert.status}`);
+      const kaputt = await anfrage('POST', '/api/worldlayout', { port: port2, leib: { version: 1, name: 'x', regions: 'keine Liste' }, ifNoneMatch: '*' });
+      check('an invalid document with If-None-Match: * is refused (400), nothing written', kaputt.status === 400 && fehlt(), `${kaputt.status}`);
+      const angelegt = await anfrage('POST', '/api/worldlayout', { port: port2, leib: doc, ifNoneMatch: '*' });
+      const hash2 = sha(readFileSync(datei2));
+      check('If-None-Match: * on a missing file → 201, file = sanitizer output', angelegt.status === 201 && angelegt.daten.ok === true && readFileSync(datei2, 'utf-8') === soll, `${angelegt.status} ${JSON.stringify(angelegt.daten).slice(0, 200)}`);
+      check('…the answer carries the file hash and the ETag; GET now reads it', angelegt.daten.hash === hash2 && angelegt.kopf.get('etag') === `"${hash2}"` && (await anfrage('GET', '/api/worldlayout', { port: port2 })).daten.hash === hash2);
+      const nochmal = await anfrage('POST', '/api/worldlayout', { port: port2, leib: { ...doc, name: 'anders' }, ifNoneMatch: '*' });
+      const dateiDanach = readdirSync(dirname(datei2)).sort();
+      check('the same again → 412 existiert with the current hash, file unchanged, no backup', nochmal.status === 412 && nochmal.daten.fehler === 'existiert' && nochmal.daten.aktuell === hash2 && nochmal.kopf.get('etag') === `"${hash2}"` && sha(readFileSync(datei2)) === hash2 && dateiDanach.join() === 'dev.json', `${nochmal.status} ${dateiDanach.join()}`);
+      const weiter = await anfrage('POST', '/api/worldlayout', { port: port2, leib: { ...doc, name: 'weiter' }, ifMatch: `"${hash2}"` });
+      check('the hash from the 412 / 201 is the base for the normal save → 200', weiter.status === 200);
+      // Two creations at the same instant: exactly one wins.
+      rmSync(datei2);
+      const [c1, c2] = await Promise.all([
+        anfrage('POST', '/api/worldlayout', { port: port2, leib: { ...doc, name: 'eins' }, ifNoneMatch: '*' }),
+        anfrage('POST', '/api/worldlayout', { port: port2, leib: { ...doc, name: 'zwei' }, ifNoneMatch: '*' }),
+      ]);
+      check('two creations at once: exactly one 201 and one 412', [c1.status, c2.status].sort().join() === '201,412', `${c1.status} ${c2.status}`);
+      const sieger = c1.status === 201 ? 'eins' : 'zwei';
+      check('…and the file holds the winner\'s document', (JSON.parse(readFileSync(datei2, 'utf-8')) as { name: string }).name === sieger);
+    } finally {
+      rmSync(wurzel2, { recursive: true, force: true });
+    }
+    // On the world of the main service (the file exists): 412, untouched.
+    const vorHash = plattenHash();
+    const vorBak = sicherungen();
+    const vorhanden = await anfrage('POST', '/api/worldlayout', { leib: ausgangsDokument(false), ifNoneMatch: '*' });
+    check('If-None-Match: * on an existing world → 412 with its hash, file unchanged, no backup', vorhanden.status === 412 && vorhanden.daten.aktuell === vorHash && plattenHash() === vorHash && sicherungen() === vorBak, `${vorhanden.status}`);
+  }
+
+  // ── 12) B4: a body over the limit → 413 ───────────────────────────
+  {
+    const vorHash = plattenHash();
+    const gross = (methode: 'POST' | 'PATCH', pfad: string): Promise<{ status: number; daten: Record<string, unknown>; verbindung: string | undefined }> =>
+      new Promise((fertig, scheitern) => {
+        const koerper = Buffer.from(`{"x":"${'x'.repeat(9_000_000)}"}`);
+        let geantwortet = false;
+        const req = httpRequest(
+          { host: '127.0.0.1', port, path: pfad, method: methode, headers: { 'x-wov-token': TOKEN, 'if-match': `"${vorHash}"`, 'content-type': 'application/json', 'content-length': String(koerper.length) } },
+          (res) => {
+            let t = '';
+            res.on('data', (d: Buffer) => (t += d.toString()));
+            res.on('end', () => {
+              geantwortet = true;
+              fertig({ status: res.statusCode ?? 0, daten: JSON.parse(t) as Record<string, unknown>, verbindung: res.headers.connection });
+            });
+          }
+        );
+        // The service may close before the last byte is written: that is not an error once it has answered.
+        req.on('error', (e) => (geantwortet ? undefined : scheitern(e)));
+        req.end(koerper);
+      });
+    const p = await gross('POST', '/api/worldlayout');
+    check('a 9 MB body on POST → 413 (was 500)', p.status === 413 && p.daten.fehler === 'anfrage-zu-gross', `${p.status} ${JSON.stringify(p.daten).slice(0, 120)}`);
+    check('…the connection is closed after the answer', p.verbindung === 'close', `= ${p.verbindung}`);
+    const q = await gross('PATCH', '/api/worldlayout/ops');
+    check('a 9 MB body on PATCH → 413', q.status === 413 && q.daten.fehler === 'anfrage-zu-gross', `${q.status}`);
+    check('nothing written, and the service still answers', plattenHash() === vorHash && (await anfrage('GET', '/api/worldlayout')).status === 200);
   }
 } finally {
   // Only the PIDs this test started.

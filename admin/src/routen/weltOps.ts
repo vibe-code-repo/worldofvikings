@@ -23,9 +23,28 @@
  * each other into retries.
  *
  * Answers: 200 { ok, hash } · 404 file missing · 409 { fehler: 'konflikt',
- * ids, aktuell } · 422 invalid Vorgang or limit exceeded · 503 locked or the
- * file kept changing. Token and origin are checked before this code is reached,
- * exactly as for /api/worldlayout.
+ * ids, aktuell } · 413 body too large · 422 invalid Vorgang or limit exceeded ·
+ * 503 locked or the file kept changing. Token and origin are checked before
+ * this code is reached, exactly as for /api/worldlayout.
+ *
+ * ── Positions ────────────────────────────────────────────────────────
+ * An entry that comes back (the undo of a delete) is put right behind the
+ * entry that stood in front of it (`nach`), wherever that is now (see POSITION
+ * in shared/src/worldlayout/ops.ts). When that is not possible (the anchor is
+ * gone for good, or the op named only a number) the Vorgang is still applied,
+ * the entry goes to the clamped number, and the 200 carries
+ * `positionUngenau: [ids]`. The caller decides whether that order will do.
+ *
+ * ── Creating the world file ──────────────────────────────────────────
+ * PATCH needs a file; POST /api/worldlayout needs a base, and a file that does
+ * not exist has none. `weltAnlegen` is the one way in: POST with
+ * `If-None-Match: *` writes the document only if the file is MISSING. If it
+ * exists the answer is 412 with its hash: the base for a normal save. (412
+ * rather than 409: RFC 9110 names 412 for a failed If-None-Match on an unsafe
+ * method, and it keeps "already there" apart from "changed under you".)
+ * Creation runs through the queue below, so two creations in this process
+ * cannot both win; against a second PROCESS creating the same file in the
+ * same instant it is not atomic, but only this service writes the file.
  */
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -33,8 +52,10 @@ import {
   LayoutGesperrt,
   LayoutUngueltig,
   LayoutVeraltet,
+  layoutDateiHash,
   layoutLesenMitHash,
   layoutSchreibenAsync,
+  type SchreibErgebnis,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { eintraegeVon, wende, type OpCollection, type OpEntry } from '@wov/shared/src/worldlayout/ops.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
@@ -54,7 +75,7 @@ export interface OpsOptionen {
 type Konfliktstelle = { sammlung: OpCollection; id: string; eintrag: OpEntry | null };
 
 export type OpsErgebnis =
-  | { art: 'ok'; hash: string; sicherung: string | null; layout: WorldLayout; versuche: number }
+  | { art: 'ok'; hash: string; sicherung: string | null; layout: WorldLayout; versuche: number; positionUngenau: string[] }
   | { art: 'konflikt'; ids: string[]; aktuell: string; stellen: Konfliktstelle[] }
   | { art: 'grenze'; sammlung: OpCollection; anzahl: number; grenze: number; message: string }
   | { art: 'ungueltig'; message: string }
@@ -84,7 +105,14 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
     await optionen.nachLesen?.(versuch);
     try {
       const geschrieben = await layoutSchreibenAsync(pfad, r.layout, undefined, { basis: stand.hash });
-      return { art: 'ok', hash: geschrieben.hash, sicherung: geschrieben.sicherung, layout: geschrieben.layout, versuche: versuch };
+      return {
+        art: 'ok',
+        hash: geschrieben.hash,
+        sicherung: geschrieben.sicherung,
+        layout: geschrieben.layout,
+        versuche: versuch,
+        positionUngenau: [...new Set(r.positionUngenau.map((p) => p.id))],
+      };
     } catch (fehler) {
       if (fehler instanceof LayoutVeraltet) continue;
       // `LayoutGesperrt` goes up (503); everything else the write path refuses is a document problem.
@@ -97,10 +125,10 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
 
 const warteschlange = new Map<string, Promise<void>>();
 
-/** Apply one Vorgang to the world file. Queued per file within this process. */
-export function opsAnwenden(pfad: string, eingabe: unknown, optionen: OpsOptionen = {}): Promise<OpsErgebnis> {
+/** Run `arbeit` after everything queued before it for the same file. A failure does not block the queue. */
+function inWarteschlange<T>(pfad: string, arbeit: () => Promise<T>): Promise<T> {
   const davor = warteschlange.get(pfad) ?? Promise.resolve();
-  const lauf = davor.then(() => anwendenSofort(pfad, eingabe, optionen));
+  const lauf = davor.then(arbeit);
   const ende = lauf.then(
     () => undefined,
     () => undefined
@@ -110,6 +138,25 @@ export function opsAnwenden(pfad: string, eingabe: unknown, optionen: OpsOptione
     if (warteschlange.get(pfad) === ende) warteschlange.delete(pfad);
   });
   return lauf;
+}
+
+/** Apply one Vorgang to the world file. Queued per file within this process. */
+export function opsAnwenden(pfad: string, eingabe: unknown, optionen: OpsOptionen = {}): Promise<OpsErgebnis> {
+  return inWarteschlange(pfad, () => anwendenSofort(pfad, eingabe, optionen));
+}
+
+export type AnlegenErgebnis = { art: 'angelegt'; ergebnis: SchreibErgebnis } | { art: 'existiert'; hash: string };
+
+/**
+ * Write `dokument` as the world file, but only if there is none. Same write path as every other save
+ * (sanitizer, limits), so an invalid document throws exactly as it does for POST /api/worldlayout.
+ */
+export function weltAnlegen(pfad: string, dokument: unknown): Promise<AnlegenErgebnis> {
+  return inWarteschlange(pfad, async () => {
+    const hash = layoutDateiHash(pfad);
+    if (hash !== null) return { art: 'existiert', hash } as const;
+    return { art: 'angelegt', ergebnis: await layoutSchreibenAsync(pfad, dokument) } as const;
+  });
 }
 
 /** The route itself: `body` is the parsed JSON body of the PATCH. */
@@ -143,6 +190,12 @@ export async function weltOpsBehandeln(body: unknown, umgebung: { datei: string;
           hash: r.hash,
           sicherung: r.sicherung ? basename(r.sicherung) : null,
           versuche: r.versuche,
+          ...(r.positionUngenau.length > 0
+            ? {
+                positionUngenau: r.positionUngenau,
+                hinweis: 'Die Reihenfolge dieser Einträge konnte nicht aus ihrem Vorgänger hergeleitet werden (er fehlt); sie stehen an der zuletzt bekannten Stelle. Bitte prüfen.',
+              }
+            : {}),
         },
       };
     case 'konflikt': {

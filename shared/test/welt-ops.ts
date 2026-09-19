@@ -6,6 +6,10 @@
  *
  * Pure: no file, no server. The HTTP side is admin/test/welt-ops.ts.
  *
+ * Round 1 after the attack (B1, B2, B5): the position contract of `index` /
+ * `nach` (anchor), ops built from ONE snapshot, a stale position, and the
+ * exact involution of `vorgangId` under `invertiere`.
+ *
  * Placements get their `id` from card K1.1. As long as the sanitizer in this
  * tree drops that field, the test injects a stand-in that keeps it (same
  * shape K1.1 promises); once K1.1 is in, the real sanitizer is used and the
@@ -29,6 +33,10 @@ import {
   type Vorgang,
   type WendeErgebnis,
 } from '../src/worldlayout/ops.js';
+// Namespace import: a tree without `opEinfuegen` (the state before round 1) then fails on THIS check
+// and not at link time for the whole file.
+import * as opsModul from '../src/worldlayout/ops.js';
+const opEinfuegen = opsModul.opEinfuegen;
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -155,6 +163,17 @@ function nimm(r: WendeErgebnis): WorldLayout {
 const liste = (l: WorldLayout, s: OpCollection): readonly OpEntry[] =>
   ((l as unknown as Record<string, unknown>)[s] as readonly OpEntry[] | undefined) ?? [];
 const vg = (vorgangId: string, ...ops: Op[]): Vorgang => ({ vorgangId, ops });
+const ids = (l: WorldLayout, s: OpCollection): string[] => liste(l, s).map((e) => e.id);
+/**
+ * `setze` at a position, as plain data: the entry in front is the anchor (`nach`), the number the fallback.
+ * Written out here instead of calling `opEinfuegen` so that the property tests run unchanged against an
+ * older tree, where they must fail on the defect and not on a missing export.
+ */
+function setzeAn(layout: WorldLayout, s: OpCollection, nachher: OpEntry, index: number): Op {
+  const l = liste(layout, s);
+  const i = Math.max(0, Math.min(index, l.length));
+  return { art: 'setze', sammlung: s, id: nachher.id, nachher, nach: i === 0 ? null : l[i - 1]!.id, index: i };
+}
 
 const D = ausgang();
 const D_BYTES = bytes(D);
@@ -315,9 +334,9 @@ check('input layout is never mutated', bytes(D) === D_BYTES);
   const nachWeg = nimm(wende(D, weg, san));
   const zurueck = nimm(wende(nachWeg, invertiere(weg), san));
   check('undo of entferne restores list order (region z-order)', bytes(zurueck) === D_BYTES);
-  const vorn = vg('v', opSetzen(s, neuerEintrag(s), 0));
+  const vorn = vg('v', setzeAn(D, s, neuerEintrag(s), 0));
   check('setze at index 0 inserts first', liste(nimm(wende(D, vorn, san)), s)[0]?.id === (vorn.ops[0] as Op).id);
-  check('setze with a huge index appends', liste(nimm(wende(D, vg('h', opSetzen(s, neuerEintrag(s), 900)), san)), s).length === liste(D, s).length + 1);
+  check('setze with a huge index appends', liste(nimm(wende(D, vg('h', setzeAn(D, s, neuerEintrag(s), 900)), san)), s).length === liste(D, s).length + 1);
   const inv = invertiere(weg);
   check('invertiere(invertiere(v)) is v', bytes(invertiere(inv)) === bytes(weg));
   check('invertiere leaves its input alone', inv.ops[0]!.art === 'setze' && weg.ops[0]!.art === 'entferne');
@@ -338,7 +357,8 @@ function zufallsOp(arbeit: WorldLayout, bevorzugt: Op[] = []): Op {
   const grenze = s === 'continents' ? 8 : 60;
   const wurf = zufall();
   if (vorhanden.length === 0 || (wurf < 0.35 && vorhanden.length < grenze)) {
-    return opSetzen(s, neuerEintrag(s), zufall() < 0.5 ? ganz(vorhanden.length + 1) : undefined);
+    const neu = neuerEintrag(s);
+    return zufall() < 0.5 ? setzeAn(arbeit, s, neu, ganz(vorhanden.length + 1)) : opSetzen(s, neu);
   }
   const ziel = vorhanden[ganz(vorhanden.length)]!;
   if (wurf < 0.75) return opAendern(arbeit, s, veraendert(s, ziel));
@@ -372,8 +392,9 @@ function zufallsVorgang(von: WorldLayout, name: string, maxOps = 5, bevorzugt: O
     const r = wende(stand, vorgang, san);
     let ok = r.ok && bytes(r.layout) === bytes(erwartet);
     if (r.ok) {
+      ok = ok && (r.positionUngenau ?? []).length === 0;
       const zurueck = wende(r.layout, invertiere(vorgang), san);
-      ok = ok && zurueck.ok && bytes(zurueck.layout) === vorherBytes;
+      ok = ok && zurueck.ok && bytes(zurueck.layout) === vorherBytes && (zurueck.positionUngenau ?? []).length === 0;
       // Applying the inverse twice-inverted is the forward Vorgang again.
       const wieder = zurueck.ok ? wende(zurueck.layout, invertiere(invertiere(vorgang)), san) : null;
       ok = ok && wieder !== null && wieder.ok && bytes(wieder.layout) === bytes(r.layout);
@@ -389,8 +410,144 @@ function zufallsVorgang(von: WorldLayout, name: string, maxOps = 5, bevorzugt: O
     }
   }
   console.log(`# property: ${gut}/1000 Vorgaenge byte-identical after wende+invertiere; ${opsGesamt} ops (${JSON.stringify(art)}), per collection ${JSON.stringify(jeSammlung)}`);
-  check('1000 random Vorgaenge: wende(wende(d, v), invertiere(v)) is byte-identical to d', gut === 1000, schlecht.join(' | '));
+  check('1000 random Vorgaenge (ops built one after the other): wende(wende(d, v), invertiere(v)) is byte-identical to d', gut === 1000, schlecht.join(' | '));
   check('the random walk touched every collection with every kind of op', OP_COLLECTIONS.every((s) => (jeSammlung[s] ?? 0) > 20) && art.setze > 100 && art.aendere > 100 && art.entferne > 100);
+}
+
+// ── B1: ops built from ONE snapshot (the "select several, delete" case) ──
+{
+  // The attack's own example: two neighbouring regions, both ops from the same snapshot.
+  const s: OpCollection = 'regions';
+  const r = ids(D, s);
+  const ops = [opEntfernen(D, s, r[1]!), opEntfernen(D, s, r[2]!)];
+  const v = vg('markieren', ...ops);
+  const weg = nimm(wende(D, v, san));
+  const zurueck = wende(weg, invertiere(v), san);
+  check('two neighbouring regions deleted from one snapshot: undo restores the bytes', zurueck.ok && bytes(zurueck.layout) === D_BYTES, zurueck.ok ? ids(zurueck.layout, s).join() : 'failed');
+  check('…and nothing had to be reported as inexact', zurueck.ok && (zurueck.positionUngenau ?? []).length === 0);
+  const alle = ids(D, s).map((id) => opEntfernen(D, s, id)).slice(0, -1);
+  const vAlle = vg('alle', ...alle);
+  const nachAlle = nimm(wende(D, vAlle, san));
+  check('all but one region deleted from one snapshot: undo restores the bytes', bytes(nimm(wende(nachAlle, invertiere(vAlle), san))) === D_BYTES);
+  const gemischt = vg('gemischt', opEntfernen(D, s, r[2]!), opEntfernen(D, s, r[1]!)); // the later one first
+  check('deleted in reverse order of the list: undo restores the bytes', bytes(nimm(wende(nimm(wende(D, gemischt, san)), invertiere(gemischt), san))) === D_BYTES);
+}
+
+/** Ops from ONE snapshot: distinct objects, positions and `vorher` all read from `stand`. */
+function zufallsVorgangMomentaufnahme(stand: WorldLayout, name: string): Vorgang {
+  const n = 1 + ganz(5);
+  const benutzt = new Set<string>();
+  const entfernt = new Set<string>();
+  let regionenWeg = 0;
+  const ops: Op[] = [];
+  for (let i = 0; i < n; i++) {
+    const s = OP_COLLECTIONS[ganz(OP_COLLECTIONS.length)]!;
+    const vorhanden = liste(stand, s);
+    const grenze = s === 'continents' ? 8 : 60;
+    if (vorhanden.length === 0 || (zufall() < 0.2 && vorhanden.length < grenze)) {
+      const neu = neuerEintrag(s);
+      const index = ganz(vorhanden.length + 1);
+      // The anchor of a new entry must still stand when the op runs: not one that this Vorgang deleted earlier.
+      const anker = index === 0 ? null : vorhanden[index - 1]!.id;
+      ops.push(anker !== null && entfernt.has(`${s}/${anker}`) ? opSetzen(s, neu) : setzeAn(stand, s, neu, index));
+      continue;
+    }
+    const frei = vorhanden.filter((e) => !benutzt.has(`${s}/${e.id}`));
+    if (frei.length === 0) continue;
+    const ziel = frei[ganz(frei.length)]!;
+    benutzt.add(`${s}/${ziel.id}`);
+    const nurAendern = zufall() < 0.35 || (s === 'regions' && vorhanden.length - regionenWeg <= 1);
+    if (nurAendern) {
+      ops.push(opAendern(stand, s, veraendert(s, ziel)));
+    } else {
+      if (s === 'regions') regionenWeg++;
+      entfernt.add(`${s}/${ziel.id}`);
+      ops.push(opEntfernen(stand, s, ziel.id));
+    }
+  }
+  if (ops.length === 0) ops.push(opSetzen('lakes', neuerEintrag('lakes')));
+  return vg(name, ...ops);
+}
+
+{
+  let stand = D;
+  let gut = 0;
+  let opsGesamt = 0;
+  let entfernungen = 0;
+  const schlecht: string[] = [];
+  for (let i = 0; i < 1000; i++) {
+    const vorherBytes = bytes(stand);
+    const v = zufallsVorgangMomentaufnahme(stand, `m${i}`);
+    const r = wende(stand, v, san);
+    let ok = r.ok;
+    if (r.ok) {
+      ok = (r.positionUngenau ?? []).length === 0;
+      const zurueck = wende(r.layout, invertiere(v), san);
+      ok = ok && zurueck.ok && bytes(zurueck.layout) === vorherBytes && (zurueck.positionUngenau ?? []).length === 0;
+      stand = r.layout;
+    }
+    opsGesamt += v.ops.length;
+    entfernungen += v.ops.filter((o) => o.art === 'entferne').length;
+    if (ok) gut++;
+    else if (schlecht.length < 3) schlecht.push(`#${i}: ${JSON.stringify(v.ops.map((o) => [o.art, o.sammlung, o.id, o.index])).slice(0, 300)}`);
+  }
+  console.log(`# property (snapshot): ${gut}/1000 Vorgaenge byte-identical after wende+invertiere; ${opsGesamt} ops, ${entfernungen} of them entferne`);
+  check('1000 random Vorgaenge (ops built from ONE snapshot): wende + invertiere is byte-identical to d', gut === 1000, schlecht.join(' | '));
+}
+
+// ── B2: a stale position must not put an entry in the wrong place quietly ──
+{
+  const s: OpCollection = 'regions';
+  const r = ids(D, s);
+  const weg = vg('weg', opEntfernen(D, s, r[1]!));
+  const nachWeg = nimm(wende(D, weg, san));
+  // A foreign writer inserts at the FRONT meanwhile; the numeric position of A's undo is now stale.
+  const fremd = nimm(wende(nachWeg, vg('fremd', setzeAn(nachWeg, s, neuerEintrag(s), 0)), san));
+  const undo = wende(fremd, invertiere(weg), san);
+  const sollReihenfolge = [ids(fremd, s)[0]!, r[0]!, r[1]!, ...r.slice(2)];
+  check('foreign insert at the front, then the undo: the entry lands behind its old predecessor', undo.ok && ids(undo.layout, s).join() === sollReihenfolge.join(), undo.ok ? ids(undo.layout, s).join() : 'failed');
+  check('…and that is exact, nothing reported', undo.ok && (undo.positionUngenau ?? []).length === 0);
+  // A foreign writer deletes the entry in front instead: the anchor is gone.
+  const ohneAnker = nimm(wende(nachWeg, vg('anker-weg', opEntfernen(nachWeg, s, r[0]!)), san));
+  const undo2 = wende(ohneAnker, invertiere(weg), san);
+  check('anchor deleted meanwhile: the undo still stands but REPORTS the entry', undo2.ok && undo2.positionUngenau.length === 1 && undo2.positionUngenau[0]!.id === r[1] && undo2.positionUngenau[0]!.sammlung === s, JSON.stringify(undo2.ok ? undo2.positionUngenau : undo2));
+  check('…the entry is there, at the clamped number', undo2.ok && ids(undo2.layout, s).includes(r[1]!) && liste(undo2.layout, s).length === liste(ohneAnker, s).length + 1);
+  // A number alone (no anchor) is unverified: applied, but always reported.
+  const nurZahl = wende(D, vg('zahl', { art: 'setze', sammlung: s, id: 'nur-zahl', nachher: { ...neuerEintrag(s), id: 'nur-zahl' }, index: 1 } as Op), san);
+  check('a setze with only a number is reported', nurZahl.ok && nurZahl.positionUngenau.length === 1);
+  const anhaengen = wende(D, vg('ende', opSetzen(s, neuerEintrag(s))), san);
+  const vorn = wende(D, vg('vorn', { art: 'setze', sammlung: s, id: 'ganz-vorn', nachher: { ...neuerEintrag(s), id: 'ganz-vorn' }, nach: null } as Op), san);
+  check('append (no position) and nach: null (first) are exact, nothing reported', anhaengen.ok && anhaengen.positionUngenau.length === 0 && vorn.ok && vorn.positionUngenau.length === 0 && ids(vorn.layout, s)[0] === 'ganz-vorn');
+  const unbekannt = wende(D, vg('unb', { art: 'setze', sammlung: s, id: 'irrlaeufer', nachher: { ...neuerEintrag(s), id: 'irrlaeufer' }, nach: 'gibt-es-nicht' } as Op), san);
+  check('an anchor that never existed: appended and reported', unbekannt.ok && unbekannt.positionUngenau.length === 1 && ids(unbekannt.layout, s).at(-1) === 'irrlaeufer');
+  const kaputt = wende(D, vg('k', { art: 'setze', sammlung: s, id: 'x-1', nachher: { ...neuerEintrag(s), id: 'x-1' }, nach: 'Bad Id' } as Op), san);
+  check('a malformed anchor is ungueltig', !kaputt.ok && kaputt.art === 'ungueltig');
+  const opBauer = typeof opEinfuegen === 'function' ? opEinfuegen(D, s, { ...neuerEintrag(s), id: 'eingefuegt' }, 2) : null;
+  check('opEinfuegen names the predecessor at that index as the anchor', opBauer !== null && opBauer.nach === r[1] && opBauer.index === 2);
+  const opBauerVorn = typeof opEinfuegen === 'function' ? opEinfuegen(D, s, { ...neuerEintrag(s), id: 'eingefuegt2' }, 0) : null;
+  check('opEinfuegen at 0 names null (first); opEntfernen records the anchor and the number', opBauerVorn !== null && opBauerVorn.nach === null && opEntfernen(D, s, r[2]!).nach === r[1] && opEntfernen(D, s, r[0]!).nach === null && opEntfernen(D, s, r[2]!).index === 2);
+}
+
+// ── B5: invertiere is an exact involution, for every valid vorgangId ──
+{
+  const op = opEntfernen(D, 'lakes', liste(D, 'lakes')[0]!.id);
+  let alleGleich = true;
+  const laengen = [1, 2, 8, 9, 119, 120, 121, 126, 127];
+  for (const n of laengen) {
+    const id = 'a'.repeat(n);
+    const v = vg(id, op);
+    const zweimal = invertiere(invertiere(v));
+    const beideAkzeptiert = wende(D, v, san).ok && wende(nimm(wende(D, v, san)), invertiere(v), san).ok;
+    if (zweimal.vorgangId !== id || bytes(zweimal) !== bytes(v) || !beideAkzeptiert) alleGleich = false;
+  }
+  check(`invertiere(invertiere(v)) restores the vorgangId for lengths ${laengen.join('/')}`, alleGleich);
+  const zu127 = 'b'.repeat(127);
+  const undoId = invertiere(vg(zu127, op)).vorgangId;
+  check('the undo id of a 127-character id is 128 characters and is accepted by wende', undoId.length === 128 && undoId === `~${zu127}` && wende(nimm(wende(D, vg(zu127, op), san)), invertiere(vg(zu127, op)), san).ok);
+  check('an id of 128 characters without the undo mark is refused (422), so no undo id can be cut', !wende(D, vg('c'.repeat(128), op), san).ok);
+  check('an undo id of 128 characters (mark + 127) is accepted', wende(D, vg(`~${'c'.repeat(127)}`, op), san).ok);
+  check('two marks are refused: an id cannot be confused with an undo of an undo', !wende(D, vg('~~x', op), san).ok);
+  check('inverting is injective: X and ~X swap, nothing else maps onto them', invertiere(vg('X', op)).vorgangId === '~X' && invertiere(vg('~X', op)).vorgangId === 'X' && invertiere(vg('zurueck:X', op)).vorgangId === '~zurueck:X');
 }
 
 // ── verschmelze ─────────────────────────────────────────────────────

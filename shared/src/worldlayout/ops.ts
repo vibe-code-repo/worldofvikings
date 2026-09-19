@@ -30,11 +30,29 @@
  *  - The result always runs through the sanitizer. A Vorgang whose result
  *    would exceed a limit (more than 2,000 placements, ...) or would lose an
  *    entry to the sanitizer is an ERROR, never a silent cut.
- *  - `index` is a position HINT: where a `setze` inserts (default: the end)
- *    and where an `entferne` took the entry from. It is what lets an undo put
- *    an entry back where it was (region order is the z-order). It never
- *    decides whether an op stands; ids do. Within a Vorgang it is relative to
- *    the list at the moment the op runs, ops run in order.
+ *  - POSITION. List order matters (region order is the z-order), so an undo
+ *    must put an entry back exactly where it was. A position is an ANCHOR:
+ *    `nach` = the id of the entry that stood directly in front of this one
+ *    (`null` = it was the first). `entferne` records it when the op is built
+ *    (`opEntfernen`), `invertiere` hands it to the `setze` that undoes it, and
+ *    `wende` puts the entry back right behind that anchor, wherever the anchor
+ *    is NOW: a foreign insert at the front or a foreign delete elsewhere does
+ *    not shift it. A number would; that was the bug of the first version.
+ *  - The anchor may be read from a snapshot or from the running state, both
+ *    are right. Building several `entferne` ops from ONE snapshot
+ *    (`ids.map(id => opEntfernen(stand, s, id))`) names anchors that an
+ *    earlier op of the same Vorgang deletes; building them one after the
+ *    other names only anchors that still stand. `wende` therefore places an
+ *    entry whose anchor is missing (or itself waiting) provisionally and,
+ *    after the last op, moves it right behind its anchor, repeating until
+ *    nothing moves. Snapshot and running builds restore the same bytes.
+ *  - A position that cannot be established is REPORTED, never guessed
+ *    silently: when the anchor is gone for good, or the op names only a
+ *    number (`index`, the last known position, used as the fallback), the
+ *    entry goes to the clamped number and `wende` lists its id in
+ *    `positionUngenau`. The caller sees it; the service passes it on. A
+ *    `setze` with neither `nach` nor `index` appends and is exact.
+ *  - Neither decides whether an op stands; ids and `vorher` do.
  *
  * Pure and DOM-free: no file access, so the editor can use the same code to
  * build ops and to predict what the service will do. The file side lives in
@@ -58,7 +76,12 @@ export interface Op {
   vorher?: OpEntry;
   /** The whole entry as it should be. Absent for `entferne`. */
   nachher?: OpEntry;
-  /** Position hint, see the header. Ignored for `aendere`. */
+  /**
+   * Anchor, see the header: the id of the entry directly in front (`null` = first).
+   * Absent on `setze` = append. Ignored for `aendere`.
+   */
+  nach?: string | null;
+  /** Last known position (0-based); only the fallback when the anchor is missing. Ignored for `aendere`. */
   index?: number;
 }
 
@@ -89,11 +112,19 @@ export const MAX_OPS_PER_VORGANG = 5000;
 
 /** Same pattern as the sanitizer's `ID_RE` (not exported there). */
 const ID_RE = /^[a-z0-9][a-z0-9-_]{0,63}$/;
-const VORGANG_ID_RE = /^[A-Za-z0-9._:~-]{1,128}$/;
+// One optional leading `~` marks an undo Vorgang (see `invertiere`); a client id never carries it,
+// so 127 characters plus the mark always fit into 128 and inverting is an exact involution.
+const VORGANG_ID_RE = /^~?[A-Za-z0-9._:-]{1,127}$/;
+const VORGANG_ID_MAX = 128;
 const INDEX_MAX = 1_000_000;
 
 export type WendeErgebnis =
-  | { ok: true; layout: WorldLayout }
+  | {
+      ok: true;
+      layout: WorldLayout;
+      /** Entries whose position could not be established from an anchor (see the header); empty when all are exact. */
+      positionUngenau: { sammlung: OpCollection; id: string }[];
+    }
   | {
       ok: false;
       art: 'konflikt';
@@ -123,7 +154,7 @@ export function eintraegeVon(layout: WorldLayout, sammlung: OpCollection): reado
 export function pruefeVorgang(eingabe: unknown): VorgangPruefung {
   if (!istObjekt(eingabe)) return { ok: false, message: 'Vorgang muss ein Objekt sein' };
   if (typeof eingabe.vorgangId !== 'string' || !VORGANG_ID_RE.test(eingabe.vorgangId)) {
-    return { ok: false, message: 'vorgangId fehlt oder ist ungültig (1–128 Zeichen aus A–Z a–z 0–9 . _ : ~ -)' };
+    return { ok: false, message: 'vorgangId fehlt oder ist ungültig (1–127 Zeichen aus A–Z a–z 0–9 . _ : -, davor höchstens ein ~)' };
   }
   if (!Array.isArray(eingabe.ops) || eingabe.ops.length === 0) {
     return { ok: false, message: 'ops muss eine nichtleere Liste sein' };
@@ -155,11 +186,17 @@ export function pruefeVorgang(eingabe: unknown): VorgangPruefung {
       if (eintrag.id !== id) return { ok: false, message: `${wo}: ${feld}.id stimmt nicht mit id "${id}" überein` };
       op[feld] = structuredClone(eintrag) as OpEntry;
     }
+    if (roh.nach !== undefined) {
+      if (roh.nach !== null && (typeof roh.nach !== 'string' || !ID_RE.test(roh.nach))) {
+        return { ok: false, message: `${wo}: nach muss eine id oder null sein` };
+      }
+      if (art !== 'aendere') op.nach = roh.nach;
+    }
     if (roh.index !== undefined && roh.index !== null) {
       if (typeof roh.index !== 'number' || !Number.isInteger(roh.index) || roh.index < 0 || roh.index > INDEX_MAX) {
         return { ok: false, message: `${wo}: index muss eine ganze Zahl von 0 bis ${INDEX_MAX} sein` };
       }
-      op.index = roh.index;
+      if (art !== 'aendere') op.index = roh.index;
     }
     ops.push(op);
   }
@@ -219,6 +256,28 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
     }
     return l;
   };
+  // Entries placed provisionally because their anchor was missing or itself waiting (see the header).
+  const offen: { sammlung: OpCollection; id: string; nach: string }[] = [];
+  const offenIds = new Set<string>();
+  const nurZahl: { sammlung: OpCollection; id: string }[] = [];
+  const einfuegen = (l: OpEntry[], eintrag: OpEntry, op: Op): void => {
+    if (op.nach === null) {
+      l.splice(0, 0, eintrag);
+    } else if (typeof op.nach === 'string') {
+      const a = l.findIndex((e) => e.id === op.nach);
+      if (a >= 0) l.splice(a + 1, 0, eintrag);
+      else l.splice(Math.min(op.index ?? l.length, l.length), 0, eintrag);
+      if (a < 0 || offenIds.has(op.nach)) {
+        offen.push({ sammlung: op.sammlung, id: op.id, nach: op.nach });
+        offenIds.add(op.id);
+      }
+    } else if (op.index !== undefined) {
+      l.splice(Math.min(op.index, l.length), 0, eintrag);
+      nurZahl.push({ sammlung: op.sammlung, id: op.id });
+    } else {
+      l.push(eintrag);
+    }
+  };
   const stellen: { sammlung: OpCollection; id: string }[] = [];
   const konflikt = (op: Op): void => {
     if (!stellen.some((s) => s.sammlung === op.sammlung && s.id === op.id)) stellen.push({ sammlung: op.sammlung, id: op.id });
@@ -233,7 +292,7 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
         konflikt(op);
         continue;
       }
-      l.splice(Math.min(op.index ?? l.length, l.length), 0, nachherKanon.get(op)!);
+      einfuegen(l, nachherKanon.get(op)!, op);
       continue;
     }
     const soll = vorherText.get(op);
@@ -247,6 +306,30 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
   if (stellen.length > 0) {
     return { ok: false, art: 'konflikt', ids: [...new Set(stellen.map((s) => s.id))], stellen };
   }
+
+  // Move every waiting entry right behind its anchor; repeat, because an anchor may move too.
+  for (let durchgang = 0; durchgang < 2 * offen.length + 2; durchgang++) {
+    let bewegt = false;
+    for (const o of offen) {
+      const l = arbeit.get(o.sammlung)!;
+      const a = l.findIndex((e) => e.id === o.nach);
+      const i = l.findIndex((e) => e.id === o.id);
+      if (a < 0 || i < 0 || i === a + 1) continue;
+      const [e] = l.splice(i, 1);
+      l.splice(l.findIndex((x) => x.id === o.nach) + 1, 0, e!);
+      bewegt = true;
+    }
+    if (!bewegt) break;
+  }
+  const positionUngenau = [...nurZahl];
+  for (const o of offen) {
+    const l = arbeit.get(o.sammlung)!;
+    const a = l.findIndex((e) => e.id === o.nach);
+    const i = l.findIndex((e) => e.id === o.id);
+    if (i >= 0 && a + 1 !== i) positionUngenau.push({ sammlung: o.sammlung, id: o.id });
+  }
+  // An entry that a later op of the same Vorgang deleted again has no position to report.
+  const uebrig = positionUngenau.filter((p) => arbeit.get(p.sammlung)!.some((e) => e.id === p.id));
 
   const kandidat: Record<string, unknown> = { ...basis };
   for (const [sammlung, l] of arbeit) {
@@ -276,29 +359,37 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
       };
     }
   }
-  return { ok: true, layout: neu };
+  return { ok: true, layout: neu, positionUngenau: uebrig };
 }
 
-const UMKEHR_VORSATZ = 'zurueck:';
+/** The mark of an undo Vorgang in `vorgangId`; see VORGANG_ID_RE. */
+const UMKEHR_MARKE = '~';
 
 /**
  * The Vorgang that takes `vorgang` back: the ops in reverse order, each one
  * inverted. `wende(wende(d, v), invertiere(v))` gives `d` back, byte for
- * byte, when every `setze`/`entferne` carries its `index` (the helpers below
- * fill it in). Inverting twice gives the original Vorgang.
+ * byte, when every `entferne` carries its anchor (`opEntfernen` fills it in),
+ * whether the ops were built from one snapshot or one after the other; see
+ * POSITION in the header. Inverting twice gives the original Vorgang, `vorgangId`
+ * included: the id of an undo Vorgang is the original with a leading `~`
+ * (or without it, when the original already has one).
  */
 export function invertiere(vorgang: Vorgang): Vorgang {
-  const vorgangId = vorgang.vorgangId.startsWith(UMKEHR_VORSATZ)
-    ? vorgang.vorgangId.slice(UMKEHR_VORSATZ.length)
-    : `${UMKEHR_VORSATZ}${vorgang.vorgangId}`.slice(0, 128);
+  const vorgangId = vorgang.vorgangId.startsWith(UMKEHR_MARKE)
+    ? vorgang.vorgangId.slice(UMKEHR_MARKE.length)
+    : `${UMKEHR_MARKE}${vorgang.vorgangId}`;
+  if (vorgangId.length > VORGANG_ID_MAX) throw new Error(`invertiere: vorgangId "${vorgang.vorgangId.slice(0, 20)}…" ist zu lang`);
   const ops: Op[] = [];
   for (const op of [...vorgang.ops].reverse()) {
     const kopie = (e: OpEntry | undefined): OpEntry | undefined => (e ? (structuredClone(e) as OpEntry) : undefined);
-    const mitIndex = op.index !== undefined ? { index: op.index } : {};
+    const position = {
+      ...(op.nach !== undefined ? { nach: op.nach } : {}),
+      ...(op.index !== undefined ? { index: op.index } : {}),
+    };
     if (op.art === 'setze') {
-      ops.push({ art: 'entferne', sammlung: op.sammlung, id: op.id, vorher: kopie(op.nachher), ...mitIndex });
+      ops.push({ art: 'entferne', sammlung: op.sammlung, id: op.id, vorher: kopie(op.nachher), ...position });
     } else if (op.art === 'entferne') {
-      ops.push({ art: 'setze', sammlung: op.sammlung, id: op.id, nachher: kopie(op.vorher), ...mitIndex });
+      ops.push({ art: 'setze', sammlung: op.sammlung, id: op.id, nachher: kopie(op.vorher), ...position });
     } else {
       ops.push({ art: 'aendere', sammlung: op.sammlung, id: op.id, vorher: kopie(op.nachher), nachher: kopie(op.vorher) });
     }
@@ -318,7 +409,7 @@ const gleich = (a: OpEntry | undefined, b: OpEntry | undefined): boolean => JSON
  *    (position never changes, always safe);
  *  - `entferne` after `setze` cancels both, `entferne` after `aendere`
  *    becomes one `entferne` — only when no later op touches the same
- *    collection, because the `index` of those would shift.
+ *    collection, because the anchors of those could name the entry that goes.
  * Everything else is appended unchanged, so the result is longer than
  * ideal but never wrong. If everything cancels out, the result has NO ops:
  * a Vorgang without effect, which `wende` refuses like any empty Vorgang —
@@ -345,7 +436,16 @@ export function verschmelze(a: Vorgang, b: Vorgang): Vorgang {
       const letzteDerSammlung = !ops.slice(p + 1).some((x) => x.sammlung === o.sammlung);
       if (letzteDerSammlung) {
         if (prev.art === 'setze') ops.splice(p, 1);
-        else ops[p] = { art: 'entferne', sammlung: o.sammlung, id: o.id, vorher: structuredClone(prev.vorher), ...(o.index !== undefined ? { index: o.index } : {}) };
+        else {
+          ops[p] = {
+            art: 'entferne',
+            sammlung: o.sammlung,
+            id: o.id,
+            vorher: structuredClone(prev.vorher),
+            ...(o.nach !== undefined ? { nach: o.nach } : {}),
+            ...(o.index !== undefined ? { index: o.index } : {}),
+          };
+        }
         continue;
       }
     }
@@ -354,18 +454,31 @@ export function verschmelze(a: Vorgang, b: Vorgang): Vorgang {
   return { vorgangId: a.vorgangId, ops };
 }
 
-// ── Builders: fill `vorher` and `index` from the layout the writer sees ──
+// ── Builders: fill `vorher` and the position from the layout the writer sees ──
+// The layout may be a snapshot from before the Vorgang or the state after the
+// ops built so far; both restore exactly (see POSITION in the header).
 
-function stelle(layout: WorldLayout, sammlung: OpCollection, id: string): { eintrag: OpEntry; index: number } | null {
+function stelle(layout: WorldLayout, sammlung: OpCollection, id: string): { eintrag: OpEntry; index: number; nach: string | null } | null {
   const liste = eintraegeVon(layout, sammlung);
   const index = liste.findIndex((e) => e.id === id);
   const eintrag = liste[index];
-  return eintrag ? { eintrag, index } : null;
+  return eintrag ? { eintrag, index, nach: index === 0 ? null : liste[index - 1]!.id } : null;
 }
 
-/** `setze`: put a new entry; at the end of the list unless `index` is given. */
-export function opSetzen(sammlung: OpCollection, nachher: OpEntry, index?: number): Op {
-  return { art: 'setze', sammlung, id: nachher.id, nachher: structuredClone(nachher), ...(index !== undefined ? { index } : {}) };
+/** `setze`: put a new entry at the END of the list (exact, needs no anchor). */
+export function opSetzen(sammlung: OpCollection, nachher: OpEntry): Op {
+  return { art: 'setze', sammlung, id: nachher.id, nachher: structuredClone(nachher) };
+}
+
+/**
+ * `setze` at a position: the entry goes in at `index` of `layout` and the op
+ * names its predecessor there as the anchor (`null` = first). An `index` past
+ * the end appends.
+ */
+export function opEinfuegen(layout: WorldLayout, sammlung: OpCollection, nachher: OpEntry, index: number): Op {
+  const liste = eintraegeVon(layout, sammlung);
+  const i = Math.max(0, Math.min(index, liste.length));
+  return { ...opSetzen(sammlung, nachher), nach: i === 0 ? null : liste[i - 1]!.id, index: i };
 }
 
 /** `aendere`: replace the entry that `layout` holds under `nachher.id`. Throws when there is none. */
@@ -375,9 +488,9 @@ export function opAendern(layout: WorldLayout, sammlung: OpCollection, nachher: 
   return { art: 'aendere', sammlung, id: nachher.id, vorher: structuredClone(s.eintrag), nachher: structuredClone(nachher) };
 }
 
-/** `entferne`: delete the entry `layout` holds under `id`, remembering where it stood. Throws when there is none. */
+/** `entferne`: delete the entry `layout` holds under `id`, remembering its predecessor. Throws when there is none. */
 export function opEntfernen(layout: WorldLayout, sammlung: OpCollection, id: string): Op {
   const s = stelle(layout, sammlung, id);
   if (!s) throw new Error(`opEntfernen: ${sammlung} "${id}" gibt es im Dokument nicht`);
-  return { art: 'entferne', sammlung, id, vorher: structuredClone(s.eintrag), index: s.index };
+  return { art: 'entferne', sammlung, id, vorher: structuredClone(s.eintrag), nach: s.nach, index: s.index };
 }

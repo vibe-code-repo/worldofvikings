@@ -314,11 +314,22 @@ export function basisNachBestaetigung(bisher: string | null, frisch: ServerStand
   return frisch.erreichbar && frisch.hash !== null ? frisch.hash : bisher;
 }
 
+/**
+ * Nutzertext für „es gibt keine Basis": vom Editor gezeigt, bevor er überhaupt
+ * sendet, und für die Antwort 428 des Betriebsdienstes. Nennt den Weg heraus.
+ */
+export const BASIS_FEHLT =
+  'Nicht gespeichert: Der Entwurf hat keinen bekannten Serverstand als Grundlage. ' +
+  'Erst den Serverstand laden oder abgleichen (Instanz-Feld oben links anklicken) — ' +
+  'dann lässt sich speichern.';
+
 /** Ausgang von `schreibeWeltdokument`. */
 export type SchreibAntwort =
   | { art: 'ok'; message: string; hash: string | null }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
+  /** Der Betriebsdienst verlangt eine Basis (428) und hat nichts geschrieben: erst den Serverstand laden/abgleichen. */
+  | { art: 'basis-fehlt'; message: string }
   | { art: 'zu-viele-platzierungen'; message: string; anzahl: number; grenze: number }
   | { art: 'fehler'; message: string };
 
@@ -375,6 +386,12 @@ export async function schreibeWeltdokument(
       message: 'Die Welt auf dem Server hat sich seit dem Laden geändert — nichts geschrieben.',
       aktuell: hashNormalisieren(d.aktuell) ?? hashNormalisieren(antwort.headers?.get('ETag')),
     };
+  }
+  // Der Dienst verlangt eine Basis (`If-Match`) und hat KEINE bekommen — der
+  // Editor sendet ohne Basis gar nicht erst (s. editorMain.inDieWeltSpeichern),
+  // also kommt das von einer Gegenstelle oder einem Entwurf ohne Herkunft.
+  if (antwort.status === 428) {
+    return { art: 'basis-fehlt', message: BASIS_FEHLT };
   }
   if (antwort.status === 422 && d.fehler === 'zu-viele-platzierungen') {
     const anzahl = Number(d.anzahl);
@@ -482,34 +499,6 @@ export function entwurfStandLesen(): EntwurfsStand | null {
     };
   } catch {
     return null;
-  }
-}
-
-/**
- * Entwurf samt Begleitzettel schreiben. `false` heisst „Speicher voll"
- * — der Aufrufer muss das melden, sonst arbeitet jemand eine Stunde in
- * einem Entwurf, der beim Neuladen weg ist.
- *
- * UNGESCHÜTZT: schreibt, ohne nachzusehen, was unter dem Schlüssel steht.
- * Der Editor benutzt seit K0.3 `EntwurfsSpeicher.schreiben`
- * (entwurfsSpeicher.ts), das nie über einen fremden Stand hinweg schreibt.
- */
-export function entwurfSchreiben(
-  layout: WorldLayout,
-  quelle: EntwurfsQuelle,
-  instanz: string | null
-): boolean {
-  try {
-    localStorage.setItem(ENTWURF_KEY, JSON.stringify(layout));
-    // Der Begleitzettel wird NACH dem Entwurf geschrieben: Reisst die
-    // Quote, fehlt lieber der Zettel als der Entwurf.
-    localStorage.setItem(
-      STAND_KEY,
-      JSON.stringify({ zeit: new Date().toISOString(), instanz, quelle } satisfies EntwurfsStand)
-    );
-    return true;
-  } catch {
-    return false;
   }
 }
 

@@ -40,7 +40,9 @@
  *   - `BroadcastChannel`, wo vorhanden,
  *   - der Schreibversuch selbst — der letzte Riegel, der auch dann hält,
  *     wenn ein Ereignis ausbleibt (Tab im Hintergrund, Ereignis noch
- *     unterwegs). Er kostet ein `getItem` je Schreibvorgang.
+ *     unterwegs). Er kostet zwei `getItem` je Schreibvorgang: eines auf den
+ *     Entwurf (die Prüfung) und eines auf den Begleitzettel (dessen Basis
+ *     bleibt beim Schreiben erhalten).
  * Jede Prüfung liest den Speicher NEU, statt dem Ereignis zu glauben.
  * Damit ist die Reihenfolge der Ereignisse gleichgültig.
  *
@@ -62,12 +64,20 @@ export const ENTWURF_KANAL = 'wov-editor-entwurf';
 
 /**
  * Der Begleitzettel, wie er geschrieben wird: `EntwurfsStand` plus die BASIS —
- * der Hash des Serverdokuments, den ein Editor zuletzt gelesen oder selbst
- * geschrieben hat. Wer ohne den Editor auf den Server schreibt (der Testflug,
- * `LocalStoragePersistenz`), schickt genau diese Basis als `If-Match` mit und
- * überschreibt so keine neuere Speicherung still. Der Testflug schreibt am
- * Zettel nur dieses eine Feld (nach einem erfolgreichen Speichern), sonst
- * nichts: Stempel und Kennung bleiben, wie sie sind.
+ * der Hash des Serverdokuments, AUF DEM DER ENTWURF BERUHT. Das ist enger als
+ * „zuletzt gesehen": Ein Editor, der einen neueren Serverstand nur geholt und
+ * dem Nutzer gezeigt hat, ändert die Basis nicht. Sie wird nur gesetzt, wenn
+ *   1. Serverinhalt den Entwurf ersetzt (Serverstand laden, Start ohne
+ *      Entwurf, „Serverstand übernehmen"),
+ *   2. ein Speichern in die Welt gelang (Entwurf == Server) oder
+ *   3. der Nutzer im Dialog ausdrücklich „Entwurf behalten" wählt (dann
+ *      ersetzt das nächste Speichern den gesehenen Serverstand — bewusst).
+ * Wer ohne den Editor auf den Server schreibt (der Testflug,
+ * `LocalStoragePersistenz`), schickt genau diese Basis als `If-Match` mit;
+ * der Betriebsdienst lehnt jeden Stand ab, auf dem der Entwurf nicht beruht.
+ * Der Testflug schreibt am Zettel nur dieses eine Feld (nach einem
+ * erfolgreichen Speichern), sonst nichts: Stempel und Kennung bleiben, wie
+ * sie sind.
  */
 export interface Begleitzettel extends EntwurfsStand {
   basis?: string;
@@ -285,6 +295,17 @@ export function serverstandFolge(grund: SpeicherGrund): ServerstandFolge {
   if (grund === 'ok') return 'geladen';
   if (grund === 'fremd') return 'nicht-geladen';
   return 'stehen-lassen';
+}
+
+/**
+ * Steht der Entwurf, den der Aufrufer eben schreiben wollte, jetzt im
+ * Speicher? 'ok' und 'knapp' ja; bei 'fremd' hat ein anderer Tab ihn ersetzt
+ * (nichts geschrieben), bei 'voll' passte er nicht. Nur dann darf der Editor
+ * die Basis des Begleitzettels weiterschieben: Sie beschreibt den Entwurf im
+ * Speicher, nicht den im Arbeitsspeicher des Editors.
+ */
+export function entwurfImSpeicher(grund: SpeicherGrund): boolean {
+  return grund === 'ok' || grund === 'knapp';
 }
 
 /**
@@ -687,7 +708,7 @@ export class EntwurfsSpeicher {
   private readonly platzErgebnis: ((entwurfPasst: boolean) => void) | null;
   /** Der Rohtext in `bekannt` stammt von einem anderen Tab und ist seither nicht überschrieben worden. */
   private bekanntFremd = false;
-  /** Zuletzt bekannter Serverstand (Hash) für den Begleitzettel, s. `basisMerken`. */
+  /** Basis des Entwurfs (Hash), wie dieser Tab sie zuletzt gesetzt hat, s. `basisMerken`. */
   private basis: string | null = null;
   private readonly beiStorage = (e: { key: string | null }): void => {
     // `key === null`: der Speicher wurde geleert.
@@ -726,11 +747,14 @@ export class EntwurfsSpeicher {
   }
 
   /**
-   * Der Editor kennt einen neuen Serverstand (gelesen oder selbst geschrieben,
-   * `null` = keiner): Er kommt in den Begleitzettel, damit der Testflug ihn als
-   * Basis benutzen kann. Ohne vorhandenen Zettel wird keiner erfunden; der
-   * nächste `schreiben` legt ihn mit dieser Basis an. `true`, wenn ein Zettel
-   * aktualisiert wurde.
+   * Der Entwurf beruht ab jetzt auf diesem Serverstand (`null` = auf keinem
+   * bekannten): Er kommt in den Begleitzettel, damit der Testflug ihn als
+   * Basis benutzen kann. NICHT aufrufen, wenn der Editor einen Serverstand
+   * bloss geholt hat — nur, wenn Serverinhalt in den Entwurf geschrieben
+   * wurde, ein Speichern gelang oder der Nutzer „Entwurf behalten" gewählt
+   * hat (s. `Begleitzettel`). Ohne vorhandenen Zettel wird keiner erfunden;
+   * der nächste `schreiben` legt ihn mit dieser Basis an. `true`, wenn ein
+   * Zettel aktualisiert wurde.
    */
   basisMerken(hash: string | null): boolean {
     this.basis = hash;
@@ -742,6 +766,22 @@ export class EntwurfsSpeicher {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Die Basis des Entwurfs: die im Begleitzettel (sie gehört zum Entwurf im
+   * Speicher, und der Testflug schiebt sie nach einem eigenen Speichern
+   * weiter), sonst die zuletzt gemerkte. `null`, wenn keine bekannt ist —
+   * dann darf niemand auf den Server schreiben.
+   */
+  basisLesen(): string | null {
+    let roh: string | null = null;
+    try {
+      roh = this.speicher.getItem(STAND_KEY);
+    } catch {
+      /* nicht lesbar: dann gilt die gemerkte Basis */
+    }
+    return zettelBasisLesen(roh) ?? this.basis;
   }
 
   private rohLesen(): string | null | undefined {

@@ -1445,7 +1445,7 @@ async function behandeln(
       } else {
         geschrieben = await layoutSchreibenAsync(LAYOUT_DATEI, dokument, undefined, { basis });
       }
-      const { layout, sicherung, text, hash, verworfen, verworfenJeFeld } = geschrieben;
+      const { layout, sicherung, text, hash, verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld } = geschrieben;
       if (verworfen > 0) {
         console.warn(
           `[Admin] POST /api/worldlayout: ${verworfen} ungueltige(r) Eintrag/Eintraege im Dokument verworfen ` +
@@ -1466,6 +1466,8 @@ async function behandeln(
           hash,
           // `verworfen` = Summe (Zahl, wie bisher), `verworfenJeFeld` = dieselbe Zahl je Liste.
           ...(verworfen > 0 ? { verworfen, verworfenJeFeld } : {}),
+          // Exakte Duplikate, die der Sanitizer zu einem Eintrag zusammengefasst hat: KEIN Verlust, zählt nicht bei `verworfen`.
+          ...(zusammengefasst > 0 ? { zusammengefasst, zusammengefasstJeFeld } : {}),
         },
       };
     } catch (fehler) {

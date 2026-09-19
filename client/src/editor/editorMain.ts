@@ -2984,8 +2984,9 @@ function weltFeldBauen(): void {
               // Meldung (der Import steht dann unter Rückgängig).
               if (grund === 'ok') {
                 shell.meldung(
-                  `Import übernommen — ${s.regions.length} Region(en). Erst „In die Welt speichern" ` +
-                    `schreibt ihn nach ${weltName()}.` +
+                  `Import übernommen — ${s.regions.length} Region(en), noch nicht gespeichert. Der Import beruht auf keinem ` +
+                    `bekannten Serverstand: Zum Speichern nach ${weltName()} zuerst das Feld „WELT" links oben anklicken ` +
+                    `(holt den Serverstand, zeigt die Gegenüberstellung), dort „Entwurf behalten" wählen, dann „In die Welt speichern".` +
                     ringHinweis(ringVor)
                 );
               }

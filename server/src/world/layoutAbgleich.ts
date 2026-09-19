@@ -109,7 +109,7 @@ function zustand(zdo: ZDO): number {
  * sie als Float, Long oder Text steht, ist trotzdem ein Spielerbau — `getInt`
  * lieferte für ihn 0, und der Abgleich hätte ihn übernommen und verschoben.
  */
-function istSpielerbau(zdo: ZDO): boolean {
+export function istSpielerbau(zdo: ZDO): boolean {
   const wert = zdo.getMember(SPIELER_HASH)?.value;
   if (typeof wert === 'number') return wert === 1;
   if (typeof wert === 'bigint') return wert === 1n;

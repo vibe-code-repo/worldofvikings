@@ -511,7 +511,12 @@ und nehmen so Sanitisierung, Editor/MCP und Deploy mit.
 - **Wiedererkennung über die `id`**: Platzierungen werden beim Boot
   über den ZDO-Member `layoutId` (die `id` der Platzierung, `PlacementDef.id`; zum Ausrollen s. „Betrieb")
   wiedergefunden, nicht mehr nur über die Nähe zum Eintrag — ein Routen-NPC
-  steht beim nächsten Start ja irgendwo auf seiner Runde.
+  steht beim nächsten Start ja irgendwo auf seiner Runde. **Abgeleitete ids
+  sind keine stabilen Adressen:** Der Sanitizer leitet sie nur für Einträge
+  ohne `id` ab (Dokumente aus der Zeit vor den ids), und ein neuer id-loser
+  Eintrag, der in der kanonischen Reihenfolge vor einem bestehenden liegt, übernähme dessen
+  `id` (das ZDO wanderte mit). Wer einen Eintrag neu anlegt, vergibt ihm
+  deshalb sofort `neuePlatzierungsId`.
 - **Animation**: Der Server schreibt den Bewegungszustand in den
   ZDO-Member `anim` (`idle`/`walk`, nur bei Wechsel). Der Client startet
   die gleichnamige AnimationGroup der Instanz

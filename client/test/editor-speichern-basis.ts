@@ -101,13 +101,14 @@ console.log('▶ POST: If-Match und neuer Hash');
   check('Neuer Hash darf auch im ETag-Kopf der Antwort kommen', a.art === 'ok' && a.hash === 'h3');
 }
 
-// ── 3. POST ohne Hash vom Server ─────────────────────────────────────
-console.log('▶ POST ohne bekannte Basis (Server vor K0.2)');
+// ── 3. POST ohne bekannte Basis: der Dienst antwortet 428 ────────────
+console.log('▶ POST ohne bekannte Basis (428-Vertrag des Betriebsdienstes, E1)');
 {
-  const { fetchFn, aufrufe } = attrappe([{ status: 200, rumpf: { ok: true, message: 'Gespeichert in dev.json' } }]);
+  const { fetchFn, aufrufe } = attrappe([{ status: 428, rumpf: { ok: false, fehler: 'basis-fehlt', message: 'If-Match fehlt' } }]);
   const a = await schreibeWeltdokument(echt, null, fetchFn);
-  check('POST geht ohne If-Match hinaus, wie heute', aufrufe.length === 1 && !('If-Match' in aufrufe[0]!.kopf), JSON.stringify(aufrufe[0]?.kopf));
-  check('Erfolg ohne Hash: art=ok, hash=null (nächstes Speichern wieder ohne Basis)', a.art === 'ok' && a.hash === null);
+  check('Die Funktion erfindet keine Basis: 1 POST ohne If-Match', aufrufe.length === 1 && !('If-Match' in aufrufe[0]!.kopf), JSON.stringify(aufrufe[0]?.kopf));
+  check('428 → art=basis-fehlt mit der Meldung BASIS_VERLANGT (nicht ok, kein Hash)', a.art === 'basis-fehlt' && a.message === BASIS_VERLANGT && !('hash' in a), JSON.stringify(a));
+  check('Kein zweiter POST (kein „dann eben mit erfundener Basis")', posts(aufrufe) === 1 && aufrufe.length === 1, `Aufrufe=${aufrufe.length}`);
   check('Kopf Content-Type bleibt application/json', aufrufe[0]?.kopf['Content-Type'] === 'application/json');
 }
 

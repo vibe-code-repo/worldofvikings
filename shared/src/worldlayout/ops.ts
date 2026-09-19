@@ -65,6 +65,9 @@
  *    position can be honoured: for `placements` `nach` and `index` are
  *    ignored, the entry is simply added, and `positionUngenau` never names
  *    one. Tests of placements look at membership and content, not at the place.
+ *    Byte-exact undo of a placement therefore presupposes that the sanitizer
+ *    sorts placements by id (K1.1): without that sort the order after an undo
+ *    depends on the order of the ops, and the bytes differ.
  *  - COST. `wende` does its work in time linear in the size of the Vorgang
  *    and of the lists: waiting entries are placed in one pass (a map from
  *    anchor to the entries behind it, no repeated search), so a chain or a

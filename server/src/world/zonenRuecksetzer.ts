@@ -66,12 +66,12 @@ import type { ZoneID } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
 import type { ZoneManager } from './ZoneManager.js';
+import { istSpielerbau } from './layoutAbgleich.js';
 
 /** Herkunftsmarke der Streuung (Int-Member: gepackte Kennung der erzeugenden Zone). */
 export const STREU_MEMBER = 'streu';
 const STREU_HASH = getStableHash(STREU_MEMBER);
 const LAYOUT_ID_HASH = getStableHash(LAYOUT_ID_MEMBER);
-const SPIELER_HASH = getStableHash('spieler');
 const HEALTH_HASH = getStableHash(HEALTH_MEMBER);
 
 /** Wert für "Marke ohne Herkunft" (Altform); gültige Kennungen sind >= 2. */
@@ -105,19 +105,6 @@ export function herkunftDerMarke(zdo: ZDO): ZoneID | null {
 function stammtAusZone(zdo: ZDO, zone: ZoneID): boolean {
   const h = herkunftDerMarke(zdo);
   return h !== null && h.x === zone.x && h.y === zone.y;
-}
-
-/**
- * Trägt das ZDO ein `spieler`-Member mit dem Wert 1? Typunabhängig: ein
- * Spielerbau bleibt einer, auch wenn die Zahl als Float, Long oder Text
- * abgelegt wurde (gleiche Regel wie `istSpielerbau` im Layout-Abgleich).
- */
-function hatSpielerMarke(zdo: ZDO): boolean {
-  const wert = zdo.getMember(SPIELER_HASH)?.value;
-  if (typeof wert === 'number') return wert === 1;
-  if (typeof wert === 'bigint') return wert === 1n;
-  if (typeof wert === 'string') return wert.trim() === '1';
-  return false;
 }
 
 /** Steht ein Layout-Schlüssel im ZDO (gleich welchen Typs)? Dann gehört es dem Dokument. */
@@ -198,7 +185,7 @@ export function markiereStreu(zdos: ZDOManager, zone: ZoneID, stand: readonly nu
     let index = 0;
     for (const zdo of menge) {
       if (index++ < stand[i]!) continue;
-      if (hatLayoutId(zdo) || hatSpielerMarke(zdo)) continue;
+      if (hatLayoutId(zdo) || istSpielerbau(zdo)) continue;
       zdo.setInt(STREU_MEMBER, herkunft);
       markiert++;
     }
@@ -208,7 +195,7 @@ export function markiereStreu(zdos: ZDOManager, zone: ZoneID, stand: readonly nu
 
 /** Ersatzregel für Zonen ohne Marke: Streu-Flora ohne Layout-Schlüssel und ohne Spielermarke. */
 function istStreuVerdacht(zdo: ZDO): boolean {
-  return FOLIAGE_HASHES.has(zdo.prefabHash) && !hatLayoutId(zdo) && !hatSpielerMarke(zdo);
+  return FOLIAGE_HASHES.has(zdo.prefabHash) && !hatLayoutId(zdo) && !istSpielerbau(zdo);
 }
 
 export type ZonenStatus = 'neu-gestreut' | 'abgelehnt' | 'fehler';
@@ -260,7 +247,7 @@ export function ablehnungsGrund(kontext: RuecksetzKontext, zone: ZoneID): string
   }
   const comp = kontext.heightmaps.getTerrainComp(zone.x, zone.y);
   if (comp && !comp.isEmpty) return 'Terraforming in der Zone';
-  if (zdosImKasten(kontext.zdos, zone).some(hatSpielerMarke)) return 'Spielerbau in der Zone';
+  if (zdosImKasten(kontext.zdos, zone).some(istSpielerbau)) return 'Spielerbau in der Zone';
   return null;
 }
 

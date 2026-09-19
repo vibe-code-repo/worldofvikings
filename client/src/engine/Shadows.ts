@@ -742,6 +742,14 @@ export class Shadows {
     // CSM-Werferhülle und der Shaderpfad wieder exakt auf Vor-E26-Stand.
     if (!this.vegetationsInstanzKeulung) return;
     let stand = this.vegetationsSchatten.get(quelle);
+    // ── G16 (b): ein leerer Master bekommt weder Eintrag noch Klon ───────
+    // `null` (oder ein leerer Puffer) kommt fuer Master ohne Instanzen, etwa
+    // die Dick-Variante im 100-FPS-Profil, bei jedem Neuaufbau des Buckets. Ein
+    // Eintrag samt eigener GPU-Geometrie fuer etwas, das nie wirft, waere eine
+    // zweite Wahrheit. Hat der Master schon einen Eintrag, laeuft die leere
+    // Meldung normal weiter und leert ihn (G16 (a), s. EntityManager.baueZellMaster).
+    // An empty master neither gets an entry nor a clone; an existing entry is emptied below.
+    if (!stand && (matrizen === null || matrizen.length === 0)) return;
     if (!stand) {
       // zellMeshAusPrototyp extrahiert VertexData in eine EIGENE Geometry.
       // Genau das fehlte im verworfenen Klon-Anlauf, dessen clone()/
@@ -958,11 +966,25 @@ export class Shadows {
     const g = this.generator;
     if (!g || this.vegetationsTiefePending.size === 0) return;
     for (const stand of this.vegetationsTiefePending) {
+      // ── Wer gleich neu gepackt wird, wartet auf das Packen (M1) ────────
+      // tick() ruft diese Methode VOR der Packschleife. Steht der Klon in
+      // vegetationsPackPending, gilt sein `aktiv` nur bis dahin: faellt der
+      // Ring beim Packen leer, war die Anmeldung hier vergeblich (ein
+      // Aufruf zu viel im Zaehler und im Farbeffekt-Cache). Das Packen
+      // entscheidet — es meldet neu an, wenn der Klon Instanzen behaelt, und
+      // nimmt ihn sonst selbst aus der Warteliste (packeVegetationsMaster).
+      // A clone about to be repacked waits for the pack: it decides whether
+      // there is anything left to register.
+      if (this.vegetationsPackPending.has(stand)) continue;
       const teil = stand.schatten.subMeshes?.[0];
-      // Ohne Instanzen NICHT anmelden: Der Basis-Effekt entstuende ohne
-      // INSTANCES-Define, und der Tiefen-Shader zeichnete spaeter keine
-      // Instanzen. Beim naechsten Packen mit Instanzen kommt der Klon neu hierher.
-      if (!this.vegetationsInstanzKeulung || !teil || stand.schatten.isDisposed() || stand.aktiv === 0) {
+      // Ohne Instanzen NICHT anmelden (der Basis-Effekt entstuende ohne
+      // INSTANCES-Define, der Tiefen-Shader zeichnete spaeter keine Instanzen):
+      // Das erzwingt packeVegetationsMaster — dort verlaesst ein Klon mit
+      // `aktiv === 0` die Warteliste SOFORT. Ein zweiter Waechter an dieser
+      // Stelle war seit dem Fix von H4 unerreichbar (H2) und ist entfernt; die
+      // Zusage steht im Test `schatten-laub-klon.ts` und wird von Mutanten
+      // an der Stelle im Packen gehalten.
+      if (!this.vegetationsInstanzKeulung || !teil || stand.schatten.isDisposed()) {
         this.vegetationsTiefePending.delete(stand);
         continue;
       }

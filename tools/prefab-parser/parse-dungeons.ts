@@ -1,11 +1,11 @@
 /**
- * Dungeons Parser — reads dungeons.pkg from the C++ reference
- * server and exports all dungeon generators with their
+ * Dungeons Parser — reads dungeons.pkg from the reference
+ * server's data export and exports all dungeon generators with their
  * complete room kits (sizes, connections, contained net views, random
  * spawns) as JSON. This is the data the Unity Room/RoomConnection
  * components carry, which the GLB exports do not contain.
  *
- * Binary format (reference server, DungeonManager.cpp:19-201):
+ * Binary format (reference server, dungeon loader, lines 19-201):
  *
  *   header:
  *     string  comment            (.NET BinaryWriter: 7-bit varint length + UTF-8)
@@ -17,7 +17,7 @@
  *     bool    useCustomInteriorTransform
  *     if useCustomInteriorTransform:
  *       float32×3  interiorPosition     (typically (0, 5000, 0))
- *       float32×4  interiorRotation     (quaternion, unused by the C++ server)
+ *       float32×4  interiorRotation     (quaternion, unused by the reference server)
  *       float32×3  originalPosition     (generator offset inside the location)
  *     int32   algorithm          (0 Dungeon, 1 CampGrid, 2 CampRadial)
  *     bool    alternativeFunctionality
@@ -83,7 +83,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_PKG = resolve(__dirname, '../../../referenz-server/data/dungeons.pkg');
+const PKG_DIR = process.env.WOV_PKG_DIR ?? resolve(__dirname, '../../../pkg-data');
+const DEFAULT_PKG = resolve(PKG_DIR, 'dungeons.pkg');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 interface Vec3 {
@@ -234,7 +235,7 @@ function main(): void {
     let originalPosition: Vec3 | null = null;
     if (reader.readBool()) {
       interiorPosition = reader.readVec3();
-      reader.readQuat(); // interior rotation — parsed, unused (like C++)
+      reader.readQuat(); // interior rotation — parsed, unused (like the reference)
       originalPosition = reader.readVec3();
     }
 

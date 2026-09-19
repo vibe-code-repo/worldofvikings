@@ -2,6 +2,7 @@
  * One-off diagnostic: parse GLBs through three's GLTFLoader exactly like the
  * client does, to reproduce "Model missing" failures outside the browser.
  * Usage: npx tsx tools/test-glb-parse.ts <name.glb> [more.glb...]
+ * The models directory is WOV_MODELS_DIR, default assets/models (relative to the cwd).
  */
 import { readFileSync } from 'fs';
 import { Box3, Vector3 } from 'three';
@@ -15,12 +16,13 @@ if (typeof (globalThis as any).URL.createObjectURL !== 'function') {
 }
 
 const loader = new GLTFLoader();
+const MODELS_DIR = process.env.WOV_MODELS_DIR ?? 'assets/models';
 
 async function main(): Promise<void> {
   for (const arg of process.argv.slice(2)) {
     const path = arg.endsWith('.glb')
-      ? `../valheim_browser_assets/models/${arg}`
-      : `../valheim_browser_assets/models/${arg}.glb`;
+      ? `${MODELS_DIR}/${arg}`
+      : `${MODELS_DIR}/${arg}.glb`;
     const buf = readFileSync(path);
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
     await new Promise<void>((resolve) => {

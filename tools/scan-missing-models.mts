@@ -1,6 +1,6 @@
 /**
  * Static audit: for every renderable prefab in the registry, check whether
- * its GLB model file exists in valheim_browser_assets/models and whether it
+ * its GLB model file exists in the models directory and whether it
  * actually contains any meshes. Reports:
  *  - MISSING: no .glb file at all (404 at runtime -> permanent placeholder)
  *  - EMPTY:   .glb exists but has 0 meshes (permanent placeholder as well)
@@ -8,12 +8,13 @@
  * and are skipped (not a bug).
  *
  * Run: npx tsx tools/scan-missing-models.mts
+ * The models directory is WOV_MODELS_DIR, default assets/models.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { PREFAB_DEFS, isRenderable } from '../shared/src/prefabs.js';
 
-const MODELS_DIR = 'C:/Users/Administrator/Modding/valheim_browser_assets/models';
+const MODELS_DIR = process.env.WOV_MODELS_DIR ?? path.resolve(import.meta.dirname, '..', 'assets', 'models');
 
 function meshCount(file: string): number {
   const buf = fs.readFileSync(file);

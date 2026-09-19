@@ -10,9 +10,9 @@ Das grasscross-Mesh sampelt drei horizontale UV-Spalten (u ~0.01-0.37,
 daher drei Halme-Buendel-Spalten: Halme von unten (v=1, Boden) nach oben
 zulaufend, Farbverlauf dunkle Basis -> helle Spitze, Alpha 255 im Halm.
 
-Ausgabe: valheim_browser_assets/textures/grass_meadows_gen.png (gruen)
-         valheim_browser_assets/textures/grass_heath_gen.png  (khaki/trocken)
-         valheim_browser_assets/textures/grass_toon1_yellow_gen.png (Sumpf-Gelbgruen)
+Ausgabe: assets/textures/grass_meadows_gen.png (gruen)
+         assets/textures/grass_heath_gen.png  (khaki/trocken)
+         assets/textures/grass_toon1_yellow_gen.png (Sumpf-Gelbgruen)
 
 grass_toon1_yellow.png (swampGrass, mesh 'droopy' = grasscross.glb, siehe
 glb-uv-dump: identisches 3-Spalten-UV-Layout wie clutter_default.glb) ist

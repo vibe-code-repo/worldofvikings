@@ -741,7 +741,7 @@ export class Vorschau {
    *
    * Also ein weicher dunkler Fleck als flache Scheibe, knapp ueber Null.
    * Dasselbe Mittel benutzt das Spiel fuer billige Schatten
-   * (client/src/engine — blob_shadows im ClaudeCraft-Vergleich).
+   * (client/src/engine — blob_shadows im Vergleichsprojekt).
    */
   private fleckschattenLegen(): void {
     const K = 128;
@@ -820,8 +820,8 @@ export class Vorschau {
    * Das Spiel faehrt einen CascadedShadowGenerator ueber 250 m. Hier reicht
    * EINE Karte: Die ganze Szene, die Schatten braucht, misst keine
    * 20 Einheiten. Vier Kaskaden waeren viermal rastern fuer denselben
-   * Ausschnitt — und ClaudeCraft faehrt aus genau dem Grund ebenfalls nur
-   * eine (siehe Notiz "Was World of ClaudeCraft anders macht").
+   * Ausschnitt — und das Vergleichsprojekt faehrt aus genau dem Grund ebenfalls nur
+   * eine.
    *
    * PCF wie im Spiel, damit die Kante weich ist. `darkness` unter 1, weil
    * ein Waldschatten nie schwarz ist — es faellt immer Streulicht hinein.

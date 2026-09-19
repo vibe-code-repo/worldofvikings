@@ -11,7 +11,8 @@ function inspect(file) {
   const prims = (json.meshes||[]).reduce((a,m)=>a+(m.primitives?m.primitives.length:0),0);
   console.log(`${path.basename(file)}: meshes=${meshes} prims=${prims} skins=${skins} nodes=${nodes} size=${buf.length}`);
 }
-const dir = 'C:\\Users\\Administrator\\Modding\\valheim_browser_assets\\models\\';
+// Models directory: first argument, else WOV_MODELS_DIR, else assets/models.
+const dir = path.join(process.argv[2] ?? process.env.WOV_MODELS_DIR ?? path.join(__dirname, '..', 'assets', 'models'), path.sep);
 const files = ['Troll.glb','TrollUndead.glb','troll_base_2.glb','Neck.glb','Greyling.glb','greydwarf.glb','Greydwarf_0.glb','greydwarf@Idle.glb','Boar.glb','Boar_0.glb','Pickable_DolmenTreasure.glb','StatueDeer.glb','Deer.glb'];
 for (const f of files) {
   try { inspect(dir+f); } catch(e) { console.log(f, 'ERROR', e.message); }

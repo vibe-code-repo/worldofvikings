@@ -71,7 +71,7 @@ with open(LISTE, encoding='utf-8') as f:
 
 
 def cutout_reparieren():
-    """Wie glb-vorschau.py: AssetRipper-Exporte melden OPAQUE, obwohl die
+    """Wie glb-vorschau.py: Fremdexporte melden OPAQUE, obwohl die
     Textur einen echten Alphakanal hat. Ohne die Reparatur rendert Laub als
     Wolke schwarzer Rechtecke statt als Lücken."""
     for mat in bpy.data.materials:

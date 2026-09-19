@@ -1,5 +1,5 @@
 /**
- * Repariert GLB-Header: AssetRipper exportiert bei einigen Dateien ein
+ * Repariert GLB-Header: Der Fremdexport schreibt bei einigen Dateien ein
  * falsches buffers[0].byteLength im JSON-Chunk (0 oder zu klein). Three.js
  * toleriert das, Babylon validiert streng und lädt dann leere Buffer
  * ("Binary buffer length (0) from JSON does not match chunk length").

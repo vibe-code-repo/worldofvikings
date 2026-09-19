@@ -11,7 +11,8 @@ function inspect(file) {
   const prims = (json.meshes||[]).reduce((a,m)=>a+(m.primitives?m.primitives.length:0),0);
   console.log(`${path.basename(file)}: meshes=${meshes} prims=${prims} skins=${skins} nodes=${nodes} size=${buf.length}`);
 }
-const dir = 'C:\\Users\\Administrator\\Modding\\valheim_browser_assets\\models\\';
+// Models directory: first argument, else WOV_MODELS_DIR, else assets/models.
+const dir = path.join(process.argv[2] ?? process.env.WOV_MODELS_DIR ?? path.join(__dirname, '..', 'assets', 'models'), path.sep);
 const files = [
   'troll@Laying Sleeping.glb','troll@Mutant Jumping.glb','troll@Throw.glb','troll@Zombie Attack.glb','troll@Zombie Attack2.glb',
   'trollNewWalk.glb','TrollHide.glb','Troll_ragdoll.glb','Troll_Summoned.glb','TrollUndead_Gibs.glb',

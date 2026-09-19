@@ -18,12 +18,12 @@ weiteren Slots — von denen im Export nur vier lagen.
 NICHT in resources.assets oder sharedassets0.assets: der Client lädt sie
 aus einem AssetBundle unter
 
-    valheim_Data/StreamingAssets/SoftRef/Bundles/c4210710
+    <client-export>/StreamingAssets/SoftRef/Bundles/c4210710
 
 Das Bundle enthält 291.921 Objekte; die Pixel selbst liegen nicht im
 Objekt, sondern per `m_StreamData` in der begleitenden `.resS`-Ressource
-(Offset + Länge). UnityPy löst diesen Verweis bei Bundles nicht selbst
-auf — `obj.read().image` wirft "Texture2D has no image data". Deshalb
+(Offset + Länge). Das Python-Paket zum Lesen von Unity-Bundles löst diesen
+Verweis nicht selbst auf — `obj.read().image` wirft "Texture2D has no image data". Deshalb
 liest dieses Skript den `.resS`-Block von Hand.
 
 ── Das Format ───────────────────────────────────────────────────────
@@ -37,16 +37,18 @@ Format also NICHT, und mit BC3 dekodiert entsteht plausibel aussehendes
 graubraunes Rauschen (alle 16 Layer hatten eine mittlere Farbe um
 (105, 100, 92), kein grüner Gras- und kein heller Sandlayer darunter).
 Verifiziert wurde BC7 gegen die bereits vorhandene, aus einem
-AssetRipper-Lauf stammende `assets/textures/terrain_d_array.png`:
+Fremdexport stammende `assets/textures/terrain_d_array.png`:
 pixelgleich, maximale Abweichung 0.
 
 ── Benutzung ────────────────────────────────────────────────────────
-Braucht UnityPy, Pillow und texture2ddecoder in einer venv:
+Braucht das Python-Paket zum Lesen von Unity-Bundles (es wird unten
+importiert), dazu Pillow und texture2ddecoder, in einer venv. Den Pfad zum
+Bundle nimmt das Skript aus WOV_CLIENT_BUNDLE:
 
     python3 -m venv --without-pip venv
     curl -sS https://bootstrap.pypa.io/get-pip.py | ./venv/bin/python -
-    ./venv/bin/python -m pip install UnityPy Pillow numpy
-    ./venv/bin/python tools/extract-texture-arrays.py [ZIEL]
+    ./venv/bin/python -m pip install <Bundle-Leser-Paket> Pillow numpy texture2ddecoder
+    WOV_CLIENT_BUNDLE=<Pfad> ./venv/bin/python tools/extract-texture-arrays.py [ZIEL]
 
 Geschrieben werden je Array ein senkrechter Atlas (Breite × Höhe·Layer,
 also 256×4096 bzw. 256×1024 — genau das Format, das TerrainSplat.ts
@@ -86,8 +88,10 @@ import UnityPy
 import texture2ddecoder
 from PIL import Image
 
-BUNDLE = ('/root/Valheim_Client/Valheim/valheim_Data/StreamingAssets'
-          '/SoftRef/Bundles/c4210710')
+BUNDLE = os.environ.get(
+    'WOV_CLIENT_BUNDLE',
+    '/root/client-export/StreamingAssets/SoftRef/Bundles/c4210710',
+)
 
 # PathIDs aus Heightmap_basematerial. Als int-Literal und nicht aus dem
 # Material-JSON gelesen: die IDs sind 64-bit, und json.load() rundet sie

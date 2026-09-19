@@ -157702,21 +157702,6 @@
   "plainsfortress_Hildir_Start": {
    "netViews": [
     {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500007152557373,
-      "y": -3.75,
-      "z": 2.4999992847442627
-     },
-     "rot": {
-      "x": 0,
-      "y": 1,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
      "prefabName": "Spawner_GoblinBrute_Hildir",
      "prefabHash": 1045814903,
      "pos": {
@@ -157921,7 +157906,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      8
+      7
      ]
     },
     {
@@ -157932,7 +157917,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      11
+      10
      ]
     }
    ]
@@ -158162,51 +158147,6 @@
       "y": -0.7071064114570618,
       "z": 0,
       "w": 0.707107424736023
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -5.500000953674316,
-      "y": -3.75,
-      "z": -2.499999523162842
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1.0000001192092896
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500000476837158,
-      "y": -3.75,
-      "z": -2.5000009536743164
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500000953674316,
-      "y": -3.75,
-      "z": 2.499999523162842
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
      }
     },
     {
@@ -158472,7 +158412,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      22
+      19
      ]
     },
     {
@@ -158483,7 +158423,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      23
+      20
      ]
     }
    ]
@@ -158653,51 +158593,6 @@
       "y": -0.7071064114570618,
       "z": 0,
       "w": 0.707107424736023
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -5.500000953674316,
-      "y": -3.75,
-      "z": -2.499999523162842
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1.0000001192092896
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500000476837158,
-      "y": -3.75,
-      "z": -2.5000009536743164
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500000953674316,
-      "y": -3.75,
-      "z": 2.499999523162842
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
      }
     },
     {
@@ -158963,6 +158858,28 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
+      12
+     ]
+    },
+    {
+     "chanceToSpawn": 66,
+     "dungeonRequireTheme": 0,
+     "requireBiome": 0,
+     "notInLava": false,
+     "minElevation": -1000000000,
+     "maxElevation": 1.401298464324817e-41,
+     "childViews": [
+      13
+     ]
+    },
+    {
+     "chanceToSpawn": 66,
+     "dungeonRequireTheme": 0,
+     "requireBiome": 0,
+     "notInLava": false,
+     "minElevation": -1000000000,
+     "maxElevation": 1.401298464324817e-41,
+     "childViews": [
       15
      ]
     },
@@ -158975,28 +158892,6 @@
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
       16
-     ]
-    },
-    {
-     "chanceToSpawn": 66,
-     "dungeonRequireTheme": 0,
-     "requireBiome": 0,
-     "notInLava": false,
-     "minElevation": -1000000000,
-     "maxElevation": 1.401298464324817e-41,
-     "childViews": [
-      18
-     ]
-    },
-    {
-     "chanceToSpawn": 66,
-     "dungeonRequireTheme": 0,
-     "requireBiome": 0,
-     "notInLava": false,
-     "minElevation": -1000000000,
-     "maxElevation": 1.401298464324817e-41,
-     "childViews": [
-      19
      ]
     }
    ]
@@ -159166,51 +159061,6 @@
       "y": -0.7071062922477722,
       "z": 0,
       "w": 0.7071073055267334
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -5.500007152557373,
-      "y": -3.75,
-      "z": -2.5000641345977783
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.499992847442627,
-      "y": -3.75,
-      "z": -2.500065565109253
-     },
-     "rot": {
-      "x": 0,
-      "y": 1,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500007152557373,
-      "y": -3.75,
-      "z": 2.499934434890747
-     },
-     "rot": {
-      "x": 0,
-      "y": 1,
-      "z": 0,
-      "w": 0
      }
     },
     {
@@ -159476,7 +159326,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      18
+      15
      ]
     },
     {
@@ -159487,7 +159337,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      19
+      16
      ]
     }
    ]
@@ -160002,51 +159852,6 @@
       "y": -0.7071062922477722,
       "z": 0,
       "w": 0.7071073055267334
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -5.500007152557373,
-      "y": -3.75,
-      "z": -2.5000736713409424
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.499992847442627,
-      "y": -3.75,
-      "z": -2.500075101852417
-     },
-     "rot": {
-      "x": 0,
-      "y": 1,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500007152557373,
-      "y": -3.75,
-      "z": 2.499926805496216
-     },
-     "rot": {
-      "x": 0,
-      "y": 1,
-      "z": 0,
-      "w": 0
      }
     },
     {
@@ -160757,51 +160562,6 @@
      }
     },
     {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -5.500000953674316,
-      "y": -3.75,
-      "z": -2.500385046005249
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1.0000001192092896
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500000476837158,
-      "y": -3.75,
-      "z": -2.5003862380981445
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500000953674316,
-      "y": -3.75,
-      "z": 2.4996142387390137
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
      "prefabName": "SunkenKit_int_towerwall_LOD",
      "prefabHash": -376428566,
      "pos": {
@@ -161292,51 +161052,6 @@
      }
     },
     {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -5.500000953674316,
-      "y": -3.75,
-      "z": -2.499999523162842
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1.0000001192092896
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500000476837158,
-      "y": -3.75,
-      "z": -2.5000009536743164
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500000953674316,
-      "y": -3.75,
-      "z": 2.499999523162842
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
      "prefabName": "SunkenKit_int_towerwall_LOD",
      "prefabHash": -376428566,
      "pos": {
@@ -161724,51 +161439,6 @@
      }
     },
     {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -5.500007152557373,
-      "y": -3.75,
-      "z": -2.5000641345977783
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.499992847442627,
-      "y": -3.75,
-      "z": -2.500065565109253
-     },
-     "rot": {
-      "x": 0,
-      "y": 1,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 5.500007152557373,
-      "y": -3.75,
-      "z": 2.499934434890747
-     },
-     "rot": {
-      "x": 0,
-      "y": 1,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
      "prefabName": "Spawner_GoblinArcher",
      "prefabHash": -1332276175,
      "pos": {
@@ -162001,7 +161671,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      16
+      13
      ]
     },
     {
@@ -162012,7 +161682,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      17
+      14
      ]
     }
    ]
@@ -162725,21 +162395,6 @@
       "z": 0,
       "w": 1.0000001192092896
      }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -4.5929482439532876e-11,
-      "y": -1.75,
-      "z": 0.0003852844820357859
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
     }
    ],
    "randomSpawns": [
@@ -162756,8 +162411,7 @@
       3,
       4,
       5,
-      6,
-      7
+      6
      ]
     }
    ]
@@ -163776,21 +163430,6 @@
   "plainsfortress_Hildir_endcap_middlewall01": {
    "netViews": [
     {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 1.0000001192092896,
-      "y": -3.75,
-      "z": 0.0003834963426925242
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
      "prefabName": "goblin_bed",
      "prefabHash": -1998259239,
      "pos": {
@@ -163830,7 +163469,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      1
+      0
      ]
     },
     {
@@ -163841,7 +163480,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      2
+      1
      ]
     },
     {
@@ -164500,36 +164139,6 @@
   "plainsfortress_Hildir_endcap_middlewall03": {
    "netViews": [
     {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 2.500000238418579,
-      "y": -3.75,
-      "z": 2.980232238769531e-7
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1.0000001192092896
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -2.500000238418579,
-      "y": -3.75,
-      "z": -2.980232238769531e-7
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
      "prefabName": "goblin_bed",
      "prefabHash": -1998259239,
      "pos": {
@@ -164569,7 +164178,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      2
+      0
      ]
     },
     {
@@ -164580,7 +164189,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      3
+      1
      ]
     },
     {
@@ -164639,21 +164248,6 @@
      }
     },
     {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": -1.0000004768371582,
-      "y": -3.75,
-      "z": 2.500000238418579
-     },
-     "rot": {
-      "x": 0,
-      "y": 1.0000001192092896,
-      "z": 0,
-      "w": 0
-     }
-    },
-    {
      "prefabName": "goblin_bed",
      "prefabHash": -1998259239,
      "pos": {
@@ -164666,21 +164260,6 @@
       "y": 0.7071070671081543,
       "z": 0,
       "w": 0.7071067690849304
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 1.0000004768371582,
-      "y": -3.75,
-      "z": -2.5000011920928955
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1.0000001192092896
      }
     },
     {
@@ -164828,8 +164407,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      0,
-      1
+      0
      ]
     },
     {
@@ -164869,12 +164447,59 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      2,
-      3
+      1
      ]
     },
     {
      "chanceToSpawn": 50,
+     "dungeonRequireTheme": 0,
+     "requireBiome": 0,
+     "notInLava": false,
+     "minElevation": -1000000000,
+     "maxElevation": 1.401298464324817e-41,
+     "childViews": [
+      1
+     ]
+    },
+    {
+     "chanceToSpawn": 50,
+     "dungeonRequireTheme": 0,
+     "requireBiome": 0,
+     "notInLava": false,
+     "minElevation": -1000000000,
+     "maxElevation": 1.401298464324817e-41,
+     "childViews": []
+    },
+    {
+     "chanceToSpawn": 50,
+     "dungeonRequireTheme": 0,
+     "requireBiome": 0,
+     "notInLava": false,
+     "minElevation": -1000000000,
+     "maxElevation": 1.401298464324817e-41,
+     "childViews": []
+    },
+    {
+     "chanceToSpawn": 50,
+     "dungeonRequireTheme": 0,
+     "requireBiome": 0,
+     "notInLava": false,
+     "minElevation": -1000000000,
+     "maxElevation": 1.401298464324817e-41,
+     "childViews": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+     ]
+    },
+    {
+     "chanceToSpawn": 75,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -164885,44 +164510,18 @@
      ]
     },
     {
-     "chanceToSpawn": 50,
-     "dungeonRequireTheme": 0,
-     "requireBiome": 0,
-     "notInLava": false,
-     "minElevation": -1000000000,
-     "maxElevation": 1.401298464324817e-41,
-     "childViews": []
-    },
-    {
-     "chanceToSpawn": 50,
-     "dungeonRequireTheme": 0,
-     "requireBiome": 0,
-     "notInLava": false,
-     "minElevation": -1000000000,
-     "maxElevation": 1.401298464324817e-41,
-     "childViews": []
-    },
-    {
-     "chanceToSpawn": 50,
+     "chanceToSpawn": 75,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      4,
-      5,
-      6,
-      7,
-      8,
-      9,
-      10,
-      11,
-      12
+      3
      ]
     },
     {
-     "chanceToSpawn": 75,
+     "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -164944,7 +164543,7 @@
      ]
     },
     {
-     "chanceToSpawn": 50,
+     "chanceToSpawn": 75,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -164955,7 +164554,7 @@
      ]
     },
     {
-     "chanceToSpawn": 75,
+     "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -164977,7 +164576,7 @@
      ]
     },
     {
-     "chanceToSpawn": 50,
+     "chanceToSpawn": 75,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -164988,28 +164587,6 @@
      ]
     },
     {
-     "chanceToSpawn": 75,
-     "dungeonRequireTheme": 0,
-     "requireBiome": 0,
-     "notInLava": false,
-     "minElevation": -1000000000,
-     "maxElevation": 1.401298464324817e-41,
-     "childViews": [
-      10
-     ]
-    },
-    {
-     "chanceToSpawn": 75,
-     "dungeonRequireTheme": 0,
-     "requireBiome": 0,
-     "notInLava": false,
-     "minElevation": -1000000000,
-     "maxElevation": 1.401298464324817e-41,
-     "childViews": [
-      11
-     ]
-    },
-    {
      "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
@@ -165017,7 +164594,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      12
+      10
      ]
     }
    ]
@@ -165947,21 +165524,6 @@
      }
     },
     {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 1.0000004768371582,
-      "y": -3.75,
-      "z": -2.5000011920928955
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1.0000001192092896
-     }
-    },
-    {
      "prefabName": "goblin_trashpile",
      "prefabHash": 1488432680,
      "pos": {
@@ -166194,8 +165756,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      17,
-      18
+      17
      ]
     },
     {
@@ -166235,6 +165796,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
+      18,
       19,
       20,
       21,
@@ -166242,8 +165804,18 @@
       23,
       24,
       25,
-      26,
-      27
+      26
+     ]
+    },
+    {
+     "chanceToSpawn": 75,
+     "dungeonRequireTheme": 0,
+     "requireBiome": 0,
+     "notInLava": false,
+     "minElevation": -1000000000,
+     "maxElevation": 1.401298464324817e-41,
+     "childViews": [
+      18
      ]
     },
     {
@@ -166258,7 +165830,7 @@
      ]
     },
     {
-     "chanceToSpawn": 75,
+     "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166269,7 +165841,7 @@
      ]
     },
     {
-     "chanceToSpawn": 50,
+     "chanceToSpawn": 75,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166291,7 +165863,7 @@
      ]
     },
     {
-     "chanceToSpawn": 75,
+     "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166302,7 +165874,7 @@
      ]
     },
     {
-     "chanceToSpawn": 50,
+     "chanceToSpawn": 75,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166324,17 +165896,6 @@
      ]
     },
     {
-     "chanceToSpawn": 75,
-     "dungeonRequireTheme": 0,
-     "requireBiome": 0,
-     "notInLava": false,
-     "minElevation": -1000000000,
-     "maxElevation": 1.401298464324817e-41,
-     "childViews": [
-      26
-     ]
-    },
-    {
      "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
@@ -166342,7 +165903,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      27
+      26
      ]
     }
    ]
@@ -166362,21 +165923,6 @@
       "y": -1.0000001192092896,
       "z": 0,
       "w": 1.685874053691805e-7
-     }
-    },
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate_rusty",
-     "prefabHash": 1631935371,
-     "pos": {
-      "x": 1.0000004768371582,
-      "y": -3.75,
-      "z": -2.5000016689300537
-     },
-     "rot": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1.0000001192092896
      }
     },
     {
@@ -166554,8 +166100,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      0,
-      1
+      0
      ]
     },
     {
@@ -166622,6 +166167,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
+      1,
       2,
       3,
       4,
@@ -166631,8 +166177,18 @@
       8,
       9,
       10,
-      11,
-      12
+      11
+     ]
+    },
+    {
+     "chanceToSpawn": 75,
+     "dungeonRequireTheme": 0,
+     "requireBiome": 0,
+     "notInLava": false,
+     "minElevation": -1000000000,
+     "maxElevation": 1.401298464324817e-41,
+     "childViews": [
+      1
      ]
     },
     {
@@ -166658,7 +166214,7 @@
      ]
     },
     {
-     "chanceToSpawn": 75,
+     "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166669,7 +166225,7 @@
      ]
     },
     {
-     "chanceToSpawn": 50,
+     "chanceToSpawn": 75,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166691,7 +166247,7 @@
      ]
     },
     {
-     "chanceToSpawn": 75,
+     "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166702,7 +166258,7 @@
      ]
     },
     {
-     "chanceToSpawn": 50,
+     "chanceToSpawn": 75,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166724,7 +166280,7 @@
      ]
     },
     {
-     "chanceToSpawn": 75,
+     "chanceToSpawn": 50,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
      "notInLava": false,
@@ -166735,17 +166291,6 @@
      ]
     },
     {
-     "chanceToSpawn": 50,
-     "dungeonRequireTheme": 0,
-     "requireBiome": 0,
-     "notInLava": false,
-     "minElevation": -1000000000,
-     "maxElevation": 1.401298464324817e-41,
-     "childViews": [
-      11
-     ]
-    },
-    {
      "chanceToSpawn": 30,
      "dungeonRequireTheme": 0,
      "requireBiome": 0,
@@ -166753,7 +166298,7 @@
      "minElevation": -1000000000,
      "maxElevation": 1.401298464324817e-41,
      "childViews": [
-      12
+      11
      ]
     }
    ]

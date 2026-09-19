@@ -1,6 +1,6 @@
 /**
  * Dungeon registry (Phase G) — the 13 DG_* dungeon generators with their
- * complete room kits, parsed 1:1 from the C++ server's dungeons.pkg
+ * complete room kits, parsed 1:1 from the reference server's dungeons.pkg
  * (tools/prefab-parser/parse-dungeons.ts). This is the Unity
  * Room/RoomConnection component data that the GLB exports lack: room sizes,
  * connector transforms, themes, weights and the interactive net views
@@ -14,8 +14,7 @@
  * Kopf, Groesse, Connectors) braucht der Client wirklich: der Raum-Katalog
  * fuer die Prefab-Registry und der Dungeon-Editor.
  *
- * C++ reference: DungeonManager.cpp:19-201 (pkg read), Dungeon.h,
- * DungeonRoom.h, DungeonRoomConnection.h.
+ * Reference: dungeon loader, lines 19-201 (pkg read).
  */
 
 import dungeonsData from './dungeonsData.json';
@@ -36,7 +35,7 @@ import type { GridEdgeDef } from './dungeonRasterModul.js';
 import { getStableHash } from './hash.js';
 import type { Quaternion, Vector3 } from './types.js';
 
-/** C++ Room::Theme (DungeonRoom.h) — bitmask. */
+/** Reference room theme — bitmask. */
 export enum RoomTheme {
   Crypt = 1,
   SunkenCrypt = 2,
@@ -54,7 +53,7 @@ export enum RoomTheme {
   FortressRuins = 8192,
 }
 
-/** C++ Dungeon::Algorithm. */
+/** Reference dungeon algorithm. */
 export enum DungeonAlgorithm {
   Dungeon = 0,
   CampGrid = 1,
@@ -72,7 +71,7 @@ export enum DungeonAlgorithm {
  * NOTE: `campGenerator.ts` (overworld, stays active) keeps importing this
  * same type for camp rooms — do not delete before camps have moved off it.
  *
- * C++ RoomConnection — a connector transform inside a room prefab.
+ * Reference room connection — a connector transform inside a room prefab.
  */
 export interface RoomConnectionDef {
   /** Coupling type; rooms only attach to connectors of the same type ('' is common). */
@@ -90,7 +89,7 @@ export interface RoomConnectionDef {
  * dungeons (see `LEGACY.md`), same exception as `RoomConnectionDef` above
  * (camps keep using `RoomDef`).
  *
- * C++ Room (DungeonRoom.h) — one placeable room prefab.
+ * Reference room — one placeable room prefab.
  */
 export interface RoomDef {
   /** Prefab name — also the GLB model name under assets/models/. */
@@ -165,7 +164,7 @@ export interface RoomDef {
   readonly nurManuell?: boolean;
 }
 
-/** C++ Dungeon::DoorDef. */
+/** Reference door definition. */
 export interface DungeonDoorDef {
   readonly prefabName: string;
   readonly prefabHash: number;
@@ -173,7 +172,7 @@ export interface DungeonDoorDef {
   readonly chance: number;
 }
 
-/** C++ Dungeon (Dungeon.h) — a DG_* generator with its room kit. */
+/** Reference dungeon — a DG_* generator with its room kit. */
 /**
  * Konfiguration des KI-Steinmaterials eines 1.0-Kits: je Fläche (Wand, Decke,
  * Boden) eine Textur plus elementübergreifend eingestreute Verwitterung
@@ -790,8 +789,8 @@ const INTERIOR_ENV: ReadonlyMap<string, string> = new Map([
   ['DG_SunkenCrypt', 'SunkenCrypt'],
   ['DG_Cave', 'Caves'],
   ['DG_Hildir_Cave', 'CavesHildir'],
-  ['DG_DvergrBoss', 'Darklands_dark'],
-  ['DG_DvergrTown', 'Darklands_dark'],
+  ['DG_DvergrBoss', 'DeepNorth_dark'],
+  ['DG_DvergrTown', 'DeepNorth_dark'],
   // Modul-Kit ohne eigene Lichtquellen (der 1.0-Generator setzt keine
   // Props): `Crypt` hat lightIntensity 0 und ist ohne Fackeln stockdunkel
   // (Spielprobe 03.09.2026). `Caves` bringt 0,1 Grundlicht mit — genug,

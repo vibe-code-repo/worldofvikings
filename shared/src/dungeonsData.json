@@ -12,14 +12,7 @@
    "campRadiusMax": 30,
    "campRadiusMin": 15,
    "doorChance": 0.30000001192092896,
-   "doorTypes": [
-    {
-     "prefabName": "dungeon_sunkencrypt_irongate",
-     "prefabHash": -647334815,
-     "connectionType": "",
-     "chance": 0
-    }
-   ],
+   "doorTypes": [],
    "gridSize": 4,
    "maxRooms": 30,
    "maxTilt": 10,

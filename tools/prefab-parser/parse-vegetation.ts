@@ -1,9 +1,9 @@
 /**
- * Vegetation Parser — reads vegetation.pkg from the C++ reference
- * server and exports all foliage entries as JSON for the
+ * Vegetation Parser — reads vegetation.pkg from the reference
+ * server's data export and exports all foliage entries as JSON for the
  * browser game (used by the server's PopulateFoliage port, Phase E).
  *
- * Binary format (reference server, ZoneManager.cpp:166-227):
+ * Binary format (reference server, zone manager, lines 166-227):
  *
  *   header:
  *     string  comment            (.NET BinaryWriter: 7-bit varint length + UTF-8)
@@ -35,7 +35,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_PKG = resolve(__dirname, '../../../referenz-server/data/vegetation.pkg');
+const PKG_DIR = process.env.WOV_PKG_DIR ?? resolve(__dirname, '../../../pkg-data');
+const DEFAULT_PKG = resolve(PKG_DIR, 'vegetation.pkg');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 interface ParsedFoliage {
@@ -176,7 +177,7 @@ class BinReader {
     return v;
   }
 
-  /** C++ DataReader read<bool> — 1 byte. */
+  /** Reference DataReader read<bool> — 1 byte. */
   readBool(): boolean {
     return this.buf[this.pos++] !== 0;
   }

@@ -14,11 +14,11 @@ out/
 .DS_Store
 .vs/
 tools/out/
-tools/assetripper/export/
-tools/assetripper/temp/
-tools/assetripper/*.exe
-tools/assetripper/*.zip
-tools/assetripper/*.dll
+tools/asset-export/export/
+tools/asset-export/temp/
+tools/asset-export/*.exe
+tools/asset-export/*.zip
+tools/asset-export/*.dll
 tools/asset-extractor/extract.js
 tools/asset-extractor/extract.js.map
 tools/asset-extractor/extract.d.ts

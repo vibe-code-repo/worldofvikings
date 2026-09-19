@@ -1,4 +1,4 @@
-// fix-creature-models.js — rettet Kreaturen-Modelle aus dem AssetRipper-Export.
+// fix-creature-models.js — rettet Kreaturen-Modelle aus dem Fremdexport.
 //
 // Hintergrund (Analyse 2026-07-25): die PrefabHierarchyObject-GLBs der Kreaturen
 // haben ALLE kein eingebettetes Material ("Default-Material" ohne Textur), und
@@ -13,12 +13,14 @@
 //      "Deer 003.glb".)
 //
 // Aufruf: node tools/fix-creature-models.js
+// Modellordner: WOV_MODELS_DIR, sonst assets/models. Der Fremdexport wird unter
+// tools/asset-export/export/ erwartet (gitignored).
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const MODELS = path.join(ROOT, '..', 'valheim_browser_assets', 'models');
-const EXPORT = path.join(ROOT, 'tools', 'assetripper', 'export', 'Assets');
+const MODELS = process.env.WOV_MODELS_DIR ?? path.join(ROOT, 'assets', 'models');
+const EXPORT = path.join(ROOT, 'tools', 'asset-export', 'export', 'Assets');
 const MALBERS = path.join(EXPORT, '3rd party', 'Malbers Animations', 'Animals Packs', '01 Forest Pack');
 
 // ---------- GLB I/O ----------
@@ -376,10 +378,18 @@ function mergeAntlers({ targetFile, bakFile, nodeName, matName }) {
 
 // ---------- run ----------
 
+// Die genaue Dateibezeichnung im Export ist nicht fest verdrahtet: genau EIN
+// Treffer im Ordner, sonst Abbruch mit der Trefferliste (nie stilles Raten).
+function einzigeDatei(dir, re) {
+  const treffer = fs.readdirSync(dir).filter((n) => re.test(n));
+  if (treffer.length !== 1) throw new Error(`expected exactly one ${re} in ${dir}, found: ${treffer.join(', ') || 'none'}`);
+  return path.join(dir, treffer[0]);
+}
+
 fixDeer();
 
 // Job 4: Deer-Koerper — das originale Deer.glb enthaelt NUR die 5 Geweih-Meshes
-// (AssetRipper hat den SkinnedMesh-Koerper gedroppt). Quelle "Deer 003.glb" ist
+// (der Export hat den SkinnedMesh-Koerper gedroppt). Quelle "Deer 003.glb" ist
 // der komplette Hirsch (inkl. Geweih) im Bind-Space, Z-up, Massstab 1:1.
 rebuildFromBindSpace({
   outName: 'Deer_fixed',
@@ -403,8 +413,8 @@ rebuildFromBindSpace({
   outName: 'Boar_fixed',
   srcFile: path.join(MALBERS, 'Boar', 'Models', 'Poly Art Boar_0.glb'),
   scale: 1,
-  basePng: path.join(MALBERS, 'Boar', 'Textures', 'Boar_valheim_d.png'),
-  normalPng: path.join(MALBERS, 'Boar', 'Textures', 'Boar_valheim_n.png'),
+  basePng: einzigeDatei(path.join(MALBERS, 'Boar', 'Textures'), /^Boar_.+_d\.png$/),
+  normalPng: einzigeDatei(path.join(MALBERS, 'Boar', 'Textures'), /^Boar_.+_n\.png$/),
   matName: 'boar',
   stripDarkColor: true,
 });

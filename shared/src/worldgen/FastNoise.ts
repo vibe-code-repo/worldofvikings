@@ -1,22 +1,22 @@
 /**
- * FastNoise — 1:1 port of the C++ reference server's `FastNoise.h/.cpp`.
+ * FastNoise — 1:1 port of the reference server's FastNoise class.
  *
- * The C++ class is itself a direct port of the ORIGINAL FastNoise class
+ * The reference class is itself a direct port of the ORIGINAL FastNoise class
  * used by the original client — NOT FastNoiseLite
  * (different algorithms!). Only the 2D paths the GeoManager actually calls
  * are ported: GetCellular (Euclidean / Distance) and GetSimplexFractal
  * (FBM). 3D tables (GRAD_3D, Hash3D) and the Billow/RigidMulti fractals
- * exist in C++ but have no callers — omitted, noted here.
+ * exist in the reference but have no callers — omitted, noted here.
  *
  * Bit-exactness notes:
- *  - All noise math is double in C++ — JS float64 matches directly.
- *  - m_cellularJitter is a FLOAT (0.45f) in C++: the TS port stores
- *    Math.fround(0.45) = 0.44999998807907104 (the comment in FastNoise.h
+ *  - All noise math is double in the reference — JS float64 matches directly.
+ *  - m_cellularJitter is a FLOAT (0.45f) in the reference: the TS port stores
+ *    Math.fround(0.45) = 0.44999998807907104 (the reference source
  *    stresses this — "CLIENT USES 0.45f (float), NOT double!").
  *  - SetFrequency(0.01f) widens an f32 to double — same fround here.
  *  - The hash uses C#-style unchecked 32-bit signed overflow — emulated
  *    with Math.imul at every multiply (order preserved).
- *  - FastFloor/FastRound truncate toward zero ((int)f in C++) exactly like
+ *  - FastFloor/FastRound truncate toward zero ((int)f in the reference) exactly like
  *    the original library — this is NOT Math.floor for negative integers
  *    (e.g. FastFloor(-2.0) = -3). Ported as written.
  */
@@ -299,7 +299,7 @@ const CELL_2D: ReadonlyArray<readonly [number, number]> = [
 
 // ── Hash / grad helpers (C# unchecked int32 semantics via Math.imul) ──
 
-/** C++ FastNoise::Hash2D — magic numbers 1619, 31337, 60493. */
+/** 2D hash — magic numbers 1619, 31337, 60493. */
 function hash2D(seed: number, x: number, y: number): number {
   let num = seed | 0;
   num ^= Math.imul(1619, x);
@@ -308,7 +308,7 @@ function hash2D(seed: number, x: number, y: number): number {
   return (num >> 13) ^ num;
 }
 
-/** C++ FastNoise::GradCoord2D. */
+/** 2D gradient lookup at a grid coordinate. */
 function gradCoord2D(
   seed: number,
   x: number,
@@ -322,14 +322,14 @@ function gradCoord2D(
 }
 
 /**
- * C++ FastNoise::FastFloor — (f >= 0) ? (int)f : (int)f - 1.
+ * FastFloor — (f >= 0) ? (int)f : (int)f - 1.
  * Truncation toward zero (NOT Math.floor — FastFloor(-2.0) = -3).
  */
 function fastFloor(f: number): number {
   return f >= 0 ? Math.trunc(f) : Math.trunc(f) - 1;
 }
 
-/** C++ FastNoise::FastRound — (f >= 0) ? (int)(f+0.5) : (int)(f-0.5). */
+/** FastRound — (f >= 0) ? (int)(f+0.5) : (int)(f-0.5). */
 function fastRound(f: number): number {
   return f >= 0 ? Math.trunc(f + 0.5) : Math.trunc(f - 0.5);
 }
@@ -338,13 +338,13 @@ function fastRound(f: number): number {
 
 export class FastNoise {
   private seed: number;
-  /** C++ default is the double literal 0.01; GeoManager overrides with SetFrequency(0.01f) (f32 widened). */
+  /** Reference default is the double literal 0.01; GeoManager overrides with SetFrequency(0.01f) (f32 widened). */
   private frequency = 0.01;
   private octaves = 3;
   private readonly lacunarity = 2.0;
   private gain = 0.5;
   private fractalBounding = 1.0;
-  /** FLOAT in C++ (0.45f) — not the double 0.45! */
+  /** FLOAT in the reference (0.45f) — not the double 0.45! */
   private readonly cellularJitter = f32(0.45);
 
   constructor(seed = 1337) {
@@ -352,18 +352,18 @@ export class FastNoise {
     this.calculateFractalBounding();
   }
 
-  /** C++ SetFrequency(double) — callers pass an f32 literal (0.01f). */
+  /** SetFrequency(double) — callers pass an f32 literal (0.01f). */
   setFrequency(frequency: number): void {
     this.frequency = frequency;
   }
 
-  /** C++ SetFractalOctaves (recomputes the bounding factor). */
+  /** SetFractalOctaves (recomputes the bounding factor). */
   setFractalOctaves(octaves: number): void {
     this.octaves = octaves;
     this.calculateFractalBounding();
   }
 
-  /** C++ SetFractalGain (recomputes the bounding factor). */
+  /** SetFractalGain (recomputes the bounding factor). */
   setFractalGain(gain: number): void {
     this.gain = gain;
     this.calculateFractalBounding();
@@ -379,20 +379,20 @@ export class FastNoise {
     this.fractalBounding = 1.0 / ampFractal;
   }
 
-  /** C++ GetCellular — SingleCellular(m_seed, x * m_frequency, y * m_frequency). */
+  /** GetCellular — SingleCellular(m_seed, x * m_frequency, y * m_frequency). */
   getCellular(x: number, y: number): number {
     return this.singleCellular(this.seed, x * this.frequency, y * this.frequency);
   }
 
-  /** C++ GetSimplexFractal — FBM type (the only FractalType used). */
+  /** GetSimplexFractal — FBM type (the only FractalType used). */
   getSimplexFractal(x: number, y: number): number {
     return this.singleSimplexFractalFBM(x * this.frequency, y * this.frequency);
   }
 
   /**
-   * C++ SingleCellular (Euclidean distance, Distance return type):
+   * SingleCellular (Euclidean distance, Distance return type):
    * tracks the two closest cell points in a 3×3 neighborhood and returns
-   * the closest SQUARED distance (the client never sqrts — FastNoise.cpp:131).
+   * the closest SQUARED distance (the client never sqrts).
    */
   private singleCellular(seed: number, x: number, y: number): number {
     const xr = fastRound(x);
@@ -424,7 +424,7 @@ export class FastNoise {
   }
 
   /**
-   * C++ SingleSimplex (2D) — skew factors F2 = 0.3660254037844386,
+   * SingleSimplex (2D) — skew factors F2 = 0.3660254037844386,
    * G2 = 0.21132486540518713, three gradient corners, scaled by 50.
    */
   private singleSimplex(seed: number, x: number, y: number): number {
@@ -491,7 +491,7 @@ export class FastNoise {
   }
 
   /**
-   * C++ SingleSimplexFractalFBM — octave seeds are ++seed, lacunarity 2,
+   * SingleSimplexFractalFBM — octave seeds are ++seed, lacunarity 2,
    * gain 0.5, sum scaled by m_fractalBounding.
    */
   private singleSimplexFractalFBM(x: number, y: number): number {

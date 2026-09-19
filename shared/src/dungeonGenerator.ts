@@ -26,15 +26,15 @@
  * `LEGACY.md`. `generateDungeonLayout` and its helpers remain under the
  * seed contract.
  *
- * Dungeon generator (Phase G) — 1:1 port of the C++ server's
+ * Dungeon generator (Phase G) — 1:1 port of the reference server's
  * DungeonGenerator — port of the reference implementation's dungeon
  * generator for the `Dungeon` algorithm.
  *
  * Differences to the original, deliberate:
  *  - Generation happens in LOCAL dungeon space around the origin: the start
  *    room's entrance connector lands exactly at (0,0,0), the growth bounds
- *    (`zoneSize`) are centered on the origin (C++
- *    `TEST_dungeonsRoomsZoneCenterAtDungeon` behavior). Our dungeons are
+ *    (`zoneSize`) are centered on the origin (the
+ *    reference's `TEST_dungeonsRoomsZoneCenterAtDungeon` behavior). Our dungeons are
  *    standalone instances, so there is no world/zone anchoring here — the
  *    server offsets the finished layout into an instance band.
  *  - Camp algorithms (CampGrid/CampRadial) are not supported: camps are
@@ -78,7 +78,7 @@ import {
  * LEGACY (s. Kopfkommentar dieser Datei) / LEGACY (see this file's header
  * comment) — inkl. `endcaps*`, `roomsFlipped`, `roomsInsetSize`,
  * `roomBodyFromFloor`, alle unten in dieser Interface-Definition.
- * Mirrors the dungeon defaults of the C++ reference server.
+ * Mirrors the dungeon defaults of the reference server.
  */
 export interface DungeonGeneratorSettings {
   /** Growth bounds (cube edge length) centered on the origin. */
@@ -87,7 +87,7 @@ export interface DungeonGeneratorSettings {
   roomsFlipped: boolean;
   /** Keep every room inside the zone bounds. */
   zoneBounded: boolean;
-  /** m_maxRooms multiplier (more attempts → denser dungeons). */
+  /** Max-rooms multiplier (more attempts → denser dungeons). */
   maxAttemptsMultiplier: number;
   /** Shrink applied to non-endcap rooms before the overlap test. */
   roomsInsetSize: number;
@@ -197,7 +197,7 @@ function quatInverse(q: Quaternion): Quaternion {
   return { x: -q.x, y: -q.y, z: -q.z, w: q.w };
 }
 
-/** C++ VUtils::Physics::LocalToGlobal (note the childRot*parentRot order). */
+/** Local-to-global transform (note the childRot*parentRot order). */
 function localToGlobal(
   localPos: Vector3,
   localRot: Quaternion,
@@ -210,7 +210,7 @@ function localToGlobal(
   };
 }
 
-/** Position-derived decoration seed (DungeonGenerator.cpp:595). */
+/** Position-derived decoration seed. */
 function roomSeed(pos: Vector3): number {
   return (
     (Math.imul(Math.trunc(pos.x), 4271) +
@@ -271,7 +271,7 @@ export function generateDungeonLayout(
 
   // ---- helpers closing over the working lists -----------------------------
 
-  /** C++ Room::GetConnection — random connector of the same type. */
+  /** Random connector of the same type. */
   function getConnection(room: RoomDef, other: RoomConnectionDef): RoomConnectionDef {
     const matching = room.connections.filter((c) => c.type === other.type);
     if (matching.length === 0) {
@@ -284,7 +284,7 @@ export function generateDungeonLayout(
     return room.connections.some((c) => c.type === other.type);
   }
 
-  /** C++ CalculateRoomPosRot. */
+  /** Room position and rotation from the connector pair. */
   function calculateRoomPosRot(
     roomCon: RoomConnectionDef,
     pos: Vector3,
@@ -340,7 +340,7 @@ export function generateDungeonLayout(
     return { x: Math.abs(s.x), y: s.y, z: Math.abs(s.z) };
   }
 
-  /** C++ TestCollision — true means "does NOT fit here". */
+  /** Collision test — true means "does NOT fit here". */
   function testCollision(room: RoomDef, pos: Vector3, rot: Quaternion): boolean {
     if (!isInsideZone(room, pos, rot)) return true;
 
@@ -372,7 +372,7 @@ export function generateDungeonLayout(
     return false;
   }
 
-  /** In-place Fisher-Yates matching the C++ inlined .Shuffle draw order. */
+  /** In-place Fisher-Yates matching the reference's inlined shuffle draw order. */
   function shuffle<T>(arr: T[]): void {
     let i = arr.length;
     while (i > 1) {
@@ -450,7 +450,7 @@ export function generateDungeonLayout(
   }
 
   /**
-   * C++ PlaceRoom(state, itr, room, outErased) — try to attach `room` to the
+   * Room placement — try to attach `room` to the
    * open connection at `openIndex`. Returns {placed, erased}.
    */
   function tryPlaceRoomAt(
@@ -498,7 +498,7 @@ export function generateDungeonLayout(
     // Entrance connector lands exactly at the origin.
     const { pos, rot } = calculateRoomPosRot(entrance, { x: 0, y: 0, z: 0 }, IDENTITY);
 
-    // Dummy fromConnection like the C++ (prefab-space transform of the entrance).
+    // Dummy fromConnection like the reference (prefab-space transform of the entrance).
     const dummyGlobal = localToGlobal(entrance.localPos, entrance.localRot, roomData.pos, roomData.rot);
     const dummy: ConnectionInstance = {
       def: entrance,
@@ -507,7 +507,7 @@ export function generateDungeonLayout(
       placeOrder: 0,
     };
 
-    // Like the C++: the start room ends up with placeOrder 1 (dummy 0 + 1).
+    // Like the reference: the start room ends up with placeOrder 1 (dummy 0 + 1).
     commitRoom(roomData, pos, rot, dummy);
   }
 
@@ -573,8 +573,8 @@ export function generateDungeonLayout(
                 (r) => r.room.divider && sqDist(r.pos, pos) < 0.5 * 0.5
               );
               if (!already) {
-                // C++ logs the mismatch; the divider placement itself was
-                // disabled upstream too — we keep the cycle open like the C++.
+                // The reference logs the mismatch; the divider placement itself was
+                // disabled upstream too — we keep the cycle open like the reference.
               }
             }
           }
@@ -647,7 +647,7 @@ export function generateDungeonLayout(
       const defs = def.doorTypes.filter((d) => d.connectionType === connection.def.type);
       if (defs.length === 0) continue;
       const doorDef = defs[state.rangeInt(0, defs.length)];
-      // Exactly one chance draw, mirroring the C++ short-circuit structure.
+      // Exactly one chance draw, mirroring the reference's short-circuit structure.
       if (
         (doorDef.chance <= 0 || state.nextFloat() <= doorDef.chance) &&
         (doorDef.chance > 0 || state.nextFloat() <= def.doorChance)
@@ -699,7 +699,7 @@ export interface CampGround {
 }
 
 /**
- * C++ GenerateCampRadial + PlaceWall (DungeonGenerator.cpp:139-219) — camps
+ * Radial camp generation + wall placement — camps
  * are OPEN-WORLD structures: buildings snap individually to the terrain
  * (`ground` callback), steep spots (maxTilt) and water are skipped, no
  * doors, no connectors. Positions in the returned layout are WORLD
@@ -760,7 +760,7 @@ export function generateCampLayout(
     return rooms[rooms.length - 1];
   };
 
-  /** C++ GetCampRoomRotation — zur Lagermitte drehen oder 22.5°-Raster. */
+  /** Raumdrehung im Lager — zur Lagermitte drehen oder 22.5°-Raster. */
   const campRotation = (room: RoomDef, pos: Vector3): Quaternion => {
     if (room.faceCenter) {
       let dx = origin.x - pos.x;

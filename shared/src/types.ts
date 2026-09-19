@@ -1,14 +1,13 @@
 /**
- * Shared types ported from the C++ reference server.
- * Source: Types.h, Prefab.h, ZoneManager.h, Peer.h
+ * Shared types ported from the reference server.
  */
 
-// === Basic Types (Types.h) ===
+// === Basic Types ===
 export type Hash = number; // int32
 export type UserID = bigint; // int64
 
-// === Biome (Types.h) ===
-// C++ enum class Biome : std::uint16_t — bitmask type.
+// === Biome ===
+// Biome — 16-bit bitmask type.
 export enum Biome {
   None = 0,
   Meadows = 1 << 0,
@@ -22,8 +21,8 @@ export enum Biome {
   Mistlands = 1 << 9,
 }
 
-// C++ enum class BiomeArea : std::uint8_t — NOTE: unlike the Unity original
-// (Everything = 0), the C++ server has None = 0 and Everything = 3.
+// BiomeArea — 8-bit enum. NOTE: unlike the Unity original
+// (Everything = 0), the reference server has None = 0 and Everything = 3.
 export enum BiomeArea {
   None = 0,
   Edge = 1 << 0,
@@ -31,7 +30,7 @@ export enum BiomeArea {
   Everything = Edge | Median,
 }
 
-// === Prefab Flags (Prefab.h) ===
+// === Prefab Flags ===
 // Const object (not enum) because TypeScript enums don't support bigint.
 export const PrefabFlag = {
   NONE: 0n,
@@ -85,7 +84,7 @@ export enum ObjectType {
   Terrain = 5,
 }
 
-// === Connection Status (Peer.h) ===
+// === Connection Status ===
 export enum ConnectionStatus {
   None = 0,
   Connecting = 1,
@@ -102,7 +101,7 @@ export enum ConnectionStatus {
   ErrorKicked = 12,
 }
 
-// === Chat Message Type (Peer.h) ===
+// === Chat Message Type ===
 export enum ChatMsgType {
   Whisper = 0,
   Normal = 1,
@@ -110,11 +109,11 @@ export enum ChatMsgType {
   Ping = 3,
 }
 
-// === Global Keys (ZoneManager.h) ===
+// === Global Keys ===
 //
 // F5-Befund: dieses Enum fasst ZWEI verschiedene Dinge aus dem Vorbild in
 // EINEM Werteraum zusammen — der Name "GlobalKey" fuer beide stammt aus
-// ZoneManager.h, der C++-Referenz.
+// der Referenz.
 //
 //   - PlayerDamage..NonServerOption: WELTMODIFIKATOREN. Bei der Welt-
 //     ERZEUGUNG gewaehlte Schwierigkeitsgrad-Presets, danach fuer die
@@ -174,7 +173,7 @@ export enum GlobalKey {
   KilledBat,
 }
 
-// === ZDO Member Types (ZDO.h) ===
+// === ZDO Member Types ===
 export enum ZDOMemberType {
   Float = 0,
   Vec3 = 1,
@@ -414,14 +413,14 @@ export enum PacketType {
   EigenesAussehen = 78,
 }
 
-// === Vector3 (Vector.h) ===
+// === Vector3 ===
 export interface Vector3 {
   x: number;
   y: number;
   z: number;
 }
 
-// === Quaternion (Quaternion.h) ===
+// === Quaternion ===
 export interface Quaternion {
   x: number;
   y: number;

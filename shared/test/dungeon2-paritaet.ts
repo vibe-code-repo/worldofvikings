@@ -4,9 +4,9 @@
  *
  *   npx tsx test/dungeon2-paritaet.ts
  *
- * Die Uebersetzung von WoCs `rift_wall_render_parity.test.ts` in unsere Welt
+ * Die Uebersetzung eines Referenz-Paritaetstests (Wandrendering) in unsere Welt
  * (`design/ARCHITECTURE.md`, AP3, Pruefkriterium 1):
- * The translation of WoC's `rift_wall_render_parity.test.ts` into our world
+ * The translation of a reference wall-render parity test into our world
  * (`design/ARCHITECTURE.md`, AP3, criterion 1):
  *
  *   Jede gezeichnete Wandflaeche liegt auf Kollision, UND jeder

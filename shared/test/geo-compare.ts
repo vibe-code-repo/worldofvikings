@@ -1,15 +1,15 @@
 /**
- * C6 comparison harness: TS GeoManager port vs. C++ server reference export.
+ * C6 comparison harness: TS GeoManager port vs. reference server export.
  *
- * Reads the three CSVs produced by the geo export of the C++ reference
- * server (library/test/geo) and verifies the TypeScript port bit-for-bit:
+ * Reads the three CSVs produced by the geo export of the reference
+ * server and verifies the TypeScript port bit-for-bit:
  *
  *   geo_structure.csv    seed/offsets/seeds + every lake/river/stream (f32)
  *   geo_riverpoints.csv  the full river point grid, per-grid insertion order
  *   geo_samples.csv      ~1M sample rows: biome/area/heights/weights/forest
  *
  * Float comparison counts ULP distance on the float32 bit pattern
- * (0 ulp = bit-exact). 1-2 ulp noise is expected where C++ sinf/cosf/Perlin
+ * (0 ulp = bit-exact). 1-2 ulp noise is expected where the reference's float sin/cos/Perlin
  * differ from Math.* by one rounding; anything beyond that is a real bug.
  *
  * Since Phase B5 the AshLands cells are fully compared as well: the modern
@@ -378,7 +378,7 @@ for (const line of sampleLines) {
   }
 
   const rw = geo.getRiverWeight(x, y);
-  // C++ IGeoManager::GetRiverGrid — same f32 math as the port
+  // River grid lookup — same f32 math as the port
   const f32 = Math.fround;
   const gridKey = `${Math.floor(f32(f32(x + 32) / 64))},${Math.floor(f32(f32(y + 32) / 64))}`;
   colRW.add(Number(p[9]), rw.weight, at, 2, gridKey);

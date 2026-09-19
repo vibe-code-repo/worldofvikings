@@ -1,11 +1,11 @@
 /**
- * D1 verification: TS Heightmap (zone grid build) vs. C++ reference export.
+ * D1 verification: TS Heightmap (zone grid build) vs. reference export.
  *
- * Reads geo_zones.csv (real IHeightmapBuilder::Build from the C++ server)
+ * Reads geo_zones.csv (the real heightmap build from the reference server)
  * and compares the TS HeightmapProvider output bit-for-bit:
  * corner biomes (exact), 65x65 baseHeights (f32 ULP), 64x64 vegMask (f32 ULP).
  *
- * Zones whose corner biomes include AshLands are skipped: the C++ export
+ * Zones whose corner biomes include AshLands are skipped: the reference export
  * ran with ashlandsModernNoise=true (FastNoise, Phase B5) while the game
  * port builds zones with the legacy path until B5 lands.
  *
@@ -79,7 +79,7 @@ for (const z of zones) {
     continue;
   }
 
-  // C++ BUG (HeightmapBuilder.cpp:195): the single-biome fast path declares
+  // Reference BUG: the single-biome fast path declares
   // `float mask;` UNINITIALIZED and stores it as vegMask. GetBiomeHeight only
   // writes the mask for Mistlands (+AshLands), so for single-biome zones of
   // any other biome the exported vegMask is non-deterministic stack garbage.

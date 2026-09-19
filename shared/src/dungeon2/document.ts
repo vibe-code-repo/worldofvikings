@@ -139,7 +139,7 @@ export interface DungeonDokument2 {
   /**
    * Formatversion des Layouts, mit der dieses Dokument zuletzt stimmte.
    *
-   * Unsere Instanzen sind PERSISTENT (WoC-Laeufe sind es nicht). Ohne dieses
+   * Unsere Instanzen sind PERSISTENT (die Laeufe des Schwesterprojekts sind es nicht). Ohne dieses
    * Feld waere jeder Generator-Commit eine stille Datenmigration: Der Server
    * erzeugte aus denselben Seeds ein anderes Grab, die gespeicherten
    * Truhen-ZDOs saessen in Waenden, und niemand koennte hinterher sagen, ab

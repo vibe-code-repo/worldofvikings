@@ -41,7 +41,7 @@
  *
  * NACHGEPRÜFT (Block A, Schritt 15): Bei `inForest: false` wird das
  * Fenster GAR NICHT ausgewertet — streuung.ts:337 prüft den Waldfaktor
- * nur, wenn `inForest` gesetzt ist, genau wie das C++-Vorbild. Die Zahlen
+ * nur, wenn `inForest` gesetzt ist, genau wie das Vorbild. Die Zahlen
  * hinter einem `false` sind damit reine Dokumentation dessen, was
  * gemeint war, und keine Regel. Wer eine Art WIRKLICH aus dem Wald
  * heraushalten will, braucht `inForest: true` mit einem Fenster am

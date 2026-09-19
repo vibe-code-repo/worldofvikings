@@ -1,21 +1,20 @@
 /**
- * Shared constants ported from the C++ reference server.
- * Source: WovServer.h, ZoneManager.h, Prefab.h, Types.h
+ * Shared constants ported from the reference server.
  */
 
-// === World Time (WovServer.h) ===
+// === World Time ===
 export const WORLD_TIME_LENGTH = 1800; // seconds per full day cycle
 export const TIME_MORNING = 240;
 export const TIME_DAY = 270;
 export const TIME_AFTERNOON = 900;
 export const TIME_NIGHT = 1530;
 
-// === Zone System (ZoneManager.h) ===
+// === Zone System ===
 export const ZONE_SIZE = 64; // meters per zone/sector
 export const WORLD_INNER_ZDIAMETER = 200; // inner world diameter in zones
 export const WORLD_OUTER_ZDIAMETER = 256; // outer world diameter in zones
 
-// === Heightmap (Heightmap.h) ===
+// === Heightmap ===
 export const HEIGHTMAP_WIDTH = 64; // vertices per heightmap edge
 export const HEIGHTMAP_LEVEL_MAX_DELTA = 8;
 export const HEIGHTMAP_SMOOTH_MAX_DELTA = 1;

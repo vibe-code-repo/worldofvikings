@@ -1,35 +1,35 @@
 /**
  * Golden-value tests for the Unity math ports (Phase B1/B2 verification).
  *
- * Reference data + generator semantics from the C++ reference project
- * (Avledet, commit aafde42 "backup", include/Tests.h — the files in
- * the reference project's data/tests/ are unchanged from that commit):
+ * Reference data + generator semantics from the reference project's own
+ * tests (the files in the reference project's data/tests/ are unchanged
+ * since):
  *
  *   void Test_Random() {
- *     auto&& values = ReadFileLines("random_values.txt");
+ *     values = ReadFileLines("random_values.txt");
  *     // the first line is the seed
- *     VUtils::Random::State state(std::stoi(values[0]));
+ *     state = Random(parseInt(values[0]));
  *     for (int i = 0; i < 100; ++i)
- *       assert(state.Range(int32_min, int32_max) == std::stoi(values[i + 1]));
+ *       assert(state.Range(int32_min, int32_max) == parseInt(values[i + 1]));
  *   }
  *
  *   void Test_Perlin() {
- *     auto&& values = ReadFileLines("perlin_values.txt");
+ *     values = ReadFileLines("perlin_values.txt");
  *     int next = 0;
  *     for (float y = -1.1f; y < 1.1f; y += .3f)
  *       for (float x = -1.1f; x < 1.1f; x += .1f) {
- *         float calc = VUtils::Math::PerlinNoise(x, y);
- *         float other = std::stof(values[next]);
- *         static constexpr float EPS = 0.0001f;
+ *         float calc = PerlinNoise(x, y);
+ *         float other = parseFloat(values[next]);
+ *         float EPS = 0.0001f;
  *         assert((calc - EPS < other && calc + EPS > other));
  *         next++;
  *       }
  *   }
  *
  * Tolerance: the golden files were produced by the ORIGINAL float32 Perlin /
- * Random implementations; the current C++ server (and our port) use the
+ * Random implementations; the current reference server (and our port) use the
  * HEIGHTFIX-02 double-precision Perlin, so values differ by float32 rounding
- * noise (~1e-7, the original C++ test itself used EPS=1e-4). The Random test
+ * noise (~1e-7, the original reference test itself used EPS=1e-4). The Random test
  * must match EXACTLY (integer arithmetic).
  *
  * Run:  npx tsx shared/test/math-golden.ts [path-to-tests-dir]
@@ -93,14 +93,14 @@ function testPerlin(): void {
   console.log(`${golden.length} expected values (y: -1.1 += 0.3, x: -1.1 += 0.1, f32 accumulation)`);
 
   // Tolerance: golden came from the float32 Perlin; our port is the current
-  // C++ double-precision (HEIGHTFIX-02) variant. Anything structural (wrong
+  // reference double-precision (HEIGHTFIX-02) variant. Anything structural (wrong
   // permutation table / constants / gradient logic) shows up > 1e-3.
   const EPS = 2e-6;
 
   let next = 0;
   let maxDiff = 0;
   let worstAt = '';
-  // f32 accumulation of the loop variables, exactly like the C++ generator
+  // f32 accumulation of the loop variables, exactly like the reference generator
   for (let y = f32(-1.1); y < 1.1; y = f32(y + f32(0.3))) {
     for (let x = f32(-1.1); x < 1.1; x = f32(x + f32(0.1))) {
       const calc = perlinNoise(x, y);

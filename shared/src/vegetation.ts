@@ -1,8 +1,8 @@
 /**
- * Vegetation registry (Phase E) — C++ IZoneManager::Foliage entries parsed
+ * Vegetation registry (Phase E) — foliage entries parsed
  * 1:1 from the server's vegetation.pkg (tools/prefab-parser/parse-vegetation.ts),
  * with the prefab resolved against the shared registry (entries with unknown
- * prefabs are skipped, exactly like C++ ZoneManager.cpp:219-223).
+ * prefabs are skipped, exactly like the reference).
  *
  * ── Block A: die Originaleinträge sind heraus ────────────────────────
  * `vegetationData.json` bleibt unverändert im Quelltext — es ist die
@@ -24,11 +24,11 @@ import { getStableHash } from './hash.js';
 import { PREFABS_BY_NAME, istEigenesModell } from './prefabs.js';
 import { EIGENE_FLORA } from './flora.js';
 
-/** C++ IZoneManager::Foliage (ZoneManager.h:130-171). */
+/** One foliage entry. */
 export interface Foliage {
-  /** Prefab name from the pkg (C++ resolves via PrefabManager). */
+  /** Prefab name from the pkg (resolved via the prefab registry). */
   readonly prefabName: string;
-  /** get_stable_hash(prefabName) — C++ m_prefab->m_hash. */
+  /** get_stable_hash(prefabName). */
   readonly prefabHash: number;
   /** Biome bitmask this foliage may spawn in. */
   readonly biome: number;

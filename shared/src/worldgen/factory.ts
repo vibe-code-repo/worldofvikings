@@ -26,7 +26,7 @@ export type WorldMode = 'valheim' | 'layout';
 
 export interface GeoConfig {
   mode: WorldMode;
-  /** get_stable_hash(seedName) — im Layout-Modus nur Quelle des Perlin-Details. */
+  /** Stabiler Hash des Seed-Namens — im Layout-Modus nur Quelle des Perlin-Details. */
   worldSeed: number;
   settings?: GeoManagerSettings;
   /**

@@ -2,7 +2,7 @@
  * G1-Durchsicht 20.08.2026: Werkzeug, kein Test — druckt nur Diagnose
  * ("noisy grids", "REAL BUG?") ohne je zu behaupten oder process.exit(1)
  * aufzurufen, gehoert also unabhaengig von den fehlenden Daten nicht in
- * scripts/run-tests.mjs. Braucht ausserdem dieselben externen C++-Dumps
+ * scripts/run-tests.mjs. Braucht ausserdem dieselben externen Referenz-Dumps
  * wie geo-compare.ts (geo_riverpoints.csv aus dem Geo-Export) — hier
  * nicht vorhanden.
  *

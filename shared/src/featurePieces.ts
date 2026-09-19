@@ -1,6 +1,6 @@
 /**
- * Die Pieces der Features (Phase F) — C++ Prefab::Instance je
- * IZoneManager::Feature, aus features.pkg geparst
+ * Die Pieces der Features (Phase F) — je Feature die
+ * Prefab-Instanzen, aus features.pkg geparst
  * (tools/prefab-parser/parse-features.ts).
  *
  * WARUM EIN EIGENES MODUL: 23 228 Pieces sind ~8,5 MB JSON und damit der
@@ -19,7 +19,7 @@
 
 import featurePiecesData from './featurePiecesData.json';
 
-/** C++ Prefab::Instance::RandomSpawn (Prefab.h:12-18). */
+/** Random-spawn settings of a feature piece. */
 export interface FeatureRandomSpawn {
   readonly chanceToSpawn: number;
   readonly notInLava: boolean;
@@ -27,11 +27,11 @@ export interface FeatureRandomSpawn {
   readonly maxElevation: number;
 }
 
-/** C++ Prefab::Instance (piece of a feature). */
+/** Prefab instance (piece of a feature). */
 export interface FeaturePiece {
   /** Name from the pkg (0.221.6 added names). */
   readonly pieceName: string;
-  /** Stable prefab hash from the pkg (C++ m_prefabHash). */
+  /** Stable prefab hash from the pkg. */
   readonly prefabHash: number;
   /** Position relative to the feature origin. */
   readonly pos: { readonly x: number; readonly y: number; readonly z: number };

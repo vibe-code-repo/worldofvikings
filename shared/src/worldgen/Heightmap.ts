@@ -1,18 +1,17 @@
 /**
- * Phase D1/D2 — per-zone heightmap, 1:1 port of the C++ server terrain grid.
+ * Phase D1/D2 — per-zone heightmap, 1:1 port of the reference server terrain grid.
  *
- * C++ reference:
- *   IHeightmapBuilder::Build   (HeightmapBuilder.cpp:146-239) — 65×65 vertex
+ * Reference behavior:
+ *   Build — 65×65 vertex
  *     grid per 64m zone, corner-biome blending with SmoothStep (server.yml
  *     experimental-biome-blend-smoothstep=true) or linear t, HEIGHTFIX-02
  *     double-precision intermediates, f32 store, vegMask (Mistlands mask).
- *   Heightmap::GetWorldHeight  (Heightmap.cpp:514-577) — nearest-vertex when
+ *   World height — nearest-vertex when
  *     experimental-bilinear-height-sampling=false (our server.yml), else
  *     triangle-barycentric interpolation (HEIGHTFIX-01/02).
- *   Heightmap::GetWorldHeightRaycast (Heightmap.cpp:598-697) — Möller-Trumbore
- *     for exact Unity Physics.Raycast parity (vegetation placement).
- *   IZoneManager::WorldToZonePos / ZoneToWorldPos (ZoneManager.cpp:1472-1485),
- *   Heightmap::WorldToVertex (Heightmap.cpp:960-965).
+ *   Raycast height — Möller-Trumbore
+ *     for exact raycast parity (vegetation placement).
+ *   World ↔ zone position conversion and world → vertex mapping.
  *
  * Zone vertex (rx, ry) maps to world (zoneX*64-32+rx, zoneY*64-32+ry);
  * neighboring zones share their edge vertices (E_WIDTH = UNITS+1 overlap),
@@ -28,11 +27,11 @@ import type { TerrainOpSettings, VertexRect } from './TerrainComp.js';
 
 const f32 = Math.fround;
 
-/** C++ IZoneManager::UNITS_PER_ZONE */
+/** Zone edge length in metres. */
 export const ZONE_UNITS = 64;
-/** C++ Heightmap::E_WIDTH */
+/** Vertices per zone edge (zone units + 1 shared edge vertex). */
 export const E_WIDTH = ZONE_UNITS + 1;
-/** C++ IZoneManager::WATER_LEVEL */
+/** Water level in metres. */
 export const WATER_LEVEL = 30;
 
 export interface HeightmapSettings {
@@ -43,10 +42,10 @@ export interface HeightmapSettings {
 }
 
 /**
- * Terrain leveling modifier (Unity TerrainModifier::LevelTerrain, Phase F4).
- * The C++ reference server does NOT level terrain under locations (its
- * TerrainModifier.cpp only feeds ClearArea params) — in the original the
- * leveling is a Unity client behavior. We bake it into `Heightmap.heights`
+ * Terrain leveling modifier (Phase F4).
+ * The reference server does NOT level terrain under locations (it
+ * only feeds ClearArea params) — in the original the
+ * leveling is a client behavior. We bake it into `Heightmap.heights`
  * on BOTH server (ground truth) and client (rendering) with identical math,
  * so locations sit on a flat plateau instead of floating on slopes.
  * Parameters come from terrain_modifiers.yml / the clearArea rule
@@ -59,39 +58,39 @@ export interface TerrainLeveling {
   readonly z: number;
   /** Plateau height: booked origin y + levelOffset (f32). */
   readonly targetHeight: number;
-  /** Fully leveled radius (Unity m_levelRadius). */
+  /** Fully leveled radius. */
   readonly levelRadius: number;
-  /** Blend band width outside levelRadius (Unity m_smoothRadius). */
+  /** Blend band width outside levelRadius. */
   readonly smoothRadius: number;
-  /** Blend curve exponent (Unity m_smoothPower). */
+  /** Blend curve exponent. */
   readonly smoothPower: number;
-  /** Square (Chebyshev) instead of radial distance (Unity m_levelSquare). */
+  /** Square (Chebyshev) instead of radial distance. */
   readonly square: boolean;
 }
 
-/** C++ VUtils::Math::SmoothStep(double, double, double) — plain double math. */
+/** Smooth step on doubles — plain double math. */
 function smoothStepD(pMin: number, pMax: number, pX: number): number {
   const num = Math.min(1, Math.max(0, (pX - pMin) / (pMax - pMin)));
   return num * num * (3 - 2 * num);
 }
 
-/** C++ VUtils::Math::Lerp(double, double, double) = a + (b - a) * t. */
+/** Lerp on doubles = a + (b - a) * t. */
 function lerpD(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
 /**
- * C++ Heightmap (one 64×64 m zone). Holds the built grid; player digging
- * remains out of scope. Location terrain leveling (Phase F4, Unity
- * TerrainModifier parity) is baked at build into `heights`; `baseHeights`
- * stays pristine (D1 golden tests, oceanDepth — C++ m_baseHeights).
+ * Heightmap of one 64×64 m zone. Holds the built grid; player digging
+ * remains out of scope. Location terrain leveling (Phase F4, client
+ * parity) is baked at build into `heights`; `baseHeights`
+ * stays pristine (D1 golden tests, oceanDepth).
  */
 export class Heightmap {
   readonly zoneX: number;
   readonly zoneY: number;
-  /** C++ m_cornerBiomes[4]: (x,z), (x+64,z), (x,z+64), (x+64,z+64). */
+  /** Corner biomes [4]: (x,z), (x+64,z), (x,z+64), (x+64,z+64). */
   cornerBiomes!: [Biome, Biome, Biome, Biome]; // assigned in build()
-  /** C++ m_baseHeights — 65×65, row-major [ry * 65 + rx], f32, UNMODIFIED. */
+  /** Base heights — 65×65, row-major [ry * 65 + rx], f32, UNMODIFIED. */
   readonly baseHeights = new Float32Array(E_WIDTH * E_WIDTH);
   /**
    * Final heights = baseHeights + baked terrain leveling (F4). All height
@@ -99,10 +98,10 @@ export class Heightmap {
    * touches the zone.
    */
   readonly heights = new Float32Array(E_WIDTH * E_WIDTH);
-  /** C++ m_vegMask (Mistlands mask) — 64×64, row-major, f32. */
+  /** Vegetation mask (Mistlands mask) — 64×64, row-major, f32. */
   readonly vegMask = new Float32Array(ZONE_UNITS * ZONE_UNITS);
   /**
-   * C++ m_oceanDepth[4] (Heightmap::Regenerate, Heightmap.cpp:87-92):
+   * Ocean depth [4]:
    * max(0, WATER_LEVEL − corner vertex height), corners
    * [0]=(0,64) [1]=(64,64) [2]=(64,0) [3]=(0,0) in local vertex coords.
    */
@@ -198,19 +197,19 @@ export class Heightmap {
    * damit der zeilenweise Bau GENAU denselben Abschluss nimmt.
    */
   private bauAbschliessen(mods?: readonly TerrainLeveling[]): void {
-    // C++ Regenerate corner depths — from PRISTINE baseHeights (C++ parity:
-    // the C++ server never levels, so its m_baseHeights drives this too)
+    // Corner depths — from PRISTINE baseHeights (reference parity:
+    // the reference server never levels, so its base heights drive this too)
     this.oceanDepth[0] = Math.max(0, WATER_LEVEL - this.baseHeights[64 * E_WIDTH + 0]);
     this.oceanDepth[1] = Math.max(0, WATER_LEVEL - this.baseHeights[64 * E_WIDTH + 64]);
     this.oceanDepth[2] = Math.max(0, WATER_LEVEL - this.baseHeights[0 * E_WIDTH + 64]);
     this.oceanDepth[3] = Math.max(0, WATER_LEVEL - this.baseHeights[0]);
 
-    // F4: final heights = base + baked leveling (Unity TerrainModifier)
+    // F4: final heights = base + baked leveling
     this.heights.set(this.baseHeights);
     if (mods && mods.length > 0) this.applyTerrainModifiers(mods);
   }
 
-  /** World position of vertex (rx, ry) — C++ baseWorldPos + (rx, ry). */
+  /** World position of vertex (rx, ry) — zone base position + (rx, ry). */
   vertexWorldX(rx: number): number {
     return this.zoneX * ZONE_UNITS - ZONE_UNITS / 2 + rx;
   }
@@ -218,19 +217,19 @@ export class Heightmap {
     return this.zoneY * ZONE_UNITS - ZONE_UNITS / 2 + ry;
   }
 
-  /** C++ IHeightmapBuilder::Build (HeightmapBuilder.cpp:146-239). */
+  /** Builds the zone's vertex grid. */
   private build(geo: GeoManager, blendSmoothStep: boolean): void {
     this.bauVorbereiten(geo);
     this.buildZeilen(geo, blendSmoothStep, 0, E_WIDTH);
   }
 
   /**
-   * Die Eckbiome bestimmen — der Teil von Build, der NICHT je Vertexzeile
+   * Die Eckbiome bestimmen — der Teil des Baus, der NICHT je Vertexzeile
    * anfällt und deshalb auch beim zeilenweisen Bau genau einmal läuft
    * (er entscheidet mit `sameBiome` über den schnellen Zweig, s. unten).
    */
   private bauVorbereiten(geo: GeoManager): void {
-    // C++ baseWorldPos = ZoneToWorldPos(zone) + (-32, 0, -32)
+    // base world position = zone center + (-32, 0, -32)
     const baseX = this.zoneX * ZONE_UNITS - ZONE_UNITS / 2;
     const baseZ = this.zoneY * ZONE_UNITS - ZONE_UNITS / 2;
     this.cornerBiomes = [
@@ -267,7 +266,7 @@ export class Heightmap {
         let height: number;
 
         if (sameBiome) {
-          // slight optimization case (C++ line 194-198)
+          // slight optimization case
           const r = geo.getBiomeHeight(b1, worldX, worldY, false);
           height = r.height;
           mistlandsMask = r.mask;
@@ -299,13 +298,13 @@ export class Heightmap {
   // ── Terrain leveling (Phase F4) ─────────────────────────────────
 
   /**
-   * Unity TerrainModifier::LevelTerrain, baked into `heights` (f32 math):
+   * Terrain leveling, baked into `heights` (f32 math):
    * inside levelRadius the terrain is set to targetHeight; in the band
    * [levelRadius, levelRadius+smoothRadius) it blends with
    * t = clamp01((dist−levelRadius)/smoothRadius)^smoothPower and
    * h = lerp(target, h, t). Modifiers apply sequentially in registration
-   * order (later ones see already-leveled heights — Unity behavior when
-   * two modifiers overlap).
+   * order (later ones see already-leveled heights — the original's behavior
+   * when two modifiers overlap).
    */
   private applyTerrainModifiers(mods: readonly TerrainLeveling[]): void {
     const baseX = this.zoneX * ZONE_UNITS - ZONE_UNITS / 2;
@@ -341,8 +340,7 @@ export class Heightmap {
   // ── Player terrain modification ─────────────────────────────────
 
   /**
-   * C# TerrainComp.ApplyToHeightmap (:242-277) — folds the player edit deltas
-   * into `heights`:
+   * Folds the player edit deltas into `heights`:
    *
    *   heights[i] = clamp(genHeights[i] + levelDelta[i] + smoothDelta[i],
    *                      baseHeights[i] − 8, baseHeights[i] + 8)
@@ -387,7 +385,7 @@ export class Heightmap {
 
   // ── Vegetation helpers (Phase E) ────────────────────────────────
 
-  /** C++ Heightmap::WorldToVertex (Heightmap.cpp:960-965). */
+  /** Vertex coordinates of a world position. */
   worldToVertex(wx: number, wz: number): [number, number] {
     return [
       Math.floor(wx - this.zoneX * ZONE_UNITS + 0.5) + ZONE_UNITS / 2,
@@ -395,7 +393,7 @@ export class Heightmap {
     ];
   }
 
-  /** C++ Heightmap::HaveBiome (Heightmap.cpp:161-167) — corner bit check. */
+  /** Whether the biome is present — corner bit check. */
   haveBiome(biome: Biome): boolean {
     return (
       (this.cornerBiomes[0] & biome) !== 0 ||
@@ -405,14 +403,14 @@ export class Heightmap {
     );
   }
 
-  /** C++ Heightmap::IsBiomeEdge / GetBiomeArea (Heightmap.cpp:222-236). */
+  /** Biome area of the zone: Edge when the corner biomes differ, else Median. */
   getBiomeArea(): BiomeArea {
     const b = this.cornerBiomes;
     return b[0] !== b[1] || b[0] !== b[2] || b[0] !== b[3] ? BiomeArea.Edge : BiomeArea.Median;
   }
 
   /**
-   * C++ Heightmap::GetBiome (Heightmap.cpp:183-219) — zone-local weighted
+   * Zone-local weighted
    * corner-biome blend (NOT the GeoManager world biome): each corner votes
    * with (sqrt(2) − dist)³, highest weight wins. All float32.
    */
@@ -424,7 +422,7 @@ export class Heightmap {
     const x = f32(f32((wx - this.zoneX * ZONE_UNITS) / ZONE_UNITS) + 0.5);
     const z = f32(f32((wz - this.zoneY * ZONE_UNITS) / ZONE_UNITS) + 0.5);
 
-    // Distance(x, z, rx, ry) = (sqrt(2) − |d|)³ — f32 like C++ (double sqrt(2) minus float, stored float)
+    // Distance(x, z, rx, ry) = (sqrt(2) − |d|)³ — f32 like the reference (double sqrt(2) minus float, stored float)
     const dist = (rx: number, ry: number): number => {
       const dx = f32(x - rx);
       const dy = f32(z - ry);
@@ -440,7 +438,7 @@ export class Heightmap {
     weights[31 - Math.clz32(b[3])] = f32(weights[31 - Math.clz32(b[3])] + dist(1, 1));
 
     let biome = Biome.None;
-    let weight = 1.17549435e-38; // std::numeric_limits<float>::min()
+    let weight = 1.17549435e-38; // FLT_MIN
     for (let j = 0; j < 10; j++) {
       if (weights[j] > weight) {
         biome = 1 << j;
@@ -450,32 +448,32 @@ export class Heightmap {
     return biome;
   }
 
-  /** C++ Heightmap::GetVegetationMask (Heightmap.cpp:924-932). */
+  /** Vegetation mask at a world position. */
   getVegetationMask(wx: number, wz: number): number {
     // WorldToVertex(worldPos − (0.5, 0, 0.5)) == floor(rel) + 32
     const vx = Math.floor(wx - this.zoneX * ZONE_UNITS) + ZONE_UNITS / 2;
     const vy = Math.floor(wz - this.zoneY * ZONE_UNITS) + ZONE_UNITS / 2;
-    // C++ has no bounds check here; in-zone positions give [0,64). Clamp to
-    // avoid NaN where C++ would be UB.
+    // The reference has no bounds check here; in-zone positions give [0,64).
+    // Clamp to avoid NaN where the reference would be undefined behavior.
     const cx = Math.min(Math.max(vx, 0), ZONE_UNITS - 1);
     const cy = Math.min(Math.max(vy, 0), ZONE_UNITS - 1);
     return this.vegMask[cy * ZONE_UNITS + cx];
   }
 
-  /** C++ Heightmap::GetOceanDepth (Heightmap.cpp:116-127). */
+  /** Ocean depth at a world position. */
   getOceanDepth(wx: number, wz: number): number {
     const [vx, vy] = this.worldToVertex(wx, wz);
     const t = f32(vx / ZONE_UNITS);
     const t2 = f32(vy / ZONE_UNITS);
-    // VUtils::Mathf::Lerp clamps t to [0,1] (Unity Mathf.Lerp)
+    // Mathf-style lerp clamps t to [0,1]
     const a = mathfLerpF(this.oceanDepth[3], this.oceanDepth[2], t);
     const b = mathfLerpF(this.oceanDepth[0], this.oceanDepth[1], t);
     return mathfLerpF(a, b, t2);
   }
 
   /**
-   * C++ Heightmap::GetWorldHeight nearest-vertex against THIS zone only;
-   * null when the vertex is out of bounds (C++ returns false).
+   * World height by nearest vertex against THIS zone only;
+   * null when the vertex is out of bounds (the reference returns false).
    * F4: reads the leveled `heights` (terrain under locations is flattened).
    */
   private getHeightNearest(wx: number, wz: number): number | null {
@@ -485,10 +483,10 @@ export class Heightmap {
   }
 
   /**
-   * C++ Heightmap::GetWorldNormal (Heightmap.cpp:461-494): samples the
+   * World normal: samples the
    * nearest-vertex height at p, p+1x (fallback −1x), p+1z (fallback −1z),
    * normal = (b−a)×(c−a) normalized, flipped upward. Null when p itself is
-   * out of bounds (C++ returns false).
+   * out of bounds (the reference returns false).
    */
   getWorldNormal(wx: number, wz: number): Vector3 | null {
     const ha = this.getHeightNearest(wx, wz);
@@ -517,7 +515,7 @@ export class Heightmap {
   }
 }
 
-/** VUtils::Mathf::Lerp — f32 with t clamped to [0,1] (Unity Mathf.Lerp). */
+/** Mathf-style lerp — f32 with t clamped to [0,1]. */
 function mathfLerpF(a: number, b: number, t: number): number {
   const tc = Math.min(1, Math.max(0, t));
   return f32(a + f32(f32(b - a) * tc));
@@ -533,7 +531,7 @@ export interface TerrainOpEffect {
 }
 
 /**
- * Zone cache + world-space height queries (C++ IHeightmapManager + Heightmap).
+ * Zone cache + world-space height queries.
  * Shared by server (ground truth) and client (rendering + prediction).
  */
 export class HeightmapProvider {
@@ -577,7 +575,7 @@ export class HeightmapProvider {
     };
   }
 
-  /** C++ IZoneManager::WorldToZonePos (per axis). */
+  /** Zone coordinate of a world position (per axis). */
   static worldToZone(w: number): number {
     return Math.floor((w + ZONE_UNITS / 2) / ZONE_UNITS);
   }
@@ -587,8 +585,8 @@ export class HeightmapProvider {
   }
 
   /**
-   * F4: register a terrain leveling modifier (location spawn, Unity
-   * TerrainModifier parity). Drops all overlapped zones from the cache so
+   * F4: register a terrain leveling modifier (location spawn).
+   * Drops all overlapped zones from the cache so
    * they rebuild with the modifier baked in. Returns the affected zone
    * coordinates (client: chunks to rebuild).
    */
@@ -733,7 +731,7 @@ export class HeightmapProvider {
     return { heights, paint };
   }
 
-  /** C# Heightmap.IsCleared — dirt, cultivated or paved paint on this spot. */
+  /** Whether the spot is cleared — dirt, cultivated or paved paint. */
   isCleared(wx: number, wz: number): boolean {
     const comp = this.comps.get(
       `${HeightmapProvider.worldToZone(wx)},${HeightmapProvider.worldToZone(wz)}`
@@ -748,7 +746,7 @@ export class HeightmapProvider {
     return mask[i] > 127 || mask[i + 1] > 127 || mask[i + 2] > 127;
   }
 
-  /** C# Heightmap.IsCultivated — green channel only (farmable soil). */
+  /** Whether the spot is cultivated — green channel only (farmable soil). */
   isCultivated(wx: number, wz: number): boolean {
     const comp = this.comps.get(
       `${HeightmapProvider.worldToZone(wx)},${HeightmapProvider.worldToZone(wz)}`
@@ -761,7 +759,7 @@ export class HeightmapProvider {
     return mask[(vy * E_WIDTH + vx) * 4 + 1] > 127;
   }
 
-  /** C# Heightmap.AtMaxWorldLevelDepth — dug as deep as the game allows. */
+  /** Whether the spot is dug as deep as the game allows. */
   atMaxLevelDepth(wx: number, wz: number): boolean {
     const comp = this.comps.get(
       `${HeightmapProvider.worldToZone(wx)},${HeightmapProvider.worldToZone(wz)}`
@@ -918,14 +916,14 @@ export class HeightmapProvider {
   }
 
   /**
-   * C++ Heightmap::GetWorldHeight. Nearest-vertex (server.yml
+   * World ground height. Nearest-vertex (server.yml
    * bilinear=false) or HEIGHTFIX-01/02 triangle interpolation.
    * F4: reads the leveled `heights` (terrain under locations is flattened).
    */
   getGroundHeight(wx: number, wz: number): number {
     const hm = this.getZoneAt(wx, wz);
     if (!this.settings.bilinearSampling) {
-      // C++ WorldToVertex: rel to zone center, floor(v + 0.5) + 32
+      // World-to-vertex: rel to zone center, floor(v + 0.5) + 32
       const vx = Math.floor(wx - hm.zoneX * ZONE_UNITS + 0.5) + ZONE_UNITS / 2;
       const vy = Math.floor(wz - hm.zoneY * ZONE_UNITS + 0.5) + ZONE_UNITS / 2;
       if (vx < 0 || vy < 0 || vx >= E_WIDTH || vy >= E_WIDTH) return 0;
@@ -955,7 +953,7 @@ export class HeightmapProvider {
   }
 
   /**
-   * C++ Heightmap::GetWorldHeightRaycast (HEIGHTFIX-03) — Möller-Trumbore
+   * Raycast ground height (HEIGHTFIX-03) — Möller-Trumbore
    * against the collision triangles T1=(v00,v01,v10), T2=(v10,v01,v11),
    * ray straight down from y=10000. Used for vegetation placement (Phase E).
    */
@@ -1015,6 +1013,6 @@ export class HeightmapProvider {
     if (t1 !== null && t2 !== null) return 10000 - Math.min(t1, t2);
     if (t1 !== null) return 10000 - t1;
     if (t2 !== null) return 10000 - t2;
-    return this.getGroundHeight(wx, wz); // edge-case fallback like C++
+    return this.getGroundHeight(wx, wz); // edge-case fallback like the reference
   }
 }

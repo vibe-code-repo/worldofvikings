@@ -3,7 +3,7 @@
  *
  * Generates the world for the reference server seed (data/server.yml:
  * seed "KxSYuZquuw") and prints generation stats plus biome/height samples.
- * Plausibility check only — the exact 1:1 verification against the C++
+ * Plausibility check only — the exact 1:1 verification against the reference
  * server is the C6 harness.
  *
  * Run:  npx tsx shared/test/geo-smoke.ts [seedName]

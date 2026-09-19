@@ -1,29 +1,20 @@
 /**
- * Stable hash — 1:1 port of `get_stable_hash` from the C++ reference server.
+ * Stable hash — 1:1 port of `get_stable_hash` from the reference server.
  *
  * This is the reference implementation's string hash (a two-accumulator djb2 variant), NOT
- * FNV-1a. It MUST match the C++ server exactly, because prefab hashes,
+ * FNV-1a. It MUST match the reference server exactly, because prefab hashes,
  * RPC method hashes and ZDO member-name hashes are all derived from it.
  *
- * C++ reference (library/include/Hashes.h):
+ * Reference algorithm (u32 arithmetic, characters taken in pairs):
  *
- *   constexpr Hash get_stable_hash(string_view str, u32 num, u32 num2, u32 idx) {
- *     if (idx != str.length()) {
- *       num = ((num << 5) + num) ^ (u32)str[idx];
- *       if (idx + 1 != str.length()) {
- *         num2 = ((num2 << 5) + num2) ^ (u32)str[idx + 1];
- *         idx += 2;
- *         return get_stable_hash(str, num, num2, idx);
- *       }
- *     }
- *     return static_cast<Hash>(num + num2 * 1566083941);
- *   }
- *   constexpr Hash get_stable_hash(string_view str) {
- *     u32 num = 5381, num2 = num, idx = 0;
- *     return get_stable_hash(str, num, num2, idx);
- *   }
+ *   num = num2 = 5381
+ *   for idx = 0, 2, 4, … while idx != length:
+ *     num = ((num << 5) + num) ^ str[idx]
+ *     if idx + 1 == length: stop
+ *     num2 = ((num2 << 5) + num2) ^ str[idx + 1]
+ *   result = (Hash)(num + num2 * 1566083941)
  *
- * Verified against library/test/crypto/src/CryptoTest.cpp:
+ * Verified against known reference values:
  *   get_stable_hash("PeerInfo")   == -725574882
  *   get_stable_hash("Disconnect") ==  838896224
  */

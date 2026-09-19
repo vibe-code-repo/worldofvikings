@@ -471,7 +471,7 @@ function herkunft(req: IncomingMessage): { peer: string; klient: string } {
 //
 // Bewusst ZEILENWEISE geaendert statt YAML zu parsen und neu zu schreiben:
 // Die Datei ist dicht kommentiert (jede Einstellung hat ihre Herleitung
-// daneben, teils mit C++-Fundstellen), und ein Round-Trip durch einen
+// daneben, teils mit Fundstellen), und ein Round-Trip durch einen
 // YAML-Serialisierer wirft all das weg. Geaendert wird nur der Wert
 // hinter dem Doppelpunkt, alles andere bleibt Zeichen fuer Zeichen stehen.
 
@@ -1489,7 +1489,7 @@ async function behandeln(
   // daraus wird. Ein blosser Serverneustart genuegt dafuer NICHT — das
   // Terrain entsteht zwar neu aus dem Layout (WovServer createGeo), aber
   // `ZoneManager` laedt die bereits besiedelten Zonen aus dem Weltspeicher
-  // (ZoneManager.ts, "Restore generated zones", C++ m_generatedZones).
+  // (ZoneManager.ts, "Restore generated zones").
   // Auf der dev-Welt sind das 811 Zonen und ueber 94.000 ZDOs: Man saehe
   // neues Gelaende mit alter Vegetation, Haeuser in der Luft oder im Hang,
   // und die geaenderte Insel nur dort richtig, wo man nie war.

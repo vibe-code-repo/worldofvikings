@@ -165,7 +165,7 @@ export interface SchichtOberflaeche {
  *
  * ── Die Zahlen kommen seit dem 10.09.2026 aus dem VORBILD ────────────
  * Nicht mehr aus `village1.json` des Schwesterprojekts, sondern aus den
- * TerrainLayer-Assets von Tale of Dark Lands selbst
+ * TerrainLayer-Assets des Vorbilds selbst
  * (`design/original-boden.md` §A). Zwei Zeilen ändern sich dabei, und
  * beide sind Korrekturen mit einem sichtbaren Befund dahinter:
  *
@@ -581,7 +581,7 @@ const HIMMEL_ANTEIL = 1.0;
  * Halbkugel-Irradianz des Kuppelverlaufs, als zwei Zahlentripel.
  *
  * Was hier steht, ist die Projektion des Verlaufs `mix(horizont, zenit,
- * 1 − e^(−3,2·y))` — das ist `vhSkyGradient` aus ValheimSky.ts, und dort
+ * 1 − e^(−3,2·y))` — das ist `vhSkyGradient` der Himmelskuppel, und dort
  * steht die Wahrheit — auf die ersten drei Legendre-Polynome, gefaltet
  * mit dem Kosinuslappen. Das ist der klassische Weg, aus einer
  * richtungsabhängigen Leuchtdichte eine Einstrahlung zu machen
@@ -823,7 +823,7 @@ const VAR_MAX = 1.35;
  * Die Himmelsfarben, die der Boden spiegelt — was `Lighting` liefert.
  *
  * Absichtlich ein eigener, kleiner Typ und kein Verweis auf eine Klasse
- * aus `Lighting.ts`/`ValheimSky.ts`: Dieser Zweig kennt
+ * aus `Lighting.ts` oder der Himmelskuppel: Dieser Zweig kennt
  * `lighting.sky.gibHimmelsfarben()` noch nicht, und der Boden soll auch
  * dann übersetzen und ein richtiges Bild liefern, wenn es die Funktion
  * nicht gibt. Ein struktureller Typ passt auf ihr Ergebnis, sobald sie da
@@ -995,7 +995,7 @@ export class TerrainSplatMaterial {
     // three.js reference: wrapS=Repeat, wrapT=ClampToEdge (T-wrap is done
     // in-shader via fract — see splatLayer/fracUV below); flipY=false so
     // layer L sits at V∈[L/16,(L+1)/16] top→bottom, matching the
-    // AssetRipper tile order (Babylon: invertY=false mirrors flipY=false).
+    // extraction-export tile order (Babylon: invertY=false mirrors flipY=false).
     // Maximale anisotrope Filterung für ALLE Terrain-Texturen. Das ist der
     // entscheidende Schärfe-Unterschied zur three.js-Referenz, die
     // `terrain.setAnisotropy(renderer.capabilities.getMaxAnisotropy())`
@@ -2571,7 +2571,7 @@ export class TerrainSplatMaterial {
     // `himmelZenit` und `himmelHorizont` sind Uniforms mit dem Setter
     // `setzeHimmel(zenit, horizont, glanz)`. Ruft niemand ihn auf, leitet
     // `syncLighting()` beide je Frame aus der linearen Nebelfarbe ab —
-    // nach DERSELBEN Regel, mit der `ValheimSky` seinen Verlauf baut
+    // nach DERSELBEN Regel, mit der die Himmelskuppel ihren Verlauf baut
     // (Horizont = Nebelfarbe, Zenit = abgedunkelt und blauer). Der Boden
     // spiegelt damit von sich aus denselben Himmel, den man über ihm
     // sieht, und die Naht am Horizont bleibt zu.
@@ -2642,8 +2642,8 @@ export class TerrainSplatMaterial {
         outParameters: [{ name: 'result', type: 'Vector3' }],
         code: [
           // Der Verlauf, Zeile für Zeile wie `vhSkyGradient` in
-          // ValheimSky.ts. Nachgebaut statt aufgerufen, weil dieses
-          // Material ein NodeMaterial ist und ValheimSky ein
+          // der Himmelskuppel. Nachgebaut statt aufgerufen, weil dieses
+          // Material ein NodeMaterial ist und die Himmelskuppel ein
           // ShaderMaterial — es gibt keinen gemeinsamen Quelltext, den
           // beide einbinden könnten.
           //
@@ -2652,7 +2652,7 @@ export class TerrainSplatMaterial {
           // (sky-shader.ts), nicht die der Kuppel, die über diesem Boden
           // steht. `pow` hat bei hoch = 0 eine unendliche Steigung und
           // setzt damit eine harte Kante genau auf den Horizont — der
-          // Grund, warum ValheimSky auf `1 − e^(−3,2·y)` gewechselt ist.
+          // Grund, warum die Himmelskuppel auf `1 − e^(−3,2·y)` gewechselt ist.
           // Zwei Verläufe für einen Himmel heisst: Der Boden spiegelt
           // einen anderen Himmel, als man über ihm sieht.
           'vec3 vbHimmelFarbe(vec3 dir, vec3 zenit, vec3 horizont, vec3 glanzFarbe, vec3 zurSonne) {',
@@ -2998,7 +2998,7 @@ export class TerrainSplatMaterial {
 
     // Der Himmel, solange ihn niemand von aussen setzt: Horizont IST die
     // Nebelfarbe, Zenit eine abgedunkelte, blauere Fassung davon. Das ist
-    // nicht geraten, sondern dieselbe Regel, mit der `ValheimSky` seinen
+    // nicht geraten, sondern dieselbe Regel, mit der die Himmelskuppel ihren
     // Verlauf baut (dort `zenith.set(h.r*0.45, h.g*0.55, min(1, h.b*0.8+0.001))`).
     // Dass beide dieselbe Regel benutzen, ist der Grund, warum die Naht
     // am Horizont zubleibt: Der Boden spiegelt genau den Himmel, den man

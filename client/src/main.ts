@@ -1948,7 +1948,7 @@ async function main() {
     post = new PostProcessing(scene, player.camera, {
       // Autofokus des Originals: Strahl nach vorn, Trefferentfernung = Fokus.
       // Bei uns über die Höhenfunktion statt über Collider — Begründung in
-      // ValheimDof.autoFocus().
+      // der Autofokus-Funktion des Schärfentiefe-Passes.
       groundHeight: (x, z) => world!.getGroundHeight(x, z),
       waterLevel: WATER_LEVEL,
     });
@@ -3081,7 +3081,7 @@ async function main() {
   /*
     Zielfarben für den Himmel, den der Boden spiegelt (Stufe 2, „Look").
 
-    `ValheimSky.gibHimmelsfarben()` legt ohne Zielobjekte zwei frische
+    `gibHimmelsfarben()` der Himmelskuppel legt ohne Zielobjekte zwei frische
     Color3 an — es gibt Kopien heraus, weil `update()` `reflectState` an
     Ort und Stelle überschreibt und ein durchgereichter Zeiger sich dem
     Empfänger unter den Händen änderte. Hier wird pro Frame gefragt,
@@ -3284,7 +3284,7 @@ async function main() {
     //
     // Die Farben kommen aus derselben Momentaufnahme, aus der auch die
     // Himmelskuppel gezeichnet wird — das Wasser wertet damit denselben
-    // Verlauf an der Spiegelrichtung aus (vhSkyGradient, ValheimSky.ts).
+    // Verlauf an der Spiegelrichtung aus (vhSkyGradient der Himmelskuppel).
     // Vorher stand hier dreimal `fogColorSun`, also der Sonnenton
     // unabhängig von der Blickrichtung; siehe Kommentar dort.
     const himmel = lighting.sky.reflectState;

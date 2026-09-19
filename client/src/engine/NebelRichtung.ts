@@ -16,7 +16,7 @@
  * ganze Bild konstant: Richtung Sonnenuntergang zu drehen wärmte das
  * gesamte Bild, statt nur um die Sonne herum zu glühen.
  *
- * Sichtbar falsch wurde das am Horizont. `ValheimSky` malt seinen
+ * Sichtbar falsch wurde das am Horizont. Die Himmelskuppel malt ihren
  * Sonnenschein längst pro Pixel (`vhSkyGradient`, `sunGlow` aus demselben
  * `fogColorSun`) — die Kuppel hatte also einen Verlauf, der Nebel davor
  * nicht. Genau an der Nahtstelle, an der beide dieselbe Farbe zeigen
@@ -86,7 +86,7 @@ import type { Scene } from '@babylonjs/core/scene';
  * Rechnung, nicht ihre Abstimmung.
  *
  * Deutlich weicher als der Sonnenschein der Himmelskuppel (`pow(..., 8)`
- * in `ValheimSky.vhSkyGradient`), und das ist Absicht: Der Schein ist ein
+ * in `vhSkyGradient`), und das ist Absicht: Der Schein ist ein
  * enger Kranz um die Sonnenscheibe, der Nebel eine breite Wärmung der
  * halben Himmelsrichtung.
  */

@@ -24,7 +24,7 @@
  * Kamera und leuchtet ROT; dann setzt der Klick auch nicht. Trifft er,
  * schnappt der Geist an die Fläche und leuchtet GRÜN.
  *
- * Das ist die Bedienung, die Valheim vormacht, und der Grund dafür ist
+ * Das ist die Bedienung, die das Vorbild vormacht, und der Grund dafür ist
  * kein Geschmack: Ein Geist, der bei jedem Fehlschuss verschwindet, sagt
  * dem Spieler nicht „hier geht es nicht", sondern „das Werkzeug ist
  * kaputt". Genau so ist es hier beim ersten Anlauf auch angekommen.
@@ -310,7 +310,7 @@ export class DekoPlatzierung {
   /**
    * Shift schaltet die Rastung AUS — Winkel und Stelle werden stufenlos.
    *
-   * Herum wie in Valheim: Dort ist Shift die „alternative Platzierung",
+   * Herum wie im Vorbild: Dort ist Shift die „alternative Platzierung",
    * die alle Rastpunkte ignoriert. Gerastet ist der Normalfall, weil er
    * in neun von zehn Fällen das ist, was man will.
    */

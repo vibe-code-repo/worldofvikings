@@ -381,8 +381,8 @@ export class Lighting {
     scene.fogColor = this.nebelFarbe;
     scene.clearColor = this.hintergrund;
 
-    // Sky dome fed from the same EnvState as the fog — see ValheimSky.ts
-    // for why Babylon's SkyMaterial (Preetham) cannot match the fog colour.
+    // Sky dome fed from the same EnvState as the fog — see the sky dome
+    // module for why Babylon's SkyMaterial (Preetham) cannot match the fog colour.
     this.sky = new ValheimSky(scene);
 
     // ── Umgebungslicht aus der Himmelskuppel (Grafik-Konzept Stufe 5) ──
@@ -390,7 +390,7 @@ export class Lighting {
     // Ab hier beleuchtet der Himmel die Szene, statt nur hinter ihr zu
     // hängen: PBR-Materialien nehmen aus dieser Würfelkarte ihre
     // Spiegelung, und aus deren `sphericalPolynomial` (rechnet
-    // `ValheimSky.berechneUmgebungslicht()`) ihr diffuses Grundlicht.
+    // `berechneUmgebungslicht()` der Himmelskuppel) ihr diffuses Grundlicht.
     //
     // Die Probe lief bereits für das Wasser — die Renderkosten entstehen
     // hier also nicht neu, sie werden nur ein zweites Mal genutzt.

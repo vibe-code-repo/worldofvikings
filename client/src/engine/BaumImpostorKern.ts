@@ -53,7 +53,7 @@ export const IMPOSTOR_GRENZE_M_VORGABE = 240;
  * benachbarten Ansichten wird geblendet, der harte Wechsel liegt also bei
  * 22,5 Grad Kamerabewegung um den Baum herum.
  *
- * Die Referenz (ClaudeCraft, foliage_impostor_core.IMPOSTOR_CATEGORY_VIEWS)
+ * Die Referenz (das Schwesterprojekt)
  * nimmt 12 fuer Baeume, aber ihre Sprites stehen ab 234 m in einem Fenster,
  * das deutlich tiefer reicht als unsere 576 m. Bei uns liegt der weiteste
  * Sprite rund 300 m weg; um dort das Ansichtspaar zu wechseln, muss die
@@ -398,8 +398,8 @@ export function zellLage(
  * ── Warum ein einziges if/else und keine zwei Shader-Fenster ─────────
  * Die Referenz loest dieselbe Aufgabe mit zwei Shadern und einer
  * byteweise identischen GLSL-Zeile in beiden — und haelt in ihrem eigenen
- * Quelltext fest, dass Treiber-Kontraktion das brechen KANN
- * (foliage_impostor_core.ts:207-216). In Babylon waeren das zwei
+ * Quelltext fest, dass Treiber-Kontraktion das brechen KANN.
+ * In Babylon waeren das zwei
  * Material-Plugins in zwei Effekten, also noch mehr Spielraum.
  *
  * Hier fuellt DIESELBE Schleife beide Listen. Ein Index landet in genau

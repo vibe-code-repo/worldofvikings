@@ -135,13 +135,23 @@ export type ServerStand =
  *    Welt-Startpunkt den ERSTEN Kontinent mit eigenem Spawn; dieselben
  *    Kontinente in anderer Reihenfolge können einen anderen Startpunkt geben.
  *  - Platzierungen, Flüsse, Seen und Routen als Multimenge: Doppelte
- *    zählen, `[P]` enthält `[P, P]` nicht.
+ *    zählen, `[P]` enthält `[P, P]` nicht. Bei Platzierungen bleibt das Feld
+ *    `id` außen vor: Es ist eine Kennung, kein Inhalt, und frisch gebaute
+ *    Stände (`layoutMitPlatzierung`) tragen keine, Ring-Einträge schon.
  *  - Name, Detail-Seed und Startpunkt müssen übereinstimmen.
  * Elemente werden als JSON verglichen. Im Zweifel `false`: ein Stand zu viel
  * zu sichern kostet nur Platz.
  */
 export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
   if (gross === klein) return true;
+  /** Textform einer Platzierung ohne das Feld `id` (die übrigen Felder in ihrer Reihenfolge). */
+  const ohneId = (p: unknown): string => {
+    if (p && typeof p === 'object' && !Array.isArray(p) && 'id' in p) {
+      const { id: _id, ...rest } = p as Record<string, unknown>;
+      return JSON.stringify(rest);
+    }
+    return JSON.stringify(p);
+  };
   const folge = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
     if (!k || k.length === 0) return true;
     const gj = (g ?? []).map((x) => JSON.stringify(x));
@@ -154,15 +164,19 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     }
     return true;
   };
-  const multimenge = (g: readonly unknown[] | undefined, k: readonly unknown[] | undefined): boolean => {
+  const multimenge = (
+    g: readonly unknown[] | undefined,
+    k: readonly unknown[] | undefined,
+    schluessel: (x: unknown) => string = (x) => JSON.stringify(x)
+  ): boolean => {
     if (!k || k.length === 0) return true;
     const zaehler = new Map<string, number>();
     for (const x of g ?? []) {
-      const j = JSON.stringify(x);
+      const j = schluessel(x);
       zaehler.set(j, (zaehler.get(j) ?? 0) + 1);
     }
     for (const x of k) {
-      const j = JSON.stringify(x);
+      const j = schluessel(x);
       const n = zaehler.get(j) ?? 0;
       if (n === 0) return false;
       zaehler.set(j, n - 1);
@@ -175,7 +189,7 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     (klein.defaultSpawn === undefined || JSON.stringify(gross.defaultSpawn) === JSON.stringify(klein.defaultSpawn)) &&
     folge(gross.regions, klein.regions) &&
     folge(gross.continents, klein.continents) &&
-    multimenge(gross.placements, klein.placements) &&
+    multimenge(gross.placements, klein.placements, ohneId) &&
     multimenge(gross.rivers, klein.rivers) &&
     multimenge(gross.lakes, klein.lakes) &&
     multimenge(gross.routes, klein.routes)

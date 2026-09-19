@@ -1489,6 +1489,19 @@ console.log('▶ Abgleich: kein Rennen zwischen Nachsehen und Lesen');
 }
 
 // ── 8j. enthaelt(): Z-Reihenfolge und Doppelte (B4) ─────────────────────
+console.log('▶ enthaelt: das Feld `id` einer Platzierung zählt nicht (K1.1 vergibt Kennungen nach dem Sanitizer)');
+{
+  type MitId = { prefab: string; x: number; z: number; yaw?: number; id?: string };
+  const stand = (ps: MitId[]): WorldLayout => ({ ...basis, placements: ps }) as unknown as WorldLayout;
+  const P = (x: number, id?: string): MitId => ({ prefab: 'Beech1', x, z: x, yaw: 0.5, ...(id ? { id } : {}) });
+  check('Nur die `id` einer Platzierung unterscheidet die Stände: enthaelt = true (beide Richtungen)', enthaelt(stand([P(10, 'a1')]), stand([P(10, 'b7')])) && enthaelt(stand([P(10, 'b7')]), stand([P(10, 'a1')])));
+  check('Ring-Eintrag mit `id`, frisch gebauter Stand ohne: enthaelt = true (der Fall aus K1.1)', enthaelt(stand([P(10, 'a1'), P(20, 'a2')]), stand([P(10), P(20)])) && enthaelt(stand([P(10), P(20)]), stand([P(10, 'a1')])));
+  check('Andere Position: enthaelt = false, auch wenn die `id` gleich ist', !enthaelt(stand([P(10, 'a1')]), stand([P(11, 'a1')])));
+  check('Andere Felder (prefab, yaw) zählen weiter', !enthaelt(stand([P(10, 'a1')]), stand([{ ...P(10, 'a1'), prefab: 'Beech2' }])) && !enthaelt(stand([P(10, 'a1')]), stand([{ ...P(10, 'a1'), yaw: 1 }])));
+  check('Multimenge bleibt eine Multimenge: [P] enthält [P, P] nicht, auch mit verschiedenen `id`', !enthaelt(stand([P(10, 'a1')]), stand([P(10, 'b1'), P(10, 'b2')])) && enthaelt(stand([P(10, 'a1'), P(10, 'a2')]), stand([P(10, 'b1'), P(10)])));
+  check('Ein Feld `id` an anderen Listen (Regionen) bleibt Teil des Vergleichs (unverändert)', !enthaelt({ ...basis, regions: [{ ...basis.regions[0]!, id: 'x' }] } as WorldLayout, { ...basis, regions: [{ ...basis.regions[0]!, id: 'y' }] } as WorldLayout));
+}
+
 console.log('▶ enthaelt: Regionen als geordnete Folge, Listen als Multimenge');
 {
   const ra = { ...basis.regions[0]!, id: 'reg-a' };

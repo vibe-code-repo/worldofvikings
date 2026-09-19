@@ -36,8 +36,12 @@
  * piece is recognised whatever the member type of `spieler` is.
  *
  * World 10: a `placements` array whose entries the sanitizer ALL drops is not
- * "empty on purpose" either (nothing removed, warning); when only some are
- * dropped their ZDOs go, and the log names how many.
+ * "empty on purpose" either (nothing touched, warning). When only some are
+ * dropped, or a placement names a prefab the registry does not know, this boot
+ * deletes NOTHING (one rule for both) -- it still updates, stamps, spawns and
+ * frees player pieces; the next clean document then clears as usual (worlds 10,
+ * 11, and the dev.json copy in world 6). World 12: when no ZDO of an id fits the
+ * prefab, the new one is spawned and the stale ones go in the SAME boot.
  *
  * World 2: (f) two placements with exactly the same prefab and position stay
  * ONE ZDO (pinned here, the decision belongs to a later card), (g) a player
@@ -464,6 +468,21 @@ check('(dev) the document places many objects (sanity)', dev1.size >= 100, `${de
 check('(dev) a reboot with the unchanged document moves 0 revisions', bewegt === 0 && dev2.size === dev1.size, `${bewegt} of ${dev2.size} moved, ${dev1.size} before`);
 check('(dev) ... and logs 0 gespawnt, 0 aktualisiert', boot6b.zeilen.some((z) => /\b0 gespawnt, 0 aktualisiert/.test(z)), boot6b.zeilen.join(' | '));
 
+// 158 of 159 entries written with a German decimal comma ("100,00"): the sanitizer drops them all but the first.
+const devPlacements = devDoc.placements as { x: number; z: number; prefab: string }[];
+const kaputt = devPlacements.map((p, i) => (i === 0 ? p : { ...p, x: p.x.toFixed(2).replace('.', ','), z: p.z.toFixed(2).replace('.', ',') }));
+const boot6c = starte('welt6', { ...devDoc, placements: kaputt });
+console.log(`     log: ${boot6c.zeilen.join(' | ')}`);
+const dev3 = layoutRevisionen(boot6c.server);
+check('(R3-1) dev.json copy with 158 of 159 broken entries: 0 entfernt, all 157 ZDOs stay', dev3.size === dev1.size && boot6c.zeilen.some((z) => /\b0 entfernt/.test(z)), `${dev3.size} of ${dev1.size} ZDOs alive`);
+check('(R3-1) ... with the loud line naming 158 dropped entries', boot6c.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 158 Einträge verworfen, 0 unbekannte Prefabs/.test(z)), boot6c.zeilen.join(' | '));
+// The next clean document (the first 150 entries) clears the rest as usual.
+const dev150 = devPlacements.slice(0, 150);
+const kennungen150 = new Set(dev150.map((p) => layoutKennung(p)));
+const boot6d = starte('welt6', { ...devDoc, placements: dev150 });
+const dev4 = layoutRevisionen(boot6d.server);
+check('(R3-1) the next clean document clears as usual (only the ZDOs of the 150 kept ids remain)', dev4.size === kennungen150.size && boot6d.zeilen.some((z) => new RegExp(`\\b${dev1.size - kennungen150.size} entfernt`).test(z)) && !boot6d.zeilen.some((z) => /ohne Löschen/.test(z)), `${dev4.size} left, expected ${kennungen150.size}; ${boot6d.zeilen.filter((z) => /entfernt/.test(z)).join(' | ')}`);
+
 // ── World 7: a `placements` field of the wrong type ─────────────────
 console.log('\n[13] World 7: placements null / object / text / number remove nothing; missing and [] clear');
 const Q1 = { prefab: 'woodwall', x: 100, z: 100 };
@@ -500,11 +519,10 @@ for (const [doc, name] of [[ohneFeld, 'missing'], [dokument(BASIS_VORHER, []), '
   check(`(B1) placements ${name}: means "none", the orphans are cleared`, uebrig7.length === 0 && b.zeilen.some((z) => /2 entfernt/.test(z)), `${uebrig7.length} left; ${b.zeilen.join(' | ')}`);
 }
 
-// ── World 8: one id, several ZDOs; unknown prefab ───────────────────
-console.log('\n[14] World 8: three ZDOs with one id are cut down to one; an unknown prefab keeps its ZDO');
+// ── World 8: one id, several ZDOs ───────────────────────────────────
+console.log('\n[14] World 8: three ZDOs with one id are cut down to one');
 const DUP = { prefab: 'woodwall', x: 600, z: 100 };
-const UNB = { prefab: 'woodwall', x: 100, z: 100 };
-const boot8a = starte('welt8', dokument(BASIS_VORHER, [DUP, UNB]));
+const boot8a = starte('welt8', dokument(BASIS_VORHER, [DUP]));
 const x1 = boot8a.server;
 const woodwall8 = x1.prefabs.getByName('woodwall')!.hash;
 const dupOriginal = eines(x1, DUP)!;
@@ -514,15 +532,9 @@ dupB.setString(LAYOUT_ID_MEMBER, layoutKennung(DUP));
 const dupC = x1.zdos.createZDO(woodwall8, { x: 600.2, y: x1.getGroundHeight(600.2, 100) - 0.5, z: 100 });
 dupC.setString(LAYOUT_ID_MEMBER, layoutKennung(DUP));
 const dupOriginalId = dupOriginal.zdoid.toString();
-// The prefab of this one has since vanished from the registry: the ZDO keeps the id of the unknown name.
-const UNBEKANNT = { prefab: 'gibtsnicht', x: 100, z: 100 };
-const unbZdo = eines(x1, UNB)!;
-unbZdo.setString(LAYOUT_ID_MEMBER, layoutKennung(UNBEKANNT));
-const unbId = unbZdo.zdoid.toString();
-const unbY = unbZdo.position.y;
 check('(B2) the state has three ZDOs with one id', nachKennung(x1, layoutKennung(DUP)).length === 3, `${nachKennung(x1, layoutKennung(DUP)).length}`);
 x1.saveWorld();
-const boot8b = starte('welt8', dokument(BASIS_NACHHER, [DUP, UNBEKANNT]));
+const boot8b = starte('welt8', dokument(BASIS_NACHHER, [DUP]));
 const x2 = boot8b.server;
 console.log(`     log: ${boot8b.zeilen.join(' | ')}`);
 const dupNach = nachKennung(x2, layoutKennung(DUP));
@@ -533,14 +545,7 @@ check(
   dupNach[0] ? `y=${dupNach[0].position.y} ground=${x2.getGroundHeight(600, 100)} stamp='${dupNach[0].getString(LAYOUT_SOLL_MEMBER)}'` : 'none'
 );
 check('(B2) ... and the log counts them', boot8b.zeilen.some((z) => /2 überzählige Layout-ZDOs mit gleicher Kennung entfernt/.test(z)), boot8b.zeilen.join(' | '));
-const unbNach = x2.zdos.getAllZDOs().find((z) => z.zdoid.toString() === unbId);
-check(
-  '(B3) unknown prefab: the ZDO with that id is not removed and not touched',
-  unbNach !== undefined && unbNach.getString(LAYOUT_ID_MEMBER) === layoutKennung(UNBEKANNT) && nahe(unbNach.position.y, unbY, 1e-9),
-  unbNach ? `y=${unbNach.position.y} was ${unbY}, ground now ${x2.getGroundHeight(100, 100).toFixed(3)}` : 'removed'
-);
-check('(B3) ... 0 entfernt, 1 unbekannt', boot8b.zeilen.some((z) => /\b0 entfernt, 1 unbekannt/.test(z)), boot8b.zeilen.join(' | '));
-check('(B3) ... and a warning names the id and the prefab', boot8b.zeilen.some((z) => z.includes(layoutKennung(UNBEKANNT)) && z.includes("'gibtsnicht'") && /bleibt unangetastet/.test(z)), boot8b.zeilen.join(' | '));
+check('(R3-2) ... and the count line says 2 entfernt (davon 2 überzählig), not 0', boot8b.zeilen.some((z) => /\b2 entfernt \(davon 2 überzählig\)/.test(z)), boot8b.zeilen.join(' | '));
 
 // ── World 9: `spieler` of any member type ───────────────────────────
 console.log('\n[15] World 9: a player piece is a player piece whatever the type of `spieler` is');
@@ -602,15 +607,86 @@ for (const [roh, n] of [[['x', 'y'], 2], [[{}], 1], [[[]], 1], [[{ prefab: 'wood
 const teil = starte('welt10', { ...dokument(BASIS_VORHER, [R1, R2]), placements: [R1, R2, { prefab: 'woodwall', x: 99999999, z: 100 }] });
 const teilDabei = teil.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '');
 check(
-  '(B1b) 2 valid + 1 invalid entry: exactly the ZDO of the dropped one goes',
-  teilDabei.length === 2 && teilDabei.some((z) => z.zdoid.toString() === r1Ids[0]) && teilDabei.some((z) => z.zdoid.toString() === r1Ids[1]) && !teilDabei.some((z) => z.zdoid.toString() === r1Ids[2]),
-  `${teilDabei.length} left: ${teilDabei.map((z) => z.zdoid.toString()).join(', ')}`
+  '(R3-1) 2 valid + 1 dropped entry: this boot deletes NOTHING (all three ZDOs stay)',
+  teilDabei.length === 3 && r1Ids.every((id) => teilDabei.some((z) => z.zdoid.toString() === id)) && teilDabei.every((z) => z.getInt('zzZustand') === 7),
+  `${teilDabei.length} left`
 );
 check(
-  '(B1b) ... with a warning that names 1 dropped entry, and 1 entfernt in the count',
-  teil.zeilen.some((z) => /placements: 1 von 3 Einträgen verworfen/.test(z)) && teil.zeilen.some((z) => /\b1 entfernt/.test(z)),
+  '(R3-1) ... with the loud line "ohne Löschen: 1 Einträge verworfen, 0 unbekannte Prefabs"',
+  teil.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 1 Einträge verworfen, 0 unbekannte Prefabs – verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen/.test(z)) && teil.zeilen.some((z) => /\b0 entfernt/.test(z)),
   teil.zeilen.join(' | ')
 );
+const sauber = starte('welt10', dokument(BASIS_VORHER, [R1, R2]));
+const sauberDabei = sauber.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '');
+check(
+  '(R3-1) the next CLEAN document clears as usual: exactly the ZDO of the removed placement goes',
+  sauberDabei.length === 2 && !sauberDabei.some((z) => z.zdoid.toString() === r1Ids[2]) && sauber.zeilen.some((z) => /\b1 entfernt/.test(z)) && !sauber.zeilen.some((z) => /ohne Löschen/.test(z)),
+  `${sauberDabei.length} left; ${sauber.zeilen.join(' | ')}`
+);
+
+// ── World 11: unknown prefabs delete nothing either ─────────────────
+console.log('\n[17] World 11: an unknown prefab -- kept when the placement moves, kept next to a duplicate; a clean document then clears');
+const boot11a = starte('welt11', dokument(BASIS_VORHER, []));
+const aa = boot11a.server;
+const woodwall11 = aa.prefabs.getByName('woodwall')!.hash;
+const U1 = { prefab: 'gibtsnicht', x: 100, z: 100 }; // (B3) the prefab has vanished from the registry, its ZDO keeps the id
+const U2 = { prefab: 'gibtsnicht', x: 200, z: 100 }; // moved >= 0.5 m by the designer
+const U3 = { prefab: 'gibtsnicht', x: 300, z: 100 }; // two ZDOs with this id
+const mach = (p: { prefab: string; x: number; z: number }, dx = 0): ZDO => {
+  const z = aa.zdos.createZDO(woodwall11, { x: p.x + dx, y: aa.getGroundHeight(p.x + dx, p.z), z: p.z });
+  z.setString(LAYOUT_ID_MEMBER, layoutKennung(p));
+  z.setInt('zzZustand', 7);
+  return z;
+};
+const v1z = mach(U1);
+const v2z = mach(U2);
+const v3a = mach(U3);
+const v3b = mach(U3, 0.2);
+const v11Ids = [v1z, v2z, v3a, v3b].map((z) => z.zdoid.toString());
+const v1Y = v1z.position.y;
+aa.saveWorld();
+const lebt11 = (server: Server): number => server.zdos.getAllZDOs().filter((z) => v11Ids.includes(z.zdoid.toString())).length;
+
+const boot11b = starte('welt11', dokument(BASIS_NACHHER, [U1]));
+console.log(`     log: ${boot11b.zeilen.join(' | ')}`);
+const v1B = boot11b.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === v11Ids[0]);
+check('(B3) unknown prefab: the ZDO with that id is not removed and not touched', v1B !== undefined && v1B.getString(LAYOUT_ID_MEMBER) === layoutKennung(U1) && nahe(v1B.position.y, v1Y, 1e-9), v1B ? `y=${v1B.position.y} was ${v1Y}, ground now ${boot11b.server.getGroundHeight(100, 100).toFixed(3)}` : 'removed');
+check('(B3) ... and a warning names the id and the prefab', boot11b.zeilen.some((z) => z.includes(layoutKennung(U1)) && z.includes("'gibtsnicht'") && /bleibt unangetastet/.test(z)), boot11b.zeilen.join(' | '));
+check('(R3-1) ... the loud line names 0 dropped entries and 1 unknown prefab; nothing else was deleted either', boot11b.zeilen.some((z) => /Layout-Abgleich ohne Löschen: 0 Einträge verworfen, 1 unbekannte Prefabs/.test(z)) && lebt11(boot11b.server) === 4 && boot11b.zeilen.some((z) => /\b0 entfernt/.test(z)), `${lebt11(boot11b.server)} of 4 alive; ${boot11b.zeilen.join(' | ')}`);
+
+const boot11c = starte('welt11', dokument(BASIS_NACHHER, [{ ...U2, x: 200.6 }]));
+const v2C = boot11c.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === v11Ids[1]);
+check('(R3-1) unknown prefab + placement moved by 0.6 m (the id key changes): the ZDO stays', v2C !== undefined && v2C.getString(LAYOUT_ID_MEMBER) === layoutKennung(U2) && lebt11(boot11c.server) === 4, `${lebt11(boot11c.server)} of 4 alive`);
+
+const boot11d = starte('welt11', dokument(BASIS_NACHHER, [U3]));
+console.log(`     log: ${boot11d.zeilen.join(' | ')}`);
+check('(R3-1) unknown prefab + duplicate: both ZDOs stay, nothing is cut down', lebt11(boot11d.server) === 4 && !boot11d.zeilen.some((z) => /überzählig/.test(z)), `${lebt11(boot11d.server)} of 4 alive; ${boot11d.zeilen.join(' | ')}`);
+
+const boot11e = starte('welt11', dokument(BASIS_NACHHER, []));
+check('(R3-1) the next CLEAN document (no placements) clears them all as usual', lebt11(boot11e.server) === 0 && boot11e.zeilen.some((z) => /\b4 entfernt/.test(z)) && !boot11e.zeilen.some((z) => /ohne Löschen/.test(z)), `${lebt11(boot11e.server)} alive; ${boot11e.zeilen.join(' | ')}`);
+
+// ── World 12: no ZDO of the id fits the prefab ──────────────────────
+console.log('\n[18] World 12: no ZDO of an id fits the prefab -> the new one is spawned and the stale ones go in the same boot');
+const boot12a = starte('welt12', dokument(BASIS_VORHER, []));
+const bb = boot12a.server;
+const CHEST = { prefab: 'piece_chest_wood', x: 600, z: 100 };
+for (const dx of [0, 0.2]) {
+  const z = bb.zdos.createZDO(bb.prefabs.getByName('woodwall')!.hash, { x: 600 + dx, y: bb.getGroundHeight(600 + dx, 100), z: 100 });
+  z.setString(LAYOUT_ID_MEMBER, layoutKennung(CHEST));
+  z.setInt('zzZustand', 7);
+}
+bb.saveWorld();
+const boot12b = starte('welt12', dokument(BASIS_VORHER, [CHEST]));
+console.log(`     log: ${boot12b.zeilen.join(' | ')}`);
+const mit12 = nachKennung(boot12b.server, layoutKennung(CHEST));
+check(
+  '(R3-3) after the boot exactly ONE ZDO carries the id, and it is the new chest',
+  mit12.length === 1 && mit12[0]!.prefabHash === boot12b.server.prefabs.getByName('piece_chest_wood')!.hash && mit12[0]!.getInt('zzZustand') === 0,
+  `${mit12.length} ZDO(s): ${mit12.map((z) => z.zdoid.toString()).join(', ')}`
+);
+check('(R3-3) ... spawned 1, removed the 2 stale ones in the same boot (counted)', boot12b.zeilen.some((z) => /\b1 gespawnt, .* 2 entfernt \(davon 2 überzählig\)/.test(z)), boot12b.zeilen.join(' | '));
+const boot12c = starte('welt12', dokument(BASIS_VORHER, [CHEST]));
+check('(R3-3) ... and a second boot of the same save has nothing left to clean', nachKennung(boot12c.server, layoutKennung(CHEST)).length === 1, `${nachKennung(boot12c.server, layoutKennung(CHEST)).length}`);
 
 rmSync(WURZEL, { recursive: true, force: true });
 if (fehler > 0) {

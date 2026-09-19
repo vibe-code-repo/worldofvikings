@@ -1201,24 +1201,28 @@ export class WovServer {
           this.spawns?.adoptSingle(zdo, entry);
         },
       },
-      layout
+      layout,
+      { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl) }
     );
     if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
     console.log(
       `[WoV] Layout-Abgleich: ${ergebnis.gespawnt} gespawnt, ${ergebnis.aktualisiert} aktualisiert, ` +
-        `${ergebnis.unveraendert} unverändert, ${ergebnis.entfernt} entfernt, ${ergebnis.unbekannt} unbekannt (Prefab übersprungen)`
+        `${ergebnis.unveraendert} unverändert, ${ergebnis.entfernt} entfernt` +
+        (ergebnis.ueberzaehlig > 0 ? ` (davon ${ergebnis.ueberzaehlig} überzählig)` : '') +
+        `, ${ergebnis.unbekannt} unbekannt (Prefab übersprungen)`
     );
+    if (ergebnis.ohneLoeschen) {
+      console.warn(
+        `[WoV] Layout-Abgleich ohne Löschen: ${ergebnis.ohneLoeschen.verworfen} Einträge verworfen, ` +
+          `${ergebnis.ohneLoeschen.unbekannt} unbekannte Prefabs – verwaiste Layout-Objekte bleiben ` +
+          `bis zum nächsten sauberen Dokument stehen`
+      );
+    }
     if (!layout.placements?.length && ergebnis.entfernt > 0) {
       console.warn(`[WoV] Layout-Abgleich: Dokument ohne Platzierungen — ${ergebnis.entfernt} verwaiste ZDO(s) entfernt`);
     }
     if (ergebnis.ueberzaehlig > 0) {
       console.warn(`[WoV] Layout-Abgleich: ${ergebnis.ueberzaehlig} überzählige Layout-ZDOs mit gleicher Kennung entfernt`);
-    }
-    if (rohAnzahl > gueltigeAnzahl) {
-      console.warn(
-        `[WoV] Layout-Abgleich: placements: ${rohAnzahl - gueltigeAnzahl} von ${rohAnzahl} Einträgen verworfen – ` +
-          `deren Layout-Objekte wurden entfernt`
-      );
     }
     for (const u of ergebnis.unbekanntePrefabs) {
       console.warn(

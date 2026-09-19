@@ -182,6 +182,12 @@ export interface LayoutAbgleichErgebnis {
   /** ZDOs mit einer Kennung, die schon ein anderes ZDO trägt: über das eine hinaus entfernt. */
   ueberzaehlig: number;
   /**
+   * Gesetzt, wenn dieser Boot NICHTS löscht (s. `layoutAbgleich`): Der
+   * Sanitizer hat Einträge des Dokuments verworfen oder ein Prefab ist
+   * unbekannt. Verwaiste und überzählige ZDOs bleiben dann stehen.
+   */
+  ohneLoeschen: { verworfen: number; unbekannt: number } | null;
+  /**
    * Platzierungen, deren Prefab die Registry nicht kennt. Ein vorhandenes ZDO
    * mit dieser Kennung bleibt unangetastet (nicht entfernt, nicht nachgeführt).
    */
@@ -195,7 +201,9 @@ export interface LayoutAbgleichErgebnis {
  * Nähe-Prüfung (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save
  * werden nicht dupliziert. Entfernt werden ZDOs, deren Eintrag der
  * Designer gelöscht hat (auch der letzte: ein Dokument ohne Platzierungen
- * räumt alle Layout-ZDOs ab).
+ * räumt alle Layout-ZDOs ab) — außer in einem Boot, dem das Dokument nicht
+ * vertraut: Hat der Sanitizer Einträge verworfen oder ist ein Prefab
+ * unbekannt, löscht der Boot nichts (s. `ohneLoeschen`).
  *
  * Ein gefundenes ZDO wird an das Dokument ANGEGLICHEN, soweit sich das
  * Dokument geändert hat (Soll-Stempel, s. Kopfkommentar): Drehung,
@@ -211,7 +219,12 @@ export interface LayoutAbgleichErgebnis {
  * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
  * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
  */
-export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayout): LayoutAbgleichErgebnis {
+export function layoutAbgleich(
+  kontext: LayoutAbgleichKontext,
+  layout: WorldLayout,
+  /** `verworfen`: Einträge, die der Sanitizer aus dem rohen Dokument gestrichen hat. */
+  optionen: { verworfen?: number } = {}
+): LayoutAbgleichErgebnis {
   const { zdos } = kontext;
   const placements = layout.placements ?? [];
   const ergebnis: LayoutAbgleichErgebnis = {
@@ -224,8 +237,22 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
     freigegeben: 0,
     ueberSpielerbau: [],
     ueberzaehlig: 0,
+    ohneLoeschen: null,
     unbekanntePrefabs: [],
   };
+  // EINE Regel gegen Massenverlust: Hat der Sanitizer in diesem Boot auch nur
+  // einen Eintrag verworfen, oder kennt die Registry das Prefab einer
+  // Platzierung nicht, dann ist das Dokument nicht verlässlich — ein Eintrag,
+  // der fehlt, ist dann vielleicht nur unlesbar und nicht gelöscht, und sein
+  // ZDO trägt Zustand (Truheninhalt, Ernte-Zähler, NPC-Leben), den das
+  // Dokument nicht zurückbringt. Dieser Boot löscht dann KEIN Layout-ZDO
+  // (weder verwaiste noch überzählige); Aktualisieren, Stempeln, Neuanlegen
+  // und das Befreien der Spielerbauten laufen normal. Das nächste saubere
+  // Dokument räumt regulär ab.
+  const unbekanntVorab = placements.filter((p) => !kontext.prefabs.getByName(p.prefab)).length;
+  const verworfen = optionen.verworfen ?? 0;
+  const loeschen = verworfen === 0 && unbekanntVorab === 0;
+  if (!loeschen) ergebnis.ohneLoeschen = { verworfen, unbekannt: unbekanntVorab };
   // Kennung je Eintrag: Prefab + gerundete Position (layoutKennung in
   // shared). Damit lassen sich beim Boot ZDOs entfernen, deren Eintrag der
   // Designer gelöscht hat (vorher blieben sie für immer stehen,
@@ -264,7 +291,7 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
       );
       if (nah) {
         zurueckgestellt.push(zdo);
-      } else {
+      } else if (loeschen) {
         zdos.destroyZDO(zdo.zdoid);
         ergebnis.entfernt++;
       }
@@ -305,12 +332,14 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
     }
     nachKennung.set(id, bleibt);
     for (const z of liste) {
-      if (z === bleibt) continue;
+      if (z === bleibt || !loeschen) continue;
       zdos.destroyZDO(z.zdoid);
+      ergebnis.entfernt++;
       ergebnis.ueberzaehlig++;
     }
   }
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
+  const neuErzeugt = new Map<string, ZDO>();
   for (const p of placements) {
     const prefab = kontext.prefabs.getByName(p.prefab);
     if (!prefab) {
@@ -362,6 +391,7 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
       if (skala !== 0) zdo.setFloat(SKALA_MEMBER, skala);
       zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
       zdo.setString(LAYOUT_SOLL_MEMBER, stempelText(fp, boden));
+      neuErzeugt.set(kennung(p), zdo);
       ergebnis.gespawnt++;
     } else if (
       gleicheAn(kontext, zdo, p, {
@@ -397,10 +427,21 @@ export function layoutAbgleich(kontext: LayoutAbgleichKontext, layout: WorldLayo
       ergebnis.aufRoute++;
     }
   }
+  // Passte kein ZDO einer Kennung zum Prefab, ist oben ein neues entstanden:
+  // Die unpassenden gehen im selben Boot, damit nach ihm genau EIN ZDO die
+  // Kennung trägt (sonst räumte erst der nächste Boot auf und zerstörte dann
+  // etwas, das dieser bewusst behalten hat).
+  for (const [id, alt] of nachKennung) {
+    const neu = neuErzeugt.get(id);
+    if (!neu || neu === alt || alt.destroyed || !loeschen) continue;
+    zdos.destroyZDO(alt.zdoid);
+    ergebnis.entfernt++;
+    ergebnis.ueberzaehlig++;
+  }
   // Zurückgestellte, die keine Platzierung übernommen hat (sie fand ein
   // anderes ZDO): jetzt wirklich verwaist.
   for (const zdo of zurueckgestellt) {
-    if (gewollt.has(zdo.getString(LAYOUT_ID_MEMBER)) || zdo.destroyed) continue;
+    if (!loeschen || gewollt.has(zdo.getString(LAYOUT_ID_MEMBER)) || zdo.destroyed) continue;
     zdos.destroyZDO(zdo.zdoid);
     ergebnis.entfernt++;
   }

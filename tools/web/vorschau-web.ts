@@ -1195,6 +1195,9 @@ export class Vorschau {
     this.radiusFahrt = null;
     this.kopfKnoten = null;
     this.kamera.radius = AUSGANG_RADIUS;
+    // Blickpunkt und Sichtfeld folgen dem Radius sonst erst im naechsten Frame.
+    this.blickpunktNachfuehren();
+    this.sichtfeldNachfuehren();
     this.videoMassstabSetzen();
     this.kopfZustandMelden();
   }

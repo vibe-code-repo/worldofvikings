@@ -5,7 +5,8 @@
  * nackten Leinwand in echtem WebGL und prueft fuer beide Koerper, was
  * tools/web/vorschau-web.ts zusagt. Kein Konto, keine Schreibzugriffe.
  *
- *   node tools/test/vorschau-kopf.mjs [--basis <url>] [--buendel <pfad>] [--bilder <ordner>]
+ *   node tools/test/vorschau-kopf.mjs [--basis <url>] [--buendel <pfad>] [--buendel-datei <datei>]
+ *                                      [--bilder <ordner>] [--nur <regex>]
  *
  * Ohne --basis liefert die Probe wov-web/static selbst aus (Arbeitsverzeichnis =
  * Wurzel des Repos). Mit --basis steht ein Server bereit, der /assets/... kennt
@@ -29,6 +30,10 @@ const argv = process.argv.slice(2);
 const arg = (name, vorgabe) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : vorgabe);
 const BUENDEL = arg('--buendel', '/assets/js/vorschau.js');
 const BILDER = arg('--bilder', '');
+/** Liefert statt des Servers diese lokale Datei als Buendel aus (z. B. das alte zum Gegenlauf). */
+const BUENDEL_DATEI = arg('--buendel-datei', '');
+/** Nur Schritte, deren Name zu diesem regulaeren Ausdruck passt (zum Nachstellen einzelner Faelle). */
+const NUR = arg('--nur', '') ? new RegExp(arg('--nur', ''), 'i') : null;
 let basis = arg('--basis', '');
 
 const wurzel = process.cwd();
@@ -59,6 +64,7 @@ function pruefe(name, ok, werte = {}) {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${aktuellerKoerper ? aktuellerKoerper + ': ' : ''}${name} ${JSON.stringify(werte)}`);
 }
 async function schritt(name, fn) {
+  if (NUR && !NUR.test(name)) return;
   try {
     await fn();
   } catch (fehler) {
@@ -73,7 +79,8 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 const seitenfehler = [];
-const page = await browser.newPage({ viewport: { width: 900, height: 940 } });
+const kontext = await browser.newContext({ viewport: { width: 900, height: 940 }, hasTouch: true });
+const page = await kontext.newPage();
 page.on('pageerror', (e) => seitenfehler.push(e.message));
 
 /*
@@ -97,6 +104,9 @@ await page.route(/\/assets\/models\/(ironward|wildwarden|ashenveil)\//, (route) 
   const url = route.request().url().replace('/assets/models/', '/assets/models/armor/');
   return route.continue({ url });
 });
+if (BUENDEL_DATEI) {
+  await page.route(`${basis}${BUENDEL}`, (route) => route.fulfill({ path: BUENDEL_DATEI, contentType: 'text/javascript' }));
+}
 await page.goto(`${basis}/leer`);
 
 // Hilfsfunktionen im Browser
@@ -159,7 +169,7 @@ await page.evaluate(() => {
       const indE = ind ? m.getVerticesData('matricesIndicesExtra') : null;
       const gewE = indE ? m.getVerticesData('matricesWeightsExtra') : null;
       const S = ind ? m.skeleton.getTransformMatrices(m) : null;
-      const n = pos.length / 3; const welt = new Float64Array(pos.length);
+      const welt = new Float64Array(pos.length);
       for (let i = 0, j = 0; i < pos.length; i += 3, j += 4) {
         let x = pos[i]; let y = pos[i + 1]; let z = pos[i + 2];
         if (S) {
@@ -197,7 +207,7 @@ await page.evaluate(() => {
       for (const [m, war] of w.__gemerkt) m.setEnabled(war);
     }
   };
-  w.zeilenBreiten = async (b64, box) => {
+  w.zeilenBreiten = async (b64) => {
     const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const bmp = await createImageBitmap(new Blob([bin], { type: 'image/png' }));
     const c = new OffscreenCanvas(bmp.width, bmp.height); const g = c.getContext('2d'); g.drawImage(bmp, 0, 0);
@@ -270,7 +280,7 @@ for (const k of KOERPER) {
   aktuellerKoerper = k.name;
   await neueVorschau(k.datei);
   const zeit = await auswerten(() => {
-    const v = window.v; const t = [];
+    const v = window.v;
     return { hatZoom: typeof v.zoomeKopf === 'function', hatNah: 'kopfNah' in v, fahrtFeld: 'radiusFahrt' in v };
   });
   pruefe('Schnittstelle: zoomeKopf und kopfNah vorhanden', zeit.hatZoom && zeit.hatNah, zeit);
@@ -356,6 +366,17 @@ for (const k of KOERPER) {
     await fahrtEnde();
     const aus = await auswerten(() => window.v.kamera.fov);
     pruefe('Ausgangsbild: Sichtfeld wieder 0,8 rad', nahe(aus, 0.8, 1e-9), { fov: aus });
+    // Sichtfeld ueber die Grenze bei 2,2 m: stetig, oberhalb exakt 0,8, darunter streng fallend
+    const folge = [];
+    for (const r of [5.5, 3.2, 2.5, 2.3, 2.21, 2.2, 2.19, 2.1, 1.9, 1.7, 1.5, 1.4]) {
+      folge.push([r, await auswerten(async (rr) => { window.v.kamera.radius = rr; await window.frames(2); return window.v.kamera.fov; }, r)]);
+    }
+    const ueber = folge.filter(([r]) => r >= 2.2).every(([, f]) => f === 0.8);
+    const sprung = Math.abs(folge.find(([r]) => r === 2.21)[1] - folge.find(([r]) => r === 2.19)[1]);
+    const fallend = folge.filter(([r]) => r <= 2.2).every(([, f], i, l) => i === 0 || f < l[i - 1][1]);
+    pruefe('Sichtfeld ueber die Grenze 2,2 m: oberhalb exakt 0,8, Sprung 2,21 -> 2,19 unter 0,005 rad, darunter streng fallend', ueber && sprung < 0.005 && fallend, { sprung: +sprung.toFixed(5), folge: folge.map(([r, f]) => `${r}:${f.toFixed(4)}`).join(' ') });
+    await auswerten(() => { window.v.kamera.radius = 3.2; });
+    await frames(3);
     // Mit dem Rad bis an die Grenze: 3,2 -> 1,4 ist genau die Portraetgrenze, nicht naeher.
     const p = await auswerten(() => window.kopfProjektion(window.v));
     await page.mouse.move(p.x, p.y);
@@ -631,6 +652,102 @@ for (const k of KOERPER) {
     await auswerten(() => { window.v.zoomeKopf?.(false); });
     await fahrtEnde();
     await auswerten(async ({ teile }) => { await Promise.all(teile.map((d, i) => window.v.setze(`klassenruestung-${i}`, null))); await window.frames(4); }, { teile });
+  });
+
+  /* --- Neuer Klick mitten in der Fahrt ------------------------------------------------ */
+  await schritt('Klick in der Fahrt', async () => {
+    const p = await auswerten(() => window.kopfProjektion(window.v));
+    await auswerten(() => { window.__zk = []; const v = window.v; const o = v.zoomeKopf.bind(v); v.zoomeKopf = (n) => { window.__zk.push([n, v.kopfNah, +v.kamera.radius.toFixed(3)]); return o(n); }; });
+    await klick(p.x, p.y);
+    await frames(1);
+    const mitten = await zustand();
+    // Der Kopf wandert waehrend der Fahrt ueber die Buehne: der zweite Klick geht auf seine jetzige Stelle.
+    const jetzt = await auswerten(() => window.kopfProjektion(window.v));
+    await klick(jetzt.x, jetzt.y);
+    await fahrtEnde();
+    const z = await zustand();
+    const aufrufe = await auswerten(() => { const a = window.__zk; delete window.v.zoomeKopf; return a; });
+    pruefe('Zweiter Klick mitten in der Fahrt kehrt um: am Ende Radius 3,2, nicht nah', mitten.fahrt && nahe(z.radius, 3.2, 0.03) && !z.nah, { mitten: +mitten.radius.toFixed(3), ende: +z.radius.toFixed(3), nah: z.nah, aufrufe });
+  });
+
+  /* --- Touch: Tippen, Ziehen, zweiter Finger, Fingerzugabe ------------------------------- */
+  await schritt('Touch', async () => {
+    const kopf = () => auswerten(() => { const b = window.leinwandBox(); const q = window.v.kopfAufBildschirm(); return { x: b.x + q.x, y: b.y + q.y, r: q.r }; });
+    const cdp = await kontext.newCDPSession(page);
+    const beruehre = async (typ, punkte) => cdp.send('Input.dispatchTouchEvent', { type: typ, touchPoints: punkte.map(([x, y], id) => ({ x, y, id })) });
+    let q = await kopf();
+    await page.touchscreen.tap(q.x, q.y);
+    await fahrtEnde();
+    let z = await zustand();
+    pruefe('Touch: Tippen auf den Kopf faehrt ins Portraet', nahe(z.radius, PORTRAET, 0.014) && z.nah, { radius: z.radius });
+    q = await kopf();
+    await page.touchscreen.tap(q.x, q.y);
+    await fahrtEnde();
+    z = await zustand();
+    pruefe('Touch: zweites Tippen auf den Kopf faehrt zurueck', nahe(z.radius, 3.2, 0.03) && !z.nah, { radius: z.radius });
+    // Ziehen mit dem Finger ab Kopf: dreht, zoomt nie
+    q = await kopf();
+    const r0 = (await zustand()).rotation;
+    await beruehre('touchStart', [[q.x, q.y]]);
+    for (let i = 1; i <= 10; i++) await beruehre('touchMove', [[q.x + i * 4, q.y]]);
+    await beruehre('touchEnd', []);
+    await frames(5);
+    z = await zustand();
+    pruefe('Touch: Ziehen (40 px) ab Kopf dreht die Figur, kein Zoom', nahe(z.rotation - r0, 0.4, 0.02) && nahe(z.radius, 3.2, 1e-6) && !z.fahrt, { drehung: +(z.rotation - r0).toFixed(3), radius: z.radius });
+    await auswerten(() => { window.v.figurKnoten.rotation.y = 0; });
+    // Zwei Finger (Kneifen), beide heben ohne Weg ab: kein Zoom
+    q = await kopf();
+    await beruehre('touchStart', [[q.x, q.y], [q.x + 120, q.y + 40]]);
+    await beruehre('touchEnd', []);
+    await frames(5);
+    z = await zustand();
+    pruefe('Touch: zwei Finger gleichzeitig zoomen nicht', nahe(z.radius, 3.2, 1e-6) && !z.fahrt, { radius: z.radius });
+    // Fingerzugabe: knapp ausserhalb des Kopfkreises trifft der Finger (14 px), die Maus nicht (4 px)
+    q = await kopf();
+    await page.touchscreen.tap(q.x + q.r + 10, q.y);
+    await fahrtEnde();
+    const treffer = await zustand();
+    await auswerten(() => { window.v.zoomeKopf(false); });
+    await fahrtEnde();
+    await page.touchscreen.tap(q.x + q.r + 40, q.y);
+    await frames(6);
+    const daneben = await zustand();
+    pruefe('Touch: Tippen 10 px ausserhalb des Kopfkreises trifft (Zugabe 14 px), 40 px daneben nicht', treffer.nah && nahe(treffer.radius, PORTRAET, 0.014) && !daneben.nah && nahe(daneben.radius, 3.2, 1e-6), { treffer: +treffer.radius.toFixed(3), daneben: +daneben.radius.toFixed(3) });
+    await cdp.detach();
+  });
+
+  /* --- Reduzierte Bewegung ---------------------------------------------------------------- */
+  await schritt('Reduzierte Bewegung', async () => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await auswerten(() => { window.v.zoomeKopf(true); });
+    const sofort = await zustand();
+    pruefe('prefers-reduced-motion: Kopf-Zoom ohne Animation (Radius sofort 1,4, keine Fahrt)', nahe(sofort.radius, PORTRAET, 1e-9) && !sofort.fahrt && sofort.nah, sofort);
+    await auswerten(() => { window.v.zoomeKopf(false); });
+    const zurueck = await zustand();
+    pruefe('prefers-reduced-motion: zurueck ebenfalls sofort', nahe(zurueck.radius, 3.2, 1e-9) && !zurueck.fahrt && !zurueck.nah, zurueck);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+  });
+
+  /* --- Koerper- und Serverwechsel setzen das Portraet zurueck ------------------------------- */
+  await schritt('Wechsel', async () => {
+    const anderer = k.figur === 'wikinger' ? 'wikingerin/WikingerinKoerper' : 'wikinger/WikingerKoerper';
+    await auswerten(() => { window.__rufe = []; window.v.beiKopfZustand = (z) => window.__rufe.push(z); window.v.zoomeKopf(true); });
+    await fahrtEnde();
+    await auswerten(async (d) => { await window.v.ladeKoerper(d); await window.frames(5); }, anderer);
+    let z = await zustand();
+    let rufe = await auswerten(() => window.__rufe);
+    pruefe('Koerperwechsel im Portraet: zurueck im Ausgangsbild, Rueckruf meldet nah=false', nahe(z.radius, 3.2, 1e-9) && !z.nah && !z.fahrt && rufe.at(-1)?.nah === false, { radius: z.radius, letzterRuf: rufe.at(-1) });
+    await auswerten(async (d) => { await window.v.ladeKoerper(d); await window.frames(30); window.v.zoomeKopf(true); }, k.datei);
+    await fahrtEnde();
+    await auswerten(async () => { await window.v.setzeWurzel(`${location.origin}/assets/models/./`); await window.frames(3); });
+    z = await zustand();
+    pruefe('Serverwechsel (setzeWurzel) im Portraet: zurueck im Ausgangsbild, Fahrt aus', nahe(z.radius, 3.2, 1e-9) && !z.nah && !z.fahrt, { radius: z.radius });
+    const marke = await auswerten(() => document.querySelector('#b').style.getPropertyValue('--kopf-r'));
+    pruefe('Serverwechsel: Markierung ohne Figur (--kopf-r = 0px)', marke === '0.0px', { marke });
+    // Koerper wieder laden fuer die folgenden Schritte
+    await auswerten(async (d) => { await window.v.ladeKoerper(d); await window.frames(30); }, k.datei);
+    const haar2 = `${app.folder}/${k.figur === 'wikinger' && app.defaultHairstyle === 'H_01' ? 'H_02' : app.defaultHairstyle}`;
+    await auswerten(async (h) => { await window.v.setze('frisur', h); await window.frames(4); }, haar2);
   });
 
   /* --- dispose waehrend der Fahrt ------------------------------------------------------ */

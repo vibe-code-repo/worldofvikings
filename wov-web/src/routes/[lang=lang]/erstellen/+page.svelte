@@ -990,13 +990,19 @@
         >{ruestungAn
             ? (lang === 'de' ? 'Rüstung ablegen' : 'Remove armour')
             : (lang === 'de' ? 'Rüstung anzeigen' : 'Show armour')}</button>
-        {#if ruestungAn && hatHelm}
+        {#if hatHelm}
+          <!--
+            Sichtbar nur bei angelegter Rüstung. Ohne sie bleibt der Platz
+            stehen (visibility statt {#if}): Sonst wüchse die Bühne beim
+            Anlegen der Rüstung um eine Knopfhöhe, und die Figur spränge.
+          -->
           <button
             type="button"
             class="helm-schalter"
+            class:verborgen={!ruestungAn}
             class:aktiv={helmAus}
             aria-pressed={helmAus}
-            disabled={!fertig}
+            disabled={!fertig || !ruestungAn}
             data-testid="helm-schalter"
             onclick={() => { void schalteHelm(); }}
           >{helmAus ? t['create.helmet.show'] : t['create.helmet.hide']}</button>
@@ -1297,6 +1303,7 @@
   .ruestungs-vorschau button:hover, .ruestungs-vorschau button.aktiv { border-color: var(--runengold); box-shadow: 0 0 12px color-mix(in srgb, var(--klasse), transparent 62%); }
   .ruestungs-vorschau button:disabled { cursor: not-allowed; opacity: 0.52; }
   .ruestungs-vorschau button.helm-schalter { padding: 6px 12px; font-size: 9px; }
+  .ruestungs-vorschau button.helm-schalter.verborgen { visibility: hidden; }
   .ruestungs-vorschau small, .ruestungs-vorschau p { margin: 0; color: #8f8777; font-size: 9px; letter-spacing: 0.04em; line-height: 1.45; }
   .klasseninfo h3 { margin: 0 0 9px; font-size: 13px; letter-spacing: 0.08em; }
   .werte-block { padding-bottom: 16px; border-bottom: 1px solid rgba(194, 150, 42, 0.18); }

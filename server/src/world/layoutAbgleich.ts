@@ -42,6 +42,7 @@ import {
   layoutKennung,
   maxLeben,
   platzierungenNormalisieren,
+  platzierungsIdBasis,
   yawQuaternion,
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
@@ -125,6 +126,24 @@ export function istSpielerbau(zdo: ZDO): boolean {
  */
 function laeuftRoute(layout: WorldLayout, p: PlacementDef): boolean {
   return p.route !== undefined && (layout.routes ?? []).some((r) => r.id === p.route);
+}
+
+/** Die ALTE Kennung (Prefab + gerundete Position, vor E1) enthält ein `@` und kann nie eine `id` sein. */
+const istAlteKennung = (layoutId: string): boolean => layoutId.includes('@');
+
+/**
+ * Trägt diese Platzierung die aus Prefab und Meter ABGELEITETE id (`platzierungsIdBasis`, bei Kollision `-2`,
+ * `-3` …)? Dann hat sie keinen eigenen Namen: Ein Eintrag ohne ausdrückliche id (von Hand oder per MCP
+ * geschrieben) bekommt genau diese id vom Sanitizer, und sie ändert sich, wenn er über die Rundungskante eines
+ * Meters wandert. Nur für so einen Eintrag ist ein ZDO mit id-förmiger, im Dokument fehlender Kennung
+ * „dasselbe Objekt, dessen abgeleitete id sich geändert hat“. Eine ausdrückliche id (der Editor hängt seit K1.3
+ * einen Zufallsschwanz mit Buchstaben an) übernimmt nie das ZDO eines anderen Namens: „gelöscht und gleichartig
+ * neu gesetzt“ ist ein NEUES Objekt, das alte samt Zustand (Truheninhalt) verschwindet.
+ */
+export function traegtAbgeleiteteId(p: PlacementDef): boolean {
+  const basis = platzierungsIdBasis(p);
+  const id = p.id ?? '';
+  return id === basis || (id.startsWith(`${basis}-`) && /^\d+$/.test(id.slice(basis.length + 1)));
 }
 
 /** Skalierung, wie sie im ZDO stehen soll: 0 = kein Member (Prefab-Vorgabe). */
@@ -386,10 +405,13 @@ export function layoutAbgleich(
   // Kennung sich geändert hat (Spielstand von vor E1, Dokument von Hand
   // umgebaut). Es wird nicht zerstört, sondern von der Nähesuche unten
   // übernommen — mit seiner ZDO-Id und allem, was daran hängt.
-  const ziele = placements.flatMap((p) => {
+  // Nur Platzierungen mit abgeleiteter id dürfen ein ZDO mit id-förmiger, fehlender Kennung übernehmen
+  // (s. `traegtAbgeleiteteId`); die alte Kennung (`@`) übernimmt jede Platzierung wie bisher.
+  const zielVon = (p: PlacementDef): { hash: number; x: number; z: number; abgeleitet: boolean }[] => {
     const prefab = bekannt(p);
-    return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z }] : [];
-  });
+    return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z, abgeleitet: traegtAbgeleiteteId(p) }] : [];
+  };
+  const ziele = placements.flatMap(zielVon);
   const gruppen = new Map<string, ZDO[]>(); // ZDOs je `id`
   const alteGruppen = new Map<string, ZDO[]>(); // ZDOs je alter Kennung
   const zurueckgestellt: ZDO[] = [];
@@ -407,8 +429,10 @@ export function layoutAbgleich(
       else index.set(layoutId, [zdo]);
       continue;
     }
+    const nurAlte = !istAlteKennung(layoutId); // id-förmig: nur eine Platzierung mit abgeleiteter id darf es übernehmen
     const nah = ziele.some(
       (t) =>
+        (t.abgeleitet || !nurAlte) &&
         t.hash === zdo.prefabHash &&
         Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < TOLERANZ.naehe
     );
@@ -471,6 +495,14 @@ export function layoutAbgleich(
     }
   }
 
+  // Ein ZDO ohne Kennung oder mit alter Kennung darf jede Platzierung übernehmen; eines mit id-förmiger
+  // Kennung (die im Dokument nicht vorkommt: ein Objekt, das der Designer gelöscht hat) nur eine
+  // Platzierung mit abgeleiteter id. Sonst stirbt es nach den gewohnten Regeln als verwaist.
+  const darfUebernehmen = (z: ZDO, p: PlacementDef): boolean => {
+    const kennung = z.getString(LAYOUT_ID_MEMBER);
+    return !kennung || istAlteKennung(kennung) || traegtAbgeleiteteId(p);
+  };
+
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
   const neuErzeugt = new Set<string>();
   for (const p of placements) {
@@ -492,6 +524,7 @@ export function layoutAbgleich(
             z.prefabHash === prefab.hash &&
             !istSpielerbau(z) &&
             !beansprucht.has(z) &&
+            darfUebernehmen(z, p) &&
             Math.hypot(z.position.x - p.x, z.position.z - p.z) < TOLERANZ.naehe
         );
       if (zdo) {

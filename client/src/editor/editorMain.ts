@@ -108,6 +108,7 @@ import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHu
 // Werkzeug-Registry: Fluss, See und Objekt platzieren leben in `werkzeuge/`, hier nur der Zugriff.
 import { WERKZEUGE, platzierenWerkzeug, werkzeugMitId } from './werkzeuge';
 import { platzierungZuBefund } from './werkzeuge/platzieren';
+import { erzeugeWerkzeugKontext } from './werkzeuge/kontext';
 import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
 // Das Gestaltungssystem des Editors. Literale Farbwerte in dieser Datei
 // waren bis hierher der Normalfall ('#1d2431', '#3a3325', '#e8d48a' …) —
@@ -527,27 +528,27 @@ const GRIFF_PX = 7;
  * Lesezugriffe zur Laufzeit: Das Objekt darf hier oben stehen, obwohl
  * `zuBild` und `massstab` weiter unten entstehen.
  */
-const werkzeugKontext: WerkzeugKontext = {
+const werkzeugKontext: WerkzeugKontext = erzeugeWerkzeugKontext({
   layout: () => layout,
-  aendere: (neu) => {
-    merkeSchritt();
+  // Nur die Zuweisung; den Rückgängig-Schritt davor und das Speichern danach legt
+  // `erzeugeWerkzeugKontext` (werkzeuge/kontext.ts) fest, dort getestet.
+  setzeLayout: (neu) => {
     layout = neu;
   },
-  bestaetige: (frage) => window.confirm(frage),
+  merkeSchritt: () => merkeSchritt(),
   werkzeugId: () => werkzeug,
   zurAuswahl: () => {
     werkzeug = 'auswahl';
   },
-  uebernommen: () => {
-    alles();
-    vorschauAnstossen();
-  },
-  seiteNeuBauen: () => seiteBauen(),
-  neuZeichnen: () => zeichneOverlay(),
+  alles: () => void alles(),
+  vorschauAnstossen: () => vorschauAnstossen(),
+  seiteBauen: () => seiteBauen(),
+  zeichneOverlay: () => zeichneOverlay(),
   meldung: (text, fehler) => shell.meldung(text, fehler),
   zuBild: (wx, wz) => zuBild(wx, wz),
   massstab: () => massstab,
-};
+  bestaetige: (frage) => window.confirm(frage),
+});
 
 function ladeEntwurf(): WorldLayout {
   return entwurfsSpeicher.lesen() ?? leeresLayout();
@@ -1466,7 +1467,7 @@ overlay.addEventListener('pointerdown', (e) => {
 
   // Registrierte Werkzeuge zuerst; was sie nicht beanspruchen, fällt auf die
   // alten Zweige und zuletzt auf die Auswahl.
-  const ereignis = { weltX: wx, weltZ: wz, shiftKey: e.shiftKey };
+  const ereignis = { weltX: wx, weltZ: wz, shiftKey: e.shiftKey, zeigerId: e.pointerId };
   const registriert = werkzeugMitId(werkzeug);
   if (registriert?.beiZeigerRunter(werkzeugKontext, ereignis)) {
     // Ein Werkzeug mit Zieh-Haken bekommt das Loslassen auch dann, wenn der
@@ -1540,7 +1541,7 @@ overlay.addEventListener('pointerdown', (e) => {
 });
 overlay.addEventListener('pointermove', (e) => {
   const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
-  werkzeugMitId(werkzeug)?.beiZeigerBewegt?.(werkzeugKontext, { weltX: wx, weltZ: wz, shiftKey: e.shiftKey });
+  werkzeugMitId(werkzeug)?.beiZeigerBewegt?.(werkzeugKontext, { weltX: wx, weltZ: wz, shiftKey: e.shiftKey, zeigerId: e.pointerId });
   if (griff) {
     const region = layout.regions.find((r) => r.id === griff!.regionId);
     if (region) {
@@ -1596,17 +1597,35 @@ overlay.addEventListener('pointerup', (e) => {
     alles();
     vorschauAnstossen();
   }
+  const registriert = werkzeugMitId(werkzeug);
+  if (!registriert) return;
+  // Losgelassen außerhalb der Karte (über der Seitenleiste, außerhalb des Fensters): Der Zug endet ohne
+  // Wirkung. Dank Pointer-Capture kommt das Loslassen hier an, die Koordinaten liegen dann außerhalb.
+  const r = overlay.getBoundingClientRect();
+  const drin = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  if (!drin) {
+    registriert.beiZeigerAbbruch?.(werkzeugKontext);
+    return;
+  }
   const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
-  werkzeugMitId(werkzeug)?.beiZeigerHoch?.(werkzeugKontext, { weltX: wx, weltZ: wz, shiftKey: e.shiftKey });
+  registriert.beiZeigerHoch?.(werkzeugKontext, { weltX: wx, weltZ: wz, shiftKey: e.shiftKey, zeigerId: e.pointerId });
 });
+// Der Browser bricht die Geste ab (Touch/Stift unterbrochen) oder das Capture geht verloren: Zug ohne
+// Wirkung beenden. Nach einem normalen Loslassen ist der Zug schon weg, dann tut das nichts.
+const zeigerAbbruch = (): void => werkzeugMitId(werkzeug)?.beiZeigerAbbruch?.(werkzeugKontext);
+overlay.addEventListener('pointercancel', zeigerAbbruch);
+overlay.addEventListener('lostpointercapture', zeigerAbbruch);
 overlay.addEventListener('dblclick', () => {
   polygonSchliessen();
   werkzeugMitId(werkzeug)?.beiDoppelklick?.(werkzeugKontext);
 });
-// Entf löscht im Objekt-Werkzeug die Auswahl. Nicht, solange ein Eingabefeld den
-// Fokus hat (dort löscht Entf Text), nicht mit Umschalttasten, nicht unter dem Katalog.
+// Tasten, die ein Werkzeug außer Escape bekommt: Entf und Rücktaste löschen im Objekt-Werkzeug die
+// Auswahl, P und V schalten dort zwischen Setzen und Anwählen. Nie, solange ein Eingabefeld den Fokus
+// hat (dort löschen Entf und Rücktaste Text, P und V sind Buchstaben), nicht mit Umschalttasten, nicht
+// unter dem Katalog. Was ein Werkzeug mit den Tasten tut, entscheidet es selbst.
+const WERKZEUG_TASTEN_CODES: ReadonlySet<string> = new Set(['Delete', 'Backspace', 'KeyP', 'KeyV']);
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Delete' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (!WERKZEUG_TASTEN_CODES.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   const ziel = e.target;
   if (ziel instanceof HTMLElement && (ziel.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ziel.tagName))) return;
   if (katalogIstOffen()) return;
@@ -3934,7 +3953,7 @@ function pruefberichtBauen(): void {
   const punktFarbe = (schwere: 'fehler' | 'hinweis'): string =>
     schwere === 'fehler' ? F.fehler : F.warnText;
   for (const b of befunde) {
-    const platzierung = platzierungZuBefund(layout, b);
+    const platzierung = platzierungZuBefund(layout, b); // nur über `b.ref`, nie aus dem Text
     const anklickbar = regionIds.has(b.wo) || platzierung !== null;
     const zeile = el(
       'div',

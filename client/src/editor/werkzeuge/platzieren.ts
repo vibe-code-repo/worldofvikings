@@ -4,16 +4,24 @@
  * appended an id-less entry with a random turn and nothing could be touched
  * afterwards.
  *
- *  - Click on free ground sets the chosen prefab. The entry gets its id from
- *    `neuePlatzierungsId` AT ONCE and keeps it: a derived id is not an
- *    address (a new id-less entry could take the id of an equal object at the
- *    same place, and the game server's object would move with it).
- *  - Click on an existing object selects it (nearest one within `TREFFER_PX`
- *    screen pixels, converted to metres with the map scale). Shift+click sets
- *    a new object even on top of an existing one (series, stacking).
- *  - Pressing on an object and moving the pointer drags it. The drag is shown
- *    as a ghost and committed on release as ONE change: one undo step, one
- *    operation (a PATCH later on), not thirty.
+ * TWO MODES, switched by two buttons in the sidebar and the keys P and V:
+ *  - SETZEN (default, as before K1.3): every click sets the chosen prefab, however
+ *    close it is to an existing object. A pixel tolerance cannot tell "set" from
+ *    "select" on this map (at 4 to 200 m per pixel the objects stand 11.6 m apart
+ *    in the median, and a dot is 3 pixels), so the click never decides by itself.
+ *    The new object is shown selected (fields, delete); the mode stays. Shift has
+ *    no meaning here (every click sets), so it does nothing.
+ *  - ANWAEHLEN: a click selects the nearest object within `TREFFER_PX` screen
+ *    pixels (converted to metres with the map scale), and on nothing does
+ *    nothing. Only here does pressing on an object and moving the pointer drag it.
+ *    The drag is shown as a ghost and committed on release as ONE change: one undo
+ *    step, one operation (a PATCH later on), not thirty. A pointer that is
+ *    cancelled, or released outside the map, drops the drag without an effect.
+ *  - A new entry gets its id at once and keeps it: the derived id (prefab and
+ *    metre) plus a short random tail, so it is never one that was just deleted --
+ *    the game server would take a "deleted and set again" object for the same one
+ *    and keep its state (chest contents). Unique against the document and against
+ *    the ids this tool deleted in this session.
  *  - The sidebar shows id, prefab, x/z, turn and scale of the selection as
  *    fields; Delete removes it. Turning a selected object into another prefab
  *    asks first: the game server REPLACES the object, its state is lost.
@@ -27,9 +35,8 @@
  * The selection is only an id. It is looked up in the current document each
  * time, so an undo that takes the object away simply leaves nothing selected.
  */
-import { FOLIAGE, LAYOUT_MAX_EXTENT, type PlacementDef, type WorldLayout } from '@wov/shared';
+import { FOLIAGE, LAYOUT_MAX_EXTENT, platzierungsIdBasis, type PlacementDef, type WorldLayout } from '@wov/shared';
 import { opAendern, opEntfernen, opSetzen, wende, type Op, type OpEntry, type Vorgang, type WendeErgebnis } from '@wov/shared/src/worldlayout/ops.js';
-import { neuePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { F, PFAD, el, feld, stil } from '../design';
 import type { KartenWerkzeug, WerkzeugKontext } from './typ';
 
@@ -45,8 +52,8 @@ export const VORGABE_PREFAB = 'Beech1';
 const PREFAB_MAX = 64;
 
 const TIPP =
-  'Klick setzt das gewählte Prefab, Klick auf ein Objekt wählt es, Ziehen verschiebt es, Entf löscht es. ' +
-  'Shift setzt auch auf ein bestehendes Objekt. Die Höhe folgt dem Boden.';
+  'Setzen (P): jeder Klick setzt das gewählte Prefab. Anwählen (V): Klick wählt das nächste Objekt, Ziehen verschiebt es. ' +
+  'Entf oder Rücktaste löscht die Auswahl. Die Höhe folgt dem Boden.';
 
 /** A placement that is addressable: it has its id. */
 type Adressiert = PlacementDef & { id: string };
@@ -73,28 +80,42 @@ export function trefferSuchen(
   return bester;
 }
 
-const ZAHL = String.raw`-?\d+(?:\.\d+)?`;
+/**
+ * The placement a finding of the check is about, or `null`: read from the structured `ref` the check gives
+ * (`pruefeLayout`), never from the text. A finding without a `ref` (counts, regions, the world) names no single
+ * object, is not clickable, and a `ref` to an object that is not in the document gives `null` as well.
+ */
+export function platzierungZuBefund(
+  layout: WorldLayout,
+  befund: { ref?: { sammlung: string; id: string } }
+): string | null {
+  const ref = befund.ref;
+  if (ref?.sammlung !== 'placements' || typeof ref.id !== 'string') return null;
+  return (layout.placements ?? []).some((p) => p.id === ref.id) ? ref.id : null;
+}
+
+/** Length of the random tail of a new id: a letter and three base-36 characters (26 * 36^3 = 1.2 million). */
+const SCHWANZ = 4;
 
 /**
- * The placement a finding of the check (`pruefeLayout`, `wo: 'placements'`)
- * is about, or `null`. A finding carries no structured address, only text: a
- * prefab with its position (`Beech1 @(10, 20)`), or, for id findings, the id
- * itself (`... : beech1_10_20`). Prefab and position must match exactly; an
- * id must be the whole word. Findings that count objects ("kein eigenes
- * Modell: X (12 Platzierungen)") name none and give `null`.
+ * A fresh id for a new placement: the derived id (`platzierungsIdBasis`: prefab and metre) plus `-` and a random
+ * tail, unique against `belegt` (the ids of the document, and of what was deleted). The tail starts with a LETTER,
+ * so it can never be taken for the counter (`-2`, `-3`) of a derived id: the game server keeps a "derived-form"
+ * id apart from an explicit one (server/src/world/layoutAbgleich.ts, `traegtAbgeleiteteId`). If the tail is taken
+ * (a fixed random source in a test, or luck) a counter follows it. Fits `ID_RE` and 64 characters: too long a
+ * prefab part is cut.
  */
-export function platzierungZuBefund(layout: WorldLayout, befund: { wo: string; text: string }): string | null {
-  if (befund.wo !== 'placements') return null;
-  const liste = (layout.placements ?? []).filter((p): p is Adressiert => typeof p.id === 'string');
-  for (const m of befund.text.matchAll(new RegExp(String.raw`(\S+) @\((${ZAHL}), (${ZAHL})\)`, 'g'))) {
-    // `\S+` also swallows an opening bracket in front of the prefab: "(Beech1 @(300, 400))".
-    const treffer = liste.find((p) => (p.prefab === m[1] || `(${p.prefab}` === m[1]) && p.x === Number(m[2]) && p.z === Number(m[3]));
-    if (treffer) return treffer.id;
+export function frischeId(belegt: ReadonlySet<string>, p: { prefab: string; x: number; z: number }, zufall: () => number): string {
+  let basis = platzierungsIdBasis(p);
+  if (basis.length > 64 - 1 - SCHWANZ - 5) basis = platzierungsIdBasis({ ...p, prefab: p.prefab.slice(0, 16) });
+  const zahl = Math.min(26 * 36 ** (SCHWANZ - 1) - 1, Math.floor(zufall() * 26 * 36 ** (SCHWANZ - 1)));
+  const schwanz =
+    String.fromCharCode(97 + Math.floor(zahl / 36 ** (SCHWANZ - 1))) +
+    (zahl % 36 ** (SCHWANZ - 1)).toString(36).padStart(SCHWANZ - 1, '0');
+  for (let n = 1; ; n++) {
+    const id = n === 1 ? `${basis}-${schwanz}` : `${basis}-${schwanz}-${n}`;
+    if (!belegt.has(id)) return id;
   }
-  const nachDoppelpunkt = befund.text.slice(befund.text.lastIndexOf(': ') + 2);
-  const ids = new Set(liste.map((p) => p.id));
-  for (const wort of nachDoppelpunkt.split(/\s+/)) if (ids.has(wort)) return wort;
-  return null;
 }
 
 const ausserhalb = (...werte: (number | undefined)[]): boolean => werte.some((n) => n !== undefined && !(Math.abs(n) <= LAYOUT_MAX_EXTENT));
@@ -106,6 +127,10 @@ function grund(r: Extract<WendeErgebnis, { ok: false }>): string {
 }
 
 /** `von` moved by `delta` metres: the travel counts in whole metres, the fraction of `von` stays (a horizontal drag must not nudge z). */
+/** A move or release of another pointer than the one that pressed (both known): not ours. */
+const fremderZeiger = (unserer: number | undefined, dieser: number | undefined): boolean =>
+  unserer !== undefined && dieser !== undefined && unserer !== dieser;
+
 const versetzt = (von: number, delta: number): number => Math.round((von + Math.round(delta)) * 1000) / 1000;
 
 const grad = (rad: number): number => Math.round(((rad * 180) / Math.PI) * 100) / 100;
@@ -131,6 +156,10 @@ export interface PlatzierenWerkzeug extends KartenWerkzeug<'platzieren'> {
   auswahlId(): string | null;
   /** Select an object by id (`null` = deselect). */
   waehle(id: string | null): void;
+  /** The mode: SETZEN (default) or ANWAEHLEN. */
+  modus(): Modus;
+  /** Switch the mode (drops a half-done drag). */
+  setzeModus(modus: Modus): void;
 }
 
 export interface PlatzierenOptionen {
@@ -150,6 +179,9 @@ const merkeImBrowser = (name: string): void => {
 
 let vorgangZaehler = 0;
 
+/** SETZEN: every click sets an object. ANWAEHLEN: a click selects, a drag moves. */
+export type Modus = 'setzen' | 'anwaehlen';
+
 /** A fresh placing tool with its own state (prefab, turn, selection, drag). */
 export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkzeug {
   const zufallszahl = opt.zufall ?? Math.random;
@@ -158,10 +190,22 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
   let prefab = VORGABE_PREFAB;
   let zufaelligeDrehung = true;
   let drehungGrad = 0;
+  let modus: Modus = 'setzen';
   let gewaehlt: string | null = null;
-  /** A pressed pointer on an object: `bewegt` once it has travelled `ZUG_PX`. */
-  let zug: { id: string; vonX: number; vonZ: number; griffX: number; griffZ: number; nachX: number; nachZ: number; bewegt: boolean } | null =
-    null;
+  /** Ids this tool deleted in this session: never given out again. */
+  const geloescht = new Set<string>();
+  /** A pressed pointer on an object (mode ANWAEHLEN): `bewegt` once it has travelled `ZUG_PX`. */
+  let zug: {
+    id: string;
+    zeiger: number | undefined;
+    vonX: number;
+    vonZ: number;
+    griffX: number;
+    griffZ: number;
+    nachX: number;
+    nachZ: number;
+    bewegt: boolean;
+  } | null = null;
 
   const auswahlVon = (layout: WorldLayout): Adressiert | undefined =>
     gewaehlt === null ? undefined : (layout.placements ?? []).find((p): p is Adressiert => p.id === gewaehlt);
@@ -205,9 +249,19 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
     const p = auswahlVon(ctx.layout());
     if (!p) return;
     if (!fuehreAus(ctx, 'entfernen', opEntfernen(ctx.layout(), 'placements', p.id))) return;
+    geloescht.add(p.id);
     gewaehlt = null;
     ctx.uebernommen();
     ctx.meldung(`${p.id} entfernt — Strg+Z holt es zurück`);
+  }
+
+  function waehleModus(ctx: WerkzeugKontext, neu: Modus): void {
+    if (modus === neu) return;
+    modus = neu;
+    zug = null;
+    ctx.seiteNeuBauen();
+    ctx.neuZeichnen();
+    ctx.meldung(neu === 'setzen' ? 'Setzen: jeder Klick setzt ein Objekt' : 'Anwählen: Klick wählt ein Objekt, Ziehen verschiebt es');
   }
 
   function setzePrefab(name: string): void {
@@ -223,13 +277,14 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
     kachelBreit: true,
     kachelTipp: TIPP,
     tasten: [
+      ['P', 'Setzen'],
+      ['V', 'Anwählen'],
       ['Klick', 'setzen / wählen'],
-      ['Ziehen', 'verschieben'],
+      ['Ziehen', 'verschieben (V)'],
       ['Entf', 'löschen'],
-      ['Shift', 'auf Objekt setzen'],
     ],
-    kachelZusatz: () => prefab,
-    hudZusatz: () => prefab,
+    kachelZusatz: () => (modus === 'setzen' ? prefab : 'Anwählen'),
+    hudZusatz: () => (modus === 'setzen' ? prefab : 'Anwählen'),
 
     prefab: () => prefab,
     setzePrefab,
@@ -238,18 +293,32 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
       gewaehlt = id;
       zug = null;
     },
+    modus: () => modus,
+    setzeModus(neu) {
+      modus = neu;
+      zug = null;
+    },
 
     beiZeigerRunter(ctx, e) {
       const layout = ctx.layout();
-      if (!e.shiftKey) {
+      if (modus === 'anwaehlen') {
         const treffer = trefferSuchen(layout.placements ?? [], e.weltX, e.weltZ, TREFFER_PX * ctx.massstab());
-        if (treffer) {
-          gewaehlt = treffer.id;
-          zug = { id: treffer.id, vonX: treffer.x, vonZ: treffer.z, griffX: e.weltX, griffZ: e.weltZ, nachX: treffer.x, nachZ: treffer.z, bewegt: false };
-          ctx.seiteNeuBauen();
-          ctx.neuZeichnen();
-          return true;
-        }
+        if (!treffer) return true; // nothing under the pointer: nothing happens (Escape deselects)
+        gewaehlt = treffer.id;
+        zug = {
+          id: treffer.id,
+          zeiger: e.zeigerId,
+          vonX: treffer.x,
+          vonZ: treffer.z,
+          griffX: e.weltX,
+          griffZ: e.weltZ,
+          nachX: treffer.x,
+          nachZ: treffer.z,
+          bewegt: false,
+        };
+        ctx.seiteNeuBauen();
+        ctx.neuZeichnen();
+        return true;
       }
       const x = Math.round(e.weltX);
       const z = Math.round(e.weltZ);
@@ -257,7 +326,9 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
         ctx.meldung(`${AUSSERHALB} — nichts gesetzt`, true);
         return true;
       }
-      const id = neuePlatzierungsId(layout, { prefab, x, z });
+      const belegt = new Set<string>(geloescht);
+      for (const q of layout.placements ?? []) if (typeof q.id === 'string') belegt.add(q.id);
+      const id = frischeId(belegt, { prefab, x, z }, zufallszahl);
       // The turn goes into the document rounded to 0.001 rad (0.06 degrees): 17 digits of a random number are noise.
       const yaw = zufaelligeDrehung ? Math.round(zufallszahl() * Math.PI * 2 * 1000) / 1000 : (drehungGrad * Math.PI) / 180;
       zug = null;
@@ -269,7 +340,7 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
     },
 
     beiZeigerBewegt(ctx, e) {
-      if (!zug) return;
+      if (!zug || fremderZeiger(zug.zeiger, e.zeigerId)) return;
       if (!zug.bewegt && Math.hypot(e.weltX - zug.griffX, e.weltZ - zug.griffZ) < ZUG_PX * ctx.massstab()) return;
       zug.bewegt = true;
       zug.nachX = versetzt(zug.vonX, e.weltX - zug.griffX);
@@ -279,8 +350,8 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
 
     beiZeigerHoch(ctx, e) {
       const z = zug;
+      if (!z || fremderZeiger(z.zeiger, e.zeigerId)) return; // a release nobody pressed for: nothing
       zug = null;
-      if (!z) return;
       if (!z.bewegt) {
         ctx.neuZeichnen(); // a plain click: selected, nothing moved
         return;
@@ -295,6 +366,13 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
       ctx.neuZeichnen();
     },
 
+    beiZeigerAbbruch(ctx) {
+      // The gesture ends without an effect: cancelled pointer, release outside the map, lost capture.
+      if (!zug) return;
+      zug = null;
+      ctx.neuZeichnen();
+    },
+
     beiTaste(ctx, e) {
       if (e.code === 'Escape') {
         if (zug) {
@@ -306,7 +384,8 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
         ctx.neuZeichnen();
         return false; // Escape does not end this tool (it never did)
       }
-      if (e.code === 'Delete') loesche(ctx);
+      if (e.code === 'Delete' || e.code === 'Backspace') loesche(ctx);
+      else if (e.code === 'KeyP' || e.code === 'KeyV') waehleModus(ctx, e.code === 'KeyP' ? 'setzen' : 'anwaehlen');
       return false;
     },
 
@@ -345,6 +424,12 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
 
     seitenleiste(ctx, host) {
       const block = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '8px' }));
+
+      // ── The mode: the active one carries the tick ──
+      block.append(
+        host.breiterKnopf('Setzen (P)', () => waehleModus(ctx, 'setzen'), modus === 'setzen' ? PFAD.haken : undefined),
+        host.breiterKnopf('Anwählen (V)', () => waehleModus(ctx, 'anwaehlen'), modus === 'anwaehlen' ? PFAD.haken : undefined)
+      );
 
       // ── New objects: prefab and turn ──
       const prefabFeld = feld(

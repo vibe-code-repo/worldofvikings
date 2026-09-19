@@ -27,6 +27,18 @@ export interface LayoutBefund {
   wo: string;
   art: 'vegetation' | 'location' | 'spawn' | 'placement' | 'route' | 'welt' | 'modell';
   text: string;
+  /**
+   * Der eine Eintrag, um den es geht, als Adresse — nur bei Befunden, die GENAU eine Platzierung meinen
+   * (unbekanntes Prefab, unbekannte Route, NPC-Angaben, mehrfach vergebene id, Zwilling). Der Editor springt
+   * damit zum Objekt, statt den Text zu zerlegen. Befunde, die Objekte zählen („kein eigenes Modell: X (n)“)
+   * oder ein exaktes Duplikat melden, das schon zusammengelegt ist, tragen keine.
+   */
+  ref?: { sammlung: 'placements'; id: string };
+}
+
+/** Die Adresse einer Platzierung für einen Befund; ohne `id` (ungeprüftes Dokument) keine. */
+function refVon(p: PlacementDef): Pick<LayoutBefund, 'ref'> {
+  return p.id === undefined ? {} : { ref: { sammlung: 'placements', id: p.id } };
 }
 
 export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
@@ -76,6 +88,7 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
         wo: 'placements',
         art: 'placement',
         text: `unbekanntes Prefab: ${p.prefab} @(${p.x}, ${p.z})`,
+        ...refVon(p),
       });
     } else if (!istEigenesModell(p.prefab)) {
       fremdeModelle.set(p.prefab, (fremdeModelle.get(p.prefab) ?? 0) + 1);
@@ -85,6 +98,7 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
         wo: 'placements',
         art: 'route',
         text: `unbekannte Route: ${p.route} (${p.prefab} @(${p.x}, ${p.z}))`,
+        ...refVon(p),
       });
     }
     // NPC-Angaben an einem Prefab ohne Vorgabe sind ERLAUBT (loeseNpcAuf
@@ -96,6 +110,7 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
         wo: 'placements',
         art: 'placement',
         text: `NPC-Angaben an einem Prefab ohne Vorgabe: ${p.prefab} @(${p.x}, ${p.z})`,
+        ...refVon(p),
       });
     }
   }
@@ -152,7 +167,7 @@ function platzierungsBefunde(layout: WorldLayout): LayoutBefund[] {
     if (p.id !== undefined) {
       if (ids.has(p.id) && !doppelt.has(p.id)) {
         doppelt.add(p.id);
-        befunde.push({ wo: 'placements', art: 'welt', text: `Platzierungs-ID mehrfach vergeben: ${p.id}` });
+        befunde.push({ wo: 'placements', art: 'welt', text: `Platzierungs-ID mehrfach vergeben: ${p.id}`, ...refVon(p) });
       }
       ids.add(p.id);
     }
@@ -165,6 +180,7 @@ function platzierungsBefunde(layout: WorldLayout): LayoutBefund[] {
         wo: 'placements',
         art: 'welt',
         text: `Platzierungen mit identischem Inhalt: ${beschreibung(zwilling)} und ${beschreibung(p)}`,
+        ...refVon(p),
       });
     }
     if (gleiche) gleiche.push(p);

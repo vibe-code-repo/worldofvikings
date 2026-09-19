@@ -2013,19 +2013,108 @@ console.log('▶ Quelltextprüfung editorMain.ts');
 {
   const quelle = readFileSync(resolve(HIER, '../src/editor/editorMain.ts'), 'utf-8');
   // Das Platzieren lief früher als Zweig `if (werkzeug === 'platzieren')` in editorMain.ts; es ist ein Registry-Werkzeug
-  // (werkzeuge/platzieren.ts). Dieselben Zusagen, jetzt an der neuen Stelle: (a) vor jeder Änderung wird ein
-  // Rückgängig-Schritt gemerkt und danach der Entwurf gespeichert, (b) die Zufallsdrehung bleibt, ist jetzt aber abschaltbar.
-  const platzierenQuelle = readFileSync(resolve(HIER, '../src/editor/werkzeuge/platzieren.ts'), 'utf-8');
-  const indexQuelle = readFileSync(resolve(HIER, '../src/editor/werkzeuge/index.ts'), 'utf-8');
-  const kontextAendere = /aendere: \(neu\) => \{([\s\S]*?)\n  \},/.exec(quelle)?.[1] ?? '';
-  const kontextUebernommen = /uebernommen: \(\) => \{([\s\S]*?)\n  \},/.exec(quelle)?.[1] ?? '';
-  const iMerke = kontextAendere.indexOf('merkeSchritt();');
-  const iSetzen = kontextAendere.indexOf('layout = neu;');
-  check('Platzieren-Werkzeug gefunden: registriert, kein alter Zweig mehr in editorMain.ts', /erzeugePlatzieren\(\)/.test(indexQuelle) && !/werkzeug === 'platzieren'/.test(quelle) && platzierenQuelle.length > 0);
-  check('Kontext: aendere merkt den Rückgängig-Schritt VOR dem Setzen des Layouts (merkeSchritt vor layout = neu)', kontextAendere.length > 0 && iMerke >= 0 && iSetzen > iMerke, `Positionen ${iMerke} < ${iSetzen}`);
-  check('Werkzeug: jede Änderung (setzen, ändern, entfernen) läuft durch EINE Stelle, die ctx.aendere ruft — und danach ctx.uebernommen()', (platzierenQuelle.match(/^\s*ctx\.aendere\(/gm) ?? []).length === 1 && /fuehreAus\(ctx, 'setzen'/.test(platzierenQuelle) && /fuehreAus\(ctx, 'aendern'/.test(platzierenQuelle) && /fuehreAus\(ctx, 'entfernen'/.test(platzierenQuelle) && (platzierenQuelle.match(/ctx\.uebernommen\(\)/g) ?? []).length >= 3);
-  check('Kontext: uebernommen speichert den Entwurf (alles())', /alles\(\);/.test(kontextUebernommen));
-  check('Zufalls-Yaw bleibt (zufallszahl() * Math.PI * 2, Math.random als Vorgabe) und ist abschaltbar (Schalter, Vorgabe an)', /zufaelligeDrehung \? Math\.round\(zufallszahl\(\) \* Math\.PI \* 2/.test(platzierenQuelle) && /opt\.zufall \?\? Math\.random/.test(platzierenQuelle) && /let zufaelligeDrehung = true;/.test(platzierenQuelle) && /zufaelligeDrehung = !zufaelligeDrehung;/.test(platzierenQuelle));
+  // (werkzeuge/platzieren.ts), und was ein Werkzeug am Dokument ändert, geht durch den Kontext in werkzeuge/kontext.ts.
+  // Die Zusagen von damals werden hier am VERHALTEN geprüft, nicht mehr im Quelltext gesucht (`if (false) merkeSchritt();`
+  // und ein auskommentierter Aufruf bestünden eine Textsuche): (a) vor jeder Änderung ein Rückgängig-Schritt, (b) danach
+  // das Speichern, in dieser Reihenfolge, (c) Rückgängig bringt das Dokument byte-gleich zurück, (d) die Zufallsdrehung
+  // steht im Werkzeug. Dem Quelltext bleibt eine Aussage: editorMain.ts benutzt diesen Kontext.
+  let kontextModul: typeof import('../src/editor/werkzeuge/kontext') | null = null;
+  let platzierenModul: typeof import('../src/editor/werkzeuge/platzieren') | null = null;
+  try {
+    kontextModul = await import('../src/editor/werkzeuge/kontext');
+    platzierenModul = await import('../src/editor/werkzeuge/platzieren');
+  } catch (e) {
+    console.log(`  (Werkzeug-Module fehlen: ${(e as Error).message.split('\n')[0]})`);
+  }
+  const versuche = (f: () => boolean): boolean => {
+    try {
+      return f();
+    } catch {
+      return false;
+    }
+  };
+  check(
+    'editorMain.ts benutzt den Werkzeug-Kontext (erzeugeWerkzeugKontext aus werkzeuge/kontext) und hat weder den alten Platzieren-Zweig noch einen eigenen `aendere`',
+    /import \{ erzeugeWerkzeugKontext \} from '\.\/werkzeuge\/kontext';/.test(quelle) &&
+      /const werkzeugKontext: WerkzeugKontext = erzeugeWerkzeugKontext\(\{/.test(quelle) &&
+      !/werkzeug === 'platzieren'/.test(quelle) &&
+      !/aendere: \(neu\)/.test(quelle)
+  );
+  const startDokument = sanitizeWorldLayout(JSON.parse(readFileSync(resolve(WURZEL, 'server/data/welten/dev.json'), 'utf-8')))!;
+  const neuerKontext = () => {
+    const z = { layout: startDokument, log: [] as string[], aktiv: 'platzieren' };
+    const verlauf = new speicherModul.SchrittVerlauf<WorldLayout>(50, () => undefined);
+    const ctx = kontextModul!.erzeugeWerkzeugKontext({
+      layout: () => z.layout,
+      setzeLayout: (n) => {
+        z.log.push('setzeLayout');
+        z.layout = n;
+      },
+      merkeSchritt: () => {
+        z.log.push('merkeSchritt');
+        verlauf.merke(z.layout, false);
+      },
+      werkzeugId: () => z.aktiv,
+      zurAuswahl: () => {
+        z.aktiv = 'auswahl';
+      },
+      alles: () => void z.log.push('alles'),
+      vorschauAnstossen: () => void z.log.push('vorschau'),
+      seiteBauen: () => undefined,
+      zeichneOverlay: () => undefined,
+      meldung: () => undefined,
+      zuBild: (x, y) => [x, y],
+      massstab: () => 1,
+      bestaetige: () => true,
+    });
+    return { z, verlauf, ctx };
+  };
+  const klick = (x: number, zz: number) => ({ weltX: x, weltZ: zz, shiftKey: false });
+  check(
+    '(a) ctx.aendere: erst merkeSchritt, dann setzeLayout (genau diese Reihenfolge), ein Rückgängig-Schritt mit dem alten Dokument',
+    versuche(() => {
+      const { z, verlauf, ctx } = neuerKontext();
+      const neu = { ...startDokument, name: 'anders' };
+      ctx.aendere(neu);
+      return z.log.join(',') === 'merkeSchritt,setzeLayout' && z.layout === neu && verlauf.vergangenheit.length === 1 && verlauf.vergangenheit[0] === startDokument;
+    })
+  );
+  check(
+    '(b) ctx.uebernommen: alles() (das den Entwurf speichert), danach die Vorschau; ctx.zurAuswahl setzt das Werkzeug zurück',
+    versuche(() => {
+      const { z, ctx } = neuerKontext();
+      ctx.uebernommen();
+      ctx.zurAuswahl();
+      return z.log.join(',') === 'alles,vorschau' && z.aktiv === 'auswahl';
+    })
+  );
+  check(
+    '(c) ein echtes Werkzeug (setzen, wählen+Feld-Änderung nicht nötig: setzen, setzen, löschen): je Änderung ändern → speichern in dieser Reihenfolge, 3 Rückgängig-Schritte, 3 × Undo bytegleich zum Start',
+    versuche(() => {
+      const { z, verlauf, ctx } = neuerKontext();
+      const t = platzierenModul!.erzeugePlatzieren({ zufall: () => 0.25, merkePrefab: () => undefined });
+      t.beiZeigerRunter(ctx, klick(8000, 8000));
+      t.beiZeigerRunter(ctx, klick(8040, 8000));
+      t.beiTaste!(ctx, { code: 'Delete' });
+      const erwartet = ['merkeSchritt', 'setzeLayout', 'alles', 'vorschau'];
+      const reihenfolge = z.log.join(',') === [...erwartet, ...erwartet, ...erwartet].join(',');
+      const enthalten = startDokument.placements!.length + 1;
+      const nachher = z.layout.placements!.length === enthalten;
+      let l = z.layout;
+      for (let k = 0; k < 3; k++) l = verlauf.zurueck(l)!;
+      return reihenfolge && nachher && verlauf.vergangenheit.length === 0 && JSON.stringify(l) === JSON.stringify(startDokument);
+    })
+  );
+  check(
+    '(d) Zufalls-Yaw bleibt: das Werkzeug setzt mit zufall() × 2π (auf 0,001 gerundet); ein festes zufall() = 0,25 gibt 1,571',
+    versuche(() => {
+      const { z, ctx } = neuerKontext();
+      const t = platzierenModul!.erzeugePlatzieren({ zufall: () => 0.25, merkePrefab: () => undefined });
+      t.beiZeigerRunter(ctx, klick(8000, 8000));
+      const neu = z.layout.placements!.find((p) => !startDokument.placements!.some((q) => q.id === p.id));
+      return neu?.yaw === 1.571;
+    })
+  );
 
   const rueckruf = /beiFremdem: \(fremd, info\) => \{([\s\S]*?)\n  \},\n\}\);/.exec(quelle)?.[1] ?? '';
   const iM = rueckruf.indexOf('verlauf.uebernahme(layout, fremd);');
@@ -2061,7 +2150,9 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     if (/merkeSchritt\(/.test(davor)) return;
     ohneSchritt.push(`${i + 1}: ${z.trim()}`);
   });
-  const erwartet = ['layout = vorher;', 'layout = wieder;', 'layout = fremd;', 'layout = {'];
+  // `layout = neu;` ist die Zuweisung in `setzeLayout` des Werkzeug-Kontexts; den Schritt davor legt `erzeugeWerkzeugKontext`
+  // (werkzeuge/kontext.ts) an und diese Datei prüft es oben am Verhalten.
+  const erwartet = ['layout = vorher;', 'layout = wieder;', 'layout = fremd;', 'layout = {', 'layout = neu;'];
   const unerwartet = ohneSchritt.filter((z) => !erwartet.some((e) => z.endsWith(e)));
   check(`Alle ${zuweisungen} Zuweisungen an layout ausser Rückgängig/Wiederherstellen/Übernahme/Griff-Ziehen haben einen merkeSchritt() davor (unerwartet ohne: ${unerwartet.length})`, unerwartet.length === 0, unerwartet.join(' | '));
   const griffZiehen = ohneSchritt.filter((z) => z.endsWith('layout = {'));

@@ -51,6 +51,11 @@ export interface ZeigerEreignis {
   weltZ: number;
   /** Shift held: series mode (the tool stays active after it has placed something). */
   shiftKey: boolean;
+  /**
+   * The pointer this event belongs to (`PointerEvent.pointerId`), when the editor has one. A tool that
+   * follows a gesture (a drag) remembers it at the press and ignores moves and releases of another pointer.
+   */
+  zeigerId?: number;
 }
 
 /** A key press; only what a tool may look at. */
@@ -148,13 +153,20 @@ export interface KartenWerkzeug<Id extends string = string> {
    * hook, so the release arrives even when it happens outside the map.
    */
   beiZeigerHoch?(ctx: WerkzeugKontext, e: ZeigerEreignis): void;
+  /**
+   * The pointer gesture ends WITHOUT an effect: the pointer was cancelled (`pointercancel`), the button was
+   * released outside the map (over the sidebar, outside the window), or the capture was lost. A half-done
+   * drag is dropped and nothing is committed. Called only on a tool that has `beiZeigerHoch`.
+   */
+  beiZeigerAbbruch?(ctx: WerkzeugKontext): void;
   /** Double click while this tool is active. */
   beiDoppelklick?(ctx: WerkzeugKontext): void;
   /**
-   * Key press while this tool is active: Escape, and Delete (not while an input
-   * field has the focus). `true` for Escape = the key ENDS this tool: the
+   * Key press while this tool is active: Escape, and the keys the editor passes on
+   * (Delete, Backspace, the tool's own letters; never while an input field has the
+   * focus, never with Ctrl/Alt/Meta/Shift). `true` for Escape = the key ENDS this tool: the
    * editor then discards every half-finished stroke (`abbrechen` of all tools)
-   * and returns to the selection tool. The result for Delete is ignored.
+   * and returns to the selection tool. The result for any other key is ignored.
    */
   beiTaste?(ctx: WerkzeugKontext, e: TastenEreignis): boolean;
   /** Draw the tool state onto the overlay canvas. Called for every tool, active or not. */

@@ -7,8 +7,9 @@
  * what the old `if (werkzeug === 'platzieren')` branch looked like. The fake
  * context keeps an undo stack of snapshots exactly like the editor does.
  *
- * The source guard at the end must be red on `e6a7351`: there the module does
- * not exist and `editorMain.ts` still appends id-less entries.
+ * Every check is its own report line, also on a tree WITHOUT the module (`e6a7351`): a missing module is
+ * replaced by a stand-in that does nothing, so each check that needs the tool reports ✗ by itself, and a
+ * section that cannot go on reports one ✗ for the whole section instead of crashing the file.
  *
  * Run:  npx tsx test/werkzeug-platzieren.ts
  */
@@ -210,7 +211,7 @@ function neuerHost() {
 const echt = sanitizeWorldLayout(JSON.parse(readFileSync(resolve(WURZEL, 'server/data/welten/dev.json'), 'utf-8')))!;
 const kanon = (l: WorldLayout): string => JSON.stringify(sanitizeWorldLayout(l));
 const platz = (l: WorldLayout): readonly PlacementDef[] => l.placements ?? [];
-const klick = (x: number, z: number, shiftKey = false) => ({ weltX: x, weltZ: z, shiftKey });
+const klick = (x: number, z: number, shiftKey = false, zeigerId?: number) => ({ weltX: x, weltZ: z, shiftKey, zeigerId });
 const ID_RE = /^[a-z0-9][a-z0-9-_]{0,63}$/;
 
 /** Start document for the scripts: the real dev world (157 objects) plus three we know by id. */
@@ -233,46 +234,85 @@ function lcg(seed: number): () => number {
   };
 }
 
+/** One section of the test: a failure inside (an exception) is ONE ✗ for the section, the file goes on. */
+async function sektion(name: string, tu: () => void | Promise<void>): Promise<void> {
+  console.log(name);
+  try {
+    await tu();
+  } catch (e) {
+    check(`${name}: section could not go on (${(e as Error).message.split('\n')[0]})`, false);
+  }
+}
+
+/** Stand-in for a tool that does not exist (a tree without the module): every member does nothing and returns `undefined`. */
+const nullWerkzeug = (): never =>
+  new Proxy(
+    {},
+    {
+      get: (_o, name) => (name === 'then' ? undefined : name === 'seitenleiste' ? () => fakeKnoten('block') : () => undefined),
+    }
+  ) as never;
+
 async function main(): Promise<void> {
   console.log('Placing tool: module');
   let modul: typeof import('../src/editor/werkzeuge/platzieren') | null = null;
   let reg: typeof import('../src/editor/werkzeuge') | null = null;
   try {
     modul = await import('../src/editor/werkzeuge/platzieren');
-    reg = await import('../src/editor/werkzeuge');
   } catch (e) {
     console.log(`  (module missing: ${(e as Error).message.split('\n')[0]})`);
   }
+  try {
+    reg = await import('../src/editor/werkzeuge');
+  } catch (e) {
+    console.log(`  (registry missing: ${(e as Error).message.split('\n')[0]})`);
+  }
   check('werkzeuge/platzieren.ts loads and the registry offers the tool', modul !== null && reg?.werkzeugMitId('platzieren')?.id === 'platzieren');
 
-  if (modul && reg) {
-    const { erzeugePlatzieren, trefferSuchen, platzierungZuBefund, TREFFER_PX, ZUG_PX } = modul;
+  {
+    // On a tree without the module the stand-ins below let every section run and fail check by check.
+    const { erzeugePlatzieren, trefferSuchen, platzierungZuBefund, frischeId, TREFFER_PX, ZUG_PX } =
+      modul ??
+      ({
+        erzeugePlatzieren: nullWerkzeug,
+        trefferSuchen: () => undefined,
+        platzierungZuBefund: () => null,
+        frischeId: () => '',
+        TREFFER_PX: NaN,
+        ZUG_PX: NaN,
+      } as unknown as typeof import('../src/editor/werkzeuge/platzieren'));
+    const platzierenWerkzeug = reg?.platzierenWerkzeug ?? (nullWerkzeug() as unknown as NonNullable<typeof reg>['platzierenWerkzeug']);
+    /** A tool in the mode ANWAEHLEN (click selects, drag moves). */
+    const erzeugeAnwaehlen = (opt?: Parameters<typeof erzeugePlatzieren>[0]) => {
+      const t = erzeugePlatzieren(opt);
+      t.setzeModus?.('anwaehlen');
+      return t;
+    };
     const zuGrad = (g: number): number => (g * Math.PI) / 180;
 
     // ── The tool through the registry wrapper ──────────────────────
-    {
-      const w = reg.platzierenWerkzeug;
+    await sektion('The tool through the registry wrapper', async () => {
+      const w = platzierenWerkzeug;
       check('the registry entry is guarded and keeps the tool\'s own members', typeof w.setzePrefab === 'function' && typeof w.auswahlId === 'function' && typeof w.waehle === 'function');
       gleich('tile: name, wide, badge = default prefab', [w.kachelName, w.kachelBreit, w.kachelZusatz(), w.hudZusatz(), w.titel], ['Objekt platzieren', true, 'Beech1', 'Beech1', 'Objekt platzieren']);
-      gleich('key help', w.tasten, [['Klick', 'setzen / wählen'], ['Ziehen', 'verschieben'], ['Entf', 'löschen'], ['Shift', 'auf Objekt setzen']]);
+      gleich('key help', w.tasten, [['P', 'Setzen'], ['V', 'Anwählen'], ['Klick', 'setzen / wählen'], ['Ziehen', 'verschieben (V)'], ['Entf', 'löschen']]);
       check('hooks present: pointer move, pointer up, key, overlay, sidebar', [w.beiZeigerBewegt, w.beiZeigerHoch, w.beiTaste, w.zeichneOverlay, w.seitenleiste].every((h) => typeof h === 'function'));
       const { z, ctx } = neuerKontext(start);
       const vorher = platz(z.layout).length;
       check('a click through the guarded tool is handled', w.beiZeigerRunter(ctx, klick(15000, 15000)) === true);
       gleich('…and set one object with one undo step', [platz(z.layout).length - vorher, z.schritte.length], [1, 1]);
       w.abbrechen(ctx);
-    }
+    });
 
     // ── Set ────────────────────────────────────────────────────────
-    console.log('Set: id, turn, prefab');
-    {
+    await sektion('Set: id, turn, prefab', async () => {
       const gemerkt: string[] = [];
       const t = erzeugePlatzieren({ zufall: () => 0.25, merkePrefab: (n) => gemerkt.push(n) });
       const { z, ctx } = neuerKontext(start);
       const idsVorher = new Set(platz(z.layout).map((p) => p.id));
       check('click on free ground is handled', t.beiZeigerRunter(ctx, klick(10.4, 9979.4)) === true);
       const neu = platz(z.layout).find((p) => !idsVorher.has(p.id))!;
-      check('one new object with a valid id', neu !== undefined && typeof neu.id === 'string' && ID_RE.test(neu.id), neu?.id);
+      check('one new object with a valid id: the derived id plus a random tail that starts with a letter', neu !== undefined && typeof neu.id === 'string' && ID_RE.test(neu.id) && /^beech1_10_9979-[a-z][0-9a-z]{3}$/.test(neu.id), neu?.id);
       gleich('prefab Beech1, position rounded to whole metres, random turn = 0.25 × 2π rounded to 0.001', [neu.prefab, neu.x, neu.z, neu.yaw], ['Beech1', 10, 9979, 1.571]);
       gleich('operation: kind, collection, id, no vorher', [z.vorgaenge[0]?.ops.length, z.vorgaenge[0]?.ops[0]?.art, z.vorgaenge[0]?.ops[0]?.sammlung, z.vorgaenge[0]?.ops[0]?.id, z.vorgaenge[0]?.ops[0]?.vorher], [1, 'setze', 'placements', neu.id, undefined]);
       gleich('one undo step, committed once, selected the new object', [z.schritte.length, z.uebernommen, t.auswahlId()], [1, 1, neu.id]);
@@ -307,45 +347,42 @@ async function main(): Promise<void> {
       check('a prefab name over 64 characters is refused with a message, prefab kept', z.meldungen.at(-1)?.fehler === true && /zu lang/.test(z.meldungen.at(-1)!.text) && t.prefab() === 'Beech1');
       check('the datalist of prefab suggestions exists exactly once', angehaengt.filter((k) => k.id === 'prefab-liste').length === 1 && angehaengt[0]!.children.length > 10, `${angehaengt[0]?.children.length} options`);
       check('the prefab input points at the datalist', finde(block, (k) => k.tag === 'input' && k.attribute.list === 'prefab-liste').length === 1);
-    }
+    });
 
-    console.log('Set: 100 objects at one place, same prefab (the K1.1 case)');
-    {
+    await sektion('Set: 100 objects at one place, same prefab (the K1.1 case)', async () => {
       const t = erzeugePlatzieren({ zufall: () => 0.5 });
       const { z, ctx } = neuerKontext(start);
       const vorher = new Map(platz(z.layout).map((p) => [p.id!, JSON.stringify(p)]));
       // an existing object at the very spot with the derived id
       const { z: z0, ctx: c0 } = neuerKontext(sanitizeWorldLayout({ ...start, placements: [{ prefab: 'Beech1', x: 5, z: 5 }] })!);
       const idAlt = platz(z0.layout)[0]!.id!;
-      for (let i = 0; i < 100; i++) t.beiZeigerRunter(c0, klick(5, 5, true));
+      for (let i = 0; i < 100; i++) t.beiZeigerRunter(c0, klick(5, 5));
       const ids = platz(z0.layout).map((p) => p.id!);
       gleich('101 objects, 101 different valid ids', [ids.length, new Set(ids).size, ids.every((i) => ID_RE.test(i))], [101, 101, true]);
       gleich('the old object keeps id AND content', platz(z0.layout).find((p) => p.id === idAlt), { id: idAlt, prefab: 'Beech1', x: 5, z: 5 });
       gleich('100 undo steps, 100 "setze" operations of placements', [z0.schritte.length, z0.vorgaenge.every((v) => v?.ops.length === 1 && v.ops[0]!.art === 'setze' && v.ops[0]!.sammlung === 'placements')], [100, true]);
       // and next to the real document: nothing existing changes
-      for (let i = 0; i < 100; i++) t.beiZeigerRunter(ctx, klick(20000 + (i % 7), 20000, true));
+      for (let i = 0; i < 100; i++) t.beiZeigerRunter(ctx, klick(20000 + (i % 7), 20000));
       const nachher = new Map(platz(z.layout).map((p) => [p.id!, JSON.stringify(p)]));
       let veraendert = 0;
       for (const [id, text] of vorher) if (nachher.get(id) !== text) veraendert++;
       gleich('in the real world: 157+3 existing ids unchanged, +100 new', [veraendert, nachher.size - vorher.size], [0, 100]);
-      // Shift is what sets on top of an object; without it the click selects the object under the pointer
+      // mode SETZEN: a click ON an existing object sets one more (the old rule "click on an object selects" is gone)
       const t2 = erzeugePlatzieren({ zufall: () => 0.5 });
       t2.beiZeigerRunter(c0, klick(5, 5, false));
-      gleich('without Shift a click on the object selects it and sets nothing', [platz(z0.layout).length, t2.auswahlId()], [101, idAlt]);
-    }
+      check('mode SETZEN: a click on an existing object (Shift or not) sets ANOTHER one, and selects the new one', platz(z0.layout).length === 102 && t2.auswahlId() !== idAlt && t2.auswahlId() !== null);
+    });
 
-    console.log('Set: outside the world');
-    {
+    await sektion('Set: outside the world', async () => {
       const t = erzeugePlatzieren();
       const { z, ctx } = neuerKontext(start);
       check('the click is consumed', t.beiZeigerRunter(ctx, klick(40001, 0)) === true);
       gleich('a click beyond ±40000 m: nothing set, no step, plain message', [platz(z.layout).length, z.schritte.length, z.meldungen.at(-1)?.fehler, /Außerhalb der Welt/.test(z.meldungen.at(-1)?.text ?? '')], [platz(start).length, 0, true, true]);
       t.beiZeigerRunter(ctx, klick(40000, -40000));
       gleich('exactly on the border is fine', [platz(z.layout).length - platz(start).length, z.schritte.length], [1, 1]);
-    }
+    });
 
-    console.log('Set: refused by the operation (limit of 2,000)');
-    {
+    await sektion('Set: refused by the operation (limit of 2,000)', async () => {
       const voll: WorldLayout = sanitizeWorldLayout({ ...start, placements: Array.from({ length: 2000 }, (_, i) => ({ id: `voll-${i}`, prefab: 'Beech1', x: i * 10 - 10000, z: 0 })) })!;
       check('fixture: 2,000 objects', platz(voll).length === 2000);
       const t = erzeugePlatzieren();
@@ -353,26 +390,24 @@ async function main(): Promise<void> {
       check('the click is consumed', t.beiZeigerRunter(ctx, klick(0, 9000)) === true);
       gleich('nothing changed, no undo step, no commit', [platz(z.layout).length, z.schritte.length, z.uebernommen, t.auswahlId()], [2000, 0, 0, null]);
       check('the message says why', z.meldungen.length === 1 && z.meldungen[0]!.fehler && /2000/.test(z.meldungen[0]!.text), z.meldungen[0]?.text);
-    }
+    });
 
     // ── Select ─────────────────────────────────────────────────────
-    console.log('Select: tolerance in screen pixels, converted with the map scale');
-    {
+    await sektion('Select: tolerance in screen pixels, converted with the map scale', async () => {
       gleich('the tolerance is named: 8 px; a drag starts after 4 px', [TREFFER_PX, ZUG_PX], [8, 4]);
-      const t = erzeugePlatzieren();
+      const t = erzeugeAnwaehlen();
       const { z, ctx } = neuerKontext(start, 'platzieren', 0.1); // 0.1 m/px → 8 px = 0.8 m
       t.beiZeigerRunter(ctx, klick(5000.1 + 0.4, 5000.0 + 0));
       // probe-a at (5000,5000), probe-b at (5000.3,5000): the click at 5000.5 is 0.5 from a and 0.2 from b → b wins
       gleich('at 0.1 m/px a click 0.5 m from a and 0.2 m from b: the NEARER one (probe-b) wins', [t.auswahlId(), platz(z.layout).length], ['probe-b', platz(start).length]);
       const { z: z2, ctx: c2 } = neuerKontext(start, 'platzieren', 0.1);
-      const t2 = erzeugePlatzieren();
+      const t2 = erzeugeAnwaehlen();
       t2.beiZeigerRunter(c2, klick(5100.4, 5000));
       gleich('0.4 m beside probe-c: selected, nothing set', [t2.auswahlId(), platz(z2.layout).length], ['probe-c', platz(start).length]);
-      const t3 = erzeugePlatzieren();
+      const t3 = erzeugeAnwaehlen();
       const { z: z3, ctx: c3 } = neuerKontext(start, 'platzieren', 0.1);
       t3.beiZeigerRunter(c3, klick(5100 + 3, 5000));
-      const neu = platz(z3.layout).find((p) => p.x === 5103 && p.z === 5000);
-      check('3 m beside probe-c: NOT selected — a new object is set there and selected', neu !== undefined && t3.auswahlId() === neu.id && t3.auswahlId() !== 'probe-c', String(t3.auswahlId()));
+      gleich('3 m beside probe-c (mode ANWAEHLEN): a miss does nothing — nothing selected, nothing set, no undo step', [t3.auswahlId(), platz(z3.layout).length, z3.schritte.length], [null, platz(start).length, 0]);
       gleich('the same 0.4 m at 40 m/px (tolerance 320 m) hits; 3 m hits as well — the tolerance is pixels, not metres', [
         trefferSuchen(platz(start), 5100.4, 5000, TREFFER_PX * 40)?.id,
         trefferSuchen(platz(start), 5103, 5000, TREFFER_PX * 40)?.id,
@@ -404,12 +439,11 @@ async function main(): Promise<void> {
         t4.zeichneOverlay!(k4.ctx, zz as unknown as CanvasRenderingContext2D);
         return zz.log.length === 0;
       })(), idNeu);
-    }
+    });
 
     // ── Drag ───────────────────────────────────────────────────────
-    console.log('Drag: 30 pointer moves = 1 undo step');
-    {
-      const t = erzeugePlatzieren();
+    await sektion('Drag: 30 pointer moves = 1 undo step', async () => {
+      const t = erzeugeAnwaehlen();
       const { z, ctx, rueckgaengig } = neuerKontext(start, 'platzieren', 1);
       t.beiZeigerRunter(ctx, klick(5100.5, 5000.5)); // press 0.5 m beside probe-c (scale 1 m/px → 8 m tolerance)
       gleich('the press selects and changes nothing yet', [t.auswahlId(), z.schritte.length, z.vorgaenge.length], ['probe-c', 0, 0]);
@@ -426,7 +460,7 @@ async function main(): Promise<void> {
       gleich('the object moved by exactly the pointer travel (60, 30), scale kept', [p.x, p.z, p.scale], [5160, 5030, 2]);
       // a horizontal drag must not nudge the other axis: an object with a fraction keeps it
       const { z: zf, ctx: cf } = neuerKontext(sanitizeWorldLayout({ ...start, placements: [{ id: 'bruch', prefab: 'Beech1', x: 7000.3, z: 7000.1 }] })!, 'platzieren', 1);
-      const tf = erzeugePlatzieren();
+      const tf = erzeugeAnwaehlen();
       tf.beiZeigerRunter(cf, klick(7000.3, 7000.1));
       tf.beiZeigerBewegt!(cf, klick(7040.3, 7000.1));
       tf.beiZeigerHoch!(cf, klick(7040.3, 7000.1));
@@ -438,10 +472,9 @@ async function main(): Promise<void> {
       // a further release does nothing
       t.beiZeigerHoch!(ctx, klick(1, 1));
       gleich('a second release without a press changes nothing', [z.schritte.length, z.vorgaenge.length], [0, 1]);
-    }
-    {
-      console.log('Drag: shaky click, Escape, moves without a press, vanished object');
-      const t = erzeugePlatzieren();
+    });
+    await sektion('Drag: shaky click, Escape, moves without a press, vanished object', async () => {
+      const t = erzeugeAnwaehlen();
       const { z, ctx, rueckgaengig } = neuerKontext(start, 'platzieren', 1);
       t.beiZeigerRunter(ctx, klick(5100, 5000));
       t.beiZeigerBewegt!(ctx, klick(5102, 5001)); // 2.2 px < 4 px
@@ -460,8 +493,10 @@ async function main(): Promise<void> {
       gleich('a second Escape deselects (and redraws)', t.auswahlId(), null);
       // the object vanishes (undo of the set) while the pointer is down
       const { z: z2, ctx: c2, rueckgaengig: rg2 } = neuerKontext(start, 'platzieren', 1);
+      t.setzeModus('setzen');
       t.beiZeigerRunter(c2, klick(17000, 17000));
       const neuId = t.auswahlId()!;
+      t.setzeModus('anwaehlen');
       t.beiZeigerRunter(c2, klick(17000, 17000)); // now on the object: press
       t.beiZeigerBewegt!(c2, klick(17100, 17000));
       rg2(); // Ctrl+Z with the button held
@@ -470,16 +505,15 @@ async function main(): Promise<void> {
       rueckgaengig();
       // drag of an object whose neighbour is 0.3 m away: the nearer one is dragged
       const { z: z3, ctx: c3 } = neuerKontext(start, 'platzieren', 0.05);
-      const t3 = erzeugePlatzieren();
+      const t3 = erzeugeAnwaehlen();
       t3.beiZeigerRunter(c3, klick(5000.25, 5000));
       t3.beiZeigerBewegt!(c3, klick(5010.25, 5000));
       t3.beiZeigerHoch!(c3, klick(5010.25, 5000));
       gleich('overlapping objects: the nearer (probe-b) is dragged, probe-a stays (probe-b keeps its 0.3: 5000.3 + 10)', [platz(z3.layout).find((p) => p.id === 'probe-b')?.x, platz(z3.layout).find((p) => p.id === 'probe-a')?.x], [5010.3, 5000]);
-    }
+    });
 
     // ── Change ─────────────────────────────────────────────────────
-    console.log('Change: turn, scale, x/z, prefab');
-    {
+    await sektion('Change: turn, scale, x/z, prefab', async () => {
       const t = erzeugePlatzieren();
       const { z, ctx, rueckgaengig } = neuerKontext(start);
       t.waehle('probe-a');
@@ -528,11 +562,10 @@ async function main(): Promise<void> {
       check('a prefab name over 64 characters: asked, then refused by the operation (nothing changes)', a().prefab === 'Birch1' && z.meldungen.at(-1)?.fehler === true, z.meldungen.at(-1)?.text);
       while (rueckgaengig());
       check('undo all: the document is byte-equal to the start', kanon(z.layout) === kanon(start));
-    }
+    });
 
-    console.log('Picking another tool / a foreign draft (abbrechen) drops selection and drag');
-    {
-      const t = erzeugePlatzieren();
+    await sektion('Picking another tool / a foreign draft (abbrechen) drops selection and drag', async () => {
+      const t = erzeugeAnwaehlen();
       const { z, ctx } = neuerKontext(start, 'platzieren', 1);
       t.beiZeigerRunter(ctx, klick(5100, 5000));
       t.beiZeigerBewegt!(ctx, klick(5200, 5000));
@@ -547,11 +580,10 @@ async function main(): Promise<void> {
       const z2 = neuerZeichner();
       t.zeichneOverlay!(ctx, z2 as unknown as CanvasRenderingContext2D);
       check('a selection is not drawn while another tool is active', z2.log.length === 0);
-    }
+    });
 
     // ── Delete ─────────────────────────────────────────────────────
-    console.log('Delete');
-    {
+    await sektion('Delete', async () => {
       const t = erzeugePlatzieren();
       const { z, ctx, rueckgaengig } = neuerKontext(start);
       check('Delete without a selection: nothing, no step', t.beiTaste!(ctx, { code: 'Delete' }) === false && z.schritte.length === 0 && z.meldungen.length === 0);
@@ -570,11 +602,10 @@ async function main(): Promise<void> {
       t.seitenleiste!(ctx, host);
       knoepfe.find((k) => k.text === 'Objekt löschen (Entf)')!.cb();
       check('the delete button: same effect', !platz(z.layout).some((p) => p.id === 'probe-c') && z.schritte.length === 1);
-    }
+    });
 
     // ── 50 actions, 50 undos, 50 redos ─────────────────────────────
-    console.log('50 actions → 50 × undo → byte-equal to the start → 50 × redo → byte-equal to the end');
-    {
+    await sektion('50 actions → 50 × undo → byte-equal to the start → 50 × redo → byte-equal to the end', async () => {
       const t = erzeugePlatzieren({ zufall: lcg(20260919) });
       const { z, ctx, rueckgaengig, wiederherstellen } = neuerKontext(start, 'platzieren', 1);
       const T = { yaw: 'Drehung des ausgewählten Objekts in Grad', scale: 'Skalierung des ausgewählten Objekts (0,2 bis 5)', x: 'x des ausgewählten Objekts in Metern', z: 'z des ausgewählten Objekts in Metern', prefab: 'Prefab des ausgewählten Objekts (ein Wechsel ersetzt das Objekt im Spiel)' };
@@ -598,15 +629,16 @@ async function main(): Promise<void> {
       };
       const prefabs = ['Beech1', 'Birch1', 'Pine1', 'Oak1'];
       const gesetzt: string[] = [];
-      // 12 × set (3 of them on top of the object before, with Shift)
+      // 12 × set (3 of them on top of the object before: mode SETZEN sets there as well)
       for (let i = 0; i < 12; i++) {
         t.setzePrefab(prefabs[i % 4]!);
         const shift = i % 3 === 0 && i > 0;
         const ort = shift ? platz(z.layout).find((p) => p.id === t.auswahlId()) : undefined;
-        aktion(`setze ${i}`, 'setze', null, () => void t.beiZeigerRunter(ctx, klick(ort ? ort.x : 8000 + i * 40, ort ? ort.z : 8000 + i * 25, shift)));
+        aktion(`setze ${i}`, 'setze', null, () => void t.beiZeigerRunter(ctx, klick(ort ? ort.x : 8000 + i * 40, ort ? ort.z : 8000 + i * 25)));
         gesetzt.push(t.auswahlId()!);
       }
-      // 10 × drag, each with 30 pointer moves; only objects with an unmistakable spot
+      // 10 × drag, each with 30 pointer moves, in the mode ANWAEHLEN; only objects with an unmistakable spot
+      t.setzeModus('anwaehlen');
       for (const [i, id] of [gesetzt[0]!, gesetzt[1]!, gesetzt[4]!, gesetzt[7]!, gesetzt[10]!, gesetzt[11]!, 'probe-a', 'probe-c', gesetzt[0]!, gesetzt[1]!].entries()) {
         const ziel = platz(z.layout).find((p) => p.id === id)!;
         aktion(`ziehen ${id}`, 'aendere', id, () => {
@@ -701,36 +733,41 @@ async function main(): Promise<void> {
         const ids = platz(z.layout).map((p) => p.id!);
         return new Set(ids).size === ids.length && ids.every((i) => ID_RE.test(i));
       })());
-    }
+    });
 
     // ── Jump from a finding ────────────────────────────────────────
-    console.log('Finding → object');
-    {
+    await sektion('Finding → object (structured `ref` of the check, no text parsing)', async () => {
       const doc = sanitizeWorldLayout({
         ...start,
         routes: [],
         placements: [
           { id: 'unbek-1', prefab: 'NoSuchPrefab', x: 10, z: 20 },
           { id: 'unbek-neg', prefab: 'NoSuchPrefab', x: -30.5, z: -40 },
+          // a prefab name with a space next to its LAST word at the same metre: the text alone cannot tell them apart
+          { id: 'big-beech1_0_80', prefab: 'Big Beech1', x: 0, z: 80 },
+          { id: 'beech1_0_80', prefab: 'Beech1', x: 0, z: 80 },
           { id: 'ohne-route', prefab: 'Beech1', x: 300, z: 400, route: 'nirgends' },
           { id: 'zwilling-a', prefab: 'Beech1', x: 900, z: 900 },
           { id: 'zwilling-b', prefab: 'Beech1', x: 900, z: 900 },
         ],
       })!;
       const befunde = pruefeLayout(doc).filter((b) => b.wo === 'placements');
-      const ziele = befunde.map((b) => ({ text: b.text, ziel: platzierungZuBefund(doc, b) }));
+      const ziele = befunde.map((b) => ({ text: b.text, ref: (b as { ref?: unknown }).ref, ziel: platzierungZuBefund(doc, b) }));
       console.log(ziele.map((z) => `    ${z.ziel ?? '—'}  ⇐  ${z.text}`).join('\n'));
-      gleich('unknown prefab at (10, 20) → unbek-1', ziele.find((z) => /NoSuchPrefab @\(10, 20\)/.test(z.text))?.ziel, 'unbek-1');
-      gleich('unknown prefab at (−30.5, −40) → unbek-neg', ziele.find((z) => /@\(-30.5, -40\)/.test(z.text))?.ziel, 'unbek-neg');
+      gleich('the finding of "Big Beech1" jumps to big-beech1_0_80, NOT to beech1_0_80 (the prefab with the last word)', ziele.find((z) => /Big Beech1/.test(z.text))?.ziel, 'big-beech1_0_80');
+      gleich('unknown prefab at (10, 20) → unbek-1; at (−30.5, −40) → unbek-neg', [ziele.find((z) => /NoSuchPrefab @\(10, 20\)/.test(z.text))?.ziel, ziele.find((z) => /@\(-30.5, -40\)/.test(z.text))?.ziel], ['unbek-1', 'unbek-neg']);
       gleich('unknown route → the object that names it', ziele.find((z) => /unbekannte Route/.test(z.text))?.ziel, 'ohne-route');
-      gleich('identical content → the first of the pair', ziele.find((z) => /identischem Inhalt/.test(z.text))?.ziel, 'zwilling-a');
-      gleich('a finding that counts objects ("kein eigenes Modell: X (n Platzierungen)") names none → null', platzierungZuBefund(doc, { wo: 'placements', text: 'kein eigenes Modell: Beech1 (3 Platzierungen)' }), null);
-      check('…and the ones the real check produced for this document all resolve or are counts', ziele.every((z) => z.ziel !== null || /kein eigenes Modell|Duplikat/.test(z.text)));
-      check('every returned id exists in the document', ziele.every((z) => z.ziel === null || platz(doc).some((p) => p.id === z.ziel)));
-      gleich('a finding of a region or the world is not a placement', [platzierungZuBefund(doc, { wo: 'insel-1', text: 'unbekannte Vegetation: Beech1 @(10, 20)' }), platzierungZuBefund(doc, { wo: 'welt', text: 'Kein Startpunkt' })], [null, null]);
-      gleich('an id that is only PART of a word does not match (unbek-1 vs unbek-10)', platzierungZuBefund(doc, { wo: 'placements', text: 'Platzierungs-ID mehrfach vergeben: unbek-10' }), null);
-      gleich('the whole-word id matches', platzierungZuBefund(doc, { wo: 'placements', text: 'Platzierungs-ID mehrfach vergeben: unbek-1' }), 'unbek-1');
-      gleich('prefab and position must BOTH match: right position, wrong prefab → null', platzierungZuBefund(doc, { wo: 'placements', text: 'unbekanntes Prefab: Anders @(10, 20)' }), null);
+      check('identical content → an object of the pair (zwilling-a or zwilling-b)', ['zwilling-a', 'zwilling-b'].includes(ziele.find((z) => /identischem Inhalt/.test(z.text))?.ziel ?? ''));
+      gleich('a finding that counts objects ("kein eigenes Modell: X (n Platzierungen)") carries no `ref` → not clickable', ziele.filter((z) => /kein eigenes Modell/.test(z.text)).map((z) => [z.ref, z.ziel]), ziele.filter((z) => /kein eigenes Modell/.test(z.text)).map(() => [undefined, null]));
+      check('every finding of the check that carries a `ref` resolves to an object of the document', ziele.every((z) => (z.ref === undefined ? z.ziel === null : z.ziel !== null && platz(doc).some((p) => p.id === z.ziel))));
+      // the check itself gives the ref (a raw document: two entries with one id, an NPC detail on a prefab without a preset)
+      const roh = pruefeLayout({ ...doc, placements: [{ id: 'x', prefab: 'Beech1', x: 1, z: 1 }, { id: 'x', prefab: 'Beech1', x: 2, z: 2 }, { id: 'npc-x', prefab: 'Beech1', x: 3, z: 3, npc: { name: 'Olaf' } }] } as unknown as WorldLayout).filter((b) => b.wo === 'placements') as { text: string; ref?: { sammlung: string; id: string } }[];
+      gleich('"id given twice" → the ref names that id', roh.find((b) => /mehrfach vergeben/.test(b.text))?.ref, { sammlung: 'placements', id: 'x' });
+      gleich('"NPC details on a prefab without a preset" → the ref names the object', roh.find((b) => /NPC-Angaben/.test(b.text))?.ref, { sammlung: 'placements', id: 'npc-x' });
+      // only the ref counts: the same text without a ref is not clickable, a ref to an object that is gone gives nothing
+      gleich('the text alone never names an object: without `ref` → null, whatever it says', [platzierungZuBefund(doc, { text: 'unbekanntes Prefab: NoSuchPrefab @(10, 20)' } as never), platzierungZuBefund(doc, { wo: 'placements', text: 'Platzierungs-ID mehrfach vergeben: unbek-1' } as never)], [null, null]);
+      gleich('a `ref` to an id that is not in the document → null; a `ref` of another collection → null', [platzierungZuBefund(doc, { ref: { sammlung: 'placements', id: 'gibt-es-nicht' } }), platzierungZuBefund(doc, { ref: { sammlung: 'regions', id: 'unbek-1' } })], [null, null]);
+      gleich('a `ref` resolves to exactly that id', platzierungZuBefund(doc, { ref: { sammlung: 'placements', id: 'beech1_0_80' } }), 'beech1_0_80');
       // the tool takes the jump: selection by id
       const t = erzeugePlatzieren();
       t.waehle('unbek-1');
@@ -738,11 +775,10 @@ async function main(): Promise<void> {
       const host = neuerHost().host;
       const block = t.seitenleiste!(ctx, host) as unknown as FakeKnoten;
       gleich('after the jump the sidebar shows that object (x = 10)', finde(block, (k) => k.tag === 'input' && k.title === 'x des ausgewählten Objekts in Metern')[0]?.value, '10');
-    }
+    });
 
     // ── layoutMitPlatzierung ───────────────────────────────────────
-    console.log('layoutMitPlatzierung gives an id too');
-    {
+    await sektion('layoutMitPlatzierung gives an id too', async () => {
       const { layoutMitPlatzierung } = await import('../src/editor/weltdokument');
       let l = sanitizeWorldLayout({ ...start, placements: [] })!;
       for (let i = 0; i < 100; i++) l = layoutMitPlatzierung(l, 'Beech1', 5.2, 5.4, 1);
@@ -750,7 +786,164 @@ async function main(): Promise<void> {
       gleich('100 calls at one place: 100 ids, all present and valid', [ids.length, new Set(ids).size, ids.every((i) => typeof i === 'string' && ID_RE.test(i))], [100, 100, true]);
       gleich('the entry: id first, prefab, rounded position, yaw', platz(l)[0], { id: 'beech1_5_5', prefab: 'Beech1', x: 5, z: 5, yaw: 1 });
       gleich('the sanitizer keeps all 100 (no fold, no re-id)', [platz(sanitizeWorldLayout(l)!).length, JSON.stringify(platz(sanitizeWorldLayout(l)!).map((p) => p.id!).sort())], [100, JSON.stringify([...ids].sort())]);
-    }
+    });
+
+    // ── Modes ──────────────────────────────────────────────────────
+    await sektion('Modes: SETZEN (default, every click sets) and ANWAEHLEN (click selects, drag moves)', async () => {
+      const t = erzeugePlatzieren({ zufall: lcg(7) });
+      check('the default mode is SETZEN', t.modus?.() === 'setzen');
+      // A-1: at every zoom step from 4 to 200 m per pixel a click 1 m beside an existing object sets a NEW one
+      const zoom = [4, 6, 10, 20, 40, 80, 120, 160, 200];
+      const gesetzt: string[] = [];
+      for (const m of zoom) {
+        const { z, ctx } = neuerKontext(start, 'platzieren', m);
+        const vor = platz(z.layout).length;
+        t.beiZeigerRunter(ctx, klick(5101, 5000)); // probe-a stands at (5000, 5000), probe-c at (5100, 5000): 1 m beside probe-c
+        const neu = platz(z.layout).filter((p) => !platz(start).some((q) => q.id === p.id));
+        gesetzt.push(`${m}:${platz(z.layout).length - vor}/${neu[0]?.x}`);
+      }
+      gleich('SETZEN, 1 m beside an existing object at 9 zoom steps (4 … 200 m/px): every click sets exactly one new object at (5101)', gesetzt, zoom.map((m) => `${m}:1/5101`));
+      const { z: zs, ctx: cs } = neuerKontext(start, 'platzieren', 0.1);
+      t.beiZeigerRunter(cs, klick(5100, 5000, true));
+      t.beiZeigerRunter(cs, klick(5100, 5000, false));
+      gleich('SETZEN, exactly ON an existing object, with and without Shift: one new object each (Shift has no meaning here)', platz(zs.layout).length - platz(start).length, 2);
+      // ANWAEHLEN: the click selects the nearest within 8 px and on nothing does nothing
+      const auswahl: string[] = [];
+      for (const m of zoom) {
+        const a = erzeugeAnwaehlen({ zufall: lcg(3) });
+        const { z, ctx } = neuerKontext(start, 'platzieren', m);
+        a.beiZeigerRunter(ctx, klick(5100 + 5 * m, 5000)); // 5 px beside probe-c
+        const treffer = a.auswahlId();
+        a.abbrechen(ctx);
+        a.setzeModus('anwaehlen');
+        a.beiZeigerRunter(ctx, klick(5100 + 12 * m, 5000)); // 12 px beside probe-c: outside the 8 px
+        auswahl.push(`${m}:${treffer}/${a.auswahlId()}/${platz(z.layout).length - platz(start).length}`);
+      }
+      gleich('ANWAEHLEN at the same 9 zoom steps: 5 px beside probe-c selects it, 12 px beside it selects nothing and sets nothing', auswahl, zoom.map((m) => `${m}:probe-c/null/0`));
+      // drag only in ANWAEHLEN
+      const s1 = erzeugePlatzieren({ zufall: lcg(5) });
+      const k1 = neuerKontext(start, 'platzieren', 1);
+      s1.beiZeigerRunter(k1.ctx, klick(9000, 9000, false, 1));
+      const nachSetzen = k1.z.schritte.length;
+      s1.beiZeigerBewegt!(k1.ctx, klick(9100, 9000, false, 1));
+      s1.beiZeigerHoch!(k1.ctx, klick(9100, 9000, false, 1));
+      gleich('SETZEN: press = one object; moving on and releasing moves nothing (no drag in this mode)', [nachSetzen, k1.z.schritte.length, platz(k1.z.layout).filter((p) => p.x === 9100).length], [1, 1, 0]);
+      // keys and buttons
+      const k2 = neuerKontext(start, 'platzieren', 1);
+      const u = erzeugePlatzieren();
+      u.beiTaste!(k2.ctx, { code: 'KeyV' });
+      check('key V switches to ANWAEHLEN (redraws, rebuilds the sidebar, says so), P back to SETZEN', u.modus() === 'anwaehlen' && k2.z.seite === 1 && k2.z.zeichnen === 1 && /Anwählen/.test(k2.z.meldungen.at(-1)?.text ?? ''));
+      u.beiTaste!(k2.ctx, { code: 'KeyP' });
+      check('… and P back to SETZEN', u.modus() === 'setzen' && /Setzen/.test(k2.z.meldungen.at(-1)?.text ?? ''));
+      u.beiTaste!(k2.ctx, { code: 'KeyP' });
+      gleich('a key for the mode that is already on does nothing (no message, no redraw)', [k2.z.meldungen.length, k2.z.seite], [2, 2]);
+      const { host, knoepfe } = neuerHost();
+      u.seitenleiste!(k2.ctx, host);
+      gleich('the sidebar has two mode buttons "Setzen (P)" and "Anwählen (V)"', knoepfe.map((k) => k.text).filter((x) => /\(P\)|\(V\)/.test(x)), ['Setzen (P)', 'Anwählen (V)']);
+      knoepfe.find((k) => k.text === 'Anwählen (V)')!.cb();
+      check('the button switches the mode', u.modus() === 'anwaehlen');
+      gleich('the badges show the mode: "Anwählen" in ANWAEHLEN, the prefab in SETZEN', [u.hudZusatz(), u.kachelZusatz()], ['Anwählen', 'Anwählen']);
+      u.setzeModus('setzen');
+      gleich('… and the prefab again in SETZEN', [u.hudZusatz(), u.kachelZusatz()], ['Beech1', 'Beech1']);
+      // switching the mode drops a drag in progress
+      const v = erzeugeAnwaehlen();
+      const k3 = neuerKontext(start, 'platzieren', 1);
+      v.beiZeigerRunter(k3.ctx, klick(5100, 5000));
+      v.beiZeigerBewegt!(k3.ctx, klick(5300, 5000));
+      v.beiTaste!(k3.ctx, { code: 'KeyP' });
+      v.beiZeigerHoch!(k3.ctx, klick(5300, 5000));
+      gleich('switching to SETZEN in the middle of a drag drops it: the release moves nothing', [k3.z.schritte.length, platz(k3.z.layout).find((p) => p.id === 'probe-c')?.x], [0, 5100]);
+    });
+
+    // ── Ids ────────────────────────────────────────────────────────
+    await sektion('Ids: derived + a random tail with a letter; never one that was just deleted', async () => {
+      const geloescht: string[] = [];
+      const t = erzeugePlatzieren({ zufall: () => 0.5 }); // a FIXED random source: the counter has to keep the ids apart
+      const { z, ctx } = neuerKontext(start, 'platzieren', 1);
+      const gesehen = new Set<string>();
+      let wiederverwendet = 0;
+      for (let i = 0; i < 40; i++) {
+        t.beiZeigerRunter(ctx, klick(30000, 30000));
+        const id = t.auswahlId()!;
+        if (gesehen.has(id)) wiederverwendet++;
+        gesehen.add(id);
+        t.beiTaste!(ctx, { code: 'Delete' }); // delete it again, set the same thing at the same place
+        geloescht.push(id);
+      }
+      gleich('set + delete + set again at the SAME place, 40 times, even with a fixed random source: 40 different ids, none used twice', [gesehen.size, wiederverwendet], [40, 0]);
+      check('… every one of them valid (ID_RE) and not in the document any more', geloescht.every((id) => ID_RE.test(id)) && platz(z.layout).length === platz(start).length);
+      // the derived part alone would repeat: the editor's old behaviour, and what the game server took for the same object
+      const zufall = lcg(11);
+      const belegt = new Set<string>();
+      const teile: string[] = [];
+      for (let i = 0; i < 2000; i++) {
+        const id = frischeId(belegt, { prefab: 'Beech1', x: 5, z: 5 }, zufall);
+        belegt.add(id);
+        teile.push(id);
+      }
+      check('2000 ids at one place from a real random source: all different, all `beech1_5_5-` + a letter + 3 base-36 characters (never only digits: never taken for the counter of a derived id)', new Set(teile).size === 2000 && teile.every((id) => /^beech1_5_5-[a-z][0-9a-z]{3}$/.test(id)));
+      const lang = frischeId(new Set(), { prefab: 'P'.repeat(64), x: -40000, z: 40000 }, () => 0.999999);
+      check('a 64-character prefab at the far corner: the id still fits ID_RE and 64 characters', ID_RE.test(lang) && lang.length <= 64, `${lang.length} chars: ${lang}`);
+      const voll = frischeId(new Set(['beech1_5_5-a000', 'beech1_5_5-a000-2']), { prefab: 'Beech1', x: 5, z: 5 }, () => 0);
+      gleich('a taken tail gets a counter behind it', voll, 'beech1_5_5-a000-3');
+      // the tool never gives a deleted id out again, whatever the random source says (the ids of THIS session)
+      const t2 = erzeugePlatzieren({ zufall: () => 0 });
+      const k2 = neuerKontext(start, 'platzieren', 1);
+      t2.beiZeigerRunter(k2.ctx, klick(40, 40));
+      const erste = t2.auswahlId()!;
+      t2.beiTaste!(k2.ctx, { code: 'Delete' });
+      t2.beiZeigerRunter(k2.ctx, klick(40, 40));
+      check('the id of a deleted object is not given out again even by a random source that repeats itself', t2.auswahlId() !== erste && ID_RE.test(t2.auswahlId()!), `${erste} then ${t2.auswahlId()}`);
+    });
+
+    // ── Cancel, release outside, foreign pointer ───────────────────
+    await sektion('Pointer: cancel, release outside the map, another pointer, a release nobody pressed for', async () => {
+      const t = erzeugeAnwaehlen();
+      const { z, ctx } = neuerKontext(start, 'platzieren', 1);
+      t.beiZeigerRunter(ctx, klick(5100, 5000, false, 7));
+      for (let i = 1; i <= 10; i++) t.beiZeigerBewegt!(ctx, klick(5100 + i * 20, 5000, false, 7));
+      t.beiZeigerAbbruch!(ctx);
+      for (let i = 1; i <= 6; i++) t.beiZeigerBewegt!(ctx, klick(5300 + i * 20, 5000, false, 7));
+      t.beiZeigerHoch!(ctx, klick(5420, 5000, false, 7)); // a release WITHOUT a press (the press was cancelled)
+      gleich('pointercancel drops the drag: the later release moves NOTHING (no step, the object stays)', [z.schritte.length, platz(z.layout).find((p) => p.id === 'probe-c')?.x, t.auswahlId()], [0, 5100, 'probe-c']);
+      const zz = neuerZeichner();
+      t.zeichneOverlay!(ctx, zz as unknown as CanvasRenderingContext2D);
+      check('… and no ghost is drawn any more (only the ring)', zz.log.filter((l) => l.startsWith('arc')).length === 1 && !zz.log.includes('dash [4,4]'));
+      // another pointer (a second finger) neither moves nor releases the drag of the first
+      t.beiZeigerRunter(ctx, klick(5100, 5000, false, 1));
+      t.beiZeigerBewegt!(ctx, klick(5100 + 100, 5000, false, 2));
+      t.beiZeigerHoch!(ctx, klick(5100 + 100, 5000, false, 2));
+      gleich('pointer 2 moves and releases: the drag of pointer 1 is untouched (no step)', z.schritte.length, 0);
+      t.beiZeigerBewegt!(ctx, klick(5100 + 60, 5000, false, 1));
+      t.beiZeigerHoch!(ctx, klick(5100 + 60, 5000, false, 1));
+      gleich('pointer 1 finishes it: one step, moved by ITS travel (60)', [z.schritte.length, platz(z.layout).find((p) => p.id === 'probe-c')?.x], [1, 5160]);
+      // a release nobody pressed for
+      t.beiZeigerHoch!(ctx, klick(1, 1, false, 9));
+      gleich('a release with no press before it does nothing', z.schritte.length, 1);
+      // release outside the map = the editor calls the abort hook instead of the release hook: nothing is committed
+      const k2 = neuerKontext(start, 'platzieren', 1);
+      const u = erzeugeAnwaehlen();
+      u.beiZeigerRunter(k2.ctx, klick(5100, 5000));
+      u.beiZeigerBewegt!(k2.ctx, klick(4000, 5000));
+      u.beiZeigerAbbruch!(k2.ctx);
+      gleich('release over the sidebar (abort hook): no step, the object stays at 5100, the selection stays', [k2.z.schritte.length, platz(k2.z.layout).find((p) => p.id === 'probe-c')?.x, u.auswahlId()], [0, 5100, 'probe-c']);
+      // an abort without a drag does nothing (also in SETZEN)
+      const w = erzeugePlatzieren();
+      const k3 = neuerKontext(start, 'platzieren', 1);
+      w.beiZeigerAbbruch!(k3.ctx);
+      gleich('an abort without a drag in progress: nothing (no redraw)', [k3.z.zeichnen, k3.z.schritte.length], [0, 0]);
+    });
+
+    // ── Keys: Backspace like Delete ────────────────────────────────
+    await sektion('Keys: Backspace deletes like Delete', async () => {
+      const t = erzeugePlatzieren();
+      const { z, ctx } = neuerKontext(start);
+      t.waehle('probe-b');
+      t.beiTaste!(ctx, { code: 'Backspace' });
+      gleich('Backspace removes the selection: an "entferne" of placements/probe-b, one step', [platz(z.layout).some((p) => p.id === 'probe-b'), z.schritte.length, z.vorgaenge[0]?.ops.map((o) => `${o.art}/${o.sammlung}/${o.id}`)], [false, 1, ['entferne/placements/probe-b']]);
+      t.beiTaste!(ctx, { code: 'Backspace' });
+      gleich('a second Backspace (no selection): nothing', z.schritte.length, 1);
+    });
 
     // ── Source guard ───────────────────────────────────────────────
     console.log('Source guard');
@@ -759,20 +952,17 @@ async function main(): Promise<void> {
     const index = readFileSync(resolve(EDITOR, 'werkzeuge', 'index.ts'), 'utf-8');
     gleich("editorMain.ts: no `werkzeug === 'platzieren'` branch", haupt.match(/werkzeug\s*[!=]==\s*'platzieren'/g) ?? [], []);
     gleich('editorMain.ts: no `spawnPrefab`, no `layoutMitPlatzierung`', haupt.match(/\b(spawnPrefab|layoutMitPlatzierung)\b/g) ?? [], []);
-    check("editorMain.ts: the pointer hooks are CALLED (move, up), the pointer is captured, Delete is passed on", /\?\.beiZeigerBewegt\?\.\(werkzeugKontext/.test(haupt) && /\?\.beiZeigerHoch\?\.\(werkzeugKontext/.test(haupt) && /setPointerCapture\(e\.pointerId\)/.test(haupt) && /e\.code !== 'Delete'/.test(haupt) && /\?\.beiTaste\?\.\(werkzeugKontext, e\)/.test(haupt));
-    check('editorMain.ts: Delete is ignored while an input has the focus and while the catalog is open', /INPUT\|TEXTAREA\|SELECT/.test(haupt) && /katalogIstOffen\(\)/.test(haupt));
+    check("editorMain.ts: the pointer hooks are CALLED (move, up, cancel), the pointer is captured, Delete is passed on", /\?\.beiZeigerBewegt\?\.\(werkzeugKontext/.test(haupt) && /registriert\.beiZeigerHoch\?\.\(werkzeugKontext/.test(haupt) && /addEventListener\('pointercancel', zeigerAbbruch\)/.test(haupt) && /addEventListener\('lostpointercapture', zeigerAbbruch\)/.test(haupt) && /\.beiZeigerAbbruch\?\.\(werkzeugKontext\)/.test(haupt) && /zeigerId: e\.pointerId/.test(haupt) && /setPointerCapture\(e\.pointerId\)/.test(haupt) && /WERKZEUG_TASTEN_CODES\.has\(e\.code\)/.test(haupt) && /\?\.beiTaste\?\.\(werkzeugKontext, e\)/.test(haupt));
+    check('editorMain.ts: the tool keys (Delete, Backspace, P, V) are ignored while an input has the focus and while the catalog is open', /new Set\(\['Delete', 'Backspace', 'KeyP', 'KeyV'\]\)/.test(haupt) && /INPUT\|TEXTAREA\|SELECT/.test(haupt) && /katalogIstOffen\(\)/.test(haupt));
     check('editorMain.ts: the catalog sets the prefab through the tool; the finding jump selects through it', /platzierenWerkzeug\.setzePrefab\(prefab\)/.test(haupt) && /platzierenWerkzeug\.waehle\(id\)/.test(haupt) && /platzierungZuBefund\(layout, b\)/.test(haupt));
-    check('editorMain.ts: the context answers `bestaetige` with the browser confirm', /bestaetige: \(frage\) => window\.confirm\(frage\)/.test(haupt));
+    check('editorMain.ts: the context answers `bestaetige` with the browser confirm (through erzeugeWerkzeugKontext)', /bestaetige: \(frage\) => window\.confirm\(frage\)/.test(haupt) && /erzeugeWerkzeugKontext\(\{/.test(haupt));
     check('editorMain.ts: the wide tile comes from the tool (`kachelBreit`)', /w\.kachelBreit/.test(haupt));
     gleich("KartenHud.ts: no 'platzieren' key in the old tables", hud.match(/^\s*platzieren:/gm) ?? [], []);
     check("index.ts: 'platzieren' left ALTE_WERKZEUGE and is registered", !/ALTE_WERKZEUGE = \[[^\]]*'platzieren'/.test(index) && /erzeugePlatzieren\(\)/.test(index));
-    check('platzieren.ts: every change goes through ops.ts (opSetzen, opAendern, opEntfernen, wende) and the id from neuePlatzierungsId', (() => {
+    check('platzieren.ts: every change goes through ops.ts (opSetzen, opAendern, opEntfernen, wende) and the id from frischeId', (() => {
       const q = readFileSync(resolve(EDITOR, 'werkzeuge', 'platzieren.ts'), 'utf-8');
-      return /opSetzen\(/.test(q) && /opAendern\(/.test(q) && /opEntfernen\(/.test(q) && /\bwende\(/.test(q) && /neuePlatzierungsId\(/.test(q) && !/Math\.random\(\)/.test(q.replace(/opt\.zufall \?\? Math\.random/, ''));
+      return /opSetzen\(/.test(q) && /opAendern\(/.test(q) && /opEntfernen\(/.test(q) && /\bwende\(/.test(q) && /frischeId\(/.test(q) && !/neuePlatzierungsId\(/.test(q) && !/Math\.random\(\)/.test(q.replace(/opt\.zufall \?\? Math\.random/, ''));
     })());
-  } else {
-    check('Placing tool -- sections could not run (module missing)', false);
-    check("Source guard: editorMain.ts has no `werkzeug === 'platzieren'` branch", !/werkzeug\s*[!=]==\s*'platzieren'/.test(readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8')));
   }
 
   console.log(fehler === 0 ? '\nOK' : `\n${fehler} FAILED`);

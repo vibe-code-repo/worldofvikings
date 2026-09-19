@@ -577,6 +577,51 @@ async function main(): Promise<void> {
     }
 
     {
+      // A tool brings members of its own on top of the hooks (`setzePrefab`, `waehle` of the placing tool): the
+      // editor calls those as well, so `schuetze` wraps EVERY function member, not only the known hooks.
+      console.log('Fault isolation: members a tool brings on top of the hooks');
+      const gemeldet: { id: string; aufruf: string; fehler: unknown }[] = [];
+      let unbehandelt = 0;
+      const beiUnbehandelt = (): void => void unbehandelt++;
+      process.on('unhandledRejection', beiUnbehandelt);
+      const { w } = attrappe('mitZusatz', false);
+      const zusatz = {
+        ...w,
+        setzePrefab: (n: string): void => {
+          if (n === undefined) throw new TypeError('name is undefined');
+        },
+        waehle: async (): Promise<void> => {
+          throw new Error('async member boom');
+        },
+        zaehle: (): number => 3,
+        konstante: 'bleibt',
+      };
+      const g = schutz.schuetze(zusatz as unknown as KartenWerkzeug, (id, aufruf, fehler) => void gemeldet.push({ id, aufruf, fehler })) as unknown as typeof zusatz;
+      check('a throwing extra member does not get out (setzePrefab(undefined) is a TypeError inside)', wirftMit(() => (g.setzePrefab as (n: unknown) => void)(undefined)) === null);
+      check('an async extra member: no throw, no unhandled rejection', wirftMit(() => void g.waehle()) === null);
+      check('a healthy extra member returns its value, a non-function member stays as it is', g.zaehle() === 3 && g.konstante === 'bleibt');
+      check('an extra member the tool does not have stays absent', (g as unknown as Record<string, unknown>).gibtEsNicht === undefined);
+      await new Promise((fertig) => setTimeout(fertig, 30));
+      process.off('unhandledRejection', beiUnbehandelt);
+      gleich('both failures are reported with the tool id and the member name', gemeldet.map((m) => `${m.id}.${m.aufruf}`).sort(), ['mitZusatz.setzePrefab', 'mitZusatz.waehle']);
+      check('the async one as the error it carries', gemeldet.some((m) => m.aufruf === 'waehle' && m.fehler instanceof Error && /async member boom/.test(m.fehler.message)));
+      gleich('no unhandled rejection reached the process', unbehandelt, 0);
+      // the real placing tool through the registry: a throwing extra member is caught as well
+      const echt = reg.platzierenWerkzeug as unknown as { setzePrefab: (n: unknown) => void; prefab: () => string };
+      const alt = console.error;
+      const stumm: unknown[][] = [];
+      console.error = (...a: unknown[]) => void stumm.push(a);
+      try {
+        check('registry: platzierenWerkzeug.setzePrefab(undefined) does not throw out', wirftMit(() => echt.setzePrefab(undefined)) === null);
+      } finally {
+        console.error = alt;
+      }
+      check('… and it was reported once, with the tool id', stumm.length === 1 && /\[werkzeuge\] tool "platzieren": setzePrefab/.test(String(stumm[0]?.[0])), `${stumm.length}`);
+      echt.setzePrefab('Beech1');
+      check('… and the tool still works afterwards', echt.prefab() === 'Beech1');
+    }
+
+    {
       // the editor's own loops, with a broken tool in the middle
       const { z: zk, w: kaputt } = attrappe('kaputt', true);
       const { z: zg, w: gut } = attrappe('gut', false);

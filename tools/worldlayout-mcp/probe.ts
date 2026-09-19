@@ -4,11 +4,14 @@
  * jetzt gegen eine SELBST GEBAUTE Welt statt gegen die echte Instanzdatei).
  *
  * server/data/welten/<instanz>.json ist TABU — die *_set/*_delete-Werkzeuge
- * schreiben, also bekommt der Server-Unterprozess über WOV_LAYOUT_PFAD eine
- * frische, deterministische Welt unter /tmp. Das macht die Assertionen
- * unten auch unabhängig vom Inhalt von dev.json (der sich zwischen zwei
- * Läufen ändern kann, siehe Kopfkommentar von server.ts). Aufräumen läuft
- * in `finally`, also auch bei einem fehlgeschlagenen Check.
+ * schreiben, also bekommt der MCP-Server einen EIGENEN Betriebsdienst (den
+ * einzigen Schreiber der Weltdatei, siehe server.ts): Der Test legt unter
+ * /tmp eine Wurzel mit einer frischen, deterministischen Welt an, startet
+ * dort admin/src/main.ts (WOV_WURZEL, freier Port, Wegwerf-Token) und zeigt
+ * den MCP-Server per WOV_ADMIN_URL darauf. Das macht die Assertionen unten
+ * auch unabhängig vom Inhalt von dev.json (der sich zwischen zwei Läufen
+ * ändern kann). Aufräumen läuft in `finally`, also auch bei einem
+ * fehlgeschlagenen Check.
  *
  *   npx tsx tools/worldlayout-mcp/probe.ts
  */
@@ -17,8 +20,9 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
@@ -27,9 +31,13 @@ const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 // Eigene kleine Welt statt der echten Instanzdatei: Ein Kern-Grasland um
 // den Ursprung (Land bei (0,0), offene See weit draußen) reicht für alle
 // Checks unten und ist unabhängig von Mikes tatsächlichem Weltstand.
-const LAYOUT_PFAD = resolve(tmpdir(), `worldlayout-mcp-probe-${process.pid}.json`);
+const TEST_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-'));
+const TOKEN = 'probe-token-4711';
+const TOKEN_DATEI = resolve(TEST_WURZEL, 'token');
+mkdirSync(resolve(TEST_WURZEL, 'server/data/welten'), { recursive: true });
+writeFileSync(TOKEN_DATEI, `${TOKEN}\n`);
 writeFileSync(
-  LAYOUT_PFAD,
+  resolve(TEST_WURZEL, 'server/data/welten/dev.json'),
   JSON.stringify({
     version: 1,
     name: 'MCP-Probe',
@@ -41,15 +49,47 @@ writeFileSync(
   })
 );
 
-/** Räumt die Testdatei UND die Sicherungen weg, die layoutSchreiben dort anlegt. */
+/** Startet einen Betriebsdienst auf der Testwurzel; gibt Kindprozess und die URL zurück. */
+function dienstStarten(): Promise<{ kind: ChildProcess; url: string }> {
+  return new Promise((fertig, scheitern) => {
+    const kind = spawn(resolve(WURZEL, 'node_modules/.bin/tsx'), ['src/main.ts'], {
+      cwd: resolve(WURZEL, 'admin'),
+      env: {
+        ...process.env,
+        WOV_WURZEL: TEST_WURZEL,
+        WOV_INSTANZ: 'dev',
+        WOV_ADMIN_ADRESSE: '127.0.0.1',
+        WOV_ADMIN_PORT: '0',
+        WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let puffer = '';
+    const zeitgrenze = setTimeout(() => {
+      kind.kill();
+      scheitern(new Error(`Betriebsdienst startet nicht:\n${puffer}`));
+    }, 30_000);
+    kind.stdout.on('data', (s: Buffer) => {
+      puffer += s.toString();
+      const t = /bereit auf 127\.0\.0\.1:(\d+)/.exec(puffer);
+      if (t) {
+        clearTimeout(zeitgrenze);
+        fertig({ kind, url: `http://127.0.0.1:${t[1]}` });
+      }
+    });
+    kind.stderr.on('data', (s: Buffer) => {
+      puffer += s.toString();
+    });
+    kind.on('exit', (code) => {
+      clearTimeout(zeitgrenze);
+      scheitern(new Error(`Betriebsdienst beendet mit ${code}:\n${puffer}`));
+    });
+  });
+}
+
+/** Räumt die Testwurzel samt Weltdatei und Sicherungen weg. */
 function aufraeumen(): void {
-  const ordner = dirname(LAYOUT_PFAD);
-  const name = basename(LAYOUT_PFAD);
-  for (const f of readdirSync(ordner)) {
-    if (f === name || (f.startsWith(`${name}.`) && f.endsWith('.bak'))) {
-      rmSync(resolve(ordner, f), { force: true });
-    }
-  }
+  rmSync(TEST_WURZEL, { recursive: true, force: true });
 }
 
 let fehler = 0;
@@ -66,16 +106,19 @@ const text = (r: unknown): string =>
 const istFehler = (r: unknown): boolean => (r as { isError?: boolean }).isError === true;
 
 let client: Client | undefined;
+let dienst: ChildProcess | undefined;
 try {
+  const gestartet = await dienstStarten();
+  dienst = gestartet.kind;
   const t = new StdioClientTransport({
     command: 'npx',
     args: ['tsx', 'tools/worldlayout-mcp/server.ts'],
     cwd: WURZEL,
     // env wird bei Angabe NICHT gemergt, sondern ersetzt (SDK-Doku) —
-    // deshalb erst die Standardauswahl holen und WOV_LAYOUT_PFAD ergänzen,
-    // statt versehentlich PATH & Co. zu verlieren (npx würde sonst nicht
-    // mehr gefunden).
-    env: { ...getDefaultEnvironment(), WOV_LAYOUT_PFAD: LAYOUT_PFAD },
+    // deshalb erst die Standardauswahl holen und die Betriebsdienst-Angaben
+    // ergänzen, statt versehentlich PATH & Co. zu verlieren (npx würde sonst
+    // nicht mehr gefunden).
+    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: gestartet.url, WOV_ADMIN_TOKEN: TOKEN },
   });
   const c = new Client({ name: 'probe', version: '1.0.0' });
   client = c;
@@ -267,13 +310,15 @@ try {
   const ohneSpawn = text(await c.callTool({ name: 'defaultSpawn_clear', arguments: {} }));
   check('defaultSpawn_clear: kein Spawn mehr in der Zusammenfassung', !/Spawn @/.test(ohneSpawn));
 
-  // ── layout_deploy MUSS sich weigern, solange WOV_LAYOUT_PFAD gesetzt
+  // ── layout_deploy MUSS sich weigern, solange WOV_ADMIN_URL gesetzt
   // ist — sonst würde ein "Erfolg" hier den echten wov-Server unverändert
   // neu starten und die Testdaten wären niemals sichtbar gewesen.
   const deployVersuch = await c.callTool({ name: 'layout_deploy', arguments: {} });
-  check('layout_deploy verweigert sich unter WOV_LAYOUT_PFAD', istFehler(deployVersuch), text(deployVersuch));
+  check('layout_deploy verweigert sich unter WOV_ADMIN_URL', istFehler(deployVersuch), text(deployVersuch));
 } finally {
   await client?.close();
+  dienst?.removeAllListeners('exit');
+  dienst?.kill();
   aufraeumen();
 }
 

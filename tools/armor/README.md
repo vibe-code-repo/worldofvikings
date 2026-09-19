@@ -18,7 +18,7 @@ repository**, and the asset package is not published yet (`AGENTS.md` §1). So t
 
 | You have | You can run |
 |---|---|
-| Only this repository (`npm ci`) | The Node checks on synthetic GLBs: `test/export-attachment.mjs`, `test/skin-gate-selftest.mjs`, `test/wildwarden-pipeline.mjs` (all three run inside `npm test`), and `catalog/equipment-sets-json.mjs`. |
+| Only this repository (`npm ci`) | The Node checks on synthetic GLBs and on the entry points: `test/export-attachment.mjs`, `test/skin-gate-selftest.mjs`, `test/wildwarden-pipeline.mjs`, `test/entry-args.mjs` (all four run inside `npm test`), and `catalog/equipment-sets-json.mjs`. |
 | The body sources and Blender | Every `build.py` and `fit-legacy.py`, `test/armor-motion.py`, `export/render-icons.py`. |
 | Also the canonical body GLBs and the built armor | `export/export-armor.mjs`, `test/skin-gate.mjs`, `test/validate-glbs.cjs`. |
 | A deployed site | `test/equipment-set-assets.mjs`, `test/emberrage-browser.mjs`. |
@@ -35,6 +35,7 @@ ships with Blender (`bpy`, `bmesh`, `mathutils`, `numpy`).
 tools/armor/
   README.md                           this file
   sets/
+    entry_args.py                     command-line check shared by the four two-body entry points (no bpy)
     ironward/male/
       build.py                        builds the set; writes only to OUTPUT_DIR
       armor_spec.json                 materials and size limits, read by build.py
@@ -65,6 +66,7 @@ tools/armor/
     armor-motion.py                   evaluates all master animation clips on a built set
     skin-gate.mjs                     the gate: canonical skin, registry, body masking
     skin-gate-selftest.mjs            proves the gate fails when it should (runs in npm test)
+    entry-args.mjs                    proves the four entry points refuse bad command lines before building (npm test)
     export-attachment.mjs             proves the exporter tags attachments (runs in npm test)
     wildwarden-pipeline.mjs           builder table, registry and shipped GLBs agree (npm test)
     validate-glbs.cjs                 glTF validator over a native and a canonical directory
@@ -76,8 +78,10 @@ tools/armor/
 ```
 
 Every `build.py` under `sets/*/male` and `sets/*/female` can be called directly.
-The two Seidraven and the two Emberrage entry points are thin: they set the variant
-and run `build_common.py`; no geometry is duplicated.
+The two Seidraven and the two Emberrage entry points are thin: they check the
+command line (`sets/entry_args.py`), set the variant and run `build_common.py`; no
+geometry is duplicated. Ironward, Wildwarden and Ashenveil have one self-contained
+builder each and take the same `-- OUTPUT_DIR [--quick]` command line.
 
 Ironward, Wildwarden and Ashenveil have only a `male/` folder: their builders look
 up the objects `WoV_BodyBase_Male_<region>` in the source file, and the set
@@ -140,11 +144,15 @@ exactly those triangles. Details: `docs/armor-body-variants.md`.
 `MASTER_ANIMATIONS.blend` the master animation file, `GAME_BODY.glb` the canonical
 game body of the matching figure (male: `wikinger/WikingerKoerper.glb`, 71 bones;
 female: `wikingerin/WikingerinKoerper.glb`, 51 bones), `<SET>` and `<PREFIX>` the set
-folder and the Blender object prefix (`WoV_<Set>_`). Run from the repository root.
+folder and the Blender object prefix (`WoV_<Set>_`). Run the Node tools from the
+repository root. Give Blender absolute paths for `--python` and `OUTPUT_DIR`: with the
+Flatpak build its working directory is not yours (`/app/blender`), so a relative script
+path is not found and a relative output directory is not writable. The relative paths
+in the commands below are shorthand for that.
 
 1. **Build** (Blender). Writes the native GLBs, `equipment.json`, `validation.json`,
-   the `.blend` and renders into `OUTPUT_DIR`. `--quick` renders only the hero image
-   and the metadata; it does not write GLBs or the `.blend`.
+   the `.blend` and renders into `OUTPUT_DIR`. `--quick` shortens it, differently per
+   set (next table).
 
    ```sh
    blender --factory-startup -b BODY_BASE_MALE.blend --python-exit-code 1 \
@@ -154,9 +162,30 @@ folder and the Blender object prefix (`WoV_<Set>_`). Run from the repository roo
      --python tools/armor/sets/<SET>/female/build.py -- OUTPUT_DIR [--quick]
    ```
 
-   Look at `validation.json` (triangle count, geometry checks). The entry points fail
-   closed: `male/build.py` refuses `--female`, and the wrong body source stops with a
+   Look at `validation.json` (triangle count, geometry checks).
+
+   The Seidraven and Emberrage entry points check the command line first, before
+   anything is built (`sets/entry_args.py`): `OUTPUT_DIR` must be the first argument
+   after `--`; the only other switch is `--quick` (the female entry point also accepts
+   an explicit `--female`). Anything else is refused with a message, a usage line and
+   exit code 1: a missing `--` or directory, unknown or repeated switches, `--female`
+   on a male entry point, and `--quick`, `--female` or `--male` placed in front of the
+   `--` (Blender would silently ignore them). Blender turns the refusal into a
+   non-zero exit code even without `--python-exit-code 1` (measured with 5.2). A male
+   entry point on the female body source, or the reverse, stops a moment later with a
    missing-object error.
+
+   What `--quick` does, per set (read from the code):
+
+   | Set | `--quick` |
+   |---|---|
+   | Seidraven, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `sets/seidraven/build_common.py:618,680`, `ashenveil/male/build.py:607,666`, `wildwarden/male/build.py:502,556`. |
+   | Emberrage | The same, **except that the export block is forced on**: `--quick` still writes the seven item GLBs, `WoV_Emberrage_Armor.glb` and `WoV_Emberrage_Armor.blend` (`sets/emberrage/build_common.py:191` turns the guard into `if True:`). Renders and pose checks are still cut down. |
+   | Ironward | The switch exists (it is read from the whole command line, `ironward/male/build.py:365,404`) but it only skips the detail and pose *images*. The pose checks run, and the `.blend` (`:360`, `:432`), `components.json` and the four GLBs (`:421-424`) are always written. |
+
+   **Never write a quick run into an output directory you have accepted.** For
+   Emberrage and Ironward it overwrites the GLBs and the `.blend`, and for Emberrage
+   it replaces `validation.json` by one without pose checks.
 
 2. **Motion test** (Blender). Evaluates every master clip frame by frame on the saved
    armor blend and renders diagnostic poses.
@@ -215,8 +244,22 @@ folder and the Blender object prefix (`WoV_<Set>_`). Run from the repository roo
 
 8. **Register** (code, by a person): `shared/src/<set>.ts` and
    `shared/src/equipmentSets.ts`, plus the places listed under
-   [Adding a new set](#adding-a-new-set). Copy the item GLBs and icons to where the
-   game serves models and sprites.
+   [Adding a new set](#adding-a-new-set). Then deliver the files:
+
+   - Item GLBs go to the game's asset store as `assets/models/<set>/<item>.glb` and
+     the icons to `assets/sprites/<icon>.png`: these are the catalog's `model` and
+     `icon` fields, and exactly what the delivery check in step 11 fetches. `assets/`
+     is not tracked (`.gitignore` keeps only `assets/manifest.json`).
+   - For the female figure (`wikingerin`) the catalog's `previewModel` is
+     `armor/<set>/<item>.glb`, which the website serves from the tracked folder
+     `wov-web/static/assets/models/armor/<set>/` (`shared/src/equipmentSets.ts`).
+     Copy that set's GLBs there too, as the existing sets do
+     (`git ls-files wov-web/static/assets/models/armor`).
+   - Run `node_modules/.bin/tsx tools/asset-manifest.mjs`. It measures every GLB under
+     `assets/models/` and adds it to the tracked `assets/manifest.json`; commit the
+     result. Without it `tools/test/manifest-vollstaendig.ts` (in `npm test`, on a
+     machine that has the full `assets/models`) turns red for every GLB that has no
+     manifest entry.
 
 9. **Catalogs.** `node_modules/.bin/tsx tools/armor/catalog/equipment-sets-json.mjs`
    writes `assets/equipment-sets.json` from the shared catalog;
@@ -286,8 +329,9 @@ design from the Seidraven builder.
    `exec(compile(end + scaffold.split(end)[1], ..., 'exec'))` as Emberrage does, and
    adjust the strings you need in the tail through `.replace()` (class name, look),
    asserting each replacement changed something if it matters.
-4. **Build both bodies** with the entry points, compare the triangle counts in
-   `validation.json` with what you expect, then follow the chain above from step 2.
+4. **Build both bodies** with the entry points (step 1 of the chain; a full run, not
+   `--quick`), compare the triangle counts in `validation.json` with what you expect,
+   then follow the chain from step 2.
 5. **Register** (code, the Emberrage commit is the template):
    `shared/src/<new>.ts` (parts with `key`, `name`, `slot`, `equipment`, `regions`,
    `hideAppearance`, `weight`, generated ids `<new>_<variant>_<key>`, the body policy
@@ -298,7 +342,8 @@ design from the Seidraven builder.
    class mapping). `git grep -n emberrage -- shared client server` lists every place
    an existing set is wired. Item ids and set ids must stay stable across later
    visual revisions.
-6. Continue with steps 9 to 11 of the chain.
+6. Deliver the files and the manifest as described in step 8 of the chain, then
+   continue with steps 9 to 11.
 
 ## What the checks do not promise
 

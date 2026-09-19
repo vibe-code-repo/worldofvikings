@@ -1,6 +1,6 @@
 # Armor body variants and Seidraven legacy-female fitting
 
-Implemented in the isolated DEV worktree `/opt/wov-worktrees/seidraven-body-variants`, branch `codex/seidraven-body-variants`. Deployed to running wov-dev (CT 102) on 2026-09-13 at approximately 13:58 UTC, code `6bbcc4d`, after merging the intervening DEV/Wildwarden fixes. No old-LIVE deployment, inventory grant, body-file replacement or account migration.
+Implemented in an isolated DEV worktree on its own branch. Deployed to the running DEV deployment on 2026-09-13 at approximately 13:58 UTC, code `6bbcc4d`, after merging the intervening DEV/Wildwarden fixes. No old production deployment, inventory grant, body-file replacement or account migration.
 
 ## One compatibility policy
 
@@ -21,7 +21,7 @@ This does not add class starting-item grants. Character creation still sends its
 
 ## Real female avatar fitting
 
-Asset output: `/home/mike/wov-assets/PlayerCharacter/Armor/Seidraven_v1/Female_Legacy_v1/`.
+Asset output: the `Female_Legacy_v1` folder of the Seidraven set in the authoring asset store.
 
 `tools/armor/sets/seidraven/female/fit-legacy.py` reads the prior female authoring armor and the actual `wikingerin/WikingerinKoerper` GLB. It removes the prior lining, fits ornaments with explicit anatomical rest-frame transforms (not bone renaming alone), transfers weights to the 51-bone legacy rig, and rebuilds lining from an exact partition of the actual female body. Wings use rigid `L_Clavicle` / `R_Clavicle` binding. Original files remain unchanged.
 
@@ -44,6 +44,6 @@ The wider repository suite runs in an isolated checkout without the complete ass
 
 `/assets/equipment-sets.json` and `/assets/appearance.json` expose identical set policies. The served preview was rebuilt and its cache key advanced to `seidraven-body-variants-v1-20260913`. HTTP verification passed for all five sets, 35 GLBs and 35 icons, including Seidraven mesh-node body tags and replacement regions. All three services are active; website/client return HTTP 200 and the game socket endpoint returns the expected HTTP 426. No account was logged into for the smoke test.
 
-Rollback materials are in `/var/backups/wov/seidraven-20260913-UFMzDv/`: previous code, website build, catalogs and VERSION, plus the deployed Seidraven assets. Roll back code, website and both JSON catalogs together; do not restore world/account data. Assets are not tracked in Git, and no new GitHub asset release was published. A fresh clone using the previous release package will not obtain these files automatically.
+Rollback materials are a backup of the previous deployment: previous code, website build, catalogs and VERSION, plus the deployed Seidraven assets. Roll back code, website and both JSON catalogs together; do not restore world/account data. Assets are not tracked in Git, and no new GitHub asset release was published. A fresh clone using the previous release package will not obtain these files automatically.
 
-CT 102 currently serves both DEV hostnames and `world-of-vikings.com`; those routes share this deployment. The old wov-live container was not touched. Login/start-item grants and runtime bloom remain separate work.
+The DEV deployment currently serves both DEV hostnames and the public website; those routes share this deployment. The old production container was not touched. Login/start-item grants and runtime bloom remain separate work.

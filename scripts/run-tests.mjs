@@ -131,6 +131,15 @@ const KERN = [
   */
   ['tools/armor/test', 'skin-gate-selftest.mjs'],
   /*
+    The four thin armor build entry points (Seidraven/Emberrage, male/female)
+    check their command line before any build starts: run under python3 with a
+    stand-in for the call that would start build_common.py, good command lines
+    reach it with the right arguments, bad ones (no `--`, no directory, unknown or
+    repeated switch, --female on the male entry, a switch in front of the `--`)
+    stop before it with a message and a non-zero exit. No Blender. ~5 s.
+  */
+  ['tools/armor/test', 'entry-args.mjs', brauchtPython('the armor entry points')],
+  /*
     Ein Ursprung im Container (12.09.2026): Textnachweis über
     deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,
     /editor/, /api/accounts/, /api/, /assets/, /ws) stehen als eigener

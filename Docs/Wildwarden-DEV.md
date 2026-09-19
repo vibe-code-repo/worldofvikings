@@ -28,8 +28,8 @@ item wildwarden Gast
 The authenticated DEV helper accepts `--set=wildwarden` (default remains Ironward):
 
 ```sh
-node_modules/.bin/tsx tools/grant-ironward-dev.mts Gast --set=wildwarden --apply
-node_modules/.bin/tsx tools/grant-ironward-dev.mts Gast --apply
+node_modules/.bin/tsx tools/armor/dev/grant-set-dev.mts Gast --set=wildwarden --apply
+node_modules/.bin/tsx tools/armor/dev/grant-set-dev.mts Gast --apply
 ```
 
 When a pre-fix record lacks its entire inventory, use one explicit `--game-session --apply` login while the character is **offline**. The normal game login initializes its standard starter inventory and the command adds the selected set; no save file is edited. The default helper remains editor-only and does not enter the world.
@@ -41,7 +41,7 @@ Use `--game-session --verify-sets` while the character is offline to receive and
 - Typecheck all four application workspaces.
 - Client and server Ironward/Wildwarden tests: slots, ownership, serialization, equip/unequip, replacement masks, atomic grants, duplicate prevention and permissions.
 - Logout regression: actual disconnect handler and saved-state lookup.
-- `tools/test/ironward-skin.mjs BODY MODEL_DIR --family=wildwarden`: real Babylon GLB loader, canonical skin, all 28 game clips sampled four times, complete body replacement and restoration. Default family remains Ironward.
+- `tools/armor/test/skin-gate.mjs BODY MODEL_DIR --family=wildwarden`: real Babylon GLB loader, canonical skin, all 28 game clips sampled four times, complete body replacement and restoration. Default family remains Ironward.
 - `/play/test/wildwarden-view.html` and `/play/test/ironward-view.html`: the game's actual character preview, full set, single pieces and unequip.
 
 The earlier Blender motion audit covered 741 frames across 19 master actions. Extreme kicks and crouched locomotion remain deformation stress cases; this integration is not a collision-free certification. The user should test both sets on DEV using I for inventory and K for the character window.
@@ -55,17 +55,17 @@ The earlier Blender motion audit covered 741 frames across 19 master actions. Ex
 ```sh
 # 1. Build the seven items on the unmodified male rest rig (Blender 5.2, ~50 s incl. renders).
 flatpak run org.blender.Blender --factory-startup -b WoV_BodyBase_Male.blend --python-exit-code 1 \
-  --python ABSOLUTE_REPO/tools/build-druid-armor.py -- OUTPUT          # --quick: hero render only, no GLB export
+  --python ABSOLUTE_REPO/tools/armor/sets/wildwarden/male/build.py -- OUTPUT          # --quick: hero render only, no GLB export
 # 2. Optional motion check against the master clips (--quick: 3 clips; without it 19 clips, every frame).
 flatpak run org.blender.Blender --factory-startup -b OUTPUT/WoV_Wildwarden_Armor.blend --python-exit-code 1 \
-  --python ABSOLUTE_REPO/tools/test/armor-motion.py -- wov-player-master2.blend OUTPUT/motion [--quick]
+  --python ABSOLUTE_REPO/tools/armor/test/armor-motion.py -- wov-player-master2.blend OUTPUT/motion [--quick]
 # 3. Export against the game's own skin (equipment.json comes from step 1).
-node_modules/.bin/tsx tools/export-ironward.mjs OUTPUT/WoV_Wildwarden_Armor.glb WikingerKoerper.reference.glb OUTPUT/game-ready OUTPUT/equipment.json
-node_modules/.bin/tsx tools/test/ironward-skin.mjs WikingerKoerper.reference.glb OUTPUT/game-ready --family=wildwarden [--write-report]
-node tools/test/validate-armor-glbs.cjs OUTPUT PATH_TO_GLTF_VALIDATOR_PACKAGE
+node_modules/.bin/tsx tools/armor/export/export-armor.mjs OUTPUT/WoV_Wildwarden_Armor.glb WikingerKoerper.reference.glb OUTPUT/game-ready OUTPUT/equipment.json
+node_modules/.bin/tsx tools/armor/test/skin-gate.mjs WikingerKoerper.reference.glb OUTPUT/game-ready --family=wildwarden [--write-report]
+node tools/armor/test/validate-glbs.cjs OUTPUT PATH_TO_GLTF_VALIDATOR_PACKAGE
 ```
 
-`ironward-skin.mjs` takes every family the registry knows (`--family`; Seidraven and Emberrage also need `--variant=male|female`, and the body GLB must match that variant's body profile). It requires every item the registry lists for the family to be in `manifest.json` and on disk, compares the `replaces` / `attachment` extras of each GLB with the registry's regions in both directions, hides exactly those regions (ten for Wildwarden, eleven for Ironward; on the legacy female body it hides triangles per region) and checks that the body comes back on unequip. `--unregistered` switches all of that off (registry, extras, masking) and is meant only for sets without a registry entry; it warns when the items are registered. `tools/test/armor-skin-gate.mjs`, part of `npm test`, proves the gate itself on synthetic sets. `--write-report` stores `animation-validation.json` next to the models; without it nothing is written.
+`skin-gate.mjs` takes every family the registry knows (`--family`; Seidraven and Emberrage also need `--variant=male|female`, and the body GLB must match that variant's body profile). It requires every item the registry lists for the family to be in `manifest.json` and on disk, compares the `replaces` / `attachment` extras of each GLB with the registry's regions in both directions, hides exactly those regions (ten for Wildwarden, eleven for Ironward; on the legacy female body it hides triangles per region) and checks that the body comes back on unequip. `--unregistered` switches all of that off (registry, extras, masking) and is meant only for sets without a registry entry; it warns when the items are registered. `tools/armor/test/skin-gate-selftest.mjs`, part of `npm test`, proves the gate itself on synthetic sets. `--write-report` stores `animation-validation.json` next to the models; without it nothing is written.
 
 **What was measured.** Step 1 on the sources named above reproduces `Wildwarden_v3` exactly: the seven native GLBs, the combined GLB, `equipment.json` and `validation.json` are byte-identical (9,286 triangles). Exporting with the exporter of commit `0dc555d` reproduces the seven game-ready GLBs and their `manifest.json` byte for byte. Today's exporter additionally writes `extras.itemId` on every mesh node (as for the other equipment sets); geometry, skin and every other byte of the binary chunk are unchanged, so a rebuild differs from the shipped files in that one field only.
 

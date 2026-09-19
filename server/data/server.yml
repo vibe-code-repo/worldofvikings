@@ -1,7 +1,7 @@
 # 2026-09-13: Village profile supersedes historical Level1/no-fog trials below.
 # Current rationale and validation: design/village-biome.md.
 # World of Vikings Server Configuration
-# Aufbau übernommen aus der data/server.yml des C++-Referenzservers
+# Aufbau übernommen aus der data/server.yml des Referenzservers
 #
 # WAS HIER STEHT, WIRKT AUCH. Jeder Schluessel dieser Datei wird in
 # server/src/ServerKonfig.ts ausgewertet; was dort nicht in
@@ -17,7 +17,7 @@
 #                 der Anmeldung ausschliesslich Handshake-Pakete durch,
 #                 und server/src/net/Identitaet.ts vergibt die Spieler-ID
 #                 serverseitig und signiert sie als HMAC-SessionToken.
-#                 Der alte Schluessel meinte ein Steam-Ticket, das es hier
+#                 Der alte Schluessel meinte ein Plattform-Ticket, das es hier
 #                 nie gab.
 #   timeout       Fest verdrahtet in NetManager.pruefeTimeouts(): 30 s ohne
 #                 Paket fuer angemeldete Peers (der Client pingt alle 5 s),
@@ -43,7 +43,7 @@ server:
   password: ""
   port: 2467
   # public, dedicated: verworfen (A14, 20.08.) -- es gibt keine Server-
-  # Browser-Registrierung (kein Steam-Layer), an die diese Flags anknuepfen
+  # Browser-Registrierung (kein Plattform-Layer), an die diese Flags anknuepfen
   # koennten; der Prozess ist ohnehin immer "dedicated" (ein Node-Skript,
   # kein Listen-Server mit lokalem Spieler).
 
@@ -52,7 +52,7 @@ players:
   # Verworfen (A14): whitelist, offline, timeout, list-send-interval,
   # max-online, authenticate -- keinen davon las Code. Wo ihre Funktion
   # heute liegt, steht im Kopf dieser Datei; "offline" und
-  # "list-send-interval" gehoerten beide zur Steam-Server-Registrierung,
+  # "list-send-interval" gehoerten beide zur Plattform-Server-Registrierung,
   # die es hier nicht gibt.
   # FALSE seit 13.09.2026 (Paket 0.1). Vorher stand hier `true`, und das
   # hiess woertlich: JEDER, der sich verbindet, ist Admin. Mit dem auf der
@@ -187,14 +187,14 @@ world:
   vegetation: true
   creatures: true
   seed: KxSYuZquuw
-  # C++ server.yml: experimental-location-overrides: true (ShipSetting01)
+  # Reference server: experimental-location-overrides: true (ShipSetting01)
   experimental-location-overrides: true
-  # C++ server.yml:35 — modern FastNoise Ashlands (ASHLANDS_2.0), C++ default true
+  # Reference server: modern FastNoise Ashlands (ASHLANDS_2.0), default true
   experimental-ashlands-modern-noise: true
 
   # Auf welcher Hoehe steht der Spieler?
   #
-  # AUS (Vorgabe, C++-Port) schnappt getGroundHeight auf den NAECHSTEN
+  # AUS (Vorgabe, wie im Referenzserver) schnappt getGroundHeight auf den NAECHSTEN
   # Gitterpunkt: floor(v + 0.5). Das Terrain wird aber als Dreiecksnetz
   # zwischen den Punkten gezeichnet. Die Figur laeuft dadurch eine Treppe,
   # waehrend der Hang glatt aussieht -- gemessen am 23.08.2026 auf einer
@@ -418,9 +418,9 @@ look:
   # ein zweites Mal, und die zweite ist die, die veraltet.
   saettigung: 0.65
   # ── Nebel: linear 15 → 200 m ─────────────────────────────────────────
-  # `m_FogMode = 1` (Linear), `m_LinearFogStart` 15, `m_LinearFogEnd` 200
+  # Nebelmodus linear, Start 15, Ende 200
   # (§D). Im Linear-Modus liest niemand `fogDensity` — auch das Vorbild
-  # nicht, dessen `m_FogDensity` 0,01 daneben steht und nichts tut.
+  # nicht, dessen Nebeldichte 0,01 daneben steht und nichts tut.
   #
   # Das ist ERHEBLICH dichter als die exp-Kurve mit 0,0009, die hier
   # stand: Bei 200 m war unser Bild zu 16 % Nebel, das Vorbild ist es zu
@@ -449,7 +449,7 @@ look:
   # eigene Entscheidung.
   #
   # ── Nebelstart 15 → 50 m (Runde 2, 12.09.2026) ──────────────────────
-  # Die 15 stammt aus `m_LinearFogStart` des Vorbilds und ist dort
+  # Die 15 stammt aus dem Nebelstart des Vorbilds und ist dort
   # richtig — bei 200 m Nebelende. Neben unseren 800 m heisst sie: schon
   # ueber dem Nahbereich liegt Dunst. Im Bild ist genau das der
   # „Schleier" ueber dem Waldrand.
@@ -564,7 +564,7 @@ look:
     farbe: '#0d0a08'
   # Unity-intensity 0,10 (§E) auf Babylons Pixelverschiebung: 0,10 × 30
   # = 3,0 — dieselbe Umrechnung, mit der hier 4,5 stand (die galt fuer
-  # die 0,15 des Schwesterprojekts).
+  # die 0,15 des Vergleichsprojekts).
   ca:
     an: true
     staerke: 3.0

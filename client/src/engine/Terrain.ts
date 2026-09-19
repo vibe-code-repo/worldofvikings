@@ -15,7 +15,7 @@
  * coarse mesh never z-fights the detailed one where they overlap.
  *
  * Winding: Babylon.js (WebGL) expects CCW front faces for upward normals.
- * The index order matches the C++ collision mesh (Heightmap.cpp):
+ * The index order matches the reference server's collision mesh:
  * T1=(v00,v01,v10), T2=(v10,v01,v11).
  */
 import { Mesh, TransformNode, VertexData } from '@babylonjs/core/Meshes';
@@ -48,7 +48,7 @@ import { WaterPlugin } from './WaterPlugin';
 import { WaterRefraction } from './WaterRefraction';
 import { WaterDepthMap } from './WaterDepthMap';
 
-/** Biome base colors (D5 fallback look — same palette as the three.js reference). */
+/** Biome base colors (D5 fallback look — same palette as the comparison project's three.js version). */
 const BIOME_COLORS: Record<number, [number, number, number]> = {
   [Biome.Meadows]: [0.36, 0.48, 0.24],
   [Biome.BlackForest]: [0.22, 0.34, 0.18],
@@ -1211,7 +1211,7 @@ export class TerrainManager {
     }
 
     // Die Wellenverschiebung läuft jetzt im Vertex-Shader (WaterPlugin,
-    // echte WaterVolume.CalcWave-Formel). Hier bleibt nichts zu tun:
+    // echte Wellenformel des Originals). Hier bleibt nichts zu tun:
     // zehn Oktaven × zwei TrochSin je Vertex wären auf der CPU pro Frame
     // nicht bezahlbar (~330k Trigonometrie-Aufrufe bei 16,6k Vertices).
     //
@@ -1317,8 +1317,8 @@ export class TerrainManager {
    * meters (must divide 64), all positions biased by `yBias`.
    *
    * Positions are WORLD-space (mesh node stays at origin). Winding:
-   * T1=(v00,v01,v10), T2=(v10,v01,v11) — same as C++ Heightmap.cpp
-   * collision mesh. Babylon.js (WebGL) CCW front face with upward normal.
+   * T1=(v00,v01,v10), T2=(v10,v01,v11) — same as the reference
+   * server's collision mesh. Babylon.js (WebGL) CCW front face with upward normal.
    */
   private buildGridGeometry(
     zx0: number,
@@ -1541,7 +1541,7 @@ export class TerrainManager {
   private static indizesFuer(n: number): Uint32Array {
     const da = TerrainManager.indexCache.get(n);
     if (da) return da;
-    // Indices: T1=(v00,v01,v10), T2=(v10,v01,v11) — matches C++ Heightmap.cpp
+    // Indices: T1=(v00,v01,v10), T2=(v10,v01,v11) — matches the reference server's collision mesh
     const cells = n - 1;
     const indices = new Uint32Array(cells * cells * 6);
     let ii = 0;
@@ -1674,8 +1674,8 @@ export class TerrainManager {
    * -x/-z-Kante einschliesst: zwischen zwei Zonen bleibt kein Spalt.
    *
    * Was sich fachlich ändert: Havok teilt die Vierecke nach seiner
-   * eigenen Regel in Dreiecke, das Chunk-Mesh nach `Heightmap.cpp`
-   * (T1=v00,v01,v10). Auf dem 1-m-Gitter weicht die Kollisionsfläche
+   * eigenen Regel in Dreiecke, das Chunk-Mesh nach der Regel des
+   * Referenzservers (T1=v00,v01,v10). Auf dem 1-m-Gitter weicht die Kollisionsfläche
    * dadurch in der Mitte eines Vierecks um wenige Zentimeter vom
    * gezeichneten Dreieck ab. An den Stützstellen selbst ist sie identisch.
    */

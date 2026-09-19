@@ -3,7 +3,7 @@
  *
  * ── Warum überhaupt ein eigener Pass ────────────────────────────────
  * Das Original-Wasser ist NICHT alphagemischt. Im `water`-Material
- * (extracted_assets/Material, m_Name "water") stehen:
+ * (Materialexport des Originals, Material "water") stehen:
  *
  *     _SrcBlend = 1 (One)   _DstBlend = 0 (Zero)   _ZWrite = 1
  *

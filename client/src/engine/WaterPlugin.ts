@@ -2,8 +2,8 @@
  * WaterPlugin — Wellen, Ufer-Schaum, Tiefen-Farbverlauf und feines
  * Normal-Detail (StandardMaterial-Plugin, Muster wie ClutterWindPlugin).
  *
- * ── Wellen: die ECHTE Formel aus `WaterVolume.cs` ───────────────────
- * Portiert aus dem dekompilierten Client (`GetWaterSurface`/`CalcWave`/
+ * ── Wellen: die ECHTE Formel des Originals ──────────────────────────
+ * Portiert aus dem Client des Originals (Wellenberechnung `CalcWave`/
  * `CreateWave`/`TrochSin`): zehn trochoidale Oktaven, deren Amplitude mit
  * der Wassertiefe skaliert.
  *
@@ -24,8 +24,8 @@
  * ausgerechnet DORT auf 35 % herunterzog, wo die Bewegung sichtbar sein
  * soll. Das Original dämpft zwar auch zum Ufer hin, aber über 10 m statt
  * 2,5 m und mit einer Rohamplitude, die selbst bei 1 m Tiefe noch
- * Dezimeter- bis Meterhub übrig lässt. Die three.js-Referenz
- * (der erste Prototyp) dämpft sogar überhaupt nicht — dort ist genau das der
+ * Dezimeter- bis Meterhub übrig lässt. Das Vergleichsprojekt
+ * dämpft sogar überhaupt nicht — dort ist genau das der
  * Grund, warum der Strand sichtbar überspült wird.
  *
  * Die Verschiebung passiert jetzt im VERTEX-SHADER statt auf der CPU:
@@ -34,7 +34,7 @@
  *
  * ── Schaum ──────────────────────────────────────────────────────────
  * Struktur nach den Property-Deklarationen des Original-Shaders
- * (`m_PropInfo.m_Props`; Shader-Quellcode war nicht zu gewinnen):
+ * (Property-Liste des Shaders; Shader-Quellcode war nicht zu gewinnen):
  * `_FoamTex`/`_FoamHighTex`/`_RandomFoamTex`/`_CurlTex` sowie
  * `_FoamDepth`/`_ShoreFade`/`_DepthFade`/`_WaterEdge` ⇒ Schaumstärke ist
  * eine Funktion der Wassertiefe (Ufer-/Intersection-Schaum), keine gemalte
@@ -49,9 +49,9 @@
  * … — 2.639 von 2.763 PNGs dort sind leere Stubs). Der Shader sampelte
  * also leere Dateien.
  *
- * Die Bilddaten waren aber nicht verloren, nur namenlos: unter
- * `extracted_assets/Texture2D/` liegen 1.605 echte PNGs, benannt nach
- * Unity-PathID. Über das `water`-Material (`extracted_assets/Material/`,
+ * Die Bilddaten waren aber nicht verloren, nur namenlos: im Textur-Export
+ * des Originals liegen 1.605 echte PNGs, benannt nach
+ * Unity-PathID. Über das `water`-Material (aus dem Materialexport,
  * enthält Klarnamen UND die PathIDs seiner Textur-Slots) ließen sie sich
  * eindeutig zuordnen — siehe `tools/recover-textures.mjs`. Wir benutzen
  * jetzt die ECHTEN Texturen:
@@ -79,7 +79,7 @@
  * bereits als Vertex-Attribut vor, es bleibt bei EINEM Zusatzpass.
  *
  * Nebenbefund aus dem Original: dort ist `_depth` nur an den VIER Ecken
- * der Zone bekannt (`Heightmap.cs:350-357`) und wird über 64 m bilinear
+ * der Zone bekannt und wird über 64 m bilinear
  * interpoliert. Unser `aDepth` je Vertex ist feiner als das Original —
  * Schaum- und Farbkanten sitzen bei uns also eher zu scharf als zu weich.
  *
@@ -119,8 +119,8 @@ const WIND_INTENSITY = 0.75;
 // Seerosen und Schilf auf genau der Welle liegen, die hier gezeichnet
 // wird. Siehe dort.
 // ── Werte aus dem echten `water`-Material ───────────────────────────
-// Ausgelesen aus extracted_assets/Material (m_Floats/m_Colors des
-// Materials mit m_Name "water"). Vorher standen hier geschätzte Werte.
+// Ausgelesen aus dem Materialexport des Originals (Zahlen- und Farbwerte
+// des Materials "water"). Vorher standen hier geschätzte Werte.
 /** `_FoamDepth` — Wassertiefe (m), bis zu der Ufer-Schaum entsteht.
  *  0,2 m ist ein SEHR schmaler Saum; mit meinem vorherigen Schätzwert
  *  0,55 legte sich der Schaum flächig übers Flachwasser. */
@@ -131,9 +131,9 @@ const DEPTH_FADE = 15;
 // ── Die beiden Ankerfarben des neuen Looks ─────────────────────────
 //
 // Sie stammen aus dem `lighting`-Block von `content/worlds/village1.json`
-// des Schwesterprojekts (Stand main a81cee3) und sind dort AM BILD
+// des Vergleichsprojekts (Stand main a81cee3) und sind dort AM BILD
 // kalibriert, nicht gesetzt: Nebel `#a3afbd`, Himmelshorizont `#dfa974`
-// (siehe „Analyse — Look-Übertragung ins Labor" §2 „Licht und
+// (siehe die Look-Analyse, §2 „Licht und
 // Nachbearbeitung" sowie §4 „Bauer Gras und Wasser").
 //
 // ⚠ SIE SIND sRGB. Die Szene rechnet linear (Farbraum-Block in
@@ -365,8 +365,8 @@ export const COLOR_LOD = tonUeberlagern([0.098, 0.196, 0.169], NEBEL_LINEAR, WAS
 
 export class WaterPlugin extends MaterialPluginBase {
   /**
-   * Echter Wind aus dem WeatherManager (`GetWindIntensity`/`GetWindDir`
-   * im Original). WaterVolume.CalcWave nimmt `wind.w` als Amplitude und
+   * Echter Wind aus dem WeatherManager (Windstärke und Windrichtung
+   * im Original). CalcWave nimmt `wind.w` als Amplitude und
    * `wind.xz` als Richtung der ERSTEN Oktave — die übrigen neun haben im
    * Original feste Richtungen. Genau so wird es hier gefüttert; vorher
    * standen beide auf Konstanten, das Wasser war also wetterunabhängig.
@@ -404,9 +404,9 @@ export class WaterPlugin extends MaterialPluginBase {
   /**
    * Umgebungslicht (`lighting.ambient.diffuse`) und Sonnenstärke
    * (`lighting.sun.intensity`) — zusammen das Licht, unter dem die
-   * Wassersäule steht. Im Original macht EnvMan dasselbe global:
-   * `Shader.SetGlobalColor(s_sunColor, m_dirLight.color * intensity)` und
-   * `s_ambientColor = RenderSettings.ambientLight` (EnvMan.cs:757/758).
+   * Wassersäule steht. Im Original setzt der Wettermanager dasselbe global:
+   * Sonnenfarbe × Lichtstärke als globale Shaderfarbe und
+   * `RenderSettings.ambientLight` als zweite.
    */
   static readonly ambient = new Color3(0.46, 0.57, 0.71);
   static sunIntensity = 1;
@@ -686,7 +686,7 @@ export class WaterPlugin extends MaterialPluginBase {
           // wie beim Clutter die Identität.
           vec3 wpos = (world * vec4(positionUpdated, 1.0)).xyz;
           float depth01 = clamp(aDepth / WATER_DEPTH_SCALE, 0.0, 1.0);
-          // WaterVolume.CalcWave: zweimal rechnen, die HÖHEN mischen.
+          // Wellenformel: zweimal rechnen, die HÖHEN mischen.
           float waveY = mix(
             wCalcWave(wpos.xz, depth01, waterTime, waterWind, waterWindDir),
             wCalcWave(wpos.xz, depth01, waterTime, waterWind2, waterWindDir2),
@@ -868,8 +868,8 @@ export class WaterPlugin extends MaterialPluginBase {
           // also taghell grün in eine dunkle Szene, und genau das war als
           // "gerade bei Nacht extrem" gemeldet.
           //
-          // Im Original stellt EnvMan dem Wassershader dafür zwei globale
-          // Werte bereit (EnvMan.cs:757/758): sunColor × Lichtstärke und
+          // Im Original stellt der Wettermanager dem Wassershader dafür zwei
+          // globale Werte bereit: sunColor × Lichtstärke und
           // ambientColor. Dieselben zwei hier, mit der Flächennormale
           // gewichtet. Der Grund aus dem Refraktionsbild bleibt aussen
           // vor — der ist bereits beleuchtet gerendert.
@@ -1224,7 +1224,7 @@ export class WaterPlugin extends MaterialPluginBase {
           // dunkelgrau, tagsüber weiß.
           float foamLicht = mix(0.12, 1.0, smoothstep(-0.12, 0.25, toSun.y));
           // Der Schaum nimmt die HELLIGKEIT der Sonne an, nicht ihren
-          // FARBTON. sunColorDay ist in EnvSetup (1.00, 0.77, 0.48) —
+          // FARBTON. sunColorDay ist im Umgebungsprofil (1.00, 0.77, 0.48) —
           // also kräftig warm, und zwar den ganzen Tag über, nicht nur
           // zur goldenen Stunde. Direkt einmultipliziert färbt das die
           // Gischt beige; im Bild sah das Ufer aus, als läge Sand auf dem

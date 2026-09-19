@@ -2,9 +2,8 @@
  * PostProcessing — Nachbildung des Original-Post-Process-Stacks.
  *
  * Quelle der Werte: das Ingame-Post-Process-Profil des Vorbilds (Unity
- * PostProcessing-Stack v2) aus dem Asset-Export,
- * `extracted_assets/MonoBehaviour/
- *  unnamed_-5654458244375810705.json`. Gemessene Defaults dort:
+ * PostProcessing-Stack v2) aus dem Asset-Export der
+ * Komponentendaten. Gemessene Defaults dort:
  *
  *   Bloom                AN   intensity 0.3, threshold 0.7, softKnee 0.7,
  *                             radius 5.0, antiFlicker 1
@@ -13,15 +12,15 @@
  *   Color Grading        AN   Tonemapper "Neutral", contrast 1.2,
  *                             temperature -8, postExposure 1.0
  *   Ambient Occlusion    AN   intensity 1.0, radius 0.15, 10 Samples
- *   Depth of Field       AUS  (m_Enabled = 0)  ← irreführend, siehe unten
+ *   Depth of Field       AUS  (Enabled = 0)    ← irreführend, siehe unten
  *   Anti-Aliasing        AUS  (im Profil deaktiviert; wäre TAA)
  *   Vignette/Grain/LUT/SSR/EyeAdaptation  AUS
  *
  * ACHTUNG beim DOF: Dass es in diesem Profil aus ist, heißt NICHT, dass
  * das Vorbild keine Tiefenunschärfe hat. Es benutzt dafür eine
  * zweite, unabhängige Komponente auf derselben Kamera — den alten Image
- * Effect `UnityStandardAssets.ImageEffects.DepthOfField`, gesteuert von
- * `CameraEffects.cs`, standardmäßig AN. Genau daher kommt die weiche
+ * Effect für Tiefenunschärfe, gesteuert von der
+ * Kameraeffekt-Komponente, standardmäßig AN. Genau daher kommt die weiche
  * Ferne, die hier lange gefehlt hat; nachgebildet in engine/FarDof.ts.
  *
  * Das erklärt den vom Nutzer bemängelten Unterschied: unser Bild war
@@ -32,7 +31,7 @@
  *  - Anti-Aliasing: Original nutzt TAA und hat es in DIESEM Profil aus.
  *    Wir nutzen FXAA plus 4×MSAA auf der Szenenpassage — als EINE
  *    Nutzeroption abschaltbar, genau wie im echten Spiel
- *    (GraphicsSettingBool.AntiAliasing). Die beiden greifen an
+ *    (Grafikoption Anti-Aliasing). Die beiden greifen an
  *    verschiedenen Kanten, siehe setzeMsaa().
  *
  *    ⚠ Hier stand bis 17.08.2026: "Babylon hat kein TAA in der
@@ -51,10 +50,10 @@
  *    ImageProcessingConfiguration keine direkte Entsprechung
  *    (ColorCurves kennt Hue/Density/Saturation/Exposure, keine Kelvin-
  *    Temperatur). Weggelassen statt schlecht approximiert — der Nebel-
- *    und Ambient-Ton kommt bei uns ohnehin aus dem EnvSetup-Modell.
+ *    und Ambient-Ton kommt bei uns ohnehin aus dem Umgebungsmodell.
  *
  * Alle vier Effekte, die das Original als Grafikoption anbietet
- * (GraphicsSettingBool: Bloom, DepthOfField, MotionBlur,
+ * (Grafikoptionen: Bloom, DepthOfField, MotionBlur,
  * ChromaticAberration, AntiAliasing), sind hier ebenfalls einzeln
  * schaltbar — siehe ui/Settings.ts.
  */
@@ -328,7 +327,7 @@ export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
   motionBlur: false,
   chromaticAberration: true,
   antiAliasing: true,
-  // Original-Voreinstellung: GraphicsSettingsManager.cs:46 → true.
+  // Original-Voreinstellung: true.
   depthOfField: true,
   // Bewusst AUS trotz Original-Default — siehe Kostenhinweis in setSunShafts().
   sunShafts: false,
@@ -572,7 +571,7 @@ export class PostProcessing {
    * Messung richtig und der Schluss an eine andere Frage gebunden:
    *
    *  · „ACES gilt": begründet damit, dass ACES dunkler UND flauer ist
-   *    als Neutral (ADR-0040 des Schwesterprojekts: Neutral 0,70
+   *    als Neutral (ADR-0040 des Vergleichsprojekts: Neutral 0,70
    *    mittlere Sättigung, ACES 0,52) und „bunter" das Gegenteil des
    *    Ziels sei. Das Ziel war damals eine Sättigung um 0,45.
    *  · „gar keiner": begründet damit, dass alle neun SPIEL-Level
@@ -1271,8 +1270,8 @@ export class PostProcessing {
   }
 
   /**
-   * Sonnenstrahlen — `SunShafts` des Vorbilds (GraphicsSettingBool.SunShafts,
-   * gesetzt in CameraEffects.SetSunShafts). Das Original benutzt den
+   * Sonnenstrahlen — `SunShafts` des Vorbilds (Grafikoption
+   * „Sonnenstrahlen", gesetzt von der Kameraeffekt-Komponente). Das Original benutzt den
    * Unity-Image-Effect gleichen Namens; Babylons direkter Gegenpart ist
    * `VolumetricLightScatteringPostProcess` (radiales Blur ausgehend von der
    * Lichtquelle im Bildraum, dasselbe Verfahren).

@@ -152,7 +152,7 @@ const inColor3 = (c: EnvColor, ziel: Color3): Color3 => ziel.set(c.r, c.g, c.b);
 
 /**
  * ── Farbraum ─────────────────────────────────────────────────────────
- * Die EnvSetup-Werte sind Unity-Inspector-Farben, also GAMMA (sRGB).
+ * Die Werte des Umgebungsmodells sind Unity-Inspector-Farben, also GAMMA (sRGB).
  * Das Original rendert im Linear-Farbraum, Unity konvertiert sie deshalb beim
  * Setzen von `RenderSettings.ambientLight` / `Light.color` selbst.
  *
@@ -247,7 +247,7 @@ export class Lighting {
    */
   private dungeonAmbient: number | null = null;
 
-  /** 0..1, 0 = midnight, 0.5 = midday (EnvMan day fraction). */
+  /** 0..1, 0 = midnight, 0.5 = midday (the original's day fraction). */
   timeOfDay = 0.33;
   paused = false;
   /**
@@ -347,9 +347,9 @@ export class Lighting {
    * 0,868): Der Boden bekam 0,2258 statt 0,0678, also das 3,3-fache
    * dessen, was die Wände sehen.
    *
-   * Das Schwesterprojekt macht es in `bindSceneLighting()`
-   * (`packages/engine/src/terrain.ts`) genau so: `sun.diffuse.scale(
-   * sun.intensity)` und `fill.diffuse.scale(fill.intensity)`.
+   * Das Vergleichsprojekt macht es in `bindSceneLighting()` genau so:
+   * `sun.diffuse.scale(sun.intensity)` und
+   * `fill.diffuse.scale(fill.intensity)`.
    *
    * Beschrieben werden sie am ENDE von `apply()`, NACH der
    * Dungeon-Dämpfung — davor stünde wieder die ungedämpfte Zahl darin.
@@ -410,7 +410,7 @@ export class Lighting {
       ── Die Nebelkurve kommt aus dem Look-Profil ──────────────────────
 
       Hier stand fest `FOGMODE_EXP2`. Die Kurve ist aber genau die
-      Eigenschaft, die dieses Bild von dem des Schwesterprojekts trennt:
+      Eigenschaft, die dieses Bild von dem des Vergleichsprojekts trennt:
       exp2 ist nah flach und fern steil, exp faellt gleichmaessig — und
       "keine Luftperspektive im Spielbereich" ist genau die Beschwerde,
       die ADR-0041 drueben behoben hat.

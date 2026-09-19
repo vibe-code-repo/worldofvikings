@@ -1,21 +1,20 @@
 /**
- * FarDof — die Fern-Unschärfe des Vorbilds.
+ * FarDof — die Fern-Unschärfe des Originals.
  *
  * ── Warum es diese Datei überhaupt gibt ──────────────────────────────
  * `PostProcessing.ts` hielt bisher fest: "Depth of Field AUS — im
  * Original-Profil ebenfalls deaktiviert". Das stimmt, greift aber zu
- * kurz und war der Grund, warum uns die weiche Ferne fehlte: Das Vorbild
+ * kurz und war der Grund, warum uns die weiche Ferne fehlte: Das Original
  * benutzt für DOF gar nicht den PostProcessing-Stack v2. Im Profil
- * (`unnamed_-5654458244375810705.json`) ist `depthOfField` tatsächlich
+ * (Export des Post-Process-Profils) ist `depthOfField` tatsächlich
  * aus — die Unschärfe kommt aus einer ZWEITEN, separaten Komponente auf
- * derselben Kamera: dem alten Image Effect
- * `UnityStandardAssets.ImageEffects.DepthOfField`, gesteuert von
- * `CameraEffects.cs`. Und die ist standardmäßig AN
- * (`GraphicsSettingsManager.cs:46 → m_depthOfField = true`).
+ * derselben Kamera: dem alten Unity-Image-Effect für Tiefenunschärfe,
+ * gesteuert von der Kameraeffekt-Komponente. Und die ist standardmäßig AN
+ * (Voreinstellung der Grafikoptionen: Tiefenunschärfe an).
  *
  * ── Die Zahlen sind gemessen, nicht geschätzt ────────────────────────
  * Aus dem aktivierten Inspector-Export der Komponente
- * (`extracted_assets/MonoBehaviour/unnamed_9679.json`, `m_Enabled: 1`):
+ * (Komponentendaten des Originals, `Enabled: 1`):
  *
  *   focalSize        0.36    Totzone: so viel Unschärfe bleibt unsichtbar
  *   aperture         0.612   Steilheit des Anstiegs
@@ -30,15 +29,15 @@
  * hat — Vordergrund plastisch und scharf, Wald und Küste laufen hinten
  * ineinander.
  *
- * Aus `CameraEffects.cs` kommt die Fokussteuerung:
- *   m_dofAutoFocus    Strahl nach vorne, Trefferentfernung = Fokus
- *   m_dofMinDistance  50 m   (Untergrenze)
- *   m_dofMaxDistance  3000 m (kein Treffer ⇒ alles scharf)
+ * Aus der Kameraeffekt-Komponente kommt die Fokussteuerung:
+ *   Autofokus         Strahl nach vorne, Trefferentfernung = Fokus
+ *   Mindestdistanz    50 m   (Untergrenze)
+ *   Maximaldistanz    3000 m (kein Treffer ⇒ alles scharf)
  *   focalLength = Lerp(focalLength, ziel, 0.2)  pro Frame
  *
  * ── Was hier rekonstruiert ist ───────────────────────────────────────
- * Die CoC-Kurve selbst steckt in `DepthOfFieldHdr.shader`, der als
- * kompiliertes Binary vorliegt. Bekannt ist aus `DepthOfField.cs:207`
+ * Die CoC-Kurve selbst steckt im Shader des Effekts, der als
+ * kompiliertes Binary vorliegt. Bekannt ist aus dem Effektcode
  * nur, wie die Parameter ankommen:
  *
  *   _CurveParams = (1, focalSize, 1/(1-aperture)-1, focalDistance01)
@@ -79,14 +78,14 @@ import type { Scene } from '@babylonjs/core/scene';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import { look } from './lookProfil';
 
-/** Alle vier aus unnamed_9679.json (die aktivierte DOF-Komponente). */
+/** Alle vier aus dem Export der aktivierten DOF-Komponente. */
 const FOCAL_SIZE = 0.36;
 const APERTURE = 0.612;
 const MAX_BLUR_SIZE = 1.5;
-/** highResolution = 1 verdoppelt internalBlurWidth (DepthOfField.cs:334). */
+/** highResolution = 1 verdoppelt internalBlurWidth. */
 const HIGH_RES_SCALE = 2;
 
-/** CameraEffects.cs — Fokusgrenzen und Nachführung. */
+/** Kameraeffekt-Komponente — Fokusgrenzen und Nachführung. */
 const MIN_DISTANCE = 50;
 const MAX_DISTANCE = 3000;
 /** Lerp(focal, ziel, 0.2) pro Frame bei 60 fps ⇒ e-Rate für beliebiges dt. */
@@ -235,10 +234,10 @@ export class FarDof {
       /*
         ── Zwei Vorbilder, zwei Kurven ─────────────────────────────────
 
-        Diese Datei ist gegen den ALTEN Referenztitel gebaut (Unitys
-        `ImageEffects.DepthOfField` mit focalSize 0,36, aperture 0,612
-        und einem Autofokus per Strahl). Tale of Dark Lands macht etwas
-        anderes und Einfacheres (design/original-boden.md §E): URP-Bokeh
+        Diese Datei ist gegen die ALTE Variante gebaut (Unitys
+        Depth-of-Field-Image-Effect mit focalSize 0,36, aperture 0,612
+        und einem Autofokus per Strahl). Das aktuelle Look-Profil verlangt
+        etwas anderes und Einfacheres (design/original-boden.md §E): URP-Bokeh
         mit FESTEM Fokus auf 2 m, Blende 6, Brennweite 47 mm. Es sucht
         keine Entfernung — alles jenseits weniger Meter ist gleich weich.
 
@@ -278,7 +277,7 @@ export class FarDof {
         effect.setFloat('focusDistance', this.focal);
         effect.setFloat('focusSize', FOCAL_SIZE);
         effect.setFloat('apertureTerm', 1 / (1 - APERTURE) - 1);
-        // DepthOfField.cs:195/205 — internalBlurWidth = maxBlurSize * width/1024.
+        // internalBlurWidth = maxBlurSize * width/1024.
         effect.setFloat(
           'maxRadius',
           MAX_BLUR_SIZE * (w / 1024) * HIGH_RES_SCALE * this.blurScale
@@ -292,7 +291,7 @@ export class FarDof {
 
   /**
    * Autofokus. Das Original schießt einen Physik-Strahl nach vorn
-   * (`Physics.Raycast(..., m_dofRayMask)`). Bei uns wäre das
+   * (Raycast mit fester Ebenenmaske). Bei uns wäre das
    * irreführend: Havok-Körper legen wir nur im Umkreis von rund 50 m an
    * (COLLIDER_RANGE), der Strahl liefe also fast immer ins Leere und
    * damit auf MAX_DISTANCE — also nie Unschärfe.

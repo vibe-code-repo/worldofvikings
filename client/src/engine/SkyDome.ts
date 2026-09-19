@@ -23,7 +23,7 @@
  *   sun glow = state.sunColor         → ties the glow to the same keyframes
  *   sun/moon disc at the TRUE sun direction (below horizon at night)
  *   stars    fade in with night, masked by clouds
- *   clouds   procedural FBM, coverage from EnvSetup.rainCloudAlpha
+ *   clouds   procedural FBM, coverage from the environment model's rainCloudAlpha
  *
  * ── Stand nach Block A (A5, A6, A12) ─────────────────────────────────
  * Bis zum 11.09.2026 standen `zenit` und `horizont` beide auf `#819195`
@@ -160,14 +160,14 @@ vec3 vhSkyGradient(vec3 dir, vec3 horizon, vec3 zenith, vec3 sunGlow, vec3 toSun
   // Breiter Glow: hält die Abendwärme über den Himmel verteilt.
   //
   // Die Schärfe kommt aus 'look.himmel.sonnenglühen' und folgt der
-  // Abbildung des Schwesterprojekts (sky-shader.ts): 0 = harte kleine
+  // Abbildung des Vergleichsprojekts: 0 = harte kleine
   // Scheibe (Exponent 220), 1 = über den halben Himmel (Exponent 3).
   // Der Profilwert 0,2 landet bei 176 — deutlich enger als die 8,0, die
   // hier fest standen. Das ist gewollt: Die alte 8,0 kam aus einer Zeit,
   // in der der Glow die ZWEITE Nebelfarbe trug und den halben Himmel
   // wärmen musste. Er trägt jetzt die Sonnenfarbe, und die gehört um die
   // Sonne herum, nicht über den ganzen Himmel.
-  // Sharpness follows the sister project's mapping: 0 = hard disc, 1 = wide.
+  // Sharpness follows the comparison project's mapping: 0 = hard disc, 1 = wide.
   float schaerfe = mix(220.0, 3.0, clamp(glutBreite, 0.0, 1.0));
   float sunDot = max(dot(dir, toSun), 0.0);
   float kern = pow(sunDot, schaerfe) * 0.55;
@@ -237,7 +237,7 @@ uniform vec3 uSunGlow;      // = EnvState.sunColor
 uniform vec3 uSunColor;     // = EnvState.sunColor
 uniform vec3 uSunDir;       // TRUE sun direction, y<0 after sunset
 uniform float uNight;       // 0 = full day, 1 = full night
-uniform float uCloud;       // coverage 0..1 (EnvSetup.rainCloudAlpha)
+uniform float uCloud;       // coverage 0..1 (rain cloud alpha of the environment)
 uniform float uGlutBreite;  // look.himmel.sonnenglühen, 0..1
 uniform float uHaloBreite;  // look.himmel.haloBreite, 0..1        (A12)
 uniform float uHaloStaerke; // look.himmel.haloStaerke, 0..1       (A12)
@@ -820,7 +820,7 @@ export class SkyDome {
    *
    * Für Bauer „Boden": Der Splat braucht einen HIMMELSTERM für Schichten
    * mit Metallic 0,5–0,95, sonst wird Fels schwarz (`groundReflection` im
-   * Schwesterprojekt, Analyse §4). Bis diese Auskunft existierte, blieb
+   * Vergleichsprojekt, Analyse §4). Bis diese Auskunft existierte, blieb
    * dort nur `scene.fogColor` — das ist der HORIZONT und sagt nichts
    * darüber, was senkrecht über der Fläche steht.
    *
@@ -899,7 +899,7 @@ export class SkyDome {
     */
     if (!this.horizontAusNebel) Color3.LerpToRef(this.profilHorizont, horizon, night, horizon);
     // Zenith: a deeper, slightly bluer version of the horizon. Derived
-    // rather than authored so any EnvSetup — including ones only the dump
+    // rather than authored so any environment — including ones only the dump
     // tool knows about — gets a sane sky without extra data.
     //
     // Der Blau-Sockel ist mit dem Horizont mitgewandert: 0.04 war ein

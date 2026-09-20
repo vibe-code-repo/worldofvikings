@@ -767,6 +767,10 @@ async function main(): Promise<void> {
       // ueber die ECHTE Aggro-Verdrahtung, aber mit einem Aufrufer, der die
       // Welt vergisst (fehlend) oder statt der id das Welt-Objekt gibt.
       // update() wird umwickelt und gezaehlt (Abbruch = Wurf im Tick).
+      // Untere Schranke fuer „der Tick lief durch“, keine Sollgeschwindigkeit:
+      // 20 Aufrufe je Sekunde bei 30 im Soll (gemessen 134-136 je 4,5 s, also ~30).
+      const FENSTER_MS = 6_500;
+      const TICKS_MIN = 20 * (FENSTER_MS / 1000);
       const tickProbe = async (was: string, weltArg: () => unknown): Promise<void> => {
         peer.health = 100;
         meldung.ohneWeltLetzteMeldung = 0;
@@ -790,12 +794,15 @@ async function main(): Promise<void> {
         };
         const v4 = zugriff.ohneWeltVerworfen;
         const vergessen = setzeNpc('FurlocKrieger', { x: peer.position.x, y: peer.position.y, z: peer.position.z });
-        await warte(4_500);
+        // Fenster mit Reserve: erster Schlag ~2,1 s, zweiter ~4,1 s, dritter ~6,1 s
+        // nach dem Setzen (Takt 2 s) — bei 6,5 s liegt die Schranke „mindestens
+        // zwei“ 2,4 s vor dem Fensterende statt 0,4 s wie bei 4,5 s.
+        await warte(FENSTER_MS);
         const zaehlerNeu = zugriff.ohneWeltVerworfen - v4;
         delete (zugriff as { update?: unknown }).update;
         server.aggro.onSchlag = echterSchlag;
         entferne(vergessen);
-        check(`Tick (${was}): kein einziger update()-Aufruf abgebrochen`, gestartet > 100 && abgebrochen === 0, `${gestartet} Aufrufe, ${abgebrochen} abgebrochen`);
+        check(`Tick (${was}): kein einziger update()-Aufruf abgebrochen`, gestartet > TICKS_MIN && abgebrochen === 0, `${gestartet} Aufrufe, ${abgebrochen} abgebrochen`);
         check(`Tick (${was}): Schlaege verworfen und gezaehlt, Spieler unverletzt`, zaehlerNeu >= 2 && peer.health === 100, `Zaehler +${zaehlerNeu}, ${peer.health} LP`);
       };
       await tickProbe('Welt vergessen', () => undefined);

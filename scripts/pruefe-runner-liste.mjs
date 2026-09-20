@@ -31,11 +31,15 @@
  * Quelltext (das ließ sich mit einem Lockvogel täuschen und verbot ehrliche
  * Umbauten), sondern zur Laufzeit: `scripts/runner-buchfuehrung.mjs`. Der
  * Runner bucht, welche Datei er wirklich an den Kindprozess gibt, und
- * vergleicht am Ende mit KERN; fehlt einer oder läuft einer, der nicht
- * eingetragen ist, ist der Lauf rot. Dieser Zeuge prüft dazu nur zweierlei:
+ * vergleicht am Ende mit dem LITERAL von KERN in seinem Quelltext (gelesen mit
+ * derselben Funktion `leseKern`, die dieser Zeuge benutzt); fehlt einer oder läuft
+ * einer, der nicht eingetragen ist, ist der Lauf rot. Schlusszeile und Exit-Code
+ * kommen aus der Buchführung, ein Lauf, der sie nie abschließt, bleibt bei
+ * Exit 1, ein Teillauf endet mit Exit 3. Dieser Zeuge prüft dazu nur zweierlei:
  * dass die Buchführung in run-tests.mjs noch verdrahtet ist (Import und Aufruf
- * von `abschluss`), und — in [1b] — dass die Buchführung selbst rot werden
- * kann (Zahnprobe). Wie die Schleife gebaut ist, ist gleichgültig.
+ * von `beende`; die Durchsetzung liegt im Exit-Code, nicht in dieser Prüfung),
+ * und — in [1b] — dass die Buchführung selbst rot werden kann (Zahnprobe). Wie
+ * die Schleife gebaut ist, ist gleichgültig.
  *
  * Wer eine Datei gar nicht eintragen kann, trägt sie in `AUSNAHMEN` ein:
  *   werkzeug  kein Test: Messbank, Bündel-Einstieg, Blender-Skript oder ein
@@ -81,7 +85,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { abschluss, auslassen, fahre, festhalten, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
+import { abschluss, auslassen, beende, fahre, leseKern, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const SKRIPT_ENDUNG = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py)$/i;
@@ -187,73 +191,27 @@ function kandidaten(wurzel) {
 }
 
 /**
- * The `[ordner, datei, weiche?]` entries of KERN, read from the syntax tree, plus
- * `formfehler`: only what the tree side cannot do without (see the header).
- *
- * Only the declaration at the top level of the file counts (a `KERN` in a function
- * or block registers nothing). `...NAME` in the list is followed when NAME is
- * a top-level array literal (lists in parts); everything else that is not a
- * `['ordner', 'datei']` of text literals is an unreadable entry. How the run is
- * built is NOT looked at — that is what the bookkeeping at run time is for.
+ * The `[ordner, datei, weiche?]` entries of KERN, read from the syntax tree (the reading
+ * itself lives in runner-buchfuehrung.mjs, because the runner reads its own literal the
+ * same way at the end of a run), plus `formfehler`: only what the tree side cannot do
+ * without (see the header). How the run is built is NOT looked at.
  */
 function eingetragene(quelltext) {
+  const gelesen = leseKern(ts, quelltext);
+  const kern = gelesen.eintraege.map(([ordner, datei]) => kanonisch(`${ordner}/${datei}`));
+  const formfehler = [...gelesen.fehler];
+
+  // The bookkeeping must still be wired in: `beende` imported from runner-buchfuehrung.mjs and called.
+  // (What makes it hold is the exit code that `neueBuchfuehrung` sets to 1 until `beende` decides;
+  // this is only the check that nobody cut it out.)
   const baum = ts.createSourceFile('run-tests.mjs', quelltext, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  const kern = [];
-  const unlesbar = [];
-  const formfehler = [];
-  const zeile = (n) => baum.getLineAndCharacterOfPosition(n.getStart(baum)).line + 1;
-  const kurz = (n) => n.getText(baum).replace(/\s+/g, ' ').slice(0, 80);
-
-  // Top-level declarations by name; only they can be the list or a part of it.
-  const oberste = new Map();
-  const deklarationen = [];
-  for (const anweisung of baum.statements) {
-    if (!ts.isVariableStatement(anweisung)) continue;
-    for (const d of anweisung.declarationList.declarations) {
-      if (!ts.isIdentifier(d.name)) continue;
-      oberste.set(d.name.text, d.initializer);
-      if (d.name.text === 'KERN') deklarationen.push(d);
-    }
-  }
-  const text = (n) => (n && ts.isStringLiteralLike(n) ? n.text : null);
-  const lies = (liste, name, besucht) => {
-    for (const eintrag of liste.elements) {
-      if (ts.isSpreadElement(eintrag) && ts.isIdentifier(eintrag.expression)) {
-        const teil = oberste.get(eintrag.expression.text);
-        if (teil && ts.isArrayLiteralExpression(teil) && !besucht.has(eintrag.expression.text)) {
-          lies(teil, eintrag.expression.text, new Set(besucht).add(eintrag.expression.text));
-          continue;
-        }
-      }
-      const [ordner, datei] = ts.isArrayLiteralExpression(eintrag) ? eintrag.elements : [];
-      if (text(ordner) === null || text(datei) === null) {
-        unlesbar.push(`${name}: ${kurz(eintrag)}`);
-        continue;
-      }
-      kern.push(kanonisch(`${text(ordner)}/${text(datei)}`));
-    }
-  };
-  if (deklarationen.length === 0) {
-    formfehler.push('die Liste KERN steht nicht auf oberster Ebene von run-tests.mjs (Zeuge blind)');
-  } else if (deklarationen.length > 1) {
-    formfehler.push(`KERN ist mehrfach auf oberster Ebene deklariert (Zeilen ${deklarationen.map(zeile).join(', ')})`);
-  } else {
-    const [d] = deklarationen;
-    if (!d.initializer || !ts.isArrayLiteralExpression(d.initializer)) {
-      formfehler.push(`KERN (Zeile ${zeile(d)}) ist kein Array-Literal, die Einträge sind nicht lesbar`);
-    } else {
-      lies(d.initializer, 'KERN', new Set());
-    }
-  }
-
-  // The bookkeeping must still be wired in: imported from runner-buchfuehrung.mjs and called.
   let lokalerName = null;
   for (const anweisung of baum.statements) {
     if (!ts.isImportDeclaration(anweisung) || !ts.isStringLiteralLike(anweisung.moduleSpecifier)) continue;
     if (!/(^|\/)runner-buchfuehrung\.mjs$/.test(anweisung.moduleSpecifier.text)) continue;
     const gebunden = anweisung.importClause?.namedBindings;
     if (!gebunden || !ts.isNamedImports(gebunden)) continue;
-    for (const e of gebunden.elements) if ((e.propertyName ?? e.name).text === 'abschluss') lokalerName = e.name.text;
+    for (const e of gebunden.elements) if ((e.propertyName ?? e.name).text === 'beende') lokalerName = e.name.text;
   }
   let aufgerufen = false;
   const suche = (n) => {
@@ -263,10 +221,10 @@ function eingetragene(quelltext) {
   if (lokalerName) suche(baum);
   if (!lokalerName || !aufgerufen) {
     formfehler.push(
-      'run-tests.mjs bucht den Lauf nicht mehr: `abschluss` aus ./runner-buchfuehrung.mjs wird nicht importiert oder nicht aufgerufen (Laufzeitzeuge fehlt)',
+      'run-tests.mjs bucht den Lauf nicht mehr: `beende` aus ./runner-buchfuehrung.mjs wird nicht importiert oder nicht aufgerufen (Laufzeitzeuge fehlt)',
     );
   }
-  return { kern, unlesbar, formfehler };
+  return { kern, unlesbar: gelesen.unlesbar, formfehler };
 }
 
 /** All findings for the tree at `wurzel`; an empty list is a pass. */
@@ -361,10 +319,10 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
   };
   // The smallest runner the witness accepts: the list, its snapshot, one loop that books, the end check.
   const KOPF =
-    "import { spawnSync } from 'node:child_process';\nimport { abschluss, fahre, festhalten, neueBuchfuehrung } from './runner-buchfuehrung.mjs';\n";
-  const NACH_LISTE = "const SOLL = festhalten(KERN, '.');\nconst buch = neueBuchfuehrung();\n";
+    "import { spawnSync } from 'node:child_process';\nimport { beende, fahre, neueBuchfuehrung } from './runner-buchfuehrung.mjs';\n";
+  const NACH_LISTE = "const buch = neueBuchfuehrung();\n";
   const SCHLEIFE =
-    "for (const [paket, datei] of KERN) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nconst buchung = abschluss(buch, SOLL);\nconsole.log(`${KERN.length} Tests`);\n";
+    "for (const [paket, datei] of KERN) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nawait beende(buch, { quelle: 'run-tests.mjs', wurzel: '.' });\n";
   const runner = (kernEintraege, rest = SCHLEIFE, kopf = KOPF) =>
     `${kopf}const KERN = [\n${kernEintraege}\n];\n${NACH_LISTE}${rest}`;
   const grundEintraege = "  ['server', 'test/a.ts'],\n  ['client/test', 'c.ts'],";
@@ -441,16 +399,16 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     setzeRunner(kernMitB);
     pruefe(mit([]).length === 0, 'Ausgangslage: b.ts in KERN, Buchführung verdrahtet ⇒ kein Befund');
     const ehrlich = [
-      ['Rumpf der Schleife in eine Hilfsfunktion', `for (const [paket, datei] of KERN) {\n  starte(paket, datei);\n}\nfunction starte(paket, datei) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nabschluss(buch, SOLL);\n`],
-      ['Auswahl-Schalter: Schleife über KERN.filter(…)', `const liste = process.env.NUR ? KERN.filter(([, d]) => d.includes(process.env.NUR)) : KERN;\nfor (const [paket, datei] of liste) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nabschluss(buch, SOLL);\n`],
+      ['Rumpf der Schleife in eine Hilfsfunktion', `for (const [paket, datei] of KERN) {\n  starte(paket, datei);\n}\nfunction starte(paket, datei) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nbeende(buch, {});\n`],
+      ['Auswahl-Schalter: Schleife über KERN.filter(…)', `const liste = process.env.NUR ? KERN.filter(([, d]) => d.includes(process.env.NUR)) : KERN;\nfor (const [paket, datei] of liste) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nbeende(buch, {});\n`],
       ['Object.freeze(KERN)', `Object.freeze(KERN);\n${SCHLEIFE}`],
       ['structuredClone(KERN)', `const kopie = structuredClone(KERN);\n${SCHLEIFE}`],
       ['KERN.map(…) für eine Ausgabe', `console.log(KERN.map((e) => e[1]).join(','));\n${SCHLEIFE}`],
       ['async function main()', `async function main() {\n  ${SCHLEIFE.replace(/\n/g, '\n  ')}}\nmain();\n`],
       ['try … finally um den Lauf', `try {\n  ${SCHLEIFE.replace(/\n/g, '\n  ')}} finally {\n  console.log('fertig');\n}\n`],
-      ['forEach statt for…of', `KERN.forEach(([paket, datei]) => fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket }));\nabschluss(buch, SOLL);\n`],
-      ['Parallelisierung mit Promise.all', `await Promise.all(KERN.map(async ([paket, datei]) => fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket })));\nabschluss(buch, SOLL);\n`],
-      ['execFileSync-Aufruf statt spawnSync im Rumpf', `for (const [paket, datei] of KERN) {\n  fahre(buch, execFileSync, 'tsx', [datei], { cwd: paket });\n}\nabschluss(buch, SOLL);\n`],
+      ['forEach statt for…of', `KERN.forEach(([paket, datei]) => fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket }));\nbeende(buch, {});\n`],
+      ['Parallelisierung mit Promise.all', `await Promise.all(KERN.map(async ([paket, datei]) => fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket })));\nbeende(buch, {});\n`],
+      ['execFileSync-Aufruf statt spawnSync im Rumpf', `for (const [paket, datei] of KERN) {\n  fahre(buch, execFileSync, 'tsx', [datei], { cwd: paket });\n}\nbeende(buch, {});\n`],
     ];
     for (const [name, rest] of ehrlich) {
       setzeRunner(kernMitB, rest);
@@ -479,21 +437,21 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
 
     console.log('  — die Buchführung muss verdrahtet bleiben (Laufzeitzeuge)');
     setzeRunner(kernMitB, 'for (const [paket, datei] of KERN) {\n  spawnSync(\'tsx\', [datei], { cwd: paket });\n}\n');
-    pruefe(enthaelt(mit([]), 'bucht den Lauf nicht mehr'), '`abschluss` wird nicht aufgerufen ⇒ Befund');
+    pruefe(enthaelt(mit([]), 'bucht den Lauf nicht mehr'), '`beende` wird nicht aufgerufen ⇒ Befund');
     setzeRunner(kernMitB, SCHLEIFE, "import { spawnSync } from 'node:child_process';\n");
     pruefe(enthaelt(mit([]), 'bucht den Lauf nicht mehr'), 'Buchführung gar nicht importiert ⇒ Befund');
     setzeRunner(
       kernMitB,
-      SCHLEIFE.replace('abschluss(', 'schluss('),
-      "import { spawnSync } from 'node:child_process';\nimport { abschluss as schluss, fahre, festhalten, neueBuchfuehrung } from './runner-buchfuehrung.mjs';\n",
+      SCHLEIFE.replace('beende(', 'schluss('),
+      "import { spawnSync } from 'node:child_process';\nimport { beende as schluss, fahre, neueBuchfuehrung } from './runner-buchfuehrung.mjs';\n",
     );
-    pruefe(mit([]).length === 0, 'Import unter anderem Namen (`abschluss as schluss`) und aufgerufen ⇒ kein Befund');
+    pruefe(mit([]).length === 0, 'Import unter anderem Namen (`beende as schluss`) und aufgerufen ⇒ kein Befund');
     setzeRunner(
       kernMitB,
       SCHLEIFE,
-      "import { spawnSync } from 'node:child_process';\nimport { abschluss, fahre, festhalten, neueBuchfuehrung } from './ganz-anders.mjs';\n",
+      "import { spawnSync } from 'node:child_process';\nimport { beende, fahre, neueBuchfuehrung } from './ganz-anders.mjs';\n",
     );
-    pruefe(enthaelt(mit([]), 'bucht den Lauf nicht mehr'), '`abschluss` aus einer anderen Datei importiert ⇒ Befund');
+    pruefe(enthaelt(mit([]), 'bucht den Lauf nicht mehr'), '`beende` aus einer anderen Datei importiert ⇒ Befund');
 
     console.log('  — nur die Liste auf oberster Ebene zählt (M2)');
     setzeRunner(grundEintraege, `${SCHLEIFE}function hilfe() {\n  const KERN = [['server', 'test/b.ts']];\n  return KERN;\n}\n`);
@@ -639,88 +597,142 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
 console.log('\n[1b] Buchführung des Laufs (scripts/runner-buchfuehrung.mjs) — sie muss rot werden können');
 {
   const w = '/wurzel';
-  const kern = [['server', 'test/a.ts'], ['server/test', 'b.ts'], ['client', 'test/c.ts', () => 'Weiche']];
-  const soll = festhalten(kern, w);
+  const kernZeilen = "['server', 'test/a.ts'],\n  ['server/test', 'b.ts'],\n  ['client', 'test/c.ts', () => 'Weiche'],";
+  const wegwerfB = mkdtempSync(join(tmpdir(), 'wov-runner-buchung-'));
+  const quelle = join(wegwerfB, 'run-tests.mjs');
+  const schreibeQuelle = (text = `const KERN = [\n  ${kernZeilen}\n];\n`) => writeFileSync(quelle, text);
+  schreibeQuelle();
   const attrappe = (rc = 0) => {
     const aufrufe = [];
     return { aufrufe, spawn: (befehl, argumente, optionen) => (aufrufe.push({ befehl, argumente, optionen }), { status: rc }) };
   };
-  const voll = () => {
-    const buch = neueBuchfuehrung();
-    const { spawn } = attrappe();
-    fahre(buch, spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
-    fahre(buch, spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
+  // A fake process: what `beende` would tell the real one.
+  const attrappeProzess = () => {
+    const p = { exitCode: undefined, beendet: null, exit(code) { p.beendet = code; } };
+    return p;
+  };
+  const A = { cwd: `${w}/server` };
+  const B = { cwd: `${w}/server/test` };
+  const nach = (buch, ...paare) => {
+    for (const [argumente, optionen] of paare) fahre(buch, attrappe().spawn, 'tsx', argumente, optionen);
+    return buch;
+  };
+  const vollesBuch = (prozess = attrappeProzess()) => {
+    const buch = neueBuchfuehrung(prozess);
+    nach(buch, [['test/a.ts'], A], [['b.ts'], B]);
     ueberspringe(buch, w, 'client', 'test/c.ts');
     return buch;
   };
+  const beenden = async (buch, optionen = {}) => {
+    const zeilen = [];
+    await beende(buch, { quelle, wurzel: w, ts, ausgabe: (z) => zeilen.push(z), ...optionen });
+    return { code: buch.prozess.beendet, text: zeilen.join('\n') };
+  };
   const hat = (ergebnis, teil) => ergebnis.befunde.some((b) => b.includes(teil));
-  const ok = abschluss(voll(), soll, w);
-  pruefe(ok.befunde.length === 0 && ok.gefahren === 2 && ok.uebersprungen === 1, 'alles gefahren oder übersprungen ⇒ kein Befund (2 gefahren, 1 übersprungen)');
-  const { aufrufe, spawn } = attrappe(3);
-  const geliefert = fahre(neueBuchfuehrung(), spawn, 'tsx', ['x.ts'], { cwd: w, timeout: 5 });
-  pruefe(
-    geliefert.status === 3 && aufrufe.length === 1 && aufrufe[0].argumente[0] === 'x.ts' && aufrufe[0].optionen.timeout === 5,
-    '`fahre` reicht Befehl, Argumente und Optionen unverändert durch und gibt das Ergebnis des Starts zurück',
-  );
-
-  const fehlt = neueBuchfuehrung();
-  fahre(fehlt, attrappe().spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
-  ueberspringe(fehlt, w, 'client', 'test/c.ts');
-  const ohneB = abschluss(fehlt, soll, w);
-  pruefe(hat(ohneB, 'nie gestartet') && hat(ohneB, 'server/test/b.ts'), 'ein Eintrag aus KERN wird nie gestartet ⇒ Befund, der ihn nennt');
-  pruefe(hat(abschluss(neueBuchfuehrung(), soll, w), '3 Test(s) aus KERN nie gestartet'), 'nichts gestartet („250/250 in 0 s") ⇒ Befund über alle Einträge');
-
-  const zuviel = voll();
-  fahre(zuviel, attrappe().spawn, 'tsx', ['d.ts'], { cwd: `${w}/server/test` });
-  pruefe(hat(abschluss(zuviel, soll, w), 'stehen nicht in KERN') && hat(abschluss(zuviel, soll, w), 'server/test/d.ts'), 'ein gestarteter Test, der nicht in KERN steht ⇒ Befund');
-
-  const ohneDatei = neueBuchfuehrung();
-  fahre(ohneDatei, attrappe().spawn, 'tsx', [], { cwd: `${w}/server` });
-  fahre(ohneDatei, attrappe().spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
-  const leer = abschluss(ohneDatei, soll, w);
-  pruefe(
-    hat(leer, 'keine Datei') && hat(leer, 'nie gestartet'),
-    'Start ohne Datei in den Argumenten (`[]` statt `[datei]`) ⇒ Befund, obwohl der Aufruf „stattfand"',
-  );
-
-  const doppelt = voll();
-  fahre(doppelt, attrappe().spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
-  pruefe(hat(abschluss(doppelt, soll, w), 'öfter oder seltener'), 'ein Test zweimal gestartet ⇒ Befund');
-
-  pruefe(
-    abschluss(neueBuchfuehrung(), festhalten([], w), w).befunde.length === 0,
-    'leere Liste, leeres Buch ⇒ kein Befund (nichts zu buchen)',
-  );
-
-  // The snapshot: cutting the list after `festhalten` does not shorten what is expected.
-  const lebendig = [['server', 'test/a.ts'], ['server/test', 'b.ts']];
-  const festgehalten = festhalten(lebendig, w);
-  lebendig.splice(0, 1);
-  const gekuerzt = neueBuchfuehrung();
-  fahre(gekuerzt, attrappe().spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
-  pruefe(
-    festgehalten.length === 2 && hat(abschluss(gekuerzt, festgehalten, w), 'server/test/a.ts'),
-    'KERN nach der Momentaufnahme gekürzt (`splice`) ⇒ der gekürzte Lauf ist trotzdem ein Befund',
-  );
-  pruefe(Object.isFrozen(festgehalten) && Object.isFrozen(soll), 'die Momentaufnahme ist eingefroren');
-
-  const teil = neueBuchfuehrung();
-  fahre(teil, attrappe().spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
-  fahre(teil, attrappe().spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
-  auslassen(teil, w, 'client', 'test/c.ts', 'Probe: Filter');
-  const teillauf = abschluss(teil, soll, w);
-  pruefe(teillauf.befunde.length === 0 && teillauf.ausgelassen === 1, 'ein Filter, der den Eintrag mit `auslassen` bucht ⇒ Teillauf, kein Befund');
-  let ohneGrund = false;
   try {
-    auslassen(neueBuchfuehrung(), w, 'client', 'test/c.ts', '  ');
-  } catch {
-    ohneGrund = true;
+    const soll = new Set(['/wurzel/server/test/a.ts', '/wurzel/server/test/b.ts', '/wurzel/client/test/c.ts']);
+    // ── the comparison
+    const ok = abschluss(vollesBuch(), soll, w);
+    pruefe(ok.befunde.length === 0 && ok.gefahren === 2 && ok.uebersprungen === 1, 'alles gefahren oder übersprungen ⇒ kein Befund (2 gefahren, 1 übersprungen)');
+    const { aufrufe, spawn } = attrappe(3);
+    const geliefert = fahre(neueBuchfuehrung(attrappeProzess()), spawn, 'tsx', ['x.ts'], { cwd: w, timeout: 5 });
+    pruefe(
+      geliefert.status === 3 && aufrufe.length === 1 && aufrufe[0].argumente[0] === 'x.ts' && aufrufe[0].optionen.timeout === 5,
+      '`fahre` reicht Befehl, Argumente und Optionen unverändert durch und gibt das Ergebnis des Starts zurück',
+    );
+    const fehlt = neueBuchfuehrung(attrappeProzess());
+    nach(fehlt, [['test/a.ts'], A]);
+    ueberspringe(fehlt, w, 'client', 'test/c.ts');
+    const ohneB = abschluss(fehlt, soll, w);
+    pruefe(hat(ohneB, 'nie gestartet') && hat(ohneB, 'server/test/b.ts'), 'ein Eintrag aus KERN wird nie gestartet ⇒ Befund, der ihn nennt');
+    pruefe(hat(abschluss(neueBuchfuehrung(attrappeProzess()), soll, w), '3 Test(s) aus KERN nie gestartet'), 'nichts gestartet („250/250 in 0 s") ⇒ Befund über alle Einträge');
+    const zuviel = vollesBuch();
+    nach(zuviel, [['d.ts'], B]);
+    const mitD = abschluss(zuviel, soll, w);
+    pruefe(hat(mitD, 'stehen nicht in KERN') && hat(mitD, 'server/test/d.ts'), 'ein gestarteter Test, der nicht in KERN steht ⇒ Befund');
+    const ohneDatei = neueBuchfuehrung(attrappeProzess());
+    nach(ohneDatei, [[], A], [['b.ts'], B]);
+    const leer = abschluss(ohneDatei, soll, w);
+    pruefe(hat(leer, 'keine Testdatei') && hat(leer, 'nie gestartet'), 'Start ohne Datei in den Argumenten (`[]` statt `[datei]`) ⇒ Befund, obwohl der Aufruf „stattfand"');
+    // ── M5: repetition and switches before the file are no faults
+    const wieder = vollesBuch();
+    nach(wieder, [['test/a.ts'], A], [['test/a.ts'], A]);
+    pruefe(abschluss(wieder, soll, w).befunde.length === 0, 'ein Test wird wiederholt (flackernd, zweiter Start) ⇒ kein Befund: Mengen zählen, nicht Aufrufe');
+    const schalter = neueBuchfuehrung(attrappeProzess());
+    nach(schalter, [['--tsconfig', '/x/tsconfig.json', 'test/a.ts'], A], [['--import', './loader.mjs', 'b.ts'], B]);
+    ueberspringe(schalter, w, 'client', 'test/c.ts');
+    const mitSchalter = abschluss(schalter, soll, w);
+    pruefe(mitSchalter.befunde.length === 0 && mitSchalter.gefahren === 2, 'Schalter vor der Datei (`--tsconfig x.json datei`, `--import y.mjs datei`) ⇒ die Testdatei wird erkannt, kein Befund');
+    // ── the filter
+    const teil = neueBuchfuehrung(attrappeProzess());
+    nach(teil, [['test/a.ts'], A], [['b.ts'], B]);
+    auslassen(teil, w, 'client', 'test/c.ts', 'Probe: Filter');
+    const teilErgebnis = abschluss(teil, soll, w);
+    pruefe(teilErgebnis.befunde.length === 0 && teilErgebnis.ausgelassen === 1, 'ein Filter, der den Eintrag mit `auslassen` bucht ⇒ vollständig verbucht (1 ausgelassen)');
+    let ohneGrund = false;
+    try {
+      auslassen(neueBuchfuehrung(attrappeProzess()), w, 'client', 'test/c.ts', '  ');
+    } catch {
+      ohneGrund = true;
+    }
+    pruefe(ohneGrund, '`auslassen` ohne Grund wirft (ein stilles Auslassen gibt es nicht)');
+    const stumm = neueBuchfuehrung(attrappeProzess());
+    nach(stumm, [['test/a.ts'], A], [['b.ts'], B]);
+    pruefe(hat(abschluss(stumm, soll, w), 'test/c.ts'), 'ein Filter, der nur `continue` sagt (nichts bucht) ⇒ Befund');
+
+    // ── `beende`: closing line and exit code come from the books
+    const prozess = attrappeProzess();
+    neueBuchfuehrung(prozess);
+    pruefe(prozess.exitCode === 1, '`neueBuchfuehrung` setzt den Exit-Code auf 1: ein Lauf, der `beende` nie erreicht, bleibt rot');
+    const gut = await beenden(vollesBuch());
+    pruefe(gut.code === 0 && gut.text.includes('2/3 Tests grün, 1 übersprungen'), '`beende`: alles gebucht, nichts rot ⇒ Exit 0, Schlusszeile „2/3 Tests grün, 1 übersprungen" aus den Buchungen');
+    const rot = await beenden(vollesBuch(), { fehler: 1 });
+    pruefe(rot.code === 1 && rot.text.includes('1/3 Tests grün'), '`beende`: ein Test rot ⇒ Exit 1, die Zahl der grünen zieht ihn ab');
+    const luecke = neueBuchfuehrung(attrappeProzess());
+    nach(luecke, [['test/a.ts'], A]);
+    const rotLuecke = await beenden(luecke);
+    pruefe(
+      rotLuecke.code === 1 && rotLuecke.text.includes('ROT — 1 von 3 Tests gefahren') && !rotLuecke.text.includes('3/3 Tests grün'),
+      '`beende`: Lücke ⇒ Exit 1 und die Schlusszeile sagt „1 von 3 gefahren", nie „3/3 grün" (die Zeile kommt aus `buchung.gefahren`)',
+    );
+    const teilBuch = () => {
+      const buch = neueBuchfuehrung(attrappeProzess());
+      nach(buch, [['test/a.ts'], A], [['b.ts'], B]);
+      auslassen(buch, w, 'client', 'test/c.ts', 'Probe');
+      return buch;
+    };
+    const t3 = await beenden(teilBuch());
+    pruefe(t3.code === 3 && t3.text.includes('TEILLAUF'), '`beende`: Teillauf ⇒ Exit 3 (nicht 0), damit CI und wov-update.sh ihn nicht für einen vollen grünen Lauf halten');
+    const t0 = await beenden(teilBuch(), { teillaufErlaubt: true });
+    pruefe(t0.code === 0 && t0.text.includes('TEILLAUF'), '`beende` mit teillaufErlaubt: grüner Teillauf ⇒ Exit 0, die Zeile sagt weiter TEILLAUF');
+    const nichts = neueBuchfuehrung(attrappeProzess());
+    for (const [paket, datei] of [['server', 'test/a.ts'], ['server/test', 'b.ts'], ['client', 'test/c.ts']]) auslassen(nichts, w, paket, datei, 'Probe: zzz');
+    const rotNichts = await beenden(nichts, { teillaufErlaubt: true });
+    pruefe(rotNichts.code === 1 && rotNichts.text.includes('kein einziger Test'), '`beende`: alles ausgelassen („0/250 ausgelassen") ⇒ Exit 1, auch mit teillaufErlaubt');
+    const nurWeichen = neueBuchfuehrung(attrappeProzess());
+    for (const [paket, datei] of [['server', 'test/a.ts'], ['server/test', 'b.ts'], ['client', 'test/c.ts']]) ueberspringe(nurWeichen, w, paket, datei);
+    pruefe((await beenden(nurWeichen)).code === 1, '`beende`: alles durch Weichen übersprungen (nichts gefahren) ⇒ Exit 1');
+    const abgeklemmt = await beenden(neueBuchfuehrung(attrappeProzess()));
+    pruefe(abgeklemmt.code === 1 && abgeklemmt.text.includes('nie gestartet'), '`beende`: leeres Buch ⇒ Exit 1');
+
+    // ── M2: the expectation comes from the LITERAL, not from the live variable
+    const gekuerzt = neueBuchfuehrung(attrappeProzess());
+    nach(gekuerzt, [['b.ts'], B]);
+    ueberspringe(gekuerzt, w, 'client', 'test/c.ts');
+    const rotSplice = await beenden(gekuerzt);
+    pruefe(
+      rotSplice.code === 1 && rotSplice.text.includes('server/test/a.ts'),
+      'ein Eintrag wurde zur Laufzeit aus KERN entfernt (`splice` zwischen Liste und Lauf) ⇒ Exit 1: das Literal im Quelltext gilt',
+    );
+    schreibeQuelle(`const TEIL_A = [['server', 'test/a.ts']];\nconst KERN = [...TEIL_A, ['server/test', 'b.ts'], ['client', 'test/c.ts']];\n`);
+    pruefe((await beenden(vollesBuch())).code === 0, 'Soll aus einer Liste in Teilen (`...TEIL_A`) gelesen ⇒ Exit 0');
+    schreibeQuelle(`const KERN = [].concat([]);\n`);
+    const rotQuelle = await beenden(vollesBuch());
+    pruefe(rotQuelle.code === 1 && rotQuelle.text.includes('kein Array-Literal'), 'KERN im Quelltext nicht als Literal lesbar ⇒ Exit 1 (die Buchführung rät nicht)');
+    schreibeQuelle();
+  } finally {
+    rmSync(wegwerfB, { recursive: true, force: true });
   }
-  pruefe(ohneGrund, '`auslassen` ohne Grund wirft (ein stilles Auslassen gibt es nicht)');
-  const stumm = neueBuchfuehrung();
-  fahre(stumm, attrappe().spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
-  fahre(stumm, attrappe().spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
-  pruefe(hat(abschluss(stumm, soll, w), 'test/c.ts'), 'ein Filter, der nur `continue` sagt (nichts bucht) ⇒ Befund');
 }
 
 console.log('\n[2] Der echte Baum');
@@ -757,7 +769,7 @@ if (ROT_PRUEFEN) {
 }
 
 // Empty-run trap: a run without assertions must not look like a pass.
-const MINDESTENS = 93;
+const MINDESTENS = 103;
 if (geprueft < MINDESTENS) {
   console.log(`\nRUNNER-LISTE ROT — nur ${geprueft} Zusicherungen gefahren, erwartet mindestens ${MINDESTENS}.`);
   process.exit(1);

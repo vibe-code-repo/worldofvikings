@@ -41,25 +41,29 @@
  * tsx sofort. Er wird per esbuild gebaut und im Browser geöffnet; die
  * Anleitung steht in seinem eigenen Kopfkommentar.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /*
-  Die BUCHFUEHRUNG (Laufzeitzeuge): Am Ende des Laufs wird geprueft, dass
-  jeder Eintrag von KERN wirklich gestartet (`fahre`), durch eine Weiche
-  uebersprungen oder mit Grund ausgelassen wurde — und nichts sonst. Sie
-  steht in einer eigenen Datei, damit `scripts/pruefe-runner-liste.mjs`
-  sie testen kann; sie prueft, was der Kindprozess bekommen hat, nicht wie
-  die Schleife aussieht. Dieser Runner darf deshalb umgebaut werden
-  (Helfer, Teillisten, Filter, Parallelisierung), solange jeder Start ueber
-  `fahre` geht und `abschluss` am Ende aufgerufen wird. Ein Filter bucht
-  jeden Eintrag, den er weglaesst, mit `auslassen(buch, WURZEL, paket, datei,
-  grund)`; der Lauf endet dann als TEILLAUF statt als Fehler.
+  Die BUCHFUEHRUNG (Laufzeitzeuge): Der Runner bucht jeden Start (`fahre` schreibt
+  die Testdatei auf, die WIRKLICH an den Kindprozess geht), jede Weiche
+  (`ueberspringe`) und jedes bewusste Auslassen (`auslassen`, mit Grund), und
+  `beende` vergleicht das am Ende mit dem LITERAL von KERN in diesem Quelltext —
+  nicht mit der lebenden Variablen, an der man zwischen Liste und Lauf drehen
+  koennte. Schlusszeile und Exit-Code kommen aus dieser Buchfuehrung; ein Lauf,
+  der `beende` nie erreicht, bleibt bei Exit 1. Exit 3 heisst TEILLAUF (mit
+  `auslassen` weggelassen); `--teillauf-erlaubt` macht einen gruenen Teillauf zu
+  Exit 0 (dann steht TEILLAUF trotzdem in der Zeile). Dieser Runner darf sonst
+  umgebaut werden (Helfer, Teillisten, Filter, Parallelisierung), solange jeder
+  Start ueber `fahre` geht und am Ende `beende` gerufen wird. Sie steht in einer
+  eigenen Datei, damit `scripts/pruefe-runner-liste.mjs` sie testen kann.
 
-  Bookkeeping in its own module: what the runner really started is held
-  against KERN at the end of the run.
+  Bookkeeping in its own module: what the runner really started is held against
+  the literal of KERN; closing line and exit code come from the books.
 */
-import { abschluss, festhalten, fahre, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
+import { beende, fahre, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
+
 
 /*
   Die WEICHEN (S3, Elemente-Umzug): `brauchtModelle` fuer Tests, die
@@ -2039,25 +2043,93 @@ const KERN = [
   ['tools/armor/test', 'emberrage-glow.ts'],
 ];
 
-// Momentaufnahme der Liste fuer die Buchfuehrung, gleich nach der Deklaration.
-const SOLL = festhalten(KERN, WURZEL);
-const buch = neueBuchfuehrung();
+const QUELLE = fileURLToPath(import.meta.url);
 
 /*
-  Der Runner nimmt keine Argumente. `--alle` gab es bis 20.09.2026 (eine zweite
-  Liste LANG); seither laeuft immer alles. Wer noch `npm test -- --alle` tippt,
-  soll es merken, statt dass es still ignoriert wird.
+  Der Runner nimmt nur `--teillauf-erlaubt` (siehe Buchfuehrung). `--alle` gab es
+  bis 20.09.2026 (eine zweite Liste LANG); seither laeuft immer alles. Wer noch
+  `npm test -- --alle` tippt, soll es merken, statt dass es still ignoriert wird.
 */
-if (process.argv.length > 2) {
+const ARGUMENTE = process.argv.slice(2);
+const TEILLAUF_ERLAUBT = ARGUMENTE.includes('--teillauf-erlaubt');
+const UNBEKANNT = ARGUMENTE.filter((a) => a !== '--teillauf-erlaubt');
+if (UNBEKANNT.length > 0) {
   console.error(
-    `run-tests.mjs: unbekannte Argumente: ${process.argv.slice(2).join(' ')}\n` +
-      '  Der Runner nimmt keine Argumente; `--alle` gibt es seit 20.09.2026 nicht mehr (die Liste LANG ist aufgeloest, alles laeuft immer).',
+    `run-tests.mjs: unbekannte Argumente: ${UNBEKANNT.join(' ')}\n` +
+      '  Der Runner kennt nur --teillauf-erlaubt; `--alle` gibt es seit 20.09.2026 nicht mehr (die Liste LANG ist aufgeloest, alles laeuft immer).',
   );
   process.exit(2);
 }
 
+// Ab hier ist der Lauf rot (Exit 1), bis `beende` am Ende entschieden hat.
+const buch = neueBuchfuehrung();
+
+/*
+  Jeder Test laeuft als eigene Prozessgruppe, und der Runner reicht SIGINT,
+  SIGTERM und SIGHUP an die laufende Gruppe weiter, wartet auf sie und endet
+  dann mit 128 + Signalnummer. Vorher traf ein Signal nur den Runner; der
+  tsx-Kindprozess lief als Waise weiter und hielt seinen festen Testport, sodass
+  der naechste Lauf mit EADDRINUSE scheiterte. Dieselbe Gruppe bekommt auch das
+  Zeitlimit von 600 s (erst SIGTERM, nach 5 s SIGKILL).
+
+  Every test runs in its own process group; a signal that hits only the runner is
+  passed on to the running group, and the runner waits for it before it exits.
+*/
+let laufendeGruppe = null;
+let abbruchCode = null;
+const gruppeSignal = (signal) => {
+  if (laufendeGruppe === null) return;
+  try {
+    process.kill(-laufendeGruppe, signal);
+  } catch {
+    // die Gruppe ist schon weg
+  }
+};
+for (const [signal, nummer] of [['SIGINT', 2], ['SIGHUP', 1], ['SIGTERM', 15]]) {
+  process.on(signal, () => {
+    abbruchCode = 128 + nummer;
+    console.log(`\nABGEBROCHEN durch ${signal} — der laufende Test wird beendet, kein Ergebnis`);
+    if (laufendeGruppe === null) process.exit(abbruchCode);
+    gruppeSignal(signal);
+    setTimeout(() => {
+      gruppeSignal('SIGKILL');
+      process.exit(abbruchCode);
+    }, 10_000).unref();
+  });
+}
+
+/** Startet einen Test asynchron und liefert wie spawnSync `{ status, signal, stdout, stderr, error }`. */
+function starteKind(befehl, argumente, optionen) {
+  return new Promise((fertig) => {
+    const kind = spawn(befehl, argumente, { cwd: optionen.cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let zeitlimit = false;
+    let erledigt = false;
+    const ende = (status, signal, error) => {
+      if (erledigt) return;
+      erledigt = true;
+      clearTimeout(frist);
+      laufendeGruppe = null;
+      if (abbruchCode !== null) process.exit(abbruchCode);
+      fertig({ status, signal, stdout, stderr, error: zeitlimit ? new Error('Zeitlimit') : error });
+    };
+    const frist = setTimeout(() => {
+      zeitlimit = true;
+      gruppeSignal('SIGTERM');
+      setTimeout(() => gruppeSignal('SIGKILL'), 5_000).unref();
+    }, optionen.timeout);
+    laufendeGruppe = kind.pid ?? null;
+    kind.stdout.setEncoding('utf8').on('data', (stueck) => (stdout += stueck));
+    kind.stderr.setEncoding('utf8').on('data', (stueck) => (stderr += stueck));
+    kind.stdin.on('error', () => {});
+    kind.stdin.end();
+    kind.on('error', (error) => ende(null, null, error));
+    kind.on('close', (status, signal) => ende(status, signal));
+  });
+}
+
 let fehler = 0;
-let uebersprungen = 0;
 const start = Date.now();
 
 /**
@@ -2099,12 +2171,11 @@ for (const [paket, datei, weiche] of KERN) {
   process.stdout.write(`▶ ${paket}/${datei} … `);
   const grund = weiche?.();
   if (grund) {
-    uebersprungen++;
     ueberspringe(buch, WURZEL, paket, datei);
     console.log(`ÜBERSPRUNGEN — ${grund}`);
     continue;
   }
-  const lauf = fahre(buch, spawnSync, resolve(WURZEL, 'node_modules/.bin/tsx'), [datei], {
+  const lauf = await fahre(buch, starteKind, resolve(WURZEL, 'node_modules/.bin/tsx'), [datei], {
     cwd: resolve(WURZEL, paket),
     encoding: 'utf-8',
     timeout: 600_000,
@@ -2161,21 +2232,11 @@ if (schmutzigeZeilen.length > 0) {
   for (const zeile of schmutzigeZeilen) console.log(`  ${zeile}`);
 }
 
-// Buchfuehrung: nur eine Momentaufnahme des vollen Laufs; ein abgebrochener Lauf kommt nie hierher.
-const buchung = abschluss(buch, SOLL, WURZEL);
-if (buchung.befunde.length > 0) {
-  console.log('\n✗ Der Sammellauf hat nicht gefahren, was in KERN steht (Buchführung, scripts/runner-buchfuehrung.mjs):');
-  for (const befund of buchung.befunde) console.log(`  ${befund}`);
-}
-const dauerGesamt = `${((Date.now() - start) / 1000).toFixed(0)}s`;
-if (buchung.befunde.length > 0) {
-  console.log(`\nROT — ${buchung.gefahren} von ${KERN.length} Tests gefahren, Buchführung stimmt nicht, in ${dauerGesamt}`);
-  process.exit(1);
-}
-console.log(
-  `\n${KERN.length - fehler - uebersprungen - buchung.ausgelassen}/${KERN.length} Tests grün` +
-    (uebersprungen > 0 ? `, ${uebersprungen} übersprungen` : '') +
-    (buchung.ausgelassen > 0 ? `, ${buchung.ausgelassen} ausgelassen (TEILLAUF, kein voller Lauf)` : '') +
-    ` in ${dauerGesamt}`
-);
-process.exit(fehler > 0 ? 1 : 0);
+// Schlusszeile und Exit-Code kommen aus der Buchfuehrung; `beende` endet den Prozess.
+await beende(buch, {
+  quelle: QUELLE,
+  wurzel: WURZEL,
+  fehler,
+  teillaufErlaubt: TEILLAUF_ERLAUBT,
+  dauer: ` in ${((Date.now() - start) / 1000).toFixed(0)}s`,
+});

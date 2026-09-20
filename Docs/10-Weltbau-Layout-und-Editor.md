@@ -450,8 +450,9 @@ Kennung).
   ganze Liste `KERN` in einem Lauf (rund 10 Minuten; jede Testdatei im Baum
   steht dort oder mit Grund auf der Ausnahmeliste in
   `scripts/pruefe-runner-liste.mjs`). Den Schalter `--alle` und die zweite
-  Liste `LANG` gibt es seit 20.09.2026 nicht mehr; der Runner nimmt keine
-  Argumente und lehnt sie mit Exit-Code 2 ab. Für dieses Dokument
+  Liste `LANG` gibt es seit 20.09.2026 nicht mehr; der Runner kennt nur
+  `--teillauf-erlaubt` (ein bewusst gefilterter Lauf endet sonst mit Exit-Code 3)
+  und lehnt alles andere mit Exit-Code 2 ab. Für dieses Dokument
   einschlägig: `shared/test/worldlayout.ts`,
   `shared/test/region-geo.ts`, `server/test/h1-layout.ts`,
   `server/test/h2-routen.ts`, `server/test/h3-routen-vorschau.ts`,

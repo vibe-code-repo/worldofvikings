@@ -66,9 +66,21 @@ const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
 
 let fehler = 0;
+let gut = 0;
+// Expected number of checks. A cut-short run (`process.exit(0)`, an exception, a section that never ran) prints no ✗ line and
+// may even exit 0 -- counted as "0 red" it would pass. So the exit hook prints a red line and sets the exit code, and the end
+// compares ✓ + ✗ with this number.
+const SOLL = 315;
+let fertig = false;
+process.on('exit', () => {
+  if (fertig) return;
+  console.log(`  ✗ abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+  process.exitCode = 1;
+});
 function check(name: string, ok: boolean, zusatz = ''): void {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${zusatz ? ` (${zusatz})` : ''}`);
   if (!ok) fehler++;
+  else gut++;
 }
 
 // ── Attrappe: ein Browser-Profil mit mehreren Tabs ───────────────────
@@ -2242,6 +2254,75 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     })
   );
 
+  check(
+    '(h) Spione: `uebernommen()` speichert WIRKLICH (ein Aufruf `speichereEntwurf` mit \'bearbeitet\'), und jedes Glied reicht seine Argumente und Rückgabewerte unverändert durch (markante Werte)',
+    versuche(() => {
+      const gesehen: Record<string, unknown[][]> = {};
+      const spion =
+        <A extends unknown[], R>(name: string, antwort: (...a: A) => R) =>
+        (...a: A): R => {
+          (gesehen[name] ??= []).push(a);
+          return antwort(...a);
+        };
+      const s = (name: string): unknown[][] => gesehen[name] ?? [];
+      const markant = { ...startDokument, name: 'markant-42' };
+      let aktuell: WorldLayout = startDokument;
+      const kern = kontextModul!.erzeugeEditorKern({
+        layout: spion('layout', () => aktuell),
+        setzeLayout: spion('setzeLayout', (n: WorldLayout) => void (aktuell = n)),
+        beiAbgang: spion('beiAbgang', () => undefined),
+        nachSchritt: spion('nachSchritt', () => undefined),
+        speichereEntwurf: spion('speichere', () => 'knapp' as const),
+        seiteBauen: spion('seite', () => undefined),
+        pruefberichtBauen: spion('bericht', () => undefined),
+        weltSektionBauen: spion('welt', () => undefined),
+        kartenMassBauen: spion('mass', () => undefined),
+        zeichneOverlay: spion('overlay', () => undefined),
+        faerbeSpeicherKnopf: spion('knopf', () => undefined),
+        vorschauAnstossen: spion('vorschau', () => undefined),
+        werkzeugId: spion('werkzeugId', () => 'markant-see'),
+        zurAuswahl: spion('zurAuswahl', () => undefined),
+        meldung: spion('meldung', () => undefined),
+        zuBild: spion('zuBild', (x: number, y: number): [number, number] => [y * 2, x * 3]),
+        massstab: spion('massstab', () => 13),
+        bestaetige: spion('bestaetige', (q: string) => q === 'Frage-9'),
+      });
+      const c = kern.werkzeugKontext;
+      c.aendere(markant);
+      c.uebernommen();
+      c.meldung('Text-7', true);
+      c.meldung('nur-Text');
+      const bild = c.zuBild(123.5, -7);
+      const ja = c.bestaetige('Frage-9');
+      const nein = c.bestaetige('andere-Frage');
+      c.zurAuswahl();
+      const grund = kern.alles('import');
+      kern.merkeSchritt(true);
+      for (let i = 0; i < 60; i++) kern.merkeSchritt(); // more than the 50 the stack keeps: the oldest steps leave through `beiAbgang`
+      const j = (x: unknown): string => JSON.stringify(x);
+      return (
+        j(s('speichere')) === j([['bearbeitet'], ['import']]) &&
+        grund === 'knapp' &&
+        s('setzeLayout').length === 1 &&
+        s('setzeLayout')[0]![0] === markant &&
+        j(s('nachSchritt').slice(0, 2)) === j([[false], [true]]) &&
+        s('vorschau').length === 1 &&
+        j(s('meldung')) === j([['Text-7', true], ['nur-Text', undefined]]) &&
+        j(s('zuBild')) === j([[123.5, -7]]) &&
+        j(bild) === j([-14, 370.5]) &&
+        j(s('bestaetige')) === j([['Frage-9'], ['andere-Frage']]) &&
+        ja === true &&
+        nein === false &&
+        c.massstab() === 13 &&
+        c.werkzeugId() === 'markant-see' &&
+        s('zurAuswahl').length === 1 &&
+        s('layout').every((a) => a.length === 0) &&
+        s('beiAbgang').length > 0 &&
+        s('beiAbgang').every((a) => typeof a[1] === 'string')
+      );
+    })
+  );
+
   // ── Die Verdrahtung in editorMain.ts: am SYNTAXBAUM, nicht am Text ──
   // GRENZE: Das hier ist eine STÜTZE, kein Beweis. Die eigentliche Absicherung ist der Verhaltenstest des Kerns oben
   // ((a)–(g)): Er führt `merkeSchritt`, `alles`, den Rückgängig-Stapel und den Kontext wirklich aus. Am Quelltext von
@@ -2257,9 +2338,17 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   //    (`erzeugeWerkzeugKontext as ewk`); ein von Hand gebautes Kontext-Literal ohne Fabrikaufruf; ein Element-Zugriff auf den
   //    Haken (`w?.['beiZeigerRunter']?.(…)`); eine Decoy-Deklaration (eine frühere, verschachtelte Funktion oder Variable
   //    gleichen Namens, auf die sich die Prüfung stützt, während der Kern eine andere benutzt).
+  //  - Ebenfalls NICHT gefangen: die RÜMPFE der Editor-Funktionen (dass `zeichneOverlay()` wirklich zeichnet, `seiteBauen()` die
+  //    Seite baut …; einzige Ausnahme unten: der eine Schreibaufruf in `speichereEntwurf`), ein Überschreiben eines Browser-Globals
+  //    (`window.confirm = () => true`), und die Rümpfe in `nachSchritt` (etwa den Merker danach zurücksetzen).
+  //  - Das Einfrieren ist FLACH: `Object.freeze` schützt Kontext und Kern-Objekt, nicht das verschachtelte `kern.verlauf` (der
+  //    Rückgängig-Stapel): `kern.verlauf.merke = () => undefined` verdeckt die Methode still. Erreichbar nur aus `editorMain.ts`;
+  //    bewusst nicht gebaut (ein eingefrorener `SchrittVerlauf` wäre ein Umbau der Klasse).
+  //  - Was der Verhaltenstest des Kerns dagegen sieht ((a)–(h), mit Spionen für die Host-Funktionen): dass `uebernommen()` speichert,
+  //    dass jedes Glied seine Argumente und Rückgabewerte durchreicht, dass der Stapel Schritte anlegt und abgibt.
   const kernQuelle = readFileSync(resolve(HIER, '../src/editor/werkzeuge/kontext.ts'), 'utf-8');
   const baum = (text: string, name: string): ts.SourceFile => ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const knoten = (sf: ts.SourceFile): ts.Node[] => {
+  const knoten = (sf: ts.Node): ts.Node[] => {
     const liste: ts.Node[] = [];
     const gehe = (n: ts.Node): void => {
       liste.push(n);
@@ -2361,12 +2450,12 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     return karte;
   };
   // Die Form eines Glieds als kurzer Text: `fn:x` (die Funktion x selbst), `get:x` (`() => x`), `set:x` (`(p) => { x = p; }`),
-  // `setlit:x=text` (`() => { x = 'text'; }`), `call:f` (ein Pfeil, der `f(...)` mit GENAU seinen Parametern in dieser Reihenfolge
+  // `setlit:x=text` (`() => { x = 'text'; }`), `call:f(n)` (ein Pfeil oder eine function, die `f(...)` mit GENAU ihren n Parametern in dieser Reihenfolge
   // ruft, auch als `void f()` oder als Block mit einer Anweisung); alles andere `other` (`() => undefined`, `() => 'see'`, ...).
   const formVon = (e: ts.Expression | undefined): string => {
     if (!e) return 'fehlt';
     if (ts.isIdentifier(e)) return `fn:${e.text}`;
-    if (!ts.isArrowFunction(e)) return 'other';
+    if (!ts.isArrowFunction(e) && !ts.isFunctionExpression(e)) return 'other';
     const params = e.parameters.map((q) => (ts.isIdentifier(q.name) ? q.name.text : '?'));
     let k: ts.Node = e.body;
     if (ts.isBlock(k)) {
@@ -2385,7 +2474,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     }
     if (ts.isCallExpression(k)) {
       const args = k.arguments.map((a) => (ts.isIdentifier(a) ? a.text : '?'));
-      return JSON.stringify(args) === JSON.stringify(params) ? `call:${k.expression.getText().replace(/\s+/g, '')}` : 'other';
+      return JSON.stringify(args) === JSON.stringify(params) ? `call:${k.expression.getText().replace(/\s+/g, '')}(${params.length})` : 'other';
     }
     return 'other';
   };
@@ -2393,7 +2482,9 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   const ECHTE = ['beiAbgang', 'speichereEntwurf', 'seiteBauen', 'pruefberichtBauen', 'weltSektionBauen', 'kartenMassBauen', 'zeichneOverlay', 'faerbeSpeicherKnopf', 'vorschauAnstossen'];
   const deklariert = (name: string): boolean => knoten(haupt).some((n) => ts.isFunctionDeclaration(n) && n.name?.text === name);
   const gliedText = (name: string): string => (kernGlieder ? `steht: ${kernGlieder.get(name)?.getText().replace(/\s+/g, ' ').slice(0, 50) ?? '(fehlt)'}` : 'Aufruf nicht lesbar');
-  const echteFunktion = (name: string): boolean => kernGlieder !== null && deklariert(name) && [`fn:${name}`, `call:${name}`].includes(formVon(kernGlieder.get(name)));
+  // Die Zahl der Parameter der echten Funktion: `() => zuBild()` (Argumente fallen weg) ist nicht mehr dieselbe Weiterleitung.
+  const stelligkeit = (name: string): number => knoten(haupt).filter((n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n) && n.name?.text === name).map((n) => n.parameters.length)[0] ?? -1;
+  const echteFunktion = (name: string): boolean => kernGlieder !== null && deklariert(name) && [`fn:${name}`, `call:${name}(${stelligkeit(name)})`].includes(formVon(kernGlieder.get(name)));
   for (const name of ECHTE) {
     check(`editorMain.ts: dem Kern geht die ECHTE Editor-Funktion \`${name}\` (unverpackt oder als Pfeil, der sie mit denselben Parametern ruft; kein \`() => undefined\`)`, echteFunktion(name), `${gliedText(name)}${deklariert(name) ? '' : ' (nicht als function deklariert)'}`);
   }
@@ -2404,15 +2495,29 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     nachSchritt: 'fn:nachSchritt',
     werkzeugId: 'get:werkzeug',
     zurAuswahl: 'setlit:werkzeug=auswahl',
-    meldung: 'call:shell.meldung',
-    zuBild: 'call:zuBild',
+    meldung: 'call:shell.meldung(2)',
+    zuBild: 'call:zuBild(2)',
     massstab: 'get:massstab',
-    bestaetige: 'call:window.confirm',
+    bestaetige: 'call:window.confirm(1)',
   };
   for (const [name, form] of Object.entries(ERWARTET_FORM)) {
     check(`editorMain.ts: Kern-Glied \`${name}\` ist genau die Durchreichung \`${form}\` (kein \`() => undefined\`, keine andere Variable)`, kernGlieder !== null && formVon(kernGlieder.get(name)) === form && (name !== 'nachSchritt' || deklariert('nachSchritt')), `${gliedText(name)} → ${kernGlieder ? formVon(kernGlieder.get(name)) : '-'}`);
   }
   check('editorMain.ts: der Kern bekommt genau die Glieder des `KernHost` — kein weiteres, keines fehlt', kernGlieder !== null && gleichMenge([...kernGlieder.keys()], [...ECHTE, ...Object.keys(ERWARTET_FORM)]), kernGlieder ? [...kernGlieder.keys()].join(',') : 'Aufruf nicht lesbar');
+  // Der Rumpf von `speichereEntwurf`: genau EIN Schreibaufruf mit den erwarteten Argumenten in dieser Reihenfolge, dessen Ergebnis
+  // `ergebnis` heißt (`const ergebnis = 'ok';` statt des Aufrufs, vertauschte Argumente, ein zweiter Aufruf: rot). Das ist eine FORM-Prüfung
+  // an einer Stelle, die der Verhaltenstest des Kerns nicht erreicht (die Funktion lebt in editorMain.ts).
+  const speicherRumpf = knoten(haupt).find((n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n) && n.name?.text === 'speichereEntwurf');
+  const schreibAufrufe = speicherRumpf ? knoten(speicherRumpf).filter((n): n is ts.CallExpression => ts.isCallExpression(n) && n.expression.getText().replace(/\s+/g, '') === 'entwurfsSpeicher.schreiben') : [];
+  check(
+    'editorMain.ts: `speichereEntwurf` ruft `entwurfsSpeicher.schreiben(layout, quelle, welt.instanz)` genau einmal und behält das Ergebnis in `ergebnis`',
+    schreibAufrufe.length === 1 &&
+      JSON.stringify(schreibAufrufe[0]!.arguments.map((a) => a.getText().replace(/\s+/g, ''))) === JSON.stringify(['layout', 'quelle', 'welt.instanz']) &&
+      ts.isVariableDeclaration(schreibAufrufe[0]!.parent) &&
+      ts.isIdentifier(schreibAufrufe[0]!.parent.name) &&
+      schreibAufrufe[0]!.parent.name.text === 'ergebnis',
+    `${schreibAufrufe.length} Aufrufe`
+  );
   // Der Kontext wird nach dem Bau nicht mehr angefasst (zur Laufzeit ist er eingefroren; ein Schreibzugriff würfe dort).
   const wurzelName = (e: ts.Expression): string | null => {
     let k: ts.Expression = e;
@@ -2513,5 +2618,10 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Polygon schliessen und „nach oben" (bisher ohne Schritt) legen jetzt einen an', poly && hoch, `polygon=${poly}, nachOben=${hoch}`);
 }
 
+fertig = true;
+if (gut + fehler !== SOLL) {
+  console.log(`  ✗ Sollzahl: ${gut + fehler} Prüfungen statt ${SOLL}`);
+  fehler++;
+}
 console.log(fehler === 0 ? '\nalle Prüfungen bestanden' : `\n${fehler} Prüfung(en) FEHLGESCHLAGEN`);
 process.exit(fehler === 0 ? 0 : 1);

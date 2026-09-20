@@ -28,6 +28,9 @@
  * through the id itself do not go through the gate either (`darfUebernehmen` is the nearness search only). And when a
  * placement inherits a ZDO by nearness while an older ZDO of ANOTHER prefab still carries the same id (the `stale` branch), that
  * one stays for one boot (two ZDOs with one `layoutId`; the next boot removes it as surplus) -- not new, identical to before.
+ * And a `layoutId` member that is not a text but carries a number: `getString` reads a truthy number as a non-empty name, so
+ * the first loop and the sweep count that ZDO as named and remove it as an orphan, while every other non-text type is left
+ * alone (section [7] b). Reachable only from a foreign or bent save; the gate is not the place, nothing is built for it.
  *
  * Every check is a real server boot on a temp world (boot 1 builds and saves, boot 2 loads that save and
  * syncs it against the changed document). Run: npx tsx test/layout-abgleich-loeschen.ts   (from server/)
@@ -47,7 +50,9 @@ let gut = 0;
 const SOLL = 74;
 let fertig = false;
 process.on('exit', () => {
-  if (!fertig) console.error(`FAIL abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+  if (fertig) return;
+  console.error(`FAIL abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+  process.exitCode = 1; // also after process.exit(0) in the middle of the run
 });
 function check(name: string, ok: boolean, detail = ''): void {
   if (!ok) {

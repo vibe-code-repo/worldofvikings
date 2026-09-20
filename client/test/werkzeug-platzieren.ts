@@ -32,7 +32,9 @@ let gut = 0;
 const SOLL = 180;
 let fertig = false;
 process.on('exit', () => {
-  if (!fertig) console.log(`  ✗ abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+  if (fertig) return;
+  console.log(`  ✗ abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+  process.exitCode = 1; // also after process.exit(0) in the middle of the run
 });
 function check(name: string, ok: boolean, zusatz = ''): void {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${zusatz ? ` (${zusatz})` : ''}`);

@@ -109,6 +109,7 @@ import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHu
 import { WERKZEUGE, platzierenWerkzeug, werkzeugMitId } from './werkzeuge';
 import { InselwahlPanel } from './testflug/InselwahlPanel';
 import { checkJump, flightUrl, heightSourcesFor } from './testflug/inselwahl';
+import { gameUrl } from './spielAdresse';
 import { onReturn, openReturnChannel } from './testflug/ruecksprung';
 import { platzierungZuBefund } from './werkzeuge/platzieren';
 import { erzeugeEditorKern } from './werkzeuge/kontext';
@@ -3781,7 +3782,7 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
     shell.konsoleZeile(`── ${marke}: fertig nach ${Math.round((Date.now() - start) / 1000)} s ──`);
     shell.meldung(a.message ?? 'Fertig.');
     await testweltKnoepfeAktualisieren();
-    if (aktion === 'starten') window.open('/', '_blank');
+    if (aktion === 'starten') window.open(gameUrl(), '_blank');
   } catch (err) {
     schirm.schliessen();
     shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${String(err)} ──`);

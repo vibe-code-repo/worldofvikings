@@ -3458,12 +3458,32 @@ export class WovServer {
     const jetzt = Date.now();
     if (jetzt - this.ohneWeltLetzteMeldung >= WovServer.OHNE_WELT_MELDUNG_INTERVALL_MS) {
       this.ohneWeltLetzteMeldung = jetzt;
-      console.error(
-        `[WoV] ${stelle}: weltId fehlt oder ist leer (${JSON.stringify(weltId) ?? 'undefined'}) — ` +
-          `Schlag/Effekt verworfen (bisher ${this.ohneWeltVerworfen}x)`
-      );
+      // Die Meldung darf unter KEINEN Umstaenden werfen: Sie steht im
+      // Server-Tick, und `weltId` ist ein Wert, dem man nichts zutrauen darf
+      // (ein Welt-Objekt statt seiner id, BigInt, zyklisches Objekt, Proxy
+      // mit werfendem Getter — JSON.stringify wirft bei allen). Deshalb
+      // nur `typeof` und, bei einem String, dessen Laenge; alles unter try.
+      try {
+        console.error(
+          `[WoV] ${stelle}: weltId fehlt oder ist leer (${WovServer.kennzeichne(weltId)}) — ` +
+            `Schlag/Effekt verworfen (bisher ${this.ohneWeltVerworfen}x)`
+        );
+      } catch {
+        /* eine Diagnose darf den Tick nicht kosten */
+      }
     }
     return false;
+  }
+
+  /** Kurze, sichere Kennzeichnung eines unbrauchbaren Wertes — wirft nie. */
+  private static kennzeichne(wert: unknown): string {
+    try {
+      if (typeof wert === 'string') return `String der Laenge ${wert.length}`;
+      if (wert === null) return 'null';
+      return typeof wert;
+    } catch {
+      return 'unlesbar';
+    }
   }
 
   private handleParry(peer: Peer): void {

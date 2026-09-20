@@ -687,35 +687,122 @@ async function main(): Promise<void> {
       await warte(200);
       check('sendeTrefferEffekt mit Welt: der Blitz kommt an', blitzeA === 1, `${blitzeA}`);
 
+      // Zeuge fuer das VERWERFEN selbst. Ohne ihn haelt der alte Weltfilter
+      // dahinter jeden Fehlaufruf ab und die Wache bliebe unbewiesen: Ein
+      // Peer, dessen worldId zufaellig gleich dem ungueltigen Wert ist ('' oder
+      // undefined), passiert den Filter — nur die Wache haelt den Schlag dann
+      // noch auf. `return true` in weltIdGueltig macht diese Proben rot.
+      const peerWelt = peer as unknown as { worldId: unknown };
+      const echteWelt = peer.worldId;
+      try {
+        for (const [name, wert] of [['leere worldId', ''], ['fehlende worldId', undefined]] as const) {
+          peer.health = 100;
+          blitzeA = 0;
+          const vw = zugriff.ohneWeltVerworfen;
+          peerWelt.worldId = wert;
+          zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, wert);
+          zugriff.sendeTrefferEffekt({ ...peer.position }, 1, wert);
+          await warte(200);
+          peerWelt.worldId = echteWelt;
+          check(
+            `Peer mit ${name} + Aufruf mit demselben Wert: Wache haelt Schlag und Blitz auf`,
+            peer.health === 100 && blitzeA === 0 && zugriff.ohneWeltVerworfen === vw + 2,
+            `${peer.health} LP, ${blitzeA} Blitze, Zaehler +${zugriff.ohneWeltVerworfen - vw}`
+          );
+        }
+      } finally {
+        peerWelt.worldId = echteWelt;
+      }
+
+      // Die Meldung selbst darf nie werfen: Welt-Objekt statt id (der Fehler
+      // eines Aufrufers, der `.id` vergisst), BigInt, zyklisches Objekt,
+      // werfender Getter und toJSON, Proxy mit werfenden Fallen. JSON.stringify
+      // wirft bei allen. Die Drossel wird je Wert zurueckgesetzt, damit JEDER
+      // bis zur Meldung kommt.
+      const zyklus: Record<string, unknown> = {};
+      zyklus.selbst = zyklus;
+      const werfer = new Proxy(
+        {},
+        {
+          get: () => {
+            throw new Error('Getter');
+          },
+          ownKeys: () => {
+            throw new Error('ownKeys');
+          },
+          getPrototypeOf: () => {
+            throw new Error('Prototyp');
+          },
+        }
+      );
+      const bosartig: [string, unknown][] = [
+        ['Welt-Objekt', server.hauptwelt],
+        ['BigInt', 10n],
+        ['zyklisches Objekt', zyklus],
+        ['werfender toJSON', { toJSON: () => { throw new Error('toJSON'); } }],
+        ['werfender Getter', Object.defineProperty({}, 'id', { get: () => { throw new Error('Getter'); }, enumerable: true })],
+        ['Proxy', werfer],
+        ['Symbol', Symbol('welt')],
+      ];
+      const meldung = zugriff as unknown as { ohneWeltLetzteMeldung: number };
+      for (const [name, wert] of bosartig) {
+        meldung.ohneWeltLetzteMeldung = 0;
+        const vor = zugriff.ohneWeltVerworfen;
+        const zeilen = gemeldet.length;
+        let fehler = '';
+        try {
+          zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, wert);
+        } catch (e) {
+          fehler = e instanceof Error ? e.message : String(e);
+        }
+        check(
+          `weltId = ${name}: kein Wurf, Zaehler +1, eine Logzeile`,
+          fehler === '' && zugriff.ohneWeltVerworfen === vor + 1 && gemeldet.length === zeilen + 1,
+          fehler ? `WURF: ${fehler}` : `Zaehler +${zugriff.ohneWeltVerworfen - vor}, ${gemeldet.length - zeilen} Zeile(n)`
+        );
+      }
+      meldung.ohneWeltLetzteMeldung = Date.now(); // Drossel wieder scharf
+
       // Die Zusage, die zaehlt: der Tick laeuft weiter. Ein NPC schlaegt
       // ueber die ECHTE Aggro-Verdrahtung, aber mit einem Aufrufer, der die
-      // Welt vergisst. update() wird umwickelt und gezaehlt (Abbruch = Wurf).
-      peer.health = 100;
-      const echterSchlag = server.aggro.onSchlag;
-      server.aggro.onSchlag = (pos, schaden, radius) => {
-        zugriff.applyCreatureAttack(pos, schaden, radius);
+      // Welt vergisst (fehlend) oder statt der id das Welt-Objekt gibt.
+      // update() wird umwickelt und gezaehlt (Abbruch = Wurf im Tick).
+      const tickProbe = async (was: string, weltArg: () => unknown): Promise<void> => {
+        peer.health = 100;
+        meldung.ohneWeltLetzteMeldung = 0;
+        const echterSchlag = server.aggro.onSchlag;
+        server.aggro.onSchlag = (pos, schaden, radius) => {
+          zugriff.applyCreatureAttack(pos, schaden, radius, weltArg());
+        };
+        const echtesUpdate = zugriff.update.bind(server);
+        let gestartet = 0;
+        let abgebrochen = 0;
+        zugriff.update = (): void => {
+          gestartet++;
+          // Drossel je Frame zuruecksetzen: JEDER Schlagframe erreicht die
+          // Meldung (sonst formatierte nur der erste je Minute).
+          meldung.ohneWeltLetzteMeldung = 0;
+          try {
+            echtesUpdate();
+          } catch {
+            abgebrochen++;
+          }
+        };
+        const v4 = zugriff.ohneWeltVerworfen;
+        const vergessen = setzeNpc('FurlocKrieger', { x: peer.position.x, y: peer.position.y, z: peer.position.z });
+        await warte(4_500);
+        const zaehlerNeu = zugriff.ohneWeltVerworfen - v4;
+        delete (zugriff as { update?: unknown }).update;
+        server.aggro.onSchlag = echterSchlag;
+        entferne(vergessen);
+        check(`Tick (${was}): kein einziger update()-Aufruf abgebrochen`, gestartet > 100 && abgebrochen === 0, `${gestartet} Aufrufe, ${abgebrochen} abgebrochen`);
+        check(`Tick (${was}): Schlaege verworfen und gezaehlt, Spieler unverletzt`, zaehlerNeu >= 2 && peer.health === 100, `Zaehler +${zaehlerNeu}, ${peer.health} LP`);
       };
-      const echtesUpdate = zugriff.update.bind(server);
-      let gestartet = 0;
-      let abgebrochen = 0;
-      zugriff.update = (): void => {
-        gestartet++;
-        try {
-          echtesUpdate();
-        } catch {
-          abgebrochen++;
-        }
-      };
-      const v4 = zugriff.ohneWeltVerworfen;
-      const vergessen = setzeNpc('FurlocKrieger', { x: peer.position.x, y: peer.position.y, z: peer.position.z });
-      await warte(4_500);
-      const zaehlerNeu = zugriff.ohneWeltVerworfen - v4;
-      delete (zugriff as { update?: unknown }).update;
-      server.aggro.onSchlag = echterSchlag;
-      entferne(vergessen);
-      check('Tick: kein einziger update()-Aufruf abgebrochen', gestartet > 100 && abgebrochen === 0, `${gestartet} Aufrufe, ${abgebrochen} abgebrochen`);
-      check('NPC ohne Welt im Aufruf: Schlaege verworfen und gezaehlt, Spieler unverletzt', zaehlerNeu >= 2 && peer.health === 100, `Zaehler +${zaehlerNeu}, ${peer.health} LP`);
+      await tickProbe('Welt vergessen', () => undefined);
+      await tickProbe('Welt-Objekt statt id', () => server.hauptwelt);
+      meldung.ohneWeltLetzteMeldung = Date.now();
       // ... und danach kommt ein ganz normaler Schlag mit Welt an.
+      peer.health = 100;
       zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, peer.worldId);
       check('danach: ein normaler Schlag mit Welt trifft (100 -> 92)', peer.health === 92, `${peer.health}`);
     } finally {

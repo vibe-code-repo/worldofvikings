@@ -42,6 +42,10 @@ export const EQUIPMENT_SETS = [
 ] as const;
 
 const familyOf = (setId: string) => setId.replace(/_(male|female)$/, '');
+const classIdOf = (setId: string) => {
+  const classId = Object.entries(CLASS_EQUIPMENT_FAMILIES).find(([, family]) => family === familyOf(setId))?.[0];
+  return classId === undefined ? {} : { classId };
+};
 
 /**
  * Item file (`<family>/<item>`, no extension) -> the file of its 63-bone web-body fit under `armor/`.
@@ -62,8 +66,8 @@ export function equipmentSetCatalog() {
     sets: EQUIPMENT_SETS.map(set => ({
       id: set.id, version: set.version, name: set.name, figure: set.figure,
       familyId: familyOf(set.id),
-      classId: Object.entries(CLASS_EQUIPMENT_FAMILIES).find(([, family]) =>
-        family === familyOf(set.id))?.[0],
+      // A set without a class (Plainhide) has no `classId` key at all, so the object equals its own JSON.
+      ...classIdOf(set.id),
       bodyVariant: set.parts[0]!.bodyVariant, bodyProfile: set.parts[0]!.bodyProfile,
       ...('starter' in set ? { starter: set.starter, freeRegions: set.freeRegions } : {}),
       itemIds: set.parts.map(part => part.item),

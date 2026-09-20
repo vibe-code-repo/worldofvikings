@@ -8,6 +8,8 @@ import { Reader } from '../src/io/Reader.js';
 
 const catalog = equipmentSetCatalog();
 assert.equal(catalog.schemaVersion, 1);
+// The served JSON must equal the object: no key with the value undefined (a set without a class has no `classId`).
+assert.deepEqual(JSON.parse(JSON.stringify(catalog)), catalog, 'The catalog must survive its own JSON round trip');
 assert.deepEqual(catalog.sets.map(set => set.id), ['ironward', 'wildwarden', 'ashenveil', 'seidraven_male', 'seidraven_female', 'emberrage_male', 'emberrage_female',
   'plainhide_male', 'plainhide_female', 'gravethorn_male', 'gravethorn_female']);
 const BODY_REGIONS = ['Head', 'Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft', 'ArmLowerRight', 'HandLeft', 'HandRight', 'LegLeft', 'LegRight'];
@@ -60,6 +62,23 @@ assert(catalog.sets.filter(set => set.familyId === 'gravethorn').every(set => se
 assert.deepEqual(EQUIPMENT_SETS.find(set => set.id === 'plainhide_male')!.parts.map(part => part.name), ['Plainhide Sleeves', 'Plainhide Tunic', 'Plainhide Wraps', 'Plainhide Trousers', 'Plainhide Shoes']);
 assert.deepEqual(EQUIPMENT_SETS.find(set => set.id === 'gravethorn_female')!.parts.map(part => part.name),
   ['Gravethorn Helm', 'Gravethorn Cuirass', 'Gravethorn Tassets', 'Gravethorn Pauldrons', 'Gravethorn Bracers', 'Gravethorn Gauntlets', 'Gravethorn Greaves']);
+// The slot and region table of the two new families, written out (not derived from the register): appearance slot, inventory slot, regions.
+const SLOT_TABLE: Record<string, Record<string, [string, string, string[]]>> = {
+  plainhide: { shoulders: ['schultern', 'schultern', ['ArmUpperLeft', 'ArmUpperRight']], vest: ['oberkoerper', 'hemd', ['Torso']],
+    bracers: ['unterarme', 'unterarme', ['ArmLowerLeft', 'ArmLowerRight']], robe: ['beine', 'hose', ['Hips']], boots: ['fuesse', 'schuhe', ['LegLeft', 'LegRight']] },
+  gravethorn: { hood: ['kopf', 'kopf', ['Head']], shoulders: ['schultern', 'schultern', ['ArmUpperLeft', 'ArmUpperRight']], vest: ['oberkoerper', 'hemd', ['Torso']],
+    bracers: ['unterarme', 'unterarme', ['ArmLowerLeft', 'ArmLowerRight']], gloves: ['haende', 'haende', ['HandLeft', 'HandRight']], robe: ['beine', 'hose', ['Hips']],
+    boots: ['fuesse', 'schuhe', ['LegLeft', 'LegRight']] },
+};
+for (const set of catalog.sets.filter(entry => entry.familyId in SLOT_TABLE)) {
+  const table = SLOT_TABLE[set.familyId]!;
+  assert.deepEqual(set.parts.map(part => part.itemId).sort(), Object.keys(table).map(key => `${set.familyId}_${set.bodyVariant}_${key}`).sort(), `${set.id}: items`);
+  for (const [key, [appearanceSlot, equipmentSlot, regions]] of Object.entries(table)) {
+    const part = set.parts.find(entry => entry.itemId === `${set.familyId}_${set.bodyVariant}_${key}`)!;
+    assert.deepEqual([part.appearanceSlot, part.equipmentSlot, [...part.regions]], [appearanceSlot, equipmentSlot, regions], `${part.itemId}: slots and regions`);
+    assert.equal(findItem(part.itemId)!.ausruestung, equipmentSlot, `${part.itemId}: inventory slot`);
+  }
+}
 assert.equal(catalog.sets[0].parts[0].itemId, 'IronwardHelmet');
 assert.equal(catalog.sets[0].parts[0].appearanceId, 'ironward_helm');
 assert.deepEqual(catalog.sets[2].itemIds, ['ashenveil_hood', 'ashenveil_vest', 'ashenveil_robe',

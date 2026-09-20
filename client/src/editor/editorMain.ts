@@ -2772,23 +2772,51 @@ function seiteBauen(): void {
  * Eigene Funktion, weil ihn jetzt zwei Bedienelemente rufen: der Knopf
  * in der Kopfzeile und die Betriebsart „Testflug" der Symbolspalte.
  */
+/**
+ * Ein neues Fenster für den Testflug öffnen. Ein Pop-up-Blocker sagt es nie
+ * selbst: `window.open` gibt dann null zurück — das melden wir, statt still
+ * nichts zu tun. Das Fenster zeigt erst einen Platzhalter, bis die Adresse
+ * feststeht.
+ * Open a new tab for the flight; a blocked pop-up is reported, never silent.
+ */
+function oeffneFlugTab(url = ''): Window | null {
+  const tab = window.open(url, '_blank');
+  if (!tab) {
+    shell.meldung('Der Browser hat das neue Fenster blockiert — Pop-ups für diese Seite erlauben und noch einmal klicken.', true);
+    return null;
+  }
+  if (url === '') {
+    try {
+      tab.document.title = 'Testflug';
+      tab.document.body.textContent = 'Testflug wird vorbereitet …';
+    } catch {
+      /* the tab opens anyway */
+    }
+  }
+  return tab;
+}
+
 function testflug(): void {
   speichereEntwurf();
   shell.meldung(`Testflug mit dem Entwurf — ${weltName()} bleibt unberührt, bis du speicherst.`);
-  window.open(flightUrl(), '_blank');
+  oeffneFlugTab(flightUrl());
 }
 
 /**
  * Testflug MIT Zielstelle: das Spiel öffnet dort, nicht im offenen Meer am
  * Ursprung. Die Stelle ist geprüft (Region, über Wasser), bevor diese
  * Funktion gerufen wird; der Client prüft sie beim Ankommen noch einmal.
+ * `tab`: das schon (im Klick) geöffnete Fenster der Inselwahl; ohne ihn wird
+ * hier eines mit der Adresse geöffnet (Taste T: keine Suche, kein Warten).
  */
-function testflugAn(x: number, z: number, was: string): void {
+function testflugAn(x: number, z: number, was: string, tab?: Window): void {
   speichereEntwurf();
+  const url = flightUrl({ x, z });
+  if (tab) tab.location.href = url;
+  else if (!oeffneFlugTab(url)) return;
   shell.meldung(
     `Testflug an ${was} (${Math.round(x)}, ${Math.round(z)}) — mit dem Entwurf, ${weltName()} bleibt unberührt, bis du speicherst.`
   );
-  window.open(flightUrl({ x, z }), '_blank');
 }
 
 // ── Einsprung in die Insel ───────────────────────────────────────────
@@ -2800,7 +2828,8 @@ function testflugAn(x: number, z: number, was: string): void {
 // deshalb weder Auswahl noch halbfertige Züge.
 const inselwahl = new InselwahlPanel({
   layout: () => sanitizeWorldLayout(layout),
-  betreten: (x, z, was) => testflugAn(x, z, was),
+  oeffneTab: () => oeffneFlugTab(),
+  betreten: (x, z, was, tab) => testflugAn(x, z, was, tab),
   meldung: (text, fehler) => shell.meldung(text, fehler),
 });
 let zeigerStelle: { x: number; z: number } | null = null;

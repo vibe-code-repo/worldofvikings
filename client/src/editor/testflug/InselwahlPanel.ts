@@ -6,15 +6,22 @@
  *
  * Insel-Wahl im Editor: Liste der Inseln mit Knopf „In 3D betreten“.
  */
-import type { WorldLayout } from '@wov/shared';
+import type { RegionDef, WorldLayout } from '@wov/shared';
 import { F, M, SCHRIFT, beiUeberfahren, el, knopf, luecke, schwebendStil, stil, zierTitel } from '../design';
-import { heightSourcesFor, islandCentre, islandRows } from './inselwahl';
+import { heightSourcesFor, islandRows, islandSearchAsync, searchMessage } from './inselwahl';
 
 export interface InselwahlHost {
   /** The current draft, sanitised; null when it is unusable. */
   layout(): WorldLayout | null;
-  /** Open the flight on this world point. */
-  betreten(x: number, z: number, was: string): void;
+  /**
+   * Open the flight's tab NOW. It is called inside the click, before the
+   * search: a pop-up is only allowed right after the click, and a search of a
+   * few seconds must not use that time up. Null (and a message from the
+   * host) when the browser blocks the tab.
+   */
+  oeffneTab(): Window | null;
+  /** Point the tab at the flight on this world point. */
+  betreten(x: number, z: number, was: string, tab: Window): void;
   meldung(text: string, fehler?: boolean): void;
 }
 
@@ -84,6 +91,25 @@ export class InselwahlPanel {
     this.root.style.display = 'flex';
   }
 
+  /**
+   * Search the target stepwise (the page stays alive; at most `SEARCH_BUDGET_MS`),
+   * then point the tab at it — or close it and say why not.
+   */
+  private async suche(layout: WorldLayout, region: RegionDef, id: string, tab: Window): Promise<void> {
+    const quellen = heightSourcesFor(layout);
+    const r = await islandSearchAsync(layout, region, quellen.ground, quellen.estimate);
+    if (tab.closed) return; // the player closed the tab meanwhile: nothing to open
+    const hinweis = searchMessage(id, r);
+    if (!r.target) {
+      tab.close();
+      if (hinweis) this.host.meldung(hinweis.text, hinweis.error);
+      return;
+    }
+    this.host.betreten(r.target.x, r.target.z, id, tab);
+    this.close();
+    if (hinweis) this.host.meldung(hinweis.text, hinweis.error);
+  }
+
   private row(
     layout: WorldLayout,
     id: string,
@@ -113,25 +139,19 @@ export class InselwahlPanel {
       () => {
         const region = layout.regions.find((r) => r.id === id);
         if (!region) return;
-        // The search reads real heights (a swamp with rare hills: up to ~2 s). Say so first, then search;
-        // the tab opens from the same click a moment later (transient activation lasts seconds).
+        const tab = this.host.oeffneTab();
+        if (!tab) return;
         go.textContent = 'Suche …';
         go.disabled = true;
-        setTimeout(() => {
-          try {
-            const s = heightSourcesFor(layout);
-            const ziel = islandCentre(layout, region, s.ground, s.estimate);
-            if (!ziel) {
-              this.host.meldung(`${id} hat kein Land über der Wasserlinie — dort gibt es nichts zu betreten.`, true);
-              return;
-            }
-            this.host.betreten(ziel.x, ziel.z, id);
-            this.close();
-          } finally {
-            go.textContent = 'In 3D betreten';
-            go.disabled = false;
-          }
-        }, 30);
+        void this.suche(layout, region, id, tab)
+          .catch((fehler: unknown) => {
+            tab.close();
+            this.host.meldung(`Die Suche ist fehlgeschlagen: ${String(fehler)}`, true);
+          })
+          .finally(() => {
+          go.textContent = 'In 3D betreten';
+          go.disabled = false;
+        });
       },
       { hoehe: 26 }
     );

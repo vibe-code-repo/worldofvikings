@@ -198,10 +198,40 @@ const SEARCH_GRID = 41;
  * real land was invisible to it (measured on insel-3 and insel-16).
  */
 const ESTIMATE_MARGIN = 5;
-/** Real heights read per region at most: the whole grid (~1.5 ms each once a zone is warm). */
+/** Real heights read per region at most: the whole grid. */
 const SEARCH_MAX_READS = SEARCH_GRID * SEARCH_GRID;
+/**
+ * Wall-clock limit of one search in the editor (ms). A region without any high
+ * land makes the search read the whole grid (measured 1.2 to 5.3 s for water
+ * regions); after this the best point found so far is taken and the player is
+ * told the search was cut off.
+ */
+export const SEARCH_BUDGET_MS = 4000;
+/** Reads between two breaks of the stepwise search (the page breathes in between). */
+const SEARCH_CHUNK = 8;
+
+export interface IslandSearch {
+  /** The jump target, or null when no land was found. */
+  target: { x: number; z: number } | null;
+  /** Height of the target above the water line (m); null without a target. */
+  height: number | null;
+  /** False when the time limit ended the search before the grid was read. */
+  complete: boolean;
+  /** Real heights read. */
+  reads: number;
+}
+
+export interface SearchOptions {
+  /** Ends the search when it returns true (checked before every read); default: never. */
+  stop?: () => boolean;
+  /** Try the region centre first (default true); the test turns it off to exercise the grid everywhere. */
+  useCentre?: boolean;
+}
 
 /**
+ * The search for a jump target as a generator: it yields every `SEARCH_CHUNK`
+ * reads so a driver can give the page a break, and returns the result.
+ *
  * Jump target for a region: its centre when that is high land of THIS region,
  * otherwise the most inland grid point that is high land.
  *
@@ -216,21 +246,32 @@ const SEARCH_MAX_READS = SEARCH_GRID * SEARCH_GRID;
  * ~1.5 ms warm) until one stands at least `TARGET_HEIGHT` above the water
  * line — that is the target, so most regions cost one to a few reads. When none
  * does (a swamp whose hills the estimate cannot see, or a region under water)
- * the whole grid has been read (~1.5 s), and the highest point that is land at
- * all is taken; null when there is none.
+ * the grid is read until `stop` says enough, and the highest point that is land
+ * at all is taken; no target when there is none.
  */
-export function islandCentre(
+function* searchSteps(
   layout: WorldLayout,
   region: RegionDef,
   ground: GroundHeight,
-  estimate: GroundHeight = ground
-): { x: number; z: number } | null {
+  estimate: GroundHeight,
+  opt: SearchOptions
+): Generator<void, IslandSearch, void> {
   const high = (g: number): boolean => g >= WATER_LEVEL + TARGET_HEIGHT;
+  const found = (x: number, z: number, g: number, complete: boolean, reads: number): IslandSearch => ({
+    target: { x, z },
+    height: g - WATER_LEVEL,
+    complete,
+    reads,
+  });
   const c = regionCentre(region);
   const cx = roundCoordinate(c.x);
   const cz = roundCoordinate(c.z);
-  const centre = checkJump(layout, ground, cx, cz);
-  if (centre.ok && centre.region === region && high(centre.ground)) return { x: cx, z: cz };
+  let reads = 0;
+  if (opt.useCentre !== false) {
+    reads++;
+    const centre = checkJump(layout, ground, cx, cz);
+    if (centre.ok && centre.region === region && high(centre.ground)) return found(cx, cz, centre.ground, true, reads);
+  }
 
   const b = shapeBounds(region.shape);
   interface Candidate {
@@ -268,13 +309,116 @@ export function islandCentre(
   });
 
   let best: { x: number; z: number; ground: number } | null = null;
+  let complete = true;
   for (const cand of pool.slice(0, SEARCH_MAX_READS)) {
+    if (opt.stop?.()) {
+      complete = false;
+      break;
+    }
     const g = ground(cand.x, cand.z);
-    if (!(g >= WATER_LEVEL + MIN_ABOVE_WATER)) continue;
-    if (high(g)) return { x: cand.x, z: cand.z };
-    if (!best || g > best.ground) best = { x: cand.x, z: cand.z, ground: g };
+    reads++;
+    if (g >= WATER_LEVEL + MIN_ABOVE_WATER) {
+      if (high(g)) return found(cand.x, cand.z, g, true, reads);
+      if (!best || g > best.ground) best = { x: cand.x, z: cand.z, ground: g };
+    }
+    if (reads % SEARCH_CHUNK === 0) yield;
   }
-  return best ? { x: best.x, z: best.z } : null;
+  return best ? found(best.x, best.z, best.ground, complete, reads) : { target: null, height: null, complete, reads };
+}
+
+/** The search in one go (no breaks): tests, and the list of all islands. */
+export function islandSearch(
+  layout: WorldLayout,
+  region: RegionDef,
+  ground: GroundHeight,
+  estimate: GroundHeight = ground,
+  opt: SearchOptions = {}
+): IslandSearch {
+  const it = searchSteps(layout, region, ground, estimate, opt);
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** Gives the event loop a turn (a message task: not throttled in a tab that is in the background). */
+function breathe(): Promise<void> {
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close();
+      ch.port2.close();
+      resolve();
+    };
+    ch.port2.postMessage(0);
+  });
+}
+
+/**
+ * The search stepwise: after every `SEARCH_CHUNK` reads the page gets a turn
+ * (the button repaints, the new tab draws), and after `budgetMs` of wall-clock
+ * time it stops with what it has (`complete: false`).
+ */
+export async function islandSearchAsync(
+  layout: WorldLayout,
+  region: RegionDef,
+  ground: GroundHeight,
+  estimate: GroundHeight = ground,
+  budgetMs: number = SEARCH_BUDGET_MS,
+  now: () => number = () => performance.now(),
+  opt: Omit<SearchOptions, 'stop'> = {}
+): Promise<IslandSearch> {
+  const t0 = now();
+  const it = searchSteps(layout, region, ground, estimate, { ...opt, stop: () => now() - t0 > budgetMs });
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+    await breathe();
+  }
+}
+
+/** Target of a region without a time limit (see `searchSteps`); null when it has no land. */
+export function islandCentre(
+  layout: WorldLayout,
+  region: RegionDef,
+  ground: GroundHeight,
+  estimate: GroundHeight = ground,
+  opt: SearchOptions = {}
+): { x: number; z: number } | null {
+  return islandSearch(layout, region, ground, estimate, opt).target;
+}
+
+const sekunden = (ms: number): string => (ms / 1000).toFixed(1).replace('.', ',');
+
+/**
+ * What the player is told after a search, or null when there is nothing to
+ * say (a target on high land). `error`: no jump happens.
+ * Low land and a cut-off search are said out loud: a target 1 m above the
+ * water line, or "no land" after the time limit, must not look like a normal answer.
+ */
+export function searchMessage(
+  id: string,
+  r: IslandSearch,
+  budgetMs: number = SEARCH_BUDGET_MS
+): { text: string; error: boolean } | null {
+  if (!r.target) {
+    return r.complete
+      ? { text: `${id} hat kein Land über der Wasserlinie — dort gibt es nichts zu betreten.`, error: true }
+      : {
+          text: `Suche nach ${sekunden(budgetMs)} s abgebrochen — bis dahin kein Land in ${id} gefunden, vermutlich hat es keines.`,
+          error: true,
+        };
+  }
+  if (r.height !== null && r.height < TARGET_HEIGHT) {
+    return {
+      text:
+        `${id}: das Ziel liegt niedrig — nur ${num(r.height)} m über der Wasserlinie` +
+        (r.complete ? '' : `, die Suche wurde nach ${sekunden(budgetMs)} s abgebrochen`) +
+        ', höheres Land wurde nicht gefunden.',
+      error: false,
+    };
+  }
+  return null;
 }
 
 /** One row of the island pick, without the jump target (that needs heights). */

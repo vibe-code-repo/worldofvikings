@@ -29,11 +29,15 @@ import {
   heightSourcesFor,
   islandCentre,
   islandList,
+  islandSearch,
+  islandSearchAsync,
   islandRows,
   parseJumpParam,
   positionLines,
   regionAt,
   roundCoordinate,
+  searchMessage,
+  SEARCH_BUDGET_MS,
 } from '../src/editor/testflug/inselwahl';
 import {
   LATE_MS,
@@ -133,6 +137,7 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
 
 // ── 1b. The estimate only orders: a wrong one must not hide real land ─────────
 {
+  // In six regions the centre is already the target, so the search never ran there; it is switched off here.
   // Terrain the draft has edited makes the world generator's height (the cheap estimate) tens of metres wrong.
   // Three liars stand in for it: everything deep under water, 60 m too low, a constant above the water line.
   const luegner: Array<[string, (x: number, z: number) => number]> = [
@@ -146,7 +151,7 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
     const ohne: string[] = [];
     for (const region of layout.regions) {
       const t1 = performance.now();
-      const ziel = islandCentre(layout, region, ground, schaetzung);
+      const ziel = islandCentre(layout, region, ground, schaetzung, { useCentre: false }); // no centre shortcut: the grid search runs in ALL regions
       const ms = performance.now() - t1;
       if (ms > langsam.ms) langsam = { id: region.id, ms, art: name };
       if (!ziel) {
@@ -450,6 +455,81 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
       pruefe(h >= MIN_ABOVE_WATER, `C (${name}): ${e.id}: above water (${h.toFixed(2)} m)`);
     }
   }
+}
+
+// ── 10. The search is bounded, stepwise and honest about it ─────────────────
+{
+  // A region under water: nothing high anywhere, so the whole grid is read.
+  const flach: RegionDef = { id: 'flachsee', biome: 'grassland', shape: { kind: 'circle', x: 0, z: 0, radius: 700 }, edgeFalloff: 300, baseLevel: 0.05, heightScale: 0 };
+  const seeLayout = sanitizeWorldLayout({ ...(doc as object), regions: [flach], placements: [], rivers: [], lakes: [], routes: [] }) as WorldLayout;
+  const seeWelt = createWorld(undefined, {}, seeLayout);
+  const seeGround = (x: number, z: number): number => seeWelt.getGroundHeight(x, z);
+  const see = seeLayout.regions[0]!;
+
+  // A clock that advances 5 ms per look: the budget ends the search after a countable number of reads.
+  let uhr = 0;
+  const tick = (): number => (uhr += 5);
+  uhr = 0;
+  const halb = await islandSearchAsync(seeLayout, see, seeGround, seeGround, 100, tick);
+  pruefe(!halb.complete && halb.target === null, 'water region, 100 ms of a 5 ms clock: cut off, no land found so far');
+  pruefe(halb.reads > 0 && halb.reads <= 25, `and only about 100 / 5 reads were made (${halb.reads})`);
+  const t0 = performance.now();
+  const ganz = islandSearch(seeLayout, see, seeGround);
+  const ganzMs = performance.now() - t0;
+  pruefe(ganz.complete && ganz.target === null && ganz.reads > 500, `without a limit the whole grid is read (${ganz.reads} reads, ${ganzMs.toFixed(0)} ms) and the answer is: no land`);
+  console.log(`  water region r=700: unlimited ${ganzMs.toFixed(0)} ms / ${ganz.reads} reads; with the ${SEARCH_BUDGET_MS} ms limit at most that`);
+
+  // The real clock: reads that take 2 ms each are cut off after the budget, not after the grid (about 1300 x 2 ms).
+  const langsam = (x: number, z: number): number => {
+    const t = performance.now();
+    while (performance.now() - t < 2) {
+      /* a slow machine */
+    }
+    return seeGround(x, z);
+  };
+  const t3 = performance.now();
+  const begrenzt = await islandSearchAsync(seeLayout, see, langsam, seeGround, 150);
+  const dauer = performance.now() - t3;
+  pruefe(!begrenzt.complete && begrenzt.reads < 200, `real clock, 2 ms reads, 150 ms budget: cut off after ${begrenzt.reads} reads`);
+  pruefe(dauer < 150 + 120, `and it took ${dauer.toFixed(0)} ms, not the ~2600 ms of the whole grid`);
+
+  // The stepwise driver equals the one-go driver where nothing is cut off, and the page breathes meanwhile.
+  const region3 = layout.regions.find((r) => r.id === 'insel-3')!;
+  const eins = islandSearch(layout, region3, ground, estimate);
+  let takte = 0;
+  const wecker = setInterval(() => takte++, 1);
+  const schritt = await islandSearchAsync(layout, region3, ground, estimate, 60_000);
+  clearInterval(wecker);
+  pruefe(schritt.complete && schritt.target !== null && eins.target !== null && schritt.target.x === eins.target.x && schritt.target.z === eins.target.z, 'insel-3: stepwise and one-go search find the same target');
+  pruefe(takte > 0, `the event loop ran during the stepwise search (${takte} timer ticks; a search of ${schritt.reads} reads)`);
+  pruefe((schritt.height ?? 0) >= TARGET_HEIGHT, 'insel-3: high land');
+
+  // A limit that strikes after the target is found changes nothing; one that strikes before takes what there is.
+  let n = 0;
+  const nachDrei = islandSearch(layout, region3, ground, estimate, { stop: () => ++n > 3 });
+  pruefe(!nachDrei.complete && nachDrei.reads <= 4, `stopped after three reads: cut off (${nachDrei.reads} reads)`);
+  pruefe(nachDrei.target === null || nachDrei.height! < TARGET_HEIGHT, 'and no target on high land is claimed');
+
+  // What the player is told.
+  const hoch: import('../src/editor/testflug/inselwahl').IslandSearch = { target: { x: 1, z: 2 }, height: 20, complete: true, reads: 1 };
+  pruefe(searchMessage('insel-x', hoch) === null, 'high land: nothing to say');
+  const niedrig = searchMessage('insel-x', { target: { x: 1, z: 2 }, height: 1.2, complete: true, reads: 900 });
+  pruefe(niedrig !== null && !niedrig.error && /niedrig/.test(niedrig.text) && /1,2 m über der Wasserlinie/.test(niedrig.text), `low land is said out loud: ${niedrig?.text}`);
+  const niedrigAbgebrochen = searchMessage('insel-x', { target: { x: 1, z: 2 }, height: 3, complete: false, reads: 900 });
+  pruefe(niedrigAbgebrochen !== null && /abgebrochen/.test(niedrigAbgebrochen.text) && new RegExp(`${(SEARCH_BUDGET_MS / 1000).toFixed(1).replace('.', ',')} s`).test(niedrigAbgebrochen.text), `low land and cut off: both are said (${niedrigAbgebrochen?.text})`);
+  const keins = searchMessage('insel-x', { target: null, height: null, complete: true, reads: 1681 });
+  pruefe(keins !== null && keins.error && /kein Land/.test(keins.text) && !/abgebrochen/.test(keins.text), 'no land after the whole grid: says so');
+  const keinsAbgebrochen = searchMessage('insel-x', { target: null, height: null, complete: false, reads: 400 });
+  pruefe(keinsAbgebrochen !== null && keinsAbgebrochen.error && /abgebrochen/.test(keinsAbgebrochen.text) && /vermutlich/.test(keinsAbgebrochen.text), 'no land found when cut off: says the search was cut off, not that there is none');
+
+  // The panel and the editor use these (source check on code names only).
+  const panel = lies('../src/editor/testflug/InselwahlPanel.ts');
+  pruefe(/islandSearchAsync\(/.test(panel) && /searchMessage\(/.test(panel), 'the panel searches stepwise and reports through searchMessage');
+  pruefe(/oeffneTab\(\)/.test(panel) && panel.indexOf('oeffneTab()') < panel.indexOf('islandSearchAsync('), 'the tab is opened before the search starts (inside the click)');
+  const editor = lies('../src/editor/editorMain.ts');
+  pruefe(/if \(!tab\)/.test(editor) && /Pop-ups/.test(editor), 'the editor reports a blocked pop-up');
+  const roh = (editor.match(/window\.open\(url, /g) ?? []).length;
+  pruefe(roh === 1, `the flight tabs are opened in one place (oeffneFlugTab): ${roh}`);
 }
 
 console.log(`\n${geprueft - fehler}/${geprueft} checks passed`);

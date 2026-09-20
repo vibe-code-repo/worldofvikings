@@ -27,6 +27,9 @@ import { SpawnPanel } from '../SpawnPanel';
 import { RoutenEditor } from '../RoutenEditor';
 import { RoutenVorschau } from '../RoutenVorschau';
 import { BewuchsVorschau } from '../BewuchsVorschau';
+import { LageAnzeige } from './LageAnzeige';
+import { positionLines, regionAt } from './inselwahl';
+import { planReturn, sendReturnFromBrowser } from './ruecksprung';
 import type { TestflugKontext } from './TestflugKontext';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz } from './TestflugPersistenz';
 
@@ -468,13 +471,80 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         )
       : null;
     if (bewuchs) {
-      hud.meldung('Bewuchs-Vorschau: wächst um dich herum nach (V baut sie neu auf)');
+      // G, not V: V is the build mode (above). Both used to share V, so one
+      // press flew AND threw the vegetation preview away.
+      hud.meldung('Bewuchs-Vorschau: wächst um dich herum nach (G baut sie neu auf)');
       window.addEventListener('keydown', (e) => {
-        if (tipptImFeld(e) || e.code !== 'KeyV') return;
+        if (tipptImFeld(e) || e.code !== 'KeyG') return;
         bewuchs.neuAufbauen();
         hud.meldung('Bewuchs-Vorschau neu aufgebaut');
       });
     }
+
+    // ── Where am I? And the way back to the map ─────────────────────
+    // Region, coordinate, height above ground and compass direction, four
+    // times a second (the region test walks every region; no need per frame).
+    // Q writes the position for the editor tab and closes this one.
+    const gebiet = sanitizeWorldLayout(testflug);
+    const lage = new LageAnzeige('Q: zurück zur Karte');
+    // A refused jump stays on the panel: a HUD message would sit under the
+    // loading screen and be gone (4 s) before the first frame is visible.
+    const abgelehnt = kontext.einsprungMeldung?.() ?? null;
+    if (abgelehnt) lage.setNotice(abgelehnt);
+    let lageZeit = -Infinity;
+    scene.onBeforeRenderObservable.add(() => {
+      const world = kontext.world();
+      const player = kontext.player();
+      if (!world || !player) return;
+      const jetzt = performance.now();
+      if (jetzt - lageZeit < 250) return;
+      lageZeit = jetzt;
+      lage.setLines(
+        positionLines(gebiet, world.getGroundHeight, {
+          x: player.position.x,
+          z: player.position.z,
+          y: player.position.y,
+          yaw: player.yaw,
+        })
+      );
+    });
+    window.addEventListener('keydown', (e) => {
+      const player = kontext.player();
+      if (tipptImFeld(e) || e.code !== 'KeyQ' || e.repeat || !player) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Only a tab opened by the editor may close itself.
+      const plan = planReturn(
+        abgelehnt !== null,
+        window.opener != null,
+        gebiet !== null && regionAt(gebiet, player.position.x, player.position.z) !== null
+      );
+      if (plan === 'stay') {
+        hud.meldung('Der Sprung wurde abgelehnt, es gibt keine Stelle für die Karte — diesen Tab bitte selbst schließen');
+        return;
+      }
+      if (plan === 'send') {
+        const gesendet = sendReturnFromBrowser({
+          x: player.position.x,
+          z: player.position.z,
+          yaw: player.yaw,
+          at: Date.now(),
+        });
+        if (!gesendet) {
+          hud.meldung('Rückweg nicht möglich — der Browser hat keinen Kanal zum Editor');
+          return;
+        }
+        hud.meldung('Zurück zur Karte …');
+      }
+      // A beat after the message, so it is on its way before the tab goes.
+      setTimeout(() => window.close(), 150);
+      setTimeout(() => {
+        hud.meldung(
+          plan === 'send'
+            ? 'Stelle an den Editor geschickt — nur ein offener Editor im selben Browserprofil zentriert die Karte. Diesen Tab bitte selbst schließen'
+            : 'Diesen Tab bitte selbst schließen'
+        );
+      }, 600);
+    });
 
     scene.onBeforeRenderObservable.add(() => {
       // Vor buildWorld() gibt es keine Geländehöhe — dann noch nichts tun.

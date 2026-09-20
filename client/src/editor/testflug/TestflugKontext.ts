@@ -46,4 +46,6 @@ export interface TestflugKontext {
   setzeSpawnEditorOffen(istOffen: () => boolean): void;
   /** Same for the route editor. */
   setzeRoutenEditorOffen(istOffen: () => boolean): void;
+  /** Why the editor's jump (`?pos`) was refused, or null: the flight shows it. */
+  einsprungMeldung?(): string | null;
 }

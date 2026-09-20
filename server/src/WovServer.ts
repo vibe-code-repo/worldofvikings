@@ -3454,6 +3454,14 @@ export class WovServer {
    * in seiner Welt nicht gibt.
    */
   private applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId: string): void {
+    // Ein Test greift ueber `as unknown as` hierher, und dort sieht tsc einen
+    // fehlenden Parameter nicht: Ohne diese Zeile uebersprang der Weltfilter
+    // unten JEDEN Peer, und ein Aufruf mit drei Argumenten traf still niemanden
+    // (b7-entsperren: kein Spieler starb mehr). Ein Aufrufer ohne Welt ist ein
+    // Fehler, kein Fehlschlag.
+    if (typeof weltId !== 'string') {
+      throw new Error('applyCreatureAttack: weltId fehlt — ein Schlag braucht die Welt des Schlaegers');
+    }
     const r2 = radius * radius;
     for (const peer of this.net.getPeers()) {
       if (peer.worldId !== weltId) continue;

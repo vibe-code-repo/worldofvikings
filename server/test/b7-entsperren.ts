@@ -133,7 +133,7 @@ function sendInteract(ws: WebSocket, pos: Vector3, prefabHash: number): void {
 
 /** Der Server-Teil, an den nur dieser Test von aussen greift (siehe Kopf). */
 interface TodesZugriff {
-  applyCreatureAttack(pos: Vector3, damage: number, radius: number): void;
+  applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId: string): void;
 }
 
 async function main(): Promise<void> {
@@ -259,7 +259,7 @@ async function main(): Promise<void> {
     console.log('\n[2] Betten setzen den Wiedereinstieg');
     const tot = async (): Promise<Vector3 | undefined> => {
       const vorher = k.teleports.length;
-      (server as unknown as TodesZugriff).applyCreatureAttack({ ...peer.position }, 999, 5);
+      (server as unknown as TodesZugriff).applyCreatureAttack({ ...peer.position }, 999, 5, peer.worldId);
       await warte(250);
       return k.teleports.length === vorher + 1 ? k.teleports[k.teleports.length - 1] : undefined;
     };

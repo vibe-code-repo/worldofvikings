@@ -25,6 +25,7 @@
  *  [7] Kein Spawnsystem noetig.
  *  [8] Welt-Filter: ein Schlag und sein Treffer-Blitz gelten nur Spielern
  *      derselben Welt (Instanzen liegen am Ursprung).
+ *  [9] Ein Schlag-Aufruf ohne Welt wirft, statt still niemanden zu treffen.
  *
  * Run: npx tsx server/test/b8-angreifbar.ts   (from the repo root)
  */
@@ -615,6 +616,25 @@ async function main(): Promise<void> {
     check('C sieht jeden Treffer-Blitz, A keinen', blitzeC === n2 && blitzeA === 0, `C ${blitzeC} von ${n2}, A ${blitzeA}`);
     if (!ausInstanz.destroyed) instanz.zdos.destroyZDO(ausInstanz.zdoid);
     wsC.close();
+
+    // ── [9] Ein Aufruf ohne Welt ist laut, nicht still ─────────────
+    // b7-entsperren ruft applyCreatureAttack ueber `as unknown as`; dort sieht
+    // tsc einen fehlenden Parameter nicht. Ein stilles Uebergehen aller Peers
+    // (peer.worldId !== undefined) hat dort den Todesweg unbemerkt tot gelegt.
+    console.log('\n[9] applyCreatureAttack ohne Welt wirft:');
+    type Schlagzugriff = { applyCreatureAttack(pos: Vector3, dmg: number, r: number, weltId?: string): void };
+    const zugriff = server as unknown as Schlagzugriff;
+    await neuerPlatz(1500, 1500);
+    zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, peer.worldId);
+    check('mit Welt: der Schlag trifft (100 -> 92)', peer.health === 92, `${peer.health}`);
+    let geworfen = '';
+    try {
+      zugriff.applyCreatureAttack({ ...peer.position }, 8, 5);
+    } catch (e) {
+      geworfen = e instanceof Error ? e.message : String(e);
+    }
+    check('ohne Welt: Fehler mit Hinweis auf weltId, kein stilles Uebergehen', /weltId/.test(geworfen), geworfen || '(kein Fehler)');
+    check('ohne Welt: kein Lebenspunkt bewegt', peer.health === 92, `${peer.health}`);
 
     console.log(failures === 0 ? '\n=== B8 Angreifbar: ALL PASSED ===' : `\n=== B8 Angreifbar: ${failures} FAILURES ===`);
     ws.close();

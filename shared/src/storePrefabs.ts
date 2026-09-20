@@ -44,6 +44,9 @@ const EINS: Vector3 = { x: 1, y: 1, z: 1 };
  * überleben, sonst ist es beim nächsten Start weg. Alle anderen Flags
  * beschreiben VERHALTEN (Tier-KI, Truhe, Feuerstelle, Bauteil) — davon
  * hat ein Fremdmodell keins: Es steht da, und das ist alles.
+ *
+ * Ausnahmen (Findling, Bett, Truhe) stehen in `storeVerhalten.ts`;
+ * `prefabs.ts` legt sie beim Aufbau der Registry über diese Vorgabe.
  */
 const STATISCH = PrefabFlag.PERSISTENT;
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Erzeugt: shared/src/storePrefabs.ts aus assets/store/{manifest,prefabs}.json.
+// Erzeugt: shared/src/storePrefabs.ts (+ Katalog, Kollision, Verhalten) aus assets/store/{manifest,prefabs}.json.
 /*
   Die Asset-Brücke: Sie macht aus 670 Dateien unter `assets/store/` etwas,
   das Server UND Client kennen.
@@ -51,6 +51,17 @@
 
   DESHALB `tsx` UND NICHT `node`: Die Regel ist TypeScript.
 
+  ── Das Verhalten (vierte Datei) ────────────────────────────────────
+  `storePrefabs.ts` vergibt allen Fremdmodellen nur PERSISTENT. Ein
+  Findling, ein Bett und eine Truhe sollen aber tun, was ihr Name sagt:
+  Stein geben, den Wiedereinstieg setzen, sich öffnen. Das Feld dafür
+  heisst `verhalten` in der Prefab-Quelle (Tor T3: EINE Wahrheit).
+  Solange `prefabs.json` es nicht führt, gilt `VERHALTEN_REGELN` unten:
+  aus dieser Ausnahmetabelle entsteht `storeVerhalten.ts`. Steht
+  `verhalten` an einem Prefab der Quelle, GEWINNT es gegen die Regeln.
+  Die Regeln gehören hierher und nicht in den Spielcode: Dort steht
+  danach nur die erzeugte Tabelle, keine Namenserkennung.
+
   Aufruf:
     npx tsx tools/store-prefabs.mjs            (schreibt shared/src/storePrefabs.ts)
     npx tsx tools/store-prefabs.mjs --pruefen  (schreibt nichts, Code 1 bei Abweichung)
@@ -64,6 +75,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { einsortieren } from '../client/src/editor/StoreKatalogDaten.ts';
+import { PrefabFlag } from '../shared/src/types.ts';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '..');
@@ -108,6 +120,8 @@ const ZIEL_KOLLISION = join(WURZEL, 'shared/src/storeKollisionDaten.ts');
 const DATEI_PREFABS = 'storePrefabs.ts';
 const DATEI_KATALOG = 'storeKatalogDaten.ts';
 const DATEI_KOLLISION = 'storeKollisionDaten.ts';
+const ZIEL_VERHALTEN = join(WURZEL, 'shared/src/storeVerhalten.ts');
+const DATEI_VERHALTEN = 'storeVerhalten.ts';
 
 // ── Hilfen ────────────────────────────────────────────────────────────
 
@@ -520,6 +534,9 @@ const EINS: Vector3 = { x: 1, y: 1, z: 1 };
  * überleben, sonst ist es beim nächsten Start weg. Alle anderen Flags
  * beschreiben VERHALTEN (Tier-KI, Truhe, Feuerstelle, Bauteil) — davon
  * hat ein Fremdmodell keins: Es steht da, und das ist alles.
+ *
+ * Ausnahmen (Findling, Bett, Truhe) stehen in \`storeVerhalten.ts\`;
+ * \`prefabs.ts\` legt sie beim Aufbau der Registry über diese Vorgabe.
  */
 const STATISCH = PrefabFlag.PERSISTENT;
 
@@ -618,6 +635,95 @@ export const STORE_KATALOG_NACH_PREFAB: ReadonlyMap<StorePrefabName, StoreEintra
 `);
 
 const textKatalog = katalogTeile.join('');
+
+// ── Viertes Erzeugnis: das Verhalten, für Client UND Server ───────────
+
+/*
+  Die AUSNAHMETABELLE (Tor T3), solange `prefabs.json` kein `verhalten`
+  führt. Jede Regel nennt Flags nach ihrem Namen in `PrefabFlag`; PERSISTENT
+  steht überall dabei, weil `storePrefabs.ts` es jedem Speicher-Prefab gibt
+  und die erzeugte Tabelle als Ganzes lesbar bleiben soll.
+
+  Was hier NICHT steht, hat kein Verhalten — Deko steht da, und das ist
+  alles. Die Regeln sind bewusst eng gefasst (Ende mit `$`, Zahlen
+  ausgeschrieben): `sm-env-stone-throne-01` und `sm-env-stonewall-*` sind
+  Bauwerk, `sm-env-house-rocks-large-01` und `sm-prop-path-rock-*` gelegte
+  Pflasterung, `sm-item-rock-01` ein Gegenstandsmodell, und
+  `chest-01-lid`, `-latch`, `chesttop` sind Teile einer Truhe, keine.
+
+  Exception table until the source carries `verhalten`; a `verhalten` on a
+  source prefab wins over the rules.
+*/
+const VERHALTEN_REGELN = [
+  {
+    gruppe: 'felsen',
+    flags: ['MINE_ROCK_5', 'PERSISTENT'],
+    passt: /^environment-sm-env-(rock-|stone-0\d)/,
+  },
+  {
+    gruppe: 'betten',
+    flags: ['PIECE', 'BED', 'PERSISTENT'],
+    passt: /^environment-sm-prop-bed-\d+$/,
+  },
+  {
+    gruppe: 'truhen',
+    flags: ['CONTAINER', 'PERSISTENT'],
+    passt: /^environment-(sm-prop-chest-(01|04|01-0)|chestbottom)$/,
+  },
+];
+
+/** Flagnamen → Wert; `NONE` ist keine Eigenschaft und kein Verhalten. */
+function flagsAusNamen(namen, wo) {
+  for (const n of namen) {
+    if (n === 'NONE' || !(n in PrefabFlag)) {
+      throw new Error(`Unbekanntes Flag "${n}" (${wo}) — es muss in PrefabFlag stehen`);
+    }
+  }
+  return [...new Set(namen)].sort();
+}
+
+/** id → { gruppe, flags[] } — die Quelle gewinnt gegen die Regeln. */
+const verhalten = new Map();
+for (const p of [...prefabNachAsset.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+  if (Array.isArray(p.verhalten) && p.verhalten.length > 0) {
+    verhalten.set(p.id, { gruppe: 'quelle', flags: flagsAusNamen(p.verhalten, p.id) });
+    continue;
+  }
+  const regel = VERHALTEN_REGELN.find((r) => r.passt.test(p.id));
+  if (regel) verhalten.set(p.id, { gruppe: regel.gruppe, flags: flagsAusNamen(regel.flags, p.id) });
+}
+const verhaltenGruppen = new Map();
+for (const v of verhalten.values()) verhaltenGruppen.set(v.gruppe, (verhaltenGruppen.get(v.gruppe) ?? 0) + 1);
+const verhaltenZaehlung = [...verhaltenGruppen.entries()]
+  .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+  .map(([g, n]) => `${n} ${g}`)
+  .join(', ');
+
+const textVerhalten = `/**
+ * storeVerhalten.ts — ERZEUGT, NICHT VON HAND ÄNDERN.
+ *
+ *   npx tsx tools/store-prefabs.mjs
+ *
+ * Was ein Speicher-Prefab TUT, über PERSISTENT hinaus: ${verhalten.size} Einträge
+ * (${verhaltenZaehlung}). Alles, was hier nicht steht, ist
+ * Deko und trägt nur PERSISTENT (\`storePrefabs.ts\`).
+ *
+ * Die Wahrheit ist das Feld \`verhalten\` in der Prefab-Quelle; solange
+ * \`prefabs.json\` es nicht führt, kommen die Einträge aus der
+ * Ausnahmetabelle \`VERHALTEN_REGELN\` in \`tools/store-prefabs.mjs\`. Der Spielcode
+ * (\`prefabs.ts\`) liest nur diese Tabelle und erkennt keine Namen.
+ *
+ * Generated store behaviour table — do not edit by hand.
+ */
+import { PrefabFlag as F } from './types.js';
+
+/** Prefabname → vollständige Flags (ODER-verknüpft mit denen aus \`storePrefabs.ts\`). */
+export const STORE_VERHALTEN: ReadonlyMap<string, bigint> = new Map<string, bigint>([
+${[...verhalten.entries()]
+  .map(([id, v]) => `  [${tsText(id)}, ${v.flags.map((f) => `F.${f}`).join(' | ')}], // ${v.gruppe}`)
+  .join('\n')}
+]);
+`;
 
 // ── Drittes Erzeugnis: die Kollisionsangabe, für Client UND Server ────
 
@@ -725,6 +831,7 @@ const ERZEUGNISSE = [
   { name: DATEI_PREFABS, ziel: ZIEL_PREFABS, text: textPrefabs },
   { name: DATEI_KATALOG, ziel: ZIEL_KATALOG, text: textKatalog },
   { name: DATEI_KOLLISION, ziel: ZIEL_KOLLISION, text: textKollision },
+  { name: DATEI_VERHALTEN, ziel: ZIEL_VERHALTEN, text: textVerhalten },
 ];
 
 if (process.argv.includes('--pruefen')) {
@@ -732,7 +839,7 @@ if (process.argv.includes('--pruefen')) {
     (e) => (existsSync(e.ziel) ? readFileSync(e.ziel, 'utf8') : '') !== e.text
   );
   if (veraltet.length === 0) {
-    console.log(`ok   alle Erzeugnisse sind aktuell (${defs.length} Prefabs, ${katalog.length} Katalogzeilen, ${kollisionOhne.length + kollisionNetze.length + kollisionKisten.length} Kollisions-Ausnahmen)`);
+    console.log(`ok   alle Erzeugnisse sind aktuell (${defs.length} Prefabs, ${katalog.length} Katalogzeilen, ${kollisionOhne.length + kollisionNetze.length + kollisionKisten.length} Kollisions-Ausnahmen, ${verhalten.size} mit Verhalten)`);
     process.exit(0);
   }
   for (const e of veraltet) console.error(`FAIL shared/src/${e.name} weicht ab`);
@@ -766,6 +873,7 @@ console.log(
   `${defs.length} Prefabs, ${katalog.length} Katalogzeilen, ` +
     `${nichtStreuen.length} nicht streubar, ${gruppen.length} Gruppen (${gruppen.join(', ')})`
 );
+console.log(`Verhalten: ${verhalten.size} Prefabs (${verhaltenZaehlung})`);
 console.log(
   aufbereiteteHuellen.size === 0
     ? `Hinweis: ${BERICHT_PFAD} fehlt — renderScale kommt für ALLE Prefabs aus prefabs.json ` +

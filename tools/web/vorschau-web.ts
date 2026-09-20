@@ -27,7 +27,7 @@ import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
-import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -71,6 +71,100 @@ interface WaffenSchicht {
 
 type Waffenart = 'schwert' | 'stab';
 
+/**
+ * Was die Seite vom Kopf-Zoom wissen muss: ob die Kamera im Portraet steht
+ * (oder dorthin faehrt), ob der Mauszeiger ueber dem Kopf ist und ob die
+ * Kopfposition gueltig ist (ein Koerper steht und die Werte fuer die
+ * Markierung sind gesetzt; waehrend eines Koerperwechsels nicht).
+ */
+export interface KopfZustand {
+  nah: boolean;
+  ueber: boolean;
+  gueltig: boolean;
+}
+
+/*
+  Kamerawerte in METERN. Eine Wahrheit ist der Radius der Kamera: Rad, Kopf-
+  Klick und Knopf aendern nur ihn, der Blickpunkt (blickpunktNachfuehren) und
+  der Video-Massstab (videoMassstabSetzen) leiten sich daraus ab.
+
+  Nachgemessen am 19.09.2026 an beiden Koerpern in der Ruhepose (Kopfnetz,
+  bei 1,0 m Abstand gerendert): Scheitel 1,80 m, Kinn 1,46 m (die
+  Silhouette verjuengt sich dort auf Halsbreite), Kopfmitte 1,63 m bei
+  beiden Koerpern, Kopfknochen "Head" bei beiden auf
+  1,556 m. Die Koerper weichen weniger als 1 cm voneinander und 1 cm von
+  KOPF_Y ab; die Konstante bleibt darum stehen.
+*/
+const AUSGANG_RADIUS = 3.2;
+/** Ab hier (und naeher) steht der Blickpunkt auf dem Kopf. */
+const NAH_ENDE = 2.2;
+/** Senkrechtes Sichtfeld im Ausgangsbild und bis 2,2 m (Babylons Vorgabe). */
+const FOV_AUSGANG = 0.8;
+/**
+ * Portraet: Der Kopf (Kinn bis Scheitel, 0,34 m) soll gut 40 % der
+ * Leinwandhoehe fuellen, das Bild also 0,80 m hoch sein (gemessen am
+ * gerenderten Kopf: 38 bis 40 %) — solange die Leinwand breit genug ist,
+ * siehe PORTRAET_BILDHOEHE und KOPF_BREITE. Mit dem Sichtfeld des Ausgangsbildes
+ * (0,8 rad) hiesse das Radius 0,95 m — und dort schneidet die Nahebene die
+ * Kristallfluegel der Seidraven-Ruestung an (gemessen bei 1,0 m: kleinster
+ * Abstand 0,035 m bei minZ 0,05 m; die Fluegel stehen rund 1 m seitlich der
+ * Achse). Darum sinkt das Sichtfeld unterhalb von 2,2 m (sichtfeldNachfuehren)
+ * auf ein Teleobjektiv: dieselben 0,80 m Bildhoehe aus 1,4 m Abstand
+ * (0,80 / (2 * 1,4) = tan 0,278, also 0,557 rad). Gleicher Kopfanteil, aber
+ * alles rund 0,45 m weiter von der Kamera weg.
+ * Naeher ist nicht vorgesehen; das Rad haelt hier an.
+ */
+const PORTRAET_RADIUS = 1.4;
+/** Bildhoehe im Portraet bei einer Leinwand, die breit genug ist (Seitenverhaeltnis ab etwa 0,54). */
+const PORTRAET_BILDHOEHE = 0.8;
+/**
+ * Front­breite des Kopfes samt breitester Frisur, gemessen am 20.09.2026 in
+ * der Ruhepose (der Kopf lehnt sich dort um 9 cm zur Kamera und steht aus
+ * der Drehachse) an allen 38 Frisuren von vorn: 0,26 bis 0,364 m, breiteste
+ * H_23 (halbe Ausdehnung von der Bildmitte 0,199 m); Ironward 0,33 m,
+ * Seidraven 0,32 m. Sie soll im Portraet hoechstens BREITE_ANTEIL der
+ * Leinwandbreite fuellen; ist die Leinwand schmaler als
+ * 0,364 / 0,85 / 0,8 = 0,54 (Breite zu Hoehe), waechst die Bildhoehe
+ * entsprechend (portraetHoehe) — das Sichtfeld weitet sich, der Abstand
+ * bleibt. Von vorn (0 Grad) beruehrt damit keine der 38 Frisuren den Rand.
+ * Gedreht liegt der Kopf aus der Achse: Zielte die Kamera auf die Achse,
+ * ragte er auf der schmalsten Buehne (227 px, Bildbreite 0,43 m) bei 45 und
+ * 90 Grad aus dem Bild (halbe Ausdehnung von der Bildmitte 0,29 und 0,31 m).
+ * Darum sucht der Blickpunkt im Portraet die Kopfmitte (kopfSeite), statt
+ * mehr Breite zu verlangen, die den Zoom gekostet haette. Breitere Kopfteile
+ * (Kapuzen 0,43–0,47 m, Geweih der Waldhueter-Krone 0,71 m) sind auch von vorn
+ * nicht in jedem Fall unter 85 %.
+ */
+const KOPF_BREITE = 0.364;
+const BREITE_ANTEIL = 0.85;
+/** Vergroesserung des Kopfes je Radrastung (im Bild gemessen, ueber die ganze Strecke). */
+const RAST = 1.12;
+/**
+ * Untere Grenze der Trefferflaeche: Kinn und Halsansatz (gemessen 1,46 m).
+ * Was darunter liegt — Schultern, Fluegel der Seidraven-Ruestung — zaehlt
+ * nicht als Kopf, auch wenn die Kugel um das getragene Kopfteil dorthin reicht.
+ */
+const KINN_Y = 1.46;
+/** Ein zweiter Kopf-Klick binnen dieser Zeit ist der Rest eines Doppelklicks und wird verschluckt. */
+const KLICK_DOPPEL_MS = 350;
+const BRUST_Y = 1.05;
+const KOPF_Y = 1.62;
+/** Rueckfall fuer Treffer und Markierung, solange die Flaeche des Getragenen nicht berechnet ist. */
+const KOPF_RADIUS = 0.21;
+/**
+ * Um so viel (m) wird die Mitte des Huellrechtecks nach hinten genommen: Die
+ * Ruhepose beginnt am vorderen Umkehrpunkt des Kopfes, der 2,4 cm vor und
+ * zurueck pendelt. Gemessen an beiden Koerpern (12 Phasen der Ruhepose,
+ * 24 Drehungen im Abstand von 15 Grad, Buehne 227 px, mit Brauen): Die
+ * Kopfmitte weicht hoechstens von der Buehnenmitte ab um (Wikinger /
+ * Wikingerin) 6,0 / 7,1 % der Buehnenbreite ohne Abzug, 4,7 / 5,9 % mit
+ * 0,006 m, 5,3 / 5,4 % mit 0,009 m, 5,9 / 4,9 % mit 0,012 m.
+ */
+const KOPF_ZURUECK = 0.009;
+/** Weg in Bildpunkten, bis aus einem Klick ein Ziehen wird. */
+const KLICK_WEG = 6;
+const FAHRT_MS = 450;
+
 export class Vorschau {
   private readonly engine: Engine;
   private readonly scene: Scene;
@@ -107,6 +201,51 @@ export class Vorschau {
   private waffeAktiv: Waffenart | null = null;
   private waffenZeit = 0;
   private waffenSchichten = new Map<Waffenart, WaffenSchicht[]>();
+  /** Laufende Radiusfahrt (Kopf-Zoom); null, solange die Kamera steht. */
+  private radiusFahrt: { von: number; nach: number; start: number } | null = null;
+  /** Der Kopfknochen des Koerpers; seine Lage folgt der Ruhepose. */
+  private kopfKnoten: TransformNode | null = null;
+  private readonly kopfWelt = new Vector3();
+  private readonly kopfMatrix = new Matrix();
+  private readonly kinnWelt = new Vector3();
+  /**
+   * Waagerechte Lage der Kopfmitte (kahler Kopf) gegenueber der Drehachse in
+   * Metern, im Bezugssystem der unverdrehten Figur. Einmal je Koerper in der
+   * Ruhepose gemessen (kopfVersatzMessen), null bis dahin; kein Nachfuehren
+   * je Bild, die Kamera schwingt also nicht mit der Ruhepose.
+   */
+  private kopfVersatz: { x: number; z: number } | null = null;
+  /**
+   * Trefferflaeche des Kopfes samt sichtbarer Frisur, Bart und Kopfteil: eine
+   * Kugel im Koordinatensystem des Kopfknochen (dreht mit dem Kopf, gilt bei
+   * jeder Drehung der Figur). Neu berechnet nur, wenn sich Sichtbarkeit oder
+   * Teile aendern (`kopfFlaecheAlt`), nicht je Bild.
+   */
+  private kopfFlaeche: { mitte: Vector3; radius: number } | null = null;
+  private kopfFlaecheAlt = true;
+  /**
+   * Erst ab diesem Bild berechnen: Ein frisch geladener Koerper hat im ersten
+   * Bild noch keine Hautmatrizen (alles null), die Eckpunkte landeten im Ursprung.
+   */
+  private kopfFlaecheFruehestens = 0;
+  private kopfGueltig = false;
+  private letzterKopfKlick = -Infinity;
+  /** Zuletzt gesetzte Zeigerform der Leinwand; '' = Stil der Seite. */
+  private zeigerForm = '';
+  /** Letzte Mausposition ueber der Leinwand (Client-Koordinaten); null bei Touch oder ausserhalb. */
+  private zeigerPos: { x: number; y: number } | null = null;
+  private zeigerGedrueckt = false;
+  /** Haengt die Zeigerbehandlung der Leinwand in dispose() wieder ab. */
+  private readonly zeigerAbbruch = new AbortController();
+  /** Abstand der Leinwand von ihrem Elternelement, dem Bezug der Markierung. */
+  private leinwandVersatz = { x: 0, y: 0 };
+  private kopfMarke = { x: NaN, y: NaN, r: NaN };
+  private kopfZustandLetzter: KopfZustand = { nah: false, ueber: false, gueltig: false };
+  /**
+   * Rueckruf fuer die Seite; kommt nur bei einer Aenderung und nie nach
+   * dispose().
+   */
+  beiKopfZustand: ((zustand: KopfZustand) => void) | null = null;
   /*
     Ein Knoten fuer alles, was zur Figur gehoert.
 
@@ -150,26 +289,31 @@ export class Vorschau {
     this.engine = new Engine(leinwand, true, { alpha: true, premultipliedAlpha: false }, true);
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0, 0, 0, 0);
+    // Babylons Eingabeverwaltung setzt bei jeder Mausbewegung
+    // `canvas.style.cursor` zurueck. Die Zeigerform gehoert hier aber der
+    // Vorschau (Kopf: zoom-in/zoom-out) und dem Stil der Seite (grab).
+    this.scene.doNotHandleCursors = true;
 
-    // Die Figur ist 1,0 hoch mit den Fuessen im Ursprung — der Kopf sitzt
-    // also bei rund 0,95. Der Blick geht auf Kopf und Oberkoerper.
+    // Die Figur steht mit den Fuessen im Ursprung; der Blick geht auf Kopf
+    // und Oberkoerper.
     /*
       Alle Werte in METERN, seit die Szene die echte Welt zeigt. Die Figur
-      ist 1,80 m: Brust bei 1,05, Scheitel bei rund 1,62.
+      ist 1,80 m: Brust bei 1,05, Scheitel bei 1,80, Kopfmitte bei 1,62.
 
       Ausgangsabstand 3,2 m: Die Figur ist damit etwas praesentierter als
       zuvor bei 3,6 m, bleibt aber samt Schwert und Fuessen voll im Bild.
-      Bis 5,5 m laesst sich herausziehen, bis 2,2 m heran.
+      Bis 5,5 m laesst sich herausziehen, bis 1,4 m (Portraet) heran.
     */
     this.kamera = new ArcRotateCamera(
-      'vorschau', Math.PI / 2, Math.PI / 2.12, 3.2,
-      new Vector3(0, 1.05, 0), this.scene);
+      'vorschau', Math.PI / 2, Math.PI / 2.12, AUSGANG_RADIUS,
+      new Vector3(0, BRUST_Y, 0), this.scene);
     /*
       NAHE SCHNITTEBENE. Babylons Vorgabe ist minZ = 1 — gedacht fuer eine
       Spielwelt, in der eine Einheit ein Meter ist und die Kamera Dutzende
-      Meter weit weg steht. Hier ist die ganze Figur 1,0 Einheiten hoch.
+      Meter weit weg steht. Hier ist die ganze Figur 1,8 m hoch.
 
-      Was das anrichtete (gemessen am 23.08.2026 auf der Live-Seite): Alles
+      Was das anrichtete (gemessen am 23.08.2026 auf der Live-Seite, als die
+      Figur noch 1,0 Einheiten hoch war): Alles
       naeher als eine Einheit an der Kamera wurde weggeschnitten. Bei
       Radius 1,9 fehlte damit bereits die Vorderseite — Brust, Nase, Haar
       —, und ganz hineingezoomt (Radius 0,7) lag die Figur KOMPLETT hinter
@@ -179,33 +323,32 @@ export class Vorschau {
       unten waren immer richtig; sie konnten nur nichts ausrichten, weil
       die Kamera schnitt, lange bevor sie zu nah war.
 
-      0,02 statt 1: knapp unter der kleinsten Naehe, die die Radiusgrenze
-      zulaesst (0,7 minus Kopfradius). Kleiner muss es nicht sein — eine
-      unnoetig nahe Schnittebene kostet Tiefenpuffer-Genauigkeit und laesst
-      Flaechen flackern, die dicht beieinander liegen.
+      0,05 statt 1: deutlich unter dem kleinsten Abstand zwischen Kamera und
+      Geometrie, den die Radiusgrenze zulaesst (im Portraet in festen Phasen
+      der Ruhepose gemessen: 0,29 m, siehe tools/test/vorschau-kopf.mjs).
+      Kleiner muss es nicht sein — eine unnoetig nahe Schnittebene kostet
+      Tiefenpuffer-Genauigkeit und laesst Flaechen flackern, die dicht
+      beieinander liegen.
     */
     this.kamera.minZ = 0.05;
     this.kamera.maxZ = 220;
+    this.kamera.fov = FOV_AUSGANG;
 
     /*
-      Wie nah man heran darf.
+      Wie nah man heran darf: bis zum Portraet, 1,4 m.
 
-      Nachgemessen am Modell (tools/glb-bbox.js): Der Koerper ist
-      0,62 breit x 1,00 hoch x 0,16 tief, Fuesse bei y = 0. Der Blickpunkt
-      wandert beim Hineinzoomen bis 0,90, also in den Kopf.
+      Die Vorschau rechnet in Metern (Figur 1,80 m). Der Blickpunkt wandert
+      beim Hineinzoomen von der Brust auf die Kopfmitte (blickpunktNachfuehren)
+      und bleibt von 2,2 m an dort; das Sichtfeld verengt sich unterhalb von
+      2,2 m (sichtfeldNachfuehren). Bei 1,4 m fuellt der Kopf 40 % der
+      Leinwandhoehe (siehe PORTRAET_RADIUS).
 
-      1,0 statt der frueheren 0,7: Bei 0,7 lag die Kamera rechnerisch zwar
-      noch ausserhalb der Figur, aber so knapp, dass eine voluminoese
-      Frisur oder ein gedrehter Blickwinkel gereicht haetten — und genau
-      das wurde am 23.08.2026 gemeldet. Ein Meter Abstand haelt auch bei
-      der groessten Frisur und jedem erlaubten Winkel Luft.
-
-      Der Preis ist eine etwas weitere Grossaufnahme: Bei Radius 1,0 fuellt
-      der Kopf rund ein Viertel der Bildhoehe statt eines Drittels. Fuer
-      "welche Frisur nehme ich" reicht das, und es ist der bessere Tausch
-      gegen eine Kamera, die im Kopf steckt.
+      Am 23.08.2026 stand die Grenze schon einmal bei 1,0 — damals in
+      Modelleinheiten, wo es die Kamera in den Kopf setzte. Hier misst
+      tools/test/vorschau-kopf.mjs bei jeder Drehung der Figur den Abstand
+      zwischen Kamera und Dreiecken (Frisuren, Helme, Ruestungen, Waffen).
     */
-    this.kamera.lowerRadiusLimit = 2.2;
+    this.kamera.lowerRadiusLimit = PORTRAET_RADIUS;
     // Enger als frueher: Der Hintergrund ist ein Bild, und je weiter man
     // herauszieht, desto deutlicher verraet sich der fehlende Parallaxe-Effekt.
     this.kamera.upperRadiusLimit = 5.5;
@@ -222,7 +365,7 @@ export class Vorschau {
       der Blickpunkt hier seit dieser Fassung dem Zoom nach (siehe
       blickpunktNachfuehren) — ein Verschieben von Hand wuerde jeden Frame
       wieder ueberschrieben und liesse die Steuerung kaputt wirken.
-      Gedreht und gezoomt wird weiter; dafuer gibt es auch die drei Knoepfe.
+      Gedreht und gezoomt wird weiter; dafuer gibt es auch die vier Knoepfe.
     */
     /*
       KEIN attachControl.
@@ -244,7 +387,13 @@ export class Vorschau {
     // bereits 1,79. Ein fester Faktor von 1,8 machte ihn sonst 3,2 m groß.
     this.figurKnoten.scaling.setAll(1);
 
-    this.scene.onBeforeRenderObservable.add(() => this.blickpunktNachfuehren());
+    this.scene.onBeforeRenderObservable.add(() => {
+      this.radiusFahrtWeiter();
+      this.kopfVersatzMessen();
+      this.blickpunktNachfuehren();
+      this.sichtfeldNachfuehren();
+      this.kopfNachfuehren();
+    });
     // Babylon mischt gleichzeitig laufende Gruppen. Die Waffenpose soll
     // Idle dagegen gezielt am rechten Arm und an den Fingern UEBERSCHREIBEN.
     // Darum wird sie nach Babylons Animationsdurchlauf von Hand aufgetragen.
@@ -282,13 +431,21 @@ export class Vorschau {
     // ResizeObserver auf der Leinwand faengt jede spaetere Aenderung ab,
     // das window-resize-Ereignis allein tut das nicht.
     this.engine.resize();
+    this.leinwandVersatzMessen();
     if (typeof ResizeObserver !== 'undefined') {
-      this.beobachter = new ResizeObserver(() => this.engine.resize());
+      this.beobachter = new ResizeObserver(() => {
+        this.engine.resize();
+        this.leinwandVersatzMessen();
+      });
       this.beobachter.observe(leinwand);
+      if (leinwand.parentElement) this.beobachter.observe(leinwand.parentElement);
     }
   }
 
-  private beiGroesse = () => this.engine.resize();
+  private beiGroesse = () => {
+    this.engine.resize();
+    this.leinwandVersatzMessen();
+  };
 
   /** Server wechseln: alles Geladene verwerfen, sonst mischen sich Staende. */
   async setzeWurzel(wurzel: string): Promise<void> {
@@ -316,6 +473,7 @@ export class Vorschau {
     this.koerperNetze = [];
     this.koerperGruppen = [];
     this.koerperDatei = '';
+    this.kopfZoomZuruecksetzen();
   }
 
   async ladeKoerper(datei: string): Promise<boolean> {
@@ -346,6 +504,9 @@ export class Vorschau {
     this.koerperNetze = [];
     this.koerperGruppen = [];
     this.koerperDatei = '';
+    // Ein neuer Koerper steht wieder im Ausgangsbild: Porträt, Fahrt und
+    // Markierung des alten gelten nicht mehr.
+    this.kopfZoomZuruecksetzen();
 
     const res = await SceneLoader.ImportMeshAsync('', this.wurzel, datei + '.glb', this.scene);
 
@@ -411,6 +572,7 @@ export class Vorschau {
     for (const teil of this.koerperWurzeln) teil.parent = this.figurKnoten;
     this.koerperGruppen = res.animationGroups;
     this.skelett = res.skeletons[0] ?? null;
+    this.kopfKnoten = res.transformNodes.find((knoten) => knoten.name === 'Head') ?? null;
     for (const g of res.animationGroups) g.stop();
     // Ueber den Namen, nicht "der erste Clip": Die Reihenfolge im glTF ist
     // alphabetisch und begaenne bei "angriff".
@@ -626,6 +788,7 @@ export class Vorschau {
 
   /** Derive masks from loaded items; late cosmetic loads cannot escape an active hood. */
   private refreshVisibility(): void {
+    this.kopfFlaecheAlt = true;
     const active = [...this.aktuell.values()]
       .filter(file => (this.geladen.get(file)?.netze.length ?? 0) > 0)
       .map(file => file.replace(/^armor\//, ''));
@@ -692,6 +855,7 @@ export class Vorschau {
   private zeige(datei: string, sichtbar: boolean): void {
     const teil = this.geladen.get(datei);
     if (!teil) return;
+    this.kopfFlaecheAlt = true;
     for (const m of teil.netze) m.setEnabled(sichtbar);
   }
 
@@ -827,43 +991,94 @@ export class Vorschau {
    * ein Waldschatten nie schwarz ist — es faellt immer Streulicht hinein.
    */
   /**
-   * Ziehen dreht die Figur, das Rad zoomt.
+   * Ziehen dreht die Figur, das Rad zoomt, ein Klick auf den Kopf faehrt ins
+   * Portraet und wieder heraus.
    *
    * Beim Zoomen wird das Video im HTML MITSKALIERT (--zoom auf der Buehne).
    * Ohne das faellt der Trick auseinander: Die Figur waechst, der Wald
    * dahinter bleibt gleich gross, und man sieht sofort, dass sie vor einer
    * Leinwand steht statt darin.
+   *
+   * KLICK GEGEN ZIEHEN: Ein Klick ist Zeiger runter und hoch mit weniger als
+   * KLICK_WEG Bildpunkten zurueckgelegtem WEG (nicht Abstand: wer weit weg
+   * und wieder zurueck zieht, hat gezogen). Ziehen loest den Zoom nie aus,
+   * auch wenn es auf dem Kopf beginnt oder endet. Ein zweiter Finger macht
+   * den Klick ungueltig, damit Kneifen nicht zoomt.
    */
   private zeigerAnschliessen(leinwand: HTMLCanvasElement): void {
     let letzterX: number | null = null;
+    let druck: { id: number; x: number; y: number; weg: number; gueltig: boolean } | null = null;
 
+    const signal = this.zeigerAbbruch.signal;
     leinwand.addEventListener('pointerdown', (e) => {
       leinwand.setPointerCapture(e.pointerId);
       letzterX = e.clientX;
-    });
+      this.zeigerGedrueckt = true;
+      if (e.pointerType !== 'mouse') this.zeigerPos = null;
+      if (druck) druck.gueltig = false;
+      else if (e.button === 0) druck = { id: e.pointerId, x: e.clientX, y: e.clientY, weg: 0, gueltig: true };
+    }, { signal });
     const los = (e: PointerEvent) => {
       letzterX = null;
+      this.zeigerGedrueckt = false;
       if (leinwand.hasPointerCapture(e.pointerId)) leinwand.releasePointerCapture(e.pointerId);
     };
-    leinwand.addEventListener('pointerup', los);
-    leinwand.addEventListener('pointercancel', los);
+    leinwand.addEventListener('pointerup', (e) => {
+      los(e);
+      const klick = druck;
+      if (klick && klick.id === e.pointerId) druck = null;
+      if (klick && klick.id === e.pointerId && klick.gueltig && klick.weg < KLICK_WEG
+          && this.kopfGetroffen(e.clientX, e.clientY, e.pointerType !== 'mouse')) {
+        // Der zweite Klick eines Doppelklicks wuerde die eben begonnene Fahrt
+        // sofort umkehren, und wer doppelklickt, saehe gar nichts. Ein
+        // bewusster zweiter Klick nach KLICK_DOPPEL_MS kehrt wie sonst um.
+        const jetzt = performance.now();
+        if (jetzt - this.letzterKopfKlick < KLICK_DOPPEL_MS) return;
+        this.letzterKopfKlick = jetzt;
+        this.zoomeKopf();
+      }
+    }, { signal });
+    leinwand.addEventListener('pointercancel', (e) => {
+      los(e);
+      druck = null;
+    }, { signal });
     leinwand.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'mouse') this.zeigerPos = { x: e.clientX, y: e.clientY };
+      if (druck && druck.id === e.pointerId) {
+        druck.weg += Math.hypot(e.clientX - druck.x, e.clientY - druck.y);
+        druck.x = e.clientX;
+        druck.y = e.clientY;
+      }
       if (letzterX === null) return;
       // 0,01 rad je Bildpunkt: eine halbe Bildbreite dreht die Figur einmal
       // knapp herum — genug, um die Rueckseite zu sehen, ohne zu zappeln.
       this.figurKnoten.rotation.y += (e.clientX - letzterX) * 0.01;
       letzterX = e.clientX;
-    });
+    }, { signal });
+    leinwand.addEventListener('pointerleave', () => {
+      this.zeigerPos = null;
+    }, { signal });
 
     leinwand.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const neu = this.kamera.radius * (e.deltaY < 0 ? 1 / 1.12 : 1.12);
+      // Das Rad uebernimmt: eine laufende Fahrt endet dort, wo sie steht.
+      this.radiusFahrt = null;
+      // Eine Rastung vergroessert den Kopf im Bild ueberall um RAST. Oberhalb
+      // von 2,2 m folgt das aus dem Radius (Bildhoehe ~ Radius); darunter
+      // aendert sich die Bildhoehe schneller als der Radius (das Sichtfeld
+      // verengt sich mit), also wird dort ueber die Bildhoehe gerechnet.
+      const faktor = e.deltaY < 0 ? 1 / RAST : RAST;
+      let neu = this.kamera.radius * faktor;
+      if (this.kamera.radius < NAH_ENDE || neu < NAH_ENDE) {
+        neu = this.radiusFuerHoehe(this.sichtHoehe(this.kamera.radius) * faktor);
+      }
       this.kamera.radius = Math.min(
         this.kamera.upperRadiusLimit ?? 6,
-        Math.max(this.kamera.lowerRadiusLimit ?? 2.2, neu)
+        Math.max(this.kamera.lowerRadiusLimit ?? PORTRAET_RADIUS, neu)
       );
       this.videoMassstabSetzen();
-    }, { passive: false });
+      this.kopfZustandMelden();
+    }, { passive: false, signal });
   }
 
   /**
@@ -874,35 +1089,440 @@ export class Vorschau {
    * schwaecher als der Kamerazoom (Wurzel statt linear): Ein Hintergrund in
    * zwanzig Metern Entfernung waechst beim Vortreten eben kaum, und wer ihn
    * genauso stark mitwachsen laesst, uebertreibt die Bewegung.
+   *
+   * Am Portraetabstand (1,4 m) steht der Faktor bei Wurzel aus 5,5 / 1,4 =
+   * 1,98; die Radiusgrenze haelt ihn unter 2,0, ab dem ein Video sichtbar
+   * grobe Bloecke zeigt. Eine eigene Kappung braucht es darum nicht.
    */
   private videoMassstabSetzen(): void {
     const aus = this.kamera.upperRadiusLimit ?? 6;
-    const anteil = Math.max(0.001, this.kamera.radius / aus);
-    const s = Math.sqrt(1 / anteil);
+    const s = Math.sqrt(aus / Math.max(0.001, this.kamera.radius));
     this.leinwand.parentElement?.style.setProperty('--zoom', s.toFixed(3));
   }
 
+  /**
+   * Blickpunkt aus dem Radius ableiten (die einzige Quelle ist der Radius):
+   * ab 3,2 m auf die Brust, von 3,2 bis 2,2 m stetig zum Kopf hinauf, von
+   * 2,2 m bis zum Portraet auf der Kopfmitte. Seitlich folgt er im Portraet
+   * der Kopfmitte (kopfSeite mal Portraetanteil); ab 2,2 m und weiter weg
+   * bleibt es bei x = z = 0, das Ausgangsbild also unveraendert.
+   */
   private blickpunktNachfuehren(): void {
-    const AUSGANG = 3.2;
-    const BRUST = 1.05;
-    const KOPF = 1.62;
-    const nah = this.kamera.lowerRadiusLimit ?? 2.2;
-    const t = Math.min(1, Math.max(0, (AUSGANG - this.kamera.radius) / (AUSGANG - nah)));
-    this.kamera.target.y = BRUST + t * (KOPF - BRUST);
+    const r = this.kamera.radius;
+    const t = Math.min(1, Math.max(0, (AUSGANG_RADIUS - r) / (AUSGANG_RADIUS - NAH_ENDE)));
+    this.kamera.target.y = BRUST_Y + t * (KOPF_Y - BRUST_Y);
+    const anteil = this.portraetAnteil(r);
+    const seite = anteil > 0 ? anteil * this.kopfSeite() : 0;
+    // Nach rechts im Bild zeigt (-sin alpha, cos alpha), waagerecht und senkrecht zur Blickrichtung.
+    this.kamera.target.x = seite === 0 ? 0 : -seite * Math.sin(this.kamera.alpha);
+    this.kamera.target.z = seite === 0 ? 0 : seite * Math.cos(this.kamera.alpha);
   }
 
+  /** 0 ab 2,2 m und weiter weg, 1 im Portraet (1,4 m), dazwischen linear im Radius. */
+  private portraetAnteil(r: number): number {
+    return Math.min(1, Math.max(0, (NAH_ENDE - r) / (NAH_ENDE - PORTRAET_RADIUS)));
+  }
+
+  /**
+   * Wie weit (m) die Kopfmitte bei der aktuellen Drehung der Figur rechts
+   * (negativ: links) der Achse steht, gesehen von der Kamera: der einmal
+   * gemessene Versatz, mit der Figur gedreht (Babylon dreht Zeilenvektoren:
+   * x' = x cos + z sin, z' = -x sin + z cos) und auf die Bildrichtung gelegt.
+   * Nur diese Seitenlage kommt in den Blickpunkt. Die Tiefe (Kopf vor der
+   * Achse, zur Kamera hin) bliebe sonst im Blickpunkt und schoebe die Kamera
+   * um bis zu 11 cm zurueck: Der Kopf wuerde von vorn 7,5 bis 7,7 % kleiner
+   * (Wurzel der Silhouettenflaeche, gemessen auf vier Buehnen) als im Stand davor.
+   */
+  private kopfSeite(): number {
+    const v = this.kopfVersatz;
+    if (!v) return 0;
+    const w = this.figurKnoten.rotation.y;
+    const x = v.x * Math.cos(w) + v.z * Math.sin(w);
+    const z = -v.x * Math.sin(w) + v.z * Math.cos(w);
+    return -x * Math.sin(this.kamera.alpha) + z * Math.cos(this.kamera.alpha);
+  }
+
+  /**
+   * Bildhoehe (m) im Portraet: PORTRAET_BILDHOEHE, oder mehr, wenn die Leinwand
+   * so schmal ist, dass KOPF_BREITE sonst mehr als BREITE_ANTEIL der Breite
+   * fuellte (die strengere der beiden Grenzen gilt). Hoechstens die
+   * Bildhoehe bei 2,2 m: Bei ganz schmaler Leinwand faehrt das Portraet
+   * also nicht weiter heran, als es fuer die Breite geht.
+   */
+  private portraetHoehe(): number {
+    const hoeheNah = 2 * NAH_ENDE * Math.tan(FOV_AUSGANG / 2);
+    const aspekt = this.engine.getAspectRatio(this.kamera);
+    if (!(aspekt > 0)) return PORTRAET_BILDHOEHE;
+    return Math.min(hoeheNah, Math.max(PORTRAET_BILDHOEHE, KOPF_BREITE / BREITE_ANTEIL / aspekt));
+  }
+
+  /**
+   * Sichtbare Bildhoehe (m) im Blickpunktabstand `r`: bis 2,2 m die des festen
+   * Sichtfelds (also ~ r), darunter faellt sie geometrisch auf portraetHoehe().
+   */
+  private sichtHoehe(r: number): number {
+    if (r >= NAH_ENDE) return 2 * r * Math.tan(FOV_AUSGANG / 2);
+    const hoeheNah = 2 * NAH_ENDE * Math.tan(FOV_AUSGANG / 2);
+    const t = this.portraetAnteil(r);
+    return hoeheNah * Math.pow(this.portraetHoehe() / hoeheNah, t);
+  }
+
+  /** Umkehrung von sichtHoehe(): der Radius, bei dem das Bild `hoehe` Meter hoch ist. */
+  private radiusFuerHoehe(hoehe: number): number {
+    const hoeheNah = 2 * NAH_ENDE * Math.tan(FOV_AUSGANG / 2);
+    if (hoehe >= hoeheNah) return hoehe / (2 * Math.tan(FOV_AUSGANG / 2));
+    const l = Math.log(hoeheNah / this.portraetHoehe());
+    // Ganz schmale Leinwand: unter 2,2 m wird das Bild nicht mehr kleiner.
+    if (!(l > 1e-6)) return PORTRAET_RADIUS;
+    const t = Math.min(1, Math.log(hoeheNah / hoehe) / l);
+    return NAH_ENDE - t * (NAH_ENDE - PORTRAET_RADIUS);
+  }
+
+  /**
+   * Sichtfeld aus Radius und Seitenverhaeltnis ableiten (weiter nur eine
+   * Folge des Radius, dazu die Leinwand): bis 2,2 m unveraendert 0,8 rad;
+   * darunter sinkt die sichtbare Bildhoehe geometrisch von der bei 2,2 m auf
+   * portraetHoehe(), und das Sichtfeld folgt daraus fuer den jeweiligen
+   * Abstand (Teleaufnahme, siehe PORTRAET_RADIUS). Aendert sich die
+   * Leinwand im Portraet, zieht es damit von selbst nach.
+   */
+  private sichtfeldNachfuehren(): void {
+    const r = this.kamera.radius;
+    this.kamera.fov = r >= NAH_ENDE ? FOV_AUSGANG : 2 * Math.atan(this.sichtHoehe(r) / (2 * r));
+  }
+
+  /** Setzt die Kamera zurueck: Drehung sofort, Radius als Fahrt (ohne Animation bei reduzierter Bewegung). */
   blickZurueck(): void {
     this.figurKnoten.rotation.y = 0;
-    this.kamera.radius = 3.2;
-    this.videoMassstabSetzen();
+    this.radiusFahren(AUSGANG_RADIUS);
     // Der Blickpunkt folgt beim naechsten Frame von selbst; ihn hier
     // ebenfalls zu setzen waere eine zweite Wahrheit ueber dieselbe Zahl.
+  }
+
+  /**
+   * Kopf-Zoom: `true` faehrt ins Portraet, `false` zurueck ins Ausgangsbild,
+   * ohne Angabe wird umgeschaltet. Tut dasselbe wie ein Klick auf den Kopf.
+   */
+  zoomeKopf(nah: boolean = !this.kopfNah): void {
+    this.radiusFahren(nah ? PORTRAET_RADIUS : AUSGANG_RADIUS);
+  }
+
+  /** Steht die Kamera im Portraet oder faehrt sie dorthin? Aus dem Radius abgeleitet. */
+  get kopfNah(): boolean {
+    return this.radiusFahrt
+      ? this.radiusFahrt.nach <= PORTRAET_RADIUS
+      : this.kamera.radius <= PORTRAET_RADIUS + 0.005;
+  }
+
+  /**
+   * Faehrt den Radius weich (Ein- und Ausbremsen) auf `ziel`. Der Radius
+   * ist die einzige Wahrheit, darum ist das hier nur eine Animation
+   * desselben Wertes, den auch das Rad schreibt. Die Zwischenwerte laufen
+   * geometrisch (gleiches Verhaeltnis je Zeit), so wirkt die Fahrt gleichmaessig.
+   */
+  private radiusFahren(ziel: number): void {
+    if (this.zerstoert) return;
+    const von = this.kamera.radius;
+    if (Math.abs(von - ziel) < 1e-3 || this.bewegungReduziert()) {
+      this.radiusFahrt = null;
+      this.kamera.radius = ziel;
+      this.videoMassstabSetzen();
+      this.kopfZustandMelden();
+      return;
+    }
+    this.radiusFahrt = { von, nach: ziel, start: performance.now() };
+    this.kopfZustandMelden();
+  }
+
+  private radiusFahrtWeiter(): void {
+    const fahrt = this.radiusFahrt;
+    if (!fahrt) return;
+    const t = Math.min(1, (performance.now() - fahrt.start) / FAHRT_MS);
+    const weich = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    this.kamera.radius = fahrt.von * Math.pow(fahrt.nach / fahrt.von, weich);
+    if (t >= 1) {
+      this.kamera.radius = fahrt.nach;
+      this.radiusFahrt = null;
+    }
+    this.videoMassstabSetzen();
+  }
+
+  private bewegungReduziert(): boolean {
+    return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  /**
+   * Sichtbare Netze, die als Kopf zaehlen: Kopfregion des Koerpers, Frisur,
+   * Bart, Augenbrauen und das getragene Kopfteil (Helm, Kapuze, Krone).
+   */
+  private kopfNetze(): AbstractMesh[] {
+    const netze = this.koerperNetze.filter((m) => /^Chr_Head_/.test(m.name) && m.isEnabled());
+    for (const [slot, datei] of this.aktuell) {
+      const teil = datei ? this.geladen.get(datei) : undefined;
+      if (!teil) continue;
+      const kopfteil = armorByFile(datei.replace(/^armor\//, ''))?.slot === 'kopf';
+      if (!kopfteil && slot !== 'frisur' && slot !== 'bart' && slot !== 'augenbraue') continue;
+      for (const m of teil.netze) if (m.isEnabled()) netze.push(m);
+    }
+    return netze;
+  }
+
+  /**
+   * Ruft `fuer` mit jedem Eckpunkt des Netzes in Weltkoordinaten auf, auf der
+   * CPU gehautet (aktuelle Pose des Skeletts, keine Hautmatrix im ersten Bild).
+   */
+  private eckpunkteWelt(netz: AbstractMesh, fuer: (x: number, y: number, z: number) => void): void {
+    const pos = netz.getVerticesData('position');
+    if (!pos) return;
+    const welt = netz.getWorldMatrix().m;
+    const ind = netz.skeleton ? netz.getVerticesData('matricesIndices') : null;
+    const gew = ind ? netz.getVerticesData('matricesWeights') : null;
+    const indE = ind ? netz.getVerticesData('matricesIndicesExtra') : null;
+    const gewE = indE ? netz.getVerticesData('matricesWeightsExtra') : null;
+    const haut = ind ? netz.skeleton!.getTransformMatrices(netz) : null;
+    for (let i = 0, j = 0; i < pos.length; i += 3, j += 4) {
+      let x = pos[i]!, y = pos[i + 1]!, z = pos[i + 2]!;
+      if (haut && ind && gew) {
+        let sx = 0, sy = 0, sz = 0;
+        const beitrag = (index: number, gewicht: number) => {
+          if (!(gewicht > 0)) return;
+          const o = index * 16;
+          sx += gewicht * (pos[i]! * haut[o]! + pos[i + 1]! * haut[o + 4]! + pos[i + 2]! * haut[o + 8]! + haut[o + 12]!);
+          sy += gewicht * (pos[i]! * haut[o + 1]! + pos[i + 1]! * haut[o + 5]! + pos[i + 2]! * haut[o + 9]! + haut[o + 13]!);
+          sz += gewicht * (pos[i]! * haut[o + 2]! + pos[i + 1]! * haut[o + 6]! + pos[i + 2]! * haut[o + 10]! + haut[o + 14]!);
+        };
+        for (let k = 0; k < 4; k++) beitrag(ind[j + k]!, gew[j + k]!);
+        if (indE && gewE) for (let k = 0; k < 4; k++) beitrag(indE[j + k]!, gewE[j + k]!);
+        x = sx; y = sy; z = sz;
+      }
+      fuer(
+        x * welt[0]! + y * welt[4]! + z * welt[8]! + welt[12]!,
+        x * welt[1]! + y * welt[5]! + z * welt[9]! + welt[13]!,
+        x * welt[2]! + y * welt[6]! + z * welt[10]! + welt[14]!,
+      );
+    }
+  }
+
+  /**
+   * Misst den Kopfversatz einmal je Koerper: die Mitte des Huellrechtecks
+   * (von oben gesehen) der Eckpunkte des kahlen Kopfnetzes oberhalb des Kinns,
+   * im Bezugssystem der Figur, nach hinten um KOPF_ZURUECK genommen. Gemessen in
+   * der Ruhepose, die mit dem Kopf gut 11 cm vor der Achse beginnt und in den
+   * ersten 20 Bildern auf 1 mm gleich bleibt; die Messung liegt in diesem
+   * Fenster. Seitlich (x) ist der Kopf spiegelgleich, von vorn bleibt das Bild
+   * damit bis auf 1,4 mm unveraendert.
+   */
+  private kopfVersatzMessen(): void {
+    if (this.kopfVersatz || !this.kopfKnoten) return;
+    // Erst wenn die Ruhepose in der Hautmatrix des Kopfknochens steht: Im ersten Bild sind die Matrizen null, und die
+    // Ruhepose wirkt beim ersten Laden der Seite erst rund zehn Bilder spaeter (bis dahin die Einheitsmatrizen der
+    // Bindepose: Kopf aufrecht auf der Achse, Versatz 0,008 statt 0,11 m).
+    const kopfNetz = this.koerperNetze.find((n) => /^Chr_Head_/.test(n.name));
+    const haut = kopfNetz?.skeleton?.getTransformMatrices(kopfNetz);
+    const knochen = kopfNetz?.skeleton?.getBoneIndexByName('Head') ?? -1;
+    if (!haut || knochen < 0) return;
+    let gepostet = false;
+    for (let i = 0; i < 16 && !gepostet; i++) gepostet = Math.abs(haut[knochen * 16 + i]! - (i % 5 === 0 ? 1 : 0)) > 1e-4;
+    if (!gepostet) return;
+    const invers = this.figurKnoten.getWorldMatrix().clone().invert();
+    const p = new Vector3();
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const netz of this.koerperNetze) {
+      // Auch ein bereits ausgeblendetes Kopfnetz (Helm schon gesetzt) zaehlt: Es haengt am selben Skelett.
+      if (!/^Chr_Head_/.test(netz.name)) continue;
+      this.eckpunkteWelt(netz, (wx, wy, wz) => {
+        if (wy < KINN_Y) return;
+        Vector3.TransformCoordinatesFromFloatsToRef(wx, wy, wz, invers, p);
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+        z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z);
+      });
+    }
+    if (!(x1 >= x0)) return; // noch keine Haut: naechstes Bild
+    const faktor = this.figurKnoten.scaling.x;
+    this.kopfVersatz = { x: (x0 + x1) / 2 * faktor, z: (z0 + z1) / 2 * faktor - KOPF_ZURUECK };
+  }
+
+  /**
+   * Berechnet die Trefferflaeche neu: die Eckpunkte der sichtbaren Kopfnetze
+   * werden auf der CPU in der aktuellen Pose gehautet, ins System des
+   * Kopfknochen umgerechnet und oberhalb des Kinns (KINN_Y) in eine Kugel
+   * gefasst (Mitte der Huellquader, Radius bis zum fernsten Eckpunkt). Das
+   * passiert nur nach einer Aenderung von Teilen oder Sichtbarkeit — die
+   * Lage im Bild folgt danach je Frame allein dem Kopfknochen.
+   */
+  private kopfFlaecheBerechnen(): void {
+    const knoten = this.kopfKnoten;
+    if (!knoten) return; // bis der Kopfknochen da ist, bleibt die Fläche „alt“
+    this.kopfFlaecheAlt = false;
+    this.kopfFlaeche = null;
+    const invers = knoten.getWorldMatrix().clone().invert();
+    const punkte: number[] = [];
+    const lo = new Vector3(Infinity, Infinity, Infinity);
+    const hi = new Vector3(-Infinity, -Infinity, -Infinity);
+    const p = new Vector3();
+    for (const netz of this.kopfNetze()) {
+      this.eckpunkteWelt(netz, (wx, wy, wz) => {
+        if (wy < KINN_Y) return;
+        Vector3.TransformCoordinatesFromFloatsToRef(wx, wy, wz, invers, p);
+        punkte.push(p.x, p.y, p.z);
+        lo.minimizeInPlace(p);
+        hi.maximizeInPlace(p);
+      });
+    }
+    if (!punkte.length) return;
+    const mitte = lo.add(hi).scaleInPlace(0.5);
+    let radius = 0;
+    for (let i = 0; i < punkte.length; i += 3) {
+      radius = Math.max(radius, Math.hypot(punkte[i]! - mitte.x, punkte[i + 1]! - mitte.y, punkte[i + 2]! - mitte.z));
+    }
+    // Zugabe: 1 cm (Ruhepose, Haut zwischen den Eckpunkten). Eine Kugel ueber
+    // einem Meter waere Unsinn (unfertige Haut); dann gilt weiter der Rueckfall.
+    if (radius < 1) this.kopfFlaeche = { mitte, radius: radius + 0.01 };
+  }
+
+  /**
+   * Trefferflaeche und Markierung als Bildschirmwerte in CSS-Pixeln (bezogen
+   * auf die Leinwand); null, solange keine Figur steht. `x`, `y`, `r` sind
+   * Mitte und Radius der Kugel um den Kopf samt Getragenem (Silhouette einer
+   * Kugel im Abstand `d`: r = f * R / Wurzel(d^2 - R^2), nicht f * R / d),
+   * `kinn` die Bildzeile des Kinns, unter der nichts mehr als Kopf zaehlt.
+   * Die seitliche Lage folgt dem Kopfknochen — die Ruhepose neigt den Kopf um
+   * einige Zentimeter nach vorn, und bei gedrehter Figur stuende die
+   * Markierung sonst neben dem Kopf. Ohne berechnete Flaeche gilt der Kreis
+   * KOPF_RADIUS um die gemessene Kopfmitte.
+   */
+  private kopfAufBildschirm(): { x: number; y: number; r: number; kinn: number } | null {
+    if (!this.koerperNetze.length) return null;
+    const box = this.leinwand.getBoundingClientRect();
+    if (box.width < 1 || box.height < 1) return null;
+    if (this.kopfFlaecheAlt && this.scene.getRenderId() >= this.kopfFlaecheFruehestens) this.kopfFlaecheBerechnen();
+    const knochen = this.kopfKnoten;
+    const bone = knochen?.getAbsolutePosition();
+    let radius = KOPF_RADIUS;
+    if (this.kopfFlaeche && knochen) {
+      Vector3.TransformCoordinatesToRef(this.kopfFlaeche.mitte, knochen.getWorldMatrix(), this.kopfWelt);
+      radius = this.kopfFlaeche.radius;
+    } else {
+      this.kopfWelt.set(bone?.x ?? 0, KOPF_Y, bone?.z ?? 0);
+    }
+    // Ansicht und Projektion frisch von der Kamera: scene.getTransformMatrix()
+    // haelt den Stand des vorigen Bildes, waehrend Radius und Blickpunkt
+    // in diesem Frame schon neu gesetzt sind.
+    const ansicht = this.kamera.getViewMatrix();
+    const tiefe = Vector3.TransformCoordinates(this.kopfWelt, ansicht).z;
+    const abstand = Vector3.Distance(this.kopfWelt, this.kamera.position);
+    if (!(tiefe > this.kamera.minZ) || !(abstand > radius)) return null;
+    ansicht.multiplyToRef(this.kamera.getProjectionMatrix(), this.kopfMatrix);
+    const bild = Vector3.TransformCoordinates(this.kopfWelt, this.kopfMatrix);
+    this.kinnWelt.set(bone?.x ?? 0, KINN_Y, bone?.z ?? 0);
+    const kinn = Vector3.TransformCoordinates(this.kinnWelt, this.kopfMatrix);
+    const brennweite = box.height / (2 * Math.tan(this.kamera.fov / 2));
+    return {
+      x: (bild.x + 1) / 2 * box.width,
+      y: (1 - bild.y) / 2 * box.height,
+      r: brennweite * radius / Math.sqrt(abstand * abstand - radius * radius),
+      kinn: (1 - kinn.y) / 2 * box.height,
+    };
+  }
+
+  /** Trifft ein Punkt (Client-Koordinaten) den Kopf, samt Frisur und getragenem Kopfteil? */
+  private kopfGetroffen(clientX: number, clientY: number, finger: boolean): boolean {
+    const kopf = this.kopfAufBildschirm();
+    if (!kopf) return false;
+    const box = this.leinwand.getBoundingClientRect();
+    // Zugabe: ein Finger trifft ungenauer als eine Maus.
+    const zugabe = finger ? 14 : 4;
+    const x = clientX - box.left;
+    const y = clientY - box.top;
+    return y <= kopf.kinn + zugabe && Math.hypot(x - kopf.x, y - kopf.y) <= kopf.r + zugabe;
+  }
+
+  private leinwandVersatzMessen(): void {
+    const eltern = this.leinwand.parentElement;
+    if (!eltern) return;
+    const a = this.leinwand.getBoundingClientRect();
+    const b = eltern.getBoundingClientRect();
+    this.leinwandVersatz = { x: a.left - b.left, y: a.top - b.top };
+  }
+
+  /**
+   * Jeden Frame: Zeigerform, Zustandsmeldung und die CSS-Variablen der
+   * Kopfmarkierung (--kopf-x, --kopf-y, --kopf-r in Pixeln, bezogen auf das
+   * Elternelement der Leinwand — wie --zoom). Geschrieben wird nur, wenn sich
+   * ein Wert um mehr als 0,5 Pixel aendert.
+   */
+  private kopfNachfuehren(): void {
+    const kopf = this.kopfAufBildschirm();
+    this.kopfGueltig = kopf !== null;
+    const eltern = this.leinwand.parentElement;
+    if (eltern) {
+      const x = kopf ? kopf.x + this.leinwandVersatz.x : NaN;
+      const y = kopf ? kopf.y + this.leinwandVersatz.y : NaN;
+      const r = kopf ? kopf.r : 0;
+      const alt = this.kopfMarke;
+      const anders = (neu: number, vorher: number) =>
+        Number.isNaN(neu) ? !Number.isNaN(vorher) : Number.isNaN(vorher) || Math.abs(neu - vorher) > 0.5;
+      if (anders(x, alt.x) || anders(y, alt.y) || anders(r, alt.r)) {
+        this.kopfMarke = { x, y, r };
+        eltern.style.setProperty('--kopf-x', Number.isNaN(x) ? '0px' : `${x.toFixed(1)}px`);
+        eltern.style.setProperty('--kopf-y', Number.isNaN(y) ? '0px' : `${y.toFixed(1)}px`);
+        eltern.style.setProperty('--kopf-r', `${r.toFixed(1)}px`);
+      }
+    }
+    this.kopfZustandMelden();
+  }
+
+  /** Bildet Zustand und Zeigerform neu und ruft die Seite nur bei einer Aenderung. */
+  private kopfZustandMelden(): void {
+    if (this.zerstoert) return;
+    const ueber = !this.zeigerGedrueckt && this.zeigerPos !== null
+      && this.kopfGetroffen(this.zeigerPos.x, this.zeigerPos.y, false);
+    const nah = this.kopfNah;
+    // Ausserhalb des Kopfes bleibt es beim Stil der Seite (grab/grabbing).
+    const form = ueber ? (nah ? 'zoom-out' : 'zoom-in') : '';
+    if (form !== this.zeigerForm) {
+      this.zeigerForm = form;
+      this.leinwand.style.cursor = form;
+    }
+    const gueltig = this.kopfGueltig;
+    const letzter = this.kopfZustandLetzter;
+    if (letzter.nah === nah && letzter.ueber === ueber && letzter.gueltig === gueltig) return;
+    this.kopfZustandLetzter = { nah, ueber, gueltig };
+    this.beiKopfZustand?.({ nah, ueber, gueltig });
+  }
+
+  /** Koerper- oder Serverwechsel: Portraet, Fahrt, Markierung und Zeigerform aufraeumen. */
+  private kopfZoomZuruecksetzen(): void {
+    this.radiusFahrt = null;
+    this.kopfKnoten = null;
+    this.kopfVersatz = null;
+    this.kopfFlaeche = null;
+    this.kopfFlaecheAlt = true;
+    this.kopfFlaecheFruehestens = this.scene.getRenderId() + 2;
+    // Ohne gueltige Kopfposition darf die Markierung nicht zu sehen sein.
+    this.kopfGueltig = false;
+    this.letzterKopfKlick = -Infinity;
+    this.kamera.radius = AUSGANG_RADIUS;
+    // Blickpunkt und Sichtfeld folgen dem Radius sonst erst im naechsten Frame.
+    this.blickpunktNachfuehren();
+    this.sichtfeldNachfuehren();
+    this.videoMassstabSetzen();
+    this.kopfZustandMelden();
   }
 
   drehe(schritt: number): void { this.figurKnoten.rotation.y += schritt; }
 
   dispose(): void {
     this.zerstoert = true;
+    this.zeigerAbbruch.abort();
+    this.radiusFahrt = null;
+    this.kopfVersatz = null;
+    this.beiKopfZustand = null;
+    this.leinwand.style.cursor = '';
+    this.zeigerForm = '';
+    for (const name of ['--zoom', '--kopf-x', '--kopf-y', '--kopf-r']) {
+      this.leinwand.parentElement?.style.removeProperty(name);
+    }
     this.koerperLauf += 1;
     this.teileEpoche += 1;
     this.teileLaeufe.clear();

@@ -29,8 +29,10 @@ export const KACHEL_MIN_METER = 4;
  * gröber als eine Kachel würde, also zeichnet es allein.
  */
 export const KACHEL_MAX_STUFE = 3;
-/** Vorgabe der Speicherobergrenze für fertige Kacheln: 64 MB = 256 Kacheln. */
+/** Grundobergrenze für fertige Kacheln: 64 MB = 256 Kacheln. */
 export const KACHEL_SPEICHER_BYTES = 256 * KACHEL_BYTES;
+/** Harte Obergrenze, bis zu der der Speicher mit dem Bedarf einer großen Ansicht wächst: 128 MB. */
+export const KACHEL_SPEICHER_MAX_BYTES = 512 * KACHEL_BYTES;
 
 /**
  * Größte Vergrößerung (Zielbreite / Texel), in der eine Ersatzkachel noch gezeichnet wird. Stärker
@@ -109,22 +111,22 @@ export function sichtbareKacheln(
 }
 
 /**
- * Zielrechteck einer Kachel im Bild. Die Kanten sind auf ganze Pixel
- * gerundet (links/oben abwärts, rechts/unten aufwärts): Nachbarkacheln
- * überlappen dadurch um höchstens ein Pixel, statt eine Haarlinie
- * durchscheinen zu lassen.
+ * Zielrechteck einer Kachel im Bild. Jede Kante ist auf ein ganzes Pixel
+ * gerundet, und zwei Nachbarn teilen sich ihre Kante (beide rechnen sie aus
+ * demselben Weltwert): keine Lücke, keine Überlappung. Eine Kante liegt
+ * dadurch höchstens ein halbes Pixel neben ihrem Weltort, die Kachel ist
+ * höchstens ein Pixel breiter oder schmaler als ihr Ausschnitt.
  */
 export function kachelRechteck(
   a: Ansicht,
   k: KachelAdresse,
 ): { x: number; y: number; w: number; h: number } {
   const { x0, z0, meter } = kachelUrsprung(k);
-  const px = (x0 - a.mitteX) / a.massstab + a.breite / 2;
-  const py = (z0 - a.mitteZ) / a.massstab + a.hoehe / 2;
-  const seite = meter / a.massstab;
-  const x = Math.floor(px);
-  const y = Math.floor(py);
-  return { x, y, w: Math.ceil(px + seite) - x, h: Math.ceil(py + seite) - y };
+  const kanteX = (welt: number): number => Math.round((welt - a.mitteX) / a.massstab + a.breite / 2);
+  const kanteY = (welt: number): number => Math.round((welt - a.mitteZ) / a.massstab + a.hoehe / 2);
+  const x = kanteX(x0);
+  const y = kanteY(z0);
+  return { x, y, w: kanteX(x0 + meter) - x, h: kanteY(z0 + meter) - y };
 }
 
 /**
@@ -191,22 +193,32 @@ export interface KachelEintrag<B> {
 }
 
 /**
- * Zwischenspeicher mit fester Obergrenze in Bytes. Verdrängt wird die am
- * längsten unbenutzte Kachel; das gerade eingelagerte Bild bleibt.
- * `schliesse` gibt das Bild frei (bei `ImageBitmap`: `close()`).
+ * Zwischenspeicher mit Obergrenze in Bytes. Verdrängt wird die am längsten
+ * unbenutzte Kachel, aber **nie eine geschützte** (der Dienst schützt alles,
+ * was er gerade für die Ansicht sucht): sonst verdrängte jede neue Kachel
+ * eine gesuchte, die sofort wieder angefordert würde. Erst wenn nichts
+ * Ungeschütztes mehr da ist, trifft es notfalls auch Geschütztes, damit die
+ * Obergrenze immer hält. `schliesse` gibt das Bild frei (bei `ImageBitmap`:
+ * `close()`). Die Obergrenze lässt sich zur Laufzeit ändern (`setzeMax`).
  */
 export class KachelSpeicher<B> {
   private readonly karte = new Map<string, KachelEintrag<B>>();
   private summe = 0;
   private uhr = 0;
+  private max: number;
   /** Zahl der freigegebenen Bilder — Zeuge, dass nichts liegen bleibt. */
   freigegeben = 0;
 
   constructor(
-    readonly maxBytes: number,
+    maxBytes: number,
     private readonly schliesse?: (bild: B) => void,
-  ) {}
+  ) {
+    this.max = maxBytes;
+  }
 
+  get maxBytes(): number {
+    return this.max;
+  }
   get bytes(): number {
     return this.summe;
   }
@@ -223,23 +235,23 @@ export class KachelSpeicher<B> {
   beruehre(e: KachelEintrag<B>): void {
     e.stempel = ++this.uhr;
   }
-  setze(adresse: KachelAdresse, gen: number, bild: B, bytes: number = KACHEL_BYTES): void {
+  setze(
+    adresse: KachelAdresse,
+    gen: number,
+    bild: B,
+    bytes: number = KACHEL_BYTES,
+    geschuetzt?: ReadonlySet<string>,
+  ): void {
     const k = kachelSchluessel(adresse);
     this.entferne(k);
     this.karte.set(k, { adresse, gen, bild, bytes, stempel: ++this.uhr });
     this.summe += bytes;
-    while (this.summe > this.maxBytes && this.karte.size > 1) {
-      let aelteste: string | null = null;
-      let stempel = Infinity;
-      for (const [key, e] of this.karte) {
-        if (key !== k && e.stempel < stempel) {
-          stempel = e.stempel;
-          aelteste = key;
-        }
-      }
-      if (aelteste === null) break;
-      this.entferne(aelteste);
-    }
+    this.verdraenge(k, geschuetzt);
+  }
+  /** Obergrenze ändern; was darüber liegt, wird verdrängt (Ungeschütztes zuerst). */
+  setzeMax(bytes: number, geschuetzt?: ReadonlySet<string>): void {
+    this.max = bytes;
+    this.verdraenge(null, geschuetzt);
   }
   entferne(schluessel: string): void {
     const e = this.karte.get(schluessel);
@@ -251,6 +263,27 @@ export class KachelSpeicher<B> {
   }
   leeren(): void {
     for (const k of [...this.karte.keys()]) this.entferne(k);
+  }
+
+  private verdraenge(behalte: string | null, geschuetzt?: ReadonlySet<string>): void {
+    while (this.summe > this.max && this.karte.size > (behalte === null ? 0 : 1)) {
+      let opfer: string | null = null;
+      let stempel = Infinity;
+      // Zuerst nur Ungeschütztes; erst wenn keines da ist, das älteste Geschützte.
+      for (const nurUngeschuetzt of [true, false]) {
+        for (const [key, e] of this.karte) {
+          if (key === behalte) continue;
+          if (nurUngeschuetzt && geschuetzt?.has(key)) continue;
+          if (e.stempel < stempel) {
+            stempel = e.stempel;
+            opfer = key;
+          }
+        }
+        if (opfer !== null) break;
+      }
+      if (opfer === null) break;
+      this.entferne(opfer);
+    }
   }
 }
 
@@ -271,7 +304,10 @@ export interface KachelDienstOptionen<B> {
   /** RGBA-Daten einer Kachel in ein zeichenbares Bild verwandeln. */
   bild: (rgba: Uint8Array) => Promise<B> | B;
   schliesse?: (bild: B) => void;
+  /** Grundobergrenze des Speichers; sie wächst mit dem Bedarf einer großen Ansicht. */
   maxBytes?: number;
+  /** Harte Obergrenze, auch für große Ansichten. */
+  maxHartBytes?: number;
   /** Eine Kachel ist eingetroffen: die Karte neu zeichnen. */
   aufNeu?: () => void;
   jetzt?: () => number;
@@ -280,6 +316,7 @@ export interface KachelDienstOptionen<B> {
 export interface KachelStatistik {
   kacheln: number;
   bytes: number;
+  /** Aktuelle Obergrenze in Bytes (Grundwert, bei großer Ansicht höher). */
   maxBytes: number;
   freigegeben: number;
   /** Aufträge an Worker gesendet / beantwortet. */
@@ -291,11 +328,20 @@ export interface KachelStatistik {
   ungesucht: number;
   /** Fehlende Kacheln der aktuellen Ansicht (gesucht, noch nicht da). */
   offen: number;
+  /** Kacheln der gesuchten Stufe, die das Bild braucht (ohne Randring). */
+  noetig: number;
+  /** Ansicht braucht mehr Kacheln, als die harte Obergrenze hält: dann fehlt der Rest. */
+  gekappt: boolean;
   /** Dauer der letzten Nachrechnung bis alles Gesuchte da war (ms), null solange sie läuft. */
   letzteScharfMs: number | null;
   /** Dauer jedes abgeschlossenen Nachrechnens (die letzten 100). */
   zyklen: number[];
 }
+
+/** Platz im Speicher, den der Dienst über der gesuchten Menge für gröbere Ersatzkacheln lässt. */
+const RESERVE_KACHELN = 32;
+/** Wie oft ein Worker hintereinander „nicht gerechnet" melden darf, bevor er ausfällt. */
+const LEER_VERSUCHE = 3;
 
 /**
  * Verteilt Kachelaufträge und hält den Zwischenspeicher.
@@ -306,17 +352,34 @@ export interface KachelStatistik {
  * nie gesendet. Höchstens ein Auftrag je Worker ist unterwegs (eine Kachel
  * rechnet rund 0,1 s), also blockiert nichts und kein Rückstau entsteht.
  *
+ * Gesucht wird erst, was im Bild liegt (das entscheidet über „scharf"),
+ * danach ein Randring als Vorrat. Der Speicher hat einen Grundwert (64 MB)
+ * und wächst mit dem Bedarf einer großen Ansicht (gesuchte Menge plus
+ * Reserve, höchstens die harte Obergrenze 128 MB); er verdrängt nie, was
+ * gerade gesucht wird. Grenze: braucht eine Ansicht mehr Kacheln, als die
+ * harte Obergrenze hält (rund 6K-Fenster bei 4 m/px), fehlt der Rest und
+ * `statistik().gekappt` sagt es.
+ *
  * Welt-Generation: nach einer Änderung des Dokuments (`neueWelt`) bleiben
  * die alten Kacheln zum Zeichnen erhalten, bis eine neue an ihre Stelle
  * tritt; Antworten mit älterer Generation werden verworfen.
+ *
+ * Kachelränder: Nachbarkacheln teilen sich jede Kante (`kachelRechteck`),
+ * eine Kante liegt höchstens ein halbes Pixel neben ihrem Weltort; das ist
+ * die Grenze der Ortstreue, kein Überzeichnen mehr.
  */
 export class KachelDienst<B> {
   private readonly speicher: KachelSpeicher<B>;
+  private readonly grundBytes: number;
+  private readonly hartBytes: number;
   private readonly worker: KachelWorker[] = [];
   /** Auftrag je Worker (Index), solange er rechnet. */
   private readonly belegt = new Map<number, string>();
   /** Kacheln (mit Generation) in Rechnung oder Umwandlung: nicht doppelt anfordern. */
   private readonly unterwegs = new Set<string>();
+  /** Fehlversuche „nicht gerechnet" je Worker in Folge; ab `LEER_VERSUCHE` fällt er aus. */
+  private readonly leer = new Map<number, number>();
+  private welt: { seed: string; layout: unknown } | null = null;
   private gen = 0;
   private hatWelt = false;
   private ansicht: Ansicht | null = null;
@@ -326,9 +389,13 @@ export class KachelDienst<B> {
   private readonly st = { gesendet: 0, fertig: 0, veraltet: 0, ungesucht: 0 };
   private letzteScharfMs: number | null = null;
   private zyklen: number[] = [];
+  private gesamtNoetig = 0;
+  private gekappt = false;
 
   constructor(private readonly opt: KachelDienstOptionen<B>) {
-    this.speicher = new KachelSpeicher<B>(opt.maxBytes ?? KACHEL_SPEICHER_BYTES, opt.schliesse);
+    this.grundBytes = opt.maxBytes ?? KACHEL_SPEICHER_BYTES;
+    this.hartBytes = Math.max(this.grundBytes, opt.maxHartBytes ?? KACHEL_SPEICHER_MAX_BYTES);
+    this.speicher = new KachelSpeicher<B>(this.grundBytes, opt.schliesse);
     this.jetzt = opt.jetzt ?? (() => performance.now());
   }
 
@@ -336,7 +403,9 @@ export class KachelDienst<B> {
   neueWelt(gen: number, seed: string, layout: unknown): void {
     this.gen = gen;
     this.hatWelt = true;
+    this.welt = { seed, layout };
     this.zyklusStart = null;
+    this.leer.clear();
     while (this.worker.length < this.opt.anzahl) this.starteWorker();
     for (const w of this.worker) w.post({ op: 'kachel-init', gen, seed, layout });
     this.planen();
@@ -405,6 +474,7 @@ export class KachelDienst<B> {
   }
 
   statistik(): KachelStatistik {
+    const alle = this.gesuchtAlle();
     return {
       kacheln: this.speicher.groesse,
       bytes: this.speicher.bytes,
@@ -414,29 +484,63 @@ export class KachelDienst<B> {
       fertig: this.st.fertig,
       veraltet: this.st.veraltet,
       ungesucht: this.st.ungesucht,
-      offen: this.gesucht().length + this.laufende(),
+      offen: this.fehlende(alle).length + this.laufende(),
+      noetig: this.gesamtNoetig,
+      gekappt: this.gekappt,
       letzteScharfMs: this.letzteScharfMs,
       zyklen: [...this.zyklen],
     };
   }
 
-  /** Die Kacheln der gewünschten Ansicht, die noch fehlen — mittigste zuerst. */
+  /** Liegt die Kachel der aktuellen Welt-Generation im Speicher? */
+  hat(k: KachelAdresse): boolean {
+    const e = this.speicher.get(kachelSchluessel(k));
+    return e !== undefined && e.gen === this.gen;
+  }
+
+  /** Die Kacheln der gewünschten Ansicht, die noch fehlen — mittigste zuerst, Sichtbares vor dem Randring. */
   gesucht(): KachelAdresse[] {
+    return this.fehlende(this.gesuchtAlle());
+  }
+
+  /**
+   * Alles, was der Dienst für die Ansicht halten will: zuerst die Kacheln im
+   * Bild (alle, unabhängig vom Speicher), dann der Randring, soweit er mit
+   * der Reserve noch in den Speicher passt. Hier wird auch die Obergrenze
+   * des Speichers an den Bedarf gekoppelt.
+   */
+  private gesuchtAlle(): KachelAdresse[] {
     const a = this.ansicht;
-    if (!a || !this.hatWelt) return [];
-    const stufe = stufeFuer(a.massstab);
-    if (stufe === null) return [];
-    // Höchstens drei Viertel des Speichers für die gesuchte Stufe, der Rest
-    // bleibt für gröbere Ersatzkacheln beim Zoomen.
-    const limit = Math.floor((this.speicher.maxBytes / KACHEL_BYTES) * 0.75);
-    return sichtbareKacheln(a, stufe)
-      .slice(0, limit)
-      .filter((k) => {
-        const s = kachelSchluessel(k);
-        if (this.unterwegs.has(`${this.gen}|${s}`)) return false;
-        const e = this.speicher.get(s);
-        return !(e && e.gen === this.gen);
-      });
+    const stufe = a && this.hatWelt ? stufeFuer(a.massstab) : null;
+    if (!a || stufe === null) {
+      this.gesamtNoetig = 0;
+      this.gekappt = false;
+      this.speicher.setzeMax(this.grundBytes);
+      return [];
+    }
+    const sichtbar = sichtbareKacheln(a, stufe, 0);
+    const imBild = new Set(sichtbar.map(kachelSchluessel));
+    const ring = sichtbareKacheln(a, stufe).filter((k) => !imBild.has(kachelSchluessel(k)));
+    const hartKacheln = Math.floor(this.hartBytes / KACHEL_BYTES);
+    const grundKacheln = Math.floor(this.grundBytes / KACHEL_BYTES);
+    this.gesamtNoetig = sichtbar.length;
+    this.gekappt = sichtbar.length + RESERVE_KACHELN > hartKacheln;
+    const noetig = this.gekappt ? Math.max(0, hartKacheln - RESERVE_KACHELN) : sichtbar.length;
+    const deckel = Math.min(hartKacheln, Math.max(grundKacheln, noetig + RESERVE_KACHELN));
+    const liste = sichtbar.slice(0, noetig);
+    const platzFuerRing = Math.max(0, deckel - RESERVE_KACHELN - liste.length);
+    liste.push(...ring.slice(0, platzFuerRing));
+    this.speicher.setzeMax(deckel * KACHEL_BYTES, new Set(liste.map(kachelSchluessel)));
+    return liste;
+  }
+
+  private fehlende(liste: KachelAdresse[]): KachelAdresse[] {
+    return liste.filter((k) => {
+      const s = kachelSchluessel(k);
+      if (this.unterwegs.has(`${this.gen}|${s}`)) return false;
+      const e = this.speicher.get(s);
+      return !(e && e.gen === this.gen);
+    });
   }
 
   /** Kacheln der aktuellen Generation in Rechnung oder Umwandlung. */
@@ -456,8 +560,8 @@ export class KachelDienst<B> {
   private planen(): void {
     if (!this.hatWelt || !this.ansicht) return;
     for (let index = 0; index < this.worker.length; index++) {
-      if (this.belegt.has(index)) continue;
-      const k = this.gesucht()[0];
+      if (this.belegt.has(index) || (this.leer.get(index) ?? 0) >= LEER_VERSUCHE) continue;
+      const k = this.fehlende(this.gesuchtAlle())[0];
       if (!k) break;
       if (this.zyklusStart === null) this.zyklusStart = this.jetzt();
       const id = this.nextId++;
@@ -472,7 +576,7 @@ export class KachelDienst<B> {
 
   private pruefeScharf(): void {
     if (this.zyklusStart === null || !this.hatWelt) return;
-    if (this.belegt.size > 0 || this.unterwegs.size > 0 || this.gesucht().length > 0) return;
+    if (this.belegt.size > 0 || this.laufende() > 0 || this.fehlende(this.gesuchtAlle()).length > 0) return;
     const ms = this.jetzt() - this.zyklusStart;
     this.zyklusStart = null;
     this.letzteScharfMs = ms;
@@ -481,15 +585,30 @@ export class KachelDienst<B> {
   }
 
   private beiNachricht(index: number, m: MapWorkerMessage): void {
+    if (m.t === 'kachel-bereit') {
+      this.leer.set(index, 0);
+      return;
+    }
     if (m.t === 'kachel-leer') {
-      this.gebeFrei(index);
+      // Der Worker hat für diese Generation keine Geo (Init gescheitert oder verloren): Marke abräumen,
+      // Init erneut schicken und die Kachel neu anfordern; nach LEER_VERSUCHE Fehlschlägen fällt der Worker aus.
+      this.unterwegs.delete(`${m.gen}|${kachelSchluessel(m)}`);
+      this.belegt.delete(index);
+      if (m.gen === this.gen && this.welt) {
+        const n = (this.leer.get(index) ?? 0) + 1;
+        this.leer.set(index, n);
+        if (n < LEER_VERSUCHE) {
+          this.worker[index].post({ op: 'kachel-init', gen: this.gen, seed: this.welt.seed, layout: this.welt.layout });
+        }
+      }
       this.planen();
       return;
     }
     if (m.t !== 'kachel') return;
     const s = kachelSchluessel(m);
     const marke = `${m.gen}|${s}`;
-    this.gebeFrei(index);
+    this.belegt.delete(index);
+    this.leer.set(index, 0);
     if (m.gen !== this.gen) {
       this.st.veraltet++;
       this.unterwegs.delete(marke);
@@ -507,14 +626,16 @@ export class KachelDienst<B> {
         this.planen();
         return;
       }
-      this.speicher.setze({ stufe: m.stufe, ix: m.ix, iz: m.iz }, m.gen, bild);
+      this.speicher.setze(
+        { stufe: m.stufe, ix: m.ix, iz: m.iz },
+        m.gen,
+        bild,
+        KACHEL_BYTES,
+        new Set(this.gesuchtAlle().map(kachelSchluessel)),
+      );
       this.opt.aufNeu?.();
       this.planen();
     });
-  }
-
-  private gebeFrei(index: number): void {
-    this.belegt.delete(index);
   }
 
   private istGesucht(k: KachelAdresse): boolean {

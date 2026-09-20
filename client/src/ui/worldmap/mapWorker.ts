@@ -356,7 +356,7 @@ function kachelInit(m: MapTileInit): void {
 function kachelRechnen(m: MapTileRequest): void {
   const g = kachelGeo;
   if (!g || g.gen !== m.gen) {
-    post({ t: 'kachel-leer', gen: m.gen, id: m.id });
+    post({ t: 'kachel-leer', gen: m.gen, id: m.id, stufe: m.stufe, ix: m.ix, iz: m.iz });
     return;
   }
   const start = Date.now();

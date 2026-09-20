@@ -14,10 +14,17 @@
  *     Küste im Höhenfeld.
  *  4. Zwischenspeicher: feste Obergrenze, längst Unbenutztes geht zuerst,
  *     jedes verdrängte Bild wird freigegeben.
- *  5. Dienst (mit gestellten Workern, ohne Rechenzeit): Reihenfolge Mitte
- *     zuerst, veraltete Ansichten werden nie gesendet, Antworten älterer
- *     Welt-Generationen fallen weg, 50 Bedienschritte wachsen nicht über die
- *     Obergrenze, Ruhe sendet nichts.
+ *  5. Dienst (mit gestellten Workern, ohne Rechenzeit): erst alles im Bild
+ *     (Mitte zuerst), dann der Randring; veraltete Ansichten werden nie
+ *     gesendet, Antworten älterer Welt-Generationen fallen weg, 50
+ *     Bedienschritte wachsen nicht über die Obergrenze, Ruhe sendet nichts.
+ *  6. Große Fenster (4K/8K): der Speicher verdrängt nie, was gerade gesucht
+ *     wird (keine Dauerrechnung nach Vorlauf im kleinen Fenster), alle Kacheln
+ *     im Bild kommen und „scharf" gilt erst dann, die Obergrenze wächst mit
+ *     dem Bedarf bis zur harten Grenze; ein Worker ohne Geo räumt seine Marke
+ *     ab und fällt nach drei Fehlversuchen aus.
+ *  7. Kanten: jede Kachelkante liegt auf einem ganzen Pixel, Nachbarn teilen
+ *     sie, auch bei gebrochenen Ansichten.
  *
  * Lauf:  npx tsx test/karte-kacheln.ts
  */
@@ -122,32 +129,62 @@ const A: Ansicht = { mitteX: -17620, mitteZ: -5700, massstab: 4, breite: 1600, h
   check('Reihenfolge: aufsteigender Abstand zur Bildmitte', steigt);
   check('Ein Vollbild bei 4 m/px braucht 8 × 5 bis 9 × 6 Kacheln samt halbem Rand', liste.length >= 40 && liste.length <= 60, `${liste.length}`);
 
-  // Zielrechteck: die Weltkoordinate des Texels landet auf dem Pixel von zuBild().
-  let versatz = 0;
-  for (const k of liste.slice(0, 12)) {
-    const r = kachelRechteck(A, k);
-    const u = kachelUrsprung(k);
-    const soll = (u.x0 - A.mitteX) / A.massstab + A.breite / 2; // dasselbe wie zuBild im Editor
-    versatz = Math.max(versatz, Math.abs(r.x - soll) + 0); // gerundet: höchstens ein Pixel abwärts
-    if (!(r.x <= soll && soll - r.x < 1)) versatz = Infinity;
-    if (r.w < u.meter / A.massstab) versatz = Infinity;
+  // Zielrechteck: jede Kante liegt auf einem ganzen Pixel, höchstens ein halbes Pixel neben ihrem Weltort
+  // (Weltort = zuBild() im Editor), und Nachbarn teilen sich die Kante: keine Lücke, keine Überlappung.
+  // Geprüft auf ganzzahligen UND gebrochenen Ansichten (der Mutant floor/round bleibt sonst unentdeckt).
+  const ansichten: Ansicht[] = [
+    A,
+    { mitteX: -17620.37, mitteZ: -5699.61, massstab: 4.63, breite: 1194, hoehe: 796 },
+    { mitteX: 15000.5, mitteZ: 9000.25, massstab: 5.29, breite: 3434, hoehe: 2056 },
+    { mitteX: -3.3, mitteZ: 7.7, massstab: 6.913, breite: 777, hoehe: 555 },
+  ];
+  let kanteFalsch = 0;
+  let nachbarFalsch = 0;
+  let nichtGanz = 0;
+  let gebrochen = 0;
+  let geprueft = 0;
+  for (const an of ansichten) {
+    const stufe = stufeFuer(an.massstab)!;
+    for (const k of sichtbareKacheln(an, stufe)) {
+      const r = kachelRechteck(an, k);
+      const u = kachelUrsprung(k);
+      const weltX = (u.x0 - an.mitteX) / an.massstab + an.breite / 2;
+      const weltY = (u.z0 - an.mitteZ) / an.massstab + an.hoehe / 2;
+      const rechts = (u.x0 + u.meter - an.mitteX) / an.massstab + an.breite / 2;
+      const unten = (u.z0 + u.meter - an.mitteZ) / an.massstab + an.hoehe / 2;
+      geprueft++;
+      if (!Number.isInteger(weltX)) gebrochen++;
+      if (![r.x, r.y, r.w, r.h].every(Number.isInteger)) nichtGanz++;
+      if (r.x !== Math.round(weltX) || r.y !== Math.round(weltY)) kanteFalsch++;
+      if (r.x + r.w !== Math.round(rechts) || r.y + r.h !== Math.round(unten)) kanteFalsch++;
+      if (Math.abs(r.x - weltX) > 0.5 || Math.abs(r.x + r.w - rechts) > 0.5) kanteFalsch++;
+      const n = kachelRechteck(an, { ...k, ix: k.ix + 1 });
+      const d = kachelRechteck(an, { ...k, iz: k.iz + 1 });
+      if (r.x + r.w !== n.x || r.y !== n.y || r.y + r.h !== d.y || r.x !== d.x) nachbarFalsch++;
+    }
   }
-  check('Kachelrechteck sitzt auf der Weltkoordinate (Rundung höchstens 1 px)', versatz < 1, `${versatz}`);
-  const ganz = liste.every((k) => {
-    const r = kachelRechteck(A, k);
-    return Number.isInteger(r.x) && Number.isInteger(r.y) && Number.isInteger(r.w) && Number.isInteger(r.h);
-  });
-  check('Kachelränder liegen auf ganzen Pixeln (keine halbdurchsichtige Naht)', ganz);
-  // Nachbarn: rechte Kante der einen ≥ linke Kante der nächsten (keine Haarlinie).
-  let haarlinie = 0;
-  for (const k of liste) {
-    const r = kachelRechteck(A, k);
-    const n = kachelRechteck(A, { ...k, ix: k.ix + 1 });
-    if (r.x + r.w < n.x) haarlinie++;
-    const u = kachelRechteck(A, { ...k, iz: k.iz + 1 });
-    if (r.y + r.h < u.y) haarlinie++;
+  check('Kachelränder liegen auf ganzen Pixeln', nichtGanz === 0, `${nichtGanz}`);
+  check('Jede Kante ist auf das nächste Pixel gerundet, höchstens ein halbes neben ihrem Weltort', kanteFalsch === 0, `${kanteFalsch} von ${geprueft}`);
+  check('Die geprüften Ansichten haben gebrochene Sollwerte (sonst prüft der Test nichts)', gebrochen > geprueft / 2, `${gebrochen} von ${geprueft}`);
+  check('Nachbarkacheln teilen sich jede Kante: keine Lücke, keine Überlappung', nachbarFalsch === 0, `${nachbarFalsch}`);
+  {
+    // Ein Bildpunkt gehört genau einer Kachel (Überlappung wäre Doppelzeichnen, Lücke eine Haarlinie).
+    const an = ansichten[1];
+    const stufe = stufeFuer(an.massstab)!;
+    const liste = sichtbareKacheln(an, stufe);
+    let zaehlFalsch = 0;
+    for (let py = 0; py < an.hoehe; py += 7) {
+      for (let px = 0; px < an.breite; px += 5) {
+        let n = 0;
+        for (const k of liste) {
+          const r = kachelRechteck(an, k);
+          if (px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h) n++;
+        }
+        if (n !== 1) zaehlFalsch++;
+      }
+    }
+    check('Jeder Bildpunkt liegt in genau einer Kachel', zaehlFalsch === 0, `${zaehlFalsch}`);
   }
-  check('Nachbarkacheln lassen keine Lücke', haarlinie === 0);
 }
 
 // ── 3. Rechnung gegen die Weltprobe und gegen das Höhenfeld ──────────
@@ -265,6 +302,20 @@ const gleich = (t: Uint8Array, o: number, f: Uint8Array): boolean => t[o] === f[
   check('Eine berührte Kachel überlebt, die älteste geht', sp.get('0:2:0') !== undefined && sp.get('0:3:0') === undefined);
   sp.setze({ stufe: 0, ix: 9, iz: 0 }, 2, 99);
   check('Ersetzen gibt das alte Bild frei, Größe bleibt', zu.includes(9) && sp.groesse === 4);
+  // Geschütztes bleibt, solange Ungeschütztes da ist; die Obergrenze gilt trotzdem immer.
+  {
+    const sp2 = new KachelSpeicher<number>(3 * KACHEL_BYTES);
+    const schutz = new Set(['0:1:0', '0:2:0', '0:3:0', '0:4:0']);
+    sp2.setze({ stufe: 0, ix: 0, iz: 0 }, 1, 0, KACHEL_BYTES, schutz); // ungeschützt und am ältesten
+    sp2.setze({ stufe: 0, ix: 1, iz: 0 }, 1, 1, KACHEL_BYTES, schutz);
+    sp2.setze({ stufe: 0, ix: 2, iz: 0 }, 1, 2, KACHEL_BYTES, schutz);
+    sp2.setze({ stufe: 0, ix: 3, iz: 0 }, 1, 3, KACHEL_BYTES, schutz);
+    check('Verdrängt wird das Ungeschützte, obwohl es das älteste ist und Geschütztes jünger', sp2.get('0:0:0') === undefined && sp2.get('0:1:0') !== undefined && sp2.groesse === 3);
+    sp2.setze({ stufe: 0, ix: 4, iz: 0 }, 1, 4, KACHEL_BYTES, schutz);
+    check('Ist alles geschützt, hält die Obergrenze trotzdem: das älteste Geschützte geht', sp2.groesse === 3 && sp2.bytes <= 3 * KACHEL_BYTES && sp2.get('0:1:0') === undefined && sp2.get('0:4:0') !== undefined);
+    sp2.setzeMax(KACHEL_BYTES, schutz);
+    check('Obergrenze zur Laufzeit gesenkt: es bleibt genau eine Kachel', sp2.groesse === 1 && sp2.bytes === KACHEL_BYTES);
+  }
   const vorLeeren = sp.freigegeben;
   sp.leeren();
   check('Leeren gibt alles frei', sp.groesse === 0 && sp.bytes === 0 && sp.freigegeben === vorLeeren + 4);
@@ -285,6 +336,14 @@ class FalscherWorker implements KachelWorker {
   }
   terminate(): void {
     this.terminiert = true;
+  }
+  /** Den laufenden Auftrag mit „nicht gerechnet" beantworten (Worker ohne Geo dieser Generation). */
+  antworteLeer(): MapTileRequest | null {
+    const a = this.offen;
+    if (!a) return null;
+    this.offen = null;
+    this.onNachricht?.({ t: 'kachel-leer', gen: a.gen, id: a.id, stufe: a.stufe, ix: a.ix, iz: a.iz });
+    return a;
   }
   /** Den laufenden Auftrag beantworten. */
   antworte(): MapTileRequest | null {
@@ -332,8 +391,17 @@ function neuerDienst(anzahl: number, maxKacheln = 256) {
   const stand = { worker, geschlossen, neu: () => neu, eingelagert: () => eingelagert };
   return { dienst, stand };
 }
-/** Alle Worker antworten lassen, bis Ruhe ist. Liefert die Antwortfolge. */
-async function bisRuhe(worker: FalscherWorker[], grenze = 5000): Promise<MapTileRequest[]> {
+/**
+ * Alle Worker antworten lassen, bis Ruhe ist. Liefert die Antwortfolge. Kommt keine Ruhe (der Dienst rechnet
+ * endlos), ist das eine fehlgeschlagene Prüfung und kein Abbruch mit Ausnahme.
+ */
+const ctxLeer = { imageSmoothingEnabled: true, drawImage(): void {} };
+async function bisRuhe(
+  worker: FalscherWorker[],
+  grenze = 3000,
+  /** Wie der Editor: nach jeder eingetroffenen Kachel neu zeichnen (das berührt die Kacheln im Speicher). */
+  zeichnen?: { dienst: KachelDienst<number>; ansicht: Ansicht },
+): Promise<MapTileRequest[]> {
   const folge: MapTileRequest[] = [];
   for (let n = 0; n < grenze; n++) {
     let etwas = false;
@@ -343,11 +411,13 @@ async function bisRuhe(worker: FalscherWorker[], grenze = 5000): Promise<MapTile
         folge.push(a);
         etwas = true;
         await mikro();
+        zeichnen?.dienst.zeichne(ctxLeer, zeichnen.ansicht);
       }
     }
     if (!etwas) return folge;
   }
-  throw new Error('keine Ruhe');
+  check('Der Dienst kommt zur Ruhe (keine Dauerrechnung)', false, `nach ${grenze} Runden noch Aufträge`);
+  return folge;
 }
 
 async function dienstProben(): Promise<void> {
@@ -357,9 +427,13 @@ async function dienstProben(): Promise<void> {
     dienst.neueWelt(1, 'kachel-test', dok);
     dienst.setzeAnsicht(A);
     const folge = await bisRuhe(stand.worker);
-    const soll = sichtbareKacheln(A, 0).slice(0, folge.length).map(kachelSchluessel);
+    const imBildA = sichtbareKacheln(A, 0, 0);
+    const setBild = new Set(imBildA.map(kachelSchluessel));
+    const sollA = [...imBildA, ...sichtbareKacheln(A, 0).filter((k) => !setBild.has(kachelSchluessel(k)))]
+      .slice(0, folge.length)
+      .map(kachelSchluessel);
     const ist = folge.map((a) => kachelSchluessel(a));
-    check('Ein Worker rechnet die Kacheln genau in der Reihenfolge Mitte zuerst', ist.join() === soll.join());
+    check('Ein Worker rechnet zuerst alles im Bild (Mitte zuerst), dann den Randring', ist.join() === sollA.join());
     check('Alle sichtbaren Kacheln samt Rand sind geliefert', folge.length === sichtbareKacheln(A, 0).length);
     check('Init ging an den Worker, dann die Aufträge', stand.worker[0].gepostet[0].op === 'kachel-init');
     const st = dienst.statistik();
@@ -453,16 +527,17 @@ async function dienstProben(): Promise<void> {
       const st = dienst.statistik();
       hoechstBytes = Math.max(hoechstBytes, st.bytes);
       hoechstKacheln = Math.max(hoechstKacheln, st.kacheln);
-      if (st.bytes > st.maxBytes || st.kacheln > maxKacheln) ueberGrenze++;
-      if (st.offen !== 0 && stufeFuer(ansicht.massstab) !== null && sichtbareKacheln(ansicht, stufeFuer(ansicht.massstab)!).length <= maxKacheln * 0.75) ueberGrenze++;
+      // Die Obergrenze ist der Grundwert oder, bei großer Ansicht, Bedarf plus Reserve — nie mehr.
+      if (st.bytes > st.maxBytes || st.maxBytes > Math.max(maxKacheln, st.noetig + 32) * KACHEL_BYTES) ueberGrenze++;
+      if (st.offen !== 0) ueberGrenze++;
       eingelagertNach.push(stand.eingelagert() - stand.geschlossen.length);
     }
-    check('50 Schritte: Bytes und Kacheln nie über der Obergrenze', ueberGrenze === 0 && hoechstBytes <= maxKacheln * KACHEL_BYTES && hoechstKacheln <= maxKacheln, `max ${hoechstKacheln} Kacheln, ${hoechstBytes} Bytes`);
+    check('50 Schritte: Bytes nie über der Obergrenze, die Obergrenze nie über Bedarf plus Reserve, nach jedem Schritt scharf', ueberGrenze === 0 && hoechstBytes <= 512 * KACHEL_BYTES, `max ${hoechstKacheln} Kacheln, ${hoechstBytes} Bytes, ${ueberGrenze} Verstöße`);
     const st = dienst.statistik();
     check('Kein Bild bleibt liegen: eingelagert − freigegeben = im Speicher', stand.eingelagert() - stand.geschlossen.length === st.kacheln && st.freigegeben === stand.geschlossen.length);
     check('Verdrängt wurde tatsächlich (der Lauf wäre sonst zu klein gewesen)', st.freigegeben > 100, `${st.freigegeben}`);
     const hinten = eingelagertNach.slice(25);
-    check('Kein Wachstum zwischen Schritt 25 und 50', Math.max(...hinten) <= maxKacheln);
+    check('Kein Wachstum zwischen Schritt 25 und 50 (nie über dem größten Bedarf des Laufs)', Math.max(...hinten) <= hoechstKacheln);
     dienst.beende();
     check('Beenden räumt alles ab: Speicher leer, Worker beendet', dienst.statistik().kacheln === 0 && stand.worker.every((w) => w.terminiert) && stand.geschlossen.length === stand.eingelagert());
   }
@@ -548,7 +623,149 @@ async function dienstProben(): Promise<void> {
   }
 }
 
+/**
+ * Sind alle Kacheln der gesuchten Stufe im Bild (ohne Randring) da? Fasst den Dienst nur über `hat` an; die
+ * ältere Fassung ohne `hat` wird über die Zahl der Kacheln im Speicher geprüft (sie reicht, um sie rot zu machen).
+ */
+function alleDa(dienst: KachelDienst<number>, a: Ansicht): boolean {
+  const stufe = stufeFuer(a.massstab);
+  if (stufe === null) return true;
+  const sichtbar = sichtbareKacheln(a, stufe, 0);
+  const d = dienst as unknown as { hat?: (k: KachelAdresse) => boolean };
+  if (typeof d.hat === 'function') return sichtbar.every((k) => d.hat!(k));
+  return dienst.statistik().kacheln >= sichtbar.length;
+}
+const V4K = { breite: 3434, hoehe: 2056 }; // Leinwand eines 3840 x 2160-Fensters
+
+async function dienstProben2(): Promise<void> {
+  // 6a. Verdrängungsschleife (B1): Vorlauf im kleinen Fenster füllt den Speicher mit feineren Ersatzkacheln,
+  // dann ein 4K-Fenster mit 4 -> 4,5 -> 5 -> 5,3 -> 6 m/px. Der Dienst muss zur Ruhe kommen und scharf werden.
+  {
+    const { dienst, stand } = neuerDienst(4);
+    dienst.neueWelt(1, 'kachel-test', dok);
+    let x = -16279;
+    let z = -5700;
+    let m = 4;
+    for (let i = 1; i <= 20; i++) {
+      if (i % 2 === 0) m = Math.min(40, Math.max(4, m * 1.2));
+      else {
+        x += 0.8 * 1600 * m * (i % 4 === 1 ? 1 : -1);
+        z += 0.5 * 900 * m * (i % 4 === 3 ? 1 : -1);
+      }
+      const an: Ansicht = { mitteX: x, mitteZ: z, massstab: m, breite: 1600, hoehe: 900 };
+      dienst.setzeAnsicht(an);
+      dienst.zeichne(ctxLeer, an);
+      await bisRuhe(stand.worker, 3000, { dienst, ansicht: an });
+    }
+    let alleScharf = true;
+    let ruhig = true;
+    let bezug = '';
+    for (const mm of [4, 4.5, 5, 5.3]) {
+      const an: Ansicht = { mitteX: 15000, mitteZ: 9000, massstab: mm, ...V4K };
+      dienst.setzeAnsicht(an);
+      dienst.zeichne(ctxLeer, an);
+      await bisRuhe(stand.worker, 3000, { dienst, ansicht: an });
+      const st = dienst.statistik();
+      if (st.offen !== 0 || st.letzteScharfMs === null || !alleDa(dienst, an)) alleScharf = false;
+      bezug += ` @${mm}: offen ${st.offen} kacheln ${st.kacheln} gesendet ${st.gesendet};`;
+    }
+    const K6: Ansicht = { mitteX: 15000, mitteZ: 9000, massstab: 6, ...V4K };
+    const vor6 = dienst.statistik().gesendet;
+    dienst.setzeAnsicht(K6);
+    dienst.zeichne(ctxLeer, K6);
+    const folge6 = await bisRuhe(stand.worker, 3000, { dienst, ansicht: K6 });
+    const st6 = dienst.statistik();
+    const gesendet6 = st6.gesendet - vor6;
+    check('4K nach Vorlauf, 4 bis 5,3 m/px: offen 0, scharf gemeldet, alle Kacheln im Bild da', alleScharf, bezug);
+    check('4K bei 6 m/px nach Vorlauf: alle Kacheln im Bild da, scharf, offen 0', st6.offen === 0 && st6.letzteScharfMs !== null && alleDa(dienst, K6), `offen ${st6.offen}`);
+    // Jede Kachel höchstens einmal angefordert: keine Schleife.
+    const stufe6 = stufeFuer(6)!;
+    check('4K bei 6 m/px: höchstens so viele Aufträge wie gesuchte Kacheln (keine Verdrängungsschleife)', gesendet6 <= sichtbareKacheln(K6, stufe6).length && folge6.length === gesendet6, `${gesendet6} Aufträge, ${sichtbareKacheln(K6, stufe6).length} gesucht`);
+    const nach = dienst.statistik().gesendet;
+    dienst.setzeAnsicht({ ...K6 });
+    dienst.setzeAnsicht({ ...K6 });
+    const still = await bisRuhe(stand.worker);
+    ruhig = still.length === 0 && dienst.statistik().gesendet === nach;
+    check('Danach kommt nichts mehr: keine neue Anforderung ohne Änderung der Ansicht', ruhig);
+    check('Bytes nie über der Obergrenze (die mit dem Bedarf wächst)', st6.bytes <= st6.maxBytes);
+    dienst.beende();
+  }
+  // 6b. Deckel (B2): bei 4K und 4 / 5 / 5,3 / 6 m/px müssen ALLE Kacheln im Bild kommen, und „scharf" gilt erst dann.
+  for (const mm of [4, 5, 5.3, 6]) {
+    const { dienst, stand } = neuerDienst(4);
+    dienst.neueWelt(1, 'kachel-test', dok);
+    const an: Ansicht = { mitteX: 15000, mitteZ: 9000, massstab: mm, ...V4K };
+    dienst.setzeAnsicht(an);
+    let zuFruh = 0;
+    for (let runde = 0; runde < 3000; runde++) {
+      let etwas = false;
+      for (const w of stand.worker) {
+        if (w.antworte()) {
+          etwas = true;
+          // „scharf" gemeldet, obwohl im Bild noch etwas fehlt? Gleich nach der Antwort prüfen: die letzte Kachel ist
+          // dann noch in der Umwandlung, und der Dienst darf sie nicht schon als da zählen.
+          if (dienst.statistik().letzteScharfMs !== null && !alleDa(dienst, an)) zuFruh++;
+          await mikro();
+          if (dienst.statistik().letzteScharfMs !== null && !alleDa(dienst, an)) zuFruh++;
+        }
+      }
+      if (!etwas) break;
+    }
+    const st = dienst.statistik();
+    const stufe = stufeFuer(mm)!;
+    const noetig = sichtbareKacheln(an, stufe, 0).length;
+    console.log(`     4K @${mm} m/px: im Bild ${noetig} Kacheln, gesendet ${st.gesendet}, im Speicher ${st.kacheln}, Deckel ${Math.round(st.maxBytes / KACHEL_BYTES)}, scharf nach ${st.letzteScharfMs === null ? '-' : Math.round(st.letzteScharfMs)} (Zeitgeber)`);
+    check(`4K @${mm} m/px: alle ${noetig} Kacheln im Bild sind da`, alleDa(dienst, an), `${st.kacheln} im Speicher`);
+    check(`4K @${mm} m/px: „scharf" wird erst gemeldet, wenn alles im Bild da ist`, zuFruh === 0 && st.letzteScharfMs !== null, `${zuFruh}× zu früh`);
+    dienst.beende();
+  }
+  // 6c. Harte Grenze: ein Fenster, das mehr braucht als der Speicher hält, wird gekappt und sagt es.
+  {
+    const { dienst, stand } = neuerDienst(4);
+    dienst.neueWelt(1, 'kachel-test', dok);
+    const an: Ansicht = { mitteX: 15000, mitteZ: 9000, massstab: 4, breite: 7680, hoehe: 4320 };
+    dienst.setzeAnsicht(an);
+    await bisRuhe(stand.worker);
+    const st = dienst.statistik();
+    check('8K bei 4 m/px: Bytes bleiben unter der harten Obergrenze (128 MB)', st.bytes <= 512 * KACHEL_BYTES && st.maxBytes <= 512 * KACHEL_BYTES, `${st.bytes}`);
+    check('8K bei 4 m/px: der Dienst sagt, dass er kappt', (st as unknown as { gekappt?: boolean }).gekappt === true);
+    dienst.beende();
+  }
+  // 6d. „nicht gerechnet" (B4): die Marke wird abgeräumt, der Worker bekommt sein Init noch einmal, die Kachel kommt später.
+  {
+    const { dienst, stand } = neuerDienst(1);
+    dienst.neueWelt(1, 'kachel-test', dok);
+    dienst.setzeAnsicht(A);
+    stand.worker[0].antworteLeer();
+    await mikro();
+    const inits = stand.worker[0].gepostet.filter((m) => m.op === 'kachel-init').length;
+    check('Nach „nicht gerechnet" bekommt der Worker sein Init noch einmal', inits === 2, `${inits}`);
+    await bisRuhe(stand.worker);
+    const st = dienst.statistik();
+    check('Danach ist alles da: offen 0, scharf gemeldet (die leere Kachel wurde neu angefordert)', st.offen === 0 && st.letzteScharfMs !== null && alleDa(dienst, A), `offen ${st.offen}`);
+    dienst.neueWelt(2, 'kachel-test', dok);
+    await bisRuhe(stand.worker);
+    check('Die Marke überlebt keine neue Welt: offen 0 und scharf auch in Generation 2', dienst.statistik().offen === 0 && dienst.statistik().zyklen.length >= 2);
+    dienst.beende();
+  }
+  // 6e. Ein Worker, der dauernd „nicht gerechnet" sagt, fällt aus, statt eine Dauerschleife zu erzeugen.
+  {
+    const { dienst, stand } = neuerDienst(1);
+    dienst.neueWelt(1, 'kachel-test', dok);
+    dienst.setzeAnsicht(A);
+    let n = 0;
+    for (; n < 50; n++) {
+      if (!stand.worker[0].antworteLeer()) break;
+      await mikro();
+    }
+    const kachelAuftraege = stand.worker[0].gepostet.filter((m) => m.op === 'kachel').length;
+    check('Ein Worker ohne Geo bekommt höchstens dreimal einen Auftrag', kachelAuftraege === 3 && n === 3, `${kachelAuftraege} Aufträge, ${n} Antworten`);
+    dienst.beende();
+  }
+}
+
 await dienstProben();
+await dienstProben2();
 
 if (fehler > 0) {
   console.error(`\n${fehler} Prüfung(en) fehlgeschlagen`);

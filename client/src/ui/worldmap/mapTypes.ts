@@ -117,7 +117,7 @@ export type MapWorkerMessage =
       dauerMs: number;
     }
   /** Auftrag nicht gerechnet (Generation passt nicht zur Geo des Workers). */
-  | { t: 'kachel-leer'; gen: number; id: number }
+  | { t: 'kachel-leer'; gen: number; id: number; stufe: number; ix: number; iz: number }
   | { t: 'fehler'; text: string };
 
 export type MapProgressKey =

@@ -1404,6 +1404,8 @@ if (messung.has('karten-messung')) {
   (window as unknown as Record<string, unknown>).__wovKartenMessung = {
     statistik: () => kacheln.statistik(),
     messwerte: kartenMesswerte,
+    /** Steht das grobe Gesamtbild? */
+    bildDa: () => vorschauBild !== null,
     workerZahl: kachelWorkerZahl,
     ansicht: () => ({ mitteX, mitteZ, massstab }),
     setzeAnsicht: (mx: number, mz: number, m: number) => {

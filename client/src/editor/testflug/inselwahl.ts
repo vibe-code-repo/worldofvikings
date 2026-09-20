@@ -24,6 +24,7 @@
 import { WATER_LEVEL, sanitizeWorldLayout, shapeBounds, signedDistance } from '@wov/shared';
 import type { ContinentDef, RegionDef, WorldLayout } from '@wov/shared';
 import { createWorld } from '../../world/World';
+import { gameUrl } from '../spielAdresse';
 
 /** Ground height in metres at a world point (`ClientWorld.getGroundHeight`). */
 export type GroundHeight = (x: number, z: number) => number;
@@ -473,11 +474,16 @@ export function heightSourcesFor(layout: WorldLayout): { ground: GroundHeight; e
   };
 }
 
-/** Address the editor opens: the flight with the draft and a jump target. */
-export function flightUrl(target?: { x: number; z: number }): string {
-  const base = '/?offline=1&layout=editor';
-  if (!target) return base;
-  return `${base}&${JUMP_PARAM}=${roundCoordinate(target.x)},${roundCoordinate(target.z)}`;
+/**
+ * Address the editor opens: the flight with the draft and a jump target.
+ * It starts with the base prefix of the client (`/play/` in production, `/`
+ * on a bare dev server): the bare root is the website, or on the editor host
+ * the editor again. `base` is a parameter so a test can pass both.
+ */
+export function flightUrl(target?: { x: number; z: number }, base?: string): string {
+  const query = 'offline=1&layout=editor';
+  if (!target) return gameUrl(query, base);
+  return gameUrl(`${query}&${JUMP_PARAM}=${roundCoordinate(target.x)},${roundCoordinate(target.z)}`, base);
 }
 
 /** Parse the `pos` query value; null unless it is exactly two finite numbers. */

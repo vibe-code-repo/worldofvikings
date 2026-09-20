@@ -1198,8 +1198,9 @@ export class KartenHud {
    * Alle Angaben in `TestflugStand` sind freiwillig, und es wird
    * ausschließlich gezeigt, was drinsteht. Der Editor selbst hat keine
    * Telemetrie des laufenden Spiels — der Testflug öffnet einen zweiten
-   * Browser-Tab (`window.open('/?offline=1&layout=editor')`), und von
-   * dort kommt nichts zurück. Solange das so ist, bleiben Kacheln wie
+   * Browser-Tab (`flightUrl()`: `?offline=1&layout=editor` hinter dem
+   * Basispräfix des Clients, im Betrieb `/play/`), und von dort kommt
+   * nichts zurück. Solange das so ist, bleiben Kacheln wie
    * „FPS" oder „Höhe" leer, statt erfunden zu werden.
    */
   zeigeTestflug(stand: TestflugStand | null): void {

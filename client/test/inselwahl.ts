@@ -13,7 +13,8 @@
  * only), built with the same `createWorld` the client uses. The numbers are
  * derived from it, not typed in, so the test keeps working when islands move.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import * as ts from 'typescript';
 import { WATER_LEVEL, sanitizeWorldLayout, signedDistance } from '@wov/shared';
 import type { RegionDef, WorldLayout } from '@wov/shared';
 import { createWorld } from '../src/world/World';
@@ -49,6 +50,7 @@ import {
   sendReturn,
 } from '../src/editor/testflug/ruecksprung';
 import type { ReturnChannel } from '../src/editor/testflug/ruecksprung';
+import { clientBase, gameUrl, normaliseBase } from '../src/editor/spielAdresse';
 
 let fehler = 0;
 let geprueft = 0;
@@ -530,6 +532,211 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   pruefe(/if \(!tab\)/.test(editor) && /Pop-ups/.test(editor), 'the editor reports a blocked pop-up');
   const roh = (editor.match(/window\.open\(url, /g) ?? []).length;
   pruefe(roh === 1, `the flight tabs are opened in one place (oeffneFlugTab): ${roh}`);
+}
+
+// ── 7. The address carries the base prefix of the client ────────────────────
+// The flight lived at `/?offline=1&layout=editor` and opened the editor again:
+// the client is served under `/play/`, and on the editor host nginx sends `/`
+// to the editor. The address starts with the base prefix of the build.
+{
+  const ziel = { x: -17620, z: -5700 };
+  pruefe(flightUrl(undefined, '/play/') === '/play/?offline=1&layout=editor', 'prefix /play/: plain flight address');
+  pruefe(flightUrl(ziel, '/play/') === '/play/?offline=1&layout=editor&pos=-17620,-5700', 'prefix /play/: jump address');
+  pruefe(flightUrl(undefined, '/') === '/?offline=1&layout=editor', 'prefix /: the old plain address');
+  pruefe(flightUrl(ziel, '/') === '/?offline=1&layout=editor&pos=-17620,-5700', 'prefix /: the old jump address');
+  for (const base of ['/play', 'play/', 'play', '//play//', '/play//', '/play/']) {
+    pruefe(flightUrl(ziel, base) === '/play/?offline=1&layout=editor&pos=-17620,-5700', `prefix ${JSON.stringify(base)} is put together right`);
+    pruefe(!flightUrl(undefined, base).includes('//'), `prefix ${JSON.stringify(base)}: no doubled slash`);
+  }
+  for (const leer of ['', '///', undefined, null]) {
+    pruefe(flightUrl(ziel, leer as string | undefined) === '/?offline=1&layout=editor&pos=-17620,-5700', `empty prefix ${JSON.stringify(leer)} is the root`);
+  }
+  pruefe(normaliseBase('/a/b') === '/a/b/', 'a two-level prefix keeps both levels');
+  pruefe(gameUrl('', '/play') === '/play/', 'no query: just the prefix (with its slash)');
+  pruefe(gameUrl('dungeon=steingrab-2', '/play/') === '/play/?dungeon=steingrab-2', 'a query is appended after the prefix');
+  // Without Vite (this test) there is no `import.meta.env`: the reader says `/`.
+  pruefe(clientBase() === '/', `the reader without Vite gives the root (${clientBase()})`);
+  // The default is the reader, not a hard-coded root.
+  pruefe(flightUrl() === gameUrl('offline=1&layout=editor', clientBase()), 'the default prefix is the client base');
+
+  // No opener of the editor points at the bare root. Read from the syntax
+  // tree, so the check survives prettier (quote style, line breaks) and does
+  // not trip over a word in a comment.
+  const dateien = (dir: URL): URL[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? dateien(new URL(`${e.name}/`, dir)) : e.name.endsWith('.ts') ? [new URL(e.name, dir)] : []
+    );
+  const editorDir = new URL('../src/editor/', import.meta.url);
+  const quellen = dateien(editorDir);
+  pruefe(quellen.length > 30, `the editor sources are found (${quellen.length} files)`);
+
+  /** String pieces of an expression: literals and the fixed parts of a template. */
+  const stuecke = (n: ts.Node): string[] => {
+    const aus: string[] = [];
+    const geh = (k: ts.Node): void => {
+      if (ts.isStringLiteral(k) || ts.isNoSubstitutionTemplateLiteral(k)) aus.push(k.text);
+      else if (ts.isTemplateHead(k) || ts.isTemplateMiddle(k) || ts.isTemplateTail(k)) aus.push(k.text);
+      ts.forEachChild(k, geh);
+    };
+    geh(n);
+    return aus;
+  };
+  const ruft = (n: ts.Node, namen: string[]): boolean => {
+    let ja = false;
+    const geh = (k: ts.Node): void => {
+      if (ts.isCallExpression(k) && ts.isIdentifier(k.expression) && namen.includes(k.expression.text)) ja = true;
+      ts.forEachChild(k, geh);
+    };
+    geh(n);
+    return ja;
+  };
+  const WURZEL = /^\/($|\?)/; // exactly the root, or the root with a query
+  const befunde: string[] = [];
+  let oeffner = 0;
+  for (const datei of quellen) {
+    const text = readFileSync(datei, 'utf-8');
+    if (!/window\.open|oeffneFlugTab|location\.href/.test(text)) continue;
+    const baum = ts.createSourceFile(datei.pathname, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const name = datei.pathname.split('/src/editor/')[1];
+    /**
+     * What a name stands for at `von`: walk outwards from there, and in the
+     * first enclosing function or block that declares it, take the initialiser
+     * (or say it is a parameter). A name declared elsewhere in the file does
+     * not count.
+     */
+    const bedeutung = (id: string, von: ts.Node): ts.Expression | 'parameter' | null => {
+      for (let scope: ts.Node | undefined = von.parent; scope; scope = scope.parent) {
+        if (ts.isFunctionLike(scope) && scope.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === id)) return 'parameter';
+        if (ts.isBlock(scope) || ts.isSourceFile(scope)) {
+          for (const st of scope.statements) {
+            if (!ts.isVariableStatement(st)) continue;
+            for (const d of st.declarationList.declarations) {
+              if (ts.isIdentifier(d.name) && d.name.text === id && d.initializer) return d.initializer;
+            }
+          }
+        }
+      }
+      return null;
+    };
+    /** One address that opens the game: look at what it is made of. */
+    const pruefeAdresse = (arg: ts.Expression, wo: string): void => {
+      oeffner++;
+      let a: ts.Expression = arg;
+      if (ts.isIdentifier(arg)) {
+        const b = bedeutung(arg.text, arg);
+        // A parameter (oeffneFlugTab's `url`): its callers are looked at instead.
+        if (b === 'parameter') return;
+        if (b === null) {
+          befunde.push(`${name} ${wo}: ${arg.text} is neither a parameter nor a const in scope`);
+          return;
+        }
+        a = b;
+      }
+      const roh = stuecke(a).filter((st) => WURZEL.test(st));
+      if (roh.length > 0) befunde.push(`${name} ${wo}: bare root ${JSON.stringify(roh)}`);
+      // Whatever is not a name must be built by the one helper.
+      if (!ruft(a, ['gameUrl', 'flightUrl'])) befunde.push(`${name} ${wo}: not built by gameUrl/flightUrl (${a.getText(baum).slice(0, 60)})`);
+    };
+    const geh = (k: ts.Node): void => {
+      if (ts.isCallExpression(k) && k.arguments.length > 0) {
+        const f = k.expression;
+        const istOpen = ts.isPropertyAccessExpression(f) && f.name.text === 'open' && ts.isIdentifier(f.expression) && f.expression.text === 'window';
+        const istFlugTab = ts.isIdentifier(f) && f.text === 'oeffneFlugTab';
+        if (istOpen || istFlugTab) pruefeAdresse(k.arguments[0], `line ${baum.getLineAndCharacterOfPosition(k.getStart(baum)).line + 1}`);
+      }
+      // `tab.location.href = url`: an assignment to the location of another tab.
+      if (ts.isBinaryExpression(k) && k.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(k.left) && k.left.name.text === 'href' && ts.isPropertyAccessExpression(k.left.expression) && k.left.expression.name.text === 'location') {
+        pruefeAdresse(k.right, `line ${baum.getLineAndCharacterOfPosition(k.getStart(baum)).line + 1}`);
+      }
+      ts.forEachChild(k, geh);
+    };
+    geh(baum);
+  }
+  pruefe(oeffner >= 8, `the openers are found in the syntax tree (${oeffner}; window.open x5, oeffneFlugTab x2, location.href x1, minus the parameter)`);
+  pruefe(befunde.length === 0, `no opener points at the bare root: ${befunde.join(' | ') || 'none'} (${oeffner} openers read)`);
+
+  // The probe itself bites: the old forms are found (guards against a probe that sees nothing).
+  const altText = [
+    "window.open('/', '_blank');",
+    'window.open(`${location.protocol}//${host}/`, "_blank");',
+    'const ziel = `${location.protocol}//${host}/?dungeon=${id}`; window.open(ziel, "_blank");',
+  ];
+  for (const alt of altText) {
+    const b = ts.createSourceFile('alt.ts', alt, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    pruefe(stuecke(b).some((s) => WURZEL.test(s)) && !ruft(b, ['gameUrl', 'flightUrl']), `the probe sees the old form: ${alt.slice(0, 50)}`);
+  }
+}
+
+// ── 8. The flight address is tied to the base prefix of the BUILD ───────────
+// Section 7 passes a prefix in; it cannot notice when the default stops coming
+// from the build. A `clientBase()` that returns '/' — Mike's bug, back — kept
+// the whole file green (612/612). Three links have to hold, each read from the
+// real source: Vite's `define` reaches `clientBase()`, `flightUrl` and
+// `gameUrl` take their default from it, and the base of the build config is
+// the prefix that comes out.
+{
+  const { transformSync } = await import('esbuild');
+  const quelltext = lies('../src/editor/spielAdresse.ts');
+  /** `clientBase()` of the real source as the bundler compiles it: `import.meta.env` set (or, with null, absent). */
+  const gebaut = async (basis: string | null): Promise<string> => {
+    const code = transformSync(quelltext, {
+      loader: 'ts',
+      format: 'esm',
+      ...(basis === null ? {} : { define: { 'import.meta.env': JSON.stringify({ BASE_URL: basis }) } }),
+    }).code;
+    const modul = (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)) as { clientBase(): string };
+    return modul.clientBase();
+  };
+  pruefe((await gebaut('/play/')) === '/play/', `Vite sets BASE_URL to /play/: the reader gives it back (${await gebaut('/play/')})`);
+  pruefe((await gebaut('/')) === '/', 'Vite sets BASE_URL to /: the root');
+  pruefe((await gebaut('/spiel')) === '/spiel/', 'a prefix without its trailing slash is completed');
+  pruefe((await gebaut(null)) === '/', 'no import.meta.env (a test, plain node): the root');
+
+  const baumVon = (rel: string): ts.SourceFile => ts.createSourceFile(rel, lies(rel), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const alle = (n: ts.Node, gilt: (k: ts.Node) => boolean): ts.Node[] => {
+    const treffer: ts.Node[] = [];
+    const geh = (k: ts.Node): void => {
+      if (gilt(k)) treffer.push(k);
+      ts.forEachChild(k, geh);
+    };
+    geh(n);
+    return treffer;
+  };
+  const funktion = (sf: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined =>
+    sf.statements.find((st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === name);
+  const basisParameter = (f: ts.FunctionDeclaration | undefined): ts.ParameterDeclaration | undefined =>
+    f?.parameters.find((q) => ts.isIdentifier(q.name) && q.name.text === 'base');
+
+  // gameUrl: an omitted prefix is clientBase(), nothing else.
+  const gameUrlBasis = basisParameter(funktion(baumVon('../src/editor/spielAdresse.ts'), 'gameUrl'))?.initializer;
+  pruefe(
+    gameUrlBasis !== undefined && ts.isCallExpression(gameUrlBasis) && ts.isIdentifier(gameUrlBasis.expression) && gameUrlBasis.expression.text === 'clientBase' && gameUrlBasis.arguments.length === 0,
+    `gameUrl takes an omitted prefix from clientBase() (found: ${gameUrlBasis?.getText() ?? 'no default'})`
+  );
+
+  // flightUrl: no default of its own, and every gameUrl call it makes passes its `base` on.
+  const flug = funktion(baumVon('../src/editor/testflug/inselwahl.ts'), 'flightUrl');
+  pruefe(basisParameter(flug) !== undefined && basisParameter(flug)!.initializer === undefined, 'flightUrl has a `base` parameter without a default of its own');
+  const rufe = alle(flug ?? baumVon('../src/editor/spielAdresse.ts'), (k) => ts.isCallExpression(k) && ts.isIdentifier(k.expression) && k.expression.text === 'gameUrl') as ts.CallExpression[];
+  pruefe(
+    rufe.length === 2 && rufe.every((c) => c.arguments.length === 2 && ts.isIdentifier(c.arguments[1]) && c.arguments[1].text === 'base'),
+    `both gameUrl calls of flightUrl pass its \`base\` on (${rufe.length} calls: ${rufe.map((c) => c.arguments[1]?.getText() ?? 'none').join(', ')})`
+  );
+  pruefe(/^\s*import\s*\{[^}]*\bgameUrl\b[^}]*\}\s*from\s*'\.\.\/spielAdresse'/m.test(lies('../src/editor/testflug/inselwahl.ts')), 'flightUrl uses the gameUrl of spielAdresse.ts');
+
+  // The build config: its `base` is the prefix that comes out. Read from the syntax tree, not the text.
+  const konfig = baumVon('../vite.config.ts');
+  const basen = alle(konfig, (k) => ts.isPropertyAssignment(k) && ts.isIdentifier(k.name) && k.name.text === 'base') as ts.PropertyAssignment[];
+  const konfigBasis = basen.length === 1 && ts.isStringLiteral(basen[0].initializer) ? basen[0].initializer.text : null;
+  pruefe(konfigBasis !== null && konfigBasis.startsWith('/') && konfigBasis !== '/', `vite.config.ts has one \`base\`, a prefix and not the root (${konfigBasis})`);
+  if (konfigBasis !== null) {
+    const gebaut = await (async (): Promise<string> => {
+      const code = transformSync(quelltext, { loader: 'ts', format: 'esm', define: { 'import.meta.env': JSON.stringify({ BASE_URL: konfigBasis }) } }).code;
+      return ((await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)) as { gameUrl(q: string): string }).gameUrl('offline=1&layout=editor');
+    })();
+    pruefe(gebaut === `${konfigBasis}?offline=1&layout=editor`, `with the base of the build config the flight address starts with it: ${gebaut}`);
+    pruefe(!gebaut.startsWith('/?'), 'and it is not the bare root');
+  }
 }
 
 console.log(`\n${geprueft - fehler}/${geprueft} checks passed`);

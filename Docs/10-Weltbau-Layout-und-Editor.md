@@ -240,8 +240,12 @@ SSH-Tunnel, Kopie der Domain); der Betriebsdienst kann es nicht, weil er
   das: kahl. Ein Bündel ohne Knopf ist ein Bündel, das niemand benutzt.
 - **Undo/Redo:** Strg+Z / Strg+Y (50 Schritte).
 - **Vorschau:** derselbe mapWorker wie im Spiel (RegionGeo) — keine Drift.
-- **Testflug:** öffnet `/?offline=1&layout=editor` (Entwurf via localStorage
-  `wov-editor-layout`) — echtes Terrain, begehbar. **Er ist NICHT der Weg,
+- **Testflug:** öffnet `/play/?offline=1&layout=editor` (Entwurf via localStorage
+  `wov-editor-layout`) — echtes Terrain, begehbar. Das Präfix ist die
+  Vite-Basis des Clients (`base` in `client/vite.config.ts`), der Editor liest
+  sie zur Laufzeit aus `import.meta.env.BASE_URL` (`spielAdresse.ts`): `/`
+  gehört im Betrieb der Webseite und führt auf dem Editor-Host in den Editor.
+  **Er ist NICHT der Weg,
   auf dem man die Welt beurteilt** — siehe den eigenen Abschnitt unten.
 - **Spawn-Editor im Testflug (Taste B):** durchsuchbare Prefab-Liste
   (Vegetation/Bauteile/alle), Drehung/Abstand/Größe, Geist-Vorschau an der
@@ -319,7 +323,7 @@ Warnung darüber.
 
 ## Der Testflug: wofür er taugt und wofür nicht
 
-`/?offline=1&layout=editor` baut die Welt im Browser aus dem
+`/play/?offline=1&layout=editor` baut die Welt im Browser aus dem
 localStorage-Entwurf. Er ist unverzichtbar zum Zeichnen — Spawn-Editor,
 Routen-Editor und Routen-Vorschau leben nur dort — und er ist der
 sinnvolle Ort für **Determinismus-Prüfungen der Weltgenerierung**: gleiche

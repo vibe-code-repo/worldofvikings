@@ -36,6 +36,7 @@ import { dungeon2 } from '@wov/shared';
 import { F, auswahl, el, feld, knopf, stil } from '../design';
 import { Dungeon2LadeFehler, holeDungeon2, holeDungeon2Liste, type Dungeon2Kopf } from './Dungeon2Dokument';
 import { speichereDungeon2 } from './Dungeon2Speichern';
+import { gameUrl } from '../spielAdresse';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Andockstellen fuer Zeichenflaeche und Werkzeuge (AP15.7)
@@ -569,7 +570,7 @@ export class Dungeon2Seite {
       return;
     }
     const host = spielHost2(location.host);
-    const ziel = `${location.protocol}//${host}/?dungeon=${encodeURIComponent(doc.id)}`;
+    const ziel = `${location.protocol}//${host}${gameUrl(`dungeon=${encodeURIComponent(doc.id)}`)}`;
 
     if (host === location.host) {
       let token = '';
@@ -584,7 +585,7 @@ export class Dungeon2Seite {
             'Erst anmelden, dann noch einmal auf "Betreten".',
           true
         );
-        window.open(`${location.protocol}//${host}/`, '_blank');
+        window.open(`${location.protocol}//${host}${gameUrl()}`, '_blank');
         return;
       }
     }

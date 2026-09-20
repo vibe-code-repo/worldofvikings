@@ -15,8 +15,10 @@ face, hair and beard are never replaced. The scaffold prepares linings and items
 eleven regions; Head, HandLeft and HandRight are removed right after its initialization,
 before anything is joined, rendered or exported, and that is asserted again at the end.
 No replaced region shows skin: upper arms, forearms and shins are clothed, not bare.
-The scaffold's lining is the garment itself; everything added is hems, seams, band and
-wraps laid onto each body's own lining by ray casts, so both bodies are fitted.
+The scaffold's lining is the garment itself: shirt and trousers are softened (smoothed and
+let out a few millimetres inside their borders) so the cloth does not show the body's
+facets. Everything added is hems, seams, band and wraps laid onto each body's own lining
+by ray casts, so both bodies are fitted. The preview glow of the scaffold is switched off.
 
 --quick keeps the scaffold's meaning (hero image, no pose checks, no GLBs, no .blend)
 and adds cheap front, back and side review images.
@@ -45,9 +47,9 @@ for obj in base.values():
 PARTS[:] = [part for part in PARTS if not set(part['regions']) & set(FREE)]
 assert [part['item'].rsplit('_', 1)[1] for part in PARTS] == ['shoulders', 'vest', 'bracers', 'robe', 'boots']
 
-# Shirt hide, trouser hide, dark band and shoe leather, linen, pale thread. Nothing shines.
+# Shirt hide, trouser hide, dark band and shoe leather, a thin darker under-hide, pale thread. Nothing shines.
 colors = {'cloth': (.300, .172, .066), 'leather': (.165, .090, .034), 'black': (.058, .030, .013),
-          'gold': (.270, .228, .152), 'edge': (.640, .520, .300)}
+          'gold': (.215, .128, .058), 'edge': (.600, .480, .270)}
 for name, color in colors.items():
     mat = materials[name]; mat.diffuse_color = (*color, 1)
     shader = mat.node_tree.nodes['Principled BSDF']
@@ -118,9 +120,10 @@ def stitches(name, points, slot, spacing=.032, length=.022, width=.0065, lift=.0
 
 
 def band(name, tree, origin, axis, zero, rows, slot, material, segments=10, begin=0, sweep=math.tau, tilt=0, phase=0,
-         upright=False):
+         upright=False, tuck=0):
     """Sheet around a limb or the trunk: rows of (distance along the axis, clearance); tilt makes a wrap.
-    upright: every column stands at its widest row, like a belt that does not dip into the small of the back."""
+    upright: every column stands at its widest row, like a belt that does not dip into the small of the back.
+    tuck: clearance shrinks by this share on the underside (toward -Z), so a sleeve runs out into the armpit."""
     origin, axis, zero = Vector(origin), Vector(axis).normalized(), Vector(zero).normalized()
     other = axis.cross(zero); closed = abs(sweep-math.tau) < 1e-6
     columns = segments if closed else segments+1
@@ -130,7 +133,7 @@ def band(name, tree, origin, axis, zero, rows, slot, material, segments=10, begi
         column = []
         for along, clear in rows:
             centre = origin+axis*(along+tilt*math.cos(a-phase))
-            column.append((centre, *lay(tree, centre+radial, centre, clear)))
+            column.append((centre, *lay(tree, centre+radial, centre, clear*(1-tuck*max(0, -radial.z)))))
         reach = max((p-centre).length for centre, p, _ in column)
         grid += [(centre+radial*reach if upright else p, out) for centre, p, out in column]
     n = len(rows)
@@ -138,6 +141,22 @@ def band(name, tree, origin, axis, zero, rows, slot, material, segments=10, begi
              for j in range(segments) for r in range(n-1)]
     obj = mesh(name, [p for p, _ in grid], faces, slot, material)
     return obj, grid
+
+
+def soften(obj, rounds, grow):
+    """Worn cloth, not body paint: smooth the lining inside its borders and let it out; the borders stay put,
+    so neighbouring regions and the free body still meet it without a step."""
+    bm = bmesh.new(); bm.from_mesh(obj.data)
+    for _ in range(rounds):
+        moved = {v: v.co.lerp(sum((e.other_vert(v).co for e in v.link_edges), Vector())/len(v.link_edges), .5)
+                 for v in bm.verts if not v.is_boundary}
+        for v, co in moved.items():
+            v.co = co
+    bm.normal_update()
+    for v in bm.verts:
+        if not v.is_boundary:
+            v.co += v.normal*grow
+    bm.to_mesh(obj.data); bm.free(); obj.data.update()
 
 
 def repaint(obj, base=None, rules=()):
@@ -155,11 +174,20 @@ def repaint(obj, base=None, rules=()):
                 break
 
 
-def hang_weights(obj):
-    """Hips at the band, the legs below it, blended across the centre so a skirt behaves like cloth."""
+def hang_weights(obj, waist=None):
+    """The legs below the band, blended across the centre so a skirt behaves like cloth. Above, either the Hips
+    bone or, with `waist` (a binding surface), whatever the waist there follows: then a skirt turns with the trunk."""
+    above = {}
+    if waist:
+        attach_to_surface(obj, waist)
+        above = {v.index: {obj.vertex_groups[g.group].name: g.weight for g in v.groups} for v in obj.data.vertices}
+        obj.vertex_groups.clear()
     for v in obj.data.vertices:
         hip = min(1, max(0, (v.co.z-.74)/.17)); left = min(1, max(0, .5+v.co.x/.16))
-        for name, weight in [('Hips', hip), ('UpperLeg_L', (1-hip)*left), ('UpperLeg_R', (1-hip)*(1-left))]:
+        shares = {name: weight*hip for name, weight in above.get(v.index, {'Hips': 1}).items()}
+        for name, weight in [('UpperLeg_L', (1-hip)*left), ('UpperLeg_R', (1-hip)*(1-left))]:
+            shares[name] = shares.get(name, 0)+weight
+        for name, weight in shares.items():
             if weight > 0:
                 (obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)).add([v.index], weight, 'REPLACE')
 
@@ -167,33 +195,32 @@ def hang_weights(obj):
 UP, FRONT = (0, 0, 1), (0, -1, 0)
 
 # Shirt: the torso lining is the hide; linen shows in the wide neck, the rest is seams.
-torso = pieces['Torso'][0]; tree = shell(torso)
+torso = pieces['Torso'][0]; soften(torso, 2, .006); tree = shell(torso)  # the shirt only: softened trousers dent at the knee
 repaint(torso, 'cloth', [('gold', lambda c: abs(c.x) < .112 and c.z > (1.335+abs(c.x)*1.25 if c.y < .02 else 1.425+abs(c.x)*.42))])
 neck = lambda p: Vector((p.x*.35, .02, 1.30)); trunk = lambda p: Vector((0, .01, p.z))
 collar = trace(tree, [(-.108, -.05, 1.47), (-.055, -.13, 1.40), (0, -.15, 1.335), (.055, -.13, 1.40), (.108, -.05, 1.47),
                       (.10, .10, 1.465), (.05, .16, 1.445), (0, .17, 1.425), (-.05, .16, 1.445), (-.10, .10, 1.465),
                       (-.108, -.05, 1.47)], neck, .005)
 strip('Neck_binding', collar, .028, 'Torso', 'leather')
-stitches('Neck_stitches', [(p+out*.002, out) for p, out in collar], 'Torso', spacing=.034)
+stitches('Neck_stitches', [(p+out*.002, out) for p, out in collar], 'Torso', spacing=.040)
 for sign in [-1, 1]:
     for y, z0, z1 in [(-.11, 1.452, 1.345), (.135, 1.458, 1.355)]:  # raglan seams, front and back
         seam = trace(tree, [(sign*.118, y, z0), (sign*.205, y, z1)], lambda p: Vector((p.x*.4, .02, 1.25)), .003)
         stitches('Shoulder_seam', seam, 'Torso', spacing=.030)
-    stitches('Side_seam', trace(tree, [(sign*.27, .01, 1.26), (sign*.27, .01, 1.03)], trunk, .003), 'Torso', spacing=.036)
 for x0, x1, z, facing in [(-.105, .015, 1.085, -1), (-.01, .115, 1.118, -1), (-.06, .07, 1.048, -1), (-.10, .03, 1.10, 1), (.0, .11, 1.06, 1)]:
     fold = trace(tree, [(x0, facing*.3, z), (x1, facing*.3, z-.018)], trunk, .003, step=.04)
     strip('Shirt_fold', fold, [.002]+[.013]*(len(fold)-2)+[.002], 'Torso', 'leather')
-band('Shirt_overhang', shell(torso, pieces['Hips'][0]), (0, .015, 0), UP, FRONT, [(.992, .012), (1.030, .022), (1.080, .008)], 'Torso', 'cloth', 12)
+band('Shirt_overhang', shell(torso, pieces['Hips'][0]), (0, .015, 0), UP, FRONT, [(.972, .010), (1.004, .016), (1.046, .006)], 'Torso', 'cloth', 12)
 surface = binding_surface(torso)
 for obj in pieces['Torso'][1:]:
     attach_to_surface(obj, surface)
 
 # Trousers, the band and the short skirt of the shirt.
-hips = pieces['Hips'][0]; tree = shell(hips); waist = shell(torso, hips)
+hips = pieces['Hips'][0]; tree = shell(hips); waist = shell(torso, hips); waistline = binding_surface(torso)
 repaint(hips, 'leather')
 axis0 = (0, .015, 0)
 for begin in [math.radians(-80), math.radians(100)]:  # front and back panel; the sides stay slit
-    skirt, grid = band('Shirt_skirt', waist, axis0, UP, FRONT, [(.930, .004), (.898, .009), (.855, .024)], 'Hips', 'cloth', 8, begin, math.radians(160))
+    skirt, grid = band('Shirt_skirt', waist, axis0, UP, FRONT, [(.948, .004), (.920, .008), (.855, .024)], 'Hips', 'cloth', 8, begin, math.radians(160))
     hem = []
     for j in range(9):  # the last row hangs free below the hug rows: a little out and down
         p, out = grid[j*3+2]; flat = Vector((out.x, out.y, 0)).normalized()
@@ -201,18 +228,18 @@ for begin in [math.radians(-80), math.radians(100)]:  # front and back panel; th
     verts = [v.co.copy() for v in skirt.data.vertices]+[p for p, _ in hem]
     faces = [tuple(f.vertices) for f in skirt.data.polygons]+[(j*3+2, 27+j, 27+j+1, (j+1)*3+2) for j in range(8)]
     pieces['Hips'].remove(skirt); bpy.data.objects.remove(skirt, do_unlink=True)
-    hang_weights(mesh('Shirt_skirt', verts, faces, 'Hips', 'cloth'))
-    hang_weights(stitches('Skirt_hem_stitches', [(p+Vector((0, 0, .016)), out) for p, out in hem], 'Hips', spacing=.036, across=False))
-belt, grid = band('Waist_band', waist, axis0, UP, FRONT, [(.905, .030), (.985, .028)], 'Hips', 'black', 16, upright=True)
-belt.vertex_groups.new(name='Hips').add(list(range(len(belt.data.vertices))), 1, 'REPLACE')
-for f in [.16, .84]:  # running stitches near both edges, taken from the band's own surface
-    circle = [(grid[2*(j % 16)][0].lerp(grid[2*(j % 16)+1][0], f), grid[2*(j % 16)][1]) for j in range(17)]
-    thread = stitches('Band_stitches', circle, 'Hips', spacing=.042, across=False)
-    thread.vertex_groups.new(name='Hips').add(list(range(len(thread.data.vertices))), 1, 'REPLACE')
-for dx, drop in [(-.018, .105), (.022, .075)]:  # the tied ends of the band
-    top = lay(waist, (dx, -1, .93), (dx, .015, .93), .036)[0]
+    hang_weights(mesh('Shirt_skirt', verts, faces, 'Hips', 'cloth'), waistline)
+    hang_weights(stitches('Skirt_hem_stitches', [(p+Vector((0, 0, .016)), out) for p, out in hem], 'Hips', spacing=.044, across=False), waistline)
+belt, grid = band('Waist_band', waist, axis0, UP, FRONT, [(.925, .026), (.945, .026), (.965, .026)], 'Hips', 'black', 16, upright=True)
+attach_to_surface(belt, waistline)  # the band turns with the waist it is tied around, like the skirt under it
+for f in [.5]:  # one row of running stitches along the middle, taken from the band's own surface
+    circle = [(grid[3*(j % 16)][0].lerp(grid[3*(j % 16)+2][0], f), grid[3*(j % 16)][1]) for j in range(17)]
+    thread = stitches('Band_stitches', circle, 'Hips', spacing=.050, length=.020, width=.0045, across=False)
+    attach_to_surface(thread, waistline)
+for dx, drop in [(-.018, .075), (.022, .055)]:  # the tied ends of the band: short, and on the waist only, so a crouch does not splay them
+    top = lay(waist, (dx, -1, .938), (dx, .015, .938), .032)[0]
     tie = strip('Band_end', [(top+Vector((dx*.6*k, -.004*k, -drop*k/2)), Vector((0, -1, 0))) for k in range(3)], .026, 'Hips', 'black')
-    hang_weights(tie)
+    attach_to_surface(tie, waistline)
 first = len(pieces['Hips'])
 for sign in [-1, 1]:
     leg = lambda p: Vector((sign*.10, .02, p.z))
@@ -233,12 +260,12 @@ for sign, side, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:
     # Short hide sleeve with a stitched hem; linen sleeve below it, so no skin in a replaced region.
     upper = 'ArmUpper'+word; arm = pieces[upper][0]; tree = shell(arm)
     repaint(arm, 'cloth', [('gold', lambda c: (c-shoulder).dot(axis) > .19)])
-    band('Sleeve', tree, shoulder, axis, UP, [(.040, .011), (.115, .015), (.192, .025)], upper, 'cloth', 8)
-    band('Sleeve_hem', tree, shoulder, axis, UP, [(.176, .027), (.202, .030)], upper, 'leather', 8)
+    band('Sleeve', tree, shoulder, axis, UP, [(.040, .007), (.115, .010), (.192, .014)], upper, 'cloth', 8, tuck=.7)
+    band('Sleeve_hem', tree, shoulder, axis, UP, [(.178, .015), (.200, .017)], upper, 'leather', 8, tuck=.7)
     other = axis.cross(Vector(UP))
-    circle = [lay(tree, shoulder+axis*.189+Vector(UP)*math.cos(a)+other*math.sin(a), shoulder+axis*.189, .0305)
-              for a in [k*math.tau/16 for k in range(17)]]
-    stitches('Sleeve_hem_stitches', circle, upper, spacing=.030, length=.018)
+    circle = [lay(tree, shoulder+axis*.189+Vector(UP)*math.cos(a)+other*math.sin(a), shoulder+axis*.189,
+                  .0185*(1-.7*max(0, -math.cos(a)))) for a in [k*math.tau/16 for k in range(17)]]
+    stitches('Sleeve_hem_stitches', circle, upper, spacing=.038, length=.016)
     fold = trace(tree, [shoulder+axis*.27+Vector((0, -.3, .03)), shoulder+axis*.31+Vector((0, -.3, -.03))],
                  lambda p: shoulder+axis*(p-shoulder).dot(axis), .003, step=.04)
     strip('Linen_fold', fold, [.002]+[.010]*(len(fold)-2)+[.002], upper, 'leather')
@@ -264,17 +291,18 @@ for slot in ['LegLeft', 'LegRight']:
     origin = (x, .02, 0)
     band('Trouser_hem', tree, origin, UP, FRONT, [(.318, .022), (.368, .012)], slot, 'leather', 8)
     circle = [lay(tree, Vector((x+math.sin(a), .02-math.cos(a), .338)), (x, .02, .338), .0205) for a in [k*math.tau/16 for k in range(17)]]
-    stitches('Trouser_hem_stitches', circle, slot, spacing=.034)
+    stitches('Trouser_hem_stitches', circle, slot, spacing=.042)
     for z in [.140, .192, .244, .296]:
         band('Shin_wrap', tree, origin, UP, FRONT, [(z-.014, .008), (z+.014, .009)], slot, 'cloth', 8, tilt=.022,
              phase=math.pi if x < 0 else 0)
     band('Shoe_collar', tree, origin, UP, FRONT, [(.082, .010), (.112, .013)], slot, 'leather', 8)
     lace = trace(tree, [(x, -.058, .30), (x, -.118, .30)], lambda p: Vector((x, p.y+.02, -.05)), .004, step=.02)
-    stitches('Shoe_lacing', lace, slot, spacing=.024, length=.034, width=.006)
-    outline = [(-.062, .105), (.062, .105), (.074, -.040), (.052, -.150), (-.052, -.150), (-.074, -.040)]
-    verts = [(x+dx, y, z) for z in [-.006, .012] for dx, y in outline]
-    mesh('Turnshoe_sole', verts, [tuple(reversed(range(6))), tuple(range(6, 12))]
-         + [(i, (i+1) % 6, (i+1) % 6+6, i+6) for i in range(6)], slot, 'black')
+    stitches('Shoe_lacing', lace, slot, spacing=.024, length=.030, width=.004)
+    outline = [(-.050, .105), (.050, .105), (.070, .030), (.072, -.060), (.050, -.132), (.020, -.152), (-.020, -.152),
+               (-.050, -.132), (-.072, -.060), (-.070, .030)]
+    n = len(outline); verts = [(x+dx, y, z) for z in [-.004, .005] for dx, y in outline]
+    mesh('Turnshoe_sole', verts, [tuple(reversed(range(n))), tuple(range(n, 2*n))]
+         + [(i, (i+1) % n, (i+1) % n+n, i+n) for i in range(n)], slot, 'black')
     surface = binding_surface(leg)
     for obj in pieces[slot][1:]:
         attach_to_surface(obj, surface)
@@ -305,6 +333,7 @@ tail = swap(tail, '30_Hood_Detail', '30_Collar_Detail')
 tail = swap(swap(tail, '1400', '1200'), '2.90', '2.55')
 tail = swap(tail, "view_transform = 'AgX'", "view_transform = 'Standard'")
 tail = swap(tail, "look = 'AgX - Medium High Contrast'", "look = 'None'")
+tail = swap(tail, "glare.inputs['Strength'].default_value=1.2", "glare.inputs['Strength'].default_value=0")  # nothing glows: no preview halo either
 tail = swap(tail, "'split per-leg riding panels'", "'short shirt skirt, slit at the sides, over trousers'")
 exec(compile(tail, 'armor-common-validation-export', 'exec'))
 

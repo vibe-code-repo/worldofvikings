@@ -23,6 +23,14 @@
  *
  * NACH DER UMSETZUNG GRUEN, OHNE AENDERUNG an diesem Test.
  *
+ * ADMIN-ERLAUBNIS: Der Test schickt `dungeon enter` als Admin-Paket und prueft
+ * NICHT die Rechtevergabe. Die Vorgabe `everyoneAdmin` steht seit dem
+ * 13.09.2026 auf false, deshalb setzt die Konfiguration unten sie
+ * ausdruecklich (Muster `g9-dungeon2-e2e.ts`).
+ * Admin permission: the test sends `dungeon enter` as an admin packet; the
+ * default `everyoneAdmin` has been false since 13.09.2026, so the config
+ * below sets it explicitly.
+ *
  * Geprueft wird:
  *  1. Ein 1.0-Dokument (`DG_StoneVault`, `createGenerated`) OHNE `steinKit`
  *     liefert im Teleport-Paket einen LEEREN String hinter `layoutJson`.
@@ -183,6 +191,9 @@ async function main(): Promise<void> {
   const server = createWovServer({
     port: PORT,
     worldsDir: resolve(TMP, 'worlds'), kontenDir: resolve(TMP, 'konten'),
+    // Schickt `dungeon enter` als Admin-Paket; die Vorgabe ist seit 13.09.2026 false.
+    // Sends `dungeon enter` as an admin packet; the default has been false since 13.09.2026.
+    everyoneAdmin: true,
     saveIntervalMs: 3600_000,
   });
   server.start();

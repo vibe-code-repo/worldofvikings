@@ -395,7 +395,7 @@ export class WovServer {
    */
   private readonly weltUmgebung: WeltUmgebung = {
     prefabName: (hash) => this.prefabs.getByHash(hash)?.name,
-    kreaturTrifft: (pos, dmg, r) => this.applyCreatureAttack(pos, dmg, r),
+    kreaturTrifft: (pos, dmg, r, weltId) => this.applyCreatureAttack(pos, dmg, r, weltId),
   };
 
   /**
@@ -3292,7 +3292,7 @@ export class WovServer {
     */
     if (!ziel) return this.handleHarvest(peer, von, waffe);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
-    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1);
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der
     // `||`-Zweig greift nur noch für Wesen aus Saves von VOR dieser
     // Änderung — seit `stelleLebenSicher` bringt jede Kreatur ihre Punkte
@@ -3387,7 +3387,7 @@ export class WovServer {
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
     const schaden = WAFFEN_SCHADEN[waffe] ?? 4;
-    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0);
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0, peer.worldId);
     const hp = (ziel.getInt(HEALTH_MEMBER) || startHp) - schaden;
     if (hp > 0) {
       ziel.setInt(HEALTH_MEMBER, hp);
@@ -3413,10 +3413,16 @@ export class WovServer {
    * Treffereffekt an alle Spieler im Umkreis (Vorbild: MeleeImpact /
    * bloodSplash / MeleeSpark des Originals, hier als Ereignis, das der
    * Client in Partikel uebersetzt). `art`: 0 hart, 1 Fleisch, 2 Parade.
+   *
+   * Nur an Spieler DERSELBEN Welt (`weltId`). Alle Instanzen liegen am
+   * Ursprung, die Koordinaten zweier Welten sagen also nichts darueber, wer
+   * nebeneinander steht; ohne die Weltpruefung sah ein Spieler im Dungeon
+   * den Treffer-Blitz eines Schlags aus der Oberwelt.
    */
-  private sendeTrefferEffekt(pos: Vector3, art: number, umkreis = 40): void {
+  private sendeTrefferEffekt(pos: Vector3, art: number, weltId: string, umkreis = 40): void {
     const r2 = umkreis * umkreis;
     for (const p of this.net.getPeers()) {
+      if (p.worldId !== weltId) continue;
       const d = (p.position.x - pos.x) ** 2 + (p.position.z - pos.z) ** 2;
       if (d > r2) continue;
       p.sendPacketWith(PacketType.HitEffect, (w) => {
@@ -3439,9 +3445,18 @@ export class WovServer {
     this.sendPlayerState(peer);
   }
 
-  private applyCreatureAttack(pos: Vector3, damage: number, radius: number): void {
+  /**
+   * Eine Kreatur oder ein NPC schlaegt zu — trifft nur Spieler in DERSELBEN
+   * Welt (`weltId`, die des Schlaegers). Der Radius ist reine XZ-Rechnung,
+   * und alle Instanzen liegen am Ursprung (DungeonManager.getOrCreateInstance):
+   * Ohne die Weltpruefung traf eine Figur der Oberwelt den Spieler im
+   * Dungeon an denselben Koordinaten — und er starb an einer Figur, die es
+   * in seiner Welt nicht gibt.
+   */
+  private applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId: string): void {
     const r2 = radius * radius;
     for (const peer of this.net.getPeers()) {
+      if (peer.worldId !== weltId) continue;
       const d = (peer.position.x - pos.x) ** 2 + (peer.position.z - pos.z) ** 2;
       if (d > r2) continue;
       // Parade: Treffer im Fenster prallt ab. Kein Schaden, aber der
@@ -3449,7 +3464,7 @@ export class WovServer {
       // ein Fehlschlag der Kreatur.
       if (peer.paradeBis > Date.now()) {
         peer.paradeBis = 0;
-        this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.1, z: peer.position.z }, 2);
+        this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.1, z: peer.position.z }, 2, weltId);
         peer.sendPacketWith(PacketType.InteractResult, (w) => {
           w.writeBool(true);
           w.writeString('Pariert');
@@ -3458,7 +3473,7 @@ export class WovServer {
         });
         continue;
       }
-      this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1);
+      this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1, weltId);
       peer.health = Math.max(0, peer.health - damage);
       if (peer.health <= 0) {
         // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.

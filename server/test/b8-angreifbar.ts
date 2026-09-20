@@ -23,6 +23,8 @@
  *      feindlicher NPC ohne Kampfwerte schlaegt nicht zu.
  *  [6] Reichweite: nur im Angriffsabstand; zwei Faelle plus die Grenze.
  *  [7] Kein Spawnsystem noetig.
+ *  [8] Welt-Filter: ein Schlag und sein Treffer-Blitz gelten nur Spielern
+ *      derselben Welt (Instanzen liegen am Ursprung).
  *
  * Run: npx tsx server/test/b8-angreifbar.ts   (from the repo root)
  */
@@ -61,7 +63,9 @@ const P = {
   InteractResult: 45,
   Attack: 46,
   AdminCommand: 53,
+  AdminEvent: 54,
   Parry: 58,
+  HitEffect: 59,
   AuthChallenge: 68,
 };
 
@@ -521,6 +525,96 @@ async function main(): Promise<void> {
     // ── [7] Kein Spawnsystem ───────────────────────────────────────
     console.log('\n[7] Ohne Spawnsystem:');
     check('es gibt kein Spawnsystem (worldCreatures aus)', server.spawns === null);
+
+    // ── [8] Welt-Filter ────────────────────────────────────────────
+    // Alle Instanzen liegen am Ursprung, die Koordinaten zweier Welten sind
+    // nicht vergleichbar. Ein Schlag (und sein Treffer-Blitz) gilt nur den
+    // Spielern der Welt des Schlaegers. Zwei echte Clients: A in der
+    // Hauptwelt, C im Dungeon, beide auf denselben XZ.
+    console.log('\n[8] Ein Schlag trifft nur Spieler derselben Welt:');
+    const wsC = await verbinde('Instanzspieler');
+    const peerC = server.net.getPeers().find((p) => p.name === 'Instanzspieler');
+    if (!peerC) throw new Error('Peer C nicht gefunden');
+    const adminC: string[] = [];
+    let blitzeA = 0;
+    let blitzeC = 0;
+    wsC.on('message', (data: Buffer) => {
+      const t = data.readUInt8(0);
+      if (t === P.HitEffect) blitzeC++;
+      else if (t === P.AdminEvent) {
+        const r = new Reader(Buffer.from(data.subarray(1)));
+        r.readString();
+        r.readBool();
+        adminC.push(r.readString());
+      }
+    });
+    ws.on('message', (data: Buffer) => {
+      if (data.readUInt8(0) === P.HitEffect) blitzeA++;
+    });
+    const bis = async (bedingung: () => boolean, ms: number): Promise<boolean> => {
+      const ende = jetzt() + ms;
+      while (jetzt() < ende) {
+        if (bedingung()) return true;
+        await warte(50);
+      }
+      return bedingung();
+    };
+    sendAdmin(wsC, 'dungeon create forestcrypt 4242');
+    await bis(() => adminC.some((m) => /Dungeon erzeugt: \S+/.test(m)), 8_000);
+    const dungeonId = adminC.map((m) => m.match(/Dungeon erzeugt: (\S+)/)?.[1]).find((x) => x);
+    if (!dungeonId) throw new Error(`Dungeon nicht erzeugt: ${adminC.join(' | ')}`);
+    sendAdmin(wsC, `dungeon enter ${dungeonId}`);
+    const drin = await bis(() => peerC.worldId !== 'haupt', 8_000);
+    check('Spieler C steht in der Instanz (eigene Welt)', drin, `worldId=${peerC.worldId}`);
+    const instanz = server.welten.get(peerC.worldId);
+    if (!instanz) throw new Error('Welt der Instanz nicht gefunden');
+    await warte(300);
+    const stelle = { ...peerC.position };
+    // A auf dieselben XZ in der Hauptwelt.
+    const posA = await neuerPlatz(Math.round(stelle.x * 100) / 100, Math.round(stelle.z * 100) / 100);
+    check(
+      'A (Hauptwelt) und C (Instanz) stehen auf denselben XZ',
+      Math.hypot(posA.x - peerC.position.x, posA.z - peerC.position.z) < 0.5 && peer.worldId === 'haupt',
+      `A (${f(posA.x)}; ${f(posA.z)}) C (${f(peerC.position.x)}; ${f(peerC.position.z)}), Welten ${peer.worldId} / ${peerC.worldId}`
+    );
+
+    // Richtung 1: ein Furloc-Krieger der HAUPTWELT.
+    peerC.health = 100;
+    blitzeA = 0;
+    blitzeC = 0;
+    const ausHaupt = setzeNpc('FurlocKrieger', { x: posA.x, y: posA.y, z: posA.z });
+    await beobachte(5_500);
+    const n1 = schlaege.length;
+    console.log(`      Oberwelt-NPC: ${n1} Schlaege; A ${peer.health}, C ${peerC.health}; Blitze A ${blitzeA}, C ${blitzeC}`);
+    check('der Oberwelt-NPC hat zugeschlagen (mindestens zwei Schlaege)', n1 >= 2, `${n1}`);
+    check('A (gleiche Welt) verliert 8 je Schlag', peer.health === 100 - n1 * w3.schaden, `${peer.health} (Soll ${100 - n1 * w3.schaden})`);
+    check('C (andere Welt, gleiche XZ) verliert nichts', peerC.health === 100, `${peerC.health}`);
+    check('A sieht jeden Treffer-Blitz', blitzeA === n1, `${blitzeA} von ${n1}`);
+    check('C sieht keinen Treffer-Blitz', blitzeC === 0, `${blitzeC}`);
+    entferne(ausHaupt);
+
+    // Richtung 2: ein Furloc-Krieger der INSTANZ.
+    peer.health = 100;
+    peerC.health = 100;
+    schlaege.length = 0;
+    blitzeA = 0;
+    blitzeC = 0;
+    const echt2 = instanz.aggro.onSchlag;
+    let n2 = 0;
+    instanz.aggro.onSchlag = (pos, schaden, radius) => {
+      n2++;
+      echt2?.(pos, schaden, radius);
+    };
+    const ausInstanz = instanz.zdos.createZDO(hashVon('FurlocKrieger'), { ...peerC.position });
+    ausInstanz.setInt(HEALTH_MEMBER, maxLeben('FurlocKrieger'));
+    await warte(5_500);
+    console.log(`      Instanz-NPC: ${n2} Schlaege; A ${peer.health}, C ${peerC.health}; Blitze A ${blitzeA}, C ${blitzeC}`);
+    check('der Instanz-NPC hat zugeschlagen (mindestens zwei Schlaege)', n2 >= 2, `${n2}`);
+    check('C (gleiche Welt) verliert 8 je Schlag', peerC.health === 100 - n2 * w3.schaden, `${peerC.health} (Soll ${100 - n2 * w3.schaden})`);
+    check('A (andere Welt, gleiche XZ) verliert nichts', peer.health === 100, `${peer.health}`);
+    check('C sieht jeden Treffer-Blitz, A keinen', blitzeC === n2 && blitzeA === 0, `C ${blitzeC} von ${n2}, A ${blitzeA}`);
+    if (!ausInstanz.destroyed) instanz.zdos.destroyZDO(ausInstanz.zdoid);
+    wsC.close();
 
     console.log(failures === 0 ? '\n=== B8 Angreifbar: ALL PASSED ===' : `\n=== B8 Angreifbar: ${failures} FAILURES ===`);
     ws.close();

@@ -52,9 +52,11 @@ export interface WeltUmgebung {
   prefabName(hash: number): string | undefined;
   /**
    * Eine Kreatur trifft. Wen sie trifft, weiß nur der Server (er hält die
-   * Peers); dass sie trifft, weiß nur die Welt.
+   * Peers); dass sie trifft, weiß nur die Welt — und `weltId` sagt, in
+   * welcher: Getroffen werden nur Spieler dieser Welt (die Koordinaten
+   * zweier Welten sind nicht vergleichbar, Instanzen liegen am Ursprung).
    */
-  kreaturTrifft(pos: Vector3, schaden: number, radius: number): void;
+  kreaturTrifft(pos: Vector3, schaden: number, radius: number, weltId: string): void;
 }
 
 export interface WeltBauplan {
@@ -136,7 +138,7 @@ export class Welt {
         )
       : null;
     if (this.spawns) {
-      this.spawns.onCreatureAttack = (pos, dmg, r) => umgebung.kreaturTrifft(pos, dmg, r);
+      this.spawns.onCreatureAttack = (pos, dmg, r) => umgebung.kreaturTrifft(pos, dmg, r, this.id);
     }
 
     // Die Höhe kommt bei BEIDEN aus derselben Quelle wie Spawn-Höhe und
@@ -151,7 +153,7 @@ export class Welt {
     // Ein NPC, der zuschlägt, geht denselben Weg wie eine Kreatur des
     // Spawnsystems: Parade, Trefferwirkung und Tod laufen am Server, nicht
     // hier (s. AggroSystem.onSchlag).
-    this.aggro.onSchlag = (pos, dmg, r) => umgebung.kreaturTrifft(pos, dmg, r);
+    this.aggro.onSchlag = (pos, dmg, r) => umgebung.kreaturTrifft(pos, dmg, r, this.id);
     // Der RoutenLaeufer bekommt die Menge der gerade kämpfenden NPCs,
     // damit er ihnen nicht ins Steuer greift.
     this.routen.gesperrt = this.aggro.gesperrt;

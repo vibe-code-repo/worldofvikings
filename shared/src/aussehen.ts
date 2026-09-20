@@ -183,13 +183,15 @@ import { WILDWARDEN_PARTS } from './wildwarden.js';
 import { ASHENVEIL_PARTS } from './ashenveil.js';
 import { SEIDRAVEN_PARTS } from './seidraven.js';
 import { EMBERRAGE_PARTS } from './emberrage.js';
-import { canWearArmor, type ArmorBodyPolicy } from './armorCompatibility.js';
+import { PLAINHIDE_PARTS } from './plainhide.js';
+import { GRAVETHORN_PARTS } from './gravethorn.js';
+import { canWearArmor, type ArmorBodyPolicy, type ArmorVfxProfile } from './armorCompatibility.js';
 import { hiddenAppearance, type AppearancePolicy } from './appearanceVisibility.js';
 export type Slot = 'oberkoerper' | 'beine' | 'kopf' | 'schultern' | 'unterarme' | 'haende' | 'fuesse';
 export const ARMOR_SLOTS: readonly Slot[] = ['oberkoerper', 'beine', 'kopf', 'schultern', 'unterarme', 'haende', 'fuesse'];
 
 export interface Ruestungsteil extends AppearancePolicy, ArmorBodyPolicy {
-  readonly vfxProfile?: 'emberrage_red';
+  readonly vfxProfile?: ArmorVfxProfile;
   readonly id: string;
   readonly datei: string;
   readonly name: string;
@@ -203,6 +205,8 @@ export const RUESTUNG: readonly Ruestungsteil[] = [
   { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine', bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' },
   ...SEIDRAVEN_PARTS.map(p => ({ ...p, datei: `seidraven/${p.item}` })),
   ...EMBERRAGE_PARTS.map(p => ({ ...p, datei: `emberrage/${p.item}` })),
+  ...PLAINHIDE_PARTS.map(p => ({ ...p, datei: `plainhide/${p.item}` })),
+  ...GRAVETHORN_PARTS.map(p => ({ ...p, datei: `gravethorn/${p.item}` })),
   ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
   ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
   ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),

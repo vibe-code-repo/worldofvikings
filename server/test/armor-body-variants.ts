@@ -5,10 +5,28 @@ import { canWearArmor, MALE_ARMOR_BODY, FEMALE_ARMOR_BODY, SEIDRAVEN_MALE_PARTS,
 import { WovServer } from '../src/WovServer.js';
 import { Writer } from '../src/io/Writer.js';
 import { Reader } from '../src/io/Reader.js';
-import { EMBERRAGE_PARTS } from '@wov/shared';
+import { EMBERRAGE_PARTS, PLAINHIDE_PARTS, GRAVETHORN_PARTS } from '@wov/shared';
 for (const part of EMBERRAGE_PARTS) {
   const item = findItem(part.item)!;
   assert.equal(item.vfxProfile, 'emberrage_red');
+  assert.equal(ruestungZu(part.id)?.bodyProfile, part.bodyProfile);
+  assert(canWearArmor(item, part.figure));
+  assert(!canWearArmor(item, part.figure === 'wikinger' ? 'wikingerin' : 'wikinger'));
+}
+// Plainhide asks for no effect; Gravethorn has its own profile, which the glow adapter maps to its own materials.
+for (const part of PLAINHIDE_PARTS) {
+  const item = findItem(part.item)!;
+  assert.equal(item.vfxProfile, undefined);
+  assert.deepEqual(item.hideAppearance, []);
+  assert.equal(ruestungZu(part.id)?.bodyProfile, part.bodyProfile);
+  assert(canWearArmor(item, part.figure));
+  assert(!canWearArmor(item, part.figure === 'wikinger' ? 'wikingerin' : 'wikinger'));
+}
+for (const part of GRAVETHORN_PARTS) {
+  const item = findItem(part.item)!;
+  assert.equal(item.vfxProfile, 'gravethorn_red');
+  assert.equal(ruestungZu(part.id)?.vfxProfile, 'gravethorn_red');
+  assert.deepEqual(item.hideAppearance, part.key === 'hood' ? ['hair', 'beard', 'eyebrows'] : []);
   assert.equal(ruestungZu(part.id)?.bodyProfile, part.bodyProfile);
   assert(canWearArmor(item, part.figure));
   assert(!canWearArmor(item, part.figure === 'wikinger' ? 'wikingerin' : 'wikinger'));

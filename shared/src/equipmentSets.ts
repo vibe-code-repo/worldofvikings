@@ -3,6 +3,8 @@ import { WILDWARDEN_PARTS } from './wildwarden.js';
 import { ASHENVEIL_PARTS } from './ashenveil.js';
 import { SEIDRAVEN_MALE_PARTS, SEIDRAVEN_FEMALE_PARTS } from './seidraven.js';
 import { EMBERRAGE_MALE_PARTS, EMBERRAGE_FEMALE_PARTS } from './emberrage.js';
+import { PLAINHIDE_MALE_PARTS, PLAINHIDE_FEMALE_PARTS, PLAINHIDE_FREE_REGIONS } from './plainhide.js';
+import { GRAVETHORN_MALE_PARTS, GRAVETHORN_FEMALE_PARTS } from './gravethorn.js';
 import { canWearArmor } from './armorCompatibility.js';
 
 export const CHARACTER_CLASSES = ['krieger', 'schildmaid', 'jaeger', 'skalde', 'seherin', 'berserker', 'runenmagier', 'hexer', 'druide'] as const;
@@ -10,15 +12,17 @@ export function isCharacterClass(value: unknown): value is typeof CHARACTER_CLAS
   return typeof value === 'string' && CHARACTER_CLASSES.some(id => id === value);
 }
 export const CLASS_EQUIPMENT_FAMILIES: Readonly<Record<string, string>> = {
-  krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven', runenmagier: 'emberrage',
+  krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven', runenmagier: 'emberrage', berserker: 'gravethorn',
 };
 
-/** Server chooses the complete, compatible set; the client never chooses item IDs. */
+/**
+ * Server chooses the complete, compatible set; the client never chooses item IDs.
+ * Every valid class starts in the starter set (Plainhide) that fits the figure. The class sets in
+ * CLASS_EQUIPMENT_FAMILIES are earned later and are never granted here. An unknown class gets nothing.
+ */
 export function starterSetForClass(classId: string, figure: string) {
-  const family = CLASS_EQUIPMENT_FAMILIES[classId];
-  return EQUIPMENT_SETS.find(set =>
-    set.id.replace(/_(male|female)$/, '') === family &&
-    canWearArmor(set.parts[0], figure));
+  if (!isCharacterClass(classId)) return undefined;
+  return EQUIPMENT_SETS.find(set => 'starter' in set && canWearArmor(set.parts[0], figure));
 }
 
 /** Stable set IDs, separate from asset revisions. This catalog grants no items. */
@@ -30,7 +34,26 @@ export const EQUIPMENT_SETS = [
   { id: 'seidraven_female', version: 1, name: 'Seidraven', figure: 'wikingerin', parts: SEIDRAVEN_FEMALE_PARTS },
   { id: 'emberrage_male', version: 1, name: 'Glutzorn', figure: 'wikinger', parts: EMBERRAGE_MALE_PARTS },
   { id: 'emberrage_female', version: 1, name: 'Glutzorn', figure: 'wikingerin', parts: EMBERRAGE_FEMALE_PARTS },
+  // `starter` marks the set new characters start in; `freeRegions` are the body regions no piece replaces.
+  { id: 'plainhide_male', version: 1, name: 'Plainhide', figure: 'wikinger', parts: PLAINHIDE_MALE_PARTS, starter: true, freeRegions: PLAINHIDE_FREE_REGIONS },
+  { id: 'plainhide_female', version: 1, name: 'Plainhide', figure: 'wikingerin', parts: PLAINHIDE_FEMALE_PARTS, starter: true, freeRegions: PLAINHIDE_FREE_REGIONS },
+  { id: 'gravethorn_male', version: 1, name: 'Gravethorn', figure: 'wikinger', parts: GRAVETHORN_MALE_PARTS },
+  { id: 'gravethorn_female', version: 1, name: 'Gravethorn', figure: 'wikingerin', parts: GRAVETHORN_FEMALE_PARTS },
 ] as const;
+
+const familyOf = (setId: string) => setId.replace(/_(male|female)$/, '');
+
+/**
+ * Item file (`<family>/<item>`, no extension) -> the file of its 63-bone web-body fit under `armor/`.
+ * Every set for the `wikingerin` figure ships one; the website preview and the catalog's `previewModel`
+ * name the same files. Built from the registry, so a new female set needs no second list.
+ */
+const FEMALE_WEB_FILES: ReadonlyMap<string, string> = new Map(EQUIPMENT_SETS
+  .filter(set => set.figure === 'wikingerin')
+  .flatMap(set => set.parts.map(part => [`${familyOf(set.id)}/${part.item}`, `armor/${familyOf(set.id)}/${part.item}`] as const)));
+export function femaleWebArmorFile(file: string): string | undefined {
+  return FEMALE_WEB_FILES.get(file);
+}
 
 /** Same wire format for website and server; inventory and appearance IDs may differ. */
 export function equipmentSetCatalog() {
@@ -38,17 +61,18 @@ export function equipmentSetCatalog() {
     schemaVersion: 1,
     sets: EQUIPMENT_SETS.map(set => ({
       id: set.id, version: set.version, name: set.name, figure: set.figure,
-      familyId: set.id.replace(/_(male|female)$/, ''),
+      familyId: familyOf(set.id),
       classId: Object.entries(CLASS_EQUIPMENT_FAMILIES).find(([, family]) =>
-        family === set.id.replace(/_(male|female)$/, ''))?.[0],
+        family === familyOf(set.id))?.[0],
       bodyVariant: set.parts[0]!.bodyVariant, bodyProfile: set.parts[0]!.bodyProfile,
+      ...('starter' in set ? { starter: set.starter, freeRegions: set.freeRegions } : {}),
       itemIds: set.parts.map(part => part.item),
       appearance: Object.fromEntries(set.parts.map(part => [part.slot, part.id])),
       parts: set.parts.map(part => ({
         itemId: part.item, appearanceId: part.id,
         name: part.name, equipmentSlot: part.equipment, appearanceSlot: part.slot,
-        model: `${set.id.replace(/_(male|female)$/, '')}/${part.item}.glb`, icon: `${part.id}.png`, regions: part.regions,
-        previewModel: `${set.figure === 'wikingerin' ? 'armor/' : ''}${set.id.replace(/_(male|female)$/, '')}/${part.item}.glb`,
+        model: `${familyOf(set.id)}/${part.item}.glb`, icon: `${part.id}.png`, regions: part.regions,
+        previewModel: `${femaleWebArmorFile(`${familyOf(set.id)}/${part.item}`) ?? `${familyOf(set.id)}/${part.item}`}.glb`,
         previewBodyProfile: set.figure === 'wikingerin' ? 'wov-female-v1' : 'wov-male-v1',
         ...('vfxProfile' in part ? { vfxProfile: part.vfxProfile } : {}),
         hideAppearance: part.hideAppearance,

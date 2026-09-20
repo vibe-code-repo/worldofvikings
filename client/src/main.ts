@@ -131,6 +131,7 @@ import { setzeKartenMasse } from './ui/worldmap/mapTypes';
 import { baumenueHinweis } from './player/BaumenueHinweis';
 import { ladeTestflugEntwurf, starteTestflug } from './editor/testflug/Testflug';
 import { localStoragePersistenz } from './editor/testflug/LocalStoragePersistenz';
+import { checkJumpFromDraft } from './editor/testflug/inselwahl';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { DungeonEditor } from './ui/DungeonEditor';
 import { DekoPlatzierung } from './ui/DekoPlatzierung';
@@ -2156,7 +2157,17 @@ async function main() {
     // ?pos=x,z teleports the spawn (screenshot probes)
     if (params.has('pos')) {
       const [px, pz] = params.get('pos')!.split(',').map(Number);
-      if (Number.isFinite(px) && Number.isFinite(pz)) {
+      if (offlineMode && params.get('layout') === 'editor') {
+        // The editor's jump: arrive on land inside a region, above the ground —
+        // or not at all (message instead of a spawn in the open sea).
+        const sprung = checkJumpFromDraft(worldLayout, world.getGroundHeight, params.get('pos'));
+        if (sprung.ok) {
+          player.teleportTo(sprung.x, sprung.y, sprung.z);
+        } else {
+          console.warn(`[Testflug] Einsprung abgelehnt: ${sprung.message}`);
+          hud.meldung(sprung.message);
+        }
+      } else if (Number.isFinite(px) && Number.isFinite(pz)) {
         player.position.set(px, world.getGroundHeight(px!, pz!), pz!);
       }
     }

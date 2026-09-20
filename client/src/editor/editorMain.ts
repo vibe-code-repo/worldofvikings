@@ -106,6 +106,9 @@ import type { GegenstandsKatalog } from './GegenstandsKatalog';
 import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHud';
 // Werkzeug-Registry: Fluss, See und Objekt platzieren leben in `werkzeuge/`, hier nur der Zugriff.
 import { WERKZEUGE, platzierenWerkzeug, werkzeugMitId } from './werkzeuge';
+import { InselwahlPanel } from './testflug/InselwahlPanel';
+import { checkJump, flightUrl, heightSourcesFor } from './testflug/inselwahl';
+import { onReturn } from './testflug/ruecksprung';
 import { platzierungZuBefund } from './werkzeuge/platzieren';
 import { erzeugeEditorKern } from './werkzeuge/kontext';
 import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
@@ -2772,8 +2775,70 @@ function seiteBauen(): void {
 function testflug(): void {
   speichereEntwurf();
   shell.meldung(`Testflug mit dem Entwurf — ${weltName()} bleibt unberührt, bis du speicherst.`);
-  window.open('/?offline=1&layout=editor', '_blank');
+  window.open(flightUrl(), '_blank');
 }
+
+/**
+ * Testflug MIT Zielstelle: das Spiel öffnet dort, nicht im offenen Meer am
+ * Ursprung. Die Stelle ist geprüft (Region, über Wasser), bevor diese
+ * Funktion gerufen wird; der Client prüft sie beim Ankommen noch einmal.
+ */
+function testflugAn(x: number, z: number, was: string): void {
+  speichereEntwurf();
+  shell.meldung(
+    `Testflug an ${was} (${Math.round(x)}, ${Math.round(z)}) — mit dem Entwurf, ${weltName()} bleibt unberührt, bis du speicherst.`
+  );
+  window.open(flightUrl({ x, z }), '_blank');
+}
+
+// ── Einsprung in die Insel ───────────────────────────────────────────
+// Zwei Wege in die 3D-Ansicht: die Inselwahl (Liste, Sprung auf die
+// Inselmitte) und die Taste T über der Karte (Sprung an die Zeigerstelle).
+// Eine TASTE und kein Werkzeug-Klick: Jedes Werkzeug aus K1.3 belegt den
+// Klick, Doppelklick und Rechtsklick auf der Karte, und keines belegt T
+// (die Werkzeuge bekommen nur Entf, Rücktaste, P, V und Escape). T ändert
+// deshalb weder Auswahl noch halbfertige Züge.
+const inselwahl = new InselwahlPanel({
+  layout: () => sanitizeWorldLayout(layout),
+  betreten: (x, z, was) => testflugAn(x, z, was),
+  meldung: (text, fehler) => shell.meldung(text, fehler),
+});
+let zeigerStelle: { x: number; z: number } | null = null;
+overlay.addEventListener('pointermove', (e) => {
+  const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
+  zeigerStelle = { x: wx, z: wz };
+});
+overlay.addEventListener('pointerleave', () => {
+  zeigerStelle = null;
+});
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyT' || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  const ziel = e.target;
+  if (ziel instanceof HTMLElement && (ziel.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ziel.tagName))) return;
+  if (katalogIstOffen()) return;
+  if (!zeigerStelle) {
+    shell.meldung('Zeiger über die Karte halten, dann T — Testflug an dieser Stelle.', true);
+    return;
+  }
+  const sauber = sanitizeWorldLayout(layout);
+  if (!sauber) {
+    shell.meldung('Der Entwurf ist nicht lesbar — kein Testflug möglich.', true);
+    return;
+  }
+  const pruefung = checkJump(sauber, heightSourcesFor(sauber).ground, zeigerStelle.x, zeigerStelle.z);
+  if (!pruefung.ok) {
+    shell.meldung(pruefung.message, true);
+    return;
+  }
+  testflugAn(pruefung.x, pruefung.z, pruefung.region.id);
+});
+// Rückweg: Der Testflug (anderer Tab) meldet seine letzte Stelle mit Taste Q;
+// die Karte springt dorthin.
+onReturn(window, (p) => {
+  springeZuPunkt(p.x, p.z);
+  shell.meldung(`Zurück aus dem Testflug — Karte auf (${Math.round(p.x)}, ${Math.round(p.z)}) zentriert.`);
+  window.focus();
+});
 
 // ── Welt-Wähler in der Kopfzeile ─────────────────────────────────────
 /**
@@ -2907,6 +2972,12 @@ function weltFeldBauen(): void {
     knopf('Testflug', testflug, {
       pfad: PFAD.flug,
       titel: 'Öffnet das Spiel offline mit dem Entwurf. Die Welt auf dem Server bleibt unberührt.',
+    })
+  );
+  ansicht.appendChild(
+    knopf('Inselwahl', () => inselwahl.toggle(), {
+      pfad: PFAD.inselForm,
+      titel: 'Liste der Inseln: In 3D betreten. Über der Karte öffnet die Taste T den Testflug an der Zeigerstelle.',
     })
   );
 

@@ -127,14 +127,13 @@ const PORTRAET_BILDHOEHE = 0.8;
  * 0,364 / 0,85 / 0,8 = 0,54 (Breite zu Hoehe), waechst die Bildhoehe
  * entsprechend (portraetHoehe) — das Sichtfeld weitet sich, der Abstand
  * bleibt. Von vorn (0 Grad) beruehrt damit keine der 38 Frisuren den Rand.
- * Gedreht liegt der Kopf aus der Achse und ist breiter: die halbe
- * Ausdehnung von der Bildmitte waechst auf 0,29 m bei 45 Grad (H_05) und auf
- * 0,31 m bei 90 Grad (H_14); dann ragen Haar und selbst der kahle Kopf auf
- * der schmalsten Buehne (227 px, Bildbreite 0,43 m) ueber den Rand. Das
- * liesse sich nur mit mehr Breite vermeiden, und die kostete den Zoom (bei
- * 0,62 m ueberhaupt keinen): Gesicht und Frisur sind von vorn immer ganz zu
- * sehen. Breitere Kopfteile (Kapuzen 0,43–0,47 m, Geweih der Waldhueter-Krone
- * 0,71 m) sind auch von vorn nicht in jedem Fall unter 85 %.
+ * Gedreht liegt der Kopf aus der Achse: Zielte die Kamera auf die Achse,
+ * ragte er auf der schmalsten Buehne (227 px, Bildbreite 0,43 m) bei 45 und
+ * 90 Grad aus dem Bild (halbe Ausdehnung von der Bildmitte 0,29 und 0,31 m).
+ * Darum sucht der Blickpunkt im Portraet die Kopfmitte (kopfSeite), statt
+ * mehr Breite zu verlangen, die den Zoom gekostet haette. Breitere Kopfteile
+ * (Kapuzen 0,43–0,47 m, Geweih der Waldhueter-Krone 0,71 m) sind auch von vorn
+ * nicht in jedem Fall unter 85 %.
  */
 const KOPF_BREITE = 0.364;
 const BREITE_ANTEIL = 0.85;
@@ -152,6 +151,16 @@ const BRUST_Y = 1.05;
 const KOPF_Y = 1.62;
 /** Rueckfall fuer Treffer und Markierung, solange die Flaeche des Getragenen nicht berechnet ist. */
 const KOPF_RADIUS = 0.21;
+/**
+ * Um so viel (m) wird die Mitte des Huellrechtecks nach hinten genommen: Die
+ * Ruhepose beginnt am vorderen Umkehrpunkt des Kopfes, der 2,4 cm vor und
+ * zurueck pendelt. Gemessen an beiden Koerpern (12 Phasen der Ruhepose,
+ * 24 Drehungen im Abstand von 15 Grad, Buehne 227 px, mit Brauen): Die
+ * Kopfmitte weicht hoechstens von der Buehnenmitte ab um (Wikinger /
+ * Wikingerin) 6,0 / 7,1 % der Buehnenbreite ohne Abzug, 4,7 / 5,9 % mit
+ * 0,006 m, 5,3 / 5,4 % mit 0,009 m, 5,9 / 4,9 % mit 0,012 m.
+ */
+const KOPF_ZURUECK = 0.009;
 /** Weg in Bildpunkten, bis aus einem Klick ein Ziehen wird. */
 const KLICK_WEG = 6;
 const FAHRT_MS = 450;
@@ -199,6 +208,13 @@ export class Vorschau {
   private readonly kopfWelt = new Vector3();
   private readonly kopfMatrix = new Matrix();
   private readonly kinnWelt = new Vector3();
+  /**
+   * Waagerechte Lage der Kopfmitte (kahler Kopf) gegenueber der Drehachse in
+   * Metern, im Bezugssystem der unverdrehten Figur. Einmal je Koerper in der
+   * Ruhepose gemessen (kopfVersatzMessen), null bis dahin; kein Nachfuehren
+   * je Bild, die Kamera schwingt also nicht mit der Ruhepose.
+   */
+  private kopfVersatz: { x: number; z: number } | null = null;
   /**
    * Trefferflaeche des Kopfes samt sichtbarer Frisur, Bart und Kopfteil: eine
    * Kugel im Koordinatensystem des Kopfknochen (dreht mit dem Kopf, gilt bei
@@ -308,10 +324,11 @@ export class Vorschau {
       die Kamera schnitt, lange bevor sie zu nah war.
 
       0,05 statt 1: deutlich unter dem kleinsten Abstand zwischen Kamera und
-      Geometrie, den die Radiusgrenze zulaesst (im Portraet gemessen: 0,31 m,
-      siehe tools/test/vorschau-kopf.mjs). Kleiner muss es nicht sein — eine
-      unnoetig nahe Schnittebene kostet Tiefenpuffer-Genauigkeit und laesst
-      Flaechen flackern, die dicht beieinander liegen.
+      Geometrie, den die Radiusgrenze zulaesst (im Portraet in festen Phasen
+      der Ruhepose gemessen: 0,29 m, siehe tools/test/vorschau-kopf.mjs).
+      Kleiner muss es nicht sein — eine unnoetig nahe Schnittebene kostet
+      Tiefenpuffer-Genauigkeit und laesst Flaechen flackern, die dicht
+      beieinander liegen.
     */
     this.kamera.minZ = 0.05;
     this.kamera.maxZ = 220;
@@ -372,6 +389,7 @@ export class Vorschau {
 
     this.scene.onBeforeRenderObservable.add(() => {
       this.radiusFahrtWeiter();
+      this.kopfVersatzMessen();
       this.blickpunktNachfuehren();
       this.sichtfeldNachfuehren();
       this.kopfNachfuehren();
@@ -1085,11 +1103,43 @@ export class Vorschau {
   /**
    * Blickpunkt aus dem Radius ableiten (die einzige Quelle ist der Radius):
    * ab 3,2 m auf die Brust, von 3,2 bis 2,2 m stetig zum Kopf hinauf, von
-   * 2,2 m bis zum Portraet auf der Kopfmitte.
+   * 2,2 m bis zum Portraet auf der Kopfmitte. Seitlich folgt er im Portraet
+   * der Kopfmitte (kopfSeite mal Portraetanteil); ab 2,2 m und weiter weg
+   * bleibt es bei x = z = 0, das Ausgangsbild also unveraendert.
    */
   private blickpunktNachfuehren(): void {
-    const t = Math.min(1, Math.max(0, (AUSGANG_RADIUS - this.kamera.radius) / (AUSGANG_RADIUS - NAH_ENDE)));
+    const r = this.kamera.radius;
+    const t = Math.min(1, Math.max(0, (AUSGANG_RADIUS - r) / (AUSGANG_RADIUS - NAH_ENDE)));
     this.kamera.target.y = BRUST_Y + t * (KOPF_Y - BRUST_Y);
+    const anteil = this.portraetAnteil(r);
+    const seite = anteil > 0 ? anteil * this.kopfSeite() : 0;
+    // Nach rechts im Bild zeigt (-sin alpha, cos alpha), waagerecht und senkrecht zur Blickrichtung.
+    this.kamera.target.x = seite === 0 ? 0 : -seite * Math.sin(this.kamera.alpha);
+    this.kamera.target.z = seite === 0 ? 0 : seite * Math.cos(this.kamera.alpha);
+  }
+
+  /** 0 ab 2,2 m und weiter weg, 1 im Portraet (1,4 m), dazwischen linear im Radius. */
+  private portraetAnteil(r: number): number {
+    return Math.min(1, Math.max(0, (NAH_ENDE - r) / (NAH_ENDE - PORTRAET_RADIUS)));
+  }
+
+  /**
+   * Wie weit (m) die Kopfmitte bei der aktuellen Drehung der Figur rechts
+   * (negativ: links) der Achse steht, gesehen von der Kamera: der einmal
+   * gemessene Versatz, mit der Figur gedreht (Babylon dreht Zeilenvektoren:
+   * x' = x cos + z sin, z' = -x sin + z cos) und auf die Bildrichtung gelegt.
+   * Nur diese Seitenlage kommt in den Blickpunkt. Die Tiefe (Kopf vor der
+   * Achse, zur Kamera hin) bliebe sonst im Blickpunkt und schoebe die Kamera
+   * um bis zu 11 cm zurueck: Der Kopf wuerde von vorn 7,5 bis 7,7 % kleiner
+   * (Wurzel der Silhouettenflaeche, gemessen auf vier Buehnen) als im Stand davor.
+   */
+  private kopfSeite(): number {
+    const v = this.kopfVersatz;
+    if (!v) return 0;
+    const w = this.figurKnoten.rotation.y;
+    const x = v.x * Math.cos(w) + v.z * Math.sin(w);
+    const z = -v.x * Math.sin(w) + v.z * Math.cos(w);
+    return -x * Math.sin(this.kamera.alpha) + z * Math.cos(this.kamera.alpha);
   }
 
   /**
@@ -1113,7 +1163,7 @@ export class Vorschau {
   private sichtHoehe(r: number): number {
     if (r >= NAH_ENDE) return 2 * r * Math.tan(FOV_AUSGANG / 2);
     const hoeheNah = 2 * NAH_ENDE * Math.tan(FOV_AUSGANG / 2);
-    const t = Math.min(1, (NAH_ENDE - r) / (NAH_ENDE - PORTRAET_RADIUS));
+    const t = this.portraetAnteil(r);
     return hoeheNah * Math.pow(this.portraetHoehe() / hoeheNah, t);
   }
 
@@ -1218,6 +1268,81 @@ export class Vorschau {
   }
 
   /**
+   * Ruft `fuer` mit jedem Eckpunkt des Netzes in Weltkoordinaten auf, auf der
+   * CPU gehautet (aktuelle Pose des Skeletts, keine Hautmatrix im ersten Bild).
+   */
+  private eckpunkteWelt(netz: AbstractMesh, fuer: (x: number, y: number, z: number) => void): void {
+    const pos = netz.getVerticesData('position');
+    if (!pos) return;
+    const welt = netz.getWorldMatrix().m;
+    const ind = netz.skeleton ? netz.getVerticesData('matricesIndices') : null;
+    const gew = ind ? netz.getVerticesData('matricesWeights') : null;
+    const indE = ind ? netz.getVerticesData('matricesIndicesExtra') : null;
+    const gewE = indE ? netz.getVerticesData('matricesWeightsExtra') : null;
+    const haut = ind ? netz.skeleton!.getTransformMatrices(netz) : null;
+    for (let i = 0, j = 0; i < pos.length; i += 3, j += 4) {
+      let x = pos[i]!, y = pos[i + 1]!, z = pos[i + 2]!;
+      if (haut && ind && gew) {
+        let sx = 0, sy = 0, sz = 0;
+        const beitrag = (index: number, gewicht: number) => {
+          if (!(gewicht > 0)) return;
+          const o = index * 16;
+          sx += gewicht * (pos[i]! * haut[o]! + pos[i + 1]! * haut[o + 4]! + pos[i + 2]! * haut[o + 8]! + haut[o + 12]!);
+          sy += gewicht * (pos[i]! * haut[o + 1]! + pos[i + 1]! * haut[o + 5]! + pos[i + 2]! * haut[o + 9]! + haut[o + 13]!);
+          sz += gewicht * (pos[i]! * haut[o + 2]! + pos[i + 1]! * haut[o + 6]! + pos[i + 2]! * haut[o + 10]! + haut[o + 14]!);
+        };
+        for (let k = 0; k < 4; k++) beitrag(ind[j + k]!, gew[j + k]!);
+        if (indE && gewE) for (let k = 0; k < 4; k++) beitrag(indE[j + k]!, gewE[j + k]!);
+        x = sx; y = sy; z = sz;
+      }
+      fuer(
+        x * welt[0]! + y * welt[4]! + z * welt[8]! + welt[12]!,
+        x * welt[1]! + y * welt[5]! + z * welt[9]! + welt[13]!,
+        x * welt[2]! + y * welt[6]! + z * welt[10]! + welt[14]!,
+      );
+    }
+  }
+
+  /**
+   * Misst den Kopfversatz einmal je Koerper: die Mitte des Huellrechtecks
+   * (von oben gesehen) der Eckpunkte des kahlen Kopfnetzes oberhalb des Kinns,
+   * im Bezugssystem der Figur, nach hinten um KOPF_ZURUECK genommen. Gemessen in
+   * der Ruhepose, die mit dem Kopf gut 11 cm vor der Achse beginnt und in den
+   * ersten 20 Bildern auf 1 mm gleich bleibt; die Messung liegt in diesem
+   * Fenster. Seitlich (x) ist der Kopf spiegelgleich, von vorn bleibt das Bild
+   * damit bis auf 1,4 mm unveraendert.
+   */
+  private kopfVersatzMessen(): void {
+    if (this.kopfVersatz || !this.kopfKnoten) return;
+    // Erst wenn die Ruhepose in der Hautmatrix des Kopfknochens steht: Im ersten Bild sind die Matrizen null, und die
+    // Ruhepose wirkt beim ersten Laden der Seite erst rund zehn Bilder spaeter (bis dahin die Einheitsmatrizen der
+    // Bindepose: Kopf aufrecht auf der Achse, Versatz 0,008 statt 0,11 m).
+    const kopfNetz = this.koerperNetze.find((n) => /^Chr_Head_/.test(n.name));
+    const haut = kopfNetz?.skeleton?.getTransformMatrices(kopfNetz);
+    const knochen = kopfNetz?.skeleton?.getBoneIndexByName('Head') ?? -1;
+    if (!haut || knochen < 0) return;
+    let gepostet = false;
+    for (let i = 0; i < 16 && !gepostet; i++) gepostet = Math.abs(haut[knochen * 16 + i]! - (i % 5 === 0 ? 1 : 0)) > 1e-4;
+    if (!gepostet) return;
+    const invers = this.figurKnoten.getWorldMatrix().clone().invert();
+    const p = new Vector3();
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const netz of this.koerperNetze) {
+      // Auch ein bereits ausgeblendetes Kopfnetz (Helm schon gesetzt) zaehlt: Es haengt am selben Skelett.
+      if (!/^Chr_Head_/.test(netz.name)) continue;
+      this.eckpunkteWelt(netz, (wx, wy, wz) => {
+        if (wy < KINN_Y) return;
+        Vector3.TransformCoordinatesFromFloatsToRef(wx, wy, wz, invers, p);
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+        z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z);
+      });
+    }
+    if (!(x1 >= x0)) return; // noch keine Haut: naechstes Bild
+    const faktor = this.figurKnoten.scaling.x;
+    this.kopfVersatz = { x: (x0 + x1) / 2 * faktor, z: (z0 + z1) / 2 * faktor - KOPF_ZURUECK };
+  }
+
+  /**
    * Berechnet die Trefferflaeche neu: die Eckpunkte der sichtbaren Kopfnetze
    * werden auf der CPU in der aktuellen Pose gehautet, ins System des
    * Kopfknochen umgerechnet und oberhalb des Kinns (KINN_Y) in eine Kugel
@@ -1236,38 +1361,13 @@ export class Vorschau {
     const hi = new Vector3(-Infinity, -Infinity, -Infinity);
     const p = new Vector3();
     for (const netz of this.kopfNetze()) {
-      const pos = netz.getVerticesData('position');
-      if (!pos) continue;
-      const welt = netz.getWorldMatrix().m;
-      const ind = netz.skeleton ? netz.getVerticesData('matricesIndices') : null;
-      const gew = ind ? netz.getVerticesData('matricesWeights') : null;
-      const indE = ind ? netz.getVerticesData('matricesIndicesExtra') : null;
-      const gewE = indE ? netz.getVerticesData('matricesWeightsExtra') : null;
-      const haut = ind ? netz.skeleton!.getTransformMatrices(netz) : null;
-      for (let i = 0, j = 0; i < pos.length; i += 3, j += 4) {
-        let x = pos[i]!, y = pos[i + 1]!, z = pos[i + 2]!;
-        if (haut && ind && gew) {
-          let sx = 0, sy = 0, sz = 0;
-          const beitrag = (index: number, gewicht: number) => {
-            if (!(gewicht > 0)) return;
-            const o = index * 16;
-            sx += gewicht * (pos[i]! * haut[o]! + pos[i + 1]! * haut[o + 4]! + pos[i + 2]! * haut[o + 8]! + haut[o + 12]!);
-            sy += gewicht * (pos[i]! * haut[o + 1]! + pos[i + 1]! * haut[o + 5]! + pos[i + 2]! * haut[o + 9]! + haut[o + 13]!);
-            sz += gewicht * (pos[i]! * haut[o + 2]! + pos[i + 1]! * haut[o + 6]! + pos[i + 2]! * haut[o + 10]! + haut[o + 14]!);
-          };
-          for (let k = 0; k < 4; k++) beitrag(ind[j + k]!, gew[j + k]!);
-          if (indE && gewE) for (let k = 0; k < 4; k++) beitrag(indE[j + k]!, gewE[j + k]!);
-          x = sx; y = sy; z = sz;
-        }
-        const wx = x * welt[0]! + y * welt[4]! + z * welt[8]! + welt[12]!;
-        const wy = x * welt[1]! + y * welt[5]! + z * welt[9]! + welt[13]!;
-        const wz = x * welt[2]! + y * welt[6]! + z * welt[10]! + welt[14]!;
-        if (wy < KINN_Y) continue;
+      this.eckpunkteWelt(netz, (wx, wy, wz) => {
+        if (wy < KINN_Y) return;
         Vector3.TransformCoordinatesFromFloatsToRef(wx, wy, wz, invers, p);
         punkte.push(p.x, p.y, p.z);
         lo.minimizeInPlace(p);
         hi.maximizeInPlace(p);
-      }
+      });
     }
     if (!punkte.length) return;
     const mitte = lo.add(hi).scaleInPlace(0.5);
@@ -1395,6 +1495,7 @@ export class Vorschau {
   private kopfZoomZuruecksetzen(): void {
     this.radiusFahrt = null;
     this.kopfKnoten = null;
+    this.kopfVersatz = null;
     this.kopfFlaeche = null;
     this.kopfFlaecheAlt = true;
     this.kopfFlaecheFruehestens = this.scene.getRenderId() + 2;
@@ -1415,6 +1516,7 @@ export class Vorschau {
     this.zerstoert = true;
     this.zeigerAbbruch.abort();
     this.radiusFahrt = null;
+    this.kopfVersatz = null;
     this.beiKopfZustand = null;
     this.leinwand.style.cursor = '';
     this.zeigerForm = '';

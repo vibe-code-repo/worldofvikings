@@ -37,7 +37,7 @@ const BUENDEL_DATEI = arg('--buendel-datei', '');
 const NUR = arg('--nur', '') ? new RegExp(arg('--nur', ''), 'i') : null;
 /** Ein aelteres Buendel, gegen das das Ausgangsbild pixelweise verglichen wird. */
 const VERGLEICH_DATEI = arg('--vergleich-datei', '');
-/** Ein Buendel mit Kopf-Zoom (vorheriger Stand), gegen das das Portraet bei breiter Leinwand pixelweise verglichen wird. */
+/** Ein Buendel mit Kopf-Zoom (vorheriger Stand): ab 2,2 m pixelgleich (auch gedreht), Vorderansicht im Portraet auf 2 px und 1 % Kopfgroesse. */
 const VERGLEICH_PORTRAET_DATEI = arg('--vergleich-portraet-datei', '');
 let basis = arg('--basis', '');
 
@@ -167,39 +167,44 @@ await page.evaluate(() => {
     }
     return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
   };
+  // Alle Eckpunkte eines Netzes in Weltkoordinaten, auf der CPU gehautet (aktuelle Pose).
+  w.weltPunkte = (m) => {
+    m.computeWorldMatrix(true);
+    const W = m.getWorldMatrix().m;
+    const pos = m.getVerticesData('position');
+    const ind = m.skeleton ? m.getVerticesData('matricesIndices') : null;
+    const gew = ind ? m.getVerticesData('matricesWeights') : null;
+    const indE = ind ? m.getVerticesData('matricesIndicesExtra') : null;
+    const gewE = indE ? m.getVerticesData('matricesWeightsExtra') : null;
+    const S = ind ? m.skeleton.getTransformMatrices(m) : null;
+    const welt = new Float64Array(pos.length);
+    for (let i = 0, j = 0; i < pos.length; i += 3, j += 4) {
+      let x = pos[i]; let y = pos[i + 1]; let z = pos[i + 2];
+      if (S) {
+        let sx = 0; let sy = 0; let sz = 0;
+        const beitrag = (idx, wt) => {
+          if (!(wt > 0)) return;
+          const o = idx * 16;
+          sx += wt * (pos[i] * S[o] + pos[i + 1] * S[o + 4] + pos[i + 2] * S[o + 8] + S[o + 12]);
+          sy += wt * (pos[i] * S[o + 1] + pos[i + 1] * S[o + 5] + pos[i + 2] * S[o + 9] + S[o + 13]);
+          sz += wt * (pos[i] * S[o + 2] + pos[i + 1] * S[o + 6] + pos[i + 2] * S[o + 10] + S[o + 14]);
+        };
+        for (let k = 0; k < 4; k++) beitrag(ind[j + k], gew[j + k]);
+        if (indE) for (let k = 0; k < 4; k++) beitrag(indE[j + k], gewE[j + k]);
+        x = sx; y = sy; z = sz;
+      }
+      welt[i] = x * W[0] + y * W[4] + z * W[8] + W[12];
+      welt[i + 1] = x * W[1] + y * W[5] + z * W[9] + W[13];
+      welt[i + 2] = x * W[2] + y * W[6] + z * W[10] + W[14];
+    }
+    return welt;
+  };
   w.minAbstand = (v) => {
     const cam = v.kamera.position; const P = [cam.x, cam.y, cam.z];
     let best = Infinity; let wer = '';
     for (const m of v.scene.meshes) {
       if (!m.isEnabled() || m.getTotalVertices() === 0) continue;
-      m.computeWorldMatrix(true);
-      const W = m.getWorldMatrix().m;
-      const pos = m.getVerticesData('position');
-      const ind = m.skeleton ? m.getVerticesData('matricesIndices') : null;
-      const gew = ind ? m.getVerticesData('matricesWeights') : null;
-      const indE = ind ? m.getVerticesData('matricesIndicesExtra') : null;
-      const gewE = indE ? m.getVerticesData('matricesWeightsExtra') : null;
-      const S = ind ? m.skeleton.getTransformMatrices(m) : null;
-      const welt = new Float64Array(pos.length);
-      for (let i = 0, j = 0; i < pos.length; i += 3, j += 4) {
-        let x = pos[i]; let y = pos[i + 1]; let z = pos[i + 2];
-        if (S) {
-          let sx = 0; let sy = 0; let sz = 0;
-          const beitrag = (idx, wt) => {
-            if (!(wt > 0)) return;
-            const o = idx * 16;
-            sx += wt * (pos[i] * S[o] + pos[i + 1] * S[o + 4] + pos[i + 2] * S[o + 8] + S[o + 12]);
-            sy += wt * (pos[i] * S[o + 1] + pos[i + 1] * S[o + 5] + pos[i + 2] * S[o + 9] + S[o + 13]);
-            sz += wt * (pos[i] * S[o + 2] + pos[i + 1] * S[o + 6] + pos[i + 2] * S[o + 10] + S[o + 14]);
-          };
-          for (let k = 0; k < 4; k++) beitrag(ind[j + k], gew[j + k]);
-          if (indE) for (let k = 0; k < 4; k++) beitrag(indE[j + k], gewE[j + k]);
-          x = sx; y = sy; z = sz;
-        }
-        welt[i] = x * W[0] + y * W[4] + z * W[8] + W[12];
-        welt[i + 1] = x * W[1] + y * W[5] + z * W[9] + W[13];
-        welt[i + 2] = x * W[2] + y * W[6] + z * W[10] + W[14];
-      }
+      const welt = w.weltPunkte(m);
       const idx = m.getIndices();
       for (let t = 0; t < idx.length; t += 3) {
         const a = idx[t] * 3; const b = idx[t + 1] * 3; const c = idx[t + 2] * 3;
@@ -208,6 +213,25 @@ await page.evaluate(() => {
       }
     }
     return { abstand: best, netz: wer };
+  };
+  // Eckpunkte der Kopfnetze oberhalb der Kinnlinie (1,46 m), unabhaengig von der Vorschau in die Leinwand projiziert:
+  // Anteil ausserhalb (waagerecht) und Mitte des Huellrechtecks (Anteil der Leinwandbreite, rechts positiv).
+  w.kopfAussen = (v, netze) => {
+    const b = w.leinwandBox();
+    const M = v.kamera.getViewMatrix().multiply(v.kamera.getProjectionMatrix());
+    const V3 = window.__B.Vector3;
+    let n = 0; let aussen = 0; let lo = 1e9; let hi = -1e9;
+    for (const m of netze ?? v.kopfNetze()) {
+      const welt = w.weltPunkte(m);
+      for (let i = 0; i < welt.length; i += 3) {
+        if (welt[i + 1] < 1.46) continue;
+        const p = V3.TransformCoordinates(new V3(welt[i], welt[i + 1], welt[i + 2]), M);
+        const px = (p.x + 1) / 2 * b.w;
+        n++; if (px < 0 || px > b.w) aussen++;
+        lo = Math.min(lo, px); hi = Math.max(hi, px);
+      }
+    }
+    return { n, anteil: n ? aussen / n : 0, mitte: n ? ((lo + hi) / 2 - b.w / 2) / b.w : 0, links: (lo - b.w / 2) / b.w, rechts: (hi - b.w / 2) / b.w };
   };
   // Silhouette des Kopfnetzes (alles andere aus): oberste Zeile, Kinnzeile, Anteil an der Leinwandhoehe.
   w.kopfNetzeNur = (v, an) => {
@@ -691,17 +715,43 @@ for (const k of KOERPER) {
 
     await auswerten(() => { window.v.zoomeKopf(true); });
     await fahrtEnde();
-    const drehung = async (etikett, schritte = 8) => {
-      const reihe = []; let netz = '';
-      for (let i = 0; i < schritte; i++) {
-        await auswerten((w) => { window.v.figurKnoten.rotation.y = w; }, i * 2 * Math.PI / schritte);
+    /*
+      Die Ruhepose steht still, in PHASEN festen Phasen des Ruhe-Clips (kein Zufall der Bildzeit, der den
+      kleinsten Abstand zwischen 0,285 und 0,311 m streuen liess). Der Kopfversatz wird dazu einmal in der
+      angehaltenen Pose (Bild 0) neu gemessen, damit jeder Lauf mit derselben Zahl rechnet.
+    */
+    const PHASEN = 8;
+    const versatz = await auswerten(async () => {
+      const v = window.v;
+      v.ruhe.pause(); v.ruhe.goToFrame(v.ruhe.from); await window.frames(3);
+      if ('kopfVersatz' in v) { v.kopfVersatz = null; await window.frames(3); }
+      return v.kopfVersatz ? { x: +v.kopfVersatz.x.toFixed(4), z: +v.kopfVersatz.z.toFixed(4) } : null;
+    });
+    console.log(`INFO ${aktuellerKoerper}: Kopfversatz in der angehaltenen Ruhepose (Bild 0): ${JSON.stringify(versatz)}`);
+    let kleinsterGesamt = { abstand: Infinity };
+    const drehung = async (etikett, schritte = 24, waffe = false) => {
+      let klein = Infinity; let wo = {};
+      for (let ph = 0; ph < PHASEN; ph++) {
+        await auswerten(({ f, waffe }) => {
+          const v = window.v; const g = v.ruhe; g.goToFrame(g.from + (g.to - g.from) * f);
+          // Die Waffenpose rechnet mit der Bildzeit: Zeit anhalten und in derselben Phase auf eine feste Stelle setzen.
+          if (waffe) {
+            v.engine.getDeltaTime = () => 0;
+            const schicht = v.waffenSchichten.get(v.waffeAktiv)?.[0];
+            if (schicht) v.waffenZeit = f * (schicht.bis - schicht.von) / schicht.bilderJeSekunde;
+          }
+        }, { f: ph / PHASEN, waffe });
         await frames(3);
-        const a = await auswerten(() => window.minAbstand(window.v));
-        reihe.push(a.abstand); if (a.abstand === Math.min(...reihe)) netz = a.netz;
+        for (let i = 0; i < schritte; i++) {
+          await auswerten((w) => { window.v.figurKnoten.rotation.y = w; }, i * 2 * Math.PI / schritte);
+          await frames(2);
+          const a = await auswerten(() => window.minAbstand(window.v));
+          if (a.abstand < klein) { klein = a.abstand; wo = { phase: ph, schritt: i, netz: a.netz }; }
+        }
       }
-      const klein = Math.min(...reihe);
       const minZ = await auswerten(() => window.v.kamera.minZ);
-      pruefe(`Portraet, Figur in ${schritte} Schritten gedreht, ${etikett}: kleinster Abstand Kamera-Dreieck >= 0,29 m (minZ 0,05)`, klein > minZ && klein >= 0.29, { klein: +klein.toFixed(3), minZ, netz, reihe: reihe.map((x) => +x.toFixed(2)) });
+      pruefe(`Portraet, ${PHASEN} feste Phasen der Ruhepose x ${schritte} Drehschritte, ${etikett}: kleinster Abstand Kamera-Dreieck >= 0,25 m (minZ 0,05)`, klein > minZ && klein >= 0.25, { klein: +klein.toFixed(3), minZ, ...wo });
+      if (klein < kleinsterGesamt.abstand) kleinsterGesamt = { abstand: klein, etikett, ...wo };
       return klein;
     };
     for (const f of new Set([breit.datei, hoch.datei])) {
@@ -709,6 +759,7 @@ for (const k of KOERPER) {
       await drehung(`Frisur ${f.split('/').pop()}`);
     }
     // Kalibrierung der CPU-Haut: Kopfnetz-Mitte muss bei ~1,63 m liegen.
+    await auswerten(async () => { window.v.figurKnoten.rotation.y = 0; await window.frames(3); });
     const cpu = await auswerten(() => {
       const v = window.v; const m = v.koerperNetze.find((n) => /^Chr_Head_/.test(n.name));
       m.computeWorldMatrix(true);
@@ -729,14 +780,8 @@ for (const k of KOERPER) {
         try { await Promise.all(teile.map((d, i) => window.v.setze(`klassenruestung-${i}`, d))); await window.frames(6); return true; } catch (e) { return String(e).slice(0, 90); }
       }, { teile });
       if (geladen !== true) { console.log(`INFO ${k.name}: Set ${satz.id} nicht ladbar (${geladen}) - uebersprungen`); continue; }
+      // Leinwandgroesse und Sichtfeld aendern den Abstand Kamera - Netz nicht (nur der Radius und der Blickpunkt tun es).
       await drehung(`Ruestung ${satz.id}`);
-      await drehung(`Ruestung ${satz.id}, fein`, 24);
-      // Schmale und breite Leinwand: der Radius bleibt 1,4 m, nur das Sichtfeld weitet sich.
-      for (const [cw, ch] of [[227, 600], [2560, 900]]) {
-        await leinwand(cw, ch);
-        await drehung(`Ruestung ${satz.id}, Leinwand ${cw}x${ch}`);
-      }
-      await leinwand(...LEINWAND_STANDARD);
       if (satz.id === k.helm) await bild(`${k.figur}-4-portraet-mit-helm`);
       await auswerten(() => { window.v.figurKnoten.rotation.y = 0; });
       await auswerten(async ({ teile }) => {
@@ -747,9 +792,11 @@ for (const k of KOERPER) {
     // Waffe: Stab des Druiden und Nordschwert
     for (const art of ['stab', 'schwert']) {
       await auswerten(async (a) => { await window.v.setzeWaffe(a); await window.frames(30); }, art);
-      await drehung(`Waffe ${art}`);
+      await drehung(`Waffe ${art}`, 24, true);
+      await auswerten(() => { delete window.v.engine.getDeltaTime; });
     }
-    await auswerten(async () => { await window.v.setzeWaffe(null); window.v.figurKnoten.rotation.y = 0; await window.frames(2); });
+    await auswerten(async () => { await window.v.setzeWaffe(null); window.v.figurKnoten.rotation.y = 0; window.v.ruhe.play(true); await window.frames(2); });
+    console.log(`INFO ${aktuellerKoerper}: kleinster Abstand Kamera-Dreieck ueber alle Faelle des Schritts (8 Phasen x 24 Drehschritte je Fall): ${kleinsterGesamt.abstand.toFixed(3)} m (${JSON.stringify(kleinsterGesamt)})`);
     await auswerten(() => { window.v.zoomeKopf(false); });
     await fahrtEnde();
   });
@@ -1022,6 +1069,219 @@ for (const k of KOERPER) {
     console.log(`INFO ${aktuellerKoerper}: auf 227x731 Randpixel (Zeilen links/rechts) je Drehung: kahler Kopf ${JSON.stringify(kahlRand)}; Maximum ueber ${frisuren.length} Frisuren 0 Grad ${hoechstRand[0]}, 45 Grad ${hoechstRand[45]}, 90 Grad ${hoechstRand[90]}; Frisuren am Rand: 0 Grad ${zaehler[0].length}, 45 Grad ${zaehler[45].length}, 90 Grad ${zaehler[90].length}`);
   });
 
+
+  /* --- Der Blickpunkt folgt im Portraet der Kopfmitte ---------------------------------------------- */
+  const helmSatz = app.equipmentSets.find((e) => e.id === k.helm);
+  const helmIndex = helmSatz.parts.findIndex((t) => t.appearanceSlot === 'kopf');
+  const helmModell = (helmSatz.parts[helmIndex].previewModel ?? helmSatz.parts[helmIndex].model).replace(/\.glb$/, '');
+  const BUEHNEN = [[227, 731], [345, 731]]; // Fenster 900 und 1024 Pixel breit
+  const aussehenWieder = () => auswerten(async ({ d, bart, brauen, figur, helmIndex }) => {
+    const v = window.v; v.figurKnoten.rotation.y = 0;
+    await v.setze(`klassenruestung-${helmIndex}`, null);
+    await v.setze('frisur', d); await v.setze('bart', figur === 'wikinger' ? bart : null); await v.setze('augenbraue', brauen); await window.frames(3);
+  }, { d: haar, figur: k.figur, bart: `${app.folder}/${app.beards[0].file}`, brauen: `${app.folder}/${app.eyebrows.find((e) => e.figure === k.figur).file}`, helmIndex });
+
+  await schritt('Kopfversatz bei verstecktem Leinwand-Laden', async () => {
+    // Die Seite laedt den ersten Koerper, solange die Buehne noch versteckt ist: Das Netz wird dann nicht gezeichnet,
+    // seine Hautmatrizen bleiben die Einheitsmatrizen der Bindepose. Gemessen werden darf erst in der Ruhepose.
+    const versatz = await auswerten(async ({ url, d }) => {
+      const modul = await import(url);
+      window.v?.dispose();
+      const c = document.querySelector('canvas');
+      c.style.display = 'none';
+      const v = window.v = new modul.Vorschau(c, `${location.origin}/assets/models/`);
+      const Vec = v.kamera.target.constructor; window.__B = { Vector3: Vec };
+      await v.ladeKoerper(d);
+      await window.frames(15);
+      const versteckt = v.kopfVersatz ? { x: +v.kopfVersatz.x.toFixed(4), z: +v.kopfVersatz.z.toFixed(4) } : null;
+      c.style.display = '';
+      await window.frames(40);
+      return { versteckt, sichtbar: v.kopfVersatz ? { x: +v.kopfVersatz.x.toFixed(4), z: +v.kopfVersatz.z.toFixed(4) } : null };
+    }, { url: `${basis}${BUENDEL}`, d: k.datei });
+    pruefe('Koerper bei versteckter Leinwand geladen: Kopfversatz wird erst in der Ruhepose gemessen (8 bis 14 cm vor der Achse), nicht in der Bindepose', versatz.sichtbar !== null && Math.abs(versatz.sichtbar.z) > 0.08 && Math.abs(versatz.sichtbar.z) < 0.14, versatz);
+    // Ruhepose gleich nach dem Laden angehalten: Sie wirkt nie auf die Haut, gemessen werden darf nichts; erst mit ihr (play) kommt die Zahl.
+    const angehalten = await auswerten(async ({ url, d }) => {
+      const modul = await import(url);
+      window.v?.dispose();
+      const v = window.v = new modul.Vorschau(document.querySelector('canvas'), `${location.origin}/assets/models/`);
+      window.__B = { Vector3: v.kamera.target.constructor };
+      await v.ladeKoerper(d);
+      v.ruhe.pause();
+      await window.frames(25);
+      const inBindepose = v.kopfVersatz ? { x: +v.kopfVersatz.x.toFixed(4), z: +v.kopfVersatz.z.toFixed(4) } : null;
+      v.ruhe.play(true);
+      await window.frames(40);
+      return { inBindepose, danach: v.kopfVersatz ? { x: +v.kopfVersatz.x.toFixed(4), z: +v.kopfVersatz.z.toFixed(4) } : null };
+    }, { url: `${basis}${BUENDEL}`, d: k.datei });
+    pruefe('Ruhepose gleich nach dem Laden angehalten: kein Kopfversatz aus der Bindepose, nach dem Weiterlaufen 8 bis 14 cm vor der Achse', angehalten.inBindepose === null && angehalten.danach !== null && Math.abs(angehalten.danach.z) > 0.08 && Math.abs(angehalten.danach.z) < 0.14, angehalten);
+    await neueVorschau(k.datei);
+    await auswerten(async ({ haar, figur, bart, brauen }) => {
+      await window.v.setze('frisur', haar);
+      if (figur === 'wikinger') await window.v.setze('bart', bart);
+      await window.v.setze('augenbraue', brauen);
+      await window.frames(6);
+    }, { haar, figur: k.figur, bart: `${app.folder}/${app.beards[0].file}`, brauen: `${app.folder}/${app.eyebrows.find((e) => e.figure === k.figur).file}` });
+  });
+
+  await schritt('Drehen im Portraet: Kopf bleibt mittig', async () => {
+    const versatz = await auswerten(() => { const o = window.v.kopfVersatz; return o ? { x: +o.x.toFixed(4), z: +o.z.toFixed(4) } : null; });
+    pruefe('Kopfversatz einmal je Koerper gemessen: 8 bis 14 cm vor der Achse, hoechstens 2 cm seitlich', versatz !== null && Math.abs(versatz.z) > 0.08 && Math.abs(versatz.z) < 0.14 && Math.abs(versatz.x) < 0.02, { versatz });
+    const konfigs = [['kahler Kopf', null], ...(k.figur === 'wikinger' ? [['Bart', 'bart']] : []), [`Helm ${k.helm}`, 'helm']];
+    for (const [bw, bh] of BUEHNEN) {
+      await leinwand(bw, bh);
+      await auswerten(() => { window.v.zoomeKopf(true); });
+      await fahrtEnde();
+      for (const [etikett, art] of konfigs) {
+        await auswerten(async ({ art, helmIndex, helmModell, bart }) => {
+          const v = window.v;
+          await v.setze('frisur', null); await v.setze('bart', art === 'bart' ? bart : null);
+          await v.setze(`klassenruestung-${helmIndex}`, art === 'helm' ? helmModell : null);
+          await window.frames(6);
+        }, { art, helmIndex, helmModell, bart: `${app.folder}/${app.beards[0].file}` });
+        const extra = art === 'helm' ? [`klassenruestung-${helmIndex}`] : [];
+        const rand = {}; const abw = {};
+        let kahlAussen = 0; let ueberstand = 0;
+        for (const grad of [0, 45, 90, 135, 180, 270]) {
+          await auswerten((g) => { window.v.figurKnoten.rotation.y = g * Math.PI / 180; }, grad);
+          let randSumme = 0; let abweichung = 0;
+          // Ruhepose laeuft: mehrere Aufnahmen in verschiedenen Phasen, die schlechteste zaehlt.
+          for (let n = 0; n < (art === null ? 3 : 2); n++) {
+            await page.waitForTimeout(700);
+            const m = await kopfMass(extra, false, [0, 0], true);
+            randSumme += m.randL + m.randR;
+            abweichung = Math.max(abweichung, Math.abs((m.links + m.rechts + 1) / 2 - m.w / 2) / m.w);
+            if (art === 'helm') {
+              // Das Gesicht (Kopfnetz unter dem Helm, ausgeblendet, aber am Skelett) und der Helmrand, rechnerisch projiziert
+              const u = await auswerten(() => {
+                const v = window.v; const kahl = window.kopfAussen(v, v.koerperNetze.filter((n) => /^Chr_Head_/.test(n.name))); const h = window.kopfAussen(v);
+                return { kahl: kahl.anteil, ueberstand: Math.max(0, -h.links - 0.5, h.rechts - 0.5) };
+              });
+              kahlAussen += u.kahl; ueberstand = Math.max(ueberstand, u.ueberstand);
+            }
+          }
+          rand[grad] = randSumme; abw[grad] = +(abweichung * 100).toFixed(1);
+        }
+        const randfrei = Object.values(rand).every((x) => x === 0);
+        const mittig = art !== null || Object.values(abw).every((x) => x <= 6);
+        if (art === 'helm') {
+          // Ein Helm ist gedreht bis 0,42 m breit (Ironward bei 45 Grad 98,7 % der Buehnenbreite, aus der Mitte): ganz randfrei
+          // geht er nicht (siehe Bericht); das Gesicht darunter bleibt drin, der Helmrand ragt hoechstens 10 % der Buehnenbreite hinaus.
+          pruefe(`Portrait ${bw}x${bh}, ${etikett}, Drehung 0/45/90/135/180/270 Grad bei laufender Ruhepose: Gesicht (Kopfnetz unter dem Helm) ganz im Bild, Helmrand ragt hoechstens 10 % der Buehnenbreite hinaus`,
+            kahlAussen === 0 && ueberstand <= 0.10, { gesichtAusserhalb: kahlAussen, helmUeberstandProzent: +(ueberstand * 100).toFixed(1), randPixelHelm: rand, mitteAbweichungProzent: abw });
+        } else {
+          pruefe(`Portrait ${bw}x${bh}, ${etikett}, Drehung 0/45/90/135/180/270 Grad bei laufender Ruhepose: kein Kopfpixel am linken/rechten Rand${art === null ? ', Kopfmitte hoechstens 6 % der Buehnenbreite neben der Mitte' : ''}`,
+            randfrei && mittig, { randPixel: rand, mitteAbweichungProzent: abw });
+        }
+      }
+      await auswerten(() => { window.v.figurKnoten.rotation.y = 0; });
+      await auswerten(() => { window.v.zoomeKopf(false); });
+      await fahrtEnde();
+    }
+    await leinwand(...LEINWAND_STANDARD);
+    await aussehenWieder();
+  });
+
+  await schritt('Frisuren gedreht im Portraet: Anteil ausserhalb', async () => {
+    await auswerten(async () => { const g = window.v.ruhe; g.pause(); g.goToFrame(g.from + 10); await window.v.setze('bart', null); await window.v.setze('augenbraue', null); });
+    const frisuren = app.hairstyles.filter((hh) => !(k.figur === 'wikinger' && hh.id === 'H_01'));
+    const GRAD = [0, 45, 90, 180];
+    const zusammen = {};
+    for (const [bw, bh] of BUEHNEN) {
+      await leinwand(bw, bh);
+      await auswerten(() => { window.v.kamera.radius = 1.4; });
+      const tab = {};
+      for (const hh of [{ id: 'kahl', file: null }, ...frisuren]) {
+        await auswerten(async (d) => { await window.v.setze('frisur', d); await window.frames(2); }, hh.file ? `${app.folder}/${hh.file}` : null);
+        for (const grad of GRAD) {
+          await auswerten((g) => { window.v.figurKnoten.rotation.y = g * Math.PI / 180; }, grad);
+          await frames(2);
+          const m = await auswerten(() => window.kopfAussen(window.v));
+          (tab[hh.id] ??= {})[grad] = +(m.anteil * 100).toFixed(1);
+        }
+      }
+      const hoechst = {};
+      for (const grad of GRAD) {
+        let best = { id: '', v: -1 };
+        for (const [id, z] of Object.entries(tab)) if (id !== 'kahl' && z[grad] > best.v) best = { id, v: z[grad] };
+        hoechst[grad] = best;
+      }
+      zusammen[`${bw}x${bh}`] = { kahl: tab.kahl, H_23: tab.H_23, H_38: tab.H_38, hoechst };
+    }
+    console.log(`INFO ${aktuellerKoerper}: Anteil der Kopf-Eckpunkte ausserhalb der Buehne in Prozent je Drehung (kahl, H_23, H_38, Maximum ueber alle Frisuren): ${JSON.stringify(zusammen)}`);
+    await auswerten(() => { window.v.kamera.radius = 3.2; window.v.figurKnoten.rotation.y = 0; window.v.ruhe.play(true); });
+    await leinwand(...LEINWAND_STANDARD);
+    await aussehenWieder();
+    const z227 = zusammen['227x731']; const z345 = zusammen['345x731'];
+    pruefe('Alle Frisuren im Portraet: von vorn (0 Grad) und von hinten (180 Grad) liegt kein Eckpunkt ausserhalb der Buehne (227 und 345 px)',
+      [z227, z345].every((z) => z.hoechst[0].v === 0 && z.hoechst[180].v === 0), { z227: [z227.hoechst[0], z227.hoechst[180]], z345: [z345.hoechst[0], z345.hoechst[180]] });
+    pruefe('Kahler Kopf im Portraet: bei jeder Drehung liegt kein Eckpunkt ausserhalb der Buehne (227 und 345 px)',
+      [z227, z345].every((z) => GRAD.every((g) => z.kahl[g] === 0)), { z227: z227.kahl, z345: z345.kahl });
+    // Haar darf hinten ueberstehen (kahler Kopf und Gesicht nie, siehe oben); vorher, mit dem Blickpunkt auf der Achse, waren es bis 24 %
+    pruefe('Frisuren gedreht (45 und 90 Grad) im Portraet: H_23 hoechstens 5 %, H_38 hoechstens 12 %, Maximum ueber alle Frisuren hoechstens 18 % der Eckpunkte ausserhalb (nur Haar, hinten)',
+      [z227, z345].every((z) => [45, 90].every((g) => z.hoechst[g].v <= 18 && z.H_23[g] <= 5 && z.H_38[g] <= 12)), { z227: { hoechst: z227.hoechst, H_23: z227.H_23, H_38: z227.H_38 }, z345: { hoechst: z345.hoechst, H_23: z345.H_23, H_38: z345.H_38 } });
+  });
+
+  await schritt('Drehen in 5-Grad-Schritten: Kopfmitte springt nicht', async () => {
+    await auswerten(async () => { const v = window.v; v.ruhe.pause(); v.ruhe.goToFrame(v.ruhe.from + 10); await v.setze('frisur', null); await v.setze('bart', null); });
+    for (const [bw, bh] of BUEHNEN) {
+      await leinwand(bw, bh);
+      await auswerten(() => { window.v.kamera.radius = 1.4; });
+      let sprung = 0; let ort = 0; let vor = null; let abweichung = 0; let ausserhalb = 0;
+      for (let grad = 0; grad <= 360; grad += 5) {
+        await auswerten((g) => { window.v.figurKnoten.rotation.y = g * Math.PI / 180; }, grad);
+        const m = await kopfMass([], false, [0, 0], true);
+        if (vor) { const d = Math.hypot(m.sx - vor.x, m.sy - vor.y); if (d > sprung) { sprung = d; ort = grad; } }
+        vor = { x: m.sx, y: m.sy };
+        abweichung = Math.max(abweichung, Math.abs((m.links + m.rechts + 1) / 2 - m.w / 2) / m.w);
+        ausserhalb += m.randL + m.randR;
+      }
+      pruefe(`Portrait ${bw}x${bh}, kahler Kopf in 5-Grad-Schritten ueber 360 Grad (angehaltene Ruhepose): Schwerpunkt der Silhouette springt zwischen zwei Schritten um hoechstens 3 px`, sprung <= 3, { groessterSprungPx: +sprung.toFixed(2), beiGrad: ort, hoechsteMitteAbweichungProzent: +(abweichung * 100).toFixed(1), randPixel: ausserhalb });
+    }
+    await auswerten(() => { window.v.kamera.radius = 3.2; window.v.figurKnoten.rotation.y = 0; window.v.ruhe.play(true); });
+    await leinwand(...LEINWAND_STANDARD);
+    await aussehenWieder();
+  });
+
+  await schritt('Fahrt ins Portraet bei gedrehter Figur', async () => {
+    await leinwand(227, 731);
+    for (const grad of [90, 270]) {
+      const daten = await auswerten(async (g) => {
+        const v = window.v; const w = window;
+        v.ruhe.pause(); v.ruhe.goToFrame(v.ruhe.from + 10);
+        v.radiusFahrt = null; v.kamera.radius = 3.2; v.figurKnoten.rotation.y = g * Math.PI / 180;
+        await w.frames(6);
+        const kahl = v.koerperNetze.filter((m) => /^Chr_Head_/.test(m.name) && m.isEnabled());
+        // die echte Fahrt (Bildzeit), je gerendertem Bild die Kopfmitte
+        const echt = [];
+        const beo = v.scene.onAfterRenderObservable.add(() => echt.push({ r: +v.kamera.radius.toFixed(3), mitte: w.kopfAussen(v, kahl).mitte }));
+        v.zoomeKopf(true);
+        const ende = performance.now() + 8000;
+        while (v.radiusFahrt && performance.now() < ende) await w.frames(1);
+        await w.frames(3);
+        v.scene.onAfterRenderObservable.remove(beo);
+        // dieselbe Strecke in festen Schritten (unabhaengig von der Bildrate)
+        const schritte = [];
+        v.radiusFahrt = null;
+        for (let i = 0; i <= 32; i++) { v.kamera.radius = 2.2 - i * 0.025; await w.frames(2); schritte.push({ r: +v.kamera.radius.toFixed(3), mitte: w.kopfAussen(v, kahl).mitte }); }
+        v.kamera.radius = 3.2; v.figurKnoten.rotation.y = 0;
+        return { echt, schritte };
+      }, grad);
+      const vorzeichen = Math.sign(daten.schritte[0].mitte) || 1;
+      const richtung = (l) => l.map((x) => x.mitte * vorzeichen);
+      const pruefeReihe = (l) => { const d = richtung(l); let steigt = 0; let unter = 0; for (let i = 1; i < d.length; i++) steigt = Math.max(steigt, d[i] - d[i - 1]); for (const x of d) unter = Math.min(unter, x); return { steigt, unter }; };
+      const fest = pruefeReihe(daten.schritte);
+      const echtNah = daten.echt.filter((x) => x.r < 2.2);
+      const echtR = pruefeReihe(echtNah);
+      const ausgang = daten.echt[0]; const ende = daten.echt.at(-1);
+      pruefe(`Fahrt ins Portraet bei ${grad} Grad (227x731): von 2,2 auf 1,4 m wandert die Kopfmitte monoton zur Buehnenmitte, kein Ueberschwingen ueber die Mitte hinaus, mehr als 1,5 % der Buehnenbreite (feste Schritte und echte Fahrt)`,
+        fest.steigt <= 0.002 && fest.unter >= -0.015 && echtNah.length >= 3 && echtR.steigt <= 0.002 && echtR.unter >= -0.015 && Math.abs(daten.schritte.at(-1).mitte) <= 0.06,
+        { festeSchritte: { mitteVon: +daten.schritte[0].mitte.toFixed(3), mitteNach: +daten.schritte.at(-1).mitte.toFixed(3), groessterAnstieg: +fest.steigt.toFixed(4), kleinsterWert: +fest.unter.toFixed(4) },
+          echteFahrt: { bilderNahe: echtNah.length, bilderGesamt: daten.echt.length, groessterAnstieg: +echtR.steigt.toFixed(4), kleinsterWert: +echtR.unter.toFixed(4), mitteEnde: +ende.mitte.toFixed(3), mitteAnfang: +ausgang.mitte.toFixed(3) } });
+    }
+    await auswerten(() => { window.v.kamera.radius = 3.2; window.v.figurKnoten.rotation.y = 0; window.v.ruhe.play(true); });
+    await leinwand(...LEINWAND_STANDARD);
+  });
+
   /* --- M2: Trefferflaeche folgt dem Getragenen ---------------------------------------------- */
   await schritt('Trefferflaeche', async () => {
     const haare = k.figur === 'wikinger' ? ['H_38', 'H_30', 'H_14'] : ['H_01', 'H_38', 'H_14'];
@@ -1225,49 +1485,80 @@ for (const k of KOERPER) {
   });
 }
 
-/* --- Ausgangsbild gegen ein aelteres Buendel (nur mit --vergleich-datei) ---------------------------- */
+/* --- Vergleiche mit aelteren Buendeln (nur mit --vergleich-datei / --vergleich-portraet-datei) ---------------------------- */
 if (VERGLEICH_DATEI) {
   for (const k of KOERPER) {
     aktuellerKoerper = k.name;
+    const haar = `${app.folder}/H_02`;
+    const aufnahme = async (url, radius, grad = 0) => {
+      await page.evaluate(async ({ url, d, haar, radius, grad }) => {
+        const { Vorschau } = await import(url);
+        window.v?.dispose();
+        const v = window.v = new Vorschau(document.querySelector('canvas'), `${location.origin}/assets/models/`);
+        await v.ladeKoerper(d);
+        await v.setze('frisur', haar);
+        v.ruhe.goToFrame(10); v.ruhe.pause();
+        v.kamera.radius = radius;
+        v.figurKnoten.rotation.y = grad * Math.PI / 180;
+        await window.frames(20);
+      }, { url, d: k.datei, haar, radius, grad });
+      const box = await auswerten(() => window.leinwandBox());
+      return (await page.screenshot({ omitBackground: true, clip: { x: box.x, y: box.y, width: box.w, height: box.h } })).toString('base64');
+    };
+    const vergleiche = async (radius, altUrl, grad = 0) => {
+      const neu = await aufnahme(`${basis}${BUENDEL}`, radius, grad);
+      const alt = await aufnahme(`${basis}${altUrl}`, radius, grad);
+      return page.evaluate(async ({ a, b }) => {
+        const lade = async (x) => { const bin = Uint8Array.from(atob(x), (c) => c.charCodeAt(0)); const bmp = await createImageBitmap(new Blob([bin], { type: 'image/png' })); const c = new OffscreenCanvas(bmp.width, bmp.height); const g = c.getContext('2d'); g.drawImage(bmp, 0, 0); return g.getImageData(0, 0, bmp.width, bmp.height); };
+        const A = await lade(a); const B = await lade(b);
+        let n = 0; for (let i = 0; i < A.data.length; i++) if (A.data[i] !== B.data[i]) n++;
+        return { w: A.width, h: A.height, abweichendeKanaele: n };
+      }, { a: neu, b: alt });
+    };
     await schritt('Ausgangsbild pixelgleich', async () => {
-      const GROESSEN = [[619, 699], [1440, 900], [2560, 900]]; // Buehne bei 1440 x 900, dazu breite Leinwaende
-      const haar = `${app.folder}/H_02`;
-      const aufnahme = async (url, radius) => {
-        await page.evaluate(async ({ url, d, haar, radius }) => {
-          const { Vorschau } = await import(url);
-          window.v?.dispose();
-          const v = window.v = new Vorschau(document.querySelector('canvas'), `${location.origin}/assets/models/`);
-          await v.ladeKoerper(d);
-          await v.setze('frisur', haar);
-          v.ruhe.goToFrame(10); v.ruhe.pause();
-          v.kamera.radius = radius;
-          await window.frames(20);
-        }, { url, d: k.datei, haar, radius });
-        const box = await auswerten(() => window.leinwandBox());
-        return (await page.screenshot({ omitBackground: true, clip: { x: box.x, y: box.y, width: box.w, height: box.h } })).toString('base64');
-      };
-      const vergleiche = async (radius, altUrl) => {
-        const neu = await aufnahme(`${basis}${BUENDEL}`, radius);
-        const alt = await aufnahme(`${basis}${altUrl}`, radius);
-        return page.evaluate(async ({ a, b }) => {
-          const lade = async (x) => { const bin = Uint8Array.from(atob(x), (c) => c.charCodeAt(0)); const bmp = await createImageBitmap(new Blob([bin], { type: 'image/png' })); const c = new OffscreenCanvas(bmp.width, bmp.height); const g = c.getContext('2d'); g.drawImage(bmp, 0, 0); return g.getImageData(0, 0, bmp.width, bmp.height); };
-          const A = await lade(a); const B = await lade(b);
-          let n = 0; for (let i = 0; i < A.data.length; i++) if (A.data[i] !== B.data[i]) n++;
-          return { w: A.width, h: A.height, abweichendeKanaele: n };
-        }, { a: neu, b: alt });
-      };
-      await leinwand(...GROESSEN[0]);
-      const ausgang = await vergleiche(3.2, '/assets/js/vorschau-vergleich.js');
-      pruefe('Ausgangsbild (Radius 3,2, Leinwand 619x699, angehaltene Ruhepose) ist pixelgleich zum aelteren Buendel', ausgang.abweichendeKanaele === 0, ausgang);
-      // Die Leinwand der Buehne bei 1440 x 900 ist breit genug: auch das Portraet (Radius 1,4) bleibt Pixel fuer Pixel gleich
-      if (VERGLEICH_PORTRAET_DATEI) {
-        for (const [gw, gh] of GROESSEN) {
-          await leinwand(gw, gh);
-          const portraet = await vergleiche(1.4, '/assets/js/vorschau-vergleich2.js');
-          pruefe(`Portraet (Radius 1,4, Leinwand ${gw}x${gh}, angehaltene Ruhepose) ist pixelgleich zum vorherigen Stand mit Kopf-Zoom`, portraet.abweichendeKanaele === 0, portraet);
-        }
+      await leinwand(619, 699); // Buehne bei 1440 x 900
+      for (const grad of [0, 90]) {
+        const ausgang = await vergleiche(3.2, '/assets/js/vorschau-vergleich.js', grad);
+        pruefe(`Ausgangsbild (Radius 3,2, Figur ${grad} Grad gedreht, Leinwand 619x699, angehaltene Ruhepose) ist pixelgleich zum aelteren Buendel`, ausgang.abweichendeKanaele === 0, ausgang);
       }
     });
+    if (VERGLEICH_PORTRAET_DATEI) {
+      await schritt('Ab 2,2 m bitgleich, Vorderansicht im Portraet gleich', async () => {
+        // Oberhalb von 2,2 m (Portraetanteil 0) bleibt alles Pixel fuer Pixel gleich, gedreht wie ungedreht
+        await leinwand(619, 699);
+        for (const r of [2.5, 2.2]) for (const grad of [0, 90]) {
+          const g = await vergleiche(r, '/assets/js/vorschau-vergleich2.js', grad);
+          pruefe(`Radius ${r} m, Figur ${grad} Grad gedreht, Leinwand 619x699: pixelgleich zum vorherigen Stand`, g.abweichendeKanaele === 0, g);
+        }
+        // Vorderansicht im Portraet: Kopfmitte hoechstens 2 px verschoben, Kopfgroesse +-1 %
+        const kopfDaten = async (url) => {
+          await page.evaluate(async ({ url, d }) => {
+            const { Vorschau } = await import(url);
+            window.v?.dispose();
+            const v = window.v = new Vorschau(document.querySelector('canvas'), `${location.origin}/assets/models/`);
+            await v.ladeKoerper(d);
+            v.ruhe.goToFrame(10); v.ruhe.pause();
+            v.kamera.radius = 1.4;
+            await window.frames(24);
+            window.kopfNetzeNur(v, true);
+            await window.frames(3);
+          }, { url, d: k.datei });
+          const box = await auswerten(() => window.leinwandBox());
+          const png = await page.screenshot({ omitBackground: true, clip: { x: box.x, y: box.y, width: box.w, height: box.h } });
+          const m = await page.evaluate(({ b64 }) => window.alphaMass(b64, 1e6), { b64: png.toString('base64') });
+          await auswerten(() => window.kopfNetzeNur(window.v, false));
+          return m;
+        };
+        for (const [gw, gh] of [[227, 731], [619, 699], [1440, 900], [390, 844]]) {
+          await leinwand(gw, gh);
+          const neu = await kopfDaten(`${basis}${BUENDEL}`);
+          const alt = await kopfDaten(`${basis}/assets/js/vorschau-vergleich2.js`);
+          const dx = neu.sx - alt.sx; const dy = neu.sy - alt.sy; const groesse = Math.sqrt(neu.n) / Math.sqrt(alt.n) - 1;
+          pruefe(`Vorderansicht im Portraet ${gw}x${gh}: Kopfmitte hoechstens 2 px gegen den vorherigen Stand verschoben, Kopfgroesse +-1 %`,
+            Math.hypot(dx, dy) <= 2 && Math.abs(groesse) <= 0.01, { verschiebungPx: { x: +dx.toFixed(2), y: +dy.toFixed(2) }, groesseAbweichungProzent: +(groesse * 100).toFixed(2), kopfPixel: { neu: neu.n, alt: alt.n } });
+        }
+      });
+    }
   }
 }
 

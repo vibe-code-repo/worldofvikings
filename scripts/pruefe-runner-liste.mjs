@@ -122,6 +122,7 @@ const AUSNAHMEN = [
   { pfad: 'tools/armor/test/legacy-female-armor.mjs', art: 'werkzeug', grund: 'braucht Körper-GLB, Exportordner und Passform-Bericht als Argumente' },
   { pfad: 'tools/armor/test/skin-gate.mjs', art: 'werkzeug', grund: 'braucht Körper-GLB und Exportordner als Argumente; der Tor-Selbsttest steht im Runner' },
   { pfad: 'tools/armor/test/validate-glbs.cjs', art: 'werkzeug', grund: 'braucht Exportordner und den Validator-Pfad als Argumente' },
+  { pfad: 'tools/test/vorschau-kopf.mjs', art: 'werkzeug', grund: 'Browserprobe (Playwright, echtes WebGL), braucht Chromium auf mike-pc' },
   // ── Rot bei erfüllten Voraussetzungen, nicht eingetragen ──
   {
     pfad: 'server/test/f2-locations.ts',

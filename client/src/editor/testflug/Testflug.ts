@@ -487,6 +487,10 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // Q writes the position for the editor tab and closes this one.
     const gebiet = sanitizeWorldLayout(testflug);
     const lage = new LageAnzeige('Q: zurück zur Karte');
+    // A refused jump stays on the panel: a HUD message would sit under the
+    // loading screen and be gone (4 s) before the first frame is visible.
+    const abgelehnt = kontext.einsprungMeldung?.() ?? null;
+    if (abgelehnt) lage.setNotice(abgelehnt);
     let lageZeit = -Infinity;
     scene.onBeforeRenderObservable.add(() => {
       const world = kontext.world();

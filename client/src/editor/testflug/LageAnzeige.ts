@@ -45,6 +45,14 @@ export class LageAnzeige {
     );
   }
 
+  /** A persistent note below the lines (a refused jump). */
+  setNotice(text: string): void {
+    const d = document.createElement('div');
+    d.textContent = text;
+    d.style.cssText = 'margin-top:4px;color:#ff9a8a;font-size:11px;white-space:normal';
+    this.root.appendChild(d);
+  }
+
   destroy(): void {
     this.root.remove();
   }

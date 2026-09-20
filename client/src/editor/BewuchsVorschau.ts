@@ -45,10 +45,15 @@
  *
  * Grenzen der Frist (Angriff auf K2.1, bekannt und hingenommen): Der
  * Bestand ist bewegungsabhaengig. Im geraden Flug stehen hoechstens etwa
- * 30 Zonen, bei Spruengen im Sekundentakt bis zur Schranke Ring (25) plus
- * das, was in der Frist gebaut werden kann (ein Bau je Bild, je Bau
- * mindestens ~12 ms Bildzeit: rund 85 Zonen). Und wer die Kamera innerhalb
- * der Frist immer wieder in alle Zonen zurueckbringt (Rundtour mit Umlauf
+ * 30 Zonen. Bei Spruengen im Sekundentakt gilt die Schranke
+ *   Zonen <= 25 (Ring) + Frist [s] x Bildrate [Hz]   (ein Bau je Bild),
+ * sie waechst also mit der Bildrate. Gemessen (DOM-frei, Pruefung nach der
+ * Umstellung auf Millisekunden): 31 Zonen bei 30 Hz, 62 bei 60 Hz, 145 bei
+ * 144 Hz, 242 bei 240 Hz; auf dichter Insel mit Sprungtakt 85 Zonen /
+ * 15.012 Pflanzen bei 60 Hz gegen 100 / 17.584 bei 144 Hz.
+ *
+ * Und wer die Kamera innerhalb der Frist immer wieder in alle Zonen
+ * zurueckbringt (Rundtour mit Umlauf
  * unter einer Sekunde, nur per Sprung oder Messhaken erreichbar), haelt
  * jeden Stempel frisch, dann wird nichts abgebaut. Ein harter Deckel
  * (z. B. hoechstens zwei Ringe) waere eine eigene Aenderung.

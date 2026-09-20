@@ -34,7 +34,8 @@ colors = {'cloth': (.060, .009, .013), 'leather': (.017, .016, .015), 'plate': (
           'metal': (.038, .047, .042), 'edge': (.27, .255, .195), 'gold': (.20, .185, .14),
           'black': (.004, .004, .005), 'feather': (.020, .022, .025),
           'red': (.90, .006, .010), 'eyes': (1, .020, .008), 'glow': (.85, .012, .006), 'core': (1, .075, .018)}
-finish = {'plate': (.52, .50), 'metal': (.48, .55), 'edge': (.66, .04), 'gold': (.74, .04)}  # roughness, metallic
+finish = {'plate': (.52, .50), 'metal': (.48, .55), 'edge': (.66, .04), 'gold': (.74, .04),  # roughness, metallic
+          'feather': (.90, 0)}  # banner cloth is matt: with the scaffold's gloss the underskirt mirrored the sky between crouching legs
 for name, color in colors.items():
     mat = materials[name]; mat.diffuse_color = (*color, 1)
     shader = mat.node_tree.nodes['Principled BSDF']
@@ -44,9 +45,9 @@ for name, color in colors.items():
     if name in EMISSIVE:
         shader.inputs['Emission Color'].default_value = (*color, 1)
         shader.inputs['Emission Strength'].default_value = EMISSIVE[name]
-for part, label in zip(PARTS, ['Grabdorn-Hörnerhelm', 'Grabdorn-Wolfsschultern', 'Grabdorn-Dornenharnisch',
-                               'Grabdorn-Armschienen', 'Grabdorn-Panzerhandschuhe', 'Grabdorn-Plattenschurz',
-                               'Grabdorn-Dornenstiefel']):
+for part, label in zip(PARTS, ['Gravethorn Helm', 'Gravethorn Pauldrons', 'Gravethorn Cuirass',
+                               'Gravethorn Bracers', 'Gravethorn Gauntlets', 'Gravethorn Tassets',
+                               'Gravethorn Greaves']):
     part['label'] = label
     part['vfx'] = {'emissive': True, 'profile': 'gravethorn_red', 'attachedToItem': True}
 
@@ -237,7 +238,7 @@ def hang_weights(obj, left=None):
 
 
 def thorn_panel(name, angle, half, bottom, left, material='plate', flare=.055, tooth=.066, rows=5,
-                shift=0, lift=0, sides=(-1, 1)):
+                shift=0, lift=0, sides=(-1, 1), border='edge'):
     out = Vector((math.sin(angle), -math.cos(angle), 0)); along = Vector((math.cos(angle), math.sin(angle), 0))
     anchor = Vector((.206*math.sin(angle), .015-.178*math.cos(angle), 0))+along*shift+out*lift
     verts, faces, index = [], [], []
@@ -263,7 +264,7 @@ def thorn_panel(name, angle, half, bottom, left, material='plate', flare=.055, t
             verts += [c-span, c+span, knee+span*.5, knee-span*.5, tip]
             faces += [(at, at+1, at+2, at+3), (at+3, at+2, at+4)]; index += [1, 1]
     obj = mesh(name, verts, faces, 'Hips', material)
-    paint(obj, [material, 'edge'], index)
+    paint(obj, [material, border], index)
     hang_weights(obj, left)
     return obj
 
@@ -278,8 +279,10 @@ for sign, left in [(1, 1), (-1, 0)]:
     # The centre cloth is two overlapping halves, one per leg: a single strip would be stretched between the thighs.
     thorn_panel('Front_tabard', 0, .024, .50, left, 'feather', flare=.030, tooth=.030, shift=sign*.016,
                 lift=.003*(sign+1), sides=(sign,))
-    thorn_panel('Back_banner_tail', math.pi, .056, .40, left, 'feather', flare=.050, tooth=.052, shift=-sign*.044,
-                lift=.003*(sign+1), sides=(-sign,))
+    # The banner's tail ends above the knee and its border is leather: a long tail with a bone border showed
+    # between the legs of a crouching figure as a pale patch.
+    thorn_panel('Back_banner_tail', math.pi, .056, .50, left, 'feather', flare=.050, tooth=.052, shift=-sign*.044,
+                lift=.003*(sign+1), sides=(-sign,), border='leather')
 ring = 12
 verts = [(.192*f*math.sin(j*math.tau/ring), .015-.164*f*math.cos(j*math.tau/ring), z)
          for z, f in [(.925, 1), (.800, 1.05), (.675, 1.10)] for j in range(ring)]
@@ -304,10 +307,13 @@ for sign, side, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:
     fit = .90 if VARIANT == 'Female' else 1
     first = len(pieces[upper])
     P = lambda x, y, z: Vector((sign*x, y, z))
-    tiers = [('Great_pauldron', 'plate', .016, .036, .092, {ub: 1}, [(.205, 1.532), (.410, 1.518), (.548, 1.455)],
-              [(.500, -.140, 1.300), (.350, -.205, 1.285), (.215, -.160, 1.385)]),
-             ('Middle_pauldron', 'metal', .014, .032, .080, {ub: .25, socket: .75}, [(.150, 1.590), (.365, 1.584), (.545, 1.488)],
-              [(.470, -.118, 1.392), (.315, -.178, 1.384), (.160, -.125, 1.462)]),
+    # The great tier is a short dark cap on the arm and keeps a quarter of the socket: a long bright plate hanging from
+    # the upper arm swung across the chest like a flap when the arms came forward or the figure crouched. The bright
+    # steel sits on the middle tier.
+    tiers = [('Great_pauldron', 'metal', .016, .034, .080, {ub: .75, socket: .25}, [(.205, 1.532), (.390, 1.520), (.488, 1.468)],
+              [(.448, -.100, 1.385), (.335, -.140, 1.375), (.215, -.125, 1.420)]),
+             ('Middle_pauldron', 'plate', .014, .032, .080, {ub: .25, socket: .75}, [(.150, 1.590), (.365, 1.584), (.545, 1.488)],
+              [(.445, -.102, 1.422), (.315, -.150, 1.414), (.160, -.116, 1.474)]),  # eave drawn in: less of a flap in a crouch
              ('Crown_pauldron', 'plate', .012, .022, .052, {socket: 1}, [(.160, 1.630), (.285, 1.628), (.390, 1.568)],
               [(.338, -.070, 1.492), (.255, -.112, 1.486), (.165, -.080, 1.530)])]
     for tier, material, rim, bulge, length, share, ridge, eave in tiers:

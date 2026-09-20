@@ -90,9 +90,9 @@ const DATUM = /^\d{4}-\d{2}-\d{2}$/;
   relative to the repository root. Keep `grund` in one line: it is printed.
 */
 const NUR_MIT_ALLE = [
-  { pfad: 'server/test/g3-streaming.ts', grund: 'Warteschlange der Zonen-Erzeugung (nächste Zonen zuerst, alte verwerfen); langer Lauf laut Runner-Kopf' },
-  { pfad: 'server/test/g5-dungeons.ts', grund: 'DungeonManager: Dokumente, Eingänge, Instanzen in eigenen Welten; langer Lauf laut Runner-Kopf' },
-  { pfad: 'server/test/f3-leveling.ts', grund: 'Geländeebnung für Locations und ihre Gegenprobe ohne Locations; langer Lauf laut Runner-Kopf' },
+  { pfad: 'server/test/g3-streaming.ts', grund: 'Warteschlange der Zonen-Erzeugung; nur mit --alle, obwohl gemessen 1,8 s (20.09.2026): Kandidat für KERN' },
+  { pfad: 'server/test/g5-dungeons.ts', grund: 'DungeonManager (Dokumente, Eingänge, Instanzen); nur mit --alle, obwohl gemessen 1,0 s (20.09.2026): Kandidat für KERN' },
+  { pfad: 'server/test/f3-leveling.ts', grund: 'Geländeebnung für Locations; nur mit --alle, obwohl gemessen 2,4 s (20.09.2026): Kandidat für KERN' },
 ];
 
 /*

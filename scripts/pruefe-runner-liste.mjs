@@ -27,10 +27,10 @@
  * mit Art und Grund:
  *   werkzeug  kein Test: Messbank, Bündel-Einstieg, Blender-Skript oder ein
  *             Prüfer, der Argumente (Ausgabeordner, URL) braucht
- *   rot       ein Test, der bei erfüllten Voraussetzungen rot ist; er wartet
- *             auf eine Entscheidung, ob Test oder Code angepasst wird, und
- *             wird bei JEDEM Lauf namentlich gemeldet, damit er nicht in
- *             Vergessenheit gerät
+ *   rot       ein Test, der bei erfüllten Voraussetzungen rot ist und aus
+ *             gutem Grund nicht im Lauf steht (heute: `f2-locations.ts`,
+ *             absichtlich ruhend); er wird bei JEDEM Lauf namentlich
+ *             gemeldet, damit er nicht in Vergessenheit gerät
  * Beides ist Buchführung, keine Streichung: Die Datei bleibt, wo sie ist.
  * Eine Ausnahme ohne Grund, für eine Datei, die es nicht mehr gibt, oder für
  * eine Datei, die inzwischen eingetragen ist, ist ein Befund.
@@ -82,26 +82,11 @@ const AUSNAHMEN = [
   { pfad: 'tools/armor/test/legacy-female-armor.mjs', art: 'werkzeug', grund: 'braucht Körper-GLB, Exportordner und Passform-Bericht als Argumente' },
   { pfad: 'tools/armor/test/skin-gate.mjs', art: 'werkzeug', grund: 'braucht Körper-GLB und Exportordner als Argumente; der Tor-Selbsttest steht im Runner' },
   { pfad: 'tools/armor/test/validate-glbs.cjs', art: 'werkzeug', grund: 'braucht Exportordner und den Validator-Pfad als Argumente' },
-  // ── Rot bei erfüllten Voraussetzungen: gemeldet, nicht eingetragen ──
+  // ── Rot bei erfüllten Voraussetzungen, nicht eingetragen ──
   {
     pfad: 'server/test/f2-locations.ts',
     art: 'rot',
     grund: 'ruhend seit 16.08.2026 (Kopfkommentar): FEATURES ist leer, 3 Prüfungen rot — auf eigene Location-Modelle',
-  },
-  {
-    pfad: 'server/test/licht-teleport.ts',
-    art: 'rot',
-    grund: 'Test veraltet: kein `everyoneAdmin: true` (Vorgabe seit 13.09.2026 false), `dungeon enter` wird abgelehnt, Zeitüberschreitung',
-  },
-  {
-    pfad: 'server/test/m5a-steinkit-teleport.ts',
-    art: 'rot',
-    grund: 'Test veraltet: kein `everyoneAdmin: true` (Vorgabe seit 13.09.2026 false), `dungeon enter` wird abgelehnt, Zeitüberschreitung',
-  },
-  {
-    pfad: 'shared/test/dungeon-licht-dokument.ts',
-    art: 'rot',
-    grund: 'Test veraltet: erwartet DUNGEON_DOCUMENT_VERSION === 5, der Code steht seit generatorEinstellungen auf 6',
   },
 ];
 
@@ -295,7 +280,7 @@ console.log(
 
 const rote = AUSNAHMEN.filter((a) => a.art === 'rot');
 if (rote.length > 0) {
-  console.log('\n  OFFEN — rot bei erfüllten Voraussetzungen, nicht im Sammellauf (Entscheidung Test oder Code steht aus):');
+  console.log('\n  OFFEN — rot bei erfüllten Voraussetzungen, bewusst nicht im Sammellauf:');
   for (const r of rote) console.log(`    · ${r.pfad} — ${r.grund}`);
 }
 

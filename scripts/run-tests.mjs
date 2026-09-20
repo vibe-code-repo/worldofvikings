@@ -1955,9 +1955,18 @@ const KERN = [
   // Dokumentfassung 5 → 6: `generatorEinstellungen` wird geklemmt, ein Altdokument
   // säubert sich byte-gleich. Reine Datenprüfung, Zehntelsekunden.
   ['shared', 'test/dungeon-generator-einstellungen.ts'],
+  // Grundbeleuchtung je 1.0-Dokument (`ambientLicht`, 0..3): klemmen, Unbrauchbares
+  // verwerfen, Altdokument byte-gleich, Dokumentfassung 6. Reine Datenprüfung.
+  ['shared', 'test/dungeon-licht-dokument.ts'],
   // `createGenerated` mit Generator-Einstellungen (maxRooms/zoneSize): Dokument
   // trägt den WIRKLICH benutzten Wert, ein neuer Seed behält die Einstellungen.
   ['server', 'test/generieren-server.ts'],
+  // Teleport-Paket trägt die Grundbeleuchtung des 1.0-Dokuments (echte Leitung,
+  // Port 2521, ~9 s). Setzt `everyoneAdmin` selbst: Vorgabe seit 13.09.2026 false.
+  ['server', 'test/licht-teleport.ts'],
+  // Teleport-Paket trägt das dokumenteigene Steinmaterial hinter `layoutJson`
+  // (echte Leitung, Port 2520, ~9 s). Setzt `everyoneAdmin` selbst.
+  ['server', 'test/m5a-steinkit-teleport.ts'],
   // Saat-Test der Modul-Kits DG_StoneVault/DG_RockVault: 40 Seeds, Determinismus,
   // keine überlappenden Räume. Nur shared-Daten, keine GLBs.
   ['server', 'test/m3-stonevault-seeds.ts'],

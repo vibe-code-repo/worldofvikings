@@ -17,7 +17,11 @@
  *   WOV_OHNE_BLENDER=1 node scripts/run-tests.mjs   (wov-dev)
  *
  * Dass eine Weiche nicht IMMER überspringt, hält scripts/pruefe-weichen.mjs
- * fest — er steht selbst in der Liste.
+ * fest — er steht selbst in der Liste. Dass keine Testdatei im Baum FEHLT,
+ * hält scripts/pruefe-runner-liste.mjs fest: Er geht vom Baum aus und meldet
+ * jede Testdatei, die weder hier steht noch dort mit Grund ausgenommen ist
+ * (Messbänke, Prüfer mit Argumenten, bekannt rote Tests). Neue Testdatei
+ * anlegen heißt also: HIER eintragen.
  *
  * NICHT enthalten sind die C++-Golden-Tests (geo-compare, heightmap-compare,
  * geo-map): sie brauchen Referenz-Dumps als Argument und gehören zum
@@ -227,6 +231,18 @@ const KERN = [
     S3: the witness against the skip switches — they must never always skip.
   */
   ['scripts', 'pruefe-weichen.mjs'],
+  /*
+    Paket 0.10: der Zeuge gegen verwaiste Testdateien. Er liest diese Liste
+    am Syntaxbaum und hält jede Testdatei im Baum dagegen (Ordner `test`,
+    Dateien `pruefe-*`); was fehlt, muss mit Grund auf seiner Ausnahmeliste
+    stehen. Vorher probt er sich selbst an einem Wegwerf-Baum in jede
+    Richtung, damit er nicht „immer grün" sein kann. Liest nur Dateien,
+    ~1 s, braucht kein assets/.
+
+    Guards this list: every test file in the tree is registered here or
+    carries a reason on the witness's exception list.
+  */
+  ['scripts', 'pruefe-runner-liste.mjs'],
   /*
     S2 (Elemente-Umzug): der volle Kit-Neubau als Prüfer. Baut alle zwölf
     `DG_StoneVault`-Module aus `tools/elements/blender/make-stonevault.py`
@@ -1894,6 +1910,15 @@ const KERN = [
   // anbaubarer Kante, Auswahlwechsel, dispose-Idempotenz.
   // The 1.0 document's 3D view over NullEngine with synthetic cube masters.
   ['client', 'test/dungeon-vorschau3d.ts'],
+  // Paket 0.10: die Tick-Aufteilung im ECHTEN Server (WovServer.update stempelt
+  // Welten/Sync/Rest, ZoneManager zählt die Budget-Abbrüche, beides landet als
+  // Zeile im Tageslog; ein nicht schreibbares Log stoppt den Server nicht).
+  // Echter WebSocket-Client, wandert in großen Sprüngen; Port 2575, ~15 s.
+  // BEWUSST zwischen zwei reinen Client-Tests und nicht neben Tests mit
+  // Tickzeit-Schwellen: Er belastet den Kern über Sekunden, und ein Test mit
+  // Tickzeit-Schwelle direkt danach liefe gegen die Restlast.
+  // Paket 0.10: the tick split in the REAL server, over a real socket.
+  ['server', 'test/g12-tick-aufteilung.ts'],
   // AP15.6: Die REINE Steuerung der eingebetteten 3D-Live-Vorschau
   // (`vorschauSteuerung.ts`) — Entprellung (viele schnelle setzeLayout → EIN
   // Neubau nach Ruhe), die Zustandsmaschine sichtbar/unsichtbar ↔ Render-
@@ -1918,6 +1943,54 @@ const KERN = [
   // AP15.1: the editor's client save path against a real WovServer — real
   // GameSocket, real handshake, real packet pair, real sanitizer switch.
   ['server', 'test/dungeon2-speichern-e2e.ts'],
+  /*
+    Paket 0.10 (verwaiste Tests): Testdateien, die im Baum lagen und nie im
+    Sammellauf standen. Alle laufen ohne `assets/` (gemessen mit
+    verschobenem Ordner), deshalb ohne Weiche. Was bewusst NICHT hier steht
+    (Werkzeuge, bekannt rote Tests), führt `scripts/pruefe-runner-liste.mjs`
+    mit Grund.
+
+    Test files that sat in the tree but never ran in the collective run.
+  */
+  // Dokumentfassung 5 → 6: `generatorEinstellungen` wird geklemmt, ein Altdokument
+  // säubert sich byte-gleich. Reine Datenprüfung, Zehntelsekunden.
+  ['shared', 'test/dungeon-generator-einstellungen.ts'],
+  // Grundbeleuchtung je 1.0-Dokument (`ambientLicht`, 0..3): klemmen, Unbrauchbares
+  // verwerfen, Altdokument byte-gleich, Dokumentfassung 6. Reine Datenprüfung.
+  ['shared', 'test/dungeon-licht-dokument.ts'],
+  // `createGenerated` mit Generator-Einstellungen (maxRooms/zoneSize): Dokument
+  // trägt den WIRKLICH benutzten Wert, ein neuer Seed behält die Einstellungen.
+  ['server', 'test/generieren-server.ts'],
+  // Teleport-Paket trägt die Grundbeleuchtung des 1.0-Dokuments (echte Leitung,
+  // Port 2521, ~9 s). Setzt `everyoneAdmin` selbst: Vorgabe seit 13.09.2026 false.
+  ['server', 'test/licht-teleport.ts'],
+  // Teleport-Paket trägt das dokumenteigene Steinmaterial hinter `layoutJson`
+  // (echte Leitung, Port 2520, ~9 s). Setzt `everyoneAdmin` selbst.
+  ['server', 'test/m5a-steinkit-teleport.ts'],
+  // Saat-Test der Modul-Kits DG_StoneVault/DG_RockVault: 40 Seeds, Determinismus,
+  // keine überlappenden Räume. Nur shared-Daten, keine GLBs.
+  ['server', 'test/m3-stonevault-seeds.ts'],
+  // Editor-Pfad `attachRoom` mit `connIndex`: der Mensch wählt die Andockkante.
+  ['server', 'test/m4-hand-bauen.ts'],
+  // Eingänge, die bei jedem Betreten neu würfeln (`vorBetreten`, `setzeEingangsModus`).
+  ['server', 'test/m5b-eingang.ts'],
+  // Steinmaterial je PLATZIERTEM Raum als Member am Raum-ZDO.
+  ['server', 'test/p5-raum-steinkit.ts'],
+  // Der echte Trennungs-Handler: Inventar und angelegte Teile überleben das Abmelden.
+  ['server', 'test/inventory-logout.ts'],
+  // Wildwarden serverseitig: Aussehen-Paket (Besitz, Slot, Altclient), Admin-Befehl
+  // `item wildwarden`, eine Editor-Sitzung überschreibt keinen gespeicherten Charakter.
+  ['server', 'test/wildwarden.ts'],
+  // Wildwarden clientseitig: Slot-Vertrag, Speicher-Rundlauf, Inventarersatz,
+  // Körper-Wiederherstellung. NullEngine.
+  ['client', 'test/wildwarden.ts'],
+  // Namen, die andere Dateien per Zeichenkette suchen (Himmelskuppel, Refraktion,
+  // Dungeon-Atmosphäre): Erzeuger und Verbraucher nennen denselben Namen.
+  ['client', 'test/bild-namen.ts'],
+  // Kartenmodus `radial` und sein Altname: eine Warnung, dieselbe Welt bitgleich.
+  ['server', 'test/kartenmodus-alias.ts'],
+  // Emberrage-Glühen: Glow-Schicht nur für angelegte Teile, NullEngine, kein Blender.
+  ['tools/armor/test', 'emberrage-glow.ts'],
 ];
 
 const LANG = [

@@ -31,7 +31,17 @@
  *     Feld bleibt ungesetzt.
  *  4. Ein Altdokument OHNE das Feld laeuft byte-gleich weiter.
  *  5. `ambientLichtVon` liefert 1 beim fehlenden Feld, sonst den Wert.
- *  6. Die Dokumentfassung steht auf 5.
+ *  6. Die Dokumentfassung steht auf 6.
+ *
+ * FASSUNG 6 (nachgezogen): Mit dem Sprung 5 → 6 kam `generatorEinstellungen`
+ * dazu (additiv, unabhaengig von `ambientLicht`). Die Pruefungen 1–5 sind
+ * davon unberuehrt; nur die nackte Zahl in Pruefung 6 wurde von 5 auf 6
+ * gehoben. Der Schwestertest `dungeon-generator-einstellungen.ts` haelt
+ * dieselbe Zahl fest, beide muessen bei der naechsten Fassung zusammen
+ * angepasst werden.
+ * Version 6 (updated): 5 → 6 added `generatorEinstellungen` (additive,
+ * independent of `ambientLicht`); checks 1–5 are unaffected, only the bare
+ * number in check 6 moved from 5 to 6.
  */
 
 import {
@@ -81,7 +91,7 @@ function mitLicht(wert: unknown) {
 console.log('Dokumentfassung:');
 // Bewusst die nackte Zahl statt der Konstante — gegen die Konstante
 // geprueft waere die Zeile immer wahr und bezeugte nichts (g8-Muster).
-check('DUNGEON_DOCUMENT_VERSION ist 5', DUNGEON_DOCUMENT_VERSION === 5, String(DUNGEON_DOCUMENT_VERSION));
+check('DUNGEON_DOCUMENT_VERSION ist 6', DUNGEON_DOCUMENT_VERSION === 6, String(DUNGEON_DOCUMENT_VERSION));
 
 // ── 1. Gueltiger Wert bleibt erhalten ─────────────────────────────────────
 

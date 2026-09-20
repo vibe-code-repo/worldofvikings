@@ -13,8 +13,11 @@ split plate skirt and a long back banner. Every glowing part (eyes, gems, skull 
 horn and skull flames) is emissive geometry that belongs to its item.
 
 --quick keeps the scaffold's meaning (hero image, no pose checks, no GLBs, no .blend)
-and adds cheap front, back and side review images. The shoulders and the helm horns
-are rigid: pauldrons follow Shoulder_Attachment_L/R, not the upper arm.
+and adds cheap front, back and side review images. The shoulders are bound in three
+steps: crown tier, wolf skull and blade are rigid on Shoulder_Attachment_L/R, the
+middle tier is shared half and half with the upper arm, the great tier follows the
+upper arm. So a raised arm lifts the lower plates instead of passing through them,
+and nothing travels with the forearm. The helm horns are rigid on Head.
 """
 from pathlib import Path
 
@@ -30,7 +33,7 @@ EMISSIVE = {'red': 2.5, 'eyes': 3.5, 'glow': 2.5, 'core': 4}
 colors = {'cloth': (.060, .009, .013), 'leather': (.017, .016, .015), 'plate': (.105, .128, .104),
           'metal': (.038, .047, .042), 'edge': (.27, .255, .195), 'gold': (.20, .185, .14),
           'black': (.004, .004, .005), 'feather': (.020, .022, .025),
-          'red': (.90, .006, .010), 'eyes': (1, .020, .008), 'glow': (.85, .012, .006), 'core': (1, .16, .03)}
+          'red': (.90, .006, .010), 'eyes': (1, .020, .008), 'glow': (.85, .012, .006), 'core': (1, .075, .018)}
 finish = {'plate': (.52, .50), 'metal': (.48, .55), 'edge': (.66, .04), 'gold': (.74, .04)}  # roughness, metallic
 for name, color in colors.items():
     mat = materials[name]; mat.diffuse_color = (*color, 1)
@@ -70,6 +73,9 @@ def hugger(surface, facing, clear, axis=1):
     return snap
 
 
+HOOKS = [(1.0, .42), (.48, .60), (.74, .47)]  # relative length, position on its stretch of the edge
+
+
 def thorn_plate(name, core, normal, slot, bone, teeth=None, rim=.013, bulge=.012, back=.005,
                 flow=(0, 0, -1), length=.04, material='plate', trim='edge', snap=None):
     """Faceted plate with a pale rim; the listed core edges grow flame teeth swept along flow."""
@@ -85,15 +91,20 @@ def thorn_plate(name, core, normal, slot, bone, teeth=None, rim=.013, bulge=.012
     for i in range(n):
         j = (i+1) % n
         faces += [(i, j, 2*n), (i, n+i, n+j, j), (n+j, n+i, 2*n+1)]; index += [0, 1, 0]
+    sweep = flow.normalized() if flow.length else Vector()
     for i, count in (teeth or {}).items():
         a0, b0 = flat[n+i], flat[n+(i+1) % n]
         out = outward((a0+b0)/2)
         for k in range(count):
-            a, b = a0.lerp(b0, k/count), a0.lerp(b0, (k+1)/count)
-            tip = (a+b)/2+(out+flow).normalized()*length*(1 if k % 2 == 0 else .62)
+            # Unequal hooks with a knee, and rim left bare between them: thorns, not a saw blade.
+            size, place = HOOKS[(k+i) % len(HOOKS)]
+            sa, sb = a0.lerp(b0, k/count), a0.lerp(b0, (k+1)/count)
+            c = sa.lerp(sb, place); half = (sb-sa)*(.20+.17*size); reach = length*size
+            knee = c+out*reach*.45+sweep*reach*.08
+            tip = knee+(out*.30+sweep).normalized()*reach*.62
             at = len(flat)
-            flat += [a, b, tip, (a+b)/2+(tip-(a+b)/2)*.25]; lift += [0, 0, 0, .007]
-            faces += [(at, at+3, at+2), (at+3, at+1, at+2), (at+1, at, at+2)]; index += [1, 1, 1]
+            flat += [c-half, c+half, knee+half*.50, knee-half*.50, tip]; lift += [0, 0, .005, .005, 0]
+            faces += [(at, at+1, at+2, at+3), (at+3, at+2, at+4)]; index += [1, 1]
     verts = [(snap(p) if snap else p)+normal*h for p, h in zip(flat, lift)]
     obj = mesh(name, verts, faces, slot, material, bone)
     paint(obj, [material, trim], index)
@@ -102,14 +113,15 @@ def thorn_plate(name, core, normal, slot, bone, teeth=None, rim=.013, bulge=.012
 
 def blade(name, spine, widths, outer, thick, slot, bone, facing=(0, 1, 0), material='plate', trim='edge'):
     """Flat crescent across `facing`: kite section, the outer edge carries the pale trim."""
-    spine = [Vector(p) for p in spine]; facing = Vector(facing).normalized(); depth = facing*thick; outer = Vector(outer)
+    spine = [Vector(p) for p in spine]; facing = Vector(facing).normalized(); outer = Vector(outer)
+    thick = thick if isinstance(thick, (list, tuple)) else [thick]*len(widths)
     verts, faces, index = [], [], []
     for k, width in enumerate(widths):
         tangent = (spine[k+1]-spine[max(k-1, 0)]).normalized()
         side = tangent.cross(facing).normalized()
         if side.dot(outer) < 0:
             side = -side
-        c = spine[k]
+        c = spine[k]; depth = facing*thick[k]
         verts += [c+side*width, c+side*width*.35+depth, c-side*width, c+side*width*.35-depth]
     rings = len(widths)
     for k in range(rings-1):
@@ -147,12 +159,14 @@ def gem(name, centre, radius, normal, slot, bone, sides=8):
     return obj
 
 
-def flame(name, base, height, slot, bone):
-    """Two small emissive tongues; geometry of the item, no particles and no light."""
-    for tag, material, scale, shift in [('', 'glow', 1, 0), ('_core', 'core', .55, -.13)]:
-        h = height*scale; b = Vector(base)+Vector((0, shift*height, 0))
-        points = [b+Vector((sway*h, 0, t*h)) for t, sway in [(0, 0), (.3, .10), (.65, -.08), (1, .06)]]
-        branch(name+tag, points, [.10*h, .17*h, .10*h, .004], slot, bone, material, 4)
+def flame(name, base, height, slot, bone, lean=(0, .25, 0)):
+    """Three unequal emissive tongues and a short core; geometry of the item, no particles and no light."""
+    lean = Vector(lean)
+    for tag, material, scale, shift, bend in [('', 'glow', 1, (0, 0, 0), 1), ('_side', 'glow', .62, (.30, .22, 0), 1.9),
+                                              ('_low', 'glow', .40, (-.30, -.10, 0), -1.2), ('_core', 'core', .34, (0, -.16, .04), .6)]:
+        h = height*scale; b = Vector(base)+Vector(shift)*height
+        points = [b+lean*bend*h*t*t+Vector((sway*h, 0, t*h)) for t, sway in [(0, 0), (.3, .10), (.65, -.07), (1, .05)]]
+        branch(name+tag, points, [.09*h, .16*h, .09*h, .004], slot, bone, material, 4)
 
 
 # Dorned harness: breast and back plates hug each body's own lining; the belly stays wool.
@@ -161,8 +175,14 @@ chest, back = hugger(surface, -1, .020), hugger(surface, 1, .020)
 for sign in [-1, 1]:
     P = lambda x, z: (sign*x, 0, z)
     thorn_plate('Thorned_breastplate', [P(-.004, 1.452), P(.125, 1.468), P(.212, 1.400), P(.196, 1.300),
-                P(.118, 1.232), P(-.004, 1.198)], (0, -1, 0), 'Torso', None, {3: 1, 4: 2}, bulge=.036,
+                P(.118, 1.232), P(-.004, 1.198)], (0, -1, 0), 'Torso', None, {3: 1, 4: 2}, bulge=.052,
                 flow=(-sign*.6, 0, -1), length=.075, snap=chest)
+    thorn_plate('Underbreast_lame', [P(-.004, 1.238), P(.120, 1.262), P(.202, 1.318), P(.194, 1.226),
+                P(.112, 1.168), P(-.004, 1.148)], (0, -1, 0), 'Torso', None, {3: 1, 4: 2}, bulge=.034,
+                flow=(-sign*.5, 0, -1), length=.050, material='metal', snap=hugger(surface, -1, .012))
+    thorn_plate('Back_lame', [P(.060, 1.252), P(.192, 1.286), P(.186, 1.100), P(.072, 1.060)], (0, 1, 0),
+                'Torso', None, {2: 2}, bulge=.028, flow=(-sign*.4, 0, -1), length=.050, material='metal',
+                snap=hugger(surface, 1, .012))
     thorn_plate('Flank_plate', [P(.095, 1.205), P(.185, 1.245), P(.178, 1.060), P(.105, 1.010)], (0, -1, 0),
                 'Torso', None, {2: 1, 3: 2}, bulge=.016, flow=(-sign*.7, 0, -.8), length=.055,
                 material='metal', snap=hugger(surface, -1, .012))
@@ -170,10 +190,10 @@ for sign in [-1, 1]:
                 (0, -1, 0), 'Torso', None, {2: 3, 3: 1}, rim=.009, bulge=.008, flow=(sign*.4, 0, -1),
                 length=.034, material='metal', snap=hugger(surface, -1, .040))
     thorn_plate('Thorned_backplate', [P(-.004, 1.462), P(.140, 1.466), P(.212, 1.400), P(.190, 1.268),
-                P(.100, 1.200), P(-.004, 1.238)], (0, 1, 0), 'Torso', None, {3: 1, 4: 2}, bulge=.030,
+                P(.100, 1.200), P(-.004, 1.238)], (0, 1, 0), 'Torso', None, {3: 1, 4: 2}, bulge=.044,
                 flow=(-sign*.6, 0, -1), length=.070, snap=back)
-    thorn_plate('Side_plate', [(0, -.080, 1.240), (0, .105, 1.240), (0, .095, 1.030), (0, -.070, 1.030)], (sign, 0, 0),
-                'Torso', None, {2: 2}, rim=.011, bulge=.010, flow=(0, 0, -1), length=.036,
+    thorn_plate('Side_plate', [(0, -.085, 1.300), (0, .110, 1.300), (0, .095, 1.030), (0, -.070, 1.030)], (sign, 0, 0),
+                'Torso', None, {2: 2}, rim=.011, bulge=.020, flow=(0, 0, -1), length=.036,
                 snap=hugger(surface, sign, .010, axis=0))
 for row, z in enumerate([1.150, 1.095, 1.040]):
     points = [chest(Vector((x, 0, z+abs(x)*.22))) for x in [-.135, 0, .135]]
@@ -181,12 +201,13 @@ for row, z in enumerate([1.150, 1.095, 1.040]):
 gem('Heart_gem', chest(Vector((0, 0, 1.338)))+Vector((0, -.024, 0)), .036, (0, -1, 0), 'Torso', None)
 thorn('Heart_fang', chest(Vector((0, 0, 1.292)))+Vector((0, -.020, 0)),
       chest(Vector((0, 0, 1.205)))+Vector((0, -.012, 0)), .017, 'Torso', None)
-sleeve('Gorget', [(0, .022, 1.440), (0, .020, 1.515)], [(.138, .162), (.104, .116)], 'Torso', 'Spine_03', 'metal', 10)
-sleeve('Gorget_bone_rim', [(0, .020, 1.509), (0, .020, 1.521)], [(.107, .119)]*2, 'Torso', 'Spine_03', 'edge', 10)
+# The gorget is soft on purpose: like every torso part it takes the lining's weights below, so it rises with the clavicles.
+sleeve('Gorget', [(0, .022, 1.440), (0, .020, 1.515)], [(.138, .162), (.104, .116)], 'Torso', None, 'metal', 10)
+sleeve('Gorget_bone_rim', [(0, .020, 1.509), (0, .020, 1.521)], [(.107, .119)]*2, 'Torso', None, 'edge', 10)
 # Back banner, upper half: charcoal cloth with a bone border and a small winged gem.
 banner = hugger(surface, 1, .036)
-rows = [1.335, 1.215, 1.095, .975]
-verts = [banner(Vector((x*(1+.10*r), 0, z))) for r, z in enumerate(rows) for x in [-.088, -.070, 0, .070, .088]]
+rows = [(1.335, .106), (1.215, .082), (1.095, .114), (.975, .084)]  # waisted, then flared: not a plain rectangle
+verts = [banner(Vector((x, 0, z))) for z, half in rows for x in [-half, .016-half, 0, half-.016, half]]
 faces = [(r*5+c, r*5+c+1, (r+1)*5+c+1, (r+1)*5+c) for r in range(3) for c in range(4)]
 paint(mesh('Back_banner', verts, faces, 'Torso', 'feather'), ['feather', 'edge'], [1, 0, 0, 1]*3)
 emblem = hugger(surface, 1, .044)
@@ -196,6 +217,9 @@ for sign in [-1, 1]:
         leaf('Banner_raven_wing', emblem(Vector((sign*.024, 0, 1.358-j*.010))),
              emblem(Vector((sign*(.088+j*.016), 0, 1.412-j*.032))), .012, (0, 1, 0), 'Torso', None, 'edge', .004)
 thorn('Banner_fang', emblem(Vector((0, 0, 1.322))), emblem(Vector((0, 0, 1.258))), .011, 'Torso', None)
+for sign in [-1, 1]:  # counter hooks where the banner is widest
+    thorn('Banner_hook', banner(Vector((sign*.108, 0, 1.100))), banner(Vector((sign*.168, 0, 1.040))), .014, 'Torso', None)
+    thorn('Banner_hook', banner(Vector((sign*.100, 0, 1.325))), banner(Vector((sign*.150, 0, 1.290))), .011, 'Torso', None)
 for obj in pieces['Torso'][1:]:
     attach_to_surface(obj, surface)
 
@@ -212,9 +236,10 @@ def hang_weights(obj, left=None):
                 (obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)).add([v.index], weight, 'REPLACE')
 
 
-def thorn_panel(name, angle, half, bottom, left, material='plate', flare=.055, tooth=.066, rows=5):
+def thorn_panel(name, angle, half, bottom, left, material='plate', flare=.055, tooth=.066, rows=5,
+                shift=0, lift=0, sides=(-1, 1)):
     out = Vector((math.sin(angle), -math.cos(angle), 0)); along = Vector((math.cos(angle), math.sin(angle), 0))
-    anchor = Vector((.206*math.sin(angle), .015-.178*math.cos(angle), 0))
+    anchor = Vector((.206*math.sin(angle), .015-.178*math.cos(angle), 0))+along*shift+out*lift
     verts, faces, index = [], [], []
     for r in range(rows):
         f = r/(rows-1)
@@ -229,12 +254,14 @@ def thorn_panel(name, angle, half, bottom, left, material='plate', flare=.055, t
     for col in range(4):
         faces.append((last+col, last+col+1, len(verts)-1)); index.append(1)
     for r in range(rows-1):
-        for s, col in [(-1, 0), (1, 4)]:
-            a, b = verts[r*5+col], verts[(r+1)*5+col]; m = (a+b)/2
-            tip = m+along*s*tooth*(.75 if r % 2 else .50)+Vector((0, 0, -tooth*(1.25 if r % 2 else .80)))
+        for s, col in [(s, 0 if s < 0 else 4) for s in sides]:
+            size, place = HOOKS[(r+col) % len(HOOKS)]
+            a, b = verts[r*5+col], verts[(r+1)*5+col]; c = a.lerp(b, place); span = (b-a)*(.20+.17*size)
+            knee = c+along*s*tooth*size*.40+Vector((0, 0, -tooth*size*.30))+out*.005
+            tip = knee+(along*s*.45+Vector((0, 0, -1))).normalized()*tooth*size*.85
             at = len(verts)
-            verts += [a.copy(), b.copy(), tip, m+out*.008+(tip-m)*.25]
-            faces += [(at, at+3, at+2), (at+3, at+1, at+2), (at+1, at, at+2)]; index += [1, 1, 1]
+            verts += [c-span, c+span, knee+span*.5, knee-span*.5, tip]
+            faces += [(at, at+1, at+2, at+3), (at+3, at+2, at+4)]; index += [1, 1]
     obj = mesh(name, verts, faces, 'Hips', material)
     paint(obj, [material, 'edge'], index)
     hang_weights(obj, left)
@@ -245,8 +272,14 @@ for sign, left in [(1, 1), (-1, 0)]:
     thorn_panel('Front_tasset', sign*math.radians(30), .064, .50, left)
     thorn_panel('Side_tasset', sign*math.radians(90), .078, .55, left)
     thorn_panel('Rear_tasset', sign*math.radians(146), .062, .50, left)
-thorn_panel('Front_tabard', 0, .036, .50, .5, 'feather', flare=.030, tooth=.030)
-thorn_panel('Back_banner_tail', math.pi, .094, .40, .5, 'feather', flare=.050, tooth=.052)
+    thorn_panel('Front_hip_lame', sign*math.radians(30), .074, .66, left, 'metal', flare=.040, tooth=.050, rows=3, lift=.016)
+    thorn_panel('Side_hip_lame', sign*math.radians(90), .088, .68, left, 'metal', flare=.040, tooth=.050, rows=3, lift=.016)
+    thorn_panel('Rear_hip_lame', sign*math.radians(146), .072, .66, left, 'metal', flare=.040, tooth=.050, rows=3, lift=.016)
+    # The centre cloth is two overlapping halves, one per leg: a single strip would be stretched between the thighs.
+    thorn_panel('Front_tabard', 0, .024, .50, left, 'feather', flare=.030, tooth=.030, shift=sign*.016,
+                lift=.003*(sign+1), sides=(sign,))
+    thorn_panel('Back_banner_tail', math.pi, .056, .40, left, 'feather', flare=.050, tooth=.052, shift=-sign*.044,
+                lift=.003*(sign+1), sides=(-sign,))
 ring = 12
 verts = [(.192*f*math.sin(j*math.tau/ring), .015-.164*f*math.cos(j*math.tau/ring), z)
          for z, f in [(.925, 1), (.800, 1.05), (.675, 1.10)] for j in range(ring)]
@@ -255,11 +288,11 @@ hang_weights(mesh('Charcoal_underskirt', verts, faces, 'Hips', 'feather'))
 sleeve('War_belt', [(0, .015, .900), (0, .015, .978)], [(.172, .201)]*2, 'Hips', 'Hips', 'leather', 12)
 sleeve('Belt_bone_rim', [(0, .015, .972), (0, .015, .984)], [(.175, .204)]*2, 'Hips', 'Hips', 'edge', 12)
 thorn_plate('Belt_shield', [(-.058, -.172, .985), (.058, -.172, .985), (.076, -.172, .935), (0, -.172, .850),
-            (-.076, -.172, .935)], (0, -1, 0), 'Hips', 'Hips', {2: 2, 3: 2}, bulge=.020, length=.040,
+            (-.076, -.172, .935)], (0, -1, 0), 'Hips', 'Hips', {2: 2, 3: 2}, bulge=.012, length=.040,
             flow=(0, 0, -.8), material='metal')
-gem('Belt_gem', (0, -.197, .936), .026, (0, -1, 0), 'Hips', 'Hips')
+gem('Belt_gem', (0, -.188, .936), .026, (0, -1, 0), 'Hips', 'Hips')
 
-# Stacked pauldrons, rigid on the shoulder sockets so they never travel with the arm.
+# Stacked pauldrons: crown rigid on the socket, middle tier shared, great tier on the upper arm.
 socketed = []
 for sign, side, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:
     shoulder = Vector(rig.data.bones['Shoulder_'+side].head_local)
@@ -271,38 +304,48 @@ for sign, side, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:
     fit = .90 if VARIANT == 'Female' else 1
     first = len(pieces[upper])
     P = lambda x, y, z: Vector((sign*x, y, z))
-    tiers = [('Great_pauldron', 'plate', .017, .034, .088, [(.150, 1.535), (.400, 1.520), (.610, 1.400)],
-              [(.525, -.140, 1.295), (.335, -.205, 1.280), (.150, -.150, 1.400)]),
-             ('Middle_pauldron', 'metal', .014, .028, .068, [(.150, 1.588), (.340, 1.582), (.495, 1.498)],
-              [(.428, -.102, 1.402), (.300, -.158, 1.392), (.160, -.115, 1.465)]),
-             ('Crown_pauldron', 'plate', .012, .022, .050, [(.160, 1.630), (.285, 1.628), (.390, 1.568)],
+    tiers = [('Great_pauldron', 'plate', .016, .036, .092, {ub: 1}, [(.205, 1.532), (.410, 1.518), (.548, 1.455)],
+              [(.500, -.140, 1.300), (.350, -.205, 1.285), (.215, -.160, 1.385)]),
+             ('Middle_pauldron', 'metal', .014, .032, .080, {ub: .25, socket: .75}, [(.150, 1.590), (.365, 1.584), (.545, 1.488)],
+              [(.470, -.118, 1.392), (.315, -.178, 1.384), (.160, -.125, 1.462)]),
+             ('Crown_pauldron', 'plate', .012, .022, .052, {socket: 1}, [(.160, 1.630), (.285, 1.628), (.390, 1.568)],
               [(.338, -.070, 1.492), (.255, -.112, 1.486), (.165, -.080, 1.530)])]
-    for tier, material, rim, bulge, length, ridge, eave in tiers:
+    for tier, material, rim, bulge, length, share, ridge, eave in tiers:
         for facing in [-1, 1]:  # the rear half mirrors the front about the arm axis y=.045
             core = [P(x, .045, z) for x, z in ridge]+[P(x, y if facing < 0 else .090-y, z) for x, y, z in eave]
-            thorn_plate(tier, core, (0, facing*.75, .66), upper, socket, {2: 1, 3: 2, 4: 2}, rim=rim,
-                        bulge=bulge, flow=(sign*.9, 0, -.7), length=length, material=material)
+            obj = thorn_plate(tier, core, (0, facing*.75, .66), upper, None, {2: 1, 3: 2, 4: 2}, rim=rim,
+                              bulge=bulge, flow=(sign*.9, 0, -.7), length=length, material=material)
+            for group, weight in share.items():
+                obj.vertex_groups.new(name=group).add(list(range(len(obj.data.vertices))), weight, 'REPLACE')
+            if share == {socket: 1}:
+                socketed.append(obj)
+            if tier == 'Great_pauldron':  # a bone rib breaks the large face
+                rib = leaf('Great_pauldron_rib', core[1].lerp(core[0], .25)+Vector((0, facing*.020, .016)),
+                           core[4]+Vector((0, facing*.012, .030)), .016, (0, facing*.75, .66), upper, ub, 'edge', .010)
+    first = len(pieces[upper])
     h = P(.83, -.55, 0)  # the blade stands diagonally, readable from the front and from the side
     foot = P(.235, .120, 1.575)
     blade('Pauldron_blade', [foot, foot+h*.075+up*.120, foot+h*.085+up*.225, foot+h*.045+up*.315],
-          [.078, .062, .036], h, .016, upper, socket, facing=P(.55, .83, 0))
+          [.078, .062, .036], h, [.024, .020, .011], upper, socket, facing=P(.55, .83, 0))
     # Wolf skull lying on the crown tier, muzzle outward: own motif, bone with two burning eyes.
     snout = P(.80, -.45, -.40).normalized(); wide = snout.cross(up).normalized(); high = wide.cross(snout)
     origin = P(.262, .030, 1.640)
-    rings = [(0, .044, .000, .066), (.070, .064, -.012, .092), (.140, .050, -.010, .064), (.262, .022, -.004, .030)]
+    rings = [(0, .050, .000, .070), (.064, .074, -.014, .098), (.128, .056, -.012, .068), (.224, .027, -.004, .034)]
     verts = [origin+snout*u+wide*w*a+high*(lo if b else hi) for u, w, lo, hi in rings
              for a, b in [(-1, 1), (1, 1), (1, 0), (-1, 0)]]
     faces = [(r*4+e, r*4+(e+1) % 4, (r+1)*4+(e+1) % 4, (r+1)*4+e) for r in range(3) for e in range(4)]
     mesh('Wolf_skull', verts, faces+[(3, 2, 1, 0), (12, 13, 14, 15)], upper, 'gold', socket)
     for w in [-1, 1]:
-        eye = origin+snout*.102+wide*w*.060+high*.046
-        leaf('Wolf_eye_socket', eye-snout*.032, eye+snout*.038, .022, wide*w, upper, socket, 'black', .002)
-        leaf('Wolf_eye', eye-snout*.020+wide*w*.003, eye+snout*.028+wide*w*.003, .011, wide*w, upper, socket, 'eyes', .003)
+        eye = origin+snout*.094+wide*w*.068+high*.046
+        leaf('Wolf_eye_socket', eye-snout*.034, eye+snout*.040, .025, wide*w, upper, socket, 'black', .002)
+        leaf('Wolf_eye', eye-snout*.014+wide*w*.003, eye+snout*.022+wide*w*.003, .008, wide*w, upper, socket, 'eyes', .003)
+        leaf('Wolf_brow', eye-snout*.044+high*.020+wide*w*.010, eye+snout*.050+high*.012+wide*w*.010, .014,
+             wide*w+high*.6, upper, socket, 'gold', .012)  # a heavy brow shades the socket: carved bone, not a living head
         thorn('Wolf_ear', origin+snout*.020+wide*w*.034+high*.070, origin-snout*.085+wide*w*.052+high*.105, .020,
               upper, socket, 'gold')
-        thorn('Wolf_fang', origin+snout*.228+wide*w*.017-high*.004, origin+snout*.238+wide*w*.019-high*.060, .009,
+        thorn('Wolf_fang', origin+snout*.192+wide*w*.020-high*.004, origin+snout*.202+wide*w*.022-high*.060, .009,
               upper, socket)
-    flame('Skull_flame', origin-snout*.020+high*.088, .100, upper, socket)
+    flame('Skull_flame', origin-snout*.020+high*.092, .105, upper, socket, lean=P(-.10, .25, 0))
     socketed += pieces[upper][first:]
     sleeve('Rerebrace', [shoulder+axis*.205, shoulder+axis*.300], [(.084*fit, .074*fit)]*2, upper, ub, 'metal', 8)
     sleeve('Rerebrace_bone_rim', [shoulder+axis*.294, shoulder+axis*.306], [(.087*fit, .077*fit)]*2, upper, ub, 'edge', 8)
@@ -312,7 +355,7 @@ for sign, side, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:
     sleeve('Vambrace', [E(.10), E(.52), E(.93)], [(a*fit, b*fit) for a, b in [(.083, .079), (.081, .077), (.061, .059)]],
            lower, lb, 'plate', 8)
     sleeve('Vambrace_bone_cuff', [E(.90), E(.95)], [(.064*fit, .062*fit)]*2, lower, lb, 'edge', 8)
-    thorn_plate('Vambrace_fin', [E(.06)+up*.060*fit, E(-.05)+up*.160, E(.30)+up*.128, E(.62)+up*.104,
+    thorn_plate('Vambrace_fin', [E(.14)+up*.060*fit, E(.10)+up*.150, E(.34)+up*.130, E(.62)+up*.104,
                 E(.86)+up*.052*fit], (0, -1, 0), lower, lb, {0: 1, 1: 2, 2: 2, 3: 2}, rim=.014, bulge=.012,
                 back=.012, flow=-fore*.9+up*.5, length=.066)
     for facing in [-1, 1]:
@@ -325,22 +368,26 @@ for sign, side, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:
     # Heavy dark gauntlet over the hand lining.
     sleeve('Gauntlet_cuff', [hand-fore*.030, hand+fore*.045], [(.066*fit, .062*fit), (.058, .054)], glove, hb, 'metal', 8)
     sleeve('Gauntlet_bone_rim', [hand-fore*.036, hand-fore*.024], [(.070*fit, .066*fit)]*2, glove, hb, 'edge', 8)
-    p = hand+Vector((sign*.058, 0, .033))
-    thorn_plate('Gauntlet_backplate', [p-fore*.030+Vector((0, -.036, 0)), p+fore*.060+Vector((0, -.030, 0)),
-                p+fore*.060+Vector((0, .034, 0)), p-fore*.030+Vector((0, .040, 0))], (0, 0, 1), glove, hb,
-                {3: 2}, rim=.008, bulge=.010, flow=-fore*.8, length=.026, material='metal')
+    p = hand+Vector((sign*.052, .004, .034))
+    thorn_plate('Gauntlet_backplate', [p-fore*.036+Vector((0, -.044, 0)), p+fore*.058+Vector((0, -.040, 0)),
+                p+fore*.058+Vector((0, .046, 0)), p-fore*.036+Vector((0, .050, 0))], (0, 0, 1), glove, hb,
+                {3: 2}, rim=.008, bulge=.014, flow=-fore*.8, length=.034)
     first = len(pieces[glove])
-    for j, (u, half) in enumerate([(.118, .050), (.158, .044)]):  # lames over the fingers, skinned like the fingers
-        c = hand+Vector((sign*u, .030, .023-j*.004))
-        thorn_plate('Finger_lame', [c+Vector((-sign*.017, -half, 0)), c+Vector((sign*.017, -half, 0)),
-                    c+Vector((sign*.017, half, 0)), c+Vector((-sign*.017, half, 0))], (0, 0, 1), glove, None,
-                    rim=.005, bulge=.008, material='metal')
-    fingers = binding_surface(pieces[glove][0])
+    fingers = binding_surface(pieces[glove][0]); onto = hugger(fingers, 1, .006, axis=2)
+    for j, (u, half) in enumerate([(.110, .054), (.140, .050), (.168, .044)]):  # overlapping lames, skinned like the fingers
+        c = hand+Vector((sign*u, .030, 0))
+        thorn_plate('Finger_lame', [c+Vector((-sign*.020, -half, 0)), c+Vector((sign*.020, -half, 0)),
+                    c+Vector((sign*.020, half, 0)), c+Vector((-sign*.020, half, 0))], (0, 0, 1), glove, None,
+                    rim=.005, bulge=.009-j*.002, snap=onto)
+    knuckle = [Vector(rig.data.bones['Thumb_0%d%s' % (k, '' if sign > 0 else ' 1')].head_local) for k in (1, 3)]
+    along = (knuckle[1]-knuckle[0]).normalized(); across = along.cross(up).normalized()*.015
+    thorn_plate('Thumb_plate', [knuckle[0]+along*.012-across, knuckle[1]-across*.7, knuckle[1]+across*.7,
+                knuckle[0]+along*.012+across], (0, 0, 1), glove, None, rim=.004, bulge=.007, snap=onto)
     for obj in pieces[glove][first:]:
         attach_to_surface(obj, fingers)
-    for j in range(3):
-        c = hand+Vector((sign*.118, -.024+j*.027, .030))
-        thorn('Gauntlet_knuckle', c, c+fore*.010+up*.020, .011, glove, hb)
+    for j in range(4):
+        c = hand+Vector((sign*.096, -.022+j*.026, .034))
+        thorn('Gauntlet_knuckle', c, c-fore*.012+up*.024, .011, glove, hb)
 
 wing_binding_report = []
 for obj in socketed:
@@ -381,8 +428,8 @@ for slot in ['LegLeft', 'LegRight']:
     thorn('Heel_thorn', (x, .118, .075), (x, .185, .105), .024, slot, None)
     limit = len(pieces[slot])
     # Knee cop with its crown of thorns: rigid on the lower leg, the knee joint is its pivot.
-    sleeve('Knee_cuff', [(x, .020, .392), (x, .018, .478)], [(.112, .096), (.096, .086)], slot, 'LowerLeg_'+side, 'metal', 10)
-    thorn_plate('Knee_cop', [(x-.070, -.082, .462), (x, -.104, .498), (x+.070, -.082, .462), (x+.062, -.112, .392),
+    sleeve('Knee_cuff', [(x, .020, .392), (x, .018, .478)], [(.112, .096), (.104, .094)], slot, 'LowerLeg_'+side, 'metal', 10)
+    thorn_plate('Knee_cop', [(x-.070, -.086, .458), (x, -.100, .480), (x+.070, -.086, .458), (x+.062, -.112, .392),
                 (x-.062, -.112, .392)], (0, -1, .15), slot, 'LowerLeg_'+side, {3: 3}, rim=.014,
                 bulge=.034, flow=(0, 0, -1.4), length=.064)
     for j in range(7):
@@ -416,8 +463,9 @@ for sign in [-1, 1]:
         leaf('Helm_'+tag, a+off, b+off, width, P(.62, -.78, 0), 'Head', 'Head', material, .002)
     h = Vector(P(.89, .45, 0)); root = Vector(P(.118, -.010, 1.722))  # horns sweep outward and a little back
     horn = [root+h*a+Vector((0, b*.34, b)) for a, b in [(0, 0), (.088, .062), (.132, .165), (.112, .270), (.052, .348)]]
-    blade('Helm_horn', horn, [.060, .054, .042, .025], h-Vector((0, 0, .2)), .020, 'Head', 'Head', facing=P(-.45, .89, 0))
-    flame('Horn_flame', horn[-1]-Vector((0, 0, .015)), .135, 'Head', 'Head')
+    blade('Helm_horn', horn, [.060, .054, .042, .025], h-Vector((0, 0, .2)), [.036, .034, .026, .013], 'Head', 'Head',
+          facing=P(-.45, .89, 0))
+    flame('Horn_flame', horn[-1]-Vector((0, 0, .015)), .125, 'Head', 'Head', lean=P(.10, .30, 0))
     leaf('Helm_brow', P(.004, -.196, 1.712), P(.150, -.070, 1.792), .022, P(.62, -.78, .1), 'Head', 'Head', 'edge', .010)
     for j in range(3):
         a = Vector(P(.040+j*.026, -.178+j*.027, 1.612)); off = Vector(P(.62, -.78, 0))*.013
@@ -428,6 +476,14 @@ thorn_plate('Helm_comb', [(0, -.165, 1.762), (0, -.128, 1.868), (0, .000, 1.902)
 thorn_plate('Neck_guard', [(-.112, .118, 1.585), (.112, .118, 1.585), (.128, .104, 1.490), (0, .150, 1.452),
             (-.128, .104, 1.490)], (0, 1, 0), 'Head', 'Neck', {2: 2, 3: 2}, bulge=.030, flow=(0, 0, -1),
             length=.034, material='metal')
+
+def triangles(obj):
+    obj.data.calc_loop_triangles()
+    return len(obj.data.loop_triangles)
+
+
+budget = sum(triangles(obj) for objects in pieces.values() for obj in objects)
+assert budget <= 10000, budget  # checked here, before the tail renders or exports anything
 
 tail = end+scaffold.split(end)[1]
 def swap(text, old, new):
@@ -449,18 +505,21 @@ camera()
 
 # Effect ownership is per item, not a permanent avatar light. Numbers for the budget go into the report.
 glowing = ['Gravethorn_'+name for name in EMISSIVE]
-emissive = 0
-names = set()
-for obj in armor.values():
-    obj.data.calc_loop_triangles()
+names = set(); lit = {}
+for slot, obj in armor.items():
+    obj.data.calc_loop_triangles(); lit[slot] = 0
     for triangle in obj.data.loop_triangles:
         material = obj.data.materials[obj.data.polygons[triangle.polygon_index].material_index].name
-        names.add(material); emissive += material in glowing
+        names.add(material); lit[slot] += material in glowing
 report['items'] = {part['item']: sum(report['slots'][s]['triangles'] for s in part['regions']) for part in PARTS}
+report['emissive_by_item'] = {part['item']: sum(lit[s] for s in part['regions']) for part in PARTS}
 report['materials_used'] = sorted(names)
-report['emissive_triangles'] = emissive
-assert report['total_triangles'] <= 10000, report['total_triangles']
+report['emissive_triangles'] = sum(lit.values())
+assert report['total_triangles'] == budget, (report['total_triangles'], budget)
 equipment = json.loads((ROOT/'equipment.json').read_text())
+for part in equipment['parts']:  # say what is true: only items that carry glowing geometry declare it
+    part['vfx']['emissiveTriangles'] = report['emissive_by_item'][part['item']]
+    part['vfx']['emissive'] = part['vfx']['emissiveTriangles'] > 0
 equipment['vfx'] = {'profile': 'gravethorn_red', 'type': 'emissive_mesh', 'materials': glowing,
                     'itemBound': True, 'optionalRuntimeEffect': 'selective_glow', 'particleSystem': False}
 (ROOT/'equipment.json').write_text(json.dumps(equipment, indent=2)+'\n')

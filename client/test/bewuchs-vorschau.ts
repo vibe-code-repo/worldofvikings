@@ -30,7 +30,7 @@ import * as vorschauModul from "../src/editor/BewuchsVorschau";
 const { createWorld } = weltModul;
 const { BewuchsVorschau } = vorschauModul;
 const CLIENT_ZONE_CACHE = (weltModul as { CLIENT_ZONE_CACHE?: number }).CLIENT_ZONE_CACHE;
-const NACHLAUF_BILDER = (vorschauModul as { NACHLAUF_BILDER?: number }).NACHLAUF_BILDER ?? 0;
+const NACHLAUF_MS = (vorschauModul as { NACHLAUF_MS?: number }).NACHLAUF_MS ?? 0;
 type BewuchsStufeModul = typeof import("../src/editor/testflug/BewuchsStufe");
 const stufeModul = (await import("../src/editor/testflug/BewuchsStufe").catch(
   () => null,
@@ -93,7 +93,7 @@ type Innen = {
 };
 
 /** Vorschau plus Zähler: gebaute und abgebaute Zonen je Bild. */
-function baue(nachlauf?: number) {
+function baue(nachlauf?: number, hz = 60) {
   const ent = new Attrappe();
   const v = new BewuchsVorschau(weltLike, ent as never, nachlauf as never);
   const innen = v as unknown as Innen;
@@ -119,15 +119,18 @@ function baue(nachlauf?: number) {
       abbauen(k);
     };
   }
+  /** Die Uhr der Frist: je Bild vergehen 1000 / hz Millisekunden (Bildrate nachgebildet). */
+  const uhr = { ms: 100000, hz };
   /** Ein Bild: `schritt` an dieser Stelle. */
   const bild = (x: number, zz: number): void => {
     z.proBildAbgebaut = 0;
-    v.schritt(x, zz);
+    uhr.ms += 1000 / uhr.hz;
+    v.schritt(x, zz, uhr.ms);
     z.maxAbbauJeBild = Math.max(z.maxAbbauJeBild, z.proBildAbgebaut);
     z.maxZonen = Math.max(z.maxZonen, innen.fertig.size);
     z.maxPflanzen = Math.max(z.maxPflanzen, ent.live.size);
   };
-  return { v, ent, innen, z, bild };
+  return { v, ent, innen, z, bild, uhr };
 }
 
 const zone = (w: number): number => Math.floor(w / 64 + 0.5);
@@ -273,11 +276,45 @@ await abschnitt(async () => {
   const mit = lauf();
   const ohne = lauf(0);
   check(
-    `mit Frist (${NACHLAUF_BILDER} Bilder): höchstens die erste Randreihe wird gebaut (${mit.gebaut} Zonen)`,
+    `mit Frist (${NACHLAUF_MS} ms): höchstens die erste Randreihe wird gebaut (${mit.gebaut} Zonen)`,
     mit.gebaut <= 5,
   );
   check(`ohne Frist: laufend Neubau (${ohne.gebaut} Zonen in 60 Wechseln)`, ohne.gebaut > 100);
   check(`mit Frist bleiben höchstens 30 Zonen stehen (Höchstwert ${mit.max})`, mit.max <= 30);
+});
+
+console.log(
+  "3b. Pendeln mit 0,75 s je Seite bei 30, 60 und 144 Hz (die Frist zählt Zeit, nicht Bilder)",
+);
+await abschnitt(async () => {
+  const grenzeX = 64 * 140 - 32;
+  const lauf = (hz: number, nachlauf?: number) => {
+    const t = baue(nachlauf, hz);
+    beruhigen(t, grenzeX - 5, SEHNE_Z, hz * 6);
+    const vorher = t.z.gebaut;
+    const halbe = Math.round(0.75 * hz);
+    for (let i = 0; i < hz * 20; i++)
+      t.bild(grenzeX + (Math.floor(i / halbe) % 2 === 0 ? 5 : -5), SEHNE_Z);
+    return { gebaut: t.z.gebaut - vorher, abgebaut: t.z.abgebaut, max: t.z.maxZonen };
+  };
+  const mit: Record<number, { gebaut: number; abgebaut: number; max: number }> = {};
+  for (const hz of [30, 60, 144]) mit[hz] = lauf(hz);
+  check(
+    `mit der Standardfrist (${NACHLAUF_MS} ms) bleibt es bei 30 / 60 / 144 Hz bei den Zonenbauten der ersten Randreihe (${mit[30].gebaut} / ${mit[60].gebaut} / ${mit[144].gebaut}; abgebaut ${mit[30].abgebaut} / ${mit[60].abgebaut} / ${mit[144].abgebaut})`,
+    [30, 60, 144].every((hz) => mit[hz].gebaut <= 5 && mit[hz].abgebaut === 0),
+  );
+  const ohne = [30, 60, 144].map((hz) => lauf(hz, 0).gebaut);
+  check(
+    `ohne Frist wird bei jeder Bildrate laufend neu gebaut (${ohne.join(" / ")} Zonen in 20 s)`,
+    ohne.every((n) => n > 60),
+  );
+  // Beweis, dass die Uhr zählt: eine Frist von 500 ms (kürzer als die Halbperiode) flackert bei jeder
+  // Bildrate gleich oft je Sekunde; eine Frist in Bildern täte es bei 144 Hz nicht.
+  const kurz = [60, 144].map((hz) => lauf(hz, 500).gebaut);
+  check(
+    `eine Frist von 500 ms baut bei 60 und 144 Hz gleich viele Zonen (${kurz[0]} gegen ${kurz[1]}, Abweichung höchstens 15 %)`,
+    kurz[0] > 60 && Math.abs(kurz[0] - kurz[1]) <= 0.15 * kurz[0],
+  );
 });
 
 console.log("4. Stufen voll / klein / aus");
@@ -464,7 +501,15 @@ await abschnitt(async () => {
     extra: Record<string, unknown> = {},
   ): void =>
     h.forEach((f) =>
-      f({ code, repeat: false, ctrlKey: false, metaKey: false, altKey: false, ...extra }),
+      f({
+        code,
+        repeat: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+        ...extra,
+      }),
     );
 
   const ohneParam = griff("?offline=1");
@@ -493,10 +538,13 @@ await abschnitt(async () => {
   );
   taste(ohneParam.handler, BEWUCHS_STUFE_TASTE, { repeat: true });
   taste(ohneParam.handler, BEWUCHS_STUFE_TASTE, { ctrlKey: true });
+  taste(ohneParam.handler, BEWUCHS_STUFE_TASTE, { shiftKey: true });
+  taste(ohneParam.handler, BEWUCHS_STUFE_TASTE, { altKey: true });
+  taste(ohneParam.handler, BEWUCHS_STUFE_TASTE, { metaKey: true });
   taste(ohneParam.handler, "Tippt");
   taste(ohneParam.handler, "KeyV");
   check(
-    "Wiederholung, Strg+L, Eingabefeld und andere Tasten ändern nichts",
+    "Wiederholung, Strg+L, Umschalt+L (Turbotaste), Alt+L, Meta+L, Eingabefeld und andere Tasten ändern nichts",
     t.v.stufe === "aus" && meldungen.length === 1,
   );
   taste(ohneParam.handler, BEWUCHS_STUFE_TASTE);
@@ -512,6 +560,31 @@ await abschnitt(async () => {
     `mit ?${BEWUCHS_MESSUNG_PARAM}=1 liegt die Vorschau als window.__bewuchs bereit`,
     mitParam.fenster.__bewuchs === t2.v,
   );
+
+  // Der Haken öffnet nur bei genau `=1`, nicht schon bei der Anwesenheit des Parameters.
+  const zu: string[] = [];
+  for (const suche of [
+    `?${BEWUCHS_MESSUNG_PARAM}=0`,
+    `?${BEWUCHS_MESSUNG_PARAM}`,
+    `?${BEWUCHS_MESSUNG_PARAM}=`,
+    `?${BEWUCHS_MESSUNG_PARAM}=nein`,
+    `?${BEWUCHS_MESSUNG_PARAM}=11`,
+    `?${BEWUCHS_MESSUNG_PARAM.toUpperCase()}=1`,
+    "?andere=1",
+    "",
+  ]) {
+    const g = griff(suche);
+    verdrahteBewuchsStufe(baue().v, { hud: { meldung: () => {} }, tipptImFeld: () => false });
+    if (g.fenster.__bewuchs !== undefined) zu.push(suche);
+  }
+  check(
+    `window.__bewuchs bleibt bei =0, ohne Wert, =nein, =11, Großschreibung und fremdem Parameter zu (offen bei: ${zu.join(" ") || "keinem"})`,
+    zu.length === 0,
+  );
+  const gemischt = griff(`?offline=1&${BEWUCHS_MESSUNG_PARAM}=1&t=0.5`);
+  const t4 = baue();
+  verdrahteBewuchsStufe(t4.v, { hud: { meldung: () => {} }, tipptImFeld: () => false });
+  check("=1 zwischen anderen Parametern öffnet ihn", gemischt.fenster.__bewuchs === t4.v);
 
   const gesperrt = griff("");
   gesperrt.fenster.localStorage = {

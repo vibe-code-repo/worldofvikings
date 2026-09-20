@@ -37,11 +37,21 @@
  * abgebaut (`removeZDO` gibt die Instanz frei), und zwar wie beim
  * Aufbau HOECHSTENS EINE Zone je Bild.
  *
- * Eine Zone faellt erst NACHLAUF_BILDER Bilder nach dem Verlassen des
+ * Eine Zone faellt erst NACHLAUF_MS Millisekunden nach dem Verlassen des
  * Rings weg. Ohne diese Frist flackerte der Rand: Wer an einer
  * Zonengrenze hin- und herfliegt, liesse jedes Mal eine Randzone bauen
  * (11 ms) und wieder abbauen. In Ruhe (nach der Frist) steht genau der
  * Ring, nicht mehr.
+ *
+ * Grenzen der Frist (Angriff auf K2.1, bekannt und hingenommen): Der
+ * Bestand ist bewegungsabhaengig. Im geraden Flug stehen hoechstens etwa
+ * 30 Zonen, bei Spruengen im Sekundentakt bis zur Schranke Ring (25) plus
+ * das, was in der Frist gebaut werden kann (ein Bau je Bild, je Bau
+ * mindestens ~12 ms Bildzeit: rund 85 Zonen). Und wer die Kamera innerhalb
+ * der Frist immer wieder in alle Zonen zurueckbringt (Rundtour mit Umlauf
+ * unter einer Sekunde, nur per Sprung oder Messhaken erreichbar), haelt
+ * jeden Stempel frisch, dann wird nichts abgebaut. Ein harter Deckel
+ * (z. B. hoechstens zwei Ringe) waere eine eigene Aenderung.
  *
  * ── Stufen (K2.1) ────────────────────────────────────────────────────
  * `voll` = der bisherige 5x5-Ring, `klein` = 3x3, `aus` = nichts. Die
@@ -64,19 +74,24 @@ export const BEWUCHS_STUFEN_LISTE: readonly BewuchsStufe[] = ['voll', 'klein', '
 export const STUFEN_RADIUS: Readonly<Record<BewuchsStufe, number>> = { voll: 2, klein: 1, aus: -1 };
 
 /**
- * Bilder, die eine Zone ausserhalb des Rings noch stehen bleibt, bevor sie
- * abgebaut wird (60 = etwa eine Sekunde).
+ * Zeit in Millisekunden, die eine Zone ausserhalb des Rings noch stehen
+ * bleibt, bevor sie abgebaut wird. 1000 ms = die 60 Bilder bei 60 Hz, mit
+ * denen die Frist zuerst gemessen wurde; gerechnet wird mit der
+ * VERSTRICHENEN ZEIT, nicht mit einem Bildzaehler: 60 Bilder waeren bei
+ * 144 Hz nur 0,42 s, und das Pendelmuster unten fiele wieder durch
+ * (Angriff auf K2.1: 42,2 statt 2,2 ms/s Streuarbeit).
  *
  * Gehalten wird genau dann, wenn die Kamera hoechstens so lange auf der
  * anderen Seite einer Zonengrenze bleibt (Halbperiode <= Frist). Gemessen
- * (client/test/bewuchs-vorschau.ts, Hin-und-her ueber eine Grenze, 1.200
- * Bilder): Halbperiode 45 Bilder (0,75 s) kostet bei Frist 15 oder 30 je 135
- * Zonenbauten (rund 80 ms je Sekunde Ruckler), bei Frist 60 nur die 5 der
- * ersten Reihe. Preis der 60 statt 15: im geraden Flug mit 45 m/s im Mittel
- * 28,5 statt 25,9 Zonen (Hoechstwert 30 in beiden Faellen); in Ruhe nichts,
- * dann steht genau der Ring.
+ * (client/test/bewuchs-vorschau.ts, Hin-und-her ueber eine Grenze):
+ * Halbperiode 0,75 s kostet bei einer Frist von 0,25 oder 0,5 s je 135
+ * Zonenbauten je 1.200 Bilder bei 60 Hz (rund 80 ms je Sekunde Ruckler),
+ * bei 1 s nur die 5 der ersten Reihe, auf 30, 60 und 144 Hz gleich. Preis
+ * der 1 s statt 0,25 s: im geraden Flug mit 45 m/s im Mittel 28,5 statt
+ * 25,9 Zonen (Hoechstwert 30 in beiden Faellen); in Ruhe nichts, dann
+ * steht genau der Ring.
  */
-export const NACHLAUF_BILDER = 60;
+export const NACHLAUF_MS = 1000;
 
 /** Praefix der Entity-Schluessel — muss sich von `edplace-` unterscheiden. */
 const SCHLUESSEL = 'bewuchs';
@@ -87,20 +102,21 @@ export class BewuchsVorschau {
   /** Noch zu streuende Zonen, naechste zuerst. */
   private warteschlange: Array<{ zx: number; zy: number }> = [];
   /**
-   * Zonen ausserhalb des Rings und das Bild, in dem sie ihn verlassen haben.
+   * Zonen ausserhalb des Rings und die Uhrzeit (ms), zu der sie ihn verlassen haben.
    * Kehrt der Spieler zurueck, verschwindet der Eintrag; ist die Frist um,
    * baut `abbauSchritt` die Zone ab.
    */
   private readonly draussen = new Map<string, number>();
   private letzteZone = '';
   private mitte = { zx: 0, zy: 0 };
-  private bild = 0;
   private aktuelleStufe: BewuchsStufe = 'voll';
+  /** Uhrzeit des letzten `schritt` in Millisekunden. */
+  private jetztMs = 0;
 
   constructor(
     private readonly welt: ClientWorldLike,
     private readonly ent: EntityManager,
-    private readonly nachlaufBilder = NACHLAUF_BILDER
+    private readonly nachlaufMs = NACHLAUF_MS
   ) {}
 
   /**
@@ -111,9 +127,12 @@ export class BewuchsVorschau {
    * gefuellt, wenn der Spieler die Zone gewechselt hat. Ohne diese
    * Bedingung liefe die Suche nach fehlenden Zonen 60-mal je Sekunde
    * ueber 25 Eintraege, obwohl sich nichts geaendert hat.
+   *
+   * `jetztMs` ist die Uhr fuer die Frist (Standard: `performance.now()`);
+   * ein Test gibt sie vor, um Bildraten nachzubilden.
    */
-  schritt(spielerX: number, spielerZ: number): void {
-    this.bild++;
+  schritt(spielerX: number, spielerZ: number, jetztMs: number = performance.now()): void {
+    this.jetztMs = jetztMs;
     const zx = Math.floor(spielerX / 64 + 0.5);
     const zy = Math.floor(spielerZ / 64 + 0.5);
     const jetzt = `${zx},${zy}`;
@@ -174,13 +193,13 @@ export class BewuchsVorschau {
   }
 
   /**
-   * Traegt ein, welche stehenden Zonen ausserhalb des Rings liegen (mit dem
-   * Bild, in dem sie ihn verlassen haben), und streicht die, die wieder
+   * Traegt ein, welche stehenden Zonen ausserhalb des Rings liegen (mit der
+   * Uhrzeit, zu der sie ihn verlassen haben), und streicht die, die wieder
    * darin liegen. Bereits eingetragene behalten ihren Stempel. Mit `sofort`
    * ist die Frist fuer alle abgelaufen (Stufenwechsel).
    */
   private ringAbgleichen(sofort: boolean): void {
-    const stempel = sofort ? this.bild - this.nachlaufBilder : this.bild;
+    const stempel = sofort ? this.jetztMs - this.nachlaufMs : this.jetztMs;
     for (const schluessel of this.fertig.keys()) {
       const [zx, zy] = schluessel.split(',').map(Number);
       if (this.imRing(zx, zy)) {
@@ -197,7 +216,7 @@ export class BewuchsVorschau {
     let wahl: string | null = null;
     let aelteste = Infinity;
     for (const [schluessel, seit] of this.draussen) {
-      if (this.bild - seit >= this.nachlaufBilder && seit < aelteste) {
+      if (this.jetztMs - seit >= this.nachlaufMs && seit < aelteste) {
         wahl = schluessel;
         aelteste = seit;
       }

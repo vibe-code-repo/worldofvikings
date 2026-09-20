@@ -33,6 +33,11 @@ export const BEWUCHS_STUFE_TASTE = "KeyL";
 /** Query parameter that exposes the preview as `window.__bewuchs` (measurement only). */
 export const BEWUCHS_MESSUNG_PARAM = "bewuchs-messung";
 
+/** True only for `?bewuchs-messung=1`: the presence of the parameter alone, or any other value, keeps the hook closed. */
+export function messhakenOffen(search: string): boolean {
+  return new URLSearchParams(search).get(BEWUCHS_MESSUNG_PARAM) === "1";
+}
+
 /** The part of `Storage` the switch needs; a missing or throwing one means "voll". */
 export type StufenSpeicher = Pick<Storage, "getItem" | "setItem">;
 
@@ -103,13 +108,14 @@ export function verdrahteBewuchsStufe(
 
   bewuchs.setzeStufe(leseBewuchsStufe(speicher));
   zeige();
-  if (new URLSearchParams(window.location.search).has(BEWUCHS_MESSUNG_PARAM)) {
+  if (messhakenOffen(window.location.search)) {
     (window as unknown as Record<string, unknown>).__bewuchs = bewuchs;
   }
 
   window.addEventListener("keydown", (e) => {
     if (optionen.tipptImFeld(e) || e.code !== BEWUCHS_STUFE_TASTE || e.repeat) return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Umschalt ist im Baumodus die Turbotaste: wer schnell fliegt und L streift, soll nichts umschalten.
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     bewuchs.setzeStufe(naechsteBewuchsStufe(bewuchs.stufe));
     const gespeichert = schreibeBewuchsStufe(speicher, bewuchs.stufe);
     zeige();

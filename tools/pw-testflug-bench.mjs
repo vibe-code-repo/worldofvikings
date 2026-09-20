@@ -32,7 +32,7 @@
  * `previewNoPrune` (switches the clean-up of the preview off again = the behaviour before K2.1,
  * for same-window comparisons), `lru` (height-map cache size in zones; the client default is
  * 1024, use 512 for the state before K2.1), `settings` (game settings via `__vb.setze`,
- * e.g. {grassDensity: 0}), `previewNachlauf` (grace frames before a zone is released; 0 = none).
+ * e.g. {grassDensity: 0}), `previewNachlauf` (grace period in ms before a zone is released; client default 1000, 0 = none).
  * Clean-up costs are counted per phase (`streaming.cleanup*`). A phase may carry `wiggle: {x0, z0, amp, every}`
  * (hop across a zone edge; `every` frames per side) instead of a key or `auto` speed.
  * A phase may switch the level first: `previewStufe` (then `settleS` seconds pass before it is measured).
@@ -520,8 +520,8 @@ async function executeRun(run) {
       if (stufe) bew.setzeStufe(stufe);
       // behaviour before K2.1: nothing is ever released (same-window comparison only)
       if (r.previewNoPrune) bew.abbauSchritt = () => {};
-      // grace period in frames before a zone outside the ring is released (client default 60; 0 = no grace)
-      if (r.previewNachlauf !== undefined) bew.nachlaufBilder = r.previewNachlauf;
+      // grace period in milliseconds before a zone outside the ring is released (client default 1000; 0 = no grace)
+      if (r.previewNachlauf !== undefined) bew.nachlaufMs = r.previewNachlauf;
     }, run);
 
     // -- wait until the picture stands (cold start), measured from navigation --

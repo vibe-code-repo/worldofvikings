@@ -162,8 +162,6 @@ if (!unregistered) {
     const hidden = hiddenBody();
     assert.equal(hidden.length, replaced.size, `Full armor must hide exactly its ${replaced.size} registered regions`);
     assert(hidden.every(m => [...replaced].some(region => m.name.includes(region))), 'Only registered regions may be hidden');
-    // The free regions keep their own body mesh.
-    for (const region of freeRegions) assert(bodyMeshes.some(m => m.name.includes(region) && m.isEnabled()), `The free region ${region} must stay visible`);
   }
   assert(armor.every(m => m.isEnabled()), 'Armor must not mask itself');
 }

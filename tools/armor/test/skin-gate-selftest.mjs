@@ -167,6 +167,7 @@ try {
   bad('female-body-without-head', 'seidraven', 'female', {}, /seidraven_female_hood: hides 0 body triangles for regions \[Head\]/, { bodyFile: body.noHead });
   bad('female-set-on-male-body', 'seidraven', 'female', {}, /seidraven\/female: the body GLB is not a legacy-female-v1 body/, { bodyFile: body.male });
   bad('male-set-on-female-body', 'emberrage', 'male', {}, /emberrage\/male: the body GLB is not a wov-male-v1 body/, { bodyFile: body.female });
+  bad('male-set-on-web-body', 'emberrage', 'male', {}, /emberrage\/male: the body GLB is not a wov-male-v1 body/, { bodyFile: body.web });
   bad('seidraven-needs-variant', 'seidraven', 'male', {}, /choose the body with --variant=male\|female/, { args: ['--family=seidraven'] });
   bad('unknown-family', 'wildwarden', 'male', {}, /Unknown armor family "nonsense"; the registry knows: .*seidraven.*emberrage.*plainhide.*gravethorn/, { args: ['--family=nonsense'] });
   // The five-piece Plainhide set: an item that reaches into head or hands is refused, and so is a body that leaves no head and hands to keep.

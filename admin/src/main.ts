@@ -54,7 +54,7 @@
  * Umgebung: WOV_ADMIN_PORT (Vorgabe 2468, 0 = freier Port),
  *           WOV_ADMIN_ADRESSE, WOV_WURZEL (Projektpfad),
  *           WOV_ADMIN_TOKEN_DATEI, WOV_NAHE_NETZE, WOV_PROXY_ADRESSEN,
- *           WOV_LOG_STROEME_MAX
+ *           WOV_LOG_STROEME_MAX, WOV_SYSTEMCTL (nur Tests/Probelaeufe, s. SYSTEMCTL)
  */
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
@@ -83,6 +83,7 @@ import {
   layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
+import { weltZuruecksetzenBehandeln, weltZuruecksetzenVorschau, type ResetUmgebung } from './routen/weltZuruecksetzen.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
 // geschickt wie beim Server. Der Editor soll sehen, was auch der
 // Spielserver sieht — ein Rohtext koennte Raeume enthalten, die dort
@@ -132,6 +133,13 @@ const PORT = Number(process.env.WOV_ADMIN_PORT ?? 2468);
 // mit einem Wegwerf-Token gegen ein Wegwerf-Verzeichnis fahren kann,
 // ohne /etc anzufassen.
 const TOKEN_DATEI = process.env.WOV_ADMIN_TOKEN_DATEI ?? '/etc/wov-admin.token';
+
+// Which program stops and starts the game server. Only the world reset (and the
+// service state that goes with it) reads it, so admin/test/welt-zuruecksetzen.ts
+// and a proof run on a slot can drive the real endpoint with a stand-in that
+// touches nothing but their own process. Set by the operator's unit or a test,
+// never by a request.
+const SYSTEMCTL = process.env.WOV_SYSTEMCTL ?? 'systemctl';
 
 const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
@@ -606,7 +614,7 @@ async function nginxSchreiben(aenderungen: Record<string, string>): Promise<stri
 
 async function dienstZustand(name: Dienst): Promise<{ aktiv: boolean; seit: string | null }> {
   try {
-    const { stdout } = await ausfuehren('systemctl', ['show', name, '--property=ActiveState,ActiveEnterTimestamp']);
+    const { stdout } = await ausfuehren(SYSTEMCTL, ['show', name, '--property=ActiveState,ActiveEnterTimestamp']);
     const aktiv = /ActiveState=active/.test(stdout);
     const seit = /ActiveEnterTimestamp=(.*)/.exec(stdout)?.[1]?.trim() || null;
     return { aktiv, seit };
@@ -1612,6 +1620,31 @@ async function behandeln(
         zustand: await dienstZustand('wov-server'),
       },
     };
+  }
+
+  // ── Welt zuruecksetzen: alles auf null (Editor K4.0) ──
+  //
+  // Begruendung, Reihenfolge und Sicherungen stehen im Kopf von
+  // routen/weltZuruecksetzen.ts. Hier nur die Verdrahtung.
+  if (pfad === '/api/welt-zuruecksetzen') {
+    if (methode !== 'GET' && methode !== 'POST') {
+      return { code: 405, daten: { ok: false, fehler: 'GET oder POST erwartet', message: 'GET oder POST erwartet' } };
+    }
+    const umgebung: ResetUmgebung = {
+      instanz: INSTANZ,
+      layoutDatei: LAYOUT_DATEI,
+      spielstand: resolve(WELTEN_ORDNER, `${INSTANZ}.db.zst`),
+      kontenDb: KONTEN_DB,
+      dienstStoppen: async () => {
+        await ausfuehren(SYSTEMCTL, ['stop', 'wov-server']);
+      },
+      dienstStarten: async () => {
+        await ausfuehren(SYSTEMCTL, ['start', 'wov-server']);
+      },
+      dienstZustand: () => dienstZustand('wov-server'),
+      sichern,
+    };
+    return methode === 'GET' ? weltZuruecksetzenVorschau(umgebung) : weltZuruecksetzenBehandeln(leib, umgebung);
   }
 
   // ── Weltsicherungen ──

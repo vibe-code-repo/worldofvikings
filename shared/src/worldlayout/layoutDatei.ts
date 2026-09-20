@@ -316,6 +316,12 @@ const SPERRE_LOGGEN_AB_MS = 30_000;
 export interface SchreibOptionen {
   /** Hash der Datei, auf die sich der Schreiber bezieht. Fehlt er, wird ohne Vergleich geschrieben. */
   basis?: string | null;
+  /**
+   * Ein Dokument ohne jede Region zulassen. Nur das Zurücksetzen der Welt (Editor K4.0, admin/src/routen/
+   * weltZuruecksetzen.ts) setzt es: Eine leere Welt ist genau das, was es schreiben soll. Jeder andere
+   * Schreiber behält die Hürde in `schreibenVorbereiten`.
+   */
+  leereWelt?: boolean;
   sperreWartenMs?: number;
   /** Frist für eine Sperre ohne lesbare Besitzangabe (Vorgabe `SPERRE_VERALTET_MS`). */
   sperreVeraltetMs?: number;
@@ -830,7 +836,7 @@ const LISTEN = [
 ] as const;
 
 /** Alles, was vor der Sperre feststehen kann: Prüfung des Rohdokuments, Sanitizer, Text. */
-function schreibenVorbereiten(eingabe: unknown): {
+function schreibenVorbereiten(eingabe: unknown, leereWelt = false): {
   layout: WorldLayout;
   text: string;
   verworfen: number;
@@ -862,7 +868,7 @@ function schreibenVorbereiten(eingabe: unknown): {
   //
   // Nur beim SCHREIBEN, nicht beim Lesen: Wer eine leere Datei von Hand
   // hinlegt, soll sie noch öffnen und reparieren können.
-  if (layout.regions.length === 0) {
+  if (layout.regions.length === 0 && !leereWelt) {
     throw new LayoutUngueltig(
       'Weltdokument ohne eine einzige Region — verworfen. Das wäre eine Welt aus offener See; ' +
         'wahrscheinlich ist das Dokument unvollständig übertragen worden.'
@@ -1008,7 +1014,7 @@ export function layoutSchreiben(
   behalten = SICHERUNGEN_BEHALTEN,
   optionen: SchreibOptionen = {}
 ): SchreibErgebnis {
-  const v = schreibenVorbereiten(eingabe);
+  const v = schreibenVorbereiten(eingabe, optionen.leereWelt === true);
   mkdirSync(dirname(pfad), { recursive: true });
   const sperre = sperreNehmen(
     pfad,
@@ -1031,7 +1037,7 @@ export async function layoutSchreibenAsync(
   behalten = SICHERUNGEN_BEHALTEN,
   optionen: SchreibOptionen = {}
 ): Promise<SchreibErgebnis> {
-  const v = schreibenVorbereiten(eingabe);
+  const v = schreibenVorbereiten(eingabe, optionen.leereWelt === true);
   mkdirSync(dirname(pfad), { recursive: true });
   const sperre = await sperreNehmenAsync(
     pfad,

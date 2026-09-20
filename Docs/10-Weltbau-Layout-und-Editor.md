@@ -460,6 +460,26 @@ Kennung).
   beschädigen) und `client/test/welt-abgleich.ts` (die Abgleichlogik gegen
   das echte Bestandsdokument, DOM-frei).
 
+### Welt zurücksetzen und von Hand zurückholen (Editor K4.0)
+
+Der Knopf „Welt zurücksetzen …" im Welt-Reiter (`POST /api/welt-zuruecksetzen`,
+`admin/src/routen/weltZuruecksetzen.ts`) legt Weltdokument und Spielstand leer
+an, auf `live` nie, nur nach Tippbestätigung. **Nichts wird gelöscht:** die
+Dateien liegen danach unter `<Name>.vor-reset-<Kennung>` (Kennung
+`JJJJ-MM-TT_HHMM`, UTC; steht in der Antwort und in der Editor-Meldung), dazu
+das alte Weltdokument als `worlds/<instanz>.json.<Kennung>` (nicht in
+`welten/`: das ist in git, eine fremde Datei dort hielte `wov-update.sh` an).
+Zurückholen von Hand, hier für `dev` und die Kennung `K`:
+
+```
+systemctl stop wov-server            # nie tauschen, solange der Server die Dateien offen hat
+cd server/data                       # ab hier alles relativ dazu
+for d in worlds/dev.db.zst worlds/dev.db.zst.prev; do [ -e $d ] && mv $d $d.leer; mv $d.vor-reset-K $d; done
+cp worlds/dev.json.K welten/dev.json # danach im Editor „Serverstand laden": die Basis hat sich geändert
+for f in konten/dev.db*.vor-reset-K; do g=${f%.vor-reset-K}; [ -e $g ] && mv $g $g.leer; mv $f $g; done   # nur bei „auch Konten"
+systemctl start wov-server           # die Boot-Zeile „Layout-Abgleich" zeigt wieder die alten Zahlen
+```
+
 ## NPC-Routen
 
 > **Im Testflug laufen die NPCs sofort** — als Vorschau, siehe unten.

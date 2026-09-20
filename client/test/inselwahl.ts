@@ -667,6 +667,78 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   }
 }
 
+// ── 8. The flight address is tied to the base prefix of the BUILD ───────────
+// Section 7 passes a prefix in; it cannot notice when the default stops coming
+// from the build. A `clientBase()` that returns '/' — Mike's bug, back — kept
+// the whole file green (612/612). Three links have to hold, each read from the
+// real source: Vite's `define` reaches `clientBase()`, `flightUrl` and
+// `gameUrl` take their default from it, and the base of the build config is
+// the prefix that comes out.
+{
+  const { transformSync } = await import('esbuild');
+  const quelltext = lies('../src/editor/spielAdresse.ts');
+  /** `clientBase()` of the real source as the bundler compiles it: `import.meta.env` set (or, with null, absent). */
+  const gebaut = async (basis: string | null): Promise<string> => {
+    const code = transformSync(quelltext, {
+      loader: 'ts',
+      format: 'esm',
+      ...(basis === null ? {} : { define: { 'import.meta.env': JSON.stringify({ BASE_URL: basis }) } }),
+    }).code;
+    const modul = (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)) as { clientBase(): string };
+    return modul.clientBase();
+  };
+  pruefe((await gebaut('/play/')) === '/play/', `Vite sets BASE_URL to /play/: the reader gives it back (${await gebaut('/play/')})`);
+  pruefe((await gebaut('/')) === '/', 'Vite sets BASE_URL to /: the root');
+  pruefe((await gebaut('/spiel')) === '/spiel/', 'a prefix without its trailing slash is completed');
+  pruefe((await gebaut(null)) === '/', 'no import.meta.env (a test, plain node): the root');
+
+  const baumVon = (rel: string): ts.SourceFile => ts.createSourceFile(rel, lies(rel), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const alle = (n: ts.Node, gilt: (k: ts.Node) => boolean): ts.Node[] => {
+    const treffer: ts.Node[] = [];
+    const geh = (k: ts.Node): void => {
+      if (gilt(k)) treffer.push(k);
+      ts.forEachChild(k, geh);
+    };
+    geh(n);
+    return treffer;
+  };
+  const funktion = (sf: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined =>
+    sf.statements.find((st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === name);
+  const basisParameter = (f: ts.FunctionDeclaration | undefined): ts.ParameterDeclaration | undefined =>
+    f?.parameters.find((q) => ts.isIdentifier(q.name) && q.name.text === 'base');
+
+  // gameUrl: an omitted prefix is clientBase(), nothing else.
+  const gameUrlBasis = basisParameter(funktion(baumVon('../src/editor/spielAdresse.ts'), 'gameUrl'))?.initializer;
+  pruefe(
+    gameUrlBasis !== undefined && ts.isCallExpression(gameUrlBasis) && ts.isIdentifier(gameUrlBasis.expression) && gameUrlBasis.expression.text === 'clientBase' && gameUrlBasis.arguments.length === 0,
+    `gameUrl takes an omitted prefix from clientBase() (found: ${gameUrlBasis?.getText() ?? 'no default'})`
+  );
+
+  // flightUrl: no default of its own, and every gameUrl call it makes passes its `base` on.
+  const flug = funktion(baumVon('../src/editor/testflug/inselwahl.ts'), 'flightUrl');
+  pruefe(basisParameter(flug) !== undefined && basisParameter(flug)!.initializer === undefined, 'flightUrl has a `base` parameter without a default of its own');
+  const rufe = alle(flug ?? baumVon('../src/editor/spielAdresse.ts'), (k) => ts.isCallExpression(k) && ts.isIdentifier(k.expression) && k.expression.text === 'gameUrl') as ts.CallExpression[];
+  pruefe(
+    rufe.length === 2 && rufe.every((c) => c.arguments.length === 2 && ts.isIdentifier(c.arguments[1]) && c.arguments[1].text === 'base'),
+    `both gameUrl calls of flightUrl pass its \`base\` on (${rufe.length} calls: ${rufe.map((c) => c.arguments[1]?.getText() ?? 'none').join(', ')})`
+  );
+  pruefe(/^\s*import\s*\{[^}]*\bgameUrl\b[^}]*\}\s*from\s*'\.\.\/spielAdresse'/m.test(lies('../src/editor/testflug/inselwahl.ts')), 'flightUrl uses the gameUrl of spielAdresse.ts');
+
+  // The build config: its `base` is the prefix that comes out. Read from the syntax tree, not the text.
+  const konfig = baumVon('../vite.config.ts');
+  const basen = alle(konfig, (k) => ts.isPropertyAssignment(k) && ts.isIdentifier(k.name) && k.name.text === 'base') as ts.PropertyAssignment[];
+  const konfigBasis = basen.length === 1 && ts.isStringLiteral(basen[0].initializer) ? basen[0].initializer.text : null;
+  pruefe(konfigBasis !== null && konfigBasis.startsWith('/') && konfigBasis !== '/', `vite.config.ts has one \`base\`, a prefix and not the root (${konfigBasis})`);
+  if (konfigBasis !== null) {
+    const gebaut = await (async (): Promise<string> => {
+      const code = transformSync(quelltext, { loader: 'ts', format: 'esm', define: { 'import.meta.env': JSON.stringify({ BASE_URL: konfigBasis }) } }).code;
+      return ((await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)) as { gameUrl(q: string): string }).gameUrl('offline=1&layout=editor');
+    })();
+    pruefe(gebaut === `${konfigBasis}?offline=1&layout=editor`, `with the base of the build config the flight address starts with it: ${gebaut}`);
+    pruefe(!gebaut.startsWith('/?'), 'and it is not the bare root');
+  }
+}
+
 console.log(`\n${geprueft - fehler}/${geprueft} checks passed`);
 if (fehler > 0) {
   console.error(`${fehler} FAILED`);

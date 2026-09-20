@@ -4,8 +4,7 @@
  * und aggregiert die Exit-Codes — vorher liefen 29 Testdateien nur einzeln
  * von Hand.
  *
- *   npm test              schnelle Kernliste (~2–3 min)
- *   npm test -- --alle    zusätzlich die langen Läufe (Placement, E2E-Wire)
+ *   npm test              die Liste KERN, alles in einem Lauf (rund 10 min)
  *
  * WEICHEN (S3): Einträge mit dritter Stelle laufen nur, wenn ihre
  * Voraussetzung da ist — `assets/` (liegt ausserhalb des Repos) und/oder
@@ -782,6 +781,10 @@ const KERN = [
   // und ein gueltiges Token haelt die Identitaet ueber einen Reconnect
   // stabil.
   ['server', 'test/f3-einbau.ts'],
+  // F4: Gelaendeebnung fuer Locations (gleiche Rechnung auf Server und Client):
+  // Regelwahl, Plateau und Uebergangsband auf einer Hangflaeche, und mit leerer
+  // Feature-Tabelle bleibt das Gelaende Naturgelaende. Kein Server/Socket. ~3 s.
+  ['server', 'test/f3-leveling.ts'],
   // A5 (Schlusskontrolle Paket 2): Deckel fuer offene, nie authentifizierte
   // Verbindungen (MAX_PENDING_CONNECTIONS in NetManager.ts). Vorher zaehlte
   // die "Server voll"-Pruefung nur onlinePeers — der Pre-Auth-Timeout liess
@@ -1297,6 +1300,10 @@ const KERN = [
   // von Hand nach statt sie zu rufen — s. Importkommentare im Test).
   // ~4s, kein einziges Byte davon war ein echter Produktivfehler.
   ['server', 'test/g6-dungeon-e2e.ts'],
+  // G5: DungeonManager (Dokumente, Eingaenge, Instanzen) — Platten-Rundlauf,
+  // Instanz je eigener Welt, Abbau. Kein Server/Socket, schreibt in einen
+  // eigenen Ordner unter server/test und raeumt ihn wieder weg. ~1-3 s.
+  ['server', 'test/g5-dungeons.ts'],
   // G1-Durchsicht: Wetter/Wind-Port (Timing aus den Assets, Determinismus,
   // Ziehungsgewichte, Windclamp/-rampe, windData-Alpha, Niederschlags-
   // zuordnung). Reine Funktion, kein Server/Socket, Sekunden.
@@ -1456,6 +1463,10 @@ const KERN = [
   // Abmeldung — ein eingefrorener Geist an der letzten bekannten Position
   // statt eines verschwindenden Spielers. ~4s.
   ['server', 'test/g3-mehrspieler-e2e.ts'],
+  // G3/G-POP: Warteschlange der Zonen-Erzeugung — naechste Zone zuerst, veraltete
+  // fliegen raus, ein Bild mit Budget erzeugt wirklich Zonen. Kein Netz, keine
+  // Assets. ~4 s.
+  ['server', 'test/g3-streaming.ts'],
   // F2 (Roadmap): assets/manifest.json (tools/asset-manifest.mjs) haelt Huellbox,
   // Dreieckszahl, Animationen und mesh-lose Rigs je GLB fest -- ohne diesen Test
   // veraltet es lautlos (neues Modell ohne Eintrag, geloeschtes mit Leiche im
@@ -1682,12 +1693,14 @@ const KERN = [
     `assets/`, rund 0,3 s; er braucht deshalb keine Weiche fuer den
     CI-Checkout.
 
-    Er stand bis zum 09.09.2026 in LANG und lief damit nur bei
-    `npm test -- --alle`. Das war eine Einordnung nach Thema statt nach
-    Kosten: In LANG stehen Laeufe, die einen Server hochfahren oder
-    Sekunden brauchen; dieser hier ist eine Rechnung von 0,3 s und
+    Er stand bis zum 09.09.2026 in einer zweiten Liste (LANG), die nur
+    mit einem eigenen Schalter lief. Das war eine Einordnung nach Thema
+    statt nach Kosten: Dort standen Laeufe, die einen Server hochfahren
+    oder Sekunden brauchen; dieser hier ist eine Rechnung von 0,3 s und
     gehoert zu den anderen reinen Rechnungen im Kernlauf. Ein Test, der
     im normalen Lauf nicht mitfaehrt, faellt beim Brechen nicht auf.
+    (Die Liste ist seit 20.09.2026 aufgeloest: ihre drei letzten Tests
+    stehen in KERN, den Schalter gibt es nicht mehr.)
 
     Was er festhaelt, ist dreimal dieselbe Sorte Fehler: etwas, das
     aussieht wie ein gesetzter Wert und keiner ist. Ein fehlendes
@@ -2009,13 +2022,6 @@ const KERN = [
   ['tools/armor/test', 'emberrage-glow.ts'],
 ];
 
-const LANG = [
-  ['server', 'test/g3-streaming.ts'],
-  ['server', 'test/g5-dungeons.ts'],
-  ['server', 'test/f3-leveling.ts'],
-];
-
-const liste = process.argv.includes('--alle') ? [...KERN, ...LANG] : KERN;
 let fehler = 0;
 let uebersprungen = 0;
 const start = Date.now();
@@ -2054,7 +2060,7 @@ function ausgabeAufbereiten(stdout) {
   return teile.join('\n');
 }
 
-for (const [paket, datei, weiche] of liste) {
+for (const [paket, datei, weiche] of KERN) {
   const t0 = Date.now();
   process.stdout.write(`▶ ${paket}/${datei} … `);
   const grund = weiche?.();
@@ -2121,7 +2127,7 @@ if (schmutzigeZeilen.length > 0) {
 }
 
 console.log(
-  `\n${liste.length - fehler - uebersprungen}/${liste.length} Tests grün` +
+  `\n${KERN.length - fehler - uebersprungen}/${KERN.length} Tests grün` +
     (uebersprungen > 0 ? `, ${uebersprungen} übersprungen` : '') +
     ` in ${((Date.now() - start) / 1000).toFixed(0)}s`
 );

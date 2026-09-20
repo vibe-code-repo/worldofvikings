@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Prüft: jede Testdatei im Baum steht im STANDARD-Sammellauf (`npm test`) —
- * oder mit Grund auf einer der beiden Listen weiter unten.
+ * Prüft: jede Testdatei im Baum steht im Sammellauf (`npm test`) — oder mit
+ * Grund auf der Ausnahmeliste weiter unten.
  *
  * Paket 0.10 (verwaiste Tests). Der Sammellauf führt eine von Hand gepflegte
  * Liste. Wer eine Testdatei anlegt und sie dort nicht einträgt, hat einen
@@ -19,27 +19,31 @@
  * Symlinks auf Ordner werden verfolgt (mit Schutz gegen Schleifen).
  * Übersprungen werden `node_modules`, `.git`, `assets` und Bauordner.
  *
- * Was der Runner kennt: die Einträge der Listen `KERN` und `LANG` in
- * `scripts/run-tests.mjs`, gelesen am Syntaxbaum (nicht per Textsuche —
- * Kommentare nennen Dateinamen, und ein umformatierter Eintrag bliebe für
- * eine Textsuche unsichtbar). Ein Eintrag, der sich nicht als
- * `['ordner', 'datei']` mit Textliteralen lesen lässt, ist selbst ein Befund.
+ * Was der Runner kennt: die Einträge der Liste `KERN` in `scripts/run-tests.mjs`,
+ * gelesen am Syntaxbaum (nicht per Textsuche — Kommentare nennen Dateinamen,
+ * und ein umformatierter Eintrag bliebe für eine Textsuche unsichtbar). Es
+ * zählt nur die Deklaration auf OBERSTER Ebene; eine gleichnamige Liste in
+ * einer Funktion oder einem Block schaltet keine Datei ein. Ein Eintrag, der
+ * sich nicht als `['ordner', 'datei']` mit Textliteralen lesen lässt, ist
+ * selbst ein Befund.
  *
- * KERN und LANG sind NICHT gleichwertig: `npm test` fährt nur KERN, LANG
- * kommt erst mit `--alle` dazu. Als „eingetragen" zählt deshalb nur KERN.
- * Wer eine Datei in LANG führt, trägt sie zusätzlich in `NUR_MIT_ALLE` ein,
- * mit Grund; der Lauf meldet diese Liste jedes Mal. Eine Datei, die nur in
- * LANG steht, ohne dort begründet zu sein, ist ein Befund — sonst ließe sich
- * ein Test durch Verschieben nach LANG still abschalten. Der Zeuge prüft
- * auch, dass die Standardliste des Runners weiter `KERN` ist.
+ * Der Zeuge prüft außerdem, dass der Runner die Liste wirklich fährt, die er
+ * liest: Auf oberster Ebene steht genau eine Schleife, die Tests startet
+ * (`spawnSync`), und sie läuft über `KERN` selbst — nicht über eine Kopie,
+ * einen Filter oder eine andere Liste. Sonst kommt `KERN` nur noch lesend als
+ * `KERN.length` vor. Ein Textmuster für „die Standardliste ist KERN" würde
+ * eine unbenutzte Lockvogel-Zeile täuschen; die Schleife lässt sich nicht
+ * ablenken. (Bis 20.09.2026 gab es daneben eine Liste `LANG` und den Schalter
+ * `--alle`; beides ist weg, seit die drei Tests darin in KERN stehen.)
  *
  * Wer eine Datei gar nicht eintragen kann, trägt sie in `AUSNAHMEN` ein:
  *   werkzeug  kein Test: Messbank, Bündel-Einstieg, Blender-Skript oder ein
  *             Prüfer, der Argumente (Ausgabeordner, URL) braucht
  *   rot       ein Test, der bei erfüllten Voraussetzungen rot ist und aus
- *             gutem Grund nicht im Lauf steht; verlangt `seit` (Datum). Er
- *             wird bei JEDEM Lauf namentlich gemeldet, und `--pruefe-rot`
- *             führt ihn aus und schlägt an, wenn er grün geworden ist
+ *             gutem Grund nicht im Lauf steht; verlangt `seit` (echtes Datum
+ *             JJJJ-MM-TT, nicht in der Zukunft). Er wird bei JEDEM Lauf
+ *             namentlich gemeldet, und `--pruefe-rot` führt ihn aus und
+ *             schlägt an, wenn er grün geworden ist
  * Beides ist Buchführung, keine Streichung: Die Datei bleibt, wo sie ist.
  * Pfade stehen kanonisch (`a/b/c.ts`, kein `./`, kein `..`). Eine Ausnahme
  * ohne Grund, für eine Datei, die es nicht mehr gibt, oder für eine Datei,
@@ -55,8 +59,8 @@
  * `--wurzel=`     prüft einen anderen Baum (mit eigenem `scripts/run-tests.mjs`).
  *
  * Guards the collective run: every test file in the tree is registered in
- * KERN of scripts/run-tests.mjs (what `npm test` runs), or carries a reason
- * on the LANG or exception list.
+ * the top-level list KERN of scripts/run-tests.mjs, or carries a reason on the
+ * exception list — and the runner's one test loop walks KERN itself.
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -82,23 +86,12 @@ const TESTORDNER = /^(test|tests|__tests__)$/i;
 const TESTNAME = /\.(test|spec)\.[^./]+$/i;
 const ZEUGENNAME = /^pruefe-/i;
 const UEBERSPRUNGEN = new Set(['node_modules', '.git', 'assets', 'dist', 'build', '.svelte-kit']);
-const DATUM = /^\d{4}-\d{2}-\d{2}$/;
+const DATUM = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /*
-  Test files that only run with `npm test -- --alle` (the LANG list of
-  run-tests.mjs). Every LANG entry needs a line here; paths are canonical,
-  relative to the repository root. Keep `grund` in one line: it is printed.
-*/
-const NUR_MIT_ALLE = [
-  { pfad: 'server/test/g3-streaming.ts', grund: 'Warteschlange der Zonen-Erzeugung; nur mit --alle, obwohl gemessen 1,8 s (20.09.2026): Kandidat für KERN' },
-  { pfad: 'server/test/g5-dungeons.ts', grund: 'DungeonManager (Dokumente, Eingänge, Instanzen); nur mit --alle, obwohl gemessen 1,0 s (20.09.2026): Kandidat für KERN' },
-  { pfad: 'server/test/f3-leveling.ts', grund: 'Geländeebnung für Locations; nur mit --alle, obwohl gemessen 2,4 s (20.09.2026): Kandidat für KERN' },
-];
-
-/*
-  Files that look like tests but are in neither list. Paths are relative to
-  the repository root, canonical. Keep `grund` in one line: it is printed.
-  Kind `rot` also needs `seit` (YYYY-MM-DD, when it was parked).
+  Files that look like tests but are not in KERN. Paths are relative to the
+  repository root, canonical. Keep `grund` in one line: it is printed.
+  Kind `rot` also needs `seit` (YYYY-MM-DD, a real day, not in the future).
 */
 const AUSNAHMEN = [
   // ── Werkzeuge und Messbänke (Begründung steht auch im Kopf von run-tests.mjs) ──
@@ -134,6 +127,22 @@ const AUSNAHMEN = [
 
 /** `a/./b`, `./a`, `a/../a`, backslashes → `a/b`, `a`. */
 const kanonisch = (pfad) => posix.normalize(String(pfad).split('\\').join('/'));
+
+/**
+ * `text` is `JJJJ-MM-TT`, names a day that exists (no 2026-02-31, no 0000-00-00)
+ * and is not in the future. One day of slack at most: somebody in UTC+14 already
+ * writes tomorrow's date while it is still today in UTC.
+ */
+function istEchtesDatum(text, jetzt = Date.now()) {
+  const teile = typeof text === 'string' ? DATUM.exec(text) : null;
+  if (!teile) return false;
+  const [jahr, monat, tag] = teile.slice(1).map(Number);
+  const tagNull = new Date(Date.UTC(2000, monat - 1, tag));
+  tagNull.setUTCFullYear(jahr);
+  // Date rolls 2026-02-31 over to March; a real day survives the round trip.
+  if (tagNull.getUTCFullYear() !== jahr || tagNull.getUTCMonth() !== monat - 1 || tagNull.getUTCDate() !== tag) return false;
+  return tagNull.getTime() <= jetzt + 14 * 3600 * 1000;
+}
 
 /**
  * Every candidate test file below `wurzel` (root-relative, `/`): see the header for
@@ -175,93 +184,140 @@ function kandidaten(wurzel) {
 }
 
 /**
- * The `[ordner, datei, weiche?]` entries of KERN and LANG, read from the syntax tree,
- * plus whether the runner's default list (without `--alle`) is still KERN.
+ * The `[ordner, datei, weiche?]` entries of KERN, read from the syntax tree, plus
+ * `formfehler`: everything about the runner's shape that would let its list and
+ * its run drift apart.
+ *
+ * Only the declaration at the top level of the file counts (a `KERN` in a function
+ * or block registers nothing). The run is the top-level `for...of` that calls
+ * `spawnSync`; it must walk `KERN` itself. Any other mention of the identifier
+ * `KERN` — a copy, a `.splice`, `.length = 0`, a call argument, a second
+ * declaration — is a finding, so nothing can change what the loop walks after
+ * the fact. Reading `KERN.length` is allowed (the summary line).
  */
 function eingetragene(quelltext) {
   const baum = ts.createSourceFile('run-tests.mjs', quelltext, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const kern = [];
-  const lang = [];
   const unlesbar = [];
-  const gefundeneListen = [];
-  let standardIstKern = false;
-  const besuche = (knoten) => {
-    if (
-      ts.isVariableDeclaration(knoten) &&
-      ts.isIdentifier(knoten.name) &&
-      ['KERN', 'LANG'].includes(knoten.name.text) &&
-      knoten.initializer &&
-      ts.isArrayLiteralExpression(knoten.initializer)
-    ) {
-      gefundeneListen.push(knoten.name.text);
-      const ziel = knoten.name.text === 'KERN' ? kern : lang;
-      for (const eintrag of knoten.initializer.elements) {
+  const formfehler = [];
+  const zeile = (n) => baum.getLineAndCharacterOfPosition(n.getStart(baum)).line + 1;
+  const kurz = (n) => n.getText(baum).replace(/\s+/g, ' ').slice(0, 80);
+  const erlaubt = new Set();
+
+  // The list: a `const KERN = [...]` directly in the file.
+  const deklarationen = [];
+  for (const anweisung of baum.statements) {
+    if (!ts.isVariableStatement(anweisung)) continue;
+    for (const d of anweisung.declarationList.declarations) {
+      if (ts.isIdentifier(d.name) && d.name.text === 'KERN') deklarationen.push(d);
+    }
+  }
+  if (deklarationen.length === 0) {
+    formfehler.push('die Liste KERN steht nicht auf oberster Ebene von run-tests.mjs (Zeuge blind)');
+  } else if (deklarationen.length > 1) {
+    formfehler.push(`KERN ist mehrfach auf oberster Ebene deklariert (Zeilen ${deklarationen.map(zeile).join(', ')})`);
+  } else {
+    const [d] = deklarationen;
+    erlaubt.add(d.name);
+    if (!(d.parent.flags & ts.NodeFlags.Const)) formfehler.push(`KERN (Zeile ${zeile(d)}) ist nicht \`const\``);
+    if (!d.initializer || !ts.isArrayLiteralExpression(d.initializer)) {
+      formfehler.push(`KERN (Zeile ${zeile(d)}) ist kein Array-Literal, die Einträge sind nicht lesbar`);
+    } else {
+      for (const eintrag of d.initializer.elements) {
         const [ordner, datei] = ts.isArrayLiteralExpression(eintrag) ? eintrag.elements : [];
         const text = (n) => (n && ts.isStringLiteralLike(n) ? n.text : null);
         if (text(ordner) === null || text(datei) === null) {
-          unlesbar.push(`${knoten.name.text}: ${eintrag.getText(baum).replace(/\s+/g, ' ').slice(0, 80)}`);
+          unlesbar.push(`KERN: ${kurz(eintrag)}`);
           continue;
         }
-        ziel.push(kanonisch(`${text(ordner)}/${text(datei)}`));
+        kern.push(kanonisch(`${text(ordner)}/${text(datei)}`));
       }
     }
-    // `process.argv.includes('--alle') ? [...KERN, ...LANG] : KERN`
+  }
+
+  // The run: exactly one top-level loop that starts tests, and it walks KERN.
+  const startetTests = (knoten) => {
+    let gefunden = false;
+    const such = (n) => {
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'spawnSync') gefunden = true;
+      if (!gefunden) ts.forEachChild(n, such);
+    };
+    such(knoten);
+    return gefunden;
+  };
+  const laeufe = baum.statements.filter((a) => ts.isForOfStatement(a) && startetTests(a.statement));
+  if (laeufe.length === 0) {
+    formfehler.push('kein Lauf: auf oberster Ebene fehlt die `for (… of KERN)`-Schleife, die Tests mit spawnSync startet');
+  } else if (laeufe.length > 1) {
+    formfehler.push(`mehrere Schleifen starten Tests (Zeilen ${laeufe.map(zeile).join(', ')}); erwartet genau eine über KERN`);
+  }
+  for (const lauf of laeufe) {
+    if (ts.isIdentifier(lauf.expression) && lauf.expression.text === 'KERN') {
+      erlaubt.add(lauf.expression);
+    } else {
+      formfehler.push(`der Lauf (Zeile ${zeile(lauf)}) geht nicht über KERN, sondern über: ${kurz(lauf.expression)}`);
+    }
+  }
+
+  // Every other mention of KERN could change what the loop walks.
+  const wirdGeschrieben = (zugriff) => {
+    const eltern = zugriff.parent;
     if (
-      ts.isConditionalExpression(knoten) &&
-      knoten.condition.getText(baum).includes('--alle') &&
-      ts.isIdentifier(knoten.whenFalse) &&
-      knoten.whenFalse.text === 'KERN'
+      ts.isBinaryExpression(eltern) &&
+      eltern.left === zugriff &&
+      eltern.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      eltern.operatorToken.kind <= ts.SyntaxKind.LastAssignment
     ) {
-      standardIstKern = true;
+      return true;
+    }
+    if (
+      (ts.isPrefixUnaryExpression(eltern) || ts.isPostfixUnaryExpression(eltern)) &&
+      [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(eltern.operator)
+    ) {
+      return true;
+    }
+    return ts.isDeleteExpression(eltern);
+  };
+  const besuche = (knoten) => {
+    if (ts.isIdentifier(knoten) && knoten.text === 'KERN' && !erlaubt.has(knoten)) {
+      const eltern = knoten.parent;
+      const alsName =
+        (ts.isPropertyAccessExpression(eltern) && eltern.name === knoten) ||
+        (ts.isPropertyAssignment(eltern) && eltern.name === knoten);
+      const laenge =
+        ts.isPropertyAccessExpression(eltern) &&
+        eltern.expression === knoten &&
+        eltern.name.text === 'length' &&
+        !wirdGeschrieben(eltern);
+      if (!alsName && !laenge) {
+        let anweisung = knoten;
+        while (anweisung.parent && !ts.isBlock(anweisung.parent) && !ts.isSourceFile(anweisung.parent)) anweisung = anweisung.parent;
+        formfehler.push(
+          `KERN kommt in Zeile ${zeile(knoten)} an unerwarteter Stelle vor (erlaubt: die Deklaration, die Schleife, lesend KERN.length): ${kurz(anweisung)}`,
+        );
+      }
     }
     ts.forEachChild(knoten, besuche);
   };
   besuche(baum);
-  return { kern, lang, unlesbar, gefundeneListen, standardIstKern };
+  // Two identifiers in one statement report the same line once.
+  return { kern, unlesbar, formfehler: [...new Set(formfehler)] };
 }
 
 /** All findings for the tree at `wurzel`; an empty list is a pass. */
-function befunde(wurzel, ausnahmen, nurMitAlle) {
+function befunde(wurzel, ausnahmen) {
   const lauf = join(wurzel, 'scripts', 'run-tests.mjs');
   if (!existsSync(lauf)) return [`scripts/run-tests.mjs fehlt unter ${wurzel}`];
-  const { kern, lang, unlesbar, gefundeneListen, standardIstKern } = eingetragene(readFileSync(lauf, 'utf8'));
-  const gefunden = [];
-  if (!gefundeneListen.includes('KERN')) gefunden.push('die Liste KERN steht nicht in run-tests.mjs (Zeuge blind)');
-  if (!standardIstKern) {
-    gefunden.push("run-tests.mjs: die Standardliste ist nicht mehr KERN (erwartet: `--alle ? [...KERN, ...LANG] : KERN`)");
-  }
+  const { kern, unlesbar, formfehler } = eingetragene(readFileSync(lauf, 'utf8'));
+  const gefunden = [...formfehler];
   for (const u of unlesbar) gefunden.push(`Eintrag nicht lesbar (kein [ordner, datei] aus Textliteralen): ${u}`);
 
-  // Entries of both lists: duplicates and missing files.
+  // Entries of KERN: duplicates and missing files.
   const inKern = new Set();
-  const inLang = new Set();
-  for (const [name, liste, menge] of [['KERN', kern, inKern], ['LANG', lang, inLang]]) {
-    for (const pfad of liste) {
-      if (menge.has(pfad)) gefunden.push(`doppelt eingetragen (${name}): ${pfad}`);
-      menge.add(pfad);
-      if (!existsSync(join(wurzel, pfad))) gefunden.push(`eingetragen, aber die Datei fehlt: ${pfad}`);
-    }
-  }
-  for (const pfad of inKern) {
-    if (inLang.has(pfad)) gefunden.push(`steht in KERN und in LANG: ${pfad}`);
-  }
-
-  // LANG runs only with `--alle`: every entry must be justified on NUR_MIT_ALLE, and vice versa.
-  const begruendetLang = new Set();
-  for (const { pfad, grund } of nurMitAlle) {
-    const kanon = kanonisch(pfad);
-    if (kanon !== pfad) gefunden.push(`NUR_MIT_ALLE: Pfad nicht kanonisch geschrieben: ${pfad} (gemeint: ${kanon})`);
-    if (begruendetLang.has(kanon)) gefunden.push(`NUR_MIT_ALLE doppelt: ${kanon}`);
-    begruendetLang.add(kanon);
-    if (typeof grund !== 'string' || grund.trim().length === 0) gefunden.push(`NUR_MIT_ALLE ohne Grund: ${kanon}`);
-    if (!inLang.has(kanon)) gefunden.push(`NUR_MIT_ALLE nennt eine Datei, die nicht in LANG steht: ${kanon}`);
-  }
-  for (const pfad of inLang) {
-    if (!begruendetLang.has(pfad)) {
-      gefunden.push(
-        `nur in LANG (läuft NICHT ohne --alle) und nicht auf NUR_MIT_ALLE begründet: ${pfad}`,
-      );
-    }
+  for (const pfad of kern) {
+    if (inKern.has(pfad)) gefunden.push(`doppelt eingetragen (KERN): ${pfad}`);
+    inKern.add(pfad);
+    if (!existsSync(join(wurzel, pfad))) gefunden.push(`eingetragen, aber die Datei fehlt: ${pfad}`);
   }
 
   const bekannteAusnahmen = new Set();
@@ -272,17 +328,17 @@ function befunde(wurzel, ausnahmen, nurMitAlle) {
     bekannteAusnahmen.add(kanon);
     if (!['werkzeug', 'rot'].includes(art)) gefunden.push(`Ausnahme ${kanon}: unbekannte Art "${art}"`);
     if (typeof grund !== 'string' || grund.trim().length === 0) gefunden.push(`Ausnahme ohne Grund: ${kanon}`);
-    if (art === 'rot' && !(typeof seit === 'string' && DATUM.test(seit) && !Number.isNaN(Date.parse(seit)))) {
-      gefunden.push(`Ausnahme ${kanon} (rot): "seit" fehlt oder ist kein Datum JJJJ-MM-TT`);
+    if (art === 'rot' && !istEchtesDatum(seit)) {
+      gefunden.push(`Ausnahme ${kanon} (rot): "seit" fehlt, ist kein echtes Datum JJJJ-MM-TT oder liegt in der Zukunft: ${JSON.stringify(seit)}`);
     }
     if (!existsSync(join(wurzel, kanon))) gefunden.push(`Ausnahme für eine Datei, die es nicht mehr gibt: ${kanon}`);
-    if (inKern.has(kanon) || inLang.has(kanon)) {
+    if (inKern.has(kanon)) {
       gefunden.push(`Ausnahme widerspricht dem Runner (steht dort schon): ${kanon}`);
     }
   }
 
   for (const pfad of kandidaten(wurzel)) {
-    if (!inKern.has(pfad) && !inLang.has(pfad) && !bekannteAusnahmen.has(pfad)) {
+    if (!inKern.has(pfad) && !bekannteAusnahmen.has(pfad)) {
       gefunden.push(`verwaist — Testdatei steht weder in run-tests.mjs noch auf der Ausnahmeliste: ${pfad}`);
     }
   }
@@ -338,9 +394,11 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     mkdirSync(dirname(join(wegwerf, pfad)), { recursive: true });
     writeFileSync(join(wegwerf, pfad), inhalt);
   };
-  const STANDARD = "const liste = process.argv.includes('--alle') ? [...KERN, ...LANG] : KERN;\n";
-  const runner = (kernEintraege, langEintraege = '', standard = STANDARD) =>
-    `const KERN = [\n${kernEintraege}\n];\nconst LANG = [\n${langEintraege}\n];\n${standard}`;
+  // The smallest runner the witness accepts: the list, one loop over it, the count.
+  const SCHLEIFE =
+    "for (const [paket, datei] of KERN) {\n  spawnSync('tsx', [datei], { cwd: paket });\n}\nconsole.log(`${KERN.length} Tests`);\n";
+  const runner = (kernEintraege, rest = SCHLEIFE) =>
+    `import { spawnSync } from 'node:child_process';\nconst KERN = [\n${kernEintraege}\n];\n${rest}`;
   const grundEintraege = "  ['server', 'test/a.ts'],\n  ['client/test', 'c.ts'],";
   const setzeRunner = (...args) => schreibe('scripts/run-tests.mjs', runner(...args));
   try {
@@ -352,10 +410,9 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     schreibe('node_modules/x/test/d.ts');
     schreibe('assets/test/e.ts');
     schreibe('server/test/tmp-lauf/daten.json');
-    const mit = (ausnahmen, nurAlle = []) => befunde(wegwerf, ausnahmen, nurAlle);
+    const mit = (ausnahmen) => befunde(wegwerf, ausnahmen);
     const enthaelt = (liste, teil) => liste.some((b) => b.includes(teil));
     const ausnahmeB = { pfad: 'server/test/b.ts', art: 'werkzeug', grund: 'Probe' };
-    const langB = { pfad: 'server/test/b.ts', grund: 'Probe: läuft lange' };
 
     console.log('  — Grundrichtungen');
     const ohne = mit([]);
@@ -411,51 +468,78 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     schreibe('scripts/run-tests.mjs', 'const ANDERS = [];\n');
     pruefe(enthaelt(mit([]), 'KERN'), 'ohne Liste KERN ⇒ Befund (der Zeuge sähe sonst nichts)');
 
-    console.log('  — LANG läuft nicht im Standardlauf (M1)');
+    console.log('  — der Lauf geht über die Liste, die der Zeuge liest (M1)');
     const kernMitB = `${grundEintraege}\n  ['server', 'test/b.ts'],`;
     setzeRunner(kernMitB);
-    pruefe(mit([]).length === 0, 'Ausgangslage: b.ts in KERN ⇒ kein Befund');
-    setzeRunner(grundEintraege, "  ['server', 'test/b.ts'],");
-    const nachLang = mit([]);
+    pruefe(mit([]).length === 0, 'Ausgangslage: b.ts in KERN, eine Schleife über KERN, KERN.length gelesen ⇒ kein Befund');
+    // The attacker's mutant of the old witness: an unused decoy line that looks like the
+    // default-list check, while the loop really walks another list.
+    const lockvogel = "const _unbenutzt = process.argv.includes('--alle') ? [...KERN, ...LANG] : KERN;\n";
+    const ueberListe = (ausdruck) => SCHLEIFE.replace('of KERN', `of ${ausdruck}`);
+    setzeRunner(grundEintraege, `const LANG = [\n  ['server', 'test/b.ts'],\n];\n${lockvogel}const liste = LANG;\n${ueberListe('liste')}`);
+    const lockvogelFall = mit([]);
     pruefe(
-      enthaelt(nachLang, 'nur in LANG') && enthaelt(nachLang, 'server/test/b.ts'),
-      'Test von KERN nach LANG verschoben, ohne Begründung ⇒ Befund',
-    );
-    pruefe(mit([], [langB]).length === 0, 'als begründeter LANG-Eintrag (NUR_MIT_ALLE) geführt ⇒ kein Befund');
-    pruefe(
-      enthaelt(mit([], [{ ...langB, grund: '' }]), 'NUR_MIT_ALLE ohne Grund'),
-      'LANG-Eintrag mit leerem Grund ⇒ Befund',
-    );
-    pruefe(
-      enthaelt(mit([], [langB, { pfad: 'server/test/a.ts', grund: 'Probe' }]), 'nicht in LANG steht'),
-      'NUR_MIT_ALLE nennt eine Datei, die nicht in LANG steht ⇒ Befund',
+      enthaelt(lockvogelFall, 'geht nicht über KERN, sondern über: liste'),
+      'Lockvogel-Zeile mit `--alle` und `const liste = LANG` ⇒ Befund: der Lauf geht nicht über KERN',
     );
     pruefe(
-      enthaelt(mit([], [langB, langB]), 'NUR_MIT_ALLE doppelt'),
-      'doppelter Eintrag auf NUR_MIT_ALLE ⇒ Befund',
+      enthaelt(lockvogelFall, 'server/test/b.ts'),
+      'Lockvogel-Fall: die nur in einer anderen Liste stehende Datei gilt nicht als eingetragen',
+    );
+    setzeRunner(kernMitB, ueberListe('KERN.filter(() => true)'));
+    pruefe(enthaelt(mit([]), 'geht nicht über KERN, sondern über: KERN.filter'), 'Schleife über einen Filter von KERN ⇒ Befund');
+    setzeRunner(kernMitB, ueberListe('[...KERN]'));
+    pruefe(enthaelt(mit([]), 'geht nicht über KERN, sondern über: [...KERN]'), 'Schleife über eine Kopie von KERN ⇒ Befund');
+    setzeRunner(kernMitB, `function fahre() {\n${ueberListe('KERN')}}\n`);
+    pruefe(enthaelt(mit([]), 'kein Lauf'), 'Schleife nur in einer Funktion (nie gerufen) statt auf oberster Ebene ⇒ Befund „kein Lauf"');
+    setzeRunner(kernMitB, `if (false) {\n${ueberListe('KERN')}}\n`);
+    pruefe(enthaelt(mit([]), 'kein Lauf'), 'Schleife in totem `if (false)` ⇒ Befund „kein Lauf"');
+    setzeRunner(kernMitB, `${SCHLEIFE}${ueberListe('[]')}`);
+    pruefe(enthaelt(mit([]), 'mehrere Schleifen'), 'zweite Schleife, die Tests startet ⇒ Befund');
+    setzeRunner(kernMitB, 'console.log(KERN.length);\n');
+    pruefe(enthaelt(mit([]), 'kein Lauf'), 'gar keine Schleife ⇒ Befund „kein Lauf"');
+    setzeRunner(kernMitB, `${SCHLEIFE}KERN.splice(0, KERN.length);\n`);
+    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), 'KERN nach dem Aufbau geleert (`KERN.splice`) ⇒ Befund');
+    setzeRunner(kernMitB, `KERN.length = 0;\n${SCHLEIFE}`);
+    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), '`KERN.length = 0` ⇒ Befund');
+    setzeRunner(kernMitB, `${SCHLEIFE}KERN.length -= 1;\n`);
+    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), '`KERN.length -= 1` ⇒ Befund');
+    setzeRunner(kernMitB, `${SCHLEIFE}const eins = KERN.length++;\n`);
+    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), '`KERN.length++` ⇒ Befund');
+    setzeRunner(kernMitB, `${SCHLEIFE}KERN.push(...LANG);\n`);
+    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), '`KERN.push(…)` ⇒ Befund');
+    setzeRunner(kernMitB, `${SCHLEIFE}verarbeite(KERN);\n`);
+    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), 'KERN als Argument weitergereicht ⇒ Befund');
+    setzeRunner(kernMitB, `${SCHLEIFE}const p = { KERN: 1 };\nconst q = p.KERN;\n`);
+    pruefe(mit([]).length === 0, 'ein Eigenschaftsname `KERN` (`{ KERN: 1 }`, `p.KERN`) ist keine Erwähnung der Liste ⇒ kein Befund');
+    schreibe('scripts/run-tests.mjs', runner(kernMitB).replace('const KERN', 'let KERN'));
+    pruefe(enthaelt(mit([]), 'nicht `const`'), '`let KERN` statt `const KERN` ⇒ Befund');
+    schreibe('scripts/run-tests.mjs', runner(kernMitB, `var KERN = [];\n${SCHLEIFE}`).replace('const KERN', 'var KERN'));
+    pruefe(enthaelt(mit([]), 'mehrfach'), 'zwei Deklarationen von KERN auf oberster Ebene ⇒ Befund');
+    schreibe('scripts/run-tests.mjs', `import { spawnSync } from 'node:child_process';\nconst KERN = [].concat([]);\n${SCHLEIFE}`);
+    pruefe(enthaelt(mit([]), 'kein Array-Literal'), 'KERN aus einem Ausdruck statt einem Array-Literal ⇒ Befund');
+
+    console.log('  — nur die Liste auf oberster Ebene zählt (M2)');
+    setzeRunner(grundEintraege, `${SCHLEIFE}function hilfe() {\n  const KERN = [['server', 'test/b.ts']];\n  return KERN;\n}\n`);
+    const schatten = mit([]);
+    pruefe(
+      enthaelt(schatten, 'verwaist') && enthaelt(schatten, 'server/test/b.ts'),
+      'zweite `const KERN` in einer Funktion mit b.ts ⇒ b.ts gilt weiter als verwaist',
     );
     pruefe(
-      enthaelt(mit([], [{ ...langB, pfad: './server/test/b.ts' }]), 'kanonisch'),
-      'NUR_MIT_ALLE mit krummem Pfad ⇒ Befund',
+      enthaelt(schatten, 'an unerwarteter Stelle'),
+      'zweite `const KERN` in einer Funktion ⇒ auch die Deklaration selbst ist ein Befund',
     );
-    schreibe('server/test/waise-lang.ts');
-    setzeRunner(kernMitB, "  ['server', 'test/waise-lang.ts'],");
-    pruefe(
-      enthaelt(mit([]), 'server/test/waise-lang.ts') && enthaelt(mit([]), 'nur in LANG'),
-      'neue Datei NUR in LANG eingetragen ⇒ Befund (statt still „eingetragen")',
+    setzeRunner(grundEintraege, `${SCHLEIFE}{\n  const KERN = [['server', 'test/b.ts']];\n}\n`);
+    pruefe(enthaelt(mit([]), 'verwaist'), 'zweite `const KERN` in einem Block auf oberster Ebene ⇒ b.ts gilt weiter als verwaist');
+    schreibe(
+      'scripts/run-tests.mjs',
+      `import { spawnSync } from 'node:child_process';\nfunction main() {\n  const KERN = [['server', 'test/a.ts'], ['client/test', 'c.ts'], ['server', 'test/b.ts']];\n${ueberListe('KERN')}}\nmain();\n`,
     );
-    rmSync(join(wegwerf, 'server/test/waise-lang.ts'));
-    setzeRunner(kernMitB, "  ['server', 'test/b.ts'],");
-    pruefe(enthaelt(mit([], [langB]), 'steht in KERN und in LANG'), 'Datei in KERN und LANG zugleich ⇒ Befund');
-    setzeRunner(kernMitB, '', 'const liste = [...KERN, ...LANG];\n');
+    const eingewickelt = mit([]);
     pruefe(
-      enthaelt(mit([]), 'Standardliste ist nicht mehr KERN'),
-      'Standardliste des Runners nicht mehr KERN ⇒ Befund',
-    );
-    setzeRunner(kernMitB, '', "const liste = process.argv.includes('--alle') ? [...KERN, ...LANG] : LANG;\n");
-    pruefe(
-      enthaelt(mit([]), 'Standardliste ist nicht mehr KERN'),
-      'Standardliste ist LANG statt KERN ⇒ Befund',
+      enthaelt(eingewickelt, 'nicht auf oberster Ebene') && enthaelt(eingewickelt, 'kein Lauf'),
+      'die ganze Liste samt Schleife in eine Funktion gewickelt ⇒ Befund (nichts steht auf oberster Ebene)',
     );
     // Back to the base state: b.ts is unregistered again, so exceptions for it are valid.
     setzeRunner(grundEintraege);
@@ -535,6 +619,22 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
       '`rot`-Ausnahme mit Datum in falscher Form ⇒ Befund',
     );
     pruefe(mit([{ ...ausnahmeB, seit: undefined }]).length === 0, '`werkzeug` braucht kein Datum');
+    console.log('  — `seit` ist ein echtes Datum, nicht in der Zukunft (H2)');
+    const jetzt = Date.UTC(2026, 8, 20, 12);
+    pruefe(istEchtesDatum('2026-09-20', jetzt) && istEchtesDatum('2024-02-29', jetzt), 'heutiger Tag und ein Schalttag sind gültig');
+    pruefe(
+      istEchtesDatum('2026-09-21', jetzt) && !istEchtesDatum('2026-09-22', jetzt),
+      'Uhr fest auf 20.09.2026 12:00 UTC: morgen gilt noch (Zeitzone bis UTC+14), übermorgen nicht',
+    );
+    const tageAb = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    pruefe(istEchtesDatum(tageAb(0)) && !istEchtesDatum(tageAb(3)), 'mit der echten Uhr: heute gilt, in drei Tagen nicht');
+    for (const seit of ['2099-12-31', '2026-02-31', '2026-04-31', '2025-02-29', '2026-13-01', '2026-00-10', '2026-09-00', '0000-00-00']) {
+      pruefe(
+        enthaelt(mit([{ ...rotB, seit }]), '"seit" fehlt'),
+        `\`rot\`-Ausnahme mit seit ${seit} ⇒ Befund`,
+      );
+    }
+    pruefe(mit([{ ...rotB, seit: '2024-02-29' }]).length === 0, '`rot`-Ausnahme mit seit 2024-02-29 (Schaltjahr) ⇒ kein Befund');
 
     // Running the `rot` entries: a red one stays red, a green one is caught.
     schreibe('server/test/rot.mjs', 'process.exit(1);\n');
@@ -563,21 +663,18 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
 
 console.log('\n[2] Der echte Baum');
 if (EIGEN) console.log(`[runner-liste] Wurzel ersetzt: ${WURZEL}`);
-const echte = befunde(WURZEL, AUSNAHMEN, NUR_MIT_ALLE);
+const echte = befunde(WURZEL, AUSNAHMEN);
 const alle = kandidaten(WURZEL);
 for (const b of echte) console.log(`  FAIL ${b}`);
 pruefe(
   echte.length === 0,
-  `alle ${alle.length} Testdateien im Baum stehen in KERN oder mit Grund auf NUR_MIT_ALLE bzw. der Ausnahmeliste`,
+  `alle ${alle.length} Testdateien im Baum stehen in KERN oder mit Grund auf der Ausnahmeliste`,
 );
 pruefe(alle.length >= 50, `der Zeuge sieht überhaupt Testdateien (${alle.length}; ein leerer Blick wäre kein Bestehen)`);
 console.log(
   `  Ausnahmeliste: ${AUSNAHMEN.length} Dateien (${AUSNAHMEN.filter((a) => a.art === 'werkzeug').length} Werkzeug, ` +
-    `${AUSNAHMEN.filter((a) => a.art === 'rot').length} rot geparkt); NUR_MIT_ALLE: ${NUR_MIT_ALLE.length}`,
+    `${AUSNAHMEN.filter((a) => a.art === 'rot').length} rot geparkt)`,
 );
-
-console.log('\n  NUR MIT --alle (fehlt im Standardlauf `npm test`):');
-for (const l of NUR_MIT_ALLE) console.log(`    · ${l.pfad} — ${l.grund}`);
 
 const rote = AUSNAHMEN.filter((a) => a.art === 'rot');
 if (rote.length > 0) {
@@ -598,7 +695,7 @@ if (ROT_PRUEFEN) {
 }
 
 // Empty-run trap: a run without assertions must not look like a pass.
-const MINDESTENS = 55;
+const MINDESTENS = 79;
 if (geprueft < MINDESTENS) {
   console.log(`\nRUNNER-LISTE ROT — nur ${geprueft} Zusicherungen gefahren, erwartet mindestens ${MINDESTENS}.`);
   process.exit(1);

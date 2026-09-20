@@ -14,6 +14,7 @@
  * Run:  npx tsx test/werkzeug-platzieren.ts
  */
 import { readFileSync } from 'node:fs';
+import * as ts from 'typescript';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pruefeLayout, sanitizeWorldLayout, type PlacementDef, type WorldLayout } from '@wov/shared';
@@ -881,6 +882,39 @@ async function main(): Promise<void> {
       m3.beiZeigerRunter(k5.ctx, klick(5100, 5000));
       m3.zeichneOverlay!(k5.ctx, neuerZeichner() as unknown as CanvasRenderingContext2D);
       gleich('while the tool is active a redraw keeps the mode (and the selection)', [m3.modus(), m3.auswahlId()], ['anwaehlen', 'probe-c']);
+      // C-3: a click on a floating panel over the map is a click "somewhere else": the selection goes (either mode)
+      const f1 = erzeugeAnwaehlen();
+      const k6 = neuerKontext(start, 'platzieren', 1);
+      f1.beiZeigerRunter(k6.ctx, klick(5100, 5000));
+      const seite6 = k6.z.seite;
+      f1.beiFlaechenKlick?.(k6.ctx);
+      gleich('ANWAEHLEN: a click on a floating panel deselects (selection null, sidebar rebuilt once, no step)', [f1.auswahlId(), k6.z.seite - seite6, k6.z.schritte.length], [null, 1, 0]);
+      f1.beiTaste!(k6.ctx, { code: 'Delete' });
+      gleich('… and Delete afterwards removes nothing', [platz(k6.z.layout).length, k6.z.schritte.length], [platz(start).length, 0]);
+      f1.beiFlaechenKlick?.(k6.ctx);
+      gleich('… a click on a panel without a selection does nothing (no rebuild)', k6.z.seite - seite6, 1);
+      const f2 = erzeugePlatzieren({ zufall: lcg(9) });
+      const k7 = neuerKontext(start, 'platzieren', 1);
+      f2.beiZeigerRunter(k7.ctx, klick(9000, 9000)); // SETZEN: sets an object and selects it
+      const selVorher = f2.auswahlId();
+      f2.beiFlaechenKlick?.(k7.ctx);
+      f2.beiTaste!(k7.ctx, { code: 'Delete' });
+      gleich('SETZEN: the same (the new object was selected; after a click on a panel Delete removes nothing)', [selVorher !== null, f2.auswahlId(), platz(k7.z.layout).length], [true, null, platz(start).length + 1]);
+      // C-4: Escape puts the mode back to SETZEN (and the displays with it)
+      const e1 = erzeugeAnwaehlen();
+      const k8 = neuerKontext(start, 'platzieren', 1);
+      e1.beiTaste!(k8.ctx, { code: 'Escape' });
+      gleich('Escape in ANWAEHLEN (nothing selected): the mode is SETZEN again, sidebar rebuilt once, redrawn once', [e1.modus(), k8.z.seite, k8.z.zeichnen], ['setzen', 1, 1]);
+      gleich('… and the displays show the prefab again', [e1.hudZusatz(), e1.kachelZusatz()], ['Beech1', 'Beech1']);
+      const e2 = erzeugeAnwaehlen();
+      const k9 = neuerKontext(start, 'platzieren', 1);
+      e2.beiZeigerRunter(k9.ctx, klick(5100, 5000));
+      e2.beiZeigerHoch!(k9.ctx, klick(5100, 5000)); // (a press starts a drag; Escape during it would cancel the drag first and keep the selection)
+      const seite9 = k9.z.seite;
+      e2.beiTaste!(k9.ctx, { code: 'Escape' });
+      gleich('Escape with a selection: deselected AND SETZEN, in ONE sidebar rebuild', [e2.auswahlId(), e2.modus(), k9.z.seite - seite9], [null, 'setzen', 1]);
+      e2.beiTaste!(k9.ctx, { code: 'Escape' });
+      gleich('Escape in SETZEN with nothing selected: no rebuild (only the redraw)', k9.z.seite - seite9, 1);
       // switching the mode drops a drag in progress
       const v = erzeugeAnwaehlen();
       const k3 = neuerKontext(start, 'platzieren', 1);
@@ -1015,17 +1049,20 @@ async function main(): Promise<void> {
 
     // ── Source guard ───────────────────────────────────────────────
     console.log('Source guard');
-    const haupt = readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8');
+    const kanonisch = (text: string): string =>
+      ts.createPrinter({ removeComments: true }).printFile(ts.createSourceFile('x.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)).replace(/"/g, "'"); // independent of line breaks and quote style (prettier)
+    const haupt = kanonisch(readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8'));
     const hud = readFileSync(resolve(EDITOR, 'KartenHud.ts'), 'utf-8');
     const index = readFileSync(resolve(EDITOR, 'werkzeuge', 'index.ts'), 'utf-8');
     gleich("editorMain.ts: no `werkzeug === 'platzieren'` branch", haupt.match(/werkzeug\s*[!=]==\s*'platzieren'/g) ?? [], []);
     gleich('editorMain.ts: no `spawnPrefab`, no `layoutMitPlatzierung`', haupt.match(/\b(spawnPrefab|layoutMitPlatzierung)\b/g) ?? [], []);
     check('editorMain.ts: a release counts as "on the map" only when the element under the pointer IS the map (elementFromPoint), so a floating panel over the map aborts the drag like the sidebar', /document\.elementFromPoint\(e\.clientX, e\.clientY\) === overlay/.test(haupt) && !/getBoundingClientRect\(\);\s*const drin/.test(haupt));
+    check('editorMain.ts: a click on a floating panel over the map reaches the tool (capture listener on the map container -> beiFlaechenKlick), the map itself does not count', /flaeche\.addEventListener\('pointerdown', \(e\) => \{\s*if \(e\.target === overlay[^\n]*\)\s*return;\s*werkzeugMitId\(werkzeug\)\?\.beiFlaechenKlick\?\.\(werkzeugKontext\);\s*\}, true\)/.test(haupt));
     check('editorMain.ts: the catalog puts the tool into SETZEN ("Klick auf die Karte setzt es")', /platzierenWerkzeug\.setzePrefab\(prefab\);\s*platzierenWerkzeug\.setzeModus\('setzen'\);/.test(haupt));
     check("editorMain.ts: the pointer hooks are CALLED (move, up, cancel), the pointer is captured, Delete is passed on", /\?\.beiZeigerBewegt\?\.\(werkzeugKontext/.test(haupt) && /registriert\.beiZeigerHoch\?\.\(werkzeugKontext/.test(haupt) && /addEventListener\('pointercancel', zeigerAbbruch\)/.test(haupt) && /addEventListener\('lostpointercapture', zeigerAbbruch\)/.test(haupt) && /\.beiZeigerAbbruch\?\.\(werkzeugKontext\)/.test(haupt) && /zeigerId: e\.pointerId/.test(haupt) && /setPointerCapture\(e\.pointerId\)/.test(haupt) && /WERKZEUG_TASTEN_CODES\.has\(e\.code\)/.test(haupt) && /\?\.beiTaste\?\.\(werkzeugKontext, e\)/.test(haupt));
     check('editorMain.ts: the tool keys (Delete, Backspace, P, V) are ignored while an input has the focus and while the catalog is open', /new Set\(\['Delete', 'Backspace', 'KeyP', 'KeyV'\]\)/.test(haupt) && /INPUT\|TEXTAREA\|SELECT/.test(haupt) && /katalogIstOffen\(\)/.test(haupt));
     check('editorMain.ts: the catalog sets the prefab through the tool; the finding jump selects through it', /platzierenWerkzeug\.setzePrefab\(prefab\)/.test(haupt) && /platzierenWerkzeug\.waehle\(id\)/.test(haupt) && /platzierungZuBefund\(layout, b\)/.test(haupt));
-    check('editorMain.ts: the context answers `bestaetige` with the browser confirm (through erzeugeWerkzeugKontext)', /bestaetige: \(frage\) => window\.confirm\(frage\)/.test(haupt) && /erzeugeWerkzeugKontext\(\{/.test(haupt));
+    check('editorMain.ts: the kernel answers `bestaetige` with the browser confirm', /bestaetige: \(frage\) => window\.confirm\(frage\)/.test(haupt) && /erzeugeEditorKern\(/.test(haupt));
     check('editorMain.ts: the wide tile comes from the tool (`kachelBreit`)', /w\.kachelBreit/.test(haupt));
     gleich("KartenHud.ts: no 'platzieren' key in the old tables", hud.match(/^\s*platzieren:/gm) ?? [], []);
     check("index.ts: 'platzieren' left ALTE_WERKZEUGE and is registered", !/ALTE_WERKZEUGE = \[[^\]]*'platzieren'/.test(index) && /erzeugePlatzieren\(\)/.test(index));

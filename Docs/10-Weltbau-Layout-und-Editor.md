@@ -516,7 +516,22 @@ und nehmen so Sanitisierung, Editor/MCP und Deploy mit.
   ohne `id` ab (Dokumente aus der Zeit vor den ids), und ein neuer id-loser
   Eintrag, der in der kanonischen Reihenfolge vor einem bestehenden liegt, übernähme dessen
   `id` (das ZDO wanderte mit). Wer einen Eintrag neu anlegt, vergibt ihm
-  deshalb sofort `neuePlatzierungsId`.
+  deshalb sofort `frischePlatzierungsId` (abgeleitete id plus Zufallsschwanz).
+  **Die id in der Datei ist die Adresse; ein Dokument ohne ids hat keine
+  stabile Objektidentität.** Ein Layout-ZDO, dessen `layoutId` id-förmig ist
+  und im Dokument fehlt, ist verwaist und wird entfernt — auch wenn daneben
+  ein neuer Eintrag steht (gelöscht und gleichartig neu gesetzt ist ein
+  neues Objekt ohne den Zustand des alten). Übernehmen darf eine Platzierung
+  nur ein ZDO mit alter Kennung (`@`, Spielstand von vor E1) oder ohne
+  `layoutId`. In einem id-losen Dokument wechselt die abgeleitete id, wenn ein
+  Eintrag über die Meterkante rückt: das ZDO geht, ein neues entsteht.
+  **Grenzen dieser Regel** (bekannt, nicht gebaut): In einem id-losen
+  Dokument nimmt ein neuer Eintrag im selben Meter, der in der kanonischen
+  Reihenfolge vor dem alten liegt, dessen abgeleitete id samt ZDO und Zustand
+  (der alte Eintrag wird `…-2` und bekommt ein leeres ZDO); und wer seine id
+  an ein Duplikat verliert, bekommt eine abgeleitete id und trifft darüber das
+  ZDO dieser id, falls es eines gibt. Eine abgeleitete id ist eine Adresse aus
+  Prefab und Meter — wer das nicht will, schreibt die ids in die Datei.
 - **Animation**: Der Server schreibt den Bewegungszustand in den
   ZDO-Member `anim` (`idle`/`walk`, nur bei Wechsel). Der Client startet
   die gleichnamige AnimationGroup der Instanz

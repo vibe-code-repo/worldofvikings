@@ -159,6 +159,12 @@ export interface KartenWerkzeug<Id extends string = string> {
    * drag is dropped and nothing is committed. Called only on a tool that has `beiZeigerHoch`.
    */
   beiZeigerAbbruch?(ctx: WerkzeugKontext): void;
+  /**
+   * A click landed on a floating control that lies over the map (overview, zoom buttons, tool display) and not on
+   * the map itself. For a tool it is a click "somewhere else", like a click on nothing: a selection that could be
+   * out of the picture afterwards (the overview moves the map) must not stay armed for Delete.
+   */
+  beiFlaechenKlick?(ctx: WerkzeugKontext): void;
   /** Double click while this tool is active. */
   beiDoppelklick?(ctx: WerkzeugKontext): void;
   /**

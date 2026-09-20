@@ -82,7 +82,6 @@ import {
 } from './weltdokument';
 import {
   EntwurfsSpeicher,
-  SchrittVerlauf,
   VerdraengtRing,
   alterRingSchluesselEntfernen,
   browserUmgebung,
@@ -108,7 +107,7 @@ import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHu
 // Werkzeug-Registry: Fluss, See und Objekt platzieren leben in `werkzeuge/`, hier nur der Zugriff.
 import { WERKZEUGE, platzierenWerkzeug, werkzeugMitId } from './werkzeuge';
 import { platzierungZuBefund } from './werkzeuge/platzieren';
-import { erzeugeWerkzeugKontext } from './werkzeuge/kontext';
+import { erzeugeEditorKern } from './werkzeuge/kontext';
 import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
 // Das Gestaltungssystem des Editors. Literale Farbwerte in dieser Datei
 // waren bis hierher der Normalfall ('#1d2431', '#3a3325', '#e8d48a' …) —
@@ -522,35 +521,55 @@ let griff: { regionId: string; art: 'mitte' | 'radius' | number } | null = null;
 const GRIFF_PX = 7;
 
 /**
- * Was ein registriertes Werkzeug (`werkzeuge/`) am Editor tun darf. Jedes
- * Mitglied ist eine Handlung, die die alten `if (werkzeug === ...)`-Zweige
- * unmittelbar auf dem Modulzustand ausführten. Nur Funktionen und
- * Lesezugriffe zur Laufzeit: Das Objekt darf hier oben stehen, obwohl
- * `zuBild` und `massstab` weiter unten entstehen.
+ * Der Kern des Editors (`werkzeuge/kontext.ts`): der Rückgängig-Stapel `verlauf`, `merkeSchritt`, `alles` und DER
+ * eine Werkzeug-Kontext, den jedes registrierte Werkzeug bekommt. Alles davon wird in `entwurfs-speicher.ts`
+ * ausgeführt und am Verhalten geprüft; hier stehen nur die Handgriffe auf dem Modulzustand. Es gibt genau EINEN
+ * Aufruf von `erzeugeEditorKern` (und darin genau einen Kontext), und jeder Werkzeug-Haken unten bekommt
+ * `werkzeugKontext` — auch das prüft dieser Test, am Syntaxbaum (Umbrüche, Anführungszeichen, Kommentare und
+ * Hilfsvariablen ändern nichts). Nur Funktionen und Lesezugriffe zur Laufzeit: der Aufruf darf hier oben stehen,
+ * obwohl `zuBild` und `massstab` weiter unten entstehen.
  */
-const werkzeugKontext: WerkzeugKontext = erzeugeWerkzeugKontext({
+const kern = erzeugeEditorKern({
   layout: () => layout,
-  // Nur die Zuweisung; den Rückgängig-Schritt davor und das Speichern danach legt
-  // `erzeugeWerkzeugKontext` (werkzeuge/kontext.ts) fest, dort getestet.
+  // Nur die Zuweisung; den Rückgängig-Schritt davor und das Speichern danach legt der Kern fest.
   setzeLayout: (neu) => {
     layout = neu;
   },
-  // Die echten Funktionen, unverpackt: `entwurfs-speicher.ts` prüft, dass genau diese Namen hier stehen (ein
-  // `merkeSchritt: () => undefined` bestünde kein Verhaltenstest, denn der fährt einen Ersatz-Host).
-  merkeSchritt,
+  beiAbgang,
+  // Ein Ersetzen (Import, Serverstand) baut nicht auf dem alten Stand auf.
+  nachSchritt: (ersetzt) => {
+    baueAufFremdem = !ersetzt && istFremdHaltig(layout);
+  },
+  speichereEntwurf,
+  seiteBauen,
+  pruefberichtBauen,
+  weltSektionBauen,
+  kartenMassBauen,
+  zeichneOverlay,
+  faerbeSpeicherKnopf,
+  vorschauAnstossen,
   werkzeugId: () => werkzeug,
   zurAuswahl: () => {
     werkzeug = 'auswahl';
   },
-  alles,
-  vorschauAnstossen,
-  seiteBauen,
-  zeichneOverlay,
   meldung: (text, fehler) => shell.meldung(text, fehler),
   zuBild: (wx, wz) => zuBild(wx, wz),
   massstab: () => massstab,
   bestaetige: (frage) => window.confirm(frage),
 });
+export const werkzeugKontext: WerkzeugKontext = kern.werkzeugKontext;
+/** Der Rückgängig-Stapel: Stapel und die Regel „wann legt eine Übernahme einen Schritt an“ stecken in `SchrittVerlauf` (entwurfsSpeicher.ts). */
+const verlauf = kern.verlauf;
+/** `ersetzt`: der Entwurf wird durch einen ANDEREN ersetzt (Import, Serverstand, wieder eingesetzter Stand), nicht weitergebaut. */
+const merkeSchritt = kern.merkeSchritt;
+/**
+ * Liefert den Grund einer Meldung, die kein Aufrufer überschreiben darf, oder
+ * 'ok': 'fremd' (ein anderer Tab hatte den Entwurf geändert und wurde
+ * übernommen — in der Anzeige steht dieser, nicht der, den der Aufrufer eben
+ * setzen wollte), 'voll' („Entwurf zu groß") oder 'knapp' („Speicher knapp"
+ * mit den geopferten Ring-Einträgen).
+ */
+const alles = kern.alles;
 
 function ladeEntwurf(): WorldLayout {
   return entwurfsSpeicher.lesen() ?? leeresLayout();
@@ -616,14 +635,7 @@ window.addEventListener('pageshow', (e) => {
 // genügt. Strg+Z / Strg+Y (bzw. Strg+Shift+Z).
 // Stapel und Regel „wann legt eine Übernahme einen Schritt an" stecken in
 // `SchrittVerlauf` (entwurfsSpeicher.ts), damit beides ohne Editorfenster
-// prüfbar ist; hier steht nur die Verdrahtung mit `layout`.
-const verlauf = new SchrittVerlauf<WorldLayout>(50, beiAbgang);
-/** `ersetzt`: der Entwurf wird durch einen ANDEREN ersetzt (Import, Serverstand, wieder eingesetzter Stand), nicht weitergebaut. */
-function merkeSchritt(ersetzt = false): void {
-  verlauf.merke(layout, ersetzt);
-  // Ein Ersetzen (Import, Serverstand) baut nicht auf dem alten Stand auf.
-  baueAufFremdem = !ersetzt && istFremdHaltig(layout);
-}
+// prüfbar ist; hier steht nur die Verdrahtung mit `layout` (`kern.verlauf`, oben).
 /**
  * Wirkung unverändert, nur aus dem Tastatur-Zweig herausgezogen: Seit die
  * Symbolspalte einen Fuß hat (Entwurf), gibt es für beide Schritte auch
@@ -1617,6 +1629,16 @@ overlay.addEventListener('pointerup', (e) => {
 const zeigerAbbruch = (): void => werkzeugMitId(werkzeug)?.beiZeigerAbbruch?.(werkzeugKontext);
 overlay.addEventListener('pointercancel', zeigerAbbruch);
 overlay.addEventListener('lostpointercapture', zeigerAbbruch);
+// Ein Klick auf eine schwebende Bedienfläche über der Karte (Übersicht, Zoom-Knöpfe, Werkzeuganzeige) erreicht die
+// Karte nicht; für das Werkzeug ist es ein Klick „woanders“. Capture-Phase: die Flächen fangen ihre Klicks selbst ab.
+flaeche.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (e.target === overlay || overlay.style.display === 'none') return;
+    werkzeugMitId(werkzeug)?.beiFlaechenKlick?.(werkzeugKontext);
+  },
+  true
+);
 overlay.addEventListener('dblclick', () => {
   polygonSchliessen();
   werkzeugMitId(werkzeug)?.beiDoppelklick?.(werkzeugKontext);
@@ -3993,27 +4015,6 @@ function pruefberichtBauen(): void {
     }
     pruefSeite.appendChild(zeile);
   }
-}
-
-/**
- * Liefert den Grund einer Meldung, die kein Aufrufer überschreiben darf, oder
- * 'ok': 'fremd' (ein anderer Tab hatte den Entwurf geändert und wurde
- * übernommen — in der Anzeige steht dieser, nicht der, den der Aufrufer eben
- * setzen wollte), 'voll' („Entwurf zu groß") oder 'knapp' („Speicher knapp"
- * mit den geopferten Ring-Einträgen).
- */
-function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): SpeicherGrund {
-  const grund: SpeicherGrund = entwurfSchreiben ? speichereEntwurf(quelle) : 'ok';
-  seiteBauen();
-  pruefberichtBauen();
-  weltSektionBauen();
-  kartenMassBauen(); // B6/B7 -- eigene Spur, siehe KartenMassAnzeige.ts
-  zeichneOverlay();
-  // Jede Änderung kann den Entwurf vom Serverstand wegbewegen ODER ihn
-  // (per Rückgängig) wieder darauf zurückführen — der Punkt am
-  // Speicherknopf muss beides mitmachen.
-  faerbeSpeicherKnopf();
-  return grund;
 }
 
 // ── Server-Konsole (Shell-Dock, journalctl via /api/serverlog) ───────

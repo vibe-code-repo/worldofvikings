@@ -7,14 +7,24 @@
  * the new placement, state and all (a chest kept its contents, a tree its felling count). "Delete the chest
  * and set a chest where it stood" therefore did not delete anything.
  *
- * Now: such a ZDO (id-shaped, no `@`) is taken over only by a placement whose id the SANITIZER derived itself
- * (the entry had no id in the file: the rounding-edge case of `layout-abgleich.ts`, world 5, stays as it is;
- * the sanitizer reports these ids, `abgeleitet`). An entry whose id STANDS in the file has a name of its own --
- * however derived it looks (157 of 157 entries of the real world file carry an id in derived form) -- and
- * never takes over the ZDO of another name: the old one is orphaned and removed by the usual rules, the new one
- * is spawned empty. That holds for the editor's ids (derived + a random tail), for an id the MCP server or a
- * hand-written file gives in derived form or with a `-2`, and for any other. The old key (`Prefab@x,z`, saves
- * from before E1) and a ZDO without a `layoutId` are taken over as before.
+ * Now: THE ID IN THE FILE IS THE ADDRESS OF AN OBJECT; a document without ids has no stable object identity.
+ * A placement takes over an existing ZDO only if that ZDO carries the OLD key (`Prefab@x,z`, saves from before
+ * E1) or no `layoutId` at all -- the migration path. A ZDO with an id-shaped `layoutId` that the document no
+ * longer has is ORPHANED: it is removed by the usual rules (the E0 protections stay), whatever the new placement's
+ * id looks like and however near it stands. That holds for the editor's ids (derived + a random tail), for an
+ * id the MCP server or a hand-written file gives in derived form or with a `-2`, and for an entry WITHOUT an id
+ * (the sanitizer derives one: pushed across the rounding edge of a metre it is a new id, section 3).
+ *
+ * (The first version of this rule told "a name of its own" by the SHAPE of the id -- 157 of 157 entries of the
+ * real world file are in derived form, so it could not; the second by a report of the sanitizer, but every write
+ * path materialises the derived ids, so the report was a property of one reading, not of the document. Neither
+ * is left: there is one gate, `darfUebernehmen` in `layoutAbgleich.ts`, and this file pins it alone -- sections
+ * 1, 2b, 2c, 3b, 3c and 6 go red when it lets an id-shaped orphan through, 4 and 5 when it refuses what it must take.)
+ *
+ * LIMITS of the rule (known, not built; both follow from "the id is the address"): in a document WITHOUT ids a NEW entry in the
+ * same metre that sorts before the old one takes the old derived id together with its ZDO and state (the old entry becomes
+ * `-2` and spawns empty); and an entry that loses its id to a duplicate gets a derived id and hits the ZDO of that id, if there
+ * is one. Write the ids into the file to avoid both (every write path of the editor and of the MCP server does).
  *
  * Every check is a real server boot on a temp world (boot 1 builds and saves, boot 2 loads that save and
  * syncs it against the changed document). Run: npx tsx test/layout-abgleich-loeschen.ts   (from server/)
@@ -97,8 +107,6 @@ type Server = ReturnType<typeof starte>['server'];
 const layoutZdos = (s: Server, id: string): ZDO[] => s.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) === id);
 const alleLayoutZdos = (s: Server): ZDO[] => s.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER));
 const inhalt = (z: ZDO): string => z.getString(TRUHE_INHALT_MEMBER);
-const gleichListe = (name: string, ist: readonly string[] | undefined, soll: readonly string[]): void =>
-  check(name, ist !== undefined && JSON.stringify([...ist].sort()) === JSON.stringify([...soll].sort()), `${JSON.stringify(ist)}`);
 const abgleich = (zeilen: string[]): string => zeilen.find((z) => /Layout-Abgleich:/.test(z)) ?? '';
 const zahl = (zeile: string, was: string): number => Number(new RegExp(`(\\d+) ${was}`).exec(zeile)?.[1] ?? NaN);
 // Spelled out on purpose: the same file has to run against a tree from before the change and report every check.
@@ -112,23 +120,6 @@ function ersterBoot(welt: string, alt: Platzierung) {
   z1?.setString(TRUHE_INHALT_MEMBER, INHALT);
   b1.server.saveWorld();
   return { uid: z1?.zdoid.toString(), boot: b1 };
-}
-
-// ── 0. The sanitizer says which ids it derived itself ──
-console.log('\n[0] sanitizeWorldLayoutMitBericht: `abgeleitet` = the ids the sanitizer derived, not the ones that stood in the file');
-{
-  const bericht = (gemeinsam.sanitizeWorldLayoutMitBericht as (d: unknown) => { abgeleitet?: string[]; layout: { placements?: { id?: string }[] } } | null)(
-    dokument([
-      { prefab: TRUHE, x: 1, z: 1 }, // no id: derived
-      { id: 'piece-chest-wood_5_5', prefab: TRUHE, x: 5, z: 5 }, // an id IN the file that looks derived: a name of its own
-      { id: 'piece-chest-wood_7_7-2', prefab: TRUHE, x: 7, z: 7 }, // the `-N` form, also explicit
-      { id: 'Ungültig Ü', prefab: TRUHE, x: 9, z: 9 }, // an invalid id is not kept: derived
-      { id: 'doppelt', prefab: TRUHE, x: 20, z: 20 },
-      { id: 'doppelt', prefab: TRUHE, x: 30, z: 30 }, // a duplicate id: the second loses it and gets a derived one
-    ])
-  );
-  gleichListe('the ids derived by the sanitizer', bericht?.abgeleitet, ['piece-chest-wood_1_1', 'piece-chest-wood_30_30', 'piece-chest-wood_9_9']);
-  check('explicit ids in derived form are NOT in the list, and are kept', !(bericht?.abgeleitet ?? []).some((i) => i === 'piece-chest-wood_5_5' || i === 'piece-chest-wood_7_7-2') && (bericht?.layout.placements ?? []).some((p) => p.id === 'piece-chest-wood_5_5'));
 }
 
 // ── 1. Delete the chest, set another one where it stood (editor id with a tail) ──
@@ -206,15 +197,61 @@ console.log('\n[2c] two chests in one metre, one of them deleted, an editor ches
   check('two layout ZDOs, log 1 spawned, 1 removed', alleLayoutZdos(b2.server).length === 2 && zahl(abgleich(b2.zeilen), 'gespawnt') === 1 && zahl(abgleich(b2.zeilen), 'entfernt') === 1, abgleich(b2.zeilen));
 }
 
-// ── 3. What still takes over (pinned) ──
-console.log('\n[3] an entry WITHOUT an id in the file (the sanitizer derives it) pushed across the rounding edge keeps the ZDO -- pinned, world 5 of layout-abgleich.ts');
+// ── 3. A document WITHOUT ids: the derived id is the address, and it changes across the rounding edge ──
+console.log('\n[3] an entry WITHOUT an id in the file, pushed across the rounding edge of a metre: a NEW id -- the old ZDO goes, a new one spawns');
 {
   const alt = { id: 'piece-chest-wood_140_100', prefab: TRUHE, x: 140.4, z: 100 };
   const { uid } = ersterBoot('abgeleitet', alt);
   const b2 = starte('abgeleitet', dokument([{ prefab: TRUHE, x: 140.5, z: 100 }])); // no id: the sanitizer derives ..._141_100
   const z = alleLayoutZdos(b2.server)[0];
-  check('same ZDO, contents kept (the entry has no name of its own)', alleLayoutZdos(b2.server).length === 1 && z?.zdoid.toString() === uid && inhalt(z!) === INHALT, `${uid} -> ${z?.zdoid.toString()}`);
-  check('... and it carries the new derived id', z?.getString(LAYOUT_ID_MEMBER) === platzierungsIdBasis({ prefab: TRUHE, x: 140.5, z: 100 }));
+  const zeile = abgleich(b2.zeilen);
+  check('a NEW ZDO carries the new derived id, WITHOUT the old contents', alleLayoutZdos(b2.server).length === 1 && z?.zdoid.toString() !== uid && z?.getString(LAYOUT_ID_MEMBER) === platzierungsIdBasis({ prefab: TRUHE, x: 140.5, z: 100 }) && inhalt(z!) === '', `${uid} -> ${z?.zdoid.toString()}`);
+  check('... the log says 1 spawned, 1 removed (the documented consequence of a file without ids)', zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1, zeile);
+}
+
+console.log('\n[3b] the chain of attack 3 (save from before E1, file without ids, the entry pushed across the edge, a write path in between)');
+{
+  // A save from before E1 is migrated by the first boot: the ZDO now carries the id derived from the file; the file stays without ids.
+  const alt = { prefab: TRUHE, x: 140.4, z: 100 };
+  const w = 'kette';
+  const { uid: uid0 } = (() => {
+    const b1 = starte(w, dokument([alt]));
+    const z1 = alleLayoutZdos(b1.server)[0]!;
+    z1.setString(TRUHE_INHALT_MEMBER, INHALT);
+    b1.server.saveWorld();
+    return { uid: z1.zdoid.toString() };
+  })();
+  const geschrieben = (doc: Record<string, unknown>): Record<string, unknown> => gemeinsam.sanitizeWorldLayout(doc) as unknown as Record<string, unknown>; // what every write path saves: the derived ids stand in the file
+  // (i) the id stands in the file BEFORE the entry is moved (a write path ran first): the move keeps the address
+  const mitId = geschrieben(dokument([alt])) as { placements: Platzierung[] };
+  check('(i) fixture: the write path put the derived id into the file', mitId.placements[0]?.id === 'piece-chest-wood_140_100', `${mitId.placements[0]?.id}`);
+  const bi = starte(w, dokument([{ ...mitId.placements[0]!, x: 140.5 }]));
+  const zi = alleLayoutZdos(bi.server)[0];
+  check('(i) the id in the file, entry moved across the edge: the SAME ZDO, contents kept, 0 spawned, 0 removed', alleLayoutZdos(bi.server).length === 1 && zi?.zdoid.toString() === uid0 && inhalt(zi!) === INHALT && zahl(abgleich(bi.zeilen), 'gespawnt') === 0 && zahl(abgleich(bi.zeilen), 'entfernt') === 0, abgleich(bi.zeilen));
+  // (ii) the entry is moved in the file WITHOUT an id (the id is not in the file), with and without a write path in between: the same result
+  for (const [name, mitSchreibweg] of [['without a write path', false], ['with a write path in between', true]] as const) {
+    const bewegt = dokument([{ ...alt, x: 140.5 }]);
+    const bb = starte(w, mitSchreibweg ? geschrieben(bewegt) : bewegt);
+    const zz = alleLayoutZdos(bb.server)[0];
+    const zeile = abgleich(bb.zeilen);
+    check(`(ii) no id in the file when it moves, ${name}: a NEW ZDO without the contents (1 spawned, 1 removed -- the documented consequence)`, alleLayoutZdos(bb.server).length === 1 && zz?.zdoid.toString() !== uid0 && inhalt(zz!) === '' && zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1, zeile);
+  }
+}
+
+console.log('\n[3c] two entries near a deleted chest: an editor id and an entry without an id -- NEITHER inherits (the id order, not the document order, decides who would grab it under a leak)');
+{
+  const w = 'zwei-neue';
+  const { uid } = ersterBoot(w, { id: ALT_ID, prefab: TRUHE, x: 100.2, z: 100 });
+  // `piece-chest-wood_100_100-k3x9` sorts BEFORE the derived `piece-chest-wood_101_100` of the entry without an id
+  const A = { id: `${ALT_ID}-k3x9`, prefab: TRUHE, x: 100.1, z: 100 };
+  const B = { prefab: TRUHE, x: 100.5, z: 100 };
+  for (const [name, reihenfolge] of [['document order A, B', [A, B]], ['document order B, A', [B, A]]] as const) {
+    const b2 = starte(w, dokument([...reihenfolge]));
+    const zeile = abgleich(b2.zeilen);
+    const alle = alleLayoutZdos(b2.server);
+    check(`${name}: two NEW empty ZDOs, the old one is gone`, alle.length === 2 && alle.every((z) => z.zdoid.toString() !== uid && inhalt(z) === ''), `${alle.map((z) => `${z.zdoid}:"${inhalt(z)}"`).join(' ')}`);
+    check(`${name}: the log says 2 spawned, 1 removed`, zahl(zeile, 'gespawnt') === 2 && zahl(zeile, 'entfernt') === 1, zeile);
+  }
 }
 
 console.log('\n[4] a save from before E1 (old key `Prefab@x,z`): taken over as before, also by a placement with an explicit id');
@@ -258,6 +295,21 @@ console.log('\n[5] a ZDO WITHOUT a layoutId (no origin) beside a new explicit-id
   const b2 = starte(w, dokument([NEU]));
   const z2 = layoutZdos(b2.server, NEU.id!)[0];
   check('same ZDO, contents kept', z2 !== undefined && z2.zdoid.toString() === uid && inhalt(z2) === INHALT, `${uid} -> ${z2?.zdoid.toString()}`);
+}
+
+console.log('\n[6] the E0 protection keeps an orphan alive (an entry the sanitizer dropped): a NEW placement beside it still does not take it over');
+{
+  const w = 'geschont';
+  const { uid } = ersterBoot(w, ALT);
+  const NEU = { id: `${ALT_ID}-k3x9`, prefab: TRUHE, x: 100.2, z: 100 };
+  // the second entry is not a placement at all: the sanitizer drops it, so this boot deletes NOTHING (verworfen > 0)
+  const b2 = starte(w, dokument([NEU, { unsinn: true } as unknown as Platzierung]));
+  const zeile = abgleich(b2.zeilen);
+  const alt = b2.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === uid);
+  const neu = layoutZdos(b2.server, NEU.id!)[0];
+  check('the orphan is still alive with its id and contents (nothing is deleted in this boot)', alt !== undefined && !alt.destroyed && alt.getString(LAYOUT_ID_MEMBER) === ALT_ID && inhalt(alt) === INHALT, zeile);
+  check('the new placement got its OWN empty ZDO -- it did not take the protected orphan over', neu !== undefined && neu.zdoid.toString() !== uid && inhalt(neu) === '', `${neu?.zdoid} "${neu ? inhalt(neu) : '-'}"`);
+  check('the log says 1 spawned, 0 removed, and that 1 orphan stays standing', zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 0 && b2.zeilen.some((z) => /ohne Löschen: 1 Einträge verworfen – 1 verwaiste Layout-Objekte bleiben/.test(z)), b2.zeilen.join(' | '));
 }
 
 rmSync(WURZEL, { recursive: true, force: true });

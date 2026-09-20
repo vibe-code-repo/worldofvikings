@@ -300,26 +300,15 @@ export function layoutAbgleich(
   layout: WorldLayout,
   /**
    * `verworfen`: Einträge, die der Sanitizer aus dem rohen Dokument gestrichen hat (roh − gültig);
-   * `zusammengefasst`: davon exakte Duplikate, die er zu einem Eintrag zusammengelegt hat (kein Verlust);
-   * `abgeleitet`: die ids, die der Sanitizer selbst abgeleitet hat, weil der Eintrag in der Rohdatei keine trug
-   * (`sanitizeWorldLayoutMitBericht`). Nur diese Einträge dürfen das ZDO eines verschwundenen Objekts mit
-   * id-förmiger Kennung übernehmen (s. `mitEigenemNamen` unten).
+   * `zusammengefasst`: davon exakte Duplikate, die er zu einem Eintrag zusammengelegt hat (kein Verlust).
    */
-  optionen: { verworfen?: number; zusammengefasst?: number; abgeleitet?: readonly string[] } = {}
+  optionen: { verworfen?: number; zusammengefasst?: number } = {}
 ): LayoutAbgleichErgebnis {
   const { zdos } = kontext;
   // Jede Platzierung hat eine `id` (dafür sorgt der Sanitizer). Wer ein
   // ungeprüftes Dokument übergibt, bekommt sie hier abgeleitet — dieselbe
   // Ableitung, dieselbe Zusammenfassung exakter Duplikate.
-  const normalisiert = platzierungenNormalisieren(layout.placements ?? []);
-  const placements = normalisiert.placements;
-  // Welche Einträge tragen einen EIGENEN Namen? Die, deren id in der Datei stand. Ohne eigenen Namen sind nur die
-  // ids, die der Sanitizer abgeleitet hat (aus dem Bericht des Aufrufers; ein ungeprüftes Dokument, das hier
-  // erst normalisiert wird, liefert seine eigenen). Die FORM der id sagt nichts: In der echten Weltdatei haben
-  // alle 157 Einträge eine id in abgeleiteter Form, die die Migration hineingeschrieben hat — auch ein Eintrag von
-  // Hand oder aus MCP mit `piece-chest-wood_100_100` hat einen Namen, den er selbst gesetzt hat.
-  const abgeleiteteIds = new Set([...(optionen.abgeleitet ?? []), ...normalisiert.abgeleitet]);
-  const mitEigenemNamen = (p: PlacementDef): boolean => !abgeleiteteIds.has(p.id!);
+  const placements = platzierungenNormalisieren(layout.placements ?? []).placements;
   const ergebnis: LayoutAbgleichErgebnis = {
     gespawnt: 0,
     aktualisiert: 0,
@@ -398,17 +387,14 @@ export function layoutAbgleich(
   // Kennung zu keiner Platzierung passt, aber unter 0,5 m neben einer
   // Platzierung desselben Prefabs steht, ist DASSELBE Objekt, dessen alte
   // Kennung sich geändert hat (Spielstand von vor E1, Dokument von Hand
-  // umgebaut). Es wird nicht zerstört, sondern von der Nähesuche unten
-  // übernommen — mit seiner ZDO-Id und allem, was daran hängt.
-  // Ein ZDO mit id-förmiger Kennung, die im Dokument fehlt (ein Objekt, das der Designer gelöscht hat), darf nur
-  // ein Eintrag OHNE eigenen Namen übernehmen (dessen abgeleitete id sich geändert hat); ein Eintrag mit eigenem
-  // Namen ist ein NEUES Objekt und erbt nie den Zustand eines gelöschten. Die alte Kennung (`@`, Spielstand von
-  // vor E1) und ein ZDO ohne Kennung übernimmt jede Platzierung wie bisher.
-  const zielVon = (p: PlacementDef): { hash: number; x: number; z: number; ohneNamen: boolean }[] => {
+  // umgebaut). Es wird nicht sofort zerstört, sondern von der Nähesuche unten
+  // übernommen — mit seiner ZDO-Id und allem, was daran hängt — WENN es eine
+  // alte Kennung (`@`) trägt (`darfUebernehmen`); ein ZDO mit id-förmiger
+  // Kennung, die im Dokument fehlt, geht im Nachlauf am Ende.
+  const ziele = placements.flatMap((p) => {
     const prefab = bekannt(p);
-    return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z, ohneNamen: !mitEigenemNamen(p) }] : [];
-  };
-  const ziele = placements.flatMap(zielVon);
+    return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z }] : [];
+  });
   const gruppen = new Map<string, ZDO[]>(); // ZDOs je `id`
   const alteGruppen = new Map<string, ZDO[]>(); // ZDOs je alter Kennung
   const zurueckgestellt: ZDO[] = [];
@@ -426,10 +412,8 @@ export function layoutAbgleich(
       else index.set(layoutId, [zdo]);
       continue;
     }
-    const nurAlte = !istAlteKennung(layoutId); // id-förmig: nur eine Platzierung mit abgeleiteter id darf es übernehmen
     const nah = ziele.some(
       (t) =>
-        (t.ohneNamen || !nurAlte) &&
         t.hash === zdo.prefabHash &&
         Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < TOLERANZ.naehe
     );
@@ -492,12 +476,19 @@ export function layoutAbgleich(
     }
   }
 
-  // Ein ZDO ohne Kennung oder mit alter Kennung darf jede Platzierung übernehmen; eines mit id-förmiger
-  // Kennung (die im Dokument nicht vorkommt: ein Objekt, das der Designer gelöscht hat) nur eine
-  // Platzierung mit abgeleiteter id. Sonst stirbt es nach den gewohnten Regeln als verwaist.
-  const darfUebernehmen = (z: ZDO, p: PlacementDef): boolean => {
+  // DIE EINE Sperre gegen das Erben: Übernehmen (Nähesuche) darf eine Platzierung nur ein ZDO OHNE Kennung oder mit
+  // ALTER Kennung (`@`, Spielstand von vor E1) — das ist der Migrationsweg. Ein ZDO mit id-förmiger Kennung, die
+  // im Dokument fehlt (ein Objekt, das der Designer gelöscht hat), ist verwaist und stirbt nach den gewohnten
+  // Regeln (`darfLoeschen`): Die id in der Datei ist die ADRESSE des Objekts, eine neue id ist ein neues Objekt
+  // und erbt nie den Zustand eines gelöschten — gleich, wie die id aussieht und wie nah es steht. Ein Dokument
+  // ohne ids hat keine stabile Objektidentität: Liegt ein solcher Eintrag nach einer Verschiebung über die
+  // Meterkante, ändert sich seine abgeleitete id, und das ZDO der alten geht (Zustand mit).
+  // Das ist die einzige Stelle, die das entscheidet: Die Zurückstellung in der ersten Schleife (Nähe zu einer
+  // Platzierung) schont ein id-förmiges ZDO nur bis hierher, danach nimmt es diese Sperre — eine zweite Sperre dort
+  // hätte keine beobachtbare Wirkung (das ZDO stürbe im Nachlauf im selben Boot).
+  const darfUebernehmen = (z: ZDO): boolean => {
     const kennung = z.getString(LAYOUT_ID_MEMBER);
-    return !kennung || istAlteKennung(kennung) || !mitEigenemNamen(p);
+    return !kennung || istAlteKennung(kennung);
   };
 
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
@@ -521,7 +512,7 @@ export function layoutAbgleich(
             z.prefabHash === prefab.hash &&
             !istSpielerbau(z) &&
             !beansprucht.has(z) &&
-            darfUebernehmen(z, p) &&
+            darfUebernehmen(z) &&
             Math.hypot(z.position.x - p.x, z.position.z - p.z) < TOLERANZ.naehe
         );
       if (zdo) {

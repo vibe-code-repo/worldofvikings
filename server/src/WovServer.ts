@@ -1220,12 +1220,7 @@ export class WovServer {
       },
       layout,
       // Zusammengefasste exakte Duplikate sind nichts Verworfenes (dieselbe Zahl wie im Schreibweg).
-      {
-        verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl),
-        zusammengefasst: bericht?.zusammengefasst.length ?? 0,
-        // Nur Einträge, deren id der Sanitizer selbst abgeleitet hat, dürfen das ZDO eines gelöschten Objekts erben.
-        abgeleitet: bericht?.abgeleitet ?? [],
-      }
+      { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0 }
     );
     if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
     console.log(

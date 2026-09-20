@@ -361,14 +361,29 @@ export function erzeugePlatzieren(opt: PlatzierenOptionen = {}): PlatzierenWerkz
       ctx.neuZeichnen();
     },
 
+    beiFlaechenKlick(ctx) {
+      // A click on a floating panel over the map (in either mode): the selection goes, like after a click on nothing.
+      if (gewaehlt === null && !zug) return;
+      gewaehlt = null;
+      zug = null;
+      ctx.seiteNeuBauen();
+      ctx.neuZeichnen();
+    },
+
     beiTaste(ctx, e) {
       if (e.code === 'Escape') {
+        let neuBauen = false;
         if (zug) {
           zug = null; // cancels a drag first, keeps the selection
         } else if (gewaehlt !== null) {
           gewaehlt = null;
-          ctx.seiteNeuBauen();
+          neuBauen = true;
         }
+        if (modus !== 'setzen') {
+          modus = 'setzen'; // Escape is "back to the start": the mode goes back to SETZEN (sidebar tick and display follow)
+          neuBauen = true;
+        }
+        if (neuBauen) ctx.seiteNeuBauen();
         ctx.neuZeichnen();
         return false; // Escape does not end this tool (it never did)
       }

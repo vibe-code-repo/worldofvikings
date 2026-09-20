@@ -20,6 +20,7 @@
  * Run:  npx tsx test/werkzeug-registry.ts
  */
 import { readFileSync } from 'node:fs';
+import * as ts from 'typescript';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
@@ -697,7 +698,9 @@ async function main(): Promise<void> {
 
   // ── Source guard ─────────────────────────────────────────────────
   console.log('Source guard');
-  const haupt = readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8');
+  const kanonisch = (text: string): string =>
+    ts.createPrinter({ removeComments: true }).printFile(ts.createSourceFile('x.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)).replace(/"/g, "'"); // independent of line breaks and quote style (prettier)
+  const haupt = kanonisch(readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8'));
   const hud = readFileSync(resolve(EDITOR, 'KartenHud.ts'), 'utf-8');
   const vergleiche = haupt.match(/werkzeug\s*[!=]==\s*'(fluss|see)'/g) ?? [];
   gleich("editorMain.ts: no `werkzeug === 'fluss'` / `=== 'see'`", vergleiche, []);

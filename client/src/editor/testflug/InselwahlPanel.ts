@@ -108,19 +108,30 @@ export class InselwahlPanel {
       stil({ 'font-family': SCHRIFT.mono, 'font-size': '10.5px', color: F.gedimmt3, 'white-space': 'nowrap' }),
       e.placements === 1 ? '1 Platzierung' : `${e.placements} Platzierungen`
     );
-    const go = knopf(
+    const go: HTMLButtonElement = knopf(
       'In 3D betreten',
       () => {
         const region = layout.regions.find((r) => r.id === id);
         if (!region) return;
-        const s = heightSourcesFor(layout);
-        const ziel = islandCentre(layout, region, s.ground, s.estimate);
-        if (!ziel) {
-          this.host.meldung(`${id} hat kein Land über der Wasserlinie — dort gibt es nichts zu betreten.`, true);
-          return;
-        }
-        this.host.betreten(ziel.x, ziel.z, id);
-        this.close();
+        // The search reads real heights (a swamp with rare hills: up to ~2 s). Say so first, then search;
+        // the tab opens from the same click a moment later (transient activation lasts seconds).
+        go.textContent = 'Suche …';
+        go.disabled = true;
+        setTimeout(() => {
+          try {
+            const s = heightSourcesFor(layout);
+            const ziel = islandCentre(layout, region, s.ground, s.estimate);
+            if (!ziel) {
+              this.host.meldung(`${id} hat kein Land über der Wasserlinie — dort gibt es nichts zu betreten.`, true);
+              return;
+            }
+            this.host.betreten(ziel.x, ziel.z, id);
+            this.close();
+          } finally {
+            go.textContent = 'In 3D betreten';
+            go.disabled = false;
+          }
+        }, 30);
       },
       { hoehe: 26 }
     );

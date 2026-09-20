@@ -9,6 +9,8 @@
 /** Below the minimap: top 10 px + circle 230 px + clock bar 30 px + gap. */
 const TOP_PX = 276;
 
+/** The minimap column (230 px + 10 px margin) stays free: the banner ends left of it. */
+const BANNER_RIGHT_PX = 260;
 /** The loading screen (`LoadingScreen`) sits at z-index 900; the banner above it. */
 const BANNER_Z = 1000;
 /** How long the banner stays after the loading screen is gone (the panel keeps the text). */
@@ -69,8 +71,8 @@ export class LageAnzeige {
     const banner = document.createElement('div');
     banner.id = 'wov-lage-meldung';
     banner.style.cssText =
-      `position:fixed;left:50%;top:32%;transform:translateX(-50%);z-index:${BANNER_Z};` +
-      'width:min(520px,88vw);box-sizing:border-box;padding:14px 18px;text-align:center;' +
+      `position:fixed;left:16px;right:${BANNER_RIGHT_PX}px;margin:0 auto;top:14%;z-index:${BANNER_Z};` +
+      'max-width:520px;box-sizing:border-box;padding:14px 18px;text-align:center;' +
       'background:rgba(40,12,8,.94);border:2px solid #ff9a8a;border-radius:6px;' +
       'color:#ffe0d8;font:15px/1.5 Georgia,serif;pointer-events:none';
     const kopf = document.createElement('div');

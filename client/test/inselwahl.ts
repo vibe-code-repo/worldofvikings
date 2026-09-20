@@ -14,7 +14,7 @@
  * derived from it, not typed in, so the test keeps working when islands move.
  */
 import { readFileSync } from 'node:fs';
-import { WATER_LEVEL, sanitizeWorldLayout, shapeBounds, signedDistance } from '@wov/shared';
+import { WATER_LEVEL, sanitizeWorldLayout, signedDistance } from '@wov/shared';
 import type { RegionDef, WorldLayout } from '@wov/shared';
 import { createWorld } from '../src/world/World';
 import {
@@ -84,19 +84,6 @@ const inRegion = (r: RegionDef, x: number, z: number): boolean =>
   r.shape.kind === 'circle'
     ? Math.hypot(x - r.shape.x, z - r.shape.z) <= r.shape.radius
     : imPolygon(r.shape.points, x, z);
-// Highest land the region OWNS on the search grid (cheap generator height), above the water line.
-const hoechstesEigenes = (r: RegionDef): number => {
-  const b = shapeBounds(r.shape);
-  let h = -Infinity;
-  for (let i = 0; i < 41; i++) {
-    for (let j = 0; j < 41; j++) {
-      const x = b.minX + ((i + 0.5) / 41) * (b.maxX - b.minX);
-      const z = b.minZ + ((j + 0.5) / 41) * (b.maxZ - b.minZ);
-      if (regionAt(layout, x, z) === r) h = Math.max(h, estimate(x, z) - WATER_LEVEL);
-    }
-  }
-  return h;
-};
 const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   const m = new Map<string, number>();
   const obenZuerst = [...l.regions].reverse();
@@ -124,10 +111,9 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
     if (e.target) {
       const g = ground(e.target.x, e.target.z);
       pruefe(g >= WATER_LEVEL + MIN_ABOVE_WATER, `${e.id}: target ground ${g.toFixed(1)} m above water ${WATER_LEVEL}`);
-      // No wet beach: at least TARGET_HEIGHT above the water line, or — a swamp whose own land tops out lower — the top of its land.
-      const grenze = Math.min(TARGET_HEIGHT, hoechstesEigenes(region) - 1);
-      pruefe(g - WATER_LEVEL >= grenze, `${e.id}: target stands ${(g - WATER_LEVEL).toFixed(2)} m above the water line (asked: ${grenze.toFixed(2)} m)`);
-      if (g - WATER_LEVEL < TARGET_HEIGHT) console.log(`  ${e.id}: only ${(g - WATER_LEVEL).toFixed(2)} m (the highest land it owns: about ${hoechstesEigenes(region).toFixed(1)} m)`);
+      // No wet beach, no exception: real ground at least TARGET_HEIGHT above the water line (finding of attack 2: the
+      // cheap estimate hid the real land of insel-3, which then got a target 3.17 m high).
+      pruefe(g - WATER_LEVEL >= TARGET_HEIGHT, `${e.id}: target stands ${(g - WATER_LEVEL).toFixed(2)} m above the water line (asked: ${TARGET_HEIGHT} m)`);
       mindesthoehe = Math.min(mindesthoehe, g - WATER_LEVEL);
       pruefe(signedDistance(region.shape, e.target.x, e.target.z) >= 0, `${e.id}: target inside the region`);
       pruefe(regionAt(layout, e.target.x, e.target.z) === region, `${e.id}: the region is the topmost at its target`);
@@ -143,6 +129,38 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   pruefe(zeilen.every((r, i) => r.id === liste[i]!.id), 'rows and list agree');
   // Labels of the editor tree: region id and biome, the continent by name.
   pruefe(zeilen.every((r, i) => r.biome === layout.regions[i]!.biome), 'biome label = the editor tree');
+}
+
+// ── 1b. The estimate only orders: a wrong one must not hide real land ─────────
+{
+  // Terrain the draft has edited makes the world generator's height (the cheap estimate) tens of metres wrong.
+  // Three liars stand in for it: everything deep under water, 60 m too low, a constant above the water line.
+  const luegner: Array<[string, (x: number, z: number) => number]> = [
+    ['everything deep under water', () => WATER_LEVEL - 500],
+    ['the generator height minus 60 m', (x, z) => estimate(x, z) - 60],
+    ['a constant above the water line', () => WATER_LEVEL + 40],
+  ];
+  const t0 = performance.now();
+  let langsam = { id: '', ms: 0, art: '' };
+  for (const [name, schaetzung] of luegner) {
+    const ohne: string[] = [];
+    for (const region of layout.regions) {
+      const t1 = performance.now();
+      const ziel = islandCentre(layout, region, ground, schaetzung);
+      const ms = performance.now() - t1;
+      if (ms > langsam.ms) langsam = { id: region.id, ms, art: name };
+      if (!ziel) {
+        ohne.push(region.id);
+        continue;
+      }
+      const h = ground(ziel.x, ziel.z) - WATER_LEVEL;
+      pruefe(h >= TARGET_HEIGHT, `estimate = ${name}: ${region.id}: real ground ${h.toFixed(2)} m above the water line (asked: ${TARGET_HEIGHT} m)`);
+      pruefe(signedDistance(region.shape, ziel.x, ziel.z) >= 0, `estimate = ${name}: ${region.id}: target inside the region`);
+    }
+    pruefe(ohne.length === 0, `estimate = ${name}: every region still has a target (missing: ${ohne.join(', ') || 'none'})`);
+  }
+  console.log(`  three wrong estimates x 19 regions: ${(performance.now() - t0).toFixed(0)} ms, slowest ${langsam.id} ${langsam.ms.toFixed(0)} ms (${langsam.art})`);
+  pruefe(langsam.ms < 8000, `the search stays bounded (${langsam.ms.toFixed(0)} ms for ${langsam.id})`);
 }
 
 // ── 2. The real sources give the same target as the cheap search alone ──────
@@ -338,6 +356,18 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   pruefe(h2.length === 3, 'a newer one is heard');
   flugB.postMessage(p(5, 2000)); // system clock went back by more than LATE_MS: a new flight, heard
   pruefe(h2.length === 4, `older by more than ${LATE_MS} ms counts as a new flight (clock went back), so the map never freezes`);
+  // The limit itself: at most LATE_MS older than the newest handled is late (dropped), one more is a new flight.
+  const ed3 = new Kanal();
+  const h3: number[] = [];
+  const weg3 = onReturn(ed3, (q) => h3.push(q.at));
+  const flugC = new Kanal();
+  flugC.postMessage(p(0, 100_000));
+  flugC.postMessage(p(0, 100_000 - LATE_MS + 1));
+  flugC.postMessage(p(0, 100_000 - LATE_MS));
+  pruefe(h3.length === 1, `${LATE_MS - 1} ms and exactly ${LATE_MS} ms older than the newest: dropped as late`);
+  flugC.postMessage(p(0, 100_000 - LATE_MS - 1));
+  pruefe(h3.length === 2, `${LATE_MS + 1} ms older: a new flight, heard`);
+  weg3();
   weg2();
   pruefe(ed2.geschlossen && Kanal.alle.has(flugA), 'the remover closes only its own channel');
 
@@ -345,6 +375,8 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   pruefe(planReturn(false, true) === 'send' && planReturn(false, false) === 'send', 'a normal return is sent whether or not the tab can close');
   pruefe(planReturn(true, true) === 'close-only', 'refused jump, tab can close: close it, send nothing');
   pruefe(planReturn(true, false) === 'stay', 'refused jump, tab cannot close: stay, send nothing');
+  pruefe(planReturn(true, true, true) === 'send' && planReturn(true, false, true) === 'send', 'refused jump, but the figure has since come into a region: the return is sent again');
+  pruefe(planReturn(true, true, false) === 'close-only' && planReturn(true, false, false) === 'stay', 'refused jump and still outside every region: as before');
 }
 
 // ── 8. Key V: the build mode only ───────────────────────────────────────────

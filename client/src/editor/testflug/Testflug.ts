@@ -28,7 +28,7 @@ import { RoutenEditor } from '../RoutenEditor';
 import { RoutenVorschau } from '../RoutenVorschau';
 import { BewuchsVorschau } from '../BewuchsVorschau';
 import { LageAnzeige } from './LageAnzeige';
-import { positionLines } from './inselwahl';
+import { positionLines, regionAt } from './inselwahl';
 import { planReturn, sendReturnFromBrowser } from './ruecksprung';
 import type { TestflugKontext } from './TestflugKontext';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz } from './TestflugPersistenz';
@@ -513,7 +513,11 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (tipptImFeld(e) || e.code !== 'KeyQ' || e.repeat || !player) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       // Only a tab opened by the editor may close itself.
-      const plan = planReturn(abgelehnt !== null, window.opener != null);
+      const plan = planReturn(
+        abgelehnt !== null,
+        window.opener != null,
+        gebiet !== null && regionAt(gebiet, player.position.x, player.position.z) !== null
+      );
       if (plan === 'stay') {
         hud.meldung('Der Sprung wurde abgelehnt, es gibt keine Stelle für die Karte — diesen Tab bitte selbst schließen');
         return;
@@ -536,7 +540,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       setTimeout(() => {
         hud.meldung(
           plan === 'send'
-            ? 'Karte ist zentriert — diesen Tab bitte selbst schließen'
+            ? 'Stelle an den Editor geschickt — nur ein offener Editor im selben Browserprofil zentriert die Karte. Diesen Tab bitte selbst schließen'
             : 'Diesen Tab bitte selbst schließen'
         );
       }, 600);

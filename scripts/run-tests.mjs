@@ -1364,7 +1364,7 @@ const KERN = [
   // in the draft's companion note: a newer editor save gives 409, nothing is
   // overwritten; no base, nothing is sent. Real operations service. ~5 s.
   ['client', 'test/testflug-speichern-basis.ts'],
-  // Island pick and jump into the offline flight (K2.0): targets on land in every region, orientation display, way back. ~3 s.
+  // Island pick and jump into the offline flight (K2.0): targets on land in every region, orientation display, way back. ~17 s.
   ['client', 'test/inselwahl.ts'],
   // Editor E1 (integration I1): tool registry, stable placement ids, world
   // operations, zone reset.

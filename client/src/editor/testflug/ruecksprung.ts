@@ -102,10 +102,10 @@ export function sendReturnFromBrowser(p: ReturnPoint): boolean {
 }
 
 /**
- * A return older than the newest handled one by less than this is a late
- * arrival from another flight and dropped; older by more, the system clock
- * went back and the return counts as new (else the map would ignore every
- * return until the editor is reloaded).
+ * A return that is at most this much older than the newest one handled (the
+ * limit itself included) is a late arrival from another flight and dropped;
+ * older by MORE, the system clock went back and it counts as a new flight
+ * (else the map would ignore every return until the editor is reloaded).
  */
 export const LATE_MS = 60_000;
 
@@ -119,7 +119,7 @@ export function onReturn(channel: ReturnChannel | null, bei: (p: ReturnPoint) =>
   let newest = -Infinity;
   const listener = (e: { data: unknown }): void => {
     const p = decodeReturn(e.data);
-    if (!p || (p.at < newest && newest - p.at < LATE_MS)) return;
+    if (!p || (p.at < newest && newest - p.at <= LATE_MS)) return;
     newest = p.at;
     bei(p);
   };
@@ -133,11 +133,14 @@ export function onReturn(channel: ReturnChannel | null, bei: (p: ReturnPoint) =>
 export type ReturnPlan = 'send' | 'close-only' | 'stay';
 
 /**
- * What Q does. After a refused jump the figure stands in the open sea at the
- * origin — that is no place to show on the map, so nothing is sent; the tab
- * closes itself when it may (the editor opened it), otherwise it stays and says so.
+ * What Q does. While a refused jump has brought the figure nowhere — it still
+ * stands in the open sea at the origin, outside every region — there is no
+ * place to show on the map, so nothing is sent; the tab closes itself when it
+ * may (the editor opened it), otherwise it stays and says so. Once the figure
+ * has come into a region (swum or flown there) the refusal no longer counts
+ * and the position is sent like any other.
  */
-export function planReturn(jumpRefused: boolean, canClose: boolean): ReturnPlan {
-  if (!jumpRefused) return 'send';
+export function planReturn(jumpRefused: boolean, canClose: boolean, inRegion = false): ReturnPlan {
+  if (!jumpRefused || inRegion) return 'send';
   return canClose ? 'close-only' : 'stay';
 }

@@ -191,28 +191,33 @@ export function regionCentre(region: RegionDef): { x: number; z: number } {
 
 /** Samples per axis of the search. */
 const SEARCH_GRID = 41;
-/** How many of the best candidates are confirmed against the real ground height. */
-const SEARCH_CONFIRM = 8;
+/**
+ * The cheap estimate only orders the grid: points it puts this far below the
+ * water line are tried last. It is NOT a filter — on terrain the draft has
+ * edited the estimate (world generator alone) can be tens of metres off, and
+ * real land was invisible to it (measured on insel-3 and insel-16).
+ */
+const ESTIMATE_MARGIN = 5;
+/** Real heights read per region at most: the whole grid (~1.5 ms each once a zone is warm). */
+const SEARCH_MAX_READS = SEARCH_GRID * SEARCH_GRID;
 
 /**
  * Jump target for a region: its centre when that is high land of THIS region,
- * otherwise the best land point found on a grid over its bounds.
+ * otherwise the most inland grid point that is high land.
  *
  * Which grid points count: those the region OWNS (it is the topmost region
  * there). Only when it owns none — it lies completely under later regions —
  * the points inside it that a later region covers count; a target the player
  * asked for by region name must not land on another region's mountain.
- * Ranking of those points (cheap `estimate` heights):
- *   1. height: points at least `TARGET_HEIGHT` above the water line come
- *      first. When none exists (a swamp) the HIGHEST points come first and
- *      the distance from the edge is no longer asked for;
- *   2. inland: the farthest from the region edge.
- * The best few are then confirmed with the real ground height (`ground`, one
- * height zone per call, ~4 ms, and up to a few metres different from the
- * estimate). Null when nothing on the grid is land at all.
  *
- * `estimate` is a cheap height (the world generator, ~10 µs) used to pre-sort
- * the grid; without it the search would cost seconds.
+ * Order of the points: those the estimate does not put deep under water, the
+ * farthest from the region edge first; then the others, likewise. Each is read
+ * with the REAL ground height (`ground`, one height zone per call, ~4 ms cold,
+ * ~1.5 ms warm) until one stands at least `TARGET_HEIGHT` above the water
+ * line — that is the target, so most regions cost one to a few reads. When none
+ * does (a swamp whose hills the estimate cannot see, or a region under water)
+ * the whole grid has been read (~1.5 s), and the highest point that is land at
+ * all is taken; null when there is none.
  */
 export function islandCentre(
   layout: WorldLayout,
@@ -231,8 +236,8 @@ export function islandCentre(
   interface Candidate {
     x: number;
     z: number;
-    /** Estimated height above the water line (m). */
-    h: number;
+    /** The estimate does not put it deep under water. */
+    likely: boolean;
     owned: boolean;
     /** Distance from the region edge (m). */
     d: number;
@@ -245,28 +250,29 @@ export function islandCentre(
       const z = roundCoordinate(b.minZ + ((j + 0.5) / SEARCH_GRID) * (b.maxZ - b.minZ));
       const d = signedDistance(region.shape, x, z);
       if (!(d >= 0)) continue;
-      const h = estimate(x, z) - WATER_LEVEL;
-      if (!(h >= MIN_ABOVE_WATER)) continue;
-      candidates.push({ x, z, h, owned: regionAt(layout, x, z) === region, d, near: Math.hypot(x - c.x, z - c.z) });
+      candidates.push({
+        x,
+        z,
+        likely: estimate(x, z) >= WATER_LEVEL - ESTIMATE_MARGIN,
+        owned: regionAt(layout, x, z) === region,
+        d,
+        near: Math.hypot(x - c.x, z - c.z),
+      });
     }
   }
-  if (candidates.length === 0) return null;
   const owned = candidates.filter((k) => k.owned);
   const pool = owned.length > 0 ? owned : candidates;
-  const hasHigh = pool.some((k) => k.h >= TARGET_HEIGHT);
   pool.sort((p, q) => {
-    const ph = p.h >= TARGET_HEIGHT;
-    const qh = q.h >= TARGET_HEIGHT;
-    if (ph !== qh) return ph ? -1 : 1;
-    return (hasHigh ? q.d - p.d : q.h - p.h) || p.near - q.near;
+    if (p.likely !== q.likely) return p.likely ? -1 : 1;
+    return q.d - p.d || p.near - q.near;
   });
 
   let best: { x: number; z: number; ground: number } | null = null;
-  for (const cand of pool.slice(0, SEARCH_CONFIRM)) {
-    const t = checkJump(layout, ground, cand.x, cand.z);
-    if (!t.ok) continue;
-    if (high(t.ground)) return { x: cand.x, z: cand.z };
-    if (!best || t.ground > best.ground) best = { x: cand.x, z: cand.z, ground: t.ground };
+  for (const cand of pool.slice(0, SEARCH_MAX_READS)) {
+    const g = ground(cand.x, cand.z);
+    if (!(g >= WATER_LEVEL + MIN_ABOVE_WATER)) continue;
+    if (high(g)) return { x: cand.x, z: cand.z };
+    if (!best || g > best.ground) best = { x: cand.x, z: cand.z, ground: g };
   }
   return best ? { x: best.x, z: best.z } : null;
 }

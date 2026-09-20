@@ -145,17 +145,16 @@ def band(name, tree, origin, axis, zero, rows, slot, material, segments=10, begi
 
 def soften(obj, rounds, grow):
     """Worn cloth, not body paint: smooth the lining inside its borders and let it out; the borders stay put,
-    so neighbouring regions and the free body still meet it without a step."""
-    bm = bmesh.new(); bm.from_mesh(obj.data)
+    so neighbouring regions and the free body still meet it without a step. Smoothing alone shrinks a rounded
+    form, so every vertex is lifted back to at least `grow` above the place it came from."""
+    bm = bmesh.new(); bm.from_mesh(obj.data); bm.normal_update()
+    rest = {v: (v.co.copy(), v.normal.copy()) for v in bm.verts if not v.is_boundary}
     for _ in range(rounds):
-        moved = {v: v.co.lerp(sum((e.other_vert(v).co for e in v.link_edges), Vector())/len(v.link_edges), .5)
-                 for v in bm.verts if not v.is_boundary}
+        moved = {v: v.co.lerp(sum((e.other_vert(v).co for e in v.link_edges), Vector())/len(v.link_edges), .5) for v in rest}
         for v, co in moved.items():
             v.co = co
-    bm.normal_update()
-    for v in bm.verts:
-        if not v.is_boundary:
-            v.co += v.normal*grow
+    for v, (co, normal) in rest.items():  # cloth spans the hollows and rests on the bumps: never below where it started
+        v.co += normal*(grow+max(0, (co-v.co).dot(normal)))
     bm.to_mesh(obj.data); bm.free(); obj.data.update()
 
 
@@ -174,12 +173,23 @@ def repaint(obj, base=None, rules=()):
                 break
 
 
+def follow_waist(obj, surface, height=.965):
+    """The weights of the waist, read for every vertex at one height: whatever stands upright keeps its length
+    when the trunk turns against the hips, because a whole column moves as one piece."""
+    rest = [v.co.z for v in obj.data.vertices]
+    for v in obj.data.vertices:
+        v.co.z = height
+    attach_to_surface(obj, surface)
+    for v, z in zip(obj.data.vertices, rest):
+        v.co.z = z
+
+
 def hang_weights(obj, waist=None):
     """The legs below the band, blended across the centre so a skirt behaves like cloth. Above, either the Hips
     bone or, with `waist` (a binding surface), whatever the waist there follows: then a skirt turns with the trunk."""
     above = {}
     if waist:
-        attach_to_surface(obj, waist)
+        follow_waist(obj, waist)
         above = {v.index: {obj.vertex_groups[g.group].name: g.weight for g in v.groups} for v in obj.data.vertices}
         obj.vertex_groups.clear()
     for v in obj.data.vertices:
@@ -230,16 +240,16 @@ for begin in [math.radians(-80), math.radians(100)]:  # front and back panel; th
     pieces['Hips'].remove(skirt); bpy.data.objects.remove(skirt, do_unlink=True)
     hang_weights(mesh('Shirt_skirt', verts, faces, 'Hips', 'cloth'), waistline)
     hang_weights(stitches('Skirt_hem_stitches', [(p+Vector((0, 0, .016)), out) for p, out in hem], 'Hips', spacing=.044, across=False), waistline)
-belt, grid = band('Waist_band', waist, axis0, UP, FRONT, [(.925, .026), (.945, .026), (.965, .026)], 'Hips', 'black', 16, upright=True)
-attach_to_surface(belt, waistline)  # the band turns with the waist it is tied around, like the skirt under it
+belt, grid = band('Waist_band', waist, axis0, UP, FRONT, [(.925, .033), (.945, .033), (.965, .033)], 'Hips', 'black', 16, upright=True)
+follow_waist(belt, waistline)  # the band turns with the waist it is tied around, like the skirt under it
 for f in [.5]:  # one row of running stitches along the middle, taken from the band's own surface
     circle = [(grid[3*(j % 16)][0].lerp(grid[3*(j % 16)+2][0], f), grid[3*(j % 16)][1]) for j in range(17)]
     thread = stitches('Band_stitches', circle, 'Hips', spacing=.050, length=.020, width=.0045, across=False)
-    attach_to_surface(thread, waistline)
+    follow_waist(thread, waistline)
 for dx, drop in [(-.018, .075), (.022, .055)]:  # the tied ends of the band: short, and on the waist only, so a crouch does not splay them
     top = lay(waist, (dx, -1, .938), (dx, .015, .938), .032)[0]
     tie = strip('Band_end', [(top+Vector((dx*.6*k, -.004*k, -drop*k/2)), Vector((0, -1, 0))) for k in range(3)], .026, 'Hips', 'black')
-    attach_to_surface(tie, waistline)
+    follow_waist(tie, waistline)
 first = len(pieces['Hips'])
 for sign in [-1, 1]:
     leg = lambda p: Vector((sign*.10, .02, p.z))

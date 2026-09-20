@@ -1427,6 +1427,11 @@ const KERN = [
   // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
   // init()-only Reload, ~5s.
   ['server', 'test/f1-truhe.ts'],
+  // B7: Findlinge, Betten und Truhen aus dem Speicher (Verhalten aus
+  // shared/src/storeVerhalten.ts) ueber den echten Paketpfad: Spitzhacke gibt
+  // Stein, Bett setzt den Wiedereinstieg (Tod -> Teleport dorthin), Truhe
+  // oeffnet mit Inhalt und behaelt ihn nach dem Neustart. ~20 s.
+  ['server', 'test/b7-entsperren.ts'],
   // G3 (Testluecken-Durchsicht, "kein einziger Test mit zwei
   // gleichzeitigen Clients"): echte WebSocket-Handshakes fuer ZWEI+ Peers
   // gleichzeitig gegen einen echten WovServer. Gegenseitige ZDO-
@@ -1517,6 +1522,9 @@ const KERN = [
   //     Eintraegen — anzusehen war das keiner der beiden Seiten.
   //     Braucht `assets/store` fuer Sorte und Kategorie.
   ['shared', 'test/store-registry.ts'],
+  // Welche Speicher-Prefabs etwas TUN (Findling, Bett, Truhe): Mengen je
+  // Gruppe, nichts zusaetzlich, Streutabelle gedeckt. Dateilos.
+  ['shared', 'test/store-verhalten.ts'],
   ['client', 'test/store-ladepfad.ts'],
 
   // ── Kollisionsformen: Client und Server sehen DASSELBE ─────────────

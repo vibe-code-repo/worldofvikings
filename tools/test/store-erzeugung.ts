@@ -54,7 +54,7 @@ const TSX = join(WURZEL, 'node_modules/.bin/tsx');
   der nur eine der beiden ansieht, laesst die andere lautlos veralten,
   und der Katalog ist genau der Teil, den sonst nichts anfasst.
 */
-const ERZEUGNISSE = ['storePrefabs.ts', 'storeKatalogDaten.ts'] as const;
+const ERZEUGNISSE = ['storePrefabs.ts', 'storeKatalogDaten.ts', 'storeVerhalten.ts'] as const;
 const STORE = join(WURZEL, 'assets/store');
 const STORE_LAB = join(WURZEL, 'assets/store-lab');
 

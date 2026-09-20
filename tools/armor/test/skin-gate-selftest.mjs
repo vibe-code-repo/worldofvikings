@@ -1,9 +1,11 @@
 /** The skin gate (tools/armor/test/skin-gate.mjs) must fail when a set does not match the item registry.
  * tsx tools/armor/test/skin-gate-selftest.mjs
  * No Blender, no assets: every registered family is written as tiny synthetic GLBs straight from the registry
- * (both bodies for Seidraven and Emberrage) and run through the gate. The complete sets must pass; each
- * deviation (GLB extras that disagree with the registry, a part missing from the manifest or from disk, a wrong
- * body, an unknown family, a body mask that hides nothing) must make it fail with its own message.
+ * (both bodies for the families that have a female set, and their web fit on the 63-bone web body) and run through
+ * the gate. What a set must contain is derived from the registry: its items, its replaced regions, and the free regions
+ * no item replaces (Plainhide keeps head and hands). The complete sets must pass; each deviation (GLB extras that
+ * disagree with the registry, a part missing from the manifest or from disk, a wrong body, an unknown family, a body
+ * mask that hides nothing or takes the free regions) must make it fail with its own message.
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -36,6 +38,8 @@ const REGION_BONE = { Head: 'Head', Torso: 'Spine01', Hips: 'Hips', ArmUpperLeft
   ArmLowerLeft: 'L_Forearm', ArmLowerRight: 'R_Forearm', HandLeft: 'L_Hand', HandRight: 'R_Hand', LegLeft: 'L_Calf', LegRight: 'R_Calf' };
 const MALE_BONES = ['Root', 'Hips', 'UpperLeg_L'];
 const FEMALE_BONES = ['Root', 'Hips', 'L_Thigh', ...new Set(Object.values(REGION_BONE).filter(b => b !== 'Hips'))];
+// The web body is the 63-bone rig of the newer female; it has one mesh per region, like the male body.
+const WEB_BONES = ['Root', 'Hips', 'UpperLeg_L', ...Array.from({ length: 60 }, (_, i) => `Web_${i}`)];
 
 /** One skinned GLB: a flat rig, meshes made of triangles that follow one bone each, optional clips on Hips. */
 function file(bones, meshes, clips = 0) {
@@ -75,8 +79,9 @@ function file(bones, meshes, clips = 0) {
   return glb(json, bin);
 }
 const maleBody = () => file(MALE_BONES, REGIONS.map(r => ({ name: `WoV_BodyBase_Male_${r}`, triangleBones: [1] })), 3);
-const femaleBody = (without) => file(FEMALE_BONES,
-  [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.filter(r => r !== without).map(r => FEMALE_BONES.indexOf(REGION_BONE[r])) }], 3);
+const femaleBody = (...without) => file(FEMALE_BONES,
+  [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.filter(r => !without.includes(r)).map(r => FEMALE_BONES.indexOf(REGION_BONE[r])) }], 3);
+const webBody = () => file(WEB_BONES, REGIONS.map(r => ({ name: `Chr_${r}_Female_00`, triangleBones: [1] })), 3);
 
 /** The registry's items for a family and variant, written the way the exporter writes them. */
 function partsOf(family, variant) {
@@ -84,13 +89,15 @@ function partsOf(family, variant) {
 }
 function writeSet(dir, family, variant, tweak = {}) {
   mkdirSync(dir, { recursive: true });
-  const bones = variant === 'female' ? FEMALE_BONES : MALE_BONES;
-  // Seidraven and Emberrage GLBs carry the body policy and item id; the older sets carry the region only.
-  const policy = ['seidraven', 'emberrage'].includes(family);
+  // A web fit is skinned to the web body and says so: the catalog's web profile, not the game profile.
+  const web = tweak.web === true;
+  const bones = web ? WEB_BONES : variant === 'female' ? FEMALE_BONES : MALE_BONES;
+  // The older sets carry the region only; every later family's GLBs carry the body policy and the item id.
+  const policy = !['ironward', 'wildwarden', 'ashenveil'].includes(family);
   const items = [];
   for (const part of partsOf(family, variant)) {
     const item = part.datei.split('/')[1];
-    const extras = extra => ({ ...extra, ...(policy ? { itemId: item, bodyVariant: part.bodyVariant, bodyProfile: part.bodyProfile } : {}) });
+    const extras = extra => ({ ...extra, ...(policy ? { itemId: item, bodyVariant: part.bodyVariant, bodyProfile: web ? 'wov-female-v1' : part.bodyProfile } : {}) });
     let meshes = part.regions.length
       ? part.regions.map(region => ({ name: `WoV_${item}_${region}`, triangleBones: [1], extras: extras({ replaces: region }) }))
       : [{ name: `WoV_${item}_Attachment`, triangleBones: [1], extras: extras({ attachment: true }) }];
@@ -107,7 +114,10 @@ try {
   writeFileSync(join(scratch, 'male.glb'), maleBody());
   writeFileSync(join(scratch, 'female.glb'), femaleBody());
   writeFileSync(join(scratch, 'female-no-head.glb'), femaleBody('Head'));
-  const body = { male: join(scratch, 'male.glb'), female: join(scratch, 'female.glb'), noHead: join(scratch, 'female-no-head.glb') };
+  writeFileSync(join(scratch, 'female-no-free.glb'), femaleBody('Head', 'HandLeft', 'HandRight'));
+  writeFileSync(join(scratch, 'web.glb'), webBody());
+  const body = { male: join(scratch, 'male.glb'), female: join(scratch, 'female.glb'), noHead: join(scratch, 'female-no-head.glb'),
+    noFree: join(scratch, 'female-no-free.glb'), web: join(scratch, 'web.glb') };
   const run = (name, bodyFile, ...args) => new Promise(resolve => {
     const child = spawn(tsx, [gate, bodyFile, join(scratch, name), ...args], { cwd: root });
     let out = '', err = '';
@@ -123,9 +133,14 @@ try {
       const name = `good-${family}-${variant}`;
       writeSet(join(scratch, name), family, variant);
       cases.push({ name, family, variant, args: [`--family=${family}`, `--variant=${variant}`], bodyFile: body[variant], good: true });
+      // Every female set also ships its web fit, which the gate must be able to check against the web body.
+      if (variant === 'female') {
+        writeSet(join(scratch, `${name}-web`), family, variant, { web: true });
+        cases.push({ name: `${name}-web`, family, variant, web: true, args: [`--family=${family}`, `--variant=${variant}`, '--web'], bodyFile: body.web, good: true });
+      }
     }
   }
-  assert(['seidraven', 'emberrage'].every(f => families.includes(f)), 'Seidraven and Emberrage are registered families');
+  assert(['seidraven', 'emberrage', 'plainhide', 'gravethorn'].every(f => families.includes(f)), 'Seidraven, Emberrage, Plainhide and Gravethorn are registered families');
 
   // Deviations. Each is one change to an otherwise complete set.
   const swap = (item, change) => ({ meshes: { [item]: meshes => meshes.map(m => ({ ...m, extras: change(m.extras) })) } });
@@ -153,7 +168,27 @@ try {
   bad('female-set-on-male-body', 'seidraven', 'female', {}, /seidraven\/female: the body GLB is not a legacy-female-v1 body/, { bodyFile: body.male });
   bad('male-set-on-female-body', 'emberrage', 'male', {}, /emberrage\/male: the body GLB is not a wov-male-v1 body/, { bodyFile: body.female });
   bad('seidraven-needs-variant', 'seidraven', 'male', {}, /choose the body with --variant=male\|female/, { args: ['--family=seidraven'] });
-  bad('unknown-family', 'wildwarden', 'male', {}, /Unknown armor family "nonsense"; the registry knows: .*seidraven.*emberrage/, { args: ['--family=nonsense'] });
+  bad('unknown-family', 'wildwarden', 'male', {}, /Unknown armor family "nonsense"; the registry knows: .*seidraven.*emberrage.*plainhide.*gravethorn/, { args: ['--family=nonsense'] });
+  // The five-piece Plainhide set: an item that reaches into head or hands is refused, and so is a body that leaves no head and hands to keep.
+  bad('plainhide-vest-replaces-head', 'plainhide', 'female', swap('plainhide_female_vest', e => ({ ...e, replaces: 'Head' })),
+    /plainhide_female_vest: the GLB replaces \[Head\] but the registry lists \[Torso\]/);
+  bad('plainhide-boots-replace-hands', 'plainhide', 'male', swap('plainhide_male_boots', e => ({ ...e, replaces: 'HandLeft' })),
+    /plainhide_male_boots: the GLB replaces \[HandLeft,HandLeft\] but the registry lists \[LegLeft,LegRight\]/);
+  bad('plainhide-body-has-no-free-regions', 'plainhide', 'female', {}, /plainhide\/female: the full set leaves 0 body triangles for the free regions \[Head,HandLeft,HandRight\]/, { bodyFile: body.noFree });
+  bad('gravethorn-hood-attachment', 'gravethorn', 'female', swap('gravethorn_female_hood', () => ({ attachment: true })),
+    /gravethorn_female_hood: the GLB replaces \[\] but the registry lists \[Head\]/);
+  // The web fit: right body and right profile, or refused.
+  const webBad = (name, family, variant, tweak, expect, options) => bad(name, family, variant, { web: true, ...tweak }, expect,
+    { args: [`--family=${family}`, `--variant=${variant}`, '--web'], ...options });
+  webBad('web-fit-on-game-body', 'plainhide', 'female', {}, /plainhide\/female: the body GLB is not a wov-female-v1 body \(\d+ bones\)/, { bodyFile: body.female });
+  webBad('web-fit-on-male-body', 'gravethorn', 'female', {}, /gravethorn\/female: the body GLB is not a wov-female-v1 body/, { bodyFile: body.male });
+  webBad('web-hood-carries-game-profile', 'gravethorn', 'female', swap('gravethorn_female_hood', e => ({ ...e, bodyProfile: 'legacy-female-v1' })),
+    /gravethorn_female_hood: node \S+ extras\.bodyProfile differs from the registry/, { bodyFile: body.web });
+  webBad('web-vest-replaces-head', 'plainhide', 'female', swap('plainhide_female_vest', e => ({ ...e, replaces: 'Head' })),
+    /plainhide_female_vest: the GLB replaces \[Head\] but the registry lists \[Torso\]/, { bodyFile: body.web });
+  webBad('web-flag-on-male-set', 'plainhide', 'male', {}, /--web: plainhide\/male has no separate web fit/, { bodyFile: body.web });
+  bad('web-fit-on-web-body-without-flag', 'plainhide', 'female', { web: true }, /plainhide\/female: the body GLB is not a legacy-female-v1 body/, { bodyFile: body.web });
+  bad('web-and-unregistered', 'plainhide', 'female', { web: true }, /--web needs the registry/, { bodyFile: body.web, args: ['--web', '--unregistered'] });
 
   // Four at a time: each run starts a Babylon engine.
   const results = new Array(cases.length); let next = 0;
@@ -168,12 +203,23 @@ try {
       const report = JSON.parse(r.out.slice(r.out.indexOf('{')));
       assert.equal(report.status, 'PASS'); assert.equal(report.registryMaskingTested, true, `${c.name}: registry checks must run`);
       assert.equal(report.family, c.family); assert.equal(report.bodyVariant, c.variant);
-      assert.equal(report.registryItems, 7, `${c.name}: seven registered items`);
-      assert.equal(report.glbMeshNodesChecked, 11, `${c.name}: eleven mesh nodes checked (crown attachment or ten replaced regions)`);
-      if (c.variant === 'female') {
+      // What the set must contain, from the registry: its items, one mesh node per replaced region (an attachment has one node),
+      // and the free regions no item replaces.
+      const parts = partsOf(c.family, c.variant);
+      const replaced = new Set(parts.flatMap(p => p.regions));
+      const free = REGIONS.filter(region => !replaced.has(region));
+      assert.equal(report.registryItems, parts.length, `${c.name}: every registered item is checked`);
+      assert.equal(report.glbMeshNodesChecked, parts.reduce((n, p) => n + Math.max(p.regions.length, 1), 0), `${c.name}: mesh nodes checked`);
+      assert.deepEqual(report.freeRegions, free, `${c.name}: free regions`);
+      assert.equal(!!report.webBody, !!c.web, `${c.name}: web body flag`);
+      if (c.variant === 'female' && !c.web) {
         const hidden = Object.values(report.hiddenBodyTrianglesPerItem);
-        assert.equal(hidden.reduce((a, b) => a + b, 0), REGIONS.length, `${c.name}: the full set hides every body triangle`);
+        assert.equal(hidden.reduce((a, b) => a + b, 0), replaced.size, `${c.name}: the full set hides exactly its replaced regions`);
+        assert.equal(report.bodyTriangles - replaced.size, free.length, `${c.name}: the free regions stay on the body`);
       }
+      // The two sizes of set: Plainhide has five pieces and keeps head and hands; every other family has seven and covers the body.
+      if (c.family === 'plainhide') { assert.equal(parts.length, 5); assert.deepEqual(free, ['Head', 'HandLeft', 'HandRight']); }
+      else if (c.family !== 'wildwarden') { assert.equal(parts.length, 7); assert.deepEqual(free, []); }
       good++;
     } else {
       assert.notEqual(r.status, 0, `${c.name}: must fail but the gate said\n${r.out}`);
@@ -181,7 +227,7 @@ try {
       bad_++;
     }
   });
-  console.log(`PASS skin gate: ${good} complete sets (${families.length} families, both bodies for Seidraven and Emberrage) pass, ${bad_} deviations rejected with their own message`);
+  console.log(`PASS skin gate: ${good} complete sets (${families.length} families; male, game female and web female fits) pass, ${bad_} deviations rejected with their own message`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

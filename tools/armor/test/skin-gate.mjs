@@ -1,8 +1,11 @@
 /** Actual Babylon GLB loader + animation/skinning gate. No browser or GPU required.
- * tsx tools/armor/test/skin-gate.mjs body.glb exported-models-directory [--family=ashenveil] [--variant=male|female] [--unregistered] [--write-report]
+ * tsx tools/armor/test/skin-gate.mjs body.glb exported-models-directory [--family=ashenveil] [--variant=male|female] [--web] [--unregistered] [--write-report]
  * --family is any family the item registry knows (the folder part of `datei` in RUESTUNG); default ironward.
- * --variant picks the body when a family has male and female items (Seidraven, Emberrage); a family with a
+ * --variant picks the body when a family has male and female items (Seidraven, Emberrage, Plainhide, Gravethorn); a family with a
  *   single variant needs none. The body GLB must match that variant's bodyProfile.
+ * --web checks the web-body fit of a female set instead of the game fit: the body GLB is the 63-bone web body, and the GLBs
+ *   must be skinned to it and carry the `previewBodyProfile` the catalog names for the set (wov-female-v1), not the registered
+ *   game profile (legacy-female-v1). The items are the same registry items; only the body and its rig differ.
  * A registered run is driven by the registry: every item it lists for the family and variant must be in
  * manifest.json and exist as a GLB, and the `replaces` / `attachment` extras of each GLB must name exactly the
  * regions the registry lists, in both directions.
@@ -17,14 +20,16 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/index.js';
-import { RUESTUNG } from '@wov/shared';
+import { RUESTUNG, equipmentSetCatalog } from '@wov/shared';
 import { verifyArmorSkin, updateArmorVisibility, prepareLegacyFemaleBody } from '../../../client/src/player/armorVisibility.ts';
 const [bodyPath, directory] = process.argv.slice(2);
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const families = [...new Set(RUESTUNG.filter(p => p.datei.includes('/')).map(p => p.datei.split('/')[0]))];
 const family = option('family') ?? 'ironward';
 const unregistered = process.argv.includes('--unregistered');
+const web = process.argv.includes('--web');
 assert(unregistered || families.includes(family), `Unknown armor family "${family}"; the registry knows: ${families.join(', ')}`);
+assert(!(web && unregistered), '--web needs the registry: the web body profile comes from the catalog, not from the command line');
 const itemOf = part => part.datei.split('/')[1];
 const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
 
@@ -40,6 +45,14 @@ if (!unregistered) {
   const profiles = [...new Set(expected.map(p => p.bodyProfile).filter(Boolean))];
   assert(profiles.length <= 1, `${family}/${variant}: more than one body profile in the registry: ${profiles.join(', ')}`);
   profile = profiles[0];
+  if (web) {
+    // The catalog says which body the web fit of this set was made for; the registry only knows the game figure.
+    const set = equipmentSetCatalog().sets.find(s => s.familyId === family && s.bodyVariant === variant);
+    const preview = [...new Set((set?.parts ?? []).map(p => p.previewBodyProfile))];
+    assert(variant === 'female' && preview.length === 1 && preview[0] !== profile,
+      `--web: ${family}/${variant} has no separate web fit (catalog previewBodyProfile: ${preview.join(', ') || 'none'})`);
+    profile = preview[0];
+  }
   // Every item the registry names must be in the manifest and exist as a GLB: a missing part is never a smaller target.
   const listed = new Map(manifest.items.map(i => [i.item, i]));
   const unknown = manifest.items.map(i => i.item).filter(item => !familyParts.some(p => itemOf(p) === item));
@@ -72,7 +85,9 @@ function checkExtras(part, nodes) {
       `${label}: node ${name} must carry exactly one of extras.replaces and extras.attachment, has ${JSON.stringify(extras)}`);
     if (replaces !== undefined) replaced.push(replaces);
     for (const key of ['bodyVariant', 'bodyProfile']) if (extras[key] !== undefined) {
-      assert.equal(extras[key], part[key], `${label}: node ${name} extras.${key} differs from the registry`);
+      // A web fit is skinned to the web body: it carries the catalog's preview profile instead of the game profile.
+      const want = key === 'bodyProfile' && web ? profile : part[key];
+      assert.equal(extras[key], want, `${label}: node ${name} extras.${key} differs from the registry`);
     }
     if (extras.itemId !== undefined) assert.equal(extras.itemId, itemOf(part), `${label}: node ${name} extras.itemId differs from the registry`);
   }
@@ -80,6 +95,9 @@ function checkExtras(part, nodes) {
     `${label}: the GLB replaces [${replaced.sort()}] but the registry lists [${[...regions].sort()}]`);
 }
 
+// The body regions of the game's figures; the ones no registered item replaces stay visible (Plainhide: head and hands).
+const BODY_REGIONS = ['Head', 'Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft', 'ArmLowerRight', 'HandLeft', 'HandRight', 'LegLeft', 'LegRight'];
+const freeRegions = unregistered ? [] : BODY_REGIONS.filter(region => !expected.some(p => p.regions?.includes(region)));
 const engine = new NullEngine(); const scene = new Scene(engine);
 const load = path => SceneLoader.ImportMeshAsync('', '', `data:base64,${readFileSync(path).toString('base64')}`, scene, undefined, '.glb');
 const body = await load(bodyPath); const skeleton = body.skeletons[0];
@@ -88,7 +106,8 @@ if (profile) {
   // The two shipped bodies have different rigs; the registry names which one the items were fitted to.
   const bones = new Set(skeleton.bones.map(b => b.name));
   const fits = profile === 'legacy-female-v1' ? bones.has('L_Thigh') && !bones.has('UpperLeg_L')
-    : profile === 'wov-male-v1' ? bones.has('UpperLeg_L') && !bones.has('L_Thigh') : undefined;
+    : profile === 'wov-male-v1' ? bones.has('UpperLeg_L') && !bones.has('L_Thigh') && skeleton.bones.length !== 63
+    : profile === 'wov-female-v1' ? bones.has('UpperLeg_L') && !bones.has('L_Thigh') && skeleton.bones.length === 63 : undefined;
   assert(fits !== undefined, `No body check for bodyProfile ${profile}`);
   assert(fits, `${family}/${variant}: the body GLB is not a ${profile} body (${skeleton.bones.length} bones)`);
 }
@@ -128,6 +147,9 @@ if (!unregistered) {
       maskTriangles[itemOf(part)] = drop / 3; taken += drop;
     }
     assert.equal(original.length - trianglesLeft(files), taken, 'Full armor must hide exactly the sum of its items\' triangles');
+    // Regions no item replaces (Plainhide: head and hands) stay on the body; a set that covers every region leaves nothing.
+    assert.equal(bodyMeshes[0].getIndices().length > 0, freeRegions.length > 0,
+      `${family}/${variant}: the full set leaves ${bodyMeshes[0].getIndices().length / 3} body triangles for the free regions [${freeRegions}]`);
   } else {
     const hiddenBody = () => bodyMeshes.filter(m => !m.isEnabled());
     for (const [i, part] of expected.entries()) {
@@ -140,6 +162,8 @@ if (!unregistered) {
     const hidden = hiddenBody();
     assert.equal(hidden.length, replaced.size, `Full armor must hide exactly its ${replaced.size} registered regions`);
     assert(hidden.every(m => [...replaced].some(region => m.name.includes(region))), 'Only registered regions may be hidden');
+    // The free regions keep their own body mesh.
+    for (const region of freeRegions) assert(bodyMeshes.some(m => m.name.includes(region) && m.isEnabled()), `The free region ${region} must stay visible`);
   }
   assert(armor.every(m => m.isEnabled()), 'Armor must not mask itself');
 }
@@ -167,6 +191,7 @@ if (!unregistered) {
 const report = { status: 'PASS', bones: skeleton.bones.length, armorPrimitives: armor.length, clips: frames,
   samplesPerClip: 4, registryMaskingTested: !unregistered, collisionCertified: false };
 if (!unregistered) Object.assign(report, { family, bodyVariant: variant, bodyProfile: profile, registryItems: expected.length, glbMeshNodesChecked: meshNodeCount,
+  freeRegions, ...(web ? { webBody: true } : {}),
   ...(legacyFemale ? { bodyTriangles: original.length / 3, hiddenBodyTrianglesPerItem: maskTriangles } : {}) });
 if (process.argv.includes('--write-report')) writeFileSync(join(directory, 'animation-validation.json'), JSON.stringify(report, null, 2)+'\n');
 console.log(JSON.stringify(report, null, 2));

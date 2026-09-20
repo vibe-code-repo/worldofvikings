@@ -522,8 +522,9 @@ und nehmen so Sanitisierung, Editor/MCP und Deploy mit.
   und im Dokument fehlt, ist verwaist und wird entfernt — auch wenn daneben
   ein neuer Eintrag steht (gelöscht und gleichartig neu gesetzt ist ein
   neues Objekt ohne den Zustand des alten). Übernehmen darf eine Platzierung
-  nur ein ZDO mit alter Kennung (`@`, Spielstand von vor E1) oder ohne
-  `layoutId`. In einem id-losen Dokument wechselt die abgeleitete id, wenn ein
+  nur ein ZDO mit alter Kennung (volle Form `prefab@x,z` mit dem Prefab des
+  ZDO selbst, Spielstand von vor E1) oder ohne `layoutId`; ein `layoutId`-Member,
+  der kein Text ist, gilt als vorhanden, nicht als fehlend. In einem id-losen Dokument wechselt die abgeleitete id, wenn ein
   Eintrag über die Meterkante rückt: das ZDO geht, ein neues entsteht.
   **Grenzen dieser Regel** (bekannt, nicht gebaut): In einem id-losen
   Dokument nimmt ein neuer Eintrag im selben Meter, der in der kanonischen
@@ -531,7 +532,11 @@ und nehmen so Sanitisierung, Editor/MCP und Deploy mit.
   (der alte Eintrag wird `…-2` und bekommt ein leeres ZDO); und wer seine id
   an ein Duplikat verliert, bekommt eine abgeleitete id und trifft darüber das
   ZDO dieser id, falls es eines gibt. Eine abgeleitete id ist eine Adresse aus
-  Prefab und Meter — wer das nicht will, schreibt die ids in die Datei.
+  Prefab und Meter — wer das nicht will, schreibt die ids in die Datei. Die
+  Treffer über die id selbst laufen nicht durch die Sperre, und erbt eine
+  Platzierung per Nähe ein ZDO, dessen Prefab nicht mehr passt, bleibt das
+  alte ZDO einen Boot lang neben ihm stehen (zwei ZDOs mit derselben
+  `layoutId`; der nächste Boot räumt es als überzählig ab).
 - **Animation**: Der Server schreibt den Bewegungszustand in den
   ZDO-Member `anim` (`idle`/`walk`, nur bei Wechsel). Der Client startet
   die gleichnamige AnimationGroup der Instanz

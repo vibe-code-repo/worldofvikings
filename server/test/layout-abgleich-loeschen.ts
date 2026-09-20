@@ -24,7 +24,10 @@
  * LIMITS of the rule (known, not built; both follow from "the id is the address"): in a document WITHOUT ids a NEW entry in the
  * same metre that sorts before the old one takes the old derived id together with its ZDO and state (the old entry becomes
  * `-2` and spawns empty); and an entry that loses its id to a duplicate gets a derived id and hits the ZDO of that id, if there
- * is one. Write the ids into the file to avoid both (every write path of the editor and of the MCP server does).
+ * is one. Write the ids into the file to avoid both (every write path of the editor and of the MCP server does). The hits
+ * through the id itself do not go through the gate either (`darfUebernehmen` is the nearness search only). And when a
+ * placement inherits a ZDO by nearness while an older ZDO of ANOTHER prefab still carries the same id (the `stale` branch), that
+ * one stays for one boot (two ZDOs with one `layoutId`; the next boot removes it as surplus) -- not new, identical to before.
  *
  * Every check is a real server boot on a temp world (boot 1 builds and saves, boot 2 loads that save and
  * syncs it against the changed document). Run: npx tsx test/layout-abgleich-loeschen.ts   (from server/)

@@ -133,6 +133,11 @@ const A: Ansicht = { mitteX: -17620, mitteZ: -5700, massstab: 4, breite: 1600, h
     if (r.w < u.meter / A.massstab) versatz = Infinity;
   }
   check('Kachelrechteck sitzt auf der Weltkoordinate (Rundung höchstens 1 px)', versatz < 1, `${versatz}`);
+  const ganz = liste.every((k) => {
+    const r = kachelRechteck(A, k);
+    return Number.isInteger(r.x) && Number.isInteger(r.y) && Number.isInteger(r.w) && Number.isInteger(r.h);
+  });
+  check('Kachelränder liegen auf ganzen Pixeln (keine halbdurchsichtige Naht)', ganz);
   // Nachbarn: rechte Kante der einen ≥ linke Kante der nächsten (keine Haarlinie).
   let haarlinie = 0;
   for (const k of liste) {
@@ -481,14 +486,65 @@ async function dienstProben(): Promise<void> {
     dienst.neueWelt(1, 'kachel-test', dok);
     dienst.setzeAnsicht(A);
     await bisRuhe(stand.worker);
-    const gezeichnet: { b: number; x: number; y: number; w: number; h: number }[] = [];
-    const ctx = { drawImage: (b: number, x: number, y: number, w: number, h: number) => gezeichnet.push({ b, x, y, w, h }) };
+    const gezeichnet: { b: number; x: number; y: number; w: number; h: number; glatt: boolean }[] = [];
+    const ctx = {
+      imageSmoothingEnabled: true,
+      drawImage(b: number, x: number, y: number, w: number, h: number) {
+        gezeichnet.push({ b, x, y, w, h, glatt: this.imageSmoothingEnabled });
+      },
+    };
     dienst.zeichne(ctx, A);
     const imBild = gezeichnet.every((g) => g.x < A.breite && g.y < A.hoehe && g.x + g.w > 0 && g.y + g.h > 0);
     check('Es wird nur gezeichnet, was im Bild liegt, und es wird gezeichnet', imBild && gezeichnet.length > 20 && gezeichnet.length < sichtbareKacheln(A, 0).length);
+    check('Bei etwa einem Texel je Pixel wird ungeglättet gezeichnet (Bildzeit im Software-Canvas)', gezeichnet.every((g) => !g.glatt) && gezeichnet.length > 20);
+    check('Die Glättung ist danach wieder an (gilt für das Gesamtbild)', ctx.imageSmoothingEnabled === true);
+    // Zwei Stufen im Speicher: bei 6 m/px sind 8-m-Kacheln (Stufe 1) das Ziel, die 4-m-Kacheln
+    // (Stufe 0) noch nicht zu fein. Grobe zuerst, damit die feinen obenauf liegen.
+    const B6: Ansicht = { ...A, massstab: 6 };
+    dienst.setzeAnsicht(B6);
+    for (let i = 0; i < 3; i++) {
+      stand.worker[0].antworte(); // erst drei Kacheln der neuen Stufe: die Ansicht ist noch nicht vollständig
+      await mikro();
+    }
+    gezeichnet.length = 0;
+    dienst.zeichne(ctx, B6);
+    const breiten = gezeichnet.map((g) => g.w);
+    const letzteGrobe = breiten.reduce((m, w, i) => (w >= 300 ? i : m), -1);
+    const ersteFeine = breiten.findIndex((w) => w < 200);
+    check(
+      'Zwei Stufen im Bild: erst alle groben, dann die feinen',
+      letzteGrobe >= 0 && ersteFeine >= 0 && letzteGrobe < ersteFeine,
+      `${letzteGrobe} / ${ersteFeine}`,
+    );
+    // Ist die gesuchte Stufe vollständig da, verschwinden die gröberen Kacheln darunter (weniger Zeichenarbeit).
+    await bisRuhe(stand.worker);
+    gezeichnet.length = 0;
+    dienst.zeichne(ctx, B6);
+    check(
+      'Vollständige Ansicht: nur noch die gesuchte Stufe wird gezeichnet',
+      gezeichnet.length >= 10 && gezeichnet.every((g) => g.w > 300),
+      `${gezeichnet.length} Kacheln`,
+    );
+    // Starke Vergrößerung (grobe Ersatzkachel): geglättet.
+    {
+      const { dienst: d2, stand: s2 } = neuerDienst(1);
+      d2.neueWelt(1, 'kachel-test', dok);
+      d2.setzeAnsicht({ ...A, massstab: 40 });
+      await bisRuhe(s2.worker);
+      gezeichnet.length = 0;
+      d2.zeichne(ctx, { ...A, massstab: 5 });
+      check('32-m-Kacheln bei 5 m/px (6,4-fach vergrößert) bleiben weg: das Gesamtbild übernimmt', gezeichnet.length === 0);
+      gezeichnet.length = 0;
+      d2.zeichne(ctx, { ...A, massstab: 16 });
+      check('Bei 16 m/px (zweifach vergrößert) werden 32-m-Kacheln ungeglättet gezeichnet', gezeichnet.length > 0 && gezeichnet.every((g) => !g.glatt));
+    }
     gezeichnet.length = 0;
     dienst.zeichne(ctx, { ...A, massstab: 12 });
-    check('Bei 12 m/px bleiben 4-m-Kacheln weg (dreifach verkleinert, flimmert)', gezeichnet.length === 0);
+    // 12 m/px: 4-m-Kacheln wären 85 px breit (dreifach verkleinert, flimmert), 8-m-Kacheln 171 px.
+    check(
+      'Bei 12 m/px bleiben 4-m-Kacheln weg, 8-m-Kacheln werden gezeichnet',
+      gezeichnet.length > 0 && gezeichnet.every((g) => g.w > 150),
+    );
   }
 }
 

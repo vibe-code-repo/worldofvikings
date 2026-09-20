@@ -32,6 +32,13 @@ export const KACHEL_MAX_STUFE = 3;
 /** Vorgabe der Speicherobergrenze für fertige Kacheln: 64 MB = 256 Kacheln. */
 export const KACHEL_SPEICHER_BYTES = 256 * KACHEL_BYTES;
 
+/**
+ * Größte Vergrößerung (Zielbreite / Texel), in der eine Ersatzkachel noch gezeichnet wird. Stärker
+ * vergrößerte (grobe) Kacheln lässt der Dienst weg: das geglättete Gesamtbild darunter ist dort
+ * genauso grob und billiger als eine Kachel, die man dafür glätten müsste.
+ */
+const MAX_VERGROESSERUNG = 2.5;
+
 /** Weltmeter je Texel einer Stufe. */
 export const texelMeter = (stufe: number): number => KACHEL_MIN_METER * 2 ** stufe;
 /** Kantenlänge einer Kachel der Stufe in Weltmetern. */
@@ -366,20 +373,35 @@ export class KachelDienst<B> {
    * verlangt (mehr als zweifach verkleinert) bleiben weg: sie flimmern und
    * das Gesamtbild darunter ist dort ruhiger.
    */
-  zeichne(ctx: { drawImage(bild: B, x: number, y: number, w: number, h: number): void }, a: Ansicht): void {
+  zeichne(
+    ctx: { imageSmoothingEnabled: boolean; drawImage(bild: B, x: number, y: number, w: number, h: number): void },
+    a: Ansicht,
+  ): void {
     const hier: KachelEintrag<B>[] = [];
     for (const e of this.speicher.alle()) {
       if (texelMeter(e.adresse.stufe) * 2 < a.massstab) continue;
       const r = kachelRechteck(a, e.adresse);
+      if (r.w / KACHEL_PX > MAX_VERGROESSERUNG) continue;
       if (r.x >= a.breite || r.y >= a.hoehe || r.x + r.w <= 0 || r.y + r.h <= 0) continue;
       hier.push(e);
+    }
+    // Sind alle Kacheln der gesuchten Stufe im Bild da, sind die gröberen Ersatzkacheln darunter verdeckt:
+    // sie wegzulassen spart jeden Bildaufbau die Zeichenarbeit von zwei bis drei Lagen.
+    const stufe = stufeFuer(a.massstab);
+    if (stufe !== null && sichtbareKacheln(a, stufe, 0).every((k) => this.speicher.get(kachelSchluessel(k)))) {
+      for (let i = hier.length - 1; i >= 0; i--) if (hier[i].adresse.stufe !== stufe) hier.splice(i, 1);
     }
     hier.sort((p, q) => q.adresse.stufe - p.adresse.stufe);
     for (const e of hier) {
       this.speicher.beruehre(e);
       const r = kachelRechteck(a, e.adresse);
+      // Ungeglättet: ein Texel liegt ungefähr auf einem Pixel. Die bilineare Glättung kostet im
+      // Software-Canvas je Kachel und Bild Zeit (gemessen: beim Ziehen während des Nachrechnens
+      // Bildzeit p95 67 statt 33 ms, 18 statt 3 Bilder über 50 ms).
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(e.bild, r.x, r.y, r.w, r.h);
     }
+    ctx.imageSmoothingEnabled = true;
   }
 
   statistik(): KachelStatistik {

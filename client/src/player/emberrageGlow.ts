@@ -1,6 +1,8 @@
 /** Optional per-character red halo. Call setMeshes after equip/unequip and dispose on removal.
  * The shared visibility refresh connects this adapter to all four rendering paths.
+ * Despite the file name it serves every emissive-mesh profile (ArmorVfxProfile): Emberrage and Gravethorn.
  */
+import type { ArmorVfxProfile } from '@wov/shared';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 // Keep GLSL shaders in standalone bundles as well as the main client bundle.
 import '@babylonjs/core/Shaders/postprocess.vertex';
@@ -17,11 +19,21 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
 
+/**
+ * The materials that belong to each profile: `prefix` marks a mesh as that set's, `emissive` picks the glowing
+ * ones. The Record type makes a new profile in the registry fail to compile until it is listed here.
+ */
+const GLOW_PROFILES: Readonly<Record<ArmorVfxProfile, { prefix: string; emissive: RegExp }>> = {
+  emberrage_red: { prefix: 'Emberrage_', emissive: /^Emberrage_(glow|core|red|eyes)$/ },
+  gravethorn_red: { prefix: 'Gravethorn_', emissive: /^Gravethorn_(glow|core|red|eyes)$/ },
+};
+const profiles = Object.values(GLOW_PROFILES);
+
 export function createEmberrageGlow(scene: Scene, meshes: AbstractMesh[], pulse = true) {
   const layer = new GlowLayer('Emberrage_equipment_glow', scene, { mainTextureRatio: .5, blurKernelSize: 32 });
   layer.intensity = .45;
   layer.customEmissiveColorSelector = (_mesh, _subMesh, material, color) => {
-    if (material instanceof PBRMaterial && /^Emberrage_(glow|core|red|eyes)$/.test(material.name)) {
+    if (material instanceof PBRMaterial && profiles.some(profile => profile.emissive.test(material.name))) {
       color.set(material.emissiveColor.r, material.emissiveColor.g, material.emissiveColor.b, 1);
     } else color.set(0, 0, 0, 0);
   };
@@ -51,7 +63,7 @@ const sceneEffects = new WeakMap<Scene, ReturnType<typeof createEmberrageGlow>>(
 export function syncEmberrageGlow(scene: Scene): void {
   const meshes = scene.meshes.filter(mesh => {
     const materials = mesh.material instanceof MultiMaterial ? mesh.material.subMaterials : [mesh.material];
-    return !mesh.isDisposed() && mesh.isEnabled() && mesh.isVisible && materials.some(m => m?.name.startsWith('Emberrage_'));
+    return !mesh.isDisposed() && mesh.isEnabled() && mesh.isVisible && materials.some(m => m && profiles.some(profile => m.name.startsWith(profile.prefix)));
   });
   let effect = sceneEffects.get(scene);
   if (!effect && meshes.length) {

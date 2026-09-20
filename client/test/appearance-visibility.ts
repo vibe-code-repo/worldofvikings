@@ -9,8 +9,12 @@ import { Vorschau } from '../../tools/web/vorschau-web.js';
 import { EntityManager } from '../src/entities/EntityManager.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Skeleton } from '@babylonjs/core/Bones/skeleton';
+import { Bone } from '@babylonjs/core/Bones/bone';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { hiddenAppearance, hiddenAppearanceForFiles, equipmentSetCatalog, findItem, Inventory,
-  encodeArmor, frisurMitGesicht, AUGENBRAUEN } from '@wov/shared';
+  encodeArmor, frisurMitGesicht, AUGENBRAUEN, PLAINHIDE_FREE_REGIONS, legacyFemaleRegionForBone } from '@wov/shared';
+import { armorFileForSkeleton, prepareLegacyFemaleBody, updateArmorVisibility } from '../src/player/armorVisibility.js';
 
 const all = ['hair', 'beard', 'eyebrows'];
 assert.deepEqual([...hiddenAppearance([{}])], []);
@@ -19,6 +23,12 @@ assert.deepEqual([...hiddenAppearanceForFiles(['wildwarden/wildwarden_crown'])],
 assert.deepEqual([...hiddenAppearanceForFiles(['ashenveil/ashenveil_hood'])], all);
 assert.deepEqual([...hiddenAppearanceForFiles(['wildwarden/wildwarden_robe', 'ironward/IronwardHelmet'])], all);
 assert.deepEqual([...hiddenAppearanceForFiles(['missing/helmet'])], []);
+// Only the Gravethorn helm hides hair, beard and eyebrows; Plainhide keeps the player's own head and hands.
+for (const sex of ['male', 'female']) {
+  assert.deepEqual([...hiddenAppearanceForFiles([`gravethorn/gravethorn_${sex}_hood`])], all);
+  assert.deepEqual([...hiddenAppearanceForFiles(['shoulders', 'vest', 'bracers', 'gloves', 'robe', 'boots'].map(key => `gravethorn/gravethorn_${sex}_${key}`))], []);
+  assert.deepEqual([...hiddenAppearanceForFiles(['shoulders', 'vest', 'bracers', 'robe', 'boots'].map(key => `plainhide/plainhide_${sex}_${key}`))], []);
+}
 for (const set of equipmentSetCatalog().sets) for (const part of set.parts) {
   assert.deepEqual(part.hideAppearance, findItem(part.itemId)?.hideAppearance);
 }
@@ -111,5 +121,63 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   assert(head.isEnabled() && attachmentsVisible(true), 'Remote removal restores body and cosmetics');
   scene.dispose();
 }
+
+// The 63-bone web body needs the web fit of EVERY female set, and only of those: the file list comes from the registry.
+{
+  const bodyOf = (count: number, first: string) => ({ bones: Array.from({ length: count }, (_, i) => ({ name: i === 0 ? first : `bone${i}` })) }) as unknown as Skeleton;
+  const web = bodyOf(63, 'UpperLeg_L'), legacy = bodyOf(51, 'L_Thigh'), male = bodyOf(71, 'UpperLeg_L');
+  for (const set of equipmentSetCatalog().sets) for (const part of set.parts) {
+    const file = part.model.replace(/\.glb$/, ''), preview = part.previewModel.replace(/\.glb$/, '');
+    assert.equal(armorFileForSkeleton(file, web), preview, `${part.itemId}: web body`);
+    assert.equal(armorFileForSkeleton(file, legacy), file, `${part.itemId}: 51-bone body keeps the game file`);
+    assert.equal(armorFileForSkeleton(file, male), file, `${part.itemId}: male body keeps the game file`);
+    assert.equal(armorFileForSkeleton(file, null), file, `${part.itemId}: no body yet`);
+  }
+  for (const family of ['plainhide', 'gravethorn', 'seidraven', 'emberrage']) {
+    assert.equal(armorFileForSkeleton(`${family}/${family}_female_vest`, web), `armor/${family}/${family}_female_vest`, family);
+    assert.equal(armorFileForSkeleton(`${family}/${family}_male_vest`, web), `${family}/${family}_male_vest`, `${family}: male files never move`);
+  }
+  assert.equal(armorFileForSkeleton('armor/plainhide/plainhide_female_vest', web), 'armor/plainhide/plainhide_female_vest', 'already a web file');
+  assert.equal(armorFileForSkeleton('R_LederBH', web), 'R_LederBH', 'the old leather pieces have no web fit');
+}
+
+// The 51-bone game figure is one mesh; Plainhide (eight regions) must leave head and hands visible and unmasked.
+{
+  const scene = new Scene(engine);
+  const REGIONS = ['Head', 'Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft', 'ArmLowerRight', 'HandLeft', 'HandRight', 'LegLeft', 'LegRight'];
+  const BONE_OF: Record<string, string> = { Head: 'Head', Torso: 'Spine01', Hips: 'Hips', ArmUpperLeft: 'L_Upperarm', ArmUpperRight: 'R_Upperarm',
+    ArmLowerLeft: 'L_Forearm', ArmLowerRight: 'R_Forearm', HandLeft: 'L_Hand', HandRight: 'R_Hand', LegLeft: 'L_Calf', LegRight: 'R_Calf' };
+  const skeleton = new Skeleton('legacy', 'legacy', scene);
+  const bones = ['Root', 'L_Thigh', ...REGIONS.map(region => BONE_OF[region]!)].map(name => new Bone(name, skeleton));
+  const body = new Mesh('Chr_Wikingerin_Body', scene);
+  // One triangle per region, weighted fully to that region's bone: the mask sorts triangles by bone.
+  const data = new VertexData();
+  data.positions = REGIONS.flatMap((_, r) => [0, r, 0, 1, r, 0, 0, r, 1]);
+  data.indices = REGIONS.flatMap((_, r) => [3 * r, 3 * r + 1, 3 * r + 2]);
+  data.matricesIndices = REGIONS.flatMap(region => Array(3).fill([bones.findIndex(b => b.name === BONE_OF[region]), 0, 0, 0]).flat());
+  data.matricesWeights = REGIONS.flatMap(() => Array(3).fill([1, 0, 0, 0]).flat());
+  data.applyToMesh(body); body.skeleton = skeleton;
+  for (const region of REGIONS) assert.equal(legacyFemaleRegionForBone(BONE_OF[region]!), region, `test body: ${region} bone`);
+  prepareLegacyFemaleBody([body], 'wikingerin');
+  const visible = () => {
+    const indices = body.getIndices()!;
+    return REGIONS.filter((_, r) => Array.from(indices).some(i => Math.floor(i / 3) === r));
+  };
+  const plainhide = ['shoulders', 'vest', 'bracers', 'robe', 'boots'].map(key => `plainhide/plainhide_female_${key}`);
+  updateArmorVisibility([body], plainhide);
+  assert.deepEqual(visible().sort(), [...PLAINHIDE_FREE_REGIONS].sort(), 'Plainhide masks eight regions and leaves head and hands');
+  assert(body.isEnabled(), 'the body mesh stays on for the free regions');
+  const each: Record<string, string[]> = { shoulders: ['ArmUpperLeft', 'ArmUpperRight'], vest: ['Torso'], bracers: ['ArmLowerLeft', 'ArmLowerRight'], robe: ['Hips'], boots: ['LegLeft', 'LegRight'] };
+  for (const [key, regions] of Object.entries(each)) {
+    updateArmorVisibility([body], [`plainhide/plainhide_female_${key}`]);
+    assert.deepEqual(REGIONS.filter(region => !visible().includes(region)).sort(), [...regions].sort(), `plainhide ${key} hides only its regions`);
+  }
+  // A full Gravethorn set covers the whole figure, so the mesh is switched off; unequipping restores every triangle.
+  updateArmorVisibility([body], ['hood', 'vest', 'robe', 'shoulders', 'bracers', 'gloves', 'boots'].map(key => `gravethorn/gravethorn_female_${key}`));
+  assert.equal(visible().length, 0); assert(!body.isEnabled());
+  updateArmorVisibility([body], []);
+  assert.equal(visible().length, REGIONS.length); assert(body.isEnabled());
+  scene.dispose();
+}
 engine.dispose();
-console.log('PASS item policies, saved inventory, mixed items, all 4 rendering paths, delayed/failed loads, restoration and hair compatibility');
+console.log('PASS item policies, saved inventory, mixed items, all 4 rendering paths, delayed/failed loads, restoration and hair compatibility, the web-body file of every female set and the eight-region Plainhide mask');

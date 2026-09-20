@@ -48,6 +48,7 @@ import {
   type WorldLayout,
 } from '@wov/shared';
 import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes';
+import { KACHEL_PX, KachelDienst, type Ansicht } from '../ui/worldmap/kartenKacheln';
 import { EditorShell } from './Shell';
 import { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonSeite } from './DungeonKatalog';
@@ -106,6 +107,9 @@ import type { GegenstandsKatalog } from './GegenstandsKatalog';
 import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHud';
 // Werkzeug-Registry: Fluss, See und Objekt platzieren leben in `werkzeuge/`, hier nur der Zugriff.
 import { WERKZEUGE, platzierenWerkzeug, werkzeugMitId } from './werkzeuge';
+import { InselwahlPanel } from './testflug/InselwahlPanel';
+import { checkJump, flightUrl, heightSourcesFor } from './testflug/inselwahl';
+import { onReturn, openReturnChannel } from './testflug/ruecksprung';
 import { platzierungZuBefund } from './werkzeuge/platzieren';
 import { erzeugeEditorKern } from './werkzeuge/kontext';
 import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
@@ -1340,6 +1344,82 @@ let worker: Worker | null = null;
 let vorschauBild: ImageBitmap | null = null;
 let vorschauSpan = 21000;
 let neuZeichnenTimer: number | null = null;
+/**
+ * Das Gesamtbild (`vorschauBild`) ist die grobe Grundlage: eine Textur für
+ * die ganze Welt, 30 m je Texel. Darüber liegen Kacheln für den sichtbaren
+ * Ausschnitt in dem Maßstab, den man gerade hat (kartenKacheln.ts). Bis eine
+ * Kachel da ist, zeigt die Karte das Gesamtbild aufgeblasen — nichts wartet.
+ */
+const messung = new URLSearchParams(window.location.search);
+const kachelWorkerZahl = (() => {
+  const wunsch = Number(messung.get('karten-worker'));
+  if (wunsch >= 1 && wunsch <= 8) return Math.floor(wunsch);
+  return Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+})();
+let weltGen = 0;
+const kachelBild = (rgba: Uint8Array): Promise<ImageBitmap> =>
+  createImageBitmap(
+    new ImageData(new Uint8ClampedArray(rgba.buffer as ArrayBuffer), KACHEL_PX, KACHEL_PX),
+  );
+const kacheln = new KachelDienst<ImageBitmap>({
+  anzahl: kachelWorkerZahl,
+  erzeuge: (index) => {
+    const w = new Worker(new URL('../ui/worldmap/mapWorker.ts', import.meta.url), { type: 'module' });
+    const handle = {
+      onNachricht: null as ((m: MapWorkerMessage) => void) | null,
+      post: (m: unknown) => w.postMessage(m),
+      terminate: () => w.terminate(),
+    };
+    w.onmessage = (e: MessageEvent<MapWorkerMessage>) => handle.onNachricht?.(e.data);
+    void index;
+    return handle;
+  },
+  bild: kachelBild,
+  schliesse: (b) => b.close(),
+  // Kacheln treffen dicht hintereinander ein: höchstens ein Neuzeichnen je Bild, und keines, wenn
+  // ohnehin schon gezeichnet wurde (Ziehen, Zoomen), seit die Kachel eingetroffen ist.
+  aufNeu: () => {
+    if (kachelNeuGeplant) return;
+    kachelNeuGeplant = true;
+    const seit = vorschauZeichnungen;
+    requestAnimationFrame(() => {
+      kachelNeuGeplant = false;
+      if (vorschauZeichnungen === seit) zeichneVorschauBild();
+    });
+  },
+});
+let kachelNeuGeplant = false;
+/** Zählt die Läufe von zeichneVorschauBild — Zeuge dafür, dass ein Bild die Kachel schon zeigt. */
+let vorschauZeichnungen = 0;
+/** Sichtfenster der Vorschau-Leinwand in der Form, die der Kachel-Dienst braucht. */
+const kartenAnsicht = (): Ansicht => ({
+  mitteX,
+  mitteZ,
+  massstab,
+  breite: vorschau.width,
+  hoehe: vorschau.height,
+});
+/** Messzeiten des Kartenbilds (ms seit Start des Gesamtbild-Laufs), nur zum Auslesen. */
+const kartenMesswerte: { grobBildMs: number | null } = { grobBildMs: null };
+// Messhaken: nur mit `?karten-messung=1` in der Adresse. Er liest den Kachelstand aus und setzt
+// die Ansicht (Mitte, Maßstab) für die Messläufe; ohne den Parameter gibt es ihn nicht.
+if (messung.has('karten-messung')) {
+  (window as unknown as Record<string, unknown>).__wovKartenMessung = {
+    statistik: () => kacheln.statistik(),
+    messwerte: kartenMesswerte,
+    /** Steht das grobe Gesamtbild? */
+    bildDa: () => vorschauBild !== null,
+    workerZahl: kachelWorkerZahl,
+    ansicht: () => ({ mitteX, mitteZ, massstab }),
+    setzeAnsicht: (mx: number, mz: number, m: number) => {
+      mitteX = mx;
+      mitteZ = mz;
+      massstab = Math.min(200, Math.max(4, m));
+      zeichneOverlay();
+      zeichneVorschauBild();
+    },
+  };
+}
 
 function vorschauAnstossen(): void {
   if (neuZeichnenTimer !== null) window.clearTimeout(neuZeichnenTimer);
@@ -1353,12 +1433,14 @@ function vorschauRechnen(): void {
   const sauber = sanitizeWorldLayout(layout);
   if (!sauber || sauber.regions.length === 0) {
     vorschauBild = null;
+    kacheln.keineWelt();
     zeichneVorschauBild();
     statuszeile.textContent = 'Ozean — zeichne eine Region (Werkzeug links).';
     return;
   }
   worker?.terminate();
   worker = new Worker(new URL('../ui/worldmap/mapWorker.ts', import.meta.url), { type: 'module' });
+  const gestartet = performance.now();
   const b = layoutBounds(sauber);
   const halb = Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ)) + 2000;
   vorschauSpan = halb * 2;
@@ -1373,6 +1455,7 @@ function vorschauRechnen(): void {
       const n = Math.sqrt(px.length / 4) | 0;
       void createImageBitmap(new ImageData(px, n, n)).then((bmp) => {
         vorschauBild = bmp;
+        kartenMesswerte.grobBildMs = performance.now() - gestartet;
         zeichneVorschauBild();
         // Fertig — Worker samt RegionGeo-Instanz freigeben (WorldMap-Muster).
         worker?.terminate();
@@ -1387,7 +1470,11 @@ function vorschauRechnen(): void {
     layout: sauber,
     span: vorschauSpan,
     radius: halb * 0.995,
+    nurBild: true,
   });
+  // Die Kacheln rechnen mit eigener Geo je Worker und beginnen sofort, in der
+  // Mitte des Bildes; das Gesamtbild oben ist nur die Unterlage.
+  kacheln.neueWelt(++weltGen, sauber.detailSeed, sauber);
 }
 
 function zeichneVorschauBild(): void {
@@ -1397,12 +1484,18 @@ function zeichneVorschauBild(): void {
   // ergäbe eine sichtbare Kante genau dort, wo die Karte anfängt.
   ctx.fillStyle = F.ozean;
   ctx.fillRect(0, 0, vorschau.width, vorschau.height);
-  if (!vorschauBild) return;
-  // Bild deckt [−span/2, +span/2] der Welt ab → in die aktuelle Ansicht legen.
-  const [x0, y0] = zuBild(-vorschauSpan / 2, -vorschauSpan / 2);
-  const seite = vorschauSpan / massstab;
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(vorschauBild, x0, y0, seite, seite);
+  if (vorschauBild) {
+    // Bild deckt [−span/2, +span/2] der Welt ab → in die aktuelle Ansicht legen.
+    const [x0, y0] = zuBild(-vorschauSpan / 2, -vorschauSpan / 2);
+    const seite = vorschauSpan / massstab;
+    ctx.drawImage(vorschauBild, x0, y0, seite, seite);
+  }
+  // Fertige Kacheln obenauf, dann fehlende für genau diese Ansicht anfordern.
+  vorschauZeichnungen++;
+  const ansicht = kartenAnsicht();
+  kacheln.zeichne(ctx, ansicht);
+  kacheln.setzeAnsicht(ansicht);
 }
 
 // ── Maus: Zeichnen, Auswahl, Verschieben, Zoom ───────────────────────
@@ -2769,11 +2862,102 @@ function seiteBauen(): void {
  * Eigene Funktion, weil ihn jetzt zwei Bedienelemente rufen: der Knopf
  * in der Kopfzeile und die Betriebsart „Testflug" der Symbolspalte.
  */
+/**
+ * Ein neues Fenster für den Testflug öffnen. Ein Pop-up-Blocker sagt es nie
+ * selbst: `window.open` gibt dann null zurück — das melden wir, statt still
+ * nichts zu tun. Das Fenster zeigt erst einen Platzhalter, bis die Adresse
+ * feststeht.
+ * Open a new tab for the flight; a blocked pop-up is reported, never silent.
+ */
+function oeffneFlugTab(url = ''): Window | null {
+  const tab = window.open(url, '_blank');
+  if (!tab) {
+    shell.meldung('Der Browser hat das neue Fenster blockiert — Pop-ups für diese Seite erlauben und noch einmal klicken.', true);
+    return null;
+  }
+  if (url === '') {
+    try {
+      tab.document.title = 'Testflug';
+      tab.document.body.textContent = 'Testflug wird vorbereitet …';
+    } catch {
+      /* the tab opens anyway */
+    }
+  }
+  return tab;
+}
+
 function testflug(): void {
   speichereEntwurf();
   shell.meldung(`Testflug mit dem Entwurf — ${weltName()} bleibt unberührt, bis du speicherst.`);
-  window.open('/?offline=1&layout=editor', '_blank');
+  oeffneFlugTab(flightUrl());
 }
+
+/**
+ * Testflug MIT Zielstelle: das Spiel öffnet dort, nicht im offenen Meer am
+ * Ursprung. Die Stelle ist geprüft (Region, über Wasser), bevor diese
+ * Funktion gerufen wird; der Client prüft sie beim Ankommen noch einmal.
+ * `tab`: das schon (im Klick) geöffnete Fenster der Inselwahl; ohne ihn wird
+ * hier eines mit der Adresse geöffnet (Taste T: keine Suche, kein Warten).
+ */
+function testflugAn(x: number, z: number, was: string, tab?: Window): void {
+  speichereEntwurf();
+  const url = flightUrl({ x, z });
+  if (tab) tab.location.href = url;
+  else if (!oeffneFlugTab(url)) return;
+  shell.meldung(
+    `Testflug an ${was} (${Math.round(x)}, ${Math.round(z)}) — mit dem Entwurf, ${weltName()} bleibt unberührt, bis du speicherst.`
+  );
+}
+
+// ── Einsprung in die Insel ───────────────────────────────────────────
+// Zwei Wege in die 3D-Ansicht: die Inselwahl (Liste, Sprung auf die
+// Inselmitte) und die Taste T über der Karte (Sprung an die Zeigerstelle).
+// Eine TASTE und kein Werkzeug-Klick: Jedes Werkzeug aus K1.3 belegt den
+// Klick, Doppelklick und Rechtsklick auf der Karte, und keines belegt T
+// (die Werkzeuge bekommen nur Entf, Rücktaste, P, V und Escape). T ändert
+// deshalb weder Auswahl noch halbfertige Züge.
+const inselwahl = new InselwahlPanel({
+  layout: () => sanitizeWorldLayout(layout),
+  oeffneTab: () => oeffneFlugTab(),
+  betreten: (x, z, was, tab) => testflugAn(x, z, was, tab),
+  meldung: (text, fehler) => shell.meldung(text, fehler),
+});
+let zeigerStelle: { x: number; z: number } | null = null;
+overlay.addEventListener('pointermove', (e) => {
+  const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
+  zeigerStelle = { x: wx, z: wz };
+});
+overlay.addEventListener('pointerleave', () => {
+  zeigerStelle = null;
+});
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyT' || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  const ziel = e.target;
+  if (ziel instanceof HTMLElement && (ziel.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ziel.tagName))) return;
+  if (katalogIstOffen()) return;
+  if (!zeigerStelle) {
+    shell.meldung('Zeiger über die Karte halten, dann T — Testflug an dieser Stelle.', true);
+    return;
+  }
+  const sauber = sanitizeWorldLayout(layout);
+  if (!sauber) {
+    shell.meldung('Der Entwurf ist nicht lesbar — kein Testflug möglich.', true);
+    return;
+  }
+  const pruefung = checkJump(sauber, heightSourcesFor(sauber).ground, zeigerStelle.x, zeigerStelle.z);
+  if (!pruefung.ok) {
+    shell.meldung(pruefung.message, true);
+    return;
+  }
+  testflugAn(pruefung.x, pruefung.z, pruefung.region.id);
+});
+// Rückweg: Der Testflug (anderer Tab) meldet seine letzte Stelle mit Taste Q
+// (BroadcastChannel, nichts wird gespeichert); die Karte springt dorthin.
+onReturn(openReturnChannel(), (p) => {
+  springeZuPunkt(p.x, p.z);
+  shell.meldung(`Zurück aus dem Testflug — Karte auf (${Math.round(p.x)}, ${Math.round(p.z)}) zentriert.`);
+  window.focus();
+});
 
 // ── Welt-Wähler in der Kopfzeile ─────────────────────────────────────
 /**
@@ -2907,6 +3091,12 @@ function weltFeldBauen(): void {
     knopf('Testflug', testflug, {
       pfad: PFAD.flug,
       titel: 'Öffnet das Spiel offline mit dem Entwurf. Die Welt auf dem Server bleibt unberührt.',
+    })
+  );
+  ansicht.appendChild(
+    knopf('Inselwahl', () => inselwahl.toggle(), {
+      pfad: PFAD.inselForm,
+      titel: 'Liste der Inseln: In 3D betreten. Über der Karte öffnet die Taste T den Testflug an der Zeigerstelle.',
     })
   );
 

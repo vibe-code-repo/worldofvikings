@@ -216,7 +216,9 @@ Object.assign(PIECES, {
   bau_tuer: bau('bau_tuer', 'Holztür', 'wood_door', 'wood_door', [{ item: 'Wood', amount: 4 }]),
   bau_dach: bau('bau_dach', 'Dachschräge 45°', 'wood_floor', 'wood_roof_45', [{ item: 'Wood', amount: 2 }]),
   bau_werkbank: bau('bau_werkbank', 'Werkbank', 'hammer', 'piece_workbench', [{ item: 'Wood', amount: 10 }]),
-  bau_bett: bau('bau_bett', 'Bett', 'bed', 'bed', [{ item: 'Wood', amount: 8 }]),
+  // A store bed (single, sm-prop-bed-04): it carries PIECE|BED via
+  // storeVerhalten.ts, so using it sets the respawn point.
+  bau_bett: bau('bau_bett', 'Bett', 'bed', 'environment-sm-prop-bed-04', [{ item: 'Wood', amount: 8 }]),
   bau_portal: bau('bau_portal', 'Portal', 'portal_wood', 'portal_wood', [
     { item: 'Wood', amount: 20 },
     { item: 'Flint', amount: 10 },

@@ -41,6 +41,8 @@ import type { RoomDef } from './dungeons.js';
   client always agree on what exists.
 */
 import { STORE_MODELL_NAMEN, STORE_PREFAB_DEFS } from './storePrefabs.js';
+// Generated next to it: which store prefabs DO something (rock, bed, chest).
+import { STORE_VERHALTEN } from './storeVerhalten.js';
 
 export interface PrefabDef {
   name: string;
@@ -554,7 +556,9 @@ export const HINT_DEFS: PrefabDef[] = [
   // ueberspringen. Eigene Modelle des Altbestands tragen deutsche Namen;
   // neue heissen seit dem 27.08.2026 englisch (s. CryptWallTorch unten).
   { ...def('HolzTruhe', F.PIECE | F.CONTAINER | F.PERSISTENT, 'chest_wood', 0.96, 0.61, 'HolzTruhe') },
-  { ...def('GrabTruhe', F.PERSISTENT, 'cryptkey', 0.9, 0.9, 'GrabTruhe'),
+  // CONTAINER: opens like the wooden chest (handleTruheOeffnen), so the
+  // tomb chest holds loot instead of standing there as scenery.
+  { ...def('GrabTruhe', F.CONTAINER | F.PERSISTENT, 'cryptkey', 0.9, 0.9, 'GrabTruhe'),
     localScale: { x: 1.25, y: 1.25, z: 1.25 } },
   { ...def('GrabDrachenkopf', F.PERSISTENT, 'guardstone', 0.5, 1.6, 'GrabDrachenkopf'),
     localScale: { x: 1.6, y: 1.6, z: 1.6 } },
@@ -1448,7 +1452,9 @@ function buildRegistry(): PrefabDef[] {
   for (const def of STORE_PREFAB_DEFS) {
     if (seen.has(def.name)) continue;
     seen.add(def.name);
-    defs.push(def);
+    // Behaviour comes from the generated table only — no name matching here.
+    const verhalten = STORE_VERHALTEN.get(def.name);
+    defs.push(verhalten === undefined ? def : { ...def, flags: def.flags | verhalten });
   }
 
   // Phase G: sichtbare Eingangs-Hüllen der Dungeon-Locations (Crypt2 …) —

@@ -871,6 +871,12 @@ const KERN = [
   // aus demselben Grund wie befund-schwere.ts. Prueft jede Vorlage einzeln
   // UND gegen echte sanitizeWorldLayout-/pruefeLayout-Laeufe.
   ['client', 'test/region-werkzeuge.ts'],
+  // Editor map image in tiles (K3.0): stage choice (4 m per pixel -> 4 m texel),
+  // tile addressing and placement, tile colours against the world sample and
+  // the coast against the height field, the tile cache cap, and the dispatch
+  // service with stand-in workers (centre first, stale views never sent,
+  // stale world generations dropped, 50 steps without growth). DOM-free, ~3 s.
+  ['client', 'test/karte-kacheln.ts'],
   // WorldLayout-MCP-Server (Aufgabe B8): echter Client-Handshake gegen den
   // echten Server-Unterprozess (stdio), alle Werkzeuge vorhanden UND ihre
   // Wirkung im Dokument geprueft (Regionsregler, Kontinent/Fluss/See/
@@ -1382,6 +1388,8 @@ const KERN = [
   // in the draft's companion note: a newer editor save gives 409, nothing is
   // overwritten; no base, nothing is sent. Real operations service. ~5 s.
   ['client', 'test/testflug-speichern-basis.ts'],
+  // Island pick and jump into the offline flight (K2.0): targets on land in every region, orientation display, way back, bounded search. ~20 s.
+  ['client', 'test/inselwahl.ts'],
   // Editor E1 (integration I1): tool registry, stable placement ids, world
   // operations, zone reset.
   // Tool registry: the editor's tools behind one interface (start, abort, keys, bar).
@@ -1429,6 +1437,11 @@ const KERN = [
   // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
   // init()-only Reload, ~5s.
   ['server', 'test/f1-truhe.ts'],
+  // B7: Findlinge, Betten und Truhen aus dem Speicher (Verhalten aus
+  // shared/src/storeVerhalten.ts) ueber den echten Paketpfad: Spitzhacke gibt
+  // Stein, Bett setzt den Wiedereinstieg (Tod -> Teleport dorthin), Truhe
+  // oeffnet mit Inhalt und behaelt ihn nach dem Neustart. ~20 s.
+  ['server', 'test/b7-entsperren.ts'],
   // G3 (Testluecken-Durchsicht, "kein einziger Test mit zwei
   // gleichzeitigen Clients"): echte WebSocket-Handshakes fuer ZWEI+ Peers
   // gleichzeitig gegen einen echten WovServer. Gegenseitige ZDO-
@@ -1519,6 +1532,9 @@ const KERN = [
   //     Eintraegen — anzusehen war das keiner der beiden Seiten.
   //     Braucht `assets/store` fuer Sorte und Kategorie.
   ['shared', 'test/store-registry.ts'],
+  // Welche Speicher-Prefabs etwas TUN (Findling, Bett, Truhe): Mengen je
+  // Gruppe, nichts zusaetzlich, Streutabelle gedeckt. Dateilos.
+  ['shared', 'test/store-verhalten.ts'],
   ['client', 'test/store-ladepfad.ts'],
 
   // ── Kollisionsformen: Client und Server sehen DASSELBE ─────────────

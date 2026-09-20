@@ -143,4 +143,7 @@ for slot, original in source.items():
     part = report['parts'][slot]
     assert part['triangles']-part['liningTriangles'] == ornament, (slot, part, ornament)
 assert sorted(draped) == ['Hips', 'Torso'] and min(n for n, _ in draped.values()) > 500, draped
+for key in ['wingBinding']:  # header entries that name bones: every one must exist in the skeleton the items are skinned to
+    missing = [name for name in equipment.get(key, []) if name not in rig.data.bones]
+    assert not missing, (key, missing)
 print('PLAINHIDE_LEGACY', len(armor), 'regions', len(equipment['parts']), 'items', painted, draped, flush=True)

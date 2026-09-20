@@ -480,6 +480,15 @@ for f in konten/dev.db*.vor-reset-K; do [ -e "$f" ] && mv --backup=numbered "$f"
 systemctl start wov-server           # die Boot-Zeile „Layout-Abgleich" zeigt wieder die alten Zahlen
 ```
 
+Wird der Betriebsdienst **mitten im Zurücksetzen** beendet (Absturz, `kill -9`), bleibt der Spielserver unten, und
+`Restart=always` greift nicht. Deshalb liegt vor dem Stopp eine Marker-Datei `worlds/<instanz>.zuruecksetzen.marker`;
+findet der Dienst sie beim nächsten Start, fährt er den Spielserver hoch, schreibt die Lage in Worten ins Log (`journalctl -u wov-admin`,
+„UNFERTIGES ZURÜCKSETZEN“) und in `GET /status` (`zuruecksetzen.unfertige`) und benennt die Datei in
+`<instanz>.zuruecksetzen.abgebrochen-<Zeit>` um. Sie bleibt liegen, bis jemand sie löscht. Ob und was beiseite lag, steht dort;
+zurückholen wie oben. Der Endpunkt gilt nur, wenn `WOV_INSTANZ` gesetzt ist (nie auf `live`, nie ohne Angabe), und wie alle
+zustandsändernden Endpunkte nur von der eigenen Seite oder ohne Browser-Herkunft (`Sec-Fetch-Site`/`Origin`; weitere Namen in
+`WOV_ERLAUBTE_URSPRUENGE`).
+
 ## NPC-Routen
 
 > **Im Testflug laufen die NPCs sofort** — als Vorschau, siehe unten.

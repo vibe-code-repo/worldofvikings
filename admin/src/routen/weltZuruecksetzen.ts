@@ -31,6 +31,12 @@
  * The server holds the save open and writes it on its interval, so files are
  * swapped ONLY with the service stopped. `systemctl start` sits in a `finally`
  * like in /api/testwelt: whatever fails, the server runs afterwards.
+ * WHICH files are moved is decided AFTER the stop: the game server writes its save when it stops (SIGTERM), and the
+ * interval save comes every 30 minutes, so right after a reset (or a first start) there may be no save at all until
+ * the stop makes one. A candidate list made before the stop would miss exactly that file, and the restarted server
+ * would load it: a "reset" that leaves the whole world standing. The copy made before the stop stays as a bonus, and
+ * when it found nothing to copy, the file that appears at the stop is copied then.
+ * A marker file (see "The marker" below) makes a reset that is killed halfway findable again.
  * The steps that can fail run in the order save, accounts, document, and the
  * document comes LAST: it is written atomically, so when it fails the moves
  * before it are undone and everything stands as before. A failed reset leaves
@@ -45,7 +51,7 @@
  * (409): a double click must not stop the service twice.
  */
 import { randomBytes } from 'node:crypto';
-import { constants, copyFileSync, existsSync, linkSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { constants, copyFileSync, existsSync, linkSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { zstdDecompressSync } from 'node:zlib';
@@ -57,6 +63,12 @@ export type ResetAntwort = { code: number; daten: unknown; kopf?: Record<string,
 
 export interface ResetUmgebung {
   instanz: string;
+  /**
+   * The instance was named explicitly (WOV_INSTANZ set and not empty). `instanzName()` falls back to 'dev' when the variable
+   * is missing, which is right for tools and tests but the wrong answer for a lock: a reset must only run where it is
+   * certain which world it is, so without this it is refused (fail closed).
+   */
+  instanzBestimmt: boolean;
   /** `server/data/welten/<instanz>.json` */
   layoutDatei: string;
   /** `server/data/worlds/<instanz>.db.zst` */
@@ -168,13 +180,14 @@ export function zahlenErheben(umg: ResetUmgebung): ResetZahlen {
   } catch {
     // Missing or broken: a reset is exactly what repairs that, so it is not an error here.
   }
-  const spielstand = existsSync(umg.spielstand)
-    ? (() => {
-        const s = statSync(umg.spielstand);
-        return { datei: basename(umg.spielstand), bytes: s.size, zdos: zdosZaehlen(umg.spielstand), geaendert: s.mtime.toISOString() };
-      })()
-    : null;
-  return { weltdokument, spielstand, konten: kontenZaehlen(umg.kontenDb) };
+  return { weltdokument, spielstand: spielstandZahlen(umg), konten: kontenZaehlen(umg.kontenDb) };
+}
+
+/** The save as it is right now (`null`: there is none). */
+export function spielstandZahlen(umg: ResetUmgebung): ResetZahlen['spielstand'] {
+  if (!existsSync(umg.spielstand)) return null;
+  const s = statSync(umg.spielstand);
+  return { datei: basename(umg.spielstand), bytes: s.size, zdos: zdosZaehlen(umg.spielstand), geaendert: s.mtime.toISOString() };
 }
 
 /** The files a reset moves, only those that exist: the save with its `.prev`, and with `konten` the account database with its WAL files. */
@@ -203,16 +216,28 @@ function beiseiteLegen(von: string, nach: string): void {
 
 const fehlerText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+/** Why this process must not reset a world, or `null`. `live` never; an instance nobody named (fallback to 'dev') not either. */
+function sperrGrund(umg: ResetUmgebung): { fehler: 'live-gesperrt' | 'instanz-unbestimmt'; meldung: string } | null {
+  if (umg.instanz === 'live') return { fehler: 'live-gesperrt', meldung: 'Auf der Instanz live wird nie zurückgesetzt — dort spielen Leute.' };
+  if (!umg.instanzBestimmt) {
+    return {
+      fehler: 'instanz-unbestimmt',
+      meldung: 'WOV_INSTANZ ist nicht gesetzt (oder leer): welche Welt dieser Dienst bedient, steht damit nicht fest. Ohne eindeutige Instanz wird nicht zurückgesetzt — in /etc/wov.env WOV_INSTANZ=dev eintragen.',
+    };
+  }
+  return null;
+}
+
 /** GET: what would go. */
 export async function weltZuruecksetzenVorschau(umg: ResetUmgebung): Promise<ResetAntwort> {
-  const gesperrt = umg.instanz === 'live';
+  const sperre = sperrGrund(umg);
   return {
     code: 200,
     daten: {
       ok: true,
       instanz: umg.instanz,
-      erlaubt: !gesperrt,
-      ...(gesperrt ? { grund: 'Auf der Instanz live wird nie zurückgesetzt — dort spielen Leute.' } : {}),
+      erlaubt: sperre === null,
+      ...(sperre !== null ? { grund: sperre.meldung } : {}),
       testweltAktiv: existsSync(`${umg.spielstand}.beiseite`),
       zahlen: zahlenErheben(umg),
     },
@@ -221,12 +246,8 @@ export async function weltZuruecksetzenVorschau(umg: ResetUmgebung): Promise<Res
 
 /** POST: the reset. `body` is the parsed JSON body. */
 export async function weltZuruecksetzenBehandeln(body: unknown, umg: ResetUmgebung): Promise<ResetAntwort> {
-  if (umg.instanz === 'live') {
-    return {
-      code: 403,
-      daten: { ok: false, fehler: 'live-gesperrt', message: 'Auf der Instanz live wird nie zurückgesetzt — dort spielen Leute. Nichts angefasst.' },
-    };
-  }
+  const sperre = sperrGrund(umg);
+  if (sperre !== null) return { code: 403, daten: { ok: false, fehler: sperre.fehler, message: `${sperre.meldung} Nichts angefasst.` } };
   const eingabe = (typeof body === 'object' && body !== null ? body : {}) as { bestaetigung?: unknown; seed?: unknown; konten?: unknown };
   if (eingabe.bestaetigung !== umg.instanz) {
     return {
@@ -259,6 +280,137 @@ export async function weltZuruecksetzenBehandeln(body: unknown, umg: ResetUmgebu
   }
 }
 
+// ── The marker of a reset in progress ────────────────────────────────
+//
+// The `finally` that starts the server dies with the process: when the operations service is killed (OOM, `kill -9`,
+// a restart of the unit) between `stop` and `start`, the game server stays down, and `Restart=always` does not help
+// because it was stopped cleanly. So a reset writes a marker file BEFORE it stops the server and updates it at each
+// step; it removes it once the state is known again (server started, nothing half done). At its own start the
+// operations service looks for one: found, it starts the game server, names what state the reset was left in (log and
+// `/status`) and renames the marker to `<instanz>.zuruecksetzen.abgebrochen-<stamp>`, which stays until someone
+// removes it. In `worlds/`, next to the save, for the same reason as the copy of the document: not in git.
+
+export interface ResetMarker {
+  zeit: string;
+  instanz: string;
+  kennung: string;
+  seed: SeedWahl;
+  konten: boolean;
+  /** How far it got: 'vor-stopp' (about to stop, or stopping), 'gestoppt', 'beiseite' (files moved), 'dokument' (document written). */
+  schritt: 'vor-stopp' | 'gestoppt' | 'beiseite' | 'dokument';
+  /** The files that are to be moved, as full paths AFTER the move; written BEFORE the first move, so at recovery the ones that exist are the ones that were moved. */
+  beiseite: string[];
+  sicherung: { spielstand: string | null; weltdokument: string | null };
+}
+
+export function markerPfad(umg: Pick<ResetUmgebung, 'spielstand' | 'instanz'>): string {
+  return resolve(dirname(umg.spielstand), `${umg.instanz}.zuruecksetzen.marker`);
+}
+
+/** Atomic (tmp + rename): a marker torn in half would be worse than none. */
+function markerSchreiben(umg: ResetUmgebung, marker: ResetMarker): void {
+  const pfad = markerPfad(umg);
+  const tmp = `${pfad}.tmp`;
+  writeFileSync(tmp, JSON.stringify(marker, null, 2));
+  renameSync(tmp, pfad);
+}
+
+function markerEntfernen(umg: ResetUmgebung): void {
+  try {
+    unlinkSync(markerPfad(umg));
+  } catch {
+    // already gone
+  }
+}
+
+export interface UnfertigerReset {
+  datei: string;
+  /** The marker as it was left (`null`: unreadable). */
+  marker: ResetMarker | null;
+  /** In words: what state the reset was left in. */
+  zustand: string;
+}
+
+/** The world document as it stands now, in words (recovery only; never throws). */
+function dokumentZustand(umg: ResetUmgebung): string {
+  try {
+    const n = layoutLesenMitHash(umg.layoutDatei).layout.regions.length;
+    return n === 0 ? 'leer (die Welt ist zurückgesetzt)' : `noch das alte (${n} Regionen)`;
+  } catch {
+    return 'nicht lesbar oder fehlt';
+  }
+}
+
+function unfertigBeschreiben(marker: ResetMarker | null, umg: ResetUmgebung): string {
+  if (!marker) return 'ein Zurücksetzen wurde unterbrochen, sein Marker ist unlesbar — Dateien in server/data/worlds/ prüfen';
+  const kopf = `Zurücksetzen von ${marker.instanz} (Kennung ${marker.kennung}, ${marker.zeit}) `;
+  switch (marker.schritt) {
+    case 'vor-stopp':
+      return `${kopf}abgebrochen vor oder während des Stoppens des Servers (Spielstand und Weltdokument unverändert; der Server kann schon unten gewesen sein).`;
+    case 'gestoppt':
+      return `${kopf}abgebrochen nach dem Stoppen des Servers, vor dem Beiseitelegen (Spielstand und Weltdokument liegen wie vorher).`;
+    case 'beiseite': {
+      const da = marker.beiseite.filter((pfad) => existsSync(pfad)).map((pfad) => basename(pfad));
+      return `${kopf}abgebrochen beim oder nach dem Beiseitelegen. Beiseite gelegt: ${da.length > 0 ? da.join(', ') : 'nichts'}. Das Weltdokument ist ${dokumentZustand(umg)}.`;
+    }
+    case 'dokument': {
+      const da = marker.beiseite.filter((pfad) => existsSync(pfad)).map((pfad) => basename(pfad));
+      return `${kopf}abgebrochen beim oder nach dem Schreiben des leeren Weltdokuments, vor dem Start des Servers. Beiseite gelegt: ${da.length > 0 ? da.join(', ') : 'nichts'}. Das Weltdokument ist ${dokumentZustand(umg)}.`;
+    }
+    default:
+      return `${kopf}abgebrochen (Schritt ${String(marker.schritt)}).`;
+  }
+}
+
+/** Called once when the operations service starts: finish what a killed reset left open. Returns what it found. */
+export async function unfertigenResetMelden(umg: ResetUmgebung): Promise<UnfertigerReset | null> {
+  const pfad = markerPfad(umg);
+  if (!existsSync(pfad)) return null;
+  let marker: ResetMarker | null = null;
+  try {
+    marker = JSON.parse(readFileSync(pfad, 'utf-8')) as ResetMarker;
+  } catch {
+    // unreadable: still handled below, the server must come up
+  }
+  const zustand = unfertigBeschreiben(marker, umg);
+  console.error(`[Admin] UNFERTIGES ZURÜCKSETZEN gefunden: ${zustand}`);
+  // Rename first, so a second start of this service does not report the same marker again.
+  const abgebrochen = resolve(dirname(pfad), `${umg.instanz}.zuruecksetzen.abgebrochen-${zeitmarke((umg.jetzt ?? (() => new Date()))())}`);
+  let ziel = abgebrochen;
+  for (let n = 2; existsSync(ziel); n++) ziel = `${abgebrochen}-${n}`;
+  renameSync(pfad, ziel);
+  try {
+    await umg.dienstStarten();
+    console.error('[Admin] wov-server gestartet (Abschluss des unterbrochenen Zurücksetzens).');
+  } catch (fehler) {
+    console.error(`[Admin] wov-server ließ sich NICHT starten: ${fehlerText(fehler)} — von Hand: systemctl start wov-server.`);
+    return { datei: basename(ziel), marker, zustand: `${zustand} Der Server ließ sich nicht starten: ${fehlerText(fehler)}` };
+  }
+  return { datei: basename(ziel), marker, zustand };
+}
+
+/** For `/status`: every interrupted reset of this instance that is still on record, and whether one runs now. */
+export function zuruecksetzenStatus(umg: ResetUmgebung): { laeuft: boolean; unfertige: UnfertigerReset[] } {
+  const ordner = dirname(umg.spielstand);
+  const unfertige: UnfertigerReset[] = [];
+  if (existsSync(ordner)) {
+    for (const name of readdirSync(ordner).sort()) {
+      if (!name.startsWith(`${umg.instanz}.zuruecksetzen.abgebrochen-`)) continue;
+      let marker: ResetMarker | null = null;
+      try {
+        marker = JSON.parse(readFileSync(resolve(ordner, name), 'utf-8')) as ResetMarker;
+      } catch {
+        // unreadable: listed without content
+      }
+      unfertige.push({ datei: name, marker, zustand: unfertigBeschreiben(marker, umg) });
+    }
+  }
+  return { laeuft, unfertige };
+}
+
+const wortZdos = (s: ResetZahlen['spielstand']): string =>
+  s === null ? 'es gab keinen Spielstand' : s.zdos === null ? 'Spielstand beiseite (Anzahl der Objekte nicht ermittelbar)' : `${s.zdos} Objekte im Spielstand beiseite`;
+
 async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: boolean): Promise<ResetAntwort> {
   const jetzt = (umg.jetzt ?? (() => new Date()))();
   const stempel = zeitmarke(jetzt);
@@ -266,11 +418,14 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
 
   // One suffix for the whole reset, chosen before anything is written: the stamp, or `<stamp>-2`, `-3` … when ANY of the
   // names is taken (the copy of the world document included), so the copy and the moved files always share their name.
-  const kandidaten = beiseiteKandidaten(umg, mitKonten);
+  // The names are checked for every file that COULD be moved, not only for those there now: the save may not exist yet
+  // (the game server writes it when it stops).
+  const moegliche = [umg.spielstand, `${umg.spielstand}.prev`, ...(mitKonten ? [umg.kontenDb, `${umg.kontenDb}-wal`, `${umg.kontenDb}-shm`] : [])];
   const kopieName = (k: string): string => resolve(weltenOrdner, `${basename(umg.layoutDatei)}.${k}`);
-  const kennung = freieKennung(stempel, (k) => [kopieName(k), ...[...kandidaten.spielstand, ...kandidaten.konten].map((d) => `${d}.vor-reset-${k}`)]);
+  const kennung = freieKennung(stempel, (k) => [kopieName(k), ...moegliche.map((d) => `${d}.vor-reset-${k}`)]);
 
-  // 1 + 2: numbers, then the two copies. Nothing has changed yet when this throws.
+  // 1 + 2: numbers, then the two copies. Nothing has changed yet when this throws. The copy of the save made here is
+  // a bonus: the game server writes its save when it STOPS, so the file that matters is the one there after the stop.
   let zahlen: ResetZahlen;
   let sicherungSpielstand: string | null;
   let sicherungWeltdokument: string | null = null;
@@ -296,6 +451,23 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
   }
 
   const beiseite: { von: string; nach: string }[] = [];
+  const marker: ResetMarker = {
+    zeit: jetzt.toISOString(),
+    instanz: umg.instanz,
+    kennung,
+    seed,
+    konten: mitKonten,
+    schritt: 'vor-stopp',
+    beiseite: [],
+    sicherung: { spielstand: sicherungSpielstand ? basename(sicherungSpielstand) : null, weltdokument: sicherungWeltdokument ? basename(sicherungWeltdokument) : null },
+  };
+  try {
+    markerSchreiben(umg, marker);
+  } catch (fehler) {
+    // Without the marker a crash could not be found again: better not to start.
+    console.error(`[Admin] POST /api/welt-zuruecksetzen: Marker nicht schreibbar: ${fehlerText(fehler)}`);
+    return { code: 500, daten: { ok: false, fehler: 'marker-fehlgeschlagen', message: `Marker nicht schreibbar — nichts verändert, der Server läuft weiter: ${fehlerText(fehler)}` } };
+  }
 
   // 3: stop. When that fails nothing is swapped (the server may still be writing); start is tried anyway.
   try {
@@ -303,11 +475,15 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
     await umg.dienstStoppen();
   } catch (fehler) {
     let startText = '';
+    let startOk = true;
     try {
       await umg.dienstStarten();
     } catch (startFehler) {
+      startOk = false;
       startText = ` Auch der Start schlug fehl: ${fehlerText(startFehler)}`;
     }
+    // The state is known again (nothing was changed), unless the server is down as well.
+    if (startOk) markerEntfernen(umg);
     console.error(`[Admin] POST /api/welt-zuruecksetzen: Dienst ließ sich nicht stoppen: ${fehlerText(fehler)}`);
     return {
       code: 500,
@@ -315,7 +491,7 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
         ok: false,
         fehler: 'stopp-fehlgeschlagen',
         message: `wov-server ließ sich nicht stoppen — nichts getauscht: ${fehlerText(fehler)}.${startText}`,
-        sicherung: { spielstand: sicherungSpielstand ? basename(sicherungSpielstand) : null, weltdokument: sicherungWeltdokument ? basename(sicherungWeltdokument) : null },
+        sicherung: marker.sicherung,
       },
     };
   }
@@ -325,9 +501,26 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
   const rueckrollFehler: string[] = [];
   let startFehler: unknown = null;
   let geschrieben: Awaited<ReturnType<typeof layoutSchreibenAsync>> | null = null;
+  // What the game server left behind when it stopped: THIS is the file to move, and the one to count and back up if
+  // the copy above found none.
+  let spielstandBeiseite: ResetZahlen['spielstand'] = null;
   try {
     try {
+      marker.schritt = 'gestoppt';
+      markerSchreiben(umg, marker);
       await umg.vorSchritt?.('spielstand');
+      // Decided NOW, after the stop, not before it.
+      const kandidaten = beiseiteKandidaten(umg, mitKonten);
+      spielstandBeiseite = spielstandZahlen(umg);
+      if (sicherungSpielstand === null && spielstandBeiseite !== null) {
+        sicherungSpielstand = umg.sichern(umg.spielstand, SICHERUNGEN_SPIELSTAND);
+        marker.sicherung.spielstand = sicherungSpielstand ? basename(sicherungSpielstand) : null;
+      }
+      // The marker says what is about to be moved BEFORE anything is: a kill between a move and a later note would leave
+      // a file gone that the marker never mentioned. At recovery the planned files that exist are the ones that moved.
+      marker.beiseite = [...kandidaten.spielstand, ...kandidaten.konten].map((datei) => `${datei}.vor-reset-${kennung}`);
+      marker.schritt = 'beiseite';
+      markerSchreiben(umg, marker);
       for (const datei of kandidaten.spielstand) {
         const nach = `${datei}.vor-reset-${kennung}`;
         beiseiteLegen(datei, nach);
@@ -342,6 +535,9 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
         }
       }
       await umg.vorSchritt?.('dokument');
+      // Before the write, for the same reason: a kill after it must not find a marker that still says "document untouched".
+      marker.schritt = 'dokument';
+      markerSchreiben(umg, marker);
       // `leereWelt`: the write path otherwise refuses a document without a region (shared/src/worldlayout/layoutDatei.ts).
       geschrieben = await layoutSchreibenAsync(umg.layoutDatei, leeresWeltdokument(altesDokument, seed), undefined, { leereWelt: true });
     } catch (fehler) {
@@ -365,6 +561,8 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
     } catch (fehler) {
       startFehler = fehler;
     }
+    // The state is known again: the server is up, and nothing is half done (a failed undo keeps the marker).
+    if (startFehler === null && rueckrollFehler.length === 0) markerEntfernen(umg);
   }
 
   const sicherung = {
@@ -394,25 +592,22 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
   }
 
   const ergebnis = geschrieben!;
-  console.warn(
-    `[Admin] Welt zurückgesetzt (Instanz ${umg.instanz}, seed ${seed}${mitKonten ? ', mit Konten' : ''}): ` +
-      `${zahlen.weltdokument?.platzierungen ?? '?'} Platzierungen, ${zahlen.weltdokument?.regionen ?? '?'} Regionen, ` +
-      `${zahlen.spielstand?.zdos ?? '?'} ZDOs beiseite (${kennung})`
-  );
+  const platz = zahlen.weltdokument ? `${zahlen.weltdokument.platzierungen} Platzierungen, ${zahlen.weltdokument.regionen} Regionen` : 'Weltdokument war nicht lesbar';
+  console.warn(`[Admin] Welt zurückgesetzt (Instanz ${umg.instanz}, seed ${seed}${mitKonten ? ', mit Konten' : ''}): ${platz}, ${wortZdos(spielstandBeiseite)} (${kennung})`);
   const dienstFehlerText = startFehler === null ? '' : ` ACHTUNG: wov-server ließ sich nicht starten (${fehlerText(startFehler)}) — von Hand: systemctl start wov-server.`;
   return {
     code: startFehler === null ? 200 : 500,
     daten: {
       ok: startFehler === null,
       ...(startFehler === null ? {} : { fehler: 'start-fehlgeschlagen' }),
-      message:
-        `Welt zurückgesetzt: ${zahlen.weltdokument?.platzierungen ?? 0} Platzierungen, ${zahlen.weltdokument?.regionen ?? 0} Regionen und ` +
-        `${zahlen.spielstand?.zdos ?? '?'} Objekte im Spielstand liegen beiseite (Kennung ${kennung}).${dienstFehlerText}`,
+      message: `Welt zurückgesetzt: ${platz}; ${wortZdos(spielstandBeiseite)} (Kennung ${kennung}).${dienstFehlerText}`,
       instanz: umg.instanz,
       seed,
       konten: mitKonten,
       kennung,
       vorher: zahlen,
+      // The save that was really moved: measured AFTER the stop, when the game server has written its final one.
+      spielstandBeiseite,
       sicherung,
       beiseite: beiseite.map((b) => basename(b.nach)),
       hash: ergebnis.hash,

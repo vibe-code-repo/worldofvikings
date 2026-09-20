@@ -115,20 +115,29 @@ const FOV_AUSGANG = 0.8;
  * Naeher ist nicht vorgesehen; das Rad haelt hier an.
  */
 const PORTRAET_RADIUS = 1.4;
-/** Bildhoehe im Portraet bei einer Leinwand, die breit genug ist (Seitenverhaeltnis ab etwa 0,71). */
+/** Bildhoehe im Portraet bei einer Leinwand, die breit genug ist (Seitenverhaeltnis ab etwa 0,54). */
 const PORTRAET_BILDHOEHE = 0.8;
 /**
- * Front­breite des Kopfes samt breitester Frisur oder Helm (gemessen am
- * 19.09.2026 an allen 38 Frisuren: 0,26 bis 0,35 m, Ironward 0,33 m,
- * Seidraven 0,32 m). Sie soll im Portraet hoechstens BREITE_ANTEIL der
- * Leinwandbreite fuellen; ist die Leinwand schmaler als 0,4 / 0,7 / 0,8 =
- * 0,71 (Breite zu Hoehe), waechst die Bildhoehe entsprechend
- * (portraetHoehe) — das Sichtfeld weitet sich, der Abstand bleibt.
- * Breitere Kopfteile (Kapuzen 0,43–0,47 m, Geweih der Waldhueter-Krone
- * 0,71 m) sind damit nicht in jedem Fall unter 70 %.
+ * Front­breite des Kopfes samt breitester Frisur, gemessen am 20.09.2026 in
+ * der Ruhepose (der Kopf lehnt sich dort um 9 cm zur Kamera und steht aus
+ * der Drehachse) an allen 38 Frisuren von vorn: 0,26 bis 0,364 m, breiteste
+ * H_23 (halbe Ausdehnung von der Bildmitte 0,199 m); Ironward 0,33 m,
+ * Seidraven 0,32 m. Sie soll im Portraet hoechstens BREITE_ANTEIL der
+ * Leinwandbreite fuellen; ist die Leinwand schmaler als
+ * 0,364 / 0,85 / 0,8 = 0,54 (Breite zu Hoehe), waechst die Bildhoehe
+ * entsprechend (portraetHoehe) — das Sichtfeld weitet sich, der Abstand
+ * bleibt. Von vorn (0 Grad) beruehrt damit keine der 38 Frisuren den Rand.
+ * Gedreht liegt der Kopf aus der Achse und ist breiter: die halbe
+ * Ausdehnung von der Bildmitte waechst auf 0,29 m bei 45 Grad (H_05) und auf
+ * 0,31 m bei 90 Grad (H_14); dann ragen Haar und selbst der kahle Kopf auf
+ * der schmalsten Buehne (227 px, Bildbreite 0,43 m) ueber den Rand. Das
+ * liesse sich nur mit mehr Breite vermeiden, und die kostete den Zoom (bei
+ * 0,62 m ueberhaupt keinen): Gesicht und Frisur sind von vorn immer ganz zu
+ * sehen. Breitere Kopfteile (Kapuzen 0,43–0,47 m, Geweih der Waldhueter-Krone
+ * 0,71 m) sind auch von vorn nicht in jedem Fall unter 85 %.
  */
-const KOPF_BREITE = 0.4;
-const BREITE_ANTEIL = 0.7;
+const KOPF_BREITE = 0.364;
+const BREITE_ANTEIL = 0.85;
 /** Vergroesserung des Kopfes je Radrastung (im Bild gemessen, ueber die ganze Strecke). */
 const RAST = 1.12;
 /**

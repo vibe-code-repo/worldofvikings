@@ -1,5 +1,5 @@
-/** The skin gate (tools/test/ironward-skin.mjs) must fail when a set does not match the item registry.
- * tsx tools/test/armor-skin-gate.mjs
+/** The skin gate (tools/armor/test/skin-gate.mjs) must fail when a set does not match the item registry.
+ * tsx tools/armor/test/skin-gate-selftest.mjs
  * No Blender, no assets: every registered family is written as tiny synthetic GLBs straight from the registry
  * (both bodies for Seidraven and Emberrage) and run through the gate. The complete sets must pass; each
  * deviation (GLB extras that disagree with the registry, a part missing from the manifest or from disk, a wrong
@@ -13,9 +13,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RUESTUNG } from '@wov/shared';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
+const root = fileURLToPath(new URL('../../../', import.meta.url));
 const tsx = join(root, 'node_modules/.bin/tsx');
-const gate = join(root, 'tools/test/ironward-skin.mjs');
+const gate = join(root, 'tools/armor/test/skin-gate.mjs');
 
 function glb(json, bin) {
   const text = Buffer.from(JSON.stringify(json));

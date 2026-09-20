@@ -1,5 +1,5 @@
 """Render inventory icons from the actual exported GLBs; never saves the input.
-blender -b --factory-startup --python tools/ironward-icons.py -- models-dir sprites-dir
+blender -b --factory-startup --python tools/armor/export/render-icons.py -- models-dir sprites-dir
 """
 import bpy, json, sys
 from pathlib import Path

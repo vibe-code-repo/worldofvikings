@@ -18,9 +18,9 @@ Stand: 13.09.2026. Ziel ist **DEV**, Charakter **Gast**. Entwicklung in einem ei
 Aus der Repo-Wurzel, mit installierten Abhängigkeiten:
 
 ```sh
-node_modules/.bin/tsx tools/export-ironward.mjs SOURCE_ARMOR.glb GAME_BODY.glb OUTPUT_MODELS
-flatpak run org.blender.Blender -b --factory-startup --python ABSOLUTE_REPO/tools/ironward-icons.py -- OUTPUT_MODELS OUTPUT_SPRITES
-node_modules/.bin/tsx tools/test/ironward-skin.mjs GAME_BODY.glb OUTPUT_MODELS
+node_modules/.bin/tsx tools/armor/export/export-armor.mjs SOURCE_ARMOR.glb GAME_BODY.glb OUTPUT_MODELS
+flatpak run org.blender.Blender -b --factory-startup --python ABSOLUTE_REPO/tools/armor/export/render-icons.py -- OUTPUT_MODELS OUTPUT_SPRITES
+node_modules/.bin/tsx tools/armor/test/skin-gate.mjs GAME_BODY.glb OUTPUT_MODELS
 ```
 
 Der Export erzeugt sieben GLBs plus `manifest.json` mit SHA-256 der Eingaben und Ausgaben. Die Icons werden aus diesen GLBs gerendert, nicht separat erfunden. Der gesamte Satz hat 7.466 Dreiecke und derzeit 48 Material-Primitives. Ein Materialatlas/Draw-Call-Optimierung ist ein separater nächster Schritt.
@@ -43,7 +43,7 @@ Der Export erzeugt sieben GLBs plus `manifest.json` mit SHA-256 der Eingaben und
 4. Neue GLBs nach `assets/models/ironward/`, Icons nach `assets/sprites/`. Körperdatei nicht austauschen. Vorher/nachher ihren SHA-256 vergleichen. Assets gehören nicht in Git.
 5. Nur geprüften Commit auf DEV übernehmen, sofern HEAD/Arbeitsbaum weiterhin passen. Spielserver kontrolliert neu starten; eine aktive Spielsitzung wird dabei kurz getrennt und muss eventuell neu angemeldet werden.
 6. Als Admin `item ironward Gast` ausführen. Der Befehl liefert fehlende Teile einmalig an den online oder offline vorhandenen Charakter. Kein voller Sack wird teilweise verändert. Vorhandene Gegenstände, Position und angelegte Kleidung bleiben erhalten. Er fordert einen normalen Welt-Save an.
-7. Hilfsprogramm auf DEV: `node_modules/.bin/tsx tools/grant-ironward-dev.mts Gast --apply`. Ohne `--apply` nur Online-Übersicht. Es nutzt die normale Anmeldung des bereits konfigurierten Testkontos und eine reine Editor-Verbindung; es schreibt weder Zugangsdaten noch direkt in die Spielstanddatei. Nach der Übergabe prüft es alle sieben Items im gespeicherten DEV-Spielstand.
+7. Hilfsprogramm auf DEV: `node_modules/.bin/tsx tools/armor/dev/grant-set-dev.mts Gast --apply`. Ohne `--apply` nur Online-Übersicht. Es nutzt die normale Anmeldung des bereits konfigurierten Testkontos und eine reine Editor-Verbindung; es schreibt weder Zugangsdaten noch direkt in die Spielstanddatei. Nach der Übergabe prüft es alle sieben Items im gespeicherten DEV-Spielstand.
 
 Wichtig: Editor-Verbindungen teilen sich unter Umständen die Spieler-ID mit dem Spielclient. Sie werden deshalb beim Speichern übersprungen, damit ihr leeres Inventar niemals den echten Charakter überschreibt.
 

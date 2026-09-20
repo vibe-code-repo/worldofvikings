@@ -7,8 +7,8 @@ import { Scene } from '@babylonjs/core/scene.js';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/index.js';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
-import { SEIDRAVEN_FEMALE_PARTS } from '../../shared/src/seidraven.ts';
-import { prepareLegacyFemaleBody, updateArmorVisibility, verifyArmorSkin } from '../../client/src/player/armorVisibility.ts';
+import { SEIDRAVEN_FEMALE_PARTS } from '../../../shared/src/seidraven.ts';
+import { prepareLegacyFemaleBody, updateArmorVisibility, verifyArmorSkin } from '../../../client/src/player/armorVisibility.ts';
 
 const [bodyPath,directory,fitPath]=process.argv.slice(2);
 const fit=JSON.parse(readFileSync(fitPath));

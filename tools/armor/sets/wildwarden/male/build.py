@@ -1,7 +1,9 @@
 """Build Wildwarden replacement armor on the unmodified WoV male rest rig.
 
-Run Blender with --factory-startup -b SOURCE.blend --python THIS.py -- OUTPUT
-and optionally --quick (hero only). Geometry is deterministic, no paid APIs.
+Blender --factory-startup -b BODY_BASE_MALE.blend --python-exit-code 1 \\
+        --python tools/armor/sets/wildwarden/male/build.py -- OUTPUT_DIR [--quick]
+Run with SOURCE.blend = WoV_BodyBase_Male.blend. Optionally --quick (hero only).
+Geometry is deterministic, no paid APIs.
 """
 import bpy
 import bmesh

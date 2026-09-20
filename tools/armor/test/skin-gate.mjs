@@ -1,5 +1,5 @@
 /** Actual Babylon GLB loader + animation/skinning gate. No browser or GPU required.
- * tsx tools/test/ironward-skin.mjs body.glb exported-models-directory [--family=ashenveil] [--variant=male|female] [--unregistered] [--write-report]
+ * tsx tools/armor/test/skin-gate.mjs body.glb exported-models-directory [--family=ashenveil] [--variant=male|female] [--unregistered] [--write-report]
  * --family is any family the item registry knows (the folder part of `datei` in RUESTUNG); default ironward.
  * --variant picks the body when a family has male and female items (Seidraven, Emberrage); a family with a
  *   single variant needs none. The body GLB must match that variant's bodyProfile.
@@ -18,7 +18,7 @@ import { Scene } from '@babylonjs/core/scene.js';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/index.js';
 import { RUESTUNG } from '@wov/shared';
-import { verifyArmorSkin, updateArmorVisibility, prepareLegacyFemaleBody } from '../../client/src/player/armorVisibility.ts';
+import { verifyArmorSkin, updateArmorVisibility, prepareLegacyFemaleBody } from '../../../client/src/player/armorVisibility.ts';
 const [bodyPath, directory] = process.argv.slice(2);
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const families = [...new Set(RUESTUNG.filter(p => p.datei.includes('/')).map(p => p.datei.split('/')[0]))];

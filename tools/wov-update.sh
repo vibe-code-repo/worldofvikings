@@ -790,7 +790,7 @@ npm run store:aufbereiten
 npm run store:boden
 
 # Der ausgelieferte Set-Katalog muss vor den Konsistenztests zum Code passen.
-node_modules/.bin/tsx tools/equipment-sets-json.mjs
+node_modules/.bin/tsx tools/armor/catalog/equipment-sets-json.mjs
 
 # ── 6. Das Tor ───────────────────────────────────────────────────────
 # NACKT, ohne Pipe, ohne "| tail -1", ohne "|| true". Der Exit-Code einer

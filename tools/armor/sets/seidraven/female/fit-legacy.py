@@ -1,6 +1,7 @@
 """Fit Seidraven ornaments and exact replacement lining to the shipped female rig.
 
 Blender -b Female/WoV_Seidraven_Armor.blend --python THIS -- body.glb OUTPUT
+(Female/WoV_Seidraven_Armor.blend is the output of female/build.py.)
 Source bodies/armor stay read-only. The legacy body keeps its original skin.
 """
 import bpy

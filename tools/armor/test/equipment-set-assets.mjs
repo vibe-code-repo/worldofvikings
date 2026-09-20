@@ -1,8 +1,8 @@
 /** Read-only HTTP check: no game login, accounts or inventory changes.
- * tsx tools/test/equipment-set-assets.mjs http://127.0.0.1/
+ * tsx tools/armor/test/equipment-set-assets.mjs http://127.0.0.1/
  */
 import assert from 'node:assert/strict';
-import { equipmentSetCatalog } from '../../shared/src/equipmentSets.ts';
+import { equipmentSetCatalog } from '../../../shared/src/equipmentSets.ts';
 
 const base = new URL(process.argv[2]);
 async function get(path) {

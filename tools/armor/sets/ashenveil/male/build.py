@@ -1,7 +1,9 @@
-"""Build Seidraven male/female armor on unmodified WoV source rest rigs.
+"""Build Ashenveil replacement armor on the unmodified WoV male rest rig.
 
-Run Blender with --factory-startup -b SOURCE.blend --python THIS.py -- OUTPUT
-and optionally --quick (hero only). Geometry is deterministic, no paid APIs.
+Blender --factory-startup -b BODY_BASE_MALE.blend --python-exit-code 1 \\
+        --python tools/armor/sets/ashenveil/male/build.py -- OUTPUT_DIR [--quick]
+Run with SOURCE.blend = WoV_BodyBase_Male.blend. Optionally --quick (hero only).
+Geometry is deterministic, no paid APIs.
 """
 import bpy
 import bmesh
@@ -19,55 +21,46 @@ ROOT.mkdir(parents=True, exist_ok=True)
 RENDERS = ROOT / 'renders'
 RENDERS.mkdir(exist_ok=True)
 QUICK = '--quick' in ARGS
-VARIANT = 'Female' if '--female' in ARGS else 'Male'
-PREFIX = 'WoV_Seidraven_'
-ITEM_PREFIX = 'seidraven_' + VARIANT.lower() + '_'
-BODY_POLICY = {'bodyVariant': VARIANT.lower(), 'bodyProfile': 'wov-female-v1' if VARIANT == 'Female' else 'wov-male-v1', 'figure': 'wikingerin' if VARIANT == 'Female' else 'wikinger'}
+PREFIX = 'WoV_Ashenveil_'
 SLOTS = ['Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft',
          'ArmLowerRight', 'LegLeft', 'LegRight', 'Head', 'HandLeft', 'HandRight']
 PARTS = [
-    {'item':'seidraven_hood','label':'Runenhelm','regions':['Head']},
-    {'item':'seidraven_shoulders','label':'Rabenlicht-Schultern','regions':['ArmUpperLeft','ArmUpperRight']},
-    {'item':'seidraven_vest','label':'Seidr-Lamellenharnisch','regions':['Torso']},
-    {'item':'seidraven_bracers','label':'Runenarmschienen','regions':['ArmLowerLeft','ArmLowerRight']},
-    {'item':'seidraven_gloves','label':'Seidr-Handschuhe','regions':['HandLeft','HandRight']},
-    {'item':'seidraven_robe','label':'Runen-Schurz','regions':['Hips']},
-    {'item':'seidraven_boots','label':'Runenpanzerstiefel','regions':['LegLeft','LegRight']},
+    {'item':'ashenveil_hood','label':'Schattenkapuze','regions':['Head']},
+    {'item':'ashenveil_shoulders','label':'Dornenmantel','regions':['ArmUpperLeft','ArmUpperRight']},
+    {'item':'ashenveil_vest','label':'Dunkler Brustharnisch','regions':['Torso']},
+    {'item':'ashenveil_bracers','label':'Runenarmschienen','regions':['ArmLowerLeft','ArmLowerRight']},
+    {'item':'ashenveil_gloves','label':'Schattenhandschuhe','regions':['HandLeft','HandRight']},
+    {'item':'ashenveil_robe','label':'Kultistenrobe','regions':['Hips']},
+    {'item':'ashenveil_boots','label':'Runenpanzerstiefel','regions':['LegLeft','LegRight']},
 ]
-for part in PARTS:
-    part.update(BODY_POLICY)
-    part['item'] = part['item'].replace('seidraven_', ITEM_PREFIX)
-    part['hideAppearance'] = ['hair', 'beard', 'eyebrows'] if part['regions'] == ['Head'] else []
 scene = bpy.context.scene
 rig = bpy.data.objects['WoV_Player_Armature']
 source_path = bpy.data.filepath
-base = {s: bpy.data.objects['WoV_BodyBase_' + VARIANT + '_' + s] for s in SLOTS}
+base = {s: bpy.data.objects['WoV_BodyBase_Male_' + s] for s in SLOTS}
 pose = {b.name: b.matrix_basis.copy() for b in rig.pose.bones}
 rig.data.pose_position = 'REST'
 bpy.context.view_layer.update()
-collection = bpy.data.collections.new('Seidraven_Equipment')
+collection = bpy.data.collections.new('Ashenveil_Equipment')
 scene.collection.children.link(collection)
 pieces = {s: [] for s in SLOTS}
 materials = {}
 palette = {
-    'cloth':(.035,.009,.105), 'leather':(.029,.024,.034),
-    'plate':(.080,.102,.145), 'edge':(.38,.43,.48),
-    'metal':(.19,.24,.29), 'black':(.005,.004,.012),
-    'red':(.28,.009,.75), 'eyes':(.55,.06,1.0),
-    'gold':(.39,.23,.09), 'feather':(.035,.014,.095),
-    'glow':(.16,.003,.80), 'core':(.32,.015,1.0),
+    'cloth':(.018,.011,.023), 'leather':(.013,.010,.017),
+    'plate':(.075,.031,.041), 'edge':(.195,.112,.123),
+    'metal':(.115,.107,.127), 'black':(.003,.002,.006),
+    'red':(.36,.006,.013), 'eyes':(.9,.002,.008),
 }
 for name, color in palette.items():
-    mat = bpy.data.materials.new('Seidraven_' + name)
+    mat = bpy.data.materials.new('Ashenveil_' + name)
     mat.diffuse_color = (*color, 1)
     mat.use_nodes = True
     shader = mat.node_tree.nodes.get('Principled BSDF')
     shader.inputs['Base Color'].default_value = (*color, 1)
     shader.inputs['Roughness'].default_value = .78 if name in ['cloth','leather','black'] else .43
-    shader.inputs['Metallic'].default_value = .65 if name in ['plate','metal','edge','gold'] else 0
-    if name in ['red','eyes','glow','core']:
+    shader.inputs['Metallic'].default_value = .65 if name in ['plate','metal','edge'] else 0
+    if name in ['red','eyes']:
         shader.inputs['Emission Color'].default_value = (*color,1)
-        shader.inputs['Emission Strength'].default_value = {'eyes': 2, 'red': .7, 'glow': 1.5, 'core': 3}[name]
+        shader.inputs['Emission Strength'].default_value = 1 if name == 'eyes' else .15
     materials[name] = mat
 
 
@@ -146,6 +139,21 @@ def sleeve(name, points, radii, slot, bone, material, segments=12):
     return obj
 
 
+def robe_weights(obj):
+    """Continuous skirt skin: blend both legs across the front/back centre."""
+    groups = {n: obj.vertex_groups.get(n) or obj.vertex_groups.new(name=n) for n in ['Hips', 'UpperLeg_L', 'UpperLeg_R', 'LowerLeg_L', 'LowerLeg_R']}
+    for v in obj.data.vertices:
+        hip = min(1, max(0, (v.co.z-.70)/.20))
+        knee = min(.90, max(0, (.53-v.co.z)/.30)) * (1-hip)
+        # Spread opposing strides over the hem instead of one narrow centre strip.
+        blend_width = .20 + .40*min(1, max(0, (.80-v.co.z)/.50))
+        left = min(1, max(0, .5+v.co.x/blend_width))
+        weights = [('Hips', hip)]
+        for side, fraction in [('L', left), ('R', 1-left)]:
+            weights += [('UpperLeg_'+side, (1-hip-knee)*fraction), ('LowerLeg_'+side, knee*fraction)]
+        for name, weight in weights:
+            if weight > 0:
+                groups[name].add([v.index], weight, 'REPLACE')
 
 
 def binding_surface(obj):
@@ -192,7 +200,7 @@ def attach_to_surface(obj, surface, conform=False, offset=0):
 for slot, src in base.items():
     obj = src.copy()
     obj.data = src.data.copy()
-    obj.name = 'Seidraven_' + slot + '_lining'
+    obj.name = 'Ashenveil_' + slot + '_lining'
     collection.objects.link(obj)
     world = obj.matrix_world.copy()
     obj.parent = None
@@ -250,6 +258,18 @@ def crest(name, center, radius, slot, bone):
         branch(name+'_rune',[p,q],[.004,.001],slot,bone,'edge',4)
 
 
+def skull(name, center, scale, slot, bone):
+    x,y,z=center
+    # Broad brow, tapering cheeks and a separate jaw silhouette.
+    outline=[(-.7,.65),(-.4,1),(.4,1),(.7,.65),(.58,-.25),(.3,-.7),(-.3,-.7),(-.58,-.25)]
+    verts=[(x+a*scale,y-.015,z+b*scale) for a,b in outline]+[(x,y-.035,z+.15*scale),(x,y+.025,z)]
+    faces=[(i,(i+1)%8,8) for i in range(8)]+[(i,9,(i+1)%8) for i in range(8)]
+    mesh(name,verts,faces,slot,'metal',bone)
+    for sign in [-1,1]:
+        jewel(name+'_socket',(x+sign*.26*scale,y-.037,z+.25*scale),.35*scale,.27*scale,slot,bone,'black')
+    jewel(name+'_nose',(x,y-.041,z-.12*scale),.15*scale,.25*scale,slot,bone,'black')
+    for i in range(3):
+        branch(name+'_tooth',[(x+(i-1)*scale*.18,y-.020,z-scale*.48),(x+(i-1)*scale*.18,y-.024,z-scale*.77)],[scale*.07,scale*.035],slot,bone,'edge',4)
 
 
 def armor_plate(name, outline, slot, bone, material='plate', depth=.01):
@@ -260,92 +280,108 @@ def armor_plate(name, outline, slot, bone, material='plate', depth=.01):
     return mesh(name,verts,[(i,(i+1)%n,n) for i in range(n)]+[(i,n+1,(i+1)%n) for i in range(n)],slot,material,bone)
 
 
-
-# Nordic lamellar armor: fitted separately to each body's rest surface.
-vest_surface = binding_surface(pieces['Torso'][0])
-for sign in [-1, 1]:
-    armor_plate('Raven_breast', [(sign*.012,-.165,1.432),(sign*.150,-.155,1.409),
-        (sign*.202,-.116,1.330),(sign*.155,-.183,1.247),(sign*.025,-.189,1.222)],
-        'Torso',None,'metal',.014)
-    for row in range(4):
-        z=1.235-row*.070
-        width=.151 if VARIANT == 'Male' else .140
-        armor_plate('Overlapping_lamella',[(sign*.011,-.175,z+.019),(sign*width,-.145,z+.037),
-            (sign*(width+.014),-.143,z-.011),(sign*.046,-.190,z-.050)],
-            'Torso',None,'plate',.008)
-        branch('Lamellar_silver_binding',[(sign*.024,-.186,z+.016),(sign*.105,-.175,z+.030),
-            (sign*width,-.154,z+.035)],[.004]*3,'Torso',None,'edge',4)
-    # Interlaced shoulder-to-belt straps with bronze rivets.
-    branch('Braided_harness',[(sign*.16,-.157,1.414),(sign*.123,-.210,1.30),
-        (sign*.104,-.188,1.16),(sign*.143,-.160,1.01)],[.009]*4,'Torso',None,'gold',5)
-    for row in range(5):
-        z=1.05+row*.064
-        jewel('Harness_rivet',(sign*.126,-.204,z),.009,.011,'Torso',None,'gold')
-    armor_plate('Rear_lamellar_back',[(sign*.012,.170,1.42),(sign*.148,.140,1.37),
-        (sign*.161,.143,1.15),(sign*.025,.180,1.035)],'Torso',None,'plate',-.012)
-    branch('Back_silver_seam',[(sign*.025,.185,1.07),(sign*.13,.160,1.26),
-        (sign*.09,.166,1.40)],[.005]*3,'Torso',None,'edge',4)
-# Stylized twin ravens: angular wings and a downward beak.
+# Sculpted breastplate, rib plates and pointed waist armor.
+vest_surface=binding_surface(pieces['Torso'][0])
 for sign in [-1,1]:
+    armor_plate('Breastplate',[(sign*.012,-.178,1.41),(sign*.145,-.172,1.40),
+                             (sign*.197,-.128,1.30),(sign*.142,-.180,1.19),
+                             (sign*.017,-.202,1.20)],'Torso',None,depth=.016)
+    for row in range(3):
+        z=1.19-row*.076
+        armor_plate('Abdominal_lame',[(sign*.010,-.176,z+.042),(sign*.138,-.159,z+.033),
+                                     (sign*.154,-.145,z-.028),(sign*.035,-.190,z-.054)],
+                    'Torso',None,'plate',.009)
     for j in range(3):
-        leaf('Chest_raven_feather',(sign*.020,-.212,1.360-j*.011),
-             (sign*(.105+j*.020),-.194,1.420-j*.035),.014,(0,-1,0),
-             'Torso',None,'edge',.005)
-jewel('Seidr_heart',(0,-.221,1.337),.052,.094,'Torso',None,'red')
-branch('Raven_beak',[(0,-.227,1.32),(0,-.224,1.275)],[.014,.001],'Torso',None,'gold',4)
+        x=sign*(.05+.036*j)
+        branch('Collar_trim',[(x,-.160,1.43),(x+sign*.023,-.173,1.395)],[.006,.003],
+               'Torso',None,'edge',4)
+    # Rear armor has the same language without duplicating the front emblem.
+    armor_plate('Back_plate',[(sign*.015,.160,1.405),(sign*.14,.13,1.39),
+                             (sign*.16,.13,1.15),(sign*.015,.172,1.04)],'Torso',None,'plate',-.008)
+jewel('Collar_clasp',(0,-.209,1.40),.064,.047,'Torso',None,'metal')
 for obj in pieces['Torso'][1:]:
     attach_to_surface(obj,vest_surface)
 
-# Split Norse riding panels. Each flap follows only its own leg below the belt.
-# There is deliberately no continuous ankle-length surface spanning both knees.
-def panel_weights(obj, side):
-    for v in obj.data.vertices:
-        hip=min(1,max(0,(v.co.z-.73)/.18))
-        for name, weight in [('Hips',hip),('UpperLeg_'+side,1-hip)]:
-            if weight>0:
-                group=obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
-                group.add([v.index],weight,'REPLACE')
 
-for side,sign in [('L',1),('R',-1)]:
-    for facing in [-1,1]:
-        vertices=[]
-        for row,z in enumerate([.925,.82,.71,.60,.49,.38]):
-            t=row/5
-            width=.083+.012*t
-            center=.083+.010*t
-            depth=(.160+.039*t)*facing
-            for col in range(5):
-                x=sign*(center+(col/4-.5)*2*width)
-                vertices.append((x,depth+facing*.012*math.cos(col*math.pi/2),z+(.025 if row==5 and col in [0,4] else 0)))
-        faces=[(r*5+c,r*5+c+1,(r+1)*5+c+1,(r+1)*5+c) for r in range(5) for c in range(4)]
-        obj=mesh('Split_woven_panel',vertices,faces,'Hips','cloth')
-        panel_weights(obj,side)
-        bpy.context.view_layer.objects.active=obj
-        mod=obj.modifiers.new('Wool_thickness','SOLIDIFY');mod.thickness=.004
-        bpy.ops.object.modifier_apply(modifier=mod.name)
-        # Edge bindings share exactly the panel's per-leg weight function.
-        for col in [0,4]:
-            pts=[Vector(vertices[r*5+col])+Vector((0,facing*.006,0)) for r in range(6)]
-            trim=branch('Woven_bronze_edge',pts,[.005]*6,'Hips',None,'gold',4)
-            panel_weights(trim,side)
-        # Angular decorative rune strokes, deliberately not a translated inscription.
-        for row in range(4):
-            x=sign*.09;y=facing*(.175+row*.007);z=.79-row*.095
-            for a,b in [((x,y,z+.025),(x,y,z-.025)),
-                        ((x,y,z+.014),(x+sign*.020,y,z+.026)),
-                        ((x,y,z-.006),(x+sign*.020,y,z+.007))]:
-                obj=branch('Woven_rune',[a,b],[.003,.002],'Hips',None,'edge',4)
-                panel_weights(obj,side)
-    # Short outward tasset leaves the hip silhouette readable.
-    armor_plate('Hip_lamellar_tasset',[(sign*.143,-.155,.92),(sign*.218,-.075,.88),
-        (sign*.224,-.076,.68),(sign*.153,-.172,.72)],'Hips','UpperLeg_'+side,'plate',.009)
-sleeve('Broad_leather_belt',[(0,.015,.91),(0,.015,.978)],[ (.166,.198)]*2,'Hips','Hips','leather',16)
-for z in [.918,.966]:
-    sleeve('Belt_binding',[(0,.015,z),(0,.015,z+.007)],[ (.169,.201)]*2,'Hips','Hips','gold',16)
-crest('Seidr_belt_seal',(0,-.169,.944),.038,'Hips','Hips')
+# A continuous skirt with wide leg blending and tailored dark panels.
+levels=[(.932,.195,.160),(.84,.203,.164),(.74,.212,.175),(.64,.220,.188),
+        (.54,.229,.198),(.44,.238,.207),(.34,.247,.216),(.24,.256,.222),(.15,.262,.228)]
+segments=32
+def robe_point(z,angle,offset=0):
+    for i in range(len(levels)-1):
+        high,low=levels[i],levels[i+1]
+        if high[0]>=z>=low[0]:
+            t=(high[0]-z)/(high[0]-low[0])
+            rx=high[1]*(1-t)+low[1]*t; ry=high[2]*(1-t)+low[2]*t
+            break
+    else:
+        _,rx,ry=levels[0] if z>levels[0][0] else levels[-1]
+    pleat=1+.045*math.cos(8*angle)
+    return Vector(((rx*pleat+offset)*math.sin(angle),.015-(ry*pleat+offset)*math.cos(angle),z))
+vertices=[robe_point(z,col*math.tau/segments) for z,_,_ in levels for col in range(segments)]
+faces=[]
+for row in range(len(levels)-1):
+    for col in range(segments):
+        a=row*segments+col; b=row*segments+(col+1)%segments
+        faces.extend([(a,b,b+segments),(a,b+segments,a+segments)])
+robe=mesh('Continuous_cultist_robe',vertices,faces,'Hips','cloth')
+robe.data.materials.append(materials['black'])
+for p in robe.data.polygons:
+    if (p.index//2)%segments in [0,1,14,15,16,17,30,31]: p.material_index=1
+robe_weights(robe)
+robe_surface=binding_surface(robe)
+bpy.context.view_layer.objects.active=robe
+mod=robe.modifiers.new('Hem_thickness','SOLIDIFY');mod.thickness=.004
+bpy.ops.object.modifier_apply(modifier=mod.name)
 
-# Shoulder-mounted spectral raven fans, not back or head accessories.
-wing_checks=[]
+
+def robe_strip(name, angle, width, material, offset=.006):
+    pts=[]
+    for z,_,_ in levels:
+        pts.extend([robe_point(z,angle-width,offset),robe_point(z,angle+width,offset)])
+    obj=mesh(name,pts,[(i,i+1,i+3,i+2) for i in range(0,len(pts)-2,2)],'Hips',material)
+    attach_to_surface(obj,robe_surface)
+    bpy.context.view_layer.objects.active=obj
+    mod=obj.modifiers.new('Trim_thickness','SOLIDIFY');mod.thickness=.002
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    return obj
+for a in [.52,-.52,math.pi-.52,math.pi+.52]:
+    robe_strip('Oxblood_inset',a,.14,'plate')
+    for delta in [-.14,.14]:
+        robe_strip('Inset_binding',a+delta,.015,'metal',.009)
+    for z in [.76,.65,.54,.43,.32]:
+        p=robe_point(z,a,.014)
+        obj=leaf('Stitched_rune',p+Vector((-.008,0,.018)),p+Vector((.008,0,-.018)),
+                 .009,(math.sin(a),-math.cos(a),0),'Hips',None,'edge',.003)
+        attach_to_surface(obj,robe_surface)
+for sector in range(8):
+    a=sector*math.tau/8
+    for d in [-.12,.12]:
+        p=robe_point(.27,a+d,.012);q=robe_point(.165,a,.018)
+        obj=leaf('Crimson_hem_chevron',p,q,.014,(math.sin(a),-math.cos(a),0),'Hips',None,'red',.004)
+        attach_to_surface(obj,robe_surface)
+    p=robe_point(.20,a,.025)
+    obj=leaf('Hem_iron_point',p+Vector((0,0,.065)),p-Vector((0,0,.040)),.031,
+             (math.sin(a),-math.cos(a),0),'Hips',None,'metal',.005)
+    attach_to_surface(obj,robe_surface)
+# Belt, red central seal, overlapping pointed tassets.
+pts=[robe_point(z,col*math.tau/segments,.008) for z in [.151,.166] for col in range(segments)]
+obj=mesh('Continuous_hem_binding',pts,
+         [(i,(i+1)%segments,(i+1)%segments+segments,i+segments) for i in range(segments)],'Hips','metal')
+attach_to_surface(obj,robe_surface)
+sleeve('Waist_girdle',[(0,.015,.91),(0,.015,.974)],[ (.168,.203)]*2,'Hips','Hips','plate')
+for z in [.916,.966]:
+    sleeve('Girdle_trim',[(0,.015,z),(0,.015,z+.009)],[ (.172,.207)]*2,'Hips','Hips','metal')
+crest('Waist_seal',(0,-.175,.929),.041,'Hips','Hips')
+for sign in [-1,1]:
+    obj=armor_plate('Hip_guard',[(sign*.035,-.176,.92),(sign*.183,-.139,.935),
+                                 (sign*.19,-.143,.843),(sign*.075,-.203,.774)],
+                    'Hips',None,'plate',.012)
+    attach_to_surface(obj,robe_surface)
+jewel('Pointed_tabard',(0,-.216,.813),.095,.19,'Hips','Hips','metal')
+
+
+# Thorn pauldrons, engraved bracers and full black gloves.
 for side,suffix,word in [(1,'L','Left'),(-1,'R','Right')]:
     shoulder=Vector(rig.data.bones['Shoulder_'+suffix].head_local)
     elbow=Vector(rig.data.bones['Elbow_'+suffix].head_local)
@@ -353,132 +389,106 @@ for side,suffix,word in [(1,'L','Left'),(-1,'R','Right')]:
     axis=(elbow-shoulder).normalized();fore=(hand-elbow).normalized()
     upper,lower='ArmUpper'+word,'ArmLower'+word
     ub,lb='Shoulder_'+suffix,'Elbow_'+suffix
-    wb='Shoulder_Attachment_'+suffix
-    shell=sleeve('Rounded_Norse_pauldron',[shoulder+axis*.010,shoulder+axis*.105,shoulder+axis*.22],
-           [(.110,.124),(.137,.148),(.105,.105)],upper,ub,'plate',10)
-    cap=[v.co.copy() for v in list(shell.data.vertices)[:10]]
-    cap.append(shoulder-axis*.020)
-    mesh('Closed_pauldron_crown',cap,[(i,(i+1)%10,10) for i in range(10)],upper,'metal',ub)
+    sleeve('Pauldron_shell',[shoulder+axis*.015,shoulder+axis*.12,shoulder+axis*.25],
+           [(.130,.145),(.153,.160),(.123,.120)],upper,ub,'plate',10)
     for row in range(3):
-        p=shoulder+axis*(.038+row*.072)
-        sleeve('Pauldron_silver_rim',[p-axis*.005,p+axis*.005],
-               [(.129,.146-row*.012)]*2,upper,ub,'edge',10)
-    for row in range(5):
-        p=shoulder+axis*(.05+row*.033)+Vector((0,-.080,.079))
-        leaf('Forged_raven_scale',p,p+axis*.095+Vector((0,-.015,-.076)),.031,
-             (0,-1,.5),upper,ub,'metal',.011)
-    crest('Shoulder_seidr_seal',shoulder+axis*.095+Vector((0,-.140,.02)),.034,upper,ub)
-    # Root bracket and each feather are rigidly bound to the named shoulder socket.
-    root=Vector((side*.270,.152,1.465))
-    branch('Wing_socket_bracket',[shoulder+Vector((0,.035,-.005)),root,
-        root+Vector((side*.10,.01,.08))],[.040,.033,.020],upper,wb,'metal',6)
-    spine=[root,Vector((side*.47,.19,1.69)),Vector((side*.70,.21,1.88)),
-           Vector((side*.86,.20,1.92))]
-    branch('Raven_wing_silver_spar',spine,[.036,.031,.018,.003],upper,wb,'edge',6)
-    # Layered forged coverts and luminous primary feathers form a clear raven fan.
-    for j in range(8):
-        t=j/7
-        start=Vector((side*(.34+.37*t),.203,1.55+.285*t))
-        end=Vector((side*(.46+.72*t),.225+.035*t,2.03-.57*t))
-        physical=leaf('Wing_dark_primary',start,end,.046,(0,-1,.05),upper,wb,'feather',.009)
-        glow=leaf('Wing_spectral_primary',start+Vector((0,-.016,.005)),
-            end+Vector((side*.045,-.016,-.015)),.029,(0,-1,.05),upper,wb,'glow',.004)
-        core=leaf('Wing_light_vein',start+Vector((0,-.024,0)),
-            end+Vector((0,-.024,0)),.006,(0,-1,0),upper,wb,'core',.002)
-        wing_checks.extend([physical,glow,core])
-    for j in range(6):
-        p=root+Vector((side*(.015+j*.062),-.018,.06+j*.048))
-        leaf('Silver_raven_covert',p,p+Vector((side*.14,-.009,.012-j*.016)),.027,
-             (0,-1,0),upper,wb,'metal',.008)
-    # Forearm shells adapt to the thinner female lining.
-    fit=.90 if VARIANT=='Female' else 1
-    sleeve('Runic_bracer',[elbow.lerp(hand,.11),elbow.lerp(hand,.5),elbow.lerp(hand,.94)],
-           [(a*fit,b*fit) for a,b in [(.079,.075),(.077,.073),(.057,.054)]],
-           lower,lb,'metal',10)
-    p=elbow.lerp(hand,.54)+Vector((0,-.084*fit,0))
-    leaf('Bracer_violet_enamel',p-fore*.073,p+fore*.068,.030,(0,-1,0),lower,lb,'cloth',.005)
-    for row in range(3):
-        p=elbow.lerp(hand,.25+row*.21)+Vector((0,-.091*fit,0))
-        branch('Bracer_rune',[p+Vector((0,0,-.018)),p+Vector((0,0,.018)),p+fore*.020],
-               [.003]*3,lower,lb,'gold',4)
-    sleeve('Leather_glove_cuff',[hand-fore*.023,hand+fore*.041],[ (.056,.052)]*2,'Hand'+word,'Hand_'+suffix,'leather')
-    p=hand+Vector((side*.052,-.003,.051))
-    leaf('Glove_iron_backplate',p-fore*.029,p+fore*.07,.036,(0,0,1),'Hand'+word,'Hand_'+suffix,'metal',.006)
+        p=shoulder+axis*(.035+row*.075)
+        sleeve('Pauldron_ridge',[p-axis*.006,p+axis*.006],
+               [(.142+row*.001,.155-row*.007)]*2,upper,ub,'edge',10)
+    for i in range(4):
+        p=shoulder+axis*(.02+i*.066)+Vector((0,.015,.14))
+        q=p+axis*(.055+i*.024)+Vector((0,.012,.20-(i%2)*.03))
+        branch('Shoulder_thorn',[p,p.lerp(q,.68),q],[.039,.018,.001],
+               upper,ub,'metal',5)
+    stalk=shoulder+axis*.19+Vector((0,.08,.12))
+    tip=stalk+axis*.15+Vector((0,.012,.20))
+    branch('Skull_spike',[stalk,tip],[.032,.008],upper,ub,'plate',5)
+    skull('Shoulder_skull',tip,.046,upper,ub)
+    crest('Pauldron_seal',shoulder+axis*.16+Vector((0,-.160,.008)),.047,upper,ub)
+    # Small overlapping plates form the lower shoulder edge.
     for j in range(3):
-        p=hand+Vector((side*.080,-.023+j*.025,.040))
-        leaf('Glove_knuckle',p,p+fore*.041,.008,(0,0,1),'Hand'+word,'Hand_'+suffix,'gold',.003)
+        p=shoulder+axis*.20+Vector((0,-.10+j*.09,.02))
+        leaf('Pauldron_flange',p,p+axis*.135+Vector((0,0,-.023)),.046,
+             (0,-1,.3),upper,ub,'plate',.012)
+    sleeve('Bracer_shell',[elbow.lerp(hand,.12),elbow.lerp(hand,.5),elbow.lerp(hand,.94)],
+           [(.079,.075),(.077,.073),(.057,.054)],lower,lb,'metal',10)
+    for row in range(3):
+        p=elbow.lerp(hand,.21+row*.20)+Vector((0,-.082,0))
+        for direction in [-1,1]:
+            leaf('Bracer_chevron',p+Vector((0,0,direction*.043)),p+fore*.072,.012,
+                 (0,-1,0),lower,lb,'red',.004)
+    sleeve('Glove_cuff',[hand-fore*.023,hand+fore*.041],[ (.056,.052)]*2,'Hand'+word,'Hand_'+suffix,'plate')
+    p=hand+Vector((side*.052,-.003,.051))
+    leaf('Glove_backplate',p-fore*.029,p+fore*.07,.036,(0,0,1),'Hand'+word,'Hand_'+suffix,'metal',.006)
+    for j in range(3):
+        p=hand+Vector((side*.080,-.023+j*.025,.037))
+        leaf('Glove_knuckle',p,p+fore*.043,.009,(0,0,1),'Hand'+word,'Hand_'+suffix,'edge',.003)
 
-wing_binding_report=[]
-for obj in wing_checks:
-    groups={g.index:g.name for g in obj.vertex_groups}
-    expected='Shoulder_Attachment_L' if sum(v.co.x for v in obj.data.vertices)>0 else 'Shoulder_Attachment_R'
-    assert all(len(v.groups)==1 and groups[v.groups[0].group]==expected and abs(v.groups[0].weight-1)<1e-7 for v in obj.data.vertices)
-    wing_binding_report.append({'mesh':obj.name,'bone':expected,'vertices':len(obj.data.vertices),'weight':1.0})
 
-# Source left/right leg region names differ between male and female.
-# Resolve the actual side from geometry, never from the label.
-for slot in ['LegLeft','LegRight']:
-    source=pieces[slot][0]
-    x=sum(v.co.x for v in source.data.vertices)/len(source.data.vertices)
-    x=.113 if x>0 else -.113
-    suffix='L' if x>0 else 'R'
-    sleeve('Wrapped_boot_shaft',[(x,.020,.11),(x,.022,.24),(x,.025,.402)],
+# Closed fitted boots, soles and pointed armored toe caps; no exposed toes.
+for x,suffix,slot in [(-.113,'R','LegLeft'),(.113,'L','LegRight')]:
+    sleeve('Boot_shaft',[(x,.020,.11),(x,.022,.24),(x,.025,.405)],
            [(.087,.076),(.108,.082),(.111,.087)],slot,'LowerLeg_'+suffix,'leather',12)
-    for z in [.18,.27,.36,.392]:
-        sleeve('Boot_braided_binding',[(x,.022,z),(x,.022,z+.009)],
-               [(.112,.088)]*2,slot,'LowerLeg_'+suffix,'gold',12)
-    jewel('Forged_shin_guard',(x,-.117,.285),.109,.233,slot,None,'metal')
-    jewel('Seidr_shin_inlay',(x,-.133,.292),.033,.082,slot,None,'red')
-    outline=[(-.073,.130),(.073,.130),(.078,.015),(.069,-.127),(.024,-.183),
-             (-.024,-.183),(-.069,-.127),(-.078,.015)]
-    verts=[(x+dx,y,z) for z in [-.006,.024] for dx,y in outline]
+    for z in [.18,.35,.394]:
+        sleeve('Boot_binding',[(x,.022,z),(x,.022,z+.012)],
+               [(.115,.090)]*2,slot,'LowerLeg_'+suffix,'metal',12)
+    jewel('Shin_plate',(x,-.114,.294),.105,.217,slot,None,'plate')
+    jewel('Boot_rune',(x,-.126,.30),.032,.071,slot,None,'red')
+    # Solid low sole, broad heel and pointed closed toe.
+    outline=[(-.073,.141),(.073,.141),(.088,.015),(.076,-.127),(.023,-.196),
+             (-.023,-.196),(-.076,-.127),(-.088,.015)]
+    verts=[(x+dx,y,z) for z in [-.006,.025] for dx,y in outline]
     faces=[tuple(reversed(range(8))),tuple(range(8,16))]+[(i,(i+1)%8,(i+1)%8+8,i+8) for i in range(8)]
     mesh('Closed_boot_sole',verts,faces,slot,'black')
-    top=[(x-.071,-.052,.071),(x+.071,-.052,.071),(x+.065,-.130,.055),
-         (x+.020,-.180,.039),(x-.020,-.180,.039),(x-.065,-.130,.055)]
-    mesh('Rounded_iron_toecap',top+[(x,-.102,.106),(x,-.109,.028)],
-         [(i,(i+1)%6,6) for i in range(6)]+[(i,7,(i+1)%6) for i in range(6)],slot,'metal')
-    leaf('Toe_silver_ridge',(x,-.064,.107),(x,-.170,.065),.010,(0,-.3,1),slot,None,'edge',.003)
-    surface=binding_surface(source)
+    # Toe shell extends over the original foot rather than leaving sandals.
+    top=[(x-.076,-.058,.069),(x+.076,-.058,.069),(x+.071,-.132,.053),
+         (x+.022,-.193,.038),(x-.022,-.193,.038),(x-.071,-.132,.053)]
+    obj=mesh('Armored_toe',top+[(x,-.108,.101),(x,-.110,.028)],
+             [(i,(i+1)%6,6) for i in range(6)]+[(i,7,(i+1)%6) for i in range(6)],slot,'metal')
+    leaf('Toe_red_inlay',(x,-.071,.100),(x,-.166,.064),.013,(0,-.3,1),slot,None,'red',.003)
+    surface=binding_surface(pieces[slot][0])
     for obj in pieces[slot][1:]: attach_to_surface(obj,surface)
 
-# A Nordic spectacle helmet over a violet coif: no demonic horns or halo.
-# The mask intentionally covers hair, beard and eyebrows.
-rings=[(1.45,.124,.126),(1.59,.144,.149),(1.73,.151,.154),(1.81,.102,.111)]
-segments=16
-verts=[(rx*math.sin(j*math.tau/segments),.014-ry*math.cos(j*math.tau/segments),z)
-       for z,rx,ry in rings for j in range(segments)]
-verts.append((0,.018,1.865))
-faces=[(r*segments+j,r*segments+(j+1)%segments,(r+1)*segments+(j+1)%segments,(r+1)*segments+j)
-       for r in range(3) for j in range(segments)]
-faces += [(3*segments+j,3*segments+(j+1)%segments,4*segments) for j in range(segments)]
-helmet=mesh('Riveted_Nordic_helmet',verts,faces,'Head','metal','Neck')
-helmet.data.materials.append(materials['cloth'])
-for p in helmet.data.polygons:
-    if p.index<16: p.material_index=1
-for z,rx,ry in [(1.73,.155,.160),(1.59,.148,.155)]:
-    pts=[(rx*math.sin(j*math.tau/16),.014-ry*math.cos(j*math.tau/16),z) for j in range(17)]
-    branch('Helmet_forged_band',pts,[.008]*17,'Head','Neck','edge',5)
-armor_plate('Closed_seer_faceplate',[(-.096,-.157,1.70),(.096,-.157,1.70),(.088,-.170,1.57),
-    (.042,-.178,1.49),(-.042,-.178,1.49),(-.088,-.170,1.57)],'Head','Neck','plate',.025)
+
+# Deep fitted hood: thick face opening, opaque veil and red eyes.
+outer=[(0,1.953),(.106,1.91),(.174,1.81),(.185,1.66),(.17,1.49),(.095,1.435),
+       (0,1.423),(-.095,1.435),(-.17,1.49),(-.185,1.66),(-.174,1.81),(-.106,1.91)]
+inner=[(x*.70,1.68+(z-1.68)*.83) for x,z in outer]
+n=len(outer)
+verts=[(x,-.194,z) for x,z in outer]+[(x,-.224,z) for x,z in inner]
+verts += [(x*.95,.065,1.69+(z-1.69)*.93) for x,z in outer]
+verts += [(0,.176,1.70)]
+faces=[]
+for i in range(n):
+    j=(i+1)%n
+    faces.extend([(i,j,j+n,i+n),(i,2*n+i,2*n+j,j),(2*n+i,3*n,2*n+j)])
+mesh('Hood_outer_cowl',verts,faces,'Head','cloth','Neck')
+branch('Hood_fold_lip',[(x,-.227,z) for x,z in inner+[inner[0]]],[.014]*13,'Head','Neck','leather',5)
+for row in range(3):
+    z=1.505-row*.033
+    points=[(-.151,-.157,z+.075),(-.136,-.199,z+.020),(-.075,-.230,z-.013),
+            (0,-.241,z-.024),(.075,-.230,z-.013),(.136,-.199,z+.020),(.151,-.157,z+.075)]
+    branch('Draped_cowl_fold',points,[.020,.021,.023,.024,.023,.021,.020],
+           'Head','Neck','cloth' if row%2 else 'leather',5)
+# Face backing is in front of the retained source head, not an empty hole.
+armor_plate('Opaque_face_veil',[(x,-.202,z) for x,z in inner],'Head','Neck','black',.003)
 for sign in [-1,1]:
-    # Narrow glowing eye slits beneath the characteristic spectacle brow.
-    leaf('Seer_eye_slit',(sign*.021,-.187,1.680),(sign*.076,-.177,1.694),.006,
-         (0,-1,0),'Head','Neck','eyes',.002)
-    branch('Spectacle_brow',[(sign*.012,-.190,1.710),(sign*.054,-.189,1.720),
-        (sign*.107,-.157,1.705),(sign*.109,-.163,1.666),(sign*.073,-.177,1.655)],
-        [.009]*5,'Head','Neck','edge',5)
-    leaf('Cheek_raven_engraving',(sign*.100,-.169,1.641),(sign*.040,-.200,1.533),
-         .021,(0,-1,0),'Head','Neck','metal',.007)
-branch('Nasal_guard',[(0,-.187,1.759),(0,-.201,1.699),(0,-.215,1.610)],
-       [.015,.013,.002],'Head','Neck','gold',5)
-jewel('Forehead_amethyst',(0,-.169,1.777),.033,.046,'Head','Neck','red')
-# Low raven crest and curved bronze knotwork retain a practical Viking silhouette.
-leaf('Helmet_raven_crest',(0,-.08,1.85),(0,.125,1.895),.017,
-     (1,0,0),'Head','Neck','metal',.007)
-for sign in [-1,1]:
-    branch('Helmet_knotwork',[(sign*.035,-.151,1.78),(sign*.070,-.128,1.82),
-        (sign*.039,-.117,1.84),(sign*.022,-.127,1.807)],[.004]*4,'Head','Neck','gold',4)
+    jewel('Ember_eye',(sign*.041,-.220,1.733),.022,.033,'Head','Neck','eyes')
+    branch('Veil_fold',[(sign*.025,-.214,1.70),(sign*.04,-.216,1.60),(sign*.014,-.221,1.51)],
+           [.010,.009,.001],'Head','Neck','cloth',4)
+# A broken metal halo with linked rectangular segments behind the hood.
+for i in range(13):
+    a=-.35+i*(math.pi+.70)/12
+    center=Vector((.223*math.cos(a),.078,1.81+.235*math.sin(a)))
+    tangent=Vector((-math.sin(a),0,math.cos(a)))
+    radial=Vector((math.cos(a),0,math.sin(a)))
+    pts=[center+tangent*u+radial*v for u,v in [(-.033,-.014),(.033,-.014),(.033,.014),(-.033,.014),(-.033,-.014)]]
+    if i%2:
+        pts=[Vector((p.x,p.y+(p-center).dot(radial)*.8,p.z)) for p in pts]
+    branch('Halo_chain_link',pts,[.008]*5,'Head','Neck','metal',4)
+branch('Halo_central_spire',[(0,.08,2.043),(0,.08,2.18)],[.029,.001],'Head','Neck','plate',5)
+jewel('Halo_ruby',(0,.048,2.060),.023,.038,'Head','Neck','red')
+
 
 # Join each replacement region and bind every component to the shared source rig.
 armor = {}
@@ -527,12 +537,12 @@ for obj in list(scene.objects):
 cam = bpy.data.objects.new('Preview_Camera', bpy.data.cameras.new('Preview_Camera'))
 studio.objects.link(cam)
 cam.data.type = 'ORTHO'
-cam.data.ortho_scale = 2.90
+cam.data.ortho_scale = 2.43
 scene.camera = cam
 
 
 def camera(view='hero'):
-    cam.data.ortho_scale = 2.90
+    cam.data.ortho_scale = 2.43
     cam.location = {'hero': (2.55, -7, 2.70), 'front': (0, -7, 1.65), 'back': (-2.55, 7, 2.7)}[view]
     target(cam, (0, 0, 1.05))
 
@@ -541,7 +551,7 @@ camera()
 for name, loc, energy, size, color in [
     ('Key', (-3, -4, 5), 500, 4, (1, .91, .78)),
     ('Fill', (3, -2, 3), 300, 3, (.74, .86, 1)),
-    ('Rim', (0, 3, 4), 620, 3, (.68, .72, 1)),
+    ('Rim', (0, 3, 4), 620, 3, (.86, 1, .86)),
 ]:
     data = bpy.data.lights.new(name, 'AREA')
     data.energy, data.size, data.color = energy, size, color
@@ -557,7 +567,7 @@ for coll in list(floor.users_collection):
 studio.objects.link(floor)
 ground = bpy.data.materials.new('Preview_Ground')
 ground.use_nodes = True
-ground.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (.035, .040, .055, 1)
+ground.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (.041, .062, .064, 1)
 ground.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = .95
 floor.data.materials.append(ground)
 scene.world.use_nodes = True
@@ -570,20 +580,6 @@ scene.render.image_settings.file_format = 'PNG'
 scene.render.image_settings.color_mode = 'RGB'
 scene.view_settings.view_transform = 'AgX'
 scene.view_settings.look = 'AgX - Medium High Contrast'
-scene.view_settings.exposure = -.55
-# Blender 5 compositor: exported materials emit light; preview bloom is separate.
-tree=bpy.data.node_groups.new('Seidraven_Preview_Bloom','CompositorNodeTree')
-scene.compositing_node_group=tree
-tree.interface.new_socket(name='Image',in_out='OUTPUT',socket_type='NodeSocketColor')
-layers=tree.nodes.new('CompositorNodeRLayers')
-glare=tree.nodes.new('CompositorNodeGlare')
-glare.inputs['Type'].default_value='Fog Glow'
-glare.inputs['Threshold'].default_value=.25
-glare.inputs['Strength'].default_value=1.2
-glare.inputs['Size'].default_value=.7
-output=tree.nodes.new('NodeGroupOutput')
-tree.links.new(layers.outputs['Image'],glare.inputs['Image'])
-tree.links.new(glare.outputs['Image'],output.inputs[0])
 
 
 def render(name):
@@ -592,8 +588,8 @@ def render(name):
     print('RENDER', name, flush=True)
 
 
-report = {'source': source_path, 'name': 'Seidraven', 'slots': {}, 'pose_checks': [],
-          'version': 1, 'variant': VARIANT, 'robe_foundation': 'split per-leg riding panels', 'wing_binding': wing_binding_report, 'wing_effect': 'emissive geometry; preview compositor fog glow; runtime bloom required for halo', 'closed_boots': True,
+report = {'source': source_path, 'name': 'Ashenveil', 'slots': {}, 'pose_checks': [],
+          'version': 1, 'robe_foundation': 'continuous', 'closed_boots': True,
           'decoration_binding': 'barycentric garment weights',
           'collision_certified': False, 'cloth_simulation': False, 'source_overwritten': False}
 for slot, obj in armor.items():
@@ -607,12 +603,10 @@ for slot, obj in armor.items():
 report['total_triangles'] = sum(r['triangles'] for r in report['slots'].values())
 assert report['total_triangles'] < 16000, report['total_triangles']
 visible(SLOTS)
-render('01_Seidraven_Hero')
+render('01_Ashenveil_Hero')
 if not QUICK:
-    cam.data.ortho_scale=2.65
-    cam.location=(0,-7,1.8); target(cam,(0,0,1.35)); render('32_Wing_Light_Detail')
-    camera('front'); render('02_Seidraven_Front')
-    camera('back'); render('03_Seidraven_Back')
+    camera('front'); render('02_Ashenveil_Front')
+    camera('back'); render('03_Ashenveil_Back')
     camera()
     for i, part in enumerate(PARTS):
         visible(part['regions']); render('%02d_%s' % (10+i, part['item']))
@@ -629,7 +623,6 @@ if not QUICK:
     camera()
     for name, changes in [
         ('Stride', {'UpperLeg_L': (.40, 0, 0), 'UpperLeg_R': (-.40, 0, 0), 'LowerLeg_L': (.50, 0, 0)}),
-        ('ShoulderRaise', {'Clavicle_L': (0, 0, .30), 'Clavicle_R': (0, 0, -.30), 'Shoulder_L': (0, 0, .5), 'Shoulder_R': (0, 0, -.5)}),
         ('Elbows', {'Elbow_L': (0, 0, .65), 'Elbow_R': (0, 0, -.65)}),
         ('TorsoTurn', {'Spine_02': (0, .30, 0), 'Spine_03': (0, .15, 0)}),
         ('HeadTurn', {'Neck': (0, .38, 0)}),
@@ -671,11 +664,11 @@ def export(filename, objects):
 
 
 if not QUICK:
-    export('WoV_Seidraven_Armor.glb', list(armor.values()))
+    export('WoV_Ashenveil_Armor.glb', list(armor.values()))
     for part in PARTS:
         export(part['item']+'.glb', [armor[s] for s in part['regions']])
     visible(SLOTS)
-    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT/'WoV_Seidraven_Armor.blend'))
+    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT/'WoV_Ashenveil_Armor.blend'))
 (ROOT/'validation.json').write_text(json.dumps(report, indent=2)+'\n')
-(ROOT/'equipment.json').write_text(json.dumps({**BODY_POLICY, 'name': 'Seidraven', 'variant': VARIANT.lower(), 'class': 'Seherin', 'version': 1, 'prefix': PREFIX, 'parts': PARTS, 'hipsAlreadyFixed': True, 'registrationStatus': 'not_registered', 'wingBinding': ['Shoulder_Attachment_L','Shoulder_Attachment_R'], 'appearanceMetadata': 'hideAppearance is an item-level hide list; union of equipped items', 'vfx': {'type': 'emissive_mesh', 'optionalRuntimeEffect': 'bloom', 'particleSystem': False}}, indent=2)+'\n')
+(ROOT/'equipment.json').write_text(json.dumps({'name': 'Ashenveil', 'prefix': PREFIX, 'parts': PARTS, 'hipsAlreadyFixed': True}, indent=2)+'\n')
 print('DONE', report['total_triangles'], flush=True)

@@ -1,6 +1,6 @@
 /** Wildwarden: the Blender build script, the item registry and the shipped GLBs must agree.
- * tsx tools/test/wildwarden-pipeline.mjs
- * Reads tools/build-druid-armor.py as text (python3 parses its PARTS table, Blender
+ * tsx tools/armor/test/wildwarden-pipeline.mjs
+ * Reads tools/armor/sets/wildwarden/male/build.py as text (python3 parses its PARTS table, Blender
  * is not started) and the seven GLBs under wov-web/static/assets/models/armor/wildwarden.
  * Nothing is built; the Blender build itself is described in Docs/Wildwarden-DEV.md.
  */
@@ -9,10 +9,10 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WILDWARDEN_PARTS } from '../../shared/src/wildwarden.ts';
+import { WILDWARDEN_PARTS } from '../../../shared/src/wildwarden.ts';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
-const script = join(root, 'tools/build-druid-armor.py');
+const root = fileURLToPath(new URL('../../../', import.meta.url));
+const script = join(root, 'tools/armor/sets/wildwarden/male/build.py');
 const models = join(root, 'wov-web/static/assets/models/armor/wildwarden');
 
 // The table the build script writes into equipment.json, taken from its own source.

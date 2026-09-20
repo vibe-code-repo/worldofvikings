@@ -25,7 +25,8 @@
  *  [7] Kein Spawnsystem noetig.
  *  [8] Welt-Filter: ein Schlag und sein Treffer-Blitz gelten nur Spielern
  *      derselben Welt (Instanzen liegen am Ursprung).
- *  [9] Ein Schlag-Aufruf ohne Welt wirft, statt still niemanden zu treffen.
+ *  [9] Ein Schlag-Aufruf ohne (oder mit leerer) Welt wird gemeldet und
+ *      verworfen, nicht geworfen; der Tick laeuft weiter.
  *
  * Run: npx tsx server/test/b8-angreifbar.ts   (from the repo root)
  */
@@ -617,24 +618,109 @@ async function main(): Promise<void> {
     if (!ausInstanz.destroyed) instanz.zdos.destroyZDO(ausInstanz.zdoid);
     wsC.close();
 
-    // ── [9] Ein Aufruf ohne Welt ist laut, nicht still ─────────────
+    // ── [9] Ein Aufruf ohne Welt wird gemeldet und verworfen ───────
     // b7-entsperren ruft applyCreatureAttack ueber `as unknown as`; dort sieht
     // tsc einen fehlenden Parameter nicht. Ein stilles Uebergehen aller Peers
-    // (peer.worldId !== undefined) hat dort den Todesweg unbemerkt tot gelegt.
-    console.log('\n[9] applyCreatureAttack ohne Welt wirft:');
-    type Schlagzugriff = { applyCreatureAttack(pos: Vector3, dmg: number, r: number, weltId?: string): void };
+    // hat dort den Todesweg unbemerkt tot gelegt. Geworfen wird nicht: das
+    // steht im Server-Tick und kostet dort jeder Welt einen Frame. Die Zusage
+    // ist: kein Schaden, kein Blitz, EIN Zaehlerstich je Aufruf, EINE
+    // Meldung im Log (gedrosselt) — und der Tick laeuft weiter.
+    console.log('\n[9] applyCreatureAttack/sendeTrefferEffekt ohne Welt: melden statt werfen:');
+    type Schlagzugriff = {
+      applyCreatureAttack(pos: Vector3, dmg: number, r: number, weltId?: unknown): void;
+      sendeTrefferEffekt(pos: Vector3, art: number, weltId?: unknown): void;
+      update(): void;
+      ohneWeltVerworfen: number;
+    };
     const zugriff = server as unknown as Schlagzugriff;
     await neuerPlatz(1500, 1500);
-    zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, peer.worldId);
-    check('mit Welt: der Schlag trifft (100 -> 92)', peer.health === 92, `${peer.health}`);
+    const gemeldet: string[] = [];
+    const echtesError = console.error;
+    console.error = (...a: unknown[]): void => {
+      gemeldet.push(a.map(String).join(' '));
+    };
     let geworfen = '';
     try {
-      zugriff.applyCreatureAttack({ ...peer.position }, 8, 5);
-    } catch (e) {
-      geworfen = e instanceof Error ? e.message : String(e);
+      // Kontrolle: mit Welt trifft der Schlag, der Zaehler bleibt stehen.
+      const z0 = zugriff.ohneWeltVerworfen;
+      zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, peer.worldId);
+      await warte(200); // der Blitz des Kontrollschlags kommt noch an
+      check('mit Welt: der Schlag trifft (100 -> 92)', peer.health === 92, `${peer.health}`);
+      check('mit Welt: Zaehler unveraendert, keine Meldung', zugriff.ohneWeltVerworfen === z0 && gemeldet.length === 0, `Zaehler ${zugriff.ohneWeltVerworfen - z0}, Meldungen ${gemeldet.length}`);
+
+      // Ohne Welt (der Fall b7-entsperren): kein Wurf, kein Schaden, kein Blitz.
+      blitzeA = 0;
+      const vorher = zugriff.ohneWeltVerworfen;
+      try {
+        zugriff.applyCreatureAttack({ ...peer.position }, 8, 5);
+      } catch (e) {
+        geworfen = e instanceof Error ? e.message : String(e);
+      }
+      await warte(150);
+      check('ohne Welt: kein Wurf', geworfen === '', geworfen || '(kein Fehler)');
+      check('ohne Welt: kein Schaden (92 bleibt 92), kein Blitz', peer.health === 92 && blitzeA === 0, `${peer.health} LP, ${blitzeA} Blitze`);
+      check('ohne Welt: Zaehler +1', zugriff.ohneWeltVerworfen === vorher + 1, `${zugriff.ohneWeltVerworfen - vorher}`);
+      check(
+        'ohne Welt: EINE Meldung im Log, benennt die Stelle und weltId',
+        gemeldet.length === 1 && /applyCreatureAttack/.test(gemeldet[0]) && /weltId/.test(gemeldet[0]),
+        gemeldet[0] ?? '(keine Meldung)'
+      );
+
+      // Leerer String, falscher Typ: dieselbe Behandlung. Die Meldung ist
+      // gedrosselt (eine je Minute), der Zaehler zaehlt jeden Aufruf.
+      const v2 = zugriff.ohneWeltVerworfen;
+      zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, '');
+      zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, 42);
+      zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, null);
+      await warte(150);
+      check('leerer String, Zahl, null: alle verworfen, Zaehler +3, kein Schaden', zugriff.ohneWeltVerworfen === v2 + 3 && peer.health === 92, `Zaehler +${zugriff.ohneWeltVerworfen - v2}, ${peer.health} LP`);
+      check('Meldung gedrosselt: weiter nur eine', gemeldet.length === 1, `${gemeldet.length}`);
+
+      // Auch der Treffer-Blitz allein.
+      const v3 = zugriff.ohneWeltVerworfen;
+      blitzeA = 0;
+      zugriff.sendeTrefferEffekt({ ...peer.position }, 1);
+      zugriff.sendeTrefferEffekt({ ...peer.position }, 1, '');
+      await warte(200);
+      check('sendeTrefferEffekt ohne/leere Welt: nichts gesendet, Zaehler +2', blitzeA === 0 && zugriff.ohneWeltVerworfen === v3 + 2, `${blitzeA} Blitze, Zaehler +${zugriff.ohneWeltVerworfen - v3}`);
+      zugriff.sendeTrefferEffekt({ ...peer.position }, 1, peer.worldId);
+      await warte(200);
+      check('sendeTrefferEffekt mit Welt: der Blitz kommt an', blitzeA === 1, `${blitzeA}`);
+
+      // Die Zusage, die zaehlt: der Tick laeuft weiter. Ein NPC schlaegt
+      // ueber die ECHTE Aggro-Verdrahtung, aber mit einem Aufrufer, der die
+      // Welt vergisst. update() wird umwickelt und gezaehlt (Abbruch = Wurf).
+      peer.health = 100;
+      const echterSchlag = server.aggro.onSchlag;
+      server.aggro.onSchlag = (pos, schaden, radius) => {
+        zugriff.applyCreatureAttack(pos, schaden, radius);
+      };
+      const echtesUpdate = zugriff.update.bind(server);
+      let gestartet = 0;
+      let abgebrochen = 0;
+      zugriff.update = (): void => {
+        gestartet++;
+        try {
+          echtesUpdate();
+        } catch {
+          abgebrochen++;
+        }
+      };
+      const v4 = zugriff.ohneWeltVerworfen;
+      const vergessen = setzeNpc('FurlocKrieger', { x: peer.position.x, y: peer.position.y, z: peer.position.z });
+      await warte(4_500);
+      const zaehlerNeu = zugriff.ohneWeltVerworfen - v4;
+      delete (zugriff as { update?: unknown }).update;
+      server.aggro.onSchlag = echterSchlag;
+      entferne(vergessen);
+      check('Tick: kein einziger update()-Aufruf abgebrochen', gestartet > 100 && abgebrochen === 0, `${gestartet} Aufrufe, ${abgebrochen} abgebrochen`);
+      check('NPC ohne Welt im Aufruf: Schlaege verworfen und gezaehlt, Spieler unverletzt', zaehlerNeu >= 2 && peer.health === 100, `Zaehler +${zaehlerNeu}, ${peer.health} LP`);
+      // ... und danach kommt ein ganz normaler Schlag mit Welt an.
+      zugriff.applyCreatureAttack({ ...peer.position }, 8, 5, peer.worldId);
+      check('danach: ein normaler Schlag mit Welt trifft (100 -> 92)', peer.health === 92, `${peer.health}`);
+    } finally {
+      console.error = echtesError;
     }
-    check('ohne Welt: Fehler mit Hinweis auf weltId, kein stilles Uebergehen', /weltId/.test(geworfen), geworfen || '(kein Fehler)');
-    check('ohne Welt: kein Lebenspunkt bewegt', peer.health === 92, `${peer.health}`);
 
     console.log(failures === 0 ? '\n=== B8 Angreifbar: ALL PASSED ===' : `\n=== B8 Angreifbar: ${failures} FAILURES ===`);
     ws.close();

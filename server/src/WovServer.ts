@@ -3420,6 +3420,7 @@ export class WovServer {
    * den Treffer-Blitz eines Schlags aus der Oberwelt.
    */
   private sendeTrefferEffekt(pos: Vector3, art: number, weltId: string, umkreis = 40): void {
+    if (!this.weltIdGueltig('sendeTrefferEffekt', weltId)) return;
     const r2 = umkreis * umkreis;
     for (const p of this.net.getPeers()) {
       if (p.worldId !== weltId) continue;
@@ -3430,6 +3431,39 @@ export class WovServer {
         w.writeInt32(art);
       });
     }
+  }
+
+  /**
+   * Aufrufe von applyCreatureAttack/sendeTrefferEffekt, die ohne (oder mit
+   * leerer) Welt kamen und verworfen wurden. Im Betrieb bleibt der Zaehler
+   * auf 0: alle echten Aufrufer sind typisiert und reichen eine Welt-id
+   * durch. Er steht hier, damit ein Test — und ein Blick in den Debugger —
+   * ihn lesen kann.
+   */
+  ohneWeltVerworfen = 0;
+  private ohneWeltLetzteMeldung = 0;
+  private static readonly OHNE_WELT_MELDUNG_INTERVALL_MS = 60_000;
+
+  /**
+   * Ist `weltId` eine brauchbare Welt-id? Sonst: zaehlen, hoechstens einmal
+   * je Minute laut melden (Muster der Budget-Abbrueche in Metriken.ts) und
+   * `false` liefern — der Aufrufer verwirft den Schlag. „Unbekannte Welt →
+   * niemand getroffen“ ist die sichere Antwort; sie ist nur nicht mehr
+   * stumm. Nimmt `unknown` an, weil der Aufruf im Fehlerfall nicht typisiert
+   * war (das ist ja der Fall, um den es geht).
+   */
+  private weltIdGueltig(stelle: string, weltId: unknown): boolean {
+    if (typeof weltId === 'string' && weltId !== '') return true;
+    this.ohneWeltVerworfen++;
+    const jetzt = Date.now();
+    if (jetzt - this.ohneWeltLetzteMeldung >= WovServer.OHNE_WELT_MELDUNG_INTERVALL_MS) {
+      this.ohneWeltLetzteMeldung = jetzt;
+      console.error(
+        `[WoV] ${stelle}: weltId fehlt oder ist leer (${JSON.stringify(weltId) ?? 'undefined'}) — ` +
+          `Schlag/Effekt verworfen (bisher ${this.ohneWeltVerworfen}x)`
+      );
+    }
+    return false;
   }
 
   private handleParry(peer: Peer): void {
@@ -3457,11 +3491,11 @@ export class WovServer {
     // Ein Test greift ueber `as unknown as` hierher, und dort sieht tsc einen
     // fehlenden Parameter nicht: Ohne diese Zeile uebersprang der Weltfilter
     // unten JEDEN Peer, und ein Aufruf mit drei Argumenten traf still niemanden
-    // (b7-entsperren: kein Spieler starb mehr). Ein Aufrufer ohne Welt ist ein
-    // Fehler, kein Fehlschlag.
-    if (typeof weltId !== 'string') {
-      throw new Error('applyCreatureAttack: weltId fehlt — ein Schlag braucht die Welt des Schlaegers');
-    }
+    // (b7-entsperren: kein Spieler starb mehr). Ein Aufrufer ohne Welt wird
+    // gemeldet und der Schlag verworfen — nicht geworfen: Das steht im
+    // Server-Tick, und ein Wurf kostet dort den ganzen Frame, jeder
+    // Instanzwelt ihren Tick und ohne Prozess-Handler den Prozess.
+    if (!this.weltIdGueltig('applyCreatureAttack', weltId)) return;
     const r2 = radius * radius;
     for (const peer of this.net.getPeers()) {
       if (peer.worldId !== weltId) continue;

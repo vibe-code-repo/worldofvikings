@@ -871,6 +871,12 @@ const KERN = [
   // aus demselben Grund wie befund-schwere.ts. Prueft jede Vorlage einzeln
   // UND gegen echte sanitizeWorldLayout-/pruefeLayout-Laeufe.
   ['client', 'test/region-werkzeuge.ts'],
+  // Editor map image in tiles (K3.0): stage choice (4 m per pixel -> 4 m texel),
+  // tile addressing and placement, tile colours against the world sample and
+  // the coast against the height field, the tile cache cap, and the dispatch
+  // service with stand-in workers (centre first, stale views never sent,
+  // stale world generations dropped, 50 steps without growth). DOM-free, ~3 s.
+  ['client', 'test/karte-kacheln.ts'],
   // WorldLayout-MCP-Server (Aufgabe B8): echter Client-Handshake gegen den
   // echten Server-Unterprozess (stdio), alle Werkzeuge vorhanden UND ihre
   // Wirkung im Dokument geprueft (Regionsregler, Kontinent/Fluss/See/

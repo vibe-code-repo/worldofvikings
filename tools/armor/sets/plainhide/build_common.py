@@ -173,33 +173,18 @@ def repaint(obj, base=None, rules=()):
                 break
 
 
-def follow_waist(obj, surface, height=.965):
-    """The weights of the waist, read for every vertex at one height: whatever stands upright keeps its length
-    when the trunk turns against the hips, because a whole column moves as one piece."""
-    rest = [v.co.z for v in obj.data.vertices]
-    for v in obj.data.vertices:
-        v.co.z = height
-    attach_to_surface(obj, surface)
-    for v, z in zip(obj.data.vertices, rest):
-        v.co.z = z
-
-
-def hang_weights(obj, waist=None):
-    """The legs below the band, blended across the centre so a skirt behaves like cloth. Above, either the Hips
-    bone or, with `waist` (a binding surface), whatever the waist there follows: then a skirt turns with the trunk."""
-    above = {}
-    if waist:
-        follow_waist(obj, waist)
-        above = {v.index: {obj.vertex_groups[g.group].name: g.weight for g in v.groups} for v in obj.data.vertices}
-        obj.vertex_groups.clear()
+def hang_weights(obj):
+    """Hips at the band, the legs below it, blended across the centre so a skirt behaves like cloth."""
     for v in obj.data.vertices:
         hip = min(1, max(0, (v.co.z-.74)/.17)); left = min(1, max(0, .5+v.co.x/.16))
-        shares = {name: weight*hip for name, weight in above.get(v.index, {'Hips': 1}).items()}
-        for name, weight in [('UpperLeg_L', (1-hip)*left), ('UpperLeg_R', (1-hip)*(1-left))]:
-            shares[name] = shares.get(name, 0)+weight
-        for name, weight in shares.items():
+        for name, weight in [('Hips', hip), ('UpperLeg_L', (1-hip)*left), ('UpperLeg_R', (1-hip)*(1-left))]:
             if weight > 0:
                 (obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)).add([v.index], weight, 'REPLACE')
+
+
+def on_hips(obj):
+    """Rigid on the hips: a band keeps its shape, whatever the trunk above it and the legs below it do."""
+    obj.vertex_groups.new(name='Hips').add(list(range(len(obj.data.vertices))), 1, 'REPLACE')
 
 
 UP, FRONT = (0, 0, 1), (0, -1, 0)
@@ -226,7 +211,7 @@ for obj in pieces['Torso'][1:]:
     attach_to_surface(obj, surface)
 
 # Trousers, the band and the short skirt of the shirt.
-hips = pieces['Hips'][0]; tree = shell(hips); waist = shell(torso, hips); waistline = binding_surface(torso)
+hips = pieces['Hips'][0]; tree = shell(hips); waist = shell(torso, hips)
 repaint(hips, 'leather')
 axis0 = (0, .015, 0)
 for begin in [math.radians(-80), math.radians(100)]:  # front and back panel; the sides stay slit
@@ -238,18 +223,18 @@ for begin in [math.radians(-80), math.radians(100)]:  # front and back panel; th
     verts = [v.co.copy() for v in skirt.data.vertices]+[p for p, _ in hem]
     faces = [tuple(f.vertices) for f in skirt.data.polygons]+[(j*3+2, 27+j, 27+j+1, (j+1)*3+2) for j in range(8)]
     pieces['Hips'].remove(skirt); bpy.data.objects.remove(skirt, do_unlink=True)
-    hang_weights(mesh('Shirt_skirt', verts, faces, 'Hips', 'cloth'), waistline)
-    hang_weights(stitches('Skirt_hem_stitches', [(p+Vector((0, 0, .016)), out) for p, out in hem], 'Hips', spacing=.044, across=False), waistline)
+    hang_weights(mesh('Shirt_skirt', verts, faces, 'Hips', 'cloth'))
+    hang_weights(stitches('Skirt_hem_stitches', [(p+Vector((0, 0, .016)), out) for p, out in hem], 'Hips', spacing=.044, across=False))
 belt, grid = band('Waist_band', waist, axis0, UP, FRONT, [(.925, .033), (.945, .033), (.965, .033)], 'Hips', 'black', 16, upright=True)
-follow_waist(belt, waistline)  # the band turns with the waist it is tied around, like the skirt under it
+on_hips(belt)
 for f in [.5]:  # one row of running stitches along the middle, taken from the band's own surface
     circle = [(grid[3*(j % 16)][0].lerp(grid[3*(j % 16)+2][0], f), grid[3*(j % 16)][1]) for j in range(17)]
     thread = stitches('Band_stitches', circle, 'Hips', spacing=.050, length=.020, width=.0045, across=False)
-    follow_waist(thread, waistline)
-for dx, drop in [(-.018, .075), (.022, .055)]:  # the tied ends of the band: short, and on the waist only, so a crouch does not splay them
+    on_hips(thread)
+for dx, drop in [(-.018, .075), (.022, .055)]:  # the tied ends of the band: short, and on the hips only, so a crouch does not splay them
     top = lay(waist, (dx, -1, .938), (dx, .015, .938), .032)[0]
     tie = strip('Band_end', [(top+Vector((dx*.6*k, -.004*k, -drop*k/2)), Vector((0, -1, 0))) for k in range(3)], .026, 'Hips', 'black')
-    follow_waist(tie, waistline)
+    on_hips(tie)
 first = len(pieces['Hips'])
 for sign in [-1, 1]:
     leg = lambda p: Vector((sign*.10, .02, p.z))

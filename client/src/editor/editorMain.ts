@@ -1373,17 +1373,21 @@ const kacheln = new KachelDienst<ImageBitmap>({
   },
   bild: kachelBild,
   schliesse: (b) => b.close(),
-  // Kacheln treffen dicht hintereinander ein: höchstens ein Neuzeichnen je Bild.
+  // Kacheln treffen dicht hintereinander ein: höchstens ein Neuzeichnen je Bild, und keines, wenn
+  // ohnehin schon gezeichnet wurde (Ziehen, Zoomen), seit die Kachel eingetroffen ist.
   aufNeu: () => {
     if (kachelNeuGeplant) return;
     kachelNeuGeplant = true;
+    const seit = vorschauZeichnungen;
     requestAnimationFrame(() => {
       kachelNeuGeplant = false;
-      zeichneVorschauBild();
+      if (vorschauZeichnungen === seit) zeichneVorschauBild();
     });
   },
 });
 let kachelNeuGeplant = false;
+/** Zählt die Läufe von zeichneVorschauBild — Zeuge dafür, dass ein Bild die Kachel schon zeigt. */
+let vorschauZeichnungen = 0;
 /** Sichtfenster der Vorschau-Leinwand in der Form, die der Kachel-Dienst braucht. */
 const kartenAnsicht = (): Ansicht => ({
   mitteX,
@@ -1483,6 +1487,7 @@ function zeichneVorschauBild(): void {
     ctx.drawImage(vorschauBild, x0, y0, seite, seite);
   }
   // Fertige Kacheln obenauf, dann fehlende für genau diese Ansicht anfordern.
+  vorschauZeichnungen++;
   const ansicht = kartenAnsicht();
   kacheln.zeichne(ctx, ansicht);
   kacheln.setzeAnsicht(ansicht);

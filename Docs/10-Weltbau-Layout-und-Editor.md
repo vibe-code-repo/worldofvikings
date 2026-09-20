@@ -487,7 +487,8 @@ findet der Dienst sie beim nächsten Start, fährt er den Spielserver hoch, schr
 `<instanz>.zuruecksetzen.abgebrochen-<Zeit>` um. Sie bleibt liegen, bis jemand sie löscht. Ob und was beiseite lag, steht dort;
 zurückholen wie oben. Der Endpunkt gilt nur, wenn `WOV_INSTANZ` gesetzt ist (nie auf `live`, nie ohne Angabe), und wie alle
 zustandsändernden Endpunkte nur von der eigenen Seite oder ohne Browser-Herkunft (`Sec-Fetch-Site`/`Origin`; weitere Namen in
-`WOV_ERLAUBTE_URSPRUENGE`).
+`WOV_ERLAUBTE_URSPRUENGE`) und nur mit `Content-Type: application/json` (sonst 415). `WOV_SYSTEMCTL` ersetzt `systemctl` für Tests und
+Probeläufe: laute Warnung beim Start, Feld `systemctlErsatz` in `GET /status`, und unter `NODE_ENV=production` startet der Dienst dann gar nicht.
 
 ## NPC-Routen
 

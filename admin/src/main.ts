@@ -149,6 +149,25 @@ const TOKEN_DATEI = process.env.WOV_ADMIN_TOKEN_DATEI ?? '/etc/wov-admin.token';
 // to the world reset on purpose: a variable that covered only some calls would
 // leave the others on the real machine. Set in the environment, never by a request.
 const SYSTEMCTL = process.env.WOV_SYSTEMCTL ?? 'systemctl';
+// A stand-in for systemctl can make a stop/start answer "done" while nothing was stopped or started (a `true` in its place
+// does exactly that), so it must never go unnoticed and never run in operation:
+//  - a loud warning at start,
+//  - the field `systemctlErsatz` in GET /status,
+//  - no start at all under NODE_ENV=production (the units' /etc/wov.env sets it there).
+const SYSTEMCTL_ERSATZ = process.env.WOV_SYSTEMCTL !== undefined && process.env.WOV_SYSTEMCTL !== '' ? SYSTEMCTL : null;
+if (SYSTEMCTL_ERSATZ !== null) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error(
+      `[Admin] WOV_SYSTEMCTL=${SYSTEMCTL_ERSATZ} ist gesetzt, aber NODE_ENV=production: Der Dienst startet nicht. ` +
+        'Die Variable ersetzt jeden systemctl-Aufruf und ist nur fuer Tests und Probelaeufe — aus der Umgebung (/etc/wov.env, Unit) entfernen.'
+    );
+    process.exit(1);
+  }
+  console.warn(
+    `[Admin] WARNUNG: WOV_SYSTEMCTL=${SYSTEMCTL_ERSATZ} ist gesetzt — jeder Dienst-Aufruf dieses Prozesses (stop/start/restart, nginx-Reload, ` +
+      'Zustandsabfragen, Zuruecksetzen, Testwelt) geht an dieses Programm statt an systemctl. Nur fuer Tests und Probelaeufe.'
+  );
+}
 
 const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
@@ -923,6 +942,8 @@ async function behandeln(
         instanz: INSTANZ,
         dienste: { 'wov-server': server, nginx },
         welt: weltStand(),
+        // Not null: a stand-in runs in place of systemctl (tests and proof runs only, see SYSTEMCTL).
+        systemctlErsatz: SYSTEMCTL_ERSATZ,
         // K4.0: a world reset that was killed halfway and what state it was left in (empty when there is none).
         zuruecksetzen: zuruecksetzenStatus(resetUmgebung()),
         laufzeitSekunden: Math.round(process.uptime()),
@@ -1767,6 +1788,18 @@ const dienst = createServer((req, res) => {
           ok: false,
           fehler: 'fremde-herkunft',
           message: 'Zustandsaendernde Anfragen nur von der eigenen Seite (Editor) oder ohne Browser-Herkunft — nichts geaendert.',
+        });
+      }
+
+      // Zustandsaendernde Anfragen sind JSON: `application/json` kann ein seitenuebergreifendes <form> nicht setzen (nur
+      // urlencoded, multipart, text/plain), und ein fetch damit braucht einen Preflight, den dieser Dienst nie beantwortet.
+      // Schliesst den Rest der Herkunftsregel oben (weder Sec-Fetch-Site noch Origin → erlaubt).
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') && !/^application\/json\s*(;|$)/i.test(String(req.headers['content-type'] ?? ''))) {
+        console.warn(`[Admin] abgewiesen (Content-Type): ${req.method} ${pfad} — ${String(req.headers['content-type'] ?? 'keiner').slice(0, 60)}`);
+        return json(res, 415, {
+          ok: false,
+          fehler: 'content-type',
+          message: 'Zustandsaendernde Anfragen brauchen Content-Type: application/json — nichts geaendert.',
         });
       }
 

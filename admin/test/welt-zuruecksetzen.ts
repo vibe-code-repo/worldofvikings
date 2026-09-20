@@ -205,24 +205,26 @@ const fakeLesen = (name: string): string[] => (existsSync(resolve(FAKE, name)) ?
 
 // ── Start the service ─────────────────────────────────────────────────
 
-function starten(instanz: 'dev' | 'live' | string | null, wurzel = ORDNER, extraEnv: Record<string, string | null> = {}): Promise<{ port: number; kind: ChildProcess }> {
+function starten(instanz: 'dev' | 'live' | string | null, wurzel = ORDNER, extraEnv: Record<string, string | null> = {}): Promise<{ port: number; kind: ChildProcess; log: () => string }> {
   return new Promise((fertig, scheitern) => {
-    const kind = spawn(resolve(WURZEL_PROJEKT, 'node_modules/.bin/tsx'), ['src/main.ts'], {
-      cwd: ADMIN,
-      env: {
-        ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'WOV_INSTANZ' || instanz !== null)),
-        WOV_WURZEL: wurzel,
-        // null: the variable is not in the environment at all
-        ...(instanz === null ? {} : { WOV_INSTANZ: instanz }),
-        WOV_ADMIN_ADRESSE: '127.0.0.1',
-        WOV_ADMIN_PORT: '0',
-        WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
-        // The stand-in. Without it these tests would stop the real game server.
-        WOV_SYSTEMCTL: FAKE_SYSTEMCTL,
-        ...Object.fromEntries(Object.entries(extraEnv).filter(([, v]) => v !== null)),
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const env: Record<string, string | undefined> = {
+      ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'WOV_INSTANZ' || instanz !== null)),
+      WOV_WURZEL: wurzel,
+      // null: the variable is not in the environment at all
+      ...(instanz === null ? {} : { WOV_INSTANZ: instanz }),
+      WOV_ADMIN_ADRESSE: '127.0.0.1',
+      WOV_ADMIN_PORT: '0',
+      WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
+      // Not 'production' unless a test says so: with a stand-in set, the service refuses to start there.
+      NODE_ENV: 'test',
+      // The stand-in. Without it these tests would stop the real game server.
+      WOV_SYSTEMCTL: FAKE_SYSTEMCTL,
+    };
+    for (const [k, v] of Object.entries(extraEnv)) {
+      if (v === null) delete env[k];
+      else env[k] = v;
+    }
+    const kind = spawn(resolve(WURZEL_PROJEKT, 'node_modules/.bin/tsx'), ['src/main.ts'], { cwd: ADMIN, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let puffer = '';
     const zeitgrenze = setTimeout(() => scheitern(new Error(`Dienst startet nicht:\n${puffer}`)), 30_000);
     kind.stdout.on('data', (s: Buffer) => {
@@ -230,7 +232,7 @@ function starten(instanz: 'dev' | 'live' | string | null, wurzel = ORDNER, extra
       const t = /bereit auf 127\.0\.0\.1:(\d+)/.exec(puffer);
       if (t) {
         clearTimeout(zeitgrenze);
-        fertig({ port: Number(t[1]), kind });
+        fertig({ port: Number(t[1]), kind, log: () => puffer });
       }
     });
     kind.stderr.on('data', (s: Buffer) => (puffer += s.toString()));
@@ -243,7 +245,7 @@ function starten(instanz: 'dev' | 'live' | string | null, wurzel = ORDNER, extra
 
 type Antwort = { code: number; text: string; daten: Record<string, any> };
 
-function anfrage(opt: { port: number; pfad: string; methode?: string; token?: string | null; leib?: string; basis?: string; kopf?: Record<string, string> }): Promise<Antwort> {
+function anfrage(opt: { port: number; pfad: string; methode?: string; token?: string | null; leib?: string; basis?: string; kopf?: Record<string, string>; ohneContentType?: boolean }): Promise<Antwort> {
   return new Promise((fertig, scheitern) => {
     const kopf: Record<string, string> = {};
     if (opt.token !== null) kopf['x-wov-token'] = opt.token ?? TOKEN;
@@ -253,6 +255,7 @@ function anfrage(opt: { port: number; pfad: string; methode?: string; token?: st
       kopf['content-length'] = String(Buffer.byteLength(opt.leib));
     }
     Object.assign(kopf, opt.kopf ?? {});
+    if (opt.ohneContentType) delete kopf['content-type'];
     const req = request({ host: '127.0.0.1', port: opt.port, path: opt.pfad, method: opt.methode ?? 'GET', headers: kopf }, (res: IncomingMessage) => {
       let text = '';
       res.setEncoding('utf-8');
@@ -306,7 +309,6 @@ try {
   check('GET ohne Token → 401', ohneGet.code === 401, `= ${ohneGet.code}`);
 
   const schlechte: [string, unknown][] = [
-    ['ohne Rumpf', undefined],
     ['leeres Objekt', {}],
     ['bestaetigung fehlt', { seed: 'behalten' }],
     ['bestaetigung "live"', { bestaetigung: 'live', seed: 'behalten' }],
@@ -327,6 +329,8 @@ try {
     const a = await reset(port, leib);
     check(`400 bei ${name}`, a.code === 400, `= ${a.code} ${a.text.slice(0, 100)}`);
   }
+  const ohneRumpf = await reset(port, undefined);
+  check('ohne Rumpf und ohne Content-Type → 415 (die Anfrage ist gar keine JSON-Anfrage)', ohneRumpf.code === 415, `= ${ohneRumpf.code}`);
   const kaputtesJson = await anfrage({ port, pfad: PFAD, methode: 'POST', leib: '{"bestaetigung":' });
   check('kaputtes JSON → 400', kaputtesJson.code === 400, `= ${kaputtesJson.code}`);
   const falscheMethode = await anfrage({ port, pfad: PFAD, methode: 'PUT', leib: '{}' });
@@ -343,8 +347,8 @@ try {
   check('live: POST mit korrekter Bestaetigung → 403', liveReset.code === 403, `= ${liveReset.code}`);
   const liveReset2 = await reset(live.port, { bestaetigung: 'dev', seed: 'behalten' });
   check('live: POST mit falscher Bestaetigung → ebenfalls 403 (Sperre zuerst)', liveReset2.code === 403, `= ${liveReset2.code}`);
-  const liveReset3 = await reset(live.port, undefined);
-  check('live: POST ohne Rumpf → 403', liveReset3.code === 403, `= ${liveReset3.code}`);
+  const liveReset3 = await reset(live.port, {});
+  check('live: POST mit leerem Objekt → 403 (die Sperre kommt vor der Rumpfpruefung)', liveReset3.code === 403, `= ${liveReset3.code}`);
   check('live: Platte bitgleich, kein systemctl-Aufruf', abbild() === liveVorher && fakeLog().length === 0);
 
   // active test world
@@ -1046,8 +1050,8 @@ console.log('\n[E] WOV_INSTANZ fehlt, ist leer oder unbekannt — der Riegel ble
     check(`E[${name}]: GET meldet erlaubt=false, der Grund nennt WOV_INSTANZ`, get.code === 200 && get.daten.erlaubt === false && String(get.daten.grund).includes('WOV_INSTANZ'), JSON.stringify(get.daten).slice(0, 160));
     const post = await reset(admin.port, { bestaetigung: 'dev', seed: 'behalten', konten: true });
     check(`E[${name}]: POST mit richtiger Bestaetigung → 403 instanz-unbestimmt`, post.code === 403 && post.daten.fehler === 'instanz-unbestimmt', `= ${post.code} ${post.text.slice(0, 120)}`);
-    const post2 = await reset(admin.port, undefined);
-    check(`E[${name}]: POST ohne Rumpf → ebenfalls 403 (der Riegel kommt zuerst)`, post2.code === 403);
+    const post2 = await reset(admin.port, {});
+    check(`E[${name}]: POST mit leerem Objekt → ebenfalls 403 (der Riegel kommt zuerst)`, post2.code === 403);
     const dienst = existsSync(logE) ? readFileSync(logE, 'utf-8').split('\n').filter((z) => z && !z.startsWith('show')) : [];
     check(`E[${name}]: Platte unveraendert, kein stop/start`, listeVorher() === vor && dienst.length === 0, dienst.join(' | '));
     admin.kind.kill('SIGTERM');
@@ -1063,6 +1067,94 @@ console.log('\n[E] WOV_INSTANZ fehlt, ist leer oder unbekannt — der Riegel ble
     check('E[unbekannter Name „prod“]: der Dienst startet gar nicht (bricht mit Meldung ab)', String(e).includes('weder "dev" noch "live"'), String(e).slice(0, 200));
   }
   if (gestartet) check('E[unbekannter Name „prod“]: der Dienst startet gar nicht', false);
+}
+
+// ══ F. A stand-in for systemctl never goes unnoticed ══════════════════
+
+console.log('\n[F] WOV_SYSTEMCTL: laute Warnung, Feld in /status, keine Startfreigabe unter production:');
+{
+  const cr = resolve(ORDNER, 'ersatz');
+  for (const d of ['welten', 'worlds', 'konten']) mkdirSync(resolve(cr, 'server/data', d), { recursive: true });
+  writeFileSync(resolve(cr, 'server/data/welten/dev.json'), WELT_TEXT);
+  const stub = resolve(ORDNER, 'stub/systemctl');
+
+  const gesetzt = await starten('dev', cr, { WOV_SYSTEMCTL: stub, FAKE_LOG: resolve(cr, 'log') });
+  const st1 = await anfrage({ port: gesetzt.port, pfad: '/status' });
+  check('F: gesetzt → /status.systemctlErsatz nennt das Programm', st1.code === 200 && st1.daten.systemctlErsatz === stub, JSON.stringify(st1.daten.systemctlErsatz));
+  check('F: gesetzt → laute Startzeile (WARNUNG, Variable, „nur fuer Tests“)', /WARNUNG: WOV_SYSTEMCTL=/.test(gesetzt.log()) && gesetzt.log().includes(stub) && gesetzt.log().includes('Nur fuer Tests und Probelaeufe'), gesetzt.log().slice(0, 300));
+  gesetzt.kind.kill('SIGTERM');
+
+  const ungesetzt = await starten('dev', cr, { WOV_SYSTEMCTL: null });
+  const st2 = await anfrage({ port: ungesetzt.port, pfad: '/status' });
+  check('F: nicht gesetzt → /status.systemctlErsatz ist null', st2.code === 200 && st2.daten.systemctlErsatz === null, JSON.stringify(st2.daten.systemctlErsatz));
+  check('F: nicht gesetzt → keine Warnzeile', !ungesetzt.log().includes('WOV_SYSTEMCTL'), ungesetzt.log().slice(0, 200));
+  ungesetzt.kind.kill('SIGTERM');
+
+  const leer = await starten('dev', cr, { WOV_SYSTEMCTL: '' });
+  const st3 = await anfrage({ port: leer.port, pfad: '/status' });
+  check('F: leer gesetzt zaehlt als nicht gesetzt (ein leerer Name ist kein Programm)', st3.daten.systemctlErsatz === null && !leer.log().includes('WARNUNG'));
+  leer.kind.kill('SIGTERM');
+
+  let hochgekommen = false;
+  let meldung = '';
+  try {
+    const p = await starten('dev', cr, { WOV_SYSTEMCTL: stub, NODE_ENV: 'production' });
+    hochgekommen = true;
+    p.kind.kill('SIGTERM');
+  } catch (e) {
+    meldung = String(e);
+  }
+  check('F: unter NODE_ENV=production mit gesetzter Variable kommt der Dienst GAR NICHT hoch', !hochgekommen && meldung.includes('Dienst beendet mit 1') && meldung.includes('NODE_ENV=production') && !meldung.includes('bereit auf'), meldung.slice(0, 300));
+  const produktiv = await starten('dev', cr, { WOV_SYSTEMCTL: null, NODE_ENV: 'production' });
+  const st4 = await anfrage({ port: produktiv.port, pfad: '/status' });
+  check('F: unter production OHNE die Variable startet er normal (der Betrieb)', st4.code === 200 && st4.daten.systemctlErsatz === null);
+  produktiv.kind.kill('SIGTERM');
+  await warte(300);
+}
+
+// ══ G. State-changing requests must be JSON ═══════════════════════════
+
+console.log('\n[G] Content-Type: application/json ist Pflicht fuer POST/PUT/PATCH/DELETE:');
+{
+  const cr = resolve(ORDNER, 'ct');
+  for (const d of ['welten', 'worlds', 'konten']) mkdirSync(resolve(cr, 'server/data', d), { recursive: true });
+  writeFileSync(resolve(cr, 'server/data/welten/dev.json'), WELT_TEXT);
+  writeFileSync(resolve(cr, 'server/data/worlds/dev.db.zst'), saveBytes());
+  const logG = resolve(cr, 'dienst.log');
+  const stub = resolve(ORDNER, 'stub/systemctl');
+  const admin = await starten('dev', cr, { WOV_SYSTEMCTL: stub, FAKE_LOG: logG });
+  const dateien = (): string => readdirSync(resolve(cr, 'server/data/worlds')).join(',') + readFileSync(resolve(cr, 'server/data/welten/dev.json'), 'utf-8').length;
+  const vor = dateien();
+  const gueltig = JSON.stringify({ bestaetigung: 'dev', seed: 'behalten', konten: false });
+  const ohneOrigin = (kopf: Record<string, string>, leib: string | undefined = gueltig, methode = 'POST', pfad = PFAD, ohneCt = false): Promise<Antwort> =>
+    anfrage({ port: admin.port, pfad, methode, leib, kopf, ohneContentType: ohneCt });
+  const falsch: [string, Record<string, string>, boolean][] = [
+    ['text/plain', { 'content-type': 'text/plain' }, false],
+    ['application/x-www-form-urlencoded (das <form>)', { 'content-type': 'application/x-www-form-urlencoded' }, false],
+    ['multipart/form-data', { 'content-type': 'multipart/form-data; boundary=x' }, false],
+    ['application/jsonx (Namenstrick)', { 'content-type': 'application/jsonx' }, false],
+    ['application/json-patch+json', { 'content-type': 'application/json-patch+json' }, false],
+    ['gar kein Content-Type, mit Rumpf', {}, true],
+  ];
+  for (const [name, kopf, ohne] of falsch) {
+    const a = await ohneOrigin(kopf, gueltig, 'POST', PFAD, ohne);
+    check(`POST ${name} → 415, nichts geaendert`, a.code === 415 && a.daten.fehler === 'content-type', `= ${a.code} ${a.text.slice(0, 80)}`);
+  }
+  for (const [methode, pfad] of [['PUT', '/einstellungen/server'], ['PATCH', '/api/worldlayout/ops'], ['DELETE', '/admin/liste'], ['POST', '/dienst'], ['POST', '/api/testwelt']] as const) {
+    const a = await ohneOrigin({ 'content-type': 'text/plain' }, '{}', methode, pfad);
+    check(`${methode} ${pfad} mit text/plain → 415`, a.code === 415, `= ${a.code}`);
+  }
+  check('Platte unveraendert, kein stop/start/restart', dateien() === vor && !(existsSync(logG) && readFileSync(logG, 'utf-8').split('\n').some((z) => z && !z.startsWith('show'))));
+  for (const [name, ct] of [['application/json', 'application/json'], ['mit charset', 'application/json; charset=utf-8'], ['gross geschrieben', 'Application/JSON']] as const) {
+    const a = await ohneOrigin({ 'content-type': ct }, '{}');
+    check(`erlaubt: ${name} → kommt bis zur Rumpfpruefung (400)`, a.code === 400 && a.daten.fehler === 'bestaetigung', `= ${a.code} ${a.text.slice(0, 60)}`);
+  }
+  const lesen = await anfrage({ port: admin.port, pfad: PFAD });
+  check('GET braucht keinen Content-Type', lesen.code === 200);
+  const echt = await ohneOrigin({ 'content-type': 'application/json; charset=utf-8' });
+  check('ein echtes Zuruecksetzen mit application/json laeuft durch (200)', echt.code === 200 && echt.daten.ok === true, `= ${echt.code} ${echt.text.slice(0, 100)}`);
+  admin.kind.kill('SIGTERM');
+  await warte(300);
 }
 
 rmSync(ORDNER, { recursive: true, force: true });

@@ -42,7 +42,7 @@
  * Anleitung steht in seinem eigenen Kopfkommentar.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
+import { accessSync, closeSync, constants, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2112,10 +2112,23 @@ for (const [signal, nummer] of [['SIGINT', 2], ['SIGHUP', 1], ['SIGTERM', 15]]) 
     nichts, worauf zu warten waere; aufgeloest wird beim Ende des Kindes (`'exit'`).
   Gelesen wird nur nach einem Fehlschlag, und hoechstens die letzten 8 MiB.
 
+  Der Ordner liegt in /var/tmp, NICHT in os.tmpdir(): auf wov-dev ist /tmp ein tmpfs,
+  also Arbeitsspeicher (16 GB Grenze auf einer Maschine mit 10 GB RAM), und ein Test mit
+  durchgedrehter Ausgabe wuerde ihn fuellen; /var/tmp liegt auf Platte. Nur wo es
+  /var/tmp nicht gibt (etwa Windows), gilt os.tmpdir().
+
   Test output goes to files, not pipes: nothing is lost at `process.exit`, and no
   grandchild that keeps a pipe open can make the run hang.
 */
-const LAUF_ORDNER = mkdtempSync(join(tmpdir(), 'wov-lauf-'));
+const AUSGABE_BASIS = (() => {
+  try {
+    accessSync('/var/tmp', constants.W_OK);
+    return '/var/tmp';
+  } catch {
+    return tmpdir();
+  }
+})();
+const LAUF_ORDNER = mkdtempSync(join(AUSGABE_BASIS, 'wov-lauf-'));
 process.on('exit', () => rmSync(LAUF_ORDNER, { recursive: true, force: true }));
 const MAX_AUSGABE = 8 * 1024 * 1024;
 function liesAusgabe(pfad) {

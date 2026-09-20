@@ -391,9 +391,15 @@ async function main(): Promise<void> {
     peer.paradeBis = 0;
     // Dann dauernd im Fenster stehen (600 ms Fenster, Parade alle 450 ms) und
     // bei JEDER Parade den Abzug messen.
+    // Fenster mit Reserve: Schlaege des NPC bei ~2,1 s, ~4,1 s, ~6,1 s, ~8,1 s
+    // nach dem Setzen (Takt 2 s). Bei 8,5 s liegt die Schranke „mindestens
+    // drei“ 2,4 s vor dem Fensterende (bei 7 s waren es 0,9 s); der vierte
+    // Schlag liegt 0,4 s davor, seine Meldung „Pariert“ ist beim Zaehlen laengst
+    // da (die letzte Runde der Schleife laeuft ausserdem bis zu 450 ms ueber).
+    const FENSTER_PARADE_MS = 8_500;
     let paraden = 0;
     const abzuege: number[] = [];
-    const ende4 = jetzt() + 7_000;
+    const ende4 = jetzt() + FENSTER_PARADE_MS;
     let minHealth = 100;
     while (jetzt() < ende4) {
       if (peer.stamina < 8) peer.stamina = 100;

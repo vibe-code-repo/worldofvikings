@@ -65,10 +65,16 @@ export const STUFEN_RADIUS: Readonly<Record<BewuchsStufe, number>> = { voll: 2, 
 
 /**
  * Bilder, die eine Zone ausserhalb des Rings noch stehen bleibt, bevor sie
- * abgebaut wird (60 = etwa eine Sekunde). Klein gewaehlt: Bei 45 m/s
- * (0,75 m je Bild) bleibt so hoechstens eine Zonenreihe (64 m) hinter dem
- * Ring stehen; laenger wuerde der Bestand im Flug spuerbar ueber den Ring
- * hinauswachsen.
+ * abgebaut wird (60 = etwa eine Sekunde).
+ *
+ * Gehalten wird genau dann, wenn die Kamera hoechstens so lange auf der
+ * anderen Seite einer Zonengrenze bleibt (Halbperiode <= Frist). Gemessen
+ * (client/test/bewuchs-vorschau.ts, Hin-und-her ueber eine Grenze, 1.200
+ * Bilder): Halbperiode 45 Bilder (0,75 s) kostet bei Frist 15 oder 30 je 135
+ * Zonenbauten (rund 80 ms je Sekunde Ruckler), bei Frist 60 nur die 5 der
+ * ersten Reihe. Preis der 60 statt 15: im geraden Flug mit 45 m/s im Mittel
+ * 28,5 statt 25,9 Zonen (Hoechstwert 30 in beiden Faellen); in Ruhe nichts,
+ * dann steht genau der Ring.
  */
 export const NACHLAUF_BILDER = 60;
 

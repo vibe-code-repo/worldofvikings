@@ -14,9 +14,12 @@
  *  (b) NICHTS ZUSÄTZLICH — jedes Store-Prefab mit mehr als PERSISTENT steht
  *      in der Tabelle. Damit ist die Registry nicht heimlich anderswo
  *      erweitert worden (etwa durch eine Namensregex in `prefabs.ts`).
- *  (c) DIE STREUTABELLE IST GEDECKT — jeder Fels, den die Weltgenerierung
+ *  (c) DIE STREUTABELLE IST GEDECKT — jeder Findling, den die Weltgenerierung
  *      streut (`STORE_FELSEN_NAMEN`), ist abbaubar. Sonst erzeugt der
  *      Generator Felsen, die der Spieler nicht angreifen kann.
+ *  (d) KLIPPEN SIND AUSGENOMMEN (Mikes Entscheidung 20.09.2026) — kein
+ *      `rock-cliff-*` trägt ein Flag über PERSISTENT hinaus: Klippen sind
+ *      Gelände, keine Findlinge.
  *
  *   npx tsx shared/test/store-verhalten.ts
  */
@@ -52,7 +55,7 @@ const felsen = mitFlag(F.MINE_ROCK_5);
 const betten = mitFlag(F.BED);
 const truhen = mitFlag(F.CONTAINER);
 console.log(`Felsen ${felsen.length}, Betten ${betten.length}, Truhen ${truhen.length}`);
-check('33 Store-Prefabs tragen MINE_ROCK_5', felsen.length === 33, `${felsen.length}`);
+check('26 Store-Prefabs tragen MINE_ROCK_5 (33 minus 7 Klippen)', felsen.length === 26, `${felsen.length}`);
 check('4 Store-Prefabs tragen BED', betten.length === 4, `${betten.length}`);
 check('4 Store-Prefabs tragen CONTAINER', truhen.length === 4, `${truhen.length}`);
 check(
@@ -74,6 +77,14 @@ check(
     ].join(','),
   truhen.join(', ')
 );
+const KLIPPEN = namen.filter((n) => /^environment-sm-env-rock-cliff-/.test(n));
+check('der Store führt 7 Klippen-Prefabs', KLIPPEN.length === 7, `${KLIPPEN.length}`);
+check(
+  'KEINE Klippe trägt ein Flag über PERSISTENT hinaus (nicht abbaubar)',
+  KLIPPEN.every((n) => flagsVon(n) === F.PERSISTENT && !STORE_VERHALTEN.has(n)),
+  KLIPPEN.filter((n) => flagsVon(n) !== F.PERSISTENT || STORE_VERHALTEN.has(n)).join(', ')
+);
+check('kein abbaubarer Fels der Tabelle heisst cliff', felsen.every((n) => !/cliff/.test(n)));
 const nichtFels = ['environment-sm-env-stone-throne-01', 'environment-sm-env-stonewall-01',
   'environment-sm-env-house-rocks-large-01', 'environment-sm-prop-path-rock-01',
   'environment-sm-item-rock-01', 'environment-sm-prop-chest-01-lid',
@@ -100,12 +111,19 @@ check(
   [...STORE_VERHALTEN].every(([n, f]) => flagsVon(n) === f)
 );
 
-// ── (c) Die Streutabelle ist gedeckt ───────────────────────────────────
-const ungedeckt = [...STORE_FELSEN_NAMEN].filter((n) => !hat(n, F.MINE_ROCK_5));
+// ── (c) Die Streutabelle ist gedeckt, (d) Klippen bleiben stehen ──────
+const gestreuteKlippen = [...STORE_FELSEN_NAMEN].filter((n) => /cliff/.test(n));
+const gestreuteFindlinge = [...STORE_FELSEN_NAMEN].filter((n) => !/cliff/.test(n));
+const ungedeckt = gestreuteFindlinge.filter((n) => !hat(n, F.MINE_ROCK_5));
 check(
-  `alle ${STORE_FELSEN_NAMEN.size} gestreuten Felsen sind abbaubar`,
-  STORE_FELSEN_NAMEN.size > 20 && ungedeckt.length === 0,
+  `${gestreuteFindlinge.length} von ${STORE_FELSEN_NAMEN.size} gestreuten Felsen sind abbaubar (18 von 22)`,
+  STORE_FELSEN_NAMEN.size === 22 && gestreuteFindlinge.length === 18 && ungedeckt.length === 0,
   ungedeckt.join(', ')
+);
+check(
+  'die 4 gestreuten Klippen sind NICHT abbaubar',
+  gestreuteKlippen.length === 4 && gestreuteKlippen.every((n) => !hat(n, F.MINE_ROCK_5)),
+  gestreuteKlippen.filter((n) => hat(n, F.MINE_ROCK_5)).join(', ')
 );
 
 // ── Bett und Truhe im Spiel ────────────────────────────────────────────

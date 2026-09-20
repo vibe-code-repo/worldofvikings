@@ -648,7 +648,8 @@ const textKatalog = katalogTeile.join('');
   alles. Die Regeln sind bewusst eng gefasst (Ende mit `$`, Zahlen
   ausgeschrieben): `sm-env-stone-throne-01` und `sm-env-stonewall-*` sind
   Bauwerk, `sm-env-house-rocks-large-01` und `sm-prop-path-rock-*` gelegte
-  Pflasterung, `sm-item-rock-01` ein Gegenstandsmodell, und
+  Pflasterung, `sm-item-rock-01` ein Gegenstandsmodell, `rock-cliff-*`
+  sind Klippen (Gelaende, keine Findlinge), und
   `chest-01-lid`, `-latch`, `chesttop` sind Teile einer Truhe, keine.
 
   Exception table until the source carries `verhalten`; a `verhalten` on a
@@ -658,7 +659,11 @@ const VERHALTEN_REGELN = [
   {
     gruppe: 'felsen',
     flags: ['MINE_ROCK_5', 'PERSISTENT'],
-    passt: /^environment-sm-env-(rock-|stone-0\d)/,
+    // `rock-cliff-*` ist ausgenommen (Mikes Entscheidung 20.09.2026): Klippen sind
+    // Gelaende, keine Findlinge — eine 20-m-Wand, die in zwoelf Schlaegen
+    // verschwindet, wirkt falsch. Sie tragen weiter nur PERSISTENT.
+    // Cliffs are terrain, not boulders: excluded from mining.
+    passt: /^environment-sm-env-(rock-(?!cliff-)|stone-0\d)/,
   },
   {
     gruppe: 'betten',

@@ -3,8 +3,8 @@
  *
  *   npx tsx tools/store-prefabs.mjs
  *
- * Was ein Speicher-Prefab TUT, über PERSISTENT hinaus: 41 Einträge
- * (4 betten, 33 felsen, 4 truhen). Alles, was hier nicht steht, ist
+ * Was ein Speicher-Prefab TUT, über PERSISTENT hinaus: 34 Einträge
+ * (4 betten, 26 felsen, 4 truhen). Alles, was hier nicht steht, ist
  * Deko und trägt nur PERSISTENT (`storePrefabs.ts`).
  *
  * Die Wahrheit ist das Feld `verhalten` in der Prefab-Quelle; solange
@@ -31,13 +31,6 @@ export const STORE_VERHALTEN: ReadonlyMap<string, bigint> = new Map<string, bigi
   ['environment-sm-env-rock-chunk-02', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
   ['environment-sm-env-rock-chunk-03', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
   ['environment-sm-env-rock-chunk-03-1', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
-  ['environment-sm-env-rock-cliff-01', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
-  ['environment-sm-env-rock-cliff-02', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
-  ['environment-sm-env-rock-cliff-02-1', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
-  ['environment-sm-env-rock-cliff-03', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
-  ['environment-sm-env-rock-cliff-03-1', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
-  ['environment-sm-env-rock-cliff-05', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
-  ['environment-sm-env-rock-cliff-05-1', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
   ['environment-sm-env-rock-pebble-02', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
   ['environment-sm-env-rock-pebble-02-1', F.MINE_ROCK_5 | F.PERSISTENT], // felsen
   ['environment-sm-env-rock-round-01', F.MINE_ROCK_5 | F.PERSISTENT], // felsen

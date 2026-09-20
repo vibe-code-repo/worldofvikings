@@ -10,7 +10,8 @@
  *
  *  [1] Felsen: Spitzhacke auf je einen Store-Fels jeder Größenklasse gibt
  *      Stein (Menge 6–10 wie bei den Altfelsen), die Axt nicht; ein
- *      Bauwerksteil (`stone-throne`) und ein Pflasterstein bleiben stumm.
+ *      Bauwerksteil (`stone-throne`), ein Pflasterstein und eine KLIPPE
+ *      (Gelände, Mikes Entscheidung 20.09.2026) bleiben stumm.
  *      Regression: `Rock_4` und ein Baum verhalten sich wie vorher.
  *  [2] Betten: ohne Bett stirbt man am Weltspawn; jedes der vier Store-Betten
  *      setzt `peer.spawnPoint`, der Tod bringt den Spieler DORTHIN (Teleport-
@@ -187,7 +188,6 @@ async function main(): Promise<void> {
     const FELSEN: Array<[string, string]> = [
       ['environment-sm-env-rock-01', 'klein (0,3 m)'],
       ['environment-sm-env-rock-chunk-01', 'mittel (1,7 m)'],
-      ['environment-sm-env-rock-cliff-01', 'Klippe (18 m)'],
       ['environment-sm-env-stone-02', 'Platte'],
     ];
     for (const [name, klasse] of FELSEN) {
@@ -213,13 +213,29 @@ async function main(): Promise<void> {
       check(`${klasse}: Stein im Server-Inventar um ${menge} gewachsen`, peer.inventar.countOf('Stone') === steinVorher + menge, `${steinVorher} → ${peer.inventar.countOf('Stone')}`);
     }
 
-    console.log('\n[1b] Was kein Fels ist, bleibt stumm');
-    for (const name of ['environment-sm-env-stone-throne-01', 'environment-sm-prop-path-rock-01']) {
+    console.log('\n[1b] Was kein Fels ist, bleibt stumm — auch die Klippen (Gelände)');
+    const STUMM = [
+      'environment-sm-env-stone-throne-01',
+      'environment-sm-prop-path-rock-01',
+      // Alle vier gestreuten Klippen (Mikes Entscheidung 20.09.2026: nicht abbaubar).
+      'environment-sm-env-rock-cliff-01',
+      'environment-sm-env-rock-cliff-02-1',
+      'environment-sm-env-rock-cliff-03-1',
+      'environment-sm-env-rock-cliff-05',
+    ];
+    for (const name of STUMM) {
       const z = server.zdos.createZDO(hash(name), naechst(2));
-      z.setInt(HEALTH_MEMBER, 8);
+      z.setInt(HEALTH_MEMBER, 8); // ein Schlag würde ihn brechen, wäre er ein Fels
       const steinVorher = peer.inventar.countOf('Stone');
       const teil = await schlage('PickaxeAntler');
-      check(`${name}: Spitzhacke bewirkt nichts`, teil.length === 0 && server.zdos.getZDO(z.zdoid) !== undefined && peer.inventar.countOf('Stone') === steinVorher);
+      check(
+        `${name}: Spitzhacke bewirkt nichts (kein Stein, keine Meldung, Lebenspunkte unberührt)`,
+        teil.length === 0 &&
+          server.zdos.getZDO(z.zdoid) !== undefined &&
+          z.getInt(HEALTH_MEMBER) === 8 &&
+          peer.inventar.countOf('Stone') === steinVorher,
+        `Stein ${steinVorher} → ${peer.inventar.countOf('Stone')}, HP ${z.getInt(HEALTH_MEMBER)}`
+      );
       server.zdos.destroyZDO(z.zdoid);
     }
 

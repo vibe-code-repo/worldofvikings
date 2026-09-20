@@ -36,6 +36,7 @@ for slot in FREE:
     for obj in pieces.pop(slot):
         bpy.data.objects.remove(obj, do_unlink=True)
     SLOTS.remove(slot)
+    base[slot].hide_render = False; base[slot].hide_set(False)  # the source body shows there in every image, on both bodies
 PARTS[:] = [part for part in PARTS if not set(part['regions']) & set(FREE)]
 assert [part['item'].rsplit('_', 1)[1] for part in PARTS] == ['shoulders', 'vest', 'bracers', 'robe', 'boots']
 

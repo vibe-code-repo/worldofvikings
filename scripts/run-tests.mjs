@@ -1302,7 +1302,7 @@ const KERN = [
   ['server', 'test/g6-dungeon-e2e.ts'],
   // G5: DungeonManager (Dokumente, Eingaenge, Instanzen) — Platten-Rundlauf,
   // Instanz je eigener Welt, Abbau. Kein Server/Socket, schreibt in einen
-  // eigenen Ordner unter server/test und raeumt ihn wieder weg. ~1-3 s.
+  // eigenen Ordner unter server/test und raeumt ihn wieder weg. ~1 s, kalt bis 4 s.
   ['server', 'test/g5-dungeons.ts'],
   // G1-Durchsicht: Wetter/Wind-Port (Timing aus den Assets, Determinismus,
   // Ziehungsgewichte, Windclamp/-rampe, windData-Alpha, Niederschlags-

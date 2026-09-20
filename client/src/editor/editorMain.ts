@@ -108,7 +108,7 @@ import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHu
 import { WERKZEUGE, platzierenWerkzeug, werkzeugMitId } from './werkzeuge';
 import { InselwahlPanel } from './testflug/InselwahlPanel';
 import { checkJump, flightUrl, heightSourcesFor } from './testflug/inselwahl';
-import { onReturn } from './testflug/ruecksprung';
+import { onReturn, openReturnChannel } from './testflug/ruecksprung';
 import { platzierungZuBefund } from './werkzeuge/platzieren';
 import { erzeugeEditorKern } from './werkzeuge/kontext';
 import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
@@ -2832,9 +2832,9 @@ window.addEventListener('keydown', (e) => {
   }
   testflugAn(pruefung.x, pruefung.z, pruefung.region.id);
 });
-// Rückweg: Der Testflug (anderer Tab) meldet seine letzte Stelle mit Taste Q;
-// die Karte springt dorthin.
-onReturn(window, (p) => {
+// Rückweg: Der Testflug (anderer Tab) meldet seine letzte Stelle mit Taste Q
+// (BroadcastChannel, nichts wird gespeichert); die Karte springt dorthin.
+onReturn(openReturnChannel(), (p) => {
   springeZuPunkt(p.x, p.z);
   shell.meldung(`Zurück aus dem Testflug — Karte auf (${Math.round(p.x)}, ${Math.round(p.z)}) zentriert.`);
   window.focus();

@@ -14,12 +14,13 @@
  * derived from it, not typed in, so the test keeps working when islands move.
  */
 import { readFileSync } from 'node:fs';
-import { WATER_LEVEL, sanitizeWorldLayout, signedDistance } from '@wov/shared';
+import { WATER_LEVEL, sanitizeWorldLayout, shapeBounds, signedDistance } from '@wov/shared';
 import type { RegionDef, WorldLayout } from '@wov/shared';
 import { createWorld } from '../src/world/World';
 import {
   JUMP_CLEARANCE,
   MIN_ABOVE_WATER,
+  TARGET_HEIGHT,
   checkJump,
   checkJumpFromDraft,
   compassName,
@@ -35,12 +36,15 @@ import {
   roundCoordinate,
 } from '../src/editor/testflug/inselwahl';
 import {
-  RETURN_KEY,
+  LATE_MS,
+  RETURN_CHANNEL,
   decodeReturn,
   encodeReturn,
   onReturn,
+  planReturn,
   sendReturn,
 } from '../src/editor/testflug/ruecksprung';
+import type { ReturnChannel } from '../src/editor/testflug/ruecksprung';
 
 let fehler = 0;
 let geprueft = 0;
@@ -80,6 +84,19 @@ const inRegion = (r: RegionDef, x: number, z: number): boolean =>
   r.shape.kind === 'circle'
     ? Math.hypot(x - r.shape.x, z - r.shape.z) <= r.shape.radius
     : imPolygon(r.shape.points, x, z);
+// Highest land the region OWNS on the search grid (cheap generator height), above the water line.
+const hoechstesEigenes = (r: RegionDef): number => {
+  const b = shapeBounds(r.shape);
+  let h = -Infinity;
+  for (let i = 0; i < 41; i++) {
+    for (let j = 0; j < 41; j++) {
+      const x = b.minX + ((i + 0.5) / 41) * (b.maxX - b.minX);
+      const z = b.minZ + ((j + 0.5) / 41) * (b.maxZ - b.minZ);
+      if (regionAt(layout, x, z) === r) h = Math.max(h, estimate(x, z) - WATER_LEVEL);
+    }
+  }
+  return h;
+};
 const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   const m = new Map<string, number>();
   const obenZuerst = [...l.regions].reverse();
@@ -100,12 +117,18 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   const mitZiel = liste.filter((e) => e.target !== null);
   pruefe(mitZiel.length >= 10, `most regions have a target (${mitZiel.length}/${liste.length})`);
   const zaehlung = baumZaehlung(layout);
+  let mindesthoehe = Infinity;
   for (const e of liste) {
     const region = layout.regions.find((r) => r.id === e.id)!;
     pruefe(e.placements === (zaehlung.get(e.id) ?? 0), `${e.id}: placement count ${e.placements} = tree rule ${zaehlung.get(e.id) ?? 0}`);
     if (e.target) {
       const g = ground(e.target.x, e.target.z);
       pruefe(g >= WATER_LEVEL + MIN_ABOVE_WATER, `${e.id}: target ground ${g.toFixed(1)} m above water ${WATER_LEVEL}`);
+      // No wet beach: at least TARGET_HEIGHT above the water line, or — a swamp whose own land tops out lower — the top of its land.
+      const grenze = Math.min(TARGET_HEIGHT, hoechstesEigenes(region) - 1);
+      pruefe(g - WATER_LEVEL >= grenze, `${e.id}: target stands ${(g - WATER_LEVEL).toFixed(2)} m above the water line (asked: ${grenze.toFixed(2)} m)`);
+      if (g - WATER_LEVEL < TARGET_HEIGHT) console.log(`  ${e.id}: only ${(g - WATER_LEVEL).toFixed(2)} m (the highest land it owns: about ${hoechstesEigenes(region).toFixed(1)} m)`);
+      mindesthoehe = Math.min(mindesthoehe, g - WATER_LEVEL);
       pruefe(signedDistance(region.shape, e.target.x, e.target.z) >= 0, `${e.id}: target inside the region`);
       pruefe(regionAt(layout, e.target.x, e.target.z) === region, `${e.id}: the region is the topmost at its target`);
       pruefe(e.message === null, `${e.id}: no message with a target`);
@@ -115,6 +138,7 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
       pruefe(typeof e.message === 'string' && e.message.length > 0, `${e.id}: a region without land carries a message`);
     }
   }
+  console.log(`  lowest target of ${mitZiel.length} regions: ${mindesthoehe.toFixed(2)} m above the water line`);
   const zeilen = islandRows(layout);
   pruefe(zeilen.every((r, i) => r.id === liste[i]!.id), 'rows and list agree');
   // Labels of the editor tree: region id and biome, the continent by name.
@@ -200,6 +224,23 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   naheBei(headingOf(Math.PI / 2), 270, 1e-9, 'yaw pi/2 looks west (-x)');
   naheBei(headingOf(-Math.PI / 2), 90, 1e-9, 'yaw -pi/2 looks east (+x)');
   pruefe(compassName(0) === 'N' && compassName(45) === 'NO' && compassName(90) === 'O' && compassName(180) === 'S' && compassName(270) === 'W' && compassName(359) === 'N', 'compass names');
+  // The display and the in-game minimap agree (finding 2 of the first attack claimed 180 degrees apart;
+  // browser run: at yaw 0 the minimap arrow points down, away from its N, and the display says "S").
+  // The minimap draws its arrow with `rotate(yaw + PI)` on a tip at (0, -11), canvas y down, N at the top
+  // (Minimap.ts); the same arithmetic gives the arrow's screen direction, from which the compass heading follows.
+  const minimap = lies('../src/ui/Minimap.ts');
+  pruefe(/ctx\.rotate\(yaw \+ Math\.PI\)/.test(minimap) && /moveTo\(0, -11\)/.test(minimap), 'the minimap still draws its arrow as rotate(yaw + PI) with the tip at (0, -11)');
+  pruefe(/Norden = \+z \(oben\)/.test(minimap), 'the minimap still says north = +z at the top');
+  for (let k = 0; k < 16; k++) {
+    const yaw = (k * Math.PI) / 8 + 0.03;
+    const winkel = yaw + Math.PI;
+    // canvas rotation of the tip (0, -1): (sin a, -cos a); screen right = +x (east), screen down = -z (south)
+    const ost = Math.sin(winkel);
+    const nord = Math.cos(winkel);
+    const ausMinimap = ((Math.atan2(ost, nord) * 180) / Math.PI + 360) % 360;
+    const diff = Math.abs(((headingOf(yaw) - ausMinimap + 540) % 360) - 180);
+    pruefe(diff < 1e-6, `yaw ${yaw.toFixed(2)}: display heading ${headingOf(yaw).toFixed(1)} = the minimap arrow's ${ausMinimap.toFixed(1)}`);
+  }
   // Three places on three islands: the displayed height over ground matches the height field (±0.5 m).
   const orte = islandList(layout, ground, estimate).filter((e) => e.target).slice(0, 3);
   pruefe(orte.length === 3, 'three islands with a target');
@@ -227,35 +268,83 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   const punkt = { x: -17620.5, z: -5700.25, yaw: 1.5, at: 1_700_000_000_000 };
   const zurueck = decodeReturn(encodeReturn(punkt));
   pruefe(zurueck !== null && zurueck.x === punkt.x && zurueck.z === punkt.z && zurueck.yaw === punkt.yaw && zurueck.at === punkt.at, 'encode / decode round trip');
-  for (const roh of [null, '', 'x', '[]', '{}', '{"x":1,"z":2,"yaw":0}', '{"x":"1","z":2,"yaw":0,"at":1}', '{"x":null,"z":2,"yaw":0,"at":1}', '{"x":1e999,"z":2,"yaw":0,"at":1}']) {
+  for (const roh of [null, undefined, 5, {}, '', 'x', '[]', '{}', '{"x":1,"z":2,"yaw":0}', '{"x":"1","z":2,"yaw":0,"at":1}', '{"x":null,"z":2,"yaw":0,"at":1}', '{"x":1e999,"z":2,"yaw":0,"at":1}']) {
     pruefe(decodeReturn(roh) === null, `garbage refused: ${JSON.stringify(roh)}`);
   }
-  const gespeichert = new Map<string, string>();
-  pruefe(sendReturn({ setItem: (k, v) => void gespeichert.set(k, v) }, punkt), 'send reports success');
-  pruefe(gespeichert.get(RETURN_KEY) === encodeReturn(punkt), 'send writes the value under the key');
-  pruefe(!sendReturn({ setItem: () => { throw new Error('quota'); } }, punkt), 'a refusing storage gives false, no throw');
 
-  type Hoerer = (e: StorageEvent) => void;
-  const hoerer = new Set<Hoerer>();
-  const ziel = {
-    addEventListener: (_t: 'storage', h: Hoerer) => void hoerer.add(h),
-    removeEventListener: (_t: 'storage', h: Hoerer) => void hoerer.delete(h),
-  };
-  const sende = (key: string | null, newValue: string | null): void => {
-    for (const h of [...hoerer]) h({ key, newValue } as StorageEvent);
-  };
+  // A fake in place of BroadcastChannel: a bus with the sender excluded, like the real one.
+  type Hoerer = (e: { data: unknown }) => void;
+  class Kanal implements ReturnChannel {
+    static alle = new Set<Kanal>();
+    hoerer = new Set<Hoerer>();
+    geschlossen = false;
+    gesendet: unknown[] = [];
+    constructor() {
+      Kanal.alle.add(this);
+    }
+    postMessage(m: unknown): void {
+      this.gesendet.push(m);
+      for (const k of Kanal.alle) if (k !== this && !k.geschlossen) for (const h of [...k.hoerer]) h({ data: m });
+    }
+    addEventListener(_t: 'message', h: Hoerer): void {
+      this.hoerer.add(h);
+    }
+    removeEventListener(_t: 'message', h: Hoerer): void {
+      this.hoerer.delete(h);
+    }
+    close(): void {
+      this.geschlossen = true;
+      Kanal.alle.delete(this);
+    }
+  }
+  pruefe(RETURN_CHANNEL === 'wov-editor-testflug-rueckkehr', 'channel name');
+
+  const editorKanal = new Kanal();
   const gehoert: number[] = [];
-  const weg = onReturn(ziel, (p) => gehoert.push(p.x));
-  sende('wov-editor-layout', encodeReturn(punkt));
-  sende(RETURN_KEY, 'kaputt');
-  sende(RETURN_KEY, null);
-  sende(null, null);
-  pruefe(gehoert.length === 0, 'other keys, garbage and a removal are not heard');
-  sende(RETURN_KEY, encodeReturn(punkt));
-  pruefe(gehoert.length === 1 && gehoert[0] === punkt.x, 'a return is heard once');
+  const weg = onReturn(editorKanal, (p) => gehoert.push(p.at));
+  const flug = new Kanal();
+  pruefe(sendReturn(() => flug, punkt), 'send reports success');
+  pruefe(flug.gesendet.length === 1 && flug.gesendet[0] === encodeReturn(punkt), 'send posts the encoded position, once');
+  pruefe(flug.geschlossen, 'the flight closes its channel after posting');
+  pruefe(gehoert.length === 1 && gehoert[0] === punkt.at, 'the editor hears it once');
+  // No editor listening: a send leaves nothing anywhere (a channel keeps no message).
   weg();
-  sende(RETURN_KEY, encodeReturn(punkt));
-  pruefe(gehoert.length === 1 && hoerer.size === 0, 'after removing the listener nothing is heard');
+  pruefe(editorKanal.geschlossen, 'removing the listener closes the editor channel');
+  pruefe(sendReturn(() => new Kanal(), punkt) && gehoert.length === 1, 'without a listener nothing is heard and nothing is stored');
+  pruefe(!sendReturn(() => null, punkt), 'no channel available: false');
+  const kaputt = new Kanal();
+  kaputt.postMessage = () => { throw new Error('closed'); };
+  pruefe(!sendReturn(() => kaputt, punkt) && kaputt.geschlossen, 'a channel that throws gives false, is closed, no throw');
+  pruefe(!sendReturn(() => { throw new Error('nope'); }, punkt), 'a failing open gives false');
+  pruefe(typeof onReturn(null, () => undefined) === 'function', 'no channel: a no-op remover, no crash');
+
+  // Garbage and foreign messages are not heard.
+  const ed2 = new Kanal();
+  const h2: number[] = [];
+  const weg2 = onReturn(ed2, (p) => h2.push(p.at));
+  const fremd = new Kanal();
+  for (const m of ['kaputt', null, 5, {}, JSON.stringify({ x: 1 })]) fremd.postMessage(m);
+  pruefe(h2.length === 0, 'garbage messages are not heard');
+  // Two flights: the editor keeps the NEWEST, a late older one is dropped (finding 6).
+  const flugA = new Kanal();
+  const flugB = new Kanal();
+  const p = (x: number, at: number) => encodeReturn({ x, z: 0, yaw: 0, at });
+  flugB.postMessage(p(2, 2000)); // written later, arrives first
+  flugA.postMessage(p(1, 1000)); // written earlier, arrives late
+  pruefe(h2.length === 1 && h2[0] === 2000, 'the older return that arrives second is dropped');
+  flugA.postMessage(p(3, 2000));
+  pruefe(h2.length === 2, 'the same write time is not "older": heard');
+  flugA.postMessage(p(4, 2000 + LATE_MS + 5));
+  pruefe(h2.length === 3, 'a newer one is heard');
+  flugB.postMessage(p(5, 2000)); // system clock went back by more than LATE_MS: a new flight, heard
+  pruefe(h2.length === 4, `older by more than ${LATE_MS} ms counts as a new flight (clock went back), so the map never freezes`);
+  weg2();
+  pruefe(ed2.geschlossen && Kanal.alle.has(flugA), 'the remover closes only its own channel');
+
+  // What Q does: after a refused jump nothing is sent (the figure stands at the origin).
+  pruefe(planReturn(false, true) === 'send' && planReturn(false, false) === 'send', 'a normal return is sent whether or not the tab can close');
+  pruefe(planReturn(true, true) === 'close-only', 'refused jump, tab can close: close it, send nothing');
+  pruefe(planReturn(true, false) === 'stay', 'refused jump, tab cannot close: stay, send nothing');
 }
 
 // ── 8. Key V: the build mode only ───────────────────────────────────────────
@@ -267,6 +356,68 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   pruefe(anzahl(/Key[V]/g) === 1, 'exactly one handler on V (the build mode)');
   pruefe(anzahl(/Key[G]\b/g) === 1, 'the vegetation rebuild has its own key (G)');
   pruefe(anzahl(/Key[Q]\b/g) === 1, 'the way back has its own key (Q)');
+  pruefe(anzahl(/planReturn\(/g) === 1 && anzahl(/sendReturnFromBrowser\(/g) === 1, 'Q asks planReturn once and sends only through it');
+  pruefe(!/localStorage/.test(lies('../src/editor/testflug/ruecksprung.ts').replace(/\/\*[\s\S]*?\*\//g, '')), 'the way back does not touch localStorage');
+}
+
+// ── 9. Overlapping regions: the target does not depend on the draw order ─────
+{
+  const mitRegionen = (regionen: RegionDef[]): WorldLayout =>
+    sanitizeWorldLayout({ ...(doc as object), regions: regionen, placements: [], rivers: [], lakes: [], routes: [] }) as WorldLayout;
+  const quellen = (l: WorldLayout) => {
+    const w = createWorld(undefined, {}, l);
+    return { g: (x: number, z: number): number => w.getGroundHeight(x, z), e: (x: number, z: number): number => w.geo.getHeight(x, z) };
+  };
+  const inside = (l: WorldLayout, r: RegionDef, x: number, z: number): boolean => signedDistance(r.shape, x, z) >= 0 && l.regions.includes(r);
+
+  // A: a small region lies on the centre of a big one (the finding: "hat kein Land").
+  const gross: RegionDef = { id: 'gross', biome: 'grassland', shape: { kind: 'circle', x: 0, z: 0, radius: 2500 }, edgeFalloff: 500 };
+  const klein: RegionDef = { id: 'klein-oben', biome: 'mountain', shape: { kind: 'circle', x: 0, z: 0, radius: 400 }, edgeFalloff: 200 };
+  const lA = mitRegionen([gross, klein]);
+  const qA = quellen(lA);
+  const grossR = lA.regions.find((r) => r.id === 'gross')!;
+  const tA = islandCentre(lA, grossR, qA.g, qA.e);
+  pruefe(regionAt(lA, 0, 0)?.id === 'klein-oben', 'A: the centre of the big region belongs to the small one on top');
+  pruefe(tA !== null, 'A: the big region still has a target (its centre is covered by a later region)');
+  if (tA) {
+    pruefe(inside(lA, grossR, tA.x, tA.z), 'A: the target lies inside the big region');
+    pruefe(regionAt(lA, tA.x, tA.z) === grossR, 'A: and it is ground the big region owns (not the covered patch)');
+    pruefe(qA.g(tA.x, tA.z) >= WATER_LEVEL + TARGET_HEIGHT, `A: on high land (${(qA.g(tA.x, tA.z) - WATER_LEVEL).toFixed(1)} m above water)`);
+  }
+  pruefe(islandList(lA, qA.g, qA.e).every((e) => e.target !== null), 'A: no region of the list is reported without land');
+
+  // B: a region completely under a later one has no ground of its own — it still gets a target inside it.
+  const unten: RegionDef = { id: 'unten', biome: 'grassland', shape: { kind: 'circle', x: 0, z: 0, radius: 700 }, edgeFalloff: 200 };
+  const deckel: RegionDef = { id: 'deckel', biome: 'grassland', shape: { kind: 'circle', x: 0, z: 0, radius: 1500 }, edgeFalloff: 300 };
+  const lB = mitRegionen([unten, deckel]);
+  const qB = quellen(lB);
+  const untenR = lB.regions.find((r) => r.id === 'unten')!;
+  const tB = islandCentre(lB, untenR, qB.g, qB.e);
+  pruefe(regionAt(lB, 0, 0)?.id === 'deckel', 'B: the lower region is covered everywhere');
+  pruefe(tB !== null && inside(lB, untenR, tB.x, tB.z), 'B: a covered region gets a target inside itself');
+  if (tB) pruefe(checkJump(lB, qB.g, tB.x, tB.z).ok, 'B: and the jump there is accepted');
+
+  // C: the real dev world in every draw order that matters: reversed, rotated. Each region keeps a target inside itself.
+  const ordnungen: Array<[string, RegionDef[]]> = [
+    ['reversed', [...layout.regions].reverse()],
+    ['rotated by 5', [...layout.regions.slice(5), ...layout.regions.slice(0, 5)]],
+    ['rotated by 11', [...layout.regions.slice(11), ...layout.regions.slice(0, 11)]],
+  ];
+  for (const [name, regionen] of ordnungen) {
+    const l = mitRegionen(regionen);
+    const q = quellen(l);
+    const liste = islandList(l, q.g, q.e);
+    const ohne = liste.filter((e) => e.target === null).map((e) => e.id);
+    pruefe(ohne.length === 0, `C (${name}): every region has a target (missing: ${ohne.join(', ') || 'none'})`);
+    for (const e of liste) {
+      if (!e.target) continue;
+      const r = l.regions.find((k) => k.id === e.id)!;
+      const h = q.g(e.target.x, e.target.z) - WATER_LEVEL;
+      pruefe(signedDistance(r.shape, e.target.x, e.target.z) >= 0, `C (${name}): ${e.id}: target inside the region`);
+      pruefe(checkJump(l, q.g, e.target.x, e.target.z).ok, `C (${name}): ${e.id}: the jump is accepted`);
+      pruefe(h >= MIN_ABOVE_WATER, `C (${name}): ${e.id}: above water (${h.toFixed(2)} m)`);
+    }
+  }
 }
 
 console.log(`\n${geprueft - fehler}/${geprueft} checks passed`);

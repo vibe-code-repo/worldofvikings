@@ -29,7 +29,7 @@ import { RoutenVorschau } from '../RoutenVorschau';
 import { BewuchsVorschau } from '../BewuchsVorschau';
 import { LageAnzeige } from './LageAnzeige';
 import { positionLines } from './inselwahl';
-import { sendReturnFromBrowser } from './ruecksprung';
+import { planReturn, sendReturnFromBrowser } from './ruecksprung';
 import type { TestflugKontext } from './TestflugKontext';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz } from './TestflugPersistenz';
 
@@ -512,22 +512,34 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       const player = kontext.player();
       if (tipptImFeld(e) || e.code !== 'KeyQ' || e.repeat || !player) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const gesendet = sendReturnFromBrowser({
-        x: player.position.x,
-        z: player.position.z,
-        yaw: player.yaw,
-        at: Date.now(),
-      });
-      if (!gesendet) {
-        hud.meldung('Rückweg nicht möglich — der Browser-Speicher ist gesperrt');
+      // Only a tab opened by the editor may close itself.
+      const plan = planReturn(abgelehnt !== null, window.opener != null);
+      if (plan === 'stay') {
+        hud.meldung('Der Sprung wurde abgelehnt, es gibt keine Stelle für die Karte — diesen Tab bitte selbst schließen');
         return;
       }
-      hud.meldung('Zurück zur Karte …');
-      // Only a tab opened by the editor may close itself; otherwise say so.
-      window.close();
+      if (plan === 'send') {
+        const gesendet = sendReturnFromBrowser({
+          x: player.position.x,
+          z: player.position.z,
+          yaw: player.yaw,
+          at: Date.now(),
+        });
+        if (!gesendet) {
+          hud.meldung('Rückweg nicht möglich — der Browser hat keinen Kanal zum Editor');
+          return;
+        }
+        hud.meldung('Zurück zur Karte …');
+      }
+      // A beat after the message, so it is on its way before the tab goes.
+      setTimeout(() => window.close(), 150);
       setTimeout(() => {
-        hud.meldung('Karte ist zentriert — diesen Tab bitte selbst schließen');
-      }, 400);
+        hud.meldung(
+          plan === 'send'
+            ? 'Karte ist zentriert — diesen Tab bitte selbst schließen'
+            : 'Diesen Tab bitte selbst schließen'
+        );
+      }, 600);
     });
 
     scene.onBeforeRenderObservable.add(() => {

@@ -42,6 +42,14 @@ export const JUMP_CLEARANCE = 2;
  */
 export const MIN_ABOVE_WATER = 0.5;
 
+/**
+ * Where an island target is searched, ground should stand at least this far
+ * above the water line: a target 1 m over the line is a wet beach (measured
+ * on three of the 19 dev regions before this rule). Low-lying regions (a
+ * swamp whose highest point is 3 m) take the best they have instead.
+ */
+export const TARGET_HEIGHT = 5;
+
 /** Coordinates in the jump URL are rounded to this step (m). */
 const COORDINATE_STEP = 0.1;
 
@@ -181,21 +189,30 @@ export function regionCentre(region: RegionDef): { x: number; z: number } {
   return s.kind === 'circle' ? { x: s.x, z: s.z } : polygonCentroid(s.points);
 }
 
-/** Samples per axis of the fallback search. */
+/** Samples per axis of the search. */
 const SEARCH_GRID = 41;
 /** How many of the best candidates are confirmed against the real ground height. */
 const SEARCH_CONFIRM = 8;
 
 /**
- * Jump target for a region: its centre when that is land of THIS region,
- * otherwise the most inland land point found on a grid (a crescent island's
- * centroid lies in the bay; a swamp's centre can sit under water).
- * Null when nothing on the grid is land — the region is water or covered by
- * later regions.
+ * Jump target for a region: its centre when that is high land of THIS region,
+ * otherwise the best land point found on a grid over its bounds.
+ *
+ * Which grid points count: those the region OWNS (it is the topmost region
+ * there). Only when it owns none — it lies completely under later regions —
+ * the points inside it that a later region covers count; a target the player
+ * asked for by region name must not land on another region's mountain.
+ * Ranking of those points (cheap `estimate` heights):
+ *   1. height: points at least `TARGET_HEIGHT` above the water line come
+ *      first. When none exists (a swamp) the HIGHEST points come first and
+ *      the distance from the edge is no longer asked for;
+ *   2. inland: the farthest from the region edge.
+ * The best few are then confirmed with the real ground height (`ground`, one
+ * height zone per call, ~4 ms, and up to a few metres different from the
+ * estimate). Null when nothing on the grid is land at all.
  *
  * `estimate` is a cheap height (the world generator, ~10 µs) used to pre-sort
- * the grid; the real `ground` (one height zone per call, ~4 ms, and up to a
- * few metres different) decides. Without it the search would cost seconds.
+ * the grid; without it the search would cost seconds.
  */
 export function islandCentre(
   layout: WorldLayout,
@@ -203,35 +220,55 @@ export function islandCentre(
   ground: GroundHeight,
   estimate: GroundHeight = ground
 ): { x: number; z: number } | null {
+  const high = (g: number): boolean => g >= WATER_LEVEL + TARGET_HEIGHT;
   const c = regionCentre(region);
-  const usable = (x: number, z: number): boolean => {
-    const t = checkJump(layout, ground, x, z);
-    return t.ok && t.region === region;
-  };
-  if (usable(c.x, c.z)) return { x: roundCoordinate(c.x), z: roundCoordinate(c.z) };
+  const cx = roundCoordinate(c.x);
+  const cz = roundCoordinate(c.z);
+  const centre = checkJump(layout, ground, cx, cz);
+  if (centre.ok && centre.region === region && high(centre.ground)) return { x: cx, z: cz };
 
   const b = shapeBounds(region.shape);
-  const candidates: Array<{ x: number; z: number; d: number; near: number }> = [];
+  interface Candidate {
+    x: number;
+    z: number;
+    /** Estimated height above the water line (m). */
+    h: number;
+    owned: boolean;
+    /** Distance from the region edge (m). */
+    d: number;
+    near: number;
+  }
+  const candidates: Candidate[] = [];
   for (let i = 0; i < SEARCH_GRID; i++) {
     for (let j = 0; j < SEARCH_GRID; j++) {
-      const x = b.minX + ((i + 0.5) / SEARCH_GRID) * (b.maxX - b.minX);
-      const z = b.minZ + ((j + 0.5) / SEARCH_GRID) * (b.maxZ - b.minZ);
-      if (regionAt(layout, x, z) !== region) continue;
-      if (!(estimate(x, z) >= WATER_LEVEL + MIN_ABOVE_WATER)) continue;
-      candidates.push({
-        x,
-        z,
-        d: signedDistance(region.shape, x, z),
-        near: Math.hypot(x - c.x, z - c.z),
-      });
+      const x = roundCoordinate(b.minX + ((i + 0.5) / SEARCH_GRID) * (b.maxX - b.minX));
+      const z = roundCoordinate(b.minZ + ((j + 0.5) / SEARCH_GRID) * (b.maxZ - b.minZ));
+      const d = signedDistance(region.shape, x, z);
+      if (!(d >= 0)) continue;
+      const h = estimate(x, z) - WATER_LEVEL;
+      if (!(h >= MIN_ABOVE_WATER)) continue;
+      candidates.push({ x, z, h, owned: regionAt(layout, x, z) === region, d, near: Math.hypot(x - c.x, z - c.z) });
     }
   }
-  // Most inland first (distance to the region edge), then nearest to the centre.
-  candidates.sort((p, q) => q.d - p.d || p.near - q.near);
-  for (const cand of candidates.slice(0, SEARCH_CONFIRM)) {
-    if (usable(cand.x, cand.z)) return { x: roundCoordinate(cand.x), z: roundCoordinate(cand.z) };
+  if (candidates.length === 0) return null;
+  const owned = candidates.filter((k) => k.owned);
+  const pool = owned.length > 0 ? owned : candidates;
+  const hasHigh = pool.some((k) => k.h >= TARGET_HEIGHT);
+  pool.sort((p, q) => {
+    const ph = p.h >= TARGET_HEIGHT;
+    const qh = q.h >= TARGET_HEIGHT;
+    if (ph !== qh) return ph ? -1 : 1;
+    return (hasHigh ? q.d - p.d : q.h - p.h) || p.near - q.near;
+  });
+
+  let best: { x: number; z: number; ground: number } | null = null;
+  for (const cand of pool.slice(0, SEARCH_CONFIRM)) {
+    const t = checkJump(layout, ground, cand.x, cand.z);
+    if (!t.ok) continue;
+    if (high(t.ground)) return { x: cand.x, z: cand.z };
+    if (!best || t.ground > best.ground) best = { x: cand.x, z: cand.z, ground: t.ground };
   }
-  return null;
+  return best ? { x: best.x, z: best.z } : null;
 }
 
 /** One row of the island pick, without the jump target (that needs heights). */

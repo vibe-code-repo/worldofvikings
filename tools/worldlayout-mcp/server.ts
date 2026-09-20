@@ -82,7 +82,6 @@ import {
   pruefeLayout,
   layoutBounds,
   layoutKennung,
-  neuePlatzierungsId,
   RegionGeo,
   createGeo,
   getStableHash,
@@ -99,6 +98,7 @@ import {
   type PlacementDef,
   type BiomeName,
 } from '@wov/shared';
+import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { PLATZIERUNGEN_GRENZE } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { ID_RE } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
@@ -630,7 +630,10 @@ mcp.tool(
     if (id !== undefined && !ID_RE.test(id)) {
       return fehler('Abgelehnt: ungültige id (erlaubt: a-z, 0-9, - und _, höchstens 64 Zeichen, nicht mit - oder _ beginnen).');
     }
-    const neueId = id ?? neuePlatzierungsId(layout, platzierung);
+    // Eine NEUE Platzierung bekommt eine id mit Zufallsschwanz, nie die abgeleitete: `placement_delete` und ein
+    // gleichartiges `placement_set` am selben Ort ergäben sonst dieselbe id, und der Spielserver hielte das für
+    // dasselbe Objekt (samt Zustand, etwa Truheninhalt).
+    const neueId = id ?? frischePlatzierungsId(layout, platzierung);
     const ersetzt = bestehend.some((p) => p.id === neueId);
     const ohne = bestehend.filter((p) => p.id !== neueId);
     // Der Sanitizer schneidet still bei PLATZIERUNGEN_GRENZE ab und liesse die

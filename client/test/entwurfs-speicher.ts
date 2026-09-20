@@ -16,10 +16,11 @@
  *
  * Lauf:  npx tsx test/entwurfs-speicher.ts
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
+import * as ts from 'typescript';
 import {
   EntwurfsSpeicher,
   SchrittVerlauf,
@@ -65,9 +66,21 @@ const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
 
 let fehler = 0;
+let gut = 0;
+// Expected number of checks. A cut-short run (`process.exit(0)`, an exception, a section that never ran) prints no ✗ line and
+// may even exit 0 -- counted as "0 red" it would pass. So the exit hook prints a red line and sets the exit code, and the end
+// compares ✓ + ✗ with this number.
+const SOLL = 315;
+let fertig = false;
+process.on('exit', () => {
+  if (fertig) return;
+  console.log(`  ✗ abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+  process.exitCode = 1;
+});
 function check(name: string, ok: boolean, zusatz = ''): void {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${zusatz ? ` (${zusatz})` : ''}`);
   if (!ok) fehler++;
+  else gut++;
 }
 
 // ── Attrappe: ein Browser-Profil mit mehreren Tabs ───────────────────
@@ -2012,13 +2025,512 @@ console.log('▶ Import: Basis null; „Entwurf behalten“ danach setzt die gez
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
   const quelle = readFileSync(resolve(HIER, '../src/editor/editorMain.ts'), 'utf-8');
-  const zweig = /if \(werkzeug === 'platzieren'\) \{([\s\S]*?)\n  \}/.exec(quelle)?.[1] ?? '';
-  const iMerke = zweig.indexOf('merkeSchritt();');
-  const iSetzen = zweig.indexOf('layoutMitPlatzierung(');
-  const iSpeichern = zweig.indexOf('speichereEntwurf();');
-  check('Platzieren-Zweig gefunden', zweig.length > 0);
-  check('merkeSchritt() steht VOR dem Setzen des Layouts', iMerke >= 0 && iSetzen > iMerke && iSpeichern > iSetzen, `Positionen ${iMerke} < ${iSetzen} < ${iSpeichern}`);
-  check('Zufalls-Yaw bleibt (Math.random() * Math.PI * 2)', /Math\.random\(\) \* Math\.PI \* 2/.test(zweig));
+  // Das Platzieren lief früher als Zweig `if (werkzeug === 'platzieren')` in editorMain.ts; es ist ein Registry-Werkzeug
+  // (werkzeuge/platzieren.ts), und was ein Werkzeug am Dokument ändert, geht durch den Kontext in werkzeuge/kontext.ts.
+  // Die Zusagen von damals werden hier am VERHALTEN geprüft, nicht mehr im Quelltext gesucht (`if (false) merkeSchritt();`
+  // und ein auskommentierter Aufruf bestünden eine Textsuche): (a) vor jeder Änderung ein Rückgängig-Schritt, (b) danach
+  // das Speichern, in dieser Reihenfolge, (c) Rückgängig bringt das Dokument byte-gleich zurück, (d) die Zufallsdrehung
+  // steht im Werkzeug. Dem Quelltext bleibt eine Aussage: editorMain.ts benutzt diesen Kontext.
+  let kontextModul: typeof import('../src/editor/werkzeuge/kontext') | null = null;
+  let platzierenModul: typeof import('../src/editor/werkzeuge/platzieren') | null = null;
+  let seeModul: typeof import('../src/editor/werkzeuge/see') | null = null;
+  let flussModul: typeof import('../src/editor/werkzeuge/fluss') | null = null;
+  try {
+    seeModul = await import('../src/editor/werkzeuge/see');
+    flussModul = await import('../src/editor/werkzeuge/fluss');
+    kontextModul = await import('../src/editor/werkzeuge/kontext');
+    platzierenModul = await import('../src/editor/werkzeuge/platzieren');
+  } catch (e) {
+    console.log(`  (Werkzeug-Module fehlen: ${(e as Error).message.split('\n')[0]})`);
+  }
+  const gleichMenge = (a: string[], b: string[]): boolean => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+  const versuche = (f: () => boolean): boolean => {
+    try {
+      return f();
+    } catch {
+      return false;
+    }
+  };
+  check(
+    'editorMain.ts hat weder den alten Platzieren-Zweig noch einen eigenen `aendere`',
+    !/werkzeug\s*===\s*['"]platzieren['"]/.test(quelle) && !/aendere:\s*\(neu\)/.test(quelle)
+  );
+  const startDokument = sanitizeWorldLayout(JSON.parse(readFileSync(resolve(WURZEL, 'server/data/welten/dev.json'), 'utf-8')))!;
+  // Der Kern des Editors (werkzeuge/kontext.ts) mit einem Host, der seine Aufrufe protokolliert: `merkeSchritt`, `alles` und der
+  // Rückgängig-Stapel sind die ECHTEN, dieselben, die editorMain.ts benutzt.
+  const neuerKontext = (voll = false, speichergrund: 'ok' | 'fremd' | 'voll' | 'knapp' = 'ok') => {
+    const z = { layout: startDokument, log: [] as string[], aktiv: 'platzieren' };
+    const stapel: { verlauf: { vergangenheit: readonly WorldLayout[] } | null } = { verlauf: null };
+    const rebuild = (name: string) => () => {
+      if (voll) z.log.push(name);
+    };
+    const kern = kontextModul!.erzeugeEditorKern({
+      layout: () => z.layout,
+      setzeLayout: (n) => {
+        z.log.push(`setzeLayout@${stapel.verlauf!.vergangenheit.length}`);
+        z.layout = n;
+      },
+      beiAbgang: () => undefined,
+      nachSchritt: (ersetzt) => void z.log.push(`nachSchritt:${ersetzt}`),
+      speichereEntwurf: (quelleDesStands) => {
+        z.log.push(`speichere:${quelleDesStands}`);
+        return speichergrund;
+      },
+      seiteBauen: rebuild('seite'),
+      pruefberichtBauen: rebuild('bericht'),
+      weltSektionBauen: rebuild('welt'),
+      kartenMassBauen: rebuild('mass'),
+      zeichneOverlay: rebuild('overlay'),
+      faerbeSpeicherKnopf: rebuild('knopf'),
+      vorschauAnstossen: () => void z.log.push('vorschau'),
+      werkzeugId: () => z.aktiv,
+      zurAuswahl: () => {
+        z.aktiv = 'auswahl';
+      },
+      meldung: () => undefined,
+      zuBild: (x, y) => [x, y],
+      massstab: () => 1,
+      bestaetige: () => true,
+    });
+    stapel.verlauf = kern.verlauf;
+    return { z, verlauf: kern.verlauf, kern, ctx: kern.werkzeugKontext };
+  };
+  const klick = (x: number, zz: number) => ({ weltX: x, weltZ: zz, shiftKey: false });
+  check(
+    '(a) ctx.aendere: erst der Rückgängig-Schritt (im echten Kern-`merkeSchritt`), dann setzeLayout (der Stapel hat den Schritt beim Setzen schon: setzeLayout@1), ein Schritt mit dem alten Dokument',
+    versuche(() => {
+      const { z, verlauf, ctx } = neuerKontext();
+      const neu = { ...startDokument, name: 'anders' };
+      ctx.aendere(neu);
+      return z.log.join(',') === 'nachSchritt:false,setzeLayout@1' && z.layout === neu && verlauf.vergangenheit.length === 1 && verlauf.vergangenheit[0] === startDokument;
+    })
+  );
+  check(
+    '(b) ctx.uebernommen: das echte `alles` des Kerns (speichert den Entwurf), danach die Vorschau; ctx.zurAuswahl setzt das Werkzeug zurück',
+    versuche(() => {
+      const { z, ctx } = neuerKontext();
+      ctx.uebernommen();
+      ctx.zurAuswahl();
+      return z.log.join(',') === 'speichere:bearbeitet,vorschau' && z.aktiv === 'auswahl';
+    })
+  );
+  check(
+    '(c) ein echtes Werkzeug (setzen, wählen+Feld-Änderung nicht nötig: setzen, setzen, löschen): je Änderung ändern → speichern in dieser Reihenfolge, 3 Rückgängig-Schritte, 3 × Undo bytegleich zum Start',
+    versuche(() => {
+      const { z, verlauf, ctx } = neuerKontext();
+      const t = platzierenModul!.erzeugePlatzieren({ zufall: () => 0.25, merkePrefab: () => undefined });
+      t.beiZeigerRunter(ctx, klick(8000, 8000));
+      t.beiZeigerRunter(ctx, klick(8040, 8000));
+      t.beiTaste!(ctx, { code: 'Delete' });
+      const je = (k: number) => ['nachSchritt:false', `setzeLayout@${k}`, 'speichere:bearbeitet', 'vorschau'];
+      const reihenfolge = z.log.join(',') === [...je(1), ...je(2), ...je(3)].join(',');
+      const enthalten = startDokument.placements!.length + 1;
+      const nachher = z.layout.placements!.length === enthalten;
+      let l = z.layout;
+      for (let k = 0; k < 3; k++) l = verlauf.zurueck(l)!;
+      return reihenfolge && nachher && verlauf.vergangenheit.length === 0 && JSON.stringify(l) === JSON.stringify(startDokument);
+    })
+  );
+  check(
+    '(d) Zufalls-Yaw bleibt: das Werkzeug setzt mit zufall() × 2π (auf 0,001 gerundet); ein festes zufall() = 0,25 gibt 1,571',
+    versuche(() => {
+      const { z, ctx } = neuerKontext();
+      const t = platzierenModul!.erzeugePlatzieren({ zufall: () => 0.25, merkePrefab: () => undefined });
+      t.beiZeigerRunter(ctx, klick(8000, 8000));
+      const neu = z.layout.placements!.find((p) => !startDokument.placements!.some((q) => q.id === p.id));
+      return neu?.yaw === 1.571;
+    })
+  );
+  check(
+    '(c2) die anderen Werkzeuge der Registry (See, Fluss) gehen durch DENSELBEN Kontext: je Änderung ändern → speichern, ein Schritt, Undo bytegleich',
+    versuche(() => {
+      const { z, verlauf, ctx } = neuerKontext();
+      const see = seeModul!.erzeugeSee();
+      z.aktiv = 'see';
+      see.beiZeigerRunter(ctx, klick(9000, 9000));
+      const fluss = flussModul!.erzeugeFluss();
+      z.aktiv = 'fluss';
+      fluss.beiZeigerRunter(ctx, klick(100, 100));
+      fluss.beiZeigerRunter(ctx, klick(900, 100));
+      fluss.beiDoppelklick!(ctx);
+      const je = (k: number) => ['nachSchritt:false', `setzeLayout@${k}`, 'speichere:bearbeitet', 'vorschau'];
+      let l = z.layout;
+      for (let k = 0; k < 2; k++) l = verlauf.zurueck(l)!;
+      return z.log.join(',') === [...je(1), ...je(2)].join(',') && z.layout.lakes?.length === (startDokument.lakes?.length ?? 0) + 1 && z.layout.rivers?.length === (startDokument.rivers?.length ?? 0) + 1 && JSON.stringify(l) === JSON.stringify(startDokument);
+    })
+  );
+  // ── Der Kern selbst: `merkeSchritt` und `alles`, wirklich ausgeführt ──
+  check(
+    '(e) alles(): speichert ZUERST, dann Seite, Prüfbericht, Welt-Sektion, Kartenmaß, Overlay, Speicherknopf — in dieser Reihenfolge; gibt den Grund des Speicherns zurück',
+    versuche(() => {
+      const { z, kern } = neuerKontext(true, 'voll');
+      const grund = kern.alles('import');
+      return z.log.join(',') === 'speichere:import,seite,bericht,welt,mass,overlay,knopf' && grund === 'voll';
+    })
+  );
+  check(
+    "(e) alles('server', false): schreibt NICHT, baut aber alles; Vorgabe ohne Argumente = 'bearbeitet'",
+    versuche(() => {
+      const a = neuerKontext(true);
+      const grund = a.kern.alles('server', false);
+      const b = neuerKontext(true);
+      b.kern.alles();
+      return a.z.log.join(',') === 'seite,bericht,welt,mass,overlay,knopf' && grund === 'ok' && b.z.log[0] === 'speichere:bearbeitet';
+    })
+  );
+  check(
+    '(e) merkeSchritt(): legt einen Schritt an und meldet dem Editor `nachSchritt(false)`; merkeSchritt(true) (ersetzen) meldet `nachSchritt(true)`; der Stapel gehört dem Kern (kern.verlauf)',
+    versuche(() => {
+      const { z, kern } = neuerKontext();
+      kern.merkeSchritt();
+      kern.merkeSchritt(true);
+      return z.log.join(',') === 'nachSchritt:false,nachSchritt:true' && kern.verlauf.vergangenheit.length === 2 && kern.verlauf.vergangenheit[0] === startDokument;
+    })
+  );
+
+  check(
+    '(f) jedes Glied des Kontexts leitet an den Host weiter — mit denselben Argumenten und dem Rückgabewert (layout, werkzeugId, zurAuswahl, meldung, zuBild, massstab, bestaetige, seiteNeuBauen, neuZeichnen)',
+    versuche(() => {
+      const log: string[] = [];
+      const kern = kontextModul!.erzeugeEditorKern({
+        layout: () => startDokument,
+        setzeLayout: () => undefined,
+        beiAbgang: () => undefined,
+        nachSchritt: () => undefined,
+        speichereEntwurf: () => 'ok',
+        seiteBauen: () => void log.push('seite'),
+        pruefberichtBauen: () => undefined,
+        weltSektionBauen: () => undefined,
+        kartenMassBauen: () => undefined,
+        zeichneOverlay: () => void log.push('overlay'),
+        faerbeSpeicherKnopf: () => undefined,
+        vorschauAnstossen: () => void log.push('vorschau'),
+        werkzeugId: () => 'fluss',
+        zurAuswahl: () => void log.push('auswahl'),
+        meldung: (t, f) => void log.push(`meldung:${t}:${f}`),
+        zuBild: (x, y) => [y, x],
+        massstab: () => 7,
+        bestaetige: (q) => q === 'ja',
+      });
+      const c = kern.werkzeugKontext;
+      c.seiteNeuBauen();
+      c.neuZeichnen();
+      c.zurAuswahl();
+      c.meldung('hallo', true);
+      c.meldung('still');
+      return (
+        c.layout() === startDokument &&
+        c.werkzeugId() === 'fluss' &&
+        JSON.stringify(c.zuBild(1, 2)) === '[2,1]' &&
+        c.massstab() === 7 &&
+        c.bestaetige('ja') === true &&
+        c.bestaetige('nein') === false &&
+        log.join(',') === 'seite,overlay,auswahl,meldung:hallo:true,meldung:still:undefined'
+      );
+    })
+  );
+  check(
+    '(g) der Kontext und der Kern sind eingefroren: ein nachträgliches Überschreiben (Object.assign, Zuweisung an ein Glied) wirft und ändert nichts',
+    versuche(() => {
+      const { kern, ctx } = neuerKontext();
+      const vorher = [ctx.aendere, ctx.uebernommen];
+      let geworfen = 0;
+      try {
+        Object.assign(ctx, { aendere: () => undefined });
+      } catch {
+        geworfen++;
+      }
+      try {
+        (ctx as unknown as Record<string, unknown>).uebernommen = () => undefined;
+      } catch {
+        geworfen++;
+      }
+      try {
+        (kern as unknown as Record<string, unknown>).merkeSchritt = () => undefined;
+      } catch {
+        geworfen++;
+      }
+      return Object.isFrozen(ctx) && Object.isFrozen(kern) && geworfen === 3 && ctx.aendere === vorher[0] && ctx.uebernommen === vorher[1];
+    })
+  );
+
+  check(
+    '(h) Spione: `uebernommen()` speichert WIRKLICH (ein Aufruf `speichereEntwurf` mit \'bearbeitet\'), und jedes Glied reicht seine Argumente und Rückgabewerte unverändert durch (markante Werte)',
+    versuche(() => {
+      const gesehen: Record<string, unknown[][]> = {};
+      const spion =
+        <A extends unknown[], R>(name: string, antwort: (...a: A) => R) =>
+        (...a: A): R => {
+          (gesehen[name] ??= []).push(a);
+          return antwort(...a);
+        };
+      const s = (name: string): unknown[][] => gesehen[name] ?? [];
+      const markant = { ...startDokument, name: 'markant-42' };
+      let aktuell: WorldLayout = startDokument;
+      const kern = kontextModul!.erzeugeEditorKern({
+        layout: spion('layout', () => aktuell),
+        setzeLayout: spion('setzeLayout', (n: WorldLayout) => void (aktuell = n)),
+        beiAbgang: spion('beiAbgang', () => undefined),
+        nachSchritt: spion('nachSchritt', () => undefined),
+        speichereEntwurf: spion('speichere', () => 'knapp' as const),
+        seiteBauen: spion('seite', () => undefined),
+        pruefberichtBauen: spion('bericht', () => undefined),
+        weltSektionBauen: spion('welt', () => undefined),
+        kartenMassBauen: spion('mass', () => undefined),
+        zeichneOverlay: spion('overlay', () => undefined),
+        faerbeSpeicherKnopf: spion('knopf', () => undefined),
+        vorschauAnstossen: spion('vorschau', () => undefined),
+        werkzeugId: spion('werkzeugId', () => 'markant-see'),
+        zurAuswahl: spion('zurAuswahl', () => undefined),
+        meldung: spion('meldung', () => undefined),
+        zuBild: spion('zuBild', (x: number, y: number): [number, number] => [y * 2, x * 3]),
+        massstab: spion('massstab', () => 13),
+        bestaetige: spion('bestaetige', (q: string) => q === 'Frage-9'),
+      });
+      const c = kern.werkzeugKontext;
+      c.aendere(markant);
+      c.uebernommen();
+      c.meldung('Text-7', true);
+      c.meldung('nur-Text');
+      const bild = c.zuBild(123.5, -7);
+      const ja = c.bestaetige('Frage-9');
+      const nein = c.bestaetige('andere-Frage');
+      c.zurAuswahl();
+      const grund = kern.alles('import');
+      kern.merkeSchritt(true);
+      for (let i = 0; i < 60; i++) kern.merkeSchritt(); // more than the 50 the stack keeps: the oldest steps leave through `beiAbgang`
+      const j = (x: unknown): string => JSON.stringify(x);
+      return (
+        j(s('speichere')) === j([['bearbeitet'], ['import']]) &&
+        grund === 'knapp' &&
+        s('setzeLayout').length === 1 &&
+        s('setzeLayout')[0]![0] === markant &&
+        j(s('nachSchritt').slice(0, 2)) === j([[false], [true]]) &&
+        s('vorschau').length === 1 &&
+        j(s('meldung')) === j([['Text-7', true], ['nur-Text', undefined]]) &&
+        j(s('zuBild')) === j([[123.5, -7]]) &&
+        j(bild) === j([-14, 370.5]) &&
+        j(s('bestaetige')) === j([['Frage-9'], ['andere-Frage']]) &&
+        ja === true &&
+        nein === false &&
+        c.massstab() === 13 &&
+        c.werkzeugId() === 'markant-see' &&
+        s('zurAuswahl').length === 1 &&
+        s('layout').every((a) => a.length === 0) &&
+        s('beiAbgang').length > 0 &&
+        s('beiAbgang').every((a) => typeof a[1] === 'string')
+      );
+    })
+  );
+
+  // ── Die Verdrahtung in editorMain.ts: am SYNTAXBAUM, nicht am Text ──
+  // GRENZE: Das hier ist eine STÜTZE, kein Beweis. Die eigentliche Absicherung ist der Verhaltenstest des Kerns oben
+  // ((a)–(g)): Er führt `merkeSchritt`, `alles`, den Rückgängig-Stapel und den Kontext wirklich aus. Am Quelltext von
+  // `editorMain.ts` wird nur geprüft, dass der Editor DIESEN Kern benutzt und ihm echte Funktionen gibt.
+  //  - Egal: Umbrüche, Anführungszeichen, Kommentare, Typannotationen, eine Hilfsvariable für den Host, `...host`, ein
+  //    Pfeil um eine Funktion (auch mit durchgereichten Parametern), ein Alias `const ktx = werkzeugKontext` an einem Haken.
+  //  - Rot: ein zweiter Kern oder ein zweiter Bau des Kontexts (in ganz client/src), ein Werkzeug-Haken mit einem anderen
+  //    Kontext, ein Schreibzugriff auf `werkzeugKontext` (Zuweisung, Object.assign, defineProperty), und JEDES Glied des Kerns,
+  //    das nicht die erwartete Durchreichung ist (`setzeLayout: () => undefined`, `werkzeugId: () => 'see'`, eine Attrappe
+  //    statt einer echten Editor-Funktion).
+  //  - NICHT gefangen (bewusst hingenommen, jede dieser Umgehungen verlangt Absicht und ein Prüfer, der sie alle sähe, wäre
+  //    ein Programmanalysator): ein geklammerter Aufruf `(erzeugeEditorKern)({…})`; ein Alias-Import
+  //    (`erzeugeWerkzeugKontext as ewk`); ein von Hand gebautes Kontext-Literal ohne Fabrikaufruf; ein Element-Zugriff auf den
+  //    Haken (`w?.['beiZeigerRunter']?.(…)`); eine Decoy-Deklaration (eine frühere, verschachtelte Funktion oder Variable
+  //    gleichen Namens, auf die sich die Prüfung stützt, während der Kern eine andere benutzt).
+  //  - Ebenfalls NICHT gefangen: die RÜMPFE der Editor-Funktionen (dass `zeichneOverlay()` wirklich zeichnet, `seiteBauen()` die
+  //    Seite baut …; einzige Ausnahme unten: der eine Schreibaufruf in `speichereEntwurf`), ein Überschreiben eines Browser-Globals
+  //    (`window.confirm = () => true`), und die Rümpfe in `nachSchritt` (etwa den Merker danach zurücksetzen).
+  //  - Das Einfrieren ist FLACH: `Object.freeze` schützt Kontext und Kern-Objekt, nicht das verschachtelte `kern.verlauf` (der
+  //    Rückgängig-Stapel): `kern.verlauf.merke = () => undefined` verdeckt die Methode still. Erreichbar nur aus `editorMain.ts`;
+  //    bewusst nicht gebaut (ein eingefrorener `SchrittVerlauf` wäre ein Umbau der Klasse).
+  //  - Was der Verhaltenstest des Kerns dagegen sieht ((a)–(h), mit Spionen für die Host-Funktionen): dass `uebernommen()` speichert,
+  //    dass jedes Glied seine Argumente und Rückgabewerte durchreicht, dass der Stapel Schritte anlegt und abgibt.
+  const kernQuelle = readFileSync(resolve(HIER, '../src/editor/werkzeuge/kontext.ts'), 'utf-8');
+  const baum = (text: string, name: string): ts.SourceFile => ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const knoten = (sf: ts.Node): ts.Node[] => {
+    const liste: ts.Node[] = [];
+    const gehe = (n: ts.Node): void => {
+      liste.push(n);
+      ts.forEachChild(n, gehe);
+    };
+    gehe(sf);
+    return liste;
+  };
+  const aufrufeIn = (sf: ts.SourceFile): ts.CallExpression[] => knoten(sf).filter(ts.isCallExpression);
+  const aufrufName = (c: ts.CallExpression): string | null =>
+    ts.isIdentifier(c.expression) ? c.expression.text : ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : null;
+  const haupt = baum(quelle, 'editorMain.ts');
+  const kernAufrufe = aufrufeIn(haupt).filter((c) => aufrufName(c) === 'erzeugeEditorKern');
+  check(
+    'editorMain.ts: `erzeugeEditorKern` wird aus werkzeuge/kontext importiert und GENAU EINMAL aufgerufen (ein Kern, ein Kontext)',
+    kernAufrufe.length === 1 &&
+      knoten(haupt).some(
+        (n) =>
+          ts.isImportDeclaration(n) &&
+          ts.isStringLiteral(n.moduleSpecifier) &&
+          /\/werkzeuge\/kontext$/.test(n.moduleSpecifier.text) &&
+          n.importClause?.namedBindings !== undefined &&
+          ts.isNamedImports(n.importClause.namedBindings) &&
+          n.importClause.namedBindings.elements.some((e) => e.name.text === 'erzeugeEditorKern')
+      ),
+    `${kernAufrufe.length} Aufrufe`
+  );
+  const nurKern = (dir: string, aus: string[] = []): string[] => {
+    for (const name of readdirSync(dir)) {
+      const pfad = resolve(dir, name);
+      if (statSync(pfad).isDirectory()) nurKern(pfad, aus);
+      else if (/\.tsx?$/.test(name)) aus.push(pfad);
+    }
+    return aus;
+  };
+  const bauer: string[] = [];
+  for (const datei of nurKern(resolve(HIER, '../src'))) {
+    const text = readFileSync(datei, 'utf-8');
+    if (!/erzeugeWerkzeugKontext|erzeugeEditorKern/.test(text)) continue;
+    for (const c of aufrufeIn(baum(text, datei))) {
+      const n = aufrufName(c);
+      if (n === 'erzeugeWerkzeugKontext' || n === 'erzeugeEditorKern') bauer.push(`${datei.slice(datei.lastIndexOf('/') + 1)}:${n}`);
+    }
+  }
+  check('in ganz client/src baut GENAU EINE Stelle den Kontext: `erzeugeWerkzeugKontext` einmal (im Kern), `erzeugeEditorKern` einmal (editorMain.ts)', gleichMenge(bauer, ['editorMain.ts:erzeugeEditorKern', 'kontext.ts:erzeugeWerkzeugKontext']), bauer.join(', '));
+  const kernNamen = new Set<string>();
+  for (const n of knoten(haupt)) {
+    if (ts.isVariableDeclaration(n) && n.initializer && ts.isIdentifier(n.name) && ts.isCallExpression(n.initializer) && aufrufName(n.initializer) === 'erzeugeEditorKern') kernNamen.add(n.name.text);
+  }
+  const kontextVars = knoten(haupt).filter(
+    (n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === 'werkzeugKontext'
+  );
+  const ausKern = (e: ts.Expression | undefined): boolean =>
+    e !== undefined &&
+    ts.isPropertyAccessExpression(e) &&
+    e.name.text === 'werkzeugKontext' &&
+    ((ts.isIdentifier(e.expression) && kernNamen.has(e.expression.text)) || (ts.isCallExpression(e.expression) && aufrufName(e.expression) === 'erzeugeEditorKern'));
+  check(
+    'editorMain.ts: `werkzeugKontext` ist die benannte, ausgeführte Konstante des einen Kerns (kern.werkzeugKontext) und wird exportiert',
+    kontextVars.length === 1 &&
+      ausKern(kontextVars[0]!.initializer) &&
+      ts.isVariableStatement(kontextVars[0]!.parent.parent) &&
+      (ts.getModifiers(kontextVars[0]!.parent.parent as ts.VariableStatement) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+  );
+  const HAKEN = ['beiZeigerRunter', 'beiZeigerBewegt', 'beiZeigerHoch', 'beiZeigerAbbruch', 'beiFlaechenKlick', 'beiDoppelklick', 'beiTaste', 'zeichneOverlay', 'seitenleiste', 'abbrechen'];
+  const hakenAufrufe = aufrufeIn(haupt).filter((c) => ts.isPropertyAccessExpression(c.expression) && HAKEN.includes(aufrufName(c)!) && c.arguments.length > 0);
+  // `const ktx = werkzeugKontext;` ist dasselbe Objekt: ein Alias zählt, wenn er (über höchstens 4 Stufen) auf `werkzeugKontext` zurückgeht
+  const loeseAlias = (id: ts.Identifier, tiefe = 0): string => {
+    if (tiefe > 4) return id.text;
+    const d = knoten(haupt).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === id.text && n.initializer !== undefined && ts.isIdentifier(n.initializer));
+    return d ? loeseAlias(d.initializer as ts.Identifier, tiefe + 1) : id.text;
+  };
+  const fremdeKontexte = hakenAufrufe.filter((c) => !(ts.isIdentifier(c.arguments[0]!) && loeseAlias(c.arguments[0] as ts.Identifier) === 'werkzeugKontext'));
+  check(
+    `editorMain.ts: jeder Werkzeug-Haken (${HAKEN.length} Arten, ${hakenAufrufe.length} Aufrufstellen) bekommt \`werkzeugKontext\` — keiner einen anderen Kontext (abweichend: ${fremdeKontexte.length})`,
+    hakenAufrufe.length >= 12 && fremdeKontexte.length === 0,
+    fremdeKontexte.map((c) => c.getText().slice(0, 60)).join(' | ')
+  );
+  check('… und alle Haken-Arten kommen vor (kein Haken wurde stillschweigend aus dem Editor genommen)', HAKEN.every((h) => hakenAufrufe.some((c) => aufrufName(c) === h)), HAKEN.filter((h) => !hakenAufrufe.some((c) => aufrufName(c) === h)).join(','));
+  // Die großen Editor-Funktionen gehen unverpackt in den Kern (oder in einem Pfeil `() => f()`), nie als Attrappe.
+  const glieder = (e: ts.Expression, sf: ts.SourceFile, tiefe = 0): Map<string, ts.Expression> | null => {
+    if (tiefe > 6) return null;
+    if (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) return glieder(e.expression, sf, tiefe + 1);
+    if (ts.isIdentifier(e)) {
+      const d = knoten(sf).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === e.text && n.initializer !== undefined);
+      return d ? glieder(d.initializer!, sf, tiefe + 1) : null;
+    }
+    if (!ts.isObjectLiteralExpression(e)) return null;
+    const karte = new Map<string, ts.Expression>();
+    for (const p of e.properties) {
+      if (ts.isShorthandPropertyAssignment(p)) karte.set(p.name.text, p.name);
+      else if (ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) karte.set(p.name.text, p.initializer);
+      else if (ts.isSpreadAssignment(p)) {
+        const innen = glieder(p.expression, sf, tiefe + 1);
+        if (!innen) return null;
+        for (const [k, v] of innen) karte.set(k, v);
+      } else return null;
+    }
+    return karte;
+  };
+  // Die Form eines Glieds als kurzer Text: `fn:x` (die Funktion x selbst), `get:x` (`() => x`), `set:x` (`(p) => { x = p; }`),
+  // `setlit:x=text` (`() => { x = 'text'; }`), `call:f(n)` (ein Pfeil oder eine function, die `f(...)` mit GENAU ihren n Parametern in dieser Reihenfolge
+  // ruft, auch als `void f()` oder als Block mit einer Anweisung); alles andere `other` (`() => undefined`, `() => 'see'`, ...).
+  const formVon = (e: ts.Expression | undefined): string => {
+    if (!e) return 'fehlt';
+    if (ts.isIdentifier(e)) return `fn:${e.text}`;
+    if (!ts.isArrowFunction(e) && !ts.isFunctionExpression(e)) return 'other';
+    const params = e.parameters.map((q) => (ts.isIdentifier(q.name) ? q.name.text : '?'));
+    let k: ts.Node = e.body;
+    if (ts.isBlock(k)) {
+      if (k.statements.length !== 1) return 'other';
+      const st = k.statements[0]!;
+      const inneres = ts.isExpressionStatement(st) ? st.expression : ts.isReturnStatement(st) ? st.expression : undefined;
+      if (!inneres) return 'other';
+      k = inneres;
+    }
+    while (ts.isParenthesizedExpression(k) || ts.isVoidExpression(k)) k = k.expression;
+    if (ts.isIdentifier(k)) return params.length === 0 ? `get:${k.text}` : 'other';
+    if (ts.isBinaryExpression(k) && k.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(k.left)) {
+      if (ts.isIdentifier(k.right) && k.right.text === params[0]) return `set:${k.left.text}`;
+      if (ts.isStringLiteral(k.right) && params.length === 0) return `setlit:${k.left.text}=${k.right.text}`;
+      return 'other';
+    }
+    if (ts.isCallExpression(k)) {
+      const args = k.arguments.map((a) => (ts.isIdentifier(a) ? a.text : '?'));
+      return JSON.stringify(args) === JSON.stringify(params) ? `call:${k.expression.getText().replace(/\s+/g, '')}(${params.length})` : 'other';
+    }
+    return 'other';
+  };
+  const kernGlieder = kernAufrufe.length === 1 && kernAufrufe[0]!.arguments[0] ? glieder(kernAufrufe[0]!.arguments[0]!, haupt) : null;
+  const ECHTE = ['beiAbgang', 'speichereEntwurf', 'seiteBauen', 'pruefberichtBauen', 'weltSektionBauen', 'kartenMassBauen', 'zeichneOverlay', 'faerbeSpeicherKnopf', 'vorschauAnstossen'];
+  const deklariert = (name: string): boolean => knoten(haupt).some((n) => ts.isFunctionDeclaration(n) && n.name?.text === name);
+  const gliedText = (name: string): string => (kernGlieder ? `steht: ${kernGlieder.get(name)?.getText().replace(/\s+/g, ' ').slice(0, 50) ?? '(fehlt)'}` : 'Aufruf nicht lesbar');
+  // Die Zahl der Parameter der echten Funktion: `() => zuBild()` (Argumente fallen weg) ist nicht mehr dieselbe Weiterleitung.
+  const stelligkeit = (name: string): number => knoten(haupt).filter((n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n) && n.name?.text === name).map((n) => n.parameters.length)[0] ?? -1;
+  const echteFunktion = (name: string): boolean => kernGlieder !== null && deklariert(name) && [`fn:${name}`, `call:${name}(${stelligkeit(name)})`].includes(formVon(kernGlieder.get(name)));
+  for (const name of ECHTE) {
+    check(`editorMain.ts: dem Kern geht die ECHTE Editor-Funktion \`${name}\` (unverpackt oder als Pfeil, der sie mit denselben Parametern ruft; kein \`() => undefined\`)`, echteFunktion(name), `${gliedText(name)}${deklariert(name) ? '' : ' (nicht als function deklariert)'}`);
+  }
+  // Die übrigen Glieder haben je EINE erwartete Durchreichung: Zuweisung/Lesen der Modulvariable oder Aufruf der benannten Funktion.
+  const ERWARTET_FORM: Record<string, string> = {
+    layout: 'get:layout',
+    setzeLayout: 'set:layout',
+    nachSchritt: 'fn:nachSchritt',
+    werkzeugId: 'get:werkzeug',
+    zurAuswahl: 'setlit:werkzeug=auswahl',
+    meldung: 'call:shell.meldung(2)',
+    zuBild: 'call:zuBild(2)',
+    massstab: 'get:massstab',
+    bestaetige: 'call:window.confirm(1)',
+  };
+  for (const [name, form] of Object.entries(ERWARTET_FORM)) {
+    check(`editorMain.ts: Kern-Glied \`${name}\` ist genau die Durchreichung \`${form}\` (kein \`() => undefined\`, keine andere Variable)`, kernGlieder !== null && formVon(kernGlieder.get(name)) === form && (name !== 'nachSchritt' || deklariert('nachSchritt')), `${gliedText(name)} → ${kernGlieder ? formVon(kernGlieder.get(name)) : '-'}`);
+  }
+  check('editorMain.ts: der Kern bekommt genau die Glieder des `KernHost` — kein weiteres, keines fehlt', kernGlieder !== null && gleichMenge([...kernGlieder.keys()], [...ECHTE, ...Object.keys(ERWARTET_FORM)]), kernGlieder ? [...kernGlieder.keys()].join(',') : 'Aufruf nicht lesbar');
+  // Der Rumpf von `speichereEntwurf`: genau EIN Schreibaufruf mit den erwarteten Argumenten in dieser Reihenfolge, dessen Ergebnis
+  // `ergebnis` heißt (`const ergebnis = 'ok';` statt des Aufrufs, vertauschte Argumente, ein zweiter Aufruf: rot). Das ist eine FORM-Prüfung
+  // an einer Stelle, die der Verhaltenstest des Kerns nicht erreicht (die Funktion lebt in editorMain.ts).
+  const speicherRumpf = knoten(haupt).find((n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n) && n.name?.text === 'speichereEntwurf');
+  const schreibAufrufe = speicherRumpf ? knoten(speicherRumpf).filter((n): n is ts.CallExpression => ts.isCallExpression(n) && n.expression.getText().replace(/\s+/g, '') === 'entwurfsSpeicher.schreiben') : [];
+  check(
+    'editorMain.ts: `speichereEntwurf` ruft `entwurfsSpeicher.schreiben(layout, quelle, welt.instanz)` genau einmal und behält das Ergebnis in `ergebnis`',
+    schreibAufrufe.length === 1 &&
+      JSON.stringify(schreibAufrufe[0]!.arguments.map((a) => a.getText().replace(/\s+/g, ''))) === JSON.stringify(['layout', 'quelle', 'welt.instanz']) &&
+      ts.isVariableDeclaration(schreibAufrufe[0]!.parent) &&
+      ts.isIdentifier(schreibAufrufe[0]!.parent.name) &&
+      schreibAufrufe[0]!.parent.name.text === 'ergebnis',
+    `${schreibAufrufe.length} Aufrufe`
+  );
+  // Der Kontext wird nach dem Bau nicht mehr angefasst (zur Laufzeit ist er eingefroren; ein Schreibzugriff würfe dort).
+  const wurzelName = (e: ts.Expression): string | null => {
+    let k: ts.Expression = e;
+    while (ts.isParenthesizedExpression(k) || ts.isAsExpression(k) || ts.isNonNullExpression(k) || ts.isTypeAssertionExpression(k) || ts.isPropertyAccessExpression(k) || ts.isElementAccessExpression(k)) k = k.expression;
+    return ts.isIdentifier(k) ? k.text : null;
+  };
+  const SCHREIBER = ['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf'];
+  const schreibzugriffe = knoten(haupt).filter(
+    (n) =>
+      (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment && !ts.isIdentifier(n.left) && wurzelName(n.left) === 'werkzeugKontext') ||
+      (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && SCHREIBER.includes(n.expression.name.text) && n.arguments.length > 0 && wurzelName(n.arguments[0]!) === 'werkzeugKontext')
+  );
+  check('editorMain.ts: kein Schreibzugriff auf `werkzeugKontext` (Zuweisung an ein Glied, Object.assign, defineProperty)', schreibzugriffe.length === 0, schreibzugriffe.map((n) => n.getText().slice(0, 60)).join(' | '));
 
   const rueckruf = /beiFremdem: \(fremd, info\) => \{([\s\S]*?)\n  \},\n\}\);/.exec(quelle)?.[1] ?? '';
   const iM = rueckruf.indexOf('verlauf.uebernahme(layout, fremd);');
@@ -2032,7 +2544,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('… setzt halbfertige Werkzeuge zurück: griff, alle Registry-Werkzeuge (abbrechen), polygonPunkte, startpunktModus', /griff = null;/.test(rueckruf) && /for \(const w of WERKZEUGE\) w\.abbrechen\(werkzeugKontext\);/.test(rueckruf) && /polygonPunkte = \[\];/.test(rueckruf) && /startpunktModus = null;/.test(rueckruf));
   const wieder = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const zurueck = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
-  check('Editor benutzt den SchrittVerlauf: merkeSchritt → verlauf.merke(layout), Strg+Z → verlauf.zurueck(layout), Strg+Y → verlauf.vor(layout) (Grenze 50 liegt in der Klasse)', /function merkeSchritt\(ersetzt = false\): void \{\s*verlauf\.merke\(layout, ersetzt\);/.test(quelle) && /verlauf\.zurueck\(layout\)/.test(zurueck) && /verlauf\.vor\(layout\)/.test(wieder) && !/const vergangenheit|const zukunft/.test(quelle));
+  check('Editor benutzt den SchrittVerlauf: merkeSchritt → verlauf.merke(layout), Strg+Z → verlauf.zurueck(layout), Strg+Y → verlauf.vor(layout) (Grenze 50 liegt in der Klasse)', /function merkeSchritt\(ersetzt = false\): void \{\s*verlauf\.merke\(host\.layout\(\), ersetzt\);/.test(kernQuelle) && /\bconst merkeSchritt\s*=\s*\w+\.merkeSchritt\b/.test(quelle) && /verlauf\.zurueck\(layout\)/.test(zurueck) && /verlauf\.vor\(layout\)/.test(wieder) && !/const vergangenheit|const zukunft/.test(quelle));
   const speichern = /function speichereEntwurf\([\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
   check('speichereEntwurf: \u201Ezu groß\u201C nur bei \u201Evoll\u201C, \u201Eohne-zettel\u201C hat eine eigene, harmlose Meldung', /=== 'voll'\) \{\s*shell\.meldung\('Entwurf zu groß/.test(speichern) && /'ohne-zettel'\) \{[\s\S]*?Begleitzettel fehlt/.test(speichern) && (speichern.match(/zu groß/g) ?? []).length === 1);
   check('pageshow mit persisted gleicht den Entwurf ab (bfcache-Seite bekam keine Ereignisse)', /addEventListener\('pageshow', \(e\) => \{\s*if \(e\.persisted\) entwurfsSpeicher\.abgleichen\(\);/.test(quelle));
@@ -2054,7 +2566,9 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     if (/merkeSchritt\(/.test(davor)) return;
     ohneSchritt.push(`${i + 1}: ${z.trim()}`);
   });
-  const erwartet = ['layout = vorher;', 'layout = wieder;', 'layout = fremd;', 'layout = {'];
+  // `layout = neu;` ist die Zuweisung in `setzeLayout` des Werkzeug-Kontexts; den Schritt davor legt `erzeugeWerkzeugKontext`
+  // (werkzeuge/kontext.ts) an und diese Datei prüft es oben am Verhalten.
+  const erwartet = ['layout = vorher;', 'layout = wieder;', 'layout = fremd;', 'layout = {', 'layout = neu;'];
   const unerwartet = ohneSchritt.filter((z) => !erwartet.some((e) => z.endsWith(e)));
   check(`Alle ${zuweisungen} Zuweisungen an layout ausser Rückgängig/Wiederherstellen/Übernahme/Griff-Ziehen haben einen merkeSchritt() davor (unerwartet ohne: ${unerwartet.length})`, unerwartet.length === 0, unerwartet.join(' | '));
   const griffZiehen = ohneSchritt.filter((z) => z.endsWith('layout = {'));
@@ -2063,7 +2577,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Import legt vor dem Ersetzen einen Schritt an', importZweig);
 
   // Ring der verdrängten Entwürfe: Verdrahtung im Editor
-  check('Ring: new VerdraengtRing(umgebung.speicher), Verlauf mit Abgang-Hörer new SchrittVerlauf<WorldLayout>(50, beiAbgang)', /const ring = new VerdraengtRing\(umgebung\.speicher, \{ tabId \}\);/.test(quelle) && /const verlauf = new SchrittVerlauf<WorldLayout>\(50, beiAbgang\);/.test(quelle));
+  check('Ring: new VerdraengtRing(umgebung.speicher), Verlauf mit Abgang-Hörer new SchrittVerlauf<WorldLayout>(50, beiAbgang)', /const ring = new VerdraengtRing\(umgebung\.speicher, \{ tabId \}\);/.test(quelle) && /new SchrittVerlauf<WorldLayout>\(50, host\.beiAbgang\)/.test(kernQuelle) && /\bconst verlauf\s*=\s*\w+\.verlauf\b/.test(quelle) && kernGlieder !== null && echteFunktion('beiAbgang'));
   const abgangFn = /function beiAbgang\([\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
   check('beiAbgang entscheidet mit sollInRing(grund, herkunft, enthaelt(bezug, stand)) und sichert per ringen()', /sollInRing\(grund, herkunft, enthaelt\(bezug, stand\)\)/.test(abgangFn) && /ringen\(stand, herkunft, grund/.test(abgangFn) && /istFremdHaltig\(stand\)/.test(abgangFn));
   check('Sicherheitsnetz beiVerdraengt: sichert nur, wenn der Stand in keinem Stapel liegt und nicht angezeigt wird', /beiVerdraengt: \(alt\) => \{[\s\S]*?verlauf\.enthaelt\(\(x\) => gleich\(x, alt\)\)[\s\S]*?ringen\(alt, 'fremd', 'ersetzt', null\);/.test(quelle));
@@ -2075,7 +2589,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Die Meldungen nennen den Ring: Übernahme, Rückgängig, Wiederherstellen, Import, Serverstand — und ihr Fehlschlag (ACHTUNG … NICHT gesichert)', (quelle.match(/ringHinweis\(ring(?:Vor|Neu)/g) ?? []).length >= 6 && /ACHTUNG: Ein verdrängter Stand konnte NICHT gesichert werden/.test(quelle), String((quelle.match(/ringHinweis\(ring/g) ?? []).length));
 
   // A2: Meldungsreihenfolge
-  check('alles() liefert den GRUND (\'ok\' | \'fremd\' | \'voll\' | \'knapp\') von speichereEntwurf, nicht nur „gemeldet“', /function alles\([^)]*\): SpeicherGrund \{\s*const grund: SpeicherGrund = entwurfSchreiben \? speichereEntwurf\(quelle\) : 'ok';/.test(quelle) && /return grund;/.test(quelle));
+  check('alles() liefert den GRUND (\'ok\' | \'fremd\' | \'voll\' | \'knapp\') von speichereEntwurf, nicht nur „gemeldet“', /function alles\([^)]*\): SpeicherGrund \{\s*const grund: SpeicherGrund = entwurfSchreiben \? host\.speichereEntwurf\(quelle\) : ['"]ok['"];/.test(kernQuelle) && /return grund;/.test(kernQuelle) && /\bconst alles\s*=\s*\w+\.alles\b/.test(quelle));
   const zurueckFn = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const wiederFn = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   check('Rückgängig und Wiederherstellen setzen ihre Meldung nur, wenn der Schreibversuch NICHT übernommen hat (const grund = alles(); nur bei grund ok …)', /const grund = alles\(\);[\s\S]*?if \(grund === 'ok'\)/.test(zurueckFn) && /const grund = alles\(\);[\s\S]*?if \(grund === 'ok'\)/.test(wiederFn));
@@ -2104,5 +2618,10 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Polygon schliessen und „nach oben" (bisher ohne Schritt) legen jetzt einen an', poly && hoch, `polygon=${poly}, nachOben=${hoch}`);
 }
 
+fertig = true;
+if (gut + fehler !== SOLL) {
+  console.log(`  ✗ Sollzahl: ${gut + fehler} Prüfungen statt ${SOLL}`);
+  fehler++;
+}
 console.log(fehler === 0 ? '\nalle Prüfungen bestanden' : `\n${fehler} Prüfung(en) FEHLGESCHLAGEN`);
 process.exit(fehler === 0 ? 0 : 1);

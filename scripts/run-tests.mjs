@@ -1340,6 +1340,8 @@ const KERN = [
   // Layout sync in place: a document edit reaches the saved ZDOs of a world
   // that boots again (rotation, scale, shift, ground; sync stamp; mass-loss rule).
   ['server', 'test/layout-abgleich.ts'],
+  // A deleted object is gone: "delete + set again" is a new object, the old ZDO and its state go (K1.3, A-10).
+  ['server', 'test/layout-abgleich-loeschen.ts'],
   // Base version of the world document: ETag / If-Match / 409 / 422 and the
   // lock across processes. ~80 s (two 37 s lock holders).
   ['admin', 'test/weltdokument-basis.ts'],
@@ -1357,6 +1359,7 @@ const KERN = [
   // operations, zone reset.
   // Tool registry: the editor's tools behind one interface (start, abort, keys, bar).
   ['client', 'test/werkzeug-registry.ts'],
+  ['client', 'test/werkzeug-platzieren.ts'],
   // Stable placement ids: the sanitizer derives / keeps / sorts ids, folds exact duplicates.
   ['shared', 'test/platzierungs-ids.ts'],
   // World operations (setze / aendere / entferne, undo, anchors): the pure part ...

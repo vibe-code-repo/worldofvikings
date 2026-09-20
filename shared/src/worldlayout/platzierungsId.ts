@@ -67,6 +67,44 @@ export function neuePlatzierungsId(
   return freieId(platzierungsIdBasis(p), belegt);
 }
 
+/** Length of the random tail of `frischePlatzierungsId`: a letter and three base-36 characters (26 * 36^3 = 1.2 million). */
+const SCHWANZ = 4;
+
+/**
+ * A fresh id for a NEW placement that must never be mistaken for an object that was deleted: the derived id
+ * (`platzierungsIdBasis`: prefab and metre) plus `-` and a random tail, unique against `belegt` (the ids of the
+ * document, or of the document and of what was deleted). Every tool that creates a placement uses this one (the
+ * map editor, the test flight, the MCP server): the game server takes "deleted and set again" for the SAME object
+ * when the id comes back, and keeps its state (a chest keeps its contents) -- `neuePlatzierungsId` gives the
+ * plain derived id, which is exactly that id again once the old entry is gone.
+ *
+ * The tail starts with a LETTER, so it can never be taken for the counter (`-2`, `-3`) of a derived id. The game
+ * server does not look at the shape of an id: the id in the world file is the ADDRESS of the object, a new id is
+ * a new object, and the ZDO of a deleted one is never taken over by it (server/src/world/layoutAbgleich.ts).
+ * If the tail is taken (a fixed random source in a test, or luck) a counter follows it. The result fits `ID_RE`
+ * and 64 characters: a too long prefab part is cut.
+ */
+export function frischePlatzierungsId(
+  belegt: ReadonlySet<string> | { readonly placements?: ReadonlyArray<{ readonly id?: string }> },
+  p: { prefab: string; x: number; z: number },
+  zufall: () => number = Math.random
+): string {
+  const ids: ReadonlySet<string> =
+    belegt instanceof Set
+      ? belegt
+      : new Set((belegt as { placements?: ReadonlyArray<{ id?: string }> }).placements?.flatMap((q) => (typeof q.id === 'string' ? [q.id] : [])) ?? []);
+  let basis = platzierungsIdBasis(p);
+  if (basis.length > 64 - 1 - SCHWANZ - 5) basis = platzierungsIdBasis({ ...p, prefab: p.prefab.slice(0, 16) });
+  const zahl = Math.min(26 * 36 ** (SCHWANZ - 1) - 1, Math.floor(zufall() * 26 * 36 ** (SCHWANZ - 1)));
+  const schwanz =
+    String.fromCharCode(97 + Math.floor(zahl / 36 ** (SCHWANZ - 1))) +
+    (zahl % 36 ** (SCHWANZ - 1)).toString(36).padStart(SCHWANZ - 1, '0');
+  for (let n = 1; ; n++) {
+    const id = n === 1 ? `${basis}-${schwanz}` : `${basis}-${schwanz}-${n}`;
+    if (!ids.has(id)) return id;
+  }
+}
+
 /** Do these two entries say the same thing (every field but the id equal, position within 1 cm)? */
 export function gleicherInhalt(a: PlacementDef, b: PlacementDef): boolean {
   return (

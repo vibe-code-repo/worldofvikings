@@ -311,7 +311,11 @@ try {
     })
   );
   check('placement_set: 1 Platzierung in der Zusammenfassung', /1 Platzierung\(en\)/.test(mitPlatzierung));
-  check('placement_set: ohne id wird eine neue vergeben', /id beech1_12_34, neu angelegt/.test(mitPlatzierung), mitPlatzierung);
+  // Eine NEUE Platzierung bekommt seit K1.3 (A-10) die abgeleitete id PLUS einen Zufallsschwanz mit Buchstabe, damit
+  // "gelöscht und gleichartig neu gesetzt" nie dieselbe id ergibt (der Spielserver hielte es für dasselbe Objekt).
+  const NEUE_ID = /id (beech1_12_34-[a-z][0-9a-z]{3}), neu angelegt/;
+  const idA = NEUE_ID.exec(mitPlatzierung)?.[1] ?? '';
+  check('placement_set: ohne id wird eine neue vergeben (abgeleitet + Zufallsschwanz mit Buchstabe)', idA !== '', mitPlatzierung);
   const platzierungenLesen = async (): Promise<{ id: string; x: number; yaw?: number }[]> => {
     const t = text(await c.callTool({ name: 'layout_get', arguments: {} }));
     return (JSON.parse(t.slice(t.indexOf('\n\n') + 2)) as { placements?: { id: string; x: number; yaw?: number }[] }).placements ?? [];
@@ -320,18 +324,19 @@ try {
   const zweite = text(
     await c.callTool({ name: 'placement_set', arguments: { platzierung: { prefab: 'Beech1', x: 12.3, z: 34 } } })
   );
-  check('placement_set: gleicher Meter → eigene id, nichts ersetzt', /id beech1_12_34-2, neu angelegt/.test(zweite) && /2 Platzierung\(en\)/.test(zweite), zweite);
+  const idB = NEUE_ID.exec(zweite)?.[1] ?? '';
+  check('placement_set: gleicher Meter → eigene id, nichts ersetzt', idB !== '' && idB !== idA && /2 Platzierung\(en\)/.test(zweite), zweite);
   // Mit id: genau diese Platzierung wird ersetzt (verschieben, drehen), die id bleibt.
   const ersetzt = text(
     await c.callTool({
       name: 'placement_set',
-      arguments: { platzierung: { id: 'beech1_12_34-2', prefab: 'Beech1', x: 14, z: 34, yaw: 1 } },
+      arguments: { platzierung: { id: idB, prefab: 'Beech1', x: 14, z: 34, yaw: 1 } },
     })
   );
-  check('placement_set: mit id ersetzt genau diese Platzierung', /id beech1_12_34-2, ersetzt/.test(ersetzt) && /2 Platzierung\(en\)/.test(ersetzt), ersetzt);
+  check('placement_set: mit id ersetzt genau diese Platzierung', ersetzt.includes(`id ${idB}, ersetzt`) && /2 Platzierung\(en\)/.test(ersetzt), ersetzt);
   const nachErsetzen = await platzierungenLesen();
-  const erste = nachErsetzen.find((p) => p.id === 'beech1_12_34');
-  const zweiteNach = nachErsetzen.find((p) => p.id === 'beech1_12_34-2');
+  const erste = nachErsetzen.find((p) => p.id === idA);
+  const zweiteNach = nachErsetzen.find((p) => p.id === idB);
   check(
     'placement_set: die andere Platzierung blieb, die ersetzte wanderte mit gleicher id',
     erste?.x === 12 && zweiteNach?.x === 14 && zweiteNach.yaw === 1,
@@ -353,9 +358,10 @@ try {
       arguments: { platzierung: { prefab: 'Beech1', x: 15, z: 34 }, ersetzeKennung: 'Beech1@14,34' },
     })
   );
-  check('placement_set: alte Kennung löst auf die id auf (mit Hinweis)', /id beech1_12_34-2, ersetzt/.test(perKennung) && /veraltet/.test(perKennung), perKennung);
+  check('placement_set: alte Kennung löst auf die id auf (mit Hinweis)', perKennung.includes(`id ${idB}, ersetzt`) && /veraltet/.test(perKennung), perKennung);
   // Eine dritte im ersten Meter: Prefab@12,34 ist jetzt mehrdeutig.
-  await c.callTool({ name: 'placement_set', arguments: { platzierung: { prefab: 'Beech1', x: 12.4, z: 34 } } });
+  const dritte = text(await c.callTool({ name: 'placement_set', arguments: { platzierung: { prefab: 'Beech1', x: 12.4, z: 34 } } }));
+  const idC = NEUE_ID.exec(dritte)?.[1] ?? '';
 
   const geprueft = text(await c.callTool({ name: 'layout_pruefen', arguments: {} }));
   check(
@@ -376,21 +382,26 @@ try {
   const mehrdeutig = await c.callTool({ name: 'placement_delete', arguments: { prefab: 'Beech1', x: 12, z: 34 } });
   check(
     'placement_delete: mehrdeutige alte Kennung wird abgelehnt und nennt die ids',
-    istFehler(mehrdeutig) && /beech1_12_34/.test(text(mehrdeutig)) && /beech1_12_34-3/.test(text(mehrdeutig)),
+    istFehler(mehrdeutig) && text(mehrdeutig).includes(idA) && text(mehrdeutig).includes(idC),
     text(mehrdeutig)
   );
   check('placement_delete: nach der Ablehnung nichts gelöscht', (await platzierungenLesen()).length === 3);
-  const perId = await c.callTool({ name: 'placement_delete', arguments: { id: 'beech1_12_34' } });
+  const perId = await c.callTool({ name: 'placement_delete', arguments: { id: idA } });
   check('placement_delete: per id gelöscht, kein isError', !istFehler(perId), text(perId));
   const nachPerId = await platzierungenLesen();
-  check('placement_delete: genau die eine Platzierung ist weg', nachPerId.length === 2 && !nachPerId.some((p) => p.id === 'beech1_12_34'), JSON.stringify(nachPerId));
+  check('placement_delete: genau die eine Platzierung ist weg', nachPerId.length === 2 && !nachPerId.some((p) => p.id === idA), JSON.stringify(nachPerId));
+  // A-10: das Objekt ist gelöscht, ein gleichartiges am selben Ort ist ein NEUES: andere id (nie die gelöschte).
+  const nachLoeschen = text(await c.callTool({ name: 'placement_set', arguments: { platzierung: { prefab: 'Beech1', x: 12, z: 34 } } }));
+  const idD = NEUE_ID.exec(nachLoeschen)?.[1] ?? '';
+  check('placement_delete + placement_set gleichartig am selben Ort: NEUE id mit Zusatz, nicht die gelöschte', idD !== '' && idD !== idA && idD !== idC, nachLoeschen);
+  await c.callTool({ name: 'placement_delete', arguments: { id: idD } });
   const perKennungWeg = text(await c.callTool({ name: 'placement_delete', arguments: { prefab: 'Beech1', x: 12.4, z: 34 } }));
-  check('placement_delete: eindeutige alte Kennung löscht mit Hinweis', /veraltet/.test(perKennungWeg) && /beech1_12_34-3/.test(perKennungWeg), perKennungWeg);
+  check('placement_delete: eindeutige alte Kennung löscht mit Hinweis', /veraltet/.test(perKennungWeg) && perKennungWeg.includes(idC), perKennungWeg);
   const unbekannteId = await c.callTool({ name: 'placement_delete', arguments: { id: 'gibt-es-nicht' } });
   check('placement_delete: unbekannte id ist ein Fehler', istFehler(unbekannteId), text(unbekannteId));
   const ohneAngabe = await c.callTool({ name: 'placement_delete', arguments: {} });
   check('placement_delete: ohne id und ohne Position ist ein Fehler', istFehler(ohneAngabe), text(ohneAngabe));
-  const letzteWeg = await c.callTool({ name: 'placement_delete', arguments: { id: 'beech1_12_34-2' } });
+  const letzteWeg = await c.callTool({ name: 'placement_delete', arguments: { id: idB } });
   check('placement_delete: letzte per id, kein isError', !istFehler(letzteWeg), text(letzteWeg));
   const nachPlatzierungWeg = text(await c.callTool({ name: 'layout_get', arguments: {} }));
   check('placement_delete: keine Platzierung mehr in der Zusammenfassung', !/Platzierung\(en\)/.test(nachPlatzierungWeg));
@@ -561,7 +572,7 @@ try {
   try {
     const sumVorher = pruefsumme();
     const r = await bewusst.callTool({ name: 'placement_set', arguments: platzierung });
-    check('WOV_MCP_FREMDE_WELT=1: placement_set schreibt', !istFehler(r) && /id beech1_7_8/.test(text(r)), text(r));
+    check('WOV_MCP_FREMDE_WELT=1: placement_set schreibt', !istFehler(r) && /id beech1_7_8-[a-z][0-9a-z]{3}/.test(text(r)), text(r));
     check('WOV_MCP_FREMDE_WELT=1: Weltdatei hat sich geändert', pruefsumme() !== sumVorher);
     const weg = await bewusst.callTool({ name: 'placement_delete', arguments: { prefab: 'Beech1', x: 7, z: 8 } });
     check('WOV_MCP_FREMDE_WELT=1: placement_delete räumt auf', !istFehler(weg), text(weg));

@@ -36,7 +36,6 @@ import {
   layoutBounds,
   pruefeLayout,
   DEFAULT_BASE_LEVEL,
-  FOLIAGE,
   GRASLAND_FLORA_NAMEN,
   NADELWALD_FLORA_NAMEN,
   SUMPF_FLORA_NAMEN,
@@ -76,7 +75,6 @@ import {
   entwurfStandLesen,
   gleich,
   holeWeltdokument,
-  layoutMitPlatzierung,
   leeresLayout,
   schreibeWeltdokument,
   vergleiche,
@@ -84,7 +82,6 @@ import {
 } from './weltdokument';
 import {
   EntwurfsSpeicher,
-  SchrittVerlauf,
   VerdraengtRing,
   alterRingSchluesselEntfernen,
   browserUmgebung,
@@ -107,8 +104,10 @@ import type { GegenstandsKatalog } from './GegenstandsKatalog';
 // Ebenen, Übersicht, Eigenschaftskarte). Statisch eingebunden, weil sie
 // nichts nachladen — sie zeichnen nur DOM über den beiden Leinwänden.
 import { KartenHud, type AltesWerkzeugname, type Werkzeugname } from './KartenHud';
-// Werkzeug-Registry: Fluss und See leben in `werkzeuge/`, hier nur der Zugriff.
-import { WERKZEUGE, werkzeugMitId } from './werkzeuge';
+// Werkzeug-Registry: Fluss, See und Objekt platzieren leben in `werkzeuge/`, hier nur der Zugriff.
+import { WERKZEUGE, platzierenWerkzeug, werkzeugMitId } from './werkzeuge';
+import { platzierungZuBefund } from './werkzeuge/platzieren';
+import { erzeugeEditorKern } from './werkzeuge/kontext';
 import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
 // Das Gestaltungssystem des Editors. Literale Farbwerte in dieser Datei
 // waren bis hierher der Normalfall ('#1d2431', '#3a3325', '#e8d48a' …) —
@@ -336,6 +335,10 @@ let baueAufFremdem = false;
 function istFremdHaltig(stand: WorldLayout): boolean {
   return fremdeStaende.has(stand) || fremdHaltig.has(stand);
 }
+/** Nach einem Schritt (`merkeSchritt` im Kern): ein Ersetzen (Import, Serverstand) baut nicht auf dem alten Stand auf. */
+function nachSchritt(ersetzt: boolean): void {
+  baueAufFremdem = !ersetzt && istFremdHaltig(layout);
+}
 /**
  * Zähler seit dem Start: wie viele Stände in den Ring gingen, nicht gesichert
  * werden konnten, wegen der Grenzen den ältesten Eintrag kosteten, oder als
@@ -494,6 +497,8 @@ let zurueckKnopf: HTMLButtonElement | null = null;
  * Eigenschaftskarte auf der Karte ruft es — beide entstehen später.
  */
 let katalogOeffnen: (() => void) | null = null;
+/** Steht der Katalog über der Karte? (Entf darf dann kein Kartenobjekt löschen.) */
+let katalogIstOffen: () => boolean = () => false;
 let gewaehlt: string | null = null;
 let werkzeug: Werkzeugname = 'auswahl';
 /**
@@ -507,8 +512,6 @@ let startpunktModus: StartpunktZiel | null = null;
 let gewaehlteForm = 'kreis';
 let formGroesse = 1500;
 let polygonPunkte: [number, number][] = [];
-/** Prefab des Platzieren-Werkzeugs (frei wählbar, Vorschläge aus FOLIAGE). */
-let spawnPrefab = 'Beech1';
 /** Weltmeter je Bildschirmpixel der Zeichenfläche. */
 let massstab = 40;
 let mitteX = 0;
@@ -522,32 +525,52 @@ let griff: { regionId: string; art: 'mitte' | 'radius' | number } | null = null;
 const GRIFF_PX = 7;
 
 /**
- * Was ein registriertes Werkzeug (`werkzeuge/`) am Editor tun darf. Jedes
- * Mitglied ist eine Handlung, die die alten `if (werkzeug === ...)`-Zweige
- * unmittelbar auf dem Modulzustand ausführten. Nur Funktionen und
- * Lesezugriffe zur Laufzeit: Das Objekt darf hier oben stehen, obwohl
- * `zuBild` und `massstab` weiter unten entstehen.
+ * Der Kern des Editors (`werkzeuge/kontext.ts`): der Rückgängig-Stapel `verlauf`, `merkeSchritt`, `alles` und DER
+ * eine Werkzeug-Kontext, den jedes registrierte Werkzeug bekommt. Alles davon wird in `entwurfs-speicher.ts`
+ * ausgeführt und am Verhalten geprüft; hier stehen nur die Handgriffe auf dem Modulzustand. Es gibt genau EINEN
+ * Aufruf von `erzeugeEditorKern` (und darin genau einen Kontext), und jeder Werkzeug-Haken unten bekommt
+ * `werkzeugKontext` — auch das prüft dieser Test, am Syntaxbaum (Umbrüche, Anführungszeichen, Kommentare und
+ * Hilfsvariablen ändern nichts). Nur Funktionen und Lesezugriffe zur Laufzeit: der Aufruf darf hier oben stehen,
+ * obwohl `zuBild` und `massstab` weiter unten entstehen.
  */
-const werkzeugKontext: WerkzeugKontext = {
+const kern = erzeugeEditorKern({
   layout: () => layout,
-  aendere: (neu) => {
-    merkeSchritt();
+  // Nur die Zuweisung; den Rückgängig-Schritt davor und das Speichern danach legt der Kern fest.
+  setzeLayout: (neu) => {
     layout = neu;
   },
+  beiAbgang,
+  nachSchritt,
+  speichereEntwurf,
+  seiteBauen,
+  pruefberichtBauen,
+  weltSektionBauen,
+  kartenMassBauen,
+  zeichneOverlay,
+  faerbeSpeicherKnopf,
+  vorschauAnstossen,
   werkzeugId: () => werkzeug,
   zurAuswahl: () => {
     werkzeug = 'auswahl';
   },
-  uebernommen: () => {
-    alles();
-    vorschauAnstossen();
-  },
-  seiteNeuBauen: () => seiteBauen(),
-  neuZeichnen: () => zeichneOverlay(),
   meldung: (text, fehler) => shell.meldung(text, fehler),
   zuBild: (wx, wz) => zuBild(wx, wz),
   massstab: () => massstab,
-};
+  bestaetige: (frage) => window.confirm(frage),
+});
+export const werkzeugKontext: WerkzeugKontext = kern.werkzeugKontext;
+/** Der Rückgängig-Stapel: Stapel und die Regel „wann legt eine Übernahme einen Schritt an“ stecken in `SchrittVerlauf` (entwurfsSpeicher.ts). */
+const verlauf = kern.verlauf;
+/** `ersetzt`: der Entwurf wird durch einen ANDEREN ersetzt (Import, Serverstand, wieder eingesetzter Stand), nicht weitergebaut. */
+const merkeSchritt = kern.merkeSchritt;
+/**
+ * Liefert den Grund einer Meldung, die kein Aufrufer überschreiben darf, oder
+ * 'ok': 'fremd' (ein anderer Tab hatte den Entwurf geändert und wurde
+ * übernommen — in der Anzeige steht dieser, nicht der, den der Aufrufer eben
+ * setzen wollte), 'voll' („Entwurf zu groß") oder 'knapp' („Speicher knapp"
+ * mit den geopferten Ring-Einträgen).
+ */
+const alles = kern.alles;
 
 function ladeEntwurf(): WorldLayout {
   return entwurfsSpeicher.lesen() ?? leeresLayout();
@@ -613,14 +636,7 @@ window.addEventListener('pageshow', (e) => {
 // genügt. Strg+Z / Strg+Y (bzw. Strg+Shift+Z).
 // Stapel und Regel „wann legt eine Übernahme einen Schritt an" stecken in
 // `SchrittVerlauf` (entwurfsSpeicher.ts), damit beides ohne Editorfenster
-// prüfbar ist; hier steht nur die Verdrahtung mit `layout`.
-const verlauf = new SchrittVerlauf<WorldLayout>(50, beiAbgang);
-/** `ersetzt`: der Entwurf wird durch einen ANDEREN ersetzt (Import, Serverstand, wieder eingesetzter Stand), nicht weitergebaut. */
-function merkeSchritt(ersetzt = false): void {
-  verlauf.merke(layout, ersetzt);
-  // Ein Ersetzen (Import, Serverstand) baut nicht auf dem alten Stand auf.
-  baueAufFremdem = !ersetzt && istFremdHaltig(layout);
-}
+// prüfbar ist; hier steht nur die Verdrahtung mit `layout` (`kern.verlauf`, oben).
 /**
  * Wirkung unverändert, nur aus dem Tastatur-Zweig herausgezogen: Seit die
  * Symbolspalte einen Fuß hat (Entwurf), gibt es für beide Schritte auch
@@ -1035,7 +1051,6 @@ const WERKZEUG_TEXT: Record<AltesWerkzeugname, string> = {
   auswahl: 'Auswahl',
   form: 'Insel-Form setzen',
   polygon: 'Polygon zeichnen',
-  platzieren: 'Objekt platzieren',
 };
 /** Die Mono-Plakette der Werkzeuganzeige — je Werkzeug die Zahl, die es führt. */
 function hudZusatz(): string {
@@ -1046,8 +1061,6 @@ function hudZusatz(): string {
       return `${FORMEN.find((f) => f.id === gewaehlteForm)?.name ?? ''} ${formGroesse} m`;
     case 'polygon':
       return `${polygonPunkte.length} Punkte`;
-    case 'platzieren':
-      return spawnPrefab;
     default:
       return `${Math.round(massstab)} m/px`;
   }
@@ -1469,8 +1482,20 @@ overlay.addEventListener('pointerdown', (e) => {
 
   // Registrierte Werkzeuge zuerst; was sie nicht beanspruchen, fällt auf die
   // alten Zweige und zuletzt auf die Auswahl.
-  const ereignis = { weltX: wx, weltZ: wz, shiftKey: e.shiftKey };
-  if (werkzeugMitId(werkzeug)?.beiZeigerRunter(werkzeugKontext, ereignis)) return;
+  const ereignis = { weltX: wx, weltZ: wz, shiftKey: e.shiftKey, zeigerId: e.pointerId };
+  const registriert = werkzeugMitId(werkzeug);
+  if (registriert?.beiZeigerRunter(werkzeugKontext, ereignis)) {
+    // Ein Werkzeug mit Zieh-Haken bekommt das Loslassen auch dann, wenn der
+    // Zeiger dabei die Karte verlassen hat (über dem Hud, außerhalb des Fensters).
+    if (registriert.beiZeigerHoch) {
+      try {
+        overlay.setPointerCapture(e.pointerId);
+      } catch {
+        // kein aktiver Zeiger (synthetisches Ereignis): dann eben ohne
+      }
+    }
+    return;
+  }
 
   if (werkzeug === 'form') {
     const form = FORMEN.find((f) => f.id === gewaehlteForm) ?? FORMEN[0]!;
@@ -1495,15 +1520,6 @@ overlay.addEventListener('pointerdown', (e) => {
         ? `${region.id} gesetzt — Werkzeug bleibt aktiv (Shift)`
         : `${region.id} gesetzt — Griffe zum Verformen, Shift+Klick für Serien`
     );
-    return;
-  }
-  if (werkzeug === 'platzieren') {
-    // Ohne diesen Schritt war ein gesetztes Objekt nicht rückgängig zu machen.
-    merkeSchritt();
-    layout = layoutMitPlatzierung(layout, spawnPrefab, wx, wz, Math.random() * Math.PI * 2);
-    speichereEntwurf();
-    seiteBauen();
-    zeichneOverlay();
     return;
   }
   if (werkzeug === 'polygon') {
@@ -1540,6 +1556,7 @@ overlay.addEventListener('pointerdown', (e) => {
 });
 overlay.addEventListener('pointermove', (e) => {
   const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
+  werkzeugMitId(werkzeug)?.beiZeigerBewegt?.(werkzeugKontext, { weltX: wx, weltZ: wz, shiftKey: e.shiftKey, zeigerId: e.pointerId });
   if (griff) {
     const region = layout.regions.find((r) => r.id === griff!.regionId);
     if (region) {
@@ -1588,17 +1605,56 @@ overlay.addEventListener('pointermove', (e) => {
   }
   shell.koordinaten(`x ${wx.toFixed(0)}   z ${wz.toFixed(0)}   ${massstab.toFixed(0)} m/px`);
 });
-overlay.addEventListener('pointerup', () => {
+overlay.addEventListener('pointerup', (e) => {
   zieht = null;
   if (griff) {
     griff = null;
     alles();
     vorschauAnstossen();
   }
+  const registriert = werkzeugMitId(werkzeug);
+  if (!registriert) return;
+  // Losgelassen NICHT über der Karte selbst (Seitenleiste, außerhalb des Fensters, eine schwebende Bedienfläche
+  // wie Werkzeuganzeige oder Zoom-Knöpfe): Der Zug endet ohne Wirkung. Dank Pointer-Capture kommt das Loslassen
+  // hier an; was der Zeiger wirklich trifft, sagt `elementFromPoint`.
+  const drin = document.elementFromPoint(e.clientX, e.clientY) === overlay;
+  if (!drin) {
+    registriert.beiZeigerAbbruch?.(werkzeugKontext);
+    return;
+  }
+  const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
+  registriert.beiZeigerHoch?.(werkzeugKontext, { weltX: wx, weltZ: wz, shiftKey: e.shiftKey, zeigerId: e.pointerId });
 });
+// Der Browser bricht die Geste ab (Touch/Stift unterbrochen) oder das Capture geht verloren: Zug ohne
+// Wirkung beenden. Nach einem normalen Loslassen ist der Zug schon weg, dann tut das nichts.
+const zeigerAbbruch = (): void => werkzeugMitId(werkzeug)?.beiZeigerAbbruch?.(werkzeugKontext);
+overlay.addEventListener('pointercancel', zeigerAbbruch);
+overlay.addEventListener('lostpointercapture', zeigerAbbruch);
+// Ein Klick auf eine schwebende Bedienfläche über der Karte (Übersicht, Zoom-Knöpfe, Werkzeuganzeige) erreicht die
+// Karte nicht; für das Werkzeug ist es ein Klick „woanders“. Capture-Phase: die Flächen fangen ihre Klicks selbst ab.
+flaeche.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (e.target === overlay || overlay.style.display === 'none') return;
+    werkzeugMitId(werkzeug)?.beiFlaechenKlick?.(werkzeugKontext);
+  },
+  true
+);
 overlay.addEventListener('dblclick', () => {
   polygonSchliessen();
   werkzeugMitId(werkzeug)?.beiDoppelklick?.(werkzeugKontext);
+});
+// Tasten, die ein Werkzeug außer Escape bekommt: Entf und Rücktaste löschen im Objekt-Werkzeug die
+// Auswahl, P und V schalten dort zwischen Setzen und Anwählen. Nie, solange ein Eingabefeld den Fokus
+// hat (dort löschen Entf und Rücktaste Text, P und V sind Buchstaben), nicht mit Umschalttasten, nicht
+// unter dem Katalog. Was ein Werkzeug mit den Tasten tut, entscheidet es selbst.
+const WERKZEUG_TASTEN_CODES: ReadonlySet<string> = new Set(['Delete', 'Backspace', 'KeyP', 'KeyV']);
+window.addEventListener('keydown', (e) => {
+  if (!WERKZEUG_TASTEN_CODES.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  const ziel = e.target;
+  if (ziel instanceof HTMLElement && (ziel.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ziel.tagName))) return;
+  if (katalogIstOffen()) return;
+  werkzeugMitId(werkzeug)?.beiTaste?.(werkzeugKontext, e);
 });
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Escape') return;
@@ -1745,7 +1801,7 @@ const KOPF_JE_BETRIEBSART: Record<SeitenBetriebsart, readonly [string, string]> 
   ],
   objekte: [
     'Objekte',
-    'Klick platziert das gewählte Prefab. Die Liste bündelt die Platzierungen je Insel nach Namen.',
+    'Klick platziert das gewählte Prefab, Klick auf ein Objekt wählt es. Die Liste bündelt die Platzierungen je Insel nach Namen.',
   ],
   biome: [
     'Biome',
@@ -1906,19 +1962,10 @@ function seiteBauen(): void {
       'Punkte klicken; schließen: Klick auf den Startpunkt, den ✓-Knopf oder Doppelklick. Esc bricht ab.',
       polygonPunkte.length ? `${polygonPunkte.length} P.` : ''
     ),
-    ...WERKZEUGE.map((w) => kachel(w.id, w.kachelName, w.bild, w.kachelTipp, w.kachelZusatz())),
-    // Fünfte Kachel über beide Spalten: Das Mockup zeigt vier
-    // Zeichenwerkzeuge, der Editor hat fünf. „Objekt platzieren" ist
-    // keins zum Wegkürzen — es ist der einzige Weg, einen Baum von Hand
-    // zu setzen.
-    kachel(
-      'platzieren',
-      'Objekt platzieren',
-      PFAD.platzieren,
-      'Klick platziert das gewählte Prefab (zufällige Drehung). Die Höhe folgt dem Boden.',
-      spawnPrefab,
-      true
-    )
+    // Die letzte Kachel („Objekt platzieren") geht über beide Spalten: Das
+    // Mockup zeigt vier Zeichenwerkzeuge, der Editor hat fünf — und es ist
+    // der einzige Weg, einen Baum von Hand zu setzen.
+    ...WERKZEUGE.map((w) => kachel(w.id, w.kachelName, w.bild, w.kachelTipp, w.kachelZusatz(), w.kachelBreit))
   );
   seite.appendChild(raster);
 
@@ -1970,36 +2017,6 @@ function seiteBauen(): void {
   // Seitenleisten-Block des aktiven registrierten Werkzeugs (Fluss, See).
   const werkzeugBlock = werkzeugMitId(werkzeug)?.seitenleiste?.(werkzeugKontext, seitenHost);
   if (werkzeugBlock) seite.appendChild(werkzeugBlock);
-  if (werkzeug === 'platzieren') {
-    const block = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '8px' }));
-    const prefabFeld = feld(
-      spawnPrefab,
-      (v) => {
-        spawnPrefab = v.trim() || 'Beech1';
-        // Der 3D-Testflug (Taste B im Spiel) platziert dasselbe Prefab.
-        localStorage.setItem('wov-editor-spawn-prefab', spawnPrefab);
-        seiteBauen();
-      },
-      { titel: 'Prefab-Name — Vorschläge aus der Vegetationstabelle' }
-    );
-    const eingabe = prefabFeld.querySelector('input');
-    if (eingabe) eingabe.setAttribute('list', 'prefab-liste');
-    if (!document.getElementById('prefab-liste')) {
-      const dl = document.createElement('datalist');
-      dl.id = 'prefab-liste';
-      for (const n of [...new Set(FOLIAGE.map((f) => f.prefabName))]) {
-        const o = document.createElement('option');
-        o.value = n;
-        dl.appendChild(o);
-      }
-      document.body.appendChild(dl);
-    }
-    block.append(
-      beschriftet('Prefab', prefabFeld),
-      hinweisZeile('Klick auf die Karte platziert das Prefab (zufällige Drehung). Höhe folgt dem Boden.')
-    );
-    seite.appendChild(block);
-  }
 
   // ── 3. Suche und Filtermarken ─────────────────────────────────────
   // Neu und ausdrücklich nur ANZEIGE: Die Suche wirft nichts weg, sie
@@ -2838,10 +2855,10 @@ function weltFeldBauen(): void {
    * Platzieren-Werkzeug damit scharf geschaltet.
    */
   const prefabUebernehmen = (prefab: string): void => {
-    spawnPrefab = prefab;
-    // Derselbe Schlüssel, aus dem der 3D-Testflug (Taste B) sein Prefab
-    // liest — beide Wege sollen dasselbe Objekt meinen.
-    localStorage.setItem('wov-editor-spawn-prefab', prefab);
+    // Das Werkzeug merkt sich das Prefab auch unter dem Schlüssel, aus dem der
+    // 3D-Testflug (Taste B) seines liest — beide Wege sollen dasselbe Objekt meinen.
+    platzierenWerkzeug.setzePrefab(prefab);
+    platzierenWerkzeug.setzeModus('setzen'); // „Klick auf die Karte setzt es“
     werkzeug = 'platzieren';
     seiteBauen();
     zeichneOverlay();
@@ -2874,6 +2891,7 @@ function weltFeldBauen(): void {
   // Der Katalog ist auch von der Eigenschaftskarte auf der Karte aus
   // erreichbar („Objekt platzieren") — dieselbe Handlung, ein Öffner.
   katalogOeffnen = () => katalogKnopf.click();
+  katalogIstOffen = () => katalog?.istOffen === true;
   // Das einzige bronzene SINNBILD auf einem Flächenknopf (so der
   // Entwurf): Der Katalog ist die einzige eigene Ansicht, die sich über
   // die Karte legt — der bronzene Strich sagt „hier geht ein Fenster auf".
@@ -3663,6 +3681,22 @@ function springeZuRegion(id: string): void {
 }
 
 /**
+ * Sprung zu einer einzelnen Platzierung (Befund der Prüfung): Karte auf das
+ * Objekt zentrieren, Objekt-Werkzeug aktivieren und das Objekt darin
+ * anwählen — Felder, Ziehen und Entf sind dann sofort dran.
+ */
+function springeZuPlatzierung(id: string): void {
+  const p = (layout.placements ?? []).find((q) => q.id === id);
+  if (!p) return;
+  platzierenWerkzeug.waehle(id);
+  werkzeug = 'platzieren';
+  mitteX = p.x;
+  mitteZ = p.z;
+  alles();
+  zeichneVorschauBild();
+}
+
+/**
  * Baut den Prüfbericht neu — dieselbe Prüfung, die `WovServer.ts:604`
  * beim Serverstart ins journalctl schreibt, hier gegen den GERADE
  * BEARBEITETEN Entwurf statt gegen die zuletzt gestartete Weltdatei.
@@ -3932,9 +3966,10 @@ function pruefberichtBauen(): void {
     )
   );
 
-  // Anklickbar nur, wenn `wo` tatsächlich eine Region DIESES Entwurfs
-  // ist — bei 'placements', 'welt' und Routen-IDs gibt es im 2D-Editor
-  // (anders als bei Regionen) keine Auswahl, zu der man springen könnte.
+  // Anklickbar nur, wenn `wo` eine Region DIESES Entwurfs ist oder der Befund
+  // eine Platzierung meint (dann wählt der Sprung sie im Objekt-Werkzeug an).
+  // Bei 'welt' und Routen-IDs gibt es im 2D-Editor keine Auswahl, zu der man
+  // springen könnte.
   //
   // Die Schwere steht nicht mehr als farbiger Balken links, sondern als
   // Punkt vor dem Text: Ein Balken auf der Kante ist bei drei Stufen
@@ -3944,7 +3979,8 @@ function pruefberichtBauen(): void {
   const punktFarbe = (schwere: 'fehler' | 'hinweis'): string =>
     schwere === 'fehler' ? F.fehler : F.warnText;
   for (const b of befunde) {
-    const anklickbar = regionIds.has(b.wo);
+    const platzierung = platzierungZuBefund(layout, b); // nur über `b.ref`, nie aus dem Text
+    const anklickbar = regionIds.has(b.wo) || platzierung !== null;
     const zeile = el(
       'div',
       stil({
@@ -3974,33 +4010,12 @@ function pruefberichtBauen(): void {
       el('span', stil({ color: F.textRuhig }), b.text)
     );
     if (anklickbar) {
-      zeile.title = `Zu Region ${b.wo} springen`;
+      zeile.title = platzierung !== null ? `Zu Objekt ${platzierung} springen` : `Zu Region ${b.wo} springen`;
       beiUeberfahren(zeile, { background: F.erhoben });
-      zeile.onclick = () => springeZuRegion(b.wo);
+      zeile.onclick = () => (platzierung !== null ? springeZuPlatzierung(platzierung) : springeZuRegion(b.wo));
     }
     pruefSeite.appendChild(zeile);
   }
-}
-
-/**
- * Liefert den Grund einer Meldung, die kein Aufrufer überschreiben darf, oder
- * 'ok': 'fremd' (ein anderer Tab hatte den Entwurf geändert und wurde
- * übernommen — in der Anzeige steht dieser, nicht der, den der Aufrufer eben
- * setzen wollte), 'voll' („Entwurf zu groß") oder 'knapp' („Speicher knapp"
- * mit den geopferten Ring-Einträgen).
- */
-function alles(quelle: EntwurfsQuelle = 'bearbeitet', entwurfSchreiben = true): SpeicherGrund {
-  const grund: SpeicherGrund = entwurfSchreiben ? speichereEntwurf(quelle) : 'ok';
-  seiteBauen();
-  pruefberichtBauen();
-  weltSektionBauen();
-  kartenMassBauen(); // B6/B7 -- eigene Spur, siehe KartenMassAnzeige.ts
-  zeichneOverlay();
-  // Jede Änderung kann den Entwurf vom Serverstand wegbewegen ODER ihn
-  // (per Rückgängig) wieder darauf zurückführen — der Punkt am
-  // Speicherknopf muss beides mitmachen.
-  faerbeSpeicherKnopf();
-  return grund;
 }
 
 // ── Server-Konsole (Shell-Dock, journalctl via /api/serverlog) ───────

@@ -24,8 +24,10 @@
  * World 4: a player piece that still carries a layout id (state left by the
  * previous sync) loses it -- exactly ONE ZDO keeps the id; a new placement right
  * above a player piece warns; a document without placements removes every
- * orphaned layout ZDO. World 5: a placement pushed across the rounding edge of
- * the id (140.4 -> 140.5) keeps its ZDO. World 6: the real world document
+ * orphaned layout ZDO. World 5: the id in the file is the ADDRESS of an object --
+ * with the id in the file a placement pushed across the rounding edge of a metre
+ * (140.4 -> 140.5) keeps its ZDO and its state; in a document WITHOUT ids the
+ * derived id changes there, the old ZDO is orphaned and a new one spawns. World 6: the real world document
  * (a copy of server/data/welten/dev.json) boots twice and moves no revision.
  *
  * World 7: `placements` of the wrong type (null, object, text, number) in the
@@ -185,6 +187,7 @@ const heimat = (server: Server, id: string): { x: number; y: number; z: number }
   (server.spawns as unknown as { creatures: Map<string, { home: { x: number; y: number; z: number } }> }).creatures.get(id)?.home;
 const layoutRevisionen = (server: Server): Map<string, number> =>
   new Map(server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER)).map((z) => [z.zdoid.toString(), z.revision.raw]));
+const nachId5 = (server: Server, id: string): ZDO | undefined => server.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === id);
 const winkelDiff = (a: number, b: number): number => Math.abs((((a - b) % 360) + 540) % 360 - 180);
 
 // ── World 1 ─────────────────────────────────────────────────────────
@@ -473,20 +476,41 @@ check('(A4) a document without placements removes the orphaned layout ZDOs', ueb
 check('(A4) ... and logs how many', boot4c.zeilen.some((z) => /2 entfernt/.test(z)) && boot4c.zeilen.some((z) => /ohne Platzierungen — 2/.test(z)), boot4c.zeilen.join(' | '));
 check('(A4) ... but player pieces stay', [baut1Id, baut2Id].every((id) => u3.zdos.getAllZDOs().some((z) => z.zdoid.toString() === id)));
 
-// ── World 5: the rounding edge of the id ────────────────────────────
-console.log('\n[11] World 5: a placement pushed across the rounding edge of its id');
-const K1 = { prefab: 'piece_chest_wood', x: 140.4, z: 100 }; // id "@140"
-const K2 = { ...K1, x: 140.5 }; // id "@141"
+// ── World 5: the id in the file is the address ──────────────────────
+console.log('\n[11] World 5: a placement pushed across the rounding edge of a metre -- with and without an id in the file');
+// The contract: a ZDO is found through the id in the file (or, for a save from before E1, through the old key `@`).
+// A document WITHOUT ids has no stable object identity: the sanitizer derives the id from prefab and metre, so an
+// entry pushed across the edge (140.4 -> 140.5) is a NEW id -- the ZDO of the old id is orphaned and goes, a new
+// one spawns (its state is lost: the documented consequence of a file without ids). Before this contract the
+// server guessed "the same object" by nearness; it could not tell that from an object the designer had deleted
+// and set again (state inherited by a NEW object), and every write path materialises the derived ids anyway.
+const K1 = { prefab: 'piece_chest_wood', x: 140.4, z: 100 }; // derived id "…_140_100"
+const K2 = { ...K1, x: 140.5 }; // derived id "…_141_100"
 const boot5a = starte('welt5', dokument(BASIS_VORHER, [K1]));
 const kz1 = eines(boot5a.server, K1)!;
 const kzId = kz1.zdoid.toString();
+kz1.setInt('zzMarke', 7);
 boot5a.server.saveWorld();
 const boot5b = starte('welt5', dokument(BASIS_VORHER, [K2]));
 console.log(`     log: ${boot5b.zeilen.join(' | ')}`);
 const kz2 = eines(boot5b.server, K2);
-check('(A3) 140.4 -> 140.5 changes the id key but keeps the ZDO id', kz2 !== undefined && kz2.zdoid.toString() === kzId, `${kzId} -> ${kz2?.zdoid.toString()}`);
-check('(A3) ... 0 spawned, 0 removed', boot5b.zeilen.some((z) => /\b0 gespawnt/.test(z) && /\b0 entfernt/.test(z)), boot5b.zeilen.join(' | '));
-check('(A3) ... at the new position, one layout ZDO in the world', kz2 !== undefined && nahe(kz2.position.x, 140.5, 1e-3) && boot5b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER)).length === 1, `x=${kz2?.position.x}`);
+const kzAlt = boot5b.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === kzId);
+check('(A3) no id in the file, 140.4 -> 140.5: the derived id changes, a NEW ZDO carries the new id', kz2 !== undefined && kz2.zdoid.toString() !== kzId && kz2.getString(LAYOUT_ID_MEMBER) === idVon(K2), `${kzId} -> ${kz2?.zdoid.toString()}, id ${kz2?.getString(LAYOUT_ID_MEMBER)}`);
+check('(A3) ... the ZDO of the old id is gone and its state is not inherited (the documented consequence of a file without ids)', (kzAlt === undefined || kzAlt.destroyed) && kz2?.getInt('zzMarke') === 0, `old alive: ${kzAlt !== undefined && !kzAlt.destroyed}; marker ${kz2?.getInt('zzMarke')}`);
+check('(A3) ... 1 spawned, 1 removed, nothing updated', boot5b.zeilen.some((z) => /Layout-Abgleich:/.test(z) && /\b1 gespawnt, 0 aktualisiert, 0 unverändert, 1 entfernt/.test(z)), boot5b.zeilen.join(' | '));
+check('(A3) ... at the new position, exactly one layout ZDO in the world', kz2 !== undefined && nahe(kz2.position.x, 140.5, 1e-3) && boot5b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER)).length === 1, `x=${kz2?.position.x}`);
+// The same move with the id STANDING in the file: the address is the same, the ZDO and its state stay.
+const K1id = { ...K1, id: 'kiste-rand' };
+const K2id = { ...K2, id: 'kiste-rand' };
+const boot5c = starte('welt5b', dokument(BASIS_VORHER, [K1id]));
+const kzIdB = nachId5(boot5c.server, 'kiste-rand')!.zdoid.toString();
+nachId5(boot5c.server, 'kiste-rand')!.setInt('zzMarke', 7);
+boot5c.server.saveWorld();
+const boot5d = starte('welt5b', dokument(BASIS_VORHER, [K2id]));
+console.log(`     log: ${boot5d.zeilen.join(' | ')}`);
+const kz5d = nachId5(boot5d.server, 'kiste-rand');
+check('(A3) the id in the file, 140.4 -> 140.5: the SAME ZDO with its state, moved to the new position', kz5d !== undefined && kz5d.zdoid.toString() === kzIdB && kz5d.getInt('zzMarke') === 7 && nahe(kz5d.position.x, 140.5, 1e-3), `${kzIdB} -> ${kz5d?.zdoid.toString()} marker ${kz5d?.getInt('zzMarke')}`);
+check('(A3) ... 0 spawned, 1 updated, 0 removed', boot5d.zeilen.some((z) => /Layout-Abgleich:/.test(z) && /\b0 gespawnt, 1 aktualisiert, 0 unverändert, 0 entfernt/.test(z)), boot5d.zeilen.join(' | '));
 
 // ── World 6: the real world document ────────────────────────────────
 console.log('\n[12] World 6: a copy of server/data/welten/dev.json boots twice and moves nothing');

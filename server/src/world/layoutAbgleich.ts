@@ -127,6 +127,12 @@ function laeuftRoute(layout: WorldLayout, p: PlacementDef): boolean {
   return p.route !== undefined && (layout.routes ?? []).some((r) => r.id === p.route);
 }
 
+/**
+ * Der Prefab-Teil einer ALTEN Kennung in ihrer vollen Form `prefab@x,z` (`layoutKennung`: Prefab, `@`, ganze Zahlen),
+ * sonst `null`. Ein `@` irgendwo genügt nicht.
+ */
+const prefabDerAltenKennung = (layoutId: string): string | null => /^([^@]+)@-?\d+,-?\d+$/.exec(layoutId)?.[1] ?? null;
+
 /** Skalierung, wie sie im ZDO stehen soll: 0 = kein Member (Prefab-Vorgabe). */
 function sollSkala(p: PlacementDef): number {
   return p.scale !== undefined && Math.abs(p.scale - 1) > TOLERANZ.skala ? p.scale : 0;
@@ -384,8 +390,10 @@ export function layoutAbgleich(
   // Kennung zu keiner Platzierung passt, aber unter 0,5 m neben einer
   // Platzierung desselben Prefabs steht, ist DASSELBE Objekt, dessen alte
   // Kennung sich geändert hat (Spielstand von vor E1, Dokument von Hand
-  // umgebaut). Es wird nicht zerstört, sondern von der Nähesuche unten
-  // übernommen — mit seiner ZDO-Id und allem, was daran hängt.
+  // umgebaut). Es wird nicht sofort zerstört, sondern von der Nähesuche unten
+  // übernommen — mit seiner ZDO-Id und allem, was daran hängt — WENN es eine
+  // alte Kennung (`@`) trägt (`darfUebernehmen`); ein ZDO mit id-förmiger
+  // Kennung, die im Dokument fehlt, geht im Nachlauf am Ende.
   const ziele = placements.flatMap((p) => {
     const prefab = bekannt(p);
     return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z }] : [];
@@ -471,6 +479,27 @@ export function layoutAbgleich(
     }
   }
 
+  // DIE EINE Sperre gegen das Erben: Übernehmen (Nähesuche) darf eine Platzierung nur ein ZDO OHNE Kennung oder mit
+  // ALTER Kennung (`@`, Spielstand von vor E1) — das ist der Migrationsweg. Ein ZDO mit id-förmiger Kennung, die
+  // im Dokument fehlt (ein Objekt, das der Designer gelöscht hat), ist verwaist und stirbt nach den gewohnten
+  // Regeln (`darfLoeschen`): Die id in der Datei ist die ADRESSE des Objekts, eine neue id ist ein neues Objekt
+  // und erbt nie den Zustand eines gelöschten — gleich, wie die id aussieht und wie nah es steht. Ein Dokument
+  // ohne ids hat keine stabile Objektidentität: Liegt ein solcher Eintrag nach einer Verschiebung über die
+  // Meterkante, ändert sich seine abgeleitete id, und das ZDO der alten geht (Zustand mit).
+  // Das ist die einzige Stelle, die das entscheidet: Die Zurückstellung in der ersten Schleife (Nähe zu einer
+  // Platzierung) schont ein id-förmiges ZDO nur bis hierher, danach nimmt es diese Sperre — eine zweite Sperre dort
+  // hätte keine beobachtbare Wirkung (das ZDO stürbe im Nachlauf im selben Boot).
+  const darfUebernehmen = (z: ZDO): boolean => {
+    const member = z.getMember(LAYOUT_ID_HASH);
+    // Ein Member, der da ist, aber kein Text: eine unlesbare Kennung ist trotzdem eine — nicht „ohne Kennung“.
+    if (member !== undefined && typeof member.value !== 'string') return false;
+    const kennung = z.getString(LAYOUT_ID_MEMBER);
+    if (!kennung) return true;
+    // Eine alte Kennung, die dieser Server je geschrieben hat, nennt das Prefab des ZDO selbst: `irgendwas@7,7` ist keine.
+    const prefab = prefabDerAltenKennung(kennung);
+    return prefab !== null && kontext.prefabs.getByName(prefab)?.hash === z.prefabHash;
+  };
+
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
   const neuErzeugt = new Set<string>();
   for (const p of placements) {
@@ -492,6 +521,7 @@ export function layoutAbgleich(
             z.prefabHash === prefab.hash &&
             !istSpielerbau(z) &&
             !beansprucht.has(z) &&
+            darfUebernehmen(z) &&
             Math.hypot(z.position.x - p.x, z.position.z - p.z) < TOLERANZ.naehe
         );
       if (zdo) {

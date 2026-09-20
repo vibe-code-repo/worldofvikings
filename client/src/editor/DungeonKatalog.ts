@@ -60,6 +60,7 @@ import { abschnitt, auswahl, feld, hinweis, knopf, schalter, zeile } from './dun
 // geöffneten Dokument nichts zu tun hat und diese hier schon 1 200
 // Zeilen misst.
 import { NewHallForm, type HallBuilder, type HallDeleter } from './DungeonNeuerSaal';
+import { gameUrl } from './spielAdresse';
 
 export interface DungeonSeiteRueckrufe {
   meldung(text: string, fehler?: boolean): void;
@@ -1044,7 +1045,7 @@ export class DungeonSeite {
       return;
     }
     const host = spielHost(location.host);
-    const ziel = `${location.protocol}//${host}/?dungeon=${encodeURIComponent(doc.id)}`;
+    const ziel = `${location.protocol}//${host}${gameUrl(`dungeon=${encodeURIComponent(doc.id)}`)}`;
 
     // ── Ohne Anmeldung geht die Dungeon-Wahl unterwegs verloren ──────
     //
@@ -1073,7 +1074,7 @@ export class DungeonSeite {
             'Erst anmelden, dann noch einmal auf „Betreten".',
           true
         );
-        window.open(`${location.protocol}//${host}/`, '_blank');
+        window.open(`${location.protocol}//${host}${gameUrl()}`, '_blank');
         return;
       }
     }

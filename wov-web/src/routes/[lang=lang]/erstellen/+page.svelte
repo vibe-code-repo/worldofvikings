@@ -1145,6 +1145,17 @@
     letter-spacing: 0.14em;
     text-transform: uppercase;
     text-shadow: 0 2px 12px #000;
+    /*
+      Nie umbrechen. Die 420 px des Kopfes gelten fuer das Namensfeld; die
+      Ueberschrift darf breiter sein. Flex statt text-align: Ein zu breiter
+      Text ragt so nach beiden Seiten gleich weit hinaus (bei text-align
+      wuchse er nur nach rechts). Sonst brach "Charakter erstellen" ab 1486 px
+      Fensterbreite in zwei Zeilen um (Schrift 29,7 px, Text 420,1 px bei 420 px
+      Kopfbreite; bei 30 px sind es 423,8 px).
+    */
+    display: flex;
+    justify-content: center;
+    white-space: nowrap;
   }
 
   .namensfeld {

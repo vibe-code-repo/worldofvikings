@@ -22,9 +22,6 @@ import {
   WATER_LEVEL,
 } from '@wov/shared';
 import {
-  BIOME_COLOR,
-  DEEP_WATER,
-  SHORE_WATER,
   RIVER_COLOR,
   BIOME_TREE_DENSITY,
   forestDensity,
@@ -32,6 +29,7 @@ import {
   TREE_STYLE,
   type RGB,
 } from './MapPalette';
+import { farbe, rendereKachel } from './kartenKacheln';
 import {
   GRID_N,
   HEIGHT_EXAG,
@@ -43,7 +41,10 @@ import {
   TREE_STEP,
   setzeKartenMasse,
   type MapBuildRequest,
+  type MapTileInit,
+  type MapTileRequest,
   type MapWorkerMessage,
+  type MapWorkerRequest,
 } from './mapTypes';
 
 // Der Worker läuft ohne DOM-lib-Typen für DedicatedWorkerGlobalScope; der
@@ -51,7 +52,7 @@ import {
 // Clients um "WebWorker" zu erweitern (das kollidiert mit der DOM-lib).
 const ctx = self as unknown as {
   postMessage(m: MapWorkerMessage, transfer?: Transferable[]): void;
-  onmessage: ((e: { data: MapBuildRequest }) => void) | null;
+  onmessage: ((e: { data: MapWorkerRequest }) => void) | null;
 };
 
 const post = (m: MapWorkerMessage, transfer?: Transferable[]): void => ctx.postMessage(m, transfer);
@@ -66,30 +67,6 @@ function mulberry32(a: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-/**
- * Einfärbung einer Weltprobe — dieselbe Logik wie im Offline-Werkzeug
- * `shared/test/geo-map.ts:86`, ergänzt um die Wald-Abdunklung, damit man auf
- * der Karte sieht, wo tatsächlich Wald steht und nicht nur, welches Biome.
- */
-function farbe(biome: Biome, hoehe: number, wald: number, out: Uint8Array, o: number): void {
-  if (biome === Biome.Ocean || hoehe < WATER_LEVEL) {
-    // Wassertiefe: 5 m unter dem Pegel ist Ufer, ab 30 m offene See.
-    const tiefe = Math.min(Math.max((WATER_LEVEL - hoehe) / 25, 0), 1);
-    out[o] = SHORE_WATER[0] + (DEEP_WATER[0] - SHORE_WATER[0]) * tiefe;
-    out[o + 1] = SHORE_WATER[1] + (DEEP_WATER[1] - SHORE_WATER[1]) * tiefe;
-    out[o + 2] = SHORE_WATER[2] + (DEEP_WATER[2] - SHORE_WATER[2]) * tiefe;
-    return;
-  }
-  const basis: RGB = BIOME_COLOR[biome] ?? BIOME_COLOR[Biome.None];
-  // Höhenschattierung: flaches Land dunkler, Gipfel heller.
-  const f = 0.74 + 0.26 * Math.min(Math.max((hoehe - WATER_LEVEL) / 110, -0.5), 1);
-  // Wald verdunkelt und entsättigt leicht — je dichter, desto kräftiger.
-  const w = 1 - 0.28 * wald;
-  out[o] = Math.min(255, basis[0] * f * w);
-  out[o + 1] = Math.min(255, basis[1] * f * (1 - 0.18 * wald));
-  out[o + 2] = Math.min(255, basis[2] * f * w);
 }
 
 function bauen(req: MapBuildRequest): void {
@@ -114,7 +91,9 @@ function bauen(req: MapBuildRequest): void {
 
   // ---- 1. Reliefgitter -----------------------------------------------------
   fortschritt(0.12, 'map.progress.relief');
-  const gN = GRID_N;
+  // nurBild: das Gitter bleibt 2 × 2 (die Nachricht `relief` kommt weiter,
+  // nur ohne die 263.000 Höhenproben, auf die der Editor sonst umsonst wartet).
+  const gN = req.nurBild ? 2 : GRID_N;
   const schritt = MAP_SPAN / (gN - 1);
   const hoehen = new Float32Array(gN * gN);
   for (let r = 0; r < gN; r++) {
@@ -303,6 +282,11 @@ function bauen(req: MapBuildRequest): void {
   const texKopie = tex.slice();
   post({ t: 'textur', data: texKopie }, [texKopie.buffer]);
 
+  if (req.nurBild) {
+    post({ t: 'fertig', dauerMs: Date.now() - start });
+    return;
+  }
+
   // ---- 3. Baumsignaturen ---------------------------------------------------
   fortschritt(0.88, 'map.progress.forests');
   const rnd = mulberry32(getStableHash(req.seed) ^ 0x5f3a91);
@@ -348,9 +332,50 @@ function bauen(req: MapBuildRequest): void {
   post({ t: 'fertig', dauerMs: Date.now() - start });
 }
 
+/** Geo der Kachelaufträge, je Welt-Generation des Editors einmal gebaut. */
+let kachelGeo: { gen: number; geo: IGeo } | null = null;
+
+function kachelInit(m: MapTileInit): void {
+  const start = Date.now();
+  // Dieselben Einstellungen wie in bauen() für einen Auftrag ohne `settings`.
+  const geo = createGeo({
+    mode: 'layout',
+    worldSeed: getStableHash(m.seed),
+    layout: m.layout,
+    settings: {
+      worldGenVersion: 2,
+      disableDistantRivers: false,
+      riverAffectsOcean: false,
+      ashlandsModernNoise: true,
+    },
+  });
+  kachelGeo = { gen: m.gen, geo };
+  post({ t: 'kachel-bereit', gen: m.gen, dauerMs: Date.now() - start });
+}
+
+function kachelRechnen(m: MapTileRequest): void {
+  const g = kachelGeo;
+  if (!g || g.gen !== m.gen) {
+    post({ t: 'kachel-leer', gen: m.gen, id: m.id });
+    return;
+  }
+  const start = Date.now();
+  const data = rendereKachel(g.geo, { stufe: m.stufe, ix: m.ix, iz: m.iz });
+  post(
+    { t: 'kachel', gen: m.gen, id: m.id, stufe: m.stufe, ix: m.ix, iz: m.iz, data, dauerMs: Date.now() - start },
+    [data.buffer],
+  );
+}
+
 ctx.onmessage = (e) => {
   try {
-    bauen(e.data);
+    const m = e.data;
+    if ('op' in m) {
+      if (m.op === 'kachel-init') kachelInit(m);
+      else kachelRechnen(m);
+    } else {
+      bauen(m);
+    }
   } catch (err) {
     post({ t: 'fehler', text: err instanceof Error ? err.message : String(err) });
   }

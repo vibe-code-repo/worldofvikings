@@ -55,7 +55,36 @@ export interface MapBuildRequest {
   /** Kartenmaße (Layout-Modus): müssen zu den Werten des Panels passen. */
   span?: number;
   radius?: number;
+  /**
+   * Nur das Kartenbild rechnen: kein Reliefgitter, keine Baumsignaturen.
+   * Der Editor braucht weder das eine noch das andere und wartet sonst auf
+   * ein Gitter, das er nie zeichnet.
+   */
+  nurBild?: boolean;
 }
+
+/**
+ * Kachelaufträge (Editor): derselbe Worker rechnet nach einem Init beliebig
+ * viele Kacheln fester Größe für einen Ausschnitt der Welt. Kachel `(stufe,
+ * ix, iz)` deckt `KACHEL_PX × texelMeter(stufe)` Meter ab; die Adressierung
+ * steht in kartenKacheln.ts.
+ */
+export interface MapTileInit {
+  op: 'kachel-init';
+  /** Welt-Generation des Editors: Antworten einer älteren werden verworfen. */
+  gen: number;
+  seed: string;
+  layout: unknown;
+}
+export interface MapTileRequest {
+  op: 'kachel';
+  gen: number;
+  id: number;
+  stufe: number;
+  ix: number;
+  iz: number;
+}
+export type MapWorkerRequest = MapBuildRequest | MapTileInit | MapTileRequest;
 
 export type MapWorkerMessage =
   /** Fortschritt für die Statuszeile (0..1). */
@@ -74,6 +103,21 @@ export type MapWorkerMessage =
   /** Weltdaten für Tooltip/Abfragen: Biome-Index, Höhe und Waldfaktor je Sample. */
   | { t: 'raster'; biome: Uint16Array; hoehe: Float32Array; wald: Float32Array; n: number }
   | { t: 'fertig'; dauerMs: number }
+  /** Kachel-Init beantwortet: die Geo dieser Generation steht im Worker. */
+  | { t: 'kachel-bereit'; gen: number; dauerMs: number }
+  /** Fertige Kachel (RGBA, `KACHEL_PX` × `KACHEL_PX`). */
+  | {
+      t: 'kachel';
+      gen: number;
+      id: number;
+      stufe: number;
+      ix: number;
+      iz: number;
+      data: Uint8Array;
+      dauerMs: number;
+    }
+  /** Auftrag nicht gerechnet (Generation passt nicht zur Geo des Workers). */
+  | { t: 'kachel-leer'; gen: number; id: number }
   | { t: 'fehler'; text: string };
 
 export type MapProgressKey =

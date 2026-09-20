@@ -48,6 +48,7 @@ import {
   type WorldLayout,
 } from '@wov/shared';
 import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes';
+import { KACHEL_PX, KachelDienst, type Ansicht } from '../ui/worldmap/kartenKacheln';
 import { EditorShell } from './Shell';
 import { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonSeite } from './DungeonKatalog';
@@ -1340,6 +1341,76 @@ let worker: Worker | null = null;
 let vorschauBild: ImageBitmap | null = null;
 let vorschauSpan = 21000;
 let neuZeichnenTimer: number | null = null;
+/**
+ * Das Gesamtbild (`vorschauBild`) ist die grobe Grundlage: eine Textur für
+ * die ganze Welt, 30 m je Texel. Darüber liegen Kacheln für den sichtbaren
+ * Ausschnitt in dem Maßstab, den man gerade hat (kartenKacheln.ts). Bis eine
+ * Kachel da ist, zeigt die Karte das Gesamtbild aufgeblasen — nichts wartet.
+ */
+const messung = new URLSearchParams(window.location.search);
+const kachelWorkerZahl = (() => {
+  const wunsch = Number(messung.get('karten-worker'));
+  if (wunsch >= 1 && wunsch <= 8) return Math.floor(wunsch);
+  return Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+})();
+let weltGen = 0;
+const kachelBild = (rgba: Uint8Array): Promise<ImageBitmap> =>
+  createImageBitmap(
+    new ImageData(new Uint8ClampedArray(rgba.buffer as ArrayBuffer), KACHEL_PX, KACHEL_PX),
+  );
+const kacheln = new KachelDienst<ImageBitmap>({
+  anzahl: kachelWorkerZahl,
+  erzeuge: (index) => {
+    const w = new Worker(new URL('../ui/worldmap/mapWorker.ts', import.meta.url), { type: 'module' });
+    const handle = {
+      onNachricht: null as ((m: MapWorkerMessage) => void) | null,
+      post: (m: unknown) => w.postMessage(m),
+      terminate: () => w.terminate(),
+    };
+    w.onmessage = (e: MessageEvent<MapWorkerMessage>) => handle.onNachricht?.(e.data);
+    void index;
+    return handle;
+  },
+  bild: kachelBild,
+  schliesse: (b) => b.close(),
+  // Kacheln treffen dicht hintereinander ein: höchstens ein Neuzeichnen je Bild.
+  aufNeu: () => {
+    if (kachelNeuGeplant) return;
+    kachelNeuGeplant = true;
+    requestAnimationFrame(() => {
+      kachelNeuGeplant = false;
+      zeichneVorschauBild();
+    });
+  },
+});
+let kachelNeuGeplant = false;
+/** Sichtfenster der Vorschau-Leinwand in der Form, die der Kachel-Dienst braucht. */
+const kartenAnsicht = (): Ansicht => ({
+  mitteX,
+  mitteZ,
+  massstab,
+  breite: vorschau.width,
+  hoehe: vorschau.height,
+});
+/** Messzeiten des Kartenbilds (ms seit Start des Gesamtbild-Laufs), nur zum Auslesen. */
+const kartenMesswerte: { grobBildMs: number | null } = { grobBildMs: null };
+// Messhaken: nur mit `?karten-messung=1` in der Adresse. Er liest den Kachelstand aus und setzt
+// die Ansicht (Mitte, Maßstab) für die Messläufe; ohne den Parameter gibt es ihn nicht.
+if (messung.has('karten-messung')) {
+  (window as unknown as Record<string, unknown>).__wovKartenMessung = {
+    statistik: () => kacheln.statistik(),
+    messwerte: kartenMesswerte,
+    workerZahl: kachelWorkerZahl,
+    ansicht: () => ({ mitteX, mitteZ, massstab }),
+    setzeAnsicht: (mx: number, mz: number, m: number) => {
+      mitteX = mx;
+      mitteZ = mz;
+      massstab = Math.min(200, Math.max(4, m));
+      zeichneOverlay();
+      zeichneVorschauBild();
+    },
+  };
+}
 
 function vorschauAnstossen(): void {
   if (neuZeichnenTimer !== null) window.clearTimeout(neuZeichnenTimer);
@@ -1353,12 +1424,14 @@ function vorschauRechnen(): void {
   const sauber = sanitizeWorldLayout(layout);
   if (!sauber || sauber.regions.length === 0) {
     vorschauBild = null;
+    kacheln.keineWelt();
     zeichneVorschauBild();
     statuszeile.textContent = 'Ozean — zeichne eine Region (Werkzeug links).';
     return;
   }
   worker?.terminate();
   worker = new Worker(new URL('../ui/worldmap/mapWorker.ts', import.meta.url), { type: 'module' });
+  const gestartet = performance.now();
   const b = layoutBounds(sauber);
   const halb = Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ)) + 2000;
   vorschauSpan = halb * 2;
@@ -1373,6 +1446,7 @@ function vorschauRechnen(): void {
       const n = Math.sqrt(px.length / 4) | 0;
       void createImageBitmap(new ImageData(px, n, n)).then((bmp) => {
         vorschauBild = bmp;
+        kartenMesswerte.grobBildMs = performance.now() - gestartet;
         zeichneVorschauBild();
         // Fertig — Worker samt RegionGeo-Instanz freigeben (WorldMap-Muster).
         worker?.terminate();
@@ -1387,7 +1461,11 @@ function vorschauRechnen(): void {
     layout: sauber,
     span: vorschauSpan,
     radius: halb * 0.995,
+    nurBild: true,
   });
+  // Die Kacheln rechnen mit eigener Geo je Worker und beginnen sofort, in der
+  // Mitte des Bildes; das Gesamtbild oben ist nur die Unterlage.
+  kacheln.neueWelt(++weltGen, sauber.detailSeed, sauber);
 }
 
 function zeichneVorschauBild(): void {
@@ -1397,12 +1475,17 @@ function zeichneVorschauBild(): void {
   // ergäbe eine sichtbare Kante genau dort, wo die Karte anfängt.
   ctx.fillStyle = F.ozean;
   ctx.fillRect(0, 0, vorschau.width, vorschau.height);
-  if (!vorschauBild) return;
-  // Bild deckt [−span/2, +span/2] der Welt ab → in die aktuelle Ansicht legen.
-  const [x0, y0] = zuBild(-vorschauSpan / 2, -vorschauSpan / 2);
-  const seite = vorschauSpan / massstab;
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(vorschauBild, x0, y0, seite, seite);
+  if (vorschauBild) {
+    // Bild deckt [−span/2, +span/2] der Welt ab → in die aktuelle Ansicht legen.
+    const [x0, y0] = zuBild(-vorschauSpan / 2, -vorschauSpan / 2);
+    const seite = vorschauSpan / massstab;
+    ctx.drawImage(vorschauBild, x0, y0, seite, seite);
+  }
+  // Fertige Kacheln obenauf, dann fehlende für genau diese Ansicht anfordern.
+  const ansicht = kartenAnsicht();
+  kacheln.zeichne(ctx, ansicht);
+  kacheln.setzeAnsicht(ansicht);
 }
 
 // ── Maus: Zeichnen, Auswahl, Verschieben, Zoom ───────────────────────

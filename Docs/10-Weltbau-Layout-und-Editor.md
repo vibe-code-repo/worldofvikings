@@ -447,8 +447,12 @@ Kennung).
   Vorwärts heilt es sich (`0 gespawnt, 157 aktualisiert, 0 entfernt`), der
   verlorene Zustand kommt aber nicht wieder.
 - Tests (Runner `scripts/run-tests.mjs`, Docs/09 P26): `npm test` fährt die
-  Kernliste (20 Dateien), `npm test -- --alle` zusätzlich die drei langen
-  Läufe. Für dieses Dokument einschlägig: `shared/test/worldlayout.ts`,
+  ganze Liste `KERN` in einem Lauf (rund 10 Minuten; jede Testdatei im Baum
+  steht dort oder mit Grund auf der Ausnahmeliste in
+  `scripts/pruefe-runner-liste.mjs`). Den Schalter `--alle` und die zweite
+  Liste `LANG` gibt es seit 20.09.2026 nicht mehr; der Runner nimmt keine
+  Argumente und lehnt sie mit Exit-Code 2 ab. Für dieses Dokument
+  einschlägig: `shared/test/worldlayout.ts`,
   `shared/test/region-geo.ts`, `server/test/h1-layout.ts`,
   `server/test/h2-routen.ts`, `server/test/h3-routen-vorschau.ts`,
   `server/test/h4-graslandflora.ts` sowie die beiden neuen —

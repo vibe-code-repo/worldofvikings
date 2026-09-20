@@ -45,6 +45,23 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 /*
+  Die BUCHFUEHRUNG (Laufzeitzeuge): Am Ende des Laufs wird geprueft, dass
+  jeder Eintrag von KERN wirklich gestartet (`fahre`), durch eine Weiche
+  uebersprungen oder mit Grund ausgelassen wurde — und nichts sonst. Sie
+  steht in einer eigenen Datei, damit `scripts/pruefe-runner-liste.mjs`
+  sie testen kann; sie prueft, was der Kindprozess bekommen hat, nicht wie
+  die Schleife aussieht. Dieser Runner darf deshalb umgebaut werden
+  (Helfer, Teillisten, Filter, Parallelisierung), solange jeder Start ueber
+  `fahre` geht und `abschluss` am Ende aufgerufen wird. Ein Filter bucht
+  jeden Eintrag, den er weglaesst, mit `auslassen(buch, WURZEL, paket, datei,
+  grund)`; der Lauf endet dann als TEILLAUF statt als Fehler.
+
+  Bookkeeping in its own module: what the runner really started is held
+  against KERN at the end of the run.
+*/
+import { abschluss, festhalten, fahre, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
+
+/*
   Die WEICHEN (S3, Elemente-Umzug): `brauchtModelle` fuer Tests, die
   `assets/` brauchen — es liegt ausserhalb des Repos —, `brauchtBlender`
   fuer die, die zusaetzlich den Flatpak-Blender brauchen. Fehlt die
@@ -2022,6 +2039,23 @@ const KERN = [
   ['tools/armor/test', 'emberrage-glow.ts'],
 ];
 
+// Momentaufnahme der Liste fuer die Buchfuehrung, gleich nach der Deklaration.
+const SOLL = festhalten(KERN, WURZEL);
+const buch = neueBuchfuehrung();
+
+/*
+  Der Runner nimmt keine Argumente. `--alle` gab es bis 20.09.2026 (eine zweite
+  Liste LANG); seither laeuft immer alles. Wer noch `npm test -- --alle` tippt,
+  soll es merken, statt dass es still ignoriert wird.
+*/
+if (process.argv.length > 2) {
+  console.error(
+    `run-tests.mjs: unbekannte Argumente: ${process.argv.slice(2).join(' ')}\n` +
+      '  Der Runner nimmt keine Argumente; `--alle` gibt es seit 20.09.2026 nicht mehr (die Liste LANG ist aufgeloest, alles laeuft immer).',
+  );
+  process.exit(2);
+}
+
 let fehler = 0;
 let uebersprungen = 0;
 const start = Date.now();
@@ -2066,10 +2100,11 @@ for (const [paket, datei, weiche] of KERN) {
   const grund = weiche?.();
   if (grund) {
     uebersprungen++;
+    ueberspringe(buch, WURZEL, paket, datei);
     console.log(`ÜBERSPRUNGEN — ${grund}`);
     continue;
   }
-  const lauf = spawnSync(resolve(WURZEL, 'node_modules/.bin/tsx'), [datei], {
+  const lauf = fahre(buch, spawnSync, resolve(WURZEL, 'node_modules/.bin/tsx'), [datei], {
     cwd: resolve(WURZEL, paket),
     encoding: 'utf-8',
     timeout: 600_000,
@@ -2126,9 +2161,21 @@ if (schmutzigeZeilen.length > 0) {
   for (const zeile of schmutzigeZeilen) console.log(`  ${zeile}`);
 }
 
+// Buchfuehrung: nur eine Momentaufnahme des vollen Laufs; ein abgebrochener Lauf kommt nie hierher.
+const buchung = abschluss(buch, SOLL, WURZEL);
+if (buchung.befunde.length > 0) {
+  console.log('\n✗ Der Sammellauf hat nicht gefahren, was in KERN steht (Buchführung, scripts/runner-buchfuehrung.mjs):');
+  for (const befund of buchung.befunde) console.log(`  ${befund}`);
+}
+const dauerGesamt = `${((Date.now() - start) / 1000).toFixed(0)}s`;
+if (buchung.befunde.length > 0) {
+  console.log(`\nROT — ${buchung.gefahren} von ${KERN.length} Tests gefahren, Buchführung stimmt nicht, in ${dauerGesamt}`);
+  process.exit(1);
+}
 console.log(
-  `\n${KERN.length - fehler - uebersprungen}/${KERN.length} Tests grün` +
+  `\n${KERN.length - fehler - uebersprungen - buchung.ausgelassen}/${KERN.length} Tests grün` +
     (uebersprungen > 0 ? `, ${uebersprungen} übersprungen` : '') +
-    ` in ${((Date.now() - start) / 1000).toFixed(0)}s`
+    (buchung.ausgelassen > 0 ? `, ${buchung.ausgelassen} ausgelassen (TEILLAUF, kein voller Lauf)` : '') +
+    ` in ${dauerGesamt}`
 );
 process.exit(fehler > 0 ? 1 : 0);

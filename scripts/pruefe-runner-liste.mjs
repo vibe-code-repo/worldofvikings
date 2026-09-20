@@ -23,18 +23,19 @@
  * gelesen am Syntaxbaum (nicht per Textsuche — Kommentare nennen Dateinamen,
  * und ein umformatierter Eintrag bliebe für eine Textsuche unsichtbar). Es
  * zählt nur die Deklaration auf OBERSTER Ebene; eine gleichnamige Liste in
- * einer Funktion oder einem Block schaltet keine Datei ein. Ein Eintrag, der
- * sich nicht als `['ordner', 'datei']` mit Textliteralen lesen lässt, ist
- * selbst ein Befund.
+ * einer Funktion oder einem Block schaltet keine Datei ein. `...TEIL` folgt
+ * einer obersten Array-Liste (Liste in Teilen). Ein Eintrag, der sich nicht als
+ * `['ordner', 'datei']` mit Textliteralen lesen lässt, ist selbst ein Befund.
  *
- * Der Zeuge prüft außerdem, dass der Runner die Liste wirklich fährt, die er
- * liest: Auf oberster Ebene steht genau eine Schleife, die Tests startet
- * (`spawnSync`), und sie läuft über `KERN` selbst — nicht über eine Kopie,
- * einen Filter oder eine andere Liste. Sonst kommt `KERN` nur noch lesend als
- * `KERN.length` vor. Ein Textmuster für „die Standardliste ist KERN" würde
- * eine unbenutzte Lockvogel-Zeile täuschen; die Schleife lässt sich nicht
- * ablenken. (Bis 20.09.2026 gab es daneben eine Liste `LANG` und den Schalter
- * `--alle`; beides ist weg, seit die drei Tests darin in KERN stehen.)
+ * Ob der Runner die Liste dann auch FÄHRT, prüft dieser Zeuge NICHT am
+ * Quelltext (das ließ sich mit einem Lockvogel täuschen und verbot ehrliche
+ * Umbauten), sondern zur Laufzeit: `scripts/runner-buchfuehrung.mjs`. Der
+ * Runner bucht, welche Datei er wirklich an den Kindprozess gibt, und
+ * vergleicht am Ende mit KERN; fehlt einer oder läuft einer, der nicht
+ * eingetragen ist, ist der Lauf rot. Dieser Zeuge prüft dazu nur zweierlei:
+ * dass die Buchführung in run-tests.mjs noch verdrahtet ist (Import und Aufruf
+ * von `abschluss`), und — in [1b] — dass die Buchführung selbst rot werden
+ * kann (Zahnprobe). Wie die Schleife gebaut ist, ist gleichgültig.
  *
  * Wer eine Datei gar nicht eintragen kann, trägt sie in `AUSNAHMEN` ein:
  *   werkzeug  kein Test: Messbank, Bündel-Einstieg, Blender-Skript oder ein
@@ -60,7 +61,8 @@
  *
  * Guards the collective run: every test file in the tree is registered in
  * the top-level list KERN of scripts/run-tests.mjs, or carries a reason on the
- * exception list — and the runner's one test loop walks KERN itself.
+ * exception list. What the runner really starts is checked at run time by
+ * scripts/runner-buchfuehrung.mjs, not by reading the source.
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -79,6 +81,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { abschluss, auslassen, fahre, festhalten, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const SKRIPT_ENDUNG = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py)$/i;
@@ -185,15 +188,13 @@ function kandidaten(wurzel) {
 
 /**
  * The `[ordner, datei, weiche?]` entries of KERN, read from the syntax tree, plus
- * `formfehler`: everything about the runner's shape that would let its list and
- * its run drift apart.
+ * `formfehler`: only what the tree side cannot do without (see the header).
  *
  * Only the declaration at the top level of the file counts (a `KERN` in a function
- * or block registers nothing). The run is the top-level `for...of` that calls
- * `spawnSync`; it must walk `KERN` itself. Any other mention of the identifier
- * `KERN` — a copy, a `.splice`, `.length = 0`, a call argument, a second
- * declaration — is a finding, so nothing can change what the loop walks after
- * the fact. Reading `KERN.length` is allowed (the summary line).
+ * or block registers nothing). `...NAME` in the list is followed when NAME is
+ * a top-level array literal (lists in parts); everything else that is not a
+ * `['ordner', 'datei']` of text literals is an unreadable entry. How the run is
+ * built is NOT looked at — that is what the bookkeeping at run time is for.
  */
 function eingetragene(quelltext) {
   const baum = ts.createSourceFile('run-tests.mjs', quelltext, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
@@ -202,106 +203,70 @@ function eingetragene(quelltext) {
   const formfehler = [];
   const zeile = (n) => baum.getLineAndCharacterOfPosition(n.getStart(baum)).line + 1;
   const kurz = (n) => n.getText(baum).replace(/\s+/g, ' ').slice(0, 80);
-  const erlaubt = new Set();
 
-  // The list: a `const KERN = [...]` directly in the file.
+  // Top-level declarations by name; only they can be the list or a part of it.
+  const oberste = new Map();
   const deklarationen = [];
   for (const anweisung of baum.statements) {
     if (!ts.isVariableStatement(anweisung)) continue;
     for (const d of anweisung.declarationList.declarations) {
-      if (ts.isIdentifier(d.name) && d.name.text === 'KERN') deklarationen.push(d);
+      if (!ts.isIdentifier(d.name)) continue;
+      oberste.set(d.name.text, d.initializer);
+      if (d.name.text === 'KERN') deklarationen.push(d);
     }
   }
+  const text = (n) => (n && ts.isStringLiteralLike(n) ? n.text : null);
+  const lies = (liste, name, besucht) => {
+    for (const eintrag of liste.elements) {
+      if (ts.isSpreadElement(eintrag) && ts.isIdentifier(eintrag.expression)) {
+        const teil = oberste.get(eintrag.expression.text);
+        if (teil && ts.isArrayLiteralExpression(teil) && !besucht.has(eintrag.expression.text)) {
+          lies(teil, eintrag.expression.text, new Set(besucht).add(eintrag.expression.text));
+          continue;
+        }
+      }
+      const [ordner, datei] = ts.isArrayLiteralExpression(eintrag) ? eintrag.elements : [];
+      if (text(ordner) === null || text(datei) === null) {
+        unlesbar.push(`${name}: ${kurz(eintrag)}`);
+        continue;
+      }
+      kern.push(kanonisch(`${text(ordner)}/${text(datei)}`));
+    }
+  };
   if (deklarationen.length === 0) {
     formfehler.push('die Liste KERN steht nicht auf oberster Ebene von run-tests.mjs (Zeuge blind)');
   } else if (deklarationen.length > 1) {
     formfehler.push(`KERN ist mehrfach auf oberster Ebene deklariert (Zeilen ${deklarationen.map(zeile).join(', ')})`);
   } else {
     const [d] = deklarationen;
-    erlaubt.add(d.name);
-    if (!(d.parent.flags & ts.NodeFlags.Const)) formfehler.push(`KERN (Zeile ${zeile(d)}) ist nicht \`const\``);
     if (!d.initializer || !ts.isArrayLiteralExpression(d.initializer)) {
       formfehler.push(`KERN (Zeile ${zeile(d)}) ist kein Array-Literal, die Einträge sind nicht lesbar`);
     } else {
-      for (const eintrag of d.initializer.elements) {
-        const [ordner, datei] = ts.isArrayLiteralExpression(eintrag) ? eintrag.elements : [];
-        const text = (n) => (n && ts.isStringLiteralLike(n) ? n.text : null);
-        if (text(ordner) === null || text(datei) === null) {
-          unlesbar.push(`KERN: ${kurz(eintrag)}`);
-          continue;
-        }
-        kern.push(kanonisch(`${text(ordner)}/${text(datei)}`));
-      }
+      lies(d.initializer, 'KERN', new Set());
     }
   }
 
-  // The run: exactly one top-level loop that starts tests, and it walks KERN.
-  const startetTests = (knoten) => {
-    let gefunden = false;
-    const such = (n) => {
-      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'spawnSync') gefunden = true;
-      if (!gefunden) ts.forEachChild(n, such);
-    };
-    such(knoten);
-    return gefunden;
-  };
-  const laeufe = baum.statements.filter((a) => ts.isForOfStatement(a) && startetTests(a.statement));
-  if (laeufe.length === 0) {
-    formfehler.push('kein Lauf: auf oberster Ebene fehlt die `for (… of KERN)`-Schleife, die Tests mit spawnSync startet');
-  } else if (laeufe.length > 1) {
-    formfehler.push(`mehrere Schleifen starten Tests (Zeilen ${laeufe.map(zeile).join(', ')}); erwartet genau eine über KERN`);
+  // The bookkeeping must still be wired in: imported from runner-buchfuehrung.mjs and called.
+  let lokalerName = null;
+  for (const anweisung of baum.statements) {
+    if (!ts.isImportDeclaration(anweisung) || !ts.isStringLiteralLike(anweisung.moduleSpecifier)) continue;
+    if (!/(^|\/)runner-buchfuehrung\.mjs$/.test(anweisung.moduleSpecifier.text)) continue;
+    const gebunden = anweisung.importClause?.namedBindings;
+    if (!gebunden || !ts.isNamedImports(gebunden)) continue;
+    for (const e of gebunden.elements) if ((e.propertyName ?? e.name).text === 'abschluss') lokalerName = e.name.text;
   }
-  for (const lauf of laeufe) {
-    if (ts.isIdentifier(lauf.expression) && lauf.expression.text === 'KERN') {
-      erlaubt.add(lauf.expression);
-    } else {
-      formfehler.push(`der Lauf (Zeile ${zeile(lauf)}) geht nicht über KERN, sondern über: ${kurz(lauf.expression)}`);
-    }
+  let aufgerufen = false;
+  const suche = (n) => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === lokalerName) aufgerufen = true;
+    if (!aufgerufen) ts.forEachChild(n, suche);
+  };
+  if (lokalerName) suche(baum);
+  if (!lokalerName || !aufgerufen) {
+    formfehler.push(
+      'run-tests.mjs bucht den Lauf nicht mehr: `abschluss` aus ./runner-buchfuehrung.mjs wird nicht importiert oder nicht aufgerufen (Laufzeitzeuge fehlt)',
+    );
   }
-
-  // Every other mention of KERN could change what the loop walks.
-  const wirdGeschrieben = (zugriff) => {
-    const eltern = zugriff.parent;
-    if (
-      ts.isBinaryExpression(eltern) &&
-      eltern.left === zugriff &&
-      eltern.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-      eltern.operatorToken.kind <= ts.SyntaxKind.LastAssignment
-    ) {
-      return true;
-    }
-    if (
-      (ts.isPrefixUnaryExpression(eltern) || ts.isPostfixUnaryExpression(eltern)) &&
-      [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(eltern.operator)
-    ) {
-      return true;
-    }
-    return ts.isDeleteExpression(eltern);
-  };
-  const besuche = (knoten) => {
-    if (ts.isIdentifier(knoten) && knoten.text === 'KERN' && !erlaubt.has(knoten)) {
-      const eltern = knoten.parent;
-      const alsName =
-        (ts.isPropertyAccessExpression(eltern) && eltern.name === knoten) ||
-        (ts.isPropertyAssignment(eltern) && eltern.name === knoten);
-      const laenge =
-        ts.isPropertyAccessExpression(eltern) &&
-        eltern.expression === knoten &&
-        eltern.name.text === 'length' &&
-        !wirdGeschrieben(eltern);
-      if (!alsName && !laenge) {
-        let anweisung = knoten;
-        while (anweisung.parent && !ts.isBlock(anweisung.parent) && !ts.isSourceFile(anweisung.parent)) anweisung = anweisung.parent;
-        formfehler.push(
-          `KERN kommt in Zeile ${zeile(knoten)} an unerwarteter Stelle vor (erlaubt: die Deklaration, die Schleife, lesend KERN.length): ${kurz(anweisung)}`,
-        );
-      }
-    }
-    ts.forEachChild(knoten, besuche);
-  };
-  besuche(baum);
-  // Two identifiers in one statement report the same line once.
-  return { kern, unlesbar, formfehler: [...new Set(formfehler)] };
+  return { kern, unlesbar, formfehler };
 }
 
 /** All findings for the tree at `wurzel`; an empty list is a pass. */
@@ -394,11 +359,14 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     mkdirSync(dirname(join(wegwerf, pfad)), { recursive: true });
     writeFileSync(join(wegwerf, pfad), inhalt);
   };
-  // The smallest runner the witness accepts: the list, one loop over it, the count.
+  // The smallest runner the witness accepts: the list, its snapshot, one loop that books, the end check.
+  const KOPF =
+    "import { spawnSync } from 'node:child_process';\nimport { abschluss, fahre, festhalten, neueBuchfuehrung } from './runner-buchfuehrung.mjs';\n";
+  const NACH_LISTE = "const SOLL = festhalten(KERN, '.');\nconst buch = neueBuchfuehrung();\n";
   const SCHLEIFE =
-    "for (const [paket, datei] of KERN) {\n  spawnSync('tsx', [datei], { cwd: paket });\n}\nconsole.log(`${KERN.length} Tests`);\n";
-  const runner = (kernEintraege, rest = SCHLEIFE) =>
-    `import { spawnSync } from 'node:child_process';\nconst KERN = [\n${kernEintraege}\n];\n${rest}`;
+    "for (const [paket, datei] of KERN) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nconst buchung = abschluss(buch, SOLL);\nconsole.log(`${KERN.length} Tests`);\n";
+  const runner = (kernEintraege, rest = SCHLEIFE, kopf = KOPF) =>
+    `${kopf}const KERN = [\n${kernEintraege}\n];\n${NACH_LISTE}${rest}`;
   const grundEintraege = "  ['server', 'test/a.ts'],\n  ['client/test', 'c.ts'],";
   const setzeRunner = (...args) => schreibe('scripts/run-tests.mjs', runner(...args));
   try {
@@ -468,56 +436,64 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     schreibe('scripts/run-tests.mjs', 'const ANDERS = [];\n');
     pruefe(enthaelt(mit([]), 'KERN'), 'ohne Liste KERN ⇒ Befund (der Zeuge sähe sonst nichts)');
 
-    console.log('  — der Lauf geht über die Liste, die der Zeuge liest (M1)');
+    console.log('  — der Zeuge liest die Liste, nicht den Bau des Runners: ehrliche Umbauten bleiben grün');
     const kernMitB = `${grundEintraege}\n  ['server', 'test/b.ts'],`;
     setzeRunner(kernMitB);
-    pruefe(mit([]).length === 0, 'Ausgangslage: b.ts in KERN, eine Schleife über KERN, KERN.length gelesen ⇒ kein Befund');
-    // The attacker's mutant of the old witness: an unused decoy line that looks like the
-    // default-list check, while the loop really walks another list.
-    const lockvogel = "const _unbenutzt = process.argv.includes('--alle') ? [...KERN, ...LANG] : KERN;\n";
-    const ueberListe = (ausdruck) => SCHLEIFE.replace('of KERN', `of ${ausdruck}`);
-    setzeRunner(grundEintraege, `const LANG = [\n  ['server', 'test/b.ts'],\n];\n${lockvogel}const liste = LANG;\n${ueberListe('liste')}`);
-    const lockvogelFall = mit([]);
-    pruefe(
-      enthaelt(lockvogelFall, 'geht nicht über KERN, sondern über: liste'),
-      'Lockvogel-Zeile mit `--alle` und `const liste = LANG` ⇒ Befund: der Lauf geht nicht über KERN',
+    pruefe(mit([]).length === 0, 'Ausgangslage: b.ts in KERN, Buchführung verdrahtet ⇒ kein Befund');
+    const ehrlich = [
+      ['Rumpf der Schleife in eine Hilfsfunktion', `for (const [paket, datei] of KERN) {\n  starte(paket, datei);\n}\nfunction starte(paket, datei) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nabschluss(buch, SOLL);\n`],
+      ['Auswahl-Schalter: Schleife über KERN.filter(…)', `const liste = process.env.NUR ? KERN.filter(([, d]) => d.includes(process.env.NUR)) : KERN;\nfor (const [paket, datei] of liste) {\n  fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket });\n}\nabschluss(buch, SOLL);\n`],
+      ['Object.freeze(KERN)', `Object.freeze(KERN);\n${SCHLEIFE}`],
+      ['structuredClone(KERN)', `const kopie = structuredClone(KERN);\n${SCHLEIFE}`],
+      ['KERN.map(…) für eine Ausgabe', `console.log(KERN.map((e) => e[1]).join(','));\n${SCHLEIFE}`],
+      ['async function main()', `async function main() {\n  ${SCHLEIFE.replace(/\n/g, '\n  ')}}\nmain();\n`],
+      ['try … finally um den Lauf', `try {\n  ${SCHLEIFE.replace(/\n/g, '\n  ')}} finally {\n  console.log('fertig');\n}\n`],
+      ['forEach statt for…of', `KERN.forEach(([paket, datei]) => fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket }));\nabschluss(buch, SOLL);\n`],
+      ['Parallelisierung mit Promise.all', `await Promise.all(KERN.map(async ([paket, datei]) => fahre(buch, spawnSync, 'tsx', [datei], { cwd: paket })));\nabschluss(buch, SOLL);\n`],
+      ['execFileSync-Aufruf statt spawnSync im Rumpf', `for (const [paket, datei] of KERN) {\n  fahre(buch, execFileSync, 'tsx', [datei], { cwd: paket });\n}\nabschluss(buch, SOLL);\n`],
+    ];
+    for (const [name, rest] of ehrlich) {
+      setzeRunner(kernMitB, rest);
+      const ergebnis = mit([]);
+      pruefe(ergebnis.length === 0, `${name} ⇒ kein Befund (${ergebnis.length})`);
+    }
+    // A list in parts: entries in either part are registered, a file in neither is an orphan.
+    schreibe(
+      'scripts/run-tests.mjs',
+      `${KOPF}const TEIL_A = [\n${grundEintraege}\n];\nconst TEIL_B = [['server', 'test/b.ts']];\nconst KERN = [...TEIL_A, ...TEIL_B];\n${NACH_LISTE}${SCHLEIFE}`,
     );
-    pruefe(
-      enthaelt(lockvogelFall, 'server/test/b.ts'),
-      'Lockvogel-Fall: die nur in einer anderen Liste stehende Datei gilt nicht als eingetragen',
+    pruefe(mit([]).length === 0, 'Liste aus Teillisten (`...TEIL_A, ...TEIL_B`) ⇒ alle Einträge gelesen, kein Befund');
+    schreibe(
+      'scripts/run-tests.mjs',
+      `${KOPF}const TEIL_A = [\n${grundEintraege}\n];\nconst KERN = [...TEIL_A];\n${NACH_LISTE}${SCHLEIFE}`,
     );
-    setzeRunner(kernMitB, ueberListe('KERN.filter(() => true)'));
-    pruefe(enthaelt(mit([]), 'geht nicht über KERN, sondern über: KERN.filter'), 'Schleife über einen Filter von KERN ⇒ Befund');
-    setzeRunner(kernMitB, ueberListe('[...KERN]'));
-    pruefe(enthaelt(mit([]), 'geht nicht über KERN, sondern über: [...KERN]'), 'Schleife über eine Kopie von KERN ⇒ Befund');
-    setzeRunner(kernMitB, `function fahre() {\n${ueberListe('KERN')}}\n`);
-    pruefe(enthaelt(mit([]), 'kein Lauf'), 'Schleife nur in einer Funktion (nie gerufen) statt auf oberster Ebene ⇒ Befund „kein Lauf"');
-    setzeRunner(kernMitB, `if (false) {\n${ueberListe('KERN')}}\n`);
-    pruefe(enthaelt(mit([]), 'kein Lauf'), 'Schleife in totem `if (false)` ⇒ Befund „kein Lauf"');
-    setzeRunner(kernMitB, `${SCHLEIFE}${ueberListe('[]')}`);
-    pruefe(enthaelt(mit([]), 'mehrere Schleifen'), 'zweite Schleife, die Tests startet ⇒ Befund');
-    setzeRunner(kernMitB, 'console.log(KERN.length);\n');
-    pruefe(enthaelt(mit([]), 'kein Lauf'), 'gar keine Schleife ⇒ Befund „kein Lauf"');
-    setzeRunner(kernMitB, `${SCHLEIFE}KERN.splice(0, KERN.length);\n`);
-    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), 'KERN nach dem Aufbau geleert (`KERN.splice`) ⇒ Befund');
-    setzeRunner(kernMitB, `KERN.length = 0;\n${SCHLEIFE}`);
-    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), '`KERN.length = 0` ⇒ Befund');
-    setzeRunner(kernMitB, `${SCHLEIFE}KERN.length -= 1;\n`);
-    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), '`KERN.length -= 1` ⇒ Befund');
-    setzeRunner(kernMitB, `${SCHLEIFE}const eins = KERN.length++;\n`);
-    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), '`KERN.length++` ⇒ Befund');
-    setzeRunner(kernMitB, `${SCHLEIFE}KERN.push(...LANG);\n`);
-    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), '`KERN.push(…)` ⇒ Befund');
-    setzeRunner(kernMitB, `${SCHLEIFE}verarbeite(KERN);\n`);
-    pruefe(enthaelt(mit([]), 'an unerwarteter Stelle'), 'KERN als Argument weitergereicht ⇒ Befund');
-    setzeRunner(kernMitB, `${SCHLEIFE}const p = { KERN: 1 };\nconst q = p.KERN;\n`);
-    pruefe(mit([]).length === 0, 'ein Eigenschaftsname `KERN` (`{ KERN: 1 }`, `p.KERN`) ist keine Erwähnung der Liste ⇒ kein Befund');
-    schreibe('scripts/run-tests.mjs', runner(kernMitB).replace('const KERN', 'let KERN'));
-    pruefe(enthaelt(mit([]), 'nicht `const`'), '`let KERN` statt `const KERN` ⇒ Befund');
-    schreibe('scripts/run-tests.mjs', runner(kernMitB, `var KERN = [];\n${SCHLEIFE}`).replace('const KERN', 'var KERN'));
-    pruefe(enthaelt(mit([]), 'mehrfach'), 'zwei Deklarationen von KERN auf oberster Ebene ⇒ Befund');
-    schreibe('scripts/run-tests.mjs', `import { spawnSync } from 'node:child_process';\nconst KERN = [].concat([]);\n${SCHLEIFE}`);
-    pruefe(enthaelt(mit([]), 'kein Array-Literal'), 'KERN aus einem Ausdruck statt einem Array-Literal ⇒ Befund');
+    const nurTeil = mit([]);
+    pruefe(
+      enthaelt(nurTeil, 'verwaist') && enthaelt(nurTeil, 'server/test/b.ts') && !enthaelt(nurTeil, 'nicht lesbar'),
+      'Teilliste ohne b.ts ⇒ b.ts bleibt verwaist, die Teilliste ist lesbar',
+    );
+    schreibe('scripts/run-tests.mjs', `${KOPF}const KERN = [...GIBTSNICHT];\n${NACH_LISTE}${SCHLEIFE}`);
+    pruefe(enthaelt(mit([]), 'nicht lesbar'), '`...NAME` auf etwas, das keine Array-Liste der obersten Ebene ist ⇒ Befund');
+    schreibe('scripts/run-tests.mjs', `${KOPF}const A = [...B];\nconst B = [...A];\nconst KERN = [...A];\n${NACH_LISTE}${SCHLEIFE}`);
+    pruefe(enthaelt(mit([]), 'nicht lesbar'), 'Teillisten, die sich im Kreis verweisen ⇒ Befund statt Endlosschleife');
+
+    console.log('  — die Buchführung muss verdrahtet bleiben (Laufzeitzeuge)');
+    setzeRunner(kernMitB, 'for (const [paket, datei] of KERN) {\n  spawnSync(\'tsx\', [datei], { cwd: paket });\n}\n');
+    pruefe(enthaelt(mit([]), 'bucht den Lauf nicht mehr'), '`abschluss` wird nicht aufgerufen ⇒ Befund');
+    setzeRunner(kernMitB, SCHLEIFE, "import { spawnSync } from 'node:child_process';\n");
+    pruefe(enthaelt(mit([]), 'bucht den Lauf nicht mehr'), 'Buchführung gar nicht importiert ⇒ Befund');
+    setzeRunner(
+      kernMitB,
+      SCHLEIFE.replace('abschluss(', 'schluss('),
+      "import { spawnSync } from 'node:child_process';\nimport { abschluss as schluss, fahre, festhalten, neueBuchfuehrung } from './runner-buchfuehrung.mjs';\n",
+    );
+    pruefe(mit([]).length === 0, 'Import unter anderem Namen (`abschluss as schluss`) und aufgerufen ⇒ kein Befund');
+    setzeRunner(
+      kernMitB,
+      SCHLEIFE,
+      "import { spawnSync } from 'node:child_process';\nimport { abschluss, fahre, festhalten, neueBuchfuehrung } from './ganz-anders.mjs';\n",
+    );
+    pruefe(enthaelt(mit([]), 'bucht den Lauf nicht mehr'), '`abschluss` aus einer anderen Datei importiert ⇒ Befund');
 
     console.log('  — nur die Liste auf oberster Ebene zählt (M2)');
     setzeRunner(grundEintraege, `${SCHLEIFE}function hilfe() {\n  const KERN = [['server', 'test/b.ts']];\n  return KERN;\n}\n`);
@@ -526,21 +502,20 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
       enthaelt(schatten, 'verwaist') && enthaelt(schatten, 'server/test/b.ts'),
       'zweite `const KERN` in einer Funktion mit b.ts ⇒ b.ts gilt weiter als verwaist',
     );
-    pruefe(
-      enthaelt(schatten, 'an unerwarteter Stelle'),
-      'zweite `const KERN` in einer Funktion ⇒ auch die Deklaration selbst ist ein Befund',
-    );
     setzeRunner(grundEintraege, `${SCHLEIFE}{\n  const KERN = [['server', 'test/b.ts']];\n}\n`);
     pruefe(enthaelt(mit([]), 'verwaist'), 'zweite `const KERN` in einem Block auf oberster Ebene ⇒ b.ts gilt weiter als verwaist');
     schreibe(
       'scripts/run-tests.mjs',
-      `import { spawnSync } from 'node:child_process';\nfunction main() {\n  const KERN = [['server', 'test/a.ts'], ['client/test', 'c.ts'], ['server', 'test/b.ts']];\n${ueberListe('KERN')}}\nmain();\n`,
+      `${KOPF}function main() {\n  const KERN = [['server', 'test/a.ts'], ['client/test', 'c.ts'], ['server', 'test/b.ts']];\n  ${SCHLEIFE}}\nmain();\n`,
     );
-    const eingewickelt = mit([]);
     pruefe(
-      enthaelt(eingewickelt, 'nicht auf oberster Ebene') && enthaelt(eingewickelt, 'kein Lauf'),
-      'die ganze Liste samt Schleife in eine Funktion gewickelt ⇒ Befund (nichts steht auf oberster Ebene)',
+      enthaelt(mit([]), 'nicht auf oberster Ebene'),
+      'die ganze Liste in eine Funktion gewickelt ⇒ Befund (nichts steht auf oberster Ebene)',
     );
+    schreibe('scripts/run-tests.mjs', runner(kernMitB).replace('const KERN', 'var KERN') + 'var KERN = [];\n');
+    pruefe(enthaelt(mit([]), 'mehrfach'), 'zwei Deklarationen von KERN auf oberster Ebene ⇒ Befund');
+    schreibe('scripts/run-tests.mjs', `${KOPF}const KERN = [].concat([]);\n${NACH_LISTE}${SCHLEIFE}`);
+    pruefe(enthaelt(mit([]), 'kein Array-Literal'), 'KERN aus einem Ausdruck statt einem Array-Literal ⇒ Befund');
     // Back to the base state: b.ts is unregistered again, so exceptions for it are valid.
     setzeRunner(grundEintraege);
 
@@ -661,6 +636,93 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
   }
 }
 
+console.log('\n[1b] Buchführung des Laufs (scripts/runner-buchfuehrung.mjs) — sie muss rot werden können');
+{
+  const w = '/wurzel';
+  const kern = [['server', 'test/a.ts'], ['server/test', 'b.ts'], ['client', 'test/c.ts', () => 'Weiche']];
+  const soll = festhalten(kern, w);
+  const attrappe = (rc = 0) => {
+    const aufrufe = [];
+    return { aufrufe, spawn: (befehl, argumente, optionen) => (aufrufe.push({ befehl, argumente, optionen }), { status: rc }) };
+  };
+  const voll = () => {
+    const buch = neueBuchfuehrung();
+    const { spawn } = attrappe();
+    fahre(buch, spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
+    fahre(buch, spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
+    ueberspringe(buch, w, 'client', 'test/c.ts');
+    return buch;
+  };
+  const hat = (ergebnis, teil) => ergebnis.befunde.some((b) => b.includes(teil));
+  const ok = abschluss(voll(), soll, w);
+  pruefe(ok.befunde.length === 0 && ok.gefahren === 2 && ok.uebersprungen === 1, 'alles gefahren oder übersprungen ⇒ kein Befund (2 gefahren, 1 übersprungen)');
+  const { aufrufe, spawn } = attrappe(3);
+  const geliefert = fahre(neueBuchfuehrung(), spawn, 'tsx', ['x.ts'], { cwd: w, timeout: 5 });
+  pruefe(
+    geliefert.status === 3 && aufrufe.length === 1 && aufrufe[0].argumente[0] === 'x.ts' && aufrufe[0].optionen.timeout === 5,
+    '`fahre` reicht Befehl, Argumente und Optionen unverändert durch und gibt das Ergebnis des Starts zurück',
+  );
+
+  const fehlt = neueBuchfuehrung();
+  fahre(fehlt, attrappe().spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
+  ueberspringe(fehlt, w, 'client', 'test/c.ts');
+  const ohneB = abschluss(fehlt, soll, w);
+  pruefe(hat(ohneB, 'nie gestartet') && hat(ohneB, 'server/test/b.ts'), 'ein Eintrag aus KERN wird nie gestartet ⇒ Befund, der ihn nennt');
+  pruefe(hat(abschluss(neueBuchfuehrung(), soll, w), '3 Test(s) aus KERN nie gestartet'), 'nichts gestartet („250/250 in 0 s") ⇒ Befund über alle Einträge');
+
+  const zuviel = voll();
+  fahre(zuviel, attrappe().spawn, 'tsx', ['d.ts'], { cwd: `${w}/server/test` });
+  pruefe(hat(abschluss(zuviel, soll, w), 'stehen nicht in KERN') && hat(abschluss(zuviel, soll, w), 'server/test/d.ts'), 'ein gestarteter Test, der nicht in KERN steht ⇒ Befund');
+
+  const ohneDatei = neueBuchfuehrung();
+  fahre(ohneDatei, attrappe().spawn, 'tsx', [], { cwd: `${w}/server` });
+  fahre(ohneDatei, attrappe().spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
+  const leer = abschluss(ohneDatei, soll, w);
+  pruefe(
+    hat(leer, 'keine Datei') && hat(leer, 'nie gestartet'),
+    'Start ohne Datei in den Argumenten (`[]` statt `[datei]`) ⇒ Befund, obwohl der Aufruf „stattfand"',
+  );
+
+  const doppelt = voll();
+  fahre(doppelt, attrappe().spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
+  pruefe(hat(abschluss(doppelt, soll, w), 'öfter oder seltener'), 'ein Test zweimal gestartet ⇒ Befund');
+
+  pruefe(
+    abschluss(neueBuchfuehrung(), festhalten([], w), w).befunde.length === 0,
+    'leere Liste, leeres Buch ⇒ kein Befund (nichts zu buchen)',
+  );
+
+  // The snapshot: cutting the list after `festhalten` does not shorten what is expected.
+  const lebendig = [['server', 'test/a.ts'], ['server/test', 'b.ts']];
+  const festgehalten = festhalten(lebendig, w);
+  lebendig.splice(0, 1);
+  const gekuerzt = neueBuchfuehrung();
+  fahre(gekuerzt, attrappe().spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
+  pruefe(
+    festgehalten.length === 2 && hat(abschluss(gekuerzt, festgehalten, w), 'server/test/a.ts'),
+    'KERN nach der Momentaufnahme gekürzt (`splice`) ⇒ der gekürzte Lauf ist trotzdem ein Befund',
+  );
+  pruefe(Object.isFrozen(festgehalten) && Object.isFrozen(soll), 'die Momentaufnahme ist eingefroren');
+
+  const teil = neueBuchfuehrung();
+  fahre(teil, attrappe().spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
+  fahre(teil, attrappe().spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
+  auslassen(teil, w, 'client', 'test/c.ts', 'Probe: Filter');
+  const teillauf = abschluss(teil, soll, w);
+  pruefe(teillauf.befunde.length === 0 && teillauf.ausgelassen === 1, 'ein Filter, der den Eintrag mit `auslassen` bucht ⇒ Teillauf, kein Befund');
+  let ohneGrund = false;
+  try {
+    auslassen(neueBuchfuehrung(), w, 'client', 'test/c.ts', '  ');
+  } catch {
+    ohneGrund = true;
+  }
+  pruefe(ohneGrund, '`auslassen` ohne Grund wirft (ein stilles Auslassen gibt es nicht)');
+  const stumm = neueBuchfuehrung();
+  fahre(stumm, attrappe().spawn, 'tsx', ['test/a.ts'], { cwd: `${w}/server` });
+  fahre(stumm, attrappe().spawn, 'tsx', ['b.ts'], { cwd: `${w}/server/test` });
+  pruefe(hat(abschluss(stumm, soll, w), 'test/c.ts'), 'ein Filter, der nur `continue` sagt (nichts bucht) ⇒ Befund');
+}
+
 console.log('\n[2] Der echte Baum');
 if (EIGEN) console.log(`[runner-liste] Wurzel ersetzt: ${WURZEL}`);
 const echte = befunde(WURZEL, AUSNAHMEN);
@@ -695,7 +757,7 @@ if (ROT_PRUEFEN) {
 }
 
 // Empty-run trap: a run without assertions must not look like a pass.
-const MINDESTENS = 79;
+const MINDESTENS = 93;
 if (geprueft < MINDESTENS) {
   console.log(`\nRUNNER-LISTE ROT — nur ${geprueft} Zusicherungen gefahren, erwartet mindestens ${MINDESTENS}.`);
   process.exit(1);

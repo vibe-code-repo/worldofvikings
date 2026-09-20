@@ -35,6 +35,7 @@
  * e.g. {grassDensity: 0}), `previewNachlauf` (grace frames before a zone is released; 0 = none).
  * Clean-up costs are counted per phase (`streaming.cleanup*`). A phase may carry `wiggle: {x0, z0, amp, every}`
  * (hop across a zone edge; `every` frames per side) instead of a key or `auto` speed.
+ * A phase may switch the level first: `previewStufe` (then `settleS` seconds pass before it is measured).
  * `--headless-gpu` runs without a desktop session (see HEADLESS_GPU below).
  *
  * GPU LOCK: the script re-executes itself under `flock ~/.cache/wov-mess.lock` and holds it
@@ -82,7 +83,11 @@ const MAX_MIN = Number(arg('max-min', 8));
 /** Seconds this block waited for the GPU lock (0 when started without the wrapper). */
 const LOCK_WAIT_S = process.env.WOV_BLOCK_QUEUED_MS ? +((Date.now() - Number(process.env.WOV_BLOCK_QUEUED_MS)) / 1000).toFixed(1) : 0;
 const TIME_OF_DAY = arg('t', '0.708333');
-const RUN_TIMEOUT_S = Number(arg('run-timeout', 420));
+/** Per-run limit in seconds; default: 150 s cold start + the phases + 60 s (a hung page is then cut off early instead of after 7 min). */
+const RUN_TIMEOUT_ARG = arg('run-timeout', '');
+const runTimeoutS = (run) => (RUN_TIMEOUT_ARG ? Number(RUN_TIMEOUT_ARG) : run.timeoutS ? run.timeoutS : 150 + run.phases.reduce((n, p) => n + (p.s ?? 0) + (p.settleS ?? 0), 0) + 60);
+/** A run that fails (hung page, lost context) is repeated once; both attempts are kept in the result (`attempts`). */
+const MAX_ATTEMPTS = Number(arg('attempts', 2));
 const ONLY = arg('only', '');
 /** Functional check only (headless, software renderer allowed, small window): numbers are NOT valid measurements. */
 const FUNCTIONAL = process.argv.includes('--functional');
@@ -143,6 +148,39 @@ function childTreeRssMB() {
     const stack = [process.pid];
     while (stack.length) for (const c of kids.get(stack.pop()) ?? []) { sum += c.rss; stack.push(c.pid); }
     return +(sum / 1024).toFixed(0);
+  } catch {
+    return null;
+  }
+}
+/**
+ * Foreign-load guard: other sessions run their own (software-rendered) browsers on the measuring PC without the GPU
+ * lock, and a run made next to them is not comparable. Before a run, wait (up to ~90 s) for the whole machine to be
+ * quiet (system CPU below `QUIET_CPU` percent over 3 s); the result records what was seen (`quietBefore`).
+ */
+const QUIET_CPU = Number(arg('quiet-cpu', 12));
+async function waitQuiet() {
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    const a = cpuTimes();
+    await sleep(3000);
+    const b = cpuTimes();
+    const busy = a && b ? +((100 * (b.busy - a.busy)) / (b.total - a.total)).toFixed(1) : null;
+    seen.push(busy);
+    if (busy === null || busy < QUIET_CPU) return { quiet: true, seen };
+    await sleep(12000);
+  }
+  return { quiet: false, seen };
+}
+/** CPU share (percent of one core) of a named foreign process over 2 s, e.g. `llama-server` on the same GPU; null when not running. */
+async function foreignCpuPct(name) {
+  try {
+    const pids = execFileSync('pgrep', ['-x', name], { encoding: 'utf8' }).split('\n').filter(Boolean);
+    if (pids.length === 0) return null;
+    const ticks = () => pids.reduce((n, pid) => { const f = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' '); return n + Number(f[11]) + Number(f[12]); }, 0);
+    const a = ticks();
+    await sleep(2000);
+    const b = ticks();
+    return { pids: pids.length, cpuPct: +(((b - a) / 100 / 2) * 100).toFixed(1) };
   } catch {
     return null;
   }
@@ -393,6 +431,8 @@ function stats(frames) {
 
 async function executeRun(run) {
   const started = Date.now();
+  const quietBefore = QUIET_CPU > 0 ? await waitQuiet() : null;
+  const llamaServer = await foreignCpuPct('llama-server');
   const browser = await chromium.launch(HEADLESS_GPU ? {
     channel: 'chromium',
     headless: true,
@@ -411,11 +451,33 @@ async function executeRun(run) {
   });
   const busy0 = [];
   for (let i = 0; i < 5; i++) { busy0.push(gpuBusy()); await sleep(200); }
-  const result = { id: run.id, plan: run, startedAt: new Date().toISOString(), phases: {}, problems: [], gpuBusyBeforeRun: busy0, loadAvgAtStart: loadAvg(), procsAtStart: topProcs() };
-  const timer = setTimeout(() => { console.error(`[bench] ${run.id}: run timeout`); void browser.close(); }, RUN_TIMEOUT_S * 1000);
+  const result = { id: run.id, plan: run, quietBefore, llamaServer, startedAt: new Date().toISOString(), phases: {}, problems: [], gpuBusyBeforeRun: busy0, loadAvgAtStart: loadAvg(), procsAtStart: topProcs() };
+  let where = 'start';
+  let pageRef = null;
+  /** On a hang: ask the debugger where the main thread is (works even when `evaluate` does not return). */
+  const stackOfHang = async () => {
+    try {
+      const cdp = await pageRef.context().newCDPSession(pageRef);
+      await cdp.send('Debugger.enable');
+      const paused = new Promise((res) => cdp.once('Debugger.paused', res));
+      await cdp.send('Debugger.pause');
+      const ev = await Promise.race([paused, sleep(8000).then(() => null)]);
+      return ev ? ev.callFrames.slice(0, 12).map((f) => `${f.functionName || '(anonymous)'} ${f.url.split('/').slice(-2).join('/')}:${f.location.lineNumber + 1}`) : 'no pause within 8 s';
+    } catch (e) {
+      return `debugger unavailable: ${String(e).slice(0, 120)}`;
+    }
+  };
+  const timer = setTimeout(async () => {
+    console.error(`[bench] ${run.id}: run timeout in ${where}`);
+    result.hungIn = where;
+    // a dead page never answers the debugger either: give it 15 s, then close the browser regardless
+    if (pageRef) { result.hangStack = await Promise.race([stackOfHang(), sleep(15000).then(() => 'debugger did not answer within 15 s (page idle or dead)')]); console.error(`[bench] ${run.id}: main thread at ${JSON.stringify(result.hangStack)}`); }
+    void browser.close();
+  }, runTimeoutS(run) * 1000);
   try {
     const context = await browser.newContext({ viewport: FUNCTIONAL ? { width: 640, height: 360 } : { width: 1600, height: 900 } });
     const page = await context.newPage();
+    pageRef = page;
     const consoleLog = [];
     page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleLog.push(`[${m.type()}] ${m.text().slice(0, 200)}`); });
     page.on('pageerror', (e) => consoleLog.push(`[pageerror] ${e.message.slice(0, 300)}`));
@@ -473,6 +535,7 @@ async function executeRun(run) {
       }
       return await ev(() => ({ near: window.__m.nearAt, full: window.__m.fullAt }));
     };
+    where = 'cold start';
     await arm();
     const steady0 = await waitSteady(150);
     // page clock: performance.now() starts at navigation
@@ -505,6 +568,12 @@ async function executeRun(run) {
     // -- phases --
     let gpuDone = false;
     for (const ph of run.phases) {
+      where = `phase ${ph.name}`;
+      // switch the preview level inside one session (same window for all levels); `settleS` lets the ring build up / clear down first
+      if (ph.previewStufe) {
+        await ev((st) => window.__bewuchs.setzeStufe(st), ph.previewStufe);
+        await sleep((ph.settleS ?? 10) * 1000);
+      }
       if (ph.from) {
         await ev(({ x, z, yaw }) => window.__vb.teleport(x, z, yaw), ph.from);
         if (ph.settleS) await sleep(ph.settleS * 1000);
@@ -629,7 +698,14 @@ for (const run of todo) {
   // never start a run that is expected to overshoot the block limit (the first run always starts)
   if (done > 0 && (Date.now() - t0) / 60000 + lastRunMin > MAX_MIN) { console.log(`[bench] block limit reached, ${todo.length - done} runs left`); break; }
   const tRun = Date.now();
-  const r = await executeRun(run);
+  let r = await executeRun(run);
+  const attempts = [r.ok ? 'ok' : `${r.hungIn ?? 'error'}: ${r.error}`];
+  for (let a = 1; !r.ok && a < MAX_ATTEMPTS; a++) {
+    console.log(`[bench] ${run.id}: attempt ${a} failed (${attempts[a - 1]}), repeating`);
+    r = await executeRun(run);
+    attempts.push(r.ok ? 'ok' : `${r.hungIn ?? 'error'}: ${r.error}`);
+  }
+  r.attempts = attempts;
   lastRunMin = (Date.now() - tRun) / 60000;
   r.blockLockWaitS = LOCK_WAIT_S;
   r.blockStartedAt = new Date(t0).toISOString();

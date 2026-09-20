@@ -311,6 +311,8 @@ export interface KachelDienstOptionen<B> {
   /** Eine Kachel ist eingetroffen: die Karte neu zeichnen. */
   aufNeu?: () => void;
   jetzt?: () => number;
+  /** Ruft `fn` nach `ms` Millisekunden (Vorgabe: `setTimeout`); der Test stellt eine Uhr. */
+  warte?: (fn: () => void, ms: number) => void;
 }
 
 export interface KachelStatistik {
@@ -340,8 +342,11 @@ export interface KachelStatistik {
 
 /** Platz im Speicher, den der Dienst über der gesuchten Menge für gröbere Ersatzkacheln lässt. */
 const RESERVE_KACHELN = 32;
-/** Wie oft ein Worker hintereinander „nicht gerechnet" melden darf, bevor er ausfällt. */
+/** Wie oft ein Worker hintereinander „nicht gerechnet" melden darf, bevor er pausiert. */
 const LEER_VERSUCHE = 3;
+/** Erste Pause eines Workers nach LEER_VERSUCHE Fehlschlägen; sie verdoppelt sich je Pause bis zur Höchstdauer. */
+const LEER_PAUSE_MS = 1000;
+const LEER_PAUSE_MAX_MS = 16000;
 
 /**
  * Verteilt Kachelaufträge und hält den Zwischenspeicher.
@@ -364,6 +369,11 @@ const LEER_VERSUCHE = 3;
  * die alten Kacheln zum Zeichnen erhalten, bis eine neue an ihre Stelle
  * tritt; Antworten mit älterer Generation werden verworfen.
  *
+ * Fällt ein Worker aus (meldet dreimal in Folge „nicht gerechnet"), pausiert er
+ * und wird danach mit frischem Init neu versucht; auch ein einzelner Worker
+ * erholt sich so, statt die Karte bis zur nächsten Dokumentänderung unscharf
+ * zu lassen.
+ *
  * Kachelränder: Nachbarkacheln teilen sich jede Kante (`kachelRechteck`),
  * eine Kante liegt höchstens ein halbes Pixel neben ihrem Weltort; das ist
  * die Grenze der Ortstreue, kein Überzeichnen mehr.
@@ -377,8 +387,14 @@ export class KachelDienst<B> {
   private readonly belegt = new Map<number, string>();
   /** Kacheln (mit Generation) in Rechnung oder Umwandlung: nicht doppelt anfordern. */
   private readonly unterwegs = new Set<string>();
-  /** Fehlversuche „nicht gerechnet" je Worker in Folge; ab `LEER_VERSUCHE` fällt er aus. */
+  /** Fehlversuche „nicht gerechnet" je Worker in Folge; ab `LEER_VERSUCHE` pausiert er. */
   private readonly leer = new Map<number, number>();
+  /** Pausierende Worker (Index → Nummer der Pause): sie bekommen keine Aufträge, bis die Pause endet. */
+  private readonly pause = new Map<number, number>();
+  /** Zahl der Pausen je Worker seit dem letzten Erfolg (bestimmt die Länge der nächsten). */
+  private readonly pausen = new Map<number, number>();
+  private pausenNr = 0;
+  private readonly warte: (fn: () => void, ms: number) => void;
   private welt: { seed: string; layout: unknown } | null = null;
   private gen = 0;
   private hatWelt = false;
@@ -397,6 +413,7 @@ export class KachelDienst<B> {
     this.hartBytes = Math.max(this.grundBytes, opt.maxHartBytes ?? KACHEL_SPEICHER_MAX_BYTES);
     this.speicher = new KachelSpeicher<B>(this.grundBytes, opt.schliesse);
     this.jetzt = opt.jetzt ?? (() => performance.now());
+    this.warte = opt.warte ?? ((fn, ms) => void setTimeout(fn, ms));
   }
 
   /** Neue oder geänderte Welt: jeder Worker baut die Geo neu, dann wird nachgerechnet. */
@@ -406,6 +423,8 @@ export class KachelDienst<B> {
     this.welt = { seed, layout };
     this.zyklusStart = null;
     this.leer.clear();
+    this.pause.clear();
+    this.pausen.clear();
     while (this.worker.length < this.opt.anzahl) this.starteWorker();
     for (const w of this.worker) w.post({ op: 'kachel-init', gen, seed, layout });
     this.planen();
@@ -433,6 +452,7 @@ export class KachelDienst<B> {
     this.worker.length = 0;
     this.belegt.clear();
     this.unterwegs.clear();
+    this.pause.clear();
     this.speicher.leeren();
   }
 
@@ -560,7 +580,7 @@ export class KachelDienst<B> {
   private planen(): void {
     if (!this.hatWelt || !this.ansicht) return;
     for (let index = 0; index < this.worker.length; index++) {
-      if (this.belegt.has(index) || (this.leer.get(index) ?? 0) >= LEER_VERSUCHE) continue;
+      if (this.belegt.has(index) || this.pause.has(index)) continue;
       const k = this.fehlende(this.gesuchtAlle())[0];
       if (!k) break;
       if (this.zyklusStart === null) this.zyklusStart = this.jetzt();
@@ -591,7 +611,9 @@ export class KachelDienst<B> {
     }
     if (m.t === 'kachel-leer') {
       // Der Worker hat für diese Generation keine Geo (Init gescheitert oder verloren): Marke abräumen,
-      // Init erneut schicken und die Kachel neu anfordern; nach LEER_VERSUCHE Fehlschlägen fällt der Worker aus.
+      // Init erneut schicken und die Kachel neu anfordern. Nach LEER_VERSUCHE Fehlschlägen in Folge pausiert
+      // der Worker (1 s, dann doppelt so lang bis 16 s) und bekommt danach ein frisches Init: so bleibt ein
+      // einzelner Worker nicht für immer ausgefallen, und eine Dauerschleife entsteht trotzdem nicht.
       this.unterwegs.delete(`${m.gen}|${kachelSchluessel(m)}`);
       this.belegt.delete(index);
       if (m.gen === this.gen && this.welt) {
@@ -599,6 +621,8 @@ export class KachelDienst<B> {
         this.leer.set(index, n);
         if (n < LEER_VERSUCHE) {
           this.worker[index].post({ op: 'kachel-init', gen: this.gen, seed: this.welt.seed, layout: this.welt.layout });
+        } else if (!this.pause.has(index)) {
+          this.pausiere(index);
         }
       }
       this.planen();
@@ -609,6 +633,7 @@ export class KachelDienst<B> {
     const marke = `${m.gen}|${s}`;
     this.belegt.delete(index);
     this.leer.set(index, 0);
+    this.pausen.delete(index);
     if (m.gen !== this.gen) {
       this.st.veraltet++;
       this.unterwegs.delete(marke);
@@ -636,6 +661,22 @@ export class KachelDienst<B> {
       this.opt.aufNeu?.();
       this.planen();
     });
+  }
+
+  /** Worker `index` für eine wachsende Zeit aus der Verteilung nehmen und danach neu starten. */
+  private pausiere(index: number): void {
+    const nr = ++this.pausenNr;
+    this.pause.set(index, nr);
+    const runde = this.pausen.get(index) ?? 0;
+    this.pausen.set(index, runde + 1);
+    this.warte(() => {
+      // Überholt (neue Welt und beendet leeren die Pausen, eine andere Pause hat eine andere Nummer)? Nichts tun.
+      if (this.pause.get(index) !== nr) return;
+      this.pause.delete(index);
+      this.leer.set(index, 0);
+      if (this.welt) this.worker[index]?.post({ op: 'kachel-init', gen: this.gen, seed: this.welt.seed, layout: this.welt.layout });
+      this.planen();
+    }, Math.min(LEER_PAUSE_MAX_MS, LEER_PAUSE_MS * 2 ** runde));
   }
 
   private istGesucht(k: KachelAdresse): boolean {

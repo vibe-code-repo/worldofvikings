@@ -22,7 +22,8 @@
  *     wird (keine Dauerrechnung nach Vorlauf im kleinen Fenster), alle Kacheln
  *     im Bild kommen und „scharf" gilt erst dann, die Obergrenze wächst mit
  *     dem Bedarf bis zur harten Grenze; ein Worker ohne Geo räumt seine Marke
- *     ab und fällt nach drei Fehlversuchen aus.
+ *     ab, pausiert nach drei Fehlversuchen (1 s, dann doppelt so lang) und wird
+ *     danach mit frischem Init neu versucht: auch ein einzelner Worker erholt sich.
  *  7. Kanten: jede Kachelkante liegt auf einem ganzen Pixel, Nachbarn teilen
  *     sie, auch bei gebrochenen Ansichten.
  *
@@ -372,6 +373,7 @@ function neuerDienst(anzahl: number, maxKacheln = 256) {
   let neu = 0;
   let eingelagert = 0;
   let uhr = 0;
+  const timer: { fn: () => void; ms: number }[] = [];
   const dienst = new KachelDienst<number>({
     anzahl,
     erzeuge: () => {
@@ -387,8 +389,9 @@ function neuerDienst(anzahl: number, maxKacheln = 256) {
     maxBytes: maxKacheln * KACHEL_BYTES,
     aufNeu: () => neu++,
     jetzt: () => (uhr += 10),
+    warte: (fn, ms) => timer.push({ fn, ms }),
   });
-  const stand = { worker, geschlossen, neu: () => neu, eingelagert: () => eingelagert };
+  const stand = { worker, geschlossen, timer, neu: () => neu, eingelagert: () => eingelagert };
   return { dienst, stand };
 }
 /**
@@ -748,7 +751,7 @@ async function dienstProben2(): Promise<void> {
     check('Die Marke überlebt keine neue Welt: offen 0 und scharf auch in Generation 2', dienst.statistik().offen === 0 && dienst.statistik().zyklen.length >= 2);
     dienst.beende();
   }
-  // 6e. Ein Worker, der dauernd „nicht gerechnet" sagt, fällt aus, statt eine Dauerschleife zu erzeugen.
+  // 6e. Ein Worker, der dauernd „nicht gerechnet" sagt, pausiert, statt eine Dauerschleife zu erzeugen.
   {
     const { dienst, stand } = neuerDienst(1);
     dienst.neueWelt(1, 'kachel-test', dok);
@@ -760,6 +763,73 @@ async function dienstProben2(): Promise<void> {
     }
     const kachelAuftraege = stand.worker[0].gepostet.filter((m) => m.op === 'kachel').length;
     check('Ein Worker ohne Geo bekommt höchstens dreimal einen Auftrag', kachelAuftraege === 3 && n === 3, `${kachelAuftraege} Aufträge, ${n} Antworten`);
+    check('Er pausiert genau eine Sekunde lang (ein Zeitgeber, 1000 ms)', stand.timer.length === 1 && stand.timer[0].ms === 1000, `${JSON.stringify(stand.timer.map((t) => t.ms))}`);
+    dienst.beende();
+  }
+  // 6f. Ein einzelner Worker, dessen Init dreimal scheitert und danach wieder gut ist: die Karte wird scharf
+  // (vorher blieb sie bis zur nächsten Dokumentänderung unscharf: offen 40, keine Erholung).
+  {
+    const { dienst, stand } = neuerDienst(1);
+    dienst.neueWelt(1, 'kachel-test', dok);
+    dienst.setzeAnsicht(A);
+    for (let i = 0; i < 3; i++) {
+      stand.worker[0].antworteLeer();
+      await mikro();
+    }
+    const vorPause = dienst.statistik();
+    check('Während der Pause kommt kein Auftrag und die Karte ist nicht scharf', stand.worker[0].offen === null && vorPause.offen > 0 && vorPause.letzteScharfMs === null);
+    const inits0 = stand.worker[0].gepostet.filter((m) => m.op === 'kachel-init').length;
+    // Die Pause endet: frisches Init, dann wieder Aufträge; der Worker antwortet jetzt gut.
+    for (const t of stand.timer.splice(0)) t.fn();
+    const inits1 = stand.worker[0].gepostet.filter((m) => m.op === 'kachel-init').length;
+    check('Nach der Pause bekommt der Worker ein frisches Init und wieder einen Auftrag', inits1 === inits0 + 1 && stand.worker[0].offen !== null, `${inits0} -> ${inits1}`);
+    await bisRuhe(stand.worker);
+    const st = dienst.statistik();
+    check('Danach ist die Karte scharf: offen 0, scharf gemeldet, alle Kacheln im Bild da', st.offen === 0 && st.letzteScharfMs !== null && alleDa(dienst, A), `offen ${st.offen}`);
+    dienst.beende();
+  }
+  // 6g. Scheitert der Worker nach der Pause wieder, wird die nächste Pause länger; ein Erfolg setzt sie zurück.
+  {
+    const { dienst, stand } = neuerDienst(1);
+    dienst.neueWelt(1, 'kachel-test', dok);
+    dienst.setzeAnsicht(A);
+    const pausen: number[] = [];
+    let beantwortet = 0;
+    for (let runde = 0; runde < 3; runde++) {
+      for (let i = 0; i < 3; i++) {
+        if (stand.worker[0].antworteLeer()) beantwortet++;
+        await mikro();
+      }
+      for (const t of stand.timer.splice(0)) {
+        pausen.push(t.ms);
+        t.fn();
+      }
+    }
+    check('Die Pausen wachsen: 1 s, 2 s, 4 s', pausen.join() === '1000,2000,4000', pausen.join());
+    check('Nach jeder Pause gibt es wieder drei Versuche, bevor die nächste beginnt', beantwortet === 9, `${beantwortet} Antworten`);
+    await bisRuhe(stand.worker);
+    check('Nach dem Erfolg ist die Karte scharf', dienst.statistik().offen === 0 && dienst.statistik().letzteScharfMs !== null);
+    // Neue Welt: die Zählung beginnt von vorn, ein überholter Zeitgeber tut nichts.
+    dienst.setzeAnsicht({ ...A, mitteX: A.mitteX + 9000 });
+    for (let i = 0; i < 3; i++) {
+      stand.worker[0].antworteLeer();
+      await mikro();
+    }
+    const alt = stand.timer.splice(0);
+    check('Nach dem Erfolg beginnt die nächste Pause wieder bei 1 s', alt.length === 1 && alt[0].ms === 1000, alt.map((t) => t.ms).join());
+    dienst.neueWelt(2, 'kachel-test', dok);
+    const initsVor = stand.worker[0].gepostet.filter((m) => m.op === 'kachel-init').length;
+    alt[0].fn();
+    check('Ein Zeitgeber der alten Welt tut nichts (kein zusätzliches Init)', stand.worker[0].gepostet.filter((m) => m.op === 'kachel-init').length === initsVor);
+    // Eine neue Pause der neuen Welt läuft schon: der alte Zeitgeber darf sie nicht vorzeitig beenden.
+    dienst.setzeAnsicht({ ...A, mitteX: A.mitteX - 9000 });
+    for (let i = 0; i < 3; i++) {
+      stand.worker[0].antworteLeer();
+      await mikro();
+    }
+    const initsNeu = stand.worker[0].gepostet.filter((m) => m.op === 'kachel-init').length;
+    alt[0].fn();
+    check('Ein alter Zeitgeber beendet eine neuere Pause nicht vorzeitig', stand.worker[0].gepostet.filter((m) => m.op === 'kachel-init').length === initsNeu && stand.worker[0].offen === null);
     dienst.beende();
   }
 }

@@ -625,7 +625,7 @@ console.log('\n[1b] Buchführung des Laufs (scripts/runner-buchfuehrung.mjs) —
   };
   const beenden = async (buch, optionen = {}) => {
     const zeilen = [];
-    await beende(buch, { quelle, wurzel: w, ts, ausgabe: (z) => zeilen.push(z), ...optionen });
+    await beende(buch, { quelle, wurzel: w, ts, laeufer: 'tsx', ausgabe: (z) => zeilen.push(z), ...optionen });
     return { code: buch.prozess.beendet, text: zeilen.join('\n') };
   };
   const hat = (ergebnis, teil) => ergebnis.befunde.some((b) => b.includes(teil));
@@ -715,6 +715,27 @@ console.log('\n[1b] Buchführung des Laufs (scripts/runner-buchfuehrung.mjs) —
     const abgeklemmt = await beenden(neueBuchfuehrung(attrappeProzess()));
     pruefe(abgeklemmt.code === 1 && abgeklemmt.text.includes('nie gestartet'), '`beende`: leeres Buch ⇒ Exit 1');
 
+    // ── the command is booked, too: a token swapped in the runner must not give a green run
+    const falscherLaeufer = neueBuchfuehrung(attrappeProzess());
+    fahre(falscherLaeufer, attrappe().spawn, '/usr/bin/true', ['test/a.ts'], A);
+    fahre(falscherLaeufer, attrappe().spawn, '/usr/bin/true', ['b.ts'], B);
+    ueberspringe(falscherLaeufer, w, 'client', 'test/c.ts');
+    const rotLaeufer = await beenden(falscherLaeufer);
+    pruefe(
+      rotLaeufer.code === 1 && rotLaeufer.text.includes('unerwartetem Läufer') && rotLaeufer.text.includes('/usr/bin/true'),
+      '`tsx` durch `/usr/bin/true` ersetzt (alle Tests „gefahren", nichts gemessen) ⇒ Exit 1, der Befund nennt den falschen Läufer',
+    );
+    const richtigerLaeufer = await beenden(vollesBuch(), { laeufer: 'tsx' });
+    pruefe(richtigerLaeufer.code === 0, 'alle Tests mit dem erwarteten Läufer gestartet ⇒ Exit 0');
+    const standardLaeufer = neueBuchfuehrung(attrappeProzess());
+    fahre(standardLaeufer, attrappe().spawn, join(w, 'node_modules/.bin/tsx'), ['test/a.ts'], A);
+    fahre(standardLaeufer, attrappe().spawn, join(w, 'node_modules/.bin/tsx'), ['b.ts'], B);
+    ueberspringe(standardLaeufer, w, 'client', 'test/c.ts');
+    pruefe(
+      (await beenden(standardLaeufer, { laeufer: undefined })).code === 0,
+      'ohne Angabe gilt `node_modules/.bin/tsx` unter der Wurzel als erwarteter Läufer (der Runner gibt ihn nicht selbst vor)',
+    );
+
     // ── M2: the expectation comes from the LITERAL, not from the live variable
     const gekuerzt = neueBuchfuehrung(attrappeProzess());
     nach(gekuerzt, [['b.ts'], B]);
@@ -769,7 +790,7 @@ if (ROT_PRUEFEN) {
 }
 
 // Empty-run trap: a run without assertions must not look like a pass.
-const MINDESTENS = 103;
+const MINDESTENS = 106;
 if (geprueft < MINDESTENS) {
   console.log(`\nRUNNER-LISTE ROT — nur ${geprueft} Zusicherungen gefahren, erwartet mindestens ${MINDESTENS}.`);
   process.exit(1);

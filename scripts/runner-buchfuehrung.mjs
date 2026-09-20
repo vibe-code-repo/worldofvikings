@@ -11,8 +11,8 @@
  *
  *   neueBuchfuehrung(prozess)     leeres Buch; setzt den Exit-Code auf 1 — ein Lauf,
  *                                 der `beende` nie erreicht, ist rot
- *   fahre(buch, spawn, …)         startet einen Test und bucht die Testdatei, die WIRKLICH
- *                                 an den Kindprozess geht (die letzte Skript-Datei in den
+ *   fahre(buch, spawn, …)         startet einen Test und bucht Befehl und Testdatei, die WIRKLICH
+ *                                 an den Kindprozess gehen (die letzte Skript-Datei in den
  *                                 Argumenten, nicht die Schleifenvariable)
  *   ueberspringe(buch, …)         bucht einen durch eine Weiche übersprungenen Eintrag
  *   auslassen(buch, …, grund)     bucht einen absichtlich ausgelassenen Eintrag (Filter)
@@ -32,9 +32,21 @@
  * `async main`, Parallelisierung) — er muss nur jeden Start über `fahre` buchen und
  * am Ende `beende` rufen; tut er das nicht, bleibt der Exit-Code bei 1.
  *
- * Grenzen (so gemeldet): Wer `fahre`, `beende` oder dieses Modul selbst umschreibt, kann die
- * Buchführung täuschen; sie kann nicht beweisen, dass ein Kindprozess etwas gemessen hat;
- * eine Weiche, die immer überspringt, ist verbucht als „übersprungen".
+ * Gebucht wird auch der BEFEHL: `beende` verlangt, dass jeder Test mit dem erwarteten Läufer
+ * gestartet wurde (`node_modules/.bin/tsx` unter der Wurzel). Ein Token im Runner
+ * (`tsx` → `/usr/bin/true`) meldet sonst „250/250 grün in 0 s".
+ *
+ * GRENZEN (so gemeldet, damit sie der Nächste nicht suchen muss):
+ *  - KEINE Mindestzahl gefahrener Tests. Ein Lauf mit 1 gefahrenen und 249 durch Weichen
+ *    übersprungenen Tests ist Exit 0. Das ist Absicht: die CI fährt mit
+ *    WOV_OHNE_MODELLE=1 und überspringt dort legitim viel; ob eine Weiche zu Recht
+ *    überspringt, prüft scripts/pruefe-weichen.mjs, nicht dieses Modul. Nur „kein einziger
+ *    Test gefahren" ist rot.
+ *  - Sie kann nicht beweisen, dass ein Kindprozess etwas gemessen hat: ein ausgetauschtes
+ *    `node_modules/.bin/tsx` (ein Skript mit `exit 0`) oder eine ersetzte Startfunktion
+ *    (`starteKind` durch eine Attrappe) ist nicht zu erkennen. Wer `fahre`, `beende` oder
+ *    dieses Modul selbst umschreibt, kann die Buchführung täuschen.
+ *  - Eine Weiche, die immer überspringt, ist gebucht als „übersprungen".
  *
  * Bookkeeping for the collective run: what the runner really started is held against the
  * LITERAL of KERN; the closing line and the exit code come from the books, and a run that
@@ -106,11 +118,11 @@ export function leseKern(ts, quelltext) {
 /** A fresh book. Sets the exit code to 1: until `beende` decides, the run counts as red. */
 export function neueBuchfuehrung(prozess = process) {
   prozess.exitCode = 1;
-  return { gefahren: new Set(), uebersprungen: new Set(), ausgelassen: new Set(), prozess };
+  return { gefahren: new Set(), uebersprungen: new Set(), ausgelassen: new Set(), befehle: new Set(), prozess };
 }
 
 /**
- * Starts one test through `spawn(befehl, argumente, optionen)` and books the test file that
+ * Starts one test through `spawn(befehl, argumente, optionen)` and books the command and the test file that
  * goes to the child: the LAST script file among the arguments, relative to `optionen.cwd`
  * (so `tsx --tsconfig x.json test/a.ts` books `test/a.ts`). No script file among the
  * arguments is booked as "(keine Testdatei …)" and reported at the end. Returns what
@@ -119,6 +131,7 @@ export function neueBuchfuehrung(prozess = process) {
 export function fahre(buch, spawn, befehl, argumente, optionen) {
   const datei = [...(argumente ?? [])].reverse().find((a) => typeof a === 'string' && SKRIPT_DATEI.test(a));
   buch.gefahren.add(datei ? resolve(optionen?.cwd ?? '', datei) : `(keine Testdatei: ${JSON.stringify(argumente)})`);
+  buch.befehle.add(String(befehl));
   return spawn(befehl, argumente, optionen);
 }
 
@@ -160,8 +173,13 @@ export function abschluss(buch, soll, wurzel = '') {
  * compares, prints the closing line from the booked numbers and ends the process.
  * `fehler` is the number of red tests (and guards) the runner counted; `dauer` is text for
  * the closing line. `ts` may be handed in (tests); otherwise the TypeScript module is loaded.
+ * `laeufer` is the command every test must have been started with (default: `node_modules/.bin/tsx`
+ * under `wurzel`); a test started with any other command is a finding.
  */
-export async function beende(buch, { quelle, wurzel, fehler = 0, teillaufErlaubt = false, dauer = '', ts = null, ausgabe = console.log }) {
+export async function beende(
+  buch,
+  { quelle, wurzel, fehler = 0, teillaufErlaubt = false, dauer = '', ts = null, ausgabe = console.log, laeufer = resolve(wurzel, 'node_modules/.bin/tsx') },
+) {
   const vorab = [];
   let soll = new Set();
   try {
@@ -174,6 +192,8 @@ export async function beende(buch, { quelle, wurzel, fehler = 0, teillaufErlaubt
   }
   const gebucht = abschluss(buch, soll, wurzel);
   const befunde = [...vorab, ...gebucht.befunde];
+  const fremdeLaeufer = [...buch.befehle].filter((b) => b !== laeufer);
+  if (fremdeLaeufer.length > 0) befunde.push(`Test(s) mit unerwartetem Läufer gestartet (erwartet ${laeufer}): ${fremdeLaeufer.join(', ')}`);
   if (soll.size === 0 && vorab.length === 0) befunde.push('KERN ist leer');
   if (gebucht.gefahren === 0 && befunde.length === 0) befunde.push('kein einziger Test wurde gefahren');
   let code;

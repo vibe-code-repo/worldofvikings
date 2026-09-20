@@ -42,7 +42,9 @@
  * Anleitung steht in seinem eigenen Kopfkommentar.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { closeSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /*
@@ -2077,10 +2079,10 @@ const buch = neueBuchfuehrung();
 */
 let laufendeGruppe = null;
 let abbruchCode = null;
-const gruppeSignal = (signal) => {
-  if (laufendeGruppe === null) return;
+const gruppeSignal = (signal, gruppe = laufendeGruppe) => {
+  if (gruppe === null) return;
   try {
-    process.kill(-laufendeGruppe, signal);
+    process.kill(-gruppe, signal);
   } catch {
     // die Gruppe ist schon weg
   }
@@ -2098,34 +2100,78 @@ for (const [signal, nummer] of [['SIGINT', 2], ['SIGHUP', 1], ['SIGTERM', 15]]) 
   });
 }
 
+/*
+  Die Ausgabe eines Tests geht in DATEIEN, nicht in Pipes. Zwei Gruende, beide am
+  asynchronen Start entdeckt:
+  - Ein Test, der viel in einem Zug schreibt und sofort `process.exit` ruft, verlor bei
+    Pipes das Ende seiner Ausgabe (Schreibpuffer weg, wenn der Leser nicht mitkommt;
+    505 KB: 0 von 3 vollstaendig) — genau die Zeilen, wegen derer man bei einem
+    Fehlschlag hinsieht. In eine Datei schreibt der Test synchron; nichts geht verloren.
+  - Ein Enkel mit eigener Sitzung, der die geerbten Pipes offen haelt, liess das
+    Versprechen nie aufloesen (`'close'` kam nicht): der Lauf haengt. Ohne Pipes gibt es
+    nichts, worauf zu warten waere; aufgeloest wird beim Ende des Kindes (`'exit'`).
+  Gelesen wird nur nach einem Fehlschlag, und hoechstens die letzten 8 MiB.
+
+  Test output goes to files, not pipes: nothing is lost at `process.exit`, and no
+  grandchild that keeps a pipe open can make the run hang.
+*/
+const LAUF_ORDNER = mkdtempSync(join(tmpdir(), 'wov-lauf-'));
+process.on('exit', () => rmSync(LAUF_ORDNER, { recursive: true, force: true }));
+const MAX_AUSGABE = 8 * 1024 * 1024;
+function liesAusgabe(pfad) {
+  const groesse = statSync(pfad).size;
+  if (groesse <= MAX_AUSGABE) return readFileSync(pfad, 'utf8');
+  const puffer = Buffer.alloc(MAX_AUSGABE);
+  const fd = openSync(pfad, 'r');
+  readSync(fd, puffer, 0, MAX_AUSGABE, groesse - MAX_AUSGABE);
+  closeSync(fd);
+  return `[… ${groesse - MAX_AUSGABE} Bytes gekuerzt …]\n${puffer.toString('utf8')}`;
+}
+
 /** Startet einen Test asynchron und liefert wie spawnSync `{ status, signal, stdout, stderr, error }`. */
 function starteKind(befehl, argumente, optionen) {
   return new Promise((fertig) => {
-    const kind = spawn(befehl, argumente, { cwd: optionen.cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
+    const stdoutPfad = join(LAUF_ORDNER, 'stdout.txt');
+    const stderrPfad = join(LAUF_ORDNER, 'stderr.txt');
+    const aus = openSync(stdoutPfad, 'w');
+    const fehl = openSync(stderrPfad, 'w');
+    const kind = spawn(befehl, argumente, { cwd: optionen.cwd, detached: true, stdio: ['ignore', aus, fehl] });
+    closeSync(aus);
+    closeSync(fehl);
+    const gruppe = kind.pid ?? null;
     let zeitlimit = false;
     let erledigt = false;
+    let hart = null;
+    let spaet = null;
     const ende = (status, signal, error) => {
       if (erledigt) return;
       erledigt = true;
+      // Kein Zeitgeber darf den naechsten Test treffen (SIGKILL auf eine Gruppe, die schon ein anderer Test ist).
       clearTimeout(frist);
+      clearTimeout(hart);
+      clearTimeout(spaet);
       laufendeGruppe = null;
       if (abbruchCode !== null) process.exit(abbruchCode);
-      fertig({ status, signal, stdout, stderr, error: zeitlimit ? new Error('Zeitlimit') : error });
+      fertig({
+        status,
+        signal,
+        stdout: liesAusgabe(stdoutPfad),
+        stderr: liesAusgabe(stderrPfad),
+        error: zeitlimit ? new Error('Zeitlimit') : error,
+      });
     };
     const frist = setTimeout(() => {
       zeitlimit = true;
-      gruppeSignal('SIGTERM');
-      setTimeout(() => gruppeSignal('SIGKILL'), 5_000).unref();
+      gruppeSignal('SIGTERM', gruppe);
+      hart = setTimeout(() => {
+        gruppeSignal('SIGKILL', gruppe);
+        // Kommt das Ende des Kindes trotzdem nicht, loest das Zeitlimit selbst auf.
+        spaet = setTimeout(() => ende(null, 'SIGKILL'), 2_000);
+      }, 5_000);
     }, optionen.timeout);
-    laufendeGruppe = kind.pid ?? null;
-    kind.stdout.setEncoding('utf8').on('data', (stueck) => (stdout += stueck));
-    kind.stderr.setEncoding('utf8').on('data', (stueck) => (stderr += stueck));
-    kind.stdin.on('error', () => {});
-    kind.stdin.end();
+    laufendeGruppe = gruppe;
     kind.on('error', (error) => ende(null, null, error));
-    kind.on('close', (status, signal) => ende(status, signal));
+    kind.on('exit', (status, signal) => ende(status, signal));
   });
 }
 

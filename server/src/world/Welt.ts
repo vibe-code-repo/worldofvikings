@@ -148,6 +148,10 @@ export class Welt {
       (hash) => umgebung.prefabName(hash),
       (x, z) => this.bodenHoehe(x, z)
     );
+    // Ein NPC, der zuschlägt, geht denselben Weg wie eine Kreatur des
+    // Spawnsystems: Parade, Trefferwirkung und Tod laufen am Server, nicht
+    // hier (s. AggroSystem.onSchlag).
+    this.aggro.onSchlag = (pos, dmg, r) => umgebung.kreaturTrifft(pos, dmg, r);
     // Der RoutenLaeufer bekommt die Menge der gerade kämpfenden NPCs,
     // damit er ihnen nicht ins Steuer greift.
     this.routen.gesperrt = this.aggro.gesperrt;

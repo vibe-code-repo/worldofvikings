@@ -704,6 +704,11 @@ export const HINT_DEFS: PrefabDef[] = [
   def('Cart', F.PIECE | F.PERSISTENT, 'cart', 2.5, 1.5),
 
   // ── Eigene NPCs (nicht im pkg — hint-only Extras) ────────────────
+  // ANGREIFBAR (Trefferweg des Spielers) tragen genau die Figuren, die
+  // Kampfwerte haben (NPC_KAMPF in npc.ts): Surtr und die sechs Furlocs.
+  // Völva, Dorfbewohner und Basis-Wikinger tragen es nicht — sie sind
+  // unverwundbar und schlagen nie zu. Beide Listen hält ein Test zusammen
+  // (server/test/b8-angreifbar.ts).
   // NPC_1: vom Nutzer erstelltes Modell (screenshots/npc_1_walk.glb →
   // assets/models/). SYNCED_TRANSFORM ⇒ dynamischer Renderpfad mit
   // Animation, PERSISTENT ⇒ überlebt den Welt-Save. Bewusst KEIN
@@ -740,7 +745,7 @@ export const HINT_DEFS: PrefabDef[] = [
   //
   // Die Fraktion `furlocs` und die Rolle stehen in shared/src/npc.ts,
   // nicht hier — dort liegt das NPC-Datenmodell.
-  { ...def('FurlocFischer', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.0, 1.65, 'FurlocFischer'),
+  { ...def('FurlocFischer', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.0, 1.65, 'FurlocFischer'),
     localScale: { x: 1.05, y: 1.05, z: 1.05 }, animation: 'idle' },
 
   // ── Das übrige Furloc-Volk ─────────────────────────────────────────
@@ -782,7 +787,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // Speerspitze der Ruhepose (1,88 m): Er trägt den Speer in allen drei
   // Clips geneigt, und gemessen steht er im Leerlauf 1,79 m, im Gehen
   // 1,80 m und im Angriff 1,82 m hoch.
-  { ...def('FurlocKrieger', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.2, 1.80, 'FurlocKrieger'),
+  { ...def('FurlocKrieger', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.2, 1.80, 'FurlocKrieger'),
     localScale: { x: 0.999, y: 0.999, z: 0.999 }, animation: 'idle' },
 
   // Häuptling mit Hörnerhelm, Fellumhang und knorrigem Stab (10.119
@@ -790,14 +795,14 @@ export const HINT_DEFS: PrefabDef[] = [
   // das 1,75 m; er ist der Breiteste der fünf. Sein Umhangsaum hängt einen
   // Zentimeter tiefer als seine Sohle und streift deshalb das Gelände —
   // gewollt, denn die Alternative wäre eine schwebende Figur.
-  { ...def('FurlocHaeuptling', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.2, 1.79,
+  { ...def('FurlocHaeuptling', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.2, 1.79,
       'FurlocHaeuptling'),
     localScale: { x: 1.47, y: 1.47, z: 1.47 }, animation: 'idle' },
 
   // Schamane mit Blattkapuze und Stab mit leuchtendem Stein (10.175
   // Dreiecke, fertige GLB 3,7 MB). Körper 1,214 Einheiten, mal 1,34 sind
   // das 1,63 m. Der Stab überragt ihn deutlich: 1,82 m.
-  { ...def('FurlocSchamane', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.1, 1.82,
+  { ...def('FurlocSchamane', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.1, 1.82,
       'FurlocSchamane'),
     localScale: { x: 1.34, y: 1.34, z: 1.34 }, animation: 'idle' },
 
@@ -805,7 +810,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // (10.038 Dreiecke, fertige GLB 3,6 MB). Körper 1,344 Einheiten, mal
   // 1,19 sind das 1,60 m — kleiner als die Jüngeren, weil er gebeugt
   // steht. Auch sein Saum streift das Gelände.
-  { ...def('FurlocAeltester', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.1, 1.67,
+  { ...def('FurlocAeltester', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.1, 1.67,
       'FurlocAeltester'),
     localScale: { x: 1.19, y: 1.19, z: 1.19 }, animation: 'idle' },
 
@@ -814,7 +819,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // denn der Helm IST der höchste Punkt: 1,774 Einheiten mal 0,59 sind
   // 1,05 m. Das ist bewusst klein — es soll neben dem Häuptling als Kind
   // erkennbar sein und nicht als kleiner Erwachsener.
-  { ...def('FurlocKind', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 1.0, 1.05, 'FurlocKind'),
+  { ...def('FurlocKind', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 1.0, 1.05, 'FurlocKind'),
     localScale: { x: 0.59, y: 0.59, z: 0.59 }, animation: 'idle' },
 
   // Basis-Spielerkörper — der nackte Wikinger, auf dem Charaktererstellung
@@ -918,7 +923,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // tiefster Vertex 0,000 m über dem Prefab-Ursprung). Ein Höhenversatz
   // gehört hier also nirgends hin — steht er trotzdem in der Luft, liegt
   // es an der Platzierungshöhe, nicht am Modell.
-  { ...def('Surtr', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 5.0, 9.0, 'Surtr'),
+  { ...def('Surtr', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 5.0, 9.0, 'Surtr'),
     localScale: { x: 9, y: 9, z: 9 }, animation: 'idle' },
 
   // ── Misc world objects ───────────────────────────────────────────

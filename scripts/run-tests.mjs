@@ -1440,6 +1440,11 @@ const KERN = [
   // Stein, Bett setzt den Wiedereinstieg (Tod -> Teleport dorthin), Truhe
   // oeffnet mit Inhalt und behaelt ihn nach dem Neustart. ~20 s.
   ['server', 'test/b7-entsperren.ts'],
+  // B8: die eigenen NPCs (Surtr, Furlocs) tragen ANGREIFBAR und schlagen im
+  // AggroSystem zurueck — ueber den echten Paketweg: Waffenschaden genau,
+  // Takt ueber fuenf Schlaege gemessen, Parade, Friedliche, Reichweite, ohne
+  // Spawnsystem. ~90 s.
+  ['server', 'test/b8-angreifbar.ts'],
   // G3 (Testluecken-Durchsicht, "kein einziger Test mit zwei
   // gleichzeitigen Clients"): echte WebSocket-Handshakes fuer ZWEI+ Peers
   // gleichzeitig gegen einen echten WovServer. Gegenseitige ZDO-

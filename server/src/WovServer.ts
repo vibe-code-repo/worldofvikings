@@ -3271,7 +3271,9 @@ export class WovServer {
     for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
-      if ((flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI)) === 0n) continue;
+      // ANGREIFBAR: die eigenen NPCs mit Kampfwerten (shared/npc.ts). Sie
+      // tragen bewusst kein *_AI-Flag, sonst verwaltete das Spawnsystem sie.
+      if ((flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI | PrefabFlag.ANGREIFBAR)) === 0n) continue;
       const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
       if (d >= best) continue;
       // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen

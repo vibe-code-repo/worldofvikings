@@ -2176,10 +2176,87 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     })
   );
 
+  check(
+    '(f) jedes Glied des Kontexts leitet an den Host weiter — mit denselben Argumenten und dem Rückgabewert (layout, werkzeugId, zurAuswahl, meldung, zuBild, massstab, bestaetige, seiteNeuBauen, neuZeichnen)',
+    versuche(() => {
+      const log: string[] = [];
+      const kern = kontextModul!.erzeugeEditorKern({
+        layout: () => startDokument,
+        setzeLayout: () => undefined,
+        beiAbgang: () => undefined,
+        nachSchritt: () => undefined,
+        speichereEntwurf: () => 'ok',
+        seiteBauen: () => void log.push('seite'),
+        pruefberichtBauen: () => undefined,
+        weltSektionBauen: () => undefined,
+        kartenMassBauen: () => undefined,
+        zeichneOverlay: () => void log.push('overlay'),
+        faerbeSpeicherKnopf: () => undefined,
+        vorschauAnstossen: () => void log.push('vorschau'),
+        werkzeugId: () => 'fluss',
+        zurAuswahl: () => void log.push('auswahl'),
+        meldung: (t, f) => void log.push(`meldung:${t}:${f}`),
+        zuBild: (x, y) => [y, x],
+        massstab: () => 7,
+        bestaetige: (q) => q === 'ja',
+      });
+      const c = kern.werkzeugKontext;
+      c.seiteNeuBauen();
+      c.neuZeichnen();
+      c.zurAuswahl();
+      c.meldung('hallo', true);
+      c.meldung('still');
+      return (
+        c.layout() === startDokument &&
+        c.werkzeugId() === 'fluss' &&
+        JSON.stringify(c.zuBild(1, 2)) === '[2,1]' &&
+        c.massstab() === 7 &&
+        c.bestaetige('ja') === true &&
+        c.bestaetige('nein') === false &&
+        log.join(',') === 'seite,overlay,auswahl,meldung:hallo:true,meldung:still:undefined'
+      );
+    })
+  );
+  check(
+    '(g) der Kontext und der Kern sind eingefroren: ein nachträgliches Überschreiben (Object.assign, Zuweisung an ein Glied) wirft und ändert nichts',
+    versuche(() => {
+      const { kern, ctx } = neuerKontext();
+      const vorher = [ctx.aendere, ctx.uebernommen];
+      let geworfen = 0;
+      try {
+        Object.assign(ctx, { aendere: () => undefined });
+      } catch {
+        geworfen++;
+      }
+      try {
+        (ctx as unknown as Record<string, unknown>).uebernommen = () => undefined;
+      } catch {
+        geworfen++;
+      }
+      try {
+        (kern as unknown as Record<string, unknown>).merkeSchritt = () => undefined;
+      } catch {
+        geworfen++;
+      }
+      return Object.isFrozen(ctx) && Object.isFrozen(kern) && geworfen === 3 && ctx.aendere === vorher[0] && ctx.uebernommen === vorher[1];
+    })
+  );
+
   // ── Die Verdrahtung in editorMain.ts: am SYNTAXBAUM, nicht am Text ──
-  // Umbrüche, Anführungszeichen, Kommentare, Typannotationen, eine Hilfsvariable für den Host, `...host` und ein Pfeil
-  // `() => f()` um eine Funktion ändern nichts am Ergebnis; ein zweiter Kern oder ein Werkzeug-Haken mit einem anderen
-  // Kontext, eine Attrappe statt einer echten Editor-Funktion ändern es.
+  // GRENZE: Das hier ist eine STÜTZE, kein Beweis. Die eigentliche Absicherung ist der Verhaltenstest des Kerns oben
+  // ((a)–(g)): Er führt `merkeSchritt`, `alles`, den Rückgängig-Stapel und den Kontext wirklich aus. Am Quelltext von
+  // `editorMain.ts` wird nur geprüft, dass der Editor DIESEN Kern benutzt und ihm echte Funktionen gibt.
+  //  - Egal: Umbrüche, Anführungszeichen, Kommentare, Typannotationen, eine Hilfsvariable für den Host, `...host`, ein
+  //    Pfeil um eine Funktion (auch mit durchgereichten Parametern), ein Alias `const ktx = werkzeugKontext` an einem Haken.
+  //  - Rot: ein zweiter Kern oder ein zweiter Bau des Kontexts (in ganz client/src), ein Werkzeug-Haken mit einem anderen
+  //    Kontext, ein Schreibzugriff auf `werkzeugKontext` (Zuweisung, Object.assign, defineProperty), und JEDES Glied des Kerns,
+  //    das nicht die erwartete Durchreichung ist (`setzeLayout: () => undefined`, `werkzeugId: () => 'see'`, eine Attrappe
+  //    statt einer echten Editor-Funktion).
+  //  - NICHT gefangen (bewusst hingenommen, jede dieser Umgehungen verlangt Absicht und ein Prüfer, der sie alle sähe, wäre
+  //    ein Programmanalysator): ein geklammerter Aufruf `(erzeugeEditorKern)({…})`; ein Alias-Import
+  //    (`erzeugeWerkzeugKontext as ewk`); ein von Hand gebautes Kontext-Literal ohne Fabrikaufruf; ein Element-Zugriff auf den
+  //    Haken (`w?.['beiZeigerRunter']?.(…)`); eine Decoy-Deklaration (eine frühere, verschachtelte Funktion oder Variable
+  //    gleichen Namens, auf die sich die Prüfung stützt, während der Kern eine andere benutzt).
   const kernQuelle = readFileSync(resolve(HIER, '../src/editor/werkzeuge/kontext.ts'), 'utf-8');
   const baum = (text: string, name: string): ts.SourceFile => ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const knoten = (sf: ts.SourceFile): ts.Node[] => {
@@ -2249,7 +2326,13 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   );
   const HAKEN = ['beiZeigerRunter', 'beiZeigerBewegt', 'beiZeigerHoch', 'beiZeigerAbbruch', 'beiFlaechenKlick', 'beiDoppelklick', 'beiTaste', 'zeichneOverlay', 'seitenleiste', 'abbrechen'];
   const hakenAufrufe = aufrufeIn(haupt).filter((c) => ts.isPropertyAccessExpression(c.expression) && HAKEN.includes(aufrufName(c)!) && c.arguments.length > 0);
-  const fremdeKontexte = hakenAufrufe.filter((c) => !(ts.isIdentifier(c.arguments[0]!) && (c.arguments[0] as ts.Identifier).text === 'werkzeugKontext'));
+  // `const ktx = werkzeugKontext;` ist dasselbe Objekt: ein Alias zählt, wenn er (über höchstens 4 Stufen) auf `werkzeugKontext` zurückgeht
+  const loeseAlias = (id: ts.Identifier, tiefe = 0): string => {
+    if (tiefe > 4) return id.text;
+    const d = knoten(haupt).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === id.text && n.initializer !== undefined && ts.isIdentifier(n.initializer));
+    return d ? loeseAlias(d.initializer as ts.Identifier, tiefe + 1) : id.text;
+  };
+  const fremdeKontexte = hakenAufrufe.filter((c) => !(ts.isIdentifier(c.arguments[0]!) && loeseAlias(c.arguments[0] as ts.Identifier) === 'werkzeugKontext'));
   check(
     `editorMain.ts: jeder Werkzeug-Haken (${HAKEN.length} Arten, ${hakenAufrufe.length} Aufrufstellen) bekommt \`werkzeugKontext\` — keiner einen anderen Kontext (abweichend: ${fremdeKontexte.length})`,
     hakenAufrufe.length >= 12 && fremdeKontexte.length === 0,
@@ -2277,29 +2360,72 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     }
     return karte;
   };
-  const leitetWeiter = (e: ts.Expression | undefined, name: string): boolean => {
-    if (!e) return false;
-    if (ts.isIdentifier(e)) return e.text === name;
-    if (!ts.isArrowFunction(e) || e.parameters.length > 0) return false;
-    let koerper: ts.Node = e.body;
-    if (ts.isBlock(koerper)) {
-      if (koerper.statements.length !== 1) return false;
-      const st = koerper.statements[0]!;
+  // Die Form eines Glieds als kurzer Text: `fn:x` (die Funktion x selbst), `get:x` (`() => x`), `set:x` (`(p) => { x = p; }`),
+  // `setlit:x=text` (`() => { x = 'text'; }`), `call:f` (ein Pfeil, der `f(...)` mit GENAU seinen Parametern in dieser Reihenfolge
+  // ruft, auch als `void f()` oder als Block mit einer Anweisung); alles andere `other` (`() => undefined`, `() => 'see'`, ...).
+  const formVon = (e: ts.Expression | undefined): string => {
+    if (!e) return 'fehlt';
+    if (ts.isIdentifier(e)) return `fn:${e.text}`;
+    if (!ts.isArrowFunction(e)) return 'other';
+    const params = e.parameters.map((q) => (ts.isIdentifier(q.name) ? q.name.text : '?'));
+    let k: ts.Node = e.body;
+    if (ts.isBlock(k)) {
+      if (k.statements.length !== 1) return 'other';
+      const st = k.statements[0]!;
       const inneres = ts.isExpressionStatement(st) ? st.expression : ts.isReturnStatement(st) ? st.expression : undefined;
-      if (!inneres) return false;
-      koerper = inneres;
+      if (!inneres) return 'other';
+      k = inneres;
     }
-    while (ts.isParenthesizedExpression(koerper) || ts.isVoidExpression(koerper)) koerper = koerper.expression;
-    return ts.isCallExpression(koerper) && ts.isIdentifier(koerper.expression) && koerper.expression.text === name && koerper.arguments.length === 0;
+    while (ts.isParenthesizedExpression(k) || ts.isVoidExpression(k)) k = k.expression;
+    if (ts.isIdentifier(k)) return params.length === 0 ? `get:${k.text}` : 'other';
+    if (ts.isBinaryExpression(k) && k.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(k.left)) {
+      if (ts.isIdentifier(k.right) && k.right.text === params[0]) return `set:${k.left.text}`;
+      if (ts.isStringLiteral(k.right) && params.length === 0) return `setlit:${k.left.text}=${k.right.text}`;
+      return 'other';
+    }
+    if (ts.isCallExpression(k)) {
+      const args = k.arguments.map((a) => (ts.isIdentifier(a) ? a.text : '?'));
+      return JSON.stringify(args) === JSON.stringify(params) ? `call:${k.expression.getText().replace(/\s+/g, '')}` : 'other';
+    }
+    return 'other';
   };
   const kernGlieder = kernAufrufe.length === 1 && kernAufrufe[0]!.arguments[0] ? glieder(kernAufrufe[0]!.arguments[0]!, haupt) : null;
   const ECHTE = ['beiAbgang', 'speichereEntwurf', 'seiteBauen', 'pruefberichtBauen', 'weltSektionBauen', 'kartenMassBauen', 'zeichneOverlay', 'faerbeSpeicherKnopf', 'vorschauAnstossen'];
+  const deklariert = (name: string): boolean => knoten(haupt).some((n) => ts.isFunctionDeclaration(n) && n.name?.text === name);
+  const gliedText = (name: string): string => (kernGlieder ? `steht: ${kernGlieder.get(name)?.getText().replace(/\s+/g, ' ').slice(0, 50) ?? '(fehlt)'}` : 'Aufruf nicht lesbar');
+  const echteFunktion = (name: string): boolean => kernGlieder !== null && deklariert(name) && [`fn:${name}`, `call:${name}`].includes(formVon(kernGlieder.get(name)));
   for (const name of ECHTE) {
-    const deklariert = knoten(haupt).some((n) => ts.isFunctionDeclaration(n) && n.name?.text === name);
-    check(`editorMain.ts: dem Kern geht die ECHTE Editor-Funktion \`${name}\` (unverpackt, kein \`() => undefined\`)`, deklariert && kernGlieder !== null && leitetWeiter(kernGlieder.get(name), name), kernGlieder ? `steht: ${kernGlieder.get(name)?.getText().replace(/\s+/g, ' ').slice(0, 50) ?? '(fehlt)'}${deklariert ? '' : ' (nicht als function deklariert)'}` : 'Aufruf nicht lesbar');
+    check(`editorMain.ts: dem Kern geht die ECHTE Editor-Funktion \`${name}\` (unverpackt oder als Pfeil, der sie mit denselben Parametern ruft; kein \`() => undefined\`)`, echteFunktion(name), `${gliedText(name)}${deklariert(name) ? '' : ' (nicht als function deklariert)'}`);
   }
-  const UEBRIGE = ['layout', 'setzeLayout', 'nachSchritt', 'werkzeugId', 'zurAuswahl', 'meldung', 'zuBild', 'massstab', 'bestaetige'];
-  check('editorMain.ts: der Kern bekommt genau die Glieder des `KernHost` — kein weiteres, keines fehlt', kernGlieder !== null && gleichMenge([...kernGlieder.keys()], [...ECHTE, ...UEBRIGE]), kernGlieder ? [...kernGlieder.keys()].join(',') : 'Aufruf nicht lesbar');
+  // Die übrigen Glieder haben je EINE erwartete Durchreichung: Zuweisung/Lesen der Modulvariable oder Aufruf der benannten Funktion.
+  const ERWARTET_FORM: Record<string, string> = {
+    layout: 'get:layout',
+    setzeLayout: 'set:layout',
+    nachSchritt: 'fn:nachSchritt',
+    werkzeugId: 'get:werkzeug',
+    zurAuswahl: 'setlit:werkzeug=auswahl',
+    meldung: 'call:shell.meldung',
+    zuBild: 'call:zuBild',
+    massstab: 'get:massstab',
+    bestaetige: 'call:window.confirm',
+  };
+  for (const [name, form] of Object.entries(ERWARTET_FORM)) {
+    check(`editorMain.ts: Kern-Glied \`${name}\` ist genau die Durchreichung \`${form}\` (kein \`() => undefined\`, keine andere Variable)`, kernGlieder !== null && formVon(kernGlieder.get(name)) === form && (name !== 'nachSchritt' || deklariert('nachSchritt')), `${gliedText(name)} → ${kernGlieder ? formVon(kernGlieder.get(name)) : '-'}`);
+  }
+  check('editorMain.ts: der Kern bekommt genau die Glieder des `KernHost` — kein weiteres, keines fehlt', kernGlieder !== null && gleichMenge([...kernGlieder.keys()], [...ECHTE, ...Object.keys(ERWARTET_FORM)]), kernGlieder ? [...kernGlieder.keys()].join(',') : 'Aufruf nicht lesbar');
+  // Der Kontext wird nach dem Bau nicht mehr angefasst (zur Laufzeit ist er eingefroren; ein Schreibzugriff würfe dort).
+  const wurzelName = (e: ts.Expression): string | null => {
+    let k: ts.Expression = e;
+    while (ts.isParenthesizedExpression(k) || ts.isAsExpression(k) || ts.isNonNullExpression(k) || ts.isTypeAssertionExpression(k) || ts.isPropertyAccessExpression(k) || ts.isElementAccessExpression(k)) k = k.expression;
+    return ts.isIdentifier(k) ? k.text : null;
+  };
+  const SCHREIBER = ['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf'];
+  const schreibzugriffe = knoten(haupt).filter(
+    (n) =>
+      (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment && !ts.isIdentifier(n.left) && wurzelName(n.left) === 'werkzeugKontext') ||
+      (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && SCHREIBER.includes(n.expression.name.text) && n.arguments.length > 0 && wurzelName(n.arguments[0]!) === 'werkzeugKontext')
+  );
+  check('editorMain.ts: kein Schreibzugriff auf `werkzeugKontext` (Zuweisung an ein Glied, Object.assign, defineProperty)', schreibzugriffe.length === 0, schreibzugriffe.map((n) => n.getText().slice(0, 60)).join(' | '));
 
   const rueckruf = /beiFremdem: \(fremd, info\) => \{([\s\S]*?)\n  \},\n\}\);/.exec(quelle)?.[1] ?? '';
   const iM = rueckruf.indexOf('verlauf.uebernahme(layout, fremd);');
@@ -2346,7 +2472,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('Import legt vor dem Ersetzen einen Schritt an', importZweig);
 
   // Ring der verdrängten Entwürfe: Verdrahtung im Editor
-  check('Ring: new VerdraengtRing(umgebung.speicher), Verlauf mit Abgang-Hörer new SchrittVerlauf<WorldLayout>(50, beiAbgang)', /const ring = new VerdraengtRing\(umgebung\.speicher, \{ tabId \}\);/.test(quelle) && /new SchrittVerlauf<WorldLayout>\(50, host\.beiAbgang\)/.test(kernQuelle) && /\bconst verlauf\s*=\s*\w+\.verlauf\b/.test(quelle) && kernGlieder !== null && leitetWeiter(kernGlieder.get('beiAbgang'), 'beiAbgang'));
+  check('Ring: new VerdraengtRing(umgebung.speicher), Verlauf mit Abgang-Hörer new SchrittVerlauf<WorldLayout>(50, beiAbgang)', /const ring = new VerdraengtRing\(umgebung\.speicher, \{ tabId \}\);/.test(quelle) && /new SchrittVerlauf<WorldLayout>\(50, host\.beiAbgang\)/.test(kernQuelle) && /\bconst verlauf\s*=\s*\w+\.verlauf\b/.test(quelle) && kernGlieder !== null && echteFunktion('beiAbgang'));
   const abgangFn = /function beiAbgang\([\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
   check('beiAbgang entscheidet mit sollInRing(grund, herkunft, enthaelt(bezug, stand)) und sichert per ringen()', /sollInRing\(grund, herkunft, enthaelt\(bezug, stand\)\)/.test(abgangFn) && /ringen\(stand, herkunft, grund/.test(abgangFn) && /istFremdHaltig\(stand\)/.test(abgangFn));
   check('Sicherheitsnetz beiVerdraengt: sichert nur, wenn der Stand in keinem Stapel liegt und nicht angezeigt wird', /beiVerdraengt: \(alt\) => \{[\s\S]*?verlauf\.enthaelt\(\(x\) => gleich\(x, alt\)\)[\s\S]*?ringen\(alt, 'fremd', 'ersetzt', null\);/.test(quelle));

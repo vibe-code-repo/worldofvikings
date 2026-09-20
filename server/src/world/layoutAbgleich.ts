@@ -127,8 +127,11 @@ function laeuftRoute(layout: WorldLayout, p: PlacementDef): boolean {
   return p.route !== undefined && (layout.routes ?? []).some((r) => r.id === p.route);
 }
 
-/** Die ALTE Kennung (Prefab + gerundete Position, vor E1) enthält ein `@` und kann nie eine `id` sein. */
-const istAlteKennung = (layoutId: string): boolean => layoutId.includes('@');
+/**
+ * Der Prefab-Teil einer ALTEN Kennung in ihrer vollen Form `prefab@x,z` (`layoutKennung`: Prefab, `@`, ganze Zahlen),
+ * sonst `null`. Ein `@` irgendwo genügt nicht.
+ */
+const prefabDerAltenKennung = (layoutId: string): string | null => /^([^@]+)@-?\d+,-?\d+$/.exec(layoutId)?.[1] ?? null;
 
 /** Skalierung, wie sie im ZDO stehen soll: 0 = kein Member (Prefab-Vorgabe). */
 function sollSkala(p: PlacementDef): number {
@@ -487,8 +490,14 @@ export function layoutAbgleich(
   // Platzierung) schont ein id-förmiges ZDO nur bis hierher, danach nimmt es diese Sperre — eine zweite Sperre dort
   // hätte keine beobachtbare Wirkung (das ZDO stürbe im Nachlauf im selben Boot).
   const darfUebernehmen = (z: ZDO): boolean => {
+    const member = z.getMember(LAYOUT_ID_HASH);
+    // Ein Member, der da ist, aber kein Text: eine unlesbare Kennung ist trotzdem eine — nicht „ohne Kennung“.
+    if (member !== undefined && typeof member.value !== 'string') return false;
     const kennung = z.getString(LAYOUT_ID_MEMBER);
-    return !kennung || istAlteKennung(kennung);
+    if (!kennung) return true;
+    // Eine alte Kennung, die dieser Server je geschrieben hat, nennt das Prefab des ZDO selbst: `irgendwas@7,7` ist keine.
+    const prefab = prefabDerAltenKennung(kennung);
+    return prefab !== null && kontext.prefabs.getByName(prefab)?.hash === z.prefabHash;
   };
 
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));

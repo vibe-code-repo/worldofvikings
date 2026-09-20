@@ -8,8 +8,8 @@
  * and set a chest where it stood" therefore did not delete anything.
  *
  * Now: THE ID IN THE FILE IS THE ADDRESS OF AN OBJECT; a document without ids has no stable object identity.
- * A placement takes over an existing ZDO only if that ZDO carries the OLD key (`Prefab@x,z`, saves from before
- * E1) or no `layoutId` at all -- the migration path. A ZDO with an id-shaped `layoutId` that the document no
+ * A placement takes over an existing ZDO only if that ZDO carries the OLD key (its own prefab, `@`, whole numbers:
+ * `Prefab@x,z`, saves from before E1) or no `layoutId` at all -- the migration path. A ZDO with an id-shaped `layoutId` that the document no
  * longer has is ORPHANED: it is removed by the usual rules (the E0 protections stay), whatever the new placement's
  * id looks like and however near it stands. That holds for the editor's ids (derived + a random tail), for an
  * id the MCP server or a hand-written file gives in derived form or with a `-2`, and for an entry WITHOUT an id
@@ -38,11 +38,20 @@ import { createWovServer } from '../src/WovServer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
 
 let fehler = 0;
+let gut = 0;
+// The number of checks this file runs. A crash in the middle (an exception, a section that never ran) prints a plain error
+// and no FAIL line -- counted as "0 FAIL" it would pass; so the end (and the exit hook) compares ok + FAIL with this number.
+const SOLL = 74;
+let fertig = false;
+process.on('exit', () => {
+  if (!fertig) console.error(`FAIL abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+});
 function check(name: string, ok: boolean, detail = ''): void {
   if (!ok) {
     fehler++;
     console.error(`FAIL ${name}${detail ? ` (${detail})` : ''}`);
   } else {
+    gut++;
     console.log(`ok   ${name}${detail ? ` (${detail})` : ''}`);
   }
 }
@@ -312,6 +321,64 @@ console.log('\n[6] the E0 protection keeps an orphan alive (an entry the sanitiz
   check('the log says 1 spawned, 0 removed, and that 1 orphan stays standing', zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 0 && b2.zeilen.some((z) => /ohne Löschen: 1 Einträge verworfen – 1 verwaiste Layout-Objekte bleiben/.test(z)), b2.zeilen.join(' | '));
 }
 
+console.log('\n[7] the old key is recognised by its FULL form (`prefab@x,z`); a member that is not a text counts as a name, not as "none"');
+{
+  const NEU = { id: 'truhe-neu-a1b2', prefab: TRUHE, x: 100.2, z: 100 };
+  // (a) a forged key: it contains an `@`, but no server ever wrote `irgendwas@7,7`
+  const wa = 'kennung-gefaelscht';
+  const { uid: uidA } = ersterBoot(wa, ALT);
+  const ba = starte(wa, dokument([ALT]));
+  layoutZdos(ba.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, 'irgendwas@7,7');
+  ba.server.saveWorld();
+  const ba2 = starte(wa, dokument([NEU]));
+  const za = layoutZdos(ba2.server, NEU.id)[0];
+  check('(a) `irgendwas@7,7` beside a new placement: NOT taken over -- a NEW empty ZDO, the old one gone', za !== undefined && za.zdoid.toString() !== uidA && inhalt(za) === '' && !ba2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uidA), abgleich(ba2.zeilen));
+  check('(a) ... the log says 1 spawned, 1 removed, nothing re-stamped', zahl(abgleich(ba2.zeilen), 'gespawnt') === 1 && zahl(abgleich(ba2.zeilen), 'entfernt') === 1 && !/umgestempelt/.test(abgleich(ba2.zeilen)), abgleich(ba2.zeilen));
+  // (a2) the full form, but the prefab part is another prefab than the ZDO's own: no key this server wrote for this object
+  const wa2 = 'kennung-fremdes-prefab';
+  const { uid: uidA2 } = ersterBoot(wa2, ALT);
+  const ba3 = starte(wa2, dokument([ALT]));
+  layoutZdos(ba3.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, 'woodwall@100,100');
+  ba3.server.saveWorld();
+  const ba4 = starte(wa2, dokument([NEU]));
+  const za2 = layoutZdos(ba4.server, NEU.id)[0];
+  check('(a2) `woodwall@100,100` on a chest ZDO (the prefab part is not the ZDO\'s prefab): NOT taken over, a NEW empty ZDO', za2 !== undefined && za2.zdoid.toString() !== uidA2 && inhalt(za2) === '', abgleich(ba4.zeilen));
+  // (a3) the own prefab, but no whole numbers after the `@`
+  const wa3 = 'kennung-zahlen';
+  const { uid: uidA3 } = ersterBoot(wa3, ALT);
+  const ba5 = starte(wa3, dokument([ALT]));
+  layoutZdos(ba5.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, 'piece_chest_wood@abc,def');
+  ba5.server.saveWorld();
+  const ba6 = starte(wa3, dokument([NEU]));
+  const za3 = layoutZdos(ba6.server, NEU.id)[0];
+  check('(a3) `piece_chest_wood@abc,def` (the own prefab, but no numbers): NOT taken over, a NEW empty ZDO', za3 !== undefined && za3.zdoid.toString() !== uidA3 && inhalt(za3) === '', abgleich(ba6.zeilen));
+  // (b) a `layoutId` member of the wrong type (an Int): unreadable as a text, but there -- so a name, not "no key": left alone, never inherited
+  const wb = 'kennung-int';
+  const { uid: uidB } = ersterBoot(wb, ALT);
+  const bb = starte(wb, dokument([ALT]));
+  layoutZdos(bb.server, ALT_ID)[0]!.setInt(LAYOUT_ID_MEMBER, 7);
+  bb.server.saveWorld();
+  const bb2 = starte(wb, dokument([NEU]));
+  const zb = layoutZdos(bb2.server, NEU.id)[0];
+  const alt = bb2.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === uidB);
+  check('(b) an Int `layoutId` 0.2 m beside a new placement: the new placement gets its OWN empty ZDO', zb !== undefined && zb.zdoid.toString() !== uidB && inhalt(zb) === '', `${uidB} -> ${zb?.zdoid.toString()}`);
+  check('(b) ... the unreadable one is left alone, with its contents (1 spawned, 0 removed)', alt !== undefined && !alt.destroyed && inhalt(alt) === INHALT && zahl(abgleich(bb2.zeilen), 'gespawnt') === 1 && zahl(abgleich(bb2.zeilen), 'entfernt') === 0, abgleich(bb2.zeilen));
+  // (c) the genuine full form of another prefab's old key is still taken over by nearness, as before
+  const wc = 'kennung-echt';
+  const { uid: uidC } = ersterBoot(wc, ALT);
+  const bc = starte(wc, dokument([ALT]));
+  layoutZdos(bc.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, 'piece_chest_wood@-3,250');
+  bc.server.saveWorld();
+  const bc2 = starte(wc, dokument([NEU]));
+  const zc = layoutZdos(bc2.server, NEU.id)[0];
+  check('(c) a genuine old key (`piece_chest_wood@-3,250`: the ZDO\'s own prefab, whole numbers, negative and far from the placement): taken over by nearness, contents kept', zc !== undefined && zc.zdoid.toString() === uidC && inhalt(zc) === INHALT, `${uidC} -> ${zc?.zdoid.toString()}`);
+}
+
 rmSync(WURZEL, { recursive: true, force: true });
+fertig = true;
+if (gut + fehler !== SOLL) {
+  console.error(`FAIL Sollzahl: ${gut + fehler} Prüfungen statt ${SOLL}`);
+  fehler++;
+}
 console.log(fehler === 0 ? '\nall ok' : `\n${fehler} FAIL`);
 process.exit(fehler === 0 ? 0 : 1);

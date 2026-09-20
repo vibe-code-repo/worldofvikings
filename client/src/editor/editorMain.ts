@@ -335,6 +335,10 @@ let baueAufFremdem = false;
 function istFremdHaltig(stand: WorldLayout): boolean {
   return fremdeStaende.has(stand) || fremdHaltig.has(stand);
 }
+/** Nach einem Schritt (`merkeSchritt` im Kern): ein Ersetzen (Import, Serverstand) baut nicht auf dem alten Stand auf. */
+function nachSchritt(ersetzt: boolean): void {
+  baueAufFremdem = !ersetzt && istFremdHaltig(layout);
+}
 /**
  * Zähler seit dem Start: wie viele Stände in den Ring gingen, nicht gesichert
  * werden konnten, wegen der Grenzen den ältesten Eintrag kosteten, oder als
@@ -536,10 +540,7 @@ const kern = erzeugeEditorKern({
     layout = neu;
   },
   beiAbgang,
-  // Ein Ersetzen (Import, Serverstand) baut nicht auf dem alten Stand auf.
-  nachSchritt: (ersetzt) => {
-    baueAufFremdem = !ersetzt && istFremdHaltig(layout);
-  },
+  nachSchritt,
   speichereEntwurf,
   seiteBauen,
   pruefberichtBauen,

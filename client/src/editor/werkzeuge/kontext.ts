@@ -56,7 +56,9 @@ export interface KontextHost {
 }
 
 export function erzeugeWerkzeugKontext(host: KontextHost): WerkzeugKontext {
-  return {
+  // Eingefroren: ein spaeteres `Object.assign(kontext, …)` oder eine Zuweisung an ein Glied wirft, statt die beiden
+  // Zusagen (Schritt vor der Aenderung, Speichern danach) still auszuhebeln.
+  const kontext: WerkzeugKontext = {
     layout: () => host.layout(),
     aendere(neu: WorldLayout, _vorgang?: Vorgang): void {
       host.merkeSchritt();
@@ -75,6 +77,7 @@ export function erzeugeWerkzeugKontext(host: KontextHost): WerkzeugKontext {
     zuBild: (wx, wz) => host.zuBild(wx, wz),
     massstab: () => host.massstab(),
   };
+  return Object.freeze(kontext);
 }
 
 /** What the editor kernel needs from the editor window. Every member is one thing `editorMain.ts` does with its module state. */
@@ -151,5 +154,5 @@ export function erzeugeEditorKern(host: KernHost): EditorKern {
     massstab: () => host.massstab(),
     bestaetige: (frage) => host.bestaetige(frage),
   });
-  return { verlauf, werkzeugKontext, merkeSchritt, alles };
+  return Object.freeze({ verlauf, werkzeugKontext, merkeSchritt, alles });
 }

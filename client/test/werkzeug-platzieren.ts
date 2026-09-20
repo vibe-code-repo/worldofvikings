@@ -26,9 +26,18 @@ const WURZEL = resolve(HIER, '../..');
 const EDITOR = resolve(HIER, '../src/editor');
 
 let fehler = 0;
+let gut = 0;
+// Expected number of checks. A crash in the middle (an exception, a section that never ran) prints no ✗ line -- counted
+// as "0 red" it would pass; so the end (and the exit hook) compares ✓ + ✗ with this number.
+const SOLL = 180;
+let fertig = false;
+process.on('exit', () => {
+  if (!fertig) console.log(`  ✗ abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+});
 function check(name: string, ok: boolean, zusatz = ''): void {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${zusatz ? ` (${zusatz})` : ''}`);
   if (!ok) fehler++;
+  else gut++;
 }
 function gleich(name: string, ist: unknown, soll: unknown): void {
   const a = JSON.stringify(ist);
@@ -1072,6 +1081,11 @@ async function main(): Promise<void> {
     })());
   }
 
+  fertig = true;
+  if (gut + fehler !== SOLL) {
+    console.log(`  ✗ Sollzahl: ${gut + fehler} Prüfungen statt ${SOLL}`);
+    fehler++;
+  }
   console.log(fehler === 0 ? '\nOK' : `\n${fehler} FAILED`);
   process.exit(fehler === 0 ? 0 : 1);
 }

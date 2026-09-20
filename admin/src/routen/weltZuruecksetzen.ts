@@ -264,6 +264,12 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
   const stempel = zeitmarke(jetzt);
   const weltenOrdner = dirname(umg.spielstand);
 
+  // One suffix for the whole reset, chosen before anything is written: the stamp, or `<stamp>-2`, `-3` … when ANY of the
+  // names is taken (the copy of the world document included), so the copy and the moved files always share their name.
+  const kandidaten = beiseiteKandidaten(umg, mitKonten);
+  const kopieName = (k: string): string => resolve(weltenOrdner, `${basename(umg.layoutDatei)}.${k}`);
+  const kennung = freieKennung(stempel, (k) => [kopieName(k), ...[...kandidaten.spielstand, ...kandidaten.konten].map((d) => `${d}.vor-reset-${k}`)]);
+
   // 1 + 2: numbers, then the two copies. Nothing has changed yet when this throws.
   let zahlen: ResetZahlen;
   let sicherungSpielstand: string | null;
@@ -278,9 +284,8 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
     }
     sicherungSpielstand = umg.sichern(umg.spielstand, SICHERUNGEN_SPIELSTAND);
     if (existsSync(umg.layoutDatei)) {
-      const kopie = resolve(weltenOrdner, `${basename(umg.layoutDatei)}.${freieKennung(stempel, (k) => [resolve(weltenOrdner, `${basename(umg.layoutDatei)}.${k}`)])}`);
-      copyFileSync(umg.layoutDatei, kopie, constants.COPYFILE_EXCL);
-      sicherungWeltdokument = kopie;
+      copyFileSync(umg.layoutDatei, kopieName(kennung), constants.COPYFILE_EXCL);
+      sicherungWeltdokument = kopieName(kennung);
     }
   } catch (fehler) {
     console.error(`[Admin] POST /api/welt-zuruecksetzen: Sicherung fehlgeschlagen: ${fehlerText(fehler)}`);
@@ -290,8 +295,6 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
     };
   }
 
-  const kandidaten = beiseiteKandidaten(umg, mitKonten);
-  const kennung = freieKennung(stempel, (k) => [...kandidaten.spielstand, ...kandidaten.konten].map((d) => `${d}.vor-reset-${k}`));
   const beiseite: { von: string; nach: string }[] = [];
 
   // 3: stop. When that fails nothing is swapped (the server may still be writing); start is tried anyway.

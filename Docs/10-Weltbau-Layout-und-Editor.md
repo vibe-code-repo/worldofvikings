@@ -473,10 +473,10 @@ Zurückholen von Hand, hier für `dev` und die Kennung `K`:
 
 ```
 systemctl stop wov-server            # nie tauschen, solange der Server die Dateien offen hat
-cd server/data                       # ab hier alles relativ dazu
-for d in worlds/dev.db.zst worlds/dev.db.zst.prev; do [ -e $d ] && mv $d $d.leer; mv $d.vor-reset-K $d; done
-cp worlds/dev.json.K welten/dev.json # danach im Editor „Serverstand laden": die Basis hat sich geändert
-for f in konten/dev.db*.vor-reset-K; do g=${f%.vor-reset-K}; [ -e $g ] && mv $g $g.leer; mv $f $g; done   # nur bei „auch Konten"
+cd server/data                       # ab hier alles relativ dazu; mv --backup legt, was schon am Ziel steht, als ~1~ zur Seite
+for f in worlds/dev.db.zst worlds/dev.db.zst.prev; do mv --backup=numbered $f.vor-reset-K $f; done
+mv --backup=numbered welten/dev.json worlds/dev.json.leer && cp worlds/dev.json.K welten/dev.json   # das leere Dokument bleibt in worlds/ (in welten/ wäre es git-Schmutz); danach im Editor „Serverstand laden"
+for f in konten/dev.db*.vor-reset-K; do [ -e "$f" ] && mv --backup=numbered "$f" "${f%.vor-reset-K}"; done   # nur bei „auch Konten"
 systemctl start wov-server           # die Boot-Zeile „Layout-Abgleich" zeigt wieder die alten Zahlen
 ```
 

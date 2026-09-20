@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { zstdCompressSync } from 'node:zlib';
 import { sanitizeWorldLayout } from '@wov/shared/src/worldlayout/sanitize.js';
 import { layoutHash, layoutText } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import * as ts from 'typescript';
 import type { ResetUmgebung } from '../src/routen/weltZuruecksetzen.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +54,8 @@ const warte = (ms: number): Promise<void> => new Promise((f) => setTimeout(f, ms
 // ── Fixtures ──────────────────────────────────────────────────────────
 
 const ORDNER = mkdtempSync(resolve(tmpdir(), 'wov-zuruecksetzen-'));
+// Also when a check throws halfway (e.g. against a service without the route): the temp folder must not stay behind.
+process.on('exit', () => rmSync(ORDNER, { recursive: true, force: true }));
 const WELTEN = resolve(ORDNER, 'server/data/welten');
 const SAVES = resolve(ORDNER, 'server/data/worlds');
 const KONTEN = resolve(ORDNER, 'server/data/konten');
@@ -154,7 +157,7 @@ const fakeLog = (): string[] => (existsSync(resolve(FAKE, 'log')) ? readFileSync
 const fakeLogLeeren = (): void => rmSync(resolve(FAKE, 'log'), { force: true });
 const fakeSchalter = (name: string, an: boolean): void => (an ? writeFileSync(resolve(FAKE, name), '') : rmSync(resolve(FAKE, name), { force: true }));
 const fakeAktiv = (): boolean => existsSync(resolve(FAKE, 'aktiv'));
-const fakeLesen = (name: string): string[] => readFileSync(resolve(FAKE, name), 'utf-8').split('\n').filter(Boolean);
+const fakeLesen = (name: string): string[] => (existsSync(resolve(FAKE, name)) ? readFileSync(resolve(FAKE, name), 'utf-8').split('\n').filter(Boolean) : []);
 
 // ── Start the service ─────────────────────────────────────────────────
 
@@ -648,6 +651,45 @@ if (modul) {
     const a = (await weltZuruecksetzenBehandeln(gut, b.umg)) as { code: number; daten: Record<string, any> };
     check('B10: Sicherung scheitert → 500 sicherung-fehlgeschlagen, Platte bitgleich, Server NICHT gestoppt', a.code === 500 && a.daten.fehler === 'sicherung-fehlgeschlagen' && alles(b) === vorher && b.aufrufe.length === 0, `= ${a.code} ${JSON.stringify(a.daten).slice(0, 120)} ${b.aufrufe.join(',')}`);
   }
+  {
+    // A copy of the world document from an earlier attempt in the same minute (a reset that failed leaves its copies):
+    // the next one takes `-2` for EVERY name, so the copy and the moved files keep sharing one suffix.
+    const b = bauen();
+    writeFileSync(resolve(b.saves, 'dev.json.2026-09-20_2015'), 'Rest eines frueheren Versuchs');
+    const a = (await weltZuruecksetzenBehandeln({ ...gut, konten: true }, b.umg)) as { code: number; daten: Record<string, any> };
+    check('B11: Kopie des Weltdokuments schon vergeben → Kennung -2 fuer ALLES', a.code === 200 && a.daten.kennung === '2026-09-20_2015-2' && a.daten.sicherung?.weltdokument === 'dev.json.2026-09-20_2015-2', JSON.stringify(a.daten.sicherung));
+    check('B11: alle fuenf beiseite gelegten Dateien tragen dieselbe Kennung -2', a.daten.beiseite?.length === 5 && a.daten.beiseite.every((n: string) => n.endsWith('.vor-reset-2026-09-20_2015-2')), JSON.stringify(a.daten.beiseite));
+    check('B11: der Rest des frueheren Versuchs bleibt unberuehrt', readFileSync(resolve(b.saves, 'dev.json.2026-09-20_2015'), 'utf-8') === 'Rest eines frueheren Versuchs');
+  }
+}
+
+// ══ C. The opt-in of the shared write path has exactly one caller ═════
+
+console.log('\n[C] leereWelt: genau eine Stelle setzt die Option (Syntaxbaum ueber alle Quelltexte):');
+{
+  const setzer: string[] = [];
+  const geh = (ordner: string): void => {
+    for (const eintrag of readdirSync(ordner, { withFileTypes: true })) {
+      if (eintrag.name === 'node_modules' || eintrag.name === 'dist' || eintrag.name.startsWith('.')) continue;
+      const pfad = resolve(ordner, eintrag.name);
+      if (eintrag.isDirectory()) geh(pfad);
+      else if (/\.(ts|tsx|mts|mjs|js)$/.test(eintrag.name) && !pfad.includes('/test/')) {
+        const text = readFileSync(pfad, 'utf-8');
+        if (!text.includes('leereWelt')) continue;
+        const sf = ts.createSourceFile(pfad, text, ts.ScriptTarget.Latest, true);
+        const besuche = (n: ts.Node): void => {
+          const istName = (x: ts.PropertyName): boolean => ts.isIdentifier(x) && x.text === 'leereWelt';
+          // `leereWelt: <not the literal false>` in an object literal, or the shorthand `{ leereWelt }`.
+          if (ts.isPropertyAssignment(n) && istName(n.name) && n.initializer.kind !== ts.SyntaxKind.FalseKeyword) setzer.push(relative(WURZEL_PROJEKT, pfad));
+          if (ts.isShorthandPropertyAssignment(n) && n.name.text === 'leereWelt') setzer.push(relative(WURZEL_PROJEKT, pfad));
+          ts.forEachChild(n, besuche);
+        };
+        besuche(sf);
+      }
+    }
+  };
+  for (const d of ['admin/src', 'server/src', 'shared/src', 'client/src', 'tools']) if (existsSync(resolve(WURZEL_PROJEKT, d))) geh(resolve(WURZEL_PROJEKT, d));
+  check('genau eine Stelle setzt leereWelt, und zwar das Zuruecksetzen', setzer.length === 1 && setzer[0] === 'admin/src/routen/weltZuruecksetzen.ts', setzer.join(' | '));
 }
 
 rmSync(ORDNER, { recursive: true, force: true });

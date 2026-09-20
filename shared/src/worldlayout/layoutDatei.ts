@@ -317,9 +317,15 @@ export interface SchreibOptionen {
   /** Hash der Datei, auf die sich der Schreiber bezieht. Fehlt er, wird ohne Vergleich geschrieben. */
   basis?: string | null;
   /**
-   * Ein Dokument ohne jede Region zulassen. Nur das Zurücksetzen der Welt (Editor K4.0, admin/src/routen/
-   * weltZuruecksetzen.ts) setzt es: Eine leere Welt ist genau das, was es schreiben soll. Jeder andere
-   * Schreiber behält die Hürde in `schreibenVorbereiten`.
+   * Ein Dokument ohne jede Region zulassen.
+   *
+   * WARUM es diese Option gibt: `schreibenVorbereiten` verweigert jedes Dokument ohne Region, weil ein solches
+   * Dokument aus einem halb übertragenen Upload oder einem vertauschten Feld entsteht und sonst eine Welt still
+   * durch offene See ersetzte (s. dort). Genau EIN Fall will eine leere Welt wirklich schreiben: das Zurücksetzen der
+   * Welt im Editor (K4.0, admin/src/routen/weltZuruecksetzen.ts), nach Tippbestätigung und mit Sicherung.
+   *
+   * Sie darf sonst NIRGENDS gesetzt werden: nicht im Speicherweg des Editors, nicht in PATCH .../ops, nicht im MCP.
+   * Dass genau eine Stelle sie setzt, hält admin/test/welt-zuruecksetzen.ts am Syntaxbaum fest.
    */
   leereWelt?: boolean;
   sperreWartenMs?: number;

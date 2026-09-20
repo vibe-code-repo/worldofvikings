@@ -580,12 +580,19 @@ async function main(): Promise<void> {
       `A (${f(posA.x)}; ${f(posA.z)}) C (${f(peerC.position.x)}; ${f(peerC.position.z)}), Welten ${peer.worldId} / ${peerC.worldId}`
     );
 
+    // Beobachtungsfenster mit Reserve: erster Schlag ~2,1 s, zweiter ~4,1 s,
+    // dritter ~6,1 s nach dem Setzen (Takt 2 s). Bei 6,5 s liegt die Schranke
+    // „mindestens zwei“ 2,4 s vor dem Fensterende (bei 5,5 s waren es 1,4 s),
+    // und der dritte Schlag liegt 0,4 s davor — sein Blitz ist lange
+    // angekommen, wenn gezaehlt wird.
+    const FENSTER_WELT_MS = 6_500;
+
     // Richtung 1: ein Furloc-Krieger der HAUPTWELT.
     peerC.health = 100;
     blitzeA = 0;
     blitzeC = 0;
     const ausHaupt = setzeNpc('FurlocKrieger', { x: posA.x, y: posA.y, z: posA.z });
-    await beobachte(5_500);
+    await beobachte(FENSTER_WELT_MS);
     const n1 = schlaege.length;
     console.log(`      Oberwelt-NPC: ${n1} Schlaege; A ${peer.health}, C ${peerC.health}; Blitze A ${blitzeA}, C ${blitzeC}`);
     check('der Oberwelt-NPC hat zugeschlagen (mindestens zwei Schlaege)', n1 >= 2, `${n1}`);
@@ -609,7 +616,7 @@ async function main(): Promise<void> {
     };
     const ausInstanz = instanz.zdos.createZDO(hashVon('FurlocKrieger'), { ...peerC.position });
     ausInstanz.setInt(HEALTH_MEMBER, maxLeben('FurlocKrieger'));
-    await warte(5_500);
+    await warte(FENSTER_WELT_MS);
     console.log(`      Instanz-NPC: ${n2} Schlaege; A ${peer.health}, C ${peerC.health}; Blitze A ${blitzeA}, C ${blitzeC}`);
     check('der Instanz-NPC hat zugeschlagen (mindestens zwei Schlaege)', n2 >= 2, `${n2}`);
     check('C (gleiche Welt) verliert 8 je Schlag', peerC.health === 100 - n2 * w3.schaden, `${peerC.health} (Soll ${100 - n2 * w3.schaden})`);

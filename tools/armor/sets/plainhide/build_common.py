@@ -56,8 +56,8 @@ for name, color in colors.items():
     shader.inputs['Base Color'].default_value = (*color, 1)
     shader.inputs['Roughness'].default_value = .92
     shader.inputs['Metallic'].default_value = 0
-for part, label in zip(PARTS, ['Schlichtleder-Ärmel', 'Schlichtleder-Hemd', 'Schlichtleder-Armwickel',
-                               'Schlichtleder-Hose', 'Schlichtleder-Bundschuhe']):
+for part, label in zip(PARTS, ['Plainhide Sleeves', 'Plainhide Tunic', 'Plainhide Wraps',
+                               'Plainhide Trousers', 'Plainhide Shoes']):
     part['label'] = label
     part['vfx'] = {'emissive': False}
 
@@ -268,12 +268,11 @@ for sign, side, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:
     for obj in pieces[upper][1:]:
         attach_to_surface(obj, surface)
 
-    # Forearm: linen sleeve under crossed hide wraps, tied at the wrist.
+    # Forearm: linen sleeve under three quiet, slanted hide strips; the last one ties off at the wrist.
     lower = 'ArmLower'+word; arm = pieces[lower][0]; tree = shell(arm)
     repaint(arm, 'gold')
-    for along in [.050, .098, .146, .194]:
-        band('Forearm_wrap', tree, elbow, fore, UP, [(along-.013, .009), (along+.013, .010)], lower, 'leather', 8, tilt=.020)
-    band('Wrist_tie', tree, elbow, fore, UP, [(.228, .008), (.246, .008)], lower, 'black', 8)
+    for along in [.055, .130, .205]:
+        band('Forearm_wrap', tree, elbow, fore, UP, [(along-.011, .008), (along+.011, .008)], lower, 'leather', 8, tilt=.030)
     surface = binding_surface(arm)
     for obj in pieces[lower][1:]:
         attach_to_surface(obj, surface)
@@ -287,8 +286,8 @@ for slot in ['LegLeft', 'LegRight']:
     band('Trouser_hem', tree, origin, UP, FRONT, [(.318, .022), (.368, .012)], slot, 'leather', 8)
     circle = [lay(tree, Vector((x+math.sin(a), .02-math.cos(a), .338)), (x, .02, .338), .0205) for a in [k*math.tau/16 for k in range(17)]]
     stitches('Trouser_hem_stitches', circle, slot, spacing=.042)
-    for z in [.140, .192, .244, .296]:
-        band('Shin_wrap', tree, origin, UP, FRONT, [(z-.014, .008), (z+.014, .009)], slot, 'cloth', 8, tilt=.022,
+    for z in [.150, .215, .280]:  # three quiet, slanted strips, mirrored between the legs
+        band('Shin_wrap', tree, origin, UP, FRONT, [(z-.012, .008), (z+.012, .008)], slot, 'leather', 8, tilt=.030,
              phase=math.pi if x < 0 else 0)
     band('Shoe_collar', tree, origin, UP, FRONT, [(.082, .010), (.112, .013)], slot, 'leather', 8)
     lace = trace(tree, [(x, -.058, .30), (x, -.118, .30)], lambda p: Vector((x, p.y+.02, -.05)), .004, step=.02)

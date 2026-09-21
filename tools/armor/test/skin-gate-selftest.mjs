@@ -93,6 +93,9 @@ const maleBody = (...without) => file(MALE_BONES, REGIONS.filter(r => !without.i
 const femaleBodyWithClips = (clips, without) => file(FEMALE_BONES,
   [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.filter(r => !without.includes(r)).map(r => FEMALE_BONES.indexOf(REGION_BONE[r])) }], clips);
 const femaleBody = (...without) => femaleBodyWithClips(3, without);
+// The 51-bone body with one stray index after the last whole triangle: no whole number of triangles.
+const femaleBodyPartialTriangle = () => file(FEMALE_BONES,
+  [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.map(r => FEMALE_BONES.indexOf(REGION_BONE[r])), indexCount: REGIONS.length * 3 + 1 }], 3);
 const webBodyWith = ({ without = [], indexCount = {}, rename = {}, extra = [] } = {}) => file(WEB_BONES,
   [...REGIONS.filter(r => !without.includes(r)).map(r => ({ name: rename[r] ?? `Chr_${r}_Female_00`, triangleBones: [1], indexCount: indexCount[r] })),
     ...extra.map(name => ({ name, triangleBones: [1] }))], 3);
@@ -143,6 +146,7 @@ try {
   writeFileSync(join(scratch, 'web-no-head.glb'), webBody('Head'));
   writeFileSync(join(scratch, 'web-no-right-hand.glb'), webBody('HandRight'));
   writeFileSync(join(scratch, 'male-no-head.glb'), maleBody('Head'));
+  writeFileSync(join(scratch, 'female-partial-triangle.glb'), femaleBodyPartialTriangle());
   writeFileSync(join(scratch, 'web-head-0.glb'), webBodyWith({ indexCount: { Head: 0 } }));
   writeFileSync(join(scratch, 'web-head-1.glb'), webBodyWith({ indexCount: { Head: 1 } }));
   writeFileSync(join(scratch, 'web-head-2.glb'), webBodyWith({ indexCount: { Head: 2 } }));
@@ -269,6 +273,7 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   webBad('plainhide-web-torso-named-head', 'plainhide', 'female', {}, /the free region Head is not visible although no item replaces it \(mesh Chr_Torso_Female_00 Head: isEnabled=false/, { bodyFile: join(scratch, 'web-torso-named-head.glb') });
   bad('plainhide-game-body-invisible', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=false, visibility=1\)/, { bodyFile: body.female, state: webState('isVisible', false, '') });
   bad('plainhide-game-body-faded-out', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=true, visibility=0\)/, { bodyFile: body.female, state: webState('visibility', 0, '') });
+  bad('plainhide-game-body-partial-triangle', 'plainhide', 'female', {}, /plainhide\/female: the body mesh has 34 indices: it needs whole triangles/, { bodyFile: join(scratch, 'female-partial-triangle.glb') });
   // Positive controls: initially disabled, then switched on by the mask code: PASS is right.
   for (const [name, variant, isWeb, bodyFile, match] of [['head-starts-disabled-web', 'female', true, body.web, 'Head'], ['body-starts-disabled-game', 'female', false, body.female, '']]) {
     writeSet(join(scratch, name), 'plainhide', variant, { web: isWeb });

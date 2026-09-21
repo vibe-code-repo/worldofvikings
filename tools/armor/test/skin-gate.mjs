@@ -142,7 +142,13 @@ if (profile) {
 }
 // The legacy female body is one mesh whose triangles are hidden per region instead of whole meshes.
 const legacyFemale = profile === 'legacy-female-v1';
-if (legacyFemale) prepareLegacyFemaleBody(body.meshes, expected[0].figure);
+if (legacyFemale) {
+  // Whole triangles first: the production mask code reads the index list three at a time and would fail with an unrelated message.
+  for (const m of body.meshes.filter(m => m.getTotalVertices())) {
+    assert(m.getTotalIndices() % 3 === 0, `${family}/${variant}: the body mesh has ${m.getTotalIndices()} indices: it needs whole triangles`);
+  }
+  prepareLegacyFemaleBody(body.meshes, expected[0].figure);
+}
 const armor = []; let meshNodeCount = 0;
 for (const { item, file, part } of entries) {
   const path = join(directory, file);
@@ -159,7 +165,6 @@ for (const { item, file, part } of entries) {
 }
 const bodyMeshes = body.meshes.filter(m => m.getTotalVertices());
 const original = legacyFemale ? Array.from(bodyMeshes[0].getIndices()) : [], maskTriangles = {}, freeRegionTriangles = {};
-if (legacyFemale) assert(original.length % 3 === 0, `${family}/${variant}: the body mesh has ${original.length} indices: it needs whole triangles`);
 if (!unregistered) {
   // The registry decides which regions a set hides: an attachment such as the Wildwarden crown hides none.
   const files = expected.map(p => `${family}/${itemOf(p)}`);

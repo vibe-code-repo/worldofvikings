@@ -150,6 +150,7 @@ try {
   writeFileSync(join(scratch, 'web-head-0.glb'), webBodyWith({ indexCount: { Head: 0 } }));
   writeFileSync(join(scratch, 'web-head-1.glb'), webBodyWith({ indexCount: { Head: 1 } }));
   writeFileSync(join(scratch, 'web-head-2.glb'), webBodyWith({ indexCount: { Head: 2 } }));
+  writeFileSync(join(scratch, 'web-head-4.glb'), webBodyWith({ indexCount: { Head: 4 } }));
   writeFileSync(join(scratch, 'web-torso-named-head.glb'), webBodyWith({ without: ['Head'], rename: { Torso: 'Chr_Torso_Female_00 Head' } }));
   writeFileSync(join(scratch, 'web-two-heads.glb'), webBodyWith({ extra: ['Chr_Head_Female_01'] }));
   // The state harness: one property of the matching body meshes is changed right after the BODY file is imported (the first import
@@ -264,6 +265,7 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   webBad('plainhide-web-head-0-indices', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has 0 indices in mesh Chr_Head_Female_00: it needs whole triangles/, { bodyFile: join(scratch, 'web-head-0.glb') });
   webBad('plainhide-web-head-1-index', 'plainhide', 'female', {}, /the free region Head has 1 indices in mesh Chr_Head_Female_00: it needs whole triangles/, { bodyFile: join(scratch, 'web-head-1.glb') });
   webBad('plainhide-web-head-2-indices', 'plainhide', 'female', {}, /the free region Head has 2 indices in mesh Chr_Head_Female_00: it needs whole triangles/, { bodyFile: join(scratch, 'web-head-2.glb') });
+  webBad('plainhide-web-head-4-indices', 'plainhide', 'female', {}, /the free region Head has 4 indices in mesh Chr_Head_Female_00: it needs whole triangles/, { bodyFile: join(scratch, 'web-head-4.glb') });
   webBad('plainhide-web-head-invisible', 'plainhide', 'female', {}, /the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_00: isEnabled=true, isVisible=false, visibility=1\)/, { bodyFile: body.web, state: webState('isVisible', false) });
   webBad('plainhide-web-head-faded-out', 'plainhide', 'female', {}, /the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_00: isEnabled=true, isVisible=true, visibility=0\)/, { bodyFile: body.web, state: webState('visibility', 0) });
   webBad('plainhide-web-one-hand-invisible', 'plainhide', 'female', {}, /the free region HandRight is not visible although no item replaces it \(mesh Chr_HandRight_Female_00/, { bodyFile: body.web, state: webState('isVisible', false, 'HandRight') });

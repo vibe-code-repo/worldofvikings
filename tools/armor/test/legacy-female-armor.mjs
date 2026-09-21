@@ -5,7 +5,7 @@
  * registry, the exact lining triangle counts from the fit report. Writes runtime-validation.json next to the models.
  */
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -23,6 +23,8 @@ const BODY_REGIONS=['Head','Torso','Hips','ArmUpperLeft','ArmUpperRight','ArmLow
 const parts=RUESTUNG.filter(p=>p.datei.startsWith(`${family}/`)&&p.bodyProfile==='legacy-female-v1').map(p=>({item:p.datei.split('/')[1],file:p.datei,regions:p.regions??[]}));
 assert(parts.length,`The registry has no female ${family} items`);
 const replaced=[...new Set(parts.flatMap(p=>p.regions))],freeRegions=BODY_REGIONS.filter(r=>!replaced.includes(r));
+// A failed run must not leave an old runtime-validation.json behind that still claims an exact mask.
+rmSync(join(directory,'runtime-validation.json'),{force:true});
 const fit=JSON.parse(readFileSync(fitPath));
 assert.deepEqual(Object.keys(fit.parts).sort(),[...replaced].sort(),'The fit report must cover exactly the regions the registry replaces');
 const engine=new NullEngine();const scene=new Scene(engine);
@@ -84,6 +86,15 @@ const replacedTriangles=triangles(Array.from(base.getIndices()));
 for(const t of stays)assert(!replacedTriangles.has(t)||!freeRegions.length,'A free-region triangle belongs to a replaced region');
 assert.equal(replacedTriangles.size,original.length/3-(freeRegions.length?remaining:0),'The replaced regions hold every triangle the free regions do not');
 assert.equal(stays.size,remaining);
+// Each free region on its own: hide everything but that region and count what is left of it. A missing head or a single
+// missing hand must fail here and name the region; "some triangles stay" is not enough.
+const freeRegionTriangles={};
+for(const region of freeRegions){
+ updateLegacyFemaleMask(base,new Set(BODY_REGIONS.filter(r=>r!==region)));
+ freeRegionTriangles[region]=base.getIndices().length/3;
+ assert(freeRegionTriangles[region]>0,`${family}: the free region ${region} has no body triangles: it is missing from the body`);
+}
+assert.equal(Object.values(freeRegionTriangles).reduce((a,b)=>a+b,0),remaining,`${family}: the full set leaves ${remaining} body triangles but the free regions [${freeRegions}] hold ${Object.values(freeRegionTriangles).reduce((a,b)=>a+b,0)}`);
 updateArmorVisibility([base],[]);assert(base.isEnabled());assert.deepEqual(Array.from(base.getIndices()),original);
 const clips=[];
 for(const clip of body.animationGroups){
@@ -105,7 +116,7 @@ for(const clip of body.animationGroups){
 assert.equal(clips.length,6);
 const report={status:'PASS',family,bodyProfile:'legacy-female-v1',bones:skeleton.bones.length,items:parts.length,replacedRegions:replaced,freeRegions,
  clips,samplesPerClip:5,exactBodyRegionMask:true,restoreOriginalIndices:true,independentCharacters:true,
- bodyTriangles:original.length/3,replacedBodyTriangles:linings,freeBodyTriangles:remaining,
+ bodyTriangles:original.length/3,replacedBodyTriangles:linings,freeBodyTriangles:remaining,freeRegionTriangles,
  ...(family==='seidraven'?{rigidShoulderWings:true}:{}),collisionCertified:false};
 writeFileSync(join(directory,'runtime-validation.json'),JSON.stringify(report,null,2)+'\n');
 console.log(report);scene.dispose();engine.dispose();

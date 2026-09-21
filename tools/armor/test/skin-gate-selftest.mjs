@@ -6,10 +6,13 @@
  * no item replaces (Plainhide keeps head and hands). The complete sets must pass; each deviation (GLB extras that
  * disagree with the registry, a part missing from the manifest or from disk, a wrong body, an unknown family, a body
  * mask that hides nothing or takes the free regions) must make it fail with its own message.
+ * Since Nachbesserung 1 also: every free region is proven on its own (a body without the head or one hand fails, and so does
+ * the stand-alone legacy check), a registered GLB without `itemId`, `bodyVariant` or `bodyProfile` fails unless its family is on
+ * the gate's closed legacy list (`--list-legacy-sets`), and a manifest that lists an item id twice fails before loading.
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,10 +81,14 @@ function file(bones, meshes, clips = 0) {
   const bin = Buffer.concat(chunks); json.buffers.push({ byteLength: bin.length });
   return glb(json, bin);
 }
-const maleBody = () => file(MALE_BONES, REGIONS.map(r => ({ name: `WoV_BodyBase_Male_${r}`, triangleBones: [1] })), 3);
-const femaleBody = (...without) => file(FEMALE_BONES,
-  [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.filter(r => !without.includes(r)).map(r => FEMALE_BONES.indexOf(REGION_BONE[r])) }], 3);
-const webBody = () => file(WEB_BONES, REGIONS.map(r => ({ name: `Chr_${r}_Female_00`, triangleBones: [1] })), 3);
+const maleBody = (...without) => file(MALE_BONES, REGIONS.filter(r => !without.includes(r)).map(r => ({ name: `WoV_BodyBase_Male_${r}`, triangleBones: [1] })), 3);
+const femaleBodyWithClips = (clips, without) => file(FEMALE_BONES,
+  [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.filter(r => !without.includes(r)).map(r => FEMALE_BONES.indexOf(REGION_BONE[r])) }], clips);
+const femaleBody = (...without) => femaleBodyWithClips(3, without);
+const webBody = (...without) => file(WEB_BONES, REGIONS.filter(r => !without.includes(r)).map(r => ({ name: `Chr_${r}_Female_00`, triangleBones: [1] })), 3);
+// The gate's own closed list of families whose GLBs carry no identity extras. Pinned here, so it cannot grow unnoticed.
+const LEGACY_FAMILIES = JSON.parse(execFileSync(tsx, [gate, '--list-legacy-sets'], { cwd: root, encoding: 'utf8' }).trim().split('\n').pop());
+assert.deepEqual(LEGACY_FAMILIES, ['ironward', 'wildwarden', 'ashenveil'], 'The legacy list is closed: a new entry needs a reviewed change of this test as well');
 
 /** The registry's items for a family and variant, written the way the exporter writes them. */
 function partsOf(family, variant) {
@@ -93,7 +100,7 @@ function writeSet(dir, family, variant, tweak = {}) {
   const web = tweak.web === true;
   const bones = web ? WEB_BONES : variant === 'female' ? FEMALE_BONES : MALE_BONES;
   // The older sets carry the region only; every later family's GLBs carry the body policy and the item id.
-  const policy = !['ironward', 'wildwarden', 'ashenveil'].includes(family);
+  const policy = !LEGACY_FAMILIES.includes(family);
   const items = [];
   for (const part of partsOf(family, variant)) {
     const item = part.datei.split('/')[1];
@@ -104,6 +111,11 @@ function writeSet(dir, family, variant, tweak = {}) {
     meshes = tweak.meshes?.[item]?.(meshes) ?? meshes;
     if (tweak.omitFile !== item) writeFileSync(join(dir, `${item}.glb`), file(bones, meshes));
     if (tweak.omitManifest !== item) items.push({ item, file: `${item}.glb`, regions: part.regions });
+  }
+  // A duplicate manifest line: the same item id again, pointing at a file of its own (broken) or at the same file.
+  if (tweak.duplicate) {
+    if (tweak.duplicate.file === 'corrupt.glb') writeFileSync(join(dir, 'corrupt.glb'), 'not a GLB');
+    items.push({ item: tweak.duplicate.item, file: tweak.duplicate.file, regions: [] });
   }
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ version: 1, items }));
   return dir;
@@ -116,8 +128,13 @@ try {
   writeFileSync(join(scratch, 'female-no-head.glb'), femaleBody('Head'));
   writeFileSync(join(scratch, 'female-no-free.glb'), femaleBody('Head', 'HandLeft', 'HandRight'));
   writeFileSync(join(scratch, 'web.glb'), webBody());
+  writeFileSync(join(scratch, 'female-no-left-hand.glb'), femaleBody('HandLeft'));
+  writeFileSync(join(scratch, 'web-no-head.glb'), webBody('Head'));
+  writeFileSync(join(scratch, 'web-no-right-hand.glb'), webBody('HandRight'));
+  writeFileSync(join(scratch, 'male-no-head.glb'), maleBody('Head'));
   const body = { male: join(scratch, 'male.glb'), female: join(scratch, 'female.glb'), noHead: join(scratch, 'female-no-head.glb'),
-    noFree: join(scratch, 'female-no-free.glb'), web: join(scratch, 'web.glb') };
+    noFree: join(scratch, 'female-no-free.glb'), web: join(scratch, 'web.glb'), noLeftHand: join(scratch, 'female-no-left-hand.glb'),
+    webNoHead: join(scratch, 'web-no-head.glb'), webNoRightHand: join(scratch, 'web-no-right-hand.glb'), maleNoHead: join(scratch, 'male-no-head.glb') };
   const run = (name, bodyFile, ...args) => new Promise(resolve => {
     const child = spawn(tsx, [gate, bodyFile, join(scratch, name), ...args], { cwd: root });
     let out = '', err = '';
@@ -176,7 +193,7 @@ try {
   bad('plainhide-boots-replace-hands', 'plainhide', 'male', swap('plainhide_male_boots', e => ({ ...e, replaces: 'HandLeft' })),
     /plainhide_male_boots: the GLB replaces \[HandLeft,HandLeft\] but the registry lists \[LegLeft,LegRight\]/);
   bad('plainhide-body-has-no-free-regions', 'plainhide', 'female', {}, /plainhide\/female: the full set leaves 0 body triangles for the free regions \[Head,HandLeft,HandRight\]/, { bodyFile: body.noFree });
-  bad('gravethorn-hood-attachment', 'gravethorn', 'female', swap('gravethorn_female_hood', () => ({ attachment: true })),
+  bad('gravethorn-hood-attachment', 'gravethorn', 'female', swap('gravethorn_female_hood', ({ replaces, ...rest }) => ({ ...rest, attachment: true })),
     /gravethorn_female_hood: the GLB replaces \[\] but the registry lists \[Head\]/);
   // The web fit: right body and right profile, or refused.
   const webBad = (name, family, variant, tweak, expect, options) => bad(name, family, variant, { web: true, ...tweak }, expect,
@@ -190,6 +207,38 @@ try {
   webBad('web-flag-on-male-set', 'plainhide', 'male', {}, /--web: plainhide\/male has no separate web fit/, { bodyFile: body.web });
   bad('web-fit-on-web-body-without-flag', 'plainhide', 'female', { web: true }, /plainhide\/female: the body GLB is not a legacy-female-v1 body/, { bodyFile: body.web });
   bad('web-and-unregistered', 'plainhide', 'female', { web: true }, /--web needs the registry/, { bodyFile: body.web, args: ['--web', '--unregistered'] });
+
+  // M1: every free region on its own. A body that still has SOME free triangles or meshes is not enough.
+  bad('plainhide-game-body-lacks-head', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has no body triangles: it is missing from the body/, { bodyFile: body.noHead });
+  bad('plainhide-game-body-lacks-left-hand', 'plainhide', 'female', {}, /plainhide\/female: the free region HandLeft has no body triangles/, { bodyFile: body.noLeftHand });
+  webBad('plainhide-web-body-lacks-head', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has no body mesh: it is missing from the body/, { bodyFile: body.webNoHead });
+  webBad('plainhide-web-body-lacks-right-hand', 'plainhide', 'female', {}, /plainhide\/female: the free region HandRight has no body mesh/, { bodyFile: body.webNoRightHand });
+  bad('plainhide-male-body-lacks-head', 'plainhide', 'male', {}, /plainhide\/male: the free region Head has no body mesh/, { bodyFile: body.maleNoHead });
+
+  // M2: identity extras are required in a registered run, per field and all three, for a foreign item of the same regions.
+  // The stripped boots are the real attack: another set's boots under this set's file name, with the identity fields removed.
+  const without = (...fields) => extras => Object.fromEntries(Object.entries(extras).filter(([key]) => !fields.includes(key)));
+  for (const [family, item] of [['plainhide', 'plainhide_female_boots'], ['gravethorn', 'gravethorn_female_boots'], ['seidraven', 'seidraven_female_boots']]) {
+    for (const fields of [['itemId'], ['bodyVariant'], ['bodyProfile'], ['itemId', 'bodyVariant', 'bodyProfile']]) {
+      bad(`${family}-boots-without-${fields.join('+')}`, family, 'female', swap(item, without(...fields)),
+        new RegExp(`${item}: node \\S+ lacks extras\\.${fields[0]}, which a registered ${family} GLB must carry`));
+    }
+  }
+  bad('plainhide-male-boots-without-all-identity', 'plainhide', 'male', swap('plainhide_male_boots', without('itemId', 'bodyVariant', 'bodyProfile')),
+    /plainhide_male_boots: node \S+ lacks extras\.itemId/);
+  webBad('plainhide-web-boots-without-bodyProfile', 'plainhide', 'female', swap('plainhide_female_boots', without('bodyProfile')),
+    /plainhide_female_boots: node \S+ lacks extras\.bodyProfile/, { bodyFile: body.web });
+  // Control: foreign boots that DO carry the fields are refused by the value, as before.
+  bad('plainhide-boots-of-another-item', 'plainhide', 'female', swap('plainhide_female_boots', e => ({ ...e, itemId: 'gravethorn_female_boots' })),
+    /plainhide_female_boots: node \S+ extras\.itemId differs from the registry/);
+
+  // K1: a manifest that lists an item id twice is refused before any GLB is loaded, whatever the second line points at.
+  bad('manifest-duplicate-broken-file', 'plainhide', 'female', { duplicate: { item: 'plainhide_female_vest', file: 'corrupt.glb' } },
+    /manifest\.json lists an item id more than once: plainhide_female_vest/);
+  bad('manifest-duplicate-same-file', 'plainhide', 'female', { duplicate: { item: 'plainhide_female_boots', file: 'plainhide_female_boots.glb' } },
+    /manifest\.json lists an item id more than once: plainhide_female_boots/);
+  bad('manifest-duplicate-unregistered', 'ironward', 'male', { duplicate: { item: 'IronwardHelmet', file: 'corrupt.glb' } },
+    /manifest\.json lists an item id more than once: IronwardHelmet/, { args: ['--unregistered'] });
 
   // Four at a time: each run starts a Babylon engine.
   const results = new Array(cases.length); let next = 0;
@@ -213,6 +262,10 @@ try {
       assert.equal(report.glbMeshNodesChecked, parts.reduce((n, p) => n + Math.max(p.regions.length, 1), 0), `${c.name}: mesh nodes checked`);
       assert.deepEqual(report.freeRegions, free, `${c.name}: free regions`);
       assert.equal(!!report.webBody, !!c.web, `${c.name}: web body flag`);
+      // Identity extras are required for every family except the closed legacy list.
+      assert.equal(report.identityExtras, LEGACY_FAMILIES.includes(c.family) ? 'legacy-exempt' : 'required', `${c.name}: identity extras mode`);
+      // Each free region is proven on its own: one synthetic triangle (or mesh) per region.
+      assert.deepEqual(report.freeRegionTriangles, Object.fromEntries(free.map(region => [region, 1])), `${c.name}: per-region free triangles`);
       if (c.variant === 'female' && !c.web) {
         const hidden = Object.values(report.hiddenBodyTrianglesPerItem);
         assert.equal(hidden.reduce((a, b) => a + b, 0), replaced.size, `${c.name}: the full set hides exactly its replaced regions`);
@@ -228,6 +281,33 @@ try {
       bad_++;
     }
   });
+  // The stand-alone legacy check (legacy-female-armor.mjs) on a synthetic 51-bone body with six clips: it must prove every free
+  // region too, and a failed run must not leave a report that still claims an exact mask.
+  const legacyTool = join(root, 'tools/armor/test/legacy-female-armor.mjs');
+  const legacyDir = writeSet(join(scratch, 'legacy-plainhide'), 'plainhide', 'female');
+  const replacedByPlainhide = [...new Set(partsOf('plainhide', 'female').flatMap(p => p.regions))];
+  writeFileSync(join(scratch, 'legacy-fit.json'), JSON.stringify({ parts: Object.fromEntries(replacedByPlainhide.map(r => [r, { liningTriangles: 1 }])) }));
+  const legacyRun = (bodyName, without) => new Promise(resolve => {
+    writeFileSync(join(scratch, `${bodyName}.glb`), femaleBodyWithClips(6, without));
+    writeFileSync(join(legacyDir, 'runtime-validation.json'), JSON.stringify({ status: 'PASS', exactBodyRegionMask: true, stale: true }));
+    const child = spawn(tsx, [legacyTool, join(scratch, `${bodyName}.glb`), legacyDir, join(scratch, 'legacy-fit.json'), '--family=plainhide'], { cwd: root });
+    let err = ''; child.stderr.on('data', d => { err += d; }); child.stdout.on('data', () => {});
+    child.on('close', status => resolve({ status, err }));
+  });
+  const legacyGood = await legacyRun('legacy-complete', []);
+  assert.equal(legacyGood.status, 0, `legacy-female-armor.mjs must pass on a complete body\n${legacyGood.err}`);
+  const legacyReport = JSON.parse(readFileSync(join(legacyDir, 'runtime-validation.json'), 'utf8'));
+  assert.equal(legacyReport.exactBodyRegionMask, true); assert.equal(legacyReport.stale, undefined, 'a fresh report replaces the old one');
+  assert.deepEqual(legacyReport.freeRegionTriangles, { Head: 1, HandLeft: 1, HandRight: 1 });
+  let legacyBad = 0;
+  for (const [name, without, region] of [['legacy-no-head', ['Head'], 'Head'], ['legacy-no-left-hand', ['HandLeft'], 'HandLeft'], ['legacy-no-right-hand', ['HandRight'], 'HandRight']]) {
+    const r = await legacyRun(name, without);
+    assert.notEqual(r.status, 0, `${name}: legacy-female-armor.mjs must fail without ${region}`);
+    assert.match(r.err, new RegExp(`plainhide: the free region ${region} has no body triangles: it is missing from the body`), `${name}: wrong failure\n${r.err}`);
+    assert(!existsSync(join(legacyDir, 'runtime-validation.json')), `${name}: no report may claim an exact mask after a failed run`);
+    legacyBad++;
+  }
+  console.log(`PASS legacy-female-armor.mjs: 1 complete body passes, ${legacyBad} bodies without a free region are rejected and leave no report`);
   console.log(`PASS skin gate: ${good} complete sets (${families.length} families; male, game female and web female fits) pass, ${bad_} deviations rejected with their own message`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });

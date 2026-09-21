@@ -281,7 +281,15 @@ in the commands below are shorthand for that.
     Now the registry drives it: every item the registry lists must be in the manifest
     and on disk, the `replaces` / `attachment` extras must name exactly the registered
     regions, and full-set masking and restoration on the body is tested. The regions no
-    item replaces (Plainhide: `Head`, `HandLeft`, `HandRight`) must stay on the body.
+    item replaces (Plainhide: `Head`, `HandLeft`, `HandRight`) must stay on the body, each one on its
+    own: a body without the head or one hand fails and the message names the region
+    (`test/legacy-female-armor.mjs` does the same on the real 51-bone body and leaves no report
+    behind when it fails). A registered GLB must carry `itemId`, `bodyVariant` and `bodyProfile` in
+    every mesh node and they must equal the registry; only the closed list
+    `FAMILIES_WITHOUT_IDENTITY_EXTRAS` at the top of `skin-gate.mjs` (Ironward, Wildwarden,
+    Ashenveil, whose shipped GLBs never had them; `--list-legacy-sets` prints it) is exempt, every
+    other family and every future one is required. A manifest that lists an item id twice is
+    refused before anything is loaded.
 
     ```sh
     node_modules/.bin/tsx tools/armor/test/skin-gate.mjs GAME_BODY.glb OUTPUT_DIR/game-ready \

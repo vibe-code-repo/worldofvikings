@@ -9,6 +9,11 @@
  * A registered run is driven by the registry: every item it lists for the family and variant must be in
  * manifest.json and exist as a GLB, and the `replaces` / `attachment` extras of each GLB must name exactly the
  * regions the registry lists, in both directions.
+ * In a registered run every mesh node of a GLB must carry `itemId`, `bodyVariant` and `bodyProfile` and they must equal the
+ * registry (the web profile with --web). The ONLY exception is the named list FAMILIES_WITHOUT_IDENTITY_EXTRAS below
+ * (`--list-legacy-sets` prints it); every other family, including every future one, is required.
+ * Every region the registry leaves free (Plainhide: head and hands) must exist and be visible after the full set is worn,
+ * each one on its own. A manifest that lists an item id twice is refused before anything is loaded.
  * --unregistered checks deformation only, not the registry, the extras or the masking; use it for sets that
  * have no registry entry yet.
  * --write-report stores animation-validation.json next to the models.
@@ -22,6 +27,16 @@ import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/index.js';
 import { RUESTUNG, equipmentSetCatalog } from '@wov/shared';
 import { verifyArmorSkin, updateArmorVisibility, prepareLegacyFemaleBody } from '../../../client/src/player/armorVisibility.ts';
+import { updateLegacyFemaleMask } from '../../../client/src/player/legacyFemaleMask.ts';
+
+/**
+ * The registered families whose shipped GLBs predate the identity extras: their mesh nodes carry `replaces` or `attachment`
+ * and nothing else (measured on the real GLBs of every body fit: no `itemId`, no `bodyVariant`, no `bodyProfile`).
+ * They are the only exception. The list is closed on purpose: a family that is not on it, and every future family, must carry
+ * all three fields. It is not derived from a name pattern; adding a family here is a deliberate, reviewed edit.
+ */
+const FAMILIES_WITHOUT_IDENTITY_EXTRAS = ['ironward', 'wildwarden', 'ashenveil'];
+if (process.argv.includes('--list-legacy-sets')) { console.log(JSON.stringify(FAMILIES_WITHOUT_IDENTITY_EXTRAS)); process.exit(0); }
 const [bodyPath, directory] = process.argv.slice(2);
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const families = [...new Set(RUESTUNG.filter(p => p.datei.includes('/')).map(p => p.datei.split('/')[0]))];
@@ -32,6 +47,12 @@ assert(unregistered || families.includes(family), `Unknown armor family "${famil
 assert(!(web && unregistered), '--web needs the registry: the web body profile comes from the catalog, not from the command line');
 const itemOf = part => part.datei.split('/')[1];
 const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
+// One source for "which entry counts": the manifest may not list an item id twice, so the existence check and the loading
+// below cannot look at different entries.
+const listed = new Map(manifest.items.map(i => [i.item, i]));
+const duplicated = [...new Set(manifest.items.map(i => i.item).filter((item, at, all) => all.indexOf(item) !== at))];
+assert.deepEqual(duplicated, [], `manifest.json lists an item id more than once: ${duplicated.join(', ')}`);
+const identityRequired = !unregistered && !FAMILIES_WITHOUT_IDENTITY_EXTRAS.includes(family);
 
 // What the registry promises for this family and body. A registered run is checked against nothing else.
 let expected = [], variant, profile;
@@ -54,7 +75,6 @@ if (!unregistered) {
     profile = preview[0];
   }
   // Every item the registry names must be in the manifest and exist as a GLB: a missing part is never a smaller target.
-  const listed = new Map(manifest.items.map(i => [i.item, i]));
   const unknown = manifest.items.map(i => i.item).filter(item => !familyParts.some(p => itemOf(p) === item));
   assert.deepEqual(unknown, [], `manifest.json lists items the registry does not know for ${family}`);
   const missing = expected.map(itemOf).filter(item => !listed.has(item));
@@ -66,7 +86,7 @@ if (!unregistered) {
 }
 const entries = unregistered
   ? manifest.items.map(i => ({ item: i.item, file: i.file }))
-  : expected.map(part => ({ item: itemOf(part), file: manifest.items.find(i => i.item === itemOf(part)).file, part }));
+  : expected.map(part => ({ item: itemOf(part), file: listed.get(itemOf(part)).file, part }));
 
 /** The mesh nodes of a GLB with their extras, read from the file itself, not from the loader. */
 function meshNodes(path) {
@@ -84,12 +104,16 @@ function checkExtras(part, nodes) {
     assert(attachment !== (replaces !== undefined),
       `${label}: node ${name} must carry exactly one of extras.replaces and extras.attachment, has ${JSON.stringify(extras)}`);
     if (replaces !== undefined) replaced.push(replaces);
-    for (const key of ['bodyVariant', 'bodyProfile']) if (extras[key] !== undefined) {
+    for (const key of ['itemId', 'bodyVariant', 'bodyProfile']) {
+      // A missing field is an error for every family that is not on the legacy list, not a way past the comparison.
+      if (extras[key] === undefined) {
+        assert(!identityRequired, `${label}: node ${name} lacks extras.${key}, which a registered ${family} GLB must carry`);
+        continue;
+      }
       // A web fit is skinned to the web body: it carries the catalog's preview profile instead of the game profile.
-      const want = key === 'bodyProfile' && web ? profile : part[key];
+      const want = key === 'itemId' ? itemOf(part) : key === 'bodyProfile' && web ? profile : part[key];
       assert.equal(extras[key], want, `${label}: node ${name} extras.${key} differs from the registry`);
     }
-    if (extras.itemId !== undefined) assert.equal(extras.itemId, itemOf(part), `${label}: node ${name} extras.itemId differs from the registry`);
   }
   assert.deepEqual([...replaced].sort(), [...regions].sort(),
     `${label}: the GLB replaces [${replaced.sort()}] but the registry lists [${[...regions].sort()}]`);
@@ -129,7 +153,7 @@ for (const { item, file, part } of entries) {
   for (const mesh of result.meshes.filter(m => m.getTotalVertices())) { mesh.skeleton = skeleton; armor.push(mesh); }
 }
 const bodyMeshes = body.meshes.filter(m => m.getTotalVertices());
-const original = legacyFemale ? Array.from(bodyMeshes[0].getIndices()) : [], maskTriangles = {};
+const original = legacyFemale ? Array.from(bodyMeshes[0].getIndices()) : [], maskTriangles = {}, freeRegionTriangles = {};
 if (!unregistered) {
   // The registry decides which regions a set hides: an attachment such as the Wildwarden crown hides none.
   const files = expected.map(p => `${family}/${itemOf(p)}`);
@@ -148,8 +172,20 @@ if (!unregistered) {
     }
     assert.equal(original.length - trianglesLeft(files), taken, 'Full armor must hide exactly the sum of its items\' triangles');
     // Regions no item replaces (Plainhide: head and hands) stay on the body; a set that covers every region leaves nothing.
-    assert.equal(bodyMeshes[0].getIndices().length > 0, freeRegions.length > 0,
-      `${family}/${variant}: the full set leaves ${bodyMeshes[0].getIndices().length / 3} body triangles for the free regions [${freeRegions}]`);
+    const left = bodyMeshes[0].getIndices().length / 3;
+    assert.equal(left > 0, freeRegions.length > 0,
+      `${family}/${variant}: the full set leaves ${left} body triangles for the free regions [${freeRegions}]`);
+    // Each free region on its own: hide everything but that region and count what is left of it. "Something is left" is not
+    // enough; a missing head or hand must turn the gate red and name the region.
+    for (const region of freeRegions) {
+      updateLegacyFemaleMask(bodyMeshes[0], new Set(BODY_REGIONS.filter(r => r !== region)));
+      freeRegionTriangles[region] = bodyMeshes[0].getIndices().length / 3;
+      assert(freeRegionTriangles[region] > 0, `${family}/${variant}: the free region ${region} has no body triangles: it is missing from the body`);
+    }
+    // And nothing but the free regions stays when the set is worn: the parts add up to what is left.
+    const sum = Object.values(freeRegionTriangles).reduce((a, b) => a + b, 0);
+    assert.equal(sum, left, `${family}/${variant}: the full set leaves ${left} body triangles but the free regions [${freeRegions}] hold ${sum}`);
+    trianglesLeft(files);
   } else {
     const hiddenBody = () => bodyMeshes.filter(m => !m.isEnabled());
     for (const [i, part] of expected.entries()) {
@@ -162,6 +198,13 @@ if (!unregistered) {
     const hidden = hiddenBody();
     assert.equal(hidden.length, replaced.size, `Full armor must hide exactly its ${replaced.size} registered regions`);
     assert(hidden.every(m => [...replaced].some(region => m.name.includes(region))), 'Only registered regions may be hidden');
+    // Each free region must exist as a body mesh and be visible: "the registered ones are hidden" says nothing about them.
+    for (const region of freeRegions) {
+      const meshes = bodyMeshes.filter(m => m.name.includes(region));
+      freeRegionTriangles[region] = meshes.reduce((n, m) => n + m.getTotalIndices() / 3, 0);
+      assert(freeRegionTriangles[region] > 0, `${family}/${variant}: the free region ${region} has no body mesh: it is missing from the body`);
+      assert(meshes.every(m => m.isEnabled()), `${family}/${variant}: the free region ${region} is hidden although no item replaces it`);
+    }
   }
   assert(armor.every(m => m.isEnabled()), 'Armor must not mask itself');
 }
@@ -189,7 +232,7 @@ if (!unregistered) {
 const report = { status: 'PASS', bones: skeleton.bones.length, armorPrimitives: armor.length, clips: frames,
   samplesPerClip: 4, registryMaskingTested: !unregistered, collisionCertified: false };
 if (!unregistered) Object.assign(report, { family, bodyVariant: variant, bodyProfile: profile, registryItems: expected.length, glbMeshNodesChecked: meshNodeCount,
-  freeRegions, ...(web ? { webBody: true } : {}),
+  freeRegions, freeRegionTriangles, identityExtras: identityRequired ? 'required' : 'legacy-exempt', ...(web ? { webBody: true } : {}),
   ...(legacyFemale ? { bodyTriangles: original.length / 3, hiddenBodyTrianglesPerItem: maskTriangles } : {}) });
 if (process.argv.includes('--write-report')) writeFileSync(join(directory, 'animation-validation.json'), JSON.stringify(report, null, 2)+'\n');
 console.log(JSON.stringify(report, null, 2));

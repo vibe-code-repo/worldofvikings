@@ -193,7 +193,7 @@ try {
   bad('plainhide-boots-replace-hands', 'plainhide', 'male', swap('plainhide_male_boots', e => ({ ...e, replaces: 'HandLeft' })),
     /plainhide_male_boots: the GLB replaces \[HandLeft,HandLeft\] but the registry lists \[LegLeft,LegRight\]/);
   bad('plainhide-body-has-no-free-regions', 'plainhide', 'female', {}, /plainhide\/female: the full set leaves 0 body triangles for the free regions \[Head,HandLeft,HandRight\]/, { bodyFile: body.noFree });
-  bad('gravethorn-hood-attachment', 'gravethorn', 'female', swap('gravethorn_female_hood', ({ replaces, ...rest }) => ({ ...rest, attachment: true })),
+  bad('gravethorn-hood-attachment', 'gravethorn', 'female', swap('gravethorn_female_hood', ({ replaces: _replaced, ...rest }) => ({ ...rest, attachment: true })),
     /gravethorn_female_hood: the GLB replaces \[\] but the registry lists \[Head\]/);
   // The web fit: right body and right profile, or refused.
   const webBad = (name, family, variant, tweak, expect, options) => bad(name, family, variant, { web: true, ...tweak }, expect,

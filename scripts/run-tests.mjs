@@ -1440,6 +1440,8 @@ const KERN = [
   ['client', 'test/editor-speichern-basis.ts'],
   // Offline-flight module (moved out of main.ts): what stays true afterwards.
   ['client', 'test/testflug-modul.ts'],
+  // Vegetation preview of the offline flight (K2.1): clears what the camera left, three levels, key L, client zone cache 1024. ~20 s.
+  ['client', 'test/bewuchs-vorschau.ts'],
   // Publishing from the offline flight carries the server base the editor left
   // in the draft's companion note: a newer editor save gives 409, nothing is
   // overwritten; no base, nothing is sent. Real operations service. ~5 s.

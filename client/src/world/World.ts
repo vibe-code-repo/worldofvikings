@@ -16,6 +16,18 @@ import {
   getStableHash,
 } from '@wov/shared';
 
+/**
+ * Height-map zone cache of the client: 1024 zones (≈ 50 MB; the server keeps the
+ * default of 512). A standing picture already needs 623–631 zones (9 × 9 near
+ * window, far ring up to 10 zones, 5 × 5 vegetation preview), so 512 evicted what
+ * was needed again a moment later: up to half of the zones built while flying were
+ * rebuilds, and coming back to a place just left took 7.5 s to stand again. With
+ * 1024: no rebuilds, height-map time −38 %, back at the place after 1.0 s. 2048
+ * brings nothing more (measurement M2.0, Berichte/2026-09-20 Inselmodus M2.0
+ * Messung, section 6). Only the client: the world the server builds is unchanged.
+ */
+export const CLIENT_ZONE_CACHE = 1024;
+
 // Fallback for offline mode when no seed was entered on the connect screen.
 export const DEFAULT_OFFLINE_SEED = 'KxSYuZquuw';
 
@@ -65,10 +77,14 @@ export function createWorld(
       ashlandsModernNoise: settings.ashlandsModernNoise ?? true, // server.yml experimental-ashlands-modern-noise
     },
   });
-  const heightmaps = new HeightmapProvider(geo, {
-    blendSmoothStep: settings.blendSmoothStep ?? true, // server.yml experimental-biome-blend-smoothstep (default)
-    bilinearSampling: settings.bilinearSampling ?? false, // server.yml experimental-bilinear-height-sampling (default)
-  });
+  const heightmaps = new HeightmapProvider(
+    geo,
+    {
+      blendSmoothStep: settings.blendSmoothStep ?? true, // server.yml experimental-biome-blend-smoothstep (default)
+      bilinearSampling: settings.bilinearSampling ?? false, // server.yml experimental-bilinear-height-sampling (default)
+    },
+    CLIENT_ZONE_CACHE
+  );
   return {
     geo,
     heightmaps,

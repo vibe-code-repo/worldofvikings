@@ -26,6 +26,7 @@ import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsI
 import { SpawnPanel } from '../SpawnPanel';
 import { RoutenEditor } from '../RoutenEditor';
 import { RoutenVorschau } from '../RoutenVorschau';
+import { verdrahteBewuchsStufe } from './BewuchsStufe';
 import { BewuchsVorschau } from '../BewuchsVorschau';
 import { LageAnzeige } from './LageAnzeige';
 import { positionLines, regionAt } from './inselwahl';
@@ -562,6 +563,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Frame, nicht je NPC.
       ent.flush();
     });
+    // Level of the vegetation preview (key L, chip bottom left, kept over restarts).
+    if (bewuchs) verdrahteBewuchsStufe(bewuchs, { hud, tipptImFeld });
     /** Gegriffener Wegpunkt der gewählten Route (−1 = keiner). */
     let routenZiehIndex = -1;
     window.addEventListener('keydown', (e) => {

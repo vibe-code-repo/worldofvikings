@@ -1,8 +1,8 @@
 {
  "erzeugt": "2026-09-21T05:04:44.296Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 275,
- "gemessen": 275,
+ "anzahl": 299,
+ "gemessen": 299,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -5724,6 +5724,370 @@
    "meshlos": false,
    "skins": 0
   },
+  "gravethorn/gravethorn_female_boots": {
+   "datei": "gravethorn/gravethorn_female_boots.glb",
+   "foliage": false,
+   "bytes": 664048,
+   "huelle": {
+    "min": [
+     -0.197,
+     0,
+     -0.138
+    ],
+    "max": [
+     0.197,
+     0.367,
+     0.11
+    ]
+   },
+   "breite": 0.394,
+   "hoehe": 0.367,
+   "tiefe": 0.249,
+   "dreiecke": 4808,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_female_bracers": {
+   "datei": "gravethorn/gravethorn_female_bracers.glb",
+   "foliage": false,
+   "bytes": 253336,
+   "huelle": {
+    "min": [
+     -0.274,
+     0.561,
+     -0.122
+    ],
+    "max": [
+     0.273,
+     0.736,
+     0.034
+    ]
+   },
+   "breite": 0.547,
+   "hoehe": 0.175,
+   "tiefe": 0.156,
+   "dreiecke": 1810,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_female_gloves": {
+   "datei": "gravethorn/gravethorn_female_gloves.glb",
+   "foliage": false,
+   "bytes": 545724,
+   "huelle": {
+    "min": [
+     -0.332,
+     0.454,
+     -0.036
+    ],
+    "max": [
+     0.312,
+     0.613,
+     0.08
+    ]
+   },
+   "breite": 0.645,
+   "hoehe": 0.159,
+   "tiefe": 0.116,
+   "dreiecke": 3900,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_female_hood": {
+   "datei": "gravethorn/gravethorn_female_hood.glb",
+   "foliage": false,
+   "bytes": 681296,
+   "huelle": {
+    "min": [
+     -0.144,
+     0.803,
+     -0.128
+    ],
+    "max": [
+     0.144,
+     1.209,
+     0.105
+    ]
+   },
+   "breite": 0.288,
+   "hoehe": 0.406,
+   "tiefe": 0.233,
+   "dreiecke": 4922,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_female_robe": {
+   "datei": "gravethorn/gravethorn_female_robe.glb",
+   "foliage": false,
+   "bytes": 576028,
+   "huelle": {
+    "min": [
+     -0.17,
+     0.298,
+     -0.157
+    ],
+    "max": [
+     0.169,
+     0.663,
+     0.148
+    ]
+   },
+   "breite": 0.339,
+   "hoehe": 0.366,
+   "tiefe": 0.305,
+   "dreiecke": 4305,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_female_shoulders": {
+   "datei": "gravethorn/gravethorn_female_shoulders.glb",
+   "foliage": false,
+   "bytes": 408288,
+   "huelle": {
+    "min": [
+     -0.274,
+     0.657,
+     -0.142
+    ],
+    "max": [
+     0.274,
+     1.076,
+     0.086
+    ]
+   },
+   "breite": 0.548,
+   "hoehe": 0.419,
+   "tiefe": 0.228,
+   "dreiecke": 2994,
+   "materialien": 9,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_female_vest": {
+   "datei": "gravethorn/gravethorn_female_vest.glb",
+   "foliage": false,
+   "bytes": 561448,
+   "huelle": {
+    "min": [
+     -0.104,
+     0.639,
+     -0.11
+    ],
+    "max": [
+     0.115,
+     0.873,
+     0.093
+    ]
+   },
+   "breite": 0.22,
+   "hoehe": 0.234,
+   "tiefe": 0.204,
+   "dreiecke": 4052,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_male_boots": {
+   "datei": "gravethorn/gravethorn_male_boots.glb",
+   "foliage": false,
+   "bytes": 133124,
+   "huelle": {
+    "min": [
+     -0.267,
+     -0.004,
+     -0.185
+    ],
+    "max": [
+     0.267,
+     0.494,
+     0.19
+    ]
+   },
+   "breite": 0.534,
+   "hoehe": 0.498,
+   "tiefe": 0.375,
+   "dreiecke": 918,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_male_bracers": {
+   "datei": "gravethorn/gravethorn_male_bracers.glb",
+   "foliage": false,
+   "bytes": 94476,
+   "huelle": {
+    "min": [
+     -0.802,
+     1.282,
+     -0.221
+    ],
+    "max": [
+     0.802,
+     1.538,
+     0.049
+    ]
+   },
+   "breite": 1.604,
+   "hoehe": 0.256,
+   "tiefe": 0.269,
+   "dreiecke": 618,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_male_gloves": {
+   "datei": "gravethorn/gravethorn_male_gloves.glb",
+   "foliage": false,
+   "bytes": 115748,
+   "huelle": {
+    "min": [
+     -1.024,
+     1.294,
+     -0.123
+    ],
+    "max": [
+     1.024,
+     1.427,
+     0.075
+    ]
+   },
+   "breite": 2.048,
+   "hoehe": 0.133,
+   "tiefe": 0.198,
+   "dreiecke": 748,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_male_hood": {
+   "datei": "gravethorn/gravethorn_male_hood.glb",
+   "foliage": false,
+   "bytes": 138792,
+   "huelle": {
+    "min": [
+     -0.272,
+     1.416,
+     -0.212
+    ],
+    "max": [
+     0.272,
+     2.182,
+     0.228
+    ]
+   },
+   "breite": 0.543,
+   "hoehe": 0.766,
+   "tiefe": 0.44,
+   "dreiecke": 949,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_male_robe": {
+   "datei": "gravethorn/gravethorn_male_robe.glb",
+   "foliage": false,
+   "bytes": 156852,
+   "huelle": {
+    "min": [
+     -0.278,
+     0.38,
+     -0.268
+    ],
+    "max": [
+     0.278,
+     0.993,
+     0.241
+    ]
+   },
+   "breite": 0.556,
+   "hoehe": 0.613,
+   "tiefe": 0.509,
+   "dreiecke": 1324,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_male_shoulders": {
+   "datei": "gravethorn/gravethorn_male_shoulders.glb",
+   "foliage": false,
+   "bytes": 196720,
+   "huelle": {
+    "min": [
+     -0.572,
+     1.287,
+     -0.257
+    ],
+    "max": [
+     0.572,
+     1.89,
+     0.167
+    ]
+   },
+   "breite": 1.144,
+   "hoehe": 0.603,
+   "tiefe": 0.424,
+   "dreiecke": 1428,
+   "materialien": 9,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "gravethorn/gravethorn_male_vest": {
+   "datei": "gravethorn/gravethorn_male_vest.glb",
+   "foliage": false,
+   "bytes": 156500,
+   "huelle": {
+    "min": [
+     -0.249,
+     0.828,
+     -0.217
+    ],
+    "max": [
+     0.249,
+     1.521,
+     0.174
+    ]
+   },
+   "breite": 0.498,
+   "hoehe": 0.693,
+   "tiefe": 0.39,
+   "dreiecke": 1086,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
   "ironward/IronwardBoots": {
    "datei": "ironward/IronwardBoots.glb",
    "foliage": false,
@@ -5942,6 +6306,266 @@
      "dauer": 1.033
     }
    ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_female_boots": {
+   "datei": "plainhide/plainhide_female_boots.glb",
+   "foliage": false,
+   "bytes": 601376,
+   "huelle": {
+    "min": [
+     -0.173,
+     0,
+     -0.089
+    ],
+    "max": [
+     0.17,
+     0.341,
+     0.091
+    ]
+   },
+   "breite": 0.343,
+   "hoehe": 0.341,
+   "tiefe": 0.18,
+   "dreiecke": 4278,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_female_bracers": {
+   "datei": "plainhide/plainhide_female_bracers.glb",
+   "foliage": false,
+   "bytes": 209088,
+   "huelle": {
+    "min": [
+     -0.262,
+     0.563,
+     -0.06
+    ],
+    "max": [
+     0.262,
+     0.701,
+     0.026
+    ]
+   },
+   "breite": 0.525,
+   "hoehe": 0.138,
+   "tiefe": 0.086,
+   "dreiecke": 1396,
+   "materialien": 2,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_female_robe": {
+   "datei": "plainhide/plainhide_female_robe.glb",
+   "foliage": false,
+   "bytes": 501456,
+   "huelle": {
+    "min": [
+     -0.139,
+     0.298,
+     -0.097
+    ],
+    "max": [
+     0.146,
+     0.664,
+     0.087
+    ]
+   },
+   "breite": 0.285,
+   "hoehe": 0.367,
+   "tiefe": 0.184,
+   "dreiecke": 3585,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_female_shoulders": {
+   "datei": "plainhide/plainhide_female_shoulders.glb",
+   "foliage": false,
+   "bytes": 266964,
+   "huelle": {
+    "min": [
+     -0.192,
+     0.657,
+     -0.071
+    ],
+    "max": [
+     0.18,
+     0.834,
+     0.016
+    ]
+   },
+   "breite": 0.372,
+   "hoehe": 0.177,
+   "tiefe": 0.087,
+   "dreiecke": 1802,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_female_vest": {
+   "datei": "plainhide/plainhide_female_vest.glb",
+   "foliage": false,
+   "bytes": 490220,
+   "huelle": {
+    "min": [
+     -0.093,
+     0.634,
+     -0.078
+    ],
+    "max": [
+     0.115,
+     0.857,
+     0.077
+    ]
+   },
+   "breite": 0.208,
+   "hoehe": 0.222,
+   "tiefe": 0.155,
+   "dreiecke": 3478,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_male_boots": {
+   "datei": "plainhide/plainhide_male_boots.glb",
+   "foliage": false,
+   "bytes": 70788,
+   "huelle": {
+    "min": [
+     -0.186,
+     -0.004,
+     -0.121
+    ],
+    "max": [
+     0.185,
+     0.403,
+     0.152
+    ]
+   },
+   "breite": 0.371,
+   "hoehe": 0.407,
+   "tiefe": 0.273,
+   "dreiecke": 392,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_male_bracers": {
+   "datei": "plainhide/plainhide_male_bracers.glb",
+   "foliage": false,
+   "bytes": 50432,
+   "huelle": {
+    "min": [
+     -0.802,
+     1.299,
+     -0.116
+    ],
+    "max": [
+     0.802,
+     1.413,
+     0.025
+    ]
+   },
+   "breite": 1.604,
+   "hoehe": 0.115,
+   "tiefe": 0.141,
+   "dreiecke": 204,
+   "materialien": 2,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_male_robe": {
+   "datei": "plainhide/plainhide_male_robe.glb",
+   "foliage": false,
+   "bytes": 81508,
+   "huelle": {
+    "min": [
+     -0.203,
+     0.38,
+     -0.176
+    ],
+    "max": [
+     0.206,
+     0.965,
+     0.188
+    ]
+   },
+   "breite": 0.409,
+   "hoehe": 0.585,
+   "tiefe": 0.364,
+   "dreiecke": 602,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_male_shoulders": {
+   "datei": "plainhide/plainhide_male_shoulders.glb",
+   "foliage": false,
+   "bytes": 57020,
+   "huelle": {
+    "min": [
+     -0.528,
+     1.3,
+     -0.123
+    ],
+    "max": [
+     0.528,
+     1.431,
+     0.031
+    ]
+   },
+   "breite": 1.056,
+   "hoehe": 0.131,
+   "tiefe": 0.154,
+   "dreiecke": 240,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "plainhide/plainhide_male_vest": {
+   "datei": "plainhide/plainhide_male_vest.glb",
+   "foliage": false,
+   "bytes": 86116,
+   "huelle": {
+    "min": [
+     -0.263,
+     0.824,
+     -0.167
+    ],
+    "max": [
+     0.263,
+     1.517,
+     0.151
+    ]
+   },
+   "breite": 0.527,
+   "hoehe": 0.693,
+   "tiefe": 0.318,
+   "dreiecke": 506,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
    "meshlos": false,
    "skins": 1
   },

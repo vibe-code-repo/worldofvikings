@@ -21,11 +21,11 @@ export const enum ItemType {
 }
 
 import type { AppearancePolicy } from '../appearanceVisibility.js';
-import type { ArmorBodyPolicy } from '../armorCompatibility.js';
+import type { ArmorBodyPolicy, ArmorVfxProfile } from '../armorCompatibility.js';
 
 /** Shared, immutable definition of an item type. */
 export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
-  readonly vfxProfile?: 'emberrage_red';
+  readonly vfxProfile?: ArmorVfxProfile;
   /** Prefab name, also the stacking key. Matches shared/src/prefabData.json. */
   name: string;
   /** Display name. */

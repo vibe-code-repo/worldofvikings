@@ -283,6 +283,36 @@ console.log('\n[4] Verdrahtung — hängen die Weichen am Sammellauf?');
     /'test\/terrain-schichten\.ts',\s*brauchtBodenQuellen\(/.test(lauf),
     'der Bodenschichten-Prüfer steht hinter brauchtBodenQuellen(...), nicht mehr hinter brauchtStore(...)',
   );
+
+  /*
+    B9.1: Die Dateien, die die Weiche am Manifest-Test nennt, müssen selbst
+    Manifest-Einträge sein. Ein Tippfehler dort (`Kuh.gbl`) lässt
+    `brauchtModelle` für immer „Datei fehlt" melden: der Vollständigkeitstest
+    wird auch bei vollem Bestand übersprungen, Exit 0, und dieser Zeuge blieb
+    bis hierher grün, weil er den Eintrag nie ansah. Das Manifest ist
+    getrackt, die Prüfung braucht also keine Modelldateien und gilt im
+    CI-Checkout genauso.
+
+    The files the switch names for the manifest test must be manifest entries
+    themselves; a typo would silence that test everywhere.
+  */
+  const weichenEintrag = lauf.match(/'test\/manifest-vollstaendig\.ts',\s*brauchtModelle\(([^)]*)\)/);
+  pruefe(
+    weichenEintrag !== null,
+    'der Vollständigkeitstest des Manifests steht hinter brauchtModelle(...)',
+  );
+  const genannt = weichenEintrag ? [...weichenEintrag[1].matchAll(/'([^']*)'/g)].map((m) => m[1]) : [];
+  const manifest = JSON.parse(readFileSync(join(WURZEL, 'assets', 'manifest.json'), 'utf8'));
+  const imManifest = new Set(Object.values(manifest.modelle).map((m) => `assets/models/${m.datei}`));
+  const unbekannt = genannt.filter((d) => !imManifest.has(d));
+  pruefe(
+    genannt.length > 0 && unbekannt.length === 0,
+    `jede Datei, die die Weiche am Manifest-Test nennt, ist ein Manifest-Eintrag (unbekannt: ${JSON.stringify(unbekannt)})`,
+  );
+  pruefe(
+    genannt.includes('assets/models/PlayerAvatar.glb'),
+    'der Stellvertreter PlayerAvatar.glb steht weiter in dieser Weiche',
+  );
 }
 
 // Leerlauf-Falle: ein Lauf ohne Zusicherungen darf nicht wie ein bestandener

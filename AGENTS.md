@@ -126,15 +126,28 @@ that must be told the port before it binds). A constant that only looks like a
 port is not allowed either: a test that merely calls `init()` passes `port: 0`
 as well. Why this is a rule and not a habit: until 21.09.2026 about 25 test
 files bound fixed ports in `2498`-`2610` (and `27314`). Those numbers belong to
-nobody. The slot ports above are a different band and protect nothing there -
-no test binds them - so any session's probe on the same number, a second full
-run or an orphan left by an aborted run made a test fail with `EADDRINUSE`, and
-one full run then hung for 600 s on it. A fixed port that a test really cannot
-avoid (there is none today) is written down at the place with its reason and
-entered in `FESTE_PORTS` in `scripts/testport.mjs`. What a test really binds is
-measured, not read from the code: `scripts/listen-spion.mjs` (usage in its
-header) logs every `listen()` of a run and can refuse fixed ports without
-binding anything.
+nobody. The slot ports above are a different band and protect nothing there:
+**no test in the collective run (`npm test`) binds them** - but three manual
+tools outside it do, on purpose: `tools/dungeon2-e2e.mjs` (`2477` game server,
+`5299` client, both slot 7), `tools/dungeon2-speckle-guard.mjs` (`5299`) and
+`tools/pw-dungeon2-effekte.mjs` (`5297`). Start those only while the matching
+slot is yours; they are named, with their reason, in
+`scripts/pruefe-feste-ports.mjs`. So any session's probe on a test's number, a
+second full run or an orphan left by an aborted run made a test fail with
+`EADDRINUSE` (one full run then hung for 600 s on it) - or, worse, pass without
+checking anything: several tests end in `try { ... } finally { ...; process.exit(...) }`,
+which swallows an aborted promise chain. Measured: `g7-bauen.ts` on the old
+stand with `2511` held printed `EADDRINUSE`, ran no check and exited 0; eight of
+the converted tests do that whenever their connect fails (`b8-angreifbar` and
+seven `g7-*`). `port: 0` removes the trigger; the pattern itself is a separate
+problem (open). A fixed port that a test really cannot avoid (there is none
+today) is written down at the place with its reason and entered in
+`FESTE_PORTS` in `scripts/testport.mjs`. Two things keep this true:
+`scripts/pruefe-feste-ports.mjs` (in the collective run, text only, ~0.1 s) turns
+red on a fixed port in any test file and on a stale entry in its two allowance
+lists, and `scripts/listen-spion.mjs` (usage in its header) measures what a run
+really binds - logging every `listen()`, and refusing fixed ports without binding
+anything if asked.
 
 Full test runs no longer collide on ports, but two things still argue for
 running them one after the other: timing-sensitive tests and frame-time

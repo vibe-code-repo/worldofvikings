@@ -7,7 +7,8 @@
  * EADDRINUSE, and the test hangs or goes red for a reason that has nothing to
  * do with the code. The worktree slot ports (247n / 248n / 529n, see
  * AGENTS.md section 3) do NOT protect against that: they are a different band
- * and only reserved for a session's own manual runs, no test binds them.
+ * and only reserved for a session's own manual runs; no test in the collective
+ * run binds them (three manual tools do, on purpose: see scripts/pruefe-feste-ports.mjs).
  *
  * The rule.
  *   - A test that starts a server hands it `port: 0` and reads the real port

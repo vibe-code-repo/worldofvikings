@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
-import { PacketType, starterSetForClass } from '@wov/shared';
+import { CHARACTER_CLASSES, EQUIPMENT_SETS, PacketType, STARTER_SET_FOR_CLASSLESS } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
 import { portVon } from '../../scripts/testport.mjs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
@@ -66,22 +66,23 @@ try {
   }, 201)).token;
   const appearance = { figure: 'wikinger', hairstyle: 'H_01', hairColor: 'mittelbraun', eyeColor: 'fjordblau', top: '', legs: '' };
   await post('/characters', { ...appearance, name: 'InvalidClass', classId: 'admin' }, 400);
-  for (const [index, [classId, figure]] of [
-    ['krieger', 'wikinger'], ['hexer', 'wikinger'], ['druide', 'wikinger'],
-    ['seherin', 'wikinger'], ['seherin', 'wikingerin'],
-    ['runenmagier', 'wikinger'], ['runenmagier', 'wikingerin'],
-  ].entries()) {
+  // Every class starts in Plainhide, in the variant of its figure; no class set is delivered.
+  const classSetItems = EQUIPMENT_SETS.filter(set => !('starter' in set)).flatMap(set => set.parts.map(part => part.item));
+  for (const [index, [classId, figure]] of CHARACTER_CLASSES.flatMap(id => [[id, 'wikinger'], [id, 'wikingerin']] as const).entries()) {
     const name = `Starter${String.fromCharCode(65 + index)}`;
     const { character } = await post('/characters', { ...appearance, name, classId, figure }, 201);
     assert.equal(character.classId, classId);
     const { sessionToken } = await post(`/characters/${character.id}/play`);
     let ws = await connect(name, sessionToken);
     let peer = server.net.getPeers().find(p => p.name === name)!;
-    const set = starterSetForClass(classId!, figure!)!;
+    const setId = figure === 'wikinger' ? 'plainhide_male' : 'plainhide_female';
+    const set = EQUIPMENT_SETS.find(entry => entry.id === setId)!;
+    assert.equal(set.parts.length, 5);
     assert.equal(peer.klasse, classId);
-    assert.equal(peer.starterSetGranted, set.id);
+    assert.equal(peer.starterSetGranted, setId);
     const playerId = peer.spielerId;
     for (const part of set.parts) assert.equal(peer.inventar.countOf(part.item), 1);
+    for (const item of classSetItems) assert.equal(peer.inventar.countOf(item), 0, `${classId}: class set piece ${item} must not be granted`);
     assert.equal(peer.inventar.countOf('LederBH'), 0);
     assert.equal(peer.inventar.countOf('LederShorts'), 0);
     peer.inventar.removeItem(peer.inventar.all.find(item => item.shared.name === set.parts[0]!.item)!);
@@ -99,11 +100,37 @@ try {
     peer = server.net.getPeers().find(p => p.name === name)!;
     assert.equal(peer.spielerId, playerId, 'Authenticated identity survives restart');
     assert.equal(peer.klasse, classId);
-    assert.equal(peer.starterSetGranted, set.id);
+    assert.equal(peer.starterSetGranted, setId);
     assert.deepEqual(peer.inventar.serialize(), expected, 'Reconnect/restart never grants a second set');
     await disconnect(ws, name);
   }
-  console.log('PASS starter sets E2E: HTTP creation, all seven set variants, inventory delivery, reconnect and server restart');
+  // OPEN DECISION (Mike): a NEW character created without a classId (the API allows it). The expectation is this one line;
+  // it must agree with the shared switch STARTER_SET_FOR_CLASSLESS. Login, save, restart and reconnect never change the outcome.
+  const CLASSLESS_GETS_STARTER = false;
+  assert.equal(STARTER_SET_FOR_CLASSLESS, CLASSLESS_GETS_STARTER, 'The shared switch and the test expectation must say the same');
+  for (const [index, figure] of ['wikinger', 'wikingerin'].entries()) {
+    const name = `Classless${String.fromCharCode(65 + index)}`;
+    const { character } = await post('/characters', { ...appearance, name, figure }, 201);
+    assert.equal(character.classId ?? '', '');
+    const { sessionToken } = await post(`/characters/${character.id}/play`);
+    let ws = await connect(name, sessionToken);
+    let peer = server.net.getPeers().find(p => p.name === name)!;
+    const setId = figure === 'wikinger' ? 'plainhide_male' : 'plainhide_female';
+    const pieces = EQUIPMENT_SETS.find(entry => entry.id === setId)!.parts.map(part => part.item);
+    assert.equal(peer.starterSetGranted, CLASSLESS_GETS_STARTER ? setId : '', `${name}: marker after the first login`);
+    for (const item of pieces) assert.equal(peer.inventar.countOf(item), CLASSLESS_GETS_STARTER ? 1 : 0, `${name}: ${item}`);
+    for (const item of classSetItems) assert.equal(peer.inventar.countOf(item), 0, `${name}: no class set piece`);
+    const expected = peer.inventar.serialize();
+    await disconnect(ws, name);
+    server.stop(); await delay(100); server = createWovServer(config); server.start();
+    port = portVon(server);
+    ws = await connect(name, sessionToken);
+    peer = server.net.getPeers().find(p => p.name === name)!;
+    assert.equal(peer.starterSetGranted, CLASSLESS_GETS_STARTER ? setId : '', `${name}: marker after restart`);
+    assert.deepEqual(peer.inventar.serialize(), expected, `${name}: restart changes nothing`);
+    await disconnect(ws, name);
+  }
+  console.log('PASS starter sets E2E: HTTP creation, Plainhide for nine classes and both figures, inventory delivery, reconnect and server restart');
 } finally {
   for (const ws of sockets) ws.terminate();
   server.stop();

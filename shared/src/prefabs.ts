@@ -1310,12 +1310,16 @@ import { WILDWARDEN_PARTS } from './wildwarden.js';
 import { ASHENVEIL_PARTS } from './ashenveil.js';
 import { SEIDRAVEN_PARTS } from './seidraven.js';
 import { EMBERRAGE_PARTS } from './emberrage.js';
+import { PLAINHIDE_PARTS } from './plainhide.js';
+import { GRAVETHORN_PARTS } from './gravethorn.js';
 export const EIGENE_MODELLE: readonly string[] = [
   ...IRONWARD_PARTS.map(p => `ironward/${p.item}`),
   ...WILDWARDEN_PARTS.map(p => `wildwarden/${p.item}`),
   ...ASHENVEIL_PARTS.map(p => `ashenveil/${p.item}`),
   ...SEIDRAVEN_PARTS.map(p => `seidraven/${p.item}`),
   ...EMBERRAGE_PARTS.map(p => `emberrage/${p.item}`),
+  ...PLAINHIDE_PARTS.map(p => `plainhide/${p.item}`),
+  ...GRAVETHORN_PARTS.map(p => `gravethorn/${p.item}`),
   ...EIGENE_MODELLE_ALT,
   ...STORE_MODELL_NAMEN,
 ];

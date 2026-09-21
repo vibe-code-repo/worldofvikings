@@ -6,7 +6,9 @@ export interface ArmorBodyPolicy {
   readonly bodyProfile?: ArmorBodyProfile;
   readonly figure?: string;
 }
-export const MALE_ARMOR_BODY = { bodyVariant: 'male', bodyProfile: 'wov-male-v1', figure: 'wikinger' } as const;
+/** Runtime effect an armor set asks for; the client picks the emissive materials that belong to the profile. */
+export type ArmorVfxProfile = 'emberrage_red' | 'gravethorn_red';
+export const MALE_ARMOR_BODY ={ bodyVariant: 'male', bodyProfile: 'wov-male-v1', figure: 'wikinger' } as const;
 export const FEMALE_ARMOR_BODY = { bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' } as const;
 
 export function armorBodyForFigure(value: string | undefined) {

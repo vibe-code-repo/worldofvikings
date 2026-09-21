@@ -1,10 +1,19 @@
 /**
  * AggroSystem — feindliche NPCs wenden sich dem Spieler zu und schlagen zu.
  *
- * Erster Ausbaustufe des Kampfsystems: WAHRNEHMUNG und HALTUNG, noch kein
- * Schaden. Ein NPC, dem der Spieler zu nahe kommt, dreht sich zu ihm; wer
- * noch näher kommt, wird angegriffen. Trefferpunkte, Abklingzeiten und
- * Schadenspakete kommen später — die Naht dafür ist unten markiert.
+ * WAHRNEHMUNG, HALTUNG und SCHLAG. Ein NPC, dem der Spieler zu nahe kommt,
+ * dreht sich zu ihm; wer noch näher kommt, wird verfolgt; wer in die
+ * Angriffsreichweite kommt, wird geschlagen — und zwar wirklich: Im Band
+ * „zuschlagen" ruft das System im Takt der Kampfwerte (`takt`, s.
+ * shared/npc.ts) den Rückruf `onSchlag` mit dem Schaden der Figur. Der
+ * Server verdrahtet ihn auf denselben Weg wie die Kreaturen des
+ * Spawnsystems (Parade, Trefferwirkung, Tod des Spielers), es gibt also
+ * keinen zweiten Schadenspfad.
+ *
+ * Schlagen tut nur, wer eigene Kampfwerte hat (`hatKampfwerte`): Ein NPC
+ * ohne NPC_KAMPF-Eintrag dreht sich allenfalls zum Spieler, verletzt ihn
+ * aber nie. Dieselbe Menge trägt das Flag ANGREIFBAR — der Spieler kann
+ * genau die treffen, die zurückschlagen.
  *
  * ── Warum das ganz auf dem Server liegt und der Client nichts lernt ──
  * Weil der Weg schon da ist. Der Client dreht jedes dynamische Entity zur
@@ -41,10 +50,12 @@ import {
   SPAWN_SIM_RADIUS,
   SPIELER_FRAKTION,
   aggroSchritt,
+  hatKampfwerte,
   haltungZwischen,
   loeseNpcAuf,
   yawQuaternion,
   type AnimZustand,
+  type NpcKampf,
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
@@ -75,6 +86,12 @@ interface AggroZustand {
   yaw: number;
   /** Zuletzt geschriebener Animationszustand. */
   anim: AnimZustand | null;
+  /**
+   * Sekunden im Band „zuschlagen" seit dem letzten Schlag. Bleibt beim
+   * Verlassen des Bandes stehen (wie `attackAccum` der Kreaturen) und
+   * verfällt erst, wenn der NPC den Spieler ganz loslässt.
+   */
+  schlagAkku: number;
 }
 
 export interface AggroSystemOptionen {
@@ -95,6 +112,14 @@ export class AggroSystem {
   private readonly simRadius: number;
   private readonly pruefIntervallSec: number;
   private accum = 0;
+
+  /**
+   * Ein NPC schlägt zu: Position, Schaden, Radius (die Angriffsreichweite).
+   * Verdrahtet die Welt, genau wie `SpawnSystem.onCreatureAttack`. Ohne
+   * Rückruf bleibt die Haltung (Drehen, Verfolgen, Schlagbewegung) und der
+   * Schaden entfällt.
+   */
+  onSchlag: ((pos: Vector3, schaden: number, radius: number) => void) | null = null;
 
   constructor(
     private readonly zdos: ZDOManager,
@@ -149,14 +174,41 @@ export class AggroSystem {
         continue;
       }
       nochAktiv.add(key);
-      this.setze(key, zdo, w.yaw, w.anim);
+      const z = this.setze(key, zdo, w.yaw, w.anim);
       if (w.bewegt) this.ruecke(zdo, w.x, w.z);
+      if (w.anim === 'attack' && hatKampfwerte(name)) this.zuschlagen(z, zdo, w.kampf, vergangen);
     }
 
-    // Wer diesmal nicht dabei war, ist ausser Reichweite oder weg.
+    // Wer diesmal nicht dabei war, ist ausser Reichweite oder weg. Auch der
+    // Zustand geht: Ein erschlagener NPC kommt nie wieder, und einer, der
+    // aus dem Umkreis heraus war, fängt beim Wiedersehen mit vollem Takt an.
     for (const key of [...this.gesperrt]) {
-      if (!nochAktiv.has(key)) this.gesperrt.delete(key);
+      if (!nochAktiv.has(key)) {
+        this.gesperrt.delete(key);
+        this.zustand.delete(key);
+      }
     }
+  }
+
+  /**
+   * Der Takt des Schlags. Im Band „zuschlagen" läuft die Uhr, ist eine
+   * Taktlänge voll, geht EIN Schlag raus.
+   *
+   * Der Rest über die Taktlänge bleibt stehen, statt auf null zu gehen:
+   * Der Prüfschritt fällt nur alle rund 0,27 s (viermal je Sekunde, auf
+   * Tickgrenzen gerundet), und ein Zurücksetzen auf null machte aus zwei
+   * Sekunden Takt im Mittel gut 2,1. Gedeckelt auf eine Taktlänge, damit
+   * ein hängender Tick nicht zwei Schläge auf einmal auslöst.
+   *
+   * Der Schlag trifft jeden Spieler im Radius der Angriffsreichweite um den
+   * NPC, nicht nur den nächsten — dieselbe Regel wie bei den Kreaturen. Wer
+   * dabei pariert, bekommt keinen Schaden (`applyCreatureAttack`).
+   */
+  private zuschlagen(z: AggroZustand, zdo: ZDO, kampf: NpcKampf, vergangen: number): void {
+    z.schlagAkku += vergangen;
+    if (z.schlagAkku < kampf.takt) return;
+    z.schlagAkku = Math.min(z.schlagAkku - kampf.takt, kampf.takt);
+    this.onSchlag?.(zdo.position, kampf.schaden, kampf.angriff);
   }
 
   /**
@@ -206,10 +258,10 @@ export class AggroSystem {
   }
 
   /** Drehung und Animationszustand schreiben — nur bei Änderung. */
-  private setze(key: string, zdo: ZDO, yaw: number, anim: AnimZustand): void {
+  private setze(key: string, zdo: ZDO, yaw: number, anim: AnimZustand): AggroZustand {
     let z = this.zustand.get(key);
     if (!z) {
-      z = { yaw: Number.NaN, anim: null };
+      z = { yaw: Number.NaN, anim: null, schlagAkku: 0 };
       this.zustand.set(key, z);
     }
     this.gesperrt.add(key);
@@ -226,6 +278,7 @@ export class AggroSystem {
       // sofort raus und nicht erst beim nächsten Positionsupdate.
       zdo.setString(ANIM_MEMBER, anim);
     }
+    return z;
   }
 
   /**

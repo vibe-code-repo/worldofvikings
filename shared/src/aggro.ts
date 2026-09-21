@@ -22,6 +22,7 @@ import {
   loeseNpcAuf,
   npcKampf,
   type NpcDef,
+  type NpcKampf,
 } from './npc.js';
 
 /** Ein möglicher Gegner — in der Praxis eine Spielerposition. */
@@ -61,6 +62,13 @@ export interface AggroErgebnis {
   readonly z: number;
   /** Ob er sich in diesem Schritt bewegt hat (dann ZDO-Position schreiben). */
   readonly bewegt: boolean;
+  /**
+   * Die Kampfwerte, nach denen entschieden wurde. Im Band „zuschlagen"
+   * (`anim === 'attack'`) sind `schaden` und `takt` das, was der Server
+   * daraus macht — hier gerechnet, damit Server und Vorschau nicht zwei
+   * Tabellen befragen.
+   */
+  readonly kampf: NpcKampf;
 }
 
 /**
@@ -116,7 +124,7 @@ export function aggroSchritt(
   // NPC, der eben noch lief, sich beim Umschalten nicht einmal um die
   // eigene Achse dreht.
   const yaw = Math.atan2(dx, dz);
-  const steht = { yaw, abstand, x, z, bewegt: false } as const;
+  const steht = { yaw, abstand, x, z, bewegt: false, kampf } as const;
 
   // ── Die drei Bänder ───────────────────────────────────────────────
   // In Reichweite: stehen und zuschlagen. Er läuft dabei ausdrücklich
@@ -140,5 +148,6 @@ export function aggroSchritt(
     x: x + (dx / abstand) * weg,
     z: z + (dz / abstand) * weg,
     bewegt: true,
+    kampf,
   };
 }

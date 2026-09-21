@@ -395,7 +395,7 @@ export class WovServer {
    */
   private readonly weltUmgebung: WeltUmgebung = {
     prefabName: (hash) => this.prefabs.getByHash(hash)?.name,
-    kreaturTrifft: (pos, dmg, r) => this.applyCreatureAttack(pos, dmg, r),
+    kreaturTrifft: (pos, dmg, r, weltId) => this.applyCreatureAttack(pos, dmg, r, weltId),
   };
 
   /**
@@ -3271,7 +3271,9 @@ export class WovServer {
     for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
-      if ((flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI)) === 0n) continue;
+      // ANGREIFBAR: die eigenen NPCs mit Kampfwerten (shared/npc.ts). Sie
+      // tragen bewusst kein *_AI-Flag, sonst verwaltete das Spawnsystem sie.
+      if ((flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI | PrefabFlag.ANGREIFBAR)) === 0n) continue;
       const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
       if (d >= best) continue;
       // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen
@@ -3290,7 +3292,7 @@ export class WovServer {
     */
     if (!ziel) return this.handleHarvest(peer, von, waffe);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
-    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1);
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der
     // `||`-Zweig greift nur noch für Wesen aus Saves von VOR dieser
     // Änderung — seit `stelleLebenSicher` bringt jede Kreatur ihre Punkte
@@ -3385,7 +3387,7 @@ export class WovServer {
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
     const schaden = WAFFEN_SCHADEN[waffe] ?? 4;
-    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0);
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0, peer.worldId);
     const hp = (ziel.getInt(HEALTH_MEMBER) || startHp) - schaden;
     if (hp > 0) {
       ziel.setInt(HEALTH_MEMBER, hp);
@@ -3411,16 +3413,76 @@ export class WovServer {
    * Treffereffekt an alle Spieler im Umkreis (Vorbild: MeleeImpact /
    * bloodSplash / MeleeSpark des Originals, hier als Ereignis, das der
    * Client in Partikel uebersetzt). `art`: 0 hart, 1 Fleisch, 2 Parade.
+   *
+   * Nur an Spieler DERSELBEN Welt (`weltId`). Alle Instanzen liegen am
+   * Ursprung, die Koordinaten zweier Welten sagen also nichts darueber, wer
+   * nebeneinander steht; ohne die Weltpruefung sah ein Spieler im Dungeon
+   * den Treffer-Blitz eines Schlags aus der Oberwelt.
    */
-  private sendeTrefferEffekt(pos: Vector3, art: number, umkreis = 40): void {
+  private sendeTrefferEffekt(pos: Vector3, art: number, weltId: string, umkreis = 40): void {
+    if (!this.weltIdGueltig('sendeTrefferEffekt', weltId)) return;
     const r2 = umkreis * umkreis;
     for (const p of this.net.getPeers()) {
+      if (p.worldId !== weltId) continue;
       const d = (p.position.x - pos.x) ** 2 + (p.position.z - pos.z) ** 2;
       if (d > r2) continue;
       p.sendPacketWith(PacketType.HitEffect, (w) => {
         w.writeVector3(pos);
         w.writeInt32(art);
       });
+    }
+  }
+
+  /**
+   * Aufrufe von applyCreatureAttack/sendeTrefferEffekt, die ohne (oder mit
+   * leerer) Welt kamen und verworfen wurden. Im Betrieb bleibt der Zaehler
+   * auf 0: alle echten Aufrufer sind typisiert und reichen eine Welt-id
+   * durch. Er steht hier, damit ein Test — und ein Blick in den Debugger —
+   * ihn lesen kann.
+   */
+  ohneWeltVerworfen = 0;
+  private ohneWeltLetzteMeldung = 0;
+  private static readonly OHNE_WELT_MELDUNG_INTERVALL_MS = 60_000;
+
+  /**
+   * Ist `weltId` eine brauchbare Welt-id? Sonst: zaehlen, hoechstens einmal
+   * je Minute laut melden (Muster der Budget-Abbrueche in Metriken.ts) und
+   * `false` liefern — der Aufrufer verwirft den Schlag. „Unbekannte Welt →
+   * niemand getroffen“ ist die sichere Antwort; sie ist nur nicht mehr
+   * stumm. Nimmt `unknown` an, weil der Aufruf im Fehlerfall nicht typisiert
+   * war (das ist ja der Fall, um den es geht).
+   */
+  private weltIdGueltig(stelle: string, weltId: unknown): boolean {
+    if (typeof weltId === 'string' && weltId !== '') return true;
+    this.ohneWeltVerworfen++;
+    const jetzt = Date.now();
+    if (jetzt - this.ohneWeltLetzteMeldung >= WovServer.OHNE_WELT_MELDUNG_INTERVALL_MS) {
+      this.ohneWeltLetzteMeldung = jetzt;
+      // Die Meldung darf unter KEINEN Umstaenden werfen: Sie steht im
+      // Server-Tick, und `weltId` ist ein Wert, dem man nichts zutrauen darf
+      // (ein Welt-Objekt statt seiner id, BigInt, zyklisches Objekt, Proxy
+      // mit werfendem Getter — JSON.stringify wirft bei allen). Deshalb
+      // nur `typeof` und, bei einem String, dessen Laenge; alles unter try.
+      try {
+        console.error(
+          `[WoV] ${stelle}: weltId fehlt oder ist leer (${WovServer.kennzeichne(weltId)}) — ` +
+            `Schlag/Effekt verworfen (bisher ${this.ohneWeltVerworfen}x)`
+        );
+      } catch {
+        /* eine Diagnose darf den Tick nicht kosten */
+      }
+    }
+    return false;
+  }
+
+  /** Kurze, sichere Kennzeichnung eines unbrauchbaren Wertes — wirft nie. */
+  private static kennzeichne(wert: unknown): string {
+    try {
+      if (typeof wert === 'string') return `String der Laenge ${wert.length}`;
+      if (wert === null) return 'null';
+      return typeof wert;
+    } catch {
+      return 'unlesbar';
     }
   }
 
@@ -3437,9 +3499,26 @@ export class WovServer {
     this.sendPlayerState(peer);
   }
 
-  private applyCreatureAttack(pos: Vector3, damage: number, radius: number): void {
+  /**
+   * Eine Kreatur oder ein NPC schlaegt zu — trifft nur Spieler in DERSELBEN
+   * Welt (`weltId`, die des Schlaegers). Der Radius ist reine XZ-Rechnung,
+   * und alle Instanzen liegen am Ursprung (DungeonManager.getOrCreateInstance):
+   * Ohne die Weltpruefung traf eine Figur der Oberwelt den Spieler im
+   * Dungeon an denselben Koordinaten — und er starb an einer Figur, die es
+   * in seiner Welt nicht gibt.
+   */
+  private applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId: string): void {
+    // Ein Test greift ueber `as unknown as` hierher, und dort sieht tsc einen
+    // fehlenden Parameter nicht: Ohne diese Zeile uebersprang der Weltfilter
+    // unten JEDEN Peer, und ein Aufruf mit drei Argumenten traf still niemanden
+    // (b7-entsperren: kein Spieler starb mehr). Ein Aufrufer ohne Welt wird
+    // gemeldet und der Schlag verworfen — nicht geworfen: Das steht im
+    // Server-Tick, und ein Wurf kostet dort den ganzen Frame, jeder
+    // Instanzwelt ihren Tick und ohne Prozess-Handler den Prozess.
+    if (!this.weltIdGueltig('applyCreatureAttack', weltId)) return;
     const r2 = radius * radius;
     for (const peer of this.net.getPeers()) {
+      if (peer.worldId !== weltId) continue;
       const d = (peer.position.x - pos.x) ** 2 + (peer.position.z - pos.z) ** 2;
       if (d > r2) continue;
       // Parade: Treffer im Fenster prallt ab. Kein Schaden, aber der
@@ -3447,7 +3526,7 @@ export class WovServer {
       // ein Fehlschlag der Kreatur.
       if (peer.paradeBis > Date.now()) {
         peer.paradeBis = 0;
-        this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.1, z: peer.position.z }, 2);
+        this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.1, z: peer.position.z }, 2, weltId);
         peer.sendPacketWith(PacketType.InteractResult, (w) => {
           w.writeBool(true);
           w.writeString('Pariert');
@@ -3456,7 +3535,7 @@ export class WovServer {
         });
         continue;
       }
-      this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1);
+      this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1, weltId);
       peer.health = Math.max(0, peer.health - damage);
       if (peer.health <= 0) {
         // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.

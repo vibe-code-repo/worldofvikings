@@ -70,6 +70,14 @@ export const PrefabFlag = {
   TERRAIN_MODIFIER: 1n << 33n,
   CREATURE_SPAWNER: 1n << 34n,
   SYNCED_TRANSFORM: 1n << 35n,
+  /**
+   * The player's melee can hit this prefab. Creatures get it through
+   * ANIMAL_AI / MONSTER_AI; the own NPCs deliberately carry no *_AI flag (the
+   * spawn system must neither manage nor despawn them), so they need this one
+   * on its own. Set exactly on the prefabs that have a `NPC_KAMPF` entry
+   * (shared/src/npc.ts) — the two lists are held together by a test.
+   */
+  ANGREIFBAR: 1n << 36n,
 } as const;
 
 export type PrefabFlag = bigint;

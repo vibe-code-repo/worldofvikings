@@ -16,12 +16,21 @@ export const CLASS_EQUIPMENT_FAMILIES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * OPEN DECISION: does a character WITHOUT a class (empty `classId`) get the starter set? That is a new character made
+ * through an API client that sends no class, and every character from before the class choice. Today it does not
+ * (false): they keep an empty marker and are simply not served. Flipping this constant is the whole change; the tests
+ * `server/test/starter-sets.ts` and `starter-sets-e2e.ts` pin both cases and name the expectation in one line each.
+ * An unknown, non-empty class (`admin`, ...) never gets a set, whatever this says.
+ */
+export const STARTER_SET_FOR_CLASSLESS = false;
+
+/**
  * Server chooses the complete, compatible set; the client never chooses item IDs.
  * Every valid class starts in the starter set (Plainhide) that fits the figure. The class sets in
  * CLASS_EQUIPMENT_FAMILIES are earned later and are never granted here. An unknown class gets nothing.
  */
 export function starterSetForClass(classId: string, figure: string) {
-  if (!isCharacterClass(classId)) return undefined;
+  if (classId === '' ? !STARTER_SET_FOR_CLASSLESS : !isCharacterClass(classId)) return undefined;
   return EQUIPMENT_SETS.find(set => 'starter' in set && canWearArmor(set.parts[0], figure));
 }
 

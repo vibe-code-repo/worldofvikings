@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { CHARACTER_CLASSES, EQUIPMENT_SETS, Inventory, findItem, isCharacterClass, starterSetForClass } from '@wov/shared';
+import { CHARACTER_CLASSES, EQUIPMENT_SETS, Inventory, STARTER_SET_FOR_CLASSLESS, findItem, isCharacterClass, starterSetForClass } from '@wov/shared';
 import { grantStarterSet } from '../src/konto/StarterSet.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 
@@ -54,8 +54,29 @@ for (const marker of ['ironward', 'ashenveil', 'wildwarden', 'seidraven_male', '
   assert.equal(grantStarterSet(inventory, 'berserker', 'wikingerin', marker), marker);
   assert.deepEqual(inventory.serialize(), before, 'A figure change neither re-grants nor removes');
 }
+// OPEN DECISION (Mike): does a character without a class get Plainhide? The expectation is this ONE line; the shared switch
+// STARTER_SET_FOR_CLASSLESS must agree with it, so flipping the decision means changing both lines and nothing else.
+const CLASSLESS_GETS_STARTER = false;
+assert.equal(STARTER_SET_FOR_CLASSLESS, CLASSLESS_GETS_STARTER, 'The shared switch and the test expectation must say the same');
+for (const [figure, setId] of [['wikinger', 'plainhide_male'], ['wikingerin', 'plainhide_female']] as const) {
+  // Case 1: a NEW character made without a class (an API client that sends none): the standard start kit, empty marker.
+  const fresh = new Inventory();
+  for (const [name, count] of [['Hammer', 1], ['AxeFlint', 1], ['Hoe', 1], ['PickaxeAntler', 1], ['Cultivator', 1], ['Wood', 12], ['Stone', 30], ['SwordNorth', 1]] as const) fresh.addItem(findItem(name)!, count);
+  const freshBefore = fresh.all.length;
+  assert.equal(grantStarterSet(fresh, '', figure, ''), CLASSLESS_GETS_STARTER ? setId : '', `new classless character (${figure})`);
+  assert.equal(fresh.all.length, freshBefore + (CLASSLESS_GETS_STARTER ? 5 : 0));
+  // Case 2: an OLD character from before the class choice: its own bag with an old leather piece, empty marker, no class.
+  const old = new Inventory();
+  old.addItem(findItem('Hammer')!, 1); old.addItem(findItem(figure === 'wikinger' ? 'SwordNorth' : 'LederBH')!, 1);
+  const oldBefore = old.serialize();
+  const marker = grantStarterSet(old, '', figure, '');
+  assert.equal(marker, CLASSLESS_GETS_STARTER ? setId : '', `old classless character (${figure})`);
+  if (!CLASSLESS_GETS_STARTER) assert.deepEqual(old.serialize(), oldBefore, 'An old classless character keeps exactly its bag');
+  else { assert.equal(old.all.length, 2 + 5); assert.equal(old.countOf('Hammer'), 1); }
+}
 // No usable class or figure: nothing is granted, the marker stays empty so the delivery is retried later.
-for (const [classId, figure] of [['', 'wikinger'], ['', 'wikingerin'], ['invalid', 'wikinger'], ['admin', 'wikingerin'], ['krieger', ''], ['krieger', 'unknown']]) {
+// (An unknown, non-empty class never gets a set; the classless decision above only concerns the empty class.)
+for (const [classId, figure] of [['invalid', 'wikinger'], ['admin', 'wikingerin'], ['krieger', ''], ['krieger', 'unknown']]) {
   const inventory = new Inventory();
   assert.equal(starterSetForClass(classId!, figure!), undefined);
   assert.equal(grantStarterSet(inventory, classId!, figure!, ''), '');

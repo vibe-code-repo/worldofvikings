@@ -22,7 +22,7 @@
  *
  * Wartet nie eine feste Zeit, sondern auf Zeugen (Zeilen im Log).
  *
- * Ephemerer Port: je Lauf ein freier, beim Start erfragt (`freierPort`).
+ * Port 2575 (frei laut Kopfkommentaren der uebrigen Tests).
  *
  * Lauf: npx tsx test/g12-tick-aufteilung.ts   (aus server/)
  */
@@ -30,7 +30,6 @@ import WebSocket from "ws";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
 import { antwortBerechnen } from "../src/net/Identitaet.js";
 import { createWovServer } from "../src/WovServer.js";
 import { Reader } from "../src/io/Reader.js";
@@ -39,8 +38,7 @@ import type { MetrikSchnappschuss } from "@wov/shared/src/metrik.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, "tmp-g12-tick-aufteilung");
-/** Der Port des laufenden Servers; `mitServer` setzt ihn je Lauf neu. */
-let PORT = 0;
+const PORT = 2575;
 rmSync(TMP, { recursive: true, force: true });
 mkdirSync(TMP, { recursive: true });
 
@@ -48,18 +46,6 @@ let failures = 0;
 function check(label: string, ok: boolean, detail = ""): void {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${label}${detail ? " — " + detail : ""}`);
   if (!ok) failures++;
-}
-
-/** Ein freier Port: auf 0 binden, Nummer lesen, wieder freigeben. */
-function freierPort(): Promise<number> {
-  return new Promise((res, rej) => {
-    const s = createServer();
-    s.once("error", rej);
-    s.listen(0, "127.0.0.1", () => {
-      const port = (s.address() as { port: number }).port;
-      s.close(() => res(port));
-    });
-  });
 }
 
 const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -158,7 +144,6 @@ async function mitServer(
   const welt = resolve(TMP, ordner, "welt");
   const metriken = resolve(TMP, ordner, "metriken");
   mkdirSync(metriken, { recursive: true });
-  PORT = await freierPort();
   const server = createWovServer({
     port: PORT,
     everyoneAdmin: true,
@@ -304,12 +289,19 @@ console.log("\n[A] Aufteilung im Tageslog:");
       const mittel = (f: (z: MetrikSchnappschuss) => number): number =>
         voll.reduce((s, z) => s + f(z), 0) / voll.length;
       const syncMittel = mittel((z) => z.tickSyncMsDurchschnitt);
+      // Wie in der Ruhe: Was der Busy-wait unter Last MEHR gekostet hat als seine
+      // 3 ms (mal zwei von drei Ticks = 2 ms je Tick), gehoert nicht in die Schranke.
+      const vollTicks = voll.reduce((s, z) => s + z.tickAnzahl, 0);
+      const vollGewartet =
+        summeImFenster(gewartetSync, (voll[0]?.zeitMs ?? 0) - 1000, voll[voll.length - 1]?.zeitMs ?? 0) /
+        Math.max(1, vollTicks);
+      const syncObergrenze = 3.5 + Math.max(0, vollGewartet - (SYNC_VERZOEGERUNG * 2) / 3);
       const weltenMittel = mittel((z) => z.tickWeltenMsDurchschnitt);
       const restMittel = mittel((z) => z.tickRestMsDurchschnitt);
       check(
-        "Sync-Verzoegerung von 3 ms kommt in der Sync-Phase an (Mittel je Tick 1,5 bis 3,5 ms)",
-        syncMittel >= 1.5 && syncMittel <= 3.5,
-        `${syncMittel.toFixed(2)} ms`,
+        "Sync-Verzoegerung von 3 ms kommt in der Sync-Phase an (Mittel je Tick 1,5 bis 3,5 ms, die Obergrenze um die unter Last zuviel gewartete Zeit angehoben)",
+        syncMittel >= 1.5 && syncMittel <= syncObergrenze,
+        `${syncMittel.toFixed(2)} ms, Obergrenze ${syncObergrenze.toFixed(2)} ms, gewartet ${vollGewartet.toFixed(2)} ms je Tick`,
       );
       check(
         "Sync-Maximum mindestens die Verzoegerung",

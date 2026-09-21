@@ -1519,10 +1519,24 @@ const KERN = [
   // dauerhaft rot. `PlayerAvatar.glb` steht hier stellvertretend für den
   // vollen Bestand: Es ist keine Dungeon-Datei und liegt deshalb nur dort,
   // wo wirklich alle Modelle liegen.
+  //
+  // B9.1: Kuh und Wolf stehen seither zusätzlich hier. Der Stellvertreter
+  // reichte nicht: Ein Baum mit dem Stand vor B9.1 (jede Kopie von DEV, bevor
+  // die beiden Dateien dort liegen) hat `PlayerAvatar.glb`, aber nicht
+  // `Kuh.glb`/`Wolf.glb`, und wurde mit dem neuen Manifest rot
+  // (`manifest=275−0 Platte=273`). Wer neue Modelle ins Manifest aufnimmt,
+  // die noch nicht überall liegen, trägt sie hier ein.
+  //
+  // Cow and wolf join the switch: a tree that predates them holds
+  // PlayerAvatar.glb but not the two files and would go red on the new manifest.
   [
     'tools',
     'test/manifest-vollstaendig.ts',
-    brauchtModelle('assets/models/PlayerAvatar.glb'),
+    brauchtModelle(
+      'assets/models/PlayerAvatar.glb',
+      'assets/models/Kuh.glb',
+      'assets/models/Wolf.glb',
+    ),
   ],
   /*
     E7: `assets/generiert/` ist ein SCHWESTERORDNER von `assets/models/`,

@@ -1759,6 +1759,596 @@
           "bodyProfile": "legacy-female-v1"
         }
       ]
+    },
+    {
+      "id": "plainhide_male",
+      "version": 1,
+      "name": "Plainhide",
+      "figure": "wikinger",
+      "familyId": "plainhide",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
+      "starter": true,
+      "freeRegions": [
+        "Head",
+        "HandLeft",
+        "HandRight"
+      ],
+      "itemIds": [
+        "plainhide_male_shoulders",
+        "plainhide_male_vest",
+        "plainhide_male_bracers",
+        "plainhide_male_robe",
+        "plainhide_male_boots"
+      ],
+      "appearance": {
+        "schultern": "plainhide_male_shoulders",
+        "oberkoerper": "plainhide_male_vest",
+        "unterarme": "plainhide_male_bracers",
+        "beine": "plainhide_male_robe",
+        "fuesse": "plainhide_male_boots"
+      },
+      "parts": [
+        {
+          "itemId": "plainhide_male_shoulders",
+          "appearanceId": "plainhide_male_shoulders",
+          "name": "Plainhide Sleeves",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "plainhide/plainhide_male_shoulders.glb",
+          "icon": "plainhide_male_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "previewModel": "plainhide/plainhide_male_shoulders.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "plainhide_male_vest",
+          "appearanceId": "plainhide_male_vest",
+          "name": "Plainhide Tunic",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "plainhide/plainhide_male_vest.glb",
+          "icon": "plainhide_male_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "previewModel": "plainhide/plainhide_male_vest.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "plainhide_male_bracers",
+          "appearanceId": "plainhide_male_bracers",
+          "name": "Plainhide Wraps",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "plainhide/plainhide_male_bracers.glb",
+          "icon": "plainhide_male_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "previewModel": "plainhide/plainhide_male_bracers.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "plainhide_male_robe",
+          "appearanceId": "plainhide_male_robe",
+          "name": "Plainhide Trousers",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "plainhide/plainhide_male_robe.glb",
+          "icon": "plainhide_male_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "previewModel": "plainhide/plainhide_male_robe.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "plainhide_male_boots",
+          "appearanceId": "plainhide_male_boots",
+          "name": "Plainhide Shoes",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "plainhide/plainhide_male_boots.glb",
+          "icon": "plainhide_male_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "previewModel": "plainhide/plainhide_male_boots.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        }
+      ]
+    },
+    {
+      "id": "plainhide_female",
+      "version": 1,
+      "name": "Plainhide",
+      "figure": "wikingerin",
+      "familyId": "plainhide",
+      "bodyVariant": "female",
+      "bodyProfile": "legacy-female-v1",
+      "starter": true,
+      "freeRegions": [
+        "Head",
+        "HandLeft",
+        "HandRight"
+      ],
+      "itemIds": [
+        "plainhide_female_shoulders",
+        "plainhide_female_vest",
+        "plainhide_female_bracers",
+        "plainhide_female_robe",
+        "plainhide_female_boots"
+      ],
+      "appearance": {
+        "schultern": "plainhide_female_shoulders",
+        "oberkoerper": "plainhide_female_vest",
+        "unterarme": "plainhide_female_bracers",
+        "beine": "plainhide_female_robe",
+        "fuesse": "plainhide_female_boots"
+      },
+      "parts": [
+        {
+          "itemId": "plainhide_female_shoulders",
+          "appearanceId": "plainhide_female_shoulders",
+          "name": "Plainhide Sleeves",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "plainhide/plainhide_female_shoulders.glb",
+          "icon": "plainhide_female_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "previewModel": "armor/plainhide/plainhide_female_shoulders.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "plainhide_female_vest",
+          "appearanceId": "plainhide_female_vest",
+          "name": "Plainhide Tunic",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "plainhide/plainhide_female_vest.glb",
+          "icon": "plainhide_female_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "previewModel": "armor/plainhide/plainhide_female_vest.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "plainhide_female_bracers",
+          "appearanceId": "plainhide_female_bracers",
+          "name": "Plainhide Wraps",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "plainhide/plainhide_female_bracers.glb",
+          "icon": "plainhide_female_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "previewModel": "armor/plainhide/plainhide_female_bracers.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "plainhide_female_robe",
+          "appearanceId": "plainhide_female_robe",
+          "name": "Plainhide Trousers",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "plainhide/plainhide_female_robe.glb",
+          "icon": "plainhide_female_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "previewModel": "armor/plainhide/plainhide_female_robe.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "plainhide_female_boots",
+          "appearanceId": "plainhide_female_boots",
+          "name": "Plainhide Shoes",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "plainhide/plainhide_female_boots.glb",
+          "icon": "plainhide_female_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "previewModel": "armor/plainhide/plainhide_female_boots.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        }
+      ]
+    },
+    {
+      "id": "gravethorn_male",
+      "version": 1,
+      "name": "Gravethorn",
+      "figure": "wikinger",
+      "familyId": "gravethorn",
+      "classId": "berserker",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
+      "itemIds": [
+        "gravethorn_male_hood",
+        "gravethorn_male_vest",
+        "gravethorn_male_robe",
+        "gravethorn_male_shoulders",
+        "gravethorn_male_bracers",
+        "gravethorn_male_gloves",
+        "gravethorn_male_boots"
+      ],
+      "appearance": {
+        "kopf": "gravethorn_male_hood",
+        "oberkoerper": "gravethorn_male_vest",
+        "beine": "gravethorn_male_robe",
+        "schultern": "gravethorn_male_shoulders",
+        "unterarme": "gravethorn_male_bracers",
+        "haende": "gravethorn_male_gloves",
+        "fuesse": "gravethorn_male_boots"
+      },
+      "parts": [
+        {
+          "itemId": "gravethorn_male_hood",
+          "appearanceId": "gravethorn_male_hood",
+          "name": "Gravethorn Helm",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "gravethorn/gravethorn_male_hood.glb",
+          "icon": "gravethorn_male_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "previewModel": "gravethorn/gravethorn_male_hood.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "gravethorn_male_vest",
+          "appearanceId": "gravethorn_male_vest",
+          "name": "Gravethorn Cuirass",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "gravethorn/gravethorn_male_vest.glb",
+          "icon": "gravethorn_male_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "previewModel": "gravethorn/gravethorn_male_vest.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "gravethorn_male_robe",
+          "appearanceId": "gravethorn_male_robe",
+          "name": "Gravethorn Tassets",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "gravethorn/gravethorn_male_robe.glb",
+          "icon": "gravethorn_male_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "previewModel": "gravethorn/gravethorn_male_robe.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "gravethorn_male_shoulders",
+          "appearanceId": "gravethorn_male_shoulders",
+          "name": "Gravethorn Pauldrons",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "gravethorn/gravethorn_male_shoulders.glb",
+          "icon": "gravethorn_male_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "previewModel": "gravethorn/gravethorn_male_shoulders.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "gravethorn_male_bracers",
+          "appearanceId": "gravethorn_male_bracers",
+          "name": "Gravethorn Bracers",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "gravethorn/gravethorn_male_bracers.glb",
+          "icon": "gravethorn_male_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "previewModel": "gravethorn/gravethorn_male_bracers.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "gravethorn_male_gloves",
+          "appearanceId": "gravethorn_male_gloves",
+          "name": "Gravethorn Gauntlets",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "gravethorn/gravethorn_male_gloves.glb",
+          "icon": "gravethorn_male_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "previewModel": "gravethorn/gravethorn_male_gloves.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "gravethorn_male_boots",
+          "appearanceId": "gravethorn_male_boots",
+          "name": "Gravethorn Greaves",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "gravethorn/gravethorn_male_boots.glb",
+          "icon": "gravethorn_male_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "previewModel": "gravethorn/gravethorn_male_boots.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        }
+      ]
+    },
+    {
+      "id": "gravethorn_female",
+      "version": 1,
+      "name": "Gravethorn",
+      "figure": "wikingerin",
+      "familyId": "gravethorn",
+      "classId": "berserker",
+      "bodyVariant": "female",
+      "bodyProfile": "legacy-female-v1",
+      "itemIds": [
+        "gravethorn_female_hood",
+        "gravethorn_female_vest",
+        "gravethorn_female_robe",
+        "gravethorn_female_shoulders",
+        "gravethorn_female_bracers",
+        "gravethorn_female_gloves",
+        "gravethorn_female_boots"
+      ],
+      "appearance": {
+        "kopf": "gravethorn_female_hood",
+        "oberkoerper": "gravethorn_female_vest",
+        "beine": "gravethorn_female_robe",
+        "schultern": "gravethorn_female_shoulders",
+        "unterarme": "gravethorn_female_bracers",
+        "haende": "gravethorn_female_gloves",
+        "fuesse": "gravethorn_female_boots"
+      },
+      "parts": [
+        {
+          "itemId": "gravethorn_female_hood",
+          "appearanceId": "gravethorn_female_hood",
+          "name": "Gravethorn Helm",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "gravethorn/gravethorn_female_hood.glb",
+          "icon": "gravethorn_female_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "previewModel": "armor/gravethorn/gravethorn_female_hood.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "gravethorn_female_vest",
+          "appearanceId": "gravethorn_female_vest",
+          "name": "Gravethorn Cuirass",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "gravethorn/gravethorn_female_vest.glb",
+          "icon": "gravethorn_female_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "previewModel": "armor/gravethorn/gravethorn_female_vest.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "gravethorn_female_robe",
+          "appearanceId": "gravethorn_female_robe",
+          "name": "Gravethorn Tassets",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "gravethorn/gravethorn_female_robe.glb",
+          "icon": "gravethorn_female_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "previewModel": "armor/gravethorn/gravethorn_female_robe.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "gravethorn_female_shoulders",
+          "appearanceId": "gravethorn_female_shoulders",
+          "name": "Gravethorn Pauldrons",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "gravethorn/gravethorn_female_shoulders.glb",
+          "icon": "gravethorn_female_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "previewModel": "armor/gravethorn/gravethorn_female_shoulders.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "gravethorn_female_bracers",
+          "appearanceId": "gravethorn_female_bracers",
+          "name": "Gravethorn Bracers",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "gravethorn/gravethorn_female_bracers.glb",
+          "icon": "gravethorn_female_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "previewModel": "armor/gravethorn/gravethorn_female_bracers.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "gravethorn_female_gloves",
+          "appearanceId": "gravethorn_female_gloves",
+          "name": "Gravethorn Gauntlets",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "gravethorn/gravethorn_female_gloves.glb",
+          "icon": "gravethorn_female_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "previewModel": "armor/gravethorn/gravethorn_female_gloves.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "gravethorn_female_boots",
+          "appearanceId": "gravethorn_female_boots",
+          "name": "Gravethorn Greaves",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "gravethorn/gravethorn_female_boots.glb",
+          "icon": "gravethorn_female_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "previewModel": "armor/gravethorn/gravethorn_female_boots.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "vfxProfile": "gravethorn_red",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        }
+      ]
     }
   ],
   "timeOfDay": {

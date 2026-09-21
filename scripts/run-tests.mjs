@@ -278,6 +278,22 @@ const KERN = [
   */
   ['scripts', 'pruefe-runner-liste.mjs'],
   /*
+    Guard: no test file names a fixed port. 25 test files bound fixed ports (2498-2610,
+    27314); they were converted on 21.09.2026 (`port: 0` + `portVon(server)`, see
+    scripts/testport.mjs and AGENTS.md 3.3); this keeps the next new test from
+    writing `const PORT = 2604` again. Reads test files as text (same definition
+    of a test file as the witness above), no bind, ~0.1 s, needs no assets/.
+    Two lists carry the reasons for every allowed number (a known rest in
+    g12-tick-aufteilung.ts, YAML fixture text, three slot-port tools outside the
+    runner) and are checked both ways: an entry that matches nothing is a finding,
+    and so is a tool under tools/ or scripts/ that starts a server on a slot port
+    (247n/248n/529n) without being named.
+    It proves itself on a throwaway tree first, in every direction.
+
+    Guard: no test names a fixed port; every allowed number carries a reason.
+  */
+  ['scripts', 'pruefe-feste-ports.mjs'],
+  /*
     S2 (Elemente-Umzug): der volle Kit-Neubau als Prüfer. Baut alle zwölf
     `DG_StoneVault`-Module aus `tools/elements/blender/make-stonevault.py`
     neu und vergleicht je Objekt sechs Felder mit der Auslieferung unter
@@ -1525,10 +1541,24 @@ const KERN = [
   // dauerhaft rot. `PlayerAvatar.glb` steht hier stellvertretend für den
   // vollen Bestand: Es ist keine Dungeon-Datei und liegt deshalb nur dort,
   // wo wirklich alle Modelle liegen.
+  //
+  // B9.1: Kuh und Wolf stehen seither zusätzlich hier. Der Stellvertreter
+  // reichte nicht: Ein Baum mit dem Stand vor B9.1 (jede Kopie von DEV, bevor
+  // die beiden Dateien dort liegen) hat `PlayerAvatar.glb`, aber nicht
+  // `Kuh.glb`/`Wolf.glb`, und wurde mit dem neuen Manifest rot
+  // (`manifest=275−0 Platte=273`). Wer neue Modelle ins Manifest aufnimmt,
+  // die noch nicht überall liegen, trägt sie hier ein.
+  //
+  // Cow and wolf join the switch: a tree that predates them holds
+  // PlayerAvatar.glb but not the two files and would go red on the new manifest.
   [
     'tools',
     'test/manifest-vollstaendig.ts',
-    brauchtModelle('assets/models/PlayerAvatar.glb'),
+    brauchtModelle(
+      'assets/models/PlayerAvatar.glb',
+      'assets/models/Kuh.glb',
+      'assets/models/Wolf.glb',
+    ),
   ],
   /*
     E7: `assets/generiert/` ist ein SCHWESTERORDNER von `assets/models/`,

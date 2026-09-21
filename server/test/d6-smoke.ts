@@ -14,7 +14,7 @@ import { createWovServer } from '../src/WovServer.js';
 // the F4 terrain leveling never registers and ground(0,0) keeps the
 // D1-verified height; the leveled spawn plateau is verified in f3-leveling.
 const server = createWovServer({
-  port: 2499,
+  port: 0, // init() only, never bound
   worldSeed: 'KxSYuZquuw',
   worldFeatures: false,
 });

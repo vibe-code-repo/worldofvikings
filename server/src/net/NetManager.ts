@@ -174,6 +174,11 @@ export class NetManager {
     console.log(`[NetManager] Started on port ${this.config.port}`);
   }
 
+  /** The port the acceptor is really bound to (null while not listening); see WebSocketAcceptor.boundPort. */
+  get boundPort(): number | null {
+    return this.acceptor.boundPort;
+  }
+
   stop(): void {
     for (const peer of this.onlinePeers) {
       peer.disconnect('Server shutting down');

@@ -24,6 +24,7 @@ import { rmSync } from 'fs';
 import { getStableHash } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { BinaryReader } from '../../client/src/net/GameSocket';
@@ -32,7 +33,7 @@ import { parseZDOSync, ZDOSpiegel } from '../../client/src/net/ZDOSync';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-g7-zdo-interessen');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
-const PORT = 2517;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 const P = {
   VersionCheck: 1,
@@ -94,8 +95,9 @@ async function main(): Promise<void> {
   // (Sicherheitspaket 0.1). Diese Probe schickt Adminpakete, prueft aber
   // nicht die Rechtevergabe — deshalb hier ausdruecklich erlaubt, statt
   // sich still auf eine Sicherheitseinstellung zu stuetzen.
-  const server = createWovServer({ port: PORT, everyoneAdmin: true, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-zdo-interessen', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: 0, everyoneAdmin: true, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-zdo-interessen', saveIntervalMs: 3600_000 });
   server.start();
+  PORT = portVon(server);
 
   try {
     const ws = await verbinde('Beobachter');

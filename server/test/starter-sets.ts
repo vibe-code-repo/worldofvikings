@@ -3,50 +3,107 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { Inventory, findItem, isCharacterClass, starterSetForClass } from '@wov/shared';
+import { CHARACTER_CLASSES, EQUIPMENT_SETS, Inventory, STARTER_SET_FOR_CLASSLESS, findItem, isCharacterClass, starterSetForClass } from '@wov/shared';
 import { grantStarterSet } from '../src/konto/StarterSet.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 
-for (const [classId, figure, setId] of [
-  ['krieger', 'wikinger', 'ironward'], ['hexer', 'wikinger', 'ashenveil'],
-  ['druide', 'wikinger', 'wildwarden'], ['seherin', 'wikinger', 'seidraven_male'],
-  ['seherin', 'wikingerin', 'seidraven_female'],
-  ['runenmagier', 'wikinger', 'emberrage_male'],
-  ['runenmagier', 'wikingerin', 'emberrage_female'],
-]) {
+// Every valid class starts in Plainhide, in the variant that fits the figure. The class sets are earned later, never granted here.
+const PLAINHIDE_ITEMS = ['shoulders', 'vest', 'bracers', 'robe', 'boots'];
+const CLASS_SET_ITEMS = EQUIPMENT_SETS.filter(set => !('starter' in set)).flatMap(set => set.parts.map(part => part.item));
+for (const classId of CHARACTER_CLASSES) for (const [figure, setId, sex] of [['wikinger', 'plainhide_male', 'male'], ['wikingerin', 'plainhide_female', 'female']]) {
+  const label = `${classId}/${figure}`;
   const inventory = new Inventory();
   inventory.addItem(findItem('Hammer')!, 1);
-  const set = starterSetForClass(classId!, figure!)!;
-  assert.equal(set.id, setId);
+  const set = starterSetForClass(classId, figure!)!;
+  assert.equal(set.id, setId, label);
+  assert.deepEqual(set.parts.map(part => part.item), PLAINHIDE_ITEMS.map(key => `plainhide_${sex}_${key}`), label);
   // A partial administrative grant must not produce duplicate pieces.
   inventory.addItem(findItem(set.parts[0]!.item)!, 1);
-  const marker = grantStarterSet(inventory, classId!, figure!, '');
-  assert.equal(marker, setId);
-  for (const part of set.parts) assert.equal(inventory.countOf(part.item), 1);
+  const marker = grantStarterSet(inventory, classId, figure!, '');
+  assert.equal(marker, setId, label);
+  for (const part of set.parts) assert.equal(inventory.countOf(part.item), 1, `${label}: ${part.item}`);
   assert.equal(inventory.countOf('Hammer'), 1);
   assert(inventory.all.every(item => !item.equipped));
+  assert.equal(inventory.all.length, 6, `${label}: hammer plus five pieces, nothing else`);
+  for (const name of CLASS_SET_ITEMS) assert.equal(inventory.countOf(name), 0, `${label}: the class set piece ${name} must not be granted`);
   // Drop one piece, serialize/reload as a world restart would, and log in.
   inventory.removeItem(inventory.all.find(item => item.shared.name === set.parts[0]!.item)!);
   const restarted = new Inventory();
   restarted.load(JSON.parse(JSON.stringify(inventory.serialize())));
   const before = restarted.serialize();
-  assert.equal(grantStarterSet(restarted, classId!, figure!, marker), marker);
+  assert.equal(grantStarterSet(restarted, classId, figure!, marker), marker);
   assert.deepEqual(restarted.serialize(), before, 'Relog never replaces sold/dropped starter items');
 }
-for (const [classId, figure] of [['', 'wikinger'], ['jaeger', 'wikinger'], ['berserker', 'wikinger'], ['berserker', 'wikingerin'], ['krieger', 'wikingerin'], ['invalid', 'wikinger']]) {
+
+// Existing characters: whoever carries a marker keeps exactly what they have and gets nothing new, whichever family the marker names.
+for (const marker of ['ironward', 'ashenveil', 'wildwarden', 'seidraven_male', 'seidraven_female', 'emberrage_male', 'emberrage_female', 'plainhide_male', 'plainhide_female']) {
+  for (const [classId, figure] of [['krieger', 'wikinger'], ['berserker', 'wikingerin'], ['', 'wikinger']]) {
+    const inventory = new Inventory();
+    inventory.addItem(findItem('Hammer')!, 1);
+    const before = inventory.serialize();
+    assert.equal(grantStarterSet(inventory, classId!, figure!, marker), marker);
+    assert.deepEqual(inventory.serialize(), before, `${marker}: nothing is added to a character that already got its start`);
+  }
+}
+// The figure changes after the grant: the marker still wins, so no second grant and no removal.
+{
   const inventory = new Inventory();
+  const marker = grantStarterSet(inventory, 'berserker', 'wikinger', '');
+  assert.equal(marker, 'plainhide_male');
+  const before = inventory.serialize();
+  assert.equal(grantStarterSet(inventory, 'berserker', 'wikingerin', marker), marker);
+  assert.deepEqual(inventory.serialize(), before, 'A figure change neither re-grants nor removes');
+}
+// OPEN DECISION (Mike): does a character without a class get Plainhide? The expectation is this ONE line; the shared switch
+// STARTER_SET_FOR_CLASSLESS must agree with it, so flipping the decision means changing both lines and nothing else.
+const CLASSLESS_GETS_STARTER = false;
+assert.equal(STARTER_SET_FOR_CLASSLESS, CLASSLESS_GETS_STARTER, 'The shared switch and the test expectation must say the same');
+for (const [figure, setId] of [['wikinger', 'plainhide_male'], ['wikingerin', 'plainhide_female']] as const) {
+  // Case 1: a NEW character made without a class (an API client that sends none): the standard start kit, empty marker.
+  const fresh = new Inventory();
+  for (const [name, count] of [['Hammer', 1], ['AxeFlint', 1], ['Hoe', 1], ['PickaxeAntler', 1], ['Cultivator', 1], ['Wood', 12], ['Stone', 30], ['SwordNorth', 1]] as const) fresh.addItem(findItem(name)!, count);
+  const freshBefore = fresh.all.length;
+  assert.equal(grantStarterSet(fresh, '', figure, ''), CLASSLESS_GETS_STARTER ? setId : '', `new classless character (${figure})`);
+  assert.equal(fresh.all.length, freshBefore + (CLASSLESS_GETS_STARTER ? 5 : 0));
+  // Case 2: an OLD character from before the class choice: its own bag with an old leather piece, empty marker, no class.
+  const old = new Inventory();
+  old.addItem(findItem('Hammer')!, 1); old.addItem(findItem(figure === 'wikinger' ? 'SwordNorth' : 'LederBH')!, 1);
+  const oldBefore = old.serialize();
+  const marker = grantStarterSet(old, '', figure, '');
+  assert.equal(marker, CLASSLESS_GETS_STARTER ? setId : '', `old classless character (${figure})`);
+  if (!CLASSLESS_GETS_STARTER) assert.deepEqual(old.serialize(), oldBefore, 'An old classless character keeps exactly its bag');
+  else { assert.equal(old.all.length, 2 + 5); assert.equal(old.countOf('Hammer'), 1); }
+}
+// No usable class or figure: nothing is granted, the marker stays empty so the delivery is retried later.
+// (An unknown, non-empty class never gets a set; the classless decision above only concerns the empty class.)
+for (const [classId, figure] of [['invalid', 'wikinger'], ['admin', 'wikingerin'], ['krieger', ''], ['krieger', 'unknown']]) {
+  const inventory = new Inventory();
+  assert.equal(starterSetForClass(classId!, figure!), undefined);
   assert.equal(grantStarterSet(inventory, classId!, figure!, ''), '');
   assert.equal(inventory.all.length, 0);
 }
 assert(!isCharacterClass('admin'));
 assert(!isCharacterClass({ classId: 'seherin' }));
+// The real first login: the standard start kit is in the bag before the delivery, and five more pieces must fit.
+{
+  const inventory = new Inventory();
+  for (const [name, count] of [['Hammer', 1], ['AxeFlint', 1], ['Hoe', 1], ['PickaxeAntler', 1], ['Cultivator', 1], ['Wood', 12], ['Stone', 30], ['SwordNorth', 1]] as const) {
+    assert.equal(inventory.addItem(findItem(name)!, count), 0, name);
+  }
+  assert.equal(grantStarterSet(inventory, 'berserker', 'wikingerin', ''), 'plainhide_female', 'Plainhide fits next to the standard start kit');
+}
+// A full bag: atomic, with the delivery still pending. Exactly five free slots deliver the five pieces.
 const full = new Inventory();
 while (full.addItem(findItem('Hammer')!, 1) === 0) { /* Fill the bag. */ }
 const original = full.serialize();
 assert.equal(grantStarterSet(full, 'seherin', 'wikingerin', ''), '');
 assert.deepEqual(full.serialize(), original, 'Full bag is unchanged, with delivery still pending');
-for (const item of [...full.all].slice(0, 7)) full.removeItem(item);
-assert.equal(grantStarterSet(full, 'seherin', 'wikingerin', ''), 'seidraven_female');
+for (const item of [...full.all].slice(0, 4)) full.removeItem(item);
+const fourFree = full.serialize();
+assert.equal(grantStarterSet(full, 'seherin', 'wikingerin', ''), '', 'Four free slots are one short: nothing is delivered');
+assert.deepEqual(full.serialize(), fourFree, 'A short bag is left untouched, not half filled');
+full.removeItem([...full.all][0]!);
+assert.equal(grantStarterSet(full, 'seherin', 'wikingerin', ''), 'plainhide_female');
 
 const dir = mkdtempSync(join(tmpdir(), 'wov-starter-'));
 const path = join(dir, 'accounts.db');
@@ -70,4 +127,4 @@ try {
   assert.equal(db.charakterZuSpielerId(playerId)?.klasse, '', 'Existing characters are not assigned a guessed class');
   db.schliessen();
 } finally { rmSync(dir, { recursive: true, force: true }); }
-console.log('PASS starter sets: all seven variants, persistence, no duplicate grants, full-bag atomicity and old-account migration');
+console.log('PASS starter sets: Plainhide for all nine classes and both figures, no class sets, marker wins, persistence, no duplicate grants, full-bag atomicity and old-account migration');

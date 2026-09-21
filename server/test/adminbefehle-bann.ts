@@ -57,11 +57,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PacketType } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import type { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 import type { AdminListe } from '../src/admin/AdminListe.js';
 
-const PORT = 2574;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 const P = PacketType;
 
 let fehler = 0;
@@ -237,7 +238,7 @@ async function main(): Promise<void> {
   // g1-admin-fly.ts) und mit eigenem Daten- und Kontenordner, damit der
   // Lauf nichts anfasst, was Mike gehoert.
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldSeed: 'KxSYuZquuw',
     worldFeatures: false,
     worldsDir: join(ordner, 'worlds'),
@@ -253,6 +254,7 @@ async function main(): Promise<void> {
   });
   server.init();
   server.start();
+  PORT = portVon(server);
   await warte(600);
 
   const innen = server as unknown as { kontenDb: Kontendatenbank; adminListe: AdminListe };

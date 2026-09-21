@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "sourceSha256": "140c56dfe73902a0cc036249e9bea3915a5f6c1ea3753cbf7d7ee4fb57bfa04e",
+  "bodySha256": "132b1484c54343fee1fc2ec609a7281a16345effe15e74f8388fae1c0ce7ca91",
+  "joints": [
+    "Root",
+    "Hips",
+    "Hips_Attachment",
+    "Spine_01",
+    "Spine_02",
+    "Spine_03",
+    "Back_Attachment",
+    "Cape_Attachment_01",
+    "Cape_Attachment_02",
+    "Cape_Attachment_03",
+    "Cape_Attachment_04",
+    "Chest_Attachment",
+    "Clavicle_L",
+    "Shoulder_Attachment_L",
+    "Shoulder_L",
+    "Elbow_L",
+    "Elbow_Attachment_L",
+    "Hand_L",
+    "Finger_01",
+    "Finger_02",
+    "Finger_03",
+    "Finger_04",
+    "IndexFinger_01",
+    "IndexFinger_02",
+    "IndexFinger_03",
+    "IndexFinger_04",
+    "Thumb_01",
+    "Thumb_02",
+    "Thumb_03",
+    "Clavicle_R",
+    "Shoulder_Attachment_R",
+    "Shoulder_R",
+    "Elbow_R",
+    "Elbow_Attachment_R",
+    "Hand_R",
+    "Finger_01 1",
+    "Finger_02 1",
+    "Finger_03 1",
+    "Finger_04 1",
+    "IndexFinger_01 1",
+    "IndexFinger_02 1",
+    "IndexFinger_03 1",
+    "IndexFinger_04 1",
+    "Thumb_01 1",
+    "Thumb_02 1",
+    "Thumb_03 1",
+    "Neck",
+    "Head",
+    "Eyebrows",
+    "Eyes",
+    "Head_Attachment",
+    "UpperLeg_L",
+    "LowerLeg_L",
+    "Ankle_L",
+    "Ball_L",
+    "Toes_L",
+    "Knee_Attachment_L",
+    "UpperLeg_R",
+    "LowerLeg_R",
+    "Ankle_R",
+    "Ball_R",
+    "Toes_R",
+    "Knee_Attachment_R"
+  ],
+  "items": [
+    {
+      "item": "gravethorn_female_hood",
+      "label": "Gravethorn Helm",
+      "regions": [
+        "Head"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [
+        "hair",
+        "beard",
+        "eyebrows"
+      ],
+      "vfx": {
+        "emissive": true,
+        "profile": "gravethorn_red",
+        "attachedToItem": true,
+        "emissiveTriangles": 256
+      },
+      "file": "gravethorn_female_hood.glb",
+      "triangles": 963,
+      "bytes": 138648,
+      "sha256": "b7965ea7f0435912e17634a55757c5b22e73023e48b372689f89a253c95f6c12",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "gravethorn_female_shoulders",
+      "label": "Gravethorn Pauldrons",
+      "regions": [
+        "ArmUpperLeft",
+        "ArmUpperRight"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "gravethorn_red",
+        "attachedToItem": true,
+        "emissiveTriangles": 288
+      },
+      "file": "gravethorn_female_shoulders.glb",
+      "triangles": 1428,
+      "bytes": 194828,
+      "sha256": "b31f8181101a79eb0e4a8215bee6d77a7b5b8248df29d1955aa105830c768109",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "gravethorn_female_vest",
+      "label": "Gravethorn Cuirass",
+      "regions": [
+        "Torso"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "gravethorn_red",
+        "attachedToItem": true,
+        "emissiveTriangles": 16
+      },
+      "file": "gravethorn_female_vest.glb",
+      "triangles": 1158,
+      "bytes": 164196,
+      "sha256": "e19c1813e279eab547ada9d6e36d6e910346cdac8eda5692234636ae19d715f6",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "gravethorn_female_bracers",
+      "label": "Gravethorn Bracers",
+      "regions": [
+        "ArmLowerLeft",
+        "ArmLowerRight"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": false,
+        "profile": "gravethorn_red",
+        "attachedToItem": true,
+        "emissiveTriangles": 0
+      },
+      "file": "gravethorn_female_bracers.glb",
+      "triangles": 618,
+      "bytes": 92052,
+      "sha256": "5568a37d1d850ee3429809ceb83eb4e723ffc3d2d616abe00519a7b116bef933",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "gravethorn_female_gloves",
+      "label": "Gravethorn Gauntlets",
+      "regions": [
+        "HandLeft",
+        "HandRight"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": false,
+        "profile": "gravethorn_red",
+        "attachedToItem": true,
+        "emissiveTriangles": 0
+      },
+      "file": "gravethorn_female_gloves.glb",
+      "triangles": 748,
+      "bytes": 113508,
+      "sha256": "f6f6adf012a83876b64700f8171e2c1c274e4e677a4724f06f528c47d465d986",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "gravethorn_female_robe",
+      "label": "Gravethorn Tassets",
+      "regions": [
+        "Hips"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": true,
+        "profile": "gravethorn_red",
+        "attachedToItem": true,
+        "emissiveTriangles": 8
+      },
+      "file": "gravethorn_female_robe.glb",
+      "triangles": 1320,
+      "bytes": 154400,
+      "sha256": "1b4a99ab8f4053451ac2f3736b203e30bea7e48529c8703739697b11e810e2be",
+      "correctedHipJointEntries": 0
+    },
+    {
+      "item": "gravethorn_female_boots",
+      "label": "Gravethorn Greaves",
+      "regions": [
+        "LegLeft",
+        "LegRight"
+      ],
+      "bodyVariant": "female",
+      "bodyProfile": "wov-female-v1",
+      "figure": "wikingerin",
+      "hideAppearance": [],
+      "vfx": {
+        "emissive": false,
+        "profile": "gravethorn_red",
+        "attachedToItem": true,
+        "emissiveTriangles": 0
+      },
+      "file": "gravethorn_female_boots.glb",
+      "triangles": 918,
+      "bytes": 130708,
+      "sha256": "ff193a6890aa20c3c27b178fe75b23f5192e6b2a5140fb46a4aad93354cef0da",
+      "correctedHipJointEntries": 0
+    }
+  ]
+}

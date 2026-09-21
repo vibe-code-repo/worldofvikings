@@ -327,6 +327,8 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
       assert.equal(report.glbMeshNodesChecked, parts.reduce((n, p) => n + Math.max(p.regions.length, 1), 0), `${c.name}: mesh nodes checked`);
       assert.deepEqual(report.freeRegions, free, `${c.name}: free regions`);
       assert.equal(!!report.webBody, !!c.web, `${c.name}: web body flag`);
+      // The report says what a green run does not prove, next to collisionCertified: false.
+      assert.equal(report.collisionCertified, false); assert(report.notProven?.length >= 4, `${c.name}: the report names what it does not prove`);
       // Identity extras are required for every family except the closed legacy list.
       assert.equal(report.identityExtras, LEGACY_FAMILIES.includes(c.family) ? 'legacy-exempt' : 'required', `${c.name}: identity extras mode`);
       // Each free region is proven on its own: one synthetic triangle (or mesh) per region.

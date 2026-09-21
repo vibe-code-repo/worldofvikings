@@ -144,8 +144,9 @@ problem (open). A fixed port that a test really cannot avoid (there is none
 today) is written down at the place with its reason and entered in
 `FESTE_PORTS` in `scripts/testport.mjs`. Two things keep this true:
 `scripts/pruefe-feste-ports.mjs` (in the collective run, text only, ~0.1 s) turns
-red on a fixed port in any test file and on a stale entry in its two allowance
-lists, and `scripts/listen-spion.mjs` (usage in its header) measures what a run
+red on a fixed port in any test file, on a stale entry in its two allowance lists
+and on a tool under `tools/` or `scripts/` that starts a server on a slot port
+without being named there, and `scripts/listen-spion.mjs` (usage in its header) measures what a run
 really binds - logging every `listen()`, and refusing fixed ports without binding
 anything if asked.
 

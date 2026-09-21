@@ -20,6 +20,17 @@
  * `.listen(<number>`, `WOV_*PORT: '<number>'` and `--port <number>`. Port 0 (the
  * operating system picks it) is the rule and never a finding.
  *
+ * A second scan covers what the first cannot see: files under `tools/` and `scripts/`
+ * that are NOT test files. One whose code (comments cut off) names a slot port
+ * (247n game server, 248n admin service, 529n client, see AGENTS.md 3) AND starts a
+ * server (`--port`, `createWovServer`, `.listen(`, `WOV_(CLIENT|SPIEL|ADMIN)_PORT:`)
+ * must be on WERKZEUGE with a reason. That makes the tool list binding instead of
+ * merely claimed: an unnamed tool is a finding, exactly the class the attack found
+ * (three tools nobody had looked at). Tools that only READ a slot port as a URL
+ * default (`--url http://localhost:5292`) are clients and are not caught. Not seen:
+ * computed ports, a port only inside a URL, binds in files outside `tools/` and
+ * `scripts/` that are not test files.
+ *
  * Two lists say why a number is allowed; both are checked BOTH ways, so neither can
  * rot silently:
  *   - AUSNAHMEN: lines in test files that carry a port number and are not a bind
@@ -85,6 +96,10 @@ const TESTNAME = /\.(test|spec)\.[^./]+$/i;
 const ZEUGENNAME = /^pruefe-/i;
 /** This file is a `pruefe-*` file and so a test file by definition, but its lists and its self-proof hold port numbers as data. */
 const EIGENE_DATEI = 'scripts/pruefe-feste-ports.mjs';
+const WERKZEUG_WURZELN = ['tools', 'scripts'];
+/** 247n game server, 248n admin service, 529n client; not part of a decimal number (`0.2489`, `-5292.9`). */
+const SLOTPORT = /(?<![\d.])(?:247\d|248\d|529\d)(?![\d.])/;
+const STARTET_SERVER = /--port\b|createWovServer|\.listen\s*\(|WOV_(?:CLIENT|SPIEL|ADMIN)_PORT\s*:/;
 const UEBERSPRINGEN = new Set(['node_modules', '.git', 'assets', 'dist', 'build', '.svelte-kit']);
 
 /** An identifier with "port" in it: port, PORT, PORT_X, portText, TEST_PORT, spielPort ... */
@@ -111,7 +126,8 @@ function festePortZahl(zeile, erlaubteZahlen) {
   return null;
 }
 
-function testdateien(wurzel) {
+/** Every script file below `wurzel`, marked as test file or not (same definition as scripts/pruefe-runner-liste.mjs). */
+function skriptdateien(wurzel) {
   const gefunden = [];
   const geh = (ordner, imTest, kette) => {
     let echt;
@@ -136,8 +152,9 @@ function testdateien(wurzel) {
         if (!UEBERSPRINGEN.has(eintrag.name)) geh(voll, imTest || TESTORDNER.test(eintrag.name), weiter);
         continue;
       }
-      if (ENDUNG.test(eintrag.name) && (imTest || TESTNAME.test(eintrag.name) || ZEUGENNAME.test(eintrag.name))) {
-        gefunden.push({ voll, rel: posix.normalize(relative(wurzel, voll).split(sep).join('/')) });
+      if (ENDUNG.test(eintrag.name)) {
+        const istTest = imTest || TESTNAME.test(eintrag.name) || ZEUGENNAME.test(eintrag.name);
+        gefunden.push({ voll, istTest, rel: posix.normalize(relative(wurzel, voll).split(sep).join('/')) });
       }
     }
   };
@@ -150,8 +167,20 @@ export function pruefe(wurzel, { ausnahmen = AUSNAHMEN, werkzeuge = WERKZEUGE, f
   const funde = [];
   const erlaubteZahlen = new Set(Object.values(feste).map((eintrag) => eintrag.port));
   const benutzt = new Set();
-  for (const datei of testdateien(wurzel)) {
+  const namen = new Set(werkzeuge.map((w) => w.pfad));
+  for (const datei of skriptdateien(wurzel)) {
     if (datei.rel === EIGENE_DATEI) continue;
+    if (!datei.istTest) {
+      if (!WERKZEUG_WURZELN.some((oben) => datei.rel.startsWith(`${oben}/`))) continue;
+      const code = readFileSync(datei.voll, 'utf8')
+        .split('\n')
+        .filter((zeile) => !/^\s*(\*|\/\*|\/\/)/.test(zeile))
+        .map((zeile) => zeile.replace(/(^|\s)\/\/.*$/, '$1'));
+      if (!namen.has(datei.rel) && code.some((z) => SLOTPORT.test(z)) && code.some((z) => STARTET_SERVER.test(z))) {
+        funde.push(`${datei.rel}: starts a server on a slot port (247n/248n/529n) and is not on WERKZEUGE - take a free port or name it there with a reason`);
+      }
+      continue;
+    }
     readFileSync(datei.voll, 'utf8')
       .split('\n')
       .forEach((zeile, i) => {
@@ -215,6 +244,15 @@ function selbstprobe() {
     erwarte('an entry that matches nothing is stale', pruefe(wurzel, { ...ohneAusnahmen, ausnahmen: [{ pfad: 'p/test/fest.ts', text: 'const PORT = 2604', grund: 'probe' }] }), 'stale exception');
     schreibe('p/test/fest.ts', 'const PORT = 2604;\n');
     erwarte('a number in FESTE_PORTS is accepted', pruefe(wurzel, { ...ohneAusnahmen, feste: { probe: { port: 2604, grund: 'probe' } } }), 'sauber');
+    schreibe('tools/bindet.mjs', "const CLIENT_PORT = 5299;\nspawn('vite', ['--port', String(CLIENT_PORT)]);\n");
+    schreibe('tools/nur-client.mjs', "const ZIEL = arg('url', 'http://localhost:5292');\n// vite --port 5293\n");
+    schreibe('tools/dezimal.mjs', "const zz = -5292.9; const y = 0.2489; spawn('vite', ['--port', String(p)]);\n");
+    const ohneTools = { ...ohneAusnahmen, ausnahmen: [{ pfad: 'p/test/fest.ts', text: 'const PORT = 2604', grund: 'probe' }] };
+    erwarte('an unnamed tool that starts a server on a slot port is a finding', pruefe(wurzel, ohneTools), 'tools/bindet.mjs: starts a server on a slot port');
+    erwarte('a tool that only reads a slot port as a URL is no finding', pruefe(wurzel, ohneTools).filter((f) => f.startsWith('tools/nur-client')), 'sauber');
+    erwarte('a slot number inside a decimal is no finding', pruefe(wurzel, ohneTools).filter((f) => f.startsWith('tools/dezimal')), 'sauber');
+    erwarte('the same tool, named on WERKZEUGE, passes', pruefe(wurzel, { ...ohneTools, werkzeuge: [{ pfad: 'tools/bindet.mjs', text: 'CLIENT_PORT = 5299', grund: 'probe' }] }).filter((f) => f.startsWith('tools/bindet')), 'sauber');
+    rmSync(join(wurzel, 'tools'), { recursive: true });
     schreibe('tool.mjs', 'const P = 5299;\n');
     erwarte('a tool entry with its text passes', pruefe(wurzel, { ...ohneAusnahmen, ausnahmen: [], werkzeuge: [{ pfad: 'tool.mjs', text: 'const P = 5299', grund: 'probe' }], }).filter((f) => f.startsWith('stale tool')), 'sauber');
     erwarte('a tool entry whose text is gone is stale', pruefe(wurzel, { ...ohneAusnahmen, werkzeuge: [{ pfad: 'tool.mjs', text: 'const P = 1', grund: 'probe' }] }), 'stale tool entry');
@@ -236,7 +274,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.a
     probleme.forEach((p) => console.error(`  ${p}`));
     process.exit(1);
   }
-  console.log(`self-proof: ${richtungen} directions ok (clean tree, fixed-port forms, non-test file, pruefe-* file, allowed line, stale entry, FESTE_PORTS, tool entries)`);
+  console.log(`self-proof: ${richtungen} directions ok (clean tree, fixed-port forms, non-test file, pruefe-* file, allowed line, stale entry, FESTE_PORTS, tool entries, unnamed slot-port tools)`);
   const funde = pruefe(wurzel);
   console.log(`${wurzel}: ${funde.length} finding(s) in ${Date.now() - start} ms`);
   funde.forEach((f) => console.log(`  ${f}`));

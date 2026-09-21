@@ -285,7 +285,9 @@ const KERN = [
     of a test file as the witness above), no bind, ~0.1 s, needs no assets/.
     Two lists carry the reasons for every allowed number (a known rest in
     g12-tick-aufteilung.ts, YAML fixture text, three slot-port tools outside the
-    runner) and are checked both ways: an entry that matches nothing is a finding.
+    runner) and are checked both ways: an entry that matches nothing is a finding,
+    and so is a tool under tools/ or scripts/ that starts a server on a slot port
+    (247n/248n/529n) without being named.
     It proves itself on a throwaway tree first, in every direction.
 
     Guard: no test names a fixed port; every allowed number carries a reason.

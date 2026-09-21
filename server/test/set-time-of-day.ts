@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import { rmSync } from 'fs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Eigenes Verzeichnis statt data/worlds (Default) — sonst landet bei jedem
@@ -113,13 +114,13 @@ function sendSetTimeOfDay(ws: WebSocket, seconds: number): void {
 
 /** Admin darf: Anfrage geht durch, TimeSync broadcastet die neue Zeit. */
 async function testAdminDarf(): Promise<void> {
-  const PORT = 2499;
   // `everyoneAdmin` steht seit dem 13.09.2026 per Vorgabe auf FALSE
   // (Sicherheitspaket 0.1). Diese Probe schickt Adminpakete, prueft aber
   // nicht die Rechtevergabe — deshalb hier ausdruecklich erlaubt, statt
   // sich still auf eine Sicherheitseinstellung zu stuetzen.
-  const server = createWovServer({ port: PORT, everyoneAdmin: true, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten') });
+  const server = createWovServer({ port: 0, everyoneAdmin: true, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten') });
   server.start();
+  const PORT = portVon(server);
 
   let initialTimeOfDay: number | null = null;
   let ws!: WebSocket;
@@ -154,11 +155,11 @@ async function testAdminDarf(): Promise<void> {
 
 /** Nicht-Admin darf nicht: Ablehnung per InteractResult, kein TimeSync mit der angefragten Zeit. */
 async function testNichtAdminDarfNicht(): Promise<void> {
-  const PORT = 2500;
   // Eigener worldName — sonst laedt dieser Server den Spielstand, den
   // testAdminDarf() gerade erst gespeichert hat (gleiches WORLDS_DIR).
-  const server = createWovServer({ port: PORT, everyoneAdmin: false, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'ohne-rechte' });
+  const server = createWovServer({ port: 0, everyoneAdmin: false, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'ohne-rechte' });
   server.start();
+  const PORT = portVon(server);
 
   let sawInteractResult = false;
   let timeSyncCount = 0;

@@ -103,7 +103,7 @@ const spanneZ = form.max.z - form.min.z;
 
 // ── Die Kollisionswelt, mit ebenem Boden auf 0 ──────────────────────
 
-const server = createWovServer({ port: 2476, worldSeed: 'KxSYuZquuw', worldFeatures: false });
+const server = createWovServer({ port: 0 /* init() only, never bound */, worldSeed: 'KxSYuZquuw', worldFeatures: false });
 server.init();
 const welt = new Kollisionswelt(server.zdos, server.prefabs, () => 0);
 

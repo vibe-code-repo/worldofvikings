@@ -41,6 +41,7 @@ import { rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 // Dieselbe Lehre wie in g9/m5a: die Handshake-Antwort MUSS ueber die
 // Produktivfunktion laufen. / Same lesson as in g9.
 import { antwortBerechnen } from '../src/net/Identitaet.js';
@@ -51,8 +52,7 @@ import { dungeon2 } from '@wov/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, 'tmp-licht-teleport');
-/** Eigener Port — nicht 2467 (DEV), nicht 2498/2499 (g6/g9), nicht 2520 (m5a). */
-const PORT = 2521;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 const P = {
   VersionCheck: 1,
   PasswordAuth: 2,
@@ -172,7 +172,7 @@ const ERWARTETES_LICHT = 2.5;
 async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: resolve(TMP, 'worlds'), kontenDir: resolve(TMP, 'konten'),
     // Schickt `dungeon enter` als Admin-Paket; die Vorgabe ist seit 13.09.2026 false.
     // Sends `dungeon enter` as an admin packet; the default has been false since 13.09.2026.
@@ -180,6 +180,7 @@ async function main(): Promise<void> {
     saveIntervalMs: 3600_000,
   });
   server.start();
+  PORT = portVon(server);
 
   const dungeons = server.dungeons;
 

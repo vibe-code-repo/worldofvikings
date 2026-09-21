@@ -7,14 +7,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import { CHARACTER_CLASSES, EQUIPMENT_SETS, PacketType, STARTER_SET_FOR_CLASSLESS } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'wov-starter-e2e-'));
-// The port can be moved for a run on a task slot (247n); the runner keeps the default.
-const port = Number(process.env.WOV_STARTER_E2E_PORT ?? 2586);
-const config = { port, everyoneAdmin: false, worldsDir: dir, kontenDir: join(dir, 'konten'), worldName: 'starter-test', sessionSecret: randomBytes(32) };
+let port = 0; // the OS picks it; read back after every start() (scripts/testport.mjs)
+const config = { port: 0, everyoneAdmin: false, worldsDir: dir, kontenDir: join(dir, 'konten'), worldName: 'starter-test', sessionSecret: randomBytes(32) };
 let server = createWovServer(config);
 const sockets = new Set<WebSocket>();
 let accountToken = '';
@@ -60,6 +60,7 @@ async function disconnect(ws: WebSocket, name: string) {
 
 try {
   server.start();
+  port = portVon(server);
   accountToken = (await post('/register', {
     username: 'StarterTest', email: 'starter@example.org', password: 'StarterTest12345',
   }, 201)).token;
@@ -93,6 +94,7 @@ try {
       await delay(100);
       server = createWovServer(config);
       server.start();
+      port = portVon(server);
     }
     ws = await connect(name, sessionToken);
     peer = server.net.getPeers().find(p => p.name === name)!;
@@ -121,6 +123,7 @@ try {
     const expected = peer.inventar.serialize();
     await disconnect(ws, name);
     server.stop(); await delay(100); server = createWovServer(config); server.start();
+    port = portVon(server);
     ws = await connect(name, sessionToken);
     peer = server.net.getPeers().find(p => p.name === name)!;
     assert.equal(peer.starterSetGranted, CLASSLESS_GETS_STARTER ? setId : '', `${name}: marker after restart`);

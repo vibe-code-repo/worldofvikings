@@ -101,7 +101,7 @@ function check(name: string, cond: boolean, detail = ''): void {
 
 function makeServer(worldSeed: string) {
   return createWovServer({
-    port: 2498, // never bound (init() only, no start()) — kept off the live ports anyway
+    port: 0, // never bound (init() only, no start())
     worldName: 'world',
     worldSeed,
     // Locations aus (worldFeatures=false): Die Feature-Tabelle ist seit

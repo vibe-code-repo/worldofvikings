@@ -119,8 +119,41 @@ tracked. Change it in your worktree and restore it before every commit
 in a pull request. The DEV services on `2467`, `2468`, `5274` and `3000` belong
 to `/opt/worldofvikings` — never stop or restart them from a task.
 
-Full test runs share a few fixed ports and collide when two run at once, and
-frame-time measurements are skewed by a neighbour that renders. Serialise both:
+**Tests never choose a port.** A test that starts a server passes `port: 0` and
+reads the real port back with `portVon(server)` from `scripts/testport.mjs`
+(`freierPort()` there is the second choice, for a child process or config file
+that must be told the port before it binds). A constant that only looks like a
+port is not allowed either: a test that merely calls `init()` passes `port: 0`
+as well. Why this is a rule and not a habit: until 21.09.2026 about 25 test
+files bound fixed ports in `2498`-`2610` (and `27314`). Those numbers belong to
+nobody. The slot ports above are a different band and protect nothing there:
+**no test in the collective run (`npm test`) binds them** - but three manual
+tools outside it do, on purpose: `tools/dungeon2-e2e.mjs` (`2477` game server,
+`5299` client, both slot 7), `tools/dungeon2-speckle-guard.mjs` (`5299`) and
+`tools/pw-dungeon2-effekte.mjs` (`5297`). Start those only while the matching
+slot is yours; they are named, with their reason, in
+`scripts/pruefe-feste-ports.mjs`. So any session's probe on a test's number, a
+second full run or an orphan left by an aborted run made a test fail with
+`EADDRINUSE` (one full run then hung for 600 s on it) - or, worse, pass without
+checking anything: several tests end in `try { ... } finally { ...; process.exit(...) }`,
+which swallows an aborted promise chain. Measured: `g7-bauen.ts` on the old
+stand with `2511` held printed `EADDRINUSE`, ran no check and exited 0; eight of
+the converted tests do that whenever their connect fails (`b8-angreifbar` and
+seven `g7-*`). `port: 0` removes the trigger; the pattern itself is a separate
+problem (open). A fixed port that a test really cannot avoid (there is none
+today) is written down at the place with its reason and entered in
+`FESTE_PORTS` in `scripts/testport.mjs`. Two things keep this true:
+`scripts/pruefe-feste-ports.mjs` (in the collective run, text only, ~0.1 s) turns
+red on a fixed port in any test file, on a stale entry in its two allowance lists
+and on a tool under `tools/` or `scripts/` that starts a server on a slot port
+without being named there, and `scripts/listen-spion.mjs` (usage in its header) measures what a run
+really binds - logging every `listen()`, and refusing fixed ports without binding
+anything if asked.
+
+Full test runs no longer collide on ports, but two things still argue for
+running them one after the other: timing-sensitive tests and frame-time
+measurements are skewed by a neighbour that computes or renders. Serialise
+both:
 
 ```bash
 flock /opt/wov-worktrees/.slots/test.lock npm test

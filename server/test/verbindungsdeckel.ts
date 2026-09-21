@@ -15,6 +15,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { rmSync } from 'fs';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-verbindungsdeckel');
@@ -22,7 +23,7 @@ rmSync(WORLDS_DIR, { recursive: true, force: true });
 
 // Muss mit NetManager.ts (MAX_PENDING_CONNECTIONS) uebereinstimmen.
 const DECKEL = 50;
-const PORT = 2501;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 function warteAufOeffnen(ws: WebSocket): Promise<void> {
   return new Promise((resolvePromise, reject) => {
@@ -48,8 +49,9 @@ function warteAufSchliessenOderGnadenfrist(ws: WebSocket, gnadenfristMs: number)
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'verbindungsdeckel' });
+  const server = createWovServer({ port: 0, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'verbindungsdeckel' });
   server.start();
+  PORT = portVon(server);
 
   const offeneSockets: WebSocket[] = [];
   try {

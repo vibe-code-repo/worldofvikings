@@ -31,13 +31,14 @@ import { rmSync } from 'fs';
 import { getStableHash, type Vector3 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-g7-bauen');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
-const PORT = 2511;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 const P = {
   VersionCheck: 1,
@@ -135,8 +136,9 @@ function hoereAufInteractResult(ws: WebSocket, log: InteractResultMsg[]): void {
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-bauen', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: 0, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-bauen', saveIntervalMs: 3600_000 });
   server.start();
+  PORT = portVon(server);
 
   try {
     const menhirHash = getStableHash('GrabMenhir');

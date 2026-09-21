@@ -141,7 +141,7 @@ async function speichertaktPruefen(): Promise<void> {
     [
       'server:',
       '  name: A14-Test',
-      '  port: 2593',
+      '  port: 0', // bound by server.start() below: the OS picks it
       'players:',
       '  max: 2',
       'world:',

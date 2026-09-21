@@ -30,6 +30,7 @@ import { getStableHash } from '@wov/shared';
  */
 const INSTANZ_MAX_ABSTAND_M = 5_000;
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 // F4-Lehre (siehe Kopfkommentar scripts/run-tests.mjs / CLAUDE.md): die
 // Handshake-Antwort MUSS ueber die Produktivfunktion laufen, nicht ueber
 // eine eigene HMAC-Zeile. Der Test baute bislang createHmac('sha256', '')
@@ -53,7 +54,7 @@ import { parseZDOSync, ZDOSpiegel } from '../../client/src/net/ZDOSync';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, 'tmp-g6');
-const PORT = 2498;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 const P = {
   VersionCheck: 1,
   PasswordAuth: 2,
@@ -103,7 +104,7 @@ function sendAdmin(ws: WebSocket, line: string): void {
 async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: resolve(TMP, 'worlds'), kontenDir: resolve(TMP, 'konten'),
     // Diese Probe schickt Adminpakete und prueft NICHT die Rechtevergabe:
     // seit dem 13.09.2026 ist die Vorgabe `everyoneAdmin: false`, also
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
     saveIntervalMs: 3600_000,
   });
   server.start();
+  PORT = portVon(server);
 
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
   ws.binaryType = 'nodebuffer';

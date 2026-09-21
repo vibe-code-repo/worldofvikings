@@ -36,6 +36,7 @@ import {
 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { ZDOID } from '../src/zdo/ZDOID.js';
@@ -45,7 +46,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Welt neben Mikes echtem Spielstand (dieselbe Regel wie f1-truhe.ts).
 const WORLDS_DIR = resolve(__dirname, 'tmp-b7-entsperren');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
-const PORT = 2610;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 const P = {
   VersionCheck: 1,
@@ -138,13 +139,14 @@ interface TodesZugriff {
 
 async function main(): Promise<void> {
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: WORLDS_DIR,
     kontenDir: resolve(WORLDS_DIR, 'konten'),
     worldName: 'b7-entsperren',
     saveIntervalMs: 3600_000,
   });
   server.start();
+  PORT = portVon(server);
   let laeuft = true;
 
   try {
@@ -336,7 +338,7 @@ async function main(): Promise<void> {
     server.stop();
     laeuft = false;
     const server2 = createWovServer({
-      port: PORT,
+      port: 0,
       worldsDir: WORLDS_DIR,
       kontenDir: resolve(WORLDS_DIR, 'konten'),
       worldName: 'b7-entsperren',

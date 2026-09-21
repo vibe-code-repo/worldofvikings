@@ -119,7 +119,7 @@ console.log("\n[2] Admin-Befehl 'marke':");
   rmSync(WORLDS_DIR_ADMIN, { recursive: true, force: true });
   mkdirSync(WORLDS_DIR_ADMIN, { recursive: true });
   const server = createWovServer({
-    port: 2499, // never bound (init() only, no start()) — s. g1-admin-fly
+    port: 0, // never bound (init() only, no start()) — s. g1-admin-fly
     worldName: 'f5admintest',
     worldSeed: SEED,
     worldFeatures: false,
@@ -209,7 +209,7 @@ console.log('\n[3] Speichern/Laden (WovServer.saveWorld/loadWorld):');
 
   function makeServer() {
     return createWovServer({
-      port: 2499,
+      port: 0, // init() only, never bound
       worldName: 'f5test',
       worldSeed: SEED,
       worldFeatures: false,
@@ -357,7 +357,7 @@ console.log('\n[6] Eikthyr-Kill setzt die Marke:');
   rmSync(WORLDS_DIR, { recursive: true, force: true });
   mkdirSync(WORLDS_DIR, { recursive: true });
   const server = createWovServer({
-    port: 2499,
+    port: 0, // init() only, never bound
     worldName: 'f5kampf',
     worldSeed: SEED,
     worldFeatures: false,

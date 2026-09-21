@@ -23,14 +23,15 @@ import { fileURLToPath } from 'url';
 import { rmSync } from 'fs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-g7-handshake-fehler');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
-const PORT_KEIN_PW = 2515; // eigener Server ohne Passwort (Tests 2-4)
-const PORT_MIT_PW = 2516; // eigener Server MIT Passwort (Test 1)
+let PORT_KEIN_PW = 0; // eigener Server ohne Passwort (Tests 2-4); the OS picks the port, read back after start()
+let PORT_MIT_PW = 0; // eigener Server MIT Passwort (Test 1); same (scripts/testport.mjs)
 
 const P = {
   VersionCheck: 1,
@@ -167,14 +168,14 @@ function warteAufSchliessenOderGnadenfrist(ws: WebSocket, ms: number): Promise<b
 
 async function main(): Promise<void> {
   const serverOhnePw = createWovServer({
-    port: PORT_KEIN_PW,
+    port: 0,
     worldsDir: resolve(WORLDS_DIR, 'ohne-pw'),
     kontenDir: resolve(WORLDS_DIR, 'ohne-pw', 'konten'),
     worldName: 'g7-handshake-ohne-pw',
     saveIntervalMs: 3600_000,
   });
   const serverMitPw = createWovServer({
-    port: PORT_MIT_PW,
+    port: 0,
     worldsDir: resolve(WORLDS_DIR, 'mit-pw'),
     kontenDir: resolve(WORLDS_DIR, 'mit-pw', 'konten'),
     worldName: 'g7-handshake-mit-pw',
@@ -183,6 +184,8 @@ async function main(): Promise<void> {
   });
   serverOhnePw.start();
   serverMitPw.start();
+  PORT_KEIN_PW = portVon(serverOhnePw);
+  PORT_MIT_PW = portVon(serverMitPw);
 
   try {
     // ── [1] Falsches Passwort ────────────────────────────────────

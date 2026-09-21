@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-13T15:05:44.675Z",
+ "erzeugt": "2026-09-21T05:04:44.296Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 273,
- "gemessen": 273,
+ "anzahl": 275,
+ "gemessen": 275,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -2688,6 +2688,45 @@
    "meshlos": false,
    "skins": 0
   },
+  "Kuh": {
+   "datei": "Kuh.glb",
+   "foliage": false,
+   "bytes": 457680,
+   "huelle": {
+    "min": [
+     -0.383,
+     0.03,
+     -1.103
+    ],
+    "max": [
+     0.383,
+     1.579,
+     1.856
+    ]
+   },
+   "breite": 0.765,
+   "hoehe": 1.549,
+   "tiefe": 2.959,
+   "dreiecke": 1414,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "idle",
+     "dauer": 3.083
+    },
+    {
+     "name": "run",
+     "dauer": 0.542
+    },
+    {
+     "name": "walk",
+     "dauer": 1.167
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
   "Margerite1": {
    "datei": "Margerite1.glb",
    "foliage": true,
@@ -4827,6 +4866,53 @@
     {
      "name": "rennen",
      "dauer": 2.583
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "Wolf": {
+   "datei": "Wolf.glb",
+   "foliage": false,
+   "bytes": 668628,
+   "huelle": {
+    "min": [
+     -0.208,
+     0.09,
+     -0.687
+    ],
+    "max": [
+     0.208,
+     0.934,
+     0.68
+    ]
+   },
+   "breite": 0.416,
+   "hoehe": 0.844,
+   "tiefe": 1.367,
+   "dreiecke": 1000,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "attack",
+     "dauer": 0.833
+    },
+    {
+     "name": "die",
+     "dauer": 1
+    },
+    {
+     "name": "idle",
+     "dauer": 2.917
+    },
+    {
+     "name": "run",
+     "dauer": 0.708
+    },
+    {
+     "name": "walk",
+     "dauer": 1.25
     }
    ],
    "meshlos": false,

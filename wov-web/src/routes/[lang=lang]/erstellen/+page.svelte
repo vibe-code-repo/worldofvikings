@@ -176,7 +176,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'kopf-zoom-v2-20260919';
+  const FIGUREN_STAND = 'ruestungen-plainhide-gravethorn-v1-20260921';
 
   let figur = $state('');
   let frisur = $state('');

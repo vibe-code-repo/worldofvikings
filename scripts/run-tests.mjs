@@ -42,7 +42,19 @@
  * Anleitung steht in seinem eigenen Kopfkommentar.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, closeSync, constants, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
+import {
+  accessSync,
+  closeSync,
+  constants,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  statSync,
+  statfsSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2110,7 +2122,18 @@ for (const [signal, nummer] of [['SIGINT', 2], ['SIGHUP', 1], ['SIGTERM', 15]]) 
   - Ein Enkel mit eigener Sitzung, der die geerbten Pipes offen haelt, liess das
     Versprechen nie aufloesen (`'close'` kam nicht): der Lauf haengt. Ohne Pipes gibt es
     nichts, worauf zu warten waere; aufgeloest wird beim Ende des Kindes (`'exit'`).
-  Gelesen wird nur nach einem Fehlschlag, und hoechstens die letzten 8 MiB.
+  Gelesen wird nur nach einem Fehlschlag, und hoechstens die letzten 8 MiB. Jeder Test
+  bekommt einen EIGENEN Unterordner (ein Enkel, der einen Test ueberlebt und weiter
+  schreibt, landet so nie im Bericht des naechsten) und der Ordner wird nach dem Test
+  geloescht.
+
+  GESCHRIEBEN wird nur bis zu einer Grenze: Ein Wachhund prueft alle 10 ms die Groesse
+  beider Dateien und den freien Platz auf dem Datentraeger. Ueber 64 MiB je Strom oder
+  unter 32 MiB frei wird die Gruppe des Tests beendet (SIGKILL) und der Test ist ROT
+  mit dem Grund; der Grund kommt aus dem Speicher des Runners, nicht aus den Dateien —
+  bei vollem Datentraeger waere die Ursache in stderr.txt nie angekommen. Gemessen
+  schreibt ein Test 150-200 MiB/s; ohne Grenze waere das Wurzeldateisystem (auch das
+  der DEV-Dienste) in rund drei Minuten voll.
 
   Der Ordner liegt in /var/tmp, NICHT in os.tmpdir(): auf wov-dev ist /tmp ein tmpfs,
   also Arbeitsspeicher (16 GB Grenze auf einer Maschine mit 10 GB RAM), und ein Test mit
@@ -2131,28 +2154,61 @@ const AUSGABE_BASIS = (() => {
 const LAUF_ORDNER = mkdtempSync(join(AUSGABE_BASIS, 'wov-lauf-'));
 process.on('exit', () => rmSync(LAUF_ORDNER, { recursive: true, force: true }));
 const MAX_AUSGABE = 8 * 1024 * 1024;
+const GRENZE_STROM = 64 * 1024 * 1024;
+const MIN_FREI = 32 * 1024 * 1024;
+const WACHE_MS = 10;
+const mib = (bytes) => (bytes / 2 ** 20).toFixed(0);
+/** Freie Bytes auf dem Datentraeger von `pfad`, oder null, wenn sich das nicht messen laesst. */
+function freierPlatz(pfad) {
+  try {
+    const platz = statfsSync(pfad);
+    return platz.bavail * platz.bsize;
+  } catch {
+    return null;
+  }
+}
+const zuWenigPlatz = (frei) => `nur noch ${mib(frei)} MiB frei unter ${AUSGABE_BASIS} (Grenze ${mib(MIN_FREI)} MiB)`;
 function liesAusgabe(pfad) {
-  const groesse = statSync(pfad).size;
-  if (groesse <= MAX_AUSGABE) return readFileSync(pfad, 'utf8');
-  const puffer = Buffer.alloc(MAX_AUSGABE);
-  const fd = openSync(pfad, 'r');
-  readSync(fd, puffer, 0, MAX_AUSGABE, groesse - MAX_AUSGABE);
-  closeSync(fd);
-  return `[… ${groesse - MAX_AUSGABE} Bytes gekuerzt …]\n${puffer.toString('utf8')}`;
+  try {
+    const groesse = statSync(pfad).size;
+    if (groesse <= MAX_AUSGABE) return readFileSync(pfad, 'utf8');
+    const puffer = Buffer.alloc(MAX_AUSGABE);
+    const fd = openSync(pfad, 'r');
+    readSync(fd, puffer, 0, MAX_AUSGABE, groesse - MAX_AUSGABE);
+    closeSync(fd);
+    return `[… ${groesse - MAX_AUSGABE} Bytes gekuerzt …]\n${puffer.toString('utf8')}`;
+  } catch (fehlerLesen) {
+    return `(Ausgabe nicht lesbar: ${fehlerLesen.message})`;
+  }
 }
 
 /** Startet einen Test asynchron und liefert wie spawnSync `{ status, signal, stdout, stderr, error }`. */
 function starteKind(befehl, argumente, optionen) {
   return new Promise((fertig) => {
-    const stdoutPfad = join(LAUF_ORDNER, 'stdout.txt');
-    const stderrPfad = join(LAUF_ORDNER, 'stderr.txt');
-    const aus = openSync(stdoutPfad, 'w');
-    const fehl = openSync(stderrPfad, 'w');
+    let testOrdner = null;
+    let aus;
+    let fehl;
+    try {
+      testOrdner = mkdtempSync(join(LAUF_ORDNER, 't-'));
+      aus = openSync(join(testOrdner, 'stdout.txt'), 'w');
+      fehl = openSync(join(testOrdner, 'stderr.txt'), 'w');
+    } catch (fehlerAnlegen) {
+      // Etwa Datentraeger voll: der Test startet nicht, und der Grund steht im Ergebnis.
+      if (aus !== undefined) closeSync(aus);
+      if (testOrdner !== null) rmSync(testOrdner, { recursive: true, force: true });
+      fertig({
+        status: null,
+        signal: null,
+        stdout: '',
+        stderr: '',
+        error: new Error(`Ausgabedateien nicht anlegbar unter ${AUSGABE_BASIS}: ${fehlerAnlegen.message}`),
+      });
+      return;
+    }
     const kind = spawn(befehl, argumente, { cwd: optionen.cwd, detached: true, stdio: ['ignore', aus, fehl] });
-    closeSync(aus);
-    closeSync(fehl);
     const gruppe = kind.pid ?? null;
     let zeitlimit = false;
+    let abbruchGrund = null;
     let erledigt = false;
     let hart = null;
     let spaet = null;
@@ -2163,16 +2219,47 @@ function starteKind(befehl, argumente, optionen) {
       clearTimeout(frist);
       clearTimeout(hart);
       clearTimeout(spaet);
+      clearInterval(wache);
       laufendeGruppe = null;
+      closeSync(aus);
+      closeSync(fehl);
       if (abbruchCode !== null) process.exit(abbruchCode);
-      fertig({
-        status,
-        signal,
-        stdout: liesAusgabe(stdoutPfad),
-        stderr: liesAusgabe(stderrPfad),
-        error: zeitlimit ? new Error('Zeitlimit') : error,
-      });
+      const gruen = status === 0 && !zeitlimit && abbruchGrund === null && !error;
+      // Gelesen wird nur nach einem Fehlschlag.
+      const stdout = gruen ? '' : liesAusgabe(join(testOrdner, 'stdout.txt'));
+      const stderr = gruen ? '' : liesAusgabe(join(testOrdner, 'stderr.txt'));
+      // Der Grund kommt aus dem Speicher des Runners: bei vollem Datentraeger ist er in stderr.txt nie angekommen.
+      // Auch wenn der Wachhund den Test nicht mehr erwischt hat (der Datentraeger war schneller voll als 10 ms),
+      // steht der volle Datentraeger hier noch im Bericht.
+      const frei = gruen || abbruchGrund !== null ? null : freierPlatz(testOrdner);
+      const ursachen = [
+        abbruchGrund !== null ? `Test abgebrochen: ${abbruchGrund}` : null,
+        zeitlimit ? `Zeitlimit von ${optionen.timeout / 1000} s ueberschritten` : null,
+        error ? error.message : null,
+        frei !== null && frei < MIN_FREI ? `${zuWenigPlatz(frei)} — der Test kann am vollen Datentraeger gescheitert sein` : null,
+      ].filter(Boolean);
+      rmSync(testOrdner, { recursive: true, force: true });
+      fertig({ status, signal, stdout, stderr, error: ursachen.length > 0 ? new Error(ursachen.join('; ')) : undefined });
     };
+    const wache = setInterval(() => {
+      if (abbruchGrund !== null) return;
+      try {
+        for (const [name, fd] of [['stdout', aus], ['stderr', fehl]]) {
+          const groesse = fstatSync(fd).size;
+          if (groesse > GRENZE_STROM) {
+            abbruchGrund = `${name} ueber der Schreibgrenze von ${mib(GRENZE_STROM)} MiB (${mib(groesse)} MiB geschrieben)`;
+            break;
+          }
+        }
+        if (abbruchGrund === null) {
+          const frei = freierPlatz(testOrdner);
+          if (frei !== null && frei < MIN_FREI) abbruchGrund = zuWenigPlatz(frei);
+        }
+      } catch {
+        // Messen ist Nebensache; der Test laeuft weiter
+      }
+      if (abbruchGrund !== null) gruppeSignal('SIGKILL', gruppe);
+    }, WACHE_MS);
     const frist = setTimeout(() => {
       zeitlimit = true;
       gruppeSignal('SIGTERM', gruppe);
@@ -2245,6 +2332,7 @@ for (const [paket, datei, weiche] of KERN) {
   } else {
     fehler++;
     console.log(`FEHLGESCHLAGEN (${dauer}s)`);
+    if (lauf.error) console.log(`  ${lauf.error.message}`);
     console.log(ausgabeAufbereiten(lauf.stdout));
     console.log(lauf.stderr ?? '');
   }

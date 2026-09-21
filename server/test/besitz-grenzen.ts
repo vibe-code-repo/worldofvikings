@@ -14,6 +14,9 @@
  *  [A2] Fremde Truhe: weder oeffnen noch nehmen noch hineinlegen. Eigene
  *       Truhe und Truhen ohne Besitzer (Weltcontainer, Grabtruhe) offen.
  *  [B1] Wiedereinstiegspunkt im Koordinatenband → Weltspawn.
+ *  [B1b] Ein Wiedereinstiegspunkt aus einer Instanz (Bett vor dem Verbot
+ *       gesetzt, Koordinaten am Ursprung) gilt nicht: ein Teleport, Weltspawn.
+ *  [B1c] Ein abgerissenes Bett gilt nicht mehr: Weltspawn statt leerer Stelle.
  *  [B2] Chat kreuzt die Weltgrenze nicht, in allen drei Reichweiten und
  *       in beide Richtungen; in derselben Welt kommt er weiter an.
  *  [B3] Graben in einer Instanz aendert die Hauptwelt nicht und wird ihr
@@ -205,6 +208,7 @@ function sendTerrainOp(ws: WebSocket, pos: Vector3, settings: object): void {
 interface Zugriff {
   applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId?: unknown): void;
   teleportPeer(peer: unknown, pos: Vector3, dungeonId: string | null): void;
+  weltSpawn(): Vector3;
 }
 
 async function main(): Promise<void> {
@@ -415,6 +419,20 @@ async function main(): Promise<void> {
       pA.spawnPoint = null;
     }
 
+    console.log('\n[B1c] Abgerissenes Bett:');
+    {
+      await stelle(kA, pA, 300, 300);
+      const bett = baue('environment-sm-prop-bed-04', { x: 301, y: pA.position.y, z: 300 }, idA);
+      const teil = await benutze(kA, 'environment-sm-prop-bed-04', bett.position);
+      const bettSoll = { x: bett.position.x, y: bett.position.y + 0.6, z: bett.position.z };
+      check('Bett gesetzt (spawnPoint am Bett)', teil.length === 1 && teil[0]!.ok && !!pA.spawnPoint && nahe(pA.spawnPoint, bettSoll), JSON.stringify(pA.spawnPoint));
+      server.zdos.destroyZDO(bett.zdoid);
+      const dort = await tot(kA, pA);
+      console.log(`      Bett abgerissen, Tod: Teleport nach ${dort ? `(${f(dort.x)}; ${f(dort.y)}; ${f(dort.z)})` : 'keiner'} (altes Bett: (${f(bettSoll.x)}; ${f(bettSoll.y)}; ${f(bettSoll.z)}))`);
+      check('Bett abgerissen: der Tod bringt an den Weltspawn, nicht an die leere Stelle', !!dort && nahe(dort, weltSpawn), JSON.stringify(dort));
+      pA.spawnPoint = null;
+    }
+
     // ── Instanz fuer B2/B3 ─────────────────────────────────────────
     sendAdmin(kC.ws, 'dungeon create forestcrypt 4242');
     await bis(() => kC.admin.some((m) => /Dungeon erzeugt: \S+/.test(m)), 8_000);
@@ -523,6 +541,29 @@ async function main(): Promise<void> {
     const nachC = kC.terrainComps.slice(compsC0);
     console.log(`      C kehrt zurueck: TerrainCompSync-Pakete ${nachC.length}, Zonen je Paket ${nachC.join(',')}`);
     check('C kehrt in die Hauptwelt zurueck: der Endzustand des Geländes kommt nach', pC.worldId === 'haupt' && nachC.length === 1 && nachC[0]! >= 1, `${nachC.join(',')}`);
+
+    // ── [B1b] Wiedereinstiegspunkt aus einer Instanz ───────────────
+    console.log('\n[B1b] Wiedereinstiegspunkt aus einer Instanz (Altbestand):');
+    {
+      sendAdmin(kC.ws, `dungeon enter ${dungeonId}`);
+      await bis(() => pC.worldId !== 'haupt', 8_000);
+      await warte(NACHFRIST_MS);
+      // Ein Bett, das vor dem Verbot in der Instanz gesetzt wurde: Koordinaten der
+      // Instanz (am Ursprung), nicht im Band.
+      pC.spawnPoint = { x: 0, y: 0.5, z: 2 };
+      const t0 = kC.teleports.length;
+      zugriff.applyCreatureAttack({ ...pC.position }, 999, 5, pC.worldId);
+      await bis(() => kC.teleports.length > t0, 3_000);
+      await warte(NACHFRIST_MS);
+      const neu = kC.teleports.slice(t0);
+      console.log(`      Tod in der Instanz, spawnPoint (0; 0,5; 2): ${neu.length} Teleport(s): ${neu.map((t) => `(${f(t.x)}; ${f(t.y)}; ${f(t.z)})`).join(' dann ')}`);
+      check('Punkt aus der Instanz: genau EIN Teleport', neu.length === 1, `${neu.length}`);
+      // Der Weltspawn folgt dem Gelaende — hier steht es nach der Grabung in [B3] tiefer.
+      const spawnJetzt = zugriff.weltSpawn();
+      check('Punkt aus der Instanz: er geht an den Weltspawn, nicht auf Instanzkoordinaten der Oberwelt', neu.length >= 1 && nahe(neu[neu.length - 1]!, spawnJetzt), `${JSON.stringify(neu[neu.length - 1])} gegen Weltspawn ${JSON.stringify(spawnJetzt)}`);
+      check('C steht danach in der Hauptwelt', pC.worldId === 'haupt' && pC.dungeonId === null, `${pC.worldId}`);
+      pC.spawnPoint = null;
+    }
 
     // ── [C3] Zaehler im Betriebs-Schnappschuss ─────────────────────
     console.log('\n[C3] ohneWeltVerworfen im Schnappschuss:');

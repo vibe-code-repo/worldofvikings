@@ -1495,7 +1495,12 @@ export class WovServer {
       // G12: Betriebsmetriken im selben 1-Sekunden-Takt abschliessen --
       // kein zusaetzlicher Timer, derselbe Grund wie beim Rest dieses
       // Blocks. `peers` ist die oben in update() bereits geholte Liste.
-      const metrikSchnappschuss = schliesseSekundeAb(this.zdos.totalZDOCount, peers.length, now);
+      const metrikSchnappschuss = schliesseSekundeAb(
+        this.zdos.totalZDOCount,
+        peers.length,
+        now,
+        this.ohneWeltVerworfen
+      );
       this.schreibeMetriken(metrikSchnappschuss);
     }
   }
@@ -2556,8 +2561,8 @@ export class WovServer {
     const senderId = peer.userId.toString();
     const kandidaten = this.net
       .getPeers()
-      .map((p) => ({ id: p.userId.toString(), position: p.position, peer: p }));
-    for (const empfaenger of waehleChatEmpfaenger(kandidaten, senderId, peer.position, chatType)) {
+      .map((p) => ({ id: p.userId.toString(), worldId: p.worldId, position: p.position, peer: p }));
+    for (const empfaenger of waehleChatEmpfaenger(kandidaten, senderId, peer.worldId, peer.position, chatType)) {
       empfaenger.peer.sendPacket(PacketType.ChatMessage, payload);
     }
 
@@ -2610,6 +2615,20 @@ export class WovServer {
     antwort(true, `${def.name} gebaut`);
   }
 
+  /**
+   * Darf `peer` dieses Bauteil benutzen (Bett, Truhe, Abriss)? Ein ZDO mit
+   * gesetztem `besitzer` gehoert diesem Spieler und nur ihm; ohne Besitzer
+   * (Weltcontainer, Grabtruhe, Altbestand) steht es allen offen. Die EINE
+   * Stelle dieser Regel: Soll jeder in jede Truhe duerfen, aendert sich nur
+   * diese Funktion.
+   */
+  private darfBenutzen(zdo: ZDO, peer: Peer): boolean {
+    const besitzer = zdo.getString('besitzer');
+    return !besitzer || besitzer === peer.userId.toString();
+  }
+
+  private static readonly FREMDER_BESITZ_MELDUNG = 'Das gehört einem anderen Spieler';
+
   /** Hammer (mittlere Maustaste): eigenes Piece abreissen, halbe Kosten zurueck. */
   private handleRemovePiece(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
@@ -2626,8 +2645,7 @@ export class WovServer {
       if (zdo.getInt('spieler') !== 1) continue;
       // Nur eigene Bauten (Altbestand ohne 'besitzer' bleibt abreißbar,
       // sonst wären die vor diesem Patch gebauten Stücke für immer fest).
-      const besitzer = zdo.getString('besitzer');
-      if (besitzer && besitzer !== peer.userId.toString()) continue;
+      if (!this.darfBenutzen(zdo, peer)) continue;
       const d = (zdo.position.x - pos.x) ** 2 + (zdo.position.z - pos.z) ** 2;
       if (d < best) {
         best = d;
@@ -2673,6 +2691,20 @@ export class WovServer {
     const dz = pos.z - peer.position.z;
     if (dx * dx + dz * dz > 10 * 10) return;
 
+    // Gegraben wird nur in der Hauptwelt. Die Heightmap unten ist die der
+    // Hauptwelt, und der Client wendet jede TerrainOpSync auf SEINE Hauptwelt-
+    // Heightmap an; eine Instanz hat keine eigene, die er bekaeme. Ohne diese
+    // Sperre senkte ein Spieler im Dungeon den Boden der Oberwelt.
+    if (peer.worldId !== HAUPTWELT_ID) {
+      peer.sendPacketWith(PacketType.InteractResult, (w) => {
+        w.writeBool(false);
+        w.writeString('Im Dungeon kann man nicht graben');
+        w.writeString('');
+        w.writeInt32(0);
+      });
+      return;
+    }
+
     let settings: Record<string, unknown>;
     try {
       settings = JSON.parse(settingsJson) as Record<string, unknown>;
@@ -2689,7 +2721,7 @@ export class WovServer {
     // auf bereits planierten Boden schlägt, ändert nichts — das an alle
     // Peers zu schicken kostet Bandbreite für ein Nichts.
     if (wirkung.heights.length === 0 && wirkung.paint.length === 0) return;
-    this.broadcastTerrainOps([{ pos, settingsJson }]);
+    this.broadcastTerrainOps([{ pos, settingsJson }], HAUPTWELT_ID);
     // Glättung reicht weiter als die Kernfläche — Rand großzügig mitnehmen.
     const smooth = Number(settings.smoothRadius ?? 0);
     this.objekteAufBodenNachsetzen(pos, Math.max(r, Number.isFinite(smooth) ? smooth : 0) + 1.5);
@@ -2724,11 +2756,18 @@ export class WovServer {
     }
   }
 
+  /**
+   * Geländeeingriffe an die Spieler der Welt, in der sie geschahen (`weltId`),
+   * niemand sonst: Die Koordinaten zweier Welten sind nicht vergleichbar, und
+   * ein Spieler in einer Instanz hat mit dem Gelände der Oberwelt nichts zu
+   * tun. Was er dabei verpasst, holt `teleportPeer` bei der Rückkehr nach.
+   */
   private broadcastTerrainOps(
     ops: ReadonlyArray<{ pos: Vector3; settingsJson: string }>,
+    weltId: string,
     nur?: Peer
   ): void {
-    const ziele = nur ? [nur] : this.net.getPeers();
+    const ziele = (nur ? [nur] : this.net.getPeers()).filter((p) => p.worldId === weltId);
     for (const p of ziele) {
       p.sendPacketWith(PacketType.TerrainOpSync, (w) => {
         w.writeInt32(ops.length);
@@ -3542,7 +3581,11 @@ export class WovServer {
         peer.health = 100;
         peer.stamina = AUSDAUER_REGEL.max;
         if (peer.dungeonId) this.leaveDungeon(peer);
-        const wieder = peer.spawnPoint ?? this.weltSpawn();
+        // Derselbe Gurt wie beim Einloggen: ein Punkt im Koordinatenband
+        // der Instanzen (Altbestand, Fremdeingriff) gilt nicht, dann der
+        // Weltspawn.
+        const wieder =
+          peer.spawnPoint && !isInDungeonBand(peer.spawnPoint.x) ? peer.spawnPoint : this.weltSpawn();
         this.teleportPeer(peer, { ...wieder }, null);
         peer.sendPacketWith(PacketType.InteractResult, (w) => {
           w.writeBool(true);
@@ -3691,11 +3734,20 @@ export class WovServer {
     }
 
     if ((flags & F.BED) !== 0n) {
+      if (!this.darfBenutzen(ziel, peer)) return antwort(false, WovServer.FREMDER_BESITZ_MELDUNG);
+      // Der Wiedereinstiegspunkt ist eine Koordinate der HAUPTWELT: nach dem
+      // Tod steht der Spieler dort, egal aus welcher Welt er kam. Ein Bett in
+      // einer Instanz haette Instanzkoordinaten — in der Oberwelt irgendwo im
+      // Boden oder im Meer.
+      if (peer.worldId !== HAUPTWELT_ID) {
+        return antwort(false, 'In einem Dungeon kannst du keinen Schlafplatz setzen');
+      }
       peer.spawnPoint = { x: ziel.position.x, y: ziel.position.y + 0.6, z: ziel.position.z };
       return antwort(true, 'Schlafplatz gesetzt — hier wachst du künftig auf');
     }
 
     if ((flags & F.CONTAINER) !== 0n) {
+      if (!this.darfBenutzen(ziel, peer)) return antwort(false, WovServer.FREMDER_BESITZ_MELDUNG);
       this.handleTruheOeffnen(peer, ziel, def);
       return;
     }
@@ -3909,6 +3961,9 @@ export class WovServer {
     if (!ziel) return antwort(false, 'Truhe nicht mehr da');
     const def = this.prefabs.getByHash(ziel.prefabHash);
     if (((def?.flags ?? 0n) & PrefabFlag.CONTAINER) === 0n) return; // gefälschte ZDOID — kein Container
+    // Ohne Oeffnen geht es sonst trotzdem: eine ContainerAction kennt nur die
+    // ZDOID, nicht den Umweg ueber Interact.
+    if (!this.darfBenutzen(ziel, peer)) return antwort(false, WovServer.FREMDER_BESITZ_MELDUNG);
 
     // Reichweite exakt wie handleInteract, aber gegen die ECHTE
     // ZDO-Position statt gegen einen vom Client behaupteten Punkt — ein
@@ -4065,7 +4120,8 @@ export class WovServer {
   ): void {
     // Weltwechsel-Seam (Review 15): Die Signatur trägt die Zielwelt schon —
     // der eigentliche Kontext-Swap ist das Housing-Folgeprojekt.
-    if (worldId !== peer.worldId) {
+    const weltGewechselt = worldId !== peer.worldId;
+    if (weltGewechselt) {
       const ziel = this.welten.get(worldId);
       if (!ziel) {
         console.warn(`[WoV] teleportPeer: unbekannte Welt "${worldId}" — bleibe in "${peer.worldId}"`);
@@ -4157,6 +4213,11 @@ export class WovServer {
       // ''. Deliberately LAST — every previous field keeps its position.
       w.writeString(steinKitJson);
     });
+    // Zurueck in der Oberwelt: Grabungen, die waehrend des Aufenthalts in der
+    // Instanz geschahen, wurden ihm nicht geschickt (broadcastTerrainOps).
+    // Der Endzustand ist idempotent — der Client setzt ihn, statt ihn
+    // aufzuaddieren (s. sendeTerrainComps).
+    if (weltGewechselt && worldId === HAUPTWELT_ID) this.sendeTerrainComps(peer);
   }
 
   /** Enter a dungeon instance (materializing it on first use). */

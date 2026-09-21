@@ -22,7 +22,7 @@
  *
  * Wartet nie eine feste Zeit, sondern auf Zeugen (Zeilen im Log).
  *
- * Port 2575 (frei laut Kopfkommentaren der uebrigen Tests).
+ * Ephemerer Port: je Lauf ein freier, beim Start erfragt (`freierPort`).
  *
  * Lauf: npx tsx test/g12-tick-aufteilung.ts   (aus server/)
  */
@@ -30,6 +30,7 @@ import WebSocket from "ws";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { antwortBerechnen } from "../src/net/Identitaet.js";
 import { createWovServer } from "../src/WovServer.js";
 import { Reader } from "../src/io/Reader.js";
@@ -38,7 +39,8 @@ import type { MetrikSchnappschuss } from "@wov/shared/src/metrik.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, "tmp-g12-tick-aufteilung");
-const PORT = 2575;
+/** Der Port des laufenden Servers; `mitServer` setzt ihn je Lauf neu. */
+let PORT = 0;
 rmSync(TMP, { recursive: true, force: true });
 mkdirSync(TMP, { recursive: true });
 
@@ -46,6 +48,18 @@ let failures = 0;
 function check(label: string, ok: boolean, detail = ""): void {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${label}${detail ? " — " + detail : ""}`);
   if (!ok) failures++;
+}
+
+/** Ein freier Port: auf 0 binden, Nummer lesen, wieder freigeben. */
+function freierPort(): Promise<number> {
+  return new Promise((res, rej) => {
+    const s = createServer();
+    s.once("error", rej);
+    s.listen(0, "127.0.0.1", () => {
+      const port = (s.address() as { port: number }).port;
+      s.close(() => res(port));
+    });
+  });
 }
 
 const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -100,13 +114,26 @@ const zeilenVon = (datei: string): MetrikSchnappschuss[] =>
         .map((z) => JSON.parse(z) as MetrikSchnappschuss)
     : [];
 
-/** Busy-wait, so the delay shows up as CPU time of exactly the phase it sits in. */
-function warteBusy(ms: number): void {
-  const bis = performance.now() + ms;
+/**
+ * Busy-wait, so the delay shows up as CPU time of exactly the phase it sits in.
+ * Returns how long it REALLY took: on a loaded machine the spin is preempted
+ * and runs longer than `ms`, and that real duration is what the phase stamp
+ * has to give back.
+ */
+function warteBusy(ms: number): number {
+  const start = performance.now();
+  const bis = start + ms;
   while (performance.now() < bis) {
     /* spin */
   }
+  return performance.now() - start;
 }
+
+/** Jeder eingespeiste Busy-wait: Aufrufzeit (Date.now) und tatsaechlich verbrauchte ms. */
+const gewartetSync: Array<[number, number]> = [];
+const gewartetWelt: Array<[number, number]> = [];
+const summeImFenster = (liste: ReadonlyArray<[number, number]>, vonMs: number, bisMs: number): number =>
+  liste.reduce((s, [t, dauer]) => (t >= vonMs && t <= bisMs ? s + dauer : s), 0);
 
 /** Injected delays (ms) of scenario A: known sizes the split has to give back. */
 const SYNC_VERZOEGERUNG = 3;
@@ -131,6 +158,7 @@ async function mitServer(
   const welt = resolve(TMP, ordner, "welt");
   const metriken = resolve(TMP, ordner, "metriken");
   mkdirSync(metriken, { recursive: true });
+  PORT = await freierPort();
   const server = createWovServer({
     port: PORT,
     everyoneAdmin: true,
@@ -198,15 +226,43 @@ console.log("\n[A] Aufteilung im Tageslog:");
       const ruheWelten = ruheMittel((z) => z.tickWeltenMsDurchschnitt);
       const ruheSync = ruheMittel((z) => z.tickSyncMsDurchschnitt);
       const ruheRest = ruheMittel((z) => z.tickRestMsDurchschnitt);
+
+      /*
+        Die Erwartung ist die GEMESSENE Wartezeit, nicht die Sollzahl. Ein fester
+        Wert (2,0 bis 2,4 ms) hing an der Wanduhr: Unter Last wird der
+        Busy-wait unterbrochen und dauert laenger als 2 oder 3 ms, die Phase
+        misst das richtig, und der Test wurde rot (gemessen 2,49 / 2,61 / 3,49
+        ms bei sechs Brennern, 2,01 ms ruhig). Jetzt schreibt der Patch je
+        Aufruf auf, wie lange er WIRKLICH gewartet hat; die Phase muss diese
+        Summe je Tick wiedergeben — nicht weniger (dann misst der Stempel nur
+        einen Teil), nicht mehr (dann steckt eine fremde Phase darin: die
+        andere Verzoegerung waere +2 bis +3 ms). Beides haelt bei jeder Last;
+        die Toleranz deckt das Fensterende (eine Sekunde beginnt nicht auf
+        den Tick genau) und die Zeit, die ein Unterbrechen AUSSERHALB der
+        Verzoegerung in der Phase kostet.
+      */
+      const fensterVon = ruhe[0] ? ruhe[0].zeitMs - 1000 : 0;
+      const fensterBis = ruhe[ruhe.length - 1]?.zeitMs ?? 0;
+      const ticksImFenster = ruhe.reduce((s, z) => s + z.tickAnzahl, 0);
+      const erwartetWelten = summeImFenster(gewartetWelt, fensterVon, fensterBis) / Math.max(1, ticksImFenster);
+      const erwartetSync = summeImFenster(gewartetSync, fensterVon, fensterBis) / Math.max(1, ticksImFenster);
+      const UNTEN = 0.15; // ms unter der Erwartung: Fensterrand
+      const OBEN = 0.5; // ms ueber der Erwartung: Unterbrechung ausserhalb der Wartezeit
       check(
-        "Ruhe: die Welten-Phase ist die eingespeiste Verzoegerung (Mittel 2,0 bis 2,5 ms, gemessen rund 2,04)",
-        ruhe.length === 3 && ruheWelten >= WELT_VERZOEGERUNG && ruheWelten <= WELT_VERZOEGERUNG + 0.5,
-        `${ruheWelten.toFixed(2)} ms`,
+        "Ruhe: die Welten-Phase gibt die gewartete Zeit je Tick wieder (Erwartung -0,15 / +0,5 ms)",
+        ruhe.length === 3 &&
+          erwartetWelten >= WELT_VERZOEGERUNG &&
+          ruheWelten >= erwartetWelten - UNTEN &&
+          ruheWelten <= erwartetWelten + OBEN,
+        `Phase ${ruheWelten.toFixed(2)} ms, gewartet ${erwartetWelten.toFixed(2)} ms je Tick`,
       );
       check(
-        "Ruhe: die Sync-Phase ist die eingespeiste Verzoegerung an zwei von drei Ticks (Mittel 1,7 bis 2,4 ms, gemessen rund 2,0)",
-        ruhe.length === 3 && ruheSync >= 1.7 && ruheSync <= 2.4,
-        `${ruheSync.toFixed(2)} ms`,
+        "Ruhe: die Sync-Phase gibt die gewartete Zeit je Tick wieder, an zwei von drei Ticks (Erwartung -0,15 / +0,5 ms)",
+        ruhe.length === 3 &&
+          erwartetSync >= 1.7 &&
+          ruheSync >= erwartetSync - UNTEN &&
+          ruheSync <= erwartetSync + OBEN,
+        `Phase ${ruheSync.toFixed(2)} ms, gewartet ${erwartetSync.toFixed(2)} ms je Tick`,
       );
       check("Ruhe: der Rest bleibt klein (Mittel unter 0,5 ms)", ruhe.length === 3 && ruheRest < 0.5, `${ruheRest.toFixed(2)} ms`);
 
@@ -313,14 +369,16 @@ console.log("\n[A] Aufteilung im Tageslog:");
       };
       const syncOriginal = innen.syncZDOs.bind(server);
       innen.syncZDOs = (): void => {
-        warteBusy(SYNC_VERZOEGERUNG);
+        const t = Date.now();
+        gewartetSync.push([t, warteBusy(SYNC_VERZOEGERUNG)]);
         syncOriginal();
       };
       for (const welt of innen.welten.values()) {
         const tickOriginal = welt.tick.bind(welt);
         welt.tick = (...args: unknown[]): unknown => {
           weltTickAufrufe++;
-          warteBusy(WELT_VERZOEGERUNG);
+          const t = Date.now();
+          gewartetWelt.push([t, warteBusy(WELT_VERZOEGERUNG)]);
           return tickOriginal(...args);
         };
         weltenGepatcht++;

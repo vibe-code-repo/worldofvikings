@@ -4,8 +4,7 @@
  * und aggregiert die Exit-Codes — vorher liefen 29 Testdateien nur einzeln
  * von Hand.
  *
- *   npm test              schnelle Kernliste (~2–3 min)
- *   npm test -- --alle    zusätzlich die langen Läufe (Placement, E2E-Wire)
+ *   npm test              die Liste KERN, alles in einem Lauf (rund 10 min)
  *
  * WEICHEN (S3): Einträge mit dritter Stelle laufen nur, wenn ihre
  * Voraussetzung da ist — `assets/` (liegt ausserhalb des Repos) und/oder
@@ -42,8 +41,43 @@
  * tsx sofort. Er wird per esbuild gebaut und im Browser geöffnet; die
  * Anleitung steht in seinem eigenen Kopfkommentar.
  */
-import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import {
+  accessSync,
+  closeSync,
+  constants,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  statSync,
+  statfsSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/*
+  Die BUCHFUEHRUNG (Laufzeitzeuge): Der Runner bucht jeden Start (`fahre` schreibt
+  die Testdatei auf, die WIRKLICH an den Kindprozess geht), jede Weiche
+  (`ueberspringe`) und jedes bewusste Auslassen (`auslassen`, mit Grund), und
+  `beende` vergleicht das am Ende mit dem LITERAL von KERN in diesem Quelltext —
+  nicht mit der lebenden Variablen, an der man zwischen Liste und Lauf drehen
+  koennte. Schlusszeile und Exit-Code kommen aus dieser Buchfuehrung; ein Lauf,
+  der `beende` nie erreicht, bleibt bei Exit 1. Exit 3 heisst TEILLAUF (mit
+  `auslassen` weggelassen); `--teillauf-erlaubt` macht einen gruenen Teillauf zu
+  Exit 0 (dann steht TEILLAUF trotzdem in der Zeile). Dieser Runner darf sonst
+  umgebaut werden (Helfer, Teillisten, Filter, Parallelisierung), solange jeder
+  Start ueber `fahre` geht und am Ende `beende` gerufen wird. Sie steht in einer
+  eigenen Datei, damit `scripts/pruefe-runner-liste.mjs` sie testen kann.
+
+  Bookkeeping in its own module: what the runner really started is held against
+  the literal of KERN; closing line and exit code come from the books.
+*/
+import { beende, fahre, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
+
 
 /*
   Die WEICHEN (S3, Elemente-Umzug): `brauchtModelle` fuer Tests, die
@@ -782,6 +816,10 @@ const KERN = [
   // und ein gueltiges Token haelt die Identitaet ueber einen Reconnect
   // stabil.
   ['server', 'test/f3-einbau.ts'],
+  // F4: Gelaendeebnung fuer Locations (gleiche Rechnung auf Server und Client):
+  // Regelwahl, Plateau und Uebergangsband auf einer Hangflaeche, und mit leerer
+  // Feature-Tabelle bleibt das Gelaende Naturgelaende. Kein Server/Socket. ~3 s.
+  ['server', 'test/f3-leveling.ts'],
   // A5 (Schlusskontrolle Paket 2): Deckel fuer offene, nie authentifizierte
   // Verbindungen (MAX_PENDING_CONNECTIONS in NetManager.ts). Vorher zaehlte
   // die "Server voll"-Pruefung nur onlinePeers — der Pre-Auth-Timeout liess
@@ -1297,6 +1335,10 @@ const KERN = [
   // von Hand nach statt sie zu rufen — s. Importkommentare im Test).
   // ~4s, kein einziges Byte davon war ein echter Produktivfehler.
   ['server', 'test/g6-dungeon-e2e.ts'],
+  // G5: DungeonManager (Dokumente, Eingaenge, Instanzen) — Platten-Rundlauf,
+  // Instanz je eigener Welt, Abbau. Kein Server/Socket, schreibt in einen
+  // eigenen Ordner unter server/test und raeumt ihn wieder weg. ~1 s, kalt bis 4 s.
+  ['server', 'test/g5-dungeons.ts'],
   // G1-Durchsicht: Wetter/Wind-Port (Timing aus den Assets, Determinismus,
   // Ziehungsgewichte, Windclamp/-rampe, windData-Alpha, Niederschlags-
   // zuordnung). Reine Funktion, kein Server/Socket, Sekunden.
@@ -1461,6 +1503,10 @@ const KERN = [
   // Abmeldung — ein eingefrorener Geist an der letzten bekannten Position
   // statt eines verschwindenden Spielers. ~4s.
   ['server', 'test/g3-mehrspieler-e2e.ts'],
+  // G3/G-POP: Warteschlange der Zonen-Erzeugung — naechste Zone zuerst, veraltete
+  // fliegen raus, ein Bild mit Budget erzeugt wirklich Zonen. Kein Netz, keine
+  // Assets. ~4 s.
+  ['server', 'test/g3-streaming.ts'],
   // F2 (Roadmap): assets/manifest.json (tools/asset-manifest.mjs) haelt Huellbox,
   // Dreieckszahl, Animationen und mesh-lose Rigs je GLB fest -- ohne diesen Test
   // veraltet es lautlos (neues Modell ohne Eintrag, geloeschtes mit Leiche im
@@ -1687,12 +1733,14 @@ const KERN = [
     `assets/`, rund 0,3 s; er braucht deshalb keine Weiche fuer den
     CI-Checkout.
 
-    Er stand bis zum 09.09.2026 in LANG und lief damit nur bei
-    `npm test -- --alle`. Das war eine Einordnung nach Thema statt nach
-    Kosten: In LANG stehen Laeufe, die einen Server hochfahren oder
-    Sekunden brauchen; dieser hier ist eine Rechnung von 0,3 s und
+    Er stand bis zum 09.09.2026 in einer zweiten Liste (LANG), die nur
+    mit einem eigenen Schalter lief. Das war eine Einordnung nach Thema
+    statt nach Kosten: Dort standen Laeufe, die einen Server hochfahren
+    oder Sekunden brauchen; dieser hier ist eine Rechnung von 0,3 s und
     gehoert zu den anderen reinen Rechnungen im Kernlauf. Ein Test, der
     im normalen Lauf nicht mitfaehrt, faellt beim Brechen nicht auf.
+    (Die Liste ist seit 20.09.2026 aufgeloest: ihre drei letzten Tests
+    stehen in KERN, den Schalter gibt es nicht mehr.)
 
     Was er festhaelt, ist dreimal dieselbe Sorte Fehler: etwas, das
     aussieht wie ein gesetzter Wert und keiner ist. Ein fehlendes
@@ -2014,15 +2062,225 @@ const KERN = [
   ['tools/armor/test', 'emberrage-glow.ts'],
 ];
 
-const LANG = [
-  ['server', 'test/g3-streaming.ts'],
-  ['server', 'test/g5-dungeons.ts'],
-  ['server', 'test/f3-leveling.ts'],
-];
+const QUELLE = fileURLToPath(import.meta.url);
 
-const liste = process.argv.includes('--alle') ? [...KERN, ...LANG] : KERN;
+/*
+  Der Runner nimmt nur `--teillauf-erlaubt` (siehe Buchfuehrung). `--alle` gab es
+  bis 20.09.2026 (eine zweite Liste LANG); seither laeuft immer alles. Wer noch
+  `npm test -- --alle` tippt, soll es merken, statt dass es still ignoriert wird.
+*/
+const ARGUMENTE = process.argv.slice(2);
+const TEILLAUF_ERLAUBT = ARGUMENTE.includes('--teillauf-erlaubt');
+const UNBEKANNT = ARGUMENTE.filter((a) => a !== '--teillauf-erlaubt');
+if (UNBEKANNT.length > 0) {
+  console.error(
+    `run-tests.mjs: unbekannte Argumente: ${UNBEKANNT.join(' ')}\n` +
+      '  Der Runner kennt nur --teillauf-erlaubt; `--alle` gibt es seit 20.09.2026 nicht mehr (die Liste LANG ist aufgeloest, alles laeuft immer).',
+  );
+  process.exit(2);
+}
+
+// Ab hier ist der Lauf rot (Exit 1), bis `beende` am Ende entschieden hat.
+const buch = neueBuchfuehrung();
+
+/*
+  Jeder Test laeuft als eigene Prozessgruppe, und der Runner reicht SIGINT,
+  SIGTERM und SIGHUP an die laufende Gruppe weiter, wartet auf sie und endet
+  dann mit 128 + Signalnummer. Vorher traf ein Signal nur den Runner; der
+  tsx-Kindprozess lief als Waise weiter und hielt seinen festen Testport, sodass
+  der naechste Lauf mit EADDRINUSE scheiterte. Dieselbe Gruppe bekommt auch das
+  Zeitlimit von 600 s (erst SIGTERM, nach 5 s SIGKILL).
+
+  Every test runs in its own process group; a signal that hits only the runner is
+  passed on to the running group, and the runner waits for it before it exits.
+*/
+let laufendeGruppe = null;
+let abbruchCode = null;
+const gruppeSignal = (signal, gruppe = laufendeGruppe) => {
+  if (gruppe === null) return;
+  try {
+    process.kill(-gruppe, signal);
+  } catch {
+    // die Gruppe ist schon weg
+  }
+};
+for (const [signal, nummer] of [['SIGINT', 2], ['SIGHUP', 1], ['SIGTERM', 15]]) {
+  process.on(signal, () => {
+    abbruchCode = 128 + nummer;
+    console.log(`\nABGEBROCHEN durch ${signal} — der laufende Test wird beendet, kein Ergebnis`);
+    if (laufendeGruppe === null) process.exit(abbruchCode);
+    gruppeSignal(signal);
+    setTimeout(() => {
+      gruppeSignal('SIGKILL');
+      process.exit(abbruchCode);
+    }, 10_000).unref();
+  });
+}
+
+/*
+  Die Ausgabe eines Tests geht in DATEIEN, nicht in Pipes. Zwei Gruende, beide am
+  asynchronen Start entdeckt:
+  - Ein Test, der viel in einem Zug schreibt und sofort `process.exit` ruft, verlor bei
+    Pipes das Ende seiner Ausgabe (Schreibpuffer weg, wenn der Leser nicht mitkommt;
+    505 KB: 0 von 3 vollstaendig) — genau die Zeilen, wegen derer man bei einem
+    Fehlschlag hinsieht. In eine Datei schreibt der Test synchron; nichts geht verloren.
+  - Ein Enkel mit eigener Sitzung, der die geerbten Pipes offen haelt, liess das
+    Versprechen nie aufloesen (`'close'` kam nicht): der Lauf haengt. Ohne Pipes gibt es
+    nichts, worauf zu warten waere; aufgeloest wird beim Ende des Kindes (`'exit'`).
+  Gelesen wird nur nach einem Fehlschlag, und hoechstens die letzten 8 MiB. Jeder Test
+  bekommt einen EIGENEN Unterordner (ein Enkel, der einen Test ueberlebt und weiter
+  schreibt, landet so nie im Bericht des naechsten) und der Ordner wird nach dem Test
+  geloescht.
+
+  GESCHRIEBEN wird nur bis zu einer Grenze: Ein Wachhund prueft alle 10 ms die Groesse
+  beider Dateien und den freien Platz auf dem Datentraeger. Ueber 64 MiB je Strom oder
+  unter 32 MiB frei wird die Gruppe des Tests beendet (SIGKILL) und der Test ist ROT
+  mit dem Grund; der Grund kommt aus dem Speicher des Runners, nicht aus den Dateien —
+  bei vollem Datentraeger waere die Ursache in stderr.txt nie angekommen. Gemessen
+  schreibt ein Test 150-200 MiB/s; ohne Grenze waere das Wurzeldateisystem (auch das
+  der DEV-Dienste) in rund drei Minuten voll.
+
+  Der Ordner liegt in /var/tmp, NICHT in os.tmpdir(): auf wov-dev ist /tmp ein tmpfs,
+  also Arbeitsspeicher (16 GB Grenze auf einer Maschine mit 10 GB RAM), und ein Test mit
+  durchgedrehter Ausgabe wuerde ihn fuellen; /var/tmp liegt auf Platte. Nur wo es
+  /var/tmp nicht gibt (etwa Windows), gilt os.tmpdir().
+
+  Test output goes to files, not pipes: nothing is lost at `process.exit`, and no
+  grandchild that keeps a pipe open can make the run hang.
+*/
+const AUSGABE_BASIS = (() => {
+  try {
+    accessSync('/var/tmp', constants.W_OK);
+    return '/var/tmp';
+  } catch {
+    return tmpdir();
+  }
+})();
+const LAUF_ORDNER = mkdtempSync(join(AUSGABE_BASIS, 'wov-lauf-'));
+process.on('exit', () => rmSync(LAUF_ORDNER, { recursive: true, force: true }));
+const MAX_AUSGABE = 8 * 1024 * 1024;
+const GRENZE_STROM = 64 * 1024 * 1024;
+const MIN_FREI = 32 * 1024 * 1024;
+const WACHE_MS = 10;
+const mib = (bytes) => (bytes / 2 ** 20).toFixed(0);
+/** Freie Bytes auf dem Datentraeger von `pfad`, oder null, wenn sich das nicht messen laesst. */
+function freierPlatz(pfad) {
+  try {
+    const platz = statfsSync(pfad);
+    return platz.bavail * platz.bsize;
+  } catch {
+    return null;
+  }
+}
+const zuWenigPlatz = (frei) => `nur noch ${mib(frei)} MiB frei unter ${AUSGABE_BASIS} (Grenze ${mib(MIN_FREI)} MiB)`;
+function liesAusgabe(pfad) {
+  try {
+    const groesse = statSync(pfad).size;
+    if (groesse <= MAX_AUSGABE) return readFileSync(pfad, 'utf8');
+    const puffer = Buffer.alloc(MAX_AUSGABE);
+    const fd = openSync(pfad, 'r');
+    readSync(fd, puffer, 0, MAX_AUSGABE, groesse - MAX_AUSGABE);
+    closeSync(fd);
+    return `[… ${groesse - MAX_AUSGABE} Bytes gekuerzt …]\n${puffer.toString('utf8')}`;
+  } catch (fehlerLesen) {
+    return `(Ausgabe nicht lesbar: ${fehlerLesen.message})`;
+  }
+}
+
+/** Startet einen Test asynchron und liefert wie spawnSync `{ status, signal, stdout, stderr, error }`. */
+function starteKind(befehl, argumente, optionen) {
+  return new Promise((fertig) => {
+    let testOrdner = null;
+    let aus;
+    let fehl;
+    try {
+      testOrdner = mkdtempSync(join(LAUF_ORDNER, 't-'));
+      aus = openSync(join(testOrdner, 'stdout.txt'), 'w');
+      fehl = openSync(join(testOrdner, 'stderr.txt'), 'w');
+    } catch (fehlerAnlegen) {
+      // Etwa Datentraeger voll: der Test startet nicht, und der Grund steht im Ergebnis.
+      if (aus !== undefined) closeSync(aus);
+      if (testOrdner !== null) rmSync(testOrdner, { recursive: true, force: true });
+      fertig({
+        status: null,
+        signal: null,
+        stdout: '',
+        stderr: '',
+        error: new Error(`Ausgabedateien nicht anlegbar unter ${AUSGABE_BASIS}: ${fehlerAnlegen.message}`),
+      });
+      return;
+    }
+    const kind = spawn(befehl, argumente, { cwd: optionen.cwd, detached: true, stdio: ['ignore', aus, fehl] });
+    const gruppe = kind.pid ?? null;
+    let zeitlimit = false;
+    let abbruchGrund = null;
+    let erledigt = false;
+    let hart = null;
+    let spaet = null;
+    const ende = (status, signal, error) => {
+      if (erledigt) return;
+      erledigt = true;
+      // Kein Zeitgeber darf den naechsten Test treffen (SIGKILL auf eine Gruppe, die schon ein anderer Test ist).
+      clearTimeout(frist);
+      clearTimeout(hart);
+      clearTimeout(spaet);
+      clearInterval(wache);
+      laufendeGruppe = null;
+      closeSync(aus);
+      closeSync(fehl);
+      if (abbruchCode !== null) process.exit(abbruchCode);
+      const gruen = status === 0 && !zeitlimit && abbruchGrund === null && !error;
+      // Gelesen wird nur nach einem Fehlschlag.
+      const stdout = gruen ? '' : liesAusgabe(join(testOrdner, 'stdout.txt'));
+      const stderr = gruen ? '' : liesAusgabe(join(testOrdner, 'stderr.txt'));
+      // Der Grund kommt aus dem Speicher des Runners: bei vollem Datentraeger ist er in stderr.txt nie angekommen.
+      // Auch wenn der Wachhund den Test nicht mehr erwischt hat (der Datentraeger war schneller voll als 10 ms),
+      // steht der volle Datentraeger hier noch im Bericht.
+      const frei = gruen || abbruchGrund !== null ? null : freierPlatz(testOrdner);
+      const ursachen = [
+        abbruchGrund !== null ? `Test abgebrochen: ${abbruchGrund}` : null,
+        zeitlimit ? `Zeitlimit von ${optionen.timeout / 1000} s ueberschritten` : null,
+        error ? error.message : null,
+        frei !== null && frei < MIN_FREI ? `${zuWenigPlatz(frei)} — der Test kann am vollen Datentraeger gescheitert sein` : null,
+      ].filter(Boolean);
+      rmSync(testOrdner, { recursive: true, force: true });
+      fertig({ status, signal, stdout, stderr, error: ursachen.length > 0 ? new Error(ursachen.join('; ')) : undefined });
+    };
+    const wache = setInterval(() => {
+      if (abbruchGrund !== null) return;
+      try {
+        for (const [name, fd] of [['stdout', aus], ['stderr', fehl]]) {
+          const groesse = fstatSync(fd).size;
+          if (groesse > GRENZE_STROM) {
+            abbruchGrund = `${name} ueber der Schreibgrenze von ${mib(GRENZE_STROM)} MiB (${mib(groesse)} MiB geschrieben)`;
+            break;
+          }
+        }
+        if (abbruchGrund === null) {
+          const frei = freierPlatz(testOrdner);
+          if (frei !== null && frei < MIN_FREI) abbruchGrund = zuWenigPlatz(frei);
+        }
+      } catch {
+        // Messen ist Nebensache; der Test laeuft weiter
+      }
+      if (abbruchGrund !== null) gruppeSignal('SIGKILL', gruppe);
+    }, WACHE_MS);
+    const frist = setTimeout(() => {
+      zeitlimit = true;
+      gruppeSignal('SIGTERM', gruppe);
+      hart = setTimeout(() => {
+        gruppeSignal('SIGKILL', gruppe);
+        // Kommt das Ende des Kindes trotzdem nicht, loest das Zeitlimit selbst auf.
+        spaet = setTimeout(() => ende(null, 'SIGKILL'), 2_000);
+      }, 5_000);
+    }, optionen.timeout);
+    laufendeGruppe = gruppe;
+    kind.on('error', (error) => ende(null, null, error));
+    kind.on('exit', (status, signal) => ende(status, signal));
+  });
+}
+
 let fehler = 0;
-let uebersprungen = 0;
 const start = Date.now();
 
 /**
@@ -2059,16 +2317,16 @@ function ausgabeAufbereiten(stdout) {
   return teile.join('\n');
 }
 
-for (const [paket, datei, weiche] of liste) {
+for (const [paket, datei, weiche] of KERN) {
   const t0 = Date.now();
   process.stdout.write(`▶ ${paket}/${datei} … `);
   const grund = weiche?.();
   if (grund) {
-    uebersprungen++;
+    ueberspringe(buch, WURZEL, paket, datei);
     console.log(`ÜBERSPRUNGEN — ${grund}`);
     continue;
   }
-  const lauf = spawnSync(resolve(WURZEL, 'node_modules/.bin/tsx'), [datei], {
+  const lauf = await fahre(buch, starteKind, resolve(WURZEL, 'node_modules/.bin/tsx'), [datei], {
     cwd: resolve(WURZEL, paket),
     encoding: 'utf-8',
     timeout: 600_000,
@@ -2079,6 +2337,7 @@ for (const [paket, datei, weiche] of liste) {
   } else {
     fehler++;
     console.log(`FEHLGESCHLAGEN (${dauer}s)`);
+    if (lauf.error) console.log(`  ${lauf.error.message}`);
     console.log(ausgabeAufbereiten(lauf.stdout));
     console.log(lauf.stderr ?? '');
   }
@@ -2125,9 +2384,11 @@ if (schmutzigeZeilen.length > 0) {
   for (const zeile of schmutzigeZeilen) console.log(`  ${zeile}`);
 }
 
-console.log(
-  `\n${liste.length - fehler - uebersprungen}/${liste.length} Tests grün` +
-    (uebersprungen > 0 ? `, ${uebersprungen} übersprungen` : '') +
-    ` in ${((Date.now() - start) / 1000).toFixed(0)}s`
-);
-process.exit(fehler > 0 ? 1 : 0);
+// Schlusszeile und Exit-Code kommen aus der Buchfuehrung; `beende` endet den Prozess.
+await beende(buch, {
+  quelle: QUELLE,
+  wurzel: WURZEL,
+  fehler,
+  teillaufErlaubt: TEILLAUF_ERLAUBT,
+  dauer: ` in ${((Date.now() - start) / 1000).toFixed(0)}s`,
+});

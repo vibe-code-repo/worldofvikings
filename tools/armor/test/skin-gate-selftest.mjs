@@ -94,8 +94,8 @@ const femaleBodyWithClips = (clips, without) => file(FEMALE_BONES,
   [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.filter(r => !without.includes(r)).map(r => FEMALE_BONES.indexOf(REGION_BONE[r])) }], clips);
 const femaleBody = (...without) => femaleBodyWithClips(3, without);
 // The 51-bone body with one stray index after the last whole triangle: no whole number of triangles.
-const femaleBodyPartialTriangle = () => file(FEMALE_BONES,
-  [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.map(r => FEMALE_BONES.indexOf(REGION_BONE[r])), indexCount: REGIONS.length * 3 + 1 }], 3);
+const femaleBodyPartialTriangle = (clips = 3) => file(FEMALE_BONES,
+  [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.map(r => FEMALE_BONES.indexOf(REGION_BONE[r])), indexCount: REGIONS.length * 3 + 1 }], clips);
 const webBodyWith = ({ without = [], indexCount = {}, rename = {}, extra = [] } = {}) => file(WEB_BONES,
   [...REGIONS.filter(r => !without.includes(r)).map(r => ({ name: rename[r] ?? `Chr_${r}_Female_00`, triangleBones: [1], indexCount: indexCount[r] })),
     ...extra.map(name => ({ name, triangleBones: [1] }))], 3);
@@ -356,8 +356,8 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   const legacyDir = writeSet(join(scratch, 'legacy-plainhide'), 'plainhide', 'female');
   const replacedByPlainhide = [...new Set(partsOf('plainhide', 'female').flatMap(p => p.regions))];
   writeFileSync(join(scratch, 'legacy-fit.json'), JSON.stringify({ parts: Object.fromEntries(replacedByPlainhide.map(r => [r, { liningTriangles: 1 }])) }));
-  const legacyRun = (bodyName, without, { state, args = ['--family=plainhide'], fit = join(scratch, 'legacy-fit.json') } = {}) => new Promise(resolve => {
-    writeFileSync(join(scratch, `${bodyName}.glb`), femaleBodyWithClips(6, without));
+  const legacyRun = (bodyName, without, { state, args = ['--family=plainhide'], fit = join(scratch, 'legacy-fit.json'), partial = false } = {}) => new Promise(resolve => {
+    writeFileSync(join(scratch, `${bodyName}.glb`), partial ? femaleBodyPartialTriangle(6) : femaleBodyWithClips(6, without));
     // An old, green report of an earlier run is always in the output folder before the run starts.
     writeFileSync(join(legacyDir, 'runtime-validation.json'), JSON.stringify({ status: 'PASS', exactBodyRegionMask: true, stale: true }));
     const harnessed = state ? withState(legacyTool, state) : undefined;
@@ -381,6 +381,7 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
     ['legacy-no-right-hand', ['HandRight'], {}, /plainhide: the free region HandRight has no body triangles: it is missing from the body/],
     ['legacy-body-invisible', [], { state: { match: '', prop: 'isVisible', value: false } }, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh: isEnabled=true, isVisible=false, visibility=1\)/],
     ['legacy-body-faded-out', [], { state: { match: '', prop: 'visibility', value: 0 } }, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh: isEnabled=true, isVisible=true, visibility=0\)/],
+    ['legacy-partial-triangle', [], { partial: true }, /plainhide: the body mesh has 34 indices: it needs whole triangles/],
     // K3: every failure path removes the old report, also the ones that end before any body is looked at.
     ['legacy-unknown-family', [], { args: ['--family=nonsense'] }, /The registry has no female nonsense items/],
     ['legacy-missing-fit-file', [], { fit: join(scratch, 'no-such-fit.json') }, /no-such-fit\.json/],

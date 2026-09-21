@@ -576,6 +576,11 @@ export class AssetManager {
     }
   }
 
+  /** Diagnostics: every animation group of this instance. */
+  gruppenVon(root: TransformNode): readonly AnimationGroup[] {
+    return this.animGruppen.get(root) ?? [];
+  }
+
   /** Diagnostics: the group that plays on this instance, with its real rate. */
   aktiveGruppe(root: TransformNode): { name: string; speedRatio: number } | null {
     const g = this.animGruppen.get(root)?.find((x) => x.isPlaying);

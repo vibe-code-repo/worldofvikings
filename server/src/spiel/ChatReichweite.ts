@@ -54,6 +54,8 @@ export function chatReichweite(chatType: number): number {
 
 export interface ChatEmpfaengerKandidat {
   readonly id: string;
+  /** Die Welt, in der der Kandidat steht (Hauptwelt oder eine Instanz). */
+  readonly worldId: string;
   readonly position: Vector3;
 }
 
@@ -63,6 +65,13 @@ export interface ChatEmpfaengerKandidat {
  * ZDOManager.getZDOsInRadius und die Nahkampf-/Interaktions-Reichweiten
  * in WovServer.ts) innerhalb der Reichweite von `chatType`.
  *
+ * Nur Kandidaten DERSELBEN Welt wie der Absender (`senderWorldId`) kommen
+ * in Frage. Die Koordinaten zweier Welten sind nicht vergleichbar
+ * (Instanzen liegen am Ursprung): Ohne die Weltprüfung hörte ein Spieler im
+ * Dungeon jedes Flüstern, das in der Oberwelt auf denselben x/z fällt. Die
+ * Prüfung steht VOR dem Absender-Sonderfall, damit er nicht an einer Welt
+ * vorbeigeht — der Absender steht in seiner eigenen Welt ohnehin.
+ *
  * Der Absender (`kandidaten`-Eintrag mit `id === senderId`) ist IMMER
  * dabei, unabhängig von der Reichweite — sonst wirkt der Chat für ihn
  * kaputt, sobald niemand sonst in der Nähe ist (ausdrückliche Vorgabe
@@ -71,12 +80,14 @@ export interface ChatEmpfaengerKandidat {
 export function waehleChatEmpfaenger<T extends ChatEmpfaengerKandidat>(
   kandidaten: readonly T[],
   senderId: string,
+  senderWorldId: string,
   senderPosition: Vector3,
   chatType: number
 ): T[] {
   const reichweite = chatReichweite(chatType);
   const reichweiteQuadrat = reichweite * reichweite;
   return kandidaten.filter((k) => {
+    if (k.worldId !== senderWorldId) return false;
     if (k.id === senderId) return true;
     const dx = k.position.x - senderPosition.x;
     const dz = k.position.z - senderPosition.z;

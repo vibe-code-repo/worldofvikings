@@ -89,6 +89,9 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
   check('1e. zdoAnzahl durchgereicht', s.zdoAnzahl, 248_213);
   check('1e. peers durchgereicht', s.peers, 3);
   check('1e. zeitMs durchgereicht', s.zeitMs, 1_234_567);
+  check('1e. ohneWeltVerworfen ohne Angabe: 0', s.ohneWeltVerworfen, 0);
+  const s2 = schliesseSekundeAb(0, 0, 1_234_567, 5);
+  check('1e. ohneWeltVerworfen durchgereicht (laufende Summe, wird nicht geleert)', s2.ohneWeltVerworfen, 5);
 }
 
 // ── 1f) Aufteilung: Welten + Sync + Rest ergeben die Gesamtdauer. ──
@@ -334,6 +337,7 @@ rmSync(TMP, { recursive: true, force: true });
     tickRestMsDurchschnitt: 1.42,
     tickRestMsMax: 2.1,
     zonenBudgetAbbrueche: 4,
+    ohneWeltVerworfen: 3,
   };
   const text = formatierePrometheus(schnappschuss, 3_500);
   const zeilen = text.split('\n');
@@ -356,12 +360,15 @@ rmSync(TMP, { recursive: true, force: true });
   check('2p. Rest-Durchschnitt uebernommen', zeilen.includes('wov_tick_rest_ms_avg 1.42'), true);
   check('2q. Rest-Max uebernommen', zeilen.includes('wov_tick_rest_ms_max 2.1'), true);
   check('2r. Budget-Abbrueche uebernommen', zeilen.includes('wov_zonen_budget_abbrueche 4'), true);
+  check('2u. verworfene Schlaege ohne Welt uebernommen', zeilen.includes('wov_ohne_welt_verworfen_gesamt 3'), true);
+  check('2v. ... als counter, weil es eine laufende Summe ist', zeilen.includes('# TYPE wov_ohne_welt_verworfen_gesamt counter'), true);
 
   // Eine Schnappschussdatei eines aelteren Servers hat die neuen Felder nicht.
   // Der Betriebsdienst darf daraus kein `undefined` in die Ausgabe schreiben.
   const alt = { ...schnappschuss } as Partial<MetrikSchnappschuss>;
   delete alt.tickWeltenMsDurchschnitt;
   delete alt.zonenBudgetAbbrueche;
+  delete alt.ohneWeltVerworfen;
   const altText = formatierePrometheus(alt as MetrikSchnappschuss, 3_500);
   check('2s. altes Format: kein "undefined" im Text', altText.includes('undefined') || altText.includes('NaN'), false);
   check('2t. altes Format: alte Werte bleiben', altText.split('\n').includes('wov_peers 3'), true);
@@ -384,6 +391,7 @@ rmSync(TMP, { recursive: true, force: true });
     tickRestMsDurchschnitt: 0,
     tickRestMsMax: 0,
     zonenBudgetAbbrueche: 0,
+    ohneWeltVerworfen: 0,
   };
   const text = formatierePrometheus(schnappschuss, 1_000); // jetzt VOR zeitMs
   check('2k. negatives Alter wird bei 0 gekappt', text.split('\n').includes('wov_metriken_alter_sekunden 0'), true);

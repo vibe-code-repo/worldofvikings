@@ -68,6 +68,13 @@ export interface MetrikSchnappschuss {
    *  used up with zones still queued (ZoneManager.update). Summed over all
    *  worlds, per second. */
   zonenBudgetAbbrueche: number;
+
+  /** Strikes and hit effects the server dropped because the caller gave no
+   *  world id (WovServer.ohneWeltVerworfen). A running TOTAL since the server
+   *  started, not a per-second value: in operation it stays 0, so any value
+   *  above 0 is a caller that lost its world — and a per-second gauge would
+   *  read 0 on almost every scrape and hide it. */
+  ohneWeltVerworfen: number;
 }
 
 /**
@@ -84,13 +91,13 @@ export function formatierePrometheus(schnappschuss: MetrikSchnappschuss, jetztMs
   const alterSekunden = Math.max(0, Math.round(((jetztMs - schnappschuss.zeitMs) / 1000) * 10) / 10);
 
   const zeilen: string[] = [];
-  const gauge = (name: string, hilfe: string, wert: number | undefined): void => {
+  const gauge = (name: string, hilfe: string, wert: number | undefined, art = 'gauge'): void => {
     // A snapshot file written by an older server has no split fields: skip
     // the gauge rather than print `undefined`, which would make the whole
     // scrape unparseable.
     if (typeof wert !== 'number') return;
     zeilen.push(`# HELP ${name} ${hilfe}`);
-    zeilen.push(`# TYPE ${name} gauge`);
+    zeilen.push(`# TYPE ${name} ${art}`);
     zeilen.push(`${name} ${wert}`);
   };
 
@@ -106,6 +113,7 @@ export function formatierePrometheus(schnappschuss: MetrikSchnappschuss, jetztMs
   gauge('wov_tick_rest_ms_avg', 'Mittlere Dauer des uebrigen Ticks (Netz, TimeSync, Dungeons, Ereignisse) in Millisekunden', schnappschuss.tickRestMsDurchschnitt);
   gauge('wov_tick_rest_ms_max', 'Groesste Dauer des uebrigen Ticks in der letzten vollen Sekunde in Millisekunden', schnappschuss.tickRestMsMax);
   gauge('wov_zonen_budget_abbrueche', 'Zonenaufbau-Abbrueche wegen Zeitbudget in der letzten vollen Sekunde', schnappschuss.zonenBudgetAbbrueche);
+  gauge('wov_ohne_welt_verworfen_gesamt', 'Schlaege und Effekte, die ohne Welt-Id verworfen wurden, seit dem Serverstart (im Betrieb 0)', schnappschuss.ohneWeltVerworfen, 'counter');
   gauge('wov_peers', 'Zahl verbundener Spieler', schnappschuss.peers);
   gauge('wov_metriken_alter_sekunden', 'Alter dieses Schnappschusses in Sekunden — hoch heisst: Spielserver haengt oder ist weg', alterSekunden);
 

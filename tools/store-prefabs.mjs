@@ -279,12 +279,32 @@ const fehlend = [];
 let ausStoreLab = 0;
 
 const prefabNachAsset = new Map();
+/** Quelleinträge, die dieselbe GLB nennen: `asset` → alle ids. */
+const doppelteAssets = new Map();
 for (const p of prefabQuelle.prefabs) {
   if (!manifestNachPfad.has(p.asset)) {
     fehlend.push(`${p.id} → ${p.asset}`);
     continue;
   }
+  // Ein zweiter Eintrag auf dieselbe Datei würde den ersten stillschweigend
+  // überschreiben (die Map ist nach `asset` geschlüsselt) — ein Prefab
+  // verschwände aus der Registry, und keiner der Prüfläufe merkte es.
+  const schon = prefabNachAsset.get(p.asset);
+  if (schon) {
+    const ids = doppelteAssets.get(p.asset) ?? [schon.id];
+    ids.push(p.id);
+    doppelteAssets.set(p.asset, ids);
+  }
   prefabNachAsset.set(p.asset, p);
+}
+if (doppelteAssets.size > 0) {
+  console.error(
+    `${doppelteAssets.size} GLB-Datei(en) in der Prefab-Quelle mehrfach vergeben — ` +
+      'der Generator würde alle bis auf einen Eintrag verlieren:\n' +
+      [...doppelteAssets].map(([asset, ids]) => `  ${asset}: ${ids.join(', ')}`).join('\n') +
+      '\nJede GLB darf nur EIN Prefab tragen; die überzähligen Einträge in assets/store/prefabs.json entfernen.'
+  );
+  process.exit(3);
 }
 
 for (const p of [...prefabNachAsset.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
@@ -677,14 +697,23 @@ const VERHALTEN_REGELN = [
   },
 ];
 
-/** Flagnamen → Wert; `NONE` ist keine Eigenschaft und kein Verhalten. */
+/**
+ * Flagnamen → Wert; `NONE` ist keine Eigenschaft und kein Verhalten.
+ *
+ * `PERSISTENT` kommt IMMER dazu, auch wenn die Quelle es nicht nennt: Jedes
+ * Speicher-Prefab ist persistent (`storePrefabs.ts`), und `shared/test/
+ * store-verhalten.ts` verlangt die Flags der Tabelle einschliesslich dieses
+ * einen. Ein Eintrag im Feld `verhalten`, der nur `["BED"]` sagt, verlöre es
+ * sonst und machte den Sammellauf rot, obwohl das Spiel (ODER-Verknüpfung in
+ * `prefabs.ts`) richtig liefe.
+ */
 function flagsAusNamen(namen, wo) {
   for (const n of namen) {
     if (n === 'NONE' || !(n in PrefabFlag)) {
       throw new Error(`Unbekanntes Flag "${n}" (${wo}) — es muss in PrefabFlag stehen`);
     }
   }
-  return [...new Set(namen)].sort();
+  return [...new Set([...namen, 'PERSISTENT'])].sort();
 }
 
 /** id → { gruppe, flags[] } — die Quelle gewinnt gegen die Regeln. */

@@ -1503,6 +1503,12 @@ const KERN = [
   // Takt ueber fuenf Schlaege gemessen, Parade, Friedliche, Reichweite, ohne
   // Spawnsystem. ~90 s.
   ['server', 'test/b8-angreifbar.ts'],
+  // Besitz und Grenzen: fremde Betten und Truhen bleiben dem Besitzer (Bett,
+  // Oeffnen und ContainerAction), der Wiedereinstieg im Instanz-Band gilt nicht,
+  // Chat und Graben ueberqueren die Weltgrenze nicht, der Zaehler
+  // ohneWeltVerworfen steht im Betriebs-Schnappschuss — drei echte Clients,
+  // eine Instanz, ephemerer Port. ~25 s.
+  ['server', 'test/besitz-grenzen.ts'],
   // G3 (Testluecken-Durchsicht, "kein einziger Test mit zwei
   // gleichzeitigen Clients"): echte WebSocket-Handshakes fuer ZWEI+ Peers
   // gleichzeitig gegen einen echten WovServer. Gegenseitige ZDO-
@@ -1672,6 +1678,10 @@ const KERN = [
   ['server', 'test/kollision-formen.ts', brauchtStore()],
   ['server', 'test/kollision-einhaengung.ts', brauchtStore()],
   ['tools', 'test/store-erzeugung.ts', brauchtStore()],
+  // Die zwei Fallen in der Prefab-QUELLE: `verhalten` behaelt PERSISTENT, und
+  // zwei Eintraege auf dieselbe GLB brechen den Lauf ab statt einen still zu
+  // verlieren. Wegwerf-Baum mit veraenderter prefabs.json. ~3 s.
+  ['tools', 'test/store-quelle.ts', brauchtStore()],
   ['tools', 'test/store-einsortierung.ts', brauchtModelle('assets/store')],
 
   // ── Stufe 2: die Bodenschichten des Vorbilds ──────────────────────

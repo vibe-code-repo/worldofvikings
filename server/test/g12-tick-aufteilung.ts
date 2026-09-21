@@ -22,7 +22,7 @@
  *
  * Wartet nie eine feste Zeit, sondern auf Zeugen (Zeilen im Log).
  *
- * Port 2575 (frei laut Kopfkommentaren der uebrigen Tests).
+ * Ephemerer Port: `port: 0`, gelesen mit `portVon(server)` (scripts/testport.mjs).
  *
  * Lauf: npx tsx test/g12-tick-aufteilung.ts   (aus server/)
  */
@@ -32,13 +32,14 @@ import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { antwortBerechnen } from "../src/net/Identitaet.js";
 import { createWovServer } from "../src/WovServer.js";
+import { portVon } from "../../scripts/testport.mjs";
 import { Reader } from "../src/io/Reader.js";
 import { Writer } from "../src/io/Writer.js";
 import type { MetrikSchnappschuss } from "@wov/shared/src/metrik.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, "tmp-g12-tick-aufteilung");
-const PORT = 2575;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 rmSync(TMP, { recursive: true, force: true });
 mkdirSync(TMP, { recursive: true });
 
@@ -148,7 +149,7 @@ async function mitServer(
   const metriken = resolve(TMP, ordner, "metriken");
   mkdirSync(metriken, { recursive: true });
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     everyoneAdmin: true,
     worldsDir: welt,
     kontenDir: resolve(welt, "konten"),
@@ -157,6 +158,7 @@ async function mitServer(
     metrikenDatei: resolve(metriken, "metriken.json"),
   });
   server.start();
+  PORT = portVon(server);
   nachStart(server);
   let ws: WebSocket | undefined;
   let schritt = 0;

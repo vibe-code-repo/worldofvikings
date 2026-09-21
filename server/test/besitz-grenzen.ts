@@ -7,7 +7,7 @@
  * vorbei greifen nur: ZDOs werden direkt angelegt (wie in b7-entsperren.ts),
  * der Tod kommt ueber `applyCreatureAttack`, und der Wiedereinstieg ins
  * Koordinatenband wird ueber `teleportPeer` an seinen Ort gestellt.
- * Der Testport ist ephemer: ein freier Port wird beim Start erfragt.
+ * Der Testport ist ephemer (`port: 0`, gelesen mit `portVon`).
  *
  *  [A1] Fremdes Bett setzt keinen Wiedereinstieg; eigenes Bett und
  *       Weltbett (ohne Besitzer) schon; Bett in einer Instanz nicht.
@@ -28,7 +28,6 @@
  * Run: npx tsx server/test/besitz-grenzen.ts   (from the repo root)
  */
 import WebSocket from 'ws';
-import { createServer } from 'net';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'fs';
@@ -43,6 +42,7 @@ import {
 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
@@ -93,18 +93,6 @@ const bis = async (bedingung: () => boolean, ms: number): Promise<boolean> => {
 /** Kurze Nachfrist, in der ein UNERWUENSCHTES Paket noch ankaeme (Absenz laesst sich nur so zeigen). */
 const NACHFRIST_MS = 200;
 const f = (n: number, k = 3): string => n.toFixed(k);
-
-/** Ein freier Port: auf 0 binden, Nummer lesen, wieder freigeben. */
-function freierPort(): Promise<number> {
-  return new Promise((res, rej) => {
-    const s = createServer();
-    s.once('error', rej);
-    s.listen(0, '127.0.0.1', () => {
-      const port = (s.address() as { port: number }).port;
-      s.close(() => res(port));
-    });
-  });
-}
 
 interface Ergebnis {
   ok: boolean;
@@ -212,9 +200,8 @@ interface Zugriff {
 }
 
 async function main(): Promise<void> {
-  const PORT = await freierPort();
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: WORLDS_DIR,
     kontenDir: resolve(WORLDS_DIR, 'konten'),
     worldName: 'besitz-grenzen',
@@ -226,6 +213,7 @@ async function main(): Promise<void> {
     metrikenDatei: METRIKEN_DATEI,
   });
   server.start();
+  const PORT = portVon(server);
   const zugriff = server as unknown as Zugriff;
 
   try {

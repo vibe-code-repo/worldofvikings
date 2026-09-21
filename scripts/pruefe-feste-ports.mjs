@@ -69,11 +69,6 @@ const REPO = join(HIER, '..');
  * rest. `text` is a piece of the line (trimmed); the entry is stale when no line has it.
  */
 export const AUSNAHMEN = [
-  {
-    pfad: 'server/test/g12-tick-aufteilung.ts',
-    text: 'const PORT = 2575',
-    grund: 'known rest: binds a fixed port; the card besitz-grenzen owns the file. Switch it like the other 24 (`let PORT = 0`, `port: 0`, `PORT = portVon(server)`) and delete this entry.',
-  },
   { pfad: 'server/test/a14-server-yml.ts', text: "'  port: 2599'", grund: 'YAML text that is parsed, nothing binds it' },
   { pfad: 'server/test/a14-server-yml.ts', text: 'konfig.port === 2599', grund: 'assertion on the parsed value, not a bind' },
   { pfad: 'server/test/standard-konto.ts', text: "'  port: 2599'", grund: 'YAML text that is parsed, nothing binds it' },

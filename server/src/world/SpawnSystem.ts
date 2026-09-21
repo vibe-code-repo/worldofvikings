@@ -43,9 +43,11 @@ import {
   SPAWN_SIM_RADIUS,
   SPAWN_SYNC_INTERVAL_SEC,
   HEALTH_MEMBER,
+  ANIM_MEMBER,
   maxLeben,
   istEigenesModell,
   type SpawnEntry,
+  type KreaturAnim,
 } from '@wov/shared';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
 import type { ZDO } from '../zdo/ZDO.js';
@@ -77,6 +79,21 @@ interface CreatureState {
   syncAccum: number;
   /** Angriffstakt im Chase-Modus (s seit letztem Schlag). */
   attackAccum?: number;
+  /** Last animation state written to the ZDO (`entry.clips` only). */
+  anim?: KreaturAnim;
+}
+
+/**
+ * Pick the clip to play for a wanted state: the state itself if the model
+ * ships it, else the nearest cheaper one (attack -> run -> walk -> idle).
+ */
+function waehleClip(clips: readonly KreaturAnim[], wunsch: KreaturAnim): KreaturAnim {
+  const kette: readonly KreaturAnim[] =
+    wunsch === 'attack' ? ['attack', 'run', 'walk', 'idle']
+    : wunsch === 'run' ? ['run', 'walk', 'idle']
+    : wunsch === 'walk' ? ['walk', 'idle']
+    : ['idle'];
+  return kette.find((z) => clips.includes(z)) ?? 'idle';
 }
 
 /**
@@ -162,6 +179,24 @@ export class SpawnSystem {
   }
 
   /**
+   * Write the animation state into the ZDO member `anim` — only for entries
+   * that list their clips (`SpawnEntry.clips`), and only when it changes.
+   *
+   * The client plays the group whose name contains the string, so this is the
+   * whole path for `idle`/`walk`/`run`/`attack`; no packet type is involved.
+   * Every client that enters the zone later gets the state with the normal
+   * ZDO sync, `setString` bumps the revision by itself.
+   */
+  private zeigeAnim(c: CreatureState, wunsch: KreaturAnim): void {
+    const clips = c.entry.clips;
+    if (!clips) return;
+    const anim = waehleClip(clips, wunsch);
+    if (anim === c.anim) return;
+    c.anim = anim;
+    c.zdo.setString(ANIM_MEMBER, anim);
+  }
+
+  /**
    * Re-register creature ZDOs restored from the world save (call after
    * loadWorld). Their spawn position becomes their wander anchor.
    */
@@ -172,7 +207,7 @@ export class SpawnSystem {
         const key = zdo.zdoid.toString();
         if (this.creatures.has(key)) continue;
         this.stelleLebenSicher(zdo, entry.prefab);
-        this.creatures.set(key, {
+        const c: CreatureState = {
           zdo,
           entry,
           home: { ...zdo.position },
@@ -180,7 +215,10 @@ export class SpawnSystem {
           target: { ...zdo.position },
           idleUntil: 0,
           syncAccum: 0,
-        });
+        };
+        this.creatures.set(key, c);
+        // A creature from the save may still say `walk` or `attack`.
+        this.zeigeAnim(c, 'idle');
       }
     }
   }
@@ -311,7 +349,7 @@ export class SpawnSystem {
       const rot = yawQuaternion(yaw);
       const zdo = this.zdos.createZDO(hash, { x: mx, y: ground, z: mz }, rot);
       this.stelleLebenSicher(zdo, entry.prefab);
-      this.creatures.set(zdo.zdoid.toString(), {
+      const c: CreatureState = {
         zdo,
         entry,
         home: { x: mx, y: ground, z: mz },
@@ -319,7 +357,9 @@ export class SpawnSystem {
         target: { x: mx, y: ground, z: mz },
         idleUntil: this.simTime + this.rng.rangeFloat(entry.idleMinSec, entry.idleMaxSec),
         syncAccum: 0,
-      });
+      };
+      this.creatures.set(zdo.zdoid.toString(), c);
+      this.zeigeAnim(c, 'idle');
     }
   }
 
@@ -352,6 +392,7 @@ export class SpawnSystem {
         }
         if (c.mode === 'chase') {
           const dist = Math.sqrt(nearest.distSqr);
+          this.zeigeAnim(c, dist > 1.7 ? 'run' : 'attack');
           if (dist > 1.7) {
             const dx = nearest.pos.x - c.zdo.position.x;
             const dz = nearest.pos.z - c.zdo.position.z;
@@ -422,6 +463,8 @@ export class SpawnSystem {
           }
         }
       }
+
+      this.zeigeAnim(c, c.mode === 'walk' ? 'walk' : c.mode === 'flee' ? 'run' : 'idle');
 
       // 4 Hz revision throttle: position lives in the ZDO wire header, and
       // the revision compare in syncZDOs is the authoritative resend gate.

@@ -5989,6 +5989,11 @@ const KREATUR_DROPS: Record<string, Array<[string, number, number, number]>> = {
   Greydwarf: [['Wood', 1, 2, 1], ['Resin', 1, 1, 0.5], ['Stone', 1, 1, 0.5]],
   Boar: [['RawMeat', 1, 2, 1]],
   Deer: [['RawMeat', 1, 2, 1], ['TrophyDeer', 1, 1, 0.5]],
+  // B9: meat is the only animal drop the item table knows (no leather or pelt
+  // item exists yet). The cow is the big animal (1.5 m at the shoulder, 2.9 m
+  // long), so one more than the boar; the wolf drops what the boar drops.
+  Kuh: [['RawMeat', 2, 3, 1]],
+  Wolf: [['RawMeat', 1, 2, 1]],
   Neck: [['NeckTail', 1, 1, 0.75]],
   Skeleton: [['Coins', 2, 5, 0.6]],
   Draugr: [['Entrails', 1, 2, 1]],

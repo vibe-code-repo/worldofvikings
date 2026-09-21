@@ -53,6 +53,12 @@ export const MAX_LEBEN: ReadonlyMap<string, number> = new Map<string, number>([
   ['Deer', 20],
   ['Boar', 30],
   ['Greydwarf', 30],
+  // Cow and wolf (B9): same roles, same numbers as their models in this table
+  // — the cow follows the boar (big, good-natured, two flint-axe hits), the
+  // wolf the greydwarf (the wilderness guard: 3 hits with the north sword, 2
+  // with the flint axe). No new gradation without a reason to change it.
+  ['Kuh', 30],
+  ['Wolf', 30],
 
   // ── Boss ───────────────────────────────────────────────────────────
   ['Eikthyr', 300],

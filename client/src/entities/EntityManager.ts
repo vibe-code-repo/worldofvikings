@@ -87,6 +87,7 @@ import {
 } from '../engine/RefraktionsAuswahl';
 import type { ClientWorld } from '../world/World';
 import type { ZDOEntityUpdate } from '../net/ZDOSync';
+import { clipRate } from './clipTempo';
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
 const DYNAMIC_FLAGS =
@@ -580,6 +581,12 @@ interface DynamicEntity {
    * Zyklus bliebe im ersten Bild hängen.
    */
   anim?: string;
+  /**
+   * Coupling of a walk/run clip to the ground speed (clipTempo.ts): the
+   * prefab's clip speeds, the smoothed speed of the root and the rate last
+   * given to the group. Only prefabs with `animationTempo` carry it.
+   */
+  clipTempo?: { tabelle: Readonly<Record<string, number>>; ist: number; rate: number };
   /**
    * Leben in Prozent, -1 = unbekannt. Wird NUR überschrieben, wenn das
    * Update den Member wirklich trägt: Ein Tick ohne `health` heisst „hat
@@ -3138,7 +3145,17 @@ export class EntityManager {
    */
   dynamicPose(
     name: string
-  ): { pos: Vector3Like; rotX: number; yaw: number; anim: string | null; tempo: number } | null {
+  ): {
+    pos: Vector3Like;
+    rotX: number;
+    yaw: number;
+    anim: string | null;
+    tempo: number;
+    /** Smoothed ground speed of the coupled clip, m/s (-1 = not coupled). */
+    tempoIst: number;
+    /** The group that really plays and the rate it really has. */
+    gruppe: { name: string; speedRatio: number } | null;
+  } | null {
     for (const d of this.dynamics.values()) {
       if (!(d.root.name || '').includes(name)) continue;
       const p = d.root.position;
@@ -3149,6 +3166,8 @@ export class EntityManager {
         yaw: e?.y ?? 0,
         anim: d.anim ?? null,
         tempo: d.gang?.tempo ?? -1,
+        tempoIst: d.clipTempo?.ist ?? -1,
+        gruppe: this.assets.aktiveGruppe(d.root),
       };
     }
     return null;
@@ -3161,9 +3180,18 @@ export class EntityManager {
       if (!z) continue;
       const g = dyn.gang;
       if (!g) {
+        const vorherX = dyn.root.position.x;
+        const vorherZ = dyn.root.position.z;
         Vector3.LerpToRef(dyn.root.position, z.pos, f, dyn.root.position);
         if (dyn.root.rotationQuaternion) {
           Quaternion.SlerpToRef(dyn.root.rotationQuaternion, z.rot, f, dyn.root.rotationQuaternion);
+        }
+        if (dyn.clipTempo) {
+          this.koppleClipTempo(
+            dyn,
+            dt,
+            Math.hypot(dyn.root.position.x - vorherX, dyn.root.position.z - vorherZ)
+          );
         }
         continue;
       }
@@ -3194,6 +3222,21 @@ export class EntityManager {
         g.basisRot.multiplyToRef(GANG_NICK_TMP, dyn.root.rotationQuaternion);
       }
     }
+  }
+
+  /**
+   * Couple the playing walk/run clip to the ground speed the root really
+   * has this frame (clipTempo.ts). Idle and every state without an entry in
+   * `animationTempo` play as authored.
+   */
+  private koppleClipTempo(dyn: DynamicEntity, dt: number, schritt: number): void {
+    const k = dyn.clipTempo!;
+    const roh = dt > 0 ? schritt / dt : 0;
+    k.ist += (roh - k.ist) * Math.min(1, dt * 6);
+    const rate = clipRate(k.ist, dyn.anim ? k.tabelle[dyn.anim] : undefined);
+    if (Math.abs(rate - k.rate) < 0.005) return;
+    k.rate = rate;
+    this.assets.setzeAnimationsTempo(dyn.root, rate);
   }
 
   // ── Dynamic (instantiated hierarchies) ───────────────────────────
@@ -3230,6 +3273,8 @@ export class EntityManager {
       // dynamicPose) den Prefab-Namen drauflegen.
       root.name = prefabName;
       dyn = { root, anim: wunschAnim };
+      const clipTabelle = findPrefabByHash(u.prefabHash)?.animationTempo;
+      if (clipTabelle) dyn.clipTempo = { tabelle: clipTabelle, ist: 0, rate: 1 };
       if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);
       if (model) stabilizeHeadSkin(root.getChildMeshes());
       if (belebt) {

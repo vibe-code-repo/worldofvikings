@@ -1104,6 +1104,9 @@ const KERN = [
   // ueber Babylons NullEngine: ohne GPU, ohne Assets, synthetische
   // Geometrie und Instanzlagen.
   ['client', 'test/master-huelle.ts'],
+  // B9.2: die Abspielgeschwindigkeit der Geh- und Lauf-Clips folgt dem
+  // Bodentempo (reine Regel + die Daten jedes ausgelieferten Tiers). ~2 s.
+  ['client', 'test/kreaturen-clip-tempo.ts'],
   // Die `_col`-Konvention (ein GLB-Mesh ist NUR Kollision): unsichtbar,
   // kein Schattenwerfer, und es ERSETZT die Kollision des Prefabs. Beide
   // Fehlerrichtungen sind im Spiel schwer zu sehen — ein grauer Klotz in
@@ -1503,6 +1506,12 @@ const KERN = [
   // Takt ueber fuenf Schlaege gemessen, Parade, Friedliche, Reichweite, ohne
   // Spawnsystem. ~90 s.
   ['server', 'test/b8-angreifbar.ts'],
+  // B9.2: Kuh und Wolf im Spiel. Tabellen (Spawn-Tabelle, Registry, Leben,
+  // Manifest-Clips), das Spawnsystem mit den ausgelieferten Zahlen (Kuh auf
+  // der Wiese, Wolf im Schwarzwald, `anim`-Member folgt der Bewegung, Kuh
+  // schlaegt nie, Wolf jede 2 s mit 8) und der echte Paketweg: Treffer,
+  // Tod nach gezaehlten Schlaegen, Beute im Inventar. ~70 s.
+  ['server', 'test/b9-kreaturen-spiel.ts'],
   // Besitz und Grenzen: fremde Betten und Truhen bleiben dem Besitzer (Bett,
   // Oeffnen und ContainerAction), der Wiedereinstieg im Instanz-Band gilt nicht,
   // Chat und Graben ueberqueren die Weltgrenze nicht, der Zaehler

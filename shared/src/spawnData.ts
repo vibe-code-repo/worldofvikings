@@ -15,6 +15,7 @@
  */
 
 import { Biome } from './types.js';
+import type { KreaturAnim } from './constants.js';
 import { istEigenesModell } from './prefabs.js';
 
 /** One creature kind's spawn + movement rules. */
@@ -62,6 +63,16 @@ export interface SpawnEntry {
   readonly aggro?: boolean;
   /** false = despawnt nie (NPCs, Bosse behalten ihren Platz). */
   readonly despawns?: boolean;
+  /**
+   * Animation states the model ships as clips (group names in the GLB). Only
+   * an entry that lists them gets the ZDO member `anim` written by the spawn
+   * system; without the field nothing is written and the client keeps the
+   * prefab's fixed animation (NPC_1 plays `Walking`, and a written `idle`
+   * would find no group there and freeze it).
+   *
+   * A state the model lacks falls back: `attack` -> `run` -> `walk` -> `idle`.
+   */
+  readonly clips?: readonly KreaturAnim[];
 }
 
 /** No player within this radius → creature despawns (meters). */
@@ -159,6 +170,73 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     flees: false,
     fleeDistance: 0,
     calmDistance: 0,
+  },
+  {
+    // Cow (B9): the meadow's big grazer. Same role and numbers as the boar
+    // (cap 3 within 120 m, groups of 1-2, ring 35-80 m, one roll per 6 s), but
+    // `aggro: false`: a cow never attacks and never flees, it just stands and
+    // wanders. The cap is also a cost cap: each cow is one skinned mesh
+    // (1414 triangles) that cannot be instanced.
+    //
+    // Walk 1.0 m/s sits next to the walk clip's 0.94 m/s (prefabs.ts); `runSpeed`
+    // is never used (no flee, no chase) and stays at the boar's 5.0.
+    prefab: 'Kuh',
+    biomes: Biome.Meadows,
+    maxPerPlayer: 3,
+    countRadius: 120,
+    globalMax: 30,
+    spawnIntervalSec: 6,
+    spawnChance: 0.35,
+    groupSizeMin: 1,
+    groupSizeMax: 2,
+    groupRadius: 5,
+    ringMin: 35,
+    ringMax: 80,
+    minAltitude: 30.5,
+    walkSpeed: 1.0,
+    runSpeed: 5.0,
+    wanderRadius: 15,
+    idleMinSec: 3,
+    idleMaxSec: 8,
+    flees: false,
+    fleeDistance: 0,
+    calmDistance: 0,
+    aggro: false,
+    clips: ['idle', 'walk', 'run'],
+  },
+  {
+    // Wolf (B9): plays the greydwarf's part (the roadmap says so) in the same
+    // biome, the Black Forest, and takes its combat numbers: 30 HP (leben.ts),
+    // chase 5.5 m/s (player walks 4.5, runs 7.5), 8 damage every 2 s within
+    // 2.4 m (SpawnSystem). Fewer than the greydwarf (3 instead of 5 within
+    // 130 m, 30 instead of 50 server-wide, one roll per 6 s at 30 %): it is
+    // the same damage from a faster body, and every wolf is a skinned mesh of
+    // 1000 triangles that costs a draw call plus a shadow pass.
+    //
+    // Walk 1.0 m/s (clip: 0.62), chase 5.5 m/s (clip: 1.42): the client
+    // couples the clip's playback rate to the real ground speed.
+    prefab: 'Wolf',
+    biomes: Biome.BlackForest,
+    maxPerPlayer: 3,
+    countRadius: 130,
+    globalMax: 30,
+    spawnIntervalSec: 6,
+    spawnChance: 0.3,
+    groupSizeMin: 1,
+    groupSizeMax: 2,
+    groupRadius: 6,
+    ringMin: 40,
+    ringMax: 85,
+    minAltitude: 30.5,
+    walkSpeed: 1.0,
+    runSpeed: 5.5,
+    wanderRadius: 25,
+    idleMinSec: 2,
+    idleMaxSec: 5,
+    flees: false,
+    fleeDistance: 0,
+    calmDistance: 0,
+    clips: ['idle', 'walk', 'run', 'attack'],
   },
 ];
 

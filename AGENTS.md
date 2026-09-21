@@ -119,8 +119,27 @@ tracked. Change it in your worktree and restore it before every commit
 in a pull request. The DEV services on `2467`, `2468`, `5274` and `3000` belong
 to `/opt/worldofvikings` — never stop or restart them from a task.
 
-Full test runs share a few fixed ports and collide when two run at once, and
-frame-time measurements are skewed by a neighbour that renders. Serialise both:
+**Tests never choose a port.** A test that starts a server passes `port: 0` and
+reads the real port back with `portVon(server)` from `scripts/testport.mjs`
+(`freierPort()` there is the second choice, for a child process or config file
+that must be told the port before it binds). A constant that only looks like a
+port is not allowed either: a test that merely calls `init()` passes `port: 0`
+as well. Why this is a rule and not a habit: until 21.09.2026 about 25 test
+files bound fixed ports in `2498`-`2610` (and `27314`). Those numbers belong to
+nobody. The slot ports above are a different band and protect nothing there -
+no test binds them - so any session's probe on the same number, a second full
+run or an orphan left by an aborted run made a test fail with `EADDRINUSE`, and
+one full run then hung for 600 s on it. A fixed port that a test really cannot
+avoid (there is none today) is written down at the place with its reason and
+entered in `FESTE_PORTS` in `scripts/testport.mjs`. What a test really binds is
+measured, not read from the code: `scripts/listen-spion.mjs` (usage in its
+header) logs every `listen()` of a run and can refuse fixed ports without
+binding anything.
+
+Full test runs no longer collide on ports, but two things still argue for
+running them one after the other: timing-sensitive tests and frame-time
+measurements are skewed by a neighbour that computes or renders. Serialise
+both:
 
 ```bash
 flock /opt/wov-worktrees/.slots/test.lock npm test

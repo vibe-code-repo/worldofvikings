@@ -37,6 +37,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { dungeon2 } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 // Dieselbe Lehre wie in g6: Die Handshake-Antwort MUSS ueber die
 // Produktivfunktion laufen, nicht ueber eine nachgebaute HMAC-Zeile.
 // Same lesson as in g6: the handshake answer MUST use the production function.
@@ -45,11 +46,11 @@ import { antwortBerechnen } from '../src/net/Identitaet.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, 'tmp-g9');
 /**
- * Eigener Port. NICHT 2467 (der DEV-Spielserver) und nicht 2498 (g6) — zwei
- * Tests, die sich einen Port teilen, laufen nicht nebeneinander.
- * Own port. NOT 2467 (the DEV game server) and not 2498 (g6).
+ * Der Port kommt vom Betriebssystem (scripts/testport.mjs) — zwei Tests, die sich
+ * einen festen Port teilen, laufen nicht nebeneinander.
+ * The OS picks the port; two tests sharing a fixed port cannot run side by side.
  */
-const PORT = 2499;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 const P = {
   VersionCheck: 1,
   PasswordAuth: 2,
@@ -202,7 +203,7 @@ const GEBAUT_ID = 'steingrab-gebaut-g9';
 async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: resolve(TMP, 'worlds'), kontenDir: resolve(TMP, 'konten'),
     // Diese Probe schickt Adminpakete und prueft NICHT die Rechtevergabe:
     // seit dem 13.09.2026 ist die Vorgabe `everyoneAdmin: false`, also
@@ -213,6 +214,7 @@ async function main(): Promise<void> {
     saveIntervalMs: 3600_000,
   });
   server.start();
+  PORT = portVon(server);
 
   const dungeons = server.dungeons;
 

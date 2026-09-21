@@ -29,13 +29,14 @@ import { rmSync } from 'fs';
 import { getStableHash, findItem, HEALTH_MEMBER, type Vector3 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-g7-drossel-einbau');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
-const PORT = 2514;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 const P = {
   VersionCheck: 1,
@@ -130,7 +131,7 @@ async function main(): Promise<void> {
   // everyoneAdmin AUSDRUECKLICH — seit Paket 0.1 ist die Vorgabe `false`,
   // und das `teleport 0 0` unten wurde seitdem stillschweigend abgewiesen.
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: WORLDS_DIR,
     kontenDir: resolve(WORLDS_DIR, 'konten'),
     worldName: 'g7-drossel-einbau',
@@ -138,6 +139,7 @@ async function main(): Promise<void> {
     everyoneAdmin: true,
   });
   server.start();
+  PORT = portVon(server);
 
   try {
     const ws = await verbinde('Spieler');

@@ -38,7 +38,7 @@ console.log('=== G1 admin + fly smoke test ===');
 // worldFeatures: false — G1 tests movement/admin logic, not worldgen
 // (skips the ~75s worldwide feature placement, like d6)
 const server = createWovServer({
-  port: 2498,
+  port: 0, // init() only, never bound
   worldSeed: 'KxSYuZquuw',
   worldFeatures: false,
 });

@@ -29,11 +29,12 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { PacketType } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(HIER, '../../.tmp-g9');
-const PORT = 27_314;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 /**
  * Pakettypen IMPORTIERT statt abgeschrieben.
@@ -159,7 +160,7 @@ const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: resolve(TMP, 'worlds'), kontenDir: resolve(TMP, 'konten'),
     // Diese Probe schickt Adminpakete und prueft NICHT die Rechtevergabe:
     // seit dem 13.09.2026 ist die Vorgabe `everyoneAdmin: false`, also
@@ -170,6 +171,7 @@ async function main(): Promise<void> {
     saveIntervalMs: 3_600_000,
   });
   server.start();
+  PORT = portVon(server);
   await warte(1500);
 
   // ── 1. Ein normaler Spieler ist online ──

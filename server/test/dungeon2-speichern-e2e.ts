@@ -23,6 +23,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { dungeon2 } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { speichereDungeon2 } from '../../client/src/editor/dungeon2/Dungeon2Speichern.js';
 
 // `GameSocket.ts` liest/schreibt `localStorage` (SessionToken, F3/F4
@@ -64,9 +65,8 @@ import { speichereDungeon2 } from '../../client/src/editor/dungeon2/Dungeon2Spei
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(HIER, '../../.tmp-dungeon2-speichern-e2e');
-/** Eigener Port — nicht 2467 (DEV), nicht 2498/2499 (g6/g9), nicht 27314 (g9-editor-verbindung). */
-const PORT = 2515;
-const HOST = `127.0.0.1:${PORT}`;
+/** The OS picks the port (scripts/testport.mjs); HOST is set as soon as the server listens. */
+let HOST = '';
 
 let gutZahl = 0;
 const fehlerListe: string[] = [];
@@ -99,7 +99,7 @@ function baueDokument(id: string): dungeon2.DungeonDokument2 {
 async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: resolve(TMP, 'worlds'), kontenDir: resolve(TMP, 'konten'),
     // Diese Probe schickt Adminpakete und prueft NICHT die Rechtevergabe:
     // seit dem 13.09.2026 ist die Vorgabe `everyoneAdmin: false`, also
@@ -110,6 +110,7 @@ async function main(): Promise<void> {
     saveIntervalMs: 3_600_000,
   });
   server.start();
+  HOST = `127.0.0.1:${portVon(server)}`;
 
   // ── 1. Erfolgsweg: Speichern, Quittung, servergeprüftes Dokument ─────────
   const doc = baueDokument('ap15-probe');

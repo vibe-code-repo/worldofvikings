@@ -41,12 +41,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PacketType } from '@wov/shared';
 import { NetManager } from '../src/net/NetManager.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 import {
   antwortBerechnen, geheimnisErzeugen, tokenAusstellen,
 } from '../src/net/Identitaet.js';
 
-const PORT = 2571;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 const P = PacketType;
 
 // ── Draht-Hilfen ────────────────────────────────────────────────────
@@ -176,7 +177,7 @@ async function main(): Promise<void> {
   const token = tokenAusstellen(charakter.spielerId, charakter.altlastUserId, geheimnis);
 
   const net = new NetManager({
-    port: PORT,
+    port: 0,
     password: '',
     serverName: 'Bannprobe',
     maxPlayers: 10,
@@ -189,6 +190,7 @@ async function main(): Promise<void> {
     bannPruefen: (zugang) => db.bannFuerZugang(zugang),
   });
   net.start();
+  PORT = portVon(net);
   await warte(300);
 
   try {

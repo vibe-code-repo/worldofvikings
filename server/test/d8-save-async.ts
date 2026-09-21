@@ -48,7 +48,7 @@ function check(name: string, cond: boolean, detail = ''): void {
 
 function makeServer() {
   return createWovServer({
-    port: 2497, // nie gebunden (nur init(), kein start())
+    port: 0, // nie gebunden (nur init(), kein start())
     worldName: 'world',
     worldSeed: SEED,
     worldFeatures: false,

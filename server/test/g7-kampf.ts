@@ -44,6 +44,7 @@ import { rmSync } from 'fs';
 import { getStableHash, findItem, HEALTH_MEMBER, type Vector3 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
@@ -51,7 +52,7 @@ import type { ZDO } from '../src/zdo/ZDO.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-g7-kampf');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
-const PORT = 2510;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 const P = {
   VersionCheck: 1,
@@ -181,7 +182,7 @@ async function main(): Promise<void> {
   // spielte alle Abschnitte still an derselben Stelle durch. Die Ziele
   // frueherer Abschnitte standen dann noch in Reichweite der spaeteren.
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: WORLDS_DIR,
     kontenDir: resolve(WORLDS_DIR, 'konten'),
     worldName: 'g7-kampf',
@@ -189,6 +190,7 @@ async function main(): Promise<void> {
     everyoneAdmin: true,
   });
   server.start();
+  PORT = portVon(server);
 
   try {
     const ws = await verbinde('Kaempfer');

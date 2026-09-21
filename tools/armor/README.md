@@ -282,9 +282,13 @@ in the commands below are shorthand for that.
     and on disk, the `replaces` / `attachment` extras must name exactly the registered
     regions, and full-set masking and restoration on the body is tested. The regions no
     item replaces (Plainhide: `Head`, `HandLeft`, `HandRight`) must stay on the body, each one on its
-    own: a body without the head or one hand fails and the message names the region
-    (`test/legacy-female-armor.mjs` does the same on the real 51-bone body and leaves no report
-    behind when it fails). A registered GLB must carry `itemId`, `bodyVariant` and `bodyProfile` in
+    own: a body without the head or one hand fails and the message names the region. Each free
+    region needs whole triangles (an index count that is a multiple of 3 and at least 3) and every
+    mesh of it must be enabled, `isVisible === true` and `visibility > 0` after the full set is
+    worn. `test/legacy-female-armor.mjs` does the same on the real 51-bone body; it deletes an old
+    `runtime-validation.json` in the given output folder (exactly that one file) before anything
+    else, so a failed run of any kind, an unknown `--family` included, leaves no report behind.
+    A registered GLB must carry `itemId`, `bodyVariant` and `bodyProfile` in
     every mesh node and they must equal the registry; only the closed list
     `FAMILIES_WITHOUT_IDENTITY_EXTRAS` at the top of `skin-gate.mjs` (Ironward, Wildwarden,
     Ashenveil, whose shipped GLBs never had them; `--list-legacy-sets` prints it) is exempt, every
@@ -374,6 +378,24 @@ design from the Seidraven builder.
    continue with steps 9 to 11.
 
 ## What the checks do not promise
+
+### What the gate does not prove
+
+A green `skin-gate.mjs` or `legacy-female-armor.mjs` run says less than "the free regions are visible".
+The output lists it next to `collisionCertified: false` as `notProven`. The checks read scene state
+and index counts; they are not a material, pixel or collision check, and none was added:
+
+- **Material transparency.** A free region whose material is `alphaMode: BLEND` with alpha 0 (or any
+  other material that draws nothing) passes: the mesh is present, enabled and visible in the scene
+  graph sense. The gate does not look at materials.
+- **Geometry that encloses a free region.** Foreign geometry declared as a replaced region (a torso
+  that surrounds the head or the hands) passes; that is the collision question above.
+- **Completeness of the original body.** One of two hand meshes, or a body with a duplicate or freely
+  renamed head mesh, is still a positive proof that the region exists, not that the shipped body
+  geometry is whole. Region names are matched with `includes`, which can count one mesh for two
+  regions (a torso mesh called "Chr_Torso_Female_00 Head"); the enabled state catches that case.
+- **Provenance.** Correct identity fields copied onto foreign, rig- and region-compatible geometry
+  pass. The gate checks a metadata contract, not where the geometry came from.
 
 - **No clipping approval.** The motion test proves finite, bounded geometry and an
   exact rest matrix over every frame of every master clip. It does not prove that

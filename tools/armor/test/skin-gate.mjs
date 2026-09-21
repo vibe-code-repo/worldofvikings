@@ -12,8 +12,11 @@
  * In a registered run every mesh node of a GLB must carry `itemId`, `bodyVariant` and `bodyProfile` and they must equal the
  * registry (the web profile with --web). The ONLY exception is the named list FAMILIES_WITHOUT_IDENTITY_EXTRAS below
  * (`--list-legacy-sets` prints it); every other family, including every future one, is required.
- * Every region the registry leaves free (Plainhide: head and hands) must exist and be visible after the full set is worn,
- * each one on its own. A manifest that lists an item id twice is refused before anything is loaded.
+ * Every region the registry leaves free (Plainhide: head and hands) must exist after the full set is worn, each one on its
+ * own, with WHOLE triangles (an index count that is a multiple of 3 and at least 3), and every mesh of it must be
+ * enabled, `isVisible === true` and `visibility > 0`. It does NOT prove material transparency (alphaMode BLEND, alpha 0),
+ * foreign geometry that encloses a free region, the completeness of the original body geometry, or that correct identity
+ * fields were not copied onto foreign geometry (see `notProven` in the report and the README). A manifest that lists an item id twice is refused before anything is loaded.
  * --unregistered checks deformation only, not the registry, the extras or the masking; use it for sets that
  * have no registry entry yet.
  * --write-report stores animation-validation.json next to the models.
@@ -36,6 +39,8 @@ import { updateLegacyFemaleMask } from '../../../client/src/player/legacyFemaleM
  * all three fields. It is not derived from a name pattern; adding a family here is a deliberate, reviewed edit.
  */
 const FAMILIES_WITHOUT_IDENTITY_EXTRAS = ['ironward', 'wildwarden', 'ashenveil'];
+const NOT_PROVEN = ['material transparency (alphaMode BLEND, alpha 0)', 'foreign geometry that spatially encloses a free region',
+  'completeness of the original body geometry', 'that correct identity fields were not copied onto foreign geometry (a metadata contract, not provenance)'];
 if (process.argv.includes('--list-legacy-sets')) { console.log(JSON.stringify(FAMILIES_WITHOUT_IDENTITY_EXTRAS)); process.exit(0); }
 const [bodyPath, directory] = process.argv.slice(2);
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -154,6 +159,7 @@ for (const { item, file, part } of entries) {
 }
 const bodyMeshes = body.meshes.filter(m => m.getTotalVertices());
 const original = legacyFemale ? Array.from(bodyMeshes[0].getIndices()) : [], maskTriangles = {}, freeRegionTriangles = {};
+if (legacyFemale) assert(original.length % 3 === 0, `${family}/${variant}: the body mesh has ${original.length} indices: it needs whole triangles`);
 if (!unregistered) {
   // The registry decides which regions a set hides: an attachment such as the Wildwarden crown hides none.
   const files = expected.map(p => `${family}/${itemOf(p)}`);
@@ -180,12 +186,19 @@ if (!unregistered) {
     for (const region of freeRegions) {
       updateLegacyFemaleMask(bodyMeshes[0], new Set(BODY_REGIONS.filter(r => r !== region)));
       freeRegionTriangles[region] = bodyMeshes[0].getIndices().length / 3;
-      assert(freeRegionTriangles[region] > 0, `${family}/${variant}: the free region ${region} has no body triangles: it is missing from the body`);
+      assert(freeRegionTriangles[region] > 0 && Number.isInteger(freeRegionTriangles[region]),
+        `${family}/${variant}: the free region ${region} has no body triangles: it is missing from the body`);
     }
     // And nothing but the free regions stays when the set is worn: the parts add up to what is left.
     const sum = Object.values(freeRegionTriangles).reduce((a, b) => a + b, 0);
     assert.equal(sum, left, `${family}/${variant}: the full set leaves ${left} body triangles but the free regions [${freeRegions}] hold ${sum}`);
     trianglesLeft(files);
+    // The free regions live inside the one body mesh: with the full set worn that mesh must be on, visible and not faded out.
+    if (freeRegions.length) {
+      const m = bodyMeshes[0];
+      assert(m.isEnabled() && m.isVisible === true && m.visibility > 0,
+        `${family}/${variant}: the free regions [${freeRegions}] are not visible after the full set (body mesh ${m.name}: isEnabled=${m.isEnabled()}, isVisible=${m.isVisible}, visibility=${m.visibility})`);
+    }
   } else {
     const hiddenBody = () => bodyMeshes.filter(m => !m.isEnabled());
     for (const [i, part] of expected.entries()) {
@@ -201,9 +214,17 @@ if (!unregistered) {
     // Each free region must exist as a body mesh and be visible: "the registered ones are hidden" says nothing about them.
     for (const region of freeRegions) {
       const meshes = bodyMeshes.filter(m => m.name.includes(region));
+      assert(meshes.length > 0, `${family}/${variant}: the free region ${region} has no body mesh: it is missing from the body`);
+      // Whole triangles: a head with one or two indices is no head. Every mesh of the region counts, not only the first.
+      for (const m of meshes) {
+        const indices = m.getTotalIndices();
+        assert(indices >= 3 && indices % 3 === 0,
+          `${family}/${variant}: the free region ${region} has ${indices} indices in mesh ${m.name}: it needs whole triangles (a multiple of 3, at least 3)`);
+      }
+      // The states the mask code and the loader leave behind, after the full set is worn; each mesh of the region, not one of them.
+      const unseen = meshes.find(m => !(m.isEnabled() && m.isVisible === true && m.visibility > 0));
+      assert(!unseen, `${family}/${variant}: the free region ${region} is not visible although no item replaces it (mesh ${unseen?.name}: isEnabled=${unseen?.isEnabled()}, isVisible=${unseen?.isVisible}, visibility=${unseen?.visibility})`);
       freeRegionTriangles[region] = meshes.reduce((n, m) => n + m.getTotalIndices() / 3, 0);
-      assert(freeRegionTriangles[region] > 0, `${family}/${variant}: the free region ${region} has no body mesh: it is missing from the body`);
-      assert(meshes.every(m => m.isEnabled()), `${family}/${variant}: the free region ${region} is hidden although no item replaces it`);
     }
   }
   assert(armor.every(m => m.isEnabled()), 'Armor must not mask itself');
@@ -230,7 +251,9 @@ if (!unregistered) {
   if (legacyFemale) assert.deepEqual(Array.from(bodyMeshes[0].getIndices()), original, 'Unequipping must restore every body triangle');
 }
 const report = { status: 'PASS', bones: skeleton.bones.length, armorPrimitives: armor.length, clips: frames,
-  samplesPerClip: 4, registryMaskingTested: !unregistered, collisionCertified: false };
+  samplesPerClip: 4, registryMaskingTested: !unregistered, collisionCertified: false,
+  // What a green gate does not say. Keep in step with the README section "What the gate does not prove".
+  notProven: NOT_PROVEN };
 if (!unregistered) Object.assign(report, { family, bodyVariant: variant, bodyProfile: profile, registryItems: expected.length, glbMeshNodesChecked: meshNodeCount,
   freeRegions, freeRegionTriangles, identityExtras: identityRequired ? 'required' : 'legacy-exempt', ...(web ? { webBody: true } : {}),
   ...(legacyFemale ? { bodyTriangles: original.length / 3, hiddenBodyTrianglesPerItem: maskTriangles } : {}) });

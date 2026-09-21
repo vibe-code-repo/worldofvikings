@@ -17,14 +17,15 @@ import { prepareLegacyFemaleBody, updateArmorVisibility, verifyArmorSkin } from 
 import { updateLegacyFemaleMask } from '../../../client/src/player/legacyFemaleMask.ts';
 
 const [bodyPath,directory,fitPath]=process.argv.slice(2);
+// FIRST, before any check can fail: an old runtime-validation.json in the given output folder must never survive a failed run
+// (unknown family, bad fit path, a missing region ...). Exactly this one file of that folder is removed, nothing else.
+if(directory)rmSync(join(directory,'runtime-validation.json'),{force:true});
 const family=process.argv.find(a=>a.startsWith('--family='))?.slice(9)??'seidraven';
 const BODY_REGIONS=['Head','Torso','Hips','ArmUpperLeft','ArmUpperRight','ArmLowerLeft','ArmLowerRight','HandLeft','HandRight','LegLeft','LegRight'];
 // The registered female items of the family, and what they leave alone.
 const parts=RUESTUNG.filter(p=>p.datei.startsWith(`${family}/`)&&p.bodyProfile==='legacy-female-v1').map(p=>({item:p.datei.split('/')[1],file:p.datei,regions:p.regions??[]}));
 assert(parts.length,`The registry has no female ${family} items`);
 const replaced=[...new Set(parts.flatMap(p=>p.regions))],freeRegions=BODY_REGIONS.filter(r=>!replaced.includes(r));
-// A failed run must not leave an old runtime-validation.json behind that still claims an exact mask.
-rmSync(join(directory,'runtime-validation.json'),{force:true});
 const fit=JSON.parse(readFileSync(fitPath));
 assert.deepEqual(Object.keys(fit.parts).sort(),[...replaced].sort(),'The fit report must cover exactly the regions the registry replaces');
 const engine=new NullEngine();const scene=new Scene(engine);
@@ -34,6 +35,7 @@ for(const clip of body.animationGroups)clip.stop();
 const meshes=body.meshes.filter(m=>m.getTotalVertices());
 assert.equal(meshes.length,1,'Fixture must be the shipped monolithic female body');
 const base=meshes[0];const original=Array.from(base.getIndices());
+assert(original.length%3===0,`${family}: the body mesh has ${original.length} indices: it needs whole triangles`);
 const other=base.clone('OtherCharacter',null);const cosmetic=base.clone('UnmarkedCosmetic',null);
 prepareLegacyFemaleBody([base],'wikingerin');prepareLegacyFemaleBody([other],'wikingerin');
 assert.notEqual(base.geometry,other.geometry);
@@ -74,6 +76,8 @@ const linings=replaced.reduce((n,r)=>n+fit.parts[r].liningTriangles,0);
 const remaining=base.getIndices().length/3;
 assert.equal(remaining,original.length/3-linings,'Full set: the body keeps every triangle the fit did not replace');
 assert.equal(base.isEnabled(),freeRegions.length>0,'The body mesh stays on exactly when free regions are left');
+// The free regions live inside the one body mesh: it must also be visible and not faded out, not only enabled.
+if(freeRegions.length)assert(base.isVisible===true&&base.visibility>0,`${family}: the free regions [${freeRegions}] are not visible after the full set (body mesh: isEnabled=${base.isEnabled()}, isVisible=${base.isVisible}, visibility=${base.visibility})`);
 assert.equal(remaining>0,freeRegions.length>0);
 assert(armor.every(m=>m.isEnabled()));
 // The triangles that stay (free regions) and the triangles of the replaced regions must partition the body: nothing of a replaced
@@ -92,7 +96,7 @@ const freeRegionTriangles={};
 for(const region of freeRegions){
  updateLegacyFemaleMask(base,new Set(BODY_REGIONS.filter(r=>r!==region)));
  freeRegionTriangles[region]=base.getIndices().length/3;
- assert(freeRegionTriangles[region]>0,`${family}: the free region ${region} has no body triangles: it is missing from the body`);
+ assert(freeRegionTriangles[region]>0&&Number.isInteger(freeRegionTriangles[region]),`${family}: the free region ${region} has no body triangles: it is missing from the body`);
 }
 assert.equal(Object.values(freeRegionTriangles).reduce((a,b)=>a+b,0),remaining,`${family}: the full set leaves ${remaining} body triangles but the free regions [${freeRegions}] hold ${Object.values(freeRegionTriangles).reduce((a,b)=>a+b,0)}`);
 updateArmorVisibility([base],[]);assert(base.isEnabled());assert.deepEqual(Array.from(base.getIndices()),original);
@@ -117,6 +121,8 @@ assert.equal(clips.length,6);
 const report={status:'PASS',family,bodyProfile:'legacy-female-v1',bones:skeleton.bones.length,items:parts.length,replacedRegions:replaced,freeRegions,
  clips,samplesPerClip:5,exactBodyRegionMask:true,restoreOriginalIndices:true,independentCharacters:true,
  bodyTriangles:original.length/3,replacedBodyTriangles:linings,freeBodyTriangles:remaining,freeRegionTriangles,
- ...(family==='seidraven'?{rigidShoulderWings:true}:{}),collisionCertified:false};
+ ...(family==='seidraven'?{rigidShoulderWings:true}:{}),collisionCertified:false,
+ // What a green run does not say. Keep in step with the README section "What the gate does not prove".
+ notProven:['material transparency (alphaMode BLEND, alpha 0)','foreign geometry that spatially encloses a free region','completeness of the original body geometry','that correct identity fields were not copied onto foreign geometry (a metadata contract, not provenance)']};
 writeFileSync(join(directory,'runtime-validation.json'),JSON.stringify(report,null,2)+'\n');
 console.log(report);scene.dispose();engine.dispose();

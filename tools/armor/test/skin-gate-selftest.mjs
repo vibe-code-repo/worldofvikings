@@ -9,6 +9,12 @@
  * Since Nachbesserung 1 also: every free region is proven on its own (a body without the head or one hand fails, and so does
  * the stand-alone legacy check), a registered GLB without `itemId`, `bodyVariant` or `bodyProfile` fails unless its family is on
  * the gate's closed legacy list (`--list-legacy-sets`), and a manifest that lists an item id twice fails before loading.
+ * Since Nachbesserung 2 also: a free region needs WHOLE triangles (a head with 0, 1 or 2 indices fails) and every mesh of it must
+ * be enabled, `isVisible === true` and `visibility > 0`, in the gate (segmented and 51-bone body) and in the stand-alone legacy
+ * check; a body whose torso mesh is called "Chr_Torso_Female_00 Head" counts as no head; a failed legacy run leaves no report,
+ * whatever made it fail. The states (invisible, faded out, initially disabled) are set by a small loader observer the test
+ * writes next to the fixtures: right after the body GLB is imported it changes one property of the matching body meshes,
+ * then the real script runs unchanged. Nothing in client/ is touched.
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
@@ -67,7 +73,9 @@ function file(bones, meshes, clips = 0) {
         { componentType: 5121, count: n, type: 'VEC4' }),
       WEIGHTS_0: add(floats(Array.from({ length: n * 4 }, (_, k) => k % 4 === 0 ? 1 : 0)), { componentType: 5126, count: n, type: 'VEC4' }),
     };
-    const indices = add(Buffer.from(Uint16Array.from({ length: n }, (_, k) => k).buffer), { componentType: 5123, count: n, type: 'SCALAR' });
+    // `indexCount` lets a fixture carry an index list that is no whole number of triangles (0, 1 or 2 indices).
+    const indexTotal = mesh.indexCount ?? n;
+    const indices = add(Buffer.from(Uint16Array.from({ length: indexTotal }, (_, k) => k).buffer), { componentType: 5123, count: indexTotal, type: 'SCALAR' });
     json.meshes.push({ primitives: [{ attributes, indices }] });
     json.scenes[0].nodes.push(json.nodes.length);
     json.nodes.push({ name: mesh.name, mesh: json.meshes.length - 1, skin: 0, ...(mesh.extras ? { extras: mesh.extras } : {}) });
@@ -85,7 +93,10 @@ const maleBody = (...without) => file(MALE_BONES, REGIONS.filter(r => !without.i
 const femaleBodyWithClips = (clips, without) => file(FEMALE_BONES,
   [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.filter(r => !without.includes(r)).map(r => FEMALE_BONES.indexOf(REGION_BONE[r])) }], clips);
 const femaleBody = (...without) => femaleBodyWithClips(3, without);
-const webBody = (...without) => file(WEB_BONES, REGIONS.filter(r => !without.includes(r)).map(r => ({ name: `Chr_${r}_Female_00`, triangleBones: [1] })), 3);
+const webBodyWith = ({ without = [], indexCount = {}, rename = {}, extra = [] } = {}) => file(WEB_BONES,
+  [...REGIONS.filter(r => !without.includes(r)).map(r => ({ name: rename[r] ?? `Chr_${r}_Female_00`, triangleBones: [1], indexCount: indexCount[r] })),
+    ...extra.map(name => ({ name, triangleBones: [1] }))], 3);
+const webBody = (...without) => webBodyWith({ without });
 // The gate's own closed list of families whose GLBs carry no identity extras. Pinned here, so it cannot grow unnoticed.
 const LEGACY_FAMILIES = JSON.parse(execFileSync(tsx, [gate, '--list-legacy-sets'], { cwd: root, encoding: 'utf8' }).trim().split('\n').pop());
 assert.deepEqual(LEGACY_FAMILIES, ['ironward', 'wildwarden', 'ashenveil'], 'The legacy list is closed: a new entry needs a reviewed change of this test as well');
@@ -132,11 +143,38 @@ try {
   writeFileSync(join(scratch, 'web-no-head.glb'), webBody('Head'));
   writeFileSync(join(scratch, 'web-no-right-hand.glb'), webBody('HandRight'));
   writeFileSync(join(scratch, 'male-no-head.glb'), maleBody('Head'));
+  writeFileSync(join(scratch, 'web-head-0.glb'), webBodyWith({ indexCount: { Head: 0 } }));
+  writeFileSync(join(scratch, 'web-head-1.glb'), webBodyWith({ indexCount: { Head: 1 } }));
+  writeFileSync(join(scratch, 'web-head-2.glb'), webBodyWith({ indexCount: { Head: 2 } }));
+  writeFileSync(join(scratch, 'web-torso-named-head.glb'), webBodyWith({ without: ['Head'], rename: { Torso: 'Chr_Torso_Female_00 Head' } }));
+  writeFileSync(join(scratch, 'web-two-heads.glb'), webBodyWith({ extra: ['Chr_Head_Female_01'] }));
+  // The state harness: one property of the matching body meshes is changed right after the BODY file is imported (the first import
+  // of the run), then the real script runs unchanged. `enabled` calls setEnabled, every other property is assigned.
+  const harness = join(scratch, 'state-harness.mjs');
+  writeFileSync(harness, `import { pathToFileURL } from 'node:url';
+const { SceneLoader } = await import(pathToFileURL(process.env.WOV_ST_LOADER).href);
+const state = JSON.parse(process.env.WOV_ST_STATE);
+const importMeshes = SceneLoader.ImportMeshAsync; let first = true;
+SceneLoader.ImportMeshAsync = async (...args) => {
+  const result = await importMeshes.apply(SceneLoader, args);
+  if (first) {
+    first = false;
+    for (const mesh of result.meshes.filter(m => m.getTotalVertices() && m.name.includes(state.match))) {
+      if (state.prop === 'enabled') mesh.setEnabled(state.value); else mesh[state.prop] = state.value;
+    }
+  }
+  return result;
+};
+await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
+`);
+  const withState = (target, state) => ({ command: [harness], env: { WOV_ST_TARGET: target, WOV_ST_STATE: JSON.stringify(state),
+    WOV_ST_LOADER: join(root, 'node_modules/@babylonjs/core/Loading/sceneLoader.js') } });
   const body = { male: join(scratch, 'male.glb'), female: join(scratch, 'female.glb'), noHead: join(scratch, 'female-no-head.glb'),
     noFree: join(scratch, 'female-no-free.glb'), web: join(scratch, 'web.glb'), noLeftHand: join(scratch, 'female-no-left-hand.glb'),
     webNoHead: join(scratch, 'web-no-head.glb'), webNoRightHand: join(scratch, 'web-no-right-hand.glb'), maleNoHead: join(scratch, 'male-no-head.glb') };
-  const run = (name, bodyFile, ...args) => new Promise(resolve => {
-    const child = spawn(tsx, [gate, bodyFile, join(scratch, name), ...args], { cwd: root });
+  const run = (name, bodyFile, args, state) => new Promise(resolve => {
+    const harnessed = state ? withState(gate, state) : undefined;
+    const child = spawn(tsx, [...(harnessed?.command ?? [gate]), bodyFile, join(scratch, name), ...args], { cwd: root, env: { ...process.env, ...harnessed?.env } });
     let out = '', err = '';
     child.stdout.on('data', d => { out += d; }); child.stderr.on('data', d => { err += d; });
     child.on('close', status => resolve({ status, out, err }));
@@ -161,9 +199,9 @@ try {
 
   // Deviations. Each is one change to an otherwise complete set.
   const swap = (item, change) => ({ meshes: { [item]: meshes => meshes.map(m => ({ ...m, extras: change(m.extras) })) } });
-  const bad = (name, family, variant, tweak, expect, { bodyFile = body[variant], args = [`--family=${family}`, `--variant=${variant}`] } = {}) => {
+  const bad = (name, family, variant, tweak, expect, { bodyFile = body[variant], args = [`--family=${family}`, `--variant=${variant}`], state } = {}) => {
     writeSet(join(scratch, name), family, variant, tweak);
-    cases.push({ name, args, bodyFile, expect });
+    cases.push({ name, args, bodyFile, expect, state });
   };
   bad('crown-replaces-head', 'wildwarden', 'male', swap('wildwarden_crown', () => ({ replaces: 'Head' })),
     /wildwarden_crown: the GLB replaces \[Head\] but the registry lists \[\]/);
@@ -215,6 +253,28 @@ try {
   webBad('plainhide-web-body-lacks-right-hand', 'plainhide', 'female', {}, /plainhide\/female: the free region HandRight has no body mesh/, { bodyFile: body.webNoRightHand });
   bad('plainhide-male-body-lacks-head', 'plainhide', 'male', {}, /plainhide\/male: the free region Head has no body mesh/, { bodyFile: body.maleNoHead });
 
+  // M1.2: whole triangles and explicit visibility. A free region needs a multiple of three indices, at least three, and every mesh
+  // of it must be enabled, isVisible and not faded out. Web body (one mesh per region) and the 51-bone body (one mesh, regions are
+  // triangle sets) both; a head that is merely DISABLED at the start is fine, the mask code switches it on (positive controls).
+  const webState = (prop, value, match = 'Head') => ({ match, prop, value });
+  webBad('plainhide-web-head-0-indices', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has 0 indices in mesh Chr_Head_Female_00: it needs whole triangles/, { bodyFile: join(scratch, 'web-head-0.glb') });
+  webBad('plainhide-web-head-1-index', 'plainhide', 'female', {}, /the free region Head has 1 indices in mesh Chr_Head_Female_00: it needs whole triangles/, { bodyFile: join(scratch, 'web-head-1.glb') });
+  webBad('plainhide-web-head-2-indices', 'plainhide', 'female', {}, /the free region Head has 2 indices in mesh Chr_Head_Female_00: it needs whole triangles/, { bodyFile: join(scratch, 'web-head-2.glb') });
+  webBad('plainhide-web-head-invisible', 'plainhide', 'female', {}, /the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_00: isEnabled=true, isVisible=false, visibility=1\)/, { bodyFile: body.web, state: webState('isVisible', false) });
+  webBad('plainhide-web-head-faded-out', 'plainhide', 'female', {}, /the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_00: isEnabled=true, isVisible=true, visibility=0\)/, { bodyFile: body.web, state: webState('visibility', 0) });
+  webBad('plainhide-web-one-hand-invisible', 'plainhide', 'female', {}, /the free region HandRight is not visible although no item replaces it \(mesh Chr_HandRight_Female_00/, { bodyFile: body.web, state: webState('isVisible', false, 'HandRight') });
+  webBad('plainhide-web-second-head-mesh-invisible', 'plainhide', 'female', {}, /the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_01/, { bodyFile: join(scratch, 'web-two-heads.glb'), state: webState('isVisible', false, 'Chr_Head_Female_01') });
+  // K2: the torso mesh is called "Chr_Torso_Female_00 Head" and there is no head. The production parser reads it as the torso and
+  // hides it; the gate's name test finds "Head" in it too. Only the state check tells that the free Head is not there.
+  webBad('plainhide-web-torso-named-head', 'plainhide', 'female', {}, /the free region Head is not visible although no item replaces it \(mesh Chr_Torso_Female_00 Head: isEnabled=false/, { bodyFile: join(scratch, 'web-torso-named-head.glb') });
+  bad('plainhide-game-body-invisible', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=false, visibility=1\)/, { bodyFile: body.female, state: webState('isVisible', false, '') });
+  bad('plainhide-game-body-faded-out', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=true, visibility=0\)/, { bodyFile: body.female, state: webState('visibility', 0, '') });
+  // Positive controls: initially disabled, then switched on by the mask code: PASS is right.
+  for (const [name, variant, isWeb, bodyFile, match] of [['head-starts-disabled-web', 'female', true, body.web, 'Head'], ['body-starts-disabled-game', 'female', false, body.female, '']]) {
+    writeSet(join(scratch, name), 'plainhide', variant, { web: isWeb });
+    cases.push({ name, family: 'plainhide', variant, web: isWeb, args: ['--family=plainhide', `--variant=${variant}`, ...(isWeb ? ['--web'] : [])], bodyFile, good: true, state: webState('enabled', false, match) });
+  }
+
   // M2: identity extras are required in a registered run, per field and all three, for a foreign item of the same regions.
   // The stripped boots are the real attack: another set's boots under this set's file name, with the identity fields removed.
   const without = (...fields) => extras => Object.fromEntries(Object.entries(extras).filter(([key]) => !fields.includes(key)));
@@ -243,7 +303,7 @@ try {
   // Four at a time: each run starts a Babylon engine.
   const results = new Array(cases.length); let next = 0;
   await Promise.all(Array.from({ length: 4 }, async () => {
-    while (next < cases.length) { const i = next++; results[i] = await run(cases[i].name, cases[i].bodyFile ?? body.male, ...cases[i].args); }
+    while (next < cases.length) { const i = next++; results[i] = await run(cases[i].name, cases[i].bodyFile ?? body.male, cases[i].args, cases[i].state); }
   }));
   let good = 0, bad_ = 0;
   cases.forEach((c, i) => {
@@ -287,10 +347,12 @@ try {
   const legacyDir = writeSet(join(scratch, 'legacy-plainhide'), 'plainhide', 'female');
   const replacedByPlainhide = [...new Set(partsOf('plainhide', 'female').flatMap(p => p.regions))];
   writeFileSync(join(scratch, 'legacy-fit.json'), JSON.stringify({ parts: Object.fromEntries(replacedByPlainhide.map(r => [r, { liningTriangles: 1 }])) }));
-  const legacyRun = (bodyName, without) => new Promise(resolve => {
+  const legacyRun = (bodyName, without, { state, args = ['--family=plainhide'], fit = join(scratch, 'legacy-fit.json') } = {}) => new Promise(resolve => {
     writeFileSync(join(scratch, `${bodyName}.glb`), femaleBodyWithClips(6, without));
+    // An old, green report of an earlier run is always in the output folder before the run starts.
     writeFileSync(join(legacyDir, 'runtime-validation.json'), JSON.stringify({ status: 'PASS', exactBodyRegionMask: true, stale: true }));
-    const child = spawn(tsx, [legacyTool, join(scratch, `${bodyName}.glb`), legacyDir, join(scratch, 'legacy-fit.json'), '--family=plainhide'], { cwd: root });
+    const harnessed = state ? withState(legacyTool, state) : undefined;
+    const child = spawn(tsx, [...(harnessed?.command ?? [legacyTool]), join(scratch, `${bodyName}.glb`), legacyDir, fit, ...args], { cwd: root, env: { ...process.env, ...harnessed?.env } });
     let err = ''; child.stderr.on('data', d => { err += d; }); child.stdout.on('data', () => {});
     child.on('close', status => resolve({ status, err }));
   });
@@ -299,15 +361,29 @@ try {
   const legacyReport = JSON.parse(readFileSync(join(legacyDir, 'runtime-validation.json'), 'utf8'));
   assert.equal(legacyReport.exactBodyRegionMask, true); assert.equal(legacyReport.stale, undefined, 'a fresh report replaces the old one');
   assert.deepEqual(legacyReport.freeRegionTriangles, { Head: 1, HandLeft: 1, HandRight: 1 });
+  assert.equal(legacyReport.collisionCertified, false); assert(legacyReport.notProven.length >= 4, 'the report names what it does not prove');
+  // Positive control: the body starts disabled and the mask code switches it on: PASS is right.
+  const legacyControl = await legacyRun('legacy-starts-disabled', [], { state: { match: '', prop: 'enabled', value: false } });
+  assert.equal(legacyControl.status, 0, `legacy-female-armor.mjs: a body that starts disabled is switched on by the mask code\n${legacyControl.err}`);
   let legacyBad = 0;
-  for (const [name, without, region] of [['legacy-no-head', ['Head'], 'Head'], ['legacy-no-left-hand', ['HandLeft'], 'HandLeft'], ['legacy-no-right-hand', ['HandRight'], 'HandRight']]) {
-    const r = await legacyRun(name, without);
-    assert.notEqual(r.status, 0, `${name}: legacy-female-armor.mjs must fail without ${region}`);
-    assert.match(r.err, new RegExp(`plainhide: the free region ${region} has no body triangles: it is missing from the body`), `${name}: wrong failure\n${r.err}`);
+  const legacyBadCases = [
+    ['legacy-no-head', ['Head'], {}, /plainhide: the free region Head has no body triangles: it is missing from the body/],
+    ['legacy-no-left-hand', ['HandLeft'], {}, /plainhide: the free region HandLeft has no body triangles: it is missing from the body/],
+    ['legacy-no-right-hand', ['HandRight'], {}, /plainhide: the free region HandRight has no body triangles: it is missing from the body/],
+    ['legacy-body-invisible', [], { state: { match: '', prop: 'isVisible', value: false } }, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh: isEnabled=true, isVisible=false, visibility=1\)/],
+    ['legacy-body-faded-out', [], { state: { match: '', prop: 'visibility', value: 0 } }, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh: isEnabled=true, isVisible=true, visibility=0\)/],
+    // K3: every failure path removes the old report, also the ones that end before any body is looked at.
+    ['legacy-unknown-family', [], { args: ['--family=nonsense'] }, /The registry has no female nonsense items/],
+    ['legacy-missing-fit-file', [], { fit: join(scratch, 'no-such-fit.json') }, /no-such-fit\.json/],
+  ];
+  for (const [name, without, options, message] of legacyBadCases) {
+    const r = await legacyRun(name, without, options);
+    assert.notEqual(r.status, 0, `${name}: legacy-female-armor.mjs must fail`);
+    assert.match(r.err, message, `${name}: wrong failure\n${r.err}`);
     assert(!existsSync(join(legacyDir, 'runtime-validation.json')), `${name}: no report may claim an exact mask after a failed run`);
     legacyBad++;
   }
-  console.log(`PASS legacy-female-armor.mjs: 1 complete body passes, ${legacyBad} bodies without a free region are rejected and leave no report`);
+  console.log(`PASS legacy-female-armor.mjs: 2 bodies pass (complete; starts disabled), ${legacyBad} failing runs (missing region, invisible, faded out, unknown family, missing fit file) are rejected and leave no report`);
   console.log(`PASS skin gate: ${good} complete sets (${families.length} families; male, game female and web female fits) pass, ${bad_} deviations rejected with their own message`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });

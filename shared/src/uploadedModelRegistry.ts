@@ -47,10 +47,12 @@
  * deutschen Namen andocken.
  */
 import { PrefabFlag } from './types.js';
-import type { Vector3 } from './types.js';
+import type { Hash, Vector3 } from './types.js';
+import { getStableHash } from './hash.js';
 import {
   EIGENE_MODELLE,
   EIGENE_MODELLE_SET,
+  PREFABS_BY_HASH,
   PREFABS_BY_NAME,
   PREFAB_DEFS,
   type PrefabDef,
@@ -199,10 +201,15 @@ export function uploadedModelEntries(): readonly UploadedModelEntry[] {
 /**
  * Einen Upload in die geteilten Nachschlagewerke eintragen.
  *
- * Dieselben zwei Prüfungen wie `moduleRegistry.registerModule`, auf das
- * hier Nötige verengt: der Name (Registry-intern UND `PREFABS_BY_NAME`,
- * denn ein Upload teilt sich den Namensraum mit jedem anderen Prefab)
- * und danach nichts mehr, das scheitern kann.
+ * N1 (Angriff, Befund B1): Vorher fehlte `PREFABS_BY_HASH` — genau die
+ * Karte, über die der Client jedes ZDO auflöst
+ * (`EntityManager.applyUpdate` → `findPrefabByHash(u.prefabHash)`, s.
+ * auch `Testflug.ts`). Ohne sie zeichnete der Client ein hochgeladenes
+ * Modell NIE, und die feste Server-Kollision (dieselbe Registrierung,
+ * server- statt clientseitig) stand als UNSICHTBARE Wand da. Jetzt
+ * dieselben drei Prüfungen wie `moduleRegistry.registerModule` (Name,
+ * Hash-Kollision, danach nichts mehr, das scheitern kann) — nur ohne die
+ * raumspezifischen Prüfungen (kein `nurManuell`, keine `RoomDef`).
  */
 export function registerUploadedPrefab(m: UploadedModelEntry): void {
   if (UPLOADED_BY_NAME.has(m.name)) {
@@ -213,16 +220,28 @@ export function registerUploadedPrefab(m: UploadedModelEntry): void {
       `registerUploadedPrefab: Der Name '${m.name}' ist schon von einem anderen Prefab vergeben.`
     );
   }
+  // Hash VOR dem Eintragen prüfen — `getStableHash` ist 32-bittig, zwei
+  // verschiedene Namen KÖNNEN kollidieren, und ein still überschriebener
+  // Eintrag in `PREFABS_BY_HASH` hinge das falsche Prefab an ein fremdes
+  // ZDO (dieselbe Begründung wie `moduleRegistry.registerModule`).
+  const hash: Hash = getStableHash(m.name);
+  if (PREFABS_BY_HASH.has(hash)) {
+    const anderer = PREFABS_BY_HASH.get(hash)?.name ?? '?';
+    throw new Error(
+      `registerUploadedPrefab: Hash ${hash} von '${m.name}' ist schon von '${anderer}' belegt.`
+    );
+  }
 
   const prefab = uploadedPrefabDef(m);
   UPLOADED_BY_NAME.set(m.name, m);
   PREFAB_DEFS.push(prefab);
   (PREFABS_BY_NAME as Map<string, PrefabDef>).set(m.name, prefab);
+  (PREFABS_BY_HASH as Map<Hash, PrefabDef>).set(hash, prefab);
   (EIGENE_MODELLE as string[]).push(m.name);
   (EIGENE_MODELLE_SET as Set<string>).add(m.name);
 }
 
-/** Die Rückseite — ein registrierter Upload aus allen Karten nehmen. */
+/** Die Rückseite — ein registrierter Upload aus allen Karten nehmen, `PREFABS_BY_HASH` eingeschlossen. */
 export function unregisterUploadedPrefab(name: string): void {
   if (!UPLOADED_BY_NAME.has(name)) {
     throw new Error(`unregisterUploadedPrefab: '${name}' ist nicht registriert.`);
@@ -231,6 +250,7 @@ export function unregisterUploadedPrefab(name: string): void {
   const iPrefab = PREFAB_DEFS.findIndex((p) => p.name === name);
   if (iPrefab >= 0) PREFAB_DEFS.splice(iPrefab, 1);
   (PREFABS_BY_NAME as Map<string, PrefabDef>).delete(name);
+  (PREFABS_BY_HASH as Map<Hash, PrefabDef>).delete(getStableHash(name));
   const iEigen = (EIGENE_MODELLE as string[]).indexOf(name);
   if (iEigen >= 0) (EIGENE_MODELLE as string[]).splice(iEigen, 1);
   (EIGENE_MODELLE_SET as Set<string>).delete(name);
@@ -278,6 +298,26 @@ export function applyUploadedModelRegistry(datei: RegistryDatei): AnwendungsErge
 }
 
 /**
+ * Deutsche Umlaute VOR der NFKD-Normalisierung ausschreiben.
+ *
+ * N1 (Angriff, Befund B6): NFKD zerlegt 'ä' in 'a' + eine COMBINING
+ * DIAERESIS — das Sieb darunter wirft die Diaerese weg (nicht
+ * `[A-Za-z0-9_]`) und lässt nur das nackte 'a' stehen. „Käse" wurde so
+ * zu „Ka_se" (der Trennstrich ist die verworfene Diaerese), nicht zu
+ * einem lesbaren „Kaese". Diese Tabelle schreibt die vier Umlaute aus,
+ * BEVOR NFKD sie zerlegen kann.
+ */
+const UMLAUT_AUSSCHREIBEN: ReadonlyMap<string, string> = new Map([
+  ['ä', 'ae'], ['ö', 'oe'], ['ü', 'ue'], ['ß', 'ss'],
+  ['Ä', 'Ae'], ['Ö', 'Oe'], ['Ü', 'Ue'],
+]);
+function schreibeUmlauteAus(s: string): string {
+  let aus = '';
+  for (const zeichen of s) aus += UMLAUT_AUSSCHREIBEN.get(zeichen) ?? zeichen;
+  return aus;
+}
+
+/**
  * Den gewünschten Anzeigenamen auf einen zulässigen Dateinamen abbilden.
  *
  * Nur `[A-Za-z0-9_]` bleibt stehen, alles andere wird zu `_`; führende/
@@ -291,14 +331,28 @@ export function erzwingeName(gewuenscht: string): string | null {
   // Ergebnis), sagt dem Absender aber nicht, dass sein Name ein Pfad war
   // — und genau das ist die Eingabe, die eine verständliche Ablehnung statt
   // einer stillen Umdeutung verdient.
-  if (gewuenscht.includes('/') || gewuenscht.includes('\\') || gewuenscht.includes('..')) {
+  //
+  // N1 (Befund B7): Geprüft wird NACH `normalize('NFKD')`, nicht davor —
+  // sonst bestehen Aussehens-Zwillinge wie das VOLLBREITE Solidus '／'
+  // (NFKD → '/') oder der TWO DOT LEADER '‥' die Prüfung roh und werden
+  // erst danach still zu '_'. Dieselbe Reihenfolge macht auch die
+  // Umlaut-Ausschreibung wirkungslos, wenn sie NACH NFKD liefe (die
+  // Diaerese wäre dann schon abgetrennt) — deshalb: erst Umlaute
+  // ausschreiben, dann NFKD, dann die Pfad-Ablehnung auf dem normalisierten Text.
+  const ausgeschrieben = schreibeUmlauteAus(gewuenscht);
+  const normalisiert = ausgeschrieben.normalize('NFKD');
+  if (normalisiert.includes('/') || normalisiert.includes('\\') || normalisiert.includes('..')) {
     return null;
   }
-  const kern = gewuenscht
-    .normalize('NFKD')
+  const kern = normalisiert
     .replace(/[^A-Za-z0-9_]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 40);
   if (kern.length === 0) return null;
-  return `${NAME_PRAEFIX}${kern}`;
+  // N1 (Befund B7): Ein Kern, der (Groß-/Kleinschreibung gleich) schon
+  // mit dem Präfix beginnt, bekommt es NICHT ein zweites Mal — sonst
+  // wächst 'U_Doppelt' bei jedem erneuten Hochladen um ein weiteres 'U_'.
+  const ohneWiederholtesPraefix = kern.replace(/^(?:u_)+/i, '');
+  if (ohneWiederholtesPraefix.length === 0) return null;
+  return `${NAME_PRAEFIX}${ohneWiederholtesPraefix}`;
 }

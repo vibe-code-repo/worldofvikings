@@ -46,7 +46,7 @@
  * Sprache: neue Bezeichner englisch, wo sie nicht an einen bestehenden
  * deutschen Namen andocken.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -63,6 +63,7 @@ import {
   MAX_KOLLISIONSNETZ_DREIECKE,
   MAX_MATERIALIEN,
   MAX_MESHES,
+  NAME_MUSTER,
   REGISTRY_DATEI,
   REGISTRY_VERSION,
   applyUploadedModelRegistry,
@@ -72,6 +73,7 @@ import {
   pruefeRegistryEintrag,
   registerUploadedPrefab,
   unregisterUploadedPrefab,
+  uploadedModelEntries,
   uploadedModelEntry,
   type Kollisionsart,
   type RegistryDatei,
@@ -152,6 +154,16 @@ function huellbox(positionen: Float32Array): { breite: number; hoehe: number; ti
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (let i = 0; i < positionen.length; i += 3) {
     const x = positionen[i]!, y = positionen[i + 1]!, z = positionen[i + 2]!;
+    // N1 (Angriff, Abschnitt „Grenzen des Prüftors", NaN in Positionsdaten):
+    // Ein Vergleich mit NaN ist IMMER false — eine NaN-Ecke neben gültigen
+    // Ecken würde von `x < minX`/`x > maxX` einfach STILL ÜBERSPRUNGEN und
+    // ginge im min/max von den ÜBRIGEN, gültigen Ecken unter. Die Hüllbox
+    // käme dann vollständig endlich heraus, obwohl das Netz kaputte Daten
+    // enthält. Deshalb hier hart abbrechen, statt nur zu hoffen, dass eine
+    // durchgehend-NaN-Achse die spätere `Number.isFinite`-Prüfung trifft.
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      return { breite: NaN, hoehe: NaN, tiefe: NaN };
+    }
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
     if (y < minY) minY = y;
@@ -211,6 +223,28 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
     return nein(`Keine gültige GLB-Datei: ${(e as Error).message}.`);
   }
 
+  // N1 (Angriff, Abschnitt „Prüftor"): Struktur VOR Geometrie — beide
+  // Prüfungen unten brauchen keine Vertexdaten und laufen deshalb vor
+  // `leseGlb`. Eine geforderte Erweiterung (Draco, Meshopt, GPU-Instancing)
+  // würde von Babylon anders (mehrfach-instanziert, dekomprimiert)
+  // gezeichnet, als dieses Tor zählt — abgelehnt, statt falsch zu zählen.
+  const erweiterungen = roh.json.extensionsRequired ?? [];
+  if (erweiterungen.length > 0) {
+    return nein(
+      `Das Modell verlangt Erweiterungen, die dieses Tor nicht prüfen kann: ${erweiterungen.join(', ')}.`
+    );
+  }
+  // Nur der eingebettete BIN-Chunk ist erlaubt — ein `uri` an einem Puffer
+  // ist eine externe Datei, die beim Hochladen nie mitkommt (dieselbe
+  // Regel wie bei `images[].uri` unten, nur eine Ebene tiefer).
+  for (const puffer of roh.json.buffers ?? []) {
+    if (puffer.uri !== undefined) {
+      return nein(
+        `Das Modell verweist auf externe Binärdaten ('${puffer.uri}') — nur der eingebettete BIN-Chunk ist erlaubt.`
+      );
+    }
+  }
+
   let inhalt: ReturnType<typeof leseGlb>;
   try {
     inhalt = leseGlb(wunsch.bytes);
@@ -252,6 +286,15 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
   const fehlendeTexturen = materialien > 0 && bilder.length === 0;
 
   const { breite, hoehe, tiefe } = huellbox(inhalt.sicht.positionen);
+  // N1 (Angriff, Abschnitt „Prüftor", NaN in Positionsdaten): Ein Vergleich
+  // mit NaN ist IMMER falsch — `groesste >= ABLEHNEN_MAX` UND
+  // `groesste < ABLEHNEN_MIN` wären beide false, und ein Modell mit
+  // kaputten (NaN/±Infinity) Vertexpositionen liefe unbemerkt durch die
+  // Hüllbox-Prüfung. Deshalb ein eigener, expliziter Endlichkeits-Riegel
+  // davor statt eines Vergleichs, der bei NaN schweigt.
+  if (!Number.isFinite(breite) || !Number.isFinite(hoehe) || !Number.isFinite(tiefe)) {
+    return nein('Die Hüllbox lässt sich nicht bestimmen — das Modell enthält ungültige Positionsdaten (NaN oder Unendlich).');
+  }
   const groesste = Math.max(breite, hoehe, tiefe);
   if (groesste >= HUELLBOX_ABLEHNEN_MAX_M || groesste < HUELLBOX_ABLEHNEN_MIN_M) {
     return nein(
@@ -282,7 +325,18 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
     }
   }
 
-  if (uploadedModelEntry(name) !== undefined || findPrefabByName(name) !== undefined) {
+  // N1 (Angriff, Befund B7): ohne Rücksicht auf Groß-/Kleinschreibung, weil
+  // zwei Namen, die sich nur darin unterscheiden, auf Linux zwei Dateien
+  // ergäben (harmlos dort), aber bei einer Kopie auf Windows/macOS
+  // kollidierten. `findPrefabByName`/`uploadedModelEntry` sind exakt (das
+  // deckt den Bestand und schon vergebene Uploads); der Vergleich hier
+  // deckt zusätzlich ZUKÜNFTIGE Uploads untereinander.
+  const nameLower = name.toLowerCase();
+  const nameVergeben =
+    uploadedModelEntry(name) !== undefined ||
+    findPrefabByName(name) !== undefined ||
+    uploadedModelEntries().some((e) => e.name.toLowerCase() === nameLower);
+  if (nameVergeben) {
     return nein(`Der Name '${name}' ist bereits vergeben — bitte einen anderen Anzeigenamen wählen.`);
   }
 
@@ -316,8 +370,20 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
     zeitpunkt: new Date().toISOString(),
   };
 
-  const stand = leseRegistry(kontext.verzeichnis);
-  schreibeRegistry(kontext.verzeichnis, [...stand.modelle, eintrag]);
+  // N1 (Angriff, Befund B2): Wirft `leseRegistry`/`schreibeRegistry` HIER
+  // (kaputtes JSON, volle Platte, Rechte), lag die `.glb` vorher schon auf
+  // der Platte — ohne Rollback bliebe eine VERWAISTE Datei zurück, die
+  // ihren Namen für immer sperrt (der `existsSync`-Riegel oben) und über
+  // `DELETE` nicht erreichbar ist (die Registry kennt sie nicht). Deshalb:
+  // bei einem Fehler die gerade geschriebene Datei wieder entfernen, der
+  // Name ist danach wieder frei.
+  try {
+    const stand = leseRegistry(kontext.verzeichnis);
+    schreibeRegistry(kontext.verzeichnis, [...stand.modelle, eintrag]);
+  } catch (e) {
+    rmSync(pfad, { force: true });
+    return nein(`Registry nicht lesbar/schreibbar, Upload zurückgerollt: ${(e as Error).message}`);
+  }
 
   try {
     registerUploadedPrefab(eintrag);
@@ -388,6 +454,19 @@ export type EntfernenAntwort =
 export function entferneUpload(kontext: EntfernenKontext, name: string, bestaetigt: boolean): EntfernenAntwort {
   if (!kontext.erlaubt) {
     return { ok: false, meldung: 'Modell-Upload ist auf dieser Instanz nicht erlaubt.' };
+  }
+  // N1 (Angriff, Befund B5): Der Name kommt aus der ANFRAGE und wird
+  // gegen die Registry NUR nachgeschlagen (`stand.modelle.find`), nie
+  // gegen ein Muster geprüft — eine von Hand verdorbene `registry.json`
+  // (oder ein künftiger zweiter Schreiber) könnte einen Eintrag mit einem
+  // Pfadanteil im Namen enthalten, und dieser Riegel hier ist die einzige
+  // Stelle, die ihn VOR `join(verzeichnis, name + '.glb')` abfängt. Ohne
+  // ihn fand die Probe eine Datei AUSSERHALB von `assets/hochgeladen/`
+  // und versuchte, sie zu verschieben (500 mit absoluten Pfaden in der
+  // Antwort). `NAME_MUSTER` lässt nie `/`, `\` oder `.` durch — ein
+  // Treffer hier kann also nie aus dem Zielordner ausbrechen.
+  if (!NAME_MUSTER.test(name)) {
+    return { ok: false, meldung: `Ungültiger Name — erwartet wird das Muster ${NAME_MUSTER}.` };
   }
   const stand = leseRegistry(kontext.verzeichnis);
   const eintrag = stand.modelle.find((m) => m.name === name);

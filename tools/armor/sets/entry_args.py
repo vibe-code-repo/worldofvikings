@@ -13,7 +13,9 @@ The accepted form, after Blender's own arguments, is
 Everything else is refused with a message and exit code 1: a missing `--` or output
 directory, an output directory that looks like a switch, unknown or repeated
 switches, `--female` on a male entry point, and any of --quick/--female/--male placed
-in front of the `--` (Blender would ignore them silently).
+in front of the `--` (Blender would ignore them silently) -- including misspelt dash
+style, case, an `=value` suffix or stray whitespace (`-female`, `--Female`, `--QUICK=1`),
+which Blender would ignore just as silently.
 """
 import sys
 
@@ -21,11 +23,24 @@ QUICK = '--quick'
 FEMALE = '--female'
 # Switches of this tool. In front of the `--` they would be Blender arguments.
 BUILD_SWITCHES = (QUICK, FEMALE, '--male')
+_SWITCH_WORDS = frozenset(switch.lstrip('-') for switch in BUILD_SWITCHES)
+# Dash-like characters a shell, editor or clipboard may substitute for '-': hyphen,
+# non-breaking hyphen, figure dash, en dash, em dash, horizontal bar, minus sign.
+_DASHES = '-‐‑‒–—―−'
 BODY_SOURCE = {'male': 'BODY_BASE_MALE.blend', 'female': 'BODY_BASE_FEMALE.blend'}
 
 
 class EntryArgsError(ValueError):
     pass
+
+
+def _switch_word(arg):
+    """The bare word a BUILD_SWITCHES-like argument spells: dash style, case, an
+    '=value' suffix and surrounding whitespace stripped. '' if it has no leading dash."""
+    text = arg.strip()
+    if not text or text[0] not in _DASHES:
+        return ''
+    return text.lstrip(_DASHES).split('=', 1)[0].strip().lower()
 
 
 def parse(argv, variant):
@@ -35,7 +50,7 @@ def parse(argv, variant):
         before, after = argv[1:split], argv[split + 1:]
     else:
         before, after = argv[1:], None
-    misplaced = [a for a in before if a in BUILD_SWITCHES]
+    misplaced = [a for a in before if _switch_word(a) in _SWITCH_WORDS]
     if misplaced:
         raise EntryArgsError(f"{' '.join(misplaced)} in front of '--' is a Blender argument and "
                              "would be ignored; put it after '--'")

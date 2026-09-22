@@ -65,6 +65,13 @@ const BAD = [
   ['--quick before the --', ['--quick', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
   ['--male before the --', ['--male', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
   ['--quick before the -- and no --', ['--quick'], ['male', 'female'], "in front of '--'"],
+  // Write variants of a switch before the `--`: Blender would ignore each of these just as
+  // silently as the exact spelling above, so each dimension of the normalization gets its own case.
+  ['single-dash spelling before the --', ['-female', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  ['em-dash spelling before the --', ['\u2014female', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  ['uppercase spelling before the --', ['--Quick', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  ['=value suffix before the --', ['--female=1', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  ['whitespace around the switch before the --', [' --female ', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
 ];
 
 let checked = 0;

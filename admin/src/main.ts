@@ -1986,7 +1986,25 @@ const dienst = createServer((req, res) => {
       // Zustandsaendernde Anfragen sind JSON: `application/json` kann ein seitenuebergreifendes <form> nicht setzen (nur
       // urlencoded, multipart, text/plain), und ein fetch damit braucht einen Preflight, den dieser Dienst nie beantwortet.
       // Schliesst den Rest der Herkunftsregel oben (weder Sec-Fetch-Site noch Origin → erlaubt).
-      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') && !/^application\/json\s*(;|$)/i.test(String(req.headers['content-type'] ?? ''))) {
+      //
+      // U1 (22.09.2026): EINE eng gefasste Ausnahme -- `POST /api/modell-hochladen`
+      // schickt die rohen Bytes einer `.glb` (Ist-Analyse Abschnitt 5: `leibLesen()`
+      // erzwingt `JSON.parse`, eine `.glb` bräuchte sonst eine Base64-Hülle mit einem
+      // Drittel Aufschlag). Dieselbe Begründung wie oben trägt trotzdem, nur mit einem
+      // anderen Ergebnis: `application/octet-stream` gehört NICHT zu den drei
+      // CORS-safelisted Content-Types, die ein <form> setzen kann, und ein fetch damit
+      // loest von einer fremden Seite genau den Preflight aus, den dieser Dienst nie
+      // beantwortet -- der Angriff, gegen den die Regel oben steht, geht mit diesem
+      // Content-Type gar nicht. Die Herkunftsregel (`fremdeHerkunft`, direkt darueber)
+      // bleibt fuer diesen Pfad UNVERAENDERT scharf; nur die Content-Type-Klemme wird
+      // hier uebersprungen. `DELETE /api/modell-hochladen` (Entfernen) schickt normales
+      // JSON und braucht keine Ausnahme.
+      const istModellUpload = pfad === '/api/modell-hochladen' && req.method === 'POST';
+      if (
+        !istModellUpload &&
+        ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') &&
+        !/^application\/json\s*(;|$)/i.test(String(req.headers['content-type'] ?? ''))
+      ) {
         console.warn(`[Admin] abgewiesen (Content-Type): ${req.method} ${pfad} — ${String(req.headers['content-type'] ?? 'keiner').slice(0, 60)}`);
         return json(res, 415, {
           ok: false,

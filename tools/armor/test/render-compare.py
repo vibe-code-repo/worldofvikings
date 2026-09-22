@@ -1,7 +1,8 @@
 """Shared comparison renders for a built armor set: turntable, per-item tiles, two diagnostic poses.
 
 Blender -b ARMOR.blend --python-exit-code 1 --python THIS -- TARGET_DIR MASTER.blend
-    --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,key2:Region3,...  [--quick] [--glow]
+    --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,key2:Region3,...
+    [--quick] [--glow] [--frame=<m>]
 
 --prefix, --regions and --items are required; there is no per-set default, unlike
 armor-motion.py. --items lists the set's items in display order, each as
@@ -11,6 +12,17 @@ key:Region[+Region...] (the body regions that item's armor mesh occupies under
 Nothing here reads a material name or a builder-specific mesh attribute; both the
 turntable and the per-item tiles only ever touch the <PREFIX>Region mesh objects
 named by --items and --regions.
+
+The four general-view turntable shots (front, three-quarter, side, back) fit the
+camera to the actual geometry: the orthographic scale is derived from every item
+object's rest-pose bounding radius around the vertical axis through the shot centre
+(so it stays framed at every rotation angle, not just the one it happened to be
+measured at) and its half-height, with a margin -- a fixed scale silently cropped
+wide sets such as Seidraven's wings. --frame=<m> overrides the computed scale (for a
+tighter or looser composition); giving one smaller than what the geometry needs is a
+hard error naming the minimum, not a silent crop. The per-item tiles and the two
+diagnostic poses (arms overhead, a master-clip crouch) already size themselves from
+the geometry of what they show and are unaffected.
 
 The scaffold's own build images keep its preview Fog Glow compositor (some sets want
 the halo, e.g. Emberrage/Gravethorn); it is saved with the .blend and would otherwise
@@ -29,6 +41,7 @@ quick = '--quick' in args
 prefix = next((a.split('=', 1)[1] for a in args if a.startswith('--prefix=')), None)
 regions_arg = next((a.split('=', 1)[1] for a in args if a.startswith('--regions=')), None)
 items_arg = next((a.split('=', 1)[1] for a in args if a.startswith('--items=')), None)
+frame_arg = next((a.split('=', 1)[1] for a in args if a.startswith('--frame=')), None)
 if not (prefix and regions_arg and items_arg):
     sys.exit('render-compare.py: --prefix=WoV_<Set>_, --regions=N and --items=key:Region+Region,... are all required')
 regions = int(regions_arg)
@@ -63,6 +76,28 @@ def restore():
     for n, m in stored.items():
         rig.pose.bones[n].matrix_basis = m
     bpy.context.view_layer.update()
+
+
+def fit_scale(objects, centre, size, margin=1.08):
+    """The orthographic scale (Blender's own convention: the view size along the LONGER
+    render dimension) so every vertex of `objects`, evaluated in the pose they are about
+    to be shot in, stays inside the frame at `centre`, at every rotation angle around the
+    vertical (Z) axis through it -- so one number frames the whole turntable, not just the
+    angle it happened to be checked at."""
+    dg = bpy.context.evaluated_depsgraph_get()
+    radius = half_height = 0.0
+    for obj in objects:
+        ev = obj.evaluated_get(dg); data = ev.to_mesh()
+        for v in data.vertices:
+            p = ev.matrix_world @ v.co
+            radius = max(radius, math.hypot(p.x - centre[0], p.y - centre[1]))
+            half_height = max(half_height, abs(p.z - centre[2]))
+        ev.to_mesh_clear()
+    width, height = size
+    long_side, short_side = max(width, height), min(width, height)
+    needed_for_height = 2 * half_height * margin
+    needed_for_width = 2 * radius * margin * (long_side / short_side)
+    return max(needed_for_height, needed_for_width)
 
 
 def shoot(name, angle, centre=(0, 0, 1.12), scale=2.50, size=(900, 1200), height=None):
@@ -107,7 +142,7 @@ def diagnostic_poses():
 
 
 metrics = {'view_transform': scene.view_settings.view_transform, 'exposure': scene.view_settings.exposure,
-           'camera_height_m': 1.12, 'orthographic_scale': 2.5, 'image_size': [900, 1200]}
+           'camera_height_m': 1.12, 'image_size': [900, 1200]}
 if 'ArmUpperLeft' in armor and 'ArmUpperRight' in armor:
     for side, sign in [('L', 1), ('R', -1)]:
         swing('Shoulder_'+side, Vector((0, 1, 0)), sign*40)
@@ -119,11 +154,21 @@ if 'ArmUpperLeft' in armor and 'ArmUpperRight' in armor:
         ev = armor[key].evaluated_get(dg); data = ev.to_mesh()
         shoulder_x.extend((ev.matrix_world@v.co).x for v in data.vertices); ev.to_mesh_clear()
     metrics['arms_down_shoulder_width_m'] = max(shoulder_x)-min(shoulder_x)
+turntable_centre = (0, 0, 1.12); turntable_size = (900, 1200)
+needed_scale = fit_scale(armor.values(), turntable_centre, turntable_size)
+if frame_arg is not None:
+    turntable_scale = float(frame_arg)
+    if turntable_scale < needed_scale:
+        sys.exit(f'render-compare.py: --frame={frame_arg} is too small; the item objects need '
+                 f'at least {needed_scale:.3f} m to stay fully in frame at every turntable angle')
+else:
+    turntable_scale = needed_scale
+metrics['orthographic_scale'] = turntable_scale
 (target_dir/'comparison-pose-metrics.json').write_text(json.dumps(metrics, indent=2)+'\n')
 views = [('vergleich-1-front', 0), ('vergleich-2-dreiviertel', -42), ('vergleich-3-seite', -90), ('vergleich-4-ruecken', 180)]
 for name, angle in views:
     if not quick or angle in [0, -90, 180]:
-        shoot(name, angle)
+        shoot(name, angle, turntable_centre, turntable_scale, turntable_size)
 if quick:
     diagnostic_poses()
     print('DONE', flush=True)

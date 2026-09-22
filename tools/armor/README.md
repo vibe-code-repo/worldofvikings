@@ -465,7 +465,7 @@ attribute: every measurement or per-item selection goes through `--prefix`/
 ```sh
 blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
   --python tools/armor/test/render-compare.py -- TARGET_DIR MASTER_ANIMATIONS.blend \
-  --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... [--quick] [--glow]
+  --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... [--quick] [--glow] [--frame=<m>]
 ```
 
 `--items` lists a set's items in display order, each as `key:Region[+Region...]`
@@ -474,7 +474,11 @@ Seidraven/Gravethorn seven-item shape:
 `--items=hood:Head,shoulders:ArmUpperLeft+ArmUpperRight,vest:Torso,bracers:ArmLowerLeft+ArmLowerRight,gloves:HandLeft+HandRight,robe:Hips,boots:LegLeft+LegRight`.
 Writes a four-angle turntable (`vergleich-1..4-*.png`), `comparison-pose-metrics.json`
 and two diagnostic poses (arms overhead, a master-clip crouch) always; a per-item
-tile sheet (`vergleich-items.png`) only on a full run.
+tile sheet (`vergleich-items.png`) only on a full run. The turntable's orthographic
+scale is fitted from the item objects' own posed bounding radius/height plus a
+margin, not a fixed number: a fixed 2.5 m scale used to crop Seidraven's 2.45 m
+wingspan silently. `--frame=<m>` overrides the computed scale; a value too small to
+fit is a hard error naming the minimum, not a silent crop.
 
 ```sh
 blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \

@@ -283,11 +283,19 @@ in the commands below are shorthand for that.
     regions, and full-set masking and restoration on the body is tested. The regions no
     item replaces (Plainhide: `Head`, `HandLeft`, `HandRight`) must stay on the body, each one on its
     own: a body without the head or one hand fails and the message names the region. Each free
-    region needs whole triangles (an index count that is a multiple of 3 and at least 3) and every
-    mesh of it must be enabled, `isVisible === true` and `visibility > 0` after the full set is
-    worn. `test/legacy-female-armor.mjs` does the same on the real 51-bone body; it deletes an old
-    `runtime-validation.json` in the given output folder (exactly that one file) before anything
-    else, so a failed run of any kind, an unknown `--family` included, leaves no report behind.
+    region needs an indexed triangle list (a multiple of 3 indices, at least 3; another topology
+    such as a triangle strip, or a primitive with no index buffer, is refused by name, found by the
+    exact glTF primitive the loader actually instantiated — never by node name, which a strip and a
+    shadow node can share, and which Babylon itself changes for a multi-primitive mesh) and every
+    mesh of it must be enabled, `isVisible === true` and a finite `visibility > 0` after the full
+    set is worn. This topology check runs only for a segmented body mesh (the male and web-female
+    bodies); the monolithic 51-bone body is not checked for topology. A segmented body mesh is read
+    with the same region parser the client exports (`client/src/player/bodyRegions.ts`), so a mesh
+    belongs to exactly one region and a mesh whose name names none fails the gate instead of being
+    silently ignored. `test/legacy-female-armor.mjs` does the same masking on the real 51-bone body;
+    it deletes an old `runtime-validation.json` in the given output folder (exactly that one file)
+    before anything else, so a failed run of any kind, an unknown `--family` included, removes it —
+    unless the deletion itself fails (a read-only output folder: `EACCES`, exit 1, the old report stays).
     A registered GLB must carry `itemId`, `bodyVariant` and `bodyProfile` in
     every mesh node and they must equal the registry; only the closed list
     `FAMILIES_WITHOUT_IDENTITY_EXTRAS` at the top of `skin-gate.mjs` (Ironward, Wildwarden,
@@ -392,13 +400,18 @@ and index counts; they are not a material, pixel or collision check, and none wa
   that surrounds the head or the hands) passes; that is the collision question above.
 - **Completeness of the original body.** One of two hand meshes, or a body with a duplicate or freely
   renamed head mesh, is still a positive proof that the region exists, not that the shipped body
-  geometry is whole. Region names are matched with `includes`, which can count one mesh for two
-  regions (a torso mesh called "Chr_Torso_Female_00 Head"); the enabled state catches that case.
+  geometry is whole. A segmented body mesh's region is read with the client's own parser
+  (`bodyRegionOfMeshName`), so a mesh belongs to exactly one region even when its name also contains
+  another region's word (a free hand called "Chr_HandLeft_Female_00 Head" does not also count as the
+  free Head); a body mesh whose name names no region at all fails the gate rather than being ignored.
 - **Provenance.** Correct identity fields copied onto foreign, rig- and region-compatible geometry
   pass. The gate checks a metadata contract, not where the geometry came from.
 
 - **No clipping approval.** The motion test proves finite, bounded geometry and an
-  exact rest matrix over every frame of every master clip. It does not prove that
+  exact rest matrix at four (`skin-gate.mjs`, including on the real 51-bone body) or
+  five (the stand-alone `legacy-female-armor.mjs`) sample points per clip
+  (`samplesPerClip` in the report) — the tool decides the sample count, not the body.
+  It does not prove that
   armor and body never intersect. Deep crouches and high kicks stretch the `Hips`
   region locally by roughly 4.4 times; those are review points, not a release claim.
 - **No cloth simulation** and no test of mixed sets or of runtime animation layers.

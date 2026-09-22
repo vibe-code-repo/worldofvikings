@@ -3,6 +3,7 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import { updateLegacyFemaleMask } from './legacyFemaleMask.js';
 import { syncEmberrageGlow } from './emberrageGlow.js';
+import { bodyRegionOfMeshName } from './bodyRegions.js';
 export { prepareLegacyFemaleBody } from './legacyFemaleMask.js';
 
 /**
@@ -29,7 +30,7 @@ export function updateArmorVisibility(meshes: readonly AbstractMesh[], activeFil
   const regions = new Set(activeFiles.flatMap(f => armorByFile(f)?.regions ?? []));
   for (const mesh of meshes) {
     if (updateLegacyFemaleMask(mesh, regions)) continue;
-    const region = /(?:Chr_|WoV_BodyBase_(?:Male|Female)_)(Head|Torso|Hips|ArmUpperLeft|ArmUpperRight|ArmLowerLeft|ArmLowerRight|HandLeft|HandRight|LegLeft|LegRight)(?:_(?:Male|Female)_\d+)?(?:$|[. ])/.exec(mesh.name)?.[1];
+    const region = bodyRegionOfMeshName(mesh.name);
     if (region) mesh.setEnabled(!regions.has(region));
   }
 }

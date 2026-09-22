@@ -16,6 +16,10 @@ import { RUESTUNG } from '@wov/shared';
 import { prepareLegacyFemaleBody, updateArmorVisibility, verifyArmorSkin } from '../../../client/src/player/armorVisibility.ts';
 import { updateLegacyFemaleMask } from '../../../client/src/player/legacyFemaleMask.ts';
 
+// What a green run does not say. Keep in step with the README section "What the gate does not prove" and with
+// skin-gate.mjs's own NOT_PROVEN: both tools promise the same thing.
+const NOT_PROVEN=['material transparency (alphaMode BLEND, alpha 0)','foreign geometry that spatially encloses a free region','completeness of the original body geometry','that correct identity fields were not copied onto foreign geometry (a metadata contract, not provenance)'];
+if(process.argv.includes('--list-not-proven')){console.log(JSON.stringify(NOT_PROVEN));process.exit(0);}
 const [bodyPath,directory,fitPath]=process.argv.slice(2);
 // FIRST, before any check can fail: an old runtime-validation.json in the given output folder must never survive a failed run
 // (unknown family, bad fit path, a missing region ...). Exactly this one file of that folder is removed, nothing else.
@@ -77,7 +81,7 @@ const remaining=base.getIndices().length/3;
 assert.equal(remaining,original.length/3-linings,'Full set: the body keeps every triangle the fit did not replace');
 assert.equal(base.isEnabled(),freeRegions.length>0,'The body mesh stays on exactly when free regions are left');
 // The free regions live inside the one body mesh: it must also be visible and not faded out, not only enabled.
-if(freeRegions.length)assert(base.isVisible===true&&base.visibility>0,`${family}: the free regions [${freeRegions}] are not visible after the full set (body mesh: isEnabled=${base.isEnabled()}, isVisible=${base.isVisible}, visibility=${base.visibility})`);
+if(freeRegions.length)assert(base.isVisible===true&&Number.isFinite(base.visibility)&&base.visibility>0,`${family}: the free regions [${freeRegions}] are not visible after the full set (body mesh: isEnabled=${base.isEnabled()}, isVisible=${base.isVisible}, visibility=${base.visibility})`);
 assert.equal(remaining>0,freeRegions.length>0);
 assert(armor.every(m=>m.isEnabled()));
 // The triangles that stay (free regions) and the triangles of the replaced regions must partition the body: nothing of a replaced
@@ -121,8 +125,6 @@ assert.equal(clips.length,6);
 const report={status:'PASS',family,bodyProfile:'legacy-female-v1',bones:skeleton.bones.length,items:parts.length,replacedRegions:replaced,freeRegions,
  clips,samplesPerClip:5,exactBodyRegionMask:true,restoreOriginalIndices:true,independentCharacters:true,
  bodyTriangles:original.length/3,replacedBodyTriangles:linings,freeBodyTriangles:remaining,freeRegionTriangles,
- ...(family==='seidraven'?{rigidShoulderWings:true}:{}),collisionCertified:false,
- // What a green run does not say. Keep in step with the README section "What the gate does not prove".
- notProven:['material transparency (alphaMode BLEND, alpha 0)','foreign geometry that spatially encloses a free region','completeness of the original body geometry','that correct identity fields were not copied onto foreign geometry (a metadata contract, not provenance)']};
+ ...(family==='seidraven'?{rigidShoulderWings:true}:{}),collisionCertified:false,notProven:NOT_PROVEN};
 writeFileSync(join(directory,'runtime-validation.json'),JSON.stringify(report,null,2)+'\n');
 console.log(report);scene.dispose();engine.dispose();

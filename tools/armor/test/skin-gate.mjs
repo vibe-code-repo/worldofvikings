@@ -13,8 +13,10 @@
  * registry (the web profile with --web). The ONLY exception is the named list FAMILIES_WITHOUT_IDENTITY_EXTRAS below
  * (`--list-legacy-sets` prints it); every other family, including every future one, is required.
  * Every region the registry leaves free (Plainhide: head and hands) must exist after the full set is worn, each one on its
- * own, with WHOLE triangles (an index count that is a multiple of 3 and at least 3), and every mesh of it must be
- * enabled, `isVisible === true` and `visibility > 0`. It does NOT prove material transparency (alphaMode BLEND, alpha 0),
+ * own, with WHOLE triangles (an index count that is a multiple of 3 and at least 3) in an indexed triangle list, and every
+ * mesh of it must be enabled, `isVisible === true` and a finite `visibility > 0`. A segmented body mesh whose name names no
+ * known region fails the gate; region names are read with the same parser the client uses (`bodyRegionOfMeshName`), so a
+ * mesh is never counted for two regions. It does NOT prove material transparency (alphaMode BLEND, alpha 0),
  * foreign geometry that encloses a free region, the completeness of the original body geometry, or that correct identity
  * fields were not copied onto foreign geometry (see `notProven` in the report and the README). A manifest that lists an item id twice is refused before anything is loaded.
  * --unregistered checks deformation only, not the registry, the extras or the masking; use it for sets that
@@ -31,6 +33,7 @@ import '@babylonjs/loaders/glTF/index.js';
 import { RUESTUNG, equipmentSetCatalog } from '@wov/shared';
 import { verifyArmorSkin, updateArmorVisibility, prepareLegacyFemaleBody } from '../../../client/src/player/armorVisibility.ts';
 import { updateLegacyFemaleMask } from '../../../client/src/player/legacyFemaleMask.ts';
+import { bodyRegionOfMeshName, BODY_REGIONS } from '../../../client/src/player/bodyRegions.ts';
 
 /**
  * The registered families whose shipped GLBs predate the identity extras: their mesh nodes carry `replaces` or `attachment`
@@ -42,6 +45,7 @@ const FAMILIES_WITHOUT_IDENTITY_EXTRAS = ['ironward', 'wildwarden', 'ashenveil']
 const NOT_PROVEN = ['material transparency (alphaMode BLEND, alpha 0)', 'foreign geometry that spatially encloses a free region',
   'completeness of the original body geometry', 'that correct identity fields were not copied onto foreign geometry (a metadata contract, not provenance)'];
 if (process.argv.includes('--list-legacy-sets')) { console.log(JSON.stringify(FAMILIES_WITHOUT_IDENTITY_EXTRAS)); process.exit(0); }
+if (process.argv.includes('--list-not-proven')) { console.log(JSON.stringify(NOT_PROVEN)); process.exit(0); }
 const [bodyPath, directory] = process.argv.slice(2);
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const families = [...new Set(RUESTUNG.filter(p => p.datei.includes('/')).map(p => p.datei.split('/')[0]))];
@@ -93,11 +97,33 @@ const entries = unregistered
   ? manifest.items.map(i => ({ item: i.item, file: i.file }))
   : expected.map(part => ({ item: itemOf(part), file: listed.get(itemOf(part)).file, part }));
 
-/** The mesh nodes of a GLB with their extras, read from the file itself, not from the loader. */
-function meshNodes(path) {
+/** The raw glTF JSON chunk of a GLB, read from the file itself, not from the loader. */
+function gltfJson(path) {
   const bytes = readFileSync(path);
-  const json = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString());
-  return json.nodes.filter(n => n.mesh !== undefined).map(n => ({ name: n.name, extras: n.extras ?? {} }));
+  return JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString());
+}
+/** The mesh nodes of a GLB with their extras. */
+function meshNodes(path) {
+  return gltfJson(path).nodes.filter(n => n.mesh !== undefined).map(n => ({ name: n.name, extras: n.extras ?? {} }));
+}
+// glTF primitive.mode 4 is TRIANGLES; it is the default when the field is absent. Only an indexed triangle list is a
+// supported body mesh: the Babylon loader accepts other topologies (a triangle strip) without converting them, so an
+// index count alone cannot tell a strip from a malformed list.
+const TRIANGLES_MODE = 4;
+/**
+ * Whether a loaded Babylon mesh is an indexed TRIANGLES primitive — found via the exact glTF mesh/primitive index
+ * the loader itself recorded on the mesh (`_internalMetadata.gltf.pointers`, e.g. `/meshes/3/primitives/0`), never
+ * by name. Two glTF nodes can share a name (only one need be in the loaded scene) and Babylon renames every
+ * primitive of a multi-primitive mesh to `<node>_primitive<N>` (even primitive 0): a name-keyed lookup can find
+ * the wrong primitive, or overwrite it with an unrelated one, or find nothing for a renamed mesh that is still a
+ * plain triangle list.
+ */
+function isIndexedTriangleList(mesh, json) {
+  const pointer = mesh._internalMetadata?.gltf?.pointers?.find(p => /^\/meshes\/\d+\/primitives\/\d+$/.test(p));
+  const match = pointer && /^\/meshes\/(\d+)\/primitives\/(\d+)$/.exec(pointer);
+  if (!match) return false;
+  const primitive = json.meshes[Number(match[1])]?.primitives[Number(match[2])];
+  return !!primitive && primitive.indices !== undefined && (primitive.mode ?? TRIANGLES_MODE) === TRIANGLES_MODE;
 }
 /** The GLB must say what the registry says: which regions it replaces, or that it is an attachment. */
 function checkExtras(part, nodes) {
@@ -125,7 +151,6 @@ function checkExtras(part, nodes) {
 }
 
 // The body regions of the game's figures; the ones no registered item replaces stay visible (Plainhide: head and hands).
-const BODY_REGIONS = ['Head', 'Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft', 'ArmLowerRight', 'HandLeft', 'HandRight', 'LegLeft', 'LegRight'];
 const freeRegions = unregistered ? [] : BODY_REGIONS.filter(region => !expected.some(p => p.regions?.includes(region)));
 const engine = new NullEngine(); const scene = new Scene(engine);
 const load = path => SceneLoader.ImportMeshAsync('', '', `data:base64,${readFileSync(path).toString('base64')}`, scene, undefined, '.glb');
@@ -201,33 +226,42 @@ if (!unregistered) {
     // The free regions live inside the one body mesh: with the full set worn that mesh must be on, visible and not faded out.
     if (freeRegions.length) {
       const m = bodyMeshes[0];
-      assert(m.isEnabled() && m.isVisible === true && m.visibility > 0,
+      assert(m.isEnabled() && m.isVisible === true && Number.isFinite(m.visibility) && m.visibility > 0,
         `${family}/${variant}: the free regions [${freeRegions}] are not visible after the full set (body mesh ${m.name}: isEnabled=${m.isEnabled()}, isVisible=${m.isVisible}, visibility=${m.visibility})`);
     }
   } else {
+    // One region per body mesh, read the same way the client reads it: a mesh whose name names none is an error, not
+    // silently ignored geometry, and a mesh named for one region (a free hand called "... Head") can never also stand
+    // in for another (the free Head itself).
+    const bodyJson = gltfJson(bodyPath);
+    const meshRegion = new Map(bodyMeshes.map(m => [m, bodyRegionOfMeshName(m.name)]));
+    for (const m of bodyMeshes) {
+      assert(meshRegion.get(m) !== undefined, `${family}/${variant}: body mesh ${m.name} does not name a known body region`);
+    }
     const hiddenBody = () => bodyMeshes.filter(m => !m.isEnabled());
     for (const [i, part] of expected.entries()) {
       updateArmorVisibility(scene.meshes, [files[i]]);
       const alone = hiddenBody();
       assert.equal(alone.length, (part.regions ?? []).length, `${files[i]} must hide exactly its ${(part.regions ?? []).length} registered regions`);
-      assert(alone.every(m => part.regions.some(region => m.name.includes(region))), `${files[i]}: only its registered regions may be hidden`);
+      assert(alone.every(m => part.regions.includes(meshRegion.get(m))), `${files[i]}: only its registered regions may be hidden`);
     }
     updateArmorVisibility(scene.meshes, files);
     const hidden = hiddenBody();
     assert.equal(hidden.length, replaced.size, `Full armor must hide exactly its ${replaced.size} registered regions`);
-    assert(hidden.every(m => [...replaced].some(region => m.name.includes(region))), 'Only registered regions may be hidden');
+    assert(hidden.every(m => replaced.has(meshRegion.get(m))), 'Only registered regions may be hidden');
     // Each free region must exist as a body mesh and be visible: "the registered ones are hidden" says nothing about them.
     for (const region of freeRegions) {
-      const meshes = bodyMeshes.filter(m => m.name.includes(region));
+      const meshes = bodyMeshes.filter(m => meshRegion.get(m) === region);
       assert(meshes.length > 0, `${family}/${variant}: the free region ${region} has no body mesh: it is missing from the body`);
-      // Whole triangles: a head with one or two indices is no head. Every mesh of the region counts, not only the first.
       for (const m of meshes) {
+        assert(isIndexedTriangleList(m, bodyJson), `${family}/${variant}: the free region ${region} has a mesh (${m.name}) that is not an indexed triangle list: only indexed triangle lists are supported`);
+        // Whole triangles: a head with one or two indices is no head. Every mesh of the region counts, not only the first.
         const indices = m.getTotalIndices();
         assert(indices >= 3 && indices % 3 === 0,
           `${family}/${variant}: the free region ${region} has ${indices} indices in mesh ${m.name}: it needs whole triangles (a multiple of 3, at least 3)`);
       }
       // The states the mask code and the loader leave behind, after the full set is worn; each mesh of the region, not one of them.
-      const unseen = meshes.find(m => !(m.isEnabled() && m.isVisible === true && m.visibility > 0));
+      const unseen = meshes.find(m => !(m.isEnabled() && m.isVisible === true && Number.isFinite(m.visibility) && m.visibility > 0));
       assert(!unseen, `${family}/${variant}: the free region ${region} is not visible although no item replaces it (mesh ${unseen?.name}: isEnabled=${unseen?.isEnabled()}, isVisible=${unseen?.isVisible}, visibility=${unseen?.visibility})`);
       freeRegionTriangles[region] = meshes.reduce((n, m) => n + m.getTotalIndices() / 3, 0);
     }

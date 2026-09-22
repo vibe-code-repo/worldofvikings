@@ -13,9 +13,13 @@ The accepted form, after Blender's own arguments, is
 Everything else is refused with a message and exit code 1: a missing `--` or output
 directory, an output directory that looks like a switch, unknown or repeated
 switches, `--female` on a male entry point, and any of --quick/--female/--male placed
-in front of the `--` (Blender would ignore them silently) -- including misspelt dash
-style, case, an `=value` suffix or stray whitespace (`-female`, `--Female`, `--QUICK=1`),
-which Blender would ignore just as silently.
+in front of the `--` as a FREESTANDING argument (Blender would ignore them silently)
+-- including misspelt dash style, case, an `=value` suffix or stray whitespace
+(`-female`, `--Female`, `--QUICK=1`), which Blender would ignore just as silently. The
+*value* of a Blender option that takes one is never scanned this way: `--python-expr
+"--Female"` is a Python expression Blender runs, not a switch of this tool, even
+though the text looks like one (real case: Blender executes the expression, which may
+reference a variable named `Female` set by an earlier `--python-expr`).
 """
 import sys
 
@@ -28,6 +32,22 @@ _SWITCH_WORDS = frozenset(switch.lstrip('-') for switch in BUILD_SWITCHES)
 # non-breaking hyphen, figure dash, en dash, em dash, horizontal bar, minus sign.
 _DASHES = '-‐‑‒–—―−'
 BODY_SOURCE = {'male': 'BODY_BASE_MALE.blend', 'female': 'BODY_BASE_FEMALE.blend'}
+# Blender 5.2.0 LTS options that consume exactly one following argument (`blender
+# --help`, both the short and the long spelling where one exists). Their VALUE is
+# never scanned for a misplaced switch, only the option name itself is (and none of
+# these normalize to quick/female/male). `-p`/`--window-geometry` actually takes four
+# values and `-c`/`--command` consumes every remaining argument; both are treated as
+# a single-value skip here since a build entry point's own command line never uses
+# either -- correctness beyond that one value is not needed for this tool.
+_VALUE_TAKING = frozenset((
+    '-S', '--scene', '-f', '--render-frame', '-s', '--frame-start', '-e', '--frame-end',
+    '-j', '--frame-jump', '-o', '--render-output', '-E', '--engine', '-t', '--threads',
+    '--cycles-device', '-F', '--render-format', '-x', '--use-extension',
+    '-p', '--window-geometry', '-P', '--python', '--python-text', '--python-expr',
+    '--python-exit-code', '--addons', '--log', '--log-level', '--log-file',
+    '--debug-value', '--verbose', '--gpu-device', '--app-template', '-c', '--command',
+    '--qos',
+))
 
 
 class EntryArgsError(ValueError):
@@ -50,7 +70,17 @@ def parse(argv, variant):
         before, after = argv[1:split], argv[split + 1:]
     else:
         before, after = argv[1:], None
-    misplaced = [a for a in before if _switch_word(a) in _SWITCH_WORDS]
+    misplaced = []
+    skip_value = False
+    for arg in before:
+        if skip_value:
+            skip_value = False
+            continue
+        if arg in _VALUE_TAKING:
+            skip_value = True
+            continue
+        if _switch_word(arg) in _SWITCH_WORDS:
+            misplaced.append(arg)
     if misplaced:
         raise EntryArgsError(f"{' '.join(misplaced)} in front of '--' is a Blender argument and "
                              "would be ignored; put it after '--'")

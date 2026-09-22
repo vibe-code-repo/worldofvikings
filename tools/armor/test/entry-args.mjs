@@ -47,6 +47,13 @@ const GOOD = [
   ['directory with spaces', ['--', 'my out dir'], ['male', 'female'], ['my out dir']],
   ['explicit --female', ['--', 'OUT', '--female'], ['female'], ['OUT', '--female']],
   ['--quick and --female', ['--', 'OUT', '--quick', '--female'], ['female'], ['OUT', '--quick', '--female']],
+  // M3: the VALUE of a Blender option that takes one is not a switch of this tool, even when it
+  // reads like one -- real case, --python-expr "--Female" is a Python expression Blender runs.
+  ['value of --python-expr that looks like a switch (M3, long option)',
+    ['--python-expr', 'import builtins; builtins.Female=1', '--python-expr', '--Female', '--', 'OUT'],
+    ['male', 'female'], ['OUT']],
+  ['value of -o that looks like a switch (M3, short option)',
+    ['-o', '--quick', '--', 'OUT'], ['male', 'female'], ['OUT']],
 ];
 const BAD = [
   ['no -- at all', [], ['male', 'female'], "missing '--'"],
@@ -73,6 +80,10 @@ const BAD = [
   ['uppercase spelling before the --', ['--Quick', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
   ['=value suffix before the --', ['--female=1', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
   ['whitespace around the switch before the --', [' --female ', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  // M3: only the VALUE right after a value-taking option is skipped; a freestanding write
+  // variant one token later (or before any value-taking option) is still caught.
+  ['--Female freestanding right after a consumed --python-expr value (M3)',
+    ['--python-expr', 'x', '--Female', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
 ];
 
 let checked = 0;

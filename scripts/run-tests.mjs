@@ -1469,6 +1469,12 @@ const KERN = [
   // ... and PATCH /api/worldlayout/ops plus the 428 on a POST without a base,
   // against the real operations service on a copy of the world.
   ['admin', 'test/welt-ops.ts'],
+  // Reset the world to zero (K4.0): POST /api/welt-zuruecksetzen against the real operations service with a
+  // stand-in for systemctl (confirmation, live 403, nothing deleted, undo when a step fails, base for the next save) ...
+  ['admin', 'test/welt-zuruecksetzen.ts'],
+  // ... and the editor's side: the typed confirmation, the numbers in the dialog, the state after a success
+  // (draft, base, empty undo stack), the wiring in editorMain.ts.
+  ['client', 'test/welt-zuruecksetzen.ts'],
   // `zone reset` re-scatters generated zones and leaves layout objects, player
   // builds and admin trees alone.
   ['server', 'test/zonen-ruecksetzer.ts'],

@@ -90,6 +90,10 @@ export interface GlTF {
   images?: { uri?: string; bufferView?: number; mimeType?: string }[];
   accessors?: GlTFAccessor[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
+  /** `uri` hier heisst „externe Binärdatei" — die Upload-Prüfung lässt nur den eingebetteten BIN-Chunk zu. */
+  buffers?: { byteLength: number; uri?: string }[];
+  /** Erweiterungen, ohne die der Leser nicht das Richtige zeichnet (Draco, Meshopt, …) — die Upload-Prüfung lehnt jede ab. */
+  extensionsRequired?: string[];
 }
 interface GlTFKnoten {
   name?: string;
@@ -136,19 +140,48 @@ export function parseGlbChunks(bytes: Uint8Array): GlbRoh {
   return { json, bin };
 }
 
+/**
+ * N1 (Angriff, Abschnitt „Grenzen des Prüftors"): `count` steht im JSON
+ * und ist damit eine Eingabe wie jede andere. Vorher wurde `new
+ * Float32Array(a.count * 3)`/`new Uint32Array(a.count)` angelegt, BEVOR
+ * irgendetwas geprüft war — ein `count` von z. B. 500 Millionen reservierte
+ * mehrere hundert MB, bevor der eigentliche Fehler (zu wenig Bytes im
+ * BIN-Chunk) überhaupt zum Zuge kam. Diese Grenze deckelt die Allokation
+ * selbst, unabhängig davon, ob überhaupt ein `bufferView` angegeben ist.
+ * Weit über jedem sinnvollen Upload-Netz (die Dreiecksgrenze der Prüfung
+ * liegt bei 20 000, ein Netz mit 3 Ecken je Dreieck bräuchte höchstens
+ * 60 000 Positionen).
+ */
+const MAX_ACCESSOR_COUNT = 5_000_000;
+
+function pruefeCount(a: { count: unknown }, index: number, bezeichnung: string): number {
+  const count = a.count;
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0 || count > MAX_ACCESSOR_COUNT) {
+    throw new Error(`Accessor ${index}: count von '${bezeichnung}' ist ungültig oder unplausibel groß (${String(count)})`);
+  }
+  return count;
+}
+
 /** Ein VEC3-Float-Accessor, `byteStride` berücksichtigt. */
 function lesePositionen(roh: GlbRoh, index: number): Float32Array {
   const a = roh.json.accessors?.[index];
   if (!a || a.type !== 'VEC3' || a.componentType !== 5126) {
     throw new Error(`Accessor ${index}: POSITION muss VEC3/float sein`);
   }
-  const out = new Float32Array(a.count * 3);
-  if (a.bufferView === undefined) return out;
+  const count = pruefeCount(a, index, 'POSITION');
+  if (a.bufferView === undefined) return new Float32Array(count * 3);
   const bv = roh.json.bufferViews![a.bufferView]!;
-  const dv = new DataView(roh.bin.buffer, roh.bin.byteOffset, roh.bin.byteLength);
   const start = (bv.byteOffset ?? 0) + (a.byteOffset ?? 0);
   const stride = bv.byteStride ?? 12;
-  for (let v = 0; v < a.count; v++) {
+  // Bevor gelesen (und nicht erst beim ersten Zugriff, der als
+  // `RangeError` auffiele): passt der behauptete Umfang überhaupt in den
+  // BIN-Chunk? Eine klare Meldung statt eines rohen DataView-Fehlers.
+  if (count > 0 && start + (count - 1) * stride + 12 > roh.bin.byteLength) {
+    throw new Error(`Accessor ${index}: POSITION mit count ${count} passt nicht in den Binärteil (${roh.bin.byteLength} Byte)`);
+  }
+  const out = new Float32Array(count * 3);
+  const dv = new DataView(roh.bin.buffer, roh.bin.byteOffset, roh.bin.byteLength);
+  for (let v = 0; v < count; v++) {
     const p = start + v * stride;
     out[v * 3] = dv.getFloat32(p, true);
     out[v * 3 + 1] = dv.getFloat32(p + 4, true);
@@ -161,14 +194,18 @@ function lesePositionen(roh: GlbRoh, index: number): Float32Array {
 function leseIndizes(roh: GlbRoh, index: number): Uint32Array {
   const a = roh.json.accessors?.[index];
   if (!a || a.type !== 'SCALAR') throw new Error(`Accessor ${index}: indices muss SCALAR sein`);
-  const out = new Uint32Array(a.count);
-  if (a.bufferView === undefined) return out;
+  const count = pruefeCount(a, index, 'indices');
+  if (a.bufferView === undefined) return new Uint32Array(count);
   const bv = roh.json.bufferViews![a.bufferView]!;
-  const dv = new DataView(roh.bin.buffer, roh.bin.byteOffset, roh.bin.byteLength);
   const breite = a.componentType === 5121 ? 1 : a.componentType === 5123 ? 2 : 4;
   const start = (bv.byteOffset ?? 0) + (a.byteOffset ?? 0);
   const stride = bv.byteStride ?? breite;
-  for (let i = 0; i < a.count; i++) {
+  if (count > 0 && start + (count - 1) * stride + breite > roh.bin.byteLength) {
+    throw new Error(`Accessor ${index}: indices mit count ${count} passt nicht in den Binärteil (${roh.bin.byteLength} Byte)`);
+  }
+  const out = new Uint32Array(count);
+  const dv = new DataView(roh.bin.buffer, roh.bin.byteOffset, roh.bin.byteLength);
+  for (let i = 0; i < count; i++) {
     const p = start + i * stride;
     out[i] = breite === 1 ? dv.getUint8(p) : breite === 2 ? dv.getUint16(p, true) : dv.getUint32(p, true);
   }
@@ -227,6 +264,13 @@ interface Teil {
 }
 
 /** Alle Netze der Datei, Hierarchie und Spiegelung bereits eingerechnet. */
+/** `[0, 1, …, n-1]` — die impliziten Indizes einer nicht indizierten TRIANGLES-Primitive. */
+function sequentielleIndizes(n: number): Uint32Array {
+  const out = new Uint32Array(n);
+  for (let i = 0; i < n; i++) out[i] = i;
+  return out;
+}
+
 function teile(roh: GlbRoh): Teil[] {
   const aus: Teil[] = [];
   const szene = roh.json.scenes?.[roh.json.scene ?? 0];
@@ -247,12 +291,21 @@ function teile(roh: GlbRoh): Teil[] {
         // Babylon hängt bei mehreren Primitiven `_primitiveN` an den
         // Knotennamen — dasselbe hier, damit `_col` gleich greift.
         const basisName = n.name ?? mesh?.name ?? `mesh${n.mesh}`;
+        const positionen = lesePositionen(roh, prim.attributes.POSITION);
+        // N1 (Angriff, Abschnitt „Grenzen des Prüftors"): eine TRIANGLES-
+        // Primitive OHNE `indices` ist gültiges glTF und wird von Babylon
+        // gezeichnet (POSITION.count / 3 Dreiecke, der Reihe nach) — vorher
+        // ergab das eine LEERE Indexliste, also 0 gezählte Dreiecke, obwohl
+        // sichtbare Fläche da war. `sequentielleIndizes` bildet dieselbe
+        // Zählweise wie `tools/asset-manifest.mjs` (`dreiecke()`) nach.
+        const indizes =
+          prim.indices === undefined ? sequentielleIndizes(positionen.length / 3) : leseIndizes(roh, prim.indices);
         aus.push({
           name: primitive.length > 1 ? `${basisName}_primitive${i}` : basisName,
           material:
             prim.material === undefined ? null : (roh.json.materials?.[prim.material]?.name ?? null),
-          positionen: lesePositionen(roh, prim.attributes.POSITION),
-          indizes: prim.indices === undefined ? new Uint32Array(0) : leseIndizes(roh, prim.indices),
+          positionen,
+          indizes,
           matrix: m,
         });
       }

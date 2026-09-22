@@ -15,6 +15,7 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { hiddenAppearance, hiddenAppearanceForFiles, equipmentSetCatalog, findItem, Inventory,
   encodeArmor, frisurMitGesicht, AUGENBRAUEN, PLAINHIDE_FREE_REGIONS, legacyFemaleRegionForBone } from '@wov/shared';
 import { armorFileForSkeleton, prepareLegacyFemaleBody, updateArmorVisibility } from '../src/player/armorVisibility.js';
+import { bodyRegionOfMeshName, type BodyRegion } from '../src/player/bodyRegions.js';
 
 const all = ['hair', 'beard', 'eyebrows'];
 assert.deepEqual([...hiddenAppearance([{}])], []);
@@ -180,4 +181,34 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   scene.dispose();
 }
 engine.dispose();
-console.log('PASS item policies, saved inventory, mixed items, all 4 rendering paths, delayed/failed loads, restoration and hair compatibility, the web-body file of every female set and the eight-region Plainhide mask');
+
+// F1: bodyRegionOfMeshName (client/src/player/bodyRegions.ts) is the same regex updateArmorVisibility always used, only
+// pulled out into a pure, exported function so the armor tools read a body mesh's region the same way. This is a parity
+// witness for that extraction (same mesh names in, same region out), not a new behavior: OLD_PATTERN is the regex as it
+// stood inline in armorVisibility.ts before this change.
+const OLD_PATTERN = /(?:Chr_|WoV_BodyBase_(?:Male|Female)_)(Head|Torso|Hips|ArmUpperLeft|ArmUpperRight|ArmLowerLeft|ArmLowerRight|HandLeft|HandRight|LegLeft|LegRight)(?:_(?:Male|Female)_\d+)?(?:$|[. ])/;
+// Every body mesh name of the three real bodies, read from the shipped GLBs on 22.09.2026. The 51-bone legacy body
+// (assets/models/wikingerin/WikingerinKoerper.glb) is one monolithic mesh ("mesh_node") masked by bone weight, not by
+// name, so it never names a region; the 71-bone male (assets/models/wikinger/WikingerKoerper.glb) and the 63-bone web
+// female (wov-web/static/assets/models/wikingerin/WikingerinKoerper.glb) are both segmented, one mesh per region.
+const REAL_BODY_MESH_REGION: Record<string, BodyRegion | undefined> = {
+  Chr_ArmLowerLeft_Male_00: 'ArmLowerLeft', Chr_ArmLowerRight_Male_00: 'ArmLowerRight', Chr_ArmUpperLeft_Male_00: 'ArmUpperLeft',
+  Chr_ArmUpperRight_Male_00: 'ArmUpperRight', Chr_HandLeft_Male_00: 'HandLeft', Chr_HandRight_Male_00: 'HandRight',
+  Chr_Head_Male_00: 'Head', Chr_Hips_Male_00: 'Hips', Chr_LegLeft_Male_00: 'LegLeft', Chr_LegRight_Male_00: 'LegRight', Chr_Torso_Male_00: 'Torso',
+  Chr_ArmLowerLeft_Female_00: 'ArmLowerLeft', Chr_ArmLowerRight_Female_00: 'ArmLowerRight', Chr_ArmUpperLeft_Female_00: 'ArmUpperLeft',
+  Chr_ArmUpperRight_Female_00: 'ArmUpperRight', Chr_HandLeft_Female_00: 'HandLeft', Chr_HandRight_Female_00: 'HandRight',
+  Chr_Head_Female_00: 'Head', Chr_Hips_Female_00: 'Hips', Chr_LegLeft_Female_00: 'LegLeft', Chr_LegRight_Female_00: 'LegRight', Chr_Torso_Female_00: 'Torso',
+  mesh_node: undefined,
+};
+for (const [name, region] of Object.entries(REAL_BODY_MESH_REGION)) {
+  assert.equal(bodyRegionOfMeshName(name), region, `real body mesh ${name}: expected region`);
+  assert.equal(bodyRegionOfMeshName(name), OLD_PATTERN.exec(name)?.[1], `real body mesh ${name}: same result before and after the extraction`);
+}
+// Astra's two alias fixtures: a mesh named for one region and merely ending in another region's word (a free hand
+// called "... Head", or the case Nachbesserung 2 already caught, a torso called "... Head") must resolve to the region
+// it is actually named for, from the anchored prefix, never to the trailing word alone.
+for (const [name, region] of [['Chr_Torso_Female_00 Head', 'Torso'], ['Chr_HandLeft_Female_00 Head', 'HandLeft']] as const) {
+  assert.equal(bodyRegionOfMeshName(name), region, `alias fixture ${name}: expected region`);
+  assert.equal(bodyRegionOfMeshName(name), OLD_PATTERN.exec(name)?.[1], `alias fixture ${name}: same result before and after the extraction`);
+}
+console.log('PASS item policies, saved inventory, mixed items, all 4 rendering paths, delayed/failed loads, restoration and hair compatibility, the web-body file of every female set, the eight-region Plainhide mask and the shared body-region parser on all three real bodies and both alias fixtures');

@@ -184,6 +184,12 @@ const KERN = [
   */
   ['tools/armor/test', 'keep-body-args.mjs', brauchtPython('the --keep-body contract')],
   /*
+    The four scaffold-built armor sets are data plus design on tools/armor/lib: every
+    config.py complete and refused when a required field is missing, items/regions/free
+    regions equal to shared/src/<family>.ts, no exec/replace left under sets/. No Blender. ~1 s.
+  */
+  ['tools/armor/test', 'scaffold-config.mjs', brauchtPython('the armor set configurations')],
+  /*
     Ein Ursprung im Container (12.09.2026): Textnachweis über
     deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,
     /editor/, /api/accounts/, /api/, /assets/, /ws) stehen als eigener

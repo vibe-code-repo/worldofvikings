@@ -1407,7 +1407,13 @@ export class GegenstandsKatalog {
         method: 'POST',
         headers: {
           'Content-Type': 'application/octet-stream',
-          'X-Wov-Modellname': angezeigterName,
+          // N1 (Angriff, Befund B6): Kopfzeilenwerte sind ByteStrings — ein
+          // Name mit einem Zeichen über U+00FF (nicht nur exotisch: auch
+          // ein Stern oder Kyrillisch) lässt `fetch` schon beim Setzen der
+          // Kopfzeile mit einem TypeError scheitern, BEVOR die Anfrage
+          // überhaupt losgeht. `encodeURIComponent` macht daraus reines
+          // ASCII; der Betriebsdienst dekodiert es zurück.
+          'X-Wov-Modellname': encodeURIComponent(angezeigterName),
           'X-Wov-Kollision': this.hochladenKollisionswunsch,
         },
         body: bytes,
@@ -1419,7 +1425,14 @@ export class GegenstandsKatalog {
         hinweise?: string[];
       } | null;
       if (!antwort.ok || !rumpf?.ok || !rumpf.eintrag) {
-        this.hochladenStatusSchreiben(rumpf?.message ?? `Hochladen fehlgeschlagen (HTTP ${antwort.status}).`, true);
+        // N1 (Befund B7): Eine 413 kann auch von NGINX kommen (HTML statt
+        // JSON, `rumpf` ist dann `null`) — dieselbe Meldung für beide
+        // Quellen, statt eines nackten Statuscodes.
+        const meldung =
+          antwort.status === 413
+            ? `Datei zu groß (höchstens ${(uploadedModelRegistry.MAX_BYTES / 1_000_000).toFixed(0)} MB).`
+            : (rumpf?.message ?? `Hochladen fehlgeschlagen (HTTP ${antwort.status}).`);
+        this.hochladenStatusSchreiben(meldung, true);
         return;
       }
       const eintrag = rumpf.eintrag;
@@ -1445,10 +1458,22 @@ export class GegenstandsKatalog {
         `${eintrag.dreiecke.toLocaleString('de-DE')} Dreiecke, ` +
         `${eintrag.breite.toFixed(2)} × ${eintrag.hoehe.toFixed(2)} × ${eintrag.tiefe.toFixed(2)} m, ` +
         `Kollision: ${eintrag.kollisionsart}`;
+      // N1 (Angriff, Befund B4): Im Katalog UND im Testflug steht das
+      // Modell sofort (beide bauen client-seitig aus der Registry bzw.
+      // direkt aus den Platzierungen, Browser-Sichtnachweis
+      // client/test/... und Bericht Abschnitt N1). Im laufenden Spiel
+      // (echter Spielserver-Prozess) fehlt es dagegen, bis der Spielserver
+      // neu startet — er registriert Uploads nur beim Start
+      // (`ladeHochgeladeneRegistrierung`, VOR `createWovServer`), nicht
+      // laufend wie der Betriebsdienst. Das war vorher nur im Bericht
+      // erwähnt, nicht in der Oberfläche selbst.
+      const hinweisNeustart =
+        'Sofort im Katalog und im Testflug sichtbar. Im laufenden Spiel (Spielserver-Prozess) ' +
+        'erst nach einem Neustart des Spielservers sichtbar und mit Kollision.';
       const text =
         hinweise.length > 0
-          ? `'${eintrag.name}' hochgeladen — ${zahlen}. ${hinweise.join(' ')}`
-          : `'${eintrag.name}' hochgeladen — ${zahlen}.`;
+          ? `'${eintrag.name}' hochgeladen — ${zahlen}. ${hinweise.join(' ')} ${hinweisNeustart}`
+          : `'${eintrag.name}' hochgeladen — ${zahlen}. ${hinweisNeustart}`;
       this.hochladenStatusSchreiben(text, false);
     } catch (e) {
       this.hochladenStatusSchreiben(`Netzwerkfehler: ${(e as Error).message}`, true);

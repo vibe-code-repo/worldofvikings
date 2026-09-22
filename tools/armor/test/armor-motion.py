@@ -9,13 +9,21 @@ some body regions, e.g. 8 for Plainhide). --keep-body=Region,Region names source
 regions (matched as WoV_BodyBase_*_Region, any body variant) that stay visible next to
 the armor in the renders and the overview montage because the set does not replace
 them, e.g. --keep-body=Head,HandLeft,HandRight; default none, matching every set that
-replaces all eleven regions.
+replaces all eleven regions. A region outside the eleven-region body, one this armor
+already replaces (it would then show twice), or a second --keep-body option are all
+refused with a message; an empty list and a region repeated within one --keep-body
+change nothing and are allowed (see keep_body.py, tested without Blender in
+keep-body-args.mjs).
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from keep_body import KeepBodyError, parse_keep_body  # noqa: E402
+
 import bpy
 import json
-import sys
 import numpy as np
-from pathlib import Path
 from mathutils import Vector, Matrix
 
 args = sys.argv[sys.argv.index('--')+1:]
@@ -31,7 +39,6 @@ if regions_arg is None:
     sys.exit('armor-motion.py: missing required --regions=N (the number of armor mesh '
              'objects the build produced under --prefix); see the module docstring')
 regions = int(regions_arg)
-keep_body = [r for r in next((a.split('=',1)[1] for a in args if a.startswith('--keep-body=')), '').split(',') if r]
 
 
 def is_kept_body(obj):
@@ -42,6 +49,10 @@ scene = bpy.context.scene
 rig = bpy.data.objects['WoV_Player_Armature']
 armor = [o for o in scene.objects if o.type == 'MESH' and o.name.startswith(prefix)]
 assert len(armor) == regions, (len(armor), regions)
+try:
+    keep_body = parse_keep_body(args, {o.name[len(prefix):] for o in armor})
+except KeepBodyError as error:
+    sys.exit(f'armor-motion.py: {error}')
 names = ['Idle1', 'WalkFwd', 'CrouchIdle1'] if quick else [
     'Idle1', 'WalkFwd', 'WalkBwd', 'WalkStrafeLeft', 'RunFwd', 'RunStrafeLeft',
     'StartRunFwd', 'StopLeftRunFwd', 'JumpStart', 'JumpUp', 'JumpMidAir', 'FallEnd',

@@ -250,12 +250,30 @@ console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen) ===\n');
   const gross: DungeonDef = { ...rasterkits[0]!, maxRooms: 200 };
   // Aufwärmen: Die ersten Läufe messen den JIT, nicht den Generator.
   for (let s = 1; s <= 20; s++) erzeugeLayoutFuerKit(gross, s);
+  /*
+    CPU-Zeit statt Wanduhr (dasselbe Prinzip wie server/test/g12-tick-
+    aufteilung.ts, Teil D: gegen die tatsächlich verbrauchte Zeit messen,
+    nicht gegen eine Wanduhrgrenze). `process.hrtime` maß hier bis zum
+    22.09.2026 die WANDUHR: Ein fremder Prozess, der sich denselben Kern
+    teilt, verdrängt diesen Prozess — die Wanduhr läuft weiter, der
+    Generator wird davon aber nicht langsamer. Genau das brach an diesem
+    Tag einen DEV-Rollout ab (Median 11,30 ms gegen die Grenze 10 ms,
+    derselbe Test eine Stunde zuvor ruhig grün, kein Funktionsfehler).
+    `process.cpuUsage()` zählt dagegen nur die Prozessorzeit, die dieser
+    Prozess wirklich zugeteilt bekam: Während der Verdrängung tickt der
+    Zähler nicht mit, danach zählt er ab genau der Stelle weiter, an der
+    er unterbrochen wurde. Die Summe über die 40 Layouts ist damit die
+    tatsächlich für die Rechnung verbrauchte Zeit — unempfindlich gegen
+    fremde Last auf denselben Kernen, empfindlich für einen Generator,
+    der wirklich mehr rechnet.
+  */
   const zeiten: number[] = [];
   let raeume = 0;
   for (const seed of SEEDS) {
-    const t0 = process.hrtime.bigint();
+    const cpu0 = process.cpuUsage();
     const l = erzeugeLayoutFuerKit(gross, seed);
-    zeiten.push(Number(process.hrtime.bigint() - t0) / 1e6);
+    const cpu = process.cpuUsage(cpu0);
+    zeiten.push((cpu.user + cpu.system) / 1000);
     raeume += l.rooms.length;
   }
   const sortiert = [...zeiten].sort((a, b) => a - b);
@@ -264,17 +282,20 @@ console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen) ===\n');
   const max = sortiert[sortiert.length - 1]!;
   console.log(
     `  ${zeiten.length} Layouts, ${(raeume / zeiten.length).toFixed(1)} Räume je Layout — ` +
-      `min ${sortiert[0]!.toFixed(2)} ms, median ${median.toFixed(2)} ms, Schnitt ${schnitt.toFixed(2)} ms, max ${max.toFixed(2)} ms`
+      `min ${sortiert[0]!.toFixed(2)} ms, median ${median.toFixed(2)} ms, Schnitt ${schnitt.toFixed(2)} ms, max ${max.toFixed(2)} ms (CPU-Zeit)`
   );
-  check(`Median unter 10 ms je Layout`, median < 10, `${median.toFixed(2)} ms`);
-  check(`Schnitt unter 10 ms je Layout`, schnitt < 10, `${schnitt.toFixed(2)} ms`);
-  // Der MAXIMALwert ist bewusst kein 10-ms-Wächter: Ein einzelner
-  // Ausreisser über 40 Läufe ist die Speicherbereinigung des Prozesses,
-  // nicht der Generator (gemessen: median 6,7 ms, max 10,9 ms auf
-  // derselben Maschine im selben Lauf). Eine Grenze, die von der Laune
-  // der GC abhängt, ist ein Test, der zufällig rot wird — die weite
-  // Grenze hier fängt trotzdem jede echte Grössenordnung ab.
-  check(`kein Ausreisser über 30 ms`, max < 30, `${max.toFixed(2)} ms`);
+  check(`Median unter 10 ms CPU-Zeit je Layout`, median < 10, `${median.toFixed(2)} ms`);
+  check(`Schnitt unter 10 ms CPU-Zeit je Layout`, schnitt < 10, `${schnitt.toFixed(2)} ms`);
+  // Der MAXIMALwert ist bewusst kein 10-ms-Wächter: CPU-Zeit ist
+  // PROZESSWEIT (jeder Thread zählt mit), ein nebenläufiger GC- oder
+  // JIT-Compiler-Lauf von V8 zählt also in das Fenster hinein, in dem er
+  // zufällig lief, nicht in das, dessen Speicherdruck ihn auslöste.
+  // Gemessen: median 6,5-8,0 ms, einzelne Ausreisser bis 22-24 ms CPU-
+  // Zeit auf derselben Maschine im selben ruhigen bzw. belasteten Lauf,
+  // ohne dass der Generator selbst betroffen war. Eine Grenze, die von
+  // der Laune der GC abhängt, ist ein Test, der zufällig rot wird — die
+  // weite Grenze hier fängt trotzdem jede echte Grössenordnung ab.
+  check(`kein Ausreisser über 30 ms CPU-Zeit`, max < 30, `${max.toFixed(2)} ms`);
 }
 
 if (failures > 0) {

@@ -87,6 +87,7 @@ import {
 } from '../engine/RefraktionsAuswahl';
 import type { ClientWorld } from '../world/World';
 import type { ZDOEntityUpdate } from '../net/ZDOSync';
+import { clipRate } from './clipTempo';
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
 const DYNAMIC_FLAGS =
@@ -580,6 +581,12 @@ interface DynamicEntity {
    * Zyklus bliebe im ersten Bild hängen.
    */
   anim?: string;
+  /**
+   * Coupling of a walk/run clip to the ground speed (clipTempo.ts): the
+   * prefab's clip speeds, the smoothed speed of the root and the rate last
+   * given to the group. Only prefabs with `animationTempo` carry it.
+   */
+  clipTempo?: { tabelle: Readonly<Record<string, number>>; ist: number; rate: number };
   /**
    * Leben in Prozent, -1 = unbekannt. Wird NUR überschrieben, wenn das
    * Update den Member wirklich trägt: Ein Tick ohne `health` heisst „hat
@@ -3138,7 +3145,19 @@ export class EntityManager {
    */
   dynamicPose(
     name: string
-  ): { pos: Vector3Like; rotX: number; yaw: number; anim: string | null; tempo: number } | null {
+  ): {
+    pos: Vector3Like;
+    rotX: number;
+    yaw: number;
+    anim: string | null;
+    tempo: number;
+    /** Smoothed ground speed of the coupled clip, m/s (-1 = not coupled). */
+    tempoIst: number;
+    /** The group that really plays and the rate it really has. */
+    gruppe: { name: string; speedRatio: number } | null;
+    /** Life in percent (-1 = unknown). */
+    leben: number;
+  } | null {
     for (const d of this.dynamics.values()) {
       if (!(d.root.name || '').includes(name)) continue;
       const p = d.root.position;
@@ -3149,7 +3168,133 @@ export class EntityManager {
         yaw: e?.y ?? 0,
         anim: d.anim ?? null,
         tempo: d.gang?.tempo ?? -1,
+        tempoIst: d.clipTempo?.ist ?? -1,
+        gruppe: this.assets.aktiveGruppe(d.root),
+        leben: d.leben ?? -1,
       };
+    }
+    return null;
+  }
+
+  /**
+   * Diagnostics: the size of a dynamic creature as Babylon really draws it.
+   *
+   * Measured on the DEFORMED mesh (`applySkeleton`) in the first frame of the
+   * clip `clip`, with the root turned to the identity so that width and
+   * length are the model's own axes and not the axes of whatever heading the
+   * animal has. This is the number to hold against the sizes the prefab
+   * declares (`renderScale`): the manifest cannot answer it, it measures the
+   * bind pose. Sets the clip back to playing afterwards.
+   *
+   * `sohle` is the lowest drawn point above the root's origin (the ground
+   * point the server sends); it is what keeps the feet on the ground.
+   */
+  dynamicMasse(
+    name: string,
+    clip = 'idle'
+  ): { breite: number; hoehe: number; laenge: number; sohle: number } | null {
+    for (const d of this.dynamics.values()) {
+      if (!(d.root.name || '').includes(name)) continue;
+      const gruppen = this.assets.gruppenVon(d.root);
+      const g = gruppen.find((x) => x.name.toLowerCase().includes(clip));
+      const spielt = gruppen.filter((x) => x.isPlaying);
+      if (g) {
+        for (const x of spielt) x.pause();
+        g.start(true);
+        g.pause();
+        g.goToFrame(g.from);
+      }
+      const rot = d.root.rotationQuaternion?.clone() ?? null;
+      d.root.rotationQuaternion = Quaternion.Identity();
+      d.root.computeWorldMatrix(true);
+      for (const tn of d.root.getChildTransformNodes(false)) tn.computeWorldMatrix(true);
+      const lo = new Vector3(Infinity, Infinity, Infinity);
+      const hi = new Vector3(-Infinity, -Infinity, -Infinity);
+      for (const m of d.root.getChildMeshes()) {
+        if (m.getTotalVertices() === 0) continue;
+        m.skeleton?.prepare(true);
+        m.refreshBoundingInfo({ applySkeleton: true });
+        m.computeWorldMatrix(true);
+        const b = m.getBoundingInfo().boundingBox;
+        lo.minimizeInPlace(b.minimumWorld);
+        hi.maximizeInPlace(b.maximumWorld);
+      }
+      const y0 = d.root.position.y;
+      d.root.rotationQuaternion = rot;
+      if (g) {
+        g.goToFrame(g.from);
+        for (const x of [g, ...spielt]) x.play(true);
+      }
+      return { breite: hi.x - lo.x, hoehe: hi.y - lo.y, laenge: hi.z - lo.z, sohle: lo.y - y0 };
+    }
+    return null;
+  }
+
+  /**
+   * Diagnostics: how far the drawn mesh jumps where a clip wraps around.
+   *
+   * The largest and the mean distance a vertex moves between the LAST and the
+   * FIRST frame of `clip` (root turned to the identity, deformed mesh) — the
+   * jump the player sees every time a looping clip starts over. Sets the clip
+   * back to playing afterwards.
+   */
+  dynamicSprung(
+    name: string,
+    clip: string
+  ): { max: number; mittel: number; vertices: number; zurMitteMax: number } | null {
+    for (const d of this.dynamics.values()) {
+      if (!(d.root.name || '').includes(name)) continue;
+      const gruppen = this.assets.gruppenVon(d.root);
+      const g = gruppen.find((x) => x.name.toLowerCase().includes(clip));
+      if (!g) return null;
+      const spielt = gruppen.filter((x) => x.isPlaying);
+      for (const x of spielt) x.pause();
+      g.start(true);
+      g.pause();
+      const rot = d.root.rotationQuaternion?.clone() ?? null;
+      d.root.rotationQuaternion = Quaternion.Identity();
+      const lies = (bild: number): Float32Array[] => {
+        g.goToFrame(bild);
+        d.root.computeWorldMatrix(true);
+        for (const tn of d.root.getChildTransformNodes(false)) tn.computeWorldMatrix(true);
+        const aus: Float32Array[] = [];
+        for (const m of d.root.getChildMeshes()) {
+          if (m.getTotalVertices() === 0) continue;
+          m.skeleton?.prepare(true);
+          m.computeWorldMatrix(true);
+          const daten = m.getPositionData(true);
+          if (daten) aus.push(Float32Array.from(daten as ArrayLike<number>));
+        }
+        return aus;
+      };
+      const erstes = lies(g.from);
+      const letztes = lies(g.to);
+      // Control: the same reading to the MIDDLE of the clip. A jump of 0 means
+      // nothing if the frame change did not reach the mesh at all.
+      const mitte = lies((g.from + g.to) / 2);
+      d.root.rotationQuaternion = rot;
+      g.goToFrame(g.from);
+      for (const x of [g, ...spielt]) x.play(true);
+      let max = 0;
+      let summe = 0;
+      let n = 0;
+      let zurMitteMax = 0;
+      erstes.forEach((a, k) => {
+        const c = mitte[k]!;
+        for (let i = 0; i + 2 < a.length; i += 3) {
+          zurMitteMax = Math.max(zurMitteMax, Math.hypot(a[i]! - c[i]!, a[i + 1]! - c[i + 1]!, a[i + 2]! - c[i + 2]!));
+        }
+      });
+      erstes.forEach((a, k) => {
+        const b = letztes[k]!;
+        for (let i = 0; i + 2 < a.length; i += 3) {
+          const dist = Math.hypot(a[i]! - b[i]!, a[i + 1]! - b[i + 1]!, a[i + 2]! - b[i + 2]!);
+          max = Math.max(max, dist);
+          summe += dist;
+          n++;
+        }
+      });
+      return { max, mittel: n ? summe / n : 0, vertices: n, zurMitteMax };
     }
     return null;
   }
@@ -3161,9 +3306,18 @@ export class EntityManager {
       if (!z) continue;
       const g = dyn.gang;
       if (!g) {
+        const vorherX = dyn.root.position.x;
+        const vorherZ = dyn.root.position.z;
         Vector3.LerpToRef(dyn.root.position, z.pos, f, dyn.root.position);
         if (dyn.root.rotationQuaternion) {
           Quaternion.SlerpToRef(dyn.root.rotationQuaternion, z.rot, f, dyn.root.rotationQuaternion);
+        }
+        if (dyn.clipTempo) {
+          this.koppleClipTempo(
+            dyn,
+            dt,
+            Math.hypot(dyn.root.position.x - vorherX, dyn.root.position.z - vorherZ)
+          );
         }
         continue;
       }
@@ -3194,6 +3348,21 @@ export class EntityManager {
         g.basisRot.multiplyToRef(GANG_NICK_TMP, dyn.root.rotationQuaternion);
       }
     }
+  }
+
+  /**
+   * Couple the playing walk/run clip to the ground speed the root really
+   * has this frame (clipTempo.ts). Idle and every state without an entry in
+   * `animationTempo` play as authored.
+   */
+  private koppleClipTempo(dyn: DynamicEntity, dt: number, schritt: number): void {
+    const k = dyn.clipTempo!;
+    const roh = dt > 0 ? schritt / dt : 0;
+    k.ist += (roh - k.ist) * Math.min(1, dt * 6);
+    const rate = clipRate(k.ist, dyn.anim ? k.tabelle[dyn.anim] : undefined);
+    if (Math.abs(rate - k.rate) < 0.005) return;
+    k.rate = rate;
+    this.assets.setzeAnimationsTempo(dyn.root, rate);
   }
 
   // ── Dynamic (instantiated hierarchies) ───────────────────────────
@@ -3230,6 +3399,8 @@ export class EntityManager {
       // dynamicPose) den Prefab-Namen drauflegen.
       root.name = prefabName;
       dyn = { root, anim: wunschAnim };
+      const clipTabelle = findPrefabByHash(u.prefabHash)?.animationTempo;
+      if (clipTabelle) dyn.clipTempo = { tabelle: clipTabelle, ist: 0, rate: 1 };
       if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);
       if (model) stabilizeHeadSkin(root.getChildMeshes());
       if (belebt) {

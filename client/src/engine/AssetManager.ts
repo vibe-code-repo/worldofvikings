@@ -558,7 +558,33 @@ export class AssetManager {
     for (const g of gruppen) {
       if (g !== ziel) g.stop();
     }
-    if (ziel && !ziel.isPlaying) ziel.start(true);
+    if (ziel && !ziel.isPlaying) {
+      // A group keeps the rate it was last given (see `setzeAnimationsTempo`);
+      // a fresh start plays as authored until the caller couples it again.
+      ziel.speedRatio = 1;
+      ziel.start(true);
+    }
+  }
+
+  /**
+   * Playback rate of the group that is playing on this instance (the walk or
+   * run clip of an animal, coupled to its ground speed — clipTempo.ts).
+   */
+  setzeAnimationsTempo(root: TransformNode, rate: number): void {
+    for (const g of this.animGruppen.get(root) ?? []) {
+      if (g.isPlaying) g.speedRatio = rate;
+    }
+  }
+
+  /** Diagnostics: every animation group of this instance. */
+  gruppenVon(root: TransformNode): readonly AnimationGroup[] {
+    return this.animGruppen.get(root) ?? [];
+  }
+
+  /** Diagnostics: the group that plays on this instance, with its real rate. */
+  aktiveGruppe(root: TransformNode): { name: string; speedRatio: number } | null {
+    const g = this.animGruppen.get(root)?.find((x) => x.isPlaying);
+    return g ? { name: g.name, speedRatio: g.speedRatio } : null;
   }
 
   /**

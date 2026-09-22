@@ -484,20 +484,32 @@ fit is a hard error naming the minimum, not a silent crop.
 blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
   --python tools/armor/test/probe.py -- MASTER_ANIMATIONS.blend TARGET_DIR \
   --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... --body=Male|Female \
-  [--measure-only] [--glow]
+  [--measure-only] [--glow] [--allow-no-lining]
 ```
 
-Read-only review: writes `probe.json`, never the `.blend`. Every item mesh's
-vertices split into two named, geometrically determined populations -- not a
-material name, not a builder-specific mesh attribute, and (an earlier version of
-this tool, corrected after an independent attack) not "the largest connected
-vertex island" either: at Gravethorn's hips that island IS the lining, at the
-torso it is only part of it, and at every limb it is a single hard plate with zero
-lining vertices, so "the largest island" means a different thing in every region.
-`lining` is the set of item vertices that geometrically match the scaffold's own
-lining recipe (`sets/seidraven/build_common.py`: the source body region, welded at
+Read-only review: writes `probe.json`, never the `.blend`. A `<PREFIX>`-named object
+that is not one of the eleven body regions (an attachment such as Wildwarden's
+Crown) is skipped for every measurement, with a printed note -- it is still
+rendered. Every measured item mesh's vertices split into two named, geometrically
+determined populations -- not a material name, not a builder-specific mesh
+attribute, and (an earlier version of this tool, corrected after an independent
+attack) not "the largest connected vertex island" either: at Gravethorn's hips
+that island IS the lining, at the torso it is only part of it, and at every limb
+it is a single hard plate with zero lining vertices, so "the largest island" means
+a different thing in every region. `lining` is the set of item vertices that
+geometrically match the scaffold's own lining recipe (`sets/seidraven/
+build_common.py`: the source body region **as currently loaded**, welded at
 1e-5 m, pushed out along its recomputed normals by 0.0005 m for Head/HandLeft/
-HandRight or 0.002 m elsewhere) within 1e-5 m; `hard` is every other item vertex.
+HandRight or 0.002 m elsewhere) within 1e-5 m; `hard` is every other item vertex,
+which for a smoothed/softened set (Plainhide) is mostly still visible cloth, not
+literal hardness -- it only means "missed the lining match". Because the
+reconstruction depends on the loaded body, a region the set replaces where it
+finds **zero** lining vertices is refused (exit code 1, naming the region and the
+expected count) unless `--allow-no-lining` is given -- this is what catches the
+tool silently measuring against the wrong or a moved body instead of failing.
+Partial lining short of the full expected count but above zero (Plainhide's own
+smoothed garments) stays allowed and is reported as a fraction per region
+(`population_vertices`), with a printed `PARTIAL_LINING` summary when it happens.
 Measures, per region: stand-off of both populations from the body at rest (lining
 should read close to the scaffold's own gap -- a sanity check on the
 reconstruction, not just a number); shoulder/arm/hand collision (both populations)
@@ -507,8 +519,15 @@ it); and, at four diagnostic poses (idle, deep crouch, kick, sword attack), per
 item: `lining`/`hard` vertices found inside the body (`inside_body`, both
 populations, each labelled) and body vertices found outside a shell built from
 `hard` vertices only (`body_outside_plate`; `body_outside_plate_population` names
-which population that is). `--measure-only` skips the descriptive renders and
-only shoots the two head-detail stills used to check helmet placement.
+which population that is). That `hard` shell is usually **not closed** (an
+independent audit found 10 to 692 open boundary edges per region on Gravethorn,
+none on Seidraven/Emberrage -- entirely set-dependent), so treat
+`body_outside_plate` as a proximity/inside-vote number against a possibly open
+surface, not a leak-proof containment guarantee; the same region measured this
+way before and after an unrelated tool change moved from 54 to 107 purely because
+the reconstructed `hard` population itself changed shape. `--measure-only` skips
+the descriptive renders and only shoots the two head-detail stills used to check
+helmet placement.
 
 Both tools turn the scaffold's preview Fog Glow compositor off by default: it is
 saved inside the `.blend` from the build and would otherwise put a halo on every

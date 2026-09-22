@@ -2,11 +2,14 @@
 
 blender --factory-startup -b ARMOR.blend --python-exit-code 1 --python THIS -- MASTER.blend TARGET_DIR
     --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... --body=Male|Female
-    [--measure-only] [--glow]
+    [--measure-only] [--glow] [--allow-no-lining]
 
 --prefix, --regions, --items and --body are all required. --items uses the same
 key:Region[+Region...] syntax as render-compare.py. Nothing here saves the blend or
-changes it.
+changes it. A <PREFIX>-named object whose suffix is not one of the eleven body
+regions (an attachment such as Wildwarden's Crown, which replaces no region and has
+no WoV_BodyBase_*_Crown to measure against) is skipped for every measurement below,
+with a printed note -- it is still rendered and included in the head-detail stills.
 
 Every item mesh's vertices are split into two named, geometrically determined
 populations -- not by material name, not by a builder-specific mesh attribute (an
@@ -18,18 +21,42 @@ selection means a different thing in every region):
 
 - `lining`: vertices that geometrically match the scaffold's own lining recipe
   (sets/seidraven/build_common.py, "Complete source regions form the retained
-  lining/body under the armor"): take the source body region, weld at 1e-5 m,
-  recompute normals, and push every vertex out along its normal by the scaffold's
-  own gap (0.0005 m for Head/HandLeft/HandRight, 0.002 m elsewhere). An item vertex
-  within 1e-5 m of one of those points is lining. This reconstructs the recipe from
-  the body, not from the item, so it does not depend on how the item's geometry was
-  authored.
+  lining/body under the armor"): take the source body region **as loaded in this
+  .blend right now**, weld at 1e-5 m, recompute normals, and push every vertex out
+  along its normal by the scaffold's own gap (0.0005 m for Head/HandLeft/HandRight,
+  0.002 m elsewhere). An item vertex within 1e-5 m of one of those points is
+  lining. This reconstructs the recipe from the body, not from the item, so it does
+  not depend on how the item's geometry was authored -- but it also means the
+  result depends on the loaded body matching the one the set was actually built
+  against; a body moved, replaced or in the wrong variant silently reconstructs a
+  different (or empty) lining rather than failing. A region where the set replaces
+  the region but reconstruction finds NO lining vertices at all is refused (exit
+  code 1, naming the region and the expected count) unless --allow-no-lining is
+  given, precisely to catch that silent case; a set that genuinely doubles the body
+  as its own lining almost everywhere can still show near-zero lining in one region
+  without it being a bug (rare, name it in the report if it happens and pass the
+  flag). Partial lining (less than expected but more than zero -- e.g. Plainhide,
+  whose garments are deliberately smoothed off the raw body copy in places) is
+  normal and always allowed; report['population_vertices'] carries the expected
+  count and the found fraction per region, and a PARTIAL_LINING line is printed
+  when any region is below full.
 - `hard`: every other vertex of the item mesh -- decorative or structural, whatever
-  is not lining.
+  is not lining. For a smoothed/softened set (Plainhide) this is not "the hard
+  shell": most of a region's `hard` vertices there are still visible cloth, simply
+  cloth that moved far enough from the raw body copy to miss the 1e-5 m lining
+  match. `hard` names a vertex population, not a material property.
 
-`body_outside_plate` measures against a shell built from `hard` vertices only (the
-visible plate a body could stick out through); `inside_body` is reported for both
-populations at every diagnostic pose, each explicitly labelled.
+`body_outside_plate` measures body vertices against a BVH built from `hard`
+vertices only, using the same inside/outside ray-parity test as `inside_body`. That
+test assumes a closed surface; the `hard` surface is usually not one (an
+independent audit found 10 to 692 open boundary edges per region on Gravethorn,
+zero on Seidraven/Emberrage -- it depends entirely on the set). Treat
+`body_outside_plate` as a proximity/inside-vote number against a possibly open
+surface, not a leak-proof containment guarantee; it moved from 54 to 107 for the
+same region between two tool revisions that changed nothing about what "outside"
+should mean, purely because the reconstructed `hard` population itself changed
+shape. `inside_body` is reported for both populations at every diagnostic pose,
+each explicitly labelled.
 
 The saved .blend keeps the scaffold's own preview Fog Glow compositor (some sets
 want it); off here by default so it does not carry into review renders that were
@@ -52,6 +79,7 @@ _MATCH_M = 1e-5                # position-match tolerance to call an item vertex
 args = sys.argv[sys.argv.index('--')+1:]
 master, target = Path(args[0]), Path(args[1]).resolve(); target.mkdir(parents=True, exist_ok=True)
 MEASURE_ONLY = '--measure-only' in args
+ALLOW_NO_LINING = '--allow-no-lining' in args
 prefix = next((a.split('=', 1)[1] for a in args if a.startswith('--prefix=')), None)
 regions_arg = next((a.split('=', 1)[1] for a in args if a.startswith('--regions=')), None)
 items_arg = next((a.split('=', 1)[1] for a in args if a.startswith('--items=')), None)
@@ -70,6 +98,11 @@ if '--glow' not in args:
 rig = bpy.data.objects['WoV_Player_Armature']
 armor = {o.name[len(prefix):]: o for o in scene.objects if o.type == 'MESH' and o.name.startswith(prefix)}
 assert len(armor) == regions, (len(armor), regions)
+attachments = sorted(s for s in armor if s not in SLOTS)
+if attachments:
+    print(f'SKIPPED_ATTACHMENT {", ".join(attachments)} (not one of the eleven body regions; '
+          'rendered, not measured)', flush=True)
+measured = {s: o for s, o in armor.items() if s in SLOTS}
 body = {s: bpy.data.objects['WoV_BodyBase_'+variant+'_'+s] for s in SLOTS}
 for obj in list(armor.values())+list(body.values()):
     obj.hide_set(False); obj.hide_viewport = False   # hidden objects are not evaluated
@@ -88,10 +121,13 @@ def evaluated(obj):
 
 
 def lining_ids(obj, body_obj, slot):
-    """Indices (in obj.data.vertices, rest pose) of the item mesh's vertices that match the
-    scaffold's own lining recipe reconstructed from the source body region -- see the module
-    docstring. Index-based and computed once at rest, so it stays valid across every pose
-    (posing moves vertex positions, never their indices or count)."""
+    """(matched_ids, expected_count): indices (in obj.data.vertices, rest pose) of the item
+    mesh's vertices that match the scaffold's own lining recipe reconstructed from the
+    source body region as currently loaded -- see the module docstring -- and the number of
+    expected lining points that recipe produced (the region's welded body vertex count), for
+    telling "no lining found because this set truly has none" apart from "no lining found
+    because the reconstruction missed". Index-based and computed once at rest, so it stays
+    valid across every pose (posing moves vertex positions, never their indices or count)."""
     bm = bmesh.new()
     bm.from_mesh(body_obj.data)
     for v in bm.verts:
@@ -106,14 +142,16 @@ def lining_ids(obj, body_obj, slot):
     for i, p in enumerate(expected):
         kd.insert(p, i)
     kd.balance()
-    return {v.index for v in obj.data.vertices if kd.find(obj.matrix_world @ v.co)[2] < _MATCH_M}
+    matched = {v.index for v in obj.data.vertices if kd.find(obj.matrix_world @ v.co)[2] < _MATCH_M}
+    return matched, len(expected)
 
 
 def population(obj, body_obj, slot):
-    """(lining_ids, hard_ids): a full index partition of obj.data.vertices, rest pose."""
-    lining = lining_ids(obj, body_obj, slot)
+    """(lining_ids, hard_ids, expected_lining_count): a full index partition of
+    obj.data.vertices, rest pose, plus the lining_ids helper's expected count."""
+    lining, expected = lining_ids(obj, body_obj, slot)
     hard = set(range(len(obj.data.vertices))) - lining
-    return lining, hard
+    return lining, hard, expected
 
 
 def population_points(obj, ids):
@@ -171,11 +209,27 @@ def outside(points, tree):
     return [tree.find_nearest(p)[3] for p in points if parity_votes(p, tree) < 2]
 
 
-populations = {slot: population(armor[slot], body[slot], slot) for slot in armor}
+populations = {slot: population(measured[slot], body[slot], slot) for slot in measured}
 report['population_vertices'] = {
-    slot: {'total': len(lining) + len(hard), 'lining': len(lining), 'hard': len(hard)}
-    for slot, (lining, hard) in populations.items()
+    slot: {'total': len(lining) + len(hard), 'lining': len(lining), 'hard': len(hard),
+           'expected_lining': expected,
+           'lining_fraction_of_expected': round(len(lining) / expected, 4) if expected else None}
+    for slot, (lining, hard, expected) in populations.items()
 }
+degenerate = {slot: v['expected_lining'] for slot, v in report['population_vertices'].items()
+              if v['lining'] == 0 and v['expected_lining'] > 0}
+if degenerate and not ALLOW_NO_LINING:
+    detail = '; '.join(f'{slot} (expected {expected}, found 0)' for slot, expected in degenerate.items())
+    sys.exit(f'probe.py: no lining reconstructed for a region this set replaces: {detail}. Either '
+             'the loaded body does not match what the set was built against (wrong variant, moved, '
+             'rebuilt -- the usual cause), or this set genuinely has no lining there, in which case '
+             'pass --allow-no-lining.')
+partial = {slot: v['lining_fraction_of_expected'] for slot, v in report['population_vertices'].items()
+           if v['lining'] and v['lining_fraction_of_expected'] < 1}
+if partial:
+    print('PARTIAL_LINING ' + ', '.join(f'{slot}={frac:.0%}' for slot, frac in partial.items()) +
+          ' (less than the full reconstructed body copy but not zero; not an error, see probe.json)',
+          flush=True)
 stored = {b.name: b.matrix_basis.copy() for b in rig.pose.bones}
 
 
@@ -212,12 +266,13 @@ def whole_body():
 
 def whole_armor():
     """One BVH over the `hard` population of every measured region: the visible plate a body
-    part could stick out through. Rebuilt at every pose since population() indices are
-    rest-pose but the points must be evaluated at the current pose."""
+    part could stick out through -- usually not a closed surface, see the module docstring.
+    Rebuilt at every pose since population() indices are rest-pose but the points must be
+    evaluated at the current pose."""
     points, triangles = [], []
-    for slot in armor:
-        _, hard = populations[slot]
-        pts, tris = population_subset(armor[slot], hard); base = len(points)
+    for slot in measured:
+        _, hard, _ = populations[slot]
+        pts, tris = population_subset(measured[slot], hard); base = len(points)
         points += pts; triangles += [tuple(i+base for i in t) for t in tris]
     return BVHTree.FromPolygons(points, triangles, all_triangles=True)
 
@@ -226,12 +281,12 @@ def whole_armor():
 # from the body underneath them (lining should read close to the scaffold's own gap -- a
 # sanity check on the reconstruction itself, not just a collision number).
 standoff = {}
-for slot in armor:
+for slot in measured:
     tree = tree_of(evaluated(body[slot]))
-    lining, hard = populations[slot]
+    lining, hard, _ = populations[slot]
     standoff[slot] = {
-        'lining': stats([tree.find_nearest(p)[3] for p in population_points(armor[slot], lining)]),
-        'hard': stats([tree.find_nearest(p)[3] for p in population_points(armor[slot], hard)]),
+        'lining': stats([tree.find_nearest(p)[3] for p in population_points(measured[slot], lining)]),
+        'hard': stats([tree.find_nearest(p)[3] for p in population_points(measured[slot], hard)]),
     }
 report['rim_standoff_m'] = standoff
 
@@ -240,12 +295,12 @@ for label, angle in [('arms_down_40', 40), ('arms_overhead_-95', -95)]:
     arms(angle)
     shell = whole_body(); entry = {}
     for slot in ['ArmUpperLeft', 'ArmLowerLeft', 'HandLeft']:
-        if slot not in armor:
+        if slot not in measured:
             continue
-        lining, hard = populations[slot]
+        lining, hard, _ = populations[slot]
         entry[slot] = {
-            'lining': {'vertices': len(lining), 'inside_body': stats(inside(population_points(armor[slot], lining), shell))},
-            'hard': {'vertices': len(hard), 'inside_body': stats(inside(population_points(armor[slot], hard), shell))},
+            'lining': {'vertices': len(lining), 'inside_body': stats(inside(population_points(measured[slot], lining), shell))},
+            'hard': {'vertices': len(hard), 'inside_body': stats(inside(population_points(measured[slot], hard), shell))},
         }
     if entry:
         report[label] = entry
@@ -293,8 +348,8 @@ for name, frame in [('Idle1', 31), ('CrouchIdle1', 62), ('BodyKickFromIdle', 21)
     activate(name, frame)
     body_shell = whole_body(); armor_shell = whole_armor(); entry = {}
     for key, item_regions in ITEMS:
-        lining_pts = [p for s in item_regions if s in armor for p in population_points(armor[s], populations[s][0])]
-        hard_pts = [p for s in item_regions if s in armor for p in population_points(armor[s], populations[s][1])]
+        lining_pts = [p for s in item_regions if s in measured for p in population_points(measured[s], populations[s][0])]
+        hard_pts = [p for s in item_regions if s in measured for p in population_points(measured[s], populations[s][1])]
         body_pts = [p for s in item_regions if s in body for p in evaluated(body[s])[0]]
         entry[key] = {
             'lining': {'vertices': len(lining_pts), 'inside_body': stats(inside(lining_pts, body_shell))},

@@ -139,5 +139,34 @@ if (modellHochladenFn) {
 console.log('\n5. Der Schalter ist eine eigene Zeile in server.yml, nicht dungeons.modulbau\n');
 check(TEXT.includes("ymlLesen()['uploads.modell-hochladen']"), "uploadsErlaubt() liest 'uploads.modell-hochladen', nicht dungeons.modulbau");
 
+console.log('\n6. N1 (Angriff, Befund B2) — der Aufruf wird AWAITED, nicht nur zurückgegeben\n');
+// `return modellHochladenBehandeln(...)` OHNE `await` gäbe das Promise selbst
+// zurück; eine Ablehnung darin landete NIE im `catch` der umgebenden
+// IIFE, sondern als unbehandelte Ablehnung auf Prozessebene — Node
+// beendet den Dienst dafür. Am Syntaxbaum: der Aufruf muss in einem
+// `AwaitExpression` stecken, nicht nur im Text danebenstehen (das
+// überlebt auch eine Umformatierung durch `npm run format`).
+let awaitedAufruf = false;
+const sucheAwait = (n: ts.Node): void => {
+  if (
+    ts.isAwaitExpression(n) &&
+    ts.isCallExpression(n.expression) &&
+    ts.isIdentifier(n.expression.expression) &&
+    n.expression.expression.text === 'modellHochladenBehandeln'
+  ) {
+    awaitedAufruf = true;
+  }
+  ts.forEachChild(n, sucheAwait);
+};
+sucheAwait(SF);
+check(awaitedAufruf, 'der Aufruf von modellHochladenBehandeln(...) steckt in einem await-Ausdruck');
+
+console.log('\n7. N1 (Befund B6) — die Kopfzeile wird dekodiert, nicht roh übernommen\n');
+if (modellHochladenFn) {
+  const rumpf = knotenText(modellHochladenFn);
+  check(rumpf.includes('decodeURIComponent'), "modellHochladenBehandeln dekodiert x-wov-modellname mit decodeURIComponent (encodeURIComponent auf der Gegenseite)");
+  check(/catch[^}]*name-ungueltig-kodiert/.test(rumpf), 'eine fehlgeschlagene Dekodierung bekommt eine eigene, verständliche Ablehnung statt eines rohen Absturzes');
+}
+
 console.log(failures === 0 ? '\nU1-Verdrahtung: alles grün.\n' : `\nU1-Verdrahtung: ${failures} FEHLGESCHLAGEN.\n`);
 process.exit(failures > 0 ? 1 : 0);

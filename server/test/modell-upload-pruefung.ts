@@ -23,9 +23,9 @@
  * Rot vor der Umsetzung: `shared/src/uploadedModelUpload.ts` gab es vor
  * dieser Karte nicht — der Import scheitert auf 34ea56d.
  */
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import {
   entferneUpload,
@@ -86,6 +86,16 @@ interface GlbOptionen {
   groesse?: number;
   kollisionsDreiecke?: number;
   abschneiden?: number;
+  /** N1: die Hauptprimitive OHNE `indices` — gültiges glTF, Babylon zeichnet POSITION.count/3 Dreiecke. */
+  nichtIndiziert?: boolean;
+  /** N1: `buffers[0].uri` setzen — eine externe Binärdatei, die nie mitkommt. */
+  externerPuffer?: string | null;
+  /** N1: `extensionsRequired` am Dokument. */
+  erweiterungenErforderlich?: string[];
+  /** N1: den `count` des POSITION-Accessors ohne passende Daten überschreiben (Allokations-DoS). */
+  positionCountUeberschreiben?: number;
+  /** N1: eine Ecke der Hüllbox auf NaN setzen (kaputte Vertexdaten). */
+  nanPosition?: boolean;
 }
 
 /**
@@ -107,13 +117,26 @@ function bauGlb(optionen: GlbOptionen = {}): Uint8Array {
     groesse = 1,
     kollisionsDreiecke = 0,
     abschneiden = 0,
-  } = optionen;
+    nichtIndiziert = false,
+    externerPuffer = null,
+    erweiterungenErforderlich = [],
+    positionCountUeberschreiben = null,
+    nanPosition = false,
+  } = optionen as GlbOptionen & { positionCountUeberschreiben?: number | null };
 
-  const positionen = new Float32Array([0, 0, 0, groesse, 0, 0, 0, groesse, groesse]);
+  // Nicht indiziert: POSITION trägt selbst `dreiecke * 3` Ecken (drei
+  // wiederholte Basisecken je Dreieck) — kein Indexpuffer nötig, Babylon
+  // zeichnet trotzdem `POSITION.count / 3` Dreiecke (mode 4, TRIANGLES).
+  const eckenJeDreieck = [0, 0, 0, groesse, 0, 0, 0, groesse, groesse];
+  const positionenRoh = nichtIndiziert
+    ? Array.from({ length: dreiecke }, () => eckenJeDreieck).flat()
+    : eckenJeDreieck;
+  if (nanPosition) positionenRoh[0] = NaN;
+  const positionen = new Float32Array(positionenRoh);
   const posBytes = Buffer.from(positionen.buffer, positionen.byteOffset, positionen.byteLength);
 
-  const indizes = new Uint32Array(dreiecke * 3);
-  for (let i = 0; i < dreiecke; i++) {
+  const indizes = new Uint32Array(nichtIndiziert ? 0 : dreiecke * 3);
+  for (let i = 0; i < (nichtIndiziert ? 0 : dreiecke); i++) {
     indizes[i * 3] = 0;
     indizes[i * 3 + 1] = 1;
     indizes[i * 3 + 2] = 2;
@@ -162,7 +185,12 @@ function bauGlb(optionen: GlbOptionen = {}): Uint8Array {
   }
 
   const accessors: Record<string, unknown>[] = [
-    { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3' },
+    {
+      bufferView: 0,
+      componentType: 5126,
+      count: positionCountUeberschreiben ?? positionen.length / 3,
+      type: 'VEC3',
+    },
     { bufferView: 1, componentType: 5125, count: dreiecke * 3, type: 'SCALAR' },
   ];
   let colAccessorIdx = -1;
@@ -174,9 +202,9 @@ function bauGlb(optionen: GlbOptionen = {}): Uint8Array {
   const materialien: { name: string }[] = [{ name: 'Material0' }];
   for (let i = 0; i < zusatzMaterialien; i++) materialien.push({ name: `Zusatz${i}` });
 
-  const meshes: Record<string, unknown>[] = [
-    { name: 'Sicht', primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0, mode: 4 }] },
-  ];
+  const hauptPrimitive: Record<string, unknown> = { attributes: { POSITION: 0 }, material: 0, mode: 4 };
+  if (!nichtIndiziert) hauptPrimitive.indices = 1;
+  const meshes: Record<string, unknown>[] = [{ name: 'Sicht', primitives: [hauptPrimitive] }];
   for (let i = 0; i < zusatzMeshes; i++) {
     meshes.push({ name: `Zusatz${i}`, primitives: [{ attributes: { POSITION: 0 }, indices: 1, mode: 4 }] });
   }
@@ -206,8 +234,9 @@ function bauGlb(optionen: GlbOptionen = {}): Uint8Array {
     materials: materialien,
     accessors,
     bufferViews,
-    buffers: [{ byteLength: bin.length }],
+    buffers: [{ byteLength: bin.length, ...(externerPuffer !== null ? { uri: externerPuffer } : {}) }],
     ...(images ? { images } : {}),
+    ...(erweiterungenErforderlich.length > 0 ? { extensionsRequired: erweiterungenErforderlich } : {}),
   };
 
   let jsonBuf = Buffer.from(JSON.stringify(json), 'utf8');
@@ -416,6 +445,74 @@ console.log('\n1. Acht (und mehr) abgelehnte Fälle — Antwort UND unverändert
   check(!antwort.ok, `externe Bilddatei referenziert: abgelehnt (${antwort.ok ? 'OK' : antwort.meldung})`);
 }
 
+console.log('\n1b. N1 (Angriff, Abschnitt „Grenzen des Prüftors") — mit echten, präparierten GLBs\n');
+{
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ externerPuffer: 'daten.bin' }),
+    angezeigterName: 'ExternerPuffer',
+    kollisionswunsch: 'fest',
+  });
+  check(!antwort.ok, `buffers[0].uri gesetzt (externe Binärdaten): abgelehnt (${antwort.ok ? 'OK' : antwort.meldung})`);
+}
+{
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ erweiterungenErforderlich: ['KHR_draco_mesh_compression'] }),
+    angezeigterName: 'DracoPflicht',
+    kollisionswunsch: 'fest',
+  });
+  check(!antwort.ok, `extensionsRequired: ['KHR_draco_mesh_compression']: abgelehnt (${antwort.ok ? 'OK' : antwort.meldung})`);
+}
+{
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ positionCountUeberschreiben: 100_000_000 }),
+    angezeigterName: 'RiesigesCount',
+    kollisionswunsch: 'fest',
+  });
+  check(!antwort.ok, `POSITION-Accessor mit count=100 000 000 ohne passende Daten: abgelehnt, kein OOM (${antwort.ok ? 'OK' : antwort.meldung})`);
+}
+{
+  // "Accessor über das Pufferende": ein count, der plausibel aussieht, aber
+  // mehr verlangt, als der BIN-Chunk hergibt (ohne den Allokations-Deckel
+  // zu reissen) — die Klarheits-Vorabprüfung in glb.ts greift hier, nicht
+  // erst ein roher RangeError.
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ positionCountUeberschreiben: 1000 }),
+    angezeigterName: 'UeberPufferende',
+    kollisionswunsch: 'fest',
+  });
+  check(!antwort.ok, `POSITION-Accessor mit count=1000 bei nur 3 echten Ecken: abgelehnt (${antwort.ok ? 'OK' : antwort.meldung})`);
+  check(!antwort.ok && /Binärteil|beschädigt/.test(antwort.meldung), `Meldung nennt den Binärteil/die Beschädigung (${antwort.ok ? '' : antwort.meldung})`);
+}
+{
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ nanPosition: true }),
+    angezeigterName: 'NanPosition',
+    kollisionswunsch: 'fest',
+  });
+  check(!antwort.ok, `NaN in den Vertexpositionen: abgelehnt statt stillschweigend durchgelassen (${antwort.ok ? 'OK' : antwort.meldung})`);
+}
+{
+  // Die Gegenprobe: eine nicht indizierte TRIANGLES-Primitive ist GÜLTIG
+  // und wird angenommen — mit der RICHTIGEN Dreieckszahl (POSITION.count/3),
+  // nicht mit 0 (vorher: `prim.indices === undefined` → leere Indexliste).
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ nichtIndiziert: true, dreiecke: 7 }),
+    angezeigterName: 'NichtIndiziert',
+    kollisionswunsch: 'fest',
+  });
+  check(antwort.ok, `nicht indizierte TRIANGLES-Primitive: ANGENOMMEN (${antwort.ok ? '' : antwort.meldung})`);
+  if (antwort.ok) {
+    check(antwort.eintrag.dreiecke === 7, `Dreiecke korrekt aus POSITION.count/3 gezählt (${antwort.eintrag.dreiecke}), nicht 0`);
+    unregisterUploadedPrefab(antwort.eintrag.name);
+  }
+}
+
 console.log('\n2. Angenommen, aber mit Hinweis: fehlende Texturen\n');
 {
   const dir = neuerOrdner();
@@ -551,6 +648,85 @@ console.log('\n5. Erfolgreicher Durchstich: Registry + registrierte Prefab-Sicht
     check(leseRegistry(dir).modelle.length === 0, 'mit Bestätigung: Registry sauber (0 Einträge)');
     check(uploadedModelEntry(eintrag.name) === undefined, 'mit Bestätigung: im Prozess nicht mehr registriert');
   }
+}
+
+console.log('\n7. N1 (Angriff, Befund B2) — kaputte Registry rollt den Upload zurück statt zu werfen\n');
+{
+  const dir = neuerOrdner();
+  mkdirSync(dir, { recursive: true });
+  // Absichtlich kaputtes JSON, GENAU wie im Angriff beschrieben: die Datei
+  // liegt schon, BEVOR pruefeUndSpeichereUpload zum ersten Mal reinschreibt.
+  writeFileSync(join(dir, 'registry.json'), '{ das ist kein JSON');
+  let warf = false;
+  let antwort: ReturnType<typeof pruefeUndSpeichereUpload> | null = null;
+  try {
+    antwort = pruefeUndSpeichereUpload(kontext(dir), {
+      bytes: bauGlb(),
+      angezeigterName: 'NachKaputt',
+      kollisionswunsch: 'fest',
+    });
+  } catch {
+    warf = true;
+  }
+  check(!warf, 'pruefeUndSpeichereUpload WIRFT NICHT bei kaputter registry.json — Rückgabewert statt Ausnahme');
+  check(antwort !== null && !antwort.ok, `stattdessen eine normale Ablehnung (${antwort && !antwort.ok ? antwort.meldung : 'OK?!'})`);
+  check(
+    !existsSync(join(dir, 'U_NachKaputt.glb')),
+    'die .glb wurde NICHT als Datenleiche zurückgelassen — der Name ist wieder frei'
+  );
+}
+
+console.log('\n8. N1 (Befund B5) — DELETE prüft den Namen gegen NAME_MUSTER, bevor er ein Dateipfad wird\n');
+{
+  const dir = neuerOrdner();
+  const layoutDatei = join(dir, 'welt.json');
+  // Eine von Hand verdorbene Registry mit einem Pfadanteil im Namen — genau
+  // der Angriffsweg aus dem Bericht (ein Eintrag ausserhalb von
+  // assets/hochgeladen/, adressiert über `join(verzeichnis, name + '.glb')`).
+  const opferDatei = resolve(dir, '..', 'opfer-ausserhalb.glb');
+  writeFileSync(opferDatei, 'sollte niemals angefasst werden');
+  const boesesRelativ = '../opfer-ausserhalb';
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'registry.json'),
+    JSON.stringify({
+      version: 1,
+      modelle: [
+        {
+          name: boesesRelativ,
+          anzeigename: 'Opfer',
+          bytes: 1, dreiecke: 1, meshes: 1, materialien: 1, bilder: 0, fehlendeTexturen: false,
+          breite: 1, hoehe: 1, tiefe: 1, kollisionsart: 'fest',
+          hatKollisionsnetz: false, kollisionsnetzAbgelehnt: false,
+          hochgeladenVon: 'angreifer', zeitpunkt: new Date(0).toISOString(),
+        },
+      ],
+    })
+  );
+  const antwort = entferneUpload({ erlaubt: true, verzeichnis: dir, layoutDatei }, boesesRelativ, true);
+  check(!antwort.ok, `Name mit Pfadanteil aus der Registry: DELETE lehnt ab (${antwort.ok ? 'OK' : (antwort as { meldung?: string }).meldung})`);
+  check(!('brauchtBestaetigung' in antwort), 'kein „braucht Bestätigung" — die Ablehnung kommt VOR jeder Nutzungsprüfung');
+  check(existsSync(opferDatei), 'die Datei AUSSERHALB von assets/hochgeladen/ wurde NICHT angefasst');
+  check(!antwort.ok && !/opfer-ausserhalb|\.\.\//.test((antwort as { meldung: string }).meldung), 'die Meldung an den Browser nennt keinen absoluten/fremden Pfad');
+  rmSync(opferDatei, { force: true });
+}
+
+console.log('\n9. N1 (Befund B7) — Namen, die sich nur in Groß-/Kleinschreibung unterscheiden, sind eine Kollision\n');
+{
+  const dir = neuerOrdner();
+  const erster = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb(),
+    angezeigterName: 'Farn_Eins',
+    kollisionswunsch: 'fest',
+  });
+  check(erster.ok, `erster Upload 'Farn_Eins' angenommen (${erster.ok ? erster.eintrag.name : erster.meldung})`);
+  const zweiter = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ groesse: 2 }),
+    angezeigterName: 'farn_eins',
+    kollisionswunsch: 'fest',
+  });
+  check(!zweiter.ok, `zweiter Upload 'farn_eins' (nur Groß-/Kleinschreibung anders): abgelehnt (${zweiter.ok ? 'OK' : zweiter.meldung})`);
+  if (erster.ok) unregisterUploadedPrefab(erster.eintrag.name);
 }
 
 for (const d of aufraeumOrdner) rmSync(d, { recursive: true, force: true });

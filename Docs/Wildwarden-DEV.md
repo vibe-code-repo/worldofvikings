@@ -1,6 +1,6 @@
 # Wildwarden v2 and persistent armor inventories on DEV
 
-Scope: DEV only, character Gast. No LIVE deployment. The implementation is isolated in `/opt/wov-worktrees/wildwarden`, branch `codex/wildwarden-dev`, based on `1b22fbd`.
+Scope: DEV only, character Gast. No LIVE deployment. The implementation is isolated in its own worktree and branch, based on `1b22fbd`.
 
 ## Why Ironward disappeared
 
@@ -12,7 +12,7 @@ The assets and item registry were still present. The real game logout handler re
 
 `shared/src/wildwarden.ts` registers seven Wildwarden items (model version v3, see below), seven equipment slots and ten body-replacement regions; the crown replaces none. IDs are `wildwarden_crown`, `wildwarden_vest`, `wildwarden_robe`, `wildwarden_mantle`, `wildwarden_bracers`, `wildwarden_gloves` and `wildwarden_boots`.
 
-Models: `assets/models/wildwarden/<id>.glb`; icons: `assets/sprites/<id>.png`. Source: `/home/mike/wov-assets/PlayerCharacter/Armor/Wildwarden_v3/game-ready` (v2 until 2026-09-13, see below). The source manifest records the canonical body SHA-256 `abb6d4a75a9a496beebd413f6af0a66eb80d3060349a2d7934c3f116427c5bea`, verified against DEV before deployment.
+Models: `assets/models/wildwarden/<id>.glb`; icons: `assets/sprites/<id>.png`. Source: an external asset source outside the repo (v2 until 2026-09-13, see below). The source manifest records the canonical body SHA-256 `abb6d4a75a9a496beebd413f6af0a66eb80d3060349a2d7934c3f116427c5bea`, verified against DEV before deployment.
 
 The family uses the existing equipment, ownership, networking, preview and body-mask logic. The crown is an attachment: it replaces no body region and hides no hair or face, so the textured head stays visible. All seven items are visual prototypes without new combat stats, recipes or loot.
 

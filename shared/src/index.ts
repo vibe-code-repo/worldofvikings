@@ -149,6 +149,10 @@ export * as dungeon2 from './dungeon2/index.js';
  * The runtime module registry as a NAMESPACE, same reason as dungeon2.
  */
 export * as moduleRegistry from './moduleRegistry.js';
+// Laufzeit-Prefabs aus dem Editor-Upload (Karte U1) — eigener Namespace
+// aus demselben Grund wie moduleRegistry: Registrierfunktionen mit
+// Nebenwirkung gehören sichtbar markiert, nicht im flachen `export *`.
+export * as uploadedModelRegistry from './uploadedModelRegistry.js';
 
 // Rein typseitige Bruecken zu den serverseitigen Datenmodulen — `export type`
 // verschwindet beim Kompilieren restlos und zieht kein JSON nach.

@@ -10,6 +10,10 @@ import { createWovServer } from './WovServer.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
 import { ladeModulRegistrierung, sorgeFuerRegistryDatei } from './world/dungeon/ModuleBuild.js';
+import {
+  ladeHochgeladeneRegistrierung,
+  sorgeFuerRegistryDatei as sorgeFuerHochladenRegistryDatei,
+} from '@wov/shared/src/uploadedModelUpload.js';
 import { ASSET_WURZEL, KollisionsFormen } from './world/KollisionsFormen.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -84,6 +88,27 @@ if (modulStand.geladen > 0) {
 }
 for (const zeile of modulStand.warnungen) console.warn(`[Modulbau] ${zeile}`);
 for (const zeile of modulStand.meldungen) console.error(`[Modulbau] abgelehnt: ${zeile}`);
+
+/*
+  Dasselbe Muster wie beim Modulbau, für hochgeladene Editor-Modelle
+  (Karte U1): Der Betriebsdienst schreibt Datei UND Registry-Eintrag, der
+  Spielserver-Prozess erfährt erst beim NÄCHSTEN Start davon — anders als
+  beim Modulbau, wo Bau und Registrierung im selben Prozess passieren.
+  Ein Upload braucht also einen Serverneustart, bevor Kollision/Spawns
+  ihn kennen; der Editor-Katalog und die Layout-Prüfung (beide im
+  Betriebsdienst) sehen ihn dagegen sofort (`admin/src/main.ts`,
+  `hochgeladenAbgleichen`).
+*/
+const hochladenSicherstellung = sorgeFuerHochladenRegistryDatei();
+if (hochladenSicherstellung.angelegt) {
+  console.log(`[ModellUpload] leere Registry angelegt: ${hochladenSicherstellung.pfad}`);
+}
+const hochladenStand = ladeHochgeladeneRegistrierung();
+if (hochladenStand.geladen > 0) {
+  console.log(`[ModellUpload] ${hochladenStand.geladen} hochgeladene(s) Modell(e) registriert`);
+}
+for (const zeile of hochladenStand.warnungen) console.warn(`[ModellUpload] ${zeile}`);
+for (const zeile of hochladenStand.meldungen) console.error(`[ModellUpload] abgelehnt: ${zeile}`);
 
 const server = createWovServer(config);
 

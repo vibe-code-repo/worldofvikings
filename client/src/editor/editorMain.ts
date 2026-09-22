@@ -155,6 +155,7 @@ import { baueKartenMassAnzeige, aktualisiereKartenMassAnzeige } from './KartenMa
 // der zöge Babylon in den Erststart des Karteneditors (s. Kopf von
 // assetUrls.ts).
 import { ladeModulRegistrierung } from '../net/ModuleRegistryLoad';
+import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
 
 // ── E6: die Modulregistry, BEVOR der erste Katalog gebaut wird ────────
 //
@@ -176,6 +177,7 @@ import { ladeModulRegistrierung } from '../net/ModuleRegistryLoad';
 // oberster `await`-Ebene hält seine Geschwister nicht auf, die
 // Reihenfolge wäre also nur scheinbar gesichert.
 await ladeModulRegistrierung();
+await ladeHochgeladeneRegistrierung();
 
 const BIOME_NAMEN: BiomeName[] = [
   'grassland', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',

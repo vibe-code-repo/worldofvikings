@@ -101,6 +101,21 @@ import {
   registeredModules,
   removeRegistryEntry,
 } from '@wov/shared/src/moduleRegistry.js';
+// U1: dieselbe Abgleich-Idee wie bei den Dungeon-Modulen, fuer per Editor
+// hochgeladene Prefabs -- eigene Datei, eigener Ordner, eigene Registry.
+import {
+  MAX_BYTES as HOCHGELADEN_MAX_BYTES,
+  REGISTRY_DATEI as HOCHGELADEN_REGISTRY_DATEI,
+  applyUploadedModelRegistry,
+  leereRegistry as leereHochgeladenRegistry,
+  leseRegistryAusText as leseHochgeladenRegistryAusText,
+  type Kollisionsart,
+} from '@wov/shared/src/uploadedModelRegistry.js';
+import {
+  entferneUpload,
+  pruefeUndSpeichereUpload,
+  UPLOAD_DIR as HOCHGELADEN_ORDNER,
+} from '@wov/shared/src/uploadedModelUpload.js';
 // AP15.0: derselbe Lese-Grundsatz fuer das 2.0-Format. Direktimport an
 // shared/src/dungeon2/index.ts vorbei, aus demselben Grund wie bei
 // dungeons.js eine Zeile hoeher — nur dass hier NICHTS mitgezogen wird
@@ -385,6 +400,23 @@ async function leibLesen(req: IncomingMessage, grenze = 8_000_000): Promise<unkn
   }
   if (gesamt === 0) return null;
   return JSON.parse(Buffer.concat(teile).toString('utf-8'));
+}
+
+/**
+ * Wie `leibLesen`, aber OHNE `JSON.parse` — für den Modell-Upload (U1),
+ * dessen Körper eine `.glb` ist, kein JSON-Text. Dieselbe `AnfrageZuGross`,
+ * damit der bestehende Sammel-catch unten (413, `Connection: close`) sie
+ * unverändert auffängt.
+ */
+async function leibBinaerLesen(req: IncomingMessage, grenze: number): Promise<Buffer> {
+  const teile: Buffer[] = [];
+  let gesamt = 0;
+  for await (const stueck of req) {
+    gesamt += (stueck as Buffer).length;
+    if (gesamt > grenze) throw new AnfrageZuGross(`Anfrage zu gross (mehr als ${grenze} Bytes)`);
+    teile.push(stueck as Buffer);
+  }
+  return Buffer.concat(teile);
 }
 
 /** Sicherungskopie mit Zeitstempel; behaelt die letzten `behalten` Staende. */
@@ -754,6 +786,94 @@ function metrikenAusgeben(res: ServerResponse): void {
   res.end(puffer);
 }
 
+// ── Modell-Upload (U1) ───────────────────────────────────────────────────
+//
+// Eigenes Tor, eigener Schalter (server.yml: uploads.modell-hochladen,
+// Vorgabe FALSE) — NICHT dungeons.modulbau mitbenutzt, wie die Karte
+// ausdruecklich verlangt: „darf Adminbefehle" (hier: ueberhaupt bis zum
+// Betriebsdienst durchdringen — Herkunft+Token) ist eine andere Frage als
+// „darf Dateien unter assets/hochgeladen/ anlegen".
+//
+// Und auf `live` GESPERRT, wie das Weltzuruecksetzen: Diese Karte gilt
+// fuer die Entwicklungs-Instanz, der Weg von dev nach live ist eine eigene
+// Karte (Ist-Analyse Abschnitt 3 — es gibt dafuer heute keinen
+// Mechanismus).
+function uploadsErlaubt(): boolean {
+  if (INSTANZ === 'live') return false;
+  return ymlLesen()['uploads.modell-hochladen'] === 'true';
+}
+
+/**
+ * `POST /api/modell-hochladen` — VOR der JSON-Weiche wie `/api/serverlog`
+ * und `/metriken`: Der Koerper ist eine `.glb`, kein JSON-Text, und
+ * `leibLesen()` erzwingt `JSON.parse` IMMER (Ist-Analyse Abschnitt 5).
+ * Name und Kollisionswunsch reisen als Kopfzeilen, weil der Koerper damit
+ * die REINEN Bytes der Datei bleibt — kein multipart-Parser, keine
+ * Base64-Huelle mit einem Drittel Aufschlag.
+ */
+async function modellHochladenBehandeln(
+  req: IncomingMessage,
+  res: ServerResponse,
+  hochgeladenVon: string
+): Promise<void> {
+  if (req.method !== 'POST') {
+    return json(res, 405, { ok: false, fehler: 'POST erwartet', message: 'POST erwartet' });
+  }
+  const contentType = String(req.headers['content-type'] ?? '');
+  if (!contentType.startsWith('application/octet-stream')) {
+    return json(res, 415, {
+      ok: false,
+      fehler: 'falscher-content-type',
+      message: `Erwartet wird 'application/octet-stream', bekommen wurde '${contentType || '(keine Angabe)'}'.`,
+    });
+  }
+  const angezeigterName = String(req.headers['x-wov-modellname'] ?? '').trim();
+  if (angezeigterName === '') {
+    return json(res, 400, { ok: false, fehler: 'name-fehlt', message: 'Kopfzeile x-wov-modellname fehlt oder ist leer.' });
+  }
+  const kollisionsRoh = String(req.headers['x-wov-kollision'] ?? 'fest');
+  if (kollisionsRoh !== 'fest' && kollisionsRoh !== 'durchlaessig') {
+    return json(res, 400, {
+      ok: false,
+      fehler: 'kollision-ungueltig',
+      message: `Kollisionsart '${kollisionsRoh}' unbekannt — erwartet wird 'fest' oder 'durchlaessig'.`,
+    });
+  }
+
+  // Eine Byte-Grenze GRÖSSER als der harte Deckel der Prüfung: Eine zu
+  // grosse Datei soll die eigene, sprechende Ablehnung von
+  // `pruefeUndSpeichereUpload` bekommen ("Datei zu gross: X > Y Byte"),
+  // nicht das nackte 413 des Körperlesers — die Marge lässt dafür genug
+  // Bytes durch, um überhaupt bis zu dieser Meldung zu kommen.
+  let koerper: Buffer;
+  try {
+    koerper = await leibBinaerLesen(req, HOCHGELADEN_MAX_BYTES + 1_000_000);
+  } catch (fehler) {
+    if (fehler instanceof AnfrageZuGross) {
+      return json(res, 413, { ok: false, fehler: 'anfrage-zu-gross', message: fehler.message }, { Connection: 'close' });
+    }
+    throw fehler;
+  }
+
+  const antwort = pruefeUndSpeichereUpload(
+    { erlaubt: uploadsErlaubt(), verzeichnis: HOCHGELADEN_ORDNER, hochgeladenVon },
+    {
+      bytes: new Uint8Array(koerper.buffer, koerper.byteOffset, koerper.byteLength),
+      angezeigterName,
+      kollisionswunsch: kollisionsRoh as Kollisionsart,
+    }
+  );
+  if (!antwort.ok) {
+    console.warn(`[Admin] POST /api/modell-hochladen -> abgelehnt: ${antwort.meldung}`);
+    return json(res, 400, { ok: false, fehler: 'abgelehnt', message: antwort.meldung });
+  }
+  console.log(
+    `[Admin] Modell hochgeladen: '${antwort.eintrag.name}' (${antwort.eintrag.bytes} Byte, ` +
+      `${antwort.eintrag.dreiecke} Dreiecke) von ${hochgeladenVon}`
+  );
+  return json(res, 200, { ok: true, eintrag: antwort.eintrag, hinweise: antwort.hinweise });
+}
+
 // ── Modul-Registry (E8) ─────────────────────────────────────────────────
 //
 // ── Der Vorfall ──────────────────────────────────────────────────────
@@ -820,6 +940,38 @@ function moduleAbgleichen(): void {
   // den ein Dokument beim naechsten Speichern verliert.
   for (const zeile of erg.meldungen) console.error(`[Admin/Modulbau] abgelehnt: ${zeile}`);
   console.log(`[Admin/Modulbau] Registry gelesen: ${erg.geladen} Modul(e) bekannt`);
+}
+
+// ── Hochgeladene Modelle (U1) ─────────────────────────────────────────
+//
+// Derselbe Abgleich wie `moduleAbgleichen`, für dieselbe Sorte Grund:
+// Dieser Prozess NIMMT den Upload entgegen und trägt ihn beim Schreiben
+// selbst sofort ein (`pruefeUndSpeichereUpload` ruft `registerUploadedPrefab`)
+// — der Abgleich hier fängt den saubereren, aber selteneren zweiten Fall:
+// ein von aussen geänderter Registry-Stand (z. B. nach einem Neustart
+// DIESES Prozesses, oder wenn je zwei Betriebsdienst-Prozesse dieselbe
+// Instanz bedienen sollten). Anders als bei den Dungeon-Modulen macht
+// `applyUploadedModelRegistry` selbst schon AUSTRAGEN+EINTRAGEN in einem
+// Zug (s. Kopf von `uploadedModelRegistry.ts`), ein zweiter, manueller
+// Austrage-Schritt hier wäre doppelt gemoppelt.
+let hochgeladenStempel = '';
+
+function hochgeladenAbgleichen(): void {
+  const pfad = resolve(HOCHGELADEN_ORDNER, HOCHGELADEN_REGISTRY_DATEI);
+  let stempel = 'fehlt';
+  if (existsSync(pfad)) {
+    const s = statSync(pfad);
+    stempel = `${s.mtimeMs}:${s.size}`;
+  }
+  if (stempel === hochgeladenStempel) return;
+  hochgeladenStempel = stempel;
+
+  const datei = existsSync(pfad)
+    ? leseHochgeladenRegistryAusText(readFileSync(pfad, 'utf8'))
+    : leereHochgeladenRegistry();
+  const erg = applyUploadedModelRegistry(datei);
+  for (const zeile of erg.meldungen) console.error(`[Admin/ModellUpload] abgelehnt: ${zeile}`);
+  console.log(`[Admin/ModellUpload] Registry gelesen: ${erg.geladen} Modell(e) bekannt`);
 }
 
 /**
@@ -1091,6 +1243,46 @@ async function behandeln(
   // (1.0 und 2.0), damit keine von ihnen ihn vergessen kann.
   // E8: sync the runtime module registry before any document is sanitized.
   moduleAbgleichen();
+  // U1: derselbe Abgleich für hochgeladene Modelle — VOR jeder Route, die
+  // gegen `istEigenesModell`/`PREFABS_BY_NAME` prüft (Weltlayout-Speichern,
+  // Katalog-Zahlen) oder eine Entfernung anstösst.
+  hochgeladenAbgleichen();
+
+  // ── Hochgeladenes Modell entfernen (U1) ──
+  //
+  // JSON-Körper wie DELETE /admin/liste: Die URL allein kennt keine
+  // Kennung. Ohne `bestaetigt` UND bestehende Nutzung wird NICHTS
+  // angefasst — die Antwort nennt nur Zahl und Orte (Karte, Abschnitt 5:
+  // „Platzierungen, die es noch benutzen, werden vorher genannt").
+  if (pfad === '/api/modell-hochladen' && methode === 'DELETE') {
+    const { name, bestaetigt } = (leib ?? {}) as { name?: string; bestaetigt?: boolean };
+    if (!name || typeof name !== 'string') {
+      return { code: 400, daten: { ok: false, fehler: 'name-fehlt', message: 'Körperfeld "name" fehlt.' } };
+    }
+    const antwort = entferneUpload(
+      { erlaubt: uploadsErlaubt(), verzeichnis: HOCHGELADEN_ORDNER, layoutDatei: LAYOUT_DATEI },
+      name,
+      bestaetigt === true
+    );
+    if ('brauchtBestaetigung' in antwort) {
+      return {
+        code: 409,
+        daten: {
+          ok: false,
+          brauchtBestaetigung: true,
+          nutzung: antwort.nutzung,
+          message:
+            `'${name}' wird noch ${antwort.nutzung.anzahl} Mal platziert. Erneut mit ` +
+            `"bestaetigt": true aufrufen, um trotzdem zu entfernen.`,
+        },
+      };
+    }
+    if (!antwort.ok) {
+      return { code: 400, daten: { ok: false, fehler: 'abgelehnt', message: antwort.meldung } };
+    }
+    console.log(`[Admin] Modell entfernt: '${antwort.name}', ${antwort.verbleibend} verbleiben`);
+    return { code: 200, daten: { ok: true, name: antwort.name, verbleibend: antwort.verbleibend } };
+  }
 
   // ── Dungeon-Dokumente (nur lesen) ──
   //
@@ -1670,6 +1862,12 @@ const dienst = createServer((req, res) => {
       if (pfad === '/metriken') {
         if (req.method !== 'GET') return json(res, 405, { ok: false, fehler: 'GET erwartet', message: 'GET erwartet' });
         return metrikenAusgeben(res);
+      }
+
+      // U1: ebenfalls vor der JSON-Weiche -- der Koerper ist eine `.glb`,
+      // `leibLesen()` wuerde ihn als Text parsen und an JSON.parse scheitern.
+      if (pfad === '/api/modell-hochladen' && req.method === 'POST') {
+        return modellHochladenBehandeln(req, res, klient || peer);
       }
 
       // DELETE zusaetzlich zu PUT/POST: DELETE /admin/liste braucht einen

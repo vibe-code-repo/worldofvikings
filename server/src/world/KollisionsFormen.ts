@@ -43,6 +43,8 @@ import {
   type PrefabDef,
 } from '@wov/shared';
 import { leseGlb, type GlbNetz } from '@wov/shared/src/kollision/glb.js';
+import { uploadedModelEntry } from '@wov/shared/src/uploadedModelRegistry.js';
+import type { Vek3 } from '@wov/shared/src/kollision/form.js';
 
 /**
  * `<repo>/assets` — dieselbe Wurzel, aus der auch der Client lädt.
@@ -80,6 +82,29 @@ export function modellDatei(model: string, wurzel = ASSET_WURZEL): string {
 /** Wie der EntityManager: Räume und begehbare Bauwerke sind Sonderfälle. */
 function istDungeonRaum(prefabName: string): boolean {
   return getRoomByHash(getStableHash(prefabName)) !== undefined;
+}
+
+/**
+ * Hüllquader direkt aus Vertexpositionen (Clientraum, s. `leseGlb`-Kopf) —
+ * die Kollisionsform hochgeladener Modelle in der Voreinstellung „fest".
+ * Anders als die Kisten der Katalog-Kollisionsangabe braucht diese hier
+ * keine Namensheuristik: Sie ist einfach die Hülle der Datei.
+ */
+function kisteAusPositionen(positionen: Float32Array): KollisionsForm {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let i = 0; i < positionen.length; i += 3) {
+    const x = positionen[i]!, y = positionen[i + 1]!, z = positionen[i + 2]!;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  const min: Vek3 = { x: minX, y: minY, z: minZ };
+  const max: Vek3 = { x: maxX, y: maxY, z: maxZ };
+  return { art: 'kiste', min, max };
 }
 
 export class KollisionsFormen implements FormQuelle {
@@ -147,15 +172,43 @@ export class KollisionsFormen implements FormQuelle {
 
   /** Die Menge „fest" — dieselbe Regel wie im Client, aus `shared`. */
   private istFest(prefabName: string, def: PrefabDef | undefined): boolean {
+    const hochgeladen = uploadedModelEntry(prefabName);
     return istFesterKoerper(def, prefabName, {
       dungeonRaum: istDungeonRaum(prefabName),
       begehbar: BEGEHBAR_NAME.test(prefabName),
+      hochgeladenFest: hochgeladen ? hochgeladen.kollisionsart === 'fest' : undefined,
     });
   }
 
   private ableiten(prefabName: string): KollisionsForm | null {
     const def = this.defs.get(prefabName);
     if (!this.istFest(prefabName, def)) return null;
+
+    /*
+      Hochgeladene Modelle (Karte U1) bekommen NICHT die Heuristiken
+      unten (Fels-Namensmuster, Katalog-Kollisionsangabe, Stammkapsel) —
+      die sind für den kuratierten Bestand geschrieben, dessen Namen und
+      Grössen bekannt sind. Ein Upload ist unbekannte Geometrie unter
+      einem vom Nutzer gewählten Namen; „Kiste aus der gemessenen
+      Hüllbox" ist Mikes ausdrückliche Vorgabe, ein eigenes `_col`-Netz
+      geht nur, wenn es beim Hochladen schon unter dem Dreiecksdeckel lag
+      (`uploadedModelRegistry.MAX_KOLLISIONSNETZ_DREIECKE`).
+    */
+    const hochgeladen = uploadedModelEntry(prefabName);
+    if (hochgeladen) {
+      if (!def?.model) return null;
+      const inhalt = this.leseModell(def.model);
+      if (inhalt === null) return null;
+      if (hochgeladen.hatKollisionsnetz && inhalt.kollision !== null) {
+        const form = kollisionsForm(inhalt.kollision.positionen, inhalt.kollision.indizes, prefabName, null, {
+          eigenesNetz: true,
+        });
+        if (form !== null) return form;
+      }
+      if (inhalt.sicht === null) return null;
+      return kisteAusPositionen(inhalt.sicht.positionen);
+    }
+
     /*
       Die Handtabelle VOR dem Dateizugriff — sie steht in einer Zeile
       Quelltext und braucht die GLB nicht. Das ist nicht nur schneller:

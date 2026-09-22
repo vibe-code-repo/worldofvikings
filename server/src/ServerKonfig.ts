@@ -102,6 +102,10 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
       'experimental-disable-distant-rivers',
     ],
     dungeons: ['enabled', 'modulbau'],
+    // U1: gelesen vom Betriebsdienst (admin/src/main.ts), nicht von
+    // ServerKonfig -- der Spielserver kennt den Schluessel trotzdem, sonst
+    // waere er hier "unbekannt" und der Start warnte ohne Grund.
+    uploads: ['modell-hochladen'],
     wetter: ['umgebung', 'nebeldichte'],
     'standard-konto': ['name', 'passwort', 'charakter', 'admin'],
     /*

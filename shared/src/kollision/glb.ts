@@ -69,17 +69,25 @@ const PLATZHALTER_MATERIAL = 'DefaultMaterial';
 const JSON_CHUNK = 0x4e4f534a;
 const BIN_CHUNK = 0x004e4942;
 
-interface GlbRoh {
+/**
+ * `GlbRoh`/`GlTF` und {@link parseGlbChunks} sind exportiert, damit ein
+ * zweiter Leser (die Upload-Prüfung, `server/src/world/ModelUpload.ts`)
+ * dieselbe Chunk-Aufteilung benutzt statt sie ein zweites Mal
+ * nachzubauen — genau die Art Kopie, deren zwei Fassungen beim nächsten
+ * Umbau auseinanderlaufen, ohne dass ein Test es sähe.
+ */
+export interface GlbRoh {
   json: GlTF;
   bin: Uint8Array<ArrayBufferLike>;
 }
 
-interface GlTF {
+export interface GlTF {
   scene?: number;
   scenes?: { nodes?: number[] }[];
   nodes?: GlTFKnoten[];
   meshes?: { name?: string; primitives: GlTFPrimitive[] }[];
   materials?: { name?: string }[];
+  images?: { uri?: string; bufferView?: number; mimeType?: string }[];
   accessors?: GlTFAccessor[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
 }
@@ -107,7 +115,7 @@ interface GlTFAccessor {
 }
 
 /** JSON- und BIN-Chunk aus den Bytes holen. */
-function chunks(bytes: Uint8Array): GlbRoh {
+export function parseGlbChunks(bytes: Uint8Array): GlbRoh {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (dv.getUint32(0, true) !== 0x46546c67) throw new Error('keine GLB (Magic fehlt)');
   let off = 12;
@@ -289,7 +297,7 @@ function zusammenlegen(liste: readonly Teil[]): GlbNetz | null {
  * in Clientkoordinaten.
  */
 export function leseGlb(bytes: Uint8Array): GlbInhalt {
-  const alle = teile(chunks(bytes));
+  const alle = teile(parseGlbChunks(bytes));
   const kollision = alle.filter((t) => NUR_KOLLISION.test(t.name));
   const rest = alle.filter((t) => !NUR_KOLLISION.test(t.name));
   const hatLods = rest.some((t) => LOD_NAME.test(t.name));

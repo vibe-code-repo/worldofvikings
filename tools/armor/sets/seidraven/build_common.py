@@ -49,6 +49,14 @@ scene = bpy.context.scene
 rig = bpy.data.objects['WoV_Player_Armature']
 source_path = bpy.data.filepath
 base = {s: bpy.data.objects['WoV_BodyBase_' + VARIANT + '_' + s] for s in SLOTS}
+# Renders go through the scene's first view layer. The female source keeps some body
+# regions in collections that layer excludes; link such regions to the scene root so a
+# consumer that makes one hide_render=False (a free region, a review tool's --keep-body)
+# actually shows it. hide_render is untouched, so nothing changes for a region that stays
+# hidden, and no exported GLB is affected -- only what a later, deliberate unhide can show.
+for obj in base.values():
+    if not obj.visible_get(view_layer=scene.view_layers[0]):
+        scene.collection.objects.link(obj)
 pose = {b.name: b.matrix_basis.copy() for b in rig.pose.bones}
 rig.data.pose_position = 'REST'
 bpy.context.view_layer.update()

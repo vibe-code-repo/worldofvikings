@@ -168,5 +168,15 @@ if (modellHochladenFn) {
   check(/catch[^}]*name-ungueltig-kodiert/.test(rumpf), 'eine fehlgeschlagene Dekodierung bekommt eine eigene, verständliche Ablehnung statt eines rohen Absturzes');
 }
 
+console.log('\n8. N1 (Befund B7, „auf live wird der Körper trotzdem gelesen") — uploadsErlaubt() wird VOR dem Körperlesen geprüft\n');
+if (modellHochladenFn) {
+  const rumpf = knotenText(modellHochladenFn);
+  // '(' nach dem Namen, damit ein blosser Kommentar-Verweis auf
+  // 'leibBinaerLesen' (ohne Klammer) den eigentlichen AUFRUF nicht vortäuscht.
+  const posErlaubt = rumpf.indexOf('uploadsErlaubt()');
+  const posLesen = rumpf.indexOf('leibBinaerLesen(');
+  check(posErlaubt >= 0 && posLesen >= 0 && posErlaubt < posLesen, 'die erste uploadsErlaubt()-Prüfung im Funktionsrumpf steht VOR dem Aufruf von leibBinaerLesen(...) — auf live/ausgeschaltet wird der Körper gar nicht erst gelesen');
+}
+
 console.log(failures === 0 ? '\nU1-Verdrahtung: alles grün.\n' : `\nU1-Verdrahtung: ${failures} FEHLGESCHLAGEN.\n`);
 process.exit(failures > 0 ? 1 : 0);

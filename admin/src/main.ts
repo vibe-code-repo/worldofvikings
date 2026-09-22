@@ -855,6 +855,19 @@ async function modellHochladenBehandeln(
   if (req.method !== 'POST') {
     return json(res, 405, { ok: false, fehler: 'POST erwartet', message: 'POST erwartet' });
   }
+  // N1 (Angriff, Abschnitt "Geprüft und nicht gefunden"/B7-Kleinkram): auf
+  // `live` (oder bei ausgeschaltetem Schalter) wird SO der ganze Körper
+  // erst gar nicht gelesen -- vorher las `leibBinaerLesen` bis zu 21 MB,
+  // bevor `pruefeUndSpeichereUpload` weiter unten den Schalter überhaupt
+  // ansah. Nichts landete auf der Platte, aber jeder Aufruf kostete
+  // unnötig Bandbreite und Zeit. Dieselbe Ablehnung wie bisher, nur früher.
+  if (!uploadsErlaubt()) {
+    return json(res, 400, {
+      ok: false,
+      fehler: 'abgelehnt',
+      message: 'Modell-Upload ist auf dieser Instanz nicht erlaubt (server.yml: uploads.modell-hochladen, oder Instanz live).',
+    });
+  }
   const contentType = String(req.headers['content-type'] ?? '');
   if (!contentType.startsWith('application/octet-stream')) {
     return json(res, 415, {

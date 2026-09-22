@@ -49,8 +49,10 @@ selection means a different thing in every region):
 `body_outside_plate` measures body vertices against a BVH built from `hard`
 vertices only, using the same inside/outside ray-parity test as `inside_body`. That
 test assumes a closed surface; the `hard` surface is usually not one (an
-independent audit found 10 to 692 open boundary edges per region on Gravethorn,
-zero on Seidraven/Emberrage -- it depends entirely on the set). Treat
+independent audit found 10 to 692 open boundary edges per region on Gravethorn;
+it is mostly open everywhere, but a few Seidraven/Emberrage regions have only
+small border loops too (Seidraven ArmUpperLeft/Right 10 each, Head 16; Emberrage
+female Head 12) rather than none. Treat
 `body_outside_plate` as a proximity/inside-vote number against a possibly open
 surface, not a leak-proof containment guarantee; it moved from 54 to 107 for the
 same region between two tool revisions that changed nothing about what "outside"

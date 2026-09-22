@@ -524,8 +524,10 @@ item: `lining`/`hard` vertices found inside the body (`inside_body`, both
 populations, each labelled) and body vertices found outside a shell built from
 `hard` vertices only (`body_outside_plate`; `body_outside_plate_population` names
 which population that is). That `hard` shell is usually **not closed** (an
-independent audit found 10 to 692 open boundary edges per region on Gravethorn,
-none on Seidraven/Emberrage -- entirely set-dependent), so treat
+independent audit found 10 to 692 open boundary edges per region on Gravethorn;
+it is mostly open on every set, but a few regions of Seidraven/Emberrage have
+only small border loops too (Seidraven ArmUpperLeft/Right 10 each, Head 16;
+Emberrage female Head 12) rather than none, so treat
 `body_outside_plate` as a proximity/inside-vote number against a possibly open
 surface, not a leak-proof containment guarantee; the same region measured this
 way before and after an unrelated tool change moved from 54 to 107 purely because

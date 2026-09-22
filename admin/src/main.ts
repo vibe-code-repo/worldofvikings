@@ -863,7 +863,25 @@ async function modellHochladenBehandeln(
       message: `Erwartet wird 'application/octet-stream', bekommen wurde '${contentType || '(keine Angabe)'}'.`,
     });
   }
-  const angezeigterName = String(req.headers['x-wov-modellname'] ?? '').trim();
+  // N1 (Angriff, Befund B6): Kopfzeilenwerte sind ByteStrings -- ein
+  // `fetch` mit einem Zeichen über U+00FF (Umlaute eingeschlossen, sobald
+  // NICHT in Latin-1, z. B. kyrillisch oder ein Stern) wirft im BROWSER
+  // schon beim Setzen der Kopfzeile einen TypeError, bevor die Anfrage
+  // überhaupt losgeht -- die UI zeigte dafür nur "Netzwerkfehler:", nie
+  // einen ganzen Satz. Der Editor schickt den Namen deshalb jetzt
+  // `encodeURIComponent`-kodiert (reines ASCII, jede Kopfzeile erlaubt
+  // das), hier wird er zurückübersetzt.
+  const angezeigterNameRoh = String(req.headers['x-wov-modellname'] ?? '');
+  let angezeigterName: string;
+  try {
+    angezeigterName = decodeURIComponent(angezeigterNameRoh).trim();
+  } catch {
+    return json(res, 400, {
+      ok: false,
+      fehler: 'name-ungueltig-kodiert',
+      message: 'Kopfzeile x-wov-modellname ist nicht gültig kodiert (encodeURIComponent erwartet).',
+    });
+  }
   if (angezeigterName === '') {
     return json(res, 400, { ok: false, fehler: 'name-fehlt', message: 'Kopfzeile x-wov-modellname fehlt oder ist leer.' });
   }
@@ -2030,8 +2048,16 @@ const dienst = createServer((req, res) => {
 
       // U1: ebenfalls vor der JSON-Weiche -- der Koerper ist eine `.glb`,
       // `leibLesen()` wuerde ihn als Text parsen und an JSON.parse scheitern.
+      //
+      // N1 (Angriff, Befund B2): OHNE `await` liefert dieses `return` das
+      // Promise selbst zurueck, statt auf sein Ergebnis zu warten -- eine
+      // Ablehnung darin (Verbindungsabbruch mitten im Koerper, kaputte
+      // registry.json) landete NIE im `catch` unten, sondern als
+      // unbehandelte Ablehnung auf Prozessebene, und Node beendet den
+      // Dienst dafuer. Ein abgebrochener Upload durfte den ganzen
+      // Betriebsdienst nicht mitnehmen.
       if (pfad === '/api/modell-hochladen' && req.method === 'POST') {
-        return modellHochladenBehandeln(req, res, klient || peer);
+        return await modellHochladenBehandeln(req, res, klient || peer);
       }
 
       // DELETE zusaetzlich zu PUT/POST: DELETE /admin/liste braucht einen

@@ -172,22 +172,24 @@ in the commands below are shorthand for that.
 
    Look at `validation.json` (triangle count, geometry checks).
 
-   The Seidraven and Emberrage entry points check the command line first, before
-   anything is built (`sets/entry_args.py`): `OUTPUT_DIR` must be the first argument
-   after `--`; the only other switch is `--quick` (the female entry point also accepts
-   an explicit `--female`). Anything else is refused with a message, a usage line and
-   exit code 1: a missing `--` or directory, unknown or repeated switches, `--female`
-   on a male entry point, and `--quick`, `--female` or `--male` placed in front of the
-   `--` (Blender would silently ignore them). Blender turns the refusal into a
-   non-zero exit code even without `--python-exit-code 1` (measured with 5.2). A male
-   entry point on the female body source, or the reverse, stops a moment later with a
-   missing-object error.
+   All six male/female entry points check the command line first, before anything is
+   built (`sets/entry_args.py`): `OUTPUT_DIR` must be the first argument after `--`; the
+   only other switch is `--quick` (the Seidraven/Emberrage female entry points also
+   accept an explicit `--female`; Wildwarden and Ashenveil have no female entry point).
+   Anything else is refused with a message, a usage line and exit code 1: a missing `--`
+   or directory, unknown or repeated switches, `--female` on a male entry point, `--quick`,
+   `--female` or `--male` placed in front of the `--` (Blender would silently ignore
+   them), and misspelt write variants of those three placed in front of the `--` (dash
+   style, case, an `=value` suffix, stray whitespace -- Blender would ignore those just
+   as silently). Blender turns the refusal into a non-zero exit code even without
+   `--python-exit-code 1` (measured with 5.2). A male entry point on the female body
+   source, or the reverse, stops a moment later with a missing-object error.
 
    What `--quick` does, per set (read from the code):
 
    | Set | `--quick` |
    |---|---|
-   | Seidraven, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `sets/seidraven/build_common.py:618,680`, `ashenveil/male/build.py:607,666`, `wildwarden/male/build.py:502,556`. |
+   | Seidraven, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `sets/seidraven/build_common.py:618,680`, `ashenveil/male/build.py:611,670`, `wildwarden/male/build.py:506,560`. |
    | Emberrage | The same, **except that the export block is forced on**: `--quick` still writes the seven item GLBs, `WoV_Emberrage_Armor.glb` and `WoV_Emberrage_Armor.blend` (`sets/emberrage/build_common.py:191` turns the guard into `if True:`). Renders and pose checks are still cut down. |
    | Ironward | The switch exists (it is read from the whole command line, `ironward/male/build.py:365,404`) but it only skips the detail and pose *images*. The pose checks run, and the `.blend` (`:360`, `:432`), `components.json` and the four GLBs (`:421-424`) are always written. |
 
@@ -201,11 +203,21 @@ in the commands below are shorthand for that.
    ```sh
    blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
      --python tools/armor/test/armor-motion.py -- MASTER_ANIMATIONS.blend OUTPUT_DIR/motion \
-     [--prefix=<PREFIX>] [--compact] [--quick]
+     --regions=N [--keep-body=Region,Region] [--prefix=<PREFIX>] [--compact] [--quick]
    ```
 
-   The default prefix is `WoV_Wildwarden_`. With wings (Seidraven) it also checks
-   every rigid shoulder-socket vertex against its expected transform.
+   `--regions=N` is required: the exact number of `<PREFIX>`-named armor mesh objects
+   the build produced (11 for the eleven-region sets; fewer for a set that replaces
+   only some body regions, e.g. `--regions=8` for Plainhide). `--keep-body=Region,Region`
+   (e.g. `--keep-body=Head,HandLeft,HandRight`) names source-body regions that stay
+   visible next to the armor, in the renders and the overview montage, because the set
+   does not replace them; default none. The default prefix is `WoV_Wildwarden_`. With
+   wings (Seidraven) it also checks every rigid shoulder-socket vertex against its
+   expected transform.
+
+   Known gap, not closed yet (follow-up card): `--keep-body Head` (a space instead
+   of `=`) is silently read as no `--keep-body` at all, unlike `--regions`, which does
+   reject a missing `=`.
 
 3. **Legacy female fit** (Blender; female variants of Seidraven and Emberrage only).
    Run it on the female authoring blend from step 1, with the actual female avatar:
@@ -458,3 +470,86 @@ New in this folder (they existed only outside the repository): the Ironward buil
 (`sets/ironward/male/`, now taking `OUTPUT_DIR` after `--` and writing nothing next to
 itself), the Ashenveil builder, `sets/seidraven/render-pair.py`, and the generalised
 `test/armor-motion.py`.
+
+## Comparison and review tools
+
+`test/render-compare.py` and `test/probe.py` started as a one-off Gravethorn
+comparison script; both are now parametrized and work on any set built from the
+Seidraven scaffold. Neither reads a material name or a builder-specific mesh
+attribute: every measurement or per-item selection goes through `--prefix`/
+`--regions`/`--items`, the same object-naming contract `armor-motion.py` uses.
+
+```sh
+blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
+  --python tools/armor/test/render-compare.py -- TARGET_DIR MASTER_ANIMATIONS.blend \
+  --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... [--quick] [--glow] [--frame=<m>]
+```
+
+`--items` lists a set's items in display order, each as `key:Region[+Region...]`
+(the body regions that item's `<PREFIX>Region` mesh occupies), e.g. for the
+Seidraven/Gravethorn seven-item shape:
+`--items=hood:Head,shoulders:ArmUpperLeft+ArmUpperRight,vest:Torso,bracers:ArmLowerLeft+ArmLowerRight,gloves:HandLeft+HandRight,robe:Hips,boots:LegLeft+LegRight`.
+Writes a four-angle turntable (`vergleich-1..4-*.png`), `comparison-pose-metrics.json`
+and two diagnostic poses (arms overhead, a master-clip crouch) always; a per-item
+tile sheet (`vergleich-items.png`) only on a full run. The turntable's orthographic
+scale is fitted from the item objects' own posed bounding radius/height plus a
+margin, not a fixed number: a fixed 2.5 m scale used to crop Seidraven's 2.45 m
+wingspan silently. `--frame=<m>` overrides the computed scale; a value too small to
+fit is a hard error naming the minimum, not a silent crop.
+
+```sh
+blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
+  --python tools/armor/test/probe.py -- MASTER_ANIMATIONS.blend TARGET_DIR \
+  --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... --body=Male|Female \
+  [--measure-only] [--glow] [--allow-no-lining]
+```
+
+Read-only review: writes `probe.json`, never the `.blend`. A `<PREFIX>`-named object
+that is not one of the eleven body regions (an attachment such as Wildwarden's
+Crown) is skipped for every measurement, with a printed note -- it is still
+rendered. Every measured item mesh's vertices split into two named, geometrically
+determined populations -- not a material name, not a builder-specific mesh
+attribute, and (an earlier version of this tool, corrected after an independent
+attack) not "the largest connected vertex island" either: at Gravethorn's hips
+that island IS the lining, at the torso it is only part of it, and at every limb
+it is a single hard plate with zero lining vertices, so "the largest island" means
+a different thing in every region. `lining` is the set of item vertices that
+geometrically match the scaffold's own lining recipe (`sets/seidraven/
+build_common.py`: the source body region **as currently loaded**, welded at
+1e-5 m, pushed out along its recomputed normals by 0.0005 m for Head/HandLeft/
+HandRight or 0.002 m elsewhere) within 1e-5 m; `hard` is every other item vertex,
+which for a smoothed/softened set (Plainhide) is mostly still visible cloth, not
+literal hardness -- it only means "missed the lining match". Because the
+reconstruction depends on the loaded body, a region the set replaces where it
+finds **zero** lining vertices is refused (exit code 1, naming the region and the
+expected count) unless `--allow-no-lining` is given -- this is what catches the
+tool silently measuring against the wrong or a moved body instead of failing.
+Partial lining short of the full expected count but above zero (Plainhide's own
+smoothed garments) stays allowed and is reported as a fraction per region
+(`population_vertices`), with a printed `PARTIAL_LINING` summary when it happens.
+Measures, per region: stand-off of both populations from the body at rest (lining
+should read close to the scaffold's own gap -- a sanity check on the
+reconstruction, not just a number); shoulder/arm/hand collision (both populations)
+with arms down and arms overhead; how far the Head bone deviates from the Neck
+bone over the master clips (a helmet bound to the wrong bone would not follow
+it); and, at four diagnostic poses (idle, deep crouch, kick, sword attack), per
+item: `lining`/`hard` vertices found inside the body (`inside_body`, both
+populations, each labelled) and body vertices found outside a shell built from
+`hard` vertices only (`body_outside_plate`; `body_outside_plate_population` names
+which population that is). That `hard` shell is usually **not closed** (an
+independent audit found 10 to 692 open boundary edges per region on Gravethorn;
+it is mostly open on every set, but a few regions of Seidraven/Emberrage have
+only small border loops too (Seidraven ArmUpperLeft/Right 10 each, Head 16;
+Emberrage female Head 12) rather than none, so treat
+`body_outside_plate` as a proximity/inside-vote number against a possibly open
+surface, not a leak-proof containment guarantee; the same region measured this
+way before and after an unrelated tool change moved from 54 to 107 purely because
+the reconstructed `hard` population itself changed shape. `--measure-only` skips
+the descriptive renders and only shoots the two head-detail stills used to check
+helmet placement.
+
+Both tools turn the scaffold's preview Fog Glow compositor off by default: it is
+saved inside the `.blend` from the build and would otherwise put a halo on every
+review image, including sets with no emissive material at all. `--glow` keeps
+whatever the saved `.blend` already has, for a set whose own comparison images
+should show it (Emberrage, Gravethorn).

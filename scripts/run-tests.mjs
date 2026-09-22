@@ -178,6 +178,12 @@ const KERN = [
   */
   ['tools/armor/test', 'entry-args.mjs', brauchtPython('the armor entry points')],
   /*
+    armor-motion.py --keep-body= contract (tools/armor/test/keep_body.py): an unknown
+    region, a region the armor already replaces, and a second --keep-body option are all
+    refused; an empty list and a repeated region are allowed. No Blender. ~1 s.
+  */
+  ['tools/armor/test', 'keep-body-args.mjs', brauchtPython('the --keep-body contract')],
+  /*
     Ein Ursprung im Container (12.09.2026): Textnachweis über
     deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,
     /editor/, /api/accounts/, /api/, /assets/, /ws) stehen als eigener

@@ -13,7 +13,22 @@ The accepted form, after Blender's own arguments, is
 Everything else is refused with a message and exit code 1: a missing `--` or output
 directory, an output directory that looks like a switch, unknown or repeated
 switches, `--female` on a male entry point, and any of --quick/--female/--male placed
-in front of the `--` (Blender would ignore them silently).
+in front of the `--` as a FREESTANDING argument (Blender would ignore them silently)
+-- including misspelt dash style, case, an `=value` suffix or stray whitespace
+(`-female`, `--Female`, `--QUICK=1`), which Blender would ignore just as silently. The
+*value* of a Blender option that takes one is never scanned this way: `--python-expr
+"--Female"` is a Python expression Blender runs, not a switch of this tool, even
+though the text looks like one (real case: Blender executes the expression, which may
+reference a variable named `Female` set by an earlier `--python-expr`).
+
+Known gap, not closed here (follow-up card): `_VALUE_TAKING` does not list
+`--env-system-datafiles`/`-scripts`/`-extensions`/`-python`, `-setaudio`, or the old
+`-a <options> <file(s)>` playback syntax, so a write-variant given as one of *their*
+values would still be misread as a freestanding switch. None of the four build entry
+points' own command lines use any of these, and an independent attack confirmed the
+approximation cannot let a genuinely bad call through -- Blender itself rejects `-p`
+in background mode and `-c` never reaches this script at all -- so this is a
+completeness note about arguments nobody here passes, not an open regression.
 """
 import sys
 
@@ -21,11 +36,40 @@ QUICK = '--quick'
 FEMALE = '--female'
 # Switches of this tool. In front of the `--` they would be Blender arguments.
 BUILD_SWITCHES = (QUICK, FEMALE, '--male')
+_SWITCH_WORDS = frozenset(switch.lstrip('-') for switch in BUILD_SWITCHES)
+# Dash-like characters a shell, editor or clipboard may substitute for '-': hyphen,
+# non-breaking hyphen, figure dash, en dash, em dash, horizontal bar, minus sign.
+_DASHES = '-‐‑‒–—―−'
 BODY_SOURCE = {'male': 'BODY_BASE_MALE.blend', 'female': 'BODY_BASE_FEMALE.blend'}
+# Blender 5.2.0 LTS options that consume exactly one following argument (`blender
+# --help`, both the short and the long spelling where one exists). Their VALUE is
+# never scanned for a misplaced switch, only the option name itself is (and none of
+# these normalize to quick/female/male). `-p`/`--window-geometry` actually takes four
+# values and `-c`/`--command` consumes every remaining argument; both are treated as
+# a single-value skip here since a build entry point's own command line never uses
+# either -- correctness beyond that one value is not needed for this tool.
+_VALUE_TAKING = frozenset((
+    '-S', '--scene', '-f', '--render-frame', '-s', '--frame-start', '-e', '--frame-end',
+    '-j', '--frame-jump', '-o', '--render-output', '-E', '--engine', '-t', '--threads',
+    '--cycles-device', '-F', '--render-format', '-x', '--use-extension',
+    '-p', '--window-geometry', '-P', '--python', '--python-text', '--python-expr',
+    '--python-exit-code', '--addons', '--log', '--log-level', '--log-file',
+    '--debug-value', '--verbose', '--gpu-device', '--app-template', '-c', '--command',
+    '--qos',
+))
 
 
 class EntryArgsError(ValueError):
     pass
+
+
+def _switch_word(arg):
+    """The bare word a BUILD_SWITCHES-like argument spells: dash style, case, an
+    '=value' suffix and surrounding whitespace stripped. '' if it has no leading dash."""
+    text = arg.strip()
+    if not text or text[0] not in _DASHES:
+        return ''
+    return text.lstrip(_DASHES).split('=', 1)[0].strip().lower()
 
 
 def parse(argv, variant):
@@ -35,7 +79,17 @@ def parse(argv, variant):
         before, after = argv[1:split], argv[split + 1:]
     else:
         before, after = argv[1:], None
-    misplaced = [a for a in before if a in BUILD_SWITCHES]
+    misplaced = []
+    skip_value = False
+    for arg in before:
+        if skip_value:
+            skip_value = False
+            continue
+        if arg in _VALUE_TAKING:
+            skip_value = True
+            continue
+        if _switch_word(arg) in _SWITCH_WORDS:
+            misplaced.append(arg)
     if misplaced:
         raise EntryArgsError(f"{' '.join(misplaced)} in front of '--' is a Blender argument and "
                              "would be ignored; put it after '--'")

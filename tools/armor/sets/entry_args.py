@@ -20,6 +20,15 @@ in front of the `--` as a FREESTANDING argument (Blender would ignore them silen
 "--Female"` is a Python expression Blender runs, not a switch of this tool, even
 though the text looks like one (real case: Blender executes the expression, which may
 reference a variable named `Female` set by an earlier `--python-expr`).
+
+Known gap, not closed here (follow-up card): `_VALUE_TAKING` does not list
+`--env-system-datafiles`/`-scripts`/`-extensions`/`-python`, `-setaudio`, or the old
+`-a <options> <file(s)>` playback syntax, so a write-variant given as one of *their*
+values would still be misread as a freestanding switch. None of the four build entry
+points' own command lines use any of these, and an independent attack confirmed the
+approximation cannot let a genuinely bad call through -- Blender itself rejects `-p`
+in background mode and `-c` never reaches this script at all -- so this is a
+completeness note about arguments nobody here passes, not an open regression.
 """
 import sys
 

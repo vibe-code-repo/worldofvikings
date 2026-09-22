@@ -215,6 +215,10 @@ in the commands below are shorthand for that.
    wings (Seidraven) it also checks every rigid shoulder-socket vertex against its
    expected transform.
 
+   Known gap, not closed yet (follow-up card): `--keep-body Head` (a space instead
+   of `=`) is silently read as no `--keep-body` at all, unlike `--regions`, which does
+   reject a missing `=`.
+
 3. **Legacy female fit** (Blender; female variants of Seidraven and Emberrage only).
    Run it on the female authoring blend from step 1, with the actual female avatar:
 

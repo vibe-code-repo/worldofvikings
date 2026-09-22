@@ -14,6 +14,10 @@ already replaces (it would then show twice), or a second --keep-body option are 
 refused with a message; an empty list and a region repeated within one --keep-body
 change nothing and are allowed (see keep_body.py, tested without Blender in
 keep-body-args.mjs).
+
+Known gap, not closed here (follow-up card): `--keep-body Head` (a space instead of
+`=`) is not recognized as the option at all, so it is silently read as no --keep-body
+and returns an empty list -- unlike --regions, which does reject a missing `=`.
 """
 import sys
 from pathlib import Path

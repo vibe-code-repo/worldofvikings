@@ -125,7 +125,7 @@ function starte(welt: string, doc: Record<string, unknown>) {
   const layoutPfad = join(ordner, 'layout.json');
   writeFileSync(layoutPfad, JSON.stringify(doc));
   const server = createWovServer({
-    port: 2471, // never bound (init() only, no start())
+    port: 0, // never bound (init() only, no start())
     worldName: 'world',
     worldSeed: SEED,
     worldFeatures: false,

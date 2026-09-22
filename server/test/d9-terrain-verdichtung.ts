@@ -279,7 +279,7 @@ rmSync(WORLDS_DIR, { recursive: true, force: true });
 
 function makeServer() {
   return createWovServer({
-    port: 2496,
+    port: 0, // init() only, never bound
     worldName: 'world',
     worldSeed: SEED,
     worldFeatures: false,

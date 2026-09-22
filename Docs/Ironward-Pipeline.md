@@ -1,6 +1,6 @@
 # Ironward: vom passgenauen Modell ins DEV-Inventar
 
-Stand: 13.09.2026. Ziel ist **DEV**, Charakter **Gast**. Entwicklung in einem eigenen Worktree; keine Änderung an LAB oder LIVE. Die genehmigte v3-Quelle liegt außerhalb des Repos unter `/home/mike/wov-assets/PlayerCharacter/temp/armor_v3`.
+Stand: 13.09.2026. Ziel ist **DEV**, Charakter **Gast**. Entwicklung in einem eigenen Worktree; keine Änderung an LAB oder LIVE. Die genehmigte v3-Quelle liegt außerhalb des Repos in einer eigenen Asset-Ablage.
 
 ## Verbindlicher Asset-Vertrag
 

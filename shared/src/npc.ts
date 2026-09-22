@@ -256,15 +256,43 @@ export interface NpcKampf {
    * genau die Differenz als schleifenden Fuss.
    */
   readonly tempo: number;
+  /**
+   * Schaden EINES Schlags auf einen Spieler in Lebenspunkten (Spieler
+   * haben 100). Der Server rechnet ihn im Band „zuschlagen" von
+   * `aggroSchritt` (AggroSystem).
+   */
+  readonly schaden: number;
+  /** Sekunden zwischen zwei Schlägen; der erste fällt eine Taktlänge nach dem Eintritt ins Band. */
+  readonly takt: number;
 }
+
+/**
+ * Was ein Eintrag der Tabelle angeben MUSS (Maße) und was er weglassen darf
+ * (Schaden, Takt — dann gilt die Vorgabe). Kein Eintrag hat heute eigene
+ * Werte dafür: Die Zahlen hat niemand je Figur festgelegt, und eine
+ * erfundene Abstufung wäre Balance ohne Grundlage.
+ */
+export type NpcKampfEintrag = Omit<NpcKampf, 'schaden' | 'takt'> &
+  Partial<Pick<NpcKampf, 'schaden' | 'takt'>>;
 
 /**
  * Für alles ohne eigenen Eintrag — bewusst klein. Ein NPC, dessen Maße
  * niemand nachgemessen hat, soll niemanden aus dem Nichts angreifen.
+ *
+ * `schaden` und `takt` sind KEINE neuen Zahlen: Es sind dieselben 8 Punkte
+ * und 2 Sekunden, mit denen eine Kreatur des Spawnsystems heute schon
+ * zuschlägt (SpawnSystem.simulateTick). Wer die Kreaturen und die NPCs
+ * unterschiedlich stark machen will, trägt sie hier oder je Figur ein.
  */
-export const NPC_KAMPF_VORGABE: NpcKampf = { aggro: 12, angriff: 2.5, tempo: 1.5 };
+export const NPC_KAMPF_VORGABE: NpcKampf = {
+  aggro: 12,
+  angriff: 2.5,
+  tempo: 1.5,
+  schaden: 8,
+  takt: 2,
+};
 
-export const NPC_KAMPF: ReadonlyMap<string, NpcKampf> = new Map<string, NpcKampf>([
+export const NPC_KAMPF: ReadonlyMap<string, NpcKampfEintrag> = new Map<string, NpcKampfEintrag>([
   // Neun Meter hoch, Klinge gut drei Meter lang: Er trifft weit und
   // sieht weit. 30 m sind knapp die Sichtweite, auf die man ihn im Gelände
   // überhaupt zuerst bemerkt — er soll nicht erst reagieren, wenn man ihm
@@ -295,9 +323,35 @@ export const NPC_KAMPF: ReadonlyMap<string, NpcKampf> = new Map<string, NpcKampf
   ['FurlocKind', { aggro: 5, angriff: 1.2, tempo: 1.2 }],
 ]);
 
-/** Kampfreichweiten eines Prefabs; nie undefined. */
+/**
+ * Die Tabelle mit den fehlenden Feldern aus der Vorgabe aufgefüllt — einmal
+ * gebaut, denn `npcKampf` läuft je Kandidat und Prüfschritt und soll nichts
+ * allozieren.
+ */
+const NPC_KAMPF_VOLL: ReadonlyMap<string, NpcKampf> = new Map(
+  [...NPC_KAMPF].map(([name, e]) => [
+    name,
+    {
+      ...e,
+      schaden: e.schaden ?? NPC_KAMPF_VORGABE.schaden,
+      takt: e.takt ?? NPC_KAMPF_VORGABE.takt,
+    },
+  ]),
+);
+
+/** Kampfwerte eines Prefabs; nie undefined. */
 export function npcKampf(prefab: string): NpcKampf {
-  return NPC_KAMPF.get(prefab) ?? NPC_KAMPF_VORGABE;
+  return NPC_KAMPF_VOLL.get(prefab) ?? NPC_KAMPF_VORGABE;
+}
+
+/**
+ * Hat dieses Prefab eigene Kampfwerte? Nur dann schlägt es auf dem Server
+ * wirklich zu (und trägt `PrefabFlag.ANGREIFBAR`). Ein NPC, der bloß über
+ * `npcKampf` die Vorgabe bekäme, ist eine Figur, an der niemand die Maße
+ * genommen hat — sie dreht sich zum Spieler, sie verletzt ihn nicht.
+ */
+export function hatKampfwerte(prefab: string): boolean {
+  return NPC_KAMPF.has(prefab);
 }
 
 /**

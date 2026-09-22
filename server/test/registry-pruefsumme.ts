@@ -52,6 +52,7 @@ import type { BinaryReader } from '../../client/src/net/GameSocket.js';
 import { GameSocket } from '../../client/src/net/GameSocket.js';
 import { Writer } from '../src/io/Writer.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { ladeModulRegistrierung } from '../src/world/dungeon/ModuleBuild.js';
 
 // ── Wirtsattrappen, wie in dungeon2-speichern-e2e.ts ────────────────────
@@ -74,9 +75,8 @@ import { ladeModulRegistrierung } from '../src/world/dungeon/ModuleBuild.js';
   } as Storage;
 })();
 
-/** Eigener Port — nicht 2467 (DEV), nicht 2498/2499, nicht 2515 (AP15.1). */
-const PORT = 2519;
-const HOST = `127.0.0.1:${PORT}`;
+/** The OS picks the port (scripts/testport.mjs); HOST is set as soon as the server listens. */
+let HOST = '';
 
 let gutZahl = 0;
 const fehlerListe: string[] = [];
@@ -254,7 +254,7 @@ async function main(): Promise<void> {
   writeFileSync(join(generiert, moduleRegistry.REGISTRY_DATEI), `${JSON.stringify(datei, null, 2)}\n`, 'utf8');
 
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     worldsDir: resolve(tmp, 'worlds'), kontenDir: resolve(tmp, 'konten'),
     // Diese Probe schickt Adminpakete und prueft NICHT die Rechtevergabe:
     // seit dem 13.09.2026 ist die Vorgabe `everyoneAdmin: false`, also
@@ -265,6 +265,7 @@ async function main(): Promise<void> {
     saveIntervalMs: 3_600_000,
   });
   server.start();
+  HOST = `127.0.0.1:${portVon(server)}`;
 
   // 5a MUSS vor der Registrierung laufen: Es misst den Zustand „beide
   // Seiten kennen nichts", und der ist nach dem Laden weg.

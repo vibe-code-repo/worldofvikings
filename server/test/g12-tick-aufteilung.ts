@@ -22,7 +22,7 @@
  *
  * Wartet nie eine feste Zeit, sondern auf Zeugen (Zeilen im Log).
  *
- * Port 2575 (frei laut Kopfkommentaren der uebrigen Tests).
+ * Ephemerer Port: `port: 0`, gelesen mit `portVon(server)` (scripts/testport.mjs).
  *
  * Lauf: npx tsx test/g12-tick-aufteilung.ts   (aus server/)
  */
@@ -32,13 +32,14 @@ import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { antwortBerechnen } from "../src/net/Identitaet.js";
 import { createWovServer } from "../src/WovServer.js";
+import { portVon } from "../../scripts/testport.mjs";
 import { Reader } from "../src/io/Reader.js";
 import { Writer } from "../src/io/Writer.js";
 import type { MetrikSchnappschuss } from "@wov/shared/src/metrik.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, "tmp-g12-tick-aufteilung");
-const PORT = 2575;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 rmSync(TMP, { recursive: true, force: true });
 mkdirSync(TMP, { recursive: true });
 
@@ -100,13 +101,29 @@ const zeilenVon = (datei: string): MetrikSchnappschuss[] =>
         .map((z) => JSON.parse(z) as MetrikSchnappschuss)
     : [];
 
-/** Busy-wait, so the delay shows up as CPU time of exactly the phase it sits in. */
-function warteBusy(ms: number): void {
-  const bis = performance.now() + ms;
+/**
+ * Busy-wait, so the delay shows up as CPU time of exactly the phase it sits in.
+ * Returns how long it REALLY took: on a loaded machine the spin is preempted
+ * and runs longer than `ms`, and that real duration is what the phase stamp
+ * has to give back.
+ */
+function warteBusy(ms: number): number {
+  const start = performance.now();
+  const bis = start + ms;
   while (performance.now() < bis) {
     /* spin */
   }
+  return performance.now() - start;
 }
+
+/** Aufrufzeit (Date.now) jedes update() des Servers — die tatsaechlichen Ticks. */
+const updateZeiten: number[] = [];
+
+/** Jeder eingespeiste Busy-wait: Aufrufzeit (Date.now) und tatsaechlich verbrauchte ms. */
+const gewartetSync: Array<[number, number]> = [];
+const gewartetWelt: Array<[number, number]> = [];
+const summeImFenster = (liste: ReadonlyArray<[number, number]>, vonMs: number, bisMs: number): number =>
+  liste.reduce((s, [t, dauer]) => (t >= vonMs && t <= bisMs ? s + dauer : s), 0);
 
 /** Injected delays (ms) of scenario A: known sizes the split has to give back. */
 const SYNC_VERZOEGERUNG = 3;
@@ -132,7 +149,7 @@ async function mitServer(
   const metriken = resolve(TMP, ordner, "metriken");
   mkdirSync(metriken, { recursive: true });
   const server = createWovServer({
-    port: PORT,
+    port: 0,
     everyoneAdmin: true,
     worldsDir: welt,
     kontenDir: resolve(welt, "konten"),
@@ -141,6 +158,7 @@ async function mitServer(
     metrikenDatei: resolve(metriken, "metriken.json"),
   });
   server.start();
+  PORT = portVon(server);
   nachStart(server);
   let ws: WebSocket | undefined;
   let schritt = 0;
@@ -189,7 +207,7 @@ console.log("\n[A] Aufteilung im Tageslog:");
       // die Welten-Zeit, die geprueft werden soll.
       const ruhig = await warteAuf(() => {
         const z = log();
-        return z.length >= 3 && z.slice(-3).every((l) => l.zonenBudgetAbbrueche === 0 && l.tickAnzahl >= 20);
+        return z.length >= 3 && z.slice(-3).every((l) => l.zonenBudgetAbbrueche === 0 && l.tickAnzahl >= 10);
       }, 30_000);
       check("Zeugen: der Zonenrueckstand ist abgebaut (drei Zeilen ohne Budget-Abbruch)", ruhig);
       const ruhe = log().slice(-3);
@@ -197,18 +215,58 @@ console.log("\n[A] Aufteilung im Tageslog:");
         ruhe.reduce((s, z) => s + f(z), 0) / Math.max(1, ruhe.length);
       const ruheWelten = ruheMittel((z) => z.tickWeltenMsDurchschnitt);
       const ruheSync = ruheMittel((z) => z.tickSyncMsDurchschnitt);
-      const ruheRest = ruheMittel((z) => z.tickRestMsDurchschnitt);
+      // Der Rest ist ein RESTWERT (Gesamt minus zwei Phasen): jede Unterbrechung
+      // des Prozesses ausserhalb der Phasen — ein Zeitscheibenwechsel, der
+      // Dateischreiber der Metrik, eine Speicherbereinigung — landet dort und
+      // laesst sich nicht gegen eine Messung halten. Die Aussage „die
+      // Verzoegerungen landen NICHT im Rest“ hat aber eine Unterschrift, die
+      // Unterbrechungen nicht haben: Sie steht in JEDER Sekunde (2 ms je Tick,
+      // wenn ein Stempel fehlt), eine Unterbrechung nur in einzelnen. Deshalb
+      // gilt die ruhigste Zeile des Fensters, nicht das Mittel.
+      const ruheRest = Math.min(...ruhe.map((z) => z.tickRestMsDurchschnitt));
+
+      /*
+        Die Erwartung ist die GEMESSENE Wartezeit, nicht die Sollzahl. Ein fester
+        Wert (2,0 bis 2,4 ms) hing an der Wanduhr: Unter Last wird der
+        Busy-wait unterbrochen und dauert laenger als 2 oder 3 ms, die Phase
+        misst das richtig, und der Test wurde rot (gemessen 2,49 / 2,61 / 3,49
+        ms bei sechs Brennern, 2,01 ms ruhig). Jetzt schreibt der Patch je
+        Aufruf auf, wie lange er WIRKLICH gewartet hat; die Phase muss diese
+        Summe je Tick wiedergeben — nicht weniger (dann misst der Stempel nur
+        einen Teil), nicht mehr (dann steckt eine fremde Phase darin: die
+        andere Verzoegerung waere +2 bis +3 ms). Beides haelt bei jeder Last;
+        die Toleranz deckt das Fensterende (eine Sekunde beginnt nicht auf
+        den Tick genau) und die Zeit, die ein Unterbrechen AUSSERHALB der
+        Verzoegerung in der Phase kostet.
+      */
+      const fensterVon = ruhe[0] ? ruhe[0].zeitMs - 1000 : 0;
+      const fensterBis = ruhe[ruhe.length - 1]?.zeitMs ?? 0;
+      const ticksImFenster = ruhe.reduce((s, z) => s + z.tickAnzahl, 0);
+      const erwartetWelten = summeImFenster(gewartetWelt, fensterVon, fensterBis) / Math.max(1, ticksImFenster);
+      const erwartetSync = summeImFenster(gewartetSync, fensterVon, fensterBis) / Math.max(1, ticksImFenster);
+      const UNTEN = 0.15; // ms unter der Erwartung: Fensterrand
+      const OBEN = 0.5; // ms ueber der Erwartung: Unterbrechung ausserhalb der Wartezeit
       check(
-        "Ruhe: die Welten-Phase ist die eingespeiste Verzoegerung (Mittel 2,0 bis 2,5 ms, gemessen rund 2,04)",
-        ruhe.length === 3 && ruheWelten >= WELT_VERZOEGERUNG && ruheWelten <= WELT_VERZOEGERUNG + 0.5,
-        `${ruheWelten.toFixed(2)} ms`,
+        "Ruhe: die Welten-Phase gibt die gewartete Zeit je Tick wieder (Erwartung -0,15 / +0,5 ms)",
+        ruhe.length === 3 &&
+          erwartetWelten >= WELT_VERZOEGERUNG &&
+          ruheWelten >= erwartetWelten - UNTEN &&
+          ruheWelten <= erwartetWelten + OBEN,
+        `Phase ${ruheWelten.toFixed(2)} ms, gewartet ${erwartetWelten.toFixed(2)} ms je Tick`,
       );
       check(
-        "Ruhe: die Sync-Phase ist die eingespeiste Verzoegerung an zwei von drei Ticks (Mittel 1,7 bis 2,4 ms, gemessen rund 2,0)",
-        ruhe.length === 3 && ruheSync >= 1.7 && ruheSync <= 2.4,
-        `${ruheSync.toFixed(2)} ms`,
+        "Ruhe: die Sync-Phase gibt die gewartete Zeit je Tick wieder, an zwei von drei Ticks (Erwartung -0,15 / +0,5 ms)",
+        ruhe.length === 3 &&
+          erwartetSync >= 1.7 &&
+          ruheSync >= erwartetSync - UNTEN &&
+          ruheSync <= erwartetSync + OBEN,
+        `Phase ${ruheSync.toFixed(2)} ms, gewartet ${erwartetSync.toFixed(2)} ms je Tick`,
       );
-      check("Ruhe: der Rest bleibt klein (Mittel unter 0,5 ms)", ruhe.length === 3 && ruheRest < 0.5, `${ruheRest.toFixed(2)} ms`);
+      check(
+        "Ruhe: der Rest bleibt klein (ruhigste der drei Zeilen unter 0,5 ms)",
+        ruhe.length === 3 && ruheRest < 0.5,
+        `${ruheRest.toFixed(2)} ms (Zeilen ${ruhe.map((z) => z.tickRestMsDurchschnitt.toFixed(2)).join(" / ")})`,
+      );
 
       const zeilen = log();
       const abweichung = Math.max(
@@ -248,12 +306,27 @@ console.log("\n[A] Aufteilung im Tageslog:");
       const mittel = (f: (z: MetrikSchnappschuss) => number): number =>
         voll.reduce((s, z) => s + f(z), 0) / voll.length;
       const syncMittel = mittel((z) => z.tickSyncMsDurchschnitt);
+      // Wie in der Ruhe: Was der Busy-wait unter Last MEHR gekostet hat als seine
+      // 3 ms (mal zwei von drei Ticks = 2 ms je Tick), gehoert nicht in die Schranke.
+      const vollTicks = voll.reduce((s, z) => s + z.tickAnzahl, 0);
+      const vollGewartet =
+        summeImFenster(gewartetSync, (voll[0]?.zeitMs ?? 0) - 1000, voll[voll.length - 1]?.zeitMs ?? 0) /
+        Math.max(1, vollTicks);
+      // Die Sync-Phase enthaelt die gewartete Zeit und dazu die echte Arbeit von
+      // syncZDOs (waehrend des Wanderns einige Zehntel bis 1,5 ms). Gedeckelt wird
+      // die FREMDZEIT (Phase minus gewartet), nicht die Phase: So bleibt die
+      // Schranke bei jeder Last dieselbe 1,5 ms und hebt sich nicht mit einer
+      // gedehnten Wartezeit. Dass die Aufzeichnung ueberhaupt gelaufen ist, verlangt
+      // die Untergrenze der gewarteten Zeit (Sollwert 2 ms je Tick): ein leeres
+      // Fenster wuerde sonst die Fremdzeit mit der ganzen Phase gleichsetzen.
+      const syncFremd = syncMittel - vollGewartet;
       const weltenMittel = mittel((z) => z.tickWeltenMsDurchschnitt);
-      const restMittel = mittel((z) => z.tickRestMsDurchschnitt);
+      // Wie in der Ruhe: die ruhigste Zeile, aus demselben Grund (s. dort).
+      const restMittel = Math.min(...voll.map((z) => z.tickRestMsDurchschnitt));
       check(
-        "Sync-Verzoegerung von 3 ms kommt in der Sync-Phase an (Mittel je Tick 1,5 bis 3,5 ms)",
-        syncMittel >= 1.5 && syncMittel <= 3.5,
-        `${syncMittel.toFixed(2)} ms`,
+        "Sync-Verzoegerung von 3 ms kommt in der Sync-Phase an (Mittel je Tick mindestens 1,5 ms, hoechstens 1,5 ms Fremdzeit ueber der gewarteten)",
+        vollGewartet >= 1.7 && syncMittel >= 1.5 && syncFremd <= 1.5,
+        `${syncMittel.toFixed(2)} ms, gewartet ${vollGewartet.toFixed(2)} ms je Tick, Fremdzeit ${syncFremd.toFixed(2)} ms`,
       );
       check(
         "Sync-Maximum mindestens die Verzoegerung",
@@ -270,7 +343,7 @@ console.log("\n[A] Aufteilung im Tageslog:");
         `${weltenMittel.toFixed(2)} ms`,
       );
       check(
-        "die Verzoegerungen landen NICHT im Rest (Mittel unter 1 ms)",
+        "die Verzoegerungen landen NICHT im Rest (ruhigste Zeile unter 1 ms)",
         restMittel < 1,
         `${restMittel.toFixed(2)} ms`,
       );
@@ -287,10 +360,24 @@ console.log("\n[A] Aufteilung im Tageslog:");
         zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0) > 0,
         `${zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0)}`,
       );
+      /*
+        Die Tickzahl je Zeile gegen die TATSAECHLICHEN Ticks, nicht gegen den
+        Sollwert 30: Ein Prozess, der unter Last nur 13 bis 21 Ticks je Sekunde
+        bekommt, zaehlt sie richtig — 20 bis 40 waere dort rot, obwohl die
+        Metrik stimmt. Gemessen wird deshalb, wie oft update() in der Sekunde
+        wirklich lief (der Patch schreibt jeden Aufruf auf). Die Zeile, in der die
+        Sekunde schliesst, zaehlt den schliessenden Tick erst in der naechsten:
+        daher zwei Ticks Toleranz.
+      */
+      const echteTicks = (z: MetrikSchnappschuss): number =>
+        updateZeiten.filter((t) => t > z.zeitMs - 1000 && t <= z.zeitMs).length;
+      const abweichungTicks = zeilen.slice(1).map((z) => z.tickAnzahl - echteTicks(z));
       check(
-        "jede Zeile hat 20 bis 40 Ticks (Sollwert 30)",
-        zeilen.slice(1).every((z) => z.tickAnzahl >= 20 && z.tickAnzahl <= 40),
-        zeilen.map((z) => z.tickAnzahl).join(","),
+        "jede Zeile zaehlt genau die Ticks, die in der Sekunde wirklich liefen (Toleranz 2), und nie mehr als 40",
+        updateZeiten.length > 0 &&
+          abweichungTicks.every((d) => Math.abs(d) <= 2) &&
+          zeilen.every((z) => z.tickAnzahl <= 40),
+        `Zeilen ${zeilen.map((z) => z.tickAnzahl).join(",")}, Abweichung ${abweichungTicks.join(",")}`,
       );
 
       const snapshot = JSON.parse(
@@ -308,19 +395,27 @@ console.log("\n[A] Aufteilung im Tageslog:");
       // Known delays inside the two phases. What the split reports has to
       // match them, or it measures something else than it claims.
       const innen = server as unknown as {
+        update: () => void;
         syncZDOs: () => void;
         welten: Map<string, { tick: (...args: unknown[]) => unknown }>;
       };
+      const updateOriginal = innen.update.bind(server);
+      innen.update = (): void => {
+        updateZeiten.push(Date.now());
+        updateOriginal();
+      };
       const syncOriginal = innen.syncZDOs.bind(server);
       innen.syncZDOs = (): void => {
-        warteBusy(SYNC_VERZOEGERUNG);
+        const t = Date.now();
+        gewartetSync.push([t, warteBusy(SYNC_VERZOEGERUNG)]);
         syncOriginal();
       };
       for (const welt of innen.welten.values()) {
         const tickOriginal = welt.tick.bind(welt);
         welt.tick = (...args: unknown[]): unknown => {
           weltTickAufrufe++;
-          warteBusy(WELT_VERZOEGERUNG);
+          const t = Date.now();
+          gewartetWelt.push([t, warteBusy(WELT_VERZOEGERUNG)]);
           return tickOriginal(...args);
         };
         weltenGepatcht++;

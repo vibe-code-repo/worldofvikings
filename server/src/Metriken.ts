@@ -99,7 +99,13 @@ const runde = (wert: number): number => Math.round(wert * 100) / 100;
  * Prinzip wie Zeitmessung.leseUndLeere: auslesen UND zuruecksetzen in
  * einem Aufruf.
  */
-export function schliesseSekundeAb(zdoAnzahl: number, peers: number, jetztMs: number): MetrikSchnappschuss {
+export function schliesseSekundeAb(
+  zdoAnzahl: number,
+  peers: number,
+  jetztMs: number,
+  /** WovServer.ohneWeltVerworfen: laufende Summe seit dem Start, kein Sekundenwert. */
+  ohneWeltVerworfen = 0
+): MetrikSchnappschuss {
   const n = tickAnzahl;
   const schnappschuss: MetrikSchnappschuss = {
     zeitMs: jetztMs,
@@ -116,6 +122,7 @@ export function schliesseSekundeAb(zdoAnzahl: number, peers: number, jetztMs: nu
     tickRestMsDurchschnitt: n > 0 ? runde(restSumme / n) : 0,
     tickRestMsMax: runde(restMax),
     zonenBudgetAbbrueche: budgetAbbrueche,
+    ohneWeltVerworfen,
   };
   tickSumme = 0;
   tickMax = 0;

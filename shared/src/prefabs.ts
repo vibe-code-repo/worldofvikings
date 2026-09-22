@@ -61,6 +61,14 @@ export interface PrefabDef {
    * mit.
    */
   animation?: string;
+  /**
+   * Ground speed a clip implies (m/s at playback rate 1), per state
+   * (`walk`, `run`). The client sets the playback rate to
+   * `actual speed / clip speed` so the feet do not slide when the server
+   * moves the animal faster than its stride cycle carries. Absent = the clip
+   * plays at 1 (route NPCs whose cycle was built for the server speed).
+   */
+  animationTempo?: Readonly<Record<string, number>>;
   /** Lichtquelle (Fackel/Feuer): Farbe 0..1, Reichweite in m, Flackern. */
   light?: {
     color: [number, number, number];
@@ -167,6 +175,33 @@ export const HINT_DEFS: PrefabDef[] = [
   def('Skeleton', F.MONSTER_AI, 'TrophySkeleton', 1.0, 1.8),
   def('Troll', F.MONSTER_AI, 'TrophyForestTroll', 3.0, 4.5),
   def('Eikthyr', F.MONSTER_AI, 'TrophyEikthyr', 3.0, 3.0),
+
+  // Cow and wolf: the first animals with an own skinned model and real clips
+  // (B9). Both GLBs are in metres and stand on the ground, so localScale is 1
+  // (the wolf was already shrunk to 0.55 inside the file).
+  //
+  // renderScale is the size of the IDLE pose (deformed mesh, measured in B9.0),
+  // NOT the numbers in assets/manifest.json: for a skinned model the manifest
+  // measures the bind pose, which differs for the wolf by 17.5 cm in height and
+  // 13.7 cm in length (manifest 0.844 x 1.367, idle pose 1.019 x 1.230).
+  // `w` is the longest horizontal edge (the length), `h` the height.
+  //
+  // `animation: 'idle'` is only the initial state; afterwards the spawn system
+  // writes idle/walk/run/attack into the ZDO member `anim`. Without the entry
+  // an ANIMAL_AI/MONSTER_AI prefab gets the procedural bobbing gait (no clip).
+  //
+  // animationTempo: ground speed the clip implies (stance-phase foot speed,
+  // measured by CPU skinning on the shipped files). The cow never plays `run`
+  // (it neither flees nor attacks), so only its walk is listed.
+  //
+  // The cow carries the deer's flags: ANIMAL_AI lets the player hit it
+  // (handleAttack) and PERSISTENT keeps it in the save. The wolf takes its
+  // flags from the pkg (MONSTER_AI); the entry only supplies size, model and
+  // animation, the flags written here are ignored for it.
+  { ...def('Kuh', F.ANIMAL_AI | F.PERSISTENT | F.SYNCED_TRANSFORM, 'raw_meat', 2.897, 1.53, 'Kuh'),
+    animation: 'idle', animationTempo: { walk: 0.94 } },
+  { ...def('Wolf', F.MONSTER_AI | F.PERSISTENT | F.SYNCED_TRANSFORM, 'raw_meat', 1.23, 1.019, 'Wolf'),
+    animation: 'idle', animationTempo: { walk: 0.62, run: 1.42 } },
 
   // ── Trees / vegetation ───────────────────────────────────────────
   def('Beech1', F.TREE_BASE | F.PERSISTENT, 'sapling_beech', 4.0, 8.0),
@@ -704,6 +739,11 @@ export const HINT_DEFS: PrefabDef[] = [
   def('Cart', F.PIECE | F.PERSISTENT, 'cart', 2.5, 1.5),
 
   // ── Eigene NPCs (nicht im pkg — hint-only Extras) ────────────────
+  // ANGREIFBAR (Trefferweg des Spielers) tragen genau die Figuren, die
+  // Kampfwerte haben (NPC_KAMPF in npc.ts): Surtr und die sechs Furlocs.
+  // Völva, Dorfbewohner und Basis-Wikinger tragen es nicht — sie sind
+  // unverwundbar und schlagen nie zu. Beide Listen hält ein Test zusammen
+  // (server/test/b8-angreifbar.ts).
   // NPC_1: vom Nutzer erstelltes Modell (screenshots/npc_1_walk.glb →
   // assets/models/). SYNCED_TRANSFORM ⇒ dynamischer Renderpfad mit
   // Animation, PERSISTENT ⇒ überlebt den Welt-Save. Bewusst KEIN
@@ -740,7 +780,7 @@ export const HINT_DEFS: PrefabDef[] = [
   //
   // Die Fraktion `furlocs` und die Rolle stehen in shared/src/npc.ts,
   // nicht hier — dort liegt das NPC-Datenmodell.
-  { ...def('FurlocFischer', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.0, 1.65, 'FurlocFischer'),
+  { ...def('FurlocFischer', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.0, 1.65, 'FurlocFischer'),
     localScale: { x: 1.05, y: 1.05, z: 1.05 }, animation: 'idle' },
 
   // ── Das übrige Furloc-Volk ─────────────────────────────────────────
@@ -782,7 +822,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // Speerspitze der Ruhepose (1,88 m): Er trägt den Speer in allen drei
   // Clips geneigt, und gemessen steht er im Leerlauf 1,79 m, im Gehen
   // 1,80 m und im Angriff 1,82 m hoch.
-  { ...def('FurlocKrieger', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.2, 1.80, 'FurlocKrieger'),
+  { ...def('FurlocKrieger', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.2, 1.80, 'FurlocKrieger'),
     localScale: { x: 0.999, y: 0.999, z: 0.999 }, animation: 'idle' },
 
   // Häuptling mit Hörnerhelm, Fellumhang und knorrigem Stab (10.119
@@ -790,14 +830,14 @@ export const HINT_DEFS: PrefabDef[] = [
   // das 1,75 m; er ist der Breiteste der fünf. Sein Umhangsaum hängt einen
   // Zentimeter tiefer als seine Sohle und streift deshalb das Gelände —
   // gewollt, denn die Alternative wäre eine schwebende Figur.
-  { ...def('FurlocHaeuptling', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.2, 1.79,
+  { ...def('FurlocHaeuptling', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.2, 1.79,
       'FurlocHaeuptling'),
     localScale: { x: 1.47, y: 1.47, z: 1.47 }, animation: 'idle' },
 
   // Schamane mit Blattkapuze und Stab mit leuchtendem Stein (10.175
   // Dreiecke, fertige GLB 3,7 MB). Körper 1,214 Einheiten, mal 1,34 sind
   // das 1,63 m. Der Stab überragt ihn deutlich: 1,82 m.
-  { ...def('FurlocSchamane', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.1, 1.82,
+  { ...def('FurlocSchamane', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.1, 1.82,
       'FurlocSchamane'),
     localScale: { x: 1.34, y: 1.34, z: 1.34 }, animation: 'idle' },
 
@@ -805,7 +845,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // (10.038 Dreiecke, fertige GLB 3,6 MB). Körper 1,344 Einheiten, mal
   // 1,19 sind das 1,60 m — kleiner als die Jüngeren, weil er gebeugt
   // steht. Auch sein Saum streift das Gelände.
-  { ...def('FurlocAeltester', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.1, 1.67,
+  { ...def('FurlocAeltester', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 2.1, 1.67,
       'FurlocAeltester'),
     localScale: { x: 1.19, y: 1.19, z: 1.19 }, animation: 'idle' },
 
@@ -814,7 +854,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // denn der Helm IST der höchste Punkt: 1,774 Einheiten mal 0,59 sind
   // 1,05 m. Das ist bewusst klein — es soll neben dem Häuptling als Kind
   // erkennbar sein und nicht als kleiner Erwachsener.
-  { ...def('FurlocKind', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 1.0, 1.05, 'FurlocKind'),
+  { ...def('FurlocKind', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 1.0, 1.05, 'FurlocKind'),
     localScale: { x: 0.59, y: 0.59, z: 0.59 }, animation: 'idle' },
 
   // Basis-Spielerkörper — der nackte Wikinger, auf dem Charaktererstellung
@@ -918,7 +958,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // tiefster Vertex 0,000 m über dem Prefab-Ursprung). Ein Höhenversatz
   // gehört hier also nirgends hin — steht er trotzdem in der Luft, liegt
   // es an der Platzierungshöhe, nicht am Modell.
-  { ...def('Surtr', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 5.0, 9.0, 'Surtr'),
+  { ...def('Surtr', F.SYNCED_TRANSFORM | F.PERSISTENT | F.ANGREIFBAR, null, 5.0, 9.0, 'Surtr'),
     localScale: { x: 9, y: 9, z: 9 }, animation: 'idle' },
 
   // ── Misc world objects ───────────────────────────────────────────
@@ -1278,6 +1318,10 @@ const EIGENE_MODELLE_ALT: readonly string[] = [
   'RockVaultWallC',
   // Der Torbogen des Fels-Kits — kein Raum, sondern sein Tuertyp.
   'RockVaultArch',
+  // Cow and wolf (B9): own animal models. Without the name here
+  // `bauSpawnTabelle()` filters them out of the spawn table.
+  'Kuh',
+  'Wolf',
 ];
 
 /**
@@ -1305,12 +1349,16 @@ import { WILDWARDEN_PARTS } from './wildwarden.js';
 import { ASHENVEIL_PARTS } from './ashenveil.js';
 import { SEIDRAVEN_PARTS } from './seidraven.js';
 import { EMBERRAGE_PARTS } from './emberrage.js';
+import { PLAINHIDE_PARTS } from './plainhide.js';
+import { GRAVETHORN_PARTS } from './gravethorn.js';
 export const EIGENE_MODELLE: readonly string[] = [
   ...IRONWARD_PARTS.map(p => `ironward/${p.item}`),
   ...WILDWARDEN_PARTS.map(p => `wildwarden/${p.item}`),
   ...ASHENVEIL_PARTS.map(p => `ashenveil/${p.item}`),
   ...SEIDRAVEN_PARTS.map(p => `seidraven/${p.item}`),
   ...EMBERRAGE_PARTS.map(p => `emberrage/${p.item}`),
+  ...PLAINHIDE_PARTS.map(p => `plainhide/${p.item}`),
+  ...GRAVETHORN_PARTS.map(p => `gravethorn/${p.item}`),
   ...EIGENE_MODELLE_ALT,
   ...STORE_MODELL_NAMEN,
 ];
@@ -1401,6 +1449,7 @@ function buildRegistry(): PrefabDef[] {
           },
       model: hint?.model ?? p.name,
       animation: hint?.animation,
+      animationTempo: hint?.animationTempo,
       light: hint?.light ?? LIGHT_HINTS.get(p.name),
     });
   }

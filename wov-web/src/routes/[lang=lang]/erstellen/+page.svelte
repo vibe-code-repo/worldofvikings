@@ -176,7 +176,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'kopf-zoom-v2-20260919';
+  const FIGUREN_STAND = 'ruestungen-plainhide-gravethorn-v1-20260921';
 
   let figur = $state('');
   let frisur = $state('');
@@ -986,32 +986,35 @@
 
     <div class="ruestungs-vorschau">
       {#if aktiveRuestung}
-        <button
-          type="button"
-          class:aktiv={ruestungAn}
-          aria-pressed={ruestungAn}
-          disabled={!fertig}
-          onclick={() => { void schalteKlassenruestung(); }}
-        >{ruestungAn
-            ? (lang === 'de' ? 'Rüstung ablegen' : 'Remove armour')
-            : (lang === 'de' ? 'Rüstung anzeigen' : 'Show armour')}</button>
-        {#if hatHelm}
-          <!--
-            Sichtbar nur bei angelegter Rüstung. Ohne sie bleibt der Platz
-            stehen (visibility statt {#if}): Sonst wüchse die Bühne beim
-            Anlegen der Rüstung um eine Knopfhöhe, und die Figur spränge.
-          -->
+        <!--
+          Rüstungsknopf und Helmschalter stehen in einer Zeile. Den Helmschalter
+          gibt es nur bei angelegter Rüstung und Set mit Kopfteil (sonst nicht
+          im Baum, also auch nicht fokussierbar); der Rüstungsknopf nimmt dann
+          die ganze Breite. Beide Zustände sind gleich hoch, die Bühne springt
+          beim Anlegen nicht.
+        -->
+        <div class="knopfzeile">
           <button
             type="button"
-            class="helm-schalter"
-            class:verborgen={!ruestungAn}
-            class:aktiv={helmAus}
-            aria-pressed={helmAus}
-            disabled={!fertig || !ruestungAn}
-            data-testid="helm-schalter"
-            onclick={() => { void schalteHelm(); }}
-          >{helmAus ? t['create.helmet.show'] : t['create.helmet.hide']}</button>
-        {/if}
+            class:aktiv={ruestungAn}
+            aria-pressed={ruestungAn}
+            disabled={!fertig}
+            onclick={() => { void schalteKlassenruestung(); }}
+          >{ruestungAn
+              ? (lang === 'de' ? 'Rüstung ablegen' : 'Remove armour')
+              : (lang === 'de' ? 'Rüstung anzeigen' : 'Show armour')}</button>
+          {#if hatHelm && ruestungAn}
+            <button
+              type="button"
+              class="helm-schalter"
+              class:aktiv={helmAus}
+              aria-pressed={helmAus}
+              disabled={!fertig}
+              data-testid="helm-schalter"
+              onclick={() => { void schalteHelm(); }}
+            >{helmAus ? t['create.helmet.show'] : t['create.helmet.hide']}</button>
+          {/if}
+        </div>
         <small>{aktiveRuestung.name}</small>
       {:else}
         <p>{lang === 'de' ? 'Das Rüstungsset dieser Klasse ist noch in Entwicklung.' : 'This class armour set is still in development.'}</p>
@@ -1142,6 +1145,17 @@
     letter-spacing: 0.14em;
     text-transform: uppercase;
     text-shadow: 0 2px 12px #000;
+    /*
+      Nie umbrechen. Die 420 px des Kopfes gelten fuer das Namensfeld; die
+      Ueberschrift darf breiter sein. Flex statt text-align: Ein zu breiter
+      Text ragt so nach beiden Seiten gleich weit hinaus (bei text-align
+      wuchse er nur nach rechts). Sonst brach "Charakter erstellen" ab 1486 px
+      Fensterbreite in zwei Zeilen um (Schrift 29,7 px, Text 420,1 px bei 420 px
+      Kopfbreite; bei 30 px sind es 423,8 px).
+    */
+    display: flex;
+    justify-content: center;
+    white-space: nowrap;
   }
 
   .namensfeld {
@@ -1306,11 +1320,10 @@
   .klassen-titel p { margin: 1px 0 0; color: var(--runengold); font-family: var(--schrift-kappen); font-size: 10px; font-weight: 700; text-transform: uppercase; }
   .klassen-text { margin: 14px 6px 17px 0; color: #c2b9a5; font-family: var(--schrift); font-size: 13px; font-style: italic; line-height: 1.65; }
   .ruestungs-vorschau { display: grid; gap: 5px; margin: -4px 6px 15px 0; }
-  .ruestungs-vorschau button { width: 100%; padding: 9px 12px; border-color: color-mix(in srgb, var(--klasse), transparent 36%); background: linear-gradient(180deg, color-mix(in srgb, var(--klasse), #111 68%), rgba(8, 10, 12, 0.92)); color: #eee8db; font-family: var(--schrift-kappen); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; }
+  .knopfzeile { display: flex; gap: 5px; }
+  .ruestungs-vorschau button { flex: 1 1 0; min-width: 0; padding: 9px 12px; white-space: nowrap; border-color: color-mix(in srgb, var(--klasse), transparent 36%); background: linear-gradient(180deg, color-mix(in srgb, var(--klasse), #111 68%), rgba(8, 10, 12, 0.92)); color: #eee8db; font-family: var(--schrift-kappen); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; }
   .ruestungs-vorschau button:hover, .ruestungs-vorschau button.aktiv { border-color: var(--runengold); box-shadow: 0 0 12px color-mix(in srgb, var(--klasse), transparent 62%); }
   .ruestungs-vorschau button:disabled { cursor: not-allowed; opacity: 0.52; }
-  .ruestungs-vorschau button.helm-schalter { padding: 6px 12px; font-size: 9px; }
-  .ruestungs-vorschau button.helm-schalter.verborgen { visibility: hidden; }
   .ruestungs-vorschau small, .ruestungs-vorschau p { margin: 0; color: #8f8777; font-size: 9px; letter-spacing: 0.04em; line-height: 1.45; }
   .klasseninfo h3 { margin: 0 0 9px; font-size: 13px; letter-spacing: 0.08em; }
   .werte-block { padding-bottom: 16px; border-bottom: 1px solid rgba(194, 150, 42, 0.18); }

@@ -35,12 +35,13 @@ import { fileURLToPath } from 'url';
 import { rmSync } from 'fs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-f3-einbau');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
 
-const PORT = 2502;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 const P = {
   VersionCheck: 1,
@@ -169,8 +170,9 @@ async function main(): Promise<void> {
   // (Sicherheitspaket 0.1). Diese Probe schickt Adminpakete, prueft aber
   // nicht die Rechtevergabe — deshalb hier ausdruecklich erlaubt, statt
   // sich still auf eine Sicherheitseinstellung zu stuetzen.
-  const server = createWovServer({ port: PORT, everyoneAdmin: true, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'f3-einbau' });
+  const server = createWovServer({ port: 0, everyoneAdmin: true, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'f3-einbau' });
   server.start();
+  PORT = portVon(server);
 
   try {
     // ── 1+2: kein Token, unterschiedliche Namen ──────────────────────

@@ -71,7 +71,7 @@ function pruefe(name: string, ok: boolean, detail = ''): void {
 
 console.log('=== Kugel-Sweep: Ecken, Wandenden, laterale Luecken ===');
 
-const server = createWovServer({ port: 2473, worldSeed: 'KxSYuZquuw', worldFeatures: false });
+const server = createWovServer({ port: 0 /* init() only, never bound */, worldSeed: 'KxSYuZquuw', worldFeatures: false });
 server.init();
 
 const kiste = (min: Vek3, max: Vek3): KollisionsForm => ({ art: 'kiste', min, max });

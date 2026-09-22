@@ -53,13 +53,14 @@ import { rmSync } from 'fs';
 import { TERRAIN_OP_DEFAULTS, type Vector3, type TerrainOpSettings } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
+import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-g7-terraforming');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
-const PORT = 2513;
+let PORT = 0; // the OS picks it; read back after start() (scripts/testport.mjs)
 
 const P = {
   VersionCheck: 1,
@@ -125,8 +126,9 @@ function sendTerrainOp(ws: WebSocket, pos: Vector3, settings: TerrainOpSettings)
 }
 
 async function main(): Promise<void> {
-  const server = createWovServer({ port: PORT, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-terraforming', saveIntervalMs: 3600_000 });
+  const server = createWovServer({ port: 0, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g7-terraforming', saveIntervalMs: 3600_000 });
   server.start();
+  PORT = portVon(server);
 
   try {
     const ws = await verbinde('Erdarbeiter');
@@ -167,7 +169,7 @@ async function main(): Promise<void> {
     console.log('\n[2+3] Speichern und Laden (frischer Server, gleicher worldsDir):');
     server.saveWorld();
     const serverB = createWovServer({
-      port: PORT + 1, // nur init(), nie gebunden
+      port: 0, // nur init(), nie gebunden
       worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'),
       worldName: 'g7-terraforming',
     });

@@ -34,6 +34,7 @@ writeFileSync(harness, HARNESS);
 
 function run(entry, args, cwd = scratch) {
   const child = spawnSync('python3', [harness, entry, 'blender', '--factory-startup', '-b', 'body.blend', ...args], { encoding: 'utf8', cwd, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+  if (child.error) throw new Error(`python3 not found (needed to run the entry points under this test): ${child.error.message}`);
   const line = child.stdout.split('\n').find(l => l.startsWith('RUN_PATH_CALLED '));
   return { status: child.status, stderr: child.stderr, called: line ? JSON.parse(line.slice('RUN_PATH_CALLED '.length)) : null };
 }
@@ -46,6 +47,13 @@ const GOOD = [
   ['directory with spaces', ['--', 'my out dir'], ['male', 'female'], ['my out dir']],
   ['explicit --female', ['--', 'OUT', '--female'], ['female'], ['OUT', '--female']],
   ['--quick and --female', ['--', 'OUT', '--quick', '--female'], ['female'], ['OUT', '--quick', '--female']],
+  // M3: the VALUE of a Blender option that takes one is not a switch of this tool, even when it
+  // reads like one -- real case, --python-expr "--Female" is a Python expression Blender runs.
+  ['value of --python-expr that looks like a switch (M3, long option)',
+    ['--python-expr', 'import builtins; builtins.Female=1', '--python-expr', '--Female', '--', 'OUT'],
+    ['male', 'female'], ['OUT']],
+  ['value of -o that looks like a switch (M3, short option)',
+    ['-o', '--quick', '--', 'OUT'], ['male', 'female'], ['OUT']],
 ];
 const BAD = [
   ['no -- at all', [], ['male', 'female'], "missing '--'"],
@@ -65,6 +73,17 @@ const BAD = [
   ['--quick before the --', ['--quick', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
   ['--male before the --', ['--male', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
   ['--quick before the -- and no --', ['--quick'], ['male', 'female'], "in front of '--'"],
+  // Write variants of a switch before the `--`: Blender would ignore each of these just as
+  // silently as the exact spelling above, so each dimension of the normalization gets its own case.
+  ['single-dash spelling before the --', ['-female', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  ['em-dash spelling before the --', ['—female', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  ['uppercase spelling before the --', ['--Quick', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  ['=value suffix before the --', ['--female=1', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  ['whitespace around the switch before the --', [' --female ', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
+  // M3: only the VALUE right after a value-taking option is skipped; a freestanding write
+  // variant one token later (or before any value-taking option) is still caught.
+  ['--Female freestanding right after a consumed --python-expr value (M3)',
+    ['--python-expr', 'x', '--Female', '--', 'OUT'], ['male', 'female'], "in front of '--'"],
 ];
 
 let checked = 0;
@@ -109,8 +128,28 @@ try {
   const moved = join(scratch, 'Rüstung Werkzeuge', 'tools', 'armor', 'sets');
   cpSync(sets, moved, { recursive: true, filter: source => !source.includes('__pycache__') });
   for (const [set, variant] of ENTRIES) check(join(moved, set, variant, 'build.py'), [set, variant], 'in a path with space and umlaut', moved);
+  // 4. Without python3 on PATH, run() must fail with a clear message, not
+  // `TypeError: Cannot read properties of null (reading 'split')` from a null child.stdout.
+  {
+    const entry = join(sets, 'seidraven', 'male', 'build.py');
+    const savedPath = process.env.PATH;
+    process.env.PATH = '';
+    let error = null;
+    try {
+      run(entry, withScript(entry, ['--', 'OUT']));
+    } catch (e) {
+      error = e;
+    } finally {
+      process.env.PATH = savedPath;
+    }
+    checked++;
+    assert(error, 'run() must throw when python3 cannot be found on PATH');
+    assert(!(error instanceof TypeError), `expected a clear error, got a TypeError: ${error.message}`);
+    assert(error.message.includes('python3'), `expected the error to name python3: ${error.message}`);
+  }
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
-console.log(`PASS entry-args: ${checked} command lines over 4 entry points x 3 placements (in place, symlink, path with space and umlaut); ` +
-  'good ones reach build_common.py with the right arguments, bad ones stop before it with a message, a usage line and a non-zero exit');
+console.log(`PASS entry-args: ${checked} command lines over 4 entry points x 3 placements (in place, symlink, path with space and umlaut) ` +
+  'plus one missing-python3 case; good ones reach build_common.py with the right arguments, bad ones stop before it with a message, ' +
+  'a usage line and a non-zero exit, and a missing python3 fails clearly instead of with a TypeError');

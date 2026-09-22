@@ -1,14 +1,17 @@
-import { armorByFile } from '@wov/shared';
+import { armorByFile, femaleWebArmorFile } from '@wov/shared';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import { updateLegacyFemaleMask } from './legacyFemaleMask.js';
 import { syncEmberrageGlow } from './emberrageGlow.js';
+import { bodyRegionOfMeshName } from './bodyRegions.js';
 export { prepareLegacyFemaleBody } from './legacyFemaleMask.js';
 
-/** Resolve the fitted asset from the body actually loaded by the current origin. */
+/**
+ * Resolve the fitted asset from the body actually loaded by the current origin.
+ * The 63-bone web body needs the web fit of every female set; which files have one comes from the registry.
+ */
 export function armorFileForSkeleton(file: string, body: Skeleton | null): string {
-  if (/^(seidraven|emberrage)\/\1_female_/.test(file) && body?.bones.length === 63
-      && body.bones.some(b => b.name === 'UpperLeg_L')) return 'armor/' + file;
+  if (body?.bones.length === 63 && body.bones.some(b => b.name === 'UpperLeg_L')) return femaleWebArmorFile(file) ?? file;
   return file;
 }
 
@@ -27,7 +30,7 @@ export function updateArmorVisibility(meshes: readonly AbstractMesh[], activeFil
   const regions = new Set(activeFiles.flatMap(f => armorByFile(f)?.regions ?? []));
   for (const mesh of meshes) {
     if (updateLegacyFemaleMask(mesh, regions)) continue;
-    const region = /(?:Chr_|WoV_BodyBase_(?:Male|Female)_)(Head|Torso|Hips|ArmUpperLeft|ArmUpperRight|ArmLowerLeft|ArmLowerRight|HandLeft|HandRight|LegLeft|LegRight)(?:_(?:Male|Female)_\d+)?(?:$|[. ])/.exec(mesh.name)?.[1];
+    const region = bodyRegionOfMeshName(mesh.name);
     if (region) mesh.setEnabled(!regions.has(region));
   }
 }

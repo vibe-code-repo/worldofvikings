@@ -79,7 +79,7 @@ export const TRUHE_LOOTED_MEMBER = 'looted';
 export type Gangart = 'idle' | 'walk';
 
 /**
- * Alles, was in `ANIM_MEMBER` stehen darf — Gangart plus Kampf.
+ * Alles, was ein NPC in `ANIM_MEMBER` schreiben darf — Gangart plus Kampf.
  *
  * Bewusst ein eigener Typ neben `Gangart`: Der RoutenLaeufer kennt nur
  * „steht oder läuft" und soll gar nicht erst `'attack'` schreiben können.
@@ -87,6 +87,15 @@ export type Gangart = 'idle' | 'walk';
  * nicht gegenseitig überschreiben.
  */
 export type AnimZustand = Gangart | 'attack';
+
+/**
+ * What the spawn system writes into `ANIM_MEMBER` for an animal: everything an
+ * NPC may show plus `run` (chasing, fleeing). Kept apart from `AnimZustand` on
+ * purpose — NPC code (route walker, aggro, editor preview) never plays `run`,
+ * and only an entry that ships the clip lists it (`SpawnEntry.clips`). The
+ * client finds the group by name and needs nothing new for it.
+ */
+export type KreaturAnim = AnimZustand | 'run';
 
 // === Network ===
 export const DEFAULT_SERVER_PORT = 2456;

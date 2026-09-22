@@ -140,7 +140,7 @@ console.log('\n[A] Regel gegen Bestand, Bit fuer Bit:');
 // ── [B] Der Serverweg: 100 Pakete mit gestellter Uhr ───────────────
 console.log('\n[B] handlePlayerInput, 100 Pakete:');
 
-const server = createWovServer({ port: 2477, worldSeed: 'KxSYuZquuw', worldFeatures: false });
+const server = createWovServer({ port: 0 /* init() only, never bound */, worldSeed: 'KxSYuZquuw', worldFeatures: false });
 server.init();
 
 function machPeer(): Peer {

@@ -566,7 +566,7 @@ export class HeightmapProvider {
   constructor(
     readonly geo: GeoManager,
     settings: HeightmapSettings = {},
-    /** LRU cap — one zone is ~33 KB, 512 zones ≈ 17 MB. */
+    /** LRU cap — one zone is ~49 KB (two 65 × 65 height fields + the 64 × 64 vegetation mask), 512 zones ≈ 25 MB. */
     readonly maxCachedZones = 512
   ) {
     this.settings = {

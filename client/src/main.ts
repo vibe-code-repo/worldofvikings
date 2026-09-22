@@ -1759,6 +1759,10 @@ async function main() {
       },
       /** Diagnose: Pose eines dynamischen Entities (Namens-Teilstring). */
       dynPose: (name: string) => entities?.dynamicPose(name) ?? null,
+      /** Diagnose: gezeichnete Groesse eines dynamischen Wesens (verformtes Netz, Bild 1 des Clips). */
+      dynMasse: (name: string, clip = 'idle') => entities?.dynamicMasse(name, clip) ?? null,
+      /** Diagnose: Sprung eines Clips beim Umschlagen (letztes gegen erstes Bild, verformtes Netz). */
+      dynSprung: (name: string, clip: string) => entities?.dynamicSprung(name, clip) ?? null,
       /** Diagnose: Schlag mit beliebiger Waffe an der Spielerposition. */
       /** Treffereffekt vor der Figur ausloesen (Messzellen): art 0 hart, 1 Blut, 2 Parade. */
       effekt: (art = 0) => {

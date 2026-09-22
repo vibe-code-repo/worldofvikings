@@ -1,8 +1,8 @@
 # Armor tooling
 
 Everything needed to build an armor set, export it for the game and check it lives
-in this folder. The five armor sets (Ironward, Wildwarden, Ashenveil, Seidraven,
-Emberrage) were built with these scripts: procedurally and deterministically in
+in this folder. The seven armor sets (Ironward, Wildwarden, Ashenveil, Seidraven,
+Emberrage, Plainhide, Gravethorn) were built with these scripts: procedurally and deterministically in
 Blender, from code, without paid generation services. The same script and the same
 body source produce the same geometry, byte for byte.
 
@@ -20,7 +20,7 @@ repository**, and the asset package is not published yet (`AGENTS.md` §1). So t
 |---|---|
 | Only this repository (`npm ci`) | The Node checks on synthetic GLBs and on the entry points: `test/export-attachment.mjs`, `test/skin-gate-selftest.mjs`, `test/wildwarden-pipeline.mjs`, `test/entry-args.mjs` (all four run inside `npm test`), and `catalog/equipment-sets-json.mjs`. |
 | The body sources and Blender | Every `build.py` and `fit-legacy.py`, `test/armor-motion.py`, `export/render-icons.py`. |
-| Also the canonical body GLBs and the built armor | `export/export-armor.mjs`, `test/skin-gate.mjs`, `test/validate-glbs.cjs`. |
+| Also the canonical body GLBs and the built armor | `export/export-armor.mjs`, `test/skin-gate.mjs` (game bodies and, with `--web`, the 63-bone web body), `test/validate-glbs.cjs`, `test/legacy-female-armor.mjs`. |
 | A deployed site | `test/equipment-set-assets.mjs`, `test/emberrage-browser.mjs`. |
 
 Requirements: Blender 5.x (the scripts were last run with 5.2 LTS; run it headless,
@@ -55,6 +55,8 @@ tools/armor/
       female/build.py                 entry point, female body (adds --female)
       female/fit-legacy.py            fits the female set to the game's current female avatar
       package.mjs                     writes integration metadata from real exports
+    plainhide/                        the starter clothing: FIVE items, same layout as emberrage/
+    gravethorn/                       thorned plate set with red glow: seven items, same layout
   export/
     export-armor.mjs                  armor GLB -> seven canonical-skin item GLBs + manifest
     render-icons.py                   inventory icons from the exported GLBs
@@ -64,13 +66,13 @@ tools/armor/
     grant-set-dev.mts                 gives a DEV test character a whole set (admin protocol)
   test/
     armor-motion.py                   evaluates all master animation clips on a built set
-    skin-gate.mjs                     the gate: canonical skin, registry, body masking
+    skin-gate.mjs                     the gate: canonical skin, registry, body masking (--web: the web-body fit)
     skin-gate-selftest.mjs            proves the gate fails when it should (runs in npm test)
     entry-args.mjs                    proves the four entry points refuse bad command lines before building (npm test)
     export-attachment.mjs             proves the exporter tags attachments (runs in npm test)
     wildwarden-pipeline.mjs           builder table, registry and shipped GLBs agree (npm test)
     validate-glbs.cjs                 glTF validator over a native and a canonical directory
-    legacy-female-armor.mjs           masking on the shipped monolithic female body
+    legacy-female-armor.mjs           masking on the shipped monolithic female body (--family=<set>)
     equipment-set-assets.mjs          read-only delivery check against a running site
     emberrage-assets.mjs              runtime checks of the Emberrage exports
     emberrage-browser.mjs             Chromium check of the Emberrage preview (repo root, needs wov-web/build)
@@ -90,9 +92,13 @@ version would need its own build against the female body plus a legacy fit.
 
 ## Vocabulary
 
-**Items.** A set has seven items: `hood`, `shoulders`, `vest`, `bracers`, `gloves`,
+**Items.** A set has up to seven items: `hood`, `shoulders`, `vest`, `bracers`, `gloves`,
 `robe`, `boots` (Ironward uses its own inventory names such as `IronwardHelmet`;
-see `docs/equipment-set-catalog.md`). Each item is one skinned GLB.
+see `docs/equipment-set-catalog.md`). Each item is one skinned GLB. **Plainhide has five**
+(`shoulders`, `vest`, `bracers`, `robe`, `boots`: no `hood`, no `gloves`), so the head and the hands
+stay the player's body. Nothing in the export or the checks may assume seven items: a set's items,
+its replaced regions and its *free regions* (the ones no item replaces) come from `equipment.json`
+and from the registry.
 
 **Body regions.** The body is cut into eleven regions; an item replaces one or more:
 
@@ -127,12 +133,14 @@ which body it fits. The game rejects a mismatch even if the character owns the i
 | Seidraven / Emberrage male | `male` | `wov-male-v1` | `wikinger` | same |
 | Seidraven / Emberrage female, as built by `female/build.py` | `female` | `wov-female-v1` | (not playable) | 63-bone authoring rig |
 | Seidraven / Emberrage female, after `fit-legacy.py` | `female` | `legacy-female-v1` | `wikingerin` | the game's current 51-bone female avatar |
+| Plainhide / Gravethorn | as Seidraven / Emberrage: male, female web fit (`wov-female-v1`), female game fit (`legacy-female-v1`) | | | same |
 
 **There are two female skeletons. Never conclude the body profile from a file name:**
 both `female/build.py` and `fit-legacy.py` write items called `<set>_female_<key>`,
 but only the `bodyProfile` inside `equipment.json` says which skeleton the geometry
-is skinned to. Check that field. The set that ships for the female figure today is
-the `legacy-female-v1` one.
+is skinned to. Check that field. The set that ships for the female figure in the game is
+the `legacy-female-v1` one; the `wov-female-v1` fit is the web preview's
+(`previewBodyProfile` in the catalog, files under `armor/<set>/` on the website).
 
 The 51-bone female avatar is a single monolithic mesh, so `fit-legacy.py` rebuilds
 each item's lining from an exact triangle partition of that body and the game masks
@@ -164,22 +172,24 @@ in the commands below are shorthand for that.
 
    Look at `validation.json` (triangle count, geometry checks).
 
-   The Seidraven and Emberrage entry points check the command line first, before
-   anything is built (`sets/entry_args.py`): `OUTPUT_DIR` must be the first argument
-   after `--`; the only other switch is `--quick` (the female entry point also accepts
-   an explicit `--female`). Anything else is refused with a message, a usage line and
-   exit code 1: a missing `--` or directory, unknown or repeated switches, `--female`
-   on a male entry point, and `--quick`, `--female` or `--male` placed in front of the
-   `--` (Blender would silently ignore them). Blender turns the refusal into a
-   non-zero exit code even without `--python-exit-code 1` (measured with 5.2). A male
-   entry point on the female body source, or the reverse, stops a moment later with a
-   missing-object error.
+   All six male/female entry points check the command line first, before anything is
+   built (`sets/entry_args.py`): `OUTPUT_DIR` must be the first argument after `--`; the
+   only other switch is `--quick` (the Seidraven/Emberrage female entry points also
+   accept an explicit `--female`; Wildwarden and Ashenveil have no female entry point).
+   Anything else is refused with a message, a usage line and exit code 1: a missing `--`
+   or directory, unknown or repeated switches, `--female` on a male entry point, `--quick`,
+   `--female` or `--male` placed in front of the `--` (Blender would silently ignore
+   them), and misspelt write variants of those three placed in front of the `--` (dash
+   style, case, an `=value` suffix, stray whitespace -- Blender would ignore those just
+   as silently). Blender turns the refusal into a non-zero exit code even without
+   `--python-exit-code 1` (measured with 5.2). A male entry point on the female body
+   source, or the reverse, stops a moment later with a missing-object error.
 
    What `--quick` does, per set (read from the code):
 
    | Set | `--quick` |
    |---|---|
-   | Seidraven, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `sets/seidraven/build_common.py:618,680`, `ashenveil/male/build.py:607,666`, `wildwarden/male/build.py:502,556`. |
+   | Seidraven, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `sets/seidraven/build_common.py:618,680`, `ashenveil/male/build.py:611,670`, `wildwarden/male/build.py:506,560`. |
    | Emberrage | The same, **except that the export block is forced on**: `--quick` still writes the seven item GLBs, `WoV_Emberrage_Armor.glb` and `WoV_Emberrage_Armor.blend` (`sets/emberrage/build_common.py:191` turns the guard into `if True:`). Renders and pose checks are still cut down. |
    | Ironward | The switch exists (it is read from the whole command line, `ironward/male/build.py:365,404`) but it only skips the detail and pose *images*. The pose checks run, and the `.blend` (`:360`, `:432`), `components.json` and the four GLBs (`:421-424`) are always written. |
 
@@ -193,11 +203,21 @@ in the commands below are shorthand for that.
    ```sh
    blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
      --python tools/armor/test/armor-motion.py -- MASTER_ANIMATIONS.blend OUTPUT_DIR/motion \
-     [--prefix=<PREFIX>] [--compact] [--quick]
+     --regions=N [--keep-body=Region,Region] [--prefix=<PREFIX>] [--compact] [--quick]
    ```
 
-   The default prefix is `WoV_Wildwarden_`. With wings (Seidraven) it also checks
-   every rigid shoulder-socket vertex against its expected transform.
+   `--regions=N` is required: the exact number of `<PREFIX>`-named armor mesh objects
+   the build produced (11 for the eleven-region sets; fewer for a set that replaces
+   only some body regions, e.g. `--regions=8` for Plainhide). `--keep-body=Region,Region`
+   (e.g. `--keep-body=Head,HandLeft,HandRight`) names source-body regions that stay
+   visible next to the armor, in the renders and the overview montage, because the set
+   does not replace them; default none. The default prefix is `WoV_Wildwarden_`. With
+   wings (Seidraven) it also checks every rigid shoulder-socket vertex against its
+   expected transform.
+
+   Known gap, not closed yet (follow-up card): `--keep-body Head` (a space instead
+   of `=`) is silently read as no `--keep-body` at all, unlike `--regions`, which does
+   reject a missing `=`.
 
 3. **Legacy female fit** (Blender; female variants of Seidraven and Emberrage only).
    Run it on the female authoring blend from step 1, with the actual female avatar:
@@ -220,7 +240,8 @@ in the commands below are shorthand for that.
    ```
 
 5. **Skin gate, unregistered.** Deformation only: every game animation clip on the
-   canonical skin. Use `--unregistered` while the set has no registry entry.
+   canonical skin. Use `--unregistered` while the set has no registry entry (the web fit of a female set is
+   checked with `--variant=female` and the 63-bone web body).
 
    ```sh
    node_modules/.bin/tsx tools/armor/test/skin-gate.mjs GAME_BODY.glb OUTPUT_DIR/game-ready \
@@ -271,12 +292,41 @@ in the commands below are shorthand for that.
 10. **Skin gate, registered.** The same command as step 5 **without** `--unregistered`.
     Now the registry drives it: every item the registry lists must be in the manifest
     and on disk, the `replaces` / `attachment` extras must name exactly the registered
-    regions, and full-set masking and restoration on the body is tested.
+    regions, and full-set masking and restoration on the body is tested. The regions no
+    item replaces (Plainhide: `Head`, `HandLeft`, `HandRight`) must stay on the body, each one on its
+    own: a body without the head or one hand fails and the message names the region. Each free
+    region needs an indexed triangle list (a multiple of 3 indices, at least 3; another topology
+    such as a triangle strip, or a primitive with no index buffer, is refused by name, found by the
+    exact glTF primitive the loader actually instantiated — never by node name, which a strip and a
+    shadow node can share, and which Babylon itself changes for a multi-primitive mesh) and every
+    mesh of it must be enabled, `isVisible === true` and a finite `visibility > 0` after the full
+    set is worn. This topology check runs only for a segmented body mesh (the male and web-female
+    bodies); the monolithic 51-bone body is not checked for topology. A segmented body mesh is read
+    with the same region parser the client exports (`client/src/player/bodyRegions.ts`), so a mesh
+    belongs to exactly one region and a mesh whose name names none fails the gate instead of being
+    silently ignored. `test/legacy-female-armor.mjs` does the same masking on the real 51-bone body;
+    it deletes an old `runtime-validation.json` in the given output folder (exactly that one file)
+    before anything else, so a failed run of any kind, an unknown `--family` included, removes it —
+    unless the deletion itself fails (a read-only output folder: `EACCES`, exit 1, the old report stays).
+    A registered GLB must carry `itemId`, `bodyVariant` and `bodyProfile` in
+    every mesh node and they must equal the registry; only the closed list
+    `FAMILIES_WITHOUT_IDENTITY_EXTRAS` at the top of `skin-gate.mjs` (Ironward, Wildwarden,
+    Ashenveil, whose shipped GLBs never had them; `--list-legacy-sets` prints it) is exempt, every
+    other family and every future one is required. A manifest that lists an item id twice is
+    refused before anything is loaded.
 
     ```sh
     node_modules/.bin/tsx tools/armor/test/skin-gate.mjs GAME_BODY.glb OUTPUT_DIR/game-ready \
       --family=<set> [--variant=male|female]
+    # the web fit of a female set, on the 63-bone web body (wov-web/static/assets/models/wikingerin/):
+    node_modules/.bin/tsx tools/armor/test/skin-gate.mjs WEB_BODY.glb WEB_OUTPUT_DIR/game-ready \
+      --family=<set> --variant=female --web
     ```
+
+    `--web` takes the body profile from the catalog (`previewBodyProfile`), checks that the
+    GLBs carry it and are skinned to the 63-bone rig, and refuses a set that has no
+    separate web fit. For the game figure's masking on the real 51-bone body, run
+    `test/legacy-female-armor.mjs BODY.glb ITEM_DIR FIT_REPORT.json --family=<set>`.
 
 11. **Delivery check** against the running site: catalog, every model and every icon
     are fetched and compared. Read-only; it does not log in.
@@ -335,30 +385,58 @@ design from the Seidraven builder.
 5. **Register** (code, the Emberrage commit is the template):
    `shared/src/<new>.ts` (parts with `key`, `name`, `slot`, `equipment`, `regions`,
    `hideAppearance`, `weight`, generated ids `<new>_<variant>_<key>`, the body policy
-   from `shared/src/armorCompatibility.ts`), export it from `shared/src/index.ts`,
+   from `shared/src/armorCompatibility.ts`; `vfxProfile` for a glowing set: add the profile
+   to `ArmorVfxProfile` and its materials to the table in `client/src/player/emberrageGlow.ts`),
+   export it from `shared/src/index.ts`,
    add it to the `RUESTUNG` list in `shared/src/aussehen.ts`, to the item definitions
    in `shared/src/items/itemDefs.ts`, to the model list in `shared/src/prefabs.ts` and
    to the catalog in `shared/src/equipmentSets.ts` (set entries and, where wanted, the
-   class mapping). `git grep -n emberrage -- shared client server` lists every place
-   an existing set is wired. Item ids and set ids must stay stable across later
+   class mapping; a starter set carries `starter: true` and its `freeRegions`, see Plainhide).
+   `git grep -n emberrage -- shared client server` lists every place an existing set is wired. Item ids and set ids must stay stable across later
    visual revisions.
 6. Deliver the files and the manifest as described in step 8 of the chain, then
    continue with steps 9 to 11.
 
 ## What the checks do not promise
 
+### What the gate does not prove
+
+A green `skin-gate.mjs` or `legacy-female-armor.mjs` run says less than "the free regions are visible".
+The output lists it next to `collisionCertified: false` as `notProven`. The checks read scene state
+and index counts; they are not a material, pixel or collision check, and none was added:
+
+- **Material transparency.** A free region whose material is `alphaMode: BLEND` with alpha 0 (or any
+  other material that draws nothing) passes: the mesh is present, enabled and visible in the scene
+  graph sense. The gate does not look at materials.
+- **Geometry that encloses a free region.** Foreign geometry declared as a replaced region (a torso
+  that surrounds the head or the hands) passes; that is the collision question above.
+- **Completeness of the original body.** One of two hand meshes, or a body with a duplicate or freely
+  renamed head mesh, is still a positive proof that the region exists, not that the shipped body
+  geometry is whole. A segmented body mesh's region is read with the client's own parser
+  (`bodyRegionOfMeshName`), so a mesh belongs to exactly one region even when its name also contains
+  another region's word (a free hand called "Chr_HandLeft_Female_00 Head" does not also count as the
+  free Head); a body mesh whose name names no region at all fails the gate rather than being ignored.
+- **Provenance.** Correct identity fields copied onto foreign, rig- and region-compatible geometry
+  pass. The gate checks a metadata contract, not where the geometry came from.
+
 - **No clipping approval.** The motion test proves finite, bounded geometry and an
-  exact rest matrix over every frame of every master clip. It does not prove that
+  exact rest matrix at four (`skin-gate.mjs`, including on the real 51-bone body) or
+  five (the stand-alone `legacy-female-armor.mjs`) sample points per clip
+  (`samplesPerClip` in the report) — the tool decides the sample count, not the body.
+  It does not prove that
   armor and body never intersect. Deep crouches and high kicks stretch the `Hips`
   region locally by roughly 4.4 times; those are review points, not a release claim.
 - **No cloth simulation** and no test of mixed sets or of runtime animation layers.
-- **No performance approval.** A set has about 53 to 62 render primitives (flat
+- **No performance approval.** A set has about 28 (Plainhide) to 65 (Gravethorn) render primitives (flat
   materials, no texture atlas). Triangle count alone says nothing about draw-call
   cost in a crowd.
 - The skin gate runs the real Babylon GLB loader with CPU skinning and no GPU; it says
   nothing about how a device renders.
 - The legacy female fit is verified against the shipped 51-bone avatar only. The
-  authoring female (`wov-female-v1`) is not playable in the game today.
+  authoring female (`wov-female-v1`) is not playable in the game today; its fit ships
+  for the web preview.
+- A green gate is not a collision approval. The Plainhide skirt and the Gravethorn
+  tassets still reach 5 to 6 cm into the male body in the sword attack.
 
 ## Moved from
 
@@ -392,3 +470,86 @@ New in this folder (they existed only outside the repository): the Ironward buil
 (`sets/ironward/male/`, now taking `OUTPUT_DIR` after `--` and writing nothing next to
 itself), the Ashenveil builder, `sets/seidraven/render-pair.py`, and the generalised
 `test/armor-motion.py`.
+
+## Comparison and review tools
+
+`test/render-compare.py` and `test/probe.py` started as a one-off Gravethorn
+comparison script; both are now parametrized and work on any set built from the
+Seidraven scaffold. Neither reads a material name or a builder-specific mesh
+attribute: every measurement or per-item selection goes through `--prefix`/
+`--regions`/`--items`, the same object-naming contract `armor-motion.py` uses.
+
+```sh
+blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
+  --python tools/armor/test/render-compare.py -- TARGET_DIR MASTER_ANIMATIONS.blend \
+  --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... [--quick] [--glow] [--frame=<m>]
+```
+
+`--items` lists a set's items in display order, each as `key:Region[+Region...]`
+(the body regions that item's `<PREFIX>Region` mesh occupies), e.g. for the
+Seidraven/Gravethorn seven-item shape:
+`--items=hood:Head,shoulders:ArmUpperLeft+ArmUpperRight,vest:Torso,bracers:ArmLowerLeft+ArmLowerRight,gloves:HandLeft+HandRight,robe:Hips,boots:LegLeft+LegRight`.
+Writes a four-angle turntable (`vergleich-1..4-*.png`), `comparison-pose-metrics.json`
+and two diagnostic poses (arms overhead, a master-clip crouch) always; a per-item
+tile sheet (`vergleich-items.png`) only on a full run. The turntable's orthographic
+scale is fitted from the item objects' own posed bounding radius/height plus a
+margin, not a fixed number: a fixed 2.5 m scale used to crop Seidraven's 2.45 m
+wingspan silently. `--frame=<m>` overrides the computed scale; a value too small to
+fit is a hard error naming the minimum, not a silent crop.
+
+```sh
+blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
+  --python tools/armor/test/probe.py -- MASTER_ANIMATIONS.blend TARGET_DIR \
+  --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... --body=Male|Female \
+  [--measure-only] [--glow] [--allow-no-lining]
+```
+
+Read-only review: writes `probe.json`, never the `.blend`. A `<PREFIX>`-named object
+that is not one of the eleven body regions (an attachment such as Wildwarden's
+Crown) is skipped for every measurement, with a printed note -- it is still
+rendered. Every measured item mesh's vertices split into two named, geometrically
+determined populations -- not a material name, not a builder-specific mesh
+attribute, and (an earlier version of this tool, corrected after an independent
+attack) not "the largest connected vertex island" either: at Gravethorn's hips
+that island IS the lining, at the torso it is only part of it, and at every limb
+it is a single hard plate with zero lining vertices, so "the largest island" means
+a different thing in every region. `lining` is the set of item vertices that
+geometrically match the scaffold's own lining recipe (`sets/seidraven/
+build_common.py`: the source body region **as currently loaded**, welded at
+1e-5 m, pushed out along its recomputed normals by 0.0005 m for Head/HandLeft/
+HandRight or 0.002 m elsewhere) within 1e-5 m; `hard` is every other item vertex,
+which for a smoothed/softened set (Plainhide) is mostly still visible cloth, not
+literal hardness -- it only means "missed the lining match". Because the
+reconstruction depends on the loaded body, a region the set replaces where it
+finds **zero** lining vertices is refused (exit code 1, naming the region and the
+expected count) unless `--allow-no-lining` is given -- this is what catches the
+tool silently measuring against the wrong or a moved body instead of failing.
+Partial lining short of the full expected count but above zero (Plainhide's own
+smoothed garments) stays allowed and is reported as a fraction per region
+(`population_vertices`), with a printed `PARTIAL_LINING` summary when it happens.
+Measures, per region: stand-off of both populations from the body at rest (lining
+should read close to the scaffold's own gap -- a sanity check on the
+reconstruction, not just a number); shoulder/arm/hand collision (both populations)
+with arms down and arms overhead; how far the Head bone deviates from the Neck
+bone over the master clips (a helmet bound to the wrong bone would not follow
+it); and, at four diagnostic poses (idle, deep crouch, kick, sword attack), per
+item: `lining`/`hard` vertices found inside the body (`inside_body`, both
+populations, each labelled) and body vertices found outside a shell built from
+`hard` vertices only (`body_outside_plate`; `body_outside_plate_population` names
+which population that is). That `hard` shell is usually **not closed** (an
+independent audit found 10 to 692 open boundary edges per region on Gravethorn;
+it is mostly open on every set, but a few regions of Seidraven/Emberrage have
+only small border loops too (Seidraven ArmUpperLeft/Right 10 each, Head 16;
+Emberrage female Head 12) rather than none, so treat
+`body_outside_plate` as a proximity/inside-vote number against a possibly open
+surface, not a leak-proof containment guarantee; the same region measured this
+way before and after an unrelated tool change moved from 54 to 107 purely because
+the reconstructed `hard` population itself changed shape. `--measure-only` skips
+the descriptive renders and only shoots the two head-detail stills used to check
+helmet placement.
+
+Both tools turn the scaffold's preview Fog Glow compositor off by default: it is
+saved inside the `.blend` from the build and would otherwise put a halo on every
+review image, including sets with no emissive material at all. `--glow` keeps
+whatever the saved `.blend` already has, for a set whose own comparison images
+should show it (Emberrage, Gravethorn).

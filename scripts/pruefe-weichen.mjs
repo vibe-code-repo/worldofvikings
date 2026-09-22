@@ -36,6 +36,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import ts from 'typescript';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const EIGEN = process.argv.find((a) => a.startsWith('--weichen='));
@@ -252,6 +253,58 @@ console.log('\n[3c] brauchtBodenQuellen — Speicher UND Altbestand');
   );
 }
 
+/*
+  Die Weiche, die `run-tests.mjs` an einen Eintrag der Liste KERN hängt, aus dem
+  SYNTAXBAUM gelesen und nicht per Textmuster: Ein Muster wie `\(([^)]*)\)` endet an
+  der ersten Klammer, auch an der in einem Kommentar (`// (Kuh/Wolf)`), und liest
+  dann nur den halben Aufruf. Kommentare, Anführungszeichen und Umbrüche sind im
+  Baum kein Thema. Gefolgt wird `...NAME` auf oberster Ebene, wie in
+  `leseKern` (scripts/runner-buchfuehrung.mjs).
+
+  Reads the switch of a KERN entry from the syntax tree, not by text pattern.
+*/
+function weicheDesEintrags(quelltext, testdatei) {
+  const baum = ts.createSourceFile('run-tests.mjs', quelltext, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const oberste = new Map();
+  for (const anweisung of baum.statements) {
+    if (!ts.isVariableStatement(anweisung)) continue;
+    for (const d of anweisung.declarationList.declarations) {
+      if (ts.isIdentifier(d.name) && d.initializer) oberste.set(d.name.text, d.initializer);
+    }
+  }
+  const dritte = [];
+  const durchsuche = (liste, besucht) => {
+    if (!liste || !ts.isArrayLiteralExpression(liste)) return;
+    for (const e of liste.elements) {
+      if (ts.isSpreadElement(e) && ts.isIdentifier(e.expression)) {
+        if (!besucht.has(e.expression.text)) {
+          durchsuche(oberste.get(e.expression.text), new Set(besucht).add(e.expression.text));
+        }
+        continue;
+      }
+      if (!ts.isArrayLiteralExpression(e)) continue;
+      const [, datei, weiche] = e.elements;
+      if (datei && ts.isStringLiteralLike(datei) && datei.text === testdatei) dritte.push(weiche);
+    }
+  };
+  durchsuche(oberste.get('KERN'), new Set(['KERN']));
+  const eintraege = dritte.length;
+  const weiche = dritte[0];
+  const ruft =
+    eintraege === 1 &&
+    weiche !== undefined &&
+    ts.isCallExpression(weiche) &&
+    ts.isIdentifier(weiche.expression) &&
+    weiche.expression.text === 'brauchtModelle';
+  const argumente = ruft ? [...weiche.arguments] : [];
+  return {
+    eintraege,
+    ruft,
+    nichtLesbar: argumente.filter((a) => !ts.isStringLiteralLike(a)).length,
+    dateien: argumente.filter((a) => ts.isStringLiteralLike(a)).map((a) => a.text),
+  };
+}
+
 console.log('\n[4] Verdrahtung — hängen die Weichen am Sammellauf?');
 {
   const lauf = readFileSync(join(WURZEL, 'scripts', 'run-tests.mjs'), 'utf8');
@@ -282,6 +335,36 @@ console.log('\n[4] Verdrahtung — hängen die Weichen am Sammellauf?');
   pruefe(
     /'test\/terrain-schichten\.ts',\s*brauchtBodenQuellen\(/.test(lauf),
     'der Bodenschichten-Prüfer steht hinter brauchtBodenQuellen(...), nicht mehr hinter brauchtStore(...)',
+  );
+
+  /*
+    B9.1: Die Dateien, die die Weiche am Manifest-Test nennt, müssen selbst
+    Manifest-Einträge sein. Ein Tippfehler dort (`Kuh.gbl`) lässt
+    `brauchtModelle` für immer „Datei fehlt" melden: der Vollständigkeitstest
+    wird auch bei vollem Bestand übersprungen, Exit 0, und dieser Zeuge blieb
+    bis hierher grün, weil er den Eintrag nie ansah. Das Manifest ist
+    getrackt, die Prüfung braucht also keine Modelldateien und gilt im
+    CI-Checkout genauso.
+
+    The files the switch names for the manifest test must be manifest entries
+    themselves; a typo would silence that test everywhere.
+  */
+  const eintrag = weicheDesEintrags(lauf, 'test/manifest-vollstaendig.ts');
+  pruefe(
+    eintrag.ruft,
+    `der Vollständigkeitstest des Manifests steht genau einmal in KERN, hinter brauchtModelle(...) (Einträge: ${eintrag.eintraege})`,
+  );
+  const genannt = eintrag.dateien;
+  const manifest = JSON.parse(readFileSync(join(WURZEL, 'assets', 'manifest.json'), 'utf8'));
+  const imManifest = new Set(Object.values(manifest.modelle).map((m) => `assets/models/${m.datei}`));
+  const unbekannt = genannt.filter((d) => !imManifest.has(d));
+  pruefe(
+    genannt.length > 0 && eintrag.nichtLesbar === 0 && unbekannt.length === 0,
+    `jede Datei, die die Weiche am Manifest-Test nennt, ist ein Manifest-Eintrag (unbekannt: ${JSON.stringify(unbekannt)}, keine Textliterale: ${eintrag.nichtLesbar})`,
+  );
+  pruefe(
+    genannt.includes('assets/models/PlayerAvatar.glb'),
+    'der Stellvertreter PlayerAvatar.glb steht weiter in dieser Weiche',
   );
 }
 

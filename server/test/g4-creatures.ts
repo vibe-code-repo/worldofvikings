@@ -426,7 +426,7 @@ rmSync(WORLDS_DIR, { recursive: true, force: true });
 {
   const makeServer = () =>
     createWovServer({
-      port: 2499, // never bound (init only, no start)
+      port: 0, // never bound (init only, no start)
       worldName: 'world',
       worldSeed: SEED_STR,
       worldFeatures: false,
@@ -499,7 +499,7 @@ console.log('== 12. config gate: worldCreatures:false disables the system ==');
 rmSync(WORLDS_DIR_C, { recursive: true, force: true });
 {
   const serverC = createWovServer({
-    port: 2500,
+    port: 0, // init() only, never bound
     worldName: 'world',
     worldSeed: SEED_STR,
     worldFeatures: false,

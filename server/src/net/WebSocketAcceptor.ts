@@ -92,4 +92,16 @@ export class WebSocketAcceptor {
   get isListening(): boolean {
     return this.wss !== null;
   }
+
+  /**
+   * The port the HTTP server is really bound to, or null before `listen` and
+   * after `close`. With `listen(0, ...)` the operating system picks the port;
+   * this is where a test reads it back (server/test uses port 0, see
+   * scripts/testport.mjs). `listen` binds synchronously, so the value is there
+   * right after the call.
+   */
+  get boundPort(): number | null {
+    const adresse = this.httpServer?.address();
+    return adresse !== null && adresse !== undefined && typeof adresse === 'object' ? adresse.port : null;
+  }
 }

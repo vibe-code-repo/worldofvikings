@@ -40,7 +40,7 @@ console.log('=== PlayerState: seq gehoert zur gemeldeten Position ===');
 
 // worldFeatures: false wie in g1 — geprüft wird Bewegung/Protokoll, nicht
 // die Weltgenerierung.
-const server = createWovServer({ port: 2499, worldSeed: 'KxSYuZquuw', worldFeatures: false });
+const server = createWovServer({ port: 0 /* init() only, never bound */, worldSeed: 'KxSYuZquuw', worldFeatures: false });
 server.init();
 
 /** Ein mitgeschriebenes PlayerState-Paket, schon aufgeschlüsselt. */

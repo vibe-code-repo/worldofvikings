@@ -97,27 +97,33 @@ const entries = unregistered
   ? manifest.items.map(i => ({ item: i.item, file: i.file }))
   : expected.map(part => ({ item: itemOf(part), file: listed.get(itemOf(part)).file, part }));
 
-/** The mesh nodes of a GLB with their extras, read from the file itself, not from the loader. */
-function meshNodes(path) {
+/** The raw glTF JSON chunk of a GLB, read from the file itself, not from the loader. */
+function gltfJson(path) {
   const bytes = readFileSync(path);
-  const json = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString());
-  return json.nodes.filter(n => n.mesh !== undefined).map(n => ({ name: n.name, extras: n.extras ?? {} }));
+  return JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString());
+}
+/** The mesh nodes of a GLB with their extras. */
+function meshNodes(path) {
+  return gltfJson(path).nodes.filter(n => n.mesh !== undefined).map(n => ({ name: n.name, extras: n.extras ?? {} }));
 }
 // glTF primitive.mode 4 is TRIANGLES; it is the default when the field is absent. Only an indexed triangle list is a
 // supported body mesh: the Babylon loader accepts other topologies (a triangle strip) without converting them, so an
 // index count alone cannot tell a strip from a malformed list.
 const TRIANGLES_MODE = 4;
-/** Per mesh node name: whether every one of its primitives is an indexed triangle list, read from the GLB itself. */
-function meshPrimitiveModes(path) {
-  const bytes = readFileSync(path);
-  const json = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString());
-  const byName = new Map();
-  for (const node of json.nodes) {
-    if (node.mesh === undefined) continue;
-    const primitives = json.meshes[node.mesh].primitives;
-    byName.set(node.name, primitives.every(p => p.indices !== undefined && (p.mode ?? TRIANGLES_MODE) === TRIANGLES_MODE));
-  }
-  return byName;
+/**
+ * Whether a loaded Babylon mesh is an indexed TRIANGLES primitive — found via the exact glTF mesh/primitive index
+ * the loader itself recorded on the mesh (`_internalMetadata.gltf.pointers`, e.g. `/meshes/3/primitives/0`), never
+ * by name. Two glTF nodes can share a name (only one need be in the loaded scene) and Babylon renames every
+ * primitive of a multi-primitive mesh to `<node>_primitive<N>` (even primitive 0): a name-keyed lookup can find
+ * the wrong primitive, or overwrite it with an unrelated one, or find nothing for a renamed mesh that is still a
+ * plain triangle list.
+ */
+function isIndexedTriangleList(mesh, json) {
+  const pointer = mesh._internalMetadata?.gltf?.pointers?.find(p => /^\/meshes\/\d+\/primitives\/\d+$/.test(p));
+  const match = pointer && /^\/meshes\/(\d+)\/primitives\/(\d+)$/.exec(pointer);
+  if (!match) return false;
+  const primitive = json.meshes[Number(match[1])]?.primitives[Number(match[2])];
+  return !!primitive && primitive.indices !== undefined && (primitive.mode ?? TRIANGLES_MODE) === TRIANGLES_MODE;
 }
 /** The GLB must say what the registry says: which regions it replaces, or that it is an attachment. */
 function checkExtras(part, nodes) {
@@ -227,7 +233,7 @@ if (!unregistered) {
     // One region per body mesh, read the same way the client reads it: a mesh whose name names none is an error, not
     // silently ignored geometry, and a mesh named for one region (a free hand called "... Head") can never also stand
     // in for another (the free Head itself).
-    const primitiveModes = meshPrimitiveModes(bodyPath);
+    const bodyJson = gltfJson(bodyPath);
     const meshRegion = new Map(bodyMeshes.map(m => [m, bodyRegionOfMeshName(m.name)]));
     for (const m of bodyMeshes) {
       assert(meshRegion.get(m) !== undefined, `${family}/${variant}: body mesh ${m.name} does not name a known body region`);
@@ -248,7 +254,7 @@ if (!unregistered) {
       const meshes = bodyMeshes.filter(m => meshRegion.get(m) === region);
       assert(meshes.length > 0, `${family}/${variant}: the free region ${region} has no body mesh: it is missing from the body`);
       for (const m of meshes) {
-        assert(primitiveModes.get(m.name), `${family}/${variant}: the free region ${region} has a mesh (${m.name}) that is not an indexed triangle list: only indexed triangle lists are supported`);
+        assert(isIndexedTriangleList(m, bodyJson), `${family}/${variant}: the free region ${region} has a mesh (${m.name}) that is not an indexed triangle list: only indexed triangle lists are supported`);
         // Whole triangles: a head with one or two indices is no head. Every mesh of the region counts, not only the first.
         const indices = m.getTotalIndices();
         assert(indices >= 3 && indices % 3 === 0,

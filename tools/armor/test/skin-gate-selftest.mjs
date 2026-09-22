@@ -47,6 +47,15 @@ function glb(json, bin) {
   out.writeUInt32LE(binChunk.length, at); out.writeUInt32LE(0x004e4942, at + 4); binChunk.copy(out, at + 8);
   return out;
 }
+/** Mutate an already-built GLB's JSON chunk directly, for shapes the mesh builder below cannot express: a second
+ * glTF node that shares a name with the real one, or a second primitive on one mesh (M1). */
+function editGlb(bytes, fn) {
+  const n = bytes.readUInt32LE(12);
+  const json = JSON.parse(bytes.subarray(20, 20 + n).toString());
+  const bin = bytes.subarray(28 + n);
+  fn(json);
+  return glb(json, bin);
+}
 const floats = values => Buffer.from(new Float32Array(values).buffer);
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const REGIONS = ['Head', 'Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft', 'ArmLowerRight', 'HandLeft', 'HandRight', 'LegLeft', 'LegRight'];
@@ -181,6 +190,39 @@ try {
   writeFileSync(join(scratch, 'web-head-strip.glb'), webBodyWith({ indexCount: { Head: 4 }, primitiveMode: { Head: 5 } }));
   // F2: a legal, non-indexed head primitive (no index buffer at all) is not an indexed triangle list either.
   writeFileSync(join(scratch, 'web-head-no-indices.glb'), webBodyWith({ noIndexBuffer: ['Head'] }));
+  // M1, Zeuge A: the real, loaded free Head is a TRIANGLE_STRIP; a SECOND glTF node of the exact same name points
+  // at a cloned mesh whose primitive is a valid TRIANGLES list. The shadow node is either left out of the loaded
+  // scene entirely ("unused") or also placed in it ("active" — Babylon then loads it as a second mesh of the same
+  // name). Either way the strip that was actually rendered must still be caught: a name-keyed lookup that lets the
+  // shadow's mode overwrite or stand in for the real one's is wrong in both directions.
+  const stripShadow = active => editGlb(webBodyWith({ indexCount: { Head: 6 }, primitiveMode: { Head: 5 } }), json => {
+    const headNode = json.nodes.find(n => n.name === 'Chr_Head_Female_00');
+    const shadowMesh = structuredClone(json.meshes[headNode.mesh]);
+    shadowMesh.primitives[0].mode = 4;
+    json.meshes.push(shadowMesh);
+    json.nodes.push({ ...headNode, mesh: json.meshes.length - 1 });
+    if (active) json.scenes[0].nodes.push(json.nodes.length - 1);
+  });
+  writeFileSync(join(scratch, 'web-head-strip-shadow-unused.glb'), stripShadow(false));
+  writeFileSync(join(scratch, 'web-head-strip-shadow-active.glb'), stripShadow(true));
+  // M1, Zeuge B: a free Head made of TWO valid indexed TRIANGLES primitives on the same mesh (legitimate glTF: two
+  // materials on one region) — Babylon renames every primitive of a multi-primitive mesh to "<node>_primitiveN",
+  // even primitive 0, so a lookup keyed by the raw node name never finds either one. Renaming the node to add
+  // "(1)" first (the "space" variant) additionally exercises the shared region parser's tolerance of a suffix
+  // after the region name, so this witnesses the primitive lookup specifically, not the parser.
+  const multiTriangleHead = rename => editGlb(webBodyWith({ indexCount: { Head: 6 } }), json => {
+    const headNode = json.nodes.find(n => n.name === 'Chr_Head_Female_00');
+    if (rename) headNode.name += ' (1)';
+    const headMesh = json.meshes[headNode.mesh];
+    headMesh.primitives[0].mode = 4;
+    headMesh.primitives.push(structuredClone(headMesh.primitives[0]));
+  });
+  writeFileSync(join(scratch, 'web-head-multi-triangles-space.glb'), multiTriangleHead(true));
+  // Boundary, not an M1 fixture: without the "(1)" the renamed loader mesh "Chr_Head_Female_00_primitive0" no
+  // longer matches the shared region parser at all (nothing follows "_Female_00" that the parser accepts) — an
+  // unrelated, pre-existing parser boundary, not a primitive-lookup bug. Kept as a witness that M1's fix does not
+  // paper over it: still rejected, but as an unknown body mesh, same as any other unrecognized name.
+  writeFileSync(join(scratch, 'web-head-multi-triangles-plain.glb'), multiTriangleHead(false));
   // The state harness: one property of the matching body meshes is changed right after the BODY file is imported (the first import
   // of the run), then the real script runs unchanged. `enabled` calls setEnabled, every other property is assigned. It reports on
   // stderr how many meshes it actually touched, so a case that touched zero (a typo in `match`, a body with no such mesh) is
@@ -322,6 +364,16 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   // triangle list, and the message says so instead of a confusing triangle-count complaint.
   webBad('plainhide-web-head-triangle-strip', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has a mesh \(Chr_Head_Female_00\) that is not an indexed triangle list: only indexed triangle lists are supported/, { bodyFile: join(scratch, 'web-head-strip.glb') });
   webBad('plainhide-web-head-no-index-buffer', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has a mesh \(Chr_Head_Female_00\) that is not an indexed triangle list: only indexed triangle lists are supported/, { bodyFile: join(scratch, 'web-head-no-indices.glb') });
+  // M1: the real, loaded free Head is a TRIANGLE_STRIP; a second glTF node of the exact same name, pointing at a
+  // cloned TRIANGLES mesh, must never let it pass — whether that shadow node sits outside the loaded scene (so
+  // only the strip is ever actually loaded) or inside it (so both are loaded, and the strip is checked first).
+  webBad('plainhide-web-head-strip-shadow-unused', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has a mesh \(Chr_Head_Female_00\) that is not an indexed triangle list: only indexed triangle lists are supported/, { bodyFile: join(scratch, 'web-head-strip-shadow-unused.glb') });
+  webBad('plainhide-web-head-strip-shadow-active', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has a mesh \(Chr_Head_Female_00\) that is not an indexed triangle list: only indexed triangle lists are supported/, { bodyFile: join(scratch, 'web-head-strip-shadow-active.glb') });
+  // Boundary, not M1: without the "(1)" suffix, Babylon's renamed multi-primitive mesh "..._primitive0" no longer
+  // matches the shared region parser at all (nothing acceptable follows "_Female_00") — a pre-existing, unrelated
+  // parser boundary. Kept as a witness that the M1 fix below does not paper over it: still rejected, only now as
+  // an unknown body mesh, same as any other unrecognized name.
+  webBad('plainhide-web-head-multi-triangles-plain', 'plainhide', 'female', {}, /plainhide\/female: body mesh Chr_Head_Female_00_primitive0 does not name a known body region/, { bodyFile: join(scratch, 'web-head-multi-triangles-plain.glb') });
   bad('plainhide-game-body-invisible', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=false, visibility=1\)/, { bodyFile: body.female, state: webState('isVisible', false, '') });
   bad('plainhide-game-body-faded-out', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=true, visibility=0\)/, { bodyFile: body.female, state: webState('visibility', 0, '') });
   // F3: visibility must be a finite number; Infinity used to pass the literal `> 0` check.
@@ -407,6 +459,27 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
       bad_++;
     }
   });
+  // M1, Zeuge B: a free Head made of two valid indexed TRIANGLES primitives must pass. Run directly (not through
+  // the case loop above, whose per-region triangle-count assertions assume the standard single-primitive
+  // fixtures — this Head genuinely has twice the triangles, on purpose, because it is drawn as two primitives).
+  writeSet(join(scratch, 'm1-zeuge-b'), 'plainhide', 'female', { web: true });
+  const zeugeB = await run('m1-zeuge-b', join(scratch, 'web-head-multi-triangles-space.glb'), ['--family=plainhide', '--variant=female', '--web']);
+  assert.equal(zeugeB.status, 0, `m1-zeuge-b (multi-triangles-space): a Head made of two valid triangle-list primitives must pass\n${zeugeB.err}`);
+  // K1: a permanent witness for the mutation counter itself. Every harnessed case above has a `match` that
+  // genuinely hits a mesh, so the `if (c.state) assert(mutatedCount(r.err) >= 1, ...)` guards were never actually
+  // exercised by a real zero-touch run; a mutant that deletes them and the counter's own stderr line survives the
+  // whole selftest unnoticed (Astra, Nachbesserung 1). These two decoys use a match that hits nothing on purpose —
+  // a positive control that needed no fixing, and a negative case that fails for its own, unrelated reason (a
+  // genuinely headless body) — and assert directly that the counter still reports the true, zero mesh count: if
+  // the counter (or its stderr line) were removed, `mutatedCount` would read `NaN` here instead of `0`, and these
+  // two assertions, unconditional and independent of the case-loop guards above, would catch it either way.
+  const k1Positive = await run('good-plainhide-female-web', body.web, ['--family=plainhide', '--variant=female', '--web'], webState('enabled', false, 'NO_MATCH_FOR_OBSERVER'));
+  assert.equal(k1Positive.status, 0, `k1-decoy-positive-control: an already-correct body must still pass\n${k1Positive.err}`);
+  assert.equal(mutatedCount(k1Positive.err), 0, 'k1-decoy-positive-control: the observer must genuinely have touched nothing');
+  const k1Negative = await run('good-plainhide-female-web', join(scratch, 'web-no-head.glb'), ['--family=plainhide', '--variant=female', '--web'], webState('isVisible', false, 'NO_MATCH_FOR_OBSERVER'));
+  assert.notEqual(k1Negative.status, 0, 'k1-decoy-negative-case: the headless body must still fail for its own, unrelated reason');
+  assert.match(k1Negative.err, /the free region Head has no body mesh: it is missing from the body/, 'k1-decoy-negative-case: the ordinary message still applies');
+  assert.equal(mutatedCount(k1Negative.err), 0, 'k1-decoy-negative-case: the observer must genuinely have touched nothing');
   // The stand-alone legacy check (legacy-female-armor.mjs) on a synthetic 51-bone body with six clips: it must prove every free
   // region too, and a failed run must not leave a report that still claims an exact mask.
   const legacyDir = writeSet(join(scratch, 'legacy-plainhide'), 'plainhide', 'female');

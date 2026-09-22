@@ -453,3 +453,53 @@ New in this folder (they existed only outside the repository): the Ironward buil
 (`sets/ironward/male/`, now taking `OUTPUT_DIR` after `--` and writing nothing next to
 itself), the Ashenveil builder, `sets/seidraven/render-pair.py`, and the generalised
 `test/armor-motion.py`.
+
+## Comparison and review tools
+
+`test/render-compare.py` and `test/probe.py` started as a one-off Gravethorn
+comparison script; both are now parametrized and work on any set built from the
+Seidraven scaffold. Neither reads a material name or a builder-specific mesh
+attribute: every measurement or per-item selection goes through `--prefix`/
+`--regions`/`--items`, the same object-naming contract `armor-motion.py` uses.
+
+```sh
+blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
+  --python tools/armor/test/render-compare.py -- TARGET_DIR MASTER_ANIMATIONS.blend \
+  --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... [--quick] [--glow]
+```
+
+`--items` lists a set's items in display order, each as `key:Region[+Region...]`
+(the body regions that item's `<PREFIX>Region` mesh occupies), e.g. for the
+Seidraven/Gravethorn seven-item shape:
+`--items=hood:Head,shoulders:ArmUpperLeft+ArmUpperRight,vest:Torso,bracers:ArmLowerLeft+ArmLowerRight,gloves:HandLeft+HandRight,robe:Hips,boots:LegLeft+LegRight`.
+Writes a four-angle turntable (`vergleich-1..4-*.png`), `comparison-pose-metrics.json`
+and two diagnostic poses (arms overhead, a master-clip crouch) always; a per-item
+tile sheet (`vergleich-items.png`) only on a full run.
+
+```sh
+blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
+  --python tools/armor/test/probe.py -- MASTER_ANIMATIONS.blend TARGET_DIR \
+  --prefix=WoV_<Set>_ --regions=N --items=key:Region+Region,... --body=Male|Female \
+  [--measure-only] [--glow]
+```
+
+Read-only review: writes `probe.json`, never the `.blend`. The measured "hard"
+surface of a region is the largest connected vertex island of that region's armor
+mesh object (a lining and its outer shell are always separate islands in this
+scaffold; picking the biggest keeps the measurement out of small decorative
+pieces without naming a material or a builder attribute), so it carries over to a
+new set unmodified. Measures, per region: stand-off from the body at rest;
+shoulder/arm/hand collision with arms down and arms overhead; how far the Head
+bone deviates from the Neck bone over the master clips (a helmet bound to the
+wrong bone would not follow it); and, at four diagnostic poses (idle, deep crouch,
+kick, sword attack), both directions per item: armor vertices found inside the
+body (`inside_body`) and body vertices found outside the combined armor shell
+(`body_outside_plate`, checking that the body stays inside its plate). `--measure-only`
+skips the descriptive renders and only shoots the two head-detail stills used to
+check helmet placement.
+
+Both tools turn the scaffold's preview Fog Glow compositor off by default: it is
+saved inside the `.blend` from the build and would otherwise put a halo on every
+review image, including sets with no emissive material at all. `--glow` keeps
+whatever the saved `.blend` already has, for a set whose own comparison images
+should show it (Emberrage, Gravethorn).

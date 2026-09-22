@@ -1,8 +1,15 @@
 """Evaluate full master clips and render diagnostic poses without changing assets.
 
-Blender -b armor.blend --python-exit-code 1 --python THIS -- master.blend OUTPUT
+Blender -b armor.blend --python-exit-code 1 --python THIS -- master.blend OUTPUT --regions=N
 Optional --quick checks three clips and produces only a three-pose contact sheet.
 Use --prefix=WoV_Ashenveil_ to test another set; the default is WoV_Wildwarden_.
+--regions=N is required: the exact number of <PREFIX>-named armor mesh objects the
+build produced (11 for the eleven-region sets; fewer for a set that replaces only
+some body regions, e.g. 8 for Plainhide). --keep-body=Region,Region names source-body
+regions (matched as WoV_BodyBase_*_Region, any body variant) that stay visible next to
+the armor in the renders and the overview montage because the set does not replace
+them, e.g. --keep-body=Head,HandLeft,HandRight; default none, matching every set that
+replaces all eleven regions.
 """
 import bpy
 import json
@@ -19,10 +26,22 @@ compact = '--compact' in args
 prefix = next((a.split('=',1)[1] for a in args if a.startswith('--prefix=')), 'WoV_Wildwarden_')
 assert prefix.startswith('WoV_') and prefix.endswith('_') and prefix.replace('_','').isalnum()
 family = prefix[4:-1]
+regions_arg = next((a.split('=',1)[1] for a in args if a.startswith('--regions=')), None)
+if regions_arg is None:
+    sys.exit('armor-motion.py: missing required --regions=N (the number of armor mesh '
+             'objects the build produced under --prefix); see the module docstring')
+regions = int(regions_arg)
+keep_body = [r for r in next((a.split('=',1)[1] for a in args if a.startswith('--keep-body=')), '').split(',') if r]
+
+
+def is_kept_body(obj):
+    return obj.name.startswith('WoV_BodyBase_') and obj.name.endswith(tuple('_'+r for r in keep_body))
+
+
 scene = bpy.context.scene
 rig = bpy.data.objects['WoV_Player_Armature']
 armor = [o for o in scene.objects if o.type == 'MESH' and o.name.startswith(prefix)]
-assert len(armor) == 11
+assert len(armor) == regions, (len(armor), regions)
 names = ['Idle1', 'WalkFwd', 'CrouchIdle1'] if quick else [
     'Idle1', 'WalkFwd', 'WalkBwd', 'WalkStrafeLeft', 'RunFwd', 'RunStrafeLeft',
     'StartRunFwd', 'StopLeftRunFwd', 'JumpStart', 'JumpUp', 'JumpMidAir', 'FallEnd',
@@ -48,7 +67,7 @@ for track in rig.animation_data.nla_tracks:
 rig.data.pose_position = 'POSE'
 for obj in scene.objects:
     if obj.type == 'MESH' and obj not in armor and obj.name != 'Preview_Ground':
-        obj.hide_render = True
+        obj.hide_render = not is_kept_body(obj)
 for obj in armor:
     obj.hide_render = False
     obj.hide_set(False)
@@ -179,13 +198,15 @@ if not quick:
     scene.frame_start, scene.frame_end = 1, 120
     bpy.ops.wm.save_as_mainfile(filepath=str(output_path/('WoV_'+family+'_Motion_Review.blend')))
 
-# Side-by-side colored garment comparison using actual evaluated geometry.
+# Side-by-side colored garment comparison using actual evaluated geometry. Visible source
+# body parts (--keep-body) join the armor so they don't float unrendered at each pose.
 snapshots = []
+preview_objects = armor + [o for o in scene.objects if o.type == 'MESH' and is_kept_body(o)]
 for col, (name, frame) in enumerate([('Idle1',31), ('WalkFwd',9), ('CrouchIdle1',62)]):
     activate(name, frame)
     center = rig.matrix_world@rig.pose.bones['Hips'].head
     dg = bpy.context.evaluated_depsgraph_get()
-    for obj in armor:
+    for obj in preview_objects:
         data = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), depsgraph=dg)
         for v in data.vertices:
             point = obj.matrix_world@v.co
@@ -193,7 +214,7 @@ for col, (name, frame) in enumerate([('Idle1',31), ('WalkFwd',9), ('CrouchIdle1'
         snap = bpy.data.objects.new('Snapshot_'+name+'_'+obj.name, data)
         scene.collection.objects.link(snap)
         snapshots.append(snap)
-for obj in armor:
+for obj in preview_objects:
     obj.hide_render = True
 cam.location = (1,-9,2.5)
 aim(cam, (0,0,1.10))

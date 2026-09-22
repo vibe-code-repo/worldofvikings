@@ -58,7 +58,7 @@ flatpak run org.blender.Blender --factory-startup -b WoV_BodyBase_Male.blend --p
   --python ABSOLUTE_REPO/tools/armor/sets/wildwarden/male/build.py -- OUTPUT          # --quick: hero render only, no GLB export
 # 2. Optional motion check against the master clips (--quick: 3 clips; without it 19 clips, every frame).
 flatpak run org.blender.Blender --factory-startup -b OUTPUT/WoV_Wildwarden_Armor.blend --python-exit-code 1 \
-  --python ABSOLUTE_REPO/tools/armor/test/armor-motion.py -- wov-player-master2.blend OUTPUT/motion [--quick]
+  --python ABSOLUTE_REPO/tools/armor/test/armor-motion.py -- wov-player-master2.blend OUTPUT/motion --regions=11 [--quick]
 # 3. Export against the game's own skin (equipment.json comes from step 1).
 node_modules/.bin/tsx tools/armor/export/export-armor.mjs OUTPUT/WoV_Wildwarden_Armor.glb WikingerKoerper.reference.glb OUTPUT/game-ready OUTPUT/equipment.json
 node_modules/.bin/tsx tools/armor/test/skin-gate.mjs WikingerKoerper.reference.glb OUTPUT/game-ready --family=wildwarden [--write-report]

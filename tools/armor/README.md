@@ -203,11 +203,17 @@ in the commands below are shorthand for that.
    ```sh
    blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code 1 \
      --python tools/armor/test/armor-motion.py -- MASTER_ANIMATIONS.blend OUTPUT_DIR/motion \
-     [--prefix=<PREFIX>] [--compact] [--quick]
+     --regions=N [--keep-body=Region,Region] [--prefix=<PREFIX>] [--compact] [--quick]
    ```
 
-   The default prefix is `WoV_Wildwarden_`. With wings (Seidraven) it also checks
-   every rigid shoulder-socket vertex against its expected transform.
+   `--regions=N` is required: the exact number of `<PREFIX>`-named armor mesh objects
+   the build produced (11 for the eleven-region sets; fewer for a set that replaces
+   only some body regions, e.g. `--regions=8` for Plainhide). `--keep-body=Region,Region`
+   (e.g. `--keep-body=Head,HandLeft,HandRight`) names source-body regions that stay
+   visible next to the armor, in the renders and the overview montage, because the set
+   does not replace them; default none. The default prefix is `WoV_Wildwarden_`. With
+   wings (Seidraven) it also checks every rigid shoulder-socket vertex against its
+   expected transform.
 
 3. **Legacy female fit** (Blender; female variants of Seidraven and Emberrage only).
    Run it on the female authoring blend from step 1, with the actual female avatar:

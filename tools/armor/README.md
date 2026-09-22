@@ -483,20 +483,28 @@ blender --factory-startup -b OUTPUT_DIR/WoV_<Set>_Armor.blend --python-exit-code
   [--measure-only] [--glow]
 ```
 
-Read-only review: writes `probe.json`, never the `.blend`. The measured "hard"
-surface of a region is the largest connected vertex island of that region's armor
-mesh object (a lining and its outer shell are always separate islands in this
-scaffold; picking the biggest keeps the measurement out of small decorative
-pieces without naming a material or a builder attribute), so it carries over to a
-new set unmodified. Measures, per region: stand-off from the body at rest;
-shoulder/arm/hand collision with arms down and arms overhead; how far the Head
-bone deviates from the Neck bone over the master clips (a helmet bound to the
-wrong bone would not follow it); and, at four diagnostic poses (idle, deep crouch,
-kick, sword attack), both directions per item: armor vertices found inside the
-body (`inside_body`) and body vertices found outside the combined armor shell
-(`body_outside_plate`, checking that the body stays inside its plate). `--measure-only`
-skips the descriptive renders and only shoots the two head-detail stills used to
-check helmet placement.
+Read-only review: writes `probe.json`, never the `.blend`. Every item mesh's
+vertices split into two named, geometrically determined populations -- not a
+material name, not a builder-specific mesh attribute, and (an earlier version of
+this tool, corrected after an independent attack) not "the largest connected
+vertex island" either: at Gravethorn's hips that island IS the lining, at the
+torso it is only part of it, and at every limb it is a single hard plate with zero
+lining vertices, so "the largest island" means a different thing in every region.
+`lining` is the set of item vertices that geometrically match the scaffold's own
+lining recipe (`sets/seidraven/build_common.py`: the source body region, welded at
+1e-5 m, pushed out along its recomputed normals by 0.0005 m for Head/HandLeft/
+HandRight or 0.002 m elsewhere) within 1e-5 m; `hard` is every other item vertex.
+Measures, per region: stand-off of both populations from the body at rest (lining
+should read close to the scaffold's own gap -- a sanity check on the
+reconstruction, not just a number); shoulder/arm/hand collision (both populations)
+with arms down and arms overhead; how far the Head bone deviates from the Neck
+bone over the master clips (a helmet bound to the wrong bone would not follow
+it); and, at four diagnostic poses (idle, deep crouch, kick, sword attack), per
+item: `lining`/`hard` vertices found inside the body (`inside_body`, both
+populations, each labelled) and body vertices found outside a shell built from
+`hard` vertices only (`body_outside_plate`; `body_outside_plate_population` names
+which population that is). `--measure-only` skips the descriptive renders and
+only shoots the two head-detail stills used to check helmet placement.
 
 Both tools turn the scaffold's preview Fog Glow compositor off by default: it is
 saved inside the `.blend` from the build and would otherwise put a halo on every

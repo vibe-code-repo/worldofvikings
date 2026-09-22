@@ -5,22 +5,49 @@ blender --factory-startup -b ARMOR.blend --python-exit-code 1 --python THIS -- M
     [--measure-only] [--glow]
 
 --prefix, --regions, --items and --body are all required. --items uses the same
-key:Region[+Region...] syntax as render-compare.py. The measured "hard" surface of
-a region is not chosen by material name or by a builder-specific mesh attribute:
-it is the largest connected vertex island of that region's <PREFIX>Region mesh
-object, which is set-agnostic (a lining and its outer shell are always separate
-mesh islands in every build script that uses the Seidraven scaffold; the shell is
-the bigger one). Nothing here saves the blend or changes it.
+key:Region[+Region...] syntax as render-compare.py. Nothing here saves the blend or
+changes it.
+
+Every item mesh's vertices are split into two named, geometrically determined
+populations -- not by material name, not by a builder-specific mesh attribute (an
+earlier version of this tool picked the region's largest connected vertex island as
+"the outer shell", which an independent attack found to be wrong: at Gravethorn's
+hips the largest island IS the lining, at the torso it is only part of it, and at
+every limb it is a single hard plate with zero lining vertices on it -- the same
+selection means a different thing in every region):
+
+- `lining`: vertices that geometrically match the scaffold's own lining recipe
+  (sets/seidraven/build_common.py, "Complete source regions form the retained
+  lining/body under the armor"): take the source body region, weld at 1e-5 m,
+  recompute normals, and push every vertex out along its normal by the scaffold's
+  own gap (0.0005 m for Head/HandLeft/HandRight, 0.002 m elsewhere). An item vertex
+  within 1e-5 m of one of those points is lining. This reconstructs the recipe from
+  the body, not from the item, so it does not depend on how the item's geometry was
+  authored.
+- `hard`: every other vertex of the item mesh -- decorative or structural, whatever
+  is not lining.
+
+`body_outside_plate` measures against a shell built from `hard` vertices only (the
+visible plate a body could stick out through); `inside_body` is reported for both
+populations at every diagnostic pose, each explicitly labelled.
 
 The saved .blend keeps the scaffold's own preview Fog Glow compositor (some sets
 want it); off here by default so it does not carry into review renders that were
 never meant to show it, --glow keeps whatever the saved .blend already has.
 """
-import bpy, sys, math, json
-from collections import defaultdict
+import bpy, bmesh, sys, math, json
 from pathlib import Path
 from mathutils import Vector, Matrix
+from mathutils.kdtree import KDTree
 from mathutils.bvhtree import BVHTree
+
+# The scaffold's own lining gap (sets/seidraven/build_common.py:224); every set built
+# from that scaffold uses these two constants for every region.
+_LINING_GAP_SMALL_M = .0005    # Head, HandLeft, HandRight
+_LINING_GAP_M = .002           # every other region
+_LINING_SMALL_SLOTS = ('Head', 'HandLeft', 'HandRight')
+_WELD_M = 1e-5                 # bmesh.ops.remove_doubles distance the scaffold itself uses
+_MATCH_M = 1e-5                # position-match tolerance to call an item vertex "lining"
 
 args = sys.argv[sys.argv.index('--')+1:]
 master, target = Path(args[0]), Path(args[1]).resolve(); target.mkdir(parents=True, exist_ok=True)
@@ -60,28 +87,52 @@ def evaluated(obj):
     return points, triangles
 
 
-def largest_island(obj):
-    """Points and (locally reindexed) triangles of the object's largest connected vertex island."""
+def lining_ids(obj, body_obj, slot):
+    """Indices (in obj.data.vertices, rest pose) of the item mesh's vertices that match the
+    scaffold's own lining recipe reconstructed from the source body region -- see the module
+    docstring. Index-based and computed once at rest, so it stays valid across every pose
+    (posing moves vertex positions, never their indices or count)."""
+    bm = bmesh.new()
+    bm.from_mesh(body_obj.data)
+    for v in bm.verts:
+        v.co = body_obj.matrix_world @ v.co
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=_WELD_M)
+    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    bm.normal_update()
+    gap = _LINING_GAP_SMALL_M if slot in _LINING_SMALL_SLOTS else _LINING_GAP_M
+    expected = [v.co + v.normal * gap for v in bm.verts]
+    bm.free()
+    kd = KDTree(len(expected))
+    for i, p in enumerate(expected):
+        kd.insert(p, i)
+    kd.balance()
+    return {v.index for v in obj.data.vertices if kd.find(obj.matrix_world @ v.co)[2] < _MATCH_M}
+
+
+def population(obj, body_obj, slot):
+    """(lining_ids, hard_ids): a full index partition of obj.data.vertices, rest pose."""
+    lining = lining_ids(obj, body_obj, slot)
+    hard = set(range(len(obj.data.vertices))) - lining
+    return lining, hard
+
+
+def population_points(obj, ids):
+    """Evaluated (posed) points of the item mesh restricted to an index set from population()."""
+    points, _ = evaluated(obj)
+    return [points[i] for i in ids if i < len(points)]
+
+
+def population_subset(obj, ids):
+    """Evaluated points and locally reindexed triangles restricted to an index set: a
+    trimmed sub-mesh for building a BVH shell from one population only. A triangle survives
+    only if every one of its vertices is in `ids` (a triangle straddling the lining/hard
+    boundary is dropped from both, which never happens for a proper Seidraven-scaffold
+    lining -- it is a topologically separate piece, sharing no triangle with the shell)."""
     points, triangles = evaluated(obj)
-    parent = list(range(len(points)))
-
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]; i = parent[i]
-        return i
-
-    for a, b, c in triangles:
-        ra, rb, rc = find(a), find(b), find(c)
-        parent[ra] = rb
-        if rc != rb:
-            parent[find(rc)] = rb
-    groups = defaultdict(list)
-    for t in triangles:
-        groups[find(t[0])].append(t)
-    island = groups[max(groups, key=lambda root: len({v for t in groups[root] for v in t}))]
-    used = sorted({v for t in island for v in t})
+    kept = [t for t in triangles if all(i in ids for i in t)]
+    used = sorted({v for t in kept for v in t})
     remap = {old: new for new, old in enumerate(used)}
-    return [points[i] for i in used], [tuple(remap[i] for i in t) for t in island]
+    return [points[i] for i in used], [tuple(remap[i] for i in t) for t in kept]
 
 
 def tree_of(points_triangles):
@@ -120,7 +171,11 @@ def outside(points, tree):
     return [tree.find_nearest(p)[3] for p in points if parity_votes(p, tree) < 2]
 
 
-islands = {slot: largest_island(armor[slot]) for slot in armor}
+populations = {slot: population(armor[slot], body[slot], slot) for slot in armor}
+report['population_vertices'] = {
+    slot: {'total': len(lining) + len(hard), 'lining': len(lining), 'hard': len(hard)}
+    for slot, (lining, hard) in populations.items()
+}
 stored = {b.name: b.matrix_basis.copy() for b in rig.pose.bones}
 
 
@@ -156,33 +211,42 @@ def whole_body():
 
 
 def whole_armor():
-    """One BVH over the largest island of every measured region: an approximate shell for the
-    'body in plate' check below. Rebuilt at every pose since islands were evaluated at rest."""
+    """One BVH over the `hard` population of every measured region: the visible plate a body
+    part could stick out through. Rebuilt at every pose since population() indices are
+    rest-pose but the points must be evaluated at the current pose."""
     points, triangles = [], []
     for slot in armor:
-        pts, tris = largest_island(armor[slot]); base = len(points)
+        _, hard = populations[slot]
+        pts, tris = population_subset(armor[slot], hard); base = len(points)
         points += pts; triangles += [tuple(i+base for i in t) for t in tris]
     return BVHTree.FromPolygons(points, triangles, all_triangles=True)
 
 
-# 1. Stand-off in the stored build pose: how far do the largest-island (outer shell)
-# vertices of a region sit from the body underneath them.
+# 1. Stand-off in the stored build pose: how far do a region's lining and hard vertices sit
+# from the body underneath them (lining should read close to the scaffold's own gap -- a
+# sanity check on the reconstruction itself, not just a collision number).
 standoff = {}
 for slot in armor:
     tree = tree_of(evaluated(body[slot]))
-    pts, _ = islands[slot]
-    standoff[slot] = stats([tree.find_nearest(p)[3] for p in pts])
+    lining, hard = populations[slot]
+    standoff[slot] = {
+        'lining': stats([tree.find_nearest(p)[3] for p in population_points(armor[slot], lining)]),
+        'hard': stats([tree.find_nearest(p)[3] for p in population_points(armor[slot], hard)]),
+    }
 report['rim_standoff_m'] = standoff
 
-# 2. Shoulder armor against arm and hand, arms down and arms overhead.
+# 2. Shoulder armor against arm and hand, arms down and arms overhead: both populations.
 for label, angle in [('arms_down_40', 40), ('arms_overhead_-95', -95)]:
     arms(angle)
     shell = whole_body(); entry = {}
     for slot in ['ArmUpperLeft', 'ArmLowerLeft', 'HandLeft']:
         if slot not in armor:
             continue
-        pts, _ = largest_island(armor[slot])
-        entry[slot] = {'hard_vertices': len(pts), 'inside_body': stats(inside(pts, shell))}
+        lining, hard = populations[slot]
+        entry[slot] = {
+            'lining': {'vertices': len(lining), 'inside_body': stats(inside(population_points(armor[slot], lining), shell))},
+            'hard': {'vertices': len(hard), 'inside_body': stats(inside(population_points(armor[slot], hard), shell))},
+        }
     if entry:
         report[label] = entry
 restore()
@@ -219,17 +283,22 @@ for name, action in actions.items():
     headneck[name] = {'max_head_vs_neck_deg': round(worst[0], 2), 'frame': worst[1]}
 report['head_vs_neck'] = headneck
 
-# 4. Every item's armor-in-body collision AND body-in-plate containment, at four diagnostic poses.
+# 4. Every item's armor-in-body collision (both populations) AND body-in-plate containment
+# (against the `hard`-only shell -- explicitly the population body_outside_plate uses), at
+# four diagnostic poses.
+report['body_outside_plate_population'] = 'hard'
 for name, frame in [('Idle1', 31), ('CrouchIdle1', 62), ('BodyKickFromIdle', 21), ('KatanaAttack1FromIdle', 29)]:
     if name not in actions:
         continue
     activate(name, frame)
     body_shell = whole_body(); armor_shell = whole_armor(); entry = {}
     for key, item_regions in ITEMS:
-        armor_pts = [p for s in item_regions if s in armor for p in largest_island(armor[s])[0]]
+        lining_pts = [p for s in item_regions if s in armor for p in population_points(armor[s], populations[s][0])]
+        hard_pts = [p for s in item_regions if s in armor for p in population_points(armor[s], populations[s][1])]
         body_pts = [p for s in item_regions if s in body for p in evaluated(body[s])[0]]
         entry[key] = {
-            'hard_vertices': len(armor_pts), 'inside_body': stats(inside(armor_pts, body_shell)),
+            'lining': {'vertices': len(lining_pts), 'inside_body': stats(inside(lining_pts, body_shell))},
+            'hard': {'vertices': len(hard_pts), 'inside_body': stats(inside(hard_pts, body_shell))},
             'body_vertices': len(body_pts), 'body_outside_plate': stats(outside(body_pts, armor_shell)),
         }
     report['%s_%d' % (name, frame)] = entry

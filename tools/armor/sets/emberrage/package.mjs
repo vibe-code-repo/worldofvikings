@@ -22,7 +22,7 @@ const sets=['Male','Female'].map(variant=>{
 writeFileSync(join(root,'equipment-sets.json'),JSON.stringify({schemaVersion:1,status:'prepared_not_registered',sets},null,2)+'\n');
 writeFileSync(join(root,'vfx-profile.json'),JSON.stringify({id:'emberrage_red',color:'red',
   exported:'KHR_materials_emissive_strength on skinned fracture/rune geometry',
-  optionalAdapter:'tools/emberrage-glow.ts',effect:'selective GlowLayer',pulseHz:.6,
+  optionalAdapter:'tools/web/emberrage-glow.ts',effect:'selective GlowLayer',pulseHz:.6,
   intensityRange:[.375,.525],ownership:'equipped meshes only; update on equip/unequip, dispose with character',
   runtimeIntegrated:false,particleSystem:false,preview:'Blender fog-glow compositor'},null,2)+'\n');
 console.log('Prepared two variants, fourteen IDs and the red effect profile; no game mutation');

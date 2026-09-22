@@ -286,6 +286,14 @@ export function applyUploadedModelRegistry(datei: RegistryDatei): AnwendungsErge
  * nur Pfadanteile wie „../../etc").
  */
 export function erzwingeName(gewuenscht: string): string | null {
+  // Pfadanteile sind eine ABLEHNUNG, kein Sanitierungsfall: Ein sanierter
+  // Rest von '../../etc/passwd' wäre technisch harmlos (nie ein '/' im
+  // Ergebnis), sagt dem Absender aber nicht, dass sein Name ein Pfad war
+  // — und genau das ist die Eingabe, die eine verständliche Ablehnung statt
+  // einer stillen Umdeutung verdient.
+  if (gewuenscht.includes('/') || gewuenscht.includes('\\') || gewuenscht.includes('..')) {
+    return null;
+  }
   const kern = gewuenscht
     .normalize('NFKD')
     .replace(/[^A-Za-z0-9_]+/g, '_')

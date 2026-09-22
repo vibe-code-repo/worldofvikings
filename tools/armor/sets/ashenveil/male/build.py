@@ -15,6 +15,10 @@ from pathlib import Path
 from mathutils import Vector, Matrix
 from mathutils.bvhtree import BVHTree
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # tools/armor/sets
+import entry_args  # noqa: E402
+
+entry_args.prepare(__file__, 'male')
 ARGS = sys.argv[sys.argv.index('--') + 1:]
 ROOT = Path(ARGS[0]).resolve()
 ROOT.mkdir(parents=True, exist_ok=True)

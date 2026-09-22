@@ -172,22 +172,24 @@ in the commands below are shorthand for that.
 
    Look at `validation.json` (triangle count, geometry checks).
 
-   The Seidraven and Emberrage entry points check the command line first, before
-   anything is built (`sets/entry_args.py`): `OUTPUT_DIR` must be the first argument
-   after `--`; the only other switch is `--quick` (the female entry point also accepts
-   an explicit `--female`). Anything else is refused with a message, a usage line and
-   exit code 1: a missing `--` or directory, unknown or repeated switches, `--female`
-   on a male entry point, and `--quick`, `--female` or `--male` placed in front of the
-   `--` (Blender would silently ignore them). Blender turns the refusal into a
-   non-zero exit code even without `--python-exit-code 1` (measured with 5.2). A male
-   entry point on the female body source, or the reverse, stops a moment later with a
-   missing-object error.
+   All six male/female entry points check the command line first, before anything is
+   built (`sets/entry_args.py`): `OUTPUT_DIR` must be the first argument after `--`; the
+   only other switch is `--quick` (the Seidraven/Emberrage female entry points also
+   accept an explicit `--female`; Wildwarden and Ashenveil have no female entry point).
+   Anything else is refused with a message, a usage line and exit code 1: a missing `--`
+   or directory, unknown or repeated switches, `--female` on a male entry point, `--quick`,
+   `--female` or `--male` placed in front of the `--` (Blender would silently ignore
+   them), and misspelt write variants of those three placed in front of the `--` (dash
+   style, case, an `=value` suffix, stray whitespace -- Blender would ignore those just
+   as silently). Blender turns the refusal into a non-zero exit code even without
+   `--python-exit-code 1` (measured with 5.2). A male entry point on the female body
+   source, or the reverse, stops a moment later with a missing-object error.
 
    What `--quick` does, per set (read from the code):
 
    | Set | `--quick` |
    |---|---|
-   | Seidraven, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `sets/seidraven/build_common.py:618,680`, `ashenveil/male/build.py:607,666`, `wildwarden/male/build.py:502,556`. |
+   | Seidraven, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `sets/seidraven/build_common.py:618,680`, `ashenveil/male/build.py:611,670`, `wildwarden/male/build.py:506,560`. |
    | Emberrage | The same, **except that the export block is forced on**: `--quick` still writes the seven item GLBs, `WoV_Emberrage_Armor.glb` and `WoV_Emberrage_Armor.blend` (`sets/emberrage/build_common.py:191` turns the guard into `if True:`). Renders and pose checks are still cut down. |
    | Ironward | The switch exists (it is read from the whole command line, `ironward/male/build.py:365,404`) but it only skips the detail and pose *images*. The pose checks run, and the `.blend` (`:360`, `:432`), `components.json` and the four GLBs (`:421-424`) are always written. |
 

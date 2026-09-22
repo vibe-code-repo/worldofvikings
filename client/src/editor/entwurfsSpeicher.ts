@@ -438,6 +438,17 @@ export class SchrittVerlauf<T> {
     return wieder;
   }
 
+  /**
+   * Beide Stapel vergessen: Nach dem Zurücksetzen der Welt (K4.0) gibt es keinen früheren Stand, zu dem man zurück
+   * könnte — ein Strg+Z auf den alten Entwurf ließe das nächste Speichern das Zurücksetzen überschreiben. Ohne
+   * Meldung an den `AbgangHoerer`: Der Aufrufer verwirft hier ausdrücklich, nichts fällt heraus.
+   */
+  leeren(): void {
+    this.vergangenheit.splice(0);
+    this.zukunft.splice(0);
+    this.uebernahmeOben = false;
+  }
+
   /** Der Stand wurde OHNE Schritt ersetzt (Laden vom Server): die Regel neu beginnen. */
   ohneSchritt(): void {
     this.uebernahmeOben = false;

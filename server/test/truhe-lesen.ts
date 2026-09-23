@@ -12,6 +12,10 @@
  *          einer Aenderung des Inhalts auch im Delta nicht. A bekommt beides.
  *  [O]     A hat die Truhe offen und nimmt Holz, waehrend B daneben steht:
  *          A sieht jede Aenderung sofort (ContainerSync + Delta), B nichts.
+ *  [D]     Delta, in dem sich Inhalt UND ein zweites Member im selben Zug
+ *          aendern: B bekommt genau das zweite Member, nie den Inhalt; A
+ *          beides. Hier laeuft die Member-Schleife des Deltas (bei nur dem
+ *          Inhalt kehrt writeZDO vorher zurueck, `neue === 0`).
  *  [G]     Gegenproben: eigene Truhe, Truhe ohne Besitzer, Grabtruhe — der
  *          Inhalt kommt an.
  *
@@ -57,6 +61,8 @@ const P = {
 };
 
 const INHALT_HASH = getStableHash(TRUHE_INHALT_MEMBER);
+const MARKER_NAME = 'truheZweitesMember';
+const MARKER_HASH = getStableHash(MARKER_NAME);
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = ''): void {
@@ -84,6 +90,7 @@ interface Satz {
   inhaltGesehen: boolean; // TRUHE_INHALT kam je an
   inhalt: string; // letzter angekommener Inhalt ('' = nie)
   members: number; // Member im letzten Satz
+  marker: number | undefined; // letzter angekommener Wert des zweiten Members
 }
 interface Klient {
   ws: WebSocket;
@@ -91,6 +98,7 @@ interface Klient {
   syncs: string[]; // ContainerSync: Inhalt als String
   zdos: Map<string, Satz>;
   parseFehler: number;
+  restFehler: number; // Pakete, in denen nach dem Lesen Bytes uebrig blieben
 }
 
 /** Ein ZDOSync-Paket lesen (Format: WovServer.writeZDO), Member je ZDO festhalten. */
@@ -115,7 +123,7 @@ function liesZDOSync(k: Klient, r: Reader): void {
       const n = r.readInt32();
       const key = `${userId}:${id}`;
       const alt = k.zdos.get(key);
-      const s: Satz = alt ?? { saetze: 0, voll, revision, inhaltGesehen: false, inhalt: '', members: 0 };
+      const s: Satz = alt ?? { saetze: 0, voll, revision, inhaltGesehen: false, inhalt: '', members: 0, marker: undefined };
       s.saetze++;
       s.revision = revision;
       s.members = n;
@@ -127,9 +135,16 @@ function liesZDOSync(k: Klient, r: Reader): void {
           s.inhaltGesehen = true;
           s.inhalt = String(wert);
         }
+        if (hash === MARKER_HASH) s.marker = Number(wert);
       }
       k.zdos.set(key, s);
     }
+    const zerstoert = r.readInt32();
+    for (let i = 0; i < zerstoert; i++) {
+      r.readString();
+      r.readInt32();
+    }
+    if (r.remaining() !== 0) k.restFehler++;
   } catch {
     k.parseFehler++;
   }
@@ -140,7 +155,7 @@ function verbinde(port: number, name: string): Promise<Klient> {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     ws.binaryType = 'nodebuffer';
     let authSent = false;
-    const k: Klient = { ws, ergebnisse: [], syncs: [], zdos: new Map(), parseFehler: 0 };
+    const k: Klient = { ws, ergebnisse: [], syncs: [], zdos: new Map(), parseFehler: 0, restFehler: 0 };
     const timeout = setTimeout(() => reject(new Error(`Timeout beim Handshake fuer "${name}"`)), 8000);
     ws.on('message', (data: Buffer) => {
       const type = data.readUInt8(0);
@@ -335,6 +350,41 @@ async function main(): Promise<void> {
       server.zdos.destroyZDO(truhe.zdoid);
     }
 
+    // ── [D] Inhalt und ein zweites Member aendern sich im selben Zug ──
+    console.log('\n[D] Delta mit Inhalt UND zweitem Member (B fremd neben A\'s Truhe):');
+    {
+      const x = 640;
+      await stelle(kA, pA, x, 200);
+      await stelle(kB, pB, x + 2, 200);
+      const truhe = truheMitHolz(CHEST, { x: x + 1, y: pA.position.y, z: 200 }, idA, 7);
+      truhe.setInt(MARKER_NAME, 7);
+      const k = key(truhe);
+      await bis(() => kB.zdos.has(k) && kA.zdos.has(k), 8_000);
+      await warte(NACHFRIST_MS);
+      const revA = kA.zdos.get(k)?.revision ?? 0;
+      const revB = kB.zdos.get(k)?.revision ?? 0;
+      const paketeB = kB.zdos.get(k)?.saetze ?? 0;
+      setzeHolz(truhe, 3);
+      truhe.setInt(MARKER_NAME, 11);
+      truhe.dirty = true;
+      const zeugen = await bis(
+        () => (kA.zdos.get(k)?.revision ?? 0) !== revA && (kB.zdos.get(k)?.revision ?? 0) !== revB,
+        8_000,
+      );
+      await warte(NACHFRIST_MS);
+      const a = kA.zdos.get(k);
+      const b = kB.zdos.get(k);
+      console.log(`      A: ${JSON.stringify(a)}`);
+      console.log(`      B: ${JSON.stringify(b)}`);
+      check('D: beide haben das Delta bekommen (Zeuge: neue Revision)', zeugen && (b?.saetze ?? 0) > paketeB);
+      check('D: B bekommt das zweite Member (11)', b?.marker === 11, JSON.stringify(b));
+      check('D: B bekommt im Delta genau 1 Member (nur das zweite)', b?.members === 1, JSON.stringify(b));
+      check('D: B empfaengt den Inhalt NICHT (auch nicht den alten)', !!b && !b.inhaltGesehen, JSON.stringify(b));
+      check('D: A (Besitzer) bekommt Inhalt (3 Holz) und zweites Member (11)',
+        !!a && a.inhaltGesehen && holzIn(a.inhalt) === 3 && a.marker === 11, JSON.stringify(a));
+      server.zdos.destroyZDO(truhe.zdoid);
+    }
+
     // ── [G] Gegenproben ─────────────────────────────────────────────
     console.log('\n[G] Gegenproben: eigene Truhe, ohne Besitzer, Grabtruhe:');
     {
@@ -363,6 +413,7 @@ async function main(): Promise<void> {
     }
 
     check('kein Paket war fehlerhaft (Zaehlung der Member stimmt im Draht)', kA.parseFehler === 0 && kB.parseFehler === 0, `A ${kA.parseFehler}, B ${kB.parseFehler}`);
+    check('jedes Paket war genau aufgebraucht (remaining() === 0)', kA.restFehler === 0 && kB.restFehler === 0, `A ${kA.restFehler}, B ${kB.restFehler}`);
     kA.ws.close();
     kB.ws.close();
   } finally {

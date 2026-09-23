@@ -234,8 +234,8 @@ for (const def of rasterkits) {
   check(`${def.name}: Verteiler != generateDungeonLayout (40 Saaten)`, unterschiedlich);
 }
 
-// ── 4. Laufzeit bei 200 Zellen ────────────────────────────────────────
-console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen) ===\n');
+// ── 4. Laufzeit bei 200 Zellen — differenziell gegen eine Referenzarbeit ──
+console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen, differenziell) ===\n');
 {
   /*
     Gemessen wird EIN Rasterkit, nicht jedes.
@@ -248,54 +248,236 @@ console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen) ===\n');
     Rasterkit dazu, das NICHT abgeleitet ist, gehört es hier hinein.
   */
   const gross: DungeonDef = { ...rasterkits[0]!, maxRooms: 200 };
-  // Aufwärmen: Die ersten Läufe messen den JIT, nicht den Generator.
-  for (let s = 1; s <= 20; s++) erzeugeLayoutFuerKit(gross, s);
+
   /*
-    CPU-Zeit statt Wanduhr (dasselbe Prinzip wie server/test/g12-tick-
-    aufteilung.ts, Teil D: gegen die tatsächlich verbrauchte Zeit messen,
-    nicht gegen eine Wanduhrgrenze). `process.hrtime` maß hier bis zum
-    22.09.2026 die WANDUHR: Ein fremder Prozess, der sich denselben Kern
-    teilt, verdrängt diesen Prozess — die Wanduhr läuft weiter, der
-    Generator wird davon aber nicht langsamer. Genau das brach an diesem
-    Tag einen DEV-Rollout ab (Median 11,30 ms gegen die Grenze 10 ms,
-    derselbe Test eine Stunde zuvor ruhig grün, kein Funktionsfehler).
-    `process.cpuUsage()` zählt dagegen nur die Prozessorzeit, die dieser
-    Prozess wirklich zugeteilt bekam: Während der Verdrängung tickt der
-    Zähler nicht mit, danach zählt er ab genau der Stelle weiter, an der
-    er unterbrochen wurde. Die Summe über die 40 Layouts ist damit die
-    tatsächlich für die Rechnung verbrauchte Zeit — unempfindlich gegen
-    fremde Last auf denselben Kernen, empfindlich für einen Generator,
-    der wirklich mehr rechnet.
+    N1-Nachbesserung (22.09.2026, Angriffsbericht „golden-kits Zeitschwelle
+    — Angriff.md"): Weder `process.cpuUsage()` (Prozess-CPU, Stand
+    `12522a9`) noch `process.threadCpuUsage()` (Hauptthread) allein retten
+    eine feste 10-ms-Grenze. Prozess-CPU zählt V8-GC-/JIT-Hilfsthreads mit
+    (0,8–3,9 ms Fremdanteil je Fenster im echten Testprozess) — das
+    erzeugt Fehlalarme im Ruhezustand. Hauptthread-CPU entfernt diesen
+    Fremdanteil, aber unter echter Kernkonkurrenz (diese Maschinenklasse:
+    physische Kerne mit SMT) verliert der Hauptthread selbst Befehle pro
+    Takt — derselbe Angriff mass +82 % Hauptthread-Zeit für dieselbe
+    Rechnung unter Last (6,0 → 11,1 ms). Das ist echte Mehrarbeit, keine
+    Fehlmessung — keine CPU-Uhr kann sie von einer echten Regression
+    unterscheiden, wenn man sie gegen eine feste Millisekundengrenze hält.
+
+    Die Antwort ist deshalb keine bessere Uhr, sondern eine bessere
+    VERGLEICHSGRÖSSE (dasselbe Prinzip wie server/test/g12-tick-
+    aufteilung.ts, Teil D: gegen tatsächlich verbrauchte Zeit statt gegen
+    eine feste Grenze messen — dort die gemessene Wartezeit, hier eine
+    eigens dafür geschriebene Rechenarbeit, weil der Rastergenerator
+    keine bekannte Soll-Verzögerung hat): „Generator höchstens X-mal so
+    teuer wie eine mitgemessene Referenzarbeit, verschränkt im selben
+    Prozess, im selben Moment, unter derselben Last." Trifft
+    Kernkonkurrenz beide Seiten der Verschränkung im selben
+    Sekundenbruchteil, hebt sie Zähler UND Nenner etwa gleich an — das
+    Verhältnis bleibt stehen (Bericht „golden-kits N1": unter 6 ALU- + 4
+    Speicher-Brennern kein Anstieg gegenüber ruhig; unter der härteren,
+    synthetischen Form — 8 angeheftete Brenner, Test erzwungen auf einen
+    von ihnen gesättigten Kern — steigt es leicht, siehe Schwellen unten).
   */
-  const zeiten: number[] = [];
+  interface RefKnoten {
+    readonly id: number;
+    readonly art: string;
+    readonly kanten: number[];
+    readonly breite: number;
+    readonly hoehe: number;
+    readonly tuer: number;
+  }
+  function xorshift32(x: number): number {
+    x ^= x << 13;
+    x >>>= 0;
+    x ^= x >>> 17;
+    x >>>= 0;
+    x ^= x << 5;
+    x >>>= 0;
+    return x >>> 0;
+  }
+  /*
+    Referenzkern: ruft KEINEN Generatorcode auf — sonst „nimmt sie eine
+    Regression im Generator mit" und die Prüfung wäre blind für genau
+    das, was sie prüfen soll (Karte, Abschnitt „Ausdrücklich nicht").
+    Ähnelt ihm im VERHALTEN (Objekte anlegen, eine Map über einen
+    Schlüssel füllen, verzweigen, Nachbarn nachschlagen) und in der
+    GRÖSSENORDNUNG (REF_GROESSE = 18000 Knoten ergibt ruhig 7–9 ms
+    Hauptthread-CPU-Zeit gegen 6–8 ms für ein Layout bei maxRooms: 200).
+    Eine reine Ganzzahlschleife reicht nicht: Sie bliebe meist in
+    Registern/L1 und würde von echter Cache-/Speicherbandbreiten-
+    Konkurrenz kaum getroffen (Karte, Auftrag). Geprüft (Bericht
+    „golden-kits N1"): Unter 6 ALU- + 4 Speicher-Brennern steigt das
+    VERHÄLTNIS Generator/Referenz nicht — beide Seiten sind groß genug,
+    um vergleichbar oft ans Zuteilungs-/Cache-Limit zu stoßen.
+  */
+  const REF_GROESSE = 18000;
+  function referenzArbeit(seed: number): number {
+    let zustand = ((seed * 2654435761) >>> 0) || 1;
+    const knoten = new Map<number, RefKnoten>();
+    for (let i = 0; i < REF_GROESSE; i++) {
+      zustand = xorshift32(zustand);
+      const art =
+        zustand % 4 === 0 ? 'raum' : zustand % 4 === 1 ? 'gang' : zustand % 4 === 2 ? 'wand' : 'leer';
+      const kanten: number[] = [];
+      const anzKanten = zustand % 5;
+      for (let k = 0; k < anzKanten; k++) {
+        zustand = xorshift32(zustand);
+        kanten.push(zustand % REF_GROESSE);
+      }
+      zustand = xorshift32(zustand);
+      const breite = zustand % 10;
+      zustand = xorshift32(zustand);
+      const hoehe = zustand % 10;
+      zustand = xorshift32(zustand);
+      const tuer = art === 'raum' ? zustand % 2 : 0;
+      knoten.set(i, { id: i, art, kanten, breite, hoehe, tuer });
+    }
+    let summe = 0;
+    for (const k of knoten.values()) {
+      summe += k.kanten.length + k.breite + k.hoehe + k.tuer;
+      for (const nachbarId of k.kanten) {
+        const nachbar = knoten.get(nachbarId);
+        if (nachbar) summe += nachbar.breite;
+      }
+    }
+    return summe;
+  }
+
+  // Aufwärmen: Die ersten Läufe messen den JIT, nicht die Arbeit — beide
+  // Seiten, sonst würde die noch ungewärmte Referenz das Verhältnis der
+  // ersten Saaten verzerren.
+  for (let s = 1; s <= 20; s++) {
+    erzeugeLayoutFuerKit(gross, s);
+    referenzArbeit(s);
+  }
+
+  const messen = <T,>(fn: () => T): { cpu: number; ergebnis: T } => {
+    const cpu0 = process.threadCpuUsage();
+    const ergebnis = fn();
+    const cpu = process.threadCpuUsage(cpu0);
+    return { cpu: (cpu.user + cpu.system) / 1000, ergebnis };
+  };
+  const median = (werte: readonly number[]): number => {
+    const sortiert = [...werte].sort((a, b) => a - b);
+    return sortiert[Math.floor(sortiert.length / 2)]!;
+  };
+
+  const genZeiten: number[] = [];
+  const verhaeltnisse: number[] = [];
   let raeume = 0;
   for (const seed of SEEDS) {
-    const cpu0 = process.cpuUsage();
-    const l = erzeugeLayoutFuerKit(gross, seed);
-    const cpu = process.cpuUsage(cpu0);
-    zeiten.push((cpu.user + cpu.system) / 1000);
-    raeume += l.rooms.length;
+    // Reihenfolge wechselt mit der Saat: hebt einen einseitigen Aufwärm-
+    // /Abkühleffekt über die 40 Saaten auf.
+    let layout: ReturnType<typeof messen<ReturnType<typeof erzeugeLayoutFuerKit>>>;
+    let referenz: ReturnType<typeof messen<number>>;
+    if (seed % 2 === 0) {
+      referenz = messen(() => referenzArbeit(seed));
+      layout = messen(() => erzeugeLayoutFuerKit(gross, seed));
+    } else {
+      layout = messen(() => erzeugeLayoutFuerKit(gross, seed));
+      referenz = messen(() => referenzArbeit(seed));
+    }
+    genZeiten.push(layout.cpu);
+    verhaeltnisse.push(layout.cpu / referenz.cpu);
+    raeume += layout.ergebnis.rooms.length;
   }
-  const sortiert = [...zeiten].sort((a, b) => a - b);
-  const median = sortiert[Math.floor(sortiert.length / 2)]!;
-  const schnitt = zeiten.reduce((a, b) => a + b, 0) / zeiten.length;
-  const max = sortiert[sortiert.length - 1]!;
+
+  const vMedian = median(verhaeltnisse);
+  const vSchnitt = verhaeltnisse.reduce((a, b) => a + b, 0) / verhaeltnisse.length;
+  const vMax = Math.max(...verhaeltnisse);
+  const genMedian = median(genZeiten);
   console.log(
-    `  ${zeiten.length} Layouts, ${(raeume / zeiten.length).toFixed(1)} Räume je Layout — ` +
-      `min ${sortiert[0]!.toFixed(2)} ms, median ${median.toFixed(2)} ms, Schnitt ${schnitt.toFixed(2)} ms, max ${max.toFixed(2)} ms (CPU-Zeit)`
+    `  ${verhaeltnisse.length} Saaten, ${(raeume / verhaeltnisse.length).toFixed(1)} Räume je Layout — ` +
+      `Layout ${genMedian.toFixed(2)} ms (Hauptthread-CPU-Zeit, Median), ` +
+      `Verhältnis Generator/Referenz: Median ${vMedian.toFixed(2)}, Schnitt ${vSchnitt.toFixed(2)}, Ausreisser ${vMax.toFixed(2)}`
   );
-  check(`Median unter 10 ms CPU-Zeit je Layout`, median < 10, `${median.toFixed(2)} ms`);
-  check(`Schnitt unter 10 ms CPU-Zeit je Layout`, schnitt < 10, `${schnitt.toFixed(2)} ms`);
-  // Der MAXIMALwert ist bewusst kein 10-ms-Wächter: CPU-Zeit ist
-  // PROZESSWEIT (jeder Thread zählt mit), ein nebenläufiger GC- oder
-  // JIT-Compiler-Lauf von V8 zählt also in das Fenster hinein, in dem er
-  // zufällig lief, nicht in das, dessen Speicherdruck ihn auslöste.
-  // Gemessen: median 6,5-8,0 ms, einzelne Ausreisser bis 22-24 ms CPU-
-  // Zeit auf derselben Maschine im selben ruhigen bzw. belasteten Lauf,
-  // ohne dass der Generator selbst betroffen war. Eine Grenze, die von
-  // der Laune der GC abhängt, ist ein Test, der zufällig rot wird — die
-  // weite Grenze hier fängt trotzdem jede echte Grössenordnung ab.
-  check(`kein Ausreisser über 30 ms CPU-Zeit`, max < 30, `${max.toFixed(2)} ms`);
+
+  /*
+    Der MEDIAN der Verhältnisse ist kein eigener Check mehr — er ist bei
+    diesem Testaufbau NACHWEISLICH TOT (Bericht „golden-kits N1",
+    Abschnitt „Warum kein Median-Check"): In über 40 gemessenen Läufen
+    (ruhig, unter beiden Lastformen, unter jedem Mutanten) wurde der
+    Median KEIN EINZIGES Mal rot, ohne dass der Schnitt es nicht auch
+    wurde — erwartbar, weil jeder hier gebaute Fehler additiv ist (der
+    Generator wird höchstens langsamer, nie schneller) und der Schnitt
+    jede zusätzliche Millisekunde direkt in die Summe trägt, während der
+    Median bei einer Minderheit betroffener Saaten blind bleibt (siehe
+    Viertel-Saaten-Mutant unten). Eine Prüfung, die nie unabhängig
+    auslöst, ist die Definition von tot (dieselbe Lehre wie beim Angriff
+    auf server/test/g12-tick-aufteilung.ts) — sie bleibt nur als
+    Diagnosezeile in der Ausgabe.
+
+    Schwellen aus GEMESSENEN Verhältnissen (Bericht „golden-kits N1",
+    Tabellen „Ruhige Verhältnisse" / „Lastform b"):
+      - Ruhig, 20 frische Prozesse der ECHTEN Testdatei: Schnitt
+        1,00–1,14, Ausreisser (lautestes von 40 Einzelverhältnissen) bis
+        3,77.
+      - Lastform (a), 6 ALU- + 4 Speicher-Brenner, 6 Läufe: Schnitt
+        0,74–1,14 — KEIN Anstieg gegenüber ruhig, die Verschränkung hält.
+      - Lastform (b), 8 angeheftete Brenner mit dem Test auf Kern 0, 6
+        Läufe: Schnitt bis 1,31 — hier hält die Verschränkung NICHT
+        vollständig: Erzwungene Kernteilung mit einem Brenner trifft den
+        größeren, komplexeren Speicherfußabdruck des echten Generators
+        (200+ Räume, verschachtelte Graphstruktur) nachweisbar stärker
+        als den kleineren Referenzkern — eine reale, keine eingebildete
+        Differenz (siehe Bericht). Das bestimmt die Untergrenze für die
+        Schwelle, nicht der Ruhezustand.
+    SCHWELLE_SCHNITT = 1,45 liegt rund 11 % über dem höchsten unter
+    Lastform (b) gemessenen Wert (1,31) — 0 Fehlalarme in 32 Läufen
+    (20 ruhig + 6a + 6b). SCHWELLE_AUSREISSER = 5,0 liegt rund 33 % über
+    dem höchsten ruhigen Ausreisser (3,77).
+  */
+  const SCHWELLE_SCHNITT = 1.45;
+  const SCHWELLE_AUSREISSER = 5.0;
+  check(
+    `Schnitt-Verhältnis Generator/Referenz unter ${SCHWELLE_SCHNITT}`,
+    vSchnitt < SCHWELLE_SCHNITT,
+    `${vSchnitt.toFixed(2)} (Median zur Diagnose: ${vMedian.toFixed(2)})`
+  );
+  check(`kein Ausreisser-Verhältnis über ${SCHWELLE_AUSREISSER}`, vMax < SCHWELLE_AUSREISSER, `${vMax.toFixed(2)}`);
+
+  /*
+    Größenordnungswächter statt Ausreisserprüfung auf Prozess-CPU
+    (Angriff, Befund E2): Die alte 30-ms-Prüfung auf PROZESS-CPU löste
+    unter freien Kernen durch V8-Hilfsthreads aus und wurde GENAU DANN
+    blind, wenn die Maschine gesättigt war (die Hilfsthreads werden dann
+    verdrängt, die Spitzen verschwinden, während der Median steigt) —
+    die falsche Richtung für eine Prüfung. Der Ersatz ist ein grober, auf
+    Hauptthread-CPU umgestellter MEDIAN-Wächter: Er fängt eine
+    GRÖSSENORDNUNG (der Verteiler ruft aus Versehen den viel teureren
+    1.0-Pfad statt des Rasterpfads auf), nicht ein Prozent — dafür sind
+    Schnitt und Ausreisser oben zuständig. 30 ms liegt weit über jeder
+    gemessenen Last: ruhig 6–9 ms, unter Lastform (a) 10–14 ms, unter
+    Lastform (b) 12–13 ms, unter dem stärksten Mutanten und Lastform (a)
+    zusammen bis 23 ms (Bericht „golden-kits N1").
+  */
+  const ABS_GRENZE_MS = 30;
+  check(
+    `Hauptthread-Median unter ${ABS_GRENZE_MS} ms (Größenordnungswächter)`,
+    genMedian < ABS_GRENZE_MS,
+    `${genMedian.toFixed(2)} ms`
+  );
+
+  /*
+    Wartezeit (Wanduhr minus Hauptthread-CPU) bewusst KEIN eigener Check
+    (Karte, Abschnitt „Wartezeit"; Bericht „golden-kits N1", Abschnitt
+    „Wartezeit-Entscheidung"): Die Idee — Layout- und Referenz-Lücke
+    unter derselben Last vergleichen, weil beide gleich verdrängt werden
+    — ist im Prinzip richtig (g12 nutzt dasselbe Prinzip für eine bekannte
+    Verzögerung). Hier ist die Lücke aber schon RUHIG so unruhig, dass
+    kein stabiler Schwellenwert bliebe: In eigenen Messungen (40 Saaten,
+    mehrere Läufe) schwankte die Lücke je Saat zwischen rund 0 und 1,8 ms
+    — allein durch normale Zeitscheiben-/GC-Granularität, nicht durch
+    Warten. Ein `Atomics.wait`-Mutant mit 5-7 ms Wartezeit je Layout (das
+    Fünf- bis Siebenfache der Basisarbeit) wäre damit nicht zuverlässig
+    von Rauschen zu unterscheiden, ohne die Schwelle so weit zu setzen,
+    dass sie unterhalb dessen nichts mehr fängt. Da `generateGridLayout`
+    ausschließlich synchron rechnet (kein `await`, `readFile`, `Worker`
+    oder `setTimeout` in der Datei), ist ein echtes Blockieren zudem kein
+    naheliegender Regressionsweg — die Lücke bleibt hier offen
+    dokumentiert statt mit einer Prüfung verdeckt, die nur zufällig
+    grün oder rot wird.
+  */
 }
 
 if (failures > 0) {

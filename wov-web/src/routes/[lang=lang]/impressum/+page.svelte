@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
-  import { ANBIETER, MUSTER } from '$lib/rechtliches';
+  import { ANBIETER, MUSTER, hatWert } from '$lib/rechtliches';
 
   /**
    * Das Impressum nach § 5 DDG.
@@ -49,7 +49,7 @@
   </section>
 
   <!-- Die USt-ID ist optional: Ohne Wert entfällt der ganze Abschnitt. -->
-  {#if (ANBIETER.ustId ?? '').trim() !== ''}
+  {#if hatWert(ANBIETER.ustId)}
     <section>
       <h2>{t['legal.imprint.vat.heading']}</h2>
       <p>{t['legal.label.vat']}: {ANBIETER.ustId}</p>

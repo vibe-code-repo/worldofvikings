@@ -12,7 +12,7 @@
  *
  * Geprüft wird:
  *   1. Impressum und Datenschutz gibt es in de und en (HTTP 200, <h1>, <main>).
- *   2. JEDE gebaute Seite je Sprache enthält im HTML (ohne JavaScript) die Links
+ *   2. JEDE ABLEITBARE gebaute Seite je Sprache enthält im HTML (ohne JavaScript) die Links
  *      auf beide. Die Liste wird nicht von Hand geführt, sondern aus dem Bau
  *      abgeleitet: alle vorgerenderten Dateien unter build/prerendered, alle
  *      Adressen der /sitemap.xml und je Sprache eine nicht vorhandene Adresse
@@ -20,8 +20,9 @@
  *   3. Der Musterhinweis steht auf beiden Seiten GENAU DANN, wenn
  *      `offeneFelder()` in `src/lib/rechtliches.ts` (neben dem Bau) ein Feld als
  *      offen meldet. Dazu läuft eine Matrix über die reine Funktion: jede Form
- *      (fehlt, leer, nur Leerraum, `[[`, `[[` nach Leerraum) je Pflichtfeld,
- *      alles gefüllt, optionales Feld leer. Die Matrix am GEBAUTEN Bündel
+ *      (fehlt, leer, Leerraum, NBSP, unsichtbare Cf-Zeichen, Platzhalter-Klammern
+ *      in mehreren Schreibweisen) je Pflichtfeld, alles gefüllt, optionales
+ *      Feld leer, neues ungelistetes Feld leer. Die Matrix am GEBAUTEN Bündel
  *      erzeugt man, indem man das Skript gegen Bauten mit veränderten
  *      Werten aufruft (siehe Bericht).
  *   4. Auf den beiden Seiten lädt nichts von einem fremden Host: kein src=, kein
@@ -91,21 +92,33 @@ function vorgerenderte(ordner, praefix = '') {
 
 /** Die Matrix über die reine Funktion `offeneFelder`. */
 function matrix(modul) {
-  const { offeneFelder, PFLICHTFELDER } = modul;
-  const gefuellt = Object.fromEntries(PFLICHTFELDER.map((f) => [f, `Wert ${f}`]));
-  gefuellt.ustId = 'DE123456789';
+  const { offeneFelder, FELDER, OPTIONALFELDER } = modul;
+  const pflicht = FELDER.filter((f) => !OPTIONALFELDER.includes(f));
+  const gefuellt = Object.fromEntries(FELDER.map((f) => [f, `Wert ${f}`]));
+  const unsichtbar = { ZWSP: '​', ZWNJ: '‌', ZWJ: '‍', WJ: '⁠', MVS: '᠎', BOM: '﻿' };
   const formen = {
     fehlt: (o, f) => delete o[f],
     leer: (o, f) => (o[f] = ''),
     leerraum: (o, f) => (o[f] = '  \t\n '),
+    nbsp: (o, f) => (o[f] = ' '),
+    'nbsp + Leerraum': (o, f) => (o[f] = '  　  '),
+    'alle Cf-Zeichen': (o, f) => (o[f] = Object.values(unsichtbar).join('')),
+    'Cf + nbsp gemischt': (o, f) => (o[f] = ` ${unsichtbar.ZWSP} ${unsichtbar.WJ} ${unsichtbar.BOM}`),
+    ...Object.fromEntries(Object.entries(unsichtbar).map(([n, z]) => [n, (o, f) => (o[f] = z)])),
     platzhalter: (o, f) => (o[f] = '[[X]]'),
     'platzhalter nach Leerraum': (o, f) => (o[f] = '  \n[[X]]'),
     'platzhalter in Zeile 2': (o, f) => (o[f] = 'Zeile 1\n[[X]]'),
+    '[ [X] ]': (o, f) => (o[f] = '[ [X] ]'),
+    '{{X}}': (o, f) => (o[f] = '{{X}}'),
+    'X}}': (o, f) => (o[f] = 'X}}'),
+    'X]]': (o, f) => (o[f] = 'X]]'),
+    '[ZWSP[X]]': (o, f) => (o[f] = `[${unsichtbar.ZWSP}[X]${unsichtbar.WJ}]`),
+    '{ nbsp {X}}': (o, f) => (o[f] = '{ {X}}'),
   };
   let zeilen = 0;
   const vorher = fehler;
   pruefe(offeneFelder(gefuellt).length === 0, 'Matrix: alles gefüllt → nichts offen', JSON.stringify(offeneFelder(gefuellt)));
-  for (const f of PFLICHTFELDER) {
+  for (const f of pflicht) {
     for (const [form, aendere] of Object.entries(formen)) {
       const o = { ...gefuellt };
       aendere(o, f);
@@ -116,19 +129,29 @@ function matrix(modul) {
       }
     }
   }
-  if (fehler === vorher) console.log(`ok     Matrix: ${zeilen} Zeilen (${PFLICHTFELDER.length} Pflichtfelder × ${Object.keys(formen).length} Formen) erkennen genau das eine offene Feld`);
-  for (const [name, wert, erwartet] of [
-    ['ustId leer', '', false],
-    ['ustId nur Leerraum', '   ', false],
-    ['ustId fehlt', undefined, false],
-    ['ustId Platzhalter', '[[UST-ID]]', true],
-  ]) {
-    const o = { ...gefuellt };
-    if (wert === undefined) delete o.ustId;
-    else o.ustId = wert;
-    const offen = offeneFelder(o).includes('ustId');
-    pruefe(offen === erwartet, `Matrix: optionales Feld: ${name} → ${erwartet ? 'offen' : 'ohne Hinweis'}`, `beobachtet: ${offen ? 'offen' : 'ok'}`);
+  if (fehler === vorher) console.log(`ok     Matrix: ${zeilen} Zeilen (${pflicht.length} Pflichtfelder × ${Object.keys(formen).length} Formen) erkennen genau das eine offene Feld`);
+  // Optionale Felder: leer in jeder Form darf fehlen, ein Platzhalter nicht.
+  const optional = [
+    ['leer', '', false], ['nur Leerraum', '   ', false], ['fehlt', undefined, false],
+    ['nur ZWSP/WJ/BOM', '​⁠﻿', false], ['nbsp + ZWSP', ' ​', false],
+    ['Platzhalter [[UST-ID]]', '[[UST-ID]]', true], ['Platzhalter [ [X] ]', '[ [X] ]', true],
+    ['Platzhalter {{X}}', '{{X}}', true], ['echter Wert', 'DE123456789', false],
+  ];
+  for (const f of OPTIONALFELDER) {
+    for (const [name, wert, erwartet] of optional) {
+      const o = { ...gefuellt };
+      if (wert === undefined) delete o[f];
+      else o[f] = wert;
+      const offen = offeneFelder(o).includes(f);
+      pruefe(offen === erwartet, `Matrix: optionales Feld ${f}: ${name} → ${erwartet ? 'offen' : 'ohne Hinweis'}`, `beobachtet: ${offen ? 'offen' : 'ok'}`);
+    }
   }
+  // Umgedrehte Logik: ein NEUES Feld ist ohne Eintrag in einer Liste Pflicht.
+  for (const [name, wert, erwartet] of [['leer', '', true], ['ZWSP', '​', true], ['Platzhalter', '[[NEU]]', true], ['gefüllt', 'ein Wert', false]]) {
+    const offen = offeneFelder({ ...gefuellt, neuesFeld: wert }).includes('neuesFeld');
+    pruefe(offen === erwartet, `Matrix: neues, ungelistetes Feld ${name} → ${erwartet ? 'offen (Pflicht)' : 'ok'}`, `beobachtet: ${offen ? 'offen' : 'ok'}`);
+  }
+  pruefe(FELDER.length === new Set(FELDER).size && OPTIONALFELDER.every((f) => FELDER.includes(f)), 'FELDER ohne Doppelte, OPTIONALFELDER ⊂ FELDER');
 }
 
 async function lauf() {

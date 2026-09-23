@@ -4,8 +4,8 @@
  * Impressum und Datenschutzerklärung lesen ausschliesslich von hier. Wer die
  * Daten einträgt, ändert Werte in `ANBIETER`, nichts sonst.
  *
- * Ein Wert, der `[[` enthält, ist ein Platzhalter. Ein Pflichtfeld, das fehlt,
- * leer ist oder nur aus Leerraum besteht, gilt ebenso als offen (Angriff 1,
+ * Ein Wert mit Platzhalter-Klammern (`[[`) ist offen. Ein Pflichtfeld, das fehlt,
+ * leer ist oder nur aus Leerraum oder unsichtbaren Zeichen besteht, ebenso (Angriff 1,
  * Befund M1: ein leerer String hebelte die alte `[[`-Prüfung aus). Solange
  * es ein offenes Feld gibt, ist `MUSTER` wahr: Beide Seiten zeigen oben den Hinweis „Muster,
  * Angaben folgen“ und tragen `noindex`. Sobald das letzte offene Feld
@@ -50,39 +50,65 @@ export const ANBIETER: Anbieter = {
 };
 
 /**
- * Die Felder, ohne die weder Impressum noch Datenschutzerklärung veröffentlicht
- * werden dürfen. `ustId` fehlt hier mit Absicht: Sie ist optional.
+ * Alle Felder von `Anbieter`. Die Zeilen darunter brechen `npm run check`, wenn
+ * ein Feld der Schnittstelle hier fehlt.
  */
-export const PFLICHTFELDER: readonly (keyof Anbieter)[] = [
+export const FELDER = [
   'name',
   'anschrift',
   'email',
   'telefon',
+  'ustId',
   'inhaltlichVerantwortlich',
   'hosting',
   'aufsichtsbehoerde',
   'mindestalter',
-];
+] as const satisfies readonly (keyof Anbieter)[];
+type FehlendeFelder = Exclude<keyof Anbieter, (typeof FELDER)[number]>;
+const _alleFelderGelistet: [FehlendeFelder] extends [never] ? true : never = true;
+void _alleFelderGelistet;
+
+/**
+ * Die ausdrücklich OPTIONALEN Felder. Alles andere ist Pflicht: Ein neues Feld
+ * ist damit ohne weiteres Zutun Pflicht. Ein optionales Feld darf leer
+ * bleiben, ein Platzhalter darin bleibt trotzdem offen.
+ */
+export const OPTIONALFELDER: readonly string[] = ['ustId'];
+
+/**
+ * Der sichtbare Kern eines Werts: ohne Leerraum (`\p{White_Space}`, u. a.
+ * NBSP) und ohne unsichtbare Formatzeichen (`\p{Cf}`: U+200B, U+200C, U+200D,
+ * U+2060, U+180E, U+FEFF …). Ein Wert, der danach leer ist, ist für den Leser
+ * leer, auch wenn Zeichen darin stehen.
+ */
+export function sichtbarerKern(wert: unknown): string {
+  return typeof wert === 'string' ? wert.replace(/[\p{Cf}\p{White_Space}]/gu, '') : '';
+}
+
+/** Hat der Wert sichtbaren Inhalt? (Die Seiten nutzen das für optionale Felder.) */
+export function hatWert(wert: unknown): boolean {
+  return sichtbarerKern(wert) !== '';
+}
 
 /**
  * Welche Felder sind noch offen? Reine Funktion, deshalb einzeln testbar.
  *
- * Offen ist ein Wert, der `[[` enthält (in jedem Feld, auch in optionalen),
- * und bei einem Pflichtfeld zusätzlich ein Wert, der fehlt, kein Text ist, leer
- * ist oder nur aus Leerraum besteht. Ein optionales Feld darf leer bleiben.
+ * Offen ist ein Feld, dessen sichtbarer Kern eine Platzhalter-Klammer enthält
+ * (`[[`, `]]`, `{{`, `}}` — also auch `[ [NAME] ]`; in jedem Feld, auch in
+ * optionalen), und bei einem Pflichtfeld zusätzlich, wenn es fehlt, kein Text
+ * ist oder keinen sichtbaren Inhalt hat. Pflicht ist jedes Feld, das nicht in
+ * `optional` steht, auch eines, das `FELDER` (noch) nicht kennt.
  */
 export function offeneFelder(
-  angaben: Partial<Record<keyof Anbieter, unknown>>,
-  pflicht: readonly string[] = PFLICHTFELDER,
+  angaben: object,
+  optional: readonly string[] = OPTIONALFELDER,
 ): string[] {
+  const werte = angaben as Record<string, unknown>;
   const offen: string[] = [];
-  for (const schluessel of new Set([...pflicht, ...Object.keys(angaben)])) {
-    const wert = angaben[schluessel as keyof Anbieter];
-    const text = typeof wert === 'string' ? wert : null;
-    const istPflicht = pflicht.includes(schluessel);
-    const fehlt = text === null || text.trim() === '';
-    if (text?.includes('[[')) offen.push(schluessel);
-    else if (istPflicht && fehlt) offen.push(schluessel);
+  for (const schluessel of new Set<string>([...FELDER, ...Object.keys(werte)])) {
+    const kern = sichtbarerKern(werte[schluessel]);
+    if (/\[\[|\]\]|\{\{|\}\}/.test(kern)) offen.push(schluessel);
+    else if (!optional.includes(schluessel) && kern === '') offen.push(schluessel);
   }
   return offen;
 }

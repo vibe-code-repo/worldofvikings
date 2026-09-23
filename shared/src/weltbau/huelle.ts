@@ -27,7 +27,7 @@ import { istFesterKoerper } from '../kollision/festeKoerper.js';
 import { uploadedModelEntry } from '../uploadedModelRegistry.js';
 import { HAUS_MIN_HOEHE, HAUS_MIN_KANTE } from './grenzen.js';
 
-export type HuellenQuelle = 'extern' | 'store-kollisionskiste' | 'store-huelle' | 'upload';
+export type HuellenQuelle = 'extern' | 'store-kollisionskiste' | 'store-huelle' | 'upload' | 'manifest';
 
 /** Hülle im lokalen Weltraum (x bereits gespiegelt), unskaliert, Ursprung = Bodenkontakt. */
 export interface Huelle {

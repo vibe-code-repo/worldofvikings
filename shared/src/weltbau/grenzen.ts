@@ -35,6 +35,10 @@ export const BESCHREIBEN_RADIUS_VORGABE = 32;
 
 /** Höchstens so viele Befunde bzw. Objekte werden ausgegeben, der Rest wird nur gezählt. */
 export const BEFUNDE_MAX = 200;
+/** Höchstens so viele Befunde sammelt eine quadratische Prüfung (Überlappung), danach Teilbericht „gekappt“. */
+export const BEFUNDE_JE_PRUEFUNG_MAX = 500;
+/** In engen Schleifen wird die Uhr nur alle (Takt+1) Schritte gelesen; Takt = 2^n − 1. */
+export const FRIST_PRUEFTAKT = 63;
 export const DIFF_EINTRAEGE_MAX = 500;
 export const NAECHSTE_OBJEKTE_MAX = 50;
 

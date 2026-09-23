@@ -23,6 +23,8 @@ import { ZONE_SIZE } from '../constants.js';
 import { KOERPER_RADIUS, STEIGUNGS_GRENZE_GRAD, STUFEN_HOEHE } from '../bewegung/masse.js';
 import {
   BEFUNDE_MAX,
+  BEFUNDE_JE_PRUEFUNG_MAX,
+  FRIST_PRUEFTAKT,
   BEREICH_MAX_KANTE,
   EINGANG_ABSTAND,
   EINGANG_RASTER,
@@ -278,11 +280,24 @@ function ueberlappungen(objekte: readonly Objekt[], befunde: Befund[], u: Uhr): 
   });
   const gesehen = new Set<string>();
   let zellenGeprueft = 0;
-  for (const liste of zellen.values()) {
-    if (u.abgelaufen()) break;
-    zellenGeprueft++;
+  // Obergrenze der Kandidatenpaare (Paare über mehrere Zellen zählen mehrfach): für die Zahl der ungeprüften bei Abbruch.
+  let paareGesamt = 0;
+  for (const liste of zellen.values()) paareGesamt += (liste.length * (liste.length - 1)) / 2;
+  let paareBearbeitet = 0;
+  let eigeneBefunde = 0;
+  let abbruch: 'frist' | 'kappe' | undefined;
+  zellenschleife: for (const liste of zellen.values()) {
+    if (u.abgelaufen()) {
+      abbruch = 'frist';
+      break;
+    }
     for (let a = 0; a < liste.length; a++) {
       for (let b = a + 1; b < liste.length; b++) {
+        // Die Frist auch INNERHALB einer Zelle: eine dichte Zelle hat Millionen Paare.
+        if ((paareBearbeitet++ & FRIST_PRUEFTAKT) === 0 && u.abgelaufen()) {
+          abbruch = 'frist';
+          break zellenschleife;
+        }
         const i = Math.min(liste[a], liste[b]);
         const j = Math.max(liste[a], liste[b]);
         const key = `${i}|${j}`;
@@ -307,6 +322,11 @@ function ueberlappungen(objekte: readonly Objekt[], befunde: Befund[], u: Uhr): 
         const beideBausatz = ha.gebaeude && hb.gebaeude;
         const schwere = anteil >= UEBERLAPPUNG_ROT && !beideBausatz ? 'rot' : 'gelb';
         const mitte = eckenMitte(schnitt);
+        if (eigeneBefunde >= BEFUNDE_JE_PRUEFUNG_MAX) {
+          abbruch = 'kappe';
+          break zellenschleife;
+        }
+        eigeneBefunde++;
         befunde.push({
           pruefung: 'ueberlappung',
           schwere,
@@ -320,13 +340,20 @@ function ueberlappungen(objekte: readonly Objekt[], befunde: Befund[], u: Uhr): 
         });
       }
     }
+    zellenGeprueft++;
   }
+  const ungeprueft = Math.max(0, paareGesamt - paareBearbeitet);
   return {
-    status: zellenGeprueft < zellen.size ? 'abgebrochen' : 'vollstaendig',
+    status: abbruch ? 'abgebrochen' : 'vollstaendig',
     geprueft: zellenGeprueft,
     gesamt: zellen.size,
     einheit: 'Rasterzellen (16 m)',
-    grund: zellenGeprueft < zellen.size ? 'Frist abgelaufen' : undefined,
+    grund:
+      abbruch === 'kappe'
+        ? `weitere Befunde gekappt (Kappe ${BEFUNDE_JE_PRUEFUNG_MAX} je Prüfung, höchstens ${Math.round(ungeprueft)} Paare ungeprüft)`
+        : abbruch === 'frist'
+          ? `Frist abgelaufen (höchstens ${Math.round(ungeprueft)} Paare ungeprüft)`
+          : undefined,
   };
 }
 

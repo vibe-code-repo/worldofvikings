@@ -149,6 +149,17 @@ mcp.registerTool(
         }
         const z = zaehlerVon(layout, w.layout, w.positionUngenau.length);
         const zusammen = `${z.text}${z.geo ? ' (Gelände betroffen: wirkt nach Neustart)' : ''}`;
+        // 2b. Leerer Diff: nichts schreiben, keinen Vorgang anlegen (auch nicht als Trockenfahrt-Ergebnis „geschehen“).
+        if (z.neu + z.geaendert + z.entfernt + z.verschoben === 0 && !z.geo) {
+          return ok(`ops_apply: Keine Änderungen — nichts geschrieben, kein Vorgang angelegt${trocken ? ' (trocken)' : ''}`, {
+            trocken,
+            leer: true,
+            geschrieben: false,
+            basisHash: hash,
+            zaehler: z,
+            stapel: vorgangsStapel.laenge,
+          });
+        }
         // 3. Trockenfahrt: hier endet es, ohne Netzverkehr über das GET hinaus.
         if (trocken) {
           return ok(`ops_apply (trocken, nichts geschrieben): ${zusammen}`, {

@@ -6,12 +6,11 @@ import { z } from 'zod';
 import { mcp, lade, meldungVon } from '../kern.js';
 import { KARTEN_EBENEN, KARTE_PIXEL } from '@wov/shared/src/weltbau/karte.js';
 import { rendereKarte, weltBereich } from '../karten.js';
-import { huellenAufloeser } from '@wov/shared/src/weltbau/huelle.js';
+import { huellenFuerAufruf } from './huellen.js';
 import type { Grundflaeche } from '@wov/shared/src/weltbau/karte.js';
 
-const huellen = huellenAufloeser();
 /** Grundfläche je Prefab aus der Hülle (unskaliert, um den Ursprung); unbekannte Prefabs bleiben Punkte. */
-const flaecheVon = (prefab: string): { flaeche: Grundflaeche; fest: boolean } | undefined => {
+const flaecheVon = (huellen: ReturnType<typeof huellenFuerAufruf>) => (prefab: string): { flaeche: Grundflaeche; fest: boolean } | undefined => {
   const h = huellen(prefab);
   return h ? { flaeche: { art: 'rechteck', halbX: h.halbX, halbZ: h.halbZ }, fest: h.fest } : undefined;
 };
@@ -44,7 +43,7 @@ mcp.registerTool(
   async ({ bereich, pixel, ebenen, befunde }) => {
     try {
       const { layout } = await lade();
-      const r = rendereKarte(layout, { bereich: bereich ?? weltBereich(layout), pixel, ebenen, befunde, flaeche: flaecheVon });
+      const r = rendereKarte(layout, { bereich: bereich ?? weltBereich(layout), pixel, ebenen, befunde, flaeche: flaecheVon(huellenFuerAufruf()) });
       return {
         content: [
           { type: 'text' as const, text: r.text },

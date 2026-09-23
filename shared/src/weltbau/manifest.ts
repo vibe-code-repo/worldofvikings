@@ -12,6 +12,10 @@
  * file text. Missing or broken entries yield no size, never a guessed one.
  */
 
+import { PREFABS_BY_NAME } from '../prefabs.js';
+import { istFesterKoerper } from '../kollision/festeKoerper.js';
+import type { Huelle, HuellenAufloeser } from './huelle.js';
+
 export interface ManifestModell {
   breite: number;
   hoehe: number;
@@ -59,4 +63,33 @@ export function leseManifest(text: string): Map<string, ManifestModell> {
     });
   }
   return aus;
+}
+
+/**
+ * Hülle aus den Maßen des Manifests (Einhängepunkt `zusatz` des
+ * Hüllenauflösers): Hüllbox aus dem Dateiraum (x gespiegelt), fehlt sie, eine
+ * um den Ursprung zentrierte Box aus Breite/Tiefe/Höhe. Festigkeit wie im
+ * Store über `istFesterKoerper`. Kein Eintrag → `null`, nichts wird erfunden.
+ * Zählt nie als Haus (Quelle `manifest`).
+ *
+ * Hull from manifest sizes, for the resolver's `zusatz` hook.
+ */
+export function manifestHuellen(manifest: ReadonlyMap<string, ManifestModell>): HuellenAufloeser {
+  return (prefab) => {
+    const m = manifest.get(prefab);
+    if (!m) return null;
+    const box = m.huelle ?? { min: [-m.breite / 2, 0, -m.tiefe / 2] as const, max: [m.breite / 2, m.hoehe, m.tiefe / 2] as const };
+    const h: Huelle = {
+      fest: istFesterKoerper(PREFABS_BY_NAME.get(prefab), prefab),
+      mitteX: m.huelle ? -(box.min[0] + box.max[0]) / 2 : 0,
+      mitteZ: (box.min[2] + box.max[2]) / 2,
+      halbX: (box.max[0] - box.min[0]) / 2,
+      halbZ: (box.max[2] - box.min[2]) / 2,
+      minY: box.min[1],
+      maxY: box.max[1],
+      gebaeude: false,
+      quelle: 'manifest',
+    };
+    return h.halbX > 0 && h.halbZ > 0 ? h : null;
+  };
 }

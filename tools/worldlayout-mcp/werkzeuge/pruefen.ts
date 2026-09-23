@@ -17,6 +17,7 @@ import { BESCHREIBEN_RADIUS_MAX, BESCHREIBEN_RADIUS_VORGABE } from '@wov/shared/
 import { waehleDiffBasis } from '@wov/shared/src/weltbau/diffBasis.js';
 import { mcp, lade, sitzungsBasis } from '../kern.js';
 import { vorgangsStapel } from './vorgaenge.js';
+import { huellenFuerAufruf } from './huellen.js';
 
 type Antwort = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
@@ -76,6 +77,7 @@ mcp.registerTool(
       const geo = geoFuer(layout, hash);
       const e = pruefeWelt(layout, geo, bereich, {
         pruefungen: pruefungen as never,
+        huellen: huellenFuerAufruf(),
         grenzen,
         von,
       });
@@ -145,7 +147,7 @@ mcp.registerTool(
     try {
       const { layout, hash } = await lade();
       const t0 = performance.now();
-      const b = beschreibeOrt(layout, geoFuer(layout, hash) as unknown as GeoLese, x, zz, radius ?? BESCHREIBEN_RADIUS_VORGABE);
+      const b = beschreibeOrt(layout, geoFuer(layout, hash) as unknown as GeoLese, x, zz, radius ?? BESCHREIBEN_RADIUS_VORGABE, huellenFuerAufruf());
       const ms = Math.round(performance.now() - t0);
       return ok(`area_describe: ${b.text} (${ms} ms)`, { ...b, ms });
     } catch (f) {

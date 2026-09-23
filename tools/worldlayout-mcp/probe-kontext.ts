@@ -311,6 +311,28 @@ try {
   await rufe(c, 'undo_last', {});
   check('… und beide wieder zurück (Datei = Start)', sha(weltDatei(A)) === start);
 
+  // ── Leerer Diff: nichts schreiben, keinen Vorgang anlegen ──
+  const echt1 = await rufe(c, 'ops_apply', { trocken: false, ops: [{ art: 'setze', sammlung: 'placements', id: 'leer1', nachher: { id: 'leer1', prefab: 'environment-chestbottom', x: 60, z: 60 } }] });
+  check('Vorbereitung leere Vorgänge: ein echter Vorgang, Stapel 1', !istFehler(echt1) && (json(echt1) as { stapel: number }).stapel === 1);
+  const hashEcht1 = sha(weltDatei(A));
+  const patchVorLeer = pA.zaehle('PATCH');
+  const leerOps = [{ art: 'aendere', sammlung: 'placements', id: 'leer1', vorher: { id: 'leer1', prefab: 'environment-chestbottom', x: 60, z: 60 }, nachher: { id: 'leer1', prefab: 'environment-chestbottom', x: 60, z: 60 } }];
+  let leerOk = true;
+  let leerStapel = -1;
+  for (let i = 0; i < 5; i++) {
+    const r = await rufe(c, 'ops_apply', { trocken: false, ops: leerOps });
+    const jr = json(r) as { leer?: boolean; geschrieben?: boolean; stapel?: number };
+    if (istFehler(r) || jr.leer !== true || jr.geschrieben !== false || !/Keine Änderungen — nichts geschrieben, kein Vorgang angelegt/.test(text(r))) leerOk = false;
+    leerStapel = jr.stapel ?? -1;
+  }
+  check('5 leere ops_apply: Antwort sagt „Keine Änderungen … kein Vorgang angelegt“', leerOk);
+  check('5 leere ops_apply: 0 PATCH, Datei unverändert, Stapelhöhe weiter 1', pA.zaehle('PATCH') === patchVorLeer && sha(weltDatei(A)) === hashEcht1 && leerStapel === 1, `PATCH +${pA.zaehle('PATCH') - patchVorLeer}, Stapel ${leerStapel}`);
+  const leerTrocken = await rufe(c, 'ops_apply', { trocken: true, ops: leerOps });
+  check('leerer ops_apply trocken: ebenfalls „Keine Änderungen“, kein PATCH', !istFehler(leerTrocken) && (json(leerTrocken) as { leer?: boolean }).leer === true && pA.zaehle('PATCH') === patchVorLeer);
+  const wdLeer = text(await rufe(c, 'world_diff', { gegen: 'vorgang' }));
+  check('world_diff gegen "vorgang" zeigt weiter den letzten echten Vorgang (+1 Objekt)', /\+1 Objekt/.test(wdLeer), wdLeer.slice(0, 120));
+  check('undo_last nimmt genau diesen echten Vorgang zurück (Datei = Start)', !istFehler(await rufe(c, 'undo_last', {})) && sha(weltDatei(A)) === start);
+
   // ── Konflikt: fremde Änderung am selben Objekt ──
   const ziel = await rufe(c, 'ops_apply', { trocken: false, ops: [{ art: 'setze', sammlung: 'placements', id: 'ziel1', nachher: { prefab: 'environment-chestbottom', x: 80, z: 80 } }] });
   check('Konflikt-Vorbereitung: Objekt ziel1 gesetzt', !istFehler(ziel));

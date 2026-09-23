@@ -16,6 +16,7 @@
  *                                 Argumenten, nicht die Schleifenvariable)
  *   ueberspringe(buch, …)         bucht einen durch eine Weiche übersprungenen Eintrag
  *   auslassen(buch, …, grund)     bucht einen absichtlich ausgelassenen Eintrag (Filter)
+ *   leereUndBeende(prozess, code) lässt stdout/stderr leerlaufen und ruft dann erst `exit` (auch für Signalwege)
  *   beende(buch, optionen)        liest die Soll-Liste aus dem LITERAL von KERN im Quelltext
  *                                 (nicht aus der lebenden Variablen), vergleicht, druckt die
  *                                 Schlusszeile aus den GEBUCHTEN Zahlen und beendet den Prozess
@@ -220,6 +221,37 @@ export async function beende(
       code = 0;
     }
   }
-  buch.prozess.exitCode = code;
-  buch.prozess.exit(code);
+  await leereUndBeende(buch.prozess, code);
+}
+
+/**
+ * Ends the process with `code` only after stdout and stderr have taken everything written so far.
+ * `process.exit` with a full pipe (`| tee`, CI) drops the queued rest of the report (measured: it
+ * cut off at 65 536 bytes), and the summary stands at the end. An empty write completes after the
+ * writes before it. If the reader is gone or stuck, `frist` ms bound the wait; the exit code is the
+ * same either way. A fake process without streams (tests) is ended at once.
+ */
+export async function leereUndBeende(prozess, code, frist = 10_000) {
+  prozess.exitCode = code;
+  const strome = [prozess.stdout, prozess.stderr].filter((s) => s && typeof s.write === 'function');
+  let zeitgeber;
+  try {
+    await Promise.race([
+      Promise.all(
+        strome.map(
+          (s) =>
+            new Promise((fertig) => {
+              s.once('error', fertig); // a closed pipe (EPIPE) must not turn the exit code into a crash
+              s.write('', fertig);
+            }),
+        ),
+      ),
+      new Promise((fertig) => {
+        zeitgeber = setTimeout(fertig, frist);
+      }),
+    ]);
+  } finally {
+    clearTimeout(zeitgeber);
+  }
+  prozess.exit(code);
 }

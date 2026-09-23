@@ -869,6 +869,23 @@ node_modules/.bin/tsx tools/aussehen-json.mjs --aus wov-web/static/assets/appear
 node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js
 (cd wov-web && npm ci --include=dev && npm run build && bash tools/ohne-js-pruefen.sh)
 
+# Nach dem Webseitenbau darf der Baum nicht schmutzig sein: der NAECHSTE Lauf
+# bricht sonst in der Sauberkeitspruefung oben ab (nach #59 und #60 geschehen,
+# als ein getracktes vorschau.js neu gebaut anders aussah). vorschau.js ist
+# deshalb kein Repo-Bestandteil mehr (.gitignore). Ein Rest hier ist ein
+# Fehler in einer erzeugten Datei: laut melden, aber nicht abbrechen -- die
+# Dienste starten gleich, und der Update selbst ist gelungen.
+REST_NACH_WEBBAU="$(git status --porcelain)"
+if [ -n "$REST_NACH_WEBBAU" ]; then
+  echo >&2
+  echo "WARNUNG: Der Webseitenbau hat den Arbeitsbaum verschmutzt:" >&2
+  printf %s
+ "$REST_NACH_WEBBAU" | sed s/^/ / >&2
+  echo "Der naechste wov-update.sh bricht deshalb in der Sauberkeitspruefung ab." >&2
+  echo "Die genannten Dateien sind erzeugt: nicht committen, sondern die Quelle" >&2
+  echo "oder die .gitignore-Zeile klaeren (git checkout -- <datei> stellt zurueck)." >&2
+fi
+
 # ── 8. Dienste starten ───────────────────────────────────────────────
 # Gestartet wird, was auf DIESEM Container aktiviert ist. Die Unit-Dateien
 # sind auf dev und live identisch; auf live ist wov-client zwar

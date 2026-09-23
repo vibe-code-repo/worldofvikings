@@ -114,20 +114,20 @@ Slot `n` owns these ports, and nothing else:
 | admin service | `248n` | `WOV_ADMIN_PORT=248n` |
 
 That is the scheme for slots 0-8. `247n` stops at `2479` and `5299` is fixed in
-`tools/dungeon2-*`, so slots 9-13 have their own band (15 numbers that no file in
-the repo names and nothing on the machine listened on when measured, 23.09.2026):
+`tools/dungeon2-*`, so slots 9-13 have their own band (15 numbers that nothing in the repo uses as a port (only
+coordinates in world data match) and nothing on the machine listened on, 23.09.2026):
 
 | Slot | game server | admin service | client (Vite) |
 |---|---|---|---|
-| 9 | `2709` | `2829` | `5842` |
-| 10 | `2710` | `2830` | `5843` |
-| 11 | `2711` | `2831` | `5844` |
-| 12 | `2712` | `2832` | `5845` |
-| 13 | `2713` | `2833` | `5846` |
+| 9 | `2709` | `2809` | `5809` |
+| 10 | `2710` | `2810` | `5810` |
+| 11 | `2711` | `2811` | `5811` |
+| 12 | `2712` | `2812` | `5812` |
+| 13 | `2713` | `2813` | `5813` |
 
 The same three settings apply (`port:` in `server.yml`, `WOV_ADMIN_PORT`,
-`WOV_CLIENT_PORT`/`WOV_SPIEL_PORT`); as a formula: game `2700+n`, admin `2820+n`,
-client `5833+n`. Do not put a fixed port from either scheme into a test; the guard
+`WOV_CLIENT_PORT`/`WOV_SPIEL_PORT`); as a formula: game `2700+n`, admin `2800+n`,
+client `5800+n`. Do not put a fixed port from either scheme into a test; the guard
 below knows both.
 
 The game server reads its port only from `server/data/server.yml`, which is

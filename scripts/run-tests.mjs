@@ -1552,6 +1552,11 @@ const KERN = [
   // ohneWeltVerworfen steht im Betriebs-Schnappschuss — drei echte Clients,
   // eine Instanz, ephemerer Port. ~25 s.
   ['server', 'test/besitz-grenzen.ts'],
+  // Truhe lesen: der Inhalt einer fremden Truhe reist nicht im ZDOSync mit
+  // (Vollstand und Delta auf dem Draht mitgelesen, drei Runden), der Besitzer
+  // mit offener Truhe sieht jede Aenderung, eigene/besitzerlose/Grab-Truhen
+  // bleiben lesbar — zwei echte Clients, ephemerer Port. ~30 s.
+  ['server', 'test/truhe-lesen.ts'],
   // G3 (Testluecken-Durchsicht, "kein einziger Test mit zwei
   // gleichzeitigen Clients"): echte WebSocket-Handshakes fuer ZWEI+ Peers
   // gleichzeitig gegen einen echten WovServer. Gegenseitige ZDO-

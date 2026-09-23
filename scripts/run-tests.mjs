@@ -1475,6 +1475,26 @@ const KERN = [
   // ... and the editor's side: the typed confirmation, the numbers in the dialog, the state after a success
   // (draft, base, empty undo stack), the wiring in editorMain.ts.
   ['client', 'test/welt-zuruecksetzen.ts'],
+  // U1 (uploaded-model editor upload): the runtime code/data seam
+  // (shared/src/uploadedModelRegistry.ts) — registers/unregisters exactly
+  // like a hand-built prefab, and pruefeLayout/istEigenesModell accept an
+  // uploaded name (plus the counter-proof: it is flagged again once removed).
+  ['shared', 'test/uploaded-model-registry.ts'],
+  // ... and the upload gate itself (shared/src/uploadedModelUpload.ts):
+  // eight-plus rejected cases with an unchanged directory afterwards, the
+  // missing-texture/oversize hints that are accepted rather than rejected,
+  // the collision box-vs-mesh default, and the confirm-then-remove flow.
+  ['server', 'test/modell-upload-pruefung.ts'],
+  // ... and the wiring in the operations service itself, checked on the syntax
+  // tree (survives `npm run format`): PR #59's content-type gate carries a
+  // narrow, path-and-method-scoped exception for this one route, the origin
+  // check still runs first, and the route calls the shared gate/removal.
+  ['admin', 'test/modell-upload-verdrahtung.ts'],
+  // ... and collision, at the real chain (KollisionsFormen -> Kollisionswelt
+  // -> bewegungsSchritt, same functions the running game server uses): the
+  // default box stops a walking step, an explicit "durchlaessig" choice
+  // does not add a body at all.
+  ['server', 'test/modell-upload-kollision.ts'],
   // `zone reset` re-scatters generated zones and leaves layout objects, player
   // builds and admin trees alone.
   ['server', 'test/zonen-ruecksetzer.ts'],

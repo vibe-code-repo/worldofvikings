@@ -80,7 +80,16 @@ export const STORE_BASE_URL = '/assets/';
 export const STORE_PREFIXE = ['store/', 'store-lab/'] as const;
 
 /**
- * Die WURZEL eines Modellnamens — welcher der drei Bestände ist gemeint?
+ * Vierte Wurzel: per Editor hochgeladene Modelle (Karte U1). Wie beim
+ * Speicher steckt der Ordner bereits im Modellnamen
+ * (`hochgeladen/U_holzfass`) — `STORE_BASE_URL` ('/assets/') passt
+ * unverändert, weil beide Ordner direkt unter `assets/` liegen und die
+ * Basis nur der REST bis zum Dateinamen ist (s. `modelBaseUrl`).
+ */
+export const UPLOADED_PREFIX = 'hochgeladen/';
+
+/**
+ * Die WURZEL eines Modellnamens — welcher der vier Bestände ist gemeint?
  *
  * Gefragt wird nach dem DATEINAMEN, nicht nach dem Prefabnamen — die
  * beiden fallen bei jedem Eintrag in `MODELL_ALIAS` auseinander, und die
@@ -91,6 +100,7 @@ export const STORE_PREFIXE = ['store/', 'store-lab/'] as const;
  */
 function wurzelUrl(datei: string): string {
   if (STORE_PREFIXE.some((p) => datei.startsWith(p))) return STORE_BASE_URL;
+  if (datei.startsWith(UPLOADED_PREFIX)) return STORE_BASE_URL;
   return datei.startsWith(GENERATED_PREFIX) ? GENERATED_BASE_URL : MODEL_BASE_URL;
 }
 

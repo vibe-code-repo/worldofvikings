@@ -102,6 +102,7 @@ import { BaumImpostor } from './engine/BaumImpostor';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
 import { ladeModulRegistrierung } from './net/ModuleRegistryLoad';
+import { ladeHochgeladeneRegistrierung } from './net/UploadedModelRegistryLoad';
 import { Abgleicher } from './net/Positionsverlauf';
 import { parseZDOSync, ZDOSpiegel } from './net/ZDOSync';
 import { Hud } from './ui/Hud';
@@ -313,6 +314,7 @@ async function main() {
   // Kein Ausgang, den der Aufrufer behandeln müsste: Eine fehlende Datei
   // ist der Normalfall und bedeutet „keine gebauten Säle".
   await ladeModulRegistrierung();
+  await ladeHochgeladeneRegistrierung();
 
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
 

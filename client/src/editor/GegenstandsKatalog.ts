@@ -115,8 +115,10 @@ import {
   STORE_BASIS,
   isRenderable,
   istEigenesModell,
+  uploadedModelRegistry,
   type PrefabDef,
 } from '@wov/shared';
+import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
 import { AssetManager, modelUrl } from '../engine/AssetManager';
 import { toeneStoreMeshes } from '../engine/StoreToenung';
 import { laubSpitzenMeshes } from '../engine/LaubSpitzen';
@@ -129,6 +131,7 @@ import {
   beiUeberfahren,
   beschriftungStil,
   el,
+  feld,
   grundregelnEinhaengen,
   knopf,
   kreuzfeld,
@@ -200,6 +203,14 @@ interface Kategorie {
    * jeweils den anderen Zweig (s. `istSpeicher`).
    */
   speicher?: StoreArt;
+  /**
+   * Gesetzt = die Liste wächst/schrumpft zur LAUFZEIT (Uploads, Karte U1)
+   * — anders als Registry, Vegetation oder PieceTable, die für die
+   * Sitzung feststehen. `katAnzahl` darf ihre Zahl deshalb NICHT im
+   * `katAnzahlen`-Cache mitschleppen (s. dort), sonst zeigte die Marke
+   * nach dem ersten Öffnen dauerhaft die Zahl von damals.
+   */
+  dynamisch?: boolean;
 }
 
 /** Erklärungen der fünf Speicher-Arten — eine Zeile je Bereich. */
@@ -236,6 +247,25 @@ const KATEGORIEN: readonly Kategorie[] = [
     name: '★ Eigene Modelle',
     hinweis: 'Selbst gebaut (Blender/Tripo/Baumgenerator) — diese GLBs liegen immer vor.',
     namen: () => EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n)),
+  },
+  /*
+    Hochgeladene Modelle (Karte U1) bekommen eine EIGENE Gruppe statt in
+    „★ Eigene Modelle" mitzulaufen — sie stehen zwar in derselben
+    EIGENE_MODELLE-Liste (dieselbe Whitelist, s. `uploadedModelRegistry.
+    registerUploadedPrefab`), aber „woher kam das?" ist hier trotzdem eine
+    andere Antwort als bei den handgebauten Modellen, und der Uploadknopf
+    braucht eine Stelle, an der auch die Liste der bereits hochgeladenen
+    Dinge steht (Entfernen sitzt am Infoblock, s. `infoSchreiben`).
+  */
+  {
+    name: '⇧ Hochgeladen',
+    hinweis: 'Per Editor hochgeladene Modelle — eigene Registry (assets/hochgeladen/), nicht in shared/src/prefabs.ts.',
+    dynamisch: true,
+    namen: () =>
+      uploadedModelRegistry
+        .uploadedModelEntries()
+        .map((m) => m.name)
+        .filter((n) => PREFABS_BY_NAME.has(n)),
   },
   {
     name: 'Vegetation',
@@ -295,7 +325,7 @@ const KATEGORIEN: readonly Kategorie[] = [
  */
 let katAnzahlen: readonly number[] | null = null;
 function katAnzahl(speicher: readonly StoreEintrag[] | null): readonly number[] {
-  if (!katAnzahlen) katAnzahlen = KATEGORIEN.map((k) => (k.speicher ? -1 : k.namen().length));
+  if (!katAnzahlen) katAnzahlen = KATEGORIEN.map((k) => (k.speicher || k.dynamisch ? -1 : k.namen().length));
   /*
     Die Speicher-Zahlen können NICHT mitgemerkt werden: Beim ersten
     Listenaufbau ist der Bestand noch nicht geladen, und eine gemerkte
@@ -303,11 +333,16 @@ function katAnzahl(speicher: readonly StoreEintrag[] | null): readonly number[] 
     Töne", während die Liste 44 zeigt. Sie werden deshalb jedes Mal
     gezählt; das ist ein Durchlauf über 672 Einträge und damit
     billiger als der Aufbau der Marken selbst.
+
+    Dieselbe Überlegung gilt für `dynamisch` (U1): Ein Upload zur Laufzeit
+    verändert die Liste, ohne dass die Sitzung neu lädt — eine gemerkte
+    Zahl von vor dem Upload wäre falsch, bis jemand den Editor neu öffnet.
   */
   return katAnzahlen.map((n, i) => {
-    const art = KATEGORIEN[i]?.speicher;
-    if (!art) return n;
-    return speicher ? speicher.filter((e) => e.art === art).length : 0;
+    const kat = KATEGORIEN[i];
+    if (kat?.speicher) return speicher ? speicher.filter((e) => e.art === kat.speicher).length : 0;
+    if (kat?.dynamisch) return kat.namen().length;
+    return n;
   });
 }
 
@@ -338,6 +373,12 @@ export class GegenstandsKatalog {
   private readonly untergruppenZeile: HTMLDivElement;
   private readonly infoBlock: HTMLDivElement;
   private readonly pruefKnopf: HTMLButtonElement;
+  /** Upload-Zeile (U1): Dateiwahl, Name, Kollisionswunsch, Ergebnis/Fehler. */
+  private readonly hochladenDateiEingabe: HTMLInputElement;
+  private readonly hochladenNameFeld: HTMLInputElement;
+  private hochladenKollisionswunsch: uploadedModelRegistry.Kollisionsart = 'fest';
+  private readonly hochladenStatus: HTMLDivElement;
+  private hochladenLaeuft = false;
   private readonly sucheFeld: HTMLInputElement;
   /** Die <select>-Hülle der Kategorie — die Marken müssen sie mitführen. */
   private readonly katSelect: HTMLSelectElement | null;
@@ -659,6 +700,74 @@ export class GegenstandsKatalog {
       })
     );
     tafel.appendChild(kopf);
+
+    // ── U1: Modell-Upload — Datei wählen, Namen vergeben, hochladen ───
+    //
+    // Eine eigene Zeile statt eines Dialogs: Der Katalog kennt schon die
+    // Verfügbarkeitsprüfung (`vorhanden`), an die sich das Ergebnis
+    // anlehnt — „hochgeladen" heisst hier dasselbe wie dort „Datei liegt
+    // auf dem Server", nur dass diese Datei GERADE ERST hingekommen ist.
+    // Immer sichtbar (nicht nur in der „⇧ Hochgeladen"-Kategorie): Wer
+    // ein Modell sucht und merkt, dass es fehlt, soll es hochladen
+    // können, ohne erst umzuschalten.
+    const hochladenZeile = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '10px',
+        padding: '10px 16px',
+        'border-bottom': `1px solid ${F.randLeise}`,
+        flex: 'none',
+        'flex-wrap': 'wrap',
+      })
+    );
+    hochladenZeile.appendChild(
+      el('span', stil({ 'font-size': '11.5px', color: F.gedimmt, 'white-space': 'nowrap' }), '.glb hochladen:')
+    );
+
+    const dateiEingabe = el(
+      'input',
+      stil({ 'font-size': '11.5px', color: F.textRuhig, 'max-width': '210px', flex: 'none' })
+    ) as HTMLInputElement;
+    dateiEingabe.type = 'file';
+    dateiEingabe.accept = '.glb';
+    this.hochladenDateiEingabe = dateiEingabe;
+    hochladenZeile.appendChild(dateiEingabe);
+
+    const nameFeldHuelle = feld('', () => {}, {
+      breite: '170px',
+      titel: 'Angezeigter Name — der Server macht daraus einen zulässigen, kollisionsfreien Dateinamen',
+    });
+    this.hochladenNameFeld = nameFeldHuelle.querySelector('input')!;
+    this.hochladenNameFeld.placeholder = 'Name (z. B. Holzfass)';
+    hochladenZeile.appendChild(nameFeldHuelle);
+
+    const kollisionAuswahl = auswahl(
+      [
+        { id: 'fest', name: 'fest' },
+        { id: 'durchlaessig', name: 'durchlässig' },
+      ],
+      this.hochladenKollisionswunsch,
+      (id) => {
+        this.hochladenKollisionswunsch = id as uploadedModelRegistry.Kollisionsart;
+      }
+    );
+    kollisionAuswahl.style.flex = 'none';
+    kollisionAuswahl.style.width = '118px';
+    kollisionAuswahl.title = 'Kollision: fest blockiert Spieler, durchlässig ist reine Deko. Voreinstellung: fest.';
+    hochladenZeile.appendChild(kollisionAuswahl);
+
+    hochladenZeile.appendChild(
+      knopf('Hochladen', () => void this.hochladenAusfuehren(), { art: 'bronze', pfad: PFAD.import, hoehe: 30 })
+    );
+
+    this.hochladenStatus = el(
+      'div',
+      stil({ 'font-size': '11.5px', color: F.gedimmt, flex: '1', 'min-width': '160px', 'line-height': '1.4' })
+    );
+    hochladenZeile.appendChild(this.hochladenStatus);
+    tafel.appendChild(hochladenZeile);
 
     // ── Hauptteil: Liste links, Vorschau rechts ──────────────────────
     const reihe = el('div', stil({ flex: '1', display: 'flex', 'min-height': '0' }));
@@ -1260,6 +1369,168 @@ export class GegenstandsKatalog {
     if (this.katSelect) this.katSelect.value = String(i);
     if (KATEGORIEN[i]?.speicher) void this.speicherSicherstellen();
     this.listeFuellen();
+  }
+
+  /** Text der Upload-Zeile setzen — grau im Normalfall, in Fehlerfarbe bei einer Ablehnung. */
+  private hochladenStatusSchreiben(text: string, fehler: boolean): void {
+    this.hochladenStatus.textContent = text;
+    this.hochladenStatus.style.color = fehler ? F.fehler : F.textRuhig;
+  }
+
+  /**
+   * Die gewählte Datei zum Betriebsdienst schicken (U1).
+   *
+   * Rohe Bytes im Körper, Name und Kollisionswunsch als Kopfzeilen — kein
+   * `multipart/form-data`-Parser, keine Base64-Hülle. Der Server prüft
+   * (Struktur, Grenzen, Name) und schreibt erst danach; jede Ablehnung
+   * kommt hier als ganzer, verständlicher Satz an (`message`), nie als
+   * nackter Statuscode.
+   */
+  private async hochladenAusfuehren(): Promise<void> {
+    if (this.hochladenLaeuft) return;
+    const datei = this.hochladenDateiEingabe.files?.[0];
+    if (!datei) {
+      this.hochladenStatusSchreiben('Bitte zuerst eine .glb-Datei wählen.', true);
+      return;
+    }
+    const angezeigterName = this.hochladenNameFeld.value.trim();
+    if (!angezeigterName) {
+      this.hochladenStatusSchreiben('Bitte einen Namen vergeben.', true);
+      return;
+    }
+
+    this.hochladenLaeuft = true;
+    this.hochladenStatusSchreiben(`Lade '${datei.name}' hoch …`, false);
+    try {
+      const bytes = await datei.arrayBuffer();
+      const antwort = await fetch('/api/modell-hochladen', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          // N1 (Angriff, Befund B6): Kopfzeilenwerte sind ByteStrings — ein
+          // Name mit einem Zeichen über U+00FF (nicht nur exotisch: auch
+          // ein Stern oder Kyrillisch) lässt `fetch` schon beim Setzen der
+          // Kopfzeile mit einem TypeError scheitern, BEVOR die Anfrage
+          // überhaupt losgeht. `encodeURIComponent` macht daraus reines
+          // ASCII; der Betriebsdienst dekodiert es zurück.
+          'X-Wov-Modellname': encodeURIComponent(angezeigterName),
+          'X-Wov-Kollision': this.hochladenKollisionswunsch,
+        },
+        body: bytes,
+      });
+      const rumpf = (await antwort.json().catch(() => null)) as {
+        ok?: boolean;
+        message?: string;
+        eintrag?: uploadedModelRegistry.UploadedModelEntry;
+        hinweise?: string[];
+      } | null;
+      if (!antwort.ok || !rumpf?.ok || !rumpf.eintrag) {
+        // N1 (Befund B7): Eine 413 kann auch von NGINX kommen (HTML statt
+        // JSON, `rumpf` ist dann `null`) — dieselbe Meldung für beide
+        // Quellen, statt eines nackten Statuscodes.
+        const meldung =
+          antwort.status === 413
+            ? `Datei zu groß (höchstens ${(uploadedModelRegistry.MAX_BYTES / 1_000_000).toFixed(0)} MB).`
+            : (rumpf?.message ?? `Hochladen fehlgeschlagen (HTTP ${antwort.status}).`);
+        this.hochladenStatusSchreiben(meldung, true);
+        return;
+      }
+      const eintrag = rumpf.eintrag;
+      const hinweise = rumpf.hinweise ?? [];
+
+      // Ohne Neustart wirksam: die frisch geschriebene Registry-Datei
+      // erneut holen und registrieren — derselbe Weg wie beim ersten
+      // Laden des Editors (`ladeHochgeladeneRegistrierung`), nur jetzt
+      // ein zweites Mal in derselben Sitzung.
+      await ladeHochgeladeneRegistrierung();
+      katAnzahlen = null;
+      this.hochladenNameFeld.value = '';
+      this.hochladenDateiEingabe.value = '';
+      const idxHochgeladen = KATEGORIEN.findIndex((k) => k.dynamisch);
+      if (this.kategorie === idxHochgeladen) {
+        this.seite = 0;
+        this.listeFuellen();
+      } else if (idxHochgeladen >= 0) {
+        this.kategorieSetzen(idxHochgeladen);
+      }
+
+      const zahlen =
+        `${eintrag.dreiecke.toLocaleString('de-DE')} Dreiecke, ` +
+        `${eintrag.breite.toFixed(2)} × ${eintrag.hoehe.toFixed(2)} × ${eintrag.tiefe.toFixed(2)} m, ` +
+        `Kollision: ${eintrag.kollisionsart}`;
+      // N1 (Angriff, Befund B4): Im Katalog UND im Testflug steht das
+      // Modell sofort (beide bauen client-seitig aus der Registry bzw.
+      // direkt aus den Platzierungen, Browser-Sichtnachweis
+      // client/test/... und Bericht Abschnitt N1). Im laufenden Spiel
+      // (echter Spielserver-Prozess) fehlt es dagegen, bis der Spielserver
+      // neu startet — er registriert Uploads nur beim Start
+      // (`ladeHochgeladeneRegistrierung`, VOR `createWovServer`), nicht
+      // laufend wie der Betriebsdienst. Das war vorher nur im Bericht
+      // erwähnt, nicht in der Oberfläche selbst.
+      const hinweisNeustart =
+        'Sofort im Katalog und im Testflug sichtbar. Im laufenden Spiel (Spielserver-Prozess) ' +
+        'erst nach einem Neustart des Spielservers sichtbar und mit Kollision.';
+      const text =
+        hinweise.length > 0
+          ? `'${eintrag.name}' hochgeladen — ${zahlen}. ${hinweise.join(' ')} ${hinweisNeustart}`
+          : `'${eintrag.name}' hochgeladen — ${zahlen}. ${hinweisNeustart}`;
+      this.hochladenStatusSchreiben(text, false);
+    } catch (e) {
+      this.hochladenStatusSchreiben(`Netzwerkfehler: ${(e as Error).message}`, true);
+    } finally {
+      this.hochladenLaeuft = false;
+    }
+  }
+
+  /**
+   * Ein hochgeladenes Modell zurückziehen (U1).
+   *
+   * Erster Aufruf ohne Bestätigung: Benutzt eine bestehende Platzierung
+   * das Modell noch, antwortet der Server mit `brauchtBestaetigung` und
+   * der Zahl/den Orten — nichts wird angefasst. Erst eine ausdrückliche
+   * Bestätigung (native `confirm()`, absichtlich schlicht: ein internes
+   * Editor-Werkzeug, kein Publikumsdialog) löst den zweiten Aufruf mit
+   * `bestaetigt: true` aus.
+   */
+  private async hochgeladenesModellEntfernen(name: string): Promise<void> {
+    const aufruf = async (bestaetigt: boolean): Promise<Response> =>
+      fetch('/api/modell-hochladen', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, bestaetigt }),
+      });
+
+    try {
+      let antwort = await aufruf(false);
+      let rumpf = (await antwort.json().catch(() => null)) as {
+        ok?: boolean;
+        message?: string;
+        brauchtBestaetigung?: boolean;
+        nutzung?: { anzahl: number; orte: { x: number; z: number }[] };
+      } | null;
+
+      if (rumpf?.brauchtBestaetigung) {
+        const orte = (rumpf.nutzung?.orte ?? []).map((o) => `(${Math.round(o.x)}, ${Math.round(o.z)})`).join(', ');
+        const weiter = window.confirm(
+          `'${name}' wird noch ${rumpf.nutzung?.anzahl ?? '?'} Mal platziert${orte ? ` — ${orte}` : ''}. ` +
+            `Trotzdem entfernen? Die Platzierungen bleiben stehen, zeigen danach aber kein Modell mehr.`
+        );
+        if (!weiter) return;
+        antwort = await aufruf(true);
+        rumpf = (await antwort.json().catch(() => null)) as typeof rumpf;
+      }
+
+      if (!antwort.ok || !rumpf?.ok) {
+        window.alert(rumpf?.message ?? `Entfernen fehlgeschlagen (HTTP ${antwort.status}).`);
+        return;
+      }
+
+      await ladeHochgeladeneRegistrierung();
+      katAnzahlen = null;
+      this.listeFuellen();
+    } catch (e) {
+      window.alert(`Netzwerkfehler: ${(e as Error).message}`);
+    }
   }
 
   /** Ist die aktuelle Kategorie ein Speicher-Bereich? Dann die Art, sonst null. */
@@ -2407,6 +2678,22 @@ export class GegenstandsKatalog {
         { art: 'bronze', pfad: PFAD.platzieren, titel: `${name} als Platzierung setzen` }
       );
       kopf.appendChild(setzen);
+    }
+    // U1: nur bei einem per Editor hochgeladenen Prefab — die Whitelist
+    // (EIGENE_MODELLE) kennt sonst keinen Unterschied zwischen einem
+    // Upload und einem handgebauten Modell, aber nur Ersteres lässt sich
+    // hier wieder zurückziehen (Datei beiseiteschieben + Registry-Eintrag
+    // entfernen, s. `hochgeladenesModellEntfernen`).
+    const hochgeladenerEintrag = uploadedModelRegistry.uploadedModelEntry(name);
+    if (hochgeladenerEintrag) {
+      kopf.appendChild(
+        knopf('Entfernen', () => void this.hochgeladenesModellEntfernen(hochgeladenerEintrag.name), {
+          art: 'leise',
+          pfad: PFAD.muelleimer,
+          randHover: F.warnRand,
+          titel: `'${hochgeladenerEintrag.anzeigename}' zurückziehen — Datei wird beiseitegeschoben, nicht gelöscht`,
+        })
+      );
     }
     this.infoBlock.appendChild(kopf);
 

@@ -259,7 +259,7 @@ def design(ctx):
     # (Narrower than the old single plate at the outer edge: a kick swings the upper arm across the chest.)
     flank_outline = [(.034, 1.424), (.092, 1.436), (.140, 1.402), (.156, 1.346), (.144, 1.282), (.110, 1.232),
                      (.074, 1.186), (.040, 1.132), (.030, 1.206), (.032, 1.330)]
-    breast = []
+    breast, first_plate = [], len(pieces['Torso'])
     for sign in [1, -1]:
         core = [(sign*x, 0, z) for x, z in flank_outline]
         breast.append(plate('Silver_breast_flank', core, (0, -1, 0), 'Torso', None, rim=.010, bulge=.014, snap=bridge))
@@ -300,6 +300,7 @@ def design(ctx):
         a = k*math.tau/3+math.pi/2
         leaf('Medallion_knot', m+Vector((0, -.008, 0)), m+Vector((.021*math.cos(a), -.008, .021*math.sin(a))), .006,
              (0, -1, 0), 'Torso', None, 'edge', .003)
+    hard_chest = [obj for obj in pieces['Torso'][first_plate:] if obj is not backplate]
     # Bandolier from the right shoulder across the plate to the left hip, and back up behind.
     # Both ends run on down behind the waist belt (z .932-.972), so the strap never stops in the air above it.
     over = shell(torso, pieces['Hips'][0], *breast, backplate)
@@ -319,6 +320,18 @@ def design(ctx):
         talon('Bandolier_stud', q+o*.002, q+o*.012, .007, 'Torso', None)
     for obj in pieces['Torso'][1:]:
         attach_to_surface(obj, surface)
+    # The breastplate with its motif is hard: it follows the upper chest (Spine_03) and blends into the belly
+    # (Spine_02) toward its point. The surface's mix of neck, clavicle and shoulder weights crumpled it on the
+    # game's female figure, whose fit moves every bone's share differently.
+    for obj in hard_chest:
+        obj.vertex_groups.clear()
+        upper, lower = obj.vertex_groups.new(name='Spine_03'), obj.vertex_groups.new(name='Spine_02')
+        for v in obj.data.vertices:
+            share = min(1, max(0, (v.co.z-1.13)/.17))
+            if share > 0:
+                upper.add([v.index], share, 'REPLACE')
+            if share < 1:
+                lower.add([v.index], 1-share, 'REPLACE')
 
     # ---------------------------------------------------------------- shoulders
     for sign, side, word in [(1, 'L', 'Left'), (-1, 'R', 'Right')]:

@@ -86,10 +86,13 @@ export function sichtbarerKern(wert: unknown): string {
 
 /**
  * Unsichtbare „Füllbuchstaben“, die zwar Buchstaben sind (`\p{L}`), aber
- * nichts zeigen: Hangul-Füller U+115F, U+1160, U+3164, U+FFA0 und das
- * Braille-Leerzeichen U+2800 (eigentlich `\p{So}`, der Vollständigkeit halber).
+ * nichts zeigen: Hangul-Füller U+115F, U+1160, U+3164, U+FFA0, das
+ * Braille-Leerzeichen U+2800 (eigentlich `\p{So}`, der Vollständigkeit halber)
+ * und die ägyptischen Hieroglyphen-Leerzeichen U+13441 (Full Blank) und
+ * U+13442 (Half Blank). U+13443 bis U+13446 („Lost Sign“) sind ebenfalls
+ * `\p{Lo}`, rendern aber eine sichtbare Markierung und stehen bewusst nicht hier.
  */
-const FUELLZEICHEN = new Set([0x115f, 0x1160, 0x3164, 0xffa0, 0x2800]);
+const FUELLZEICHEN = new Set([0x115f, 0x1160, 0x3164, 0xffa0, 0x2800, 0x13441, 0x13442]);
 
 /**
  * Hat der Wert sichtbaren Inhalt? Ein Wert zählt nur dann als gefüllt, wenn

@@ -114,6 +114,7 @@ function matrix(modul) {
   const angriff = {
     'U+3164': '\u3164', 'U+115F': '\u115F', 'U+1160': '\u1160', 'U+FFA0': '\uFFA0',
     'U+2800': '\u2800', 'U+034F': '\u034F', 'U+FE00': '\uFE00', 'U+FE01': '\uFE01',
+    'U+13441': '\u{13441}', 'U+13442': '\u{13442}',
     'U+FE0F': '\uFE0F', 'U+180B': '\u180B', 'U+180C': '\u180C', 'U+180D': '\u180D',
     'U+180F': '\u180F', 'U+00AD': '\u00AD', 'U+E0020': '\u{E0020}',
   };
@@ -194,6 +195,7 @@ function matrix(modul) {
     }
   }
   if (echteBad === 0) console.log(`ok     Gegenproben: ${pflicht.length * echt.length} echte Werte (Umlaute, ß, Bindestrich, Apostroph, E-Mail, Telefon, Kyrillisch, CJK, Arabisch, Hangul, Mischwerte) gelten als gefüllt`);
+  pruefe([0x13443, 0x13444, 0x13445, 0x13446].every((c) => modul.hatWert(String.fromCodePoint(c)) === true), 'U+13443..U+13446 (Lost Sign, sichtbare Markierung) gelten bewusst als gefüllt');
   pruefe(modul.hatWert('Testwert') === true && modul.hatWert('\u3164') === false && modul.hatWert('\u2800') === false, 'hatWert: Testwert ja, U+3164 nein, U+2800 nein');
   // Umgedrehte Logik: ein NEUES Feld ist ohne Eintrag in einer Liste Pflicht.
   for (const [name, wert, erwartet] of [['leer', '', true], ['ZWSP', '​', true], ['Platzhalter', '[[NEU]]', true], ['gefüllt', 'ein Wert', false]]) {
@@ -301,6 +303,17 @@ process.on('exit', () => {
   }
 });
 process.stdout.on('error', () => process.exit(1));
+// Signale: `exit` feuert dabei nicht. Kind beenden, dann mit 128 + Signalnummer aussteigen.
+for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) {
+  process.on(signal, () => {
+    try {
+      dienst.kill('SIGKILL');
+    } catch {
+      /* schon weg */
+    }
+    process.exit(code);
+  });
+}
 dienst.stdout.on('data', (d) => {
   if (String(d).includes('Listening')) lauscht = true;
 });

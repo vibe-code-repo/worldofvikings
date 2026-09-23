@@ -228,13 +228,17 @@ export async function beende(
  * Ends the process with `code` only after stdout and stderr have taken everything written so far.
  * `process.exit` with a full pipe (`| tee`, CI) drops the queued rest of the report (measured: it
  * cut off at 65 536 bytes), and the summary stands at the end. An empty write completes after the
- * writes before it. If the reader is gone or stuck, `frist` ms bound the wait; the exit code is the
- * same either way. A fake process without streams (tests) is ended at once.
+ * writes before it. A gone reader (EPIPE) ends the wait at once; a stuck one ends it after `frist`
+ * ms without progress. A slow reader that keeps taking data is waited for: `frist` restarts each
+ * time the queued bytes shrink. The exit code is the same either way, and a later call (a signal
+ * during the wait) may replace it: the last `exitCode` set wins. A fake process without streams
+ * (tests) is ended at once.
  */
 export async function leereUndBeende(prozess, code, frist = 10_000) {
   prozess.exitCode = code;
   const strome = [prozess.stdout, prozess.stderr].filter((s) => s && typeof s.write === 'function');
-  let zeitgeber;
+  const offen = () => strome.reduce((n, s) => n + (s.writableLength ?? 0) + (s._handle?.writeQueueSize ?? 0), 0);
+  let wache;
   try {
     await Promise.race([
       Promise.all(
@@ -247,11 +251,18 @@ export async function leereUndBeende(prozess, code, frist = 10_000) {
         ),
       ),
       new Promise((fertig) => {
-        zeitgeber = setTimeout(fertig, frist);
+        let stand = offen();
+        let seit = Date.now();
+        wache = setInterval(() => {
+          const jetzt = offen();
+          if (jetzt < stand) seit = Date.now(); // the reader takes data: not stuck, keep waiting
+          stand = jetzt;
+          if (Date.now() - seit >= frist) fertig();
+        }, Math.max(1, Math.min(250, frist / 4)));
       }),
     ]);
   } finally {
-    clearTimeout(zeitgeber);
+    clearInterval(wache);
   }
-  prozess.exit(code);
+  prozess.exit(prozess.exitCode);
 }

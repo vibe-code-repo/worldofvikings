@@ -527,6 +527,15 @@ console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen, differenziell) ===\n');
     unter der stärksten erzeugbaren Last nie ein Signal gewesen, das der
     Schnitt nicht längst gemeldet hätte (Bericht „golden-kits N1",
     Abschnitt N2).
+
+    Berichtigung (Angriff 3, Befund B2, Bericht „golden-kits N2 —
+    Angriff 3"): Der Wächter wäre auch für den Fehler nutzlos gewesen, für
+    den er einmal gedacht war — ein Verteiler, der auf den teuren 1.0-Pfad
+    fällt. Dieser Fehler liegt gemessen bei 19,72 ms Layout-Median, also
+    UNTER 30 ms, der Wächter wäre grün geblieben. Gefangen wird er von der
+    Schnitt-Prüfung (2,98), der Ausreißerprüfung (5,48) und den
+    inhaltlichen Prüfungen oben (`Verteiler == generateGridLayout`,
+    `Verteiler != generateDungeonLayout`).
   */
 
   /*

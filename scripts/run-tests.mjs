@@ -2149,6 +2149,21 @@ const KERN = [
   ['server', 'test/kartenmodus-alias.ts'],
   // Emberrage-Glühen: Glow-Schicht nur für angelegte Teile, NullEngine, kein Blender.
   ['tools/armor/test', 'emberrage-glow.ts'],
+  // KI-Weltbau über MCP (tools/worldlayout-mcp, shared/src/weltbau): Kartenbild, Weltprüfung,
+  // Diff, Ortsbeschreibung, Katalog, Vorgänge, Stilführer und ihre Nachbesserung, dazu die
+  // Kontext-Probe gegen einen eigenen Betriebsdienst (Port 0, Wegwerf-Wurzel).
+  // MCP world building: map image, world check, diff, describe, catalog, operations, style guide.
+  ['tools/test', 'weltbau-karte.ts'],
+  ['tools/test', 'weltbau-integration.ts'],
+  ['shared', 'test/weltbau-pruefungen.ts'],
+  ['shared', 'test/weltbau-diff.ts'],
+  ['shared', 'test/weltbau-diffbasis.ts'],
+  ['shared', 'test/weltbau-beschreiben.ts'],
+  ['shared', 'test/weltbau-katalog.ts'],
+  ['shared', 'test/weltbau-vorgang.ts'],
+  ['shared', 'test/weltbau-stil.ts'],
+  ['shared', 'test/weltbau-nachbesserung.ts'],
+  ['tools/worldlayout-mcp', 'probe-kontext.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

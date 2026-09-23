@@ -49,7 +49,8 @@ mcp.registerTool(
       'zu steile Hänge, Häuser ohne erreichbaren Eingang, Routen durch feste Körper, Objektbudget je 64-m-Zone. ' +
       'Antwort: Ampel (gruen/gelb/rot), Zähler und Befunde mit Koordinate. Die Grenzwerte (Hang 30°/45°, ' +
       'Gebäude-Höhenspanne 0,4/1,5 m, Zone 40/80 Objekte) sind Vorgaben und über `grenzen` änderbar. ' +
-      'Hausmodelle ohne Türangabe: „Eingang geschätzt“ (gelb).',
+      'Hausmodelle ohne Türangabe: „Eingang geschätzt“ (gelb). Frist 15 s und Kappen (64 Routen, 2 Mio. Stützpunkte): ' +
+      'wird sie überschritten, kommt ein TEILBERICHT mit dem Stand je Prüfung (nie still weniger geprüft).',
     inputSchema: {
       bereich: bereichSchema,
       pruefungen: z.array(z.enum(ALLE_PRUEFUNGEN as [string, ...string[]])).optional().describe('Vorgabe: alle'),
@@ -79,8 +80,9 @@ mcp.registerTool(
       const ms = Math.round(performance.now() - t0);
       const ampel = e.ampel === 'gruen' ? 'GRÜN' : e.ampel === 'gelb' ? 'GELB' : 'ROT';
       const nichts = e.nichtPruefbar.length > 0 ? `, ${e.nichtPruefbar.length} Prefab(s) ohne Hülle` : '';
+      const teil = e.teilweise ? ` — TEILBERICHT: ${e.hinweis}` : '';
       return ok(
-        `world_check: ${ampel} (${e.zaehler.rot} rot, ${e.zaehler.gelb} gelb) in ${ms} ms, ${e.objekte} Objekte${nichts}`,
+        `world_check: ${ampel} (${e.zaehler.rot} rot, ${e.zaehler.gelb} gelb) in ${ms} ms, ${e.objekte} Objekte${nichts}${teil}`,
         { ...e, ms }
       );
     } catch (f) {

@@ -26,10 +26,13 @@ import {
   BEREICH_MAX_KANTE,
   EINGANG_ABSTAND,
   EINGANG_RASTER,
+  FRIST_MS,
   GEBAEUDE_SPANNE_GELB,
   GEBAEUDE_SPANNE_ROT,
   HANG_GRAD_GELB,
   HANG_GRAD_ROT,
+  ROUTEN_MAX,
+  ROUTEN_PROBEN_MAX,
   UEBERLAPPUNG_GELB,
   UEBERLAPPUNG_ROT,
   ZONE_OBJEKTE_GELB,
@@ -79,7 +82,7 @@ export interface Schwellen {
 }
 
 export interface Befund {
-  pruefung: PruefArt | 'huelle';
+  pruefung: PruefArt | 'huelle' | 'frist';
   schwere: 'rot' | 'gelb' | 'hinweis';
   x: number;
   z: number;
@@ -97,6 +100,37 @@ export interface CheckOptionen {
   von?: readonly [number, number];
   huellen?: HuellenAufloeser;
   eingaenge?: EingangsTabelle;
+  /** Gesamtfrist in ms (Vorgabe 15 000). Danach bricht die laufende Prüfung ab und die übrigen werden übersprungen. */
+  frist?: number;
+  /** Zeitquelle in ms (Vorgabe `performance.now`); für Tests austauschbar. */
+  uhr?: () => number;
+}
+
+/** Wie weit eine Prüfung gekommen ist — nie still weniger prüfen. */
+export interface PruefStatus {
+  status: 'vollstaendig' | 'abgebrochen' | 'uebersprungen';
+  /** Geprüfte Einheiten (Objekte, Routen, Rasterzellen …) und ihre Gesamtzahl. */
+  geprueft: number;
+  gesamt: number;
+  einheit: string;
+  grund?: string;
+}
+
+/** Frist über eine austauschbare Uhr; einmal abgelaufen, bleibt sie es. */
+class Uhr {
+  private abgelaufenFlag = false;
+  constructor(
+    private readonly jetzt: () => number,
+    private readonly start: number,
+    readonly fristMs: number
+  ) {}
+  abgelaufen(): boolean {
+    if (!this.abgelaufenFlag && this.jetzt() - this.start > this.fristMs) this.abgelaufenFlag = true;
+    return this.abgelaufenFlag;
+  }
+  vergangen(): number {
+    return this.jetzt() - this.start;
+  }
 }
 
 export interface CheckErgebnis {
@@ -109,6 +143,16 @@ export interface CheckErgebnis {
   ausgelassen: number;
   /** Prefab-Namen ohne Hülle (nicht prüfbar). */
   nichtPruefbar: string[];
+  /** Dauer der Prüfung in ms. */
+  ms: number;
+  /** Frist dieser Prüfung in ms. */
+  frist: number;
+  /** true, wenn mindestens eine Prüfung abgebrochen oder übersprungen wurde: ein TEILBERICHT. */
+  teilweise: boolean;
+  /** Stand je gewählter Prüfung. */
+  pruefstatus: Partial<Record<PruefArt, PruefStatus>>;
+  /** Klartext für den Teilbericht (sonst nicht gesetzt). */
+  hinweis?: string;
 }
 
 export function schwellenVorgabe(): Schwellen {
@@ -209,11 +253,16 @@ function objekteVorbereiten(
   return aus;
 }
 
+function statusVon(geprueft: number, gesamt: number, einheit: string): PruefStatus {
+  const voll = geprueft >= gesamt;
+  return { status: voll ? 'vollstaendig' : 'abgebrochen', geprueft, gesamt, einheit, grund: voll ? undefined : 'Frist abgelaufen' };
+}
+
 // ── P1: überlappende feste Grundflächen ────────────────────────────────────
 
 const ZELLE = 16;
 
-function ueberlappungen(objekte: readonly Objekt[], befunde: Befund[]): void {
+function ueberlappungen(objekte: readonly Objekt[], befunde: Befund[], u: Uhr): PruefStatus {
   const fest = objekte.filter((o) => o.huelle?.fest === true && o.flaeche !== null);
   const zellen = new Map<string, number[]>();
   fest.forEach((o, i) => {
@@ -228,7 +277,10 @@ function ueberlappungen(objekte: readonly Objekt[], befunde: Befund[]): void {
     }
   });
   const gesehen = new Set<string>();
+  let zellenGeprueft = 0;
   for (const liste of zellen.values()) {
+    if (u.abgelaufen()) break;
+    zellenGeprueft++;
     for (let a = 0; a < liste.length; a++) {
       for (let b = a + 1; b < liste.length; b++) {
         const i = Math.min(liste[a], liste[b]);
@@ -269,13 +321,24 @@ function ueberlappungen(objekte: readonly Objekt[], befunde: Befund[]): void {
       }
     }
   }
+  return {
+    status: zellenGeprueft < zellen.size ? 'abgebrochen' : 'vollstaendig',
+    geprueft: zellenGeprueft,
+    gesamt: zellen.size,
+    einheit: 'Rasterzellen (16 m)',
+    grund: zellenGeprueft < zellen.size ? 'Frist abgelaufen' : undefined,
+  };
 }
 
 // ── P2: Objekte im Wasser ──────────────────────────────────────────────────
 
-function imWasser(objekte: readonly Objekt[], geo: HoehenFeld, befunde: Befund[]): void {
+function imWasser(objekte: readonly Objekt[], geo: HoehenFeld, befunde: Befund[], u: Uhr): PruefStatus {
+  const gesamt = objekte.filter((o) => o.innen).length;
+  let geprueft = 0;
   for (const o of objekte) {
     if (!o.innen) continue;
+    if (u.abgelaufen()) break;
+    geprueft++;
     const bau = WASSERBAU_NAMEN.test(o.p.prefab);
     if (o.boden < WATER_LEVEL) {
       befunde.push({
@@ -304,6 +367,7 @@ function imWasser(objekte: readonly Objekt[], geo: HoehenFeld, befunde: Befund[]
       }
     }
   }
+  return statusVon(geprueft, gesamt, 'Objekte');
 }
 
 // ── P3: Hangneigung ────────────────────────────────────────────────────────
@@ -314,9 +378,13 @@ function neigungGrad(geo: HoehenFeld, x: number, z: number): number {
   return grad(Math.atan(Math.hypot(dx, dz)));
 }
 
-function haenge(objekte: readonly Objekt[], geo: HoehenFeld, s: Schwellen, befunde: Befund[]): void {
+function haenge(objekte: readonly Objekt[], geo: HoehenFeld, s: Schwellen, befunde: Befund[], u: Uhr): PruefStatus {
+  const gesamt = objekte.filter((o) => o.innen).length;
+  let geprueft = 0;
   for (const o of objekte) {
     if (!o.innen) continue;
+    if (u.abgelaufen()) break;
+    geprueft++;
     const n = neigungGrad(geo, o.x, o.z);
     if (n > s.hangGradGelb) {
       const rot = n > s.hangGradRot;
@@ -359,6 +427,7 @@ function haenge(objekte: readonly Objekt[], geo: HoehenFeld, s: Schwellen, befun
       }
     }
   }
+  return statusVon(geprueft, gesamt, 'Objekte');
 }
 
 // ── P4: Haus ohne erreichbaren Eingang ─────────────────────────────────────
@@ -373,7 +442,7 @@ interface Raster {
   hoehe: Float32Array;
 }
 
-function rasterBauen(form: Bereichsform, geo: HoehenFeld, festeObjekte: readonly Objekt[]): Raster {
+function rasterBauen(form: Bereichsform, geo: HoehenFeld, festeObjekte: readonly Objekt[], u: Uhr): Raster | null {
   const k = form.kasten;
   const kante = Math.max(k.maxX - k.minX, k.maxZ - k.minZ);
   const zelle = Math.max(EINGANG_RASTER, kante / 1024);
@@ -382,6 +451,7 @@ function rasterBauen(form: Bereichsform, geo: HoehenFeld, festeObjekte: readonly
   const hoehe = new Float32Array(w * h);
   const begehbar = new Uint8Array(w * h);
   for (let j = 0; j < h; j++) {
+    if (u.abgelaufen()) return null;
     for (let i = 0; i < w; i++) {
       const hh = geo.getHeight(k.minX + (i + 0.5) * zelle, k.minZ + (j + 0.5) * zelle);
       hoehe[j * w + i] = hh;
@@ -390,6 +460,7 @@ function rasterBauen(form: Bereichsform, geo: HoehenFeld, festeObjekte: readonly
   }
   for (const o of festeObjekte) {
     if (!o.flaeche) continue;
+    if (u.abgelaufen()) return null;
     const [a, b, c, d] = huelleVon(o.flaeche);
     const i0 = Math.max(0, Math.floor((a - KOERPER_RADIUS - k.minX) / zelle));
     const i1 = Math.min(w - 1, Math.floor((c + KOERPER_RADIUS - k.minX) / zelle));
@@ -412,7 +483,7 @@ const zelleVon = (r: Raster, x: number, z: number): number => {
 };
 
 /** Flutfüllung (4er-Nachbarschaft) von `start`; Nachbarn nur bei begehbarem Höhensprung. */
-function flute(r: Raster, start: number, erreicht: Int32Array, marke: number): number {
+function flute(r: Raster, start: number, erreicht: Int32Array, marke: number, u: Uhr): number {
   const maxSprung = Math.max(Math.tan((STEIGUNGS_GRENZE_GRAD * Math.PI) / 180) * r.zelle, STUFEN_HOEHE);
   const stapel = [start];
   erreicht[start] = marke;
@@ -420,6 +491,7 @@ function flute(r: Raster, start: number, erreicht: Int32Array, marke: number): n
   while (stapel.length > 0) {
     const c = stapel.pop() as number;
     n++;
+    if ((n & 8191) === 0 && u.abgelaufen()) return n;
     const ci = c % r.w;
     const cj = (c - ci) / r.w;
     const nachbarn = [
@@ -465,6 +537,24 @@ function startzelle(
   return { start: -1 };
 }
 
+/** `von` muss im Bereich liegen, trocken und außerhalb fester Körper — auch wenn kein Haus im Bereich steht. */
+function pruefeVon(
+  von: readonly [number, number],
+  form: Bereichsform,
+  geo: HoehenFeld,
+  festeObjekte: readonly Objekt[]
+): void {
+  const [x, z] = von;
+  const k = form.kasten;
+  if (x < k.minX || x > k.maxX || z < k.minZ || z > k.maxZ) {
+    throw new BereichFehler(`von (${x}, ${z}) liegt außerhalb des Bereichs`);
+  }
+  const inKoerper = festeObjekte.some((o) => o.flaeche !== null && abstandZuPolygon({ x, z }, o.flaeche) <= KOERPER_RADIUS);
+  if (geo.getHeight(x, z) < WATER_LEVEL || inKoerper) {
+    throw new BereichFehler(`von (${x}, ${z}) liegt im Wasser oder in einem festen Körper`);
+  }
+}
+
 function eingaenge(
   objekte: readonly Objekt[],
   festeObjekte: readonly Objekt[],
@@ -473,19 +563,29 @@ function eingaenge(
   geo: HoehenFeld,
   von: readonly [number, number] | undefined,
   tabelle: EingangsTabelle,
-  befunde: Befund[]
-): void {
+  befunde: Befund[],
+  u: Uhr
+): PruefStatus {
+  if (von) pruefeVon(von, form, geo, festeObjekte);
   const haeuser = objekte.filter(
     (o) => o.innen && o.huelle !== null && o.flaeche !== null && (istHaus(o.huelle, o.skala) || tabelle.has(o.p.prefab))
   );
-  if (haeuser.length === 0) return;
-  const r = rasterBauen(form, geo, festeObjekte);
+  if (haeuser.length === 0) return { status: 'vollstaendig', geprueft: 0, gesamt: 0, einheit: 'Häuser' };
+  const abbruch = (grund: string): PruefStatus => ({
+    status: 'abgebrochen',
+    geprueft: 0,
+    gesamt: haeuser.length,
+    einheit: 'Häuser',
+    grund,
+  });
+  const r = rasterBauen(form, geo, festeObjekte, u);
+  if (r === null) return abbruch('Frist beim Bau des Begehbarkeitsrasters abgelaufen; keine Aussage über Eingänge');
   const erreicht = new Int32Array(r.w * r.h);
   const s = startzelle(r, layout, form, von);
   if ('fehler' in s) throw new BereichFehler(s.fehler);
   let ziel = 1;
   if (s.start >= 0) {
-    flute(r, s.start, erreicht, 1);
+    flute(r, s.start, erreicht, 1, u);
   } else {
     // Kein Startpunkt im Bereich: die größte zusammenhängende begehbare Fläche.
     let bestGroesse = 0;
@@ -494,13 +594,15 @@ function eingaenge(
     for (let c = 0; c < r.w * r.h; c++) {
       if (erreicht[c] !== 0 || r.begehbar[c] === 0) continue;
       marke++;
-      const n = flute(r, c, erreicht, marke);
+      if (u.abgelaufen()) break;
+      const n = flute(r, c, erreicht, marke, u);
       if (n > bestGroesse) {
         bestGroesse = n;
         ziel = marke;
       }
     }
   }
+  if (u.abgelaufen()) return abbruch('Frist bei der Wegsuche abgelaufen; keine Aussage über Eingänge (kein Teilurteil, das wäre falsch rot)');
   const istErreicht = (x: number, z: number): boolean | null => {
     const c = zelleVon(r, x, z);
     return c < 0 ? null : ziel !== 0 && erreicht[c] === ziel;
@@ -557,9 +659,36 @@ function eingaenge(
       });
     }
   }
+  return { status: 'vollstaendig', geprueft: haeuser.length, gesamt: haeuser.length, einheit: 'Häuser' };
 }
 
 // ── P5: Routen ─────────────────────────────────────────────────────────────
+
+/** Der Teil der Strecke a→b im Kasten als Parameterbereich [t0, t1] (Liang–Barsky), sonst null. */
+function klemmeStrecke(a: { x: number; z: number }, b: { x: number; z: number }, k: Kasten): readonly [number, number] | null {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  for (const [pk, q] of [[-dx, a.x - k.minX], [dx, k.maxX - a.x], [-dz, a.z - k.minZ], [dz, k.maxZ - a.z]] as const) {
+    if (pk === 0) {
+      if (q < 0) return null;
+    } else {
+      const r = q / pk;
+      if (pk < 0) t0 = Math.max(t0, r);
+      else t1 = Math.min(t1, r);
+    }
+  }
+  return t0 > t1 ? null : [t0, t1];
+}
+
+function streckenVon(route: RouteDef): Array<readonly [{ x: number; z: number }, { x: number; z: number }]> {
+  const pts = route.points.map((p) => ({ x: p[0], z: p[1] }));
+  const aus = pts.slice(0, -1).map((p, i) => [p, pts[i + 1]] as const);
+  if (route.mode === 'loop' && pts.length > 2) aus.push([pts[pts.length - 1], pts[0]]);
+  if (pts.length === 1) aus.push([pts[0], pts[0]]);
+  return aus;
+}
 
 const ROUTEN_SCHRITT = 0.25;
 const ROUTEN_LAUFEN_MAX = 20;
@@ -569,24 +698,51 @@ function routen(
   form: Bereichsform,
   festeObjekte: readonly Objekt[],
   geo: HoehenFeld,
-  befunde: Befund[]
-): void {
+  befunde: Befund[],
+  u: Uhr
+): PruefStatus {
   const k = form.kasten;
   const steilTan = Math.tan((STEIGUNGS_GRENZE_GRAD * Math.PI) / 180);
-  for (const route of layout.routes ?? ([] as readonly RouteDef[])) {
-    const pts = route.points.map((p) => ({ x: p[0], z: p[1] }));
-    if (!pts.some((p) => p.x >= k.minX - RAND && p.x <= k.maxX + RAND && p.z >= k.minZ - RAND && p.z <= k.maxZ + RAND)) {
-      continue;
+  // Eine Route zählt, wenn IRGENDEINE ihrer Strecken den Bereich schneidet (nicht nur ihre Endpunkte).
+  const inDerNaehe = (route: RouteDef): boolean => streckenVon(route).some(([a, b]) => klemmeStrecke(a, b, k) !== null);
+  const relevant = (layout.routes ?? ([] as readonly RouteDef[])).filter(inDerNaehe);
+  let geprueft = 0;
+  let proben = 0;
+  let abbruchGrund: string | undefined;
+  for (const route of relevant) {
+    if (geprueft >= ROUTEN_MAX) {
+      abbruchGrund = `Kappe: höchstens ${ROUTEN_MAX} Routen je Aufruf`;
+      break;
     }
-    const strecken = pts.slice(0, -1).map((p, i) => [p, pts[i + 1]] as const);
-    if (route.mode === 'loop' && pts.length > 2) strecken.push([pts[pts.length - 1], pts[0]]);
-    if (pts.length === 1) strecken.push([pts[0], pts[0]]);
+    if (u.abgelaufen()) {
+      abbruchGrund = 'Frist abgelaufen';
+      break;
+    }
+    const strecken = streckenVon(route);
     const eigene = (o: Objekt): boolean => o.p.route === route.id;
     const getroffen = new Set<string>();
     let laeufe = 0;
     strecken.forEach(([a, b], si) => {
-      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (abbruchGrund !== undefined) return;
+      if (u.abgelaufen()) {
+        abbruchGrund = 'Frist abgelaufen';
+        return;
+      }
+      // Nur der Teil der Strecke im Bereich wird abgetastet (Liang–Barsky); der Rest wird ohnehin nie geprüft.
+      const klemm = klemmeStrecke(a, b, k);
+      if (klemm === null) return;
+      const [t0, t1] = klemm;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
       const n = Math.max(1, Math.ceil(len / ROUTEN_SCHRITT));
+      const tStart = Math.max(0, Math.floor(t0 * n) - 1);
+      const tEnde = Math.min(n, Math.ceil(t1 * n) + 1);
+      proben += tEnde - tStart + 1;
+      if (proben > ROUTEN_PROBEN_MAX) {
+        abbruchGrund = `Kappe: höchstens ${ROUTEN_PROBEN_MAX} Stützpunkte je Aufruf`;
+        return;
+      }
       const nah = festeObjekte.filter((o) => {
         if (!o.flaeche || eigene(o)) return false;
         const [x0, z0, x1, z1] = huelleVon(o.flaeche);
@@ -600,7 +756,11 @@ function routen(
       let imWasserLauf = false;
       let steilLauf = false;
       let vorherH = Number.NaN;
-      for (let t = 0; t <= n; t++) {
+      for (let t = tStart; t <= tEnde; t++) {
+        if ((t & 1023) === 0 && u.abgelaufen()) {
+          abbruchGrund = 'Frist abgelaufen';
+          return;
+        }
         const x = a.x + ((b.x - a.x) * t) / n;
         const z = a.z + ((b.z - a.z) * t) / n;
         if (!imBereich(form, x, z)) {
@@ -657,12 +817,20 @@ function routen(
         vorherH = h;
       }
     });
+    if (abbruchGrund === undefined) geprueft++;
   }
+  return {
+    status: abbruchGrund === undefined ? 'vollstaendig' : 'abgebrochen',
+    geprueft,
+    gesamt: relevant.length,
+    einheit: `Routen (${proben} Stützpunkte)`,
+    grund: abbruchGrund,
+  };
 }
 
 // ── P6: Objektbudget je Zone ───────────────────────────────────────────────
 
-function budget(layout: WorldLayout, form: Bereichsform, s: Schwellen, befunde: Befund[]): void {
+function budget(layout: WorldLayout, form: Bereichsform, s: Schwellen, befunde: Befund[]): PruefStatus {
   const zahlen = new Map<string, number>();
   for (const p of layout.placements ?? []) {
     const key = `${Math.floor(p.x / ZONE_SIZE)},${Math.floor(p.z / ZONE_SIZE)}`;
@@ -686,6 +854,7 @@ function budget(layout: WorldLayout, form: Bereichsform, s: Schwellen, befunde: 
       });
     }
   }
+  return { status: 'vollstaendig', geprueft: zahlen.size, gesamt: zahlen.size, einheit: 'Zonen mit Objekten' };
 }
 
 // ── Zusammenbau ────────────────────────────────────────────────────────────
@@ -698,6 +867,7 @@ export function pruefeWelt(
   bereich: Bereich,
   optionen: CheckOptionen = {}
 ): CheckErgebnis {
+  const startZeit = (optionen.uhr ?? (() => performance.now()))();
   const form = normalisiereBereich(bereich);
   const arten = new Set(optionen.pruefungen ?? ALLE_PRUEFUNGEN);
   const s: Schwellen = { ...schwellenVorgabe(), ...optionen.grenzen };
@@ -706,14 +876,25 @@ export function pruefeWelt(
   const festeObjekte = objekte.filter((o) => o.huelle?.fest === true && o.flaeche !== null);
   const befunde: Befund[] = [];
 
-  if (arten.has('ueberlappung')) ueberlappungen(objekte, befunde);
-  if (arten.has('wasser')) imWasser(objekte, geo, befunde);
-  if (arten.has('hang')) haenge(objekte, geo, s, befunde);
-  if (arten.has('eingang')) {
-    eingaenge(objekte, festeObjekte, layout, form, geo, optionen.von, optionen.eingaenge ?? EINGAENGE, befunde);
+  const frist = optionen.frist ?? FRIST_MS;
+  const jetzt = optionen.uhr ?? (() => performance.now());
+  const u = new Uhr(jetzt, startZeit, frist);
+  const pruefstatus: Partial<Record<PruefArt, PruefStatus>> = {};
+  // Billig zuerst, das Raster der Wegsuche zuletzt: bei knapper Frist bleibt so das Meiste vollständig.
+  const lauf: Array<[PruefArt, () => PruefStatus]> = [
+    ['budget', () => budget(layout, form, s, befunde)],
+    ['wasser', () => imWasser(objekte, geo, befunde, u)],
+    ['hang', () => haenge(objekte, geo, s, befunde, u)],
+    ['ueberlappung', () => ueberlappungen(objekte, befunde, u)],
+    ['route', () => routen(layout, form, festeObjekte, geo, befunde, u)],
+    ['eingang', () => eingaenge(objekte, festeObjekte, layout, form, geo, optionen.von, optionen.eingaenge ?? EINGAENGE, befunde, u)],
+  ];
+  for (const [art, fuehreAus] of lauf) {
+    if (!arten.has(art)) continue;
+    pruefstatus[art] = u.abgelaufen()
+      ? { status: 'uebersprungen', geprueft: 0, gesamt: 0, einheit: '-', grund: 'Frist schon vor Beginn abgelaufen' }
+      : fuehreAus();
   }
-  if (arten.has('route')) routen(layout, form, festeObjekte, geo, befunde);
-  if (arten.has('budget')) budget(layout, form, s, befunde);
 
   const nichtPruefbar = [...new Set(objekte.filter((o) => o.innen && o.huelle === null).map((o) => o.p.prefab))].sort();
   if (arten.has('ueberlappung') || arten.has('eingang') || arten.has('route')) {
@@ -735,6 +916,22 @@ export function pruefeWelt(
   );
   const zaehler = { rot: 0, gelb: 0, hinweis: 0 };
   for (const b of befunde) zaehler[b.schwere]++;
+  const unvollstaendig = (Object.entries(pruefstatus) as Array<[PruefArt, PruefStatus]>).filter(([, st]) => st.status !== 'vollstaendig');
+  const teilweise = unvollstaendig.length > 0;
+  let hinweis: string | undefined;
+  if (teilweise) {
+    const teile = unvollstaendig.map(([art, st]) =>
+      st.status === 'uebersprungen'
+        ? `${art}: übersprungen (${st.grund})`
+        : `${art}: abgebrochen nach ${st.geprueft} von ${st.gesamt} ${st.einheit} (${st.grund})`
+    );
+    const fertig = (Object.entries(pruefstatus) as Array<[PruefArt, PruefStatus]>).filter(([, st]) => st.status === 'vollstaendig').map(([art]) => art);
+    hinweis =
+      `TEILBERICHT nach ${Math.round(u.vergangen())} ms (Frist ${frist} ms). Vollständig: ${fertig.join(', ') || 'keine'}. ` +
+      `${teile.join('; ')}. Bereich verkleinern und erneut prüfen.`;
+    befunde.push({ pruefung: 'frist', schwere: 'gelb', x: (form.kasten.minX + form.kasten.maxX) / 2, z: (form.kasten.minZ + form.kasten.maxZ) / 2, ids: [], text: hinweis });
+    zaehler.gelb++;
+  }
   const ausgabe = befunde.slice(0, BEFUNDE_MAX);
   return {
     ampel: zaehler.rot > 0 ? 'rot' : zaehler.gelb > 0 ? 'gelb' : 'gruen',
@@ -743,5 +940,10 @@ export function pruefeWelt(
     befunde: ausgabe,
     ausgelassen: befunde.length - ausgabe.length,
     nichtPruefbar,
+    ms: Math.round(u.vergangen()),
+    frist,
+    teilweise,
+    pruefstatus,
+    hinweis,
   };
 }

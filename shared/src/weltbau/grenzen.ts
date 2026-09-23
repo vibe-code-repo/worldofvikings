@@ -47,3 +47,12 @@ export const EINGANG_ABSTAND = 1;
 /** Ein „Haus“: fester Körper mit mindestens dieser Grundfläche (Kanten) und Höhe (m). */
 export const HAUS_MIN_KANTE = 3;
 export const HAUS_MIN_HOEHE = 2.5;
+
+/** Gesamtfrist eines world_check-Aufrufs (ms); danach Teilbericht. */
+export const FRIST_MS = 15_000;
+
+/** Höchstens so viele Routen je Aufruf; der Rest wird als „nicht geprüft“ gemeldet. */
+export const ROUTEN_MAX = 64;
+
+/** Höchstens so viele abgetastete Stützpunkte (0,25 m) aller Routen je Aufruf. */
+export const ROUTEN_PROBEN_MAX = 2_000_000;

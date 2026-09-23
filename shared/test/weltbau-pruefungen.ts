@@ -165,7 +165,8 @@ pruefe('saubere Welt: alle Objekte im Bereich gezählt', sauber.objekte === 46, 
 
 // ── Verhalten im Einzelnen ─────────────────────────────────────────────────
 
-pruefe('Determinismus: zwei Läufe sind gleich', JSON.stringify(lauf(FEHLERWELT)) === JSON.stringify(e));
+const ohneMs = (x: CheckErgebnis): string => JSON.stringify({ ...x, ms: 0 });
+pruefe('Determinismus: zwei Läufe sind gleich (bis auf die Zeit)', ohneMs(lauf(FEHLERWELT)) === ohneMs(e));
 const nurWasser = lauf(FEHLERWELT, { pruefungen: ['wasser'] });
 pruefe('pruefungen: nur wasser', nurWasser.befunde.every((b) => b.pruefung === 'wasser') && nurWasser.befunde.length === 1);
 const lockerer = lauf(FEHLERWELT, { pruefungen: ['hang'], grenzen: { hangGradRot: 50, spanneRot: 99, spanneGelb: 99 } });
@@ -230,6 +231,96 @@ const viele = pruefeWelt(welt(Array.from({ length: 250 }, (_, i) => pl(`w${i}`, 
   { x: 100, z: 100, radius: 10 }, { huellen, pruefungen: ['wasser'] });
 pruefe('Befunde auf 200 begrenzt, Rest gezählt', viele.befunde.length === 200 && viele.ausgelassen === 50 && viele.zaehler.rot === 250,
   `${viele.befunde.length} + ${viele.ausgelassen}`);
+
+// ── N1: Laufzeitbremse (F1) und von ohne Haus (F2) ─────────────────────────
+
+pruefe('normaler Lauf: vollständig, kein Teilbericht, Zeit gemeldet',
+  sauber.teilweise === false && sauber.hinweis === undefined && typeof sauber.ms === 'number' && sauber.frist === 15000 &&
+  Object.values(sauber.pruefstatus).every((st) => st?.status === 'vollstaendig') && Object.keys(sauber.pruefstatus).length === 6,
+  JSON.stringify(sauber.pruefstatus));
+pruefe('Fehlerwelt bleibt vollständig 6/6 (Bremse ändert nichts)', e.teilweise === false && gefunden === 6);
+
+// Angreifer-Eingabe 1: eine Route mit 512 Punkten, jede Strecke 500 m quer durch den Bereich
+const zickzack = (id: string, n: number): RouteDef => ({
+  id,
+  points: Array.from({ length: n }, (_, i) => [i % 2 === 0 ? -250 : 250, (i % 7) - 3] as [number, number]),
+  mode: 'pingpong',
+});
+const flach: HoehenFeld = { getHeight: () => 40 };
+const b512 = { minX: -256, minZ: -256, maxX: 256, maxZ: 256 };
+let t0 = performance.now();
+const r512 = pruefeWelt(welt([], [zickzack('z1', 512)]), flach, b512, { huellen, pruefungen: ['route'] });
+let dauer = performance.now() - t0;
+pruefe('512-Punkt-Route endet in ≤ 15 s', dauer <= 15000 && r512.ms <= 15500, `${Math.round(dauer)} ms`);
+pruefe('512-Punkt-Route: vollständig oder klarer Teilbericht mit Zahlen',
+  r512.pruefstatus.route?.status === 'vollstaendig' || (r512.teilweise && (r512.hinweis ?? '').includes('Bereich verkleinern') && r512.pruefstatus.route !== undefined),
+  JSON.stringify(r512.pruefstatus.route));
+
+// Angreifer-Eingabe 2: 256 solche Routen
+const routen256 = Array.from({ length: 256 }, (_, i) => zickzack(`z${i}`, 512));
+t0 = performance.now();
+const r256 = pruefeWelt(welt([], routen256), flach, b512, { huellen, pruefungen: ['route'] });
+dauer = performance.now() - t0;
+const st256 = r256.pruefstatus.route;
+pruefe('256 Routen à 512 Punkte enden in ≤ 15 s', dauer <= 15000, `${Math.round(dauer)} ms`);
+pruefe('256 Routen: Teilbericht, abgebrochen, nicht alle Routen geprüft, Zahlen im Bericht',
+  r256.teilweise && st256?.status === 'abgebrochen' && st256.geprueft < 256 && st256.gesamt === 256 && (st256.grund ?? '').startsWith('Kappe'),
+  JSON.stringify(st256));
+pruefe('256 Routen: Hinweis nennt Zeit, Frist und „Bereich verkleinern“, Ampel nicht grün',
+  (r256.hinweis ?? '').includes('TEILBERICHT') && (r256.hinweis ?? '').includes('Bereich verkleinern') && r256.ampel !== 'gruen' &&
+  r256.befunde.some((b) => b.pruefung === 'frist'), r256.hinweis ?? '');
+
+// Eine Strecke außerhalb des Bereichs kostet nichts: nur der Ausschnitt wird abgetastet
+const lang = pruefeWelt(welt([], [{ id: 'lang', points: [[-40000, 0], [40000, 0]], mode: 'pingpong' }]), flach, b512, { huellen, pruefungen: ['route'] });
+const proben = Number(/\((\d+) Stützpunkte/.exec(lang.pruefstatus.route?.einheit ?? '')?.[1]);
+pruefe('80-km-Strecke: nur der Ausschnitt im Bereich wird abgetastet (< 4000 Proben)',
+  lang.pruefstatus.route?.status === 'vollstaendig' && proben > 0 && proben < 4000, lang.pruefstatus.route?.einheit);
+
+// Frist mit austauschbarer Uhr: jede Abfrage kostet 1 ms
+let takt = 0;
+const zeitraffer = (): number => takt++;
+takt = 0;
+const knapp = pruefeWelt(SAUBERE_WELT, geo, BEREICH, { huellen, eingaenge, frist: 30, uhr: zeitraffer });
+pruefe('Frist 30 ms (Zeitraffer): Teilbericht statt Grün',
+  knapp.teilweise && knapp.ampel !== 'gruen' && (knapp.hinweis ?? '').includes('TEILBERICHT') && knapp.frist === 30,
+  knapp.hinweis ?? '');
+pruefe('Frist: jede Prüfung meldet vollständig, abgebrochen oder übersprungen mit Zahlen',
+  Object.values(knapp.pruefstatus).every((st) => st !== undefined && ['vollstaendig', 'abgebrochen', 'uebersprungen'].includes(st.status) && st.gesamt >= st.geprueft));
+pruefe('Frist: mindestens eine Prüfung ist nicht vollständig gelaufen',
+  Object.values(knapp.pruefstatus).some((st) => st?.status !== 'vollstaendig'));
+
+// Kein falsches Rot bei jedem möglichen Abbruchpunkt (die Wegsuche wird nie halb ausgewertet)
+let falschRot = 0;
+let teilLaeufe = 0;
+for (let frist = 0; frist <= 20000; frist += 250) {
+  takt = 0;
+  const x = pruefeWelt(SAUBERE_WELT, geo, BEREICH, { huellen, eingaenge, frist, uhr: zeitraffer });
+  if (x.teilweise) teilLaeufe++;
+  falschRot += x.befunde.filter((b) => b.schwere === 'rot').length;
+}
+pruefe('saubere Welt: bei jedem Abbruchpunkt (81 Fristen) 0 rote Befunde', falschRot === 0 && teilLaeufe > 0, `${teilLaeufe} Teilläufe, ${falschRot} rot`);
+
+// F2: von ohne Haus im Bereich
+const nurKisten = welt(kisten('k', 3, 130, 68), []);
+const vonOhneHaus = (v: readonly [number, number]): string => {
+  try {
+    pruefeWelt(nurKisten, geo, BEREICH, { huellen, eingaenge, pruefungen: ['eingang'], von: v });
+  } catch (f) {
+    return f instanceof BereichFehler ? f.message : 'falscher Fehlertyp';
+  }
+  return '';
+};
+pruefe('von im Wasser ohne Haus im Bereich: Fehler mit Koordinate', vonOhneHaus([100, 100]).includes('(100, 100)') && vonOhneHaus([100, 100]).includes('Wasser'), vonOhneHaus([100, 100]));
+pruefe('von außerhalb des Bereichs ohne Haus: Fehler', vonOhneHaus([5000, 0]).includes('außerhalb'), vonOhneHaus([5000, 0]));
+pruefe('von im festen Körper ohne Haus: Fehler', (() => {
+  try {
+    pruefeWelt(welt([pl('f', 'T_Fels', 0, 0)], []), geo, BEREICH, { huellen, pruefungen: ['eingang'], von: [0.5, 0] });
+  } catch (f) {
+    return f instanceof BereichFehler && f.message.includes('festen Körper');
+  }
+  return false;
+})());
+pruefe('von gültig ohne Haus: kein Fehler', vonOhneHaus([0, 0]) === '');
 
 // ── Standard-Auflösung gegen den echten Katalog ────────────────────────────
 

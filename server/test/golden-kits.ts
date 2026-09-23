@@ -20,7 +20,11 @@
  *     `generateGridLayout`, und ausdrücklich ein ANDERES als der
  *     1.0-Pfad. Ohne die zweite Hälfte wäre die erste auch dann grün,
  *     wenn der Schalter gar nichts täte.
- *  4. Laufzeit des Rasterpfads bei 200 Zellen unter 10 ms je Layout.
+ *  4. Laufzeit des Rasterpfads bei 200 Zellen — nicht gegen eine feste
+ *     Millisekundengrenze (die kippt unter fremder Last, siehe unten),
+ *     sondern differenziell gegen eine mitgemessene Referenzarbeit im
+ *     selben Prozess: Generator höchstens das SCHWELLE_SCHNITT-fache
+ *     ihrer Kosten, im Schnitt über 40 Saaten (Einzelheiten dort).
  *
  * ── Warum Hashes und nicht 82 MiB Layouts ─────────────────────────────
  * `DG_Hildir_PlainsFortress` allein ergibt über 40 Saaten 81 MiB JSON.
@@ -46,6 +50,30 @@ import { join } from 'node:path';
 import { DUNGEONS, DUNGEONS_BY_NAME, type DungeonDef } from '@wov/shared';
 import { generateDungeonLayout } from '@wov/shared';
 import { erzeugeLayoutFuerKit, generateGridLayout } from '@wov/shared';
+
+/*
+  N2-Nachbesserung (23.09.2026, Angriffsbericht „golden-kits N1 — Angriff 2",
+  Befund A7): Teil 4 misst ausschließlich über `process.threadCpuUsage()`
+  (nur Hauptthread, siehe dort) — die API kam erst in Node 22.19.0/23.9.0,
+  `package.json` erlaubt aber `engines: node >= 22.5`. Ein STILLER Rückfall
+  auf `process.cpuUsage()` ist ausdrücklich keine Option: Prozess-CPU zählt
+  V8-GC-/JIT-Hilfsthreads mit und war genau der Blocker, den die
+  Umstellung auf `threadCpuUsage()` beheben sollte (Angriffsbericht
+  „golden-kits Zeitschwelle — Angriff.md"). Lieber laut abbrechen als
+  leise auf die widerlegte Messung zurückfallen. Die Lücke zu `engines`
+  bleibt offen — `package.json` ist eine Hot-File und wird hier nicht
+  angefasst (Bericht „golden-kits N1", Abschnitt N2).
+*/
+if (typeof process.threadCpuUsage !== 'function') {
+  console.error(
+    `FEHLER: process.threadCpuUsage() fehlt auf dieser Node-Version (${process.version}). ` +
+      'Benötigt Node >= 22.19.0 (bzw. >= 23.9.0) — package.json „engines" erlaubt formal ' +
+      '>= 22.5, ohne dass das hier geprüft wird. Kein Rückfall auf process.cpuUsage(): ' +
+      'Prozess-CPU zählt V8-Hilfsthreads mit und erzeugt Fehlalarme unter Last (der ' +
+      'ursprüngliche Blocker dieser Datei).'
+  );
+  process.exit(1);
+}
 
 /** Dieselbe Stichprobe wie in der Konzeptnotiz und in `messe-stonevault-logik.ts`. */
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -273,10 +301,20 @@ console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen, differenziell) ===\n');
     Prozess, im selben Moment, unter derselben Last." Trifft
     Kernkonkurrenz beide Seiten der Verschränkung im selben
     Sekundenbruchteil, hebt sie Zähler UND Nenner etwa gleich an — das
-    Verhältnis bleibt stehen (Bericht „golden-kits N1": unter 6 ALU- + 4
-    Speicher-Brennern kein Anstieg gegenüber ruhig; unter der härteren,
-    synthetischen Form — 8 angeheftete Brenner, Test erzwungen auf einen
-    von ihnen gesättigten Kern — steigt es leicht, siehe Schwellen unten).
+    Verhältnis bleibt stehen (Bericht „golden-kits N1", 105 gemessene
+    Läufe über sieben Lastformen: unter der Last, die ein Rollout
+    tatsächlich erzeugen kann — ein ungepinnter Sammellauf —, steigt das
+    Verhältnis NICHT, es sinkt eher; siehe Schwellen unten für die
+    Zahlen und für die Form, die das nicht mehr gilt).
+
+    N2-Nachbesserung (23.09.2026, Angriffsbericht „golden-kits N1 —
+    Angriff 2"): Die ursprüngliche Schwelle 1,45 war aus der 8-Kern-
+    angehefteten Lastform kalibriert — die kann ein Rollout nicht
+    erzeugen (kein `taskset`/keine Kernbindung im Repo, `tools/wov-
+    update.sh` startet ungepinnt) und war zudem nicht reproduzierbar
+    (Angriff 2 kam auf höchstens 1,18 statt der gemeldeten 1,31). Die
+    Schwelle ist jetzt aus der tatsächlich erreichbaren Last abgeleitet,
+    nicht aus einer synthetischen Form — siehe unten.
   */
   interface RefKnoten {
     readonly id: number;
@@ -407,27 +445,60 @@ console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen, differenziell) ===\n');
     auf server/test/g12-tick-aufteilung.ts) — sie bleibt nur als
     Diagnosezeile in der Ausgabe.
 
-    Schwellen aus GEMESSENEN Verhältnissen (Bericht „golden-kits N1",
-    Tabellen „Ruhige Verhältnisse" / „Lastform b"):
-      - Ruhig, 20 frische Prozesse der ECHTEN Testdatei: Schnitt
-        1,00–1,14, Ausreisser (lautestes von 40 Einzelverhältnissen) bis
-        3,77.
-      - Lastform (a), 6 ALU- + 4 Speicher-Brenner, 6 Läufe: Schnitt
-        0,74–1,14 — KEIN Anstieg gegenüber ruhig, die Verschränkung hält.
-      - Lastform (b), 8 angeheftete Brenner mit dem Test auf Kern 0, 6
-        Läufe: Schnitt bis 1,31 — hier hält die Verschränkung NICHT
-        vollständig: Erzwungene Kernteilung mit einem Brenner trifft den
-        größeren, komplexeren Speicherfußabdruck des echten Generators
-        (200+ Räume, verschachtelte Graphstruktur) nachweisbar stärker
-        als den kleineren Referenzkern — eine reale, keine eingebildete
-        Differenz (siehe Bericht). Das bestimmt die Untergrenze für die
-        Schwelle, nicht der Ruhezustand.
-    SCHWELLE_SCHNITT = 1,45 liegt rund 11 % über dem höchsten unter
-    Lastform (b) gemessenen Wert (1,31) — 0 Fehlalarme in 32 Läufen
-    (20 ruhig + 6a + 6b). SCHWELLE_AUSREISSER = 5,0 liegt rund 33 % über
-    dem höchsten ruhigen Ausreisser (3,77).
+    N2-Nachbesserung (23.09.2026, Angriffsbericht „golden-kits N1 —
+    Angriff 2", Befund A2): Die Schwelle steht jetzt auf der Last, die
+    ein Rollout tatsächlich erzeugen kann — ein ungepinnter Sammellauf
+    (`tools/wov-update.sh:811` startet ohne `taskset`/Kernbindung, keine
+    Stelle im Repo tut das) —, nicht mehr auf der synthetischen
+    Lastform mit angehefteten Brennern: Die war weder erreichbar noch,
+    wie sich zeigte, verlässlich reproduzierbar (Angriff 2 kam dort auf
+    höchstens 1,18 statt der zuvor gemeldeten 1,31).
+
+    Schwellen aus GEMESSENEN Verhältnissen, EIGENE Läufe UND die 70
+    Läufe des Angreifers zusammengenommen (Bericht „golden-kits N1",
+    Abschnitt N2):
+      - Ruhig, 20 frische Prozesse der ECHTEN Testdatei (eigene Läufe):
+        Schnitt 0,88–1,18.
+      - Unter echter Last, 15 Läufe der ECHTEN Testdatei unter 6 ALU- +
+        4 Speicher-Brennern, ungepinnt (eigene Läufe): Schnitt
+        0,73–1,13 — KEIN Anstieg gegenüber ruhig, die Last drückt das
+        Verhältnis eher nach unten (die Referenz — 18 000 Objekte, eine
+        Map, Kanten-Arrays — reagiert unter Last MEHR als der Generator,
+        nicht weniger; siehe Bericht, Abschnitt „Warum die Grundlinie
+        über 1 liegt").
+      - Angriff 2 (unabhängig, 70 Läufe über sechs Lastformen inkl. der
+        früheren angehefteten Form): Schnitt 0,80–1,18, derselbe
+        Höchstwert wie in den eigenen Läufen.
+    Höchster über alle 105 Läufe gemessener Wert: 1,18. SCHWELLE_SCHNITT
+    = 1,25 liegt rund 6 % darüber — 0 Fehlalarme in allen 105 Läufen.
+    Fängt eine gleichmäßige +37…39-%-Regression zuverlässig (6/6, ruhig
+    und unter Last), +50…56 % ebenso (6/6) — +24…30 % NICHT zuverlässig
+    (Bericht, Tabelle Mutanten). Die Karte wollte „+25 % wird gefangen";
+    das ist mit einer last-invarianten Schwelle auf dieser Maschine
+    nicht zu halten (Bericht, Abschnitt „Warum +25 % nicht erreichbar
+    ist" — die Referenz selbst braucht Kopfraum, siehe unten).
+
+    SCHWELLE_AUSREISSER = 5,0 bleibt unverändert. Ausdrücklich notiert
+    (Angriff 2, Befund A5): Diese Prüfung fängt eine einzelne kaputte
+    Saat erst ab dem gut Fünffachen ihrer üblichen Kosten — bei 40
+    Saaten eine unentdeckte Gesamtregression von bis zu rund +12 %, die
+    keine der beiden Prüfungen sieht. Bewusst nicht enger gestellt:
+    Ruhige Ausreisser reichen bereits bis 2,32 (eigene Läufe); eine
+    engere Schwelle würde dort Fehlalarme erzeugen.
+
+    Auch notiert (Angriff 2, Befund A3): Die Grundlinie des Verhältnisses
+    liegt ruhig bei rund 1,0–1,15 statt bei 1,0, weil die 18 000 Objekte
+    der Referenz mehr Speichermüll erzeugen als ein Layout — ein Teil
+    davon wird im NACHFOLGENDEN Fenster der Verschränkung abgerechnet,
+    überwiegend also einem Layout-Fenster. Das ist kein Fehler der
+    Messung, sondern eine Eigenschaft der Verschränkung selbst
+    (bestätigt: bei geblockter statt verschränkter Messung liegt der
+    Generator ohne Referenz-Nachbarschaft unter 1,0). Nicht behoben,
+    weil jeder Versuch, den Speichermüll zu drosseln, die Referenz
+    weniger repräsentativ für echten Cache-/Speicherdruck macht — siehe
+    oben, warum eine reine Ganzzahlschleife nicht reicht.
   */
-  const SCHWELLE_SCHNITT = 1.45;
+  const SCHWELLE_SCHNITT = 1.25;
   const SCHWELLE_AUSREISSER = 5.0;
   check(
     `Schnitt-Verhältnis Generator/Referenz unter ${SCHWELLE_SCHNITT}`,
@@ -437,26 +508,26 @@ console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen, differenziell) ===\n');
   check(`kein Ausreisser-Verhältnis über ${SCHWELLE_AUSREISSER}`, vMax < SCHWELLE_AUSREISSER, `${vMax.toFixed(2)}`);
 
   /*
-    Größenordnungswächter statt Ausreisserprüfung auf Prozess-CPU
-    (Angriff, Befund E2): Die alte 30-ms-Prüfung auf PROZESS-CPU löste
-    unter freien Kernen durch V8-Hilfsthreads aus und wurde GENAU DANN
-    blind, wenn die Maschine gesättigt war (die Hilfsthreads werden dann
-    verdrängt, die Spitzen verschwinden, während der Median steigt) —
-    die falsche Richtung für eine Prüfung. Der Ersatz ist ein grober, auf
-    Hauptthread-CPU umgestellter MEDIAN-Wächter: Er fängt eine
-    GRÖSSENORDNUNG (der Verteiler ruft aus Versehen den viel teureren
-    1.0-Pfad statt des Rasterpfads auf), nicht ein Prozent — dafür sind
-    Schnitt und Ausreisser oben zuständig. 30 ms liegt weit über jeder
-    gemessenen Last: ruhig 6–9 ms, unter Lastform (a) 10–14 ms, unter
-    Lastform (b) 12–13 ms, unter dem stärksten Mutanten und Lastform (a)
-    zusammen bis 23 ms (Bericht „golden-kits N1").
+    KEIN Größenordnungswächter mehr auf `genMedian` (N2-Nachbesserung,
+    Angriff 2, Befund A4): Ein absoluter Hauptthread-Median-Wächter war
+    bis eben noch da, ist aber — wie zuvor schon der Median-Check —
+    NACHWEISLICH TOT: Jede additive Generatorregression hebt `genMedian`
+    UND das Schnitt-Verhältnis proportional; der Schnitt löst bei
+    SCHWELLE_SCHNITT × Basiswert aus, deutlich unterhalb jeder absoluten
+    Grenze, die noch Kopfraum für Last hätte. Ein Wächter, der nur bei
+    einer GLOBALEN Verlangsamung der ganzen Maschine unabhängig auslösen
+    könnte (bei der das Verhältnis ~1 bliebe), wäre dort ohnehin falsch
+    rot — das ist keine Generatorregression, sondern eine
+    Umgebungsänderung. Dieselbe Regel, mit der der Median-Check entfernt
+    wurde („kein unabhängiger Fang ⇒ tot"), gilt hier genauso — also
+    entfernt, nicht nur belassen. Fürs Protokoll: Eine eigene
+    Belastungsprobe mit 24 Brennern (8 ALU + 8 Speicher + 8 Allokation)
+    kam auf höchstens 15,4 ms Hauptthread-Median, ohne den früheren
+    30-ms-Wächter auch nur in die Nähe zu bringen — er wäre also selbst
+    unter der stärksten erzeugbaren Last nie ein Signal gewesen, das der
+    Schnitt nicht längst gemeldet hätte (Bericht „golden-kits N1",
+    Abschnitt N2).
   */
-  const ABS_GRENZE_MS = 30;
-  check(
-    `Hauptthread-Median unter ${ABS_GRENZE_MS} ms (Größenordnungswächter)`,
-    genMedian < ABS_GRENZE_MS,
-    `${genMedian.toFixed(2)} ms`
-  );
 
   /*
     Wartezeit (Wanduhr minus Hauptthread-CPU) bewusst KEIN eigener Check

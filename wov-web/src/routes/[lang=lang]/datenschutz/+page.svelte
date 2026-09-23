@@ -9,127 +9,140 @@
    * tatsächlich tun, nicht aus einer Vorlage. Belege je Aussage stehen im
    * Bericht der Karte W1.
    *
-   * Die Abschnitte sind Daten: Überschrift, Absätze und (wo nötig) ein Wert
+   * Die Abschnitte sind Daten: Überschrift, Blöcke (Absätze, Listen) und (wo nötig) ein Wert
    * aus `$lib/rechtliches.ts`. Damit lässt sich ein Abschnitt umstellen,
    * ohne das Markup anzufassen.
    *
    * LÖSCHUNG: Der Absatz `legal.privacy.rights.delete` (de.ts/en.ts) ist der
-   * einzige Text, der den heutigen Stand „Löschung auf Anfrage per E-Mail“
-   * beschreibt. Gibt es das Löschen im Konto, wird nur dieser Schlüssel
-   * umgeschrieben (und ggf. der Absatz aus der Liste `rechte` unten
-   * gestrichen). Die Speicherdauer-Sätze in „Konto“ und „Recken“ verweisen
-   * nur auf „Deine Rechte“ und bleiben richtig.
+   * Text, der den heutigen Stand „Löschung auf Anfrage per E-Mail“ samt dem
+   * Schicksal der Forumsbeiträge beschreibt. Gibt es das Löschen im Konto
+   * (Karte W3), wird nur dieser Schlüssel umgeschrieben; der Abschnitt
+   * „Sicherungen“ (30 Tage) bleibt richtig. Die Speicherdauer-Sätze in
+   * „Konto“ und „Recken“ verweisen nur auf „Deine Rechte“.
    */
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
+  /** Ein Block ist ein Absatz oder eine Stichpunktliste. */
+  type Block = { absatz: MessageKey } | { liste: MessageKey[] };
+
   interface Abschnitt {
     id: string;
     titel: MessageKey;
-    absaetze: MessageKey[];
-    /** Stichpunkte nach den Absätzen. */
-    liste?: MessageKey[];
-    /** Absatz nach der Liste. */
-    schluss?: MessageKey[];
-    /** Ein Wert aus `rechtliches.ts`, in eigener Zeile unter den Absätzen. */
+    bloecke: Block[];
+    /** Ein Wert aus `rechtliches.ts`, in eigener Zeile unter den Blöcken. */
     wert?: { vorspann?: MessageKey; text: string };
   }
+
+  const p = (absatz: MessageKey): Block => ({ absatz });
+  const l = (...liste: MessageKey[]): Block => ({ liste });
 
   const ABSCHNITTE: Abschnitt[] = [
     {
       id: 'verantwortlicher',
       titel: 'legal.privacy.controller.heading',
-      absaetze: ['legal.privacy.controller.text'],
+      bloecke: [p('legal.privacy.controller.text')],
       wert: { text: `${ANBIETER.name}\n${ANBIETER.anschrift}\n${ANBIETER.email}` },
     },
     {
       id: 'kurz',
       titel: 'legal.privacy.summary.heading',
-      absaetze: [],
-      liste: [
-        'legal.privacy.summary.1',
-        'legal.privacy.summary.2',
-        'legal.privacy.summary.3',
-        'legal.privacy.summary.4',
+      bloecke: [
+        l(
+          'legal.privacy.summary.1',
+          'legal.privacy.summary.2',
+          'legal.privacy.summary.3',
+          'legal.privacy.summary.4',
+        ),
       ],
     },
     {
       id: 'protokolle',
       titel: 'legal.privacy.logs.heading',
-      absaetze: ['legal.privacy.logs.1', 'legal.privacy.logs.2', 'legal.privacy.logs.3'],
+      bloecke: [p('legal.privacy.logs.1'), p('legal.privacy.logs.2'), p('legal.privacy.logs.3')],
     },
     {
       id: 'konto',
       titel: 'legal.privacy.account.heading',
-      absaetze: [
-        'legal.privacy.account.1',
-        'legal.privacy.account.2',
-        'legal.privacy.account.3',
-      ],
+      bloecke: [p('legal.privacy.account.1'), p('legal.privacy.account.2'), p('legal.privacy.account.3')],
+    },
+    {
+      id: 'bereitstellung',
+      titel: 'legal.privacy.provision.heading',
+      bloecke: [p('legal.privacy.provision.text')],
     },
     {
       id: 'recken',
       titel: 'legal.privacy.characters.heading',
-      absaetze: ['legal.privacy.characters.1', 'legal.privacy.characters.2'],
+      bloecke: [p('legal.privacy.characters.1'), p('legal.privacy.characters.2')],
     },
     {
       id: 'anmeldung',
       titel: 'legal.privacy.login.heading',
-      absaetze: ['legal.privacy.login.1', 'legal.privacy.login.2'],
+      bloecke: [p('legal.privacy.login.1'), p('legal.privacy.login.2')],
     },
     {
       id: 'spiel',
       titel: 'legal.privacy.game.heading',
-      absaetze: ['legal.privacy.game.1', 'legal.privacy.game.2'],
+      bloecke: [p('legal.privacy.game.1'), p('legal.privacy.game.2')],
     },
     {
       id: 'thing',
       titel: 'legal.privacy.forum.heading',
-      absaetze: ['legal.privacy.forum.1', 'legal.privacy.forum.2'],
+      bloecke: [p('legal.privacy.forum.1'), p('legal.privacy.forum.2')],
     },
     {
       id: 'speicher',
       titel: 'legal.privacy.storage.heading',
-      absaetze: ['legal.privacy.storage.1'],
-      liste: [
-        'legal.privacy.storage.item.token',
-        'legal.privacy.storage.item.ticket',
-        'legal.privacy.storage.item.draft',
-        'legal.privacy.storage.item.settings',
+      bloecke: [
+        p('legal.privacy.storage.1'),
+        l(
+          'legal.privacy.storage.item.token',
+          'legal.privacy.storage.item.ticket',
+          'legal.privacy.storage.item.notes',
+        ),
+        p('legal.privacy.storage.2'),
+        p('legal.privacy.storage.optional'),
+        l('legal.privacy.storage.item.draft', 'legal.privacy.storage.item.settings'),
+        p('legal.privacy.storage.3'),
       ],
-      schluss: ['legal.privacy.storage.2'],
+    },
+    {
+      id: 'sicherungen',
+      titel: 'legal.privacy.backups.heading',
+      bloecke: [p('legal.privacy.backups.1'), p('legal.privacy.backups.2')],
     },
     {
       id: 'extern',
       titel: 'legal.privacy.external.heading',
-      absaetze: ['legal.privacy.external.text'],
+      bloecke: [p('legal.privacy.external.text')],
     },
     {
       id: 'empfaenger',
       titel: 'legal.privacy.recipients.heading',
-      absaetze: ['legal.privacy.recipients.text'],
+      bloecke: [p('legal.privacy.recipients.text')],
       wert: { vorspann: 'legal.privacy.recipients.hosting', text: ANBIETER.hosting },
     },
     {
       id: 'rechte',
       titel: 'legal.privacy.rights.heading',
-      absaetze: [
-        'legal.privacy.rights.intro',
-        'legal.privacy.rights.delete',
-        'legal.privacy.rights.complaint',
+      bloecke: [
+        p('legal.privacy.rights.intro'),
+        p('legal.privacy.rights.delete'),
+        p('legal.privacy.rights.complaint'),
       ],
       wert: { text: ANBIETER.aufsichtsbehoerde },
     },
     {
       id: 'minderjaehrige',
       titel: 'legal.privacy.minors.heading',
-      absaetze: [],
+      bloecke: [],
       wert: { text: ANBIETER.mindestalter },
     },
     {
       id: 'aenderungen',
       titel: 'legal.privacy.changes.heading',
-      absaetze: ['legal.privacy.changes.text'],
+      bloecke: [p('legal.privacy.changes.text')],
     },
   ];
 </script>
@@ -157,23 +170,19 @@
   {#each ABSCHNITTE as a (a.id)}
     <section id={a.id}>
       <h2>{t[a.titel]}</h2>
-      {#each a.absaetze as k (k)}
-        <p>{t[k]}</p>
+      {#each a.bloecke as b}
+        {#if 'absatz' in b}
+          <p>{t[b.absatz]}</p>
+        {:else}
+          <ul>
+            {#each b.liste as k (k)}
+              <li>{t[k]}</li>
+            {/each}
+          </ul>
+        {/if}
       {/each}
-      {#if a.liste}
-        <ul>
-          {#each a.liste as k (k)}
-            <li>{t[k]}</li>
-          {/each}
-        </ul>
-      {/if}
-      {#if a.schluss}
-        {#each a.schluss as k (k)}
-          <p>{t[k]}</p>
-        {/each}
-      {/if}
       {#if a.wert}
-        <p class="zeilen">{#if a.wert.vorspann}<b>{t[a.wert.vorspann]}</b>{' '}{/if}{a.wert.text}</p>
+        <p class="zeilen">{#if a.wert.vorspann}<b>{t[a.wert.vorspann]}</b> {/if}{a.wert.text}</p>
       {/if}
     </section>
   {/each}
@@ -186,9 +195,6 @@
 <style>
   .rechtstext {
     max-width: 46rem;
-    /* Lange Wörter („Verbraucherstreitbeilegung“) dürfen umbrechen statt zu scrollen. */
-    overflow-wrap: anywhere;
-    hyphens: auto;
   }
   .rechtstext section {
     margin-top: 2rem;

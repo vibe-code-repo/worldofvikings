@@ -758,7 +758,7 @@ export const de = {
   'legal.privacy.logs.2':
     'Zweck ist der sichere und stabile Betrieb, das Erkennen von Angriffen und die Fehlersuche. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse am sicheren Betrieb).',
   'legal.privacy.logs.3':
-    'Speicherdauer: Der vorgeschaltete Verteiler (Reverse Proxy), der deine IP-Adresse sieht, rotiert seine Protokolle wöchentlich und behält vier Rotationen, die Daten sind also höchstens etwa fünf Wochen gespeichert. Der dahinterliegende Webserver sieht nur die interne Adresse des Verteilers und löscht seine Protokolle nach 14 Tagen.',
+    'Speicherdauer: Der vorgeschaltete Verteiler (Reverse Proxy), der deine IP-Adresse sieht, rotiert seine Zugriffsprotokolle wöchentlich und behält vier Rotationen (etwa fünf Wochen). Seine Fehlerprotokolle, die ebenfalls IP-Adressen enthalten können, rotiert er wöchentlich und behält zehn Rotationen (etwa elf Wochen). Der dahinterliegende Webserver sieht nur die interne Adresse des Verteilers und löscht seine Protokolle nach 14 Tagen.',
 
   'legal.privacy.account.heading': 'Konto',
   'legal.privacy.account.1':
@@ -767,6 +767,9 @@ export const de = {
     'Das Passwort speichern wir nie im Klartext, sondern nur als Hash mit Salz (Verfahren scrypt). Die E-Mail-Adresse wird gespeichert, aber nicht bestätigt; derzeit versenden wir keine E-Mails an sie. Sie ist die Kontaktangabe zu deinem Konto.',
   'legal.privacy.account.3':
     'Zweck ist die Bereitstellung des Kontos und des Spiels. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Nutzungsverhältnis). Die Daten bleiben gespeichert, bis das Konto gelöscht wird (siehe „Deine Rechte“).',
+  'legal.privacy.provision.heading': 'Pflicht zur Bereitstellung',
+  'legal.privacy.provision.text':
+    'Ein Konto gibt es nur mit Benutzername, E-Mail-Adresse und Passwort; ohne diese Angaben können wir es nicht anlegen und du kannst nicht spielen. Sie sind für das Nutzungsverhältnis erforderlich, gesetzlich vorgeschrieben sind sie nicht. Die Webseite kannst du ohne Konto lesen.',
 
   'legal.privacy.characters.heading': 'Recken (Charaktere) und Spielstand',
   'legal.privacy.characters.1':
@@ -794,15 +797,27 @@ export const de = {
 
   'legal.privacy.storage.heading': 'Speicher im Browser (kein Cookie)',
   'legal.privacy.storage.1':
-    'Die Seite und das Spiel legen Daten im lokalen Speicher deines Browsers ab. Sie bleiben auf deinem Gerät und werden nicht bei jeder Anfrage an uns gesendet:',
+    'Die Seite und das Spiel legen Daten im lokalen Speicher deines Browsers ab. Sie bleiben auf deinem Gerät und werden nicht bei jeder Anfrage an uns gesendet. Erforderlich, damit der von dir gewünschte Dienst funktioniert, sind:',
   'legal.privacy.storage.item.token':
     'Anmelde-Token und Kontoname (30 Tage gültig) sowie das gewählte Gestade',
   'legal.privacy.storage.item.ticket': 'das Ticket für den Einstieg ins Spiel',
+  'legal.privacy.storage.item.notes':
+    'kurze technische Vermerke des Spiels, etwa ein gewünschtes Ziel im Spiel oder die Abschaltung einer Grafikfunktion, die dein Gerät zu langsam macht',
   'legal.privacy.storage.item.draft':
     'der Entwurf der Charaktererstellung (Figur, Aussehen, Klasse, Recken-Name)',
-  'legal.privacy.storage.item.settings': 'Sprache, Grafikeinstellungen und der Kontrastschalter',
+  'legal.privacy.storage.item.settings':
+    'deine Sprachwahl im Spiel, Grafikeinstellungen und der Kontrastschalter',
   'legal.privacy.storage.2':
-    'Sie sind für den Betrieb der Seite und des Spiels erforderlich oder dienen einer Einstellung, die du ausdrücklich gewählt hast. Rechtsgrundlage ist § 25 Abs. 2 TDDDG in Verbindung mit Art. 6 Abs. 1 lit. b und f DSGVO. Eine Einwilligung ist dafür nicht nötig, deshalb gibt es keinen Cookie-Banner. Du kannst die Daten jederzeit in den Einstellungen deines Browsers löschen; dann musst du dich neu anmelden.',
+    'Diese Angaben sind nach § 25 Abs. 2 Nr. 2 TDDDG unbedingt erforderlich, damit wir den von dir gewünschten Dienst (Anmeldung, Spielen) erbringen können; eine Einwilligung ist dafür nicht nötig (Art. 6 Abs. 1 lit. b DSGVO).',
+  'legal.privacy.storage.optional':
+    'Erst auf deine eigene Handlung hin speichert dein Browser außerdem:',
+  'legal.privacy.storage.3':
+    'Diese Angaben dienen nur dazu, deine eigene Auswahl beim nächsten Besuch wiederzufinden; sie verlassen dein Gerät nicht. Wir ordnen sie ebenfalls als vom Nutzer ausdrücklich gewünscht ein (§ 25 Abs. 2 Nr. 2 TDDDG, Art. 6 Abs. 1 lit. f DSGVO) und setzen deshalb keinen Cookie-Banner ein. Du kannst die Daten jederzeit in den Einstellungen deines Browsers löschen; dann musst du dich neu anmelden.',
+  'legal.privacy.backups.heading': 'Sicherungen',
+  'legal.privacy.backups.1':
+    'Der Server legt regelmäßig Sicherungen an: von der Weltdatei mit den Spielständen, von der Konten-Datenbank und von der Forums-Datenbank. Sie liegen auf dem Server selbst, nicht außer Haus, und sind nur für den Administrator (root) lesbar.',
+  'legal.privacy.backups.2':
+    'Zweck ist die Wiederherstellung nach einem Ausfall oder Fehler (Art. 6 Abs. 1 lit. f DSGVO). Sicherungen werden 30 Tage aufbewahrt und danach gelöscht. Wenn wir Daten auf deinen Wunsch löschen, verschwinden sie deshalb aus den Sicherungen erst, sobald diese nach spätestens 30 Tagen verfallen.',
 
   'legal.privacy.external.heading': 'Externe Links',
   'legal.privacy.external.text':
@@ -820,7 +835,7 @@ export const de = {
      umstellt, sobald es ein Löschen im Konto gibt. Nichts sonst im Text
      hängt an ihm. */
   'legal.privacy.rights.delete':
-    'Löschung (Art. 17 DSGVO): Ein Konto lässt sich derzeit nicht selbst löschen. Schreibe uns eine E-Mail an die Adresse im Impressum; wir löschen dein Konto samt Recken und lösen deine Beiträge im Thing von deinem Namen oder entfernen sie.',
+    'Löschung (Art. 17 DSGVO): Ein Konto lässt sich derzeit nicht selbst löschen. Schreibe uns eine E-Mail an die Adresse im Impressum; wir löschen dein Konto samt Recken. Deine Beiträge im Thing bleiben dabei zunächst stehen; auf Wunsch lösen wir sie von deinem Konto und deinem Namen (als Verfasser steht dann „Gelöschter Recke“). Aus den Sicherungen verschwinden die Daten spätestens nach 30 Tagen (siehe „Sicherungen“).',
   'legal.privacy.rights.complaint':
     'Du hast außerdem das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu beschweren (Art. 77 DSGVO). Zuständig ist:',
 

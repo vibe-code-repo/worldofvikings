@@ -12,11 +12,18 @@
  *
  * Geprüft wird:
  *   1. Impressum und Datenschutz gibt es in de und en (HTTP 200, <h1>, <main>).
- *   2. Jede andere Seite enthält im HTML (ohne JavaScript) die Links auf beide.
+ *   2. JEDE gebaute Seite je Sprache enthält im HTML (ohne JavaScript) die Links
+ *      auf beide. Die Liste wird nicht von Hand geführt, sondern aus dem Bau
+ *      abgeleitet: alle vorgerenderten Dateien unter build/prerendered, alle
+ *      Adressen der /sitemap.xml und je Sprache eine nicht vorhandene Adresse
+ *      (404-Seite). Eine neue Seite kommt damit von selbst hinzu.
  *   3. Der Musterhinweis steht auf beiden Seiten GENAU DANN, wenn
- *      `src/lib/rechtliches.ts` (neben dem Bau) noch einen `[[`-Wert enthält.
- *      Um das zu beweisen, ruft man das Skript einmal gegen einen Bau mit
- *      gefüllten Testwerten auf (siehe Bericht).
+ *      `offeneFelder()` in `src/lib/rechtliches.ts` (neben dem Bau) ein Feld als
+ *      offen meldet. Dazu läuft eine Matrix über die reine Funktion: jede Form
+ *      (fehlt, leer, nur Leerraum, `[[`, `[[` nach Leerraum) je Pflichtfeld,
+ *      alles gefüllt, optionales Feld leer. Die Matrix am GEBAUTEN Bündel
+ *      erzeugt man, indem man das Skript gegen Bauten mit veränderten
+ *      Werten aufruft (siehe Bericht).
  *   4. Auf den beiden Seiten lädt nichts von einem fremden Host: kein src=, kein
  *      <link href=> mit fremder Adresse; jede https-Adresse im HTML gehört zur
  *      eigenen Domain oder zu den zwei bekannten Chip-Links der Fußzeile.
@@ -24,7 +31,8 @@
  *      default-src 'self'.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const argument = (name, vorgabe) => {
@@ -36,11 +44,8 @@ const PORT = Number(argument('--port', '5290'));
 const BASIS = `http://127.0.0.1:${PORT}`;
 const QUELLE = resolve(dirname(BUILD), 'src/lib/rechtliches.ts');
 
-/** Die Seiten, die den Link auf beide Rechtsseiten tragen müssen. */
-const ANDERE = {
-  de: ['/de', '/de/saga', '/de/ruhmeshalle', '/de/ruestkammer', '/de/thing', '/de/erstellen', '/de/konto'],
-  en: ['/en', '/en/saga', '/en/hall-of-fame', '/en/armory', '/en/thing', '/en/create', '/en/account'],
-};
+/** Nicht vorhandene Adressen: Die Fehlerseite trägt den Fuß ebenfalls. */
+const FEHLERSEITEN = { de: '/de/gibt-es-nicht', en: '/en/gibt-es-nicht' };
 const RECHT = {
   de: { impressum: '/de/impressum', datenschutz: '/de/datenschutz', hinweis: 'Muster, Angaben folgen' },
   en: { impressum: '/en/legal-notice', datenschutz: '/en/privacy', hinweis: 'Sample, details to follow' },
@@ -73,12 +78,73 @@ async function warteAufPort() {
   return false;
 }
 
+/** Alle vorgerenderten Seiten als Adresse (`de/saga.html` → `/de/saga`). */
+function vorgerenderte(ordner, praefix = '') {
+  const adressen = [];
+  for (const name of readdirSync(ordner)) {
+    const voll = resolve(ordner, name);
+    if (statSync(voll).isDirectory()) adressen.push(...vorgerenderte(voll, `${praefix}/${name}`));
+    else if (name.endsWith('.html')) adressen.push(`${praefix}/${name.slice(0, -5)}`);
+  }
+  return adressen;
+}
+
+/** Die Matrix über die reine Funktion `offeneFelder`. */
+function matrix(modul) {
+  const { offeneFelder, PFLICHTFELDER } = modul;
+  const gefuellt = Object.fromEntries(PFLICHTFELDER.map((f) => [f, `Wert ${f}`]));
+  gefuellt.ustId = 'DE123456789';
+  const formen = {
+    fehlt: (o, f) => delete o[f],
+    leer: (o, f) => (o[f] = ''),
+    leerraum: (o, f) => (o[f] = '  \t\n '),
+    platzhalter: (o, f) => (o[f] = '[[X]]'),
+    'platzhalter nach Leerraum': (o, f) => (o[f] = '  \n[[X]]'),
+    'platzhalter in Zeile 2': (o, f) => (o[f] = 'Zeile 1\n[[X]]'),
+  };
+  let zeilen = 0;
+  const vorher = fehler;
+  pruefe(offeneFelder(gefuellt).length === 0, 'Matrix: alles gefüllt → nichts offen', JSON.stringify(offeneFelder(gefuellt)));
+  for (const f of PFLICHTFELDER) {
+    for (const [form, aendere] of Object.entries(formen)) {
+      const o = { ...gefuellt };
+      aendere(o, f);
+      const offen = offeneFelder(o);
+      zeilen += 1;
+      if (!(offen.length === 1 && offen[0] === f)) {
+        pruefe(false, `Matrix: Pflichtfeld ${f} „${form}“ → als offen erkannt`, `beobachtet: ${JSON.stringify(offen)}`);
+      }
+    }
+  }
+  if (fehler === vorher) console.log(`ok     Matrix: ${zeilen} Zeilen (${PFLICHTFELDER.length} Pflichtfelder × ${Object.keys(formen).length} Formen) erkennen genau das eine offene Feld`);
+  for (const [name, wert, erwartet] of [
+    ['ustId leer', '', false],
+    ['ustId nur Leerraum', '   ', false],
+    ['ustId fehlt', undefined, false],
+    ['ustId Platzhalter', '[[UST-ID]]', true],
+  ]) {
+    const o = { ...gefuellt };
+    if (wert === undefined) delete o.ustId;
+    else o.ustId = wert;
+    const offen = offeneFelder(o).includes('ustId');
+    pruefe(offen === erwartet, `Matrix: optionales Feld: ${name} → ${erwartet ? 'offen' : 'ohne Hinweis'}`, `beobachtet: ${offen ? 'offen' : 'ok'}`);
+  }
+}
+
 async function lauf() {
-  const quelle = existsSync(QUELLE) ? readFileSync(QUELLE, 'utf8') : null;
-  // Wert-Zeilen in ANBIETER, die mit '[[ beginnen — Kommentare mit [[ zählen nicht.
-  const hatPlatzhalter = quelle === null ? true : /^\s+\w+:\s*'\[\[/m.test(quelle);
-  console.log(`Quelle ${QUELLE}: ${quelle === null ? 'FEHLT' : hatPlatzhalter ? 'Platzhalter vorhanden' : 'alle Werte gefüllt'}`);
-  pruefe(quelle !== null, 'rechtliches.ts neben dem Bau gefunden');
+  let modul = null;
+  try {
+    modul = await import(pathToFileURL(QUELLE).href);
+  } catch (e) {
+    console.log(`Quelle ${QUELLE}: nicht ladbar (${String(e).split('\n')[0]})`);
+  }
+  pruefe(modul !== null, 'rechtliches.ts neben dem Bau ladbar');
+  // Ohne Quelle gilt „Muster erwartet“, damit die Seitenprüfung trotzdem läuft.
+  const hatPlatzhalter = modul === null ? true : modul.MUSTER;
+  if (modul !== null) {
+    console.log(`Quelle ${QUELLE}: ${hatPlatzhalter ? 'offene Felder: ' + modul.OFFENE_PLATZHALTER.join(', ') : 'alle Werte gefüllt'}`);
+    matrix(modul);
+  }
 
   const seiten = {};
   for (const l of ['de', 'en']) {
@@ -98,13 +164,26 @@ async function lauf() {
     }
   }
 
+  // Alle Seiten je Sprache: vorgerendert + Sitemap (dort steht auch das
+  // serverseitig gerenderte Thing) + Fehlerseiten.
+  const sprachlos = new Set(vorgerenderte(resolve(BUILD, 'prerendered')));
+  const sitemap = await hole('/sitemap.xml');
+  pruefe(sitemap.status === 200, '/sitemap.xml liefert 200', `Status ${sitemap.status}`);
+  for (const m of sitemap.text.matchAll(/<loc>([^<]+)<\/loc>/g)) sprachlos.add(new URL(m[1]).pathname);
   for (const l of ['de', 'en']) {
-    for (const pfad of ANDERE[l]) {
+    const liste = [...sprachlos].filter((p) => p === `/${l}` || p.startsWith(`/${l}/`)).sort();
+    console.log(`Seiten ${l}: ${liste.length} (${liste.join(' ')})`);
+    pruefe(liste.length >= 10, `${l}: mindestens 10 Seiten gefunden`, `${liste.length}`);
+    for (const pfad of [...liste, FEHLERSEITEN[l]]) {
+      const fehlerseite = pfad === FEHLERSEITEN[l];
       const r = await hole(pfad);
-      pruefe(r.status === 200, `${pfad} liefert 200`, `Status ${r.status}`);
+      pruefe(fehlerseite ? r.status === 404 : r.status === 200, `${pfad} liefert ${fehlerseite ? 404 : 200}`, `Status ${r.status}`);
       const h = ohneKommentare(r.text).replace(/<script[\s\S]*?<\/script>/g, '');
       for (const k of ['impressum', 'datenschutz']) {
-        pruefe(h.includes(`href="${RECHT[l][k]}"`), `${pfad} verlinkt ${RECHT[l][k]} (im HTML, ohne JavaScript)`);
+        // Die 404-Seite kennt die Sprache nicht (bekannt, Karte W5): dort
+        // genügt der Link in irgendeiner Sprache.
+        const ziel = fehlerseite ? [RECHT.de[k], RECHT.en[k]] : [RECHT[l][k]];
+        pruefe(ziel.some((z) => h.includes(`href="${z}"`)), `${pfad} verlinkt ${ziel.join(' oder ')} (im HTML, ohne JavaScript)`);
       }
     }
   }

@@ -48,10 +48,13 @@
     </p>
   </section>
 
-  <section>
-    <h2>{t['legal.imprint.vat.heading']}</h2>
-    <p>{t['legal.label.vat']}: {ANBIETER.ustId}</p>
-  </section>
+  <!-- Die USt-ID ist optional: Ohne Wert entfällt der ganze Abschnitt. -->
+  {#if (ANBIETER.ustId ?? '').trim() !== ''}
+    <section>
+      <h2>{t['legal.imprint.vat.heading']}</h2>
+      <p>{t['legal.label.vat']}: {ANBIETER.ustId}</p>
+    </section>
+  {/if}
 
   <section>
     <h2>{t['legal.imprint.content.heading']}</h2>
@@ -72,9 +75,6 @@
 <style>
   .rechtstext {
     max-width: 46rem;
-    /* Lange Wörter („Verbraucherstreitbeilegung“) dürfen umbrechen statt zu scrollen. */
-    overflow-wrap: anywhere;
-    hyphens: auto;
   }
   .rechtstext section {
     margin-top: 2rem;

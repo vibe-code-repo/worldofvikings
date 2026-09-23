@@ -696,7 +696,7 @@ export const en: Messages = {
   'legal.privacy.logs.2':
     'The purpose is safe and stable operation, detecting attacks and troubleshooting. The legal basis is Art. 6(1)(f) GDPR (legitimate interest in secure operation).',
   'legal.privacy.logs.3':
-    'Retention: the reverse proxy in front, which sees your IP address, rotates its logs weekly and keeps four rotations, so the data is kept for about five weeks at most. The web server behind it only sees the proxy’s internal address and deletes its logs after 14 days.',
+    'Retention: the reverse proxy in front, which sees your IP address, rotates its access logs weekly and keeps four rotations (about five weeks). Its error logs, which can also contain IP addresses, are rotated weekly with ten rotations kept (about eleven weeks). The web server behind it only sees the proxy’s internal address and deletes its logs after 14 days.',
 
   'legal.privacy.account.heading': 'Account',
   'legal.privacy.account.1':
@@ -705,6 +705,9 @@ export const en: Messages = {
     'We never store the password in plain text, only as a salted hash (scrypt). The email address is stored but not verified; we currently send no emails to it. It is the contact detail for your account.',
   'legal.privacy.account.3':
     'The purpose is providing the account and the game. The legal basis is Art. 6(1)(b) GDPR (contract for use). The data is kept until the account is deleted (see “Your rights”).',
+  'legal.privacy.provision.heading': 'Obligation to provide data',
+  'legal.privacy.provision.text':
+    'An account exists only with a username, email address and password; without them we cannot create it and you cannot play. They are necessary for the terms of use, not required by law. You can read the website without an account.',
 
   'legal.privacy.characters.heading': 'Heroes (characters) and game state',
   'legal.privacy.characters.1':
@@ -732,15 +735,27 @@ export const en: Messages = {
 
   'legal.privacy.storage.heading': 'Browser storage (no cookies)',
   'legal.privacy.storage.1':
-    'The site and the game keep data in your browser’s local storage. It stays on your device and is not sent to us with every request:',
+    'The site and the game keep data in your browser’s local storage. It stays on your device and is not sent to us with every request. Required for the service you asked for to work are:',
   'legal.privacy.storage.item.token':
     'sign-in token and account name (valid 30 days) and the chosen shore',
   'legal.privacy.storage.item.ticket': 'the ticket for entering the game',
+  'legal.privacy.storage.item.notes':
+    'short technical notes of the game, such as a destination you asked for in the game or the switching off of a graphics feature that makes your device too slow',
   'legal.privacy.storage.item.draft':
     'the draft of the character creation (figure, appearance, class, hero name)',
-  'legal.privacy.storage.item.settings': 'language, graphics settings and the contrast switch',
+  'legal.privacy.storage.item.settings':
+    'your language choice in the game, graphics settings and the contrast switch',
   'legal.privacy.storage.2':
-    'They are required to run the site and the game, or hold a setting you chose yourself. The legal basis is § 25(2) TDDDG together with Art. 6(1)(b) and (f) GDPR. No consent is needed for this, which is why there is no cookie banner. You can delete the data in your browser settings at any time; you will then have to sign in again.',
+    'These are strictly necessary under § 25(2) no. 2 TDDDG for us to provide the service you asked for (signing in, playing); no consent is needed for this (Art. 6(1)(b) GDPR).',
+  'legal.privacy.storage.optional':
+    'Only after an action of your own does your browser also store:',
+  'legal.privacy.storage.3':
+    'These entries only serve to find your own choice again at the next visit; they do not leave your device. We likewise treat them as expressly requested by the user (§ 25(2) no. 2 TDDDG, Art. 6(1)(f) GDPR) and therefore use no cookie banner. You can delete the data in your browser settings at any time; you will then have to sign in again.',
+  'legal.privacy.backups.heading': 'Backups',
+  'legal.privacy.backups.1':
+    'The server makes regular backups: of the world file with the game states, of the accounts database and of the forum database. They are kept on the server itself, not off-site, and are readable only by the administrator (root).',
+  'legal.privacy.backups.2':
+    'The purpose is recovery after a failure or error (Art. 6(1)(f) GDPR). Backups are kept for 30 days and then deleted. When we delete data at your request, it therefore disappears from backups only once those expire, after 30 days at the latest.',
 
   'legal.privacy.external.heading': 'External links',
   'legal.privacy.external.text':
@@ -758,7 +773,7 @@ export const en: Messages = {
      switch once accounts can be deleted in the account page. Nothing else in
      the text depends on it. */
   'legal.privacy.rights.delete':
-    'Erasure (Art. 17 GDPR): an account cannot currently be deleted by yourself. Write us an email at the address in the legal notice; we delete your account with its heroes and detach your Thing posts from your name or remove them.',
+    'Erasure (Art. 17 GDPR): an account cannot currently be deleted by yourself. Write us an email at the address in the legal notice; we delete your account with its heroes. Your Thing posts initially stay in place; on request we detach them from your account and your name (the author then shows as “Deleted hero”). The data disappears from backups after 30 days at the latest (see “Backups”).',
   'legal.privacy.rights.complaint':
     'You also have the right to lodge a complaint with a data protection supervisory authority (Art. 77 GDPR). The competent authority is:',
 

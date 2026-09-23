@@ -4,10 +4,12 @@
  * Impressum und Datenschutzerklärung lesen ausschliesslich von hier. Wer die
  * Daten einträgt, ändert Werte in `ANBIETER`, nichts sonst.
  *
- * Ein Wert, der noch mit `[[` beginnt, ist ein Platzhalter. Solange es einen
- * gibt, ist `MUSTER` wahr: Beide Seiten zeigen oben den Hinweis „Muster,
- * Angaben folgen“ und tragen `noindex`. Sobald der letzte Platzhalter
- * ersetzt ist, verschwindet beides von selbst — es gibt keinen Schalter, den
+ * Ein Wert, der `[[` enthält, ist ein Platzhalter. Ein Pflichtfeld, das fehlt,
+ * leer ist oder nur aus Leerraum besteht, gilt ebenso als offen (Angriff 1,
+ * Befund M1: ein leerer String hebelte die alte `[[`-Prüfung aus). Solange
+ * es ein offenes Feld gibt, ist `MUSTER` wahr: Beide Seiten zeigen oben den Hinweis „Muster,
+ * Angaben folgen“ und tragen `noindex`. Sobald das letzte offene Feld
+ * gefüllt ist, verschwindet beides von selbst — es gibt keinen Schalter, den
  * man vergessen könnte.
  *
  * Hier stehen keine erfundenen Angaben: Ein Platzhalter ist ehrlicher als ein
@@ -23,7 +25,7 @@ export interface Anbieter {
   email: string;
   /** Zweiter schneller Kontaktweg (Telefon oder Kontaktformular-Adresse). */
   telefon: string;
-  /** Umsatzsteuer-Identifikationsnummer nach § 27a UStG. Gibt es keine, „keine“ eintragen — leer bleibt der Wert nicht. */
+  /** Umsatzsteuer-Identifikationsnummer nach § 27a UStG. OPTIONAL: Wer keine hat, lässt den Wert leer, dann entfällt der Abschnitt im Impressum. */
   ustId: string;
   /** Verantwortlich für Inhalte nach § 18 Abs. 2 MStV: Name und Anschrift. */
   inhaltlichVerantwortlich: string;
@@ -47,10 +49,46 @@ export const ANBIETER: Anbieter = {
   mindestalter: '[[MINDESTALTER UND REGEL FÜR MINDERJÄHRIGE]]',
 };
 
-/** Die Namen aller noch offenen Platzhalter — leer, wenn alles gefüllt ist. */
-export const OFFENE_PLATZHALTER: string[] = Object.entries(ANBIETER)
-  .filter(([, wert]) => wert.includes('[['))
-  .map(([schluessel]) => schluessel);
+/**
+ * Die Felder, ohne die weder Impressum noch Datenschutzerklärung veröffentlicht
+ * werden dürfen. `ustId` fehlt hier mit Absicht: Sie ist optional.
+ */
+export const PFLICHTFELDER: readonly (keyof Anbieter)[] = [
+  'name',
+  'anschrift',
+  'email',
+  'telefon',
+  'inhaltlichVerantwortlich',
+  'hosting',
+  'aufsichtsbehoerde',
+  'mindestalter',
+];
 
-/** Wahr, solange irgendein Wert noch ein Platzhalter ist. */
+/**
+ * Welche Felder sind noch offen? Reine Funktion, deshalb einzeln testbar.
+ *
+ * Offen ist ein Wert, der `[[` enthält (in jedem Feld, auch in optionalen),
+ * und bei einem Pflichtfeld zusätzlich ein Wert, der fehlt, kein Text ist, leer
+ * ist oder nur aus Leerraum besteht. Ein optionales Feld darf leer bleiben.
+ */
+export function offeneFelder(
+  angaben: Partial<Record<keyof Anbieter, unknown>>,
+  pflicht: readonly string[] = PFLICHTFELDER,
+): string[] {
+  const offen: string[] = [];
+  for (const schluessel of new Set([...pflicht, ...Object.keys(angaben)])) {
+    const wert = angaben[schluessel as keyof Anbieter];
+    const text = typeof wert === 'string' ? wert : null;
+    const istPflicht = pflicht.includes(schluessel);
+    const fehlt = text === null || text.trim() === '';
+    if (text?.includes('[[')) offen.push(schluessel);
+    else if (istPflicht && fehlt) offen.push(schluessel);
+  }
+  return offen;
+}
+
+/** Die Namen aller noch offenen Felder — leer, wenn alles gefüllt ist. */
+export const OFFENE_PLATZHALTER: string[] = offeneFelder(ANBIETER);
+
+/** Wahr, solange irgendein Feld offen ist. */
 export const MUSTER: boolean = OFFENE_PLATZHALTER.length > 0;

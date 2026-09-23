@@ -91,6 +91,33 @@ export const UPLOAD_DIR = resolve(
   '../../assets/hochgeladen'
 );
 
+// ── Erweiterungen, die auch nur „benutzt" nicht durchkommen ────────────
+/**
+ * U1-N3: Babylons glTF-Lader schaltet eine Erweiterung an, sobald sie in
+ * `extensionsUsed` steht (`isExtensionUsed`) — `extensionsRequired` ist für
+ * ihn nur die Liste dessen, ohne das er abbrechen müsste. Ein Modell, das
+ * eine dieser Erweiterungen bloss als „benutzt" meldet, wird im Client also
+ * TROTZDEM anders gezeichnet, als das Tor zählt:
+ *   - EXT_mesh_gpu_instancing: der Knoten wird N-fach instanziert, das Tor
+ *     zählt ein Exemplar (Dreiecksgrenze umgangen).
+ *   - KHR_draco_mesh_compression / EXT_meshopt_compression: Babylon
+ *     dekodiert die komprimierten Daten statt der Ersatz-Accessoren, die das
+ *     Tor gemessen hat.
+ *   - Lichter (KHR_lights_punctual, EXT_lights_*): das Modell fügt der Szene
+ *     Lichter hinzu und verändert die Beleuchtung der ganzen Welt.
+ * Reine Material-Erweiterungen (KHR_materials_*, KHR_texture_transform, …)
+ * ändern nur das Aussehen des Modells selbst und bleiben erlaubt.
+ */
+const ERWEITERUNGEN_NUR_BENUTZT_ABGELEHNT: readonly string[] = [
+  'EXT_mesh_gpu_instancing',
+  'KHR_draco_mesh_compression',
+  'EXT_meshopt_compression',
+  'KHR_lights_punctual',
+  'EXT_lights_area',
+  'EXT_lights_ies',
+  'EXT_lights_image_based',
+];
+
 // ── Registry-Datei ────────────────────────────────────────────────────
 /** Wie `moduleRegistry`s Registry: über eine Nebendatei und `rename` — atomar. */
 function schreibeRegistry(verzeichnis: string, modelle: readonly UploadedModelEntry[]): void {
@@ -234,6 +261,12 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
   if (erweiterungen.length > 0) {
     return nein(
       `Das Modell verlangt Erweiterungen, die dieses Tor nicht prüfen kann: ${erweiterungen.join(', ')}.`
+    );
+  }
+  const nurBenutzt = ((roh.json as { extensionsUsed?: string[] }).extensionsUsed ?? []).filter((e) => ERWEITERUNGEN_NUR_BENUTZT_ABGELEHNT.includes(e));
+  if (nurBenutzt.length > 0) {
+    return nein(
+      `Das Modell benutzt Erweiterungen, die den Client anders zeichnen lassen, als dieses Tor zählt: ${nurBenutzt.join(', ')}.`
     );
   }
   // Nur der eingebettete BIN-Chunk ist erlaubt — ein `uri` an einem Puffer
@@ -519,7 +552,15 @@ export function entferneUpload(kontext: EntfernenKontext, name: string, bestaeti
   if (!NAME_MUSTER.test(name)) {
     return { ok: false, meldung: `Ungültiger Name — erwartet wird das Muster ${NAME_MUSTER}.` };
   }
-  const stand = leseRegistry(kontext.verzeichnis);
+  let stand: RegistryDatei;
+  try {
+    stand = leseRegistry(kontext.verzeichnis);
+  } catch (e) {
+    // U1-N3: auch der Lese-Weg gibt keine rohe `message` an den Browser
+    // (kaputtes JSON: ein Ausschnitt des Dateiinhalts; fs-Fehler: Pfad).
+    console.error(`[ModellUpload] Registry unlesbar (${kontext.verzeichnis}): ${(e as Error).message}`);
+    return { ok: false, meldung: 'Die Registry ist nicht lesbar (Einzelheiten im Server-Log).' };
+  }
   const eintrag = stand.modelle.find((m) => m.name === name);
   if (!eintrag) {
     return { ok: false, meldung: `Die Registry kennt '${name}' nicht — es gibt nichts zu entfernen.` };
@@ -531,12 +572,17 @@ export function entferneUpload(kontext: EntfernenKontext, name: string, bestaeti
   }
 
   const pfad = join(kontext.verzeichnis, `${name}.glb`);
+  // U1-N3: Wohin die Datei geschoben wurde, damit ein gescheitertes
+  // Schreiben der Registry sie zurückholen kann (kein Eintrag ohne Datei).
+  let beiseiteZiel: string | null = null;
   if (existsSync(pfad)) {
     const beiseiteOrdner = join(kontext.verzeichnis, 'entfernt');
     try {
       mkdirSync(beiseiteOrdner, { recursive: true });
       const zeitstempel = new Date().toISOString().replace(/[:.]/g, '-');
-      renameSync(pfad, join(beiseiteOrdner, `${name}.${zeitstempel}.glb`));
+      const ziel = join(beiseiteOrdner, `${name}.${zeitstempel}.glb`);
+      renameSync(pfad, ziel);
+      beiseiteZiel = ziel;
     } catch (e) {
       // N2 (Nachangriff, Befund N-4, dieselbe Klasse wie beim Hochladen):
       // die `message` eines fs-Fehlers traegt den vollen Pfad — nur ins Log.
@@ -546,7 +592,28 @@ export function entferneUpload(kontext: EntfernenKontext, name: string, bestaeti
   }
 
   const verbleibend = stand.modelle.filter((m) => m.name !== name);
-  schreibeRegistry(kontext.verzeichnis, verbleibend);
+  try {
+    schreibeRegistry(kontext.verzeichnis, verbleibend);
+  } catch (e) {
+    // U1-N3: Die Datei ist schon beiseite, die Registry aber unverändert —
+    // ohne Rückschieben stünde ein Eintrag ohne Datei da (der Katalog
+    // böte ein Modell an, dessen Laden 404 gibt). Zurückschieben, dann
+    // ist alles wie vor dem Aufruf; der Pfad steht nur im Log.
+    console.error(
+      `[ModellUpload] Registry nicht schreibbar (${kontext.verzeichnis}), Entfernen zurückgerollt: ${(e as Error).message}`
+    );
+    if (beiseiteZiel !== null) {
+      try {
+        renameSync(beiseiteZiel, pfad);
+      } catch (e2) {
+        console.error(`[ModellUpload] Zurückschieben von '${beiseiteZiel}' fehlgeschlagen: ${(e2 as Error).message}`);
+      }
+    }
+    return {
+      ok: false,
+      meldung: 'Die Registry konnte nicht geschrieben werden, nichts wurde entfernt (Einzelheiten im Server-Log).',
+    };
+  }
 
   // Ein `false` ist hier kein Fehler: Es kann ein Server sein, der diesen
   // Eintrag beim Start bereits abgelehnt hatte (kaputte Zeile) und ihn

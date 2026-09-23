@@ -638,4 +638,132 @@ export const en: Messages = {
   'account.page.delete.no': 'Never mind',
   'account.page.delete.already_gone': 'That hero was already deleted.',
   'account.page.play.loading': 'Fetching a ticket …',
+
+  /* ── legal.* — legal notice and privacy policy (card W1) ─────────────
+     One contiguous block at the end of the file. The German version is
+     authoritative; this one is a translation. The provider's details do
+     NOT live here but in `$lib/rechtliches.ts`. */
+  'legal.nav.label': 'Legal',
+  'legal.nav.imprint': 'Legal notice',
+  'legal.nav.privacy': 'Privacy',
+  'legal.sample.title': 'Sample, details to follow',
+  'legal.sample.text':
+    'This page is a sample. Some details about the provider are still missing and are marked [[…]]. It is not complete yet.',
+  'legal.language_note':
+    'The German version is authoritative. The English version is a translation.',
+  'legal.label.name': 'Name',
+  'legal.label.address': 'Address',
+  'legal.label.email': 'Email',
+  'legal.label.phone': 'Phone',
+  'legal.label.vat': 'VAT identification number',
+  'legal.toc': 'Contents',
+
+  'legal.imprint.meta.title': 'Legal notice',
+  'legal.imprint.meta.description': 'Provider information for World of Vikings.',
+  'legal.imprint.heading': 'Legal notice',
+  'legal.imprint.provider.heading': 'Information under § 5 DDG',
+  'legal.imprint.contact.heading': 'Contact',
+  'legal.imprint.contact.text': 'Email is the quickest way to reach us. Phone is the second.',
+  'legal.imprint.vat.heading': 'VAT',
+  'legal.imprint.content.heading': 'Responsible for content under § 18 (2) MStV',
+  'legal.imprint.dispute.heading': 'Consumer dispute resolution',
+  'legal.imprint.dispute.text':
+    'We do not take part in dispute resolution proceedings before a consumer arbitration board and are not obliged to.',
+
+  'legal.privacy.meta.title': 'Privacy policy',
+  'legal.privacy.meta.description':
+    'Which data World of Vikings processes, why, for how long, and what rights you have.',
+  'legal.privacy.heading': 'Privacy policy',
+  'legal.privacy.stand': 'As of: 23 September 2026',
+  'legal.privacy.intro':
+    'This page states which personal data World of Vikings processes, why, on what legal basis and for how long. It describes what the site and the game server actually do.',
+
+  'legal.privacy.controller.heading': 'Controller',
+  'legal.privacy.controller.text':
+    'The controller within the meaning of the GDPR is the provider named in the legal notice:',
+
+  'legal.privacy.summary.heading': 'The short version',
+  'legal.privacy.summary.1': 'We do not set cookies.',
+  'legal.privacy.summary.2': 'There is no analytics, no advertising and no ad network.',
+  'legal.privacy.summary.3':
+    'Fonts, images and scripts come from our own server. No third-party services are loaded when you open the site.',
+  'legal.privacy.summary.4':
+    'We do not pass data on to third parties, except to the hosting provider that runs the server.',
+
+  'legal.privacy.logs.heading': 'Visiting the website and server logs',
+  'legal.privacy.logs.1':
+    'When you open a page, the server processes technically necessary data: your IP address, date and time, the address requested, the response status, the amount of data transferred and your browser identification. They appear in the web servers’ logs.',
+  'legal.privacy.logs.2':
+    'The purpose is safe and stable operation, detecting attacks and troubleshooting. The legal basis is Art. 6(1)(f) GDPR (legitimate interest in secure operation).',
+  'legal.privacy.logs.3':
+    'Retention: the reverse proxy in front, which sees your IP address, rotates its logs weekly and keeps four rotations, so the data is kept for about five weeks at most. The web server behind it only sees the proxy’s internal address and deletes its logs after 14 days.',
+
+  'legal.privacy.account.heading': 'Account',
+  'legal.privacy.account.1':
+    'When you create an account we store your username, your email address, your password and the time of creation. If you pick an avatar in your account, we also store which of your heroes represents you in the Thing.',
+  'legal.privacy.account.2':
+    'We never store the password in plain text, only as a salted hash (scrypt). The email address is stored but not verified; we currently send no emails to it. It is the contact detail for your account.',
+  'legal.privacy.account.3':
+    'The purpose is providing the account and the game. The legal basis is Art. 6(1)(b) GDPR (contract for use). The data is kept until the account is deleted (see “Your rights”).',
+
+  'legal.privacy.characters.heading': 'Heroes (characters) and game state',
+  'legal.privacy.characters.1':
+    'For each hero we store the name, appearance, class, equipment, the time of creation and of the last play, and your character’s game state in the server’s world file. A hero’s name is visible to other players.',
+  'legal.privacy.characters.2':
+    'The purpose is the game itself; the legal basis is Art. 6(1)(b) GDPR. You can delete heroes in your account at any time. Otherwise they are kept as long as the account.',
+
+  'legal.privacy.login.heading': 'Signing in and abuse protection',
+  'legal.privacy.login.1':
+    'After you sign in, your browser receives a signed sign-in token that is valid for 30 days. It lives in your browser’s storage, not in a cookie (see “Browser storage”).',
+  'legal.privacy.login.2':
+    'To stop password guessing and mass account creation, the server counts failed sign-ins and registrations per IP address: after five failed attempts in 15 minutes sign-in pauses, after five registrations in an hour registration pauses. These counters exist only in memory, are never written to disk and disappear at the latest when the window ends or on restart. The legal basis is Art. 6(1)(f) GDPR.',
+
+  'legal.privacy.game.heading': 'Game connection, chat and bans',
+  'legal.privacy.game.1':
+    'The game connects to the game server over a WebSocket. Your IP address is technically necessary for that. The game server’s operating log records, among other things, the connection with the IP address, the sign-in with the hero name and chat messages with the sender’s name. This log is rotated by size; there is currently no fixed deletion period.',
+  'legal.privacy.game.2':
+    'For rule violations we may ban an account, a player identifier or an IP address. A banned IP address is stored, together with the reason and time, until the ban expires or is lifted. The legal basis is Art. 6(1)(f) GDPR (protecting the player community).',
+
+  'legal.privacy.forum.heading': 'The Thing (forum)',
+  'legal.privacy.forum.1':
+    'What you write in the Thing is publicly visible: title, text, your hero or account name as author and the time. We also store reactions, thread subscriptions and notifications, each with your account identifier, and reports by other users (reporter and reason).',
+  'legal.privacy.forum.2':
+    'A post you delete is no longer shown. For traceability its content is initially kept internally. The legal basis is Art. 6(1)(b) GDPR (using the forum) and (f) (moderation).',
+
+  'legal.privacy.storage.heading': 'Browser storage (no cookies)',
+  'legal.privacy.storage.1':
+    'The site and the game keep data in your browser’s local storage. It stays on your device and is not sent to us with every request:',
+  'legal.privacy.storage.item.token':
+    'sign-in token and account name (valid 30 days) and the chosen shore',
+  'legal.privacy.storage.item.ticket': 'the ticket for entering the game',
+  'legal.privacy.storage.item.draft':
+    'the draft of the character creation (figure, appearance, class, hero name)',
+  'legal.privacy.storage.item.settings': 'language, graphics settings and the contrast switch',
+  'legal.privacy.storage.2':
+    'They are required to run the site and the game, or hold a setting you chose yourself. The legal basis is § 25(2) TDDDG together with Art. 6(1)(b) and (f) GDPR. No consent is needed for this, which is why there is no cookie banner. You can delete the data in your browser settings at any time; you will then have to sign in again.',
+
+  'legal.privacy.external.heading': 'External links',
+  'legal.privacy.external.text':
+    'The site links to Discord and to the source code on GitHub. Only when you click one of these links do you leave our site and data flows to that provider. Its privacy policy applies.',
+
+  'legal.privacy.recipients.heading': 'Recipients and hosting',
+  'legal.privacy.recipients.text':
+    'The server runs at a hosting provider that works for us as a processor under Art. 28 GDPR. There are no other recipients. We do not sell data and do not pass it on for advertising.',
+  'legal.privacy.recipients.hosting': 'Hosting:',
+
+  'legal.privacy.rights.heading': 'Your rights',
+  'legal.privacy.rights.intro':
+    'You have the right to access (Art. 15 GDPR), rectification (Art. 16), restriction of processing (Art. 18), data portability (Art. 20) and to object to processing based on legitimate interest (Art. 21). To use them, write to the email address in the legal notice.',
+  /* Deletion: this one paragraph is where account management (W3) makes the
+     switch once accounts can be deleted in the account page. Nothing else in
+     the text depends on it. */
+  'legal.privacy.rights.delete':
+    'Erasure (Art. 17 GDPR): an account cannot currently be deleted by yourself. Write us an email at the address in the legal notice; we delete your account with its heroes and detach your Thing posts from your name or remove them.',
+  'legal.privacy.rights.complaint':
+    'You also have the right to lodge a complaint with a data protection supervisory authority (Art. 77 GDPR). The competent authority is:',
+
+  'legal.privacy.minors.heading': 'Minors',
+  'legal.privacy.changes.heading': 'Changes',
+  'legal.privacy.changes.text':
+    'If the game or the processing changes, we adapt this policy. The version published here applies.',
 };

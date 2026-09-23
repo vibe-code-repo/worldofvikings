@@ -698,4 +698,134 @@ export const de = {
   'account.page.delete.no': 'Doch nicht',
   'account.page.delete.already_gone': 'Dieser Recke war schon gelöscht.',
   'account.page.play.loading': 'Ticket wird geholt …',
+
+  /* ── legal.* — Impressum und Datenschutzerklärung (Karte W1) ─────────
+     Ein zusammenhängender Block am Dateiende. Deutsch ist die maßgebliche
+     Fassung; die englische ist eine Übersetzung. Die Angaben zum Anbieter
+     stehen NICHT hier, sondern in `$lib/rechtliches.ts`. */
+  'legal.nav.label': 'Rechtliches',
+  'legal.nav.imprint': 'Impressum',
+  'legal.nav.privacy': 'Datenschutz',
+  'legal.sample.title': 'Muster, Angaben folgen',
+  'legal.sample.text':
+    'Diese Seite ist ein Muster. Einige Angaben zum Anbieter fehlen noch und sind mit [[…]] markiert. Sie ist noch nicht vollständig.',
+  'legal.language_note':
+    'Maßgeblich ist die deutsche Fassung. Die englische Fassung ist eine Übersetzung.',
+  'legal.label.name': 'Name',
+  'legal.label.address': 'Anschrift',
+  'legal.label.email': 'E-Mail',
+  'legal.label.phone': 'Telefon',
+  'legal.label.vat': 'Umsatzsteuer-Identifikationsnummer',
+  'legal.toc': 'Inhalt',
+
+  'legal.imprint.meta.title': 'Impressum',
+  'legal.imprint.meta.description': 'Anbieterkennzeichnung von World of Vikings.',
+  'legal.imprint.heading': 'Impressum',
+  'legal.imprint.provider.heading': 'Angaben nach § 5 DDG',
+  'legal.imprint.contact.heading': 'Kontakt',
+  'legal.imprint.contact.text':
+    'Am schnellsten erreichst du uns per E-Mail. Als zweiten Weg gibt es das Telefon.',
+  'legal.imprint.vat.heading': 'Umsatzsteuer',
+  'legal.imprint.content.heading': 'Verantwortlich für Inhalte nach § 18 Abs. 2 MStV',
+  'legal.imprint.dispute.heading': 'Verbraucherstreitbeilegung',
+  'legal.imprint.dispute.text':
+    'Wir nehmen an keinem Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teil und sind dazu nicht verpflichtet.',
+
+  'legal.privacy.meta.title': 'Datenschutzerklärung',
+  'legal.privacy.meta.description':
+    'Welche Daten World of Vikings verarbeitet, wozu, wie lange, und welche Rechte du hast.',
+  'legal.privacy.heading': 'Datenschutzerklärung',
+  'legal.privacy.stand': 'Stand: 23. September 2026',
+  'legal.privacy.intro':
+    'Hier steht, welche personenbezogenen Daten World of Vikings verarbeitet, wozu, auf welcher Grundlage und wie lange. Die Angaben beschreiben, was die Seite und der Spielserver tatsächlich tun.',
+
+  'legal.privacy.controller.heading': 'Verantwortlicher',
+  'legal.privacy.controller.text':
+    'Verantwortlich im Sinne der DSGVO ist der Anbieter, der im Impressum genannt ist:',
+
+  'legal.privacy.summary.heading': 'Das Wichtigste vorab',
+  'legal.privacy.summary.1': 'Wir setzen keine Cookies.',
+  'legal.privacy.summary.2':
+    'Es gibt keine Reichweitenmessung, keine Werbung und keine Werbenetzwerke.',
+  'legal.privacy.summary.3':
+    'Schriften, Bilder und Skripte kommen von unserem eigenen Server. Beim Aufruf der Seite werden keine fremden Dienste geladen.',
+  'legal.privacy.summary.4':
+    'Wir geben keine Daten an Dritte weiter, außer an den Hosting-Dienstleister, der den Server betreibt.',
+
+  'legal.privacy.logs.heading': 'Besuch der Webseite und Server-Protokolle',
+  'legal.privacy.logs.1':
+    'Beim Aufruf einer Seite verarbeitet der Server technisch notwendige Daten: deine IP-Adresse, Datum und Uhrzeit, die aufgerufene Adresse, den Antwortstatus, die übertragene Datenmenge und die Kennung deines Browsers. Sie stehen in den Protokollen der Webserver.',
+  'legal.privacy.logs.2':
+    'Zweck ist der sichere und stabile Betrieb, das Erkennen von Angriffen und die Fehlersuche. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse am sicheren Betrieb).',
+  'legal.privacy.logs.3':
+    'Speicherdauer: Der vorgeschaltete Verteiler (Reverse Proxy), der deine IP-Adresse sieht, rotiert seine Protokolle wöchentlich und behält vier Rotationen, die Daten sind also höchstens etwa fünf Wochen gespeichert. Der dahinterliegende Webserver sieht nur die interne Adresse des Verteilers und löscht seine Protokolle nach 14 Tagen.',
+
+  'legal.privacy.account.heading': 'Konto',
+  'legal.privacy.account.1':
+    'Wenn du ein Konto anlegst, speichern wir deinen Benutzernamen, deine E-Mail-Adresse, dein Passwort und den Zeitpunkt der Anlage. Wenn du im Konto einen Avatar wählst, speichern wir auch, welcher deiner Recken dich im Thing vertritt.',
+  'legal.privacy.account.2':
+    'Das Passwort speichern wir nie im Klartext, sondern nur als Hash mit Salz (Verfahren scrypt). Die E-Mail-Adresse wird gespeichert, aber nicht bestätigt; derzeit versenden wir keine E-Mails an sie. Sie ist die Kontaktangabe zu deinem Konto.',
+  'legal.privacy.account.3':
+    'Zweck ist die Bereitstellung des Kontos und des Spiels. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Nutzungsverhältnis). Die Daten bleiben gespeichert, bis das Konto gelöscht wird (siehe „Deine Rechte“).',
+
+  'legal.privacy.characters.heading': 'Recken (Charaktere) und Spielstand',
+  'legal.privacy.characters.1':
+    'Zu jedem Recken speichern wir Name, Aussehen, Klasse, Ausrüstung, den Zeitpunkt der Erschaffung und des letzten Spiels sowie den Spielstand deiner Figur in der Weltdatei des Servers. Der Name eines Recken ist für andere Spieler sichtbar.',
+  'legal.privacy.characters.2':
+    'Zweck ist das Spiel selbst; Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO. Du kannst Recken jederzeit im Konto löschen. Sonst bleiben sie so lange gespeichert wie das Konto.',
+
+  'legal.privacy.login.heading': 'Anmeldung und Schutz vor Missbrauch',
+  'legal.privacy.login.1':
+    'Nach der Anmeldung erhält dein Browser ein signiertes Anmelde-Token, das 30 Tage gültig ist. Es liegt im Speicher deines Browsers, nicht in einem Cookie (siehe „Speicher im Browser“).',
+  'legal.privacy.login.2':
+    'Gegen das Erraten von Passwörtern und das massenhafte Anlegen von Konten zählt der Server Fehlversuche und Registrierungen je IP-Adresse: nach fünf Fehlversuchen in 15 Minuten pausiert die Anmeldung, nach fünf Registrierungen in einer Stunde die Registrierung. Diese Zähler liegen nur im Arbeitsspeicher, werden nie dauerhaft geschrieben und verschwinden spätestens nach dem Fenster oder beim Neustart. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO.',
+
+  'legal.privacy.game.heading': 'Spielverbindung, Chat und Sperren',
+  'legal.privacy.game.1':
+    'Das Spiel verbindet sich über eine WebSocket-Verbindung mit dem Spielserver. Dafür ist deine IP-Adresse technisch nötig. Der Spielserver schreibt in sein Betriebsprotokoll unter anderem den Verbindungsaufbau samt IP-Adresse, die Anmeldung mit Recken-Namen und die Nachrichten des Chats mit dem Namen des Absenders. Dieses Protokoll wird nach Größe rotiert; eine feste Löschfrist gibt es derzeit nicht.',
+  'legal.privacy.game.2':
+    'Bei Verstößen gegen die Regeln können wir ein Konto, eine Spielerkennung oder eine IP-Adresse sperren. Eine gesperrte IP-Adresse wird gespeichert, bis die Sperre abläuft oder aufgehoben wird, samt Grund und Zeitpunkt. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (Schutz der Spielgemeinschaft).',
+
+  'legal.privacy.forum.heading': 'Das Thing (Forum)',
+  'legal.privacy.forum.1':
+    'Was du im Thing schreibst, ist öffentlich sichtbar: Titel, Text, dein Recken- oder Kontoname als Verfasser und der Zeitpunkt. Dazu speichern wir Reaktionen, Abonnements von Themen und Benachrichtigungen, jeweils mit deiner Konto-Kennung, sowie Meldungen anderer Nutzer (Melder und Begründung).',
+  'legal.privacy.forum.2':
+    'Ein Beitrag, den du löschst, wird nicht mehr angezeigt. Aus Gründen der Nachvollziehbarkeit bleibt sein Inhalt intern zunächst gespeichert. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Nutzung des Forums) und lit. f (Moderation).',
+
+  'legal.privacy.storage.heading': 'Speicher im Browser (kein Cookie)',
+  'legal.privacy.storage.1':
+    'Die Seite und das Spiel legen Daten im lokalen Speicher deines Browsers ab. Sie bleiben auf deinem Gerät und werden nicht bei jeder Anfrage an uns gesendet:',
+  'legal.privacy.storage.item.token':
+    'Anmelde-Token und Kontoname (30 Tage gültig) sowie das gewählte Gestade',
+  'legal.privacy.storage.item.ticket': 'das Ticket für den Einstieg ins Spiel',
+  'legal.privacy.storage.item.draft':
+    'der Entwurf der Charaktererstellung (Figur, Aussehen, Klasse, Recken-Name)',
+  'legal.privacy.storage.item.settings': 'Sprache, Grafikeinstellungen und der Kontrastschalter',
+  'legal.privacy.storage.2':
+    'Sie sind für den Betrieb der Seite und des Spiels erforderlich oder dienen einer Einstellung, die du ausdrücklich gewählt hast. Rechtsgrundlage ist § 25 Abs. 2 TDDDG in Verbindung mit Art. 6 Abs. 1 lit. b und f DSGVO. Eine Einwilligung ist dafür nicht nötig, deshalb gibt es keinen Cookie-Banner. Du kannst die Daten jederzeit in den Einstellungen deines Browsers löschen; dann musst du dich neu anmelden.',
+
+  'legal.privacy.external.heading': 'Externe Links',
+  'legal.privacy.external.text':
+    'Die Seite verlinkt auf Discord und auf den Quellcode auf GitHub. Erst wenn du einen dieser Links anklickst, verlässt du unsere Seite und die Daten fließen an den jeweiligen Anbieter. Es gilt dessen Datenschutzerklärung.',
+
+  'legal.privacy.recipients.heading': 'Empfänger und Hosting',
+  'legal.privacy.recipients.text':
+    'Der Server wird bei einem Hosting-Dienstleister betrieben, der als Auftragsverarbeiter nach Art. 28 DSGVO für uns arbeitet. Weitere Empfänger gibt es nicht. Wir verkaufen keine Daten und geben sie nicht zu Werbezwecken weiter.',
+  'legal.privacy.recipients.hosting': 'Hosting:',
+
+  'legal.privacy.rights.heading': 'Deine Rechte',
+  'legal.privacy.rights.intro':
+    'Du hast gegenüber uns das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch gegen Verarbeitungen aus berechtigtem Interesse (Art. 21). Wende dich dafür an die E-Mail-Adresse im Impressum.',
+  /* Löschung: Dieser eine Absatz ist der Ort, den die Kontoverwaltung (W3)
+     umstellt, sobald es ein Löschen im Konto gibt. Nichts sonst im Text
+     hängt an ihm. */
+  'legal.privacy.rights.delete':
+    'Löschung (Art. 17 DSGVO): Ein Konto lässt sich derzeit nicht selbst löschen. Schreibe uns eine E-Mail an die Adresse im Impressum; wir löschen dein Konto samt Recken und lösen deine Beiträge im Thing von deinem Namen oder entfernen sie.',
+  'legal.privacy.rights.complaint':
+    'Du hast außerdem das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu beschweren (Art. 77 DSGVO). Zuständig ist:',
+
+  'legal.privacy.minors.heading': 'Minderjährige',
+  'legal.privacy.changes.heading': 'Änderungen',
+  'legal.privacy.changes.text':
+    'Ändert sich das Spiel oder die Verarbeitung, passen wir diese Erklärung an. Es gilt die jeweils hier veröffentlichte Fassung.',
 } as const;

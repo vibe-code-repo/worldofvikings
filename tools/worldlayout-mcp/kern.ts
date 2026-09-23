@@ -152,6 +152,10 @@ export async function adminAnfrage(
 export const meldungVon = (daten: Record<string, unknown>): string =>
   String(daten.message ?? daten.fehler ?? 'keine Meldung');
 
+/** Das Dokument beim ersten Lesen dieses Prozesses — Basis für world_diff („seit Sitzungsbeginn“). */
+let ersterStand: WorldLayout | undefined;
+export const sitzungsBasis = (): WorldLayout | undefined => ersterStand;
+
 /** Dokument UND Hash, aus einer einzigen Antwort — der Hash ist die Basis für das spätere Schreiben. */
 export async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
   const { status, daten } = await adminAnfrage('GET');
@@ -161,6 +165,7 @@ export async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
   if (!layout || typeof daten.hash !== 'string') {
     throw new Error('Betriebsdienst lieferte kein gültiges Weltdokument mit Hash');
   }
+  ersterStand ??= layout;
   return { layout, hash: daten.hash };
 }
 

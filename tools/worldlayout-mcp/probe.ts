@@ -196,6 +196,21 @@ try {
   check('layout_probe: Startpunkt ist Land', /\(0, 0\): Höhe \d/.test(probe), probe.split('\n')[0]);
   check('layout_probe: weit draußen ist offene See', /offene See/.test(probe), probe.split('\n')[1] ?? '');
 
+  // Prüf-Werkzeuge (world_check, world_diff, area_describe): nur lesen.
+  for (const erwartet of ['world_check', 'world_diff', 'area_describe']) {
+    check(`Tool ${erwartet} vorhanden`, tools.includes(erwartet), `gefunden: ${tools.join(', ')}`);
+  }
+  const wc = await c.callTool({ name: 'world_check', arguments: { bereich: { x: 0, z: 0, radius: 50 } } });
+  check('world_check: leere Welt ist grün, mit Zeit und Zähler', !istFehler(wc) && /^world_check: GRÜN \(0 rot, 0 gelb\) in \d+ ms, 0 Objekte/.test(text(wc)), text(wc).slice(0, 120));
+  const wcGross = await c.callTool({ name: 'world_check', arguments: { bereich: { x: 0, z: 0, radius: 600 } } });
+  check('world_check: zu großer Bereich wird abgelehnt', istFehler(wcGross) && /zu groß/.test(text(wcGross)), text(wcGross));
+  const ad = await c.callTool({ name: 'area_describe', arguments: { x: 0, z: 0, radius: 20 } });
+  check('area_describe: Höhe und Region der Testwelt', !istFehler(ad) && /Höhe -?\d/.test(text(ad)) && /Region kern/.test(text(ad)), text(ad).slice(0, 160));
+  const adGross = await c.callTool({ name: 'area_describe', arguments: { x: 0, z: 0, radius: 257 } });
+  check('area_describe: Radius 257 wird abgelehnt', istFehler(adGross), text(adGross));
+  const wd0 = await c.callTool({ name: 'world_diff', arguments: {} });
+  check('world_diff: nach dem Lesen noch keine Änderung', !istFehler(wd0) && /Keine Änderungen/.test(text(wd0)), text(wd0).slice(0, 120));
+
   // Ohne Startpunkt meldet layout_pruefen genau das — dieselbe Prüfung wie
   // im Editor seit B1, hier zum ersten Mal über MCP erreichbar.
   const befundeVorSpawn = text(await c.callTool({ name: 'layout_pruefen', arguments: {} }));
@@ -315,6 +330,8 @@ try {
     })
   );
   check('placement_set: 1 Platzierung in der Zusammenfassung', /1 Platzierung\(en\)/.test(mitPlatzierung));
+  const wd1 = await c.callTool({ name: 'world_diff', arguments: {} });
+  check('world_diff: nach placement_set zählt +1 Objekt (Sitzungsbasis)', !istFehler(wd1) && /\+1 Objekt\b/.test(text(wd1)), text(wd1).slice(0, 160));
   // Eine NEUE Platzierung bekommt seit K1.3 (A-10) die abgeleitete id PLUS einen Zufallsschwanz mit Buchstabe, damit
   // "gelöscht und gleichartig neu gesetzt" nie dieselbe id ergibt (der Spielserver hielte es für dasselbe Objekt).
   const NEUE_ID = /id (beech1_12_34-[a-z][0-9a-z]{3}), neu angelegt/;

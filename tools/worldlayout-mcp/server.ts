@@ -571,7 +571,8 @@ mcp.tool(
 // (ESM wertet statische Importe vor dem Rumpf aus; die Reihenfolge ist fest.)
 import './werkzeuge/vorgaenge.js'; // ops_apply, undo_last, world_diff
 import './werkzeuge/katalog.js'; // catalog_search, uploads_list, style_guide
-import './werkzeuge/sehen.js'; // world_check, area_describe, map_render
+import './werkzeuge/sehen.js'; // map_render
+import './werkzeuge/pruefen.js'; // world_check, world_diff, area_describe
 
 const transport = new StdioServerTransport();
 await mcp.connect(transport);

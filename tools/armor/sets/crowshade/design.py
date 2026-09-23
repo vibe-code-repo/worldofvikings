@@ -14,9 +14,11 @@ Hips. Below the belt the front coat tails follow the thighs fully, the side and 
 share between hips and thighs, so a crouch neither drives the thighs through the rear tails
 nor pushes the tails through the floor; the rear tails end at the knee.
 
-Feathers are single flat blades with a folded spine and a ragged edge (drawn from both
-sides), not volumes. design(ctx) adds the geometry to ctx.pieces[<region>], records the
-socket-bound parts in ctx.wing_binding_report and the triangle budget in ctx.budget.
+Feathers are single flat vanes with a thin quill and an edge cut into barbs (drawn from both
+sides), not volumes. The claws grow out of leather caps over the finger ends, seated on each
+body's own hand; their gap to the fingers and the bandolier's ends are recorded as witnesses.
+design(ctx) adds the geometry to ctx.pieces[<region>], records the socket-bound parts in
+ctx.wing_binding_report and the triangle budget in ctx.budget.
 after_export(ctx) adds a side view (and front/back in a quick run) and the witnesses:
 triangles per item, materials used, no emissive material.
 """
@@ -36,7 +38,7 @@ def design(ctx):
     mesh, leaf, branch, sleeve = ctx.mesh, ctx.leaf, ctx.branch, ctx.sleeve
     binding_surface, attach_to_surface = ctx.binding_surface, ctx.attach_to_surface
     fit = .92 if VARIANT == 'Female' else 1
-    socketed = []
+    socketed, claw_gaps = [], []
 
     def paint(obj, names, indices):
         """Face materials by index; names[0] is the material mesh() already assigned."""
@@ -127,32 +129,40 @@ def design(ctx):
         m = a.lerp(b, .55)+Vector(bend)*(b-a).length*.22
         return branch(name, [a, m, b], [width, width*.55, .0008], slot, bone, material, 4)
 
+    FEATHER_VANE = [(.14, .36), (.27, .72), (.41, .90), (.55, .92), (.68, .82), (.80, .62), (.90, .38)]
+
     def feather(name, root, tip, width, normal, slot, bone, bend=.10, notch=0):
-        """Flat feather blade: folded spine, curved, one ragged notch; drawn from both sides."""
+        """Flat feather: a thin quill, a slightly folded vane whose edge is cut into barbs swept toward the tip,
+        one deeper tear; drawn from both sides."""
         root, tip, normal = Vector(root), Vector(tip), Vector(normal).normalized()
         axis = tip-root; length = axis.length
         normal = (normal-axis.normalized()*normal.dot(axis.normalized())).normalized()
         side = axis.normalized().cross(normal).normalized()
-        profile = [(0, .26), (.16, .74), (.40, 1.0), (.68, .96), (.88, .66)]
-        spine, left, right = [], [], []
-        for k, (t, w) in enumerate(profile):
-            c = root+axis*t+normal*length*bend*math.sin(math.pi*t*.9)
-            wl = w*width*(.45 if notch and k == notch else 1)
-            wr = w*width*(.55 if notch and k == (notch+1) % 4+1 else 1)
-            spine.append(c+normal*.005)
-            left.append(c+side*wl-axis*.04*t)
-            right.append(c-side*wr-axis*.04*t)
-        n = len(profile)
-        verts = spine+left+right+[tip+normal*length*bend*.3]
-        tip_index = len(verts)-1
-        faces = []
-        for k in range(n-1):
-            faces += [(k, n+k, n+k+1, k+1), (k, k+1, 2*n+k+1, 2*n+k)]
-        faces += [(n-1, 2*n-1, tip_index), (n-1, tip_index, 3*n-1)]
+        def centre(t):
+            return root+axis*t+normal*length*bend*math.sin(math.pi*t*.9)
+        n = len(FEATHER_VANE)
+        verts = [centre(t)+normal*.003 for t, _ in FEATHER_VANE]+[centre(1.0)]
+        tip_index, faces = n, []
+        for s, share in [(1, .82), (-1, 1.0)]:  # the leading vane is the narrower one
+            edge, cut = [], []
+            for k, (t, w) in enumerate(FEATHER_VANE):
+                edge.append(len(verts)); verts.append(centre(t+.045)+side*s*w*width*share)
+                if k < n-1:
+                    t2, w2 = FEATHER_VANE[k+1]
+                    depth = .52 if notch and k == notch and s > 0 else .86
+                    cut.append(len(verts)); verts.append(centre((t+t2)/2+.03)+side*s*(w+w2)/2*width*share*depth)
+            for k in range(n-1):
+                faces += [(k, edge[k], cut[k]), (k, cut[k], k+1), (k+1, cut[k], edge[k+1])]
+            faces.append((n-1, edge[n-1], tip_index))
+        vane = len(faces)
+        quill = []
+        for t in (0, .14, .41, .68, .90):
+            c = centre(t)+normal*.0045
+            quill += [c+side*.0024, c-side*.0024]
+        first = len(verts); verts += quill
+        faces += [(first+2*i, first+2*i+1, first+2*i+3, first+2*i+2) for i in range(4)]
         obj = mesh(name, verts, faces, slot, 'feather', bone)
-        obj.data.materials.append(materials['black'])
-        for p in obj.data.polygons:  # the spine's first stretch is darker quill
-            p.material_index = 1 if p.index < 2 else 0
+        paint(obj, ['feather', 'leather'], [0]*vane+[1]*4)
         return obj
 
     def prism(name, outline, thickness, facing, slot, bone, material='edge'):
@@ -244,12 +254,19 @@ def design(ctx):
         """The frontmost of three neighbouring snaps: the plate spans a cleavage instead of dipping into it."""
         front = min(chest(Vector(p)+Vector((dx, 0, 0))).y for dx in (-.05, 0, .05))
         return Vector((p[0], front, p[2]))
-    outline = [(0, 1.428), (.070, 1.438), (.150, 1.405), (.172, 1.330), (.130, 1.252), (.070, 1.205), (0, 1.170)]
-    core = [(x, 0, z) for x, z in outline]+[(-x, 0, z) for x, z in reversed(outline[1:-1])]
-    breast = plate('Silver_breastplate', core, (0, -1, 0), 'Torso', None, rim=.012, bulge=.034, snap=bridge)
-    for j, (z0, z1, half) in enumerate([(1.160, 1.118, .112), (1.112, 1.070, .104)]):  # two gunmetal belly lames
-        plate('Belly_lame', [(-half, 0, z0), (half, 0, z0), (half*.92, 0, z1), (-half*.92, 0, z1)], (0, -1, 0), 'Torso', None,
-              rim=.007, bulge=.010, material='metal', snap=onto(body, -1, .010))
+    # Breastplate in three pieces: two swept flanks with a gap of dark leather between them and a raised silver
+    # ridge down that gap, from the medallion to the point above the belt.
+    # (Narrower than the old single plate at the outer edge: a kick swings the upper arm across the chest.)
+    flank_outline = [(.034, 1.424), (.092, 1.436), (.140, 1.402), (.156, 1.346), (.144, 1.282), (.110, 1.232),
+                     (.074, 1.186), (.040, 1.132), (.030, 1.206), (.032, 1.330)]
+    breast = []
+    for sign in [1, -1]:
+        core = [(sign*x, 0, z) for x, z in flank_outline]
+        breast.append(plate('Silver_breast_flank', core, (0, -1, 0), 'Torso', None, rim=.010, bulge=.014, snap=bridge))
+    ridge = leaf('Breast_ridge', (0, 0, 1.418), (0, 0, 1.112), .016, (0, -1, 0), 'Torso', None, 'edge', .026)
+    for v in ridge.data.vertices:  # follows the chest point by point instead of cutting through it as a straight blade
+        v.co = bridge(v.co)+FRONT*(.030 if v.index == 8 else .004)
+    breast.append(ridge)
     # A short ragged mantle over the back: the hood's cloth continues down to the shoulder blades.
     xs = [-.180, -.120, -.060, 0, .060, .120, .180]
     mantle_rows = [(1.462, .018), (1.390, .024), (1.310, .030), (1.235, .036)]
@@ -261,33 +278,38 @@ def design(ctx):
         verts.append(a.lerp(b, .5)+Vector((0, .006, -drop)))
         faces.append((21+c, 21+c+1, len(verts)-1))
     backplate = mesh('Back_mantle', verts, faces, 'Torso', 'cloth')
-    # Embossing, own motif: a rune stave with two swept raven wings and a knot medallion.
-    on_plate = onto(shell(breast), -1, .002)
-    leaf('Breast_stave', on_plate(Vector((0, 0, 1.360))), on_plate(Vector((0, 0, 1.190))), .011, (0, -1, 0), 'Torso', None, 'edge', .006)
+    # Own motif: a raven's folded wing on each flank, three dark feathers laid over one another and swept out and
+    # down, under a knot medallion at the head of the ridge.
+    on_plate = onto(shell(*breast), -1, .002)
+    flank_face = onto(shell(*breast[:2]), -1, .003)
     for sign in [-1, 1]:
-        for j in range(4):
-            a = on_plate(Vector((sign*.014, 0, 1.330-j*.030)))
-            b = on_plate(Vector((sign*(.140-j*.018), 0, 1.392-j*.050)))
-            leaf('Breast_wing_feather', a, b, .011-j*.0015, (sign*.2, -1, 0), 'Torso', None, 'edge', .005)
+        for (x0, z0), (x1, z1), width in [((.056, 1.394), (.138, 1.358), .018), ((.054, 1.330), (.132, 1.282), .016),
+                                          ((.050, 1.266), (.118, 1.214), .014)]:
+            feather_leaf = leaf('Breast_wing_feather', Vector((sign*x0, 0, z0)), Vector((sign*x1, 0, z1)), width,
+                                (sign*.15, -1, 0), 'Torso', None, 'black', .003)
+            for v in feather_leaf.data.vertices:  # laid onto the faceted flank point by point, the vein just proud
+                v.co = flank_face(v.co)+FRONT*(.003 if v.index == 8 else 0)
     m = on_plate(Vector((0, 0, 1.392)))+Vector((0, -.010, 0))
-    ring = [m+Vector((.030*math.cos(k*math.tau/8), 0, .030*math.sin(k*math.tau/8))) for k in range(8)]
-    inner = [m+Vector((.019*math.cos(k*math.tau/8), -.004, .019*math.sin(k*math.tau/8))) for k in range(8)]
+    ring = [m+Vector((.034*math.cos(k*math.tau/8), 0, .034*math.sin(k*math.tau/8))) for k in range(8)]
+    inner = [m+Vector((.022*math.cos(k*math.tau/8), -.004, .022*math.sin(k*math.tau/8))) for k in range(8)]
     medal = mesh('Knot_medallion', ring+inner+[m+Vector((0, -.006, 0)), m+Vector((0, .006, 0))],
                  [(k, (k+1) % 8, 8+(k+1) % 8, 8+k) for k in range(8)]+[(8+k, 8+(k+1) % 8, 16) for k in range(8)]
                  + [((k+1) % 8, k, 17) for k in range(8)], 'Torso', 'edge')
     paint(medal, ['edge', 'metal'], [0]*8+[1]*8+[0]*8)
     for k in range(3):  # a three-armed knot on the medallion
         a = k*math.tau/3+math.pi/2
-        leaf('Medallion_knot', m+Vector((0, -.008, 0)), m+Vector((.017*math.cos(a), -.008, .017*math.sin(a))), .005,
+        leaf('Medallion_knot', m+Vector((0, -.008, 0)), m+Vector((.021*math.cos(a), -.008, .021*math.sin(a))), .006,
              (0, -1, 0), 'Torso', None, 'edge', .003)
     # Bandolier from the right shoulder across the plate to the left hip, and back up behind.
-    over = shell(torso, breast, backplate)
-    axis_of = lambda p: Vector((p.x*.3, .02, min(max(p.z, 1.0), 1.40)))
+    # Both ends run on down behind the waist belt (z .932-.972), so the strap never stops in the air above it.
+    over = shell(torso, pieces['Hips'][0], *breast, backplate)
+    axis_of = lambda p: Vector((p.x*.3, .02, min(max(p.z, .94), 1.40)))
     front_run = trace(over, [(-.175, -.02, 1.462), (-.140, -.10, 1.400), (-.050, -.20, 1.300), (.060, -.20, 1.180),
-                             (.150, -.10, 1.020)], axis_of, .006)
-    back_run = trace(over, [(.150, .12, 1.020), (.060, .20, 1.180), (-.060, .20, 1.320), (-.150, .10, 1.440), (-.175, -.02, 1.462)],
-                     axis_of, .006)
+                             (.140, -.10, 1.020), (.138, -.09, .944)], axis_of, .006)
+    back_run = trace(over, [(.138, .11, .944), (.140, .12, 1.020), (.060, .20, 1.180), (-.060, .20, 1.320), (-.150, .10, 1.440),
+                            (-.175, -.02, 1.462)], axis_of, .006)
     strap('Bandolier', front_run+back_run[1:], .044, 'Torso')
+    bandolier_ends = [front_run[-1][0], back_run[0][0]]
     p, out = front_run[len(front_run)//2]
     tangent = (front_run[len(front_run)//2+1][0]-p).normalized(); side = tangent.cross(out).normalized()
     buckle = [p+out*.004+tangent*dt+side*ds for dt, ds in [(-.022, -.030), (.022, -.030), (.022, .030), (-.022, .030)]]
@@ -342,7 +364,7 @@ def design(ctx):
                 a = math.radians(72+k*8)
                 root = P(.220+k*.036, -.030+(k % 2)*.025, 1.500-k*.010)
                 tip = root+P(math.sin(a), -.15, math.cos(a)).normalized()*(.230-k*.012)
-                feather('Crown_under_feather', root, tip, .044, P(0, -.3, 1), upper, socket, .07, notch=1+(k+1) % 3)
+                feather('Crown_under_feather', root, tip, .044, P(0, -.8, .6), upper, socket, .07, notch=1+(k+1) % 3)
         socketed += pieces[upper][first:]
         # A brown strap on the upper arm, on the arm bone.
         sleeve('Upper_arm_strap', [shoulder+axis*.200, shoulder+axis*.232], [(.074*fit, .070*fit)]*2, upper, ub, 'gold', 8)
@@ -360,30 +382,62 @@ def design(ctx):
             a, b = E(u)+UP*(top-.010), E(u+.12)+UP*(top-.010)
             tip = E(u-.02)+UP*(top+.052*size)
             prism('Bracer_blade', [a, b, tip], .008, (0, 1, 0), lower, lb, 'edge')
-        # Claw gloves: a gunmetal cuff and knuckle plate, silver talons on every finger end.
-        sleeve('Glove_cuff', [hand-fore*.034, hand+fore*.040], [(.064*fit, .060*fit), (.056, .052)], glove, hb, 'metal', 8)
-        k0 = hand+Vector((sign*.050, .004, .030))
-        plate('Knuckle_plate', [k0-fore*.030+Vector((0, -.040, 0)), k0+fore*.050+Vector((0, -.036, 0)),
-              k0+fore*.050+Vector((0, .042, 0)), k0-fore*.030+Vector((0, .046, 0))], (0, 0, 1), glove, hb,
-              rim=.006, bulge=.010, material='metal')
-        # Talons sit on the finger ends of each body's own hand and take its skinning, so they bend with the fingers.
+        # Claw gloves: a gunmetal cuff, a gunmetal band over the knuckles and black leather caps over the finger
+        # ends and the thumb, out of which the hooked silver claws grow. Caps and band are the hand's own faces
+        # lifted 1.5 mm, the claws start on the finger ends: nothing floats (claws placed at the bone ends did),
+        # and everything takes the hand's skinning.
+        sleeve('Glove_cuff', [hand-fore*.034, hand+fore*.040], [(.064*fit, .060*fit), (.060, .056)], glove, hb, 'metal', 8)
         hand_lining = pieces[glove][0]
+        fingers_tree = shell(hand_lining)
+        across_hand = fore.cross(UP).normalized(); back = across_hand.cross(fore).normalized()
         points = [v.co.copy() for v in hand_lining.data.vertices]
-        reach = max(p.x*sign for p in points)
-        ends = [p for p in points if p.x*sign > reach-.030]
-        low, high = min(p.y for p in ends), max(p.y for p in ends)
+        t_of = lambda p: (p-hand).dot(fore)
+        reach = max(t_of(p) for p in points)
+        ends = [p for p in points if t_of(p) > reach-.030]
+        s_low, s_high = min((p-hand).dot(across_hand) for p in ends), max((p-hand).dot(across_hand) for p in ends)
+        def gap_to(tree, p):
+            """Distance from a point to the hand's surface, 0 when the point lies inside the hand."""
+            hit, normal = tree.find_nearest(p)[:2]
+            return 0 if (p-hit).dot(normal) <= 0 else (p-hit).length
+        def seat(origin, direction):
+            hit = fingers_tree.ray_cast(origin, direction)[0]
+            return hit if hit is not None else fingers_tree.find_nearest(origin)[0]
         first = len(pieces[glove])
+        span = s_high-s_low
+        radius = max(.0055, min(.0095, span/8))
+        data = hand_lining.data
+        centre_h = sum((v.co-hand).dot(back) for v in data.vertices)/len(data.vertices)
+        tip_t = max((p-hand).dot(FRONT) for p in points)
+        def patch(name, keep, material):
+            """The hand's own faces where keep(face centre) holds, lifted 1.5 mm along the normals: it lies on the hand."""
+            chosen = [p for p in data.polygons if keep(p.center)]
+            index, verts = {}, []
+            for p in chosen:
+                for i in p.vertices:
+                    if i not in index:
+                        index[i] = len(verts); verts.append(data.vertices[i].co+data.vertices[i].normal*.0015)
+            return mesh(name, verts, [tuple(index[i] for i in p.vertices) for p in chosen], glove, material)
+        thumb_side = lambda c: (c-hand).dot(FRONT) > tip_t-.020 and t_of(c) < reach-.040
+        patch('Glove_finger_caps', lambda c: t_of(c) > reach-.034 or thumb_side(c), 'black')
+        patch('Glove_knuckle_band', lambda c: reach-.080 < t_of(c) < reach-.050 and (c-hand).dot(back) > centre_h
+              and not thumb_side(c), 'metal')
         for k in range(4):
-            y = low+.012+(high-low-.024)*k/3
-            row = [p for p in ends if abs(p.y-y) < .018] or ends
-            base = Vector((sign*(reach-.016), y, max(p.z for p in row)-.008))
-            talon('Glove_talon', base, base+Vector((sign*.052, 0, -.024)), .011, glove, None, 'edge', bend=(0, 0, 1))
-        thumb = min(points, key=lambda p: p.y)
-        out = (thumb-hand).normalized()
-        talon('Glove_talon', thumb-out*.012, thumb+out*.040+Vector((0, 0, -.018)), .010, glove, None, 'edge', bend=(0, 0, 1))
+            s_k = s_low+span*(k+.5)/4
+            row = [p for p in ends if abs((p-hand).dot(across_hand)-s_k) < span/6] or ends
+            h_k = sum((p-hand).dot(back) for p in row)/len(row)
+            tip = seat(hand+fore*(reach+.10)+across_hand*s_k+back*h_k, -fore)
+            talon('Glove_talon', tip-fore*.0015, tip+fore*.036-back*.016, radius*.80, glove, None, 'edge', bend=-back)
+        thumb_end = [p for p in points if (p-hand).dot(FRONT) > tip_t-.022]
+        thumb = sum(thumb_end, Vector())/len(thumb_end)
+        out = (thumb-hand); out = (out-UP*out.dot(UP)*.5).normalized()
+        thumb_tip = seat(thumb+out*.10, -out)
+        talon('Glove_talon', thumb_tip-out*.0015, thumb_tip+out*.032-UP*.014, radius*.80, glove, None, 'edge', bend=-UP)
         fingers = binding_surface(hand_lining)
         for obj in pieces[glove][first:]:
             attach_to_surface(obj, fingers)
+            gap = min(gap_to(fingers_tree, v.co) for v in obj.data.vertices)
+            claw_gaps.append({'hand': word, 'part': obj.name, 'gap_m': round(gap, 5)})
+            assert gap < .002, (obj.name, gap)
 
     wing_binding_report = []
     for obj in socketed:
@@ -531,6 +585,10 @@ def design(ctx):
     assert budget <= 10000, budget  # checked here, before the tail renders or exports anything
     ctx.wing_binding_report = wing_binding_report
     ctx.budget = budget
+    ctx.claw_gaps = claw_gaps
+    # The bandolier's two ends lie inside the waist belt's ring, i.e. they run on behind the belt.
+    ctx.bandolier_ends = [{'z': round(p.z, 4), 'belt_ring': round((p.x/.160)**2+((p.y-.015)/.192)**2, 3)}
+                          for p in bandolier_ends]
 
 
 def after_export(ctx):
@@ -559,4 +617,6 @@ def after_export(ctx):
     report.pop('wing_effect', None)
     report['shoulder_socket_binding'] = report.pop('wing_binding')
     report['vfx'] = equipment['vfx']
+    report['claw_gap_to_fingers_m'] = {'max': max(g['gap_m'] for g in ctx.claw_gaps), 'parts': ctx.claw_gaps}
+    report['bandolier_ends'] = ctx.bandolier_ends
     (ROOT/'validation.json').write_text(json.dumps(report, indent=2)+'\n')

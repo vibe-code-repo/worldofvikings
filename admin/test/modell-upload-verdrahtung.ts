@@ -178,5 +178,26 @@ if (modellHochladenFn) {
   check(posErlaubt >= 0 && posLesen >= 0 && posErlaubt < posLesen, 'die erste uploadsErlaubt()-Prüfung im Funktionsrumpf steht VOR dem Aufruf von leibBinaerLesen(...) — auf live/ausgeschaltet wird der Körper gar nicht erst gelesen');
 }
 
+console.log('\n9. N2 (Nachangriff, Befund N-1) — der Upload-Zweig gleicht Module UND Uploads selbst ab, statt sich auf behandeln() zu verlassen\n');
+// `modellHochladenBehandeln` läuft VOR `behandeln()` (Abschnitt 4) und damit
+// auch vor dessen `moduleAbgleichen()`/`hochgeladenAbgleichen()` (Zeile
+// ~1336/1340 in behandeln selbst) — ohne einen EIGENEN Aufruf hier sähe der
+// allererste Upload nach einem Neustart einen leeren Speicher (weder
+// Gen_-Module noch schon auf der Platte stehende Uploads bekannt), und die
+// Gross-/Klein-Sperre (B7) sowie die Hash-Prüfung (B1) liefen gegen einen
+// unvollständigen Stand.
+if (modellHochladenFn) {
+  const rumpf = knotenText(modellHochladenFn);
+  check(rumpf.includes('moduleAbgleichen()'), 'modellHochladenBehandeln ruft moduleAbgleichen() selbst auf');
+  check(rumpf.includes('hochgeladenAbgleichen()'), 'modellHochladenBehandeln ruft hochgeladenAbgleichen() selbst auf');
+  const posAbgleich1 = rumpf.indexOf('moduleAbgleichen()');
+  const posAbgleich2 = rumpf.indexOf('hochgeladenAbgleichen()');
+  const posLesen = rumpf.indexOf('leibBinaerLesen(');
+  check(
+    posAbgleich1 >= 0 && posAbgleich2 >= 0 && posLesen >= 0 && posAbgleich1 < posLesen && posAbgleich2 < posLesen,
+    'beide Abgleiche laufen VOR dem Lesen des Körpers — die Prüfungen weiter unten (Name, Hash) sehen damit den frischen Stand'
+  );
+}
+
 console.log(failures === 0 ? '\nU1-Verdrahtung: alles grün.\n' : `\nU1-Verdrahtung: ${failures} FEHLGESCHLAGEN.\n`);
 process.exit(failures > 0 ? 1 : 0);

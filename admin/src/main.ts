@@ -868,6 +868,16 @@ async function modellHochladenBehandeln(
       message: 'Modell-Upload ist auf dieser Instanz nicht erlaubt (server.yml: uploads.modell-hochladen, oder Instanz live).',
     });
   }
+  // N2 (Nachangriff, Befund N-1): Dieser Zweig laeuft VOR `behandeln()` (wie
+  // `/api/serverlog`) und damit auch vor dessen `moduleAbgleichen()`/
+  // `hochgeladenAbgleichen()` -- ohne eigenen Aufruf hier saehe der
+  // ALLERERSTE Upload nach einem Neustart dieses Prozesses einen LEEREN
+  // Speicher: weder die zur Laufzeit gebauten `Gen_`-Module noch schon auf
+  // der Platte stehende Uploads waeren in `PREFABS_BY_HASH`/den
+  // Registry-Karten bekannt, und die Gross-/Klein-Sperre (B7) sowie die
+  // Hash-Pruefung (B1) liefen gegen einen unvollstaendigen Stand.
+  moduleAbgleichen();
+  hochgeladenAbgleichen();
   const contentType = String(req.headers['content-type'] ?? '');
   if (!contentType.startsWith('application/octet-stream')) {
     return json(res, 415, {

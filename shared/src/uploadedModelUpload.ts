@@ -68,8 +68,10 @@ import {
   REGISTRY_VERSION,
   applyUploadedModelRegistry,
   erzwingeName,
+  hashSchonVergebenVon,
   leereRegistry,
   leseRegistryAusText,
+  nameAblehnungsGrund,
   pruefeRegistryEintrag,
   registerUploadedPrefab,
   unregisterUploadedPrefab,
@@ -211,9 +213,9 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
 
   const name = erzwingeName(wunsch.angezeigterName);
   if (name === null) {
-    return nein(
-      `Aus '${wunsch.angezeigterName}' lässt sich kein zulässiger Name bilden — es müssen Buchstaben, Ziffern oder Unterstriche übrig bleiben.`
-    );
+    // N2 (Nachangriff, Befund N-3): der Grund als eigener Satz statt der
+    // immer gleichen, teils falschen Meldung — siehe Kopf von `nameAblehnungsGrund`.
+    return nein(nameAblehnungsGrund(wunsch.angezeigterName));
   }
 
   let roh;
@@ -346,10 +348,36 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
     return nein(`Unter dem Namen '${name}' liegt bereits eine Datei — bitte einen anderen Anzeigenamen wählen.`);
   }
 
+  // N2 (Nachangriff, Befund N-2): Der Hash wird HIER geprüft, VOR jedem
+  // Schreiben — nicht erst in `registerUploadedPrefab`. Eine Kollision
+  // zweier verschiedener Namen (`getStableHash` ist 32-bittig) sperrte
+  // sonst erst NACH dem Schreiben eine Datei UND einen Registry-Eintrag,
+  // die beide nie registriert würden ("Geschrieben, aber nicht
+  // registriert") — der Name bliebe über `existsSync` oben für immer
+  // belegt, aber ohne "Entfernen"-Knopf im Katalog (der nur für
+  // REGISTRIERTE Uploads erscheint). Der zweite Rollback weiter unten
+  // bleibt trotzdem stehen, falls diese Prüfung durch einen künftigen
+  // zweiten Schreiber umgangen würde.
+  const hashBelegtVon = hashSchonVergebenVon(name);
+  if (hashBelegtVon !== null) {
+    return nein(
+      `Der Name '${name}' kollidiert mit dem Hash von '${hashBelegtVon}' — bitte einen anderen Anzeigenamen wählen.`
+    );
+  }
+
   // ── Ab hier wird geschrieben ────────────────────────────────────────
   const temp = `${pfad}.neu`;
-  writeFileSync(temp, wunsch.bytes);
-  renameSync(temp, pfad);
+  try {
+    writeFileSync(temp, wunsch.bytes);
+    renameSync(temp, pfad);
+  } catch (e) {
+    // N2 (Nachangriff, Befund N-4): Die `message` eines fs-Fehlers enthält
+    // IMMER den vollen Pfad (Auslöser im Angriff: ein Verzeichnis lag schon
+    // unter dem Zielnamen) — der darf nie in einer Antwort an den Browser
+    // stehen, nur ins Log.
+    console.error(`[ModellUpload] Schreiben von '${pfad}' fehlgeschlagen: ${(e as Error).message}`);
+    return nein('Die Datei konnte nicht geschrieben werden (Einzelheiten im Server-Log).');
+  }
 
   const eintrag: UploadedModelEntry = {
     name,
@@ -376,24 +404,47 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
   // ihren Namen für immer sperrt (der `existsSync`-Riegel oben) und über
   // `DELETE` nicht erreichbar ist (die Registry kennt sie nicht). Deshalb:
   // bei einem Fehler die gerade geschriebene Datei wieder entfernen, der
-  // Name ist danach wieder frei.
+  // Name ist danach wieder frei. `stand` bleibt im äusseren Scope, damit
+  // der Registrierungs-Rollback weiter unten dieselbe Liste (ohne den
+  // neuen Eintrag) zurückschreiben kann.
+  let stand: RegistryDatei;
   try {
-    const stand = leseRegistry(kontext.verzeichnis);
+    stand = leseRegistry(kontext.verzeichnis);
+  } catch (e) {
+    rmSync(pfad, { force: true });
+    // N2 (Befund N-4): auch hier keinen fs-Pfad an den Browser.
+    console.error(`[ModellUpload] Registry unlesbar (${pfad}), Upload zurückgerollt: ${(e as Error).message}`);
+    return nein('Registry nicht lesbar, Upload zurückgerollt (Einzelheiten im Server-Log).');
+  }
+  try {
     schreibeRegistry(kontext.verzeichnis, [...stand.modelle, eintrag]);
   } catch (e) {
     rmSync(pfad, { force: true });
-    return nein(`Registry nicht lesbar/schreibbar, Upload zurückgerollt: ${(e as Error).message}`);
+    console.error(`[ModellUpload] Registry nicht schreibbar (${pfad}), Upload zurückgerollt: ${(e as Error).message}`);
+    return nein('Registry nicht schreibbar, Upload zurückgerollt (Einzelheiten im Server-Log).');
   }
 
   try {
     registerUploadedPrefab(eintrag);
   } catch (e) {
-    // Datei und Registry stehen, der Prozess kennt den Namen aber nicht —
-    // derselbe gutartige Ausgang wie bei `ModuleBuild.baueModul`: kein
-    // Rollback (der könnte eine Datei löschen, die längst ausgeliefert
-    // wird), sondern eine Meldung. Ein Neustart des Betriebsdienstes holt
-    // den Eintrag beim nächsten Abgleich nach.
-    return nein(`Geschrieben, aber nicht registriert: ${(e as Error).message}`);
+    // N2 (Nachangriff, Befund N-2): Anders als hier bisher angenommen,
+    // trifft "ein Rollback könnte eine ausgelieferte Datei löschen" NICHT
+    // zu — die Datei wurde in DERSELBEN synchronen Folge gerade erst
+    // angelegt, niemand hat sie bis hierher ausgeliefert bekommen. Ohne
+    // Rückbau blieben Datei UND Registry-Eintrag stehen: der Name wäre für
+    // immer gesperrt (der `existsSync`-Riegel oben), aber nie im Katalog
+    // sichtbar (der nächste Prozessstart lehnt den Eintrag beim Abgleich
+    // ab) und ohne "Entfernen"-Knopf, weil der nur für registrierte
+    // Uploads erscheint — nur ein Neustart mit Handarbeit an der
+    // registry.json käme wieder heraus. Die Hash-Prüfung oben deckt den
+    // Regelfall schon ab; dieser Zweig ist die Absicherung für den Rest.
+    rmSync(pfad, { force: true });
+    try {
+      schreibeRegistry(kontext.verzeichnis, stand.modelle);
+    } catch (e2) {
+      console.error(`[ModellUpload] Registry-Rückbau fehlgeschlagen (${pfad}): ${(e2 as Error).message}`);
+    }
+    return nein(`Geschrieben, aber nicht registriert, Upload zurückgerollt: ${(e as Error).message}`);
   }
 
   return { ok: true, eintrag, hinweise };
@@ -482,9 +533,16 @@ export function entferneUpload(kontext: EntfernenKontext, name: string, bestaeti
   const pfad = join(kontext.verzeichnis, `${name}.glb`);
   if (existsSync(pfad)) {
     const beiseiteOrdner = join(kontext.verzeichnis, 'entfernt');
-    mkdirSync(beiseiteOrdner, { recursive: true });
-    const zeitstempel = new Date().toISOString().replace(/[:.]/g, '-');
-    renameSync(pfad, join(beiseiteOrdner, `${name}.${zeitstempel}.glb`));
+    try {
+      mkdirSync(beiseiteOrdner, { recursive: true });
+      const zeitstempel = new Date().toISOString().replace(/[:.]/g, '-');
+      renameSync(pfad, join(beiseiteOrdner, `${name}.${zeitstempel}.glb`));
+    } catch (e) {
+      // N2 (Nachangriff, Befund N-4, dieselbe Klasse wie beim Hochladen):
+      // die `message` eines fs-Fehlers traegt den vollen Pfad — nur ins Log.
+      console.error(`[ModellUpload] Beiseiteschieben von '${pfad}' fehlgeschlagen: ${(e as Error).message}`);
+      return { ok: false, meldung: 'Die Datei konnte nicht entfernt werden (Einzelheiten im Server-Log).' };
+    }
   }
 
   const verbleibend = stand.modelle.filter((m) => m.name !== name);

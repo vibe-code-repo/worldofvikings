@@ -44,9 +44,11 @@ import {
   MAX_KOLLISIONSNETZ_DREIECKE,
   MAX_MATERIALIEN,
   MAX_MESHES,
+  erzwingeName,
   uploadedModelEntry,
   unregisterUploadedPrefab,
 } from '@wov/shared/src/uploadedModelRegistry.js';
+import { getStableHash } from '@wov/shared/src/hash.js';
 
 let failures = 0;
 function check(bedingung: boolean, was: string): void {
@@ -96,6 +98,10 @@ interface GlbOptionen {
   positionCountUeberschreiben?: number;
   /** N1: eine Ecke der Hüllbox auf NaN setzen (kaputte Vertexdaten). */
   nanPosition?: boolean;
+  /** N2: primitive-`mode` der Hauptprimitive — 4 TRIANGLES (Default), 5 TRIANGLE_STRIP, 6 TRIANGLE_FAN. */
+  modus?: number;
+  /** N2: Eckenzahl der Kette bei `modus` 5/6 (nicht indiziert, sequentiell) — `count − 2` Dreiecke. */
+  stripEcken?: number;
 }
 
 /**
@@ -122,21 +128,32 @@ function bauGlb(optionen: GlbOptionen = {}): Uint8Array {
     erweiterungenErforderlich = [],
     positionCountUeberschreiben = null,
     nanPosition = false,
+    modus = 4,
+    stripEcken = 5,
   } = optionen as GlbOptionen & { positionCountUeberschreiben?: number | null };
+
+  // N2: TRIANGLE_STRIP/TRIANGLE_FAN (modus 5/6) — wie `nichtIndiziert`
+  // keine `indices`, aber eine fortlaufende Eckenkette statt Dreier-Gruppen
+  // (eine Kette aus `stripEcken` unterscheidbaren, aber harmlosen Punkten;
+  // die genaue Form ist irrelevant, nur die ANZAHL zählt für das Tor).
+  const istStripOderFan = modus === 5 || modus === 6;
+  const keineIndizes = nichtIndiziert || istStripOderFan;
 
   // Nicht indiziert: POSITION trägt selbst `dreiecke * 3` Ecken (drei
   // wiederholte Basisecken je Dreieck) — kein Indexpuffer nötig, Babylon
   // zeichnet trotzdem `POSITION.count / 3` Dreiecke (mode 4, TRIANGLES).
   const eckenJeDreieck = [0, 0, 0, groesse, 0, 0, 0, groesse, groesse];
-  const positionenRoh = nichtIndiziert
-    ? Array.from({ length: dreiecke }, () => eckenJeDreieck).flat()
-    : eckenJeDreieck;
+  const positionenRoh = istStripOderFan
+    ? Array.from({ length: stripEcken }, (_, i) => [i * 0.1 * groesse, (i % 2) * groesse, 0]).flat()
+    : nichtIndiziert
+      ? Array.from({ length: dreiecke }, () => eckenJeDreieck).flat()
+      : eckenJeDreieck;
   if (nanPosition) positionenRoh[0] = NaN;
   const positionen = new Float32Array(positionenRoh);
   const posBytes = Buffer.from(positionen.buffer, positionen.byteOffset, positionen.byteLength);
 
-  const indizes = new Uint32Array(nichtIndiziert ? 0 : dreiecke * 3);
-  for (let i = 0; i < (nichtIndiziert ? 0 : dreiecke); i++) {
+  const indizes = new Uint32Array(keineIndizes ? 0 : dreiecke * 3);
+  for (let i = 0; i < (keineIndizes ? 0 : dreiecke); i++) {
     indizes[i * 3] = 0;
     indizes[i * 3 + 1] = 1;
     indizes[i * 3 + 2] = 2;
@@ -202,8 +219,8 @@ function bauGlb(optionen: GlbOptionen = {}): Uint8Array {
   const materialien: { name: string }[] = [{ name: 'Material0' }];
   for (let i = 0; i < zusatzMaterialien; i++) materialien.push({ name: `Zusatz${i}` });
 
-  const hauptPrimitive: Record<string, unknown> = { attributes: { POSITION: 0 }, material: 0, mode: 4 };
-  if (!nichtIndiziert) hauptPrimitive.indices = 1;
+  const hauptPrimitive: Record<string, unknown> = { attributes: { POSITION: 0 }, material: 0, mode: modus };
+  if (!keineIndizes) hauptPrimitive.indices = 1;
   const meshes: Record<string, unknown>[] = [{ name: 'Sicht', primitives: [hauptPrimitive] }];
   for (let i = 0; i < zusatzMeshes; i++) {
     meshes.push({ name: `Zusatz${i}`, primitives: [{ attributes: { POSITION: 0 }, indices: 1, mode: 4 }] });
@@ -727,6 +744,193 @@ console.log('\n9. N1 (Befund B7) — Namen, die sich nur in Groß-/Kleinschreibu
   });
   check(!zweiter.ok, `zweiter Upload 'farn_eins' (nur Groß-/Kleinschreibung anders): abgelehnt (${zweiter.ok ? 'OK' : zweiter.meldung})`);
   if (erster.ok) unregisterUploadedPrefab(erster.eintrag.name);
+}
+
+console.log('\n10. N2 (Nachangriff, Befund N-2) — die Hash-Kollision wird VOR dem Schreiben geprüft\n');
+{
+  // Zwei erzwungene Namen suchen, deren getStableHash kollidiert (32-bittig,
+  // per Geburtstagsparadox nach rund 2^16 Versuchen zu erwarten). Ein simpel
+  // HOCHGEZÄHLTER Suffix ('HashSuche0', 'HashSuche1', …) taugt dafür NICHT:
+  // Die Referenz-Hashfunktion verarbeitet Zeichen paarweise mit lauter
+  // UMKEHRBAREN Schritten (Multiplikation mit 33, XOR) — bei GLEICH LANGEM,
+  // nur im Suffix wechselndem Namen ist die Abbildung Suffix→Hash dadurch
+  // nahezu eine BIJEKTION, keine Streuung wie bei echt zufälligen Namen
+  // (gemessen: 0 Kollisionen in 2 000 000 durchnummerierten Namen). Eine
+  // eigene, aber DETERMINISTISCHE Zufallsfolge (fester Seed, reproduzierbar)
+  // über das ganze Alphabet trifft dagegen zuverlässig in unter 100 000
+  // Versuchen (gemessen: 48 130).
+  let saat = 1337 >>> 0;
+  const naechsteZahl = (): number => {
+    saat = (Math.imul(saat, 1103515245) + 12345) >>> 0;
+    return saat;
+  };
+  const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const zufallsName = (): string => {
+    let s = 'Zufall';
+    for (let i = 0; i < 12; i++) s += ALPHABET[naechsteZahl() % ALPHABET.length];
+    return s;
+  };
+
+  const gesehen = new Map<number, string>();
+  let kollisionA: string | null = null;
+  let kollisionB: string | null = null;
+  for (let i = 0; i < 2_000_000 && kollisionB === null; i++) {
+    const name = erzwingeName(zufallsName())!;
+    const hash = getStableHash(name);
+    const vorhanden = gesehen.get(hash);
+    if (vorhanden !== undefined && vorhanden !== name) {
+      kollisionA = vorhanden;
+      kollisionB = name;
+    } else {
+      gesehen.set(hash, name);
+    }
+  }
+  check(kollisionA !== null && kollisionB !== null, `zwei kollidierende Namen gefunden (${kollisionA} / ${kollisionB})`);
+
+  if (kollisionA !== null && kollisionB !== null) {
+    const dir = neuerOrdner();
+    // `erzwingeName(zufallsname)` erzeugt 'U_' + unveränderten Kern — als
+    // Anzeigename wird der Kern ohne Präfix eingesetzt, damit
+    // `pruefeUndSpeichereUpload` (das `erzwingeName` SELBST aufruft) wieder
+    // exakt denselben Namen bildet.
+    const anzeigenameA = kollisionA.slice('U_'.length);
+    const anzeigenameB = kollisionB.slice('U_'.length);
+    const erster = pruefeUndSpeichereUpload(kontext(dir), {
+      bytes: bauGlb(),
+      angezeigterName: anzeigenameA,
+      kollisionswunsch: 'fest',
+    });
+    check(erster.ok && erster.eintrag.name === kollisionA, `erster Upload '${kollisionA}' angenommen (${erster.ok ? erster.eintrag.name : erster.meldung})`);
+
+    const vorZweitem = plattenStand(dir);
+    const zweiter = pruefeUndSpeichereUpload(kontext(dir), {
+      bytes: bauGlb({ groesse: 3 }),
+      angezeigterName: anzeigenameB,
+      kollisionswunsch: 'fest',
+    });
+    check(!zweiter.ok, `zweiter Upload '${kollisionB}' (Hash-Zwilling von '${kollisionA}'): abgelehnt (${zweiter.ok ? 'OK' : zweiter.meldung})`);
+    check(!zweiter.ok && /[Hh]ash/.test(zweiter.meldung), `Meldung nennt den Hash-Konflikt (${zweiter.ok ? '' : zweiter.meldung})`);
+    const nachZweitem = plattenStand(dir);
+    check(
+      !existsSync(join(dir, `${kollisionB}.glb`)),
+      `die Datei des Hash-Zwillings ('${kollisionB}.glb') wurde NIE geschrieben — die Prüfung lief VOR dem Schreiben, nicht danach mit Rückbau`
+    );
+    check(
+      nachZweitem.dateien === vorZweitem.dateien && nachZweitem.registryEintraege === vorZweitem.registryEintraege,
+      'Platte nach der Ablehnung unverändert (kein Datei-/Registry-Leichnam)'
+    );
+
+    if (erster.ok) unregisterUploadedPrefab(erster.eintrag.name);
+  }
+}
+
+console.log('\n11. N2 (Nachangriff, Befund N-3) — Ellipse wird als Satzzeichen entfernt, nicht als Pfadanteil abgelehnt\n');
+{
+  // 'Kiste…' (U+2026 HORIZONTAL ELLIPSIS) zerlegt NFKD zu DREI Punkten
+  // ('...') — das ist Satzzeichen, kein Pfadanteil. Vorher (bf0e116) griff
+  // `.includes('..')` hier fälschlich, weil '...' auch '..' enthält.
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb(),
+    angezeigterName: 'Kiste…',
+    kollisionswunsch: 'fest',
+  });
+  check(antwort.ok, `'Kiste…' (Ellipse): ANGENOMMEN statt abgelehnt (${antwort.ok ? antwort.eintrag.name : antwort.meldung})`);
+  check(antwort.ok && antwort.eintrag.name === 'U_Kiste', `Ellipse wird wie ein Satzzeichen entfernt → 'U_Kiste' (${antwort.ok ? antwort.eintrag.name : ''})`);
+  if (antwort.ok) unregisterUploadedPrefab(antwort.eintrag.name);
+
+  // Der TWO DOT LEADER '‥' (U+2025, NFKD → genau ZWEI Punkte) bleibt
+  // dagegen zu Recht ein Pfadanteil (B7-Zwilling von '..') — mit einer
+  // Meldung, die ihn jetzt auch NENNT, statt der falschen „es müssen
+  // Buchstaben übrig bleiben".
+  const zwilling = pruefeUndSpeichereUpload(kontext(neuerOrdner()), {
+    bytes: bauGlb(),
+    angezeigterName: 'Fass‥Deckel',
+    kollisionswunsch: 'fest',
+  });
+  check(!zwilling.ok, `'Fass‥Deckel' (TWO DOT LEADER, → '..'): weiterhin abgelehnt (${zwilling.ok ? 'OK' : zwilling.meldung})`);
+  check(!zwilling.ok && /Pfadanteil/.test(zwilling.meldung), `Meldung nennt den Pfadanteil, nicht „Buchstaben übrig bleiben" (${zwilling.ok ? '' : zwilling.meldung})`);
+
+  // Reine Punkte bleiben abgelehnt (nichts Brauchbares übrig) — mit der
+  // unveränderten, dafür zutreffenden Meldung.
+  const nurPunkte = pruefeUndSpeichereUpload(kontext(neuerOrdner()), {
+    bytes: bauGlb(),
+    angezeigterName: '...',
+    kollisionswunsch: 'fest',
+  });
+  check(!nurPunkte.ok, `'...' (nur Punkte, kein Rest): weiterhin abgelehnt (${nurPunkte.ok ? 'OK' : nurPunkte.meldung})`);
+  check(!nurPunkte.ok && /Buchstaben/.test(nurPunkte.meldung), `Meldung nennt „Buchstaben übrig bleiben" (kein Pfadanteil erkannt, ${nurPunkte.ok ? '' : nurPunkte.meldung})`);
+}
+
+console.log('\n12. N2 (Nachangriff, Befund N-4) — ein fs-Fehler beim Schreiben trägt keinen Pfad in die Antwort\n');
+{
+  // Genau die Vorbedingung aus dem Nachangriff: ein VERZEICHNIS liegt unter
+  // dem TEMP-Namen ('<name>.glb.neu'), den `pruefeUndSpeichereUpload` selbst
+  // beschreiben will — `existsSync(pfad)` (ohne '.neu') sieht das nicht
+  // voraus, `writeFileSync(temp, …)` wirft EISDIR mit dem vollen Pfad in
+  // der `message`.
+  const dir = neuerOrdner();
+  mkdirSync(join(dir, 'U_Neuordner.glb.neu'), { recursive: true });
+  const vor = plattenStand(dir);
+  let warf = false;
+  let antwort: ReturnType<typeof pruefeUndSpeichereUpload> | null = null;
+  try {
+    antwort = pruefeUndSpeichereUpload(kontext(dir), {
+      bytes: bauGlb(),
+      angezeigterName: 'Neuordner',
+      kollisionswunsch: 'fest',
+    });
+  } catch {
+    warf = true;
+  }
+  check(!warf, 'EISDIR beim Schreiben: pruefeUndSpeichereUpload wirft NICHT — der Dienst bleibt am Leben');
+  check(antwort !== null && !antwort.ok, `stattdessen eine normale Ablehnung (${antwort && !antwort.ok ? antwort.meldung : 'OK?!'})`);
+  check(
+    antwort !== null && !antwort.ok && !antwort.meldung.includes(dir),
+    `die Meldung nennt NICHT den absoluten Pfad des Worktrees (${antwort && !antwort.ok ? antwort.meldung : ''})`
+  );
+  check(
+    antwort !== null && !antwort.ok && !/EISDIR|ENOENT|EACCES/.test(antwort.meldung),
+    `die Meldung nennt keinen rohen fs-Fehlercode (${antwort && !antwort.ok ? antwort.meldung : ''})`
+  );
+  const nach = plattenStand(dir);
+  check(nach.dateien === vor.dateien && nach.registryEintraege === vor.registryEintraege, 'Platte (abgesehen von der künstlichen Vorbedingung) unverändert — keine registry.json angelegt');
+}
+
+console.log('\n13. Prüftor — TRIANGLE_STRIP (mode 5) und TRIANGLE_FAN (mode 6) zählen count−2 Dreiecke, nicht 0\n');
+{
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ modus: 5, stripEcken: 10 }),
+    angezeigterName: 'Streifen',
+    kollisionswunsch: 'fest',
+  });
+  check(antwort.ok, `TRIANGLE_STRIP mit 10 Ecken: ANGENOMMEN (${antwort.ok ? '' : antwort.meldung})`);
+  check(antwort.ok && antwort.eintrag.dreiecke === 8, `8 Dreiecke gezählt (10 − 2), nicht 0 (${antwort.ok ? antwort.eintrag.dreiecke : ''})`);
+  if (antwort.ok) unregisterUploadedPrefab(antwort.eintrag.name);
+}
+{
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ modus: 6, stripEcken: 7 }),
+    angezeigterName: 'Faecher',
+    kollisionswunsch: 'fest',
+  });
+  check(antwort.ok, `TRIANGLE_FAN mit 7 Ecken: ANGENOMMEN (${antwort.ok ? '' : antwort.meldung})`);
+  check(antwort.ok && antwort.eintrag.dreiecke === 5, `5 Dreiecke gezählt (7 − 2), nicht 0 (${antwort.ok ? antwort.eintrag.dreiecke : ''})`);
+  if (antwort.ok) unregisterUploadedPrefab(antwort.eintrag.name);
+}
+{
+  // Die Zählung muss auch WIRKEN, nicht nur im Eintrag stehen: ein Streifen
+  // über der Dreiecksgrenze wird abgelehnt, genau wie eine TRIANGLES-Datei
+  // mit derselben Dreieckszahl es würde.
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ modus: 5, stripEcken: MAX_DREIECKE + 3 }),
+    angezeigterName: 'ZuLangerStreifen',
+    kollisionswunsch: 'fest',
+  });
+  check(!antwort.ok, `TRIANGLE_STRIP mit ${MAX_DREIECKE + 1} Dreiecken (über MAX_DREIECKE): abgelehnt (${antwort.ok ? 'OK, faelschlich' : antwort.meldung})`);
 }
 
 for (const d of aufraeumOrdner) rmSync(d, { recursive: true, force: true });

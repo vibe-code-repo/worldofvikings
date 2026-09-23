@@ -264,10 +264,56 @@ interface Teil {
 }
 
 /** Alle Netze der Datei, Hierarchie und Spiegelung bereits eingerechnet. */
-/** `[0, 1, …, n-1]` — die impliziten Indizes einer nicht indizierten TRIANGLES-Primitive. */
+/** `[0, 1, …, n-1]` — die impliziten Indizes einer nicht indizierten Primitive. */
 function sequentielleIndizes(n: number): Uint32Array {
   const out = new Uint32Array(n);
   for (let i = 0; i < n; i++) out[i] = i;
+  return out;
+}
+
+/**
+ * TRIANGLE_STRIP (glTF `mode` 5) in eine flache Dreiecksliste entfalten —
+ * `count − 2` Dreiecke, wie Babylon sie zeichnet. Dreieck `i` tauscht die
+ * ersten beiden Ecken, wenn `i` ungerade ist, sonst hätte jedes zweite
+ * Dreieck im Streifen die falsche Wicklung (Rückseite statt Vorderseite).
+ *
+ * N2 (Nachangriff, Abschnitt „Prüftor"): Vorher zählte JEDE Primitive mit
+ * `mode !== 4` als 0 Dreiecke — Streifen und Fächer flossen dann weder in
+ * die Dreieckszahl noch in Hüllbox oder Kollision ein, obwohl Babylon sie
+ * zeichnet. Ein Modell hätte so unbemerkt mehr sichtbare/begehbare Fläche
+ * gehabt, als das Tor gezählt hat.
+ */
+function indizesAusStrip(strip: Uint32Array): Uint32Array {
+  const n = strip.length;
+  if (n < 3) return new Uint32Array(0);
+  const out = new Uint32Array((n - 2) * 3);
+  for (let i = 0; i < n - 2; i++) {
+    if (i % 2 === 0) {
+      out[i * 3] = strip[i]!;
+      out[i * 3 + 1] = strip[i + 1]!;
+      out[i * 3 + 2] = strip[i + 2]!;
+    } else {
+      out[i * 3] = strip[i + 1]!;
+      out[i * 3 + 1] = strip[i]!;
+      out[i * 3 + 2] = strip[i + 2]!;
+    }
+  }
+  return out;
+}
+
+/**
+ * TRIANGLE_FAN (glTF `mode` 6) in eine flache Dreiecksliste entfalten —
+ * jedes Dreieck teilt sich die erste Ecke des Fächers, `count − 2` Dreiecke.
+ */
+function indizesAusFan(fan: Uint32Array): Uint32Array {
+  const n = fan.length;
+  if (n < 3) return new Uint32Array(0);
+  const out = new Uint32Array((n - 2) * 3);
+  for (let i = 0; i < n - 2; i++) {
+    out[i * 3] = fan[0]!;
+    out[i * 3 + 1] = fan[i + 1]!;
+    out[i * 3 + 2] = fan[i + 2]!;
+  }
   return out;
 }
 
@@ -284,22 +330,29 @@ function teile(roh: GlbRoh): Teil[] {
       const primitive = mesh?.primitives ?? [];
       for (let i = 0; i < primitive.length; i++) {
         const prim = primitive[i]!;
-        // mode 4 = TRIANGLES; alles andere ist keine Fläche, gegen die
-        // man laufen kann (Linien, Punkte, Strips liefert der Export nicht).
-        if (prim.mode !== undefined && prim.mode !== 4) continue;
+        // mode 4 = TRIANGLES, 5 = TRIANGLE_STRIP, 6 = TRIANGLE_FAN — die
+        // drei Flächenarten, die man begehen kann. Linien und Punkte (0–3)
+        // liefert der Export nicht und bleiben aussen vor.
+        if (prim.mode !== undefined && prim.mode !== 4 && prim.mode !== 5 && prim.mode !== 6) continue;
         if (prim.attributes.POSITION === undefined) continue;
         // Babylon hängt bei mehreren Primitiven `_primitiveN` an den
         // Knotennamen — dasselbe hier, damit `_col` gleich greift.
         const basisName = n.name ?? mesh?.name ?? `mesh${n.mesh}`;
         const positionen = lesePositionen(roh, prim.attributes.POSITION);
-        // N1 (Angriff, Abschnitt „Grenzen des Prüftors"): eine TRIANGLES-
-        // Primitive OHNE `indices` ist gültiges glTF und wird von Babylon
-        // gezeichnet (POSITION.count / 3 Dreiecke, der Reihe nach) — vorher
-        // ergab das eine LEERE Indexliste, also 0 gezählte Dreiecke, obwohl
-        // sichtbare Fläche da war. `sequentielleIndizes` bildet dieselbe
-        // Zählweise wie `tools/asset-manifest.mjs` (`dreiecke()`) nach.
-        const indizes =
+        // N1 (Angriff, Abschnitt „Grenzen des Prüftors"): eine Primitive
+        // OHNE `indices` ist gültiges glTF und wird von Babylon gezeichnet
+        // (POSITION.count der Reihe nach) — vorher ergab das eine LEERE
+        // Indexliste, also 0 gezählte Dreiecke, obwohl sichtbare Fläche da
+        // war. `sequentielleIndizes` bildet dieselbe Zählweise wie
+        // `tools/asset-manifest.mjs` (`dreiecke()`) nach.
+        const rohIndizes =
           prim.indices === undefined ? sequentielleIndizes(positionen.length / 3) : leseIndizes(roh, prim.indices);
+        // N2 (Nachangriff, Abschnitt „Prüftor"): Streifen/Fächer erst HIER
+        // in eine flache Dreiecksliste entfalten — `rohIndizes` selbst ist
+        // bei ihnen keine Gruppe-zu-3-Liste, sondern eine fortlaufende
+        // Eckenkette.
+        const indizes =
+          prim.mode === 5 ? indizesAusStrip(rohIndizes) : prim.mode === 6 ? indizesAusFan(rohIndizes) : rohIndizes;
         aus.push({
           name: primitive.length > 1 ? `${basisName}_primitive${i}` : basisName,
           material:

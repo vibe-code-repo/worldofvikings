@@ -241,6 +241,20 @@ export function registerUploadedPrefab(m: UploadedModelEntry): void {
   (EIGENE_MODELLE_SET as Set<string>).add(m.name);
 }
 
+/**
+ * Ob `getStableHash(name)` schon von einem ANDEREN Prefab belegt ist —
+ * dessen Name, oder `null`. Für den Aufrufer (`pruefeUndSpeichereUpload`),
+ * der das VOR dem Schreiben der `.glb` wissen will: `registerUploadedPrefab`
+ * wirft dieselbe Kollision zwar auch, aber ERST NACHDEM die Datei schon auf
+ * der Platte liegt (N2, Nachangriff Befund N-2) — ein unnötiger Schreib-
+ * /Rückbau-Umweg für einen Fall, der sich vorher genauso günstig feststellen
+ * lässt.
+ */
+export function hashSchonVergebenVon(name: string): string | null {
+  const vorhanden = PREFABS_BY_HASH.get(getStableHash(name));
+  return vorhanden ? vorhanden.name : null;
+}
+
 /** Die Rückseite — ein registrierter Upload aus allen Karten nehmen, `PREFABS_BY_HASH` eingeschlossen. */
 export function unregisterUploadedPrefab(name: string): void {
   if (!UPLOADED_BY_NAME.has(name)) {
@@ -318,12 +332,35 @@ function schreibeUmlauteAus(s: string): string {
 }
 
 /**
+ * Ob der (schon umlaut-ausgeschriebene, NFKD-normalisierte) Text einen
+ * Pfadanteil enthält — und wenn ja, welchen (für die Fehlermeldung).
+ * `null` heisst: kein Pfadanteil.
+ *
+ * N2 (Nachangriff, Befund N-3): Eine ECHTE Ellipse ('…', U+2026) zerlegt
+ * NFKD zu DREI Punkten ('...') — das ist Satzzeichen, kein Pfadanteil, und
+ * wurde vorher über `.includes('..')` (das in '...' genauso steckt wie in
+ * '..') fälschlich mit abgelehnt, dazu noch mit der irreführenden Meldung
+ * „es müssen Buchstaben übrig bleiben", obwohl welche übrig waren. Der TWO
+ * DOT LEADER '‥' (U+2025, NFKD → genau ZWEI Punkte) bleibt dagegen zu Recht
+ * ein Pfadanteil (B7, weiterhin ein Aussehens-Zwilling von '..'). Die
+ * Unterscheidung: ein ISOLIERTES Punktpaar (nicht Teil einer längeren
+ * Punktkette) zählt, drei oder mehr Punkte in Folge nicht.
+ */
+function pfadanteilGrund(normalisiert: string): string | null {
+  if (normalisiert.includes('/')) return "einen Schrägstrich ('/')";
+  if (normalisiert.includes('\\')) return "einen Backslash ('\\')";
+  if (/(?<!\.)\.\.(?!\.)/.test(normalisiert)) return "einen Pfadanteil ('..')";
+  return null;
+}
+
+/**
  * Den gewünschten Anzeigenamen auf einen zulässigen Dateinamen abbilden.
  *
  * Nur `[A-Za-z0-9_]` bleibt stehen, alles andere wird zu `_`; führende/
  * folgende `_` fallen weg, die Länge wird gedeckelt. `null` heisst: nach
  * dem Sieben blieb nichts Brauchbares übrig (z. B. nur Satzzeichen oder
- * nur Pfadanteile wie „../../etc").
+ * nur Pfadanteile wie „../../etc") — `nameAblehnungsGrund` liefert dazu den
+ * Grund als Satz.
  */
 export function erzwingeName(gewuenscht: string): string | null {
   // Pfadanteile sind eine ABLEHNUNG, kein Sanitierungsfall: Ein sanierter
@@ -341,9 +378,7 @@ export function erzwingeName(gewuenscht: string): string | null {
   // ausschreiben, dann NFKD, dann die Pfad-Ablehnung auf dem normalisierten Text.
   const ausgeschrieben = schreibeUmlauteAus(gewuenscht);
   const normalisiert = ausgeschrieben.normalize('NFKD');
-  if (normalisiert.includes('/') || normalisiert.includes('\\') || normalisiert.includes('..')) {
-    return null;
-  }
+  if (pfadanteilGrund(normalisiert) !== null) return null;
   const kern = normalisiert
     .replace(/[^A-Za-z0-9_]+/g, '_')
     .replace(/^_+|_+$/g, '')
@@ -355,4 +390,19 @@ export function erzwingeName(gewuenscht: string): string | null {
   const ohneWiederholtesPraefix = kern.replace(/^(?:u_)+/i, '');
   if (ohneWiederholtesPraefix.length === 0) return null;
   return `${NAME_PRAEFIX}${ohneWiederholtesPraefix}`;
+}
+
+/**
+ * Warum `erzwingeName(gewuenscht)` `null` zurückgab — als vollständiger,
+ * korrekter Satz für die Fehlermeldung an den Nutzer (N2, Befund N-3: die
+ * bisherige Meldung nannte immer „es müssen Buchstaben übrig bleiben",
+ * auch dann, wenn der wahre Grund ein erkannter Pfadanteil war).
+ */
+export function nameAblehnungsGrund(gewuenscht: string): string {
+  const normalisiert = schreibeUmlauteAus(gewuenscht).normalize('NFKD');
+  const grund = pfadanteilGrund(normalisiert);
+  if (grund !== null) {
+    return `Der Name '${gewuenscht}' enthält ${grund} — das ist als Teil eines Dateinamens nicht erlaubt.`;
+  }
+  return `Aus '${gewuenscht}' lässt sich kein zulässiger Name bilden — es müssen Buchstaben, Ziffern oder Unterstriche übrig bleiben.`;
 }

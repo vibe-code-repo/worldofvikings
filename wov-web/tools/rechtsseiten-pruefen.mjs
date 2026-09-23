@@ -67,14 +67,27 @@ async function hole(pfad) {
 
 const ohneKommentare = (html) => html.replace(/<!--[\s\S]*?-->/g, '');
 
+/** Wird wahr, sobald der eigene Dienst endet (z. B. Port belegt): dann NICHT gegen einen fremden Dienst prüfen. */
+let dienstBeendet = false;
+
+/**
+ * Wartet, bis der EIGENE Dienst meldet, dass er lauscht (Zeile „Listening“ auf
+ * seiner Standardausgabe). Ein bloßes Antworten am Port genügt nicht: Belegt
+ * ein fremder Dienst den Port, würde sonst gegen ihn geprüft.
+ */
+let lauscht = false;
 async function warteAufPort() {
   for (let i = 0; i < 100; i++) {
-    try {
-      await fetch(`${BASIS}/de`, { redirect: 'manual' });
-      return true;
-    } catch {
-      await new Promise((r) => setTimeout(r, 100));
+    if (dienstBeendet) return false;
+    if (lauscht) {
+      try {
+        await fetch(`${BASIS}/de`, { redirect: 'manual' });
+        return !dienstBeendet;
+      } catch {
+        /* noch nicht bereit */
+      }
     }
+    await new Promise((r) => setTimeout(r, 100));
   }
   return false;
 }
@@ -96,7 +109,25 @@ function matrix(modul) {
   const pflicht = FELDER.filter((f) => !OPTIONALFELDER.includes(f));
   const gefuellt = Object.fromEntries(FELDER.map((f) => [f, `Wert ${f}`]));
   const unsichtbar = { ZWSP: '​', ZWNJ: '‌', ZWJ: '‍', WJ: '⁠', MVS: '᠎', BOM: '﻿' };
+  // Unsichtbare Zeichen aus dem Angriffsbericht 3 (Lo, Mn, So, Cf), je einzeln
+  // und mit einem Leerzeichen davor bzw. dahinter.
+  const angriff = {
+    'U+3164': '\u3164', 'U+115F': '\u115F', 'U+1160': '\u1160', 'U+FFA0': '\uFFA0',
+    'U+2800': '\u2800', 'U+034F': '\u034F', 'U+FE00': '\uFE00', 'U+FE01': '\uFE01',
+    'U+FE0F': '\uFE0F', 'U+180B': '\u180B', 'U+180C': '\u180C', 'U+180D': '\u180D',
+    'U+180F': '\u180F', 'U+00AD': '\u00AD', 'U+E0020': '\u{E0020}',
+  };
+  const angriffsformen = {};
+  for (const [n, z] of Object.entries(angriff)) {
+    angriffsformen[n] = (o, f) => (o[f] = z);
+    angriffsformen[`${n} + Leerzeichen`] = (o, f) => (o[f] = ` ${z} `);
+    angriffsformen[`${n} + Leerzeichen + ${n}`] = (o, f) => (o[f] = `${z} ${z}`);
+  }
   const formen = {
+    ...angriffsformen,
+    'alle Angriffszeichen zusammen': (o, f) => (o[f] = Object.values(angriff).join(' ')),
+    'nur Satzzeichen ---': (o, f) => (o[f] = '---'),
+    'nur Satzzeichen ?': (o, f) => (o[f] = ' ? '),
     fehlt: (o, f) => delete o[f],
     leer: (o, f) => (o[f] = ''),
     leerraum: (o, f) => (o[f] = '  \t\n '),
@@ -134,6 +165,8 @@ function matrix(modul) {
   const optional = [
     ['leer', '', false], ['nur Leerraum', '   ', false], ['fehlt', undefined, false],
     ['nur ZWSP/WJ/BOM', '​⁠﻿', false], ['nbsp + ZWSP', ' ​', false],
+    ['nur U+3164', '\u3164', false], ['nur U+2800', '\u2800', false], ['U+115F U+1160 U+FFA0 + Leerzeichen', '\u115F \u1160 \uFFA0', false],
+    ['nur U+034F U+FE0F', '\u034F\uFE0F', false],
     ['Platzhalter [[UST-ID]]', '[[UST-ID]]', true], ['Platzhalter [ [X] ]', '[ [X] ]', true],
     ['Platzhalter {{X}}', '{{X}}', true], ['echter Wert', 'DE123456789', false],
   ];
@@ -146,6 +179,22 @@ function matrix(modul) {
       pruefe(offen === erwartet, `Matrix: optionales Feld ${f}: ${name} → ${erwartet ? 'offen' : 'ohne Hinweis'}`, `beobachtet: ${offen ? 'offen' : 'ok'}`);
     }
   }
+  // Fehlalarm-Gegenproben: echte Werte müssen als gefüllt gelten (jedes Pflichtfeld).
+  const echt = [
+    'Müller & Söhne KG', 'Straße 5', 'ß', 'Schmidt-Obermüller', "O'Brien", 'D’Arcy',
+    'mike@example.de', '+491701234567', '0170 1234567', '+49 (0) 170 123-4567',
+    'Иван Петров', '田中太郎', '山田 花子', '김민수', 'محمد', 'A\u3164', '\u3164A', '5', 'a',
+    'Kiel\nSchleswig-Holstein',
+  ];
+  let echteBad = 0;
+  for (const f of pflicht) {
+    for (const wert of echt) {
+      const offen = offeneFelder({ ...gefuellt, [f]: wert }).includes(f);
+      if (offen) { echteBad += 1; pruefe(false, `Gegenprobe: Pflichtfeld ${f} = ${JSON.stringify(wert)} → gefüllt`, 'beobachtet: offen'); }
+    }
+  }
+  if (echteBad === 0) console.log(`ok     Gegenproben: ${pflicht.length * echt.length} echte Werte (Umlaute, ß, Bindestrich, Apostroph, E-Mail, Telefon, Kyrillisch, CJK, Arabisch, Hangul, Mischwerte) gelten als gefüllt`);
+  pruefe(modul.hatWert('Testwert') === true && modul.hatWert('\u3164') === false && modul.hatWert('\u2800') === false, 'hatWert: Testwert ja, U+3164 nein, U+2800 nein');
   // Umgedrehte Logik: ein NEUES Feld ist ohne Eintrag in einer Liste Pflicht.
   for (const [name, wert, erwartet] of [['leer', '', true], ['ZWSP', '​', true], ['Platzhalter', '[[NEU]]', true], ['gefüllt', 'ein Wert', false]]) {
     const offen = offeneFelder({ ...gefuellt, neuesFeld: wert }).includes('neuesFeld');
@@ -180,8 +229,13 @@ async function lauf() {
       pruefe(/<main\b/.test(h) && /<h1\b/.test(h), `${pfad} hat <main> und <h1>`);
       const gesehen = r.text.includes(RECHT[l].hinweis);
       pruefe(gesehen === hatPlatzhalter, `${pfad}: Musterhinweis ${hatPlatzhalter ? 'vorhanden' : 'fehlt'} wie in rechtliches.ts`, `Hinweis ${gesehen ? 'steht da' : 'fehlt'}`);
-      const roh = /\[\[/.test(ohneKommentare(r.text).replace(/<script[\s\S]*?<\/script>/g, ''));
-      pruefe(roh === hatPlatzhalter, `${pfad}: sichtbare [[-Platzhalter ${hatPlatzhalter ? 'vorhanden' : 'fehlen'} wie in rechtliches.ts`);
+      // Sichtbarer Text in <main>, ohne Tags; dieselbe Funktion wie der Waechter.
+      const haupt = (ohneKommentare(r.text).match(/<main\b[\s\S]*?<\/main>/) ?? [''])[0]
+        .replace(/<script[\s\S]*?<\/script>/g, '')
+        .replace(/<style[\s\S]*?<\/style>/g, '')
+        .replace(/<[^>]*>/g, ' ');
+      const roh = modul === null ? /\[\[/.test(haupt) : modul.enthaeltPlatzhalter(haupt);
+      pruefe(roh === hatPlatzhalter, `${pfad}: sichtbare Platzhalter-Klammern ${hatPlatzhalter ? 'vorhanden' : 'fehlen'} wie in rechtliches.ts`);
       const noindex = /<meta[^>]+name="robots"[^>]+noindex/.test(r.text);
       pruefe(noindex === hatPlatzhalter, `${pfad}: noindex ${hatPlatzhalter ? 'gesetzt' : 'nicht gesetzt'}`);
     }
@@ -235,12 +289,28 @@ if (!existsSync(resolve(BUILD, 'index.js'))) {
 
 const dienst = spawn('node', [BUILD], {
   env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1' },
-  stdio: ['ignore', 'ignore', 'inherit'],
+  stdio: ['ignore', 'pipe', 'inherit'],
+});
+// Stirbt das Skript unterwegs (z. B. Ausgabe in eine geschlossene Pipe), darf der
+// Dienst nicht verwaisen und den Port belegen.
+process.on('exit', () => {
+  try {
+    dienst.kill('SIGKILL');
+  } catch {
+    /* schon weg */
+  }
+});
+process.stdout.on('error', () => process.exit(1));
+dienst.stdout.on('data', (d) => {
+  if (String(d).includes('Listening')) lauscht = true;
+});
+dienst.once('exit', () => {
+  dienstBeendet = true;
 });
 console.log(`Dienst gestartet: PID ${dienst.pid}, ${BASIS}`);
 try {
   if (!(await warteAufPort())) {
-    pruefe(false, 'Dienst antwortet auf dem Port');
+    pruefe(false, 'Eigener Dienst antwortet auf dem Port', dienstBeendet ? 'Dienst hat sich beendet (Port belegt?)' : 'keine Antwort');
   } else {
     await lauf();
   }
@@ -248,7 +318,7 @@ try {
   pruefe(false, 'Lauf ohne Ausnahme', String(e));
 } finally {
   dienst.kill('SIGTERM');
-  await new Promise((r) => dienst.once('exit', r));
+  if (!dienstBeendet) await new Promise((r) => dienst.once('exit', r));
   let lebt = true;
   try {
     process.kill(dienst.pid, 0);

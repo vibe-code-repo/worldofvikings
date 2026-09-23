@@ -76,27 +76,53 @@ void _alleFelderGelistet;
 export const OPTIONALFELDER: readonly string[] = ['ustId'];
 
 /**
- * Der sichtbare Kern eines Werts: ohne Leerraum (`\p{White_Space}`, u. a.
- * NBSP) und ohne unsichtbare Formatzeichen (`\p{Cf}`: U+200B, U+200C, U+200D,
- * U+2060, U+180E, U+FEFF …). Ein Wert, der danach leer ist, ist für den Leser
- * leer, auch wenn Zeichen darin stehen.
+ * Der Kern eines Werts: ohne Leerraum (`\p{White_Space}`, u. a. NBSP) und ohne
+ * unsichtbare Formatzeichen (`\p{Cf}`: U+200B, U+200C, U+200D, U+2060,
+ * U+180E, U+FEFF …).
  */
 export function sichtbarerKern(wert: unknown): string {
   return typeof wert === 'string' ? wert.replace(/[\p{Cf}\p{White_Space}]/gu, '') : '';
 }
 
-/** Hat der Wert sichtbaren Inhalt? (Die Seiten nutzen das für optionale Felder.) */
+/**
+ * Unsichtbare „Füllbuchstaben“, die zwar Buchstaben sind (`\p{L}`), aber
+ * nichts zeigen: Hangul-Füller U+115F, U+1160, U+3164, U+FFA0 und das
+ * Braille-Leerzeichen U+2800 (eigentlich `\p{So}`, der Vollständigkeit halber).
+ */
+const FUELLZEICHEN = new Set([0x115f, 0x1160, 0x3164, 0xffa0, 0x2800]);
+
+/**
+ * Hat der Wert sichtbaren Inhalt? Ein Wert zählt nur dann als gefüllt, wenn
+ * sein Kern mindestens einen Buchstaben oder eine Ziffer (`[\p{L}\p{N}]`)
+ * enthält, der kein Füllbuchstabe ist. Statt eine Liste unsichtbarer Zeichen
+ * immer weiter zu verlängern (Angriff 3), fragt die Prüfung nach dem, was ein
+ * echter Wert hat. Nebenwirkung, gewollt: Ein Wert nur aus Satzzeichen („-“,
+ * „?“) gilt als leer. Die Seiten nutzen dieselbe Funktion für optionale Felder.
+ */
 export function hatWert(wert: unknown): boolean {
-  return sichtbarerKern(wert) !== '';
+  for (const zeichen of sichtbarerKern(wert)) {
+    if (/[\p{L}\p{N}]/u.test(zeichen) && !FUELLZEICHEN.has(zeichen.codePointAt(0) ?? 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Platzhalter-Klammern: `[[`, `]]`, `{{`, `}}` (auch `[ [NAME] ]`, siehe Kern). */
+const PLATZHALTER = /\[\[|\]\]|\{\{|\}\}/;
+
+/** Enthält der Text Platzhalter-Klammern? (Auch das Prüfskript nutzt das.) */
+export function enthaeltPlatzhalter(text: unknown): boolean {
+  return PLATZHALTER.test(sichtbarerKern(text));
 }
 
 /**
  * Welche Felder sind noch offen? Reine Funktion, deshalb einzeln testbar.
  *
- * Offen ist ein Feld, dessen sichtbarer Kern eine Platzhalter-Klammer enthält
+ * Offen ist ein Feld, dessen Kern eine Platzhalter-Klammer enthält
  * (`[[`, `]]`, `{{`, `}}` — also auch `[ [NAME] ]`; in jedem Feld, auch in
  * optionalen), und bei einem Pflichtfeld zusätzlich, wenn es fehlt, kein Text
- * ist oder keinen sichtbaren Inhalt hat. Pflicht ist jedes Feld, das nicht in
+ * ist oder nicht `hatWert()` ist (kein Buchstabe, keine Ziffer). Pflicht ist jedes Feld, das nicht in
  * `optional` steht, auch eines, das `FELDER` (noch) nicht kennt.
  */
 export function offeneFelder(
@@ -106,9 +132,9 @@ export function offeneFelder(
   const werte = angaben as Record<string, unknown>;
   const offen: string[] = [];
   for (const schluessel of new Set<string>([...FELDER, ...Object.keys(werte)])) {
-    const kern = sichtbarerKern(werte[schluessel]);
-    if (/\[\[|\]\]|\{\{|\}\}/.test(kern)) offen.push(schluessel);
-    else if (!optional.includes(schluessel) && kern === '') offen.push(schluessel);
+    const wert = werte[schluessel];
+    if (enthaeltPlatzhalter(wert)) offen.push(schluessel);
+    else if (!optional.includes(schluessel) && !hatWert(wert)) offen.push(schluessel);
   }
   return offen;
 }

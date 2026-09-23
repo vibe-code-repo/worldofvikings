@@ -20,7 +20,11 @@
  *     `generateGridLayout`, und ausdrücklich ein ANDERES als der
  *     1.0-Pfad. Ohne die zweite Hälfte wäre die erste auch dann grün,
  *     wenn der Schalter gar nichts täte.
- *  4. Laufzeit des Rasterpfads bei 200 Zellen unter 10 ms je Layout.
+ *  4. Laufzeit des Rasterpfads bei 200 Zellen — nicht gegen eine feste
+ *     Millisekundengrenze (die kippt unter fremder Last, siehe unten),
+ *     sondern differenziell gegen eine mitgemessene Referenzarbeit im
+ *     selben Prozess: Generator höchstens das SCHWELLE_SCHNITT-fache
+ *     ihrer Kosten, im Schnitt über 40 Saaten (Einzelheiten dort).
  *
  * ── Warum Hashes und nicht 82 MiB Layouts ─────────────────────────────
  * `DG_Hildir_PlainsFortress` allein ergibt über 40 Saaten 81 MiB JSON.
@@ -46,6 +50,30 @@ import { join } from 'node:path';
 import { DUNGEONS, DUNGEONS_BY_NAME, type DungeonDef } from '@wov/shared';
 import { generateDungeonLayout } from '@wov/shared';
 import { erzeugeLayoutFuerKit, generateGridLayout } from '@wov/shared';
+
+/*
+  N2-Nachbesserung (23.09.2026, Angriffsbericht „golden-kits N1 — Angriff 2",
+  Befund A7): Teil 4 misst ausschließlich über `process.threadCpuUsage()`
+  (nur Hauptthread, siehe dort) — die API kam erst in Node 22.19.0/23.9.0,
+  `package.json` erlaubt aber `engines: node >= 22.5`. Ein STILLER Rückfall
+  auf `process.cpuUsage()` ist ausdrücklich keine Option: Prozess-CPU zählt
+  V8-GC-/JIT-Hilfsthreads mit und war genau der Blocker, den die
+  Umstellung auf `threadCpuUsage()` beheben sollte (Angriffsbericht
+  „golden-kits Zeitschwelle — Angriff.md"). Lieber laut abbrechen als
+  leise auf die widerlegte Messung zurückfallen. Die Lücke zu `engines`
+  bleibt offen — `package.json` ist eine Hot-File und wird hier nicht
+  angefasst (Bericht „golden-kits N1", Abschnitt N2).
+*/
+if (typeof process.threadCpuUsage !== 'function') {
+  console.error(
+    `FEHLER: process.threadCpuUsage() fehlt auf dieser Node-Version (${process.version}). ` +
+      'Benötigt Node >= 22.19.0 (bzw. >= 23.9.0) — package.json „engines" erlaubt formal ' +
+      '>= 22.5, ohne dass das hier geprüft wird. Kein Rückfall auf process.cpuUsage(): ' +
+      'Prozess-CPU zählt V8-Hilfsthreads mit und erzeugt Fehlalarme unter Last (der ' +
+      'ursprüngliche Blocker dieser Datei).'
+  );
+  process.exit(1);
+}
 
 /** Dieselbe Stichprobe wie in der Konzeptnotiz und in `messe-stonevault-logik.ts`. */
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -234,8 +262,8 @@ for (const def of rasterkits) {
   check(`${def.name}: Verteiler != generateDungeonLayout (40 Saaten)`, unterschiedlich);
 }
 
-// ── 4. Laufzeit bei 200 Zellen ────────────────────────────────────────
-console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen) ===\n');
+// ── 4. Laufzeit bei 200 Zellen — differenziell gegen eine Referenzarbeit ──
+console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen, differenziell) ===\n');
 {
   /*
     Gemessen wird EIN Rasterkit, nicht jedes.
@@ -248,33 +276,279 @@ console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen) ===\n');
     Rasterkit dazu, das NICHT abgeleitet ist, gehört es hier hinein.
   */
   const gross: DungeonDef = { ...rasterkits[0]!, maxRooms: 200 };
-  // Aufwärmen: Die ersten Läufe messen den JIT, nicht den Generator.
-  for (let s = 1; s <= 20; s++) erzeugeLayoutFuerKit(gross, s);
-  const zeiten: number[] = [];
+
+  /*
+    N1-Nachbesserung (22.09.2026, Angriffsbericht „golden-kits Zeitschwelle
+    — Angriff.md"): Weder `process.cpuUsage()` (Prozess-CPU, Stand
+    `12522a9`) noch `process.threadCpuUsage()` (Hauptthread) allein retten
+    eine feste 10-ms-Grenze. Prozess-CPU zählt V8-GC-/JIT-Hilfsthreads mit
+    (0,8–3,9 ms Fremdanteil je Fenster im echten Testprozess) — das
+    erzeugt Fehlalarme im Ruhezustand. Hauptthread-CPU entfernt diesen
+    Fremdanteil, aber unter echter Kernkonkurrenz (diese Maschinenklasse:
+    physische Kerne mit SMT) verliert der Hauptthread selbst Befehle pro
+    Takt — derselbe Angriff mass +82 % Hauptthread-Zeit für dieselbe
+    Rechnung unter Last (6,0 → 11,1 ms). Das ist echte Mehrarbeit, keine
+    Fehlmessung — keine CPU-Uhr kann sie von einer echten Regression
+    unterscheiden, wenn man sie gegen eine feste Millisekundengrenze hält.
+
+    Die Antwort ist deshalb keine bessere Uhr, sondern eine bessere
+    VERGLEICHSGRÖSSE (dasselbe Prinzip wie server/test/g12-tick-
+    aufteilung.ts, Teil D: gegen tatsächlich verbrauchte Zeit statt gegen
+    eine feste Grenze messen — dort die gemessene Wartezeit, hier eine
+    eigens dafür geschriebene Rechenarbeit, weil der Rastergenerator
+    keine bekannte Soll-Verzögerung hat): „Generator höchstens X-mal so
+    teuer wie eine mitgemessene Referenzarbeit, verschränkt im selben
+    Prozess, im selben Moment, unter derselben Last." Trifft
+    Kernkonkurrenz beide Seiten der Verschränkung im selben
+    Sekundenbruchteil, hebt sie Zähler UND Nenner etwa gleich an — das
+    Verhältnis bleibt stehen (Bericht „golden-kits N1", 105 gemessene
+    Läufe über sieben Lastformen: unter der Last, die ein Rollout
+    tatsächlich erzeugen kann — ein ungepinnter Sammellauf —, steigt das
+    Verhältnis NICHT, es sinkt eher; siehe Schwellen unten für die
+    Zahlen und für die Form, die das nicht mehr gilt).
+
+    N2-Nachbesserung (23.09.2026, Angriffsbericht „golden-kits N1 —
+    Angriff 2"): Die ursprüngliche Schwelle 1,45 war aus der 8-Kern-
+    angehefteten Lastform kalibriert — die kann ein Rollout nicht
+    erzeugen (kein `taskset`/keine Kernbindung im Repo, `tools/wov-
+    update.sh` startet ungepinnt) und war zudem nicht reproduzierbar
+    (Angriff 2 kam auf höchstens 1,18 statt der gemeldeten 1,31). Die
+    Schwelle ist jetzt aus der tatsächlich erreichbaren Last abgeleitet,
+    nicht aus einer synthetischen Form — siehe unten.
+  */
+  interface RefKnoten {
+    readonly id: number;
+    readonly art: string;
+    readonly kanten: number[];
+    readonly breite: number;
+    readonly hoehe: number;
+    readonly tuer: number;
+  }
+  function xorshift32(x: number): number {
+    x ^= x << 13;
+    x >>>= 0;
+    x ^= x >>> 17;
+    x >>>= 0;
+    x ^= x << 5;
+    x >>>= 0;
+    return x >>> 0;
+  }
+  /*
+    Referenzkern: ruft KEINEN Generatorcode auf — sonst „nimmt sie eine
+    Regression im Generator mit" und die Prüfung wäre blind für genau
+    das, was sie prüfen soll (Karte, Abschnitt „Ausdrücklich nicht").
+    Ähnelt ihm im VERHALTEN (Objekte anlegen, eine Map über einen
+    Schlüssel füllen, verzweigen, Nachbarn nachschlagen) und in der
+    GRÖSSENORDNUNG (REF_GROESSE = 18000 Knoten ergibt ruhig 7–9 ms
+    Hauptthread-CPU-Zeit gegen 6–8 ms für ein Layout bei maxRooms: 200).
+    Eine reine Ganzzahlschleife reicht nicht: Sie bliebe meist in
+    Registern/L1 und würde von echter Cache-/Speicherbandbreiten-
+    Konkurrenz kaum getroffen (Karte, Auftrag). Geprüft (Bericht
+    „golden-kits N1"): Unter 6 ALU- + 4 Speicher-Brennern steigt das
+    VERHÄLTNIS Generator/Referenz nicht — beide Seiten sind groß genug,
+    um vergleichbar oft ans Zuteilungs-/Cache-Limit zu stoßen.
+  */
+  const REF_GROESSE = 18000;
+  function referenzArbeit(seed: number): number {
+    let zustand = ((seed * 2654435761) >>> 0) || 1;
+    const knoten = new Map<number, RefKnoten>();
+    for (let i = 0; i < REF_GROESSE; i++) {
+      zustand = xorshift32(zustand);
+      const art =
+        zustand % 4 === 0 ? 'raum' : zustand % 4 === 1 ? 'gang' : zustand % 4 === 2 ? 'wand' : 'leer';
+      const kanten: number[] = [];
+      const anzKanten = zustand % 5;
+      for (let k = 0; k < anzKanten; k++) {
+        zustand = xorshift32(zustand);
+        kanten.push(zustand % REF_GROESSE);
+      }
+      zustand = xorshift32(zustand);
+      const breite = zustand % 10;
+      zustand = xorshift32(zustand);
+      const hoehe = zustand % 10;
+      zustand = xorshift32(zustand);
+      const tuer = art === 'raum' ? zustand % 2 : 0;
+      knoten.set(i, { id: i, art, kanten, breite, hoehe, tuer });
+    }
+    let summe = 0;
+    for (const k of knoten.values()) {
+      summe += k.kanten.length + k.breite + k.hoehe + k.tuer;
+      for (const nachbarId of k.kanten) {
+        const nachbar = knoten.get(nachbarId);
+        if (nachbar) summe += nachbar.breite;
+      }
+    }
+    return summe;
+  }
+
+  // Aufwärmen: Die ersten Läufe messen den JIT, nicht die Arbeit — beide
+  // Seiten, sonst würde die noch ungewärmte Referenz das Verhältnis der
+  // ersten Saaten verzerren.
+  for (let s = 1; s <= 20; s++) {
+    erzeugeLayoutFuerKit(gross, s);
+    referenzArbeit(s);
+  }
+
+  const messen = <T,>(fn: () => T): { cpu: number; ergebnis: T } => {
+    const cpu0 = process.threadCpuUsage();
+    const ergebnis = fn();
+    const cpu = process.threadCpuUsage(cpu0);
+    return { cpu: (cpu.user + cpu.system) / 1000, ergebnis };
+  };
+  const median = (werte: readonly number[]): number => {
+    const sortiert = [...werte].sort((a, b) => a - b);
+    return sortiert[Math.floor(sortiert.length / 2)]!;
+  };
+
+  const genZeiten: number[] = [];
+  const verhaeltnisse: number[] = [];
   let raeume = 0;
   for (const seed of SEEDS) {
-    const t0 = process.hrtime.bigint();
-    const l = erzeugeLayoutFuerKit(gross, seed);
-    zeiten.push(Number(process.hrtime.bigint() - t0) / 1e6);
-    raeume += l.rooms.length;
+    // Reihenfolge wechselt mit der Saat: hebt einen einseitigen Aufwärm-
+    // /Abkühleffekt über die 40 Saaten auf.
+    let layout: ReturnType<typeof messen<ReturnType<typeof erzeugeLayoutFuerKit>>>;
+    let referenz: ReturnType<typeof messen<number>>;
+    if (seed % 2 === 0) {
+      referenz = messen(() => referenzArbeit(seed));
+      layout = messen(() => erzeugeLayoutFuerKit(gross, seed));
+    } else {
+      layout = messen(() => erzeugeLayoutFuerKit(gross, seed));
+      referenz = messen(() => referenzArbeit(seed));
+    }
+    genZeiten.push(layout.cpu);
+    verhaeltnisse.push(layout.cpu / referenz.cpu);
+    raeume += layout.ergebnis.rooms.length;
   }
-  const sortiert = [...zeiten].sort((a, b) => a - b);
-  const median = sortiert[Math.floor(sortiert.length / 2)]!;
-  const schnitt = zeiten.reduce((a, b) => a + b, 0) / zeiten.length;
-  const max = sortiert[sortiert.length - 1]!;
+
+  const vMedian = median(verhaeltnisse);
+  const vSchnitt = verhaeltnisse.reduce((a, b) => a + b, 0) / verhaeltnisse.length;
+  const vMax = Math.max(...verhaeltnisse);
+  const genMedian = median(genZeiten);
   console.log(
-    `  ${zeiten.length} Layouts, ${(raeume / zeiten.length).toFixed(1)} Räume je Layout — ` +
-      `min ${sortiert[0]!.toFixed(2)} ms, median ${median.toFixed(2)} ms, Schnitt ${schnitt.toFixed(2)} ms, max ${max.toFixed(2)} ms`
+    `  ${verhaeltnisse.length} Saaten, ${(raeume / verhaeltnisse.length).toFixed(1)} Räume je Layout — ` +
+      `Layout ${genMedian.toFixed(2)} ms (Hauptthread-CPU-Zeit, Median), ` +
+      `Verhältnis Generator/Referenz: Median ${vMedian.toFixed(2)}, Schnitt ${vSchnitt.toFixed(2)}, Ausreisser ${vMax.toFixed(2)}`
   );
-  check(`Median unter 10 ms je Layout`, median < 10, `${median.toFixed(2)} ms`);
-  check(`Schnitt unter 10 ms je Layout`, schnitt < 10, `${schnitt.toFixed(2)} ms`);
-  // Der MAXIMALwert ist bewusst kein 10-ms-Wächter: Ein einzelner
-  // Ausreisser über 40 Läufe ist die Speicherbereinigung des Prozesses,
-  // nicht der Generator (gemessen: median 6,7 ms, max 10,9 ms auf
-  // derselben Maschine im selben Lauf). Eine Grenze, die von der Laune
-  // der GC abhängt, ist ein Test, der zufällig rot wird — die weite
-  // Grenze hier fängt trotzdem jede echte Grössenordnung ab.
-  check(`kein Ausreisser über 30 ms`, max < 30, `${max.toFixed(2)} ms`);
+
+  /*
+    Der MEDIAN der Verhältnisse ist kein eigener Check mehr — er ist bei
+    diesem Testaufbau NACHWEISLICH TOT (Bericht „golden-kits N1",
+    Abschnitt „Warum kein Median-Check"): In über 40 gemessenen Läufen
+    (ruhig, unter beiden Lastformen, unter jedem Mutanten) wurde der
+    Median KEIN EINZIGES Mal rot, ohne dass der Schnitt es nicht auch
+    wurde — erwartbar, weil jeder hier gebaute Fehler additiv ist (der
+    Generator wird höchstens langsamer, nie schneller) und der Schnitt
+    jede zusätzliche Millisekunde direkt in die Summe trägt, während der
+    Median bei einer Minderheit betroffener Saaten blind bleibt (siehe
+    Viertel-Saaten-Mutant unten). Eine Prüfung, die nie unabhängig
+    auslöst, ist die Definition von tot (dieselbe Lehre wie beim Angriff
+    auf server/test/g12-tick-aufteilung.ts) — sie bleibt nur als
+    Diagnosezeile in der Ausgabe.
+
+    N2-Nachbesserung (23.09.2026, Angriffsbericht „golden-kits N1 —
+    Angriff 2", Befund A2): Die Schwelle steht jetzt auf der Last, die
+    ein Rollout tatsächlich erzeugen kann — ein ungepinnter Sammellauf
+    (`tools/wov-update.sh:811` startet ohne `taskset`/Kernbindung, keine
+    Stelle im Repo tut das) —, nicht mehr auf der synthetischen
+    Lastform mit angehefteten Brennern: Die war weder erreichbar noch,
+    wie sich zeigte, verlässlich reproduzierbar (Angriff 2 kam dort auf
+    höchstens 1,18 statt der zuvor gemeldeten 1,31).
+
+    Schwellen aus GEMESSENEN Verhältnissen, EIGENE Läufe UND die 70
+    Läufe des Angreifers zusammengenommen (Bericht „golden-kits N1",
+    Abschnitt N2):
+      - Ruhig, 20 frische Prozesse der ECHTEN Testdatei (eigene Läufe):
+        Schnitt 0,88–1,18.
+      - Unter echter Last, 15 Läufe der ECHTEN Testdatei unter 6 ALU- +
+        4 Speicher-Brennern, ungepinnt (eigene Läufe): Schnitt
+        0,73–1,13 — KEIN Anstieg gegenüber ruhig, die Last drückt das
+        Verhältnis eher nach unten (die Referenz — 18 000 Objekte, eine
+        Map, Kanten-Arrays — reagiert unter Last MEHR als der Generator,
+        nicht weniger; siehe Bericht, Abschnitt „Warum die Grundlinie
+        über 1 liegt").
+      - Angriff 2 (unabhängig, 70 Läufe über sechs Lastformen inkl. der
+        früheren angehefteten Form): Schnitt 0,80–1,18, derselbe
+        Höchstwert wie in den eigenen Läufen.
+    Höchster über alle 105 Läufe gemessener Wert: 1,18. SCHWELLE_SCHNITT
+    = 1,25 liegt rund 6 % darüber — 0 Fehlalarme in allen 105 Läufen.
+    Fängt eine gleichmäßige +37…39-%-Regression zuverlässig (6/6, ruhig
+    und unter Last), +50…56 % ebenso (6/6) — +24…30 % NICHT zuverlässig
+    (Bericht, Tabelle Mutanten). Die Karte wollte „+25 % wird gefangen";
+    das ist mit einer last-invarianten Schwelle auf dieser Maschine
+    nicht zu halten (Bericht, Abschnitt „Warum +25 % nicht erreichbar
+    ist" — die Referenz selbst braucht Kopfraum, siehe unten).
+
+    SCHWELLE_AUSREISSER = 5,0 bleibt unverändert. Ausdrücklich notiert
+    (Angriff 2, Befund A5): Diese Prüfung fängt eine einzelne kaputte
+    Saat erst ab dem gut Fünffachen ihrer üblichen Kosten — bei 40
+    Saaten eine unentdeckte Gesamtregression von bis zu rund +12 %, die
+    keine der beiden Prüfungen sieht. Bewusst nicht enger gestellt:
+    Ruhige Ausreisser reichen bereits bis 2,32 (eigene Läufe); eine
+    engere Schwelle würde dort Fehlalarme erzeugen.
+
+    Auch notiert (Angriff 2, Befund A3): Die Grundlinie des Verhältnisses
+    liegt ruhig bei rund 1,0–1,15 statt bei 1,0, weil die 18 000 Objekte
+    der Referenz mehr Speichermüll erzeugen als ein Layout — ein Teil
+    davon wird im NACHFOLGENDEN Fenster der Verschränkung abgerechnet,
+    überwiegend also einem Layout-Fenster. Das ist kein Fehler der
+    Messung, sondern eine Eigenschaft der Verschränkung selbst
+    (bestätigt: bei geblockter statt verschränkter Messung liegt der
+    Generator ohne Referenz-Nachbarschaft unter 1,0). Nicht behoben,
+    weil jeder Versuch, den Speichermüll zu drosseln, die Referenz
+    weniger repräsentativ für echten Cache-/Speicherdruck macht — siehe
+    oben, warum eine reine Ganzzahlschleife nicht reicht.
+  */
+  const SCHWELLE_SCHNITT = 1.25;
+  const SCHWELLE_AUSREISSER = 5.0;
+  check(
+    `Schnitt-Verhältnis Generator/Referenz unter ${SCHWELLE_SCHNITT}`,
+    vSchnitt < SCHWELLE_SCHNITT,
+    `${vSchnitt.toFixed(2)} (Median zur Diagnose: ${vMedian.toFixed(2)})`
+  );
+  check(`kein Ausreisser-Verhältnis über ${SCHWELLE_AUSREISSER}`, vMax < SCHWELLE_AUSREISSER, `${vMax.toFixed(2)}`);
+
+  /*
+    KEIN Größenordnungswächter mehr auf `genMedian` (N2-Nachbesserung,
+    Angriff 2, Befund A4): Ein absoluter Hauptthread-Median-Wächter war
+    bis eben noch da, ist aber — wie zuvor schon der Median-Check —
+    NACHWEISLICH TOT: Jede additive Generatorregression hebt `genMedian`
+    UND das Schnitt-Verhältnis proportional; der Schnitt löst bei
+    SCHWELLE_SCHNITT × Basiswert aus, deutlich unterhalb jeder absoluten
+    Grenze, die noch Kopfraum für Last hätte. Ein Wächter, der nur bei
+    einer GLOBALEN Verlangsamung der ganzen Maschine unabhängig auslösen
+    könnte (bei der das Verhältnis ~1 bliebe), wäre dort ohnehin falsch
+    rot — das ist keine Generatorregression, sondern eine
+    Umgebungsänderung. Dieselbe Regel, mit der der Median-Check entfernt
+    wurde („kein unabhängiger Fang ⇒ tot"), gilt hier genauso — also
+    entfernt, nicht nur belassen. Fürs Protokoll: Eine eigene
+    Belastungsprobe mit 24 Brennern (8 ALU + 8 Speicher + 8 Allokation)
+    kam auf höchstens 15,4 ms Hauptthread-Median, ohne den früheren
+    30-ms-Wächter auch nur in die Nähe zu bringen — er wäre also selbst
+    unter der stärksten erzeugbaren Last nie ein Signal gewesen, das der
+    Schnitt nicht längst gemeldet hätte (Bericht „golden-kits N1",
+    Abschnitt N2).
+  */
+
+  /*
+    Wartezeit (Wanduhr minus Hauptthread-CPU) bewusst KEIN eigener Check
+    (Karte, Abschnitt „Wartezeit"; Bericht „golden-kits N1", Abschnitt
+    „Wartezeit-Entscheidung"): Die Idee — Layout- und Referenz-Lücke
+    unter derselben Last vergleichen, weil beide gleich verdrängt werden
+    — ist im Prinzip richtig (g12 nutzt dasselbe Prinzip für eine bekannte
+    Verzögerung). Hier ist die Lücke aber schon RUHIG so unruhig, dass
+    kein stabiler Schwellenwert bliebe: In eigenen Messungen (40 Saaten,
+    mehrere Läufe) schwankte die Lücke je Saat zwischen rund 0 und 1,8 ms
+    — allein durch normale Zeitscheiben-/GC-Granularität, nicht durch
+    Warten. Ein `Atomics.wait`-Mutant mit 5-7 ms Wartezeit je Layout (das
+    Fünf- bis Siebenfache der Basisarbeit) wäre damit nicht zuverlässig
+    von Rauschen zu unterscheiden, ohne die Schwelle so weit zu setzen,
+    dass sie unterhalb dessen nichts mehr fängt. Da `generateGridLayout`
+    ausschließlich synchron rechnet (kein `await`, `readFile`, `Worker`
+    oder `setTimeout` in der Datei), ist ein echtes Blockieren zudem kein
+    naheliegender Regressionsweg — die Lücke bleibt hier offen
+    dokumentiert statt mit einer Prüfung verdeckt, die nur zufällig
+    grün oder rot wird.
+  */
 }
 
 if (failures > 0) {

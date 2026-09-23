@@ -34,6 +34,9 @@ import {
   DungeonAlgorithm,
   FOLIAGE,
   streueZone,
+  freiflaechenAusPlatzierungen,
+  freiflaechenFuerZone,
+  STORE_KOLLISIONSKISTE,
   FEATURES,
   RegionGeo,
   layoutBounds,
@@ -133,6 +136,12 @@ export interface ZoneManagerOptions {
   locationOverrides?: boolean;
   /** dungeonsEnabled — DUNGEON pieces are skipped when true (default true). */
   dungeonsEnabled?: boolean;
+  /**
+   * Layout world only: keep the ground under `placements` free of scatter
+   * (default false = scatter as before). Affects zones generated from now
+   * on; zones that already exist are not cleared.
+   */
+  platzierungenFreihalten?: boolean;
 }
 
 function zoneKey(x: number, y: number): string {
@@ -254,6 +263,8 @@ export class ZoneManager {
     null;
   /** Bitmaske aller im Layout vorkommenden Biome (+ Ozean), nur Layout-Modus. */
   private readonly layoutBiomeMask: number | null = null;
+  /** Clear areas of all layout placements (empty unless `platzierungenFreihalten`). */
+  private readonly platzierungsFreiflaechen: readonly ClearArea[] = [];
 
   constructor(
     private readonly geo: GeoManager,
@@ -282,6 +293,12 @@ export class ZoneManager {
         maske |= BIOME_BY_NAME.get(region.biome) ?? 0;
       }
       this.layoutBiomeMask = maske;
+      if (options.platzierungenFreihalten) {
+        this.platzierungsFreiflaechen = freiflaechenAusPlatzierungen(
+          this.regionGeo.layout,
+          STORE_KOLLISIONSKISTE
+        );
+      }
     }
   }
 
@@ -486,6 +503,9 @@ export class ZoneManager {
     }
     if (this.worldVegetation) {
       const stand = zdoStand(this.zdos, zone);
+      if (this.platzierungsFreiflaechen.length > 0) {
+        clearAreas.push(...freiflaechenFuerZone(this.platzierungsFreiflaechen, zone.x, zone.y));
+      }
       this.populateFoliage(heightmap, clearAreas);
       markiereStreu(this.zdos, zone, stand);
     }

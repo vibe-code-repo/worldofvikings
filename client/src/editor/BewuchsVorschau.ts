@@ -16,7 +16,8 @@
  * mit dem Ergebnis geschieht — hier Instanzen statt ZDOs.
  *
  * Zwei bewusste Abweichungen, beide unschaedlich beim Gestalten:
- *  - Keine `clearAreas`: Der Client kennt die Locations nicht, die der
+ *  - `clearAreas` nur aus den Platzierungen (gemeinsame Funktion
+ *    `freiflaechenAusPlatzierungen`), nicht aus den Locations, die der
  *    Server vorab platziert. Es koennen also ein paar Pflanzen dort
  *    stehen, wo spaeter ein Bauwerk freiraeumt.
  *  - Nur die Zonen um den Spieler, nicht die ganze Welt.
@@ -66,7 +67,15 @@
  * ebenfalls eine je Bild ab, ohne Frist.
  */
 
-import { streueZone, type ClientWorldLike, type StreuFund } from './bewuchsTypen';
+import {
+  freiflaechenAusPlatzierungen,
+  freiflaechenFuerZone,
+  STORE_KOLLISIONSKISTE,
+  streueZone,
+  type ClientWorldLike,
+  type StreuFund,
+} from './bewuchsTypen';
+import type { ClearArea } from '@wov/shared';
 import type { EntityManager } from '../entities/EntityManager';
 
 /** Wie viel die Vorschau zeigt: voll = 5x5 Zonen, klein = 3x3, aus = nichts. */
@@ -229,6 +238,15 @@ export class BewuchsVorschau {
     if (wahl !== null) this.zoneAbbauen(wahl);
   }
 
+  /** Clear areas of the layout placements, computed once (same function as the server). */
+  private freiflaechenListe: readonly ClearArea[] | null = null;
+  private freiflaechen(): readonly ClearArea[] {
+    this.freiflaechenListe ??= this.welt.regionGeo
+      ? freiflaechenAusPlatzierungen(this.welt.regionGeo.layout, STORE_KOLLISIONSKISTE)
+      : [];
+    return this.freiflaechenListe;
+  }
+
   /** Gibt die Instanzen einer Zone frei (`removeZDO` je Pflanze) und vergisst sie. */
   private zoneAbbauen(schluessel: string): void {
     for (const k of this.fertig.get(schluessel) ?? []) this.ent.removeZDO(k);
@@ -267,7 +285,7 @@ export class BewuchsVorschau {
           regionGeo: this.welt.regionGeo,
         },
         this.welt.heightmaps.getZone(zx, zy),
-        [],
+        freiflaechenFuerZone(this.freiflaechen(), zx, zy),
         (fund: StreuFund) => {
           const key = `${SCHLUESSEL}-${schluessel}-${i++}`;
           keys.push(key);

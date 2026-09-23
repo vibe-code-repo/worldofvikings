@@ -51,7 +51,7 @@ names, the `__vb` hooks, `wov-web`, the roadmap identifiers.
 
 ## 3. Parallel work: one session, one worktree, one branch, one pull request
 
-Several sessions — humans and agents, often three or four at once — work on
+Several sessions — humans and agents, often several at once — work on
 this repository at the same time. Git worktrees make that safe: every worktree
 is its own directory with its own checked-out branch and its own index, while
 all of them share one object store. A session edits, builds and commits in its
@@ -77,8 +77,8 @@ cat /opt/wov-worktrees/.slots/*/claim     # who is working on what, which paths
 
 # Claim a slot. mkdir is atomic: of two sessions, exactly one gets slot n.
 mkdir -p /opt/wov-worktrees/.slots
-for n in 0 1 2 3 4 5 6 7 8; do mkdir /opt/wov-worktrees/.slots/$n 2>/dev/null && break; n=; done
-echo "slot=$n"                            # empty: all nine taken, wait
+for n in 0 1 2 3 4 5 6 7 8 9 10 11 12 13; do mkdir /opt/wov-worktrees/.slots/$n 2>/dev/null && break; n=; done
+echo "slot=$n"                            # empty: all fourteen taken, wait
 
 SLUG=<topic>; AGENT=<claude|codex|deepseek|human>
 git worktree add --no-track /opt/wov-worktrees/$SLUG -b agent/$AGENT/$SLUG origin/main
@@ -112,6 +112,23 @@ Slot `n` owns these ports, and nothing else:
 | game server | `247n` | `port:` in `server/data/server.yml` (see below) |
 | client (Vite) | `529n` | `WOV_CLIENT_PORT=529n WOV_SPIEL_PORT=247n` |
 | admin service | `248n` | `WOV_ADMIN_PORT=248n` |
+
+That is the scheme for slots 0-8. `247n` stops at `2479` and `5299` is fixed in
+`tools/dungeon2-*`, so slots 9-13 have their own band (15 numbers that no file in
+the repo names and nothing on the machine listened on when measured, 23.09.2026):
+
+| Slot | game server | admin service | client (Vite) |
+|---|---|---|---|
+| 9 | `2709` | `2829` | `5842` |
+| 10 | `2710` | `2830` | `5843` |
+| 11 | `2711` | `2831` | `5844` |
+| 12 | `2712` | `2832` | `5845` |
+| 13 | `2713` | `2833` | `5846` |
+
+The same three settings apply (`port:` in `server.yml`, `WOV_ADMIN_PORT`,
+`WOV_CLIENT_PORT`/`WOV_SPIEL_PORT`); as a formula: game `2700+n`, admin `2820+n`,
+client `5833+n`. Do not put a fixed port from either scheme into a test; the guard
+below knows both.
 
 The game server reads its port only from `server/data/server.yml`, which is
 tracked. Change it in your worktree and restore it before every commit
@@ -150,17 +167,30 @@ without being named there, and `scripts/listen-spion.mjs` (usage in its header) 
 really binds - logging every `listen()`, and refusing fixed ports without binding
 anything if asked.
 
-Full test runs no longer collide on ports, but two things still argue for
-running them one after the other: timing-sensitive tests and frame-time
-measurements are skewed by a neighbour that computes or renders. Serialise
-both:
+Full test runs no longer collide on ports. Timing-sensitive tests and frame-time
+measurements are skewed by a neighbour that computes or renders, so the host
+limits what runs at once. Measured on wov-dev with 20 GB RAM and 8 cores
+(23.09.2026): one `typecheck` peaks at 1.8 GB, two at 3.7 GB; two full runs in
+two worktrees, three times, were 6/6 green and about 5 % slower each. The CPU,
+not memory, is the limit (load 12 on 8 cores with two full runs). So:
 
-```bash
-flock /opt/wov-worktrees/.slots/test.lock npm test
-flock /opt/wov-worktrees/.slots/measure.lock node tools/pw-fps-bench.mjs
-```
+| What | Places | Take it with |
+|---|---|---|
+| `typecheck`, `build`, `npm ci` | 2 | `tools/sperre.sh build 2 -- <command>` |
+| full test run (`npm test`) | 2, each in its own worktree | `tools/sperre.sh test 2 -- npm test` |
+| frame-time measurement | 1 | `flock /opt/wov-worktrees/.slots/measure.lock node tools/pw-fps-bench.mjs` |
+| workers per orchestrator on wov-dev | 4 | (a rule, not a lock) |
 
-`typecheck`, `lint` and `build` run in parallel without a lock.
+`lint` needs no lock. A test run that is timing-sensitive (a measurement, a
+suspicious red) is repeated alone.
+
+`tools/sperre.sh <name> <places> -- <command>` is a counting semaphore on `flock`:
+it takes the first free place (`<name>.lock`, then `<name>.2.lock` ... in
+`/opt/wov-worktrees/.slots`), runs the command while holding it and waits (poll,
+not a queue) when all are busy. Place 1 is the old lock file, so a plain
+`flock .../build.lock ...` still holds place 1 and stays correct. Check the tool
+with `tools/sperre.sh --selbsttest`. If SSH hangs, the emergency way goes through
+the host: `ssh wov-host 'pct exec 102 -- ...'`; end only your own processes there.
 
 ### 3.4 While you work
 
@@ -197,7 +227,8 @@ rm -r /opt/wov-worktrees/.slots/$n
 Stop your own server, client and test processes first — by the PIDs you
 started, never with `pkill -f <pattern>`: on shared machines a pattern such as
 `org.blender.Blender` also matches other sessions' processes. Then check with
-`ss -ltn | grep -E ":(247|248|529)$n\b"` that the slot's ports are free.
+`ss -ltn` that the slot's three ports are free
+(`247n`/`248n`/`529n`, slots 9-13: see the table above).
 
 ### 3.6 Branches, ownership and hot files
 

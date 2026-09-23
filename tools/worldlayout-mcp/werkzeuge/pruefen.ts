@@ -14,7 +14,9 @@ import { pruefeWelt, BereichFehler, ALLE_PRUEFUNGEN } from '@wov/shared/src/welt
 import { diffLayouts } from '@wov/shared/src/weltbau/diff.js';
 import { beschreibeOrt, type GeoLese } from '@wov/shared/src/weltbau/beschreiben.js';
 import { BESCHREIBEN_RADIUS_MAX, BESCHREIBEN_RADIUS_VORGABE } from '@wov/shared/src/weltbau/grenzen.js';
+import { waehleDiffBasis } from '@wov/shared/src/weltbau/diffBasis.js';
 import { mcp, lade, sitzungsBasis } from '../kern.js';
+import { vorgangsStapel } from './vorgaenge.js';
 
 type Antwort = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
@@ -96,28 +98,27 @@ mcp.registerTool(
   {
     description:
       'Was hat sich geändert? Vergleicht das aktuelle Weltdokument (nur lesen) mit dem Stand beim ersten Lesen dieser ' +
-      'Sitzung (gegen "sitzung", Vorgabe) oder mit einem übergebenen Dokument. Zählt neu/geändert/entfernt/verschoben ' +
+      'Sitzung (gegen "sitzung", Vorgabe), mit dem Stand vor dem letzten Vorgang ("vorgang"), vor einem bestimmten Vorgang ({vorgang: id}) oder mit einem übergebenen Dokument. Zählt neu/geändert/entfernt/verschoben ' +
       'je Sammlung und sagt, ob das Gelände betroffen ist (wirkt dann erst nach Neustart). ' +
       'Die Sitzungsbasis geht beim Neustart des MCP-Prozesses verloren.',
     inputSchema: {
       gegen: z
-        .union([z.literal('sitzung'), z.object({ layout: z.unknown() })])
+        .union([z.literal('sitzung'), z.literal('vorgang'), z.object({ vorgang: z.string() }), z.object({ layout: z.unknown() })])
         .optional()
-        .describe('"sitzung" (Vorgabe) oder { layout: <WorldLayout-Dokument> }'),
+        .describe('"sitzung" (Vorgabe), "vorgang" (vor dem letzten ops_apply), { vorgang: "<id>" } oder { layout: <WorldLayout-Dokument> }'),
     },
   },
   async ({ gegen }): Promise<Antwort> => {
     try {
       const { layout } = await lade();
-      let basis: WorldLayout | undefined;
-      if (gegen !== undefined && typeof gegen === 'object') {
-        basis = sanitizeWorldLayout(gegen.layout) ?? undefined;
-        if (!basis) return fehler('world_diff: das übergebene Dokument ist kein gültiges WorldLayout.');
-      } else {
-        basis = sitzungsBasis();
-        if (!basis) return fehler('world_diff: keine Sitzungsbasis vorhanden (Prozess neu gestartet?).');
-      }
-      const d = diffLayouts(basis, layout);
+      const w = waehleDiffBasis(gegen, {
+        sitzung: sitzungsBasis,
+        oberster: () => vorgangsStapel.oberster(),
+        finde: (id) => vorgangsStapel.finde(id),
+        bereinige: (roh) => sanitizeWorldLayout(roh),
+      });
+      if ('fehler' in w) return fehler(`world_diff: ${w.fehler}`);
+      const d = diffLayouts(w.basis, layout);
       return ok(`world_diff: ${d.text}`, d);
     } catch (f) {
       return fehler(`world_diff: ${(f as Error).message}`);

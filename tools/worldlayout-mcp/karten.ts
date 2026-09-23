@@ -39,6 +39,32 @@ import {
 } from '@wov/shared/src/weltbau/karte.js';
 import { kodierePng } from './png.js';
 
+/**
+ * Bringt world_check-Befunde in zeichenbare Form: nur rot/gelb mit endlicher
+ * Koordinate. Alles andere (Art „frist“/„hinweis“, Befund ohne Koordinate) wird nicht
+ * gezeichnet und nur gezählt — nie ein Absturz.
+ */
+export function zeichenbareBefunde(roh: readonly unknown[]): { befunde: KartenBefund[]; uebersprungen: number } {
+  const befunde: KartenBefund[] = [];
+  let uebersprungen = 0;
+  for (const b of roh) {
+    const o = (typeof b === 'object' && b !== null ? b : {}) as Record<string, unknown>;
+    const { schwere, x, z } = o;
+    // Art "frist" (Teilbericht) sitzt auf der Bereichsmitte und ist keine Fundstelle: nie zeichnen.
+    if (
+      o.pruefung !== 'frist' &&
+      (schwere === 'rot' || schwere === 'gelb') &&
+      typeof x === 'number' &&
+      typeof z === 'number' &&
+      Number.isFinite(x) &&
+      Number.isFinite(z)
+    ) {
+      befunde.push({ schwere, x, z });
+    } else uebersprungen++;
+  }
+  return { befunde, uebersprungen };
+}
+
 /** Harte Laufzeitgrenze für das Geländebild; danach Abbruch mit Meldung. */
 export const KARTE_FRIST_MS = 15_000;
 
@@ -47,7 +73,7 @@ export interface KartenAnfrage {
   pixel?: number;
   ebenen?: readonly string[];
   /** Ergebnis von world_check (nur die Ampel-Punkte), wird nur mit Ebene `befunde` gezeichnet. */
-  befunde?: readonly KartenBefund[];
+  befunde?: readonly unknown[];
   /** Grundfläche und Festigkeit je Prefab-Name; ohne Angabe zeichnet die Karte Punkte. */
   flaeche?: (prefab: string) => { flaeche: Grundflaeche; fest: boolean } | undefined;
 }
@@ -156,6 +182,11 @@ export function rendereKarte(layout: WorldLayout, anfrage: KartenAnfrage): Karte
     hinweise.push('Ebene befunde ohne Befunde-Eingabe: nichts zu zeichnen (erst world_check aufrufen).');
   }
 
+  const zb = anfrage.befunde ? zeichenbareBefunde(anfrage.befunde) : undefined;
+  if (ebenen.has('befunde') && zb && zb.uebersprungen > 0) {
+    hinweise.push(`${zb.uebersprungen} Befund(e) ohne Farbe/Koordinate nicht gezeichnet.`);
+  }
+
   const l = new Leinwand(a.breite, a.hoehe);
   let wasserAnteil = 0;
   if (ebenen.has('gelaende')) {
@@ -174,7 +205,7 @@ export function rendereKarte(layout: WorldLayout, anfrage: KartenAnfrage): Karte
     regionen: layout.regions,
     fluesse: layout.rivers,
     seen: layout.lakes,
-    befunde: anfrage.befunde,
+    befunde: zb?.befunde,
   });
 
   const png = kodierePng(a.breite, a.hoehe, l.daten);

@@ -33,7 +33,7 @@ import {
   getDefaultEnvironment,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { resolve, dirname } from 'node:path';
@@ -55,10 +55,14 @@ const SYMDATEI_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-sym
 const SYMORDNER_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-symordner-'));
 const ELTERNLINK = resolve(tmpdir(), `worldlayout-mcp-probe-link-${process.pid}`);
 
-/** Ein „Checkout": eine Kopie von server.ts an derselben Stelle relativ zur Wurzel, mit den node_modules des Repos. */
+/** Ein „Checkout": eine Kopie des Ordners tools/worldlayout-mcp an derselben Stelle relativ zur Wurzel, mit den node_modules des Repos. */
 function checkoutAnlegen(wurzel: string): void {
   mkdirSync(resolve(wurzel, 'tools/worldlayout-mcp'), { recursive: true });
-  copyFileSync(resolve(WURZEL, 'tools/worldlayout-mcp/server.ts'), resolve(wurzel, 'tools/worldlayout-mcp/server.ts'));
+  // Der ganze Ordner: server.ts importiert kern.ts und werkzeuge/*.ts.
+  cpSync(resolve(WURZEL, 'tools/worldlayout-mcp'), resolve(wurzel, 'tools/worldlayout-mcp'), {
+    recursive: true,
+    filter: (quelle) => !quelle.includes('node_modules'),
+  });
   symlinkSync(resolve(WURZEL, 'node_modules'), resolve(wurzel, 'node_modules'));
   // Wie im Repo: .ts-Dateien sind ES-Module (Top-Level-await in server.ts).
   writeFileSync(resolve(wurzel, 'package.json'), '{ "type": "module" }\n');

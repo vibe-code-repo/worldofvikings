@@ -16,8 +16,11 @@
  *      (die Peers müssen beim Save noch in der Liste stehen).
  *      Dazu ein echter Verbindungsversuch nach schliesseAnnahme() (muss
  *      scheitern) und der Port ist WÄHREND des Saves schon zu (boundPort).
- *   E. Verdrahtung: main.ts hängt herunterfahren.ts an SIGTERM und SIGINT
- *      (Syntaxbaum; main.ts ist nicht importierbar, es startet einen Server).
+ *   E. Verdrahtung: das ECHTE main.ts als Kindprozess (Kopie von server/src
+ *      mit eigener server.yml, Port 0, Weltdatei in der Kopie), dann SIGTERM
+ *      bzw. SIGINT: Normalfall Exit 0 + Weltdatei, erzwungener Fehler
+ *      Exit 74 + Kennzeile. Das fängt jeden alten oder zusätzlichen Handler,
+ *      gleich wie er geschrieben ist (ein Syntaxbaum-Test tat das nicht).
  *   D. Der Handler selbst: wirft stop(), endet er trotzdem (Exit 75);
  *      ein zweites Signal tut nichts.
  *
@@ -25,9 +28,8 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
-import ts from 'typescript';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -90,23 +92,37 @@ function pidLebt(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-function starteKind(worldsDir: string): Promise<{ lauf: () => Promise<Lauf> }> {
+/**
+ * Startet `node --import tsx <args>` DIREKT (nicht über die tsx-CLI: die tötet
+ * ihr Kind 2×30 ms nach dem Signal mit SIGKILL, wenn der Takt gerade lang ist,
+ * und das Kind käme nie zum Speichern; unter Last war der Test deshalb rot).
+ */
+function starteProzess(
+  args: string[],
+  optionen: { cwd?: string; bereit: RegExp; signal?: NodeJS.Signals; env?: Record<string, string> }
+): Promise<{ lauf: () => Promise<Lauf> }> {
   return new Promise((ok, fehl) => {
-    const kind = spawn(TSX, [DATEI, 'kind', worldsDir], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const kind = spawn(process.execPath, ['--import', 'tsx', ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: optionen.cwd,
+      env: { ...process.env, ...optionen.env },
+    });
     let out = '';
+    let bereit = false;
     let port = 0;
-    const timer = setTimeout(() => { kind.kill('SIGKILL'); fehl(new Error('Kind wurde nicht bereit:\n' + out)); }, 60_000);
+    const timer = setTimeout(() => { kind.kill('SIGKILL'); fehl(new Error('Kind wurde nicht bereit:\n' + out)); }, 90_000);
     const beiDaten = (d: Buffer) => {
       out += d.toString();
-      const m = /BEREIT (\d+)/.exec(out);
-      if (m && port === 0) {
-        port = Number(m[1]);
+      const m = optionen.bereit.exec(out);
+      if (m && !bereit) {
+        bereit = true;
+        port = Number(m[1] ?? 0);
         clearTimeout(timer);
         ok({
           lauf: async () => {
             const t0 = Date.now();
             const ende = new Promise<number | null>((r) => kind.once('exit', (c) => r(c)));
-            kind.kill('SIGTERM');
+            kind.kill(optionen.signal ?? 'SIGTERM');
             const code = await Promise.race([
               ende,
               new Promise<number | null>((r) => setTimeout(() => r(-999), 10_000)),
@@ -115,7 +131,7 @@ function starteKind(worldsDir: string): Promise<{ lauf: () => Promise<Lauf> }> {
             if (code === -999) kind.kill('SIGKILL');
             return {
               code, ms, out, pid: kind.pid!, port,
-              portZuNachStopp: !(await portOffen(port)),
+              portZuNachStopp: port === 0 ? true : !(await portOffen(port)),
               pidWeg: !pidLebt(kind.pid!),
             };
           },
@@ -127,63 +143,28 @@ function starteKind(worldsDir: string): Promise<{ lauf: () => Promise<Lauf> }> {
   });
 }
 
-/** Was main.ts mit dem Herunterfahren tut, am Syntaxbaum statt am Text (Prettier, Kommentare). */
-function pruefeVerdrahtung(quelle: string) {
-  const sf = ts.createSourceFile('main.ts', quelle, ts.ScriptTarget.Latest, true);
-  const erg = { importiert: false, handlerName: null as string | null, sigterm: false, sigint: false, direktStop: false };
-  const ruftAuf = (n: ts.Node, name: string): boolean => {
-    let gefunden = false;
-    const gehe = (k: ts.Node): void => {
-      if (ts.isCallExpression(k) && ts.isIdentifier(k.expression) && k.expression.text === name) gefunden = true;
-      ts.forEachChild(k, gehe);
-    };
-    gehe(n);
-    return gefunden;
-  };
-  const besuche = (n: ts.Node): void => {
-    if (
-      ts.isImportDeclaration(n) &&
-      ts.isStringLiteral(n.moduleSpecifier) &&
-      n.moduleSpecifier.text === './herunterfahren.js' &&
-      n.importClause?.namedBindings &&
-      ts.isNamedImports(n.importClause.namedBindings) &&
-      n.importClause.namedBindings.elements.some((e) => e.name.text === 'erstelleHerunterfahren')
-    ) erg.importiert = true;
-    if (
-      ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer &&
-      ts.isCallExpression(n.initializer) && ts.isIdentifier(n.initializer.expression) &&
-      n.initializer.expression.text === 'erstelleHerunterfahren'
-    ) erg.handlerName = n.name.text;
-    if (
-      ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) &&
-      ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'process' &&
-      n.expression.name.text === 'on' && n.arguments.length === 2 && ts.isStringLiteral(n.arguments[0]!)
-    ) {
-      const signal = (n.arguments[0] as ts.StringLiteral).text;
-      const arg = n.arguments[1]!;
-      if (signal === 'SIGTERM') pendingSigterm = arg;
-      if (signal === 'SIGINT') pendingSigint = arg;
-    }
-    if (
-      ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) &&
-      ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'server' &&
-      n.expression.name.text === 'stop'
-    ) erg.direktStop = true;
-    ts.forEachChild(n, besuche);
-  };
-  let pendingSigterm: ts.Expression | null = null;
-  let pendingSigint: ts.Expression | null = null;
-  besuche(sf);
-  const name = erg.handlerName;
-  if (name !== null) {
-    erg.sigterm = pendingSigterm !== null && (
-      (ts.isIdentifier(pendingSigterm) && pendingSigterm.text === name) || ruftAuf(pendingSigterm, name)
-    );
-    erg.sigint = pendingSigint !== null && (
-      (ts.isIdentifier(pendingSigint) && pendingSigint.text === name) || ruftAuf(pendingSigint, name)
-    );
-  }
-  return erg;
+function starteKind(worldsDir: string) {
+  return starteProzess([DATEI, 'kind', worldsDir], { bereit: /BEREIT (\d+)/ });
+}
+
+/**
+ * Kopie von server/src (main.ts liest server.yml relativ zu sich selbst) mit
+ * eigener Minimal-server.yml: Port 0, Radialwelt ohne Features, keine Assets.
+ * Liefert das Verzeichnis, aus dem `node --import tsx src/main.ts` läuft.
+ */
+function baueMainKopie(wurzel: string): string {
+  const server = resolve(wurzel, 'server');
+  mkdirSync(resolve(server, 'data'), { recursive: true });
+  cpSync(resolve(__dirname, '../src'), resolve(server, 'src'), { recursive: true });
+  for (const d of ['package.json', 'tsconfig.json']) cpSync(resolve(__dirname, '..', d), resolve(server, d));
+  cpSync(resolve(__dirname, '../../tsconfig.json'), resolve(wurzel, 'tsconfig.json'));
+  symlinkSync(resolve(__dirname, '../../node_modules'), resolve(wurzel, 'node_modules'));
+  writeFileSync(
+    resolve(server, 'data/server.yml'),
+    'server:\n  name: probe\n  port: 0\nworld:\n  mode: radial\n  features: false\n' +
+      '  vegetation: false\n  creatures: false\n  seed: KxSYuZquuw\ndungeons:\n  enabled: false\n'
+  );
+  return server;
 }
 
 async function haupt(): Promise<void> {
@@ -195,6 +176,7 @@ async function haupt(): Promise<void> {
 
   const WURZEL = resolve(tmpdir(), `server-stopp-speichern-${process.pid}`);
   rmSync(WURZEL, { recursive: true, force: true });
+  try {
 
   console.log('=== S1 Stopp ohne Speichern ===');
 
@@ -218,8 +200,10 @@ async function haupt(): Promise<void> {
   check('"World saved" im Protokoll', b.out.includes('World saved'));
   check('kein SAVE_FAILED_ON_STOP', !b.out.includes('SAVE_FAILED_ON_STOP'));
   check('Port zu, Prozess weg', b.portZuNachStopp && b.pidWeg);
-  const kopf = JSON.parse(zstdDecompressSync(readFileSync(resolve(dirB, 'world.db.zst'))).toString('utf-8'));
-  check('Weltdatei lesbar (Version, Spieler-Liste)', typeof kopf.version === 'number' && Array.isArray(kopf.players));
+  const kopf = existsSync(resolve(dirB, 'world.db.zst'))
+    ? JSON.parse(zstdDecompressSync(readFileSync(resolve(dirB, 'world.db.zst'))).toString('utf-8'))
+    : null;
+  check('Weltdatei lesbar (Version, Spieler-Liste)', kopf !== null && typeof kopf.version === 'number' && Array.isArray(kopf.players));
 
   console.log('\n[C] Reihenfolge: Peers stehen beim Save noch in der Liste:');
   const dirC = resolve(WURZEL, 'c');
@@ -261,14 +245,25 @@ async function haupt(): Promise<void> {
   check('nach schliesseAnnahme() scheitert die Verbindung', !(await portOffen(port2)));
   server2.stop();
 
-  console.log('\n[E] Verdrahtung in main.ts (Syntaxbaum):');
-  const quelle = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf-8');
-  const w = pruefeVerdrahtung(quelle);
-  check('main.ts importiert erstelleHerunterfahren aus ./herunterfahren.js', w.importiert);
-  check('Handler wird aus erstelleHerunterfahren(...) gebaut', w.handlerName !== null, String(w.handlerName));
-  check('SIGTERM bekommt genau diesen Handler', w.sigterm);
-  check('SIGINT ruft diesen Handler auf', w.sigint);
-  check('main.ts ruft server.stop() nicht selbst auf', !w.direktStop);
+  console.log('\n[E] Das echte main.ts als Kindprozess:');
+  const mainEnv = { WOV_INSTANZ: 'dev' };
+  const mainBereit = /Server started/;
+  const mainNormal = baueMainKopie(resolve(WURZEL, 'main-normal'));
+  const en = await (await starteProzess(['src/main.ts'], { cwd: mainNormal, bereit: mainBereit, env: mainEnv })).lauf();
+  check('main.ts SIGTERM: Exit 0', en.code === 0, `Code ${en.code}, ${en.ms} ms`);
+  check('main.ts SIGTERM: Weltdatei geschrieben', existsSync(resolve(mainNormal, 'data/worlds/dev.db.zst')));
+  check('main.ts SIGTERM: Prozess weg', en.pidWeg);
+  const mainSigint = baueMainKopie(resolve(WURZEL, 'main-sigint'));
+  const ei = await (await starteProzess(['src/main.ts'], { cwd: mainSigint, bereit: mainBereit, env: mainEnv, signal: 'SIGINT' })).lauf();
+  check('main.ts SIGINT: Exit 0 und Weltdatei', ei.code === 0 && existsSync(resolve(mainSigint, 'data/worlds/dev.db.zst')), `Code ${ei.code}`);
+  for (const [signal, name] of [['SIGTERM', 'fehler-term'], ['SIGINT', 'fehler-int']] as const) {
+    const mainFehler = baueMainKopie(resolve(WURZEL, `main-${name}`));
+    mkdirSync(resolve(mainFehler, 'data/worlds/dev.db.zst'), { recursive: true });
+    const ef = await (await starteProzess(['src/main.ts'], { cwd: mainFehler, bereit: mainBereit, env: mainEnv, signal })).lauf();
+    check(`main.ts ${signal}, Save scheitert: Exit ${EXIT_SPEICHERN_FEHLGESCHLAGEN}`, ef.code === EXIT_SPEICHERN_FEHLGESCHLAGEN, `Code ${ef.code}, ${ef.ms} ms`);
+    check(`main.ts ${signal}, Save scheitert: Kennzeile`, ef.out.includes('SAVE_FAILED_ON_STOP'));
+    check(`main.ts ${signal}, Save scheitert: Prozess weg`, ef.pidWeg);
+  }
 
   console.log('\n[D] Handler:');
   const meldungen: string[] = [];
@@ -283,7 +278,9 @@ async function haupt(): Promise<void> {
   erstelleHerunterfahren({ stop: () => true }, (c) => gut.push(c), () => {})();
   check('stop() true → Exit 0', gut[0] === 0);
 
-  rmSync(WURZEL, { recursive: true, force: true });
+  } finally {
+    rmSync(WURZEL, { recursive: true, force: true });
+  }
   if (failures > 0) {
     console.error(`\n${failures} Prüfung(en) fehlgeschlagen`);
     process.exit(1);

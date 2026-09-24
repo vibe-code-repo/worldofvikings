@@ -64,6 +64,8 @@ export interface SavedPlayer {
   flying: boolean;
   /** Bett-Respawn-Punkt (optional, v2). */
   spawnPoint?: Vector3;
+  /** Layout-Kennung des Bettes hinter `spawnPoint` (optional; Altstaende und Spielerbetten haben keine). */
+  spawnBettId?: string;
   /** Server-Inventar (SavedItemStack[], optional — Altstände haben keins). */
   inventar?: SavedItemStack[];
   /**

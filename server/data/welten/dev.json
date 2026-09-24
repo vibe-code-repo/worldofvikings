@@ -8,8 +8,8 @@
       "name": "Startgebiet",
       "faction": "neutral",
       "spawn": [
-        -28400,
-        -5660
+        -22608,
+        -5848
       ]
     }
   ],
@@ -2598,6 +2598,438 @@
         "grassland",
         "blackforest"
       ]
+    },
+    {
+      "id": "startinsel",
+      "biome": "grassland",
+      "shape": {
+        "kind": "polygon",
+        "points": [
+          [
+            -23120,
+            -5920
+          ],
+          [
+            -23080,
+            -6030
+          ],
+          [
+            -22990,
+            -6110
+          ],
+          [
+            -22860,
+            -6150
+          ],
+          [
+            -22700,
+            -6140
+          ],
+          [
+            -22560,
+            -6160
+          ],
+          [
+            -22420,
+            -6120
+          ],
+          [
+            -22320,
+            -6040
+          ],
+          [
+            -22260,
+            -5910
+          ],
+          [
+            -22245,
+            -5780
+          ],
+          [
+            -22280,
+            -5650
+          ],
+          [
+            -22350,
+            -5550
+          ],
+          [
+            -22430,
+            -5490
+          ],
+          [
+            -22500,
+            -5480
+          ],
+          [
+            -22515,
+            -5570
+          ],
+          [
+            -22550,
+            -5650
+          ],
+          [
+            -22600,
+            -5680
+          ],
+          [
+            -22650,
+            -5650
+          ],
+          [
+            -22680,
+            -5560
+          ],
+          [
+            -22700,
+            -5480
+          ],
+          [
+            -22820,
+            -5460
+          ],
+          [
+            -22950,
+            -5500
+          ],
+          [
+            -23040,
+            -5560
+          ],
+          [
+            -23110,
+            -5660
+          ],
+          [
+            -23140,
+            -5790
+          ]
+        ]
+      },
+      "edgeFalloff": 160,
+      "baseLevel": 0.19,
+      "heightScale": 0.05,
+      "tier": 0,
+      "forestDensity": 0.5,
+      "bewuchsDichte": 1,
+      "waldKoernung": 0.8,
+      "abstandFaktor": 1,
+      "nester": 0,
+      "vegetation": [
+        "vegetation-tree-1e2",
+        "vegetation-tree-1c3",
+        "vegetation-tree-1b1",
+        "vegetation-tree-1d1",
+        "vegetation-tree-1c1",
+        "vegetation-small-thin-tree-1a3",
+        "vegetation-small-thin-tree-1a2",
+        "vegetation-small-thin-tree-1a5",
+        "vegetation-large-bush-1a5",
+        "vegetation-large-bush-1a1",
+        "vegetation-large-bush-1a2",
+        "vegetation-large-bush-1a3",
+        "vegetation-bush-1a1-small",
+        "vegetation-bush-1a1",
+        "vegetation-bush-1a2",
+        "vegetation-bush-1a3",
+        "environment-sm-env-rock-cliff-02-1",
+        "environment-sm-env-rock-cliff-03-1",
+        "environment-sm-env-rock-cliff-01",
+        "environment-sm-env-rock-cliff-05",
+        "environment-sm-env-rock-chunk-01",
+        "environment-sm-env-rock-chunk-02",
+        "environment-sm-env-rock-chunk-03-1",
+        "environment-sm-env-rock-round-01",
+        "environment-sm-env-rock-round-03",
+        "environment-sm-env-rock-round-04"
+      ]
+    },
+    {
+      "id": "startinsel-wald",
+      "biome": "grassland",
+      "shape": {
+        "kind": "polygon",
+        "points": [
+          [
+            -22937.6,
+            -5966.4
+          ],
+          [
+            -22815.2,
+            -6016.8
+          ],
+          [
+            -22700,
+            -6027.6
+          ],
+          [
+            -22592,
+            -6038.4
+          ],
+          [
+            -22484,
+            -5988
+          ],
+          [
+            -22462.4,
+            -5916
+          ],
+          [
+            -22534.4,
+            -5930.4
+          ],
+          [
+            -22613.6,
+            -5959.2
+          ],
+          [
+            -22707.2,
+            -5962.8
+          ],
+          [
+            -22800.8,
+            -5944.8
+          ],
+          [
+            -22880,
+            -5901.6
+          ]
+        ]
+      },
+      "edgeFalloff": 160,
+      "baseLevel": 0.19,
+      "heightScale": 0.3,
+      "tier": 0,
+      "forestDensity": 1.3,
+      "bewuchsDichte": 1,
+      "waldKoernung": 0.8,
+      "abstandFaktor": 1,
+      "nester": 0,
+      "vegetation": [
+        "vegetation-tree-1e2",
+        "vegetation-tree-1c3",
+        "vegetation-tree-1b1",
+        "vegetation-tree-1d1",
+        "vegetation-tree-1c1",
+        "vegetation-small-thin-tree-1a3",
+        "vegetation-small-thin-tree-1a2",
+        "vegetation-small-thin-tree-1a5",
+        "vegetation-large-bush-1a5",
+        "vegetation-large-bush-1a1",
+        "vegetation-large-bush-1a2",
+        "vegetation-large-bush-1a3",
+        "vegetation-bush-1a1-small",
+        "vegetation-bush-1a1",
+        "vegetation-bush-1a2",
+        "vegetation-bush-1a3",
+        "environment-sm-env-rock-cliff-02-1",
+        "environment-sm-env-rock-cliff-03-1",
+        "environment-sm-env-rock-cliff-01",
+        "environment-sm-env-rock-cliff-05",
+        "environment-sm-env-rock-chunk-01",
+        "environment-sm-env-rock-chunk-02",
+        "environment-sm-env-rock-chunk-03-1",
+        "environment-sm-env-rock-round-01",
+        "environment-sm-env-rock-round-03",
+        "environment-sm-env-rock-round-04"
+      ]
+    },
+    {
+      "id": "startinsel-dorf",
+      "biome": "grassland",
+      "shape": {
+        "kind": "polygon",
+        "points": [
+          [
+            -22506,
+            -5845
+          ],
+          [
+            -22507.157,
+            -5833.111
+          ],
+          [
+            -22510.601,
+            -5821.515
+          ],
+          [
+            -22516.245,
+            -5810.497
+          ],
+          [
+            -22523.952,
+            -5800.328
+          ],
+          [
+            -22533.532,
+            -5791.26
+          ],
+          [
+            -22544.748,
+            -5783.515
+          ],
+          [
+            -22557.325,
+            -5777.284
+          ],
+          [
+            -22570.952,
+            -5772.72
+          ],
+          [
+            -22585.295,
+            -5769.936
+          ],
+          [
+            -22550,
+            -5772
+          ],
+          [
+            -22542,
+            -5722
+          ],
+          [
+            -22654,
+            -5722
+          ],
+          [
+            -22648,
+            -5772
+          ],
+          [
+            -22614.705,
+            -5769.936
+          ],
+          [
+            -22629.048,
+            -5772.72
+          ],
+          [
+            -22642.675,
+            -5777.284
+          ],
+          [
+            -22655.252,
+            -5783.515
+          ],
+          [
+            -22666.468,
+            -5791.26
+          ],
+          [
+            -22676.048,
+            -5800.328
+          ],
+          [
+            -22683.755,
+            -5810.497
+          ],
+          [
+            -22689.399,
+            -5821.515
+          ],
+          [
+            -22692.843,
+            -5833.111
+          ],
+          [
+            -22694,
+            -5845
+          ],
+          [
+            -22692.843,
+            -5856.889
+          ],
+          [
+            -22689.399,
+            -5868.485
+          ],
+          [
+            -22683.755,
+            -5879.503
+          ],
+          [
+            -22676.048,
+            -5889.672
+          ],
+          [
+            -22666.468,
+            -5898.74
+          ],
+          [
+            -22655.252,
+            -5906.485
+          ],
+          [
+            -22642.675,
+            -5912.716
+          ],
+          [
+            -22629.048,
+            -5917.28
+          ],
+          [
+            -22614.705,
+            -5920.064
+          ],
+          [
+            -22600,
+            -5921
+          ],
+          [
+            -22585.295,
+            -5920.064
+          ],
+          [
+            -22570.952,
+            -5917.28
+          ],
+          [
+            -22557.325,
+            -5912.716
+          ],
+          [
+            -22544.748,
+            -5906.485
+          ],
+          [
+            -22533.532,
+            -5898.74
+          ],
+          [
+            -22523.952,
+            -5889.672
+          ],
+          [
+            -22516.245,
+            -5879.503
+          ],
+          [
+            -22510.601,
+            -5868.485
+          ],
+          [
+            -22507.157,
+            -5856.889
+          ]
+        ]
+      },
+      "edgeFalloff": 160,
+      "baseLevel": 0.19,
+      "heightScale": 0.05,
+      "tier": 0,
+      "forestDensity": 0.5,
+      "bewuchsDichte": 1,
+      "waldKoernung": 0.8,
+      "abstandFaktor": 1,
+      "nester": 0,
+      "vegetation": [
+        "vegetation-bush-1a1-small",
+        "vegetation-bush-1a1",
+        "vegetation-bush-1a2",
+        "vegetation-large-bush-1a1"
+      ]
     }
   ],
   "placements": [
@@ -2660,6 +3092,13 @@
       "yaw": 5.6204139136019995
     },
     {
+      "id": "birkehoch1_-22556_-5772-zddl",
+      "prefab": "BirkeHoch1",
+      "x": -22556,
+      "z": -5772,
+      "yaw": 1.1
+    },
+    {
       "id": "birkehoch1_-5142_-4074",
       "prefab": "BirkeHoch1",
       "x": -5141.9,
@@ -2703,6 +3142,20 @@
       "z": -5218.2,
       "yaw": 1.1365679688066808,
       "einebnen": 6.3
+    },
+    {
+      "id": "eiche1_-22532_-5760-gwyo",
+      "prefab": "Eiche1",
+      "x": -22532,
+      "z": -5760,
+      "yaw": 0.2
+    },
+    {
+      "id": "eiche1_-22622_-5766-sj00",
+      "prefab": "Eiche1",
+      "x": -22622,
+      "z": -5766,
+      "yaw": 0.3
     },
     {
       "id": "eiche1_-5162_-4045",
@@ -3040,6 +3493,30 @@
       "yaw": 6.0207529498803005
     },
     {
+      "id": "findling3_-22550_-5778-w4zv",
+      "prefab": "Findling3",
+      "x": -22550,
+      "z": -5778,
+      "yaw": 0.5
+    },
+    {
+      "id": "findling3_-22616_-5756-yd72",
+      "prefab": "Findling3",
+      "x": -22616,
+      "z": -5756,
+      "yaw": 2
+    },
+    {
+      "id": "furlocfischer_-22610_-5755-r8fc",
+      "prefab": "FurlocFischer",
+      "x": -22610,
+      "z": -5755,
+      "yaw": 0.588,
+      "npc": {
+        "name": "Fischer Grimr"
+      }
+    },
+    {
       "id": "furlocfischer_-4_-3",
       "prefab": "FurlocFischer",
       "x": -4.3,
@@ -3082,6 +3559,20 @@
       "x": -16891.1,
       "z": -5317.5,
       "yaw": 4.298201277825081
+    },
+    {
+      "id": "ginster2_-22580_-5756-l7pt",
+      "prefab": "Ginster2",
+      "x": -22580,
+      "z": -5756,
+      "yaw": 0
+    },
+    {
+      "id": "ginster2_-22624_-5774-qqw8",
+      "prefab": "Ginster2",
+      "x": -22624,
+      "z": -5774,
+      "yaw": 0.7
     },
     {
       "id": "grabdrachenkopf_-16607_-5715",
@@ -3392,6 +3883,14 @@
       "yaw": 0.11817474607374603
     },
     {
+      "id": "npc-1_-22600_-5832-xudn",
+      "prefab": "NPC_1",
+      "x": -22600,
+      "z": -5832,
+      "route": "startdorf-dorfplatz",
+      "yaw": 0
+    },
+    {
       "id": "steinkreis_-16914_-5320",
       "prefab": "Steinkreis",
       "x": -16914.3,
@@ -3634,12 +4133,1068 @@
       "einebnen": 2
     },
     {
+      "id": "u-bank_-22590_-5844-ucgz",
+      "prefab": "U_Bank",
+      "x": -22590,
+      "z": -5844,
+      "yaw": -1.3734
+    },
+    {
+      "id": "u-bank_-22610_-5840-fwml",
+      "prefab": "U_Bank",
+      "x": -22610,
+      "z": -5840,
+      "yaw": 1.7682
+    },
+    {
+      "id": "u-boot_-22558_-5740-adxx",
+      "prefab": "U_Boot",
+      "x": -22558,
+      "z": -5740,
+      "yaw": 0.0234
+    },
+    {
+      "id": "u-brunnen_-22624_-5834-bmhy",
+      "prefab": "U_Brunnen",
+      "x": -22624,
+      "z": -5834,
+      "yaw": 1.8925,
+      "einebnen": 2.5
+    },
+    {
+      "id": "u-fass_-22558_-5808-ueyg",
+      "prefab": "U_Fass",
+      "x": -22558,
+      "z": -5808,
+      "yaw": 0.2
+    },
+    {
+      "id": "u-fass_-22562_-5764-gby3",
+      "prefab": "U_Fass",
+      "x": -22562,
+      "z": -5764,
+      "yaw": 0.7
+    },
+    {
+      "id": "u-fass_-22569_-5823-pov4",
+      "prefab": "U_Fass",
+      "x": -22568.8,
+      "z": -5822.8,
+      "yaw": 1.1
+    },
+    {
+      "id": "u-fass_-22570_-5824-ho2i",
+      "prefab": "U_Fass",
+      "x": -22570,
+      "z": -5824,
+      "yaw": 0.4
+    },
+    {
+      "id": "u-feuerstelle_-22600_-5842-wiyv",
+      "prefab": "U_Feuerstelle",
+      "x": -22600,
+      "z": -5842,
+      "yaw": 0,
+      "einebnen": 20
+    },
+    {
+      "id": "u-grubenhaus_-22662_-5876-ork0",
+      "prefab": "U_Grubenhaus",
+      "x": -22662,
+      "z": -5876,
+      "yaw": 0.942,
+      "einebnen": 4.7
+    },
+    {
+      "id": "u-holzstapel_-22542_-5860-oet7",
+      "prefab": "U_Holzstapel",
+      "x": -22542,
+      "z": -5860,
+      "yaw": 1.5708
+    },
+    {
+      "id": "u-holzstapel_-22638_-5892-uhuf",
+      "prefab": "U_Holzstapel",
+      "x": -22638,
+      "z": -5892,
+      "yaw": 0
+    },
+    {
+      "id": "u-holzstapel_-22653_-5810-li2g",
+      "prefab": "U_Holzstapel",
+      "x": -22653,
+      "z": -5810,
+      "yaw": -0.8478
+    },
+    {
+      "id": "u-karren_-22588_-5812-qxe3",
+      "prefab": "U_Karren",
+      "x": -22588,
+      "z": -5812,
+      "yaw": -0.0783
+    },
+    {
+      "id": "u-langhaus_-22600_-5875-wj6t",
+      "prefab": "U_Langhaus",
+      "x": -22600,
+      "z": -5875.5,
+      "yaw": 0,
+      "einebnen": 13
+    },
+    {
+      "id": "u-marktstand_-22574_-5832-y3vo",
+      "prefab": "U_Marktstand",
+      "x": -22574,
+      "z": -5832,
+      "yaw": -1.938,
+      "einebnen": 3.4
+    },
+    {
+      "id": "u-marktstand_-22582_-5820-vy68",
+      "prefab": "U_Marktstand",
+      "x": -22582,
+      "z": -5820,
+      "yaw": -0.9828,
+      "einebnen": 3.4
+    },
+    {
+      "id": "u-palisade_-22520_-5841-upln",
+      "prefab": "U_Palisade",
+      "x": -22520.18,
+      "z": -5841.31,
+      "yaw": 1.4939
+    },
+    {
+      "id": "u-palisade_-22520_-5845-i94o",
+      "prefab": "U_Palisade",
+      "x": -22520.04,
+      "z": -5845.29,
+      "yaw": 1.5768
+    },
+    {
+      "id": "u-palisade_-22520_-5849-u404",
+      "prefab": "U_Palisade",
+      "x": -22520.23,
+      "z": -5849.27,
+      "yaw": 1.6597
+    },
+    {
+      "id": "u-palisade_-22521_-5833-a4b5",
+      "prefab": "U_Palisade",
+      "x": -22521.44,
+      "z": -5833.45,
+      "yaw": 1.3306
+    },
+    {
+      "id": "u-palisade_-22521_-5837-umz7",
+      "prefab": "U_Palisade",
+      "x": -22520.65,
+      "z": -5837.35,
+      "yaw": 1.4117
+    },
+    {
+      "id": "u-palisade_-22521_-5853-lbzb",
+      "prefab": "U_Palisade",
+      "x": -22520.75,
+      "z": -5853.22,
+      "yaw": 1.7418
+    },
+    {
+      "id": "u-palisade_-22522_-5857-vcbx",
+      "prefab": "U_Palisade",
+      "x": -22521.58,
+      "z": -5857.12,
+      "yaw": 1.8226
+    },
+    {
+      "id": "u-palisade_-22523_-5830-jyqh",
+      "prefab": "U_Palisade",
+      "x": -22522.54,
+      "z": -5829.62,
+      "yaw": 1.2514
+    },
+    {
+      "id": "u-palisade_-22523_-5861-jxlj",
+      "prefab": "U_Palisade",
+      "x": -22522.73,
+      "z": -5860.94,
+      "yaw": 1.9015
+    },
+    {
+      "id": "u-palisade_-22524_-5826-hnna",
+      "prefab": "U_Palisade",
+      "x": -22523.94,
+      "z": -5825.88,
+      "yaw": 1.1745
+    },
+    {
+      "id": "u-palisade_-22524_-5865-f7jj",
+      "prefab": "U_Palisade",
+      "x": -22524.17,
+      "z": -5864.65,
+      "yaw": 1.9781
+    },
+    {
+      "id": "u-palisade_-22526_-5822-lfro",
+      "prefab": "U_Palisade",
+      "x": -22525.61,
+      "z": -5822.27,
+      "yaw": 1.1001
+    },
+    {
+      "id": "u-palisade_-22526_-5868-i6un",
+      "prefab": "U_Palisade",
+      "x": -22525.88,
+      "z": -5868.25,
+      "yaw": 2.0521
+    },
+    {
+      "id": "u-palisade_-22528_-5819-ck8x",
+      "prefab": "U_Palisade",
+      "x": -22527.55,
+      "z": -5818.78,
+      "yaw": 1.0285
+    },
+    {
+      "id": "u-palisade_-22528_-5872-cz1q",
+      "prefab": "U_Palisade",
+      "x": -22527.85,
+      "z": -5871.72,
+      "yaw": 2.1232
+    },
+    {
+      "id": "u-palisade_-22530_-5815-s45o",
+      "prefab": "U_Palisade",
+      "x": -22529.72,
+      "z": -5815.44,
+      "yaw": 0.9599
+    },
+    {
+      "id": "u-palisade_-22530_-5875-qhrf",
+      "prefab": "U_Palisade",
+      "x": -22530.05,
+      "z": -5875.04,
+      "yaw": 2.1915
+    },
+    {
+      "id": "u-palisade_-22532_-5812-swrz",
+      "prefab": "U_Palisade",
+      "x": -22532.11,
+      "z": -5812.25,
+      "yaw": 0.8941
+    },
+    {
+      "id": "u-palisade_-22532_-5878-muok",
+      "prefab": "U_Palisade",
+      "x": -22532.48,
+      "z": -5878.2,
+      "yaw": 2.2568
+    },
+    {
+      "id": "u-palisade_-22535_-5809-mcl6",
+      "prefab": "U_Palisade",
+      "x": -22534.7,
+      "z": -5809.22,
+      "yaw": 0.8312
+    },
+    {
+      "id": "u-palisade_-22535_-5881-lheo",
+      "prefab": "U_Palisade",
+      "x": -22535.1,
+      "z": -5881.2,
+      "yaw": 2.3193
+    },
+    {
+      "id": "u-palisade_-22537_-5806-caj3",
+      "prefab": "U_Palisade",
+      "x": -22537.48,
+      "z": -5806.36,
+      "yaw": 0.7711
+    },
+    {
+      "id": "u-palisade_-22538_-5884-eqvh",
+      "prefab": "U_Palisade",
+      "x": -22537.9,
+      "z": -5884.04,
+      "yaw": 2.379
+    },
+    {
+      "id": "u-palisade_-22540_-5804-fjil",
+      "prefab": "U_Palisade",
+      "x": -22540.42,
+      "z": -5803.67,
+      "yaw": 0.7136
+    },
+    {
+      "id": "u-palisade_-22541_-5887-pah3",
+      "prefab": "U_Palisade",
+      "x": -22540.86,
+      "z": -5886.71,
+      "yaw": 2.4362
+    },
+    {
+      "id": "u-palisade_-22543_-5801-da7e",
+      "prefab": "U_Palisade",
+      "x": -22543.5,
+      "z": -5801.14,
+      "yaw": 0.6585
+    },
+    {
+      "id": "u-palisade_-22544_-5889-jrd0",
+      "prefab": "U_Palisade",
+      "x": -22543.96,
+      "z": -5889.21,
+      "yaw": 2.4909
+    },
+    {
+      "id": "u-palisade_-22547_-5799-k1tr",
+      "prefab": "U_Palisade",
+      "x": -22546.72,
+      "z": -5798.78,
+      "yaw": 0.6057
+    },
+    {
+      "id": "u-palisade_-22547_-5892-k9m7",
+      "prefab": "U_Palisade",
+      "x": -22547.2,
+      "z": -5891.54,
+      "yaw": 2.5435
+    },
+    {
+      "id": "u-palisade_-22550_-5797-dup3",
+      "prefab": "U_Palisade",
+      "x": -22550.05,
+      "z": -5796.6,
+      "yaw": 0.5549
+    },
+    {
+      "id": "u-palisade_-22551_-5894-l5na",
+      "prefab": "U_Palisade",
+      "x": -22550.55,
+      "z": -5893.71,
+      "yaw": 2.594
+    },
+    {
+      "id": "u-palisade_-22553_-5795-c7g2",
+      "prefab": "U_Palisade",
+      "x": -22553.49,
+      "z": -5794.58,
+      "yaw": 0.5059
+    },
+    {
+      "id": "u-palisade_-22554_-5896-ks9c",
+      "prefab": "U_Palisade",
+      "x": -22554,
+      "z": -5895.7,
+      "yaw": 2.6426
+    },
+    {
+      "id": "u-palisade_-22557_-5793-da9r",
+      "prefab": "U_Palisade",
+      "x": -22557.02,
+      "z": -5792.73,
+      "yaw": 0.4587
+    },
+    {
+      "id": "u-palisade_-22558_-5898-mee4",
+      "prefab": "U_Palisade",
+      "x": -22557.54,
+      "z": -5897.52,
+      "yaw": 2.6896
+    },
+    {
+      "id": "u-palisade_-22561_-5791-kr0z",
+      "prefab": "U_Palisade",
+      "x": -22560.64,
+      "z": -5791.05,
+      "yaw": 0.413
+    },
+    {
+      "id": "u-palisade_-22561_-5899-try9",
+      "prefab": "U_Palisade",
+      "x": -22561.17,
+      "z": -5899.18,
+      "yaw": 2.7351
+    },
+    {
+      "id": "u-palisade_-22564_-5790-rd5c",
+      "prefab": "U_Palisade",
+      "x": -22564.32,
+      "z": -5789.53,
+      "yaw": 0.3686
+    },
+    {
+      "id": "u-palisade_-22565_-5901-oq1y",
+      "prefab": "U_Palisade",
+      "x": -22564.87,
+      "z": -5900.68,
+      "yaw": 2.7793
+    },
+    {
+      "id": "u-palisade_-22568_-5788-k7bq",
+      "prefab": "U_Palisade",
+      "x": -22568.07,
+      "z": -5788.17,
+      "yaw": 0.3254
+    },
+    {
+      "id": "u-palisade_-22569_-5902-x7ot",
+      "prefab": "U_Palisade",
+      "x": -22568.62,
+      "z": -5902.01,
+      "yaw": 2.8223
+    },
+    {
+      "id": "u-palisade_-22572_-5787-j2dp",
+      "prefab": "U_Palisade",
+      "x": -22571.88,
+      "z": -5786.98,
+      "yaw": 0.2833
+    },
+    {
+      "id": "u-palisade_-22572_-5903-rhna",
+      "prefab": "U_Palisade",
+      "x": -22572.44,
+      "z": -5903.18,
+      "yaw": 2.8644
+    },
+    {
+      "id": "u-palisade_-22576_-5786-wqu2",
+      "prefab": "U_Palisade",
+      "x": -22575.73,
+      "z": -5785.94,
+      "yaw": 0.242
+    },
+    {
+      "id": "u-palisade_-22576_-5904-qi58",
+      "prefab": "U_Palisade",
+      "x": -22576.29,
+      "z": -5904.19,
+      "yaw": 2.9055
+    },
+    {
+      "id": "u-palisade_-22580_-5785-elm5",
+      "prefab": "U_Palisade",
+      "x": -22579.62,
+      "z": -5785.07,
+      "yaw": 0.2015
+    },
+    {
+      "id": "u-palisade_-22580_-5905-bx83",
+      "prefab": "U_Palisade",
+      "x": -22580.19,
+      "z": -5905.05,
+      "yaw": 2.946
+    },
+    {
+      "id": "u-palisade_-22584_-5784-k42l",
+      "prefab": "U_Palisade",
+      "x": -22583.54,
+      "z": -5784.35,
+      "yaw": 0.1616
+    },
+    {
+      "id": "u-palisade_-22584_-5906-uhiu",
+      "prefab": "U_Palisade",
+      "x": -22584.11,
+      "z": -5905.75,
+      "yaw": 2.9858
+    },
+    {
+      "id": "u-palisade_-22587_-5784-u5fp",
+      "prefab": "U_Palisade",
+      "x": -22587.49,
+      "z": -5783.78,
+      "yaw": 0.1222
+    },
+    {
+      "id": "u-palisade_-22588_-5906-ea1p",
+      "prefab": "U_Palisade",
+      "x": -22588.06,
+      "z": -5906.29,
+      "yaw": 3.0251
+    },
+    {
+      "id": "u-palisade_-22591_-5783-syiq",
+      "prefab": "U_Palisade",
+      "x": -22591.45,
+      "z": -5783.37,
+      "yaw": 0.0831
+    },
+    {
+      "id": "u-palisade_-22592_-5907-lz0x",
+      "prefab": "U_Palisade",
+      "x": -22592.03,
+      "z": -5906.67,
+      "yaw": 3.0642
+    },
+    {
+      "id": "u-palisade_-22595_-5783-dv94",
+      "prefab": "U_Palisade",
+      "x": -22595.43,
+      "z": -5783.12,
+      "yaw": 0.0443
+    },
+    {
+      "id": "u-palisade_-22596_-5907-avmi",
+      "prefab": "U_Palisade",
+      "x": -22596.01,
+      "z": -5906.9,
+      "yaw": 3.1029
+    },
+    {
+      "id": "u-palisade_-22600_-5907-clia",
+      "prefab": "U_Palisade",
+      "x": -22600,
+      "z": -5906.98,
+      "yaw": 3.1416
+    },
+    {
+      "id": "u-palisade_-22604_-5907-vsdw",
+      "prefab": "U_Palisade",
+      "x": -22603.99,
+      "z": -5906.9,
+      "yaw": -3.1029
+    },
+    {
+      "id": "u-palisade_-22605_-5783-khwt",
+      "prefab": "U_Palisade",
+      "x": -22604.57,
+      "z": -5783.12,
+      "yaw": -0.0443
+    },
+    {
+      "id": "u-palisade_-22608_-5907-acei",
+      "prefab": "U_Palisade",
+      "x": -22607.97,
+      "z": -5906.67,
+      "yaw": -3.0642
+    },
+    {
+      "id": "u-palisade_-22609_-5783-wdcb",
+      "prefab": "U_Palisade",
+      "x": -22608.55,
+      "z": -5783.37,
+      "yaw": -0.0831
+    },
+    {
+      "id": "u-palisade_-22612_-5906-wnr5",
+      "prefab": "U_Palisade",
+      "x": -22611.94,
+      "z": -5906.29,
+      "yaw": -3.0251
+    },
+    {
+      "id": "u-palisade_-22613_-5784-w41a",
+      "prefab": "U_Palisade",
+      "x": -22612.51,
+      "z": -5783.78,
+      "yaw": -0.1222
+    },
+    {
+      "id": "u-palisade_-22616_-5784-red9",
+      "prefab": "U_Palisade",
+      "x": -22616.46,
+      "z": -5784.35,
+      "yaw": -0.1616
+    },
+    {
+      "id": "u-palisade_-22616_-5906-ua0i",
+      "prefab": "U_Palisade",
+      "x": -22615.89,
+      "z": -5905.75,
+      "yaw": -2.9858
+    },
+    {
+      "id": "u-palisade_-22620_-5785-lymh",
+      "prefab": "U_Palisade",
+      "x": -22620.38,
+      "z": -5785.07,
+      "yaw": -0.2015
+    },
+    {
+      "id": "u-palisade_-22620_-5905-ujdg",
+      "prefab": "U_Palisade",
+      "x": -22619.81,
+      "z": -5905.05,
+      "yaw": -2.946
+    },
+    {
+      "id": "u-palisade_-22624_-5786-ynep",
+      "prefab": "U_Palisade",
+      "x": -22624.27,
+      "z": -5785.94,
+      "yaw": -0.242
+    },
+    {
+      "id": "u-palisade_-22624_-5904-xpe9",
+      "prefab": "U_Palisade",
+      "x": -22623.71,
+      "z": -5904.19,
+      "yaw": -2.9055
+    },
+    {
+      "id": "u-palisade_-22628_-5787-zw8t",
+      "prefab": "U_Palisade",
+      "x": -22628.12,
+      "z": -5786.98,
+      "yaw": -0.2833
+    },
+    {
+      "id": "u-palisade_-22628_-5903-o69l",
+      "prefab": "U_Palisade",
+      "x": -22627.56,
+      "z": -5903.18,
+      "yaw": -2.8644
+    },
+    {
+      "id": "u-palisade_-22631_-5902-ssjk",
+      "prefab": "U_Palisade",
+      "x": -22631.38,
+      "z": -5902.01,
+      "yaw": -2.8223
+    },
+    {
+      "id": "u-palisade_-22632_-5788-p4fq",
+      "prefab": "U_Palisade",
+      "x": -22631.93,
+      "z": -5788.17,
+      "yaw": -0.3254
+    },
+    {
+      "id": "u-palisade_-22635_-5901-bgwo",
+      "prefab": "U_Palisade",
+      "x": -22635.13,
+      "z": -5900.68,
+      "yaw": -2.7793
+    },
+    {
+      "id": "u-palisade_-22636_-5790-q5w5",
+      "prefab": "U_Palisade",
+      "x": -22635.68,
+      "z": -5789.53,
+      "yaw": -0.3686
+    },
+    {
+      "id": "u-palisade_-22639_-5791-ggc5",
+      "prefab": "U_Palisade",
+      "x": -22639.36,
+      "z": -5791.05,
+      "yaw": -0.413
+    },
+    {
+      "id": "u-palisade_-22639_-5899-ezfn",
+      "prefab": "U_Palisade",
+      "x": -22638.83,
+      "z": -5899.18,
+      "yaw": -2.7351
+    },
+    {
+      "id": "u-palisade_-22642_-5898-v550",
+      "prefab": "U_Palisade",
+      "x": -22642.46,
+      "z": -5897.52,
+      "yaw": -2.6896
+    },
+    {
+      "id": "u-palisade_-22643_-5793-o6o6",
+      "prefab": "U_Palisade",
+      "x": -22642.98,
+      "z": -5792.73,
+      "yaw": -0.4587
+    },
+    {
+      "id": "u-palisade_-22646_-5896-y9lw",
+      "prefab": "U_Palisade",
+      "x": -22646,
+      "z": -5895.7,
+      "yaw": -2.6426
+    },
+    {
+      "id": "u-palisade_-22647_-5795-h2p5",
+      "prefab": "U_Palisade",
+      "x": -22646.51,
+      "z": -5794.58,
+      "yaw": -0.5059
+    },
+    {
+      "id": "u-palisade_-22649_-5894-ztw6",
+      "prefab": "U_Palisade",
+      "x": -22649.45,
+      "z": -5893.71,
+      "yaw": -2.594
+    },
+    {
+      "id": "u-palisade_-22650_-5797-bxjr",
+      "prefab": "U_Palisade",
+      "x": -22649.95,
+      "z": -5796.6,
+      "yaw": -0.5549
+    },
+    {
+      "id": "u-palisade_-22653_-5799-k6wd",
+      "prefab": "U_Palisade",
+      "x": -22653.28,
+      "z": -5798.78,
+      "yaw": -0.6057
+    },
+    {
+      "id": "u-palisade_-22653_-5892-jc2a",
+      "prefab": "U_Palisade",
+      "x": -22652.8,
+      "z": -5891.54,
+      "yaw": -2.5435
+    },
+    {
+      "id": "u-palisade_-22656_-5801-o2c1",
+      "prefab": "U_Palisade",
+      "x": -22656.5,
+      "z": -5801.14,
+      "yaw": -0.6585
+    },
+    {
+      "id": "u-palisade_-22656_-5889-gbih",
+      "prefab": "U_Palisade",
+      "x": -22656.04,
+      "z": -5889.21,
+      "yaw": -2.4909
+    },
+    {
+      "id": "u-palisade_-22659_-5887-p8bi",
+      "prefab": "U_Palisade",
+      "x": -22659.14,
+      "z": -5886.71,
+      "yaw": -2.4362
+    },
+    {
+      "id": "u-palisade_-22660_-5804-edvr",
+      "prefab": "U_Palisade",
+      "x": -22659.58,
+      "z": -5803.67,
+      "yaw": -0.7136
+    },
+    {
+      "id": "u-palisade_-22662_-5884-cify",
+      "prefab": "U_Palisade",
+      "x": -22662.1,
+      "z": -5884.04,
+      "yaw": -2.379
+    },
+    {
+      "id": "u-palisade_-22663_-5806-zi61",
+      "prefab": "U_Palisade",
+      "x": -22662.52,
+      "z": -5806.36,
+      "yaw": -0.7711
+    },
+    {
+      "id": "u-palisade_-22665_-5809-e42i",
+      "prefab": "U_Palisade",
+      "x": -22665.3,
+      "z": -5809.22,
+      "yaw": -0.8312
+    },
+    {
+      "id": "u-palisade_-22665_-5881-niw7",
+      "prefab": "U_Palisade",
+      "x": -22664.9,
+      "z": -5881.2,
+      "yaw": -2.3193
+    },
+    {
+      "id": "u-palisade_-22668_-5812-oq7f",
+      "prefab": "U_Palisade",
+      "x": -22667.89,
+      "z": -5812.25,
+      "yaw": -0.8941
+    },
+    {
+      "id": "u-palisade_-22668_-5878-m3go",
+      "prefab": "U_Palisade",
+      "x": -22667.52,
+      "z": -5878.2,
+      "yaw": -2.2568
+    },
+    {
+      "id": "u-palisade_-22670_-5815-e4p3",
+      "prefab": "U_Palisade",
+      "x": -22670.28,
+      "z": -5815.44,
+      "yaw": -0.9599
+    },
+    {
+      "id": "u-palisade_-22670_-5875-ggoz",
+      "prefab": "U_Palisade",
+      "x": -22669.95,
+      "z": -5875.04,
+      "yaw": -2.1915
+    },
+    {
+      "id": "u-palisade_-22672_-5819-gw40",
+      "prefab": "U_Palisade",
+      "x": -22672.45,
+      "z": -5818.78,
+      "yaw": -1.0285
+    },
+    {
+      "id": "u-palisade_-22672_-5872-ldfq",
+      "prefab": "U_Palisade",
+      "x": -22672.15,
+      "z": -5871.72,
+      "yaw": -2.1232
+    },
+    {
+      "id": "u-palisade_-22674_-5822-o2on",
+      "prefab": "U_Palisade",
+      "x": -22674.39,
+      "z": -5822.27,
+      "yaw": -1.1001
+    },
+    {
+      "id": "u-palisade_-22674_-5868-f6bv",
+      "prefab": "U_Palisade",
+      "x": -22674.12,
+      "z": -5868.25,
+      "yaw": -2.0521
+    },
+    {
+      "id": "u-palisade_-22676_-5826-o228",
+      "prefab": "U_Palisade",
+      "x": -22676.06,
+      "z": -5825.88,
+      "yaw": -1.1745
+    },
+    {
+      "id": "u-palisade_-22676_-5865-ut4i",
+      "prefab": "U_Palisade",
+      "x": -22675.83,
+      "z": -5864.65,
+      "yaw": -1.9781
+    },
+    {
+      "id": "u-palisade_-22677_-5830-w74s",
+      "prefab": "U_Palisade",
+      "x": -22677.46,
+      "z": -5829.62,
+      "yaw": -1.2514
+    },
+    {
+      "id": "u-palisade_-22677_-5861-q5sz",
+      "prefab": "U_Palisade",
+      "x": -22677.27,
+      "z": -5860.94,
+      "yaw": -1.9015
+    },
+    {
+      "id": "u-palisade_-22678_-5857-ujue",
+      "prefab": "U_Palisade",
+      "x": -22678.42,
+      "z": -5857.12,
+      "yaw": -1.8226
+    },
+    {
+      "id": "u-palisade_-22679_-5833-tlim",
+      "prefab": "U_Palisade",
+      "x": -22678.56,
+      "z": -5833.45,
+      "yaw": -1.3306
+    },
+    {
+      "id": "u-palisade_-22679_-5837-hwqd",
+      "prefab": "U_Palisade",
+      "x": -22679.35,
+      "z": -5837.35,
+      "yaw": -1.4117
+    },
+    {
+      "id": "u-palisade_-22679_-5853-issu",
+      "prefab": "U_Palisade",
+      "x": -22679.25,
+      "z": -5853.22,
+      "yaw": -1.7418
+    },
+    {
+      "id": "u-palisade_-22680_-5841-oznz",
+      "prefab": "U_Palisade",
+      "x": -22679.82,
+      "z": -5841.31,
+      "yaw": -1.4939
+    },
+    {
+      "id": "u-palisade_-22680_-5845-iokz",
+      "prefab": "U_Palisade",
+      "x": -22679.96,
+      "z": -5845.29,
+      "yaw": -1.5768
+    },
+    {
+      "id": "u-palisade_-22680_-5849-pluj",
+      "prefab": "U_Palisade",
+      "x": -22679.77,
+      "z": -5849.27,
+      "yaw": -1.6597
+    },
+    {
+      "id": "u-schmiede_-22552_-5814-ctai",
+      "prefab": "U_Schmiede",
+      "x": -22552,
+      "z": -5814,
+      "yaw": -2.0989,
+      "einebnen": 4.9
+    },
+    {
+      "id": "u-speicher_-22540_-5878-r142",
+      "prefab": "U_Speicher",
+      "x": -22540,
+      "z": -5878,
+      "yaw": -0.838,
+      "einebnen": 3.5
+    },
+    {
+      "id": "u-speicher_-22666_-5826-lyu8",
+      "prefab": "U_Speicher",
+      "x": -22666,
+      "z": -5826,
+      "yaw": 2.1588,
+      "einebnen": 3.5
+    },
+    {
+      "id": "u-steg_-22600_-5745-h6is",
+      "prefab": "U_Steg",
+      "x": -22600,
+      "z": -5745.5,
+      "yaw": 3.1416
+    },
+    {
+      "id": "u-tor_-22600_-5783-dxwg",
+      "prefab": "U_Tor",
+      "x": -22600,
+      "z": -5783,
+      "yaw": 0,
+      "einebnen": 3.7
+    },
+    {
+      "id": "u-trockengestell_-22572_-5766-wxnw",
+      "prefab": "U_Trockengestell",
+      "x": -22572,
+      "z": -5766,
+      "yaw": -0.5586
+    },
+    {
+      "id": "u-wegweiser_-22594_-5770-b2le",
+      "prefab": "U_Wegweiser",
+      "x": -22594,
+      "z": -5770,
+      "yaw": 0
+    },
+    {
+      "id": "u-wohnhaus_-22540_-5846-nw4u",
+      "prefab": "U_Wohnhaus",
+      "x": -22540,
+      "z": -5846,
+      "yaw": -1.5042,
+      "einebnen": 6.5
+    },
+    {
+      "id": "u-wohnhaus_-22560_-5874-r19i",
+      "prefab": "U_Wohnhaus",
+      "x": -22560,
+      "z": -5874,
+      "yaw": -0.8961,
+      "einebnen": 6.5
+    },
+    {
+      "id": "u-wohnhaus_-22640_-5874-jlai",
+      "prefab": "U_Wohnhaus",
+      "x": -22640,
+      "z": -5874,
+      "yaw": 0.8961,
+      "einebnen": 6.5
+    },
+    {
+      "id": "u-wohnhaus_-22644_-5814-fmyw",
+      "prefab": "U_Wohnhaus",
+      "x": -22644,
+      "z": -5814,
+      "yaw": 2.1375,
+      "einebnen": 6.5
+    },
+    {
+      "id": "u-wohnhaus_-22660_-5846-sjek",
+      "prefab": "U_Wohnhaus",
+      "x": -22660,
+      "z": -5846,
+      "yaw": 1.5042,
+      "einebnen": 6.5
+    },
+    {
+      "id": "u-zaun_-22570_-5860-tgfl",
+      "prefab": "U_Zaun",
+      "x": -22570,
+      "z": -5859.95,
+      "yaw": -1.5708
+    },
+    {
+      "id": "u-zaun_-22570_-5864-peh6",
+      "prefab": "U_Zaun",
+      "x": -22570,
+      "z": -5864,
+      "yaw": -1.5708
+    },
+    {
+      "id": "u-zaun_-22572_-5858-b31u",
+      "prefab": "U_Zaun",
+      "x": -22571.9,
+      "z": -5858,
+      "yaw": 0
+    },
+    {
+      "id": "u-zaun_-22572_-5866-a2ts",
+      "prefab": "U_Zaun",
+      "x": -22571.9,
+      "z": -5866,
+      "yaw": 3.1416
+    },
+    {
+      "id": "u-zaun_-22576_-5858-hyu2",
+      "prefab": "U_Zaun",
+      "x": -22575.95,
+      "z": -5858,
+      "yaw": 0
+    },
+    {
+      "id": "u-zaun_-22576_-5866-pvdo",
+      "prefab": "U_Zaun",
+      "x": -22575.95,
+      "z": -5866,
+      "yaw": 3.1416
+    },
+    {
+      "id": "u-zaun_-22580_-5866-tele",
+      "prefab": "U_Zaun",
+      "x": -22580,
+      "z": -5866,
+      "yaw": 3.1416
+    },
+    {
       "id": "voelva_-16904_-5324",
       "prefab": "Voelva",
       "x": -16904.2,
       "z": -5324,
       "yaw": 3.12413936106985,
       "scale": 2
+    },
+    {
+      "id": "voelva_-22604_-5865-elmf",
+      "prefab": "Voelva",
+      "x": -22604,
+      "z": -5865,
+      "yaw": 0.1722,
+      "npc": {
+        "name": "Völva Sigrun",
+        "rolle": "quest",
+        "quest": "verfuegbar"
+      }
     },
     {
       "id": "voelva_-4822_-4077",
@@ -3745,8 +5300,8 @@
     }
   ],
   "defaultSpawn": [
-    -16889,
-    -5345
+    -22608,
+    -5848
   ],
   "rivers": [
     {
@@ -3946,6 +5501,33 @@
       ],
       "mode": "loop",
       "speed": 0.59
+    },
+    {
+      "id": "startdorf-dorfplatz",
+      "points": [
+        [
+          -22612,
+          -5828,
+          6
+        ],
+        [
+          -22588,
+          -5828,
+          6
+        ],
+        [
+          -22588,
+          -5852,
+          4
+        ],
+        [
+          -22612,
+          -5852,
+          4
+        ]
+      ],
+      "mode": "loop",
+      "speed": 1.1
     }
   ]
 }

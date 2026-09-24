@@ -10,9 +10,11 @@
  *  [1] Bett 1 (100,100): der Boden steigt, das Bett wandert nur in der Hoehe →
  *      der Punkt zieht mit, der Tod fuehrt an die neue Bettposition, ohne
  *      Verlustmeldung.
- *  [2] Bett 2 (200,100): der Designer versetzt es seitlich → kein Bett mehr an
- *      der Stelle: Weltspawn UND die Meldung, einmal; der Punkt ist verworfen.
- *  [3] Bett 3 (300,100): der Designer loescht es → dasselbe wie [2].
+ *  [2] Bett 2 (200,100): der Designer versetzt es um 0,3 m (die Kennung bleibt) →
+ *      der Punkt zieht auch seitlich mit.
+ *  [3] Bett 3 (300,100): der Designer loescht es → Weltspawn UND die Meldung,
+ *      einmal; der Punkt ist verworfen.
+ *  [4] Bett 4 (400,100): der Designer setzt es 5 m weiter (neue Kennung) → wie [3].
  *
  * Alle drei Betten sind Weltbetten (ohne Besitzer). Der Testport ist ephemer.
  *
@@ -158,11 +160,11 @@ const bettBei = (server: Server, x: number, z: number) =>
 async function main(): Promise<void> {
   const BASIS_VORHER = 0.3;
   const BASIS_NACHHER = 0.32; // hebt den Boden um mehr als 0,5 m (siehe layout-abgleich.ts, (d))
-  schreibeDokument(BASIS_VORHER, [{ x: 100, z: 100 }, { x: 200, z: 100 }, { x: 300, z: 100 }]);
+  schreibeDokument(BASIS_VORHER, [{ x: 100, z: 100 }, { x: 200, z: 100 }, { x: 300, z: 100 }, { x: 400, z: 100 }]);
 
   let server: Server = starteServer();
   const kn: Record<string, Klient> = {};
-  const namen = ['Anna', 'Bjoern', 'Christa'];
+  const namen = ['Anna', 'Bjoern', 'Christa', 'Dora'];
   const setzen: Record<string, Vector3> = {};
   const bettVorher: Record<string, Vector3> = {};
   try {
@@ -177,7 +179,7 @@ async function main(): Promise<void> {
       await bis(() => Math.hypot(peer(n).position.x - x, peer(n).position.z - z) <= 1, 5000);
       await warte(NACHFRIST_MS);
     };
-    const bettX: Record<string, number> = { Anna: 100, Bjoern: 200, Christa: 300 };
+    const bettX: Record<string, number> = { Anna: 100, Bjoern: 200, Christa: 300, Dora: 400 };
     const weltSpawn = (server as unknown as Zugriff).weltSpawn();
     for (const n of namen) {
       await stelle(n, bettX[n]! + 2, 100);
@@ -203,8 +205,8 @@ async function main(): Promise<void> {
     server.stop();
     await warte(500);
 
-    console.log('\n[Boot 2] Boden steigt; Bett 2 seitlich versetzt; Bett 3 geloescht:');
-    schreibeDokument(BASIS_NACHHER, [{ x: 100, z: 100 }, { x: 200.3, z: 100 }]);
+    console.log('\n[Boot 2] Boden steigt; Bett 2 um 0,3 m; Bett 3 geloescht; Bett 4 um 5 m:');
+    schreibeDokument(BASIS_NACHHER, [{ x: 100, z: 100 }, { x: 200.3, z: 100 }, { x: 405, z: 100 }]);
     server = starteServer();
     port = portVon(server);
     for (const n of namen) kn[n] = await verbinde(port, n);
@@ -232,14 +234,22 @@ async function main(): Promise<void> {
     check('[1] keine Verlustmeldung', a.meldung === 'Du bist gestorben', a.meldung);
     check('[1] der Punkt ist mitgezogen', !!peer('Anna').spawnPoint && gleich(peer('Anna').spawnPoint!, sollA), pos(peer('Anna').spawnPoint));
 
-    for (const n of ['Bjoern', 'Christa']) {
+    const bett2 = bettBei(server, 200.3, 100)!;
+    const b2 = await tot('Bjoern');
+    const sollB = { x: bett2.position.x, y: bett2.position.y + 0.6, z: bett2.position.z };
+    console.log(`      [2] Bjoern stirbt: ${pos(b2.ziel)}, Soll (Bett ${pos(bett2.position)} + 0,6) ${pos(sollB)}, Meldung "${b2.meldung}"`);
+    check('[2] Bjoern erwacht am um 0,3 m versetzten Bett', !!b2.ziel && gleich(b2.ziel, sollB), pos(b2.ziel));
+    check('[2] keine Verlustmeldung', b2.meldung === 'Du bist gestorben', b2.meldung);
+
+    const verloren: Array<[string, number]> = [['Christa', 3], ['Dora', 4]];
+    for (const [n, nr] of verloren) {
       const b = await tot(n);
-      console.log(`      [${n === 'Bjoern' ? 2 : 3}] ${n} stirbt: ${pos(b.ziel)}, Meldung "${b.meldung}"`);
-      check(`[${n === 'Bjoern' ? 2 : 3}] ${n} erwacht am Weltspawn`, !!b.ziel && gleich(b.ziel, weltSpawn2), pos(b.ziel));
-      check(`[${n === 'Bjoern' ? 2 : 3}] ${n} erfaehrt, dass der Schlafplatz weg ist`, /Schlafplatz/.test(b.meldung), b.meldung);
-      check(`[${n === 'Bjoern' ? 2 : 3}] der Punkt ist verworfen`, peer(n).spawnPoint === null, pos(peer(n).spawnPoint));
-      const b2 = await tot(n);
-      check(`[${n === 'Bjoern' ? 2 : 3}] beim naechsten Tod keine Wiederholung der Meldung`, b2.meldung === 'Du bist gestorben', b2.meldung);
+      console.log(`      [${nr}] ${n} stirbt: ${pos(b.ziel)}, Meldung "${b.meldung}"`);
+      check(`[${nr}] ${n} erwacht am Weltspawn`, !!b.ziel && gleich(b.ziel, weltSpawn2), pos(b.ziel));
+      check(`[${nr}] ${n} erfaehrt, dass der Schlafplatz weg ist`, /Schlafplatz/.test(b.meldung), b.meldung);
+      check(`[${nr}] der Punkt ist verworfen`, peer(n).spawnPoint === null, pos(peer(n).spawnPoint));
+      const b3 = await tot(n);
+      check(`[${nr}] beim naechsten Tod keine Wiederholung der Meldung`, b3.meldung === 'Du bist gestorben', b3.meldung);
     }
     for (const n of namen) kn[n]!.ws.close();
     await warte(300);

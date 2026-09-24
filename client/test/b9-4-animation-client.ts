@@ -6,6 +6,7 @@
  *      The old hooks started the measured clip and never stopped it.
  *  [2] The one-shot member format (`<clip>#<n>`): parse, count up, refuse junk.
  *  [3] The group search: exact before partial, two partial hits are ambiguous.
+ *  [4] The real AssetManager reports an ambiguous state once and plays nothing.
  *
  * Run: npx tsx client/test/b9-4-animation-client.ts   (from the repo root)
  */
@@ -120,6 +121,52 @@ console.log('\n[3] Group search');
   check('exact name wins', w?.(['walk2', 'walk'], 'walk').index === 1);
   check('case-insensitive partial hit', w?.(['Walking'], 'walk').art === 'teil');
   check('no hit is "fehlt"', w?.(['idle'], 'run').art === 'fehlt');
+}
+
+// ── [4] The real AssetManager: an ambiguous state is reported, not guessed ─
+console.log('\n[4] AssetManager.wechsleAnimation with the groups of npc_1_walk.glb');
+{
+  const { AssetManager } = await import('../src/engine/AssetManager.js');
+  // The class is used without a scene: only the maps the method reads are set.
+  const am = Object.create(AssetManager.prototype) as unknown as {
+    animGruppen: WeakMap<object, unknown[]>;
+    mehrdeutigGemeldet: Set<string>;
+    einmalMarke: WeakMap<object, number>;
+    wechsleAnimation(root: object, wunsch: string): void;
+  };
+  am.animGruppen = new WeakMap();
+  am.mehrdeutigGemeldet = new Set();
+  am.einmalMarke = new WeakMap();
+  const aufrufe: string[] = [];
+  const gruppe = (name: string) => ({
+    name,
+    isPlaying: false,
+    speedRatio: 1,
+    from: 0,
+    to: 1,
+    stop() {
+      aufrufe.push(`stop(${name})`);
+      this.isPlaying = false;
+    },
+    start() {
+      aufrufe.push(`start(${name})`);
+      this.isPlaying = true;
+    },
+  });
+  const root = { name: 'NPC_1' };
+  am.animGruppen.set(root, [gruppe('Run_02'), gruppe('Running'), gruppe('Walking')]);
+  const meldungen: string[] = [];
+  const alt = console.error;
+  console.error = (...a: unknown[]) => void meldungen.push(a.join(' '));
+  am.wechsleAnimation(root, 'run');
+  am.wechsleAnimation(root, 'run');
+  console.error = alt;
+  console.log(`      calls: ${aufrufe.join(' ')}; reported ${meldungen.length}x`);
+  check("'run' on npc_1_walk plays NO group (the old code started Run_02, the first hit)", !aufrufe.some((x) => x.startsWith('start(')), aufrufe.join(' '));
+  check('B4: the ambiguity is reported, once, naming both groups', meldungen.length === 1 && /Run_02/.test(meldungen[0] ?? '') && /Running/.test(meldungen[0] ?? ''), `${meldungen.length}x: ${meldungen[0] ?? ''}`);
+  aufrufe.length = 0;
+  am.wechsleAnimation(root, 'walk');
+  check("'walk' (one hit) still plays Walking", aufrufe.includes('start(Walking)'), aufrufe.join(' '));
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);

@@ -18,12 +18,14 @@
     errorMessageKey,
     isLoggedOut,
     isShore,
+    me,
     play,
     readShore,
     readToken,
     signedInShore,
     writeShore,
   } from '$lib/account';
+  import { fahreLos, neueFahrt } from '$lib/losfahren';
   import '$lib/stil/account.css';
   import type { EquipmentSetCatalog } from '../../../../../shared/src/equipmentSets';
   import { CLASS_EQUIPMENT_FAMILIES } from '../../../../../shared/src/equipmentSets';
@@ -685,7 +687,12 @@
    * Der Server erzeugt dabei `spielerId` und `altlastUserId` selbst und gibt
    * sie nie heraus — die Webseite kann eine Spielidentität also nicht
    * erfinden, nur erbitten.
+   *
+   * Bricht der Ablauf in der Mitte ab, merkt sich `fahrt` den Recken: Der
+   * nächste Klick legt keinen zweiten an (Ablauf in `$lib/losfahren`).
    */
+  const fahrt = neueFahrt();
+
   async function losfahren() {
     if (sendet) return;
     merke();
@@ -697,19 +704,26 @@
 
     sendet = true;
     try {
-      const neu = await createCharacter(gestade, token, {
-        name: spielerName.trim(),
-        figure: figur,
-        // Das bestehende Drahtfeld bleibt kompatibel: H_04+B_02 bedeutet
-        // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
-        hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
-        hairColor: haarfarbe,
-        eyeColor: augenfarbe,
-        classId: klasseId,
-        top: '',
-        legs: '',
-      });
-      const ticket = await play(gestade, token, neu.character.id);
+      const ticket = await fahreLos(
+        {
+          createCharacter: (w) => createCharacter(gestade, token, w),
+          characters: () => me(gestade, token),
+          play: (id) => play(gestade, token, id),
+        },
+        fahrt,
+        {
+          name: spielerName,
+          figure: figur,
+          // Das bestehende Drahtfeld bleibt kompatibel: H_04+B_02 bedeutet
+          // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
+          hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
+          hairColor: haarfarbe,
+          eyeColor: augenfarbe,
+          classId: klasseId,
+          top: '',
+          legs: '',
+        },
+      );
       // `weiter` came from `/anmelden`, forwarded here through the
       // address, and is only honoured same-origin — see `enterGame`.
       enterGame(gestade, ticket.sessionToken, lang, zeit, page.url.searchParams.get('weiter'));
@@ -717,7 +731,7 @@
       sendet = false;
       if (isLoggedOut(err)) return zurAnmeldung();
       const schluessel = err instanceof ApiError ? err.key : '';
-      if (schluessel === 'name-ungueltig' || schluessel === 'name-vergeben') {
+      if (schluessel === 'name-invalid' || schluessel === 'name-taken') {
         // Fehler am Feld, nicht über der Seite: Die Aussehenswahl bleibt
         // stehen, und der Blick landet dort, wo etwas zu ändern ist.
         namensFehler = errorMessageKey(schluessel);

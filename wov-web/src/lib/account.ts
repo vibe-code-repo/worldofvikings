@@ -267,6 +267,8 @@ const ERROR_MESSAGES: Record<string, MessageKey> = {
   // Not from the server: account.ts raises this itself when fetch() throws,
   // so it never has to match a wire key.
   network: 'account.error.network',
+  // Also raised by account.ts itself, when a call outlives its time limit.
+  timeout: 'account.error.timeout',
 };
 
 export function errorMessageKey(key: string): MessageKey {
@@ -496,18 +498,29 @@ export function signedInShore(): ShoreId | null {
 
 /* ---------------------------------------------------------- API calls */
 
+/**
+ * How long any call may take unless it asks for less.
+ *
+ * Measured 24.09.2026 on wov-dev: scrypt (N=32768, r=8, the login cost)
+ * takes 94 ms alone, 534 ms with 16 logins at once and 2169 ms with 64 at
+ * once; a status call answers in about 1 ms. Twenty seconds is roughly nine
+ * times the worst of these: a loaded server still answers, a dead one does
+ * not keep the button hostage for long.
+ */
+export const CALL_TIMEOUT_MS = 20000;
+
 interface Call {
   method: 'GET' | 'POST' | 'DELETE';
   token?: string;
   body?: unknown;
   /**
-   * Give up after this many milliseconds.
+   * Give up after this many milliseconds; unset means `CALL_TIMEOUT_MS`.
    *
-   * Only the status call sets it. A login may wait as long as it takes —
-   * the person is watching a spinner they asked for. The status line is
-   * nobody's request: a shore whose host accepts the connection and then
-   * says nothing would otherwise leave "checking …" standing forever,
-   * which is the same lie as a wrong number, only slower.
+   * Every call has an end. A host that accepts the connection and then says
+   * nothing would otherwise leave the button on "loading" for good, and the
+   * status line on "checking …", which is the same lie as a wrong number,
+   * only slower. The status call asks for less than the default because
+   * nobody requested it.
    */
   timeoutMs?: number;
 }
@@ -521,6 +534,7 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
   // KontoApi.ts.
   if (a.token) headers['x-wov-account'] = a.token;
 
+  const signal = AbortSignal.timeout(a.timeoutMs ?? CALL_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(SHORES[shore].apiPrefix + path, {
@@ -542,9 +556,10 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
       // unaffected.
       credentials: 'same-origin',
       cache: 'no-store',
-      signal: a.timeoutMs === undefined ? undefined : AbortSignal.timeout(a.timeoutMs),
+      signal,
     });
   } catch {
+    if (signal.aborted) throw new ApiError('timeout');
     // A rejected fetch is the one failure the API cannot name itself:
     // the request never arrived.
     throw new ApiError('network');
@@ -554,6 +569,9 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
   try {
     data = await response.json();
   } catch {
+    // The signal also covers reading the body: a host that sends the
+    // headers and then stalls ends here, not in fetch().
+    if (signal.aborted) throw new ApiError('timeout');
     /* an empty or broken body is handled by the status below */
   }
 

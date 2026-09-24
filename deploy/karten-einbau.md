@@ -41,10 +41,16 @@ Wichtig:
   Platte, wirksam wird sie beim nächsten `nginx -t && systemctl reload nginx`.
   Bis `oeffentlich/` existiert, greift der Rückfall auf die Repo-Karten.
 - Der Lauf ist gesperrt (`/run/wov-karten/sperre`, tmpfs, `RuntimeDirectory=`
-  der Unit); ein zweiter gleichzeitiger Lauf endet mit Meldung und Status 75
-  (`systemctl start` zeigt das als Fehlschlag).
+  der Unit). Ein zweites `systemctl start` wartet auf den laufenden oneshot
+  (systemd führt die Läufe hintereinander aus) und endet **nicht** mit 75.
+  Status 75 gibt es nur, wenn ein Lauf außerhalb von systemd dieselbe Sperre
+  hält. Danach steht der Dienst bis zum nächsten erfolgreichen Lauf auf
+  „failed“; der Timer läuft normal weiter.
+- `RuntimeDirectoryPreserve=no` löscht beim Dienstende `/run/wov-karten`,
+  also auch die Sperre eines gleichzeitigen Handlaufs außerhalb von systemd.
+  Deshalb gilt die Regel „Handläufe nur per `systemctl`“.
 
-Sperre hängt? (Lauf endet mit Status 75, obwohl nichts läuft)
+Sperre hängt? (Lauf außerhalb von systemd endet mit Status 75, obwohl nichts läuft)
 ```
 cat /run/wov-karten/sperre                 # PID des Halters
 ps -p "$(cat /run/wov-karten/sperre)" -o pid,args   # nennt die Zeile weltkarte-veroeffentlichen?
@@ -55,6 +61,16 @@ als frei und der nächste Lauf übernimmt sie selbst. Läuft es wirklich, abwart
 (ein Lauf mit Rendern dauert bis zu 1 Minute). Nur wenn `systemctl status` nichts
 Laufendes zeigt und der Status 75 bleibt: `rm /run/wov-karten/sperre`. Nach einem
 Neustart des Containers ist sie ohnehin weg.
+Daneben gibt es die Kurzsperre `/run/wov-karten/sperre.uebernahme`, die nur
+während der Übernahme einer toten Sperre besteht; ist sie älter als 10 s,
+wird sie von einem Lauf übernommen (also nichts von Hand löschen).
+
+Restrisiko (unter systemd praktisch ausgeschlossen, weil systemd die Läufe
+ohnehin hintereinander ausführt): (1) Ist ein Übernehmer mehr als 10 s
+angehalten (z. B. `SIGSTOP`), kann ein zweiter die Kurzsperre übernehmen und es
+gibt kurz zwei Halter. (2) Trägt ein fremder Prozess nach PID-Umlauf einen
+Namen mit `weltkarte-veroeffentlichen` in der Kommandozeile, hält er die
+Sperre scheinbar dauerhaft; dann Status 75 wie oben behandeln.
 
 Hinweise:
 - Ein Bild wird vor dem Ablegen dekodiert (4096 px breit). Ist es kaputt,

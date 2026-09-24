@@ -48,7 +48,7 @@ const SKRIPT_LIMIT = LIMIT + 1000;
 const szenarien = new Map();
 const zustand = (name) => {
   if (!szenarien.has(name)) {
-    szenarien.set(name, { helden: [], anlegen: 0, play: [], me: 0, verhalten: {} });
+    szenarien.set(name, { helden: [], anlegen: 0, play: [], me: 0, verhalten: {}, naechsteId: 100 });
   }
   return szenarien.get(name);
 };
@@ -87,7 +87,7 @@ const stub = createServer((req, res) => {
       if (vergeben.some((n) => n.toLowerCase() === w.name.toLowerCase())) {
         return json(409, { error: 'name-taken' });
       }
-      const held = { id: 100 + z.helden.length, ...w, created: Date.now(), lastPlayed: null };
+      const held = { id: z.naechsteId++, ...w, created: Date.now(), lastPlayed: null };
       if (v.speichernOhneAntwort && z.anlegen === 1) {
         z.helden.push(held); // beim Server angekommen …
         return; // … Antwort geht verloren
@@ -99,6 +99,7 @@ const stub = createServer((req, res) => {
     const m = /^\/accounts\/characters\/(\d+)\/play$/.exec(url);
     if (m) {
       z.play.push(Number(m[1]));
+      if (!z.helden.some((h) => h.id === Number(m[1]))) return json(404, { error: 'unknown' });
       if (v.playFehler && z.play.length <= v.playFehler) return json(503, { error: 'server-error' });
       return json(200, { sessionToken: 'ticket-' + m[1], character: z.helden.find((h) => h.id === Number(m[1])) });
     }
@@ -243,6 +244,17 @@ async function szenarioD() {
   pruefe('d) nach Zeitablauf, Name inzwischen fremd: Konto abgefragt, kein eigener → name-taken',
     schluessel(a) === 'timeout' && schluessel(b) === 'name-taken' && d2.me === 1 && d2.play.length === 0,
     `${schluessel(a)} dann ${schluessel(b)}, me=${d2.me}, play=${d2.play.length}`);
+  // d4: unklarer Versuch, das Konto hat einen eigenen Recken mit ANDEREM Namen, ein Fremder hält den Wunschnamen.
+  const d4 = zustand('d4');
+  d4.verhalten.hangErsteAnlage = true;
+  const los4 = baueAblauf('d4');
+  const a4 = await messe(() => los4(wunsch()), SKRIPT_LIMIT + 2000);
+  d4.helden.push({ id: 7, ...wunsch('Sven'), created: 1, lastPlayed: null });
+  d4.verhalten.fremd = ['Ragnar'];
+  const b4 = await messe(() => los4(wunsch()), 5000);
+  pruefe('d) unklarer Versuch, eigener Recke mit anderem Namen, Wunschname fremd: name-taken, play=0',
+    schluessel(a4) === 'timeout' && schluessel(b4) === 'name-taken' && d4.play.length === 0 && d4.me === 1,
+    `${schluessel(a4)} dann ${schluessel(b4)}, me=${d4.me}, play=${d4.play.length}`);
   // d3: Konto hat schon einen Recken dieses Namens, aber es gab keinen unklaren Versuch → nicht still übernehmen.
   const d3 = zustand('d3');
   d3.helden.push({ id: 7, ...wunsch(), created: 1, lastPlayed: null });
@@ -251,8 +263,24 @@ async function szenarioD() {
     schluessel(r3) === 'name-taken' && d3.play.length === 0, `${schluessel(r3)}, me=${d3.me}, play=${d3.play.length}`);
 }
 
+/* ---- e) play mit endgültiger Absage: Gedächtnis fällt, nächster Klick legt neu an */
+async function szenarioE() {
+  const z = zustand('e');
+  z.verhalten.playFehler = 1;
+  const los = baueAblauf('e');
+  const e1 = await messe(() => los(wunsch()), 5000);
+  z.helden.length = 0; // der Recke wird anderswo gelöscht
+  const e2 = await messe(() => los(wunsch()), 5000);
+  const e3 = await messe(() => los(wunsch()), 5000);
+  pruefe('e) play 503, Recke danach weg: Klick 2 meldet unknown', schluessel(e1) === 'server-error' && schluessel(e2) === 'unknown',
+    `${schluessel(e1)}, ${schluessel(e2)}`);
+  pruefe('e) Klick 3 legt neu an und liefert das Ticket (kein Hängen auf der toten Id)',
+    e3.wert?.sessionToken === 'ticket-101' && z.anlegen === 2 && z.play.join() === '100,100,101',
+    `${e3.wert?.sessionToken ?? schluessel(e3)}, anlegen=${z.anlegen}, play=${JSON.stringify(z.play)}`);
+}
+
 try {
-  await Promise.all([szenarioA(), szenarioB(), szenarioC(), szenarioD()]);
+  await Promise.all([szenarioA(), szenarioB(), szenarioC(), szenarioD(), szenarioE()]);
 } finally {
   for (const r of offen) r.destroy();
   await new Promise((ok) => stub.close(ok));

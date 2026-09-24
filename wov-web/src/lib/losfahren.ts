@@ -53,6 +53,15 @@ const schluesselVon = (w: Wunsch): string =>
 const schluesselDes = (e: unknown): string =>
   typeof (e as { key?: unknown } | null)?.key === 'string' ? (e as { key: string }).key : '';
 
+/** Errors that say nothing about the remembered hero: try the same id again. */
+const VORUEBERGEHEND = new Set([
+  'timeout',
+  'network',
+  'server-error',
+  'not-signed-in',
+  'too-many-attempts',
+]);
+
 /** The call left no answer behind: the server may or may not have acted. */
 const ohneAntwort = (e: unknown): boolean => {
   const k = schluesselDes(e);
@@ -68,7 +77,15 @@ export async function fahreLos(konto: Konto, fahrt: Fahrt, eingabe: Wunsch): Pro
   const schluessel = schluesselVon(wunsch);
 
   if (fahrt.angelegt && fahrt.angelegt.schluessel === schluessel) {
-    return konto.play(fahrt.angelegt.id);
+    try {
+      return await konto.play(fahrt.angelegt.id);
+    } catch (e) {
+      // A final answer about this id (unknown, invalid, …) means the hero is
+      // gone or was never ours; remembering him would repeat the same
+      // refusal on every click. Transient failures keep the memory.
+      if (!VORUEBERGEHEND.has(schluesselDes(e))) fahrt.angelegt = null;
+      throw e;
+    }
   }
   // Anything else the player changed makes it a new wish; an old hero
   // stays in the account, and nothing here deletes him.
@@ -91,5 +108,10 @@ export async function fahreLos(konto: Konto, fahrt: Fahrt, eingabe: Wunsch): Pro
   }
   fahrt.unklar = null;
   fahrt.angelegt = { schluessel, id };
-  return konto.play(id);
+  try {
+    return await konto.play(id);
+  } catch (e) {
+    if (!VORUEBERGEHEND.has(schluesselDes(e))) fahrt.angelegt = null;
+    throw e;
+  }
 }

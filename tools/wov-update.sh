@@ -867,6 +867,10 @@ echo "▶ Webseite bauen"
 # neuer Vorschauweg mit einem alten Browserbuendel ausgeliefert wird.
 node_modules/.bin/tsx tools/aussehen-json.mjs --aus wov-web/static/assets/appearance.json
 node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js
+# Ohne Buendel waere der Webseitenbau still gruen und die Charaktererstellung
+# lieferte im Browser einen 404: hier laut abbrechen. Die Dienste sind an dieser
+# Stelle schon gestoppt (Schritt 4); aufraeumen() meldet das mit dem Abbruch.
+[ -s wov-web/static/assets/js/vorschau.js ] || { echo "FEHLER: wov-web/static/assets/js/vorschau.js fehlt oder ist leer (vorschau-buendeln.mjs)." >&2; exit 1; }
 (cd wov-web && npm ci --include=dev && npm run build && bash tools/ohne-js-pruefen.sh)
 
 # Nach dem Webseitenbau darf der Baum nicht schmutzig sein: der NAECHSTE Lauf
@@ -875,16 +879,17 @@ node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js
 # deshalb kein Repo-Bestandteil mehr (.gitignore). Ein Rest hier ist ein
 # Fehler in einer erzeugten Datei: laut melden, aber nicht abbrechen -- die
 # Dienste starten gleich, und der Update selbst ist gelungen.
+# BEGIN webbau-warnung (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
 REST_NACH_WEBBAU="$(git status --porcelain)"
 if [ -n "$REST_NACH_WEBBAU" ]; then
   echo >&2
   echo "WARNUNG: Der Webseitenbau hat den Arbeitsbaum verschmutzt:" >&2
-  printf %s
- "$REST_NACH_WEBBAU" | sed s/^/ / >&2
+  printf '%s\n' "$REST_NACH_WEBBAU" | sed 's/^/    /' >&2
   echo "Der naechste wov-update.sh bricht deshalb in der Sauberkeitspruefung ab." >&2
   echo "Die genannten Dateien sind erzeugt: nicht committen, sondern die Quelle" >&2
   echo "oder die .gitignore-Zeile klaeren (git checkout -- <datei> stellt zurueck)." >&2
 fi
+# END webbau-warnung
 
 # ── 8. Dienste starten ───────────────────────────────────────────────
 # Gestartet wird, was auf DIESEM Container aktiviert ist. Die Unit-Dateien

@@ -45,8 +45,9 @@ const wurzel = process.cwd();
 let server = null;
 if (!basis) {
   const statisch = path.resolve(wurzel, 'wov-web/static');
-  // The bundle is a build product and not tracked: fail with the way to make it.
-  if (!fs.existsSync(path.join(statisch, BUENDEL))) {
+  // The bundle is a build product and not tracked: fail with the way to make it
+  // (not needed when --buendel-datei serves it via page.route).
+  if (!BUENDEL_DATEI && !fs.existsSync(path.join(statisch, BUENDEL))) {
     console.error(`Buendel fehlt: ${path.join(statisch, BUENDEL)}\nErst bauen: node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js`);
     process.exit(2);
   }

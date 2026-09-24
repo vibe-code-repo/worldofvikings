@@ -13,14 +13,22 @@
 # for the changeover, but only when <n> equals the table; anything else exits 64.
 #
 # Nested calls: sperre.sh puts the names it holds into WOV_SPERRE_GEHALTEN for the child. A call
-# on a name that is already held runs its command directly (the inherited descriptor holds
-# the place already), so a commit inside `sperre.sh build -- ...` whose hook asks for `build`
-# again cannot deadlock against itself or against a second such commit. Such a call first
-# tries, without waiting, for a free place and takes it like any call; only when every
-# place is busy does it run its command directly, and then it always says so on stderr
-# ("held by caller, running nested without a place"), so the pass is never silent.
-# WOV_SPERRE_GEHALTEN is set by this tool only, never by hand: whoever sets it lets calls
-# run past a full lock (visibly, but past it).
+# on a name that is already held first tries, without waiting, for a free place and takes it
+# like any call; only when every place is busy does it run its command directly, and then it
+# always says so on stderr ("held by caller, running nested without a place"), so the pass
+# is never silent. That is why a commit inside `sperre.sh build -- ...`, whose hook asks for
+# `build` again, cannot deadlock against itself or against a second such commit.
+# Two consequences, both deliberate:
+#   * A commit made under a held `build` takes the SECOND build place for the whole typecheck
+#     of the hook (70-95 s): one worker holds both places. So do not commit under a held
+#     build lock: typecheck under the lock, commit outside it.
+#   * The number of passes on a full lock is UNLIMITED (12 at once measured), each with its
+#     stderr line. The pass costs no place and gives no protection against misuse; it exists
+#     so that nothing waits for itself. WOV_SPERRE_GEHALTEN is set by this tool only, never
+#     by hand: whoever sets it lets calls run past a full lock (visibly, but past it).
+# Known remaining limits of the self-test override: hard-linked lock files in another
+# directory (needs the mark and intent) and a trailing blank in WOV_SPERREN (lands in a
+# directory of its own) do not loosen the real limit.
 #
 # Place 1 is the file `<name>.lock` (so a plain `flock <name>.lock ...` still holds
 # place 1); places 2..N are `<name>.<i>.lock`. Waiting is a poll (1 s plus jitter), not

@@ -222,6 +222,13 @@ What the lock covers, and what it does not:
   and print `sperre: <name> held by caller, running nested without a place`. So a
   `git commit` inside `sperre.sh build -- ...` (its hook asks for `build` again) cannot
   deadlock, and the pass is never silent.
+- **Do not commit under a held `build` lock.** Not `sperre.sh build -- bash -c '... && git
+  commit ...'`: typecheck under the lock, then commit outside it. The hook would take a
+  second build place, and one worker would hold both places for 70-95 s.
+- **The nested pass is unlimited.** When every place is busy, any number of calls on a held
+  name run past the lock (12 at once measured), each with its stderr line; the pass costs
+  no place and is no protection against misuse. It exists so that a commit under a lock
+  cannot wait for itself.
 - **Never take one lock under the other** (`build` inside `test`, `test` inside `build`):
   two of each, crossed, wait on each other for ever without a message. Release the first
   lock, then take the second. The tool does not refuse it, so that the hook (`build`)
@@ -239,7 +246,9 @@ What the lock covers, and what it does not:
   device:inode (a trailing slash, `/./`, a symlink or a bind mount do not change that).
   **Never set `WOV_SPERREN_PLAETZE_*`, `_SPERRE_SELBSTTEST` or `WOV_SPERRE_GEHALTEN` by
   hand**: the last one lets a call run past a full lock (visibly, but past it); the
-  tool sets it for its children itself.
+  tool sets it for its children itself. Two limits of the override guard are known and
+  left open, each needing intent or landing in a directory of its own: hard-linked lock
+  files in another directory (with the mark set) and a trailing blank in `WOV_SPERREN`.
 
 ### 3.4 While you work
 

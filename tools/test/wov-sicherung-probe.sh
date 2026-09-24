@@ -76,8 +76,35 @@ f.commit(); f.close()
 PYEOF
 }
 # Ordner der Läufe (ohne .fehlerhaft / mit) im Ziel dieses Aufrufs.
-gute()    { find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -name '2*T*' ! -name '*.fehlerhaft' | wc -l; }
-schlechte() { find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -name '*.fehlerhaft' | wc -l; }
+# gültig = blosser Stempelname; .fehlerhaft[.N] und .laeuft zählen nicht.
+gute()    { find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9-]+T[0-9-]+' | wc -l; }
+schlechte() { find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -name '*.fehlerhaft*' | wc -l; }
+laeuft()  { find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -name '*.laeuft' | wc -l; }
+# Ein Datum, das immer denselben Stempel liefert (Namenskollision).
+mkdir -p "$TMP/datebin"
+printf '#!/bin/bash\nif [[ "$*" == "+%%Y-%%m-%%dT%%H-%%M-%%S" ]]; then echo 2026-01-02T03-04-05; else exec /usr/bin/date "$@"; fi\n' > "$TMP/datebin/date"
+chmod +x "$TMP/datebin/date"
+laufd() {
+  PATH="$TMP/datebin:$TMP/bin:$PATH" WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+    bash "$TMP/wurzel/tools/wov-sicherung.sh"
+}
+# Sperr-Halter: hält die Konten-DB exklusiv, bis sperre_aus gerufen wird.
+sperre_an() {
+  rm -f "$TMP/sperre-bereit" "$TMP/sperre-ende"
+  python3 - "$DATEN/konten/dev.db" "$TMP/sperre-bereit" "$TMP/sperre-ende" <<'PYEOF' &
+import sqlite3, sys, os, time
+c = sqlite3.connect(sys.argv[1], isolation_level=None)
+c.execute("PRAGMA locking_mode=EXCLUSIVE"); c.execute("BEGIN EXCLUSIVE")
+c.execute("INSERT INTO konten(mail) VALUES ('x')")
+open(sys.argv[2], "w").close()
+t0 = time.time()
+while not os.path.exists(sys.argv[3]) and time.time() - t0 < 120:
+    time.sleep(0.1)
+PYEOF
+  HALTER=$!
+  for _ in $(seq 100); do [[ -e "$TMP/sperre-bereit" ]] && break; sleep 0.05; done
+}
+sperre_aus() { touch "$TMP/sperre-ende"; wait "$HALTER" 2>/dev/null; }
 # Bei einem alten Skript liest /etc/wov.env (dev auf wov-dev) — nur lesend.
 sql() { python3 - "$@" <<'PYEOF'
 import sqlite3, sys
@@ -216,36 +243,46 @@ LX="$(find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
 [[ "$(stat -c%a "$LX/server.yml" 2>/dev/null)" == 600 ]] && ok "server.yml (Quelle 0755) → 0600" || rot "server.yml → $(stat -c%a "$LX/server.yml" 2>/dev/null)"
 chmod 644 "$DATEN/server.yml"
 
-echo "── Aufbewahrung (Minuten genau, 7 neueste bleiben)"
+echo "── Aufbewahrung (Minuten genau, 30 Tage hart)"
 ZIEL="$TMP/ziel-a"; mkdir -p "$ZIEL/dev"
 stempel() { date -d "$1" +%Y-%m-%dT%H-%M-%S; }
-# 8 junge, gültige Läufe (1–8 Tage) schützen sich nicht gegenseitig vor der Altersregel
-for t in 1 2 3 4 5 6 7 8; do d="$ZIEL/dev/$(stempel "$t days ago")"; mkdir -p "$d"; touch -d "$t days ago" "$d"; done
-declare -A ALT=( [t29h23]="719 hours ago" [t30h1]="721 hours ago" [t31]="31 days ago" [t40]="40 days ago" )
-for k in "${!ALT[@]}"; do d="$ZIEL/dev/$(stempel "${ALT[$k]}")"; mkdir -p "$d"; touch -d "${ALT[$k]}" "$d"; done
-d="$ZIEL/dev/$(stempel "35 days ago").fehlerhaft"; mkdir -p "$d"; touch -d "35 days ago" "$d"; FH_ALT="$d"
-d="$ZIEL/dev/$(stempel "3 days ago").fehlerhaft"; mkdir -p "$d"; FH_NEU="$d"
+declare -A ALT=( [t3]="3 days ago" [t29h23]="719 hours ago" [t30h1]="721 hours ago" [t31]="31 days ago" [t40]="40 days ago" )
+declare -A NAME=()
+# Namen EINMAL beim Anlegen merken (sonst kippt die Sekunde zwischen Anlegen und Prüfen)
+for k in "${!ALT[@]}"; do NAME[$k]="$(stempel "${ALT[$k]}")"; mkdir -p "$ZIEL/dev/${NAME[$k]}"; touch -d "${ALT[$k]}" "$ZIEL/dev/${NAME[$k]}"; done
+FH_ALT="$ZIEL/dev/$(stempel "35 days ago").fehlerhaft"; mkdir -p "$FH_ALT"; touch -d "35 days ago" "$FH_ALT"
+FH_ALT2="$ZIEL/dev/$(stempel "36 days ago").fehlerhaft.2"; mkdir -p "$FH_ALT2"; touch -d "36 days ago" "$FH_ALT2"
+FH_NEU="$ZIEL/dev/$(stempel "2 days ago").fehlerhaft"; mkdir -p "$FH_NEU"
 mkdir -p "$ZIEL/dev/kein-stempel"; touch -d "90 days ago" "$ZIEL/dev/kein-stempel"
 lauf > "$TMP/lauf2.log" 2>&1 && ok "Lauf 2 endet mit 0" || rot "Lauf 2 fehlgeschlagen"
-for k in t29h23; do [[ -d "$ZIEL/dev/$(stempel "${ALT[$k]}")" ]] && ok "719 h (29 d 23 h) alt: bleibt" || rot "29 d 23 h alt: gelöscht"; done
-for k in t30h1 t31 t40; do [[ ! -d "$ZIEL/dev/$(stempel "${ALT[$k]}")" ]] && ok "${ALT[$k]}: gelöscht" || rot "${ALT[$k]}: liegt noch"; done
-[[ ! -d "$FH_ALT" ]] && ok "35 Tage altes .fehlerhaft: gelöscht (wie ein normaler Lauf)" || rot "altes .fehlerhaft liegt noch"
-[[ -d "$FH_NEU" ]] && ok "3 Tage altes .fehlerhaft: bleibt" || rot "junges .fehlerhaft gelöscht"
+[[ -d "$ZIEL/dev/${NAME[t29h23]}" ]] && ok "719 h (29 d 23 h) alt: bleibt" || rot "29 d 23 h alt: gelöscht"
+[[ -d "$ZIEL/dev/${NAME[t3]}" ]] && ok "3 Tage alt: bleibt" || rot "3 Tage alt: gelöscht"
+for k in t30h1 t31 t40; do [[ ! -e "$ZIEL/dev/${NAME[$k]}" ]] && ok "${ALT[$k]}: gelöscht" || rot "${ALT[$k]}: liegt noch"; done
+[[ ! -e "$FH_ALT" && ! -e "$FH_ALT2" ]] && ok "35/36 Tage alte .fehlerhaft(.2): gelöscht" || rot "altes .fehlerhaft liegt noch"
+[[ -d "$FH_NEU" ]] && ok "2 Tage altes .fehlerhaft: bleibt" || rot "junges .fehlerhaft gelöscht"
 [[ -d "$ZIEL/dev/kein-stempel" ]] && ok "Ordner ohne Stempelnamen: unangetastet" || rot "fremder Ordner gelöscht"
 
-echo "── Uhrsprung: nur alte Läufe im Ziel, die neuesten 7 bleiben"
+echo "── Uhr VORWÄRTS (nur alte Läufe im Ziel): 30 Tage gelten hart, nur der neue Lauf bleibt"
 ZIEL="$TMP/ziel-u"; mkdir -p "$ZIEL/dev"
 for t in 41 42 43 44 45 46 47 48 49 50; do d="$ZIEL/dev/$(stempel "$t days ago")"; mkdir -p "$d"; touch -d "$t days ago" "$d"; done
 lauf > "$TMP/lauf-u.log" 2>&1 || rot "Lauf im Uhrsprung-Test endet ≠ 0"
-# der neue Lauf + 6 der alten ergeben 7 gültige; 4 Ältere werden gelöscht
-[[ "$(gute)" == 7 ]] && ok "gültige Läufe = 7 (neuer + 6 älteste-geschützte)" || rot "gültige Läufe = $(gute), erwartet 7"
+[[ "$(gute)" == 1 ]] && ok "alle 10 alten Läufe weg, nur der laufende bleibt (gültig = 1)" || rot "gültige Läufe = $(gute), erwartet 1"
+
+echo "── Uhr RÜCKWÄRTS (neuester Lauf liegt in der Zukunft): nichts wird gelöscht"
+ZIEL="$TMP/ziel-r"; mkdir -p "$ZIEL/dev"
+FUT="$ZIEL/dev/$(stempel "5 days")"; mkdir -p "$FUT"; touch -d "5 days" "$FUT"
+for t in 31 40 60; do d="$ZIEL/dev/$(stempel "$t days ago")"; mkdir -p "$d"; touch -d "$t days ago" "$d"; done
+lauf > "$TMP/lauf-r.log" 2>&1 && ok "Lauf endet mit 0" || rot "Lauf im Rückwärts-Test endet ≠ 0"
+[[ "$(gute)" == 5 ]] && ok "nichts gelöscht (5 gültige: Zukunft, 31/40/60 Tage, neu)" || rot "gültige Läufe = $(gute), erwartet 5"
+grep -q "Uhr ging rückwärts" "$TMP/lauf-r.log" && ok "Meldung 'Uhr ging rückwärts'" || rot "keine Uhr-Meldung"
 
 echo "── ZIEL-Schutz (B5)"
 # Ungefährlich: mkdir/cp/rm/mv/chmod/touch sind Attrappen, die nur protokollieren.
 # (Ein Skript, das ZIEL=/ durchlässt, darf hier nichts auf der Platte anrichten.)
 mkdir -p "$TMP/fakebin"
 for w in mkdir cp rm mv chmod touch ln; do printf '#!/bin/bash\necho "%s $*" >> "%s/fake.log"\nexit 0\n' "$w" "$TMP" > "$TMP/fakebin/$w"; chmod +x "$TMP/fakebin/$w"; done
-for z in "/" "//" "relativ/pfad"; do
+ln -s / "$TMP/lnk-wurzel"
+for z in "/" "//" "///" "relativ/pfad" "/./" "/." "/.." "/tmp/.." "/dev/.." "$TMP/lnk-wurzel" "/dev" "/dev/x" "/etc/y" "/usr/z" "/proc/1" "/sys/a" "/bin/b" "/boot/c"; do
   : > "$TMP/fake.log"
   (cd "$TMP" && PATH="$TMP/fakebin:$PATH" WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$z" \
      bash "$TMP/wurzel/tools/wov-sicherung.sh" >/dev/null 2>&1); RCZ=$?
@@ -270,6 +307,14 @@ grep -q "Tabellen fehlen" "$TMP/f3.log" && ok "Meldung nennt fehlende Tabellen" 
 # d) DB ohne die erwarteten Tabellen
 frisch f4; rm -f "$DATEN/konten/dev.db"*; python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table x(a)'); c.commit()" "$DATEN/konten/dev.db"
 lauf > "$TMP/f4.log" 2>&1 && rot "DB ohne konten/charaktere endete mit 0" || ok "DB ohne konten/charaktere → Exit ≠ 0"
+# d2/d3) nur EINE der erwarteten Tabellen fehlt
+frisch f4b; rm -f "$DATEN/konten/dev.db"*; python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table konten(a)'); c.commit()" "$DATEN/konten/dev.db"
+lauf > "$TMP/f4b.log" 2>&1 && rot "Konten-DB ohne charaktere endete mit 0" || ok "Konten-DB nur mit konten → Exit ≠ 0"
+grep -q "charaktere" "$TMP/f4b.log" && ok "Meldung nennt charaktere" || rot "Meldung nennt charaktere nicht"
+frisch f4c; rm -f "$DATEN/konten/dev.db"* "$DATEN/forum/dev.db"*; neue_db "$DATEN" x
+rm -f "$DATEN/forum/dev.db"*; python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table boards(a)'); c.commit()" "$DATEN/forum/dev.db"
+lauf > "$TMP/f4c.log" 2>&1 && rot "Forum-DB nur mit boards endete mit 0" || ok "Forum-DB nur mit boards → Exit ≠ 0"
+grep -q "threads" "$TMP/f4c.log" && ok "Meldung nennt threads" || rot "Meldung nennt threads nicht"
 # e) halber Lauf: Weltdokument ist ein toter Link, stat scheitert nach dem Kopieren unter set -e
 frisch f5; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; mv "$DATEN/welten/dev.json" "$TMP/dev.json.weg"; ln -s /nichts/da "$DATEN/welten/dev.json"
 lauf > "$TMP/f5.log" 2>&1 && rot "fehlendes Weltdokument endete mit 0" || ok "Abbruch mitten im Lauf → Exit ≠ 0"
@@ -292,28 +337,76 @@ grep -q "^integrity_check:" "$TMP/f6.log" && ok "Meldung stammt vom integrity_ch
 
 echo "── Gesperrte DB: Frist statt Hänger (B1)"
 frisch g1; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x
-python3 - "$DATEN/konten/dev.db" "$TMP/sperre-bereit" "$TMP/sperre-ende" <<'PYEOF' &
-import sqlite3, sys, os, time
-c = sqlite3.connect(sys.argv[1], isolation_level=None)
-c.execute("PRAGMA locking_mode=EXCLUSIVE"); c.execute("BEGIN EXCLUSIVE")
-c.execute("INSERT INTO konten(mail) VALUES ('x')")
-open(sys.argv[2], "w").close()
-t0 = time.time()
-while not os.path.exists(sys.argv[3]) and time.time() - t0 < 90:
-    time.sleep(0.1)
-PYEOF
-HALTER=$!
-for _ in $(seq 100); do [[ -e "$TMP/sperre-bereit" ]] && break; sleep 0.05; done
+sperre_an
 T0=$SECONDS
 PATH="$TMP/bin:$PATH" WOV_SICHERUNG_DB_FRIST=5 WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
   timeout 40 bash "$TMP/wurzel/tools/wov-sicherung.sh" > "$TMP/g1.log" 2>&1; RCG=$?
 DAUER=$((SECONDS - T0))
-touch "$TMP/sperre-ende"; wait "$HALTER" 2>/dev/null
+sperre_aus
 echo "  Exit $RCG nach ${DAUER}s (Frist 5 s, äussere Grenze 40 s)"
 [[ "$RCG" != 0 && "$RCG" != 124 && "$DAUER" -lt 30 ]] && ok "gesperrte DB: endet in endlicher Zeit mit Exit ≠ 0" || rot "gesperrte DB: Exit $RCG nach ${DAUER}s"
 grep -q "Frist abgelaufen" "$TMP/g1.log" && ok "Meldung nennt die Frist" || rot "keine Fristmeldung"
 [[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ .fehlerhaft hinterlassen" || rot "gesperrt: gültig $(gute), fehlerhaft $(schlechte)"
 pgrep -f "$TMP/wurzel/tools/wov-sicherung.sh" >/dev/null && rot "Skript läuft noch" || ok "kein Prozess des Skripts übrig"
+
+echo "── SIGKILL mitten im Lauf (F1) und zweiter gleichzeitiger Lauf (F3)"
+frisch k1; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; sperre_an
+PATH="$TMP/bin:$PATH" WOV_SICHERUNG_DB_FRIST=60 WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  setsid bash "$TMP/wurzel/tools/wov-sicherung.sh" > "$TMP/k1.log" 2>&1 &
+SK=$!
+for _ in $(seq 100); do [[ -n "$(pgrep -P "$SK" 2>/dev/null)" ]] && break; sleep 0.1; done
+T0=$SECONDS
+WOV_SICHERUNG_DB_FRIST=8 lauf > "$TMP/k1b.log" 2>&1; RC2=$?
+[[ "$RC2" != 0 && $((SECONDS - T0)) -lt 10 ]] && ok "zweiter Lauf endet sofort mit Exit ≠ 0 ($((SECONDS - T0)) s)" || rot "zweiter Lauf: Exit $RC2 nach $((SECONDS - T0)) s"
+grep -q "läuft bereits eine Sicherung" "$TMP/k1b.log" && ok "Meldung 'läuft bereits'" || rot "keine 'läuft bereits'-Meldung"
+[[ "$(laeuft)" == 1 ]] && ok "während des Laufs: genau ein .laeuft, gültig $(gute)" || rot ".laeuft-Zahl während des Laufs: $(laeuft)"
+# timeout setzt sich in eine eigene Prozessgruppe: den Baum einzeln einsammeln
+PIDS="$SK"
+for p in $(pgrep -P "$SK"); do PIDS="$PIDS $p $(pgrep -P "$p" | tr '\n' ' ')"; done
+# shellcheck disable=SC2086
+kill -KILL $PIDS 2>/dev/null; wait "$SK" 2>/dev/null
+sleep 0.3
+# shellcheck disable=SC2086
+LEBT="$(ps -o pid=,stat= -p $PIDS 2>/dev/null | awk '$2 !~ /^Z/ {print $1}' | tr '\n' ' ')"
+[[ -z "$LEBT" ]] && ok "alle Prozesse des Laufs beendet (ps -p $PIDS: keine lebenden)" || rot "Prozesse nach SIGKILL noch da: $LEBT"
+sperre_aus
+[[ "$(laeuft)" == 1 && "$(gute)" == 0 && "$(schlechte)" == 0 ]] && ok "nach SIGKILL: nur .laeuft, KEIN Ordner ohne Endung" || rot "nach SIGKILL: laeuft $(laeuft), gültig $(gute), fehlerhaft $(schlechte)"
+lauf > "$TMP/k1c.log" 2>&1 && ok "Folgelauf endet mit 0 (Sperre war frei)" || { rot "Folgelauf fehlgeschlagen"; tail -5 "$TMP/k1c.log"; }
+[[ "$(laeuft)" == 0 && "$(schlechte)" == 1 && "$(gute)" == 1 ]] && ok "Rest → .fehlerhaft, neuer Lauf gültig" || rot "nach Folgelauf: laeuft $(laeuft), fehlerhaft $(schlechte), gültig $(gute)"
+
+echo "── SIGTERM an den Lauf (Trap)"
+frisch k2; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; sperre_an
+PATH="$TMP/bin:$PATH" WOV_SICHERUNG_DB_FRIST=60 WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  setsid bash "$TMP/wurzel/tools/wov-sicherung.sh" > "$TMP/k2.log" 2>&1 &
+ST=$!
+for _ in $(seq 100); do [[ -n "$(pgrep -P "$ST" 2>/dev/null)" ]] && break; sleep 0.1; done
+# wie systemd: TERM an alle Prozesse des Laufs (timeout reicht es an python weiter)
+TPIDS="$ST $(pgrep -P "$ST" | tr '\n' ' ')"
+# shellcheck disable=SC2086
+kill -TERM $TPIDS 2>/dev/null
+for _ in $(seq 150); do kill -0 "$ST" 2>/dev/null || break; sleep 0.1; done
+wait "$ST" 2>/dev/null; RCT=$?
+sperre_aus
+[[ "$(laeuft)" == 0 && "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "SIGTERM → .fehlerhaft, kein .laeuft, kein gültiger Lauf (Exit $RCT)" || rot "SIGTERM: laeuft $(laeuft), fehlerhaft $(schlechte), gültig $(gute)"
+
+echo "── Namenskollision (gleicher Sekundenstempel, F3)"
+frisch c1; rm -f "$DATEN/konten/dev.db"*; rm -rf "$DATEN/forum"; mkdir "$DATEN/forum"
+laufd > "$TMP/c1a.log" 2>&1 && rot "Lauf ohne DBs endete mit 0" || ok "1. Fehllauf → Exit ≠ 0"
+laufd > "$TMP/c1b.log" 2>&1 && rot "2. Fehllauf endete mit 0" || ok "2. Fehllauf → Exit ≠ 0"
+[[ -d "$ZIEL/dev/2026-01-02T03-04-05.fehlerhaft" && -d "$ZIEL/dev/2026-01-02T03-04-05.fehlerhaft.2" ]] \
+  && ok ".fehlerhaft und .fehlerhaft.2 nebeneinander" || rot "Namen: $(ls "$ZIEL/dev" | tr '\n' ' ')"
+[[ -z "$(find "$ZIEL/dev" -mindepth 2 -maxdepth 2 -type d -name '2026*' 2>/dev/null)" ]] && ok "nichts ineinander verschachtelt" || rot "verschachtelt: $(find "$ZIEL/dev" -mindepth 2 -maxdepth 2 -type d -name '2026*' | tr '\n' ' ')"
+neue_db "$DATEN" x
+laufd > "$TMP/c1c.log" 2>&1 && ok "guter Lauf mit festem Stempel → 0" || { rot "guter Lauf fehlgeschlagen"; tail -5 "$TMP/c1c.log"; }
+SUM="$(md5sum "$ZIEL/dev/2026-01-02T03-04-05/konten/dev.db" | cut -c1-32)"
+laufd > "$TMP/c1d.log" 2>&1 && rot "zweiter Lauf im selben Stempel endete mit 0" || ok "gleicher Stempel wie gültiger Lauf → Exit ≠ 0"
+[[ "$(md5sum "$ZIEL/dev/2026-01-02T03-04-05/konten/dev.db" 2>/dev/null | cut -c1-32)" == "$SUM" && "$(gute)" == 1 && "$(laeuft)" == 0 ]] \
+  && ok "gültiger Lauf unangetastet (kein Umbenennen, kein Überschreiben)" || rot "gültiger Lauf verändert: gültig $(gute), laeuft $(laeuft)"
+
+echo "── Leerer Ordner mit dem Zielstempel (mv -T würde ihn stillschweigend ersetzen)"
+frisch c2; mkdir -p "$ZIEL/dev/2026-01-02T03-04-05"
+laufd > "$TMP/c2.log" 2>&1 && rot "Lauf über leeren Stempel-Ordner endete mit 0" || ok "vorhandener (leerer) Ordner gleichen Stempels → Exit ≠ 0"
+[[ -d "$ZIEL/dev/2026-01-02T03-04-05" && -z "$(ls -A "$ZIEL/dev/2026-01-02T03-04-05")" && "$(laeuft)" == 0 ]] && ok "leerer Ordner unverändert, kein .laeuft" || rot "leerer Ordner verändert oder .laeuft übrig"
 
 if (( ECHT )); then
   echo "── --echt: DEV-Daten per SQLite-Backup gezogen, Sicherung, Rückspielen"

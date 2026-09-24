@@ -178,13 +178,20 @@ not memory, is the limit (load 12 on 8 cores with two full runs). So:
 |---|---|---|
 | `typecheck`, `build`, `npm ci` | 2 | `tools/sperre.sh build -- <command>` |
 | full test run (`npm test`) | 2, each in its own worktree | `tools/sperre.sh test -- npm test` |
-| frame-time measurement | 1 | `tools/sperre.sh measure -- node tools/pw-fps-bench.mjs` |
+| frame-time measurement | 1 | the four `tools/pw-*` measurement tools (`pw-fps-bench`, `pw-testflug-bench`, `pw-schatten-g18-g20`, `pw-schatten-ii-zuordnung`) lock `~/.cache/wov-mess.lock` themselves: start them plainly. `tools/sperre.sh measure -- <command>` (one place) is for any other measurement without its own lock |
 | workers per orchestrator on wov-dev | 4 | (a rule, not a lock) |
 
 `lint` needs no lock. The pre-commit hook takes a build place for its typecheck when
 `/opt/wov-worktrees/.slots` exists (on wov-dev), so a commit waits like any other
-typecheck; on other machines it runs unlocked. A test run that is timing-sensitive (a measurement, a
-suspicious red) is repeated alone.
+typecheck; on other machines, or where `tools/sperre.sh` does not exist yet (a worktree of
+an older `main`), it runs unlocked. The hook always uses `/opt/wov-worktrees/.slots` and
+ignores `WOV_SPERREN`. A test run that is timing-sensitive (a measurement, a suspicious
+red) is repeated alone.
+
+The name must fit the work: `typecheck`, `build` and `npm ci` always under `build`, full
+test runs under `test`. The tool binds the number of places per name, not which work
+goes under which name (`sperre.sh test -- npm run typecheck` works and would sneak
+past the build limit), so that part is a promise of the caller.
 
 `tools/sperre.sh <name> -- <command>` is a counting semaphore on `flock`. The number
 of places is fixed in the tool (`build` 2, `test` 2, `measure` 1), not chosen by the
@@ -196,7 +203,7 @@ and waits (poll, not a queue, no time limit) when all are busy. Place 1 is the o
 file, so a plain `flock .../build.lock ...` still holds place 1 and stays correct
 during the changeover, but a plain `flock` waiter that sits in the kernel wins against
 the polling `sperre.sh` when the place frees up. **From the merge of this tool on, use
-only `sperre.sh`** (also for `measure`), so nobody starves. Check the tool with
+only `sperre.sh` for `build` and `test`**, so nobody starves. Check the tool with
 `tools/sperre.sh --selbsttest`; `--plaetze <name>` prints a name's places. If SSH
 hangs, the emergency way goes through the host: `ssh wov-host 'pct exec 102 -- ...'`;
 end only your own processes there.
@@ -209,13 +216,22 @@ What the lock covers, and what it does not:
   processes under `sperre.sh`**; it is for commands that finish.
 - **`kill -9` on `sperre.sh` ends the wrapper, not its child.** The orphaned child keeps
   the place until it ends itself; end the child (by its PID) to free it.
-- Nesting on one name needs a second free place (with `measure`, one place, it
-  deadlocks). The lock files in `.slots` are part of the contract: deleting one lifts
-  the lock, so do not `rm` them.
+- **Nesting on a name you already hold runs the command directly**: `sperre.sh` hands the
+  names it holds to its child (`WOV_SPERRE_GEHALTEN`), and the inherited descriptor holds
+  the place. So a `git commit` inside `sperre.sh build -- ...` (its hook asks for `build`
+  again) is safe. Nesting on another name takes that name's own place and waits like any
+  call. The lock files in `.slots` are part of the contract: deleting one lifts the lock,
+  so do not `rm` them.
 - Exit 64 is the tool's usage error and also possible for a command. The tool tells them
   apart on stderr: `sperre: usage:` against `sperre: command exited 64`.
-- `WOV_SPERREN_PLAETZE_<NAME>` overrides the table for the tool's own self-test only and
-  is ignored on the real directory; never set it.
+- **Exit 64** is the usage error; **exit 70** with `sperre: error:` is an environment
+  failure (the lock directory or a lock file cannot be created or opened).
+- `WOV_SPERREN` points the tool at another lock directory: set it for probes only and
+  remove it afterwards (a commit's hook ignores it, a `sperre.sh` call does not).
+  `WOV_SPERREN_PLAETZE_<NAME>` overrides the table for the tool's own self-test only: it
+  works only together with the mark `_SPERRE_SELBSTTEST=1`, which only `--selbsttest`
+  sets, and only when the canonical `WOV_SPERREN` is not the real directory (a trailing
+  slash, `/./` or a symlink do not change that). Never set either of them.
 
 ### 3.4 While you work
 

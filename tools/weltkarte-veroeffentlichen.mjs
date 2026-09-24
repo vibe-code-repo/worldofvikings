@@ -27,6 +27,21 @@
  * webp ausgeliefert wird; `karten.json` kommt zuletzt. Ein Rollout, der
  * wov-web/build ersetzt, berührt dieses Verzeichnis nicht.
  *
+ * Sicherungen:
+ *  - Sperre: `ARBEIT/.sperre` (PID). Läuft schon ein Lauf, endet ein zweiter
+ *    mit Meldung und Exit 0; eine Sperre eines toten Prozesses wird übernommen.
+ *  - Der Renderer schreibt Bild und Beschreibung über Temp-Dateien, die
+ *    Beschreibung (mit Fingerabdruck) zuletzt. Vor dem Ablegen wird jedes
+ *    Bild dekodiert und auf Breite 4096 geprüft; scheitert das, wird diese
+ *    Instanz einmal neu gerendert, scheitert es erneut, endet der Lauf mit
+ *    Exit 1 und die zuletzt veröffentlichten Dateien bleiben stehen.
+ *  - Beim Start werden alte `*.tmp` in ARBEIT und AUSGABE gelöscht.
+ *  - Fehlt die Weltdatei einer Instanz, werden deren Dateien aus AUSGABE
+ *    entfernt (Warnung im Log); dann greift der Rückfall auf die Repo-Karte.
+ *  - Bekannte Grenze: Bild und Beschreibung werden nacheinander abgelegt
+ *    und vom Browser je bis zu 300 s gecacht; nach einer Weltänderung kann
+ *    die Koordinatenanzeige kurz zum alten Bild passen oder umgekehrt.
+ *
  * Überschreibbar (für Proben): WOV_KARTEN_ARBEIT, WOV_KARTEN_AUSGABE.
  *
  * Lauf:  node tools/weltkarte-veroeffentlichen.mjs [--neu] [--nur-rendern]
@@ -41,7 +56,9 @@ import {
   mkdirSync,
   renameSync,
   rmSync,
+  readdirSync,
 } from 'node:fs';
+import sharp from 'sharp';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,6 +76,52 @@ const log = (...t) => console.log('[karten]', ...t);
 
 mkdirSync(ARBEIT, { recursive: true });
 mkdirSync(AUSGABE, { recursive: true });
+
+// ── Sperre, Aufräumen ───────────────────────────────────────────────────
+
+const SPERRE = join(ARBEIT, '.sperre');
+
+function lebt(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
+function sperreNehmen() {
+  for (let versuch = 0; versuch < 2; versuch++) {
+    try {
+      writeFileSync(SPERRE, String(process.pid), { flag: 'wx' });
+      return true;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      const pid = Number.parseInt(readFileSync(SPERRE, 'utf-8'), 10);
+      if (Number.isInteger(pid) && lebt(pid)) return false;
+      rmSync(SPERRE, { force: true }); // Rest eines toten Laufs
+    }
+  }
+  return false;
+}
+
+if (!sperreNehmen()) {
+  log(`ein anderer Lauf hält ${SPERRE} — beende mich, ohne etwas zu tun`);
+  process.exit(0);
+}
+const sperreLoesen = () => rmSync(SPERRE, { force: true });
+process.on('exit', sperreLoesen);
+for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => process.exit(1));
+
+/** Reste abgebrochener Läufe (`*.tmp`) löschen; nginx würde sie ausliefern. */
+for (const ordner of [ARBEIT, AUSGABE]) {
+  for (const n of readdirSync(ordner)) {
+    if (n.endsWith('.tmp')) {
+      rmSync(join(ordner, n), { force: true });
+      log(`Rest gelöscht: ${join(ordner, n)}`);
+    }
+  }
+}
 
 /** SHA-256 der Weltdatei, gekürzt — dasselbe Verfahren wie im Renderer. */
 function fingerabdruck(pfad) {
@@ -102,6 +165,18 @@ function ablegen(datei, inhalt = readFileSync(join(ARBEIT, datei))) {
   return true;
 }
 
+/** Bild lässt sich vollständig dekodieren und ist BREITE Punkte breit. */
+async function bildOk(instanz) {
+  const p = join(ARBEIT, `${instanz}.webp`);
+  if (!existsSync(p) || !existsSync(join(ARBEIT, `${instanz}.json`))) return false;
+  try {
+    const { data, info } = await sharp(p, { failOn: 'error' }).raw().toBuffer({ resolveWithObject: true });
+    return info.width === BREITE && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // ── Rendern ─────────────────────────────────────────────────────────────
 
 const stand = [];
@@ -111,16 +186,19 @@ for (const instanz of INSTANZEN) {
   const weltPfad = join(WURZEL, 'server/data/welten', `${instanz}.json`);
   if (!existsSync(weltPfad)) {
     log(`${instanz}: keine Weltdatei unter ${weltPfad} — übersprungen`);
+    for (const datei of [`${instanz}.webp`, `${instanz}.json`]) {
+      if (existsSync(join(AUSGABE, datei))) {
+        rmSync(join(AUSGABE, datei), { force: true });
+        log(`WARNUNG: ${datei} aus der Ausgabe entfernt (Welt fehlt, Rückfall auf Repo-Karte)`);
+      }
+    }
     continue;
   }
 
   const jetzt = fingerabdruck(weltPfad);
   const vorher = gerendert(instanz);
 
-  if (!neu && jetzt === vorher) {
-    log(`${instanz}: unverändert (${jetzt}) — nicht neu gerendert`);
-  } else {
-    log(`${instanz}: Welt geändert (${vorher ?? 'noch nie gerendert'} → ${jetzt}), rendere …`);
+  const rendern = () => {
     lauf(join(WURZEL, 'node_modules/.bin/tsx'), [
       join(WURZEL, 'tools/weltkarte-rendern.ts'),
       instanz,
@@ -128,6 +206,24 @@ for (const instanz of INSTANZEN) {
       String(BREITE),
     ]);
     geaendert = true;
+  };
+
+  let frisch = false;
+  if (!neu && jetzt === vorher) {
+    log(`${instanz}: unverändert (${jetzt}) — nicht neu gerendert`);
+  } else {
+    log(`${instanz}: Welt geändert (${vorher ?? 'noch nie gerendert'} → ${jetzt}), rendere …`);
+    rendern();
+    frisch = true;
+  }
+
+  // Das Bild muss sich dekodieren lassen und 4096 Punkte breit sein, bevor es
+  // veröffentlicht wird. Sonst: einmal neu rendern, danach abbrechen.
+  if (!(await bildOk(instanz))) {
+    if (frisch) throw new Error(`${instanz}: frisch gerendertes Bild ist unbrauchbar`);
+    log(`${instanz}: Bild unbrauchbar (fehlt, abgeschnitten oder falsche Breite) — rendere neu`);
+    rendern();
+    if (!(await bildOk(instanz))) throw new Error(`${instanz}: Bild auch nach Neurendern unbrauchbar`);
   }
 
   const beschreibung = JSON.parse(readFileSync(join(ARBEIT, `${instanz}.json`), 'utf-8'));

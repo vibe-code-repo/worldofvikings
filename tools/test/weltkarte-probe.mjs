@@ -131,6 +131,38 @@ try {
     "live: weiterhin nicht neu gerendert",
   );
 
+  // 3b. F1: Beschreibung trägt den Fingerabdruck, das Bild ist abgeschnitten
+  console.log("\n— Lauf 3b (abgeschnittenes Bild, Reste, Sperre) —");
+  const devBild = join(ARBEIT, "dev.webp");
+  const ganz = readFileSync(devBild);
+  writeFileSync(devBild, ganz.subarray(0, 50_000));
+  writeFileSync(join(ARBEIT, "dev.webp.1.tmp"), "rest");
+  writeFileSync(join(AUSGABE, "dev.webp.1.tmp"), "rest");
+  // Sperre eines lebenden Prozesses: der Lauf darf nichts tun
+  const ueVorSperre = readFileSync(join(AUSGABE, "karten.json"), "utf-8");
+  writeFileSync(join(ARBEIT, ".sperre"), String(process.pid));
+  pruefe(lauf() === 0, "Lauf unter fremder Sperre endet mit Exit 0");
+  pruefe(
+    readFileSync(join(AUSGABE, "karten.json"), "utf-8") === ueVorSperre,
+    "F2: gesperrter Lauf ändert nichts",
+  );
+  pruefe(existsSync(join(AUSGABE, "dev.webp.1.tmp")), "F2: gesperrter Lauf räumt nicht auf");
+  writeFileSync(join(ARBEIT, ".sperre"), "999999999"); // toter Prozess: wird übernommen
+  pruefe(lauf() === 0, "F1: Lauf mit abgeschnittenem Bild endet mit Exit 0");
+  const meta3b = await sharp(join(AUSGABE, "dev.webp")).metadata();
+  const roh3b = await sharp(join(AUSGABE, "dev.webp")).raw().toBuffer();
+  pruefe(
+    meta3b.width === 4096 && roh3b.length > 0,
+    "F1: veröffentlichtes dev.webp ist ganz (4096 px, dekodierbar)",
+  );
+  pruefe(
+    readFileSync(join(ARBEIT, "dev.webp")).length > 50_000,
+    "F1: Arbeitskopie wurde neu gerendert",
+  );
+  pruefe(!existsSync(join(AUSGABE, "dev.webp.1.tmp")), "F4: .tmp in der Ausgabe gelöscht");
+  pruefe(!existsSync(join(ARBEIT, "dev.webp.1.tmp")), "F4: .tmp in der Arbeit gelöscht");
+  pruefe(!existsSync(join(ARBEIT, ".sperre")), "F2: Sperre nach dem Lauf gelöst");
+
   // 4. Ohne live.json: übersprungen, kein Fehler
   console.log("\n— Lauf 4 (ohne live.json) —");
   rmSync(join(welten, "live.json"));

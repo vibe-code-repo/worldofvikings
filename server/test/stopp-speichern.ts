@@ -14,6 +14,10 @@
  *   B. Normalfall: Exit-Code 0, Weltdatei da, kein Fehler.
  *   C. Reihenfolge: erst Annahme zu, dann Save, dann Peers trennen
  *      (die Peers müssen beim Save noch in der Liste stehen).
+ *      Dazu ein echter Verbindungsversuch nach schliesseAnnahme() (muss
+ *      scheitern) und der Port ist WÄHREND des Saves schon zu (boundPort).
+ *   E. Verdrahtung: main.ts hängt herunterfahren.ts an SIGTERM und SIGINT
+ *      (Syntaxbaum; main.ts ist nicht importierbar, es startet einen Server).
  *   D. Der Handler selbst: wirft stop(), endet er trotzdem (Exit 75);
  *      ein zweites Signal tut nichts.
  *
@@ -23,6 +27,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
+import ts from 'typescript';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -122,6 +127,65 @@ function starteKind(worldsDir: string): Promise<{ lauf: () => Promise<Lauf> }> {
   });
 }
 
+/** Was main.ts mit dem Herunterfahren tut, am Syntaxbaum statt am Text (Prettier, Kommentare). */
+function pruefeVerdrahtung(quelle: string) {
+  const sf = ts.createSourceFile('main.ts', quelle, ts.ScriptTarget.Latest, true);
+  const erg = { importiert: false, handlerName: null as string | null, sigterm: false, sigint: false, direktStop: false };
+  const ruftAuf = (n: ts.Node, name: string): boolean => {
+    let gefunden = false;
+    const gehe = (k: ts.Node): void => {
+      if (ts.isCallExpression(k) && ts.isIdentifier(k.expression) && k.expression.text === name) gefunden = true;
+      ts.forEachChild(k, gehe);
+    };
+    gehe(n);
+    return gefunden;
+  };
+  const besuche = (n: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(n) &&
+      ts.isStringLiteral(n.moduleSpecifier) &&
+      n.moduleSpecifier.text === './herunterfahren.js' &&
+      n.importClause?.namedBindings &&
+      ts.isNamedImports(n.importClause.namedBindings) &&
+      n.importClause.namedBindings.elements.some((e) => e.name.text === 'erstelleHerunterfahren')
+    ) erg.importiert = true;
+    if (
+      ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer &&
+      ts.isCallExpression(n.initializer) && ts.isIdentifier(n.initializer.expression) &&
+      n.initializer.expression.text === 'erstelleHerunterfahren'
+    ) erg.handlerName = n.name.text;
+    if (
+      ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) &&
+      ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'process' &&
+      n.expression.name.text === 'on' && n.arguments.length === 2 && ts.isStringLiteral(n.arguments[0]!)
+    ) {
+      const signal = (n.arguments[0] as ts.StringLiteral).text;
+      const arg = n.arguments[1]!;
+      if (signal === 'SIGTERM') pendingSigterm = arg;
+      if (signal === 'SIGINT') pendingSigint = arg;
+    }
+    if (
+      ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) &&
+      ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'server' &&
+      n.expression.name.text === 'stop'
+    ) erg.direktStop = true;
+    ts.forEachChild(n, besuche);
+  };
+  let pendingSigterm: ts.Expression | null = null;
+  let pendingSigint: ts.Expression | null = null;
+  besuche(sf);
+  const name = erg.handlerName;
+  if (name !== null) {
+    erg.sigterm = pendingSigterm !== null && (
+      (ts.isIdentifier(pendingSigterm) && pendingSigterm.text === name) || ruftAuf(pendingSigterm, name)
+    );
+    erg.sigint = pendingSigint !== null && (
+      (ts.isIdentifier(pendingSigint) && pendingSigint.text === name) || ruftAuf(pendingSigint, name)
+    );
+  }
+  return erg;
+}
+
 async function haupt(): Promise<void> {
   let failures = 0;
   const check = (name: string, cond: boolean, detail = ''): void => {
@@ -167,18 +231,44 @@ async function haupt(): Promise<void> {
   server.init();
   server.start();
   const port = portVon(server);
-  const net = (server as unknown as { net: { getPeers(): unknown[]; stop(): void; schliesseAnnahme(): void } }).net;
+  const net = (server as unknown as { net: { getPeers(): unknown[]; stop(): void; schliesseAnnahme(): void; boundPort: number | null } }).net;
+  let portBeimSave: number | null | 'nie' = 'nie';
   const ereignisse: string[] = [];
   const stopAlt = net.stop.bind(net);
   const annahmeAlt = net.schliesseAnnahme.bind(net);
   const speicherAlt = server.saveWorld.bind(server);
   net.schliesseAnnahme = () => { ereignisse.push('annahme-zu'); annahmeAlt(); };
   net.stop = () => { ereignisse.push('net.stop'); stopAlt(); };
-  server.saveWorld = () => { ereignisse.push('save'); speicherAlt(); };
+  server.saveWorld = () => { ereignisse.push('save'); portBeimSave = net.boundPort; speicherAlt(); };
   const erg = server.stop();
   check('stop() meldet true', erg === true);
   check('Reihenfolge Annahme zu → Save → Peers trennen', ereignisse.join(',') === 'annahme-zu,save,net.stop', ereignisse.join(','));
   check('Port nach stop() zu', !(await portOffen(port)));
+  check('Port war beim Save schon zu (boundPort null)', portBeimSave === null, String(portBeimSave));
+
+  console.log('\n[C2] Echter Verbindungsversuch nach schliesseAnnahme():');
+  const dirC2 = resolve(WURZEL, 'c2');
+  const server2 = createWovServer({
+    port: 0, worldName: 'world', worldSeed: 'KxSYuZquuw', worldFeatures: false,
+    worldVegetation: false, worldCreatures: false, dungeonsEnabled: false,
+    worldsDir: dirC2, kontenDir: resolve(dirC2, 'konten'),
+  });
+  server2.init();
+  server2.start();
+  const port2 = portVon(server2);
+  check('vorher nimmt der Port Verbindungen an', await portOffen(port2), `Port ${port2}`);
+  (server2 as unknown as { net: { schliesseAnnahme(): void } }).net.schliesseAnnahme();
+  check('nach schliesseAnnahme() scheitert die Verbindung', !(await portOffen(port2)));
+  server2.stop();
+
+  console.log('\n[E] Verdrahtung in main.ts (Syntaxbaum):');
+  const quelle = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf-8');
+  const w = pruefeVerdrahtung(quelle);
+  check('main.ts importiert erstelleHerunterfahren aus ./herunterfahren.js', w.importiert);
+  check('Handler wird aus erstelleHerunterfahren(...) gebaut', w.handlerName !== null, String(w.handlerName));
+  check('SIGTERM bekommt genau diesen Handler', w.sigterm);
+  check('SIGINT ruft diesen Handler auf', w.sigint);
+  check('main.ts ruft server.stop() nicht selbst auf', !w.direktStop);
 
   console.log('\n[D] Handler:');
   const meldungen: string[] = [];

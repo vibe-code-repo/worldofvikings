@@ -11,6 +11,9 @@ WorkingDirectory=/opt/worldofvikings
 EnvironmentFile=/etc/wov.env
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/worldofvikings/tools/wov-sicherung.sh
+# Harte Obergrenze: ein Hänger (z. B. gesperrte Datenbank) würde sonst alle
+# Folgeläufe des Timers blockieren. Das Skript hat je DB eine eigene Frist von 300 s.
+TimeoutStartSec=1800
 # Kein Restart=always: ein oneshot-Job, der scheitert, soll scheitern und
 # im Log stehen — ein automatischer Neuversuch mitten in der Nacht würde
 # nur denselben Fehler wiederholen (zu wenig Platz, kaputte Quelle) und den

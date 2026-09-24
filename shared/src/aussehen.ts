@@ -185,6 +185,7 @@ import { SEIDRAVEN_PARTS } from './seidraven.js';
 import { EMBERRAGE_PARTS } from './emberrage.js';
 import { PLAINHIDE_PARTS } from './plainhide.js';
 import { GRAVETHORN_PARTS } from './gravethorn.js';
+import { CROWSHADE_PARTS } from './crowshade.js';
 import { canWearArmor, type ArmorBodyPolicy, type ArmorVfxProfile } from './armorCompatibility.js';
 import { hiddenAppearance, type AppearancePolicy } from './appearanceVisibility.js';
 export type Slot = 'oberkoerper' | 'beine' | 'kopf' | 'schultern' | 'unterarme' | 'haende' | 'fuesse';
@@ -207,6 +208,7 @@ export const RUESTUNG: readonly Ruestungsteil[] = [
   ...EMBERRAGE_PARTS.map(p => ({ ...p, datei: `emberrage/${p.item}` })),
   ...PLAINHIDE_PARTS.map(p => ({ ...p, datei: `plainhide/${p.item}` })),
   ...GRAVETHORN_PARTS.map(p => ({ ...p, datei: `gravethorn/${p.item}` })),
+  ...CROWSHADE_PARTS.map(p => ({ ...p, datei: `crowshade/${p.item}` })),
   ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
   ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
   ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),

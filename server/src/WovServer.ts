@@ -1630,7 +1630,7 @@ export class WovServer {
         ) {
           continue; // Peer ist auf Stand
         }
-        this.writeZDO(writer, zdo, stand?.dataRevision);
+        this.writeZDO(writer, zdo, stand?.dataRevision, peer);
         anzahl++;
         gesendet.push(zdo);
         if (writer.geschrieben >= budget) break;
@@ -1689,7 +1689,7 @@ export class WovServer {
    * nach dem Überlauf der 23-Bit-Datenrevision — dann ist `peerRev` größer
    * als die aktuelle Revision, und der Vergleich wäre wertlos.
    */
-  private writeZDO(w: Writer, zdo: ZDO, peerRev: number | undefined): void {
+  private writeZDO(w: Writer, zdo: ZDO, peerRev: number | undefined, peer: Peer): void {
     const datenRev = zdo.revision.dataRevision;
     const voll =
       peerRev === undefined || peerRev > datenRev || zdo.entfernungsRevision > peerRev;
@@ -1709,9 +1709,16 @@ export class WovServer {
     }
 
     const members = zdo.getMembers();
+    // Der Truheninhalt geht nur an den, der die Truhe benutzen darf. Der
+    // Client liest ihn gar nicht aus dem Sync (er bekommt ihn per
+    // ContainerSync beim Oeffnen), fuer alle anderen war er nur mitgereist.
+    const verdeckt = this.verdeckterMember(zdo, peer);
     if (voll) {
-      w.writeInt32(members.size);
+      let anzahlVoll = members.size;
+      if (verdeckt !== undefined && members.has(verdeckt)) anzahlVoll--;
+      w.writeInt32(anzahlVoll);
       for (const [hash, member] of members) {
+        if (hash === verdeckt) continue;
         w.writeInt32(hash);
         w.writeUInt8(member.type);
         w.writeByTypeTag(member.type, member.value);
@@ -1723,15 +1730,27 @@ export class WovServer {
     // mehr als eine Handvoll Member, und eine Allokation je ZDO und Tick
     // ist bei 20 Hz teurer als die zweite Schleife.
     let neue = 0;
-    for (const member of members.values()) if (member.rev > peerRev!) neue++;
+    for (const [hash, member] of members) if (member.rev > peerRev! && hash !== verdeckt) neue++;
     w.writeInt32(neue);
     if (neue === 0) return;
     for (const [hash, member] of members) {
-      if (member.rev <= peerRev!) continue;
+      if (member.rev <= peerRev! || hash === verdeckt) continue;
       w.writeInt32(hash);
       w.writeUInt8(member.type);
       w.writeByTypeTag(member.type, member.value);
     }
+  }
+
+  private static readonly TRUHE_INHALT_HASH = getStableHash(TRUHE_INHALT_MEMBER);
+
+  /**
+   * Hash des Members, den `peer` von diesem ZDO NICHT bekommt (sonst
+   * `undefined`). Heute nur der Truheninhalt fremder Truhen; die Regel ist
+   * `darfBenutzen`, keine zweite daneben.
+   */
+  private verdeckterMember(zdo: ZDO, peer: Peer): number | undefined {
+    if (!zdo.hasMember(WovServer.TRUHE_INHALT_HASH)) return undefined;
+    return this.darfBenutzen(zdo, peer) ? undefined : WovServer.TRUHE_INHALT_HASH;
   }
 
   // ── Peer lifecycle ─────────────────────────────────────────────

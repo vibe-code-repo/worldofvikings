@@ -69,18 +69,12 @@
  * nicht die des angesprochenen Betriebsdienstes — Teständerungen blieben
  * unsichtbar, und eine Erfolgsmeldung wäre falsch.
  */
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-import { sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   sanitizeWorldLayout,
   pruefeLayout,
-  layoutBounds,
   layoutKennung,
   RegionGeo,
   createGeo,
@@ -89,7 +83,6 @@ import {
   FRAKTIONEN,
   NPC_ROLLEN,
   QUEST_ZUSTAENDE,
-  type WorldLayout,
   type RegionDef,
   type ContinentDef,
   type RiverDef,
@@ -101,213 +94,7 @@ import {
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { PLATZIERUNGEN_GRENZE } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { ID_RE } from '@wov/shared/src/worldlayout/platzierungsId.js';
-import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
-
-// Der Betriebsdienst ist der einzige Schreiber der Weltdatei — dieser
-// Prozess redet nur mit ihm, siehe Kopfkommentar. Aus layoutDatei.ts kommt
-// nur die Zahl der Platzierungs-Obergrenze, keine Lese- oder Schreibfunktion.
-const ADMIN_URL = (
-  process.env.WOV_ADMIN_URL ||
-  `http://${process.env.WOV_ADMIN_ADRESSE || '127.0.0.1'}:${process.env.WOV_ADMIN_PORT || 2468}`
-).replace(/\/+$/, '');
-// Dieselbe Quelle wie der Proxy in client/vite.config.ts: das Token, das
-// `npm run dev` im Checkout anlegt (scripts/dev.mjs, gitignored), sonst das
-// des Betriebs. Ein ausdrücklich gesetztes WOV_ADMIN_TOKEN_DATEI gilt allein.
-const ADMIN_TOKEN_DATEIEN = process.env.WOV_ADMIN_TOKEN_DATEI
-  ? [process.env.WOV_ADMIN_TOKEN_DATEI]
-  : [fileURLToPath(new URL('../../server/data/admin.token', import.meta.url)), '/etc/wov-admin.token'];
-
-// Geschrieben wird nur in die Weltdatei DIESES Checkouts. Der Betriebsdienst
-// meldet mit jedem GET, welche Datei er verwaltet (`weltKennung`, sha256 des
-// realpath, kein Pfad); schreibe() vergleicht sie mit der Kennung der eigenen
-// Datei (Wurzel: der Checkout, in dem diese Datei liegt; Instanz über
-// shared/src/instanz.ts). Ohne diese Sperre schriebe ein Agent in einem
-// Worktree per Vorgabe (127.0.0.1:2468) in die DEV-Welt.
-//
-// Die Wurzel ist FEST der Checkout dieser Datei. `WOV_WURZEL` (die Wurzel-
-// Übersteuerung des Betriebsdienstes) wird hier nicht gelesen: aus einem
-// Nutzerprofil käme sie ohne jede Bestätigung, und `/opt/worldofvikings` als
-// „eigene" Welt hebelte die Sperre aus. Wer eine fremde Welt will, setzt
-// WOV_MCP_FREMDE_WELT=1 — ausdrücklich, für diesen einen Start.
-const CHECKOUT_WURZEL = fileURLToPath(new URL('../../', import.meta.url));
-const FREMDE_WELT_ERLAUBT = process.env.WOV_MCP_FREMDE_WELT === '1';
-const wurzelEnv = process.env.WOV_WURZEL;
-const wurzelEnvAbweichend = (): boolean => {
-  try {
-    return realpathSync(wurzelEnv!) !== realpathSync(CHECKOUT_WURZEL);
-  } catch {
-    return true;
-  }
-};
-if (wurzelEnv && !FREMDE_WELT_ERLAUBT && wurzelEnvAbweichend()) {
-  console.error(
-    `[worldlayout-mcp] WOV_WURZEL=${wurzelEnv} wird ignoriert: geschrieben wird nur in die Welt ` +
-      `dieses Checkouts (${CHECKOUT_WURZEL}). Eine fremde Welt braucht WOV_MCP_FREMDE_WELT=1.`
-  );
-}
-const kennungVon = (datei: string): string => createHash('sha256').update(realpathSync(datei)).digest('hex');
-/** Kennung aus der letzten Antwort des Betriebsdienstes (die Adresse ist je Prozess fest). */
-let verwalteteWeltKennung: string | undefined;
-
-/** Wirft, wenn der angesprochene Betriebsdienst nicht die Weltdatei dieses Checkouts verwaltet. */
-function pruefeEigeneWelt(): void {
-  if (FREMDE_WELT_ERLAUBT) return;
-  const eigene = weltDatei(CHECKOUT_WURZEL, instanzName());
-  let eigeneKennung: string | undefined;
-  let ausserhalb = false;
-  try {
-    const echt = realpathSync(eigene);
-    const wurzelEcht = realpathSync(CHECKOUT_WURZEL);
-    // Ein Symlink (auf der Datei oder einem Ordner darüber), der aus dem
-    // Checkout hinauszeigt, machte die fremde Datei zur „eigenen": beide
-    // lösen sich auf dasselbe Ziel auf. Symlinks INNERHALB des Checkouts und
-    // ein Checkout unter einem Symlink-Ordner bleiben erlaubt.
-    if (echt.startsWith(wurzelEcht + sep)) eigeneKennung = kennungVon(echt);
-    else ausserhalb = true;
-  } catch {
-    /* die eigene Datei fehlt: nichts passt */
-  }
-  if (eigeneKennung !== undefined && eigeneKennung === verwalteteWeltKennung) return;
-  const grund = ausserhalb
-    ? 'Die Weltdatei dieses Checkouts zeigt über einen Symlink aus dem Checkout hinaus.'
-    : verwalteteWeltKennung === undefined
-      ? 'Er meldet keine weltKennung (älterer Dienst?).'
-      : eigeneKennung === undefined
-        ? 'Die Weltdatei dieses Checkouts existiert nicht.'
-        : 'Seine weltKennung passt nicht zu dieser Datei.';
-  throw new Error(
-    `Nichts gespeichert: Der Betriebsdienst auf ${ADMIN_URL} verwaltet nicht die Weltdatei dieses Checkouts ` +
-      `(${eigene}). ${grund} Starte einen eigenen Betriebsdienst auf deinem Slot-Port und setze ` +
-      `WOV_ADMIN_PORT/WOV_ADMIN_URL, oder setze WOV_MCP_FREMDE_WELT=1, wenn du bewusst eine fremde Welt ` +
-      `schreiben willst. Lesen bleibt erlaubt.`
-  );
-}
-
-/** Bei jedem Aufruf frisch gelesen: Ein erst später angelegtes Token soll ohne Neustart greifen. */
-function adminToken(): string {
-  const direkt = process.env.WOV_ADMIN_TOKEN?.trim();
-  if (direkt) return direkt;
-  for (const datei of ADMIN_TOKEN_DATEIEN) {
-    try {
-      const t = readFileSync(datei, 'utf-8').trim();
-      if (t) return t;
-    } catch {
-      /* nächste Datei, sonst die Meldung unten */
-    }
-  }
-  throw new Error(
-    `Kein Token für den Betriebsdienst: weder WOV_ADMIN_TOKEN noch ${ADMIN_TOKEN_DATEIEN.join(' / ')} ist lesbar ` +
-      `(läuft \`npm run dev\` in diesem Checkout, oder WOV_ADMIN_TOKEN_DATEI setzen).`
-  );
-}
-
-async function adminAnfrage(
-  methode: 'GET' | 'POST',
-  leib?: unknown
-): Promise<{ status: number; daten: Record<string, unknown> }> {
-  // Vor dem try: ein fehlendes Token ist keine „nicht erreichbar"-Meldung wert.
-  const token = adminToken();
-  let antwort: Response;
-  try {
-    antwort = await fetch(`${ADMIN_URL}/api/worldlayout`, {
-      method: methode,
-      headers: {
-        'x-wov-token': token,
-        ...(leib !== undefined ? { 'content-type': 'application/json' } : {}),
-      },
-      body: leib !== undefined ? JSON.stringify(leib) : undefined,
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (fehler) {
-    throw new Error(
-      `Betriebsdienst ${ADMIN_URL} nicht erreichbar: ${(fehler as Error).message} — läuft er, und stimmen ` +
-        `WOV_ADMIN_URL bzw. WOV_ADMIN_ADRESSE/WOV_ADMIN_PORT?`
-    );
-  }
-  let daten: Record<string, unknown> = {};
-  try {
-    daten = (await antwort.json()) as Record<string, unknown>;
-  } catch {
-    /* kein JSON — der Statuscode sagt genug */
-  }
-  return { status: antwort.status, daten };
-}
-
-const meldungVon = (daten: Record<string, unknown>): string =>
-  String(daten.message ?? daten.fehler ?? 'keine Meldung');
-
-/** Dokument UND Hash, aus einer einzigen Antwort — der Hash ist die Basis für das spätere Schreiben. */
-async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
-  const { status, daten } = await adminAnfrage('GET');
-  if (status !== 200) throw new Error(`Betriebsdienst: GET /api/worldlayout -> ${status}: ${meldungVon(daten)}`);
-  verwalteteWeltKennung = typeof daten.weltKennung === 'string' ? daten.weltKennung : undefined;
-  const layout = sanitizeWorldLayout(daten.layout);
-  if (!layout || typeof daten.hash !== 'string') {
-    throw new Error('Betriebsdienst lieferte kein gültiges Weltdokument mit Hash');
-  }
-  return { layout, hash: daten.hash };
-}
-
-/**
- * Schreibt über den Betriebsdienst, mit dem beim Lesen erhaltenen Hash als
- * Basis. Ein Fehler (auch 409) wirft — der Aufrufer meldet ihn als
- * Werkzeugfehler, statt ihn zu verschlucken und trotzdem „Gespeichert" zu
- * sagen.
- */
-async function schreibe(layout: WorldLayout, basis: string): Promise<void> {
-  pruefeEigeneWelt();
-  const { status, daten } = await adminAnfrage('POST', { ...layout, basis });
-  if (status === 200) return;
-  if (status === 409) {
-    throw new Error(
-      'Nichts gespeichert: Das Weltdokument hat sich seit dem Lesen geändert (Editor oder ein anderer ' +
-        'Aufruf hat gespeichert). Bitte layout_get aufrufen und die Änderung erneut machen.'
-    );
-  }
-  throw new Error(`Nichts gespeichert: Betriebsdienst antwortet ${status}: ${meldungVon(daten)}`);
-}
-
-/** Kompakte Zusammenfassung fürs Gespräch statt des vollen Dokuments. */
-function zusammenfassung(layout: WorldLayout): string {
-  const b = layoutBounds(layout);
-  const zeilen = layout.regions.map((r) => {
-    const form =
-      r.shape.kind === 'circle'
-        ? `Kreis @(${r.shape.x}, ${r.shape.z}) r=${r.shape.radius}`
-        : `Polygon ${r.shape.points.length} Punkte`;
-    const kur = [
-      r.vegetation ? `veg:${r.vegetation.length}` : '',
-      r.locations ? `loc:${r.locations.length}` : '',
-      r.spawns ? `spawn:${r.spawns.length}` : '',
-    ].filter(Boolean).join(' ');
-    const regler = [
-      r.tier !== undefined ? `tier:${r.tier}` : '',
-      r.bewuchsDichte !== undefined ? `bewuchsDichte:${r.bewuchsDichte}` : '',
-      r.waldKoernung !== undefined ? `waldKoernung:${r.waldKoernung}` : '',
-      r.abstandFaktor !== undefined ? `abstandFaktor:${r.abstandFaktor}` : '',
-      r.nester !== undefined ? `nester:${r.nester}` : '',
-    ].filter(Boolean).join(' ');
-    return (
-      `- ${r.id} [${r.biome}] ${form}, falloff ${r.edgeFalloff}` +
-      `${kur ? ` (${kur})` : ''}${regler ? ` {${regler}}` : ''}`
-    );
-  });
-  // Nur belegte Felder nennen — eine Welt ohne Flüsse soll nicht mit
-  // "0 Fluesse" Platz in der Zusammenfassung verschwenden.
-  const teile = [
-    `${layout.continents.length} Kontinent(e)`,
-    layout.placements?.length ? `${layout.placements.length} Platzierung(en)` : '',
-    layout.rivers?.length ? `${layout.rivers.length} Fluss/Flüsse` : '',
-    layout.lakes?.length ? `${layout.lakes.length} See(n)` : '',
-    layout.routes?.length ? `${layout.routes.length} Route(n)` : '',
-    layout.defaultSpawn ? `Spawn @(${layout.defaultSpawn[0]}, ${layout.defaultSpawn[1]})` : '',
-  ].filter(Boolean);
-  return (
-    `Welt "${layout.name}" — ${layout.regions.length} Region(en), ${teile.join(', ')}, ` +
-    `Bbox x ${b.minX}…${b.maxX}, z ${b.minZ}…${b.maxZ}\n` +
-    zeilen.join('\n')
-  );
-}
+import { mcp, ADMIN_URL, lade, schreibe, zusammenfassung } from './kern.js';
 
 // Biomnamen NICHT von Hand aufgezählt, sondern aus BIOME_BY_NAME (der
 // Laufzeit-Entsprechung von BiomeName) abgeleitet — genau eine von Hand
@@ -411,8 +198,6 @@ const placementSchema = z.object({
   einebnen: z.number().optional().describe('Radius in m, in dem der Untergrund eingeebnet wird'),
   npc: npcSchema.optional(),
 });
-
-const mcp = new McpServer({ name: 'worldlayout', version: '1.0.0' });
 
 mcp.tool('layout_get', 'Aktuelles WorldLayout als Zusammenfassung + JSON', {}, async () => {
   const { layout } = await lade();
@@ -781,6 +566,13 @@ mcp.tool(
     };
   }
 );
+
+// ── Weltbau-Werkzeuge (M0a/M1/M2): jede Datei registriert sich selbst am `mcp` aus kern.ts ──
+// (ESM wertet statische Importe vor dem Rumpf aus; die Reihenfolge ist fest.)
+import './werkzeuge/vorgaenge.js'; // ops_apply, undo_last, world_diff
+import './werkzeuge/katalog.js'; // catalog_search, uploads_list, style_guide
+import './werkzeuge/sehen.js'; // map_render
+import './werkzeuge/pruefen.js'; // world_check, world_diff, area_describe
 
 const transport = new StdioServerTransport();
 await mcp.connect(transport);

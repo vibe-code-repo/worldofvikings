@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# wov-sicherung.sh — sichert Spielstand und Weltdokumente EINER Instanz.
+# wov-sicherung.sh — sichert Spielstand, Weltdokumente sowie Konten- und
+# Forumsdatenbank EINER Instanz. Aufbewahrung: 30 Tage.
 #
 #     tools/wov-sicherung.sh
 #
@@ -15,6 +16,88 @@
 # Nicht-live-Container ein Sicherungslauf, der nichts sichert (Datei fehlt
 # einfach) oder — schlimmer, auf dem falschen Container ausgeführt — den
 # falschen Spielstand sichert, ohne dass es auffiele.
+#
+# ── Konten- und Forumsdatenbank (SQLite, WAL) ─────────────────────────────
+# server/data/konten/<instanz>.db und server/data/forum/<instanz>.db laufen im
+# WAL-Modus: Die Hauptdatei bleibt tagelang fast leer, die Daten stehen in
+# <name>.db-wal. Ein `cp` der Hauptdatei ergäbe eine LEERE Datenbank, ein `cp`
+# aller drei Dateien eine womöglich angerissene. Deshalb: SQLite-Online-
+# Sicherung (Backup-API des python3-Moduls sqlite3; auf wov-dev gibt es kein
+# sqlite3-Programm), konsistent bei laufendem Server. Die Kopie wird auf
+# journal_mode=DELETE gestellt (eine Datei, kein -wal daneben) und mit
+# PRAGMA integrity_check geprüft; alles ausser "ok" ist ein Fehler (Exit 1).
+# Die Kopien enthalten E-Mail-Adressen und Passwort-Hashes: Lauf-Ordner 0700,
+# Dateien 0600 (umask 077 + chmod am Ende).
+#
+# NICHT gesichert (bewusst, Karte S7): assets/hochgeladen/ (Modell-Uploads)
+# und metriken-*.jsonl.
+#
+# ── Scheitern, Fristen, Aufbewahrung ────────────────────────────────────────
+# * Jeder DB-Schritt hat eine harte Frist (WOV_SICHERUNG_DB_FRIST, Vorgabe
+#   300 s): Python-backup() versucht bei gesperrter DB endlos weiter, ohne
+#   Frist bliebe die oneshot-Unit hängen und blockierte alle Folgeläufe.
+#   Frist abgelaufen = Lauf fehlerhaft, Exit 1. (Die Unit hat zusätzlich
+#   TimeoutStartSec, siehe deploy/systemd/wov-sicherung.service.)
+# * Ein Lauf entsteht als <stempel>.laeuft und wird erst ganz am Ende, wenn
+#   alles geprüft ist, atomar (mv) in <stempel> umbenannt. Scheitert er
+#   (Exit ≠ 0, auch bei SIGTERM), heisst er danach <stempel>.fehlerhaft
+#   (ist der Name belegt: .fehlerhaft.2, .3 …). Nach SIGKILL, OOM oder
+#   Stromausfall bleibt <stempel>.laeuft liegen; der nächste Lauf benennt
+#   solche Reste beim Start in .fehlerhaft um. Nur Ordner mit blossem
+#   Stempelnamen sind gültige Läufe.
+# * Das ganze Skript läuft unter flock auf $ZIEL/<instanz>/.sperre; ein zweiter
+#   gleichzeitiger Lauf endet sofort mit Meldung.
+# * Aufgeräumt wird bei JEDEM Ende eines Laufs (auch bei Fehlern, per EXIT-Trap),
+#   sonst hielte ein Dauerfehler alte Kontokopien über 30 Tage. Ordner mit
+#   mtime mehr als 1 Tag in der Zukunft werden gemeldet (WARNUNG), nicht
+#   gelöscht.
+# * Aus /etc/wov.env wird nur WOV_INSTANZ gelesen (nicht per source: ein
+#   Passwort mit $ ; & ( ) würde sonst Shell-Code sein). Andere Werte kommen
+#   wie sonst über die Umgebung der systemd-Unit. Gelesen wird wie bei
+#   systemd: die letzte Zeile der Form WOV_INSTANZ=wert (Leerzeichen um "=",
+#   "…"/'…', CRLF erlaubt); Kommentarzeilen zählen nicht; "export …" wird —
+#   wie bei systemd — ignoriert. Backslash-Fortsetzungen und mehrzeilige
+#   Werte versteht dieser Parser NICHT (systemd schon); dort kann er eine
+#   andere Zeile lesen als systemd — die Datei enthält so etwas nicht.
+#   Ohne gültige Zeile bricht das Skript ab.
+# * Eine DB gilt nur mit den erwarteten Tabellen (Konten: konten, charaktere;
+#   Forum: boards, threads, posts) als gesichert; eine leere Datei ist ein
+#   Fehler.
+# * Aufbewahrung: Läufe älter als 30 Tage (in Minuten gemessen) werden
+#   gelöscht, .fehlerhaft-Ordner nach demselben Alter — die 30 Tage gelten
+#   hart (Datenschutzerklärung). Einziger Schutz gegen Uhrsprünge: der gerade
+#   geschriebene Lauf wird nie gelöscht. Ging die Uhr rückwärts, schützt das
+#   Alter (Ordner-mtime) die Läufe von selbst: es fällt nie ein Lauf, der
+#   nicht älter als 30 Tage ist, und ein Lauf mit Zukunftsstempel schaltet
+#   das Aufräumen nicht ab. Springt die Uhr VORWÄRTS um mehr als 30 Tage,
+#   gelten alle bisherigen Läufe als zu alt und fallen weg; es bleibt nur
+#   der neue Lauf. Liegt $ZIEL/<instanz> hinter einem Symlink, wirkt das
+#   Aufräumen trotzdem (find -H).
+#   Angefasst werden nur Ordner mit Stempelnamen unter $ZIEL/<instanz>/.
+#
+# ── So spielst du eine Sicherung zurück ─────────────────────────────────────
+#   1. Server stoppen:  systemctl stop wov-server
+#   2. Lauf wählen:     L=/var/backups/wov/welten/<instanz>/<stempel>
+#      NUR Ordner OHNE Endung (weder .fehlerhaft noch .laeuft) — so heissen
+#      gescheiterte bzw. unfertige Läufe.
+#      Hinweis: Welt (.zst), Konten und Forum werden nacheinander gezogen
+#      (Sekunden bis Minuten Abstand), sind also nicht auf die Sekunde
+#      gleich alt.
+#   3. Alte Dateien BEISEITE legen (nicht löschen), inklusive -wal und -shm —
+#      ein übrig gebliebenes -wal würde auf die zurückgespielte Datei
+#      angewendet und sie zerstören:
+#        cd /opt/worldofvikings/server/data
+#        V=/root/vorher-$(date +%s); mkdir -p -m 700 "$V" "$V/konten" "$V/forum"
+#        mv konten/<instanz>.db* "$V/konten"/
+#        mv forum/<instanz>.db* "$V/forum"/
+#      Der Ordner $V enthält E-Mail-Adressen und Passwort-Hashes: nach
+#      erfolgreicher Prüfung (Schritt 5) löschen, spätestens nach 30 Tagen.
+#   4. Zurückkopieren (Rechte bleiben 0600):
+#        cp "$L/konten/<instanz>.db" konten/ ; cp "$L/forum/<instanz>.db" forum/
+#   5. Server starten, in der Oberfläche Konten und Charaktere prüfen.
+#   Spielstand: "$L/worlds/<instanz>.db.zst" nach server/data/worlds/ (bei
+#   gestopptem Server, die alte .db.zst und .prev vorher beiseite legen).
+#   Weltdokument: "$L/welten/<instanz>.json" nach server/data/welten/.
 #
 # ── Warum `cp` für .db.zst sicher ist, für .db.zst.prev aber NICHT ────────
 # WorldManager.save() und saveAsync() (server/src/world/WorldManager.ts,
@@ -64,7 +147,7 @@
 #        ZIEL_SSH="mike@backup-host:/srv/backup/wov/welten"
 #        rsync -a -e "ssh -i /root/.ssh/wov-sicherung" \
 #          "$LAUF_ORDNER/" "$ZIEL_SSH/$INSTANZ/$STEMPEL/"
-#      Die Prüfung (zstd -t, JSON-Parse, Grössenvergleich) davor bleibt
+#      Die Prüfung (cmp gegen die Quelle, zstd -t, JSON-Parse) davor bleibt
 #      unverändert; sie soll auf der LOKALEN Kopie laufen, bevor die Bytes
 #      ein zweites Mal über das Netz gehen.
 #   4. Bis Schritt 1–3 erledigt sind, bleibt es bei der lokalen Kopie unter
@@ -73,24 +156,26 @@
 set -euo pipefail
 
 WURZEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATEN="$WURZEL/server/data"
+# Vorgaben; für Proben umbiegbar (der Betrieb setzt beides nicht).
+DATEN="${WOV_SICHERUNG_DATEN:-$WURZEL/server/data}"
+DB_FRIST="${WOV_SICHERUNG_DB_FRIST:-300}"
+umask 077
 
 # ── 1. Instanz feststellen ─────────────────────────────────────────────
-ENV_DATEI=/etc/wov.env
+ENV_DATEI="${WOV_ENV_DATEI:-/etc/wov.env}"
 if [[ ! -r "$ENV_DATEI" ]]; then
   echo "ABBRUCH: $ENV_DATEI nicht lesbar — ohne sie ist die Instanz nicht" >&2
   echo "bestimmbar, und genau das soll hier NICHT geraten werden." >&2
   exit 1
 fi
-set -a
-# shellcheck source=/dev/null
-. "$ENV_DATEI"
-set +a
-INSTANZ="${WOV_INSTANZ:-}"
+# Nur die letzte Zuweisung von WOV_INSTANZ lesen (CR und Anführungszeichen
+# abfangen, Kommentare und "export" zählen nicht); die Datei wird NICHT ausgeführt.
+INSTANZ="$(sed -n -E 's/^[[:space:]]*WOV_INSTANZ[[:space:]]*=[[:space:]]*//p' "$ENV_DATEI" \
+             | tail -n 1 | tr -d '\r' | sed -E "s/[[:space:]]+\$//; s/^\"(.*)\"\$/\\1/; s/^'(.*)'\$/\\1/" || true)"
 case "$INSTANZ" in
   dev|live) ;;
   *)
-    echo "ABBRUCH: WOV_INSTANZ in $ENV_DATEI ist '$INSTANZ' — erwartet 'dev' oder 'live'." >&2
+    echo "ABBRUCH: WOV_INSTANZ in $ENV_DATEI ist '$INSTANZ' (oder fehlt) — erwartet 'dev' oder 'live'." >&2
     exit 1
     ;;
 esac
@@ -98,26 +183,126 @@ esac
 # ── Einstellungen ───────────────────────────────────────────────────────
 # Lokales Ziel, s. Kopfkommentar für den Weg nach ausser Haus.
 ZIEL="${WOV_SICHERUNG_ZIEL:-/var/backups/wov/welten}"
-VORHALTETAGE=14
+# Ein leeres, relatives oder nur aus "/" bestehendes ZIEL ist ein Fehler, kein
+# Anlass zu raten (die Aufräumschleife löscht unterhalb von $ZIEL). Danach
+# wird der Pfad aufgelöst (.., ., Symlinks) und gegen Systempfade geprüft.
+if [[ -z "${ZIEL//\//}" || "$ZIEL" != /* ]]; then
+  echo "ABBRUCH: ZIEL '$ZIEL' muss ein absoluter Pfad sein und darf nicht '/' sein." >&2
+  exit 1
+fi
+ZIEL="$(realpath -m -- "$ZIEL")"
+case "$ZIEL" in
+  / | /dev | /dev/* | /proc | /proc/* | /sys | /sys/* | /etc | /etc/* | /usr | /usr/* | /bin | /bin/* | /boot | /boot/*)
+    echo "ABBRUCH: ZIEL '$ZIEL' ist ein Systempfad und kein Sicherungsziel." >&2
+    exit 1
+    ;;
+esac
+VORHALTETAGE=30
 # Reserve, die nach der Sicherung noch frei bleiben soll — darunter wird
 # abgebrochen statt die Platte zu füllen und den laufenden Server zu
 # gefährden.
-MINDEST_FREI_MB=1024
+MINDEST_FREI_MB="${WOV_SICHERUNG_MINDEST_FREI_MB:-1024}"
 ZSTD_VERSUCHE=5
+FEHLER_DB=0
 
 DB_DATEI="$DATEN/worlds/$INSTANZ.db.zst"
 PREV_DATEI="$DB_DATEI.prev"
 WELT_DATEI="$DATEN/welten/$INSTANZ.json"
 DUNGEON_ORDNER="$DATEN/dungeons/$INSTANZ"
 SERVER_YML="$DATEN/server.yml"
+KONTEN_DB="$DATEN/konten/$INSTANZ.db"
+FORUM_DB="$DATEN/forum/$INSTANZ.db"
 
 if [[ ! -f "$DB_DATEI" ]]; then
   echo "ABBRUCH: $DB_DATEI fehlt — nichts zu sichern für Instanz '$INSTANZ'." >&2
   exit 1
 fi
 
+for pflicht in "$WELT_DATEI" "$SERVER_YML"; do
+  if [[ ! -f "$pflicht" ]]; then
+    echo "ABBRUCH: $pflicht fehlt — Sicherung nicht möglich, nichts geschrieben." >&2
+    exit 1
+  fi
+done
+
 STEMPEL="$(date +%Y-%m-%dT%H-%M-%S)"
 LAUF_ORDNER="$ZIEL/$INSTANZ/$STEMPEL"
+LAUF_ARBEIT="$LAUF_ORDNER.laeuft"
+
+# Nur ein Lauf zur Zeit. Die Sperre hängt am Dateideskriptor 9 (das Kind
+# python bekommt ihn nicht: 9>&-), fällt also mit dem Skript weg, auch bei
+# SIGKILL.
+mkdir -p "$ZIEL/$INSTANZ"
+exec 9>"$ZIEL/$INSTANZ/.sperre"
+if ! flock -n 9; then
+  echo "ABBRUCH: es läuft bereits eine Sicherung (Sperre $ZIEL/$INSTANZ/.sperre)." >&2
+  exit 1
+fi
+
+# Ab hier gehört die Sperre uns: bei JEDEM Ende (Erfolg, Fehler, TERM) wird ein
+# halber Lauf markiert und danach aufgeräumt.
+LAUF_OK=0
+LAUF_ANGELEGT=0
+ALT_ORDNER="$ZIEL/$INSTANZ"
+STEMPEL_MUSTER='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}(\.fehlerhaft(\.[0-9]+)?)?$'
+
+# Alte Läufe (alle Endungen) nach 30 Tagen löschen — Alter in Minuten (30 Tage =
+# 43200), die 30 Tage gelten hart. Nur Stempel-Ordner; der laufende bzw. eben
+# als .fehlerhaft markierte Lauf nie. find -H folgt einem Symlink auf
+# $ZIEL/<instanz>. Zukunfts-mtime (> 1 Tag) wird gemeldet, nicht gelöscht.
+raeume_auf() {
+  local alt name
+  while IFS= read -r -d '' alt; do
+    name="$(basename "$alt")"
+    [[ "$name" =~ $STEMPEL_MUSTER ]] || continue
+    [[ "${name%%.*}" == "$STEMPEL" ]] && continue
+    echo "  räume ab (älter als ${VORHALTETAGE}d): $alt" >&2
+    rm -rf "$alt"
+  done < <(find -H "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -mmin "+$((VORHALTETAGE * 1440))" -print0)
+  while IFS= read -r -d '' alt; do
+    name="$(basename "$alt")"
+    [[ "$name" =~ $STEMPEL_MUSTER ]] || continue
+    echo "WARNUNG: $alt hat einen Änderungszeitpunkt in der Zukunft (Uhrfehler?) — wird nicht gelöscht, bevor die Zeit ihn einholt." >&2
+  done < <(find -H "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -newermt 'now + 1 day' -print0)
+}
+
+# Freier Name für einen gescheiterten Lauf: <name>.fehlerhaft, sonst .2, .3 …
+# — nie in einen vorhandenen Ordner hinein.
+fehlerhaft_name() {
+  local basis="$1.fehlerhaft" n="$1.fehlerhaft" i=2
+  while [[ -e "$n" || -L "$n" ]]; do
+    n="$basis.$i"
+    i=$((i + 1))
+  done
+  echo "$n"
+}
+
+# Reste abgestürzter Läufe (SIGKILL, OOM, Stromausfall): unter der Sperre kann
+# kein anderer Lauf mehr schreiben, also sind alle *.laeuft Reste.
+for rest in "$ZIEL/$INSTANZ"/*.laeuft; do
+  [[ -d "$rest" ]] || continue
+  ziel_rest="$(fehlerhaft_name "${rest%.laeuft}")"
+  mv -T "$rest" "$ziel_rest"
+  echo "  Rest eines abgebrochenen Laufs: $rest → $ziel_rest" >&2
+done
+
+beim_ende() {
+  local rc=$? neu
+  if (( LAUF_OK == 0 && LAUF_ANGELEGT == 1 )) && [[ -d "$LAUF_ARBEIT" ]]; then
+    neu="$(fehlerhaft_name "$LAUF_ORDNER")"
+    mv -T "$LAUF_ARBEIT" "$neu" 2>/dev/null \
+      && echo "  Lauf gescheitert — umbenannt: $neu" >&2
+  fi
+  raeume_auf || true
+  exit "$rc"
+}
+trap beim_ende EXIT
+trap 'exit 143' TERM INT
+
+if [[ -e "$LAUF_ORDNER" || -L "$LAUF_ORDNER" ]]; then
+  echo "ABBRUCH: $LAUF_ORDNER existiert schon (zweiter Lauf in derselben Sekunde?) — nichts angefasst." >&2
+  exit 1
+fi
 
 echo "══ World of Vikings — Sicherung ($INSTANZ) ══"
 echo "  Quelle: $DATEN"
@@ -125,6 +310,13 @@ echo "  Ziel:   $LAUF_ORDNER"
 
 # ── 2. Freien Platz prüfen, BEVOR irgendetwas kopiert wird ─────────────
 QUELL_PFADE=("$DB_DATEI" "$WELT_DATEI" "$SERVER_YML")
+# Konten/Forum samt -wal (dort stehen die Daten); ob sie fehlen, meldet die
+# Sicherung selbst.
+for db in "$KONTEN_DB" "$FORUM_DB"; do
+  for teil in "$db" "$db-wal"; do
+    [[ -f "$teil" ]] && QUELL_PFADE+=("$teil")
+  done
+done
 [[ -f "$PREV_DATEI" ]] && QUELL_PFADE+=("$PREV_DATEI")
 [[ -d "$DUNGEON_ORDNER" ]] && QUELL_PFADE+=("$DUNGEON_ORDNER")
 
@@ -148,21 +340,36 @@ if (( FREI_KB < BENOETIGT_KB + MINDEST_FREI_KB )); then
   exit 1
 fi
 
-mkdir -p "$LAUF_ORDNER/worlds" "$LAUF_ORDNER/welten"
+# Ab hier gibt es einen halben Lauf (<stempel>.laeuft), bis er ganz durch ist
+# (Trap beim_ende, oben gesetzt): jeder Abbruch mit Trap (set -e, exit 1,
+# SIGTERM) benennt ihn in .fehlerhaft um; ohne Trap (SIGKILL) macht es der
+# nächste Lauf beim Start.
+# Ohne -p: existiert der Ordner schon, ist das ein Abbruch.
+mkdir "$LAUF_ARBEIT"
+LAUF_ANGELEGT=1
+mkdir "$LAUF_ARBEIT/worlds" "$LAUF_ARBEIT/welten" "$LAUF_ARBEIT/konten" "$LAUF_ARBEIT/forum"
 
 # ── 3. Kopieren ──────────────────────────────────────────────────────────
-# kopiere_mit_pruefung: kopiert eine zstd-komprimierte Datei und prüft die
-# Kopie mit `zstd -t` (Integritätsprüfung über die im Format eingebaute
-# Prüfsumme). Schlägt das fehl, wird erneut kopiert — s. Kopfkommentar zur
-# NICHT-atomaren .prev-Rotation, die dieser Test auffangen soll.
+# kopiere_mit_pruefung QUELLE ZIEL [zstd]: kopiert und prüft die Kopie mit `cmp`
+# gegen die Quelle; mit drittem Argument "zstd" zusätzlich mit `zstd -t`.
+# Quellen, die der Server im laufenden Betrieb ersetzt (Welt alle 30 min,
+# Weltdokument), werden NICHT später noch einmal nach der Grösse gegen die
+# Quelle verglichen: ein Save zwischen Kopie und Vergleich wäre ein
+# Fehlalarm. Massgeblich ist allein cmp in dieser Schleife (mit Wiederholung).
+# Bei zstd-Dateien gilt: `zstd -t` allein ist `zstd -t` allein ist
+# keine Prüfsumme (die Weltdatei hat kein Check-Feld; gemessen: 128 von 200
+# Ein-Bit-Fehlern bleiben unbemerkt) und erkennt nur Abschneiden bzw. eine
+# schon kaputte Quelle; `cmp` erkennt jeden Unterschied zur Quelle. Schlägt
+# eines fehl, wird erneut kopiert — s. Kopfkommentar zur NICHT-atomaren
+# .prev-Rotation, die dieser Test auffangen soll.
 kopiere_mit_pruefung() {
-  local quelle="$1" ziel="$2" versuch
+  local quelle="$1" ziel="$2" art="${3:-}" versuch
   for ((versuch = 1; versuch <= ZSTD_VERSUCHE; versuch++)); do
     cp -a "$quelle" "$ziel"
-    if zstd -t "$ziel" -q 2>/dev/null; then
+    if cmp -s "$quelle" "$ziel" && { [[ "$art" != zstd ]] || zstd -t "$ziel" -q 2>/dev/null; }; then
       return 0
     fi
-    echo "  … $ziel nach dem Kopieren unvollständig (Versuch $versuch/$ZSTD_VERSUCHE), erneut" >&2
+    echo "  … $ziel weicht nach dem Kopieren ab oder besteht zstd -t nicht (Versuch $versuch/$ZSTD_VERSUCHE), erneut" >&2
     sleep 1
   done
   echo "FEHLER: $quelle liess sich nach $ZSTD_VERSUCHE Versuchen nicht sauber kopieren" >&2
@@ -172,43 +379,83 @@ kopiere_mit_pruefung() {
 }
 
 echo "  kopiere $DB_DATEI"
-kopiere_mit_pruefung "$DB_DATEI" "$LAUF_ORDNER/worlds/$INSTANZ.db.zst"
+kopiere_mit_pruefung "$DB_DATEI" "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst" zstd
 
 if [[ -f "$PREV_DATEI" ]]; then
   echo "  kopiere $PREV_DATEI"
-  kopiere_mit_pruefung "$PREV_DATEI" "$LAUF_ORDNER/worlds/$INSTANZ.db.zst.prev"
+  kopiere_mit_pruefung "$PREV_DATEI" "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst.prev" zstd
 else
   echo "  … keine .prev vorhanden (erster Save seit Anlegen der Welt?), übersprungen"
 fi
 
 echo "  kopiere $WELT_DATEI"
-cp -a "$WELT_DATEI" "$LAUF_ORDNER/welten/$INSTANZ.json"
+kopiere_mit_pruefung "$WELT_DATEI" "$LAUF_ARBEIT/welten/$INSTANZ.json"
 
 if [[ -d "$DUNGEON_ORDNER" ]]; then
   echo "  kopiere $DUNGEON_ORDNER"
-  cp -a "$DUNGEON_ORDNER" "$LAUF_ORDNER/dungeons"
+  cp -a "$DUNGEON_ORDNER" "$LAUF_ARBEIT/dungeons"
 else
   echo "  … kein Dungeon-Ordner für '$INSTANZ', übersprungen"
 fi
 
 echo "  kopiere $SERVER_YML"
-cp -a "$SERVER_YML" "$LAUF_ORDNER/server.yml"
+kopiere_mit_pruefung "$SERVER_YML" "$LAUF_ARBEIT/server.yml"
+
+# sichere_sqlite: Online-Sicherung einer WAL-Datenbank (s. Kopfkommentar),
+# dann integrity_check auf der KOPIE. Rückgabe 0 nur bei "ok".
+sichere_sqlite() {
+  local quelle="$1" ziel="$2" tabellen="$3"
+  if [[ ! -f "$quelle" ]]; then
+    echo "FEHLER: $quelle fehlt — Datenbank nicht gesichert" >&2
+    return 1
+  fi
+  local rc=0
+  timeout --kill-after=10 "$DB_FRIST" python3 - "$quelle" "$ziel" "$tabellen" 9>&- <<'PYEOF' || rc=$?
+import sqlite3, sys
+quelle, ziel, erwartet = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
+src = sqlite3.connect(quelle, timeout=60)
+dst = sqlite3.connect(ziel)
+try:
+    src.backup(dst)
+    dst.execute("PRAGMA journal_mode=DELETE")
+    ergebnis = [r[0] for r in dst.execute("PRAGMA integrity_check")]
+    vorhanden = {r[0] for r in dst.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+finally:
+    dst.close()
+    src.close()
+if ergebnis != ["ok"]:
+    print("integrity_check: " + "; ".join(ergebnis), file=sys.stderr)
+    sys.exit(1)
+fehlend = [t for t in erwartet if t not in vorhanden]
+if fehlend:
+    print("Tabellen fehlen in der Sicherung: " + ", ".join(fehlend), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+  if (( rc == 124 || rc == 137 )); then
+    echo "FEHLER: $quelle nicht innerhalb von ${DB_FRIST}s gesichert (gesperrt?) — Frist abgelaufen" >&2
+  fi
+  return "$rc"
+}
+
+echo "  sichere $KONTEN_DB"
+sichere_sqlite "$KONTEN_DB" "$LAUF_ARBEIT/konten/$INSTANZ.db" konten,charaktere || FEHLER_DB=1
+echo "  sichere $FORUM_DB"
+sichere_sqlite "$FORUM_DB" "$LAUF_ARBEIT/forum/$INSTANZ.db" boards,threads,posts || FEHLER_DB=1
+
+# Nur root darf lesen (E-Mail, Passwort-Hashes): Ordner 0700, Dateien 0600 —
+# auch bei einem späteren Abbruch, deshalb VOR den Prüfungen.
+find "$LAUF_ARBEIT" -type d -exec chmod 700 {} +
+find "$LAUF_ARBEIT" -type f -exec chmod 600 {} +
 
 # ── 4. Nachweis: vollständig UND entpackbar ──────────────────────────────
-# Grössenvergleich zuerst (billig, fängt grobe Fehler), dann die
-# inhaltliche Prüfung (JSON muss parsen, zstd muss sich testen lassen).
-FEHLER=0
-
-pruef_groesse() {
-  local quelle="$1" ziel="$2"
-  local gq gz
-  gq="$(stat -c%s "$quelle")"
-  gz="$(stat -c%s "$ziel")"
-  if [[ "$gq" != "$gz" ]]; then
-    echo "FEHLER: Grösse weicht ab — $ziel: ${gz} B, Quelle $quelle: ${gq} B" >&2
-    FEHLER=1
-  fi
-}
+# Inhaltliche Prüfung der Kopien (JSON muss parsen, zstd muss sich testen
+# lassen). Übereinstimmung mit der Quelle (Welt, Weltdokument, server.yml) ist
+# schon beim Kopieren per cmp geprüft — kein späterer Grössenvergleich gegen
+# die inzwischen möglicherweise ersetzte Quelle.
+FEHLER=$FEHLER_DB
+if (( FEHLER_DB != 0 )); then
+  echo "FEHLER: Konten- oder Forumsdatenbank nicht sauber gesichert (s. oben)" >&2
+fi
 
 pruef_json() {
   local datei="$1"
@@ -218,42 +465,32 @@ pruef_json() {
   fi
 }
 
-pruef_groesse "$DB_DATEI" "$LAUF_ORDNER/worlds/$INSTANZ.db.zst"
-zstd -t "$LAUF_ORDNER/worlds/$INSTANZ.db.zst" -q || { echo "FEHLER: Hauptsicherung besteht zstd -t nicht" >&2; FEHLER=1; }
+zstd -t "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst" -q || { echo "FEHLER: Hauptsicherung besteht zstd -t nicht" >&2; FEHLER=1; }
 
 if [[ -f "$PREV_DATEI" ]]; then
-  pruef_groesse "$PREV_DATEI" "$LAUF_ORDNER/worlds/$INSTANZ.db.zst.prev"
-  zstd -t "$LAUF_ORDNER/worlds/$INSTANZ.db.zst.prev" -q || { echo "FEHLER: .prev-Sicherung besteht zstd -t nicht" >&2; FEHLER=1; }
+  zstd -t "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst.prev" -q || { echo "FEHLER: .prev-Sicherung besteht zstd -t nicht" >&2; FEHLER=1; }
 fi
 
-pruef_groesse "$WELT_DATEI" "$LAUF_ORDNER/welten/$INSTANZ.json"
-pruef_json "$LAUF_ORDNER/welten/$INSTANZ.json"
+pruef_json "$LAUF_ARBEIT/welten/$INSTANZ.json"
 
 if [[ -d "$DUNGEON_ORDNER" ]]; then
   while IFS= read -r -d '' datei; do
     pruef_json "$datei"
-  done < <(find "$LAUF_ORDNER/dungeons" -name '*.json' -print0)
+  done < <(find "$LAUF_ARBEIT/dungeons" -name '*.json' -print0)
 fi
 
-pruef_groesse "$SERVER_YML" "$LAUF_ORDNER/server.yml"
 
 if (( FEHLER != 0 )); then
-  echo "ABBRUCH: die Sicherung unter $LAUF_ORDNER ist NICHT vollständig — sie bleibt" >&2
-  echo "liegen für die Fehlersuche, zählt aber nicht als gültiger Lauf." >&2
+  echo "ABBRUCH: die Sicherung unter $LAUF_ARBEIT ist NICHT vollständig — sie bleibt" >&2
+  echo "als .fehlerhaft liegen für die Fehlersuche und zählt nicht als gültiger Lauf." >&2
   exit 1
 fi
 
+# Erst jetzt, atomar, wird aus dem Arbeitsordner ein gültiger Lauf.
+mv -T "$LAUF_ARBEIT" "$LAUF_ORDNER"
+LAUF_OK=1
 echo "  ✓ Sicherung vollständig und geprüft: $LAUF_ORDNER"
 
-# ── 5. Alte Läufe abräumen — ERST nachdem der neue Lauf steht ───────────
-# In dieser Reihenfolge fällt bei einem Fehlschlag oben (exit 1) kein
-# einziger alter, guter Lauf weg.
-ALT_ORDNER="$ZIEL/$INSTANZ"
-if [[ -d "$ALT_ORDNER" ]]; then
-  while IFS= read -r -d '' alt; do
-    echo "  räume ab (älter als ${VORHALTETAGE}d): $alt"
-    rm -rf "$alt"
-  done < <(find "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -mtime "+$VORHALTETAGE" -print0)
-fi
-
+# ── 5. Alte Läufe abräumen ──────────────────────────────────────────────
+# Geschieht in der EXIT-Trap (beim_ende → raeume_auf), auch nach Fehlern.
 echo "Fertig — $INSTANZ gesichert nach $LAUF_ORDNER"

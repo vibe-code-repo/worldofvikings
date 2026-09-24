@@ -176,21 +176,46 @@ not memory, is the limit (load 12 on 8 cores with two full runs). So:
 
 | What | Places | Take it with |
 |---|---|---|
-| `typecheck`, `build`, `npm ci` | 2 | `tools/sperre.sh build 2 -- <command>` |
-| full test run (`npm test`) | 2, each in its own worktree | `tools/sperre.sh test 2 -- npm test` |
-| frame-time measurement | 1 | `flock /opt/wov-worktrees/.slots/measure.lock node tools/pw-fps-bench.mjs` |
+| `typecheck`, `build`, `npm ci` | 2 | `tools/sperre.sh build -- <command>` |
+| full test run (`npm test`) | 2, each in its own worktree | `tools/sperre.sh test -- npm test` |
+| frame-time measurement | 1 | `tools/sperre.sh measure -- node tools/pw-fps-bench.mjs` |
 | workers per orchestrator on wov-dev | 4 | (a rule, not a lock) |
 
-`lint` needs no lock. A test run that is timing-sensitive (a measurement, a
+`lint` needs no lock. The pre-commit hook takes a build place for its typecheck when
+`/opt/wov-worktrees/.slots` exists (on wov-dev), so a commit waits like any other
+typecheck; on other machines it runs unlocked. A test run that is timing-sensitive (a measurement, a
 suspicious red) is repeated alone.
 
-`tools/sperre.sh <name> <places> -- <command>` is a counting semaphore on `flock`:
-it takes the first free place (`<name>.lock`, then `<name>.2.lock` ... in
-`/opt/wov-worktrees/.slots`), runs the command while holding it and waits (poll,
-not a queue) when all are busy. Place 1 is the old lock file, so a plain
-`flock .../build.lock ...` still holds place 1 and stays correct. Check the tool
-with `tools/sperre.sh --selbsttest`. If SSH hangs, the emergency way goes through
-the host: `ssh wov-host 'pct exec 102 -- ...'`; end only your own processes there.
+`tools/sperre.sh <name> -- <command>` is a counting semaphore on `flock`. The number
+of places is fixed in the tool (`build` 2, `test` 2, `measure` 1), not chosen by the
+caller: an unknown name, or a number that does not match (`build 3`), exits 64 with a
+`sperre: usage:` line. The old form `<name> <n> -- <command>` is accepted only while
+`<n>` equals the table. It takes the first free place (`<name>.lock`, then
+`<name>.2.lock` ... in `/opt/wov-worktrees/.slots`), runs the command while holding it
+and waits (poll, not a queue, no time limit) when all are busy. Place 1 is the old lock
+file, so a plain `flock .../build.lock ...` still holds place 1 and stays correct
+during the changeover, but a plain `flock` waiter that sits in the kernel wins against
+the polling `sperre.sh` when the place frees up. **From the merge of this tool on, use
+only `sperre.sh`** (also for `measure`), so nobody starves. Check the tool with
+`tools/sperre.sh --selbsttest`; `--plaetze <name>` prints a name's places. If SSH
+hangs, the emergency way goes through the host: `ssh wov-host 'pct exec 102 -- ...'`;
+end only your own processes there.
+
+What the lock covers, and what it does not:
+
+- **The place belongs to the command and to everything that inherits the lock
+  descriptor.** A daemon started under the lock (`setsid server &`) keeps the place
+  after the command ends, without a time limit. **Never start servers, watchers or dev
+  processes under `sperre.sh`**; it is for commands that finish.
+- **`kill -9` on `sperre.sh` ends the wrapper, not its child.** The orphaned child keeps
+  the place until it ends itself; end the child (by its PID) to free it.
+- Nesting on one name needs a second free place (with `measure`, one place, it
+  deadlocks). The lock files in `.slots` are part of the contract: deleting one lifts
+  the lock, so do not `rm` them.
+- Exit 64 is the tool's usage error and also possible for a command. The tool tells them
+  apart on stderr: `sperre: usage:` against `sperre: command exited 64`.
+- `WOV_SPERREN_PLAETZE_<NAME>` overrides the table for the tool's own self-test only and
+  is ignored on the real directory; never set it.
 
 ### 3.4 While you work
 

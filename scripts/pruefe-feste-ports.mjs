@@ -28,7 +28,10 @@
  * must be on WERKZEUGE with a reason. That makes the tool list binding instead of
  * merely claimed: an unnamed tool is a finding, exactly the class the attack found
  * (three tools nobody had looked at). Tools that only READ a slot port as a URL
- * default (`--url http://localhost:5292`) are clients and are not caught. Not seen:
+ * default (`--url http://localhost:5292`) are clients and are not caught. Known noise: a number of the slot bands
+ * that is no port (`const MAX_BYTES = 5811`) next to a `listen(` in the same tool is reported;
+ * rename it or name the tool on WERKZEUGE (judging the line for a port context would miss
+ * `const P = 5299`). Not seen:
  * computed ports, a port only inside a URL, binds in files outside `tools/` and
  * `scripts/` that are not test files.
  *

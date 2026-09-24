@@ -1,2 +1,8 @@
 npx lint-staged
-npm run typecheck
+# On the build host (wov-dev) the typecheck takes one of the two build places; elsewhere
+# it runs as before. tools/sperre.sh is missing in a worktree of an older main.
+if [ -d "${WOV_SPERREN:-/opt/wov-worktrees/.slots}" ] && [ -x tools/sperre.sh ]; then
+  tools/sperre.sh build -- npm run typecheck
+else
+  npm run typecheck
+fi

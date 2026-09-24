@@ -5,6 +5,7 @@ import { SEIDRAVEN_MALE_PARTS, SEIDRAVEN_FEMALE_PARTS } from './seidraven.js';
 import { EMBERRAGE_MALE_PARTS, EMBERRAGE_FEMALE_PARTS } from './emberrage.js';
 import { PLAINHIDE_MALE_PARTS, PLAINHIDE_FEMALE_PARTS, PLAINHIDE_FREE_REGIONS } from './plainhide.js';
 import { GRAVETHORN_MALE_PARTS, GRAVETHORN_FEMALE_PARTS } from './gravethorn.js';
+import { CROWSHADE_MALE_PARTS, CROWSHADE_FEMALE_PARTS } from './crowshade.js';
 import { canWearArmor } from './armorCompatibility.js';
 
 export const CHARACTER_CLASSES = ['krieger', 'schildmaid', 'jaeger', 'skalde', 'seherin', 'berserker', 'runenmagier', 'hexer', 'druide'] as const;
@@ -12,7 +13,7 @@ export function isCharacterClass(value: unknown): value is typeof CHARACTER_CLAS
   return typeof value === 'string' && CHARACTER_CLASSES.some(id => id === value);
 }
 export const CLASS_EQUIPMENT_FAMILIES: Readonly<Record<string, string>> = {
-  krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven', runenmagier: 'emberrage', berserker: 'gravethorn',
+  krieger: 'ironward', hexer: 'ashenveil', druide: 'wildwarden', seherin: 'seidraven', runenmagier: 'emberrage', berserker: 'gravethorn', jaeger: 'crowshade',
 };
 
 /**
@@ -48,6 +49,8 @@ export const EQUIPMENT_SETS = [
   { id: 'plainhide_female', version: 1, name: 'Plainhide', figure: 'wikingerin', parts: PLAINHIDE_FEMALE_PARTS, starter: true, freeRegions: PLAINHIDE_FREE_REGIONS },
   { id: 'gravethorn_male', version: 1, name: 'Gravethorn', figure: 'wikinger', parts: GRAVETHORN_MALE_PARTS },
   { id: 'gravethorn_female', version: 1, name: 'Gravethorn', figure: 'wikingerin', parts: GRAVETHORN_FEMALE_PARTS },
+  { id: 'crowshade_male', version: 1, name: 'Crowshade', figure: 'wikinger', parts: CROWSHADE_MALE_PARTS },
+  { id: 'crowshade_female', version: 1, name: 'Crowshade', figure: 'wikingerin', parts: CROWSHADE_FEMALE_PARTS },
 ] as const;
 
 const familyOf = (setId: string) => setId.replace(/_(male|female)$/, '');

@@ -113,6 +113,7 @@ export * from './seidraven.js';
 export * from './emberrage.js';
 export * from './plainhide.js';
 export * from './gravethorn.js';
+export * from './crowshade.js';
 export * from './legacyFemaleRegions.js';
 export * from './wetterVorgabe.js';
 export * from './lookProfil.js';

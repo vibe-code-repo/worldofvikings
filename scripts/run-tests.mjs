@@ -2173,6 +2173,15 @@ const KERN = [
   // Stop path: a failing final save must still end the process (exit code, port closed).
   ['server/test', 'stopp-speichern.ts'],
   ['server', 'test/listen-bindefehler.ts'],
+  // B9.4: Animationsweg. Falsch belegte clips-Listen scheitern laut (kein idle,
+  // leer, unbekannt, die ohne Dauer), zwei Schreiber auf einer ZDO werden
+  // abgelehnt, attack/hit/die kommen als Ereignis (animEinmal) an, der Wolf
+  // ohne die-Clip stirbt wie bisher sofort; dazu die Clip-Namen gegen das
+  // Manifest. Kein Server, keine Ports. ~10 s.
+  ['server', 'test/b9-4-animationsweg.ts'],
+  // B9.4 Client: Diagnose-Haken raeumen auf (zehn Aufrufe, eine Gruppe), Format
+  // und Gruppensuche ohne Szene. ~2 s.
+  ['client', 'test/b9-4-animation-client.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

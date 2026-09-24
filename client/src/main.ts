@@ -1765,6 +1765,8 @@ async function main() {
       dynMasse: (name: string, clip = 'idle') => entities?.dynamicMasse(name, clip) ?? null,
       /** Diagnose: Sprung eines Clips beim Umschlagen (letztes gegen erstes Bild, verformtes Netz). */
       dynSprung: (name: string, clip: string) => entities?.dynamicSprung(name, clip) ?? null,
+      /** Diagnose: Sprung beim Uebergang von einem Clip in den naechsten (letztes Bild von `von` gegen erstes von `nach`). */
+      dynUebergang: (name: string, von: string, nach: string) => entities?.dynamicUebergang(name, von, nach) ?? null,
       /** Diagnose: Schlag mit beliebiger Waffe an der Spielerposition. */
       /** Treffereffekt vor der Figur ausloesen (Messzellen): art 0 hart, 1 Blut, 2 Parade. */
       effekt: (art = 0) => {

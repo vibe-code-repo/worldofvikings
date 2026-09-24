@@ -12,7 +12,7 @@ import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
 import { stabilizeHeadSkin } from '../player/headSkin.js';
-import { canWearArmor } from '@wov/shared';
+import { canWearArmor, parseEinmal } from '@wov/shared';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -88,6 +88,7 @@ import {
 import type { ClientWorld } from '../world/World';
 import type { ZDOEntityUpdate } from '../net/ZDOSync';
 import { clipRate } from './clipTempo';
+import { pausiereFuerMessung } from './gruppenSicherung';
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
 const DYNAMIC_FLAGS =
@@ -581,6 +582,10 @@ interface DynamicEntity {
    * Zyklus bliebe im ersten Bild hängen.
    */
   anim?: string;
+  /** Counter of the last one-shot event seen (`animEinmal`); set when the creature is first seen. */
+  einmalN?: number;
+  /** Death clip started: the body stays as it lies, no state may move it again. */
+  stirbt?: boolean;
   /**
    * Coupling of a walk/run clip to the ground speed (clipTempo.ts): the
    * prefab's clip speeds, the smoothed speed of the root and the rate last
@@ -3197,13 +3202,7 @@ export class EntityManager {
       if (!(d.root.name || '').includes(name)) continue;
       const gruppen = this.assets.gruppenVon(d.root);
       const g = gruppen.find((x) => x.name.toLowerCase().includes(clip));
-      const spielt = gruppen.filter((x) => x.isPlaying);
-      if (g) {
-        for (const x of spielt) x.pause();
-        g.start(true);
-        g.pause();
-        g.goToFrame(g.from);
-      }
+      const zurueck = pausiereFuerMessung(gruppen, g);
       const rot = d.root.rotationQuaternion?.clone() ?? null;
       d.root.rotationQuaternion = Quaternion.Identity();
       d.root.computeWorldMatrix(true);
@@ -3221,10 +3220,7 @@ export class EntityManager {
       }
       const y0 = d.root.position.y;
       d.root.rotationQuaternion = rot;
-      if (g) {
-        g.goToFrame(g.from);
-        for (const x of [g, ...spielt]) x.play(true);
-      }
+      zurueck();
       return { breite: hi.x - lo.x, hoehe: hi.y - lo.y, laenge: hi.z - lo.z, sohle: lo.y - y0 };
     }
     return null;
@@ -3247,10 +3243,7 @@ export class EntityManager {
       const gruppen = this.assets.gruppenVon(d.root);
       const g = gruppen.find((x) => x.name.toLowerCase().includes(clip));
       if (!g) return null;
-      const spielt = gruppen.filter((x) => x.isPlaying);
-      for (const x of spielt) x.pause();
-      g.start(true);
-      g.pause();
+      const zurueck = pausiereFuerMessung(gruppen, g);
       const rot = d.root.rotationQuaternion?.clone() ?? null;
       d.root.rotationQuaternion = Quaternion.Identity();
       const lies = (bild: number): Float32Array[] => {
@@ -3273,8 +3266,7 @@ export class EntityManager {
       // nothing if the frame change did not reach the mesh at all.
       const mitte = lies((g.from + g.to) / 2);
       d.root.rotationQuaternion = rot;
-      g.goToFrame(g.from);
-      for (const x of [g, ...spielt]) x.play(true);
+      zurueck();
       let max = 0;
       let summe = 0;
       let n = 0;
@@ -3295,6 +3287,62 @@ export class EntityManager {
         }
       });
       return { max, mittel: n ? summe / n : 0, vertices: n, zurMitteMax };
+    }
+    return null;
+  }
+
+  /**
+   * Diagnostics: the jump where one clip hands over to another — the LAST
+   * frame of `von` against the FIRST frame of `nach` (root turned to the
+   * identity, deformed mesh). This is what the player sees when a one-shot
+   * (`attack`) ends and the state clip takes over. Largest and mean distance
+   * a vertex moves. Leaves the animation as it found it.
+   */
+  dynamicUebergang(
+    name: string,
+    von: string,
+    nach: string
+  ): { max: number; mittel: number; vertices: number } | null {
+    for (const d of this.dynamics.values()) {
+      if (!(d.root.name || '').includes(name)) continue;
+      const gruppen = this.assets.gruppenVon(d.root);
+      const gVon = gruppen.find((x) => x.name.toLowerCase().includes(von));
+      const gNach = gruppen.find((x) => x.name.toLowerCase().includes(nach));
+      if (!gVon || !gNach) return null;
+      const zurueck = pausiereFuerMessung(gruppen, gVon, [gNach]);
+      const rot = d.root.rotationQuaternion?.clone() ?? null;
+      d.root.rotationQuaternion = Quaternion.Identity();
+      const lies = (g: typeof gVon, bild: number): Float32Array[] => {
+        g.goToFrame(bild);
+        d.root.computeWorldMatrix(true);
+        for (const tn of d.root.getChildTransformNodes(false)) tn.computeWorldMatrix(true);
+        const aus: Float32Array[] = [];
+        for (const m of d.root.getChildMeshes()) {
+          if (m.getTotalVertices() === 0) continue;
+          m.skeleton?.prepare(true);
+          m.computeWorldMatrix(true);
+          const daten = m.getPositionData(true);
+          if (daten) aus.push(Float32Array.from(daten as ArrayLike<number>));
+        }
+        return aus;
+      };
+      const ende = lies(gVon, gVon.to);
+      const anfang = lies(gNach, gNach.from);
+      d.root.rotationQuaternion = rot;
+      zurueck();
+      let max = 0;
+      let summe = 0;
+      let n = 0;
+      ende.forEach((a, k) => {
+        const b = anfang[k]!;
+        for (let i = 0; i + 2 < a.length; i += 3) {
+          const dist = Math.hypot(a[i]! - b[i]!, a[i + 1]! - b[i + 1]!, a[i + 2]! - b[i + 2]!);
+          max = Math.max(max, dist);
+          summe += dist;
+          n++;
+        }
+      });
+      return { max, mittel: n ? summe / n : 0, vertices: n };
     }
     return null;
   }
@@ -3367,6 +3415,46 @@ export class EntityManager {
 
   // ── Dynamic (instantiated hierarchies) ───────────────────────────
 
+  /**
+   * Show the state the server sent. `attack` is a blow, not a pose: it plays
+   * once and falls back (looping it jumped by up to 9 cm at the wrap). A model
+   * without an attack clip keeps the old way (the group is not found).
+   */
+  private spieleZustand(dyn: DynamicEntity, zustand: string): void {
+    if (zustand === 'attack') {
+      const ok = this.assets.spieleEinmalKreatur(dyn.root, 'attack', () => this.faelltZurueck(dyn));
+      if (ok) return;
+    }
+    this.assets.wechsleAnimation(dyn.root, zustand);
+  }
+
+  /**
+   * After a one-shot: back to the state the server last sent. `attack` as a
+   * state means "next to the target, striking" — the animal stands there, so
+   * it falls back to `idle`, not to the run it arrived with.
+   */
+  private faelltZurueck(dyn: DynamicEntity): void {
+    if (dyn.stirbt) return;
+    const z = dyn.anim && dyn.anim !== 'attack' ? dyn.anim : 'idle';
+    this.assets.wechsleAnimation(dyn.root, z);
+    // The fresh start plays as authored: tell the tempo coupling.
+    if (dyn.clipTempo) dyn.clipTempo.rate = 1;
+  }
+
+  /** One-shot events from the server (`animEinmal`): blow, hit, death. */
+  private pruefeEinmal(dyn: DynamicEntity, wert: string | undefined): void {
+    const e = parseEinmal(wert);
+    if (!e) return;
+    if (e.n === dyn.einmalN) return;
+    dyn.einmalN = e.n;
+    if (dyn.stirbt) return;
+    if (e.clip === 'die') {
+      if (this.assets.spieleEinmalKreatur(dyn.root, 'die', null)) dyn.stirbt = true;
+      return;
+    }
+    this.assets.spieleEinmalKreatur(dyn.root, e.clip, () => this.faelltZurueck(dyn));
+  }
+
   private async applyDynamic(
     u: ZDOEntityUpdate,
     prefabName: string,
@@ -3382,7 +3470,9 @@ export class EntityManager {
     if (!dyn) {
       let root: TransformNode | null = null;
       if (model) {
-        root = await this.assets.instantiate(model, wunschAnim);
+        // A creature first seen mid-swing starts standing: `attack` is a
+        // one-shot, and looping it here would be the very jump it avoids.
+        root = await this.assets.instantiate(model, wunschAnim === 'attack' ? 'idle' : wunschAnim);
       }
       if (!root) {
         root = makePlaceholder(this.scene, prefabName);
@@ -3398,7 +3488,9 @@ export class EntityManager {
       // GLB-Wurzeln heissen alle "__root__" — für Diagnose (dynamicList,
       // dynamicPose) den Prefab-Namen drauflegen.
       root.name = prefabName;
-      dyn = { root, anim: wunschAnim };
+      // An event already in the member when we first see the creature is
+      // history (no late joiner replays a swing); no member counts as 0.
+      dyn = { root, anim: wunschAnim, einmalN: parseEinmal(u.animEinmal)?.n ?? 0 };
       const clipTabelle = findPrefabByHash(u.prefabHash)?.animationTempo;
       if (clipTabelle) dyn.clipTempo = { tabelle: clipTabelle, ist: 0, rate: 1 };
       if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);
@@ -3416,8 +3508,9 @@ export class EntityManager {
       this.dynamicCount++;
     } else if (wunschAnim && wunschAnim !== dyn.anim) {
       dyn.anim = wunschAnim;
-      this.assets.wechsleAnimation(dyn.root, wunschAnim);
+      if (!dyn.stirbt) this.spieleZustand(dyn, wunschAnim);
     }
+    this.pruefeEinmal(dyn, u.animEinmal);
     // Trefferpunkte → Prozent. Hier und nicht im Namensschild, weil an
     // dieser Stelle Wert und Prefabname ohnehin beide vorliegen.
     if (u.health !== undefined) dyn.leben = lebenAnteil(prefabName, u.health);

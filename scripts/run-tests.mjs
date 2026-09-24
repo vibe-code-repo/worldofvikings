@@ -2186,6 +2186,9 @@ const KERN = [
   // zugleich, Sterbende nicht wieder treffbar, hit-Ereignis, Wolf ohne die sofort weg,
   // Instanzwelt mit gleicher ZDO-Id trifft die Hauptwelt nicht. Ephemerer Port. ~25 s.
   ['server', 'test/b9-4-tod-paketweg.ts'],
+  // Wiedereinstieg nach Neustart mit Layout-Abgleich: das Bett wandert mit dem Gelände (der
+  // Punkt zieht mit), ein versetztes oder gelöschtes Bett wird gemeldet. Echte Clients.
+  ['server', 'test/wiedereinstieg-bett-wandert.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

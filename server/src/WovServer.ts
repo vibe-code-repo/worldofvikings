@@ -3680,12 +3680,18 @@ export class WovServer {
         peer.stamina = AUSDAUER_REGEL.max;
         // EIN Teleport: aus einer Instanz geht es direkt an den Wiedereinstiegs-
         // punkt der Oberwelt, nicht erst an den Eingang und dann weiter.
+        const hatteBett = peer.spawnPoint !== null;
         const wieder = this.wiedereinstiegspunkt(peer);
+        // Ein gesetzter Punkt, der nicht mehr zu einem Bett fuehrt (abgerissen,
+        // verschoben, Altbestand), wird verworfen UND gemeldet: still am
+        // Weltspawn zu erwachen liesse den Spieler glauben, sein Schlafplatz
+        // gelte noch.
+        const bettVerloren = hatteBett && peer.spawnPoint === null;
         if (peer.dungeonId) this.leaveDungeon(peer, { ...wieder });
         else this.teleportPeer(peer, { ...wieder }, null);
         peer.sendPacketWith(PacketType.InteractResult, (w) => {
           w.writeBool(true);
-          w.writeString('Du bist gestorben');
+          w.writeString(bettVerloren ? 'Du bist gestorben — dein Schlafplatz ist nicht mehr da' : 'Du bist gestorben');
           w.writeString('');
           w.writeInt32(0);
         });
@@ -4407,19 +4413,29 @@ export class WovServer {
    */
   private wiedereinstiegspunkt(peer: Peer): Vector3 {
     const punkt = peer.spawnPoint;
-    if (!punkt || isInDungeonBand(punkt.x)) return this.weltSpawn();
-    // Der Punkt liegt 0,6 m ueber dem Bett (handleInteract, BED-Zweig).
+    if (!punkt) return this.weltSpawn();
+    if (isInDungeonBand(punkt.x)) {
+      peer.spawnPoint = null;
+      return this.weltSpawn();
+    }
+    // Der Punkt liegt 0,6 m ueber dem Bett (handleInteract, BED-Zweig). Ein
+    // Bett aus dem Layout zieht beim Start mit dem Gelaende mit (Abgleich,
+    // nur die Hoehe): x und z sind dann gleich, y nicht. Der Punkt zieht mit
+    // und wird neu gesetzt; Ziel ist immer die heutige Bettposition. Eine
+    // seitlich versetzte oder abgerissene Stelle hat kein Bett mehr.
+    let bett: ZDO | null = null;
     for (const zdo of this.zdos.getZDOsInRadius(punkt, 2)) {
       if (((this.prefabs.getByHash(zdo.prefabHash)?.flags ?? 0n) & PrefabFlag.BED) === 0n) continue;
-      if (
-        Math.abs(zdo.position.x - punkt.x) < 0.05 &&
-        Math.abs(zdo.position.z - punkt.z) < 0.05 &&
-        Math.abs(zdo.position.y + 0.6 - punkt.y) < 0.05
-      ) {
-        return punkt;
-      }
+      if (Math.abs(zdo.position.x - punkt.x) >= 0.05 || Math.abs(zdo.position.z - punkt.z) >= 0.05) continue;
+      if (!bett || Math.abs(zdo.position.y + 0.6 - punkt.y) < Math.abs(bett.position.y + 0.6 - punkt.y)) bett = zdo;
     }
-    return this.weltSpawn();
+    if (!bett) {
+      peer.spawnPoint = null;
+      return this.weltSpawn();
+    }
+    const ziel = { x: bett.position.x, y: bett.position.y + 0.6, z: bett.position.z };
+    peer.spawnPoint = { ...ziel };
+    return ziel;
   }
 
   /**

@@ -65,12 +65,24 @@ function acceptorVon(s: { net: unknown }): { isListening: boolean } {
   return (s.net as { acceptor: { isListening: boolean } }).acceptor;
 }
 
+/** Count the server's ticks by wrapping the private update(); a leftover timer shows up as ticks. */
+function tickZaehler(s: unknown): { n: number } {
+  const roh = s as { update(): void };
+  const zaehler = { n: 0 };
+  const orig = roh.update.bind(s);
+  roh.update = () => { zaehler.n++; orig(); };
+  return zaehler;
+}
+
+const warte = (ms: number): Promise<void> => new Promise((ok) => setTimeout(ok, ms));
+
 async function main(): Promise<void> {
   // 1. Occupy a port ourselves (OS-picked), then ask the server for exactly it.
   const fremd = createServer();
   await new Promise<void>((ok) => fremd.listen(0, ok));
   const belegt = (fremd.address() as { port: number }).port;
   let server = createWovServer({ port: belegt, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'listen-bindefehler' });
+  let takt = tickZaehler(server);
   try {
     const l = await mitLog(() => mitFrist(server.start(), 'start() on an occupied port'));
     const fehlerCode = (l.fehler as NodeJS.ErrnoException | undefined)?.code;
@@ -83,6 +95,9 @@ async function main(): Promise<void> {
     pruefe(!acceptorVon(server).isListening, 'acceptor was closed after the failed bind');
     pruefe(zustand(server).running === false && zustand(server).updateTimer === null && zustand(server).saveTimer === null,
       'a failed start() leaves no running flag and no timers behind');
+    takt.n = 0;
+    await warte(300);
+    pruefe(takt.n === 0, `no tick runs after the failed start (30/s would give ~9, got ${takt.n})`);
   } finally {
     server.stop();
     await new Promise<void>((ok) => fremd.close(() => ok()));
@@ -90,6 +105,7 @@ async function main(): Promise<void> {
 
   // 1b. An invalid port makes listen() throw synchronously (ERR_SOCKET_BAD_PORT).
   server = createWovServer({ port: 70000, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'listen-bindefehler' });
+  takt = tickZaehler(server);
   try {
     const l = await mitLog(() => mitFrist(server.start(), 'start() on port 70000'));
     const code = (l.fehler as NodeJS.ErrnoException | undefined)?.code;
@@ -99,6 +115,9 @@ async function main(): Promise<void> {
     pruefe(!acceptorVon(server).isListening, 'acceptor was closed after the synchronous failure');
     pruefe(zustand(server).running === false && zustand(server).updateTimer === null && zustand(server).saveTimer === null,
       'no running flag and no timers after the synchronous failure');
+    takt.n = 0;
+    await warte(300);
+    pruefe(takt.n === 0, `no tick runs after the synchronous failure (got ${takt.n})`);
   } finally {
     server.stop();
   }
@@ -119,6 +138,19 @@ async function main(): Promise<void> {
     server.stop();
     rmSync(WORLDS_DIR, { recursive: true, force: true });
   }
+  // 3. start() twice without stop() must not stack timers: after stop() no tick may remain.
+  server = createWovServer({ port: 0, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'listen-bindefehler' });
+  takt = tickZaehler(server);
+  try {
+    await mitFrist(server.start(), 'first start()');
+    await mitFrist(server.start(), 'second start()');
+  } finally {
+    server.stop();
+  }
+  takt.n = 0;
+  await warte(300);
+  pruefe(takt.n === 0, `no orphaned tick after start(), start(), stop() (got ${takt.n})`);
+  rmSync(WORLDS_DIR, { recursive: true, force: true });
   console.log('PASS: bind failures are logged and reach the caller; Listening only after bind');
 }
 

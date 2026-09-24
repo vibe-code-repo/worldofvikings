@@ -60,10 +60,9 @@ export const HEALTH_MEMBER = 'health';
  * shared/items/Container.ts (packContainer/unpackContainer) — dieselbe
  * Begründung wie bei HEALTH_MEMBER: ein String-Member statt eines
  * eigenen Pakettyps läuft automatisch im vorhandenen ZDO-Sync mit, landet
- * im Save und erreicht jeden Peer im Sichtradius, der die Truhe ohnehin
- * schon sieht (WovServer.SICHT_RADIUS_ZONEN) — nicht das ganze
- * Weltinventar an alle, sondern exakt die Truhen, die ein Peer sowieso
- * schon in Reichweite hat.
+ * im Save. Zum Peer reist er NICHT mit, ausser der darf die Truhe
+ * benutzen (WovServer.writeZDO/darfBenutzen): Der Client liest das Member
+ * nicht aus dem Sync, den Inhalt bekommt er beim Oeffnen per ContainerSync.
  */
 export const TRUHE_INHALT_MEMBER = 'truheInhalt';
 

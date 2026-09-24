@@ -22,12 +22,16 @@
  *
  * A second scan covers what the first cannot see: files under `tools/` and `scripts/`
  * that are NOT test files. One whose code (comments cut off) names a slot port
- * (247n game server, 248n admin service, 529n client, see AGENTS.md 3) AND starts a
+ * (247n game server, 248n admin service, 529n client for slots 0-8; 2709-2713, 2809-2813,
+ * 5809-5813 for slots 9-13; see AGENTS.md 3) AND starts a
  * server (`--port`, `createWovServer`, `.listen(`, `WOV_(CLIENT|SPIEL|ADMIN)_PORT:`)
  * must be on WERKZEUGE with a reason. That makes the tool list binding instead of
  * merely claimed: an unnamed tool is a finding, exactly the class the attack found
  * (three tools nobody had looked at). Tools that only READ a slot port as a URL
- * default (`--url http://localhost:5292`) are clients and are not caught. Not seen:
+ * default (`--url http://localhost:5292`) are clients and are not caught. Known noise: a number of the slot bands
+ * that is no port (`const MAX_BYTES = 5811`) next to a `listen(` in the same tool is reported;
+ * rename it or name the tool on WERKZEUGE (judging the line for a port context would miss
+ * `const P = 5299`). Not seen:
  * computed ports, a port only inside a URL, binds in files outside `tools/` and
  * `scripts/` that are not test files.
  *
@@ -92,8 +96,12 @@ const ZEUGENNAME = /^pruefe-/i;
 /** This file is a `pruefe-*` file and so a test file by definition, but its lists and its self-proof hold port numbers as data. */
 const EIGENE_DATEI = 'scripts/pruefe-feste-ports.mjs';
 const WERKZEUG_WURZELN = ['tools', 'scripts'];
-/** 247n game server, 248n admin service, 529n client; not part of a decimal number (`0.2489`, `-5292.9`). */
-const SLOTPORT = /(?<![\d.])(?:247\d|248\d|529\d)(?![\d.])/;
+/**
+ * Slots 0-8: 247n game server, 248n admin service, 529n client. Slots 9-13 (247n stops at 2479 and
+ * 5299 is fixed in tools/dungeon2-*): 2700+n, 2800+n, 5800+n = 2709-2713, 2809-2813, 5809-5813.
+ * Not part of a decimal number (`0.2489`, `-5292.9`).
+ */
+const SLOTPORT = /(?<![\d.])(?:247\d|248\d|529\d|270[9]|271[0-3]|2809|281[0-3]|5809|581[0-3])(?![\d.])/;
 const STARTET_SERVER = /--port\b|createWovServer|\.listen\s*\(|WOV_(?:CLIENT|SPIEL|ADMIN)_PORT\s*:/;
 const UEBERSPRINGEN = new Set(['node_modules', '.git', 'assets', 'dist', 'build', '.svelte-kit']);
 
@@ -172,7 +180,7 @@ export function pruefe(wurzel, { ausnahmen = AUSNAHMEN, werkzeuge = WERKZEUGE, f
         .filter((zeile) => !/^\s*(\*|\/\*|\/\/)/.test(zeile))
         .map((zeile) => zeile.replace(/(^|\s)\/\/.*$/, '$1'));
       if (!namen.has(datei.rel) && code.some((z) => SLOTPORT.test(z)) && code.some((z) => STARTET_SERVER.test(z))) {
-        funde.push(`${datei.rel}: starts a server on a slot port (247n/248n/529n) and is not on WERKZEUGE - take a free port or name it there with a reason`);
+        funde.push(`${datei.rel}: starts a server on a slot port (247n/248n/529n, slots 9-13: 2709-2713/2809-2813/5809-5813) and is not on WERKZEUGE - take a free port or name it there with a reason`);
       }
       continue;
     }
@@ -247,6 +255,12 @@ function selbstprobe() {
     erwarte('a tool that only reads a slot port as a URL is no finding', pruefe(wurzel, ohneTools).filter((f) => f.startsWith('tools/nur-client')), 'sauber');
     erwarte('a slot number inside a decimal is no finding', pruefe(wurzel, ohneTools).filter((f) => f.startsWith('tools/dezimal')), 'sauber');
     erwarte('the same tool, named on WERKZEUGE, passes', pruefe(wurzel, { ...ohneTools, werkzeuge: [{ pfad: 'tools/bindet.mjs', text: 'CLIENT_PORT = 5299', grund: 'probe' }] }).filter((f) => f.startsWith('tools/bindet')), 'sauber');
+    schreibe('tools/neuer-slot.mjs', "const CLIENT_PORT = 5811;\nspawn('vite', ['--port', String(CLIENT_PORT)]);\n");
+    schreibe('tools/neuer-slot2.mjs', "createWovServer({ port: 2711 });\n");
+    schreibe('tools/nachbar.mjs', "const a = 5808, b = 5814, c = 2708, d = 2714, e = 2808, f = 2814; spawn('vite', ['--port', String(a)]);\n");
+    erwarte('an unnamed tool on a slot 9-13 client port is a finding', pruefe(wurzel, ohneTools), 'tools/neuer-slot.mjs: starts a server on a slot port');
+    erwarte('an unnamed tool on a slot 9-13 game port is a finding', pruefe(wurzel, ohneTools), 'tools/neuer-slot2.mjs: starts a server on a slot port');
+    erwarte('the ports next to the slot 9-13 bands are no finding', pruefe(wurzel, ohneTools).filter((f) => f.startsWith('tools/nachbar')), 'sauber');
     rmSync(join(wurzel, 'tools'), { recursive: true });
     schreibe('tool.mjs', 'const P = 5299;\n');
     erwarte('a tool entry with its text passes', pruefe(wurzel, { ...ohneAusnahmen, ausnahmen: [], werkzeuge: [{ pfad: 'tool.mjs', text: 'const P = 5299', grund: 'probe' }], }).filter((f) => f.startsWith('stale tool')), 'sauber');

@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const armor = join(root, 'tools/armor');
-const SETS = ['seidraven', 'emberrage', 'gravethorn', 'plainhide'];
+const SETS = ['seidraven', 'emberrage', 'gravethorn', 'plainhide', 'crowshade'];
 
 function python(code, ...argv) {
   const child = spawnSync('python3', ['-c', code, ...argv], { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });

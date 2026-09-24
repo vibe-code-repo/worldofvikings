@@ -833,6 +833,10 @@ async function main(): Promise<void> {
 
     console.log(failures === 0 ? '\n=== B8 Angreifbar: ALL PASSED ===' : `\n=== B8 Angreifbar: ${failures} FAILURES ===`);
     ws.close();
+  } catch (err) {
+    // Without this the finally below exits 0 on an abort: nothing was checked, yet the run looked green.
+    console.error('FAIL:', err);
+    failures++;
   } finally {
     server.stop();
     rmSync(WORLDS_DIR, { recursive: true, force: true });

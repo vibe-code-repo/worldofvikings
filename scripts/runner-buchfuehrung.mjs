@@ -16,6 +16,7 @@
  *                                 Argumenten, nicht die Schleifenvariable)
  *   ueberspringe(buch, …)         bucht einen durch eine Weiche übersprungenen Eintrag
  *   auslassen(buch, …, grund)     bucht einen absichtlich ausgelassenen Eintrag (Filter)
+ *   leereUndBeende(prozess, code) lässt stdout/stderr leerlaufen und ruft dann erst `exit` (auch für Signalwege)
  *   beende(buch, optionen)        liest die Soll-Liste aus dem LITERAL von KERN im Quelltext
  *                                 (nicht aus der lebenden Variablen), vergleicht, druckt die
  *                                 Schlusszeile aus den GEBUCHTEN Zahlen und beendet den Prozess
@@ -220,6 +221,48 @@ export async function beende(
       code = 0;
     }
   }
-  buch.prozess.exitCode = code;
-  buch.prozess.exit(code);
+  await leereUndBeende(buch.prozess, code);
+}
+
+/**
+ * Ends the process with `code` only after stdout and stderr have taken everything written so far.
+ * `process.exit` with a full pipe (`| tee`, CI) drops the queued rest of the report (measured: it
+ * cut off at 65 536 bytes), and the summary stands at the end. An empty write completes after the
+ * writes before it. A gone reader (EPIPE) ends the wait at once; a stuck one ends it after `frist`
+ * ms without progress. A slow reader that keeps taking data is waited for: `frist` restarts each
+ * time the queued bytes shrink. The exit code is the same either way, and a later call (a signal
+ * during the wait) may replace it: the last `exitCode` set wins. A fake process without streams
+ * (tests) is ended at once.
+ */
+export async function leereUndBeende(prozess, code, frist = 10_000) {
+  prozess.exitCode = code;
+  const strome = [prozess.stdout, prozess.stderr].filter((s) => s && typeof s.write === 'function');
+  const offen = () => strome.reduce((n, s) => n + (s.writableLength ?? 0) + (s._handle?.writeQueueSize ?? 0), 0);
+  let wache;
+  try {
+    await Promise.race([
+      Promise.all(
+        strome.map(
+          (s) =>
+            new Promise((fertig) => {
+              s.once('error', fertig); // a closed pipe (EPIPE) must not turn the exit code into a crash
+              s.write('', fertig);
+            }),
+        ),
+      ),
+      new Promise((fertig) => {
+        let stand = offen();
+        let seit = Date.now();
+        wache = setInterval(() => {
+          const jetzt = offen();
+          if (jetzt < stand) seit = Date.now(); // the reader takes data: not stuck, keep waiting
+          stand = jetzt;
+          if (Date.now() - seit >= frist) fertig();
+        }, Math.max(1, Math.min(250, frist / 4)));
+      }),
+    ]);
+  } finally {
+    clearInterval(wache);
+  }
+  prozess.exit(prozess.exitCode);
 }

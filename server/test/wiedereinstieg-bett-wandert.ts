@@ -200,7 +200,9 @@ async function main(): Promise<void> {
     }
     check('Bett und Weltspawn sind verschiedene Orte (sonst beweist nichts etwas)', namen.every((n) => !gleich(setzen[n]!, weltSpawn)), pos(weltSpawn));
 
-    for (const n of namen) kn[n]!.ws.close();
+    // Anna bleibt verbunden: ihr Stand kommt dann aus dem Speichern beim Stopp (saveWorld),
+    // die anderen aus dem Trennen — beide Wege muessen die Kennung des Bettes tragen.
+    for (const n of namen) if (n !== 'Anna') kn[n]!.ws.close();
     await warte(400);
     server.stop();
     await warte(500);

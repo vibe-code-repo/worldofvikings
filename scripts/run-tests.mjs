@@ -2170,6 +2170,8 @@ const KERN = [
   ['shared', 'test/weltbau-stil.ts'],
   ['shared', 'test/weltbau-nachbesserung.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
+  // U1-N5: glb streng lesen (Kopf/Chunks), extensionsRequired ⊆ Used, Registry fail closed
+  ['server', 'test/modell-upload-streng.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

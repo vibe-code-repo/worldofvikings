@@ -134,15 +134,16 @@ export function leseRegistry(verzeichnis: string): RegistryDatei {
   const pfad = join(verzeichnis, REGISTRY_DATEI);
   if (!existsSync(pfad)) return leereRegistry();
   const text = readFileSync(pfad, 'utf8');
-  JSON.parse(text); // wirft bei kaputtem JSON — auf dem Server ein Vorfall, kein „dann eben leer".
-  const stand = leseRegistryAusText(text);
-  // U1-N4: Ein Eintrag, der kein Objekt ist (`null`, Zahl, Text, Liste), ist
-  // Handarbeit an der Datei — verwerfen, mit Log, statt später zu werfen.
-  const heil = stand.modelle.filter((m) => typeof m === 'object' && m !== null && !Array.isArray(m));
-  if (heil.length !== stand.modelle.length) {
-    console.warn(`[ModellUpload] ${stand.modelle.length - heil.length} Eintrag/Einträge in ${REGISTRY_DATEI} sind keine Objekte und wurden verworfen.`);
-    return { ...stand, modelle: heil };
+  const roh: unknown = JSON.parse(text); // wirft bei kaputtem JSON — auf dem Server ein Vorfall, kein „dann eben leer".
+  // U1-N5: Vorhanden, aber ohne gültige `modelle`-Liste (`{"version":1}`, `null`,
+  // `[]`, `{"modelle":{}}`) ist ebenfalls ein Vorfall: `leseRegistryAusText` läse
+  // sie nachsichtig als leer, und jede Datei im Ordner gälte dann als Waise und
+  // würde überschrieben. Fail closed — nicht lesbar, Upload und Entfernen lehnen ab.
+  if (typeof roh !== 'object' || roh === null || Array.isArray(roh) || !Array.isArray((roh as { modelle?: unknown }).modelle)) {
+    throw new Error(`${REGISTRY_DATEI} enthält keine gültige 'modelle'-Liste`);
   }
+  // Einträge, die keine Objekte sind, verwirft `leseRegistryAusText` selbst.
+  const stand = leseRegistryAusText(text);
   return stand;
 }
 
@@ -233,7 +234,37 @@ function pruefeErweiterungen(json: object): string | null {
       return `Das Modell ${feld === 'extensionsRequired' ? 'verlangt' : 'benutzt'} glTF-Erweiterungen, die nicht freigegeben sind: ${unbekannt.join(', ')}. Erlaubt sind nur reine Material-/Textur-Erweiterungen (${Object.keys(ERLAUBTE_GLTF_ERWEITERUNGEN).join(', ')}).`;
     }
   }
+  // glTF 2.0: Was verlangt wird, muss auch als benutzt aufgeführt sein. Babylon
+  // schaltet nur Erweiterungen aus `extensionsUsed` ein und bricht sonst das
+  // Laden ab — im Spiel bliebe eine unsichtbare (feste) Wand.
+  const benutzt = roh.extensionsUsed as string[] | undefined;
+  const verlangt = (roh.extensionsRequired as string[] | undefined) ?? [];
+  const fehlend = verlangt.filter((e) => !(benutzt ?? []).includes(e));
+  if (fehlend.length > 0) {
+    return `'extensionsRequired' nennt Erweiterungen, die nicht in 'extensionsUsed' stehen: ${fehlend.join(', ')} — die Datei ist so nicht ladbar.`;
+  }
+  // `1e999` wird nach `JSON.parse` zu Infinity; in Erweiterungswerten (Leuchtstärke,
+  // UV-Transformation …) zeichnete das ein unendliches Material.
+  if (enthaeltNichtEndlicheZahl(json)) {
+    return 'Die Datei enthält nicht-endliche Zahlen (Infinity/NaN, etwa 1e999) — so nicht ladbar.';
+  }
   return null;
+}
+
+/** Sucht in einem geparsten JSON-Baum (ohne Rekursion, tiefe Verschachtelung ist Eingabe) nach Infinity/NaN. */
+function enthaeltNichtEndlicheZahl(wurzel: unknown): boolean {
+  const stapel: unknown[] = [wurzel];
+  while (stapel.length > 0) {
+    const w = stapel.pop();
+    if (typeof w === 'number') {
+      if (!Number.isFinite(w)) return true;
+    } else if (Array.isArray(w)) {
+      for (const x of w) stapel.push(x);
+    } else if (typeof w === 'object' && w !== null) {
+      for (const x of Object.values(w)) stapel.push(x);
+    }
+  }
+  return false;
 }
 
 // ── Hochladen ─────────────────────────────────────────────────────────
@@ -609,7 +640,10 @@ export function entferneUpload(kontext: EntfernenKontext, name: string, bestaeti
   // U1-N3: Wohin die Datei geschoben wurde, damit ein gescheitertes
   // Schreiben der Registry sie zurückholen kann (kein Eintrag ohne Datei).
   let beiseiteZiel: string | null = null;
-  if (existsSync(pfad)) {
+  // U1-N5: Fehlt die Datei schon (Halbzustand eines früheren Aufrufs, Eintrag steht),
+  // ist auch ein weiteres Scheitern am Registry-Schreiben „nur teilweise entfernt“.
+  const dateiSchonWeg = !existsSync(pfad);
+  if (!dateiSchonWeg) {
     const beiseiteOrdner = join(kontext.verzeichnis, 'entfernt');
     try {
       mkdirSync(beiseiteOrdner, { recursive: true });
@@ -649,6 +683,13 @@ export function entferneUpload(kontext: EntfernenKontext, name: string, bestaeti
             'Die Registry konnte nicht geschrieben werden und die Datei nicht zurückgelegt: Das Modell ist nur teilweise entfernt (Datei beiseitegelegt, Registry-Eintrag noch vorhanden). Bitte erneut entfernen, das räumt auf (Einzelheiten im Server-Log).',
         };
       }
+    }
+    if (dateiSchonWeg) {
+      return {
+        ok: false,
+        meldung:
+          'Die Registry konnte nicht geschrieben werden: Das Modell ist nur teilweise entfernt (Datei schon beiseitegelegt, Registry-Eintrag noch vorhanden). Bitte erneut entfernen, das räumt auf (Einzelheiten im Server-Log).',
+      };
     }
     return {
       ok: false,

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { FUSSNAV } from './seiten';
+  import { FUSSNAV, RECHTSNAV } from './seiten';
   import { LOCALES, LOCALE_NAME, localeFrom, localizedPath, messages, stripLocale } from './i18n';
 
   const lang = $derived(localeFrom(page.params.lang));
@@ -18,10 +18,9 @@
    * Rüstkammer, Wiki und Thing verschwunden, denn unterhalb von 880 px gibt
    * es keine Kopfleiste und die Mobilleiste hat nur vier Plätze.
    *
-   * Deshalb steht in der Mittelgruppe nicht die Rechtsreihe des Entwurfs
-   * (Impressum / Datenschutz / Nutzungsbedingungen — für die es hier weder
-   * Route noch Text gibt), sondern genau das, was die Mobilleiste auslässt.
-   * Die Form ist die des Entwurfs, der Inhalt ist der, den diese Seite hat.
+   * Deshalb steht in der Mittelgruppe genau das, was die Mobilleiste
+   * auslässt. Impressum und Datenschutz haben seit W1 eine eigene Zeile
+   * darunter (`footer-legal`); Nutzungsbedingungen gibt es weiterhin nicht.
    */
   const p = $derived.by(() => (pfad: string) => localizedPath(lang, pfad));
 
@@ -85,6 +84,18 @@
       <a href={p(s.pfad)}>{t[s.titel]}</a>
     {/each}
   </div>
+
+  <!--
+    Impressum und Datenschutz: eine eigene Zeile über die volle Breite, auf
+    jeder Seite und auch auf dem Handy — die Kopfleiste fehlt dort, der Fuß
+    ist der einzige Weg. Kein <nav>, aus demselben Grund wie oben.
+  -->
+  <p class="footer-legal">
+    {#each RECHTSNAV as s, i (s.pfad)}
+      {#if i > 0}<span aria-hidden="true">·</span>{/if}
+      <a href={p(s.pfad)}>{t[s.titel]}</a>
+    {/each}
+  </p>
 
   <div class="footer-group">
     <!--
@@ -182,6 +193,28 @@
     color: var(--text-matt);
   }
   .footer-pages a:hover {
+    color: var(--primaer);
+    text-decoration: none;
+  }
+
+  .footer-legal {
+    order: 1;
+    flex: 1 0 100%;
+    display: flex;
+    justify-content: center;
+    gap: 0.6rem;
+    margin: 0;
+    font-family: var(--schrift);
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: var(--umriss);
+  }
+  .footer-legal a {
+    color: var(--text-matt);
+  }
+  .footer-legal a:hover {
     color: var(--primaer);
     text-decoration: none;
   }

@@ -134,6 +134,8 @@ export const SLUGS = {
   '/registrieren': { de: 'registrieren', en: 'register' },
   '/konto': { de: 'konto', en: 'account' },
   '/erstellen': { de: 'erstellen', en: 'create' },
+  '/impressum': { de: 'impressum', en: 'legal-notice' },
+  '/datenschutz': { de: 'datenschutz', en: 'privacy' },
 } as const satisfies Record<KanonischerPfad, Record<Locale, string>>;
 
 /** The same table, but indexable with a plain `string`. */

@@ -146,3 +146,15 @@ export const FAHRT_STAND = '20260913-augenfarben-wildwarden-v3';
 
 /** Alle Adressen (ohne Sprachpräfix), die in die Sitemap gehören. */
 export const SITEMAP = HAUPTNAV.filter((s) => s.indexieren).map((s) => s.pfad);
+
+/**
+ * Impressum und Datenschutzerklärung.
+ *
+ * Bewusst KEIN Teil von HAUPTNAV: Sie gehören weder in die Kopfleiste noch
+ * in die Mobilleiste noch in die Sitemap. Der Fuß zeigt sie in einer eigenen,
+ * unauffälligen Zeile auf jeder Seite (Fuss.svelte).
+ */
+export const RECHTSNAV: Seite[] = [
+  { pfad: '/impressum', titel: 'legal.nav.imprint' },
+  { pfad: '/datenschutz', titel: 'legal.nav.privacy' },
+];

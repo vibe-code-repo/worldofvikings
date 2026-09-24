@@ -33,7 +33,7 @@ import {
   getRoomByHash,
   getStableHash,
   formUebersteuerung,
-  istFesterKoerper,
+  istFesterKoerperImSpiel,
   kollisionsForm,
   kollisionsModellPfad,
   storeKollision,
@@ -172,11 +172,9 @@ export class KollisionsFormen implements FormQuelle {
 
   /** Die Menge „fest" — dieselbe Regel wie im Client, aus `shared`. */
   private istFest(prefabName: string, def: PrefabDef | undefined): boolean {
-    const hochgeladen = uploadedModelEntry(prefabName);
-    return istFesterKoerper(def, prefabName, {
+    return istFesterKoerperImSpiel(def, prefabName, {
       dungeonRaum: istDungeonRaum(prefabName),
       begehbar: BEGEHBAR_NAME.test(prefabName),
-      hochgeladenFest: hochgeladen ? hochgeladen.kollisionsart === 'fest' : undefined,
     });
   }
 

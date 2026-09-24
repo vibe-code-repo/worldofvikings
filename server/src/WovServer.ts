@@ -1370,19 +1370,50 @@ export class WovServer {
     console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
   }
 
-  stop(): void {
+  /**
+   * Stoppt den Server und schreibt den Endstand. Liefert `true`, wenn der
+   * Endstand auf der Platte liegt, `false`, wenn das Speichern gescheitert
+   * ist. Wirft nie: Ein Stopp, der an seinem eigenen Speichern haengen
+   * bleibt, laesst den Prozess leben und den Port offen (Befund K4.0,
+   * 20.09.2026) -- dann killt systemd nach TimeoutStopSec ohne Speichern.
+   */
+  stop(): boolean {
     this.running = false;
 
     if (this.updateTimer) clearInterval(this.updateTimer);
     if (this.saveTimer) clearInterval(this.saveTimer);
 
+    // Netz zuerst zu, aber nur die ANNAHME: Die verbundenen Peers muessen
+    // fuer den Save noch in der Liste stehen (momentaufnahme() liest ihre
+    // Positionen, Inventare, Rüstung). Sie fliegen erst danach raus.
+    this.net.schliesseAnnahme();
+
     // Beim Herunterfahren bewusst SYNCHRON: `stop()` läuft im Signal-Handler,
     // und ein Prozess, der gleich beendet wird, arbeitet keine Promises mehr
     // ab — ein asynchroner Save käme nie bis zum `rename`.
-    this.saveWorld();
-    this.net.stop();
+    let gespeichert = true;
+    try {
+      this.saveWorld();
+    } catch (err) {
+      gespeichert = false;
+      // Feste Kennung, damit ein Betriebsdienst oder das Ausrollskript die
+      // Zeile im Journal findet (tools/wov-update.sh sucht danach).
+      console.error(
+        `[WoV] SAVE_FAILED_ON_STOP: Endstand NICHT gespeichert, Stand der letzten Sicherung bleibt: ${
+          err instanceof Error ? (err.stack ?? err.message) : String(err)
+        }`
+      );
+      strukturLog('world_save_failed_on_stop', { fehler: String(err) });
+    }
 
-    console.log('[WoV] Server stopped');
+    try {
+      this.net.stop();
+    } catch (err) {
+      console.error(`[WoV] net.stop fehlgeschlagen: ${err}`);
+    }
+
+    console.log(`[WoV] Server stopped${gespeichert ? '' : ' (OHNE Endstand)'}`);
+    return gespeichert;
   }
 
   // ── Main update loop (update()) ────────────────────────────────

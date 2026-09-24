@@ -28,7 +28,7 @@
  * with the id in the file a placement pushed across the rounding edge of a metre
  * (140.4 -> 140.5) keeps its ZDO and its state; in a document WITHOUT ids the
  * derived id changes there, the old ZDO is orphaned and a new one spawns. World 6: the real world document
- * (a copy of server/data/welten/dev.json) boots twice and moves no revision.
+ * (a frozen copy of the world document, see fixtures/layout-abgleich-dev-157.json) boots twice and moves no revision.
  *
  * World 7: `placements` of the wrong type (null, object, text, number) in the
  * raw document removes NOTHING and warns; only a missing field or an empty array
@@ -42,7 +42,7 @@
  * dropped, or a placement names a prefab the registry does not know, this boot
  * deletes NOTHING (one rule for both) -- it still updates, stamps, spawns and
  * frees player pieces; the next clean document then clears as usual (worlds 10,
- * 11, and the dev.json copy in world 6). World 12: when no ZDO of an id fits the
+ * 11, and the frozen world copy in world 6). World 12: when no ZDO of an id fits the
  * prefab, the new one is spawned and the stale ones go in the SAME boot. World 13:
  * among duplicates at the same distance the ZDO with more state stays (a full chest
  * beats an empty one), in either save order, and every destroyed one is logged.
@@ -55,12 +55,12 @@
  * hand-placed piece of vegetation keeps the ground offset the load-time
  * re-seating uses (no flipping between ground and ground + offset). Only the
  * twelve environment-sm-env-* prefabs have an offset != 0; no vegetation
- * placement of dev.json is one of them, so (h) is a guard for the future.
+ * placement of the world document is one of them, so (h) is a guard for the future.
  *
  * Round 4: an UNKNOWN prefab (typo in the free-text field of the editor) no longer
  * freezes the clean-up of the whole world: only ZDOs that could belong to it (same
  * id, or within 1 m of it) are spared, everything else is cleared as usual
- * (world 6b: dev.json copy with a typo + 10 deleted placements; world 14: typo +
+ * (world 6b: frozen world copy with a typo + 10 deleted placements; world 14: typo +
  * a 0.6 m shift). Entries the sanitizer DROPS still switch deletion off for the
  * boot, and the warning counts the objects left standing. Placements with one id
  * that are more than 1 cm apart are different objects and keep one ZDO each (world
@@ -513,8 +513,10 @@ check('(A3) the id in the file, 140.4 -> 140.5: the SAME ZDO with its state, mov
 check('(A3) ... 0 spawned, 1 updated, 0 removed', boot5d.zeilen.some((z) => /Layout-Abgleich:/.test(z) && /\b0 gespawnt, 1 aktualisiert, 0 unverändert, 0 entfernt/.test(z)), boot5d.zeilen.join(' | '));
 
 // ── World 6: the real world document ────────────────────────────────
-console.log('\n[12] World 6: a copy of server/data/welten/dev.json boots twice and moves nothing');
-const devDoc = JSON.parse(readFileSync(resolve(HIER, '../data/welten/dev.json'), 'utf8')) as Record<string, unknown>;
+console.log('\n[12] World 6: a frozen copy of the world document boots twice and moves nothing');
+// Frozen snapshot (157 placements, state of de2914a), so the test does not depend on
+// what the editor currently stores in server/data/welten/dev.json.
+const devDoc = JSON.parse(readFileSync(resolve(HIER, 'fixtures/layout-abgleich-dev-157.json'), 'utf8')) as Record<string, unknown>;
 const boot6a = starte('welt6', devDoc);
 const dev1 = layoutRevisionen(boot6a.server);
 boot6a.server.saveWorld();
@@ -532,7 +534,7 @@ const kaputt = devPlacements.map((p, i) => (i === 0 ? p : { ...p, x: p.x.toFixed
 const boot6c = starte('welt6', { ...devDoc, placements: kaputt });
 console.log(`     log: ${boot6c.zeilen.join(' | ')}`);
 const dev3 = layoutRevisionen(boot6c.server);
-check(`(R3-1) dev.json copy with ${devPlacements.length - 1} of ${devPlacements.length} broken entries: 0 entfernt, all ${dev1.size} ZDOs stay`, dev3.size === dev1.size && boot6c.zeilen.some((z) => /\b0 entfernt/.test(z)), `${dev3.size} of ${dev1.size} ZDOs alive`);
+check(`(R3-1) frozen world copy with ${devPlacements.length - 1} of ${devPlacements.length} broken entries: 0 entfernt, all ${dev1.size} ZDOs stay`, dev3.size === dev1.size && boot6c.zeilen.some((z) => /\b0 entfernt/.test(z)), `${dev3.size} of ${dev1.size} ZDOs alive`);
 check(`(R3-1) ... with the loud line naming ${devPlacements.length - 1} dropped entries and the ${dev1.size - 1} objects left standing`, boot6c.zeilen.some((z) => new RegExp(`Layout-Abgleich ohne Löschen: ${devPlacements.length - 1} Einträge verworfen – ${dev1.size - 1} verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen`).test(z)), boot6c.zeilen.join(' | '));
 // The next clean document (the first 150 entries) clears the rest as usual.
 const dev150 = devPlacements.slice(0, 150);
@@ -812,8 +814,8 @@ for (const [welt, volleZuerst] of [['welt13a', false], ['welt13b', true]] as con
   );
 }
 
-// ── World 6b: dev.json copy with a typo prefab + 10 deleted placements ─
-console.log('\n[20] World 6b: a typo prefab in dev.json plus 10 deleted placements -- the 10 go, the ZDO at the typo stays');
+// ── World 6b: frozen world copy with a typo prefab + 10 deleted placements ─
+console.log('\n[20] World 6b: a typo prefab in the frozen world copy plus 10 deleted placements -- the 10 go, the ZDO at the typo stays');
 const boot6e = starte('welt6b', devDoc);
 const devB1 = layoutRevisionen(boot6e.server);
 boot6e.server.saveWorld();
@@ -826,7 +828,7 @@ const rest = devPlacements.filter((_, i) => !geloescht.includes(i));
 const mitTypo = rest.map((p) => (p === devPlacements[typoIndex] ? { ...p, prefab: `${p.prefab}x` } : p));
 const bleibenKennungen = new Set(mitTypo.map((p) => layoutKennung(p)));
 const erwartetWeg = new Set(geloescht.map((i) => layoutKennung(devPlacements[i]!)).filter((k) => !bleibenKennungen.has(k))).size;
-// dev.json carries explicit ids since K1.1, so the typo does not change the id of the placement.
+// The frozen copy carries explicit ids since K1.1, so the typo does not change the id of the placement.
 // (A copy without ids would derive the id from the typo -- `typoIdAbgeleitet`.)
 const typoIdAlt = (devPlacements[typoIndex] as { id?: string }).id ?? idVon(devPlacements[typoIndex]!);
 const typoIdAbgeleitet = idVon({ ...devPlacements[typoIndex]!, prefab: `${devPlacements[typoIndex]!.prefab}x` });
@@ -836,7 +838,7 @@ console.log(`     log: ${boot6f.zeilen.filter((z) => /Abgleich|Hinweis: Platzier
 const devB2 = layoutRevisionen(boot6f.server);
 const typoZdo = boot6f.server.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === typoIdAlt);
 check(
-  '(A1) dev.json copy, typo prefab + 10 deleted placements: the deleted ones are removed as usual',
+  '(A1) frozen world copy, typo prefab + 10 deleted placements: the deleted ones are removed as usual',
   devB1.size - devB2.size === erwartetWeg && erwartetWeg === 10 && boot6f.zeilen.some((z) => new RegExp(`\\b${erwartetWeg} entfernt`).test(z)) && !boot6f.zeilen.some((z) => /ohne Löschen/.test(z)),
   `${devB1.size} -> ${devB2.size} ZDOs, expected ${erwartetWeg} removed`
 );

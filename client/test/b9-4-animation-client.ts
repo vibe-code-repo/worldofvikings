@@ -1,7 +1,7 @@
 /**
  * B9.4 — the client side of the animation path that needs no scene.
  *
- *  [1] The diagnostic hooks (dynMasse, dynSprung, dynUebergang) leave the
+ *  [1] The diagnostic hooks (dynMasse, dynSprung) leave the
  *      animation as they found it: ten calls, exactly one group playing.
  *      The old hooks started the measured clip and never stopped it.
  *  [2] The one-shot member format (`<clip>#<n>`): parse, count up, refuse junk.
@@ -99,13 +99,6 @@ console.log('\n[1] Ten measurements in a row leave exactly one group playing');
   zurueck?.();
   check('during a measurement nothing plays (parked)', waehrend === 0, `${waehrend}`);
   check('measuring the playing clip: it plays again afterwards, nothing else does', g2[1]!.isPlaying && !g2[0]!.isPlaying);
-
-  // The transition probe measures two clips at once.
-  const g3 = [new Gruppe('attack'), new Gruppe('idle')];
-  g3[1]!.start(true);
-  const z3 = mod?.pausiereFuerMessung(g3, g3[0], [g3[1]!]);
-  z3?.();
-  check('two measured clips: only the one that played before plays afterwards', !g3[0]!.isPlaying && g3[1]!.isPlaying);
 }
 
 // ── [2] One-shot member format ───────────────────────────────────

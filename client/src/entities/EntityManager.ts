@@ -3291,62 +3291,6 @@ export class EntityManager {
     return null;
   }
 
-  /**
-   * Diagnostics: the jump where one clip hands over to another — the LAST
-   * frame of `von` against the FIRST frame of `nach` (root turned to the
-   * identity, deformed mesh). This is what the player sees when a one-shot
-   * (`attack`) ends and the state clip takes over. Largest and mean distance
-   * a vertex moves. Leaves the animation as it found it.
-   */
-  dynamicUebergang(
-    name: string,
-    von: string,
-    nach: string
-  ): { max: number; mittel: number; vertices: number } | null {
-    for (const d of this.dynamics.values()) {
-      if (!(d.root.name || '').includes(name)) continue;
-      const gruppen = this.assets.gruppenVon(d.root);
-      const gVon = gruppen.find((x) => x.name.toLowerCase().includes(von));
-      const gNach = gruppen.find((x) => x.name.toLowerCase().includes(nach));
-      if (!gVon || !gNach) return null;
-      const zurueck = pausiereFuerMessung(gruppen, gVon, [gNach]);
-      const rot = d.root.rotationQuaternion?.clone() ?? null;
-      d.root.rotationQuaternion = Quaternion.Identity();
-      const lies = (g: typeof gVon, bild: number): Float32Array[] => {
-        g.goToFrame(bild);
-        d.root.computeWorldMatrix(true);
-        for (const tn of d.root.getChildTransformNodes(false)) tn.computeWorldMatrix(true);
-        const aus: Float32Array[] = [];
-        for (const m of d.root.getChildMeshes()) {
-          if (m.getTotalVertices() === 0) continue;
-          m.skeleton?.prepare(true);
-          m.computeWorldMatrix(true);
-          const daten = m.getPositionData(true);
-          if (daten) aus.push(Float32Array.from(daten as ArrayLike<number>));
-        }
-        return aus;
-      };
-      const ende = lies(gVon, gVon.to);
-      const anfang = lies(gNach, gNach.from);
-      d.root.rotationQuaternion = rot;
-      zurueck();
-      let max = 0;
-      let summe = 0;
-      let n = 0;
-      ende.forEach((a, k) => {
-        const b = anfang[k]!;
-        for (let i = 0; i + 2 < a.length; i += 3) {
-          const dist = Math.hypot(a[i]! - b[i]!, a[i + 1]! - b[i + 1]!, a[i + 2]! - b[i + 2]!);
-          max = Math.max(max, dist);
-          summe += dist;
-          n++;
-        }
-      });
-      return { max, mittel: n ? summe / n : 0, vertices: n };
-    }
-    return null;
-  }
-
   updateDynamics(dt: number): void {
     const f = 1 - Math.exp(-dt / 0.09);
     for (const dyn of this.dynamics.values()) {

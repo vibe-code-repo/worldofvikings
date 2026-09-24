@@ -24,16 +24,15 @@ export interface SicherbareGruppe {
 }
 
 /**
- * Pause the playing groups and park every measured group on its first frame.
+ * Pause the playing groups and park the measured group on its first frame.
  * Returns the function that puts everything back: the groups that played, play
- * again; a measured clip plays only if it played before, else it is stopped.
+ * again; the measured clip plays only if it played before, else it is stopped.
  */
 export function pausiereFuerMessung(
   gruppen: readonly SicherbareGruppe[],
-  messGruppe: SicherbareGruppe | undefined,
-  weitere: readonly SicherbareGruppe[] = []
+  messGruppe: SicherbareGruppe | undefined
 ): () => void {
-  const gemessen = [...(messGruppe ? [messGruppe] : []), ...weitere];
+  const gemessen = messGruppe ? [messGruppe] : [];
   const spielte = gruppen.filter((x) => x.isPlaying);
   const warSchon = gemessen.filter((x) => spielte.includes(x));
   for (const x of spielte) x.pause();

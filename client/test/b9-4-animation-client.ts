@@ -364,6 +364,12 @@ console.log('\n[8] SchlagTakt and RoutenVorschau (editor test flight has no serv
   t.schritt(0, false, 0.1, 2);
   const nach = t.schritt(0, true, 0.1, 2);
   check('leaving and re-entering the band: the counter goes on (no repeat of attack#5) and the clock restarts', nach === 'attack#5', String(nach));
+  const t2 = new SchlagTakt();
+  for (let i = 0; i < 15; i++) t2.schritt(0, true, 0.1, 2); // 1.5 s in the band
+  t2.schritt(0, false, 0.1, 2); // out: the clock restarts
+  let aus: string | undefined;
+  for (let i = 0; i < 15; i++) aus = t2.schritt(0, true, 0.1, 2); // 1.5 s again, 3.0 s in total
+  check('1.5 s + out + 1.5 s is no blow (the clock restarts when the band is left)', aus === undefined, String(aus));
   check('another placement counts on its own', new SchlagTakt().schritt(1, true, 0.1, 2) === undefined);
 
   // The real RoutenVorschau with a stub for the draft in localStorage.
@@ -390,6 +396,20 @@ console.log('\n[8] SchlagTakt and RoutenVorschau (editor test flight has no serv
   console.log(`      10 s next to a FurlocKrieger: ${erste.filter((x) => x.anim === 'attack').length} frames of attack, events ${ereignisse.join(' ')}`);
   check('the preview stands in state attack next to the player', erste.some((x) => x.anim === 'attack'));
   check('...and writes one blow event per beat (attack#1 .. attack#4 or #5 in 10 s)', ereignisse.length >= 4 && ereignisse.every((v, k) => v === `attack#${k + 1}`), ereignisse.join(' '));
+  // The same for an NPC that walks a route (the other draw path of the preview).
+  const entwurf2 = { placements: [{ prefab: 'FurlocKrieger', x: 0, y: 0, z: 0, route: 'w' }], routes: [{ id: 'w', points: [[0, 0], [0, 0.5]], mode: 'loop', speed: 0.1 }] };
+  g.localStorage = { getItem: (k: string) => (k === ENTWURF_KEY ? JSON.stringify(entwurf2) : null) };
+  const gez2: { anim: string; einmal?: string }[] = [];
+  const vor2 = new RoutenVorschau({
+    zeichne: (_i, _p, _x, _z, _yaw, anim, einmal) => void gez2.push({ anim, einmal }),
+    gegriffen: () => -1,
+    spieler: () => ({ x: 0, z: 1.2 }),
+  });
+  vor2.setzeAn(true);
+  for (let i = 0; i < 100; i++) vor2.update(0.1);
+  g.localStorage = altLS;
+  const ereignisse2 = [...new Set(gez2.map((x) => x.einmal).filter((x) => x !== undefined))];
+  check('a route walker in striking range writes the blow events too', gez2.some((x) => x.anim === 'attack') && ereignisse2.length >= 4, ereignisse2.join(' '));
   check('the far warrior never strikes and gets no event', !gezeichnet.some((x) => x.i === 1 && x.einmal !== undefined));
 }
 

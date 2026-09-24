@@ -7,8 +7,10 @@
  * dev server. An address that opens "the game" therefore starts with that
  * prefix, never with a bare `/` — the bare root opened the editor again.
  *
- * Only paths, never a host: the game opens on the origin of the editor, so the
- * session and the draft in `localStorage` are the same in both.
+ * The path helpers (`gameUrl`, `dungeonUrl`) return paths only. The one place
+ * that changes the host is `dungeonZiel`: the sign-in and the account live on
+ * the game host (`live.<rest>`), not on the editor host (`editor.<rest>`),
+ * where nginx sends `/de/anmelden` back into the editor.
  *
  * Kept free of the DOM and of `location`, so a test can pass both prefixes
  * without faking `import.meta`.
@@ -48,7 +50,53 @@ export function gameUrl(query = '', base: string = clientBase()): string {
   return query === '' ? prefix : `${prefix}?${query}`;
 }
 
-/** Address that opens one dungeon in the online game client, same origin as the editor. */
+/**
+ * Address that opens one dungeon in the online game client, same origin as the
+ * page it is used on. Throws `Error` with a readable message for an id that is
+ * not valid text (a lone surrogate makes `encodeURIComponent` throw a bare
+ * `URIError`).
+ */
 export function dungeonUrl(id: string, base: string = clientBase()): string {
-  return gameUrl(`dungeon=${encodeURIComponent(id)}`, base);
+  let kodiert: string;
+  try {
+    kodiert = encodeURIComponent(id);
+  } catch {
+    throw new Error('Ungültige Dungeon-Kennung (kein gültiger Text)');
+  }
+  return gameUrl(`dungeon=${kodiert}`, base);
+}
+
+/**
+ * The game host that belongs to an editor host: `editor.<rest>` becomes
+ * `live.<rest>` (`editor.dev.world-of-vikings.com` →
+ * `live.dev.world-of-vikings.com`), a port is kept. Every other host — the game
+ * host itself, `localhost`, a slot port — maps to `null`: the game opens on the
+ * own origin there.
+ */
+export function spielHostVon(host: string): string | null {
+  const treffer = /^editor\.([a-z0-9][a-z0-9.-]*)(:\d{1,5})?$/i.exec(host);
+  return treffer ? `live.${treffer[1]}${treffer[2] ?? ''}` : null;
+}
+
+/**
+ * Where "enter the dungeon" leads. `gleicherUrsprung` says whether the game
+ * opens on the origin of the page: only then can the page look at the
+ * `localStorage` the game will see (sign-in check). On a host change it cannot,
+ * and the game asks for the sign-in itself.
+ */
+export interface DungeonZiel {
+  readonly url: string;
+  readonly gleicherUrsprung: boolean;
+}
+
+export function dungeonZiel(
+  id: string,
+  ort: { readonly host: string; readonly protocol: string },
+  base: string = clientBase()
+): DungeonZiel {
+  const pfad = dungeonUrl(id, base);
+  const spielHost = spielHostVon(ort.host);
+  if (spielHost === null) return { url: pfad, gleicherUrsprung: true };
+  const protokoll = ort.protocol === 'http:' ? 'http:' : 'https:';
+  return { url: `${protokoll}//${spielHost}${pfad}`, gleicherUrsprung: false };
 }

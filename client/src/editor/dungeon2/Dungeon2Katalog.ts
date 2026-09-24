@@ -36,7 +36,7 @@ import { dungeon2 } from '@wov/shared';
 import { F, auswahl, el, feld, knopf, stil } from '../design';
 import { Dungeon2LadeFehler, holeDungeon2, holeDungeon2Liste, type Dungeon2Kopf } from './Dungeon2Dokument';
 import { speichereDungeon2 } from './Dungeon2Speichern';
-import { dungeonUrl, gameUrl } from '../spielAdresse';
+import { dungeonZiel, gameUrl } from '../spielAdresse';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Andockstellen fuer Zeichenflaeche und Werkzeuge (AP15.7)
@@ -540,11 +540,12 @@ export class Dungeon2Seite {
 
   /**
    * Den Dungeon im ONLINEN Spielclient oeffnen — auf dem Ursprung des
-   * Editors (nur der Pfad wechselt), Sitzungstoken-Fallback wie in der
-   * LEGACY-`betrete()` (dort ausfuehrlich begruendet: Testflug hat keinen
-   * Server, Anmeldung traegt kein Ziel zurueck).
-   * Open the dungeon in the ONLINE game client — on the origin of the editor
-   * (only the path changes), session-token fallback as in the LEGACY
+   * Editors (auf `editor.<rest>` der Spiel-Host `live.<rest>`, sonst nur der
+   * Pfad), Sitzungstoken-Fallback nur beim gleichen Ursprung wie in der
+   * LEGACY-`betrete()` (dort ausfuehrlich begruendet).
+   * Open the dungeon in the ONLINE game client — on the game host
+   * (`editor.<rest>` → `live.<rest>`, otherwise the own origin); the
+   * sign-in pre-check only applies to the same origin, as in the LEGACY
    * `betrete()`.
    */
   private betrete(): void {
@@ -554,25 +555,35 @@ export class Dungeon2Seite {
       this.shell.meldung('Erst speichern — betreten zeigt den gespeicherten Stand.', true);
       return;
     }
-    const ziel = dungeonUrl(doc.id);
-
-    let token = '';
+    let ziel;
     try {
-      token = localStorage.getItem('wov-session-token') ?? '';
-    } catch {
-      token = '';
-    }
-    if (!token) {
-      this.shell.meldung(
-        `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
-          'Erst anmelden, dann noch einmal auf "Betreten".',
-        true
-      );
-      window.open(gameUrl(), '_blank');
+      ziel = dungeonZiel(doc.id, location);
+    } catch (fehler) {
+      this.shell.meldung(fehler instanceof Error ? fehler.message : String(fehler), true);
       return;
     }
 
+    // Vorab-Pruefung nur beim gleichen Ursprung (localStorage gilt je
+    // Ursprung); beim Wechsel auf den Spiel-Host fragt das Spiel selbst.
+    if (ziel.gleicherUrsprung) {
+      let token = '';
+      try {
+        token = localStorage.getItem('wov-session-token') ?? '';
+      } catch {
+        token = '';
+      }
+      if (!token) {
+        this.shell.meldung(
+          `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
+            'Erst anmelden, dann noch einmal auf "Betreten".',
+          true
+        );
+        window.open(gameUrl(), '_blank');
+        return;
+      }
+    }
+
     this.shell.meldung(`${doc.id} wird im Spiel geoeffnet …`);
-    window.open(ziel, '_blank');
+    window.open(ziel.url, '_blank');
   }
 }

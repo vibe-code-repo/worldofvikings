@@ -60,7 +60,7 @@ import { abschnitt, auswahl, feld, hinweis, knopf, schalter, zeile } from './dun
 // geöffneten Dokument nichts zu tun hat und diese hier schon 1 200
 // Zeilen misst.
 import { NewHallForm, type HallBuilder, type HallDeleter } from './DungeonNeuerSaal';
-import { dungeonUrl, gameUrl } from './spielAdresse';
+import { dungeonZiel, gameUrl } from './spielAdresse';
 
 export interface DungeonSeiteRueckrufe {
   meldung(text: string, fehler?: boolean): void;
@@ -1001,12 +1001,11 @@ export class DungeonSeite {
    * nichts und saehe aus wie ein kaputter Knopf.
    *
    * ── Welcher Host ─────────────────────────────────────────────────
-   * Keiner: Das Spiel oeffnet auf dem Ursprung des Editors, nur der Pfad
-   * (`/play/…`, siehe `spielAdresse.ts`) ist ein anderer. Der Spielclient
-   * braucht die Sitzung aus dem localStorage, und der haengt am Ursprung;
-   * derselbe Ursprung heisst auch, dass der Entwurf im Spiel sichtbar ist.
-   * Die fruehere Uebersetzung `editor.` -> `play.` fuehrte auf einen Host,
-   * den `WOV_ALLOWED_HOSTS` nicht mehr kennt (Vite: 403).
+   * Auf `editor.<rest>` der Spiel-Host `live.<rest>` (`dungeonZiel` in
+   * `spielAdresse.ts`): Anmeldung und Konto gibt es nur dort, nginx schickt
+   * `/de/anmelden` auf dem Editor-Host in den Editor zurueck. Auf jedem
+   * anderen Host (auch `live.` selbst, localhost) bleibt es beim eigenen
+   * Ursprung.
    */
   private betrete(doc: DungeonDocument): void {
     if (this.schmutzig) {
@@ -1016,7 +1015,13 @@ export class DungeonSeite {
       this.cb.meldung('Erst speichern — betreten zeigt den gespeicherten Stand.', true);
       return;
     }
-    const ziel = dungeonUrl(doc.id);
+    let ziel;
+    try {
+      ziel = dungeonZiel(doc.id, location);
+    } catch (fehler) {
+      this.cb.meldung(fehler instanceof Error ? fehler.message : String(fehler), true);
+      return;
+    }
 
     // ── Ohne Anmeldung geht die Dungeon-Wahl unterwegs verloren ──────
     //
@@ -1026,26 +1031,32 @@ export class DungeonSeite {
     // Anmelden landet man also in der Welt statt im Dungeon — wortlos,
     // was schlimmer ist als ein Fehler.
     //
-    // Das Ziel ist immer derselbe Ursprung, die Antwort also verlaesslich.
-    let token = '';
-    try {
-      token = localStorage.getItem('wov-session-token') ?? '';
-    } catch {
-      // Privater Modus: kein Speicher, also auch keine Auskunft.
-      token = '';
-    }
-    if (!token) {
-      this.cb.meldung(
-        `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
-          'Erst anmelden, dann noch einmal auf „Betreten".',
-        true
-      );
-      window.open(gameUrl(), '_blank');
-      return;
+    // Der localStorage gilt je Ursprung. Nur wenn das Spiel auf DEMSELBEN
+    // Ursprung oeffnet, sagt er etwas ueber das Ziel. Beim Wechsel auf den
+    // Spiel-Host kann der Editor ihn nicht lesen (und ein Token, das der
+    // Editor-Host selbst hat, stammt nie von einer Anmeldung), also
+    // entfaellt die Vorab-Pruefung: das Spiel fragt dort selbst.
+    if (ziel.gleicherUrsprung) {
+      let token = '';
+      try {
+        token = localStorage.getItem('wov-session-token') ?? '';
+      } catch {
+        // Privater Modus: kein Speicher, also auch keine Auskunft.
+        token = '';
+      }
+      if (!token) {
+        this.cb.meldung(
+          `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
+            'Erst anmelden, dann noch einmal auf „Betreten".',
+          true
+        );
+        window.open(gameUrl(), '_blank');
+        return;
+      }
     }
 
     this.cb.meldung(`${doc.id} wird im Spiel geöffnet …`);
-    window.open(ziel, '_blank');
+    window.open(ziel.url, '_blank');
   }
 
   /**

@@ -635,7 +635,9 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
       const roh = stuecke(a).filter((st) => WURZEL.test(st));
       if (roh.length > 0) befunde.push(`${name} ${wo}: bare root ${JSON.stringify(roh)}`);
       // Whatever is not a name must be built by the one helper.
-      if (!ruft(a, ['gameUrl', 'flightUrl', 'dungeonUrl'])) befunde.push(`${name} ${wo}: not built by gameUrl/flightUrl/dungeonUrl (${a.getText(baum).slice(0, 60)})`);
+      // `ziel.url` is the address `dungeonZiel` made (spielhost.ts pins that call).
+      const ausZiel = ts.isPropertyAccessExpression(a) && a.expression.getText(baum) === 'ziel' && a.name.text === 'url';
+      if (!ausZiel && !ruft(a, ['gameUrl', 'flightUrl', 'dungeonUrl'])) befunde.push(`${name} ${wo}: not built by gameUrl/flightUrl/dungeonUrl (${a.getText(baum).slice(0, 60)})`);
     };
     const geh = (k: ts.Node): void => {
       if (ts.isCallExpression(k) && k.arguments.length > 0) {

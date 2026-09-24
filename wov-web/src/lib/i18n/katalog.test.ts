@@ -14,6 +14,18 @@ describe('i18n-Katalog', () => {
     expect(enKeys).toEqual(deKeys);
   });
 
+  it('jeder Wert ist in beiden Katalogen eine Zeichenkette', () => {
+    // Faengt, was `String(v)` im naechsten Test glaettete: eine Funktion oder
+    // Zahl an Stelle des Textes (etwa per Cast am Typ vorbei).
+    const katalog: Record<string, Record<string, unknown>> = { de, en };
+    const falsch = Object.entries(katalog).flatMap(([name, k]) =>
+      Object.entries(k)
+        .filter(([, v]) => typeof v !== 'string')
+        .map(([key, v]) => `${name}:${key}:${typeof v}`),
+    );
+    expect(falsch).toEqual([]);
+  });
+
   it('kein Eintrag ist leer', () => {
     for (const [name, katalog] of [
       ['de', de],

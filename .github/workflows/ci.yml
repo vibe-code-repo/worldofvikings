@@ -53,6 +53,8 @@ jobs:
   # (tools/wov-update.sh). Eigener Job, damit beide parallel laufen und ein
   # Fehler hier den Client-Build nicht verdeckt.
   web:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     defaults:
       run:

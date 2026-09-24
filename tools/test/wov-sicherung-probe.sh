@@ -27,6 +27,11 @@ FEHL=0
 SCHREIBER_PID=""
 
 aufraeumen() {
+  # Waisen der Proben (python3-Vorschalter schreibt seine PID) beenden
+  if [[ -s "$TMP/pids" ]]; then
+    # shellcheck disable=SC2046
+    kill -KILL $(cat "$TMP/pids") 2>/dev/null
+  fi
   [[ -n "$SCHREIBER_PID" ]] && kill "$SCHREIBER_PID" 2>/dev/null
   [[ -n "$SCHREIBER_PID" ]] && wait "$SCHREIBER_PID" 2>/dev/null
   rm -rf "$TMP"
@@ -50,6 +55,8 @@ cat > "$TMP/bin/python3" <<SHIM
 #!/bin/bash
 n="\$(ls -1d "\$WOV_SICHERUNG_ZIEL"/dev/2*T* 2>/dev/null | grep -v fehlerhaft | tail -1)"
 echo "umask=\$(umask) lauf=\$([[ -n "\$n" ]] && stat -c%a "\$n")" >> "$TMP/shim.log"
+echo "\$\$" >> "$TMP/pids"
+[[ -n "\${WOV_PROBE_TERM_IGNORE:-}" ]] && trap '' TERM
 exec /usr/bin/python3 "\$@"
 SHIM
 chmod +x "$TMP/bin/python3"
@@ -268,13 +275,22 @@ for t in 41 42 43 44 45 46 47 48 49 50; do d="$ZIEL/dev/$(stempel "$t days ago")
 lauf > "$TMP/lauf-u.log" 2>&1 || rot "Lauf im Uhrsprung-Test endet ≠ 0"
 [[ "$(gute)" == 1 ]] && ok "alle 10 alten Läufe weg, nur der laufende bleibt (gültig = 1)" || rot "gültige Läufe = $(gute), erwartet 1"
 
-echo "── Uhr RÜCKWÄRTS (neuester Lauf liegt in der Zukunft): nichts wird gelöscht"
+echo "── Uhr RÜCKWÄRTS (Lauf mit Zukunftsstempel): es fällt nur, was älter als 30 Tage ist"
 ZIEL="$TMP/ziel-r"; mkdir -p "$ZIEL/dev"
-FUT="$ZIEL/dev/$(stempel "5 days")"; mkdir -p "$FUT"; touch -d "5 days" "$FUT"
-for t in 31 40 60; do d="$ZIEL/dev/$(stempel "$t days ago")"; mkdir -p "$d"; touch -d "$t days ago" "$d"; done
+declare -A RN=(); declare -A RA=( [fut]="5 days" [j3]="3 days ago" [j10]="10 days ago" [t29h23]="719 hours ago" [t31]="31 days ago" [t40]="40 days ago" [t60]="60 days ago" )
+for k in "${!RA[@]}"; do RN[$k]="$(stempel "${RA[$k]}")"; mkdir -p "$ZIEL/dev/${RN[$k]}"; touch -d "${RA[$k]}" "$ZIEL/dev/${RN[$k]}"; done
 lauf > "$TMP/lauf-r.log" 2>&1 && ok "Lauf endet mit 0" || rot "Lauf im Rückwärts-Test endet ≠ 0"
-[[ "$(gute)" == 5 ]] && ok "nichts gelöscht (5 gültige: Zukunft, 31/40/60 Tage, neu)" || rot "gültige Läufe = $(gute), erwartet 5"
-grep -q "Uhr ging rückwärts" "$TMP/lauf-r.log" && ok "Meldung 'Uhr ging rückwärts'" || rot "keine Uhr-Meldung"
+for k in t31 t40 t60; do [[ ! -e "$ZIEL/dev/${RN[$k]}" ]] && ok "${RA[$k]}: gelöscht trotz Zukunftslauf" || rot "${RA[$k]}: liegt noch (Aufräumen abgeschaltet?)"; done
+for k in fut j3 j10 t29h23; do [[ -d "$ZIEL/dev/${RN[$k]}" ]] && ok "${RA[$k]}: bleibt" || rot "${RA[$k]}: gelöscht (junger Lauf gefallen)"; done
+[[ "$(gute)" == 5 ]] && ok "5 gültige Läufe (Zukunft, 3 d, 10 d, 719 h, neu)" || rot "gültige Läufe = $(gute), erwartet 5"
+
+echo "── Instanzordner ist ein Symlink: Aufräumen wirkt trotzdem"
+ZIEL="$TMP/ziel-l"; mkdir -p "$ZIEL" "$TMP/real-l"; ln -s "$TMP/real-l" "$ZIEL/dev"
+SL_ALT="$TMP/real-l/$(stempel "100 days ago")"; SL_JUNG="$TMP/real-l/$(stempel "3 days ago")"
+mkdir "$SL_ALT" "$SL_JUNG"; touch -d "100 days ago" "$SL_ALT"; touch -d "3 days ago" "$SL_JUNG"
+lauf > "$TMP/lauf-l.log" 2>&1 && ok "Lauf endet mit 0" || rot "Lauf mit Symlink-Instanzordner endet ≠ 0"
+[[ ! -e "$SL_ALT" ]] && ok "100 Tage alter Lauf hinter dem Symlink gelöscht" || rot "alter Lauf hinter dem Symlink liegt noch"
+[[ -d "$SL_JUNG" ]] && ok "junger Lauf bleibt" || rot "junger Lauf gelöscht"
 
 echo "── ZIEL-Schutz (B5)"
 # Ungefährlich: mkdir/cp/rm/mv/chmod/touch sind Attrappen, die nur protokollieren.
@@ -349,6 +365,31 @@ grep -q "Frist abgelaufen" "$TMP/g1.log" && ok "Meldung nennt die Frist" || rot 
 [[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ .fehlerhaft hinterlassen" || rot "gesperrt: gültig $(gute), fehlerhaft $(schlechte)"
 pgrep -f "$TMP/wurzel/tools/wov-sicherung.sh" >/dev/null && rot "Skript läuft noch" || ok "kein Prozess des Skripts übrig"
 
+echo "── Rückspiel-Anleitung wörtlich aus dem Skriptkopf durchspielen"
+# Die Codezeilen der Anleitung (8 Leerzeichen nach #) werden ausgelesen und
+# unverändert ausgeführt; nur cd-Ziel und /root/vorher- werden auf Temp gebogen.
+anleitung() { # $1 Name  $2 Lauf-Ordner  $3 erwartet "konten/charaktere"  $4 erwartete Boards
+  local R="$TMP/rs-$1" ok_=1 z b ik if_
+  rm -rf "$R"; mkdir -p "$R/konten" "$R/forum"
+  for d in konten forum; do echo alt > "$R/$d/dev.db"; echo w > "$R/$d/dev.db-wal"; echo s > "$R/$d/dev.db-shm"; done
+  sed -n '/^# ── So spielst du eine Sicherung zurück/,/^# ── Warum/p' "$SKRIPT" | grep -E '^#        ' | sed -E 's/^#        //; s/<instanz>/dev/g' \
+    | sed "s#cd /opt/worldofvikings/server/data#cd \"$R\"#; s#/root/vorher-#$TMP/vorher-$1-#" > "$TMP/anleitung-$1.sh"
+  [[ -s "$TMP/anleitung-$1.sh" ]] || { rot "Anleitung ($1): keine Codezeilen gefunden"; return; }
+  if ! ( export L="$2"; bash -eu "$TMP/anleitung-$1.sh" > "$TMP/anleitung-$1.log" 2>&1 ); then
+    rot "Anleitung ($1) bricht ab: $(tail -2 "$TMP/anleitung-$1.log" | tr '\n' ' ')"; return
+  fi
+  V="$(ls -d "$TMP"/vorher-$1-* 2>/dev/null | head -1)"
+  [[ -f "$V/konten/dev.db-wal" && -f "$V/forum/dev.db-wal" && -f "$V/konten/dev.db-shm" && -f "$V/forum/dev.db-shm" ]] || { rot "Anleitung ($1): alte Dateien nicht getrennt beiseite gelegt"; ok_=0; }
+  [[ -z "$(ls "$R"/konten "$R"/forum | grep -E -- '-(wal|shm)$')" ]] || { rot "Anleitung ($1): -wal/-shm liegt noch in den Live-Ordnern"; ok_=0; }
+  z="$(sql "$R/konten/dev.db" 'select (select count(*) from konten)||"/"||(select count(*) from charaktere)' 2>&1)"
+  b="$(sql "$R/forum/dev.db" 'select count(*) from boards' 2>&1)"
+  ik="$(sql "$R/konten/dev.db" 'pragma integrity_check' 2>&1)"; if_="$(sql "$R/forum/dev.db" 'pragma integrity_check' 2>&1)"
+  echo "  zurückgespielt ($1): Konten/Charaktere $z, Boards $b, integrity_check Konten=$ik Forum=$if_"
+  [[ "$z" == "$3" && "$b" == "$4" && "$ik" == ok && "$if_" == ok && "$ok_" == 1 ]] \
+    && ok "Anleitung ($1) wörtlich ausgeführt: Zahlen $3 / $4 Boards stimmen, integrity_check ok" || rot "Anleitung ($1): Zahlen oder integrity_check falsch"
+}
+anleitung synthetisch "$L" "$QK" 6
+
 echo "── SIGKILL mitten im Lauf (F1) und zweiter gleichzeitiger Lauf (F3)"
 frisch k1; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; sperre_an
 PATH="$TMP/bin:$PATH" WOV_SICHERUNG_DB_FRIST=60 WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
@@ -389,6 +430,64 @@ wait "$ST" 2>/dev/null; RCT=$?
 sperre_aus
 [[ "$(laeuft)" == 0 && "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "SIGTERM → .fehlerhaft, kein .laeuft, kein gültiger Lauf (Exit $RCT)" || rot "SIGTERM: laeuft $(laeuft), fehlerhaft $(schlechte), gültig $(gute)"
 
+echo "── SIGINT an den Lauf (INT-Trap: Exit 143, .fehlerhaft)"
+frisch k6; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; sperre_an
+PATH="$TMP/bin:$PATH" WOV_SICHERUNG_DB_FRIST=60 WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  /usr/bin/python3 -c 'import signal, os, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.setsid(); os.execvp("bash", ["bash", sys.argv[1]])' \
+  "$TMP/wurzel/tools/wov-sicherung.sh" > "$TMP/k6.log" 2>&1 &
+# (Hintergrundstart schaltet SIGINT auf "ignoriert"; das erbt die Shell und kein Trap greift — daher der Start über python mit SIG_DFL)
+SI=$!
+for _ in $(seq 100); do [[ -n "$(pgrep -P "$SI" 2>/dev/null)" ]] && break; sleep 0.1; done
+IPIDS="$SI $(pgrep -P "$SI" | tr '\n' ' ')"
+# shellcheck disable=SC2086
+kill -INT $IPIDS 2>/dev/null
+for _ in $(seq 150); do kill -0 "$SI" 2>/dev/null || break; sleep 0.1; done
+wait "$SI" 2>/dev/null; RCI=$?
+sperre_aus
+[[ "$RCI" == 143 ]] && ok "SIGINT → Exit 143 (Trap, nicht 130)" || rot "SIGINT → Exit $RCI, erwartet 143"
+[[ "$(laeuft)" == 0 && "$(schlechte)" == 1 ]] && ok "SIGINT → .fehlerhaft, kein .laeuft" || rot "SIGINT: laeuft $(laeuft), fehlerhaft $(schlechte)"
+
+echo "── TERM wird ignoriert: --kill-after beendet den DB-Schritt trotzdem"
+frisch k3; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; sperre_an
+T0=$SECONDS
+PATH="$TMP/bin:$PATH" WOV_PROBE_TERM_IGNORE=1 WOV_SICHERUNG_DB_FRIST=3 WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  timeout 40 bash "$TMP/wurzel/tools/wov-sicherung.sh" > "$TMP/k3.log" 2>&1; RCK=$?
+DAUER=$((SECONDS - T0))
+echo "  Exit $RCK nach ${DAUER}s (Frist 3 s + kill-after 10 s, äussere Grenze 40 s)"
+[[ "$RCK" != 0 && "$RCK" != 124 && "$DAUER" -lt 30 ]] && ok "endet nach Frist + kill-after (nicht am äusseren Limit)" || rot "hängt: Exit $RCK nach ${DAUER}s"
+[[ "$(schlechte)" == 1 && "$(laeuft)" == 0 ]] && ok "→ .fehlerhaft" || rot "kill-after: fehlerhaft $(schlechte), laeuft $(laeuft)"
+sperre_aus
+
+echo "── SIGKILL nur am Skript: Waisen halten die Sperre NICHT (fd 9 wird nicht vererbt)"
+frisch k4; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; sperre_an
+PATH="$TMP/bin:$PATH" WOV_SICHERUNG_DB_FRIST=60 WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  setsid bash "$TMP/wurzel/tools/wov-sicherung.sh" > "$TMP/k4.log" 2>&1 &
+SW=$!
+for _ in $(seq 100); do [[ -n "$(pgrep -P "$SW" 2>/dev/null)" ]] && break; sleep 0.1; done
+WAISEN="$(pgrep -P "$SW" | tr '\n' ' ')"
+for p in $WAISEN; do WAISEN="$WAISEN $(pgrep -P "$p" | tr '\n' ' ')"; done
+kill -KILL "$SW" 2>/dev/null; wait "$SW" 2>/dev/null
+# shellcheck disable=SC2086
+LEBEN="$(ps -o pid=,stat= -p $WAISEN 2>/dev/null | awk '$2 !~ /^Z/ {print $1}' | tr '\n' ' ')"
+[[ -n "$LEBEN" ]] && ok "Waisen leben noch ($LEBEN) — die Sperre muss trotzdem frei sein" || rot "Waisen sind schon weg, Test sagt nichts"
+WOV_SICHERUNG_DB_FRIST=3 lauf > "$TMP/k4b.log" 2>&1
+grep -q "Rest eines abgebrochenen Laufs" "$TMP/k4b.log" && ! grep -q "läuft bereits" "$TMP/k4b.log" \
+  && ok "Folgelauf startet (Rest umbenannt), keine 'läuft bereits'-Meldung" || rot "Folgelauf: $(head -3 "$TMP/k4b.log" | tr '\n' ' ')"
+# shellcheck disable=SC2086
+kill -KILL $WAISEN 2>/dev/null; sleep 0.3
+# shellcheck disable=SC2086
+LEBEN="$(ps -o pid=,stat= -p $WAISEN 2>/dev/null | awk '$2 !~ /^Z/ {print $1}' | tr '\n' ' ')"
+[[ -z "$LEBEN" ]] && ok "Waisen beendet (ps -p $WAISEN: keine lebenden)" || rot "Waisen leben: $LEBEN"
+sperre_aus
+
+echo "── mv am Ende scheitert: Lauf wird .fehlerhaft, nicht .laeuft (LAUF_OK erst nach dem mv)"
+frisch k5; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x
+mkdir -p "$TMP/mvbin"
+printf '#!/bin/bash\nif [[ "${*: -1}" =~ T[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then echo "mv: Attrappe schlägt fehl" >&2; exit 1; fi\nexec /usr/bin/mv "$@"\n' > "$TMP/mvbin/mv"; chmod +x "$TMP/mvbin/mv"
+PATH="$TMP/mvbin:$TMP/bin:$PATH" WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  bash "$TMP/wurzel/tools/wov-sicherung.sh" > "$TMP/k5.log" 2>&1 && rot "Lauf mit scheiterndem End-mv endete mit 0" || ok "scheiternder End-mv → Exit ≠ 0"
+[[ "$(laeuft)" == 0 && "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ .fehlerhaft, kein .laeuft, kein gültiger Lauf" || rot "End-mv: laeuft $(laeuft), fehlerhaft $(schlechte), gültig $(gute)"
+
 echo "── Namenskollision (gleicher Sekundenstempel, F3)"
 frisch c1; rm -f "$DATEN/konten/dev.db"*; rm -rf "$DATEN/forum"; mkdir "$DATEN/forum"
 laufd > "$TMP/c1a.log" 2>&1 && rot "Lauf ohne DBs endete mit 0" || ok "1. Fehllauf → Exit ≠ 0"
@@ -425,6 +524,7 @@ PYEOF
   R="$(sql "$L2/konten/dev.db" 'select (select count(*) from konten)||"/"||(select count(*) from charaktere)||"/"||(select count(*) from banns)')"
   echo "  Konten/Charaktere/Banns Quelle $Q, Sicherung $R"
   [[ "$Q" == "$R" && "$Q" != "0/0/0" ]] && ok "DEV-Zahlen stimmen" || rot "DEV-Zahlen weichen ab"
+  anleitung echt "$L2" "${Q%/*}" "$(sql "$DATEN/forum/dev.db" 'select count(*) from boards')"
 fi
 
 echo

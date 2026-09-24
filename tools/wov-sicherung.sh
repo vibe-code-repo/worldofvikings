@@ -53,10 +53,13 @@
 # * Aufbewahrung: Läufe älter als 30 Tage (in Minuten gemessen) werden
 #   gelöscht, .fehlerhaft-Ordner nach demselben Alter — die 30 Tage gelten
 #   hart (Datenschutzerklärung). Einziger Schutz gegen Uhrsprünge: der gerade
-#   geschriebene Lauf wird nie gelöscht, und ist der neue Stempel älter als
-#   der neueste vorhandene gültige Lauf (Uhr ging rückwärts), wird gar nicht
-#   aufgeräumt. Springt die Uhr VORWÄRTS um mehr als 30 Tage, gelten alle
-#   bisherigen Läufe als zu alt und fallen weg; es bleibt nur der neue Lauf.
+#   geschriebene Lauf wird nie gelöscht. Ging die Uhr rückwärts, schützt das
+#   Alter (Ordner-mtime) die Läufe von selbst: es fällt nie ein Lauf, der
+#   nicht älter als 30 Tage ist, und ein Lauf mit Zukunftsstempel schaltet
+#   das Aufräumen nicht ab. Springt die Uhr VORWÄRTS um mehr als 30 Tage,
+#   gelten alle bisherigen Läufe als zu alt und fallen weg; es bleibt nur
+#   der neue Lauf. Liegt $ZIEL/<instanz> hinter einem Symlink, wirkt das
+#   Aufräumen trotzdem (find -H).
 #   Angefasst werden nur Ordner mit Stempelnamen unter $ZIEL/<instanz>/.
 #
 # ── So spielst du eine Sicherung zurück ─────────────────────────────────────
@@ -71,8 +74,9 @@
 #      ein übrig gebliebenes -wal würde auf die zurückgespielte Datei
 #      angewendet und sie zerstören:
 #        cd /opt/worldofvikings/server/data
-#        V=/root/vorher-$(date +%s); mkdir -p "$V"
-#        mv konten/<instanz>.db* forum/<instanz>.db* "$V"/
+#        V=/root/vorher-$(date +%s); mkdir -p "$V/konten" "$V/forum"
+#        mv konten/<instanz>.db* "$V/konten"/
+#        mv forum/<instanz>.db* "$V/forum"/
 #   4. Zurückkopieren (Rechte bleiben 0600):
 #        cp "$L/konten/<instanz>.db" konten/ ; cp "$L/forum/<instanz>.db" forum/
 #   5. Server starten, in der Oberfläche Konten und Charaktere prüfen.
@@ -447,23 +451,16 @@ echo "  ✓ Sicherung vollständig und geprüft: $LAUF_ORDNER"
 # In dieser Reihenfolge fällt bei einem Fehlschlag oben (exit 1) kein
 # einziger alter, guter Lauf weg. Alter in Minuten (30 Tage = 43200), nicht
 # in ganzen Tagen; die 30 Tage gelten hart. Nur Stempel-Ordner (auch
-# .fehlerhaft[.N]) werden angefasst. Schutz gegen Uhrsprünge: der laufende Lauf
-# wird nie gelöscht, und ging die Uhr rückwärts (neuester gültiger Lauf ist
-# jünger als dieser), wird nicht aufgeräumt.
+# .fehlerhaft[.N]) werden angefasst; der laufende Lauf nie. find -H folgt
+# einem Symlink auf $ZIEL/<instanz> (Instanzordner auf zweiter Platte).
 ALT_ORDNER="$ZIEL/$INSTANZ"
 STEMPEL_MUSTER='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}(\.fehlerhaft(\.[0-9]+)?)?$'
-NEUESTER="$(find "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
-              | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort | tail -n 1 || true)"
-if [[ "$NEUESTER" > "$STEMPEL" ]]; then
-  echo "WARNUNG: die Uhr ging rückwärts (neuester Lauf $NEUESTER ist jünger als $STEMPEL) — es wird NICHT aufgeräumt." >&2
-else
-  while IFS= read -r -d '' alt; do
-    name="$(basename "$alt")"
-    [[ "$name" =~ $STEMPEL_MUSTER ]] || continue
-    [[ "$name" == "$STEMPEL" ]] && continue
-    echo "  räume ab (älter als ${VORHALTETAGE}d): $alt"
-    rm -rf "$alt"
-  done < <(find "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -mmin "+$((VORHALTETAGE * 1440))" -print0)
-fi
+while IFS= read -r -d '' alt; do
+  name="$(basename "$alt")"
+  [[ "$name" =~ $STEMPEL_MUSTER ]] || continue
+  [[ "$name" == "$STEMPEL" ]] && continue
+  echo "  räume ab (älter als ${VORHALTETAGE}d): $alt"
+  rm -rf "$alt"
+done < <(find -H "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -mmin "+$((VORHALTETAGE * 1440))" -print0)
 
 echo "Fertig — $INSTANZ gesichert nach $LAUF_ORDNER"

@@ -51,7 +51,7 @@ names, the `__vb` hooks, `wov-web`, the roadmap identifiers.
 
 ## 3. Parallel work: one session, one worktree, one branch, one pull request
 
-Several sessions — humans and agents, often three or four at once — work on
+Several sessions — humans and agents, often several at once — work on
 this repository at the same time. Git worktrees make that safe: every worktree
 is its own directory with its own checked-out branch and its own index, while
 all of them share one object store. A session edits, builds and commits in its
@@ -77,8 +77,8 @@ cat /opt/wov-worktrees/.slots/*/claim     # who is working on what, which paths
 
 # Claim a slot. mkdir is atomic: of two sessions, exactly one gets slot n.
 mkdir -p /opt/wov-worktrees/.slots
-for n in 0 1 2 3 4 5 6 7 8; do mkdir /opt/wov-worktrees/.slots/$n 2>/dev/null && break; n=; done
-echo "slot=$n"                            # empty: all nine taken, wait
+for n in 0 1 2 3 4 5 6 7 8 9 10 11 12 13; do mkdir /opt/wov-worktrees/.slots/$n 2>/dev/null && break; n=; done
+echo "slot=$n"                            # empty: all fourteen taken, wait
 
 SLUG=<topic>; AGENT=<claude|codex|deepseek|human>
 git worktree add --no-track /opt/wov-worktrees/$SLUG -b agent/$AGENT/$SLUG origin/main
@@ -112,6 +112,23 @@ Slot `n` owns these ports, and nothing else:
 | game server | `247n` | `port:` in `server/data/server.yml` (see below) |
 | client (Vite) | `529n` | `WOV_CLIENT_PORT=529n WOV_SPIEL_PORT=247n` |
 | admin service | `248n` | `WOV_ADMIN_PORT=248n` |
+
+That is the scheme for slots 0-8. `247n` stops at `2479` and `5299` is fixed in
+`tools/dungeon2-*`, so slots 9-13 have their own band (15 numbers that nothing in the repo uses as a port (only
+coordinates in world data match) and nothing on the machine listened on, 23.09.2026):
+
+| Slot | game server | admin service | client (Vite) |
+|---|---|---|---|
+| 9 | `2709` | `2809` | `5809` |
+| 10 | `2710` | `2810` | `5810` |
+| 11 | `2711` | `2811` | `5811` |
+| 12 | `2712` | `2812` | `5812` |
+| 13 | `2713` | `2813` | `5813` |
+
+The same three settings apply (`port:` in `server.yml`, `WOV_ADMIN_PORT`,
+`WOV_CLIENT_PORT`/`WOV_SPIEL_PORT`); as a formula: game `2700+n`, admin `2800+n`,
+client `5800+n`. Do not put a fixed port from either scheme into a test; the guard
+below knows both.
 
 The game server reads its port only from `server/data/server.yml`, which is
 tracked. Change it in your worktree and restore it before every commit
@@ -150,17 +167,88 @@ without being named there, and `scripts/listen-spion.mjs` (usage in its header) 
 really binds - logging every `listen()`, and refusing fixed ports without binding
 anything if asked.
 
-Full test runs no longer collide on ports, but two things still argue for
-running them one after the other: timing-sensitive tests and frame-time
-measurements are skewed by a neighbour that computes or renders. Serialise
-both:
+Full test runs no longer collide on ports. Timing-sensitive tests and frame-time
+measurements are skewed by a neighbour that computes or renders, so the host
+limits what runs at once. Measured on wov-dev with 20 GB RAM and 8 cores
+(23.09.2026): one `typecheck` peaks at 1.8 GB, two at 3.7 GB; two full runs in
+two worktrees, three times, were 6/6 green and about 5 % slower each. The CPU,
+not memory, is the limit (load 12 on 8 cores with two full runs). So:
 
-```bash
-flock /opt/wov-worktrees/.slots/test.lock npm test
-flock /opt/wov-worktrees/.slots/measure.lock node tools/pw-fps-bench.mjs
-```
+| What | Places | Take it with |
+|---|---|---|
+| `typecheck`, `build`, `npm ci` | 2 | `tools/sperre.sh build -- <command>` |
+| full test run (`npm test`) | 2, each in its own worktree | `tools/sperre.sh test -- npm test` |
+| frame-time measurement | 1 | the four `tools/pw-*` measurement tools (`pw-fps-bench`, `pw-testflug-bench`, `pw-schatten-g18-g20`, `pw-schatten-ii-zuordnung`) lock `~/.cache/wov-mess.lock` themselves: start them plainly. `tools/sperre.sh measure -- <command>` (one place) is for any other measurement without its own lock |
+| workers per orchestrator on wov-dev | 4 | (a rule, not a lock) |
 
-`typecheck`, `lint` and `build` run in parallel without a lock.
+`lint` needs no lock. The pre-commit hook takes a build place for its typecheck when
+`/opt/wov-worktrees/.slots` exists (on wov-dev), so a commit waits like any other
+typecheck; on other machines, or where `tools/sperre.sh` does not exist yet (a worktree of
+an older `main`), it runs unlocked. The hook always uses `/opt/wov-worktrees/.slots` and
+ignores `WOV_SPERREN`. A test run that is timing-sensitive (a measurement, a suspicious
+red) is repeated alone.
+
+The name must fit the work: `typecheck`, `build` and `npm ci` always under `build`, full
+test runs under `test`. The tool binds the number of places per name, not which work
+goes under which name (`sperre.sh test -- npm run typecheck` works and would sneak
+past the build limit), so that part is a promise of the caller.
+
+`tools/sperre.sh <name> -- <command>` is a counting semaphore on `flock`. The number
+of places is fixed in the tool (`build` 2, `test` 2, `measure` 1), not chosen by the
+caller: an unknown name, or a number that does not match (`build 3`), exits 64 with a
+`sperre: usage:` line. The old form `<name> <n> -- <command>` is accepted only while
+`<n>` equals the table. It takes the first free place (`<name>.lock`, then
+`<name>.2.lock` ... in `/opt/wov-worktrees/.slots`), runs the command while holding it
+and waits (poll, not a queue, no time limit) when all are busy. Place 1 is the old lock
+file, so a plain `flock .../build.lock ...` still holds place 1 and stays correct
+during the changeover, but a plain `flock` waiter that sits in the kernel wins against
+the polling `sperre.sh` when the place frees up. **From the merge of this tool on, use
+only `sperre.sh` for `build` and `test`**, so nobody starves. Check the tool with
+`tools/sperre.sh --selbsttest`; `--plaetze <name>` prints a name's places. If SSH
+hangs, the emergency way goes through the host: `ssh wov-host 'pct exec 102 -- ...'`;
+end only your own processes there.
+
+What the lock covers, and what it does not:
+
+- **The place belongs to the command and to everything that inherits the lock
+  descriptor.** A daemon started under the lock (`setsid server &`) keeps the place
+  after the command ends, without a time limit. **Never start servers, watchers or dev
+  processes under `sperre.sh`**; it is for commands that finish.
+- **`kill -9` on `sperre.sh` ends the wrapper, not its child.** The orphaned child keeps
+  the place until it ends itself; end the child (by its PID) to free it.
+- **Nesting on a name you already hold**: `sperre.sh` hands the names it holds to its
+  child (`WOV_SPERRE_GEHALTEN`). A call on such a name first tries, without waiting, for a
+  free place and takes it; only when every place is busy does it run its command directly
+  and print `sperre: <name> held by caller, running nested without a place`. So a
+  `git commit` inside `sperre.sh build -- ...` (its hook asks for `build` again) cannot
+  deadlock, and the pass is never silent.
+- **Do not commit under a held `build` lock.** Not `sperre.sh build -- bash -c '... && git
+  commit ...'`: typecheck under the lock, then commit outside it. The hook would take a
+  second build place, and one worker would hold both places for 70-95 s.
+- **The nested pass is unlimited.** When every place is busy, any number of calls on a held
+  name run past the lock (12 at once measured), each with its stderr line; the pass costs
+  no place and is no protection against misuse. It exists so that a commit under a lock
+  cannot wait for itself.
+- **Never take one lock under the other** (`build` inside `test`, `test` inside `build`):
+  two of each, crossed, wait on each other for ever without a message. Release the first
+  lock, then take the second. The tool does not refuse it, so that the hook (`build`)
+  keeps working under any caller. The lock files in `.slots` are part of the contract: deleting one lifts the lock,
+  so do not `rm` them.
+- Exit 64 is the tool's usage error and also possible for a command. The tool tells them
+  apart on stderr: `sperre: usage:` against `sperre: command exited 64`.
+- **Exit 64** is the usage error; **exit 70** with `sperre: error:` is an environment
+  failure (the lock directory or a lock file cannot be created or opened).
+- `WOV_SPERREN` points the tool at another lock directory: set it for probes only and
+  remove it afterwards (a commit's hook ignores it, a `sperre.sh` call does not).
+  `WOV_SPERREN_PLAETZE_<NAME>` overrides the table for the tool's own self-test only: it
+  works only together with the mark `_SPERRE_SELBSTTEST=1`, which only `--selbsttest`
+  sets, and only when `WOV_SPERREN` is not the real directory by path and by
+  device:inode (a trailing slash, `/./`, a symlink or a bind mount do not change that).
+  **Never set `WOV_SPERREN_PLAETZE_*`, `_SPERRE_SELBSTTEST` or `WOV_SPERRE_GEHALTEN` by
+  hand**: the last one lets a call run past a full lock (visibly, but past it); the
+  tool sets it for its children itself. Two limits of the override guard are known and
+  left open, each needing intent or landing in a directory of its own: hard-linked lock
+  files in another directory (with the mark set) and a trailing blank in `WOV_SPERREN`.
 
 ### 3.4 While you work
 
@@ -197,7 +285,8 @@ rm -r /opt/wov-worktrees/.slots/$n
 Stop your own server, client and test processes first — by the PIDs you
 started, never with `pkill -f <pattern>`: on shared machines a pattern such as
 `org.blender.Blender` also matches other sessions' processes. Then check with
-`ss -ltn | grep -E ":(247|248|529)$n\b"` that the slot's ports are free.
+`ss -ltn` that the slot's three ports are free
+(`247n`/`248n`/`529n`, slots 9-13: see the table above).
 
 ### 3.6 Branches, ownership and hot files
 

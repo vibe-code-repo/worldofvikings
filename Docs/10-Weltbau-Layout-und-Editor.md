@@ -397,7 +397,7 @@ braucht nichts zu setzen (`scripts/dev.mjs` startet den Betriebsdienst mit
 derselben Wurzel).
 
 Zum Erproben in einem Worktree: eigenen Betriebsdienst auf dem Slot-Port
-starten (`WOV_ADMIN_PORT=248n`; die Wurzel ist der Worktree) und den
+starten (`WOV_ADMIN_PORT` = Betriebsdienst-Port des Slots, Tabelle in `AGENTS.md` §3.3: Slots 0–8 `248n`, Slots 9–13 `2800+n`; die Wurzel ist der Worktree) und den
 MCP-Server mit demselben `WOV_ADMIN_PORT` ansprechen. Auf einer Weltkopie
 außerhalb des Checkouts (`WOV_WURZEL`=Kopie, eigene `WOV_ADMIN_TOKEN_DATEI`)
 braucht der MCP-Server `WOV_MCP_FREMDE_WELT=1`.

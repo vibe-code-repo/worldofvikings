@@ -5,7 +5,7 @@ import { canWearArmor, MALE_ARMOR_BODY, FEMALE_ARMOR_BODY, SEIDRAVEN_MALE_PARTS,
 import { WovServer } from '../src/WovServer.js';
 import { Writer } from '../src/io/Writer.js';
 import { Reader } from '../src/io/Reader.js';
-import { EMBERRAGE_PARTS, PLAINHIDE_PARTS, GRAVETHORN_PARTS } from '@wov/shared';
+import { EMBERRAGE_PARTS, PLAINHIDE_PARTS, GRAVETHORN_PARTS, CROWSHADE_PARTS } from '@wov/shared';
 for (const part of EMBERRAGE_PARTS) {
   const item = findItem(part.item)!;
   assert.equal(item.vfxProfile, 'emberrage_red');
@@ -26,6 +26,16 @@ for (const part of GRAVETHORN_PARTS) {
   const item = findItem(part.item)!;
   assert.equal(item.vfxProfile, 'gravethorn_red');
   assert.equal(ruestungZu(part.id)?.vfxProfile, 'gravethorn_red');
+  assert.deepEqual(item.hideAppearance, part.key === 'hood' ? ['hair', 'beard', 'eyebrows'] : []);
+  assert.equal(ruestungZu(part.id)?.bodyProfile, part.bodyProfile);
+  assert(canWearArmor(item, part.figure));
+  assert(!canWearArmor(item, part.figure === 'wikinger' ? 'wikingerin' : 'wikinger'));
+}
+// Crowshade does not glow: no vfxProfile on the item or the appearance entry; only the mask hides hair, beard and eyebrows.
+for (const part of CROWSHADE_PARTS) {
+  const item = findItem(part.item)!;
+  assert.equal(item.vfxProfile, undefined);
+  assert.equal(ruestungZu(part.id)?.vfxProfile, undefined);
   assert.deepEqual(item.hideAppearance, part.key === 'hood' ? ['hair', 'beard', 'eyebrows'] : []);
   assert.equal(ruestungZu(part.id)?.bodyProfile, part.bodyProfile);
   assert(canWearArmor(item, part.figure));

@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-21T05:04:44.296Z",
+ "erzeugt": "2026-09-24T00:18:58.739Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 299,
- "gemessen": 299,
+ "anzahl": 313,
+ "gemessen": 313,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -5333,6 +5333,370 @@
    "animationen": [],
    "meshlos": false,
    "skins": 0
+  },
+  "crowshade/crowshade_female_boots": {
+   "datei": "crowshade/crowshade_female_boots.glb",
+   "foliage": false,
+   "bytes": 696944,
+   "huelle": {
+    "min": [
+     -0.172,
+     0,
+     -0.108
+    ],
+    "max": [
+     0.172,
+     0.341,
+     0.111
+    ]
+   },
+   "breite": 0.344,
+   "hoehe": 0.341,
+   "tiefe": 0.219,
+   "dreiecke": 5202,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_female_bracers": {
+   "datei": "crowshade/crowshade_female_bracers.glb",
+   "foliage": false,
+   "bytes": 274240,
+   "huelle": {
+    "min": [
+     -0.269,
+     0.562,
+     -0.067
+    ],
+    "max": [
+     0.268,
+     0.701,
+     0.033
+    ]
+   },
+   "breite": 0.537,
+   "hoehe": 0.14,
+   "tiefe": 0.101,
+   "dreiecke": 2084,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_female_gloves": {
+   "datei": "crowshade/crowshade_female_gloves.glb",
+   "foliage": false,
+   "bytes": 542808,
+   "huelle": {
+    "min": [
+     -0.31,
+     0.454,
+     -0.033
+    ],
+    "max": [
+     0.316,
+     0.61,
+     0.08
+    ]
+   },
+   "breite": 0.626,
+   "hoehe": 0.157,
+   "tiefe": 0.114,
+   "dreiecke": 3860,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_female_hood": {
+   "datei": "crowshade/crowshade_female_hood.glb",
+   "foliage": false,
+   "bytes": 665580,
+   "huelle": {
+    "min": [
+     -0.097,
+     0.795,
+     -0.12
+    ],
+    "max": [
+     0.097,
+     1.079,
+     0.108
+    ]
+   },
+   "breite": 0.194,
+   "hoehe": 0.284,
+   "tiefe": 0.228,
+   "dreiecke": 4837,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_female_robe": {
+   "datei": "crowshade/crowshade_female_robe.glb",
+   "foliage": false,
+   "bytes": 560236,
+   "huelle": {
+    "min": [
+     -0.182,
+     0.266,
+     -0.176
+    ],
+    "max": [
+     0.181,
+     0.661,
+     0.116
+    ]
+   },
+   "breite": 0.363,
+   "hoehe": 0.395,
+   "tiefe": 0.291,
+   "dreiecke": 4161,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_female_shoulders": {
+   "datei": "crowshade/crowshade_female_shoulders.glb",
+   "foliage": false,
+   "bytes": 385684,
+   "huelle": {
+    "min": [
+     -0.304,
+     0.657,
+     -0.127
+    ],
+    "max": [
+     0.269,
+     1.062,
+     0.072
+    ]
+   },
+   "breite": 0.573,
+   "hoehe": 0.404,
+   "tiefe": 0.199,
+   "dreiecke": 2726,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_female_vest": {
+   "datei": "crowshade/crowshade_female_vest.glb",
+   "foliage": false,
+   "bytes": 522436,
+   "huelle": {
+    "min": [
+     -0.093,
+     0.635,
+     -0.102
+    ],
+    "max": [
+     0.115,
+     0.857,
+     0.091
+    ]
+   },
+   "breite": 0.208,
+   "hoehe": 0.222,
+   "tiefe": 0.193,
+   "dreiecke": 3684,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_male_boots": {
+   "datei": "crowshade/crowshade_male_boots.glb",
+   "foliage": false,
+   "bytes": 152656,
+   "huelle": {
+    "min": [
+     -0.219,
+     -0.004,
+     -0.146
+    ],
+    "max": [
+     0.219,
+     0.405,
+     0.192
+    ]
+   },
+   "breite": 0.438,
+   "hoehe": 0.41,
+   "tiefe": 0.338,
+   "dreiecke": 1312,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_male_bracers": {
+   "datei": "crowshade/crowshade_male_bracers.glb",
+   "foliage": false,
+   "bytes": 114324,
+   "huelle": {
+    "min": [
+     -0.802,
+     1.284,
+     -0.132
+    ],
+    "max": [
+     0.802,
+     1.479,
+     0.039
+    ]
+   },
+   "breite": 1.604,
+   "hoehe": 0.195,
+   "tiefe": 0.171,
+   "dreiecke": 892,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_male_gloves": {
+   "datei": "crowshade/crowshade_male_gloves.glb",
+   "foliage": false,
+   "bytes": 113720,
+   "huelle": {
+    "min": [
+     -1.058,
+     1.293,
+     -0.113
+    ],
+    "max": [
+     1.058,
+     1.421,
+     0.092
+    ]
+   },
+   "breite": 2.116,
+   "hoehe": 0.128,
+   "tiefe": 0.205,
+   "dreiecke": 708,
+   "materialien": 4,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_male_hood": {
+   "datei": "crowshade/crowshade_male_hood.glb",
+   "foliage": false,
+   "bytes": 123072,
+   "huelle": {
+    "min": [
+     -0.183,
+     1.4,
+     -0.196
+    ],
+    "max": [
+     0.183,
+     1.935,
+     0.234
+    ]
+   },
+   "breite": 0.367,
+   "hoehe": 0.535,
+   "tiefe": 0.43,
+   "dreiecke": 864,
+   "materialien": 5,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_male_robe": {
+   "datei": "crowshade/crowshade_male_robe.glb",
+   "foliage": false,
+   "bytes": 142140,
+   "huelle": {
+    "min": [
+     -0.283,
+     0.288,
+     -0.277
+    ],
+    "max": [
+     0.283,
+     0.979,
+     0.194
+    ]
+   },
+   "breite": 0.567,
+   "hoehe": 0.691,
+   "tiefe": 0.472,
+   "dreiecke": 1180,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_male_shoulders": {
+   "datei": "crowshade/crowshade_male_shoulders.glb",
+   "foliage": false,
+   "bytes": 175192,
+   "huelle": {
+    "min": [
+     -0.581,
+     1.301,
+     -0.226
+    ],
+    "max": [
+     0.528,
+     1.864,
+     0.136
+    ]
+   },
+   "breite": 1.109,
+   "hoehe": 0.563,
+   "tiefe": 0.362,
+   "dreiecke": 1160,
+   "materialien": 7,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "crowshade/crowshade_male_vest": {
+   "datei": "crowshade/crowshade_male_vest.glb",
+   "foliage": false,
+   "bytes": 119068,
+   "huelle": {
+    "min": [
+     -0.249,
+     0.828,
+     -0.194
+    ],
+    "max": [
+     0.249,
+     1.508,
+     0.17
+    ]
+   },
+   "breite": 0.498,
+   "hoehe": 0.68,
+   "tiefe": 0.365,
+   "dreiecke": 718,
+   "materialien": 6,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
   },
   "emberrage/emberrage_female_boots": {
    "datei": "emberrage/emberrage_female_boots.glb",

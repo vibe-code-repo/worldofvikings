@@ -98,7 +98,13 @@ export class WebSocketAcceptor {
         console.log(`[Acceptor] Listening on port ${gebunden}`);
         resolve(gebunden);
       });
-      httpServer.listen(port);
+      try {
+        httpServer.listen(port);
+      } catch (e) {
+        // listen() throws synchronously for an invalid port (ERR_SOCKET_BAD_PORT):
+        // same path as an async bind error, so it is logged, closed and rejected.
+        beiFehler(e as NodeJS.ErrnoException);
+      }
     });
   }
 

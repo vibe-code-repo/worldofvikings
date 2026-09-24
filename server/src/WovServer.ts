@@ -1346,6 +1346,10 @@ export class WovServer {
   start(): Promise<number> {
     this.init();
 
+    // A second start() without stop() must not stack timers.
+    if (this.updateTimer) clearInterval(this.updateTimer);
+    if (this.saveTimer) clearInterval(this.saveTimer);
+
     this.running = true;
     this.startTime = Date.now();
     this.prevUpdateTime = this.startTime;
@@ -1372,11 +1376,23 @@ export class WovServer {
       void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
 
-    return gebunden.then((port) => {
-      console.log(`[WoV] Server started: "${this.config.name}" on port ${port}`);
-      console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
-      return port;
-    });
+    return gebunden.then(
+      (port) => {
+        console.log(`[WoV] Server started: "${this.config.name}" on port ${port}`);
+        console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
+        return port;
+      },
+      (err: unknown) => {
+        // The bind failed: no orphaned tick, no double timers on a retry.
+        // No save here: a server without a port must not write the world.
+        this.running = false;
+        if (this.updateTimer) clearInterval(this.updateTimer);
+        if (this.saveTimer) clearInterval(this.saveTimer);
+        this.updateTimer = null;
+        this.saveTimer = null;
+        throw err;
+      },
+    );
   }
 
   /**

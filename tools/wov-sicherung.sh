@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# wov-sicherung.sh — sichert Spielstand und Weltdokumente EINER Instanz.
+# wov-sicherung.sh — sichert Spielstand, Weltdokumente sowie Konten- und
+# Forumsdatenbank EINER Instanz. Aufbewahrung: 30 Tage.
 #
 #     tools/wov-sicherung.sh
 #
@@ -15,6 +16,37 @@
 # Nicht-live-Container ein Sicherungslauf, der nichts sichert (Datei fehlt
 # einfach) oder — schlimmer, auf dem falschen Container ausgeführt — den
 # falschen Spielstand sichert, ohne dass es auffiele.
+#
+# ── Konten- und Forumsdatenbank (SQLite, WAL) ─────────────────────────────
+# server/data/konten/<instanz>.db und server/data/forum/<instanz>.db laufen im
+# WAL-Modus: Die Hauptdatei bleibt tagelang fast leer, die Daten stehen in
+# <name>.db-wal. Ein `cp` der Hauptdatei ergäbe eine LEERE Datenbank, ein `cp`
+# aller drei Dateien eine womöglich angerissene. Deshalb: SQLite-Online-
+# Sicherung (Backup-API des python3-Moduls sqlite3; auf wov-dev gibt es kein
+# sqlite3-Programm), konsistent bei laufendem Server. Die Kopie wird auf
+# journal_mode=DELETE gestellt (eine Datei, kein -wal daneben) und mit
+# PRAGMA integrity_check geprüft; alles ausser "ok" ist ein Fehler (Exit 1).
+# Die Kopien enthalten E-Mail-Adressen und Passwort-Hashes: Lauf-Ordner 0700,
+# Dateien 0600 (umask 077 + chmod am Ende).
+#
+# NICHT gesichert (bewusst, Karte S7): assets/hochgeladen/ (Modell-Uploads)
+# und metriken-*.jsonl.
+#
+# ── So spielst du eine Sicherung zurück ─────────────────────────────────────
+#   1. Server stoppen:  systemctl stop wov-server
+#   2. Lauf wählen:     L=/var/backups/wov/welten/<instanz>/<stempel>
+#   3. Alte Dateien BEISEITE legen (nicht löschen), inklusive -wal und -shm —
+#      ein übrig gebliebenes -wal würde auf die zurückgespielte Datei
+#      angewendet und sie zerstören:
+#        cd /opt/worldofvikings/server/data
+#        V=/root/vorher-$(date +%s); mkdir -p "$V"
+#        mv konten/<instanz>.db* forum/<instanz>.db* "$V"/
+#   4. Zurückkopieren (Rechte bleiben 0600):
+#        cp "$L/konten/<instanz>.db" konten/ ; cp "$L/forum/<instanz>.db" forum/
+#   5. Server starten, in der Oberfläche Konten und Charaktere prüfen.
+#   Spielstand: "$L/worlds/<instanz>.db.zst" nach server/data/worlds/ (bei
+#   gestopptem Server, die alte .db.zst und .prev vorher beiseite legen).
+#   Weltdokument: "$L/welten/<instanz>.json" nach server/data/welten/.
 #
 # ── Warum `cp` für .db.zst sicher ist, für .db.zst.prev aber NICHT ────────
 # WorldManager.save() und saveAsync() (server/src/world/WorldManager.ts,
@@ -73,10 +105,12 @@
 set -euo pipefail
 
 WURZEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATEN="$WURZEL/server/data"
+# Vorgaben; für Proben umbiegbar (der Betrieb setzt beides nicht).
+DATEN="${WOV_SICHERUNG_DATEN:-$WURZEL/server/data}"
+umask 077
 
 # ── 1. Instanz feststellen ─────────────────────────────────────────────
-ENV_DATEI=/etc/wov.env
+ENV_DATEI="${WOV_ENV_DATEI:-/etc/wov.env}"
 if [[ ! -r "$ENV_DATEI" ]]; then
   echo "ABBRUCH: $ENV_DATEI nicht lesbar — ohne sie ist die Instanz nicht" >&2
   echo "bestimmbar, und genau das soll hier NICHT geraten werden." >&2
@@ -98,18 +132,21 @@ esac
 # ── Einstellungen ───────────────────────────────────────────────────────
 # Lokales Ziel, s. Kopfkommentar für den Weg nach ausser Haus.
 ZIEL="${WOV_SICHERUNG_ZIEL:-/var/backups/wov/welten}"
-VORHALTETAGE=14
+VORHALTETAGE=30
 # Reserve, die nach der Sicherung noch frei bleiben soll — darunter wird
 # abgebrochen statt die Platte zu füllen und den laufenden Server zu
 # gefährden.
 MINDEST_FREI_MB=1024
 ZSTD_VERSUCHE=5
+FEHLER_DB=0
 
 DB_DATEI="$DATEN/worlds/$INSTANZ.db.zst"
 PREV_DATEI="$DB_DATEI.prev"
 WELT_DATEI="$DATEN/welten/$INSTANZ.json"
 DUNGEON_ORDNER="$DATEN/dungeons/$INSTANZ"
 SERVER_YML="$DATEN/server.yml"
+KONTEN_DB="$DATEN/konten/$INSTANZ.db"
+FORUM_DB="$DATEN/forum/$INSTANZ.db"
 
 if [[ ! -f "$DB_DATEI" ]]; then
   echo "ABBRUCH: $DB_DATEI fehlt — nichts zu sichern für Instanz '$INSTANZ'." >&2
@@ -125,6 +162,13 @@ echo "  Ziel:   $LAUF_ORDNER"
 
 # ── 2. Freien Platz prüfen, BEVOR irgendetwas kopiert wird ─────────────
 QUELL_PFADE=("$DB_DATEI" "$WELT_DATEI" "$SERVER_YML")
+# Konten/Forum samt -wal (dort stehen die Daten); ob sie fehlen, meldet die
+# Sicherung selbst.
+for db in "$KONTEN_DB" "$FORUM_DB"; do
+  for teil in "$db" "$db-wal"; do
+    [[ -f "$teil" ]] && QUELL_PFADE+=("$teil")
+  done
+done
 [[ -f "$PREV_DATEI" ]] && QUELL_PFADE+=("$PREV_DATEI")
 [[ -d "$DUNGEON_ORDNER" ]] && QUELL_PFADE+=("$DUNGEON_ORDNER")
 
@@ -148,7 +192,7 @@ if (( FREI_KB < BENOETIGT_KB + MINDEST_FREI_KB )); then
   exit 1
 fi
 
-mkdir -p "$LAUF_ORDNER/worlds" "$LAUF_ORDNER/welten"
+mkdir -p "$LAUF_ORDNER/worlds" "$LAUF_ORDNER/welten" "$LAUF_ORDNER/konten" "$LAUF_ORDNER/forum"
 
 # ── 3. Kopieren ──────────────────────────────────────────────────────────
 # kopiere_mit_pruefung: kopiert eine zstd-komprimierte Datei und prüft die
@@ -194,10 +238,48 @@ fi
 echo "  kopiere $SERVER_YML"
 cp -a "$SERVER_YML" "$LAUF_ORDNER/server.yml"
 
+# sichere_sqlite: Online-Sicherung einer WAL-Datenbank (s. Kopfkommentar),
+# dann integrity_check auf der KOPIE. Rückgabe 0 nur bei "ok".
+sichere_sqlite() {
+  local quelle="$1" ziel="$2"
+  if [[ ! -f "$quelle" ]]; then
+    echo "FEHLER: $quelle fehlt — Datenbank nicht gesichert" >&2
+    return 1
+  fi
+  python3 - "$quelle" "$ziel" <<'PYEOF'
+import sqlite3, sys
+quelle, ziel = sys.argv[1], sys.argv[2]
+src = sqlite3.connect(quelle, timeout=60)
+dst = sqlite3.connect(ziel)
+try:
+    src.backup(dst)
+    dst.execute("PRAGMA journal_mode=DELETE")
+    ergebnis = [r[0] for r in dst.execute("PRAGMA integrity_check")]
+finally:
+    dst.close()
+    src.close()
+if ergebnis != ["ok"]:
+    print("integrity_check: " + "; ".join(ergebnis), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+}
+
+echo "  sichere $KONTEN_DB"
+sichere_sqlite "$KONTEN_DB" "$LAUF_ORDNER/konten/$INSTANZ.db" || FEHLER_DB=1
+echo "  sichere $FORUM_DB"
+sichere_sqlite "$FORUM_DB" "$LAUF_ORDNER/forum/$INSTANZ.db" || FEHLER_DB=1
+
+# Nur root darf lesen (E-Mail, Passwort-Hashes): Ordner 0700, Dateien 0600 —
+# auch bei einem späteren Abbruch, deshalb VOR den Prüfungen.
+chmod -R u=rwX,go= "$LAUF_ORDNER"
+
 # ── 4. Nachweis: vollständig UND entpackbar ──────────────────────────────
 # Grössenvergleich zuerst (billig, fängt grobe Fehler), dann die
 # inhaltliche Prüfung (JSON muss parsen, zstd muss sich testen lassen).
-FEHLER=0
+FEHLER=$FEHLER_DB
+if (( FEHLER_DB != 0 )); then
+  echo "FEHLER: Konten- oder Forumsdatenbank nicht sauber gesichert (s. oben)" >&2
+fi
 
 pruef_groesse() {
   local quelle="$1" ziel="$2"

@@ -169,5 +169,138 @@ console.log('\n[4] AssetManager.wechsleAnimation with the groups of npc_1_walk.g
   check("'walk' (one hit) still plays Walking", aufrufe.includes('start(Walking)'), aufrufe.join(' '));
 }
 
+// ── [5] EntityManager: events, late joiners, stale callbacks ────────────
+console.log('\n[5] EntityManager.applyDynamic with a fake asset layer');
+{
+  const { EntityManager } = await import('../src/entities/EntityManager.js');
+  const { Vector3 } = await import('@babylonjs/core/Maths/math.vector.js');
+  const { Quaternion } = await import('@babylonjs/core/Maths/math.vector.js');
+  type Update = Record<string, unknown>;
+  type Em = {
+    dynamics: Map<string, { einmalN?: number }>;
+    dynamicCount: number;
+    assets: unknown;
+    applyDynamic(u: Update, prefab: string, model: string | null, anim?: string, belebt?: boolean): Promise<void>;
+  };
+  const aufrufe: string[] = [];
+  const callbacks: (() => void)[] = [];
+  const fakeAssets = {
+    async instantiate(_m: string, anim?: string) {
+      aufrufe.push(`instantiate(${anim})`);
+      return { name: '', position: new Vector3(), rotationQuaternion: null, scaling: new Vector3(1, 1, 1), getChildMeshes: () => [] };
+    },
+    wechsleAnimation(_r: unknown, z: string) { aufrufe.push(`wechsle(${z})`); },
+    spieleEinmalKreatur(_r: unknown, clip: string, danach: (() => void) | null) {
+      aufrufe.push(`einmal(${clip})`);
+      if (danach) callbacks.push(danach);
+      return true;
+    },
+    setzeAnimationsTempo() {},
+    entsorgeAnimationen() {},
+  };
+  const neu = () => {
+    const em = Object.create(EntityManager.prototype) as unknown as Em;
+    em.dynamics = new Map();
+    em.dynamicCount = 0;
+    em.assets = fakeAssets;
+    return em;
+  };
+  const upd = (extra: Update = {}): Update => ({
+    key: '1:1', prefabHash: 12345, position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, ...extra,
+  });
+  const gib = async (em: Em, u: Update) => em.applyDynamic(u, 'Wolf', 'Wolf', 'idle', false);
+  const seit = (n: number) => aufrufe.slice(n);
+
+  // (a) an event arrives after we saw the creature: played once
+  {
+    const em = neu();
+    await gib(em, upd({ anim: 'idle' }));
+    aufrufe.length = 0;
+    await gib(em, upd({ anim: 'idle', animEinmal: 'attack#1' }));
+    check('a new event (attack#1) plays the attack clip once', aufrufe.join(' ') === 'einmal(attack)', aufrufe.join(' '));
+    aufrufe.length = 0;
+    await gib(em, upd({ anim: 'idle', animEinmal: 'attack#1' }));
+    check('the same counter again (every ZDO update carries it) plays nothing', aufrufe.length === 0, aufrufe.join(' '));
+    await gib(em, upd({ anim: 'idle', animEinmal: 'attack#2' }));
+    check('the next counter (attack#2) plays again, although the clip name did not change', aufrufe.join(' ') === 'einmal(attack)', aufrufe.join(' '));
+  }
+  // (b) late joiner: the event already in the member is history
+  {
+    const em = neu();
+    aufrufe.length = 0;
+    await gib(em, upd({ anim: 'idle', animEinmal: 'attack#7' }));
+    check('a client that meets the creature with attack#7 in the member plays no swing', !aufrufe.some((x) => x.startsWith('einmal')), aufrufe.join(' '));
+    check("...and remembers the counter: the same value later is still history", em.dynamics.get('1:1')?.einmalN === 7);
+    aufrufe.length = 0;
+    await gib(em, upd({ anim: 'idle', animEinmal: 'attack#7' }));
+    check('attack#7 again: nothing', aufrufe.length === 0, aufrufe.join(' '));
+    await gib(em, upd({ anim: 'idle', animEinmal: 'attack#8' }));
+    check('attack#8 plays', aufrufe.join(' ') === 'einmal(attack)', aufrufe.join(' '));
+  }
+  // (c) die: plays once, the state may not move the body afterwards
+  {
+    const em = neu();
+    await gib(em, upd({ anim: 'run' }));
+    aufrufe.length = 0;
+    await gib(em, upd({ anim: 'run', animEinmal: 'die#1' }));
+    await gib(em, upd({ anim: 'idle', animEinmal: 'die#1' }));
+    check('die plays the die clip and a later state change does not stand the body up', aufrufe.join(' ') === 'einmal(die)', aufrufe.join(' '));
+  }
+  // (d) stale end callback
+  {
+    const em = neu();
+    await gib(em, upd({ anim: 'walk' }));
+    aufrufe.length = 0; callbacks.length = 0;
+    await gib(em, upd({ anim: 'walk', animEinmal: 'hit#1' }));
+    check('hit plays once and registers its fall-back', aufrufe.join(' ') === 'einmal(hit)' && callbacks.length === 1);
+    callbacks.length = 0;
+  }
+  // (e) the state 'attack' is no swing (no phantom blow), it stands
+  {
+    const em = neu();
+    await gib(em, upd({ anim: 'run' }));
+    aufrufe.length = 0;
+    await gib(em, upd({ anim: 'attack' }));
+    check("state 'attack' plays idle, not a swing (the blow comes as an event)", aufrufe.join(' ') === 'wechsle(idle)', aufrufe.join(' '));
+  }
+}
+
+// ── [6] The real AssetManager: a stale end callback is ignored ─────────
+console.log('\n[6] AssetManager.spieleEinmalKreatur: stale end callback');
+{
+  const { AssetManager } = await import('../src/engine/AssetManager.js');
+  const am = Object.create(AssetManager.prototype) as unknown as {
+    animGruppen: WeakMap<object, unknown[]>;
+    mehrdeutigGemeldet: Set<string>;
+    einmalMarke: WeakMap<object, number>;
+    wechsleAnimation(root: object, wunsch: string): void;
+    spieleEinmalKreatur(root: object, clip: string, danach: (() => void) | null): boolean;
+  };
+  am.animGruppen = new WeakMap();
+  am.mehrdeutigGemeldet = new Set();
+  am.einmalMarke = new WeakMap();
+  const aufrufe: string[] = [];
+  const endeCallbacks: Record<string, (() => void)[]> = {};
+  const gruppe = (name: string) => ({
+    name, isPlaying: false, speedRatio: 1, from: 0, to: 1,
+    onAnimationGroupEndObservable: { addOnce(f: () => void) { (endeCallbacks[name] ??= []).push(f); } },
+    stop() { aufrufe.push(`stop(${name})`); this.isPlaying = false; },
+    start() { aufrufe.push(`start(${name})`); this.isPlaying = true; },
+  });
+  const root = { name: 'Wolf' };
+  am.animGruppen.set(root, [gruppe('attack'), gruppe('idle'), gruppe('walk')]);
+  let danach = 0;
+  am.spieleEinmalKreatur(root, 'attack', () => { danach++; });
+  am.wechsleAnimation(root, 'walk'); // a state change ends the one-shot
+  for (const f of endeCallbacks.attack ?? []) f(); // the old clip's end fires late
+  check('after a state change the old one-shot end does NOT switch the group again', danach === 0, `${danach} call(s)`);
+  am.spieleEinmalKreatur(root, 'attack', () => { danach++; });
+  am.spieleEinmalKreatur(root, 'attack', () => { danach += 10; }); // restart: the newest blow wins
+  for (const f of endeCallbacks.attack ?? []) f();
+  check('two blows: only the newest one falls back (1 call of the second, none of the first)', danach === 10, `${danach}`);
+  const p = [gruppe('attack')];
+  void p;
+}
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

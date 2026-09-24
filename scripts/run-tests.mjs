@@ -2182,6 +2182,10 @@ const KERN = [
   // B9.4 Client: Diagnose-Haken raeumen auf (zehn Aufrufe, eine Gruppe), Format
   // und Gruppensuche ohne Szene. ~2 s.
   ['client', 'test/b9-4-animation-client.ts'],
+  // B9.4 N1: Tod und Treffer ueber den echten Paketweg (handleAttack): zwei Spieler
+  // zugleich, Sterbende nicht wieder treffbar, hit-Ereignis, Wolf ohne die sofort weg,
+  // Instanzwelt mit gleicher ZDO-Id trifft die Hauptwelt nicht. Ephemerer Port. ~25 s.
+  ['server', 'test/b9-4-tod-paketweg.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

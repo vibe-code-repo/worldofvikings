@@ -233,7 +233,7 @@ export class SpawnSystem {
    * has the clip. Returns whether a clip was triggered.
    */
   treffer(zdo: ZDO): boolean {
-    const c = this.creatures.get(zdo.zdoid.toString());
+    const c = this.eigene(zdo);
     if (!c || c.stirbtBis !== undefined) return false;
     return this.einmal(c, 'hit');
   }
@@ -245,7 +245,7 @@ export class SpawnSystem {
    * caller destroys it at once, as before.
    */
   sterbe(zdo: ZDO): boolean {
-    const c = this.creatures.get(zdo.zdoid.toString());
+    const c = this.eigene(zdo);
     if (!c || c.stirbtBis !== undefined || !this.einmal(c, 'die')) return false;
     // pruefeClips guarantees dieSec whenever 'die' is listed; +0.25 s lets the
     // last frame arrive before the body disappears.
@@ -256,7 +256,19 @@ export class SpawnSystem {
 
   /** Is this creature in its death animation (not hittable, not acting)? */
   stirbt(zdo: ZDO): boolean {
-    return this.creatures.get(zdo.zdoid.toString())?.stirbtBis !== undefined;
+    return this.eigene(zdo)?.stirbtBis !== undefined;
+  }
+
+  /**
+   * The creature of THIS system that is this very ZDO. The id alone is no
+   * identity: an instance world has its own ZDOManager with the same
+   * serverUserId, so its ZDO can carry the id of a main-world creature —
+   * a blow in the instance would then kill or twitch the main-world animal
+   * (and pay the loot twice). Object identity refuses the stranger.
+   */
+  private eigene(zdo: ZDO): CreatureState | undefined {
+    const c = this.creatures.get(zdo.zdoid.toString());
+    return c !== undefined && c.zdo === zdo ? c : undefined;
   }
 
   /**

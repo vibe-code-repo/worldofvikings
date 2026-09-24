@@ -3365,11 +3365,10 @@ export class EntityManager {
    * without an attack clip keeps the old way (the group is not found).
    */
   private spieleZustand(dyn: DynamicEntity, zustand: string): void {
-    if (zustand === 'attack') {
-      const ok = this.assets.spieleEinmalKreatur(dyn.root, 'attack', () => this.faelltZurueck(dyn));
-      if (ok) return;
-    }
-    this.assets.wechsleAnimation(dyn.root, zustand);
+    // The state `attack` only says "in striking range". The blow itself is an
+    // event (`animEinmal`), written when the damage happens — playing a swing
+    // here showed blows without damage (the wolf strikes up to 2 s later).
+    this.assets.wechsleAnimation(dyn.root, zustand === 'attack' ? 'idle' : zustand);
   }
 
   /**

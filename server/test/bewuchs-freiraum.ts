@@ -10,20 +10,18 @@
  *  3. Ohne Platzierung (und mit einer Platzierung weit weg) ist die Zone
  *     bitgleich zum alten Stand — über alle 81 Zonen.
  *  4. Vorschau und Server liefern für dieselbe Zone dieselben Funde.
- *  5. Radiusregeln der gemeinsamen Funktion (einebnen, Hüllbox, Vorgabe).
+ *  5. Radiusregeln der gemeinsamen Funktion (Grundfälle; Hüllen im Schwestertest).
  *  6. Dauer von `generateZone` vorher/nachher (Median über 50 Zonen).
  *
  * Lauf: npx tsx server/test/bewuchs-freiraum.ts   (aus der Projektwurzel)
  */
 
 import {
-  FREIFLAECHE_MIN,
   FREIFLAECHE_VORGABE,
   GRASLAND_FLORA_NAMEN,
   HeightmapProvider,
   NADELWALD_FLORA_NAMEN,
   RegionGeo,
-  STORE_KOLLISIONSKISTE,
   freiflaechenAusPlatzierungen,
   freiflaechenFuerZone,
   getStableHash,
@@ -112,6 +110,8 @@ const gleich = (a: Fund[], b: Fund[]): boolean => {
   return x.length === y.length && x.every((v, i) => v === y[i]);
 };
 const imRadius = (f: Fund, m: { x: number; z: number }, r: number): boolean =>
+  Math.hypot(f.x - m.x, f.z - m.z) <= r;
+const imQuadrat = (f: Fund, m: { x: number; z: number }, r: number): boolean =>
   Math.abs(f.x - m.x) < r && Math.abs(f.z - m.z) < r;
 
 let failures = 0;
@@ -142,13 +142,15 @@ check('vorher Streuobjekte im Radius', nAltIm > 0, `${nAltIm}`);
 check('nachher 0 im Radius', nNeuIm === 0, `${nNeuIm}`);
 
 console.log('\n[2] Außerhalb bitgleich:');
-const altAussen = altFunde.filter((f) => !imRadius(f, MITTE, RADIUS + 8));
-const neuAussen = neuFunde.filter((f) => !imRadius(f, MITTE, RADIUS + 8));
+const altAussen = altFunde.filter((f) => !imQuadrat(f, MITTE, RADIUS + 8));
+const neuAussen = neuFunde.filter((f) => !imQuadrat(f, MITTE, RADIUS + 8));
 check(
   'außerhalb des Radius (+8 m Pflanzenrand) bitgleich',
   gleich(altAussen, neuAussen),
   `${altAussen.length} vs ${neuAussen.length}`
 );
+const eckenNeu = neuFunde.filter((f) => imQuadrat(f, MITTE, RADIUS) && !imRadius(f, MITTE, RADIUS)).length;
+check('Ecken des Quadrats bleiben bepflanzt (Kreis, kein Quadrat)', eckenNeu > 0, `${eckenNeu}`);
 const altZone = altFunde.filter((f) => Math.abs(f.x) < 32 && Math.abs(f.z) < 32).length;
 console.log(`      gesamt alt ${altFunde.length}, neu ${neuFunde.length}; Zone (0,0) alt ${altZone}`);
 
@@ -170,8 +172,8 @@ fernNeu.zm.update(SPIELER, 60_000);
 check(
   'Platzierung weit weg (>200 m): alle Zonen ausser deren Umgebung bitgleich',
   gleich(
-    funde(leerAlt.zdos).filter((f) => !imRadius(f, fern, 40)),
-    funde(fernNeu.zdos).filter((f) => !imRadius(f, fern, 40))
+    funde(leerAlt.zdos).filter((f) => !imQuadrat(f, fern, 40)),
+    funde(fernNeu.zdos).filter((f) => !imQuadrat(f, fern, 40))
   )
 );
 const fernLeer = funde(leerAlt.zdos).filter((f) => Math.abs(f.x) < 300 && Math.abs(f.z) < 300);
@@ -227,30 +229,23 @@ console.log('\n[4] Vorschau und Server:');
 }
 
 // ── [5] Radiusregeln ─────────────────────────────────────────────────
-console.log('\n[5] Radiusregeln:');
+// Hüllen, Kreisform und Klemmen: server/test/bewuchs-freiraum-huellen.ts.
+console.log('\n[5] Radiusregeln (Grundfälle; Hüllen siehe bewuchs-freiraum-huellen.ts):');
 {
-  const kiste = [...STORE_KOLLISIONSKISTE.entries()].find(([, b]) => b.max[0] > 1 || b.max[2] > 1);
-  const [name, box] = kiste ?? ['vegetation-pine-1b1', { min: [-0.3211, 0, -0.3211], max: [0.3211, 15, 0.3211] }];
   const l = {
     placements: [
-      { prefab: name, x: 1, z: 2, einebnen: 12 },
-      { prefab: name, x: 3, z: 4 },
-      { prefab: name, x: 3, z: 4, scale: 2 },
+      { prefab: 'BirkeDicht1', x: 1, z: 2, einebnen: 12 },
       { prefab: 'kein-katalogeintrag', x: 5, z: 6 },
     ],
   };
-  const r = freiflaechenAusPlatzierungen(l, STORE_KOLLISIONSKISTE).map((a) => a.radius);
-  const hx = Math.max(Math.abs(box.min[0]), Math.abs(box.max[0]));
-  const hz = Math.max(Math.abs(box.min[2]), Math.abs(box.max[2]));
-  const erwartet = Math.max(FREIFLAECHE_MIN, Math.hypot(hx, hz));
+  const flaechen = freiflaechenAusPlatzierungen(l);
+  const r = flaechen.map((x) => x.radius);
   check('einebnen gewinnt', r[0] === 12, `${r[0]}`);
-  check('Hüllbox diagonal', Math.abs(r[1] - erwartet) < 1e-9, `${r[1].toFixed(3)} m für ${name}`);
-  check('Skala geht ein', Math.abs(r[2] - Math.max(FREIFLAECHE_MIN, erwartet * 2)) < 1e-9, `${r[2].toFixed(3)}`);
-  check('ohne Katalogeintrag: feste Vorgabe', r[3] === FREIFLAECHE_VORGABE, `${r[3]}`);
+  check('ohne Hülle: feste Vorgabe', r[1] === FREIFLAECHE_VORGABE, `${r[1]}`);
+  check('Freifläche ist ein Kreis', flaechen.every((x) => x.kreis === true));
   check(
     'Zonenfilter: fernes Objekt fällt heraus, nahes bleibt',
-    freiflaechenFuerZone(freiflaechenAusPlatzierungen(l, STORE_KOLLISIONSKISTE), 0, 0).length === 4 &&
-      freiflaechenFuerZone(freiflaechenAusPlatzierungen(l, STORE_KOLLISIONSKISTE), 5, 5).length === 0
+    freiflaechenFuerZone(flaechen, 0, 0).length === 2 && freiflaechenFuerZone(flaechen, 5, 5).length === 0
   );
 }
 

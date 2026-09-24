@@ -70,12 +70,12 @@
 import {
   freiflaechenAusPlatzierungen,
   freiflaechenFuerZone,
-  STORE_KOLLISIONSKISTE,
+  freiflaechenHuellen,
   streueZone,
   type ClientWorldLike,
   type StreuFund,
 } from './bewuchsTypen';
-import type { ClearArea } from '@wov/shared';
+import type { ClearArea, PlacementDef } from '@wov/shared';
 import type { EntityManager } from '../entities/EntityManager';
 
 /** Wie viel die Vorschau zeigt: voll = 5x5 Zonen, klein = 3x3, aus = nichts. */
@@ -127,10 +127,21 @@ export class BewuchsVorschau {
   /** Uhrzeit des letzten `schritt` in Millisekunden. */
   private jetztMs = 0;
 
+  /** Abstand in ms, in dem die Platzierungen auf Aenderungen geprueft werden. */
+  private static readonly PLATZIERUNGEN_PRUEFEN_MS = 250;
+  private platzierungenGeprueftMs = -Infinity;
+
+  /**
+   * `platzierungen` liefert die AKTUELLEN Platzierungen (im Testflug der
+   * Entwurf, den Setzen, Ziehen und Loeschen laufend aendern); ohne sie
+   * gilt das Layout der Welt. Aendern sie sich, werden nur die Zonen neu
+   * gestreut, die eine geaenderte Freiflaeche beruehrt.
+   */
   constructor(
     private readonly welt: ClientWorldLike,
     private readonly ent: EntityManager,
-    private readonly nachlaufMs = NACHLAUF_MS
+    private readonly nachlaufMs = NACHLAUF_MS,
+    private readonly platzierungen: (() => readonly PlacementDef[] | null | undefined) | null = null
   ) {}
 
   /**
@@ -147,6 +158,7 @@ export class BewuchsVorschau {
    */
   schritt(spielerX: number, spielerZ: number, jetztMs: number = performance.now()): void {
     this.jetztMs = jetztMs;
+    this.platzierungenPruefen();
     const zx = Math.floor(spielerX / 64 + 0.5);
     const zy = Math.floor(spielerZ / 64 + 0.5);
     const jetzt = `${zx},${zy}`;
@@ -170,6 +182,7 @@ export class BewuchsVorschau {
     this.draussen.clear();
     this.warteschlange = [];
     this.letzteZone = '';
+    this.freiflaechenListe = null;
     this.ent.flush();
   }
 
@@ -238,13 +251,52 @@ export class BewuchsVorschau {
     if (wahl !== null) this.zoneAbbauen(wahl);
   }
 
-  /** Clear areas of the layout placements, computed once (same function as the server). */
+  /** Clear areas of the current placements (same function as the server). */
   private freiflaechenListe: readonly ClearArea[] | null = null;
   private freiflaechen(): readonly ClearArea[] {
-    this.freiflaechenListe ??= this.welt.regionGeo
-      ? freiflaechenAusPlatzierungen(this.welt.regionGeo.layout, STORE_KOLLISIONSKISTE)
-      : [];
+    this.freiflaechenListe ??= this.freiflaechenBerechnen();
     return this.freiflaechenListe;
+  }
+
+  private freiflaechenBerechnen(): readonly ClearArea[] {
+    if (!this.welt.regionGeo) return [];
+    const quelle = this.platzierungen?.() ?? this.welt.regionGeo.layout.placements;
+    return freiflaechenAusPlatzierungen({ placements: quelle }, freiflaechenHuellen());
+  }
+
+  /**
+   * Rechnet die Freiflaechen neu (hoechstens alle 250 ms) und streut die
+   * Zonen neu, die eine hinzugekommene, entfernte oder veraenderte Flaeche
+   * beruehrt — ein Objekt, das der Spieler setzt, verschiebt oder loescht,
+   * zeigt sofort denselben Bewuchs, den der Server nach dem Speichern erzeugt.
+   */
+  private platzierungenPruefen(): void {
+    if (this.jetztMs - this.platzierungenGeprueftMs < BewuchsVorschau.PLATZIERUNGEN_PRUEFEN_MS) return;
+    this.platzierungenGeprueftMs = this.jetztMs;
+    const alt = this.freiflaechenListe;
+    if (alt === null) return; // noch nichts gestreut, nichts zu vergleichen
+    const neu = this.freiflaechenBerechnen();
+    const schl = (a: ClearArea): string => `${a.center.x},${a.center.z},${a.radius}`;
+    const vorher = new Set(alt.map(schl));
+    const nachher = new Set(neu.map(schl));
+    const geaendert = [
+      ...alt.filter((a) => !nachher.has(schl(a))),
+      ...neu.filter((a) => !vorher.has(schl(a))),
+    ];
+    if (geaendert.length === 0) return;
+    this.freiflaechenListe = neu;
+    const rand = 16; // ein Pflanzenradius, wie freiflaechenFuerZone
+    for (const a of geaendert) {
+      const x0 = Math.floor((a.center.x - a.radius - rand) / 64 + 0.5);
+      const x1 = Math.floor((a.center.x + a.radius + rand) / 64 + 0.5);
+      const y0 = Math.floor((a.center.z - a.radius - rand) / 64 + 0.5);
+      const y1 = Math.floor((a.center.z + a.radius + rand) / 64 + 0.5);
+      for (const k of [...this.fertig.keys()]) {
+        const [zx, zy] = k.split(',').map(Number);
+        if (zx >= x0 && zx <= x1 && zy >= y0 && zy <= y1) this.zoneAbbauen(k);
+      }
+    }
+    this.letzteZone = ''; // Warteschlange beim naechsten Schritt neu fuellen
   }
 
   /** Gibt die Instanzen einer Zone frei (`removeZDO` je Pflanze) und vergisst sie. */

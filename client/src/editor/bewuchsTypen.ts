@@ -11,7 +11,7 @@ export {
   streueZone,
   freiflaechenAusPlatzierungen,
   freiflaechenFuerZone,
-  STORE_KOLLISIONSKISTE,
+  freiflaechenHuellen,
 } from '@wov/shared';
 export type { StreuFund } from '@wov/shared';
 

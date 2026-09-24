@@ -468,7 +468,11 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     const bewuchs = welt?.regionGeo
       ? new BewuchsVorschau(
           { seed: welt.seed, geo: welt.geo, heightmaps: welt.heightmaps, regionGeo: welt.regionGeo },
-          ent
+          ent,
+          undefined,
+          // Der Entwurf ändert sich beim Setzen, Ziehen und Löschen; das
+          // Layout der Welt bleibt, wie es beim Start war.
+          () => persistenz.laden()?.placements as never
         )
       : null;
     if (bewuchs) {

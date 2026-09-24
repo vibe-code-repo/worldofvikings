@@ -2170,6 +2170,9 @@ const KERN = [
   ['shared', 'test/weltbau-stil.ts'],
   ['shared', 'test/weltbau-nachbesserung.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
+  ['server', 'test/bewuchs-freiraum.ts'],
+  ['server', 'test/bewuchs-freiraum-huellen.ts'],
+  ['client', 'test/bewuchs-freiraum-vorschau.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

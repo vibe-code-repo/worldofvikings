@@ -36,7 +36,6 @@ import {
   streueZone,
   freiflaechenAusPlatzierungen,
   freiflaechenFuerZone,
-  STORE_KOLLISIONSKISTE,
   FEATURES,
   RegionGeo,
   layoutBounds,
@@ -294,10 +293,7 @@ export class ZoneManager {
       }
       this.layoutBiomeMask = maske;
       if (options.platzierungenFreihalten) {
-        this.platzierungsFreiflaechen = freiflaechenAusPlatzierungen(
-          this.regionGeo.layout,
-          STORE_KOLLISIONSKISTE
-        );
+        this.platzierungsFreiflaechen = freiflaechenAusPlatzierungen(this.regionGeo.layout);
       }
     }
   }

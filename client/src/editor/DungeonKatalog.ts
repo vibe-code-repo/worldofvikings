@@ -60,7 +60,7 @@ import { abschnitt, auswahl, feld, hinweis, knopf, schalter, zeile } from './dun
 // geöffneten Dokument nichts zu tun hat und diese hier schon 1 200
 // Zeilen misst.
 import { NewHallForm, type HallBuilder, type HallDeleter } from './DungeonNeuerSaal';
-import { dungeonZiel, gameUrl } from './spielAdresse';
+import { dungeonMeldung, dungeonZiel, gameUrl } from './spielAdresse';
 
 export interface DungeonSeiteRueckrufe {
   meldung(text: string, fehler?: boolean): void;
@@ -1001,8 +1001,8 @@ export class DungeonSeite {
    * nichts und saehe aus wie ein kaputter Knopf.
    *
    * ── Welcher Host ─────────────────────────────────────────────────
-   * Auf `editor.<rest>` der Spiel-Host `live.<rest>` (`dungeonZiel` in
-   * `spielAdresse.ts`): Anmeldung und Konto gibt es nur dort, nginx schickt
+   * Auf einem Editor-Host der Spiel-Host aus der Tabelle in
+   * `spielAdresse.ts` (`dungeonZiel`): Anmeldung und Konto gibt es nur dort, nginx schickt
    * `/de/anmelden` auf dem Editor-Host in den Editor zurueck. Auf jedem
    * anderen Host (auch `live.` selbst, localhost) bleibt es beim eigenen
    * Ursprung.
@@ -1055,7 +1055,7 @@ export class DungeonSeite {
       }
     }
 
-    this.cb.meldung(`${doc.id} wird im Spiel geöffnet …`);
+    this.cb.meldung(dungeonMeldung(doc.id, ziel));
     window.open(ziel.url, '_blank');
   }
 

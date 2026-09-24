@@ -1,20 +1,22 @@
 /**
  * Die Dungeon-Knöpfe „Betreten" öffnen das Spiel auf dem Spiel-Host.
  *
- * Auf `editor.<rest>` gibt es keine Anmeldung (nginx schickt `/de/anmelden` in
- * den Editor zurück) und kein Konto. `dungeonZiel` macht daher aus
- * `editor.dev.world-of-vikings.com` den Host `live.dev.world-of-vikings.com`;
- * auf jedem anderen Host bleibt es beim eigenen Ursprung. Das Token, das die
+ * Auf den Editor-Hosts gibt es keine Anmeldung (nginx schickt `/de/anmelden` in
+ * den Editor zurück) und kein Konto. `dungeonZiel` schlägt den Spiel-Host in
+ * einer festen Tabelle nach (Live `play.`, dev und staging `live.`); auf jedem
+ * anderen Host bleibt es beim eigenen Ursprung. Das Token, das die
  * Editor-Verbindung beim Speichern vom Server bekommt, gehört nicht in den
  * `localStorage`: es ist kontolos und würde als Anmeldung gelten.
  *
- * Geprüft wird die Abbildung, das Verhalten von `GameSocket` beim Token und,
- * am Syntaxbaum, dass beide Kataloge nur über `dungeonZiel` öffnen.
+ * Geprüft wird die Tabelle, das Verhalten von `GameSocket` beim Token und, durch
+ * Ausführen des Knopf-Wegs beider Kataloge, welche Adresse wirklich geöffnet wird.
  */
 import { readFileSync } from 'node:fs';
 import * as ts from 'typescript';
 import { PacketType } from '@wov/shared';
-import { dungeonUrl, dungeonZiel, gameUrl, spielHostVon } from '../src/editor/spielAdresse';
+import { dungeonMeldung, dungeonUrl, dungeonZiel, gameUrl, spielHostVon } from '../src/editor/spielAdresse';
+import { DungeonSeite } from '../src/editor/DungeonKatalog';
+import { Dungeon2Seite } from '../src/editor/dungeon2/Dungeon2Katalog';
 import { GameSocket } from '../src/net/GameSocket';
 
 let fehler = 0;
@@ -41,24 +43,33 @@ pruefe(meldung.startsWith('Error: Ungültige Dungeon-Kennung'), `einzelnes Surro
 // ── Die Host-Abbildung ──────────────────────────────────────────────────────
 const H = 'world-of-vikings.com';
 const faelle: Array<[string, string | null]> = [
+  [`editor.${H}`, `play.${H}`],
   [`editor.dev.${H}`, `live.dev.${H}`],
   [`editor.staging.${H}`, `live.staging.${H}`],
-  [`editor.${H}`, `live.${H}`],
-  [`editor.${H}:8443`, `live.${H}:8443`],
   [`EDITOR.dev.${H}`, `live.dev.${H}`],
+  [`live.${H}`, null],
+  [`play.${H}`, null],
   [`live.dev.${H}`, null],
   [`play.dev.${H}`, null],
+  [`live.staging.${H}`, null],
   [`dev.${H}`, null],
+  [H, null],
+  [`editor.${H}:8443`, null],
+  [`editor.dev.${H}:5290`, null],
+  [`editor.other.${H}`, null],
   ['localhost', null],
   ['localhost:5290', null],
+  ['editor.localhost', null],
+  ['editor.localhost:5290', null],
   ['editor.', null],
   ['editor', null],
-  ['editor.localhost:5290', 'live.localhost:5290'],
+  ['constructor', null],
+  ['__proto__', null],
+  ['toString', null],
   [`x.editor.dev.${H}`, null],
   [`editor.dev.${H}/evil`, null],
   [`editor.dev.${H}@evil.example`, null],
   [`editor.evil.example\\@${H}`, null],
-  [`editor.dev.${H}:99999999`, null],
   ['', null],
 ];
 for (const [host, soll] of faelle) {
@@ -72,14 +83,23 @@ pruefe(z.url === '/play/?dungeon=steingrab-2' && z.gleicherUrsprung, `live.dev b
 z = dungeonZiel('steingrab-2', { host: 'localhost:5290', protocol: 'http:' }, '/');
 pruefe(z.url === '/?dungeon=steingrab-2' && z.gleicherUrsprung, `localhost bleibt beim eigenen Ursprung: ${z.url}`);
 z = dungeonZiel('x', { host: 'editor.localhost:5290', protocol: 'http:' }, '/play/');
-pruefe(z.url === 'http://live.localhost:5290/play/?dungeon=x', `http bleibt http: ${z.url}`);
+pruefe(z.url === '/play/?dungeon=x' && z.gleicherUrsprung, `editor.localhost bleibt beim eigenen Ursprung: ${z.url}`);
+z = dungeonZiel('x', { host: `editor.dev.${H}`, protocol: 'http:' }, '/play/');
+pruefe(z.url === `http://live.dev.${H}/play/?dungeon=x`, `http bleibt http: ${z.url}`);
+z = dungeonZiel('steingrab-2', { host: `editor.${H}`, protocol: 'https:' }, '/play/');
+pruefe(z.url === `https://play.${H}/play/?dungeon=steingrab-2` && !z.gleicherUrsprung, `editor (Live) → ${z.url}`);
 z = dungeonZiel('x', { host: `editor.dev.${H}`, protocol: 'javascript:' }, '/play/');
 pruefe(z.url.startsWith('https://live.'), `fremdes Protokoll wird zu https: ${z.url}`);
 for (const id of ['a/../b', 'a?x=1#y', '//evil.example/', 'a b\n', '%2e%2e']) {
   const u = new URL(dungeonZiel(id, { host: `editor.dev.${H}`, protocol: 'https:' }, '/play/').url);
   pruefe(u.host === `live.dev.${H}` && u.pathname === '/play/' && u.searchParams.get('dungeon') === id && u.hash === '', `Kennung ${JSON.stringify(id)} bleibt ein Parameter auf live.dev`);
 }
-pruefe(!/play\.dev|\bplay\./.test(readFileSync(new URL('../src/editor/spielAdresse.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')), 'das tote play.-Host taucht in spielAdresse.ts nicht auf');
+
+// ── Die Meldung sagt ehrlich, was beim Hostwechsel passiert ─────────────────
+const mHost = dungeonMeldung('x', dungeonZiel('x', { host: `editor.dev.${H}`, protocol: 'https:' }, '/play/'));
+pruefe(/Anmeldung/.test(mHost) && /erneut öffnen/.test(mHost), `Hostwechsel: Meldung warnt vor dem Verlust (${mHost})`);
+const mGleich = dungeonMeldung('x', dungeonZiel('x', { host: 'localhost:5290', protocol: 'http:' }, '/'));
+pruefe(!/Anmeldung/.test(mGleich), `gleicher Ursprung: schlichte Meldung (${mGleich})`);
 
 // ── GameSocket: die Editor-Verbindung schreibt kein Token ───────────────────
 function peerInfo(token: string): ArrayBuffer {
@@ -122,20 +142,6 @@ for (const rel of KATALOGE) {
   // dungeonZiel bekommt das echte location, kein selbstgebautes Objekt.
   pruefe(ziele.every((k) => (k as ts.CallExpression).arguments[1]?.getText() === 'location'), `${rel}: dungeonZiel(…, location)`);
 
-  const oeffner = knoten.filter(
-    (k): k is ts.CallExpression =>
-      ts.isCallExpression(k) &&
-      ts.isPropertyAccessExpression(k.expression) &&
-      ts.isIdentifier(k.expression.expression) &&
-      k.expression.expression.text === 'window' &&
-      k.expression.name.text === 'open'
-  );
-  pruefe(oeffner.length === 2, `${rel}: zwei window.open (${oeffner.length})`);
-  for (const o of oeffner) {
-    const a = o.arguments[0];
-    const arg = a?.getText() ?? '';
-    pruefe(/^gameUrl\(\)$/.test(arg) || arg === 'ziel.url', `${rel}: window.open(${arg}) geht über gameUrl() oder dungeonZiel().url`);
-  }
   // Die Token-Vorabprüfung steht hinter `gleicherUrsprung`: im Zweig davor liest niemand localStorage.
   const liest = knoten.filter((k) => ts.isCallExpression(k) && k.getText().startsWith('localStorage.getItem'));
   pruefe(
@@ -146,10 +152,61 @@ for (const rel of KATALOGE) {
       }),
     `${rel}: localStorage nur im Zweig ziel.gleicherUrsprung gelesen (${liest.length} Lesung)`
   );
-  // Kein Adresstext aus location.protocol/host, ausser dem WebSocket-Pfad `…/ws`.
-  const geklebt = knoten.filter((k) => ts.isTemplateExpression(k) && /location\.(protocol|host)/.test(k.getText()) && !/\/ws`$/.test(k.getText()));
-  pruefe(geklebt.length === 0, `${rel}: keine Adresse aus location.protocol/host (${geklebt.length})`);
 }
+// Verhalten statt Quelltext: den echten Knopf-Weg (`betrete`) mit gestelltem
+// `location`, `window.open` und `localStorage` ausführen und jede geöffnete
+// Adresse prüfen. Ein Umweg über `location.assign` oder eine geklebte Adresse
+// kommt hier nicht durch, gleich wie er gebaut ist.
+type Ort = { host: string; protocol: string };
+const geoeffnet: string[] = [];
+const zugewiesen: string[] = [];
+const meldungen: string[] = [];
+let ortJetzt: Ort = { host: '', protocol: 'https:' };
+const g = globalThis as unknown as Record<string, unknown>;
+g.location = new Proxy(
+  {},
+  {
+    get: (_t, k) => (k === 'host' ? ortJetzt.host : k === 'protocol' ? ortJetzt.protocol : k === 'assign' || k === 'replace' ? (u: string) => zugewiesen.push(u) : undefined),
+    set: (_t, k, v) => (zugewiesen.push(`${String(k)}=${String(v)}`), true)
+  }
+);
+g.window = { open: (u: string) => geoeffnet.push(String(u)), location: g.location };
+(g.localStorage as { getItem(k: string): string | null }).getItem = (k: string) => (k === 'wov-session-token' ? null : speicher.get(k) ?? null);
+const legacy = (DungeonSeite.prototype as unknown as { betrete(this: unknown, d: { id: string }): void }).betrete;
+const neu = (Dungeon2Seite.prototype as unknown as { betrete(this: unknown): void }).betrete;
+const wege: Array<[string, () => void]> = [
+  ['DungeonKatalog', () => legacy.call({ schmutzig: false, cb: { meldung: (t: string) => meldungen.push(t) } }, { id: 'steingrab-2' })],
+  ['Dungeon2Katalog', () => neu.call({ aktuellesDokument: { id: 'steingrab-2' }, zustand: 'sauber', shell: { meldung: (t: string) => meldungen.push(t) } })],
+];
+// Der Pfad hängt an der Basis des Builds (`/play/` im Bündel, `/` ohne Vite).
+const PFAD = gameUrl('dungeon=steingrab-2');
+const SOLL: Array<[string, string]> = [
+  [`editor.${H}`, `https://play.${H}${PFAD}`],
+  [`editor.dev.${H}`, `https://live.dev.${H}${PFAD}`],
+  [`editor.staging.${H}`, `https://live.staging.${H}${PFAD}`],
+];
+for (const [name, weg] of wege) {
+  for (const [host, soll] of SOLL) {
+    geoeffnet.length = zugewiesen.length = meldungen.length = 0;
+    ortJetzt = { host, protocol: 'https:' };
+    let fehlerText = '';
+    try {
+      weg();
+    } catch (e) {
+      fehlerText = String(e);
+    }
+    pruefe(fehlerText === '' && geoeffnet.length === 1 && geoeffnet[0] === soll && zugewiesen.length === 0, `${name} auf ${host}: öffnet ${JSON.stringify(geoeffnet)} (soll ${soll}), kein assign ${fehlerText}`);
+    pruefe(meldungen.length === 1 && /erneut öffnen/.test(meldungen[0]), `${name} auf ${host}: ehrliche Meldung (${meldungen[0] ?? 'keine'})`);
+  }
+  // Eigener Ursprung: nur ein Pfad, keine Adresse mit Host.
+  geoeffnet.length = zugewiesen.length = meldungen.length = 0;
+  (g.localStorage as { getItem(k: string): string | null }).getItem = () => 'sp_konto';
+  ortJetzt = { host: 'localhost:5290', protocol: 'http:' };
+  weg();
+  pruefe(geoeffnet.length === 1 && geoeffnet[0] === gameUrl('dungeon=steingrab-2') && zugewiesen.length === 0, `${name} auf localhost: ${JSON.stringify(geoeffnet)}`);
+  (g.localStorage as { getItem(k: string): string | null }).getItem = () => null;
+}
+
 // Das Speichern läuft auf dem Editor-Host über /ws.
 const d2 = readFileSync(new URL('../src/editor/dungeon2/Dungeon2Katalog.ts', import.meta.url), 'utf8');
 pruefe(/speichereDungeon2\(location\.host,/.test(d2), 'Dungeon2Katalog.speichere(): WebSocket-Host ist location.host');

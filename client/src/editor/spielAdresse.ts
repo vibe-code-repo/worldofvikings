@@ -9,8 +9,7 @@
  *
  * The path helpers (`gameUrl`, `dungeonUrl`) return paths only. The one place
  * that changes the host is `dungeonZiel`: the sign-in and the account live on
- * the game host (`live.<rest>`), not on the editor host (`editor.<rest>`),
- * where nginx sends `/de/anmelden` back into the editor.
+ * the game host (`spielHostVon`), not on the editor host, where nginx sends `/de/anmelden` back into the editor.
  *
  * Kept free of the DOM and of `location`, so a test can pass both prefixes
  * without faking `import.meta`.
@@ -67,15 +66,33 @@ export function dungeonUrl(id: string, base: string = clientBase()): string {
 }
 
 /**
- * The game host that belongs to an editor host: `editor.<rest>` becomes
- * `live.<rest>` (`editor.dev.world-of-vikings.com` →
- * `live.dev.world-of-vikings.com`), a port is kept. Every other host — the game
- * host itself, `localhost`, a slot port — maps to `null`: the game opens on the
- * own origin there.
+ * Editor host → game host, as a fixed table. Measured, not derived by a rule:
+ * the game host is `play.` in production but `live.` on dev and staging, so
+ * no single `editor.*` → `live.*` rule fits.
+ *
+ * Sources: `Docs/05-Server-Architektur.md` ("Vier Domains": production game
+ * host `play.world-of-vikings.com`, editor behind Basic-Auth on
+ * `editor.world-of-vikings.com`), `wov-web/src/lib/account.ts:94` (`origin:
+ * 'https://play.world-of-vikings.com'`), and a read-only `curl` with a Host
+ * header against nginx on the dev machine (`/play/` 200 on `live.dev` and
+ * `live.staging`, `/de/anmelden` served by the website there). `live.` does not
+ * exist in production (no vhost, no certificate), `play.dev`/`play.staging` do
+ * not exist on dev/staging.
+ */
+const SPIEL_HOSTS: Readonly<Record<string, string>> = {
+  'editor.world-of-vikings.com': 'play.world-of-vikings.com',
+  'editor.dev.world-of-vikings.com': 'live.dev.world-of-vikings.com',
+  'editor.staging.world-of-vikings.com': 'live.staging.world-of-vikings.com'
+};
+
+/**
+ * The game host that belongs to an editor host, from the table above. Every
+ * other host — the game host itself, `localhost`, a slot port, a host with a
+ * port — maps to `null`: the game opens on the own origin there.
  */
 export function spielHostVon(host: string): string | null {
-  const treffer = /^editor\.([a-z0-9][a-z0-9.-]*)(:\d{1,5})?$/i.exec(host);
-  return treffer ? `live.${treffer[1]}${treffer[2] ?? ''}` : null;
+  const treffer = Object.prototype.hasOwnProperty.call(SPIEL_HOSTS, host.toLowerCase());
+  return treffer ? SPIEL_HOSTS[host.toLowerCase()] : null;
 }
 
 /**
@@ -99,4 +116,16 @@ export function dungeonZiel(
   if (spielHost === null) return { url: pfad, gleicherUrsprung: true };
   const protokoll = ort.protocol === 'http:' ? 'http:' : 'https:';
   return { url: `${protokoll}//${spielHost}${pfad}`, gleicherUrsprung: false };
+}
+
+/**
+ * The message the editor shows when it opens the game. On a host change the
+ * page cannot see the sign-in, and the game's sign-in redirect (`main.ts`,
+ * `weiter=/play/`) drops `?dungeon=`: without a session the dungeon is lost, so
+ * the message says so instead of promising it opens.
+ */
+export function dungeonMeldung(id: string, ziel: DungeonZiel): string {
+  return ziel.gleicherUrsprung
+    ? `${id} wird im Spiel geöffnet …`
+    : `${id} wird im Spiel geöffnet … Falls das Spiel zur Anmeldung führt, geht die Wahl verloren: nach der Anmeldung den Dungeon erneut öffnen.`;
 }

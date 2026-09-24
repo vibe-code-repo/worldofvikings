@@ -36,7 +36,7 @@ import { dungeon2 } from '@wov/shared';
 import { F, auswahl, el, feld, knopf, stil } from '../design';
 import { Dungeon2LadeFehler, holeDungeon2, holeDungeon2Liste, type Dungeon2Kopf } from './Dungeon2Dokument';
 import { speichereDungeon2 } from './Dungeon2Speichern';
-import { dungeonZiel, gameUrl } from '../spielAdresse';
+import { dungeonMeldung, dungeonZiel, gameUrl } from '../spielAdresse';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Andockstellen fuer Zeichenflaeche und Werkzeuge (AP15.7)
@@ -540,11 +540,11 @@ export class Dungeon2Seite {
 
   /**
    * Den Dungeon im ONLINEN Spielclient oeffnen — auf dem Ursprung des
-   * Editors (auf `editor.<rest>` der Spiel-Host `live.<rest>`, sonst nur der
+   * Editors (auf einem Editor-Host der Spiel-Host aus der Tabelle, sonst nur der
    * Pfad), Sitzungstoken-Fallback nur beim gleichen Ursprung wie in der
    * LEGACY-`betrete()` (dort ausfuehrlich begruendet).
    * Open the dungeon in the ONLINE game client — on the game host
-   * (`editor.<rest>` → `live.<rest>`, otherwise the own origin); the
+   * (editor host → game host from the table, otherwise the own origin); the
    * sign-in pre-check only applies to the same origin, as in the LEGACY
    * `betrete()`.
    */
@@ -583,7 +583,7 @@ export class Dungeon2Seite {
       }
     }
 
-    this.shell.meldung(`${doc.id} wird im Spiel geoeffnet …`);
+    this.shell.meldung(dungeonMeldung(doc.id, ziel));
     window.open(ziel.url, '_blank');
   }
 }

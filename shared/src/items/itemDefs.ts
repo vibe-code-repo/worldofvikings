@@ -476,8 +476,9 @@ import { SEIDRAVEN_PARTS } from '../seidraven.js';
 import { EMBERRAGE_PARTS } from '../emberrage.js';
 import { PLAINHIDE_PARTS } from '../plainhide.js';
 import { GRAVETHORN_PARTS } from '../gravethorn.js';
+import { CROWSHADE_PARTS } from '../crowshade.js';
 const KLEIDUNG: ItemShared[] = [
-  ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS, ...ASHENVEIL_PARTS, ...SEIDRAVEN_PARTS, ...EMBERRAGE_PARTS, ...PLAINHIDE_PARTS, ...GRAVETHORN_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
+  ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS, ...ASHENVEIL_PARTS, ...SEIDRAVEN_PARTS, ...EMBERRAGE_PARTS, ...PLAINHIDE_PARTS, ...GRAVETHORN_PARTS, ...CROWSHADE_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
     icon: p.id, model: null, maxStackSize: 1, weight: p.weight, toolTier: 0,
     ausruestung: p.equipment, ruestungsteil: p.id, hideAppearance: p.hideAppearance,
     ...('vfxProfile' in p ? { vfxProfile: p.vfxProfile } : {}),

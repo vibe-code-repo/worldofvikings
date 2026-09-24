@@ -11,7 +11,7 @@ assert.equal(catalog.schemaVersion, 1);
 // The served JSON must equal the object: no key with the value undefined (a set without a class has no `classId`).
 assert.deepEqual(JSON.parse(JSON.stringify(catalog)), catalog, 'The catalog must survive its own JSON round trip');
 assert.deepEqual(catalog.sets.map(set => set.id), ['ironward', 'wildwarden', 'ashenveil', 'seidraven_male', 'seidraven_female', 'emberrage_male', 'emberrage_female',
-  'plainhide_male', 'plainhide_female', 'gravethorn_male', 'gravethorn_female']);
+  'plainhide_male', 'plainhide_female', 'gravethorn_male', 'gravethorn_female', 'crowshade_male', 'crowshade_female']);
 const BODY_REGIONS = ['Head', 'Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft', 'ArmLowerRight', 'HandLeft', 'HandRight', 'LegLeft', 'LegRight'];
 const ids = new Set<string>();
 let totalItems = 0;
@@ -48,8 +48,9 @@ assert.deepEqual(catalog.sets.filter(set => 'starter' in set).map(set => set.id)
 assert.deepEqual(catalog.sets.map(set => [set.id, set.classId]), [
   ['ironward', 'krieger'], ['wildwarden', 'druide'], ['ashenveil', 'hexer'], ['seidraven_male', 'seherin'], ['seidraven_female', 'seherin'],
   ['emberrage_male', 'runenmagier'], ['emberrage_female', 'runenmagier'], ['plainhide_male', undefined], ['plainhide_female', undefined],
-  ['gravethorn_male', 'berserker'], ['gravethorn_female', 'berserker']]);
+  ['gravethorn_male', 'berserker'], ['gravethorn_female', 'berserker'], ['crowshade_male', 'jaeger'], ['crowshade_female', 'jaeger']]);
 assert.equal(CLASS_EQUIPMENT_FAMILIES.berserker, 'gravethorn');
+assert.equal(CLASS_EQUIPMENT_FAMILIES.jaeger, 'crowshade');
 for (const set of catalog.sets) for (const part of set.parts) {
   assert.equal(part.previewModel, set.figure === 'wikingerin' ? `armor/${part.model}` : part.model, `${part.itemId}: preview model`);
   assert.equal(part.previewBodyProfile, set.figure === 'wikingerin' ? 'wov-female-v1' : 'wov-male-v1');
@@ -58,6 +59,12 @@ for (const set of catalog.sets) for (const part of set.parts) {
 const hoods = catalog.sets.filter(set => set.familyId === 'gravethorn').map(set => set.parts.filter(part => part.hideAppearance.length).map(part => [part.itemId, [...part.hideAppearance]]));
 assert.deepEqual(hoods, [[['gravethorn_male_hood', ['hair', 'beard', 'eyebrows']]], [['gravethorn_female_hood', ['hair', 'beard', 'eyebrows']]]]);
 assert(catalog.sets.filter(set => set.familyId === 'plainhide').every(set => set.parts.every(part => part.hideAppearance.length === 0 && !('vfxProfile' in part))));
+// Crowshade: only the mask hides hair, beard and eyebrows, and nothing glows (no vfxProfile key at all).
+assert.deepEqual(catalog.sets.filter(set => set.familyId === 'crowshade').map(set => set.parts.filter(part => part.hideAppearance.length).map(part => [part.itemId, [...part.hideAppearance]])),
+  [[['crowshade_male_hood', ['hair', 'beard', 'eyebrows']]], [['crowshade_female_hood', ['hair', 'beard', 'eyebrows']]]]);
+assert(catalog.sets.filter(set => set.familyId === 'crowshade').every(set => set.parts.every(part => !('vfxProfile' in part))));
+assert.deepEqual(EQUIPMENT_SETS.find(set => set.id === 'crowshade_male')!.parts.map(part => part.name),
+  ['Crowshade Mask', 'Crowshade Jerkin', 'Crowshade Coat', 'Crowshade Pauldrons', 'Crowshade Bracers', 'Crowshade Claws', 'Crowshade Boots']);
 assert(catalog.sets.filter(set => set.familyId === 'gravethorn').every(set => set.parts.every(part => 'vfxProfile' in part && part.vfxProfile === 'gravethorn_red')));
 assert.deepEqual(EQUIPMENT_SETS.find(set => set.id === 'plainhide_male')!.parts.map(part => part.name), ['Plainhide Sleeves', 'Plainhide Tunic', 'Plainhide Wraps', 'Plainhide Trousers', 'Plainhide Shoes']);
 assert.deepEqual(EQUIPMENT_SETS.find(set => set.id === 'gravethorn_female')!.parts.map(part => part.name),
@@ -67,6 +74,9 @@ const SLOT_TABLE: Record<string, Record<string, [string, string, string[]]>> = {
   plainhide: { shoulders: ['schultern', 'schultern', ['ArmUpperLeft', 'ArmUpperRight']], vest: ['oberkoerper', 'hemd', ['Torso']],
     bracers: ['unterarme', 'unterarme', ['ArmLowerLeft', 'ArmLowerRight']], robe: ['beine', 'hose', ['Hips']], boots: ['fuesse', 'schuhe', ['LegLeft', 'LegRight']] },
   gravethorn: { hood: ['kopf', 'kopf', ['Head']], shoulders: ['schultern', 'schultern', ['ArmUpperLeft', 'ArmUpperRight']], vest: ['oberkoerper', 'hemd', ['Torso']],
+    bracers: ['unterarme', 'unterarme', ['ArmLowerLeft', 'ArmLowerRight']], gloves: ['haende', 'haende', ['HandLeft', 'HandRight']], robe: ['beine', 'hose', ['Hips']],
+    boots: ['fuesse', 'schuhe', ['LegLeft', 'LegRight']] },
+  crowshade: { hood: ['kopf', 'kopf', ['Head']], shoulders: ['schultern', 'schultern', ['ArmUpperLeft', 'ArmUpperRight']], vest: ['oberkoerper', 'hemd', ['Torso']],
     bracers: ['unterarme', 'unterarme', ['ArmLowerLeft', 'ArmLowerRight']], gloves: ['haende', 'haende', ['HandLeft', 'HandRight']], robe: ['beine', 'hose', ['Hips']],
     boots: ['fuesse', 'schuhe', ['LegLeft', 'LegRight']] },
 };
@@ -108,7 +118,7 @@ assert.equal(peer.ruestung, '|');
 assert(peer.inventar.all.every(item => !item.equipped));
 
 // The two new families follow the same rules: ownership is enforced, the body must fit, a five-piece set leaves head and hands alone.
-for (const set of catalog.sets.filter(entry => ['plainhide', 'gravethorn'].includes(entry.familyId))) {
+for (const set of catalog.sets.filter(entry => ['plainhide', 'gravethorn', 'crowshade'].includes(entry.familyId))) {
   const other = { ...peer, name: `EquipmentCatalogTest-${set.id}`, figur: set.figure, ruestung: '|', inventar: new Inventory() };
   const wear = (appearance: Record<string, string>) => {
     const packet = new Writer().writeString('H_01').writeString(appearance.oberkoerper ?? '').writeString(appearance.beine ?? '')
@@ -129,5 +139,5 @@ for (const set of catalog.sets.filter(entry => ['plainhide', 'gravethorn'].inclu
   wear(foreign.appearance);
   assert.deepEqual(decodeArmor(other.ruestung), set.appearance, `${set.id}: the ${foreign.id} pieces must not replace the fitted ones`);
 }
-assert.equal(totalItems, 73);
-console.log('PASS equipment sets: 73 items in 11 sets, stable IDs, slots, body masks, free regions, ownership and no implicit grant');
+assert.equal(totalItems, 87);
+console.log('PASS equipment sets: 87 items in 13 sets, stable IDs, slots, body masks, free regions, ownership and no implicit grant');

@@ -43,10 +43,41 @@ mkdir -p "$TMP/wurzel/tools" "$TMP/wurzel/server"
 cp "$SKRIPT" "$TMP/wurzel/tools/wov-sicherung.sh"
 ln -s "$DATEN" "$TMP/wurzel/server/data"
 printf 'WOV_INSTANZ=dev\n' > "$TMP/wov.env"
+# Der python3-Vorschalter protokolliert bei JEDEM Aufruf durch das Skript umask
+# und Modus des neuesten Lauf-Ordners (Fenster vor dem chmod am Ende).
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/python3" <<SHIM
+#!/bin/bash
+n="\$(ls -1d "\$WOV_SICHERUNG_ZIEL"/dev/2*T* 2>/dev/null | grep -v fehlerhaft | tail -1)"
+echo "umask=\$(umask) lauf=\$([[ -n "\$n" ]] && stat -c%a "\$n")" >> "$TMP/shim.log"
+exec /usr/bin/python3 "\$@"
+SHIM
+chmod +x "$TMP/bin/python3"
 lauf() {
-  WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  PATH="$TMP/bin:$PATH" WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
     bash "$TMP/wurzel/tools/wov-sicherung.sh"
 }
+# Frisch angelegte, gültige Konten-/Forum-DBs (Tabellen wie im Server).
+neue_db() { python3 - "$1" "$2" <<'PYEOF'
+import sqlite3, sys
+import os
+for _n in ("konten","forum"):
+    for _x in ("","-wal","-shm"):
+        try: os.remove("%s/%s/dev.db%s" % (sys.argv[1], _n, _x))
+        except FileNotFoundError: pass
+c = sqlite3.connect(sys.argv[1] + "/konten/dev.db"); c.execute("PRAGMA journal_mode=WAL")
+c.execute("CREATE TABLE konten(id INTEGER PRIMARY KEY, mail TEXT)"); c.execute("CREATE TABLE charaktere(id INTEGER PRIMARY KEY, n TEXT)")
+c.execute("CREATE TABLE t(a)"); c.execute("CREATE INDEX i ON t(a)")
+c.executemany("INSERT INTO t VALUES (?)", [(x,) for x in range(1000, 1040)])
+c.execute("INSERT INTO konten(mail) VALUES ('a')"); c.commit(); c.close()
+f = sqlite3.connect(sys.argv[1] + "/forum/dev.db"); f.execute("PRAGMA journal_mode=WAL")
+for t in ("boards", "threads", "posts"): f.execute("CREATE TABLE %s(id INTEGER PRIMARY KEY)" % t)
+f.commit(); f.close()
+PYEOF
+}
+# Ordner der Läufe (ohne .fehlerhaft / mit) im Ziel dieses Aufrufs.
+gute()    { find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -name '2*T*' ! -name '*.fehlerhaft' | wc -l; }
+schlechte() { find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -name '*.fehlerhaft' | wc -l; }
 # Bei einem alten Skript liest /etc/wov.env (dev auf wov-dev) — nur lesend.
 sql() { python3 - "$@" <<'PYEOF'
 import sqlite3, sys
@@ -81,6 +112,8 @@ k.commit(); k.close()
 f = sqlite3.connect(d + "/forum/dev.db")
 f.execute("PRAGMA journal_mode=WAL")
 f.execute("CREATE TABLE boards(id INTEGER PRIMARY KEY, name TEXT)")
+f.execute("CREATE TABLE threads(id INTEGER PRIMARY KEY, board INTEGER, titel TEXT)")
+f.execute("CREATE TABLE posts(id INTEGER PRIMARY KEY, thread INTEGER, text TEXT)")
 f.execute("CREATE VIRTUAL TABLE posts_fts USING fts5(text)")
 f.executemany("INSERT INTO boards(name) VALUES (?)", [("b%d" % i,) for i in range(6)])
 f.executemany("INSERT INTO posts_fts(text) VALUES (?)", [("Beitrag %d" % i,) for i in range(20)])
@@ -167,24 +200,120 @@ if [[ -s "${L:-/nix}/konten/dev.db" ]]; then
     && ok "zurückgespielte DB ist schreibbar" || rot "zurückgespielte DB nicht schreibbar"
 fi
 
-echo "── Aufbewahrung 29/31 Tage"
 touch "$TMP/stopp"; wait "$SCHREIBER_PID" 2>/dev/null; SCHREIBER_PID=""
-for tage in 13 15 29 31 40; do
-  mkdir -p "$ZIEL/dev/alt-$tage"; touch -d "$tage days ago" "$ZIEL/dev/alt-$tage"
-done
+
+echo "── umask/Modus während des Laufs (Fenster vor dem chmod)"
+if [[ -s "$TMP/shim.log" ]] && ! grep -v '^umask=0077 lauf=700$' "$TMP/shim.log" | grep -v 'lauf=$' | grep -q .; then
+  ok "umask 0077 und Lauf-Ordner 0700 bei allen $(wc -l < "$TMP/shim.log") python3-Aufrufen"
+else
+  rot "umask/Modus im Lauf: $(sort -u "$TMP/shim.log" | tr '\n' ' ')"
+fi
+
+echo "── Ausführungsbit der Quelle wird 0600 (B7)"
+chmod 755 "$DATEN/server.yml"
+ZIEL="$TMP/ziel-x"; lauf > "$TMP/lauf-x.log" 2>&1
+LX="$(find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+[[ "$(stat -c%a "$LX/server.yml" 2>/dev/null)" == 600 ]] && ok "server.yml (Quelle 0755) → 0600" || rot "server.yml → $(stat -c%a "$LX/server.yml" 2>/dev/null)"
+chmod 644 "$DATEN/server.yml"
+
+echo "── Aufbewahrung (Minuten genau, 7 neueste bleiben)"
+ZIEL="$TMP/ziel-a"; mkdir -p "$ZIEL/dev"
+stempel() { date -d "$1" +%Y-%m-%dT%H-%M-%S; }
+# 8 junge, gültige Läufe (1–8 Tage) schützen sich nicht gegenseitig vor der Altersregel
+for t in 1 2 3 4 5 6 7 8; do d="$ZIEL/dev/$(stempel "$t days ago")"; mkdir -p "$d"; touch -d "$t days ago" "$d"; done
+declare -A ALT=( [t29h23]="719 hours ago" [t30h1]="721 hours ago" [t31]="31 days ago" [t40]="40 days ago" )
+for k in "${!ALT[@]}"; do d="$ZIEL/dev/$(stempel "${ALT[$k]}")"; mkdir -p "$d"; touch -d "${ALT[$k]}" "$d"; done
+d="$ZIEL/dev/$(stempel "35 days ago").fehlerhaft"; mkdir -p "$d"; touch -d "35 days ago" "$d"; FH_ALT="$d"
+d="$ZIEL/dev/$(stempel "3 days ago").fehlerhaft"; mkdir -p "$d"; FH_NEU="$d"
+mkdir -p "$ZIEL/dev/kein-stempel"; touch -d "90 days ago" "$ZIEL/dev/kein-stempel"
 lauf > "$TMP/lauf2.log" 2>&1 && ok "Lauf 2 endet mit 0" || rot "Lauf 2 fehlgeschlagen"
-for tage in 13 15 29; do
-  [[ -d "$ZIEL/dev/alt-$tage" ]] && ok "$tage Tage alt: bleibt" || rot "$tage Tage alt: wurde gelöscht"
-done
-for tage in 31 40; do
-  [[ ! -d "$ZIEL/dev/alt-$tage" ]] && ok "$tage Tage alt: gelöscht" || rot "$tage Tage alt: liegt noch"
+for k in t29h23; do [[ -d "$ZIEL/dev/$(stempel "${ALT[$k]}")" ]] && ok "719 h (29 d 23 h) alt: bleibt" || rot "29 d 23 h alt: gelöscht"; done
+for k in t30h1 t31 t40; do [[ ! -d "$ZIEL/dev/$(stempel "${ALT[$k]}")" ]] && ok "${ALT[$k]}: gelöscht" || rot "${ALT[$k]}: liegt noch"; done
+[[ ! -d "$FH_ALT" ]] && ok "35 Tage altes .fehlerhaft: gelöscht (wie ein normaler Lauf)" || rot "altes .fehlerhaft liegt noch"
+[[ -d "$FH_NEU" ]] && ok "3 Tage altes .fehlerhaft: bleibt" || rot "junges .fehlerhaft gelöscht"
+[[ -d "$ZIEL/dev/kein-stempel" ]] && ok "Ordner ohne Stempelnamen: unangetastet" || rot "fremder Ordner gelöscht"
+
+echo "── Uhrsprung: nur alte Läufe im Ziel, die neuesten 7 bleiben"
+ZIEL="$TMP/ziel-u"; mkdir -p "$ZIEL/dev"
+for t in 41 42 43 44 45 46 47 48 49 50; do d="$ZIEL/dev/$(stempel "$t days ago")"; mkdir -p "$d"; touch -d "$t days ago" "$d"; done
+lauf > "$TMP/lauf-u.log" 2>&1 || rot "Lauf im Uhrsprung-Test endet ≠ 0"
+# der neue Lauf + 6 der alten ergeben 7 gültige; 4 Ältere werden gelöscht
+[[ "$(gute)" == 7 ]] && ok "gültige Läufe = 7 (neuer + 6 älteste-geschützte)" || rot "gültige Läufe = $(gute), erwartet 7"
+
+echo "── ZIEL-Schutz (B5)"
+# Ungefährlich: mkdir/cp/rm/mv/chmod/touch sind Attrappen, die nur protokollieren.
+# (Ein Skript, das ZIEL=/ durchlässt, darf hier nichts auf der Platte anrichten.)
+mkdir -p "$TMP/fakebin"
+for w in mkdir cp rm mv chmod touch ln; do printf '#!/bin/bash\necho "%s $*" >> "%s/fake.log"\nexit 0\n' "$w" "$TMP" > "$TMP/fakebin/$w"; chmod +x "$TMP/fakebin/$w"; done
+for z in "/" "//" "relativ/pfad"; do
+  : > "$TMP/fake.log"
+  (cd "$TMP" && PATH="$TMP/fakebin:$PATH" WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$z" \
+     bash "$TMP/wurzel/tools/wov-sicherung.sh" >/dev/null 2>&1); RCZ=$?
+  if [[ "$RCZ" != 0 && ! -s "$TMP/fake.log" ]]; then ok "ZIEL '$z' → Abbruch, nichts angelegt/gelöscht"; else rot "ZIEL '$z' → Exit $RCZ, Schreibversuche: $(wc -l < "$TMP/fake.log")"; fi
 done
 
-echo "── Fehlerfall: kaputte Konten-DB muss Exit ≠ 0 geben"
-mv "$DATEN/konten/dev.db" "$TMP/konten-weg.db"; rm -f "$DATEN/konten/dev.db-wal" "$DATEN/konten/dev.db-shm"
-lauf > "$TMP/lauf3.log" 2>&1 && rot "Lauf ohne Konten-DB endete mit 0" || ok "fehlende Konten-DB → Exit ≠ 0"
-head -c 5000 /dev/urandom > "$DATEN/konten/dev.db"
-lauf > "$TMP/lauf4.log" 2>&1 && rot "Lauf mit kaputter Konten-DB endete mit 0" || ok "kaputte Konten-DB → Exit ≠ 0"
+echo "── Fehlerläufe werden .fehlerhaft (B2)"
+frisch() { ZIEL="$TMP/ziel-$1"; rm -rf "$ZIEL"; mkdir -p "$ZIEL"; }
+# a) fehlende Konten-DB
+frisch f1; mv "$DATEN/konten/dev.db" "$TMP/konten-weg.db"; rm -f "$DATEN/konten/dev.db-wal" "$DATEN/konten/dev.db-shm"
+lauf > "$TMP/f1.log" 2>&1 && rot "fehlende Konten-DB endete mit 0" || ok "fehlende Konten-DB → Exit ≠ 0"
+[[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ genau ein .fehlerhaft, kein gültiger Lauf" || rot "fehlend: gültig $(gute), fehlerhaft $(schlechte)"
+# b) Zufallsbytes
+frisch f2; head -c 5000 /dev/urandom > "$DATEN/konten/dev.db"
+lauf > "$TMP/f2.log" 2>&1 && rot "kaputte Konten-DB endete mit 0" || ok "kaputte Konten-DB → Exit ≠ 0"
+[[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ .fehlerhaft" || rot "kaputt: gültig $(gute), fehlerhaft $(schlechte)"
+# c) 0-Byte-Datei (B3)
+frisch f3; : > "$DATEN/konten/dev.db"
+lauf > "$TMP/f3.log" 2>&1 && rot "0-Byte-Konten-DB endete mit 0" || ok "0-Byte-Konten-DB → Exit ≠ 0"
+grep -q "Tabellen fehlen" "$TMP/f3.log" && ok "Meldung nennt fehlende Tabellen" || rot "keine Meldung über fehlende Tabellen"
+[[ "$(schlechte)" == 1 ]] && ok "→ .fehlerhaft" || rot "0-Byte: fehlerhaft $(schlechte)"
+# d) DB ohne die erwarteten Tabellen
+frisch f4; rm -f "$DATEN/konten/dev.db"*; python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table x(a)'); c.commit()" "$DATEN/konten/dev.db"
+lauf > "$TMP/f4.log" 2>&1 && rot "DB ohne konten/charaktere endete mit 0" || ok "DB ohne konten/charaktere → Exit ≠ 0"
+# e) halber Lauf: Weltdokument ist ein toter Link, stat scheitert nach dem Kopieren unter set -e
+frisch f5; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; mv "$DATEN/welten/dev.json" "$TMP/dev.json.weg"; ln -s /nichts/da "$DATEN/welten/dev.json"
+lauf > "$TMP/f5.log" 2>&1 && rot "fehlendes Weltdokument endete mit 0" || ok "Abbruch mitten im Lauf → Exit ≠ 0"
+[[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ halber Lauf ist .fehlerhaft" || rot "halber Lauf: gültig $(gute), fehlerhaft $(schlechte)"
+rm -f "$DATEN/welten/dev.json"; mv "$TMP/dev.json.weg" "$DATEN/welten/dev.json"
+# f) integrity_check schlägt an, Backup selbst läuft (defekter Indexbaum, B8/M5)
+frisch f6; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x
+python3 - "$DATEN/konten/dev.db" <<'PYEOF'
+import sqlite3, sys
+p = sys.argv[1]
+c = sqlite3.connect(p); c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+root = c.execute("select rootpage from sqlite_master where name='i'").fetchone()[0]
+ps = c.execute("pragma page_size").fetchone()[0]; c.close()
+with open(p, "r+b") as f:
+    f.seek(root * ps - 1); f.write(b"\x7f")  # Rowid des ersten Indexeintrags verbiegen
+PYEOF
+lauf > "$TMP/f6.log" 2>&1 && rot "beschädigter Index: Lauf endete mit 0" || ok "beschädigter Index → Exit ≠ 0"
+grep -q "^integrity_check:" "$TMP/f6.log" && ok "Meldung stammt vom integrity_check (nicht vom Backup)" || rot "kein integrity_check-Befund: $(tail -3 "$TMP/f6.log" | tr '\n' ' ')"
+[[ "$(schlechte)" == 1 ]] && ok "→ .fehlerhaft" || rot "beschädigter Index: fehlerhaft $(schlechte)"
+
+echo "── Gesperrte DB: Frist statt Hänger (B1)"
+frisch g1; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x
+python3 - "$DATEN/konten/dev.db" "$TMP/sperre-bereit" "$TMP/sperre-ende" <<'PYEOF' &
+import sqlite3, sys, os, time
+c = sqlite3.connect(sys.argv[1], isolation_level=None)
+c.execute("PRAGMA locking_mode=EXCLUSIVE"); c.execute("BEGIN EXCLUSIVE")
+c.execute("INSERT INTO konten(mail) VALUES ('x')")
+open(sys.argv[2], "w").close()
+t0 = time.time()
+while not os.path.exists(sys.argv[3]) and time.time() - t0 < 90:
+    time.sleep(0.1)
+PYEOF
+HALTER=$!
+for _ in $(seq 100); do [[ -e "$TMP/sperre-bereit" ]] && break; sleep 0.05; done
+T0=$SECONDS
+PATH="$TMP/bin:$PATH" WOV_SICHERUNG_DB_FRIST=5 WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  timeout 40 bash "$TMP/wurzel/tools/wov-sicherung.sh" > "$TMP/g1.log" 2>&1; RCG=$?
+DAUER=$((SECONDS - T0))
+touch "$TMP/sperre-ende"; wait "$HALTER" 2>/dev/null
+echo "  Exit $RCG nach ${DAUER}s (Frist 5 s, äussere Grenze 40 s)"
+[[ "$RCG" != 0 && "$RCG" != 124 && "$DAUER" -lt 30 ]] && ok "gesperrte DB: endet in endlicher Zeit mit Exit ≠ 0" || rot "gesperrte DB: Exit $RCG nach ${DAUER}s"
+grep -q "Frist abgelaufen" "$TMP/g1.log" && ok "Meldung nennt die Frist" || rot "keine Fristmeldung"
+[[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ .fehlerhaft hinterlassen" || rot "gesperrt: gültig $(gute), fehlerhaft $(schlechte)"
+pgrep -f "$TMP/wurzel/tools/wov-sicherung.sh" >/dev/null && rot "Skript läuft noch" || ok "kein Prozess des Skripts übrig"
 
 if (( ECHT )); then
   echo "── --echt: DEV-Daten per SQLite-Backup gezogen, Sicherung, Rückspielen"

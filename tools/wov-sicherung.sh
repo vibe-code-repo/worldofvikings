@@ -32,9 +32,31 @@
 # NICHT gesichert (bewusst, Karte S7): assets/hochgeladen/ (Modell-Uploads)
 # und metriken-*.jsonl.
 #
+# ── Scheitern, Fristen, Aufbewahrung ────────────────────────────────────────
+# * Jeder DB-Schritt hat eine harte Frist (WOV_SICHERUNG_DB_FRIST, Vorgabe
+#   300 s): Python-backup() versucht bei gesperrter DB endlos weiter, ohne
+#   Frist bliebe die oneshot-Unit hängen und blockierte alle Folgeläufe.
+#   Frist abgelaufen = Lauf fehlerhaft, Exit 1. (Die Unit hat zusätzlich
+#   TimeoutStartSec, siehe deploy/systemd/wov-sicherung.service.)
+# * Scheitert ein Lauf (Exit ≠ 0, auch bei SIGTERM), wird sein Ordner
+#   in <stempel>.fehlerhaft umbenannt.
+# * Eine DB gilt nur mit den erwarteten Tabellen (Konten: konten, charaktere;
+#   Forum: boards, threads, posts) als gesichert; eine leere Datei ist ein
+#   Fehler.
+# * Aufbewahrung: Läufe älter als 30 Tage (in Minuten gemessen) werden
+#   gelöscht, .fehlerhaft-Ordner nach demselben Alter. Ausnahmen gegen
+#   Uhrsprünge: der laufende Lauf und die neuesten 7 gültigen Läufe bleiben
+#   immer. Angefasst werden nur Ordner mit Stempelnamen unter
+#   $ZIEL/<instanz>/.
+#
 # ── So spielst du eine Sicherung zurück ─────────────────────────────────────
 #   1. Server stoppen:  systemctl stop wov-server
 #   2. Lauf wählen:     L=/var/backups/wov/welten/<instanz>/<stempel>
+#      NUR Ordner OHNE Endung ".fehlerhaft" — so heissen Läufe, die
+#      gescheitert sind (unvollständig, DB leer/beschädigt, Frist).
+#      Hinweis: Welt (.zst), Konten und Forum werden nacheinander gezogen
+#      (Sekunden bis Minuten Abstand), sind also nicht auf die Sekunde
+#      gleich alt.
 #   3. Alte Dateien BEISEITE legen (nicht löschen), inklusive -wal und -shm —
 #      ein übrig gebliebenes -wal würde auf die zurückgespielte Datei
 #      angewendet und sie zerstören:
@@ -107,6 +129,7 @@ set -euo pipefail
 WURZEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Vorgaben; für Proben umbiegbar (der Betrieb setzt beides nicht).
 DATEN="${WOV_SICHERUNG_DATEN:-$WURZEL/server/data}"
+DB_FRIST="${WOV_SICHERUNG_DB_FRIST:-300}"
 umask 077
 
 # ── 1. Instanz feststellen ─────────────────────────────────────────────
@@ -132,7 +155,14 @@ esac
 # ── Einstellungen ───────────────────────────────────────────────────────
 # Lokales Ziel, s. Kopfkommentar für den Weg nach ausser Haus.
 ZIEL="${WOV_SICHERUNG_ZIEL:-/var/backups/wov/welten}"
+# Ein leeres, relatives oder nur aus "/" bestehendes ZIEL ist ein Fehler, kein
+# Anlass zu raten (die Aufräumschleife löscht unterhalb von $ZIEL).
+if [[ -z "${ZIEL//\//}" || "$ZIEL" != /* ]]; then
+  echo "ABBRUCH: ZIEL '$ZIEL' muss ein absoluter Pfad sein und darf nicht '/' sein." >&2
+  exit 1
+fi
 VORHALTETAGE=30
+BEHALTE_LAEUFE=7
 # Reserve, die nach der Sicherung noch frei bleiben soll — darunter wird
 # abgebrochen statt die Platte zu füllen und den laufenden Server zu
 # gefährden.
@@ -192,6 +222,19 @@ if (( FREI_KB < BENOETIGT_KB + MINDEST_FREI_KB )); then
   exit 1
 fi
 
+# Ab hier zählt der Lauf als halb, bis er ganz durch ist: jeder Abbruch (set -e,
+# exit 1, SIGTERM) benennt den Ordner in .fehlerhaft um.
+LAUF_OK=0
+markiere_fehlerhaft() {
+  local rc=$?
+  if (( LAUF_OK == 0 )) && [[ -d "$LAUF_ORDNER" ]]; then
+    mv "$LAUF_ORDNER" "$LAUF_ORDNER.fehlerhaft" 2>/dev/null \
+      && echo "  Lauf gescheitert — umbenannt: $LAUF_ORDNER.fehlerhaft" >&2
+  fi
+  exit "$rc"
+}
+trap markiere_fehlerhaft EXIT
+trap 'exit 143' TERM INT
 mkdir -p "$LAUF_ORDNER/worlds" "$LAUF_ORDNER/welten" "$LAUF_ORDNER/konten" "$LAUF_ORDNER/forum"
 
 # ── 3. Kopieren ──────────────────────────────────────────────────────────
@@ -241,37 +284,48 @@ cp -a "$SERVER_YML" "$LAUF_ORDNER/server.yml"
 # sichere_sqlite: Online-Sicherung einer WAL-Datenbank (s. Kopfkommentar),
 # dann integrity_check auf der KOPIE. Rückgabe 0 nur bei "ok".
 sichere_sqlite() {
-  local quelle="$1" ziel="$2"
+  local quelle="$1" ziel="$2" tabellen="$3"
   if [[ ! -f "$quelle" ]]; then
     echo "FEHLER: $quelle fehlt — Datenbank nicht gesichert" >&2
     return 1
   fi
-  python3 - "$quelle" "$ziel" <<'PYEOF'
+  local rc=0
+  timeout --kill-after=10 "$DB_FRIST" python3 - "$quelle" "$ziel" "$tabellen" <<'PYEOF' || rc=$?
 import sqlite3, sys
-quelle, ziel = sys.argv[1], sys.argv[2]
+quelle, ziel, erwartet = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
 src = sqlite3.connect(quelle, timeout=60)
 dst = sqlite3.connect(ziel)
 try:
     src.backup(dst)
     dst.execute("PRAGMA journal_mode=DELETE")
     ergebnis = [r[0] for r in dst.execute("PRAGMA integrity_check")]
+    vorhanden = {r[0] for r in dst.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 finally:
     dst.close()
     src.close()
 if ergebnis != ["ok"]:
     print("integrity_check: " + "; ".join(ergebnis), file=sys.stderr)
     sys.exit(1)
+fehlend = [t for t in erwartet if t not in vorhanden]
+if fehlend:
+    print("Tabellen fehlen in der Sicherung: " + ", ".join(fehlend), file=sys.stderr)
+    sys.exit(1)
 PYEOF
+  if (( rc == 124 || rc == 137 )); then
+    echo "FEHLER: $quelle nicht innerhalb von ${DB_FRIST}s gesichert (gesperrt?) — Frist abgelaufen" >&2
+  fi
+  return "$rc"
 }
 
 echo "  sichere $KONTEN_DB"
-sichere_sqlite "$KONTEN_DB" "$LAUF_ORDNER/konten/$INSTANZ.db" || FEHLER_DB=1
+sichere_sqlite "$KONTEN_DB" "$LAUF_ORDNER/konten/$INSTANZ.db" konten,charaktere || FEHLER_DB=1
 echo "  sichere $FORUM_DB"
-sichere_sqlite "$FORUM_DB" "$LAUF_ORDNER/forum/$INSTANZ.db" || FEHLER_DB=1
+sichere_sqlite "$FORUM_DB" "$LAUF_ORDNER/forum/$INSTANZ.db" boards,threads,posts || FEHLER_DB=1
 
 # Nur root darf lesen (E-Mail, Passwort-Hashes): Ordner 0700, Dateien 0600 —
 # auch bei einem späteren Abbruch, deshalb VOR den Prüfungen.
-chmod -R u=rwX,go= "$LAUF_ORDNER"
+find "$LAUF_ORDNER" -type d -exec chmod 700 {} +
+find "$LAUF_ORDNER" -type f -exec chmod 600 {} +
 
 # ── 4. Nachweis: vollständig UND entpackbar ──────────────────────────────
 # Grössenvergleich zuerst (billig, fängt grobe Fehler), dann die
@@ -321,21 +375,35 @@ pruef_groesse "$SERVER_YML" "$LAUF_ORDNER/server.yml"
 
 if (( FEHLER != 0 )); then
   echo "ABBRUCH: die Sicherung unter $LAUF_ORDNER ist NICHT vollständig — sie bleibt" >&2
-  echo "liegen für die Fehlersuche, zählt aber nicht als gültiger Lauf." >&2
+  echo "als .fehlerhaft liegen für die Fehlersuche und zählt nicht als gültiger Lauf." >&2
   exit 1
 fi
 
+LAUF_OK=1
 echo "  ✓ Sicherung vollständig und geprüft: $LAUF_ORDNER"
 
 # ── 5. Alte Läufe abräumen — ERST nachdem der neue Lauf steht ───────────
 # In dieser Reihenfolge fällt bei einem Fehlschlag oben (exit 1) kein
-# einziger alter, guter Lauf weg.
+# einziger alter, guter Lauf weg. Alter in Minuten (30 Tage = 43200), nicht
+# in ganzen Tagen. Nur Stempel-Ordner (auch .fehlerhaft); die neuesten
+# BEHALTE_LAEUFE gültigen Läufe und der laufende Lauf bleiben immer (Schutz
+# gegen Uhrsprünge).
 ALT_ORDNER="$ZIEL/$INSTANZ"
+STEMPEL_MUSTER='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}(\.fehlerhaft)?$'
 if [[ -d "$ALT_ORDNER" ]]; then
+  GESCHUETZT=" $STEMPEL "
+  while IFS= read -r name; do
+    GESCHUETZT+="$name "
+  done < <(find "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+             | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}$' \
+             | sort -r | head -n "$BEHALTE_LAEUFE")
   while IFS= read -r -d '' alt; do
+    name="$(basename "$alt")"
+    [[ "$name" =~ $STEMPEL_MUSTER ]] || continue
+    [[ "$GESCHUETZT" == *" $name "* ]] && continue
     echo "  räume ab (älter als ${VORHALTETAGE}d): $alt"
     rm -rf "$alt"
-  done < <(find "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -mtime "+$VORHALTETAGE" -print0)
+  done < <(find "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -mmin "+$((VORHALTETAGE * 1440))" -print0)
 fi
 
 echo "Fertig — $INSTANZ gesichert nach $LAUF_ORDNER"

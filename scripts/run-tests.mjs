@@ -76,7 +76,7 @@ import { fileURLToPath } from 'node:url';
   Bookkeeping in its own module: what the runner really started is held against
   the literal of KERN; closing line and exit code come from the books.
 */
-import { beende, fahre, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
+import { beende, fahre, leereUndBeende, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
 
 
 /*
@@ -183,6 +183,12 @@ const KERN = [
     refused; an empty list and a repeated region are allowed. No Blender. ~1 s.
   */
   ['tools/armor/test', 'keep-body-args.mjs', brauchtPython('the --keep-body contract')],
+  /*
+    The four scaffold-built armor sets are data plus design on tools/armor/lib: every
+    config.py complete and refused when a required field is missing, items/regions/free
+    regions equal to shared/src/<family>.ts, no exec/replace left under sets/. No Blender. ~1 s.
+  */
+  ['tools/armor/test', 'scaffold-config.mjs', brauchtPython('the armor set configurations')],
   /*
     Ein Ursprung im Container (12.09.2026): Textnachweis über
     deploy/nginx/wov-lab.conf — alle sieben Wege (Webseite, /play/,
@@ -582,8 +588,9 @@ const KERN = [
   // vor dem Umbau in `tools/golden/` abgelegt wurde (SHA-256 über
   // `JSON.stringify(layout)`, plus ein vollständiges Layout als lesbarer
   // Zeuge), `DG_StoneVault` nachweislich über den Rasterpfad und
-  // nachweislich NICHT mehr über den 1.0-Pfad, dazu die Laufzeitgrenze von
-  // 10 ms je Layout bei 200 Zellen. Ohne diesen Test ist „die Fremdkits
+  // nachweislich NICHT mehr über den 1.0-Pfad, dazu das Verhältnis der Laufzeit
+  // zu einer mitgemessenen Referenzarbeit (Schnitt < 1,25; seit #62, vorher eine feste
+  // Grenze von 10 ms je Layout). Ohne diesen Test ist „die Fremdkits
   // bewegen sich nicht" eine Behauptung. ~20 s (das grösste Kit allein
   // ergibt 81 MiB JSON).
   // G8: the distributor — 14 legacy kits byte-identical, StoneVault on the grid path.
@@ -1552,6 +1559,11 @@ const KERN = [
   // ohneWeltVerworfen steht im Betriebs-Schnappschuss — drei echte Clients,
   // eine Instanz, ephemerer Port. ~25 s.
   ['server', 'test/besitz-grenzen.ts'],
+  // Truhe lesen: der Inhalt einer fremden Truhe reist nicht im ZDOSync mit
+  // (Vollstand und Delta auf dem Draht mitgelesen, drei Runden), der Besitzer
+  // mit offener Truhe sieht jede Aenderung, eigene/besitzerlose/Grab-Truhen
+  // bleiben lesbar — zwei echte Clients, ephemerer Port. ~30 s.
+  ['server', 'test/truhe-lesen.ts'],
   // G3 (Testluecken-Durchsicht, "kein einziger Test mit zwei
   // gleichzeitigen Clients"): echte WebSocket-Handshakes fuer ZWEI+ Peers
   // gleichzeitig gegen einen echten WovServer. Gegenseitige ZDO-
@@ -2143,6 +2155,21 @@ const KERN = [
   ['server', 'test/kartenmodus-alias.ts'],
   // Emberrage-Glühen: Glow-Schicht nur für angelegte Teile, NullEngine, kein Blender.
   ['tools/armor/test', 'emberrage-glow.ts'],
+  // KI-Weltbau über MCP (tools/worldlayout-mcp, shared/src/weltbau): Kartenbild, Weltprüfung,
+  // Diff, Ortsbeschreibung, Katalog, Vorgänge, Stilführer und ihre Nachbesserung, dazu die
+  // Kontext-Probe gegen einen eigenen Betriebsdienst (Port 0, Wegwerf-Wurzel).
+  // MCP world building: map image, world check, diff, describe, catalog, operations, style guide.
+  ['tools/test', 'weltbau-karte.ts'],
+  ['tools/test', 'weltbau-integration.ts'],
+  ['shared', 'test/weltbau-pruefungen.ts'],
+  ['shared', 'test/weltbau-diff.ts'],
+  ['shared', 'test/weltbau-diffbasis.ts'],
+  ['shared', 'test/weltbau-beschreiben.ts'],
+  ['shared', 'test/weltbau-katalog.ts'],
+  ['shared', 'test/weltbau-vorgang.ts'],
+  ['shared', 'test/weltbau-stil.ts'],
+  ['shared', 'test/weltbau-nachbesserung.ts'],
+  ['tools/worldlayout-mcp', 'probe-kontext.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);
@@ -2160,7 +2187,7 @@ if (UNBEKANNT.length > 0) {
     `run-tests.mjs: unbekannte Argumente: ${UNBEKANNT.join(' ')}\n` +
       '  Der Runner kennt nur --teillauf-erlaubt; `--alle` gibt es seit 20.09.2026 nicht mehr (die Liste LANG ist aufgeloest, alles laeuft immer).',
   );
-  process.exit(2);
+  await leereUndBeende(process, 2);
 }
 
 // Ab hier ist der Lauf rot (Exit 1), bis `beende` am Ende entschieden hat.
@@ -2191,11 +2218,14 @@ for (const [signal, nummer] of [['SIGINT', 2], ['SIGHUP', 1], ['SIGTERM', 15]]) 
   process.on(signal, () => {
     abbruchCode = 128 + nummer;
     console.log(`\nABGEBROCHEN durch ${signal} — der laufende Test wird beendet, kein Ergebnis`);
-    if (laufendeGruppe === null) process.exit(abbruchCode);
+    if (laufendeGruppe === null) {
+      void leereUndBeende(process, abbruchCode);
+      return;
+    }
     gruppeSignal(signal);
     setTimeout(() => {
       gruppeSignal('SIGKILL');
-      process.exit(abbruchCode);
+      void leereUndBeende(process, abbruchCode);
     }, 10_000).unref();
   });
 }
@@ -2311,7 +2341,10 @@ function starteKind(befehl, argumente, optionen) {
       laufendeGruppe = null;
       closeSync(aus);
       closeSync(fehl);
-      if (abbruchCode !== null) process.exit(abbruchCode);
+      if (abbruchCode !== null) {
+        void leereUndBeende(process, abbruchCode);
+        return;
+      }
       const gruen = status === 0 && !zeitlimit && abbruchGrund === null && !error;
       // Gelesen wird nur nach einem Fehlschlag.
       const stdout = gruen ? '' : liesAusgabe(join(testOrdner, 'stdout.txt'));

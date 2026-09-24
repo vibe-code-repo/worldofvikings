@@ -2349,6 +2349,334 @@
           "bodyProfile": "legacy-female-v1"
         }
       ]
+    },
+    {
+      "id": "crowshade_male",
+      "version": 1,
+      "name": "Crowshade",
+      "figure": "wikinger",
+      "familyId": "crowshade",
+      "classId": "jaeger",
+      "bodyVariant": "male",
+      "bodyProfile": "wov-male-v1",
+      "itemIds": [
+        "crowshade_male_hood",
+        "crowshade_male_vest",
+        "crowshade_male_robe",
+        "crowshade_male_shoulders",
+        "crowshade_male_bracers",
+        "crowshade_male_gloves",
+        "crowshade_male_boots"
+      ],
+      "appearance": {
+        "kopf": "crowshade_male_hood",
+        "oberkoerper": "crowshade_male_vest",
+        "beine": "crowshade_male_robe",
+        "schultern": "crowshade_male_shoulders",
+        "unterarme": "crowshade_male_bracers",
+        "haende": "crowshade_male_gloves",
+        "fuesse": "crowshade_male_boots"
+      },
+      "parts": [
+        {
+          "itemId": "crowshade_male_hood",
+          "appearanceId": "crowshade_male_hood",
+          "name": "Crowshade Mask",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "crowshade/crowshade_male_hood.glb",
+          "icon": "crowshade_male_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "previewModel": "crowshade/crowshade_male_hood.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "crowshade_male_vest",
+          "appearanceId": "crowshade_male_vest",
+          "name": "Crowshade Jerkin",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "crowshade/crowshade_male_vest.glb",
+          "icon": "crowshade_male_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "previewModel": "crowshade/crowshade_male_vest.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "crowshade_male_robe",
+          "appearanceId": "crowshade_male_robe",
+          "name": "Crowshade Coat",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "crowshade/crowshade_male_robe.glb",
+          "icon": "crowshade_male_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "previewModel": "crowshade/crowshade_male_robe.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "crowshade_male_shoulders",
+          "appearanceId": "crowshade_male_shoulders",
+          "name": "Crowshade Pauldrons",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "crowshade/crowshade_male_shoulders.glb",
+          "icon": "crowshade_male_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "previewModel": "crowshade/crowshade_male_shoulders.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "crowshade_male_bracers",
+          "appearanceId": "crowshade_male_bracers",
+          "name": "Crowshade Bracers",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "crowshade/crowshade_male_bracers.glb",
+          "icon": "crowshade_male_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "previewModel": "crowshade/crowshade_male_bracers.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "crowshade_male_gloves",
+          "appearanceId": "crowshade_male_gloves",
+          "name": "Crowshade Claws",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "crowshade/crowshade_male_gloves.glb",
+          "icon": "crowshade_male_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "previewModel": "crowshade/crowshade_male_gloves.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        },
+        {
+          "itemId": "crowshade_male_boots",
+          "appearanceId": "crowshade_male_boots",
+          "name": "Crowshade Boots",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "crowshade/crowshade_male_boots.glb",
+          "icon": "crowshade_male_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "previewModel": "crowshade/crowshade_male_boots.glb",
+          "previewBodyProfile": "wov-male-v1",
+          "hideAppearance": [],
+          "figure": "wikinger",
+          "bodyVariant": "male",
+          "bodyProfile": "wov-male-v1"
+        }
+      ]
+    },
+    {
+      "id": "crowshade_female",
+      "version": 1,
+      "name": "Crowshade",
+      "figure": "wikingerin",
+      "familyId": "crowshade",
+      "classId": "jaeger",
+      "bodyVariant": "female",
+      "bodyProfile": "legacy-female-v1",
+      "itemIds": [
+        "crowshade_female_hood",
+        "crowshade_female_vest",
+        "crowshade_female_robe",
+        "crowshade_female_shoulders",
+        "crowshade_female_bracers",
+        "crowshade_female_gloves",
+        "crowshade_female_boots"
+      ],
+      "appearance": {
+        "kopf": "crowshade_female_hood",
+        "oberkoerper": "crowshade_female_vest",
+        "beine": "crowshade_female_robe",
+        "schultern": "crowshade_female_shoulders",
+        "unterarme": "crowshade_female_bracers",
+        "haende": "crowshade_female_gloves",
+        "fuesse": "crowshade_female_boots"
+      },
+      "parts": [
+        {
+          "itemId": "crowshade_female_hood",
+          "appearanceId": "crowshade_female_hood",
+          "name": "Crowshade Mask",
+          "equipmentSlot": "kopf",
+          "appearanceSlot": "kopf",
+          "model": "crowshade/crowshade_female_hood.glb",
+          "icon": "crowshade_female_hood.png",
+          "regions": [
+            "Head"
+          ],
+          "previewModel": "armor/crowshade/crowshade_female_hood.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [
+            "hair",
+            "beard",
+            "eyebrows"
+          ],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "crowshade_female_vest",
+          "appearanceId": "crowshade_female_vest",
+          "name": "Crowshade Jerkin",
+          "equipmentSlot": "hemd",
+          "appearanceSlot": "oberkoerper",
+          "model": "crowshade/crowshade_female_vest.glb",
+          "icon": "crowshade_female_vest.png",
+          "regions": [
+            "Torso"
+          ],
+          "previewModel": "armor/crowshade/crowshade_female_vest.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "crowshade_female_robe",
+          "appearanceId": "crowshade_female_robe",
+          "name": "Crowshade Coat",
+          "equipmentSlot": "hose",
+          "appearanceSlot": "beine",
+          "model": "crowshade/crowshade_female_robe.glb",
+          "icon": "crowshade_female_robe.png",
+          "regions": [
+            "Hips"
+          ],
+          "previewModel": "armor/crowshade/crowshade_female_robe.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "crowshade_female_shoulders",
+          "appearanceId": "crowshade_female_shoulders",
+          "name": "Crowshade Pauldrons",
+          "equipmentSlot": "schultern",
+          "appearanceSlot": "schultern",
+          "model": "crowshade/crowshade_female_shoulders.glb",
+          "icon": "crowshade_female_shoulders.png",
+          "regions": [
+            "ArmUpperLeft",
+            "ArmUpperRight"
+          ],
+          "previewModel": "armor/crowshade/crowshade_female_shoulders.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "crowshade_female_bracers",
+          "appearanceId": "crowshade_female_bracers",
+          "name": "Crowshade Bracers",
+          "equipmentSlot": "unterarme",
+          "appearanceSlot": "unterarme",
+          "model": "crowshade/crowshade_female_bracers.glb",
+          "icon": "crowshade_female_bracers.png",
+          "regions": [
+            "ArmLowerLeft",
+            "ArmLowerRight"
+          ],
+          "previewModel": "armor/crowshade/crowshade_female_bracers.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "crowshade_female_gloves",
+          "appearanceId": "crowshade_female_gloves",
+          "name": "Crowshade Claws",
+          "equipmentSlot": "haende",
+          "appearanceSlot": "haende",
+          "model": "crowshade/crowshade_female_gloves.glb",
+          "icon": "crowshade_female_gloves.png",
+          "regions": [
+            "HandLeft",
+            "HandRight"
+          ],
+          "previewModel": "armor/crowshade/crowshade_female_gloves.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        },
+        {
+          "itemId": "crowshade_female_boots",
+          "appearanceId": "crowshade_female_boots",
+          "name": "Crowshade Boots",
+          "equipmentSlot": "schuhe",
+          "appearanceSlot": "fuesse",
+          "model": "crowshade/crowshade_female_boots.glb",
+          "icon": "crowshade_female_boots.png",
+          "regions": [
+            "LegLeft",
+            "LegRight"
+          ],
+          "previewModel": "armor/crowshade/crowshade_female_boots.glb",
+          "previewBodyProfile": "wov-female-v1",
+          "hideAppearance": [],
+          "figure": "wikingerin",
+          "bodyVariant": "female",
+          "bodyProfile": "legacy-female-v1"
+        }
+      ]
     }
   ],
   "timeOfDay": {

@@ -60,8 +60,36 @@ echo "\$\$" >> "$TMP/pids"
 exec /usr/bin/python3 "\$@"
 SHIM
 chmod +x "$TMP/bin/python3"
+# cp-Attrappe: kopiert echt, verfälscht danach je nach WOV_PROBE_CP die Kopie
+#   bitzst      Bitfehler in jeder .db.zst-Kopie (zstd -t merkt ihn nicht)
+#   bitzst1     Bitfehler nur beim ersten Kopieren (Wiederholung heilt)
+#   ymlplus     ein Byte mehr an der Kopie von server.yml
+#   jsonplus    ein Leerzeichen mehr an der Kopie des Weltdokuments (bleibt gültiges JSON)
+#   failyml     cp von server.yml scheitert
+mkdir -p "$TMP/cpbin"
+cat > "$TMP/cpbin/cp" <<CPSHIM
+#!/bin/bash
+mode="\${WOV_PROBE_CP:-}"
+dest="\${*: -1}"
+if [[ "\$mode" == failyml && "\$dest" == */server.yml ]]; then echo "cp: Attrappe schlägt fehl" >&2; exit 1; fi
+/usr/bin/cp "\$@" || exit \$?
+case "\$mode:\$dest" in
+  bitzst:*.db.zst|bitzst:*.db.zst.prev) /usr/bin/python3 -c "import sys; f=open(sys.argv[1],'r+b'); f.seek(100); b=f.read(1); f.seek(100); f.write(bytes([b[0]^1])); f.close()" "\$dest" ;;
+  bitzst1:*.db.zst) if [[ ! -e "$TMP/bitzst1.schon" ]]; then : > "$TMP/bitzst1.schon"; /usr/bin/python3 -c "import sys; f=open(sys.argv[1],'r+b'); f.seek(100); b=f.read(1); f.seek(100); f.write(bytes([b[0]^1])); f.close()" "\$dest"; fi ;;
+  ymlplus:*/server.yml) printf 'x' >> "\$dest" ;;
+  jsonplus:*/welten/*.json) printf ' ' >> "\$dest" ;;
+esac
+exit 0
+CPSHIM
+chmod +x "$TMP/cpbin/cp"
 lauf() {
-  PATH="$TMP/bin:$PATH" WOV_ENV_DATEI="$TMP/wov.env" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+  PATH="$TMP/bin:$PATH" WOV_ENV_DATEI="${ENVF:-$TMP/wov.env}" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
+    bash "$TMP/wurzel/tools/wov-sicherung.sh"
+}
+# wie lauf, aber mit der cp-Attrappe vorn im PATH und Modus $1
+laufcp() {
+  local m="$1"
+  PATH="$TMP/cpbin:$TMP/bin:$PATH" WOV_PROBE_CP="$m" WOV_ENV_DATEI="${ENVF:-$TMP/wov.env}" WOV_SICHERUNG_DATEN="$DATEN" WOV_SICHERUNG_ZIEL="$ZIEL" \
     bash "$TMP/wurzel/tools/wov-sicherung.sh"
 }
 # Frisch angelegte, gültige Konten-/Forum-DBs (Tabellen wie im Server).
@@ -126,7 +154,7 @@ echo "══ Probe Sicherung — Skript: $SKRIPT ══"
 mkdir -p "$DATEN"/{worlds,welten,konten,forum,dungeons/dev}
 
 # ── Testdaten ──────────────────────────────────────────────────────────
-head -c 200000 /dev/urandom | zstd -q -o "$DATEN/worlds/dev.db.zst"
+head -c 200000 /dev/urandom | zstd -q --no-check -o "$DATEN/worlds/dev.db.zst"
 cp "$DATEN/worlds/dev.db.zst" "$DATEN/worlds/dev.db.zst.prev"
 echo '{"welt":true}' > "$DATEN/welten/dev.json"
 echo '{"raum":1}' > "$DATEN/dungeons/dev/a.json"
@@ -331,11 +359,10 @@ frisch f4c; rm -f "$DATEN/konten/dev.db"* "$DATEN/forum/dev.db"*; neue_db "$DATE
 rm -f "$DATEN/forum/dev.db"*; python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table boards(a)'); c.commit()" "$DATEN/forum/dev.db"
 lauf > "$TMP/f4c.log" 2>&1 && rot "Forum-DB nur mit boards endete mit 0" || ok "Forum-DB nur mit boards → Exit ≠ 0"
 grep -q "threads" "$TMP/f4c.log" && ok "Meldung nennt threads" || rot "Meldung nennt threads nicht"
-# e) halber Lauf: Weltdokument ist ein toter Link, stat scheitert nach dem Kopieren unter set -e
-frisch f5; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x; mv "$DATEN/welten/dev.json" "$TMP/dev.json.weg"; ln -s /nichts/da "$DATEN/welten/dev.json"
-lauf > "$TMP/f5.log" 2>&1 && rot "fehlendes Weltdokument endete mit 0" || ok "Abbruch mitten im Lauf → Exit ≠ 0"
-[[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ halber Lauf ist .fehlerhaft" || rot "halber Lauf: gültig $(gute), fehlerhaft $(schlechte)"
-rm -f "$DATEN/welten/dev.json"; mv "$TMP/dev.json.weg" "$DATEN/welten/dev.json"
+# e) halber Lauf: cp von server.yml scheitert mitten im Kopieren (set -e → Trap)
+frisch f5; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x
+laufcp failyml > "$TMP/f5.log" 2>&1 && rot "scheiterndes cp endete mit 0" || ok "Abbruch mitten im Lauf → Exit ≠ 0"
+[[ "$(schlechte)" == 1 && "$(gute)" == 0 && "$(laeuft)" == 0 ]] && ok "→ halber Lauf ist .fehlerhaft" || rot "halber Lauf: gültig $(gute), fehlerhaft $(schlechte), laeuft $(laeuft)"
 # f) integrity_check schlägt an, Backup selbst läuft (defekter Indexbaum, B8/M5)
 frisch f6; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x
 python3 - "$DATEN/konten/dev.db" <<'PYEOF'
@@ -379,6 +406,8 @@ anleitung() { # $1 Name  $2 Lauf-Ordner  $3 erwartet "konten/charaktere"  $4 erw
     rot "Anleitung ($1) bricht ab: $(tail -2 "$TMP/anleitung-$1.log" | tr '\n' ' ')"; return
   fi
   V="$(ls -d "$TMP"/vorher-$1-* 2>/dev/null | head -1)"
+  [[ "$(stat -c%a "$V" "$V/konten" "$V/forum" | sort -u | tr '\n' ' ')" == "700 " ]] || { rot "Anleitung ($1): Beiseite-Ordner nicht 0700"; ok_=0; }
+  grep -q "spätestens nach 30 Tagen" "$SKRIPT" || { rot "Anleitung ($1): Löschhinweis fehlt"; ok_=0; }
   [[ -f "$V/konten/dev.db-wal" && -f "$V/forum/dev.db-wal" && -f "$V/konten/dev.db-shm" && -f "$V/forum/dev.db-shm" ]] || { rot "Anleitung ($1): alte Dateien nicht getrennt beiseite gelegt"; ok_=0; }
   [[ -z "$(ls "$R"/konten "$R"/forum | grep -E -- '-(wal|shm)$')" ]] || { rot "Anleitung ($1): -wal/-shm liegt noch in den Live-Ordnern"; ok_=0; }
   z="$(sql "$R/konten/dev.db" 'select (select count(*) from konten)||"/"||(select count(*) from charaktere)' 2>&1)"
@@ -428,6 +457,7 @@ kill -TERM $TPIDS 2>/dev/null
 for _ in $(seq 150); do kill -0 "$ST" 2>/dev/null || break; sleep 0.1; done
 wait "$ST" 2>/dev/null; RCT=$?
 sperre_aus
+[[ "$RCT" == 143 ]] && ok "SIGTERM → Exit 143 (nicht 0)" || rot "SIGTERM → Exit $RCT, erwartet 143"
 [[ "$(laeuft)" == 0 && "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "SIGTERM → .fehlerhaft, kein .laeuft, kein gültiger Lauf (Exit $RCT)" || rot "SIGTERM: laeuft $(laeuft), fehlerhaft $(schlechte), gültig $(gute)"
 
 echo "── SIGINT an den Lauf (INT-Trap: Exit 143, .fehlerhaft)"
@@ -506,6 +536,83 @@ echo "── Leerer Ordner mit dem Zielstempel (mv -T würde ihn stillschweigend
 frisch c2; mkdir -p "$ZIEL/dev/2026-01-02T03-04-05"
 laufd > "$TMP/c2.log" 2>&1 && rot "Lauf über leeren Stempel-Ordner endete mit 0" || ok "vorhandener (leerer) Ordner gleichen Stempels → Exit ≠ 0"
 [[ -d "$ZIEL/dev/2026-01-02T03-04-05" && -z "$(ls -A "$ZIEL/dev/2026-01-02T03-04-05")" && "$(laeuft)" == 0 ]] && ok "leerer Ordner unverändert, kein .laeuft" || rot "leerer Ordner verändert oder .laeuft übrig"
+
+echo "── A1: Aufräumen auch bei Dauerfehler"
+frisch d1; mkdir -p "$ZIEL/dev"; rm -rf "$DATEN/konten"; mkdir "$DATEN/konten"   # Konten-DB fehlt → jeder Lauf scheitert
+D1A="$(stempel "40 days ago")"; D1B="$(stempel "31 days ago")"; D1C="$(stempel "50 days ago").fehlerhaft"; D1D="$(stempel "29 days ago")"
+for n in "$D1A" "$D1B" "$D1C" "$D1D"; do mkdir "$ZIEL/dev/$n"; done
+touch -d "40 days ago" "$ZIEL/dev/$D1A"; touch -d "31 days ago" "$ZIEL/dev/$D1B"; touch -d "50 days ago" "$ZIEL/dev/$D1C"; touch -d "29 days ago" "$ZIEL/dev/$D1D"
+NRC=0; for i in 1 2 3 4 5; do lauf > "$TMP/d1-$i.log" 2>&1 || NRC=$((NRC + 1)); done
+[[ "$NRC" == 5 ]] && ok "5 Fehlläufe → alle Exit ≠ 0" || rot "nur $NRC von 5 Läufen endeten ≠ 0"
+[[ ! -e "$ZIEL/dev/$D1A" && ! -e "$ZIEL/dev/$D1B" && ! -e "$ZIEL/dev/$D1C" ]] && ok "40/31 Tage alte Läufe und 50 Tage altes .fehlerhaft trotz Fehlern gelöscht" || rot "alte Läufe liegen noch: $(ls "$ZIEL/dev" | tr '\n' ' ')"
+[[ -d "$ZIEL/dev/$D1D" ]] && ok "29 Tage alter Lauf bleibt" || rot "29 Tage alter Lauf gelöscht"
+[[ "$(schlechte)" == 5 ]] && ok "die 5 frischen .fehlerhaft bleiben (Lauf nie gelöscht)" || rot "frische .fehlerhaft: $(schlechte), erwartet 5"
+
+echo "── A2: Ordner mit Zukunfts-mtime wird gemeldet, nicht gelöscht"
+frisch d2; mkdir -p "$ZIEL/dev"; neue_db "$DATEN" x
+FZ="$ZIEL/dev/$(stempel "40 days")"; mkdir "$FZ"; touch -d "40 days" "$FZ"
+lauf > "$TMP/d2.log" 2>&1 && ok "Lauf endet mit 0" || rot "Lauf endet ≠ 0"
+grep -q "WARNUNG: .*Zukunft" "$TMP/d2.log" && ok "WARNUNG über den Zukunftsordner im Journal" || rot "keine Zukunfts-WARNUNG"
+[[ -d "$FZ" ]] && ok "Zukunftsordner nicht gelöscht" || rot "Zukunftsordner gelöscht"
+
+echo "── A3: env-Datei wird nicht ausgeführt"
+rm -f "$TMP/pwned" "$TMP/pwned2"
+{ printf "WOV_ADMINKONTO_PASSWORT='a\$(touch %s/pwned)b;c&d'\n" "$TMP"; printf 'WOV_X=a$(touch %s/pwned2)b;c&d\n' "$TMP"; printf 'WOV_INSTANZ=dev\n'; } > "$TMP/env-pw"
+frisch e1; ENVF="$TMP/env-pw" lauf > "$TMP/e1.log" 2>&1 && ok "Sicherung läuft mit Sonderzeichen-Passwort normal durch" || { rot "Lauf mit Sonderzeichen-Env endete ≠ 0: $(tail -2 "$TMP/e1.log" | tr '\n' ' ')"; }
+[[ ! -e "$TMP/pwned" && ! -e "$TMP/pwned2" ]] && ok "keine Datei pwned entstanden (nichts ausgeführt)" || rot "Env-Inhalt wurde ausgeführt"
+printf 'WOV_INSTANZ=dev\r\n' > "$TMP/env-crlf"; frisch e2; ENVF="$TMP/env-crlf" lauf > "$TMP/e2.log" 2>&1 && ok "CRLF-Datei: Instanz dev erkannt" || rot "CRLF-Datei abgelehnt"
+printf '# Kommentar\nexport WOV_INSTANZ="dev"   \n' > "$TMP/env-q1"; frisch e3; ENVF="$TMP/env-q1" lauf > "$TMP/e3.log" 2>&1 && ok "export + doppelte Anführungszeichen + Leerzeichen: dev" || rot "Anführungszeichen-Variante abgelehnt"
+printf "WOV_INSTANZ='dev'\n" > "$TMP/env-q2"; frisch e4; ENVF="$TMP/env-q2" lauf > "$TMP/e4.log" 2>&1 && ok "einfache Anführungszeichen: dev" || rot "einfache Anführungszeichen abgelehnt"
+mkdir -p "$DATEN/worlds" "$DATEN/welten"; cp "$DATEN/worlds/dev.db.zst" "$DATEN/x.db.zst"; cp "$DATEN/welten/dev.json" "$DATEN/x.json"
+for v in '../x' 'de*' '' 'DEV' 'dev x' 'live/../dev'; do
+  printf 'WOV_INSTANZ=%s\n' "$v" > "$TMP/env-i"; frisch e5; rm -rf "$TMP/x"
+  ENVF="$TMP/env-i" lauf > "$TMP/e5.log" 2>&1 && rot "WOV_INSTANZ='$v' endete mit 0" || ok "WOV_INSTANZ='$v' → ABBRUCH (Exit ≠ 0)"
+  [[ ! -e "$TMP/x" && -z "$(ls -A "$ZIEL")" ]] && ok "… und nichts angelegt (weder $TMP/x noch im Ziel)" || rot "WOV_INSTANZ='$v': etwas wurde angelegt"
+done
+frisch e6; ENVF="$TMP/leer.env" lauf > "$TMP/e6.log" 2>&1 && rot "fehlende env-Datei endete mit 0" || ok "fehlende env-Datei → ABBRUCH"
+: > "$TMP/env-leer"; ENVF="$TMP/env-leer" lauf > "$TMP/e7.log" 2>&1 && rot "env ohne WOV_INSTANZ endete mit 0" || ok "env ohne WOV_INSTANZ → ABBRUCH"
+
+echo "── A4: Bitfehler in der Weltkopie, kaputte Quelle, Grössenabweichung"
+frisch w1; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x
+laufcp bitzst > "$TMP/w1.log" 2>&1 && rot "Bitfehler in der Weltkopie unbemerkt (Exit 0)" || ok "Bitfehler in jeder Weltkopie → Exit ≠ 0"
+[[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ .fehlerhaft" || rot "Bitfehler: gültig $(gute), fehlerhaft $(schlechte)"
+grep -q "Versuch 5/5" "$TMP/w1.log" && ok "fünf Versuche unternommen" || rot "keine fünf Versuche"
+frisch w2; rm -f "$TMP/bitzst1.schon"
+laufcp bitzst1 > "$TMP/w2.log" 2>&1 && ok "Bitfehler nur beim ersten Kopieren: Wiederholung heilt (Exit 0)" || rot "Wiederholung heilt nicht: $(tail -3 "$TMP/w2.log" | tr '\n' ' ')"
+grep -q "Versuch 1/5" "$TMP/w2.log" && ok "erster Versuch als fehlerhaft gemeldet" || rot "keine Meldung über den ersten Versuch"
+cp "$DATEN/worlds/dev.db.zst" "$TMP/dev.db.zst.gut"
+head -c 3000 /dev/urandom > "$DATEN/worlds/dev.db.zst"
+frisch w3; lauf > "$TMP/w3.log" 2>&1 && rot "kaputte Quelle .db.zst endete mit 0" || ok "kaputte Quelle (identische Kopie, zstd -t schlägt an) → Exit ≠ 0"
+[[ "$(schlechte)" == 1 && "$(gute)" == 0 ]] && ok "→ .fehlerhaft" || rot "kaputte Quelle: gültig $(gute), fehlerhaft $(schlechte)"
+cp "$TMP/dev.db.zst.gut" "$DATEN/worlds/dev.db.zst"
+head -c 3000 /dev/urandom > "$DATEN/worlds/dev.db.zst.prev"
+frisch w4; lauf > "$TMP/w4.log" 2>&1 && rot "kaputte .prev endete mit 0" || ok "kaputte .prev → Exit ≠ 0"
+cp "$TMP/dev.db.zst.gut" "$DATEN/worlds/dev.db.zst.prev"
+frisch w5; laufcp ymlplus > "$TMP/w5.log" 2>&1 && rot "server.yml-Kopie mit anderem Umfang: Exit 0" || ok "Grössenabweichung server.yml → Exit ≠ 0"
+frisch w6; laufcp jsonplus > "$TMP/w6.log" 2>&1 && rot "Weltdokument-Kopie mit anderem Umfang: Exit 0" || ok "Grössenabweichung Weltdokument (gültiges JSON) → Exit ≠ 0"
+grep -q "Grösse weicht ab" "$TMP/w6.log" && ok "Meldung 'Grösse weicht ab'" || rot "keine Grössen-Meldung"
+
+echo "── A5: fehlende Weltdatei / server.yml → klare Meldung, Exit ≠ 0"
+mv "$DATEN/welten/dev.json" "$TMP/dev.json.weg"; frisch m1
+lauf > "$TMP/m1.log" 2>&1 && rot "ohne Weltdokument Exit 0" || ok "ohne Weltdokument → Exit ≠ 0"
+grep -q "dev.json fehlt" "$TMP/m1.log" && ok "Meldung nennt dev.json" || rot "keine Meldung: $(tail -2 "$TMP/m1.log" | tr '\n' ' ')"
+mv "$TMP/dev.json.weg" "$DATEN/welten/dev.json"
+mv "$DATEN/server.yml" "$TMP/server.yml.weg"; frisch m2
+lauf > "$TMP/m2.log" 2>&1 && rot "ohne server.yml Exit 0" || ok "ohne server.yml → Exit ≠ 0"
+grep -q "server.yml fehlt" "$TMP/m2.log" && ok "Meldung nennt server.yml" || rot "keine Meldung: $(tail -2 "$TMP/m2.log" | tr '\n' ' ')"
+mv "$TMP/server.yml.weg" "$DATEN/server.yml"
+
+echo "── Platzprüfung (Reserve unerfüllbar → nichts wird geschrieben)"
+frisch p1
+WOV_SICHERUNG_MINDEST_FREI_MB=999999999 lauf > "$TMP/p1.log" 2>&1 && rot "zu wenig Platz: Exit 0" || ok "zu wenig Platz → Exit ≠ 0"
+grep -q "zu wenig Platz" "$TMP/p1.log" && ok "Meldung 'zu wenig Platz'" || rot "keine Platz-Meldung"
+[[ "$(gute)" == 0 && "$(schlechte)" == 0 && "$(laeuft)" == 0 ]] && ok "kein Lauf-Ordner angelegt" || rot "trotz Platzmangel Ordner angelegt"
+
+echo "── journal_mode der Kopie (eine Datei, kein WAL-Header)"
+frisch j1; lauf > "$TMP/j1.log" 2>&1
+JL="$(find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9-]+T[0-9-]+' | head -1)"
+JM="$(python3 -c "import sys; b=open(sys.argv[1],'rb').read(20); print(b[18], b[19])" "$JL/konten/dev.db")"
+[[ "$JM" == "1 1" ]] && ok "Kopie der Konten-DB: Header-Bytes 18/19 = 1/1 (journal_mode DELETE)" || rot "Kopie im WAL-Modus (Header $JM)"
 
 if (( ECHT )); then
   echo "── --echt: DEV-Daten per SQLite-Backup gezogen, Sicherung, Rückspielen"

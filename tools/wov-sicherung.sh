@@ -47,6 +47,13 @@
 #   Stempelnamen sind gültige Läufe.
 # * Das ganze Skript läuft unter flock auf $ZIEL/<instanz>/.sperre; ein zweiter
 #   gleichzeitiger Lauf endet sofort mit Meldung.
+# * Aufgeräumt wird bei JEDEM Ende eines Laufs (auch bei Fehlern, per EXIT-Trap),
+#   sonst hielte ein Dauerfehler alte Kontokopien über 30 Tage. Ordner mit
+#   mtime mehr als 1 Tag in der Zukunft werden gemeldet (WARNUNG), nicht
+#   gelöscht.
+# * Aus /etc/wov.env wird nur WOV_INSTANZ gelesen (nicht per source: ein
+#   Passwort mit $ ; & ( ) würde sonst Shell-Code sein). Andere Werte kommen
+#   wie sonst über die Umgebung der systemd-Unit.
 # * Eine DB gilt nur mit den erwarteten Tabellen (Konten: konten, charaktere;
 #   Forum: boards, threads, posts) als gesichert; eine leere Datei ist ein
 #   Fehler.
@@ -74,9 +81,11 @@
 #      ein übrig gebliebenes -wal würde auf die zurückgespielte Datei
 #      angewendet und sie zerstören:
 #        cd /opt/worldofvikings/server/data
-#        V=/root/vorher-$(date +%s); mkdir -p "$V/konten" "$V/forum"
+#        V=/root/vorher-$(date +%s); mkdir -p -m 700 "$V" "$V/konten" "$V/forum"
 #        mv konten/<instanz>.db* "$V/konten"/
 #        mv forum/<instanz>.db* "$V/forum"/
+#      Der Ordner $V enthält E-Mail-Adressen und Passwort-Hashes: nach
+#      erfolgreicher Prüfung (Schritt 5) löschen, spätestens nach 30 Tagen.
 #   4. Zurückkopieren (Rechte bleiben 0600):
 #        cp "$L/konten/<instanz>.db" konten/ ; cp "$L/forum/<instanz>.db" forum/
 #   5. Server starten, in der Oberfläche Konten und Charaktere prüfen.
@@ -153,15 +162,14 @@ if [[ ! -r "$ENV_DATEI" ]]; then
   echo "bestimmbar, und genau das soll hier NICHT geraten werden." >&2
   exit 1
 fi
-set -a
-# shellcheck source=/dev/null
-. "$ENV_DATEI"
-set +a
-INSTANZ="${WOV_INSTANZ:-}"
+# Nur die letzte Zuweisung von WOV_INSTANZ lesen (CR und Anführungszeichen
+# abfangen); die Datei wird NICHT ausgeführt.
+INSTANZ="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?WOV_INSTANZ[[:space:]]*=[[:space:]]*//p' "$ENV_DATEI" \
+             | tail -n 1 | tr -d '\r' | sed -E "s/[[:space:]]+\$//; s/^\"(.*)\"\$/\\1/; s/^'(.*)'\$/\\1/" || true)"
 case "$INSTANZ" in
   dev|live) ;;
   *)
-    echo "ABBRUCH: WOV_INSTANZ in $ENV_DATEI ist '$INSTANZ' — erwartet 'dev' oder 'live'." >&2
+    echo "ABBRUCH: WOV_INSTANZ in $ENV_DATEI ist '$INSTANZ' (oder fehlt) — erwartet 'dev' oder 'live'." >&2
     exit 1
     ;;
 esac
@@ -187,7 +195,7 @@ VORHALTETAGE=30
 # Reserve, die nach der Sicherung noch frei bleiben soll — darunter wird
 # abgebrochen statt die Platte zu füllen und den laufenden Server zu
 # gefährden.
-MINDEST_FREI_MB=1024
+MINDEST_FREI_MB="${WOV_SICHERUNG_MINDEST_FREI_MB:-1024}"
 ZSTD_VERSUCHE=5
 FEHLER_DB=0
 
@@ -204,6 +212,13 @@ if [[ ! -f "$DB_DATEI" ]]; then
   exit 1
 fi
 
+for pflicht in "$WELT_DATEI" "$SERVER_YML"; do
+  if [[ ! -f "$pflicht" ]]; then
+    echo "ABBRUCH: $pflicht fehlt — Sicherung nicht möglich, nichts geschrieben." >&2
+    exit 1
+  fi
+done
+
 STEMPEL="$(date +%Y-%m-%dT%H-%M-%S)"
 LAUF_ORDNER="$ZIEL/$INSTANZ/$STEMPEL"
 LAUF_ARBEIT="$LAUF_ORDNER.laeuft"
@@ -217,6 +232,33 @@ if ! flock -n 9; then
   echo "ABBRUCH: es läuft bereits eine Sicherung (Sperre $ZIEL/$INSTANZ/.sperre)." >&2
   exit 1
 fi
+
+# Ab hier gehört die Sperre uns: bei JEDEM Ende (Erfolg, Fehler, TERM) wird ein
+# halber Lauf markiert und danach aufgeräumt.
+LAUF_OK=0
+LAUF_ANGELEGT=0
+ALT_ORDNER="$ZIEL/$INSTANZ"
+STEMPEL_MUSTER='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}(\.fehlerhaft(\.[0-9]+)?)?$'
+
+# Alte Läufe (alle Endungen) nach 30 Tagen löschen — Alter in Minuten (30 Tage =
+# 43200), die 30 Tage gelten hart. Nur Stempel-Ordner; der laufende bzw. eben
+# als .fehlerhaft markierte Lauf nie. find -H folgt einem Symlink auf
+# $ZIEL/<instanz>. Zukunfts-mtime (> 1 Tag) wird gemeldet, nicht gelöscht.
+raeume_auf() {
+  local alt name
+  while IFS= read -r -d '' alt; do
+    name="$(basename "$alt")"
+    [[ "$name" =~ $STEMPEL_MUSTER ]] || continue
+    [[ "${name%%.*}" == "$STEMPEL" ]] && continue
+    echo "  räume ab (älter als ${VORHALTETAGE}d): $alt" >&2
+    rm -rf "$alt"
+  done < <(find -H "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -mmin "+$((VORHALTETAGE * 1440))" -print0)
+  while IFS= read -r -d '' alt; do
+    name="$(basename "$alt")"
+    [[ "$name" =~ $STEMPEL_MUSTER ]] || continue
+    echo "WARNUNG: $alt hat einen Änderungszeitpunkt in der Zukunft (Uhrfehler?) — wird nicht gelöscht, bevor die Zeit ihn einholt." >&2
+  done < <(find -H "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -newermt 'now + 1 day' -print0)
+}
 
 # Freier Name für einen gescheiterten Lauf: <name>.fehlerhaft, sonst .2, .3 …
 # — nie in einen vorhandenen Ordner hinein.
@@ -237,6 +279,19 @@ for rest in "$ZIEL/$INSTANZ"/*.laeuft; do
   mv -T "$rest" "$ziel_rest"
   echo "  Rest eines abgebrochenen Laufs: $rest → $ziel_rest" >&2
 done
+
+beim_ende() {
+  local rc=$? neu
+  if (( LAUF_OK == 0 && LAUF_ANGELEGT == 1 )) && [[ -d "$LAUF_ARBEIT" ]]; then
+    neu="$(fehlerhaft_name "$LAUF_ORDNER")"
+    mv -T "$LAUF_ARBEIT" "$neu" 2>/dev/null \
+      && echo "  Lauf gescheitert — umbenannt: $neu" >&2
+  fi
+  raeume_auf || true
+  exit "$rc"
+}
+trap beim_ende EXIT
+trap 'exit 143' TERM INT
 
 if [[ -e "$LAUF_ORDNER" || -L "$LAUF_ORDNER" ]]; then
   echo "ABBRUCH: $LAUF_ORDNER existiert schon (zweiter Lauf in derselben Sekunde?) — nichts angefasst." >&2
@@ -279,22 +334,10 @@ if (( FREI_KB < BENOETIGT_KB + MINDEST_FREI_KB )); then
   exit 1
 fi
 
-# Ab hier gibt es einen halben Lauf (<stempel>.laeuft), bis er ganz durch ist:
-# jeder Abbruch mit Trap (set -e, exit 1, SIGTERM) benennt ihn in .fehlerhaft
-# um; ohne Trap (SIGKILL) macht es der nächste Lauf beim Start.
-LAUF_OK=0
-LAUF_ANGELEGT=0
-markiere_fehlerhaft() {
-  local rc=$? neu
-  if (( LAUF_OK == 0 && LAUF_ANGELEGT == 1 )) && [[ -d "$LAUF_ARBEIT" ]]; then
-    neu="$(fehlerhaft_name "$LAUF_ORDNER")"
-    mv -T "$LAUF_ARBEIT" "$neu" 2>/dev/null \
-      && echo "  Lauf gescheitert — umbenannt: $neu" >&2
-  fi
-  exit "$rc"
-}
-trap markiere_fehlerhaft EXIT
-trap 'exit 143' TERM INT
+# Ab hier gibt es einen halben Lauf (<stempel>.laeuft), bis er ganz durch ist
+# (Trap beim_ende, oben gesetzt): jeder Abbruch mit Trap (set -e, exit 1,
+# SIGTERM) benennt ihn in .fehlerhaft um; ohne Trap (SIGKILL) macht es der
+# nächste Lauf beim Start.
 # Ohne -p: existiert der Ordner schon, ist das ein Abbruch.
 mkdir "$LAUF_ARBEIT"
 LAUF_ANGELEGT=1
@@ -302,17 +345,20 @@ mkdir "$LAUF_ARBEIT/worlds" "$LAUF_ARBEIT/welten" "$LAUF_ARBEIT/konten" "$LAUF_A
 
 # ── 3. Kopieren ──────────────────────────────────────────────────────────
 # kopiere_mit_pruefung: kopiert eine zstd-komprimierte Datei und prüft die
-# Kopie mit `zstd -t` (Integritätsprüfung über die im Format eingebaute
-# Prüfsumme). Schlägt das fehl, wird erneut kopiert — s. Kopfkommentar zur
-# NICHT-atomaren .prev-Rotation, die dieser Test auffangen soll.
+# Kopie mit `cmp` gegen die Quelle UND mit `zstd -t`. `zstd -t` allein ist
+# keine Prüfsumme (die Weltdatei hat kein Check-Feld; gemessen: 128 von 200
+# Ein-Bit-Fehlern bleiben unbemerkt) und erkennt nur Abschneiden bzw. eine
+# schon kaputte Quelle; `cmp` erkennt jeden Unterschied zur Quelle. Schlägt
+# eines fehl, wird erneut kopiert — s. Kopfkommentar zur NICHT-atomaren
+# .prev-Rotation, die dieser Test auffangen soll.
 kopiere_mit_pruefung() {
   local quelle="$1" ziel="$2" versuch
   for ((versuch = 1; versuch <= ZSTD_VERSUCHE; versuch++)); do
     cp -a "$quelle" "$ziel"
-    if zstd -t "$ziel" -q 2>/dev/null; then
+    if cmp -s "$quelle" "$ziel" && zstd -t "$ziel" -q 2>/dev/null; then
       return 0
     fi
-    echo "  … $ziel nach dem Kopieren unvollständig (Versuch $versuch/$ZSTD_VERSUCHE), erneut" >&2
+    echo "  … $ziel weicht nach dem Kopieren ab oder besteht zstd -t nicht (Versuch $versuch/$ZSTD_VERSUCHE), erneut" >&2
     sleep 1
   done
   echo "FEHLER: $quelle liess sich nach $ZSTD_VERSUCHE Versuchen nicht sauber kopieren" >&2
@@ -392,7 +438,8 @@ find "$LAUF_ARBEIT" -type f -exec chmod 600 {} +
 
 # ── 4. Nachweis: vollständig UND entpackbar ──────────────────────────────
 # Grössenvergleich zuerst (billig, fängt grobe Fehler), dann die
-# inhaltliche Prüfung (JSON muss parsen, zstd muss sich testen lassen).
+# inhaltliche Prüfung (JSON muss parsen, zstd muss sich testen lassen). Die
+# Weltdateien sind schon beim Kopieren per cmp gegen die Quelle geprüft.
 FEHLER=$FEHLER_DB
 if (( FEHLER_DB != 0 )); then
   echo "FEHLER: Konten- oder Forumsdatenbank nicht sauber gesichert (s. oben)" >&2
@@ -447,20 +494,6 @@ mv -T "$LAUF_ARBEIT" "$LAUF_ORDNER"
 LAUF_OK=1
 echo "  ✓ Sicherung vollständig und geprüft: $LAUF_ORDNER"
 
-# ── 5. Alte Läufe abräumen — ERST nachdem der neue Lauf steht ───────────
-# In dieser Reihenfolge fällt bei einem Fehlschlag oben (exit 1) kein
-# einziger alter, guter Lauf weg. Alter in Minuten (30 Tage = 43200), nicht
-# in ganzen Tagen; die 30 Tage gelten hart. Nur Stempel-Ordner (auch
-# .fehlerhaft[.N]) werden angefasst; der laufende Lauf nie. find -H folgt
-# einem Symlink auf $ZIEL/<instanz> (Instanzordner auf zweiter Platte).
-ALT_ORDNER="$ZIEL/$INSTANZ"
-STEMPEL_MUSTER='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}(\.fehlerhaft(\.[0-9]+)?)?$'
-while IFS= read -r -d '' alt; do
-  name="$(basename "$alt")"
-  [[ "$name" =~ $STEMPEL_MUSTER ]] || continue
-  [[ "$name" == "$STEMPEL" ]] && continue
-  echo "  räume ab (älter als ${VORHALTETAGE}d): $alt"
-  rm -rf "$alt"
-done < <(find -H "$ALT_ORDNER" -mindepth 1 -maxdepth 1 -type d -mmin "+$((VORHALTETAGE * 1440))" -print0)
-
+# ── 5. Alte Läufe abräumen ──────────────────────────────────────────────
+# Geschieht in der EXIT-Trap (beim_ende → raeume_auf), auch nach Fehlern.
 echo "Fertig — $INSTANZ gesichert nach $LAUF_ORDNER"

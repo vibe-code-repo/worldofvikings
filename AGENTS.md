@@ -216,11 +216,16 @@ What the lock covers, and what it does not:
   processes under `sperre.sh`**; it is for commands that finish.
 - **`kill -9` on `sperre.sh` ends the wrapper, not its child.** The orphaned child keeps
   the place until it ends itself; end the child (by its PID) to free it.
-- **Nesting on a name you already hold runs the command directly**: `sperre.sh` hands the
-  names it holds to its child (`WOV_SPERRE_GEHALTEN`), and the inherited descriptor holds
-  the place. So a `git commit` inside `sperre.sh build -- ...` (its hook asks for `build`
-  again) is safe. Nesting on another name takes that name's own place and waits like any
-  call. The lock files in `.slots` are part of the contract: deleting one lifts the lock,
+- **Nesting on a name you already hold**: `sperre.sh` hands the names it holds to its
+  child (`WOV_SPERRE_GEHALTEN`). A call on such a name first tries, without waiting, for a
+  free place and takes it; only when every place is busy does it run its command directly
+  and print `sperre: <name> held by caller, running nested without a place`. So a
+  `git commit` inside `sperre.sh build -- ...` (its hook asks for `build` again) cannot
+  deadlock, and the pass is never silent.
+- **Never take one lock under the other** (`build` inside `test`, `test` inside `build`):
+  two of each, crossed, wait on each other for ever without a message. Release the first
+  lock, then take the second. The tool does not refuse it, so that the hook (`build`)
+  keeps working under any caller. The lock files in `.slots` are part of the contract: deleting one lifts the lock,
   so do not `rm` them.
 - Exit 64 is the tool's usage error and also possible for a command. The tool tells them
   apart on stderr: `sperre: usage:` against `sperre: command exited 64`.
@@ -230,8 +235,11 @@ What the lock covers, and what it does not:
   remove it afterwards (a commit's hook ignores it, a `sperre.sh` call does not).
   `WOV_SPERREN_PLAETZE_<NAME>` overrides the table for the tool's own self-test only: it
   works only together with the mark `_SPERRE_SELBSTTEST=1`, which only `--selbsttest`
-  sets, and only when the canonical `WOV_SPERREN` is not the real directory (a trailing
-  slash, `/./` or a symlink do not change that). Never set either of them.
+  sets, and only when `WOV_SPERREN` is not the real directory by path and by
+  device:inode (a trailing slash, `/./`, a symlink or a bind mount do not change that).
+  **Never set `WOV_SPERREN_PLAETZE_*`, `_SPERRE_SELBSTTEST` or `WOV_SPERRE_GEHALTEN` by
+  hand**: the last one lets a call run past a full lock (visibly, but past it); the
+  tool sets it for its children itself.
 
 ### 3.4 While you work
 

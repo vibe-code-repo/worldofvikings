@@ -15,7 +15,12 @@
 # Nested calls: sperre.sh puts the names it holds into WOV_SPERRE_GEHALTEN for the child. A call
 # on a name that is already held runs its command directly (the inherited descriptor holds
 # the place already), so a commit inside `sperre.sh build -- ...` whose hook asks for `build`
-# again cannot deadlock against itself or against a second such commit.
+# again cannot deadlock against itself or against a second such commit. Such a call first
+# tries, without waiting, for a free place and takes it like any call; only when every
+# place is busy does it run its command directly, and then it always says so on stderr
+# ("held by caller, running nested without a place"), so the pass is never silent.
+# WOV_SPERRE_GEHALTEN is set by this tool only, never by hand: whoever sets it lets calls
+# run past a full lock (visibly, but past it).
 #
 # Place 1 is the file `<name>.lock` (so a plain `flock <name>.lock ...` still holds
 # place 1); places 2..N are `<name>.<i>.lock`. Waiting is a poll (1 s plus jitter), not
@@ -29,8 +34,9 @@
 #     servers or watchers under the lock.
 #   * `kill -9` on sperre.sh ends the wrapper, not the child; the orphaned child keeps
 #     the place until it ends.
-#   * Nesting on a name you hold runs directly (see above); nesting on a name you do not hold
-#     waits like any other call.
+#   * Nesting on a name you hold: see above. NEVER take one lock under the other (build under
+#     test, test under build): two of each, crossed, wait on each other forever. The tool does
+#     not refuse it, because the commit hook (build) must still work under a caller.
 #   * The lock files are part of the contract: deleting one lifts the lock.
 #   * Exit status is the command's. Exit 64 is also this tool's usage error; every usage
 #     error prints a line starting "sperre: usage:" and a command that exits 64 itself
@@ -40,7 +46,7 @@
 # WOV_SPERREN_PLAETZE_<NAME> (upper case, - as _) overrides the table. It exists only for
 # --selbsttest and is honoured only when BOTH hold: the mark _SPERRE_SELBSTTEST=1, which
 # only selbsttest() sets, and a canonical WOV_SPERREN (readlink -f) that is not the real
-# directory. So it cannot loosen the real limit, neither by a trailing slash nor by `/./`.
+# directory, also by device:inode (stat), which sees through a bind mount. So it cannot loosen the real limit, neither by a trailing slash nor by `/./`.
 # It also allows names outside the table.
 set -u
 
@@ -51,7 +57,7 @@ VERZ=${WOV_SPERREN:-$STANDARD}
 plaetze_von() {
   local name=$1 var
   var=WOV_SPERREN_PLAETZE_$(echo "$name" | tr 'a-z-' 'A-Z_')
-  if [ "${_SPERRE_SELBSTTEST:-}" = 1 ] && [ "$(readlink -f "$VERZ")" != "$(readlink -f "$STANDARD")" ] && [ -n "${!var:-}" ]; then
+  if [ "${_SPERRE_SELBSTTEST:-}" = 1 ] && [ "$(readlink -f "$VERZ")" != "$(readlink -f "$STANDARD")" ] && [ "$(stat -c %d:%i "$VERZ" 2>/dev/null)" != "$(stat -c %d:%i "$STANDARD" 2>/dev/null)" ] && [ -n "${!var:-}" ]; then
     [[ ${!var} =~ ^[0-9]+$ ]] && [ "${!var}" -ge 1 ] && [ "${!var}" -le 16 ] || usage "bad override $var"
     echo "${!var}"; return
   fi
@@ -157,6 +163,24 @@ selbsttest() {
   e=$(WOV_SPERREN_PLAETZE_X=abc "$self" x -- true 2>&1 >/dev/null); r=$?
   [ "$r" = 64 ] || fail "non-numeric override: rc $r"
   ok "unwritable directory exits 70 with 'sperre: error:'; bad names and overrides exit 64 cleanly"
+  # 12. WOV_SPERRE_GEHALTEN set from outside (t9-B1): free places are taken, a full lock is passed only loudly
+  local o
+  o=$(WOV_SPERRE_GEHALTEN=" build" "$self" build -- bash -c "flock -n '$t/build.lock' -c true; echo held=\$?" 2>&1)
+  case $o in *"build place 1/2 taken"*"held=1"*) ;; *) fail "foreign mark with free places did not take a place: $o";; esac
+  for i in 1 2 3 4 5; do
+    ( WOV_SPERRE_GEHALTEN=" build" "$self" build -- sleep 2 > /dev/null 2> "$t/fm.$i" ) &
+  done
+  wait
+  local taken direkt
+  taken=$(cat "$t"/fm.* | grep -c 'place [0-9]/2 taken'); direkt=$(cat "$t"/fm.* | grep -c 'held by caller, running nested without a place')
+  [ "$taken" = 2 ] && [ "$direkt" = 3 ] || fail "5 foreign-marked calls: $taken took a place, $direkt ran nested (want 2 and 3, none silent)"
+  ok "foreign WOV_SPERRE_GEHALTEN: free place is taken (held=1), of 5 calls 2 hold places and 3 pass loudly"
+  # 13. the nested pass says so, the command still runs and its status passes
+  ( "$self" build -- sleep 3 2>/dev/null ) & ( "$self" build -- sleep 3 2>/dev/null ) & sleep 1
+  o=$(WOV_SPERRE_GEHALTEN=" build" "$self" build -- bash -c 'exit 5' 2>&1); r=$?
+  wait
+  [ "$r" = 5 ] && case $o in *"held by caller, running nested without a place"*) true;; *) false;; esac || fail "full-lock pass: rc $r, '$o'"
+  ok "all places busy: nested call runs its command with a stderr line, status passes"
   echo "selftest: $n directions ok"
 }
 
@@ -182,8 +206,9 @@ if [ "$1" != -- ]; then
 fi
 shift
 [ $# -ge 1 ] || usage "no command after --"
+genistet=0
 case " ${WOV_SPERRE_GEHALTEN:-} " in
-  *" $NAME "*) exec "$@" ;;   # already held by an outer sperre.sh: the inherited descriptor holds the place
+  *" $NAME "*) genistet=1 ;;   # held by an outer sperre.sh: take a free place, else run past the full lock, loudly
 esac
 mkdir -p "$VERZ" || fehler "cannot create $VERZ"
 
@@ -200,6 +225,10 @@ while :; do
     fi
     exec {fd}>&-
   done
+  if [ "$genistet" = 1 ]; then
+    echo "sperre: $NAME held by caller, running nested without a place" >&2
+    exec "$@"
+  fi
   [ -n "$gemeldet" ] || { echo "sperre: all $PLAETZE places of $NAME busy, waiting" >&2; gemeldet=1; }
   sleep "1.$((RANDOM % 9))"
 done

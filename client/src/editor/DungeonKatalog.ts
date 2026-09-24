@@ -60,7 +60,7 @@ import { abschnitt, auswahl, feld, hinweis, knopf, schalter, zeile } from './dun
 // geöffneten Dokument nichts zu tun hat und diese hier schon 1 200
 // Zeilen misst.
 import { NewHallForm, type HallBuilder, type HallDeleter } from './DungeonNeuerSaal';
-import { dungeonMeldung, dungeonZiel, gameUrl } from './spielAdresse';
+import { dungeonMeldung, dungeonZiel } from './spielAdresse';
 
 export interface DungeonSeiteRueckrufe {
   meldung(text: string, fehler?: boolean): void;
@@ -1023,13 +1023,12 @@ export class DungeonSeite {
       return;
     }
 
-    // ── Ohne Anmeldung geht die Dungeon-Wahl unterwegs verloren ──────
+    // ── Ohne Anmeldung: die Wahl bleibt als Wunsch liegen ────────────
     //
-    // Der Spielclient leitet ohne Sitzung zur Anmeldung auf der Webseite
-    // um, und diese Adresse trägt KEIN Ziel zurück (`websiteLoginUrl` in
-    // client/src/main.ts kennt nur `shore` und `abgelaufen`). Nach dem
-    // Anmelden landet man also in der Welt statt im Dungeon — wortlos,
-    // was schlimmer ist als ein Fehler.
+    // Der Spielclient legt `?dungeon=` vor der Weiterleitung zur Anmeldung
+    // als `wov-dungeon-wunsch` ab (10 Minuten) und loest ihn nach der
+    // Anmeldung ein (client/src/main.ts). Also das Spiel MIT `?dungeon=`
+    // oeffnen, sonst gaebe es nichts abzulegen.
     //
     // Der localStorage gilt je Ursprung. Nur wenn das Spiel auf DEMSELBEN
     // Ursprung oeffnet, sagt er etwas ueber das Ziel. Beim Wechsel auf den
@@ -1046,11 +1045,11 @@ export class DungeonSeite {
       }
       if (!token) {
         this.cb.meldung(
-          `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
-            'Erst anmelden, dann noch einmal auf „Betreten".',
+          `Nicht im Spiel angemeldet — ${doc.id} öffnet sich nach der Anmeldung, ` +
+            'wenn du dich innerhalb von 10 Minuten anmeldest.',
           true
         );
-        window.open(gameUrl(), '_blank');
+        window.open(ziel.url, '_blank');
         return;
       }
     }

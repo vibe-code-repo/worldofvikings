@@ -36,7 +36,7 @@ import { dungeon2 } from '@wov/shared';
 import { F, auswahl, el, feld, knopf, stil } from '../design';
 import { Dungeon2LadeFehler, holeDungeon2, holeDungeon2Liste, type Dungeon2Kopf } from './Dungeon2Dokument';
 import { speichereDungeon2 } from './Dungeon2Speichern';
-import { dungeonMeldung, dungeonZiel, gameUrl } from '../spielAdresse';
+import { dungeonMeldung, dungeonZiel } from '../spielAdresse';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Andockstellen fuer Zeichenflaeche und Werkzeuge (AP15.7)
@@ -565,6 +565,8 @@ export class Dungeon2Seite {
 
     // Vorab-Pruefung nur beim gleichen Ursprung (localStorage gilt je
     // Ursprung); beim Wechsel auf den Spiel-Host fragt das Spiel selbst.
+    // Ohne Token wird trotzdem MIT `?dungeon=` geoeffnet: main.ts legt den
+    // Wunsch vor der Anmeldung ab und loest ihn danach ein.
     if (ziel.gleicherUrsprung) {
       let token = '';
       try {
@@ -574,11 +576,11 @@ export class Dungeon2Seite {
       }
       if (!token) {
         this.shell.meldung(
-          `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
-            'Erst anmelden, dann noch einmal auf "Betreten".',
+          `Nicht im Spiel angemeldet — ${doc.id} öffnet sich nach der Anmeldung, ` +
+            'wenn du dich innerhalb von 10 Minuten anmeldest.',
           true
         );
-        window.open(gameUrl(), '_blank');
+        window.open(ziel.url, '_blank');
         return;
       }
     }

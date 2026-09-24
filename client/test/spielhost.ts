@@ -97,7 +97,7 @@ for (const id of ['a/../b', 'a?x=1#y', '//evil.example/', 'a b\n', '%2e%2e']) {
 
 // ── Die Meldung sagt ehrlich, was beim Hostwechsel passiert ─────────────────
 const mHost = dungeonMeldung('x', dungeonZiel('x', { host: `editor.dev.${H}`, protocol: 'https:' }, '/play/'));
-pruefe(/Anmeldung/.test(mHost) && /erneut öffnen/.test(mHost), `Hostwechsel: Meldung warnt vor dem Verlust (${mHost})`);
+pruefe(/Anmeldung/.test(mHost) && /danach von selbst/.test(mHost) && !/verloren|erneut/.test(mHost), `Hostwechsel: Meldung sagt, dass der Dungeon nach der Anmeldung öffnet (${mHost})`);
 const mGleich = dungeonMeldung('x', dungeonZiel('x', { host: 'localhost:5290', protocol: 'http:' }, '/'));
 pruefe(!/Anmeldung/.test(mGleich), `gleicher Ursprung: schlichte Meldung (${mGleich})`);
 
@@ -185,6 +185,9 @@ const SOLL: Array<[string, string]> = [
   [`editor.dev.${H}`, `https://live.dev.${H}${PFAD}`],
   [`editor.staging.${H}`, `https://live.staging.${H}${PFAD}`],
 ];
+// Verzögerte Navigation (setTimeout, Microtask, Promise) läuft erst nach dem
+// synchronen Aufruf: vor jeder Auswertung die Timer abwarten.
+const warteAufTimer = (): Promise<void> => new Promise((fertig) => setTimeout(fertig, 50));
 for (const [name, weg] of wege) {
   for (const [host, soll] of SOLL) {
     geoeffnet.length = zugewiesen.length = meldungen.length = 0;
@@ -195,16 +198,26 @@ for (const [name, weg] of wege) {
     } catch (e) {
       fehlerText = String(e);
     }
+    await warteAufTimer();
     pruefe(fehlerText === '' && geoeffnet.length === 1 && geoeffnet[0] === soll && zugewiesen.length === 0, `${name} auf ${host}: öffnet ${JSON.stringify(geoeffnet)} (soll ${soll}), kein assign ${fehlerText}`);
-    pruefe(meldungen.length === 1 && /erneut öffnen/.test(meldungen[0]), `${name} auf ${host}: ehrliche Meldung (${meldungen[0] ?? 'keine'})`);
+    pruefe(meldungen.length === 1 && /danach von selbst/.test(meldungen[0]) && !/verloren|erneut/.test(meldungen[0]), `${name} auf ${host}: ehrliche Meldung (${meldungen[0] ?? 'keine'})`);
   }
   // Eigener Ursprung: nur ein Pfad, keine Adresse mit Host.
   geoeffnet.length = zugewiesen.length = meldungen.length = 0;
   (g.localStorage as { getItem(k: string): string | null }).getItem = () => 'sp_konto';
   ortJetzt = { host: 'localhost:5290', protocol: 'http:' };
   weg();
+  await warteAufTimer();
   pruefe(geoeffnet.length === 1 && geoeffnet[0] === gameUrl('dungeon=steingrab-2') && zugewiesen.length === 0, `${name} auf localhost: ${JSON.stringify(geoeffnet)}`);
+  pruefe(meldungen.length === 1 && !/Nicht im Spiel angemeldet/.test(meldungen[0]), `${name} auf localhost mit Token: keine Anmelde-Warnung (${meldungen[0] ?? 'keine'})`);
+  // Eigener Ursprung ohne Token: die Vorabprüfung meldet es und öffnet das
+  // Spiel MIT `?dungeon=`, damit main.ts den Wunsch vor der Anmeldung ablegt.
+  geoeffnet.length = zugewiesen.length = meldungen.length = 0;
   (g.localStorage as { getItem(k: string): string | null }).getItem = () => null;
+  weg();
+  await warteAufTimer();
+  pruefe(geoeffnet.length === 1 && geoeffnet[0] === gameUrl('dungeon=steingrab-2') && zugewiesen.length === 0, `${name} auf localhost ohne Token: öffnet ${JSON.stringify(geoeffnet)} mit ?dungeon=`);
+  pruefe(meldungen.length === 1 && /Nicht im Spiel angemeldet/.test(meldungen[0]) && /nach der Anmeldung/.test(meldungen[0]) && !/verloren/.test(meldungen[0]), `${name} auf localhost ohne Token: Meldung (${meldungen[0] ?? 'keine'})`);
 }
 
 // Das Speichern läuft auf dem Editor-Host über /ws.

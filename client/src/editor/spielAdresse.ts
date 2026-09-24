@@ -120,12 +120,12 @@ export function dungeonZiel(
 
 /**
  * The message the editor shows when it opens the game. On a host change the
- * page cannot see the sign-in, and the game's sign-in redirect (`main.ts`,
- * `weiter=/play/`) drops `?dungeon=`: without a session the dungeon is lost, so
- * the message says so instead of promising it opens.
+ * page cannot see the sign-in. The game keeps the wish before its sign-in
+ * redirect (`wov-dungeon-wunsch` in `main.ts`, valid 10 minutes) and opens the
+ * dungeon after the sign-in, so the message says exactly that.
  */
 export function dungeonMeldung(id: string, ziel: DungeonZiel): string {
   return ziel.gleicherUrsprung
     ? `${id} wird im Spiel geöffnet …`
-    : `${id} wird im Spiel geöffnet … Falls das Spiel zur Anmeldung führt, geht die Wahl verloren: nach der Anmeldung den Dungeon erneut öffnen.`;
+    : `${id} wird im Spiel geöffnet … Führt das Spiel zuerst zur Anmeldung, öffnet sich der Dungeon danach von selbst, wenn du dich innerhalb von 10 Minuten anmeldest.`;
 }

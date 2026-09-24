@@ -255,7 +255,7 @@ pruefeGleich('ID-Muster stimmt mit admin/src/main.ts ueberein (Stichprobe)', DUN
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. Betreten-Adresse (bleibt auf dem Ursprung des Editors)
+// 7. Betreten-Adresse (nur der Pfad; den Host setzt spielAdresse.dungeonZiel)
 // ─────────────────────────────────────────────────────────────────────────────
 
 pruefeGleich('dungeonUrl: Pfad mit Basis', dungeonUrl('steingrab-2', '/play/'), '/play/?dungeon=steingrab-2');

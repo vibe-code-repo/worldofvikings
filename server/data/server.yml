@@ -243,6 +243,28 @@ dungeons:
   # "seeded" traf kein Konzept: Dungeon-Generierung ist immer seed-basiert,
   # einen ungeseedeten Modus gibt es nicht.
 
+# ── Editor-Uploads (U1, 22.09.2026) ─────────────────────────────────────
+# Gelesen vom BETRIEBSDIENST (admin/src/main.ts), nicht vom Spielserver --
+# genau wie players.everyone-admin und im Unterschied zu dungeons.modulbau
+# ist dieser Schalter also nur wirksam, solange derselbe server.yml-Pfad
+# fuer beide Prozesse gilt (immer der Fall: ein Checkout je Container).
+uploads:
+  # Erlaubt im Editor-Katalog das Hochladen eines .glb als Prefab (eigene
+  # Registry unter assets/hochgeladen/, s. shared/src/
+  # uploadedModelRegistry.ts). Ein eigener Schalter -- NICHT
+  # dungeons.modulbau mitbenutzt, weil beide Fragen unabhaengig sind
+  # ("darf Adminbefehle" vs. "darf Dateien anlegen"). Wirkt nur auf der
+  # dev-Instanz: Auf live lehnt der Betriebsdienst jeden Aufruf ab,
+  # UNABHAENGIG von diesem Wert und vom eigenen Code her (Ist-Analyse
+  # Abschnitt 3 -- fuer den Weg dev->live gibt es heute keinen
+  # Mechanismus). Vorgabe TRUE (N1, Angriff Befund B3, Mikes Entscheid):
+  # Ein Ausrollen bricht bei einem schmutzigen Arbeitsbaum ab
+  # (wov-update.sh), ein Anschalten von Hand auf dem Zielcontainer haette
+  # also jedes weitere Ausrollen blockiert, solange es nicht committet
+  # ist -- und der committete Wert gilt wegen der Instanzsperre oben
+  # ohnehin nur auf dev.
+  modell-hochladen: true
+
 # events: chance und interval wurden nie aus dieser Datei gelesen -- die
 # echten Werte sind fixe Konstanten in shared/src/constants.ts
 # (EVENT_CHANCE = 0.2, EVENT_INTERVAL_MS = 46 Minuten, dieselben Zahlen

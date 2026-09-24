@@ -54,7 +54,8 @@
  * Umgebung: WOV_ADMIN_PORT (Vorgabe 2468, 0 = freier Port),
  *           WOV_ADMIN_ADRESSE, WOV_WURZEL (Projektpfad),
  *           WOV_ADMIN_TOKEN_DATEI, WOV_NAHE_NETZE, WOV_PROXY_ADRESSEN,
- *           WOV_LOG_STROEME_MAX
+ *           WOV_LOG_STROEME_MAX, WOV_SYSTEMCTL (nur Tests/Probelaeufe, s. SYSTEMCTL),
+ *           WOV_ERLAUBTE_URSPRUENGE (kommagetrennte Host-Namen, s. fremdeHerkunft)
  */
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
@@ -83,6 +84,13 @@ import {
   layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
+import {
+  unfertigenResetMelden,
+  weltZuruecksetzenBehandeln,
+  weltZuruecksetzenVorschau,
+  zuruecksetzenStatus,
+  type ResetUmgebung,
+} from './routen/weltZuruecksetzen.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
 // geschickt wie beim Server. Der Editor soll sehen, was auch der
 // Spielserver sieht — ein Rohtext koennte Raeume enthalten, die dort
@@ -101,6 +109,21 @@ import {
   registeredModules,
   removeRegistryEntry,
 } from '@wov/shared/src/moduleRegistry.js';
+// U1: dieselbe Abgleich-Idee wie bei den Dungeon-Modulen, fuer per Editor
+// hochgeladene Prefabs -- eigene Datei, eigener Ordner, eigene Registry.
+import {
+  MAX_BYTES as HOCHGELADEN_MAX_BYTES,
+  REGISTRY_DATEI as HOCHGELADEN_REGISTRY_DATEI,
+  applyUploadedModelRegistry,
+  leereRegistry as leereHochgeladenRegistry,
+  leseRegistryAusText as leseHochgeladenRegistryAusText,
+  type Kollisionsart,
+} from '@wov/shared/src/uploadedModelRegistry.js';
+import {
+  entferneUpload,
+  pruefeUndSpeichereUpload,
+  UPLOAD_DIR as HOCHGELADEN_ORDNER,
+} from '@wov/shared/src/uploadedModelUpload.js';
 // AP15.0: derselbe Lese-Grundsatz fuer das 2.0-Format. Direktimport an
 // shared/src/dungeon2/index.ts vorbei, aus demselben Grund wie bei
 // dungeons.js eine Zeile hoeher — nur dass hier NICHTS mitgezogen wird
@@ -132,6 +155,34 @@ const PORT = Number(process.env.WOV_ADMIN_PORT ?? 2468);
 // mit einem Wegwerf-Token gegen ein Wegwerf-Verzeichnis fahren kann,
 // ohne /etc anzufassen.
 const TOKEN_DATEI = process.env.WOV_ADMIN_TOKEN_DATEI ?? '/etc/wov-admin.token';
+
+// Which program this process runs instead of `systemctl`: for tests and proof
+// runs ONLY (admin/test/welt-zuruecksetzen.ts, a slot's own operations service);
+// never set it in operation. It replaces EVERY systemctl call of this process
+// (stop/start/restart/reload of services, the nginx reload, the state queries), so
+// a stand-in sees all of them and none reaches the real wov-server. Not limited
+// to the world reset on purpose: a variable that covered only some calls would
+// leave the others on the real machine. Set in the environment, never by a request.
+const SYSTEMCTL = process.env.WOV_SYSTEMCTL ?? 'systemctl';
+// A stand-in for systemctl can make a stop/start answer "done" while nothing was stopped or started (a `true` in its place
+// does exactly that), so it must never go unnoticed and never run in operation:
+//  - a loud warning at start,
+//  - the field `systemctlErsatz` in GET /status,
+//  - no start at all under NODE_ENV=production (the units' /etc/wov.env sets it there).
+const SYSTEMCTL_ERSATZ = process.env.WOV_SYSTEMCTL !== undefined && process.env.WOV_SYSTEMCTL !== '' ? SYSTEMCTL : null;
+if (SYSTEMCTL_ERSATZ !== null) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error(
+      `[Admin] WOV_SYSTEMCTL=${SYSTEMCTL_ERSATZ} ist gesetzt, aber NODE_ENV=production: Der Dienst startet nicht. ` +
+        'Die Variable ersetzt jeden systemctl-Aufruf und ist nur fuer Tests und Probelaeufe — aus der Umgebung (/etc/wov.env, Unit) entfernen.'
+    );
+    process.exit(1);
+  }
+  console.warn(
+    `[Admin] WARNUNG: WOV_SYSTEMCTL=${SYSTEMCTL_ERSATZ} ist gesetzt — jeder Dienst-Aufruf dieses Prozesses (stop/start/restart, nginx-Reload, ` +
+      'Zustandsabfragen, Zuruecksetzen, Testwelt) geht an dieses Programm statt an systemctl. Nur fuer Tests und Probelaeufe.'
+  );
+}
 
 const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
@@ -387,6 +438,23 @@ async function leibLesen(req: IncomingMessage, grenze = 8_000_000): Promise<unkn
   return JSON.parse(Buffer.concat(teile).toString('utf-8'));
 }
 
+/**
+ * Wie `leibLesen`, aber OHNE `JSON.parse` — für den Modell-Upload (U1),
+ * dessen Körper eine `.glb` ist, kein JSON-Text. Dieselbe `AnfrageZuGross`,
+ * damit der bestehende Sammel-catch unten (413, `Connection: close`) sie
+ * unverändert auffängt.
+ */
+async function leibBinaerLesen(req: IncomingMessage, grenze: number): Promise<Buffer> {
+  const teile: Buffer[] = [];
+  let gesamt = 0;
+  for await (const stueck of req) {
+    gesamt += (stueck as Buffer).length;
+    if (gesamt > grenze) throw new AnfrageZuGross(`Anfrage zu gross (mehr als ${grenze} Bytes)`);
+    teile.push(stueck as Buffer);
+  }
+  return Buffer.concat(teile);
+}
+
 /** Sicherungskopie mit Zeitstempel; behaelt die letzten `behalten` Staende. */
 function sichern(datei: string, behalten = 10): string | null {
   if (!existsSync(datei)) return null;
@@ -592,11 +660,11 @@ async function nginxSchreiben(aenderungen: Record<string, string>): Promise<stri
   writeFileSync(NGINX_SITE, text);
   try {
     await ausfuehren('nginx', ['-t']);
-    await ausfuehren('systemctl', ['reload', 'nginx']);
+    await ausfuehren(SYSTEMCTL, ['reload', 'nginx']);
   } catch (fehler) {
     // Kaputte Konfiguration NIE stehen lassen — sonst ist die Seite weg.
     if (sicherung) copyFileSync(sicherung, NGINX_SITE);
-    await ausfuehren('systemctl', ['reload', 'nginx']).catch(() => undefined);
+    await ausfuehren(SYSTEMCTL, ['reload', 'nginx']).catch(() => undefined);
     throw new Error(`nginx lehnt ab, zurueckgerollt: ${(fehler as Error).message}`);
   }
   return erledigt;
@@ -606,7 +674,7 @@ async function nginxSchreiben(aenderungen: Record<string, string>): Promise<stri
 
 async function dienstZustand(name: Dienst): Promise<{ aktiv: boolean; seit: string | null }> {
   try {
-    const { stdout } = await ausfuehren('systemctl', ['show', name, '--property=ActiveState,ActiveEnterTimestamp']);
+    const { stdout } = await ausfuehren(SYSTEMCTL, ['show', name, '--property=ActiveState,ActiveEnterTimestamp']);
     const aktiv = /ActiveState=active/.test(stdout);
     const seit = /ActiveEnterTimestamp=(.*)/.exec(stdout)?.[1]?.trim() || null;
     return { aktiv, seit };
@@ -754,6 +822,135 @@ function metrikenAusgeben(res: ServerResponse): void {
   res.end(puffer);
 }
 
+// ── Modell-Upload (U1) ───────────────────────────────────────────────────
+//
+// Eigenes Tor, eigener Schalter (server.yml: uploads.modell-hochladen,
+// Vorgabe FALSE) — NICHT dungeons.modulbau mitbenutzt, wie die Karte
+// ausdruecklich verlangt: „darf Adminbefehle" (hier: ueberhaupt bis zum
+// Betriebsdienst durchdringen — Herkunft+Token) ist eine andere Frage als
+// „darf Dateien unter assets/hochgeladen/ anlegen".
+//
+// Und auf `live` GESPERRT, wie das Weltzuruecksetzen: Diese Karte gilt
+// fuer die Entwicklungs-Instanz, der Weg von dev nach live ist eine eigene
+// Karte (Ist-Analyse Abschnitt 3 — es gibt dafuer heute keinen
+// Mechanismus).
+function uploadsErlaubt(): boolean {
+  if (INSTANZ === 'live') return false;
+  return ymlLesen()['uploads.modell-hochladen'] === 'true';
+}
+
+/**
+ * `POST /api/modell-hochladen` — VOR der JSON-Weiche wie `/api/serverlog`
+ * und `/metriken`: Der Koerper ist eine `.glb`, kein JSON-Text, und
+ * `leibLesen()` erzwingt `JSON.parse` IMMER (Ist-Analyse Abschnitt 5).
+ * Name und Kollisionswunsch reisen als Kopfzeilen, weil der Koerper damit
+ * die REINEN Bytes der Datei bleibt — kein multipart-Parser, keine
+ * Base64-Huelle mit einem Drittel Aufschlag.
+ */
+async function modellHochladenBehandeln(
+  req: IncomingMessage,
+  res: ServerResponse,
+  hochgeladenVon: string
+): Promise<void> {
+  if (req.method !== 'POST') {
+    return json(res, 405, { ok: false, fehler: 'POST erwartet', message: 'POST erwartet' });
+  }
+  // N1 (Angriff, Abschnitt "Geprüft und nicht gefunden"/B7-Kleinkram): auf
+  // `live` (oder bei ausgeschaltetem Schalter) wird SO der ganze Körper
+  // erst gar nicht gelesen -- vorher las `leibBinaerLesen` bis zu 21 MB,
+  // bevor `pruefeUndSpeichereUpload` weiter unten den Schalter überhaupt
+  // ansah. Nichts landete auf der Platte, aber jeder Aufruf kostete
+  // unnötig Bandbreite und Zeit. Dieselbe Ablehnung wie bisher, nur früher.
+  if (!uploadsErlaubt()) {
+    return json(res, 400, {
+      ok: false,
+      fehler: 'abgelehnt',
+      message: 'Modell-Upload ist auf dieser Instanz nicht erlaubt (server.yml: uploads.modell-hochladen, oder Instanz live).',
+    });
+  }
+  // N2 (Nachangriff, Befund N-1): Dieser Zweig laeuft VOR `behandeln()` (wie
+  // `/api/serverlog`) und damit auch vor dessen `moduleAbgleichen()`/
+  // `hochgeladenAbgleichen()` -- ohne eigenen Aufruf hier saehe der
+  // ALLERERSTE Upload nach einem Neustart dieses Prozesses einen LEEREN
+  // Speicher: weder die zur Laufzeit gebauten `Gen_`-Module noch schon auf
+  // der Platte stehende Uploads waeren in `PREFABS_BY_HASH`/den
+  // Registry-Karten bekannt, und die Gross-/Klein-Sperre (B7) sowie die
+  // Hash-Pruefung (B1) liefen gegen einen unvollstaendigen Stand.
+  moduleAbgleichen();
+  hochgeladenAbgleichen();
+  const contentType = String(req.headers['content-type'] ?? '');
+  if (!contentType.startsWith('application/octet-stream')) {
+    return json(res, 415, {
+      ok: false,
+      fehler: 'falscher-content-type',
+      message: `Erwartet wird 'application/octet-stream', bekommen wurde '${contentType || '(keine Angabe)'}'.`,
+    });
+  }
+  // N1 (Angriff, Befund B6): Kopfzeilenwerte sind ByteStrings -- ein
+  // `fetch` mit einem Zeichen über U+00FF (Umlaute eingeschlossen, sobald
+  // NICHT in Latin-1, z. B. kyrillisch oder ein Stern) wirft im BROWSER
+  // schon beim Setzen der Kopfzeile einen TypeError, bevor die Anfrage
+  // überhaupt losgeht -- die UI zeigte dafür nur "Netzwerkfehler:", nie
+  // einen ganzen Satz. Der Editor schickt den Namen deshalb jetzt
+  // `encodeURIComponent`-kodiert (reines ASCII, jede Kopfzeile erlaubt
+  // das), hier wird er zurückübersetzt.
+  const angezeigterNameRoh = String(req.headers['x-wov-modellname'] ?? '');
+  let angezeigterName: string;
+  try {
+    angezeigterName = decodeURIComponent(angezeigterNameRoh).trim();
+  } catch {
+    return json(res, 400, {
+      ok: false,
+      fehler: 'name-ungueltig-kodiert',
+      message: 'Kopfzeile x-wov-modellname ist nicht gültig kodiert (encodeURIComponent erwartet).',
+    });
+  }
+  if (angezeigterName === '') {
+    return json(res, 400, { ok: false, fehler: 'name-fehlt', message: 'Kopfzeile x-wov-modellname fehlt oder ist leer.' });
+  }
+  const kollisionsRoh = String(req.headers['x-wov-kollision'] ?? 'fest');
+  if (kollisionsRoh !== 'fest' && kollisionsRoh !== 'durchlaessig') {
+    return json(res, 400, {
+      ok: false,
+      fehler: 'kollision-ungueltig',
+      message: `Kollisionsart '${kollisionsRoh}' unbekannt — erwartet wird 'fest' oder 'durchlaessig'.`,
+    });
+  }
+
+  // Eine Byte-Grenze GRÖSSER als der harte Deckel der Prüfung: Eine zu
+  // grosse Datei soll die eigene, sprechende Ablehnung von
+  // `pruefeUndSpeichereUpload` bekommen ("Datei zu gross: X > Y Byte"),
+  // nicht das nackte 413 des Körperlesers — die Marge lässt dafür genug
+  // Bytes durch, um überhaupt bis zu dieser Meldung zu kommen.
+  let koerper: Buffer;
+  try {
+    koerper = await leibBinaerLesen(req, HOCHGELADEN_MAX_BYTES + 1_000_000);
+  } catch (fehler) {
+    if (fehler instanceof AnfrageZuGross) {
+      return json(res, 413, { ok: false, fehler: 'anfrage-zu-gross', message: fehler.message }, { Connection: 'close' });
+    }
+    throw fehler;
+  }
+
+  const antwort = pruefeUndSpeichereUpload(
+    { erlaubt: uploadsErlaubt(), verzeichnis: HOCHGELADEN_ORDNER, hochgeladenVon },
+    {
+      bytes: new Uint8Array(koerper.buffer, koerper.byteOffset, koerper.byteLength),
+      angezeigterName,
+      kollisionswunsch: kollisionsRoh as Kollisionsart,
+    }
+  );
+  if (!antwort.ok) {
+    console.warn(`[Admin] POST /api/modell-hochladen -> abgelehnt: ${antwort.meldung}`);
+    return json(res, 400, { ok: false, fehler: 'abgelehnt', message: antwort.meldung });
+  }
+  console.log(
+    `[Admin] Modell hochgeladen: '${antwort.eintrag.name}' (${antwort.eintrag.bytes} Byte, ` +
+      `${antwort.eintrag.dreiecke} Dreiecke) von ${hochgeladenVon}`
+  );
+  return json(res, 200, { ok: true, eintrag: antwort.eintrag, hinweise: antwort.hinweise });
+}
+
 // ── Modul-Registry (E8) ─────────────────────────────────────────────────
 //
 // ── Der Vorfall ──────────────────────────────────────────────────────
@@ -822,6 +1019,38 @@ function moduleAbgleichen(): void {
   console.log(`[Admin/Modulbau] Registry gelesen: ${erg.geladen} Modul(e) bekannt`);
 }
 
+// ── Hochgeladene Modelle (U1) ─────────────────────────────────────────
+//
+// Derselbe Abgleich wie `moduleAbgleichen`, für dieselbe Sorte Grund:
+// Dieser Prozess NIMMT den Upload entgegen und trägt ihn beim Schreiben
+// selbst sofort ein (`pruefeUndSpeichereUpload` ruft `registerUploadedPrefab`)
+// — der Abgleich hier fängt den saubereren, aber selteneren zweiten Fall:
+// ein von aussen geänderter Registry-Stand (z. B. nach einem Neustart
+// DIESES Prozesses, oder wenn je zwei Betriebsdienst-Prozesse dieselbe
+// Instanz bedienen sollten). Anders als bei den Dungeon-Modulen macht
+// `applyUploadedModelRegistry` selbst schon AUSTRAGEN+EINTRAGEN in einem
+// Zug (s. Kopf von `uploadedModelRegistry.ts`), ein zweiter, manueller
+// Austrage-Schritt hier wäre doppelt gemoppelt.
+let hochgeladenStempel = '';
+
+function hochgeladenAbgleichen(): void {
+  const pfad = resolve(HOCHGELADEN_ORDNER, HOCHGELADEN_REGISTRY_DATEI);
+  let stempel = 'fehlt';
+  if (existsSync(pfad)) {
+    const s = statSync(pfad);
+    stempel = `${s.mtimeMs}:${s.size}`;
+  }
+  if (stempel === hochgeladenStempel) return;
+  hochgeladenStempel = stempel;
+
+  const datei = existsSync(pfad)
+    ? leseHochgeladenRegistryAusText(readFileSync(pfad, 'utf8'))
+    : leereHochgeladenRegistry();
+  const erg = applyUploadedModelRegistry(datei);
+  for (const zeile of erg.meldungen) console.error(`[Admin/ModellUpload] abgelehnt: ${zeile}`);
+  console.log(`[Admin/ModellUpload] Registry gelesen: ${erg.geladen} Modell(e) bekannt`);
+}
+
 /**
  * Wie viele Raeume der Sanitizer verworfen hat — und welche.
  *
@@ -846,6 +1075,26 @@ function unbekannteRaeume(roh: unknown, doc: { layout: { rooms: { room: string }
     ),
   ];
   return { anzahl: Math.max(0, rohRaeume.length - doc.layout.rooms.length), namen };
+}
+
+/** The world reset's view of this process: files, and the service it stops and starts. Shared by the route and the start-up check. */
+function resetUmgebung(): ResetUmgebung {
+  return {
+    instanz: INSTANZ,
+    // `instanzName()` falls back to 'dev' when WOV_INSTANZ is missing; for the reset lock that is not enough (fail closed).
+    instanzBestimmt: (process.env.WOV_INSTANZ ?? '').trim() !== '',
+    layoutDatei: LAYOUT_DATEI,
+    spielstand: resolve(WELTEN_ORDNER, `${INSTANZ}.db.zst`),
+    kontenDb: KONTEN_DB,
+    dienstStoppen: async () => {
+      await ausfuehren(SYSTEMCTL, ['stop', 'wov-server']);
+    },
+    dienstStarten: async () => {
+      await ausfuehren(SYSTEMCTL, ['start', 'wov-server']);
+    },
+    dienstZustand: () => dienstZustand('wov-server'),
+    sichern,
+  };
 }
 
 // ── Routen ────────────────────────────────────────────────────────────
@@ -886,6 +1135,10 @@ async function behandeln(
         instanz: INSTANZ,
         dienste: { 'wov-server': server, nginx },
         welt: weltStand(),
+        // Not null: a stand-in runs in place of systemctl (tests and proof runs only, see SYSTEMCTL).
+        systemctlErsatz: SYSTEMCTL_ERSATZ,
+        // K4.0: a world reset that was killed halfway and what state it was left in (empty when there is none).
+        zuruecksetzen: zuruecksetzenStatus(resetUmgebung()),
         laufzeitSekunden: Math.round(process.uptime()),
       },
     };
@@ -926,7 +1179,7 @@ async function behandeln(
     const { dienst, aktion } = (leib ?? {}) as { dienst?: string; aktion?: string };
     if (!ERLAUBTE_DIENSTE.includes(dienst as Dienst)) return { code: 400, daten: { fehler: 'unbekannter Dienst' } };
     if (!['start', 'stop', 'restart', 'reload'].includes(aktion ?? '')) return { code: 400, daten: { fehler: 'unbekannte Aktion' } };
-    await ausfuehren('systemctl', [aktion!, dienst!]);
+    await ausfuehren(SYSTEMCTL, [aktion!, dienst!]);
     return { code: 200, daten: { dienst, aktion, zustand: await dienstZustand(dienst as Dienst) } };
   }
 
@@ -1091,6 +1344,46 @@ async function behandeln(
   // (1.0 und 2.0), damit keine von ihnen ihn vergessen kann.
   // E8: sync the runtime module registry before any document is sanitized.
   moduleAbgleichen();
+  // U1: derselbe Abgleich für hochgeladene Modelle — VOR jeder Route, die
+  // gegen `istEigenesModell`/`PREFABS_BY_NAME` prüft (Weltlayout-Speichern,
+  // Katalog-Zahlen) oder eine Entfernung anstösst.
+  hochgeladenAbgleichen();
+
+  // ── Hochgeladenes Modell entfernen (U1) ──
+  //
+  // JSON-Körper wie DELETE /admin/liste: Die URL allein kennt keine
+  // Kennung. Ohne `bestaetigt` UND bestehende Nutzung wird NICHTS
+  // angefasst — die Antwort nennt nur Zahl und Orte (Karte, Abschnitt 5:
+  // „Platzierungen, die es noch benutzen, werden vorher genannt").
+  if (pfad === '/api/modell-hochladen' && methode === 'DELETE') {
+    const { name, bestaetigt } = (leib ?? {}) as { name?: string; bestaetigt?: boolean };
+    if (!name || typeof name !== 'string') {
+      return { code: 400, daten: { ok: false, fehler: 'name-fehlt', message: 'Körperfeld "name" fehlt.' } };
+    }
+    const antwort = entferneUpload(
+      { erlaubt: uploadsErlaubt(), verzeichnis: HOCHGELADEN_ORDNER, layoutDatei: LAYOUT_DATEI },
+      name,
+      bestaetigt === true
+    );
+    if ('brauchtBestaetigung' in antwort) {
+      return {
+        code: 409,
+        daten: {
+          ok: false,
+          brauchtBestaetigung: true,
+          nutzung: antwort.nutzung,
+          message:
+            `'${name}' wird noch ${antwort.nutzung.anzahl} Mal platziert. Erneut mit ` +
+            `"bestaetigt": true aufrufen, um trotzdem zu entfernen.`,
+        },
+      };
+    }
+    if (!antwort.ok) {
+      return { code: 400, daten: { ok: false, fehler: 'abgelehnt', message: antwort.meldung } };
+    }
+    console.log(`[Admin] Modell entfernt: '${antwort.name}', ${antwort.verbleibend} verbleiben`);
+    return { code: 200, daten: { ok: true, name: antwort.name, verbleibend: antwort.verbleibend } };
+  }
 
   // ── Dungeon-Dokumente (nur lesen) ──
   //
@@ -1580,7 +1873,7 @@ async function behandeln(
     let sicherung: string | null = null;
     if (aktion === 'starten') sicherung = sichern(welt, 20);
 
-    await ausfuehren('systemctl', ['stop', 'wov-server']);
+    await ausfuehren(SYSTEMCTL, ['stop', 'wov-server']);
     try {
       if (aktion === 'starten') {
         if (existsSync(welt)) renameSync(welt, beiseite);
@@ -1595,7 +1888,7 @@ async function behandeln(
       }
     } finally {
       // Auch wenn der Tausch schiefgeht: Der Server muss wieder laufen.
-      await ausfuehren('systemctl', ['start', 'wov-server']);
+      await ausfuehren(SYSTEMCTL, ['start', 'wov-server']);
     }
 
     return {
@@ -1614,6 +1907,18 @@ async function behandeln(
     };
   }
 
+  // ── Welt zuruecksetzen: alles auf null (Editor K4.0) ──
+  //
+  // Begruendung, Reihenfolge und Sicherungen stehen im Kopf von
+  // routen/weltZuruecksetzen.ts. Hier nur die Verdrahtung.
+  if (pfad === '/api/welt-zuruecksetzen') {
+    if (methode !== 'GET' && methode !== 'POST') {
+      return { code: 405, daten: { ok: false, fehler: 'GET oder POST erwartet', message: 'GET oder POST erwartet' } };
+    }
+    const umgebung = resetUmgebung();
+    return methode === 'GET' ? weltZuruecksetzenVorschau(umgebung) : weltZuruecksetzenBehandeln(leib, umgebung);
+  }
+
   // ── Weltsicherungen ──
   if (pfad === '/sicherungen' && methode === 'GET') {
     return { code: 200, daten: weltStand() };
@@ -1628,6 +1933,58 @@ async function behandeln(
   }
 
   return { code: 404, daten: { fehler: 'unbekannter Endpunkt' } };
+}
+
+// ── Fremde Seiten: zustandsaendernde Anfragen ────────────────────────
+//
+// Token und Netz-Riegel sagen, WER anklopft, nicht, in wessen Auftrag. Eine
+// fremde Webseite kann den Browser eines Editor-Nutzers eine Anfrage an diesen
+// Dienst schicken lassen (der Vorschalter setzt den Token serverseitig, der
+// Nutzer ist angemeldet). Ohne Herkunftspruefung genuegt dafuer ein Formular
+// oder ein fetch mit `Content-Type: text/plain` (das braucht keinen
+// Preflight), und die Welt ist zurueckgesetzt.
+//
+// Regel fuer POST/PUT/PATCH/DELETE (GET aendert nichts und bleibt frei):
+//   1. `Sec-Fetch-Site` da (jeder aktuelle Browser setzt ihn, Seitencode kann
+//      ihn nicht faelschen): nur `same-origin` gilt.
+//   2. Sonst `Origin` (oder, wenn auch der fehlt, `Referer`) da: deren Host muss
+//      der Host der Anfrage sein (`Host`, bei einem Vorschalter auch
+//      `X-Forwarded-Host`), ein Loopback-Name oder in WOV_ERLAUBTE_URSPRUENGE /
+//      WOV_ALLOWED_HOSTS stehen.
+//   3. Keins von beidem da (curl, Node-Werkzeuge wie der MCP-Server, die mit
+//      Token kommen): erlaubt. Ein Browser sendet immer eines.
+const ERLAUBTE_URSPRUENGE = (process.env.WOV_ERLAUBTE_URSPRUENGE ?? process.env.WOV_ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
+function hostVon(roh: string | undefined): string | null {
+  if (!roh) return null;
+  try {
+    return new URL(roh).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Ein Grund (Text), wenn die Anfrage von einer fremden Seite kommt; `null`, wenn sie durchgehen darf. */
+function fremdeHerkunft(methode: string, kopf: IncomingHttpHeaders): string | null {
+  if (methode === 'GET' || methode === 'HEAD' || methode === 'OPTIONS') return null;
+  const einzeln = (n: string): string | undefined => {
+    const w = kopf[n];
+    return Array.isArray(w) ? w[0] : w;
+  };
+  const site = einzeln('sec-fetch-site');
+  if (site !== undefined) return site === 'same-origin' ? null : `Sec-Fetch-Site: ${site}`;
+  const quelle = einzeln('origin') ?? einzeln('referer');
+  if (quelle === undefined) return null;
+  const host = hostVon(quelle);
+  if (host === null) return `Origin/Referer nicht lesbar: ${quelle.slice(0, 80)}`;
+  const eigene = [einzeln('host'), einzeln('x-forwarded-host')].filter((h): h is string => !!h).map((h) => h.toLowerCase());
+  const name = host.replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+  const loopback = name === 'localhost' || name === '127.0.0.1' || name === '::1';
+  if (eigene.includes(host) || loopback || ERLAUBTE_URSPRUENGE.includes(name) || ERLAUBTE_URSPRUENGE.includes(host)) return null;
+  return `Herkunft ${host}`;
 }
 
 // ── Server ────────────────────────────────────────────────────────────
@@ -1657,6 +2014,46 @@ const dienst = createServer((req, res) => {
         });
       }
 
+      const fremd = fremdeHerkunft(req.method ?? 'GET', req.headers);
+      if (fremd !== null) {
+        console.warn(`[Admin] abgewiesen (fremde Seite): ${req.method} ${pfad} — ${fremd}`);
+        return json(res, 403, {
+          ok: false,
+          fehler: 'fremde-herkunft',
+          message: 'Zustandsaendernde Anfragen nur von der eigenen Seite (Editor) oder ohne Browser-Herkunft — nichts geaendert.',
+        });
+      }
+
+      // Zustandsaendernde Anfragen sind JSON: `application/json` kann ein seitenuebergreifendes <form> nicht setzen (nur
+      // urlencoded, multipart, text/plain), und ein fetch damit braucht einen Preflight, den dieser Dienst nie beantwortet.
+      // Schliesst den Rest der Herkunftsregel oben (weder Sec-Fetch-Site noch Origin → erlaubt).
+      //
+      // U1 (22.09.2026): EINE eng gefasste Ausnahme -- `POST /api/modell-hochladen`
+      // schickt die rohen Bytes einer `.glb` (Ist-Analyse Abschnitt 5: `leibLesen()`
+      // erzwingt `JSON.parse`, eine `.glb` bräuchte sonst eine Base64-Hülle mit einem
+      // Drittel Aufschlag). Dieselbe Begründung wie oben trägt trotzdem, nur mit einem
+      // anderen Ergebnis: `application/octet-stream` gehört NICHT zu den drei
+      // CORS-safelisted Content-Types, die ein <form> setzen kann, und ein fetch damit
+      // loest von einer fremden Seite genau den Preflight aus, den dieser Dienst nie
+      // beantwortet -- der Angriff, gegen den die Regel oben steht, geht mit diesem
+      // Content-Type gar nicht. Die Herkunftsregel (`fremdeHerkunft`, direkt darueber)
+      // bleibt fuer diesen Pfad UNVERAENDERT scharf; nur die Content-Type-Klemme wird
+      // hier uebersprungen. `DELETE /api/modell-hochladen` (Entfernen) schickt normales
+      // JSON und braucht keine Ausnahme.
+      const istModellUpload = pfad === '/api/modell-hochladen' && req.method === 'POST';
+      if (
+        !istModellUpload &&
+        ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') &&
+        !/^application\/json\s*(;|$)/i.test(String(req.headers['content-type'] ?? ''))
+      ) {
+        console.warn(`[Admin] abgewiesen (Content-Type): ${req.method} ${pfad} — ${String(req.headers['content-type'] ?? 'keiner').slice(0, 60)}`);
+        return json(res, 415, {
+          ok: false,
+          fehler: 'content-type',
+          message: 'Zustandsaendernde Anfragen brauchen Content-Type: application/json — nichts geaendert.',
+        });
+      }
+
       // Die Server-Konsole vor der JSON-Weiche: sie antwortet nicht mit
       // einem Dokument, sondern haelt die Verbindung offen. `behandeln`
       // kann das mit seinem { code, daten } nicht ausdruecken.
@@ -1670,6 +2067,20 @@ const dienst = createServer((req, res) => {
       if (pfad === '/metriken') {
         if (req.method !== 'GET') return json(res, 405, { ok: false, fehler: 'GET erwartet', message: 'GET erwartet' });
         return metrikenAusgeben(res);
+      }
+
+      // U1: ebenfalls vor der JSON-Weiche -- der Koerper ist eine `.glb`,
+      // `leibLesen()` wuerde ihn als Text parsen und an JSON.parse scheitern.
+      //
+      // N1 (Angriff, Befund B2): OHNE `await` liefert dieses `return` das
+      // Promise selbst zurueck, statt auf sein Ergebnis zu warten -- eine
+      // Ablehnung darin (Verbindungsabbruch mitten im Koerper, kaputte
+      // registry.json) landete NIE im `catch` unten, sondern als
+      // unbehandelte Ablehnung auf Prozessebene, und Node beendet den
+      // Dienst dafuer. Ein abgebrochener Upload durfte den ganzen
+      // Betriebsdienst nicht mitnehmen.
+      if (pfad === '/api/modell-hochladen' && req.method === 'POST') {
+        return await modellHochladenBehandeln(req, res, klient || peer);
       }
 
       // DELETE zusaetzlich zu PUT/POST: DELETE /admin/liste braucht einen
@@ -1747,6 +2158,9 @@ dienst.listen(PORT, ADRESSE, () => {
   const port = typeof gebunden === 'object' && gebunden ? gebunden.port : PORT;
   console.log(`[Admin] bereit auf ${ADRESSE}:${port} (Projekt ${WURZEL}, Instanz ${INSTANZ}, Welt ${LAYOUT_DATEI})`);
 });
+
+// K4.0: a world reset killed between `stop` and `start` leaves the game server down and nobody told. Look for its marker.
+void unfertigenResetMelden(resetUmgebung()).catch((fehler) => console.error('[Admin] Marker-Pruefung des Zuruecksetzens fehlgeschlagen:', fehler));
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => { dienst.close(() => process.exit(0)); });

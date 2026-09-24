@@ -56,6 +56,9 @@ const FAELLE: ReadonlyArray<[datei: string, erwartet: string]> = [
   ['store/terrain/terrainl1', `${STORE_BASE_URL}store/terrain/terrainl1.glb`],
   // Bauer Bs abgeleitete Fassungen.
   ['store-lab/vegetation/tree-1e1', `${STORE_BASE_URL}store-lab/vegetation/tree-1e1.glb`],
+  // U1: per Editor hochgeladene Modelle — derselbe Trick wie beim Speicher,
+  // der Ordner steckt im Namen (s. UPLOADED_PREFIX in assetUrls.ts).
+  ['hochgeladen/U_Holzfass', `${STORE_BASE_URL}hochgeladen/U_Holzfass.glb`],
 ];
 
 for (const [datei, erwartet] of FAELLE) {
@@ -80,6 +83,11 @@ check(
   modelBaseUrl('Generator_haus') === MODEL_BASE_URL,
   modelBaseUrl('Generator_haus')
 );
+check(
+  'ein Name, der nur mit "hochgeladen" ANFÄNGT (ohne den Ordnertrenner), ist kein Upload-Pfad',
+  modelBaseUrl('hochgeladener_name') === MODEL_BASE_URL,
+  modelBaseUrl('hochgeladener_name')
+);
 
 /*
   Der Kern der Korrektur vom 08.09.2026 — im Browser gefunden, nicht im
@@ -95,6 +103,7 @@ const ORDNER_FAELLE: ReadonlyArray<[datei: string, basis: string, name: string]>
   ['store-lab/vegetation/tree-1e1', '/assets/store-lab/vegetation/', 'tree-1e1'],
   ['wikingerin/H_01', `${MODEL_BASE_URL}wikingerin/`, 'H_01'],
   ['Grabhuegel', MODEL_BASE_URL, 'Grabhuegel'],
+  ['hochgeladen/U_Holzfass', `${STORE_BASE_URL}hochgeladen/`, 'U_Holzfass'],
 ];
 for (const [datei, basis, name] of ORDNER_FAELLE) {
   check(

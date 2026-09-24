@@ -96,6 +96,8 @@ import {
   type SpeicherGrund,
 } from './entwurfsSpeicher';
 import { frage, unterschiedsTafel, vorhang } from './AbgleichDialog';
+import { weltZuruecksetzenDialog } from './WeltZuruecksetzenDialog';
+import { erfolgsMeldung, holeVorschau, nachZuruecksetzen, weltZuruecksetzen } from './weltZuruecksetzen';
 // NUR der Typ: Der Katalog selbst kommt per dynamischem import() erst beim
 // ersten Öffnen (s. Werkzeugleiste). Statisch eingebunden zöge er Babylon
 // samt GLB-Ladern in den Erststart des Karteneditors — gut zwei Megabyte
@@ -155,6 +157,7 @@ import { baueKartenMassAnzeige, aktualisiereKartenMassAnzeige } from './KartenMa
 // der zöge Babylon in den Erststart des Karteneditors (s. Kopf von
 // assetUrls.ts).
 import { ladeModulRegistrierung } from '../net/ModuleRegistryLoad';
+import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
 
 // ── E6: die Modulregistry, BEVOR der erste Katalog gebaut wird ────────
 //
@@ -176,6 +179,7 @@ import { ladeModulRegistrierung } from '../net/ModuleRegistryLoad';
 // oberster `await`-Ebene hält seine Geschwister nicht auf, die
 // Reihenfolge wäre also nur scheinbar gesichert.
 await ladeModulRegistrierung();
+await ladeHochgeladeneRegistrierung();
 
 const BIOME_NAMEN: BiomeName[] = [
   'grassland', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',
@@ -3755,29 +3759,7 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
       shell.meldung(a.fehler ?? 'Umschalten fehlgeschlagen.', true);
       return;
     }
-    // Nicht blind warten, sondern den Dienstzustand fragen. Eine frisch
-    // erzeugte Welt braucht laenger als ein normaler Start (Geo,
-    // Heightmaps und die ersten Zonen entstehen komplett neu), und wie
-    // lange genau haengt an der Karte — eine feste Zahl waere entweder zu
-    // kurz oder verschenkte Zeit.
-    const start = Date.now();
-    let laeuftSeit = 0;
-    for (;;) {
-      const stand = await testweltStand();
-      const laeuft = stand?.zustand?.aktiv ?? false;
-      const sek = Math.round((Date.now() - start) / 1000);
-      schirm.text(`${basis} … ${sek} s — Dienst ${laeuft ? 'läuft' : 'startet'}`);
-      if (laeuft) {
-        if (!laeuftSeit) laeuftSeit = Date.now();
-        // Kurz nachhalten: `systemctl start` kehrt zurueck, bevor die Welt
-        // steht, und ein Restart=always faengt einen Fehlstart wieder ein.
-        if (Date.now() - laeuftSeit > 6_000) break;
-      } else {
-        laeuftSeit = 0;
-      }
-      if (Date.now() - start > 60_000) break;
-      await new Promise((f) => window.setTimeout(f, 1_500));
-    }
+    const start = await dienstAbwarten(schirm, basis);
     schirm.schliessen();
     shell.konsoleZeile(`── ${marke}: fertig nach ${Math.round((Date.now() - start) / 1000)} s ──`);
     shell.meldung(a.message ?? 'Fertig.');
@@ -3788,6 +3770,36 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
     shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${String(err)} ──`);
     shell.meldung(`Umschalten fehlgeschlagen: ${String(err)}`, true);
   }
+}
+
+/**
+ * Nicht blind warten, sondern den Dienstzustand fragen. Eine frisch
+ * erzeugte Welt braucht laenger als ein normaler Start (Geo,
+ * Heightmaps und die ersten Zonen entstehen komplett neu), und wie
+ * lange genau haengt an der Karte — eine feste Zahl waere entweder zu
+ * kurz oder verschenkte Zeit. Gemeinsam fuer die Testwelt und das
+ * Zuruecksetzen der Welt. Liefert den Startzeitpunkt (ms).
+ */
+async function dienstAbwarten(schirm: { text: (t: string) => void }, basis: string): Promise<number> {
+  const start = Date.now();
+  let laeuftSeit = 0;
+  for (;;) {
+    const stand = await testweltStand();
+    const laeuft = stand?.zustand?.aktiv ?? false;
+    const sek = Math.round((Date.now() - start) / 1000);
+    schirm.text(`${basis} … ${sek} s — Dienst ${laeuft ? 'läuft' : 'startet'}`);
+    if (laeuft) {
+      if (!laeuftSeit) laeuftSeit = Date.now();
+      // Kurz nachhalten: `systemctl start` kehrt zurueck, bevor die Welt
+      // steht, und ein Restart=always faengt einen Fehlstart wieder ein.
+      if (Date.now() - laeuftSeit > 6_000) break;
+    } else {
+      laeuftSeit = 0;
+    }
+    if (Date.now() - start > 60_000) break;
+    await new Promise((f) => window.setTimeout(f, 1_500));
+  }
+  return start;
 }
 
 async function karteLiveTesten(): Promise<void> {
@@ -3844,6 +3856,106 @@ async function devWeltZurueckholen(): Promise<void> {
   );
   if (wahl !== 'ja') return;
   await testweltSchalten('zurueck');
+}
+
+// ── Welt zurücksetzen (K4.0) ──────────────────────────────────────────
+//
+// Im Welt-Reiter, ganz unten und mit Warnrand — nicht in der Werkzeugleiste
+// neben „In die Welt speichern": Ein Knopf, der Daten vernichtet, gehört an
+// eine Stelle, die man nicht im Vorbeifahren trifft. Was dabei geschieht, wo
+// die Grenzen liegen und wie man es zurückholt: admin/src/routen/
+// weltZuruecksetzen.ts (Kopf) und Docs/10-Weltbau-Layout-und-Editor.md.
+// Die Entscheidungen (Tippbestätigung, Sätze mit den Zahlen, was der Editor
+// danach tut) stehen DOM-frei in weltZuruecksetzen.ts und sind dort geprüft.
+
+function resetSektionBauen(): void {
+  const block = el(
+    'div',
+    stil({
+      display: 'flex',
+      'flex-direction': 'column',
+      gap: '6px',
+      'margin-top': '26px',
+      'padding-top': '14px',
+      'border-top': `1px solid ${F.warnRand}`,
+    })
+  );
+  block.append(
+    el('div', stil({ 'font-size': '10.5px', 'letter-spacing': '.1em', 'text-transform': 'uppercase', color: F.warnText }), 'Gefahrenzone'),
+    hinweisZeile('Setzt die Welt auf null: leeres Weltdokument, leerer Spielstand. Nichts wird gelöscht — alles wird beiseitegelegt.')
+  );
+  const k = breiterKnopf('Welt zurücksetzen …', () => void weltZuruecksetzenStarten());
+  k.style.borderColor = F.warnRand;
+  k.style.color = F.warnText;
+  k.title = 'Öffnet einen Dialog; erst dort wird bestätigt. Auf live gesperrt.';
+  block.appendChild(k);
+  weltSeite.appendChild(block);
+}
+
+async function weltZuruecksetzenStarten(): Promise<void> {
+  const vorschau = await holeVorschau();
+  if (!vorschau.erreichbar) {
+    shell.meldung(vorschau.grund, true);
+    return;
+  }
+  if (!vorschau.erlaubt) {
+    shell.meldung(vorschau.grund ?? 'Auf dieser Instanz ist das Zurücksetzen gesperrt.', true);
+    return;
+  }
+  if (vorschau.testweltAktiv) {
+    shell.meldung('Es läuft eine Testwelt — erst „dev-Welt zurückholen“, dann zurücksetzen.', true);
+    return;
+  }
+  const wahl = await weltZuruecksetzenDialog({
+    instanz: vorschau.instanz,
+    zahlen: vorschau.zahlen,
+    entwurf: { platzierungen: layout.placements?.length ?? 0, regionen: layout.regions.length },
+    entwurfExportieren,
+  });
+  if (wahl === null) {
+    shell.meldung('Abgebrochen — es wurde nichts geändert.');
+    return;
+  }
+  // Wie bei der Testwelt: Die Server-Konsole ist die eigentliche Rückmeldung (Stopp, Start und der Weltaufbau laufen dort durch).
+  shell.konsoleZeigen();
+  shell.konsoleZeile(`── Welt zurücksetzen (${vorschau.instanz}): sichern, Server stoppen, beiseitelegen, Server startet neu ──`);
+  const basis = 'Welt wird zurückgesetzt, Server startet neu';
+  const schirm = vorhang(`${basis} …`);
+  const ergebnis = await weltZuruecksetzen(wahl);
+  if (ergebnis.art !== 'ok') {
+    schirm.schliessen();
+    shell.konsoleZeile(`── Welt zurücksetzen: FEHLGESCHLAGEN — ${ergebnis.message} ──`);
+    shell.meldung(ergebnis.message, true);
+    return;
+  }
+  // Der Editor zieht sofort nach, noch hinter dem Vorhang: Die Datei auf dem Server ist schon getauscht, und wer den Tab jetzt schliesst, soll keinen alten Entwurf zurücklassen.
+  const nach = nachZuruecksetzen(ergebnis, {
+    verlaufLeeren: () => verlauf.leeren(),
+    serverStandMerken: (dokument) => {
+      serverKanon = JSON.stringify(dokument);
+    },
+    ersetzeStand: (dokument) => {
+      // Wie jedes Ersetzen (Import, Serverstand): erst der Schritt, dann die Zuweisung. Der Verlauf wird danach ohnehin geleert
+      // (`verlaufLeeren`); was der Schritt aus dem Wiederherstellen-Ast verdrängt, sichert der Ring wie sonst.
+      merkeSchritt(true);
+      layout = dokument;
+      gewaehlt = null;
+      // Halbfertiges Werkzeug gehört zum alten Stand (wie bei der Übernahme eines fremden Entwurfs).
+      griff = null;
+      for (const w of WERKZEUGE) w.abbrechen(werkzeugKontext);
+      polygonPunkte = [];
+      startpunktModus = null;
+      const grund = alles('server');
+      vorschauAnstossen();
+      return grund;
+    },
+    basisSetzen: (hash) => setzeEntwurfBasis(hash),
+  });
+  const start = await dienstAbwarten(schirm, basis);
+  schirm.schliessen();
+  shell.konsoleZeile(`── Welt zurücksetzen: fertig nach ${Math.round((Date.now() - start) / 1000)} s (Kennung ${ergebnis.kennung}) ──`);
+  shell.meldung(erfolgsMeldung(ergebnis, nach), ergebnis.warnung !== null || !nach.basisGesetzt);
+  await testweltKnoepfeAktualisieren();
 }
 
 // ── Prüfbericht (Aufgabe B1) ──────────────────────────────────────────
@@ -4035,6 +4147,9 @@ function weltSektionBauen(): void {
     })
   );
   weltSeite.appendChild(neuBlock);
+  // Vor der Liste der verdrängten Entwürfe (die nur bei Einträgen erscheint), damit der Kopf von `ringSektionBauen` direkt an
+  // diese Funktion anschließt; die Gefahrenzone steht so meist trotzdem ganz unten.
+  resetSektionBauen();
   ringSektionBauen();
 }
 

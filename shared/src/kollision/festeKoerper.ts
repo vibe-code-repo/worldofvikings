@@ -158,9 +158,16 @@ export function istFesterStoreKoerper(def: PrefabDef | undefined): boolean {
 export function istFesterKoerper(
   def: PrefabDef | undefined,
   prefabName: string,
-  optionen: { dungeonRaum?: boolean; begehbar?: boolean } = {}
+  optionen: { dungeonRaum?: boolean; begehbar?: boolean; hochgeladenFest?: boolean } = {}
 ): boolean {
   if (optionen.dungeonRaum === true || optionen.begehbar === true) return true;
+  // Hochgeladene Modelle tragen nur PERSISTENT (wie Speicher-Prefabs) und
+  // fielen deshalb unten durch KOLLIDIERENDE_FLAGS/istFesterStoreKoerper —
+  // ihre Wahl (fest/durchlässig) kommt aus der eigenen Registry, nicht aus
+  // Flags oder einem Namensmuster, das für Fremdmodelle nie geschrieben
+  // wurde. Ein explizites `false` (durchlässig gewählt) übersteuert dabei
+  // auch die restlichen Regeln, ein `undefined` heisst „kein Upload".
+  if (optionen.hochgeladenFest !== undefined) return optionen.hochgeladenFest;
   // Wer eine Form von Hand bekommt, bekommt auch einen Körper — sonst
   // stünde die Form in der Tabelle und nichts läse sie. Ganz vorn, weil
   // das Namensmuster WEICHE_VEGETATION weiter unten jeden `bush`

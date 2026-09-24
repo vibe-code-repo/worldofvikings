@@ -465,6 +465,36 @@ Kennung).
   beschädigen) und `client/test/welt-abgleich.ts` (die Abgleichlogik gegen
   das echte Bestandsdokument, DOM-frei).
 
+### Welt zurücksetzen und von Hand zurückholen (Editor K4.0)
+
+Der Knopf „Welt zurücksetzen …" im Welt-Reiter (`POST /api/welt-zuruecksetzen`,
+`admin/src/routen/weltZuruecksetzen.ts`) legt Weltdokument und Spielstand leer
+an, auf `live` nie, nur nach Tippbestätigung. **Nichts wird gelöscht:** die
+Dateien liegen danach unter `<Name>.vor-reset-<Kennung>` (Kennung
+`JJJJ-MM-TT_HHMM`, UTC; steht in der Antwort und in der Editor-Meldung), dazu
+das alte Weltdokument als `worlds/<instanz>.json.<Kennung>` (nicht in
+`welten/`: das ist in git, eine fremde Datei dort hielte `wov-update.sh` an).
+Zurückholen von Hand, hier für `dev` und die Kennung `K`:
+
+```
+systemctl stop wov-server            # nie tauschen, solange der Server die Dateien offen hat
+cd server/data                       # ab hier alles relativ dazu; mv --backup legt, was schon am Ziel steht, als ~1~ zur Seite
+for f in worlds/dev.db.zst worlds/dev.db.zst.prev; do mv --backup=numbered $f.vor-reset-K $f; done
+mv --backup=numbered welten/dev.json worlds/dev.json.leer && cp worlds/dev.json.K welten/dev.json   # das leere Dokument bleibt in worlds/ (in welten/ wäre es git-Schmutz); danach im Editor „Serverstand laden"
+for f in konten/dev.db*.vor-reset-K; do [ -e "$f" ] && mv --backup=numbered "$f" "${f%.vor-reset-K}"; done   # nur bei „auch Konten"
+systemctl start wov-server           # die Boot-Zeile „Layout-Abgleich" zeigt wieder die alten Zahlen
+```
+
+Wird der Betriebsdienst **mitten im Zurücksetzen** beendet (Absturz, `kill -9`), bleibt der Spielserver unten, und
+`Restart=always` greift nicht. Deshalb liegt vor dem Stopp eine Marker-Datei `worlds/<instanz>.zuruecksetzen.marker`;
+findet der Dienst sie beim nächsten Start, fährt er den Spielserver hoch, schreibt die Lage in Worten ins Log (`journalctl -u wov-admin`,
+„UNFERTIGES ZURÜCKSETZEN“) und in `GET /status` (`zuruecksetzen.unfertige`) und benennt die Datei in
+`<instanz>.zuruecksetzen.abgebrochen-<Zeit>` um. Sie bleibt liegen, bis jemand sie löscht. Ob und was beiseite lag, steht dort;
+zurückholen wie oben. Der Endpunkt gilt nur, wenn `WOV_INSTANZ` gesetzt ist (nie auf `live`, nie ohne Angabe), und wie alle
+zustandsändernden Endpunkte nur von der eigenen Seite oder ohne Browser-Herkunft (`Sec-Fetch-Site`/`Origin`; weitere Namen in
+`WOV_ERLAUBTE_URSPRUENGE`) und nur mit `Content-Type: application/json` (sonst 415). `WOV_SYSTEMCTL` ersetzt `systemctl` für Tests und
+Probeläufe: laute Warnung beim Start, Feld `systemctlErsatz` in `GET /status`, und unter `NODE_ENV=production` startet der Dienst dann gar nicht.
+
 ## NPC-Routen
 
 > **Im Testflug laufen die NPCs sofort** — als Vorschau, siehe unten.

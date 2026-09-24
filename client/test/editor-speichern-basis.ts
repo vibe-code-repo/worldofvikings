@@ -251,7 +251,7 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   // — Abgleich: HOLEN ändert die Basis nicht —
   check('Kein serverHash und kein setzeServerHash mehr im Editor (die Basis ist die des Entwurfs, nicht der zuletzt gelesene Serverstand)', !/serverHash|setzeServerHash/.test(q));
   check('basisMerken wird nur in setzeEntwurfBasis aufgerufen (Editor UND Begleitzettel), an keiner anderen Stelle', zaehle(/entwurfsSpeicher\.basisMerken\(/g, q) === 1 && /function setzeEntwurfBasis\(hash: string \| null\): void \{\s*entwurfsSpeicher\.basisMerken\(hash\);\s*\}/.test(q));
-  check('setzeEntwurfBasis hat genau sechs Aufrufer: Start-Abgleich (Übernahme, Behalten), Speichern, 409-Abgleich (Laden, Behalten), Import (null)', zaehle(/\bsetzeEntwurfBasis\(/g, q) === 1 + 6, String(zaehle(/\bsetzeEntwurfBasis\(/g, q)));
+  check('setzeEntwurfBasis hat genau sieben Aufrufer: Start-Abgleich (Übernahme, Behalten), Speichern, 409-Abgleich (Laden, Behalten), Import (null), Welt zurücksetzen (K4.0: nur wenn der leere Entwurf im Speicher steht)', zaehle(/\bsetzeEntwurfBasis\(/g, q) === 1 + 7, String(zaehle(/\bsetzeEntwurfBasis\(/g, q)));
   const iWahl = start.indexOf('const wahl = await frage(');
   const iErster = start.indexOf('setzeEntwurfBasis(');
   const iZweiter = start.indexOf('setzeEntwurfBasis(', iErster + 1);

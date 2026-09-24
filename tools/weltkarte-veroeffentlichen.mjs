@@ -19,25 +19,37 @@
  * verglichen wird über diesen Fingerabdruck. Sonst kostete der stündliche
  * Lauf jedes Mal Rechenzeit für dasselbe Bild.
  *
- * Übertragen wird mit dem Schlüssel /root/.ssh/wov_karten. Auf wov-web hängt
- * an ihm ein Zwangsbefehl (/usr/local/bin/karten-empfang), der nur die fünf
- * Kartendateien annimmt — dieser Schlüssel öffnet dort keine Shell.
+ * Ablage: lokal und atomar. Gerendert wird in ARBEIT (Standard
+ * /var/lib/wov-karten), veröffentlicht wird nach ARBEIT/oeffentlich — dorthin
+ * zeigt nginx (`location /assets/karten/`, Rückfall auf die Karten im Repo,
+ * solange das Verzeichnis leer ist). Jede Datei wird erst als Temp-Datei im
+ * selben Verzeichnis geschrieben und dann umbenannt, damit nie eine halbe
+ * webp ausgeliefert wird; `karten.json` kommt zuletzt. Ein Rollout, der
+ * wov-web/build ersetzt, berührt dieses Verzeichnis nicht.
+ *
+ * Überschreibbar (für Proben): WOV_KARTEN_ARBEIT, WOV_KARTEN_AUSGABE.
  *
  * Lauf:  node tools/weltkarte-veroeffentlichen.mjs [--neu] [--nur-rendern]
  *   --neu          rendert auch, wenn sich nichts geändert hat
- *   --nur-rendern  überträgt nicht (zum Prüfen auf der Konsole)
+ *   --nur-rendern  veröffentlicht nicht (zum Prüfen auf der Konsole)
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const ARBEIT = '/var/lib/wov-karten';
+const ARBEIT = process.env.WOV_KARTEN_ARBEIT || '/var/lib/wov-karten';
+const AUSGABE = process.env.WOV_KARTEN_AUSGABE || join(ARBEIT, 'oeffentlich');
 const BREITE = 4096;
-const ZIEL = 'root@10.10.10.13';
-const SCHLUESSEL = '/root/.ssh/wov_karten';
 const INSTANZEN = ['dev', 'live'];
 
 const neu = process.argv.includes('--neu');
@@ -46,6 +58,7 @@ const nurRendern = process.argv.includes('--nur-rendern');
 const log = (...t) => console.log('[karten]', ...t);
 
 mkdirSync(ARBEIT, { recursive: true });
+mkdirSync(AUSGABE, { recursive: true });
 
 /** SHA-256 der Weltdatei, gekürzt — dasselbe Verfahren wie im Renderer. */
 function fingerabdruck(pfad) {
@@ -69,18 +82,24 @@ function lauf(befehl, argumente, optionen = {}) {
   return e;
 }
 
-/** Eine Datei über den Zwangsbefehl auf wov-web ablegen. */
-function senden(datei) {
-  const inhalt = readFileSync(join(ARBEIT, datei));
-  const e = spawnSync(
-    'ssh',
-    ['-i', SCHLUESSEL, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', ZIEL, datei],
-    { input: inhalt, encoding: 'buffer' }
-  );
-  if (e.status !== 0) {
-    throw new Error(`Übertragung von ${datei} fehlgeschlagen: ${e.stderr?.toString().trim()}`);
+/**
+ * Eine Datei atomar in AUSGABE ablegen: Temp-Datei im selben Verzeichnis
+ * (gleiches Dateisystem, sonst wäre rename nicht atomar), dann umbenennen.
+ * Unveränderte Dateien bleiben unberührt.
+ */
+function ablegen(datei, inhalt = readFileSync(join(ARBEIT, datei))) {
+  const ziel = join(AUSGABE, datei);
+  if (existsSync(ziel) && readFileSync(ziel).equals(inhalt)) return false;
+  const temp = `${ziel}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, inhalt);
+    renameSync(temp, ziel);
+  } catch (e) {
+    rmSync(temp, { force: true });
+    throw e;
   }
-  log(`übertragen: ${datei} (${(inhalt.length / 1024).toFixed(0)} KB)`);
+  log(`abgelegt: ${datei} (${(inhalt.length / 1024).toFixed(0)} KB)`);
+  return true;
 }
 
 // ── Rendern ─────────────────────────────────────────────────────────────
@@ -141,24 +160,25 @@ const uebersicht = {
     beschreibung: `${s.instanz}.json`,
   })),
 };
-writeFileSync(join(ARBEIT, 'karten.json'), JSON.stringify(uebersicht, null, 2));
+const uebersichtText = JSON.stringify(uebersicht, null, 2);
+writeFileSync(join(ARBEIT, 'karten.json'), uebersichtText);
 
 log(`Übersicht: ${stand.map((s) => `${s.instanz}=${s.fingerabdruck}`).join(' ')}`);
 
-// ── Übertragen ──────────────────────────────────────────────────────────
+// ── Ablegen ─────────────────────────────────────────────────────────────
 
 if (nurRendern) {
-  log('--nur-rendern: nichts übertragen');
-} else if (!geaendert && !neu) {
-  // Die Übersicht trotzdem senden: Sie trägt den Zeitpunkt des Laufs und
-  // belegt damit auf der Webseite, dass die Karte geprüft wurde.
-  senden('karten.json');
-  log('nichts Neues zu rendern — nur die Übersicht aufgefrischt');
+  log('--nur-rendern: nichts abgelegt');
 } else {
+  // Bilder und Beschreibungen zuerst, die Übersicht zuletzt: Sie verweist auf
+  // die anderen Dateien und darf nie vor ihnen sichtbar sein.
   for (const s of stand) {
-    senden(`${s.instanz}.webp`);
-    senden(`${s.instanz}.json`);
+    ablegen(`${s.instanz}.webp`);
+    ablegen(`${s.instanz}.json`);
   }
-  senden('karten.json');
-  log('fertig');
+  // Die Übersicht trägt den Zeitpunkt des Laufs und belegt auf der Webseite,
+  // dass die Karte geprüft wurde — sie wird deshalb bei jedem Lauf neu
+  // geschrieben, auch wenn nichts gerendert wurde.
+  ablegen('karten.json', Buffer.from(uebersichtText));
+  log(geaendert || neu ? 'fertig' : 'nichts Neues zu rendern — nur die Übersicht aufgefrischt');
 }

@@ -1,11 +1,11 @@
 [Unit]
-# Rendert die Weltkarten fuer world-of-vikings.com und legt sie auf wov-web.
+# Rendert die Weltkarten fuer world-of-vikings.com und legt sie lokal ab.
 #
 # NUR AUF wov-dev. Anders als wov-server oder wov-sicherung ist das keine
 # Unit, die auf beiden Containern dasselbe tut: Sie rendert BEIDE Instanzen
 # (dev und live) aus den beiden Weltdateien, die im Arbeitsbaum von wov-dev
 # ohnehin nebeneinander liegen. Auf wov-live liefe sie zweimal dieselbe
-# Rechnung und braeuchte einen zweiten Schluessel nach wov-web.
+# Rechnung.
 # install-services.sh richtet sie deshalb nur auf dev ein.
 Description=World of Vikings — Weltkarten fuer die Webseite rendern und veroeffentlichen
 Documentation=file:///opt/worldofvikings/tools/weltkarte-veroeffentlichen.mjs
@@ -28,9 +28,15 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=wov-karten
 
-# Der Prozess braucht Lesezugriff auf den Arbeitsbaum, Schreibzugriff auf
-# /var/lib/wov-karten und den Schluessel /root/.ssh/wov_karten. Mehr nicht.
+# Der Prozess braucht Lesezugriff auf den Arbeitsbaum und Schreibzugriff auf
+# /var/lib/wov-karten. Mehr nicht — kein SSH, kein Schluessel.
+#
+# Die veroeffentlichten Karten liegen in /var/lib/wov-karten/oeffentlich/
+# (atomar geschrieben); nginx liefert sie unter /assets/karten/ aus
+# (deploy/nginx/wov-lab.conf) und liest sie als www-data, deshalb 0755.
+# Ausserhalb von wov-web/build, damit kein Rollout sie ueberschreibt.
 StateDirectory=wov-karten
+StateDirectoryMode=0755
 
 [Install]
 WantedBy=multi-user.target

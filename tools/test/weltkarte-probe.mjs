@@ -11,7 +11,7 @@
  * Temp-Pfade. Das echte /var/lib/wov-karten und wov-web/build bleiben
  * unberührt. Es rendert dreimal in voller Breite (je ~20–60 s).
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -35,15 +35,25 @@ const ARBEIT = join(TEMP, "arbeit");
 const AUSGABE = join(TEMP, "ausgabe");
 
 let fehler = 0;
+const sleepPids = [];
 function pruefe(bedingung, text) {
   console.log(`${bedingung ? "OK   " : "FEHLT"} ${text}`);
   if (!bedingung) fehler++;
 }
 const lies = (p) => JSON.parse(readFileSync(p, "utf-8"));
 
-function lauf() {
-  const e = spawnSync(process.execPath, [join(WURZEL, "tools/weltkarte-veroeffentlichen.mjs")], {
-    env: { ...process.env, WOV_KARTEN_ARBEIT: ARBEIT, WOV_KARTEN_AUSGABE: AUSGABE },
+const SPERRE = join(TEMP, "run", "sperre");
+const SKRIPT = () => join(WURZEL, "tools/weltkarte-veroeffentlichen.mjs");
+const UMGEBUNG = () => ({
+  ...process.env,
+  WOV_KARTEN_ARBEIT: ARBEIT,
+  WOV_KARTEN_AUSGABE: AUSGABE,
+  WOV_KARTEN_SPERRE: SPERRE,
+});
+
+function lauf(...argumente) {
+  const e = spawnSync(process.execPath, [SKRIPT(), ...argumente], {
+    env: UMGEBUNG(),
     encoding: "utf-8",
     timeout: 600_000,
   });
@@ -53,6 +63,13 @@ function lauf() {
 }
 
 function aufraeumen() {
+  for (const pid of sleepPids) {
+    try {
+      process.kill(pid);
+    } catch {
+      /* schon weg */
+    }
+  }
   rmSync(TEMP, { recursive: true, force: true });
 }
 
@@ -138,16 +155,20 @@ try {
   writeFileSync(devBild, ganz.subarray(0, 50_000));
   writeFileSync(join(ARBEIT, "dev.webp.1.tmp"), "rest");
   writeFileSync(join(AUSGABE, "dev.webp.1.tmp"), "rest");
-  // Sperre eines lebenden Prozesses: der Lauf darf nichts tun
-  const ueVorSperre = readFileSync(join(AUSGABE, "karten.json"), "utf-8");
-  writeFileSync(join(ARBEIT, ".sperre"), String(process.pid));
-  pruefe(lauf() === 0, "Lauf unter fremder Sperre endet mit Exit 0");
-  pruefe(
-    readFileSync(join(AUSGABE, "karten.json"), "utf-8") === ueVorSperre,
-    "F2: gesperrter Lauf ändert nichts",
-  );
-  pruefe(existsSync(join(AUSGABE, "dev.webp.1.tmp")), "F2: gesperrter Lauf räumt nicht auf");
-  writeFileSync(join(ARBEIT, ".sperre"), "999999999"); // toter Prozess: wird übernommen
+  // N1-1 (b): Sperre mit der PID eines FREMDEN lebenden Prozesses (ein sleep)
+  // gilt nicht als gehalten: Der Lauf übernimmt sie.
+  mkdirSync(dirname(SPERRE), { recursive: true });
+  const fremd = spawn("sleep", ["120"], { stdio: "ignore" });
+  sleepPids.push(fremd.pid);
+  writeFileSync(SPERRE, String(fremd.pid));
+  pruefe(lauf() === 0, "N1-1b: Sperre einer fremden lebenden PID wird übernommen (Exit 0)");
+  pruefe(!existsSync(SPERRE), "Sperre nach dem Lauf gelöst");
+  writeFileSync(SPERRE, "999999999"); // toter Prozess: wird übernommen
+  pruefe(lauf() === 0, "Sperre einer toten PID wird übernommen (Exit 0)");
+  writeFileSync(devBild, ganz.subarray(0, 50_000));
+  writeFileSync(join(ARBEIT, "dev.webp.1.tmp"), "rest");
+  writeFileSync(join(AUSGABE, "dev.webp.1.tmp"), "rest");
+  writeFileSync(SPERRE, String(fremd.pid));
   pruefe(lauf() === 0, "F1: Lauf mit abgeschnittenem Bild endet mit Exit 0");
   const meta3b = await sharp(join(AUSGABE, "dev.webp")).metadata();
   const roh3b = await sharp(join(AUSGABE, "dev.webp")).raw().toBuffer();
@@ -161,11 +182,36 @@ try {
   );
   pruefe(!existsSync(join(AUSGABE, "dev.webp.1.tmp")), "F4: .tmp in der Ausgabe gelöscht");
   pruefe(!existsSync(join(ARBEIT, "dev.webp.1.tmp")), "F4: .tmp in der Arbeit gelöscht");
-  pruefe(!existsSync(join(ARBEIT, ".sperre")), "F2: Sperre nach dem Lauf gelöst");
+  pruefe(!existsSync(SPERRE), "F2: Sperre nach dem Lauf gelöst");
+
+  // N1-1 (c): Ein echter, gleichnamiger Lauf hält die Sperre: der zweite endet
+  // mit Status 75 und ändert nichts.
+  console.log("\n— Lauf 3c (zweiter Lauf gegen laufenden) —");
+  const erster = spawn(process.execPath, [SKRIPT(), "--neu"], { env: UMGEBUNG(), stdio: "ignore" });
+  const ersterEnde = new Promise((ok) => erster.on("close", (code) => ok(code)));
+  for (let i = 0; i < 150 && !existsSync(SPERRE); i++) await new Promise((r) => setTimeout(r, 100));
+  pruefe(
+    existsSync(SPERRE) && readFileSync(SPERRE, "utf-8") === String(erster.pid),
+    "erster Lauf hält die Sperre mit seiner PID",
+  );
+  const vorZweitem = readFileSync(join(AUSGABE, "karten.json"), "utf-8");
+  pruefe(lauf() === 75, "N1-1c: zweiter Lauf endet mit Status 75");
+  pruefe(
+    readFileSync(join(AUSGABE, "karten.json"), "utf-8") === vorZweitem,
+    "N1-1c: zweiter Lauf ändert nichts",
+  );
+  pruefe(existsSync(SPERRE), "N1-1c: Sperre des ersten Laufs bleibt stehen");
+  pruefe((await ersterEnde) === 0, "erster Lauf endet mit Exit 0");
+  pruefe(!existsSync(SPERRE), "Sperre nach dem ersten Lauf gelöst");
 
   // 4. Ohne live.json: übersprungen, kein Fehler
   console.log("\n— Lauf 4 (ohne live.json) —");
   rmSync(join(welten, "live.json"));
+  pruefe(lauf("--nur-rendern") === 0, "N1-4: --nur-rendern endet mit Exit 0");
+  pruefe(
+    existsSync(join(AUSGABE, "live.webp")) && existsSync(join(AUSGABE, "live.json")),
+    "N1-4: --nur-rendern löscht nichts in der Ausgabe",
+  );
   pruefe(lauf() === 0, "Lauf 4 endet mit Exit 0");
   const ue4 = lies(join(AUSGABE, "karten.json"));
   pruefe(!ue4.welten.some((w) => w.instanz === "live"), 'karten.json hat keinen Eintrag "live"');
@@ -179,6 +225,8 @@ try {
 } finally {
   aufraeumen();
 }
+await new Promise((r) => setTimeout(r, 300));
+for (const pid of sleepPids) pruefe(!existsSync(`/proc/${pid}`), `sleep ${pid} beendet`);
 pruefe(!existsSync(TEMP), `${TEMP} aufgeräumt`);
 console.log(fehler === 0 ? "\nProbe grün" : `\nProbe ROT (${fehler} Fehler)`);
 process.exit(fehler === 0 ? 0 : 1);

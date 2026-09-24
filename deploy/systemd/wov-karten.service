@@ -36,6 +36,10 @@ SyslogIdentifier=wov-karten
 # (deploy/nginx/wov-lab.conf) und liest sie als www-data, deshalb 0755.
 # Ausserhalb von wov-web/build, damit kein Rollout sie ueberschreibt.
 StateDirectory=wov-karten
+# Sperre gegen gleichzeitige Laeufe: /run/wov-karten/sperre (tmpfs, beim Boot
+# leer, ueberlebt keinen Absturz). Ist sie gehalten, endet der Lauf mit 75.
+RuntimeDirectory=wov-karten
+RuntimeDirectoryPreserve=no
 StateDirectoryMode=0755
 
 [Install]

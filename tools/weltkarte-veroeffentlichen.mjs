@@ -28,8 +28,10 @@
  * wov-web/build ersetzt, berührt dieses Verzeichnis nicht.
  *
  * Sicherungen:
- *  - Sperre: `ARBEIT/.sperre` (PID). Läuft schon ein Lauf, endet ein zweiter
- *    mit Meldung und Exit 0; eine Sperre eines toten Prozesses wird übernommen.
+ *  - Sperre: Datei in /run/wov-karten (WOV_KARTEN_SPERRE), gehalten nur bei
+ *    lebender PID mit diesem Skript in der Kommandozeile. Läuft schon ein
+ *    Lauf, endet ein zweiter mit Meldung und Status 75 (systemd zeigt es);
+ *    eine Sperre eines toten oder fremden Prozesses wird übernommen.
  *  - Der Renderer schreibt Bild und Beschreibung über Temp-Dateien, die
  *    Beschreibung (mit Fingerabdruck) zuletzt. Vor dem Ablegen wird jedes
  *    Bild dekodiert und auf Breite 4096 geprüft; scheitert das, wird diese
@@ -57,6 +59,8 @@ import {
   renameSync,
   rmSync,
   readdirSync,
+  linkSync,
+  statSync,
 } from 'node:fs';
 import sharp from 'sharp';
 import { createHash } from 'node:crypto';
@@ -79,42 +83,92 @@ mkdirSync(AUSGABE, { recursive: true });
 
 // ── Sperre, Aufräumen ───────────────────────────────────────────────────
 
-const SPERRE = join(ARBEIT, '.sperre');
+/*
+  Die Sperre liegt in /run (tmpfs, beim Boot leer; RuntimeDirectory der Unit),
+  nicht im StateDirectory: Eine nach Absturz oder Stromausfall übrig gebliebene
+  Sperre kann so keinen späteren Neustart überleben. Zusätzlich gilt sie nur
+  als gehalten, wenn ihre PID lebt UND die Kommandozeile dieses Skript nennt
+  (eine wiederverwendete PID eines fremden Prozesses zählt nicht).
+  Gesetzt wird sie mit link() einer fertig geschriebenen Datei: atomar, nie
+  eine leere oder halbe Sperre sichtbar. Die Übernahme einer toten Sperre
+  läuft unter einer zweiten Kurzsperre (`.uebernahme`), damit zwei Läufe nie
+  gleichzeitig „tot“ sehen und beide setzen.
+*/
+const SPERRE = process.env.WOV_KARTEN_SPERRE || '/run/wov-karten/sperre';
+const EXIT_BELEGT = 75;
+mkdirSync(dirname(SPERRE), { recursive: true });
 
-function lebt(pid) {
+function haelt(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
-    process.kill(pid, 0);
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf-8').includes('weltkarte-veroeffentlichen');
+  } catch {
+    return false; // Prozess weg (oder nicht lesbar): kein Halter
+  }
+}
+
+/** Inhalt der Sperre als Text; null, wenn sie fehlt. */
+function sperreLesen() {
+  try {
+    return readFileSync(SPERRE, 'utf-8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
+/** Datei mit Inhalt fertig schreiben und mit link() atomar unter `ziel` sichtbar machen. */
+function linkSetzen(ziel, inhalt) {
+  const temp = `${ziel}.${process.pid}.neu`;
+  writeFileSync(temp, inhalt);
+  try {
+    linkSync(temp, ziel);
     return true;
   } catch (e) {
-    return e.code === 'EPERM';
+    if (e.code === 'EEXIST') return false;
+    throw e;
+  } finally {
+    rmSync(temp, { force: true });
   }
 }
 
 function sperreNehmen() {
-  for (let versuch = 0; versuch < 2; versuch++) {
+  for (let versuch = 0; versuch < 20; versuch++) {
+    if (linkSetzen(SPERRE, String(process.pid))) return true;
+    const text = sperreLesen();
+    if (text === null) continue; // zwischendurch gelöst: nochmal
+    if (haelt(Number.parseInt(text, 10))) return false;
+    // Tote Sperre: nur unter der Übernahme-Kurzsperre übernehmen.
+    const uebernahme = `${SPERRE}.uebernahme`;
+    if (!linkSetzen(uebernahme, String(process.pid))) {
+      // Ein anderer übernimmt gerade; ist die Kurzsperre selbst alt (>10 s), war sie ein Rest.
+      try {
+        if (Date.now() - statSync(uebernahme).mtimeMs > 10_000) rmSync(uebernahme, { force: true });
+      } catch {
+        /* weg: nochmal versuchen */
+      }
+      continue;
+    }
     try {
-      writeFileSync(SPERRE, String(process.pid), { flag: 'wx' });
-      return true;
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      const pid = Number.parseInt(readFileSync(SPERRE, 'utf-8'), 10);
-      if (Number.isInteger(pid) && lebt(pid)) return false;
-      rmSync(SPERRE, { force: true }); // Rest eines toten Laufs
+      if (sperreLesen() === text) rmSync(SPERRE, { force: true });
+    } finally {
+      rmSync(uebernahme, { force: true });
     }
   }
   return false;
 }
 
 if (!sperreNehmen()) {
-  log(`ein anderer Lauf hält ${SPERRE} — beende mich, ohne etwas zu tun`);
-  process.exit(0);
+  log(`ein anderer Lauf hält ${SPERRE} — beende mich mit Status ${EXIT_BELEGT}, ohne etwas zu tun`);
+  process.exit(EXIT_BELEGT);
 }
 const sperreLoesen = () => rmSync(SPERRE, { force: true });
 process.on('exit', sperreLoesen);
 for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => process.exit(1));
 
 /** Reste abgebrochener Läufe (`*.tmp`) löschen; nginx würde sie ausliefern. */
-for (const ordner of [ARBEIT, AUSGABE]) {
+// --nur-rendern veröffentlicht nichts und rührt AUSGABE deshalb nicht an.
+for (const ordner of nurRendern ? [ARBEIT] : [ARBEIT, AUSGABE]) {
   for (const n of readdirSync(ordner)) {
     if (n.endsWith('.tmp')) {
       rmSync(join(ordner, n), { force: true });
@@ -186,7 +240,7 @@ for (const instanz of INSTANZEN) {
   const weltPfad = join(WURZEL, 'server/data/welten', `${instanz}.json`);
   if (!existsSync(weltPfad)) {
     log(`${instanz}: keine Weltdatei unter ${weltPfad} — übersprungen`);
-    for (const datei of [`${instanz}.webp`, `${instanz}.json`]) {
+    for (const datei of nurRendern ? [] : [`${instanz}.webp`, `${instanz}.json`]) {
       if (existsSync(join(AUSGABE, datei))) {
         rmSync(join(AUSGABE, datei), { force: true });
         log(`WARNUNG: ${datei} aus der Ausgabe entfernt (Welt fehlt, Rückfall auf Repo-Karte)`);

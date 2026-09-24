@@ -1337,7 +1337,13 @@ export class WovServer {
     return this.hauptwelt.bodenHoehe(x, z);
   }
 
-  start(): void {
+  /**
+   * Everything except the network runs synchronously, as before. The promise
+   * settles with the network bind: it resolves with the bound port, and
+   * rejects (EADDRINUSE, EACCES, ...) when the port cannot be had, so the
+   * caller sees the failure instead of a server that never listens.
+   */
+  start(): Promise<number> {
     this.init();
 
     this.running = true;
@@ -1345,7 +1351,7 @@ export class WovServer {
     this.prevUpdateTime = this.startTime;
 
     // Start network
-    this.net.start();
+    const gebunden = this.net.start();
 
     // Main update loop (~60fps server tick)
     const TICK_MS = 1000 / 30; // 30 ticks per second
@@ -1366,8 +1372,11 @@ export class WovServer {
       void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
 
-    console.log(`[WoV] Server started: "${this.config.name}" on port ${this.config.port}`);
-    console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
+    return gebunden.then((port) => {
+      console.log(`[WoV] Server started: "${this.config.name}" on port ${port}`);
+      console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
+      return port;
+    });
   }
 
   /**

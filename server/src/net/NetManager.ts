@@ -163,15 +163,18 @@ export class NetManager {
 
   // ── Lifecycle ────────────────────────────────────────────────────
 
-  start(): void {
-    this.acceptor.listen(
+  /** Resolves with the bound port once listening; rejects when the bind fails. */
+  start(): Promise<number> {
+    return this.acceptor.listen(
       this.config.port,
       (socket, address) => {
         this.handleNewConnection(socket, address);
       },
       this.config.httpBehandler,
-    );
-    console.log(`[NetManager] Started on port ${this.config.port}`);
+    ).then((port) => {
+      console.log(`[NetManager] Started on port ${port}`);
+      return port;
+    });
   }
 
   /** The port the acceptor is really bound to (null while not listening); see WebSocketAcceptor.boundPort. */

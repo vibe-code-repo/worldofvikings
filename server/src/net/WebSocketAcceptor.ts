@@ -36,12 +36,19 @@ export class WebSocketAcceptor {
    * Everything the handler does not take keeps answering 426 Upgrade
    * Required, exactly as before: tools/wov-update.sh uses that status as
    * its health check after every rollout.
+   *
+   * Returns a promise for the port the socket is really bound to (the one
+   * the OS picked when `port` is 0). It rejects with the original error
+   * (EADDRINUSE, EACCES, ...) when binding fails, after logging the code and
+   * the port. "Listening" is logged only once the socket is bound: the bind
+   * itself still happens synchronously inside this call, so `boundPort` is
+   * readable right after it and a successful start is not delayed.
    */
   listen(
     port: number,
     onConnection: (socket: WebSocket, address: string) => void,
     httpBehandler?: HttpBehandler,
-  ): void {
+  ): Promise<number> {
     this.onConnection = onConnection;
 
     this.httpServer = createServer((req, res) => {
@@ -77,8 +84,22 @@ export class WebSocketAcceptor {
       console.error(`[Acceptor] Server error: ${err.message}`);
     });
 
-    this.httpServer.listen(port);
-    console.log(`[Acceptor] Listening on port ${port}`);
+    const httpServer = this.httpServer;
+    return new Promise<number>((resolve, reject) => {
+      const beiFehler = (err: NodeJS.ErrnoException): void => {
+        console.error(`[Acceptor] Cannot listen on port ${port}: ${err.code ?? 'ERROR'} (${err.message})`);
+        this.close();
+        reject(err);
+      };
+      httpServer.once('error', beiFehler);
+      httpServer.once('listening', () => {
+        httpServer.off('error', beiFehler);
+        const gebunden = this.boundPort ?? port;
+        console.log(`[Acceptor] Listening on port ${gebunden}`);
+        resolve(gebunden);
+      });
+      httpServer.listen(port);
+    });
   }
 
   /** Stop accepting connections. */

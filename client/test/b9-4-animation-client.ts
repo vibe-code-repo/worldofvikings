@@ -246,6 +246,23 @@ console.log('\n[5] EntityManager.applyDynamic with a fake asset layer');
     await gib(em, upd({ anim: 'idle', animEinmal: 'die#1' }));
     check('die plays the die clip and a later state change does not stand the body up', aufrufe.join(' ') === 'einmal(die)', aufrufe.join(' '));
   }
+  // (c2) after die no later event plays (the body stays as it lies)
+  {
+    const em = neu();
+    await gib(em, upd({ anim: 'run' }));
+    await gib(em, upd({ anim: 'run', animEinmal: 'die#1' }));
+    aufrufe.length = 0;
+    await gib(em, upd({ anim: 'run', animEinmal: 'attack#2' }));
+    await gib(em, upd({ anim: 'run', animEinmal: 'hit#3' }));
+    check('events after die play nothing', aufrufe.length === 0, aufrufe.join(' '));
+  }
+  // (c3) first sight while the state is 'attack': the creature starts standing
+  {
+    const em = neu();
+    aufrufe.length = 0;
+    await gib(em, upd({ anim: 'attack' }));
+    check("first sight in state 'attack' instantiates with idle, not with a looping swing", aufrufe[0] === 'instantiate(idle)', aufrufe.join(' '));
+  }
   // (d) stale end callback
   {
     const em = neu();
@@ -300,6 +317,80 @@ console.log('\n[6] AssetManager.spieleEinmalKreatur: stale end callback');
   check('two blows: only the newest one falls back (1 call of the second, none of the first)', danach === 10, `${danach}`);
   const p = [gruppe('attack')];
   void p;
+}
+
+// ── [7] The group a fresh instance starts with ────────────────────────
+console.log('\n[7] AssetManager.starteAnfangsgruppe (first sight, instantiate)');
+{
+  const { AssetManager } = await import('../src/engine/AssetManager.js');
+  const am = Object.create(AssetManager.prototype) as unknown as {
+    mehrdeutigGemeldet: Set<string>;
+    starteAnfangsgruppe(g: unknown[], anim: string, modell: string): void;
+  };
+  am.mehrdeutigGemeldet = new Set();
+  const aufrufe: string[] = [];
+  const gruppen = ['Run_02', 'Running', 'Walking'].map((name) => ({
+    name,
+    stop() { aufrufe.push(`stop(${name})`); },
+    start() { aufrufe.push(`start(${name})`); },
+  }));
+  const gestartet = (anim: string, modell = 'npc_1_walk'): { start: string[]; meldungen: string[] } => {
+    aufrufe.length = 0;
+    const meldungen: string[] = [];
+    const alt = console.error;
+    console.error = (...a: unknown[]) => void meldungen.push(a.join(' '));
+    am.starteAnfangsgruppe(gruppen, anim, modell);
+    console.error = alt;
+    return { start: aufrufe.filter((x) => x.startsWith('start(')), meldungen };
+  };
+  check("'walk' finds Walking on first sight (the old case-sensitive search fell back to Run_02)", gestartet('walk').start.join() === 'start(Walking)', gestartet('walk').start.join());
+  check("'Walking' (the prefab's own name) still finds Walking", gestartet('Walking').start.join() === 'start(Walking)');
+  const r = gestartet('run');
+  check("'run' is ambiguous: nothing starts and it is reported with the MODEL name", r.start.length === 0 && r.meldungen.length === 1 && /'npc_1_walk'/.test(r.meldungen[0] ?? '') && !/__root__/.test(r.meldungen[0] ?? ''), `${r.start.length} started, ${r.meldungen[0] ?? 'no message'}`);
+  const r2 = gestartet('run', 'anderes_modell');
+  check('the same wish on a second model is reported too (debounce per model)', r2.meldungen.length === 1 && /'anderes_modell'/.test(r2.meldungen[0] ?? ''), `${r2.meldungen.length}`);
+  check("no hit ('idle') keeps the old fallback: the first group starts", gestartet('idle').start.join() === 'start(Run_02)', gestartet('idle').start.join());
+}
+
+// ── [8] Route preview: the blow event of the editor test flight ───────
+console.log('\n[8] SchlagTakt and RoutenVorschau (editor test flight has no server)');
+{
+  const { SchlagTakt } = await import('../src/editor/schlagTakt.js');
+  const t = new SchlagTakt();
+  const werte: (string | undefined)[] = [];
+  for (let i = 0; i < 100; i++) werte.push(t.schritt(0, true, 0.1, 2)); // 10 s in the attack band
+  const wechsel = werte.filter((v, i) => v !== undefined && v !== werte[i - 1]);
+  check('10 s in the attack band with a beat of 2 s: 5 events, counting up', wechsel.join(' ') === 'attack#1 attack#2 attack#3 attack#4 attack#5', wechsel.join(' '));
+  t.schritt(0, false, 0.1, 2);
+  const nach = t.schritt(0, true, 0.1, 2);
+  check('leaving and re-entering the band: the counter goes on (no repeat of attack#5) and the clock restarts', nach === 'attack#5', String(nach));
+  check('another placement counts on its own', new SchlagTakt().schritt(1, true, 0.1, 2) === undefined);
+
+  // The real RoutenVorschau with a stub for the draft in localStorage.
+  const { RoutenVorschau } = await import('../src/editor/RoutenVorschau.js');
+  const { ENTWURF_KEY } = await import('../src/editor/weltdokument.js');
+  const g = globalThis as unknown as { localStorage?: { getItem(k: string): string | null } };
+  const altLS = g.localStorage;
+  const entwurf = { placements: [{ prefab: 'FurlocKrieger', x: 0, y: 0, z: 0 }, { prefab: 'FurlocKrieger', x: 500, y: 0, z: 500 }, { prefab: 'NPC_1', x: 900, y: 0, z: 900, route: 'r' }],
+    // (a preview without any walker draws nothing: standing NPCs are only
+    // stepped while at least one route walker exists — so one walker far away)
+    routes: [{ id: 'r', points: [[900, 900], [910, 900]], mode: 'loop', speed: 1 }] };
+  g.localStorage = { getItem: (k: string) => (k === ENTWURF_KEY ? JSON.stringify(entwurf) : null) };
+  const gezeichnet: { i: number; anim: string; einmal?: string }[] = [];
+  const vor = new RoutenVorschau({
+    zeichne: (i, _p, _x, _z, _yaw, anim, einmal) => void gezeichnet.push({ i, anim, einmal }),
+    gegriffen: () => -1,
+    spieler: () => ({ x: 0, z: 1.2 }), // next to the first warrior, far from the second
+  });
+  vor.setzeAn(true);
+  for (let i = 0; i < 100; i++) vor.update(0.1);
+  g.localStorage = altLS;
+  const erste = gezeichnet.filter((x) => x.i === 0);
+  const ereignisse = [...new Set(erste.map((x) => x.einmal).filter((x) => x !== undefined))];
+  console.log(`      10 s next to a FurlocKrieger: ${erste.filter((x) => x.anim === 'attack').length} frames of attack, events ${ereignisse.join(' ')}`);
+  check('the preview stands in state attack next to the player', erste.some((x) => x.anim === 'attack'));
+  check('...and writes one blow event per beat (attack#1 .. attack#4 or #5 in 10 s)', ereignisse.length >= 4 && ereignisse.every((v, k) => v === `attack#${k + 1}`), ereignisse.join(' '));
+  check('the far warrior never strikes and gets no event', !gezeichnet.some((x) => x.i === 1 && x.einmal !== undefined));
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);

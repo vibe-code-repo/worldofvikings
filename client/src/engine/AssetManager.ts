@@ -492,20 +492,7 @@ export class AssetManager {
     // — eigene NPC-GLBs bringen echte Skin-Clips mit; der Fremdexport
     // nicht, dort ist die Liste schlicht leer und nichts passiert).
     if (animation && inst.animationGroups.length > 0) {
-      // Same search as every later change (waehleGruppe): exact name, else
-      // one partial hit. Two hits are reported and start nothing; no hit keeps
-      // the old fallback (first group).
-      const namen = inst.animationGroups.map((g) => g.name);
-      const wahl = waehleGruppe(namen, animation);
-      if (wahl.art === 'mehrdeutig') this.meldeMehrdeutig(inst.rootNodes[0]?.name ?? name, animation, wahl.treffer);
-      const gruppe =
-        wahl.art === 'exakt' || wahl.art === 'teil'
-          ? inst.animationGroups[wahl.index]!
-          : wahl.art === 'fehlt'
-            ? inst.animationGroups[0]!
-            : undefined;
-      for (const g of inst.animationGroups) g.stop();
-      gruppe?.start(true);
+      this.starteAnfangsgruppe(inst.animationGroups, animation, name);
     }
     const wurzel = (inst.rootNodes[0] as TransformNode) ?? null;
     // Die Gruppen dieser INSTANZ merken: instantiateModelsToScene klont sie
@@ -596,6 +583,21 @@ export class AssetManager {
   }
 
   private readonly mehrdeutigGemeldet = new Set<string>();
+
+  /**
+   * The group a fresh instance starts with (in a loop). Same search as every
+   * later change (waehleGruppe): exact name, else one partial hit. Two hits
+   * are reported and start nothing; no hit keeps the old fallback (first
+   * group).
+   */
+  private starteAnfangsgruppe(gruppen: readonly AnimationGroup[], animation: string, modell: string): void {
+    const wahl = waehleGruppe(gruppen.map((g) => g.name), animation);
+    if (wahl.art === 'mehrdeutig') this.meldeMehrdeutig(modell, animation, wahl.treffer);
+    const gruppe =
+      wahl.art === 'exakt' || wahl.art === 'teil' ? gruppen[wahl.index]! : wahl.art === 'fehlt' ? gruppen[0]! : undefined;
+    for (const g of gruppen) g.stop();
+    gruppe?.start(true);
+  }
 
   private meldeMehrdeutig(modell: string, wunsch: string, treffer: readonly string[]): void {
     const schluessel = `${modell}|${wunsch}`;

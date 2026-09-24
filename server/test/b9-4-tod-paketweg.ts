@@ -8,6 +8,9 @@
  *  [D] an INSTANCE world creature with the same ZDO id as a main-world wolf:
  *      a blow in the instance must not kill or twitch the main-world wolf, and
  *      the loot is paid once
+ *  [E] the main-world wolf is DYING: the instance wolf with the same id must
+ *      still be hittable (`stirbt` needs the identity check as well)
+ *  [F] instance kill first, then a main-world blow on the same id
  *
  * The wolf gets `hit`/`die` only inside this test. Ports are ephemeral.
  *
@@ -199,13 +202,59 @@ async function main(): Promise<void> {
     await warte(300);
     check('a non-lethal blow in the instance hurts the instance wolf...', inst2.getInt(HEALTH_MEMBER) < 30, `life ${inst2.getInt(HEALTH_MEMBER)}`);
     check('...and makes the main-world wolf twitch NOT (no hit event there)', haupt2.getString(EINMAL) === '', `'${haupt2.getString(EINMAL)}'`);
+    console.log('\n[E] main-world wolf DYING, instance wolf with the same id');
+    welt.zdos.destroyZDO(inst2.zdoid);
+    await warte(1000);
+    for (const p of [pa, pb]) p.stamina = 100;
+    const mB = { ...pb.position };
+    const haupt3 = wolf(mB, mitDie, 3);
+    const inst3 = welt.zdos.createZDOWithID(haupt3.zdoid, WOLF, { x: ipos.x, y: ipos.y, z: ipos.z - 1.5 }, { x: 0, y: 0, z: 0, w: 1 });
+    inst3.setInt(HEALTH_MEMBER, 3);
+    besiegt.Anna = 0; besiegt.Bernd = 0;
+    await Promise.all([blicke(a, 0), blicke(b, 0)]);
+    for (const p of [pa, pb]) p.stamina = 100;
+    attack(b, mB);
+    await warte(150);
+    check('E: main-world wolf is dying (Bernd, main world)', sp.stirbt(haupt3) && !haupt3.destroyed, `hp ${haupt3.getInt(HEALTH_MEMBER)}`);
+    pa.position = { ...ipos };
+    attack(a, ipos);
+    await warte(300);
+    check('E: the instance wolf with the same id is hittable in that window (Anna kills it)', inst3.destroyed && besiegt.Anna === 1, `destroyed ${inst3.destroyed}, hp ${inst3.getInt(HEALTH_MEMBER)}, Anna ${besiegt.Anna}, Bernd ${besiegt.Bernd}`);
+    check('E: Bernd one kill', besiegt.Bernd === 1, `${besiegt.Bernd}`);
+    let weg3 = -1; const t3 = performance.now();
+    while (performance.now() - t3 < 3000) { if (haupt3.destroyed) { weg3 = performance.now() - t3; break; } await warte(20); }
+    check('E: main-world body goes after the clip', weg3 >= 0, `${Math.round(weg3)} ms`);
+    // [F] reverse: instance kill first, then main-world blow on the same id
+    console.log('\n[F] instance kill, then the main-world wolf with the same id');
+    if (!inst3.destroyed) welt.zdos.destroyZDO(inst3.zdoid);
+    await warte(1000);
+    for (const p of [pa, pb]) p.stamina = 100;
+    const haupt4 = wolf(mB, mitDie, 30);
+    const inst4 = welt.zdos.createZDOWithID(haupt4.zdoid, WOLF, { x: ipos.x, y: ipos.y, z: ipos.z - 1.5 }, { x: 0, y: 0, z: 0, w: 1 });
+    inst4.setInt(HEALTH_MEMBER, 3);
+    besiegt.Anna = 0; besiegt.Bernd = 0;
+    await Promise.all([blicke(a, 0), blicke(b, 0)]);
+    for (const p of [pa, pb]) p.stamina = 100;
+    pa.position = { ...ipos };
+    attack(a, ipos);
+    await warte(200);
+    attack(b, mB);
+    await warte(300);
+    check('F: instance wolf gone, one kill for Anna', inst4.destroyed && besiegt.Anna === 1, `${inst4.destroyed} ${besiegt.Anna}`);
+    check('F: main-world wolf only hurt (hit#1), alive, not dying', !haupt4.destroyed && haupt4.getInt(HEALTH_MEMBER) < 30 && haupt4.getInt(HEALTH_MEMBER) > 0 && haupt4.getString(EINMAL) === 'hit#1' && !sp.stirbt(haupt4), `hp ${haupt4.getInt(HEALTH_MEMBER)} '${haupt4.getString(EINMAL)}'`);
+    const spn = spawns as unknown as { creatures: Map<string, { zdo: ZDO }> };
+    check('F: SpawnSystem still holds the MAIN wolf under that key', spn.creatures.get(haupt4.zdoid.toString())?.zdo === haupt4);
     a.close(); b.close();
   } finally {
     server.stop();
   }
 }
 
-await main();
-rmSync(WORLDS_DIR, { recursive: true, force: true });
+try {
+  await main();
+} finally {
+  // Also after a crash in main(): the folder must not stay behind.
+  rmSync(WORLDS_DIR, { recursive: true, force: true });
+}
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

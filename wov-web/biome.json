@@ -1,7 +1,18 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.10/schema.json",
   "files": {
-    "includes": ["src/**/*.ts", "src/**/*.js", "*.js", "*.ts", "*.json", "!**/*.svelte"]
+    "includes": [
+      "src/**/*.ts",
+      "src/**/*.js",
+      "*.js",
+      "*.ts",
+      "*.json",
+      "!**/*.svelte",
+      "!src/lib/account.ts",
+      "!.svelte-kit",
+      "!build",
+      "!node_modules"
+    ]
   },
   "formatter": {
     "enabled": true,

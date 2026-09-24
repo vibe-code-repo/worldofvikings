@@ -12,8 +12,9 @@
  * Client side of writing. Posts go to `/api/forum/…` on the same origin,
  * carrying the account token in `x-wov-account`.
  */
-import { me, readToken, signedInShore } from './account';
+
 import type { ForumNotification, ReactionCount, ReactionKind } from '@wov/shared';
+import { me, readToken, signedInShore } from './account';
 import type { MessageKey } from './i18n';
 
 const BASIS = '/api/forum';
@@ -221,14 +222,15 @@ export function eigenesKonto(): Promise<EigenesKonto> {
   if (!kontoVersprechen) {
     const shore = signedInShore();
     const token = shore ? readToken(shore) : null;
-    kontoVersprechen = !shore || !token
-      ? Promise.resolve({ angemeldet: false, charaktere: [] })
-      : me(shore, token)
-          .then((m) => ({
-            angemeldet: true,
-            charaktere: m.characters.map((c) => ({ id: c.id, name: c.name })),
-          }))
-          .catch(() => ({ angemeldet: false, charaktere: [] }));
+    kontoVersprechen =
+      !shore || !token
+        ? Promise.resolve({ angemeldet: false, charaktere: [] })
+        : me(shore, token)
+            .then((m) => ({
+              angemeldet: true,
+              charaktere: m.characters.map((c) => ({ id: c.id, name: c.name })),
+            }))
+            .catch(() => ({ angemeldet: false, charaktere: [] }));
   }
   return kontoVersprechen;
 }

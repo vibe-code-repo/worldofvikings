@@ -43,20 +43,21 @@ tools/armor/
       inspect_accessories.py          prints head/hand bones and vertex groups of the body
     wildwarden/male/build.py          builds the set (7 items, the crown is an attachment)
     ashenveil/male/build.py           builds the set
-    seidraven/
-      build_common.py                 the shared implementation for both bodies
+    seidraven/                        a scaffold-built set (the four below share this layout)
+      config.py                       data: names, items, palette, render values, vfx, free regions
+      design.py                       design(ctx): the geometry; after_export(ctx) for the set's extras
+      build_common.py                 five lines: init, design, finish on lib/scaffold.py
       male/build.py                   entry point, male body
       female/build.py                 entry point, female body (adds --female)
-      female/fit-legacy.py            fits the female set to the game's current female avatar
+      female/fit-legacy.py            fits the female set to the game's current female avatar (lib/fit_legacy.py)
       render-pair.py                  renders the male and the female set side by side
-    emberrage/
-      build_common.py                 own design on top of the Seidraven scaffold
-      male/build.py                   entry point, male body
-      female/build.py                 entry point, female body (adds --female)
-      female/fit-legacy.py            fits the female set to the game's current female avatar
-      package.mjs                     writes integration metadata from real exports
-    plainhide/                        the starter clothing: FIVE items, same layout as emberrage/
-    gravethorn/                       thorned plate set with red glow: seven items, same layout
+    emberrage/                        same layout; package.mjs writes integration metadata from real exports
+    plainhide/                        the starter clothing: FIVE items; fit.py holds its legacy-fit hooks
+    gravethorn/                       thorned plate set with red glow: seven items; fit.py corrects the legacy header
+  lib/
+    config.py                         the configuration schema and its check (no bpy; the config test uses it)
+    scaffold.py                       init(config, args) -> ctx, finish(ctx), build(config, design)
+    fit_legacy.py                     fit(config, hooks): the fit to the game's 51-bone female figure
   export/
     export-armor.mjs                  armor GLB -> seven canonical-skin item GLBs + manifest
     render-icons.py                   inventory icons from the exported GLBs
@@ -69,6 +70,7 @@ tools/armor/
     skin-gate.mjs                     the gate: canonical skin, registry, body masking (--web: the web-body fit)
     skin-gate-selftest.mjs            proves the gate fails when it should (runs in npm test)
     entry-args.mjs                    proves the four entry points refuse bad command lines before building (npm test)
+    scaffold-config.mjs               every set's config.py complete and equal to shared/src (npm test, no Blender)
     export-attachment.mjs             proves the exporter tags attachments (runs in npm test)
     wildwarden-pipeline.mjs           builder table, registry and shipped GLBs agree (npm test)
     validate-glbs.cjs                 glTF validator over a native and a canonical directory
@@ -80,9 +82,10 @@ tools/armor/
 ```
 
 Every `build.py` under `sets/*/male` and `sets/*/female` can be called directly.
-The two Seidraven and the two Emberrage entry points are thin: they check the
-command line (`sets/entry_args.py`), set the variant and run `build_common.py`; no
-geometry is duplicated. Ironward, Wildwarden and Ashenveil have one self-contained
+The entry points of the four scaffold-built sets are thin: they check the command
+line (`sets/entry_args.py`), set the variant and run the set's `build_common.py`,
+which is `init`, `design`, `finish` on the library in `lib/`; no geometry is
+duplicated and no builder executes another builder's text. Ironward, Wildwarden and Ashenveil have one self-contained
 builder each and take the same `-- OUTPUT_DIR [--quick]` command line.
 
 Ironward, Wildwarden and Ashenveil have only a `male/` folder: their builders look
@@ -189,8 +192,8 @@ in the commands below are shorthand for that.
 
    | Set | `--quick` |
    |---|---|
-   | Seidraven, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `sets/seidraven/build_common.py:618,680`, `ashenveil/male/build.py:611,670`, `wildwarden/male/build.py:506,560`. |
-   | Emberrage | The same, **except that the export block is forced on**: `--quick` still writes the seven item GLBs, `WoV_Emberrage_Armor.glb` and `WoV_Emberrage_Armor.blend` (`sets/emberrage/build_common.py:191` turns the guard into `if True:`). Renders and pose checks are still cut down. |
+   | Seidraven, Gravethorn, Plainhide, Ashenveil, Wildwarden | 75 % render size, the hero image only, no pose checks (`pose_checks` stays empty), **no GLBs and no `.blend`**. `equipment.json` and `validation.json` are still written. Guards: `lib/scaffold.py` (`if not QUICK:` in `finish`, and the export block), `ashenveil/male/build.py:611,670`, `wildwarden/male/build.py:506,560`. Gravethorn and Plainhide add cheap front and back review images in a quick run (their `after_export`). |
+   | Emberrage | The same, **except that the export block is forced on**: `--quick` still writes the seven item GLBs, `WoV_Emberrage_Armor.glb` and `WoV_Emberrage_Armor.blend`. That is the field `export_in_quick: True` in `sets/emberrage/config.py`, not a special case in code. Renders and pose checks are still cut down. |
    | Ironward | The switch exists (it is read from the whole command line, `ironward/male/build.py:365,404`) but it only skips the detail and pose *images*. The pose checks run, and the `.blend` (`:360`, `:432`), `components.json` and the four GLBs (`:421-424`) are always written. |
 
    **Never write a quick run into an output directory you have accepted.** For
@@ -343,46 +346,31 @@ inventory through the normal admin protocol and is meant for a development serve
 
 ## Adding a new set
 
-Emberrage is the worked example: a new design that reuses everything that is not
-design from the Seidraven builder.
+The four scaffold-built sets (Seidraven, Emberrage, Gravethorn, Plainhide) are each
+**data plus design** on the library `tools/armor/lib/`. Nothing is copied from another
+set and nothing is executed as text.
 
-1. **Copy the pattern.** Create `sets/<new>/build_common.py` from
-   `sets/emberrage/build_common.py`, and `sets/<new>/male/build.py` (and
-   `female/build.py`) from an Emberrage entry point, changing the set name in the
-   header and in the path of the `build_common.py` they run.
-2. **Understand what is reused.** `build_common.py` reads the text of
-   `../seidraven/build_common.py`, replaces the set name (`Seidraven`/`seidraven` to
-   yours), and executes it in two pieces. Two marker lines in the Seidraven file
-   delimit the part that is *not* reused:
+1. **Create the folder** `sets/<new>/` with
 
-   ```python
-   # New geometry inspired by the supplied silhouette, fitted to the existing male.   <- start
-   ...                                                                                  (Seidraven design)
-   # Join each replacement region and bind every component to the shared source rig.   <- end
-   ```
+   | File | What it is |
+   |---|---|
+   | `config.py` | `CONFIG = {...}`, data only, no `bpy`. The schema is `lib/config.py`: `name`, `family`, `items` (key, label, regions, hide_appearance), `free_regions`, `palette` (all twelve material colours), `class_label`, `vfx` are **required**; `finish`, `emission`, `item_vfx`, `wing_binding`, `skirt_description`, `render_resolution`, `camera_scale`, `view_transform`, `look`, `preview_glare`, `detail_image`, `hood_image`, `boot_image`, `export_in_quick`, `triangle_limit`, `fit_render_resolution` default to the scaffold's (Seidraven's) values. Each field says in `lib/config.py` what it replaces. |
+   | `design.py` | `def design(ctx)`: the geometry. Take what you need from `ctx` (`mesh`, `leaf`, `branch`, `sleeve`, `binding_surface`, `attach_to_surface`, `pieces`, `materials`, `rig`, `base`, `VARIANT`, ...) and append objects to `ctx.pieces[<region>]`; index 0 of each region is the body lining copy the scaffold created, attach new parts to its surface with `binding_surface` / `attach_to_surface`. Parts bound rigidly to the shoulder sockets go into `ctx.wing_binding_report` (then `wing_binding` must be set in the config). Optional `def after_export(ctx)`: extra review images, extra fields in `validation.json` / `equipment.json` (`ctx.report`, `ctx.equipment`, `ctx.render`, `ctx.camera`, ...), witnesses. |
+   | `build_common.py` | Copy from any of the four sets and change the docstring: it puts the set folder and `tools/armor` on `sys.path` and calls `lib.scaffold.build(CONFIG, design)`. |
+   | `male/build.py`, `female/build.py` | Copy from any of the four sets; change the set name in the docstring. They check the command line (`sets/entry_args.py`) and run `../build_common.py`. |
+   | `female/fit-legacy.py` | Copy from any of the four sets: `lib.fit_legacy.fit(CONFIG, hooks)`. `hooks` is the set's `fit.py` (optional): `lining(ctx, slot, original, lining_count, ornament, data)` to give the rebuilt lining its materials or reshape it (Plainhide drapes cloth there), `after_fit(ctx)` for checks or a corrected header (Gravethorn maps its socket bones to the clavicles there). |
 
-   Everything before the start marker (arguments, `PARTS`, body lining copies,
-   materials, and the helpers `mesh`, `leaf`, `branch`, `sleeve`, `binding_surface`,
-   `attach_to_surface`) and everything after the end marker (joining per region,
-   weights, checks, renders, export, `equipment.json`) is reused. The builder
-   asserts that each marker occurs exactly once, so a change to either line in the
-   Seidraven file makes every dependent builder fail closed instead of building
-   something different. Do not edit those two lines without updating every builder
-   that names them.
-3. **Write the design between the markers.** In your `build_common.py`, after
-   `exec(compile(scaffold.split(start)[0], ...))`, add your geometry using the helpers,
-   appending to `pieces[<region>]` (index 0 of each region is the body lining copy the
-   scaffold created; attach new parts to its surface with `binding_surface` /
-   `attach_to_surface`). Set the colors of the `materials` the scaffold created, give
-   every entry of `PARTS` its `label`, and define `wing_binding_report = []` (the
-   reused tail records it). Then run the reused tail with
-   `exec(compile(end + scaffold.split(end)[1], ..., 'exec'))` as Emberrage does, and
-   adjust the strings you need in the tail through `.replace()` (class name, look),
-   asserting each replacement changed something if it matters.
-4. **Build both bodies** with the entry points (step 1 of the chain; a full run, not
+   The library refuses a configuration that lacks a required field, names an unknown
+   one, or whose items do not replace every non-free region exactly once -- a set can
+   never silently build with another set's class name, glow or item list.
+2. **Check without Blender:** `tsx tools/armor/test/scaffold-config.mjs` (part of
+   `npm test`) reads every `config.py`, compares items, regions and free regions with
+   `shared/src/<new>.ts` once that exists, and refuses any `exec(` / `.replace(` under
+   `sets/`. Add your family to its `SETS` list.
+3. **Build both bodies** with the entry points (step 1 of the chain; a full run, not
    `--quick`), compare the triangle counts in `validation.json` with what you expect,
    then follow the chain from step 2.
-5. **Register** (code, the Emberrage commit is the template):
+4. **Register** (code, the Emberrage commit is the template):
    `shared/src/<new>.ts` (parts with `key`, `name`, `slot`, `equipment`, `regions`,
    `hideAppearance`, `weight`, generated ids `<new>_<variant>_<key>`, the body policy
    from `shared/src/armorCompatibility.ts`; `vfxProfile` for a glowing set: add the profile
@@ -394,7 +382,7 @@ design from the Seidraven builder.
    class mapping; a starter set carries `starter: true` and its `freeRegions`, see Plainhide).
    `git grep -n emberrage -- shared client server` lists every place an existing set is wired. Item ids and set ids must stay stable across later
    visual revisions.
-6. Deliver the files and the manifest as described in step 8 of the chain, then
+5. Deliver the files and the manifest as described in step 8 of the chain, then
    continue with steps 9 to 11.
 
 ## What the checks do not promise

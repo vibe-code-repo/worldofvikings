@@ -262,6 +262,10 @@ async function main(): Promise<void> {
     console.log(
       failures === 0 ? '\n=== G7 Handshake-Fehlerpfade: ALL PASSED ===' : `\n=== G7 Handshake-Fehlerpfade: ${failures} FAILURES ===`
     );
+  } catch (err) {
+    // Without this the finally below exits 0 on an abort: nothing was checked, yet the run looked green.
+    console.error('FAIL:', err);
+    failures++;
   } finally {
     serverOhnePw.stop();
     serverMitPw.stop();

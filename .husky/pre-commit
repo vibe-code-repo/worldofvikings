@@ -1,2 +1,11 @@
 npx lint-staged
-npm run typecheck
+# On the build host (wov-dev) the typecheck takes one of the two build places; elsewhere
+# it runs as before. The fixed directory is deliberate: a WOV_SPERREN left in the
+# environment must not move the hook to another lock directory. tools/sperre.sh is
+# missing in a worktree of an older main. Inside a `sperre.sh build` the call runs
+# directly (WOV_SPERRE_GEHALTEN), so a commit made under the lock does not deadlock.
+if [ -d /opt/wov-worktrees/.slots ] && [ -x tools/sperre.sh ]; then
+  env -u WOV_SPERREN tools/sperre.sh build -- npm run typecheck
+else
+  npm run typecheck
+fi

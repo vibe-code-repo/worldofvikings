@@ -29,6 +29,8 @@ for (const sex of ['male', 'female']) {
   assert.deepEqual([...hiddenAppearanceForFiles([`gravethorn/gravethorn_${sex}_hood`])], all);
   assert.deepEqual([...hiddenAppearanceForFiles(['shoulders', 'vest', 'bracers', 'gloves', 'robe', 'boots'].map(key => `gravethorn/gravethorn_${sex}_${key}`))], []);
   assert.deepEqual([...hiddenAppearanceForFiles(['shoulders', 'vest', 'bracers', 'robe', 'boots'].map(key => `plainhide/plainhide_${sex}_${key}`))], []);
+  assert.deepEqual([...hiddenAppearanceForFiles([`crowshade/crowshade_${sex}_hood`])], all);
+  assert.deepEqual([...hiddenAppearanceForFiles(['shoulders', 'vest', 'bracers', 'gloves', 'robe', 'boots'].map(key => `crowshade/crowshade_${sex}_${key}`))], []);
 }
 for (const set of equipmentSetCatalog().sets) for (const part of set.parts) {
   assert.deepEqual(part.hideAppearance, findItem(part.itemId)?.hideAppearance);
@@ -134,7 +136,7 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
     assert.equal(armorFileForSkeleton(file, male), file, `${part.itemId}: male body keeps the game file`);
     assert.equal(armorFileForSkeleton(file, null), file, `${part.itemId}: no body yet`);
   }
-  for (const family of ['plainhide', 'gravethorn', 'seidraven', 'emberrage']) {
+  for (const family of ['plainhide', 'gravethorn', 'crowshade', 'seidraven', 'emberrage']) {
     assert.equal(armorFileForSkeleton(`${family}/${family}_female_vest`, web), `armor/${family}/${family}_female_vest`, family);
     assert.equal(armorFileForSkeleton(`${family}/${family}_male_vest`, web), `${family}/${family}_male_vest`, `${family}: male files never move`);
   }
@@ -178,6 +180,14 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   assert.equal(visible().length, 0); assert(!body.isEnabled());
   updateArmorVisibility([body], []);
   assert.equal(visible().length, REGIONS.length); assert(body.isEnabled());
+  // Crowshade (seven pieces, all eleven regions) is masked on the 51-bone figure like Gravethorn; without the mask the head stays.
+  const crowshade = ['hood', 'vest', 'robe', 'shoulders', 'bracers', 'gloves', 'boots'].map(key => `crowshade/crowshade_female_${key}`);
+  updateArmorVisibility([body], crowshade);
+  assert.equal(visible().length, 0, 'Crowshade masks every region of the 51-bone figure'); assert(!body.isEnabled());
+  updateArmorVisibility([body], crowshade.filter(file => !file.endsWith('_hood')));
+  assert.deepEqual(visible(), ['Head'], 'without the mask only the head stays visible');
+  updateArmorVisibility([body], []);
+  assert.equal(visible().length, REGIONS.length);
   scene.dispose();
 }
 engine.dispose();

@@ -53,7 +53,13 @@
 #   gelöscht.
 # * Aus /etc/wov.env wird nur WOV_INSTANZ gelesen (nicht per source: ein
 #   Passwort mit $ ; & ( ) würde sonst Shell-Code sein). Andere Werte kommen
-#   wie sonst über die Umgebung der systemd-Unit.
+#   wie sonst über die Umgebung der systemd-Unit. Gelesen wird wie bei
+#   systemd: die letzte Zeile der Form WOV_INSTANZ=wert (Leerzeichen um "=",
+#   "…"/'…', CRLF erlaubt); Kommentarzeilen zählen nicht; "export …" wird —
+#   wie bei systemd — ignoriert. Backslash-Fortsetzungen und mehrzeilige
+#   Werte versteht dieser Parser NICHT (systemd schon); dort kann er eine
+#   andere Zeile lesen als systemd — die Datei enthält so etwas nicht.
+#   Ohne gültige Zeile bricht das Skript ab.
 # * Eine DB gilt nur mit den erwarteten Tabellen (Konten: konten, charaktere;
 #   Forum: boards, threads, posts) als gesichert; eine leere Datei ist ein
 #   Fehler.
@@ -141,7 +147,7 @@
 #        ZIEL_SSH="mike@backup-host:/srv/backup/wov/welten"
 #        rsync -a -e "ssh -i /root/.ssh/wov-sicherung" \
 #          "$LAUF_ORDNER/" "$ZIEL_SSH/$INSTANZ/$STEMPEL/"
-#      Die Prüfung (zstd -t, JSON-Parse, Grössenvergleich) davor bleibt
+#      Die Prüfung (cmp gegen die Quelle, zstd -t, JSON-Parse) davor bleibt
 #      unverändert; sie soll auf der LOKALEN Kopie laufen, bevor die Bytes
 #      ein zweites Mal über das Netz gehen.
 #   4. Bis Schritt 1–3 erledigt sind, bleibt es bei der lokalen Kopie unter
@@ -163,8 +169,8 @@ if [[ ! -r "$ENV_DATEI" ]]; then
   exit 1
 fi
 # Nur die letzte Zuweisung von WOV_INSTANZ lesen (CR und Anführungszeichen
-# abfangen); die Datei wird NICHT ausgeführt.
-INSTANZ="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?WOV_INSTANZ[[:space:]]*=[[:space:]]*//p' "$ENV_DATEI" \
+# abfangen, Kommentare und "export" zählen nicht); die Datei wird NICHT ausgeführt.
+INSTANZ="$(sed -n -E 's/^[[:space:]]*WOV_INSTANZ[[:space:]]*=[[:space:]]*//p' "$ENV_DATEI" \
              | tail -n 1 | tr -d '\r' | sed -E "s/[[:space:]]+\$//; s/^\"(.*)\"\$/\\1/; s/^'(.*)'\$/\\1/" || true)"
 case "$INSTANZ" in
   dev|live) ;;
@@ -344,18 +350,23 @@ LAUF_ANGELEGT=1
 mkdir "$LAUF_ARBEIT/worlds" "$LAUF_ARBEIT/welten" "$LAUF_ARBEIT/konten" "$LAUF_ARBEIT/forum"
 
 # ── 3. Kopieren ──────────────────────────────────────────────────────────
-# kopiere_mit_pruefung: kopiert eine zstd-komprimierte Datei und prüft die
-# Kopie mit `cmp` gegen die Quelle UND mit `zstd -t`. `zstd -t` allein ist
+# kopiere_mit_pruefung QUELLE ZIEL [zstd]: kopiert und prüft die Kopie mit `cmp`
+# gegen die Quelle; mit drittem Argument "zstd" zusätzlich mit `zstd -t`.
+# Quellen, die der Server im laufenden Betrieb ersetzt (Welt alle 30 min,
+# Weltdokument), werden NICHT später noch einmal nach der Grösse gegen die
+# Quelle verglichen: ein Save zwischen Kopie und Vergleich wäre ein
+# Fehlalarm. Massgeblich ist allein cmp in dieser Schleife (mit Wiederholung).
+# Bei zstd-Dateien gilt: `zstd -t` allein ist `zstd -t` allein ist
 # keine Prüfsumme (die Weltdatei hat kein Check-Feld; gemessen: 128 von 200
 # Ein-Bit-Fehlern bleiben unbemerkt) und erkennt nur Abschneiden bzw. eine
 # schon kaputte Quelle; `cmp` erkennt jeden Unterschied zur Quelle. Schlägt
 # eines fehl, wird erneut kopiert — s. Kopfkommentar zur NICHT-atomaren
 # .prev-Rotation, die dieser Test auffangen soll.
 kopiere_mit_pruefung() {
-  local quelle="$1" ziel="$2" versuch
+  local quelle="$1" ziel="$2" art="${3:-}" versuch
   for ((versuch = 1; versuch <= ZSTD_VERSUCHE; versuch++)); do
     cp -a "$quelle" "$ziel"
-    if cmp -s "$quelle" "$ziel" && zstd -t "$ziel" -q 2>/dev/null; then
+    if cmp -s "$quelle" "$ziel" && { [[ "$art" != zstd ]] || zstd -t "$ziel" -q 2>/dev/null; }; then
       return 0
     fi
     echo "  … $ziel weicht nach dem Kopieren ab oder besteht zstd -t nicht (Versuch $versuch/$ZSTD_VERSUCHE), erneut" >&2
@@ -368,17 +379,17 @@ kopiere_mit_pruefung() {
 }
 
 echo "  kopiere $DB_DATEI"
-kopiere_mit_pruefung "$DB_DATEI" "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst"
+kopiere_mit_pruefung "$DB_DATEI" "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst" zstd
 
 if [[ -f "$PREV_DATEI" ]]; then
   echo "  kopiere $PREV_DATEI"
-  kopiere_mit_pruefung "$PREV_DATEI" "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst.prev"
+  kopiere_mit_pruefung "$PREV_DATEI" "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst.prev" zstd
 else
   echo "  … keine .prev vorhanden (erster Save seit Anlegen der Welt?), übersprungen"
 fi
 
 echo "  kopiere $WELT_DATEI"
-cp -a "$WELT_DATEI" "$LAUF_ARBEIT/welten/$INSTANZ.json"
+kopiere_mit_pruefung "$WELT_DATEI" "$LAUF_ARBEIT/welten/$INSTANZ.json"
 
 if [[ -d "$DUNGEON_ORDNER" ]]; then
   echo "  kopiere $DUNGEON_ORDNER"
@@ -388,7 +399,7 @@ else
 fi
 
 echo "  kopiere $SERVER_YML"
-cp -a "$SERVER_YML" "$LAUF_ARBEIT/server.yml"
+kopiere_mit_pruefung "$SERVER_YML" "$LAUF_ARBEIT/server.yml"
 
 # sichere_sqlite: Online-Sicherung einer WAL-Datenbank (s. Kopfkommentar),
 # dann integrity_check auf der KOPIE. Rückgabe 0 nur bei "ok".
@@ -437,24 +448,14 @@ find "$LAUF_ARBEIT" -type d -exec chmod 700 {} +
 find "$LAUF_ARBEIT" -type f -exec chmod 600 {} +
 
 # ── 4. Nachweis: vollständig UND entpackbar ──────────────────────────────
-# Grössenvergleich zuerst (billig, fängt grobe Fehler), dann die
-# inhaltliche Prüfung (JSON muss parsen, zstd muss sich testen lassen). Die
-# Weltdateien sind schon beim Kopieren per cmp gegen die Quelle geprüft.
+# Inhaltliche Prüfung der Kopien (JSON muss parsen, zstd muss sich testen
+# lassen). Übereinstimmung mit der Quelle (Welt, Weltdokument, server.yml) ist
+# schon beim Kopieren per cmp geprüft — kein späterer Grössenvergleich gegen
+# die inzwischen möglicherweise ersetzte Quelle.
 FEHLER=$FEHLER_DB
 if (( FEHLER_DB != 0 )); then
   echo "FEHLER: Konten- oder Forumsdatenbank nicht sauber gesichert (s. oben)" >&2
 fi
-
-pruef_groesse() {
-  local quelle="$1" ziel="$2"
-  local gq gz
-  gq="$(stat -c%s "$quelle")"
-  gz="$(stat -c%s "$ziel")"
-  if [[ "$gq" != "$gz" ]]; then
-    echo "FEHLER: Grösse weicht ab — $ziel: ${gz} B, Quelle $quelle: ${gq} B" >&2
-    FEHLER=1
-  fi
-}
 
 pruef_json() {
   local datei="$1"
@@ -464,15 +465,12 @@ pruef_json() {
   fi
 }
 
-pruef_groesse "$DB_DATEI" "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst"
 zstd -t "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst" -q || { echo "FEHLER: Hauptsicherung besteht zstd -t nicht" >&2; FEHLER=1; }
 
 if [[ -f "$PREV_DATEI" ]]; then
-  pruef_groesse "$PREV_DATEI" "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst.prev"
   zstd -t "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst.prev" -q || { echo "FEHLER: .prev-Sicherung besteht zstd -t nicht" >&2; FEHLER=1; }
 fi
 
-pruef_groesse "$WELT_DATEI" "$LAUF_ARBEIT/welten/$INSTANZ.json"
 pruef_json "$LAUF_ARBEIT/welten/$INSTANZ.json"
 
 if [[ -d "$DUNGEON_ORDNER" ]]; then
@@ -481,7 +479,6 @@ if [[ -d "$DUNGEON_ORDNER" ]]; then
   done < <(find "$LAUF_ARBEIT/dungeons" -name '*.json' -print0)
 fi
 
-pruef_groesse "$SERVER_YML" "$LAUF_ARBEIT/server.yml"
 
 if (( FEHLER != 0 )); then
   echo "ABBRUCH: die Sicherung unter $LAUF_ARBEIT ist NICHT vollständig — sie bleibt" >&2

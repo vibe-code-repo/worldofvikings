@@ -27,6 +27,7 @@ FEHL=0
 SCHREIBER_PID=""
 
 aufraeumen() {
+  [[ -n "${TAUSCHER_PID:-}" ]] && kill "$TAUSCHER_PID" 2>/dev/null
   # Waisen der Proben (python3-Vorschalter schreibt seine PID) beenden
   if [[ -s "$TMP/pids" ]]; then
     # shellcheck disable=SC2046
@@ -289,6 +290,9 @@ FH_ALT="$ZIEL/dev/$(stempel "35 days ago").fehlerhaft"; mkdir -p "$FH_ALT"; touc
 FH_ALT2="$ZIEL/dev/$(stempel "36 days ago").fehlerhaft.2"; mkdir -p "$FH_ALT2"; touch -d "36 days ago" "$FH_ALT2"
 FH_NEU="$ZIEL/dev/$(stempel "2 days ago").fehlerhaft"; mkdir -p "$FH_NEU"
 mkdir -p "$ZIEL/dev/kein-stempel"; touch -d "90 days ago" "$ZIEL/dev/kein-stempel"
+# fremde Namen, die wie ein Stempel aussehen (Muster muss streng sein)
+FREMD1="$ZIEL/dev/fremd-$(stempel "90 days ago")"; FREMD2="$ZIEL/dev/$(stempel "90 days ago")-x"; FREMD3="$ZIEL/dev/$(stempel "90 days ago").bak"
+for d in "$FREMD1" "$FREMD2" "$FREMD3"; do mkdir "$d"; touch -d "90 days ago" "$d"; done
 lauf > "$TMP/lauf2.log" 2>&1 && ok "Lauf 2 endet mit 0" || rot "Lauf 2 fehlgeschlagen"
 [[ -d "$ZIEL/dev/${NAME[t29h23]}" ]] && ok "719 h (29 d 23 h) alt: bleibt" || rot "29 d 23 h alt: gelöscht"
 [[ -d "$ZIEL/dev/${NAME[t3]}" ]] && ok "3 Tage alt: bleibt" || rot "3 Tage alt: gelöscht"
@@ -296,6 +300,7 @@ for k in t30h1 t31 t40; do [[ ! -e "$ZIEL/dev/${NAME[$k]}" ]] && ok "${ALT[$k]}:
 [[ ! -e "$FH_ALT" && ! -e "$FH_ALT2" ]] && ok "35/36 Tage alte .fehlerhaft(.2): gelöscht" || rot "altes .fehlerhaft liegt noch"
 [[ -d "$FH_NEU" ]] && ok "2 Tage altes .fehlerhaft: bleibt" || rot "junges .fehlerhaft gelöscht"
 [[ -d "$ZIEL/dev/kein-stempel" ]] && ok "Ordner ohne Stempelnamen: unangetastet" || rot "fremder Ordner gelöscht"
+[[ -d "$FREMD1" && -d "$FREMD2" && -d "$FREMD3" ]] && ok "Ordner, die nur wie ein Stempel aussehen (fremd-…, …-x, …bak): unangetastet" || rot "Stempelmuster zu locker: fremder Ordner gelöscht"
 
 echo "── Uhr VORWÄRTS (nur alte Läufe im Ziel): 30 Tage gelten hart, nur der neue Lauf bleibt"
 ZIEL="$TMP/ziel-u"; mkdir -p "$ZIEL/dev"
@@ -561,7 +566,9 @@ rm -f "$TMP/pwned" "$TMP/pwned2"
 frisch e1; ENVF="$TMP/env-pw" lauf > "$TMP/e1.log" 2>&1 && ok "Sicherung läuft mit Sonderzeichen-Passwort normal durch" || { rot "Lauf mit Sonderzeichen-Env endete ≠ 0: $(tail -2 "$TMP/e1.log" | tr '\n' ' ')"; }
 [[ ! -e "$TMP/pwned" && ! -e "$TMP/pwned2" ]] && ok "keine Datei pwned entstanden (nichts ausgeführt)" || rot "Env-Inhalt wurde ausgeführt"
 printf 'WOV_INSTANZ=dev\r\n' > "$TMP/env-crlf"; frisch e2; ENVF="$TMP/env-crlf" lauf > "$TMP/e2.log" 2>&1 && ok "CRLF-Datei: Instanz dev erkannt" || rot "CRLF-Datei abgelehnt"
-printf '# Kommentar\nexport WOV_INSTANZ="dev"   \n' > "$TMP/env-q1"; frisch e3; ENVF="$TMP/env-q1" lauf > "$TMP/e3.log" 2>&1 && ok "export + doppelte Anführungszeichen + Leerzeichen: dev" || rot "Anführungszeichen-Variante abgelehnt"
+printf '# Kommentar\nexport WOV_INSTANZ=live\nWOV_INSTANZ="dev"   \n' > "$TMP/env-q1"; frisch e3; ENVF="$TMP/env-q1" lauf > "$TMP/e3.log" 2>&1 && ok "export-Zeile ignoriert, doppelte Anführungszeichen + Leerzeichen: dev" || rot "Anführungszeichen-Variante abgelehnt"
+printf 'export WOV_INSTANZ=dev\n' > "$TMP/env-exp"; frisch e3b; ENVF="$TMP/env-exp" lauf > "$TMP/e3b.log" 2>&1 && rot "nur 'export WOV_INSTANZ=dev' wurde akzeptiert (systemd ignoriert die Zeile)" || ok "nur 'export WOV_INSTANZ=dev' → ABBRUCH (wie systemd: nicht gesetzt)"
+printf 'WOV_INSTANZ=live\nWOV_INSTANZ=dev\n# WOV_INSTANZ=live\n' > "$TMP/env-multi"; frisch e3c; ENVF="$TMP/env-multi" lauf > "$TMP/e3c.log" 2>&1 && ok "live, dann dev, dann '# WOV_INSTANZ=live' → dev (letzte gültige Zeile gewinnt, Kommentar zählt nicht)" || rot "Mehrfachzeilen: $(tail -2 "$TMP/e3c.log" | tr '\n' ' ')"
 printf "WOV_INSTANZ='dev'\n" > "$TMP/env-q2"; frisch e4; ENVF="$TMP/env-q2" lauf > "$TMP/e4.log" 2>&1 && ok "einfache Anführungszeichen: dev" || rot "einfache Anführungszeichen abgelehnt"
 mkdir -p "$DATEN/worlds" "$DATEN/welten"; cp "$DATEN/worlds/dev.db.zst" "$DATEN/x.db.zst"; cp "$DATEN/welten/dev.json" "$DATEN/x.json"
 for v in '../x' 'de*' '' 'DEV' 'dev x' 'live/../dev'; do
@@ -590,7 +597,7 @@ frisch w4; lauf > "$TMP/w4.log" 2>&1 && rot "kaputte .prev endete mit 0" || ok "
 cp "$TMP/dev.db.zst.gut" "$DATEN/worlds/dev.db.zst.prev"
 frisch w5; laufcp ymlplus > "$TMP/w5.log" 2>&1 && rot "server.yml-Kopie mit anderem Umfang: Exit 0" || ok "Grössenabweichung server.yml → Exit ≠ 0"
 frisch w6; laufcp jsonplus > "$TMP/w6.log" 2>&1 && rot "Weltdokument-Kopie mit anderem Umfang: Exit 0" || ok "Grössenabweichung Weltdokument (gültiges JSON) → Exit ≠ 0"
-grep -q "Grösse weicht ab" "$TMP/w6.log" && ok "Meldung 'Grösse weicht ab'" || rot "keine Grössen-Meldung"
+grep -q "nicht sauber kopieren" "$TMP/w6.log" && ok "Meldung 'nicht sauber kopieren' (cmp-Schleife, nicht mehr Grössenvergleich)" || rot "keine Kopier-Meldung"
 
 echo "── A5: fehlende Weltdatei / server.yml → klare Meldung, Exit ≠ 0"
 mv "$DATEN/welten/dev.json" "$TMP/dev.json.weg"; frisch m1
@@ -613,6 +620,43 @@ frisch j1; lauf > "$TMP/j1.log" 2>&1
 JL="$(find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9-]+T[0-9-]+' | head -1)"
 JM="$(python3 -c "import sys; b=open(sys.argv[1],'rb').read(20); print(b[18], b[19])" "$JL/konten/dev.db")"
 [[ "$JM" == "1 1" ]] && ok "Kopie der Konten-DB: Header-Bytes 18/19 = 1/1 (journal_mode DELETE)" || rot "Kopie im WAL-Modus (Header $JM)"
+
+echo "── Tauscher: Quelle wird alle 50 ms ausgetauscht (auch mit anderer Grösse); kein Fehlalarm"
+TA="${WOV_PROBE_TAUSCHER_LAEUFE:-20}"
+# zwei gültige Stände je Datei, deutlich verschieden gross
+head -c 200000 /dev/urandom | zstd -q --no-check -o "$TMP/tA.zst"; head -c 60000 /dev/urandom | zstd -q --no-check -o "$TMP/tB.zst"
+printf '{"a":1}\n' > "$TMP/tA.json"; python3 -c "import json; print(json.dumps({'b': list(range(3000))}))" > "$TMP/tB.json"
+printf 'x: 1\n' > "$TMP/tA.yml"; python3 -c "print('y: 2\n' * 800)" > "$TMP/tB.yml"
+cp "$DATEN/worlds/dev.db.zst" "$TMP/orig.zst"; cp "$DATEN/welten/dev.json" "$TMP/orig.json"; cp "$DATEN/server.yml" "$TMP/orig.yml"
+rm -f "$TMP/tausch-ende"
+(
+  while [[ ! -e "$TMP/tausch-ende" ]]; do
+    for v in A B; do
+      /usr/bin/cp "$TMP/t$v.zst" "$DATEN/worlds/dev.db.zst.neu" && /usr/bin/mv -f "$DATEN/worlds/dev.db.zst.neu" "$DATEN/worlds/dev.db.zst"
+      /usr/bin/cp "$TMP/t$v.json" "$DATEN/welten/dev.json.neu" && /usr/bin/mv -f "$DATEN/welten/dev.json.neu" "$DATEN/welten/dev.json"
+      /usr/bin/cp "$TMP/t$v.yml" "$DATEN/server.yml.neu" && /usr/bin/mv -f "$DATEN/server.yml.neu" "$DATEN/server.yml"
+      sleep 0.05
+    done
+  done
+) &
+TAUSCHER_PID=$!
+TOK=0; TBAD=0; TFH=0; TNEQ=0
+for i in $(seq "$TA"); do
+  frisch "t$i"; rm -f "$DATEN/konten/dev.db"*; neue_db "$DATEN" x
+  if lauf > "$TMP/t$i.log" 2>&1; then TOK=$((TOK + 1)); else TBAD=$((TBAD + 1)); tail -3 "$TMP/t$i.log" | sed 's/^/    | /'; fi
+  TFH=$((TFH + $(schlechte)))
+  LK="$(find "$ZIEL/dev" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9-]+T[0-9-]+' | head -1)"
+  if [[ -n "$LK" ]]; then
+    { cmp -s "$LK/worlds/dev.db.zst" "$TMP/tA.zst" || cmp -s "$LK/worlds/dev.db.zst" "$TMP/tB.zst"; } \
+      && { cmp -s "$LK/welten/dev.json" "$TMP/tA.json" || cmp -s "$LK/welten/dev.json" "$TMP/tB.json"; } \
+      && { cmp -s "$LK/server.yml" "$TMP/tA.yml" || cmp -s "$LK/server.yml" "$TMP/tB.yml"; } || TNEQ=$((TNEQ + 1))
+  fi
+done
+touch "$TMP/tausch-ende"; wait "$TAUSCHER_PID" 2>/dev/null; TAUSCHER_PID=""
+cp "$TMP/orig.zst" "$DATEN/worlds/dev.db.zst"; cp "$TMP/orig.json" "$DATEN/welten/dev.json"; cp "$TMP/orig.yml" "$DATEN/server.yml"
+echo "  $TA Läufe: $TOK ok, $TBAD Fehlschläge, $TFH .fehlerhaft, $TNEQ Kopien nicht byte-gleich zu einem Quellstand"
+[[ "$TOK" == "$TA" && "$TFH" == 0 ]] && ok "Tauscher: $TA/$TA Läufe ohne .fehlerhaft" || rot "Tauscher: $TBAD von $TA Läufen fehlgeschlagen, $TFH .fehlerhaft"
+[[ "$TNEQ" == 0 ]] && ok "jede Kopie (Welt, Weltdokument, server.yml) byte-gleich zu einem der Quellstände" || rot "$TNEQ Kopien weichen von beiden Quellständen ab"
 
 if (( ECHT )); then
   echo "── --echt: DEV-Daten per SQLite-Backup gezogen, Sicherung, Rückspielen"

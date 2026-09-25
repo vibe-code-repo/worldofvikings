@@ -222,6 +222,49 @@ export interface SanitizeBericht {
   zusammengefasst: readonly string[];
 }
 
+/**
+ * Clamps every raw placement entry on its own (prefab, x/z, scale 0.2–5,
+ * einebnen 1–100, id, route, npc; the first 2000 only) and drops bad ones.
+ * NO duplicate folding and no ids: that step is quadratic per prefab
+ * (`platzierungenNormalisieren`). `sanitizeWorldLayout` continues from here;
+ * a caller that only needs the per-entry values (the scatter preview: same
+ * entry, same clear circle) stops here.
+ * Klemmt jeden Eintrag einzeln, ohne Duplikat-Falten und Ids.
+ */
+export function platzierungenEinzeln(roh: unknown): PlacementDef[] {
+  const roheEintraege: PlacementDef[] = [];
+  if (Array.isArray(roh)) {
+    for (const p of roh.slice(0, 2000)) {
+      if (typeof p !== 'object' || p === null) continue;
+      const o = p as Record<string, unknown>;
+      if (typeof o.prefab !== 'string' || o.prefab.length === 0 || o.prefab.length > 64) continue;
+      const x = koordinate(o.x);
+      const z = koordinate(o.z);
+      if (x === null || z === null) continue;
+      const eintrag: PlacementDef = { prefab: o.prefab, x, z };
+      // Eine ungültige `id` wird nicht verworfen, sondern unten abgeleitet:
+      // Der Eintrag selbst ist in Ordnung, nur seine Adresse fehlt.
+      if (typeof o.id === 'string' && ID_RE.test(o.id)) eintrag.id = o.id;
+      // Nur die SCHREIBWEISE prüfen, nicht die Existenz der Route: Ob es
+      // sie gibt, meldet pruefeLayout — wie bei `continentId` an der
+      // Region hängt die Auflösung am Verwendungsort, nicht am Schema.
+      if (typeof o.route === 'string' && ID_RE.test(o.route)) eintrag.route = o.route;
+      if (o.yaw !== undefined) eintrag.yaw = klemm(o.yaw, -Math.PI * 2, Math.PI * 2, 0);
+      if (o.scale !== undefined) eintrag.scale = klemm(o.scale, 0.2, 5, 1);
+      if (o.einebnen !== undefined) {
+        // Wie beim Kreis-Radius: Unsinn verwerfen statt auf einen Wert zu
+        // klemmen — ein erfundener Sockel wäre schlimmer als keiner.
+        const r = klemm(o.einebnen, 1, 100, NaN);
+        if (Number.isFinite(r)) eintrag.einebnen = Math.round(r * 10) / 10;
+      }
+      const npc = sanitizeNpc(o.npc);
+      if (npc) eintrag.npc = npc;
+      roheEintraege.push(eintrag);
+    }
+  }
+  return roheEintraege;
+}
+
 export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
   return sanitizeWorldLayoutMitBericht(input)?.layout ?? null;
 }
@@ -269,36 +312,7 @@ export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht |
     }
   }
 
-  const roheEintraege: PlacementDef[] = [];
-  if (Array.isArray(d.placements)) {
-    for (const p of d.placements.slice(0, 2000)) {
-      if (typeof p !== 'object' || p === null) continue;
-      const o = p as Record<string, unknown>;
-      if (typeof o.prefab !== 'string' || o.prefab.length === 0 || o.prefab.length > 64) continue;
-      const x = koordinate(o.x);
-      const z = koordinate(o.z);
-      if (x === null || z === null) continue;
-      const eintrag: PlacementDef = { prefab: o.prefab, x, z };
-      // Eine ungültige `id` wird nicht verworfen, sondern unten abgeleitet:
-      // Der Eintrag selbst ist in Ordnung, nur seine Adresse fehlt.
-      if (typeof o.id === 'string' && ID_RE.test(o.id)) eintrag.id = o.id;
-      // Nur die SCHREIBWEISE prüfen, nicht die Existenz der Route: Ob es
-      // sie gibt, meldet pruefeLayout — wie bei `continentId` an der
-      // Region hängt die Auflösung am Verwendungsort, nicht am Schema.
-      if (typeof o.route === 'string' && ID_RE.test(o.route)) eintrag.route = o.route;
-      if (o.yaw !== undefined) eintrag.yaw = klemm(o.yaw, -Math.PI * 2, Math.PI * 2, 0);
-      if (o.scale !== undefined) eintrag.scale = klemm(o.scale, 0.2, 5, 1);
-      if (o.einebnen !== undefined) {
-        // Wie beim Kreis-Radius: Unsinn verwerfen statt auf einen Wert zu
-        // klemmen — ein erfundener Sockel wäre schlimmer als keiner.
-        const r = klemm(o.einebnen, 1, 100, NaN);
-        if (Number.isFinite(r)) eintrag.einebnen = Math.round(r * 10) / 10;
-      }
-      const npc = sanitizeNpc(o.npc);
-      if (npc) eintrag.npc = npc;
-      roheEintraege.push(eintrag);
-    }
-  }
+  const roheEintraege = platzierungenEinzeln(d.placements);
   // Exakte Duplikate zusammenfassen, jedem Eintrag eine eindeutige `id` geben,
   // nach `id` sortieren (platzierungsId.ts).
   const { placements, zusammengefasst } = platzierungenNormalisieren(roheEintraege);

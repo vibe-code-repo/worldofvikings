@@ -28,6 +28,7 @@ import {
   getStableHash,
   freiflaechenPruefer,
   platzierungenBereinigt,
+  platzierungenFuerFreiflaechen,
   type ClearArea,
   sanitizeWorldLayout,
 } from '@wov/shared';
@@ -242,6 +243,56 @@ console.log('\n[6] freiflaechenPruefer: ungültige Radien in beiden Wegen verwer
   }
   const ok: ClearArea = { center: { x: 0, y: 0, z: 0 }, radius: 5, kreis: true };
   check('gültige Fläche trifft weiter (beide Wege)', freiflaechenPruefer(viele(ok))(punkt) && freiflaechenPruefer(wenige(ok))(punkt));
+}
+
+// ── [7] N3 B1: localScale des Prefabs, wie das Spiel es rechnet ──────
+console.log('\n[7] Manifest-Hülle mal localScale (N3 B1):');
+{
+  const ls = (n: string): number => PREFABS_BY_NAME.get(n)!.localScale.x;
+  const datei = (n: string): number => { const h = mh(n)!; return Math.max(h.halbX, h.halbZ) + Math.hypot(h.mitteX, h.mitteZ); };
+  const pine = rM('KiPine3');
+  check('KiPine3 (localScale 12): r ≈ 4,15 statt 0,75', Math.abs(pine - 4.15) < 0.05 && nahe(pine, datei('KiPine3') * ls('KiPine3')), `${pine.toFixed(2)} m`);
+  const surtr = rM('Surtr');
+  check('Surtr (localScale 9): r ≈ 4,22', Math.abs(surtr - 4.22) < 0.05 && nahe(surtr, datei('Surtr') * ls('Surtr')), `${surtr.toFixed(2)} m`);
+  const kreis = rM('Steinkreis');
+  check('Steinkreis (localScale 4,36): r ≈ 2,18', Math.abs(kreis - 2.18) < 0.05 && nahe(kreis, datei('Steinkreis') * ls('Steinkreis')), `${kreis.toFixed(2)} m`);
+  const surtr3 = rM('Surtr', { scale: 3 });
+  check('scale ≠ 1 ERSETZT localScale (Surtr scale 3 = 3 × Datei, nicht 27 ×)', nahe(surtr3, Math.max(FREIFLAECHE_MIN, datei('Surtr') * 3)), `${surtr3.toFixed(2)} m`);
+  check('scale 1,0004 zählt als 1 (wie sollSkala): localScale gilt', nahe(rM('Surtr', { scale: 1.0004 }), surtr));
+  check('Kiefer4 (localScale 1) unverändert', nahe(rKiefer, rM('Kiefer4', { scale: 1 })) && ls('Kiefer4') === 1);
+  check('eigenes Modell ohne Manifest: renderScale, localScale nicht doppelt', nahe(rFels, fels.renderScale.w / 2));
+  check('Store-Hülle bekommt kein localScale (nur die Manifest-Hülle)', nahe(radien([{ prefab: storeName, x: 0, z: 0 }])[0], Math.min(FREIFLAECHE_MAX, erwStore)));
+}
+
+// ── [8] N3 B3: Einzelklemmen ohne Duplikat-Falten ─────────────────────
+console.log('\n[8] platzierungenFuerFreiflaechen (N3 B3):');
+{
+  const kreise = (l: ReadonlyArray<{ x: number; z: number; prefab: string; scale?: number; einebnen?: number }>): Set<string> =>
+    new Set(freiflaechenAusPlatzierungen({ placements: l as never }, mh).map((a) => `${a.center.x},${a.center.z},${a.radius}`));
+  const gleichMenge = (a: Set<string>, b: Set<string>): boolean => a.size === b.size && [...a].every((k) => b.has(k));
+  const mix: unknown[] = [
+    { prefab: 'Grabhuegel', x: 0, z: 0, einebnen: -3, scale: 10 }, { prefab: 'Grabhuegel', x: 0, z: 0, einebnen: -3, scale: 10 },
+    { prefab: 'Surtr', x: 5, z: 5 }, { prefab: 'Surtr', x: 5, z: 5, scale: 3 }, { prefab: 'Surtr', x: 5, z: 5, scale: '2' },
+    { prefab: 'Eiche2', x: 1e9, z: 0 }, { prefab: '', x: 1, z: 1 }, null, 'x', { prefab: 'Eiche2', x: null, z: 1 },
+    { prefab: 'Eiche2', x: 7, z: 7, einebnen: 1e9 }, { prefab: 'Eiche2', x: 8, z: 7, einebnen: 'abc' }, { prefab: 'Eiche2', x: 9, z: 7, scale: NaN },
+  ];
+  const a = kreise(platzierungenBereinigt(mix) as never);
+  const b = kreise(platzierungenFuerFreiflaechen(mix) as never);
+  check('Sonderfälle: gleiche Kreise wie Bereinigung mit Falten', gleichMenge(a, b) && a.size > 0, `${b.size} Kreise`);
+  const viele = Array.from({ length: 2100 }, (_, i) => ({ prefab: i % 3 === 0 ? 'Eiche2' : 'Surtr', x: (i % 40) * 7, z: Math.floor(i / 40) * 7, scale: 1 + (i % 4) * 0.1 }));
+  const c = kreise(platzierungenBereinigt(viele) as never);
+  const d = kreise(platzierungenFuerFreiflaechen(viele) as never);
+  check('2100 Einträge: erste 2000, gleiche Kreise', gleichMenge(c, d) && platzierungenFuerFreiflaechen(viele).length === 2000, `${d.size} Kreise`);
+  const gleich2000 = Array.from({ length: 2000 }, (_, i) => ({ prefab: 'Eiche2', x: (i % 50) * 3, z: Math.floor(i / 50) * 3 }));
+  const median = (f: () => unknown): number => {
+    const t: number[] = [];
+    for (let i = 0; i < 7; i++) { const s = performance.now(); f(); t.push(performance.now() - s); }
+    return t.sort((x, y) => x - y)[3];
+  };
+  median(() => platzierungenBereinigt(gleich2000));
+  const mitFalten = median(() => platzierungenBereinigt(gleich2000));
+  const ohneFalten = median(() => platzierungenFuerFreiflaechen(gleich2000));
+  check('2000 Einträge eines Prefabs: mindestens 3× schneller als mit Falten', ohneFalten * 3 < mitFalten, `mit ${mitFalten.toFixed(2)} ms, ohne ${ohneFalten.toFixed(2)} ms`);
 }
 
 if (failures > 0) {

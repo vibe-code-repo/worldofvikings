@@ -14,11 +14,12 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import {
   findPrefabByName,
+  freiflaechenHuellen,
   getStableHash,
   istNpcPrefab,
   loeseNpcAuf,
   PLATEAU_RAND_MAX,
-  platzierungenBereinigt,
+  platzierungenFuerFreiflaechen,
   RegionGeo,
   sanitizeWorldLayout,
 } from '@wov/shared';
@@ -477,7 +478,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           // Layout der Welt bleibt, wie es beim Start war. Durch dieselbe
           // Bereinigung wie auf dem Server (scale 0,2–5, einebnen 1–100),
           // sonst rechnet die Vorschau mit Rohwerten, die der Server klemmt.
-          () => platzierungenBereinigt(persistenz.laden()?.placements),
+          () => platzierungenFuerFreiflaechen(persistenz.laden()?.placements),
           // Rohtext als Änderungsmarke: unverändert = nicht parsen, nicht rechnen.
           persistenz.rohtext ? () => persistenz.rohtext!() : null
         )
@@ -490,6 +491,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         holeManifest: holeManifestText,
         ladeRegistry: () => ladeHochgeladeneRegistrierung(),
         bekannt: (n) => findPrefabByName(n) !== undefined,
+        // Kein Store-/Upload-Hüllenmaß: Der Radius kommt aus dem Manifest (sonst renderScale).
+        brauchtManifest: (n) => freiflaechenHuellen()(n)?.quelle === 'extern',
       }).then((b) => {
         if (b.manifest) bewuchs.setzeManifest(b.manifest);
         else if (b.registryNachgeladen) bewuchs.neuAufbauen();
@@ -504,7 +507,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         const text = abweichungsText(b);
         if (text) {
           console.warn(`[Bewuchs] ${text}`);
-          hud.meldung(text);
+          // Bleibt stehen, solange der Zustand gilt (nicht 4 s, nicht verdrängbar).
+          hud.stehendeMeldung('bewuchs-quellen', text);
         }
       });
       // G, not V: V is the build mode (above). Both used to share V, so one

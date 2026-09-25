@@ -29,6 +29,12 @@ export interface QuellenEingang {
   ladeRegistry: () => Promise<{ geladen: number; meldungen: string[] }>;
   /** Does the client know this prefab (`findPrefabByName`)? */
   bekannt: (prefab: string) => boolean;
+  /**
+   * Can the clear radius of this prefab only come from the manifest (no store
+   * or upload hull; otherwise it falls back to the `renderScale` box)? Without
+   * it the manifest is not checked for entries of the placed prefabs.
+   */
+  brauchtManifest?: (prefab: string) => boolean;
 }
 
 export interface QuellenBericht {
@@ -40,6 +46,12 @@ export interface QuellenBericht {
   weiterUnbekannt: string[];
   registryFehler: string[];
   registryNachgeladen: boolean;
+  /**
+   * Placed prefabs that need a manifest hull but have none — only filled when
+   * the manifest has NO entry for any of them (a cut or wrong file), so a
+   * single vanilla prefab without a hull does not raise the alarm.
+   */
+  ohneManifestEintrag: string[];
 }
 
 /**
@@ -50,8 +62,9 @@ export async function ladeBewuchsQuellen(
   prefabs: Iterable<string>,
   io: QuellenEingang
 ): Promise<QuellenBericht> {
+  const namen = [...prefabs];
   const unbekannt = [
-    ...new Set([...prefabs].filter((n) => typeof n === 'string' && n.startsWith(NAME_PRAEFIX) && !io.bekannt(n))),
+    ...new Set(namen.filter((n) => typeof n === 'string' && n.startsWith(NAME_PRAEFIX) && !io.bekannt(n))),
   ];
   const bericht: QuellenBericht = {
     manifest: null,
@@ -60,12 +73,19 @@ export async function ladeBewuchsQuellen(
     weiterUnbekannt: [],
     registryFehler: [],
     registryNachgeladen: false,
+    ohneManifestEintrag: [],
   };
   try {
     const text = await io.holeManifest();
     const m = leseManifest(text);
     if (m.size === 0) bericht.manifestFehler = 'Manifest leer oder nicht lesbar';
-    else bericht.manifest = m;
+    else {
+      bericht.manifest = m;
+      const noetig = io.brauchtManifest
+        ? [...new Set(namen.filter((n) => typeof n === 'string' && io.brauchtManifest!(n)))]
+        : [];
+      if (noetig.length > 0 && noetig.every((n) => !m.has(n))) bericht.ohneManifestEintrag = noetig;
+    }
   } catch (e) {
     bericht.manifestFehler = (e as Error).message;
   }
@@ -86,6 +106,11 @@ export async function ladeBewuchsQuellen(
 export function abweichungsText(b: QuellenBericht): string | null {
   const teile: string[] = [];
   if (b.manifestFehler !== null) teile.push(`Manifest fehlt (${b.manifestFehler})`);
+  if (b.ohneManifestEintrag.length > 0) {
+    teile.push(
+      `Manifest ohne Eintrag für platzierte Prefabs: ${b.ohneManifestEintrag.slice(0, 3).join(', ')}${b.ohneManifestEintrag.length > 3 ? ' …' : ''}`
+    );
+  }
   if (b.weiterUnbekannt.length > 0) {
     teile.push(`Upload-Modell(e) unbekannt: ${b.weiterUnbekannt.slice(0, 3).join(', ')}${b.weiterUnbekannt.length > 3 ? ' …' : ''}`);
   } else if (b.registryFehler.length > 0) {

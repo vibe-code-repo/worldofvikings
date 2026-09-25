@@ -98,3 +98,26 @@ export class Fehlersammler {
     return this.eintraege.map(({ text, schweregrad, anzahl }) => ({ text, schweregrad, anzahl }));
   }
 }
+
+/**
+ * Meldungen, die stehen bleiben, solange der Zustand gilt (nicht nach
+ * `FEHLER_TTL_MS`, nicht verdrängt von der nächsten `meldung()`): je
+ * Schlüssel EIN Text; ein leerer Text nimmt ihn weg. DOM-frei wie der
+ * Fehlersammler, Hud.ts rendert. Anlass: die Warnung „Bewuchs-Vorschau kann
+ * vom Spiel abweichen“ (K5.5a) kam einmal, verschwand nach 4 s und wurde von
+ * jeder folgenden Meldung ersetzt.
+ */
+export class StehendeMeldungen {
+  private readonly texte = new Map<string, string>();
+
+  /** Setzt (oder ersetzt) den Text unter dem Schlüssel; `null` oder leer entfernt ihn. */
+  setzen(schluessel: string, text: string | null): void {
+    if (text === null || text === '') this.texte.delete(schluessel);
+    else this.texte.set(schluessel, text);
+  }
+
+  /** Die stehenden Texte in der Reihenfolge, in der die Schlüssel zuerst gesetzt wurden. */
+  alle(): readonly string[] {
+    return [...this.texte.values()];
+  }
+}

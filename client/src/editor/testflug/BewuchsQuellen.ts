@@ -22,6 +22,46 @@ export async function holeManifestText(): Promise<string> {
   return antwort.text();
 }
 
+/**
+ * Own models that legitimately have NO manifest entry, so a missing entry
+ * must not raise the alarm. Checked against the manifest and `EIGENE_MODELLE`:
+ *  - `Player`, `NPC_1`: characters, no model box in the manifest (measured:
+ *    the only own models with the `extern` hull and no entry besides the
+ *    four below).
+ *  - `GrabhuegelGras`, `SteingrabGangDurch`, `StoneVaultEntry`,
+ *    `RockVaultEntry`: aliases (`MODELL_ALIAS`) of a model that has its entry
+ *    under another file name (`Grabhuegel`, `SteingrabGang`, ...); the
+ *    prefab name itself never appears in the manifest.
+ * Measured against `assets/manifest.json` (313 entries): of the 184 own
+ * models with `extern` hull exactly these six have no entry.
+ */
+export const OHNE_MANIFEST_ERLAUBT: ReadonlySet<string> = new Set([
+  'Player',
+  'NPC_1',
+  'GrabhuegelGras',
+  'SteingrabGangDurch',
+  'StoneVaultEntry',
+  'RockVaultEntry',
+]);
+
+/**
+ * Names among `namen` that need a manifest hull (`braucht`) and have no entry.
+ * One missing entry is enough to warn (`some`, not `every`): an entry for
+ * another model does not size this one's radius.
+ */
+export function ohneManifestEintrag(
+  namen: Iterable<string>,
+  manifest: ReadonlyMap<string, unknown>,
+  braucht: ((prefab: string) => boolean) | undefined
+): string[] {
+  if (!braucht) return [];
+  const aus = new Set<string>();
+  for (const n of namen) {
+    if (typeof n === 'string' && !OHNE_MANIFEST_ERLAUBT.has(n) && braucht(n) && !manifest.has(n)) aus.add(n);
+  }
+  return [...aus];
+}
+
 export interface QuellenEingang {
   /** Manifest text (rejects on network or HTTP failure). */
   holeManifest: () => Promise<string>;
@@ -30,9 +70,10 @@ export interface QuellenEingang {
   /** Does the client know this prefab (`findPrefabByName`)? */
   bekannt: (prefab: string) => boolean;
   /**
-   * Can the clear radius of this prefab only come from the manifest (no store
-   * or upload hull; otherwise it falls back to the `renderScale` box)? Without
-   * it the manifest is not checked for entries of the placed prefabs.
+   * Is this prefab an own model whose clear radius can only come from the
+   * manifest (`istEigenesModell` and no store or upload hull)? Vanilla
+   * prefabs never have an entry and must NOT count. Without it the manifest
+   * is not checked for entries of the placed prefabs.
    */
   brauchtManifest?: (prefab: string) => boolean;
 }
@@ -47,9 +88,8 @@ export interface QuellenBericht {
   registryFehler: string[];
   registryNachgeladen: boolean;
   /**
-   * Placed prefabs that need a manifest hull but have none — only filled when
-   * the manifest has NO entry for any of them (a cut or wrong file), so a
-   * single vanilla prefab without a hull does not raise the alarm.
+   * Placed own models that need a manifest hull but have none (at least one
+   * is enough, see `ohneManifestEintrag`).
    */
   ohneManifestEintrag: string[];
 }
@@ -81,10 +121,7 @@ export async function ladeBewuchsQuellen(
     if (m.size === 0) bericht.manifestFehler = 'Manifest leer oder nicht lesbar';
     else {
       bericht.manifest = m;
-      const noetig = io.brauchtManifest
-        ? [...new Set(namen.filter((n) => typeof n === 'string' && io.brauchtManifest!(n)))]
-        : [];
-      if (noetig.length > 0 && noetig.every((n) => !m.has(n))) bericht.ohneManifestEintrag = noetig;
+      bericht.ohneManifestEintrag = ohneManifestEintrag(namen, m, io.brauchtManifest);
     }
   } catch (e) {
     bericht.manifestFehler = (e as Error).message;
@@ -119,4 +156,46 @@ export function abweichungsText(b: QuellenBericht): string | null {
   return teile.length === 0
     ? null
     : `Bewuchs-Vorschau kann vom Spiel abweichen: ${teile.join('; ')}`;
+}
+
+/**
+ * Keeps the standing warning in step with the sources: a new load result
+ * (`neuerBericht`, e.g. a late manifest) and a changed draft (`pruefe`, called
+ * every 250 ms with the change mark) both re-evaluate it. The warning is set
+ * while the state holds and removed (`null`) when it is fixed.
+ */
+export class QuellenAnzeige {
+  private letzteMarke: string | null | undefined = undefined;
+
+  constructor(
+    private bericht: QuellenBericht,
+    private readonly brauchtManifest: ((prefab: string) => boolean) | undefined,
+    private readonly setze: (text: string | null) => void
+  ) {}
+
+  /** A fresh load result replaces the old one. */
+  neuerBericht(b: QuellenBericht): void {
+    this.bericht = b;
+    this.zeigen();
+  }
+
+  /**
+   * The draft may have changed. Same mark as last time: nothing to do (no mark
+   * given: always check, the check is a set lookup per placed prefab).
+   */
+  pruefe(namen: Iterable<string>, marke: string | null): void {
+    if (marke !== null && marke === this.letzteMarke) return;
+    this.letzteMarke = marke;
+    if (this.bericht.manifest) {
+      this.bericht = {
+        ...this.bericht,
+        ohneManifestEintrag: ohneManifestEintrag(namen, this.bericht.manifest, this.brauchtManifest),
+      };
+    }
+    this.zeigen();
+  }
+
+  private zeigen(): void {
+    this.setze(abweichungsText(this.bericht));
+  }
 }

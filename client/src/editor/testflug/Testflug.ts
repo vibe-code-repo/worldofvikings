@@ -15,6 +15,7 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import {
   findPrefabByName,
   freiflaechenHuellen,
+  istEigenesModell,
   istNpcPrefab,
   loeseNpcAuf,
   PLATEAU_RAND_MAX,
@@ -31,7 +32,7 @@ import { platzierungsUpdate, vorschauZeichner } from './vorschauZeichnen';
 import { verdrahteBewuchsStufe } from './BewuchsStufe';
 import { BewuchsVorschau } from '../BewuchsVorschau';
 import { ladeHochgeladeneRegistrierung } from '../../net/UploadedModelRegistryLoad';
-import { abweichungsText, holeManifestText, ladeBewuchsQuellen } from './BewuchsQuellen';
+import { holeManifestText, ladeBewuchsQuellen, QuellenAnzeige } from './BewuchsQuellen';
 import { LageAnzeige } from './LageAnzeige';
 import { positionLines, regionAt } from './inselwahl';
 import { planReturn, sendReturnFromBrowser } from './ruecksprung';
@@ -476,12 +477,17 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Manifest-Hüllen und Upload-Registry wie der Server: kommen asynchron,
       // dann wird neu gestreut. Fehlt eine Quelle, sagt es die Meldung.
       const namen = ((testflug as { placements?: EntwurfEintrag[] }).placements ?? []).map((p) => p.prefab);
+      // Eigenes Modell ohne Store-/Upload-Hülle: Der Radius kommt aus dem Manifest (sonst renderScale).
+      // Vanilla-Prefabs zählen nicht, sie haben nie einen Eintrag.
+      const brauchtManifest = (n: string): boolean =>
+        istEigenesModell(n) && freiflaechenHuellen()(n)?.quelle === 'extern';
+      let anzeige: QuellenAnzeige | null = null;
+      const entwurfNamen = (): string[] => (persistenz.laden()?.placements ?? []).map((p) => p.prefab);
       void ladeBewuchsQuellen(namen, {
         holeManifest: holeManifestText,
         ladeRegistry: () => ladeHochgeladeneRegistrierung(),
         bekannt: (n) => findPrefabByName(n) !== undefined,
-        // Kein Store-/Upload-Hüllenmaß: Der Radius kommt aus dem Manifest (sonst renderScale).
-        brauchtManifest: (n) => freiflaechenHuellen()(n)?.quelle === 'extern',
+        brauchtManifest,
       }).then((b) => {
         if (b.manifest) bewuchs.setzeManifest(b.manifest);
         else if (b.registryNachgeladen) bewuchs.neuAufbauen();
@@ -493,12 +499,17 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           });
           ent.flush();
         }
-        const text = abweichungsText(b);
-        if (text) {
-          console.warn(`[Bewuchs] ${text}`);
-          // Bleibt stehen, solange der Zustand gilt (nicht 4 s, nicht verdrängbar).
+        // Bleibt stehen, solange der Zustand gilt (nicht 4 s, nicht verdrängbar), und geht wieder weg, wenn er behoben ist.
+        anzeige = new QuellenAnzeige(b, brauchtManifest, (text) => {
+          if (text) console.warn(`[Bewuchs] ${text}`);
           hud.stehendeMeldung('bewuchs-quellen', text);
-        }
+        });
+        anzeige.neuerBericht(b);
+        // Prefabs, die erst nach dem Start gesetzt werden: bei geänderter Marke neu prüfen.
+        const takt = window.setInterval(() => {
+          anzeige?.pruefe(entwurfNamen(), persistenz.rohtext ? persistenz.rohtext() : null);
+        }, 250);
+        scene.onDisposeObservable.add(() => window.clearInterval(takt));
       });
       // G, not V: V is the build mode (above). Both used to share V, so one
       // press flew AND threw the vegetation preview away.

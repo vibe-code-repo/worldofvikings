@@ -123,8 +123,14 @@ export function platzierungenBereinigt(roh: unknown): PlacementDef[] {
  * circles, so folding changes no clear area; only the cost differs (the
  * folding is quadratic per prefab: 20 ms at 2000 placements). For the preview
  * that re-reads the draft every 250 ms while an object is dragged.
- * Known difference: two entries that differ by under 1 cm are one entry on
- * the server and two circles here (centres up to 1 cm apart).
+ * Known difference (accepted, rare): two entries of the same prefab WITHOUT
+ * ids that lie less than 1 cm apart (but not at the same point) are one entry
+ * on the server, which keeps the one with the smaller x, and two circles
+ * here. Their circles differ by up to 1 cm; where a plant sits within that
+ * margin of a circle edge the server and the preview scatter differently, and
+ * because each placed plant shifts the scatter of the ones after it, this can
+ * re-roll the whole zone (up to about 9 plants) instead of just an edge.
+ * Identical points (distance 0) give the same circle and are harmless.
  */
 export function platzierungenFuerFreiflaechen(roh: unknown): PlacementDef[] {
   return platzierungenEinzeln(roh);

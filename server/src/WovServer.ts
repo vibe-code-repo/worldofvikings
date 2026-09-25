@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
+import { LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import {
   EVENT_CHANCE,
@@ -96,7 +96,7 @@ import { ZoneManager } from './world/ZoneManager.js';
 import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
-import { befreieSpielerbauten, layoutAbgleich } from './world/layoutAbgleich.js';
+import { befreieSpielerbauten, istSpielerbau, layoutAbgleich } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
@@ -1931,6 +1931,8 @@ export class WovServer {
     const spawnPos: Vector3 = savedPos ?? this.weltSpawn();
     peer.flying = saved?.flying ?? false;
     peer.spawnPoint = saved?.spawnPoint ? { ...saved.spawnPoint } : null;
+    peer.spawnBettId = peer.spawnPoint ? (saved?.spawnBettId ?? '') : '';
+    peer.spawnBettBesitzer = peer.spawnPoint && typeof saved?.spawnBettBesitzer === 'string' ? saved.spawnBettBesitzer : null;
 
     const characterZDO = this.zdosVon(peer).createZDO(
       playerPrefab?.hash ?? 0,
@@ -2038,6 +2040,8 @@ export class WovServer {
       position: { ...peer.position },
       flying: peer.flying,
       spawnPoint: peer.spawnPoint ?? undefined,
+      spawnBettId: peer.spawnBettId || undefined,
+      spawnBettBesitzer: peer.spawnBettBesitzer ?? undefined,
       figur: peer.figur,
       frisur: peer.frisur,
       haarfarbe: peer.haarfarbe,
@@ -3681,12 +3685,18 @@ export class WovServer {
         peer.stamina = AUSDAUER_REGEL.max;
         // EIN Teleport: aus einer Instanz geht es direkt an den Wiedereinstiegs-
         // punkt der Oberwelt, nicht erst an den Eingang und dann weiter.
+        const hatteBett = peer.spawnPoint !== null;
         const wieder = this.wiedereinstiegspunkt(peer);
+        // Ein gesetzter Punkt, der nicht mehr zu einem Bett fuehrt (abgerissen,
+        // verschoben, Altbestand), wird verworfen UND gemeldet: still am
+        // Weltspawn zu erwachen liesse den Spieler glauben, sein Schlafplatz
+        // gelte noch.
+        const bettVerloren = hatteBett && peer.spawnPoint === null;
         if (peer.dungeonId) this.leaveDungeon(peer, { ...wieder });
         else this.teleportPeer(peer, { ...wieder }, null);
         peer.sendPacketWith(PacketType.InteractResult, (w) => {
           w.writeBool(true);
-          w.writeString('Du bist gestorben');
+          w.writeString(bettVerloren ? 'Du bist gestorben — dein Schlafplatz ist nicht mehr da' : 'Du bist gestorben');
           w.writeString('');
           w.writeInt32(0);
         });
@@ -3840,6 +3850,9 @@ export class WovServer {
         return antwort(false, 'In einem Dungeon kannst du keinen Schlafplatz setzen');
       }
       peer.spawnPoint = { x: ziel.position.x, y: ziel.position.y + 0.6, z: ziel.position.z };
+      // Nur ein Layout-Bett wandert mit dem Gelaende: seine Kennung merken.
+      peer.spawnBettId = istSpielerbau(ziel) ? '' : ziel.getString(LAYOUT_ID_MEMBER);
+      peer.spawnBettBesitzer = ziel.getString('besitzer');
       return antwort(true, 'Schlafplatz gesetzt — hier wachst du künftig auf');
     }
 
@@ -4408,10 +4421,41 @@ export class WovServer {
    */
   private wiedereinstiegspunkt(peer: Peer): Vector3 {
     const punkt = peer.spawnPoint;
-    if (!punkt || isInDungeonBand(punkt.x)) return this.weltSpawn();
-    // Der Punkt liegt 0,6 m ueber dem Bett (handleInteract, BED-Zweig).
+    if (!punkt) return this.weltSpawn();
+    if (isInDungeonBand(punkt.x)) {
+      peer.spawnPoint = null;
+      peer.spawnBettId = '';
+      return this.weltSpawn();
+    }
+    const istBett = (zdo: ZDO): boolean =>
+      ((this.prefabs.getByHash(zdo.prefabHash)?.flags ?? 0n) & PrefabFlag.BED) !== 0n;
+    // Ein Layout-Bett zieht beim Start mit dem Gelaende mit (Abgleich, nur die
+    // Hoehe). Damit der Punkt mitzieht, ohne fremde Betten zu oeffnen, merkt er
+    // sich die Kennung dieses einen Bettes und sucht beim Tod genau dieses;
+    // eine x/z-Saeule wird nicht durchsucht. Ist es nicht genau eines, gilt
+    // der Punkt nicht (lieber verwerfen und melden als still tauschen).
+    if (peer.spawnBettId) {
+      const treffer = this.zdos
+        .getZDOsInRadius(punkt, 2)
+        .filter((z) => istBett(z) && !istSpielerbau(z) && z.getString(LAYOUT_ID_MEMBER) === peer.spawnBettId);
+      const bett = treffer.length === 1 ? treffer[0]! : null;
+      if (!bett) {
+        peer.spawnPoint = null;
+        peer.spawnBettId = '';
+        return this.weltSpawn();
+      }
+      const ziel = { x: bett.position.x, y: bett.position.y + 0.6, z: bett.position.z };
+      peer.spawnPoint = { ...ziel };
+      return ziel;
+    }
+    // Ein Spielerbett wandert nie: der Punkt gilt nur, wenn an genau dieser
+    // Stelle ein Bett des gemerkten Besitzers steht (wie vor dem Mitziehen,
+    // dazu der Besitzer: ein fremdes Bett daneben zaehlt nicht). Verglichen wird
+    // mit dem Besitzer, den das Bett beim Setzen trug, nicht mit der userId des
+    // Toten. Ein Punkt aus einem Stand davor (null) gilt wie bisher.
     for (const zdo of this.zdos.getZDOsInRadius(punkt, 2)) {
-      if (((this.prefabs.getByHash(zdo.prefabHash)?.flags ?? 0n) & PrefabFlag.BED) === 0n) continue;
+      if (!istBett(zdo)) continue;
+      if (peer.spawnBettBesitzer !== null && zdo.getString('besitzer') !== peer.spawnBettBesitzer) continue;
       if (
         Math.abs(zdo.position.x - punkt.x) < 0.05 &&
         Math.abs(zdo.position.z - punkt.z) < 0.05 &&
@@ -4420,6 +4464,7 @@ export class WovServer {
         return punkt;
       }
     }
+    peer.spawnPoint = null;
     return this.weltSpawn();
   }
 
@@ -5934,6 +5979,8 @@ export class WovServer {
             : { ...peer.position },
         flying: peer.flying,
         spawnPoint: peer.spawnPoint ?? undefined,
+        spawnBettId: peer.spawnBettId || undefined,
+        spawnBettBesitzer: peer.spawnBettBesitzer ?? undefined,
         figur: peer.figur,
         frisur: peer.frisur,
         haarfarbe: peer.haarfarbe,

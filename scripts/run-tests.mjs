@@ -2186,6 +2186,14 @@ const KERN = [
   // zugleich, Sterbende nicht wieder treffbar, hit-Ereignis, Wolf ohne die sofort weg,
   // Instanzwelt mit gleicher ZDO-Id trifft die Hauptwelt nicht. Ephemerer Port. ~25 s.
   ['server', 'test/b9-4-tod-paketweg.ts'],
+  // Wiedereinstieg nach Neustart mit Layout-Abgleich: das Bett wandert mit dem Gelände (der
+  // Punkt zieht mit), ein versetztes oder gelöschtes Bett wird gemeldet. Echte Clients.
+  ['server', 'test/wiedereinstieg-bett-wandert.ts'],
+  // Wiedereinstieg an einem Bett, das nicht (mehr) gilt: kein fremdes Bett über die freie Höhe,
+  // kein stiller Tausch in der x/z-Säule, Gast behält sein Spielerbett, Layout-Bett per Kennung.
+  ['server', 'test/wiedereinstieg-fremdes-bett.ts'],
+  // U1-N5: glb streng lesen (Kopf/Chunks), extensionsRequired ⊆ Used, Registry fail closed
+  ['server', 'test/modell-upload-streng.ts'],
   ['server', 'test/bewuchs-freiraum.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['client', 'test/bewuchs-freiraum-vorschau.ts'],

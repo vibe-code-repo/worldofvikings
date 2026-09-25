@@ -199,5 +199,37 @@ if (modellHochladenFn) {
   );
 }
 
+console.log('\n10. U1-N3 — der Sammel-catch gibt für /api/modell-hochladen nie eine rohe Error.message an den Browser\n');
+// Am Syntaxbaum: Im catch-Block der Anfrage-IIFE steht ein `if`, dessen
+// Bedingung den Pfad '/api/modell-hochladen' nennt und dessen Rumpf KEIN
+// `.message` eines gefangenen Fehlers liest. Die allgemeine Zeile
+// `const meldung = (fehler as Error).message` steht dahinter.
+{
+  let sammelCatch: ts.CatchClause | undefined;
+  const sucheCatch = (n: ts.Node): void => {
+    if (ts.isCatchClause(n) && n.variableDeclaration?.name.getText(SF) === 'fehler' && knotenText(n).includes('AnfrageZuGross')) {
+      sammelCatch = n;
+    }
+    ts.forEachChild(n, sucheCatch);
+  };
+  sucheCatch(SF);
+  check(sammelCatch !== undefined, 'der Sammel-catch der Anfrage-Behandlung ist gefunden');
+  if (sammelCatch) {
+    let uploadZweig: ts.IfStatement | undefined;
+    let meldungPos = -1;
+    for (const st of sammelCatch.block.statements) {
+      if (ts.isIfStatement(st) && st.expression.getText(SF).includes("'/api/modell-hochladen'")) uploadZweig = st;
+      if (ts.isVariableStatement(st) && st.getText(SF).includes('(fehler as Error).message')) meldungPos = st.getStart(SF);
+    }
+    check(uploadZweig !== undefined, "im Sammel-catch steht ein eigener Zweig für pfad === '/api/modell-hochladen'");
+    if (uploadZweig) {
+      const zweig = knotenText(uploadZweig.thenStatement);
+      check(!/\.message/.test(zweig), 'dieser Zweig liest keine .message eines Fehlers (nur feste Texte)');
+      check(/json\(\s*res\s*,/.test(zweig) && zweig.includes('interner-fehler'), "er antwortet selbst mit einer festen Kennung 'interner-fehler'");
+      check(meldungPos < 0 || uploadZweig.getStart(SF) < meldungPos, 'er steht VOR der allgemeinen Zeile, die die rohe message übernimmt');
+    }
+  }
+}
+
 console.log(failures === 0 ? '\nU1-Verdrahtung: alles grün.\n' : `\nU1-Verdrahtung: ${failures} FEHLGESCHLAGEN.\n`);
 process.exit(failures > 0 ? 1 : 0);

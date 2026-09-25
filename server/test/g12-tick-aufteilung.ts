@@ -195,7 +195,7 @@ console.log("\n[A] Aufteilung im Tageslog:");
         return z.length >= 4 && z.some((l) => l.zonenBudgetAbbrueche > 0);
       }, 30_000);
       clearInterval(wanderer);
-      check("Zeugen: mindestens vier Sekundenzeilen mit Client und ein Budget-Abbruch", genug);
+      check("Budget-Abbrueche sind angekommen (Zeuge: mindestens vier Sekundenzeilen mit Client)", genug);
 
       // Ruhe: Ohne neue Spruenge baut sich der Rueckstand der Zonen ab, danach
       // kostet ein Welt-Tick nichts ausser der eingespeisten Verzoegerung. NUR
@@ -262,6 +262,9 @@ console.log("\n[A] Aufteilung im Tageslog:");
           ruheSync <= erwartetSync + OBEN,
         `Phase ${ruheSync.toFixed(2)} ms, gewartet ${erwartetSync.toFixed(2)} ms je Tick`,
       );
+      // DIE Zusicherung „die eingespeisten Verzoegerungen landen nicht im Rest“:
+      // Fehlt ein Stempel, steht seine Verzoegerung (2 bis 3 ms je Tick) in JEDER
+      // Ruhezeile im Rest, die ruhigste liegt dann ueber 1 ms und faellt durch.
       check(
         "Ruhe: der Rest bleibt klein (ruhigste der drei Zeilen unter 0,5 ms)",
         ruhe.length === 3 && ruheRest < 0.5,
@@ -284,20 +287,10 @@ console.log("\n[A] Aufteilung im Tageslog:");
         abweichung <= 0.0151,
         `groesste Abweichung ${abweichung.toFixed(4)} ms`,
       );
-      const weltenGesamt = zeilen.reduce(
-        (s, z) => s + z.tickWeltenMsDurchschnitt * z.tickAnzahl,
-        0,
-      );
-      check(
-        "Welten-Phase wurde gemessen (Summe > 1 ms)",
-        weltenGesamt > 1,
-        `${weltenGesamt.toFixed(1)} ms`,
-      );
-      check(
-        "Sync-Phase wurde gemessen (ein Maximum > 0)",
-        zeilen.some((z) => z.tickSyncMsMax > 0),
-        `max ${Math.max(...zeilen.map((z) => z.tickSyncMsMax))} ms`,
-      );
+      // Entfernt: „Welten-Phase wurde gemessen (Summe > 1 ms)“ und „Sync-Phase
+      // wurde gemessen (ein Maximum > 0)“. Beide folgen aus den strengeren Pruefungen
+      // unten (Welten-Mittel >= 2 ms, Sync-Maximum >= 3 ms) und konnten nie allein
+      // ausloesen — sie zaehlten nur mit.
 
       // The injected delays: 3 ms in every sync (it runs every 50 ms, i.e. on
       // two of three ticks), 2 ms in every world tick while a player is in.
@@ -321,8 +314,6 @@ console.log("\n[A] Aufteilung im Tageslog:");
       // Fenster wuerde sonst die Fremdzeit mit der ganzen Phase gleichsetzen.
       const syncFremd = syncMittel - vollGewartet;
       const weltenMittel = mittel((z) => z.tickWeltenMsDurchschnitt);
-      // Wie in der Ruhe: die ruhigste Zeile, aus demselben Grund (s. dort).
-      const restMittel = Math.min(...voll.map((z) => z.tickRestMsDurchschnitt));
       check(
         "Sync-Verzoegerung von 3 ms kommt in der Sync-Phase an (Mittel je Tick mindestens 1,5 ms, hoechstens 1,5 ms Fremdzeit ueber der gewarteten)",
         vollGewartet >= 1.7 && syncMittel >= 1.5 && syncFremd <= 1.5,
@@ -342,11 +333,12 @@ console.log("\n[A] Aufteilung im Tageslog:");
         weltenMittel >= WELT_VERZOEGERUNG,
         `${weltenMittel.toFixed(2)} ms`,
       );
-      check(
-        "die Verzoegerungen landen NICHT im Rest (ruhigste Zeile unter 1 ms)",
-        restMittel < 1,
-        `${restMittel.toFixed(2)} ms`,
-      );
+      // Hier stand eine Rest-Pruefung ueber das VOLLE Fenster („ruhigste Zeile unter
+      // 1 ms“). Sie konnte nie ausloesen: Das Ruhefenster ist eine Teilmenge des
+      // vollen, also gilt min(voll) <= min(ruhe) < 0,5 ms, sobald die Rest-
+      // Pruefung der Ruhe besteht. Gemessen mit Mutanten (Bericht): in keinem
+      // fiel sie allein. Die Zusicherung „die Verzoegerungen landen nicht im
+      // Rest“ steht bei der Ruhe (s. dort).
       check(
         "keine Phase ist laenger als der laengste Tick (Rundung 0,01)",
         zeilen.every(
@@ -355,11 +347,8 @@ console.log("\n[A] Aufteilung im Tageslog:");
             z.tickSyncMsMax <= z.tickDauerMsMax + 0.011,
         ),
       );
-      check(
-        "Budget-Abbrueche sind angekommen",
-        zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0) > 0,
-        `${zeilen.reduce((s, z) => s + z.zonenBudgetAbbrueche, 0)}`,
-      );
+      // „Budget-Abbrueche sind angekommen“ steht oben beim Zeugen (`genug`): Dieselbe
+      // Bedingung ueber ein spaeteres, nur gewachsenes Log ist mit ihm erfuellt.
       /*
         Die Tickzahl je Zeile gegen die TATSAECHLICHEN Ticks, nicht gegen den
         Sollwert 30: Ein Prozess, der unter Last nur 13 bis 21 Ticks je Sekunde
@@ -467,7 +456,7 @@ console.log("\n[B] Tageslog nicht schreibbar:");
   );
   check(
     "Warnung nennt das Ziel und den Pfad",
-    warnungen[0]?.includes("jsonl") === true && warnungen[0]?.includes(".jsonl") === true,
+    warnungen[0]?.includes("Metrics jsonl could not be written") === true && warnungen[0]?.includes(".jsonl") === true,
     warnungen[0] ?? "",
   );
 }

@@ -295,7 +295,11 @@ export class GameSocket {
         this.ownUserId = reader.readString();
         reader.readString(); // serverName
         const sessionToken = reader.readString();
-        if (sessionToken) localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
+        // Die Editor-Verbindung (Speichern) bekommt vom Server jedes Mal eine
+        // frische, kontolose Identitaet. Dieses Token darf nie im
+        // localStorage landen: `betrete()` und das Spiel hielten es sonst
+        // fuer eine Anmeldung. Der Server braucht es fuer den Editor nicht.
+        if (sessionToken && !this.nurEditor) localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
         break;
       }
       default:

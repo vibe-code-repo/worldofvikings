@@ -3,7 +3,7 @@
  *
  * Reine Funktion, kein DOM und kein Netz — deshalb eine eigene Datei und
  * nicht ein Stück Klick-Handler in `DungeonKatalog.ts`. Genau dieselbe
- * Trennung hat `spielHost()` dort bekommen, und aus demselben Grund: Als
+ * Trennung hat die Adressbildung (`spielAdresse.ts`) bekommen, und aus demselben Grund: Als
  * Ausdruck im Handler war die Rechnung nicht prüfbar, und ihr Fehler fiel
  * erst auf, als jemand darauf klickte.
  *

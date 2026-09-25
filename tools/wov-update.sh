@@ -138,9 +138,19 @@ ZUSTAND_VERZEICHNIS="${WOV_ZUSTAND_VERZEICHNIS:-/var/lib/wov}"
 VERSION_DATEI="$ZUSTAND_VERZEICHNIS/VERSION"
 SICHERUNGEN_BEHALTEN=5
 
+# BEGIN abbruch-aufraeumen (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
 # Wird auf 1 gesetzt, sobald die Dienste unten gestoppt sind — die
 # Aufräumfunktion sagt dann im Fehlerfall, dass der Container liegt.
 DIENSTE_GESTOPPT=0
+# Wird auf 1 gesetzt, sobald Typecheck und Tests bestanden haben und nur noch
+# die Webseite gebaut wird (Schritt 7b). Bricht das Skript ab dort ab, startet
+# die Aufräumfunktion die Dienste wieder: Der Stand ist getestet, ein fehlender
+# Webseiten-Bau soll nicht den ganzen Container lahmlegen. Vorher bleibt es
+# bei 0: Ein Abbruch in npm ci, Store, Typecheck, Tests oder Client-Bau
+# (dort kann ein halber Stand oder ein leerer node_modules-Baum liegen, und
+# ein neuer Server mit altem Client passt nicht zusammen) lässt die Dienste
+# gestoppt. Das ist Absicht.
+NEUSTART_BEI_ABBRUCH=0
 # Wird auf 1 gesetzt, sobald die Dienste wieder laufen. Ohne diese zweite
 # Marke behauptet die Aufräumfunktion auch dann "die Dienste sind gestoppt",
 # wenn erst die Gesundheitsprüfung danach gescheitert ist.
@@ -173,7 +183,14 @@ aufraeumen() {
     rm -rf "$WURZEL/client/dist.neu" "$WURZEL/client/dist.alt"
   fi
 
-  if [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ]; then
+  if [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ] \
+    && [ "$DIENSTE_LAUFEN" != "1" ] && [ "$NEUSTART_BEI_ABBRUCH" = "1" ]; then
+    echo >&2
+    echo "ABBRUCH nach bestandenen Tests (Webseitenbau) — die Dienste werden" >&2
+    echo "wieder gestartet, damit $INSTANZ nicht ausfällt. Ausgerollt ist der" >&2
+    echo "getestete Stand; nur die Webseite ist NICHT neu gebaut." >&2
+    dienste_starten >&2 || echo "FEHLER: Die Dienste liessen sich nicht starten: systemctl start wov.target" >&2
+  elif [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ]; then
     echo >&2
     if [ "$DIENSTE_LAUFEN" = "1" ]; then
       # Gescheitert ist die Gesundheitsprüfung, nicht das Ausrollen. Die
@@ -198,6 +215,7 @@ aufraeumen() {
   fi
 }
 trap aufraeumen EXIT
+# END abbruch-aufraeumen
 
 # ── Gemeinsame Bausteine für Update, Rückweg UND Trockenlauf ─────────
 # Als Funktionen, weil "zurueck" denselben Tausch, dieselbe Sicherung und
@@ -277,6 +295,7 @@ version_feld() {
 }
 
 # ── Dienste-Reigen, geteilt zwischen Update und Rückweg ──────────────
+# BEGIN dienste-reigen (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
 dienste_stoppen() {
   echo
   echo "▶ Dienste stoppen"
@@ -304,6 +323,7 @@ dienste_starten() {
   done
   DIENSTE_LAUFEN=1
 }
+# END dienste-reigen
 
 # NICHT "sleep 4; systemctl is-active" — Restart=always lässt einen
 # Server, der nach zwei Sekunden stirbt, vier Sekunden später wieder als
@@ -861,16 +881,20 @@ fi
 # seine Abhängigkeiten deshalb nicht mitinstalliert.
 echo
 echo "▶ Webseite bauen"
+# Ab hier startet aufraeumen() die Dienste bei einem Abbruch wieder (s. oben).
+NEUSTART_BEI_ABBRUCH=1
 # Die beiden Dateien sind erzeugte Abbilder der gemeinsamen Listen bzw.
 # der Vorschauquelle. Direkt vor dem Webseitenbau erneuern, damit eine
 # Aenderung an shared/aussehen.ts nicht mit einer alten Auswahl oder ein
 # neuer Vorschauweg mit einem alten Browserbuendel ausgeliefert wird.
 node_modules/.bin/tsx tools/aussehen-json.mjs --aus wov-web/static/assets/appearance.json
 node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js
+# BEGIN buendel-pruefung (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
 # Ohne Buendel waere der Webseitenbau still gruen und die Charaktererstellung
 # lieferte im Browser einen 404: hier laut abbrechen. Die Dienste sind an dieser
-# Stelle schon gestoppt (Schritt 4); aufraeumen() meldet das mit dem Abbruch.
+# Stelle schon gestoppt (Schritt 4); aufraeumen() startet sie wieder.
 [ -s wov-web/static/assets/js/vorschau.js ] || { echo "FEHLER: wov-web/static/assets/js/vorschau.js fehlt oder ist leer (vorschau-buendeln.mjs)." >&2; exit 1; }
+# END buendel-pruefung
 (cd wov-web && npm ci --include=dev && npm run build && bash tools/ohne-js-pruefen.sh)
 
 # Nach dem Webseitenbau darf der Baum nicht schmutzig sein: der NAECHSTE Lauf
@@ -880,7 +904,7 @@ node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js
 # Fehler in einer erzeugten Datei: laut melden, aber nicht abbrechen -- die
 # Dienste starten gleich, und der Update selbst ist gelungen.
 # BEGIN webbau-warnung (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
-REST_NACH_WEBBAU="$(git status --porcelain)"
+REST_NACH_WEBBAU="$(git -c core.quotePath=false status --porcelain)"
 if [ -n "$REST_NACH_WEBBAU" ]; then
   echo >&2
   echo "WARNUNG: Der Webseitenbau hat den Arbeitsbaum verschmutzt:" >&2

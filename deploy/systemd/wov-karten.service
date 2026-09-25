@@ -35,6 +35,10 @@ SyslogIdentifier=wov-karten
 # (atomar geschrieben); nginx liefert sie unter /assets/karten/ aus
 # (deploy/nginx/wov-lab.conf) und liest sie als www-data, deshalb 0755.
 # Ausserhalb von wov-web/build, damit kein Rollout sie ueberschreibt.
+# Das Rendern (~44 s, bis ~650 MB) soll Typpruefungen und Testlaeufe nicht
+# ausbremsen; es steht ausserhalb von tools/sperre.sh.
+Nice=10
+CPUWeight=20
 StateDirectory=wov-karten
 # Sperre gegen gleichzeitige Laeufe: /run/wov-karten/sperre (tmpfs, beim Boot
 # leer, ueberlebt keinen Absturz). Ist sie gehalten, endet der Lauf mit 75.

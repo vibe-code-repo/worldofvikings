@@ -44,7 +44,9 @@
  *    und vom Browser je bis zu 300 s gecacht; nach einer Weltänderung kann
  *    die Koordinatenanzeige kurz zum alten Bild passen oder umgekehrt.
  *
- * Überschreibbar (für Proben): WOV_KARTEN_ARBEIT, WOV_KARTEN_AUSGABE.
+ * Überschreibbar (für Proben): WOV_KARTEN_ARBEIT, WOV_KARTEN_AUSGABE und
+ * WOV_KARTEN_SPERRE (Standard /run/wov-karten/sperre). ALLE DREI setzen: Fehlt
+ * die dritte, nimmt die Probe die echte Sperre des Dienstes.
  *
  * Lauf:  node tools/weltkarte-veroeffentlichen.mjs [--neu] [--nur-rendern]
  *   --neu          rendert auch, wenn sich nichts geändert hat

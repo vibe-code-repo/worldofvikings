@@ -48,7 +48,10 @@ Wichtig:
   „failed“; der Timer läuft normal weiter.
 - `RuntimeDirectoryPreserve=no` löscht beim Dienstende `/run/wov-karten`,
   also auch die Sperre eines gleichzeitigen Handlaufs außerhalb von systemd.
-  Deshalb gilt die Regel „Handläufe nur per `systemctl`“.
+  Deshalb gilt die Regel „Handläufe nur per `systemctl`“. Aus demselben Grund
+  (Dateirechte kommen aus der umask): Ein Handlauf mit strenger umask legt
+  Dateien mit 0600 bzw. den Ordner mit 0700 an, nginx liefert dann 403 oder
+  still die Repo-Karte.
 
 Sperre hängt? (Lauf außerhalb von systemd endet mit Status 75, obwohl nichts läuft)
 ```

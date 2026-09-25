@@ -2170,6 +2170,8 @@ const KERN = [
   ['shared', 'test/weltbau-stil.ts'],
   ['shared', 'test/weltbau-nachbesserung.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
+  // Upload placements keep their ZDO (id, state) across a boot with an unreadable registry.
+  ['server', 'test/upload-zdos-behalten.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

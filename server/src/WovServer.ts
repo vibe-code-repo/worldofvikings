@@ -5845,7 +5845,11 @@ export class WovServer {
           // Eine Instanz wird aus ihrem DungeonDocument neu materialisiert;
           // sie zu speichern hiesse, Geometrie auferstehen zu lassen, die
           // der Manager nicht mehr kennt.
-          (this.prefabs.getByHash(z.prefabHash)?.isPersistent() ?? false)
+          // A prefab this boot does not know (e.g. an uploaded model whose
+          // registry entry is unreadable) is kept as loaded: dropping it
+          // would lose the ZDO id and its state for good. Only a KNOWN
+          // prefab that is not persistent is discarded.
+          (this.prefabs.getByHash(z.prefabHash)?.isPersistent() ?? true)
       );
 
     const players = new Map(this.savedPlayers);

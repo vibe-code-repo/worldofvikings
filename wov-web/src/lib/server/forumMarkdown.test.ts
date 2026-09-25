@@ -21,8 +21,19 @@ describe('renderMarkdown', () => {
     expect(bild).toContain('referrerpolicy="no-referrer"');
   });
 
-  it('lehnt javascript:-Verweise ab', () => {
-    expect(renderMarkdown('[x](javascript:alert(1))')).not.toContain('href="javascript:');
+  // Gefaehrliche Schemata duerfen weder als href noch als src im Ergebnis
+  // stehen; geprueft wird das Attribut selbst, nicht ein bestimmtes Schema, damit
+  // auch eine geschwaechte Pruefung (nur `javascript:` in Kleinschreibung)
+  // auffaellt.
+  it.each([
+    ['[x](javascript:alert(1))'],
+    ['[x](JAVASCRIPT:alert(1))'],
+    ['[x](  javascript:alert(1))'],
+    ['[x](data:text/html,<script>alert(1)</script>)'],
+    ['[x](vbscript:msgbox(1))'],
+    ['![b](javascript:alert(1))'],
+  ])('setzt aus %s kein href/src', (text) => {
+    expect(renderMarkdown(text)).not.toMatch(/(?:href|src)=/i);
   });
 
   it('leerer Text ergibt leeres HTML', () => {

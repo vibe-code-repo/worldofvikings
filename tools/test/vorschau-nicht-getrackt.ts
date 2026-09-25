@@ -148,7 +148,10 @@ pruefe(buendelBlock !== null, 'wov-update.sh markiert buendel-pruefung genau ein
 // marked blocks taken out, must be exactly this list of top-level commands.
 // A flag inside `if false`, a moved or placeholder bundle check, a deleted
 // step 8 or a flag set before the tests all break the list.
-const zeilen = update.split('\n');
+// Harmless edits must not turn the test red: a trailing comment and a leading
+// `export` are stripped from every line; plain `echo` lines are dropped from the
+// spine below. Moving the flag itself stays red.
+const zeilen = update.split('\n').map((z) => z.replace(/^export\s+/, '').replace(/^(\s*[^#\s].*?)\s+#.*$/, '$1'));
 const zeile = (re: RegExp): number[] => zeilen.flatMap((z, i) => (re.test(z) ? [i] : []));
 const testZeilen = zeile(/^node scripts\/run-tests\.mjs 2>&1 \| tee /);
 const flagSetzen = zeile(/^NEUSTART_BEI_ABBRUCH=1$/);
@@ -166,6 +169,10 @@ pruefe(
   'NEUSTART_BEI_ABBRUCH wird ausserhalb der Vorbelegung genau zweimal zugewiesen: =1 vor dem Webbau, =0 nach Schritt 8',
   `${ausserhalb.map((i) => zeilen[i])}`,
 );
+// Inside the cleanup block the flag may only be pre-set to a literal 0: a value taken
+// from the environment (`${NEUSTART_BEI_ABBRUCH:-0}`) would let the caller force a restart.
+const imBlock = (aufraeumen ?? '').split('\n').map((z) => z.replace(/^export\s+/, '').replace(/^(\s*[^#\s].*?)\s+#.*$/, '$1')).filter((z) => /^\s*NEUSTART_BEI_ABBRUCH=/.test(z));
+pruefe(imBlock.length === 1 && imBlock[0] === 'NEUSTART_BEI_ABBRUCH=0', 'im Aufraeumblock wird NEUSTART_BEI_ABBRUCH nur auf das Literal 0 vorbelegt (nicht aus der Umgebung)', imBlock.join(' | '));
 if (testZeilen.length === 1 && flagSetzen.length === 1 && schritt8.length === 1 && ausserhalb.length === 2) {
   pruefe(flagSetzen[0] > testZeilen[0], 'das Flag wird erst NACH den Tests gesetzt');
   pruefe(ausserhalb[1] === schritt8[0] + 1 || zeilen.slice(schritt8[0] + 1, ausserhalb[1]).every((z) => /^\s*(#.*)?$/.test(z)), 'das Flag wird direkt nach Schritt 8 zurueckgesetzt');
@@ -176,7 +183,7 @@ if (testZeilen.length === 1 && flagSetzen.length === 1 && schritt8.length === 1 
     const b = z.match(/^# BEGIN (\S+)/);
     if (b) { drin = b[1]; spine.push(`[${b[1]}]`); continue; }
     if (drin !== null) { if (z === `# END ${drin}`) drin = null; continue; }
-    if (/^\s*(#.*)?$/.test(z)) continue;
+    if (/^\s*(#.*)?$/.test(z) || /^echo(\s|$)/.test(z)) continue;
     spine.push(z);
   }
   const erwartet = [
@@ -203,6 +210,8 @@ if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {
       startFehlt?: string; // this unit's `systemctl start` fails
       versionDatei?: boolean;
       gesundheitScheitert?: boolean;
+      env?: Record<string, string>;
+      signalBeiStart?: [string, string]; // [unit, signal]: sent to the shell when this unit is started
     }
     const szenario = (name: string, vorbereitung: string, schritt: string, opt: Optionen = {}) => {
       const logDatei = join(temp, `${name}.log`);
@@ -215,7 +224,7 @@ if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {
         'DIENSTE=(wov-server wov-client wov-admin wov-web)',
         `VERSION_DATEI=${JSON.stringify(versionDatei)}`,
         'export WOV_UPDATE_VORHER=vorher5678',
-        `systemctl() { echo "$1 \${2:-}" >> ${JSON.stringify(logDatei)}; if [ "$1" = is-enabled ]; then echo enabled; fi; ${opt.startFehlt ? `[ "$1 \${2:-}" != "start ${opt.startFehlt}.service" ]` : 'true'}; }`,
+        `systemctl() { echo "$1 \${2:-}" >> ${JSON.stringify(logDatei)}; if [ "$1" = is-enabled ]; then echo enabled; fi; ${opt.signalBeiStart ? `if [ "$1 \${2:-}" = "start ${opt.signalBeiStart[0]}.service" ]; then kill -${opt.signalBeiStart[1]} $$; fi; ` : ''}${opt.startFehlt ? `[ "$1 \${2:-}" != "start ${opt.startFehlt}.service" ]` : 'true'}; }`,
         `gesundheit_pruefen() { echo "gesundheit" >> ${JSON.stringify(logDatei)}; ${opt.gesundheitScheitert ? 'echo "GESUNDHEIT_ROT"; exit 1' : 'true'}; }`,
         `version_schreiben() { echo "version" >> ${JSON.stringify(logDatei)}; }`,
         aufraeumen,
@@ -228,7 +237,7 @@ if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {
       const r = spawnSync('bash', ['-c', skript], {
         cwd: temp,
         encoding: 'utf8',
-        env: SAUBERE_UMGEBUNG,
+        env: { ...SAUBERE_UMGEBUNG, ...(opt.env ?? {}) },
       });
       const verben = existsSync(logDatei) ? readFileSync(logDatei, 'utf8').split('\n') : [];
       const zahl = (v: string) => verben.filter((z) => z === v || z === `${v} `).length;
@@ -238,9 +247,32 @@ if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {
         stopps: verben.filter((z) => z.startsWith('stop ')).length,
         starts: verben.filter((z) => z.startsWith('start ')).length,
         startsServer: verben.filter((z) => z === 'start wov-server.service').length,
+        log: verben,
         gesundheit: zahl('gesundheit'),
         version: zahl('version'),
       };
+    };
+    // Signal inside dienste_stoppen itself: the shared harness stops first, so this one runs the reigen once, with the signalling fake.
+    const szenarioOhneStopp = (sig: string) => {
+      const logDatei = join(temp, `stopp-${sig}.log`);
+      const versionDatei = join(temp, `stopp-${sig}.VERSION`);
+      writeFileSync(versionDatei, 'WOV_VERSION_COMMIT=alt1234alt1234\nWOV_VERSION_VORHER=aelter99\n');
+      const skript = [
+        'set -euo pipefail',
+        `WURZEL=${JSON.stringify(temp)}`,
+        'INSTANZ=dev',
+        'DIENSTE=(wov-server wov-client wov-admin wov-web)',
+        `VERSION_DATEI=${JSON.stringify(versionDatei)}`,
+        'export WOV_UPDATE_VORHER=vorher5678',
+        `systemctl() { echo "$1 \${2:-}" >> ${JSON.stringify(logDatei)}; if [ "$1 \${2:-}" = "stop wov-admin.service" ]; then kill -${sig} $$; fi; true; }`,
+        aufraeumen,
+        reigen,
+        'dienste_stoppen',
+        'echo MARKER_WEITER',
+      ].join('\n');
+      const r = spawnSync('bash', ['-c', skript], { cwd: temp, encoding: 'utf8', env: SAUBERE_UMGEBUNG });
+      const verben = existsSync(logDatei) ? readFileSync(logDatei, 'utf8').split('\n') : [];
+      return { r, stderr: r.stderr ?? '', stopps: verben.filter((z) => z.startsWith('stop ')).length, starts: verben.filter((z) => z.startsWith('start ')).length };
     };
     const flag = 'NEUSTART_BEI_ABBRUCH=1';
     const ohneBuendel = 'mkdir -p wov-web/static/assets/js';
@@ -255,6 +287,15 @@ if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {
     pruefe(leer.version === 0, 'Neustart nach Abbruch schreibt VERSION NICHT', `${leer.version}`);
     pruefe(leer.stderr.includes('alt1234alt1234') && leer.stderr.includes('git checkout -B main alt1234alt1234'), 'Neustart nach Abbruch: Meldung nennt den alten Stand und den Rueckweg', leer.stderr);
     pruefe(leer.stderr.includes('NICHT fertig ausgerollt') && leer.stderr.includes('zurueck') && leer.stderr.includes('NICHT'), 'Neustart nach Abbruch: Meldung sagt, dass nicht fertig ausgerollt und zurueck hier nicht geht', leer.stderr);
+
+    // Rueckweg im Neustart-Zweig: die Dienste laufen dort, also erst stoppen, dann Baum zurueck, dann npm ci, dann starten.
+    const rueckzeile = leer.stderr.split('\n').find((z) => z.includes('git checkout -B main alt1234alt1234')) ?? '';
+    const reihe = ['systemctl stop wov-server wov-client wov-admin wov-web', 'git checkout -B main alt1234alt1234', 'npm ci --include=dev', 'systemctl start wov.target'].map((t) => rueckzeile.indexOf(t));
+    pruefe(reihe.every((i, k) => i >= 0 && (k === 0 || i > reihe[k - 1])), 'Neustart-Meldung: Rueckweg stoppt erst die Dienste, dann checkout, npm ci, start wov.target', rueckzeile);
+    pruefe(!rueckzeile.includes('restart'), 'Neustart-Meldung: Rueckweg nutzt kein restart wov.target', rueckzeile);
+    // Der Rueckweg-Text steht VOR dem ersten Start (er soll auch bei SIGKILL im Start nicht fehlen).
+    const kopfNr = leer.log.findIndex((z) => z.startsWith('start '));
+    pruefe(leer.stderr.indexOf('Rückweg von Hand') >= 0 && leer.stderr.indexOf('Rückweg von Hand') < leer.stderr.indexOf('Gesundheitsprüfung: '), 'Neustart-Meldung: Rueckweg-Text vor dem Ergebnis des Starts', `${kopfNr}`);
 
     const fehlt = szenario('fehlt', ohneBuendel, `${flag}\n${buendelBlock}`);
     pruefe(fehlt.r.status !== 0 && fehlt.stopps === 4 && fehlt.starts === fehlt.stopps, 'fehlendes Buendel: rc != 0, Starts gleich Stopps', `rc=${fehlt.r.status} stop=${fehlt.stopps} start=${fehlt.starts}`);
@@ -302,7 +343,7 @@ if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {
     pruefe(startNeu.stderr.includes('FEHLER: wov-server') && startNeu.stderr.includes('journalctl -u wov-server') && startNeu.gesundheit === 0, 'Neustart scheitert: Fehler sichtbar, keine Gesundheitspruefung', startNeu.stderr);
 
     // ── H1: Signale, jeweils vor und nach dem Setzen des Flags ──
-    const signale: Array<[string, number]> = [['INT', 130], ['TERM', 143], ['HUP', 129]];
+    const signale: Array<[string, number]> = [['INT', 130], ['TERM', 143], ['HUP', 129], ['PIPE', 141]];
     for (const [sig, code] of signale) {
       const vor = szenario(`sig-${sig}-vor`, ohneBuendel, `kill -${sig} $$\nsleep 1`);
       pruefe(vor.r.status === code && !vor.r.stdout.includes('MARKER_WEITER'), `${sig} vor dem Flag: Exit-Code ${code}`, `rc=${vor.r.status}`);
@@ -314,6 +355,48 @@ if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {
     // SSH-Abbruch: die Ausgabe ist tot, der Neustart muss trotzdem laufen (kein set -e in der Falle).
     const hupTot = szenario('hup-tot', ohneBuendel, `exec 1>/dev/full 2>/dev/full\n${flag}\nkill -HUP $$\nsleep 1`);
     pruefe(hupTot.r.status === 129 && hupTot.stopps === 4 && hupTot.starts === 4, 'HUP nach dem Flag bei nicht schreibbarer Ausgabe (/dev/full): Exit-Code 129, Neustart laeuft trotzdem', `rc=${hupTot.r.status} start=${hupTot.starts}`);
+
+    // ── F1: echte tote Pipe (SSH ohne tty): die naechste Ausgabe bekommt SIGPIPE ──
+    const pipeTot = szenario('pipe-tot', ohneBuendel, `exec 2> >(exit 0)\nsleep 0.5\n${flag}\necho x >&2\nsleep 1`);
+    pruefe(pipeTot.r.status === 141 && pipeTot.stopps === 4 && pipeTot.starts === 4, 'SIGPIPE (tote Pipe) nach dem Flag: Exit-Code 141, Neustart laeuft trotzdem', `rc=${pipeTot.r.status} stop=${pipeTot.stopps} start=${pipeTot.starts}`);
+
+    // ── F3: ein zweites Signal waehrend des Neustarts bricht ihn nicht ab ──
+    for (const sig of ['INT', 'TERM', 'HUP']) {
+      const zweites = szenario(`zweit-${sig}`, ohneBuendel, `${flag}\nexit 7`, { signalBeiStart: ['wov-admin', sig] });
+      pruefe(zweites.r.status === 7 && zweites.starts === 4 && zweites.gesundheit === 1, `zweites Signal (${sig}) im Neustart: Exit-Code 7, alle 4 Dienste gestartet, Gesundheitspruefung`, `rc=${zweites.r.status} start=${zweites.starts} gesundheit=${zweites.gesundheit}`);
+      pruefe(zweites.stderr.includes('weiteres Signal') && zweites.stderr.includes('git checkout -B main alt1234alt1234'), `zweites Signal (${sig}) im Neustart: Meldung und Rueckweg-Text vollstaendig`, zweites.stderr);
+    }
+
+    // ── F4: Signal in Schritt 8 (Tests waren gruen) ──
+    for (const [sig, code] of [['INT', 130], ['TERM', 143], ['HUP', 129]] as Array<[string, number]>) {
+      const s8 = szenario(`s8-${sig}`, ohneBuendel, `${flag}\ndienste_starten`, { signalBeiStart: ['wov-admin', sig] });
+      pruefe(s8.r.status === code && s8.starts === 3 && s8.stopps === 4, `${sig} in Schritt 8: Exit-Code ${code}, kein zweiter Startversuch (3 Starts, 4 Stopps)`, `rc=${s8.r.status} start=${s8.starts} stop=${s8.stopps}`);
+      pruefe(
+        s8.stderr.includes('Tests waren grün') && s8.stderr.includes('Laufen:   wov-server wov-client\n') && s8.stderr.includes('Gestoppt: wov-admin wov-web') && !s8.stderr.includes('durchgefallen') && !s8.stderr.includes('GESTOPPT und bleiben') && !s8.stderr.includes('werden wieder gestartet'),
+        `${sig} in Schritt 8: Meldung sagt gruene Tests, nennt laufende und gestoppte Dienste, nicht "durchgefallen"`,
+        s8.stderr,
+      );
+    }
+
+    // ── F5: Signal mitten im Stoppen ──
+    for (const [sig, code] of [['INT', 130], ['TERM', 143], ['HUP', 129]] as Array<[string, number]>) {
+      const sp = szenarioOhneStopp(sig);
+      pruefe(sp.r.status === code && sp.stopps === 3 && sp.starts === 0, `${sig} mitten im Stoppen: Exit-Code ${code}, 3 Stopps, kein Start`, `rc=${sp.r.status} stop=${sp.stopps} start=${sp.starts}`);
+      pruefe(sp.stderr.includes('GESTOPPT') && sp.stderr.includes('git checkout -B main alt1234alt1234'), `${sig} mitten im Stoppen: GESTOPPT-Meldung mit Rueckweg`, sp.stderr);
+    }
+
+    // ── F6: scheitert mv dist.alt dist, darf dist.alt nicht geloescht werden ──
+    const distVorb = (mvKaputt: boolean) =>
+      `BAU_BEGONNEN=1\nrm -rf client; mkdir -p client/dist.alt; echo x > client/dist.alt/datei\n${mvKaputt ? 'mv() { return 1; }' : ''}`;
+    const mvKaputt = szenario('mvkaputt', distVorb(true), 'false');
+    pruefe(existsSync(join(temp, 'client/dist.alt/datei')) && !existsSync(join(temp, 'client/dist')), 'mv dist.alt dist scheitert: dist.alt bleibt liegen', '');
+    pruefe(mvKaputt.stderr.includes('client/dist.alt bleibt liegen'), 'mv dist.alt dist scheitert: Fehler wird gemeldet', mvKaputt.stderr);
+    szenario('mvgut', distVorb(false), 'false');
+    pruefe(existsSync(join(temp, 'client/dist/datei')) && !existsSync(join(temp, 'client/dist.alt')), 'Halbfertiger Tausch: dist.alt wird zurueckgetauscht und weggeraeumt', '');
+
+    // ── F7: eine Vorbelegung aus der Umgebung darf keinen Neustart erzwingen ──
+    const umgebung = szenario('umgebung', ohneBuendel, 'false', { env: { NEUSTART_BEI_ABBRUCH: '1' } });
+    pruefe(umgebung.r.status !== 0 && umgebung.stopps === 4 && umgebung.starts === 0, 'NEUSTART_BEI_ABBRUCH=1 in der Umgebung erzwingt keinen Neustart nach rotem Test', `rc=${umgebung.r.status} start=${umgebung.starts}`);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

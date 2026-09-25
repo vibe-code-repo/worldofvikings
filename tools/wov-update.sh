@@ -196,6 +196,15 @@ aufraeumen() {
   # einem SSH-Abbruch (HUP) schlägt jedes echo fehl, und unter "set -e" käme
   # der Neustart nie an die Reihe.
   set +e
+  # Nach einem SSH-Abbruch ohne tty ist die Ausgabe eine tote Pipe: jedes
+  # weitere echo bekäme SIGPIPE und tötete die Falle vor dem Neustart. Ignoriert
+  # wird nur hier (nicht global, das erbten die Kinder); die Schreibfehler
+  # bleiben, und "set +e" lässt sie durch.
+  trap '' PIPE
+  # Ein weiteres Signal darf den Neustart nicht abbrechen (halb gestartet, ohne
+  # Rückweg-Text). Ein gefangener Handler, kein Ignorieren: die Kinder bekommen
+  # die Vorgabe zurück, ein hängendes "systemctl start" lässt sich abbrechen.
+  trap 'echo "(weiteres Signal: der Neustart läuft weiter)" >&2' INT TERM HUP
 
   if [ -n "$ABBRUCH_SIGNAL" ]; then
     echo >&2
@@ -206,13 +215,21 @@ aufraeumen() {
     # Halbfertiger Client-Tausch: dist fehlt, dist.alt ist der letzte gute
     # Stand. Erst zurückdrehen, dann wegräumen — in der anderen Reihenfolge
     # löschte ein Abbruch zwischen den beiden mv die ausgelieferte Seite.
+    local dist_alt_loeschen=1
     if [ ! -d "$WURZEL/client/dist" ] && [ -d "$WURZEL/client/dist.alt" ]; then
-      mv "$WURZEL/client/dist.alt" "$WURZEL/client/dist"
+      if ! mv "$WURZEL/client/dist.alt" "$WURZEL/client/dist"; then
+        # "set +e" schluckt den Fehler: dist.alt ist dann der letzte gute Stand.
+        echo "FEHLER: client/dist nicht zurückgetauscht, client/dist.alt bleibt liegen" >&2
+        dist_alt_loeschen=0
+      fi
     fi
     # Die beiden Hilfsordner stehen NICHT in .gitignore (dort steht "dist/",
     # das trifft "dist.neu" nicht). Bleiben sie liegen, meldet der nächste
     # Lauf den Baum als schmutzig und weigert sich.
-    rm -rf "$WURZEL/client/dist.neu" "$WURZEL/client/dist.alt"
+    rm -rf "$WURZEL/client/dist.neu"
+    if [ "$dist_alt_loeschen" = "1" ]; then
+      rm -rf "$WURZEL/client/dist.alt"
+    fi
   fi
 
   local alt
@@ -225,6 +242,20 @@ aufraeumen() {
     echo "ABBRUCH nach bestandenen Tests (Webseitenbau) — die Dienste werden" >&2
     echo "wieder gestartet, damit $INSTANZ nicht ausfällt. Der neue Stand ist" >&2
     echo "getestet, aber NICHT fertig ausgerollt: die Webseite ist nicht neu gebaut." >&2
+    # Bewusst KEIN version_schreiben: der Stand ist nicht fertig ausgerollt.
+    # Der Rückweg-Text kommt VOR dem Start: er geht auch bei SIGKILL nicht verloren.
+    echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
+    echo "'sudo tools/wov-update.sh zurueck' geht hier NICHT: HEAD weicht von VERSION ab," >&2
+    echo "es bricht mit \"von Hand am Baum gearbeitet\" ab. Rückweg von Hand:" >&2
+    if [ -n "$alt" ]; then
+      echo "  cd $WURZEL && systemctl stop ${DIENSTE[*]} && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
+    else
+      echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
+    fi
+    if [ "$INSTANZ" = "live" ]; then
+      echo "  Auf live zusätzlich client/dist aus der letzten Sicherung in ${SICHERUNG_VERZEICHNIS:-/var/backups/wov} zurückholen." >&2
+    fi
+    echo "  Erneut ausrollen: Ursache beheben, dann sudo tools/wov-update.sh" >&2
     if dienste_starten >&2; then
       if ( gesundheit_pruefen ) >&2; then
         echo "Gesundheitsprüfung: $INSTANZ läuft wieder." >&2
@@ -235,19 +266,21 @@ aufraeumen() {
     else
       echo "Nicht alle Dienste liessen sich starten (siehe FEHLER oben)." >&2
     fi
-    # Bewusst KEIN version_schreiben: der Stand ist nicht fertig ausgerollt.
+  elif [ "$code" -ne 0 ] && [ -n "$ABBRUCH_SIGNAL" ] && [ "$DIENSTE_GESTOPPT" = "1" ] \
+    && [ "$DIENSTE_LAUFEN" != "1" ] && [ "$NEUSTART_BEI_ABBRUCH" = "1" ] \
+    && [ "$START_VERSUCHT" = "1" ]; then
+    # Signal mitten in Schritt 8: die Tests waren grün, gescheitert ist nichts.
+    local laufend="${GESTARTET[*]:-}" gestoppt="" d
+    for d in "${DIENSTE[@]}"; do
+      case " $laufend " in *" $d "*) ;; *) gestoppt="$gestoppt $d" ;; esac
+    done
+    echo >&2
+    echo "Die Tests waren grün; das Starten der Dienste wurde abgebrochen." >&2
+    echo "  Laufen:   ${laufend:-(keiner)}" >&2
+    echo "  Gestoppt:${gestoppt:- (keiner)}" >&2
+    echo "(Der Start, den das Signal unterbrach, kann noch durchgekommen sein: systemctl status.)" >&2
+    echo "Zum Starten der übrigen:  systemctl start wov.target" >&2
     echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
-    echo "'sudo tools/wov-update.sh zurueck' geht hier NICHT: HEAD weicht von VERSION ab," >&2
-    echo "es bricht mit \"von Hand am Baum gearbeitet\" ab. Rückweg von Hand:" >&2
-    if [ -n "$alt" ]; then
-      echo "  cd $WURZEL && git checkout -B main $alt && npm ci --include=dev && systemctl restart wov.target" >&2
-    else
-      echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
-    fi
-    if [ "$INSTANZ" = "live" ]; then
-      echo "  Auf live zusätzlich client/dist aus der letzten Sicherung in ${SICHERUNG_VERZEICHNIS:-/var/backups/wov} zurückholen." >&2
-    fi
-    echo "  Erneut ausrollen: Ursache beheben, dann sudo tools/wov-update.sh" >&2
   elif [ "$code" -ne 0 ] && [ "$START_FEHLER" = "1" ]; then
     echo >&2
     echo "Mindestens ein Dienst liess sich nicht starten (siehe FEHLER oben, dort steht" >&2
@@ -279,6 +312,7 @@ aufraeumen() {
       if [ -n "$alt" ]; then
         echo "  Zurück auf den alten Stand, von Hand:" >&2
         echo "    cd $WURZEL" >&2
+        echo "    systemctl stop ${DIENSTE[*]}" >&2
         echo "    git checkout -B main $alt" >&2
         echo "    npm ci --include=dev" >&2
         echo "    systemctl start wov.target" >&2
@@ -295,6 +329,8 @@ trap aufraeumen EXIT
 trap 'ABBRUCH_SIGNAL=INT; exit 130' INT
 trap 'ABBRUCH_SIGNAL=TERM; exit 143' TERM
 trap 'ABBRUCH_SIGNAL=HUP; exit 129' HUP
+# SSH ohne tty: bricht die Verbindung, schickt sshd kein HUP, die Pipe ist tot.
+trap 'ABBRUCH_SIGNAL=PIPE; exit 141' PIPE
 # END abbruch-aufraeumen
 
 # ── Gemeinsame Bausteine für Update, Rückweg UND Trockenlauf ─────────
@@ -379,13 +415,15 @@ version_feld() {
 dienste_stoppen() {
   echo
   echo "▶ Dienste stoppen"
+  # Vor der Schleife: ein Signal mitten im Stoppen lässt Dienste halb gestoppt
+  # zurück und muss zur GESTOPPT-Meldung führen.
+  DIENSTE_GESTOPPT=1
   for dienst in "${DIENSTE[@]}"; do
     if systemctl cat "$dienst.service" >/dev/null 2>&1; then
       systemctl stop "$dienst.service"
       echo "  gestoppt: $dienst"
     fi
   done
-  DIENSTE_GESTOPPT=1
 }
 
 dienste_starten() {

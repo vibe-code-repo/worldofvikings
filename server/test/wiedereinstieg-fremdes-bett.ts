@@ -133,7 +133,7 @@ const VERLUST = /Schlafplatz/;
 async function main(): Promise<void> {
   let server: Any = starte();
   const HASH = server.prefabs.getByName(BETT)!.hash as number;
-  const namen = ['Anna', 'Bjoern', 'Christa', 'Dora', 'Emil', 'Fritz', 'Greta', 'Hanna'];
+  const namen = ['Anna', 'Bjoern', 'Christa', 'Dora', 'Emil', 'Fritz', 'Greta', 'Hanna', 'Ida', 'Jan'];
   const kn: Record<string, Klient> = {};
   let port = portVon(server);
   for (const n of namen) kn[n] = await verbinde(port, n);
@@ -197,22 +197,37 @@ async function main(): Promise<void> {
   }
 
   // ── F4: fremdes Bett auf gleicher Hoehe, 4 cm daneben ──
-  // Greta trennt sich vor dem Neustart (Speichern beim Trennen), Hanna bleibt verbunden
-  // (Speichern beim Stopp): beide Wege muessen den Besitzer des Bettes tragen.
+  // Greta und Ida trennen sich vor dem Neustart (Speichern beim Trennen), Hanna und Jan bleiben
+  // verbunden (Speichern beim Stopp): beide Wege muessen den Besitzer des Bettes tragen, auch
+  // den leeren eines Weltbettes (Ida, Jan): '' ist nicht null.
   const f4: Record<string, { soll: Vector3; besitzer: string | null }> = {};
-  for (const [n, bx] of [['Greta', 150], ['Hanna', 200]] as const) {
-    console.log(`\n[F4] ${n}s Bett 4 cm neben Bjoerns Bett, gleiche Hoehe (Tod nach dem Neustart)`);
+  for (const [n, bx, welt] of [['Greta', 150, false], ['Hanna', 200, false], ['Ida', 270, true], ['Jan', 280, true]] as const) {
+    console.log(`\n[F4] ${n}s ${welt ? 'Weltbett (ohne Besitzer)' : 'Bett'} 4 cm neben Bjoerns Bett, gleiche Hoehe (Tod nach dem Neustart)`);
     const zB4 = await baueUndSetze('Bjoern', { x: bx, y: server.getGroundHeight(bx, 60) as number, z: 60 });
     await stelle(n, bx + 2, 61);
     holz(n);
     const bettG = { x: zB4.position.x + 0.04, y: zB4.position.y, z: zB4.position.z };
-    await aktion(n, () => place(kn[n]!.ws, HASH, bettG));
+    if (welt) {
+      // Ein Weltbett ohne Besitzer und ohne Kennung (`besitzer` = '' wird gemerkt, nicht `null`).
+      const zW = server.zdos.createZDO(HASH, bettG, { x: 0, y: 0, z: 0, w: 1 });
+      zW.revision.reviseData();
+      zW.dirty = true;
+    } else {
+      await aktion(n, () => place(kn[n]!.ws, HASH, bettG));
+    }
     const zG = server.zdos.getAllZDOs().find((z: Any) => z.prefabHash === HASH && z.zdoid !== zB4.zdoid && Math.abs(z.position.x - bettG.x) < 0.01 && Math.abs(z.position.y - bettG.y) < 0.01);
     await aktion(n, () => interact(kn[n]!.ws, zG.position, HASH));
     check(`F4: ${n}s Punkt liegt an ihrem Bett`, gleich(peer(n).spawnPoint, { ...zG.position, y: zG.position.y + 0.6 }), pos(peer(n).spawnPoint));
     const besitzer = peer(n).spawnBettBesitzer as string | null;
-    check(`F4: der Besitzer ihres Bettes ist gemerkt (nicht der von Bjoern)`, !!besitzer && besitzer !== (zB4.getString('besitzer') as string), `${besitzer} / ${zB4.getString('besitzer')}`);
-    await aktion(n, () => remove(kn[n]!.ws, zG.position));
+    if (welt) {
+      check(`F4: ${n}: der Besitzer des Weltbettes ist '' (gemerkt, nicht null)`, besitzer === '', JSON.stringify(besitzer));
+      check(`F4: ${n}: das Weltbett hat keine Kennung`, peer(n).spawnBettId === '', peer(n).spawnBettId);
+      server.zdos.destroyZDO(zG.zdoid);
+      check(`F4: ${n}: das Weltbett ist weg`, !bettBei(zG.position));
+    } else {
+      check(`F4: der Besitzer ihres Bettes ist gemerkt (nicht der von Bjoern)`, !!besitzer && besitzer !== (zB4.getString('besitzer') as string), `${besitzer} / ${zB4.getString('besitzer')}`);
+      await aktion(n, () => remove(kn[n]!.ws, zG.position));
+    }
     f4[n] = { soll: { x: zB4.position.x, y: zB4.position.y + 0.6, z: zB4.position.z }, besitzer };
   }
 
@@ -325,7 +340,7 @@ async function main(): Promise<void> {
   check('D: Dora (abgerissen) erfaehrt es', VERLUST.test(d1.meldung) && gleich(d1.ziel, weltSpawn), `${pos(d1.ziel)} "${d1.meldung}"`);
 
   // ── Neustart ──
-  for (const n of namen) if (n !== 'Hanna') kn[n]!.ws.close();
+  for (const n of namen) if (n !== 'Hanna' && n !== 'Jan') kn[n]!.ws.close();
   await warte(500);
   server.stop();
   await warte(600);
@@ -337,7 +352,7 @@ async function main(): Promise<void> {
   check('F3: Annas verworfener Punkt kommt nicht aus dem Spielstand zurueck', peer('Anna').spawnPoint === null, pos(peer('Anna').spawnPoint));
   const a2 = await tot('Anna');
   check('F3: Anna stirbt erneut: Weltspawn, nicht an Bjoerns Bett, ohne Wiederholung der Meldung', gleich(a2.ziel, weltSpawn) && !gleich(a2.ziel, sollF1) && !VERLUST.test(a2.meldung), `${pos(a2.ziel)} "${a2.meldung}"`);
-  for (const n of ['Greta', 'Hanna']) {
+  for (const n of ['Greta', 'Hanna', 'Ida', 'Jan']) {
     check(`F4: ${n}s Punkt und Besitzer kommen aus dem Spielstand`, !!peer(n).spawnPoint && peer(n).spawnBettBesitzer === f4[n]!.besitzer, `${pos(peer(n).spawnPoint)} / ${peer(n).spawnBettBesitzer}`);
     const g2 = await tot(n);
     console.log(`      ${n} stirbt: ${pos(g2.ziel)}, Meldung "${g2.meldung}", Bjoerns Bett ${pos(f4[n]!.soll)}`);

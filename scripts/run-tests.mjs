@@ -2170,6 +2170,8 @@ const KERN = [
   ['shared', 'test/weltbau-stil.ts'],
   ['shared', 'test/weltbau-nachbesserung.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
+  // Stop path: a failing final save must still end the process (exit code, port closed).
+  ['server/test', 'stopp-speichern.ts'],
   // U1-N5: glb streng lesen (Kopf/Chunks), extensionsRequired ⊆ Used, Registry fail closed
   ['server', 'test/modell-upload-streng.ts'],
 ];

@@ -181,6 +181,14 @@ const hat = (s: WorldSaveData, hash: number) => s.zdos.some((z) => z.prefab === 
 check('1: Upload-ZDO gespeichert', hat(s1, PREFAB_HASH));
 check('1: bekanntes nicht persistentes ZDO verworfen (Gegenprobe)', !hat(s1, FLUECHTIG_HASH));
 check('1: ZDO unbekannten Prefabs gespeichert wie geladen', hat(s1, UNBEKANNT));
+// Hash 0 = no prefab at all (leftover of an editor session): never kept.
+const null0 = b1.server.zdos.createZDO(0, { x: 7, y: 0, z: 7 });
+null0.setString(ZUSTAND, 'hash0');
+b1.server.saveWorld();
+check('1: ZDO mit Hash 0 nicht gespeichert', !hat(b1.gespeichert(), 0));
+check('1: unbekannter Hash != 0 weiter gespeichert (Gegenprobe)', hat(b1.gespeichert(), UNBEKANNT));
+check('1: Zahl gespeicherter ZDOs unveraendert durch Hash 0', b1.gespeichert().zdos.length === s1.zdos.length);
+b1.server.zdos.destroyZDO(null0.zdoid);
 const anzahl1 = s1.zdos.length;
 void fluecht;
 

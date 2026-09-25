@@ -36,7 +36,7 @@ import { dungeon2 } from '@wov/shared';
 import { F, auswahl, el, feld, knopf, stil } from '../design';
 import { Dungeon2LadeFehler, holeDungeon2, holeDungeon2Liste, type Dungeon2Kopf } from './Dungeon2Dokument';
 import { speichereDungeon2 } from './Dungeon2Speichern';
-import { gameUrl } from '../spielAdresse';
+import { dungeonMeldung, dungeonZiel } from '../spielAdresse';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Andockstellen fuer Zeichenflaeche und Werkzeuge (AP15.7)
@@ -150,21 +150,6 @@ export const DUNGEON2_ID_MUSTER = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export function istGueltigeDungeon2Id(id: string): boolean {
   return DUNGEON2_ID_MUSTER.test(id);
-}
-
-/**
- * Auf welchem Host laeuft das SPIEL, wenn der Editor auf diesem hier laeuft?
- * Eigene Kopie von `spielHost()` (LEGACY `DungeonKatalog.ts`), nicht
- * importiert: Jene Datei ist als LEGACY zum Loeschen vorgemerkt, und ein
- * Import wuerde diese Seite an ihrem Lebensende mitreissen. Verhalten und
- * Begruendung (gemessen 28.08.2026: `editor.` wird ERSETZT, nicht
- * gestrichen) sind identisch.
- * Own copy of `spielHost()` from the LEGACY file — not imported, since that
- * file is marked for deletion and importing from it would drag this page
- * down with it. Behaviour and reasoning are identical.
- */
-export function spielHost2(host: string): string {
-  return host.startsWith('editor.') ? `play.${host.slice('editor.'.length)}` : host;
 }
 
 /** Ergebnis des Pruef-Trockenlaufs (keine Server-Rundreise, kein Speichern). */
@@ -529,8 +514,7 @@ export class Dungeon2Seite {
     this.baueDokument();
     this.shell.meldung(`${doc.id} wird gespeichert …`);
 
-    const host = spielHost2(location.host);
-    const ergebnis = await speichereDungeon2(host, doc, { aufMeldung: (m) => this.shell.meldung(m) });
+    const ergebnis = await speichereDungeon2(location.host, doc, { aufMeldung: (m) => this.shell.meldung(m) });
     this.zustand = nachSpeichern(this.zustand, ergebnis.ok);
     if (ergebnis.ok && ergebnis.dokument) {
       this.aktuellesDokument = ergebnis.dokument;
@@ -555,12 +539,14 @@ export class Dungeon2Seite {
   }
 
   /**
-   * Den Dungeon im ONLINEN Spielclient oeffnen — Host-Uebersetzung und
-   * Sitzungstoken-Fallback 1:1 aus der LEGACY-`betrete()` uebernommen (dort
-   * ausfuehrlich begruendet: Testflug hat keinen Server, Anmeldung traegt
-   * kein Ziel zurueck).
-   * Open the dungeon in the ONLINE game client — host translation and
-   * session-token fallback taken 1:1 from the LEGACY `betrete()`.
+   * Den Dungeon im ONLINEN Spielclient oeffnen — auf dem Ursprung des
+   * Editors (auf einem Editor-Host der Spiel-Host aus der Tabelle, sonst nur der
+   * Pfad), Sitzungstoken-Fallback nur beim gleichen Ursprung wie in der
+   * LEGACY-`betrete()` (dort ausfuehrlich begruendet).
+   * Open the dungeon in the ONLINE game client — on the game host
+   * (editor host → game host from the table, otherwise the own origin); the
+   * sign-in pre-check only applies to the same origin, as in the LEGACY
+   * `betrete()`.
    */
   private betrete(): void {
     const doc = this.aktuellesDokument;
@@ -569,10 +555,19 @@ export class Dungeon2Seite {
       this.shell.meldung('Erst speichern — betreten zeigt den gespeicherten Stand.', true);
       return;
     }
-    const host = spielHost2(location.host);
-    const ziel = `${location.protocol}//${host}${gameUrl(`dungeon=${encodeURIComponent(doc.id)}`)}`;
+    let ziel;
+    try {
+      ziel = dungeonZiel(doc.id, location);
+    } catch (fehler) {
+      this.shell.meldung(fehler instanceof Error ? fehler.message : String(fehler), true);
+      return;
+    }
 
-    if (host === location.host) {
+    // Vorab-Pruefung nur beim gleichen Ursprung (localStorage gilt je
+    // Ursprung); beim Wechsel auf den Spiel-Host fragt das Spiel selbst.
+    // Ohne Token wird trotzdem MIT `?dungeon=` geoeffnet: main.ts legt den
+    // Wunsch vor der Anmeldung ab und loest ihn danach ein.
+    if (ziel.gleicherUrsprung) {
       let token = '';
       try {
         token = localStorage.getItem('wov-session-token') ?? '';
@@ -581,16 +576,16 @@ export class Dungeon2Seite {
       }
       if (!token) {
         this.shell.meldung(
-          `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
-            'Erst anmelden, dann noch einmal auf "Betreten".',
+          `Nicht im Spiel angemeldet — ${doc.id} öffnet sich nach der Anmeldung, ` +
+            'wenn du dich innerhalb von 10 Minuten anmeldest.',
           true
         );
-        window.open(`${location.protocol}//${host}${gameUrl()}`, '_blank');
+        window.open(ziel.url, '_blank');
         return;
       }
     }
 
-    this.shell.meldung(`${doc.id} wird im Spiel geoeffnet …`);
-    window.open(ziel, '_blank');
+    this.shell.meldung(dungeonMeldung(doc.id, ziel));
+    window.open(ziel.url, '_blank');
   }
 }

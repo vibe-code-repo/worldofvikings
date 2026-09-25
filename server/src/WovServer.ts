@@ -1337,15 +1337,25 @@ export class WovServer {
     return this.hauptwelt.bodenHoehe(x, z);
   }
 
-  start(): void {
+  /**
+   * Everything except the network runs synchronously, as before. The promise
+   * settles with the network bind: it resolves with the bound port, and
+   * rejects (EADDRINUSE, EACCES, ...) when the port cannot be had, so the
+   * caller sees the failure instead of a server that never listens.
+   */
+  start(): Promise<number> {
     this.init();
+
+    // A second start() without stop() must not stack timers.
+    if (this.updateTimer) clearInterval(this.updateTimer);
+    if (this.saveTimer) clearInterval(this.saveTimer);
 
     this.running = true;
     this.startTime = Date.now();
     this.prevUpdateTime = this.startTime;
 
     // Start network
-    this.net.start();
+    const gebunden = this.net.start();
 
     // Main update loop (~60fps server tick)
     const TICK_MS = 1000 / 30; // 30 ticks per second
@@ -1366,23 +1376,69 @@ export class WovServer {
       void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
 
-    console.log(`[WoV] Server started: "${this.config.name}" on port ${this.config.port}`);
-    console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
+    return gebunden.then(
+      (port) => {
+        console.log(`[WoV] Server started: "${this.config.name}" on port ${port}`);
+        console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
+        return port;
+      },
+      (err: unknown) => {
+        // The bind failed: no orphaned tick, no double timers on a retry.
+        // No save here: a server without a port must not write the world.
+        this.running = false;
+        if (this.updateTimer) clearInterval(this.updateTimer);
+        if (this.saveTimer) clearInterval(this.saveTimer);
+        this.updateTimer = null;
+        this.saveTimer = null;
+        throw err;
+      },
+    );
   }
 
-  stop(): void {
+  /**
+   * Stoppt den Server und schreibt den Endstand. Liefert `true`, wenn der
+   * Endstand auf der Platte liegt, `false`, wenn das Speichern gescheitert
+   * ist. Wirft nie: Ein Stopp, der an seinem eigenen Speichern haengen
+   * bleibt, laesst den Prozess leben und den Port offen (Befund K4.0,
+   * 20.09.2026) -- dann killt systemd nach TimeoutStopSec ohne Speichern.
+   */
+  stop(): boolean {
     this.running = false;
 
     if (this.updateTimer) clearInterval(this.updateTimer);
     if (this.saveTimer) clearInterval(this.saveTimer);
 
+    // Netz zuerst zu, aber nur die ANNAHME: Die verbundenen Peers muessen
+    // fuer den Save noch in der Liste stehen (momentaufnahme() liest ihre
+    // Positionen, Inventare, Rüstung). Sie fliegen erst danach raus.
+    this.net.schliesseAnnahme();
+
     // Beim Herunterfahren bewusst SYNCHRON: `stop()` läuft im Signal-Handler,
     // und ein Prozess, der gleich beendet wird, arbeitet keine Promises mehr
     // ab — ein asynchroner Save käme nie bis zum `rename`.
-    this.saveWorld();
-    this.net.stop();
+    let gespeichert = true;
+    try {
+      this.saveWorld();
+    } catch (err) {
+      gespeichert = false;
+      // Feste Kennung, damit ein Betriebsdienst oder das Ausrollskript die
+      // Zeile im Journal findet (tools/wov-update.sh sucht danach).
+      console.error(
+        `[WoV] SAVE_FAILED_ON_STOP: Endstand NICHT gespeichert, Stand der letzten Sicherung bleibt: ${
+          err instanceof Error ? (err.stack ?? err.message) : String(err)
+        }`
+      );
+      strukturLog('world_save_failed_on_stop', { fehler: String(err) });
+    }
 
-    console.log('[WoV] Server stopped');
+    try {
+      this.net.stop();
+    } catch (err) {
+      console.error(`[WoV] net.stop fehlgeschlagen: ${err}`);
+    }
+
+    console.log(`[WoV] Server stopped${gespeichert ? '' : ' (OHNE Endstand)'}`);
+    return gespeichert;
   }
 
   // ── Main update loop (update()) ────────────────────────────────
@@ -5832,6 +5888,7 @@ export class WovServer {
     zdos: ZDO[];
   } {
     const playerHash = this.prefabs.getByName('Player')?.hash;
+    let unbekannt = 0;
     const persistentZDOs = this.zdos
       .getAllZDOs()
       .filter(
@@ -5846,11 +5903,20 @@ export class WovServer {
           // sie zu speichern hiesse, Geometrie auferstehen zu lassen, die
           // der Manager nicht mehr kennt.
           // A prefab this boot does not know (e.g. an uploaded model whose
-          // registry entry is unreadable) is kept as loaded: dropping it
-          // would lose the ZDO id and its state for good. Only a KNOWN
-          // prefab that is not persistent is discarded.
-          (this.prefabs.getByHash(z.prefabHash)?.isPersistent() ?? true)
+          // registry entry is unreadable) is kept: dropping it would lose
+          // the ZDO id and its state for good. Hash 0 is never a prefab
+          // (runtime leftovers without a source ZDO), so it is never kept.
+          // Only a KNOWN prefab that is not persistent is discarded.
+          ((def) => {
+            if (def) return def.isPersistent();
+            if (!z.prefabHash) return false;
+            unbekannt++;
+            return true;
+          })(this.prefabs.getByHash(z.prefabHash))
       );
+    if (unbekannt > 0) {
+      console.log(`[WoV] Save: kept ${unbekannt} ZDOs of unknown prefabs`);
+    }
 
     const players = new Map(this.savedPlayers);
     for (const peer of this.net.getPeers()) {

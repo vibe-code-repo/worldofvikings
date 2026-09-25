@@ -16,7 +16,7 @@
  *      einmal; der Punkt ist verworfen.
  *  [4] Bett 4 (400,100): der Designer setzt es 5 m weiter (neue Kennung) → wie [3].
  *
- * Alle drei Betten sind Weltbetten (ohne Besitzer). Der Testport ist ephemer.
+ * Alle vier Betten sind Weltbetten (ohne Besitzer). Der Testport ist ephemer.
  *
  * Run: npx tsx server/test/wiedereinstieg-bett-wandert.ts   (from the repo root)
  */

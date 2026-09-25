@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
+import { LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import {
   EVENT_CHANCE,
@@ -53,7 +53,6 @@ import {
   HAARFARBE_VORGABE,
   AUGENFARBE_VORGABE,
 } from '@wov/shared';
-import { LAYOUT_ID_MEMBER } from '@wov/shared';
 import type { Biome, Vector3, ZoneID } from '@wov/shared';
 import {
   BAU_PREFABS,
@@ -1932,6 +1931,7 @@ export class WovServer {
     peer.flying = saved?.flying ?? false;
     peer.spawnPoint = saved?.spawnPoint ? { ...saved.spawnPoint } : null;
     peer.spawnBettId = peer.spawnPoint ? (saved?.spawnBettId ?? '') : '';
+    peer.spawnBettBesitzer = peer.spawnPoint && typeof saved?.spawnBettBesitzer === 'string' ? saved.spawnBettBesitzer : null;
 
     const characterZDO = this.zdosVon(peer).createZDO(
       playerPrefab?.hash ?? 0,
@@ -2040,6 +2040,7 @@ export class WovServer {
       flying: peer.flying,
       spawnPoint: peer.spawnPoint ?? undefined,
       spawnBettId: peer.spawnBettId || undefined,
+      spawnBettBesitzer: peer.spawnBettBesitzer ?? undefined,
       figur: peer.figur,
       frisur: peer.frisur,
       haarfarbe: peer.haarfarbe,
@@ -3850,6 +3851,7 @@ export class WovServer {
       peer.spawnPoint = { x: ziel.position.x, y: ziel.position.y + 0.6, z: ziel.position.z };
       // Nur ein Layout-Bett wandert mit dem Gelaende: seine Kennung merken.
       peer.spawnBettId = istSpielerbau(ziel) ? '' : ziel.getString(LAYOUT_ID_MEMBER);
+      peer.spawnBettBesitzer = ziel.getString('besitzer');
       return antwort(true, 'Schlafplatz gesetzt — hier wachst du künftig auf');
     }
 
@@ -4446,9 +4448,13 @@ export class WovServer {
       return ziel;
     }
     // Ein Spielerbett wandert nie: der Punkt gilt nur, wenn an genau dieser
-    // Stelle ein Bett steht (wie vor dem Mitziehen). Sonst verwerfen und melden.
+    // Stelle ein Bett des gemerkten Besitzers steht (wie vor dem Mitziehen,
+    // dazu der Besitzer: ein fremdes Bett daneben zaehlt nicht). Verglichen wird
+    // mit dem Besitzer, den das Bett beim Setzen trug, nicht mit der userId des
+    // Toten. Ein Punkt aus einem Stand davor (null) gilt wie bisher.
     for (const zdo of this.zdos.getZDOsInRadius(punkt, 2)) {
       if (!istBett(zdo)) continue;
+      if (peer.spawnBettBesitzer !== null && zdo.getString('besitzer') !== peer.spawnBettBesitzer) continue;
       if (
         Math.abs(zdo.position.x - punkt.x) < 0.05 &&
         Math.abs(zdo.position.z - punkt.z) < 0.05 &&
@@ -5973,6 +5979,7 @@ export class WovServer {
         flying: peer.flying,
         spawnPoint: peer.spawnPoint ?? undefined,
         spawnBettId: peer.spawnBettId || undefined,
+        spawnBettBesitzer: peer.spawnBettBesitzer ?? undefined,
         figur: peer.figur,
         frisur: peer.frisur,
         haarfarbe: peer.haarfarbe,

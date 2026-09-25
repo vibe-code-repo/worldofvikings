@@ -6,13 +6,18 @@
  *       setzt dort ihren Schlafplatz, reisst es ab und stirbt: Weltspawn und
  *       Meldung, nie an Bjoerns Bett. [F2] dasselbe 30 m unter dem Boden.
  *  [F3] Nach dem Neustart bleibt Annas Punkt verworfen (kein Bett, keine Meldung).
+ *  [F4] Greta und Hanna bauen ihr Bett 4 cm neben Bjoerns Bett, auf gleicher Hoehe, setzt dort,
+ *       reisst es ab; nach dem Neustart stirbt sie: Weltspawn und Meldung, nicht
+ *       an Bjoerns Bett (der Besitzer des Bettes zaehlt, gespeichert ueber den Neustart).
  *  [M]  Ein abgerissenes eigenes Bett wird nicht still gegen ein anderes Bett
  *       derselben x/z-Saeule getauscht (zwei Weltbetten ohne Kennung darueber
  *       und darunter): Weltspawn und Meldung.
  *  [G]  Ein Gast (jede Verbindung eine neue userId) behaelt sein eigenes
  *       Spielerbett ueber den Neustart: er erwacht dort.
- *  [L]  Ein Layout-Bett (Kennung) zieht in der Hoehe mit; gibt es die Kennung
- *       zweimal in der Saeule, gilt der Punkt nicht (verwerfen und melden).
+ *  [L]  Ein Layout-Bett (Kennung) zieht in der Hoehe und um 1,9 m seitlich mit; gibt
+ *       es die Kennung zweimal in der Saeule, gilt der Punkt nicht (verwerfen und
+ *       melden). Ein Spielerbau mit derselben Kennung zaehlt nicht. Wer nach einem
+ *       Layout-Bett sein eigenes Bett setzt, erwacht dort (keine alte Kennung).
  *  [B]  Ein Punkt im Koordinatenband wird verworfen UND gemeldet.
  *
  * Run: npx tsx server/test/wiedereinstieg-fremdes-bett.ts   (from the repo root)
@@ -128,7 +133,7 @@ const VERLUST = /Schlafplatz/;
 async function main(): Promise<void> {
   let server: Any = starte();
   const HASH = server.prefabs.getByName(BETT)!.hash as number;
-  const namen = ['Anna', 'Bjoern', 'Christa', 'Dora', 'Emil', 'Fritz'];
+  const namen = ['Anna', 'Bjoern', 'Christa', 'Dora', 'Emil', 'Fritz', 'Greta', 'Hanna'];
   const kn: Record<string, Klient> = {};
   let port = portVon(server);
   for (const n of namen) kn[n] = await verbinde(port, n);
@@ -191,6 +196,26 @@ async function main(): Promise<void> {
     check(`${tag}: die Meldung sagt, dass der Schlafplatz weg ist`, VERLUST.test(t.meldung), t.meldung);
   }
 
+  // ── F4: fremdes Bett auf gleicher Hoehe, 4 cm daneben ──
+  // Greta trennt sich vor dem Neustart (Speichern beim Trennen), Hanna bleibt verbunden
+  // (Speichern beim Stopp): beide Wege muessen den Besitzer des Bettes tragen.
+  const f4: Record<string, { soll: Vector3; besitzer: string | null }> = {};
+  for (const [n, bx] of [['Greta', 150], ['Hanna', 200]] as const) {
+    console.log(`\n[F4] ${n}s Bett 4 cm neben Bjoerns Bett, gleiche Hoehe (Tod nach dem Neustart)`);
+    const zB4 = await baueUndSetze('Bjoern', { x: bx, y: server.getGroundHeight(bx, 60) as number, z: 60 });
+    await stelle(n, bx + 2, 61);
+    holz(n);
+    const bettG = { x: zB4.position.x + 0.04, y: zB4.position.y, z: zB4.position.z };
+    await aktion(n, () => place(kn[n]!.ws, HASH, bettG));
+    const zG = server.zdos.getAllZDOs().find((z: Any) => z.prefabHash === HASH && z.zdoid !== zB4.zdoid && Math.abs(z.position.x - bettG.x) < 0.01 && Math.abs(z.position.y - bettG.y) < 0.01);
+    await aktion(n, () => interact(kn[n]!.ws, zG.position, HASH));
+    check(`F4: ${n}s Punkt liegt an ihrem Bett`, gleich(peer(n).spawnPoint, { ...zG.position, y: zG.position.y + 0.6 }), pos(peer(n).spawnPoint));
+    const besitzer = peer(n).spawnBettBesitzer as string | null;
+    check(`F4: der Besitzer ihres Bettes ist gemerkt (nicht der von Bjoern)`, !!besitzer && besitzer !== (zB4.getString('besitzer') as string), `${besitzer} / ${zB4.getString('besitzer')}`);
+    await aktion(n, () => remove(kn[n]!.ws, zG.position));
+    f4[n] = { soll: { x: zB4.position.x, y: zB4.position.y + 0.6, z: zB4.position.z }, besitzer };
+  }
+
   // ── M: zwei fremde Weltbetten in der Saeule ──
   console.log('\n[M] abgerissenes eigenes Bett, darueber und darunter je ein Weltbett');
   {
@@ -234,6 +259,12 @@ async function main(): Promise<void> {
   console.log(`      Fritz stirbt: ${pos(tF.ziel)}, Soll (Bett ${pos(zF.position)} + 0,6) ${pos(sollF)}, Meldung "${tF.meldung}"`);
   check('L: Fritz erwacht am angehobenen Layout-Bett', gleich(tF.ziel, sollF), pos(tF.ziel));
   check('L: ohne Verlustmeldung', !VERLUST.test(tF.meldung), tF.meldung);
+  // Seitlich um 1,9 m (fast der ganze Suchradius): der Punkt zieht mit.
+  server.zdos.updateZDOZone(zF, { x: zF.position.x + 1.9, y: zF.position.y, z: zF.position.z });
+  const tF19 = await tot('Fritz');
+  const sollF19 = { x: zF.position.x, y: zF.position.y + 0.6, z: zF.position.z };
+  console.log(`      Fritz stirbt (1,9 m seitlich): ${pos(tF19.ziel)}, Soll ${pos(sollF19)}, Meldung "${tF19.meldung}"`);
+  check('L: Fritz erwacht am um 1,9 m seitlich versetzten Layout-Bett', gleich(tF19.ziel, sollF19) && !VERLUST.test(tF19.meldung), pos(tF19.ziel));
   // Dieselbe Kennung ein zweites Mal in der Saeule: nicht raten.
   const zF2 = server.zdos.createZDO(HASH, { x: zF.position.x, y: zF.position.y + 4, z: zF.position.z }, { x: 0, y: 0, z: 0, w: 1 });
   zF2.setString(LAYOUT_ID_MEMBER, 'wiedereinstieg-test-bett');
@@ -243,6 +274,39 @@ async function main(): Promise<void> {
   console.log(`      Fritz stirbt (Kennung doppelt): ${pos(tF2.ziel)}, Meldung "${tF2.meldung}"`);
   check('L: Kennung doppelt → Weltspawn, nicht geraten', gleich(tF2.ziel, weltSpawn), pos(tF2.ziel));
   check('L: Kennung doppelt → gemeldet', VERLUST.test(tF2.meldung), tF2.meldung);
+
+  // Ein Spielerbau, der die Kennung traegt (Zustand vor dem Aufraeumen beim Start), ist kein Layout-Bett.
+  {
+    const bG = { x: 420, y: server.getGroundHeight(420, 60) as number, z: 60 };
+    await stelle('Fritz', 422, 60);
+    const zL = server.zdos.createZDO(HASH, bG, { x: 0, y: 0, z: 0, w: 1 });
+    zL.setString(LAYOUT_ID_MEMBER, 'wiedereinstieg-test-bett-g');
+    zL.revision.reviseData();
+    zL.dirty = true;
+    await aktion('Fritz', () => interact(kn.Fritz!.ws, zL.position, HASH));
+    check('L: Fritz hat die Kennung des zweiten Layout-Betts', peer('Fritz').spawnBettId === 'wiedereinstieg-test-bett-g', peer('Fritz').spawnBettId);
+    zL.setInt('spieler', 1);
+    zL.revision.reviseData();
+    const tS = await tot('Fritz');
+    console.log(`      Fritz stirbt (Bett ist jetzt ein Spielerbau mit Kennung): ${pos(tS.ziel)}, Meldung "${tS.meldung}"`);
+    check('L: ein Spielerbau mit der Kennung gilt nicht (Weltspawn + Meldung)', gleich(tS.ziel, weltSpawn) && VERLUST.test(tS.meldung), `${pos(tS.ziel)} "${tS.meldung}"`);
+  }
+  // Erst ein Layout-Bett, dann das eigene Bett: die Kennung darf nicht stehen bleiben.
+  {
+    const bH = { x: 440, y: server.getGroundHeight(440, 60) as number, z: 60 };
+    await stelle('Fritz', 442, 60);
+    const zH = server.zdos.createZDO(HASH, bH, { x: 0, y: 0, z: 0, w: 1 });
+    zH.setString(LAYOUT_ID_MEMBER, 'wiedereinstieg-test-bett-h');
+    zH.revision.reviseData();
+    zH.dirty = true;
+    await aktion('Fritz', () => interact(kn.Fritz!.ws, zH.position, HASH));
+    check('L: Fritz hat die Kennung des dritten Layout-Betts', peer('Fritz').spawnBettId === 'wiedereinstieg-test-bett-h', peer('Fritz').spawnBettId);
+    const zEigen = await baueUndSetze('Fritz', { x: 470, y: server.getGroundHeight(470, 60) as number, z: 60 });
+    check('L: nach dem eigenen Bett ist die Kennung weg', peer('Fritz').spawnBettId === '', `id='${peer('Fritz').spawnBettId}'`);
+    const tE = await tot('Fritz');
+    const sollEigen = { x: zEigen.position.x, y: zEigen.position.y + 0.6, z: zEigen.position.z };
+    check('L: Fritz erwacht an seinem eigenen Bett, ohne Meldung', gleich(tE.ziel, sollEigen) && !VERLUST.test(tE.meldung), `${pos(tE.ziel)} "${tE.meldung}"`);
+  }
 
   // ── B: Punkt im Koordinatenband ──
   console.log('\n[B] Punkt im Koordinatenband');
@@ -261,7 +325,7 @@ async function main(): Promise<void> {
   check('D: Dora (abgerissen) erfaehrt es', VERLUST.test(d1.meldung) && gleich(d1.ziel, weltSpawn), `${pos(d1.ziel)} "${d1.meldung}"`);
 
   // ── Neustart ──
-  for (const n of namen) kn[n]!.ws.close();
+  for (const n of namen) if (n !== 'Hanna') kn[n]!.ws.close();
   await warte(500);
   server.stop();
   await warte(600);
@@ -273,6 +337,13 @@ async function main(): Promise<void> {
   check('F3: Annas verworfener Punkt kommt nicht aus dem Spielstand zurueck', peer('Anna').spawnPoint === null, pos(peer('Anna').spawnPoint));
   const a2 = await tot('Anna');
   check('F3: Anna stirbt erneut: Weltspawn, nicht an Bjoerns Bett, ohne Wiederholung der Meldung', gleich(a2.ziel, weltSpawn) && !gleich(a2.ziel, sollF1) && !VERLUST.test(a2.meldung), `${pos(a2.ziel)} "${a2.meldung}"`);
+  for (const n of ['Greta', 'Hanna']) {
+    check(`F4: ${n}s Punkt und Besitzer kommen aus dem Spielstand`, !!peer(n).spawnPoint && peer(n).spawnBettBesitzer === f4[n]!.besitzer, `${pos(peer(n).spawnPoint)} / ${peer(n).spawnBettBesitzer}`);
+    const g2 = await tot(n);
+    console.log(`      ${n} stirbt: ${pos(g2.ziel)}, Meldung "${g2.meldung}", Bjoerns Bett ${pos(f4[n]!.soll)}`);
+    check(`F4: ${n} erwacht NICHT an Bjoerns Bett`, !gleich(g2.ziel, f4[n]!.soll), pos(g2.ziel));
+    check(`F4: ${n} erwacht am Weltspawn, mit Meldung`, gleich(g2.ziel, weltSpawn) && VERLUST.test(g2.meldung), `${pos(g2.ziel)} "${g2.meldung}"`);
+  }
   const d2 = await tot('Dora');
   check('D: Dora nach dem Neustart: keine Wiederholung der Meldung', !VERLUST.test(d2.meldung) && gleich(d2.ziel, weltSpawn), `${pos(d2.ziel)} "${d2.meldung}"`);
   check('G: Emils Punkt kommt aus dem Spielstand', gleich(peer('Emil').spawnPoint, sollE), pos(peer('Emil').spawnPoint));

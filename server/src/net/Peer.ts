@@ -129,6 +129,13 @@ export class Peer {
    * Tod wird genau dieses Bett gesucht, nicht die x/z-Saeule.
    */
   spawnBettId: string;
+  /**
+   * `besitzer` des Bettes, an dem `spawnPoint` gesetzt wurde ('' = Weltbett,
+   * null = unbekannt: Punkt aus einem Stand vor dieser Angabe). Beim Tod muss
+   * ein Spielerbett am Punkt denselben Besitzer tragen; die Angabe ist die des
+   * Bettes, nicht die aktuelle userId (ein Gast bekommt bei jeder Verbindung eine neue).
+   */
+  spawnBettBesitzer: string | null;
 
   /** Aktiver Essens-Buff: maxHP-Bonus bis Zeitstempel (ms). */
   foodBonus: number;
@@ -232,6 +239,7 @@ export class Peer {
     this.paradeBis = 0;
     this.spawnPoint = null;
     this.spawnBettId = '';
+    this.spawnBettBesitzer = null;
     this.foodBonus = 0;
     this.foodBis = 0;
     this.dungeonId = null;

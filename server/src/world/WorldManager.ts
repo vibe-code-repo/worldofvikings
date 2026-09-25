@@ -66,6 +66,8 @@ export interface SavedPlayer {
   spawnPoint?: Vector3;
   /** Layout-Kennung des Bettes hinter `spawnPoint` (optional; Altstaende und Spielerbetten haben keine). */
   spawnBettId?: string;
+  /** `besitzer` des Bettes hinter `spawnPoint` ('' = Weltbett; fehlt in Staenden davor). */
+  spawnBettBesitzer?: string;
   /** Server-Inventar (SavedItemStack[], optional — Altstände haben keins). */
   inventar?: SavedItemStack[];
   /**

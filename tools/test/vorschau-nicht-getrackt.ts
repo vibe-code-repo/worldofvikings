@@ -26,8 +26,9 @@
  *      zaehlt stop und start),
  *   5. Signale (INT, TERM, HUP), ein scheiternder Start und der Neustart-Zweig
  *      (Gesundheitspruefung ja, VERSION nein, Rueckweg in der Meldung) werden
- *      am selben Ausschnitt geprueft; die Aufrufstellen des Flags per Zeilen-
- *      Regex als exakte Befehlsfolge von Schritt 7b bis 8.
+ *      am selben Ausschnitt geprueft; der Bereich von der Testzeile bis
+ *      gesundheit_pruefen laeuft mit Fake-Befehlen am Verhalten (Tests rot =
+ *      0 Starts, Webbau rot = Neustart, gruen = ein Start nach dem Webbau).
  *
  * Lauf:  npx tsx tools/test/vorschau-nicht-getrackt.ts
  *
@@ -36,7 +37,7 @@
  * after the web build.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -142,69 +143,110 @@ pruefe(aufraeumen !== null, 'wov-update.sh markiert abbruch-aufraeumen genau ein
 pruefe(reigen !== null, 'wov-update.sh markiert dienste-reigen genau einmal');
 pruefe(buendelBlock !== null, 'wov-update.sh markiert buendel-pruefung genau einmal');
 
-// ── Aufrufstellen per Zeilen-Regex, nicht per Textsuche ──
-// A plain indexOf hit a comment once. Here: the 7b spine (everything from the
-// flag to the flag reset after step 8), with comments, blank lines and the
-// marked blocks taken out, must be exactly this list of top-level commands.
-// A flag inside `if false`, a moved or placeholder bundle check, a deleted
-// step 8 or a flag set before the tests all break the list.
-// Harmless edits must not turn the test red: a trailing comment and a leading
-// `export` are stripped from every line; pure literal `echo` lines (no `;`, `&&`, `|`, `\`, `$` or backtick) are dropped
-// from the spine below. Moving the flag itself stays red.
-const zeilen = update.split('\n').map((z) => z.replace(/^export\s+/, '').replace(/^(\s*[^#\s].*?)\s+#.*$/, '$1'));
-const zeile = (re: RegExp): number[] => zeilen.flatMap((z, i) => (re.test(z) ? [i] : []));
-const testZeilen = zeile(/^node scripts\/run-tests\.mjs 2>&1 \| tee /);
-const flagSetzen = zeile(/^NEUSTART_BEI_ABBRUCH=1$/);
-// Any assignment counts, also behind `;`, `&&` or inside a `\`-continued line; comment lines do not.
-const flagAlleZuweisungen = zeilen.flatMap((z, i) => (!/^\s*#/.test(z) && /NEUSTART_BEI_ABBRUCH=/.test(z) ? [i] : []));
-const flagRueck = zeile(/^NEUSTART_BEI_ABBRUCH=0$/);
-const blockEnde = zeile(/^# END abbruch-aufraeumen$/);
-const warnEnde = zeile(/^# END webbau-warnung$/);
-const schritt8 = zeile(/^dienste_starten$/);
+// ── Schritt 7 bis 8 am Verhalten, nicht am Text ──
+// Every text rule for the command sequence lost the race against a new
+// disguise (`if false`, a trailing `||`, `printf -v`, `export dienste_starten`
+// ...). So the real range from the tests line to `gesundheit_pruefen` is cut
+// out of the script and run with fake commands; the log says what happened.
+// Behavior required: red tests never restart the services, a red web build
+// does (via aufraeumen), a green run starts them exactly once after the web
+// build and clears the flag before the health check.
+const testZeilen = update.split('\n').filter((z) => /^node scripts\/run-tests\.mjs 2>&1 \| tee /.test(z));
+// A trailing comment is harmless: cut it before comparing.
+const schritt8 = update.split('\n').filter((z) => z.replace(/^(\s*[^#\s].*?)\s+#.*$/, '$1') === 'dienste_starten');
 pruefe(testZeilen.length === 1, 'genau ein Aufruf "node scripts/run-tests.mjs" als Zeile', `${testZeilen.length}`);
-pruefe(schritt8.length === 1 && warnEnde.length === 1 && schritt8[0] > warnEnde[0], 'genau ein Schritt 8 (dienste_starten als eigene Zeile), nach dem Warnblock', `${schritt8}`);
-// Genau zwei Zuweisungen ausserhalb der Vorbelegung im Aufraeumblock: Setzen und Ruecksetzen.
-const ausserhalb = flagAlleZuweisungen.filter((i) => blockEnde.length === 1 && i > blockEnde[0]);
-pruefe(
-  ausserhalb.length === 2 && flagSetzen.length === 1 && flagRueck.filter((i) => i > blockEnde[0]).length === 1 && flagSetzen[0] < ausserhalb[1] && zeilen[ausserhalb[1]] === 'NEUSTART_BEI_ABBRUCH=0',
-  'NEUSTART_BEI_ABBRUCH wird ausserhalb der Vorbelegung genau zweimal zugewiesen: =1 vor dem Webbau, =0 nach Schritt 8',
-  `${ausserhalb.map((i) => zeilen[i])}`,
-);
-// Inside the cleanup block the flag may only be pre-set to a literal 0: a value taken
-// from the environment (`${NEUSTART_BEI_ABBRUCH:-0}`) would let the caller force a restart.
-const imBlock = (aufraeumen ?? '').split('\n').map((z) => z.replace(/^export\s+/, '').replace(/^(\s*[^#\s].*?)\s+#.*$/, '$1')).filter((z) => /^\s*NEUSTART_BEI_ABBRUCH=/.test(z));
-pruefe(imBlock.length === 1 && imBlock[0] === 'NEUSTART_BEI_ABBRUCH=0', 'im Aufraeumblock wird NEUSTART_BEI_ABBRUCH nur auf das Literal 0 vorbelegt (nicht aus der Umgebung)', imBlock.join(' | '));
-if (testZeilen.length === 1 && flagSetzen.length === 1 && schritt8.length === 1 && ausserhalb.length === 2) {
-  // A `\` at the end of the last command line before the flag would swallow the flag as an argument.
-  const davor = zeilen.slice(0, flagSetzen[0]).filter((z) => !/^\s*(#.*)?$/.test(z)).pop() ?? '';
-  pruefe(!/\\\s*$/.test(davor), 'die Zeile vor dem Flag endet nicht auf einem Zeilenfortsatz (das Flag bliebe ein Argument)', davor);
-  pruefe(flagSetzen[0] > testZeilen[0], 'das Flag wird erst NACH den Tests gesetzt');
-  pruefe(ausserhalb[1] === schritt8[0] + 1 || zeilen.slice(schritt8[0] + 1, ausserhalb[1]).every((z) => /^\s*(#.*)?$/.test(z)), 'das Flag wird direkt nach Schritt 8 zurueckgesetzt');
-  // Marked blocks (BEGIN..END) collapse to one token; comments and blanks vanish.
-  const spine: string[] = [];
-  let drin: string | null = null;
-  for (const z of zeilen.slice(flagSetzen[0], ausserhalb[1] + 1)) {
-    const b = z.match(/^# BEGIN (\S+)/);
-    if (b) { drin = b[1]; spine.push(`[${b[1]}]`); continue; }
-    if (drin !== null) { if (z === `# END ${drin}`) drin = null; continue; }
-    if (/^\s*(#.*)?$/.test(z) || /^echo(\s+"[^"$`\\]*")?\s*$/.test(z)) continue;
-    spine.push(z);
+pruefe(schritt8.length === 1, 'genau ein Schritt 8 (dienste_starten als eigene Zeile)', `${schritt8.length}`);
+
+/** Real range: from `echo "▶ Tests"` up to (excluding) the health check call. */
+function rolloutKern(quelle: string): string | null {
+  const zl = quelle.split('\n');
+  const a = zl.indexOf('echo "▶ Tests"');
+  const z = zl.indexOf('gesundheit_pruefen', Math.max(a, 0));
+  return a >= 0 && z > a ? zl.slice(a, z).join('\n') : null;
+}
+const kern = rolloutKern(update);
+pruefe(kern !== null, 'wov-update.sh: Bereich von echo "▶ Tests" bis gesundheit_pruefen gefunden');
+
+if (kern !== null && aufraeumen !== null) {
+  const temp = mkdtempSync(join(tmpdir(), 'vorschau-kern-'));
+  try {
+    const bin = join(temp, 'bin');
+    mkdirSync(bin, { recursive: true });
+    // Every fake counts its calls in $LOG; node/npm/tsx take their exit code from the environment.
+    const fake = (pfad: string, inhalt: string) => {
+      writeFileSync(pfad, `#!/bin/bash\n${inhalt}\n`);
+      chmodSync(pfad, 0o755);
+    };
+    fake(join(bin, 'node'), 'echo "node $1" >> "$LOG"\n[ "$1" = scripts/run-tests.mjs ] && exit "${TESTRC:-0}"\n[ "$1" = tools/vorschau-buendeln.mjs ] && exit "${BUENDELRC:-0}"\nexit 0');
+    fake(join(bin, 'npm'), 'echo "npm $*" >> "$LOG"\n[ "$1" = run ] && exit "${NPMRC:-0}"\nexit 0');
+    fake(join(bin, 'git'), 'exit 0');
+    fake(join(bin, 'systemctl'), 'echo "systemctl $*" >> "$LOG"');
+    const kernLauf = (name: string, env: Record<string, string>) => {
+      const cwd = join(temp, name);
+      mkdirSync(join(cwd, 'node_modules/.bin'), { recursive: true });
+      mkdirSync(join(cwd, 'wov-web/static/assets/js'), { recursive: true });
+      mkdirSync(join(cwd, 'wov-web/tools'), { recursive: true });
+      writeFileSync(join(cwd, 'wov-web/static/assets/js/vorschau.js'), 'x\n');
+      writeFileSync(join(cwd, 'wov-web/tools/ohne-js-pruefen.sh'), 'exit 0\n');
+      fake(join(cwd, 'node_modules/.bin/tsx'), 'echo "tsx" >> "$LOG"');
+      const log = join(cwd, 'log');
+      writeFileSync(log, '');
+      const skript = [
+        'set -euo pipefail',
+        'INSTANZ=dev',
+        'DIENSTE=(wov-server wov-client wov-admin wov-web)',
+        aufraeumen,
+        // The stop step of the real script has happened by now.
+        'DIENSTE_GESTOPPT=1',
+        'dienste_starten() { echo STARTEN >> "$LOG"; }',
+        'gesundheit_pruefen() { echo "GESUNDHEIT flag=$NEUSTART_BEI_ABBRUCH" >> "$LOG"; }',
+        kern,
+        'gesundheit_pruefen',
+      ].join('\n');
+      const r = spawnSync('bash', ['-c', skript], {
+        cwd,
+        encoding: 'utf8',
+        env: { PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`, LOG: log, TMPDIR: cwd, HOME: cwd, ...env },
+      });
+      const zl = readFileSync(log, 'utf8').split('\n').filter((z) => z !== '');
+      return {
+        rc: r.status,
+        stderr: r.stderr ?? '',
+        log: zl,
+        starts: zl.filter((z) => z === 'STARTEN').length,
+        systemctlStart: zl.findIndex((z) => z.startsWith('systemctl start')),
+        bau: zl.findIndex((z) => z === 'npm run build'),
+        start: zl.indexOf('STARTEN'),
+        gesundheit: zl.find((z) => z.startsWith('GESUNDHEIT')) ?? '',
+      };
+    };
+
+    const rot = kernLauf('tests-rot', { TESTRC: '1' });
+    pruefe(rot.rc !== 0, 'Tests rot: Abbruch mit rc != 0', `rc=${rot.rc}`);
+    pruefe(rot.starts === 0 && rot.systemctlStart < 0, 'Tests rot: 0 Starts (kein Neustart, Dienste bleiben gestoppt)', `starts=${rot.starts} ${rot.log}`);
+    pruefe(rot.bau < 0, 'Tests rot: der Webbau laeuft nicht', rot.log.join(' | '));
+    pruefe(rot.stderr.includes('GESTOPPT'), 'Tests rot: Meldung sagt GESTOPPT', rot.stderr);
+
+    const vorbelegt = kernLauf('tests-rot-env', { TESTRC: '1', NEUSTART_BEI_ABBRUCH: '1' });
+    pruefe(vorbelegt.rc !== 0 && vorbelegt.starts === 0, 'Tests rot, NEUSTART_BEI_ABBRUCH=1 aus der Umgebung: wirkt nicht, 0 Starts', `rc=${vorbelegt.rc} starts=${vorbelegt.starts}`);
+
+    const bauRot = kernLauf('webbau-rot', { NPMRC: '1' });
+    pruefe(bauRot.rc !== 0 && bauRot.bau >= 0, 'Webbau rot: npm run build lief und brach ab', `rc=${bauRot.rc} ${bauRot.log}`);
+    pruefe(bauRot.starts === 1 && bauRot.systemctlStart < 0, 'Webbau rot: Neustart in aufraeumen, genau 1 Start', `starts=${bauRot.starts}`);
+    pruefe(bauRot.stderr.includes('ABBRUCH nach bestandenen Tests'), 'Webbau rot: Meldung nennt den Neustart', bauRot.stderr);
+
+    const buendelRot = kernLauf('buendel-rot', { BUENDELRC: '1' });
+    pruefe(buendelRot.rc !== 0 && buendelRot.starts === 1, 'Buendeln rot: Neustart in aufraeumen, genau 1 Start', `rc=${buendelRot.rc} starts=${buendelRot.starts}`);
+
+    const gruen = kernLauf('gruen', {});
+    pruefe(gruen.rc === 0, 'alles gruen: rc=0', `rc=${gruen.rc} ${gruen.stderr}`);
+    pruefe(gruen.starts === 1, 'alles gruen: genau ein Start (Schritt 8)', `starts=${gruen.starts} ${gruen.log}`);
+    pruefe(gruen.bau >= 0 && gruen.start > gruen.bau, 'alles gruen: der Start kommt nach dem Webbau', `bau=${gruen.bau} start=${gruen.start}`);
+    pruefe(gruen.systemctlStart < 0, 'alles gruen: kein systemctl start im Bereich (Dienste kommen nur aus Schritt 8)', gruen.log.join(' | '));
+    pruefe(gruen.gesundheit === 'GESUNDHEIT flag=0', 'alles gruen: das Flag ist vor der Gesundheitspruefung 0', gruen.gesundheit);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
   }
-  const erwartet = [
-    /^NEUSTART_BEI_ABBRUCH=1$/,
-    /^node_modules\/\.bin\/tsx tools\/aussehen-json\.mjs --aus wov-web\/static\/assets\/appearance\.json$/,
-    /^node tools\/vorschau-buendeln\.mjs --aus wov-web\/static\/assets\/js\/vorschau\.js$/,
-    /^\[buendel-pruefung\]$/,
-    /^\(cd wov-web && npm ci --include=dev && npm run build && bash tools\/ohne-js-pruefen\.sh\)$/,
-    /^\[webbau-warnung\]$/,
-    /^dienste_starten$/,
-    /^NEUSTART_BEI_ABBRUCH=0$/,
-  ];
-  pruefe(
-    spine.length === erwartet.length && erwartet.every((re, i) => re.test(spine[i] ?? '')),
-    'Schritt 7b bis 8 besteht genau aus den erwarteten Befehlen in dieser Reihenfolge (keine if-Huelle, kein Platzhalter, nichts verschoben)',
-    spine.join(' | '),
-  );
 }
 
 if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {

@@ -40,6 +40,7 @@ import {
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
+import { nimmAnim } from './AnimBesitz.js';
 
 interface RoutenNpc {
   readonly zdo: ZDO;
@@ -95,6 +96,8 @@ export class RoutenLaeufer {
   registriere(zdo: ZDO, route: RouteDef): void {
     const key = zdo.zdoid.toString();
     if (this.npcs.has(key)) return;
+    // Throws if the SpawnSystem still writes this ZDO (AnimBesitz).
+    nimmAnim(zdo, 'npc');
     this.npcs.set(key, {
       zdo,
       lauf: new RoutenLauf(route, zdo.position.x, zdo.position.z),

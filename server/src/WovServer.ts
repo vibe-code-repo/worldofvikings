@@ -1338,15 +1338,25 @@ export class WovServer {
     return this.hauptwelt.bodenHoehe(x, z);
   }
 
-  start(): void {
+  /**
+   * Everything except the network runs synchronously, as before. The promise
+   * settles with the network bind: it resolves with the bound port, and
+   * rejects (EADDRINUSE, EACCES, ...) when the port cannot be had, so the
+   * caller sees the failure instead of a server that never listens.
+   */
+  start(): Promise<number> {
     this.init();
+
+    // A second start() without stop() must not stack timers.
+    if (this.updateTimer) clearInterval(this.updateTimer);
+    if (this.saveTimer) clearInterval(this.saveTimer);
 
     this.running = true;
     this.startTime = Date.now();
     this.prevUpdateTime = this.startTime;
 
     // Start network
-    this.net.start();
+    const gebunden = this.net.start();
 
     // Main update loop (~60fps server tick)
     const TICK_MS = 1000 / 30; // 30 ticks per second
@@ -1367,23 +1377,69 @@ export class WovServer {
       void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
 
-    console.log(`[WoV] Server started: "${this.config.name}" on port ${this.config.port}`);
-    console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
+    return gebunden.then(
+      (port) => {
+        console.log(`[WoV] Server started: "${this.config.name}" on port ${port}`);
+        console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
+        return port;
+      },
+      (err: unknown) => {
+        // The bind failed: no orphaned tick, no double timers on a retry.
+        // No save here: a server without a port must not write the world.
+        this.running = false;
+        if (this.updateTimer) clearInterval(this.updateTimer);
+        if (this.saveTimer) clearInterval(this.saveTimer);
+        this.updateTimer = null;
+        this.saveTimer = null;
+        throw err;
+      },
+    );
   }
 
-  stop(): void {
+  /**
+   * Stoppt den Server und schreibt den Endstand. Liefert `true`, wenn der
+   * Endstand auf der Platte liegt, `false`, wenn das Speichern gescheitert
+   * ist. Wirft nie: Ein Stopp, der an seinem eigenen Speichern haengen
+   * bleibt, laesst den Prozess leben und den Port offen (Befund K4.0,
+   * 20.09.2026) -- dann killt systemd nach TimeoutStopSec ohne Speichern.
+   */
+  stop(): boolean {
     this.running = false;
 
     if (this.updateTimer) clearInterval(this.updateTimer);
     if (this.saveTimer) clearInterval(this.saveTimer);
 
+    // Netz zuerst zu, aber nur die ANNAHME: Die verbundenen Peers muessen
+    // fuer den Save noch in der Liste stehen (momentaufnahme() liest ihre
+    // Positionen, Inventare, Rüstung). Sie fliegen erst danach raus.
+    this.net.schliesseAnnahme();
+
     // Beim Herunterfahren bewusst SYNCHRON: `stop()` läuft im Signal-Handler,
     // und ein Prozess, der gleich beendet wird, arbeitet keine Promises mehr
     // ab — ein asynchroner Save käme nie bis zum `rename`.
-    this.saveWorld();
-    this.net.stop();
+    let gespeichert = true;
+    try {
+      this.saveWorld();
+    } catch (err) {
+      gespeichert = false;
+      // Feste Kennung, damit ein Betriebsdienst oder das Ausrollskript die
+      // Zeile im Journal findet (tools/wov-update.sh sucht danach).
+      console.error(
+        `[WoV] SAVE_FAILED_ON_STOP: Endstand NICHT gespeichert, Stand der letzten Sicherung bleibt: ${
+          err instanceof Error ? (err.stack ?? err.message) : String(err)
+        }`
+      );
+      strukturLog('world_save_failed_on_stop', { fehler: String(err) });
+    }
 
-    console.log('[WoV] Server stopped');
+    try {
+      this.net.stop();
+    } catch (err) {
+      console.error(`[WoV] net.stop fehlgeschlagen: ${err}`);
+    }
+
+    console.log(`[WoV] Server stopped${gespeichert ? '' : ' (OHNE Endstand)'}`);
+    return gespeichert;
   }
 
   // ── Main update loop (update()) ────────────────────────────────
@@ -3350,6 +3406,9 @@ export class WovServer {
       // ANGREIFBAR: die eigenen NPCs mit Kampfwerten (shared/npc.ts). Sie
       // tragen bewusst kein *_AI-Flag, sonst verwaltete das Spawnsystem sie.
       if ((flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI | PrefabFlag.ANGREIFBAR)) === 0n) continue;
+      // Ein sterbendes Wesen (Todesclip laeuft) ist nicht mehr zu treffen:
+      // sein Leben steht auf 0, und der Schlag risse es als „frisch" hoch.
+      if (this.spawns?.stirbt(zdo)) continue;
       const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
       if (d >= best) continue;
       // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen
@@ -3375,7 +3434,9 @@ export class WovServer {
     // vom Spawn mit, und `adoptPersisted` trägt sie den alten nach.
     const hp = (ziel.getInt(HEALTH_MEMBER) || maxLeben(name)) - schaden;
     if (hp <= 0) {
-      this.zdosVon(peer).destroyZDO(ziel.zdoid);
+      // Mit Todesclip bleibt der Koerper, bis der Clip gespielt ist — das
+      // Spawnsystem raeumt ihn dann selbst weg. Ohne Clip wie bisher sofort.
+      if (!this.spawns?.sterbe(ziel)) this.zdosVon(peer).destroyZDO(ziel.zdoid);
       // F5: einzige verdrahtete Anwendung der Fortschrittsmarken — Eikthyr
       // besiegt heisst defeated_eikthyr, unabhaengig davon wie oft er ueber
       // den Altar (StatueDeer-Zweig oben) erneut beschworen wird. setzen()
@@ -3405,6 +3466,7 @@ export class WovServer {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
+      this.spawns?.treffer(ziel);
     }
   }
 

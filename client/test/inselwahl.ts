@@ -635,7 +635,9 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
       const roh = stuecke(a).filter((st) => WURZEL.test(st));
       if (roh.length > 0) befunde.push(`${name} ${wo}: bare root ${JSON.stringify(roh)}`);
       // Whatever is not a name must be built by the one helper.
-      if (!ruft(a, ['gameUrl', 'flightUrl'])) befunde.push(`${name} ${wo}: not built by gameUrl/flightUrl (${a.getText(baum).slice(0, 60)})`);
+      // `ziel.url` is the address `dungeonZiel` made (spielhost.ts pins that call).
+      const ausZiel = ts.isPropertyAccessExpression(a) && a.expression.getText(baum) === 'ziel' && a.name.text === 'url';
+      if (!ausZiel && !ruft(a, ['gameUrl', 'flightUrl', 'dungeonUrl'])) befunde.push(`${name} ${wo}: not built by gameUrl/flightUrl/dungeonUrl (${a.getText(baum).slice(0, 60)})`);
     };
     const geh = (k: ts.Node): void => {
       if (ts.isCallExpression(k) && k.arguments.length > 0) {
@@ -737,6 +739,26 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
     pruefe(gebaut === `${konfigBasis}?offline=1&layout=editor`, `with the base of the build config the flight address starts with it: ${gebaut}`);
     pruefe(!gebaut.startsWith('/?'), 'and it is not the bare root');
   }
+}
+
+// ── 9. A base prefix can only ever be a path on the own origin ──────────────
+// `normaliseBase` used to pass three kinds of input through: `\host\` (a
+// browser reads it as `//host/` — another origin), `./` and `..` (back to the
+// root), and `#` or `?` (which swallow the query that follows). Whatever is not
+// a plain path becomes `/`.
+{
+  const feindlich = ['\\evil.com\\', '/play\\..\\', './', '../', './play/', '/play/../', '/play/./x/', '/play/%2e%2e/', '/%2E/', '/play/#a', '/play/?x=1', '#', '/play/\t/', '/pl\nay/', '/play/\u0000'];
+  for (const basis of feindlich) {
+    pruefe(normaliseBase(basis) === '/', `hostile prefix ${JSON.stringify(basis)} becomes the root (${normaliseBase(basis)})`);
+    const adresse = gameUrl('offline=1&layout=editor', basis);
+    const aufgeloest = new URL(adresse, 'http://editor.dev.world-of-vikings.com/editor/');
+    pruefe(aufgeloest.origin === 'http://editor.dev.world-of-vikings.com' && aufgeloest.search === '?offline=1&layout=editor', `${JSON.stringify(basis)}: the address stays on the own origin and keeps its query (${aufgeloest.href})`);
+  }
+  // What was fine stays fine: spaces, umlauts, several levels.
+  pruefe(normaliseBase('/Grabdorn-Höhle/') === '/Grabdorn-Höhle/', 'an umlaut in the prefix is kept');
+  pruefe(normaliseBase('/pl ay/') === '/pl ay/', 'a space in the prefix is kept');
+  pruefe(normaliseBase('/a.b/c..d/') === '/a.b/c..d/', 'dots inside a name are not dot segments');
+  pruefe(normaliseBase('//fremder.host/') === '/fremder.host/', 'a protocol-relative prefix becomes a path on the own origin');
 }
 
 console.log(`\n${geprueft - fehler}/${geprueft} checks passed`);

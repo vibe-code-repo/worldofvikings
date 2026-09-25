@@ -2170,6 +2170,22 @@ const KERN = [
   ['shared', 'test/weltbau-stil.ts'],
   ['shared', 'test/weltbau-nachbesserung.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
+  // Stop path: a failing final save must still end the process (exit code, port closed).
+  ['server/test', 'stopp-speichern.ts'],
+  ['server', 'test/listen-bindefehler.ts'],
+  // B9.4: Animationsweg. Falsch belegte clips-Listen scheitern laut (kein idle,
+  // leer, unbekannt, die ohne Dauer), zwei Schreiber auf einer ZDO werden
+  // abgelehnt, attack/hit/die kommen als Ereignis (animEinmal) an, der Wolf
+  // ohne die-Clip stirbt wie bisher sofort; dazu die Clip-Namen gegen das
+  // Manifest. Kein Server, keine Ports. ~10 s.
+  ['server', 'test/b9-4-animationsweg.ts'],
+  // B9.4 Client: Diagnose-Haken raeumen auf (zehn Aufrufe, eine Gruppe), Format
+  // und Gruppensuche ohne Szene. ~2 s.
+  ['client', 'test/b9-4-animation-client.ts'],
+  // B9.4 N1: Tod und Treffer ueber den echten Paketweg (handleAttack): zwei Spieler
+  // zugleich, Sterbende nicht wieder treffbar, hit-Ereignis, Wolf ohne die sofort weg,
+  // Instanzwelt mit gleicher ZDO-Id trifft die Hauptwelt nicht. Ephemerer Port. ~25 s.
+  ['server', 'test/b9-4-tod-paketweg.ts'],
   ['server', 'test/bewuchs-freiraum.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['client', 'test/bewuchs-freiraum-vorschau.ts'],

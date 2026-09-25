@@ -244,10 +244,11 @@ export class ApiError extends Error {
  *
  * The keys on the left are the API's vocabulary, not identifiers of this
  * module: they travel over the wire and have to read exactly as the server
- * writes them. That is why `serverfehler` and `netzwerk` are still German
- * here while everything around them is not.
+ * writes them (`KontoApi.ts`), for example `name-taken` or `server-error`.
+ * `network` and `timeout` are the exceptions: this module raises them itself
+ * when a call gets no answer.
  *
- * `unbekannter-endpunkt` is deliberately absent: it can only happen if this
+ * `unknown-endpoint` is deliberately absent: it can only happen if this
  * module and the server disagree about a path, which is a bug and not
  * something a player can act on. It falls through to the generic entry.
  */

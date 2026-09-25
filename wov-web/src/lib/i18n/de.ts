@@ -621,6 +621,8 @@ export const de = {
   'account.error.network': 'Der Server ist nicht erreichbar — bitte die Verbindung prüfen.',
   'account.error.timeout':
     'Der Server antwortet nicht. Ob es angekommen ist, ist unklar — lade die Seite neu und sieh nach.',
+  'account.error.timeout_create':
+    'Der Server antwortet nicht. Klick noch einmal auf „Erstellen“ — ein schon angelegter Recke wird nicht doppelt angelegt.',
   'account.error.unexpected': 'Unerwartete Antwort vom Server — bitte die Seite neu laden.',
 
   /* ------------------------------------------ register (/registrieren) */

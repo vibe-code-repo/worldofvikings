@@ -564,6 +564,8 @@ export const en: Messages = {
   'account.error.network': 'The server cannot be reached — please check your connection.',
   'account.error.timeout':
     'The server is not answering. Whether it arrived is unclear — reload the page and check.',
+  'account.error.timeout_create':
+    'The server is not answering. Click “Create” again — a hero that was already created is not created twice.',
   'account.error.unexpected': 'Unexpected answer from the server — please reload the page.',
 
   /* ------------------------------------------ register (/registrieren) */

@@ -2192,6 +2192,8 @@ const KERN = [
   // Wiedereinstieg an einem Bett, das nicht (mehr) gilt: kein fremdes Bett über die freie Höhe,
   // kein stiller Tausch in der x/z-Säule, Gast behält sein Spielerbett, Layout-Bett per Kennung.
   ['server', 'test/wiedereinstieg-fremdes-bett.ts'],
+  // U1-N5: glb streng lesen (Kopf/Chunks), extensionsRequired ⊆ Used, Registry fail closed
+  ['server', 'test/modell-upload-streng.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

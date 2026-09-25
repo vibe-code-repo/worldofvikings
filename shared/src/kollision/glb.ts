@@ -118,26 +118,50 @@ interface GlTFAccessor {
   type: string;
 }
 
-/** JSON- und BIN-Chunk aus den Bytes holen. */
+/**
+ * JSON- und BIN-Chunk aus den Bytes holen — STRENG.
+ *
+ * Babylon liest den ERSTEN Chunk als JSON und hört an der Kopflänge auf.
+ * Ein Leser, der den letzten Chunk nimmt oder die Kopfzeile ignoriert,
+ * prüft dann eine andere Datei, als der Client lädt (U1-N4-Angriff, A1).
+ * Deshalb gilt genau ein Aufbau: Version 2, Kopflänge = Dateilänge, erster
+ * Chunk JSON, höchstens ein BIN direkt danach, sonst nichts; Chunk-Längen
+ * im Rahmen und durch 4 teilbar. Alles andere wirft mit klarer Meldung.
+ */
 export function parseGlbChunks(bytes: Uint8Array): GlbRoh {
+  if (bytes.byteLength < 12) throw new Error('keine GLB (Kopf unvollständig)');
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (dv.getUint32(0, true) !== 0x46546c67) throw new Error('keine GLB (Magic fehlt)');
+  const version = dv.getUint32(4, true);
+  if (version !== 2) throw new Error(`GLB-Version ${version} wird nicht unterstützt (nur Version 2)`);
+  const gesamt = dv.getUint32(8, true);
+  if (gesamt !== bytes.byteLength) {
+    throw new Error(`GLB-Kopflänge (${gesamt} Byte) passt nicht zur Dateilänge (${bytes.byteLength} Byte)`);
+  }
   let off = 12;
   let json: GlTF | null = null;
-  let bin: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
-  while (off + 8 <= bytes.byteLength) {
+  let bin: Uint8Array<ArrayBufferLike> | null = null;
+  let nr = 0;
+  while (off < bytes.byteLength) {
+    if (off + 8 > bytes.byteLength) throw new Error('GLB: Chunk-Kopf ragt über das Dateiende');
     const laenge = dv.getUint32(off, true);
     const art = dv.getUint32(off + 4, true);
     off += 8;
-    if (art === JSON_CHUNK) {
+    if (laenge % 4 !== 0) throw new Error(`GLB: Chunk ${nr} ist nicht 4-Byte-ausgerichtet (Länge ${laenge})`);
+    if (laenge > bytes.byteLength - off) throw new Error(`GLB: Chunk ${nr} ragt über das Dateiende`);
+    if (nr === 0) {
+      if (art !== JSON_CHUNK) throw new Error('GLB: der erste Chunk muss der JSON-Chunk sein');
       json = JSON.parse(new TextDecoder().decode(bytes.subarray(off, off + laenge))) as GlTF;
-    } else if (art === BIN_CHUNK) {
+    } else if (nr === 1 && art === BIN_CHUNK) {
       bin = bytes.subarray(off, off + laenge);
+    } else {
+      throw new Error(`GLB: unerwarteter weiterer Chunk (Nr. ${nr}) — erlaubt sind ein JSON-Chunk und höchstens ein BIN-Chunk direkt danach`);
     }
     off += laenge;
+    nr++;
   }
   if (json === null) throw new Error('GLB ohne JSON-Chunk');
-  return { json, bin };
+  return { json, bin: bin ?? new Uint8Array(0) };
 }
 
 /**

@@ -149,13 +149,14 @@ pruefe(buendelBlock !== null, 'wov-update.sh markiert buendel-pruefung genau ein
 // A flag inside `if false`, a moved or placeholder bundle check, a deleted
 // step 8 or a flag set before the tests all break the list.
 // Harmless edits must not turn the test red: a trailing comment and a leading
-// `export` are stripped from every line; plain `echo` lines are dropped from the
-// spine below. Moving the flag itself stays red.
+// `export` are stripped from every line; pure literal `echo` lines (no `;`, `&&`, `|`, `\`, `$` or backtick) are dropped
+// from the spine below. Moving the flag itself stays red.
 const zeilen = update.split('\n').map((z) => z.replace(/^export\s+/, '').replace(/^(\s*[^#\s].*?)\s+#.*$/, '$1'));
 const zeile = (re: RegExp): number[] => zeilen.flatMap((z, i) => (re.test(z) ? [i] : []));
 const testZeilen = zeile(/^node scripts\/run-tests\.mjs 2>&1 \| tee /);
 const flagSetzen = zeile(/^NEUSTART_BEI_ABBRUCH=1$/);
-const flagAlleZuweisungen = zeile(/^NEUSTART_BEI_ABBRUCH=/);
+// Any assignment counts, also behind `;`, `&&` or inside a `\`-continued line; comment lines do not.
+const flagAlleZuweisungen = zeilen.flatMap((z, i) => (!/^\s*#/.test(z) && /NEUSTART_BEI_ABBRUCH=/.test(z) ? [i] : []));
 const flagRueck = zeile(/^NEUSTART_BEI_ABBRUCH=0$/);
 const blockEnde = zeile(/^# END abbruch-aufraeumen$/);
 const warnEnde = zeile(/^# END webbau-warnung$/);
@@ -174,6 +175,9 @@ pruefe(
 const imBlock = (aufraeumen ?? '').split('\n').map((z) => z.replace(/^export\s+/, '').replace(/^(\s*[^#\s].*?)\s+#.*$/, '$1')).filter((z) => /^\s*NEUSTART_BEI_ABBRUCH=/.test(z));
 pruefe(imBlock.length === 1 && imBlock[0] === 'NEUSTART_BEI_ABBRUCH=0', 'im Aufraeumblock wird NEUSTART_BEI_ABBRUCH nur auf das Literal 0 vorbelegt (nicht aus der Umgebung)', imBlock.join(' | '));
 if (testZeilen.length === 1 && flagSetzen.length === 1 && schritt8.length === 1 && ausserhalb.length === 2) {
+  // A `\` at the end of the last command line before the flag would swallow the flag as an argument.
+  const davor = zeilen.slice(0, flagSetzen[0]).filter((z) => !/^\s*(#.*)?$/.test(z)).pop() ?? '';
+  pruefe(!/\\\s*$/.test(davor), 'die Zeile vor dem Flag endet nicht auf einem Zeilenfortsatz (das Flag bliebe ein Argument)', davor);
   pruefe(flagSetzen[0] > testZeilen[0], 'das Flag wird erst NACH den Tests gesetzt');
   pruefe(ausserhalb[1] === schritt8[0] + 1 || zeilen.slice(schritt8[0] + 1, ausserhalb[1]).every((z) => /^\s*(#.*)?$/.test(z)), 'das Flag wird direkt nach Schritt 8 zurueckgesetzt');
   // Marked blocks (BEGIN..END) collapse to one token; comments and blanks vanish.
@@ -183,7 +187,7 @@ if (testZeilen.length === 1 && flagSetzen.length === 1 && schritt8.length === 1 
     const b = z.match(/^# BEGIN (\S+)/);
     if (b) { drin = b[1]; spine.push(`[${b[1]}]`); continue; }
     if (drin !== null) { if (z === `# END ${drin}`) drin = null; continue; }
-    if (/^\s*(#.*)?$/.test(z) || /^echo(\s|$)/.test(z)) continue;
+    if (/^\s*(#.*)?$/.test(z) || /^echo(\s+"[^"$`\\]*")?\s*$/.test(z)) continue;
     spine.push(z);
   }
   const erwartet = [

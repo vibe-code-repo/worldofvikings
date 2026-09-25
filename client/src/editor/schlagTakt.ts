@@ -5,8 +5,11 @@
  * every blow (AggroSystem.zuschlagen); the client plays the swing from that
  * event, the state `attack` alone only means "in striking range". The route
  * preview has no server, so it keeps the same clock itself: it runs while the
- * NPC is in the attack band, one event per `takt` seconds, and starts again
- * from zero when the NPC leaves it — the rule of AggroSystem.zuschlagen.
+ * NPC is in the attack band, one event per `takt` seconds. Like the server
+ * (AggroSystem: `schlagAkku` is kept while the NPC keeps its target, also in
+ * the chase and turn bands, and dropped in `loese`) the clock is NOT reset
+ * when the NPC steps out of the attack band — only `verliere` resets it, for
+ * the moment `aggroSchritt` returns no target any more.
  *
  * DOM-free, so it is tested without a scene.
  */
@@ -27,9 +30,8 @@ export class SchlagTakt {
       z = { n: 0, akku: 0 };
       this.zustand.set(index, z);
     }
-    if (!schlaegt) {
-      z.akku = 0;
-    } else {
+    // Outside the attack band (chase, turn) the clock simply stands still.
+    if (schlaegt) {
       z.akku += deltaSec;
       if (z.akku >= takt) {
         // The rest above one beat stays, capped at one beat (a slow frame
@@ -39,6 +41,12 @@ export class SchlagTakt {
       }
     }
     return z.n > 0 ? formatEinmal('attack', z.n) : undefined;
+  }
+
+  /** The NPC lost its target (aggroSchritt returned null): the clock starts over. */
+  verliere(index: number): void {
+    const z = this.zustand.get(index);
+    if (z) z.akku = 0;
   }
 
   /** Forget everything (indices shift when a placement is deleted). */

@@ -2170,6 +2170,9 @@ const KERN = [
   ['shared', 'test/weltbau-stil.ts'],
   ['shared', 'test/weltbau-nachbesserung.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
+  // Stop path: a failing final save must still end the process (exit code, port closed).
+  ['server/test', 'stopp-speichern.ts'],
+  ['server', 'test/listen-bindefehler.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

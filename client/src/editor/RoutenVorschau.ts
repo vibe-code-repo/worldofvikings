@@ -32,6 +32,7 @@ import { RoutenLauf, aggroSchritt, istNpcPrefab, type RouteDef } from '@wov/shar
 /** Derselbe Entwurf, den editor.html schreibt und der Testflug lädt —
  *  der Schlüssel steht seit Block A/16 nur noch in weltdokument.ts. */
 import { ENTWURF_KEY } from './weltdokument';
+import { SchlagTakt } from './schlagTakt';
 
 /**
  * Wie oft der Entwurf auf Änderungen abgeklopft wird (s). Der Editor
@@ -81,7 +82,9 @@ export interface RoutenVorschauCallbacks {
     x: number,
     z: number,
     yaw: number,
-    anim: 'idle' | 'walk' | 'attack'
+    anim: 'idle' | 'walk' | 'attack',
+    /** One-shot event `attack#n` at every blow (the server's `animEinmal`); only while striking. */
+    animEinmal?: string
   ) => void;
   /**
    * Index der gerade GEGRIFFENEN Platzierung (−1 = keine).
@@ -132,6 +135,9 @@ export class RoutenVorschau {
    */
   private stehendeAggro = new Map<number, { x: number; z: number }>();
 
+  /** The blow clock: one `attack#n` event per beat, like the server. */
+  private readonly schlagTakt = new SchlagTakt();
+
   constructor(private readonly cb: RoutenVorschauCallbacks) {}
 
   get istAn(): boolean {
@@ -164,6 +170,7 @@ export class RoutenVorschau {
    */
   ruecksetzen(): void {
     this.laeufer.clear();
+    this.schlagTakt.vergiss();
     this.erzwingeAbgleich();
   }
 
@@ -197,8 +204,8 @@ export class RoutenVorschau {
       this.seitAbgleich = 0;
       this.abgleich();
     }
-    if (this.laeufer.size === 0) return;
-
+    // No early return without walkers: a standing NPC without a route needs
+    // its aggro step just as much (the loop below is simply empty then).
     const spieler = this.cb.spieler?.() ?? null;
     const ziele = spieler ? [spieler] : [];
 
@@ -222,9 +229,10 @@ export class RoutenVorschau {
         l.z = w.z;
         l.yaw = w.yaw;
         l.gangart = w.anim;
-        this.cb.zeichne(index, p, l.x, l.z, l.yaw, w.anim);
+        this.cb.zeichne(index, p, l.x, l.z, l.yaw, w.anim, this.schlagTakt.schritt(index, w.anim === 'attack', deltaSec, w.kampf.takt));
         continue;
       }
+      this.schlagTakt.verliere(index);
 
       const s = l.lauf.schritt(l.x, l.z, deltaSec);
       if (!s.bewegt) {
@@ -273,8 +281,9 @@ export class RoutenVorschau {
       const w = aggroSchritt(p.prefab, jetzt.x, jetzt.z, ziele, deltaSec);
       if (w) {
         this.stehendeAggro.set(i, { x: w.x, z: w.z });
-        this.cb.zeichne(i, p, w.x, w.z, w.yaw, w.anim);
+        this.cb.zeichne(i, p, w.x, w.z, w.yaw, w.anim, this.schlagTakt.schritt(i, w.anim === 'attack', deltaSec, w.kampf.takt));
       } else if (this.stehendeAggro.delete(i)) {
+        this.schlagTakt.verliere(i);
         // Einmal zurück auf Startpunkt, gespeicherten Winkel und `idle`.
         this.cb.zeichne(i, p, p.x, p.z, p.yaw ?? 0, 'idle');
       }

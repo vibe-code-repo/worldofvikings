@@ -47,6 +47,8 @@
 import type { Vector3 } from '@wov/shared';
 import {
   ANIM_MEMBER,
+  ANIM_EINMAL_MEMBER,
+  naechstesEinmal,
   SPAWN_SIM_RADIUS,
   SPIELER_FRAKTION,
   aggroSchritt,
@@ -59,6 +61,7 @@ import {
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
+import { AnimKonflikt, nimmAnim } from './AnimBesitz.js';
 
 /**
  * Wie oft der Umkreis abgesucht wird. Viermal je Sekunde ist reichlich:
@@ -109,6 +112,8 @@ export class AggroSystem {
    * Vorfahrtsregel, und Kampf schlägt Spaziergang.
    */
   readonly gesperrt = new Set<string>();
+  /** ZDOs whose animation conflict was already reported (once each). */
+  private readonly konfliktGemeldet = new Set<string>();
   private readonly simRadius: number;
   private readonly pruefIntervallSec: number;
   private accum = 0;
@@ -173,6 +178,19 @@ export class AggroSystem {
         this.loese(key, zdo);
         continue;
       }
+      // Same side as the route walker (they hand over via `gesperrt`), but
+      // not the same as the SpawnSystem: a ZDO both would write is reported
+      // once and left alone, instead of flipping between two states.
+      try {
+        nimmAnim(zdo, 'npc');
+      } catch (e) {
+        if (!(e instanceof AnimKonflikt)) throw e;
+        if (!this.konfliktGemeldet.has(key)) {
+          this.konfliktGemeldet.add(key);
+          console.error(`[aggro] ${e.message} — not driven by the aggro system`);
+        }
+        continue;
+      }
       nochAktiv.add(key);
       const z = this.setze(key, zdo, w.yaw, w.anim);
       if (w.bewegt) this.ruecke(zdo, w.x, w.z);
@@ -208,6 +226,9 @@ export class AggroSystem {
     z.schlagAkku += vergangen;
     if (z.schlagAkku < kampf.takt) return;
     z.schlagAkku = Math.min(z.schlagAkku - kampf.takt, kampf.takt);
+    // One-shot event: the client plays the swing once per blow, in step with
+    // the damage — the state `attack` alone would be a loop.
+    zdo.setString(ANIM_EINMAL_MEMBER, naechstesEinmal(zdo.getString(ANIM_EINMAL_MEMBER), 'attack'));
     this.onSchlag?.(zdo.position, kampf.schaden, kampf.angriff);
   }
 

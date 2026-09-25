@@ -3405,6 +3405,9 @@ export class WovServer {
       // ANGREIFBAR: die eigenen NPCs mit Kampfwerten (shared/npc.ts). Sie
       // tragen bewusst kein *_AI-Flag, sonst verwaltete das Spawnsystem sie.
       if ((flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI | PrefabFlag.ANGREIFBAR)) === 0n) continue;
+      // Ein sterbendes Wesen (Todesclip laeuft) ist nicht mehr zu treffen:
+      // sein Leben steht auf 0, und der Schlag risse es als „frisch" hoch.
+      if (this.spawns?.stirbt(zdo)) continue;
       const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
       if (d >= best) continue;
       // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen
@@ -3430,7 +3433,9 @@ export class WovServer {
     // vom Spawn mit, und `adoptPersisted` trägt sie den alten nach.
     const hp = (ziel.getInt(HEALTH_MEMBER) || maxLeben(name)) - schaden;
     if (hp <= 0) {
-      this.zdosVon(peer).destroyZDO(ziel.zdoid);
+      // Mit Todesclip bleibt der Koerper, bis der Clip gespielt ist — das
+      // Spawnsystem raeumt ihn dann selbst weg. Ohne Clip wie bisher sofort.
+      if (!this.spawns?.sterbe(ziel)) this.zdosVon(peer).destroyZDO(ziel.zdoid);
       // F5: einzige verdrahtete Anwendung der Fortschrittsmarken — Eikthyr
       // besiegt heisst defeated_eikthyr, unabhaengig davon wie oft er ueber
       // den Altar (StatueDeer-Zweig oben) erneut beschworen wird. setzen()
@@ -3460,6 +3465,7 @@ export class WovServer {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
+      this.spawns?.treffer(ziel);
     }
   }
 

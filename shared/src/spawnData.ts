@@ -15,7 +15,7 @@
  */
 
 import { Biome } from './types.js';
-import type { KreaturAnim } from './constants.js';
+import { pruefeClips, type KreaturClip } from './kreaturAnim.js';
 import { istEigenesModell } from './prefabs.js';
 
 /** One creature kind's spawn + movement rules. */
@@ -71,8 +71,20 @@ export interface SpawnEntry {
    * would find no group there and freeze it).
    *
    * A state the model lacks falls back: `attack` -> `run` -> `walk` -> `idle`.
+   *
+   * The list is checked where the table is built (`pruefeClips`): it must not
+   * be empty, must contain `idle` and may only name known clips. `hit` and
+   * `die` are one-shots the server triggers (`SpawnSystem.treffer/sterbe`),
+   * not states. Listing a clip the model does not have is caught by the test
+   * against the manifest; the client reports what it cannot find.
    */
-  readonly clips?: readonly KreaturAnim[];
+  readonly clips?: readonly KreaturClip[];
+  /**
+   * Seconds the server keeps a slain creature so the `die` clip can play
+   * (the clip's length). Required when `clips` lists `die`; without `die` the
+   * creature disappears at once.
+   */
+  readonly dieSec?: number;
 }
 
 /** No player within this radius → creature despawns (meters). */
@@ -255,6 +267,9 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
  * synthetische Einträge für Bosse und NPCs).
  */
 function bauSpawnTabelle(): SpawnEntry[] {
+  // Every raw entry, also the dormant ones: a wrong `clips` must not wait
+  // for the creature to come back to be noticed.
+  for (const e of SPAWN_TABLE_ROH) pruefeClips(e.prefab, e.clips, e.dieSec);
   const liste = SPAWN_TABLE_ROH.filter((e) => istEigenesModell(e.prefab));
   const uebersprungen = SPAWN_TABLE_ROH.length - liste.length;
   if (uebersprungen > 0) {

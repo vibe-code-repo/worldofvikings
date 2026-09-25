@@ -179,6 +179,14 @@ export class NetManager {
     return this.acceptor.boundPort;
   }
 
+  /**
+   * Nimmt keine neuen Verbindungen mehr an, lässt die bestehenden aber
+   * stehen (der Save beim Herunterfahren liest noch ihre Peers).
+   */
+  schliesseAnnahme(): void {
+    this.acceptor.close();
+  }
+
   stop(): void {
     for (const peer of this.onlinePeers) {
       peer.disconnect('Server shutting down');

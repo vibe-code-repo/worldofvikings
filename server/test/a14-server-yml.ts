@@ -136,7 +136,7 @@ function toterSchluesselFaelltAuf(): void {
 async function speichertaktPruefen(): Promise<void> {
   console.log('4. world.save-interval steuert wirklich den Speichertakt');
   const TAKT_MS = 400;
-  const WARTEN_MS = 1_100;
+  const FRIST_MS = 5_000;
   const datenDir = fixture(
     [
       'server:',
@@ -169,21 +169,39 @@ async function speichertaktPruefen(): Promise<void> {
     // vorhandener Save nur, dass ueberhaupt gespeichert wird.
     pruefe('vor dem ersten Takt existiert kein Save', !existsSync(savePfad));
 
-    const zeitstempel = new Set<number>();
-    const bis = Date.now() + WARTEN_MS;
-    while (Date.now() < bis) {
-      await new Promise((f) => setTimeout(f, 50));
-      if (existsSync(savePfad)) zeitstempel.add(statSync(savePfad).mtimeMs);
+    // Deadline instead of a fixed window: server.start() blocks for about
+    // a second and the saves land at roughly +1x and +2x the interval, so a
+    // window that opens after start() had only ~300 ms of slack and went red
+    // under load. We wait until two saves were seen, at most FRIST_MS.
+    const beobachtet = new Map<number, number>(); // mtimeMs -> first seen at
+    const frist = Date.now() + FRIST_MS;
+    while (Date.now() < frist && beobachtet.size < 2) {
+      await new Promise((f) => setTimeout(f, 25));
+      if (existsSync(savePfad)) {
+        const m = statSync(savePfad).mtimeMs;
+        if (!beobachtet.has(m)) beobachtet.set(m, Date.now());
+      }
     }
-    // Mit dem Vorgabewert (30 min) waere hier NICHTS entstanden. Zwei
-    // verschiedene Schreibzeitpunkte in 1,1 s bei 400 ms Takt zeigen
-    // ausserdem, dass der Wert den TAKT setzt und nicht nur den ersten
-    // Schuss ausloest.
+    // With the default (30 min) nothing would appear here. Two distinct
+    // write times at a 400 ms interval show that the value sets the RATE
+    // and not merely the first shot.
     pruefe(
-      `mindestens 2 Speichervorgaenge in ${WARTEN_MS} ms`,
-      zeitstempel.size >= 2,
-      `${zeitstempel.size} verschiedene Schreibzeitpunkte`
+      `mindestens 2 Speichervorgaenge innerhalb von ${FRIST_MS} ms`,
+      beobachtet.size >= 2,
+      `${beobachtet.size} verschiedene Schreibzeitpunkte`
     );
+    // The gap between two saves must match the configured interval. The
+    // tolerance is generous (poll jitter, load): a gap ten times too long or
+    // a burst of back-to-back writes is caught, ordinary noise is not.
+    if (beobachtet.size >= 2) {
+      const [erster, zweiter] = [...beobachtet.keys()];
+      const abstand = zweiter - erster;
+      pruefe(
+        `Abstand der Saves passt zum Takt (${TAKT_MS} ms)`,
+        abstand >= TAKT_MS / 4 && abstand <= TAKT_MS * 4,
+        `${Math.round(abstand)} ms zwischen den Schreibzeitpunkten`
+      );
+    }
   } finally {
     server.stop();
     rmSync(TMP, { recursive: true, force: true });

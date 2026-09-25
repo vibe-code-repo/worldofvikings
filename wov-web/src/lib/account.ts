@@ -525,6 +525,20 @@ interface Call {
   timeoutMs?: number;
 }
 
+/**
+ * A signal that fires after `ms`. `AbortSignal.timeout` only exists from
+ * Safari 16, Chrome 103 and Firefox 100; without the fallback every account
+ * call, login included, would throw a bare TypeError on older browsers.
+ */
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  // Node keeps a pending timer alive; a browser has no such method.
+  (timer as { unref?: () => void }).unref?.();
+  return controller.signal;
+}
+
 async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
   const headers: Record<string, string> = {};
   if (a.body !== undefined) headers['content-type'] = 'application/json';
@@ -534,7 +548,7 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
   // KontoApi.ts.
   if (a.token) headers['x-wov-account'] = a.token;
 
-  const signal = AbortSignal.timeout(a.timeoutMs ?? CALL_TIMEOUT_MS);
+  const signal = timeoutSignal(a.timeoutMs ?? CALL_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(SHORES[shore].apiPrefix + path, {

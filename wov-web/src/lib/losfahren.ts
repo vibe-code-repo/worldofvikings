@@ -46,9 +46,13 @@ export interface Fahrt {
 
 export const neueFahrt = (): Fahrt => ({ angelegt: null, unklar: null });
 
-/** Same wish? Name compared like the database does (case-insensitive). */
-const schluesselVon = (w: Wunsch): string =>
-  JSON.stringify({ ...w, name: w.name.trim().toLowerCase() });
+/**
+ * Same wish on the same shore? Name compared like the database does
+ * (case-insensitive). Hero ids are per database, so the same id on another
+ * shore can be a different hero: the shore is part of the key.
+ */
+const schluesselVon = (w: Wunsch, gestade: string): string =>
+  JSON.stringify({ ...w, name: w.name.trim().toLowerCase(), gestade });
 
 const schluesselDes = (e: unknown): string =>
   typeof (e as { key?: unknown } | null)?.key === 'string' ? (e as { key: string }).key : '';
@@ -72,9 +76,14 @@ const ohneAntwort = (e: unknown): boolean => {
  * Returns the ticket, or throws the error of the failing call. `fahrt` is
  * updated before anything can throw, so the next click sees it.
  */
-export async function fahreLos(konto: Konto, fahrt: Fahrt, eingabe: Wunsch): Promise<Ticket> {
+export async function fahreLos(
+  konto: Konto,
+  fahrt: Fahrt,
+  eingabe: Wunsch,
+  gestade: string,
+): Promise<Ticket> {
   const wunsch = { ...eingabe, name: eingabe.name.trim() };
-  const schluessel = schluesselVon(wunsch);
+  const schluessel = schluesselVon(wunsch, gestade);
 
   if (fahrt.angelegt && fahrt.angelegt.schluessel === schluessel) {
     try {

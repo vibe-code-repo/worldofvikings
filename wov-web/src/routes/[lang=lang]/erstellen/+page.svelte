@@ -620,6 +620,9 @@
 
   async function gestadeGewechselt() {
     writeShore(gestade);
+    // Hero ids are per shore: what was half-done on the other one is not
+    // this shore's business.
+    Object.assign(fahrt, neueFahrt());
     merke();
     namensFehler = null;
     sendeFehler = null;
@@ -723,6 +726,7 @@
           top: '',
           legs: '',
         },
+        gestade,
       );
       // `weiter` came from `/anmelden`, forwarded here through the
       // address, and is only honoured same-origin — see `enterGame`.

@@ -619,7 +619,8 @@ export const de = {
   'account.error.server_error':
     'Der Server antwortet mit einem Fehler — bitte später noch einmal versuchen.',
   'account.error.network': 'Der Server ist nicht erreichbar — bitte die Verbindung prüfen.',
-  'account.error.timeout': 'Der Server antwortet nicht — bitte später noch einmal versuchen.',
+  'account.error.timeout':
+    'Der Server antwortet nicht. Ob es angekommen ist, ist unklar — lade die Seite neu und sieh nach.',
   'account.error.unexpected': 'Unerwartete Antwort vom Server — bitte die Seite neu laden.',
 
   /* ------------------------------------------ register (/registrieren) */

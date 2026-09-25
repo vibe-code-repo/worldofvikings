@@ -150,7 +150,7 @@ function baueAblauf(token) {
   };
   if (ablauf) {
     const fahrt = ablauf.neueFahrt();
-    return (w) => ablauf.fahreLos(konto, fahrt, w);
+    return (w) => ablauf.fahreLos(konto, fahrt, w, 'dev');
   }
   // Alter Stand: so rief die Seite es auf (createCharacter, dann play).
   return async (w) => {
@@ -279,8 +279,57 @@ async function szenarioE() {
     `${e3.wert?.sessionToken ?? schluessel(e3)}, anlegen=${z.anlegen}, play=${JSON.stringify(z.play)}`);
 }
 
+/* ---- f) Gestade gehört in den Schlüssel: gleiche Id auf einem anderen Gestade ist ein anderer Recke */
+async function szenarioF() {
+  const za = zustand('fa');
+  za.verhalten.playFehler = 1;
+  const zb = zustand('fb');
+  zb.helden.push({ id: 100, ...wunsch('Alter Sigurd'), created: 1, lastPlayed: null });
+  zb.naechsteId = 101;
+  let token = 'fa';
+  const konto = {
+    createCharacter: (w) => account.createCharacter('dev', token, w),
+    characters: () => account.me('dev', token),
+    play: (id) => account.play('dev', token, id),
+  };
+  if (!ablauf) return; // im alten Stand gibt es das Gedächtnis nicht
+  const fahrt = ablauf.neueFahrt();
+  const k1 = await messe(() => ablauf.fahreLos(konto, fahrt, wunsch(), 'dev'), 5000);
+  token = 'fb'; // anderes Gestade, anderes Konto, gleiche Id 100 gehört dort einem anderen Recken
+  const k2 = await messe(() => ablauf.fahreLos(konto, fahrt, wunsch(), 'live'), 5000);
+  pruefe('f) Gestadewechsel nach halbem Ablauf: Klick 1 server-error, Klick 2 legt am neuen Gestade an',
+    schluessel(k1) === 'server-error' && k2.wert?.sessionToken === 'ticket-101' && zb.anlegen === 1 && !zb.play.includes(100),
+    `${schluessel(k1)}, ${k2.wert?.sessionToken ?? schluessel(k2)}, B:anlegen=${zb.anlegen}, B:play=${JSON.stringify(zb.play)}`);
+}
+
+/* ---- a2) Browser ohne AbortSignal.timeout: Aufrufe gelingen, Hänger enden trotzdem */
+async function szenarioA2() {
+  const original = AbortSignal.timeout;
+  delete AbortSignal.timeout;
+  try {
+    pruefe('a2) Voraussetzung: AbortSignal.timeout ist entfernt', typeof AbortSignal.timeout !== 'function');
+    zustand('ohne').verhalten.nieAntworten = null; // aus Fall a) übrig
+    const l = await messe(() => account.login('dev', 'x', 'passwort1'), 5000);
+    const m = await messe(() => account.me('dev', 'a2'), 5000);
+    pruefe('a2) login gegen sofort antwortenden Stub gelingt', l.wert?.token === 't', `${l.ms} ms, ${l.wert ? 'Token' : String(l.fehler)}`);
+    pruefe('a2) me gegen sofort antwortenden Stub gelingt', Array.isArray(m.wert?.characters), `${m.ms} ms, ${m.wert ? 'ok' : String(m.fehler)}`);
+    zustand('a2h').verhalten.nieAntworten = () => true;
+    zustand('a2k').verhalten.kopfDannStille = () => true;
+    const [h, k] = await Promise.all([
+      messe(() => account.me('dev', 'a2h'), SKRIPT_LIMIT),
+      messe(() => account.me('dev', 'a2k'), SKRIPT_LIMIT),
+    ]);
+    pruefe("a2) hängender Stub endet mit 'timeout' in ≤ Limit+1 s", schluessel(h) === 'timeout' && h.ms <= SKRIPT_LIMIT, `${h.ms} ms, ${schluessel(h)}`);
+    pruefe("a2) Kopf gesendet, Rumpf hängt: 'timeout'", schluessel(k) === 'timeout' && k.ms <= SKRIPT_LIMIT, `${k.ms} ms, ${schluessel(k)}`);
+  } finally {
+    AbortSignal.timeout = original;
+  }
+}
+
 try {
-  await Promise.all([szenarioA(), szenarioB(), szenarioC(), szenarioD(), szenarioE()]);
+  await Promise.all([szenarioA(), szenarioB(), szenarioC(), szenarioD(), szenarioE(), szenarioF()]);
+  // Nach den anderen, weil es ein globales Objekt verändert.
+  await szenarioA2();
 } finally {
   for (const r of offen) r.destroy();
   await new Promise((ok) => stub.close(ok));

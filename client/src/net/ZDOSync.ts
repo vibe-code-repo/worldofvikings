@@ -16,7 +16,7 @@
  * gelesen und die Kreatur bei jedem Schritt zusammenschrumpfen.
  */
 import {
-  ANIM_MEMBER, FIGUR_MEMBER, FRISUR_MEMBER, RUESTUNG_MEMBER, HAARFARBE_MEMBER,
+  ANIM_MEMBER, ANIM_EINMAL_MEMBER, FIGUR_MEMBER, FRISUR_MEMBER, RUESTUNG_MEMBER, HAARFARBE_MEMBER,
   AUGENFARBE_MEMBER,
   HEALTH_MEMBER, LAYOUT_ID_MEMBER, STEIN_KIT_MEMBER, getStableHash,
 } from '@wov/shared';
@@ -28,6 +28,7 @@ const SCALE_HASH = getStableHash('scale');
 const LOCATION_PROXY_HASH = getStableHash('LocationProxy');
 const LOCATION_MEMBER_HASH = getStableHash('location');
 const ANIM_HASH = getStableHash(ANIM_MEMBER);
+const ANIM_EINMAL_HASH = getStableHash(ANIM_EINMAL_MEMBER);
 const HEALTH_HASH = getStableHash(HEALTH_MEMBER);
 const LAYOUT_ID_HASH = getStableHash(LAYOUT_ID_MEMBER);
 /** Gewaehlte Spielfigur am Charakter-ZDO (shared/figuren.ts). */
@@ -61,6 +62,12 @@ export interface ZDOEntityUpdate {
    * es bei der Animation aus PrefabDef (alle Prefabs ohne Route).
    */
   anim?: string;
+  /**
+   * Einmal-Ereignis (ZDO-Member `animEinmal`, `<clip>#<n>`): Schlag, Treffer,
+   * Tod. Der Zähler `n` macht auch das zweite gleiche Ereignis sichtbar; der
+   * Client spielt es einmal und fällt auf `anim` zurück.
+   */
+  animEinmal?: string;
   /**
    * Trefferpunkte (ZDO-Member `health`) — ABSOLUT, nicht in Prozent.
    *
@@ -209,6 +216,7 @@ export function parseZDOSync(
     let scale: number | Vector3 | undefined = basis?.scale;
     let locationFeatureHash: number | undefined = basis?.locationFeatureHash;
     let anim: string | undefined = basis?.anim;
+    let animEinmal: string | undefined = basis?.animEinmal;
     let health: number | undefined = basis?.health;
     let layoutId: string | undefined = basis?.layoutId;
     let figur: string | undefined = basis?.figur;
@@ -227,6 +235,8 @@ export function parseZDOSync(
         scale = reader.readVector3();
       } else if (memberHash === ANIM_HASH && memberType === 5) {
         anim = reader.readString();
+      } else if (memberHash === ANIM_EINMAL_HASH && memberType === 5) {
+        animEinmal = reader.readString();
       } else if (memberHash === HEALTH_HASH && memberType === 3) {
         health = reader.readInt32();
       } else if (memberHash === LAYOUT_ID_HASH && memberType === 5) {
@@ -268,6 +278,7 @@ export function parseZDOSync(
       scale,
       locationFeatureHash,
       anim,
+      animEinmal,
       health,
       layoutId,
       figur,

@@ -44,14 +44,19 @@ import {
   SPAWN_SYNC_INTERVAL_SEC,
   HEALTH_MEMBER,
   ANIM_MEMBER,
+  ANIM_EINMAL_MEMBER,
   maxLeben,
   istEigenesModell,
+  naechstesEinmal,
+  pruefeClips,
   type SpawnEntry,
   type KreaturAnim,
+  type EinmalClip,
 } from '@wov/shared';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZoneManager } from './ZoneManager.js';
+import { gibAnim, nimmAnim } from './AnimBesitz.js';
 
 export interface SpawnSystemOptions {
   /** Table override for tests (defaults to SPAWN_TABLE). */
@@ -81,19 +86,30 @@ interface CreatureState {
   attackAccum?: number;
   /** Last animation state written to the ZDO (`entry.clips` only). */
   anim?: KreaturAnim;
+  /** simTime at which a slain creature is removed (the `die` clip is playing). */
+  stirbtBis?: number;
 }
 
 /**
  * Pick the clip to play for a wanted state: the state itself if the model
  * ships it, else the nearest cheaper one (attack -> run -> walk -> idle).
  */
-function waehleClip(clips: readonly KreaturAnim[], wunsch: KreaturAnim): KreaturAnim {
+function waehleClip(clips: readonly string[], wunsch: KreaturAnim): KreaturAnim {
   const kette: readonly KreaturAnim[] =
     wunsch === 'attack' ? ['attack', 'run', 'walk', 'idle']
     : wunsch === 'run' ? ['run', 'walk', 'idle']
     : wunsch === 'walk' ? ['walk', 'idle']
     : ['idle'];
-  return kette.find((z) => clips.includes(z)) ?? 'idle';
+  const treffer = kette.find((z) => clips.includes(z));
+  // No silent 'idle' here: a state the model does not ship freezes the animal
+  // on the client (the group is not found, all groups stop). `pruefeClips`
+  // demands 'idle' in every list, so this is a bug guard, not a normal path.
+  if (treffer === undefined) {
+    throw new Error(
+      `[spawns] no clip for '${wunsch}' in [${clips.join(', ')}] — the list must contain 'idle'`
+    );
+  }
+  return treffer;
 }
 
 /**
@@ -144,7 +160,11 @@ export class SpawnSystem {
     private readonly zones: ZoneManager,
     options: SpawnSystemOptions = {}
   ) {
-    this.table = nurEigeneModelle(options.table ?? SPAWN_TABLE);
+    const roh = options.table ?? SPAWN_TABLE;
+    // Before the whitelist filter: an injected table with a wrong `clips`
+    // fails here, loudly, and not as an animal that stands still.
+    for (const e of roh) pruefeClips(e.prefab, e.clips, e.dieSec);
+    this.table = nurEigeneModelle(roh);
     // Reference parity: time-seeded default RNG (same as location
     // randomRotation) — tests inject a seeded one.
     this.rng = options.rng ?? new XorShiftRandom((Date.now() & 0x7fffffff) | 0);
@@ -197,6 +217,71 @@ export class SpawnSystem {
   }
 
   /**
+   * Trigger a one-shot clip (`animEinmal` = `<clip>#<n>`): the client plays it
+   * once and falls back to the state. Only for a clip the entry lists —
+   * returns whether it was written.
+   */
+  private einmal(c: CreatureState, clip: EinmalClip): boolean {
+    const clips = c.entry.clips;
+    if (!clips || !clips.includes(clip)) return false;
+    c.zdo.setString(ANIM_EINMAL_MEMBER, naechstesEinmal(c.zdo.getString(ANIM_EINMAL_MEMBER), clip));
+    return true;
+  }
+
+  /**
+   * A player hit this creature and it lives on: play `hit` once, if the model
+   * has the clip. Returns whether a clip was triggered.
+   */
+  treffer(zdo: ZDO): boolean {
+    const c = this.eigene(zdo);
+    if (!c || c.stirbtBis !== undefined) return false;
+    return this.einmal(c, 'hit');
+  }
+
+  /**
+   * A player killed this creature: if the entry lists `die`, play the clip and
+   * keep the body for `dieSec` (then this system destroys it) — returns true
+   * and the CALLER MUST NOT destroy the ZDO. Otherwise returns false and the
+   * caller destroys it at once, as before.
+   */
+  sterbe(zdo: ZDO): boolean {
+    const c = this.eigene(zdo);
+    if (!c || c.stirbtBis !== undefined || !this.einmal(c, 'die')) return false;
+    // pruefeClips guarantees dieSec whenever 'die' is listed; +0.25 s lets the
+    // last frame arrive before the body disappears.
+    c.stirbtBis = this.simTime + (c.entry.dieSec ?? 0) + 0.25;
+    c.zdo.setInt(HEALTH_MEMBER, 0);
+    return true;
+  }
+
+  /** Is this creature in its death animation (not hittable, not acting)? */
+  stirbt(zdo: ZDO): boolean {
+    return this.eigene(zdo)?.stirbtBis !== undefined;
+  }
+
+  /**
+   * The creature of THIS system that is this very ZDO. The id alone is no
+   * identity: an instance world has its own ZDOManager with the same
+   * serverUserId, so its ZDO can carry the id of a main-world creature —
+   * a blow in the instance would then kill or twitch the main-world animal
+   * (and pay the loot twice). Object identity refuses the stranger.
+   */
+  private eigene(zdo: ZDO): CreatureState | undefined {
+    const c = this.creatures.get(zdo.zdoid.toString());
+    return c !== undefined && c.zdo === zdo ? c : undefined;
+  }
+
+  /**
+   * Put a creature under this system. The single place that registers one, so
+   * the animation ownership is claimed exactly here (AnimBesitz): an entry
+   * that lists `clips` writes `anim`, and then no NPC system may share the ZDO.
+   */
+  private nimmAuf(key: string, c: CreatureState): void {
+    if (c.entry.clips) nimmAnim(c.zdo, 'kreatur');
+    this.creatures.set(key, c);
+  }
+
+  /**
    * Re-register creature ZDOs restored from the world save (call after
    * loadWorld). Their spawn position becomes their wander anchor.
    */
@@ -216,7 +301,7 @@ export class SpawnSystem {
           idleUntil: 0,
           syncAccum: 0,
         };
-        this.creatures.set(key, c);
+        this.nimmAuf(key, c);
         // A creature from the save may still say `walk` or `attack`.
         this.zeigeAnim(c, 'idle');
       }
@@ -243,10 +328,11 @@ export class SpawnSystem {
       );
       return;
     }
+    pruefeClips(entry.prefab, entry.clips, entry.dieSec);
     const key = zdo.zdoid.toString();
     if (this.creatures.has(key)) return;
     this.stelleLebenSicher(zdo, entry.prefab);
-    this.creatures.set(key, {
+    this.nimmAuf(key, {
       zdo,
       entry,
       home: { ...zdo.position },
@@ -267,6 +353,7 @@ export class SpawnSystem {
    */
   entlasse(zdo: ZDO): void {
     this.creatures.delete(zdo.zdoid.toString());
+    gibAnim(zdo, 'kreatur');
   }
 
   update(deltaSec: number, peerPositions: readonly Vector3[]): void {
@@ -358,7 +445,7 @@ export class SpawnSystem {
         idleUntil: this.simTime + this.rng.rangeFloat(entry.idleMinSec, entry.idleMaxSec),
         syncAccum: 0,
       };
-      this.creatures.set(zdo.zdoid.toString(), c);
+      this.nimmAuf(zdo.zdoid.toString(), c);
       this.zeigeAnim(c, 'idle');
     }
   }
@@ -374,6 +461,15 @@ export class SpawnSystem {
       // Extern getötet (Spieler-Angriff): Zustand aufräumen.
       if (c.zdo.destroyed) {
         this.creatures.delete(key);
+        continue;
+      }
+      // Slain: the body stays while the clip plays, then goes. Before the
+      // radius check — a body must not linger because the player walked off.
+      if (c.stirbtBis !== undefined) {
+        if (this.simTime >= c.stirbtBis) {
+          this.zdos.destroyZDO(c.zdo.zdoid);
+          this.creatures.delete(key);
+        }
         continue;
       }
       // Cheap rest when no player is near (position untouched, bit-exact)
@@ -401,6 +497,7 @@ export class SpawnSystem {
             c.attackAccum = (c.attackAccum ?? 0) + deltaSec;
             if (c.attackAccum >= 2) {
               c.attackAccum = 0;
+              this.einmal(c, 'attack');
               this.onCreatureAttack?.(c.zdo.position, 8, 2.4);
             }
           }

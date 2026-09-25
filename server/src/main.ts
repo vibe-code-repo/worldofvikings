@@ -164,5 +164,8 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', fahreHerunter);
 
-// Start the server
-server.start();
+// Start the server; a failed bind ends the process so systemd sees it
+server.start().catch((err: unknown) => {
+  console.error('[Main] Server could not start:', err instanceof Error ? err.message : err);
+  process.exit(1);
+});

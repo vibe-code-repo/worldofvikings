@@ -32,9 +32,9 @@ import {
   pruefeDungeon2Dokument,
   speichernKnopfGesperrt,
   speichernKnopfText,
-  spielHost2,
   type Dungeon2SpeicherZustand,
 } from '../src/editor/dungeon2/Dungeon2Katalog';
+import { dungeonUrl } from '../src/editor/spielAdresse';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pruefgeruest / test harness
@@ -255,11 +255,11 @@ pruefeGleich('ID-Muster stimmt mit admin/src/main.ts ueberein (Stichprobe)', DUN
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. spielHost2
+// 7. Betreten-Adresse (nur der Pfad; den Host setzt spielAdresse.dungeonZiel)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pruefeGleich('spielHost2: editor.* -> play.*', spielHost2('editor.dev.world-of-vikings.com'), 'play.dev.world-of-vikings.com');
-pruefeGleich('spielHost2: unveraendert ohne Praefix', spielHost2('play.dev.world-of-vikings.com'), 'play.dev.world-of-vikings.com');
+pruefeGleich('dungeonUrl: Pfad mit Basis', dungeonUrl('steingrab-2', '/play/'), '/play/?dungeon=steingrab-2');
+pruefe('dungeonUrl: kein Host', !/^[a-z]+:|^\/\//i.test(dungeonUrl('steingrab-2', '/play/')));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ergebnis / result

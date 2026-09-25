@@ -37,8 +37,12 @@ SyslogIdentifier=wov-karten
 # Ausserhalb von wov-web/build, damit kein Rollout sie ueberschreibt.
 # Das Rendern (~44 s, bis ~650 MB) soll Typpruefungen und Testlaeufe nicht
 # ausbremsen; es steht ausserhalb von tools/sperre.sh.
+# Nice und CPUWeight gelten nur gegenueber den anderen Diensten (system.slice);
+# Sitzungen ueber SSH laufen in user.slice, dort wirken sie nicht.
+# CPUQuota ist die harte Grenze: hoechstens 2 der 8 Kerne.
 Nice=10
 CPUWeight=20
+CPUQuota=200%
 StateDirectory=wov-karten
 # Sperre gegen gleichzeitige Laeufe: /run/wov-karten/sperre (tmpfs, beim Boot
 # leer, ueberlebt keinen Absturz). Ist sie gehalten, endet der Lauf mit 75.

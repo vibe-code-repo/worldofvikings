@@ -8,18 +8,21 @@
  *
  * Shape: a CIRCLE around the placement point (`kreis`), tested against the
  * plant CENTRE only — a trunk or crown may still overhang the edge.
- * A rotated box is covered by the circle through its farthest corner: the
- * placement yaw is not known to every caller, and a circle over-clears a
- * long thin object (a jetty) a little rather than leaving a corner planted.
+ * The circle covers the object in EVERY rotation: radius = half the longest
+ * horizontal edge of the hull plus the horizontal offset of the hull centre
+ * from the origin (times the placement scale). That is the same sum the
+ * test-flight plinth uses; NOT the diagonal of the box, which over-clears a
+ * round or long object (a burial mound: 30 m instead of 22 m).
  *
  * Radius per placement, in this order:
  *  1. `einebnen` — the plateau radius the placement already declares; the
  *     scatter must not stand on ground that is levelled anyway. Never below
  *     `FREIFLAECHE_VORGABE`: a tiny plateau must not clear less than none.
- *  2. Footprint from the shared hull helper (`huellenAufloeser`: store
- *     catalogue, upload registry) or, for own models without a hull, the
- *     prefab's `renderScale` width: farthest corner of the box from the
- *     placement point, times the placement scale.
+ *  2. Hull: shared hull helper (`huellenAufloeser`: store catalogue, upload
+ *     registry), then the manifest hull of own models (`assets/manifest.json`
+ *     — server reads it from disk, client fetches it), and only without a
+ *     manifest entry the prefab's `renderScale` width (placeholder box, half
+ *     the edge).
  *  3. `FREIFLAECHE_VORGABE` (1.5 m) when no hull is known: about the
  *     footprint of a crate or a small prop, so a tree cannot stand inside
  *     it, yet the scatter around it stays practically untouched.
@@ -31,7 +34,9 @@
 import type { ClearArea } from '../worldgen/streuung.js';
 import { PREFABS_BY_NAME } from '../prefabs.js';
 import { huellenAufloeser, type Huelle, type HuellenAufloeser } from '../weltbau/huelle.js';
+import { manifestHuellen, type ManifestModell } from '../weltbau/manifest.js';
 import type { PlacementDef, WorldLayout } from './types.js';
+import { sanitizeWorldLayout } from './sanitize.js';
 
 export const FREIFLAECHE_VORGABE = 1.5;
 export const FREIFLAECHE_MIN = 0.75;
@@ -42,14 +47,19 @@ const ZONE_EDGE = 64;
 const endlich = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /**
- * Hull lookup used for the radius: the shared resolver, and for prefabs it
- * does not know (own models such as rocks) a square box from `renderScale`.
- * One instance caches per prefab — create a new one when uploads change.
+ * Hull lookup used for the radius: the shared resolver, then the manifest
+ * hull of own models, and for prefabs without a manifest entry a square box
+ * from `renderScale`. One instance caches per prefab — create a new one when
+ * uploads or the manifest change. Server and client must pass the SAME
+ * manifest, or preview and server clear different areas.
  */
-export function freiflaechenHuellen(): HuellenAufloeser {
+export function freiflaechenHuellen(
+  manifest?: ReadonlyMap<string, ManifestModell> | null
+): HuellenAufloeser {
   const basis = huellenAufloeser();
+  const ausManifest = manifest && manifest.size > 0 ? manifestHuellen(manifest) : null;
   return (prefab) => {
-    const h = basis(prefab);
+    const h = basis(prefab) ?? ausManifest?.(prefab) ?? null;
     if (h) return h;
     const w = PREFABS_BY_NAME.get(prefab)?.renderScale?.w;
     if (!endlich(w) || w <= 0) return null;
@@ -67,11 +77,21 @@ function radiusFuer(p: PlacementDef, huellen: HuellenAufloeser): number {
   const h = huellen(p.prefab);
   if (!h) return FREIFLAECHE_VORGABE;
   const skala = endlich(p.scale) && p.scale > 0 ? p.scale : 1;
-  const ex = Math.abs(h.mitteX) + h.halbX;
-  const ez = Math.abs(h.mitteZ) + h.halbZ;
-  const r = Math.hypot(ex, ez) * skala;
+  const r = (Math.max(h.halbX, h.halbZ) + Math.hypot(h.mitteX, h.mitteZ)) * skala;
   if (Number.isNaN(r)) return FREIFLAECHE_VORGABE;
   return Math.min(FREIFLAECHE_MAX, Math.max(FREIFLAECHE_MIN, r));
+}
+
+/**
+ * Placements as the server sees them: through the same `sanitizeWorldLayout`
+ * (clamps `scale` 0.2–5 and `einebnen` 1–100, drops bad entries, merges
+ * duplicates). For a caller that holds RAW placements (the test-flight draft
+ * from local storage). Anything the sanitizer rejects yields an empty list.
+ */
+export function platzierungenBereinigt(roh: unknown): PlacementDef[] {
+  if (!Array.isArray(roh)) return [];
+  const l = sanitizeWorldLayout({ version: 1, name: 'x', continents: [], regions: [], placements: roh });
+  return l?.placements ? [...l.placements] : [];
 }
 
 /** Clear areas of all placements of a layout (empty without placements). */

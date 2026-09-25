@@ -2173,6 +2173,7 @@ const KERN = [
   ['server', 'test/bewuchs-freiraum.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['client', 'test/bewuchs-freiraum-vorschau.ts'],
+  ['client', 'test/bewuchs-quellen.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

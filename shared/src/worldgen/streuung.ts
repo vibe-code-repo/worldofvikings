@@ -97,13 +97,26 @@ function inArea(a: ClearArea, p: Vector3): boolean {
 const RASTER_AB = 24;
 const RASTER_KANTE = 16;
 
+function gueltigeFlaeche(a: ClearArea): boolean {
+  return (
+    Number.isFinite(a.radius) &&
+    a.radius > 0 &&
+    Number.isFinite(a.center.x) &&
+    Number.isFinite(a.center.z)
+  );
+}
+
 /**
  * Prüfer „Punkt in einer Freifläche“. Bei vielen Flächen (Zonen mit Hunderten
  * Platzierungen) sortiert ein Raster die Flächen in Zellen ihres Umrisskastens
  * vor; das Ergebnis ist dasselbe wie die lineare Suche, nur ohne jeden
  * Kandidaten gegen alle Flächen zu prüfen.
  */
-function freiflaechenPruefer(areas: readonly ClearArea[]): (p: Vector3) => boolean {
+export function freiflaechenPruefer(alle: readonly ClearArea[]): (p: Vector3) => boolean {
+  // Nicht-endliche und nicht-positive Radien (und Mittelpunkte) werden in
+  // BEIDEN Wegen verworfen: Sonst hinge das Ergebnis an der Flächenzahl
+  // (Infinity hing im Raster, ein negativer Kreisradius zählte linear als |r|).
+  const areas = alle.every(gueltigeFlaeche) ? alle : alle.filter(gueltigeFlaeche);
   if (areas.length < RASTER_AB) return (p) => areas.some((a) => inArea(a, p));
   const zellen = new Map<number, ClearArea[]>();
   const schluessel = (i: number, j: number): number => i * 65536 + j;

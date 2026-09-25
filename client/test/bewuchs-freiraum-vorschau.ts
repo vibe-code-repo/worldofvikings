@@ -11,7 +11,7 @@
  *
  * Lauf:  npx tsx test/bewuchs-freiraum-vorschau.ts
  */
-import { GRASLAND_FLORA_NAMEN, RegionGeo, sanitizeWorldLayout, type PlacementDef } from "@wov/shared";
+import { GRASLAND_FLORA_NAMEN, RegionGeo, freiflaechenAusPlatzierungen, platzierungenBereinigt, sanitizeWorldLayout, type PlacementDef } from "@wov/shared";
 import * as weltModul from "../src/world/World";
 import { BewuchsVorschau } from "../src/editor/BewuchsVorschau";
 
@@ -28,7 +28,7 @@ function check(name: string, cond: boolean, detail = ""): void {
   }
 }
 
-function baue(placements: unknown[], provider?: () => readonly PlacementDef[]) {
+function baue(placements: unknown[], provider?: () => readonly PlacementDef[], marke?: () => string | null) {
   const layout = sanitizeWorldLayout({
     version: 1,
     name: "K5.5a-Vorschau",
@@ -64,6 +64,7 @@ function baue(placements: unknown[], provider?: () => readonly PlacementDef[]) {
     ent as never,
     undefined,
     provider ?? null,
+    marke ?? null,
   );
   const liste = () =>
     [...live.values()].map((u) => ({ h: u.prefabHash, x: u.position.x, y: u.position.y, z: u.position.z }));
@@ -127,6 +128,44 @@ console.log("\nVorschau folgt den aktuellen Platzierungen:");
   aktuell = [{ ...haus, x: MITTE.x + 200, z: MITTE.z + 200 } as PlacementDef];
   const verschoben = lauf();
   check("Platzierung weit verschoben: alte Stelle wieder bewachsen", verschoben === leer, `${verschoben} (vorher ${leer})`);
+}
+
+// ── N2 F4: unveränderter Entwurf = kein Parsen, kein Rechnen ──
+console.log("\nAbgleich ohne Änderung:");
+{
+  let aufrufe = 0;
+  let text = "A";
+  let aktuell: PlacementDef[] = [];
+  const { v } = baue([], () => { aufrufe++; return aktuell; }, () => text);
+  let t = 0;
+  for (let i = 0; i < 5; i++) v.schritt(0, 0, (t += 100)); // erste Zone streuen: Liste wird gebaut
+  const nachAufbau = aufrufe;
+  for (let i = 0; i < 100; i++) v.schritt(0, 0, (t += 300)); // 100 Abgleiche, Marke gleich
+  check("Marke gleich: der Entwurf wird nicht mehr gelesen", aufrufe === nachAufbau, `${aufrufe - nachAufbau} Leseaufrufe in 100 Abgleichen`);
+  aktuell = [{ prefab: "BirkeDicht1", x: 10, z: 10, einebnen: RADIUS } as PlacementDef];
+  text = "B";
+  for (let i = 0; i < 3; i++) v.schritt(0, 0, (t += 300));
+  check("Marke geändert: der Entwurf wird gelesen", aufrufe > nachAufbau, `${aufrufe - nachAufbau} Leseaufrufe`);
+}
+
+// ── N2 F3: der Provider bereinigt wie der Server ──
+console.log("\nRohwerte durch dieselbe Bereinigung wie der Server:");
+{
+  const roh: Array<[string, Record<string, unknown>]> = [
+    ["einebnen 0", { einebnen: 0 }],
+    ["einebnen -3", { einebnen: -3 }],
+    ["scale 0", { scale: 0 }],
+    ["scale 0,1", { scale: 0.1 }],
+    ["scale 10", { scale: 10 }],
+    ['scale "2"', { scale: "2" }],
+  ];
+  for (const [name, extra] of roh) {
+    const eintraege = [{ prefab: "Grabhuegel", x: 5, z: 5, ...extra }];
+    const vorschau = freiflaechenAusPlatzierungen({ placements: platzierungenBereinigt(eintraege) }).map((a) => a.radius);
+    const server = freiflaechenAusPlatzierungen(sanitizeWorldLayout({ version: 1, name: "x", continents: [], regions: [], placements: eintraege })!).map((a) => a.radius);
+    const unbereinigt = freiflaechenAusPlatzierungen({ placements: eintraege as never }).map((a) => a.radius);
+    check(`${name}: Vorschau = Server`, vorschau.length === 1 && vorschau[0] === server[0], `Vorschau ${vorschau[0]} = Server ${server[0]} (roh ${unbereinigt[0]})`);
+  }
 }
 
 if (failures > 0) {

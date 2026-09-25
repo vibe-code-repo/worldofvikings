@@ -76,6 +76,8 @@ import {
   type StreuFund,
 } from './bewuchsTypen';
 import type { ClearArea, PlacementDef } from '@wov/shared';
+import { uploadedModelEntries } from '@wov/shared/src/uploadedModelRegistry.js';
+import type { ManifestModell } from '@wov/shared/src/weltbau/manifest.js';
 import type { EntityManager } from '../entities/EntityManager';
 
 /** Wie viel die Vorschau zeigt: voll = 5x5 Zonen, klein = 3x3, aus = nichts. */
@@ -130,6 +132,15 @@ export class BewuchsVorschau {
   /** Abstand in ms, in dem die Platzierungen auf Aenderungen geprueft werden. */
   private static readonly PLATZIERUNGEN_PRUEFEN_MS = 250;
   private platzierungenGeprueftMs = -Infinity;
+  /** Manifest-Hüllen eigener Modelle (dieselbe Datei, die der Server von der Platte liest). */
+  private manifest: ReadonlyMap<string, ManifestModell> | null = null;
+  /**
+   * Zählmarke des Entwurfs beim letzten Rechnen (Rohtext) und Zahl der
+   * Upload-Modelle. Ändert sich keins von beiden, wird im 250-ms-Abgleich
+   * weder geparst noch gerechnet.
+   */
+  private letzteMarke: string | null | undefined = undefined;
+  private letzteUploads = -1;
 
   /**
    * `platzierungen` liefert die AKTUELLEN Platzierungen (im Testflug der
@@ -141,8 +152,22 @@ export class BewuchsVorschau {
     private readonly welt: ClientWorldLike,
     private readonly ent: EntityManager,
     private readonly nachlaufMs = NACHLAUF_MS,
-    private readonly platzierungen: (() => readonly PlacementDef[] | null | undefined) | null = null
+    private readonly platzierungen: (() => readonly PlacementDef[] | null | undefined) | null = null,
+    /**
+     * Billige Änderungsmarke des Entwurfs (im Testflug der Rohtext aus dem
+     * Speicher). Ohne sie rechnet der Abgleich jedes Mal alles neu.
+     */
+    private readonly marke: (() => string | null) | null = null
   ) {}
+
+  /**
+   * Manifest-Hüllen nachreichen (kommen asynchron) — die Radien ändern sich,
+   * also wird alles neu gestreut.
+   */
+  setzeManifest(manifest: ReadonlyMap<string, ManifestModell> | null): void {
+    this.manifest = manifest;
+    this.neuAufbauen();
+  }
 
   /**
    * Je Aufruf hoechstens eine Zone gestreut UND hoechstens eine abgebaut —
@@ -260,8 +285,11 @@ export class BewuchsVorschau {
 
   private freiflaechenBerechnen(): readonly ClearArea[] {
     if (!this.welt.regionGeo) return [];
+    // Marke VOR dem Lesen des Entwurfs: ein Schreiber dazwischen wird beim nächsten Abgleich erkannt.
+    this.letzteMarke = this.marke?.();
+    this.letzteUploads = uploadedModelEntries().length;
     const quelle = this.platzierungen?.() ?? this.welt.regionGeo.layout.placements;
-    return freiflaechenAusPlatzierungen({ placements: quelle }, freiflaechenHuellen());
+    return freiflaechenAusPlatzierungen({ placements: quelle }, freiflaechenHuellen(this.manifest));
   }
 
   /**
@@ -275,6 +303,14 @@ export class BewuchsVorschau {
     this.platzierungenGeprueftMs = this.jetztMs;
     const alt = this.freiflaechenListe;
     if (alt === null) return; // noch nichts gestreut, nichts zu vergleichen
+    // Nichts geändert (gleiche Marke, gleiche Upload-Zahl): weder parsen noch rechnen.
+    if (
+      this.marke !== null &&
+      this.marke() === this.letzteMarke &&
+      uploadedModelEntries().length === this.letzteUploads
+    ) {
+      return;
+    }
     const neu = this.freiflaechenBerechnen();
     const schl = (a: ClearArea): string => `${a.center.x},${a.center.z},${a.radius}`;
     const vorher = new Set(alt.map(schl));

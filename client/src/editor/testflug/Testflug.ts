@@ -18,6 +18,7 @@ import {
   istNpcPrefab,
   loeseNpcAuf,
   PLATEAU_RAND_MAX,
+  platzierungenBereinigt,
   RegionGeo,
   sanitizeWorldLayout,
 } from '@wov/shared';
@@ -28,6 +29,8 @@ import { RoutenEditor } from '../RoutenEditor';
 import { RoutenVorschau } from '../RoutenVorschau';
 import { verdrahteBewuchsStufe } from './BewuchsStufe';
 import { BewuchsVorschau } from '../BewuchsVorschau';
+import { ladeHochgeladeneRegistrierung } from '../../net/UploadedModelRegistryLoad';
+import { abweichungsText, holeManifestText, ladeBewuchsQuellen } from './BewuchsQuellen';
 import { LageAnzeige } from './LageAnzeige';
 import { positionLines, regionAt } from './inselwahl';
 import { planReturn, sendReturnFromBrowser } from './ruecksprung';
@@ -471,11 +474,39 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           ent,
           undefined,
           // Der Entwurf ändert sich beim Setzen, Ziehen und Löschen; das
-          // Layout der Welt bleibt, wie es beim Start war.
-          () => persistenz.laden()?.placements as never
+          // Layout der Welt bleibt, wie es beim Start war. Durch dieselbe
+          // Bereinigung wie auf dem Server (scale 0,2–5, einebnen 1–100),
+          // sonst rechnet die Vorschau mit Rohwerten, die der Server klemmt.
+          () => platzierungenBereinigt(persistenz.laden()?.placements),
+          // Rohtext als Änderungsmarke: unverändert = nicht parsen, nicht rechnen.
+          persistenz.rohtext ? () => persistenz.rohtext!() : null
         )
       : null;
     if (bewuchs) {
+      // Manifest-Hüllen und Upload-Registry wie der Server: kommen asynchron,
+      // dann wird neu gestreut. Fehlt eine Quelle, sagt es die Meldung.
+      const namen = ((testflug as { placements?: EntwurfEintrag[] }).placements ?? []).map((p) => p.prefab);
+      void ladeBewuchsQuellen(namen, {
+        holeManifest: holeManifestText,
+        ladeRegistry: () => ladeHochgeladeneRegistrierung(),
+        bekannt: (n) => findPrefabByName(n) !== undefined,
+      }).then((b) => {
+        if (b.manifest) bewuchs.setzeManifest(b.manifest);
+        else if (b.registryNachgeladen) bewuchs.neuAufbauen();
+        // Jetzt bekannte Upload-Modelle nachzeichnen (beim Start ausgelassen).
+        if (b.registryNachgeladen) {
+          const liste = (testflug as { placements?: EntwurfEintrag[] }).placements ?? [];
+          liste.forEach((p, i) => {
+            if (b.unbekannteUploads.includes(p.prefab) && !b.weiterUnbekannt.includes(p.prefab)) zeige(p, i);
+          });
+          ent.flush();
+        }
+        const text = abweichungsText(b);
+        if (text) {
+          console.warn(`[Bewuchs] ${text}`);
+          hud.meldung(text);
+        }
+      });
       // G, not V: V is the build mode (above). Both used to share V, so one
       // press flew AND threw the vegetation preview away.
       hud.meldung('Bewuchs-Vorschau: wächst um dich herum nach (G baut sie neu auf)');

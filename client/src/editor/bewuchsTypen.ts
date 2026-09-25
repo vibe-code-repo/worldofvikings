@@ -12,6 +12,7 @@ export {
   freiflaechenAusPlatzierungen,
   freiflaechenFuerZone,
   freiflaechenHuellen,
+  platzierungenBereinigt,
 } from '@wov/shared';
 export type { StreuFund } from '@wov/shared';
 

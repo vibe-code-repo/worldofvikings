@@ -2206,6 +2206,7 @@ const KERN = [
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
+  ['shared', 'test/kollision-upload-entscheid.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -37,7 +37,7 @@
  * after the web build.
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -161,52 +161,94 @@ pruefe(schritt8.length === 1, 'genau ein Schritt 8 (dienste_starten als eigene Z
 function rolloutKern(quelle: string): string | null {
   const zl = quelle.split('\n');
   const a = zl.indexOf('echo "▶ Tests"');
-  const z = zl.indexOf('gesundheit_pruefen', Math.max(a, 0));
+  let z = -1;
+  for (let i = Math.max(a, 0); i < zl.length && z < 0; i++) if (/^gesundheit_pruefen(\s+#.*)?$/.test(zl[i])) z = i;
   return a >= 0 && z > a ? zl.slice(a, z).join('\n') : null;
 }
 const kern = rolloutKern(update);
 pruefe(kern !== null, 'wov-update.sh: Bereich von echo "▶ Tests" bis gesundheit_pruefen gefunden');
 
-if (kern !== null && aufraeumen !== null) {
+// The probe below executes this range. Nothing in it may reach a real command,
+// so any direct call of the service manager (also by absolute path, `command -p`
+// or `service`) turns the test red BEFORE anything runs. The range needs no
+// systemctl at all: the services are started by dienste_starten and aufraeumen.
+const verbotTreffer =
+  kern === null
+    ? []
+    : kern.split('\n').filter(
+        (z) => /systemctl/.test(z) || /(^|[;&|(])\s*service\s/.test(z) || /command\s+-p/.test(z) || /(^|[\s;&|(=])\/(usr\/)?(local\/)?s?bin\//.test(z),
+      );
+pruefe(verbotTreffer.length === 0, 'Bereich Tests bis Gesundheitspruefung: kein systemctl, service, command -p, absoluter Systempfad', verbotTreffer.join(' | '));
+
+// The flag is set exactly once before the web build and cleared exactly once after step 8;
+// outside the cleanup block no other line may name it (a set one line too early would survive red tests).
+const ohneAufraeumen = aufraeumen === null ? update : update.replace(aufraeumen, '');
+const flagZeilen = ohneAufraeumen.split('\n').filter((z) => z.includes('NEUSTART_BEI_ABBRUCH'));
+const flagImKern = kern === null ? [] : kern.split('\n').filter((z) => z.includes('NEUSTART_BEI_ABBRUCH'));
+const ohneKommentar = (z: string) => z.replace(/\s+#.*$/, '').trim().replace(/^export\s+/, '');
+pruefe(
+  flagZeilen.length === 2 && flagImKern.length === 2 && ohneKommentar(flagImKern[0] ?? '') === 'NEUSTART_BEI_ABBRUCH=1' && ohneKommentar(flagImKern[1] ?? '') === 'NEUSTART_BEI_ABBRUCH=0',
+  'NEUSTART_BEI_ABBRUCH steht ausserhalb des Aufraeumblocks in genau 2 Zeilen (Setzen vor dem Webbau, Ruecksetzen nach Schritt 8), beide im Bereich',
+  `${flagZeilen.length} Zeilen, ${flagImKern.length} im Bereich: ${flagZeilen.join(' | ')}`,
+);
+
+if (kern !== null && aufraeumen !== null && verbotTreffer.length === 0) {
   const temp = mkdtempSync(join(tmpdir(), 'vorschau-kern-'));
   try {
     const bin = join(temp, 'bin');
+    const werkzeug = join(temp, 'werkzeug');
     mkdirSync(bin, { recursive: true });
+    mkdirSync(werkzeug, { recursive: true });
+    // The probe's PATH is ONLY the fake directory plus symlinks to the tools the range
+    // really needs; the caller's PATH is not passed on. Everything else (curl, service,
+    // nginx, ssh ...) is "command not found" and turns the run red.
+    const gebraucht = ['bash', 'mktemp', 'tee', 'cat', 'grep', 'sed', 'rm', 'mkdir', 'mv', 'cp', 'find', 'wc', 'date', 'sleep', 'tail', 'head', 'cut', 'tr', 'dirname', 'basename'];
+    const suchpfade = ['/usr/bin', '/bin', '/usr/local/bin'];
+    for (const w of gebraucht) {
+      const ort = suchpfade.map((d) => join(d, w)).find((p) => existsSync(p));
+      pruefe(ort !== undefined, `Werkzeug fuer die Probe vorhanden: ${w}`);
+      if (ort !== undefined) symlinkSync(ort, join(werkzeug, w));
+    }
+    const bash = join(werkzeug, 'bash');
     // Every fake counts its calls in $LOG; node/npm/tsx take their exit code from the environment.
     const fake = (pfad: string, inhalt: string) => {
-      writeFileSync(pfad, `#!/bin/bash\n${inhalt}\n`);
+      writeFileSync(pfad, `#!${bash}\n${inhalt}\n`);
       chmodSync(pfad, 0o755);
     };
     fake(join(bin, 'node'), 'echo "node $1" >> "$LOG"\n[ "$1" = scripts/run-tests.mjs ] && exit "${TESTRC:-0}"\n[ "$1" = tools/vorschau-buendeln.mjs ] && exit "${BUENDELRC:-0}"\nexit 0');
     fake(join(bin, 'npm'), 'echo "npm $*" >> "$LOG"\n[ "$1" = run ] && exit "${NPMRC:-0}"\nexit 0');
-    fake(join(bin, 'git'), 'exit 0');
+    fake(join(bin, 'git'), 'echo abc1234');
     fake(join(bin, 'systemctl'), 'echo "systemctl $*" >> "$LOG"');
-    const kernLauf = (name: string, env: Record<string, string>) => {
+    const kernLauf = (name: string, env: Record<string, string>, instanz = 'dev') => {
       const cwd = join(temp, name);
-      mkdirSync(join(cwd, 'node_modules/.bin'), { recursive: true });
-      mkdirSync(join(cwd, 'wov-web/static/assets/js'), { recursive: true });
-      mkdirSync(join(cwd, 'wov-web/tools'), { recursive: true });
+      for (const d of ['node_modules/.bin', 'wov-web/static/assets/js', 'wov-web/tools', 'client/dist', 'sicherung']) mkdirSync(join(cwd, d), { recursive: true });
       writeFileSync(join(cwd, 'wov-web/static/assets/js/vorschau.js'), 'x\n');
       writeFileSync(join(cwd, 'wov-web/tools/ohne-js-pruefen.sh'), 'exit 0\n');
       fake(join(cwd, 'node_modules/.bin/tsx'), 'echo "tsx" >> "$LOG"');
+      fake(join(cwd, 'node_modules/.bin/vite'), 'echo "vite" >> "$LOG"\nexit "${VITERC:-0}"');
       const log = join(cwd, 'log');
       writeFileSync(log, '');
       const skript = [
         'set -euo pipefail',
-        'INSTANZ=dev',
+        `INSTANZ=${instanz}`,
+        `WURZEL=${JSON.stringify(cwd)}`,
+        `VERSION_DATEI=${JSON.stringify(join(cwd, 'VERSION'))}`,
+        `SICHERUNG_VERZEICHNIS=${JSON.stringify(join(cwd, 'sicherung'))}`,
         'DIENSTE=(wov-server wov-client wov-admin wov-web)',
         aufraeumen,
         // The stop step of the real script has happened by now.
         'DIENSTE_GESTOPPT=1',
         'dienste_starten() { echo STARTEN >> "$LOG"; }',
         'gesundheit_pruefen() { echo "GESUNDHEIT flag=$NEUSTART_BEI_ABBRUCH" >> "$LOG"; }',
+        'dist_sichern() { echo dist_sichern >> "$LOG"; }',
+        'dist_tauschen() { echo dist_tauschen >> "$LOG"; }',
         kern,
         'gesundheit_pruefen',
       ].join('\n');
-      const r = spawnSync('bash', ['-c', skript], {
+      const r = spawnSync(bash, ['-c', skript], {
         cwd,
         encoding: 'utf8',
-        env: { PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`, LOG: log, TMPDIR: cwd, HOME: cwd, ...env },
+        env: { PATH: `${bin}:${werkzeug}`, LOG: log, TMPDIR: cwd, HOME: cwd, ...env },
       });
       const zl = readFileSync(log, 'utf8').split('\n').filter((z) => z !== '');
       return {
@@ -217,6 +259,7 @@ if (kern !== null && aufraeumen !== null) {
         systemctlStart: zl.findIndex((z) => z.startsWith('systemctl start')),
         bau: zl.findIndex((z) => z === 'npm run build'),
         start: zl.indexOf('STARTEN'),
+        vite: zl.findIndex((z) => z === 'vite'),
         gesundheit: zl.find((z) => z.startsWith('GESUNDHEIT')) ?? '',
       };
     };
@@ -244,6 +287,23 @@ if (kern !== null && aufraeumen !== null) {
     pruefe(gruen.bau >= 0 && gruen.start > gruen.bau, 'alles gruen: der Start kommt nach dem Webbau', `bau=${gruen.bau} start=${gruen.start}`);
     pruefe(gruen.systemctlStart < 0, 'alles gruen: kein systemctl start im Bereich (Dienste kommen nur aus Schritt 8)', gruen.log.join(' | '));
     pruefe(gruen.gesundheit === 'GESUNDHEIT flag=0', 'alles gruen: das Flag ist vor der Gesundheitspruefung 0', gruen.gesundheit);
+    pruefe(gruen.vite < 0, 'dev: kein Client-Bau (vite laeuft nur auf live)', gruen.log.join(' | '));
+
+    // ── live: zusaetzlich der Client-Bau vor dem Webbau (Reihenfolge wird gemessen, nicht angenommen) ──
+    const lRot = kernLauf('live-tests-rot', { TESTRC: '1' }, 'live');
+    pruefe(lRot.rc !== 0 && lRot.starts === 0 && lRot.systemctlStart < 0 && lRot.vite < 0 && lRot.bau < 0, 'live, Tests rot: 0 Starts, kein Client-Bau, kein Webbau', `rc=${lRot.rc} ${lRot.log.join(' | ')}`);
+    const lVite = kernLauf('live-vite-rot', { VITERC: '1' }, 'live');
+    pruefe(lVite.rc !== 0 && lVite.vite >= 0, 'live, Client-Bau rot: vite lief und brach ab', `rc=${lVite.rc} ${lVite.log.join(' | ')}`);
+    pruefe(lVite.starts === 0 && lVite.systemctlStart < 0, 'live, Client-Bau rot: 0 Starts (neuer Server mit altem Client waere ein Fehlstand)', `starts=${lVite.starts} ${lVite.log.join(' | ')}`);
+    pruefe(lVite.bau < 0, 'live, Client-Bau rot: der Webbau laeuft nicht mehr', lVite.log.join(' | '));
+    pruefe(lVite.stderr.includes('GESTOPPT'), 'live, Client-Bau rot: Meldung sagt GESTOPPT', lVite.stderr);
+    const lBau = kernLauf('live-webbau-rot', { NPMRC: '1' }, 'live');
+    pruefe(lBau.rc !== 0 && lBau.vite >= 0 && lBau.bau >= 0 && lBau.starts === 1, 'live, Webbau rot: Client gebaut, Neustart in aufraeumen, genau 1 Start', `rc=${lBau.rc} starts=${lBau.starts} ${lBau.log.join(' | ')}`);
+    const lGruen = kernLauf('live-gruen', {}, 'live');
+    pruefe(lGruen.rc === 0 && lGruen.starts === 1 && lGruen.systemctlStart < 0, 'live, alles gruen: rc=0, genau ein Start, kein systemctl', `rc=${lGruen.rc} starts=${lGruen.starts} ${lGruen.log.join(' | ')}`);
+    pruefe(lGruen.vite >= 0 && lGruen.bau > lGruen.vite && lGruen.start > lGruen.bau, 'live, alles gruen: Reihenfolge Client-Bau, Webbau, Start', lGruen.log.join(' | '));
+    pruefe(lGruen.log.includes('dist_sichern') && lGruen.log.indexOf('dist_tauschen') > lGruen.log.indexOf('dist_sichern') && lGruen.log.indexOf('dist_tauschen') > lGruen.vite, 'live, alles gruen: sichern, dann tauschen, nach dem Client-Bau', lGruen.log.join(' | '));
+    pruefe(lGruen.gesundheit === 'GESUNDHEIT flag=0', 'live, alles gruen: das Flag ist vor der Gesundheitspruefung 0', lGruen.gesundheit);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

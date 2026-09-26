@@ -37,7 +37,7 @@
  * after the web build.
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,6 +70,65 @@ const SAUBERE_UMGEBUNG: NodeJS.ProcessEnv = Object.fromEntries(
   Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
 );
 
+// ── Der Kaefig ───────────────────────────────────────────────────────
+// Since N6 this test EXECUTES code cut out of wov-update.sh, in every `npm test`
+// (as root on wov-dev, also while a rollout runs). Text rules for that code lost
+// every round against a new disguise (N7: real nginx, curl, rm and systemctl were
+// reached and the test stayed green). So the safety is not text: everything that
+// executes runs in a cage, and the text rules below are only an early, readable
+// hint. tools/test/kaefig.sh builds the cage: own PID/net/IPC/UTS/mount namespaces,
+// the whole file system read-only (recursive), fresh tmpfs for /tmp and /run,
+// no CAP_SYS_ADMIN. Nothing that breaks out of the text rules can signal a host
+// process, reach the network, find a service manager socket or write outside /tmp.
+// No cage available: the executing parts do NOT run without one. CI (env CI) may
+// skip them loudly; anywhere else that is red.
+const IM_KAEFIG = process.env.WOV_KAEFIG === '1';
+
+/** unshare command line; root uses unshare directly, everyone else the user namespace (-r). */
+function kaefigBefehl(befehl: string[]): [string, string[]] {
+  const ns = ['--pid', '--fork', '--kill-child', '--net', '--ipc', '--uts', '--mount', '--propagation', 'private'];
+  const rolle = process.getuid?.() === 0 ? [] : ['-r'];
+  return ['unshare', [...rolle, ...ns, '--', 'bash', join(WURZEL, 'tools/test/kaefig.sh'), WURZEL, ...befehl]];
+}
+
+let ausfuehren = IM_KAEFIG;
+if (!IM_KAEFIG) {
+  const [prog, args] = kaefigBefehl(['true']);
+  const probe = spawnSync(prog, args, { encoding: 'utf8' });
+  if (probe.status === 0) {
+    // Run this very file again, inside the cage; it prints everything and its exit code is ours.
+    const [p2, a2] = kaefigBefehl([process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)]);
+    const umgebung = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('TSX_')));
+    const lauf = spawnSync(p2, a2, { stdio: 'inherit', env: { ...umgebung, WOV_KAEFIG: '1', TMPDIR: '/tmp' } });
+    process.exit(lauf.status ?? 1);
+  }
+  const grund = `${probe.stderr ?? ''}`.trim().split('\n')[0] ?? '';
+  console.error(`  Probe übersprungen: kein Namensraum verfügbar (${grund || `rc=${probe.status}`}). Nur die Textprüfungen laufen, der Skriptcode nicht.`);
+  if (process.env.CI === undefined || process.env.CI === '') {
+    pruefe(false, 'Kaefig verfuegbar (ausserhalb von CI ist ein fehlender Namensraum rot)', grund);
+  }
+} else {
+  // A forged WOV_KAEFIG=1 without the cage must not pass: measure the cage itself.
+  const schreibversuch = (pfad: string): string => {
+    try {
+      writeFileSync(pfad, 'x');
+      unlinkSync(pfad);
+      return 'geschrieben';
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code ?? 'fehler';
+    }
+  };
+  pruefe(schreibversuch(join(WURZEL, '.kaefig-probe')) === 'EROFS', 'Kaefig: das Repo ist schreibgeschuetzt (EROFS)');
+  pruefe(schreibversuch('/var/tmp/.kaefig-probe') === 'EROFS', 'Kaefig: /var/tmp ist schreibgeschuetzt (EROFS)');
+  pruefe(schreibversuch('/tmp/.kaefig-probe') === 'geschrieben', 'Kaefig: /tmp ist schreibbar');
+  pruefe(readdirSync('/run').length === 0, 'Kaefig: /run ist leer (kein systemd-Socket, keine pid-Datei)');
+  const netz = readFileSync('/proc/net/dev', 'utf8').split('\n').slice(2).map((z) => z.split(':')[0].trim()).filter((n) => n !== '');
+  pruefe(netz.every((n) => n === 'lo'), 'Kaefig: kein Netz ausser lo', netz.join(','));
+  pruefe(readdirSync('/proc').filter((n) => /^\d+$/.test(n)).length < 40, 'Kaefig: eigener PID-Namensraum (wenige Prozesse sichtbar)');
+  // Only a measured cage executes anything.
+  ausfuehren = fehler === 0;
+}
+
 const gitignore = readFileSync(join(WURZEL, '.gitignore'), 'utf8').split('\n').map((z) => z.trim());
 pruefe(gitignore.includes(BUENDEL), `.gitignore fuehrt ${BUENDEL}`);
 
@@ -92,7 +151,7 @@ pruefe(statusNachBau > webbau && statusNachBau < warnung, 'die Warnung stuetzt s
 // and a text check for "exit" did not see it.
 const block = ausschnitt(update, 'webbau-warnung');
 pruefe(block !== null, 'wov-update.sh markiert den Warnblock genau einmal (BEGIN/END webbau-warnung)');
-if (block !== null) {
+if (ausfuehren && block !== null) {
   const temp = mkdtempSync(join(tmpdir(), 'vorschau-warnblock-'));
   try {
     const git = (...a: string[]) => {
@@ -168,31 +227,72 @@ function rolloutKern(quelle: string): string | null {
 const kern = rolloutKern(update);
 pruefe(kern !== null, 'wov-update.sh: Bereich von echo "▶ Tests" bis gesundheit_pruefen gefunden');
 
-// The probe below executes this range. Nothing in it may reach a real command,
-// so any direct call of the service manager (also by absolute path, `command -p`
-// or `service`) turns the test red BEFORE anything runs. The range needs no
-// systemctl at all: the services are started by dienste_starten and aufraeumen.
+// The probe below executes this range, inside the cage (see above): what it
+// finds there cannot reach the host. This text rule is only the early, readable
+// hint and no longer the safeguard: any direct call of the service manager (also
+// by absolute path, `command -p` or `service`) turns the test red BEFORE anything
+// runs. The range needs no systemctl at all: the services are started by
+// dienste_starten and aufraeumen.
+/**
+ * A line as code: comment lines and trailing comments are cut, and so is the text
+ * of a plain `echo`/`printf` message (quoted, without `$(` or a backtick), because
+ * a message may name the way back by hand ("systemctl start wov.target").
+ */
+function ohneText(z: string): string {
+  if (/^\s*#/.test(z)) return '';
+  const ohneMeldung = z.replace(/^(\s*(?:echo|printf)\s+(?:-[a-zA-Z]+\s+)?)("(?:[^"\\`$]|\$(?!\()|\\.)*"|'[^']*')/, '$1""');
+  return ohneMeldung.replace(/\s+#.*$/, '');
+}
 const verbotTreffer =
   kern === null
     ? []
-    : kern.split('\n').filter(
-        (z) => /systemctl/.test(z) || /(^|[;&|(])\s*service\s/.test(z) || /command\s+-p/.test(z) || /(^|[\s;&|(=])\/(usr\/)?(local\/)?s?bin\//.test(z),
-      );
+    : kern
+        .split('\n')
+        .filter((z) => {
+          const c = ohneText(z);
+          return /systemctl/.test(c) || /(^|[;&|(])\s*service\s/.test(c) || /command\s+-p/.test(c) || /(^|[\s;&|(=])\/(usr\/)?(local\/)?s?bin\//.test(c);
+        });
 pruefe(verbotTreffer.length === 0, 'Bereich Tests bis Gesundheitspruefung: kein systemctl, service, command -p, absoluter Systempfad', verbotTreffer.join(' | '));
 
 // The flag is set exactly once before the web build and cleared exactly once after step 8;
 // outside the cleanup block no other line may name it (a set one line too early would survive red tests).
 const ohneAufraeumen = aufraeumen === null ? update : update.replace(aufraeumen, '');
-const flagZeilen = ohneAufraeumen.split('\n').filter((z) => z.includes('NEUSTART_BEI_ABBRUCH'));
-const flagImKern = kern === null ? [] : kern.split('\n').filter((z) => z.includes('NEUSTART_BEI_ABBRUCH'));
-const ohneKommentar = (z: string) => z.replace(/\s+#.*$/, '').trim().replace(/^export\s+/, '');
+const flagZeilen = ohneAufraeumen.split('\n').map(ohneText).filter((z) => z.includes('NEUSTART_BEI_ABBRUCH'));
+const flagImKern = kern === null ? [] : kern.split('\n').map(ohneText).filter((z) => z.includes('NEUSTART_BEI_ABBRUCH'));
+const nurFlag = (z: string) => z.trim().replace(/^export\s+/, '').replace(/\s*;$/, '');
 pruefe(
-  flagZeilen.length === 2 && flagImKern.length === 2 && ohneKommentar(flagImKern[0] ?? '') === 'NEUSTART_BEI_ABBRUCH=1' && ohneKommentar(flagImKern[1] ?? '') === 'NEUSTART_BEI_ABBRUCH=0',
+  flagZeilen.length === 2 && flagImKern.length === 2 && nurFlag(flagImKern[0] ?? '') === 'NEUSTART_BEI_ABBRUCH=1' && nurFlag(flagImKern[1] ?? '') === 'NEUSTART_BEI_ABBRUCH=0',
   'NEUSTART_BEI_ABBRUCH steht ausserhalb des Aufraeumblocks in genau 2 Zeilen (Setzen vor dem Webbau, Ruecksetzen nach Schritt 8), beide im Bereich',
   `${flagZeilen.length} Zeilen, ${flagImKern.length} im Bereich: ${flagZeilen.join(' | ')}`,
 );
 
-if (kern !== null && aufraeumen !== null && verbotTreffer.length === 0) {
+// Inside the cleanup block the name may appear in exactly three ways: the one line
+// `NEUSTART_BEI_ABBRUCH=0`, read as "$NEUSTART_BEI_ABBRUCH", and in comments. A helper
+// there that sets it (`webbau_frei() { NEUSTART_BEI_ABBRUCH=1; }`, called one line too
+// early) would restart the services after red tests.
+if (aufraeumen !== null) {
+  const imBlock = aufraeumen.split('\n').map(ohneText).filter((z) => z.includes('NEUSTART_BEI_ABBRUCH'));
+  const nurLesen = (z: string) => !z.replace(/"\$\{?NEUSTART_BEI_ABBRUCH\}?"/g, '').includes('NEUSTART_BEI_ABBRUCH');
+  const rueck = imBlock.filter((z) => z.trim() === 'NEUSTART_BEI_ABBRUCH=0');
+  const fremd = imBlock.filter((z) => z.trim() !== 'NEUSTART_BEI_ABBRUCH=0' && !nurLesen(z));
+  pruefe(rueck.length === 1 && fremd.length === 0, 'Aufraeumblock: NEUSTART_BEI_ABBRUCH nur als Zeile "=0", lesend als "$NEUSTART_BEI_ABBRUCH" und in Kommentaren', `=0: ${rueck.length}, andere: ${fremd.join(' | ')}`);
+}
+
+// The real dist_tauschen and dist_sichern of the script run in the live probe (not stubs
+// that ignore their arguments): swapped or wrong arguments must show in the files.
+const zeilenUpdate = update.split('\n');
+function distFunktionen(): string | null {
+  const a = zeilenUpdate.indexOf('dist_tauschen() {');
+  const s = zeilenUpdate.indexOf('dist_sichern() {');
+  if (a < 0 || s < a) return null;
+  let e = s;
+  while (e < zeilenUpdate.length && zeilenUpdate[e] !== '}') e++;
+  return e < zeilenUpdate.length ? zeilenUpdate.slice(a, e + 1).join('\n') : null;
+}
+const distFn = distFunktionen();
+pruefe(distFn !== null, 'wov-update.sh: dist_tauschen und dist_sichern als Funktionen gefunden');
+
+if (ausfuehren && kern !== null && aufraeumen !== null && distFn !== null && verbotTreffer.length === 0) {
   const temp = mkdtempSync(join(tmpdir(), 'vorschau-kern-'));
   try {
     const bin = join(temp, 'bin');
@@ -202,7 +302,7 @@ if (kern !== null && aufraeumen !== null && verbotTreffer.length === 0) {
     // The probe's PATH is ONLY the fake directory plus symlinks to the tools the range
     // really needs; the caller's PATH is not passed on. Everything else (curl, service,
     // nginx, ssh ...) is "command not found" and turns the run red.
-    const gebraucht = ['bash', 'mktemp', 'tee', 'cat', 'grep', 'sed', 'rm', 'mkdir', 'mv', 'cp', 'find', 'wc', 'date', 'sleep', 'tail', 'head', 'cut', 'tr', 'dirname', 'basename'];
+    const gebraucht = ['bash', 'mktemp', 'tee', 'cat', 'grep', 'sed', 'rm', 'mkdir', 'mv', 'cp', 'find', 'wc', 'date', 'sleep', 'tail', 'head', 'cut', 'tr', 'dirname', 'basename', 'tar', 'gzip', 'du', 'ls'];
     const suchpfade = ['/usr/bin', '/bin', '/usr/local/bin'];
     for (const w of gebraucht) {
       const ort = suchpfade.map((d) => join(d, w)).find((p) => existsSync(p));
@@ -223,9 +323,11 @@ if (kern !== null && aufraeumen !== null && verbotTreffer.length === 0) {
       const cwd = join(temp, name);
       for (const d of ['node_modules/.bin', 'wov-web/static/assets/js', 'wov-web/tools', 'client/dist', 'sicherung']) mkdirSync(join(cwd, d), { recursive: true });
       writeFileSync(join(cwd, 'wov-web/static/assets/js/vorschau.js'), 'x\n');
+      writeFileSync(join(cwd, 'client/dist/index.html'), 'ALT\n');
       writeFileSync(join(cwd, 'wov-web/tools/ohne-js-pruefen.sh'), 'exit 0\n');
       fake(join(cwd, 'node_modules/.bin/tsx'), 'echo "tsx" >> "$LOG"');
-      fake(join(cwd, 'node_modules/.bin/vite'), 'echo "vite" >> "$LOG"\nexit "${VITERC:-0}"');
+      // Fake vite writes a marker into --outDir (also when it fails: a half build), like the real one.
+      fake(join(cwd, 'node_modules/.bin/vite'), 'echo "vite" >> "$LOG"\no=""; while [ $# -gt 0 ]; do [ "$1" = --outDir ] && o="$2"; shift; done\n[ -n "$o" ] && mkdir -p "$o" && echo NEU > "$o/index.html"\nexit "${VITERC:-0}"');
       const log = join(cwd, 'log');
       writeFileSync(log, '');
       const skript = [
@@ -235,13 +337,13 @@ if (kern !== null && aufraeumen !== null && verbotTreffer.length === 0) {
         `VERSION_DATEI=${JSON.stringify(join(cwd, 'VERSION'))}`,
         `SICHERUNG_VERZEICHNIS=${JSON.stringify(join(cwd, 'sicherung'))}`,
         'DIENSTE=(wov-server wov-client wov-admin wov-web)',
+        'SICHERUNGEN_BEHALTEN=5',
         aufraeumen,
         // The stop step of the real script has happened by now.
         'DIENSTE_GESTOPPT=1',
         'dienste_starten() { echo STARTEN >> "$LOG"; }',
         'gesundheit_pruefen() { echo "GESUNDHEIT flag=$NEUSTART_BEI_ABBRUCH" >> "$LOG"; }',
-        'dist_sichern() { echo dist_sichern >> "$LOG"; }',
-        'dist_tauschen() { echo dist_tauschen >> "$LOG"; }',
+        distFn as string,
         kern,
         'gesundheit_pruefen',
       ].join('\n');
@@ -251,7 +353,15 @@ if (kern !== null && aufraeumen !== null && verbotTreffer.length === 0) {
         env: { PATH: `${bin}:${werkzeug}`, LOG: log, TMPDIR: cwd, HOME: cwd, ...env },
       });
       const zl = readFileSync(log, 'utf8').split('\n').filter((z) => z !== '');
+      const lies = (p: string) => (existsSync(join(cwd, p)) ? readFileSync(join(cwd, p), 'utf8').trim() : '-');
+      const sicherungen = existsSync(join(cwd, 'sicherung')) ? readdirSync(join(cwd, 'sicherung')).filter((d) => d.endsWith('.tar.gz')) : [];
+      // What the backup holds: index.html of the dist it packed (from the real tar).
+      const sicherungInhalt = sicherungen.length === 0 ? '-' : spawnSync('tar', ['xzOf', join(cwd, 'sicherung', sicherungen[0] ?? ''), 'dist/index.html'], { encoding: 'utf8' }).stdout.trim();
       return {
+        dist: lies('client/dist/index.html'),
+        sicherungen: sicherungen.length,
+        sicherungInhalt,
+        liegt: ['client/dist.neu', 'client/dist.alt'].filter((d) => existsSync(join(cwd, d))),
         rc: r.status,
         stderr: r.stderr ?? '',
         log: zl,
@@ -302,14 +412,20 @@ if (kern !== null && aufraeumen !== null && verbotTreffer.length === 0) {
     const lGruen = kernLauf('live-gruen', {}, 'live');
     pruefe(lGruen.rc === 0 && lGruen.starts === 1 && lGruen.systemctlStart < 0, 'live, alles gruen: rc=0, genau ein Start, kein systemctl', `rc=${lGruen.rc} starts=${lGruen.starts} ${lGruen.log.join(' | ')}`);
     pruefe(lGruen.vite >= 0 && lGruen.bau > lGruen.vite && lGruen.start > lGruen.bau, 'live, alles gruen: Reihenfolge Client-Bau, Webbau, Start', lGruen.log.join(' | '));
-    pruefe(lGruen.log.includes('dist_sichern') && lGruen.log.indexOf('dist_tauschen') > lGruen.log.indexOf('dist_sichern') && lGruen.log.indexOf('dist_tauschen') > lGruen.vite, 'live, alles gruen: sichern, dann tauschen, nach dem Client-Bau', lGruen.log.join(' | '));
+    // The real dist_sichern/dist_tauschen ran: the files say what happened, not the order of calls.
+    pruefe(lGruen.dist === 'NEU', 'live, alles gruen: client/dist enthaelt den neuen Stand (echter Tausch)', `dist=${lGruen.dist}`);
+    pruefe(lGruen.sicherungen === 1 && lGruen.sicherungInhalt === 'ALT', 'live, alles gruen: die Sicherung enthaelt den ALTEN Stand', `sicherungen=${lGruen.sicherungen} inhalt=${lGruen.sicherungInhalt}`);
+    pruefe(lGruen.liegt.length === 0, 'live, alles gruen: weder client/dist.neu noch client/dist.alt bleiben liegen', lGruen.liegt.join(','));
+    pruefe(lVite.dist === 'ALT', 'live, Client-Bau rot: client/dist bleibt der alte Stand (kein halber Bau, kein Loeschen vor dem Bau)', `dist=${lVite.dist}`);
+    pruefe(lBau.dist === 'NEU' && lBau.sicherungInhalt === 'ALT', 'live, Webbau rot: Tausch war schon durch (dist neu), Sicherung alt', `dist=${lBau.dist} sicherung=${lBau.sicherungInhalt}`);
+    pruefe(lRot.dist === 'ALT', 'live, Tests rot: client/dist unberuehrt', `dist=${lRot.dist}`);
     pruefe(lGruen.gesundheit === 'GESUNDHEIT flag=0', 'live, alles gruen: das Flag ist vor der Gesundheitspruefung 0', lGruen.gesundheit);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
 }
 
-if (aufraeumen !== null && reigen !== null && buendelBlock !== null) {
+if (ausfuehren && aufraeumen !== null && reigen !== null && buendelBlock !== null) {
   const temp = mkdtempSync(join(tmpdir(), 'vorschau-abbruch-'));
   try {
     interface Optionen {

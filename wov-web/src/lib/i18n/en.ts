@@ -643,6 +643,56 @@ export const en: Messages = {
   'account.page.delete.already_gone': 'That hero was already deleted.',
   'account.page.play.loading': 'Fetching a ticket …',
 
+  /* ── account.manage.* — account management (card W3) ────────────────── */
+  'account.manage.heading': 'Manage account',
+  'account.manage.standard':
+    'This is a shared try-it-out account. Profile, e-mail, password and deletion are locked here.',
+  'account.manage.current_password': 'Current password',
+  'account.manage.saving': 'Saving …',
+  'account.manage.profile.heading': 'Profile',
+  'account.manage.profile.label': 'About you',
+  'account.manage.profile.hint':
+    'A short text everyone can read on the profile of your avatar. At most 300 characters, plain text without formatting. It only appears once you have picked an avatar above.',
+  'account.manage.profile.count': 'characters',
+  'account.manage.profile.save': 'Save profile',
+  'account.manage.profile.saved': 'Profile saved.',
+  'account.manage.email.heading': 'Change e-mail',
+  'account.manage.email.new': 'New e-mail address',
+  'account.manage.email.hint':
+    'We do not verify the address and do not send e-mails. It is only a contact detail.',
+  'account.manage.email.save': 'Change e-mail',
+  'account.manage.email.saved': 'E-mail address changed.',
+  'account.manage.password.heading': 'Change password',
+  'account.manage.password.new': 'New password',
+  'account.manage.password.repeat': 'Repeat new password',
+  'account.manage.password.hint':
+    'Afterwards every other sign-in of this account is ended, running games included. You stay signed in here.',
+  'account.manage.password.save': 'Change password',
+  'account.manage.password.saved': 'Password changed. All other sign-ins have been ended.',
+  'account.manage.delete.heading': 'Delete account',
+  'account.manage.delete.warning':
+    'This deletes your account and all your heroes for good. Game state and inventory are gone, and so are your chests with their contents; your buildings stay behind without an owner. Your Thing posts stay readable, with “Deleted hero” as the author. Reactions, subscriptions, notifications and your reports are deleted. The username becomes free again. This cannot be undone.',
+  'account.manage.delete.confirm_label': 'To confirm, type your username:',
+  'account.manage.delete.button': 'Delete account for good',
+  'account.manage.delete.done': 'Your account has been deleted.',
+  'account.manage.error.password_wrong': 'The current password is wrong.',
+  'account.manage.error.current_required': 'Please enter your current password.',
+  'account.manage.error.password_mismatch': 'The two new passwords do not match.',
+  'account.manage.error.standard_account': 'This is locked for this shared try-it-out account.',
+  'account.manage.error.confirm_mismatch': 'The name you typed is not your username.',
+  'account.manage.error.conflict':
+    'Your account has just changed. Please reload the page and try again.',
+  'account.manage.error.profile_invalid':
+    'This text is not allowed: too long (more than 300 characters) or containing invisible or unsupported characters.',
+  'account.manage.error.reason_invalid': 'This reason is not allowed.',
+  'account.manage.report.heading': 'Report profile text',
+  'account.manage.report.button': 'Report profile text',
+  'account.manage.report.reason': 'Reason (short, at most 200 characters)',
+  'account.manage.report.send': 'Report',
+  'account.manage.report.done': 'Thank you, the report has arrived.',
+  'account.manage.report.login': 'You need to be signed in to report.',
+  'thing.profile.bio': 'About',
+
   /* ── legal.* — legal notice and privacy policy (card W1) ─────────────
      One contiguous block at the end of the file. The German version is
      authoritative; this one is a translation. The provider's details do
@@ -777,7 +827,7 @@ export const en: Messages = {
      switch once accounts can be deleted in the account page. Nothing else in
      the text depends on it. */
   'legal.privacy.rights.delete':
-    'Erasure (Art. 17 GDPR): an account cannot currently be deleted by yourself. Write us an email at the address in the legal notice; we delete your account with its heroes. Your Thing posts initially stay in place; on request we detach them from your account and your name (the author then shows as “Deleted hero”). The data disappears from backups after 30 days at the latest (see “Backups”).',
+    'Erasure (Art. 17 GDPR): you can delete your account yourself, under “Account” on this website (password and your username as confirmation). This deletes your account and all your heroes, plus game state, inventory and your chests; your buildings stay behind without an owner. Your Thing posts stay in place so conversations remain readable; the author then shows as “Deleted hero”, detached from your account and hero. Reactions, subscriptions, notifications and your reports are deleted. Individual names may remain in the text of posts, for example in quotes; write to the e-mail address in the legal notice about those. The data disappears from backups after 30 days at the latest (see “Backups”).',
   'legal.privacy.rights.complaint':
     'You also have the right to lodge a complaint with a data protection supervisory authority (Art. 77 GDPR). The competent authority is:',
 

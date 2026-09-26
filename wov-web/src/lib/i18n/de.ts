@@ -703,6 +703,57 @@ export const de = {
   'account.page.delete.already_gone': 'Dieser Recke war schon gelöscht.',
   'account.page.play.loading': 'Ticket wird geholt …',
 
+  /* ── account.manage.* — Kontoverwaltung (Karte W3) ──────────────────── */
+  'account.manage.heading': 'Konto verwalten',
+  'account.manage.standard':
+    'Dies ist ein gemeinsames Ausprobier-Konto. Profil, E-Mail, Passwort und Löschen sind hier gesperrt.',
+  'account.manage.current_password': 'Aktuelles Passwort',
+  'account.manage.saving': 'Wird gespeichert …',
+  'account.manage.profile.heading': 'Profil',
+  'account.manage.profile.label': 'Über dich',
+  'account.manage.profile.hint':
+    'Ein kurzer Text, den alle im Reckenprofil deines Avatars lesen können. Höchstens 300 Zeichen, reiner Text ohne Formatierung. Er erscheint nur, wenn du oben einen Avatar gewählt hast.',
+  'account.manage.profile.count': 'Zeichen',
+  'account.manage.profile.save': 'Profil speichern',
+  'account.manage.profile.saved': 'Profil gespeichert.',
+  'account.manage.email.heading': 'E-Mail ändern',
+  'account.manage.email.new': 'Neue E-Mail-Adresse',
+  'account.manage.email.hint':
+    'Wir prüfen die Adresse nicht und schicken keine Mails. Sie dient nur als Kontaktangabe.',
+  'account.manage.email.save': 'E-Mail ändern',
+  'account.manage.email.saved': 'E-Mail-Adresse geändert.',
+  'account.manage.password.heading': 'Passwort ändern',
+  'account.manage.password.new': 'Neues Passwort',
+  'account.manage.password.repeat': 'Neues Passwort wiederholen',
+  'account.manage.password.hint':
+    'Danach sind alle anderen Anmeldungen dieses Kontos beendet, auch laufende Spiele. Hier bleibst du angemeldet.',
+  'account.manage.password.save': 'Passwort ändern',
+  'account.manage.password.saved': 'Passwort geändert. Alle anderen Anmeldungen wurden beendet.',
+  'account.manage.delete.heading': 'Konto löschen',
+  'account.manage.delete.warning':
+    'Das löscht dein Konto und alle deine Recken endgültig. Spielstand und Inventar sind weg, deine Truhen mit Inhalt auch; deine Bauten bleiben herrenlos stehen. Deine Beiträge im Thing bleiben lesbar, als Verfasser steht dann „Gelöschter Recke“. Reaktionen, Abos, Benachrichtigungen und deine Meldungen werden gelöscht. Der Benutzername wird wieder frei. Das lässt sich nicht rückgängig machen.',
+  'account.manage.delete.confirm_label': 'Zur Bestätigung deinen Benutzernamen eintippen:',
+  'account.manage.delete.button': 'Konto endgültig löschen',
+  'account.manage.delete.done': 'Dein Konto wurde gelöscht.',
+  'account.manage.error.password_wrong': 'Das aktuelle Passwort stimmt nicht.',
+  'account.manage.error.current_required': 'Bitte gib dein aktuelles Passwort ein.',
+  'account.manage.error.password_mismatch': 'Die beiden neuen Passwörter sind nicht gleich.',
+  'account.manage.error.standard_account':
+    'Bei diesem gemeinsamen Ausprobier-Konto ist das gesperrt.',
+  'account.manage.error.confirm_mismatch': 'Der eingetippte Name ist nicht dein Benutzername.',
+  'account.manage.error.conflict':
+    'Dein Konto hat sich gerade geändert. Bitte lade die Seite neu und versuche es noch einmal.',
+  'account.manage.error.profile_invalid':
+    'Dieser Text ist nicht erlaubt: zu lang (mehr als 300 Zeichen) oder mit unsichtbaren oder unzulässigen Zeichen.',
+  'account.manage.error.reason_invalid': 'Dieser Grund ist nicht erlaubt.',
+  'account.manage.report.heading': 'Profiltext melden',
+  'account.manage.report.button': 'Profiltext melden',
+  'account.manage.report.reason': 'Grund (kurz, höchstens 200 Zeichen)',
+  'account.manage.report.send': 'Melden',
+  'account.manage.report.done': 'Danke, die Meldung ist angekommen.',
+  'account.manage.report.login': 'Zum Melden musst du angemeldet sein.',
+  'thing.profile.bio': 'Über',
+
   /* ── legal.* — Impressum und Datenschutzerklärung (Karte W1) ─────────
      Ein zusammenhängender Block am Dateiende. Deutsch ist die maßgebliche
      Fassung; die englische ist eine Übersetzung. Die Angaben zum Anbieter
@@ -836,10 +887,9 @@ export const de = {
   'legal.privacy.rights.intro':
     'Du hast gegenüber uns das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch gegen Verarbeitungen aus berechtigtem Interesse (Art. 21). Wende dich dafür an die E-Mail-Adresse im Impressum.',
   /* Löschung: Dieser eine Absatz ist der Ort, den die Kontoverwaltung (W3)
-     umstellt, sobald es ein Löschen im Konto gibt. Nichts sonst im Text
-     hängt an ihm. */
+     umgestellt hat. Nichts sonst im Text hängt an ihm. */
   'legal.privacy.rights.delete':
-    'Löschung (Art. 17 DSGVO): Ein Konto lässt sich derzeit nicht selbst löschen. Schreibe uns eine E-Mail an die Adresse im Impressum; wir löschen dein Konto samt Recken. Deine Beiträge im Thing bleiben dabei zunächst stehen; auf Wunsch lösen wir sie von deinem Konto und deinem Namen (als Verfasser steht dann „Gelöschter Recke“). Aus den Sicherungen verschwinden die Daten spätestens nach 30 Tagen (siehe „Sicherungen“).',
+    'Löschung (Art. 17 DSGVO): Du kannst dein Konto selbst löschen, unter „Konto“ auf dieser Webseite (Passwort und dein Benutzername als Bestätigung). Dabei werden dein Konto und alle deine Recken gelöscht, dazu Spielstand, Inventar und deine Truhen; deine Bauten bleiben herrenlos stehen. Deine Beiträge im Thing bleiben stehen, damit Gespräche lesbar bleiben; als Verfasser steht dann „Gelöschter Recke“, Konto und Recke sind davon gelöst. Reaktionen, Abos, Benachrichtigungen und deine Meldungen werden gelöscht. Einzelne Namen können weiter im Text von Beiträgen stehen, etwa in Zitaten; melde dich dafür per E-Mail an die Adresse im Impressum. Aus den Sicherungen verschwinden die Daten spätestens nach 30 Tagen (siehe „Sicherungen“).',
   'legal.privacy.rights.complaint':
     'Du hast außerdem das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu beschweren (Art. 77 DSGVO). Zuständig ist:',
 

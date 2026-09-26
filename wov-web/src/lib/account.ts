@@ -215,6 +215,13 @@ export interface Me {
   characters: Character[];
   /** Konto-Avatar (Charakter-Id) oder null — Das Thing, M4. */
   avatar?: number | null;
+  /** Öffentlicher Profiltext des Kontos (reiner Text, höchstens 300 Zeichen). */
+  profile?: string;
+  /**
+   * `false` bei den Standardkonten: Passwort, E-Mail und Löschen sind dort
+   * gesperrt. Fehlt das Feld (älterer Server), gilt `true`.
+   */
+  manageable?: boolean;
 }
 
 export interface Ticket {
@@ -264,6 +271,13 @@ const ERROR_MESSAGES: Record<string, MessageKey> = {
   'name-taken': 'account.error.name_taken',
   unknown: 'account.error.unknown',
   'malformed-body': 'account.error.broken_body',
+  // Kontoverwaltung (W3)
+  'password-wrong': 'account.manage.error.password_wrong',
+  'standard-account': 'account.manage.error.standard_account',
+  'confirm-mismatch': 'account.manage.error.confirm_mismatch',
+  conflict: 'account.manage.error.conflict',
+  'profile-invalid': 'account.manage.error.profile_invalid',
+  'reason-invalid': 'account.manage.error.reason_invalid',
   'server-error': 'account.error.server_error',
   // Not from the server: account.ts raises this itself when fetch() throws,
   // so it never has to match a wire key.
@@ -713,6 +727,83 @@ export function setAvatar(
   characterId: number | null,
 ): Promise<{ avatar: number | null }> {
   return call(shore, '/accounts/avatar', { method: 'POST', token, body: { characterId } });
+}
+
+/* ---------------------------------------------- Kontoverwaltung (W3) */
+
+/**
+ * Öffentlichen Profiltext setzen. Der Server prüft die Regeln (Positivregel,
+ * 300 Zeichen); ein `profile-invalid` heißt: der Text bleibt, wie er war.
+ */
+export function setProfile(
+  shore: ShoreId,
+  token: string,
+  text: string,
+): Promise<{ profile: string }> {
+  return call(shore, '/accounts/profile', { method: 'POST', token, body: { text } });
+}
+
+/** E-Mail ändern — nur mit dem aktuellen Passwort. */
+export function changeEmail(
+  shore: ShoreId,
+  token: string,
+  currentPassword: string,
+  email: string,
+): Promise<{ account: Account }> {
+  return call(shore, '/accounts/email', {
+    method: 'POST',
+    token,
+    body: { currentPassword, email },
+  });
+}
+
+/**
+ * Passwort ändern. Antwortet mit einem NEUEN Token für diese Sitzung: alle
+ * anderen Anmeldungen sind danach ungültig, das alte Token dieser auch.
+ */
+export function changePassword(
+  shore: ShoreId,
+  token: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ token: string }> {
+  return call(shore, '/accounts/password', {
+    method: 'POST',
+    token,
+    body: { currentPassword, newPassword },
+  });
+}
+
+/**
+ * Konto endgültig löschen. `confirm` ist der eigene Benutzername, den die
+ * Person dafür eintippt; der Server vergleicht ihn ohne Beachtung der
+ * Groß-/Kleinschreibung.
+ */
+export function deleteAccount(
+  shore: ShoreId,
+  token: string,
+  password: string,
+  confirm: string,
+): Promise<{ ok: true }> {
+  return call(shore, '/accounts/delete', {
+    method: 'POST',
+    token,
+    body: { password, confirm },
+  });
+}
+
+/** Den Profiltext hinter einem Recken melden. */
+export function reportProfile(
+  shore: ShoreId,
+  token: string,
+  characterId: number,
+  reason: string,
+): Promise<{ ok: true }> {
+  return call(shore, `/accounts/characters/${characterId}/report`, {
+    method: 'POST',
+    token,
+    body: { reason },
+  });
 }
 
 export function createCharacter(

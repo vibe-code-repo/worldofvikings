@@ -154,6 +154,8 @@ export interface OeffentlicherCharakter {
   classId: string;
   created: number;
   lastPlayed: number;
+  /** Öffentlicher Profiltext des Kontos, nur am Avatar-Recken; sonst ''. Reiner Text. */
+  profile?: string;
 }
 
 /**

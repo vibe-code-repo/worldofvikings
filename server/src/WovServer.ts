@@ -109,7 +109,7 @@ import { Spielerbewegung } from './world/Spielerbewegung.js';
 import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Kontendatenbank, type BannArt } from './konto/Kontendatenbank.js';
-import { KontoApi } from './konto/KontoApi.js';
+import { KontoApi, GELOESCHTER_AUTOR } from './konto/KontoApi.js';
 import { ForumDatabase } from './forum/ForumDatabase.js';
 import { ForumApi } from './forum/ForumApi.js';
 import {
@@ -767,7 +767,17 @@ export class WovServer {
         Sein Passwort steht ohnehin im oeffentlichen Repo; einen Grund,
         auch noch den Namen aktiv zu bewerben, gibt es nicht.
       */
-    }), standardKonten.filter((k) => !k.admin).map((k) => k.name));
+    }), standardKonten.filter((k) => !k.admin).map((k) => k.name),
+    // Konto-Verwaltung (W3): Standardkonten sind gesperrt; nach einer
+    // Loeschung bereinigen Forum und Welt.
+    standardKonten.map((k) => k.name), {
+      forumBereinigen: (a) => {
+        this.forumDb.kontoEntfernen(a.kontoId, a.charakterIds, a.namen, GELOESCHTER_AUTOR);
+      },
+      weltBereinigen: (konto) => this.kontoAusWeltEntfernen(konto),
+    });
+    // Ausstehende Forum-Bereinigungen einer unterbrochenen Loeschung nachholen.
+    kontoApi.forumAuftraegeAbarbeiten();
 
     // Das Thing haengt am SELBEN Port wie die Konten: erst die Konten,
     // dann das Forum. `behandle` gibt `false` zurueck, wenn der Pfad nicht
@@ -2009,6 +2019,48 @@ export class WovServer {
     console.log(
       `[WoV] Player "${peer.name}" spawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})${saved ? ' (restored)' : ''}`
     );
+  }
+
+  /**
+   * Konto geloescht (KontoApi, W3): die Welt raeumt auf.
+   *
+   *  1. Laufende Spiele trennen. Die Spielerkennungen stehen schon auf der
+   *     Liste geloeschter Charaktere (`bannFuerZugang`), `trenneGebannte`
+   *     wirft also genau diese hinaus — und onPeerQuit schreibt dabei ein
+   *     letztes Mal in savedPlayers, deshalb kommt das Entfernen DANACH.
+   *  2. Spielstand und Inventar (savedPlayers, auch Altbestand unter dem
+   *     Namen) entfernen; das Speichern schreibt es beim naechsten Mal fort.
+   *  3. Bauten bleiben herrenlos stehen (`besitzer` leer), Truhen gehen mit
+   *     ihrem Inhalt — eine herrenlose Truhe stuende jedem offen.
+   * Synchron, ohne await: kein Spielzug schiebt sich dazwischen.
+   */
+  private kontoAusWeltEntfernen(konto: { charaktere: readonly { spielerId: string; altlastUserId: bigint; name: string }[] }): void {
+    this.net.trenneGebannte();
+    const ids = new Set(konto.charaktere.map((c) => c.spielerId));
+    const namen = new Set(konto.charaktere.map((c) => c.name));
+    for (const [schluessel, p] of [...this.savedPlayers]) {
+      if (ids.has(schluessel) || ids.has(p.spielerId ?? '') || (!p.spielerId && namen.has(p.name))) {
+        this.savedPlayers.delete(schluessel);
+      }
+    }
+    const besitzer = new Set(konto.charaktere.map((c) => c.altlastUserId.toString()));
+    let truhen = 0;
+    let bauten = 0;
+    for (const welt of this.welten.values()) {
+      for (const zdo of welt.zdos.getAllZDOs()) {
+        if (!besitzer.has(zdo.getString('besitzer'))) continue;
+        if (zdo.hasMember(WovServer.TRUHE_INHALT_HASH)) {
+          welt.zdos.destroyZDO(zdo.zdoid);
+          truhen++;
+        } else {
+          zdo.setString('besitzer', '');
+          zdo.revision.reviseData();
+          zdo.dirty = true;
+          bauten++;
+        }
+      }
+    }
+    console.log(`[Konto] Welt bereinigt: ${truhen} Truhen entfernt, ${bauten} Bauten herrenlos`);
   }
 
   private onPeerQuit(peer: Peer): void {

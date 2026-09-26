@@ -214,6 +214,9 @@ function starten(instanz: 'dev' | 'live' | string | null, wurzel = ORDNER, extra
       ...(instanz === null ? {} : { WOV_INSTANZ: instanz }),
       WOV_ADMIN_ADRESSE: '127.0.0.1',
       WOV_ADMIN_PORT: '0',
+      // K5.0: no game server here, so no receipt to wait for.
+      // (Not in the case that starts under NODE_ENV=production: the variable is refused there.)
+      ...(extraEnv.NODE_ENV === 'production' ? {} : { WOV_QUITTUNG: 'aus' }),
       WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
       // Not 'production' unless a test says so: with a stand-in set, the service refuses to start there.
       NODE_ENV: 'test',

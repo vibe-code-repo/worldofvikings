@@ -2206,6 +2206,10 @@ const KERN = [
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
+  // World file goes live (K5.0): the running server applies a written document within a second (objects only,
+  // geo and typos are refused with a receipt), and the operations service answers 200 / 202 from that receipt.
+  ['server', 'test/layout-live.ts'],
+  ['admin', 'test/weltops-quittung.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -101,6 +101,8 @@ import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
+import { LayoutWache, type Anwendung } from './world/layoutLive.js';
+import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
@@ -559,6 +561,8 @@ export class WovServer {
   private updateTimer: ReturnType<typeof setInterval> | null;
   private saveTimer: ReturnType<typeof setInterval> | null;
   private zdoSyncAccumulator: number;
+  /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
+  private layoutWache: LayoutWache | null = null;
   private timeSyncAccumulator: number;
 
   // ── Server identity ────────────────────────────────────────────
@@ -1138,7 +1142,25 @@ export class WovServer {
     // `Welt`). `spawnLayoutPlacements` meldet nur noch die Platzierungen
     // mit `route` beim RoutenLaeufer an — und MUSS deshalb hier stehen,
     // nach dem Aufbau der Welt.
-    this.spawnLayoutPlacements();
+    this.spawnLayoutPlacements('boot', this.worldLayoutRaw);
+    if (this.config.worldMode === 'layout') {
+      this.layoutWache = new LayoutWache({
+        pfad: this.config.worldLayoutPath,
+        quittungsPfad: quittungsDatei(this.config.worldsDir, this.config.worldName),
+        aktuell: () => this.worldLayoutRaw,
+        speichertGerade: () => this.speichertGerade,
+        anwenden: (roh) => this.spawnLayoutPlacements('live', roh),
+        uebernehmen: (roh) => {
+          this.worldLayoutRaw = roh;
+          for (const peer of this.net.getPeers()) {
+            if (peer.worldId !== HAUPTWELT_ID) continue;
+            peer.sendPacketWith(PacketType.LayoutAktualisiert, (w) => {
+              w.writeString(JSON.stringify(roh));
+            });
+          }
+        },
+      });
+    }
 
     console.log('[WoV] Initialized');
   }
@@ -1158,9 +1180,10 @@ export class WovServer {
    * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
    * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
    */
-  private spawnLayoutPlacements(): void {
-    if (this.config.worldMode !== 'layout') return;
-    const bericht = sanitizeWorldLayoutMitBericht(this.worldLayoutRaw);
+  private spawnLayoutPlacements(modus: 'boot' | 'live', dokument: unknown): Anwendung {
+    const abgelehnt = (grund: string): Anwendung => ({ art: 'abgelehnt', grund });
+    if (this.config.worldMode !== 'layout') return abgelehnt('kein Layout-Modus');
+    const bericht = sanitizeWorldLayoutMitBericht(dokument);
     const layout = bericht?.layout ?? null;
     // Ein Dokument ohne Platzierungen ist gültig und heißt „keine": Der
     // Abgleich räumt dann die Layout-ZDOs ab, die sonst für immer stünden.
@@ -1178,13 +1201,13 @@ export class WovServer {
     // (`layout` ist hier nie null: lehnt der Sanitizer das ganze Dokument ab,
     // bricht der Boot schon beim Laden ab, s. init(). Der Zweig steht für den
     // Typ.)
-    if (!layout) return;
-    const rohPlacements = (this.worldLayoutRaw as { placements?: unknown } | null)?.placements;
+    if (!layout) return abgelehnt('Dokument unlesbar');
+    const rohPlacements = (dokument as { placements?: unknown } | null)?.placements;
     if (rohPlacements !== undefined && !Array.isArray(rohPlacements)) {
-      this.meldeUnlesbar(
-        `placements unlesbar (${rohPlacements === null ? 'null' : typeof rohPlacements}) – Layout-Objekte bleiben unangetastet`
-      );
-      return;
+      const text = `placements unlesbar (${rohPlacements === null ? 'null' : typeof rohPlacements}) – Layout-Objekte bleiben unangetastet`;
+      if (modus === 'boot') this.meldeUnlesbar(text);
+      else console.warn(`[WoV] Layout-Abgleich (live): ${text}`);
+      return abgelehnt(text);
     }
     // Dasselbe Loch in anderer Form: Ein Array mit Einträgen, von dem der
     // Sanitizer ALLE verwirft (Text, leere Objekte, kaputte Koordinaten), ist
@@ -1194,8 +1217,10 @@ export class WovServer {
     const rohAnzahl = Array.isArray(rohPlacements) ? rohPlacements.length : 0;
     const gueltigeAnzahl = layout.placements?.length ?? 0;
     if (rohAnzahl > 0 && gueltigeAnzahl === 0) {
-      this.meldeUnlesbar(`placements: alle ${rohAnzahl} Einträge verworfen – Layout-Objekte bleiben unangetastet`);
-      return;
+      const text = `placements: alle ${rohAnzahl} Einträge verworfen – Layout-Objekte bleiben unangetastet`;
+      if (modus === 'boot') this.meldeUnlesbar(text);
+      else console.warn(`[WoV] Layout-Abgleich (live): ${text}`);
+      return abgelehnt(text);
     }
     const ergebnis = layoutAbgleich(
       {
@@ -1265,6 +1290,9 @@ export class WovServer {
     for (const b of pruefeLayout(layout)) {
       console.warn(`[WoV] Layout-Hinweis (${b.wo}): ${b.text}`);
     }
+    const zaehler: Record<string, number> = {};
+    for (const [k, v] of Object.entries(ergebnis)) if (typeof v === 'number') zaehler[k] = v;
+    return { art: 'angewendet', zaehler };
   }
 
   /**
@@ -1545,6 +1573,7 @@ export class WovServer {
       // demselben Grund wie der Rest dieses Blocks. Warum ueberhaupt
       // getaktet und nicht nur beim Befehl: s. gleicheAdminrechteAb().
       this.gleicheAdminrechteAb();
+      this.layoutWache?.tick();
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
       this.dungeons.tick(now);
       this.eventTick(now);

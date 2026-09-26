@@ -419,6 +419,13 @@ export enum PacketType {
    * Clients das unbekannte Paket folgenlos ignorieren.
    */
   EigenesAussehen = 78,
+
+  /**
+   * Der Server hat eine geänderte Weltdatei angewendet (Editor E2, K5.0): das
+   * ganze Dokument als JSON-Text, an die Clients der Hauptwelt. Die Objekte
+   * kommen über den ZDO-Sync; das Paket trägt das Dokument selbst nach.
+   */
+  LayoutAktualisiert = 79,
 }
 
 // === Vector3 ===

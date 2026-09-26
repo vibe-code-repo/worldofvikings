@@ -177,6 +177,8 @@ function dienstStarten(wurzel = ORDNER, tokenDatei = TOKEN_DATEI, portText = pro
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: portText,
+        // K5.0: no game server here, so no receipt to wait for (the write answers stay 200/409/422 as tested).
+        WOV_QUITTUNG: 'aus',
         WOV_ADMIN_TOKEN_DATEI: tokenDatei,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

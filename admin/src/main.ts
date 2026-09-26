@@ -84,6 +84,8 @@ import {
   layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
+import { anwendungAnhaengen } from './routen/anwendung.js';
+import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import {
   unfertigenResetMelden,
   weltZuruecksetzenBehandeln,
@@ -188,6 +190,19 @@ const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
 const LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
 const WELTEN_ORDNER = resolve(WURZEL, 'server/data/worlds');
+// K5.0: nach dem Schreiben der Weltdatei auf die Quittung des Spielservers warten (200 angewendet / 202 nicht angewendet).
+// WOV_QUITTUNG=aus: nur fuer Tests der Schreibwege OHNE Spielserver (sie pruefen Dateiinhalt und Statuscodes 200/409/422
+// und sollen nicht 3 s je Schreibvorgang auf eine Quittung warten). Im Betrieb nie setzen: Der Dienst startet dann nicht.
+const QUITTUNG_AUS = process.env.WOV_QUITTUNG === 'aus';
+if (QUITTUNG_AUS && process.env.NODE_ENV === 'production') {
+  console.error('[Admin] WOV_QUITTUNG=aus ist gesetzt, aber NODE_ENV=production: Der Dienst startet nicht. Variable aus der Umgebung entfernen.');
+  process.exit(1);
+}
+const mitAnwendung = <T extends { code: number; daten: unknown; kopf?: Record<string, string> }>(antwort: T): Promise<T> | T =>
+  QUITTUNG_AUS ? antwort : anwendungAnhaengen(antwort, {
+    quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
+    dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
+  }) as Promise<T>;
 // Je Instanz ein eigener Unterordner — dieselbe Ableitung wie im
 // Spielserver (`DungeonManager`, resolve(worldsDir, '..', 'dungeons',
 // worldName)). Zwei Wege zu einem Ordner waeren zwei Gelegenheiten,
@@ -1667,7 +1682,7 @@ async function behandeln(
   }
 
   // Einzelne Objekte aendern statt das ganze Dokument ersetzen (Editor E1, K1.2).
-  if (pfad === '/api/worldlayout/ops' && methode === 'PATCH') return weltOpsBehandeln(leib, { datei: LAYOUT_DATEI, instanz: INSTANZ });
+  if (pfad === '/api/worldlayout/ops' && methode === 'PATCH') return mitAnwendung(await weltOpsBehandeln(leib, { datei: LAYOUT_DATEI, instanz: INSTANZ }));
 
   if (pfad === '/api/worldlayout' && methode === 'POST') {
     // Gepruefte wird mit sanitizeWorldLayout, der STRENGEN Pruefung —
@@ -1745,7 +1760,7 @@ async function behandeln(
             `(${Object.entries(verworfenJeFeld).map(([feld, n]) => `${feld} ${n}`).join(', ')}), Rest gespeichert`
         );
       }
-      return {
+      return mitAnwendung({
         code: anlegen ? 201 : 200,
         kopf: { ETag: `"${hash}"` },
         daten: {
@@ -1762,7 +1777,7 @@ async function behandeln(
           // Exakte Duplikate, die der Sanitizer zu einem Eintrag zusammengefasst hat: KEIN Verlust, zählt nicht bei `verworfen`.
           ...(zusammengefasst > 0 ? { zusammengefasst, zusammengefasstJeFeld } : {}),
         },
-      };
+      });
     } catch (fehler) {
       // Zusatzfelder `ok`/`message` neben `fehler`: Der bestehende Client
       // liest nur diese beiden, und eine Ablehnung soll bei ihm nicht als

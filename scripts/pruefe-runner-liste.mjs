@@ -131,6 +131,9 @@ const AUSNAHMEN = [
   { pfad: 'wov-web/src/lib/seiten.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/server/forumMarkdown.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/tools/test/zeitlimits-pruefen.mjs', art: 'werkzeug', grund: 'Prüfskript der Webseite, braucht --experimental-transform-types und einen eigenen Stub-Port (--port), läuft etwa 44 s; Aufnahme in die Tests von wov-web ist eine Folgekarte' },
+  // Notlösung: Das ist ein echter Test, aber die Liste kennt keine Art "zu teuer
+  // für den Sammellauf"; `werkzeug` ist die nächstliegende Schublade.
+  { pfad: 'tools/test/weltkarte-probe.mjs', art: 'werkzeug', grund: 'echter Test, aber zu teuer für den Sammellauf: rendert zwei 4096er-Karten (~44 s, bis ~650 MB); läuft von Hand vor Änderungen an der Kartenveröffentlichung' },
   // ── Rot bei erfüllten Voraussetzungen, nicht eingetragen ──
   {
     pfad: 'server/test/f2-locations.ts',

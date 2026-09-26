@@ -18,7 +18,7 @@
  *
  * Lauf:  npx tsx tools/weltkarte-rendern.ts <dev|live> <ziel-verzeichnis> [breite]
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -304,6 +304,7 @@ console.log(`[Karte] ${flussPunkte} Flusspunkte auf Land gezeichnet`);
 mkdirSync(zielOrdner, { recursive: true });
 
 const bildDatei = join(zielOrdner, `${instanz}.webp`);
+const bildTemp = `${bildDatei}.${process.pid}.tmp`;
 
 /**
  * Regionen als Marken für den Betrachter. Nur Mittelpunkt und Biom — die
@@ -371,8 +372,6 @@ const beschreibung = {
   legende,
 };
 
-writeFileSync(join(zielOrdner, `${instanz}.json`), JSON.stringify(beschreibung, null, 2));
-console.log(`[Karte] geschrieben: ${join(zielOrdner, `${instanz}.json`)}`);
 
 /*
   Kein top-level await: tools/ wird von tsx als CJS übersetzt (die Wurzel-
@@ -381,11 +380,23 @@ console.log(`[Karte] geschrieben: ${join(zielOrdner, `${instanz}.json`)}`);
 */
 sharp(bild, { raw: { width: BREITE, height: BREITE, channels: 3 } })
   .webp({ quality: 90, effort: 5 })
-  .toFile(bildDatei)
+  .toFile(bildTemp)
   .then((info) => {
+    // Erst das Bild, ZULETZT die Beschreibung: Sie trägt den Fingerabdruck,
+    // dem der Veröffentlichungslauf glaubt. Bricht der Lauf vorher ab, fehlt
+    // der neue Fingerabdruck, und der nächste Lauf rendert neu, statt ein
+    // altes oder halbes Bild für aktuell zu halten. Beide Dateien gehen über
+    // eine Temp-Datei im selben Ordner und werden umbenannt (atomar).
+    renameSync(bildTemp, bildDatei);
     console.log(`[Karte] geschrieben: ${bildDatei} (${(info.size / 1024).toFixed(0)} KB)`);
+    const jsonDatei = join(zielOrdner, `${instanz}.json`);
+    const jsonTemp = `${jsonDatei}.${process.pid}.tmp`;
+    writeFileSync(jsonTemp, JSON.stringify(beschreibung, null, 2));
+    renameSync(jsonTemp, jsonDatei);
+    console.log(`[Karte] geschrieben: ${jsonDatei}`);
   })
   .catch((fehler: unknown) => {
+    rmSync(bildTemp, { force: true });
     console.error('[Karte] Bild konnte nicht geschrieben werden:', fehler);
     process.exit(1);
   });

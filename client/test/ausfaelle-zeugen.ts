@@ -156,6 +156,37 @@ pruefe(
   'WGSL: der Shader nennt `normalRoh` nicht genau viermal (Lesen, zwei Mal dot, normalize)'
 );
 
+// Die erwartete Zeile je Sprache als LITERAL, nicht aus Ssao2Himmel.ts
+// uebernommen: vertauschte select-/?:-Zweige (Ersatznormale bei vorhandener
+// Geometrie) muessen hier rot werden. Aendert man den Patch, zieht man diese
+// Zeilen bewusst mit.
+const GLSL_ALT = 'vec3 normal=normalize(textureLod(normalSampler,vUV,0.0).rgb);';
+const GLSL_NEU =
+  'vec3 normalRoh=textureLod(normalSampler,vUV,0.0).rgb;' +
+  'vec3 normal=dot(normalRoh,normalRoh)>0.0 ? normalize(normalRoh) : vec3(0.0,0.0,1.0);';
+const WGSL_ALT =
+  'var normal: vec3f=normalize(textureSampleLevel(normalSampler,normalSamplerSampler,input.vUV,0.0).rgb);';
+const WGSL_NEU =
+  'var normalRoh: vec3f=textureSampleLevel(normalSampler,normalSamplerSampler,input.vUV,0.0).rgb;' +
+  'var normal: vec3f=select(vec3f(0.0,0.0,1.0),normalize(normalRoh),dot(normalRoh,normalRoh)>0.0);';
+pruefe(ssaoQuelle.includes(GLSL_NEU), 'GLSL: die korrigierte Zeile steht nicht woertlich im Shader');
+pruefe(ssaoWgsl.includes(WGSL_NEU), 'WGSL: die korrigierte Zeile steht nicht woertlich im Shader');
+
+// Der Store wird nach dem Import zurueckgesetzt (ein Modul laedt den Shader
+// spaeter nach): der naechste Aufruf muss ihn wieder reparieren.
+Effect.ShadersStore['ssao2PixelShader'] = ssaoQuelle.replace(GLSL_NEU, GLSL_ALT);
+ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] = ssaoWgsl.replace(WGSL_NEU, WGSL_ALT);
+pruefe(!ssaoHimmelKorrigiert(), 'Zuruecksetzen des Stores hat nicht gewirkt (Probe taugt nicht)');
+pruefe(korrigiereSsaoHimmel() === true, 'nach Zuruecksetzen des Stores meldet der Aufruf keinen Erfolg');
+pruefe(
+  (Effect.ShadersStore['ssao2PixelShader'] ?? '').includes(GLSL_NEU),
+  'GLSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht'
+);
+pruefe(
+  (ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] ?? '').includes(WGSL_NEU),
+  'WGSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht'
+);
+
 if (fehler > 0) {
   console.log(`\n${fehler} Fehler`);
   process.exit(1);

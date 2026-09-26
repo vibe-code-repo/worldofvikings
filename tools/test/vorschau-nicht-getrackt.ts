@@ -46,8 +46,10 @@ const WURZEL = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUENDEL = 'wov-web/static/assets/js/vorschau.js';
 
 let fehler = 0;
+let gruen = 0;
 function pruefe(bedingung: boolean, was: string, detail = ''): void {
   if (bedingung) {
+    gruen++;
     console.log(`  OK   ${was}`);
   } else {
     fehler++;
@@ -90,17 +92,38 @@ const IM_KAEFIG = process.env.WOV_KAEFIG === '1';
  * unshare command line. Root uses unshare directly, everyone else the user namespace (-r);
  * `viaSudo` (CI only, see below) runs unshare as root through `sudo -n`. `setpriv --pdeathsig KILL`
  * makes unshare die with its parent, so a killed test leaves no orphaned cage behind.
- * sudo passes no environment, so the caller's is handed over with `env`.
+ * sudo gets a closed environment: `env -i --` with absolute tool paths, a fixed PATH and only the names
+ * of SUDO_UMGEBUNG (each checked against NAME_OK). The caller's PATH, LD_PRELOAD, NODE_OPTIONS never get through.
  */
+const NAME_OK = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SUDO_UMGEBUNG = ['HOME', 'CI', 'WOV_KAEFIG', 'TMPDIR'];
+const SUDO_PFAD = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+const SUDO_WERKZEUGE = { env: '/usr/bin/env', setpriv: '/usr/bin/setpriv', unshare: '/usr/bin/unshare' };
+
+/** Names and values for `env -i` in the sudo path: the fixed list only, never the caller's PATH. */
+function sudoUmgebung(umgebung: Record<string, string>): string[] {
+  const paare: string[] = [`PATH=${SUDO_PFAD}`];
+  for (const name of SUDO_UMGEBUNG) {
+    const wert = umgebung[name];
+    if (wert !== undefined && NAME_OK.test(name)) paare.push(`${name}=${wert}`);
+  }
+  return paare;
+}
+
 function kaefigBefehl(befehl: string[], viaSudo = false, umgebung: Record<string, string> = {}): [string, string[]] {
   const ns = ['--pid', '--fork', '--kill-child', '--net', '--ipc', '--uts', '--mount', '--propagation', 'private'];
   const rolle = viaSudo || process.getuid?.() === 0 ? [] : ['-r'];
-  const unshare = ['setpriv', '--pdeathsig', 'KILL', 'unshare', ...rolle, ...ns, '--', 'bash', join(WURZEL, 'tools/test/kaefig.sh'), WURZEL, ...befehl];
-  if (!viaSudo) return [unshare[0], unshare.slice(1)];
-  return ['sudo', ['-n', '--', 'env', ...Object.entries(umgebung).map(([k, v]) => `${k}=${v}`), ...unshare]];
+  const innen = ['--pdeathsig', 'KILL'];
+  const rest = [...rolle, ...ns, '--', 'bash', join(WURZEL, 'tools/test/kaefig.sh'), WURZEL, ...befehl];
+  if (!viaSudo) return ['setpriv', [...innen, 'unshare', ...rest]];
+  const { env, setpriv, unshare } = SUDO_WERKZEUGE;
+  return ['sudo', ['-n', '--', env, '-i', '--', ...sudoUmgebung(umgebung), setpriv, ...innen, unshare, ...rest]];
 }
 
-const IN_CI = process.env.CI !== undefined && process.env.CI !== '';
+/** CI means exactly CI=true or CI=1. CI=false, 0, no, empty or anything else is "no CI": no sudo. */
+const IN_CI = /^(true|1)$/i.test(process.env.CI ?? '');
+/** The cage run prints KAEFIG-PROBE OK=<n>; fewer than this many measured checks is not green. */
+const MINDEST_OK = 150;
 
 let ausfuehren = IM_KAEFIG;
 if (!IM_KAEFIG) {
@@ -112,7 +135,10 @@ if (!IM_KAEFIG) {
   let probe = spawnSync(prog, args, { encoding: 'utf8' });
   // 2nd try, only in CI (GitHub runners have passwordless sudo, Ubuntu 24.04 blocks unshare -r):
   // never sudo on a developer machine, never a password prompt (-n).
-  if (probe.status !== 0 && IN_CI && process.getuid?.() !== 0) {
+  const werkzeugFehlt = Object.values(SUDO_WERKZEUGE).filter((p) => !existsSync(p));
+  if (probe.status !== 0 && IN_CI && process.getuid?.() !== 0 && werkzeugFehlt.length > 0) {
+    probe = { ...probe, stderr: `sudo path not possible, missing under /usr/bin: ${werkzeugFehlt.join(' ')}` } as typeof probe;
+  } else if (probe.status !== 0 && IN_CI && process.getuid?.() !== 0) {
     const sudoOk = spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' }).status === 0;
     if (sudoOk) {
       [prog, args] = kaefigBefehl(['true'], true, lauf);
@@ -128,8 +154,17 @@ if (!IM_KAEFIG) {
   if (probe.status === 0) {
     // Run this very file again, inside the cage; it prints everything and its exit code is ours.
     const [p2, a2] = kaefigBefehl([process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)], viaSudo, lauf);
-    const l = spawnSync(p2, a2, { stdio: 'inherit', env: lauf });
-    process.exit(l.status ?? 1);
+    const l = spawnSync(p2, a2, { stdio: ['inherit', 'pipe', 'inherit'], env: lauf, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+    process.stdout.write(l.stdout ?? '');
+    if ((l.status ?? 1) !== 0) process.exit(l.status ?? 1);
+    // rc 0 alone proves nothing (any program in the chain can exit 0): the cage run has to report its count.
+    const gezaehlt = /^KAEFIG-PROBE OK=(\d+)$/m.exec(l.stdout ?? '');
+    const n = gezaehlt ? Number(gezaehlt[1]) : -1;
+    if (n < MINDEST_OK) {
+      console.error(`  ROT  Kaefig-Lauf meldet ${gezaehlt ? `nur ${n}` : 'keine'} Pruefungen (erwartet mindestens ${MINDEST_OK})`);
+      process.exit(1);
+    }
+    process.exit(0);
   }
   const grund = `${probe.stderr ?? ''}`.trim().split('\n')[0] ?? '';
   // The runner prints a test's output only when it fails, and it has no way for a test to report itself
@@ -659,4 +694,5 @@ if (fehler > 0) {
   console.error(`\n${fehler} Pruefung(en) rot.`);
   process.exit(1);
 }
+if (IM_KAEFIG) console.log(`KAEFIG-PROBE OK=${gruen}`);
 console.log('\nvorschau-nicht-getrackt: alles gruen');

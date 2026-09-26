@@ -80,31 +80,62 @@ const SAUBERE_UMGEBUNG: NodeJS.ProcessEnv = Object.fromEntries(
 // the whole file system read-only (recursive), fresh tmpfs for /tmp and /run,
 // no CAP_SYS_ADMIN. Nothing that breaks out of the text rules can signal a host
 // process, reach the network, find a service manager socket or write outside /tmp.
-// No cage available: the executing parts do NOT run without one. CI (env CI) may
-// skip them loudly; anywhere else that is red.
+// No cage available: the executing parts do NOT run without one. In CI the cage is
+// tried as the user first, then through `sudo -n` (passwordless on GitHub runners);
+// only if both fail does CI skip them (the runner shows that line on failure only).
+// Anywhere else a missing cage is red.
 const IM_KAEFIG = process.env.WOV_KAEFIG === '1';
 
-/** unshare command line; root uses unshare directly, everyone else the user namespace (-r). */
-function kaefigBefehl(befehl: string[]): [string, string[]] {
+/**
+ * unshare command line. Root uses unshare directly, everyone else the user namespace (-r);
+ * `viaSudo` (CI only, see below) runs unshare as root through `sudo -n`. `setpriv --pdeathsig KILL`
+ * makes unshare die with its parent, so a killed test leaves no orphaned cage behind.
+ * sudo passes no environment, so the caller's is handed over with `env`.
+ */
+function kaefigBefehl(befehl: string[], viaSudo = false, umgebung: Record<string, string> = {}): [string, string[]] {
   const ns = ['--pid', '--fork', '--kill-child', '--net', '--ipc', '--uts', '--mount', '--propagation', 'private'];
-  const rolle = process.getuid?.() === 0 ? [] : ['-r'];
-  return ['unshare', [...rolle, ...ns, '--', 'bash', join(WURZEL, 'tools/test/kaefig.sh'), WURZEL, ...befehl]];
+  const rolle = viaSudo || process.getuid?.() === 0 ? [] : ['-r'];
+  const unshare = ['setpriv', '--pdeathsig', 'KILL', 'unshare', ...rolle, ...ns, '--', 'bash', join(WURZEL, 'tools/test/kaefig.sh'), WURZEL, ...befehl];
+  if (!viaSudo) return [unshare[0], unshare.slice(1)];
+  return ['sudo', ['-n', '--', 'env', ...Object.entries(umgebung).map(([k, v]) => `${k}=${v}`), ...unshare]];
 }
+
+const IN_CI = process.env.CI !== undefined && process.env.CI !== '';
 
 let ausfuehren = IM_KAEFIG;
 if (!IM_KAEFIG) {
-  const [prog, args] = kaefigBefehl(['true']);
-  const probe = spawnSync(prog, args, { encoding: 'utf8' });
+  const umgebung = Object.fromEntries(Object.entries(process.env).filter(([k, v]) => !k.startsWith('TSX_') && v !== undefined)) as Record<string, string>;
+  const lauf = { ...umgebung, WOV_KAEFIG: '1', TMPDIR: '/tmp' };
+  // 1st try: the cage as the current user (root, or unshare -r).
+  let viaSudo = false;
+  let [prog, args] = kaefigBefehl(['true']);
+  let probe = spawnSync(prog, args, { encoding: 'utf8' });
+  // 2nd try, only in CI (GitHub runners have passwordless sudo, Ubuntu 24.04 blocks unshare -r):
+  // never sudo on a developer machine, never a password prompt (-n).
+  if (probe.status !== 0 && IN_CI && process.getuid?.() !== 0) {
+    const sudoOk = spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' }).status === 0;
+    if (sudoOk) {
+      [prog, args] = kaefigBefehl(['true'], true, lauf);
+      const probe2 = spawnSync(prog, args, { encoding: 'utf8' });
+      if (probe2.status === 0) {
+        viaSudo = true;
+        probe = probe2;
+      } else {
+        probe = { ...probe2, stderr: `sudo -n unshare: ${probe2.stderr ?? ''}` } as typeof probe;
+      }
+    }
+  }
   if (probe.status === 0) {
     // Run this very file again, inside the cage; it prints everything and its exit code is ours.
-    const [p2, a2] = kaefigBefehl([process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)]);
-    const umgebung = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('TSX_')));
-    const lauf = spawnSync(p2, a2, { stdio: 'inherit', env: { ...umgebung, WOV_KAEFIG: '1', TMPDIR: '/tmp' } });
-    process.exit(lauf.status ?? 1);
+    const [p2, a2] = kaefigBefehl([process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)], viaSudo, lauf);
+    const l = spawnSync(p2, a2, { stdio: 'inherit', env: lauf });
+    process.exit(l.status ?? 1);
   }
   const grund = `${probe.stderr ?? ''}`.trim().split('\n')[0] ?? '';
+  // The runner prints a test's output only when it fails, and it has no way for a test to report itself
+  // as skipped (only its own switch list can). So this line is visible with a failure only.
   console.error(`  Probe übersprungen: kein Namensraum verfügbar (${grund || `rc=${probe.status}`}). Nur die Textprüfungen laufen, der Skriptcode nicht.`);
-  if (process.env.CI === undefined || process.env.CI === '') {
+  if (!IN_CI) {
     pruefe(false, 'Kaefig verfuegbar (ausserhalb von CI ist ein fehlender Namensraum rot)', grund);
   }
 } else {

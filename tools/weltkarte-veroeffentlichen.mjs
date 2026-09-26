@@ -19,25 +19,60 @@
  * verglichen wird über diesen Fingerabdruck. Sonst kostete der stündliche
  * Lauf jedes Mal Rechenzeit für dasselbe Bild.
  *
- * Übertragen wird mit dem Schlüssel /root/.ssh/wov_karten. Auf wov-web hängt
- * an ihm ein Zwangsbefehl (/usr/local/bin/karten-empfang), der nur die fünf
- * Kartendateien annimmt — dieser Schlüssel öffnet dort keine Shell.
+ * Ablage: lokal und atomar. Gerendert wird in ARBEIT (Standard
+ * /var/lib/wov-karten), veröffentlicht wird nach ARBEIT/oeffentlich — dorthin
+ * zeigt nginx (`location /assets/karten/`, Rückfall auf die Karten im Repo,
+ * solange das Verzeichnis leer ist). Jede Datei wird erst als Temp-Datei im
+ * selben Verzeichnis geschrieben und dann umbenannt, damit nie eine halbe
+ * webp ausgeliefert wird; `karten.json` kommt zuletzt. Ein Rollout, der
+ * wov-web/build ersetzt, berührt dieses Verzeichnis nicht.
+ *
+ * Sicherungen:
+ *  - Sperre: Datei in /run/wov-karten (WOV_KARTEN_SPERRE), gehalten nur bei
+ *    lebender PID mit diesem Skript in der Kommandozeile. Läuft schon ein
+ *    Lauf, endet ein zweiter mit Meldung und Status 75 (systemd zeigt es);
+ *    eine Sperre eines toten oder fremden Prozesses wird übernommen.
+ *  - Der Renderer schreibt Bild und Beschreibung über Temp-Dateien, die
+ *    Beschreibung (mit Fingerabdruck) zuletzt. Vor dem Ablegen wird jedes
+ *    Bild dekodiert und auf Breite 4096 geprüft; scheitert das, wird diese
+ *    Instanz einmal neu gerendert, scheitert es erneut, endet der Lauf mit
+ *    Exit 1 und die zuletzt veröffentlichten Dateien bleiben stehen.
+ *  - Beim Start werden alte `*.tmp` in ARBEIT und AUSGABE gelöscht.
+ *  - Fehlt die Weltdatei einer Instanz, werden deren Dateien aus AUSGABE
+ *    entfernt (Warnung im Log); dann greift der Rückfall auf die Repo-Karte.
+ *  - Bekannte Grenze: Bild und Beschreibung werden nacheinander abgelegt
+ *    und vom Browser je bis zu 300 s gecacht; nach einer Weltänderung kann
+ *    die Koordinatenanzeige kurz zum alten Bild passen oder umgekehrt.
+ *
+ * Überschreibbar (für Proben): WOV_KARTEN_ARBEIT, WOV_KARTEN_AUSGABE und
+ * WOV_KARTEN_SPERRE (Standard /run/wov-karten/sperre). ALLE DREI setzen: Fehlt
+ * die dritte, nimmt die Probe die echte Sperre des Dienstes.
  *
  * Lauf:  node tools/weltkarte-veroeffentlichen.mjs [--neu] [--nur-rendern]
  *   --neu          rendert auch, wenn sich nichts geändert hat
- *   --nur-rendern  überträgt nicht (zum Prüfen auf der Konsole)
+ *   --nur-rendern  veröffentlicht nicht (zum Prüfen auf der Konsole)
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  readdirSync,
+  linkSync,
+  statSync,
+} from 'node:fs';
+import sharp from 'sharp';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const ARBEIT = '/var/lib/wov-karten';
+const ARBEIT = process.env.WOV_KARTEN_ARBEIT || '/var/lib/wov-karten';
+const AUSGABE = process.env.WOV_KARTEN_AUSGABE || join(ARBEIT, 'oeffentlich');
 const BREITE = 4096;
-const ZIEL = 'root@10.10.10.13';
-const SCHLUESSEL = '/root/.ssh/wov_karten';
 const INSTANZEN = ['dev', 'live'];
 
 const neu = process.argv.includes('--neu');
@@ -46,6 +81,103 @@ const nurRendern = process.argv.includes('--nur-rendern');
 const log = (...t) => console.log('[karten]', ...t);
 
 mkdirSync(ARBEIT, { recursive: true });
+mkdirSync(AUSGABE, { recursive: true });
+
+// ── Sperre, Aufräumen ───────────────────────────────────────────────────
+
+/*
+  Die Sperre liegt in /run (tmpfs, beim Boot leer; RuntimeDirectory der Unit),
+  nicht im StateDirectory: Eine nach Absturz oder Stromausfall übrig gebliebene
+  Sperre kann so keinen späteren Neustart überleben. Zusätzlich gilt sie nur
+  als gehalten, wenn ihre PID lebt UND die Kommandozeile dieses Skript nennt
+  (eine wiederverwendete PID eines fremden Prozesses zählt nicht).
+  Gesetzt wird sie mit link() einer fertig geschriebenen Datei: atomar, nie
+  eine leere oder halbe Sperre sichtbar. Die Übernahme einer toten Sperre
+  läuft unter einer zweiten Kurzsperre (`.uebernahme`), damit zwei Läufe nie
+  gleichzeitig „tot“ sehen und beide setzen.
+*/
+const SPERRE = process.env.WOV_KARTEN_SPERRE || '/run/wov-karten/sperre';
+const EXIT_BELEGT = 75;
+mkdirSync(dirname(SPERRE), { recursive: true });
+
+function haelt(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf-8').includes('weltkarte-veroeffentlichen');
+  } catch {
+    return false; // Prozess weg (oder nicht lesbar): kein Halter
+  }
+}
+
+/** Inhalt der Sperre als Text; null, wenn sie fehlt. */
+function sperreLesen() {
+  try {
+    return readFileSync(SPERRE, 'utf-8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
+/** Datei mit Inhalt fertig schreiben und mit link() atomar unter `ziel` sichtbar machen. */
+function linkSetzen(ziel, inhalt) {
+  const temp = `${ziel}.${process.pid}.neu`;
+  writeFileSync(temp, inhalt);
+  try {
+    linkSync(temp, ziel);
+    return true;
+  } catch (e) {
+    if (e.code === 'EEXIST') return false;
+    throw e;
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
+function sperreNehmen() {
+  for (let versuch = 0; versuch < 20; versuch++) {
+    if (linkSetzen(SPERRE, String(process.pid))) return true;
+    const text = sperreLesen();
+    if (text === null) continue; // zwischendurch gelöst: nochmal
+    if (haelt(Number.parseInt(text, 10))) return false;
+    // Tote Sperre: nur unter der Übernahme-Kurzsperre übernehmen.
+    const uebernahme = `${SPERRE}.uebernahme`;
+    if (!linkSetzen(uebernahme, String(process.pid))) {
+      // Ein anderer übernimmt gerade; ist die Kurzsperre selbst alt (>10 s), war sie ein Rest.
+      try {
+        if (Date.now() - statSync(uebernahme).mtimeMs > 10_000) rmSync(uebernahme, { force: true });
+      } catch {
+        /* weg: nochmal versuchen */
+      }
+      continue;
+    }
+    try {
+      if (sperreLesen() === text) rmSync(SPERRE, { force: true });
+    } finally {
+      rmSync(uebernahme, { force: true });
+    }
+  }
+  return false;
+}
+
+if (!sperreNehmen()) {
+  log(`ein anderer Lauf hält ${SPERRE} — beende mich mit Status ${EXIT_BELEGT}, ohne etwas zu tun`);
+  process.exit(EXIT_BELEGT);
+}
+const sperreLoesen = () => rmSync(SPERRE, { force: true });
+process.on('exit', sperreLoesen);
+for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => process.exit(1));
+
+/** Reste abgebrochener Läufe (`*.tmp`) löschen; nginx würde sie ausliefern. */
+// --nur-rendern veröffentlicht nichts und rührt AUSGABE deshalb nicht an.
+for (const ordner of nurRendern ? [ARBEIT] : [ARBEIT, AUSGABE]) {
+  for (const n of readdirSync(ordner)) {
+    if (n.endsWith('.tmp')) {
+      rmSync(join(ordner, n), { force: true });
+      log(`Rest gelöscht: ${join(ordner, n)}`);
+    }
+  }
+}
 
 /** SHA-256 der Weltdatei, gekürzt — dasselbe Verfahren wie im Renderer. */
 function fingerabdruck(pfad) {
@@ -69,18 +201,36 @@ function lauf(befehl, argumente, optionen = {}) {
   return e;
 }
 
-/** Eine Datei über den Zwangsbefehl auf wov-web ablegen. */
-function senden(datei) {
-  const inhalt = readFileSync(join(ARBEIT, datei));
-  const e = spawnSync(
-    'ssh',
-    ['-i', SCHLUESSEL, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', ZIEL, datei],
-    { input: inhalt, encoding: 'buffer' }
-  );
-  if (e.status !== 0) {
-    throw new Error(`Übertragung von ${datei} fehlgeschlagen: ${e.stderr?.toString().trim()}`);
+/**
+ * Eine Datei atomar in AUSGABE ablegen: Temp-Datei im selben Verzeichnis
+ * (gleiches Dateisystem, sonst wäre rename nicht atomar), dann umbenennen.
+ * Unveränderte Dateien bleiben unberührt.
+ */
+function ablegen(datei, inhalt = readFileSync(join(ARBEIT, datei))) {
+  const ziel = join(AUSGABE, datei);
+  if (existsSync(ziel) && readFileSync(ziel).equals(inhalt)) return false;
+  const temp = `${ziel}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, inhalt);
+    renameSync(temp, ziel);
+  } catch (e) {
+    rmSync(temp, { force: true });
+    throw e;
   }
-  log(`übertragen: ${datei} (${(inhalt.length / 1024).toFixed(0)} KB)`);
+  log(`abgelegt: ${datei} (${(inhalt.length / 1024).toFixed(0)} KB)`);
+  return true;
+}
+
+/** Bild lässt sich vollständig dekodieren und ist BREITE Punkte breit. */
+async function bildOk(instanz) {
+  const p = join(ARBEIT, `${instanz}.webp`);
+  if (!existsSync(p) || !existsSync(join(ARBEIT, `${instanz}.json`))) return false;
+  try {
+    const { data, info } = await sharp(p, { failOn: 'error' }).raw().toBuffer({ resolveWithObject: true });
+    return info.width === BREITE && data.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 // ── Rendern ─────────────────────────────────────────────────────────────
@@ -92,16 +242,19 @@ for (const instanz of INSTANZEN) {
   const weltPfad = join(WURZEL, 'server/data/welten', `${instanz}.json`);
   if (!existsSync(weltPfad)) {
     log(`${instanz}: keine Weltdatei unter ${weltPfad} — übersprungen`);
+    for (const datei of nurRendern ? [] : [`${instanz}.webp`, `${instanz}.json`]) {
+      if (existsSync(join(AUSGABE, datei))) {
+        rmSync(join(AUSGABE, datei), { force: true });
+        log(`WARNUNG: ${datei} aus der Ausgabe entfernt (Welt fehlt, Rückfall auf Repo-Karte)`);
+      }
+    }
     continue;
   }
 
   const jetzt = fingerabdruck(weltPfad);
   const vorher = gerendert(instanz);
 
-  if (!neu && jetzt === vorher) {
-    log(`${instanz}: unverändert (${jetzt}) — nicht neu gerendert`);
-  } else {
-    log(`${instanz}: Welt geändert (${vorher ?? 'noch nie gerendert'} → ${jetzt}), rendere …`);
+  const rendern = () => {
     lauf(join(WURZEL, 'node_modules/.bin/tsx'), [
       join(WURZEL, 'tools/weltkarte-rendern.ts'),
       instanz,
@@ -109,6 +262,24 @@ for (const instanz of INSTANZEN) {
       String(BREITE),
     ]);
     geaendert = true;
+  };
+
+  let frisch = false;
+  if (!neu && jetzt === vorher) {
+    log(`${instanz}: unverändert (${jetzt}) — nicht neu gerendert`);
+  } else {
+    log(`${instanz}: Welt geändert (${vorher ?? 'noch nie gerendert'} → ${jetzt}), rendere …`);
+    rendern();
+    frisch = true;
+  }
+
+  // Das Bild muss sich dekodieren lassen und 4096 Punkte breit sein, bevor es
+  // veröffentlicht wird. Sonst: einmal neu rendern, danach abbrechen.
+  if (!(await bildOk(instanz))) {
+    if (frisch) throw new Error(`${instanz}: frisch gerendertes Bild ist unbrauchbar`);
+    log(`${instanz}: Bild unbrauchbar (fehlt, abgeschnitten oder falsche Breite) — rendere neu`);
+    rendern();
+    if (!(await bildOk(instanz))) throw new Error(`${instanz}: Bild auch nach Neurendern unbrauchbar`);
   }
 
   const beschreibung = JSON.parse(readFileSync(join(ARBEIT, `${instanz}.json`), 'utf-8'));
@@ -141,24 +312,25 @@ const uebersicht = {
     beschreibung: `${s.instanz}.json`,
   })),
 };
-writeFileSync(join(ARBEIT, 'karten.json'), JSON.stringify(uebersicht, null, 2));
+const uebersichtText = JSON.stringify(uebersicht, null, 2);
+writeFileSync(join(ARBEIT, 'karten.json'), uebersichtText);
 
 log(`Übersicht: ${stand.map((s) => `${s.instanz}=${s.fingerabdruck}`).join(' ')}`);
 
-// ── Übertragen ──────────────────────────────────────────────────────────
+// ── Ablegen ─────────────────────────────────────────────────────────────
 
 if (nurRendern) {
-  log('--nur-rendern: nichts übertragen');
-} else if (!geaendert && !neu) {
-  // Die Übersicht trotzdem senden: Sie trägt den Zeitpunkt des Laufs und
-  // belegt damit auf der Webseite, dass die Karte geprüft wurde.
-  senden('karten.json');
-  log('nichts Neues zu rendern — nur die Übersicht aufgefrischt');
+  log('--nur-rendern: nichts abgelegt');
 } else {
+  // Bilder und Beschreibungen zuerst, die Übersicht zuletzt: Sie verweist auf
+  // die anderen Dateien und darf nie vor ihnen sichtbar sein.
   for (const s of stand) {
-    senden(`${s.instanz}.webp`);
-    senden(`${s.instanz}.json`);
+    ablegen(`${s.instanz}.webp`);
+    ablegen(`${s.instanz}.json`);
   }
-  senden('karten.json');
-  log('fertig');
+  // Die Übersicht trägt den Zeitpunkt des Laufs und belegt auf der Webseite,
+  // dass die Karte geprüft wurde — sie wird deshalb bei jedem Lauf neu
+  // geschrieben, auch wenn nichts gerendert wurde.
+  ablegen('karten.json', Buffer.from(uebersichtText));
+  log(geaendert || neu ? 'fertig' : 'nichts Neues zu rendern — nur die Übersicht aufgefrischt');
 }

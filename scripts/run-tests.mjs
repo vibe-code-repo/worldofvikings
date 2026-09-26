@@ -2200,6 +2200,8 @@ const KERN = [
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['client', 'test/bewuchs-freiraum-vorschau.ts'],
   ['client', 'test/bewuchs-quellen.ts'],
+  // Upload placements keep their ZDO (id, state) across a boot with an unreadable registry.
+  ['server', 'test/upload-zdos-behalten.ts'],
   // Preview bundle stays untracked; the update script's dirty-tree warning is run for real,
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],

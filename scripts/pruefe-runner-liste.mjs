@@ -130,6 +130,7 @@ const AUSNAHMEN = [
   { pfad: 'wov-web/src/lib/i18n/katalog.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/seiten.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/server/forumMarkdown.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/tools/test/zeitlimits-pruefen.mjs', art: 'werkzeug', grund: 'Prüfskript der Webseite, braucht --experimental-transform-types und einen eigenen Stub-Port (--port), läuft etwa 44 s; Aufnahme in die Tests von wov-web ist eine Folgekarte' },
   // ── Rot bei erfüllten Voraussetzungen, nicht eingetragen ──
   {
     pfad: 'server/test/f2-locations.ts',

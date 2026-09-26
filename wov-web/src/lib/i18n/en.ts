@@ -562,6 +562,10 @@ export const en: Messages = {
   'account.error.broken_body': 'The request arrived damaged — please try again.',
   'account.error.server_error': 'The server answered with an error — please try again later.',
   'account.error.network': 'The server cannot be reached — please check your connection.',
+  'account.error.timeout':
+    'The server is not answering. Whether it arrived is unclear — reload the page and check.',
+  'account.error.timeout_create':
+    'The server is not answering. Click “Create” again without changing the name or looks, and your hero will not be created twice.',
   'account.error.unexpected': 'Unexpected answer from the server — please reload the page.',
 
   /* ------------------------------------------ register (/registrieren) */

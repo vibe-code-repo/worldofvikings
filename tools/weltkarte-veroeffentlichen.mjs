@@ -468,7 +468,7 @@ if (nurRendern) {
     // Beschreibung) und der Eintrag in karten.json zeigt auf sie. Scheitert die
     // Rücknahme selbst (voller Datenträger) oder endet der Prozess hart mitten im Paar
     // (SIGKILL, Absturz), kann ein Mischzustand stehen bleiben; der nächste Lauf heilt
-    // ihn (Exit 1 und Log zeigen es an). Gleiches gilt, wenn erst das Schreiben von
+    // ihn (bei Fehlern zeigen Exit 1 und das Log es an, bei SIGKILL oder Stromausfall nicht). Gleiches gilt, wenn erst das Schreiben von
     // karten.json scheitert: Übersicht alt, Paar neu, bis zum nächsten Lauf.
     const dateien = [`${s.instanz}.webp`, `${s.instanz}.json`];
     const alt = dateien.map((d) => {

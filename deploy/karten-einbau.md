@@ -91,8 +91,11 @@ Hinweise:
   selbst (voller Datenträger) oder bricht der Prozess hart ab (SIGKILL, Absturz,
   Stromausfall), kann ein Mischzustand aus neuem Bild und alter Beschreibung
   stehen bleiben, ebenso „Übersicht alt, Paar neu“, wenn erst `karten.json` nicht
-  geschrieben werden kann; der **nächste Lauf heilt** den Zustand (Exit 1 und Zeile
-  `FEHLER` im Journal zeigen es an). Ändert sich nur die Breite, rendert
+  geschrieben werden kann; der **nächste Lauf heilt** den Zustand. Sichtbar wird
+  es je nach Fall: gescheiterte Rücknahme oder Ablegen → Exit 1 und Zeile `FEHLER`
+  im Journal; `karten.json` nicht schreibbar → Exit 1 mit Stacktrace, ohne
+  `FEHLER`-Zeile; SIGKILL oder Stromausfall → weder Exit 1 noch `FEHLER`-Zeile, im
+  Journal nur ein abgebrochener Lauf (`status=9/KILL`) oder gar nichts. Ändert sich nur die Breite, rendert
   der Lauf alle Welten in einem Durchgang neu (Exit 0).
   Ein leeres `WOV_KARTEN_BREITE=` (etwa ein leeres `Environment=`) gilt als nicht gesetzt (4096).
 - Alte `*.tmp` in `/var/lib/wov-karten` und `oeffentlich/` werden beim Start gelöscht.

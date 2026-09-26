@@ -2,7 +2,7 @@
  * Probe für tools/weltkarte-veroeffentlichen.mjs: rendert die echten
  * Weltdokumente in ein Temp-Verzeichnis und prüft die lokale Ablage.
  *
- * Lauf:  node tools/test/weltkarte-probe.mjs           kleine Probe (256 px, ~15 s, ohne den
+ * Lauf:  node tools/test/weltkarte-probe.mjs           kleine Probe (256 px, ~15–25 s je nach Last, ohne den
  *                                                       Parallel-Lauf; so läuft sie im Sammellauf)
  *         node tools/test/weltkarte-probe.mjs --gross   große Probe (4096 px, ~1 min,
  *                                                       bis ~650 MB; von Hand vor
@@ -65,42 +65,47 @@ function lauf(...argumente) {
 }
 
 /*
-  Kindprozesse laufen asynchron und je in einer eigenen Prozessgruppe. So kann der
-  Signal-Handler unten sofort die ganze Gruppe (Veröffentlicher samt tsx-Renderer)
-  beenden, statt bis zum Ende eines blockierenden Kindlaufs zu warten (N1-1).
+  Kindprozesse laufen asynchron (nie blockierend), damit der Signal-Handler unten
+  sofort läuft. Sie bleiben bewusst in der Prozessgruppe der Probe (kein `detached`):
+  So trifft jedes Gruppensignal des Runners — auch SIGHUP und das SIGKILL seines
+  Wachhundes, denen kein Handler vorausgeht — die Kinder samt tsx-Renderer direkt.
 */
 const kinder = new Set();
 
+/** Kind merken; beim Ende wieder vergessen, damit aufraeumen nie eine beendete PID trifft. */
+function merke(kind) {
+  kinder.add(kind);
+  kind.on("close", () => kinder.delete(kind));
+}
+
 function starte(befehl, argumente, umgebung = process.env) {
   return new Promise((ok) => {
-    const kind = spawn(befehl, argumente, {
-      env: umgebung,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    kinder.add(kind);
+    const kind = spawn(befehl, argumente, { env: umgebung, stdio: ["ignore", "pipe", "pipe"] });
+    merke(kind);
     let aus = "";
     let fehl = "";
     kind.stdout.on("data", (d) => (aus += d));
     kind.stderr.on("data", (d) => (fehl += d));
     const frist = setTimeout(() => kill(kind), 600_000);
-    kind.on("close", (status) => {
+    // Ein Spawn-Fehler (ENOENT, EAGAIN) ist ein sauberer Fehlschlag, kein Absturz der Probe.
+    kind.on("error", (e) => {
       clearTimeout(frist);
       kinder.delete(kind);
+      ok({ status: null, aus, fehl: `${fehl}Kind konnte nicht gestartet werden: ${e.message}\n` });
+    });
+    kind.on("close", (status) => {
+      clearTimeout(frist);
       ok({ status, aus, fehl });
     });
   });
 }
 
 function kill(kind) {
+  if (kind.exitCode !== null || kind.signalCode !== null) return; // schon beendet
   try {
-    process.kill(-kind.pid, "SIGKILL");
+    kind.kill("SIGKILL");
   } catch {
-    try {
-      kind.kill("SIGKILL");
-    } catch {
-      /* schon weg */
-    }
+    /* schon weg */
   }
 }
 
@@ -129,7 +134,7 @@ function aufraeumen() {
 // N1-A6/N-1: Auch bei einem Abbruch (Zeitlimit des Runners, Strg-C) die Kindprozesse
 // beenden und das Temp-Verzeichnis entfernen. Der Handler läuft sofort, weil die Probe
 // nirgends blockierend auf ein Kind wartet.
-for (const signal of ["SIGTERM", "SIGINT"]) {
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
   process.on(signal, () => {
     aufraeumen();
     process.exit(1);
@@ -290,9 +295,8 @@ try {
     const erster = spawn(process.execPath, [SKRIPT(), "--neu"], {
       env: UMGEBUNG(),
       stdio: "ignore",
-      detached: true,
     });
-    kinder.add(erster);
+    merke(erster);
     const ersterEnde = new Promise((ok) => erster.on("close", (code) => ok(code)));
     for (let i = 0; i < 150 && !existsSync(SPERRE); i++)
       await new Promise((r) => setTimeout(r, 100));

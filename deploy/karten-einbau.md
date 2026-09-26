@@ -96,7 +96,7 @@ Hinweise:
   im Journal; `karten.json` nicht schreibbar → Exit 1 mit Stacktrace, ohne
   `FEHLER`-Zeile; SIGKILL oder Stromausfall → weder Exit 1 noch `FEHLER`-Zeile, im
   Journal nur ein abgebrochener Lauf (`status=9/KILL`) oder gar nichts.
-  Ein Absturz des Skripts erkennt man an Exit ≠ 0 mit Stacktrace im Journal ohne
+  Einen Absturz des Skripts erkennt man an Exit ≠ 0 mit Stacktrace im Journal ohne
   `FEHLER`-Zeile (`journalctl -u wov-karten`, Dienst „failed“). Ändert sich nur die Breite, rendert
   der Lauf alle Welten in einem Durchgang neu (Exit 0).
   Ein leeres `WOV_KARTEN_BREITE=` (etwa ein leeres `Environment=`) gilt als nicht gesetzt (4096).
@@ -124,6 +124,6 @@ Hinweise:
   werden nicht mehr gebraucht; Entfernen ist Sache des Orchestrators.
 - Probe: `node tools/test/weltkarte-probe.mjs` ist die kleine Probe (256 px,
   rund 15–20 s, ohne den Parallel-Lauf); sie steht im Sammellauf
-  (`npm test`). Die große Probe mit 4096 px und allen Fällen, rund 1 min:
+  (`npm test`). Die große Probe mit 4096 px und allen Fällen, rund 2,5–3 min:
   `node tools/test/weltkarte-probe.mjs --gross` (von Hand vor Änderungen an der
   Kartenveröffentlichung). Beide rendern in `/tmp`.

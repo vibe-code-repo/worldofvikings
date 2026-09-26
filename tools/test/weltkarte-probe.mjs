@@ -4,7 +4,7 @@
  *
  * Lauf:  node tools/test/weltkarte-probe.mjs           kleine Probe (256 px, ~15–25 s je nach Last, ohne den
  *                                                       Parallel-Lauf; so läuft sie im Sammellauf)
- *         node tools/test/weltkarte-probe.mjs --gross   große Probe (4096 px, ~1 min,
+ *         node tools/test/weltkarte-probe.mjs --gross   große Probe (4096 px, ~2,5–3 min,
  *                                                       bis ~650 MB; von Hand vor
  *                                                       Änderungen an der Kartenveröffentlichung)
  *
@@ -121,6 +121,10 @@ async function laufMit(umgebung, ...argumente) {
 
 /** Alle Nachkommen (Kinder, Enkel, …) dieser Probe, aus /proc gelesen. */
 function nachkommen() {
+  // Nur im eigenen PID-Namensraum sind die PIDs aus /proc die dieser Probe (sonst: Rückfall).
+  if (!readFileSync("/proc/self/stat", "utf-8").startsWith(`${process.pid} `)) {
+    throw new Error("/proc gehört zu einem anderen PID-Namensraum");
+  }
   const eltern = new Map();
   for (const name of readdirSync("/proc")) {
     if (!/^\d+$/.test(name)) continue;
@@ -145,19 +149,29 @@ function nachkommen() {
 
 function aufraeumen() {
   // Zuerst den ganzen Baum einsammeln, dann beenden: Auch ein tsx-Enkel, dessen Eltern
-  // gleich sterben, würde sonst weiterrechnen und TEMP neu anlegen (N4-C2). Das gilt für
+  // gleich sterben, würde sonst weiterrechnen und TEMP neu anlegen (N3-C-2). Das gilt für
   // ein Signal nur an die PID der Probe genauso wie für Gruppensignale.
-  const baum = nachkommen();
-  for (const kind of kinder) kill(kind);
-  for (const kind of sleeps) kill(kind);
-  for (const pid of baum) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      /* schon weg */
-    }
+  // Ist /proc nicht lesbar oder fremd, bleibt es bei den bekannten Kindern; beendet und
+  // gelöscht wird in jedem Fall.
+  let baum = [];
+  try {
+    baum = nachkommen();
+  } catch {
+    /* Rückfall: nur die bekannten Kinder */
   }
-  rmSync(TEMP, { recursive: true, force: true });
+  try {
+    for (const kind of kinder) kill(kind);
+    for (const kind of sleeps) kill(kind);
+    for (const pid of baum) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* schon weg */
+      }
+    }
+  } finally {
+    rmSync(TEMP, { recursive: true, force: true });
+  }
 }
 
 // N1-A6/N-1: Auch bei einem Abbruch (Zeitlimit des Runners, Strg-C) die Kindprozesse

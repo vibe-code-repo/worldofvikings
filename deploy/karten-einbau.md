@@ -95,7 +95,9 @@ Hinweise:
   es je nach Fall: gescheiterte Rücknahme oder Ablegen → Exit 1 und Zeile `FEHLER`
   im Journal; `karten.json` nicht schreibbar → Exit 1 mit Stacktrace, ohne
   `FEHLER`-Zeile; SIGKILL oder Stromausfall → weder Exit 1 noch `FEHLER`-Zeile, im
-  Journal nur ein abgebrochener Lauf (`status=9/KILL`) oder gar nichts. Ändert sich nur die Breite, rendert
+  Journal nur ein abgebrochener Lauf (`status=9/KILL`) oder gar nichts.
+  Ein Absturz des Skripts erkennt man an Exit ≠ 0 mit Stacktrace im Journal ohne
+  `FEHLER`-Zeile (`journalctl -u wov-karten`, Dienst „failed“). Ändert sich nur die Breite, rendert
   der Lauf alle Welten in einem Durchgang neu (Exit 0).
   Ein leeres `WOV_KARTEN_BREITE=` (etwa ein leeres `Environment=`) gilt als nicht gesetzt (4096).
 - Alte `*.tmp` in `/var/lib/wov-karten` und `oeffentlich/` werden beim Start gelöscht.

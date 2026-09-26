@@ -43,7 +43,7 @@ const ARBEIT = join(TEMP, "arbeit");
 const AUSGABE = join(TEMP, "ausgabe");
 
 let fehler = 0;
-const sleepPids = [];
+const sleeps = []; // ChildProcess-Objekte der `sleep`-Halter aus Fall 3b
 function pruefe(bedingung, text) {
   console.log(`${bedingung ? "OK   " : "FEHLT"} ${text}`);
   if (!bedingung) fehler++;
@@ -119,11 +119,40 @@ async function laufMit(umgebung, ...argumente) {
   return e.status;
 }
 
-function aufraeumen() {
-  for (const kind of kinder) kill(kind);
-  for (const pid of sleepPids) {
+/** Alle Nachkommen (Kinder, Enkel, …) dieser Probe, aus /proc gelesen. */
+function nachkommen() {
+  const eltern = new Map();
+  for (const name of readdirSync("/proc")) {
+    if (!/^\d+$/.test(name)) continue;
     try {
-      process.kill(pid);
+      // Feld 4 von /proc/<pid>/stat ist die Eltern-PID; der Name in Klammern kann Leerzeichen enthalten.
+      const stat = readFileSync(`/proc/${name}/stat`, "utf-8");
+      eltern.set(Number(name), Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]));
+    } catch {
+      /* Prozess während des Lesens beendet */
+    }
+  }
+  const alle = [];
+  let front = [process.pid];
+  while (front.length > 0) {
+    const naechste = [];
+    for (const [pid, elter] of eltern) if (front.includes(elter)) naechste.push(pid);
+    alle.push(...naechste);
+    front = naechste;
+  }
+  return alle;
+}
+
+function aufraeumen() {
+  // Zuerst den ganzen Baum einsammeln, dann beenden: Auch ein tsx-Enkel, dessen Eltern
+  // gleich sterben, würde sonst weiterrechnen und TEMP neu anlegen (N4-C2). Das gilt für
+  // ein Signal nur an die PID der Probe genauso wie für Gruppensignale.
+  const baum = nachkommen();
+  for (const kind of kinder) kill(kind);
+  for (const kind of sleeps) kill(kind);
+  for (const pid of baum) {
+    try {
+      process.kill(pid, "SIGKILL");
     } catch {
       /* schon weg */
     }
@@ -261,7 +290,7 @@ try {
   // gilt nicht als gehalten: Der Lauf übernimmt sie.
   mkdirSync(dirname(SPERRE), { recursive: true });
   const fremd = spawn("sleep", ["120"], { stdio: "ignore" });
-  sleepPids.push(fremd.pid);
+  sleeps.push(fremd);
   writeFileSync(SPERRE, String(fremd.pid));
   pruefe((await lauf()) === 0, "N1-1b: Sperre einer fremden lebenden PID wird übernommen (Exit 0)");
   pruefe(!existsSync(SPERRE), "Sperre nach dem Lauf gelöst");
@@ -330,7 +359,11 @@ try {
   );
   pruefe(!existsSync(SPERRE), "F2d: keine Sperre zurückgelassen");
   for (const { b, e } of await Promise.all(rendererProben)) {
-    pruefe(e.status !== 0, `F2d/N1-A5: der Renderer lehnt Breite "${b}" ab (Status ${e.status})`);
+    // Nur Status 1 MIT der Meldung des Renderers zählt: Ein Spawn-Fehler (Status null) ist keine Ablehnung.
+    pruefe(
+      e.status === 1 && e.fehl.includes("ungültige Breite"),
+      `F2d/N1-A5: der Renderer lehnt Breite "${b}" ab (Status ${e.status})`,
+    );
   }
 
   // 3e. F2 (b): Fällt dev aus, bleibt dev stehen und live wird trotzdem veröffentlicht
@@ -471,7 +504,8 @@ try {
   aufraeumen();
 }
 await new Promise((r) => setTimeout(r, 300));
-for (const pid of sleepPids) pruefe(!existsSync(`/proc/${pid}`), `sleep ${pid} beendet`);
+for (const k of sleeps)
+  pruefe(k.exitCode !== null || k.signalCode !== null, `sleep ${k.pid} beendet`);
 pruefe(!existsSync(TEMP), `${TEMP} aufgeräumt`);
 console.log(fehler === 0 ? "\nProbe grün" : `\nProbe ROT (${fehler} Fehler)`);
 process.exit(fehler === 0 ? 0 : 1);

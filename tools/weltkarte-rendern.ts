@@ -37,9 +37,10 @@ const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const instanz = (process.argv[2] ?? 'dev') as Instanz;
 const zielOrdner = process.argv[3] ?? resolve(WURZEL, 'mess/karten');
-const BREITE = Number(process.argv[4] ?? 2048);
+const BREITE_TEXT = process.argv[4] ?? '2048';
+const BREITE = /^\d+$/.test(BREITE_TEXT) ? Number(BREITE_TEXT) : NaN;
 
-// Dieselben Grenzen wie WOV_KARTEN_BREITE im Veröffentlicher: 256 bis 8192.
+// Dieselben Regeln wie WOV_KARTEN_BREITE im Veröffentlicher: nur Dezimalziffern, 256 bis 8192.
 if (!Number.isInteger(BREITE) || BREITE < 256 || BREITE > 8192) {
   throw new Error(`ungültige Breite "${process.argv[4]}" — erlaubt sind ganze Zahlen von 256 bis 8192`);
 }

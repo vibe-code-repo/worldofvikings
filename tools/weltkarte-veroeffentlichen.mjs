@@ -73,6 +73,10 @@ import {
   statSync,
 } from 'node:fs';
 import sharp from 'sharp';
+
+// Kein Zwischenspeicher: bildOk liest dieselbe Datei vor und nach dem Neurendern; mit
+// Speicher käme nach einem Wechsel der Breite das alte Bild zurück (Fall „Breitenwechsel“).
+sharp.cache(false);
 import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -234,9 +238,7 @@ function lauf(befehl, argumente, optionen = {}) {
  * (gleiches Dateisystem, sonst wäre rename nicht atomar), dann umbenennen.
  * Unveränderte Dateien bleiben unberührt.
  */
-function ablegen(datei, inhalt = readFileSync(join(ARBEIT, datei))) {
-  const ziel = join(AUSGABE, datei);
-  if (existsSync(ziel) && readFileSync(ziel).equals(inhalt)) return false;
+function atomarSchreiben(ziel, inhalt) {
   const temp = `${ziel}.${process.pid}.tmp`;
   try {
     writeFileSync(temp, inhalt);
@@ -245,6 +247,17 @@ function ablegen(datei, inhalt = readFileSync(join(ARBEIT, datei))) {
     rmSync(temp, { force: true });
     throw e;
   }
+}
+
+function ablegen(datei, inhalt = readFileSync(join(ARBEIT, datei))) {
+  const ziel = join(AUSGABE, datei);
+  if (existsSync(ziel) && readFileSync(ziel).equals(inhalt)) return false;
+  // Nur für die Probe: erzwingt einen Ablegefehler für genau diese Datei, NACHDEM die
+  // vorherige des Paares schon liegt (WOV_KARTEN_PROBE_ABLEGEFEHLER=<instanz>.json).
+  if (process.env.WOV_KARTEN_PROBE_ABLEGEFEHLER === datei) {
+    throw new Error(`Probe: erzwungener Ablegefehler bei ${datei}`);
+  }
+  atomarSchreiben(ziel, inhalt);
   log(`abgelegt: ${datei} (${(inhalt.length / 1024).toFixed(0)} KB)`);
   return true;
 }
@@ -345,7 +358,7 @@ async function weltVerarbeiten(instanz) {
     }
     return;
   }
-  if (!nurRendern) rmSync(zaehlerPfad(instanz), { force: true });
+  rmSync(zaehlerPfad(instanz), { force: true }); // Welt da: Zähler zurück (auch bei --nur-rendern)
 
   const jetzt = fingerabdruck(weltPfad);
   const vorher = gerendert(instanz);
@@ -401,43 +414,75 @@ for (const instanz of INSTANZEN) {
   Beschreibung der gewählten Welt. So muss die Seite die Namen der Instanzen
   nicht fest verdrahtet haben.
 */
-const uebersicht = {
-  erzeugt: new Date().toISOString(),
-  welten: stand.map(({ ablegen, ...s }) => ({
-    ...s,
-    // Anzeigenamen der Webseite. Die Instanz heißt technisch dev/live; auf
-    // der Seite heißen die Welten seit jeher Midgard und Werkstatt.
-    anzeige: s.instanz === 'live' ? 'Midgard' : 'Werkstatt',
-    bild: `${s.instanz}.webp`,
-    beschreibung: `${s.instanz}.json`,
-  })),
-};
-const uebersichtText = JSON.stringify(uebersicht, null, 2);
-writeFileSync(join(ARBEIT, 'karten.json'), uebersichtText);
-
-log(`Übersicht: ${stand.map((s) => `${s.instanz}=${s.fingerabdruck}`).join(' ')}`);
+function uebersichtSchreiben() {
+  const uebersicht = {
+    erzeugt: new Date().toISOString(),
+    welten: stand.map(({ ablegen, ...s }) => ({
+      ...s,
+      // Anzeigenamen der Webseite. Die Instanz heißt technisch dev/live; auf
+      // der Seite heißen die Welten seit jeher Midgard und Werkstatt.
+      anzeige: s.instanz === 'live' ? 'Midgard' : 'Werkstatt',
+      bild: `${s.instanz}.webp`,
+      beschreibung: `${s.instanz}.json`,
+    })),
+  };
+  const text = JSON.stringify(uebersicht, null, 2);
+  writeFileSync(join(ARBEIT, 'karten.json'), text);
+  log(`Übersicht: ${stand.map((s) => `${s.instanz}=${s.fingerabdruck}`).join(' ')}`);
+  return text;
+}
 
 // ── Ablegen ─────────────────────────────────────────────────────────────
 
 if (nurRendern) {
+  uebersichtSchreiben();
   log('--nur-rendern: nichts abgelegt');
 } else {
   // Bilder und Beschreibungen zuerst, die Übersicht zuletzt: Sie verweist auf
   // die anderen Dateien und darf nie vor ihnen sichtbar sein.
-  for (const s of stand) {
+  for (const s of [...stand]) {
     if (!s.ablegen) continue; // bleibt, wie veröffentlicht
+    // Bild und Beschreibung sind ein Paar. Scheitert das Ablegen mitten darin, wird
+    // die zuletzt vollständig veröffentlichte Fassung wiederhergestellt (Bild und
+    // Beschreibung) und der Eintrag in karten.json zeigt auf sie; ein Mischzustand
+    // aus neuem Bild und alter Beschreibung bleibt nie stehen.
+    const dateien = [`${s.instanz}.webp`, `${s.instanz}.json`];
+    const alt = dateien.map((d) => {
+      try {
+        return readFileSync(join(AUSGABE, d));
+      } catch {
+        return null;
+      }
+    });
     try {
-      ablegen(`${s.instanz}.webp`);
-      ablegen(`${s.instanz}.json`);
+      for (const d of dateien) ablegen(d);
     } catch (e) {
       ausfaelle.push(s.instanz);
-      log(`FEHLER: ${s.instanz}: Ablegen scheiterte: ${e.message}`);
+      log(`FEHLER: ${s.instanz}: Ablegen scheiterte: ${e.message} — nehme das Paar zurück`);
+      dateien.forEach((d, k) => {
+        try {
+          if (alt[k]) atomarSchreiben(join(AUSGABE, d), alt[k]);
+          else rmSync(join(AUSGABE, d), { force: true });
+        } catch (e2) {
+          log(`FEHLER: ${d} konnte nicht zurückgenommen werden: ${e2.message}`);
+        }
+      });
+      let vorher = null;
+      try {
+        vorher = alt[1] ? JSON.parse(alt[1].toString('utf-8')) : null;
+      } catch {
+        /* alte Beschreibung unlesbar: kein Eintrag */
+      }
+      const k = stand.indexOf(s);
+      if (vorher && alt[0]) stand[k] = { ...standVon(s.instanz, vorher), ablegen: false };
+      else stand.splice(k, 1);
     }
   }
   // Die Übersicht trägt den Zeitpunkt des Laufs und belegt auf der Webseite,
   // dass die Karte geprüft wurde — sie wird deshalb bei jedem Lauf neu
   // geschrieben, auch wenn nichts gerendert wurde.
-  ablegen('karten.json', Buffer.from(uebersichtText));
+  // Erst jetzt gebaut: Nach einem zurückgenommenen Paar zeigt sie auf die alte Fassung.
+  ablegen('karten.json', Buffer.from(uebersichtSchreiben()));
   log(geaendert || neu ? 'fertig' : 'nichts Neues zu rendern — nur die Übersicht aufgefrischt');
 }
 

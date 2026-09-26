@@ -32,6 +32,7 @@ import { createRequire } from "node:module";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const sharp = createRequire(join(REPO, "package.json"))("sharp");
+sharp.cache(false); // die Probe liest dieselben Pfade mit wechselnden Bildern
 
 const GROSS = process.argv.includes("--gross");
 const BREITE = GROSS ? 4096 : 256;
@@ -83,6 +84,15 @@ function aufraeumen() {
     }
   }
   rmSync(TEMP, { recursive: true, force: true });
+}
+
+// N1-A6: Auch bei einem Abbruch (Zeitlimit des Runners, Strg-C) das Temp-Verzeichnis
+// entfernen. Der Handler läuft, sobald ein gerade laufender spawnSync zurückkehrt.
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => {
+    aufraeumen();
+    process.exit(1);
+  });
 }
 
 try {
@@ -303,6 +313,11 @@ try {
     ue4a.welten.some((w) => w.instanz === "live"),
     'F2c: erster Lauf: karten.json führt "live" weiter',
   );
+  // N1-A4: Weltdatei wieder da, nur ein --nur-rendern-Lauf: der Zähler wird trotzdem zurückgesetzt
+  writeFileSync(join(welten, "live.json"), liveText);
+  pruefe(existsSync(join(ARBEIT, "live.fehlt")), "N1-A4: Zähler steht nach dem ersten Fehllauf");
+  pruefe(lauf("--nur-rendern") === 0, "N1-A4: --nur-rendern mit vorhandener Welt, Exit 0");
+  pruefe(!existsSync(join(ARBEIT, "live.fehlt")), "N1-A4: --nur-rendern setzt den Zähler zurück");
   // Weltdatei kommt zurück: der Zähler beginnt von vorn
   writeFileSync(join(welten, "live.json"), liveText);
   pruefe(lauf() === 0, "F2c: Weltdatei wieder da, Exit 0");
@@ -323,6 +338,58 @@ try {
   pruefe(
     ue4.welten.some((w) => w.instanz === "dev"),
     'karten.json hat weiter "dev"',
+  );
+
+  // N1-A1/A3: Breitenwechsel, Welt unverändert: ein einziger Lauf rendert neu und legt die neue Breite ab
+  console.log("\n— Lauf 5 (Breite wechselt, Welt gleich) —");
+  const NEU = GROSS ? 2048 : BREITE * 2; // groß: verkleinern, 8192 wäre zu schwer
+  const status5 = laufMit({ WOV_KARTEN_BREITE: String(NEU) });
+  pruefe(
+    status5 === 0,
+    `N1-A1: Breitenwechsel ${BREITE}→${NEU} in einem Lauf, Exit 0 (Status ${status5})`,
+  );
+  const meta5 = await sharp(join(AUSGABE, "dev.webp")).metadata();
+  pruefe(
+    meta5.width === NEU,
+    `N1-A1: veröffentlichtes dev.webp ist ${NEU} px breit (${meta5.width})`,
+  );
+  pruefe(lies(join(AUSGABE, "dev.json")).breite === NEU, `N1-A1: dev.json: breite = ${NEU}`);
+  pruefe(!existsSync(SPERRE), "Sperre nach dem Lauf gelöst");
+
+  // N1-A2/A3: Ablegefehler mitten im Paar (erzwungen: Bild liegt, Beschreibung scheitert)
+  console.log("\n— Lauf 6 (Ablegefehler mitten im Paar) —");
+  const bild6 = readFileSync(join(AUSGABE, "dev.webp"));
+  const json6 = readFileSync(join(AUSGABE, "dev.json"));
+  const dokuA2 = lies(join(welten, "dev.json"));
+  dokuA2.regions[0].shape.radius = dokuA2.regions[0].shape.radius * 3; // das Bild ändert sich
+  writeFileSync(join(welten, "dev.json"), JSON.stringify(dokuA2));
+  const status6 = laufMit({
+    WOV_KARTEN_BREITE: String(NEU),
+    WOV_KARTEN_PROBE_ABLEGEFEHLER: "dev.json",
+  });
+  pruefe(status6 === 1, `N1-A2: Ablegefehler endet mit Exit 1 (Status ${status6})`);
+  pruefe(
+    readFileSync(join(AUSGABE, "dev.webp")).equals(bild6) &&
+      readFileSync(join(AUSGABE, "dev.json")).equals(json6),
+    "N1-A2: kein Mischzustand, Bild und Beschreibung wie zuletzt veröffentlicht",
+  );
+  const ue6 = lies(join(AUSGABE, "karten.json"));
+  pruefe(
+    ue6.welten.length === 1 &&
+      ue6.welten[0].instanz === "dev" &&
+      ue6.welten[0].fingerabdruck === lies(join(AUSGABE, "dev.json")).fingerabdruck,
+    "N1-A2: karten.json zeigt auf die zuletzt vollständig veröffentlichte Fassung",
+  );
+  pruefe(!existsSync(SPERRE), "Sperre nach dem Ablegefehler gelöst");
+  pruefe(
+    laufMit({ WOV_KARTEN_BREITE: String(NEU) }) === 0,
+    "N1-A2: Lauf ohne Fehler heilt, Exit 0",
+  );
+  pruefe(
+    !readFileSync(join(AUSGABE, "dev.webp")).equals(bild6) &&
+      lies(join(AUSGABE, "dev.json")).fingerabdruck ===
+        lies(join(AUSGABE, "karten.json")).welten[0].fingerabdruck,
+    "N1-A2: danach liegt das neue Paar stimmig da",
   );
 
   const reste = readdirSync(AUSGABE).filter((n) => n.endsWith(".tmp"));

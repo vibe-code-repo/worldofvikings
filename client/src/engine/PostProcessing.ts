@@ -73,6 +73,7 @@ import {
   korrigiereStrahlenKomposit,
   StrahlenAnker,
 } from './StrahlenAnker';
+import { korrigiereSsaoHimmel } from './Ssao2Himmel';
 import { setzeGrading } from './Grading';
 import { beiLook, hexLinear4, look, type LookProfil } from './lookProfil';
 import { strahlenTor, strahlenWinkel } from '@wov/shared';
@@ -525,6 +526,8 @@ export class PostProcessing {
     //    Pipeline reicht die Szenenfarbe durch (`SSAOOriginalSceneColor`)
     //    — in 8 Bit wäre das HDR-Bild VOR dem Bloom auf LDR geklemmt, und
     //    der Bloom hätte nichts Helles mehr zu greifen.
+    // Vor der ersten Uebersetzung des Shaders: Nullnormale am Himmel (Ssao2Himmel.ts).
+    korrigiereSsaoHimmel();
     this.ssao = new SSAO2RenderingPipeline(
       SSAO_NAME,
       scene,

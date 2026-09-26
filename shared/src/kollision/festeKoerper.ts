@@ -18,6 +18,7 @@ import { istStoreModell } from '../storeKatalog.js';
 import { STORE_NICHT_STREUEN } from '../storePrefabs.js';
 import { STORE_OHNE_KOERPER } from '../storeKollisionDaten.js';
 import { formUebersteuerung } from './formUebersteuerung.js';
+import { uploadedModelEntry } from '../uploadedModelRegistry.js';
 
 /**
  * Welche Prefab-KLASSEN den Spieler blockieren.
@@ -179,4 +180,31 @@ export function istFesterKoerper(
     (flags & NIE_KOLLIDIERENDE_FLAGS) === 0n &&
     !WEICHE_VEGETATION.test(prefabName)
   );
+}
+
+/**
+ * Die Entscheidung, die Server UND Client fürs Spiel treffen: {@link istFesterKoerper}
+ * plus die Wahl (fest/durchlässig) aus der Upload-Registry.
+ *
+ * Bis 24.09.2026 ermittelte der Server `hochgeladenFest` selbst
+ * (`KollisionsFormen.istFest`), und der Client übergab es gar nicht: Ein
+ * hochgeladenes Modell war im Bild durchlässig und für den Server fest, der
+ * Spieler lief durch das Haus und wurde zurückgezogen. Beide Seiten rufen
+ * jetzt diese eine Funktion; die Registry ist auf beiden Seiten dieselbe
+ * (`uploadedModelEntry`, im Browser vor dem ersten Katalogaufbau geladen).
+ *
+ * The decision both server and client make: `istFesterKoerper` plus the
+ * fest/durchlaessig choice from the upload registry. One function, so the two
+ * sides cannot drift apart again.
+ */
+export function istFesterKoerperImSpiel(
+  def: PrefabDef | undefined,
+  prefabName: string,
+  optionen: { dungeonRaum?: boolean; begehbar?: boolean } = {}
+): boolean {
+  const upload = uploadedModelEntry(prefabName);
+  return istFesterKoerper(def, prefabName, {
+    ...optionen,
+    hochgeladenFest: upload ? upload.kollisionsart === 'fest' : undefined,
+  });
 }

@@ -1,4 +1,4 @@
-import { LOCALES, DEFAULT_LOCALE, localizedPath } from '$lib/i18n';
+import { DEFAULT_LOCALE, LOCALES, localizedPath } from '$lib/i18n';
 import { SITEMAP } from '$lib/seiten';
 
 /**

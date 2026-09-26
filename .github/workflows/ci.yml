@@ -47,3 +47,44 @@ jobs:
       # typecheck und Tests nicht sehen (fehlende Importe im Bundle,
       # Rollup-Aufloesung, tsc des shared-Pakets).
       - run: npm run build
+
+  # Die Webseite (wov-web) ist ein eigenes npm-Projekt ausserhalb der
+  # Wurzel-Workspaces und wurde bisher erst beim Ausrollen geprueft
+  # (tools/wov-update.sh). Eigener Job, damit beide parallel laufen und ein
+  # Fehler hier den Client-Build nicht verdeckt.
+  web:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wov-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            wov-web/package-lock.json
+
+      # Die Webseite importiert @wov/shared (Suche, Forum-Client). Der Link
+      # dorthin liegt in node_modules der Wurzel; ohne diesen Schritt findet
+      # weder svelte-check noch der Build das Paket (so laeuft es auch in
+      # tools/wov-update.sh, das die Wurzel vor wov-web installiert).
+      - run: npm ci
+        working-directory: .
+
+      - run: npm ci
+
+      - run: npm run check
+
+      - run: npm run lint
+
+      - run: npm run build
+
+      - run: npm run ohne-js
+
+      - run: npm test

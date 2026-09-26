@@ -55,6 +55,8 @@ const FORWARD: Vector3 = { x: 0, y: 0, z: 1 };
 export interface ClearArea {
   center: Vector3;
   radius: number;
+  /** Runde Fläche (Abstand ≤ radius) statt Quadrat; Vorgabe: Quadrat. */
+  kreis?: boolean;
 }
 
 /** Eine gestreute Pflanze — alles, was der Aufrufer zum Ablegen braucht. */
@@ -76,19 +78,66 @@ export interface StreuWelt {
   readonly regionGeo: RegionGeo | null;
 }
 
-/** Punkt innerhalb einer Freifläche (rechteckig). */
-function insideClearArea(areas: readonly ClearArea[], p: Vector3): boolean {
+/** Punkt in EINER Freifläche (Quadrat, mit `kreis` rund). */
+function inArea(a: ClearArea, p: Vector3): boolean {
+  if (a.kreis) {
+    const dx = p.x - a.center.x;
+    const dz = p.z - a.center.z;
+    return dx * dx + dz * dz <= a.radius * a.radius;
+  }
+  return (
+    p.x > a.center.x - a.radius &&
+    p.x < a.center.x + a.radius &&
+    p.z > a.center.z - a.radius &&
+    p.z < a.center.z + a.radius
+  );
+}
+
+/** Ab so vielen Flächen lohnt das Raster (darunter ist die lineare Suche schneller). */
+const RASTER_AB = 24;
+const RASTER_KANTE = 16;
+
+function gueltigeFlaeche(a: ClearArea): boolean {
+  return (
+    Number.isFinite(a.radius) &&
+    a.radius > 0 &&
+    Number.isFinite(a.center.x) &&
+    Number.isFinite(a.center.z)
+  );
+}
+
+/**
+ * Prüfer „Punkt in einer Freifläche“. Bei vielen Flächen (Zonen mit Hunderten
+ * Platzierungen) sortiert ein Raster die Flächen in Zellen ihres Umrisskastens
+ * vor; das Ergebnis ist dasselbe wie die lineare Suche, nur ohne jeden
+ * Kandidaten gegen alle Flächen zu prüfen.
+ */
+export function freiflaechenPruefer(alle: readonly ClearArea[]): (p: Vector3) => boolean {
+  // Nicht-endliche und nicht-positive Radien (und Mittelpunkte) werden in
+  // BEIDEN Wegen verworfen: Sonst hinge das Ergebnis an der Flächenzahl
+  // (Infinity hing im Raster, ein negativer Kreisradius zählte linear als |r|).
+  const areas = alle.every(gueltigeFlaeche) ? alle : alle.filter(gueltigeFlaeche);
+  if (areas.length < RASTER_AB) return (p) => areas.some((a) => inArea(a, p));
+  const zellen = new Map<number, ClearArea[]>();
+  const schluessel = (i: number, j: number): number => i * 65536 + j;
   for (const a of areas) {
-    if (
-      p.x > a.center.x - a.radius &&
-      p.x < a.center.x + a.radius &&
-      p.z > a.center.z - a.radius &&
-      p.z < a.center.z + a.radius
-    ) {
-      return true;
+    const i0 = Math.floor((a.center.x - a.radius) / RASTER_KANTE);
+    const i1 = Math.floor((a.center.x + a.radius) / RASTER_KANTE);
+    const j0 = Math.floor((a.center.z - a.radius) / RASTER_KANTE);
+    const j1 = Math.floor((a.center.z + a.radius) / RASTER_KANTE);
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const k = schluessel(i, j);
+        const liste = zellen.get(k);
+        if (liste) liste.push(a);
+        else zellen.set(k, [a]);
+      }
     }
   }
-  return false;
+  return (p) => {
+    const liste = zellen.get(schluessel(Math.floor(p.x / RASTER_KANTE), Math.floor(p.z / RASTER_KANTE)));
+    return liste !== undefined && liste.some((a) => inArea(a, p));
+  };
 }
 
 /** Kreis überlappt eine Freifläche (2D). */
@@ -161,6 +210,7 @@ export function streueZone(
   clearAreas: readonly ClearArea[],
   ablegen: (fund: StreuFund) => void
 ): void {
+  const imKlaren = freiflaechenPruefer(clearAreas);
   const zoneX = heightmap.zoneX;
   const zoneY = heightmap.zoneY;
   const centerX = zoneX * ZONE_UNITS;
@@ -345,7 +395,7 @@ export function streueZone(
           }
 
           if (
-            !insideClearArea(clearAreas, pos) &&
+            !imKlaren(pos) &&
             (radius === 0 || !overlapsClearArea(placedAreas, pos, radius))
           ) {
             if (veg.snapToWater) {

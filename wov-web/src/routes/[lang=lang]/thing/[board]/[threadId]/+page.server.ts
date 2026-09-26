@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
 import { ladeThemaSeite, seiteAus } from '$lib/server/forumApi';
 import { renderMarkdown } from '$lib/server/forumMarkdown';
+import type { PageServerLoad } from './$types';
 
 /**
  * Ein Thema mit seinen Beitraegen, serverseitig geladen und gerendert (M2).

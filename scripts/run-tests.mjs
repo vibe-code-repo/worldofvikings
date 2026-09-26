@@ -2196,6 +2196,10 @@ const KERN = [
   ['server', 'test/modell-upload-streng.ts'],
   // Editor connection: dungeon enter/leave + disconnect leaves no hash-0 ZDO in the main world; a player keeps the character ZDO.
   ['server', 'test/editor-zdo-hash0.ts'],
+  ['server', 'test/bewuchs-freiraum.ts'],
+  ['server', 'test/bewuchs-freiraum-huellen.ts'],
+  ['client', 'test/bewuchs-freiraum-vorschau.ts'],
+  ['client', 'test/bewuchs-quellen.ts'],
   // Upload placements keep their ZDO (id, state) across a boot with an unreadable registry.
   ['server', 'test/upload-zdos-behalten.ts'],
 ];

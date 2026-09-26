@@ -984,6 +984,7 @@ export class WovServer {
           worldVegetation: this.config.worldVegetation,
           locationOverrides: this.config.worldLocationOverrides,
           dungeonsEnabled: this.config.dungeonsEnabled,
+          platzierungenFreihalten: true,
         },
         mitKreaturen: this.config.worldCreatures,
         zdos: this.zdos,

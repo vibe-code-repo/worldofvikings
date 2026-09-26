@@ -26,6 +26,7 @@ import {
   sanitizeWorldLayout,
   sanitizeWorldLayoutMitBericht,
   platzierungenEinzeln,
+  geklemmteFelder,
   pruefeLayout,
   HEALTH_MEMBER,
   maxLeben,
@@ -1229,10 +1230,20 @@ export class WovServer {
     }
     // Live: Hat der Sanitizer einzelne Einträge verworfen (Tippfehler), wird NICHTS angewendet. Ein verworfener Eintrag
     // gälte sonst als entfernt (sein Objekt ginge), und nach der Korrektur als neu (ein gefälltes Objekt käme zurück).
+    // Ebenso, wenn er in einem vom Nutzer gesetzten Feld geklemmt hat (`yaw: "abc"` wird 0, `scale: 99` wird 5): der
+    // Eintrag gälte sonst als geändert und setzte ein gefälltes Objekt neu. Ein falsches Prefab und eine falsche id sind
+    // dagegen gültige, andere Einträge und gelten als Änderung (bekanntes Verhalten, `geklemmteFelder`).
     if (modus === 'live') {
       const verworfen = Math.max(0, rohAnzahl - gueltigeAnzahl - (bericht?.zusammengefasst.length ?? 0));
-      if (verworfen > 0) {
-        const detail = `${verworfen} von ${rohAnzahl} Einträgen verworfen: ${this.verworfeneEintraege(rohPlacements as unknown[])}`;
+      const geklemmt = Array.isArray(rohPlacements) ? this.geklemmteEintraege(rohPlacements) : [];
+      if (verworfen > 0 || geklemmt.length > 0) {
+        const teile: string[] = [];
+        if (verworfen > 0) teile.push(`${verworfen} von ${rohAnzahl} Einträgen verworfen: ${this.verworfeneEintraege(rohPlacements as unknown[])}`);
+        if (geklemmt.length > 0) {
+          const gezeigt = geklemmt.slice(0, 40).join(', ');
+          teile.push(`${geklemmt.length} Einträge mit unlesbarem Feld: ${gezeigt}${geklemmt.length > 40 ? ` … (+${geklemmt.length - 40})` : ''}`);
+        }
+        const detail = teile.join('; ');
         console.warn(`[WoV] Layout-Abgleich (live): ${detail} – nichts angewendet`);
         return { art: 'verworfen', detail };
       }
@@ -1263,12 +1274,14 @@ export class WovServer {
     // Löschungen wendet er nicht an (`layoutLiveAbgleich.ts`).
     let ergebnis: LayoutAbgleichErgebnis;
     let zuPruefen: WorldLayout = layout;
+    let zurueck: readonly string[] | null = null;
     if (modus === 'live') {
       if (!vorgabe?.alt) return abgelehnt('kein Vergleichsstand');
       const live = liveAbgleich(kontext, vorgabe.alt, layout, vorgabe.grabsteine);
       if (live.art === 'zuViele') return { art: 'zuViele', anzahl: live.anzahl };
       if (live.art === 'bestaetigung') return { art: 'bestaetigung', detail: live.detail };
       ergebnis = live.ergebnis;
+      zurueck = live.zurueck;
       zuPruefen = { ...layout, placements: [...live.geaendert] };
     } else {
       ergebnis = layoutAbgleich(
@@ -1322,10 +1335,29 @@ export class WovServer {
     }
     const zaehler: Record<string, number> = {};
     for (const [k, v] of Object.entries(ergebnis)) if (typeof v === 'number') zaehler[k] = v;
-    return { art: 'angewendet', zaehler };
+    // Live: Einträge, die ein Grabstein verschluckt hat (gleiche id, gleicher Inhalt wie ein gelöschter, gefällter
+    // Eintrag), stehen als eigener Zähler in der Quittung, nie als „angewendet, alles 0“ ohne Hinweis.
+    if (zurueck) zaehler.zurueck = zurueck.length;
+    const zurueckDetail =
+      zurueck && zurueck.length > 0
+        ? `${zurueck.length} Einträge gelten als gefällt (gleicher Eintrag wie ein gelöschter, gefällter): ${zurueck.slice(0, 40).join(', ')}${zurueck.length > 40 ? ` … (+${zurueck.length - 40})` : ''}; nichts gespawnt`
+        : undefined;
+    return { art: 'angewendet', zaehler, ...(zurueckDetail ? { detail: zurueckDetail } : {}) };
   }
 
   /** Die rohen Einträge, die der Sanitizer streicht: ihre id, sonst die Stelle in der Liste (für die Quittung). */
+  private geklemmteEintraege(roh: readonly unknown[]): string[] {
+    const treffer: string[] = [];
+    roh.slice(0, 2000).forEach((eintrag, i) => {
+      if (platzierungenEinzeln([eintrag]).length === 0) return; // verworfen: zählt dort
+      const felder = geklemmteFelder(eintrag);
+      if (felder.length === 0) return;
+      const id = (eintrag as { id?: unknown }).id;
+      treffer.push(`${typeof id === 'string' && id.length <= 64 ? id : `#${i}`} (${felder.join(', ')})`);
+    });
+    return treffer;
+  }
+
   private verworfeneEintraege(roh: readonly unknown[]): string {
     const namen: string[] = [];
     roh.forEach((eintrag, i) => {

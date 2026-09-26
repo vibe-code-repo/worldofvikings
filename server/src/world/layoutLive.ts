@@ -12,7 +12,7 @@
  * ── Was live gilt ────────────────────────────────────────────────────
  * Live ist nur, was ein ZDO ist (Platzierungen samt NPC-Daten), und davon nur,
  * was sich gegenüber dem zuletzt angewendeten Dokument geändert hat
- * (`layoutLiveAbgleich.ts`: gefällte Bäume und tote NPCs bleiben so). Jede
+ * (`layoutLiveAbgleich.ts`: gefällte Bäume und tote NPCs bleiben so, wenn ihr Objekt nicht angefasst wird). Jede
  * Änderung, die die Geo berührt (Regionen, Kontinente, Wasser, `detailSeed`,
  * Spawn, Routen, `einebnen`), wird NICHT angewendet und mit `geo` quittiert:
  * ein Vorgang gilt ganz oder gar nicht (kein halber Stand aus neuen Objekten
@@ -21,7 +21,7 @@
  * ── Schutz ───────────────────────────────────────────────────────────
  * Die Schutzrückgaben des Boots gelten unverändert (`placements` unlesbar,
  * alle Einträge verworfen): Quittung `abgelehnt`, nichts geschieht. Hat der
- * Sanitizer EINZELNE Einträge verworfen (Tippfehler in einem Feld), wendet der
+ * Sanitizer EINZELNE Einträge verworfen oder in einem gesetzten Feld geklemmt (Tippfehler wie `x: "abc"`, `yaw: "abc"`), wendet der
  * Live-Weg gar nichts an: Quittung `verworfen` mit den betroffenen ids in
  * `detail`, der Vergleichsstand bleibt der alte. Gemeint ist: kein Löschen
  * (ein verworfener Eintrag gälte sonst als entfernt) und kein Wiederbeleben
@@ -87,7 +87,7 @@ export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
 
 /** Ergebnis der Anwendung des Objektteils, geliefert vom Spielserver. */
 export type Anwendung =
-  | { art: 'angewendet'; zaehler: Record<string, number> }
+  | { art: 'angewendet'; zaehler: Record<string, number>; detail?: string }
   | { art: 'abgelehnt'; grund: string }
   /** Viele Objekte oder Objekte mit Zustand würden entfernt: nichts angewendet, `detail` nennt die ids. */
   | { art: 'bestaetigung'; detail: string }
@@ -229,7 +229,7 @@ export class LayoutWache {
     this.kanonisch = neuKanonisch;
     this.angewendet = neuBericht.layout;
     console.log(`[WoV] Layout-Wache: angewendet in ${(performance.now() - t0).toFixed(1)} ms (ganzer Takt)`);
-    this.quittiere(hash, 'angewendet', null, ergebnis.zaehler);
+    this.quittiere(hash, 'angewendet', null, ergebnis.zaehler, ergebnis.detail);
   }
 
   private quittiere(

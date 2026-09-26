@@ -25,11 +25,27 @@
  * zählt er selbst.
  *
  * ── Grabsteine ───────────────────────────────────────────────────────
- * Löschen eines gefällten Baums, speichern, Rückgängig, speichern belebt ihn nicht: siehe `Grabsteine`.
+ * Löschen eines gefällten Baums, speichern, Rückgängig, speichern belebt ihn nicht: siehe `Grabsteine`. Das gilt
+ * auch für ein AUSDRÜCKLICHES Neusetzen desselben Eintrags (gleiche id, gleicher Inhalt, etwa aus einer KI-Ausgabe
+ * ohne id, der der Sanitizer dieselbe abgeleitete id gibt): es wird verschluckt. Die Quittung nennt es
+ * (`zaehler.zurueck`, `detail`), damit „angewendet, alle Zähler 0“ nie ohne Hinweis dasteht; wer den Baum wirklich
+ * will, ändert den Eintrag (etwa `yaw`) oder startet neu.
+ *
+ * Toter NPC: Er wird nicht anders behandelt als ein gefällter Baum, der ZDO-Bestand entscheidet. Solange die
+ * Leiche steht (Todesclip, `health = 0`), ist Löschen eine Zustandsänderung: `bestaetigung`, nichts geschieht. Ist
+ * die Leiche schon weg, setzt Löschen einen Grabstein, und Rückgängig lässt den NPC tot. Wiederbelebt wird er nur
+ * vom Boot beim nächsten Neustart (jeder Boot setzt jeden Eintrag neu, auch gefällte Bäume).
+ *
+ * Getippte Felder: Ein Roheintrag, dessen Feld der Sanitizer klemmt (`yaw: "abc"`), wird nicht hier, sondern vorher
+ * im Server als `verworfen` abgefangen (`geklemmteFelder`). Ein falsch geschriebenes Prefab (`Beeech1`) oder eine
+ * falsche id (`T5`) ist dagegen ein gültiger, anderer Eintrag: Er zählt als Änderung, und ein gefälltes Objekt wird
+ * damit neu gesetzt (bzw. unter der abgeleiteten id ein neues). Bekanntes Verhalten.
  *
  * ── Obergrenze ───────────────────────────────────────────────────────
  * Mehr als `AENDERUNGEN_MAX` neue, geänderte oder entfernte Einträge in einem Schreibvorgang: `zuViele`, nichts
- * angewendet. Weit verteilte Einträge kosten je Stück Bodenhöhe (kalte Kacheln); gemessen ist die Grenze im Bericht.
+ * angewendet. Weit verteilte Einträge kosten je Stück Bodenhöhe (kalte Kacheln); gemessen ist die Grenze im Bericht (40: Median
+ * ≤ 250 ms auch bei ±1500 m auf Land und in einem Dokument mit ~2000 Einträgen EINES Prefabs; 50 lag dort bei
+ * 349 ms unter Last 7,7).
  *
  * ── Massenlöschung ───────────────────────────────────────────────────
  * Ein Tippfehler in der `id`, ein leeres `placements`, eine abgeschnittene
@@ -76,9 +92,11 @@ export interface LiveAbgleich {
   readonly geaendert: readonly PlacementDef[];
   /** Platzierungen, die nicht angefasst wurden. */
   readonly unberuehrt: number;
+  /** Ids, die ein Grabstein verschluckt hat (Neusetzen eines gelöschten, gefällten Eintrags): nichts gespawnt. */
+  readonly zurueck: readonly string[];
 }
 /** Mehr neue, geänderte oder entfernte Einträge in einem Schreibvorgang wendet der Live-Abgleich nicht an. */
-export const AENDERUNGEN_MAX = 100;
+export const AENDERUNGEN_MAX = 40;
 
 export interface LiveZuViele {
   readonly art: 'zuViele';
@@ -237,5 +255,5 @@ export function liveAbgleich(
   ergebnis.entfernt += entferntZdos;
   ergebnis.ueberzaehlig += ueberzaehligeZdos.length;
   ergebnis.ueberzaehligeZdos.push(...ueberzaehligeZdos);
-  return { art: 'angewendet', ergebnis, geaendert, unberuehrt: neuListe.length - geaendert.length };
+  return { art: 'angewendet', ergebnis, geaendert, unberuehrt: neuListe.length - geaendert.length, zurueck };
 }

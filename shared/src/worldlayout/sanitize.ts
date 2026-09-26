@@ -265,6 +265,55 @@ export function platzierungenEinzeln(roh: unknown): PlacementDef[] {
   return roheEintraege;
 }
 
+/** Ein Zahltext, den `Number()` unzweideutig liest: Dezimalzahl mit Vorzeichen und Exponent, kein Hex, kein `Infinity`, kein Leerstring. */
+const ZAHLTEXT_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+/**
+ * Ist der Wert eine Zahl in [min, max], oder ein Zahltext, der eindeutig eine solche Zahl ist? `"3"` ist die Zahl 3
+ * (der Sanitizer liest es genau so): kein Tippfehler. `"abc"`, `""`, `true`, `[]` und `99` (bei Höchstwert 5,
+ * geklemmt) sind es.
+ */
+function zahlInBereich(v: unknown, min: number, max: number): boolean {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && ZAHLTEXT_RE.test(v.trim()) ? Number(v.trim()) : NaN;
+  return Number.isFinite(n) && n >= min && n <= max;
+}
+
+/**
+ * Welche vom Nutzer GESETZTEN Felder eines rohen Eintrags hat `platzierungenEinzeln` geklemmt oder gestrichen
+ * (Roheintrag ≠ bereinigter Eintrag)? Etwa `yaw: "abc"` (wird 0), `scale: 99` (wird 5), `route: "Nord Weg"`
+ * (fällt weg), `npc: "x"`, `npc.rolle: "typo"`.
+ *
+ * Nicht dabei, weil eindeutig und ohne Bedeutungsänderung:
+ *  - Zahltexte (`scale: "3"`), Rundung (Millimeter bei x/z, 0,1 bei `einebnen`, ganze Stufe)
+ *  - `null` in einem der optionalen Felder: gilt wie ein fehlendes Feld
+ *  - `prefab` und `id`: ein falsches Prefab oder eine falsche id ist ein anderer, gültiger Eintrag (kein Klemmen);
+ *    ein unbekanntes Prefab meldet der Abgleich als `unbekannt`, eine ungültige id wird abgeleitet.
+ *
+ * Gilt nur für Einträge, die der Sanitizer NICHT verworfen hat (die zählen als verworfen).
+ */
+export function geklemmteFelder(roh: unknown): string[] {
+  const felder: string[] = [];
+  if (typeof roh !== 'object' || roh === null) return felder;
+  const o = roh as Record<string, unknown>;
+  const gesetzt = (v: unknown): boolean => v !== undefined && v !== null;
+  if (gesetzt(o.yaw) && !zahlInBereich(o.yaw, -Math.PI * 2, Math.PI * 2)) felder.push('yaw');
+  if (gesetzt(o.scale) && !zahlInBereich(o.scale, 0.2, 5)) felder.push('scale');
+  if (gesetzt(o.einebnen) && !zahlInBereich(o.einebnen, 1, 100)) felder.push('einebnen');
+  if (gesetzt(o.route) && !(typeof o.route === 'string' && ID_RE.test(o.route))) felder.push('route');
+  if (gesetzt(o.npc)) {
+    if (typeof o.npc !== 'object') felder.push('npc');
+    else {
+      const n = o.npc as Record<string, unknown>;
+      if (gesetzt(n.name) && typeof n.name !== 'string') felder.push('npc.name');
+      if (gesetzt(n.rolle) && !istNpcRolle(n.rolle)) felder.push('npc.rolle');
+      if (gesetzt(n.fraktion) && !istFraktion(n.fraktion)) felder.push('npc.fraktion');
+      if (gesetzt(n.stufe) && !zahlInBereich(n.stufe, NPC_STUFE_MIN, NPC_STUFE_MAX)) felder.push('npc.stufe');
+      if (gesetzt(n.quest) && !istQuestZustand(n.quest)) felder.push('npc.quest');
+    }
+  }
+  return felder;
+}
+
 export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
   return sanitizeWorldLayoutMitBericht(input)?.layout ?? null;
 }

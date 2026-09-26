@@ -57,7 +57,7 @@ const config = leseServerKonfig(DATA_DIR, INSTANZ);
 // beim Anlegen noch einmal): Der Betriebsdienst sieht "aktiv" ab dem Prozessstart und soll im Boot-Fenster nie einen
 // Stand als angewendet melden, den erst dieser Lauf (oder gar nicht) anwendet.
 // K5.0 N2: Ein Fehler dort (Ordner nicht beschreibbar) geht ins Log und stoppt den Start nicht.
-quittungLoeschenSicher(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ));
+quittungLoeschenSicher(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ), (text) => console.error(`[WoV] ${text}`));
 
 /*
   Fremd-Installation, nie zuvor ein Saal gebaut: assets/generiert/ existiert

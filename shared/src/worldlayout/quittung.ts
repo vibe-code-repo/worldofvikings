@@ -66,7 +66,7 @@ export function quittungLoeschenSicher(pfad: string, protokoll: (text: string) =
     quittungLoeschen(pfad);
     return true;
   } catch (fehler) {
-    protokoll(`[WoV] Quittung nicht gelöscht (${pfad}): ${(fehler as Error).message}`);
+    protokoll(`Quittung nicht gelöscht (${pfad}): ${(fehler as Error).message}`);
     return false;
   }
 }

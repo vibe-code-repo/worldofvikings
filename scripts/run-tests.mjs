@@ -2212,9 +2212,11 @@ const KERN = [
   ['server', 'test/layout-live.ts'],
   // ... and the whole guard tick stays cheap: 2000 placements, one changed, median in ms (finding B2 of the attack).
   ['server', 'test/layout-live-takt.ts'],
-  // ... N2: a typo applies nothing live, defaults count as missing, the limit of 100 changes and its measured tick, boot without a baseline.
+  // ... N2: a typo applies nothing live, defaults count as missing, the limit of 100 changes (50 since N3) and its measured tick, boot without a baseline.
   ['server', 'test/layout-live-n2.ts'],
   ['server', 'test/layout-live-grenze.ts'],
+  // ... N3: limit 50, clamped typos count as dropped, swallowed re-set reported, one log prefix.
+  ['server', 'test/layout-live-n3.ts'],
   ['admin', 'test/weltops-quittung.ts'],
 ];
 

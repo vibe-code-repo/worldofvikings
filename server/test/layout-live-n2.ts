@@ -7,8 +7,8 @@
  *  Z5  the change detection compares normalised entries: `yaw: 0` / `scale: 1` added, or the keys in another
  *      order, revive nothing; delete + save + undo + save revives a felled tree neither (tombstone); a
  *      deleted tree that STOOD comes back (new ZDO) when the entry returns
- *  Z6  more than 100 new / changed / removed entries in one write: receipt `zu-viele-aenderungen` with the
- *      number, nothing applied; exactly 100 apply
+ *  Z6  more than 40 new / changed / removed entries in one write (limit lowered from 100 to 50 to 40 in N3): receipt
+ *      `zu-viele-aenderungen` with the number, nothing applied; exactly 40 apply
  *  Z4  boot with `placements: null` (after a run with felled trees): the receipt says `abgelehnt` with the
  *      reason, not "applied"; the corrected file afterwards revives nothing
  *  Z7  `quittungLoeschenSicher` swallows an error (a directory instead of the file) and logs it; a
@@ -192,15 +192,15 @@ async function haupt(): Promise<void> {
     // ── Z6 ──
     const vorZ6 = layoutZdos().length;
     const stand = mit((p) => ({ ...p, x: 77 }));
-    hash = schreibe(json(dokument([...stand, ...baeume(101, 100)])));
+    hash = schreibe(json(dokument([...stand, ...baeume(41, 100)])));
     q = await quittung(hash);
-    ausgabe('Z6 101 new entries: receipt zu-viele-aenderungen with the number, nothing applied', q?.ergebnis === 'nicht-angewendet' && q.grund === 'zu-viele-aenderungen' && (q.detail ?? '').includes('101') && layoutZdos().length === vorZ6, `${q?.grund}: ${q?.detail}`);
-    hash = schreibe(json(dokument([...stand, ...baeume(100, 100)])));
+    ausgabe('Z6 41 new entries: receipt zu-viele-aenderungen with the number, nothing applied', q?.ergebnis === 'nicht-angewendet' && q.grund === 'zu-viele-aenderungen' && (q.detail ?? '').includes('41') && layoutZdos().length === vorZ6, `${q?.grund}: ${q?.detail}`);
+    hash = schreibe(json(dokument([...stand, ...baeume(40, 100)])));
     q = await quittung(hash);
-    ausgabe('Z6 exactly 100 new entries: applied, gespawnt = 100', q?.ergebnis === 'angewendet' && q.zaehler?.gespawnt === 100 && layoutZdos().length === vorZ6 + 100, JSON.stringify(q?.zaehler));
+    ausgabe('Z6 exactly 40 new entries: applied, gespawnt = 40', q?.ergebnis === 'angewendet' && q.zaehler?.gespawnt === 40 && layoutZdos().length === vorZ6 + 40, JSON.stringify(q?.zaehler));
     hash = schreibe(json(dokument(stand.slice(0, 5))));
     q = await quittung(hash);
-    ausgabe('Z6 removing 100+ entries is refused by the limit as well', q?.ergebnis === 'nicht-angewendet' && (q.grund === 'zu-viele-aenderungen' || q.grund === 'bestaetigung-noetig'), `${q?.grund}: ${(q?.detail ?? '').slice(0, 60)}`);
+    ausgabe('Z6 removing 40+ entries is refused by the limit as well', q?.ergebnis === 'nicht-angewendet' && (q.grund === 'zu-viele-aenderungen' || q.grund === 'bestaetigung-noetig'), `${q?.grund}: ${(q?.detail ?? '').slice(0, 60)}`);
 
     // ── Z4 ──
     // Run 1 ends with two felled trees saved; run 2 boots with `placements: null`.

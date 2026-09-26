@@ -93,8 +93,11 @@ export interface DungeonInstance {
    * Spieler teleportiert. Bei zwanzig Fackeln zwanzigmal.
    */
   propZdoids: ZDOID[];
-  /** Peer names currently inside. */
-  players: Set<string>;
+  /**
+   * Connections (`Peer.userId`) currently inside. Keyed per connection, not
+   * per name: two connections may share a name (an editor and a player).
+   */
+  players: Set<bigint>;
   /** Für die Regeneration: letzter Zeitpunkt mit Spielern (ms epoch). */
   zuletztBetreten?: number;
 

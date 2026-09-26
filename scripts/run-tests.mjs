@@ -2206,6 +2206,8 @@ const KERN = [
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
+  // A dropped dungeon instance moves its players out first (no stale character id in another world); player list per connection.
+  ['server', 'test/instanz-verwurf.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

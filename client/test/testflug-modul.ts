@@ -74,7 +74,9 @@ const testflug = lies('../src/editor/testflug/Testflug.ts');
   pruefe(!/localStorage\s*[.[]/.test(testflug), 'Testflug.ts must not access localStorage directly');
   pruefe(!/\bfetch\(/.test(testflug), 'Testflug.ts must not call fetch directly');
   pruefe(anzahl(testflug, /persistenz\.laden\(\)/g) >= 5, 'draft reads must go through persistenz.laden()');
-  pruefe(anzahl(testflug, /persistenz\.aendern\(/g) >= 6, 'draft writes must go through persistenz.aendern()');
+  // Since K5.3 the flight changes the draft by operations (TestflugAktionen -> persistenz.vorgang), never by writing it whole.
+  pruefe(anzahl(testflug, /aktionen\.(setzen|verschieben|drehen|npcSetzen|loeschen)\(/g) >= 6, 'draft writes must go through the Vorgang actions');
+  pruefe(!/persistenz\.aendern\(/.test(testflug), 'the flight must not write the draft whole any more');
   pruefe(anzahl(testflug, /persistenz\s*\.speichern\(/g) === 1, 'publishing must go through persistenz.speichern()');
   // A copy taken directly in the body of starteTestflug (two-space indent)
   // would freeze the state at start. `ent` is the one deliberate snapshot —

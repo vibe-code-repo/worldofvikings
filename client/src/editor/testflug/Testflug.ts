@@ -35,7 +35,9 @@ import { LageAnzeige } from './LageAnzeige';
 import { positionLines, regionAt } from './inselwahl';
 import { planReturn, sendReturnFromBrowser } from './ruecksprung';
 import type { TestflugKontext } from './TestflugKontext';
-import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz } from './TestflugPersistenz';
+import { antwortText } from './TestflugPersistenz';
+import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebnis } from './TestflugPersistenz';
+import { TestflugAktionen } from './TestflugAktionen';
 
 /**
  * ?layout=editor lädt den Editor-Entwurf — der "Testflug" des 3D-Map-
@@ -69,6 +71,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
   // NEUE Objekte direkt im Gelände setzen — sie landen im selben
   // localStorage-Entwurf, den editor.html bearbeitet.
   const ent = kontext.entities();
+  /** Höchster gezeichneter Listenplatz + 1 (Anzeige-Schlüssel `edplace-<i>`), damit beim Neuaufbau nichts stehen bleibt. */
+  let angezeigt = 0;
   if (testflug && ent) {
     // `anim` ist optional und nur für die Routen-Vorschau da: Sie schaltet
     // damit dieselbe Animationsgruppe um, die online der Server über den
@@ -83,7 +87,43 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Zeichner jede Änderung an Name/Rolle/Stufe sofort am Schild —
       // die Platzierung wird nach dem Bearbeiten einfach neu gezeichnet.
       const npc = loeseNpcAuf(p.prefab, p.npc);
+      if (i >= angezeigt) angezeigt = i + 1;
       ent.applyUpdate(platzierungsUpdate(p, i, world.getGroundHeight(p.x, p.z), npc) as never);
+    };
+    /** Zeichnet die Platzierung mit dieser id neu (Anzeige-Schlüssel bleibt `edplace-<Listenplatz>`). */
+    const zeigeId = (id: string): EntwurfEintrag | null => {
+      const liste = persistenz.laden()?.placements ?? [];
+      const i = liste.findIndex((p) => p.id === id);
+      if (i < 0) return null;
+      zeige(liste[i]!, i);
+      return liste[i]!;
+    };
+    // Alles, was der Testflug am Entwurf ändert, läuft als Vorgang über id.
+    const aktionen = new TestflugAktionen(persistenz);
+    const KEINE_ID = 'Diese Platzierung hat keine id — im Editor öffnen und speichern, dort bekommt sie eine.';
+    /** Antwort der Gegenseite (200/202/409) in die Meldungszeile; bei Rücknahme die Anzeige neu aufbauen. */
+    const melde = (antwort: Promise<VorgangAntwort>): void => {
+      void antwort.then((a) => {
+        const text = antwortText(a);
+        if (text) hud.meldung(text);
+        if ((a.art === 'konflikt' || a.art === 'fehler') && a.zurueckgenommen) neuAufbauenAlle();
+      });
+    };
+    /** Ein lokales Ergebnis: bei Ablehnung melden, sonst die Antwort abwarten und zeigen. */
+    const anwenden = (r: VorgangErgebnis): boolean => {
+      if (!r.ok) {
+        hud.meldung(r.message);
+        return false;
+      }
+      melde(r.antwort);
+      return true;
+    };
+    const neuAufbauenAlle = (): void => {
+      const liste = persistenz.laden()?.placements ?? [];
+      for (let i = 0; i < Math.max(angezeigt, liste.length); i++) ent.removeZDO(`edplace-${i}`);
+      liste.forEach(zeige);
+      ent.flush();
+      panel.aktualisiere();
     };
     const entwurf = testflug as { placements?: EntwurfEintrag[] };
     (entwurf.placements ?? []).forEach(zeige);
@@ -146,31 +186,26 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // auch Setzen, Ziehen und Löschen anfassen — eine zweite Quelle
       // für dieselben Daten wäre der sichere Weg in Widersprüche.
       gewaehlteNpc: () => {
-        if (auswahlIndex < 0) return null;
-        const p = leseEntwurf()?.placements[auswahlIndex];
+        const p = auswahl();
         return p ? { prefab: p.prefab, npc: p.npc } : null;
       },
       setzeNpc: (npc) => {
-        const roh = leseEntwurf();
-        const p = roh?.placements[auswahlIndex];
-        if (!roh || !p) return;
-        if (npc) p.npc = npc;
-        else delete p.npc;
-        persistenz.aendern(roh);
+        const alt = auswahl();
+        if (!alt?.id || !anwenden(aktionen.npcSetzen(alt.id, npc ?? null))) return;
         // Sofort neu zeichnen: Das Namensschild hängt an der Instanz,
         // und der Zeichner soll den geänderten Namen sehen, ohne die
         // Figur erst verschieben zu müssen.
-        zeige(p, auswahlIndex);
+        zeigeId(alt.id);
         ent.flush();
-        hud.meldung(`${p.prefab}: Angaben übernommen`);
+        hud.meldung(`${alt.prefab}: Angaben übernommen`);
       },
       entferneLetztes: () => {
         const roh = persistenz.laden();
         if (!roh?.placements?.length) return;
         const i = roh.placements.length - 1;
         const weg = roh.placements[i]!;
-        roh.placements = roh.placements.slice(0, -1);
-        persistenz.aendern(roh);
+        if (!weg.id) return hud.meldung(KEINE_ID);
+        if (!anwenden(aktionen.loeschen(weg.id))) return;
         ent.removeZDO(`edplace-${i}`);
         ent.flush();
         // Kein verwaister Sockel: Der Untergrund geht mit der Platzierung.
@@ -240,18 +275,18 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         ...(Math.abs(e.scale - 1) > 1e-3 ? { scale: e.scale } : {}),
         ...(sockel !== undefined ? { einebnen: sockel } : {}),
       };
-      roh.placements = [...(roh.placements ?? []), eintrag];
-      persistenz.aendern(roh);
+      if (!anwenden(aktionen.setzen(eintrag))) return;
+      const anzahlNun = (persistenz.laden()?.placements ?? []).length;
       // Erst planieren, DANN zeichnen: zeige() liest getGroundHeight —
       // das Bauwerk soll auf der Platte sitzen, nicht auf der alten Welle.
       if (sockel !== undefined) sockelLiveDazu(wx, wz, sockel);
-      zeige(eintrag, roh.placements.length - 1);
+      zeige(eintrag, anzahlNun - 1);
       ent.flush();
       // Eine frisch gesetzte FIGUR ist sofort die gewählte: Sonst müsste
       // man sie erst wieder anklicken, um ihr einen Namen zu geben.
       // Bewusst nur bei NPCs — bei Bäumen wäre eine Auswahl, die Entf
       // scharf macht, eine unerwartete Nebenwirkung des Setzens.
-      if (istNpcPrefab(e.prefab)) auswahlIndex = roh.placements.length - 1;
+      if (istNpcPrefab(e.prefab)) auswahlId = eintrag.id;
       panel.aktualisiere();
       hud.meldung(
         `${e.prefab} platziert @ (${wx}, ${wz})` +
@@ -285,7 +320,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         if (!offen) {
           geistWeg();
           ring.setEnabled(false);
-          auswahlIndex = -1;
+          auswahlId = null;
         }
         if (offen) {
           // Maus freigeben, damit Liste/Regler anklickbar sind — das
@@ -373,26 +408,30 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       roh.placements = roh.placements ?? [];
       return roh as { placements: EntwurfEintrag[] };
     };
-    let ziehIndex = -1;
+    /** Id der gegriffenen Platzierung (`null` = keine); die Liste kann sich unter dem Griff ändern, die id nicht. */
+    let ziehId: string | null = null;
+    const indexVon = (id: string | null): number =>
+      id === null ? -1 : (persistenz.laden()?.placements ?? []).findIndex((p) => p.id === id);
     /** Griffposition beim Packen — nach dem Ziehen wandert der Sockel
      *  von dort zur neuen Position (die alte steht sonst als verwaiste
      *  Platte im Gelände). */
     let ziehStart: { x: number; z: number } | null = null;
     /** Ausgewählte (zuletzt gegriffene) Platzierung — Ziel von Entf. */
-    let auswahlIndex = -1;
+    let auswahlId: string | null = null;
+    const auswahl = (): EntwurfEintrag | null => (auswahlId === null ? null : (leseEntwurf()?.placements.find((p) => p.id === auswahlId) ?? null));
     // Ob die Vorschau an der Maus hängt, entscheidet allein
     // panel.istPlatzierModus: aktiv erst nach bewusstem Klick in der
     // Liste, beendet durch Abwahl/Esc/Rechtsklick. Ein lokales Flag
     // hier war die Quelle des „Geist klebt nach dem Laden an der Maus".
 
     // ── Routen-Editor (Taste R) ─────────────────────────────────────
-    // NACH `auswahlIndex` angelegt: Der Konstruktor zeichnet die Anzeige
+    // NACH `auswahlId` angelegt: Der Konstruktor zeichnet die Anzeige
     // einmal auf und liest dabei die gewählte Platzierung — vor der
     // Deklaration wäre das ein Zugriff in die temporale Todeszone.
     const routen = new RoutenEditor(scene, {
       bodenHoehe: (x, z) => kontext.world()?.getGroundHeight(x, z) ?? 0,
       meldung: (t) => hud.meldung(t),
-      gewaehltePlatzierung: () => auswahlIndex,
+      gewaehltePlatzierung: () => indexVon(auswahlId),
       // Zeichnen und Platzieren schließen einander aus (s. RoutenEditor).
       aufZeichenStart: () => {
         panel.beendePlatzierModus();
@@ -439,7 +478,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // entsteht keine zweite. `anim` schaltet die Animationsgruppe um.
       zeichne: vorschauZeichner(zeige),
       // Was am Mauszeiger hängt, läuft nicht (s. RoutenVorschau).
-      gegriffen: () => ziehIndex,
+      gegriffen: () => indexVon(ziehId),
       // Der Spieler ist im Testflug das Gegenüber, an dem sich Aggro
       // entscheidet — online liefert der Server dafür die Peer-Positionen.
       spieler: () => {
@@ -684,19 +723,18 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     window.addEventListener('keydown', (e) => {
       // Entf im Suchfeld löscht Text — nicht die gegriffene Platzierung.
       if (tipptImFeld(e)) return;
-      if (e.code !== 'Delete' || !panel.istOffen || auswahlIndex < 0) return;
-      const roh = leseEntwurf();
-      if (!roh || !roh.placements[auswahlIndex]) return;
-      const weg = roh.placements[auswahlIndex]!;
-      const vorher = roh.placements.length;
-      roh.placements.splice(auswahlIndex, 1);
-      persistenz.aendern(roh);
+      if (e.code !== 'Delete' || !panel.istOffen || auswahlId === null) return;
+      const weg = auswahl();
+      if (!weg?.id) return;
+      const vorher = leseEntwurf()!.placements.length;
+      if (!anwenden(aktionen.loeschen(weg.id))) return;
+      const roh = leseEntwurf()!;
       // Sockel VOR dem Neuzeichnen entfernen: alleNeuZeichnen liest
       // getGroundHeight — Nachbarn sollen wieder auf dem Urgelände sitzen.
       sockelLiveWeg(weg);
       alleNeuZeichnen(roh, vorher);
       hud.meldung(`${weg.prefab} gelöscht`);
-      auswahlIndex = -1;
+      auswahlId = null;
       ring.setEnabled(false);
       panel.aktualisiere();
       // Die Indizes hinter der Lücke rutschen — die Anzeige „gewählte
@@ -708,6 +746,18 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       vorschau.ruecksetzen();
     });
 
+    // Drehen der gewählten Platzierung: , und . drehen um 15° (ein Vorgang je Druck).
+    window.addEventListener('keydown', (e) => {
+      if (tipptImFeld(e) || !panel.istOffen || (e.code !== 'Comma' && e.code !== 'Period')) return;
+      const p = auswahl();
+      if (!p?.id) return;
+      const schritt = (Math.PI / 12) * (e.code === 'Period' ? 1 : -1);
+      if (!anwenden(aktionen.drehen(p.id, (p.yaw ?? 0) + schritt))) return;
+      zeigeId(p.id);
+      ent.flush();
+      hud.meldung(`${p.prefab} gedreht`);
+    });
+
     /** Verwerfen: von Rechtsklick-pointerdown UND contextmenu gerufen —
      *  je nach Browser/Pointer-Lock kommt nur eines von beiden an. */
     let rechtsklickZeit = 0;
@@ -717,9 +767,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         document.exitPointerLock();
         return;
       }
-      ziehIndex = -1;
+      ziehId = null;
       routenZiehIndex = -1;
-      auswahlIndex = -1;
+      auswahlId = null;
       ring.setEnabled(false);
       geistWeg();
       panel.beendePlatzierModus();
@@ -783,11 +833,13 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           best = i;
         }
       });
-      if (best >= 0) {
-        ziehIndex = best;
-        auswahlIndex = best;
-        geistWeg();
+      if (best >= 0 && !roh.placements[best]!.id) {
+        hud.meldung(KEINE_ID);
+      } else if (best >= 0) {
         const q = roh.placements[best]!;
+        ziehId = q.id!;
+        auswahlId = q.id!;
+        geistWeg();
         // ziehStart bleibt die GESPEICHERTE Stelle: Von dort muss beim
         // Absetzen ein etwaiger Sockel weggeräumt werden.
         ziehStart = { x: q.x, z: q.z };
@@ -817,14 +869,13 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           ...(Math.abs(einst.scale - 1) > 1e-3 ? { scale: einst.scale } : {}),
           ...(sockel !== undefined ? { einebnen: sockel } : {}),
         };
-        roh.placements.push(eintrag);
-        persistenz.aendern(roh);
+        if (!anwenden(aktionen.setzen(eintrag))) return;
         // Erst planieren, DANN zeichnen — siehe platziere().
         if (sockel !== undefined) sockelLiveDazu(eintrag.x, eintrag.z, sockel);
-        zeige(eintrag, roh.placements.length - 1);
+        zeige(eintrag, (persistenz.laden()?.placements ?? []).length - 1);
         ent.flush();
         // Wie in platziere(): frisch gesetzte Figur ist gewählt.
-        if (istNpcPrefab(einst.prefab)) auswahlIndex = roh.placements.length - 1;
+        if (istNpcPrefab(einst.prefab)) auswahlId = eintrag.id;
         panel.aktualisiere();
         hud.meldung(
           `${einst.prefab} platziert @ (${eintrag.x}, ${eintrag.z})` +
@@ -849,7 +900,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Im Zeichen-Modus hängt bewusst NICHTS an der Maus — der Geist
       // gehört dem Prefab-Setzen, und beides zugleich wäre irreführend.
       if (routen.istZeichenModus) return;
-      if (ziehIndex < 0) {
+      if (ziehId === null) {
         // Vorschau: Das gewählte Prefab hängt sichtbar an der Maus,
         // erst der Klick setzt es — aber NUR im aktiven Platzier-Modus
         // (bewusste Wahl in der Liste; Abwahl/Esc/Rechtsklick beendet).
@@ -859,13 +910,13 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         }
         return;
       }
-      const roh = leseEntwurf();
-      if (!roh || !roh.placements[ziehIndex]) return;
-      const q = roh.placements[ziehIndex]!;
-      q.x = Math.round(p.x * 10) / 10;
-      q.z = Math.round(p.z * 10) / 10;
-      persistenz.aendern(roh);
-      zeige(q, ziehIndex); // gleicher Key ⇒ Matrix-Update, kein Duplikat
+      // Ein Bild des Ziehens: lokal angewendet, aber erst mit dem Absetzen
+      // ein (1) Vorgang (`aktionen.abschliessen`).
+      const x = Math.round(p.x * 10) / 10;
+      const z = Math.round(p.z * 10) / 10;
+      if (!aktionen.verschieben(ziehId, x, z).ok) return;
+      const q = zeigeId(ziehId);
+      if (!q) return;
       ringZu(q.x, q.z);
       ent.flush();
     });
@@ -894,22 +945,24 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         routenZiehIndex = -1;
         return;
       }
-      if (ziehIndex < 0) return;
-      const roh = leseEntwurf();
-      const q = roh?.placements[ziehIndex];
+      if (ziehId === null) return;
+      const gezogen = ziehId;
+      const abgesetzt = aktionen.abschliessen();
+      if (abgesetzt) melde(abgesetzt);
+      const q = leseEntwurf()?.placements.find((e) => e.id === gezogen);
       // Sockel zieht mit um: alte Platte raus, neue rein, Objekt und
       // Ring neu aufsetzen — erst NACH dem Absetzen, damit nicht bei
       // jedem pointermove Kacheln neu gebaut werden.
       if (q?.einebnen && ziehStart && (ziehStart.x !== q.x || ziehStart.z !== q.z)) {
         sockelLiveWeg({ x: ziehStart.x, z: ziehStart.z, einebnen: q.einebnen });
         sockelLiveDazu(q.x, q.z, q.einebnen);
-        zeige(q, ziehIndex);
+        zeigeId(gezogen);
         ringZu(q.x, q.z);
         ent.flush();
       }
       if (q) hud.meldung(`${q.prefab} abgesetzt @ (${q.x}, ${q.z})`);
       ziehStart = null;
-      ziehIndex = -1;
+      ziehId = null;
       panel.aktualisiere();
     });
   }

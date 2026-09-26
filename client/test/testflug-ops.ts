@@ -492,6 +492,74 @@ for (const wie of ['netz-nach-anwenden', '204'] as const) {
   pruefe(speicher.get(ENTWURF_SCHLUESSEL) === vor && p.protokoll().length === 0, 'B5: draft and count unchanged');
 }
 
+// K5.3 N2 M1: the store throws during the rollback: every Vorgang is answered, nothing unhandled, nothing more goes out
+for (const wie of ['laden wirft', 'aendern wirft (Quota)'] as const) {
+  const unbehandelt: unknown[] = [];
+  const merke = (e: unknown): void => void unbehandelt.push(e);
+  process.on('unhandledRejection', merke);
+  const z: Zustand = await bauAttrappe();
+  const r1 = z.a.drehen(KUH, 1);
+  const r2 = z.a.drehen(BUCHE, 1); // waits
+  await z.tick();
+  const ls = globalThis as unknown as { localStorage: { setItem: (k: string, v: string) => void; getItem: (k: string) => string | null } };
+  const setItem0 = ls.localStorage.setItem;
+  if (wie === 'laden wirft') speicher.set(ENTWURF_SCHLUESSEL, '{kaputt');
+  else
+    ls.localStorage.setItem = (): void => {
+      throw new DOMException('voll', 'QuotaExceededError');
+    };
+  z.offene[0]?.antworte('ablehnen');
+  const a1 = r1.ok ? await frist(r1.antwort) : null;
+  const a2 = r2.ok ? await frist(r2.antwort) : null;
+  ls.localStorage.setItem = setItem0;
+  pruefe(a1 !== null && a2 !== null, `M1 (${wie}): both answers arrive (${a1 === null ? 'V1 missing' : 'V1 ok'}, ${a2 === null ? 'V2 missing' : 'V2 ok'})`);
+  pruefe(a1?.art === 'fehler' && a1.zurueckgenommen === false && (antwortText(a1) ?? '').includes('NICHT zurückgesetzt'), `M1 (${wie}): V1 says NOT put back: ${a1 ? antwortText(a1) : null}`);
+  pruefe(a2?.art === 'fehler' && a2.zurueckgenommen === false, `M1 (${wie}): V2 is answered as not put back: ${JSON.stringify(a2)}`);
+  setzeStart();
+  const r3 = z.a.drehen(KUH, 2);
+  await z.tick();
+  pruefe(!r3.ok && z.gesendet.length === 1 && z.offene.length === 1, `M1 (${wie}): locked afterwards, ${z.gesendet.length} sent`);
+  await z.tick();
+  pruefe(unbehandelt.length === 0, `M1 (${wie}): no unhandled rejection, ${unbehandelt.length}`);
+  process.off('unhandledRejection', merke);
+}
+// K5.3 N2: after "NOT put back" (draft gone) nothing more is sent
+{
+  const z: Zustand = await bauAttrappe();
+  const r1 = z.a.drehen(BUCHE, 1);
+  await z.tick();
+  speicher.delete(ENTWURF_SCHLUESSEL);
+  z.offene[0]?.antworte('ablehnen');
+  const a1 = r1.ok ? await frist(r1.antwort) : null;
+  pruefe(a1?.art === 'konflikt' && !a1.zurueckgenommen, `N2: not put back: ${JSON.stringify(a1)}`);
+  setzeStart();
+  const r2 = z.a.drehen(KUH, 2);
+  await z.tick();
+  pruefe(!r2.ok && z.gesendet.length === 1, `N2: the next gesture is refused and not sent, ${z.gesendet.length} sent`);
+}
+// K5.3 N1: a refusal with the mouse down: no turn, no second drag until the release
+{
+  const z: Zustand = await bauAttrappe();
+  const r1 = z.a.drehen(BUCHE, 1); // in flight
+  z.a.verschieben(KUH, 23, 20); // mouse down, drag open
+  await z.tick();
+  z.offene[0]?.antworte('ablehnen');
+  const ant = r1.ok ? await frist(r1.antwort) : null;
+  pruefe(ant?.art === 'konflikt' && ant.zurueckgenommen, `N1: the refusal put the draft back: ${JSON.stringify(ant)}`);
+  pruefe(z.draft() === ausStart(), 'N1: the draft equals the server after the refusal');
+  const zaehl0 = z.p.protokoll().length;
+  pruefe(z.p.ziehOffen?.() === true, 'N1: the drag state stays locked while the mouse is down');
+  const dreh = z.a.drehen(KUH, 1);
+  pruefe(!dreh.ok, 'N1: no turn while the mouse is still down');
+  const zieh = z.a.verschieben(KUH, 25, 25);
+  pruefe(!zieh.ok, 'N1: further mouse moves are ignored');
+  z.a.verschieben(BUCHE, 12, 12);
+  pruefe(z.draft() === ausStart(), 'N1: the draft is unchanged by ignored frames');
+  const ende = z.a.abschliessen();
+  await z.tick();
+  pruefe(ende === null && z.p.protokoll().length === zaehl0 && z.gesendet.length === 1, `N1: the release makes no Vorgang, ${z.gesendet.length} sent`);
+  pruefe(z.p.ziehOffen?.() === false && z.a.drehen(KUH, 1).ok, 'N1: after the release gestures work again');
+}
 // Offline bytes: a long sequence; prints the size and the hash so that two trees can be compared
 {
   const { createHash } = await import('node:crypto');

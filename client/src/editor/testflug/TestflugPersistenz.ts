@@ -223,22 +223,42 @@ export function mitVorgaengen(
     return r;
   };
 
+  /**
+   * After an answer that left it open whether the draft is right (a rollback that did not take, or threw),
+   * or after a refusal while the mouse is down: no drag frames until the mouse is released.
+   */
+  let ziehGesperrt = false;
+
   /** A refusal: put back the refused Vorgang and every later one (and the open drag), newest first. */
   const lehneAb = (a: VorgangAntwort & { art: 'konflikt' | 'fehler' }): void => {
     const verworfene = wartend.splice(0);
     const mitZiehen = offen !== null;
     let alleZurueck = true;
-    if (offen) {
-      alleZurueck = lokal(invertiere(offen)).ok && alleZurueck;
-      offen = null;
+    let ausnahme: unknown = null;
+    try {
+      if (offen) {
+        const o = offen;
+        offen = null;
+        alleZurueck = lokal(invertiere(o)).ok && alleZurueck;
+      }
+      for (let i = verworfene.length - 1; i >= 0; i--) alleZurueck = lokal(invertiere(verworfene[i]!.v)).ok && alleZurueck;
+    } catch (e) {
+      // The store threw (unreadable text, quota): what is put back is unknown, and every Vorgang still gets its answer.
+      ausnahme = e;
+      alleZurueck = false;
     }
-    for (let i = verworfene.length - 1; i >= 0; i--) alleZurueck = lokal(invertiere(verworfene[i]!.v)).ok && alleZurueck;
+    offen = null;
+    // A draft that was not put back is not a base for more gestures; a drag that was open must not go on as a new one.
+    if (!alleZurueck) unklar = true;
+    if (mitZiehen) ziehGesperrt = true;
     const anzahl = verworfene.length + (mitZiehen ? 1 : 0);
+    const bei = (w: string): VorgangAntwort =>
+      ausnahme === null
+        ? { art: 'fehler', message: w, zurueckgenommen: alleZurueck, verworfen: anzahl }
+        : { art: 'fehler', message: `${w}; Rücknahme scheiterte: ${String(ausnahme)}`, zurueckgenommen: false, verworfen: anzahl };
     // The later ones first, so that the line of the refused one (with the count) is the one left on the HUD.
-    for (const w of verworfene.slice(1)) {
-      w.erledigt({ art: 'fehler', message: 'Verworfen, weil ein früherer Vorgang abgelehnt wurde', zurueckgenommen: alleZurueck, verworfen: anzahl });
-    }
-    verworfene[0]!.erledigt({ ...a, zurueckgenommen: alleZurueck, verworfen: anzahl });
+    for (const w of verworfene.slice(1)) w.erledigt(bei('Verworfen, weil ein früherer Vorgang abgelehnt wurde'));
+    verworfene[0]!.erledigt(ausnahme === null ? { ...a, zurueckgenommen: alleZurueck, verworfen: anzahl } : bei(a.message));
   };
   const gibtAuf = (a: VorgangAntwort & { art: 'unklar' }): void => {
     unklar = true;
@@ -254,11 +274,19 @@ export function mitVorgaengen(
       (fehler: unknown): VorgangAntwort => ({ art: 'unklar', message: `Senden ohne Antwort: ${String(fehler)}` })
     ).then((a) => {
       laeuft = false;
-      if (a.art === 'konflikt' || a.art === 'fehler') lehneAb(a);
-      else if (a.art === 'unklar') gibtAuf(a);
-      else {
-        wartend.shift();
-        kopf.erledigt(a);
+      try {
+        if (a.art === 'konflikt' || a.art === 'fehler') lehneAb(a);
+        else if (a.art === 'unklar') gibtAuf(a);
+        else {
+          wartend.shift();
+          kopf.erledigt(a);
+        }
+      } catch (e) {
+        // Whatever threw: nobody is left waiting, and nothing more goes out.
+        unklar = true;
+        for (const w of wartend.splice(0)) {
+          w.erledigt({ art: 'fehler', message: `Antwort nicht verarbeitet: ${String(e)}`, zurueckgenommen: false });
+        }
       }
       pumpe();
     });
@@ -274,6 +302,7 @@ export function mitVorgaengen(
     });
   };
   const schliesse = (): Promise<VorgangAntwort> | null => {
+    ziehGesperrt = false;
     if (!offen) return null;
     const v = offen;
     offen = null;
@@ -287,6 +316,11 @@ export function mitVorgaengen(
     speichern: speicher.speichern,
     vorgang: (v, zwischen = false) => {
       if (unklar) return { ok: false, ids: [], message: UNKLAR_TEXT };
+      if (ziehGesperrt) {
+        // The drag was refused with the mouse still down: frames are ignored until the release (`abschliessen`).
+        if (zwischen) return { ok: false, ids: [], message: 'Ziehen abgelehnt — Maus loslassen' };
+        return { ok: false, ids: [], message: 'Erst absetzen — das Ziehen wurde abgelehnt' };
+      }
       // A frame of ANOTHER object, or any other gesture, ends the open drag first: never two gestures in one Vorgang.
       if (offen && (!zwischen || !gleicheObjekte(offen, v))) {
         const antwort = schliesse();
@@ -302,7 +336,7 @@ export function mitVorgaengen(
     },
     abschliessen: schliesse,
     protokoll: () => protokoll,
-    ziehOffen: () => offen !== null,
+    ziehOffen: () => offen !== null || ziehGesperrt,
   };
   return ergebnis;
 }

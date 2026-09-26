@@ -2213,6 +2213,8 @@ const KERN = [
   ['server', 'test/instanz-verwurf.ts'],
   // Offline flight draws the placement scale (`scale`) like the server: threshold, clamp 0.2-5, replaces localScale. ~5 s.
   ['client', 'test/testflug-skala.ts'],
+  // The client address is the trusted hop's (rightmost X-Forwarded-For), never a visitor-supplied prefix (F3).
+  ['server', 'test/herkunft-xff.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

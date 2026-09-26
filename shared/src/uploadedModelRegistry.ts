@@ -135,7 +135,11 @@ export function leseRegistryAusText(text: string): RegistryDatei {
   try {
     const roh = JSON.parse(text) as { version?: unknown; modelle?: unknown };
     if (!Array.isArray(roh.modelle)) return leereRegistry();
-    return { version: typeof roh.version === 'number' ? roh.version : REGISTRY_VERSION, modelle: roh.modelle as UploadedModelEntry[] };
+    // Ein Eintrag, der kein Objekt ist (`null`, Zahl, Text, Liste), ist
+    // Handarbeit an der Datei: verwerfen, damit KEIN Leser (Betriebsdienst,
+    // Client, MCP, Server) später an `m.name` wirft.
+    const heil = (roh.modelle as unknown[]).filter((m) => typeof m === 'object' && m !== null && !Array.isArray(m));
+    return { version: typeof roh.version === 'number' ? roh.version : REGISTRY_VERSION, modelle: heil as UploadedModelEntry[] };
   } catch {
     return leereRegistry();
   }

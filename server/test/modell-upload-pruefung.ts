@@ -23,11 +23,13 @@
  * Rot vor der Umsetzung: `shared/src/uploadedModelUpload.ts` gab es vor
  * dieser Karte nicht — der Import scheitert auf 34ea56d.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import {
+  ERLAUBTE_GLTF_ERWEITERUNGEN,
   entferneUpload,
   leseRegistry,
   pruefeUndSpeichereUpload,
@@ -94,6 +96,11 @@ interface GlbOptionen {
   externerPuffer?: string | null;
   /** N1: `extensionsRequired` am Dokument. */
   erweiterungenErforderlich?: string[];
+  /** U1-N3: `extensionsUsed` am Dokument (ohne `extensionsRequired`). */
+  erweiterungenBenutzt?: string[];
+  /** U1-N4: `extensionsUsed` / `extensionsRequired` als beliebiger Rohwert (String, Objekt, Zahlen …). */
+  benutztRoh?: unknown;
+  erforderlichRoh?: unknown;
   /** N1: den `count` des POSITION-Accessors ohne passende Daten überschreiben (Allokations-DoS). */
   positionCountUeberschreiben?: number;
   /** N1: eine Ecke der Hüllbox auf NaN setzen (kaputte Vertexdaten). */
@@ -126,6 +133,9 @@ function bauGlb(optionen: GlbOptionen = {}): Uint8Array {
     nichtIndiziert = false,
     externerPuffer = null,
     erweiterungenErforderlich = [],
+    erweiterungenBenutzt = [],
+    benutztRoh,
+    erforderlichRoh,
     positionCountUeberschreiben = null,
     nanPosition = false,
     modus = 4,
@@ -254,6 +264,9 @@ function bauGlb(optionen: GlbOptionen = {}): Uint8Array {
     buffers: [{ byteLength: bin.length, ...(externerPuffer !== null ? { uri: externerPuffer } : {}) }],
     ...(images ? { images } : {}),
     ...(erweiterungenErforderlich.length > 0 ? { extensionsRequired: erweiterungenErforderlich } : {}),
+    ...(erweiterungenBenutzt.length > 0 ? { extensionsUsed: erweiterungenBenutzt } : {}),
+    ...(benutztRoh !== undefined ? { extensionsUsed: benutztRoh } : {}),
+    ...(erforderlichRoh !== undefined ? { extensionsRequired: erforderlichRoh } : {}),
   };
 
   let jsonBuf = Buffer.from(JSON.stringify(json), 'utf8');
@@ -934,6 +947,246 @@ console.log('\n13. Prüftor — TRIANGLE_STRIP (mode 5) und TRIANGLE_FAN (mode 6
 }
 
 for (const d of aufraeumOrdner) rmSync(d, { recursive: true, force: true });
+
+console.log('\n14. U1-N3 — ein gescheitertes Schreiben der Registry beim Entfernen trägt keinen Pfad und lässt keinen halben Zustand zurück\n');
+{
+  const dir = neuerOrdner();
+  const layoutDatei = join(dir, 'welt.json');
+  const erster = pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb(), angezeigterName: 'Restfass', kollisionswunsch: 'fest' });
+  check(erster.ok, `Vorbereitung: Upload angenommen (${erster.ok ? erster.eintrag.name : erster.meldung})`);
+  if (erster.ok) {
+    const name = erster.eintrag.name;
+    const registryVor = readFileSync(join(dir, 'registry.json'), 'utf8');
+    // Ein Verzeichnis unter dem Temp-Namen der Registry: `writeFileSync` wirft EISDIR mit vollem Pfad.
+    mkdirSync(join(dir, 'registry.json.neu'), { recursive: true });
+    let warf = false;
+    let antwort: ReturnType<typeof entferneUpload> | null = null;
+    try {
+      antwort = entferneUpload({ erlaubt: true, verzeichnis: dir, layoutDatei }, name, true);
+    } catch {
+      warf = true;
+    }
+    check(!warf, 'EISDIR beim Schreiben der Registry: entferneUpload wirft NICHT');
+    const meldung = antwort !== null && !antwort.ok && 'meldung' in antwort ? antwort.meldung : '';
+    check(antwort !== null && !antwort.ok && meldung !== '', `stattdessen eine normale Ablehnung (${meldung})`);
+    check(!meldung.includes(dir) && !/EISDIR|ENOENT|EACCES/.test(meldung), 'die Meldung nennt weder den Pfad noch einen fs-Fehlercode');
+    check(existsSync(join(dir, `${name}.glb`)), 'die .glb liegt wieder an ihrem Platz (zurückgeschoben) — kein Eintrag ohne Datei');
+    check(readFileSync(join(dir, 'registry.json'), 'utf8') === registryVor, 'registry.json unverändert');
+    check(leseRegistry(dir).modelle.some((m) => m.name === name), 'der Registry-Eintrag steht noch');
+    check(uploadedModelEntry(name) !== undefined, 'im Prozess weiter registriert (nichts halb ausgetragen)');
+    // Nach Wegräumen der Störung geht das Entfernen ganz normal.
+    rmSync(join(dir, 'registry.json.neu'), { recursive: true, force: true });
+    const zweiter = entferneUpload({ erlaubt: true, verzeichnis: dir, layoutDatei }, name, true);
+    check(zweiter.ok, 'nach Behebung der Störung gelingt das Entfernen');
+    check(!existsSync(join(dir, `${name}.glb`)) && leseRegistry(dir).modelle.length === 0, 'danach: Datei beiseite, Registry leer');
+  }
+}
+{
+  // Kaputte registry.json beim Entfernen: eine feste Meldung, kein JSON-Ausschnitt, kein Wurf.
+  const dir = neuerOrdner();
+  writeFileSync(join(dir, 'registry.json'), '{"geheim": ');
+  let warf = false;
+  let antwort: ReturnType<typeof entferneUpload> | null = null;
+  try {
+    antwort = entferneUpload({ erlaubt: true, verzeichnis: dir, layoutDatei: join(dir, 'welt.json') }, 'U_Irgendwas', true);
+  } catch {
+    warf = true;
+  }
+  check(!warf, 'kaputte registry.json: entferneUpload wirft nicht');
+  const meldung = antwort !== null && !antwort.ok && 'meldung' in antwort ? antwort.meldung : '';
+  check(meldung !== '' && !meldung.includes('geheim') && !meldung.includes(dir) && !/JSON/.test(meldung), `feste Meldung ohne Dateiausschnitt und Pfad (${meldung})`);
+}
+
+console.log('\n15. U1-N4 — Freigabeliste für glTF-Erweiterungen (extensionsUsed UND extensionsRequired)\n');
+const ABZULEHNEN = [
+  'KHR_interactivity', 'KHR_node_visibility', 'MSFT_audio_emitter', 'MSFT_lod', 'KHR_animation_pointer',
+  'EXT_mesh_gpu_instancing', 'KHR_draco_mesh_compression', 'EXT_meshopt_compression',
+  'KHR_lights_punctual', 'EXT_lights_area', 'EXT_lights_ies', 'EXT_lights_image_based',
+  'KHR_texture_basisu', 'KHR_mesh_quantization', 'KHR_materials_transmission', 'KHR_materials_volume',
+  'KHR_materials_diffuse_transmission', 'KHR_materials_dispersion', 'KHR_materials_variants',
+  'EXT_texture_webp', 'XYZ_foo', 'khr_materials_unlit',
+];
+const FREIGEGEBEN = Object.keys(ERLAUBTE_GLTF_ERWEITERUNGEN);
+const tabelle: string[] = [];
+for (const erweiterung of ABZULEHNEN) {
+  for (const feld of ['benutzt', 'erforderlich'] as const) {
+    const dir = neuerOrdner();
+    const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+      bytes: bauGlb(feld === 'benutzt' ? { erweiterungenBenutzt: [erweiterung] } : { erweiterungenErforderlich: [erweiterung] }),
+      angezeigterName: 'Erweitert',
+      kollisionswunsch: 'fest',
+    });
+    check(!antwort.ok && antwort.meldung.includes(erweiterung), `${feld} ['${erweiterung}']: abgelehnt, Name in der Meldung`);
+    check(plattenStand(dir).dateien === 0, '  … und nichts auf die Platte geschrieben');
+    if (feld === 'benutzt') tabelle.push(`| ${erweiterung} | abgelehnt |`);
+  }
+}
+for (const erweiterung of FREIGEGEBEN) {
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ erweiterungenBenutzt: [erweiterung] }),
+    angezeigterName: 'Freigegeben',
+    kollisionswunsch: 'fest',
+  });
+  check(antwort.ok, `freigegeben ['${erweiterung}']: angenommen (${antwort.ok ? antwort.eintrag.name : antwort.meldung})`);
+  if (antwort.ok) unregisterUploadedPrefab(antwort.eintrag.name);
+  tabelle.push(`| ${erweiterung} | angenommen |`);
+}
+check(FREIGEGEBEN.length >= 10 && FREIGEGEBEN.every((e) => ERLAUBTE_GLTF_ERWEITERUNGEN[e]!.length > 10), 'jeder freigegebene Eintrag trägt eine Begründung');
+{
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ erweiterungenBenutzt: ['KHR_materials_emissive_strength', 'KHR_texture_transform'], erweiterungenErforderlich: ['KHR_texture_transform'] }),
+    angezeigterName: 'NurMaterial',
+    kollisionswunsch: 'fest',
+  });
+  check(antwort.ok, `Material-Erweiterungen auch in extensionsRequired erlaubt (${antwort.ok ? antwort.eintrag.name : antwort.meldung})`);
+  if (antwort.ok) unregisterUploadedPrefab(antwort.eintrag.name);
+}
+{
+  // Eine freigegebene neben einer nicht freigegebenen: die zweite entscheidet.
+  const dir = neuerOrdner();
+  const antwort = pruefeUndSpeichereUpload(kontext(dir), {
+    bytes: bauGlb({ erweiterungenBenutzt: ['KHR_texture_transform', 'KHR_interactivity'] }),
+    angezeigterName: 'Gemischt',
+    kollisionswunsch: 'fest',
+  });
+  check(!antwort.ok && antwort.meldung.includes('KHR_interactivity') && !antwort.meldung.includes("nicht freigegeben: KHR_texture_transform"), 'gemischte Liste: abgelehnt, genannt wird nur die nicht freigegebene');
+}
+console.log('\n  Tabelle (Erweiterung | Ergebnis):');
+for (const z of tabelle) console.log(`  ${z}`);
+
+console.log('\n16. U1-N4 — extensionsUsed/-Required, das keine Liste aus Texten ist, wird abgelehnt (nie als leer behandelt)\n');
+for (const [feld, roh] of [
+  ['benutztRoh', 'EXT_mesh_gpu_instancing'],
+  ['benutztRoh', { a: 'KHR_interactivity' }],
+  ['benutztRoh', 42],
+  ['benutztRoh', ['KHR_texture_transform', null]],
+  ['benutztRoh', [1]],
+  ['benutztRoh', ''],
+  ['erforderlichRoh', 'KHR_draco_mesh_compression'],
+  ['erforderlichRoh', { x: 1 }],
+  ['erforderlichRoh', null],
+] as const) {
+  const dir = neuerOrdner();
+  let warf = false;
+  let antwort: ReturnType<typeof pruefeUndSpeichereUpload> | null = null;
+  try {
+    antwort = pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb({ [feld]: roh }), angezeigterName: 'Roh', kollisionswunsch: 'fest' });
+  } catch {
+    warf = true;
+  }
+  check(!warf, `${feld} = ${JSON.stringify(roh)}: kein Wurf`);
+  check(antwort !== null && !antwort.ok && antwort.meldung.includes(feld === 'benutztRoh' ? 'extensionsUsed' : 'extensionsRequired'), `  … abgelehnt mit Meldung, die das Feld nennt (${antwort !== null && !antwort.ok ? antwort.meldung : 'ANGENOMMEN'})`);
+  check(plattenStand(dir).dateien === 0, '  … Platte leer');
+}
+
+/** Ein Stück fs vorübergehend ersetzen (die Module holen sich die Funktionen per benanntem Import — `syncBuiltinESMExports` reicht die Änderung durch). */
+function mitFsAusfall<T>(ersatz: Partial<Record<'renameSync' | 'writeFileSync' | 'rmSync', (...a: never[]) => unknown>>, lauf: () => T): T {
+  const original = { renameSync: fs.renameSync, writeFileSync: fs.writeFileSync, rmSync: fs.rmSync };
+  Object.assign(fs, ersatz);
+  syncBuiltinESMExports();
+  try {
+    return lauf();
+  } finally {
+    Object.assign(fs, original);
+    syncBuiltinESMExports();
+  }
+}
+const EIO = (): never => {
+  throw Object.assign(new Error('EIO: i/o error, /geheim/pfad'), { code: 'EIO' });
+};
+
+console.log('\n17. U1-N4 — Entfernen: scheitern Registry-Schreiben UND Zurückschieben, sagt die Antwort die Wahrheit\n');
+{
+  const dir = neuerOrdner();
+  const layoutDatei = join(dir, 'welt.json');
+  const erster = pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb(), angezeigterName: 'Doppelausfall', kollisionswunsch: 'fest' });
+  check(erster.ok, 'Vorbereitung: Upload angenommen');
+  if (erster.ok) {
+    const name = erster.eintrag.name;
+    const echtRename = fs.renameSync;
+    const echtWrite = fs.writeFileSync;
+    const antwort = mitFsAusfall(
+      {
+        writeFileSync: (p: string, ...r: unknown[]) => (String(p).endsWith('registry.json.neu') ? EIO() : (echtWrite as (...a: unknown[]) => unknown)(p, ...r)),
+        // Beiseiteschieben geht durch, das Zurückschieben (aus `entfernt/` heraus) scheitert.
+        renameSync: (von: string, nach: string) => (String(von).includes('/entfernt/') ? EIO() : echtRename(von, nach)),
+      },
+      () => entferneUpload({ erlaubt: true, verzeichnis: dir, layoutDatei }, name, true)
+    );
+    const meldung = !antwort.ok && 'meldung' in antwort ? antwort.meldung : '';
+    check(!antwort.ok && meldung !== '', 'Doppelausfall: normale Ablehnung, kein Wurf');
+    check(!/nichts wurde entfernt/.test(meldung), `die Meldung behauptet NICHT „nichts wurde entfernt" (${meldung})`);
+    check(/teilweise/.test(meldung) && /erneut/.test(meldung), 'sie nennt den halben Zustand und den Weg (erneut entfernen)');
+    check(!meldung.includes(dir) && !meldung.includes('/geheim') && !/EIO/.test(meldung), 'ohne Pfad und Fehlercode');
+    check(!existsSync(join(dir, `${name}.glb`)) && readdirSync(join(dir, 'entfernt')).length === 1, 'Zustand wie gemeldet: Datei beiseite');
+    check(leseRegistry(dir).modelle.some((m) => m.name === name), 'Zustand wie gemeldet: Registry-Eintrag noch da');
+    const zweiter = entferneUpload({ erlaubt: true, verzeichnis: dir, layoutDatei }, name, true);
+    check(zweiter.ok && leseRegistry(dir).modelle.length === 0, 'ein erneutes DELETE räumt auf (ok, Registry leer)');
+  }
+}
+
+console.log('\n18. U1-N4 — eine verwaiste .glb sperrt ihren Namen nicht dauerhaft\n');
+{
+  const dir = neuerOrdner();
+  const echtRm = fs.rmSync;
+  const echtWrite = fs.writeFileSync;
+  const antwort = mitFsAusfall(
+    {
+      writeFileSync: (p: string, ...r: unknown[]) => (String(p).endsWith('registry.json.neu') ? EIO() : (echtWrite as (...a: unknown[]) => unknown)(p, ...r)),
+      rmSync: (p: string, ...r: unknown[]) => (String(p).endsWith('.glb') ? EIO() : (echtRm as (...a: unknown[]) => unknown)(p, ...r)),
+    },
+    () => pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb(), angezeigterName: 'Waisenbrett', kollisionswunsch: 'fest' })
+  );
+  check(!antwort.ok && !/EIO|geheim|\/tmp/.test(antwort.meldung), `Doppelausfall beim Upload: Ablehnung ohne Pfad (${antwort.ok ? 'OK?!' : antwort.meldung})`);
+  const waisen = readdirSync(dir).filter((f) => f.endsWith('.glb'));
+  check(waisen.length === 1, `Vorbedingung: eine verwaiste .glb liegt da (${waisen.join(',')})`);
+  check(leseRegistry(dir).modelle.length === 0, 'Vorbedingung: kein Registry-Eintrag');
+  const nochmal = pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb(), angezeigterName: 'Waisenbrett', kollisionswunsch: 'fest' });
+  check(nochmal.ok, `derselbe Name geht beim nächsten Upload wieder durch (${nochmal.ok ? nochmal.eintrag.name : nochmal.meldung})`);
+  check(readdirSync(dir).filter((f) => f.endsWith('.glb')).length === 1 && leseRegistry(dir).modelle.length === 1, 'danach: eine Datei, ein Eintrag (kein Doppel)');
+  if (nochmal.ok) unregisterUploadedPrefab(nochmal.eintrag.name);
+}
+{
+  // Gegenprobe: steht der Name in der registry.json (aber nicht im Prozess), bleibt er belegt und die Datei unberührt.
+  const dir = neuerOrdner();
+  const erster = pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb(), angezeigterName: 'Belegt', kollisionswunsch: 'fest' });
+  if (erster.ok) {
+    unregisterUploadedPrefab(erster.eintrag.name);
+    const vorher = readFileSync(join(dir, `${erster.eintrag.name}.glb`));
+    const zweiter = pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb({ groesse: 2 }), angezeigterName: 'Belegt', kollisionswunsch: 'fest' });
+    check(!zweiter.ok, 'Name steht in der Registry (nicht im Prozess): abgelehnt');
+    check(readFileSync(join(dir, `${erster.eintrag.name}.glb`)).equals(vorher) && leseRegistry(dir).modelle.length === 1, 'Datei und Eintrag unberührt');
+  } else check(false, 'Vorbereitung Gegenprobe');
+}
+
+console.log('\n19. U1-N4 — ein null-Eintrag in der registry.json lässt nichts werfen\n');
+{
+  const dir = neuerOrdner();
+  const erster = pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb(), angezeigterName: 'NebenNull', kollisionswunsch: 'fest' });
+  check(erster.ok, 'Vorbereitung: Upload angenommen');
+  if (erster.ok) {
+    const name = erster.eintrag.name;
+    const roh = JSON.parse(readFileSync(join(dir, 'registry.json'), 'utf8'));
+    roh.modelle.unshift(null, 7, 'text', [1]);
+    writeFileSync(join(dir, 'registry.json'), JSON.stringify(roh));
+    check(leseRegistry(dir).modelle.length === 1, 'leseRegistry verwirft die vier Nicht-Objekt-Einträge');
+    let warf = false;
+    let antwort: ReturnType<typeof entferneUpload> | null = null;
+    try {
+      antwort = entferneUpload({ erlaubt: true, verzeichnis: dir, layoutDatei: join(dir, 'welt.json') }, name, true);
+    } catch {
+      warf = true;
+    }
+    check(!warf, 'entferneUpload wirft nicht');
+    check(antwort !== null && antwort.ok, 'und entfernt den echten Eintrag');
+    check(leseRegistry(dir).modelle.length === 0, 'Registry danach ohne Müll (beim Schreiben bereinigt)');
+    const zweiter = pruefeUndSpeichereUpload(kontext(dir), { bytes: bauGlb(), angezeigterName: 'NebenNull2', kollisionswunsch: 'fest' });
+    check(zweiter.ok, 'Upload neben einem null-Eintrag wirft nicht');
+    if (zweiter.ok) unregisterUploadedPrefab(zweiter.eintrag.name);
+  }
+}
 
 console.log(failures === 0 ? '\nU1-Prüftor: alles grün.\n' : `\nU1-Prüftor: ${failures} FEHLGESCHLAGEN.\n`);
 process.exit(failures > 0 ? 1 : 0);

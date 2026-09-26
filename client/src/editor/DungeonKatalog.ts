@@ -60,7 +60,7 @@ import { abschnitt, auswahl, feld, hinweis, knopf, schalter, zeile } from './dun
 // geöffneten Dokument nichts zu tun hat und diese hier schon 1 200
 // Zeilen misst.
 import { NewHallForm, type HallBuilder, type HallDeleter } from './DungeonNeuerSaal';
-import { gameUrl } from './spielAdresse';
+import { dungeonMeldung, dungeonZiel } from './spielAdresse';
 
 export interface DungeonSeiteRueckrufe {
   meldung(text: string, fehler?: boolean): void;
@@ -79,31 +79,6 @@ function groessterSaalM(base: string): number {
   let groesste = 0;
   for (const r of def.rooms) groesste = Math.max(groesste, r.size.x, r.size.z);
   return groesste;
-}
-
-/**
- * Auf welchem Host läuft das SPIEL, wenn der Editor auf diesem hier läuft?
- *
- * ── Der Fehler, den diese Funktion behebt ────────────────────────────
- * Die erste Fassung STRICH ein führendes `editor.`. Das ergab aus
- * `editor.dev.world-of-vikings.com` den Host `dev.world-of-vikings.com`
- * — und der antwortet gar nicht. Nachgemessen am 28.08.2026:
- *
- *   dev.world-of-vikings.com              keine Antwort
- *   play.dev.world-of-vikings.com         200   ← das Spiel
- *   editor.dev.world-of-vikings.com       302   ← der Editor
- *
- * Der Editor heisst also nicht `editor.<Spielhost>`, sondern beide
- * tragen ein eigenes Präfix vor demselben Rest. Ersetzt wird deshalb,
- * nicht gestrichen.
- *
- * ── Und warum das hier eine Funktion ist ─────────────────────────────
- * Weil sie sich prüfen lässt. Als Ausdruck mitten im Klick-Handler war
- * sie es nicht, und der Fehler fiel erst auf, als jemand darauf klickte.
- * `mess/spielhost.ts` fährt sie gegen alle drei echten Namen.
- */
-export function spielHost(host: string): string {
-  return host.startsWith('editor.') ? `play.${host.slice('editor.'.length)}` : host;
 }
 
 export class DungeonSeite {
@@ -1026,15 +1001,11 @@ export class DungeonSeite {
    * nichts und saehe aus wie ein kaputter Knopf.
    *
    * ── Welcher Host ─────────────────────────────────────────────────
-   * Der Spielclient braucht die Sitzung aus dem localStorage, und der
-   * haengt am Ursprung. Auf dev ist das einfach: play.dev liefert Spiel
-   * UND Editor aus (`/` und `/editor.html`, siehe
-   * deploy/npm-play-dev.conf), gleicher Ursprung, ein relativer Verweis
-   * genuegt — und er behaelt nebenbei automatisch dev bzw. live.
-   *
-   * Sonst uebersetzt `spielHost()` den Editor-Namen in den Spielnamen.
-   * Die erste Fassung riet dabei falsch und schickte auf einen Host, den
-   * es nicht gibt — die Begruendung steht dort, samt gemessener Tabelle.
+   * Auf einem Editor-Host der Spiel-Host aus der Tabelle in
+   * `spielAdresse.ts` (`dungeonZiel`): Anmeldung und Konto gibt es nur dort, nginx schickt
+   * `/de/anmelden` auf dem Editor-Host in den Editor zurueck. Auf jedem
+   * anderen Host (auch `live.` selbst, localhost) bleibt es beim eigenen
+   * Ursprung.
    */
   private betrete(doc: DungeonDocument): void {
     if (this.schmutzig) {
@@ -1044,23 +1015,27 @@ export class DungeonSeite {
       this.cb.meldung('Erst speichern — betreten zeigt den gespeicherten Stand.', true);
       return;
     }
-    const host = spielHost(location.host);
-    const ziel = `${location.protocol}//${host}${gameUrl(`dungeon=${encodeURIComponent(doc.id)}`)}`;
+    let ziel;
+    try {
+      ziel = dungeonZiel(doc.id, location);
+    } catch (fehler) {
+      this.cb.meldung(fehler instanceof Error ? fehler.message : String(fehler), true);
+      return;
+    }
 
-    // ── Ohne Anmeldung geht die Dungeon-Wahl unterwegs verloren ──────
+    // ── Ohne Anmeldung: die Wahl bleibt als Wunsch liegen ────────────
     //
-    // Der Spielclient leitet ohne Sitzung zur Anmeldung auf der Webseite
-    // um, und diese Adresse trägt KEIN Ziel zurück (`websiteLoginUrl` in
-    // client/src/main.ts kennt nur `shore` und `abgelaufen`). Nach dem
-    // Anmelden landet man also in der Welt statt im Dungeon — wortlos,
-    // was schlimmer ist als ein Fehler.
+    // Der Spielclient legt `?dungeon=` vor der Weiterleitung zur Anmeldung
+    // als `wov-dungeon-wunsch` ab (10 Minuten) und loest ihn nach der
+    // Anmeldung ein (client/src/main.ts). Also das Spiel MIT `?dungeon=`
+    // oeffnen, sonst gaebe es nichts abzulegen.
     //
-    // Gefragt wird NUR, wenn das Ziel derselbe Ursprung ist. Auf live
-    // trägt der Editor einen eigenen Namen, der localStorage dort ist ein
-    // anderer, und die Antwort wäre schlicht falsch: „nicht angemeldet"
-    // für jemanden, der es sehr wohl ist. Lieber nichts sagen als etwas
-    // Unzutreffendes.
-    if (host === location.host) {
+    // Der localStorage gilt je Ursprung. Nur wenn das Spiel auf DEMSELBEN
+    // Ursprung oeffnet, sagt er etwas ueber das Ziel. Beim Wechsel auf den
+    // Spiel-Host kann der Editor ihn nicht lesen (und ein Token, das der
+    // Editor-Host selbst hat, stammt nie von einer Anmeldung), also
+    // entfaellt die Vorab-Pruefung: das Spiel fragt dort selbst.
+    if (ziel.gleicherUrsprung) {
       let token = '';
       try {
         token = localStorage.getItem('wov-session-token') ?? '';
@@ -1070,17 +1045,17 @@ export class DungeonSeite {
       }
       if (!token) {
         this.cb.meldung(
-          `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
-            'Erst anmelden, dann noch einmal auf „Betreten".',
+          `Nicht im Spiel angemeldet — ${doc.id} öffnet sich nach der Anmeldung, ` +
+            'wenn du dich innerhalb von 10 Minuten anmeldest.',
           true
         );
-        window.open(`${location.protocol}//${host}${gameUrl()}`, '_blank');
+        window.open(ziel.url, '_blank');
         return;
       }
     }
 
-    this.cb.meldung(`${doc.id} wird im Spiel geöffnet …`);
-    window.open(ziel, '_blank');
+    this.cb.meldung(dungeonMeldung(doc.id, ziel));
+    window.open(ziel.url, '_blank');
   }
 
   /**

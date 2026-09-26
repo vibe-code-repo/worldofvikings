@@ -7,6 +7,7 @@
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createWovServer } from './WovServer.js';
+import { erstelleHerunterfahren } from './herunterfahren.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
 import { ladeModulRegistrierung, sorgeFuerRegistryDatei } from './world/dungeon/ModuleBuild.js';
@@ -153,17 +154,18 @@ if (kollisionsStand.fest === 0) {
   );
 }
 
-// Graceful shutdown
+// Graceful shutdown — Ablauf und Exit-Codes in herunterfahren.ts
+const fahreHerunter = erstelleHerunterfahren(server, (code) => process.exit(code));
+
 process.on('SIGINT', () => {
   console.log('\n[Main] Shutting down...');
-  server.stop();
-  process.exit(0);
+  fahreHerunter();
 });
 
-process.on('SIGTERM', () => {
-  server.stop();
-  process.exit(0);
-});
+process.on('SIGTERM', fahreHerunter);
 
-// Start the server
-server.start();
+// Start the server; a failed bind ends the process so systemd sees it
+server.start().catch((err: unknown) => {
+  console.error('[Main] Server could not start:', err instanceof Error ? err.message : err);
+  process.exit(1);
+});

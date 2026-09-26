@@ -2113,6 +2113,20 @@ const dienst = createServer((req, res) => {
       }
       const eingabefehler = fehler instanceof LayoutUngueltig || fehler instanceof SyntaxError;
       const code = eingabefehler ? 400 : 500;
+      // U1-N3: Die Upload-Route (POST/DELETE /api/modell-hochladen) gibt nie
+      // eine rohe `Error.message` an den Browser — fs-Fehler tragen den
+      // absoluten Pfad, JSON-Fehler einen Dateiausschnitt. Nur eine feste
+      // Meldung plus Kennung; die Einzelheiten stehen im Log.
+      if (pfad === '/api/modell-hochladen') {
+        console.error(`[Admin] ${req.method} ${pfad} -> ${code}:`, fehler);
+        return json(res, code, {
+          ok: false,
+          fehler: eingabefehler ? 'anfrage-ungueltig' : 'interner-fehler',
+          message: eingabefehler
+            ? 'Die Anfrage konnte nicht gelesen werden.'
+            : 'Interner Fehler (Einzelheiten im Server-Log).',
+        });
+      }
       const meldung = (fehler as Error).message;
       if (eingabefehler) console.warn(`[Admin] ${req.method} ${pfad} -> 400: ${meldung}`);
       else console.error('[Admin] Fehler:', fehler);

@@ -123,6 +123,19 @@ export class Peer {
 
   /** Respawn-Punkt (Bett) — null = Weltspawn. */
   spawnPoint: Vector3 | null;
+  /**
+   * Layout-Kennung des Bettes, an dem `spawnPoint` gesetzt wurde ('' = ein
+   * Spielerbett oder keins). Nur ein Layout-Bett wandert mit dem Gelaende; beim
+   * Tod wird genau dieses Bett gesucht, nicht die x/z-Saeule.
+   */
+  spawnBettId: string;
+  /**
+   * `besitzer` des Bettes, an dem `spawnPoint` gesetzt wurde ('' = Weltbett,
+   * null = unbekannt: Punkt aus einem Stand vor dieser Angabe). Beim Tod muss
+   * ein Spielerbett am Punkt denselben Besitzer tragen; die Angabe ist die des
+   * Bettes, nicht die aktuelle userId (ein Gast bekommt bei jeder Verbindung eine neue).
+   */
+  spawnBettBesitzer: string | null;
 
   /** Aktiver Essens-Buff: maxHP-Bonus bis Zeitstempel (ms). */
   foodBonus: number;
@@ -225,6 +238,8 @@ export class Peer {
     this.staminaZuletztVerbraucht = 0;
     this.paradeBis = 0;
     this.spawnPoint = null;
+    this.spawnBettId = '';
+    this.spawnBettBesitzer = null;
     this.foodBonus = 0;
     this.foodBis = 0;
     this.dungeonId = null;

@@ -22,6 +22,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -120,9 +121,24 @@ async function laufMit(umgebung, ...argumente) {
 }
 
 /** Grund, warum die Baumsuche ausfiel (null: lief); erwartet sind nur ein fehlendes oder fremdes /proc. */
-let baumFehler = null;
+let baumAusgefallen = false;
+let baumGrund = null;
 const erwarteterFehler = (e) =>
-  /Namensraum/.test(e.message) || ["ENOENT", "EACCES", "ESRCH"].includes(e.code);
+  /Namensraum/.test(String(e?.message ?? "")) || ["ENOENT", "EACCES", "ESRCH"].includes(e?.code);
+
+/**
+ * Fehlt /proc oder gehört es zu einem anderen PID-Namensraum? Unabhängig von nachkommen()
+ * geprüft: /proc/self zeigt in unserem Namensraum auf unsere eigene PID. Nur dann zählt
+ * ein Ausfall der Baumsuche als erwartet (N6-F-1); ein Tippfehler im Pfad oder ein eigener
+ * Fehler mit code ENOENT bei normalem /proc bleibt ein Fehler.
+ */
+function procFehltOderFremd() {
+  try {
+    return readlinkSync("/proc/self") !== String(process.pid);
+  } catch {
+    return true;
+  }
+}
 
 /** Alle Nachkommen (Kinder, Enkel, …) dieser Probe, aus /proc gelesen. */
 function nachkommen() {
@@ -164,8 +180,11 @@ function aufraeumen() {
   } catch (e) {
     // Rückfall: nur die bekannten Kinder. Der Grund wird gemeldet und am Ende geprüft;
     // ein Programmierfehler in nachkommen() darf nicht still grün bleiben (N5-E-1).
-    baumFehler = e;
-    console.error(`Hinweis: Baumsuche nicht möglich (${e.message}), nur bekannte Kinder`);
+    baumAusgefallen = true;
+    baumGrund = e;
+    console.error(
+      `Hinweis: Baumsuche nicht möglich (${e?.message ?? String(e)}), nur bekannte Kinder`,
+    );
   }
   try {
     for (const kind of kinder) kill(kind);
@@ -529,8 +548,8 @@ await new Promise((r) => setTimeout(r, 300));
 for (const k of sleeps)
   pruefe(k.exitCode !== null || k.signalCode !== null, `sleep ${k.pid} beendet`);
 pruefe(
-  baumFehler === null || erwarteterFehler(baumFehler),
-  `Baumsuche beim Aufräumen lief (${baumFehler ? baumFehler.message : "ok"})`,
+  !baumAusgefallen || (procFehltOderFremd() && erwarteterFehler(baumGrund)),
+  `Baumsuche beim Aufräumen lief (${baumAusgefallen ? (baumGrund?.message ?? String(baumGrund)) : "ok"})`,
 );
 pruefe(!existsSync(TEMP), `${TEMP} aufgeräumt`);
 console.log(fehler === 0 ? "\nProbe grün" : `\nProbe ROT (${fehler} Fehler)`);

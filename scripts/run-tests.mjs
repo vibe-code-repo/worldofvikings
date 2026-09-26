@@ -2209,6 +2209,8 @@ const KERN = [
   ['shared', 'test/kollision-upload-entscheid.ts'],
   // Plateau diff and tie-break independent of list order: a live-patched geo matches a fresh compile.
   ['shared', 'test/sockel-diff.ts'],
+  // A dropped dungeon instance moves its players out first (no stale character id in another world); player list per connection.
+  ['server', 'test/instanz-verwurf.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

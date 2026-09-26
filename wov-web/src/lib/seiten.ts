@@ -135,9 +135,7 @@ export const MOBILNAV: Seite[] = [
  * erreichbar — der schlanke Fußbalken des Entwurfs hat die alten
  * Linkspalten abgelöst, aber nicht deren Aufgabe.
  */
-export const FUSSNAV: Seite[] = HAUPTNAV.filter(
-  (s) => !MOBILNAV.includes(s) && s.pfad !== '/',
-);
+export const FUSSNAV: Seite[] = HAUPTNAV.filter((s) => !MOBILNAV.includes(s) && s.pfad !== '/');
 
 /** Wohin „Auf Fahrt gehen“ führt — die Charaktererstellung, nicht direkt ins Spiel. */
 export const FAHRT = '/erstellen';

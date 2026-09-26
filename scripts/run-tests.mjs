@@ -2194,6 +2194,8 @@ const KERN = [
   ['server', 'test/wiedereinstieg-fremdes-bett.ts'],
   // U1-N5: glb streng lesen (Kopf/Chunks), extensionsRequired ⊆ Used, Registry fail closed
   ['server', 'test/modell-upload-streng.ts'],
+  // Editor connection: dungeon enter/leave + disconnect leaves no hash-0 ZDO in the main world; a player keeps the character ZDO.
+  ['server', 'test/editor-zdo-hash0.ts'],
   ['server', 'test/bewuchs-freiraum.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['client', 'test/bewuchs-freiraum-vorschau.ts'],

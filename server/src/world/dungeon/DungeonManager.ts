@@ -94,8 +94,8 @@ export interface DungeonInstance {
    */
   propZdoids: ZDOID[];
   /**
-   * Connections (`Peer.userId`) currently inside. Keyed per connection, not
-   * per name: two connections may share a name (an editor and a player).
+   * Accounts (`Peer.userId`, taken from the session token) currently inside.
+   * Keyed by account: two connections of the same account count once.
    */
   players: Set<bigint>;
   /** Für die Regeneration: letzter Zeitpunkt mit Spielern (ms epoch). */

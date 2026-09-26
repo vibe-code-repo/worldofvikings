@@ -2046,10 +2046,11 @@ export class WovServer {
     // und seinen Spawnpunkt mit dem Nichts einer Verbindung, die nie in
     // der Welt war. Kein Fehler, keine Meldung — man stuende beim
     // naechsten Anmelden woanders.
-    // The player list of an instance is keyed per connection: an editor that
-    // disconnects inside an instance must leave it too (it is never a saved
-    // player, so the return below does not apply to it).
-    // Die Spielerliste der Instanz ist je Verbindung geschlüsselt: Auch ein
+    // The player list of an instance is keyed by account (userId comes from
+    // the session token; two connections of the same account count once): an
+    // editor that disconnects inside an instance must leave it too (it is
+    // never a saved player, so the return below does not apply to it).
+    // Die Spielerliste der Instanz ist nach Konto geschlüsselt: Auch ein
     // Editor trägt sich beim Trennen aus.
     if (peer.dungeonId) this.dungeons.getInstance(peer.dungeonId)?.players.delete(peer.userId);
     if (peer.nurEditor) return;
@@ -5634,11 +5635,13 @@ export class WovServer {
           }
           ziel.steinKit = sauber;
           this.dungeons.saveDocument(doc);
-          // Die Instanz verwerfen wie bei `regen`: Wer drin steht, betritt
-          // sie beim nächsten `dungeon enter` frisch — und erst dieses
-          // Teleport-Paket trägt das neue Material zum Client.
-          // Drop the instance as `regen` does; only the next teleport packet
-          // carries the new material to a client.
+          // Drop the instance as `regen` does. Anyone still inside is moved
+          // to the main world first (`instanzWeltEntfernen`) and re-enters
+          // with `dungeon enter`; only that teleport packet carries the new
+          // material to a client.
+          // Die Instanz verwerfen wie bei `regen`: Wer drin steht, wird zuerst
+          // in die Hauptwelt umgezogen und betritt sie mit `dungeon enter`
+          // frisch — erst dieses Teleport-Paket trägt das neue Material.
           this.dungeons.destroyInstance(doc.id);
           return {
             ok: true,

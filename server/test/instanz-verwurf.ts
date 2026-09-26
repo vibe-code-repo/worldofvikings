@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 import { PacketType } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
 import { portVon } from '../../scripts/testport.mjs';
-import { antwortBerechnen } from '../src/net/Identitaet.js';
+import { antwortBerechnen, geheimnisErzeugen, spielerIdErzeugen, tokenAusstellen } from '../src/net/Identitaet.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(HIER, '../../.tmp-instanz-verwurf');
@@ -72,7 +72,7 @@ interface Verbindung {
   teleports: number;
 }
 
-function verbinde(name: string, nurEditor: boolean): Verbindung {
+function verbinde(name: string, nurEditor: boolean, token = ''): Verbindung {
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
   ws.binaryType = 'nodebuffer';
   const v: Verbindung = { ws, angemeldet: Promise.resolve(), admin: [], teleports: 0 };
@@ -100,7 +100,7 @@ function verbinde(name: string, nurEditor: boolean): Verbindung {
             P.PasswordAuth,
             ...writeString(antwortBerechnen(nonce, '')),
             ...writeString(name),
-            ...writeString(''),
+            ...writeString(token),
             ...(nurEditor ? [1] : []),
           ])
         );
@@ -145,11 +145,13 @@ async function admin(v: Verbindung, zeile: string): Promise<void> {
 
 async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
+  const geheimnis = Buffer.from(geheimnisErzeugen(), 'hex');
   const server = createWovServer({
     port: 0,
     worldsDir: resolve(TMP, 'worlds'),
     kontenDir: resolve(TMP, 'konten'),
     everyoneAdmin: true,
+    sessionSecret: geheimnis,
     saveIntervalMs: 3_600_000,
   });
   server.start();
@@ -279,6 +281,46 @@ async function main(): Promise<void> {
   await bis(() => sp.worldId !== 'haupt');
   check('C: enter: Spieler in der Instanz mit Figur, eingetragen',
     sp.worldId === instB?.welt.id && !!server.welten.get(sp.worldId)?.zdos.getZDO(sp.characterID) && instB.players.size === 1);
+
+  // ── D. Same account (same session token) as player and editor ──
+  // The list counts the account once: the editor's `leave` empties it while
+  // the player is still inside, so the instance may be dropped. The player is
+  // then moved out cleanly, with a character and without touching a foreign ZDO.
+  const token = tokenAusstellen(spielerIdErzeugen(), 777001n, geheimnis);
+  const dungeonD = await dungeonAnlegen(spieler, 4244);
+  const spD = verbinde('Konto', false, token);
+  await spD.angemeldet;
+  const edD = verbinde('KontoEd', true, token);
+  await edD.angemeldet;
+  await warte(500);
+  const pD = peerVon('Konto', false)!;
+  const eD = peerVon('KontoEd', true)!;
+  check('D: beide Verbindungen haben dieselbe userId', pD.userId === eD.userId, pD.userId.toString());
+  await admin(spD, `dungeon enter ${dungeonD}`);
+  await admin(edD, `dungeon enter ${dungeonD}`);
+  await bis(() => pD.worldId !== 'haupt' && eD.worldId !== 'haupt');
+  const instD = server.dungeons.getInstance(dungeonD);
+  check('D: beide stehen in der Instanz, das Konto zählt einmal', !!instD && instD.players.size === 1, `size ${instD?.players.size}`);
+  const idD = pD.characterID;
+  await admin(edD, 'dungeon leave');
+  await bis(() => eD.worldId === 'haupt');
+  let opferD = server.hauptwelt.zdos.getZDO(idD) ?? null;
+  for (let i = 0; i < 5000 && !opferD; i++) {
+    const z = server.hauptwelt.zdos.createZDO(OPFER_HASH, OPFER_POS);
+    if (z.zdoid.equals(idD)) opferD = z;
+  }
+  const opferDHash = opferD?.prefabHash ?? 0;
+  const opferDId = opferD?.zdoid;
+  server.dungeons.tick(Date.now());
+  server.dungeons.tick(Date.now() + 10 * 24 * 3600 * 1000);
+  check('D: die leere Instanz wird verworfen', !server.dungeons.getInstance(dungeonD));
+  check('D: der Spieler steht in der Hauptwelt mit eigener Figur', await bis(() => pD.worldId === 'haupt', 3_000) &&
+    !!server.hauptwelt.zdos.getZDO(pD.characterID) && !(opferDId && pD.characterID.equals(opferDId)));
+  const nochD = opferDId ? server.hauptwelt.zdos.getZDO(opferDId) : undefined;
+  check('D: fremdes ZDO mit der Nummer seiner Instanzfigur unverändert vorhanden', !!nochD && nochD.prefabHash === opferDHash,
+    `hash ${nochD?.prefabHash} / ${opferDHash}`);
+  spD.ws.close();
+  edD.ws.close();
 
   spieler.ws.close();
   await warte(500);

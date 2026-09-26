@@ -2,7 +2,7 @@
  * Probe für tools/weltkarte-veroeffentlichen.mjs: rendert die echten
  * Weltdokumente in ein Temp-Verzeichnis und prüft die lokale Ablage.
  *
- * Lauf:  node tools/test/weltkarte-probe.mjs           kleine Probe (256 px, ~15–25 s je nach Last, ohne den
+ * Lauf:  node tools/test/weltkarte-probe.mjs           kleine Probe (256 px, ~20–35 s je nach Last, ohne den
  *                                                       Parallel-Lauf; so läuft sie im Sammellauf)
  *         node tools/test/weltkarte-probe.mjs --gross   große Probe (4096 px, ~2,5–3 min,
  *                                                       bis ~650 MB; von Hand vor
@@ -119,6 +119,11 @@ async function laufMit(umgebung, ...argumente) {
   return e.status;
 }
 
+/** Grund, warum die Baumsuche ausfiel (null: lief); erwartet sind nur ein fehlendes oder fremdes /proc. */
+let baumFehler = null;
+const erwarteterFehler = (e) =>
+  /Namensraum/.test(e.message) || ["ENOENT", "EACCES", "ESRCH"].includes(e.code);
+
 /** Alle Nachkommen (Kinder, Enkel, …) dieser Probe, aus /proc gelesen. */
 function nachkommen() {
   // Nur im eigenen PID-Namensraum sind die PIDs aus /proc die dieser Probe (sonst: Rückfall).
@@ -156,8 +161,11 @@ function aufraeumen() {
   let baum = [];
   try {
     baum = nachkommen();
-  } catch {
-    /* Rückfall: nur die bekannten Kinder */
+  } catch (e) {
+    // Rückfall: nur die bekannten Kinder. Der Grund wird gemeldet und am Ende geprüft;
+    // ein Programmierfehler in nachkommen() darf nicht still grün bleiben (N5-E-1).
+    baumFehler = e;
+    console.error(`Hinweis: Baumsuche nicht möglich (${e.message}), nur bekannte Kinder`);
   }
   try {
     for (const kind of kinder) kill(kind);
@@ -520,6 +528,10 @@ try {
 await new Promise((r) => setTimeout(r, 300));
 for (const k of sleeps)
   pruefe(k.exitCode !== null || k.signalCode !== null, `sleep ${k.pid} beendet`);
+pruefe(
+  baumFehler === null || erwarteterFehler(baumFehler),
+  `Baumsuche beim Aufräumen lief (${baumFehler ? baumFehler.message : "ok"})`,
+);
 pruefe(!existsSync(TEMP), `${TEMP} aufgeräumt`);
 console.log(fehler === 0 ? "\nProbe grün" : `\nProbe ROT (${fehler} Fehler)`);
 process.exit(fehler === 0 ? 0 : 1);

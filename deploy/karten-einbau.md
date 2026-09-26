@@ -123,7 +123,7 @@ Hinweise:
 - Der alte Schlüssel `/root/.ssh/wov_karten` und `karten-empfang` auf CT 103
   werden nicht mehr gebraucht; Entfernen ist Sache des Orchestrators.
 - Probe: `node tools/test/weltkarte-probe.mjs` ist die kleine Probe (256 px,
-  rund 15–20 s, ohne den Parallel-Lauf); sie steht im Sammellauf
+  rund 20–35 s je nach Last, ohne den Parallel-Lauf); sie steht im Sammellauf
   (`npm test`). Die große Probe mit 4096 px und allen Fällen, rund 2,5–3 min:
   `node tools/test/weltkarte-probe.mjs --gross` (von Hand vor Änderungen an der
   Kartenveröffentlichung). Beide rendern in `/tmp`.

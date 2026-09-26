@@ -28,9 +28,11 @@ const SKALA_TOLERANZ = 1e-3;
  * The scale the server would put on the entity (`layoutAbgleich.sollSkala`
  * after `sanitize` clamped it): 0 = none, the prefab's `localScale` applies.
  */
-export function anzeigeSkala(scale: number | undefined): number {
-  if (scale === undefined || !Number.isFinite(scale)) return 0;
-  const s = Math.min(SKALA_MAX, Math.max(SKALA_MIN, scale));
+export function anzeigeSkala(scale: unknown): number {
+  if (scale === undefined) return 0;
+  // Like the server's `klemm`: `Number(v)` (so "3" is 3, null and "" are 0), not finite = the default 1.
+  const n = Number(scale);
+  const s = Number.isFinite(n) ? Math.min(SKALA_MAX, Math.max(SKALA_MIN, n)) : 1;
   return Math.abs(s - 1) > SKALA_TOLERANZ ? s : 0;
 }
 
@@ -47,7 +49,8 @@ export function platzierungsUpdate(
     prefabHash: getStableHash(p.prefab),
     position: { x: p.x, y: hoehe, z: p.z },
     rotation: { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) },
-    // Replaces the prefab's `localScale` like `composeZdoWorld` does online.
+    // Static prefabs: replaces the prefab's `localScale` like `composeZdoWorld` does online.
+    // Dynamic prefabs (animals, NPCs): `applyDynamic` multiplies it with `localScale`, online and here alike.
     ...(anzeigeSkala(p.scale) > 0 ? { scale: anzeigeSkala(p.scale) } : {}),
     ...(p.anim !== undefined ? { anim: p.anim } : {}),
     // The blow event of the preview (like the server's animEinmal).
@@ -59,17 +62,17 @@ export function platzierungsUpdate(
   };
 }
 
-/** The `zeichne` callback of the route preview: forwards everything, the event too. */
+/** The `zeichne` callback of the route preview: forwards everything, the event and the scale too. */
 export function vorschauZeichner(
   zeige: (p: ZeigePlatzierung, i: number) => void
 ): (
   i: number,
-  p: { prefab: string },
+  p: { prefab: string; scale?: number },
   x: number,
   z: number,
   yaw: number,
   anim: 'idle' | 'walk' | 'attack',
   animEinmal?: string
 ) => void {
-  return (i, p, x, z, yaw, anim, animEinmal) => zeige({ prefab: p.prefab, x, z, yaw, anim, animEinmal }, i);
+  return (i, p, x, z, yaw, anim, animEinmal) => zeige({ prefab: p.prefab, x, z, yaw, scale: p.scale, anim, animEinmal }, i);
 }

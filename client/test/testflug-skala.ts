@@ -10,7 +10,8 @@
  */
 
 import { PREFABS_BY_NAME, platzierungenEinzeln } from '@wov/shared';
-import { platzierungsUpdate, SKALA_MAX, SKALA_MIN } from '../src/editor/testflug/vorschauZeichnen';
+import { sollSkala } from '../../server/src/world/layoutAbgleich';
+import { anzeigeSkala, platzierungsUpdate, SKALA_MAX, SKALA_MIN, vorschauZeichner } from '../src/editor/testflug/vorschauZeichnen';
 
 let fehler = 0;
 function pruefe(name: string, ok: boolean, info = ''): void {
@@ -19,9 +20,10 @@ function pruefe(name: string, ok: boolean, info = ''): void {
 }
 
 // Server path: sanitize, then layoutAbgleich.sollSkala (0 = none, prefab localScale stays).
-function serverSkala(scale: number | undefined): number {
-  const p = platzierungenEinzeln([{ prefab: 'FirTree', x: 1, z: 2, ...(scale !== undefined ? { scale } : {}) }])[0];
-  return p.scale !== undefined && Math.abs(p.scale - 1) > 1e-3 ? p.scale : 0;
+// `sollSkala` is the server's own function, so its threshold (`TOLERANZ.skala`) is read, not copied.
+function serverSkala(scale: unknown): number {
+  const p = platzierungenEinzeln([{ prefab: 'FirTree', x: 1, z: 2, ...(scale !== undefined ? { scale } : {}) } as never])[0];
+  return sollSkala(p);
 }
 // Client path: composeZdoWorld (scale replaces localScale, else localScale, else 1).
 function zeichenFaktor(u: Record<string, unknown>, lokal: number): number {
@@ -56,6 +58,30 @@ pruefe('unter der Klemme: auf 0,2', b(0.05).scale === SKALA_MIN);
 pruefe('über der Klemme: auf 5', b(9).scale === SKALA_MAX);
 pruefe('Geist (i < 0) trägt scale', platzierungsUpdate({ prefab: 'FirTree', x: 0, z: 0, scale: 3 }, -1, 0, null).scale === 3);
 pruefe('Grenzen wie der Server', SKALA_MIN === serverSkala(0.0001) && SKALA_MAX === serverSkala(1e6));
+
+// The threshold: values next to 1 +- 1e-3 must fall on the same side as on the server.
+for (const scale of [1.0005, 0.9995, 1.0009, 1.0011, 0.9989, 1.002, 0.998, 1.005, 1.009, 1.011]) {
+  pruefe(`Schwelle wie sollSkala: scale ${scale}`, anzeigeSkala(scale) === serverSkala(scale), `${anzeigeSkala(scale)} (Server ${serverSkala(scale)})`);
+}
+
+// Raw values of a hand-edited draft (localStorage is not sanitized): same as the server's `Number(v)`.
+for (const roh of ['3', null, '', [], '0.05', '9', {}, 'x', true, [4]] as unknown[]) {
+  pruefe(`Rohwert ${JSON.stringify(roh)}: Anzeige wie Server`, anzeigeSkala(roh) === serverSkala(roh), `${anzeigeSkala(roh)} (Server ${serverSkala(roh)})`);
+}
+
+// The route preview and the aggro chase draw through `vorschauZeichner`: the scale must ride along
+// (a wolf of scale 3 fell back to prefab size at the first step, and stayed there after "Vorschau AUS").
+{
+  const gezeichnet: Record<string, unknown>[] = [];
+  const zeichne = vorschauZeichner((p, i) => gezeichnet.push(platzierungsUpdate(p, i, 0, null)));
+  zeichne(0, { prefab: 'Wolf', scale: 3 }, 1, 2, 0.5, 'walk', 'attack#1');
+  zeichne(0, { prefab: 'Wolf', scale: 3 }, 1, 2, 0.5, 'idle');
+  zeichne(1, { prefab: 'Wolf' }, 1, 2, 0.5, 'idle');
+  pruefe('Routen-Vorschau: Wolf scale 3 behält 3 (Schritt)', gezeichnet[0]?.scale === 3);
+  pruefe('Routen-Vorschau: Wolf scale 3 behält 3 (Aggro/Ruhe/Vorschau AUS)', gezeichnet[1]?.scale === 3);
+  pruefe('Routen-Vorschau: ohne scale bleibt es ohne', !('scale' in (gezeichnet[2] ?? {})));
+  pruefe('Routen-Vorschau: Schlag-Ereignis bleibt', gezeichnet[0]?.animEinmal === 'attack#1');
+}
 
 console.log(fehler === 0 ? 'ALLE OK' : `${fehler} FEHLER`);
 process.exit(fehler === 0 ? 0 : 1);

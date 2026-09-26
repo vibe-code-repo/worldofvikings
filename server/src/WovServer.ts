@@ -29,6 +29,7 @@ import {
   HEALTH_MEMBER,
   maxLeben,
   type IGeo,
+  type WorldLayout,
   HeightmapProvider,
   getStableHash,
   kodiereTerrainComp,
@@ -96,12 +97,13 @@ import { ZoneManager } from './world/ZoneManager.js';
 import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
-import { befreieSpielerbauten, istSpielerbau, layoutAbgleich } from './world/layoutAbgleich.js';
+import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleichErgebnis, type LayoutAbgleichKontext } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
-import { LayoutWache, type Anwendung } from './world/layoutLive.js';
+import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
+import { liveAbgleich } from './world/layoutLiveAbgleich.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
@@ -1149,7 +1151,7 @@ export class WovServer {
         quittungsPfad: quittungsDatei(this.config.worldsDir, this.config.worldName),
         aktuell: () => this.worldLayoutRaw,
         speichertGerade: () => this.speichertGerade,
-        anwenden: (roh) => this.spawnLayoutPlacements('live', roh),
+        anwenden: (roh, vorgabe) => this.spawnLayoutPlacements('live', roh, vorgabe),
         uebernehmen: (roh) => {
           this.worldLayoutRaw = roh;
           for (const peer of this.net.getPeers()) {
@@ -1180,10 +1182,11 @@ export class WovServer {
    * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
    * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
    */
-  private spawnLayoutPlacements(modus: 'boot' | 'live', dokument: unknown): Anwendung {
+  private spawnLayoutPlacements(modus: 'boot' | 'live', dokument: unknown, vorgabe?: LiveVorgabe): Anwendung {
     const abgelehnt = (grund: string): Anwendung => ({ art: 'abgelehnt', grund });
     if (this.config.worldMode !== 'layout') return abgelehnt('kein Layout-Modus');
-    const bericht = sanitizeWorldLayoutMitBericht(dokument);
+    // Live hat die Wache das Dokument schon sanitisiert (einmal je Takt, nicht dreimal).
+    const bericht = vorgabe?.neu ?? sanitizeWorldLayoutMitBericht(dokument);
     const layout = bericht?.layout ?? null;
     // Ein Dokument ohne Platzierungen ist gültig und heißt „keine": Der
     // Abgleich räumt dann die Layout-ZDOs ab, die sonst für immer stünden.
@@ -1222,8 +1225,7 @@ export class WovServer {
       else console.warn(`[WoV] Layout-Abgleich (live): ${text}`);
       return abgelehnt(text);
     }
-    const ergebnis = layoutAbgleich(
-      {
+    const kontext: LayoutAbgleichKontext = {
         zdos: this.zdos,
         prefabs: this.prefabs,
         bodenHoehe: (x, z) => this.getGroundHeight(x, z),
@@ -1243,11 +1245,26 @@ export class WovServer {
           this.spawns?.entlasse(zdo);
           this.spawns?.adoptSingle(zdo, entry);
         },
-      },
-      layout,
-      // Zusammengefasste exakte Duplikate sind nichts Verworfenes (dieselbe Zahl wie im Schreibweg).
-      { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0 }
-    );
+    };
+    // Boot: alle Platzierungen. Live: nur die, deren Eintrag sich gegenüber dem zuletzt angewendeten
+    // Dokument geändert hat (ein gefällter Baum und ein toter NPC bleiben so); viele oder zustandstragende
+    // Löschungen wendet er nicht an (`layoutLiveAbgleich.ts`).
+    let ergebnis: LayoutAbgleichErgebnis;
+    let zuPruefen: WorldLayout = layout;
+    if (modus === 'live') {
+      if (!vorgabe?.alt) return abgelehnt('kein Vergleichsstand');
+      const live = liveAbgleich(kontext, vorgabe.alt, layout);
+      if (live.art === 'bestaetigung') return { art: 'bestaetigung', detail: live.detail };
+      ergebnis = live.ergebnis;
+      zuPruefen = { ...layout, placements: [...live.geaendert] };
+    } else {
+      ergebnis = layoutAbgleich(
+        kontext,
+        layout,
+        // Zusammengefasste exakte Duplikate sind nichts Verworfenes (dieselbe Zahl wie im Schreibweg).
+        { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0 }
+      );
+    }
     if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
     console.log(
       `[WoV] Layout-Abgleich: ${ergebnis.gespawnt} gespawnt, ${ergebnis.aktualisiert} aktualisiert, ` +
@@ -1287,7 +1304,7 @@ export class WovServer {
     }
     // Inhaltlicher Bericht (Review-Punkt 32): unbekannte Namen und ein
     // fehlender Startpunkt stehen jetzt im Boot-Log statt still zu bleiben.
-    for (const b of pruefeLayout(layout)) {
+    for (const b of pruefeLayout(zuPruefen)) {
       console.warn(`[WoV] Layout-Hinweis (${b.wo}): ${b.text}`);
     }
     const zaehler: Record<string, number> = {};

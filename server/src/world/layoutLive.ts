@@ -10,7 +10,9 @@
  * Inode ändern, wird EINMAL gelesen; der Hash entsteht aus denselben Bytes.
  *
  * ── Was live gilt ────────────────────────────────────────────────────
- * Live ist nur, was ein ZDO ist (Platzierungen samt NPC-Daten). Jede
+ * Live ist nur, was ein ZDO ist (Platzierungen samt NPC-Daten), und davon nur,
+ * was sich gegenüber dem zuletzt angewendeten Dokument geändert hat
+ * (`layoutLiveAbgleich.ts`: gefällte Bäume und tote NPCs bleiben so). Jede
  * Änderung, die die Geo berührt (Regionen, Kontinente, Wasser, `detailSeed`,
  * Spawn, Routen, `einebnen`), wird NICHT angewendet und mit `geo` quittiert:
  * ein Vorgang gilt ganz oder gar nicht (kein halber Stand aus neuen Objekten
@@ -19,7 +21,9 @@
  * ── Schutz ───────────────────────────────────────────────────────────
  * Die Schutzrückgaben des Boots gelten unverändert (`placements` unlesbar,
  * alle Einträge verworfen): Ein Tippfehler in der Datei löscht nichts, die
- * Quittung meldet `abgelehnt`. Solange ein Speichern läuft, wird nichts
+ * Quittung meldet `abgelehnt`. Würde der Abgleich viele Objekte oder Objekte mit
+ * Zustand entfernen, meldet die Quittung `bestaetigung-noetig` und nichts
+ * geschieht (der Neustart räumt dann ab wie bisher). Solange ein Speichern läuft, wird nichts
  * angewendet; die Wache probiert es eine Sekunde später erneut.
  *
  * ── Quittung ─────────────────────────────────────────────────────────
@@ -29,8 +33,8 @@
  */
 import { statSync, readFileSync } from 'node:fs';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { sanitizeWorldLayoutMitBericht } from '@wov/shared/src/worldlayout/sanitize.js';
-import { quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { sanitizeWorldLayoutMitBericht, type SanitizeBericht } from '@wov/shared/src/worldlayout/sanitize.js';
+import { quittungLoeschen, quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
 
 /** Die Teile eines Dokuments, die die Welt formen und NICHT live geändert werden. */
@@ -74,7 +78,17 @@ export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
 /** Ergebnis der Anwendung des Objektteils, geliefert vom Spielserver. */
 export type Anwendung =
   | { art: 'angewendet'; zaehler: Record<string, number> }
-  | { art: 'abgelehnt'; grund: string };
+  | { art: 'abgelehnt'; grund: string }
+  /** Viele Objekte oder Objekte mit Zustand würden entfernt: nichts angewendet, `detail` nennt die ids. */
+  | { art: 'bestaetigung'; detail: string };
+
+/** Was die Wache dem Spielserver für EINE Anwendung mitgibt (einmal sanitisiert, nicht dreimal). */
+export interface LiveVorgabe {
+  /** Das neue Dokument, sanitisiert. */
+  readonly neu: SanitizeBericht;
+  /** Das zuletzt angewendete Dokument, sanitisiert (null: unlesbar). */
+  readonly alt: WorldLayout | null;
+}
 
 export interface LayoutWacheAbhaengigkeiten {
   /** Die Weltdatei dieser Instanz. */
@@ -85,7 +99,7 @@ export interface LayoutWacheAbhaengigkeiten {
   /** Läuft ein Speichern? Dann nicht anwenden. */
   readonly speichertGerade: () => boolean;
   /** Den Objektteil des neuen Dokuments anwenden (mit den Schutzrückgaben des Boots). */
-  readonly anwenden: (roh: unknown) => Anwendung;
+  readonly anwenden: (roh: unknown, vorgabe: LiveVorgabe) => Anwendung;
   /** Das Dokument des Servers tauschen und den Clients der Hauptwelt schicken. */
   readonly uebernehmen: (roh: unknown) => void;
 }
@@ -94,8 +108,18 @@ export class LayoutWache {
   private letzterStand = '';
   /** Kanonische Darstellung des Standes, den der Server hat: gleicher Inhalt ⇒ nichts zu tun. */
   private kanonisch: string | null = null;
+  /** Das Dokument, das zuletzt angewendet wurde (sanitisiert): Vergleichsstand für die id-Auswahl. */
+  private angewendet: WorldLayout | null = null;
 
-  constructor(private readonly d: LayoutWacheAbhaengigkeiten) {}
+  constructor(private readonly d: LayoutWacheAbhaengigkeiten) {
+    // Eine Quittung des vorigen Serverlaufs gilt für diesen nicht: Sie würde im Boot-Fenster
+    // dem Betriebsdienst ein 200 für einen Stand liefern, den dieser Lauf nie angewendet hat.
+    try {
+      quittungLoeschen(d.quittungsPfad);
+    } catch (fehler) {
+      console.error(`[WoV] Layout-Wache: alte Quittung nicht gelöscht: ${(fehler as Error).message}`);
+    }
+  }
 
   /** Im 1-Sekunden-Takt aufrufen. Wirft nie. */
   tick(): void {
@@ -118,10 +142,16 @@ export class LayoutWache {
     // Speichern hat Vorrang: den Stand NICHT merken, damit der nächste Takt es erneut versucht.
     if (this.d.speichertGerade()) return;
 
+    const t0 = performance.now();
+
     const bytes = readFileSync(this.d.pfad);
     const hash = layoutHash(bytes);
     this.letzterStand = stand;
-    if (this.kanonisch === null) this.kanonisch = this.kanonischVon(this.d.aktuell());
+    if (this.kanonisch === null) {
+      const ausgang = sanitizeWorldLayoutMitBericht(this.d.aktuell());
+      this.angewendet = ausgang?.layout ?? null;
+      this.kanonisch = ausgang ? JSON.stringify(ausgang.layout) : null;
+    }
 
     let roh: unknown;
     try {
@@ -141,30 +171,29 @@ export class LayoutWache {
       this.quittiere(hash, 'angewendet', null, null);
       return;
     }
-    const altBericht = sanitizeWorldLayoutMitBericht(this.d.aktuell());
-    if (altBericht) {
-      const teile = geoAenderung(altBericht.layout, neuBericht.layout);
+    if (this.angewendet) {
+      const teile = geoAenderung(this.angewendet, neuBericht.layout);
       if (teile.length > 0) {
         console.warn(`[WoV] Layout-Wache: Geo-Änderung (${teile.join(', ')}) — geschrieben, aber erst nach dem Neustart wirksam, nichts angewendet`);
         this.quittiere(hash, 'nicht-angewendet', 'geo', null, teile.join(', '));
         return;
       }
     }
-    const t0 = performance.now();
-    const ergebnis = this.d.anwenden(roh);
+    const ergebnis = this.d.anwenden(roh, { neu: neuBericht, alt: this.angewendet });
     if (ergebnis.art === 'abgelehnt') {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, ergebnis.grund);
       return;
     }
+    if (ergebnis.art === 'bestaetigung') {
+      console.warn(`[WoV] Layout-Wache: Bestätigung nötig, nichts angewendet (${ergebnis.detail}) — die Datei bleibt; der nächste Neustart übernimmt sie`);
+      this.quittiere(hash, 'nicht-angewendet', 'bestaetigung-noetig', null, ergebnis.detail);
+      return;
+    }
     this.d.uebernehmen(roh);
     this.kanonisch = neuKanonisch;
-    console.log(`[WoV] Layout-Wache: angewendet in ${(performance.now() - t0).toFixed(1)} ms`);
+    this.angewendet = neuBericht.layout;
+    console.log(`[WoV] Layout-Wache: angewendet in ${(performance.now() - t0).toFixed(1)} ms (ganzer Takt)`);
     this.quittiere(hash, 'angewendet', null, ergebnis.zaehler);
-  }
-
-  private kanonischVon(roh: unknown): string | null {
-    const b = sanitizeWorldLayoutMitBericht(roh);
-    return b ? JSON.stringify(b.layout) : null;
   }
 
   private quittiere(

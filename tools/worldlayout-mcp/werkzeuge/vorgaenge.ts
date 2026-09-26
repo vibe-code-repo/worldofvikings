@@ -51,6 +51,8 @@ function nacheinander<T>(arbeit: () => Promise<T>): Promise<T> {
 
 interface PatchErfolg {
   art: 'ok';
+  /** 200 `angewendet` oder 202 mit `grund`/`detail` (geschrieben, im laufenden Spiel nicht angewendet). */
+  wirkung: { angewendet: boolean | null; grund?: string; detail?: string };
   hash: string;
   sicherung: string | null;
   positionUngenau?: unknown;
@@ -75,12 +77,27 @@ async function schreibeVorgang(vorgang: Vorgang): Promise<PatchErfolg | PatchAbg
   if ((status === 200 || status === 202) && typeof daten.hash === 'string') {
     return {
       art: 'ok',
+      wirkung:
+        status === 202
+          ? {
+              angewendet: false,
+              ...(typeof daten.grund === 'string' ? { grund: daten.grund } : {}),
+              ...(typeof daten.detail === 'string' ? { detail: daten.detail } : {}),
+            }
+          : { angewendet: daten.angewendet === true ? true : null }, // 200 ohne Auskunft: Dienst ohne Quittung (nur Tests)
       hash: daten.hash,
       sicherung: typeof daten.sicherung === 'string' ? daten.sicherung : null,
       ...(daten.positionUngenau !== undefined ? { positionUngenau: daten.positionUngenau } : {}),
     };
   }
   return { art: 'abgelehnt', status, meldung: meldungVon(daten), daten };
+}
+
+/** Der Satz für die KI: im laufenden Spiel angewendet oder nur geschrieben (mit Grund). */
+function wirkungsSatz(w: PatchErfolg['wirkung']): string {
+  if (w.angewendet === null) return '';
+  if (w.angewendet) return ' — im laufenden Spiel angewendet';
+  return ` — ACHTUNG: geschrieben, aber im laufenden Spiel NICHT angewendet (grund: ${w.grund ?? 'unbekannt'}${w.detail ? `: ${w.detail}` : ''})`;
 }
 
 /** Übersetzt eine Ablehnung des Dienstes in eine Meldung an die KI. */
@@ -175,10 +192,13 @@ mcp.registerTool(
         const r = await schreibeVorgang(vorgang);
         if (r.art === 'abgelehnt') return ablehnung('ops_apply', r);
         vorgangsStapel.push({ vorgang, stand: layout, hashVor: hash, hashNach: r.hash, zeit: Date.now() });
-        return ok(`ops_apply: Vorgang ${id} gespeichert: ${zusammen}`, {
+        return ok(`ops_apply: Vorgang ${id} gespeichert: ${zusammen}${wirkungsSatz(r.wirkung)}`, {
           trocken: false,
           vorgangId: id,
           hash: r.hash,
+          ...(r.wirkung.angewendet !== null ? { angewendet: r.wirkung.angewendet } : {}),
+          ...(r.wirkung.grund ? { grund: r.wirkung.grund } : {}),
+          ...(r.wirkung.detail ? { detail: r.wirkung.detail } : {}),
           basisHash: hash,
           sicherung: r.sicherung,
           zaehler: z,
@@ -235,11 +255,14 @@ mcp.registerTool(
         const r = await schreibeVorgang(gegen);
         if (r.art === 'abgelehnt') return ablehnung('undo_last', r);
         vorgangsStapel.pop();
-        return ok(`undo_last: ${oben.vorgang.vorgangId} zurückgenommen: ${zusammen}`, {
+        return ok(`undo_last: ${oben.vorgang.vorgangId} zurückgenommen: ${zusammen}${wirkungsSatz(r.wirkung)}`, {
           trocken: false,
           vorgangId: gegen.vorgangId,
           zurueck: oben.vorgang.vorgangId,
           hash: r.hash,
+          ...(r.wirkung.angewendet !== null ? { angewendet: r.wirkung.angewendet } : {}),
+          ...(r.wirkung.grund ? { grund: r.wirkung.grund } : {}),
+          ...(r.wirkung.detail ? { detail: r.wirkung.detail } : {}),
           sicherung: r.sicherung,
           zaehler: z,
           stapel: vorgangsStapel.laenge,

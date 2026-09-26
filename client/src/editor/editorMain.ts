@@ -79,6 +79,7 @@ import {
   leeresLayout,
   schreibeWeltdokument,
   vergleiche,
+  wirkungsText,
   type EntwurfsQuelle,
 } from './weltdokument';
 import {
@@ -3512,7 +3513,7 @@ async function inDieWeltSpeichern(): Promise<boolean> {
   // antwortet der Server 409, und es wird NICHTS geschrieben.
   const antwort = await schreibeWeltdokument(sauber, basis);
   if (antwort.art === 'ok') {
-    shell.meldung(`${antwort.message} — Server neu starten, damit die Welt sie lädt.`);
+    shell.meldung(`${antwort.message}${wirkungsText(antwort)}`);
     // Ab jetzt sind Entwurf und Serverstand deckungsgleich. Ohne diese
     // Zeilen fragte der Abgleich beim nächsten Öffnen nach einem
     // Unterschied, den es nicht mehr gibt — und man lernt, den Dialog

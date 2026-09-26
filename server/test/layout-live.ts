@@ -20,7 +20,12 @@
  *      DEV save> on that save, otherwise on the test world)
  *  (h) typo in `placements` (text, null, all entries dropped) and a file that is no JSON: 0 removed
  *  (i) state stays: a chest with content that moves keeps its content; a prefab change with the
- *      same id replaces it and logs `überzähliges ZDO` with the member count
+ *      same id replaces it and logs `überzähliges ZDO` with the member count; with content it is refused
+ *  (j) only what changed is touched: a felled tree stays felled and a dead NPC stays dead after an
+ *      unrelated change; a change at exactly that tree / NPC sets it again
+ *  (k) mass deletion / state: `placements: []`, a typo in an id, a missing field, more than 20 or more
+ *      than 25 % removed: receipt `bestaetigung-noetig` with the ids, 0 ZDOs removed, chest content stays
+ *  (l) a receipt of the previous run is gone when the server boots
  *
  * Run: npx tsx test/layout-live.ts   (from server/)
  */
@@ -28,9 +33,9 @@ import WebSocket from 'ws';
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync, cpSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LAYOUT_ID_MEMBER, PacketType } from '@wov/shared';
+import { HEALTH_MEMBER, LAYOUT_ID_MEMBER, PacketType, getStableHash } from '@wov/shared';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { quittungLesen, quittungsDatei, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { quittungLesen, quittungSchreiben, quittungsDatei, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
 import { createWovServer } from '../src/WovServer.js';
 import { portVon } from '../../scripts/testport.mjs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
@@ -156,6 +161,8 @@ async function haupt(): Promise<void> {
   } else {
     schreibe(json(dokument([])));
   }
+  // (l) A receipt of the previous run (it even carries the hash of the file we boot with): the new run must not inherit it.
+  if (!KOPIE) quittungSchreiben(QUITTUNG, { hash: layoutHash(readFileSync(LAYOUT)), ergebnis: 'angewendet', grund: null, zaehler: { gespawnt: 99 }, zeit: '2020-01-01T00:00:00.000Z' });
   const server = createWovServer({
     port: 0,
     everyoneAdmin: true,
@@ -206,6 +213,8 @@ async function haupt(): Promise<void> {
       }
       return diff;
     };
+
+    check('(l) the receipt of the previous run is gone right after the boot', quittungLesen(QUITTUNG) === null, JSON.stringify(quittungLesen(QUITTUNG)));
 
     // Boot receipt: the first tick reports the state the server started with.
     const start = quittungLesen(QUITTUNG);
@@ -261,7 +270,13 @@ async function haupt(): Promise<void> {
     const kiste2 = nach('kiste-1');
     check('(i) moved chest: same zdoid, content stays, position moved', kiste2?.zdoid.toString() === kisteId && kiste2?.getString('truheInhalt') === '[[Wood,3]]' && Math.abs((kiste2?.position.x ?? 0) - 42) < 0.001, `aktualisiert=${q?.zaehler?.aktualisiert}`);
     zeilen.length = 0;
-    hash = schreibe(json(dokument([{ ...P1, x: 34.123, z: 21.456 }, { ...KISTE, x: 42, z: 22, prefab: 'woodwall' }])));
+    const wechsel = json(dokument([{ ...P1, x: 34.123, z: 21.456 }, { ...KISTE, x: 42, z: 22, prefab: 'woodwall' }]));
+    hash = schreibe(wechsel);
+    q = await quittung(hash);
+    check('(i) prefab change of a chest WITH content: bestaetigung-noetig, ZDO and content stay', q?.grund === 'bestaetigung-noetig' && q.ergebnis === 'nicht-angewendet' && nach('kiste-1')?.zdoid.toString() === kisteId && nach('kiste-1')?.getString('truheInhalt') === '[[Wood,3]]', `${q?.grund}: ${q?.detail}`);
+    nach('kiste-1')?.removeMember(getStableHash('truheInhalt'));
+    zeilen.length = 0;
+    hash = schreibe(wechsel + ' ');
     q = await quittung(hash);
     const ersetzt = nach('kiste-1');
     check('(i) prefab change with the same id replaces the ZDO (new zdoid, no content)', !!ersetzt && ersetzt.zdoid.toString() !== kisteId && !ersetzt.getString('truheInhalt'));
@@ -311,6 +326,70 @@ async function haupt(): Promise<void> {
     q = await quittung(hash);
     check('(c) entfernt = 1', q?.zaehler?.entfernt === 1, JSON.stringify(q?.zaehler));
     check('(c) the client receives it in the destroy list', await warteAuf(() => klient.zerstoert.has(key2)));
+
+    // (j) only what changed is touched
+    const stand: Platz[] = [basis[0]!, basis[1]!];
+    const BAUM: Platz = { id: 'baum-f', prefab: 'Beech1', x: 100, z: 100 };
+    const NPC: Platz = { id: 'npc-t', prefab: 'Voelva', x: 110, z: 100 };
+    const UNABH: Platz = { id: 'baum-u', prefab: 'Beech1', x: 120, z: 100 };
+    hash = schreibe(json(dokument([...stand, BAUM, NPC])));
+    q = await quittung(hash);
+    const npc0 = nach('npc-t');
+    check('(j) set-up: tree and NPC are there (gespawnt = 2, NPC alive)', q?.zaehler?.gespawnt === 2 && !!nach('baum-f') && !!npc0 && npc0.getInt(HEALTH_MEMBER) > 0, JSON.stringify(q?.zaehler));
+    // Fell the tree the way handleHarvest does, kill the NPC.
+    server.zdos.destroyZDO(nach('baum-f')!.zdoid);
+    npc0?.setInt(HEALTH_MEMBER, 0);
+    hash = schreibe(json(dokument([...stand, BAUM, NPC, UNABH])));
+    q = await quittung(hash);
+    check('(j) an unrelated change: gespawnt = 1 (only the new object), receipt applied', q?.ergebnis === 'angewendet' && q.zaehler?.gespawnt === 1, JSON.stringify(q?.zaehler));
+    check('(j) the felled tree stays felled (gespawnt for it = 0)', !nach('baum-f') && !!nach('baum-u'));
+    check('(j) the dead NPC stays dead (same zdoid, health 0)', nach('npc-t')?.zdoid.toString() === npc0?.zdoid.toString() && nach('npc-t')?.getInt(HEALTH_MEMBER) === 0, `health ${nach('npc-t')?.getInt(HEALTH_MEMBER)}`);
+    check('(j) only the changed entries were looked at (unveraendert = 0, aktualisiert = 0)', q?.zaehler?.unveraendert === 0 && q?.zaehler?.aktualisiert === 0, JSON.stringify(q?.zaehler));
+    hash = schreibe(json(dokument([...stand, { ...BAUM, x: 101 }, NPC, UNABH])));
+    q = await quittung(hash);
+    check('(j) a change at exactly that tree sets it again (gespawnt = 1)', q?.zaehler?.gespawnt === 1 && !!nach('baum-f'), JSON.stringify(q?.zaehler));
+    hash = schreibe(json(dokument([...stand, { ...BAUM, x: 101 }, { ...NPC, x: 111 }, UNABH])));
+    q = await quittung(hash);
+    check('(j) a change at exactly that NPC sets it again (health > 0)', (nach('npc-t')?.getInt(HEALTH_MEMBER) ?? 0) > 0, `health ${nach('npc-t')?.getInt(HEALTH_MEMBER)}`);
+
+    // (k) mass deletion / state
+    const TRUHE: Platz = { id: 'kiste-2', prefab: 'piece_chest_wood', x: 50, z: 20 };
+    const D0 = [...stand, { ...BAUM, x: 101 }, { ...NPC, x: 111 }, UNABH, TRUHE];
+    hash = schreibe(json(dokument(D0)));
+    await quittung(hash);
+    nach('kiste-2')?.setString('truheInhalt', '[[Wood,7]]');
+    const truheId = nach('kiste-2')?.zdoid.toString();
+    const vorK = alle();
+    const anzK = layoutZdos().length;
+    const abgefangen: [string, string, string][] = [
+      ['placements: []', json(dokument([])), 'kiste-2'],
+      ['placements field missing', json((() => { const d = dokument([]); delete d.placements; return d; })()), 'kiste-2'],
+      ['a typo in the chest id (kiste-2 -> kiste-l)', json(dokument([...stand, { ...BAUM, x: 101 }, { ...NPC, x: 111 }, UNABH, { ...TRUHE, id: 'kiste-l' }])), 'kiste-2'],
+    ];
+    for (const [name, text, id] of abgefangen) {
+      hash = schreibe(text);
+      q = await quittung(hash);
+      check(`(k) ${name}: receipt bestaetigung-noetig, the ids are named`, q?.ergebnis === 'nicht-angewendet' && q.grund === 'bestaetigung-noetig' && (q.detail ?? '').includes(id), `${q?.grund}: ${q?.detail}`);
+      check(`(k) ${name}: 0 ZDOs removed, chest content stays, 0 changed revisions`, layoutZdos().length === anzK && nach('kiste-2')?.zdoid.toString() === truheId && nach('kiste-2')?.getString('truheInhalt') === '[[Wood,7]]' && !nach('kiste-l') && gleicheRevisionen(vorK, alle()) === 0);
+    }
+    hash = schreibe(json(dokument(D0)));
+    q = await quittung(hash);
+    check('(k) writing the old document back afterwards: applied, nothing lost', q?.ergebnis === 'angewendet' && layoutZdos().length === anzK && nach('kiste-2')?.getString('truheInhalt') === '[[Wood,7]]');
+    // more than 20 / more than 25 % (24 trees without state)
+    const wald: Platz[] = Array.from({ length: 24 }, (_, i) => ({ id: `wald-${i}`, prefab: 'Beech1', x: 200 + i * 3, z: 200 }));
+    hash = schreibe(json(dokument([...D0, ...wald])));
+    q = await quittung(hash);
+    check('(k) set-up: 24 trees placed', q?.zaehler?.gespawnt === 24, JSON.stringify(q?.zaehler));
+    const anzW = layoutZdos().length;
+    hash = schreibe(json(dokument(D0)));
+    q = await quittung(hash);
+    check('(k) removing 24 (more than 20): bestaetigung-noetig, 0 removed', q?.grund === 'bestaetigung-noetig' && layoutZdos().length === anzW, `${q?.grund}: ${(q?.detail ?? '').slice(0, 80)}`);
+    hash = schreibe(json(dokument([...D0, ...wald.slice(0, 16)])));
+    q = await quittung(hash);
+    check('(k) removing 8 of 30 (more than 25 %): bestaetigung-noetig, 0 removed', q?.grund === 'bestaetigung-noetig' && layoutZdos().length === anzW, `${q?.grund}: ${(q?.detail ?? '').slice(0, 80)}`);
+    hash = schreibe(json(dokument([...D0, ...wald.slice(0, 21)])));
+    q = await quittung(hash);
+    check('(k) removing 3 of 30 (10 %, no state): applied, entfernt = 3', q?.ergebnis === 'angewendet' && q.zaehler?.entfernt === 3 && layoutZdos().length === anzW - 3, JSON.stringify(q?.zaehler));
     klient.ws.close();
   } finally {
     console.log = orig.log;

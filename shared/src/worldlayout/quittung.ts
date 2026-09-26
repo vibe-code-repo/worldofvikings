@@ -15,13 +15,16 @@ import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /** Grund einer nicht angewendeten Änderung. `server-aus` kommt nie vom Server, sondern vom Betriebsdienst. */
-export type QuittungsGrund = 'geo' | 'abgelehnt' | 'boot' | null;
+export type QuittungsGrund = 'geo' | 'abgelehnt' | 'bestaetigung-noetig' | 'boot' | null;
 
 export interface Quittung {
   /** SHA-256 über die BYTES der Weltdatei, wie `layoutHash`. */
   hash: string;
   ergebnis: 'angewendet' | 'nicht-angewendet';
-  /** Bei `nicht-angewendet`: `geo` oder `abgelehnt`; `boot` heißt: beim Start geladen. */
+  /**
+   * Bei `nicht-angewendet`: `geo`, `abgelehnt` oder `bestaetigung-noetig` (der Abgleich hätte viele Objekte oder
+   * Objekte mit Zustand entfernt; `detail` nennt die ids); `boot` heißt: beim Start geladen.
+   */
   grund: QuittungsGrund;
   /** Ausführlicher Text zum Grund (welche Geo-Teile, welche Schutzrückgabe). */
   detail?: string;
@@ -45,6 +48,11 @@ export function quittungSchreiben(pfad: string, q: Quittung): void {
     rmSync(temp, { force: true });
     throw fehler;
   }
+}
+
+/** Entfernen (Start des Spielservers: eine Quittung des vorigen Laufs darf nie zu einem 200 führen). */
+export function quittungLoeschen(pfad: string): void {
+  rmSync(pfad, { force: true });
 }
 
 /** Lesen; fehlt die Datei oder ist sie kein gültiges Objekt mit Hash, kommt null. */

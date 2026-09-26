@@ -324,5 +324,24 @@ console.log('▶ 503 gesperrt und verworfene Einträge');
   check('200 mit verworfen=0: Meldung unverändert', null_.art === 'ok' && null_.message === 'Gespeichert', null_.message);
 }
 
+// ── 10. K5.0: was aus dem Speichern für die laufende Welt wurde (200 angewendet / 202 mit Grund) ──
+console.log('▶ 200 angewendet / 202 nicht angewendet: die Meldung');
+{
+  type OkAntwort = Extract<Awaited<ReturnType<typeof schreibeWeltdokument>>, { art: 'ok' }>;
+  const wirkungsText = (weltdokument as { wirkungsText?: (a: OkAntwort) => string }).wirkungsText;
+  const live = await schreibeWeltdokument(echt, 'h1', attrappe([{ status: 200, rumpf: { ok: true, message: 'Gespeichert in dev.json', hash: 'h7', angewendet: true, zaehler: { gespawnt: 1 } } }]).fetchFn);
+  check('200 mit angewendet=true: art=ok, angewendet=true', live.art === 'ok' && live.angewendet === true, JSON.stringify(live));
+  const sagtLive = live.art === 'ok' && typeof wirkungsText === 'function' ? wirkungsText(live) : '(wirkungsText fehlt)';
+  check('… die Meldung sagt „live angewendet“ und NICHT „Server neu starten“', /live angewendet/.test(sagtLive) && !/neu starten/.test(sagtLive), sagtLive);
+  const nicht = await schreibeWeltdokument(echt, 'h1', attrappe([{ status: 202, rumpf: { ok: true, message: 'Geschrieben, aber nicht angewendet (bestaetigung-noetig): …', hash: 'h8', angewendet: false, grund: 'bestaetigung-noetig', detail: 'würde ZDOs mit Zustand entfernen: kiste-1' } }]).fetchFn);
+  check('202: art=ok (die Datei steht, Hash übernommen), angewendet=false, Grund und Detail', nicht.art === 'ok' && nicht.hash === 'h8' && nicht.angewendet === false && nicht.grund === 'bestaetigung-noetig' && nicht.detail === 'würde ZDOs mit Zustand entfernen: kiste-1', JSON.stringify(nicht));
+  const sagtGrund = nicht.art === 'ok' && typeof wirkungsText === 'function' ? wirkungsText(nicht) : '(wirkungsText fehlt)';
+  check('… die Meldung nennt den Grund und die ids, nicht „live angewendet“', /bestaetigung-noetig/.test(sagtGrund) && /kiste-1/.test(sagtGrund) && !/live angewendet/.test(sagtGrund), sagtGrund);
+  const alt = await schreibeWeltdokument(echt, 'h1', attrappe([{ status: 200, rumpf: { ok: true, message: 'Gespeichert in dev.json', hash: 'h9' } }]).fetchFn);
+  check('200 ohne Auskunft (ältere Gegenstelle): angewendet=null, Meldung wie früher', alt.art === 'ok' && alt.angewendet === null && typeof wirkungsText === 'function' && /Server neu starten/.test(wirkungsText(alt)));
+  const quelle = readFileSync(resolve(WURZEL, 'client/src/editor/editorMain.ts'), 'utf-8');
+  check('editorMain zeigt die Meldung über wirkungsText, nicht mehr fest „Server neu starten“', /wirkungsText\(antwort\)/.test(quelle) && !/— Server neu starten, damit die Welt sie lädt/.test(quelle));
+}
+
 console.log(fehler === 0 ? '\nalle Prüfungen bestanden' : `\n${fehler} Prüfung(en) FEHLGESCHLAGEN`);
 process.exit(fehler === 0 ? 0 : 1);

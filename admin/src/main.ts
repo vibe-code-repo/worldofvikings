@@ -193,9 +193,14 @@ const WELTEN_ORDNER = resolve(WURZEL, 'server/data/worlds');
 // K5.0: nach dem Schreiben der Weltdatei auf die Quittung des Spielservers warten (200 angewendet / 202 nicht angewendet).
 // WOV_QUITTUNG=aus: nur fuer Tests der Schreibwege OHNE Spielserver (sie pruefen Dateiinhalt und Statuscodes 200/409/422
 // und sollen nicht 3 s je Schreibvorgang auf eine Quittung warten). Im Betrieb nie setzen: Der Dienst startet dann nicht.
+// Gilt nur bei ausdruecklich NODE_ENV=test: bei leerem oder anderem Wert (auch `development`) startet der Dienst nicht,
+// statt den Schalter still anzunehmen und wie vor K5.0 ein 200 ohne Beweis zu melden.
 const QUITTUNG_AUS = process.env.WOV_QUITTUNG === 'aus';
-if (QUITTUNG_AUS && process.env.NODE_ENV === 'production') {
-  console.error('[Admin] WOV_QUITTUNG=aus ist gesetzt, aber NODE_ENV=production: Der Dienst startet nicht. Variable aus der Umgebung entfernen.');
+if (QUITTUNG_AUS && process.env.NODE_ENV !== 'test') {
+  console.error(
+    `[Admin] WOV_QUITTUNG=aus ist gesetzt, aber NODE_ENV=${process.env.NODE_ENV ? process.env.NODE_ENV : '(leer)'}: ` +
+      'Der Schalter gilt nur bei NODE_ENV=test. Der Dienst startet nicht. Variable aus der Umgebung entfernen.'
+  );
   process.exit(1);
 }
 const mitAnwendung = <T extends { code: number; daten: unknown; kopf?: Record<string, string> }>(antwort: T): Promise<T> | T =>

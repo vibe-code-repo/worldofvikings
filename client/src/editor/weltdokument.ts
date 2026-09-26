@@ -353,7 +353,18 @@ export const BASIS_VERLANGT =
 
 /** Ausgang von `schreibeWeltdokument`. */
 export type SchreibAntwort =
-  | { art: 'ok'; message: string; hash: string | null }
+  | {
+      art: 'ok';
+      message: string;
+      hash: string | null;
+      /**
+       * K5.0: hat der LAUFENDE Spielserver den Stand angewendet (200 mit `angewendet`), oder nur die Datei steht
+       * (202 mit `grund`)? `null`: ältere Gegenstelle ohne diese Auskunft.
+       */
+      angewendet: boolean | null;
+      grund: string | null;
+      detail: string | null;
+    }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
   /** Der Betriebsdienst verlangt eine Basis (428) und hat nichts geschrieben: den Serverstand laden/abgleichen. */
@@ -397,6 +408,9 @@ export async function schreibeWeltdokument(
     fehler?: string;
     aktuell?: unknown;
     hash?: unknown;
+    angewendet?: unknown;
+    grund?: unknown;
+    detail?: unknown;
     anzahl?: unknown;
     grenze?: unknown;
     verworfen?: unknown;
@@ -466,9 +480,25 @@ export async function schreibeWeltdokument(
       art: 'ok',
       message: (d.message ?? 'Gespeichert') + hinweis,
       hash: hashNormalisieren(d.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
+      angewendet: typeof d.angewendet === 'boolean' ? d.angewendet : null,
+      grund: typeof d.grund === 'string' ? d.grund : null,
+      detail: typeof d.detail === 'string' ? d.detail : null,
     };
   }
   return { art: 'fehler', message: d.message ?? d.fehler ?? `HTTP ${antwort.status}` };
+}
+
+/**
+ * Der Satz hinter „Gespeichert …“ (K5.0): was aus dem Speichern für die LAUFENDE Welt wurde.
+ * 200 `angewendet`: live übernommen, kein Neustart. 202: geschrieben, aber nicht angewendet; der Grund
+ * (und bei `bestaetigung-noetig` die betroffenen ids) stehen dabei. Ohne Auskunft (ältere Gegenstelle): wie früher.
+ */
+export function wirkungsText(a: Extract<SchreibAntwort, { art: 'ok' }>): string {
+  if (a.angewendet === true) return ' — live angewendet.';
+  if (a.angewendet === false) {
+    return ` [${a.grund ?? 'nicht angewendet'}${a.detail ? `: ${a.detail}` : ''}]`;
+  }
+  return ' — Server neu starten, damit die Welt sie lädt.';
 }
 
 /**

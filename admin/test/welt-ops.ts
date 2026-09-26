@@ -179,6 +179,8 @@ function dienstStarten(wurzel = ORDNER, tokenDatei = TOKEN_DATEI, portText = pro
         WOV_ADMIN_PORT: portText,
         // K5.0: no game server here, so no receipt to wait for (the write answers stay 200/409/422 as tested).
         WOV_QUITTUNG: 'aus',
+        NODE_ENV: 'test',
+        WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten'),
         WOV_ADMIN_TOKEN_DATEI: tokenDatei,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

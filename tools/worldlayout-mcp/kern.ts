@@ -170,16 +170,30 @@ export async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
 }
 
 /**
+ * Was aus dem Schreiben für die LAUFENDE Welt wurde, als Satz für die KI: 200 heißt „live angewendet“,
+ * 202 heißt „geschrieben, aber NICHT angewendet“ mit `grund` und `detail` (Geländeänderung, Spielserver aus,
+ * Bestätigung nötig …). Ohne diesen Satz hielte die KI eine nicht angewendete Änderung für wirksam.
+ */
+export function wirkungsHinweis(status: number, daten: Record<string, unknown>): string {
+  if (status === 202) {
+    const grund = typeof daten.grund === 'string' ? daten.grund : 'unbekannt';
+    const detail = typeof daten.detail === 'string' && daten.detail ? `: ${daten.detail}` : '';
+    return `\nACHTUNG: geschrieben, aber im laufenden Spiel NICHT angewendet (grund: ${grund}${detail}).`;
+  }
+  return daten.angewendet === true ? '\nIm laufenden Spiel angewendet.' : '';
+}
+
+/**
  * Schreibt über den Betriebsdienst, mit dem beim Lesen erhaltenen Hash als
  * Basis. Ein Fehler (auch 409) wirft — der Aufrufer meldet ihn als
  * Werkzeugfehler, statt ihn zu verschlucken und trotzdem „Gespeichert" zu
  * sagen.
  */
-export async function schreibe(layout: WorldLayout, basis: string): Promise<void> {
+export async function schreibe(layout: WorldLayout, basis: string): Promise<string> {
   pruefeEigeneWelt();
   const { status, daten } = await adminAnfrage('POST', { ...layout, basis });
   // 202 (K5.0): geschrieben, aber vom laufenden Spielserver nicht (gleich) angewendet — die Datei steht.
-  if (status === 200 || status === 202) return;
+  if (status === 200 || status === 202) return wirkungsHinweis(status, daten);
   if (status === 409) {
     throw new Error(
       'Nichts gespeichert: Das Weltdokument hat sich seit dem Lesen geändert (Editor oder ein anderer ' +

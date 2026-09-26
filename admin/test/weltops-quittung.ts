@@ -20,17 +20,22 @@
  *     in under 1 s (no waiting for a receipt nobody writes)
  *  6. service "active" but nobody quits (no game server): 202 `keine-quittung` after about 3 s
  *  7. an old receipt with the hash of the NEW file does not turn a 202 into a 200 when the service is off
+ *  8. restart with a geo change: the receipt of the previous run ("applied" for hash X) is gone at the boot,
+ *     so writing X back inside the boot window never answers 200 (it answers 202 geo)
+ *  9. the wait loop uses a monotonic clock: a wall clock that jumps back an hour does not stretch it
+ * 10. WOV_QUITTUNG=aus is refused unless NODE_ENV is exactly `test` (empty, development, production: the service does not start)
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LAYOUT_ID_MEMBER } from '@wov/shared';
 import { layoutHash, layoutText } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { quittungSchreiben, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
+import { quittungLesen, quittungSchreiben, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { sanitizeWorldLayout } from '@wov/shared/src/worldlayout/sanitize.js';
 import { createWovServer } from '../../server/src/WovServer.js';
+import { quittungAbwarten } from '../src/routen/anwendung.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
@@ -78,7 +83,7 @@ function dienstStarten(): Promise<number> {
     let protokoll = '';
     dienst = spawn(TSX, ['src/main.ts'], {
       cwd: ADMIN,
-      env: { ...process.env, WOV_WURZEL: ORDNER, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI, WOV_SYSTEMCTL: SYSTEMCTL },
+      env: { ...process.env, WOV_WURZEL: ORDNER, WOV_WELT_VERZEICHNIS: WELTEN, NODE_ENV: 'test', WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI, WOV_SYSTEMCTL: SYSTEMCTL },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const zeit = setTimeout(() => scheitern(new Error(`service does not start:\n${protokoll}`)), 30_000);
@@ -96,18 +101,20 @@ function dienstStarten(): Promise<number> {
 }
 const port = await dienstStarten();
 
-const server = createWovServer({
-  port: 0,
-  worldName: 'dev',
-  worldSeed: 'quittung',
-  worldFeatures: false,
-  worldVegetation: false,
-  worldsDir: SPIELSTAENDE,
-  kontenDir: resolve(ORDNER, 'konten'),
-  worldMode: 'layout',
-  worldLayoutPath: WELT_DATEI,
-  saveIntervalMs: 3600_000,
-});
+const neuerServer = (): ReturnType<typeof createWovServer> =>
+  createWovServer({
+    port: 0,
+    worldName: 'dev',
+    worldSeed: 'quittung',
+    worldFeatures: false,
+    worldVegetation: false,
+    worldsDir: SPIELSTAENDE,
+    kontenDir: resolve(ORDNER, 'konten'),
+    worldMode: 'layout',
+    worldLayoutPath: WELT_DATEI,
+    saveIntervalMs: 3600_000,
+  });
+let server = neuerServer();
 server.start();
 writeFileSync(LAEUFT, '');
 
@@ -183,6 +190,73 @@ try {
   const vorher6 = (g6.daten.layout.placements as Eintrag[]).find((p) => p.id === 'baum-1');
   const r6 = await anfrage('PATCH', '/api/worldlayout/ops', { vorgangId: 'v6', ops: [{ art: 'aendere', sammlung: 'placements', id: 'baum-1', vorher: vorher6, nachher: { ...vorher6, x: 43 } }] });
   check('6 active but silent: 202 keine-quittung after about 3 s', r6.status === 202 && r6.daten.grund === 'keine-quittung' && r6.ms >= 2900 && r6.ms < 6000, `${r6.status} ${r6.daten.grund} ${r6.ms} ms`);
+
+  // 8) restart with a geo change: the old "applied" receipt must not survive the boot
+  server = neuerServer();
+  server.start();
+  await new Promise((f) => setTimeout(f, 1500)); // boot receipt for the file as it is now (X)
+  const hashX = dateiHash();
+  const textX = readFileSync(WELT_DATEI, 'utf-8');
+  check('8 set-up: the running server holds a receipt "applied" for X', quittungLesen(q)?.hash === hashX && quittungLesen(q)?.ergebnis === 'angewendet');
+  server.stop();
+  await new Promise((f) => setTimeout(f, 300));
+  const docX = JSON.parse(textX) as { regions: Array<Record<string, unknown>> };
+  const docY = { ...docX, regions: docX.regions.map((r) => ({ ...r, edgeFalloff: 250 })) };
+  writeFileSync(`${WELT_DATEI}.tmp`, JSON.stringify(docY, null, 2));
+  renameSync(`${WELT_DATEI}.tmp`, WELT_DATEI);
+  const hashY = dateiHash();
+  server = neuerServer(); // boots with Y; the receipt of the previous run still says "applied" for X
+  server.start();
+  const r8 = await anfrage('POST', '/api/worldlayout', docX, hashY); // "undo": X comes back inside the boot window
+  check('8 X written back inside the boot window: never 200, 202 geo', r8.status === 202 && r8.daten.grund === 'geo' && r8.daten.hash === hashX, `${r8.status} ${r8.daten.grund} ${r8.ms} ms`);
+
+  // 9) monotonic clock: a wall clock that jumps back an hour must not stretch the wait
+  const echt = Date.now;
+  let aufrufe = 0;
+  Date.now = (): number => (aufrufe++ === 0 ? echt() : echt() - 3_600_000);
+  const t9 = performance.now();
+  const stand9 = await Promise.race([
+    quittungAbwarten({ hash: 'x'.repeat(64), quittungsPfad: `${q}.gibtsnicht`, dienstAktiv: async () => true, warteMs: 300, intervallMs: 20 }),
+    new Promise<'haengt'>((f) => setTimeout(() => f('haengt'), 2500)),
+  ]);
+  Date.now = echt;
+  const dauer9 = performance.now() - t9;
+  check('9 wall clock jumps back 1 h: the wait still ends after about 0.3 s (keine-quittung)', stand9 !== 'haengt' && stand9.angewendet === false && stand9.grund === 'keine-quittung' && dauer9 < 1500, `${stand9 === 'haengt' ? 'haengt' : stand9.angewendet === false ? stand9.grund : 'ok'} ${dauer9.toFixed(0)} ms`);
+
+  // 10) WOV_QUITTUNG=aus only under an explicit NODE_ENV=test
+  const start10 = (nodeEnv: string | null): Promise<{ code: number | null; text: string }> =>
+    new Promise((fertig) => {
+      const env: Record<string, string | undefined> = { ...process.env, WOV_WURZEL: ORDNER, WOV_WELT_VERZEICHNIS: WELTEN, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI, WOV_QUITTUNG: 'aus' };
+      if (nodeEnv !== 'production') env.WOV_SYSTEMCTL = SYSTEMCTL; // under production a stand-in is refused for its own reason
+      if (nodeEnv === null) delete env.NODE_ENV;
+      else env.NODE_ENV = nodeEnv;
+      const kind = spawn(TSX, ['src/main.ts'], { cwd: ADMIN, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let text = '';
+      const frist = setTimeout(() => {
+        kind.kill('SIGTERM');
+        fertig({ code: null, text: `${text}\n(lebt nach 15 s: gestartet)` });
+      }, 15_000);
+      const auf = (s: Buffer): void => {
+        text += s.toString();
+        if (/bereit auf/.test(text)) {
+          clearTimeout(frist);
+          kind.kill('SIGTERM');
+          fertig({ code: null, text });
+        }
+      };
+      kind.stdout.on('data', auf);
+      kind.stderr.on('data', auf);
+      kind.on('exit', (code) => {
+        clearTimeout(frist);
+        fertig({ code, text });
+      });
+    });
+  for (const [name, wert] of [['unset', null], ['empty', ''], ['development', 'development'], ['production', 'production']] as const) {
+    const a = await start10(wert);
+    check(`10 NODE_ENV ${name} + WOV_QUITTUNG=aus: the service does not start (exit 1, says why)`, a.code === 1 && /WOV_QUITTUNG=aus/.test(a.text) && !/bereit auf/.test(a.text), `code ${a.code}: ${a.text.slice(0, 120).replace(/\n/g, ' ')}`);
+  }
+  const ok10 = await start10('test');
+  check('10 NODE_ENV=test + WOV_QUITTUNG=aus: the service starts', /bereit auf/.test(ok10.text), ok10.text.slice(0, 120).replace(/\n/g, ' '));
 } finally {
   dienst?.kill('SIGTERM');
   try {

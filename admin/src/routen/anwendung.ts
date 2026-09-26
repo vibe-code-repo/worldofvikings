@@ -7,6 +7,8 @@
  *      `server-aus`   der Spielserver läuft nicht (oder quittiert nicht)
  *      `geo`          der Stand enthält Geo-Änderungen, die erst nach dem Neustart wirken
  *      `abgelehnt`    der Server hat den Stand aus Schutz nicht angewendet
+ *      `bestaetigung-noetig` der Abgleich hätte viele Objekte oder Objekte mit Zustand entfernt;
+ *                     `detail` nennt die ids, nichts ging live verloren, der Neustart übernimmt die Datei
  *      `keine-quittung` der Dienst läuft, hat aber binnen der Wartezeit nicht quittiert
  *
  * Die Datei ist geschrieben, egal was hier herauskommt: 202 heißt nie „nicht
@@ -16,7 +18,7 @@ import { quittungLesen, type Quittung } from '@wov/shared/src/worldlayout/quittu
 
 export type AnwendungsStand =
   | { angewendet: true; quittung: Quittung }
-  | { angewendet: false; grund: 'server-aus' | 'geo' | 'abgelehnt' | 'keine-quittung'; detail?: string; quittung?: Quittung };
+  | { angewendet: false; grund: 'server-aus' | 'geo' | 'abgelehnt' | 'bestaetigung-noetig' | 'keine-quittung'; detail?: string; quittung?: Quittung };
 
 export interface QuittungOptionen {
   hash: string;
@@ -30,6 +32,8 @@ export interface QuittungOptionen {
 
 export const QUITTUNG_WARTEN_MS = 3000;
 
+/** Monotone Uhr: ein Sprung der Wanduhr (NTP, Umstellung) verkürzt oder verlängert die Wartezeit nicht. */
+const jetzt = (): number => performance.now();
 const schlafen = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export async function quittungAbwarten(o: QuittungOptionen): Promise<AnwendungsStand> {
@@ -42,15 +46,15 @@ export async function quittungAbwarten(o: QuittungOptionen): Promise<AnwendungsS
     aktiv = false;
   }
   if (!aktiv) return { angewendet: false, grund: 'server-aus' };
-  const ende = Date.now() + warteMs;
+  const ende = jetzt() + warteMs;
   for (;;) {
     const q = quittungLesen(o.quittungsPfad);
     if (q && q.hash === o.hash) {
       if (q.ergebnis === 'angewendet') return { angewendet: true, quittung: q };
-      const grund = q.grund === 'geo' ? 'geo' : 'abgelehnt';
+      const grund = q.grund === 'geo' ? 'geo' : q.grund === 'bestaetigung-noetig' ? 'bestaetigung-noetig' : 'abgelehnt';
       return { angewendet: false, grund, ...(q.detail ? { detail: q.detail } : {}), quittung: q };
     }
-    if (Date.now() >= ende) break;
+    if (jetzt() >= ende) break;
     await schlafen(intervall);
   }
   return { angewendet: false, grund: 'keine-quittung' };
@@ -86,7 +90,9 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
             ? 'Geländeänderungen wirken erst nach dem Neustart.'
             : stand.grund === 'abgelehnt'
               ? 'der Server hat den Stand aus Schutz nicht angewendet.'
-              : 'keine Quittung des Spielservers.'),
+              : stand.grund === 'bestaetigung-noetig'
+                ? 'der Abgleich hätte viele Objekte oder Objekte mit Zustand entfernt; live geschah nichts, der nächste Neustart übernimmt die Datei (Einzelheiten in `detail`).'
+                : 'keine Quittung des Spielservers.'),
     },
   };
 }

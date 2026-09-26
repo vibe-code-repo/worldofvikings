@@ -150,6 +150,8 @@ function starten(instanz = 'dev'): Promise<{ port: number; kind: ChildProcess }>
         WOV_ADMIN_PORT: '0',
         // K5.0: no game server here, so no receipt to wait for (the write answers stay 200/409/422 as tested).
         WOV_QUITTUNG: 'aus',
+        NODE_ENV: 'test',
+        WOV_WELT_VERZEICHNIS: resolve(ORDNER, 'server/data/welten'),
         WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
         WOV_LOG_STROEME_MAX: '1',
       },

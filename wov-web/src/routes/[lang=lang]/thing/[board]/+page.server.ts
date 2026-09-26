@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
 import { ladeThemenSeite, seiteAus } from '$lib/server/forumApi';
+import type { PageServerLoad } from './$types';
 
 /**
  * Themenliste eines Bretts, serverseitig geladen (M2).

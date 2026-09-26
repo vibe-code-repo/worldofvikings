@@ -190,7 +190,7 @@ export async function ladeCharakterAktivitaet(
   };
 }
 
-/** Ein Suchtreffer, wie die Suchseite ihn braucht. */export interface SuchTreffer {
+/** Ein Suchtreffer, wie die Suchseite ihn braucht. */ export interface SuchTreffer {
   postId: number;
   threadId: number;
   board: string;

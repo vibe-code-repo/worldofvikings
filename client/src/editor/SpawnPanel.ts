@@ -44,6 +44,7 @@ import type { Fraktion, NpcDef, NpcRolle, QuestZustand } from '@wov/shared';
 // AssetManager.ts) -- ohne diese Konsultation zeigt vorschauBild() auf
 // eine nie erzeugte GrabhuegelGras.png und faellt auf reinen Text zurueck.
 import { MODELL_ALIAS } from '../engine/AssetManager';
+import { SKALA_MAX, SKALA_MIN } from './testflug/vorschauZeichnen';
 
 export interface SpawnEinstellung {
   prefab: string;
@@ -363,7 +364,7 @@ export class SpawnPanel {
 
     // Abstand + Größe
     this.root.appendChild(this.schieber('Abstand (m)', 2, 20, 4, 1, (v) => (this.einstellung.abstand = v)));
-    this.root.appendChild(this.schieber('Größe', 0.2, 3, 1, 0.1, (v) => (this.einstellung.scale = v)));
+    this.root.appendChild(this.schieber('Größe', SKALA_MIN, SKALA_MAX, 1, 0.1, (v) => (this.einstellung.scale = v)));
 
     // ── Untergrund einebnen ──────────────────────────────────────────
     // Rein manuell: Der Haken gilt für die folgenden Platzierungen der

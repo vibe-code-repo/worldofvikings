@@ -2207,6 +2207,8 @@ const KERN = [
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
   ['shared', 'test/kollision-upload-entscheid.ts'],
+  // Offline flight draws the placement scale (`scale`) like the server: threshold, clamp 0.2-5, replaces localScale. ~5 s.
+  ['client', 'test/testflug-skala.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

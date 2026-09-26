@@ -16,11 +16,16 @@
  *  3. Die Komposit-Korrektur. Sie ist eine Textersetzung im Shader-Store und
  *     kann nach einem Babylon-Wechsel STILL ausbleiben; dann waere jeder
  *     angehaengte Strahlenpass wieder ein 10-%-Aufheller auf dem ganzen Bild.
+ *  4. Die SSAO-Himmelkorrektur (`Ssao2Himmel`): ebenfalls eine Textersetzung.
+ *     Bleibt sie aus, wird der Himmel mit Umgebungsverdeckung schwarz —
+ *     unter GLSL wie unter WGSL (WebGPU).
  *
  * Lauf: npx tsx client/test/ausfaelle-zeugen.ts
  */
+import { ShaderStore } from '@babylonjs/core/Engines/shaderStore';
 import { Effect } from '@babylonjs/core/Materials/effect';
 import { MIN_KASKADEN, SHADOW_LEVELS, schattenMitLook } from '../src/engine/Shadows';
+import { korrigiereSsaoHimmel, ssaoHimmelKorrigiert, ssaoHimmelZustand } from '../src/engine/Ssao2Himmel';
 import {
   ANKER_WINKEL_GRAD,
   ankerDurchmesser,
@@ -111,10 +116,50 @@ pruefe(
   'der Shader nennt `realColor` nicht mehr genau dreimal (Lesen, Alpha, Summand)'
 );
 
+// ── 4. SSAO2-Nullnormale (GLSL und WGSL) ────────────────────────────────
+// Der Import von Ssao2Himmel hat die Ersetzung als Seiteneffekt schon gefahren.
+// Rot bleibt hier gewollt, sobald das Muster fehlt: ein Babylon-Update soll
+// angesehen werden. Die Meldung nennt aber den GRUND, denn die zwei Faelle
+// verlangen Gegensaetzliches — hat Babylon die Nullnormale selbst im Griff,
+// kann die Korrektur weg; hat es die Zeile nur umgeschrieben, muss das Muster
+// nachgezogen werden, sonst wird der Himmel mit Umgebungsverdeckung schwarz.
+const ssaoZustand = ssaoHimmelZustand();
+for (const sprache of ['GLSL', 'WGSL'] as const) {
+  const z = ssaoZustand[sprache];
+  if (z === 'babylon-faengt-ab') {
+    pruefe(
+      false,
+      `SSAO ${sprache}: Muster nicht gefunden, weil Babylon die Nullnormale selbst nicht mehr ungeschuetzt normalisiert — die Korrektur (Ssao2Himmel.ts) kann fuer ${sprache} entfernt werden`
+    );
+  } else if (z === 'muster-veraendert') {
+    pruefe(
+      false,
+      `SSAO ${sprache}: Muster veraendert, Korrektur fehlt — der Shader normalisiert die Normale weiter ungeschuetzt (Himmel wird schwarz); Muster in Ssao2Himmel.ts nachziehen`
+    );
+  } else if (z === 'kein-shader') {
+    pruefe(false, `SSAO ${sprache}: der SSAO2-Shader steht gar nicht im Store`);
+  }
+}
+pruefe(korrigiereSsaoHimmel() === true, 'die SSAO-Korrektur ist nicht in beiden Sprachen angekommen');
+pruefe(ssaoHimmelKorrigiert(), 'die SSAO-Korrektur steht nicht in beiden Shadern');
+const ssaoQuelle = Effect.ShadersStore['ssao2PixelShader'] ?? '';
+pruefe(!ssaoQuelle.includes('vec3 normal=normalize(textureLod('), 'GLSL: die Normale wird noch ungeschuetzt normalisiert');
+pruefe(
+  (ssaoQuelle.match(/normalRoh/g) ?? []).length === 4,
+  'GLSL: der Shader nennt `normalRoh` nicht genau viermal (Lesen, zwei Mal dot, normalize)'
+);
+const ssaoWgsl = ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] ?? '';
+pruefe(ssaoWgsl.length > 0, 'WGSL: der SSAO2-Shader steht gar nicht im Store');
+pruefe(!ssaoWgsl.includes('normalize(textureSampleLevel(normalSampler'), 'WGSL: die Normale wird noch ungeschuetzt normalisiert');
+pruefe(
+  (ssaoWgsl.match(/normalRoh/g) ?? []).length === 4,
+  'WGSL: der Shader nennt `normalRoh` nicht genau viermal (Lesen, zwei Mal dot, normalize)'
+);
+
 if (fehler > 0) {
   console.log(`\n${fehler} Fehler`);
   process.exit(1);
 }
 console.log(
-  `\nAusfaelle: Kaskadendeckel ${MIN_KASKADEN}, Anker ${ANKER_WINKEL_GRAD}° = ${d1400.toFixed(1)} m bei 1400 m, Komposit ohne Konstantterm — gruen.`
+  `\nAusfaelle: Kaskadendeckel ${MIN_KASKADEN}, Anker ${ANKER_WINKEL_GRAD}° = ${d1400.toFixed(1)} m bei 1400 m, Komposit ohne Konstantterm, SSAO-Nullnormale abgefangen — gruen.`
 );

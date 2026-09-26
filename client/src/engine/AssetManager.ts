@@ -68,7 +68,7 @@ import { toeneStoreMaterial } from './StoreToenung';
 import { laubSpitzenAuftragen } from './LaubSpitzen';
 
 import { GENERATED_PREFIX, modelBaseUrl, modelDateiName, modelUrl } from './assetUrls';
-import { storeSpiegelung } from '@wov/shared';
+import { storeSpiegelung, waehleGruppe, type GruppenWahl } from '@wov/shared';
 
 const TEXTUR_BASE_URL = '/assets/textures/';
 
@@ -492,10 +492,7 @@ export class AssetManager {
     // — eigene NPC-GLBs bringen echte Skin-Clips mit; der Fremdexport
     // nicht, dort ist die Liste schlicht leer und nichts passiert).
     if (animation && inst.animationGroups.length > 0) {
-      const gruppe =
-        inst.animationGroups.find((g) => g.name.includes(animation)) ?? inst.animationGroups[0]!;
-      for (const g of inst.animationGroups) g.stop();
-      gruppe.start(true);
+      this.starteAnfangsgruppe(inst.animationGroups, animation, name);
     }
     const wurzel = (inst.rootNodes[0] as TransformNode) ?? null;
     // Die Gruppen dieser INSTANZ merken: instantiateModelsToScene klont sie
@@ -554,7 +551,10 @@ export class AssetManager {
   wechsleAnimation(root: TransformNode, wunsch: string): void {
     const gruppen = this.animGruppen.get(root);
     if (!gruppen || gruppen.length === 0) return;
-    const ziel = gruppen.find((g) => g.name.toLowerCase().includes(wunsch.toLowerCase()));
+    // A state change ends any one-shot that is still running: its end
+    // callback must not switch the group again (s. spieleEinmalKreatur).
+    this.einmalMarke.set(root, (this.einmalMarke.get(root) ?? 0) + 1);
+    const ziel = this.findeGruppe(root, gruppen, wunsch);
     for (const g of gruppen) {
       if (g !== ziel) g.stop();
     }
@@ -564,6 +564,78 @@ export class AssetManager {
       ziel.speedRatio = 1;
       ziel.start(true);
     }
+  }
+
+  /**
+   * Which group plays for `wunsch`: the exact name, else the one group whose
+   * name contains it. Two groups containing it (`run` in `Run_02` and
+   * `Running`) is a mistake in the model — reported once, and NO group plays
+   * (a guess would show the wrong clip). A missing group stays quiet: that is
+   * the designed case of a model without that pose (npc_1_walk has no `idle`).
+   */
+  private findeGruppe(root: TransformNode, gruppen: readonly AnimationGroup[], wunsch: string): AnimationGroup | undefined {
+    const wahl: GruppenWahl = waehleGruppe(gruppen.map((g) => g.name), wunsch);
+    if (wahl.art === 'mehrdeutig') {
+      this.meldeMehrdeutig(root.name, wunsch, wahl.treffer);
+      return undefined;
+    }
+    return wahl.art === 'fehlt' ? undefined : gruppen[wahl.index];
+  }
+
+  private readonly mehrdeutigGemeldet = new Set<string>();
+
+  /**
+   * The group a fresh instance starts with (in a loop). Same search as every
+   * later change (waehleGruppe): exact name, else one partial hit. Two hits
+   * are reported and start nothing; no hit keeps the old fallback (first
+   * group).
+   */
+  private starteAnfangsgruppe(gruppen: readonly AnimationGroup[], animation: string, modell: string): void {
+    const wahl = waehleGruppe(gruppen.map((g) => g.name), animation);
+    if (wahl.art === 'mehrdeutig') this.meldeMehrdeutig(modell, animation, wahl.treffer);
+    const gruppe =
+      wahl.art === 'exakt' || wahl.art === 'teil' ? gruppen[wahl.index]! : wahl.art === 'fehlt' ? gruppen[0]! : undefined;
+    for (const g of gruppen) g.stop();
+    gruppe?.start(true);
+  }
+
+  private meldeMehrdeutig(modell: string, wunsch: string, treffer: readonly string[]): void {
+    const schluessel = `${modell}|${wunsch}`;
+    if (this.mehrdeutigGemeldet.has(schluessel)) return;
+    this.mehrdeutigGemeldet.add(schluessel);
+    console.error(
+      `[anim] '${modell}': state '${wunsch}' matches ${treffer.length} groups (${treffer.join(', ')}) — ` +
+        `none plays; rename a clip so exactly one contains the state name`
+    );
+  }
+  /** Counts state changes and one-shots per instance; a stale end callback checks it. */
+  private readonly einmalMarke = new WeakMap<TransformNode, number>();
+
+  /**
+   * Play a creature's one-shot clip (`attack`, `hit`, `die`) exactly once,
+   * then call `danach` (fall back to the state). A new one-shot restarts the
+   * clip — the newest event is the truth, and the server sends one per blow.
+   * `danach = null` keeps the last frame (`die`).
+   *
+   * Returns false, and touches nothing, if the model has no such clip: the
+   * animal keeps doing what it did.
+   */
+  spieleEinmalKreatur(root: TransformNode, clip: string, danach: (() => void) | null): boolean {
+    const gruppen = this.animGruppen.get(root);
+    if (!gruppen || gruppen.length === 0) return false;
+    const ziel = this.findeGruppe(root, gruppen, clip);
+    if (!ziel) return false;
+    const marke = (this.einmalMarke.get(root) ?? 0) + 1;
+    this.einmalMarke.set(root, marke);
+    for (const g of gruppen) g.stop();
+    ziel.speedRatio = 1;
+    ziel.start(false, 1, ziel.from, ziel.to);
+    if (danach) {
+      ziel.onAnimationGroupEndObservable.addOnce(() => {
+        if (this.einmalMarke.get(root) === marke) danach();
+      });
+    }
+    return true;
   }
 
   /**

@@ -2200,6 +2200,8 @@ const KERN = [
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['client', 'test/bewuchs-freiraum-vorschau.ts'],
   ['client', 'test/bewuchs-quellen.ts'],
+  // Upload placements keep their ZDO (id, state) across a boot with an unreadable registry.
+  ['server', 'test/upload-zdos-behalten.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

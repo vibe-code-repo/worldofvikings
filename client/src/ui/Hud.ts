@@ -2,7 +2,7 @@
  * Phase 1 — minimal DOM overlay (FPS, position, time). Replaced by Babylon
  * GUI in Phase 5 (Docs/03-Rendering-und-Engine.md).
  */
-import { Fehlersammler, type Schweregrad, type FehlerAnzeige } from './Fehlermeldungen';
+import { Fehlersammler, StehendeMeldungen, type Schweregrad, type FehlerAnzeige } from './Fehlermeldungen';
 import type { GameI18n } from '../i18n';
 
 /** Fadenkreuz im Normalzustand — Weiss bei halber Deckkraft wie im Original. */
@@ -170,6 +170,38 @@ export class Hud {
     this.meldungTimer = setTimeout(() => {
       if (this.meldungEl) this.meldungEl.style.display = 'none';
     }, 4000);
+  }
+
+  private readonly stehende = new StehendeMeldungen();
+  private stehendEl: HTMLDivElement | null = null;
+
+  /**
+   * Meldung, die stehen bleibt, solange der Zustand gilt (bis derselbe
+   * Schlüssel mit `null` gesetzt wird). Anders als `meldung()` läuft sie
+   * nicht ab und wird von keiner anderen Meldung verdrängt.
+   */
+  stehendeMeldung(schluessel: string, text: string | null): void {
+    this.stehende.setzen(schluessel, text);
+    const texte = this.stehende.alle();
+    if (!this.stehendEl) {
+      if (texte.length === 0) return;
+      this.stehendEl = document.createElement('div');
+      this.stehendEl.style.cssText =
+        'position:fixed;top:12px;left:50%;transform:translateX(-50%);max-width:80vw;' +
+        'display:flex;flex-direction:column;gap:4px;align-items:center;' +
+        'pointer-events:none;z-index:6';
+      document.body.appendChild(this.stehendEl);
+    }
+    this.stehendEl.textContent = '';
+    this.stehendEl.style.display = texte.length === 0 ? 'none' : 'flex';
+    for (const t of texte) {
+      const zeile = document.createElement('div');
+      zeile.style.cssText =
+        'font:13px sans-serif;color:#fff;background:rgba(180,128,20,.9);padding:5px 12px;' +
+        'border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.4)';
+      zeile.textContent = t;
+      this.stehendEl.appendChild(zeile);
+    }
   }
 
   // ── F16: Fehleranzeige ────────────────────────────────────────────

@@ -205,7 +205,7 @@
     } catch (err) {
       busy = null;
       if (isLoggedOut(err)) return toLogin();
-      if (err instanceof ApiError && err.key === 'unbekannt') {
+      if (err instanceof ApiError && err.key === 'unknown') {
         // A second tab deleted it. That makes the list here wrong, not the
         // answer — so the list is the thing that gets corrected.
         characters = characters.filter((x) => x.id !== c.id);
@@ -227,7 +227,7 @@
       characters = characters.filter((x) => x.id !== c.id);
     } catch (err) {
       if (isLoggedOut(err)) return toLogin();
-      if (err instanceof ApiError && err.key === 'unbekannt') {
+      if (err instanceof ApiError && err.key === 'unknown') {
         // A 404 means "was already gone" here — the goal is reached, so it
         // disappears from the list instead of inheriting an error message.
         characters = characters.filter((x) => x.id !== c.id);

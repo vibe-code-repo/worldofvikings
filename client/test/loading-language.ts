@@ -45,7 +45,7 @@ assert.match(account, /searchParams\.set\('lang', language\)/);
 // Ticket-Sprung) weiter — gleichursprung schreibt sie relativ ins Ziel,
 // fremdursprung faellt intern auf `playUrl()` zurueck; beides steckt in
 // `enterGame` selbst, s. `assert.match(account, ...)` unten.
-assert.match(createPage, /enterGame\(gestade, ticket\.sessionToken, lang, zeit/);
+assert.match(createPage, /enterGame\((?:gestade|g), ticket\.sessionToken, lang, zeit/);
 assert.match(accountPage, /enterGame\(shore, ticket\.sessionToken, lang/);
 assert.match(account, /spiel\.searchParams\.set\('lang', language\)/);
 assert.match(main, /new GameI18n\(ausAdresse\.get\('lang'\)\)/);

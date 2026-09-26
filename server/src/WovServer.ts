@@ -984,6 +984,7 @@ export class WovServer {
           worldVegetation: this.config.worldVegetation,
           locationOverrides: this.config.worldLocationOverrides,
           dungeonsEnabled: this.config.dungeonsEnabled,
+          platzierungenFreihalten: true,
         },
         mitKreaturen: this.config.worldCreatures,
         zdos: this.zdos,
@@ -5949,6 +5950,7 @@ export class WovServer {
     zdos: ZDO[];
   } {
     const playerHash = this.prefabs.getByName('Player')?.hash;
+    let unbekannt = 0;
     const persistentZDOs = this.zdos
       .getAllZDOs()
       .filter(
@@ -5962,8 +5964,21 @@ export class WovServer {
           // Eine Instanz wird aus ihrem DungeonDocument neu materialisiert;
           // sie zu speichern hiesse, Geometrie auferstehen zu lassen, die
           // der Manager nicht mehr kennt.
-          (this.prefabs.getByHash(z.prefabHash)?.isPersistent() ?? false)
+          // A prefab this boot does not know (e.g. an uploaded model whose
+          // registry entry is unreadable) is kept: dropping it would lose
+          // the ZDO id and its state for good. Hash 0 is never a prefab
+          // (runtime leftovers without a source ZDO), so it is never kept.
+          // Only a KNOWN prefab that is not persistent is discarded.
+          ((def) => {
+            if (def) return def.isPersistent();
+            if (!z.prefabHash) return false;
+            unbekannt++;
+            return true;
+          })(this.prefabs.getByHash(z.prefabHash))
       );
+    if (unbekannt > 0) {
+      console.log(`[WoV] Save: kept ${unbekannt} ZDOs of unknown prefabs`);
+    }
 
     const players = new Map(this.savedPlayers);
     for (const peer of this.net.getPeers()) {

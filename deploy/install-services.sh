@@ -140,7 +140,7 @@ if [[ "${1:-}" != "--no-enable" ]]; then
     # nur hier nebeneinander im Arbeitsbaum liegen (dev.json ist das
     # Original, live.json die committete Kopie, die live zieht). Auf live
     # waere derselbe Lauf dieselbe Rechnung ueber dieselben Dokumente — und
-    # brauchte einen zweiten Schluessel nach wov-web.
+    # waere unnoetig doppelt.
     ZU_AKTIVIEREN+=(wov-karten.timer)
   else
     systemctl disable wov-client.service >/dev/null 2>&1 || true

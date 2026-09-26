@@ -18,12 +18,14 @@
     errorMessageKey,
     isLoggedOut,
     isShore,
+    me,
     play,
     readShore,
     readToken,
     signedInShore,
     writeShore,
   } from '$lib/account';
+  import { fahreLos, neueFahrt } from '$lib/losfahren';
   import '$lib/stil/account.css';
   import type { EquipmentSetCatalog } from '../../../../../shared/src/equipmentSets';
   import { CLASS_EQUIPMENT_FAMILIES } from '../../../../../shared/src/equipmentSets';
@@ -618,6 +620,9 @@
 
   async function gestadeGewechselt() {
     writeShore(gestade);
+    // Hero ids are per shore: what was half-done on the other one is not
+    // this shore's business.
+    Object.assign(fahrt, neueFahrt());
     merke();
     namensFehler = null;
     sendeFehler = null;
@@ -670,8 +675,8 @@
   /* ---------------------------------------------------------- Losfahren */
 
   /** Token weg, zurück zur Anmeldung — der einzige Weg nach einer 401. */
-  async function zurAnmeldung() {
-    clearToken(gestade);
+  async function zurAnmeldung(g: ShoreId = gestade) {
+    clearToken(g);
     raeumeBuehne();
     angemeldet = false;
     await goto(`${localizedPath(lang, '/anmelden')}?abgelaufen=1`);
@@ -685,44 +690,67 @@
    * Der Server erzeugt dabei `spielerId` und `altlastUserId` selbst und gibt
    * sie nie heraus — die Webseite kann eine Spielidentität also nicht
    * erfinden, nur erbitten.
+   *
+   * Bricht der Ablauf in der Mitte ab, merkt sich `fahrt` den Recken: Der
+   * nächste Klick legt keinen zweiten an (Ablauf in `$lib/losfahren`).
    */
+  const fahrt = neueFahrt();
+
   async function losfahren() {
     if (sendet) return;
     merke();
     namensFehler = null;
     sendeFehler = null;
 
-    const token = readToken(gestade);
-    if (!token) return zurAnmeldung();
+    // One shore for the whole run: the select is locked while it lasts, but
+    // every call below must not read the live value anyway.
+    const g = gestade;
+    const token = readToken(g);
+    if (!token) return zurAnmeldung(g);
 
     sendet = true;
     try {
-      const neu = await createCharacter(gestade, token, {
-        name: spielerName.trim(),
-        figure: figur,
-        // Das bestehende Drahtfeld bleibt kompatibel: H_04+B_02 bedeutet
-        // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
-        hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
-        hairColor: haarfarbe,
-        eyeColor: augenfarbe,
-        classId: klasseId,
-        top: '',
-        legs: '',
-      });
-      const ticket = await play(gestade, token, neu.character.id);
+      const ticket = await fahreLos(
+        {
+          createCharacter: (w) => createCharacter(g, token, w),
+          characters: () => me(g, token),
+          play: (id) => play(g, token, id),
+        },
+        fahrt,
+        {
+          name: spielerName,
+          figure: figur,
+          // Das bestehende Drahtfeld bleibt kompatibel: H_04+B_02 bedeutet
+          // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
+          hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
+          hairColor: haarfarbe,
+          eyeColor: augenfarbe,
+          classId: klasseId,
+          top: '',
+          legs: '',
+        },
+        g,
+      );
       // `weiter` came from `/anmelden`, forwarded here through the
       // address, and is only honoured same-origin — see `enterGame`.
-      enterGame(gestade, ticket.sessionToken, lang, zeit, page.url.searchParams.get('weiter'));
+      enterGame(g, ticket.sessionToken, lang, zeit, page.url.searchParams.get('weiter'));
     } catch (err) {
       sendet = false;
-      if (isLoggedOut(err)) return zurAnmeldung();
+      if (isLoggedOut(err)) return zurAnmeldung(g);
       const schluessel = err instanceof ApiError ? err.key : '';
-      if (schluessel === 'name-ungueltig' || schluessel === 'name-vergeben') {
+      if (schluessel === 'name-invalid' || schluessel === 'name-taken') {
         // Fehler am Feld, nicht über der Seite: Die Aussehenswahl bleibt
         // stehen, und der Blick landet dort, wo etwas zu ändern ist.
         namensFehler = errorMessageKey(schluessel);
       } else {
-        sendeFehler = schluessel ? errorMessageKey(schluessel) : 'account.error.unexpected';
+        // A lost answer here means "click again", not "reload": the page
+        // remembers the hero, a reload would forget him.
+        sendeFehler =
+          schluessel === 'timeout'
+            ? 'account.error.timeout_create'
+            : schluessel
+              ? errorMessageKey(schluessel)
+              : 'account.error.unexpected';
       }
     }
   }
@@ -908,7 +936,7 @@
       {:else}
         <div class="erstellen-feld">
           <label class="feldname" for="create-shore">{t['create.voyage.shore.label']}</label>
-          <select id="create-shore" bind:value={gestade} onchange={gestadeGewechselt}>
+          <select id="create-shore" bind:value={gestade} onchange={gestadeGewechselt} disabled={sendet}>
             {#each SHORE_IDS as s (s)}
               <option value={s} disabled={!SHORE_OPEN[s]}>{t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ' — ' + t['account.shore.closed']}</option>
             {/each}

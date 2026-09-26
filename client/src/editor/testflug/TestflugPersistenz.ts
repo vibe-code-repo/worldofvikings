@@ -44,6 +44,11 @@ export interface TestflugPersistenz {
    */
   laden(): EntwurfDokument | null;
   /**
+   * Optional: the stored draft as raw text (no parsing). Callers use it as a
+   * cheap change marker — equal text, equal draft.
+   */
+  rohtext?(): string | null;
+  /**
    * Writes the CHANGED working draft back. The caller mutates the document
    * it got from `laden()` and hands it in whole — a later online mode
    * replaces this by operations.

@@ -60,9 +60,19 @@ const config = leseServerKonfig(DATA_DIR, INSTANZ);
   wenn beide geaendert sind: dann laute Warnung, der Server startet mit der Arbeitskopie.
 */
 if (config.worldMode === 'layout' && config.worldLayoutPath) {
-  const abgleich = weltAbgleichen({ repoDatei: resolve(DATA_DIR, 'welten', `${INSTANZ}.json`), arbeitsDatei: config.worldLayoutPath });
+  let abgleich;
+  try {
+    abgleich = weltAbgleichen({ repoDatei: resolve(DATA_DIR, 'welten', `${INSTANZ}.json`), arbeitsDatei: config.worldLayoutPath });
+  } catch (fehler) {
+    console.error(`[Main] Weltabgleich gescheitert: ${(fehler as Error).message}`);
+    process.exit(1);
+  }
   if (abgleich.fall === 'konflikt') console.warn(abgleich.meldung);
-  else console.log(abgleich.meldung);
+  else if (abgleich.fall === 'arbeit-kaputt' || abgleich.fall === 'repo-kaputt') {
+    console.error(abgleich.meldung);
+    // Ohne lesbare Welt gibt es nichts zu starten: die Arbeitskopie ist kaputt, oder sie fehlt und das Repo ist kaputt.
+    if (abgleich.fall === 'arbeit-kaputt' || abgleich.arbeitHash === null) process.exit(1);
+  } else console.log(abgleich.meldung);
 }
 
 /*

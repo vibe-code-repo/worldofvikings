@@ -64,54 +64,51 @@ const kennungVon = (datei: string): string => createHash('sha256').update(realpa
 /** Kennung aus der letzten Antwort des Betriebsdienstes (die Adresse ist je Prozess fest). */
 let verwalteteWeltKennung: string | undefined;
 
-/** Ein Checkout unter `wov-worktrees/`: Aufgaben-Worktrees dürfen die Arbeitskopie der DEV-Welt nicht mitbenutzen. */
-function istAufgabenWorktree(): boolean {
-  try {
-    return `${realpathSync(CHECKOUT_WURZEL)}${sep}`.includes(`${sep}wov-worktrees${sep}`);
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Wirft, wenn der angesprochene Betriebsdienst nicht die Arbeitskopie der Welt dieses Checkouts verwaltet.
+ * Wirft, wenn dieser MCP nicht schreiben darf.
  *
- * Die Arbeitskopie liegt seit K5.7 unter `WOV_WELT_VERZEICHNIS` (Vorgabe /var/lib/wov/welten), nicht im
- * Checkout. Damit ein Worktree die DEV-Welt nicht über den Vorgabeordner mitbenutzt (beide lösen sich auf
- * dieselbe Datei auf, die Kennungen wären gleich), verlangt ein Checkout unter `wov-worktrees/` ein
- * eigenes `WOV_WELT_VERZEICHNIS`. Ein Symlink auf der Datei oder als Weltordner, der hinauszeigt, macht
- * eine fremde Datei zur „eigenen“ und wird verweigert.
+ * 1. Geschrieben wird nur, wenn `WOV_ADMIN_URL` AUSDRUECKLICH gesetzt ist. Ohne sie gaelte die Vorgabe-Adresse
+ *    (127.0.0.1:2468 = der DEV-Betriebsdienst), und ein MCP aus irgendeinem Checkout schriebe in die DEV-Welt.
+ *    Die Sperre richtet sich also nach dem ZIEL, nicht nach dem Ort des Checkouts (frueher galt eine Ausnahme nur
+ *    unter `wov-worktrees/`; ein Checkout unter /var/tmp war ungeschuetzt). Lesen bleibt ohne die Variable erlaubt.
+ * 2. Der angesprochene Betriebsdienst muss die Arbeitskopie der Welt DIESES Checkouts verwalten
+ *    (`weltKennung`, sha256 des realpath). Die Arbeitskopie liegt unter `WOV_WELT_VERZEICHNIS` (nur wenn
+ *    ausdruecklich gesetzt, absolut) oder unter `<Checkout>/server/data/welten-arbeit`: jeder Checkout hat also
+ *    seine eigene, und die Kennung des DEV-Dienstes (`/var/lib/wov/welten/dev.json`) passt zu keinem Checkout.
+ *    Ein Symlink auf der Datei oder als Weltordner, der hinauszeigt, macht eine fremde Datei zur „eigenen“
+ *    und wird verweigert.
  */
 export function pruefeEigeneWelt(): void {
+  if ((process.env.WOV_ADMIN_URL ?? '').trim() === '') {
+    throw new Error(
+      'Nichts gespeichert: WOV_ADMIN_URL ist nicht gesetzt. Dieser MCP schreibt nur, wenn die Adresse des ' +
+        'Betriebsdienstes ausdruecklich gesetzt ist (die Vorgabe-Adresse waere der DEV-Betriebsdienst). Starte einen ' +
+        'eigenen Betriebsdienst auf deinem Slot-Port und setze WOV_ADMIN_URL=http://127.0.0.1:248n. Lesen bleibt erlaubt.'
+    );
+  }
   if (FREMDE_WELT_ERLAUBT) return;
   const eigene = weltDatei(CHECKOUT_WURZEL, instanzName());
-  const ordner = weltArbeitsOrdner();
-  const ordnerGesetzt = (process.env.WOV_WELT_VERZEICHNIS ?? '').trim() !== '';
+  const ordner = weltArbeitsOrdner(CHECKOUT_WURZEL);
   let eigeneKennung: string | undefined;
   let ausserhalb = false;
-  const ohneEigenenOrdner = !ordnerGesetzt && istAufgabenWorktree();
-  if (!ohneEigenenOrdner) {
-    try {
-      const echt = realpathSync(eigene);
-      const ordnerEcht = realpathSync(ordner);
-      // Ein Symlink (auf der Datei oder als Weltordner), der hinauszeigt, machte die fremde Datei zur
-      // „eigenen“: beide lösen sich auf dasselbe Ziel auf. Ein Symlink in einem Elternordner bleibt erlaubt.
-      if (!lstatSync(ordner).isSymbolicLink() && echt.startsWith(ordnerEcht + sep)) eigeneKennung = kennungVon(echt);
-      else ausserhalb = true;
-    } catch {
-      /* die eigene Datei fehlt: nichts passt */
-    }
+  try {
+    const echt = realpathSync(eigene);
+    const ordnerEcht = realpathSync(ordner);
+    // Ein Symlink (auf der Datei oder als Weltordner), der hinauszeigt, machte die fremde Datei zur
+    // „eigenen“: beide lösen sich auf dasselbe Ziel auf. Ein Symlink in einem Elternordner bleibt erlaubt.
+    if (!lstatSync(ordner).isSymbolicLink() && echt.startsWith(ordnerEcht + sep)) eigeneKennung = kennungVon(echt);
+    else ausserhalb = true;
+  } catch {
+    /* die eigene Datei fehlt: nichts passt */
   }
   if (eigeneKennung !== undefined && eigeneKennung === verwalteteWeltKennung) return;
-  const grund = ohneEigenenOrdner
-    ? 'Dieser Checkout liegt unter wov-worktrees/, WOV_WELT_VERZEICHNIS ist nicht gesetzt: er würde die Arbeitskopie der DEV-Welt mitbenutzen. Setze WOV_WELT_VERZEICHNIS auf ein eigenes Verzeichnis (für MCP und Betriebsdienst gleich).'
-    : ausserhalb
-      ? 'Die Arbeitskopie der Welt (oder ihr Ordner) ist ein Symlink, der aus dem Weltverzeichnis hinauszeigt.'
-      : verwalteteWeltKennung === undefined
-        ? 'Er meldet keine weltKennung (älterer Dienst?).'
-        : eigeneKennung === undefined
-          ? 'Die Arbeitskopie der Welt existiert nicht.'
-          : 'Seine weltKennung passt nicht zu dieser Datei (WOV_WELT_VERZEICHNIS bei MCP und Betriebsdienst gleich?).';
+  const grund = ausserhalb
+    ? 'Die Arbeitskopie der Welt (oder ihr Ordner) ist ein Symlink, der aus dem Weltverzeichnis hinauszeigt.'
+    : verwalteteWeltKennung === undefined
+      ? 'Er meldet keine weltKennung (älterer Dienst?).'
+      : eigeneKennung === undefined
+        ? 'Die Arbeitskopie der Welt existiert nicht.'
+        : 'Seine weltKennung passt nicht zu dieser Datei (WOV_WELT_VERZEICHNIS bei MCP und Betriebsdienst gleich?).';
   throw new Error(
     `Nichts gespeichert: Der Betriebsdienst auf ${ADMIN_URL} verwaltet nicht die Weltdatei dieses Checkouts ` +
       `(${eigene}). ${grund} Starte einen eigenen Betriebsdienst auf deinem Slot-Port und setze ` +

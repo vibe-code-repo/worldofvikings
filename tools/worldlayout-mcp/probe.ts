@@ -553,6 +553,43 @@ try {
     await ohneDatei.close();
   }
 
+  // (3c2) H1 (K5.7): Die Sperre richtet sich nach dem ZIEL, nicht nach dem Ort des Checkouts. Ohne ausdruecklich
+  // gesetztes WOV_ADMIN_URL verweigert der MCP alle Schreibwerkzeuge, gleich wo der Checkout liegt (hier: unter
+  // dem Temp-Verzeichnis, also ausserhalb von wov-worktrees/, wie im Angriff). Lesen bleibt erlaubt.
+  {
+    const port = new URL(gestartet.url).port;
+    const ohneUrl = await mcpStarten(TEST_WURZEL, { WOV_ADMIN_URL: '', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: port });
+    try {
+      const sumVorher = pruefsumme();
+      const dateienVorher = sicherungen();
+      const lesen = await ohneUrl.callTool({ name: 'layout_get', arguments: {} });
+      check('H1 ohne WOV_ADMIN_URL: layout_get (Lesen) bleibt erlaubt', !istFehler(lesen) && /Region\(en\)/.test(text(lesen)), text(lesen).slice(0, 80));
+      for (const [name, argumente] of [
+        ['placement_set', platzierung],
+        ['defaultSpawn_set', { x: 7, z: 7 }],
+      ] as const) {
+        const r = await ohneUrl.callTool({ name, arguments: argumente as Record<string, unknown> });
+        check(`H1 ohne WOV_ADMIN_URL: ${name} wird verweigert, Meldung nennt WOV_ADMIN_URL`, istFehler(r) && /WOV_ADMIN_URL ist nicht gesetzt/.test(text(r)), text(r).slice(0, 160));
+      }
+      check('H1 ohne WOV_ADMIN_URL: Weltdatei und Sicherungen unveraendert', pruefsumme() === sumVorher && sicherungen() === dateienVorher);
+    } finally {
+      await ohneUrl.close();
+    }
+    // Mit gesetzter URL, aber einem Checkout, dessen Arbeitskopie (ohne WOV_WELT_VERZEICHNIS: <Checkout>/server/data/welten-arbeit)
+    // eine andere Datei ist als die des Dienstes: die Kennung passt nicht, verweigert.
+    mkdirSync(resolve(FREMD_WURZEL, 'server/data/welten-arbeit'), { recursive: true });
+    writeFileSync(resolve(FREMD_WURZEL, 'server/data/welten-arbeit/dev.json'), weltMitName('FremdArbeit'));
+    const anderes = await mcpStarten(FREMD_WURZEL, { WOV_WELT_VERZEICHNIS: '' });
+    try {
+      const sumVorher = pruefsumme();
+      const r = await anderes.callTool({ name: 'placement_set', arguments: platzierung });
+      check('H1 mit WOV_ADMIN_URL, fremde Arbeitskopie des Checkouts: verweigert (Kennung passt nicht)', istFehler(r) && /weltKennung passt nicht/.test(text(r)), text(r).slice(0, 200));
+      check('H1 mit WOV_ADMIN_URL, fremde Arbeitskopie: Weltdatei unveraendert', pruefsumme() === sumVorher);
+    } finally {
+      await anderes.close();
+    }
+  }
+
   // (3d) Symlink aus dem Checkout hinaus: Die eigene Weltdatei ist nur ein Verweis auf die vom
   // Dienst verwaltete. Die Kennungen wären gleich; die Sperre muss trotzdem greifen.
   checkoutAnlegen(SYMDATEI_WURZEL);

@@ -187,14 +187,22 @@ if (SYSTEMCTL_ERSATZ !== null) {
 
 const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
-// Die Arbeitskopie der Welt (WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten), nicht die Repo-Datei: Speichern
+// Die Arbeitskopie der Welt (WOV_WELT_VERZEICHNIS, sonst <Wurzel>/server/data/welten-arbeit), nicht die Repo-Datei: Speichern
 // macht den Git-Baum nicht schmutzig. Fehlt sie beim Start, legt der Dienst sie einmal aus dem Repo an
 // (dieselbe Regel wie im Spielserver, nur ohne Nachziehen); Nachziehen und Konfliktwarnung gehoeren dem
 // Spielserver-Start, Abnehmen und Verwerfen tools/welt-abnehmen.sh. Kein Git in diesem Prozess.
-const LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
+// Ein relativer WOV_WELT_VERZEICHNIS wird hier abgelehnt (der Start endet mit der Meldung), nicht geraten.
+let LAYOUT_DATEI: string;
+try {
+  LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
+} catch (fehler) {
+  console.error(`[Admin] ${(fehler as Error).message}`);
+  process.exit(1);
+}
 try {
   const abgleich = weltAbgleichen({ repoDatei: weltRepoDatei(WURZEL, INSTANZ), arbeitsDatei: LAYOUT_DATEI, modus: 'anlegen' });
   if (abgleich.fall === 'angelegt') console.log(`[Admin] ${abgleich.meldung}`);
+  else if (abgleich.fall === 'arbeit-kaputt' || abgleich.fall === 'repo-kaputt') console.error(`[Admin] ${abgleich.meldung}`);
 } catch (fehler) {
   console.error(`[Admin] Arbeitskopie der Welt nicht angelegt: ${(fehler as Error).message}`);
 }

@@ -97,8 +97,10 @@
 #   5. Server starten, in der Oberfläche Konten und Charaktere prüfen.
 #   Spielstand: "$L/worlds/<instanz>.db.zst" nach server/data/worlds/ (bei
 #   gestopptem Server, die alte .db.zst und .prev vorher beiseite legen).
-#   Weltdokument: "$L/welten/<instanz>.json" nach $WOV_WELT_VERZEICHNIS (Vorgabe
-#   /var/lib/wov/welten), das ist die Arbeitskopie; den Server danach neu starten.
+#   Weltdokument: "$L/welten/<instanz>.json" UND "$L/welten/<instanz>.basis" nach
+#   $WOV_WELT_VERZEICHNIS (Units: /var/lib/wov/welten), das ist die Arbeitskopie samt
+#   ihrer Basis; beide zurueckspielen (die Basis entscheidet beim naechsten Start ueber
+#   Nachziehen oder Konflikt), den Server danach neu starten.
 #
 # ── Warum `cp` für .db.zst sicher ist, für .db.zst.prev aber NICHT ────────
 # WorldManager.save() und saveAsync() (server/src/world/WorldManager.ts,
@@ -208,23 +210,33 @@ FEHLER_DB=0
 
 DB_DATEI="$DATEN/worlds/$INSTANZ.db.zst"
 PREV_DATEI="$DB_DATEI.prev"
-# Gesichert wird die ARBEITSKOPIE der Welt (die der Editor beschreibt), nicht der abgenommene Stand im
-# Repo: der steht in Git. Ordner: WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten. Mit dem Probe-Haken
-# WOV_SICHERUNG_DATEN (Tests) und ohne WOV_WELT_VERZEICHNIS bleibt es bei "$DATEN/welten", damit eine
-# Probe nie in /var/lib/wov liest. Gibt es die Arbeitskopie noch nicht (vor dem ersten Start des
-# Spielservers seit K5.7), wird ersatzweise die Repo-Datei gesichert.
+# Gesichert wird die ARBEITSKOPIE der Welt (die der Editor beschreibt) samt ihrer Basis (<instanz>.basis: Hash
+# des Repo-Stands, aus dem sie zuletzt angelegt oder nachgezogen wurde; nach dem Zurueckspielen entscheidet sie
+# ueber Nachziehen oder Konflikt), nicht der abgenommene Stand im Repo: der steht in Git.
+# Ordner, in dieser Rangfolge:
+#   1. WOV_SICHERUNG_DATEN (Probe-Haken): "$DATEN/welten". Der Haken gilt vor allem anderen, auch wenn
+#      WOV_WELT_VERZEICHNIS exportiert ist, damit eine Probe nie ausserhalb ihres Datenordners liest.
+#   2. WOV_WELT_VERZEICHNIS (absolut; die Unit setzt /var/lib/wov/welten).
+#   3. sonst "$DATEN/welten-arbeit" (wie der Spielserver ohne die Variable).
+# Gibt es die Arbeitskopie noch nicht (vor dem ersten Start des Spielservers seit K5.7), wird ersatzweise die
+# Repo-Datei gesichert.
 WELT_REPO_DATEI="$DATEN/welten/$INSTANZ.json"
-if [[ -n "${WOV_WELT_VERZEICHNIS:-}" ]]; then
-  WELT_DATEI="${WOV_WELT_VERZEICHNIS%/}/$INSTANZ.json"
-elif [[ -n "${WOV_SICHERUNG_DATEN:-}" ]]; then
+if [[ -n "${WOV_SICHERUNG_DATEN:-}" ]]; then
   WELT_DATEI="$WELT_REPO_DATEI"
+elif [[ -n "${WOV_WELT_VERZEICHNIS:-}" ]]; then
+  if [[ "$WOV_WELT_VERZEICHNIS" != /* ]]; then
+    echo "ABBRUCH: WOV_WELT_VERZEICHNIS='$WOV_WELT_VERZEICHNIS' ist kein absoluter Pfad." >&2
+    exit 1
+  fi
+  WELT_DATEI="${WOV_WELT_VERZEICHNIS%/}/$INSTANZ.json"
 else
-  WELT_DATEI="/var/lib/wov/welten/$INSTANZ.json"
+  WELT_DATEI="$DATEN/welten-arbeit/$INSTANZ.json"
 fi
 if [[ ! -f "$WELT_DATEI" && -f "$WELT_REPO_DATEI" ]]; then
   echo "  … Arbeitskopie $WELT_DATEI fehlt, gesichert wird ersatzweise $WELT_REPO_DATEI"
   WELT_DATEI="$WELT_REPO_DATEI"
 fi
+WELT_BASIS_DATEI="${WELT_DATEI%.json}.basis"
 DUNGEON_ORDNER="$DATEN/dungeons/$INSTANZ"
 SERVER_YML="$DATEN/server.yml"
 KONTEN_DB="$DATEN/konten/$INSTANZ.db"
@@ -327,6 +339,7 @@ echo "  Ziel:   $LAUF_ORDNER"
 
 # ── 2. Freien Platz prüfen, BEVOR irgendetwas kopiert wird ─────────────
 QUELL_PFADE=("$DB_DATEI" "$WELT_DATEI" "$SERVER_YML")
+[[ -f "$WELT_BASIS_DATEI" ]] && QUELL_PFADE+=("$WELT_BASIS_DATEI")
 # Konten/Forum samt -wal (dort stehen die Daten); ob sie fehlen, meldet die
 # Sicherung selbst.
 for db in "$KONTEN_DB" "$FORUM_DB"; do
@@ -407,6 +420,12 @@ fi
 
 echo "  kopiere $WELT_DATEI"
 kopiere_mit_pruefung "$WELT_DATEI" "$LAUF_ARBEIT/welten/$INSTANZ.json"
+if [[ -f "$WELT_BASIS_DATEI" ]]; then
+  echo "  kopiere $WELT_BASIS_DATEI"
+  kopiere_mit_pruefung "$WELT_BASIS_DATEI" "$LAUF_ARBEIT/welten/$INSTANZ.basis"
+else
+  echo "  … keine Basis-Datei neben der Weltdatei ($WELT_BASIS_DATEI), uebersprungen"
+fi
 
 if [[ -d "$DUNGEON_ORDNER" ]]; then
   echo "  kopiere $DUNGEON_ORDNER"

@@ -2211,6 +2211,11 @@ const KERN = [
   ['shared', 'test/welt-arbeitskopie.ts'],
   ['admin', 'test/welt-arbeitskopie.ts'],
   ['tools', 'test/welt-abnehmen.ts'],
+  // K5.7 N1: the default working-copy folder (no WOV_WELT_VERZEICHNIS) stays inside the checkout; sync vs. editor save under one lock
+  // (two processes, 300 rounds, 0 lost edits); the backup script also saves the base file.
+  ['admin', 'test/welt-ohne-variable.ts'],
+  ['shared', 'test/welt-abgleich-wettlauf.ts'],
+  ['tools', 'test/wov-sicherung-welt.ts'],
   ['shared', 'test/kollision-upload-entscheid.ts'],
 ];
 

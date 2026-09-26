@@ -1053,3 +1053,26 @@ export async function layoutSchreibenAsync(
   );
   return unterSperreSchreiben(pfad, sperre, v, behalten, optionen);
 }
+
+/**
+ * Führt `arbeit` unter DERSELBEN Sperre (`<pfad>.lock`) aus wie `layoutSchreiben`, ohne selbst die Weltdatei zu
+ * schreiben. Für alles, was die Datei neben dem Editor-Speichern ändert (Abgleich beim Start der Arbeitskopie,
+ * Nachziehen): Beide Seiten nehmen dieselbe Sperrdatei, also sieht `arbeit` die Datei nie mitten in einem
+ * Speichervorgang, und ein Speichern (mit Basis) sieht nie eine Datei, die `arbeit` gerade austauscht.
+ * `arbeit` läuft synchron, ohne `await`, und darf `layoutSchreiben` auf DIESELBE Datei nicht aufrufen (eine
+ * Sperre pro Prozess und Datei).
+ */
+export function layoutUnterSperre<T>(pfad: string, arbeit: () => T, optionen: SchreibOptionen = {}): T {
+  mkdirSync(dirname(pfad), { recursive: true });
+  const sperre = sperreNehmen(
+    pfad,
+    optionen.sperreWartenMs ?? SPERRE_WARTEN_MS,
+    optionen.sperreVeraltetMs ?? SPERRE_VERALTET_MS,
+    optionen.sperreUnentscheidbarMs ?? SPERRE_UNENTSCHEIDBAR_MS
+  );
+  try {
+    return arbeit();
+  } finally {
+    sperreFreigeben(sperre);
+  }
+}

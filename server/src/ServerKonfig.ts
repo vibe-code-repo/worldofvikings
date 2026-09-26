@@ -16,7 +16,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { weltArbeitsOrdner } from '@wov/shared/src/instanz.js';
+import { weltArbeitsOrdnerImDatenOrdner, WeltVerzeichnisUngueltig } from '@wov/shared/src/instanz.js';
 import { parse as parseYaml } from 'yaml';
 import { type ServerConfig } from './WovServer.js';
 import { BENUTZERNAME_REGEX, CHARAKTERNAME_REGEX } from './konto/KontoApi.js';
@@ -478,11 +478,20 @@ export function leseServerKonfig(
     // Bewusst weiterhin process.exit() und kein throw: der Aufrufer faengt
     // Fehler ab und faehrt mit Vorgabewerten weiter — aus einem throw
     // wuerde also ein Server auf der falschen Welt statt eines klaren Endes.
-    // Gelesen wird die ARBEITSKOPIE (WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten). Angelegt und
+    // Gelesen wird die ARBEITSKOPIE (WOV_WELT_VERZEICHNIS, sonst <Datenordner>/welten-arbeit). Angelegt und
     // nachgezogen wird sie in main.ts (weltAbgleichen), danach; hier genuegt, dass es irgendwo eine Welt
     // gibt: die Arbeitskopie oder den abgenommenen Stand im Repo.
     const repoPfad = resolve(datenVerzeichnis, 'welten', `${instanz}.json`);
-    const layoutPfad = resolve(weltArbeitsOrdner(), `${instanz}.json`);
+    let arbeitsOrdner: string;
+    try {
+      arbeitsOrdner = weltArbeitsOrdnerImDatenOrdner(datenVerzeichnis);
+    } catch (fehler) {
+      if (!(fehler instanceof WeltVerzeichnisUngueltig)) throw fehler;
+      // Ein relativer Wert meint je Prozess einen anderen Ordner: der Start verweigert, statt eine Welt zu raten.
+      console.error(`[Main] ${fehler.message}`);
+      process.exit(1);
+    }
+    const layoutPfad = resolve(arbeitsOrdner, `${instanz}.json`);
     if (world.mode === 'layout' && !existsSync(layoutPfad) && !existsSync(repoPfad)) {
       console.error(`[Main] Weltdatei fehlt: ${repoPfad} (und keine Arbeitskopie ${layoutPfad})`);
       console.error(`[Main] WOV_INSTANZ=${instanz} — erwartet wird server/data/welten/${instanz}.json`);

@@ -32,6 +32,8 @@ tools/asset-extractor/extract.d.ts.map
 assets/*
 !assets/manifest.json
 server/data/worlds/
+# K5.7: Arbeitskopie der Welt (Vorgabe ohne WOV_WELT_VERZEICHNIS), Laufzeitzustand wie worlds/.
+server/data/welten-arbeit/
 # Getting-started (2026-09-12): Zufallstoken des Betriebsdienstes fuer den
 # Fall ohne Operator (scripts/dev.mjs, admin/src/main.ts) -- ein Geheimnis
 # wie server/data/konten/ weiter unten, gehoert also ebenso wenig ins Repo.

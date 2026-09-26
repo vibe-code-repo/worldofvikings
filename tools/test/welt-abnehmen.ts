@@ -55,11 +55,12 @@ const git = (...args: string[]): string => {
   return r.stdout;
 };
 const commits = (): number => Number(git('rev-list', '--count', 'HEAD').trim());
+let zusatzEnv: NodeJS.ProcessEnv = {};
 const skript = (...args: string[]): { rc: number; aus: string } => {
   const r = spawnSync('bash', [resolve(WURZEL, 'tools/welt-abnehmen.sh'), ...args], {
     cwd: WURZEL,
     encoding: 'utf-8',
-    env: { ...process.env, WOV_WELT_VERZEICHNIS: ARBEITSORDNER, TMPDIR: T },
+    env: { ...process.env, WOV_WELT_VERZEICHNIS: ARBEITSORDNER, TMPDIR: T, ...zusatzEnv },
   });
   return { rc: r.status ?? -1, aus: `${r.stdout}${r.stderr}` };
 };
@@ -99,7 +100,7 @@ try {
   check('ohne --commit: 0 neue Commits', commits() === c0, `${c0} -> ${commits()}`);
   check('ohne --commit: die Repo-Datei liegt geaendert im Arbeitsbaum, bytegleich zur Arbeitskopie', readFileSync(REPO_DATEI, 'utf-8') === v1 && git('status', '--porcelain').trim() === 'M server/data/welten/dev.json', git('status', '--porcelain'));
   check('ohne --commit: der Diff wird gezeigt', /Abnahme 1/.test(r1.aus) && /Kein Commit/.test(r1.aus), r1.aus.slice(0, 300));
-  check('ohne --commit: Basis = Hash der Repo-Datei', basisLesen(ARBEIT) === layoutHash(v1));
+  check('ohne --commit (H2): die Basis bleibt, wie sie war (Hash des alten Repo-Stands), Arbeitskopie unberuehrt', basisLesen(ARBEIT) === layoutHash(AUSGANG) && readFileSync(ARBEIT, 'utf-8') === v1);
 
   // ── mit --commit: genau 1 Commit ───────────────────────────────────────
   const v2 = dokument('Abnahme 2', 300);
@@ -123,8 +124,57 @@ try {
   const c3 = commits();
   const r4 = skript('dev', '--verwerfen');
   check('--verwerfen: Exit 0, Arbeitskopie = Repo-Datei, kein Commit', r4.rc === 0 && readFileSync(ARBEIT, 'utf-8') === v2 && commits() === c3, r4.aus.slice(0, 300));
-  check('--verwerfen: die verworfene Arbeitskopie liegt gesichert daneben', readdirSync(ARBEITSORDNER).some((n) => n.endsWith('.bak')));
+  check('--verwerfen: die verworfene Arbeitskopie liegt gesichert daneben (Datei .gesichert, nicht rotierendes .bak)', readdirSync(ARBEITSORDNER).some((n) => n.includes('.verworfen-') && n.endsWith('.gesichert')));
   check('--verwerfen: Repo bleibt sauber', git('status', '--porcelain') === '');
+
+  // ── N4: gestagte Weltdatei, --verwerfen ohne Arbeitskopie, --status-Text ─
+  const v3 = dokument('Abnahme 3', 410);
+  {
+    writeFileSync(ARBEIT, v3);
+    skript('dev'); // schreibt die Repo-Datei, kein Commit
+    git('add', '--', 'server/data/welten/dev.json'); // vorher gestaged
+    const cs = commits();
+    const rs = skript('dev', '--commit');
+    check('N4: eine vorher gestagte Weltdatei wird trotzdem committet (Vergleich gegen HEAD, nicht gegen den Index)', rs.rc === 0 && commits() === cs + 1 && !/Nichts abzunehmen/.test(rs.aus) && readFileSync(REPO_DATEI, 'utf-8') === v3, rs.aus.slice(0, 300));
+
+    rmSync(ARBEIT);
+    rmSync(resolve(ARBEITSORDNER, 'dev.basis'), { force: true });
+    const stFehlt = skript('dev', '--status');
+    check('N4: --status ohne Arbeitskopie: sagt, dass nichts geschrieben wurde, und legt nichts an', stFehlt.rc === 0 && /WELT_GESCHRIEBEN=nein/.test(stFehlt.aus) && /wuerde aus dem Repo angelegt/.test(stFehlt.aus) && !existsSync(ARBEIT), stFehlt.aus.slice(0, 300));
+    const vw = skript('dev', '--verwerfen');
+    check('N4: --verwerfen ohne Arbeitskopie legt sie aus dem Repo an (Exit 0)', vw.rc === 0 && existsSync(ARBEIT) && readFileSync(ARBEIT, 'utf-8') === v3 && basisLesen(ARBEIT) === layoutHash(v3), vw.aus.slice(0, 300));
+    const dz = skript('dev', '--diff');
+    check('N4: --diff bei gleichen Dateien: Exit 0, schreibt nichts', dz.rc === 0 && git('status', '--porcelain') === '');
+    writeFileSync(ARBEIT, dokument('Diffbeispiel', 12));
+    const dv = skript('dev', '--diff');
+    check('--diff zeigt den Unterschied zwischen Repo-Datei und Arbeitskopie, schreibt nichts', dv.rc === 0 && /Diffbeispiel/.test(dv.aus) && git('status', '--porcelain') === '' && readFileSync(ARBEIT, 'utf-8') === dokument('Diffbeispiel', 12), dv.aus.slice(0, 300));
+    writeFileSync(ARBEIT, v3);
+  }
+
+  // ── H2: im DEV-Deployment wird nichts abgenommen oder committet ─────────
+  {
+    zusatzEnv = { WOV_DEV_CHECKOUT: WURZEL };
+    const c5 = commits();
+    writeFileSync(ARBEIT, dokument('Auf DEV', 66));
+    const repoVor = readFileSync(REPO_DATEI, 'utf-8');
+    const d1 = skript('dev', '--commit');
+    check('H2: --commit im DEV-Checkout verweigert (Exit 2), kein Commit, Repo-Datei unveraendert', d1.rc === 2 && /DEV-Deployment/.test(d1.aus) && commits() === c5 && readFileSync(REPO_DATEI, 'utf-8') === repoVor && git('status', '--porcelain') === '', d1.aus.slice(0, 300));
+    const d2 = skript('dev');
+    check('H2: auch Abnehmen ohne --commit verweigert (es schriebe in den DEV-Baum)', d2.rc === 2 && readFileSync(REPO_DATEI, 'utf-8') === repoVor && git('status', '--porcelain') === '', d2.aus.slice(0, 200));
+    const d3 = skript('dev', '--status');
+    const d4 = skript('dev', '--diff');
+    check('H2: --status und --diff laufen im DEV-Checkout weiter', d3.rc === 0 && /WELT_FALL=/.test(d3.aus) && d4.rc === 0 && /Auf DEV/.test(d4.aus));
+    zusatzEnv = {};
+    writeFileSync(ARBEIT, v3);
+  }
+
+  // ── N2: relatives WOV_WELT_VERZEICHNIS wird abgelehnt ────────────────────
+  {
+    zusatzEnv = { WOV_WELT_VERZEICHNIS: 'relwelt' };
+    const rr = skript('dev', '--status');
+    check('N2: relatives WOV_WELT_VERZEICHNIS: Exit 2 mit Meldung, nichts angelegt', rr.rc === 2 && /kein absoluter Pfad/.test(rr.aus) && !existsSync(resolve(WURZEL, 'relwelt')), rr.aus.slice(0, 300));
+    zusatzEnv = {};
+  }
 
   // ── falsche Aufrufe ────────────────────────────────────────────────────
   check('ohne Instanz: Exit 2', skript().rc === 2);

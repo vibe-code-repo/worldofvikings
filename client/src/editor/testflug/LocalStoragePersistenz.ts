@@ -31,6 +31,7 @@
 import type { WorldLayout } from '@wov/shared';
 import { STAND_KEY, schreibeWeltdokument } from '../weltdokument';
 import { zettelBasisLesen, zettelMitBasis } from '../entwurfsSpeicher';
+import { mitVorgaengen } from './TestflugPersistenz';
 import type { EntwurfDokument, SpeicherAntwort, TestflugPersistenz } from './TestflugPersistenz';
 
 const OHNE_BASIS =
@@ -66,7 +67,7 @@ function basisNachziehen(hash: string | null): void {
 export const ENTWURF_SCHLUESSEL = 'wov-editor-layout';
 
 export function localStoragePersistenz(): TestflugPersistenz {
-  return {
+  return mitVorgaengen({
     laden: () =>
       JSON.parse(localStorage.getItem(ENTWURF_SCHLUESSEL) ?? 'null') as EntwurfDokument | null,
     rohtext: () => localStorage.getItem(ENTWURF_SCHLUESSEL),
@@ -92,5 +93,5 @@ export function localStoragePersistenz(): TestflugPersistenz {
       if (antwort.art === 'basis-fehlt') return { ok: false, message: VERLANGT } satisfies SpeicherAntwort;
       return { ok: false, message: antwort.message } satisfies SpeicherAntwort;
     },
-  };
+  });
 }

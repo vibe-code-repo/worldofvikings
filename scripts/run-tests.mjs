@@ -2206,6 +2206,8 @@ const KERN = [
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
+  // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
+  ['client', 'test/testflug-ops.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

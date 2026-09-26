@@ -143,6 +143,7 @@ async function main(): Promise<void> {
   PORT = portVon(server);
   await warte(1500);
 
+  let instanzId = '';
   const zdos = () => server.hauptwelt.zdos.getAllZDOs();
   const hash0 = () => zdos().filter((z) => z.prefabHash === 0).length;
   const peerVon = (name: string, nurEditor: boolean) =>
@@ -165,6 +166,7 @@ async function main(): Promise<void> {
   admin(spieler, `dungeon enter ${dungeonId}`);
   await bis(() => sp!.worldId !== 'haupt');
   const inInstanz = sp!.worldId !== 'haupt';
+  instanzId = sp!.worldId;
   const instanzZdo = server.welten.get(sp!.worldId)?.zdos.getZDO(sp!.characterID);
   check('Spieler in der Instanz mit Charakter-ZDO gleicher Art', inInstanz && instanzZdo?.prefabHash === spHash,
     `hash ${instanzZdo?.prefabHash}`);
@@ -176,7 +178,10 @@ async function main(): Promise<void> {
   check('Spielerumzug hinterlässt kein Hash-0-ZDO', hash0() === 0, `hash0=${hash0()}`);
 
   // ── 2. Editor-Verbindung: enter/leave, dann trennen ──
+  const instZdos = () => server.welten.get(instanzId)?.zdos.getAllZDOs() ?? [];
+  const inst0 = { gesamt: instZdos().length, hash0: instZdos().filter((z) => z.prefabHash === 0).length };
   const vorher = { gesamt: zdos().length, hash0: hash0() };
+  const instWelt = () => server.welten.get(sp!.dungeonId ? sp!.worldId : instanzId);
   const editor = verbinde('Tester', true);
   await editor.angemeldet;
   await warte(500);
@@ -196,9 +201,70 @@ async function main(): Promise<void> {
   await warte(800);
   check('nach Trennen: kein ZDO mit Hash 0', hash0() === vorher.hash0, `hash0 ${vorher.hash0} → ${hash0()}`);
   check('nach Trennen: ZDO-Zahl wie vorher', zdos().length === vorher.gesamt, `${vorher.gesamt} → ${zdos().length}`);
+  const inst1 = { gesamt: instZdos().length, hash0: instZdos().filter((z) => z.prefabHash === 0).length };
+  check('Instanz: ZDO-Zahl und Hash-0-Zahl wie vorher', inst1.gesamt === inst0.gesamt && inst1.hash0 === inst0.hash0,
+    `${inst0.gesamt}/${inst0.hash0} → ${inst1.gesamt}/${inst1.hash0}`);
   check('Spieler-Charakter-ZDO unberührt', !!server.hauptwelt.zdos.getZDO(sp!.characterID));
 
   spieler.ws.close();
+  await warte(500);
+
+  // ── 3. S1: Charakter-ZDO weg (`abbau Player`), dann enter/leave ──
+  // A stale characterID must not address a foreign ZDO with the same number
+  // in the next world (ids are numbered per world).
+  const o1 = verbinde('Opfer1', false);
+  await o1.angemeldet;
+  await warte(500);
+  const p1 = peerVon('Opfer1', false)!;
+  admin(o1, 'abbau Player 5');
+  await bis(() => !server.hauptwelt.zdos.getZDO(p1.characterID));
+  check('S1: Charakter-ZDO abgebaut', !server.hauptwelt.zdos.getZDO(p1.characterID));
+  const s1Haupt = { gesamt: zdos().length, hash0: hash0() };
+  admin(o1, `dungeon enter ${dungeonId}`);
+  await bis(() => p1.worldId !== 'haupt');
+  const s1Inst = () => server.welten.get(p1.worldId)?.zdos.getAllZDOs() ?? [];
+  const s1Inst0 = s1Inst().length;
+  check('S1: characterID nach enter gelöscht', p1.characterID.isNone(), p1.characterID.toString());
+  admin(o1, 'dungeon leave');
+  await bis(() => p1.worldId === 'haupt');
+  check('S1: characterID nach leave gelöscht', p1.characterID.isNone(), p1.characterID.toString());
+  check('S1: Instanz ohne Verlust (kein fremdes ZDO zerstört)', server.welten.get(instanzId)?.zdos.getAllZDOs().length === s1Inst0,
+    `${s1Inst0} → ${server.welten.get(instanzId)?.zdos.getAllZDOs().length}`);
+  check('S1: Hauptwelt unverändert, kein Hash 0', zdos().length === s1Haupt.gesamt && hash0() === s1Haupt.hash0,
+    `${s1Haupt.gesamt}/${s1Haupt.hash0} → ${zdos().length}/${hash0()}`);
+  o1.ws.close();
+  await warte(500);
+
+  // ── 4. S2: Instanz verworfen, während der Spieler drin ist ──
+  const o2 = verbinde('Opfer2', false);
+  await o2.angemeldet;
+  await warte(500);
+  const p2 = peerVon('Opfer2', false)!;
+  admin(o2, `dungeon enter ${dungeonId}`);
+  await bis(() => p2.worldId !== 'haupt');
+  admin(o2, `dungeon reset ${dungeonId}`);
+  await warte(500);
+  admin(o2, 'dungeon leave');
+  await bis(() => p2.worldId === 'haupt');
+  check('S2: characterID nach reset+leave gelöscht', p2.characterID.isNone(), p2.characterID.toString());
+  // Give the main world a ZDO with exactly the stale number (if one is left).
+  let opfer: ReturnType<typeof server.hauptwelt.zdos.createZDO> | null = null;
+  if (!p2.characterID.isNone()) {
+    opfer = server.hauptwelt.zdos.getZDO(p2.characterID) ?? null;
+    for (let i = 0; i < 5000 && !opfer; i++) {
+      const z = server.hauptwelt.zdos.createZDO(1, { x: 10, y: 0, z: 10 });
+      if (z.zdoid.equals(p2.characterID)) opfer = z;
+    }
+  }
+  const s2Haupt = zdos().length;
+  admin(o2, `dungeon enter ${dungeonId}`);
+  await bis(() => p2.worldId !== 'haupt');
+  admin(o2, 'dungeon leave');
+  await bis(() => p2.worldId === 'haupt');
+  check('S2: fremdes ZDO gleicher Nummer bleibt bestehen (oder es gibt keins)', !opfer || !!server.hauptwelt.zdos.getZDO(opfer.zdoid));
+  check('S2: Hauptwelt über enter/leave unverändert', zdos().length === s2Haupt && hash0() === 0,
+    `${s2Haupt} → ${zdos().length}, hash0 ${hash0()}`);
+  o2.ws.close();
   await warte(300);
   server.stop();
   rmSync(TMP, { recursive: true, force: true });

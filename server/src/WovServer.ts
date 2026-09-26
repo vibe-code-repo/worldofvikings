@@ -4153,16 +4153,19 @@ export class WovServer {
     if (!peer.characterID.isNone()) quelle.destroyZDO(peer.characterID);
 
     peer.worldId = ziel.id;
-    // Ohne Quell-ZDO (Editor-Verbindung: betritt die Welt nie) gibt es nichts
-    // umzuziehen. Ein Hash-0-ZDO drueben wuerde nie zerstoert, weil
-    // `onPeerQuit` bei `nurEditor` vorher aussteigt.
-    // No source ZDO (editor connection) = nothing to move; a hash-0 ZDO would
-    // never be destroyed since `onPeerQuit` returns early for editors.
+    // A peer without a source character ZDO (an editor connection never
+    // enters the world) has nothing to move: a ZDO created for it in the
+    // target world would never be destroyed, because `onPeerQuit` returns
+    // early for editors. `characterID` must then be cleared: ZDO ids are
+    // numbered per world, so a stale id would address a foreign ZDO with the
+    // same number in the next world (and get it destroyed and cloned).
     if (alt) {
       const neu = ziel.zdos.createZDO(prefabHash, pos, { x: 0, y: 0, z: 0, w: 1 });
       if (daten) neu.uebernehmeMitglieder(daten);
       neu.setOwner(new ZDOID(peer.userId, 0));
       peer.characterID = neu.zdoid;
+    } else {
+      peer.characterID = ZDOID.NONE;
     }
 
     // Das Sichtfenster gehört zur alten Welt: Es merkt sich, welche ZDOs

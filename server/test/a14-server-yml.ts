@@ -190,15 +190,20 @@ async function speichertaktPruefen(): Promise<void> {
       beobachtet.size >= 2,
       `${beobachtet.size} verschiedene Schreibzeitpunkte`
     );
-    // The gap between two saves must match the configured interval. The
-    // tolerance is generous (poll jitter, load): a gap ten times too long or
-    // a burst of back-to-back writes is caught, ordinary noise is not.
+    // The gap between two saves must match the configured interval. What is
+    // measured is the distance of the two file mtimes, NOT the poll grid, so
+    // poll jitter does not enter it; only load on the save timer does. The
+    // window [0.5x, 1.5x] is therefore narrow enough to catch an interval
+    // that is off by a factor of 2 or more (also 0.25x), with ~200 ms of
+    // slack for load. Assumption: the file system resolves mtimes finer than
+    // 100 ms (ext4 and tmpfs: nanoseconds). On a 1 s or 2 s resolution
+    // (ext3/FAT) this check would fail spuriously.
     if (beobachtet.size >= 2) {
       const [erster, zweiter] = [...beobachtet.keys()];
       const abstand = zweiter - erster;
       pruefe(
         `Abstand der Saves passt zum Takt (${TAKT_MS} ms)`,
-        abstand >= TAKT_MS / 4 && abstand <= TAKT_MS * 4,
+        abstand >= TAKT_MS * 0.5 && abstand <= TAKT_MS * 1.5,
         `${Math.round(abstand)} ms zwischen den Schreibzeitpunkten`
       );
     }

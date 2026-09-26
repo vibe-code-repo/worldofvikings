@@ -149,6 +149,26 @@ export type KontoFehler =
   | 'name-taken'
   | 'unknown';
 
+/** Laenge des oeffentlichen Profiltexts in Zeichen (Codepunkten). */
+export const PROFILTEXT_MAX = 300;
+
+/**
+ * SQL-Ausdruck fuer die naechste freie Id einer Tabelle, die nie eine schon
+ * einmal vergebene wiederholt — s. `hochwasser` in `schemaAnlegen`. Nur
+ * feste Tabellennamen aus diesem Modul, nie Eingaben.
+ */
+function naechsteId(tabelle: 'konten' | 'charaktere'): string {
+  return `(MAX(COALESCE((SELECT MAX(id) FROM ${tabelle}), 0),
+    COALESCE((SELECT id FROM hochwasser WHERE tabelle = '${tabelle}'), 0)) + 1)`;
+}
+
+/** Ergebnis von `kontoLoeschen`: was mit dem Konto weggefallen ist. */
+export interface GeloeschtesKonto {
+  kontoId: number;
+  benutzername: string;
+  charaktere: Charakter[];
+}
+
 export class Kontendatenbank {
   private readonly db: DatabaseSync;
 
@@ -195,6 +215,13 @@ export class Kontendatenbank {
     // Eigenschaft des Kontos, nicht des Charakters — und ein Charakter kann
     // geloescht werden, ohne den Datensatz des Kontos zu zerstoeren.
     this.spalteNachziehen('konten', 'avatar_charakter_id', 'INTEGER');
+    // Konto-Verwaltung (W3). `token_ab`: Konto-Token, die vor oder genau zu
+    // diesem Zeitpunkt (ms) ausgestellt wurden, sind ungueltig — so beendet
+    // ein Passwortwechsel alle anderen Anmeldungen, obwohl die Token
+    // zustandslos sind. 0 = nie gesetzt, jedes Token gilt.
+    this.spalteNachziehen('konten', 'token_ab', 'INTEGER NOT NULL DEFAULT 0');
+    // Oeffentlicher Profiltext (hoechstens PROFILTEXT_MAX Zeichen, reiner Text).
+    this.spalteNachziehen('konten', 'profil_text', "TEXT NOT NULL DEFAULT ''");
   }
 
   /**
@@ -270,6 +297,55 @@ export class Kontendatenbank {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS banns_eindeutig ON banns(art, wert);
     `);
+
+    // Konto-Verwaltung (W3). Drei kleine Tabellen, alle ohne Fremdschluessel
+    // auf konten — sie muessen ein geloeschtes Konto ueberleben.
+    //
+    // `geloeschte_spieler`: spielerIds geloeschter Charaktere. Ein Spieler-
+    // Token (Identitaet.ts) ist zustandslos und lebt nach der Loeschung
+    // weiter; ohne diese Liste kaeme jemand mit einem vor der Loeschung
+    // abgeholten Token wieder in die Welt und legte dort einen verwaisten
+    // Spielstand an. `bannFuerZugang` lehnt diese Kennungen ab.
+    //
+    // `hochwasser`: hoechste je vergebene Id je Tabelle. INTEGER PRIMARY KEY
+    // ohne AUTOINCREMENT vergibt nach dem Loeschen der letzten Zeile deren
+    // Id NEU — ein altes Konto-Token oder ein Forum-Verweis (`author_
+    // character_id`) gehoerte dann ploetzlich einem anderen. Ids werden
+    // deshalb nie wiederverwendet.
+    //
+    // `forum_auftraege`: Was das Forum (eigene Datei!) nach einer Konto-
+    // loeschung noch zu bereinigen hat. Wird in DERSELBEN Transaktion wie die
+    // Loeschung geschrieben und erst nach getaner Arbeit entfernt — bricht
+    // der Server dazwischen ab, holt der naechste Start es nach, statt
+    // Beitraege mit toten Konto-Ids stehen zu lassen.
+    //
+    // `profil_meldungen`: Meldungen gegen einen Profiltext. Die Moderations-
+    // ansicht dazu ist nicht Teil von W3; die Zeilen warten dort.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS geloeschte_spieler (
+        spieler_id TEXT PRIMARY KEY COLLATE NOCASE,
+        geloescht  INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS hochwasser (
+        tabelle TEXT PRIMARY KEY,
+        id      INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS forum_auftraege (
+        konto_id       INTEGER PRIMARY KEY,
+        charakter_ids  TEXT NOT NULL,
+        namen          TEXT NOT NULL,
+        erstellt       INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS profil_meldungen (
+        id                INTEGER PRIMARY KEY,
+        melder_konto_id   INTEGER NOT NULL,
+        gemeldet_konto_id INTEGER NOT NULL,
+        grund             TEXT NOT NULL DEFAULT '',
+        erstellt          INTEGER NOT NULL,
+        erledigt          INTEGER,
+        UNIQUE (melder_konto_id, gemeldet_konto_id)
+      );
+    `);
   }
 
   // ── Accounts ────────────────────────────────────────────────────────
@@ -283,7 +359,8 @@ export class Kontendatenbank {
     const jetzt = Date.now();
     try {
       const r = this.db
-        .prepare('INSERT INTO konten (benutzername, email, passwort, erstellt) VALUES (?, ?, ?, ?)')
+        .prepare(`INSERT INTO konten (id, benutzername, email, passwort, erstellt)
+          VALUES (${naechsteId('konten')}, ?, ?, ?, ?)`)
         .run(benutzername, email, passwortEintrag, jetzt);
       return {
         ok: true,
@@ -347,9 +424,175 @@ export class Kontendatenbank {
     return { konten: Number(z.konten), charaktere: Number(z.charaktere) };
   }
 
-  /** Rewrite a password record, e.g. after raising the scrypt cost. */
-  passwortErsetzen(kontoId: number, passwortEintrag: string): void {
-    this.db.prepare('UPDATE konten SET passwort = ? WHERE id = ?').run(passwortEintrag, kontoId);
+  /**
+   * Rewrite a password record, e.g. after raising the scrypt cost.
+   *
+   * `erwartet` ist der Eintrag, den der Aufrufer gelesen und geprueft hat:
+   * Steht in der Zeile inzwischen ein anderer (etwa weil das Passwort
+   * waehrend des Hashens gewechselt wurde), passiert nichts. Ohne diese
+   * Bedingung schriebe ein Login, der auf dem alten Passwort beruht, es
+   * ueber den Wechsel zurueck. Liefert, ob geschrieben wurde.
+   */
+  passwortErsetzen(kontoId: number, passwortEintrag: string, erwartet?: string): boolean {
+    const r = erwartet === undefined
+      ? this.db.prepare('UPDATE konten SET passwort = ? WHERE id = ?').run(passwortEintrag, kontoId)
+      : this.db.prepare('UPDATE konten SET passwort = ? WHERE id = ? AND passwort = ?')
+        .run(passwortEintrag, kontoId, erwartet);
+    return Number(r.changes) > 0;
+  }
+
+  // ── Konto-Verwaltung (W3) ───────────────────────────────────────────
+
+  /** Konto samt Passwort-Eintrag, oder null. */
+  kontoMitPasswort(id: number): (Konto & { passwort: string }) | null {
+    const z = this.db
+      .prepare('SELECT id, benutzername, email, passwort, erstellt FROM konten WHERE id = ?')
+      .get(id) as Record<string, unknown> | undefined;
+    if (!z) return null;
+    return {
+      id: Number(z.id),
+      benutzername: String(z.benutzername),
+      email: String(z.email),
+      passwort: String(z.passwort),
+      erstellt: Number(z.erstellt),
+    };
+  }
+
+  /** `token_ab` des Kontos, oder null, wenn es das Konto nicht (mehr) gibt. */
+  tokenAbVon(kontoId: number): number | null {
+    const z = this.db.prepare('SELECT token_ab FROM konten WHERE id = ?')
+      .get(kontoId) as Record<string, unknown> | undefined;
+    return z ? Number(z.token_ab) : null;
+  }
+
+  /**
+   * Neues Passwort setzen UND alle bisher ausgestellten Token ungueltig
+   * machen — in EINER Anweisung, damit es keinen Zustand mit neuem Passwort
+   * und noch gueltigen alten Sitzungen gibt. Nur wenn der Eintrag noch der
+   * ist, den der Aufrufer geprueft hat (`erwartet`); sonst false.
+   */
+  passwortWechseln(kontoId: number, neuerEintrag: string, erwartet: string, tokenAb: number): boolean {
+    const r = this.db
+      .prepare('UPDATE konten SET passwort = ?, token_ab = MAX(token_ab, ?) WHERE id = ? AND passwort = ?')
+      .run(neuerEintrag, tokenAb, kontoId, erwartet);
+    return Number(r.changes) > 0;
+  }
+
+  /** E-Mail-Adresse setzen, nur wenn das Passwort seit der Pruefung unveraendert ist. */
+  emailSetzen(kontoId: number, email: string, erwartetPasswort: string): boolean {
+    const r = this.db
+      .prepare('UPDATE konten SET email = ? WHERE id = ? AND passwort = ?')
+      .run(email, kontoId, erwartetPasswort);
+    return Number(r.changes) > 0;
+  }
+
+  profilTextVon(kontoId: number): string {
+    const z = this.db.prepare('SELECT profil_text FROM konten WHERE id = ?')
+      .get(kontoId) as Record<string, unknown> | undefined;
+    return z ? String(z.profil_text ?? '') : '';
+  }
+
+  profilTextSetzen(kontoId: number, text: string): void {
+    this.db.prepare('UPDATE konten SET profil_text = ? WHERE id = ?').run(text, kontoId);
+  }
+
+  /**
+   * Meldung gegen den Profiltext des Kontos, dem `charakterId` gehoert.
+   * Eine je Melder und Konto (eine zweite ersetzt Grund und setzt sie wieder
+   * offen). null, wenn der Charakter fehlt oder dem Melder selbst gehoert.
+   */
+  profilMelden(melderKontoId: number, charakterId: number, grund: string): { ok: true } | { ok: false } {
+    const c = this.charakterNachId(charakterId);
+    if (!c || c.kontoId === melderKontoId) return { ok: false };
+    this.db
+      .prepare(`INSERT INTO profil_meldungen (melder_konto_id, gemeldet_konto_id, grund, erstellt)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(melder_konto_id, gemeldet_konto_id)
+        DO UPDATE SET grund = excluded.grund, erstellt = excluded.erstellt, erledigt = NULL`)
+      .run(melderKontoId, c.kontoId, grund, Date.now());
+    return { ok: true };
+  }
+
+  /** Offene Profil-Meldungen (fuer eine spaetere Moderationsansicht), aelteste zuerst. */
+  profilMeldungenOffen(): { id: number; gemeldetKontoId: number; grund: string; erstellt: number }[] {
+    return (this.db
+      .prepare('SELECT * FROM profil_meldungen WHERE erledigt IS NULL ORDER BY erstellt')
+      .all() as Record<string, unknown>[])
+      .map((z) => ({
+        id: Number(z.id), gemeldetKontoId: Number(z.gemeldet_konto_id),
+        grund: String(z.grund), erstellt: Number(z.erstellt),
+      }));
+  }
+
+  /**
+   * Konto samt Charakteren endgueltig loeschen.
+   *
+   * In EINER Transaktion: die spielerIds der Charaktere kommen auf die Liste
+   * der geloeschten (s. `geloeschte_spieler`), die hoechsten Ids ins
+   * Hochwasser, dann faellt das Konto und mit ihm per ON DELETE CASCADE
+   * jeder Charakter. Meldungen des Kontos und gegen sein Profil gehen mit.
+   * Banns bleiben absichtlich stehen (Chronik; `bannListe` kommt mit einem
+   * fehlenden Konto zurecht, und Ids werden nie wiederverwendet).
+   *
+   * Das Passwort ist hier NICHT mehr Sache dieser Methode — die API hat es
+   * vorher geprueft. `erwartetPasswort` schuetzt trotzdem vor einem Wechsel
+   * zwischen Pruefung und Loeschung.
+   */
+  kontoLoeschen(kontoId: number, erwartetPasswort: string): GeloeschtesKonto | null {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const konto = this.kontoMitPasswort(kontoId);
+      if (!konto || konto.passwort !== erwartetPasswort) {
+        this.db.exec('ROLLBACK');
+        return null;
+      }
+      const charaktere = this.charaktereVonKonto(kontoId);
+      const jetzt = Date.now();
+      for (const c of charaktere) {
+        this.db.prepare('INSERT OR IGNORE INTO geloeschte_spieler (spieler_id, geloescht) VALUES (?, ?)')
+          .run(c.spielerId, jetzt);
+      }
+      this.hochwasserAnheben('konten', kontoId);
+      for (const c of charaktere) this.hochwasserAnheben('charaktere', c.id);
+      this.db.prepare('DELETE FROM profil_meldungen WHERE melder_konto_id = ? OR gemeldet_konto_id = ?')
+        .run(kontoId, kontoId);
+      this.db.prepare('DELETE FROM konten WHERE id = ?').run(kontoId);
+      this.db.prepare('INSERT OR REPLACE INTO forum_auftraege (konto_id, charakter_ids, namen, erstellt) VALUES (?, ?, ?, ?)')
+        .run(kontoId, JSON.stringify(charaktere.map((c) => c.id)),
+          JSON.stringify(charaktere.map((c) => c.name)), jetzt);
+      this.db.exec('COMMIT');
+      return { kontoId, benutzername: konto.benutzername, charaktere };
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  /** Forum-Bereinigungen, die noch ausstehen (nach Loeschungen). */
+  forumAuftraege(): { kontoId: number; charakterIds: number[]; namen: string[] }[] {
+    return (this.db.prepare('SELECT * FROM forum_auftraege ORDER BY erstellt').all() as Record<string, unknown>[])
+      .map((z) => ({
+        kontoId: Number(z.konto_id),
+        charakterIds: JSON.parse(String(z.charakter_ids)) as number[],
+        namen: JSON.parse(String(z.namen)) as string[],
+      }));
+  }
+
+  forumAuftragErledigt(kontoId: number): void {
+    this.db.prepare('DELETE FROM forum_auftraege WHERE konto_id = ?').run(kontoId);
+  }
+
+  private hochwasserAnheben(tabelle: 'konten' | 'charaktere', id: number): void {
+    this.db
+      .prepare(`INSERT INTO hochwasser (tabelle, id) VALUES (?, ?)
+        ON CONFLICT(tabelle) DO UPDATE SET id = MAX(id, excluded.id)`)
+      .run(tabelle, id);
+  }
+
+  /** Gehoerte diese spielerId einem inzwischen geloeschten Charakter? */
+  istGeloeschterSpieler(spielerId: string): boolean {
+    return this.db.prepare('SELECT 1 FROM geloeschte_spieler WHERE spieler_id = ?')
+      .get(spielerId) !== undefined;
   }
 
   // ── Characters ──────────────────────────────────────────────────────
@@ -374,8 +617,8 @@ export class Kontendatenbank {
     try {
       const r = this.db
         .prepare(`INSERT INTO charaktere
-          (konto_id, spieler_id, altlast_user_id, name, figur, frisur, haarfarbe, augenfarbe, ober, beine, erstellt, klasse)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          (id, konto_id, spieler_id, altlast_user_id, name, figur, frisur, haarfarbe, augenfarbe, ober, beine, erstellt, klasse)
+          VALUES (${naechsteId('charaktere')}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(kontoId, spielerId, altlastUserId.toString(16), name,
              voll.figur, voll.frisur, voll.haarfarbe, voll.augenfarbe,
              voll.ober, voll.beine, jetzt, voll.klasse);
@@ -427,6 +670,11 @@ export class Kontendatenbank {
   }
 
   charakterLoeschen(kontoId: number, charakterId: number): boolean {
+    // Hochwasser zuerst: die Id darf nach der Loeschung nie wieder vergeben
+    // werden (Forum-Verweise, Avatar, oeffentliche Adresse). Nur fuer eine
+    // Zeile dieses Kontos.
+    if (!this.charakterVonKonto(kontoId, charakterId)) return false;
+    this.hochwasserAnheben('charaktere', charakterId);
     const r = this.db.prepare('DELETE FROM charaktere WHERE id = ? AND konto_id = ?')
       .run(charakterId, kontoId);
     return Number(r.changes) > 0;
@@ -561,6 +809,14 @@ export class Kontendatenbank {
     jetzt = Date.now(),
   ): Bann | null {
     const spielerId = zugang.spielerId ?? '';
+    if (spielerId && this.istGeloeschterSpieler(spielerId)) {
+      // Ein Token, das vor der Kontoloeschung abgeholt wurde: keine Bannzeile,
+      // sondern die Liste geloeschter Charaktere (s. `geloeschte_spieler`).
+      return {
+        id: 0, art: 'spieler', wert: spielerId, grund: 'Konto geloescht', gesetztVon: '',
+        gesetzt: jetzt, bis: null,
+      };
+    }
     if (spielerId) {
       const eigener = this.bannPruefen('spieler', spielerId, jetzt);
       if (eigener) return eigener;

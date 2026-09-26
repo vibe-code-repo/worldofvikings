@@ -822,6 +822,9 @@ const KERN = [
   // (Date.now gestellt) fuer den Ablauf des Fensters. Echter node:http-
   // Server, Sekunden.
   ['server', 'test/konto-registrierung-drossel.ts'],
+  // Konto-Verwaltung (W3): Passwort/E-Mail/Profil/Loeschung, Token-Sperre, Forum-
+  // Anonymisierung, gleichzeitige Loeschung und play. Echter node:http-Server.
+  ['server', 'test/konto-verwaltung.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die

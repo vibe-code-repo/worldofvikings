@@ -159,7 +159,7 @@ try {
     // deshalb erst die Standardauswahl holen und die Betriebsdienst-Angaben
     // ergänzen, statt versehentlich PATH & Co. zu verlieren (npx würde sonst
     // nicht mehr gefunden).
-    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: gestartet.url, WOV_ADMIN_TOKEN: TOKEN },
+    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: gestartet.url, WOV_ADMIN_TOKEN: TOKEN, WOV_WELT_VERZEICHNIS: resolve(TEST_WURZEL, 'server/data/welten') },
   });
   const c = new Client({ name: 'probe', version: '1.0.0' });
   client = c;

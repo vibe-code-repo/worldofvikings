@@ -89,6 +89,9 @@ function dienstStarten(): Promise<{ port: number; kind: ChildProcess; log: () =>
         WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Eigene Prozessgruppe: tsx startet node als Kind; nur die Gruppe zu beenden raeumt beide weg
+      // (sonst haelt das Enkelkind die Pipes offen und der Runner wartet bis zum Zeitlimit).
+      detached: true,
     });
     kinder.push(kind);
     const frist = setTimeout(() => scheitern(new Error(`Dienst startet nicht:\n${protokoll}`)), 30_000);
@@ -116,11 +119,18 @@ async function anfrage(port: number, methode: 'GET' | 'PATCH', pfad: string, lei
   });
   return { status: r.status, daten: (await r.json().catch(() => ({}))) as Record<string, unknown> };
 }
+function gruppeBeenden(kind: ChildProcess, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-kind.pid!, signal);
+  } catch {
+    /* Gruppe schon weg */
+  }
+}
 async function stoppen(kind: ChildProcess): Promise<void> {
   if (kind.exitCode !== null) return;
   await new Promise<void>((f) => {
     kind.once('exit', () => f());
-    kind.kill('SIGTERM');
+    gruppeBeenden(kind, 'SIGTERM');
   });
 }
 
@@ -175,7 +185,7 @@ try {
   const nachVarLibWov = existsSync('/var/lib/wov') ? readdirSync('/var/lib/wov').sort().join(',') : null;
   check('/var/lib/wov unveraendert', vorVarLibWov === nachVarLibWov, `${vorVarLibWov} -> ${nachVarLibWov}`);
 } finally {
-  for (const k of kinder) if (k.exitCode === null) k.kill('SIGKILL');
+  for (const k of kinder) gruppeBeenden(k, 'SIGKILL');
   rmSync(T, { recursive: true, force: true });
 }
 

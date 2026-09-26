@@ -456,6 +456,20 @@ export class WovServer {
    */
   instanzWeltEntfernen(weltId: string): void {
     if (weltId === HAUPTWELT_ID) return;
+    // Everyone still standing in this world is moved to the main world FIRST,
+    // while the world (and their character ZDO in it) still exists. Whichever
+    // path dropped the instance (`dungeon reset`, `regen`, an editor upload,
+    // a document change, `dungeon delete`) — a peer must never keep the id of
+    // a world that is gone: its character id would later address a foreign
+    // ZDO with the same number in another world.
+    // Wer noch in dieser Welt steht, wird ZUERST in die Hauptwelt umgezogen,
+    // solange Welt und Figur noch existieren — egal auf welchem Weg die
+    // Instanz verworfen wird.
+    for (const peer of [...this.net.getPeers()]) {
+      if (peer.worldId !== weltId) continue;
+      if (peer.dungeonId) this.leaveDungeon(peer);
+      else this.teleportPeer(peer, this.weltSpawn(), null, '', HAUPTWELT_ID);
+    }
     this.welten.delete(weltId);
   }
 
@@ -478,7 +492,19 @@ export class WovServer {
    * Rueckfall ist hier das kleinere Uebel als ein Absturz mitten im Tick.
    */
   private welt(peer: Peer): Welt {
-    return this.welten.get(peer.worldId) ?? this.welten.get(HAUPTWELT_ID)!;
+    const welt = this.welten.get(peer.worldId);
+    if (welt) return welt;
+    // The peer's world is gone. Its character id belongs to THAT world: ids
+    // are numbered per world, so resolving it in the main world would hit a
+    // foreign ZDO with the same number. Drop the id and put the peer into the
+    // main world (instead of a silent fallback that keeps the stale id).
+    // Die Welt des Peers ist weg: Seine Figur-Kennung gehört zu ihr und darf
+    // in der Hauptwelt kein fremdes ZDO gleicher Nummer treffen.
+    console.warn(`[WoV] Peer "${peer.name}": Welt "${peer.worldId}" existiert nicht mehr — Hauptwelt, Figur-Kennung verworfen`);
+    peer.worldId = HAUPTWELT_ID;
+    peer.characterID = ZDOID.NONE;
+    peer.weltWechselVorbereiten();
+    return this.hauptwelt;
   }
 
   /** Kurzform fuer den ZDO-Raum eines Peers — s. `welt()`. */
@@ -2020,12 +2046,17 @@ export class WovServer {
     // und seinen Spawnpunkt mit dem Nichts einer Verbindung, die nie in
     // der Welt war. Kein Fehler, keine Meldung — man stuende beim
     // naechsten Anmelden woanders.
+    // The player list of an instance is keyed per connection: an editor that
+    // disconnects inside an instance must leave it too (it is never a saved
+    // player, so the return below does not apply to it).
+    // Die Spielerliste der Instanz ist je Verbindung geschlüsselt: Auch ein
+    // Editor trägt sich beim Trennen aus.
+    if (peer.dungeonId) this.dungeons.getInstance(peer.dungeonId)?.players.delete(peer.userId);
     if (peer.nurEditor) return;
 
     // Phase G: quitting inside a dungeon counts as leaving it — the saved
     // position is the overworld return point, never the instance band.
     if (peer.dungeonId) {
-      this.dungeons.getInstance(peer.dungeonId)?.players.delete(peer.name);
       if (peer.dungeonReturn) peer.position = { ...peer.dungeonReturn };
       peer.dungeonId = null;
     }
@@ -4357,7 +4388,7 @@ export class WovServer {
       peer.dungeonReturn = { ...peer.position };
     }
     peer.dungeonId = dungeonId;
-    instance.players.add(peer.name);
+    instance.players.add(peer.userId);
     const doc = this.dungeons.getDocument(dungeonId);
     // AP13: Bei 2.0 kommt die Innen-Umgebung aus dem THEMA statt aus dem
     // Kit — 2.0 hat keine Kits mehr. Die Aufrufstelle bleibt dieselbe, wie
@@ -4486,7 +4517,7 @@ export class WovServer {
     if (!peer.dungeonId) {
       return { ok: false, message: 'Du bist in keinem Dungeon' };
     }
-    this.dungeons.getInstance(peer.dungeonId)?.players.delete(peer.name);
+    this.dungeons.getInstance(peer.dungeonId)?.players.delete(peer.userId);
     peer.dungeonId = null;
     const back = ziel ?? peer.dungeonReturn ?? { x: 0, y: this.getGroundHeight(0, 0), z: 0 };
     peer.dungeonReturn = null;
@@ -5128,7 +5159,7 @@ export class WovServer {
         return { ok: false, active: false, message: 'Aufruf: teleport <x> <z>' };
       }
       if (peer.dungeonId) {
-        this.dungeons.getInstance(peer.dungeonId)?.players.delete(peer.name);
+        this.dungeons.getInstance(peer.dungeonId)?.players.delete(peer.userId);
         peer.dungeonId = null;
         peer.dungeonReturn = null;
       }

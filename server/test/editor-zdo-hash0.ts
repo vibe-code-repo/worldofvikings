@@ -270,7 +270,9 @@ async function main(): Promise<void> {
   await warte(500);
   await admin(o2, 'dungeon leave');
   check('S2: leave nach reset fand statt', await bis(inHaupt), `worldId=${p2.worldId}`);
-  check('S2: characterID nach reset+leave gelöscht', p2.characterID.isNone(), p2.characterID.toString());
+  // Dropping the instance moves the player out first (character ZDO in the
+  // main world), so `leave` has nothing left to do and no stale id remains.
+  check('S2: nach reset steht der Spieler mit gültiger Figur in der Hauptwelt', !p2.characterID.isNone() && !!server.hauptwelt.zdos.getZDO(p2.characterID), p2.characterID.toString());
 
   // A foreign ZDO of the main world that carries exactly the number the
   // character had in the dropped instance (created via createZDO until its
@@ -285,6 +287,7 @@ async function main(): Promise<void> {
   check('S2: fremdes ZDO mit der Nummer der Instanzfigur liegt in der Hauptwelt', !!opfer && opfer.prefabHash === OPFER_HASH,
     `${idInInstanz.toString()}`);
   const s2Haupt = idsVon(zdos());
+  s2Haupt.delete(p2.characterID.toString()); // the player's own figure moves with him
 
   await admin(o2, `dungeon enter ${dungeonId}`);
   check('S2: zweites enter fand statt', await bis(() => !inHaupt()), `worldId=${p2.worldId}`);

@@ -24,6 +24,8 @@
  */
 import { ShaderStore } from '@babylonjs/core/Engines/shaderStore';
 import { Effect } from '@babylonjs/core/Materials/effect';
+import { ssao2PixelShader } from '@babylonjs/core/Shaders/ssao2.fragment';
+import { ssao2PixelShaderWGSL } from '@babylonjs/core/ShadersWGSL/ssao2.fragment';
 import { MIN_KASKADEN, SHADOW_LEVELS, schattenMitLook } from '../src/engine/Shadows';
 import { korrigiereSsaoHimmel, ssaoHimmelKorrigiert, ssaoHimmelZustand } from '../src/engine/Ssao2Himmel';
 import {
@@ -159,7 +161,9 @@ pruefe(
 // Die erwartete Zeile je Sprache als LITERAL, nicht aus Ssao2Himmel.ts
 // uebernommen: vertauschte select-/?:-Zweige (Ersatznormale bei vorhandener
 // Geometrie) muessen hier rot werden. Aendert man den Patch, zieht man diese
-// Zeilen bewusst mit.
+// Zeilen bewusst mit. Grenze: Zieht man Quelle UND Literal gleichsinnig mit
+// (etwa beide Zweige vertauscht), bleibt dieser Zeuge gruen — das Literal ist
+// eine Schwelle, kein Beweis. Den Beweis liefert nur ein Bild mit Nullnormale.
 const GLSL_ALT = 'vec3 normal=normalize(textureLod(normalSampler,vUV,0.0).rgb);';
 const GLSL_NEU =
   'vec3 normalRoh=textureLod(normalSampler,vUV,0.0).rgb;' +
@@ -174,18 +178,32 @@ pruefe(ssaoWgsl.includes(WGSL_NEU), 'WGSL: die korrigierte Zeile steht nicht woe
 
 // Der Store wird nach dem Import zurueckgesetzt (ein Modul laedt den Shader
 // spaeter nach): der naechste Aufruf muss ihn wieder reparieren.
+// Die ALT-Literale muessen Babylons ORIGINAL-Shader treffen (dessen Konstante
+// wird von der Korrektur nicht veraendert). Sonst ist das Zuruecksetzen unten
+// wirkungslos oder falsch, und die Folgepruefungen meldeten den Falschen: dann
+// ist das Test-Literal veraltet, nicht `korrigiereSsaoHimmel()` kaputt.
+const glslLiteralOk = ssao2PixelShader.shader.includes(GLSL_ALT);
+const wgslLiteralOk = ssao2PixelShaderWGSL.shader.includes(WGSL_ALT);
+pruefe(glslLiteralOk, 'GLSL: Test-Literal GLSL_ALT passt nicht mehr zum Babylon-Shader, Literal nachziehen');
+pruefe(wgslLiteralOk, 'WGSL: Test-Literal WGSL_ALT passt nicht mehr zum Babylon-Shader, Literal nachziehen');
 Effect.ShadersStore['ssao2PixelShader'] = ssaoQuelle.replace(GLSL_NEU, GLSL_ALT);
 ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] = ssaoWgsl.replace(WGSL_NEU, WGSL_ALT);
-pruefe(!ssaoHimmelKorrigiert(), 'Zuruecksetzen des Stores hat nicht gewirkt (Probe taugt nicht)');
-pruefe(korrigiereSsaoHimmel() === true, 'nach Zuruecksetzen des Stores meldet der Aufruf keinen Erfolg');
-pruefe(
-  (Effect.ShadersStore['ssao2PixelShader'] ?? '').includes(GLSL_NEU),
-  'GLSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht'
-);
-pruefe(
-  (ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] ?? '').includes(WGSL_NEU),
-  'WGSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht'
-);
+const glslZurueck = Effect.ShadersStore['ssao2PixelShader'] !== ssaoQuelle;
+const wgslZurueck = ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] !== ssaoWgsl;
+pruefe(glslZurueck, 'GLSL: das Zuruecksetzen war ein Leerlauf, Test-Literal GLSL_NEU/GLSL_ALT passt nicht mehr zum Babylon-Shader, Literal nachziehen');
+pruefe(wgslZurueck, 'WGSL: das Zuruecksetzen war ein Leerlauf, Test-Literal WGSL_NEU/WGSL_ALT passt nicht mehr zum Babylon-Shader, Literal nachziehen');
+// Folgepruefungen nur, wenn die Literale taugen (sonst waeren sie Falschmeldungen).
+if (glslLiteralOk && wgslLiteralOk && glslZurueck && wgslZurueck) {
+  pruefe(korrigiereSsaoHimmel() === true, 'nach Zuruecksetzen des Stores meldet der Aufruf keinen Erfolg');
+  pruefe(
+    (Effect.ShadersStore['ssao2PixelShader'] ?? '').includes(GLSL_NEU),
+    'GLSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht'
+  );
+  pruefe(
+    (ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] ?? '').includes(WGSL_NEU),
+    'WGSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht'
+  );
+}
 
 if (fehler > 0) {
   console.log(`\n${fehler} Fehler`);

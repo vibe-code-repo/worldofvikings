@@ -105,11 +105,15 @@ export type SsaoZustand = 'korrigiert' | 'babylon-faengt-ab' | 'muster-veraender
 function korrigiere(sprache: Sprache): SsaoZustand {
   const quelle = sprache.store[SHADER];
   if (typeof quelle !== 'string') return 'kein-shader';
-  if (quelle.includes(sprache.neu)) return 'korrigiert';
-  if (!quelle.includes(sprache.alt)) {
+  // Fruehes Ende nur, wenn die Korrektur drinsteht UND das Original nirgends mehr
+  // vorkommt (sonst stuende sie etwa in einem Kommentar, und der Shader bliebe ungeschuetzt).
+  const hatAlt = quelle.includes(sprache.alt);
+  if (quelle.includes(sprache.neu) && !hatAlt) return 'korrigiert';
+  if (!hatAlt) {
     return sprache.ungeschuetzt.test(quelle) ? 'muster-veraendert' : 'babylon-faengt-ab';
   }
-  sprache.store[SHADER] = quelle.replace(sprache.alt, sprache.neu);
+  // Alle Vorkommen ersetzen, nicht nur das erste.
+  sprache.store[SHADER] = quelle.split(sprache.alt).join(sprache.neu);
   return 'korrigiert';
 }
 

@@ -703,6 +703,9 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
       result?: Record<string, string>; // unit -> Result after its stop (default success)
       journal?: string; // what `journalctl -u wov-server --since ...` prints
       startFehlt?: string;
+      kopf?: string; // what `git rev-parse HEAD` prints (default: a new commit)
+      vorher?: string; // WOV_UPDATE_VORHER (default vorher5678, '' = unset)
+      checkoutFehlt?: boolean; // the reset `git checkout -B` fails
     }
     const stoppLauf = (name: string, opt: Stopp = {}) => {
       const logDatei = join(temp, `${name}.log`);
@@ -717,7 +720,7 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
         'INSTANZ=dev',
         'DIENSTE=(wov-server wov-client wov-admin wov-web)',
         `VERSION_DATEI=${JSON.stringify(versionDatei)}`,
-        'export WOV_UPDATE_VORHER=vorher5678 WOV_UPDATE_STUFE2=1',
+        `export WOV_UPDATE_VORHER=${JSON.stringify(opt.vorher ?? 'vorher5678')} WOV_UPDATE_STUFE2=1`,
         `LOGD=${JSON.stringify(logDatei)}`,
         'systemctl() {',
         '  echo "$*" >> "$LOGD"',
@@ -729,6 +732,7 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
         '  return 0',
         '}',
         `journalctl() { echo "journalctl $*" >> "$LOGD"; printf '%b' ${JSON.stringify(opt.journal ?? '')}; }`,
+        `git() { echo "git $*" >> "$LOGD"; case "$1" in rev-parse) echo ${JSON.stringify(opt.kopf ?? 'neu9999')};; checkout) ${opt.checkoutFehlt ? 'return 1' : 'true'};; esac; }`,
         'gesundheit_pruefen() { echo gesundheit >> "$LOGD"; }',
         'version_schreiben() { echo version >> "$LOGD"; }',
         aufraeumen,
@@ -749,6 +753,8 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
         weiter: log.includes('WEITER'),
         gesundheit: log.filter((z) => z === 'gesundheit').length,
         version: log.filter((z) => z === 'version').length,
+        checkout: log.findIndex((z) => z.startsWith('git checkout -B main ')),
+        ersterStart: log.findIndex((z) => z.startsWith('start ')),
         resetFailed: log.filter((z) => z.startsWith('reset-failed')).length,
       };
     };
@@ -761,7 +767,9 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
     pruefe(a.resetFailed === 1, 'Stopp Result=exit-code: reset-failed genau einmal vor dem Start', `${a.resetFailed}`);
     pruefe(a.gesundheit === 1 && a.version === 0, 'Stopp Result=exit-code: Gesundheitspruefung ja, VERSION nicht geschrieben', `g=${a.gesundheit} v=${a.version}`);
     pruefe(a.stderr.includes('Endstand nicht gespeichert') && a.stderr.includes('wov-server (Result=exit-code)'), 'Stopp Result=exit-code: Meldung nennt Grund und Dienst', a.stderr);
-    pruefe(a.stderr.includes('NEUEN Stand'), 'Stopp Result=exit-code (Stufe 2): Meldung sagt, dass der Pull schon lief', a.stderr);
+
+    pruefe(a.checkout >= 0 && a.checkout < a.ersterStart && a.log[a.checkout] === 'git checkout -B main vorher5678', 'Stopp Result=exit-code: Baum wird auf WOV_UPDATE_VORHER zurueckgesetzt, BEVOR der erste Start kommt', a.log.join(' | '));
+    pruefe(a.stderr.includes('ZURÜCKGESETZT') && a.stderr.includes('neu9999') && a.stderr.includes('vorher5678'), 'Stopp Result=exit-code: Meldung nennt beide Commits und das Zuruecksetzen', a.stderr);
 
     // (b) Result=success, but SAVE_FAILED_ON_STOP in the journal since the stop began.
     const zeilen = 'Sep 26 10:00:01 dev wov-server[1]: Speichern...\nSep 26 10:00:02 dev wov-server[1]: SAVE_FAILED_ON_STOP: EACCES\n';
@@ -770,6 +778,19 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
     pruefe(b.stopps === 4 && b.starts === 4 && b.gesundheit === 1 && b.version === 0, 'Stopp mit SAVE_FAILED_ON_STOP: 4 Stopps, 4 Starts, Gesundheitspruefung, kein VERSION', `stopps=${b.stopps} starts=${b.starts}`);
     pruefe(b.stderr.includes('Endstand nicht gespeichert') && b.stderr.includes('SAVE_FAILED_ON_STOP: EACCES'), 'Stopp mit SAVE_FAILED_ON_STOP: Meldung nennt den Grund und zitiert die Journalzeile', b.stderr);
     pruefe(b.log.some((z) => /^journalctl -u wov-server\.service --since \d{4}-\d\d-\d\d \d\d:\d\d:\d\d/.test(z)), 'Stopp: das Journal wird nur seit Stoppbeginn gelesen (--since Zeitstempel)', b.log.join(' | '));
+
+    pruefe(b.checkout >= 0 && b.checkout < b.ersterStart, 'Stopp mit SAVE_FAILED_ON_STOP: Zuruecksetzen vor dem ersten Start', b.log.join(' | '));
+
+    // HEAD already on the before-commit, or WOV_UPDATE_VORHER empty (zurueck run): nothing is reset.
+    const g1 = stoppLauf('g1-gleich', { result: { 'wov-server': 'exit-code' }, kopf: 'vorher5678' });
+    pruefe(g1.rc !== 0 && g1.checkout < 0 && g1.starts === 4, 'HEAD gleich Vorher-Commit: kein Zuruecksetzen, Dienste starten wieder', `checkout=${g1.checkout} starts=${g1.starts}`);
+    const g2 = stoppLauf('g2-leer', { result: { 'wov-server': 'exit-code' }, vorher: '' });
+    pruefe(g2.rc !== 0 && g2.checkout < 0 && g2.starts === 4, 'WOV_UPDATE_VORHER leer: kein Zuruecksetzen, Dienste starten wieder', `checkout=${g2.checkout} starts=${g2.starts}`);
+
+    // The reset itself fails: no start on the new tree, clear message with the way back by hand.
+    const h = stoppLauf('h-reset-scheitert', { result: { 'wov-server': 'exit-code' }, checkoutFehlt: true });
+    pruefe(h.rc !== 0 && h.starts === 0 && h.gesundheit === 0, 'Zuruecksetzen scheitert: 0 Starts auf dem neuen Baum, keine Gesundheitspruefung', `rc=${h.rc} starts=${h.starts}`);
+    pruefe(h.stderr.includes('nicht auf vorher5678 zurücksetzen') && h.stderr.includes('git checkout -B main vorher5678') && h.stderr.includes('NICHT gestartet'), 'Zuruecksetzen scheitert: Meldung mit Rueckweg-Befehlen von Hand', h.stderr);
 
     // another unit (not the game server) with Result != success also aborts
     const c = stoppLauf('c-anderer', { result: { 'wov-admin': 'signal' } });

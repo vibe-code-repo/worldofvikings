@@ -510,6 +510,14 @@ export function signedInShore(): ShoreId | null {
  */
 export const CALL_TIMEOUT_MS = 20000;
 
+/** The limit in force; only `setCallTimeoutForTests` changes it. */
+let callTimeoutMs = CALL_TIMEOUT_MS;
+
+/** For tests only: a short limit instead of twenty seconds. */
+export function setCallTimeoutForTests(ms: number): void {
+  callTimeoutMs = ms;
+}
+
 interface Call {
   method: 'GET' | 'POST' | 'DELETE';
   token?: string;
@@ -549,7 +557,7 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
   // KontoApi.ts.
   if (a.token) headers['x-wov-account'] = a.token;
 
-  const signal = timeoutSignal(a.timeoutMs ?? CALL_TIMEOUT_MS);
+  const signal = timeoutSignal(a.timeoutMs ?? callTimeoutMs);
   let response: Response;
   try {
     response = await fetch(SHORES[shore].apiPrefix + path, {
@@ -851,7 +859,7 @@ export function enterGame(
   if (typeof window !== 'undefined' && window.location.origin === zielOrigin) {
     try {
       window.localStorage.setItem(GAME_SESSION_TOKEN_KEY, sessionToken);
-      const zielPfad = weiter && weiter.startsWith('/') && !weiter.startsWith('//') ? weiter : playPath;
+      const zielPfad = weiter?.startsWith('/') && !weiter.startsWith('//') ? weiter : playPath;
       const spiel = new URL(zielPfad, zielOrigin);
       spiel.searchParams.set('lang', language);
       if (time) spiel.searchParams.set('time', time);

@@ -16,11 +16,8 @@ zuständig, wo es vollständig sieht, was da steht.
 
 Beide zusammen sind die Prüfung — einzeln ist keines von beiden vollständig.
 
-## Ausnahmen in `biome.json` (Stand 24.09.2026)
+## Ausnahmen in `biome.json` (Stand 26.09.2026)
 
-- `!src/lib/account.ts`: liegt bei W2 in Arbeit und ist noch nicht formatiert
-  (dazu eine `useOptionalChain`-Warnung). Die Ausnahme entfällt, sobald W2
-  gemergt ist und `npx biome check --write src/lib/account.ts` gelaufen ist.
 - `!.svelte-kit`, `!build`, `!node_modules`: erzeugte Ordner (`svelte-kit sync`,
   `vite build`); ohne die Ausnahme prüft Biome nach `npm run check` den
   erzeugten Code.

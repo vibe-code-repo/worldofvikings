@@ -9,12 +9,15 @@
 #                                                 Betriebsdienst), Basis aktualisieren, Diff zeigen. KEIN Commit.
 #   tools/welt-abnehmen.sh <dev|live> --commit    dasselbe, danach genau ein Commit nur dieser Datei.
 #   tools/welt-abnehmen.sh <dev|live> --verwerfen Arbeitskopie neu aus dem Repo anlegen (alte gesichert).
+#   tools/welt-abnehmen.sh <dev|live> --status    nur prüfen, nichts schreiben: die Zeile WELT_FALL=<fall>
+#                                                 (angelegt | nachgezogen | unveraendert | konflikt | ...) und die
+#                                                 Meldung, bei einem Konflikt mit der Warnung. Exit immer 0.
 #
 # Nach --verwerfen den Spielserver neu starten, damit er die neue Welt liest.
 set -euo pipefail
 
 WURZEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-usage() { echo "Aufruf: tools/welt-abnehmen.sh <dev|live> [--commit | --verwerfen]" >&2; exit 2; }
+usage() { echo "Aufruf: tools/welt-abnehmen.sh <dev|live> [--commit | --verwerfen | --status]" >&2; exit 2; }
 
 [ $# -ge 1 ] && [ $# -le 2 ] || usage
 INSTANZ="$1"
@@ -25,6 +28,7 @@ if [ $# -eq 2 ]; then
   case "$2" in
     --commit) COMMIT=1 ;;
     --verwerfen) MODUS="verwerfen" ;;
+    --status) MODUS="status" ;;
     *) usage ;;
   esac
 fi
@@ -33,6 +37,9 @@ cd "$WURZEL"
 TSX="$WURZEL/node_modules/.bin/tsx"
 [ -x "$TSX" ] || { echo "FEHLER: $TSX fehlt (npm ci)." >&2; exit 1; }
 
+if [ "$MODUS" = "status" ]; then
+  exec "$TSX" tools/welt-abnehmen.ts pruefen "$INSTANZ"
+fi
 if [ "$MODUS" = "verwerfen" ]; then
   exec "$TSX" tools/welt-abnehmen.ts verwerfen "$INSTANZ"
 fi

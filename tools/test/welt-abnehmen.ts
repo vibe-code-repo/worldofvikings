@@ -81,6 +81,16 @@ try {
   weltAbgleichen({ repoDatei: REPO_DATEI, arbeitsDatei: ARBEIT });
   const c0 = commits();
 
+  // ── --status: schreibt nichts ─────────────────────────────────────────
+  const st = skript('dev', '--status');
+  check('--status: Exit 0, Fall unveraendert, kein Commit, Baum sauber', st.rc === 0 && /WELT_FALL=unveraendert/.test(st.aus) && commits() === c0 && git('status', '--porcelain') === '', st.aus.slice(0, 200));
+  writeFileSync(ARBEIT, dokument('Arbeit', 55));
+  writeFileSync(REPO_DATEI, dokument('Repo neu', 66));
+  const konflikt = skript('dev', '--status');
+  check('--status bei beiden geaendert: WELT_FALL=konflikt und die Warnung, nichts ueberschrieben', konflikt.rc === 0 && /WELT_FALL=konflikt/.test(konflikt.aus) && /Weltkonflikt: Repo und Arbeitskopie beide geaendert/.test(konflikt.aus) && readFileSync(ARBEIT, 'utf-8') === dokument('Arbeit', 55));
+  git('checkout', '--', 'server/data/welten/dev.json');
+  writeFileSync(ARBEIT, AUSGANG);
+
   // ── ohne --commit: Diff, 0 Commits ─────────────────────────────────────
   const v1 = dokument('Abnahme 1', 200);
   writeFileSync(ARBEIT, v1);

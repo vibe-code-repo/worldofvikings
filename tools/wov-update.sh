@@ -870,7 +870,7 @@ if [ "$BEFEHL" = "zurueck" ]; then
 
   echo
   echo "Zurückgesetzt — $INSTANZ steht auf $(git log -1 --format='%h %s')."
-  echo "server/data/ blieb unberührt: Spielstände gehören dem Server; die Welt liegt als Arbeitskopie unter ${WOV_WELT_VERZEICHNIS:-/var/lib/wov/welten}."
+  echo "server/data/ blieb unberührt: Spielstände und Weltdokumente gehören dem Server."
   exit 0
 fi
 
@@ -1055,24 +1055,6 @@ dienste_starten
 NEUSTART_BEI_ABBRUCH=0
 gesundheit_pruefen
 
-# Welt: Arbeitskopie (WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten) gegen den abgenommenen Stand im
-# Repo. Nur ein Hinweis, nie ein Abbruch: der Spielserver zieht die Arbeitskopie beim Start nach oder
-# meldet den Konflikt selbst. Ein Fehler in dieser Zeile darf das Update nicht kippen (Dienste laufen schon).
-WELT_HINWEIS="$("$WURZEL/node_modules/.bin/tsx" "$WURZEL/tools/welt-abnehmen.ts" pruefen "$INSTANZ" 2>&1 || true)"
-case "$WELT_HINWEIS" in
-  *WELT_FALL=konflikt*)
-    echo
-    echo "WARNUNG: Weltkonflikt: Repo und Arbeitskopie sind beide geändert. Nichts wurde überschrieben." >&2
-    echo "  Welt abnehmen:  tools/welt-abnehmen.sh $INSTANZ [--commit]" >&2
-    echo "  Welt verwerfen: tools/welt-abnehmen.sh $INSTANZ --verwerfen" >&2
-    printf '%s\n' "$WELT_HINWEIS" | sed 's/^/  /' >&2
-    ;;
-  *WELT_FALL=nachgezogen*)
-    echo
-    echo "Hinweis: Das Repo hat eine neuere Welt; die Arbeitskopie wird beim Start des Spielservers nachgezogen."
-    ;;
-esac
-
 # Was vor dem Pull lief (Stufe 1 hat es in WOV_UPDATE_VORHER gemerkt) ist
 # das "vorher" in VERSION. Fehlt es ausnahmsweise (Stufe 2 irgendwie ohne
 # Stufe 1 gestartet), steht dort leer statt eines geratenen Werts — ein
@@ -1082,4 +1064,4 @@ version_schreiben "$VERSION_DATEI" "$(git rev-parse HEAD)" "${WOV_UPDATE_VORHER:
 
 echo
 echo "Fertig — $INSTANZ steht auf $(git log -1 --format='%h %s')."
-echo "server/data/ blieb unberührt: Spielstände gehören dem Server; die Welt liegt als Arbeitskopie unter ${WOV_WELT_VERZEICHNIS:-/var/lib/wov/welten}."
+echo "server/data/ blieb unberührt: Spielstände und Weltdokumente gehören dem Server."

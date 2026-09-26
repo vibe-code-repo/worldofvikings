@@ -138,13 +138,34 @@ ZUSTAND_VERZEICHNIS="${WOV_ZUSTAND_VERZEICHNIS:-/var/lib/wov}"
 VERSION_DATEI="$ZUSTAND_VERZEICHNIS/VERSION"
 SICHERUNGEN_BEHALTEN=5
 
+# BEGIN abbruch-aufraeumen (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
 # Wird auf 1 gesetzt, sobald die Dienste unten gestoppt sind — die
 # Aufräumfunktion sagt dann im Fehlerfall, dass der Container liegt.
 DIENSTE_GESTOPPT=0
+# Wird auf 1 gesetzt, sobald Typecheck und Tests bestanden haben und nur noch
+# die Webseite gebaut wird (Schritt 7b), und nach dem Start der Dienste
+# (Schritt 8) wieder auf 0. Bricht das Skript dazwischen ab, startet
+# die Aufräumfunktion die Dienste wieder: Der Stand ist getestet, ein fehlender
+# Webseiten-Bau soll nicht den ganzen Container lahmlegen. Vorher bleibt es
+# bei 0: Ein Abbruch in npm ci, Store, Typecheck, Tests oder Client-Bau
+# (dort kann ein halber Stand oder ein leerer node_modules-Baum liegen, und
+# ein neuer Server mit altem Client passt nicht zusammen) lässt die Dienste
+# gestoppt. Das ist Absicht.
+# Gestartet wird, was AKTIVIERT ist (dienste_starten), nicht was vorher lief;
+# das entspricht Schritt 8 im Normalweg.
+NEUSTART_BEI_ABBRUCH=0
 # Wird auf 1 gesetzt, sobald die Dienste wieder laufen. Ohne diese zweite
 # Marke behauptet die Aufräumfunktion auch dann "die Dienste sind gestoppt",
 # wenn erst die Gesundheitsprüfung danach gescheitert ist.
 DIENSTE_LAUFEN=0
+# Wird von dienste_starten gesetzt, sobald der erste Start versucht wurde, und
+# verhindert einen zweiten Versuch der Aufräumfunktion. START_FEHLER=1 heißt:
+# mindestens ein Dienst ließ sich nicht starten.
+START_VERSUCHT=0
+START_FEHLER=0
+# Setzen die Signalfallen unten: Ohne sie ist $? in der EXIT-Falle bei INT, TERM
+# und HUP null, und die Aufräumfunktion hielte den Abbruch für einen Erfolg.
+ABBRUCH_SIGNAL=""
 # Erst ab hier darf die Aufräumfunktion an client/dist* rühren. Vorher gilt
 # die Zusage der Sauberkeitsprüfung: Bricht sie ab, ist NICHTS passiert —
 # auch kein stillschweigend weggeräumter Rest eines früheren Laufs, den sie
@@ -157,23 +178,116 @@ BAU_BEGONNEN=0
 # einzige Fundstelle mitten im (oft langen) Protokoll weiter oben.
 TEST_PROTOKOLL=""
 
+# Der zuletzt ausgerollte Stand: das Commit aus VERSION (wird erst nach
+# Gesundheitsprüfung geschrieben), sonst das, was vor dem Pull lief.
+# Bewusst ohne version_feld: das steht erst weiter unten im Skript.
+alter_stand() {
+  local alt=""
+  if [ -f "${VERSION_DATEI:-}" ]; then
+    alt="$(grep -E '^WOV_VERSION_COMMIT=' "$VERSION_DATEI" 2>/dev/null | tail -1 | cut -d= -f2-)"
+  fi
+  [ -n "$alt" ] || alt="${WOV_UPDATE_VORHER:-}"
+  printf '%s' "$alt"
+}
+
 aufraeumen() {
   local code=$?
+  # Eine Falle darf nicht an der ersten misslungenen Ausgabe sterben: nach
+  # einem SSH-Abbruch (HUP) schlägt jedes echo fehl, und unter "set -e" käme
+  # der Neustart nie an die Reihe.
+  set +e
+  # Nach einem SSH-Abbruch ohne tty ist die Ausgabe eine tote Pipe: jedes
+  # weitere echo bekäme SIGPIPE und tötete die Falle vor dem Neustart. Ignoriert
+  # wird nur hier (nicht global, das erbten die Kinder); die Schreibfehler
+  # bleiben, und "set +e" lässt sie durch.
+  trap '' PIPE
+  # Ein weiteres Signal darf den Neustart nicht abbrechen (halb gestartet, ohne
+  # Rückweg-Text). Ein gefangener Handler, kein Ignorieren: die Kinder bekommen
+  # die Vorgabe zurück, ein hängendes "systemctl start" lässt sich abbrechen.
+  trap 'echo "(weiteres Signal: der Neustart läuft weiter)" >&2' INT TERM HUP
+
+  if [ -n "$ABBRUCH_SIGNAL" ]; then
+    echo >&2
+    echo "ABGEBROCHEN durch Signal $ABBRUCH_SIGNAL (Exit-Code $code)." >&2
+  fi
 
   if [ "$BAU_BEGONNEN" = "1" ]; then
     # Halbfertiger Client-Tausch: dist fehlt, dist.alt ist der letzte gute
     # Stand. Erst zurückdrehen, dann wegräumen — in der anderen Reihenfolge
     # löschte ein Abbruch zwischen den beiden mv die ausgelieferte Seite.
+    local dist_alt_loeschen=1
     if [ ! -d "$WURZEL/client/dist" ] && [ -d "$WURZEL/client/dist.alt" ]; then
-      mv "$WURZEL/client/dist.alt" "$WURZEL/client/dist"
+      if ! mv "$WURZEL/client/dist.alt" "$WURZEL/client/dist"; then
+        # "set +e" schluckt den Fehler: dist.alt ist dann der letzte gute Stand.
+        echo "FEHLER: client/dist nicht zurückgetauscht, client/dist.alt bleibt liegen" >&2
+        dist_alt_loeschen=0
+      fi
     fi
     # Die beiden Hilfsordner stehen NICHT in .gitignore (dort steht "dist/",
     # das trifft "dist.neu" nicht). Bleiben sie liegen, meldet der nächste
     # Lauf den Baum als schmutzig und weigert sich.
-    rm -rf "$WURZEL/client/dist.neu" "$WURZEL/client/dist.alt"
+    rm -rf "$WURZEL/client/dist.neu"
+    if [ "$dist_alt_loeschen" = "1" ]; then
+      rm -rf "$WURZEL/client/dist.alt"
+    fi
   fi
 
-  if [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ]; then
+  local alt
+  alt="$(alter_stand)"
+
+  if [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ] \
+    && [ "$DIENSTE_LAUFEN" != "1" ] && [ "$NEUSTART_BEI_ABBRUCH" = "1" ] \
+    && [ "$START_VERSUCHT" != "1" ]; then
+    echo >&2
+    echo "ABBRUCH nach bestandenen Tests (Webseitenbau) — die Dienste werden" >&2
+    echo "wieder gestartet, damit $INSTANZ nicht ausfällt. Der neue Stand ist" >&2
+    echo "getestet, aber NICHT fertig ausgerollt: die Webseite ist nicht neu gebaut." >&2
+    # Bewusst KEIN version_schreiben: der Stand ist nicht fertig ausgerollt.
+    # Der Rückweg-Text kommt VOR dem Start: er geht auch bei SIGKILL nicht verloren.
+    echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
+    echo "'sudo tools/wov-update.sh zurueck' geht hier NICHT: HEAD weicht von VERSION ab," >&2
+    echo "es bricht mit \"von Hand am Baum gearbeitet\" ab. Rückweg von Hand:" >&2
+    if [ -n "$alt" ]; then
+      echo "  cd $WURZEL && systemctl stop ${DIENSTE[*]} && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
+    else
+      echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
+    fi
+    if [ "$INSTANZ" = "live" ]; then
+      echo "  Auf live zusätzlich client/dist aus der letzten Sicherung in ${SICHERUNG_VERZEICHNIS:-/var/backups/wov} zurückholen." >&2
+    fi
+    echo "  Erneut ausrollen: Ursache beheben, dann sudo tools/wov-update.sh" >&2
+    if dienste_starten >&2; then
+      if ( gesundheit_pruefen ) >&2; then
+        echo "Gesundheitsprüfung: $INSTANZ läuft wieder." >&2
+      else
+        echo "Gesundheitsprüfung GESCHEITERT — $INSTANZ läuft womöglich nicht:" >&2
+        echo "  systemctl status wov-server   journalctl -u wov-server -n 60" >&2
+      fi
+    else
+      echo "Nicht alle Dienste liessen sich starten (siehe FEHLER oben)." >&2
+    fi
+  elif [ "$code" -ne 0 ] && [ -n "$ABBRUCH_SIGNAL" ] && [ "$DIENSTE_GESTOPPT" = "1" ] \
+    && [ "$DIENSTE_LAUFEN" != "1" ] && [ "$NEUSTART_BEI_ABBRUCH" = "1" ] \
+    && [ "$START_VERSUCHT" = "1" ]; then
+    # Signal mitten in Schritt 8: die Tests waren grün, gescheitert ist nichts.
+    local laufend="${GESTARTET[*]:-}" gestoppt="" d
+    for d in "${DIENSTE[@]}"; do
+      case " $laufend " in *" $d "*) ;; *) gestoppt="$gestoppt $d" ;; esac
+    done
+    echo >&2
+    echo "Die Tests waren grün; das Starten der Dienste wurde abgebrochen." >&2
+    echo "  Laufen:   ${laufend:-(keiner)}" >&2
+    echo "  Gestoppt:${gestoppt:- (keiner)}" >&2
+    echo "(Der Start, den das Signal unterbrach, kann noch durchgekommen sein: systemctl status.)" >&2
+    echo "Zum Starten der übrigen:  systemctl start wov.target" >&2
+    echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
+  elif [ "$code" -ne 0 ] && [ "$START_FEHLER" = "1" ]; then
+    echo >&2
+    echo "Mindestens ein Dienst liess sich nicht starten (siehe FEHLER oben, dort steht" >&2
+    echo "auch der Dienst). Es gibt keinen zweiten Startversuch. Nachsehen:" >&2
+    echo "  journalctl -u <dienst> -n 60   systemctl status <dienst>" >&2
+    echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
+  elif [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ]; then
     echo >&2
     if [ "$DIENSTE_LAUFEN" = "1" ]; then
       # Gescheitert ist die Gesundheitsprüfung, nicht das Ausrollen. Die
@@ -192,12 +306,32 @@ aufraeumen() {
         echo "  Roter Test (siehe Protokoll oben):" >&2
         grep '^▶ .* … FEHLGESCHLAGEN' "$TEST_PROTOKOLL" | sed 's/^/    /' >&2
       fi
-      echo "  Ursache beheben, dann erneut: sudo tools/wov-update.sh" >&2
-      echo "  Notfalls den vorhandenen Stand starten: systemctl start wov.target" >&2
+      echo "Der Baum steht schon auf dem NEUEN, durchgefallenen Stand. Zuletzt" >&2
+      echo "ausgerollt (VERSION) ist: ${alt:-(unbekannt)}" >&2
+      echo "  Ursache beheben, dann erneut:  sudo tools/wov-update.sh" >&2
+      if [ -n "$alt" ]; then
+        echo "  Zurück auf den alten Stand, von Hand:" >&2
+        echo "    cd $WURZEL" >&2
+        echo "    systemctl stop ${DIENSTE[*]}" >&2
+        echo "    git checkout -B main $alt" >&2
+        echo "    npm ci --include=dev" >&2
+        echo "    systemctl start wov.target" >&2
+      else
+        echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
+      fi
+      echo "  (systemctl start wov.target allein startet den NEUEN, durchgefallenen Stand.)" >&2
     fi
   fi
 }
 trap aufraeumen EXIT
+# Ohne diese drei Zeilen erreichen Strg-C, SSH-Abbruch und TERM die EXIT-Falle
+# mit $?=0 — die Dienste blieben still gestoppt, ohne Meldung.
+trap 'ABBRUCH_SIGNAL=INT; exit 130' INT
+trap 'ABBRUCH_SIGNAL=TERM; exit 143' TERM
+trap 'ABBRUCH_SIGNAL=HUP; exit 129' HUP
+# SSH ohne tty: bricht die Verbindung, schickt sshd kein HUP, die Pipe ist tot.
+trap 'ABBRUCH_SIGNAL=PIPE; exit 141' PIPE
+# END abbruch-aufraeumen
 
 # ── Gemeinsame Bausteine für Update, Rückweg UND Trockenlauf ─────────
 # Als Funktionen, weil "zurueck" denselben Tausch, dieselbe Sicherung und
@@ -277,33 +411,48 @@ version_feld() {
 }
 
 # ── Dienste-Reigen, geteilt zwischen Update und Rückweg ──────────────
+# BEGIN dienste-reigen (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
 dienste_stoppen() {
   echo
   echo "▶ Dienste stoppen"
+  # Vor der Schleife: ein Signal mitten im Stoppen lässt Dienste halb gestoppt
+  # zurück und muss zur GESTOPPT-Meldung führen.
+  DIENSTE_GESTOPPT=1
   for dienst in "${DIENSTE[@]}"; do
     if systemctl cat "$dienst.service" >/dev/null 2>&1; then
       systemctl stop "$dienst.service"
       echo "  gestoppt: $dienst"
     fi
   done
-  DIENSTE_GESTOPPT=1
 }
 
 dienste_starten() {
   echo
   echo "▶ Dienste starten"
   GESTARTET=()
+  START_VERSUCHT=1
+  START_FEHLER=0
+  local dienst
   for dienst in "${DIENSTE[@]}"; do
     if [ "$(systemctl is-enabled "$dienst.service" 2>/dev/null || true)" = "enabled" ]; then
-      systemctl start "$dienst.service"
-      GESTARTET+=("$dienst")
-      echo "  gestartet: $dienst"
+      # Nicht als eigene Zeile unter set -e: sonst bräche der erste Fehler
+      # ab, die übrigen Dienste blieben aus, und ein "|| echo FEHLER" beim
+      # Aufrufer wäre tot (links von || gilt set -e nicht).
+      if systemctl start "$dienst.service"; then
+        GESTARTET+=("$dienst")
+        echo "  gestartet: $dienst"
+      else
+        START_FEHLER=1
+        echo "FEHLER: $dienst liess sich nicht starten. Nachsehen: journalctl -u $dienst -n 60" >&2
+      fi
     else
       echo "  übersprungen (nicht aktiviert): $dienst"
     fi
   done
+  [ "$START_FEHLER" = "0" ] || return 1
   DIENSTE_LAUFEN=1
 }
+# END dienste-reigen
 
 # NICHT "sleep 4; systemctl is-active" — Restart=always lässt einen
 # Server, der nach zwei Sekunden stirbt, vier Sekunden später wieder als
@@ -861,13 +1010,39 @@ fi
 # seine Abhängigkeiten deshalb nicht mitinstalliert.
 echo
 echo "▶ Webseite bauen"
+# Ab hier startet aufraeumen() die Dienste bei einem Abbruch wieder (s. oben).
+NEUSTART_BEI_ABBRUCH=1
 # Die beiden Dateien sind erzeugte Abbilder der gemeinsamen Listen bzw.
 # der Vorschauquelle. Direkt vor dem Webseitenbau erneuern, damit eine
 # Aenderung an shared/aussehen.ts nicht mit einer alten Auswahl oder ein
 # neuer Vorschauweg mit einem alten Browserbuendel ausgeliefert wird.
 node_modules/.bin/tsx tools/aussehen-json.mjs --aus wov-web/static/assets/appearance.json
 node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js
+# BEGIN buendel-pruefung (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
+# Ohne Buendel waere der Webseitenbau still gruen und die Charaktererstellung
+# lieferte im Browser einen 404: hier laut abbrechen. Die Dienste sind an dieser
+# Stelle schon gestoppt (Schritt 4); aufraeumen() startet sie wieder.
+[ -s wov-web/static/assets/js/vorschau.js ] || { echo "FEHLER: wov-web/static/assets/js/vorschau.js fehlt oder ist leer (vorschau-buendeln.mjs)." >&2; exit 1; }
+# END buendel-pruefung
 (cd wov-web && npm ci --include=dev && npm run build && bash tools/ohne-js-pruefen.sh)
+
+# Nach dem Webseitenbau darf der Baum nicht schmutzig sein: der NAECHSTE Lauf
+# bricht sonst in der Sauberkeitspruefung oben ab (nach #59 und #60 geschehen,
+# als ein getracktes vorschau.js neu gebaut anders aussah). vorschau.js ist
+# deshalb kein Repo-Bestandteil mehr (.gitignore). Ein Rest hier ist ein
+# Fehler in einer erzeugten Datei: laut melden, aber nicht abbrechen -- die
+# Dienste starten gleich, und der Update selbst ist gelungen.
+# BEGIN webbau-warnung (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
+REST_NACH_WEBBAU="$(git -c core.quotePath=false status --porcelain)"
+if [ -n "$REST_NACH_WEBBAU" ]; then
+  echo >&2
+  echo "WARNUNG: Der Webseitenbau hat den Arbeitsbaum verschmutzt:" >&2
+  printf '%s\n' "$REST_NACH_WEBBAU" | sed 's/^/    /' >&2
+  echo "Der naechste wov-update.sh bricht deshalb in der Sauberkeitspruefung ab." >&2
+  echo "Die genannten Dateien sind erzeugt: nicht committen, sondern die Quelle" >&2
+  echo "oder die .gitignore-Zeile klaeren (git checkout -- <datei> stellt zurueck)." >&2
+fi
+# END webbau-warnung
 
 # ── 8. Dienste starten ───────────────────────────────────────────────
 # Gestartet wird, was auf DIESEM Container aktiviert ist. Die Unit-Dateien
@@ -876,6 +1051,8 @@ node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js
 # ausliefert und ein Vite-Dev-Server nichts zu suchen hat. Diese
 # Entscheidung gehört dem Container — hier wird sie nur gelesen.
 dienste_starten
+# Die Dienste laufen: ein späterer Abbruch ist kein Fall für den Neustart mehr.
+NEUSTART_BEI_ABBRUCH=0
 gesundheit_pruefen
 
 # Was vor dem Pull lief (Stufe 1 hat es in WOV_UPDATE_VORHER gemerkt) ist

@@ -135,6 +135,14 @@ server/test/data/
 # tools/web/vorschau-web.ts jederzeit neu erzeugbar.
 tools/web/vorschau.js
 
+# Dasselbe Bauergebnis, wie es die Webseite ausliefert. Frueher getrackt: jeder
+# Bau auf einem Container erzeugte andere gekuerzte Bezeichner (esbuild benennt
+# nach Quellstand), der Baum wurde schmutzig und der naechste wov-update.sh
+# brach ab (nach #59 und #60). tools/wov-update.sh Schritt 7 erzeugt die Datei;
+# ohne Bau gibt es sie nicht: `node tools/vorschau-buendeln.mjs --aus
+# wov-web/static/assets/js/vorschau.js`.
+wov-web/static/assets/js/vorschau.js
+
 # Die Webseite (wov-web/) ist ein eigenes npm-Projekt im selben Repo, aber
 # BEWUSST KEIN Workspace: sonst zoege `npm ci` an der Wurzel SvelteKit und
 # Vite auf jeden Container, auch auf den reinen Spielserver. Sie bringt

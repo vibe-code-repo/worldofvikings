@@ -156,6 +156,16 @@ async function main(): Promise<void> {
   let instanzId = '';
   const zdos = () => server.hauptwelt.zdos.getAllZDOs();
   const hash0 = () => zdos().filter((z) => z.prefabHash === 0).length;
+  // Total counts of the main world are NOT compared: with assets loaded the
+  // world spawns creatures during the run. Compare what matters instead: no
+  // ZDO that existed before is lost, and no hash-0 ZDO appears.
+  const idsVon = (liste: { zdoid: { toString(): string } }[]): Set<string> => new Set(liste.map((z) => z.zdoid.toString()));
+  const verloren = (vorher: Set<string>, liste: { zdoid: { toString(): string } }[]): number => {
+    const jetzt = idsVon(liste);
+    let n = 0;
+    for (const id of vorher) if (!jetzt.has(id)) n++;
+    return n;
+  };
   const peerVon = (name: string, nurEditor: boolean) =>
     server.net.getPeers().find((p) => p.name === name && !!p.nurEditor === nurEditor);
 
@@ -189,14 +199,14 @@ async function main(): Promise<void> {
 
   // ── 2. Editor-Verbindung: enter/leave, dann trennen ──
   const instZdos = () => server.welten.get(instanzId)?.zdos.getAllZDOs() ?? [];
-  const inst0 = { gesamt: instZdos().length, hash0: instZdos().filter((z) => z.prefabHash === 0).length };
-  const vorher = { gesamt: zdos().length, hash0: hash0() };
+  const inst0 = { gesamt: instZdos().length, hash0: instZdos().filter((z) => z.prefabHash === 0).length, ids: idsVon(instZdos()) };
+  const vorher = { gesamt: zdos().length, hash0: hash0(), ids: idsVon(zdos()) };
   const editor = verbinde('Tester', true);
   await editor.angemeldet;
   await warte(500);
   const ed = peerVon('Tester', true);
   check('Editor-Verbindung angemeldet', !!ed);
-  check('Editor legt beim Anmelden nichts an', zdos().length === vorher.gesamt, `${vorher.gesamt} → ${zdos().length}`);
+  check('Editor legt beim Anmelden kein Hash-0-ZDO an und verliert keins', hash0() === vorher.hash0 && verloren(vorher.ids, zdos()) === 0, `hash0 ${hash0()}`);
 
   await admin(editor, `dungeon enter ${dungeonId}`);
   await bis(() => ed!.worldId !== 'haupt');
@@ -204,14 +214,14 @@ async function main(): Promise<void> {
   await admin(editor, 'dungeon leave');
   await bis(() => ed!.worldId === 'haupt');
   check('Editor wieder in der Hauptwelt', ed!.worldId === 'haupt');
-  console.log(`  nach leave: gesamt ${zdos().length}, hash0 ${hash0()} (vorher ${vorher.gesamt}/${vorher.hash0})`);
+  console.log(`  nach leave: hash0 ${hash0()} (vorher ${vorher.hash0})`);
 
   editor.ws.close();
   await warte(800);
   check('nach Trennen: kein ZDO mit Hash 0', hash0() === vorher.hash0, `hash0 ${vorher.hash0} → ${hash0()}`);
-  check('nach Trennen: ZDO-Zahl wie vorher', zdos().length === vorher.gesamt, `${vorher.gesamt} → ${zdos().length}`);
+  check('nach Trennen: kein ZDO der Hauptwelt verloren', verloren(vorher.ids, zdos()) === 0, `verloren ${verloren(vorher.ids, zdos())}`);
   const inst1 = { gesamt: instZdos().length, hash0: instZdos().filter((z) => z.prefabHash === 0).length };
-  check('Instanz: ZDO-Zahl und Hash-0-Zahl wie vorher', inst1.gesamt === inst0.gesamt && inst1.hash0 === inst0.hash0,
+  check('Instanz: ZDO-Zahl, Hash-0-Zahl und Kennungen wie vorher', inst1.gesamt === inst0.gesamt && inst1.hash0 === inst0.hash0 && verloren(inst0.ids, instZdos()) === 0,
     `${inst0.gesamt}/${inst0.hash0} → ${inst1.gesamt}/${inst1.hash0}`);
   check('Spieler-Charakter-ZDO unberührt', !!server.hauptwelt.zdos.getZDO(sp!.characterID));
 
@@ -228,7 +238,7 @@ async function main(): Promise<void> {
   await admin(o1, 'abbau Player 5');
   await bis(() => !server.hauptwelt.zdos.getZDO(p1.characterID));
   check('S1: Charakter-ZDO abgebaut', !server.hauptwelt.zdos.getZDO(p1.characterID));
-  const s1Haupt = { gesamt: zdos().length, hash0: hash0() };
+  const s1Haupt = { hash0: hash0(), ids: idsVon(zdos()) };
   await admin(o1, `dungeon enter ${dungeonId}`);
   await bis(() => p1.worldId !== 'haupt');
   const s1Inst = () => server.welten.get(p1.worldId)?.zdos.getAllZDOs() ?? [];
@@ -239,8 +249,8 @@ async function main(): Promise<void> {
   check('S1: characterID nach leave gelöscht', p1.characterID.isNone(), p1.characterID.toString());
   check('S1: Instanz ohne Verlust (kein fremdes ZDO zerstört)', server.welten.get(instanzId)?.zdos.getAllZDOs().length === s1Inst0,
     `${s1Inst0} → ${server.welten.get(instanzId)?.zdos.getAllZDOs().length}`);
-  check('S1: Hauptwelt unverändert, kein Hash 0', zdos().length === s1Haupt.gesamt && hash0() === s1Haupt.hash0,
-    `${s1Haupt.gesamt}/${s1Haupt.hash0} → ${zdos().length}/${hash0()}`);
+  check('S1: Hauptwelt: nichts verloren, kein Hash 0', verloren(s1Haupt.ids, zdos()) === 0 && hash0() === s1Haupt.hash0,
+    `verloren ${verloren(s1Haupt.ids, zdos())}, hash0 ${s1Haupt.hash0} → ${hash0()}`);
   o1.ws.close();
   await warte(500);
 
@@ -274,7 +284,7 @@ async function main(): Promise<void> {
   }
   check('S2: fremdes ZDO mit der Nummer der Instanzfigur liegt in der Hauptwelt', !!opfer && opfer.prefabHash === OPFER_HASH,
     `${idInInstanz.toString()}`);
-  const s2Haupt = zdos().length;
+  const s2Haupt = idsVon(zdos());
 
   await admin(o2, `dungeon enter ${dungeonId}`);
   check('S2: zweites enter fand statt', await bis(() => !inHaupt()), `worldId=${p2.worldId}`);
@@ -287,8 +297,8 @@ async function main(): Promise<void> {
     'S2: fremdes ZDO bleibt unverändert (existiert, Hash, Position)',
     !!noch && noch.prefabHash === OPFER_HASH && noch.position.x === OPFER_POS.x && noch.position.z === OPFER_POS.z
   );
-  check('S2: Hauptwelt über enter/leave unverändert, kein Hash 0', zdos().length === s2Haupt && hash0() === 0,
-    `${s2Haupt} → ${zdos().length}, hash0 ${hash0()}`);
+  check('S2: Hauptwelt über enter/leave: nichts verloren, kein Hash 0', verloren(s2Haupt, zdos()) === 0 && hash0() === 0,
+    `verloren ${verloren(s2Haupt, zdos())}, hash0 ${hash0()}`);
   o2.ws.close();
   await warte(300);
   server.stop();

@@ -177,6 +177,14 @@ BAU_BEGONNEN=0
 # NAMENTLICH statt nur "Tests nicht bestanden" zu sagen — bisher stand die
 # einzige Fundstelle mitten im (oft langen) Protokoll weiter oben.
 TEST_PROTOKOLL=""
+# Wird von dienste_stoppen auf 1 gesetzt, wenn ein Dienst nicht sauber endete
+# (Result != success) oder der Spielserver beim Stopp SAVE_FAILED_ON_STOP
+# schrieb: der Endstand der Welt ist dann nicht gespeichert. STOPP_MANGEL nennt
+# die Gründe, STOPP_JOURNAL die Journalzeilen des Spielservers seit Stoppbeginn.
+# Die Aufräumfunktion startet die Dienste dann wieder (vor npm ci und Build).
+STOPP_FEHLER=0
+STOPP_MANGEL=""
+STOPP_JOURNAL=""
 
 # Der zuletzt ausgerollte Stand: das Commit aus VERSION (wird erst nach
 # Gesundheitsprüfung geschrieben), sonst das, was vor dem Pull lief.
@@ -235,7 +243,53 @@ aufraeumen() {
   local alt
   alt="$(alter_stand)"
 
-  if [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ] \
+  if [ "$code" -ne 0 ] && [ "$STOPP_FEHLER" = "1" ] \
+    && [ "$DIENSTE_LAUFEN" != "1" ] && [ "$START_VERSUCHT" != "1" ]; then
+    # Endstand nicht gespeichert: weder Build noch Tausch, nur zurück in Betrieb.
+    echo >&2
+    echo "ABBRUCH: Endstand nicht gespeichert —$STOPP_MANGEL." >&2
+    echo "Der Spielserver konnte beim Stopp die Welt nicht sichern (SAVE_FAILED_ON_STOP" >&2
+    echo "bzw. Result != success). Ausgerollt wird nicht: Spielzeit ginge verloren." >&2
+    if [ -n "$STOPP_JOURNAL" ]; then
+      echo "Letzte Journalzeilen von wov-server seit Stoppbeginn:" >&2
+      printf '%s\n' "$STOPP_JOURNAL" | tail -n 15 | sed 's/^/  /' >&2
+    fi
+    # Der Pull lief schon (Stufe 1), npm ci und Build nicht: neuer Baum mit altem
+    # node_modules und altem Build darf nicht anlaufen. Wie im Rückweg "zurueck":
+    # git checkout -B main <Commit>. Leer oder gleich HEAD (etwa im zurueck-Lauf): nichts.
+    local zurueck_ok=1 kopf=""
+    if [ "${WOV_UPDATE_STUFE2:-}" = "1" ] && [ -n "${WOV_UPDATE_VORHER:-}" ]; then
+      kopf="$(git rev-parse HEAD 2>/dev/null || true)"
+      if [ "$kopf" != "$WOV_UPDATE_VORHER" ]; then
+        if git checkout -B main "$WOV_UPDATE_VORHER" >&2; then
+          echo "Der Pull lief schon vor dem Stoppen. Der Baum wurde ZURÜCKGESETZT:" >&2
+          echo "  von ${kopf:-(unbekannt)} auf $WOV_UPDATE_VORHER (npm ci und Build liefen nicht)." >&2
+        else
+          zurueck_ok=0
+          echo "FEHLER: Der Baum ließ sich nicht auf $WOV_UPDATE_VORHER zurücksetzen." >&2
+          echo "Er steht auf dem NEUEN Stand ${kopf:-(unbekannt)} mit altem node_modules;" >&2
+          echo "die Dienste werden NICHT gestartet. Rückweg von Hand:" >&2
+          echo "  cd $WURZEL && git checkout -B main $WOV_UPDATE_VORHER && npm ci --include=dev && systemctl start wov.target" >&2
+        fi
+      fi
+    fi
+    if [ "$zurueck_ok" = "1" ]; then
+      echo "Die Dienste werden wieder gestartet; die Welt auf der Platte ist der letzte" >&2
+      echo "erfolgreiche Speicherstand. Ursache klären (journalctl -u wov-server), dann" >&2
+      echo "erneut: sudo tools/wov-update.sh" >&2
+      systemctl reset-failed "${DIENSTE[@]/%/.service}" >/dev/null 2>&1 || true
+      if dienste_starten >&2; then
+        if ( gesundheit_pruefen ) >&2; then
+          echo "Gesundheitsprüfung: $INSTANZ läuft wieder." >&2
+        else
+          echo "Gesundheitsprüfung GESCHEITERT — $INSTANZ läuft womöglich nicht:" >&2
+          echo "  systemctl status wov-server   journalctl -u wov-server -n 60" >&2
+        fi
+      else
+        echo "Nicht alle Dienste liessen sich starten (siehe FEHLER oben)." >&2
+      fi
+    fi
+  elif [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ] \
     && [ "$DIENSTE_LAUFEN" != "1" ] && [ "$NEUSTART_BEI_ABBRUCH" = "1" ] \
     && [ "$START_VERSUCHT" != "1" ]; then
     echo >&2
@@ -418,12 +472,32 @@ dienste_stoppen() {
   # Vor der Schleife: ein Signal mitten im Stoppen lässt Dienste halb gestoppt
   # zurück und muss zur GESTOPPT-Meldung führen.
   DIENSTE_GESTOPPT=1
+  # Beginn des Stoppens, für das Journal: nur was DABEI geschrieben wird, zählt.
+  local seit ergebnis
+  seit="$(date '+%Y-%m-%d %H:%M:%S')"
+  STOPP_MANGEL=""
   for dienst in "${DIENSTE[@]}"; do
     if systemctl cat "$dienst.service" >/dev/null 2>&1; then
       systemctl stop "$dienst.service"
+      # "systemctl stop" meldet auch dann Erfolg, wenn der Prozess beim Stopp mit
+      # einem Fehler endete (Exit 74/75 des Spielservers, s. server/src/herunterfahren.ts):
+      # der Grund steht nur in Result. Leer = unbekannt, das zählt nicht als Fehler.
+      ergebnis="$(systemctl show -p Result --value "$dienst.service" 2>/dev/null || true)"
+      if [ -n "$ergebnis" ] && [ "$ergebnis" != "success" ]; then
+        STOPP_MANGEL="$STOPP_MANGEL $dienst (Result=$ergebnis)"
+      fi
       echo "  gestoppt: $dienst"
     fi
   done
+  # Nur der Spielserver schreibt die Journalzeile; sie gilt auch bei Result=success.
+  STOPP_JOURNAL="$(journalctl -u wov-server.service --since "$seit" --no-pager 2>/dev/null || true)"
+  if printf '%s\n' "$STOPP_JOURNAL" | grep -q 'SAVE_FAILED_ON_STOP'; then
+    STOPP_MANGEL="$STOPP_MANGEL wov-server (SAVE_FAILED_ON_STOP im Journal)"
+  fi
+  if [ -n "$STOPP_MANGEL" ]; then
+    STOPP_FEHLER=1
+    exit 1
+  fi
 }
 
 dienste_starten() {

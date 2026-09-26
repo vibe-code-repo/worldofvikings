@@ -3,6 +3,9 @@
  * removes and which it adds. Server and client apply the same diff to a running
  * RegionGeo (`sockelEntfernen` for `weg`, then `sockelEinfuegen` for `dazu`).
  *
+ * Both layouts are run through the same sanitizer as `createGeo`, so raw and
+ * sanitized documents give the same diff and the values are exactly those
+ * PlateauField holds (`sockelEntfernen(x, z, einebnen)` matches exactly).
  * The values are the DOCUMENT values (x, z, einebnen as stored in the layout),
  * never float32 vectors. A moved or changed plate counts as one `weg` plus one
  * `dazu`. Plates are compared as a multiset, so identical plates at the same
@@ -12,6 +15,7 @@
  * Dokumentwerte, eine verschobene oder geänderte Platte ist weg + dazu.
  */
 import type { WorldLayout } from './types.js';
+import { sanitizeWorldLayout } from './sanitize.js';
 
 export interface SockelPlatte {
   x: number;
@@ -41,11 +45,11 @@ export function sockelPlatten(layout: Pick<WorldLayout, 'placements'> | null | u
 const schluessel = (p: SockelPlatte): string => `${p.x}|${p.z}|${p.einebnen}`;
 
 export function sockelDiff(
-  altesLayout: Pick<WorldLayout, 'placements'> | null | undefined,
-  neuesLayout: Pick<WorldLayout, 'placements'> | null | undefined
+  altesLayout: unknown,
+  neuesLayout: unknown
 ): SockelDiff {
-  const alt = sockelPlatten(altesLayout);
-  const neu = sockelPlatten(neuesLayout);
+  const alt = sockelPlatten(sanitizeWorldLayout(altesLayout));
+  const neu = sockelPlatten(sanitizeWorldLayout(neuesLayout));
   const zaehl = new Map<string, number>();
   for (const p of alt) zaehl.set(schluessel(p), (zaehl.get(schluessel(p)) ?? 0) + 1);
   const dazu: SockelPlatte[] = [];

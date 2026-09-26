@@ -13,8 +13,9 @@
  */
 import { createGeo, HeightmapProvider, RegionGeo } from '../src/worldgen/index.js';
 import { getStableHash } from '../src/hash.js';
-import { PlateauField, sockelDiff, type PlacementDef, type WorldLayout } from '../src/worldlayout/index.js';
+import { sanitizeWorldLayout, PlateauField, sockelDiff, type PlacementDef, type WorldLayout } from '../src/worldlayout/index.js';
 
+const createSan = (d: WorldLayout): WorldLayout => sanitizeWorldLayout(d) as WorldLayout;
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
   if (!ok) fehler++;
@@ -89,7 +90,7 @@ function vergleiche(
   // Zonen der laufenden Geo mit dem alten Stand füllen, wie im Betrieb.
   for (const [x, z] of stellen) live.hm.getGroundHeight(x, z);
 
-  for (const w of diff.weg) live.geo.sockelEntfernen(w.x, w.z);
+  for (const w of diff.weg) live.geo.sockelEntfernen(w.x, w.z, w.einebnen);
   for (const d of diff.dazu) live.geo.sockelEinfuegen(d.x, d.z, d.einebnen);
   for (const p of geaendert) live.hm.invalidateArea(p.x, p.z, p.einebnen + 64);
 
@@ -104,7 +105,7 @@ function vergleiche(
 
 // ── sockelDiff: reine Mengenarbeit ─────────────────────────────────────
 {
-  const a = dok([pl('a', 10, 10, 8), pl('b', 20, 20, 5), pl('k', 1, 1), pl('n', 2, 2, 0)]);
+  const a = dok([pl('a', 10, 10, 8), pl('b', 20, 20, 5), pl('k', 1, 1)]);
   const gleichB = dok([pl('x', 10, 10, 8), pl('y', 20, 20, 5)]);
   const d0 = sockelDiff(a, gleichB);
   check('Diff: gleiche Platten (andere ids, Kiste ohne einebnen) → leer', d0.weg.length === 0 && d0.dazu.length === 0);
@@ -188,6 +189,41 @@ const BASIS = [pl('h1', 100, 100, 14), pl('h2', -300, 200, 25), pl('h3', 400, -3
   const { hm } = geoAus(dok([]));
   const dh = Math.abs(hm.getGroundHeight(200, -200) - hm.getGroundHeight(220, -200));
   check('(a) Gleichstand: Zielhöhen der beiden Platten verschieden', dh > 0.1, `= ${dh.toFixed(2)} m`);
+}
+{
+  // B1: zwei verschiedene Prefabs am selben Ort bzw. 2 cm auseinander; das Entfernen
+  // der kleinen Platte darf nie die große treffen.
+  const wag: Array<[string, number]> = [['selber Ort', 0], ['2 cm auseinander', 0.02]];
+  for (const [name0, dx] of wag)
+  for (const [ids, ik, ig] of [['ids a/b', 'a', 'b'], ['ids b/a', 'b', 'a']]) {
+    const name = `${name0}, ${ids}`;
+    const kl = pl(ik, 0, 0, 10);
+    const gr = pl(ig, dx, 0, 30);
+    const linie: Array<[number, number]> = [];
+    for (let x = -60; x <= 90; x += 0.5) for (let z = -60; z <= 60; z += 1.5) linie.push([x, z]);
+    const e1 = vergleiche(`B1 ${name}: r10 weg`, dok([kl, gr]), dok([gr]), linie);
+    check(`B1 ${name}: r10 entfernen`, e1.abweichend === 0, `${e1.abweichend} von ${e1.proben}`);
+    const e2 = vergleiche(`B1 ${name}: r10 → r12`, dok([kl, gr]), dok([pl(ik, 0, 0, 12), gr]), linie);
+    check(`B1 ${name}: r10 → r12`, e2.abweichend === 0, `${e2.abweichend} von ${e2.proben}`);
+  }
+  const f = new PlateauField(dok([pl('a', 0, 0, 10), pl('b', 0, 0, 10)]));
+  check('B1: zwei gleiche Platten, entfernt genau eine', f.entferne(0, 0, 10) && f.plattenAnzahl === 1);
+  check('B1: falscher Radius trifft nichts', !f.entferne(0, 0, 11) && f.plattenAnzahl === 1);
+}
+{
+  // B2: roher Diff = sanitisierter Diff; live gegen frisch je 0 Abweichungen.
+  const roh: Array<[string, unknown]> = [['0', 0], ['7.04', 7.04], ['150', 150], ['Text "8"', '8']];
+  for (const [name, wert] of roh) {
+    const a = dok([pl('h', 3, 3, 8)]);
+    const b = dok([{ ...pl('h', 3, 3), einebnen: wert } as unknown as PlacementDef]);
+    const dRoh = sockelDiff(a, b);
+    const dSan = sockelDiff(createSan(a), createSan(b));
+    check(`B2 einebnen 8 → ${name}: roher Diff = sanitisierter Diff`, JSON.stringify(dRoh) === JSON.stringify(dSan));
+    const linie: Array<[number, number]> = [];
+    for (let x = -80; x <= 170; x += 2) for (let z = -80; z <= 80; z += 2) linie.push([x, z]);
+    const e = vergleiche(`B2 ${name}`, a, b, linie);
+    check(`B2 einebnen 8 → ${name}: live gegen frisch`, e.abweichend === 0, `${e.abweichend} von ${e.proben}`);
+  }
 }
 
 if (fehler > 0) {

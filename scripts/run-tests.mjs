@@ -2206,6 +2206,8 @@ const KERN = [
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
+  // Plateau diff and tie-break independent of list order: a live-patched geo matches a fresh compile.
+  ['shared', 'test/sockel-diff.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -563,7 +563,16 @@ export class PlateauField {
       if (!pl) continue;
       const dist = Math.hypot(wx - pl.x, wz - pl.z);
       const rand = dist - pl.radius;
-      if (rand < bestRand) {
+      // Exact tie: a fixed key (radius, x, z) decides, never the list position,
+      // so a plate appended live computes like a freshly compiled one.
+      // Gleichstand: fester Schlüssel statt Listenposition.
+      if (
+        rand < bestRand ||
+        (rand === bestRand &&
+          beste !== null &&
+          (pl.radius < beste.radius ||
+            (pl.radius === beste.radius && (pl.x < beste.x || (pl.x === beste.x && pl.z < beste.z)))))
+      ) {
         bestRand = rand;
         beste = { abstand: dist, radius: pl.radius, x: pl.x, z: pl.z, index: i };
       }

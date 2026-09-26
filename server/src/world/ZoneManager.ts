@@ -34,6 +34,9 @@ import {
   DungeonAlgorithm,
   FOLIAGE,
   streueZone,
+  freiflaechenAusPlatzierungen,
+  freiflaechenFuerZone,
+  freiflaechenHuellen,
   FEATURES,
   RegionGeo,
   layoutBounds,
@@ -78,6 +81,10 @@ import { ZDOManager } from '../zdo/ZDOManager.js';
 import { erfasseBudgetAbbruch } from '../Metriken.js';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { PrefabDef } from '@wov/shared';
+import { leseManifest, type ManifestModell } from '@wov/shared/src/weltbau/manifest.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ASSET_WURZEL } from './KollisionsFormen.js';
 
 const f32 = Math.fround;
 
@@ -133,6 +140,26 @@ export interface ZoneManagerOptions {
   locationOverrides?: boolean;
   /** dungeonsEnabled — DUNGEON pieces are skipped when true (default true). */
   dungeonsEnabled?: boolean;
+  /**
+   * Layout world only: keep the ground under `placements` free of scatter
+   * (default false = scatter as before). Affects zones generated from now
+   * on; zones that already exist are not cleared.
+   */
+  platzierungenFreihalten?: boolean;
+  /**
+   * Manifest hulls of own models (`leseManifest`) for the clear-area radius.
+   * Default: `assets/manifest.json` from disk — the client fetches the same file.
+   */
+  manifest?: ReadonlyMap<string, ManifestModell>;
+}
+
+/** `assets/manifest.json` from disk; missing or unreadable → empty (radius falls back to `renderScale`). */
+function manifestVonPlatte(): Map<string, ManifestModell> {
+  try {
+    return leseManifest(readFileSync(join(ASSET_WURZEL, 'manifest.json'), 'utf-8'));
+  } catch {
+    return new Map();
+  }
 }
 
 function zoneKey(x: number, y: number): string {
@@ -254,6 +281,8 @@ export class ZoneManager {
     null;
   /** Bitmaske aller im Layout vorkommenden Biome (+ Ozean), nur Layout-Modus. */
   private readonly layoutBiomeMask: number | null = null;
+  /** Clear areas of all layout placements (empty unless `platzierungenFreihalten`). */
+  private readonly platzierungsFreiflaechen: readonly ClearArea[] = [];
 
   constructor(
     private readonly geo: GeoManager,
@@ -282,6 +311,12 @@ export class ZoneManager {
         maske |= BIOME_BY_NAME.get(region.biome) ?? 0;
       }
       this.layoutBiomeMask = maske;
+      if (options.platzierungenFreihalten) {
+        this.platzierungsFreiflaechen = freiflaechenAusPlatzierungen(
+          this.regionGeo.layout,
+          freiflaechenHuellen(options.manifest ?? manifestVonPlatte())
+        );
+      }
     }
   }
 
@@ -486,6 +521,9 @@ export class ZoneManager {
     }
     if (this.worldVegetation) {
       const stand = zdoStand(this.zdos, zone);
+      if (this.platzierungsFreiflaechen.length > 0) {
+        clearAreas.push(...freiflaechenFuerZone(this.platzierungsFreiflaechen, zone.x, zone.y));
+      }
       this.populateFoliage(heightmap, clearAreas);
       markiereStreu(this.zdos, zone, stand);
     }

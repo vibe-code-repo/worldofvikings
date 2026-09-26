@@ -20,7 +20,7 @@
  * durchreichen.
  */
 
-import { type Locale, DEFAULT_LOCALE } from './i18n';
+import { DEFAULT_LOCALE, type Locale } from './i18n';
 
 /** BCP-47-Kennung je Sprache — `Intl` will ein Gebiet, nicht nur die Sprache. */
 const INTL: Record<Locale, string> = { de: 'de-DE', en: 'en-GB' };

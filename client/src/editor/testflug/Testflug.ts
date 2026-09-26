@@ -14,10 +14,10 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import {
   findPrefabByName,
-  getStableHash,
   istNpcPrefab,
   loeseNpcAuf,
   PLATEAU_RAND_MAX,
+  platzierungenFuerFreiflaechen,
   RegionGeo,
   sanitizeWorldLayout,
 } from '@wov/shared';
@@ -26,8 +26,11 @@ import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsI
 import { SpawnPanel } from '../SpawnPanel';
 import { RoutenEditor } from '../RoutenEditor';
 import { RoutenVorschau } from '../RoutenVorschau';
+import { platzierungsUpdate, vorschauZeichner } from './vorschauZeichnen';
 import { verdrahteBewuchsStufe } from './BewuchsStufe';
 import { BewuchsVorschau } from '../BewuchsVorschau';
+import { ladeHochgeladeneRegistrierung } from '../../net/UploadedModelRegistryLoad';
+import { brauchtManifestEintrag, holeManifestText, ladeBewuchsQuellen, QuellenAnzeige } from './BewuchsQuellen';
 import { LageAnzeige } from './LageAnzeige';
 import { positionLines, regionAt } from './inselwahl';
 import { planReturn, sendReturnFromBrowser } from './ruecksprung';
@@ -71,27 +74,16 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // damit dieselbe Animationsgruppe um, die online der Server über den
     // ZDO-Member `anim` steuert (idle/walk). Ohne Angabe bleibt es bei der
     // Animation aus der PrefabDef — für jede stehende Platzierung.
-    const zeige = (p: { prefab: string; x: number; z: number; yaw?: number; scale?: number; anim?: string; npc?: NpcDef }, i: number): void => {
+    const zeige = (p: { prefab: string; x: number; z: number; yaw?: number; scale?: number; anim?: string; animEinmal?: string; npc?: NpcDef }, i: number): void => {
       const world = kontext.world();
       if (!findPrefabByName(p.prefab) || !world) return;
-      const yaw = p.yaw ?? 0;
       // NPC-Einordnung fertig aufgelöst mitgeben statt über `layoutId`:
       // Offline gibt es keinen Server, der eine Kennung setzen könnte,
       // und der Entwurf liegt hier unmittelbar vor. Damit sieht der
       // Zeichner jede Änderung an Name/Rolle/Stufe sofort am Schild —
       // die Platzierung wird nach dem Bearbeiten einfach neu gezeichnet.
       const npc = loeseNpcAuf(p.prefab, p.npc);
-      ent.applyUpdate({
-        key: i < 0 ? 'edghost' : `edplace-${i}`,
-        prefabHash: getStableHash(p.prefab),
-        position: { x: p.x, y: world.getGroundHeight(p.x, p.z), z: p.z },
-        rotation: { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) },
-        ...(p.anim !== undefined ? { anim: p.anim } : {}),
-        // Der Geist an der Maus (i < 0) bleibt bewusst ohne Schild — er
-        // ist noch keine Figur, sondern eine Vorschau.
-        ...(npc && i >= 0 ? { npc } : {}),
-        isOwn: false,
-      } as never);
+      ent.applyUpdate(platzierungsUpdate(p, i, world.getGroundHeight(p.x, p.z), npc) as never);
     };
     const entwurf = testflug as { placements?: EntwurfEintrag[] };
     (entwurf.placements ?? []).forEach(zeige);
@@ -445,7 +437,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Derselbe Weg wie bei jeder anderen Platzierung: gleicher Schlüssel
       // `edplace-<i>` ⇒ die bestehende Instanz wird nachgeführt, es
       // entsteht keine zweite. `anim` schaltet die Animationsgruppe um.
-      zeichne: (i, p, x, z, yaw, anim) => zeige({ prefab: p.prefab, x, z, yaw, anim }, i),
+      zeichne: vorschauZeichner(zeige),
       // Was am Mauszeiger hängt, läuft nicht (s. RoutenVorschau).
       gegriffen: () => ziehIndex,
       // Der Spieler ist im Testflug das Gegenüber, an dem sich Aggro
@@ -468,10 +460,51 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     const bewuchs = welt?.regionGeo
       ? new BewuchsVorschau(
           { seed: welt.seed, geo: welt.geo, heightmaps: welt.heightmaps, regionGeo: welt.regionGeo },
-          ent
+          ent,
+          undefined,
+          // Der Entwurf ändert sich beim Setzen, Ziehen und Löschen; das
+          // Layout der Welt bleibt, wie es beim Start war. Durch dieselbe
+          // Bereinigung wie auf dem Server (scale 0,2–5, einebnen 1–100),
+          // sonst rechnet die Vorschau mit Rohwerten, die der Server klemmt.
+          () => platzierungenFuerFreiflaechen(persistenz.laden()?.placements),
+          // Rohtext als Änderungsmarke: unverändert = nicht parsen, nicht rechnen.
+          persistenz.rohtext ? () => persistenz.rohtext!() : null
         )
       : null;
     if (bewuchs) {
+      // Manifest-Hüllen und Upload-Registry wie der Server: kommen asynchron,
+      // dann wird neu gestreut. Fehlt eine Quelle, sagt es die Meldung.
+      const namen = ((testflug as { placements?: EntwurfEintrag[] }).placements ?? []).map((p) => p.prefab);
+      let anzeige: QuellenAnzeige | null = null;
+      const entwurfNamen = (): string[] => (persistenz.laden()?.placements ?? []).map((p) => p.prefab);
+      void ladeBewuchsQuellen(namen, {
+        holeManifest: holeManifestText,
+        ladeRegistry: () => ladeHochgeladeneRegistrierung(),
+        bekannt: (n) => findPrefabByName(n) !== undefined,
+        brauchtManifest: brauchtManifestEintrag,
+      }).then((b) => {
+        if (b.manifest) bewuchs.setzeManifest(b.manifest);
+        else if (b.registryNachgeladen) bewuchs.neuAufbauen();
+        // Jetzt bekannte Upload-Modelle nachzeichnen (beim Start ausgelassen).
+        if (b.registryNachgeladen) {
+          const liste = (testflug as { placements?: EntwurfEintrag[] }).placements ?? [];
+          liste.forEach((p, i) => {
+            if (b.unbekannteUploads.includes(p.prefab) && !b.weiterUnbekannt.includes(p.prefab)) zeige(p, i);
+          });
+          ent.flush();
+        }
+        // Bleibt stehen, solange der Zustand gilt (nicht 4 s, nicht verdrängbar), und geht wieder weg, wenn er behoben ist.
+        anzeige = new QuellenAnzeige(b, brauchtManifestEintrag, (text) => {
+          if (text) console.warn(`[Bewuchs] ${text}`);
+          hud.stehendeMeldung('bewuchs-quellen', text);
+        });
+        anzeige.neuerBericht(b);
+        // Prefabs, die erst nach dem Start gesetzt werden: bei geänderter Marke neu prüfen.
+        const takt = window.setInterval(() => {
+          anzeige?.pruefe(entwurfNamen, persistenz.rohtext ? persistenz.rohtext() : null);
+        }, 250);
+        scene.onDisposeObservable.add(() => window.clearInterval(takt));
+      });
       // G, not V: V is the build mode (above). Both used to share V, so one
       // press flew AND threw the vegetation preview away.
       hud.meldung('Bewuchs-Vorschau: wächst um dich herum nach (G baut sie neu auf)');

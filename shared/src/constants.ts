@@ -40,6 +40,15 @@ export const ZDO_ASSIGN_INTERVAL_MS = 2000;
 export const ANIM_MEMBER = 'anim';
 
 /**
+ * Name des ZDO-Members für Einmal-Ereignisse (`attack`, `hit`, `die`) —
+ * Format `<clip>#<n>`, s. shared/kreaturAnim.ts. Neben `anim` und nicht darin,
+ * weil `anim` den ZUSTAND trägt (dauert an) und ein Schlag ein Ereignis ist:
+ * Der Zähler macht auch den zweiten Schlag derselben Art sichtbar, und der
+ * Zustand darunter bleibt, was er war.
+ */
+export const ANIM_EINMAL_MEMBER = 'animEinmal';
+
+/**
  * Name des ZDO-Members, in dem die Trefferpunkte eines Wesens stehen.
  *
  * Denselben Weg wie `ANIM_MEMBER` und aus demselben Grund: Er läuft im

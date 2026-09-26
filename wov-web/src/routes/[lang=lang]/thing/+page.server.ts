@@ -1,5 +1,5 @@
-import type { PageServerLoad } from './$types';
 import { ladeBretter } from '$lib/server/forumApi';
+import type { PageServerLoad } from './$types';
 
 /**
  * Das Thing — die Bretteruebersicht, serverseitig geladen (M0/M2).

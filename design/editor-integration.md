@@ -131,7 +131,7 @@ Gleicher Roundtrip wie `speichereDungeon()`, mit den unter 2.3 genannten Anpassu
 5. Socket sofort trennen — kein Dauer-Editor-Socket, kein Phantom-Charakter, `savedPlayers` bleibt unberührt (Abschnitt 2.2).
 6. `schmutzig = false`, Katalogliste neu laden (Kennzahlen in der Liste sonst veraltet).
 
-„Betreten"-Knopf bleibt sinnvoll analog zu `DungeonKatalog.betrete()`: öffnet den generierten/bearbeiteten Dungeon im echten Online-Spielclient (nicht im Testflug — der läuft ohne Server), mit derselben Host-Übersetzung (`spielHost()`) und demselben Sitzungstoken-Fallback bei fremdem Ursprung.
+„Betreten"-Knopf bleibt sinnvoll analog zu `DungeonKatalog.betrete()`: öffnet den generierten/bearbeiteten Dungeon im echten Online-Spielclient (nicht im Testflug — der läuft ohne Server), mit der Host-Abbildung `dungeonZiel()` (`editor.<rest>` → `live.<rest>`, Anmeldung und Konto liegen auf dem Spiel-Host) und dem Sitzungstoken-Fallback nur beim gleichen Ursprung.
 
 ## 4. Offene Fragen an das Datenmodell (nicht Gegenstand dieses Dokuments)
 
@@ -151,4 +151,4 @@ Gleicher Roundtrip wie `speichereDungeon()`, mit den unter 2.3 genannten Anpassu
 | Editor-Verbindung ohne Weltbeitritt | 1:1 unverändert übernehmen | `nurEditor` (Peer.ts, GameSocket.ts, WovServer.ts) |
 | Kurzlebiger Speicher-Socket | 1:1 Muster, neues Paket | `DungeonSpeichern.ts` |
 | „generated" kippt zu „custom" bei Handeingriff | Prinzip 1:1 | `DungeonGrundriss.fuegeAn()/entferne()` |
-| Betreten im echten Client | 1:1 Muster | `DungeonKatalog.betrete()`, `spielHost()` |
+| Betreten im echten Client | 1:1 Muster | `DungeonKatalog.betrete()`, `dungeonZiel()` |

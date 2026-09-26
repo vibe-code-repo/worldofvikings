@@ -41,7 +41,7 @@
  * und — in [1b] — dass die Buchführung selbst rot werden kann (Zahnprobe). Wie
  * die Schleife gebaut ist, ist gleichgültig.
  *
- * Wer eine Datei gar nicht eintragen kann, trägt sie in `AUSNAHMEN` ein:
+ * Wer eine Datei gar nicht eintragen kann, trägt sie in `AUSNAHMEN` ein (Arten):
  *   werkzeug  kein Test: Messbank, Bündel-Einstieg, Blender-Skript oder ein
  *             Prüfer, der Argumente (Ausgabeordner, URL) braucht
  *   rot       ein Test, der bei erfüllten Voraussetzungen rot ist und aus
@@ -49,7 +49,14 @@
  *             JJJJ-MM-TT, nicht in der Zukunft). Er wird bei JEDEM Lauf
  *             namentlich gemeldet, und `--pruefe-rot` führt ihn aus und
  *             schlägt an, wenn er grün geworden ist
- * Beides ist Buchführung, keine Streichung: Die Datei bleibt, wo sie ist.
+ *   vitest-web  ein Vitest-Test der Webseite (`*.test.ts` unter wov-web/src), der nicht im
+ *             Node-Runner der Wurzel läuft, sondern per `npm test` in `wov-web`. Für
+ *             ihn prüft der Zeuge, dass die Zusage „läuft im CI-Job web" hält: Die Datei
+ *             steht in `include` von `wov-web/vitest.config.ts` (und nicht in dessen
+ *             `exclude`), `wov-web/package.json` ruft mit `test` Vitest, und der Job
+ *             `web` in `.github/workflows/ci.yml` hat einen Schritt `npm test` in
+ *             `wov-web`, ohne `if` und ohne `continue-on-error`
+ * `werkzeug` und `rot` sind Buchführung, keine Streichung: Die Datei bleibt, wo sie ist.
  * Pfade stehen kanonisch (`a/b/c.ts`, kein `./`, kein `..`). Eine Ausnahme
  * ohne Grund, für eine Datei, die es nicht mehr gibt, oder für eine Datei,
  * die inzwischen eingetragen ist, ist ein Befund.
@@ -85,6 +92,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { parse as leseYaml } from 'yaml';
 import { abschluss, auslassen, beende, fahre, leseKern, neueBuchfuehrung, ueberspringe } from './runner-buchfuehrung.mjs';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -127,10 +135,10 @@ const AUSNAHMEN = [
   { pfad: 'tools/armor/test/validate-glbs.cjs', art: 'werkzeug', grund: 'braucht Exportordner und den Validator-Pfad als Argumente' },
   { pfad: 'tools/test/vorschau-kopf.mjs', art: 'werkzeug', grund: 'Browserprobe (Playwright, echtes WebGL), braucht Chromium auf mike-pc' },
   // ── Webseite und Kartenveröffentlichung ──
-  { pfad: 'wov-web/src/lib/i18n/katalog.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
-  { pfad: 'wov-web/src/lib/seiten.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
-  { pfad: 'wov-web/src/lib/server/forumMarkdown.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
-  { pfad: 'wov-web/tools/test/zeitlimits-pruefen.mjs', art: 'werkzeug', grund: 'Prüfskript der Webseite, braucht --experimental-transform-types und einen eigenen Stub-Port (--port), läuft etwa 44 s; Aufnahme in die Tests von wov-web ist eine Folgekarte' },
+  { pfad: 'wov-web/src/lib/i18n/katalog.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/src/lib/losfahren.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/src/lib/seiten.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/src/lib/server/forumMarkdown.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   // Notlösung: Das ist ein echter Test, aber die Liste kennt keine Art "zu teuer
   // für den Sammellauf"; `werkzeug` ist die nächstliegende Schublade.
   { pfad: 'tools/test/weltkarte-probe.mjs', art: 'werkzeug', grund: 'echter Test, aber zu teuer für den Sammellauf: rendert zwei 4096er-Karten (~44 s, bis ~650 MB); läuft von Hand vor Änderungen an der Kartenveröffentlichung' },
@@ -238,6 +246,151 @@ function eingetragene(quelltext) {
   return { kern, unlesbar: gelesen.unlesbar, formfehler };
 }
 
+/** A `*.test.ts` below wov-web/src — the only place a `vitest-web` file may live. */
+const VITEST_WEB_PFAD = /^wov-web\/src\/.+\.test\.ts$/;
+
+/**
+ * A small glob → RegExp for the patterns `vitest.config.ts` may use: `*`, `**`, `?`
+ * and `{a,b}` of plain words. Anything else (`[…]`, `!`, `(…)`, nested braces)
+ * returns `null`, and the caller reports it: a pattern this witness cannot read
+ * is a pattern it cannot vouch for.
+ */
+function globZuRegex(muster) {
+  const ohneAnfang = muster.replace(/^\.\//, '');
+  let r = '';
+  for (let i = 0; i < ohneAnfang.length; i += 1) {
+    const c = ohneAnfang[i];
+    if (c === '*') {
+      if (ohneAnfang[i + 1] === '*') {
+        if (ohneAnfang[i + 2] === '/') {
+          r += '(?:.*/)?';
+          i += 2;
+        } else {
+          r += '.*';
+          i += 1;
+        }
+      } else r += '[^/]*';
+    } else if (c === '?') r += '[^/]';
+    else if (c === '{') {
+      const ende = ohneAnfang.indexOf('}', i);
+      if (ende < 0) return null;
+      const alternativen = ohneAnfang.slice(i + 1, ende).split(',');
+      if (alternativen.some((a) => /[*?[\]{}()!+@]/.test(a))) return null;
+      r += `(?:${alternativen.map((a) => a.replace(/[.\\^$|]/g, '\\$&')).join('|')})`;
+      i = ende;
+    } else if ('[]()!+@'.includes(c)) return null;
+    else r += c.replace(/[.\\^$|]/g, '\\$&');
+  }
+  return new RegExp(`^${r}$`);
+}
+
+/** `include` and `exclude` of the `test` object in `vitest.config.ts`, read from the syntax tree. */
+function leseVitestConfig(quelltext) {
+  const baum = ts.createSourceFile('vitest.config.ts', quelltext, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const name = (n) => (n.name && (ts.isIdentifier(n.name) || ts.isStringLiteralLike(n.name)) ? n.name.text : null);
+  const ergebnis = { include: null, exclude: null, fehler: [] };
+  let testObjekt = null;
+  const suche = (n) => {
+    if (!testObjekt && ts.isPropertyAssignment(n) && name(n) === 'test' && ts.isObjectLiteralExpression(n.initializer)) {
+      testObjekt = n.initializer;
+    }
+    if (!testObjekt) ts.forEachChild(n, suche);
+  };
+  suche(baum);
+  if (!testObjekt) {
+    ergebnis.fehler.push('vitest.config.ts: kein Objekt `test: { … }` gefunden');
+    return ergebnis;
+  }
+  for (const eigenschaft of testObjekt.properties) {
+    const n = ts.isPropertyAssignment(eigenschaft) ? name(eigenschaft) : null;
+    if (['projects', 'workspace', 'dir', 'root'].includes(n)) {
+      ergebnis.fehler.push(`vitest.config.ts: \`test.${n}\` ändert, was Vitest sucht, und wird von diesem Zeugen nicht gelesen`);
+    }
+    if (n !== 'include' && n !== 'exclude') continue;
+    const wert = eigenschaft.initializer;
+    if (!ts.isArrayLiteralExpression(wert) || !wert.elements.every((e) => ts.isStringLiteralLike(e))) {
+      ergebnis.fehler.push(`vitest.config.ts: \`test.${n}\` ist keine Liste aus Textliteralen`);
+      continue;
+    }
+    ergebnis[n] = wert.elements.map((e) => e.text);
+  }
+  if (!ergebnis.include) ergebnis.fehler.push('vitest.config.ts: `test.include` fehlt (die Liste soll ausdrücklich dastehen)');
+  return ergebnis;
+}
+
+/**
+ * Findings for the `vitest-web` files (paths root-relative): does the run in `wov-web`
+ * really see them, and does CI really run that? Both claims are what the exception says.
+ */
+function vitestWebBefunde(wurzel, pfade) {
+  const gefunden = [];
+  if (pfade.length === 0) return gefunden;
+  const lies = (rel) => (existsSync(join(wurzel, rel)) ? readFileSync(join(wurzel, rel), 'utf8') : null);
+
+  const konfig = lies('wov-web/vitest.config.ts');
+  if (konfig === null) gefunden.push('vitest-web: wov-web/vitest.config.ts fehlt');
+  else {
+    const c = leseVitestConfig(konfig);
+    gefunden.push(...c.fehler);
+    const regex = (muster) => {
+      const r = globZuRegex(muster);
+      if (!r) gefunden.push(`vitest.config.ts: Muster nicht lesbar für diesen Zeugen: ${muster}`);
+      return r;
+    };
+    const inklusive = (c.include ?? []).map(regex).filter(Boolean);
+    const exklusive = (c.exclude ?? []).map(regex).filter(Boolean);
+    for (const pfad of pfade) {
+      const rel = pfad.slice('wov-web/'.length);
+      if (!inklusive.some((r) => r.test(rel))) {
+        gefunden.push(`vitest-web: ${pfad} wird von \`include\` in wov-web/vitest.config.ts nicht erfasst — der Test liefe nie`);
+      } else if (exklusive.some((r) => r.test(rel))) {
+        gefunden.push(`vitest-web: ${pfad} steht in \`exclude\` von wov-web/vitest.config.ts — der Test liefe nie`);
+      }
+    }
+  }
+
+  const paket = lies('wov-web/package.json');
+  let testSkript = null;
+  try {
+    testSkript = paket === null ? null : JSON.parse(paket).scripts?.test;
+  } catch {
+    /* reported below */
+  }
+  if (typeof testSkript !== 'string' || !/\bvitest\b/.test(testSkript)) {
+    gefunden.push('vitest-web: wov-web/package.json hat kein Skript `test`, das vitest aufruft');
+  }
+
+  const ci = lies('.github/workflows/ci.yml');
+  if (ci === null) {
+    gefunden.push('vitest-web: .github/workflows/ci.yml fehlt');
+    return gefunden;
+  }
+  let job;
+  try {
+    job = leseYaml(ci)?.jobs?.web;
+  } catch (e) {
+    gefunden.push(`vitest-web: .github/workflows/ci.yml nicht lesbar: ${e.message}`);
+    return gefunden;
+  }
+  const schwach = (v) => v !== undefined && v !== false && v !== 'false';
+  if (!job || !Array.isArray(job.steps)) {
+    gefunden.push('vitest-web: ci.yml hat keinen Job `web` mit Schritten');
+  } else if (job.if !== undefined || schwach(job['continue-on-error'])) {
+    gefunden.push('vitest-web: der Job `web` in ci.yml ist bedingt (`if`) oder darf scheitern (`continue-on-error`)');
+  } else {
+    const standardOrdner = job.defaults?.run?.['working-directory'];
+    const schritt = job.steps.find((st) => {
+      if (typeof st?.run !== 'string' || !['npm test', 'npm run test'].includes(st.run.trim())) return false;
+      const ordner = String(st['working-directory'] ?? standardOrdner ?? '.').replace(/^\.\//, '').replace(/\/$/, '');
+      return ordner === 'wov-web' && st.if === undefined && !schwach(st['continue-on-error']);
+    });
+    if (!schritt) {
+      gefunden.push('vitest-web: der Job `web` in ci.yml hat keinen Schritt `npm test` in wov-web (ohne `if`, ohne `continue-on-error`)');
+    }
+  }
+  return gefunden;
+}
+
 /** All findings for the tree at `wurzel`; an empty list is a pass. */
 function befunde(wurzel, ausnahmen) {
   const lauf = join(wurzel, 'scripts', 'run-tests.mjs');
@@ -255,21 +408,28 @@ function befunde(wurzel, ausnahmen) {
   }
 
   const bekannteAusnahmen = new Set();
+  const vitestWeb = [];
   for (const { pfad, art, grund, seit } of ausnahmen) {
     const kanon = kanonisch(pfad);
     if (kanon !== pfad) gefunden.push(`Ausnahme: Pfad nicht kanonisch geschrieben: ${pfad} (gemeint: ${kanon})`);
     if (bekannteAusnahmen.has(kanon)) gefunden.push(`Ausnahme doppelt: ${kanon}`);
     bekannteAusnahmen.add(kanon);
-    if (!['werkzeug', 'rot'].includes(art)) gefunden.push(`Ausnahme ${kanon}: unbekannte Art "${art}"`);
+    if (!['werkzeug', 'rot', 'vitest-web'].includes(art)) gefunden.push(`Ausnahme ${kanon}: unbekannte Art "${art}"`);
     if (typeof grund !== 'string' || grund.trim().length === 0) gefunden.push(`Ausnahme ohne Grund: ${kanon}`);
     if (art === 'rot' && !istEchtesDatum(seit)) {
       gefunden.push(`Ausnahme ${kanon} (rot): "seit" fehlt, ist kein echtes Datum JJJJ-MM-TT oder liegt in der Zukunft: ${JSON.stringify(seit)}`);
+    }
+    if (art === 'vitest-web') {
+      if (VITEST_WEB_PFAD.test(kanon)) vitestWeb.push(kanon);
+      else gefunden.push(`Ausnahme ${kanon} (vitest-web): liegt nicht unter wov-web/src/ und heißt nicht *.test.ts`);
     }
     if (!existsSync(join(wurzel, kanon))) gefunden.push(`Ausnahme für eine Datei, die es nicht mehr gibt: ${kanon}`);
     if (inKern.has(kanon)) {
       gefunden.push(`Ausnahme widerspricht dem Runner (steht dort schon): ${kanon}`);
     }
   }
+
+  gefunden.push(...vitestWebBefunde(wurzel, vitestWeb.filter((p) => existsSync(join(wurzel, p)))));
 
   for (const pfad of kandidaten(wurzel)) {
     if (!inKern.has(pfad) && !bekannteAusnahmen.has(pfad)) {
@@ -599,6 +759,82 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     pruefe(
       lauf.find((l) => l.pfad === 'server/test/gruen.mjs')?.rc === 0,
       '`--pruefe-rot`: ein als „rot" geparkter, in Wahrheit GRÜNER Test wird als grün erkannt (rc 0)',
+    );
+
+    console.log('  — Vitest-Tests der Webseite (`vitest-web`): include und CI-Schritt sind Teil der Zusage');
+    const KONFIG = (include, extra = '') =>
+      `import { defineConfig } from 'vitest/config';\nexport default defineConfig({\n  test: {\n    include: ${include},\n${extra}    environment: 'node',\n  },\n});\n`;
+    const CI = (schritte = '      - run: npm test\n', kopf = '    defaults:\n      run:\n        working-directory: wov-web\n') =>
+      `name: CI\njobs:\n  build:\n    steps:\n      - run: npm test\n  web:\n${kopf}    steps:\n      - run: npm ci\n${schritte}`;
+    const CI_GUT = CI();
+    const PAKET = '{"scripts":{"test":"svelte-kit sync && vitest run"}}';
+    const vitestBaum = ({ config = KONFIG("['src/**/*.test.ts']"), ci = CI_GUT, paket = PAKET } = {}) => {
+      schreibe('wov-web/src/lib/x.test.ts');
+      schreibe('wov-web/src/lib/i18n/y.test.ts');
+      schreibe('wov-web/vitest.config.ts', config);
+      schreibe('wov-web/package.json', paket);
+      schreibe('.github/workflows/ci.yml', ci);
+    };
+    const vx = { pfad: 'wov-web/src/lib/x.test.ts', art: 'vitest-web', grund: 'Probe' };
+    const vy = { pfad: 'wov-web/src/lib/i18n/y.test.ts', art: 'vitest-web', grund: 'Probe' };
+    rmSync(join(wegwerf, 'server/test/rot.mjs'));
+    rmSync(join(wegwerf, 'server/test/gruen.mjs'));
+    const vitestMit = (...a) => mit([ausnahmeB, ...a]);
+    vitestBaum();
+    pruefe(vitestMit(vx, vy).length === 0, 'Ausgangslage: include erfasst beide Dateien, ci.yml ruft `npm test` in wov-web ⇒ kein Befund');
+    vitestBaum({ config: KONFIG("['src/lib/i18n/*.test.ts']") });
+    pruefe(
+      enthaelt(vitestMit(vx, vy), 'x.test.ts wird von `include`') && !enthaelt(vitestMit(vx, vy), 'y.test.ts wird von `include`'),
+      '`include` auf i18n eingeengt ⇒ Befund für die Datei außerhalb, nicht für die drinnen',
+    );
+    vitestBaum({ config: KONFIG("['src/**/*.test.ts']", "    exclude: ['src/lib/x.test.ts'],\n") });
+    pruefe(enthaelt(vitestMit(vx), '`exclude`'), 'Datei in `exclude` ⇒ Befund');
+    vitestBaum({ config: KONFIG('[]') });
+    pruefe(enthaelt(vitestMit(vx), 'nicht erfasst'), 'leeres `include` ⇒ Befund');
+    vitestBaum({ config: KONFIG('MUSTER') });
+    pruefe(enthaelt(vitestMit(vx), 'keine Liste aus Textliteralen'), '`include` nicht als Textliteral lesbar ⇒ Befund');
+    vitestBaum({ config: KONFIG("['src/[a-z]*.test.ts']") });
+    pruefe(enthaelt(vitestMit(vx), 'nicht lesbar für diesen Zeugen'), 'Muster mit Zeichenklasse, das der Zeuge nicht lesen kann ⇒ Befund statt Vertrauen');
+    vitestBaum({ config: KONFIG("['src/**/*.test.{ts,mts}']") });
+    pruefe(vitestMit(vx, vy).length === 0, 'Muster mit geschweifter Alternative `{ts,mts}` wird gelesen');
+    vitestBaum({ config: KONFIG("['tests/**/*.test.ts']") });
+    pruefe(enthaelt(vitestMit(vx), 'nicht erfasst'), '`include` auf einen anderen Ordner ⇒ Befund');
+    vitestBaum({ config: 'export default {};\n' });
+    pruefe(enthaelt(vitestMit(vx), 'kein Objekt `test'), 'Konfiguration ohne `test`-Objekt ⇒ Befund');
+    vitestBaum({ config: KONFIG("['src/**/*.test.ts']", "    projects: ['a'],\n") });
+    pruefe(enthaelt(vitestMit(vx), '`test.projects`'), '`test.projects` verändert die Suche ⇒ Befund');
+    rmSync(join(wegwerf, 'wov-web/vitest.config.ts'));
+    pruefe(enthaelt(vitestMit(vx), 'vitest.config.ts fehlt'), 'Konfiguration fehlt ⇒ Befund');
+
+    vitestBaum({ ci: CI('      - run: npm run lint\n', '    defaults:\n      run:\n        working-directory: wov-web\n') });
+    pruefe(enthaelt(vitestMit(vx), 'keinen Schritt `npm test`'), '`npm test` aus dem Job `web` gestrichen ⇒ Befund (auch wenn ein anderer Job `npm test` hat)');
+    vitestBaum({ ci: CI('      # - run: npm test\n', '    defaults:\n      run:\n        working-directory: wov-web\n') });
+    pruefe(enthaelt(vitestMit(vx), 'keinen Schritt `npm test`'), '`npm test` auskommentiert ⇒ Befund');
+    vitestBaum({ ci: CI('      - run: npm test\n        if: false\n', '    defaults:\n      run:\n        working-directory: wov-web\n') });
+    pruefe(enthaelt(vitestMit(vx), 'keinen Schritt `npm test`'), 'Schritt mit `if` ⇒ Befund');
+    vitestBaum({ ci: CI('      - run: npm test\n        continue-on-error: true\n', '    defaults:\n      run:\n        working-directory: wov-web\n') });
+    pruefe(enthaelt(vitestMit(vx), 'keinen Schritt `npm test`'), 'Schritt mit `continue-on-error: true` ⇒ Befund');
+    vitestBaum({ ci: CI('      - run: npm test\n', '    if: false\n    defaults:\n      run:\n        working-directory: wov-web\n') });
+    pruefe(enthaelt(vitestMit(vx), 'bedingt'), 'Job `web` mit `if` ⇒ Befund');
+    vitestBaum({ ci: CI('      - run: npm test\n', '') });
+    pruefe(enthaelt(vitestMit(vx), 'keinen Schritt `npm test`'), '`npm test` in der Wurzel statt in wov-web ⇒ Befund');
+    vitestBaum({ ci: CI('      - run: npm test\n        working-directory: wov-web\n', '') });
+    pruefe(vitestMit(vx, vy).length === 0, '`working-directory: wov-web` am Schritt statt im Job ⇒ kein Befund');
+    vitestBaum({ ci: 'name: CI\njobs:\n  build:\n    steps:\n      - run: npm test\n' });
+    pruefe(enthaelt(vitestMit(vx), 'keinen Job `web`'), 'Job `web` fehlt ganz ⇒ Befund');
+    vitestBaum({ ci: 'jobs: [\n' });
+    pruefe(enthaelt(vitestMit(vx), 'nicht lesbar'), 'kaputtes YAML ⇒ Befund');
+    rmSync(join(wegwerf, '.github/workflows/ci.yml'));
+    pruefe(enthaelt(vitestMit(vx), 'ci.yml fehlt'), 'ci.yml fehlt ⇒ Befund');
+    vitestBaum({ paket: '{"scripts":{"test":"echo ok"}}' });
+    pruefe(enthaelt(vitestMit(vx), 'kein Skript `test`, das vitest'), '`npm test` in wov-web ruft kein vitest mehr ⇒ Befund');
+
+    vitestBaum();
+    const ohneY = mit([ausnahmeB, vx]);
+    pruefe(enthaelt(ohneY, 'verwaist') && enthaelt(ohneY, 'i18n/y.test.ts'), 'eine neue `*.test.ts` in wov-web ohne Eintrag ⇒ „verwaist"');
+    pruefe(
+      enthaelt(vitestMit({ ...vx, pfad: 'wov-web/tools/test/z.mjs' }), 'liegt nicht unter wov-web/src'),
+      '`vitest-web` für eine Datei außerhalb von wov-web/src/**/*.test.ts ⇒ Befund',
     );
   } finally {
     rmSync(wegwerf, { recursive: true, force: true });

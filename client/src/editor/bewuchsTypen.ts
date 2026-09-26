@@ -7,7 +7,14 @@
  * Beruehrungsflaeche zwischen Editor und Weltgenerierung noetig ist.
  */
 
-export { streueZone } from '@wov/shared';
+export {
+  streueZone,
+  freiflaechenAusPlatzierungen,
+  freiflaechenFuerZone,
+  freiflaechenHuellen,
+  platzierungenBereinigt,
+  platzierungenFuerFreiflaechen,
+} from '@wov/shared';
 export type { StreuFund } from '@wov/shared';
 
 import type { GeoManager, HeightmapProvider, RegionGeo } from '@wov/shared';

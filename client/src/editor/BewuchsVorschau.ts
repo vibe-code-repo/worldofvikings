@@ -16,7 +16,8 @@
  * mit dem Ergebnis geschieht — hier Instanzen statt ZDOs.
  *
  * Zwei bewusste Abweichungen, beide unschaedlich beim Gestalten:
- *  - Keine `clearAreas`: Der Client kennt die Locations nicht, die der
+ *  - `clearAreas` nur aus den Platzierungen (gemeinsame Funktion
+ *    `freiflaechenAusPlatzierungen`), nicht aus den Locations, die der
  *    Server vorab platziert. Es koennen also ein paar Pflanzen dort
  *    stehen, wo spaeter ein Bauwerk freiraeumt.
  *  - Nur die Zonen um den Spieler, nicht die ganze Welt.
@@ -66,7 +67,17 @@
  * ebenfalls eine je Bild ab, ohne Frist.
  */
 
-import { streueZone, type ClientWorldLike, type StreuFund } from './bewuchsTypen';
+import {
+  freiflaechenAusPlatzierungen,
+  freiflaechenFuerZone,
+  freiflaechenHuellen,
+  streueZone,
+  type ClientWorldLike,
+  type StreuFund,
+} from './bewuchsTypen';
+import type { ClearArea, PlacementDef } from '@wov/shared';
+import { uploadedModelEntries } from '@wov/shared/src/uploadedModelRegistry.js';
+import type { ManifestModell } from '@wov/shared/src/weltbau/manifest.js';
 import type { EntityManager } from '../entities/EntityManager';
 
 /** Wie viel die Vorschau zeigt: voll = 5x5 Zonen, klein = 3x3, aus = nichts. */
@@ -118,11 +129,45 @@ export class BewuchsVorschau {
   /** Uhrzeit des letzten `schritt` in Millisekunden. */
   private jetztMs = 0;
 
+  /** Abstand in ms, in dem die Platzierungen auf Aenderungen geprueft werden. */
+  private static readonly PLATZIERUNGEN_PRUEFEN_MS = 250;
+  private platzierungenGeprueftMs = -Infinity;
+  /** Manifest-Hüllen eigener Modelle (dieselbe Datei, die der Server von der Platte liest). */
+  private manifest: ReadonlyMap<string, ManifestModell> | null = null;
+  /**
+   * Zählmarke des Entwurfs beim letzten Rechnen (Rohtext) und Zahl der
+   * Upload-Modelle. Ändert sich keins von beiden, wird im 250-ms-Abgleich
+   * weder geparst noch gerechnet.
+   */
+  private letzteMarke: string | null | undefined = undefined;
+  private letzteUploads = -1;
+
+  /**
+   * `platzierungen` liefert die AKTUELLEN Platzierungen (im Testflug der
+   * Entwurf, den Setzen, Ziehen und Loeschen laufend aendern); ohne sie
+   * gilt das Layout der Welt. Aendern sie sich, werden nur die Zonen neu
+   * gestreut, die eine geaenderte Freiflaeche beruehrt.
+   */
   constructor(
     private readonly welt: ClientWorldLike,
     private readonly ent: EntityManager,
-    private readonly nachlaufMs = NACHLAUF_MS
+    private readonly nachlaufMs = NACHLAUF_MS,
+    private readonly platzierungen: (() => readonly PlacementDef[] | null | undefined) | null = null,
+    /**
+     * Billige Änderungsmarke des Entwurfs (im Testflug der Rohtext aus dem
+     * Speicher). Ohne sie rechnet der Abgleich jedes Mal alles neu.
+     */
+    private readonly marke: (() => string | null) | null = null
   ) {}
+
+  /**
+   * Manifest-Hüllen nachreichen (kommen asynchron) — die Radien ändern sich,
+   * also wird alles neu gestreut.
+   */
+  setzeManifest(manifest: ReadonlyMap<string, ManifestModell> | null): void {
+    this.manifest = manifest;
+    this.neuAufbauen();
+  }
 
   /**
    * Je Aufruf hoechstens eine Zone gestreut UND hoechstens eine abgebaut —
@@ -138,6 +183,7 @@ export class BewuchsVorschau {
    */
   schritt(spielerX: number, spielerZ: number, jetztMs: number = performance.now()): void {
     this.jetztMs = jetztMs;
+    this.platzierungenPruefen();
     const zx = Math.floor(spielerX / 64 + 0.5);
     const zy = Math.floor(spielerZ / 64 + 0.5);
     const jetzt = `${zx},${zy}`;
@@ -161,6 +207,7 @@ export class BewuchsVorschau {
     this.draussen.clear();
     this.warteschlange = [];
     this.letzteZone = '';
+    this.freiflaechenListe = null;
     this.ent.flush();
   }
 
@@ -229,6 +276,65 @@ export class BewuchsVorschau {
     if (wahl !== null) this.zoneAbbauen(wahl);
   }
 
+  /** Clear areas of the current placements (same function as the server). */
+  private freiflaechenListe: readonly ClearArea[] | null = null;
+  private freiflaechen(): readonly ClearArea[] {
+    this.freiflaechenListe ??= this.freiflaechenBerechnen();
+    return this.freiflaechenListe;
+  }
+
+  private freiflaechenBerechnen(): readonly ClearArea[] {
+    if (!this.welt.regionGeo) return [];
+    // Marke VOR dem Lesen des Entwurfs: ein Schreiber dazwischen wird beim nächsten Abgleich erkannt.
+    this.letzteMarke = this.marke?.();
+    this.letzteUploads = uploadedModelEntries().length;
+    const quelle = this.platzierungen?.() ?? this.welt.regionGeo.layout.placements;
+    return freiflaechenAusPlatzierungen({ placements: quelle }, freiflaechenHuellen(this.manifest));
+  }
+
+  /**
+   * Rechnet die Freiflaechen neu (hoechstens alle 250 ms) und streut die
+   * Zonen neu, die eine hinzugekommene, entfernte oder veraenderte Flaeche
+   * beruehrt — ein Objekt, das der Spieler setzt, verschiebt oder loescht,
+   * zeigt sofort denselben Bewuchs, den der Server nach dem Speichern erzeugt.
+   */
+  private platzierungenPruefen(): void {
+    if (this.jetztMs - this.platzierungenGeprueftMs < BewuchsVorschau.PLATZIERUNGEN_PRUEFEN_MS) return;
+    this.platzierungenGeprueftMs = this.jetztMs;
+    const alt = this.freiflaechenListe;
+    if (alt === null) return; // noch nichts gestreut, nichts zu vergleichen
+    // Nichts geändert (gleiche Marke, gleiche Upload-Zahl): weder parsen noch rechnen.
+    if (
+      this.marke !== null &&
+      this.marke() === this.letzteMarke &&
+      uploadedModelEntries().length === this.letzteUploads
+    ) {
+      return;
+    }
+    const neu = this.freiflaechenBerechnen();
+    const schl = (a: ClearArea): string => `${a.center.x},${a.center.z},${a.radius}`;
+    const vorher = new Set(alt.map(schl));
+    const nachher = new Set(neu.map(schl));
+    const geaendert = [
+      ...alt.filter((a) => !nachher.has(schl(a))),
+      ...neu.filter((a) => !vorher.has(schl(a))),
+    ];
+    if (geaendert.length === 0) return;
+    this.freiflaechenListe = neu;
+    const rand = 16; // ein Pflanzenradius, wie freiflaechenFuerZone
+    for (const a of geaendert) {
+      const x0 = Math.floor((a.center.x - a.radius - rand) / 64 + 0.5);
+      const x1 = Math.floor((a.center.x + a.radius + rand) / 64 + 0.5);
+      const y0 = Math.floor((a.center.z - a.radius - rand) / 64 + 0.5);
+      const y1 = Math.floor((a.center.z + a.radius + rand) / 64 + 0.5);
+      for (const k of [...this.fertig.keys()]) {
+        const [zx, zy] = k.split(',').map(Number);
+        if (zx >= x0 && zx <= x1 && zy >= y0 && zy <= y1) this.zoneAbbauen(k);
+      }
+    }
+    this.letzteZone = ''; // Warteschlange beim naechsten Schritt neu fuellen
+  }
+
   /** Gibt die Instanzen einer Zone frei (`removeZDO` je Pflanze) und vergisst sie. */
   private zoneAbbauen(schluessel: string): void {
     for (const k of this.fertig.get(schluessel) ?? []) this.ent.removeZDO(k);
@@ -267,7 +373,7 @@ export class BewuchsVorschau {
           regionGeo: this.welt.regionGeo,
         },
         this.welt.heightmaps.getZone(zx, zy),
-        [],
+        freiflaechenFuerZone(this.freiflaechen(), zx, zy),
         (fund: StreuFund) => {
           const key = `${SCHLUESSEL}-${schluessel}-${i++}`;
           keys.push(key);

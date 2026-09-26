@@ -69,6 +69,7 @@ export function localStoragePersistenz(): TestflugPersistenz {
   return {
     laden: () =>
       JSON.parse(localStorage.getItem(ENTWURF_SCHLUESSEL) ?? 'null') as EntwurfDokument | null,
+    rohtext: () => localStorage.getItem(ENTWURF_SCHLUESSEL),
     aendern: (dokument) => {
       localStorage.setItem(ENTWURF_SCHLUESSEL, JSON.stringify(dokument));
     },

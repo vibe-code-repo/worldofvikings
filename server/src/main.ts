@@ -10,7 +10,7 @@ import { createWovServer } from './WovServer.js';
 import { erstelleHerunterfahren } from './herunterfahren.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
-import { quittungLoeschen, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
+import { quittungLoeschenSicher, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { ladeModulRegistrierung, sorgeFuerRegistryDatei } from './world/dungeon/ModuleBuild.js';
 import {
   ladeHochgeladeneRegistrierung,
@@ -56,7 +56,8 @@ const config = leseServerKonfig(DATA_DIR, INSTANZ);
 // K5.0 N1: Die Quittung des vorigen Laufs gilt fuer diesen nicht. So frueh wie moeglich weg (die Datei-Wache tut es
 // beim Anlegen noch einmal): Der Betriebsdienst sieht "aktiv" ab dem Prozessstart und soll im Boot-Fenster nie einen
 // Stand als angewendet melden, den erst dieser Lauf (oder gar nicht) anwendet.
-quittungLoeschen(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ));
+// K5.0 N2: Ein Fehler dort (Ordner nicht beschreibbar) geht ins Log und stoppt den Start nicht.
+quittungLoeschenSicher(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ));
 
 /*
   Fremd-Installation, nie zuvor ein Saal gebaut: assets/generiert/ existiert

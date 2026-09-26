@@ -24,6 +24,13 @@
  * ZDOs als verwaist). Was der Live-Abgleich selbst entfernt, entscheidet und
  * zählt er selbst.
  *
+ * ── Grabsteine ───────────────────────────────────────────────────────
+ * Löschen eines gefällten Baums, speichern, Rückgängig, speichern belebt ihn nicht: siehe `Grabsteine`.
+ *
+ * ── Obergrenze ───────────────────────────────────────────────────────
+ * Mehr als `AENDERUNGEN_MAX` neue, geänderte oder entfernte Einträge in einem Schreibvorgang: `zuViele`, nichts
+ * angewendet. Weit verteilte Einträge kosten je Stück Bodenhöhe (kalte Kacheln); gemessen ist die Grenze im Bericht.
+ *
  * ── Massenlöschung ───────────────────────────────────────────────────
  * Ein Tippfehler in der `id`, ein leeres `placements`, eine abgeschnittene
  * Ausgabe der KI: Live wirkt so etwas binnen einer Sekunde, ohne Blick ins Log.
@@ -70,6 +77,14 @@ export interface LiveAbgleich {
   /** Platzierungen, die nicht angefasst wurden. */
   readonly unberuehrt: number;
 }
+/** Mehr neue, geänderte oder entfernte Einträge in einem Schreibvorgang wendet der Live-Abgleich nicht an. */
+export const AENDERUNGEN_MAX = 100;
+
+export interface LiveZuViele {
+  readonly art: 'zuViele';
+  /** Neue + geänderte + entfernte Einträge dieses Schreibvorgangs. */
+  readonly anzahl: number;
+}
 export interface LiveBestaetigung {
   readonly art: 'bestaetigung';
   /** Text für die Quittung: Regel und betroffene ids. */
@@ -77,36 +92,69 @@ export interface LiveBestaetigung {
   readonly ids: readonly string[];
 }
 
-/** Ein Vergleichsschlüssel je Platzierung: gleicher Inhalt, gleicher Schlüssel. */
-const eintrag = (p: PlacementDef): string => JSON.stringify(p);
+/**
+ * Ein Vergleichsschlüssel je Platzierung: gleicher Inhalt, gleicher Schlüssel. Verglichen wird der NORMALISIERTE
+ * Eintrag: Feste Schlüsselfolge, und was der Sanitizer als Vorgabe kennt, zählt wie ein fehlendes Feld (`yaw: 0`,
+ * `scale: 1`, kein `einebnen`, keine `route`). Sonst belebte ein Werkzeug, das `yaw: 0` ausdrücklich schreibt (oder
+ * weglässt), einen gefällten Baum bei jedem Wechsel.
+ */
+const eintrag = (p: PlacementDef): string =>
+  JSON.stringify([p.id ?? null, p.prefab, p.x, p.z, p.yaw ?? 0, p.scale ?? 1, p.route ?? null, p.einebnen ?? 0, p.npc ?? null]);
+
+/**
+ * Grabsteine: Entfernte Einträge, deren Objekt schon nicht mehr stand (gefällt), samt ihrem Vergleichsschlüssel.
+ * Kommt derselbe Eintrag später unverändert zurück (Löschen, speichern, Rückgängig, speichern), gilt er als
+ * unverändert und belebt nichts. Ein anderer Inhalt unter derselben id gilt als neu. Bis zum Neustart.
+ */
+export type Grabsteine = Map<string, string>;
+/** So viele Grabsteine höchstens (der älteste geht zuerst). */
+const GRABSTEINE_MAX = 5000;
 
 /** Was sich zwischen den beiden Ständen geändert hat (je `id`). */
-export function idDiff(alt: readonly PlacementDef[], neu: readonly PlacementDef[]): {
+export function idDiff(
+  alt: readonly PlacementDef[],
+  neu: readonly PlacementDef[],
+  grabsteine?: ReadonlyMap<string, string>
+): {
   geaendert: PlacementDef[];
   entfernt: string[];
+  /** Schlüssel der Einträge des alten Stands (für die Grabsteine). */
+  vorher: ReadonlyMap<string, string>;
+  /** Wieder aufgetauchte Einträge, deren Grabstein passt (nicht angefasst). */
+  zurueck: string[];
 } {
   const vorher = new Map<string, string>();
   for (const p of alt) if (p.id) vorher.set(p.id, eintrag(p));
   const geaendert: PlacementDef[] = [];
+  const zurueck: string[] = [];
   const jetzt = new Set<string>();
   for (const p of neu) {
     if (!p.id) continue;
     jetzt.add(p.id);
-    if (vorher.get(p.id) !== eintrag(p)) geaendert.push(p);
+    const schluessel = eintrag(p);
+    if (vorher.get(p.id) === schluessel) continue;
+    if (!vorher.has(p.id) && grabsteine?.get(p.id) === schluessel) {
+      zurueck.push(p.id);
+      continue;
+    }
+    geaendert.push(p);
   }
   const entfernt: string[] = [];
   for (const id of vorher.keys()) if (!jetzt.has(id)) entfernt.push(id);
-  return { geaendert, entfernt };
+  return { geaendert, entfernt, vorher, zurueck };
 }
 
 export function liveAbgleich(
   kontext: LayoutAbgleichKontext,
   alt: WorldLayout,
-  neu: WorldLayout
-): LiveAbgleich | LiveBestaetigung {
+  neu: WorldLayout,
+  grabsteine: Grabsteine = new Map()
+): LiveAbgleich | LiveBestaetigung | LiveZuViele {
   const altListe = alt.placements ?? [];
   const neuListe = neu.placements ?? [];
-  const { geaendert, entfernt } = idDiff(altListe, neuListe);
+  const { geaendert, entfernt, vorher, zurueck } = idDiff(altListe, neuListe, grabsteine);
+  // Der Takt läuft im Spiel-Thread: Ab der Obergrenze wird nichts angewendet (die Datei gilt nach dem Neustart).
+  if (geaendert.length + entfernt.length > AENDERUNGEN_MAX) return { art: 'zuViele', anzahl: geaendert.length + entfernt.length };
   const bekannt = (p: PlacementDef): { hash: number } | undefined => kontext.prefabs.getByName(p.prefab);
 
   // ── Was würde entfernt? ──
@@ -119,6 +167,7 @@ export function liveAbgleich(
   }
   for (const id of ersatz.keys()) ids.add(id);
   const kandidaten: { zdo: ZDO; id: string; ersetzt: boolean }[] = [];
+  const mitZdo = new Set<string>(); // ids, zu denen es (noch) ein Layout-ZDO gibt
   if (ids.size > 0) {
     // Unbekannte Prefabs des NEUEN Dokuments: was zu ihnen gehören könnte, bleibt stehen (wie beim Boot).
     const unbekannte = neuListe.filter((p) => !bekannt(p));
@@ -133,6 +182,7 @@ export function liveAbgleich(
     for (const zdo of kontext.zdos.getAllZDOs()) {
       const layoutId = zdo.getString(LAYOUT_ID_MEMBER);
       if (!layoutId || !ids.has(layoutId) || istSpielerbau(zdo)) continue;
+      mitZdo.add(layoutId);
       const g = gruppen.get(layoutId);
       if (g) g.push(zdo);
       else gruppen.set(layoutId, [zdo]);
@@ -171,6 +221,16 @@ export function liveAbgleich(
     kontext.zdos.destroyZDO(zdo.zdoid);
     entferntZdos++;
   }
+  // Grabsteine nachführen: ein entfernter Eintrag OHNE Objekt (gefällt) merkt sich seinen Schlüssel; ein
+  // zurückgekehrter oder anders neu gesetzter Eintrag löscht seinen.
+  for (const id of zurueck) grabsteine.delete(id);
+  for (const p of geaendert) grabsteine.delete(p.id!);
+  for (const id of entfernt) {
+    if (mitZdo.has(id)) continue;
+    grabsteine.delete(id);
+    grabsteine.set(id, vorher.get(id)!);
+  }
+  while (grabsteine.size > GRABSTEINE_MAX) grabsteine.delete(grabsteine.keys().next().value as string);
   // `verworfen: 1` sperrt das Löschen im Abgleich: Alles, was nicht in der Auswahl steht, gälte sonst als verwaist.
   const ergebnis = layoutAbgleich(kontext, { ...neu, placements: geaendert }, { verworfen: 1, zusammengefasst: 0 });
   ergebnis.ohneLoeschen = null;

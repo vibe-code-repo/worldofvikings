@@ -25,6 +25,7 @@ import {
   createGeo,
   sanitizeWorldLayout,
   sanitizeWorldLayoutMitBericht,
+  platzierungenEinzeln,
   pruefeLayout,
   HEALTH_MEMBER,
   maxLeben,
@@ -1144,9 +1145,10 @@ export class WovServer {
     // `Welt`). `spawnLayoutPlacements` meldet nur noch die Platzierungen
     // mit `route` beim RoutenLaeufer an — und MUSS deshalb hier stehen,
     // nach dem Aufbau der Welt.
-    this.spawnLayoutPlacements('boot', this.worldLayoutRaw);
+    const bootAnwendung = this.spawnLayoutPlacements('boot', this.worldLayoutRaw);
     if (this.config.worldMode === 'layout') {
       this.layoutWache = new LayoutWache({
+        boot: bootAnwendung,
         pfad: this.config.worldLayoutPath,
         quittungsPfad: quittungsDatei(this.config.worldsDir, this.config.worldName),
         aktuell: () => this.worldLayoutRaw,
@@ -1225,6 +1227,16 @@ export class WovServer {
       else console.warn(`[WoV] Layout-Abgleich (live): ${text}`);
       return abgelehnt(text);
     }
+    // Live: Hat der Sanitizer einzelne Einträge verworfen (Tippfehler), wird NICHTS angewendet. Ein verworfener Eintrag
+    // gälte sonst als entfernt (sein Objekt ginge), und nach der Korrektur als neu (ein gefälltes Objekt käme zurück).
+    if (modus === 'live') {
+      const verworfen = Math.max(0, rohAnzahl - gueltigeAnzahl - (bericht?.zusammengefasst.length ?? 0));
+      if (verworfen > 0) {
+        const detail = `${verworfen} von ${rohAnzahl} Einträgen verworfen: ${this.verworfeneEintraege(rohPlacements as unknown[])}`;
+        console.warn(`[WoV] Layout-Abgleich (live): ${detail} – nichts angewendet`);
+        return { art: 'verworfen', detail };
+      }
+    }
     const kontext: LayoutAbgleichKontext = {
         zdos: this.zdos,
         prefabs: this.prefabs,
@@ -1253,7 +1265,8 @@ export class WovServer {
     let zuPruefen: WorldLayout = layout;
     if (modus === 'live') {
       if (!vorgabe?.alt) return abgelehnt('kein Vergleichsstand');
-      const live = liveAbgleich(kontext, vorgabe.alt, layout);
+      const live = liveAbgleich(kontext, vorgabe.alt, layout, vorgabe.grabsteine);
+      if (live.art === 'zuViele') return { art: 'zuViele', anzahl: live.anzahl };
       if (live.art === 'bestaetigung') return { art: 'bestaetigung', detail: live.detail };
       ergebnis = live.ergebnis;
       zuPruefen = { ...layout, placements: [...live.geaendert] };
@@ -1310,6 +1323,18 @@ export class WovServer {
     const zaehler: Record<string, number> = {};
     for (const [k, v] of Object.entries(ergebnis)) if (typeof v === 'number') zaehler[k] = v;
     return { art: 'angewendet', zaehler };
+  }
+
+  /** Die rohen Einträge, die der Sanitizer streicht: ihre id, sonst die Stelle in der Liste (für die Quittung). */
+  private verworfeneEintraege(roh: readonly unknown[]): string {
+    const namen: string[] = [];
+    roh.forEach((eintrag, i) => {
+      if (platzierungenEinzeln([eintrag]).length > 0) return;
+      const id = (eintrag as { id?: unknown } | null)?.id;
+      namen.push(typeof id === 'string' && id.length <= 64 ? id : `#${i}`);
+    });
+    const gezeigt = namen.slice(0, 40).join(', ');
+    return namen.length > 40 ? `${gezeigt} … (+${namen.length - 40})` : gezeigt || 'Zusammenlegung nicht erklärbar (Einträge jenseits von 2000)';
   }
 
   /**

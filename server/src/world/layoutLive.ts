@@ -20,8 +20,17 @@
  *
  * ── Schutz ───────────────────────────────────────────────────────────
  * Die Schutzrückgaben des Boots gelten unverändert (`placements` unlesbar,
- * alle Einträge verworfen): Ein Tippfehler in der Datei löscht nichts, die
- * Quittung meldet `abgelehnt`. Würde der Abgleich viele Objekte oder Objekte mit
+ * alle Einträge verworfen): Quittung `abgelehnt`, nichts geschieht. Hat der
+ * Sanitizer EINZELNE Einträge verworfen (Tippfehler in einem Feld), wendet der
+ * Live-Weg gar nichts an: Quittung `verworfen` mit den betroffenen ids in
+ * `detail`, der Vergleichsstand bleibt der alte. Gemeint ist: kein Löschen
+ * (ein verworfener Eintrag gälte sonst als entfernt) und kein Wiederbeleben
+ * beim Korrigieren (der Eintrag gälte dann als neu). Nach der Korrektur greift
+ * der Abgleich gegen den alten Stand, als wäre nichts geschehen. Mehr als
+ * `AENDERUNGEN_MAX` Änderungen in einem Schreibvorgang: `zu-viele-aenderungen`,
+ * ebenfalls nichts (die Datei gilt nach dem Neustart). Wurde das Dokument
+ * schon beim Boot nicht angewendet (`placements` unlesbar), gibt es keinen
+ * Vergleichsstand: jede Quittung bis zum nächsten Neustart ist `abgelehnt`. Würde der Abgleich viele Objekte oder Objekte mit
  * Zustand entfernen, meldet die Quittung `bestaetigung-noetig` und nichts
  * geschieht (der Neustart räumt dann ab wie bisher). Solange ein Speichern läuft, wird nichts
  * angewendet; die Wache probiert es eine Sekunde später erneut.
@@ -34,8 +43,9 @@
 import { statSync, readFileSync } from 'node:fs';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { sanitizeWorldLayoutMitBericht, type SanitizeBericht } from '@wov/shared/src/worldlayout/sanitize.js';
-import { quittungLoeschen, quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { quittungLoeschenSicher, quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
+import { AENDERUNGEN_MAX, type Grabsteine } from './layoutLiveAbgleich.js';
 
 /** Die Teile eines Dokuments, die die Welt formen und NICHT live geändert werden. */
 export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
@@ -80,7 +90,11 @@ export type Anwendung =
   | { art: 'angewendet'; zaehler: Record<string, number> }
   | { art: 'abgelehnt'; grund: string }
   /** Viele Objekte oder Objekte mit Zustand würden entfernt: nichts angewendet, `detail` nennt die ids. */
-  | { art: 'bestaetigung'; detail: string };
+  | { art: 'bestaetigung'; detail: string }
+  /** Der Sanitizer hat Einträge verworfen: nichts angewendet, `detail` nennt sie. */
+  | { art: 'verworfen'; detail: string }
+  /** Mehr Änderungen als die Obergrenze: nichts angewendet, `anzahl` ist die Zahl. */
+  | { art: 'zuViele'; anzahl: number };
 
 /** Was die Wache dem Spielserver für EINE Anwendung mitgibt (einmal sanitisiert, nicht dreimal). */
 export interface LiveVorgabe {
@@ -88,6 +102,8 @@ export interface LiveVorgabe {
   readonly neu: SanitizeBericht;
   /** Das zuletzt angewendete Dokument, sanitisiert (null: unlesbar). */
   readonly alt: WorldLayout | null;
+  /** Entfernte Einträge ohne Objekt (gefällt), siehe `layoutLiveAbgleich.ts`; die Wache besitzt sie. */
+  readonly grabsteine: Grabsteine;
 }
 
 export interface LayoutWacheAbhaengigkeiten {
@@ -100,6 +116,11 @@ export interface LayoutWacheAbhaengigkeiten {
   readonly speichertGerade: () => boolean;
   /** Den Objektteil des neuen Dokuments anwenden (mit den Schutzrückgaben des Boots). */
   readonly anwenden: (roh: unknown, vorgabe: LiveVorgabe) => Anwendung;
+  /**
+   * Was der Boot mit dem Dokument gemacht hat. Wurde es nicht angewendet (`placements` unlesbar), fehlt der
+   * Vergleichsstand: Die Wache wendet dann nichts live an und quittiert `abgelehnt`, bis der nächste Boot es kann.
+   */
+  readonly boot?: Anwendung;
   /** Das Dokument des Servers tauschen und den Clients der Hauptwelt schicken. */
   readonly uebernehmen: (roh: unknown) => void;
 }
@@ -110,15 +131,12 @@ export class LayoutWache {
   private kanonisch: string | null = null;
   /** Das Dokument, das zuletzt angewendet wurde (sanitisiert): Vergleichsstand für die id-Auswahl. */
   private angewendet: WorldLayout | null = null;
+  private readonly grabsteine: Grabsteine = new Map();
 
   constructor(private readonly d: LayoutWacheAbhaengigkeiten) {
     // Eine Quittung des vorigen Serverlaufs gilt für diesen nicht: Sie würde im Boot-Fenster
     // dem Betriebsdienst ein 200 für einen Stand liefern, den dieser Lauf nie angewendet hat.
-    try {
-      quittungLoeschen(d.quittungsPfad);
-    } catch (fehler) {
-      console.error(`[WoV] Layout-Wache: alte Quittung nicht gelöscht: ${(fehler as Error).message}`);
-    }
+    quittungLoeschenSicher(d.quittungsPfad, (text) => console.error(`[WoV] Layout-Wache: ${text}`));
   }
 
   /** Im 1-Sekunden-Takt aufrufen. Wirft nie. */
@@ -147,6 +165,13 @@ export class LayoutWache {
     const bytes = readFileSync(this.d.pfad);
     const hash = layoutHash(bytes);
     this.letzterStand = stand;
+    if (this.d.boot && this.d.boot.art !== 'angewendet') {
+      // Der Boot hat das Dokument nicht angewendet: Es gibt keinen Stand, gegen den ein Abgleich sinnvoll wäre
+      // (alles gälte als neu und belebte gefällte Bäume). Bis zum nächsten sauberen Boot wirkt nichts live.
+      const grund = this.d.boot.art === 'abgelehnt' ? this.d.boot.grund : 'Start hat das Dokument nicht angewendet';
+      this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, `Start ohne Vergleichsstand (${grund}); die Datei gilt ab dem nächsten Neustart`);
+      return;
+    }
     if (this.kanonisch === null) {
       const ausgang = sanitizeWorldLayoutMitBericht(this.d.aktuell());
       this.angewendet = ausgang?.layout ?? null;
@@ -179,9 +204,20 @@ export class LayoutWache {
         return;
       }
     }
-    const ergebnis = this.d.anwenden(roh, { neu: neuBericht, alt: this.angewendet });
+    const ergebnis = this.d.anwenden(roh, { neu: neuBericht, alt: this.angewendet, grabsteine: this.grabsteine });
     if (ergebnis.art === 'abgelehnt') {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, ergebnis.grund);
+      return;
+    }
+    if (ergebnis.art === 'verworfen') {
+      console.warn(`[WoV] Layout-Wache: Einträge verworfen, nichts angewendet (${ergebnis.detail}) — nach der Korrektur greift der Abgleich`);
+      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, ergebnis.detail);
+      return;
+    }
+    if (ergebnis.art === 'zuViele') {
+      const detail = `${ergebnis.anzahl} Änderungen (Grenze ${AENDERUNGEN_MAX})`;
+      console.warn(`[WoV] Layout-Wache: ${detail}, nichts angewendet — die Datei gilt ab dem nächsten Neustart`);
+      this.quittiere(hash, 'nicht-angewendet', 'zu-viele-aenderungen', null, detail);
       return;
     }
     if (ergebnis.art === 'bestaetigung') {

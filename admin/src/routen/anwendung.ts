@@ -9,6 +9,10 @@
  *      `abgelehnt`    der Server hat den Stand aus Schutz nicht angewendet
  *      `bestaetigung-noetig` der Abgleich hätte viele Objekte oder Objekte mit Zustand entfernt;
  *                     `detail` nennt die ids, nichts ging live verloren, der Neustart übernimmt die Datei
+ *      `verworfen`    der Sanitizer hat Einträge des Dokuments gestrichen (Tippfehler): live geschah nichts,
+ *                     `detail` nennt die Einträge; nach der Korrektur greift der Abgleich
+ *      `zu-viele-aenderungen` mehr als die Obergrenze an Änderungen in einem Schreibvorgang: live geschah nichts,
+ *                     `detail` nennt die Zahl; die Datei gilt ab dem nächsten Neustart
  *      `keine-quittung` der Dienst läuft, hat aber binnen der Wartezeit nicht quittiert
  *
  * Die Datei ist geschrieben, egal was hier herauskommt: 202 heißt nie „nicht
@@ -18,7 +22,7 @@ import { quittungLesen, type Quittung } from '@wov/shared/src/worldlayout/quittu
 
 export type AnwendungsStand =
   | { angewendet: true; quittung: Quittung }
-  | { angewendet: false; grund: 'server-aus' | 'geo' | 'abgelehnt' | 'bestaetigung-noetig' | 'keine-quittung'; detail?: string; quittung?: Quittung };
+  | { angewendet: false; grund: 'server-aus' | 'geo' | 'abgelehnt' | 'bestaetigung-noetig' | 'verworfen' | 'zu-viele-aenderungen' | 'keine-quittung'; detail?: string; quittung?: Quittung };
 
 export interface QuittungOptionen {
   hash: string;
@@ -51,7 +55,10 @@ export async function quittungAbwarten(o: QuittungOptionen): Promise<AnwendungsS
     const q = quittungLesen(o.quittungsPfad);
     if (q && q.hash === o.hash) {
       if (q.ergebnis === 'angewendet') return { angewendet: true, quittung: q };
-      const grund = q.grund === 'geo' ? 'geo' : q.grund === 'bestaetigung-noetig' ? 'bestaetigung-noetig' : 'abgelehnt';
+      const grund =
+        q.grund === 'geo' || q.grund === 'bestaetigung-noetig' || q.grund === 'verworfen' || q.grund === 'zu-viele-aenderungen'
+          ? q.grund
+          : 'abgelehnt';
       return { angewendet: false, grund, ...(q.detail ? { detail: q.detail } : {}), quittung: q };
     }
     if (jetzt() >= ende) break;
@@ -92,7 +99,11 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
               ? 'der Server hat den Stand aus Schutz nicht angewendet.'
               : stand.grund === 'bestaetigung-noetig'
                 ? 'der Abgleich hätte viele Objekte oder Objekte mit Zustand entfernt; live geschah nichts, der nächste Neustart übernimmt die Datei (Einzelheiten in `detail`).'
-                : 'keine Quittung des Spielservers.'),
+                : stand.grund === 'verworfen'
+                  ? 'der Sanitizer hat Einträge des Dokuments gestrichen (Tippfehler?); live geschah nichts, die Einträge stehen in `detail`.'
+                  : stand.grund === 'zu-viele-aenderungen'
+                    ? 'zu viele Änderungen für den Live-Weg; live geschah nichts, die Datei gilt ab dem nächsten Neustart (Zahl in `detail`).'
+                    : 'keine Quittung des Spielservers.'),
     },
   };
 }

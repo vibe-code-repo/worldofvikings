@@ -97,7 +97,8 @@
 #   5. Server starten, in der Oberfläche Konten und Charaktere prüfen.
 #   Spielstand: "$L/worlds/<instanz>.db.zst" nach server/data/worlds/ (bei
 #   gestopptem Server, die alte .db.zst und .prev vorher beiseite legen).
-#   Weltdokument: "$L/welten/<instanz>.json" nach server/data/welten/.
+#   Weltdokument: "$L/welten/<instanz>.json" nach $WOV_WELT_VERZEICHNIS (Vorgabe
+#   /var/lib/wov/welten), das ist die Arbeitskopie; den Server danach neu starten.
 #
 # ── Warum `cp` für .db.zst sicher ist, für .db.zst.prev aber NICHT ────────
 # WorldManager.save() und saveAsync() (server/src/world/WorldManager.ts,
@@ -207,7 +208,23 @@ FEHLER_DB=0
 
 DB_DATEI="$DATEN/worlds/$INSTANZ.db.zst"
 PREV_DATEI="$DB_DATEI.prev"
-WELT_DATEI="$DATEN/welten/$INSTANZ.json"
+# Gesichert wird die ARBEITSKOPIE der Welt (die der Editor beschreibt), nicht der abgenommene Stand im
+# Repo: der steht in Git. Ordner: WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten. Mit dem Probe-Haken
+# WOV_SICHERUNG_DATEN (Tests) und ohne WOV_WELT_VERZEICHNIS bleibt es bei "$DATEN/welten", damit eine
+# Probe nie in /var/lib/wov liest. Gibt es die Arbeitskopie noch nicht (vor dem ersten Start des
+# Spielservers seit K5.7), wird ersatzweise die Repo-Datei gesichert.
+WELT_REPO_DATEI="$DATEN/welten/$INSTANZ.json"
+if [[ -n "${WOV_WELT_VERZEICHNIS:-}" ]]; then
+  WELT_DATEI="${WOV_WELT_VERZEICHNIS%/}/$INSTANZ.json"
+elif [[ -n "${WOV_SICHERUNG_DATEN:-}" ]]; then
+  WELT_DATEI="$WELT_REPO_DATEI"
+else
+  WELT_DATEI="/var/lib/wov/welten/$INSTANZ.json"
+fi
+if [[ ! -f "$WELT_DATEI" && -f "$WELT_REPO_DATEI" ]]; then
+  echo "  … Arbeitskopie $WELT_DATEI fehlt, gesichert wird ersatzweise $WELT_REPO_DATEI"
+  WELT_DATEI="$WELT_REPO_DATEI"
+fi
 DUNGEON_ORDNER="$DATEN/dungeons/$INSTANZ"
 SERVER_YML="$DATEN/server.yml"
 KONTEN_DB="$DATEN/konten/$INSTANZ.db"

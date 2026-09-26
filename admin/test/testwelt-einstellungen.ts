@@ -145,6 +145,8 @@ function starten(instanz = 'dev'): Promise<{ port: number; kind: ChildProcess }>
       env: {
         ...process.env,
         WOV_WURZEL: ORDNER,
+        // K5.7: die Welt liegt als Arbeitskopie im Weltverzeichnis; hier dasselbe wie die Wurzel-Datei (kein Abgleich, nie /var/lib/wov).
+        WOV_WELT_VERZEICHNIS: resolve(ORDNER, 'server/data/welten'),
         WOV_INSTANZ: instanz,
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: '0',

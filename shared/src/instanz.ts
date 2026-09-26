@@ -13,10 +13,13 @@
  *
  *     /etc/wov.env  →  WOV_INSTANZ=dev   bzw.   WOV_INSTANZ=live
  *
- * Daraus folgt ALLES andere: die Weltdatei `server/data/welten/<instanz>.json`
- * und der Spielstand `server/data/worlds/<instanz>.db.zst`. Beide Weltdateien
- * liegen auf beiden Containern — live ignoriert `dev.json` nur. Genau deshalb
- * kann der Dev-Editor die Live-Welt bearbeiten, ohne sich mit live zu verbinden.
+ * Daraus folgt ALLES andere: die Weltdatei und der Spielstand
+ * `server/data/worlds/<instanz>.db.zst`. Die Welt hat zwei Gesichter:
+ *   - `server/data/welten/<instanz>.json` im Repo ist der ABGENOMMENE Stand (`weltRepoDatei`);
+ *   - `<WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten>/<instanz>.json` ist die
+ *     ARBEITSKOPIE (`weltDatei`), die zur Laufzeit gelesen und beschrieben wird. Speichern im
+ *     Editor macht den Git-Baum so nicht mehr schmutzig. Anlegen, Nachziehen und Abnehmen:
+ *     shared/src/worldlayout/weltArbeitskopie.ts, tools/welt-abnehmen.sh.
  *
  * ── Warum ein harter Abbruch statt eines Rückfallwerts ──────────────────
  * Ein Tippfehler in der Unit (`WOV_INSTANZ=liv`) darf NICHT dazu führen, dass
@@ -57,14 +60,41 @@ export function instanzName(roh: string | undefined = process.env.WOV_INSTANZ): 
   );
 }
 
-/** Ordner mit den Weltdokumenten (in Git). `wurzel` ist die Projektwurzel. */
+/** Ordner mit den abgenommenen Weltdokumenten (in Git). `wurzel` ist die Projektwurzel. */
 export function weltenOrdner(wurzel: string): string {
   return resolve(wurzel, 'server/data/welten');
 }
 
-/** Das Weltdokument dieser Instanz (in Git). */
-export function weltDatei(wurzel: string, instanz: Instanz = instanzName()): string {
+/** Das abgenommene Weltdokument dieser Instanz (in Git). Lesen und Vergleichen, nie zur Laufzeit beschreiben. */
+export function weltRepoDatei(wurzel: string, instanz: Instanz = instanzName()): string {
   return resolve(weltenOrdner(wurzel), `${instanz}.json`);
+}
+
+/** Vorgabe für den Ordner der Arbeitskopien (außerhalb von Git). */
+export const WELT_VERZEICHNIS_VORGABE = '/var/lib/wov/welten';
+
+/**
+ * Ordner der Arbeitskopien: die Welt, die Spielserver, Betriebsdienst und MCP zur Laufzeit lesen und
+ * schreiben. `WOV_WELT_VERZEICHNIS` überschreibt ihn (Tests, Slot-Dienste); ein leerer Wert gilt als
+ * nicht gesetzt.
+ */
+export function weltArbeitsOrdner(roh: string | undefined = process.env.WOV_WELT_VERZEICHNIS): string {
+  if (roh === undefined || roh.trim() === '') return WELT_VERZEICHNIS_VORGABE;
+  return resolve(roh.trim());
+}
+
+/**
+ * Die Arbeitskopie der Welt dieser Instanz: `<Arbeitsordner>/<instanz>.json`. Alle Laufzeit-Leser und
+ * -Schreiber gehen hierüber. `wurzel` bleibt im Aufruf, damit die Aufrufer nichts umbauen müssen; die
+ * Arbeitskopie hängt nicht am Checkout.
+ */
+export function weltDatei(_wurzel: string, instanz: Instanz = instanzName()): string {
+  return resolve(weltArbeitsOrdner(), `${instanz}.json`);
+}
+
+/** Die Basis-Datei neben der Arbeitskopie: Hash des Repo-Stands, aus dem sie zuletzt angelegt oder nachgezogen wurde. */
+export function weltBasisDatei(instanz: Instanz = instanzName()): string {
+  return resolve(weltArbeitsOrdner(), `${instanz}.basis`);
 }
 
 /** Ordner mit den Spielständen (gitignored — die gehören dem Server). */

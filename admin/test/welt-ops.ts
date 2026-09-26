@@ -174,6 +174,8 @@ function dienstStarten(wurzel = ORDNER, tokenDatei = TOKEN_DATEI, portText = pro
       env: {
         ...process.env,
         WOV_WURZEL: wurzel,
+        // K5.7: die Welt liegt als Arbeitskopie im Weltverzeichnis; hier dasselbe wie die Wurzel-Datei (kein Abgleich, nie /var/lib/wov).
+        WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten'),
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: portText,

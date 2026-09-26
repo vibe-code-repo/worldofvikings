@@ -210,6 +210,8 @@ function starten(instanz: 'dev' | 'live' | string | null, wurzel = ORDNER, extra
     const env: Record<string, string | undefined> = {
       ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'WOV_INSTANZ' || instanz !== null)),
       WOV_WURZEL: wurzel,
+      // K5.7: die Welt liegt als Arbeitskopie im Weltverzeichnis; hier dasselbe wie die Wurzel-Datei (kein Abgleich, nie /var/lib/wov).
+      WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten'),
       // null: the variable is not in the environment at all
       ...(instanz === null ? {} : { WOV_INSTANZ: instanz }),
       WOV_ADMIN_ADRESSE: '127.0.0.1',

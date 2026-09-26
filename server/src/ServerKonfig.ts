@@ -16,6 +16,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { weltArbeitsOrdner } from '@wov/shared/src/instanz.js';
 import { parse as parseYaml } from 'yaml';
 import { type ServerConfig } from './WovServer.js';
 import { BENUTZERNAME_REGEX, CHARAKTERNAME_REGEX } from './konto/KontoApi.js';
@@ -477,9 +478,13 @@ export function leseServerKonfig(
     // Bewusst weiterhin process.exit() und kein throw: der Aufrufer faengt
     // Fehler ab und faehrt mit Vorgabewerten weiter — aus einem throw
     // wuerde also ein Server auf der falschen Welt statt eines klaren Endes.
-    const layoutPfad = resolve(datenVerzeichnis, 'welten', `${instanz}.json`);
-    if (world.mode === 'layout' && !existsSync(layoutPfad)) {
-      console.error(`[Main] Weltdatei fehlt: ${layoutPfad}`);
+    // Gelesen wird die ARBEITSKOPIE (WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten). Angelegt und
+    // nachgezogen wird sie in main.ts (weltAbgleichen), danach; hier genuegt, dass es irgendwo eine Welt
+    // gibt: die Arbeitskopie oder den abgenommenen Stand im Repo.
+    const repoPfad = resolve(datenVerzeichnis, 'welten', `${instanz}.json`);
+    const layoutPfad = resolve(weltArbeitsOrdner(), `${instanz}.json`);
+    if (world.mode === 'layout' && !existsSync(layoutPfad) && !existsSync(repoPfad)) {
+      console.error(`[Main] Weltdatei fehlt: ${repoPfad} (und keine Arbeitskopie ${layoutPfad})`);
       console.error(`[Main] WOV_INSTANZ=${instanz} — erwartet wird server/data/welten/${instanz}.json`);
       process.exit(1);
     }
@@ -499,7 +504,7 @@ export function leseServerKonfig(
       //-running server / an existing save (see client/src/main.ts header).
       worldSeed: process.env.WORLD_SEED || (world.seed as string) || 'KxSYuZquuw',
       // Kartengenerierungs-Umbau: 'layout' liest die designer-definierte
-      // Welt aus server/data/welten/<instanz>.json, 'radial' ist der
+      // Welt aus der Arbeitskopie der Instanz, 'radial' ist der
       // radiale Seed-Port (Übergangspfad, s. server.yml).
       worldMode: weltmodusAusWert(world.mode),
       worldLayoutPath: layoutPfad,

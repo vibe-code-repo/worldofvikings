@@ -92,6 +92,8 @@ function dienstStarten(): Promise<{ kind: ChildProcess; url: string }> {
       env: {
         ...process.env,
         WOV_WURZEL: TEST_WURZEL,
+        // K5.7: Arbeitskopie im Weltverzeichnis; hier dieselbe Datei wie in der Testwurzel.
+        WOV_WELT_VERZEICHNIS: resolve(TEST_WURZEL, 'server/data/welten'),
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: '0',
@@ -461,7 +463,7 @@ try {
       command: 'npx',
       args: ['tsx', 'tools/worldlayout-mcp/server.ts'],
       cwd,
-      env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN, ...extra },
+      env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN, WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten'), ...extra },
     });
     const k = new Client({ name: 'probe-sperre', version: '1.0.0' });
     await k.connect(tr);

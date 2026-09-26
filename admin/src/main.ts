@@ -70,7 +70,8 @@ import { promisify } from 'node:util';
 // gleichem Dateiformat: siehe die lange Begruendung bei ADMINS_DATEI
 // weiter unten.
 import { DatabaseSync } from 'node:sqlite';
-import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
+import { instanzName, weltDatei, weltRepoDatei } from '@wov/shared/src/instanz.js';
+import { weltAbgleichen } from '@wov/shared/src/worldlayout/weltArbeitskopie.js';
 // Direktimport am Barrel vorbei: shared/src/index.ts geht in den
 // Client-Bundle, und layoutDatei.ts zieht node:fs herein. Gleiche
 // Begruendung wie bei instanz.ts eine Zeile hoeher.
@@ -186,7 +187,17 @@ if (SYSTEMCTL_ERSATZ !== null) {
 
 const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
+// Die Arbeitskopie der Welt (WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten), nicht die Repo-Datei: Speichern
+// macht den Git-Baum nicht schmutzig. Fehlt sie beim Start, legt der Dienst sie einmal aus dem Repo an
+// (dieselbe Regel wie im Spielserver, nur ohne Nachziehen); Nachziehen und Konfliktwarnung gehoeren dem
+// Spielserver-Start, Abnehmen und Verwerfen tools/welt-abnehmen.sh. Kein Git in diesem Prozess.
 const LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
+try {
+  const abgleich = weltAbgleichen({ repoDatei: weltRepoDatei(WURZEL, INSTANZ), arbeitsDatei: LAYOUT_DATEI, modus: 'anlegen' });
+  if (abgleich.fall === 'angelegt') console.log(`[Admin] ${abgleich.meldung}`);
+} catch (fehler) {
+  console.error(`[Admin] Arbeitskopie der Welt nicht angelegt: ${(fehler as Error).message}`);
+}
 const WELTEN_ORDNER = resolve(WURZEL, 'server/data/worlds');
 // Je Instanz ein eigener Unterordner — dieselbe Ableitung wie im
 // Spielserver (`DungeonManager`, resolve(worldsDir, '..', 'dungeons',
@@ -1300,7 +1311,7 @@ async function behandeln(
     // faengt der Sammel-catch das ENOENT und meldet "unbrauchbares
     // Dokument" — eine Diagnose, die in die falsche Richtung schickt.
     if (!existsSync(LAYOUT_DATEI)) {
-      const fehlt = `${basename(LAYOUT_DATEI)} fehlt (Instanz ${INSTANZ}) — WOV_INSTANZ und server/data/welten/ pruefen.`;
+      const fehlt = `${basename(LAYOUT_DATEI)} fehlt (Instanz ${INSTANZ}) — WOV_INSTANZ, WOV_WELT_VERZEICHNIS und server/data/welten/ pruefen.`;
       return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
     }
     // Basisversion (E0): Der Hash gehoert zu den BYTES auf der Platte, aus

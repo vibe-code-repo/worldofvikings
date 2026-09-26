@@ -4,7 +4,7 @@
  * stufe/Bewuchsreglern).
  *
  * KI-gestützter Weltbau: exponiert das WorldLayout-Dokument
- * (server/data/welten/<instanz>.json) als MCP-Tools, damit eine KI im Gespräch
+ * (Arbeitskopie der Welt, <WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten>/<instanz>.json) als MCP-Tools, damit eine KI im Gespräch
  * Regionen, Kontinente, Flüsse, Seen, Routen und Platzierungen anlegen,
  * ändern und die Welt veröffentlichen kann — dieselbe Datei, die auch der
  * grafische Editor (editor.html) bearbeitet.
@@ -44,11 +44,13 @@
  * ── Schreiben nur in die Welt dieses Checkouts ────────────────────────
  * Die *_set/*_delete-Werkzeuge schreiben nur, wenn der angesprochene
  * Betriebsdienst die Weltdatei DIESES Checkouts verwaltet
- * (server/data/welten/<instanz>.json des Repos, in dem diese Datei liegt;
- * WOV_WURZEL wird NICHT gelesen). Der Dienst meldet in GET /api/worldlayout
+ * (Arbeitskopie <WOV_WELT_VERZEICHNIS, sonst /var/lib/wov/welten>/<instanz>.json,
+ * nicht die Repo-Datei; WOV_WURZEL wird NICHT gelesen; ein Checkout unter
+ * wov-worktrees/ braucht ein EIGENES WOV_WELT_VERZEICHNIS, gleich für MCP und
+ * Betriebsdienst). Der Dienst meldet in GET /api/worldlayout
  * die `weltKennung` (sha256 des realpath, kein Pfad); stimmt sie nicht oder
  * fehlt sie, oder zeigt die eigene Weltdatei (bzw. ein Ordner darüber) über
- * einen Symlink aus dem Checkout hinaus, verweigert das Werkzeug mit einer
+ * einen Symlink aus dem Weltverzeichnis hinaus, verweigert das Werkzeug mit einer
  * Meldung, die den eigenen Pfad nennt. Lesen bleibt immer erlaubt.
  * WOV_MCP_FREMDE_WELT=1 hebt die Sperre auf, wenn eine fremde Welt bewusst
  * geschrieben werden soll. Grund: In einem Worktree auf wov-dev zeigt die
@@ -57,8 +59,9 @@
  *
  * ── Gefahrlos ausprobieren ────────────────────────────────────────────
  * Einen eigenen Betriebsdienst auf dem Slot-Port starten (`WOV_WURZEL` =
- * dieser Checkout ist die Vorgabe, `WOV_ADMIN_PORT=248n`) und den
- * MCP-Server mit demselben WOV_ADMIN_PORT ansprechen. Auf einer Weltkopie
+ * dieser Checkout ist die Vorgabe, `WOV_ADMIN_PORT=248n`, dazu ein eigenes
+ * `WOV_WELT_VERZEICHNIS` in einem Temp-Ordner) und den MCP-Server mit
+ * demselben WOV_ADMIN_PORT und WOV_WELT_VERZEICHNIS ansprechen. Auf einer Weltkopie
  * außerhalb des Checkouts (WOV_WURZEL auf ein Wegwerfverzeichnis,
  * WOV_ADMIN_PORT=0, eigene WOV_ADMIN_TOKEN_DATEI) braucht der MCP-Server
  * WOV_MCP_FREMDE_WELT=1. `probe.ts` legt stattdessen eine Kopie dieses

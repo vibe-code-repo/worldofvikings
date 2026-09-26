@@ -30,7 +30,7 @@ import {
   layoutBounds,
   BIOME_BY_NAME,
 } from '@wov/shared/src/worldlayout/index.js';
-import { weltDatei } from '@wov/shared/src/instanz.js';
+import { weltRepoDatei } from '@wov/shared/src/instanz.js';
 import type { Instanz } from '@wov/shared/src/instanz.js';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -171,7 +171,8 @@ function schummern(c: RGB, dhx: number, dhz: number): RGB {
 
 // ── Welt laden ──────────────────────────────────────────────────────────
 
-const weltPfad = weltDatei(WURZEL, instanz);
+// Der abgenommene Stand im Repo (wie tools/weltkarte-veroeffentlichen.mjs), nicht die Arbeitskopie.
+const weltPfad = weltRepoDatei(WURZEL, instanz);
 const roh = readFileSync(weltPfad, 'utf-8');
 const layout = sanitizeWorldLayout(JSON.parse(roh) as unknown);
 if (!layout) throw new Error(`${weltPfad}: kein gültiges WorldLayout-Dokument`);

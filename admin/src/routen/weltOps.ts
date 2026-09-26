@@ -190,7 +190,7 @@ export function weltAnlegen(pfad: string, dokument: unknown): Promise<AnlegenErg
 export async function weltOpsBehandeln(body: unknown, umgebung: { datei: string; instanz: string }): Promise<OpsAntwort> {
   const name = basename(umgebung.datei);
   if (!existsSync(umgebung.datei)) {
-    const fehlt = `${name} fehlt (Instanz ${umgebung.instanz}) — WOV_INSTANZ und server/data/welten/ pruefen.`;
+    const fehlt = `${name} fehlt (Instanz ${umgebung.instanz}) — WOV_INSTANZ, WOV_WELT_VERZEICHNIS und server/data/welten/ pruefen.`;
     return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
   }
   const vorgangId = typeof (body as { vorgangId?: unknown } | null)?.vorgangId === 'string' ? (body as { vorgangId: string }).vorgangId : '?';

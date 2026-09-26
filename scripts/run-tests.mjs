@@ -2206,6 +2206,11 @@ const KERN = [
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
+  // K5.7 world working copy: the four start cases (missing / only repo changed / both changed / none), accept and discard;
+  // 10 saves through the operations service leave `git status --porcelain` empty; tools/welt-abnehmen.sh commits only with --commit.
+  ['shared', 'test/welt-arbeitskopie.ts'],
+  ['admin', 'test/welt-arbeitskopie.ts'],
+  ['tools', 'test/welt-abnehmen.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

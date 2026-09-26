@@ -93,7 +93,7 @@ function dienstStarten(wurzel: string): Promise<{ kind: ChildProcess; url: strin
   return new Promise((fertig, scheitern) => {
     const kind = spawn(resolve(WURZEL, 'node_modules/.bin/tsx'), ['src/main.ts'], {
       cwd: resolve(WURZEL, 'admin'),
-      env: { ...process.env, WOV_WURZEL: wurzel, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_ADMIN_TOKEN_DATEI: resolve(wurzel, 'token') },
+      env: { ...process.env, WOV_WURZEL: wurzel, WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten'), WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_ADMIN_TOKEN_DATEI: resolve(wurzel, 'token') },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let puffer = '';
@@ -182,7 +182,7 @@ async function mcpStarten(wurzel: string, url: string): Promise<Client> {
     command: 'npx',
     args: ['tsx', 'tools/worldlayout-mcp/server.ts'],
     cwd: wurzel,
-    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN },
+    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN, WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten') },
   });
   const c = new Client({ name: 'probe-kontext', version: '1.0.0' });
   await c.connect(t);

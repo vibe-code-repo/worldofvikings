@@ -53,6 +53,8 @@ const FREMD_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-fremd-
 const LEER_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-leer-'));
 const SYMDATEI_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-symdatei-'));
 const SYMORDNER_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-symordner-'));
+// systemctl-Attrappe fuer layout_deploy (M2): das echte systemctl wird in dieser Probe nie gerufen.
+const FAKE_ORDNER = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-fake-'));
 const ELTERNLINK = resolve(tmpdir(), `worldlayout-mcp-probe-link-${process.pid}`);
 
 /** Ein „Checkout": eine Kopie des Ordners tools/worldlayout-mcp an derselben Stelle relativ zur Wurzel, mit den node_modules des Repos. */
@@ -127,7 +129,7 @@ function dienstStarten(): Promise<{ kind: ChildProcess; url: string }> {
 /** Räumt die Testwurzeln samt Weltdatei und Sicherungen weg. */
 function aufraeumen(): void {
   rmSync(ELTERNLINK, { force: true });
-  for (const w of [TEST_WURZEL, FREMD_WURZEL, LEER_WURZEL, SYMDATEI_WURZEL, SYMORDNER_WURZEL]) {
+  for (const w of [TEST_WURZEL, FREMD_WURZEL, LEER_WURZEL, SYMDATEI_WURZEL, SYMORDNER_WURZEL, FAKE_ORDNER]) {
     rmSync(w, { recursive: true, force: true });
   }
 }
@@ -588,6 +590,38 @@ try {
     } finally {
       await anderes.close();
     }
+  }
+
+  // (3c3) M2 (K5.7 N2): layout_deploy startet wov-server nur neu, wenn der Checkout DEV ist (Haken WOV_DEV_CHECKOUT) UND
+  // WOV_ADMIN_URL ausdruecklich gesetzt ist. systemctl ist eine Attrappe, die ihre Aufrufe protokolliert.
+  {
+    const log = resolve(FAKE_ORDNER, 'systemctl.log');
+    writeFileSync(resolve(FAKE_ORDNER, 'systemctl'), `#!/bin/sh\necho "$@" >> "${log}"\n`, { mode: 0o755 });
+    const aufrufe = (): string => {
+      try {
+        return readFileSync(log, 'utf-8');
+      } catch {
+        return '';
+      }
+    };
+    const mitFake = { PATH: `${FAKE_ORDNER}:${process.env.PATH ?? ''}` };
+    const versuch = async (extra: Record<string, string>): Promise<{ r: unknown; vorher: string }> => {
+      const k = await mcpStarten(TEST_WURZEL, { ...mitFake, ...extra });
+      try {
+        const vorher = aufrufe();
+        return { r: await k.callTool({ name: 'layout_deploy', arguments: {} }), vorher };
+      } finally {
+        await k.close();
+      }
+    };
+    const a = await versuch({ WOV_DEV_CHECKOUT: FREMD_WURZEL });
+    check('M2 layout_deploy: Checkout nicht DEV, URL gesetzt: verweigert, systemctl nicht gerufen', istFehler(a.r) && /nicht DEV/.test(text(a.r)) && aufrufe() === '', text(a.r).slice(0, 200));
+    const b = await versuch({ WOV_DEV_CHECKOUT: TEST_WURZEL, WOV_ADMIN_URL: '' });
+    check('M2 layout_deploy: Checkout DEV, aber WOV_ADMIN_URL nicht gesetzt: verweigert, systemctl nicht gerufen', istFehler(b.r) && /WOV_ADMIN_URL nicht gesetzt/.test(text(b.r)) && aufrufe() === '', text(b.r).slice(0, 200));
+    const b2 = await versuch({ WOV_DEV_CHECKOUT: FREMD_WURZEL, WOV_ADMIN_URL: '' });
+    check('M2 layout_deploy: weder DEV noch URL (Vorgabe): verweigert, systemctl nicht gerufen', istFehler(b2.r) && aufrufe() === '', text(b2.r).slice(0, 200));
+    const c = await versuch({ WOV_DEV_CHECKOUT: TEST_WURZEL });
+    check('M2 layout_deploy: Checkout DEV und URL gesetzt: startet neu (systemctl restart wov-server, genau einmal)', !istFehler(c.r) && aufrufe() === 'restart wov-server\n', `${text(c.r).slice(0, 100)} | ${JSON.stringify(aufrufe())}`);
   }
 
   // (3d) Symlink aus dem Checkout hinaus: Die eigene Weltdatei ist nur ein Verweis auf die vom

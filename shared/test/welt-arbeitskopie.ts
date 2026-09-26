@@ -335,6 +335,47 @@ try {
     rmSync(`${g.arbeit}.lock`, { force: true });
   }
 
+  // ── N1 (K5.7 N2): eine leere oder unlesbare Sperre gilt als verwaist und wird sofort gebrochen ─────────────
+  {
+    for (const [name, inhalt] of [
+      ['leer', ''],
+      ['nur Leerraum', '  \n'],
+      ['kein JSON', 'x'],
+      ['JSON ohne Besitzangabe', '{}'],
+      ['abgeschnitten', '{"pid":123,"sta'],
+    ] as const) {
+      const g = fall(dokument('R0', 100));
+      writeFileSync(`${g.arbeit}.lock`, inhalt);
+      const t0 = Date.now();
+      let ergebnis = '';
+      try {
+        ergebnis = weltAbgleichen({ repoDatei: g.repo, arbeitsDatei: g.arbeit, sperreWartenMs: 300 }).fall;
+      } catch (fe) {
+        ergebnis = `FEHLER ${(fe as Error).message.slice(0, 120)}`;
+      }
+      const dauer = Date.now() - t0;
+      check(`N1: Sperre "${name}": sofort gebrochen (Abgleich laeuft, ${dauer} ms < 250), Arbeitskopie angelegt, keine Sperre und kein Tmp uebrig`, ergebnis === 'angelegt' && dauer < 250 && existsSync(g.arbeit) && !readdirSync(g.ordner).some((n) => n.endsWith('.lock') || n.endsWith('.tmp')), `${ergebnis} ${dauer} ms ${readdirSync(g.ordner).join(',')}`);
+    }
+    // Eine Sperre mit lesbarer Angabe eines nicht pruefbaren Besitzers (anderer Rechner) bleibt: nur eine leere wird sofort gebrochen.
+    const h = fall(dokument('R0', 100));
+    writeFileSync(`${h.arbeit}.lock`, JSON.stringify({ pid: process.ppid, start: null, host: 'fremd', marke: 'x' }));
+    let blieb = false;
+    try {
+      weltAbgleichen({ repoDatei: h.repo, arbeitsDatei: h.arbeit, sperreWartenMs: 300 });
+    } catch (fe) {
+      blieb = /gesperrt/.test((fe as Error).message);
+    }
+    check('N1: eine Sperre mit lesbarer Besitzangabe (auch mit nicht pruefbarem Besitzer) wird nicht gebrochen', blieb && existsSync(`${h.arbeit}.lock`) && !existsSync(h.arbeit));
+    rmSync(`${h.arbeit}.lock`, { force: true });
+    // Ein Anleger, der zwischen Schreiben und `link` starb, laesst `<datei>.lock.<pid>.<hex>.tmp` zurueck: der naechste Halter raeumt es weg.
+    const o = fall(dokument('R0', 100));
+    writeFileSync(`${o.arbeit}.lock.2147483646.abcdef123456.tmp`, '{}');
+    writeFileSync(`${o.arbeit}.lock.${process.pid}.abcdef123456.tmp`, '{}');
+    weltAbgleichen({ repoDatei: o.repo, arbeitsDatei: o.arbeit });
+    check('N1: Tmp-Rest eines toten Sperr-Anlegers wird beim naechsten Halten weggeraeumt, ein Tmp der eigenen pid bleibt', !existsSync(`${o.arbeit}.lock.2147483646.abcdef123456.tmp`) && existsSync(`${o.arbeit}.lock.${process.pid}.abcdef123456.tmp`), readdirSync(o.ordner).join(','));
+    rmSync(`${o.arbeit}.lock.${process.pid}.abcdef123456.tmp`, { force: true });
+  }
+
   const nachVarLibWov = existsSync('/var/lib/wov') ? readdirSync('/var/lib/wov').sort().join(',') : null;
   check('/var/lib/wov wurde nicht angefasst', vorVarLibWov === nachVarLibWov, `${vorVarLibWov} -> ${nachVarLibWov}`);
 } finally {

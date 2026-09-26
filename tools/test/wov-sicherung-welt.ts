@@ -10,7 +10,9 @@
  *  3. ohne den Haken, mit WOV_WELT_VERZEICHNIS: gesichert wird dessen dev.json samt dev.basis;
  *  4. ohne den Haken und ohne die Variable: <Daten>/welten-arbeit/dev.json (wie der Spielserver), NICHT
  *     /var/lib/wov/welten;
- *  5. ein relatives WOV_WELT_VERZEICHNIS bricht ab.
+ *  5. ein relatives WOV_WELT_VERZEICHNIS bricht ab;
+ *  6. Leerzeichen am Rand des Wertes werden abgeschnitten, ein Wert nur aus Leerzeichen bricht ab (N2);
+ *  7. im DEV-Deployment (Haken WOV_DEV_CHECKOUT) bricht die Sicherung ohne die Variable ab (M1).
  * Alles unter einem Temp-Verzeichnis; /var/lib/wov wird nie gelesen oder geschrieben (der Test prueft es nur auf Aenderungen).
  */
 import { spawnSync } from 'node:child_process';
@@ -92,6 +94,7 @@ f.commit(); f.close()`,
     const umgebung: NodeJS.ProcessEnv = { ...process.env, WOV_ENV_DATEI: resolve(T, 'wov.env'), WOV_SICHERUNG_ZIEL: ziel, WOV_SICHERUNG_MINDEST_FREI_MB: '1', WOV_SICHERUNG_DB_FRIST: '60' };
     delete umgebung.WOV_WELT_VERZEICHNIS;
     delete umgebung.WOV_SICHERUNG_DATEN;
+    delete umgebung.WOV_DEV_CHECKOUT;
     const r = spawnSync('bash', [resolve(WURZEL, 'tools/wov-sicherung.sh')], { env: { ...umgebung, ...env }, encoding: 'utf-8' });
     const dev = resolve(ziel, 'dev');
     const laeufe = existsSync(dev) ? readdirSync(dev).filter((n) => !n.includes('.')).sort() : [];
@@ -115,6 +118,22 @@ f.commit(); f.close()`,
   // 5) relativer Wert
   const d = lauf({ WOV_WELT_VERZEICHNIS: 'relwelt' });
   check('relatives WOV_WELT_VERZEICHNIS: Abbruch mit Meldung, kein Lauf-Ordner', d.rc !== 0 && /kein absoluter Pfad/.test(d.aus) && d.ordner === '', d.aus.slice(-200));
+
+  // 6) N2: Leerzeichen am Rand werden abgeschnitten (wie im TS-Weg), nie still die Repo-Datei
+  const e1 = lauf({ WOV_WELT_VERZEICHNIS: `${ANDERE} ` });
+  check('Leerzeichen am Ende: gesichert ist dev.json samt Basis aus dem Variablen-Ordner (nicht die Repo-Datei)', e1.rc === 0 && e1.ordner !== '' && lies(resolve(e1.ordner, 'welten/dev.json')) === lies(resolve(ANDERE, 'dev.json')) && lies(resolve(e1.ordner, 'welten/dev.basis')) === lies(resolve(ANDERE, 'dev.basis')) && !/fehlt, gesichert wird ersatzweise/.test(e1.aus), e1.aus.slice(-300));
+  const e2 = lauf({ WOV_WELT_VERZEICHNIS: `  ${ANDERE}\t` });
+  check('Leerzeichen und Tabulator an beiden Enden: derselbe Ordner', e2.rc === 0 && e2.ordner !== '' && lies(resolve(e2.ordner, 'welten/dev.json')) === lies(resolve(ANDERE, 'dev.json')), e2.aus.slice(-300));
+  const e3 = lauf({ WOV_WELT_VERZEICHNIS: '   ' });
+  check('nur Leerzeichen: Abbruch mit Meldung (leer), kein Lauf-Ordner', e3.rc !== 0 && /ist leer/.test(e3.aus) && e3.ordner === '', e3.aus.slice(-200));
+  const e4 = lauf({ WOV_WELT_VERZEICHNIS: ` relwelt` });
+  check('relativ mit fuehrendem Leerzeichen: Abbruch mit Meldung, kein Lauf-Ordner', e4.rc !== 0 && /kein absoluter Pfad/.test(e4.aus) && e4.ordner === '', e4.aus.slice(-200));
+
+  // 7) M1: im DEV-Deployment ohne die Variable bricht die Sicherung ab (nicht still <Daten>/welten-arbeit)
+  const f1 = lauf({ WOV_DEV_CHECKOUT: WURZEL });
+  check('DEV-Checkout ohne Variable: Abbruch mit Meldung, kein Lauf-Ordner', f1.rc !== 0 && /DEV-Deployment/.test(f1.aus) && /WOV_WELT_VERZEICHNIS=\/var\/lib\/wov\/welten/.test(f1.aus) && f1.ordner === '', f1.aus.slice(-300));
+  const f2 = lauf({ WOV_DEV_CHECKOUT: WURZEL, WOV_WELT_VERZEICHNIS: ANDERE });
+  check('DEV-Checkout mit Variable: Exit 0, gesichert ist der Variablen-Ordner', f2.rc === 0 && f2.ordner !== '' && lies(resolve(f2.ordner, 'welten/dev.json')) === lies(resolve(ANDERE, 'dev.json')), f2.aus.slice(-300));
 
   check('/var/lib/wov unveraendert', varLibWov() === vor);
 } finally {

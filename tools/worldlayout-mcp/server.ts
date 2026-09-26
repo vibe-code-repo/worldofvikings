@@ -68,14 +68,15 @@
  * WOV_MCP_FREMDE_WELT=1. `probe.ts` legt stattdessen eine Kopie dieses
  * Servers in die Testwurzel: dort IST sie der eigene Checkout.
  *
- * `layout_deploy` verweigert die Arbeit, solange WOV_ADMIN_URL gesetzt ist:
- * Ein Neustart des lokalen wov-Servers lädt die Weltdatei DIESER Instanz,
- * nicht die des angesprochenen Betriebsdienstes — Teständerungen blieben
- * unsichtbar, und eine Erfolgsmeldung wäre falsch.
+ * `layout_deploy` startet den wov-Server nur neu, wenn dieser Checkout das
+ * DEV-Deployment ist UND WOV_ADMIN_URL ausdrücklich gesetzt ist; sonst
+ * verweigert es mit Meldung. Der Neustart trifft immer den DEV-Spielserver
+ * (systemd) und lädt dessen Welt, nicht die eines Test-Betriebsdienstes.
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import {
   sanitizeWorldLayout,
   pruefeLayout,
@@ -98,7 +99,7 @@ import {
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { PLATZIERUNGEN_GRENZE } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { ID_RE } from '@wov/shared/src/worldlayout/platzierungsId.js';
-import { mcp, ADMIN_URL, lade, schreibe, zusammenfassung } from './kern.js';
+import { mcp, ADMIN_URL, CHECKOUT_WURZEL, lade, schreibe, zusammenfassung } from './kern.js';
 
 // Biomnamen NICHT von Hand aufgezählt, sondern aus BIOME_BY_NAME (der
 // Laufzeit-Entsprechung von BiomeName) abgeleitet — genau eine von Hand
@@ -547,19 +548,30 @@ mcp.tool(
   'Welt veröffentlichen: Dokument ist bereits gespeichert — startet den wov-Server neu, damit die Layout-Welt sie lädt. ACHTUNG: wirft alle Spieler kurz aus dem Spiel.',
   {},
   async () => {
-    // Zeigt dieser Prozess über WOV_ADMIN_URL auf einen eigens gestarteten
-    // Betriebsdienst (Testkopie), würde ein echter Neustart trotzdem die
-    // Weltdatei DIESER Instanz laden — die Teständerungen blieben
-    // unsichtbar, und eine Erfolgsmeldung hier wäre schlicht falsch. Siehe
-    // Kopfkommentar "Gefahrlos ausprobieren".
-    if (process.env.WOV_ADMIN_URL) {
+    // `systemctl restart wov-server` trifft immer den DEV-Spielserver dieser Maschine (alle Spieler fliegen raus),
+    // gleich aus welchem Checkout der MCP laeuft. Deshalb nur, wenn beides ausdruecklich stimmt: der Checkout IST
+    // das DEV-Deployment (realpath; Pruefhaken WOV_DEV_CHECKOUT wie bei welt-abnehmen) UND WOV_ADMIN_URL ist
+    // gesetzt (nicht die Vorgabe-Adresse). Sonst waere ein "Erfolg" hier falsch: Ein Neustart laedt die Welt der
+    // Units, nicht die eines Test-Betriebsdienstes oder eines fremden Checkouts.
+    const devCheckout = process.env.WOV_DEV_CHECKOUT ?? '/opt/worldofvikings';
+    const echt = (p: string): string => {
+      try {
+        return realpathSync(p);
+      } catch {
+        return p;
+      }
+    };
+    const imDev = echt(CHECKOUT_WURZEL) === echt(devCheckout);
+    const urlGesetzt = (process.env.WOV_ADMIN_URL ?? '').trim() !== '';
+    if (!imDev || !urlGesetzt) {
       return {
         content: [{
           type: 'text',
           text:
-            `Verweigert: dieser Server arbeitet über WOV_ADMIN_URL auf ${ADMIN_URL}. ` +
-            `Ein Neustart würde stattdessen die Weltdatei der lokalen Instanz laden — deine ` +
-            `Teständerungen blieben unsichtbar. layout_deploy nur ohne WOV_ADMIN_URL aufrufen.`,
+            `Verweigert: layout_deploy startet den DEV-Spielserver neu und läuft nur im DEV-Checkout ` +
+            `(${devCheckout}) mit ausdrücklich gesetzter WOV_ADMIN_URL. ` +
+            `Dieser Checkout: ${CHECKOUT_WURZEL}${imDev ? '' : ' (nicht DEV)'}, ` +
+            `WOV_ADMIN_URL ${urlGesetzt ? 'gesetzt' : 'nicht gesetzt'}. Nichts neu gestartet.`,
         }],
         isError: true,
       };

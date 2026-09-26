@@ -11,7 +11,15 @@
  * Kein Git hier: der Commit gehoert dem Shell-Skript und nur mit --commit.
  * Ordner der Arbeitskopie: WOV_WELT_VERZEICHNIS (absolut), sonst <Wurzel>/server/data/welten-arbeit.
  * `abnehmen` verweigert im DEV-Deployment (/opt/worldofvikings): dort bearbeitet niemand etwas.
+ *
+ * Im DEV-Deployment gilt fuer alle anderen Befehle (pruefen, verwerfen, pfad; damit auch --status, --diff und
+ * --verwerfen des Shell-Skripts): Ist WOV_WELT_VERZEICHNIS nicht gesetzt (eine Shell auf DEV hat die Variable
+ * nicht, sie steht nur in den Units), liest dieses Werkzeug sie aus der installierten Unit (`systemctl show -p
+ * Environment wov-server`, gegengeprueft mit wov-admin). Steht sie dort nicht, oder widersprechen sich die
+ * Units, endet es mit Exit 2 und nennt den Aufruf, der funktioniert. Es arbeitet dort nie still auf
+ * <Wurzel>/server/data/welten-arbeit, der Datei, die kein Dienst liest.
  */
+import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +44,68 @@ try {
   abbruch((fehler as Error).message);
 }
 if (instanzArg !== instanz) abbruch(`Instanz "${instanzArg}" ist weder "dev" noch "live".`);
+
+const echt = (p: string): string => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
+// Pruefhaken fuer Tests: der Ort, der als DEV-Deployment gilt.
+const devCheckout = process.env.WOV_DEV_CHECKOUT ?? '/opt/worldofvikings';
+const imDevCheckout = echt(WURZEL) === echt(devCheckout);
+
+/** Der Wert von KEY aus der Ausgabe von `systemctl show -p Environment <unit>` (Werte mit Leerzeichen stehen in Anfuehrungszeichen). */
+function unitVariable(unit: string, schluessel: string): string | null {
+  let aus: string;
+  try {
+    aus = execFileSync('systemctl', ['show', '-p', 'Environment', unit], { encoding: 'utf-8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return null;
+  }
+  const zeile = aus.split('\n').find((z) => z.startsWith('Environment='));
+  if (!zeile) return null;
+  for (const m of zeile.slice('Environment='.length).matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)) {
+    const eintrag = (m[1] ?? m[2] ?? '').replace(/\\(.)/g, '$1');
+    if (eintrag.startsWith(`${schluessel}=`)) return eintrag.slice(schluessel.length + 1).trim() || null;
+  }
+  return null;
+}
+
+if (befehl === 'abnehmen') {
+  // Das DEV-Deployment ist kein Arbeitsplatz: dort nur --status/--diff. Abnehmen und Committen im eigenen Worktree.
+  if (imDevCheckout) {
+    abbruch(
+      `Verweigert: ${WURZEL} ist das DEV-Deployment, dort wird nichts abgenommen oder committet. ` +
+        `Auf DEV: tools/welt-abnehmen.sh ${instanz} --status und --diff. Dann im eigenen Worktree ` +
+        `(Branch agent/<agent>/<slug>): WOV_WELT_VERZEICHNIS=<Ordner der DEV-Arbeitskopie> tools/welt-abnehmen.sh ${instanz} --commit, ` +
+        `und den Stand per Pull Request ins Repo bringen.`
+    );
+  }
+} else if (imDevCheckout && !(process.env.WOV_WELT_VERZEICHNIS ?? '').trim()) {
+  // DEV-Shell ohne Variable: die Dienste laufen mit der Variable aus ihrer Unit. Ohne sie wuerde dieses Werkzeug
+  // <Wurzel>/server/data/welten-arbeit lesen oder ueberschreiben, eine Datei, die kein Dienst nutzt.
+  const vomServer = unitVariable('wov-server', 'WOV_WELT_VERZEICHNIS');
+  const vomAdmin = unitVariable('wov-admin', 'WOV_WELT_VERZEICHNIS');
+  const aufruf = `WOV_WELT_VERZEICHNIS=/var/lib/wov/welten tools/welt-abnehmen.sh ${instanz} <--status|--diff|--verwerfen>`;
+  if (vomServer === null) {
+    abbruch(
+      `Verweigert: ${WURZEL} ist das DEV-Deployment, WOV_WELT_VERZEICHNIS ist nicht gesetzt und in der Unit wov-server nicht zu lesen ` +
+        `(systemctl show -p Environment wov-server). Ohne die Variable liefe dieses Werkzeug auf ${resolve(WURZEL, 'server/data/welten-arbeit')}, ` +
+        `einer Datei, die kein Dienst liest. Aufruf, der funktioniert: ${aufruf}`
+    );
+  }
+  if (vomAdmin !== null && vomAdmin !== vomServer) {
+    abbruch(
+      `Verweigert: die Units widersprechen sich (wov-server: ${vomServer}, wov-admin: ${vomAdmin}). ` +
+        `Erst die Units angleichen; oder ausdruecklich: ${aufruf}`
+    );
+  }
+  process.env.WOV_WELT_VERZEICHNIS = vomServer;
+  console.error(`[Welt] DEV: WOV_WELT_VERZEICHNIS nicht gesetzt, aus der Unit wov-server gelesen: ${vomServer}`);
+}
+
 const repoDatei = weltRepoDatei(WURZEL, instanz);
 let arbeitsDatei: string;
 try {
@@ -57,23 +127,6 @@ if (befehl === 'pruefen') {
   process.exit(0);
 }
 if (befehl === 'abnehmen') {
-  // Das DEV-Deployment ist kein Arbeitsplatz: dort nur --status/--diff. Abnehmen und Committen im eigenen Worktree.
-  const devCheckout = process.env.WOV_DEV_CHECKOUT ?? '/opt/worldofvikings'; // Pruefhaken fuer Tests
-  const echt = (p: string): string => {
-    try {
-      return realpathSync(p);
-    } catch {
-      return resolve(p);
-    }
-  };
-  if (echt(WURZEL) === echt(devCheckout)) {
-    abbruch(
-      `Verweigert: ${WURZEL} ist das DEV-Deployment, dort wird nichts abgenommen oder committet. ` +
-        `Auf DEV: tools/welt-abnehmen.sh ${instanz} --status und --diff. Dann im eigenen Worktree ` +
-        `(Branch agent/<agent>/<slug>): WOV_WELT_VERZEICHNIS=<Ordner der DEV-Arbeitskopie> tools/welt-abnehmen.sh ${instanz} --commit, ` +
-        `und den Stand per Pull Request ins Repo bringen.`
-    );
-  }
   if (!existsSync(arbeitsDatei)) abbruch(`Arbeitskopie fehlt: ${arbeitsDatei} (der Spielserver legt sie beim Start an)`);
   const r = weltAbnehmen({ repoDatei, arbeitsDatei });
   console.log(`[Welt] abgenommen: ${arbeitsDatei} -> ${r.repoDatei} (Hash ${r.repoHash.slice(0, 8)}, ${r.geaendert ? 'Repo-Datei geaendert' : 'Repo-Datei unveraendert'}, verworfen: ${r.verworfen}); Arbeitskopie und Basis unberuehrt`);

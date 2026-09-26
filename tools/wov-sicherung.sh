@@ -217,19 +217,36 @@ PREV_DATEI="$DB_DATEI.prev"
 #   1. WOV_SICHERUNG_DATEN (Probe-Haken): "$DATEN/welten". Der Haken gilt vor allem anderen, auch wenn
 #      WOV_WELT_VERZEICHNIS exportiert ist, damit eine Probe nie ausserhalb ihres Datenordners liest.
 #   2. WOV_WELT_VERZEICHNIS (absolut; die Unit setzt /var/lib/wov/welten).
-#   3. sonst "$DATEN/welten-arbeit" (wie der Spielserver ohne die Variable).
+#   3. sonst "$DATEN/welten-arbeit" (wie der Spielserver ohne die Variable). Ausnahme: im DEV-Deployment
+#      (/opt/worldofvikings) bricht das Skript ohne die Variable ab, statt still die falsche Datei zu sichern.
+# Leerzeichen am Rand des Wertes werden abgeschnitten; ein Wert nur aus Leerzeichen oder ein relativer Wert bricht ab.
 # Gibt es die Arbeitskopie noch nicht (vor dem ersten Start des Spielservers seit K5.7), wird ersatzweise die
 # Repo-Datei gesichert.
 WELT_REPO_DATEI="$DATEN/welten/$INSTANZ.json"
+# Leerzeichen am Rand abschneiden, wie es der TS-Weg tut (shared/src/instanz.ts: trim). Ein Wert, der danach leer
+# bleibt (nur Leerzeichen) oder nicht absolut ist, bricht ab: nie still auf die Repo-Datei ausweichen.
+WELT_VERZ_ROH="${WOV_WELT_VERZEICHNIS:-}"
+WELT_VERZ="${WELT_VERZ_ROH#"${WELT_VERZ_ROH%%[![:space:]]*}"}"
+WELT_VERZ="${WELT_VERZ%"${WELT_VERZ##*[![:space:]]}"}"
+DEV_CHECKOUT="${WOV_DEV_CHECKOUT:-/opt/worldofvikings}"
 if [[ -n "${WOV_SICHERUNG_DATEN:-}" ]]; then
   WELT_DATEI="$WELT_REPO_DATEI"
-elif [[ -n "${WOV_WELT_VERZEICHNIS:-}" ]]; then
-  if [[ "$WOV_WELT_VERZEICHNIS" != /* ]]; then
-    echo "ABBRUCH: WOV_WELT_VERZEICHNIS='$WOV_WELT_VERZEICHNIS' ist kein absoluter Pfad." >&2
+elif [[ -n "$WELT_VERZ_ROH" && -z "$WELT_VERZ" ]]; then
+  echo "ABBRUCH: WOV_WELT_VERZEICHNIS='$WELT_VERZ_ROH' ist leer (nur Leerzeichen). Ungesetzt lassen oder einen absoluten Pfad setzen." >&2
+  exit 1
+elif [[ -n "$WELT_VERZ" ]]; then
+  if [[ "$WELT_VERZ" != /* ]]; then
+    echo "ABBRUCH: WOV_WELT_VERZEICHNIS='$WELT_VERZ_ROH' ist kein absoluter Pfad." >&2
     exit 1
   fi
-  WELT_DATEI="${WOV_WELT_VERZEICHNIS%/}/$INSTANZ.json"
+  WELT_DATEI="${WELT_VERZ%/}/$INSTANZ.json"
 else
+  # Im DEV-Deployment gibt es die Arbeitskopie nur unter dem Ordner aus der Unit; <Daten>/welten-arbeit ist dort
+  # eine Datei, die kein Dienst liest. Nicht still die falsche sichern.
+  if [[ "$(realpath -m "$WURZEL")" == "$(realpath -m "$DEV_CHECKOUT")" ]]; then
+    echo "ABBRUCH: $WURZEL ist das DEV-Deployment und WOV_WELT_VERZEICHNIS ist nicht gesetzt. Die Unit wov-sicherung setzt sie (Environment=WOV_WELT_VERZEICHNIS=/var/lib/wov/welten); von Hand: WOV_WELT_VERZEICHNIS=/var/lib/wov/welten tools/wov-sicherung.sh" >&2
+    exit 1
+  fi
   WELT_DATEI="$DATEN/welten-arbeit/$INSTANZ.json"
 fi
 if [[ ! -f "$WELT_DATEI" && -f "$WELT_REPO_DATEI" ]]; then

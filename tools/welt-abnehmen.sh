@@ -22,11 +22,17 @@
 # Gedachter Ablauf beim Abnehmen (das DEV-Deployment /opt/worldofvikings wird nie bearbeitet; hier verweigert das
 # Skript Abnehmen und --commit):
 #   1. Auf DEV:  tools/welt-abnehmen.sh dev --status   und   tools/welt-abnehmen.sh dev --diff
+#      Eine Shell auf DEV hat WOV_WELT_VERZEICHNIS nicht (es steht nur in den Units, nie in /etc/wov.env). Das
+#      Werkzeug liest die Variable dort aus der Unit (systemctl show -p Environment wov-server). Gelingt das nicht,
+#      verweigert es alle Modi mit Exit 2; dann: WOV_WELT_VERZEICHNIS=/var/lib/wov/welten tools/welt-abnehmen.sh dev --status
 #   2. Im eigenen Worktree (Branch agent/<agent>/<slug>), die DEV-Arbeitskopie nur LESEND:
 #        WOV_WELT_VERZEICHNIS=/var/lib/wov/welten tools/welt-abnehmen.sh dev --commit
 #      (uebernimmt die Datei in server/data/welten/dev.json des Worktrees, ein Commit).
 #   3. Pull Request, Merge mit Mikes Go. Nach dem Rollout ist Arbeitskopie = Repo, und der naechste Start traegt
 #      die Basis nach. Bis dahin bleibt die Bearbeitung liegen: Repo = Basis, ein DEV-Neustart zieht sie nicht zurueck.
+#
+# Wurde die Welt nach dem Abnehmen weiterbearbeitet, bleibt der Fall "konflikt", bis auch dieser Stand abgenommen
+# oder verworfen ist (nichts geht verloren).
 #
 # Nach --verwerfen den Spielserver neu starten, damit er die neue Welt liest.
 set -euo pipefail

@@ -35,6 +35,10 @@ const WURZEL = resolve(T, 'repo');
 const ARBEITSORDNER = resolve(T, 'arbeit');
 const ARBEIT = resolve(ARBEITSORDNER, 'dev.json');
 const REPO_DATEI = resolve(WURZEL, 'server/data/welten/dev.json');
+// Attrappe fuer systemctl: das echte wird in diesem Test nie gerufen. Sie meldet FAKE_SERVER_ENV / FAKE_ADMIN_ENV als
+// `Environment=...` der Units (ungesetzt: Exit 1 wie bei einer unbekannten Unit) und protokolliert jeden Aufruf.
+const FAKEBIN = resolve(T, 'fakebin');
+const FAKE_LOG = resolve(T, 'systemctl.log');
 const vorVarLibWov = existsSync('/var/lib/wov') ? readdirSync('/var/lib/wov').sort().join(',') : null;
 
 function dokument(name: string, radius: number): string {
@@ -60,12 +64,21 @@ const skript = (...args: string[]): { rc: number; aus: string } => {
   const r = spawnSync('bash', [resolve(WURZEL, 'tools/welt-abnehmen.sh'), ...args], {
     cwd: WURZEL,
     encoding: 'utf-8',
-    env: { ...process.env, WOV_WELT_VERZEICHNIS: ARBEITSORDNER, TMPDIR: T, ...zusatzEnv },
+    env: { ...process.env, PATH: `${FAKEBIN}:${process.env.PATH}`, FAKE_LOG: FAKE_LOG, WOV_WELT_VERZEICHNIS: ARBEITSORDNER, TMPDIR: T, ...zusatzEnv },
   });
   return { rc: r.status ?? -1, aus: `${r.stdout}${r.stderr}` };
 };
 
 try {
+  // M3 (K5.7 N2): der Runner (scripts/run-tests.mjs) reicht die Welt-Variablen einer Shell oder eines Dienstes nicht an Tests durch.
+  // Dieser Test ist der Zeuge dafuer: laeuft er mit gesetzter Variable, hat sie jemand am Runner vorbei gesetzt.
+  check('M3: WOV_WELT_VERZEICHNIS und WOV_ADMIN_URL sind in der Umgebung dieses Tests nicht gesetzt (der Runner entfernt sie)', process.env.WOV_WELT_VERZEICHNIS === undefined && process.env.WOV_ADMIN_URL === undefined, `WOV_WELT_VERZEICHNIS=${process.env.WOV_WELT_VERZEICHNIS} WOV_ADMIN_URL=${process.env.WOV_ADMIN_URL}`);
+  mkdirSync(FAKEBIN, { recursive: true });
+  writeFileSync(
+    resolve(FAKEBIN, 'systemctl'),
+    '#!/bin/sh\necho "$@" >> "$FAKE_LOG"\ncase "$4" in\n  wov-server) [ -n "${FAKE_SERVER_ENV+x}" ] && { echo "Environment=$FAKE_SERVER_ENV"; exit 0; } ;;\n  wov-admin) [ -n "${FAKE_ADMIN_ENV+x}" ] && { echo "Environment=$FAKE_ADMIN_ENV"; exit 0; } ;;\nesac\nexit 1\n'
+  );
+  chmodSync(resolve(FAKEBIN, 'systemctl'), 0o755);
   mkdirSync(resolve(WURZEL, 'tools'), { recursive: true });
   mkdirSync(resolve(WURZEL, 'server/data/welten'), { recursive: true });
   for (const f of ['welt-abnehmen.sh', 'welt-abnehmen.ts']) copyFileSync(resolve(QUELLE, 'tools', f), resolve(WURZEL, 'tools', f));
@@ -164,6 +177,66 @@ try {
     const d3 = skript('dev', '--status');
     const d4 = skript('dev', '--diff');
     check('H2: --status und --diff laufen im DEV-Checkout weiter', d3.rc === 0 && /WELT_FALL=/.test(d3.aus) && d4.rc === 0 && /Auf DEV/.test(d4.aus));
+    zusatzEnv = {};
+    writeFileSync(ARBEIT, v3);
+  }
+
+  // ── M1: DEV-Checkout ohne WOV_WELT_VERZEICHNIS arbeitet nie still auf server/data/welten-arbeit ──────────
+  {
+    const leerLog = (): boolean => !existsSync(FAKE_LOG) || readFileSync(FAKE_LOG, 'utf-8') === '';
+    const wegDamit = (): void => rmSync(FAKE_LOG, { force: true });
+    const imWurzelOrdner = resolve(WURZEL, 'server/data/welten-arbeit');
+    const arbeitVor = readFileSync(ARBEIT, 'utf-8');
+    const repoVor = readFileSync(REPO_DATEI, 'utf-8');
+    const dev = { WOV_DEV_CHECKOUT: WURZEL, WOV_WELT_VERZEICHNIS: undefined };
+
+    // a) ohne Unit: alle Modi verweigern mit Exit 2 und nennen den Aufruf, der funktioniert; nichts wird angelegt oder veraendert.
+    for (const modus of ['--status', '--diff', '--verwerfen', '--commit', ''] as const) {
+      wegDamit();
+      zusatzEnv = { ...dev };
+      const r = skript(...(modus === '' ? ['dev'] : ['dev', modus]));
+      const meldungOk = modus === '--commit' || modus === ''
+        ? /DEV-Deployment/.test(r.aus)
+        : /WOV_WELT_VERZEICHNIS=\/var\/lib\/wov\/welten tools\/welt-abnehmen\.sh dev/.test(r.aus) && /nicht gesetzt/.test(r.aus);
+      check(`M1: DEV ohne Variable und ohne lesbare Unit, ${modus || 'Abnehmen'}: Exit 2 mit Meldung`, r.rc === 2 && meldungOk, r.aus.slice(0, 300));
+    }
+    check('M1: DEV ohne Variable: nichts angelegt (kein welten-arbeit im Checkout), Arbeitskopie und Repo-Datei unveraendert, Baum sauber',
+      !existsSync(imWurzelOrdner) && readFileSync(ARBEIT, 'utf-8') === arbeitVor && readFileSync(REPO_DATEI, 'utf-8') === repoVor && git('status', '--porcelain') === '');
+
+    // b) mit Unit: die Variable wird aus wov-server gelesen (Wert mit Leerzeichen in Anfuehrungszeichen, wie systemctl ihn zeigt) und genutzt.
+    const mitUnit = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
+      ...dev,
+      FAKE_SERVER_ENV: `WOV_INSTANZ=dev "WOV_WELT_VERZEICHNIS=${ARBEITSORDNER}" ANDERES=x`,
+      ...extra,
+    });
+    wegDamit();
+    zusatzEnv = mitUnit();
+    writeFileSync(ARBEIT, dokument('Aus der Unit', 91));
+    const u1 = skript('dev', '--status');
+    check('M1: DEV, Variable aus der Unit gelesen: --status Exit 0 auf der Datei des Dienstes (WELT_FALL, Hinweis "aus der Unit")', u1.rc === 0 && /WELT_FALL=/.test(u1.aus) && /aus der Unit wov-server gelesen/.test(u1.aus) && !existsSync(imWurzelOrdner), u1.aus.slice(0, 300));
+    check('M1: der Unit-Aufruf war genau `show -p Environment <unit>`', /^show -p Environment wov-server$/m.test(readFileSync(FAKE_LOG, 'utf-8')), readFileSync(FAKE_LOG, 'utf-8'));
+    const u2 = skript('dev', '--diff');
+    check('M1: DEV, --diff zeigt die Datei des Dienstes (nicht welten-arbeit)', u2.rc === 0 && /Aus der Unit/.test(u2.aus) && !existsSync(imWurzelOrdner), u2.aus.slice(0, 300));
+    const gesichertVor = readdirSync(ARBEITSORDNER).filter((n) => n.includes('.verworfen-')).length;
+    const u3 = skript('dev', '--verwerfen');
+    check('M1: DEV, --verwerfen wirkt auf der Datei des Dienstes: Arbeitskopie = Repo-Datei, gesichert, kein welten-arbeit', u3.rc === 0 && readFileSync(ARBEIT, 'utf-8') === repoVor && readdirSync(ARBEITSORDNER).filter((n) => n.includes('.verworfen-')).length === gesichertVor + 1 && !existsSync(imWurzelOrdner), u3.aus.slice(0, 300));
+
+    // c) die Units widersprechen sich, oder der Wert ist relativ: Verweigerung.
+    zusatzEnv = mitUnit({ FAKE_ADMIN_ENV: 'WOV_WELT_VERZEICHNIS=/tmp/anderswo' });
+    const w1 = skript('dev', '--status');
+    check('M1: wov-server und wov-admin widersprechen sich: Exit 2, nennt beide Werte', w1.rc === 2 && /widersprechen sich/.test(w1.aus) && w1.aus.includes('/tmp/anderswo'), w1.aus.slice(0, 300));
+    zusatzEnv = mitUnit({ FAKE_SERVER_ENV: 'WOV_WELT_VERZEICHNIS=relwelt' });
+    const w2 = skript('dev', '--status');
+    check('M1: relativer Wert in der Unit: Exit 2 (kein absoluter Pfad)', w2.rc === 2 && /kein absoluter Pfad/.test(w2.aus) && !existsSync(resolve(WURZEL, 'relwelt')), w2.aus.slice(0, 300));
+
+    // d) gesetzte Variable gewinnt, systemctl wird nicht gefragt; ausserhalb von DEV wird systemctl nie gefragt.
+    wegDamit();
+    zusatzEnv = { WOV_DEV_CHECKOUT: WURZEL };
+    const g1 = skript('dev', '--status');
+    check('M1: DEV mit gesetzter Variable: Exit 0, systemctl nicht gerufen', g1.rc === 0 && leerLog(), g1.aus.slice(0, 200));
+    zusatzEnv = { WOV_DEV_CHECKOUT: resolve(T, 'nicht-dev'), WOV_WELT_VERZEICHNIS: undefined };
+    const g2 = skript('dev', '--status');
+    check('M1: eigener Worktree (nicht DEV) ohne Variable: laeuft auf welten-arbeit, systemctl nicht gerufen', g2.rc === 0 && /WELT_FALL=angelegt/.test(g2.aus) && leerLog() && !existsSync(imWurzelOrdner), g2.aus.slice(0, 300));
     zusatzEnv = {};
     writeFileSync(ARBEIT, v3);
   }

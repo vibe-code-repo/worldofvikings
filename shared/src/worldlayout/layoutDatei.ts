@@ -275,10 +275,13 @@ export function layoutSichern(pfad: string, behalten = SICHERUNGEN_BEHALTEN): st
 // Prozess (SIGSTOP, eingefrorener Container) hält ALLE Threads an — dann bleibt
 // die mtime stehen, und nach 10 min gilt die Sperre als verwaist.
 //
-// Eine Sperre OHNE lesbare Besitzangabe (von Hand angelegt, oder ein Prozess
-// stürzte in den Mikrosekunden zwischen `open` und `write` ab) hat keinen
-// Besitzer, den man prüfen könnte; sie gilt ab `sperreVeraltetMs` (30 s) als
-// Müll — ein lebender Schreiber schreibt seine Angabe sofort.
+// Die Sperre wird atomar angelegt (vollständige Tmp-Datei, dann `link`): Sie
+// erscheint nie leer. Eine Sperre OHNE lesbare Besitzangabe (leer oder Müll;
+// von Hand angelegt, von älterem Code, oder ein Rest nach einem Absturz) hat
+// keinen Besitzer, den man prüfen könnte, und wird SOFORT gebrochen. Nur auf
+// einem Dateisystem ohne harte Links (Rückfall auf `open(wx)` + `write`, dann
+// kann ein lebender Schreiber gerade zwischen beiden stehen) gilt sie erst ab
+// `sperreVeraltetMs` (30 s) als Müll.
 //
 // Die eigene Sperrleiche — Sperre mit der pid UND der Startzeit DIESES Prozesses,
 // aber einer Marke, die er gerade nicht hält (ein Freigeben ist gescheitert) —
@@ -520,8 +523,12 @@ function sperreBeurteilen(sperrPfad: string, veraltetMs: number, unentscheidbarM
   }
   const info = sperreLesen(roh);
   if (info === null) {
-    if (alterMs > veraltetMs) {
-      return { art: 'brechen', roh, pid: null, grund: `ohne lesbare Besitzangabe, ${Math.round(alterMs / 1000)} s alt` };
+    // Seit die Sperre atomar angelegt wird (Tmp-Datei + link) erscheint sie nie leer oder halb geschrieben: Eine
+    // leere oder unlesbare Sperre hat dann keinen Besitzer (von Hand, von aelterem Code oder nach einem Absturz)
+    // und wird sofort gebrochen. Ohne harte Links (linkGeht false) kann ein lebender Schreiber zwischen `open` und
+    // `write` stehen: dann gilt weiter die Frist.
+    if (linkGeht || alterMs > veraltetMs) {
+      return { art: 'brechen', roh, pid: null, grund: `ohne lesbare Besitzangabe (${roh.trim() === '' ? 'leer' : 'unlesbar'}), ${Math.round(alterMs / 1000)} s alt` };
     }
     return { art: 'besetzt', beschreibung: 'Sperre ohne lesbare Besitzangabe', alterMs };
   }
@@ -639,8 +646,53 @@ function sperreBrechen(sperrPfad: string, pfad: string, u: { roh: string; pid: n
   console.warn(`[layoutDatei] verwaiste Sperre ${basename(sperrPfad)} gebrochen: ${u.grund}`);
 }
 
+/** Solange das Dateisystem harte Links kann, legt `sperreAnlegen` die Sperre atomar an. */
+let linkGeht = true;
+
+/** Raeumt Tmp-Dateien von Sperr-Anlegern weg, die nicht mehr leben (kill -9 zwischen Schreiben und `link`). Nur eigene Namen. */
+function sperrTmpRaeumen(sperrPfad: string): void {
+  try {
+    const ordner = dirname(sperrPfad);
+    const muster = dateiMuster(sperrPfad, '(\\d+)\\.[0-9a-f]+\\.tmp');
+    for (const f of readdirSync(ordner)) {
+      const m = muster.exec(f);
+      if (m && Number(m[1]) !== process.pid && pidStatus(Number(m[1])) === 'tot') rmSync(resolve(ordner, f), { force: true });
+    }
+  } catch {
+    /* Aufraeumen ist nie wichtiger als die Sperre */
+  }
+}
+
 function sperreAnlegen(sperrPfad: string): Sperre | null {
   const inhalt = sperreInhalt();
+  if (linkGeht) {
+    // Atomar: erst eine vollstaendige Tmp-Datei, dann `link` auf den Sperrnamen (EEXIST = besetzt). Die Sperre
+    // erscheint nie leer oder halb geschrieben; nach `kill -9` zwischen Schreiben und `link` liegt hoechstens die
+    // Tmp-Datei `<datei>.lock.<pid>.<hex>.tmp` herum, die der naechste Halter (siehe unten) wegraeumt.
+    const tmp = `${sperrPfad}.${process.pid}.${zufall()}.tmp`;
+    try {
+      writeFileSync(tmp, inhalt, { flag: 'wx' });
+      try {
+        linkSync(tmp, sperrPfad);
+      } catch (fehler) {
+        const code = (fehler as NodeJS.ErrnoException).code;
+        if (code === 'EEXIST') return null;
+        if (code === 'EPERM' || code === 'ENOSYS' || code === 'EOPNOTSUPP' || code === 'ENOTSUP' || code === 'EXDEV') {
+          linkGeht = false; // Dateisystem ohne harte Links: weiter mit dem alten Weg und der 30-s-Frist fuer leere Sperren
+        } else {
+          throw fehler;
+        }
+      }
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+    if (linkGeht) {
+      gehalten.add(inhalt);
+      herzschlagMelden({ art: 'halten', pfad: sperrPfad, inhalt });
+      sperrTmpRaeumen(sperrPfad);
+      return { pfad: sperrPfad, inhalt };
+    }
+  }
   let fd: number;
   try {
     fd = openSync(sperrPfad, 'wx');

@@ -59,6 +59,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Tests erben nie die Welt-Variablen einer Shell oder eines Dienstes: sonst schriebe ein Test in die echte
+// (DEV-)Welt oder trafe einen fremden Betriebsdienst. Ein Test, der sie braucht, setzt sie selbst auf Temp.
+// Tests never inherit the world variables of a shell or a service; a test that needs them sets them to a temp dir.
+delete process.env.WOV_WELT_VERZEICHNIS;
+delete process.env.WOV_ADMIN_URL;
+
 /*
   Die BUCHFUEHRUNG (Laufzeitzeuge): Der Runner bucht jeden Start (`fahre` schreibt
   die Testdatei auf, die WIRKLICH an den Kindprozess geht), jede Weiche

@@ -9,6 +9,8 @@
  * preview clears other radii than the server — that must be VISIBLE to the
  * user (`abweichungsText`), not only a `console.warn`.
  */
+import { freiflaechenHuellen, istEigenesModell } from '@wov/shared';
+import { registeredModules } from '@wov/shared/src/moduleRegistry.js';
 import { NAME_PRAEFIX } from '@wov/shared/src/uploadedModelRegistry.js';
 import { leseManifest, type ManifestModell } from '@wov/shared/src/weltbau/manifest.js';
 
@@ -43,6 +45,22 @@ export const OHNE_MANIFEST_ERLAUBT: ReadonlySet<string> = new Set([
   'StoneVaultEntry',
   'RockVaultEntry',
 ]);
+
+/**
+ * Does this prefab need a manifest entry to get the server's clear radius?
+ * An own model whose hull can only come from the manifest (`extern`), minus
+ * the halls the dungeon module registry builds at runtime (`registerModule`
+ * puts them into `EIGENE_MODELLE_SET`): they have no manifest entry on the
+ * server either, both sides size them with `renderScale`, nothing differs.
+ * Read live, so a hall registered after this file loaded counts too.
+ */
+export function brauchtManifestEintrag(prefab: string): boolean {
+  return (
+    istEigenesModell(prefab) &&
+    freiflaechenHuellen()(prefab)?.quelle === 'extern' &&
+    !registeredModules().some((m) => m.name === prefab)
+  );
+}
 
 /**
  * Names among `namen` that need a manifest hull (`braucht`) and have no entry.
@@ -166,11 +184,15 @@ export function abweichungsText(b: QuellenBericht): string | null {
  */
 export class QuellenAnzeige {
   private letzteMarke: string | null | undefined = undefined;
+  private letzterText: string | null | undefined = undefined;
+  private fehlerGemeldet = false;
 
   constructor(
     private bericht: QuellenBericht,
     private readonly brauchtManifest: ((prefab: string) => boolean) | undefined,
-    private readonly setze: (text: string | null) => void
+    private readonly setze: (text: string | null) => void,
+    private readonly warneFehler: (fehler: unknown) => void = (f) =>
+      console.warn('[Bewuchs] Entwurf nicht lesbar, Quellenprüfung ausgesetzt:', f)
   ) {}
 
   /** A fresh load result replaces the old one. */
@@ -180,22 +202,38 @@ export class QuellenAnzeige {
   }
 
   /**
-   * The draft may have changed. Same mark as last time: nothing to do (no mark
-   * given: always check, the check is a set lookup per placed prefab).
+   * The draft may have changed. Same mark as last time: nothing to do, and
+   * `namen` (a function: it parses the whole draft) is not even called. No
+   * mark given: always check. A draft that cannot be read does not throw
+   * every tick: with a mark the same mark is not tried again, without one it
+   * is reported once until a read works again.
    */
-  pruefe(namen: Iterable<string>, marke: string | null): void {
+  pruefe(namen: () => Iterable<string>, marke: string | null): void {
     if (marke !== null && marke === this.letzteMarke) return;
     this.letzteMarke = marke;
+    let gelesen: Iterable<string>;
+    try {
+      gelesen = namen();
+    } catch (fehler) {
+      if (!this.fehlerGemeldet || marke !== null) this.warneFehler(fehler);
+      this.fehlerGemeldet = true;
+      return;
+    }
+    this.fehlerGemeldet = false;
     if (this.bericht.manifest) {
       this.bericht = {
         ...this.bericht,
-        ohneManifestEintrag: ohneManifestEintrag(namen, this.bericht.manifest, this.brauchtManifest),
+        ohneManifestEintrag: ohneManifestEintrag(gelesen, this.bericht.manifest, this.brauchtManifest),
       };
     }
     this.zeigen();
   }
 
+  /** Passes on only a changed text: no console line and no DOM rebuild per drag tick. */
   private zeigen(): void {
-    this.setze(abweichungsText(this.bericht));
+    const text = abweichungsText(this.bericht);
+    if (text === this.letzterText) return;
+    this.letzterText = text;
+    this.setze(text);
   }
 }

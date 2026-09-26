@@ -14,8 +14,6 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import {
   findPrefabByName,
-  freiflaechenHuellen,
-  istEigenesModell,
   istNpcPrefab,
   loeseNpcAuf,
   PLATEAU_RAND_MAX,
@@ -32,7 +30,7 @@ import { platzierungsUpdate, vorschauZeichner } from './vorschauZeichnen';
 import { verdrahteBewuchsStufe } from './BewuchsStufe';
 import { BewuchsVorschau } from '../BewuchsVorschau';
 import { ladeHochgeladeneRegistrierung } from '../../net/UploadedModelRegistryLoad';
-import { holeManifestText, ladeBewuchsQuellen, QuellenAnzeige } from './BewuchsQuellen';
+import { brauchtManifestEintrag, holeManifestText, ladeBewuchsQuellen, QuellenAnzeige } from './BewuchsQuellen';
 import { LageAnzeige } from './LageAnzeige';
 import { positionLines, regionAt } from './inselwahl';
 import { planReturn, sendReturnFromBrowser } from './ruecksprung';
@@ -477,17 +475,13 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Manifest-Hüllen und Upload-Registry wie der Server: kommen asynchron,
       // dann wird neu gestreut. Fehlt eine Quelle, sagt es die Meldung.
       const namen = ((testflug as { placements?: EntwurfEintrag[] }).placements ?? []).map((p) => p.prefab);
-      // Eigenes Modell ohne Store-/Upload-Hülle: Der Radius kommt aus dem Manifest (sonst renderScale).
-      // Vanilla-Prefabs zählen nicht, sie haben nie einen Eintrag.
-      const brauchtManifest = (n: string): boolean =>
-        istEigenesModell(n) && freiflaechenHuellen()(n)?.quelle === 'extern';
       let anzeige: QuellenAnzeige | null = null;
       const entwurfNamen = (): string[] => (persistenz.laden()?.placements ?? []).map((p) => p.prefab);
       void ladeBewuchsQuellen(namen, {
         holeManifest: holeManifestText,
         ladeRegistry: () => ladeHochgeladeneRegistrierung(),
         bekannt: (n) => findPrefabByName(n) !== undefined,
-        brauchtManifest,
+        brauchtManifest: brauchtManifestEintrag,
       }).then((b) => {
         if (b.manifest) bewuchs.setzeManifest(b.manifest);
         else if (b.registryNachgeladen) bewuchs.neuAufbauen();
@@ -500,14 +494,14 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           ent.flush();
         }
         // Bleibt stehen, solange der Zustand gilt (nicht 4 s, nicht verdrängbar), und geht wieder weg, wenn er behoben ist.
-        anzeige = new QuellenAnzeige(b, brauchtManifest, (text) => {
+        anzeige = new QuellenAnzeige(b, brauchtManifestEintrag, (text) => {
           if (text) console.warn(`[Bewuchs] ${text}`);
           hud.stehendeMeldung('bewuchs-quellen', text);
         });
         anzeige.neuerBericht(b);
         // Prefabs, die erst nach dem Start gesetzt werden: bei geänderter Marke neu prüfen.
         const takt = window.setInterval(() => {
-          anzeige?.pruefe(entwurfNamen(), persistenz.rohtext ? persistenz.rohtext() : null);
+          anzeige?.pruefe(entwurfNamen, persistenz.rohtext ? persistenz.rohtext() : null);
         }, 250);
         scene.onDisposeObservable.add(() => window.clearInterval(takt));
       });

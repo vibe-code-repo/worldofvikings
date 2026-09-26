@@ -5,7 +5,9 @@
  *
  * Lauf:  npx tsx test/bewuchs-quellen.ts   (aus client/)
  */
-import { abweichungsText, ladeBewuchsQuellen, ohneManifestEintrag, OHNE_MANIFEST_ERLAUBT, QuellenAnzeige } from "../src/editor/testflug/BewuchsQuellen";
+import { abweichungsText, brauchtManifestEintrag, ladeBewuchsQuellen, ohneManifestEintrag, OHNE_MANIFEST_ERLAUBT, QuellenAnzeige } from "../src/editor/testflug/BewuchsQuellen";
+import { freiflaechenHuellen, istEigenesModell } from "@wov/shared";
+import { KIT_NAME, registerRegistryEntry } from "@wov/shared/src/moduleRegistry.js";
 import { Fehlersammler, StehendeMeldungen, FEHLER_TTL_MS } from "../src/ui/Fehlermeldungen";
 
 let failures = 0;
@@ -126,12 +128,12 @@ console.log("=== K5.5a N2 Quellen ===");
   const anz = new QuellenAnzeige(fs, eigenExtern, (t) => meldungen.push(t));
   anz.neuerBericht(fs);
   check("N4 beim Start nur Grabhuegel: keine Meldung", meldungen.at(-1) === null);
-  anz.pruefe(["Grabhuegel", "KiPine3"], "marke-2");
+  anz.pruefe(() => ["Grabhuegel", "KiPine3"], "marke-2");
   check("N4 KiPine3 nachträglich gesetzt: Meldung", (meldungen.at(-1) ?? "").includes("KiPine3"), String(meldungen.at(-1)));
   const n = meldungen.length;
-  anz.pruefe(["Grabhuegel", "KiPine3"], "marke-2");
+  anz.pruefe(() => ["Grabhuegel", "KiPine3"], "marke-2");
   check("N4 gleiche Marke: nicht neu geprüft", meldungen.length === n);
-  anz.pruefe(["Grabhuegel"], "marke-3");
+  anz.pruefe(() => ["Grabhuegel"], "marke-3");
   check("N4 KiPine3 wieder entfernt: Meldung weg", meldungen.at(-1) === null);
 
   // Fall 5: Manifest kommt verspätet: Meldung erst an, dann aus.
@@ -143,6 +145,56 @@ console.log("=== K5.5a N2 Quellen ===");
   const da = await ladeBewuchsQuellen(["KiPine3"], io(async () => VOLL));
   anz2.neuerBericht(da);
   check("N4 Manifest kommt: Meldung aus", ms.at(-1) === null && ms.length === 2);
+}
+{
+  // N5 F1: a hall the module registry builds at runtime needs no manifest entry.
+  const saal = "Gen_StoneVaultHall5x5";
+  const eintrag = { kit: KIT_NAME, name: saal, zellenX: 5, zellenZ: 5, pfeilerRaster: 2, gewicht: 0.4, tris: 12 * (2 + 16 * 25 + 3 * 16), erzeugt: "2026-09-04T10:00:00.000Z" };
+  registerRegistryEntry(eintrag);
+  check("N5 Saal ist ein eigenes Modell mit extern-Hülle (die Probe ist scharf)", istEigenesModell(saal) && freiflaechenHuellen()(saal)?.quelle === "extern");
+  check("N5 Saal braucht keinen Manifest-Eintrag", brauchtManifestEintrag(saal) === false);
+  const VOLL = JSON.stringify({ modelle: { Grabhuegel: { breite: 1, hoehe: 1, tiefe: 1, huelle: { min: [0, 0, 0], max: [1, 1, 1] } } } });
+  const io = (text: string) => ({ holeManifest: async () => text, ladeRegistry: async () => ({ geladen: 0, meldungen: [] as string[] }), bekannt: () => true, brauchtManifest: brauchtManifestEintrag });
+  const b = await ladeBewuchsQuellen([saal, "Rock_4"], io(VOLL));
+  check("N5 Saal im Entwurf, volles Manifest: keine Meldung", abweichungsText(b) === null, String(abweichungsText(b)));
+  // Gegenprobe: gekürztes Manifest meldet weiter (echtes Prädikat: KiPine3 ist ein eigenes Modell ohne Store-Hülle).
+  const gegen = await ladeBewuchsQuellen([saal, "KiPine3"], io(VOLL));
+  const tg = abweichungsText(gegen);
+  check("N5 Gegenprobe: gekürztes Manifest meldet weiter, ohne den Saal", brauchtManifestEintrag("KiPine3") && tg !== null && tg.includes("KiPine3") && !tg.includes(saal), String(tg));
+}
+{
+  // N5 F2/F5/F3: Takt.
+  const fs = await ladeBewuchsQuellen([], { holeManifest: async () => MANIFEST, ladeRegistry: async () => ({ geladen: 0, meldungen: [] as string[] }), bekannt: () => true });
+  const meldungen: Array<string | null> = [];
+  const fehler: unknown[] = [];
+  const brauch = (n: string): boolean => n === "KiPine3";
+  const anz = new QuellenAnzeige(fs, brauch, (t) => meldungen.push(t), (f) => fehler.push(f));
+  let gelesen = 0;
+  const namen = (l: string[]) => () => { gelesen++; return l; };
+  anz.pruefe(namen(["KiPine3"]), "m1");
+  check("N5 F2 erste Marke: Entwurf gelesen", gelesen === 1);
+  for (let i = 0; i < 20; i++) anz.pruefe(namen(["KiPine3"]), "m1");
+  check("N5 F2 gleiche Marke: Entwurf nicht gelesen (20 Takte, 0 Aufrufe)", gelesen === 1, String(gelesen));
+  // F3: Marke wechselt, Text bleibt: keine weitere Meldung.
+  const n = meldungen.length;
+  for (let i = 0; i < 10; i++) anz.pruefe(namen(["KiPine3"]), `z${i}`);
+  check("N5 F3 Marke wechselt, Text gleich: setze nicht erneut gerufen", meldungen.length === n && meldungen.at(-1) !== null, `${meldungen.length - n} Aufrufe`);
+  anz.pruefe(namen([]), "z-leer");
+  check("N5 F3 Text ändert sich: gemeldet", meldungen.length === n + 1 && meldungen.at(-1) === null);
+  // F5: kaputter Entwurf.
+  const kaputt = (): string[] => { throw new SyntaxError("Unexpected end of JSON input"); };
+  let geworfen = 0;
+  for (let i = 0; i < 20; i++) { try { anz.pruefe(kaputt, "kaputt-1"); } catch { geworfen++; } }
+  check("N5 F5 kaputter Entwurf, gleiche Marke: wirft nie, eine Warnung", geworfen === 0 && fehler.length === 1, `geworfen ${geworfen}, Warnungen ${fehler.length}`);
+  try { anz.pruefe(kaputt, "kaputt-2"); } catch { geworfen++; }
+  check("N5 F5 neue Marke, weiter kaputt: eine weitere Warnung", geworfen === 0 && fehler.length === 2);
+  const anz3 = new QuellenAnzeige(fs, brauch, () => {}, (f) => fehler.push(f));
+  const v = fehler.length;
+  for (let i = 0; i < 20; i++) anz3.pruefe(kaputt, null);
+  check("N5 F5 ohne Marke: höchstens eine Warnung bis es wieder lesbar ist", fehler.length === v + 1, `${fehler.length - v}`);
+  anz3.pruefe(namen(["KiPine3"]), null);
+  anz3.pruefe(kaputt, null);
+  check("N5 F5 nach einem guten Lesen meldet der nächste Fehler wieder", fehler.length === v + 2);
 }
 {
   // N3 B4: die stehende Meldung läuft nicht ab und wird nicht verdrängt.

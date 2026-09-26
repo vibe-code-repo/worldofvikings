@@ -254,23 +254,40 @@ aufraeumen() {
       echo "Letzte Journalzeilen von wov-server seit Stoppbeginn:" >&2
       printf '%s\n' "$STOPP_JOURNAL" | tail -n 15 | sed 's/^/  /' >&2
     fi
-    if [ "${WOV_UPDATE_STUFE2:-}" = "1" ]; then
-      echo "Der Pull lief schon vor dem Stoppen: der Baum steht auf dem NEUEN Stand," >&2
-      echo "npm ci und Build liefen nicht. Zuletzt ausgerollt (VERSION): ${alt:-(unbekannt)}" >&2
-    fi
-    echo "Die Dienste werden wieder gestartet; die Welt auf der Platte ist der letzte" >&2
-    echo "erfolgreiche Speicherstand. Ursache klären (journalctl -u wov-server), dann" >&2
-    echo "erneut: sudo tools/wov-update.sh" >&2
-    systemctl reset-failed "${DIENSTE[@]/%/.service}" >/dev/null 2>&1 || true
-    if dienste_starten >&2; then
-      if ( gesundheit_pruefen ) >&2; then
-        echo "Gesundheitsprüfung: $INSTANZ läuft wieder." >&2
-      else
-        echo "Gesundheitsprüfung GESCHEITERT — $INSTANZ läuft womöglich nicht:" >&2
-        echo "  systemctl status wov-server   journalctl -u wov-server -n 60" >&2
+    # Der Pull lief schon (Stufe 1), npm ci und Build nicht: neuer Baum mit altem
+    # node_modules und altem Build darf nicht anlaufen. Wie im Rückweg "zurueck":
+    # git checkout -B main <Commit>. Leer oder gleich HEAD (etwa im zurueck-Lauf): nichts.
+    local zurueck_ok=1 kopf=""
+    if [ "${WOV_UPDATE_STUFE2:-}" = "1" ] && [ -n "${WOV_UPDATE_VORHER:-}" ]; then
+      kopf="$(git rev-parse HEAD 2>/dev/null || true)"
+      if [ "$kopf" != "$WOV_UPDATE_VORHER" ]; then
+        if git checkout -B main "$WOV_UPDATE_VORHER" >&2; then
+          echo "Der Pull lief schon vor dem Stoppen. Der Baum wurde ZURÜCKGESETZT:" >&2
+          echo "  von ${kopf:-(unbekannt)} auf $WOV_UPDATE_VORHER (npm ci und Build liefen nicht)." >&2
+        else
+          zurueck_ok=0
+          echo "FEHLER: Der Baum ließ sich nicht auf $WOV_UPDATE_VORHER zurücksetzen." >&2
+          echo "Er steht auf dem NEUEN Stand ${kopf:-(unbekannt)} mit altem node_modules;" >&2
+          echo "die Dienste werden NICHT gestartet. Rückweg von Hand:" >&2
+          echo "  cd $WURZEL && git checkout -B main $WOV_UPDATE_VORHER && npm ci --include=dev && systemctl start wov.target" >&2
+        fi
       fi
-    else
-      echo "Nicht alle Dienste liessen sich starten (siehe FEHLER oben)." >&2
+    fi
+    if [ "$zurueck_ok" = "1" ]; then
+      echo "Die Dienste werden wieder gestartet; die Welt auf der Platte ist der letzte" >&2
+      echo "erfolgreiche Speicherstand. Ursache klären (journalctl -u wov-server), dann" >&2
+      echo "erneut: sudo tools/wov-update.sh" >&2
+      systemctl reset-failed "${DIENSTE[@]/%/.service}" >/dev/null 2>&1 || true
+      if dienste_starten >&2; then
+        if ( gesundheit_pruefen ) >&2; then
+          echo "Gesundheitsprüfung: $INSTANZ läuft wieder." >&2
+        else
+          echo "Gesundheitsprüfung GESCHEITERT — $INSTANZ läuft womöglich nicht:" >&2
+          echo "  systemctl status wov-server   journalctl -u wov-server -n 60" >&2
+        fi
+      else
+        echo "Nicht alle Dienste liessen sich starten (siehe FEHLER oben)." >&2
+      fi
     fi
   elif [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ] \
     && [ "$DIENSTE_LAUFEN" != "1" ] && [ "$NEUSTART_BEI_ABBRUCH" = "1" ] \

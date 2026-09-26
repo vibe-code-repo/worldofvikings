@@ -85,6 +85,12 @@ Hinweise:
   Der Lauf endet am Schluss mit Exit 1 (Dienst „failed“, der Timer läuft
   weiter), damit der Ausfall im Journal und in `systemctl status` sichtbar ist.
   Das gilt auch für eine unlesbare Weltdatei oder einen Renderfehler.
+  Scheitert erst das Ablegen mitten im Paar Bild/Beschreibung (volle Platte,
+  E/A-Fehler), wird die zuletzt vollständig veröffentlichte Fassung
+  wiederhergestellt und `karten.json` zeigt auf sie; ein Mischzustand aus neuem
+  Bild und alter Beschreibung bleibt nie stehen. Ändert sich nur die Breite, rendert
+  der Lauf alle Welten in einem Durchgang neu (Exit 0).
+  Ein leeres `WOV_KARTEN_BREITE=` (etwa ein leeres `Environment=`) gilt als nicht gesetzt (4096).
 - Alte `*.tmp` in `/var/lib/wov-karten` und `oeffentlich/` werden beim Start gelöscht.
 - Bekannte Grenze: Bild und Beschreibung werden nacheinander abgelegt und je bis
   zu 300 s vom Browser gecacht; nach einer Weltänderung kann die
@@ -102,7 +108,7 @@ Hinweise:
   entfernt `<instanz>.webp` und `<instanz>.json` aus `oeffentlich/` und nimmt
   die Welt aus `karten.json` (Repo-Rückfall, Warnung im Journal). Der Zähler
   ist die Datei `/var/lib/wov-karten/<instanz>.fehlt`; sie wird gelöscht,
-  sobald die Weltdatei wieder da ist. `--nur-rendern` zählt nicht. Grund:
+  sobald die Weltdatei wieder da ist (auch bei `--nur-rendern`). `--nur-rendern` zählt nicht mit. Grund:
   Ein einzelner Lauf während eines Checkouts oder nach einem Tippfehler soll
   die Karte nicht sofort von der Webseite nehmen.
 - Der alte Schlüssel `/root/.ssh/wov_karten` und `karten-empfang` auf CT 103

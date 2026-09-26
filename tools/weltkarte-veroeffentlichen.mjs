@@ -55,6 +55,10 @@
  * Überschreibbar (für Proben): WOV_KARTEN_ARBEIT, WOV_KARTEN_AUSGABE und
  * WOV_KARTEN_SPERRE (Standard /run/wov-karten/sperre). ALLE DREI setzen: Fehlt
  * die dritte, nimmt die Probe die echte Sperre des Dienstes.
+ * Nur für Proben außerdem WOV_KARTEN_PROBE_ABLEGEFEHLER=<instanz>.webp|.json:
+ * erzwingt einen Ablegefehler bei genau dieser Datei. Er wirkt NUR, wenn
+ * WOV_KARTEN_AUSGABE ausdrücklich gesetzt ist (sonst wird er ignoriert und beim
+ * Start gewarnt); ein anderer Wert endet mit Exit 1. Ist er aktiv, warnt der Start.
  *
  * Lauf:  node tools/weltkarte-veroeffentlichen.mjs [--neu] [--nur-rendern]
  *   --neu          rendert auch, wenn sich nichts geändert hat
@@ -111,6 +115,23 @@ const neu = process.argv.includes('--neu');
 const nurRendern = process.argv.includes('--nur-rendern');
 
 const log = (...t) => console.log('[karten]', ...t);
+
+// Probenschalter (siehe Dateikopf): nur mit ausdrücklich gesetzter AUSGABE, nur mit gültigem Wert.
+const PROBE_ABLEGEFEHLER = (() => {
+  const wert = process.env.WOV_KARTEN_PROBE_ABLEGEFEHLER;
+  if (!wert) return null;
+  if (!process.env.WOV_KARTEN_AUSGABE) {
+    log('WARNUNG: WOV_KARTEN_PROBE_ABLEGEFEHLER ist gesetzt, wirkt aber nur mit ausdrücklich gesetztem WOV_KARTEN_AUSGABE — ignoriert');
+    return null;
+  }
+  const gueltig = INSTANZEN.flatMap((i) => [`${i}.webp`, `${i}.json`]);
+  if (!gueltig.includes(wert)) {
+    console.error(`[karten] WOV_KARTEN_PROBE_ABLEGEFEHLER="${wert}" ist ungültig — erlaubt: ${gueltig.join(', ')}`);
+    process.exit(1);
+  }
+  log(`WARNUNG: Probenschalter aktiv — das Ablegen von ${wert} wird absichtlich scheitern`);
+  return wert;
+})();
 
 mkdirSync(ARBEIT, { recursive: true });
 mkdirSync(AUSGABE, { recursive: true });
@@ -254,7 +275,7 @@ function ablegen(datei, inhalt = readFileSync(join(ARBEIT, datei))) {
   if (existsSync(ziel) && readFileSync(ziel).equals(inhalt)) return false;
   // Nur für die Probe: erzwingt einen Ablegefehler für genau diese Datei, NACHDEM die
   // vorherige des Paares schon liegt (WOV_KARTEN_PROBE_ABLEGEFEHLER=<instanz>.json).
-  if (process.env.WOV_KARTEN_PROBE_ABLEGEFEHLER === datei) {
+  if (PROBE_ABLEGEFEHLER === datei) {
     throw new Error(`Probe: erzwungener Ablegefehler bei ${datei}`);
   }
   atomarSchreiben(ziel, inhalt);
@@ -444,8 +465,11 @@ if (nurRendern) {
     if (!s.ablegen) continue; // bleibt, wie veröffentlicht
     // Bild und Beschreibung sind ein Paar. Scheitert das Ablegen mitten darin, wird
     // die zuletzt vollständig veröffentlichte Fassung wiederhergestellt (Bild und
-    // Beschreibung) und der Eintrag in karten.json zeigt auf sie; ein Mischzustand
-    // aus neuem Bild und alter Beschreibung bleibt nie stehen.
+    // Beschreibung) und der Eintrag in karten.json zeigt auf sie. Scheitert die
+    // Rücknahme selbst (voller Datenträger) oder endet der Prozess hart mitten im Paar
+    // (SIGKILL, Absturz), kann ein Mischzustand stehen bleiben; der nächste Lauf heilt
+    // ihn (Exit 1 und Log zeigen es an). Gleiches gilt, wenn erst das Schreiben von
+    // karten.json scheitert: Übersicht alt, Paar neu, bis zum nächsten Lauf.
     const dateien = [`${s.instanz}.webp`, `${s.instanz}.json`];
     const alt = dateien.map((d) => {
       try {

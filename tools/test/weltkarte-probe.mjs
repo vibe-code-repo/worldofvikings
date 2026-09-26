@@ -15,7 +15,7 @@
  * Temp-Pfade. Das echte /var/lib/wov-karten und wov-web/build bleiben
  * unberührt. Die Breite kommt über WOV_KARTEN_BREITE (klein 256, groß 4096).
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -64,18 +64,58 @@ function lauf(...argumente) {
   return laufMit({}, ...argumente);
 }
 
-function laufMit(umgebung, ...argumente) {
-  const e = spawnSync(process.execPath, [SKRIPT(), ...argumente], {
-    env: { ...UMGEBUNG(), ...umgebung },
-    encoding: "utf-8",
-    timeout: 600_000,
+/*
+  Kindprozesse laufen asynchron und je in einer eigenen Prozessgruppe. So kann der
+  Signal-Handler unten sofort die ganze Gruppe (Veröffentlicher samt tsx-Renderer)
+  beenden, statt bis zum Ende eines blockierenden Kindlaufs zu warten (N1-1).
+*/
+const kinder = new Set();
+
+function starte(befehl, argumente, umgebung = process.env) {
+  return new Promise((ok) => {
+    const kind = spawn(befehl, argumente, {
+      env: umgebung,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    kinder.add(kind);
+    let aus = "";
+    let fehl = "";
+    kind.stdout.on("data", (d) => (aus += d));
+    kind.stderr.on("data", (d) => (fehl += d));
+    const frist = setTimeout(() => kill(kind), 600_000);
+    kind.on("close", (status) => {
+      clearTimeout(frist);
+      kinder.delete(kind);
+      ok({ status, aus, fehl });
+    });
   });
-  if (e.stdout) process.stdout.write(e.stdout);
-  if (e.stderr) process.stderr.write(e.stderr);
+}
+
+function kill(kind) {
+  try {
+    process.kill(-kind.pid, "SIGKILL");
+  } catch {
+    try {
+      kind.kill("SIGKILL");
+    } catch {
+      /* schon weg */
+    }
+  }
+}
+
+async function laufMit(umgebung, ...argumente) {
+  const e = await starte(process.execPath, [SKRIPT(), ...argumente], {
+    ...UMGEBUNG(),
+    ...umgebung,
+  });
+  if (e.aus) process.stdout.write(e.aus);
+  if (e.fehl) process.stderr.write(e.fehl);
   return e.status;
 }
 
 function aufraeumen() {
+  for (const kind of kinder) kill(kind);
   for (const pid of sleepPids) {
     try {
       process.kill(pid);
@@ -86,8 +126,9 @@ function aufraeumen() {
   rmSync(TEMP, { recursive: true, force: true });
 }
 
-// N1-A6: Auch bei einem Abbruch (Zeitlimit des Runners, Strg-C) das Temp-Verzeichnis
-// entfernen. Der Handler läuft, sobald ein gerade laufender spawnSync zurückkehrt.
+// N1-A6/N-1: Auch bei einem Abbruch (Zeitlimit des Runners, Strg-C) die Kindprozesse
+// beenden und das Temp-Verzeichnis entfernen. Der Handler läuft sofort, weil die Probe
+// nirgends blockierend auf ein Kind wartet.
 for (const signal of ["SIGTERM", "SIGINT"]) {
   process.on(signal, () => {
     aufraeumen();
@@ -115,9 +156,38 @@ try {
   for (const i of gefunden)
     cpSync(join(REPO, "server/data/welten", `${i}.json`), join(welten, `${i}.json`));
 
+  // Renderer: nur Dezimalziffern, 256 bis 8192 (F2d, N1-A5). Laufen parallel zu Lauf 0/1;
+  // ohne Regex im Renderer würde " 256" bzw. "1e3" tatsächlich rendern (Exit 0).
+  const rendererProben = ["100", " 256", "1e3", "0x100"].map((b) =>
+    starte(
+      join(WURZEL, "node_modules/.bin/tsx"),
+      [join(WURZEL, "tools/weltkarte-rendern.ts"), "dev", join(TEMP, `rbreit-${b.trim()}`), b],
+      process.env,
+    ).then((e) => ({ b, e })),
+  );
+
+  // 0. N-4 (M11): Ablegefehler bei der ERSTEN Veröffentlichung, es gibt kein altes Paar.
+  // Die Welten werden hier gerendert; Lauf 1 veröffentlicht sie danach ohne neues Rendern.
+  console.log("\n— Lauf 0 (Ablegefehler ohne Vorgänger-Paar) —");
+  const status0 = await laufMit({ WOV_KARTEN_PROBE_ABLEGEFEHLER: "dev.json" });
+  pruefe(
+    status0 === 1,
+    `N2-M11: Ablegefehler bei der ersten Veröffentlichung, Exit 1 (Status ${status0})`,
+  );
+  pruefe(
+    !existsSync(join(AUSGABE, "dev.webp")) && !existsSync(join(AUSGABE, "dev.json")),
+    "N2-M11: das neue Bild ist wieder entfernt, kein Mischzustand ohne Vorgänger",
+  );
+  const ue0 = lies(join(AUSGABE, "karten.json"));
+  pruefe(
+    ue0.welten.map((w) => w.instanz).join() === gefunden.filter((i) => i !== "dev").join() &&
+      existsSync(join(AUSGABE, "live.webp")),
+    "N2-M11: karten.json führt nur die veröffentlichte Welt (live)",
+  );
+
   // 1. Erster Lauf: alles neu
-  console.log("\n— Lauf 1 (leer) —");
-  pruefe(lauf() === 0, "Lauf 1 endet mit Exit 0");
+  console.log("\n— Lauf 1 (Ablegefehler behoben) —");
+  pruefe((await lauf()) === 0, "Lauf 1 endet mit Exit 0");
   const ue1 = lies(join(AUSGABE, "karten.json"));
   const alter = Date.now() - Date.parse(ue1.erzeugt);
   pruefe(
@@ -146,7 +216,7 @@ try {
 
   // 2. Zweiter Lauf ohne Änderung: kein Rendern
   console.log("\n— Lauf 2 (unverändert) —");
-  pruefe(lauf() === 0, "Lauf 2 endet mit Exit 0");
+  pruefe((await lauf()) === 0, "Lauf 2 endet mit Exit 0");
   pruefe(
     lies(join(AUSGABE, "dev.json")).gerendert === dev1,
     "dev: Zeitstempel unverändert (nicht neu gerendert)",
@@ -165,7 +235,7 @@ try {
   const devDoku = lies(join(welten, "dev.json"));
   devDoku.name = `${devDoku.name} (Probe)`;
   writeFileSync(join(welten, "dev.json"), JSON.stringify(devDoku));
-  pruefe(lauf() === 0, "Lauf 3 endet mit Exit 0");
+  pruefe((await lauf()) === 0, "Lauf 3 endet mit Exit 0");
   const dev3 = lies(join(AUSGABE, "dev.json"));
   pruefe(dev3.gerendert !== dev1, "dev: neu gerendert");
   pruefe(dev3.name.endsWith("(Probe)"), "dev: Ausgabe zeigt die geänderte Welt");
@@ -188,15 +258,15 @@ try {
   const fremd = spawn("sleep", ["120"], { stdio: "ignore" });
   sleepPids.push(fremd.pid);
   writeFileSync(SPERRE, String(fremd.pid));
-  pruefe(lauf() === 0, "N1-1b: Sperre einer fremden lebenden PID wird übernommen (Exit 0)");
+  pruefe((await lauf()) === 0, "N1-1b: Sperre einer fremden lebenden PID wird übernommen (Exit 0)");
   pruefe(!existsSync(SPERRE), "Sperre nach dem Lauf gelöst");
   writeFileSync(SPERRE, "999999999"); // toter Prozess: wird übernommen
-  pruefe(lauf() === 0, "Sperre einer toten PID wird übernommen (Exit 0)");
+  pruefe((await lauf()) === 0, "Sperre einer toten PID wird übernommen (Exit 0)");
   writeFileSync(devBild, ganz.subarray(0, halb));
   writeFileSync(join(ARBEIT, "dev.webp.1.tmp"), "rest");
   writeFileSync(join(AUSGABE, "dev.webp.1.tmp"), "rest");
   writeFileSync(SPERRE, String(fremd.pid));
-  pruefe(lauf() === 0, "F1: Lauf mit abgeschnittenem Bild endet mit Exit 0");
+  pruefe((await lauf()) === 0, "F1: Lauf mit abgeschnittenem Bild endet mit Exit 0");
   const meta3b = await sharp(join(AUSGABE, "dev.webp")).metadata();
   const roh3b = await sharp(join(AUSGABE, "dev.webp")).raw().toBuffer();
   pruefe(
@@ -220,7 +290,9 @@ try {
     const erster = spawn(process.execPath, [SKRIPT(), "--neu"], {
       env: UMGEBUNG(),
       stdio: "ignore",
+      detached: true,
     });
+    kinder.add(erster);
     const ersterEnde = new Promise((ok) => erster.on("close", (code) => ok(code)));
     for (let i = 0; i < 150 && !existsSync(SPERRE); i++)
       await new Promise((r) => setTimeout(r, 100));
@@ -229,7 +301,7 @@ try {
       "erster Lauf hält die Sperre mit seiner PID",
     );
     const vorZweitem = readFileSync(join(AUSGABE, "karten.json"), "utf-8");
-    pruefe(lauf() === 75, "N1-1c: zweiter Lauf endet mit Status 75");
+    pruefe((await lauf()) === 75, "N1-1c: zweiter Lauf endet mit Status 75");
     pruefe(
       readFileSync(join(AUSGABE, "karten.json"), "utf-8") === vorZweitem,
       "N1-1c: zweiter Lauf ändert nichts",
@@ -244,7 +316,7 @@ try {
   const vorBreite = readFileSync(join(AUSGABE, "karten.json"), "utf-8");
   for (const schlecht of ["255", "8193", "abc", "0", "-4096", "4096.5", "1e3"]) {
     pruefe(
-      laufMit({ WOV_KARTEN_BREITE: schlecht }) === 1,
+      (await laufMit({ WOV_KARTEN_BREITE: schlecht })) === 1,
       `F2d: WOV_KARTEN_BREITE=${schlecht} endet mit Exit 1`,
     );
   }
@@ -253,12 +325,9 @@ try {
     "F2d: ungültige Breite ändert nichts",
   );
   pruefe(!existsSync(SPERRE), "F2d: keine Sperre zurückgelassen");
-  const rbreit = spawnSync(
-    join(WURZEL, "node_modules/.bin/tsx"),
-    [join(WURZEL, "tools/weltkarte-rendern.ts"), "dev", join(TEMP, "rbreit"), "100"],
-    { encoding: "utf-8" },
-  );
-  pruefe(rbreit.status !== 0, "F2d: der Renderer lehnt Breite 100 ab");
+  for (const { b, e } of await Promise.all(rendererProben)) {
+    pruefe(e.status !== 0, `F2d/N1-A5: der Renderer lehnt Breite "${b}" ab (Status ${e.status})`);
+  }
 
   // 3e. F2 (b): Fällt dev aus, bleibt dev stehen und live wird trotzdem veröffentlicht
   console.log("\n— Lauf 3e (dev-Weltdatei kaputt, live geändert) —");
@@ -269,7 +338,7 @@ try {
   liveDoku.name = `${liveDoku.name} (F2)`;
   writeFileSync(join(welten, "live.json"), JSON.stringify(liveDoku));
   writeFileSync(join(welten, "dev.json"), "{kaputt");
-  const status3e = lauf();
+  const status3e = await lauf();
   pruefe(
     status3e === 1,
     `F2b: Lauf mit ausgefallener dev-Welt endet mit Exit 1 (Status ${status3e})`,
@@ -290,20 +359,20 @@ try {
     "F2b: dev behält seine bisherigen öffentlichen Dateien (byte-gleich)",
   );
   writeFileSync(join(welten, "dev.json"), devText);
-  pruefe(lauf() === 0, "F2b: nach Wiederherstellung endet der Lauf mit Exit 0");
+  pruefe((await lauf()) === 0, "F2b: nach Wiederherstellung endet der Lauf mit Exit 0");
   pruefe(!existsSync(SPERRE), "Sperre nach dem Lauf gelöst");
 
   // 4. F2 (c): Ohne live.json — Karenz: erster Lauf behält live, zweiter entfernt es
   console.log("\n— Lauf 4 (ohne live.json, Karenz) —");
   const liveText = readFileSync(join(welten, "live.json"), "utf-8");
   rmSync(join(welten, "live.json"));
-  pruefe(lauf("--nur-rendern") === 0, "N1-4: --nur-rendern endet mit Exit 0");
+  pruefe((await lauf("--nur-rendern")) === 0, "N1-4: --nur-rendern endet mit Exit 0");
   pruefe(
     existsSync(join(AUSGABE, "live.webp")) && existsSync(join(AUSGABE, "live.json")),
     "N1-4: --nur-rendern löscht nichts in der Ausgabe",
   );
   pruefe(!existsSync(join(ARBEIT, "live.fehlt")), "F2c: --nur-rendern zählt nicht");
-  pruefe(lauf() === 0, "F2c: erster Lauf ohne live.json endet mit Exit 0");
+  pruefe((await lauf()) === 0, "F2c: erster Lauf ohne live.json endet mit Exit 0");
   pruefe(
     existsSync(join(AUSGABE, "live.webp")) && existsSync(join(AUSGABE, "live.json")),
     "F2c: erster Lauf: live-Dateien bleiben in der Ausgabe",
@@ -316,19 +385,19 @@ try {
   // N1-A4: Weltdatei wieder da, nur ein --nur-rendern-Lauf: der Zähler wird trotzdem zurückgesetzt
   writeFileSync(join(welten, "live.json"), liveText);
   pruefe(existsSync(join(ARBEIT, "live.fehlt")), "N1-A4: Zähler steht nach dem ersten Fehllauf");
-  pruefe(lauf("--nur-rendern") === 0, "N1-A4: --nur-rendern mit vorhandener Welt, Exit 0");
+  pruefe((await lauf("--nur-rendern")) === 0, "N1-A4: --nur-rendern mit vorhandener Welt, Exit 0");
   pruefe(!existsSync(join(ARBEIT, "live.fehlt")), "N1-A4: --nur-rendern setzt den Zähler zurück");
   // Weltdatei kommt zurück: der Zähler beginnt von vorn
   writeFileSync(join(welten, "live.json"), liveText);
-  pruefe(lauf() === 0, "F2c: Weltdatei wieder da, Exit 0");
+  pruefe((await lauf()) === 0, "F2c: Weltdatei wieder da, Exit 0");
   pruefe(!existsSync(join(ARBEIT, "live.fehlt")), "F2c: Zähler zurückgesetzt");
   rmSync(join(welten, "live.json"));
-  pruefe(lauf() === 0, "F2c: erneut fehlend, erster Lauf Exit 0");
+  pruefe((await lauf()) === 0, "F2c: erneut fehlend, erster Lauf Exit 0");
   pruefe(
     existsSync(join(AUSGABE, "live.webp")),
     "F2c: nach Zurücksetzen bleibt live wieder einen Lauf",
   );
-  pruefe(lauf() === 0, "F2c: zweiter Lauf in Folge endet mit Exit 0");
+  pruefe((await lauf()) === 0, "F2c: zweiter Lauf in Folge endet mit Exit 0");
   pruefe(
     !existsSync(join(AUSGABE, "live.webp")) && !existsSync(join(AUSGABE, "live.json")),
     "F2c: zweiter Lauf: live-Dateien aus der Ausgabe entfernt",
@@ -343,7 +412,7 @@ try {
   // N1-A1/A3: Breitenwechsel, Welt unverändert: ein einziger Lauf rendert neu und legt die neue Breite ab
   console.log("\n— Lauf 5 (Breite wechselt, Welt gleich) —");
   const NEU = GROSS ? 2048 : BREITE * 2; // groß: verkleinern, 8192 wäre zu schwer
-  const status5 = laufMit({ WOV_KARTEN_BREITE: String(NEU) });
+  const status5 = await laufMit({ WOV_KARTEN_BREITE: String(NEU) });
   pruefe(
     status5 === 0,
     `N1-A1: Breitenwechsel ${BREITE}→${NEU} in einem Lauf, Exit 0 (Status ${status5})`,
@@ -363,7 +432,7 @@ try {
   const dokuA2 = lies(join(welten, "dev.json"));
   dokuA2.regions[0].shape.radius = dokuA2.regions[0].shape.radius * 3; // das Bild ändert sich
   writeFileSync(join(welten, "dev.json"), JSON.stringify(dokuA2));
-  const status6 = laufMit({
+  const status6 = await laufMit({
     WOV_KARTEN_BREITE: String(NEU),
     WOV_KARTEN_PROBE_ABLEGEFEHLER: "dev.json",
   });
@@ -382,7 +451,7 @@ try {
   );
   pruefe(!existsSync(SPERRE), "Sperre nach dem Ablegefehler gelöst");
   pruefe(
-    laufMit({ WOV_KARTEN_BREITE: String(NEU) }) === 0,
+    (await laufMit({ WOV_KARTEN_BREITE: String(NEU) })) === 0,
     "N1-A2: Lauf ohne Fehler heilt, Exit 0",
   );
   pruefe(

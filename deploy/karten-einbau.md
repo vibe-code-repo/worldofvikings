@@ -87,8 +87,12 @@ Hinweise:
   Das gilt auch für eine unlesbare Weltdatei oder einen Renderfehler.
   Scheitert erst das Ablegen mitten im Paar Bild/Beschreibung (volle Platte,
   E/A-Fehler), wird die zuletzt vollständig veröffentlichte Fassung
-  wiederhergestellt und `karten.json` zeigt auf sie; ein Mischzustand aus neuem
-  Bild und alter Beschreibung bleibt nie stehen. Ändert sich nur die Breite, rendert
+  wiederhergestellt und `karten.json` zeigt auf sie. Scheitert die Rücknahme
+  selbst (voller Datenträger) oder bricht der Prozess hart ab (SIGKILL, Absturz,
+  Stromausfall), kann ein Mischzustand aus neuem Bild und alter Beschreibung
+  stehen bleiben, ebenso „Übersicht alt, Paar neu“, wenn erst `karten.json` nicht
+  geschrieben werden kann; der **nächste Lauf heilt** den Zustand (Exit 1 und Zeile
+  `FEHLER` im Journal zeigen es an). Ändert sich nur die Breite, rendert
   der Lauf alle Welten in einem Durchgang neu (Exit 0).
   Ein leeres `WOV_KARTEN_BREITE=` (etwa ein leeres `Environment=`) gilt als nicht gesetzt (4096).
 - Alte `*.tmp` in `/var/lib/wov-karten` und `oeffentlich/` werden beim Start gelöscht.

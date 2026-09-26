@@ -262,6 +262,11 @@ function globZuRegex(muster) {
     const c = ohneAnfang[i];
     if (c === '*') {
       if (ohneAnfang[i + 1] === '*') {
+        // `**` means "any folders" only as a whole path segment; inside a segment
+        // picomatch (Vitest) reads it as `*`, so this witness refuses to guess.
+        const vorn = i === 0 || ohneAnfang[i - 1] === '/';
+        const hinten = i + 2 === ohneAnfang.length || ohneAnfang[i + 2] === '/';
+        if (!vorn || !hinten) return null;
         if (ohneAnfang[i + 2] === '/') {
           r += '(?:.*/)?';
           i += 2;
@@ -356,8 +361,8 @@ function vitestWebBefunde(wurzel, pfade) {
   } catch {
     /* reported below */
   }
-  if (typeof testSkript !== 'string' || !/\bvitest\b/.test(testSkript)) {
-    gefunden.push('vitest-web: wov-web/package.json hat kein Skript `test`, das vitest aufruft');
+  if (typeof testSkript !== 'string' || !/^(svelte-kit sync && )?vitest run$/.test(testSkript.trim())) {
+    gefunden.push('vitest-web: das Skript `test` in wov-web/package.json ist nicht genau `vitest run` (auch `svelte-kit sync && vitest run`): Pfade, Filter, `--config`, `|| true` oder `echo` lassen Tests still ausfallen');
   }
 
   const ci = lies('.github/workflows/ci.yml');
@@ -827,8 +832,30 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     rmSync(join(wegwerf, '.github/workflows/ci.yml'));
     pruefe(enthaelt(vitestMit(vx), 'ci.yml fehlt'), 'ci.yml fehlt ⇒ Befund');
     vitestBaum({ paket: '{"scripts":{"test":"echo ok"}}' });
-    pruefe(enthaelt(vitestMit(vx), 'kein Skript `test`, das vitest'), '`npm test` in wov-web ruft kein vitest mehr ⇒ Befund');
+    pruefe(enthaelt(vitestMit(vx), 'nicht genau `vitest run`'), '`npm test` in wov-web ruft kein vitest mehr ⇒ Befund');
 
+    for (const skript of [
+      'svelte-kit sync && vitest run src/lib/i18n',
+      'svelte-kit sync && vitest run || true',
+      'echo vitest',
+      'vitest run --config vitest.eng.config.ts',
+      'vitest run --exclude src/lib/losfahren.test.ts',
+      'vitest run; true',
+      'vitest',
+    ]) {
+      vitestBaum({ paket: JSON.stringify({ scripts: { test: skript } }) });
+      pruefe(enthaelt(vitestMit(vx, vy), 'nicht genau `vitest run`'), `Testskript \`${skript}\` ⇒ Befund`);
+    }
+    for (const skript of ['vitest run', 'svelte-kit sync && vitest run']) {
+      vitestBaum({ paket: JSON.stringify({ scripts: { test: skript } }) });
+      pruefe(vitestMit(vx, vy).length === 0, `Testskript \`${skript}\` ⇒ kein Befund`);
+    }
+    for (const muster of ['src/lib/**.test.ts', 'src/**.test.ts', 'src/**a/x.test.ts', 'src/a**/x.test.ts']) {
+      vitestBaum({ config: KONFIG(`['${muster}']`) });
+      pruefe(enthaelt(vitestMit(vx), 'nicht lesbar für diesen Zeugen'), `\`**\` innerhalb eines Segments (${muster}) ⇒ Befund statt Vertrauen`);
+    }
+    vitestBaum({ config: KONFIG("['**/*.test.ts']") });
+    pruefe(vitestMit(vx, vy).length === 0, '`**` als ganzes Segment (`**/*.test.ts`) wird gelesen');
     vitestBaum();
     const ohneY = mit([ausnahmeB, vx]);
     pruefe(enthaelt(ohneY, 'verwaist') && enthaelt(ohneY, 'i18n/y.test.ts'), 'eine neue `*.test.ts` in wov-web ohne Eintrag ⇒ „verwaist"');

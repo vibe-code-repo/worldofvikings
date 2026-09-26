@@ -204,17 +204,26 @@ describe.concurrent('a) Zeitlimit', () => {
     expect(m.ms).toBeLessThanOrEqual(GUARD);
   });
 
-  it('shoreStatus behaelt seine 4 s (Signal mit 4000 ms angefordert)', async () => {
-    // A real 4 s wait would eat the time budget of the suite; the witness is
-    // the limit the call asks its signal for, and it must be the 4 s and
-    // not the default. The abort itself is proven by the cases above.
+  it('shoreStatus behaelt seine 4 s (das 4-s-Signal kommt bei fetch an)', async () => {
+    // A real 4 s wait would eat the time budget of the suite. Witness instead:
+    // the signal built from `AbortSignal.timeout(4000)` is the very one handed
+    // to `fetch`, so the call really carries that limit. The abort itself is
+    // proven by the cases above. Only the status address is answered here;
+    // every other request (the cases run side by side) goes to the real fetch.
     const spy = vi.spyOn(AbortSignal, 'timeout');
     const fetchAlt = globalThis.fetch;
-    vi.stubGlobal('fetch', async () => new Response('{"players":1,"slots":2}'));
+    let mitgegeben: AbortSignal | null | undefined;
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      if (!String(url).endsWith('/accounts/status')) return fetchAlt(url, init);
+      mitgegeben = init?.signal;
+      return Promise.resolve(new Response('{"players":1,"slots":2}'));
+    });
     try {
       const s = await account.shoreStatus('dev');
       expect(s).toEqual({ players: 1, slots: 2 });
-      expect(spy).toHaveBeenCalledWith(4000);
+      const i = spy.mock.calls.findIndex((c) => c[0] === 4000);
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(mitgegeben).toBe(spy.mock.results[i].value);
     } finally {
       spy.mockRestore();
       vi.stubGlobal('fetch', fetchAlt);

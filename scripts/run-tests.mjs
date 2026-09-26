@@ -2211,6 +2211,7 @@ const KERN = [
   ['shared', 'test/welt-arbeitskopie.ts'],
   ['admin', 'test/welt-arbeitskopie.ts'],
   ['tools', 'test/welt-abnehmen.ts'],
+  ['shared', 'test/kollision-upload-entscheid.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

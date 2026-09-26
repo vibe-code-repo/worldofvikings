@@ -44,7 +44,7 @@ import {
   ruestungZu,
   istFrisur,
   // ── Kollision: alles aus `shared`, nichts mehr von hier ─────────────
-  // `istFesterKoerper` sagt, WELCHES Prefab einen Koerper bekommt,
+  // `istFesterKoerperImSpiel` sagt (inkl. Upload-Wahl), WELCHES Prefab einen Koerper bekommt,
   // `kollisionsForm` WELCHE Form, `BEGEHBAR_NAME`, welches Bauwerk das
   // Flag-Gatter umgehen darf, `formUebersteuerung`, welche Handvoll
   // Prefabs ihre Form von Hand bekommt (die grossen Buesche), und
@@ -53,7 +53,7 @@ import {
   // Serverrechnung dieselben Hindernisse sehen.
   BEGEHBAR_NAME,
   formUebersteuerung,
-  istFesterKoerper,
+  istFesterKoerperImSpiel,
   kollisionsForm,
   kollisionsModellPfad,
   storeKollision,
@@ -2129,7 +2129,7 @@ export class EntityManager {
     // in `shared` und nicht mehr hier: Der Server muss dieselbe Menge
     // „fest" haben, sonst zieht seine Korrektur den Spieler durch etwas
     // hindurch, vor dem er im Bild steht.
-    if (!istFesterKoerper(findPrefabByHash(bucket.prefabHash), bucket.prefabName, {
+    if (!istFesterKoerperImSpiel(findPrefabByHash(bucket.prefabHash), bucket.prefabName, {
       dungeonRaum: dungeonRoom,
       begehbar,
     })) {

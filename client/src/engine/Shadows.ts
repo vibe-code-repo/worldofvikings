@@ -58,9 +58,13 @@
  * Bildeindruck (Docs/07-Grafik-Konzept.md, Ursache B).
  */
 import { CascadedShadowGenerator } from '@babylonjs/core/Lights/Shadows/cascadedShadowGenerator';
-// Ohne diesen Side-Effect-Import fehlt der Szene die Schattenkomponente
-// (dieselbe Falle wie bei Physik und GeometryBuffer in diesem Projekt).
-import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
+// Kein Seiteneffekt-Import von `shadowGeneratorSceneComponent` mehr: Ab
+// Babylon 9 ist diese Datei nur ein Re-Export, und die Szenenkomponente
+// meldet der `ShadowGenerator`-Konstruktor selbst an (mit dem Import des
+// `CascadedShadowGenerator` oben ist er immer da).
+// No side-effect import of `shadowGeneratorSceneComponent` any more: since
+// Babylon 9 it is a plain re-export and the `ShadowGenerator` constructor
+// registers the scene component itself.
 import { Material } from '@babylonjs/core/Materials/material';
 import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';

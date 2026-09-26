@@ -40,6 +40,9 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { CreateDisc } from '@babylonjs/core/Meshes/Builders/discBuilder';
 import { DynamicTexture as Fleck } from '@babylonjs/core/Materials/Textures/dynamicTexture';
 import { RawCubeTexture } from '@babylonjs/core/Materials/Textures/rawCubeTexture';
+// Seiteneffekt: haengt `sphericalPolynomial` an BaseTexture. Ohne ihn liefert die Umgebung
+// keine diffuse Beleuchtung mehr (Babylon 9 hat den Getter aus baseTexture.js ausgelagert).
+import '@babylonjs/core/Materials/Textures/baseTexture.polynomial';
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';

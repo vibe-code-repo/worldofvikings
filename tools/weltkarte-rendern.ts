@@ -39,6 +39,11 @@ const instanz = (process.argv[2] ?? 'dev') as Instanz;
 const zielOrdner = process.argv[3] ?? resolve(WURZEL, 'mess/karten');
 const BREITE = Number(process.argv[4] ?? 2048);
 
+// Dieselben Grenzen wie WOV_KARTEN_BREITE im Veröffentlicher: 256 bis 8192.
+if (!Number.isInteger(BREITE) || BREITE < 256 || BREITE > 8192) {
+  throw new Error(`ungültige Breite "${process.argv[4]}" — erlaubt sind ganze Zahlen von 256 bis 8192`);
+}
+
 if (instanz !== 'dev' && instanz !== 'live') {
   throw new Error(`unbekannte Instanz "${instanz}" — erlaubt sind dev und live`);
 }

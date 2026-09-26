@@ -75,6 +75,14 @@ export interface TestflugPersistenz {
   abschliessen(): Promise<VorgangAntwort> | null;
   /** The Vorgaenge that were counted (sent), oldest first; the last 200. */
   protokoll(): readonly Vorgang[];
+  /** `true` while frames of a drag wait for `abschliessen()`. */
+  ziehOffen?(): boolean;
+  /**
+   * Where the answer of a drag goes that was closed INSIDE the persistence
+   * (a new gesture, a delete, a set began before the drop). Without it that
+   * answer would be lost.
+   */
+  aufInternenAbschluss?: (antwort: Promise<VorgangAntwort>) => void;
 }
 
 /** What the remote side said (or the local store: `angewendet` with an empty text). */
@@ -83,10 +91,16 @@ export type VorgangAntwort =
   | { art: 'angewendet'; message: string }
   /** 202: written to the file, but not applied to the running world; `grund` says why (`server-aus`, `geo`, `abgelehnt`). */
   | { art: 'nur-geschrieben'; grund: string; message: string }
-  /** 409: the objects `ids` are no longer as the writer saw them; nothing was written. `zurueckgenommen`: the local draft was put back. */
-  | { art: 'konflikt'; ids: string[]; message: string; zurueckgenommen: boolean }
-  /** Anything else (422, 503, network); nothing was written. */
-  | { art: 'fehler'; message: string; zurueckgenommen: boolean };
+  /** 409: the objects `ids` are no longer as the writer saw them; nothing was written. `zurueckgenommen`: the local draft was put back; `verworfen`: how many gestures were put back with it (the refused one and every later one). */
+  | { art: 'konflikt'; ids: string[]; message: string; zurueckgenommen: boolean; verworfen?: number }
+  /** Anything else (422, 503); nothing was written. */
+  | { art: 'fehler'; message: string; zurueckgenommen: boolean; verworfen?: number }
+  /**
+   * Unknown: the request may have been applied (no answer after sending, 204,
+   * any other 2xx). The draft is NOT put back; the flight asks for a reload and
+   * takes no further Vorgang until then.
+   */
+  | { art: 'unklar'; message: string };
 
 /** Local result of `vorgang`: refused (nothing changed) or applied, with the answer still to come. */
 export type VorgangErgebnis =
@@ -148,6 +162,12 @@ export function wendeAufEntwurf(
   return { ok: true };
 }
 
+const ZURUECK = (a: { zurueckgenommen: boolean; verworfen?: number }): string => {
+  if (!a.zurueckgenommen) return ' — Entwurf NICHT zurückgesetzt, bitte neu laden';
+  const n = a.verworfen ?? 1;
+  return n > 1 ? ` (Entwurf zurückgesetzt, ${n} Gesten verworfen)` : ' (Entwurf zurückgesetzt)';
+};
+
 /** The line for the HUD; `null` = nothing to say (local store, or an empty text). */
 export function antwortText(a: VorgangAntwort): string | null {
   switch (a.art) {
@@ -156,9 +176,11 @@ export function antwortText(a: VorgangAntwort): string | null {
     case 'nur-geschrieben':
       return `Geschrieben, aber nicht angewendet (${a.grund})${a.message ? `: ${a.message}` : ''}`;
     case 'konflikt':
-      return `Konflikt bei ${a.ids.join(', ')} — nichts geändert${a.zurueckgenommen ? ' (Entwurf zurückgesetzt)' : ''}`;
+      return `Konflikt bei ${a.ids.join(', ')} — nichts geändert${ZURUECK(a)}`;
     case 'fehler':
-      return `${a.message}${a.zurueckgenommen ? ' (Entwurf zurückgesetzt)' : ''}`;
+      return `${a.message}${ZURUECK(a)}`;
+    case 'unklar':
+      return `Unklar — bitte neu laden: ${a.message}`;
   }
 }
 
@@ -186,7 +208,12 @@ export function mitVorgaengen(
 ): TestflugPersistenz {
   const protokoll: Vorgang[] = [];
   let offen: Vorgang | null = null;
-  let kette: Promise<unknown> = Promise.resolve();
+  /** Applied locally, not answered yet, oldest first; `[0]` is the one in flight. */
+  const wartend: Array<{ v: Vorgang; erledigt: (a: VorgangAntwort) => void }> = [];
+  let laeuft = false;
+  /** After an answer that left it unknown whether the server has a Vorgang: nothing more until a reload. */
+  let unklar = false;
+  const UNKLAR_TEXT = 'Stand unklar — bitte neu laden';
 
   const lokal = (v: Vorgang): { ok: true } | { ok: false; ids: string[]; message: string } => {
     const dok = speicher.laden();
@@ -195,18 +222,56 @@ export function mitVorgaengen(
     if (r.ok) speicher.aendern(dok);
     return r;
   };
+
+  /** A refusal: put back the refused Vorgang and every later one (and the open drag), newest first. */
+  const lehneAb = (a: VorgangAntwort & { art: 'konflikt' | 'fehler' }): void => {
+    const verworfene = wartend.splice(0);
+    const mitZiehen = offen !== null;
+    let alleZurueck = true;
+    if (offen) {
+      alleZurueck = lokal(invertiere(offen)).ok && alleZurueck;
+      offen = null;
+    }
+    for (let i = verworfene.length - 1; i >= 0; i--) alleZurueck = lokal(invertiere(verworfene[i]!.v)).ok && alleZurueck;
+    const anzahl = verworfene.length + (mitZiehen ? 1 : 0);
+    // The later ones first, so that the line of the refused one (with the count) is the one left on the HUD.
+    for (const w of verworfene.slice(1)) {
+      w.erledigt({ art: 'fehler', message: 'Verworfen, weil ein früherer Vorgang abgelehnt wurde', zurueckgenommen: alleZurueck, verworfen: anzahl });
+    }
+    verworfene[0]!.erledigt({ ...a, zurueckgenommen: alleZurueck, verworfen: anzahl });
+  };
+  const gibtAuf = (a: VorgangAntwort & { art: 'unklar' }): void => {
+    unklar = true;
+    const rest = wartend.splice(0);
+    for (const [i, w] of rest.entries()) w.erledigt(i === 0 ? a : { art: 'unklar', message: 'nicht gesendet, weil ein früherer Vorgang unklar blieb' });
+  };
+  const pumpe = (): void => {
+    if (laeuft || wartend.length === 0 || !senden) return;
+    laeuft = true;
+    const kopf = wartend[0]!;
+    senden(kopf.v).then(
+      (a) => a,
+      (fehler: unknown): VorgangAntwort => ({ art: 'unklar', message: `Senden ohne Antwort: ${String(fehler)}` })
+    ).then((a) => {
+      laeuft = false;
+      if (a.art === 'konflikt' || a.art === 'fehler') lehneAb(a);
+      else if (a.art === 'unklar') gibtAuf(a);
+      else {
+        wartend.shift();
+        kopf.erledigt(a);
+      }
+      pumpe();
+    });
+  };
   const abschicken = (v: Vorgang): Promise<VorgangAntwort> => {
     protokoll.push(v);
     if (protokoll.length > PROTOKOLL_MAX) protokoll.shift();
     if (!senden) return Promise.resolve({ art: 'angewendet', message: '' });
-    const antwort = kette.then(() => senden(v)).then((a) => {
-      if (a.art !== 'konflikt' && a.art !== 'fehler') return a;
-      // Not taken by the server: the draft must not keep what the world does not have.
-      const zurueck = lokal(invertiere(v));
-      return { ...a, zurueckgenommen: zurueck.ok };
+    if (unklar) return Promise.resolve({ art: 'unklar', message: 'nicht gesendet, der Stand ist unklar' });
+    return new Promise<VorgangAntwort>((erledigt) => {
+      wartend.push({ v, erledigt });
+      pumpe();
     });
-    kette = antwort.catch(() => undefined);
-    return antwort;
   };
   const schliesse = (): Promise<VorgangAntwort> | null => {
     if (!offen) return null;
@@ -215,13 +280,18 @@ export function mitVorgaengen(
     return ohneWirkung(v) ? null : abschicken(v);
   };
 
-  return {
+  const ergebnis: TestflugPersistenz = {
     laden: speicher.laden,
     ...(speicher.rohtext ? { rohtext: speicher.rohtext } : {}),
     aendern: speicher.aendern,
     speichern: speicher.speichern,
     vorgang: (v, zwischen = false) => {
-      if (!zwischen) schliesse();
+      if (unklar) return { ok: false, ids: [], message: UNKLAR_TEXT };
+      // A frame of ANOTHER object, or any other gesture, ends the open drag first: never two gestures in one Vorgang.
+      if (offen && (!zwischen || !gleicheObjekte(offen, v))) {
+        const antwort = schliesse();
+        if (antwort) ergebnis.aufInternenAbschluss?.(antwort);
+      }
       const r = lokal(v);
       if (!r.ok) return r;
       if (zwischen) {
@@ -232,6 +302,12 @@ export function mitVorgaengen(
     },
     abschliessen: schliesse,
     protokoll: () => protokoll,
+    ziehOffen: () => offen !== null,
   };
+  return ergebnis;
 }
 
+const gleicheObjekte = (a: Vorgang, b: Vorgang): boolean => {
+  const schluessel = (v: Vorgang): string => [...new Set(v.ops.map((o) => `${o.sammlung}/${o.id}`))].sort().join('|');
+  return schluessel(a) === schluessel(b);
+};

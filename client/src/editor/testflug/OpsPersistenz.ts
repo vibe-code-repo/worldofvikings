@@ -7,7 +7,12 @@
  *         yet (`server-aus`, `geo`, `abgelehnt`). The local draft stays written.
  *  - 409: one or more objects are no longer as the flight saw them; nothing
  *         was written. The local draft is put back and the `ids` are named.
- *  - anything else (422, 503, network): nothing was written, draft put back.
+ *  - 422, 503 and the like: nothing was written, draft put back.
+ *  - no answer after sending, 204 or any other 2xx: UNKNOWN whether the service
+ *    applied it. The draft is not put back; the flight asks for a reload.
+ *
+ * While a PATCH is open, later Vorgaenge wait and go out one after the other.
+ * A refusal puts back the refused Vorgang AND every later one (newest first).
  *
  * The draft itself is still kept by the store underneath (the same working
  * copy the map editor edits); this class adds the remote side. Not wired into
@@ -37,7 +42,8 @@ export function opsSender(fetchFn: typeof fetch = fetch, url: string = OPS_URL):
         body: JSON.stringify(vorgang),
       });
     } catch (fehler) {
-      return { art: 'fehler', message: `Senden fehlgeschlagen: ${String(fehler)}`, zurueckgenommen: false };
+      // No answer: the request may have been applied (the line can drop after the service applied it).
+      return { art: 'unklar', message: `keine Antwort (${String(fehler)})` };
     }
     let d: Record<string, unknown> = {};
     try {
@@ -62,6 +68,8 @@ export function opsSender(fetchFn: typeof fetch = fetch, url: string = OPS_URL):
     if (antwort.status === 200 && d.ok !== false) {
       return { art: 'angewendet', message: message === '' ? 'Angewendet' : message };
     }
+    // Any other 2xx (204, 201, …) is not the answer this service gives: whether it applied the Vorgang is unknown.
+    if (antwort.status >= 200 && antwort.status < 300) return { art: 'unklar', message: `HTTP ${antwort.status}${message ? `: ${message}` : ''}` };
     return { art: 'fehler', message: message || alsText(d.fehler) || `HTTP ${antwort.status}`, zurueckgenommen: false };
   };
 }

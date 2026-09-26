@@ -19,31 +19,62 @@ import type { EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebni
 
 const VOLLE_DREHUNG = Math.PI * 2;
 
+/** A random id (36 characters); `crypto.randomUUID` needs a secure context, the fallback does not. */
+function zufallsId(): string {
+  const c = (globalThis as { crypto?: Crypto }).crypto;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b);
+  else for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256);
+  return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+/** The ids that occur more than once in the placements (those entries cannot be addressed). */
+export function doppelteIds(liste: readonly { id?: string }[] | undefined): string[] {
+  const gesehen = new Set<string>();
+  const doppelt = new Set<string>();
+  for (const e of liste ?? []) {
+    if (e.id === undefined) continue;
+    if (gesehen.has(e.id)) doppelt.add(e.id);
+    gesehen.add(e.id);
+  }
+  return [...doppelt];
+}
+
 export class TestflugAktionen {
-  private zaehler = 0;
+  constructor(private readonly persistenz: TestflugPersistenz) {}
 
-  constructor(
-    private readonly persistenz: TestflugPersistenz,
-    private readonly jetzt: () => number = Date.now
-  ) {}
-
+  /** Unique across instances and tabs: a random part, not a clock and a counter. */
   private vorgangsId(): string {
-    return `tf-${this.jetzt().toString(36)}-${++this.zaehler}`;
+    return `tf-${zufallsId()}`;
   }
 
   private schicke(op: Op, zwischen = false): VorgangErgebnis {
     return this.persistenz.vorgang({ vorgangId: this.vorgangsId(), ops: [op] } satisfies Vorgang, zwischen);
   }
 
-  /** The entry with this id in the current draft, and the draft as a layout for the op builders. */
+  /**
+   * The entry with this id in the current draft, and the draft as a layout for the op builders.
+   * `null` when the id is missing OR occurs twice (then no entry is THE one: nothing is touched).
+   */
   private finde(id: string): { eintrag: EntwurfEintrag; layout: WorldLayout } | null {
     const dok = this.persistenz.laden();
-    const eintrag = dok?.placements?.find((p) => p.id === id);
-    return dok && eintrag ? { eintrag, layout: dok as unknown as WorldLayout } : null;
+    const treffer = dok?.placements?.filter((p) => p.id === id) ?? [];
+    return dok && treffer.length === 1 ? { eintrag: treffer[0]!, layout: dok as unknown as WorldLayout } : null;
   }
 
   private fehlt(id: string): VorgangErgebnis {
-    return { ok: false, ids: [id], message: `Konflikt bei ${id} — nichts geändert` };
+    const n = this.persistenz.laden()?.placements?.filter((p) => p.id === id).length ?? 0;
+    return n > 1
+      ? { ok: false, ids: [id], message: `Doppelte id ${id} (${n} Einträge) — nichts geändert` }
+      : { ok: false, ids: [id], message: `Konflikt bei ${id} — nichts geändert` };
+  }
+
+  /** Turning and NPC fields are their own gestures: not while a drag is open (release first). */
+  private gesperrt(id: string): VorgangErgebnis | null {
+    return this.persistenz.ziehOffen?.()
+      ? { ok: false, ids: [id], message: 'Erst absetzen — während des Ziehens wird nicht gedreht oder umbenannt' }
+      : null;
   }
 
   /** A new placement (`eintrag.id` is its address). */
@@ -67,6 +98,8 @@ export class TestflugAktionen {
   drehen(id: string, yaw: number): VorgangErgebnis {
     const s = this.finde(id);
     if (!s) return this.fehlt(id);
+    const gesperrt = this.gesperrt(id);
+    if (gesperrt) return gesperrt;
     const rund = Math.round((((yaw % VOLLE_DREHUNG) + VOLLE_DREHUNG) % VOLLE_DREHUNG) * 10000) / 10000;
     return this.schicke(opAendern(s.layout, 'placements', { ...s.eintrag, id, yaw: rund } as unknown as OpEntry));
   }
@@ -75,6 +108,8 @@ export class TestflugAktionen {
   npcSetzen(id: string, npc: NpcDef | null): VorgangErgebnis {
     const s = this.finde(id);
     if (!s) return this.fehlt(id);
+    const gesperrt = this.gesperrt(id);
+    if (gesperrt) return gesperrt;
     const { npc: _alt, ...ohne } = s.eintrag;
     return this.schicke(opAendern(s.layout, 'placements', { ...(npc ? { ...s.eintrag, npc } : ohne), id } as unknown as OpEntry));
   }

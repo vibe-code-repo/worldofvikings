@@ -63,7 +63,7 @@ console.log('K5.3 testflug-ops');
 {
   setzeStart();
   const p = localStoragePersistenz();
-  const a = new TestflugAktionen(p, () => 1);
+  const a = new TestflugAktionen(p);
   const zaehl = (): number => p.protokoll().length;
   const letzte = () => p.protokoll()[p.protokoll().length - 1]!;
 
@@ -99,7 +99,15 @@ console.log('K5.3 testflug-ops');
   pruefe(p.laden()!.placements!.every((e) => e.id !== 'haus_30_30-e5f6'), 'delete: entry gone');
 
   pruefe(new Set(p.protokoll().map((v) => v.vorgangId)).size === 5, 'every Vorgang has its own vorgangId');
-  pruefe(p.protokoll().every((v) => /^tf-[a-z0-9]+-\d+$/.test(v.vorgangId)), 'vorgangId has the accepted shape');
+  pruefe(p.protokoll().every((v) => /^tf-[0-9a-f-]{36}$/.test(v.vorgangId) && /^~?[A-Za-z0-9._:-]{1,127}$/.test(v.vorgangId)), 'vorgangId is a random uuid the service accepts');
+  {
+    // B3/B8: two instances (two tabs) never produce the same id
+    const a1 = new TestflugAktionen(localStoragePersistenz());
+    const a2 = new TestflugAktionen(localStoragePersistenz());
+    const einzel = new Set<string>();
+    for (let i = 0; i < 500; i++) for (const x of [a1, a2]) einzel.add((x as unknown as { vorgangsId(): string }).vorgangsId());
+    pruefe(einzel.size === 1000, `1000 ids from two instances are all different, got ${einzel.size}`);
+  }
 
   // an address that is gone: refused, draft untouched
   const vor = speicher.get(ENTWURF_SCHLUESSEL);
@@ -163,7 +171,7 @@ console.log('K5.3 testflug-ops');
     setzeStart();
     const basis = localStoragePersistenz();
     const p = opsPersistenz(basis);
-    return { p, a: new TestflugAktionen(p, () => 1) };
+    return { p, a: new TestflugAktionen(p) };
   };
   const vorAbruf = () => abrufe.length;
 
@@ -253,7 +261,6 @@ console.log('K5.3 testflug-ops');
   for (const [name, antwort] of [
     ['422', { status: 422, rumpf: { ok: false, fehler: 'ungueltig', message: 'kaputt' } }],
     ['503', { status: 503, rumpf: { ok: false, fehler: 'gesperrt', message: 'gesperrt' } }],
-    ['network', 'netz'],
   ] as const) {
     const { a } = bau();
     const vorher = speicher.get(ENTWURF_SCHLUESSEL);
@@ -276,11 +283,259 @@ console.log('K5.3 testflug-ops');
   }
 }
 
+
+// ── 3b. K5.3 N1: the Attrappe that keeps the server state ──────────
+type Zustand = Awaited<ReturnType<typeof bauAttrappe>>;
+async function bauAttrappe() {
+  const { wendeAufEntwurf } = await import('../src/editor/testflug/TestflugPersistenz');
+  type V = import('@wov/shared/src/worldlayout/ops.js').Vorgang;
+  setzeStart();
+  const server = START() as unknown as import('../src/editor/testflug/TestflugPersistenz').EntwurfDokument;
+  const offene: Array<{ vorgang: V; antworte: (wie: 'ok' | 'ablehnen' | 'netz' | 'netz-nach-anwenden' | '204' | '422') => void }> = [];
+  let gleichzeitig = 0;
+  let hoechstens = 0;
+  const gesendet: V[] = [];
+  const fetchFn = ((_url: string, init: RequestInit) =>
+    new Promise<Response>((resolve, reject) => {
+      const vorgang = JSON.parse(String(init.body)) as V;
+      gesendet.push(vorgang);
+      hoechstens = Math.max(hoechstens, ++gleichzeitig);
+      offene.push({
+        vorgang,
+        antworte: (wie) => {
+          gleichzeitig--;
+          if (wie === 'netz') return reject(new Error('reset'));
+          if (wie === '422') return resolve(new Response(JSON.stringify({ ok: false, message: 'kaputt' }), { status: 422 }));
+          if (wie === 'ablehnen') {
+            const r = wendeAufEntwurf(server, vorgang);
+            return resolve(new Response(JSON.stringify({ ok: false, ids: r.ok ? [] : r.ids, message: 'passt nicht' }), { status: 409 }));
+          }
+          wendeAufEntwurf(server, vorgang); // the server takes it
+          if (wie === 'netz-nach-anwenden') return reject(new Error('reset after apply'));
+          if (wie === '204') return resolve(new Response(null, { status: 204 }));
+          resolve(new Response(JSON.stringify({ ok: true, message: 'ok' }), { status: 200 }));
+        },
+      });
+    })) as unknown as typeof fetch;
+  const p = opsPersistenz(localStoragePersistenz(), { fetchFn });
+  const a = new TestflugAktionen(p);
+  const intern: Array<Promise<Antwort>> = [];
+  p.aufInternenAbschluss = (x) => void intern.push(x);
+  const draft = (): string => JSON.stringify(p.laden()!.placements);
+  const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5));
+  return { server, offene, gesendet, p, a, intern, draft, tick, hoechstens: () => hoechstens };
+}
+/** An answer that may never come (the old code): `null` after 50 ms, so that a missing answer is a failed check, not a hang. */
+const frist = <T>(p: Promise<T> | null | undefined): Promise<T | null> =>
+  p ? Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), 50))]) : Promise.resolve(null);
+const ausStart = (): string => JSON.stringify(START().placements);
+const KUH = 'kuh_20_20-c3d4';
+const BUCHE = 'beech1_10_10-a1b2';
+
+// B2 / P4: a drag is refused (409), before the answer the object is turned
+{
+  const z: Zustand = await bauAttrappe();
+  z.server.placements![1]!.x = 99; // foreign change
+  z.a.verschieben(KUH, 23, 20);
+  const antwort1 = z.a.abschliessen()!;
+  const r2 = z.a.drehen(KUH, 1);
+  await z.tick();
+  pruefe(z.offene.length === 1, `P4: the second Vorgang waits, ${z.offene.length} requests in flight`);
+  z.offene[0]?.antworte('ablehnen');
+  const ant = await frist(antwort1);
+  const ant2 = r2.ok ? await frist(r2.antwort) : null;
+  pruefe(z.draft() === ausStart(), `P4: draft is back at the last confirmed state, got ${z.draft()}`);
+  pruefe(ant?.art === 'konflikt' && ant?.zurueckgenommen && ant?.verworfen === 2, `P4: refused, put back, 2 gestures: ${JSON.stringify(ant)}`);
+  pruefe((ant ? antwortText(ant) : null)?.includes('2 Gesten') === true, `P4: the line names the count: ${ant ? antwortText(ant) : null}`);
+  pruefe(ant2?.art === 'fehler' && ant2?.zurueckgenommen, 'P4: the later gesture is answered as discarded');
+  pruefe(z.gesendet.length === 1, `P4: the discarded gesture was never sent, ${z.gesendet.length} sent`);
+}
+// B2 / P4c: Delete during a drag closes the drag inside; the answer of the drag is not lost
+{
+  const z: Zustand = await bauAttrappe();
+  z.server.placements![1]!.x = 99;
+  z.a.verschieben(KUH, 23, 20);
+  const r = z.a.loeschen(KUH);
+  await z.tick();
+  pruefe(z.intern.length === 1, `P4c: the internally closed drag hands out its answer, ${z.intern.length}`);
+  z.offene[0]?.antworte('ablehnen');
+  const ant = await frist(z.intern[0]);
+  const antLoeschen = r.ok ? await frist(r.antwort) : null;
+  pruefe(ant?.art === 'konflikt' && ant?.zurueckgenommen && ant?.verworfen === 2, `P4c: drag answer: ${JSON.stringify(ant)}`);
+  pruefe(antLoeschen?.art === 'fehler' && antLoeschen?.zurueckgenommen, 'P4c: the delete is put back as well');
+  pruefe(z.draft() === ausStart(), `P4c: the cow is back at x=20 and not deleted, got ${z.draft()}`);
+}
+// B2 / P9: turning is refused, before the answer a drag of the same object begins
+{
+  const z: Zustand = await bauAttrappe();
+  z.server.placements![0]!.yaw = 3;
+  const r1 = z.a.drehen(BUCHE, 1);
+  z.a.verschieben(BUCHE, 12, 10);
+  z.a.verschieben(BUCHE, 13, 10);
+  await z.tick();
+  z.offene[0]?.antworte('ablehnen');
+  const ant = r1.ok ? await frist(r1.antwort) : null;
+  pruefe(ant?.art === 'konflikt' && ant?.zurueckgenommen && ant?.verworfen === 2, `P9: ${JSON.stringify(ant)}`);
+  pruefe(z.draft() === ausStart(), `P9: draft is back at the last confirmed state, got ${z.draft()}`);
+  pruefe(z.a.abschliessen() === null && z.gesendet.length === 1, 'P9: the dropped drag frames are gone and are not sent');
+}
+// B2: strictly one after the other; refusal by the service without a foreign change: draft AND server equal
+{
+  const z: Zustand = await bauAttrappe();
+  const r1 = z.a.drehen(BUCHE, 1); // ok
+  const r2 = z.a.drehen(KUH, 2); // 422
+  const r3 = z.a.drehen(KUH, 3); // dropped
+  const r4 = z.a.setzen({ ...NEU }); // other object, dropped too
+  await z.tick();
+  z.offene[0]?.antworte('ok');
+  await z.tick();
+  pruefe(z.offene.length === 2, 'strict: the second goes out only after the first was answered');
+  z.offene[1]?.antworte('422');
+  const antworten3 = await Promise.all([r1, r2, r3, r4].map((r) => (r.ok ? frist(r.antwort) : Promise.resolve(null))));
+  pruefe(z.hoechstens() === 1 && z.gesendet.length === 2, `strict: never two PATCHes at once (${z.hoechstens()}), 2 sent (${z.gesendet.length})`);
+  pruefe(antworten3[0]?.art === 'angewendet', 'the first was confirmed');
+  pruefe(antworten3[1]?.art === 'fehler' && antworten3[1]?.zurueckgenommen && antworten3[1]?.verworfen === 3, `422 with 3 gestures: ${JSON.stringify(antworten3[1])}`);
+  pruefe(z.draft() === JSON.stringify(z.server.placements), `draft equals the server after the refusal:\n${z.draft()}\n${JSON.stringify(z.server.placements)}`);
+}
+// B2: the rollback that fails is said aloud (the draft was changed from outside)
+{
+  const z: Zustand = await bauAttrappe();
+  const r = z.a.drehen(BUCHE, 1);
+  const doc = z.p.laden()!;
+  (doc.placements![0] as { yaw: number }).yaw = 2.5; // a foreign write into the draft (map editor)
+  z.p.aendern(doc);
+  await z.tick();
+  z.offene[0]?.antworte('ablehnen');
+  const ant = r.ok ? await frist(r.antwort) : null;
+  pruefe(ant?.art === 'konflikt' && !ant?.zurueckgenommen, `failed rollback is reported as not put back: ${JSON.stringify(ant)}`);
+  pruefe((ant ? antwortText(ant) : null)?.includes('NICHT zurückgesetzt') === true, 'the line says NOT put back');
+}
+// B3: no answer after sending / 204: unknown, no silent rollback, nothing more goes out
+for (const wie of ['netz-nach-anwenden', '204'] as const) {
+  const z: Zustand = await bauAttrappe();
+  const r1 = z.a.drehen(BUCHE, 3);
+  const r2 = z.a.drehen(KUH, 2); // waits
+  await z.tick();
+  z.offene[0]?.antworte(wie);
+  const ant = r1.ok ? await frist(r1.antwort) : null;
+  const ant2 = r2.ok ? await frist(r2.antwort) : null;
+  pruefe(ant?.art === 'unklar' && /neu laden/.test((ant ? antwortText(ant) : null) ?? ''), `${wie}: unknown, ask for a reload: ${JSON.stringify(ant)}`);
+  pruefe(ant2?.art === 'unklar' && z.gesendet.length === 1, `${wie}: the waiting Vorgang is not sent, ${z.gesendet.length} sent`);
+  pruefe((z.p.laden()!.placements![0] as { yaw: number }).yaw === 3, `${wie}: the draft was NOT put back (the server has it)`);
+  const weiter = z.a.drehen(BUCHE, 1);
+  pruefe(!weiter.ok && /neu laden/.test(weiter.message), `${wie}: no further Vorgang until a reload`);
+}
+{
+  const z: Zustand = await bauAttrappe();
+  const r = z.a.drehen(BUCHE, 3);
+  await z.tick();
+  z.offene[0]?.antworte('netz');
+  const ant = r.ok ? await frist(r.antwort) : null;
+  pruefe(ant?.art === 'unklar', `network error without answer: unknown, ${JSON.stringify(ant)}`);
+}
+
+// B1: a second gesture never joins an open drag; the abandoned drag goes out
+{
+  const z: Zustand = await bauAttrappe();
+  for (let i = 1; i <= 10; i++) z.a.verschieben(KUH, 20 + i, 20);
+  for (let i = 1; i <= 10; i++) z.a.verschieben(BUCHE, 10 + i, 10); // grabbed the next object, the release of the first was lost
+  const ende = z.a.abschliessen();
+  await z.tick();
+  const protokoll = z.p.protokoll();
+  pruefe(protokoll.length === 2 && protokoll.every((v) => v.ops.length === 1), `B1: 2 gestures = 2 Vorgaenge with 1 op each, has ${protokoll.length} (${protokoll.map((v) => v.ops.length)})`);
+  pruefe(z.intern.length === 1, 'B1: the answer of the drag closed inside is handed out');
+  z.offene[0]?.antworte('ok');
+  await z.tick();
+  z.offene[1]?.antworte('ok');
+  pruefe((await frist(ende))?.art === 'angewendet', 'B1: the last drag is answered');
+  pruefe(z.gesendet.length === 2, `B1: both Vorgaenge went out, ${z.gesendet.length}`);
+}
+{
+  // the last drag goes out with OpsPersistenz when it is closed (right click / Esc / blur all call abschliessen)
+  const z: Zustand = await bauAttrappe();
+  for (let i = 1; i <= 10; i++) z.a.verschieben(KUH, 20 + i, 20);
+  const ende = z.a.abschliessen();
+  await z.tick();
+  pruefe(z.gesendet.length === 1 && ende !== null, 'B1: the closed drag is sent at once');
+}
+
+// B6: turning and NPC fields do not split a drag: locked during the drag
+{
+  const z: Zustand = await bauAttrappe();
+  for (let i = 1; i <= 5; i++) z.a.verschieben(KUH, 20 + i, 20);
+  const vorher = z.draft();
+  const d = z.a.drehen(KUH, 1);
+  const n = z.a.npcSetzen(KUH, { name: 'Neu' });
+  pruefe(!d.ok && !n.ok && z.draft() === vorher, 'B6: turning and NPC fields are refused while a drag is open, draft unchanged');
+  const ende = z.a.abschliessen();
+  pruefe(z.p.protokoll().length === 1, `B6: the drag is ONE Vorgang, has ${z.p.protokoll().length}`);
+  z.a.drehen(KUH, 1);
+  pruefe(z.p.protokoll().length === 2, 'B6: after the drop turning works again');
+  void ende;
+}
+
+// B5: duplicate ids: nothing is grabbed, turned, or deleted
+{
+  const doppelteIds: (l: Array<{ id?: string }> | undefined) => string[] =
+    (await import('../src/editor/testflug/TestflugAktionen') as { doppelteIds?: (l: Array<{ id?: string }> | undefined) => string[] }).doppelteIds ?? (() => []);
+  setzeStart();
+  const dok = JSON.parse(speicher.get(ENTWURF_SCHLUESSEL)!) as { placements: Array<Record<string, unknown>> };
+  dok.placements.push({ id: KUH, prefab: 'Kuh', x: 50, z: 50 });
+  speicher.set(ENTWURF_SCHLUESSEL, JSON.stringify(dok));
+  const vor = speicher.get(ENTWURF_SCHLUESSEL);
+  const p = localStoragePersistenz();
+  const a = new TestflugAktionen(p);
+  pruefe(doppelteIds(p.laden()!.placements).join() === KUH, 'B5: the duplicate id is found');
+  pruefe(doppelteIds([{ id: 'a' }, { id: 'b' }, {}]).length === 0, 'B5: no false alarm');
+  const rs = [a.verschieben(KUH, 55, 55), a.drehen(KUH, 1), a.npcSetzen(KUH, null), a.loeschen(KUH)];
+  pruefe(rs.every((r) => !r.ok && /Doppelte id/.test(r.message)), `B5: every action is refused with a message: ${JSON.stringify(rs.map((r) => r.ok || r.message))}`);
+  pruefe(speicher.get(ENTWURF_SCHLUESSEL) === vor && p.protokoll().length === 0, 'B5: draft and count unchanged');
+}
+
+// Offline bytes: a long sequence; prints the size and the hash so that two trees can be compared
+{
+  const { createHash } = await import('node:crypto');
+  setzeStart();
+  const p = localStoragePersistenz();
+  const a = new TestflugAktionen(p);
+  a.setzen({ ...NEU });
+  a.setzen({ id: 'haus_40_40-i9j0', prefab: 'Haus', x: 40, z: 40, yaw: 0.5, einebnen: 8 });
+  a.setzen({ id: 'stein_1_1-k1l2', prefab: 'Stein', x: 1, z: 1, yaw: 1, scale: 1.5 });
+  for (let i = 1; i <= 30; i++) a.verschieben(KUH, 20 + i * 0.1, 20 - i * 0.1);
+  a.abschliessen();
+  for (let i = 1; i <= 3; i++) a.verschieben(KUH, 30 + i, 30);
+  a.abschliessen();
+  a.verschieben(KUH, 40, 40);
+  a.verschieben(KUH, 23, 17);
+  a.abschliessen();
+  a.verschieben(BUCHE, 11, 11);
+  a.abschliessen();
+  a.drehen(BUCHE, 2);
+  a.drehen(BUCHE, 2 + Math.PI / 12);
+  a.npcSetzen(KUH, { name: 'Berta' });
+  a.npcSetzen(KUH, null);
+  a.npcSetzen(KUH, { name: 'Ærlig Ulf' });
+  a.npcSetzen(KUH, { name: 'Ærlig Ulf' });
+  a.loeschen('haus_30_30-e5f6');
+  a.loeschen('stein_1_1-k1l2');
+  const text = speicher.get(ENTWURF_SCHLUESSEL)!;
+  console.log(`  LANGE-FOLGE bytes=${Buffer.byteLength(text)} sha256=${createHash('sha256').update(text).digest('hex')}`);
+}
+
 // ── 4. Testflug.ts: no direct draft writes, no list place as address ─
 {
   const testflug = readFileSync(new URL('../src/editor/testflug/Testflug.ts', import.meta.url), 'utf-8');
   pruefe(!/persistenz\.aendern\(/.test(testflug), 'Testflug.ts must not write the draft directly any more');
   pruefe(!/\b(auswahlIndex|ziehIndex)\b/.test(testflug), 'the grab and the selection are held by id, not by list place');
+  // B1: a right click, Esc, lost focus, a cancelled pointer and leaving the window close an open drag
+  const verwerfenRumpf = /const verwerfen = \(\): void => \{[\s\S]*?\n    \};/.exec(testflug)?.[0] ?? '';
+  pruefe(/setzeAb\(\)/.test(verwerfenRumpf), 'B1: verwerfen() closes an open drag');
+  pruefe(/addEventListener\('pointercancel', setzeAb\)/.test(testflug), 'B1: pointercancel closes the drag');
+  pruefe(/addEventListener\('blur', setzeAb\)/.test(testflug), 'B1: losing the focus closes the drag');
+  pruefe(/document\.addEventListener\('mouseleave', setzeAb\)/.test(testflug), 'B1: leaving the window closes the drag');
+  pruefe(/e\.code === 'Escape'\) setzeAb\(\)/.test(testflug), 'B1: Esc closes the drag');
+  pruefe(/persistenz\.aufInternenAbschluss = melde/.test(testflug), 'B3: the answer of an internally closed drag is shown');
+  pruefe(/doppelteIds\(roh\.placements\)/.test(testflug), 'B5: a grab on a duplicate id is refused');
   for (const geste of ['setzen', 'verschieben', 'drehen', 'npcSetzen', 'loeschen', 'abschliessen']) {
     pruefe(new RegExp(`aktionen\\.${geste}\\(`).test(testflug), `Testflug.ts must go through aktionen.${geste}`);
   }

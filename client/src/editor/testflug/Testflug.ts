@@ -37,7 +37,7 @@ import { planReturn, sendReturnFromBrowser } from './ruecksprung';
 import type { TestflugKontext } from './TestflugKontext';
 import { antwortText } from './TestflugPersistenz';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebnis } from './TestflugPersistenz';
-import { TestflugAktionen } from './TestflugAktionen';
+import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
 
 /**
  * ?layout=editor lädt den Editor-Entwurf — der "Testflug" des 3D-Map-
@@ -109,6 +109,14 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         if ((a.art === 'konflikt' || a.art === 'fehler') && a.zurueckgenommen) neuAufbauenAlle();
       });
     };
+    // Ein Ziehen, das die Persistenz von selbst abschließt (neue Geste, Entf, Setzen), verliert seine Antwort nicht.
+    persistenz.aufInternenAbschluss = melde;
+    {
+      const doppelt = doppelteIds(persistenz.laden()?.placements);
+      if (doppelt.length > 0) {
+        hud.meldung(`Doppelte ids im Entwurf (${doppelt.join(', ')}) — diese Einträge werden nicht gegriffen, gedreht oder gelöscht`);
+      }
+    }
     /** Ein lokales Ergebnis: bei Ablehnung melden, sonst die Antwort abwarten und zeigen. */
     const anwenden = (r: VorgangErgebnis): boolean => {
       if (!r.ok) {
@@ -761,12 +769,16 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     /** Verwerfen: von Rechtsklick-pointerdown UND contextmenu gerufen —
      *  je nach Browser/Pointer-Lock kommt nur eines von beiden an. */
     let rechtsklickZeit = 0;
+    /** Wird unten (bei pointerup) gesetzt; vorher gibt es kein Ziehen. */
+    let setzeAb: () => void = () => undefined;
     const verwerfen = (): void => {
       rechtsklickZeit = performance.now();
       if (document.pointerLockElement) {
         document.exitPointerLock();
         return;
       }
+      // Ein offenes Ziehen wird abgeschlossen (ein Vorgang), nicht liegengelassen.
+      setzeAb();
       ziehId = null;
       routenZiehIndex = -1;
       auswahlId = null;
@@ -796,6 +808,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // in anderer Reihenfolge, das setzte den Gegenstand ungewollt).
       if (e.button !== 0 || e.buttons !== 1 || document.pointerLockElement) return;
       if (performance.now() - rechtsklickZeit < 400) return;
+      // Ging ein pointerup verloren (Maus außerhalb losgelassen), endet das alte Ziehen jetzt, nicht erst mit der nächsten Geste.
+      setzeAb();
       const p = bodenPunkt(e.offsetX, e.offsetY);
       const roh = leseEntwurf();
       if (!p || !roh) return;
@@ -835,6 +849,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       });
       if (best >= 0 && !roh.placements[best]!.id) {
         hud.meldung(KEINE_ID);
+      } else if (best >= 0 && doppelteIds(roh.placements).includes(roh.placements[best]!.id!)) {
+        hud.meldung(`Doppelte id ${roh.placements[best]!.id} im Entwurf — nicht gegriffen`);
       } else if (best >= 0) {
         const q = roh.placements[best]!;
         ziehId = q.id!;
@@ -939,7 +955,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (panel.istPlatzierModus) routen.beendeZeichnen();
       panel.aktualisiere();
     };
-    window.addEventListener('pointerup', () => {
+    /** Ende eines Ziehens (Loslassen, Rechtsklick, Esc, Fokusverlust, Fenster verlassen): EIN Vorgang, Sockel und Ring nachziehen. */
+    setzeAb = (): void => {
       if (routenZiehIndex >= 0) {
         hud.meldung(`Wegpunkt ${routenZiehIndex + 1} abgesetzt`);
         routenZiehIndex = -1;
@@ -964,6 +981,16 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       ziehStart = null;
       ziehId = null;
       panel.aktualisiere();
+    };
+    window.addEventListener('pointerup', setzeAb);
+    window.addEventListener('pointercancel', setzeAb);
+    window.addEventListener('blur', setzeAb);
+    document.addEventListener('mouseleave', setzeAb);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) setzeAb();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape') setzeAb();
     });
   }
 }

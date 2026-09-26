@@ -215,11 +215,17 @@ export class Kontendatenbank {
     // Eigenschaft des Kontos, nicht des Charakters — und ein Charakter kann
     // geloescht werden, ohne den Datensatz des Kontos zu zerstoeren.
     this.spalteNachziehen('konten', 'avatar_charakter_id', 'INTEGER');
-    // Konto-Verwaltung (W3). `token_ab`: Konto-Token, die vor oder genau zu
-    // diesem Zeitpunkt (ms) ausgestellt wurden, sind ungueltig — so beendet
-    // ein Passwortwechsel alle anderen Anmeldungen, obwohl die Token
-    // zustandslos sind. 0 = nie gesetzt, jedes Token gilt.
+    // Konto-Verwaltung (W3). `token_ab` ist eine GENERATION, keine Uhrzeit:
+    // Jedes Konto-Token traegt die Generation, unter der es ausgestellt
+    // wurde (`g`), und gilt nur, solange sie der aktuellen entspricht. Ein
+    // Passwortwechsel zaehlt sie hoch und beendet so alle anderen Anmeldungen,
+    // obwohl die Token zustandslos sind. Eine Uhr, die springt, kann daran
+    // nichts aendern. 0 = nie gewechselt; Token ohne `g` zaehlen als 0.
     this.spalteNachziehen('konten', 'token_ab', 'INTEGER NOT NULL DEFAULT 0');
+    // Spieler-Token (Identitaet.ts, aus /play) tragen keine Generation. Sie
+    // werden gegen diesen Zeitpunkt (ms) geprueft: ausgestellt vor oder genau
+    // zu `spieler_ab` heisst ungueltig. Gesetzt bei jedem Passwortwechsel.
+    this.spalteNachziehen('konten', 'spieler_ab', 'INTEGER NOT NULL DEFAULT 0');
     // Oeffentlicher Profiltext (hoechstens PROFILTEXT_MAX Zeichen, reiner Text).
     this.spalteNachziehen('konten', 'profil_text', "TEXT NOT NULL DEFAULT ''");
   }
@@ -458,7 +464,7 @@ export class Kontendatenbank {
     };
   }
 
-  /** `token_ab` des Kontos, oder null, wenn es das Konto nicht (mehr) gibt. */
+  /** Aktuelle Token-Generation des Kontos, oder null, wenn es das Konto nicht (mehr) gibt. */
   tokenAbVon(kontoId: number): number | null {
     const z = this.db.prepare('SELECT token_ab FROM konten WHERE id = ?')
       .get(kontoId) as Record<string, unknown> | undefined;
@@ -471,11 +477,27 @@ export class Kontendatenbank {
    * und noch gueltigen alten Sitzungen gibt. Nur wenn der Eintrag noch der
    * ist, den der Aufrufer geprueft hat (`erwartet`); sonst false.
    */
-  passwortWechseln(kontoId: number, neuerEintrag: string, erwartet: string, tokenAb: number): boolean {
+  passwortWechseln(
+    kontoId: number, neuerEintrag: string, erwartet: string, jetzt = Date.now(),
+  ): { generation: number; spielerAb: number } | null {
+    // Generation +1; `spieler_ab` nie kleiner als sein Vorgaenger + 1, damit
+    // auch ein Uhrsprung nach hinten den Zeitpunkt nicht zuruecksetzt.
     const r = this.db
-      .prepare('UPDATE konten SET passwort = ?, token_ab = MAX(token_ab, ?) WHERE id = ? AND passwort = ?')
-      .run(neuerEintrag, tokenAb, kontoId, erwartet);
-    return Number(r.changes) > 0;
+      .prepare(`UPDATE konten SET passwort = ?, token_ab = token_ab + 1,
+          spieler_ab = MAX(?, spieler_ab + 1)
+        WHERE id = ? AND passwort = ?`)
+      .run(neuerEintrag, jetzt, kontoId, erwartet);
+    if (Number(r.changes) === 0) return null;
+    const z = this.db.prepare('SELECT token_ab, spieler_ab FROM konten WHERE id = ?')
+      .get(kontoId) as Record<string, unknown>;
+    return { generation: Number(z.token_ab), spielerAb: Number(z.spieler_ab) };
+  }
+
+  /** `spieler_ab` des Kontos hinter einer spielerId, oder null (Gast / unbekannt). */
+  spielerAbZuSpielerId(spielerId: string): number | null {
+    const z = this.db.prepare(`SELECT k.spieler_ab FROM charaktere c JOIN konten k ON k.id = c.konto_id
+        WHERE c.spieler_id = ?`).get(spielerId) as Record<string, unknown> | undefined;
+    return z ? Number(z.spieler_ab) : null;
   }
 
   /** E-Mail-Adresse setzen, nur wenn das Passwort seit der Pruefung unveraendert ist. */
@@ -805,7 +827,7 @@ export class Kontendatenbank {
    * ebenso, fuer eine Pruefung, bevor eine Identitaet feststeht.
    */
   bannFuerZugang(
-    zugang: { spielerId?: string | null; herkunft?: string | null },
+    zugang: { spielerId?: string | null; herkunft?: string | null; ausgestelltAm?: number },
     jetzt = Date.now(),
   ): Bann | null {
     const spielerId = zugang.spielerId ?? '';
@@ -816,6 +838,19 @@ export class Kontendatenbank {
         id: 0, art: 'spieler', wert: spielerId, grund: 'Konto geloescht', gesetztVon: '',
         gesetzt: jetzt, bis: null,
       };
+    }
+    if (spielerId && zugang.ausgestelltAm !== undefined) {
+      // Ein Spieler-Token aus der Zeit vor dem letzten Passwortwechsel des
+      // Kontos (Konto-Verwaltung): nicht mehr gueltig, obwohl es signiert und
+      // unabgelaufen ist. Ohne Angabe (`trenneGebannte`, Adminbefehle) und
+      // fuer Gaeste ohne Konto entfaellt die Pruefung.
+      const ab = this.spielerAbZuSpielerId(spielerId);
+      if (ab !== null && zugang.ausgestelltAm <= ab) {
+        return {
+          id: 0, art: 'spieler', wert: spielerId, grund: 'Passwort geaendert, bitte neu anmelden',
+          gesetztVon: '', gesetzt: jetzt, bis: null,
+        };
+      }
     }
     if (spielerId) {
       const eigener = this.bannPruefen('spieler', spielerId, jetzt);

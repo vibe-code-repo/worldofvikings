@@ -801,6 +801,11 @@ export class WovServer {
         this.forumDb.kontoEntfernen(a.kontoId, a.charakterIds, a.namen, GELOESCHTER_AUTOR);
       },
       weltBereinigen: (konto) => this.kontoAusWeltEntfernen(konto),
+      // Passwortwechsel: laufende Spiele des Kontos beenden. Der Spielstand
+      // bleibt (onPeerQuit schreibt ihn wie bei jedem Verlassen).
+      spielerTrennen: (ids) => {
+        for (const p of [...this.net.getPeers()]) if (ids.includes(p.spielerId)) this.net.kick(p.name);
+      },
     });
     // Ausstehende Forum-Bereinigungen einer unterbrochenen Loeschung nachholen.
     kontoApi.forumAuftraegeAbarbeiten();
@@ -2075,7 +2080,10 @@ export class WovServer {
     for (const welt of this.welten.values()) {
       for (const zdo of welt.zdos.getAllZDOs()) {
         if (!besitzer.has(zdo.getString('besitzer'))) continue;
-        if (zdo.hasMember(WovServer.TRUHE_INHALT_HASH)) {
+        // Truhe = Prefab mit F.CONTAINER (wie in handleInteract), nicht der
+        // Inhalt: eine nie geoeffnete Truhe hat noch keinen.
+        const def = this.prefabs.getByHash(zdo.prefabHash);
+        if (zdo.hasMember(WovServer.TRUHE_INHALT_HASH) || (def !== undefined && (def.flags & PrefabFlag.CONTAINER) !== 0n)) {
           welt.zdos.destroyZDO(zdo.zdoid);
           truhen++;
         } else {

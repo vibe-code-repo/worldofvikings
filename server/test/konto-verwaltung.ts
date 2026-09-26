@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { KontoApi, GELOESCHTER_AUTOR } from '../src/konto/KontoApi.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 import { ForumDatabase } from '../src/forum/ForumDatabase.js';
-import { geheimnisErzeugen } from '../src/net/Identitaet.js';
+import { geheimnisErzeugen, tokenPruefen } from '../src/net/Identitaet.js';
 import { passwortEinlagernSync } from '../src/konto/Passwort.js';
 
 // Antworten sind hier bewusst lose typisiert: der Test liest Felder, die er selbst prueft.
@@ -41,12 +41,14 @@ const db = new Kontendatenbank(join(ordner, 'konten.db'));
 const forum = new ForumDatabase(join(ordner, 'forum.db'));
 const geheimnis = Buffer.from(geheimnisErzeugen(), 'hex');
 const weltAufrufe: string[] = [];
+const getrennt: string[] = [];
 const api = new KontoApi(
   db, geheimnis, () => ({ spieler: 0, plaetze: 10, tag: 1, welt: 'test' }),
   ['gast'], ['gast', 'admin'],
   {
     forumBereinigen: (a) => { forum.kontoEntfernen(a.kontoId, a.charakterIds, a.namen, GELOESCHTER_AUTOR); },
     weltBereinigen: (k) => { weltAufrufe.push(...k.charaktere.map((c) => c.spielerId)); },
+    spielerTrennen: (ids) => { getrennt.push(...ids); },
   },
 );
 db.kontoAnlegen('gast', 'gast@example.org', passwortEinlagernSync('gastpasswort1'));
@@ -105,16 +107,15 @@ try {
   assert.equal(db.kontoNachName('Alrun')!.email, 'Alrun@example.org', 'E-Mail unveraendert');
   assert.equal((await ich(a.token)).status, 200, 'Konto besteht, Token gilt weiter');
 
-  // Sperre: drei Versuche sind verbraucht, zwei weitere gehen noch durch, danach 429 —
-  // auch mit dem RICHTIGEN Passwort und von einer anderen Herkunft (Konto-Zaehler).
+  // Sperre je Herkunft: fuenf gleichzeitige Versuche gehen bis zum Hashen, der Rest 429.
   const gleichzeitig = await Promise.all(Array.from({ length: 12 }, (_, i) =>
     aufruf('POST', '/accounts/email', { currentPassword: `falsch${i}xxxx`, email: 'x@example.org' }, a.token, '198.51.100.7')));
   const stati = gleichzeitig.map((r) => r.status);
   assert.ok(stati.filter((s) => s === 401).length <= 5, `hoechstens fuenf Versuche kommen bis zum Hashen: ${stati}`);
   assert.ok(stati.includes(429), 'gleichzeitige Versuche laufen in die Sperre');
   const gesperrt = await aufruf('POST', '/accounts/email',
-    { currentPassword: 'altespasswort1', email: 'neu@example.org' }, a.token, '198.51.100.99');
-  assert.equal(gesperrt.status, 429, 'Kontosperre gilt von jeder Herkunft, auch fuer das richtige Passwort');
+    { currentPassword: 'altespasswort1', email: 'neu@example.org' }, a.token, '198.51.100.7');
+  assert.equal(gesperrt.status, 429, 'die Herkunft des Versuchs bleibt gesperrt, auch fuer das richtige Passwort');
   assert.equal(db.kontoNachName('Alrun')!.email, 'Alrun@example.org');
 
   // ── 3. Fremdes Token ─────────────────────────────────────────────────
@@ -289,6 +290,189 @@ try {
   const alterEintrag = db.kontoNachName('Gunnar')!.passwort;
   assert.equal(db.passwortErsetzen(g.kontoId, 'scrypt$x', 'anderer-eintrag'), false, 'CAS: falscher Erwartungswert schreibt nichts');
   assert.equal(db.kontoNachName('Gunnar')!.passwort, alterEintrag);
+
+  // ══ N1 (Opus-Angriff) ════════════════════════════════════════════════
+
+  // B1: Login mit dem ALTEN Passwort, dessen Pruefung vor dem Wechsel fertig
+  // wurde, bekommt danach kein Token. Das Fenster wird erzwungen: der Haken
+  // fuehrt den Passwortwechsel genau zwischen Pruefung und Tokenausgabe aus.
+  {
+    const h = await neuesKonto('Hilda');
+    let haken = 0;
+    api.testHaken.nachLoginPruefung = async () => {
+      api.testHaken.nachLoginPruefung = undefined;
+      haken++;
+      const w = await aufruf('POST', '/accounts/password', { currentPassword: 'altespasswort1', newPassword: 'neuespasswort2' }, h.token);
+      assert.equal(w.status, 200, 'Wechsel im Fenster');
+    };
+    const spaet = await aufruf('POST', '/accounts/login', { username: 'Hilda', password: 'altespasswort1' });
+    assert.equal(haken, 1, 'das Fenster wurde tatsaechlich erzwungen');
+    assert.equal(spaet.status, 401, `Login mit altem Passwort im Fenster: kein Token (war ${spaet.status})`);
+    assert.equal(spaet.daten.token, undefined);
+    assert.equal((await aufruf('POST', '/accounts/login', { username: 'Hilda', password: 'neuespasswort2' })).status, 200);
+  }
+
+  // B2 + B5: Spieler-Token aus /play ueberleben den Wechsel nicht; Uhrsprung sperrt niemanden aus.
+  {
+    const i = await neuesKonto('Ingrid');
+    await charakter(i.token, 'Ingridr');
+    const ic = db.charaktereVonKonto(i.kontoId)[0];
+    const vorWechsel = (await aufruf('POST', `/accounts/characters/${ic.id}/play`, undefined, i.token)).daten.sessionToken as string;
+    const gepr = tokenPruefen(vorWechsel, geheimnis);
+    assert.equal(gepr.status, 'gueltig');
+    const ausgestellt = gepr.status === 'gueltig' ? gepr.ausgestelltAm : 0;
+    assert.equal(db.bannFuerZugang({ spielerId: ic.spielerId, ausgestelltAm: ausgestellt }), null, 'vorher darf das Token herein');
+    await new Promise((r) => setTimeout(r, 5));
+    const w = await aufruf('POST', '/accounts/password', { currentPassword: 'altespasswort1', newPassword: 'neuespasswort2' }, i.token);
+    assert.equal(w.status, 200);
+    assert.deepEqual(getrennt.filter((x) => x === ic.spielerId), [ic.spielerId], 'laufende Verbindungen werden getrennt');
+    assert.ok(db.bannFuerZugang({ spielerId: ic.spielerId, ausgestelltAm: ausgestellt }), '/play-Token von vor dem Wechsel abgewiesen');
+    const ab = db.spielerAbZuSpielerId(ic.spielerId)!;
+    assert.ok(db.bannFuerZugang({ spielerId: ic.spielerId, ausgestelltAm: ab }), 'genau zu spieler_ab: abgewiesen');
+    assert.equal(db.bannFuerZugang({ spielerId: ic.spielerId, ausgestelltAm: ab + 1 }), null, 'einen ms danach: gueltig');
+    assert.equal(db.bannFuerZugang({ spielerId: ic.spielerId }), null, 'ohne Ausstellzeit (Adminweg) keine Pruefung');
+    const nachher = (await aufruf('POST', `/accounts/characters/${ic.id}/play`, undefined, w.daten.token)).daten.sessionToken as string;
+    const g2 = tokenPruefen(nachher, geheimnis);
+    assert.equal(db.bannFuerZugang({
+      spielerId: ic.spielerId, ausgestelltAm: g2.status === 'gueltig' ? g2.ausgestelltAm : 0,
+    }), null, 'neues /play-Token gilt');
+
+    // Uhrsprung: 60 s zurueck NACH dem Wechsel. Niemand darf ausgesperrt sein.
+    const echt = Date.now;
+    Date.now = () => echt() - 60_000;
+    try {
+      const login = await aufruf('POST', '/accounts/login', { username: 'Ingrid', password: 'neuespasswort2' });
+      assert.equal(login.status, 200);
+      assert.equal((await ich(login.daten.token)).status, 200, 'Token nach Uhrsprung gilt');
+      const w2 = await aufruf('POST', '/accounts/password', { currentPassword: 'neuespasswort2', newPassword: 'neuespasswort3' }, login.daten.token);
+      assert.equal(w2.status, 200);
+      assert.equal((await ich(w2.daten.token)).status, 200, 'Token des zweiten Wechsels gilt nach Uhrsprung');
+      const t3 = (await aufruf('POST', `/accounts/characters/${ic.id}/play`, undefined, w2.daten.token)).daten.sessionToken as string;
+      const g3 = tokenPruefen(t3, geheimnis);
+      assert.equal(db.bannFuerZugang({
+        spielerId: ic.spielerId, ausgestelltAm: g3.status === 'gueltig' ? g3.ausgestelltAm : 0,
+      }), null, '/play-Token gilt nach Uhrsprung');
+    } finally { Date.now = echt; }
+  }
+
+  // B3: ein Dieb mit gestohlenem Token sperrt den Besitzer nicht aus.
+  {
+    const j = await neuesKonto('Jorunn');
+    for (let n = 0; n < 6; n++) {
+      const r = await aufruf('POST', '/accounts/password', { currentPassword: `falsch${n}xxxx`, newPassword: 'gekapert1234' }, j.token, `192.0.2.${n + 1}`);
+      assert.equal(r.status, 401, `Dieb von Adresse ${n + 1}`);
+    }
+    for (let n = 0; n < 5; n++) {
+      assert.equal((await aufruf('POST', '/accounts/password', { currentPassword: `dieb${n}xxxx`, newPassword: 'gekapert1234' }, j.token, '192.0.2.50')).status, 401);
+    }
+    const dieb = await aufruf('POST', '/accounts/password', { currentPassword: 'falsch9xxxx', newPassword: 'gekapert1234' }, j.token, '192.0.2.50');
+    assert.equal(dieb.status, 429, 'der Dieb bleibt an seiner eigenen Adresse gesperrt');
+    const besitzer = await aufruf('POST', '/accounts/password', { currentPassword: 'altespasswort1', newPassword: 'neuespasswort2' }, j.token, '198.18.0.1');
+    assert.equal(besitzer.status, 200, 'Besitzer von anderer Adresse mit richtigem Passwort kommt durch');
+    // Verteiltes Raten hat trotzdem eine Grenze je Konto (50).
+    const k = await neuesKonto('Knut');
+    let stand429 = 0;
+    for (let n = 0; n < 52; n++) {
+      const r = await aufruf('POST', '/accounts/email', { currentPassword: `falsch${n}xxxx`, email: 'k@example.org' }, k.token, `198.19.${Math.floor(n / 200)}.${(n % 200) + 1}`);
+      if (r.status === 429) stand429++;
+    }
+    assert.ok(stand429 >= 2, `nach 50 Fehlversuchen von verteilten Adressen greift die Kontosperre (${stand429})`);
+    assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: 'altespasswort1', email: 'k@example.org' }, k.token, '198.19.9.9')).status, 429);
+  }
+
+  // B8: ein Erfolg setzt die Zaehler zurueck (4 + Erfolg + 4 bleiben unter der Sperre).
+  {
+    const l = await neuesKonto('Liv');
+    const ip = '192.0.2.200';
+    for (let n = 0; n < 4; n++) assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: `falsch${n}xxxx`, email: 'l@example.org' }, l.token, ip)).status, 401);
+    assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: 'altespasswort1', email: 'l@example.org' }, l.token, ip)).status, 200);
+    for (let n = 0; n < 4; n++) assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: `falsch${n}xxxx`, email: 'l@example.org' }, l.token, ip)).status, 401, `Versuch ${n + 1} nach Erfolg`);
+  }
+
+  // B8: auch der Konto-Zaehler wird bei Erfolg zurueckgesetzt (45 + Erfolg + 45 bleiben unter 50 je Fenster).
+  {
+    const o = await neuesKonto('Orm');
+    const falsch = async (von: number, bis: number) => {
+      for (let n = von; n < bis; n++) {
+        const r = await aufruf('POST', '/accounts/email', { currentPassword: `falsch${n}xxxx`, email: 'o@example.org' }, o.token, `198.20.${Math.floor(n / 200)}.${(n % 200) + 1}`);
+        assert.equal(r.status, 401, `Versuch ${n}`);
+      }
+    };
+    await falsch(0, 45);
+    assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: 'altespasswort1', email: 'o@example.org' }, o.token, '198.21.0.1')).status, 200);
+    await falsch(45, 90);
+  }
+
+  // B8: Loeschung und E-Mail-Wechsel schreiben nur, wenn das Passwort seit der Pruefung unveraendert ist.
+  {
+    const m = await neuesKonto('Mette');
+    const eintrag = db.kontoNachName('Mette')!.passwort;
+    api.testHaken.nachBestaetigung = async () => {
+      api.testHaken.nachBestaetigung = undefined;
+      assert.ok(db.passwortWechseln(m.kontoId, passwortEinlagernSync('zwischendurch12'), eintrag));
+    };
+    const weg = await aufruf('POST', '/accounts/delete', { password: 'altespasswort1', confirm: 'Mette' }, m.token);
+    assert.equal(weg.status, 409, `Loeschung nach zwischenzeitlichem Wechsel: 409 (war ${weg.status})`);
+    assert.ok(db.kontoNachId(m.kontoId), 'Konto besteht');
+    api.testHaken.nachBestaetigung = async () => {
+      api.testHaken.nachBestaetigung = undefined;
+      assert.ok(db.passwortWechseln(m.kontoId, passwortEinlagernSync('zwischendurch34'), db.kontoNachName('Mette')!.passwort));
+    };
+    // Das Token von vorher ist inzwischen ungueltig (Generation): neu anmelden.
+    const neu = await aufruf('POST', '/accounts/login', { username: 'Mette', password: 'zwischendurch12' });
+    assert.equal(neu.status, 200);
+    const em = await aufruf('POST', '/accounts/email', { currentPassword: 'zwischendurch12', email: 'm@example.org' }, neu.daten.token);
+    assert.equal(em.status, 409, 'E-Mail-Wechsel nach zwischenzeitlichem Wechsel: 409');
+    assert.notEqual(db.kontoNachId(m.kontoId)!.email, 'm@example.org');
+  }
+
+  // B5: spieler_ab und Generation laufen nur vorwaerts, auch wenn `jetzt` rueckwaerts springt.
+  {
+    const q = await neuesKonto('Quirin');
+    const e0 = db.kontoNachName('Quirin')!.passwort;
+    const e1 = passwortEinlagernSync('quirin-eins-1');
+    const e2 = passwortEinlagernSync('quirin-zwei-2');
+    const w1 = db.passwortWechseln(q.kontoId, e1, e0, 1_000_000)!;
+    const w2 = db.passwortWechseln(q.kontoId, e2, e1, 500)!;
+    assert.equal(w1.generation, 1); assert.equal(w2.generation, 2, 'Generation zaehlt hoch');
+    assert.equal(w1.spielerAb, 1_000_000);
+    assert.equal(w2.spielerAb, 1_000_001, 'spieler_ab springt trotz kleinerem jetzt nicht zurueck');
+  }
+
+  // B6: Standardkonten duerfen weder Profil noch Avatar setzen.
+  {
+    const g = await aufruf('POST', '/accounts/login', { username: 'gast', password: 'gastpasswort1' });
+    const r = await aufruf('POST', '/accounts/profile', { text: 'Ich gehoere allen' }, g.daten.token);
+    assert.equal(r.status, 403); assert.equal(r.daten.error, 'standard-account');
+    const av = await aufruf('POST', '/accounts/avatar', { characterId: null }, g.daten.token);
+    assert.equal(av.status, 403); assert.equal(av.daten.error, 'standard-account');
+  }
+
+  // B7: Positivregel fuer Profiltext.
+  {
+    const n = await neuesKonto('Njal');
+    const setze = (text: unknown) => aufruf('POST', '/accounts/profile', { text }, n.token);
+    const abgelehnt: [string, string][] = [
+      ['Zalgo (299 kombinierende Zeichen)', 'a' + '\u0301'.repeat(299)],
+      ['drei kombinierende in Folge', 'x\u0301\u0302\u0303'],
+      ['300 Umbrueche', '\n'.repeat(300).replace(/^/, 'a') + 'b'],
+      ['sechs Umbrueche', 'a\n\n\n\n\n\nb'],
+      ['U+061C', 'a\u061Cb'], ['U+180E', 'a\u180Eb'], ['Tag U+E0001', 'a\u{E0001}b'], ['Tag U+E0041', 'a\u{E0041}b'],
+      ['U+3164', 'a\u3164b'], ['U+00AD', 'a\u00ADb'], ['einzelnes Surrogat', 'a\uD800b'],
+      ['U+200B', 'a\u200Bb'], ['U+202E', 'a\u202Eb'], ['Tabulator', 'a\tb'], ['U+2028', 'a\u2028b'],
+      ['U+2800', 'a\u2800b'], ['privates Zeichen', 'a\uE000b'], ['NUL', 'a\u0000b'],
+      ['301 Zeichen', 'x'.repeat(301)], ['301 Emoji', '\u{1F600}'.repeat(301)],
+    ];
+    for (const [name, text] of abgelehnt) assert.equal((await setze(text)).status, 400, `abgelehnt: ${name}`);
+    const erlaubt: [string, string][] = [
+      ['zwei kombinierende', 'a\u0301\u0302'], ['fuenf Umbrueche', 'a\n\n\n\n\nb'],
+      ['Sprachen', 'Ærø Ünïcödé ᚠᚢᚦ 日本語 Ελληνικά'], ['Emoji mit Hautton', '\u{1F44D}\u{1F3FD}'],
+      ['300 Graphem-Cluster', 'e\u0301\u0302'.repeat(300)], ['leer', ''],
+    ];
+    for (const [name, text] of erlaubt) assert.equal((await setze(text)).status, 200, `erlaubt: ${name}`);
+    assert.equal((await setze('e\u0301\u0302'.repeat(301))).status, 400, '301 Graphem-Cluster abgelehnt');
+    assert.equal((await aufruf('POST', `/accounts/characters/1/report`, { reason: 'a\u200Bb' }, n.token)).status, 400, 'Meldegrund: dieselbe Regel');
+  }
 
   console.log('konto-verwaltung: alle Zusicherungen erfuellt');
 } finally {

@@ -77,7 +77,7 @@ export interface NetManagerConfig {
    * abgewiesen. Das ist der Zustand jedes Tests, der NetManager ohne
    * Konten hochzieht, und darf ihn nicht zum Absturz bringen.
    */
-  bannPruefen?: (zugang: { spielerId: SpielerId | null; herkunft: string })
+  bannPruefen?: (zugang: { spielerId: SpielerId | null; herkunft: string; ausgestelltAm?: number })
     => { grund: string; bis: number | null } | null;
 }
 
@@ -432,7 +432,10 @@ export class NetManager {
     // NICHT aus socket.remoteAddress; hinter dem Proxy waere die fuer alle
     // gleich.
     const herkunft = this.herkunftJeVerbindung.get(peer.verbindungsId) ?? '';
-    const bann = this.config.bannPruefen?.({ spielerId, herkunft }) ?? null;
+    const bann = this.config.bannPruefen?.({
+      spielerId, herkunft,
+      ausgestelltAm: geprueft.status === 'gueltig' ? geprueft.ausgestelltAm : undefined,
+    }) ?? null;
     if (bann) {
       peer.status = ConnectionStatus.ErrorBanned;
       console.warn(`[NetManager] Gebannter Zugang abgewiesen (spielerId: ${spielerId}, Herkunft: ${herkunft || 'unbekannt'})`);

@@ -36,6 +36,7 @@
  * multiply the occlusion; that does not look "doubled", it looks "too dark".
  */
 import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline';
+import { korrigiereSsaoHimmel } from './Ssao2Himmel';
 import { Constants } from '@babylonjs/core/Engines/constants';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { Scene } from '@babylonjs/core/scene';
@@ -420,6 +421,11 @@ export class DungeonAtmosphaere {
       this.pipeline = null;
     }
     if (this.pipeline === null) {
+      // Vor der ersten Uebersetzung des Shaders: Nullnormale (Ssao2Himmel.ts);
+      // ein Blick aus einem Lichtschacht oder einer Oeffnung traefe sonst Pixel
+      // ohne Geometrie und machte sie schwarz.
+      // Before the first shader compile: guard the zero normal (Ssao2Himmel.ts).
+      korrigiereSsaoHimmel();
       this.pipeline = new SSAO2RenderingPipeline(
         PIPELINE_NAME,
         this.scene,

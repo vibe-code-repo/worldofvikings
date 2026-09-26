@@ -34,15 +34,23 @@
  *    eine Sperre eines toten oder fremden Prozesses wird übernommen.
  *  - Der Renderer schreibt Bild und Beschreibung über Temp-Dateien, die
  *    Beschreibung (mit Fingerabdruck) zuletzt. Vor dem Ablegen wird jedes
- *    Bild dekodiert und auf Breite 4096 geprüft; scheitert das, wird diese
- *    Instanz einmal neu gerendert, scheitert es erneut, endet der Lauf mit
- *    Exit 1 und die zuletzt veröffentlichten Dateien bleiben stehen.
+ *    Bild dekodiert und auf die Breite WOV_KARTEN_BREITE (Vorgabe 4096)
+ *    geprüft; scheitert das, wird diese Instanz einmal neu gerendert,
+ *    scheitert es erneut, gilt diese Welt als ausgefallen: Ihre zuletzt
+ *    veröffentlichten Dateien bleiben stehen (und in karten.json), die
+ *    anderen Welten werden trotzdem veröffentlicht, und der Lauf endet am
+ *    Schluss mit Exit 1, damit der Timer den Fehler zeigt.
  *  - Beim Start werden alte `*.tmp` in ARBEIT und AUSGABE gelöscht.
- *  - Fehlt die Weltdatei einer Instanz, werden deren Dateien aus AUSGABE
- *    entfernt (Warnung im Log); dann greift der Rückfall auf die Repo-Karte.
+ *  - Fehlt die Weltdatei einer Instanz, warnt der erste Lauf nur (Dateien und
+ *    karten.json-Eintrag bleiben). Erst beim zweiten Lauf in Folge ohne
+ *    Weltdatei werden deren Dateien aus AUSGABE entfernt (Warnung im Log);
+ *    dann greift der Rückfall auf die Repo-Karte. Zähler: ARBEIT/<instanz>.fehlt.
  *  - Bekannte Grenze: Bild und Beschreibung werden nacheinander abgelegt
  *    und vom Browser je bis zu 300 s gecacht; nach einer Weltänderung kann
  *    die Koordinatenanzeige kurz zum alten Bild passen oder umgekehrt.
+ *
+ * WOV_KARTEN_BREITE: Bildbreite in Punkten, ganze Zahl von 256 bis 8192
+ * (Vorgabe 4096); alles andere beendet den Lauf sofort mit Exit 1.
  *
  * Überschreibbar (für Proben): WOV_KARTEN_ARBEIT, WOV_KARTEN_AUSGABE und
  * WOV_KARTEN_SPERRE (Standard /run/wov-karten/sperre). ALLE DREI setzen: Fehlt
@@ -72,8 +80,28 @@ import { fileURLToPath } from 'node:url';
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ARBEIT = process.env.WOV_KARTEN_ARBEIT || '/var/lib/wov-karten';
 const AUSGABE = process.env.WOV_KARTEN_AUSGABE || join(ARBEIT, 'oeffentlich');
-const BREITE = 4096;
+const BREITE_MIN = 256;
+const BREITE_MAX = 8192;
 const INSTANZEN = ['dev', 'live'];
+
+/**
+ * Bildbreite aus WOV_KARTEN_BREITE (Vorgabe 4096). Nur ganze Zahlen von 256 bis
+ * 8192; alles andere ist ein Fehler und beendet den Lauf, bevor etwas
+ * angefasst wird (Exit 1). Die Breite in Punkten ist zugleich die Höhe; ein
+ * Bild braucht Breite² × 3 Byte Rohdaten, bei 8192 also rund 200 MB je Ebene.
+ */
+function breiteLesen(text) {
+  if (text === undefined || text === '') return 4096;
+  const zahl = /^\d+$/.test(text) ? Number(text) : NaN;
+  if (!Number.isInteger(zahl) || zahl < BREITE_MIN || zahl > BREITE_MAX) {
+    console.error(
+      `[karten] WOV_KARTEN_BREITE="${text}" ist ungültig — erlaubt sind ganze Zahlen von ${BREITE_MIN} bis ${BREITE_MAX}`,
+    );
+    process.exit(1);
+  }
+  return zahl;
+}
+const BREITE = breiteLesen(process.env.WOV_KARTEN_BREITE);
 
 const neu = process.argv.includes('--neu');
 const nurRendern = process.argv.includes('--nur-rendern');
@@ -221,7 +249,7 @@ function ablegen(datei, inhalt = readFileSync(join(ARBEIT, datei))) {
   return true;
 }
 
-/** Bild lässt sich vollständig dekodieren und ist BREITE Punkte breit. */
+/** Bild lässt sich vollständig dekodieren und ist BREITE Punkte breit (WOV_KARTEN_BREITE). */
 async function bildOk(instanz) {
   const p = join(ARBEIT, `${instanz}.webp`);
   if (!existsSync(p) || !existsSync(join(ARBEIT, `${instanz}.json`))) return false;
@@ -233,23 +261,91 @@ async function bildOk(instanz) {
   }
 }
 
+// ── Karenz für fehlende Weltdateien ─────────────────────────────────────
+
+/*
+  Fehlt eine Weltdatei (etwa während eines Checkouts oder wegen eines
+  Tippfehlers), soll ein einzelner Lauf nicht sofort die öffentliche Karte
+  löschen. Der Zähler `<instanz>.fehlt` in ARBEIT zählt die Läufe in Folge
+  ohne Weltdatei. Erst der zweite entfernt die öffentlichen Dateien; der erste
+  warnt nur und lässt die Welt in karten.json stehen. Ist die Weltdatei wieder
+  da, wird der Zähler gelöscht. --nur-rendern zählt nicht (es veröffentlicht
+  nichts). Nach dem Entfernen bleibt der Zähler stehen, damit er nicht wieder
+  bei 1 anfängt.
+*/
+const KARENZ_LAEUFE = 2;
+const zaehlerPfad = (instanz) => join(ARBEIT, `${instanz}.fehlt`);
+
+function fehltZaehlen(instanz) {
+  let n = 0;
+  try {
+    n = Number.parseInt(readFileSync(zaehlerPfad(instanz), 'utf-8'), 10);
+  } catch {
+    /* kein Zähler: erster Lauf */
+  }
+  n = (Number.isInteger(n) && n > 0 ? n : 0) + 1;
+  const temp = `${zaehlerPfad(instanz)}.${process.pid}.tmp`;
+  writeFileSync(temp, String(n));
+  renameSync(temp, zaehlerPfad(instanz));
+  return n;
+}
+
+/** Beschreibung der bisher öffentlichen Karte einer Instanz, oder null. */
+function veroeffentlicht(instanz) {
+  try {
+    return JSON.parse(readFileSync(join(AUSGABE, `${instanz}.json`), 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function standVon(instanz, beschreibung) {
+  return {
+    instanz,
+    name: beschreibung.name,
+    gerendert: beschreibung.gerendert,
+    fingerabdruck: beschreibung.fingerabdruck,
+    spanneMeter: beschreibung.spanneMeter,
+    regionen: beschreibung.regionen.length,
+  };
+}
+
 // ── Rendern ─────────────────────────────────────────────────────────────
 
+/*
+  Jede Welt für sich: Scheitert Rendern oder Prüfung einer Welt, wird sie
+  vermerkt, und die anderen laufen weiter. Die gescheiterte Welt behält ihre
+  bisher öffentlichen Dateien und steht mit deren Beschreibung in karten.json
+  (nur mit `ablegen: false`, damit sie nicht überschrieben wird). Am Ende
+  endet der Lauf mit Exit 1, damit der Timer den Fehler zeigt.
+*/
 const stand = [];
+const ausfaelle = [];
 let geaendert = false;
 
-for (const instanz of INSTANZEN) {
+async function weltVerarbeiten(instanz) {
   const weltPfad = join(WURZEL, 'server/data/welten', `${instanz}.json`);
   if (!existsSync(weltPfad)) {
     log(`${instanz}: keine Weltdatei unter ${weltPfad} — übersprungen`);
-    for (const datei of nurRendern ? [] : [`${instanz}.webp`, `${instanz}.json`]) {
+    if (nurRendern) return;
+    const n = fehltZaehlen(instanz);
+    if (n < KARENZ_LAEUFE) {
+      log(
+        `WARNUNG: ${instanz}: Weltdatei fehlt (Lauf ${n} von ${KARENZ_LAEUFE} in Folge) — öffentliche Dateien bleiben; beim nächsten Lauf ohne Weltdatei werden sie entfernt`,
+      );
+      const alt = veroeffentlicht(instanz);
+      if (alt) stand.push({ ...standVon(instanz, alt), ablegen: false });
+      return;
+    }
+    for (const datei of [`${instanz}.webp`, `${instanz}.json`]) {
       if (existsSync(join(AUSGABE, datei))) {
         rmSync(join(AUSGABE, datei), { force: true });
-        log(`WARNUNG: ${datei} aus der Ausgabe entfernt (Welt fehlt, Rückfall auf Repo-Karte)`);
+        log(`WARNUNG: ${datei} aus der Ausgabe entfernt (Welt fehlt seit ${n} Läufen, Rückfall auf Repo-Karte)`);
       }
     }
-    continue;
+    return;
   }
+  if (!nurRendern) rmSync(zaehlerPfad(instanz), { force: true });
 
   const jetzt = fingerabdruck(weltPfad);
   const vorher = gerendert(instanz);
@@ -273,7 +369,7 @@ for (const instanz of INSTANZEN) {
     frisch = true;
   }
 
-  // Das Bild muss sich dekodieren lassen und 4096 Punkte breit sein, bevor es
+  // Das Bild muss sich dekodieren lassen und BREITE Punkte breit sein, bevor es
   // veröffentlicht wird. Sonst: einmal neu rendern, danach abbrechen.
   if (!(await bildOk(instanz))) {
     if (frisch) throw new Error(`${instanz}: frisch gerendertes Bild ist unbrauchbar`);
@@ -283,14 +379,18 @@ for (const instanz of INSTANZEN) {
   }
 
   const beschreibung = JSON.parse(readFileSync(join(ARBEIT, `${instanz}.json`), 'utf-8'));
-  stand.push({
-    instanz,
-    name: beschreibung.name,
-    gerendert: beschreibung.gerendert,
-    fingerabdruck: beschreibung.fingerabdruck,
-    spanneMeter: beschreibung.spanneMeter,
-    regionen: beschreibung.regionen.length,
-  });
+  stand.push({ ...standVon(instanz, beschreibung), ablegen: true });
+}
+
+for (const instanz of INSTANZEN) {
+  try {
+    await weltVerarbeiten(instanz);
+  } catch (e) {
+    ausfaelle.push(instanz);
+    log(`FEHLER: ${instanz}: ${e.message} — die bisher öffentliche Karte bleibt stehen`);
+    const alt = nurRendern ? null : veroeffentlicht(instanz);
+    if (alt) stand.push({ ...standVon(instanz, alt), ablegen: false });
+  }
 }
 
 // ── Übersicht schreiben ─────────────────────────────────────────────────
@@ -303,7 +403,7 @@ for (const instanz of INSTANZEN) {
 */
 const uebersicht = {
   erzeugt: new Date().toISOString(),
-  welten: stand.map((s) => ({
+  welten: stand.map(({ ablegen, ...s }) => ({
     ...s,
     // Anzeigenamen der Webseite. Die Instanz heißt technisch dev/live; auf
     // der Seite heißen die Welten seit jeher Midgard und Werkstatt.
@@ -325,12 +425,23 @@ if (nurRendern) {
   // Bilder und Beschreibungen zuerst, die Übersicht zuletzt: Sie verweist auf
   // die anderen Dateien und darf nie vor ihnen sichtbar sein.
   for (const s of stand) {
-    ablegen(`${s.instanz}.webp`);
-    ablegen(`${s.instanz}.json`);
+    if (!s.ablegen) continue; // bleibt, wie veröffentlicht
+    try {
+      ablegen(`${s.instanz}.webp`);
+      ablegen(`${s.instanz}.json`);
+    } catch (e) {
+      ausfaelle.push(s.instanz);
+      log(`FEHLER: ${s.instanz}: Ablegen scheiterte: ${e.message}`);
+    }
   }
   // Die Übersicht trägt den Zeitpunkt des Laufs und belegt auf der Webseite,
   // dass die Karte geprüft wurde — sie wird deshalb bei jedem Lauf neu
   // geschrieben, auch wenn nichts gerendert wurde.
   ablegen('karten.json', Buffer.from(uebersichtText));
   log(geaendert || neu ? 'fertig' : 'nichts Neues zu rendern — nur die Übersicht aufgefrischt');
+}
+
+if (ausfaelle.length > 0) {
+  log(`Ausfall: ${[...new Set(ausfaelle)].join(', ')} — Exit 1; die übrigen Welten sind veröffentlicht`);
+  process.exit(1);
 }

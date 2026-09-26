@@ -2206,6 +2206,8 @@ const KERN = [
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
+  // World-map publisher: the small probe (256 px, ~15 s); `--gross` runs the full 4096 px probe by hand.
+  ['tools', 'test/weltkarte-probe.mjs'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

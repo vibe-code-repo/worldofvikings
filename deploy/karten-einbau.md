@@ -76,9 +76,15 @@ Namen mit `weltkarte-veroeffentlichen` in der Kommandozeile, hält er die
 Sperre scheinbar dauerhaft; dann Status 75 wie oben behandeln.
 
 Hinweise:
-- Ein Bild wird vor dem Ablegen dekodiert (4096 px breit). Ist es kaputt,
-  rendert der Lauf neu; scheitert auch das, endet er mit Exit 1 und die
-  zuletzt veröffentlichten Dateien bleiben stehen.
+- Ein Bild wird vor dem Ablegen dekodiert und auf die Breite geprüft
+  (`WOV_KARTEN_BREITE`, Vorgabe 4096; erlaubt sind ganze Zahlen von 256 bis
+  8192, alles andere beendet den Lauf sofort mit Exit 1). Ist es kaputt,
+  rendert der Lauf neu; scheitert auch das, gilt **diese Welt** als
+  ausgefallen: Ihre zuletzt veröffentlichten Dateien bleiben stehen und sie
+  bleibt in `karten.json`, die anderen Welten werden trotzdem veröffentlicht.
+  Der Lauf endet am Schluss mit Exit 1 (Dienst „failed“, der Timer läuft
+  weiter), damit der Ausfall im Journal und in `systemctl status` sichtbar ist.
+  Das gilt auch für eine unlesbare Weltdatei oder einen Renderfehler.
 - Alte `*.tmp` in `/var/lib/wov-karten` und `oeffentlich/` werden beim Start gelöscht.
 - Bekannte Grenze: Bild und Beschreibung werden nacheinander abgelegt und je bis
   zu 300 s vom Browser gecacht; nach einer Weltänderung kann die
@@ -89,9 +95,20 @@ Hinweise:
   `--nur-rendern` sind für Proben gedacht, mit gesetzten `WOV_KARTEN_ARBEIT`,
   `WOV_KARTEN_AUSGABE` und `WOV_KARTEN_SPERRE` (siehe
   `tools/test/weltkarte-probe.mjs`), nie mit den Standardpfaden von Hand.
-- Fehlt `server/data/welten/live.json`, wird `live` übersprungen; `karten.json`
-  führt nur vorhandene Welten; deren Dateien werden aus `oeffentlich/` entfernt
-  (Repo-Rückfall, Warnung im Journal).
+- Fehlt `server/data/welten/<instanz>.json` (Karenz, Entscheidung des
+  Orchestrators vom 26.09.2026): Der **erste** Lauf ohne Weltdatei warnt nur
+  („Lauf 1 von 2 in Folge“); die öffentlichen Dateien bleiben und die Welt
+  bleibt in `karten.json`. Erst der **zweite Lauf in Folge** ohne Weltdatei
+  entfernt `<instanz>.webp` und `<instanz>.json` aus `oeffentlich/` und nimmt
+  die Welt aus `karten.json` (Repo-Rückfall, Warnung im Journal). Der Zähler
+  ist die Datei `/var/lib/wov-karten/<instanz>.fehlt`; sie wird gelöscht,
+  sobald die Weltdatei wieder da ist. `--nur-rendern` zählt nicht. Grund:
+  Ein einzelner Lauf während eines Checkouts oder nach einem Tippfehler soll
+  die Karte nicht sofort von der Webseite nehmen.
 - Der alte Schlüssel `/root/.ssh/wov_karten` und `karten-empfang` auf CT 103
   werden nicht mehr gebraucht; Entfernen ist Sache des Orchestrators.
-- Probe: `node tools/test/weltkarte-probe.mjs` (rendert in `/tmp`, ~1 min).
+- Probe: `node tools/test/weltkarte-probe.mjs` ist die kleine Probe (256 px,
+  rund 15–20 s, ohne den Parallel-Lauf); sie steht im Sammellauf
+  (`npm test`). Die große Probe mit 4096 px und allen Fällen, rund 1 min:
+  `node tools/test/weltkarte-probe.mjs --gross` (von Hand vor Änderungen an der
+  Kartenveröffentlichung). Beide rendern in `/tmp`.

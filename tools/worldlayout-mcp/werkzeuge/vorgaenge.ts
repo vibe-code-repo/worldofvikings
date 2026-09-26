@@ -71,7 +71,8 @@ interface PatchAbgelehnt {
 async function schreibeVorgang(vorgang: Vorgang): Promise<PatchErfolg | PatchAbgelehnt> {
   pruefeEigeneWelt();
   const { status, daten } = await adminAnfrage('PATCH', vorgang, '/api/worldlayout/ops');
-  if (status === 200 && typeof daten.hash === 'string') {
+  // 202 (K5.0): geschrieben, aber (noch) nicht angewendet (Spielserver aus, Geo, abgelehnt) — die Datei steht.
+  if ((status === 200 || status === 202) && typeof daten.hash === 'string') {
     return {
       art: 'ok',
       hash: daten.hash,

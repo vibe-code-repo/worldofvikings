@@ -178,7 +178,8 @@ export async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
 export async function schreibe(layout: WorldLayout, basis: string): Promise<void> {
   pruefeEigeneWelt();
   const { status, daten } = await adminAnfrage('POST', { ...layout, basis });
-  if (status === 200) return;
+  // 202 (K5.0): geschrieben, aber vom laufenden Spielserver nicht (gleich) angewendet — die Datei steht.
+  if (status === 200 || status === 202) return;
   if (status === 409) {
     throw new Error(
       'Nichts gespeichert: Das Weltdokument hat sich seit dem Lesen geändert (Editor oder ein anderer ' +

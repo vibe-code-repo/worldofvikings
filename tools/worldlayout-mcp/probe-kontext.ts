@@ -93,7 +93,7 @@ function dienstStarten(wurzel: string): Promise<{ kind: ChildProcess; url: strin
   return new Promise((fertig, scheitern) => {
     const kind = spawn(resolve(WURZEL, 'node_modules/.bin/tsx'), ['src/main.ts'], {
       cwd: resolve(WURZEL, 'admin'),
-      env: { ...process.env, WOV_WURZEL: wurzel, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_ADMIN_TOKEN_DATEI: resolve(wurzel, 'token') },
+      env: { ...process.env, WOV_WURZEL: wurzel, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_QUITTUNG: 'aus', WOV_ADMIN_TOKEN_DATEI: resolve(wurzel, 'token') },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let puffer = '';

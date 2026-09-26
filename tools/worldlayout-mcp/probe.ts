@@ -95,6 +95,8 @@ function dienstStarten(): Promise<{ kind: ChildProcess; url: string }> {
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: '0',
+        // K5.0: no game server here, so no receipt to wait for.
+        WOV_QUITTUNG: 'aus',
         WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

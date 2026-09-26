@@ -706,14 +706,16 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
       kopf?: string; // what `git rev-parse HEAD` prints (default: a new commit)
       vorher?: string; // WOV_UPDATE_VORHER (default vorher5678, '' = unset)
       checkoutFehlt?: boolean; // the reset `git checkout -B` fails
+      vorherResult?: Record<string, string>; // Result a unit already carries BEFORE the rollout (sticky until reset-failed)
     }
     const stoppLauf = (name: string, opt: Stopp = {}) => {
       const logDatei = join(temp, `${name}.log`);
       const versionDatei = join(temp, `${name}.VERSION`);
       writeFileSync(versionDatei, 'WOV_VERSION_COMMIT=alt1234alt1234\n');
-      const resultFall = Object.entries(opt.result ?? {})
-        .map(([u, r]) => `${u}.service) echo ${JSON.stringify(r)};;`)
-        .join(' ');
+      const zuweisung = (m: Record<string, string> | undefined, feld: string) =>
+        Object.entries(m ?? {})
+          .map(([u, r]) => `${feld}[${u}.service]=${JSON.stringify(r)}`)
+          .join('; ');
       const skript = [
         'set -euo pipefail',
         `WURZEL=${JSON.stringify(temp)}`,
@@ -722,17 +724,23 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
         `VERSION_DATEI=${JSON.stringify(versionDatei)}`,
         `export WOV_UPDATE_VORHER=${JSON.stringify(opt.vorher ?? 'vorher5678')} WOV_UPDATE_STUFE2=1`,
         `LOGD=${JSON.stringify(logDatei)}`,
+        // Result is sticky: it changes on a stop (to the scripted value, else it stays) and is cleared by reset-failed.
+        'declare -A RES STOPRES',
+        zuweisung(opt.vorherResult, 'RES'),
+        zuweisung(opt.result, 'STOPRES'),
         'systemctl() {',
         '  echo "$*" >> "$LOGD"',
         '  case "$1" in',
         '    is-enabled) echo enabled ;;',
-        `    show) case "\${5:-}" in ${resultFall} *) echo success;; esac ;;`,
+        '    stop) [ -n "${STOPRES[$2]+x}" ] && RES[$2]="${STOPRES[$2]}" ;;',
+        '    reset-failed) for u in "${!RES[@]}"; do RES[$u]=success; done ;;',
+        '    show) echo "${RES[${5:-}]-success}" ;;',
         `    start) [ "$2" = ${JSON.stringify(`${opt.startFehlt ?? '-'}.service`)} ] && return 1 ;;`,
         '  esac',
         '  return 0',
         '}',
         `journalctl() { echo "journalctl $*" >> "$LOGD"; printf '%b' ${JSON.stringify(opt.journal ?? '')}; }`,
-        `git() { echo "git $*" >> "$LOGD"; case "$1" in rev-parse) echo ${JSON.stringify(opt.kopf ?? 'neu9999')};; checkout) ${opt.checkoutFehlt ? 'return 1' : 'true'};; esac; }`,
+        `git() { echo "git $*" >> "$LOGD"; case "$1" in rev-parse) echo ${JSON.stringify(opt.kopf ?? 'neu9999')};; checkout) ${opt.checkoutFehlt ? 'return 1' : 'true'};; status) echo "?? server/src/kollision.ts";; esac; }`,
         'gesundheit_pruefen() { echo gesundheit >> "$LOGD"; }',
         'version_schreiben() { echo version >> "$LOGD"; }',
         aufraeumen,
@@ -764,7 +772,7 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
     pruefe(a.rc !== 0, 'Stopp Result=exit-code: Abbruch mit rc != 0', `rc=${a.rc}`);
     pruefe(!a.weiter, 'Stopp Result=exit-code: der Ablauf danach (npm ci, Build) laeuft nicht', a.log.join(' | '));
     pruefe(a.stopps === 4 && a.starts === 4, 'Stopp Result=exit-code: 4 Stopps, danach 4 Starts (Rueckweg startet die Dienste wieder)', `stopps=${a.stopps} starts=${a.starts}`);
-    pruefe(a.resetFailed === 1, 'Stopp Result=exit-code: reset-failed genau einmal vor dem Start', `${a.resetFailed}`);
+    pruefe(a.resetFailed === 2, 'Stopp Result=exit-code: reset-failed zweimal (vor dem Stopp, und vor dem Neustart)', `${a.resetFailed}`);
     pruefe(a.gesundheit === 1 && a.version === 0, 'Stopp Result=exit-code: Gesundheitspruefung ja, VERSION nicht geschrieben', `g=${a.gesundheit} v=${a.version}`);
     pruefe(a.stderr.includes('Endstand nicht gespeichert') && a.stderr.includes('wov-server (Result=exit-code)'), 'Stopp Result=exit-code: Meldung nennt Grund und Dienst', a.stderr);
 
@@ -791,15 +799,35 @@ if (ausfuehren && aufraeumen !== null && reigen !== null) {
     const h = stoppLauf('h-reset-scheitert', { result: { 'wov-server': 'exit-code' }, checkoutFehlt: true });
     pruefe(h.rc !== 0 && h.starts === 0 && h.gesundheit === 0, 'Zuruecksetzen scheitert: 0 Starts auf dem neuen Baum, keine Gesundheitspruefung', `rc=${h.rc} starts=${h.starts}`);
     pruefe(h.stderr.includes('nicht auf vorher5678 zurücksetzen') && h.stderr.includes('git checkout -B main vorher5678') && h.stderr.includes('NICHT gestartet'), 'Zuruecksetzen scheitert: Meldung mit Rueckweg-Befehlen von Hand', h.stderr);
+    pruefe(h.log.includes('git status --short') && h.stderr.includes('server/src/kollision.ts') && h.stderr.includes('Erst diese wegräumen'), 'Zuruecksetzen scheitert: Meldung zeigt git status, nennt die kollidierende Datei und sagt, was zuerst wegzuraeumen ist', h.stderr);
 
-    // another unit (not the game server) with Result != success also aborts
-    const c = stoppLauf('c-anderer', { result: { 'wov-admin': 'signal' } });
-    pruefe(c.rc !== 0 && !c.weiter && c.starts === 4 && c.stderr.includes('wov-admin (Result=signal)'), 'Stopp: auch ein anderer Dienst mit Result != success bricht ab und wird genannt', `rc=${c.rc} starts=${c.starts} ${c.stderr}`);
+    // B1: another unit (not the game server) with Result != success is only a warning, the rollout goes on.
+    const c = stoppLauf('c-anderer', { result: { 'wov-admin': 'timeout' } });
+    pruefe(c.rc === 0 && c.weiter && c.starts === 0 && c.stopps === 4, 'wov-admin Result=timeout (offener Editor-Tab): kein Abbruch, Ablauf geht weiter', `rc=${c.rc} starts=${c.starts} ${c.stderr}`);
+    pruefe(c.stderr.includes('WARNUNG') && c.stderr.includes('wov-admin endete beim Stopp mit Result=timeout') && !c.stderr.includes('ABBRUCH'), 'wov-admin Result=timeout: Warnung nennt Dienst und Result, keine Abbruchmeldung', c.stderr);
+    const c2 = stoppLauf('c2-alle-anderen', { result: { 'wov-client': 'exit-code', 'wov-admin': 'timeout', 'wov-web': 'signal' } });
+    pruefe(c2.rc === 0 && c2.weiter && c2.starts === 0, 'wov-client, wov-admin, wov-web mit Result != success: nur Warnungen, kein Abbruch', `rc=${c2.rc} ${c2.stderr}`);
+    // admin timeout AND game server failed: the abort names the game server only.
+    const c3 = stoppLauf('c3-admin-und-server', { result: { 'wov-admin': 'timeout', 'wov-server': 'exit-code' } });
+    pruefe(c3.rc !== 0 && !c3.weiter && c3.stderr.includes('wov-server (Result=exit-code)') && !c3.stderr.includes('Endstand nicht gespeichert — wov-admin') && !/nicht gespeichert[^\n]*wov-admin/.test(c3.stderr), 'wov-admin timeout + wov-server exit-code: Abbruch, Grund ist der Spielserver', c3.stderr);
+
+    // Empty Result of the game server = unknown, not an error.
+    const leer = stoppLauf('leer-result', { result: { 'wov-server': '' } });
+    pruefe(leer.rc === 0 && leer.weiter && leer.starts === 0, 'wov-server: leeres Result = unbekannt, kein Abbruch', `rc=${leer.rc} ${leer.stderr}`);
+
+    // B2: the game server was already failed BEFORE the rollout; the clean stop must not abort for the old Result.
+    const alt = stoppLauf('b2-vorher-failed', { vorherResult: { 'wov-server': 'exit-code' } });
+    pruefe(alt.rc === 0 && alt.weiter && alt.starts === 0, 'wov-server war schon vor dem Rollout gescheitert, neuer Stopp sauber: kein Abbruch', `rc=${alt.rc} ${alt.stderr}`);
+    const resetIdx = alt.log.findIndex((z) => z.startsWith('reset-failed'));
+    pruefe(alt.resetFailed === 1 && resetIdx >= 0 && resetIdx < alt.log.findIndex((z) => z.startsWith('stop ')), 'reset-failed kommt vor dem ersten Stopp (genau einmal im sauberen Lauf)', alt.log.join(' | '));
+    // ... but a REAL failure at this stop after a stale one still aborts.
+    const alt2 = stoppLauf('b2-vorher-und-jetzt', { vorherResult: { 'wov-server': 'signal' }, result: { 'wov-server': 'exit-code' } });
+    pruefe(alt2.rc !== 0 && !alt2.weiter && alt2.stderr.includes('wov-server (Result=exit-code)'), 'wov-server vorher failed UND jetzt exit-code: Abbruch mit dem neuen Result', `rc=${alt2.rc} ${alt2.stderr}`);
 
     // (c) clean stop: flow as before (4 stops, no start in the stop step, continues).
     const d = stoppLauf('d-sauber', { journal: 'Sep 26 10:00:01 dev wov-server[1]: Gestoppt, Welt gespeichert\n' });
     pruefe(d.rc === 0 && d.weiter, 'sauberer Stopp: Ablauf geht weiter, rc=0', `rc=${d.rc} ${d.stderr}`);
-    pruefe(d.stopps === 4 && d.starts === 0 && d.resetFailed === 0, 'sauberer Stopp: 4 Stopps, kein Start, kein reset-failed', `stopps=${d.stopps} starts=${d.starts}`);
+    pruefe(d.stopps === 4 && d.starts === 0 && d.resetFailed === 1, 'sauberer Stopp: 4 Stopps, kein Start, reset-failed nur einmal (vor dem Stopp)', `stopps=${d.stopps} starts=${d.starts}`);
     pruefe(!d.stderr.includes('ABBRUCH'), 'sauberer Stopp: keine Abbruchmeldung', d.stderr);
 
     // The journal line of an EARLIER run (before this stop) must not count: the fake prints

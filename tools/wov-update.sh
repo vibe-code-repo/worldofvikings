@@ -177,10 +177,11 @@ BAU_BEGONNEN=0
 # NAMENTLICH statt nur "Tests nicht bestanden" zu sagen — bisher stand die
 # einzige Fundstelle mitten im (oft langen) Protokoll weiter oben.
 TEST_PROTOKOLL=""
-# Wird von dienste_stoppen auf 1 gesetzt, wenn ein Dienst nicht sauber endete
-# (Result != success) oder der Spielserver beim Stopp SAVE_FAILED_ON_STOP
-# schrieb: der Endstand der Welt ist dann nicht gespeichert. STOPP_MANGEL nennt
-# die Gründe, STOPP_JOURNAL die Journalzeilen des Spielservers seit Stoppbeginn.
+# Wird von dienste_stoppen auf 1 gesetzt, wenn der Spielserver beim Stopp nicht
+# sauber endete (wov-server: Result != success) oder SAVE_FAILED_ON_STOP schrieb:
+# der Endstand der Welt ist dann nicht gespeichert. Andere Dienste mit
+# Result != success (etwa wov-admin: timeout bei offenem Editor-Tab) sind nur
+# eine Warnung. STOPP_MANGEL nennt die Gründe, STOPP_JOURNAL die Journalzeilen des Spielservers seit Stoppbeginn.
 # Die Aufräumfunktion startet die Dienste dann wieder (vor npm ci und Build).
 STOPP_FEHLER=0
 STOPP_MANGEL=""
@@ -268,7 +269,11 @@ aufraeumen() {
           zurueck_ok=0
           echo "FEHLER: Der Baum ließ sich nicht auf $WOV_UPDATE_VORHER zurücksetzen." >&2
           echo "Er steht auf dem NEUEN Stand ${kopf:-(unbekannt)} mit altem node_modules;" >&2
-          echo "die Dienste werden NICHT gestartet. Rückweg von Hand:" >&2
+          echo "die Dienste werden NICHT gestartet. Das Zurücksetzen scheiterte vermutlich an" >&2
+          echo "Dateien im Baum (git-Meldung oben). Erst diese wegräumen bzw. sichern —" >&2
+          echo "sonst scheitert der Befehl unten an derselben Stelle. Stand des Baums:" >&2
+          git status --short 2>&1 | head -n 20 | sed 's/^/    /' >&2
+          echo "Rückweg von Hand:" >&2
           echo "  cd $WURZEL && git checkout -B main $WOV_UPDATE_VORHER && npm ci --include=dev && systemctl start wov.target" >&2
         fi
       fi
@@ -476,15 +481,27 @@ dienste_stoppen() {
   local seit ergebnis
   seit="$(date '+%Y-%m-%d %H:%M:%S')"
   STOPP_MANGEL=""
+  # Result klebt: ein schon VOR dem Rollout gescheiterter Dienst zeigt nach dem Stopp
+  # noch sein altes Result und ließe den Rollout mit falschem Grund abbrechen. Darum
+  # vorher zurücksetzen (einfacher, als ein Vorher-Result zu merken und zu vergleichen).
+  systemctl reset-failed "${DIENSTE[@]/%/.service}" >/dev/null 2>&1 || true
   for dienst in "${DIENSTE[@]}"; do
     if systemctl cat "$dienst.service" >/dev/null 2>&1; then
       systemctl stop "$dienst.service"
       # "systemctl stop" meldet auch dann Erfolg, wenn der Prozess beim Stopp mit
       # einem Fehler endete (Exit 74/75 des Spielservers, s. server/src/herunterfahren.ts):
       # der Grund steht nur in Result. Leer = unbekannt, das zählt nicht als Fehler.
+      # Abbrechen darf NUR wov-server: ein anderer Dienst endet gern in "timeout"
+      # (wov-admin bei offenem Editor-Tab, offener /api/serverlog-Strom), ohne dass
+      # etwas verloren ginge. Dort bleibt es bei einer Warnung.
       ergebnis="$(systemctl show -p Result --value "$dienst.service" 2>/dev/null || true)"
       if [ -n "$ergebnis" ] && [ "$ergebnis" != "success" ]; then
-        STOPP_MANGEL="$STOPP_MANGEL $dienst (Result=$ergebnis)"
+        if [ "$dienst" = "wov-server" ]; then
+          STOPP_MANGEL="$STOPP_MANGEL $dienst (Result=$ergebnis)"
+        else
+          echo "WARNUNG: $dienst endete beim Stopp mit Result=$ergebnis. Das ist kein Speicherproblem" >&2
+          echo "  (nur wov-server hält Spielstand); der Rollout läuft weiter." >&2
+        fi
       fi
       echo "  gestoppt: $dienst"
     fi

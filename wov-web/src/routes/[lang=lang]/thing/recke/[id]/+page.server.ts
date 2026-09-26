@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
 import { ladeCharakter, ladeCharakterAktivitaet } from '$lib/server/forumApi';
+import type { PageServerLoad } from './$types';
 
 /**
  * Das oeffentliche Thing-Profil eines Charakters (M6).

@@ -126,6 +126,10 @@ const AUSNAHMEN = [
   { pfad: 'tools/armor/test/skin-gate.mjs', art: 'werkzeug', grund: 'braucht Körper-GLB und Exportordner als Argumente; der Tor-Selbsttest steht im Runner' },
   { pfad: 'tools/armor/test/validate-glbs.cjs', art: 'werkzeug', grund: 'braucht Exportordner und den Validator-Pfad als Argumente' },
   { pfad: 'tools/test/vorschau-kopf.mjs', art: 'werkzeug', grund: 'Browserprobe (Playwright, echtes WebGL), braucht Chromium auf mike-pc' },
+  // ── Webseite und Kartenveröffentlichung ──
+  { pfad: 'wov-web/src/lib/i18n/katalog.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/src/lib/seiten.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/src/lib/server/forumMarkdown.test.ts', art: 'werkzeug', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   // ── Rot bei erfüllten Voraussetzungen, nicht eingetragen ──
   {
     pfad: 'server/test/f2-locations.ts',

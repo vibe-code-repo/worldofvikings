@@ -40,16 +40,18 @@ const md = new MarkdownIt({
 });
 
 /** Der Vorgabe-Renderer fuer ein Token, den die eigenen Regeln aufrufen. */
-const tokenRenderer = md.renderer.rules.link_open
-  ?? ((tokens, idx, opts, _env, self) => self.renderToken(tokens, idx, opts));
+const tokenRenderer =
+  md.renderer.rules.link_open ??
+  ((tokens, idx, opts, _env, self) => self.renderToken(tokens, idx, opts));
 
 md.renderer.rules.link_open = (tokens, idx, opts, env, self) => {
   tokens[idx]!.attrSet('rel', 'nofollow ugc noopener');
   return tokenRenderer(tokens, idx, opts, env, self);
 };
 
-const bildRenderer = md.renderer.rules.image
-  ?? ((tokens, idx, opts, _env, self) => self.renderToken(tokens, idx, opts));
+const bildRenderer =
+  md.renderer.rules.image ??
+  ((tokens, idx, opts, _env, self) => self.renderToken(tokens, idx, opts));
 
 md.renderer.rules.image = (tokens, idx, opts, env, self) => {
   tokens[idx]!.attrSet('loading', 'lazy');

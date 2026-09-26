@@ -1,6 +1,6 @@
-import type { PageServerLoad } from './$types';
 import { SEARCH_QUERY_MAX } from '@wov/shared';
 import { ladeSuche, seiteAus } from '$lib/server/forumApi';
+import type { PageServerLoad } from './$types';
 
 /**
  * Die Suche, serverseitig geladen (M6).

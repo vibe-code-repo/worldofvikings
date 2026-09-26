@@ -65,4 +65,5 @@ const roh = statSync(AUS).size;
 const komprimiert = gzipSync(readFileSync(AUS), { level: 9 }).length;
 console.log('GEBUENDELT ' + AUS + ' — ' + (roh/1048576).toFixed(2) + ' MB roh, ' + (komprimiert/1048576).toFixed(2) + ' MB gzip');//(
 //)
+// wov-web/static/assets/js/vorschau.js is untracked (.gitignore); tools/wov-update.sh builds it.
 console.log('Ausrollen:  scp %s wov-host:… → /var/www/wov/assets/js/vorschau.js', AUS);

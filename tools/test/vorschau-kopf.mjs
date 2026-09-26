@@ -45,6 +45,12 @@ const wurzel = process.cwd();
 let server = null;
 if (!basis) {
   const statisch = path.resolve(wurzel, 'wov-web/static');
+  // The bundle is a build product and not tracked: fail with the way to make it
+  // (not needed when --buendel-datei serves it via page.route).
+  if (!BUENDEL_DATEI && !fs.existsSync(path.join(statisch, BUENDEL))) {
+    console.error(`Buendel fehlt: ${path.join(statisch, BUENDEL)}\nErst bauen: node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js`);
+    process.exit(2);
+  }
   server = http.createServer((req, res) => {
     const datei = path.join(statisch, decodeURIComponent(new URL(req.url, 'http://x').pathname));
     if (!datei.startsWith(statisch + path.sep) || !fs.existsSync(datei) || !fs.statSync(datei).isFile()) {

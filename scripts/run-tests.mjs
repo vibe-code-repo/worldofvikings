@@ -2202,6 +2202,10 @@ const KERN = [
   ['client', 'test/bewuchs-quellen.ts'],
   // Upload placements keep their ZDO (id, state) across a boot with an unreadable registry.
   ['server', 'test/upload-zdos-behalten.ts'],
+  // Preview bundle stays untracked; the update script's dirty-tree warning is run for real,
+  // and the tracked appearance.json is checked against its generator.
+  ['tools', 'test/vorschau-nicht-getrackt.ts'],
+  ['tools', 'test/appearance-frisch.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

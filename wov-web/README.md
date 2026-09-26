@@ -65,7 +65,9 @@ vor dem Umbau. Alte Links auf `/saga.html` gehen weiter, `/saga` ebenso (nginx:
 
 `static/assets/js/vorschau.js` — das Babylon-Bündel der Charaktervorschau, 2,8 MB.
 Es wird im **Spiel-Repo** gebaut (`tools/vorschau-buendeln.mjs`), weil Babylon
-dort ohnehin liegt. Die Seite bekommt nur das Ergebnis und lädt es zur Laufzeit
+dort ohnehin liegt. Die Datei ist **nicht im Repo** (`.gitignore`); `tools/wov-update.sh`
+erzeugt sie vor dem Webseitenbau, von Hand:
+`node tools/vorschau-buendeln.mjs --aus wov-web/static/assets/js/vorschau.js`. Die Seite bekommt nur das Ergebnis und lädt es zur Laufzeit
 mit `import(/* @vite-ignore */ …)`.
 
 Ebenso erzeugt und nur hierher kopiert: `static/assets/appearance.json`
@@ -77,7 +79,7 @@ Ebenso erzeugt und nur hierher kopiert: `static/assets/appearance.json`
 ```
 npm run dev        Entwicklungsserver auf Port 5280
 npm run build      baut nach build/
-npm run vorschau   baut und liefert das Ergebnis lokal aus
+npm run vorschau   baut und liefert das Ergebnis lokal aus (das Vorschau-Bündel vorher bauen, s. o.)
 npm run check      svelte-check (Typen und Vorlagen)
 npm run lint       Biome
 npm run format     Biome, schreibend

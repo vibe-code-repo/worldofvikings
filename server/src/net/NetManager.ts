@@ -478,10 +478,11 @@ export class NetManager {
         peer.disconnect('Invalid name');
         return;
       }
-      // "Editor" is reserved for editor connections, independent of whether
-      // an account character happens to carry it: without this, a guest or
-      // a fresh character could sit in the world under the very name every
-      // editor peer answers to (C1, Pruefung 2).
+      // "Editor" is reserved for guests only (this check runs in the guest
+      // branch): without it, a guest could sit in the world under the very
+      // name every editor peer answers to. An account character may still
+      // be named "Editor" -- it is told apart by player id, not by name
+      // (C1, Pruefung 2).
       if (namenSchluessel(playerName) === namenSchluessel(EDITOR_NAME)) {
         peer.status = ConnectionStatus.ErrorAlreadyConnected;
         peer.disconnect('Name already in use');

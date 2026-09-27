@@ -191,6 +191,11 @@ STOPP_JOURNAL=""
 # Marke saehe die Aufraeumfunktion nur "Dienste laufen, Gesundheitspruefung rot" und
 # schickte auf die falsche Fährte (curl/HTTP statt Units/WOV_WELT_VERZEICHNIS).
 WELT_PRUEFUNG_FEHLGESCHLAGEN=0
+# N6 (I-7): wird gesetzt, wenn welt_laufzeit_pruefen NUR an einer dauerhaft fehlenden
+# MainPID gescheitert ist (kein Dienst hatte eine PID, also wurde gar keine Welt
+# verglichen) — dann ist "auf falscher Welt" der falsche Text, es gab schlicht nichts
+# zu vergleichen.
+WELT_PRUEFUNG_KEINE_PID=0
 
 # Der zuletzt ausgerollte Stand: das Commit aus VERSION (wird erst nach
 # Gesundheitsprüfung geschrieben), sonst das, was vor dem Pull lief.
@@ -263,23 +268,27 @@ aufraeumen() {
     # Der Pull lief schon (Stufe 1), npm ci und Build nicht: neuer Baum mit altem
     # node_modules und altem Build darf nicht anlaufen. Wie im Rückweg "zurueck":
     # git checkout -B main <Commit>. Leer oder gleich HEAD (etwa im zurueck-Lauf): nichts.
+    # N7 (B1): WOV_HEAD_VOR_MERGE statt WOV_UPDATE_VORHER -- der Baum muss auf den Stand
+    # zurueck, zu dem das INSTALLIERTE node_modules passt (der HEAD unmittelbar vor diesem
+    # Merge), nicht auf den zuletzt bestaetigten VERSION-Stand, der bei einem zwischen-
+    # zeitlichen Hand-Merge ein ganz anderer, AELTERER Commit sein kann (Angriff N6, VMSTOPP).
     local zurueck_ok=1 kopf=""
-    if [ "${WOV_UPDATE_STUFE2:-}" = "1" ] && [ -n "${WOV_UPDATE_VORHER:-}" ]; then
+    if [ "${WOV_UPDATE_STUFE2:-}" = "1" ] && [ -n "${WOV_HEAD_VOR_MERGE:-}" ]; then
       kopf="$(git rev-parse HEAD 2>/dev/null || true)"
-      if [ "$kopf" != "$WOV_UPDATE_VORHER" ]; then
-        if git checkout -B main "$WOV_UPDATE_VORHER" >&2; then
+      if [ "$kopf" != "$WOV_HEAD_VOR_MERGE" ]; then
+        if git checkout -B main "$WOV_HEAD_VOR_MERGE" >&2; then
           echo "Der Pull lief schon vor dem Stoppen. Der Baum wurde ZURÜCKGESETZT:" >&2
-          echo "  von ${kopf:-(unbekannt)} auf $WOV_UPDATE_VORHER (npm ci und Build liefen nicht)." >&2
+          echo "  von ${kopf:-(unbekannt)} auf $WOV_HEAD_VOR_MERGE (npm ci und Build liefen nicht)." >&2
         else
           zurueck_ok=0
-          echo "FEHLER: Der Baum ließ sich nicht auf $WOV_UPDATE_VORHER zurücksetzen." >&2
+          echo "FEHLER: Der Baum ließ sich nicht auf $WOV_HEAD_VOR_MERGE zurücksetzen." >&2
           echo "Er steht auf dem NEUEN Stand ${kopf:-(unbekannt)} mit altem node_modules;" >&2
           echo "die Dienste werden NICHT gestartet. Das Zurücksetzen scheiterte vermutlich an" >&2
           echo "Dateien im Baum (git-Meldung oben). Erst diese wegräumen bzw. sichern —" >&2
           echo "sonst scheitert der Befehl unten an derselben Stelle. Stand des Baums:" >&2
           git status --short 2>&1 | head -n 20 | sed 's/^/    /' >&2
           echo "Rückweg von Hand:" >&2
-          echo "  cd $WURZEL && git checkout -B main $WOV_UPDATE_VORHER && npm ci --include=dev && systemctl start wov.target" >&2
+          echo "  cd \"$WURZEL\" && git checkout -B main $WOV_HEAD_VOR_MERGE && npm ci --include=dev && systemctl start wov.target" >&2
         fi
       fi
     fi
@@ -308,14 +317,19 @@ aufraeumen() {
     echo "getestet, aber NICHT fertig ausgerollt: die Webseite ist nicht neu gebaut." >&2
     echo "WARNUNG: Die Weltprüfung (welt_laufzeit_pruefen) wird bei diesem Neustart" >&2
     echo "übersprungen (WELT_LAUFZEIT_PRUEFEN ist hier nicht gesetzt); erst der" >&2
-    echo "nächste erfolgreiche 'sudo tools/wov-update.sh' prüft sie wieder." >&2
+    echo "nächste erfolgreiche 'tools/wov-update.sh' prüft sie wieder." >&2
     # Bewusst KEIN version_schreiben: der Stand ist nicht fertig ausgerollt.
     # Der Rückweg-Text kommt VOR dem Start: er geht auch bei SIGKILL nicht verloren.
     echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
     echo "'sudo tools/wov-update.sh zurueck' geht hier NICHT: HEAD weicht von VERSION ab," >&2
     echo "es bricht mit \"von Hand am Baum gearbeitet\" ab. Rückweg von Hand:" >&2
     if [ -n "$alt" ]; then
-      echo "  cd $WURZEL && systemctl stop ${DIENSTE[*]} && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
+      # N8 (B2): dieselbe robuste Form wie :404/:757 -- gequoteter Pfad, ein Stop-Fehlschlag
+      # (ein fehlender/nicht geladener wov-web darf den Rueckweg nicht vor git checkout/npm
+      # ci/start abbrechen, Angriff N6 B3/N53c) haelt den Befehl nicht an, meldet sich aber
+      # (N8/I-2: "|| true" schluckte auch einen ECHTEN Stop-Fehler stumm), Start ueber
+      # wov.target statt restart.
+      echo "  cd \"$WURZEL\" && (systemctl stop ${DIENSTE[*]} || echo 'WARNUNG: Stop mindestens eines Dienstes scheiterte, Rueckweg laeuft trotzdem weiter' >&2) && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
     else
       echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
     fi
@@ -356,7 +370,28 @@ aufraeumen() {
     echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
   elif [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ]; then
     echo >&2
-    if [ "$DIENSTE_LAUFEN" = "1" ] && [ "$WELT_PRUEFUNG_FEHLGESCHLAGEN" = "1" ]; then
+    if [ "$DIENSTE_LAUFEN" = "1" ] && [ "$WELT_PRUEFUNG_KEINE_PID" = "1" ]; then
+      # N7 (B4): "NICHT auf falscher Welt" war nicht gedeckt -- die HTTP-Gesundheitspruefung
+      # kann auch von einem Prozess AUSSERHALB der Unit beantwortet worden sein (426 auf dem
+      # Spielport, aber wov-server ohne MainPID), dessen Welt gerade unbekannt ist. Richtiger
+      # Text: "nicht pruefbar", nicht "nicht falsch". Journal und Konsole nennen jetzt densel-
+      # ben Rueckweg-Befehl (I-1), und die Konsole nennt ihn jetzt auch (vorher fehlte er hier).
+      echo "Dienste laufen, aber mindestens einer hat dauerhaft keine MainPID: Welt NICHT" >&2
+      echo "prüfbar (kein Vergleich möglich). Das heißt NICHT zwingend richtige Welt — der" >&2
+      echo "Spielport kann auch von einem Prozess AUSSERHALB der Unit beantwortet worden sein." >&2
+      echo "  Zustand ansehen:  systemctl status wov-server wov-admin" >&2
+      echo "  Log:              journalctl -u wov-server -u wov-admin -n 60" >&2
+      echo "  Journal:          journalctl -t wov-update -n 20" >&2
+      echo "  Hintergrund:      deploy/welt-einbau.md (Schritt 3)" >&2
+      if [ -n "$alt" ]; then
+        echo "  Rückweg von Hand ('wov-update.sh zurueck' läuft nicht an, HEAD steht schon auf dem" >&2
+        echo "  neuen Stand und VERSION wurde absichtlich nicht geschrieben):" >&2
+        echo "    cd \"$WURZEL\" && (systemctl stop ${DIENSTE[*]} || echo 'WARNUNG: Stop mindestens eines Dienstes scheiterte, Rueckweg laeuft trotzdem weiter' >&2) && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
+      else
+        echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
+      fi
+      echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
+    elif [ "$DIENSTE_LAUFEN" = "1" ] && [ "$WELT_PRUEFUNG_FEHLGESCHLAGEN" = "1" ]; then
       # N5 (N4-5): eigener Zweig fuer den Welt-Fehler, sonst behauptet der
       # naechste Zweig faelschlich "Gesundheitspruefung" (das war die HTTP-Probe,
       # die hier schon gruen war) und schickt an die falsche Stelle (curl/HTTP
@@ -368,7 +403,11 @@ aufraeumen() {
       if [ -n "$alt" ]; then
         echo "  Rückweg von Hand (die HTTP-Gesundheitsprüfung war grün; 'wov-update.sh zurueck' läuft nicht an, HEAD" >&2
         echo "  steht schon auf dem neuen Stand und VERSION wurde absichtlich nicht geschrieben):" >&2
-        echo "    cd $WURZEL && git checkout -B main $alt && npm ci --include=dev && systemctl restart wov-server wov-admin" >&2
+        # N7 (B3): ein fehlender/nicht geladener wov-web (rc 5) darf den Rueckweg nicht vor
+        # git checkout/npm ci/start abbrechen (Angriff N6, N53c). Pfad gequotet (N53b).
+        # N8 (I-2): "|| true" schluckte auch einen ECHTEN Stop-Fehler stumm -- jetzt meldet
+        # sich ein Stop-Fehlschlag, haelt den Rueckweg aber weiterhin nicht an.
+        echo "    cd \"$WURZEL\" && (systemctl stop ${DIENSTE[*]} || echo 'WARNUNG: Stop mindestens eines Dienstes scheiterte, Rueckweg laeuft trotzdem weiter' >&2) && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
       else
         echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
       fi
@@ -394,7 +433,8 @@ aufraeumen() {
       echo "  Ursache beheben, dann erneut:  sudo tools/wov-update.sh" >&2
       if [ -n "$alt" ]; then
         echo "  Zurück auf den alten Stand, von Hand:" >&2
-        echo "    cd $WURZEL" >&2
+        # N8 (B2): Pfad gequotet, wie die uebrigen Rueckwege.
+        echo "    cd \"$WURZEL\"" >&2
         echo "    systemctl stop ${DIENSTE[*]}" >&2
         echo "    git checkout -B main $alt" >&2
         echo "    npm ci --include=dev" >&2
@@ -656,8 +696,17 @@ _mainpid_mit_wartezeit() {
   printf '%s' "$pid"
 }
 welt_laufzeit_pruefen() {
-  local u pid wert vorgabe probleme="" wert_server=""
+  local u pid wert vorgabe probleme="" wert_server="" nur_keine_pid_probleme=1
   for u in wov-server wov-admin; do
+    # N6 (N5-2): wov-admin nur pruefen, wenn er tatsaechlich gestartet wurde (GESTARTET,
+    # von dienste_starten gesetzt). Ist er nicht aktiviert, startet ihn dienste_starten gar
+    # nicht erst — dann hat er auch keine MainPID, und das war bisher ein falscher Alarm
+    # ("auf falscher Welt"), obwohl der Dienst schlicht abgeschaltet ist. wov-server ist
+    # dagegen Pflicht (gesundheit_pruefen bricht sonst schon vorher ab) und bleibt ungefragt.
+    if [ "$u" = "wov-admin" ] && ! printf '%s\n' "${GESTARTET[@]:-}" | grep -qx 'wov-admin'; then
+      echo "  übersprungen (wov-admin nicht aktiviert/gestartet): keine Weltprüfung möglich"
+      continue
+    fi
     pid="$(_mainpid_mit_wartezeit "$u")"
     case "$pid" in
       ''|0|*[!0-9]*)
@@ -668,6 +717,7 @@ welt_laufzeit_pruefen() {
     if [ ! -r "/proc/$pid/environ" ]; then
       probleme="$probleme
   - $u (PID $pid): /proc/$pid/environ ist nicht (mehr) lesbar."
+      nur_keine_pid_probleme=0
       continue
     fi
     if ! wert="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | awk 'index($0, "WOV_WELT_VERZEICHNIS=") == 1 { v = substr($0, 22); f = 1 } END { if (!f) exit 1; print v }')"; then
@@ -679,12 +729,14 @@ welt_laufzeit_pruefen() {
         probleme="$probleme
   - $u (PID $pid) hat KEIN WOV_WELT_VERZEICHNIS=<absoluter Pfad> in seiner Umgebung (/proc/$pid/environ). Er liest
     die Welt sonst aus <Checkout>/server/data/welten-arbeit, einer Datei, die kein Dienst sonst liest."
+        nur_keine_pid_probleme=0
         continue ;;
     esac
     vorgabe="$(env_wert "$(sed -n 's/^Environment=//p' "deploy/systemd/$u.service" 2>/dev/null)" WOV_WELT_VERZEICHNIS)" || vorgabe=""
     if [ "$wert" != "$vorgabe" ]; then
       probleme="$probleme
   - $u (PID $pid): WOV_WELT_VERZEICHNIS=$wert weicht von deploy/systemd/$u.service (${vorgabe:-nichts}) ab."
+      nur_keine_pid_probleme=0
       continue
     fi
     if [ "$u" = "wov-server" ]; then
@@ -692,15 +744,45 @@ welt_laufzeit_pruefen() {
     elif [ -n "$wert_server" ] && [ "$wert" != "$wert_server" ]; then
       probleme="$probleme
   - wov-admin (PID $pid): WOV_WELT_VERZEICHNIS=$wert weicht von wov-server ($wert_server) ab."
+      nur_keine_pid_probleme=0
       continue
     fi
     echo "  ✓ $u (PID $pid) liest die Welt aus WOV_WELT_VERZEICHNIS=$wert (gleich deploy/systemd/$u.service)"
   done
   if [ -n "$probleme" ]; then
+    # N7 (I-1/B4): dieselbe Quelle wie das Journal (alter_stand(), VERSION vor WOV_UPDATE_VORHER)
+    # verwenden, sonst nennen Journal und Konsole bei "HEAD hinter VERSION" (von Hand gesetzt)
+    # zwei verschiedene Rueckwege fuer denselben Lauf (Angriff N6, I-1 VH). Der Rueckweg-Befehl
+    # steht jetzt schon HIER auf der Konsole (nicht erst spaeter in aufraeumen), damit ein Blick
+    # allein auf diese Meldung genuegt -- "jeweils mit Rueckweg" (Karte B4).
+    #
+    # N7 (B3): Rueckweg-Befehl robust -- ein fehlender/nicht geladener wov-web (rc 5 von
+    # systemctl) haelt den gesamten Befehl nicht vor git checkout/npm ci/start an (Angriff N6,
+    # B3/N53c). Pfad gequotet (N53b).
+    # N8 (I-2): "|| true" schluckte auch einen ECHTEN Stop-Fehler stumm (nicht nur "not
+    # loaded") -- jetzt meldet sich ein Stop-Fehlschlag auf der Konsole, der Rueckweg laeuft
+    # trotzdem weiter (Abwaegung aus dem N7-Angriffsbericht, I-2).
+    local alt_rueckweg
+    alt_rueckweg="$(alter_stand)"
+    local rueckweg_befehl="cd \"${WURZEL:-.}\" && (systemctl stop ${DIENSTE[*]} || echo 'WARNUNG: Stop mindestens eines Dienstes scheiterte, Rueckweg laeuft trotzdem weiter' >&2) && git checkout -B main ${alt_rueckweg:-<unbekannt>} && npm ci --include=dev && systemctl start wov.target"
     echo "  ✗ Weltprüfung nach dem Start gescheitert:$probleme" >&2
     echo "    Units prüfen: systemctl show -p Environment,UnsetEnvironment,EnvironmentFiles,DropInPaths wov-server wov-admin; deploy/welt-einbau.md" >&2
-    WELT_PRUEFUNG_FEHLGESCHLAGEN=1
-    logger -t wov-update "ABBRUCH wov-update: Dienste laufen, aber auf falscher Welt; Units pruefen, Rueckweg: git -C ${WURZEL:-.} checkout -B main ${WOV_UPDATE_VORHER:-<unbekannt>} && npm ci --include=dev && systemctl restart wov-server wov-admin" 2>/dev/null || true
+    echo "    Rückweg: $rueckweg_befehl" >&2
+    # N6 (I-7): "$nur_keine_pid_probleme" bleibt 1, wenn JEDE gemeldete Zeile eine fehlende
+    # MainPID ist (dann wurde nirgends wirklich eine Welt verglichen — kein Widerspruch,
+    # sondern schlicht kein laufender Prozess). Sobald auch nur EINE Zeile ein echter
+    # Wert-Widerspruch ist (Pfad falsch, Server/Admin verschieden, environ unlesbar/leer),
+    # bleibt es beim "falsche Welt"-Text, unabhaengig davon, ob ein ANDERER Dienst PID-los war.
+    #
+    # N7 (B4): Journal und Konsole sagen jetzt dasselbe -- bei reiner PID-Not (kein echter
+    # Welt-Widerspruch) nicht "auf falscher Welt" behaupten, sondern "Welt nicht pruefbar".
+    if [ "$nur_keine_pid_probleme" = "1" ]; then
+      WELT_PRUEFUNG_KEINE_PID=1
+      logger -t wov-update "ABBRUCH wov-update: Welt nicht pruefbar (mindestens ein Dienst ohne MainPID, kein Vergleich moeglich, NICHT zwingend falsche Welt); Rueckweg: $rueckweg_befehl" 2>/dev/null || true
+    else
+      WELT_PRUEFUNG_FEHLGESCHLAGEN=1
+      logger -t wov-update "ABBRUCH wov-update: Dienste laufen, aber auf falscher Welt; Units pruefen, Rueckweg: $rueckweg_befehl" 2>/dev/null || true
+    fi
     return 1
   fi
 }
@@ -1048,15 +1130,26 @@ fi
 # S-6-Pruefhaken der Probe auf dem echten Container greifen und unit_pruefung
 # eine andere Unit lesen (G2 in der N4-Kaefigprobe). Vor dem Sourcen sichern,
 # danach exakt wiederherstellen (auch "war gar nicht gesetzt").
+#
+# N8 (I-1): dieselbe Sicherung fuer WOV_HEAD_VOR_MERGE und WOV_UPDATE_VORHER --
+# sonst koennte root mit einer Zeile in /etc/wov.env den Stopp-Fehler-Rueckweg in
+# Stufe 2 (die dieses Skript per exec neu startet und ENV_DATEI dabei erneut
+# sourct) auf einen beliebigen Commit umlenken, obwohl beide Werte in Stufe 1
+# aus dem eigenen Checkout gesetzt wurden (Angriff N7, S-WOVENV/S-WOVENV2).
 _WOV_KAEFIG_VORHER="${WOV_KAEFIG-}"; _WOV_KAEFIG_GESETZT="${WOV_KAEFIG+1}"
 _WOV_UNIT_VERZEICHNIS_VORHER="${WOV_UNIT_VERZEICHNIS-}"; _WOV_UNIT_VERZEICHNIS_GESETZT="${WOV_UNIT_VERZEICHNIS+1}"
+_WOV_HEAD_VOR_MERGE_VORHER="${WOV_HEAD_VOR_MERGE-}"; _WOV_HEAD_VOR_MERGE_GESETZT="${WOV_HEAD_VOR_MERGE+1}"
+_WOV_UPDATE_VORHER_VORHER="${WOV_UPDATE_VORHER-}"; _WOV_UPDATE_VORHER_GESETZT="${WOV_UPDATE_VORHER+1}"
 set -a
 # shellcheck source=/dev/null
 . "$ENV_DATEI"
 set +a
 if [ -n "$_WOV_KAEFIG_GESETZT" ]; then WOV_KAEFIG="$_WOV_KAEFIG_VORHER"; else unset WOV_KAEFIG; fi
 if [ -n "$_WOV_UNIT_VERZEICHNIS_GESETZT" ]; then WOV_UNIT_VERZEICHNIS="$_WOV_UNIT_VERZEICHNIS_VORHER"; else unset WOV_UNIT_VERZEICHNIS; fi
+if [ -n "$_WOV_HEAD_VOR_MERGE_GESETZT" ]; then WOV_HEAD_VOR_MERGE="$_WOV_HEAD_VOR_MERGE_VORHER"; else unset WOV_HEAD_VOR_MERGE; fi
+if [ -n "$_WOV_UPDATE_VORHER_GESETZT" ]; then WOV_UPDATE_VORHER="$_WOV_UPDATE_VORHER_VORHER"; else unset WOV_UPDATE_VORHER; fi
 unset _WOV_KAEFIG_VORHER _WOV_KAEFIG_GESETZT _WOV_UNIT_VERZEICHNIS_VORHER _WOV_UNIT_VERZEICHNIS_GESETZT
+unset _WOV_HEAD_VOR_MERGE_VORHER _WOV_HEAD_VOR_MERGE_GESETZT _WOV_UPDATE_VORHER_VORHER _WOV_UPDATE_VORHER_GESETZT
 # END wov-env-sourcen
 
 INSTANZ="${WOV_INSTANZ:-}"
@@ -1240,16 +1333,47 @@ if [ "${WOV_UPDATE_STUFE2:-}" != "1" ]; then
   # N5 (N4-5): Normalerweise ist "vorher" HEAD vor diesem Merge. War aber schon
   # ein FRUEHERER Lauf bis hierher gekommen (Merge lief, die Weltpruefung nach
   # dem Start unten aber nie gruen — s. welt_laufzeit_pruefen), zeigt HEAD schon
-  # auf GEPRUEFTER_STAND, waehrend VERSION noch den aelteren, zuletzt wirklich
-  # bestaetigten Stand nennt: dann bleibt "vorher" der Stand aus VERSION, sonst
-  # zeigte ein zweiter, diesmal erfolgreicher Lauf den Rueckweg auf sich selbst.
+  # den VERSION-Commit als Vorfahren, waehrend VERSION noch den aelteren, zuletzt
+  # wirklich bestaetigten Stand nennt: dann bleibt "vorher" der Stand aus VERSION,
+  # sonst zeigte ein zweiter, diesmal erfolgreicher Lauf den Rueckweg auf sich selbst.
+  #
+  # N6 (N5-1): Die Gleichheit HEAD_VOR_MERGE = GEPRUEFTER_STAND allein reicht nicht.
+  # Zieht origin/main zwischen dem gescheiterten ersten und diesem zweiten Lauf
+  # weiter, ist GEPRUEFTER_STAND nicht mehr HEAD_VOR_MERGE, sondern ein neuerer
+  # Commit — die alte Bedingung griff dann nicht mehr, und "vorher" waere faelschlich
+  # HEAD_VOR_MERGE (der nie bestaetigte K5.7-Stand) statt des VERSION-Commits.
+  # Richtig ist daher: der VERSION-Commit gilt als Rueckweg, sobald er von HEAD_VOR_MERGE
+  # verschieden UND sein Vorfahre ist — unabhaengig davon, wie weit origin/main
+  # inzwischen gewandert ist.
+  #
+  # N7 (B1): WOV_UPDATE_VORHER traegt seit N6 zwei Bedeutungen ("zuletzt bestaetigt" fuer
+  # VERSION/zurueck, UND "der Baum, der gerade lief" fuer den Stopp-Fehler-Rueckweg in
+  # aufraeumen). Beides kann auseinanderfallen: wurde HEAD zwischendurch von Hand per
+  # "git merge --ff-only origin/main" vorgezogen (auf DEV gelebte Praxis, s. Workspace-
+  # CLAUDE.md) und node_modules NICHT neu installiert, zeigt WOV_UPDATE_VORHER auf den
+  # aelteren VERSION-Stand, waehrend node_modules zum unmittelbar vorherigen HEAD passt.
+  # Ein Stoppfehler-Rueckweg auf WOV_UPDATE_VORHER liefe dann mit veraltetem node_modules
+  # an. Deshalb getrennt: WOV_HEAD_VOR_MERGE ist IMMER der HEAD-Stand direkt vor diesem
+  # Merge (das passt zu node_modules, weil npm ci in diesem Lauf noch nicht lief) und wird
+  # exportiert, damit er den Neustart in Stufe 2 ueberlebt; WOV_UPDATE_VORHER bleibt wie in
+  # N6 nur fuer VERSION/zurueck zustaendig.
   HEAD_VOR_MERGE="$(git rev-parse HEAD)"
+  export WOV_HEAD_VOR_MERGE="$HEAD_VOR_MERGE"
   VERSION_COMMIT_VOR_MERGE="$(version_feld "$VERSION_DATEI" WOV_VERSION_COMMIT)" || VERSION_COMMIT_VOR_MERGE=""
-  if [ -n "$VERSION_COMMIT_VOR_MERGE" ] && [ "$HEAD_VOR_MERGE" = "$GEPRUEFTER_STAND" ] && [ "$HEAD_VOR_MERGE" != "$VERSION_COMMIT_VOR_MERGE" ]; then
+  # N7 (I-3): ein VERSION-Commit, den dieser Klon nicht kennt (geloescht, flacher Klon),
+  # laesst "git merge-base" eine rohe "fatal: …"-Zeile auf stderr schreiben, obwohl der
+  # Fall unten ohnehin sauber auf HEAD zurueckfaellt (else-Zweig) — deshalb unterdrueckt.
+  if [ -n "$VERSION_COMMIT_VOR_MERGE" ] && [ "$HEAD_VOR_MERGE" != "$VERSION_COMMIT_VOR_MERGE" ] \
+    && git merge-base --is-ancestor "$VERSION_COMMIT_VOR_MERGE" "$HEAD_VOR_MERGE" 2>/dev/null; then
     export WOV_UPDATE_VORHER="$VERSION_COMMIT_VOR_MERGE"
-    echo "  Hinweis: HEAD steht schon auf ${HEAD_VOR_MERGE:0:7} (ein frueherer Lauf hat schon gemergt, die"
-    echo "  Weltpruefung nach dem Start war aber nie gruen); WOV_UPDATE_VORHER bleibt der zuletzt bestaetigte"
-    echo "  Stand ${VERSION_COMMIT_VOR_MERGE:0:7} aus VERSION."
+    # N7 (B1): neutral formuliert -- ob wirklich ein frueherer eigener Lauf gemergt hat
+    # oder jemand von Hand per ff-merge vorgezogen hat, laesst sich von hier aus nicht
+    # sicher unterscheiden; die alte Behauptung "ein frueherer Lauf hat schon gemergt"
+    # war bei einem Hand-Merge schlicht falsch (Angriff N6, VMSTOPP).
+    echo "  Hinweis: HEAD steht schon vor VERSION (${VERSION_COMMIT_VOR_MERGE:0:7} ist Vorfahr von"
+    echo "  ${HEAD_VOR_MERGE:0:7} — etwa durch einen frueheren, nie gruen gewordenen Lauf oder einen"
+    echo "  Hand-Merge zwischendurch); WOV_UPDATE_VORHER bleibt der zuletzt bestaetigte Stand"
+    echo "  ${VERSION_COMMIT_VOR_MERGE:0:7} aus VERSION."
   else
     export WOV_UPDATE_VORHER="$HEAD_VOR_MERGE"
   fi

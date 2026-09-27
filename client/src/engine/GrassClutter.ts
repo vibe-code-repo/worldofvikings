@@ -777,6 +777,55 @@ const TEX_BASE_URL = '/assets/textures/';
  */
 const TINT_SIZE = 256;
 
+/**
+ * Baut den Zell-Master eines Clutter-Eintrags: Geometrie + Material, die
+ * Thin-Instance-Puffer (Matrix, optional Faerbung) und eingefroren
+ * (Ortsfest, fps-analyse #8).
+ *
+ * Eigene Funktion statt Inline-Code in `buildCell()`, damit sie ohne
+ * Weltdaten/GLB-Laden testbar ist (client/test/gras-zellen-einfrieren.ts) —
+ * `buildCell()` liefert nur die schon aufbereiteten Matrizen/Farben an.
+ *
+ * ── Ortsfest ─────────────────────────────────────────────────────────
+ * Thin-Instance-Matrizen SIND Weltmatrizen, der Zell-Master selbst steht
+ * per Konstruktion im Ursprung und wird nie versetzt — nur `clearArea()`
+ * schreibt seinen Instanzpuffer neu (`thinInstanceSetBuffer()` spannt die
+ * Huelle danach aus der eingefrorenen Weltmatrix neu auf, das bleibt
+ * unveraendert). Gleiche Herleitung wie
+ * `EntityManager.alsOrtsfestEinfrieren()`; nicht ueber diesen Helfer, aus
+ * demselben Grund wie `AssetManager.zuMaster()` — ein WERT-Import aus
+ * EntityManager waere ein Modulzyklus.
+ */
+export function baueClutterZellMesh(
+  scene: Scene,
+  name: string,
+  geometry: { positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array },
+  material: StandardMaterial,
+  matrixData: Float32Array,
+  colorData: Float32Array | null
+): Mesh {
+  const mesh = new Mesh(name, scene);
+  const v = new VertexData();
+  v.positions = geometry.positions;
+  v.normals = geometry.normals;
+  v.uvs = geometry.uvs;
+  v.indices = geometry.indices;
+  v.applyToMesh(mesh);
+  mesh.material = material;
+  mesh.isPickable = false;
+  mesh.alwaysSelectAsActiveMesh = false;
+  // NICHT `doNotSyncBoundingInfo` setzen. Am 2026-07-29 als Sparmassnahme
+  // eingebaut und sofort zurückgenommen: Zusammen mit
+  // `alwaysSelectAsActiveMesh = false` oben bleibt der Hüllkörper dann auf
+  // dem Stand VOR dem Setzen der Thin Instances — also leer. Die
+  // Frustum-Prüfung wirft die Zelle daraufhin jedes Mal weg, und es wächst
+  // überhaupt kein Gras mehr.
+  mesh.thinInstanceSetBuffer('matrix', matrixData, 16, false);
+  if (colorData) mesh.thinInstanceSetBuffer('color', colorData, 4, false);
+  mesh.freezeWorldMatrix();
+  return mesh;
+}
+
 export class GrassClutter {
   private readonly scene: Scene;
   private readonly world: ClientWorld;
@@ -1615,33 +1664,22 @@ export class GrassClutter {
       const list = matrices[e];
       if (list.length === 0) continue;
       const variant = this.variants[e];
-      // one Mesh per cell per entry, carrying the variant geometry + thin instances
-      const mesh = new Mesh(`clutter_${key}_${variant.entry.key}`, this.scene);
-      const v = new VertexData();
-      v.positions = variant.geometry.positions;
-      v.normals = variant.geometry.normals;
-      v.uvs = variant.geometry.uvs;
-      v.indices = variant.geometry.indices;
-      v.applyToMesh(mesh);
-      mesh.material = variant.material;
-      mesh.isPickable = false;
-      mesh.alwaysSelectAsActiveMesh = false;
-      // NICHT `doNotSyncBoundingInfo` setzen. Am 2026-07-29 als
-      // Sparmassnahme eingebaut und sofort zurückgenommen: Zusammen mit
-      // `alwaysSelectAsActiveMesh = false` oben bleibt der Hüllkörper dann
-      // auf dem Stand VOR dem Setzen der Thin Instances — also leer. Die
-      // Frustum-Prüfung wirft die Zelle daraufhin jedes Mal weg, und es
-      // wächst überhaupt kein Gras mehr.
       // instance matrices (world space)
       const data = new Float32Array(list.length * 16);
       for (let i = 0; i < list.length; i++) list[i].toArray(data, i * 16);
-      mesh.thinInstanceSetBuffer('matrix', data, 16, false);
       let col: Float32Array | null = null;
       if (variant.farbe !== 'nein') {
         col = new Float32Array(list.length * 4);
         for (let i = 0; i < list.length; i++) col.set(tints[e][i], i * 4);
-        mesh.thinInstanceSetBuffer('color', col, 4, false);
       }
+      const mesh = baueClutterZellMesh(
+        this.scene,
+        `clutter_${key}_${variant.entry.key}`,
+        variant.geometry,
+        variant.material,
+        data,
+        col
+      );
       // Buffers are kept so clearArea() can drop single blades later.
       meshes.push({ mesh, matrix: data, color: col });
     }

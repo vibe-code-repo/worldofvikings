@@ -296,8 +296,11 @@ function check(name: string, ok: boolean, detail = ''): void {
 {
   const gras = readFileSync(join(WURZEL, 'client/src/engine/GrassClutter.ts'), 'utf8');
   const schatten = readFileSync(join(WURZEL, 'client/src/engine/Shadows.ts'), 'utf8');
-  const name = /new Mesh\(`([a-z_]+)_\$\{key\}_\$\{variant\.entry\.key\}`/.exec(gras);
-  check('GrassClutter benennt seine Zell-Meshes nach festem Muster', Boolean(name), 'new Mesh(...) nicht gefunden');
+  // Der Name entsteht seit fps-analyse #8 nicht mehr direkt am `new Mesh(...)`
+  // (das steht jetzt in der testbaren `baueClutterZellMesh()`), sondern wird
+  // als Zeichenkette an sie übergeben — das Muster selbst ist unverändert.
+  const name = /`([a-z_]+)_\$\{key\}_\$\{variant\.entry\.key\}`/.exec(gras);
+  check('GrassClutter benennt seine Zell-Meshes nach festem Muster', Boolean(name), 'Namensmuster nicht gefunden');
   const regexZeile = /const NIE_WERFEN =\s*\n?\s*(\/\^\([^\n]*\/i);/.exec(schatten);
   check('Shadows.ts führt NIE_WERFEN als verankerten Regex', Boolean(regexZeile), 'Muster nicht gefunden');
   if (name && regexZeile) {

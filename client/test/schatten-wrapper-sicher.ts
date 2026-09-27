@@ -21,7 +21,19 @@
  *     Klone ohne Farbpass (G20) ihren Schatten dauerhaft.
  *  5. `defines` als String zaehlt als vorhanden.
  *  6. Ein uebergebener Klon, dessen Effekt nach `resetDrawCache` fehlt, wartet wieder
- *     und wirft nach dem erneuten Anmelden wieder (Shadows.pruefeUebergebeneKlone).
+ *     und wirft nach dem erneuten Anmelden wieder (Shadows.pruefeWrapperWerferBereitschaft).
+ *     Das laeuft JEDES Bild, nicht mehr im alten 15er-Takt (TIEFE_PRUEF_TAKT, entfernt) —
+ *     der Takt liess bis zu 15 Bilder ohne jeden Werfer zu (Angriffsbericht F1).
+ *  7. Solange er wartet, wirft die Quelle mit — genau einmal je Wiedereinreih-Tick
+ *     angemeldet, nicht doppelt (Pruefung UND Warteschleife). Gibt der Klon nach
+ *     TIEFE_MAX_VERSUCHEN auf, wirft die Quelle dauerhaft weiter, UND der Klon
+ *     verlaesst die renderList (F2) — sonst droht ein dauerhafter Doppelwurf, wenn
+ *     er spaeter doch noch bereit wird.
+ *  8. Waechter in pruefeWrapperWerferBereitschaft: ein nicht mehr bereiter Stand,
+ *     einer ohne aktive Instanzen, einer, der zum Packen ansteht, und ein schon
+ *     bereiter Klon werden nicht angefasst.
+ *  9. Ein Klon, der seine Tiefe zum ZWEITEN Mal verliert, startet wieder bei
+ *     null Versuchen (F3/X3) — sonst gibt er beim zweiten Verlust zu frueh auf.
  *
  * Lauf: npx tsx client/test/schatten-wrapper-sicher.ts
  */
@@ -165,14 +177,15 @@ const generatorAttrappe = {} as unknown as ShadowGenerator;
   z.engine.dispose();
 }
 
-// ── 7. Uebergebener Klon ohne Farbpass: nach resetDrawCache wieder im Schattenpass ──
-{
+/** Quelle + gepackter Klon (3 Instanzen), Klon schon uebergeben; Generator-Attrappe mit Zeuge. */
+function bauSchattenSzene() {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const shadows = new Shadows(scene, new DirectionalLight('sonne', new Vector3(0.3, -1, 0.2), scene));
   const liste: Mesh[] = [];
   const fake = {
     bereit: true,
+    letzteArgs: [] as unknown[],
     freezeShadowCastersBoundingInfo: false,
     numCascades: 2,
     shadowMaxZ: 50,
@@ -188,7 +201,10 @@ const generatorAttrappe = {} as unknown as ShadowGenerator;
         liste.push(...neu);
       },
     }),
-    isReady: () => fake.bereit,
+    isReady: (...args: unknown[]) => {
+      fake.letzteArgs = args;
+      return fake.bereit;
+    },
     dispose: () => undefined,
   };
   const intern = shadows as unknown as { generator: unknown; stufe: number };
@@ -211,22 +227,202 @@ const generatorAttrappe = {} as unknown as ShadowGenerator;
   }
   shadows.setVegetationsInstanzen(laub, matrizen);
   shadows.setPlayerPosition(0, 0);
-  const klon = scene.meshes.find((m) => m.name.startsWith('schattenVegetation_')) as Mesh | undefined;
+  const klon = scene.meshes.find((m) => m.name.startsWith('schattenVegetation_')) as Mesh;
   shadows.tick();
   shadows.tick();
+  return { engine, scene, shadows, fake, liste, laub, klon };
+}
+
+// ── 7. Uebergebener Klon ohne Farbpass: nach resetDrawCache wieder im Schattenpass, ──
+// ── Quelle wirft in der Luecke mit, genau einmal je Tick angemeldet ──────────────
+{
+  const { engine, scene, shadows, fake, liste, laub, klon } = bauSchattenSzene();
   pruefe(klon !== undefined && liste.includes(klon), 'Klon nach dem Packen nicht im Schattenpass — Ausgangslage falsch');
   pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 0, 'Ausgangslage: Klon wartet noch');
-  const teil = klon!.subMeshes[0]!;
+  const material = klon.material as PBRMaterial;
+  const teil = klon.subMeshes[0]!;
+
   // Der Reset trifft den Klon: Vorlage weg, Tiefen-Effekt nicht mehr bereit (wie ohne Farbpass).
   material.resetDrawCache();
   fake.bereit = false;
-  for (let i = 0; i < 40; i++) shadows.tick();
-  pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 1, 'Klon ohne Tiefen-Effekt kommt nicht wieder auf die Warteliste');
+  const vorAnmeldungen = shadows.vegetationsSchattenStats().tiefeAnmeldungen;
+  let luecke = false;
+  for (let i = 0; i < 40 && !luecke; i++) {
+    shadows.tick();
+    if (shadows.vegetationsSchattenStats().tiefeWartend === 1) luecke = true;
+  }
+  pruefe(luecke, 'Klon ohne Tiefen-Effekt kommt nicht wieder auf die Warteliste');
+  const nachAnmeldungen = shadows.vegetationsSchattenStats().tiefeAnmeldungen;
+  pruefe(
+    nachAnmeldungen - vorAnmeldungen === 1,
+    `Anmeldung im Wiedereinreih-Tick nicht genau einmal (${nachAnmeldungen - vorAnmeldungen}x) — Pruefung und Warteschleife melden beide an`
+  );
   pruefe(vorlageHatDefines(material.shadowDepthWrapper!, teil), 'Klon wurde nach dem Reset nicht neu angemeldet — die Vorlage bleibt ohne defines');
+  pruefe(liste.includes(laub), 'Quelle wirft nicht, waehrend der Klon in der Luecke wartet — es gibt einen Frame ohne Werfer');
+  const internStand = shadows as unknown as { vegetationsSchatten: Map<Mesh, { tiefeBereit: boolean }> };
+  const stand = internStand.vegetationsSchatten.get(laub);
+  pruefe(stand !== undefined && stand.tiefeBereit === false, 'tiefeBereit wird beim Wiedereinreihen nicht zurueckgesetzt');
+
   fake.bereit = true;
   shadows.tick();
   pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 0, 'Klon bleibt wartend, obwohl bereit');
-  pruefe(klon !== undefined && liste.includes(klon) && !liste.includes(laub), 'Klon nach dem Reset nicht wieder alleiniger Werfer');
+  pruefe(liste.includes(klon) && !liste.includes(laub), 'Klon nach dem Reset nicht wieder alleiniger Werfer');
+  scene.dispose();
+  engine.dispose();
+}
+
+// ── 7b. Gibt der Klon nach TIEFE_MAX_VERSUCHEN auf, wirft die Quelle dauerhaft weiter ──
+{
+  const { engine, scene, shadows, fake, liste, laub, klon } = bauSchattenSzene();
+  const material = klon.material as PBRMaterial;
+  material.resetDrawCache();
+  fake.bereit = false;
+  // Wiedereinreihung schon im naechsten Bild (F1, kein Takt mehr) + TIEFE_MAX_VERSUCHE
+  // (1200) bis zum Aufgeben; 20 Bilder Luft.
+  for (let i = 0; i < 1220; i++) shadows.tick();
+  pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 0, 'Klon gibt nach TIEFE_MAX_VERSUCHEN nicht auf');
+  pruefe(liste.includes(laub), 'Quelle wirft nach dem Aufgeben nicht mehr — sie muesste jetzt dauerhaft werfen');
+  // F2: der aufgegebene Klon MUSS aus der renderList verschwinden. Sonst bleibt er
+  // dort als abgeschriebener, aber weiter eingetragener Werfer stehen — wird er
+  // spaeter (ausserhalb dieser Buchfuehrung, z.B. durch einen echten Farbpass)
+  // doch noch bereit, wirft er zusammen mit der laengst zurueckgeholten Quelle
+  // dauerhaft doppelt.
+  pruefe(!liste.includes(klon), 'ein aufgegebener Klon bleibt Werfer in der renderList (F2: droht dauerhaften Doppelwurf)');
+  for (let i = 0; i < 5; i++) shadows.tick();
+  pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 0, 'ein aufgegebener Klon wird wieder in die Warteliste aufgenommen');
+  pruefe(!liste.includes(klon), 'ein aufgegebener Klon kommt ohne Neupacken wieder in die renderList');
+  scene.dispose();
+  engine.dispose();
+}
+
+// ── F1: keine Bild-Luecke mehr, unabhaengig vom alten 15er-Takt ─────────
+// Reproduziert genau die Karten-Zusage: ein Klon, der IRGENDWANN zwischen
+// zwei frueheren Pruefzeitpunkten (TIEFE_PRUEF_TAKT=15, jetzt entfernt)
+// seinen Tiefen-Eintrag verliert, wirft schon im naechsten Bild wieder ueber
+// die Quelle — nicht erst nach bis zu 15 Bildern (Angriffsbericht F1: 17 von
+// 39 Klonen 4-8 Bilder lang ohne jeden Werfer).
+{
+  const { engine, scene, shadows, fake, liste, laub, klon } = bauSchattenSzene();
+  const material = klon.material as PBRMaterial;
+
+  // Ein paar "normale" Bilder zwischendurch, wie im Spiel — bewusst NICHT auf
+  // einem Vielfachen des alten Takts (7 statt z.B. 15 oder 30).
+  for (let i = 0; i < 7; i++) shadows.tick();
+  pruefe(liste.includes(klon) && !liste.includes(laub), 'Vorbedingung: der Klon wirft nach 7 ruhigen Bildern noch allein');
+
+  material.resetDrawCache();
+  fake.bereit = false;
+  shadows.tick(); // GENAU EIN Bild nach dem Verlust
+  pruefe(
+    liste.includes(laub) || liste.includes(klon),
+    'im ersten Bild nach dem Verlust wirft weder Klon noch Quelle — genau die Luecke, die F1 schliessen sollte'
+  );
+  pruefe(
+    liste.includes(laub),
+    'im ersten Bild nach dem Verlust wirft die Quelle noch nicht wieder mit (die Erkennung braeuchte noch bis zu 14 weitere Bilder)'
+  );
+
+  scene.dispose();
+  engine.dispose();
+}
+
+// ── F3/X3: ein Klon, der seine Tiefe zum ZWEITEN Mal verliert, faengt wieder bei 0 an ──
+// Ohne das Zuruecksetzen von tiefeVersuche beim Wiedereinreihen erbt der Klon die
+// Versuche aus dem ERSTEN Verlust und gibt beim zweiten viel zu frueh auf.
+{
+  const { engine, scene, shadows, fake, liste, laub, klon } = bauSchattenSzene();
+  const material = klon.material as PBRMaterial;
+
+  // Erster Verlust: 1000 Versuche sammeln (unter TIEFE_MAX_VERSUCHE=1200), dann bereit.
+  material.resetDrawCache();
+  fake.bereit = false;
+  shadows.tick(); // Verlust erkannt, tiefeVersuche auf 0, 1 Versuch in diesem Bild
+  for (let i = 0; i < 999; i++) shadows.tick();
+  pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 1, 'Vorbedingung: der Klon wartet nach 1000 Versuchen noch (unter TIEFE_MAX_VERSUCHEN)');
+  fake.bereit = true;
+  shadows.tick(); // wird bereit, uebernimmt wieder — tiefeVersuche bleibt bei 1000 stehen, falls X3 nicht behoben ist
+  pruefe(liste.includes(klon) && !liste.includes(laub), 'Vorbedingung: nach dem ersten Verlust wirft wieder allein der Klon');
+
+  // Zweiter Verlust: mit dem Fix braucht es wieder bis zu TIEFE_MAX_VERSUCHEN (1200), nicht nur
+  // die Differenz zu den 1000 aus dem ersten Verlust (sonst gaebe X3 nach 200 weiteren auf).
+  material.resetDrawCache();
+  fake.bereit = false;
+  for (let i = 0; i < 200; i++) shadows.tick();
+  pruefe(
+    shadows.vegetationsSchattenStats().tiefeWartend === 1,
+    'X3: der Klon hat nach dem zweiten Verlust schon nach 200 weiteren Versuchen aufgegeben — tiefeVersuche wurde beim Wiedereinreihen nicht zurueckgesetzt'
+  );
+  pruefe(liste.includes(laub), 'die Quelle wirft waehrend des zweiten Wartens nicht mit');
+
+  scene.dispose();
+  engine.dispose();
+}
+
+// ── 8. Waechter in pruefeWrapperWerferBereitschaft: bereit, aktiv=0, PackPending, schon bereit ──
+{
+  const { engine, scene, shadows, fake, liste, laub: laubBereit, klon: klonBereit } = bauSchattenSzene();
+  type StandTest = { quelle: Mesh; schatten: Mesh; bereit: boolean; tiefeBereit: boolean; tiefeVersuche: number; aktiv: number };
+  type Intern = {
+    vegetationsWrapperWerfer: Set<StandTest>;
+    vegetationsPackPending: Set<StandTest>;
+    vegetationsTiefePending: Set<StandTest>;
+    vegetationsSchatten: Map<Mesh, StandTest>;
+    pruefeWrapperWerferBereitschaft(g: unknown): void;
+  };
+  const intern = shadows as unknown as Intern;
+  // Echte Vorlage bauen (wie bauSchattenSzene/meldeKlonAnBasisEffekt) und DANACH
+  // per resetDrawCache verlieren: nur so wuerde die Pruefung ohne ihren jeweiligen
+  // Waechter wirklich einen Verlust erkennen — sonst gilt "nie angemeldet" als
+  // "noch nichts zu kopieren" (vorlageHatDefines) und der Waechter waere nie zu
+  // unterscheiden von seinem Fehlen.
+  const baueStand = (name: string, opts: { bereit: boolean; aktiv: number }): StandTest => {
+    const quelle = new Mesh(`${name}_q`, scene);
+    const klon = new Mesh(`${name}_k`, scene);
+    const vd = new VertexData();
+    vd.positions = [0, 0, 0, 1, 0, 0, 0, 2, 0];
+    vd.indices = [0, 1, 2];
+    vd.normals = [0, 0, 1, 0, 0, 1, 0, 0, 1];
+    vd.uvs = [0, 0, 1, 0, 0, 1];
+    vd.applyToMesh(klon);
+    const material = new PBRMaterial(`${name}_mat`, scene);
+    material.shadowDepthWrapper = new SicherTiefenWrapper(material, scene, { doNotInjectCode: true });
+    klon.material = material;
+    const teil = klon.subMeshes[0]!;
+    material.isReadyForSubMesh(klon, teil, false);
+    teil.resetDrawCache();
+    return { quelle, schatten: klon, bereit: opts.bereit, tiefeBereit: true, tiefeVersuche: 0, aktiv: opts.aktiv };
+  };
+
+  // Ein Stand, der nicht mehr bereit ist (z.B. anderswo schon zurueckgeholt): lose
+  // Raeumung, nicht als Verlust behandelt.
+  const standNichtBereit = baueStand('w1', { bereit: false, aktiv: 3 });
+  intern.vegetationsWrapperWerfer.add(standNichtBereit);
+  // Ein Stand ohne aktive Instanzen (vollstaendig weggekuellt).
+  const standAktivNull = baueStand('w2', { bereit: true, aktiv: 0 });
+  intern.vegetationsWrapperWerfer.add(standAktivNull);
+  // Ein Stand, der zum Packen ansteht — das Packen entscheidet, nicht diese Pruefung.
+  const standPackend = baueStand('w3', { bereit: true, aktiv: 3 });
+  intern.vegetationsPackPending.add(standPackend);
+  intern.vegetationsWrapperWerfer.add(standPackend);
+
+  intern.pruefeWrapperWerferBereitschaft(fake);
+
+  pruefe(!intern.vegetationsWrapperWerfer.has(standNichtBereit), 'ein nicht mehr bereiter Stand blieb in der Menge stehen');
+  pruefe(!intern.vegetationsTiefePending.has(standNichtBereit), 'ein nicht mehr bereiter Stand wurde trotzdem als Verlust behandelt');
+  pruefe(!intern.vegetationsWrapperWerfer.has(standAktivNull), 'ein Stand ohne aktive Instanzen blieb in der Menge stehen');
+  pruefe(!intern.vegetationsTiefePending.has(standAktivNull), 'ein Stand ohne aktive Instanzen wurde trotzdem angefasst');
+  pruefe(!liste.includes(standAktivNull.quelle), 'die Quelle eines Stands ohne aktive Instanzen wurde trotzdem als Werfer angemeldet');
+  pruefe(!intern.vegetationsWrapperWerfer.has(standPackend), 'ein zum Packen anstehender Stand blieb in der Menge stehen');
+  pruefe(!intern.vegetationsTiefePending.has(standPackend), 'ein zum Packen anstehender Klon wurde trotzdem angefasst');
+  pruefe(!liste.includes(standPackend.quelle), 'die Quelle eines zum Packen anstehenden Stands wurde trotzdem als Werfer angemeldet');
+
+  // Gegenprobe: ein wirklich bereiter Klon (echter Wrapper, echte defines aus
+  // bauSchattenSzene) wird nicht angefasst.
+  const standBereit = intern.vegetationsSchatten.get(laubBereit)!;
+  pruefe(intern.vegetationsWrapperWerfer.has(standBereit), 'Vorbedingung: der echte, bereite Klon steht in der Menge');
+  pruefe(!intern.vegetationsTiefePending.has(standBereit), 'ein wirklich bereiter Klon wurde in die Warteliste verschoben');
+  pruefe(liste.includes(klonBereit), 'ein wirklich bereiter Klon verlor seinen Platz in der renderList');
+
   scene.dispose();
   engine.dispose();
 }

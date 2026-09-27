@@ -108,7 +108,7 @@ import { parseZDOSync, ZDOSpiegel } from './net/ZDOSync';
 import { Hud } from './ui/Hud';
 import { GrassClutter } from './engine/GrassClutter';
 import { HuegelGras } from './engine/HuegelGras';
-import { SettingsStore, VEGETATION_RANGE } from './ui/Settings';
+import { SettingsStore, VEGETATION_RANGE, schattenStufeFuer } from './ui/Settings';
 import type { GameSettings } from './ui/Settings';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { PostProcessing } from './engine/PostProcessing';
@@ -1165,7 +1165,11 @@ async function main() {
         }
       : s);
     shadows?.setHundertFpsProfil(s.hundertFpsProfil);
-    shadows?.setLevel(schattenErzwingenAus ? 0 : s.hundertFpsProfil ? 1 : s.shadowQuality);
+    // Mikes Entscheidung vom 27.09.: „Niedrig" (shadowQuality 0) heisst
+    // Schatten aus, auch bei aktivem 100-FPS-Profil. Ab Mittel/Hoch gilt
+    // bei aktivem Profil die Profil-Schattenvariante (Stufe 1) --
+    // schattenStufeFuer() in ui/Settings.ts.
+    shadows?.setLevel(schattenStufeFuer(s, schattenErzwingenAus));
     shadows?.setDistantShadows(s.hundertFpsProfil ? false : s.distantShadows);
     entities?.setHundertFpsProfil(s.hundertFpsProfil);
     entities?.setVegetationsGrenze(VEGETATION_RANGE[s.vegetationRange] ?? 0);
@@ -1916,7 +1920,7 @@ async function main() {
     shadows = new Shadows(scene, lighting.sun);
     const startSettings = gameSettings.get();
     shadows.setHundertFpsProfil(startSettings.hundertFpsProfil);
-    shadows.setLevel(schattenErzwingenAus ? 0 : startSettings.hundertFpsProfil ? 1 : startSettings.shadowQuality);
+    shadows.setLevel(schattenStufeFuer(startSettings, schattenErzwingenAus));
     shadows.setDistantShadows(startSettings.hundertFpsProfil ? false : startSettings.distantShadows);
     // Sichtbare Vegetationspuffer bleiben beim EntityManager; Shadows
     // bekommt nach jedem Neuaufbau nur die fertige Matrix-Momentaufnahme

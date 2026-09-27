@@ -3,11 +3,15 @@
  *
  * Auf `origin/main` kannte keine der beiden APIs world-of-mmorpg.com/.de —
  * die Charaktervorschau/das Anmelden von dort wäre an CORS gescheitert.
- * Zwei Ebenen werden geprüft:
+ * Drei Ebenen werden geprüft:
  *  1. Die Konstante selbst — die drei Basisdomains samt `www.`.
  *  2. KontoApi UND ForumApi ueber eine echte HTTP-Verbindung bzw. einen
  *     Fake-Request: ein bekannter Ursprung bekommt die CORS-Kopfzeile, ein
  *     fremder nicht.
+ *  3. Angriffsbefund M5 (Opus-Prüfung c2c2765): feindliche Ursprünge mit
+ *     Präfix-/Suffix-Treffer auf eine bekannte Domain — ein `.some(u =>
+ *     ursprung.startsWith(u))` statt `Set.has` hätte diese fälschlich
+ *     erlaubt, und kein bisheriger Test hätte das bemerkt.
  */
 import { strict as assert } from 'node:assert';
 import { createServer } from 'node:http';
@@ -76,6 +80,23 @@ assert.equal(
   'KontoApi setzt fuer einen fremden Ursprung keine CORS-Kopfzeile',
 );
 
+// ── Feindliche Ursprünge (M5): Präfix-/Suffix-Treffer auf world-of-mmorpg.com
+const FEINDLICHE_URSPRUENGE = [
+  'https://world-of-mmorpg.com.evil.tld',
+  'https://evilworld-of-mmorpg.com',
+  'http://world-of-mmorpg.com',
+  'https://world-of-mmorpg.com:8443',
+  'https://world-of-mmorpg.com.',
+  'null',
+];
+for (const ursprung of FEINDLICHE_URSPRUENGE) {
+  assert.equal(
+    await korsKopf(ursprung),
+    null,
+    `KontoApi lehnt den feindlichen Ursprung ${ursprung} ab`,
+  );
+}
+
 await new Promise<void>((resolve) => server.close(() => resolve()));
 rmSync(ordner, { recursive: true, force: true });
 
@@ -123,6 +144,14 @@ assert.equal(
   undefined,
   'ForumApi setzt fuer einen fremden Ursprung keine CORS-Kopfzeile',
 );
+
+for (const ursprung of FEINDLICHE_URSPRUENGE) {
+  assert.equal(
+    await forumKorsKopf(forumApi, ursprung),
+    undefined,
+    `ForumApi lehnt den feindlichen Ursprung ${ursprung} ab`,
+  );
+}
 
 rmSync(forumOrdner, { recursive: true, force: true });
 

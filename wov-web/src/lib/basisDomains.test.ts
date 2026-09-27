@@ -16,8 +16,7 @@ import {
   sitemapAdresse,
   VIKINGS_COM_UEBERGANG,
   weiterleitungsZielVikings,
-  X_DEFAULT_URSPRUNG,
-  xDefaultAdresse,
+  X_DEFAULT_ADRESSE,
 } from './basisDomains';
 
 describe('istBekannterHost', () => {
@@ -55,18 +54,19 @@ describe('canonical, hreflang, x-default', () => {
     expect(de).not.toBe(en);
   });
 
-  it('x-default zeigt immer auf world-of-mmorpg.com, nicht auf DEFAULT_LOCALE (de)', () => {
-    expect(X_DEFAULT_URSPRUNG).toBe('https://world-of-mmorpg.com');
-    expect(xDefaultAdresse('/saga').startsWith('https://world-of-mmorpg.com')).toBe(true);
+  it('x-default ist auf JEDER Seite dieselbe eine Adresse: die Startseite auf world-of-mmorpg.com', () => {
+    // Angriffsbefund M2 (Opus-Prüfung c2c2765): x-default ist Mikes
+    // ausdrückliche Vorgabe, exakt DIESE eine Adresse — nicht
+    // `startsWith('https://world-of-mmorpg.com')`, was auch eine
+    // je-Seite lokalisierte Fassung (`.com/de/saga`) hätte durchgelassen.
+    expect(X_DEFAULT_ADRESSE).toBe('https://world-of-mmorpg.com/');
   });
 });
 
 describe('sitemapAdresse', () => {
   it('de und en landen auf verschiedenen Domains', () => {
-    const de = sitemapAdresse('de', '/saga');
-    const en = sitemapAdresse('en', '/saga');
-    expect(de.startsWith('https://world-of-mmorpg.de')).toBe(true);
-    expect(en.startsWith('https://world-of-mmorpg.com')).toBe(true);
+    expect(sitemapAdresse('de', '/saga')).toBe('https://world-of-mmorpg.de/de/saga');
+    expect(sitemapAdresse('en', '/saga')).toBe('https://world-of-mmorpg.com/en/saga');
   });
 });
 

@@ -1,4 +1,4 @@
-import { sitemapAdresse, xDefaultAdresse } from '$lib/basisDomains';
+import { sitemapAdresse, X_DEFAULT_ADRESSE } from '$lib/basisDomains';
 import { LOCALES } from '$lib/i18n';
 import { SITEMAP } from '$lib/seiten';
 
@@ -30,7 +30,9 @@ import { SITEMAP } from '$lib/seiten';
  * (`sitemapAdresse`/`basisDomains.ts`): /de auf world-of-mmorpg.de, /en auf
  * world-of-mmorpg.com — unabhängig davon, über welche der beiden
  * gleichwertigen Domains diese Datei selbst ausgeliefert wird. `x-default`
- * zeigt, wie in `Kopfdaten.svelte`, ausdrücklich auf world-of-mmorpg.com.
+ * ist auf JEDEM Eintrag dieselbe eine Adresse (`X_DEFAULT_ADRESSE`, wie in
+ * `Kopfdaten.svelte`): die Sprachweiche unter `/`, NICHT eine je Eintrag
+ * lokalisierte Fassung — Mikes ausdrückliche Vorgabe (Angriffsbefund M2).
  */
 export const prerender = true;
 
@@ -38,7 +40,7 @@ export function GET() {
   const eintraege = SITEMAP.flatMap((pfad) => {
     const alternates = [
       ...LOCALES.map((l) => `hreflang="${l}" href="${sitemapAdresse(l, pfad)}"`),
-      `hreflang="x-default" href="${xDefaultAdresse(pfad)}"`,
+      `hreflang="x-default" href="${X_DEFAULT_ADRESSE}"`,
     ]
       .map((a) => `    <xhtml:link rel="alternate" ${a} />`)
       .join('\n');

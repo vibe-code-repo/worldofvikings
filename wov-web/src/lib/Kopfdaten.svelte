@@ -2,9 +2,8 @@
   import { page } from '$app/state';
   import {
     CANONICAL_HOME,
+    X_DEFAULT_ADRESSE,
     hreflangAdresse,
-    kanonischeAdresse,
-    xDefaultAdresse,
   } from './basisDomains';
   import {
     LOCALES,
@@ -36,18 +35,30 @@
     bild = '/assets/bilder/held.webp',
     /** Seiten, die nicht in den Index gehören (Charaktererstellung). */
     noindex = false,
+    /**
+     * Ursprung fest vorgeben statt aus der Sprache abzuleiten — NUR für die
+     * Sprachweiche unter `/` (Angriffsbefund M1): Diese eine Seite gehört zu
+     * keiner Sprache, ihre eigene Adresse ist deshalb `X_DEFAULT_ADRESSE`
+     * (dieselbe, auf die jede andere Seite per x-default zeigt), nicht die
+     * Heimat von `DEFAULT_LOCALE` (`de` → .de), auf die `lang` sonst fiele.
+     */
+    ursprungUeberschreiben,
   }: {
     titel: string;
     beschreibung: string;
     blankerTitel?: boolean;
     bild?: string;
     noindex?: boolean;
+    ursprungUeberschreiben?: string;
   } = $props();
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
   const ganzerTitel = $derived(blankerTitel ? titel : `${titel} — ${t['meta.brand']}`);
+
+  /** Der Ursprung dieser Seite: die Vorgabe, sonst die Heimat der Sprache. */
+  const ursprung = $derived(ursprungUeberschreiben ?? CANONICAL_HOME[lang]);
 
   /**
    * Die kanonische Adresse ist die OHNE Endung.
@@ -63,9 +74,7 @@
    * ausgeliefert wurde — world-of-mmorpg.com und world-of-mmorpg.de sind
    * gleichwertige Hauptdomains, aber jede Sprache hat genau eine Heimat.
    */
-  const kanonisch = $derived(
-    kanonischeAdresse(lang, page.url.pathname.replace(/\.html$/, '') || '/'),
-  );
+  const kanonisch = $derived(ursprung + (page.url.pathname.replace(/\.html$/, '') || '/'));
 
   /**
    * Dieselbe Seite in jeder Sprache, plus x-default.
@@ -73,9 +82,9 @@
    * Jede Fassung listet ALLE Sprachen einschliesslich ihrer eigenen — so
    * verlangt es die hreflang-Spezifikation, und eine Fassung, die sich selbst
    * ausliesse, würde von Suchmaschinen als einseitige Angabe verworfen.
-   * `x-default` zeigt auf world-of-mmorpg.com (Karte D1, `basisDomains.ts`),
-   * nicht auf die Heimat von DEFAULT_LOCALE (`de` → .de) — die beiden fallen
-   * bewusst nicht zusammen.
+   * `x-default` (unten, `X_DEFAULT_ADRESSE`) ist auf JEDER Seite dieselbe eine
+   * Adresse — die Sprachweiche unter `/` —, nicht je Seite eine eigene
+   * lokalisierte Fassung (Angriffsbefund M2, Mikes ausdrückliche Vorgabe).
    */
   const nackt = $derived(stripLocale(page.url.pathname));
 </script>
@@ -87,7 +96,7 @@
   {#each LOCALES as l (l)}
     <link rel="alternate" hreflang={l} href={hreflangAdresse(l, nackt)} />
   {/each}
-  <link rel="alternate" hreflang="x-default" href={xDefaultAdresse(nackt)} />
+  <link rel="alternate" hreflang="x-default" href={X_DEFAULT_ADRESSE} />
   {#if noindex}
     <meta name="robots" content="noindex" />
   {/if}
@@ -101,12 +110,12 @@
   <meta property="og:title" content={ganzerTitel} />
   <meta property="og:description" content={beschreibung} />
   <meta property="og:url" content={kanonisch} />
-  <meta property="og:image" content={CANONICAL_HOME[lang] + bild} />
+  <meta property="og:image" content={ursprung + bild} />
 
   <!-- Grosse Karte statt Vorschaustreifen: Das Heldenbild ist im Querformat
        und verliert in der kleinen Fassung genau das, was es zeigen soll. -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content={ganzerTitel} />
   <meta name="twitter:description" content={beschreibung} />
-  <meta name="twitter:image" content={CANONICAL_HOME[lang] + bild} />
+  <meta name="twitter:image" content={ursprung + bild} />
 </svelte:head>

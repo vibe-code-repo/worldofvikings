@@ -51,6 +51,26 @@ const ERWARTUNGEN: Erwartung[] = [
     // eigenes `if (...) { ... }` — ein nacktes `[^}]*` endete an dessen Klammer.
     muster: /location\s+\/\s*\{(?:[^{}]|\{[^{}]*\})*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
   },
+  /*
+    Karte D1, Angriffsbefund M1: `location = /` weicht VOR dem Node-Dienst
+    nach Host aus, weil adapter-node die vorgerenderte Wurzel-Datei
+    (immer `/de`) ausliefert, bevor `hooks.server.ts` je läuft — ein
+    host-abhängiges Ziel geht deshalb nur hier. Je eine Zusicherung pro
+    Domain, damit ein Mutant, der eine Zeile still auf die falsche Sprache
+    dreht, hier auffällt (nicht nur die Existenz des Blocks).
+  */
+  {
+    weg: 'location = / leitet world-of-mmorpg.de auf /de',
+    muster: /if\s*\(\$host\s*=\s*world-of-mmorpg\.de\)\s*\{\s*return\s+302\s+\/de;\s*\}/,
+  },
+  {
+    weg: 'location = / leitet world-of-mmorpg.com auf /en',
+    muster: /if\s*\(\$host\s*=\s*world-of-mmorpg\.com\)\s*\{\s*return\s+302\s+\/en;\s*\}/,
+  },
+  {
+    weg: 'location = / fällt für jeden anderen Host auf denselben Node-Dienst zurück',
+    muster: /location\s*=\s*\/\s*\{(?:[^{}]|\{[^{}]*\})*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
+  },
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
   { weg: '/api/*.json (statische Daten der Webseite)', muster: /location\s+~\s+\^\/api\/[^\n{]*\\\.json[^\n{]*\{/ },
@@ -106,6 +126,17 @@ const ERWARTUNGEN: Erwartung[] = [
   {
     weg: 'Schalter $editor_name wird gesetzt und erkennt editor.dev',
     muster: /set\s+\$editor_name\s+0;\s*if\s*\(\$host\s*~\*\s*"\^editor\\\.dev\\\.world-of-vikings\\\.com\$"\)\s*\{\s*set\s+\$editor_name\s+1;/,
+  },
+  /*
+    Karte D1, Angriffsbefund M4: dieselbe editor.dev-Rolle gilt zusätzlich
+    für die zwei neuen Hauptdomains (DNS liegt dort ebenso an). Eigener
+    Fund, weil ein Umbau die Regex oben leicht um `|world-of-mmorpg\.(com|de)`
+    erweitern könnte, ohne dass ein Test das verlangt — dann bliebe der
+    Editor auf den neuen dev-Namen ohne die Wurzel-Umleitung stehen.
+  */
+  {
+    weg: 'editor.dev.world-of-mmorpg.com/.de setzt $editor_name ebenfalls',
+    muster: /if\s*\(\$host\s*~\*\s*"\^editor\\\.dev\\\.world-of-mmorpg\\\.\(com\|de\)\$"\)\s*\{\s*set\s+\$editor_name\s+1;/,
   },
   /*
     `absolute_redirect off;` steht auf der `server`-Ebene, VOR dem ersten

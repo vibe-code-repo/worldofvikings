@@ -20,7 +20,7 @@
  * rather than a shared import, same reasoning as `GAME_SESSION_TOKEN_KEY`
  * in `account.ts`: separate bundlers, one small contract between them.
  */
-import { DEFAULT_LOCALE, type Locale, localizedPath } from './i18n';
+import { type Locale, localizedPath } from './i18n';
 
 export const MMORPG_COM = 'world-of-mmorpg.com';
 export const MMORPG_DE = 'world-of-mmorpg.de';
@@ -58,10 +58,14 @@ export const CANONICAL_HOME: Record<Locale, string> = {
 };
 
 /**
- * `x-default` zeigt immer auf `world-of-mmorpg.com` (Karte D1, ausdrücklich
- * so entschieden — nicht `CANONICAL_HOME[DEFAULT_LOCALE]`, das wäre `.de`).
+ * `x-default` ist auf JEDER Seite genau diese eine Adresse: die Sprachweiche
+ * unter `/` (Angriffsbefund M2, Mikes ausdrückliche Vorgabe). NICHT je Seite
+ * eine eigene lokalisierte Fassung auf `.com` — das wäre eine Adresse, die
+ * per canonical selbst wieder woanders hinzeigt (auf `.de` für `/de`-Seiten),
+ * und Suchmaschinen werten ein hreflang-Ziel, dessen eigene canonical-Angabe
+ * abweicht, als widersprüchlich.
  */
-export const X_DEFAULT_URSPRUNG = `https://${MMORPG_COM}`;
+export const X_DEFAULT_ADRESSE = `https://${MMORPG_COM}/`;
 
 /** Kanonische Adresse einer Seite in ihrer eigenen Sprache. */
 export function kanonischeAdresse(lang: Locale, pfadOhneEndung: string): string {
@@ -71,11 +75,6 @@ export function kanonischeAdresse(lang: Locale, pfadOhneEndung: string): string 
 /** hreflang-Adresse einer Sprachfassung — auf DEREN eigener Heimat-Domain. */
 export function hreflangAdresse(lang: Locale, nackterPfad: string): string {
   return CANONICAL_HOME[lang] + localizedPath(lang, nackterPfad);
-}
-
-/** `x-default`-Adresse: Vorgabesprache, aber immer auf `world-of-mmorpg.com`. */
-export function xDefaultAdresse(nackterPfad: string): string {
-  return X_DEFAULT_URSPRUNG + localizedPath(DEFAULT_LOCALE, nackterPfad);
 }
 
 /** Volle Adresse eines sprachlosen Pfads in einer Sprache, für die Sitemap. */

@@ -33,10 +33,16 @@ check('the legacy connect button is absent from the shipped HTML', !html.include
 check('the legacy character preview is absent from the shipped HTML', !html.includes('vorschau-canvas'));
 check('main.ts no longer looks up legacy connection controls', !/getElementById\('(connect-screen|connect-btn|player-name|server-url)'\)/.test(main));
 check(
-  'an online visit without an account session returns to wov-web',
+  'an online visit without an account session returns to the CURRENT domain, not a fixed one',
   main.includes('if (!offlineMode && !accountSessionPresent)') &&
     main.includes("i18n.language === 'en' ? '/en/login' : '/de/anmelden'") &&
-    main.includes("new URL(loginPath, 'https://world-of-vikings.com')"),
+    // Karte D1 (Zweitdomains): the login redirect follows the current
+    // play. host's own base domain (basisDomainVonSpielHost), not a single
+    // hardcoded one — with two equal main domains a fixed target would send
+    // a visitor on world-of-mmorpg.de to sign in on .com and lose their
+    // localStorage session.
+    main.includes('basisDomainVonSpielHost(window.location.host)') &&
+    !/new URL\(\s*loginPath\s*,\s*['"]https?:\/\//.test(main),
 );
 check(
   'a connection failure uses the same website recovery path',

@@ -82,9 +82,12 @@ export function dungeonUrl(id: string, base: string = clientBase()): string {
  * Karte D1 (Zweitdomains): `world-of-mmorpg.com`/`.de` bekommen dieselbe
  * `editor.` → `play.`-Zuordnung wie world-of-vikings.com — "innerhalb einer
  * Domain bleiben" (Mikes Entscheid): wer auf `.de` ist, spielt auf
- * `play.world-of-mmorpg.de`, nicht auf einer anderen Domain. Kein `dev.`/
- * `staging.` für die neuen Domains (die bleiben vorerst nur unter
- * world-of-vikings.com, Karte D1).
+ * `play.world-of-mmorpg.de`, nicht auf einer anderen Domain. `dev.`/
+ * `staging.` kommen für beide neue Domains ZUSÄTZLICH dazu (Angriffsbefund
+ * M4 / Orchestrator-Entscheid 27.09.2026 abends): DNS für `editor.dev.`,
+ * `live.dev.` und `*.staging.` liegt für world-of-mmorpg.com/.de bereits an,
+ * genau wie für world-of-vikings.com — dieselbe `editor.` → `live.`-Regel
+ * gilt deshalb überall dort, wo sie heute für world-of-vikings.com gilt.
  */
 const SPIEL_HOSTS: Readonly<Record<string, string>> = {
   'editor.world-of-vikings.com': 'play.world-of-vikings.com',
@@ -92,6 +95,10 @@ const SPIEL_HOSTS: Readonly<Record<string, string>> = {
   'editor.staging.world-of-vikings.com': 'live.staging.world-of-vikings.com',
   'editor.world-of-mmorpg.com': 'play.world-of-mmorpg.com',
   'editor.world-of-mmorpg.de': 'play.world-of-mmorpg.de',
+  'editor.dev.world-of-mmorpg.com': 'live.dev.world-of-mmorpg.com',
+  'editor.staging.world-of-mmorpg.com': 'live.staging.world-of-mmorpg.com',
+  'editor.dev.world-of-mmorpg.de': 'live.dev.world-of-mmorpg.de',
+  'editor.staging.world-of-mmorpg.de': 'live.staging.world-of-mmorpg.de',
 };
 
 /**
@@ -150,8 +157,14 @@ export function dungeonMeldung(id: string, ziel: DungeonZiel): string {
  * Only a `play.` host is a separate domain from the website; every other
  * host (a same-origin dev/lab container, `localhost`, a slot port) IS the
  * website's own host already, verbatim.
+ *
+ * Takes `location.host` (hostname **plus port**), not `.hostname`
+ * (Angriffsbefund N1): dropping the port sent a visitor on a slot port back
+ * to port 80 of the DEV nginx on a connection failure, instead of to their
+ * own slot. Stripping the `play.` prefix leaves a trailing port untouched —
+ * it belongs to the address, not to the prefix.
  */
-export function basisDomainVonSpielHost(hostname: string): string {
-  const h = hostname.toLowerCase();
-  return h.startsWith('play.') ? hostname.slice('play.'.length) : hostname;
+export function basisDomainVonSpielHost(host: string): string {
+  const h = host.toLowerCase();
+  return h.startsWith('play.') ? host.slice('play.'.length) : host;
 }

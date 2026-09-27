@@ -450,9 +450,14 @@ async function main() {
   // nicht mehr fest world-of-vikings.com — sonst landete ein Spieler auf
   // play.world-of-mmorpg.de bei der Anmeldung auf der jeweils anderen
   // Domain, und die Anmeldung (localStorage je Ursprung) griffe nicht.
+  //
+  // `location.host`, nicht `.hostname` (Angriffsbefund N1): Ein Slot-Port
+  // (`127.0.0.1:5295`) gehört zur Adresse dazu — ohne ihn führte der
+  // Rücksprung nach einem Verbindungsabbruch auf Port 80 des DEV-nginx statt
+  // zum eigenen Slot.
   const websiteLoginUrl = (expired = false): URL => {
     const loginPath = i18n.language === 'en' ? '/en/login' : '/de/anmelden';
-    const basis = basisDomainVonSpielHost(window.location.hostname);
+    const basis = basisDomainVonSpielHost(window.location.host);
     const url = new URL(loginPath, `${window.location.protocol}//${basis}`);
     url.searchParams.set(
       'shore',

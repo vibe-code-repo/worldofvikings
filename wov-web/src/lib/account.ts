@@ -33,6 +33,7 @@
  * ticket from `/play` goes into the address FRAGMENT (`#ticket=`), which
  * no browser sends to any server — see `playUrl`.
  */
+import { MMORPG_COM, MMORPG_DE } from './basisDomains';
 import type { Locale, MessageKey } from './i18n';
 
 /* ------------------------------------------------------------- shores */
@@ -69,6 +70,18 @@ export type ShoreId = 'dev' | 'live';
  * a staging host) when the website is ever built to be served from
  * somewhere other than the wov-lab origin itself; the three fields below
  * all key off it so nothing has to change in three places by hand.
+ *
+ * ── `live` follows the CURRENT domain (Karte D1, Angriffsbefund M4) ────
+ * With two equal main domains, a single fixed `play.world-of-vikings.com`
+ * would break "innerhalb einer Domain bleiben" the moment Midgard opens
+ * for accounts: a visitor signed in on `.de` would be sent to `play.` on
+ * `.com` instead, where their `localStorage` token does not exist, and
+ * the account calls would run into world-of-vikings.com's 301 (Teil 3) —
+ * a redirect a CORS preflight never follows. `live` is therefore a GETTER,
+ * not a plain object: it reads `window.location.hostname` fresh on every
+ * access and falls back to `MMORPG_COM` where there is no `window` at all
+ * (prerendering) — see `liveBasisDomain`, kept pure and separate so it can
+ * be tested without faking `window`.
  */
 declare const WOV_DEV_ORIGIN: string | undefined;
 const DEV_ORIGIN = typeof WOV_DEV_ORIGIN === 'string' ? WOV_DEV_ORIGIN : '';
@@ -84,16 +97,29 @@ export interface ShoreConfig {
   playPath: string;
 }
 
+/**
+ * Which of the two equal main domains the `live` shore's `play.` host
+ * should sit on, given the WEBSITE's own hostname — pure and host-only
+ * (no port, no protocol) so it takes the same input shape as
+ * `window.location.hostname` without needing a fake `window` in a test.
+ * Anything other than `.de`/`www.de` (world-of-vikings.com, dev, staging,
+ * localhost, an unknown host) falls back to `.com`.
+ */
+export function liveBasisDomain(hostname: string): string {
+  const h = hostname.toLowerCase();
+  return h === MMORPG_DE || h === `www.${MMORPG_DE}` ? MMORPG_DE : MMORPG_COM;
+}
+
 export const SHORES: Record<ShoreId, ShoreConfig> = {
   dev: {
     origin: DEV_ORIGIN,
     apiPrefix: DEV_ORIGIN ? DEV_ORIGIN : '/api',
     playPath: DEV_ORIGIN ? '/' : '/play/',
   },
-  live: {
-    origin: 'https://play.world-of-vikings.com',
-    apiPrefix: 'https://play.world-of-vikings.com',
-    playPath: '/',
+  get live(): ShoreConfig {
+    const basis = liveBasisDomain(typeof window === 'undefined' ? '' : window.location.hostname);
+    const origin = `https://play.${basis}`;
+    return { origin, apiPrefix: origin, playPath: '/' };
   },
 };
 

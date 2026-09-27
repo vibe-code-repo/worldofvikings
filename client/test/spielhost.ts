@@ -60,6 +60,11 @@ const faelle: Array<[string, string | null]> = [
   ['editor.world-of-mmorpg.de', 'play.world-of-mmorpg.de'],
   ['play.world-of-mmorpg.com', null],
   ['play.world-of-mmorpg.de', null],
+  // dev./staging. kommen für beide neuen Domains zusätzlich dazu (M4).
+  ['editor.dev.world-of-mmorpg.com', 'live.dev.world-of-mmorpg.com'],
+  ['editor.staging.world-of-mmorpg.com', 'live.staging.world-of-mmorpg.com'],
+  ['editor.dev.world-of-mmorpg.de', 'live.dev.world-of-mmorpg.de'],
+  ['editor.staging.world-of-mmorpg.de', 'live.staging.world-of-mmorpg.de'],
   [`live.${H}`, null],
   [`play.${H}`, null],
   [`live.dev.${H}`, null],
@@ -91,12 +96,18 @@ for (const [host, soll] of faelle) {
 }
 
 // ── Karte D1: die Basis-Domain des AKTUELLEN play.-Hosts (client/src/main.ts,
-// websiteLoginUrl) ───────────────────────────────────────────────────────
+// websiteLoginUrl) — bekommt `location.host` (mit Port), nicht `.hostname`
+// (Angriffsbefund N1: ohne Port führte der Rücksprung auf einem Slot-Port
+// zurück auf Port 80 des DEV-nginx statt zum eigenen Slot) ─────────────────
 const basisFaelle: Array<[string, string]> = [
   [`play.${H}`, H],
   ['play.world-of-mmorpg.com', 'world-of-mmorpg.com'],
   ['play.world-of-mmorpg.de', 'world-of-mmorpg.de'],
   [`PLAY.${H}`, H],
+  // Der Port bleibt erhalten — er gehört zur Adresse dazu, nicht zum
+  // "play."-Präfix, der abgeschnitten wird.
+  ['play.world-of-mmorpg.com:5295', 'world-of-mmorpg.com:5295'],
+  [`play.${H}:8443`, `${H}:8443`],
   // Gleicher Ursprung (wov-lab/dev): kein play.-Präfix, der Host bleibt,
   // wie er ist — er IST bereits die Webseite.
   [H, H],

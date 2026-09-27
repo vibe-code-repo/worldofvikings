@@ -478,8 +478,9 @@ one hop. Two ways to add TLS without breaking that:
   visitor's — every downstream `X-Forwarded-For` it sets is then wrong, the admin
   API's origin-based checks and the account API's rate limiter both end up
   keyed on the same address for everyone. Only do this if you also change
-  `wov-lab.conf` to read the real client IP from whatever header your outer proxy
-  sets (it doesn't do this out of the box) and adjust `WOV_PROXY_ADRESSEN`/
+  `wov-lab.conf` to read the real client IP from your outer proxy
+  (the `set_real_ip_from`/`real_ip_header` lines in the game-facing blocks name
+  Mike's Nginx Proxy Manager, `10.10.10.10`; put your proxy's address there) and adjust `WOV_PROXY_ADRESSEN`/
   `WOV_NAHE_NETZE` (§4) to trust that outer proxy's address.
 
 Either way, the outer edge (whichever nginx terminates TLS) must forward WebSocket

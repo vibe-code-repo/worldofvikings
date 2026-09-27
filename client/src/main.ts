@@ -1165,7 +1165,10 @@ async function main() {
         }
       : s);
     shadows?.setHundertFpsProfil(s.hundertFpsProfil);
-    shadows?.setLevel(schattenErzwingenAus ? 0 : s.hundertFpsProfil ? 1 : s.shadowQuality);
+    // Die gewaehlte Qualitaetsstufe (bzw. der manuell gesetzte Regler) hat
+    // Vorrang vor dem 100-FPS-Profil: „Niedrig" heisst Schatten aus, auch
+    // bei aktivem Profil. Das Profil erzwingt hier keine Mindeststufe mehr.
+    shadows?.setLevel(schattenErzwingenAus ? 0 : s.shadowQuality);
     shadows?.setDistantShadows(s.hundertFpsProfil ? false : s.distantShadows);
     entities?.setHundertFpsProfil(s.hundertFpsProfil);
     entities?.setVegetationsGrenze(VEGETATION_RANGE[s.vegetationRange] ?? 0);
@@ -1916,7 +1919,7 @@ async function main() {
     shadows = new Shadows(scene, lighting.sun);
     const startSettings = gameSettings.get();
     shadows.setHundertFpsProfil(startSettings.hundertFpsProfil);
-    shadows.setLevel(schattenErzwingenAus ? 0 : startSettings.hundertFpsProfil ? 1 : startSettings.shadowQuality);
+    shadows.setLevel(schattenErzwingenAus ? 0 : startSettings.shadowQuality);
     shadows.setDistantShadows(startSettings.hundertFpsProfil ? false : startSettings.distantShadows);
     // Sichtbare Vegetationspuffer bleiben beim EntityManager; Shadows
     // bekommt nach jedem Neuaufbau nur die fertige Matrix-Momentaufnahme

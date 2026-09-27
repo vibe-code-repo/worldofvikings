@@ -2245,6 +2245,28 @@ const KERN = [
   ['admin', 'test/weltops-n5.ts'],
   // ... N5 with the test flight (#91): its Sockel radius never exceeds the service's limit of 100 (real flight code against the real service).
   ['client', 'test/testflug-sockel-dienst.ts'],
+  // Karte „Editor Upload-Größe": Grundskala in Registry + Hülle (huellenAufloeser) —
+  // Feld optional (fehlt = 1), Grenzen 0,01…100, Hülle multipliziert statt abschreibt.
+  ['shared', 'test/upload-grundskala-registry.ts'],
+  // Grundskala im Loader (AssetManager.getMasters, synthetischer Container): wirkt
+  // multiplikativ auf die Platzierungs-scale — 1,0×0,72×0,6 m ×Grundskala 4 -> 4,0×2,88×2,4 m
+  // bei scale 1, 8,0×5,76×4,8 m bei scale 2. Gemessen im Szenengraph.
+  ['client', 'test/upload-grundskala-loader.ts'],
+  // Grundskala in der Server-Kollision (KollisionsFormen, echte Kette bewegungsSchritt/
+  // Kollisionswelt) und im Nachträglich-ändern-Weg (aendereGrundskala): Registry-Datei UND
+  // Laufzeit-Registrierung folgen, Grenzen greifen, unbekannter Name/Sperre lehnen ab.
+  ['server', 'test/upload-grundskala-kollision.ts'],
+  // Vorschlagslogik für die Zielgröße (DOM-frei): ähnliches Modell -> Kategorietabelle ->
+  // Rohgröße, cm-Verdacht (>50 m), rohMasseAusGlb (Hüllbox browserseitig vor dem Upload).
+  ['shared', 'test/upload-grundskala-vorschlag.ts'],
+  // Betriebsdienst-Verdrahtung (Syntaxbaum, wie modell-upload-verdrahtung.ts): Kopfzeile
+  // x-wov-grundskala geprüft und durchgereicht, neuer PATCH-Zweig für „nachträglich ändern"
+  // (422 bei ungültiger Grundskala, keine Bestätigungslogik wie bei DELETE).
+  ['admin', 'test/upload-grundskala-dienst.ts'],
+  // Dieselbe Verdrahtung am ECHTEN, laufenden Betriebsdienst (Port 0, wie betriebsdienst.ts):
+  // POST mit/ohne X-Wov-Grundskala, Grenzen 0,01…100 inkl. 422, PATCH „nachträglich ändern"
+  // (Registry-Datei UND Antwort), unbekannter Name/fehlende Felder. ~10 s.
+  ['admin', 'test/upload-grundskala-betriebsdienst.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

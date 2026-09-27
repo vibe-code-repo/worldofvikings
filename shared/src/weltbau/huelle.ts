@@ -24,7 +24,7 @@ import { STORE_KATALOG_NACH_PREFAB } from '../storeKatalogDaten.js';
 import { storeKollision } from '../storeKollisionDaten.js';
 import { boundsNachWeltraum, type StoreBounds } from '../storeKatalog.js';
 import { istFesterKoerper } from '../kollision/festeKoerper.js';
-import { uploadedModelEntry } from '../uploadedModelRegistry.js';
+import { grundskalaVon, uploadedModelEntry } from '../uploadedModelRegistry.js';
 import { HAUS_MIN_HOEHE, HAUS_MIN_KANTE } from './grenzen.js';
 
 export type HuellenQuelle = 'extern' | 'store-kollisionskiste' | 'store-huelle' | 'upload' | 'manifest';
@@ -81,14 +81,19 @@ function ausStore(prefab: string): Huelle | null {
 function ausUpload(prefab: string): Huelle | null {
   const u = uploadedModelEntry(prefab);
   if (u === undefined) return null;
+  // Grundskala (Karte „Editor Upload-Größe"): `breite`/`hoehe`/`tiefe` sind
+  // die ROHE Hüllbox der Datei, die Grundskala multipliziert hier — genau
+  // einmal, an der einen Stelle, aus der `freiflaechenHuellen` UND
+  // `pruefungen.ts` ihre Hülle für Uploads beziehen (`huellenAufloeser`).
+  const g = grundskalaVon(u);
   return {
     fest: u.kollisionsart === 'fest',
     mitteX: 0,
     mitteZ: 0,
-    halbX: u.breite / 2,
-    halbZ: u.tiefe / 2,
+    halbX: (u.breite * g) / 2,
+    halbZ: (u.tiefe * g) / 2,
     minY: 0,
-    maxY: u.hoehe,
+    maxY: u.hoehe * g,
     gebaeude: false,
     quelle: 'upload',
   };

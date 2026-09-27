@@ -68,7 +68,7 @@ import { toeneStoreMaterial } from './StoreToenung';
 import { laubSpitzenAuftragen } from './LaubSpitzen';
 
 import { GENERATED_PREFIX, modelBaseUrl, modelDateiName, modelUrl } from './assetUrls';
-import { storeSpiegelung, waehleGruppe, type GruppenWahl } from '@wov/shared';
+import { storeSpiegelung, uploadedModelRegistry, waehleGruppe, type GruppenWahl } from '@wov/shared';
 
 const TEXTUR_BASE_URL = '/assets/textures/';
 
@@ -822,6 +822,26 @@ export class AssetManager {
       master.mesh.isVisible = false;
       master.mesh.isPickable = false;
       result.push(master);
+    }
+    // Grundskala hochgeladener Modelle (Karte „Editor Upload-Größe"):
+    // Tripo-/Meshy-Exporte sind auf Kantenlänge 1 normiert. Sie NICHT über
+    // `PrefabDef.localScale` abzubilden ist Absicht (Kopfkommentar
+    // uploadedModelRegistry.uploadedPrefabDef) — `composeZdoWorld` ERSETZT
+    // `localScale` durch eine gesetzte ZDO-`scale`, statt beide zu
+    // multiplizieren. Stattdessen wird sie hier, EINMAL je geladenem
+    // Modell, in `localMatrix` gebacken — genau der Zwischenknoten, den
+    // die Diagnose vom 26.09. vorschlägt: `localMatrix` ist bereits die
+    // Transformation der Master-Geometrie UNTER der Instanzwurzel
+    // (Kopfkommentar `getMasters`, „instance matrices are localMatrix ×
+    // zdoWorld"); eine zusätzliche Skalierung darin wirkt multiplikativ
+    // MIT der Platzierungs-`scale`, statt sie zu ersetzen — für JEDEN
+    // Verbraucher von `getMasters()` (Spiel, Testflug-Buckets über
+    // `EntityManager.applyStatic`), ohne `Testflug.ts` oder
+    // `composeZdoWorld` anzufassen.
+    const g = uploadedModelRegistry.grundskalaFuerModell(name);
+    if (g !== 1) {
+      const skalierung = Matrix.Scaling(g, g, g);
+      for (const master of result) master.localMatrix = master.localMatrix.multiply(skalierung);
     }
     this.masters.set(name, result);
     return result;

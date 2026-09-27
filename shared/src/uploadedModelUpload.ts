@@ -53,6 +53,8 @@ import { fileURLToPath } from 'node:url';
 import { findPrefabByName } from './prefabs.js';
 import { leseGlb, parseGlbChunks } from './kollision/glb.js';
 import {
+  GRUNDSKALA_MAX,
+  GRUNDSKALA_MIN,
   HUELLBOX_ABLEHNEN_MAX_M,
   HUELLBOX_ABLEHNEN_MIN_M,
   HUELLBOX_HINWEIS_MAX_M,
@@ -279,6 +281,27 @@ export interface UploadWunsch {
   readonly bytes: Uint8Array;
   readonly angezeigterName: string;
   readonly kollisionswunsch: Kollisionsart;
+  /** Grundskala (Karte „Editor Upload-Größe"); fehlt sie, gilt 1 ("wie Datei"). */
+  readonly grundskala?: number;
+}
+
+/**
+ * Grundskala-Eingabe prüfen — dieselbe Grenze wie `pruefeRegistryEintrag`
+ * (`GRUNDSKALA_MIN`…`GRUNDSKALA_MAX`), hier VOR jedem Schreiben, für
+ * Upload UND „nachträglich ändern". `undefined` (Feld fehlt) ist gültig
+ * und bedeutet 1 — nur ein VORHANDENER, aber falscher Wert wird abgelehnt.
+ */
+export function pruefeGrundskala(grundskala: number | undefined): string | null {
+  if (grundskala === undefined) return null;
+  if (
+    typeof grundskala !== 'number' ||
+    !Number.isFinite(grundskala) ||
+    grundskala < GRUNDSKALA_MIN ||
+    grundskala > GRUNDSKALA_MAX
+  ) {
+    return `Grundskala muss eine endliche Zahl zwischen ${GRUNDSKALA_MIN} und ${GRUNDSKALA_MAX} sein (bekommen: ${String(grundskala)}).`;
+  }
+  return null;
 }
 
 export type UploadAntwort =
@@ -310,6 +333,8 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
   if (wunsch.bytes.byteLength > MAX_BYTES) {
     return nein(`Die Datei ist zu groß: ${wunsch.bytes.byteLength} Byte, erlaubt sind höchstens ${MAX_BYTES} Byte.`);
   }
+  const grundskalaFehler = pruefeGrundskala(wunsch.grundskala);
+  if (grundskalaFehler !== null) return nein(grundskalaFehler);
 
   const name = erzwingeName(wunsch.angezeigterName);
   if (name === null) {
@@ -507,6 +532,10 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
     kollisionsnetzAbgelehnt,
     hochgeladenVon: kontext.hochgeladenVon,
     zeitpunkt: new Date().toISOString(),
+    // Nur SCHREIBEN, wenn ausdrücklich mitgeschickt — ein fehlendes Feld
+    // bleibt fehlend (nicht `1`), damit ein Registry-Diff zeigt, welche
+    // Einträge nie eine Grundskala gesetzt bekamen.
+    ...(wunsch.grundskala !== undefined ? { grundskala: wunsch.grundskala } : {}),
   };
 
   // N1 (Angriff, Befund B2): Wirft `schreibeRegistry` HIER (volle Platte,
@@ -707,4 +736,84 @@ export function entferneUpload(kontext: EntfernenKontext, name: string, bestaeti
   }
 
   return { ok: true, name, verbleibend: verbleibend.length };
+}
+
+// ── Grundskala nachträglich ändern (Karte „Editor Upload-Größe") ──────
+export interface GrundskalaKontext {
+  /** Dasselbe Tor wie beim Hochladen — Instanz ≠ live UND server.yml-Schalter an. */
+  readonly erlaubt: boolean;
+  readonly verzeichnis: string;
+}
+
+export type GrundskalaAntwort =
+  | { readonly ok: true; readonly eintrag: UploadedModelEntry }
+  | { readonly ok: false; readonly meldung: string };
+
+/**
+ * Die Grundskala eines SCHON hochgeladenen Modells ändern — dieselbe
+ * Datei bleibt liegen, nur der Registry-Eintrag und die Laufzeit-
+ * Registrierung (`PREFAB_DEFS`/`PREFABS_BY_NAME`/`PREFABS_BY_HASH`)
+ * bekommen den neuen Faktor. Gesetzte Platzierungen behalten ihre
+ * `scale` unverändert (Auftrag, Punkt 5) — sie werden dadurch grösser
+ * oder kleiner, ohne dass irgendetwas an ihnen selbst geschrieben wird.
+ *
+ * Geschützt wie der bestehende Upload-Weg: dasselbe `erlaubt`-Tor, dieselbe
+ * Namensprüfung wie `entferneUpload` (Handarbeit an der Registry darf nie
+ * aus dem Zielordner ausbrechen), derselbe Registry-Schreibweg (temp+rename).
+ * Der Name ändert sich nie, also gibt es hier — anders als beim Hochladen —
+ * keine neue Hash-Kollision zu prüfen.
+ */
+export function aendereGrundskala(
+  kontext: GrundskalaKontext,
+  name: string,
+  grundskala: number
+): GrundskalaAntwort {
+  if (!kontext.erlaubt) {
+    return { ok: false, meldung: 'Modell-Upload ist auf dieser Instanz nicht erlaubt (server.yml: uploads.modell-hochladen, oder Instanz live).' };
+  }
+  if (!NAME_MUSTER.test(name)) {
+    return { ok: false, meldung: `Ungültiger Name — erwartet wird das Muster ${NAME_MUSTER}.` };
+  }
+  const grundskalaFehler = pruefeGrundskala(grundskala);
+  if (grundskalaFehler !== null) return { ok: false, meldung: grundskalaFehler };
+
+  let stand: RegistryDatei;
+  try {
+    stand = leseRegistry(kontext.verzeichnis);
+  } catch (e) {
+    console.error(`[ModellUpload] Registry unlesbar (${kontext.verzeichnis}): ${(e as Error).message}`);
+    return { ok: false, meldung: 'Die Registry ist nicht lesbar (Einzelheiten im Server-Log).' };
+  }
+  const index = stand.modelle.findIndex((m) => m.name === name);
+  if (index < 0) {
+    return { ok: false, meldung: `Die Registry kennt '${name}' nicht — es gibt nichts zu ändern.` };
+  }
+
+  const eintrag: UploadedModelEntry = { ...stand.modelle[index]!, grundskala };
+  const modelle = [...stand.modelle];
+  modelle[index] = eintrag;
+  try {
+    schreibeRegistry(kontext.verzeichnis, modelle);
+  } catch (e) {
+    console.error(`[ModellUpload] Registry nicht schreibbar (${kontext.verzeichnis}), Grundskala nicht geändert: ${(e as Error).message}`);
+    return { ok: false, meldung: 'Die Registry konnte nicht geschrieben werden, nichts wurde geändert (Einzelheiten im Server-Log).' };
+  }
+
+  // Laufzeit-Registrierung nachziehen — derselbe Diff-Weg wie
+  // `applyUploadedModelRegistry` für GENAU diesen einen Eintrag: austragen,
+  // neu eintragen. Der Hash hängt nur am NAMEN (unverändert), kann hier
+  // also nie kollidieren.
+  try {
+    unregisterUploadedPrefab(name);
+  } catch {
+    /* war (noch) nicht registriert, z. B. weil dieser Prozess gerade erst gestartet ist */
+  }
+  try {
+    registerUploadedPrefab(eintrag);
+  } catch (e) {
+    console.error(`[ModellUpload] Neu-Registrierung nach Grundskala-Änderung fehlgeschlagen ('${name}'): ${(e as Error).message}`);
+    return { ok: false, meldung: 'Grundskala in der Registry geändert, aber nicht neu registriert (Einzelheiten im Server-Log) — ein Neustart des Prozesses holt das nach.' };
+  }
+
+  return { ok: true, eintrag };
 }

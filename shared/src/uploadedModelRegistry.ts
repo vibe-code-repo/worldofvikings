@@ -92,6 +92,15 @@ export const HUELLBOX_ABLEHNEN_MAX_M = 5_000;
 /** Darunter ist die Hüllbox entartet (praktisch kein Netz) und wird ABGELEHNT. */
 export const HUELLBOX_ABLEHNEN_MIN_M = 0.0005;
 
+/**
+ * Grenzen der Grundskala (Karte „Editor Upload-Größe"): endliche Zahl in
+ * diesem Bereich, sonst 422 im Betriebsdienst. 100 deckt jeden plausiblen
+ * Nachskalierungsfall (ein 1-m-Tripo-Export auf Haus-Größe); darunter als
+ * 0,01 wäre ein Modell praktisch verschwunden.
+ */
+export const GRUNDSKALA_MIN = 0.01;
+export const GRUNDSKALA_MAX = 100;
+
 export type Kollisionsart = 'fest' | 'durchlaessig';
 
 /** Ein Eintrag der Upload-Registry — Datei, gemessene Zahlen, Wahl der Kollision. */
@@ -114,6 +123,19 @@ export interface UploadedModelEntry {
   readonly kollisionsnetzAbgelehnt: boolean;
   readonly hochgeladenVon: string;
   readonly zeitpunkt: string;
+  /**
+   * Grundskala (Karte „Editor Upload-Größe"): Faktor, um den die DATEI
+   * beim Laden zusätzlich zu `breite`/`hoehe`/`tiefe` gewachsen ist —
+   * `breite`/`hoehe`/`tiefe` bleiben die ROHE Hüllbox der Datei (wie
+   * gemessen), die Grundskala multipliziert erst beim Verbraucher
+   * (Loader, Hülle, Kollision). Anders als eine Platzierungs-`scale`
+   * steht sie NICHT im Weltlayout, sondern EINMAL hier, weil sie eine
+   * Eigenschaft der DATEI ist (Tripo/Meshy normieren auf Kantenlänge 1),
+   * nicht der einzelnen Platzierung — eine Platzierungs-`scale` wirkt
+   * weiterhin multiplikativ AUF die schon grundskalierte Größe. Fehlt
+   * das Feld (Einträge vor dieser Karte), gilt 1 — s. `grundskalaVon`.
+   */
+  readonly grundskala?: number;
 }
 
 export interface RegistryDatei {
@@ -166,7 +188,43 @@ export function pruefeRegistryEintrag(m: UploadedModelEntry): string | null {
   if (m.kollisionsart !== 'fest' && m.kollisionsart !== 'durchlaessig') {
     return `'${m.name}': Kollisionsart '${String(m.kollisionsart)}' unbekannt`;
   }
+  // `grundskala` ist OPTIONAL (fehlt bei jedem Eintrag vor dieser Karte) —
+  // nur wenn das Feld DA ist, muss es im erlaubten Bereich liegen.
+  if (m.grundskala !== undefined) {
+    const g = m.grundskala;
+    if (typeof g !== 'number' || !Number.isFinite(g) || g < GRUNDSKALA_MIN || g > GRUNDSKALA_MAX) {
+      return `'${m.name}': Feld 'grundskala' muss eine endliche Zahl zwischen ${GRUNDSKALA_MIN} und ${GRUNDSKALA_MAX} sein (${String(g)})`;
+    }
+  }
   return null;
+}
+
+/**
+ * Die wirksame Grundskala eines Eintrags — `1`, wenn das Feld fehlt oder
+ * (Handarbeit an der Datei) ausserhalb des gültigen Bereichs liegt.
+ * `pruefeRegistryEintrag` weist einen ungültigen Wert schon beim Anwenden
+ * der Registry ab; diese Funktion ist trotzdem defensiv, weil sie auch
+ * auf einem Eintrag laufen kann, der diese Prüfung nie durchlaufen hat
+ * (z. B. direkt aus `pruefeUndSpeichereUpload`, vor dem Schreiben).
+ */
+export function grundskalaVon(m: Pick<UploadedModelEntry, 'grundskala'>): number {
+  const g = m.grundskala;
+  return typeof g === 'number' && Number.isFinite(g) && g >= GRUNDSKALA_MIN && g <= GRUNDSKALA_MAX ? g : 1;
+}
+
+/**
+ * Grundskala für einen LADER-Modellnamen (`PrefabDef.model`, z. B.
+ * `hochgeladen/U_Marktstand2`) — `1` für jedes Modell, das kein Upload ist
+ * oder (noch) nicht registriert wurde. Der EINE Nachschlagepunkt für
+ * Loader, die nur den Modellnamen kennen, keinen Prefabnamen (`AssetManager`,
+ * Katalog-Vorschau) — `model` und `prefab.name` fallen bei Uploads zwar
+ * zusammen bis auf das Präfix, aber das soll nur HIER stehen.
+ */
+export function grundskalaFuerModell(model: string): number {
+  if (!model.startsWith(UPLOAD_MODEL_PREFIX)) return 1;
+  const name = model.slice(UPLOAD_MODEL_PREFIX.length);
+  const m = UPLOADED_BY_NAME.get(name);
+  return m ? grundskalaVon(m) : 1;
 }
 
 /** Prefabname eines Uploads — auch der Schlüssel in PREFABS_BY_NAME. */
@@ -174,9 +232,22 @@ export function prefabNameVon(m: Pick<UploadedModelEntry, 'name'>): string {
   return m.name;
 }
 
-/** Der Registry-Eintrag als `PrefabDef` — analog zu `roomPrefabDef` in `prefabs.ts`. */
+/**
+ * Der Registry-Eintrag als `PrefabDef` — analog zu `roomPrefabDef` in `prefabs.ts`.
+ *
+ * `localScale` bleibt bewusst 1: Sie wird von `composeZdoWorld`/
+ * `layoutAbgleich` durch eine gesetzte Platzierungs-`scale` ERSETZT statt
+ * mit ihr multipliziert (Diagnose 26.09.), die Grundskala liefe darüber
+ * also verloren, sobald irgendwer eine Platzierung skaliert. Sie wirkt
+ * stattdessen als Zwischenknoten im Loader (`AssetManager.getMasters`,
+ * `grundskalaFuerModell`) und in Hülle/Kollision (`grundskalaVon`).
+ * `renderScale` (nur Platzhalter/Katalog-Anzeige, nie Kollision) bekommt
+ * sie trotzdem mit — sonst zeigt der Platzhalter vor dem Laden und die
+ * Katalog-Maßzeile die falsche, ungrundskalierte Größe.
+ */
 export function uploadedPrefabDef(m: UploadedModelEntry): PrefabDef {
   const ONE: Vector3 = { x: 1, y: 1, z: 1 };
+  const g = grundskalaVon(m);
   return {
     name: m.name,
     // PERSISTENT wie die Store-Prefabs (`tools/store-prefabs.mjs`): „es
@@ -184,7 +255,7 @@ export function uploadedPrefabDef(m: UploadedModelEntry): PrefabDef {
     flags: PrefabFlag.PERSISTENT,
     localScale: ONE,
     sprite: null,
-    renderScale: { w: Math.max(1, m.breite), h: Math.max(1, m.hoehe) },
+    renderScale: { w: Math.max(1, m.breite * g), h: Math.max(1, m.hoehe * g) },
     model: `${UPLOAD_MODEL_PREFIX}${m.name}`,
   };
 }

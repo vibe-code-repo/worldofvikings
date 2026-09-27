@@ -55,7 +55,7 @@
  * creations of this process in order.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, linkSync, rmSync } from 'node:fs';
+import { existsSync, linkSync, readFileSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 import {
   LayoutGesperrt,
@@ -92,11 +92,32 @@ export type OpsErgebnis =
   | { art: 'ungueltig'; message: string; fehlerhaft?: PlatzierungsFehler[] }
   | { art: 'wettlauf'; versuche: number };
 
+/**
+ * `heightDeltas` roh (unsanitisiert, ohne Zonen-Deckel) aus derselben Datei, die `stand` gerade
+ * gelesen hat — ein zweiter, billiger Lesevorgang (Angriffsbefund N1: PATCH liest sonst nur die
+ * SANITISIERTE, schon auf `HOEHENKORREKTUR_ZONEN_GRENZE` gekürzte Fassung über
+ * `layoutLesenMitHash`, und `wende()` (das dieses Feld nie berührt) trägt genau diese bereits
+ * gekürzte Fassung unverändert in `r.layout` weiter — der Schreibweg sähe dann nie das Original).
+ * Ein winziges Zeitfenster zwischen den beiden Lesevorgängen ist unschädlich: Ändert sich die
+ * Datei dazwischen, verwirft der Hash-Basisvergleich beim Schreiben den ganzen Versuch
+ * (`LayoutVeraltet`), und die Schleife liest beim nächsten Versuch beides neu und wieder
+ * zusammenpassend.
+ */
+function roheHoeheLesen(pfad: string): unknown {
+  try {
+    const roh = JSON.parse(readFileSync(pfad, 'utf-8')) as { heightDeltas?: unknown };
+    return roh.heightDeltas;
+  } catch {
+    return undefined; // Datei kaputt/weg: `layoutLesenMitHash` (nebenan aufgerufen) meldet das bereits.
+  }
+}
+
 async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptionen): Promise<OpsErgebnis> {
   const max = optionen.maxVersuche ?? OPS_VERSUCHE;
   for (let versuch = 1; versuch <= max; versuch++) {
     // A file that cannot be read throws LayoutUngueltig; that is not the Vorgang's fault and stays a throw.
     const stand = layoutLesenMitHash(pfad);
+    const roheHoehe = roheHoeheLesen(pfad);
     const r = wende(stand.layout, eingabe);
     if (!r.ok) {
       if (r.art === 'konflikt') {
@@ -114,8 +135,15 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
       return { art: 'ungueltig', message: r.message, ...(r.fehlerhaft ? { fehlerhaft: r.fehlerhaft } : {}) };
     }
     await optionen.nachLesen?.(versuch);
+    // PATCH berührt heightDeltas nie (kein Vorgang zielt auf diese Sammlung): die rohe, nicht
+    // gekürzte Fassung tritt an die Stelle der sanitisierten aus `r.layout` (Angriffsbefund N1,
+    // „nicht aussperren“ — ein Platzierungs-Vorgang darf eine bereits vorhandene Korrektur
+    // weder kürzen noch an ihr scheitern, egal ob sie zu groß oder fehlerhaft ist: Sie war
+    // schon vorher so). `heightDeltasUnberuehrt` lässt den Schreibweg Größe UND Fehlerliste
+    // durchwinken; der Sanitizer normalisiert das Feld trotzdem wie beim blossen Lesen.
+    const layoutMitRoherHoehe: WorldLayout = roheHoehe !== undefined ? { ...r.layout, heightDeltas: roheHoehe as WorldLayout['heightDeltas'] } : r.layout;
     try {
-      const geschrieben = await layoutSchreibenAsync(pfad, r.layout, undefined, { basis: stand.hash });
+      const geschrieben = await layoutSchreibenAsync(pfad, layoutMitRoherHoehe, undefined, { basis: stand.hash, heightDeltasUnberuehrt: true });
       return {
         art: 'ok',
         hash: geschrieben.hash,

@@ -2281,6 +2281,9 @@ const KERN = [
   // ... N1/B1/B3: die echte 422-mit-Liste (doppelte Zone, gemischte Punkte, __proto__, Index 64) und die
   // Obergrenzen (Zonen/Punkte) ueber den echten Betriebsdienst.
   ['admin', 'test/weltops-hoehenkorrektur.ts'],
+  // ... N2: vergleiche() (Editor) prueft heightDeltas INHALTLICH (entfernt/geaendert = schwer, nicht nur die
+  // Punktzahl); DOM-frei.
+  ['client', 'test/welt-abgleich-hoehenkorrektur.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

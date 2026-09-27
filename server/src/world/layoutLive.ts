@@ -41,37 +41,17 @@
  * Weltdokument.
  */
 import { statSync, readFileSync } from 'node:fs';
-import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { HOEHENKORREKTUR_PUNKTE_GRENZE, HOEHENKORREKTUR_ZONEN_GRENZE, layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import {
   hoehenkorrekturFehler,
   hoehenkorrekturFehlerText,
+  hoehenkorrekturZaehlen,
   sanitizeWorldLayoutMitBericht,
   type SanitizeBericht,
 } from '@wov/shared/src/worldlayout/sanitize.js';
 import { quittungLoeschenSicher, quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
-import type { WorldLayout, ZoneHeightDelta } from '@wov/shared/src/worldlayout/types.js';
+import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
 import { AENDERUNGEN_MAX, type Grabsteine } from './layoutLiveAbgleich.js';
-
-/**
- * Kanonische Form von `heightDeltas` für den Geo-Vergleich: Punkte mit
- * `delta = 0` (gültig, aber ohne Wirkung, s. `sanitizeHeightDeltas`) fallen
- * heraus, eine dadurch leere Zone ganz. Zwei Dokumente, die sich nur in
- * solchen wirkungslosen Einträgen unterscheiden, gelten hier als GLEICH —
- * kein Geo-Neustart für eine Änderung ohne Höhenwirkung.
- */
-function hoehenkorrekturKanon(liste: readonly ZoneHeightDelta[] | undefined): string {
-  const zonen = (liste ?? [])
-    .map((z) => {
-      const is = z.i.length > 0 ? z.i.split(',') : [];
-      const ds = z.d.length > 0 ? z.d.split(',') : [];
-      const n = Math.min(is.length, ds.length);
-      const behalten: [string, string][] = [];
-      for (let k = 0; k < n; k++) if (ds[k] !== '0') behalten.push([is[k]!, ds[k]!]);
-      return { zx: z.zx, zz: z.zz, i: behalten.map((p) => p[0]).join(','), d: behalten.map((p) => p[1]).join(',') };
-    })
-    .filter((z) => z.i.length > 0);
-  return JSON.stringify(zonen);
-}
 
 /** Die Teile eines Dokuments, die die Welt formen und NICHT live geändert werden. */
 export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
@@ -85,11 +65,12 @@ export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
   if (!gleich(alt.routes, neu.routes)) teile.push('routen');
   // Handkorrektur (Editor-Pinsel, T2+): Teil der kompilierten Geo wie
   // Regionen und Sockel — jede Änderung braucht deshalb denselben Neustart.
-  // N1 (Info-Punkt): NORMALISIEREN vor dem Vergleich — ein `delta: 0`
-  // (gültig, aber wirkungslos, s. `sanitizeHeightDeltas`) darf allein keinen
-  // Neustart ausloesen, sonst zaehlt ein Schreibvorgang als Geo-Aenderung,
-  // obwohl sich am Gelaende nichts aendert.
-  if (hoehenkorrekturKanon(alt.heightDeltas) !== hoehenkorrekturKanon(neu.heightDeltas)) teile.push('gelaende');
+  // N2: `delta 0` wird jetzt vom SANITIZER selbst verworfen (s.
+  // `sanitizeHeightDeltas`), `alt`/`neu` sind hier bereits sanitisiert —
+  // ein eigener Normalisierungs-Schritt vor dem Vergleich ist deshalb nicht
+  // mehr nötig (anders als in T1 N1, wo das Feld die wirkungslosen Punkte
+  // noch enthielt).
+  if (!gleich(alt.heightDeltas, neu.heightDeltas)) teile.push('gelaende');
   // Einebnen: die Platte ist Teil der kompilierten Geo. Verglichen wird je `id`,
   // was den Boden formt (Ort und Radius); ohne Einebnen gibt es keinen Eintrag.
   const ebnen = (l: WorldLayout): Map<string, string> => {
@@ -232,10 +213,25 @@ export class LayoutWache {
     // `anwenden` liefe fuer den Objektteil normal durch). Dieselbe Regel wie
     // bei geklemmten Platzierungsfeldern: ein Vorgang gilt ganz oder gar
     // nicht.
-    const hoehenFehler = hoehenkorrekturFehler((roh as { heightDeltas?: unknown } | null)?.heightDeltas);
+    const roheHoehe = (roh as { heightDeltas?: unknown } | null)?.heightDeltas;
+    const hoehenFehler = hoehenkorrekturFehler(roheHoehe);
     if (hoehenFehler.length > 0) {
       const detail = hoehenkorrekturFehlerText(hoehenFehler);
       console.warn(`[WoV] Layout-Wache: heightDeltas verworfen, nichts angewendet (${detail}) — nach der Korrektur greift der Abgleich`);
+      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, detail);
+      return;
+    }
+    // N1: dieselbe Grenze wie beim Schreibweg (POST) — sonst kaeme eine Datei ueber der
+    // Zonen-/Punktgrenze (git-Merge, Hand-Bearbeitung) hier nur als "geo" durch, und der
+    // Sanitizer wuerde sie beim naechsten Neustart still auf die Grenze kuerzen, ohne dass
+    // die Quittung das je gesagt haette (Angriffsbefund N1: "122 880 Punkte → ebenfalls nur
+    // geo, keine Grenze"). Die Live-Wache haelt hier zurueck (kein Aussperren noetig: Diese
+    // Datei steht schon so auf der Platte, ein spaeterer POST/PATCH kann sie unabhaengig
+    // korrigieren, s. weltOps.ts).
+    const { zonen, punkte } = hoehenkorrekturZaehlen(roheHoehe);
+    if (zonen > HOEHENKORREKTUR_ZONEN_GRENZE || punkte > HOEHENKORREKTUR_PUNKTE_GRENZE) {
+      const detail = `${zonen} Zonen, ${punkte} Punkte (Grenze ${HOEHENKORREKTUR_ZONEN_GRENZE} Zonen bzw. ${HOEHENKORREKTUR_PUNKTE_GRENZE} Punkte)`;
+      console.warn(`[WoV] Layout-Wache: heightDeltas ueber der Grenze, nichts angewendet (${detail})`);
       this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, detail);
       return;
     }

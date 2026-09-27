@@ -593,8 +593,8 @@ export class PlateauField {
 
 /**
  * HoehenKorrekturField — Nachschlagewerk für `WorldLayout.heightDeltas`
- * (Handkorrektur der Geländehöhe, Editor-Pinsel T2+; diese Karte T1/N1 baut
- * nur das Feld und die Einrechnung).
+ * (Handkorrektur der Geländehöhe, Editor-Pinsel T2+; diese Karte T1/N1/N2
+ * baut nur das Feld und die Einrechnung).
  *
  * Reine Zuordnung Zone → Rasterindex → Delta in METERN (f32, aus den
  * gespeicherten Zentimetern gerechnet); keine Geometrie wie bei WaterField/
@@ -605,35 +605,59 @@ export class PlateauField {
  * je Zone 64×64, `RegionGeo.zoneUndIndex`; s. auch `types.ts`).
  *
  * Speicher (N1, Angriffsbefund B6): je Zone zwei TYPISIERTE Arrays
- * (`Uint16Array` der Indizes, aufsteigend sortiert wie `sanitizeHeightDeltas`
- * es garantiert; `Int16Array` der Deltas in Zentimetern, ±10 000 passt
- * bequem in 16 Bit) statt einer `Map` je Punkt — eine `Map<number,number>`
- * kostet in V8 grob 50–60 Byte je Eintrag (Knoten, Hash-Bucket, Boxing der
- * Zahlen), die beiden typisierten Arrays zusammen 4 Byte je Punkt. Die
- * Abfrage sucht binär (Indizes sind sortiert), O(log n) statt O(1) — bei
- * realistischen Punktzahlen je Zone (Pinselstriche, nicht Millionen) ist das
- * um Größenordnungen billiger als der Speicherunterschied wichtig ist.
+ * (`Uint16Array` der flachen Indizes `ry*64+rx`, aufsteigend sortiert;
+ * `Int16Array` der Deltas in Zentimetern, ±10 000 passt bequem in 16 Bit)
+ * statt einer `Map` je Punkt — eine `Map<number,number>` kostet in V8 grob
+ * 50–60 Byte je Eintrag (Knoten, Hash-Bucket, Boxing der Zahlen), die
+ * beiden typisierten Arrays zusammen 4 Byte je Punkt. Die Abfrage sucht
+ * binär (Indizes sind sortiert), O(log n) statt O(1) — bei realistischen
+ * Punktzahlen je Zone (Pinselstriche, nicht Millionen) ist das um
+ * Größenordnungen billiger als der Speicherunterschied wichtig ist.
+ *
+ * N2: `WorldLayout.heightDeltas[].r` speichert die Punkte zeilenweise, je
+ * Zeile EIN String `"ry|i|d"` (`i` = Spalten `rx` DIESER Zeile). Beim
+ * Aufbau werden die Zeilen der Reihe nach abgeflacht (`flach = ry*64+rx`) — weil
+ * `sanitizeHeightDeltas` die Zeilen aufsteigend nach `ry` UND jede Zeile
+ * aufsteigend nach `rx` liefert, ist die so entstehende flache Folge
+ * automatisch aufsteigend sortiert (dieselbe Voraussetzung, die die
+ * Binärsuche unten braucht) — keine eigene Sortierung nötig.
  */
+/**
+ * Rasterbreite einer Zone (64) — dieselbe Zahl wie `Heightmap.ZONE_UNITS`.
+ * `worldlayout/` darf `worldgen/` nicht importieren (Abhängigkeitsrichtung:
+ * `worldgen` hängt von `worldlayout` ab, nie umgekehrt — `RegionGeo.ts`
+ * importiert aus `worldlayout/index.js`), deshalb hier als eigenes Literal
+ * mit Querverweis, wie `HOEHENKORREKTUR_ZEILE_MAX` in `sanitize.ts`.
+ */
+const ZONENBREITE = 64;
+
 export class HoehenKorrekturField {
   private readonly indices = new Map<string, Uint16Array>();
   private readonly deltasCm = new Map<string, Int16Array>();
 
   constructor(layout: WorldLayout) {
     for (const z of layout.heightDeltas ?? []) {
-      if (z.i.length === 0) continue;
-      const iTeile = z.i.split(',');
-      const dTeile = z.d.split(',');
-      const n = Math.min(iTeile.length, dTeile.length);
-      if (n === 0) continue;
-      const idx = new Uint16Array(n);
-      const delta = new Int16Array(n);
-      for (let k = 0; k < n; k++) {
-        idx[k] = Number(iTeile[k]);
-        delta[k] = Number(dTeile[k]);
+      const flachIdx: number[] = [];
+      const flachDelta: number[] = [];
+      for (const zeile of z.r) {
+        const teile = zeile.split('|');
+        if (teile.length !== 3) continue;
+        const ry = Number(teile[0]);
+        const i = teile[1]!;
+        const d = teile[2]!;
+        if (i.length === 0) continue;
+        const rxTeile = i.split(',');
+        const dTeile = d.split(',');
+        const n = Math.min(rxTeile.length, dTeile.length);
+        for (let k = 0; k < n; k++) {
+          flachIdx.push(ry * ZONENBREITE + Number(rxTeile[k]));
+          flachDelta.push(Number(dTeile[k]));
+        }
       }
+      if (flachIdx.length === 0) continue;
       const schluessel = `${z.zx},${z.zz}`;
-      this.indices.set(schluessel, idx);
-      this.deltasCm.set(schluessel, delta);
+      this.indices.set(schluessel, new Uint16Array(flachIdx));
+      this.deltasCm.set(schluessel, new Int16Array(flachDelta));
     }
   }
 

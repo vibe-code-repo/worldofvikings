@@ -64,8 +64,8 @@ const f32 = Math.fround;
  * Zone. Zwei Nachbarzonen, die beim Bau unabhängig voneinander genau diese
  * Weltposition abfragen (`Heightmap`-Kopfkommentar: „neighboring zones share
  * their edge vertices"), erhalten deshalb immer denselben Wert — es gibt
- * keine toten Indizes mehr, und `HOEHENKORREKTUR_INDEX_MAX` (`sanitize.ts`)
- * ist entsprechend auf 4095 (64×64 − 1) gesetzt.
+ * keine toten Indizes mehr, und `rx`/`ry` sind entsprechend je auf 0…63
+ * begrenzt (`HOEHENKORREKTUR_ZEILE_MAX`, `sanitize.ts`).
  */
 function zoneUndIndex(wx: number, wz: number): { zx: number; zz: number; index: number } {
   const halb = ZONE_UNITS / 2;

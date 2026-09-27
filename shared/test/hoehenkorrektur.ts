@@ -1,45 +1,39 @@
 /**
- * Handkorrektur der Geländehöhe (`WorldLayout.heightDeltas`, Karte T1/N1 —
- * Datenmodell, nachgebessert nach Angriff PR #114).
+ * Handkorrektur der Geländehöhe (`WorldLayout.heightDeltas`, Karte T1/N1/N2 —
+ * Datenmodell, zweifach nachgebessert nach den Angriffen auf PR #114).
  *
- *  1) Sanitizer: gültige Form, stabil sortiert (Zone, dann Index je Zone).
- *  2) Sanitizer-Grenzfälle: jede in der Karte genannte Bedingung, Zone/Index-
- *     Schema 64×64 (0…4095, N1/B2).
- *  3) `hoehenkorrekturFehler` (422-Weg): dieselben Bedingungen, gemeldet statt
- *     still bereinigt; `__proto__`, doppelte Zone, gemischte Punkte, Index 64
- *     (gültig, N1/B1 Testliste).
- *  4) Fehlendes Feld verhält sich exakt wie ein leeres.
- *  5) Ohne Feld: golden-Datei gegen `origin/main` (N1/B4 — Abschnitt 5 aus
- *     T1 verglich nur zwei Instanzen desselben Codes, kein main).
- *  6) Mit Korrektur: +Δ exakt am Rasterpunkt, Standard-Interpolation dazwischen.
- *  7) Sockelfläche (`einebnen`): Korrektur wirkt dort nicht — mit ehrlichem
- *     Hinweis, was daran unabhängig vom Feld wahr wäre (N1/B4).
- *  8) Cache je Zone: eine ECHTE Änderung der Korrektur (zwei Geo-Aufbauten)
- *     wird sichtbar, die nicht geänderte Nachbarzone bleibt unverändert, auch
- *     bei gleichem Index in beiden Zonen (N1/B4).
- *  9) Server = Client: zwei VERSCHIEDENE Code-Pfade — `geo.getHeight`
- *     (`ZoneManager`/KI-Weltbau-Pfad) gegen `HeightmapProvider.getGroundHeight`
- *     (Client-/Kollisionspfad) — an uniform-biomen Punkten (N1/B4).
- * 10) B2: Naht zwischen Zonen — Band [31,5; 32), alle vier Zonenränder, auch
- *     bei negativen Zonen: `geo.getHeight` und die Heightmap zeigen dieselbe
- *     KORREKTUR-WIRKUNG (Δ), nicht notwendig dieselbe absolute Höhe (die
- *     unterscheidet sich zwischen analytischer und nächster-Vertex-Höhe
- *     unabhängig von dieser Karte).
- * 11) 422-Weg (Sanitizer-Ebene): `layoutSchreiben` verweigert ein Dokument
- *     mit ungültigem heightDeltas. Der ECHTE HTTP-Statuscode (422 mit Liste)
- *     wird über den echten Betriebsdienst in `admin/test/weltops-
- *     hoehenkorrektur.ts` bewiesen (N1/B1) — dieser Test hier beweist nur die
- *     Sanitizer-Schicht.
+ *  1) Sanitizer: gültige Zeilenform, stabil sortiert (Zone, dann Zeile `ry`,
+ *     dann Spalte `rx`).
+ *  2) Sanitizer-Grenzfälle: jede in der Karte genannte Bedingung, Zeilenschema
+ *     (N2: `r: string[]`, je Zeile `"ry|i|d"`, `ry`/`rx` je 0…63).
+ *  3) N2-Formatentscheidung: `delta 0` fällt beim Sanitizer weg (Zeile/Zone
+ *     dadurch leer: auch die).
+ *  4) `hoehenkorrekturFehler` (422-Weg): dieselben Bedingungen, gemeldet statt
+ *     still bereinigt; `__proto__`, doppelte Zone, gemischte Punkte, Index 64,
+ *     `heightDeltas: "kaputt"` (kein Array) ist ein Fund, kein leeres Feld
+ *     (Angriffsbefund N1, dritter Punkt).
+ *  5) Fehlendes Feld verhält sich exakt wie ein leeres.
+ *  6) Ohne Feld: golden-Datei gegen `origin/main` (N1/B4).
+ *  7) Mit Korrektur: +Δ exakt am Rasterpunkt, Standard-Interpolation dazwischen.
+ *  8) Sockelfläche (`einebnen`): Korrektur wirkt dort nicht.
+ *  9) Cache je Zone: eine ECHTE Änderung der Korrektur wird sichtbar, die
+ *     Nachbarzone (gleicher Index) bleibt unverändert.
+ * 10) Server = Client: `geo.getHeight` gegen `HeightmapProvider.getGroundHeight`.
+ * 11) B2: Naht zwischen Zonen — Band, alle vier Ränder, negative Zonen.
+ * 12) N6: Ein geänderter Punkt in einer vollen Zone ergibt einen kleinen Diff
+ *     (Zeilenform statt einer Zone-weiten `i`/`d`) — echter `git diff`.
+ * 13) 422-Weg (Sanitizer-Ebene): `layoutSchreiben` verweigert ein Dokument mit
+ *     ungültigem heightDeltas. Der ECHTE HTTP-Statuscode (422 mit Liste) und
+ *     die PATCH-/Live-Wache-Fälle stehen in `admin/test/weltops-
+ *     hoehenkorrektur.ts` und `server/test/layout-live-hoehenkorrektur.ts`.
  *
  * Rot-auf-main-Status je Abschnitt: siehe Kopfkommentare der Abschnitte und
- * den Bericht (`Berichte/2026-09-27 Editor Gelaende T1 N1.md`,
- * Zusicherungstabelle). Mehrere Zusagen (`Sockel gewinnt`, `Interpolation`,
- * `LRU-Treffer` aus T1) sind Regressionswächter, aber NICHT unabhängig rot
- * auf main — main kennt das Feld gar nicht, also ist "ohne Wirkung" dort
- * vakuum wahr. Diese Karte macht das ehrlich, statt es zu verschweigen.
+ * den Bericht (`Berichte/2026-09-27 Editor Gelaende T1 N2.md`,
+ * Zusicherungstabelle).
  *
  *   npx tsx test/hoehenkorrektur.ts   (aus shared/)
  */
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
@@ -52,11 +46,11 @@ import {
   sanitizeWorldLayout,
   sanitizeHeightDeltas,
   hoehenkorrekturFehler,
-  HOEHENKORREKTUR_INDEX_MAX,
+  HOEHENKORREKTUR_ZEILE_MAX,
   type WorldLayout,
   type ZoneHeightDelta,
 } from '../src/worldlayout/index.js';
-import { layoutSchreiben, LayoutHoehenkorrekturUngueltig } from '../src/worldlayout/layoutDatei.js';
+import { layoutSchreiben, layoutText, LayoutHoehenkorrekturUngueltig } from '../src/worldlayout/layoutDatei.js';
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -77,10 +71,30 @@ function dok(extra: Record<string, unknown> = {}): WorldLayout {
   } as unknown as WorldLayout;
 }
 
-/** Eine `ZoneHeightDelta`-Zeile aus [index, deltaCm]-Paaren bauen (sortiert `i`/`d`). */
+/** Eine `ZoneHeightDelta` aus [flacherIndex, deltaCm]-Paaren bauen — gruppiert nach Zeile `ry` (N2-Zeilenform, je Zeile ein String `"ry|i|d"`). */
 function zone(zx: number, zz: number, punkte: ReadonlyArray<readonly [number, number]>): ZoneHeightDelta {
-  const sortiert = [...punkte].sort((a, b) => a[0] - b[0]);
-  return { zx, zz, i: sortiert.map((p) => p[0]).join(','), d: sortiert.map((p) => p[1]).join(',') };
+  const zeilen = new Map<number, [number, number][]>();
+  for (const [index, delta] of punkte) {
+    const ry = Math.floor(index / ZONE_UNITS);
+    const rx = index % ZONE_UNITS;
+    const liste = zeilen.get(ry) ?? [];
+    liste.push([rx, delta]);
+    zeilen.set(ry, liste);
+  }
+  const r: string[] = [...zeilen.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([ry, liste]) => {
+      const sortiert = [...liste].sort((a, b) => a[0] - b[0]);
+      return `${ry}|${sortiert.map((p) => p[0]).join(',')}|${sortiert.map((p) => p[1]).join(',')}`;
+    });
+  return { zx, zz, r };
+}
+
+/** Eine Zeilen-Zählung für Testzwecke: `"ry|i|d"` → Anzahl Punkte (nach Komma in `i`), 0 bei Strukturbruch. */
+function zeilenPunkte(zeile: string): number {
+  const teile = zeile.split('|');
+  if (teile.length !== 3) return 0;
+  return teile[1]!.length > 0 ? teile[1]!.split(',').length : 0;
 }
 
 function geoAus(layout: WorldLayout, settings: { bilinearSampling?: boolean } = {}): { geo: RegionGeo; hm: HeightmapProvider } {
@@ -95,68 +109,107 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   return [zx * ZONE_UNITS - ZONE_UNITS / 2 + rx, zz * ZONE_UNITS - ZONE_UNITS / 2 + ry];
 }
 
-// ── 1) Sanitizer: gültige Form, stabil sortiert ────────────────────────
+// ── 1) Sanitizer: gültige Zeilenform, stabil sortiert ──────────────────
 {
   const roh = [
-    { zx: 2, zz: -1, i: '100,3', d: '-50,200' },
-    { zx: -3, zz: 0, i: '4095', d: '999' },
+    { zx: 2, zz: -1, r: ['1|10,3|-50,200'] },
+    { zx: -3, zz: 0, r: ['63|63|999'] },
   ];
   const s = sanitizeHeightDeltas(roh);
   check('Sanitizer: beide Zonen behalten', s.length === 2, JSON.stringify(s));
   check('Sanitizer: Zonen nach zx,zz sortiert', s[0]!.zx === -3 && s[1]!.zx === 2, JSON.stringify(s));
-  check('Sanitizer: i/d je Zone nach Index sortiert', s[1]!.i === '3,100' && s[1]!.d === '200,-50', JSON.stringify(s[1]));
+  check('Sanitizer: i/d je Zeile nach rx sortiert', s[1]!.r[0] === '1|3,10|200,-50', JSON.stringify(s[1]));
+
+  const mehrZeilen = sanitizeHeightDeltas([{ zx: 0, zz: 0, r: ['5|1|10', '2|1|20', '5|2|30'] }]);
+  check(
+    'Sanitizer: Zeilen nach ry sortiert, doppeltes ry (die zweite Zeile 5) entfällt',
+    mehrZeilen[0]!.r.length === 2 && mehrZeilen[0]!.r[0] === '2|1|20' && mehrZeilen[0]!.r[1] === '5|1|10',
+    JSON.stringify(mehrZeilen[0])
+  );
 }
 
-// ── 2) Sanitizer-Grenzfälle (Zone/Index-Schema N1: 64×64, 0…4095) ──────
+// ── 2) Sanitizer-Grenzfälle (Zeilenschema N2: je Zeile "ry|i|d", ry/rx je 0…63) ──
 {
-  check('HOEHENKORREKTUR_INDEX_MAX ist 4095 (64×64 − 1, N1/B2)', HOEHENKORREKTUR_INDEX_MAX === 4095, `${HOEHENKORREKTUR_INDEX_MAX}`);
+  check('HOEHENKORREKTUR_ZEILE_MAX ist 63 (64×64, je Achse 0…63)', HOEHENKORREKTUR_ZEILE_MAX === 63, `${HOEHENKORREKTUR_ZEILE_MAX}`);
   const faelle: [string, unknown, number][] = [
-    ['falscher Zonenschlüssel (Text)', [{ zx: 'a', zz: 0, i: '0', d: '1' }], 0],
-    ['falscher Zonenschlüssel (Bruch)', [{ zx: 1.5, zz: 0, i: '0', d: '1' }], 0],
-    ['Index außerhalb 0…4095 (negativ, als Text ohnehin kein GANZZAHL_TEXT)', [{ zx: 0, zz: 0, i: '-1', d: '1' }], 0],
-    ['Index 4095 ist der GRÖSSTE gültige (nicht mehr tot, N1/B2)', [{ zx: 0, zz: 0, i: '4095', d: '1' }], 1],
-    ['Index 4096 ist außerhalb (64×64 = 4096 Punkte, 0…4095)', [{ zx: 0, zz: 0, i: '4096', d: '1' }], 0],
-    ['Index 64 ist ein GEWÖHNLICHER gültiger Punkt (Zeile 1, Spalte 0 — nicht mehr die tote Randspalte von vor N1)', [{ zx: 0, zz: 0, i: '64', d: '1' }], 1],
-    ['doppelter Index: der zweite entfällt', [{ zx: 0, zz: 0, i: '5,5', d: '1,2' }], 1],
-    ['i/d verschieden lang: die ganze Zone entfällt', [{ zx: 0, zz: 0, i: '5,6', d: '1' }], 0],
-    ['i kein String: die ganze Zone entfällt', [{ zx: 0, zz: 0, i: [5], d: '1' }], 0],
-    ['ein Teil von i ist keine kanonische Ganzzahl ("5.0"): die ganze Zone entfällt', [{ zx: 0, zz: 0, i: '5.0', d: '1' }], 0],
-    ['führende Null ("05") ist keine kanonische Form: die ganze Zone entfällt', [{ zx: 0, zz: 0, i: '05', d: '1' }], 0],
-    ['Leerzeichen in der Liste: die ganze Zone entfällt', [{ zx: 0, zz: 0, i: '5, 6', d: '1,2' }], 0],
-    ['Delta außerhalb +10000', [{ zx: 0, zz: 0, i: '5', d: '10001' }], 0],
-    ['Delta außerhalb -10000', [{ zx: 0, zz: 0, i: '5', d: '-10001' }], 0],
-    ['Delta genau an der Grenze (10000/-10000) ist gültig', [{ zx: 0, zz: 0, i: '5,6', d: '10000,-10000' }], 2],
-    ['doppelter Zonenschlüssel: der zweite entfällt', [{ zx: 1, zz: 1, i: '0', d: '1' }, { zx: 1, zz: 1, i: '1', d: '2' }], 1],
-    ['leeres i/d: die Zone entfällt (keine Korrektur ist keine Korrektur)', [{ zx: 0, zz: 0, i: '', d: '' }], 0],
+    ['falscher Zonenschlüssel (Text)', [{ zx: 'a', zz: 0, r: ['0|0|1'] }], 0],
+    ['falscher Zonenschlüssel (Bruch)', [{ zx: 1.5, zz: 0, r: ['0|0|1'] }], 0],
+    ['ry außerhalb 0…63 (negativ)', [{ zx: 0, zz: 0, r: ['-1|0|1'] }], 0],
+    ['ry 63 ist die GRÖSSTE gültige Zeile', [{ zx: 0, zz: 0, r: ['63|0|1'] }], 1],
+    ['ry 64 ist außerhalb (64 Zeilen, 0…63)', [{ zx: 0, zz: 0, r: ['64|0|1'] }], 0],
+    ['ry nicht kanonisch ("01", führende Null): die Zeile entfällt', [{ zx: 0, zz: 0, r: ['01|0|1'] }], 0],
+    ['rx 63 ist die GRÖSSTE gültige Spalte, "Index 64" (Zeile 1, Spalte 0) ist ein GEWÖHNLICHER gültiger Punkt', [{ zx: 0, zz: 0, r: ['1|0|1'] }], 1],
+    ['doppeltes rx in einer Zeile: der zweite entfällt', [{ zx: 0, zz: 0, r: ['0|5,5|1,2'] }], 1],
+    ['i/d einer Zeile verschieden lang: die Zeile entfällt', [{ zx: 0, zz: 0, r: ['0|5,6|1'] }], 0],
+    ['Zeile kein String (Array statt String): die Zeile entfällt', [{ zx: 0, zz: 0, r: [['0', '5', '1']] }], 0],
+    ['Zeile mit zu wenigen |-Teilen (zwei statt drei): die Zeile entfällt', [{ zx: 0, zz: 0, r: ['0|5'] }], 0],
+    ['Zeile mit zu vielen |-Teilen (vier statt drei): die Zeile entfällt', [{ zx: 0, zz: 0, r: ['0|5|1|x'] }], 0],
+    ['ein Teil von i ist keine kanonische Ganzzahl ("5.0"): die Zeile entfällt', [{ zx: 0, zz: 0, r: ['0|5.0|1'] }], 0],
+    ['führende Null ("05") in i ist keine kanonische Form: die Zeile entfällt', [{ zx: 0, zz: 0, r: ['0|05|1'] }], 0],
+    ['Leerzeichen in der Liste: die Zeile entfällt', [{ zx: 0, zz: 0, r: ['0|5, 6|1,2'] }], 0],
+    ['Delta außerhalb +10000', [{ zx: 0, zz: 0, r: ['0|5|10001'] }], 0],
+    ['Delta außerhalb -10000', [{ zx: 0, zz: 0, r: ['0|5|-10001'] }], 0],
+    ['Delta genau an der Grenze (10000/-10000) ist gültig', [{ zx: 0, zz: 0, r: ['0|5,6|10000,-10000'] }], 2],
+    ['doppelter Zonenschlüssel: der zweite entfällt', [{ zx: 1, zz: 1, r: ['0|0|1'] }, { zx: 1, zz: 1, r: ['0|1|2'] }], 1],
+    ['leeres i/d in einer Zeile: die Zeile entfällt (keine Korrektur ist keine Korrektur)', [{ zx: 0, zz: 0, r: ['0||'] }], 0],
+    ['r kein Array: die Zone entfällt', [{ zx: 0, zz: 0, r: 'x' }], 0],
+    ['eine Zeile strukturell kaputt (keine drei |-Teile): nur die kaputte Zeile entfällt', [{ zx: 0, zz: 0, r: ['0|1|2', '1|3'] }], 1],
   ];
   for (const [name, roh, erwartet] of faelle) {
     const s = sanitizeHeightDeltas(roh);
-    const anzahlPunkte = s.reduce((n, z) => n + (z.i.length > 0 ? z.i.split(',').length : 0), 0);
+    const anzahlPunkte = s.reduce((n, z) => n + z.r.reduce((m, zeile) => m + zeilenPunkte(zeile), 0), 0);
     check(`Sanitizer-Grenzfall: ${name}`, anzahlPunkte === erwartet, `${anzahlPunkte} Punkte behalten (${JSON.stringify(s)})`);
   }
 }
 
-// ── 3) hoehenkorrekturFehler (422-Weg): dieselben Bedingungen, gemeldet ─
+// ── 3) N2-Formatentscheidung: delta 0 fällt beim Sanitizer weg ─────────
+// Rot auf 4234ef4 (N1): Dort blieb delta 0 in der Datei stehen (nur
+// `geoAenderung` normalisierte vor dem Vergleich) — dieser Test prüft den
+// SANITIZER selbst, der jetzt die Quelle der Normalisierung ist.
+{
+  const nurNull = sanitizeHeightDeltas([{ zx: 0, zz: 0, r: ['0|5|0'] }]);
+  check('delta 0: der Punkt fällt weg, die Zeile (und die Zone) mit ihm', nurNull.length === 0, JSON.stringify(nurNull));
+
+  const gemischt = sanitizeHeightDeltas([{ zx: 0, zz: 0, r: ['0|5,6,7|0,50,0'] }]);
+  check(
+    'delta 0 nur bei einzelnen Punkten einer Zeile: die übrigen bleiben',
+    gemischt.length === 1 && gemischt[0]!.r.length === 1 && gemischt[0]!.r[0] === '0|6|50',
+    JSON.stringify(gemischt)
+  );
+
+  const minusNull = sanitizeHeightDeltas([{ zx: 0, zz: 0, r: ['0|5|-0'] }]);
+  check('-0 zählt auch als 0 (JS: -0 === 0) und fällt weg', minusNull.length === 0, JSON.stringify(minusNull));
+}
+
+// ── 4) hoehenkorrekturFehler (422-Weg): dieselben Bedingungen, gemeldet ─
 {
   const proben: [string, unknown, boolean][] = [
-    ['gültiger Eintrag', [{ zx: 0, zz: 0, i: '0', d: '5' }], false],
-    ['Index 64 ist GÜLTIG (N1/B2 Testliste), kein Fund', [{ zx: 0, zz: 0, i: '64', d: '5' }], false],
-    ['falscher Zonenschlüssel', [{ zx: 'a', zz: 0, i: '0', d: '5' }], true],
-    ['Index außerhalb (4096)', [{ zx: 0, zz: 0, i: '4096', d: '5' }], true],
-    ['doppelter Index', [{ zx: 0, zz: 0, i: '1,1', d: '5,6' }], true],
-    ['i/d verschieden lang', [{ zx: 0, zz: 0, i: '1,2', d: '5' }], true],
-    ['Delta außerhalb', [{ zx: 0, zz: 0, i: '1', d: '99999' }], true],
-    ['doppelte Zone (Testliste N1/B1)', [{ zx: 0, zz: 0, i: '1', d: '5' }, { zx: 0, zz: 0, i: '2', d: '5' }], true],
+    ['gültiger Eintrag', [{ zx: 0, zz: 0, r: ['0|0|5'] }], false],
+    ['"Index 64" (Zeile 1, Spalte 0) ist GÜLTIG, kein Fund', [{ zx: 0, zz: 0, r: ['1|0|5'] }], false],
+    ['falscher Zonenschlüssel', [{ zx: 'a', zz: 0, r: ['0|0|5'] }], true],
+    ['ry außerhalb (64)', [{ zx: 0, zz: 0, r: ['64|0|5'] }], true],
+    ['doppeltes rx in einer Zeile', [{ zx: 0, zz: 0, r: ['0|1,1|5,6'] }], true],
+    ['i/d einer Zeile verschieden lang', [{ zx: 0, zz: 0, r: ['0|1,2|5'] }], true],
+    ['Delta außerhalb', [{ zx: 0, zz: 0, r: ['0|1|99999'] }], true],
+    ['doppelte Zone (Testliste N1/B1)', [{ zx: 0, zz: 0, r: ['0|1|5'] }, { zx: 0, zz: 0, r: ['1|2|5'] }], true],
     [
-      'gemischte Punkte: ein gültiger, ein ungültiger in DERSELBEN Zone (Testliste N1/B1) — die ganze Zone/Liste ist betroffen',
-      [{ zx: 0, zz: 0, i: '1,99999', d: '5,6' }],
+      'gemischte Punkte: ein gültiger, ein ungültiger in DERSELBEN Zeile (Testliste N1/B1)',
+      [{ zx: 0, zz: 0, r: ['0|1,99999|5,6'] }],
       true,
     ],
-    ['i kein String', [{ zx: 0, zz: 0, i: 5, d: '5' }], true],
+    ['Zeile kein String (Zahl statt String)', [{ zx: 0, zz: 0, r: [12345] }], true],
+    ['Zeile mit falscher Anzahl |-Teile (zwei statt drei)', [{ zx: 0, zz: 0, r: ['0|1'] }], true],
     ['Eintrag kein Objekt', ['x'], true],
     [
+      'heightDeltas: "kaputt" (kein Array) ist ein FUND, kein leeres Feld (Angriffsbefund N1, dritter Punkt)',
+      'kaputt',
+      true,
+    ],
+    ['heightDeltas fehlt (undefined): KEIN Fund — das ist gültig leer', undefined, false],
+    ['heightDeltas: null: KEIN Fund — das ist gültig leer', null, false],
+    [
       '__proto__ als Schlüssel EINES Eintrags (Testliste N1/B1): kein Absturz, keine Verschmutzung, normale Prüfung',
-      [{ zx: 0, zz: 0, i: '1', d: '5', __proto__: { polluted: 1 } }],
+      [{ zx: 0, zz: 0, r: ['0|1|5'], __proto__: { polluted: 1 } }],
       false,
     ],
   ];
@@ -168,10 +221,9 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
     '__proto__-Eintrag verschmutzt Object.prototype nicht',
     (Object.prototype as unknown as { polluted?: unknown }).polluted === undefined
   );
-  check('hoehenkorrekturFehler: kein Array meldet nichts (listenPruefen übernimmt das)', hoehenkorrekturFehler(undefined).length === 0 && hoehenkorrekturFehler(null).length === 0 && hoehenkorrekturFehler('x').length === 0);
 }
 
-// ── 4) Fehlendes Feld verhält sich exakt wie ein leeres ────────────────
+// ── 5) Fehlendes Feld verhält sich exakt wie ein leeres ────────────────
 {
   const { hm: hmOhne } = geoAus(dok());
   const { hm: hmLeer } = geoAus(dok({ heightDeltas: [] }));
@@ -185,12 +237,7 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   check('Leeres heightDeltas verhält sich exakt wie ein fehlendes Feld', abweichend === 0, `${abweichend}/${proben} abweichend`);
 }
 
-// ── 5) Ohne Feld: golden-Datei gegen origin/main (N1, behebt B4) ───────
-// Referenz `golden/hoehenkorrektur-ohne-feld.bin` wurde EINMAL erzeugt
-// (`--schreibe`), aus einem Codestand, der `git archive origin/main`
-// byte-für-byte gleich maß (Bericht, Abschnitt "Nachweis Fläche 1"). Jeder
-// weitere Lauf vergleicht dagegen — echter Regressionswächter, nicht nur
-// zwei Instanzen desselben aktuellen Codes wie in der T1-Fassung.
+// ── 6) Ohne Feld: golden-Datei gegen origin/main (N1, behebt B4) ───────
 {
   const HIER = dirname(fileURLToPath(import.meta.url));
   const GOLDEN = resolve(HIER, 'golden/hoehenkorrektur-ohne-feld.bin');
@@ -229,10 +276,7 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   }
 }
 
-// ── 6) Mit Korrektur: +Δ exakt am Rasterpunkt, Standard-Interpolation ──
-// Rot auf main: JA (main hat keinen `korrektur`-Zweig in getBiomeHeight —
-// die Höhe an einem Punkt mit einer erfundenen heightDeltas-Angabe bliebe
-// dort unverändert, dieser Test würde `neueHoehe === basisHoehe` sehen).
+// ── 7) Mit Korrektur: +Δ exakt am Rasterpunkt, Standard-Interpolation ──
 {
   const layout = dok();
   const { hm: hmOhne } = geoAus(layout, { bilinearSampling: true });
@@ -256,11 +300,6 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   const nachbarMit = hmMit.getGroundHeight(wx + 1, wz);
   check('Der nicht getroffene Nachbar-Rasterpunkt bleibt unverändert', nachbarOhne === nachbarMit, `${nachbarOhne} vs ${nachbarMit}`);
 
-  // Interpolation: dieselbe (bestehende) Bilinear-Formel über den bereits
-  // eingebackenen Höhen. Rot auf main: NEIN für sich allein (main
-  // interpoliert auch ohne heightDeltas ganz normal) — beweisend ist NUR die
-  // Kombination mit dem +Δ-Fund oben: Es gibt keinen eigenen neuen
-  // Interpolationszweig, den man vergessen könnte.
   const halbeStelle = hmMit.getGroundHeight(wx + 0.5, wz);
   const erwartet = (neueHoehe + nachbarMit) / 2;
   check(
@@ -270,14 +309,7 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   );
 }
 
-// ── 7) Sockelfläche (`einebnen`): Korrektur wirkt dort NICHT ───────────
-// Rot auf main: Die "Gegenprobe" (Korrektur ohne Sockel wirkt voll) ist rot
-// auf main (kein heightDeltas dort). "Sockel gewinnt" für sich allein ist
-// NICHT unabhängig rot: Der Sockel überschreibt in main JEDE Eingabe
-// bedingungslos, das ist keine neue Eigenschaft von T1/N1. Beide zusammen
-// beweisen: Die Korrektur existiert (Gegenprobe) UND wird innerhalb des
-// Sockels korrekt unterdrückt (erster Teil) — dieselbe Kombination, die
-// den Angriff selbst überzeugt hat (URTEIL: "Sockelvorrang… hält").
+// ── 8) Sockelfläche (`einebnen`): Korrektur wirkt dort NICHT ───────────
 {
   const platzierungen = [{ id: 'sockel', prefab: 'Kiste', x: 100, z: 100, einebnen: 20 }];
   const ohneKorrektur = dok({ placements: platzierungen });
@@ -311,14 +343,12 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   );
 }
 
-// ── 8) Cache je Zone: EINE ECHTE ÄNDERUNG wird sichtbar, Nachbar bleibt ──
-// Rot auf main: JA — main kann heightDeltas nicht ändern (existiert nicht),
-// „neuer Wert sichtbar" wäre dort unbeweisbar.
+// ── 9) Cache je Zone: EINE ECHTE ÄNDERUNG wird sichtbar, Nachbar bleibt ──
 {
-  const GEMEINSAMER_INDEX = 500; // absichtlich derselbe Index in Zone A und B: ein Schlüssel-Kollisions-Fehler würde hier zuschlagen
+  const GEMEINSAMER_INDEX = 500;
   const zonePos = (zx: number, zz: number): [number, number] => weltpos(zx, zz, GEMEINSAMER_INDEX);
-  const [wxA, wzA] = zonePos(0, 0); // Zone A: wird geändert
-  const [wxB, wzB] = zonePos(5, -3); // Zone B: Nachbar/andere Zone, bleibt unverändert, TRÄGT DENSELBEN INDEX
+  const [wxA, wzA] = zonePos(0, 0);
+  const [wxB, wzB] = zonePos(5, -3);
 
   const { hm: hmBasis } = geoAus(dok());
   const baseA = hmBasis.getGroundHeight(wxA, wzA);
@@ -333,7 +363,6 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   check('Vor der Änderung: Zone A trägt ihr eigenes Delta (+4 m)', Math.abs(hAaltDelta - 4) < 1e-4, `${hAaltDelta}`);
   check('Vor der Änderung: Zone B trägt ihr eigenes, ANDERES Delta (−2,5 m), trotz gleichem Index', Math.abs(hBaltDelta - -2.5) < 1e-4, `${hBaltDelta}`);
 
-  // ECHTE Änderung: Zone A bekommt ein anderes Delta (Neustart-Fall, neue Geo). Zone B bleibt unangetastet.
   const neu = dok({
     heightDeltas: [zone(0, 0, [[GEMEINSAMER_INDEX, -600]]), zone(5, -3, [[GEMEINSAMER_INDEX, -250]])],
   });
@@ -349,17 +378,7 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   check('Zone A und B tatsächlich beide gecacht (kein zufälliger Kollisions-Nichttreffer)', hmNeu.cachedZoneCount === 2, `${hmNeu.cachedZoneCount}`);
 }
 
-// ── 9) Server = Client: geo.getHeight (ZoneManager-Pfad) gegen ─────────
-//      HeightmapProvider.getGroundHeight (Client-/Kollisionspfad)
-// Rot auf main: main hat keinen `korrektur`-Zweig, also käme "mit
-// Korrektur ändert sich beides gleich" dort nie zustande (beide Pfade
-// zeigten stur die unveränderte Basis). Uniform-biome Punkte (mitten in
-// der einzigen Region dieses Testdokuments, weit von jeder Kante): sonst
-// weicht `geo.getHeight` (EIN Biom, analytisch) von der Heightmap
-// (möglicher Eckbiom-Blend mehrerer Biome) aus einem ganz anderen, seit
-// jeher bestehenden Grund ab (Hinweis im Angriffsbericht: Mischbiom-Zonen
-// sind nicht bitexakt) — das hat mit dieser Karte nichts zu tun und würde
-// den Test flakey machen, wenn man es nicht vermeidet.
+// ── 10) Server = Client: geo.getHeight gegen HeightmapProvider.getGroundHeight ──
 {
   const punkte: Array<[number, number]> = [
     [0, 0],
@@ -386,18 +405,9 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   }
 }
 
-// ── 10) B2: Naht zwischen Zonen — Band [31,5; 32), alle vier Ränder, ───
-//       negative Zonen. Verglichen wird die KORREKTUR-WIRKUNG (Δ), nicht
-//       die absolute Höhe (die unterscheidet sich zwischen `geo.getHeight`
-//       und der nächsten-Vertex-Heightmap unabhängig von jeder Korrektur).
-// Rot auf main: main hat keinen Zone/Index-Mapping-Fehler zu beheben, weil
-// es das ganze Konzept nicht kennt — dieser Test ist strukturell an T1/N1
-// gebunden (Importfehler auf main).
+// ── 11) B2: Naht zwischen Zonen ─────────────────────────────────────────
 {
   type Randfall = { name: string; korrekturWelt: [number, number]; innerhalbBand: [number, number]; unberuehrt: [number, number] };
-  // Je Fall: eine Korrektur GENAU auf einem Rasterpunkt an einer Zonengrenze,
-  // ein Punkt im Band [rand-0,5; rand) davor (muss densel­ben Δ zeigen), ein
-  // Punkt klar auf der anderen Seite (muss Δ=0 zeigen, andere Adresse).
   const FAELLE: Randfall[] = [
     { name: 'positive Zone, +x-Rand (x=32)', korrekturWelt: [32, 10], innerhalbBand: [31.7, 10], unberuehrt: [30.5, 10] },
     { name: 'positive Zone, +z-Rand (z=32)', korrekturWelt: [10, 32], innerhalbBand: [10, 31.7], unberuehrt: [10, 30.5] },
@@ -407,7 +417,6 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   ];
   for (const f of FAELLE) {
     const [kx, kz] = f.korrekturWelt;
-    // Zone/Index der Korrektur GENAU aus derselben Formel wie RegionGeo.zoneUndIndex (floor nach Runden).
     const halb = ZONE_UNITS / 2;
     const zx = Math.floor((Math.round(kx) + halb) / ZONE_UNITS);
     const zz = Math.floor((Math.round(kz) + halb) / ZONE_UNITS);
@@ -416,7 +425,7 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
     check(`${f.name}: Testaufbau, rx/ry in [0,63]`, rx >= 0 && rx <= 63 && ry >= 0 && ry <= 63, `rx=${rx} ry=${ry}`);
     const index = ry * ZONE_UNITS + rx;
     const layoutOhne = dok();
-    const layoutMit = dok({ heightDeltas: [zone(zx, zz, [[index, 700]])] }); // +7 m
+    const layoutMit = dok({ heightDeltas: [zone(zx, zz, [[index, 700]])] });
     const { geo: geoOhne, hm: hmOhne } = geoAus(layoutOhne);
     const { geo: geoMit, hm: hmMit } = geoAus(layoutMit);
 
@@ -432,11 +441,6 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
       `geo Δ=${amPunkt.geo.toFixed(4)} hm Δ=${amPunkt.hm.toFixed(4)}`
     );
 
-    // Toleranz 1e-3 statt 1e-6: `f32(r.height + d) - r.height` ist bei f32-
-    // Rundung nicht bitgenau `d` (float32 hat bei ~30 m Größenordnung nur
-    // rund 3–4·10⁻⁶ m Auflösung) — das ist eine Eigenschaft der f32-
-    // Arithmetik selbst (Angriffsbericht, Hinweis "Mischbiom-Zonen": bis
-    // 1,5·10⁻⁵ m), keine neue Ungenauigkeit dieser Karte.
     const imBand = deltaAn(f.innerhalbBand);
     check(
       `${f.name}: im Band [rand-0,5; rand) rundet BEIDES auf denselben Rasterpunkt — gleicher Δ auf beiden Seiten der Naht (B2-Fund behoben)`,
@@ -453,10 +457,65 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   }
 }
 
-// ── 11) 422-Weg (Sanitizer-Ebene): layoutSchreiben verweigert ──────────
-// Der ECHTE HTTP-Statuscode über den Betriebsdienst steht in
-// `admin/test/weltops-hoehenkorrektur.ts` (N1/B1) — hier nur die
-// Sanitizer/Schreibweg-Schicht, unverändert aus T1 außer dem neuen Format.
+// ── 12) Größen: Strich, volle Zone, Diff bei einem geänderten Punkt (N6) ──
+{
+  const dir = mkdtempSync(join(tmpdir(), 'wov-hoehenkorrektur-groesse-'));
+  try {
+    const groesse = (layout: WorldLayout): number => Buffer.byteLength(layoutText(layout), 'utf-8');
+    const basisGroesse = groesse(dok());
+
+    // Strich r = 3 m: alle Rasterpunkte im Kreis um (32,32) einer Zone, realistischer Falloff.
+    const strichPunkte: [number, number][] = [];
+    for (let ry = 0; ry < 64; ry++) {
+      for (let rx = 0; rx < 64; rx++) {
+        const dx = rx - 32;
+        const dy = ry - 32;
+        if (dx * dx + dy * dy <= 9) {
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const delta = Math.round(50 * (1 - dist / 3));
+          if (delta !== 0) strichPunkte.push([ry * ZONE_UNITS + rx, delta]);
+        }
+      }
+    }
+    const mitStrich = dok({ heightDeltas: [zone(0, 0, strichPunkte)] });
+    const strichByte = groesse(mitStrich) - basisGroesse;
+    check(`Strich r=3m (${strichPunkte.length} Punkte): ≤ 400 Byte`, strichByte <= 400, `${strichByte} Byte`);
+
+    // Volle Zone, realistisch (sanfter Hügel, keine Extremwerte).
+    const vollePunkte: [number, number][] = [];
+    for (let idx = 0; idx < 4096; idx++) {
+      const rx = idx % 64;
+      const ry = Math.floor(idx / 64);
+      const dx = rx - 32;
+      const dy = ry - 32;
+      const r = Math.sqrt(dx * dx + dy * dy);
+      const delta = Math.round(300 * Math.cos((r / 45) * (Math.PI / 2)));
+      vollePunkte.push([idx, delta === 0 ? 1 : delta]);
+    }
+    const volleZone = dok({ heightDeltas: [zone(0, 0, vollePunkte)] });
+    const volleByte = groesse(volleZone) - basisGroesse;
+    check(`Volle Zone (${vollePunkte.length} Punkte, realistisch): ≤ 40 KB`, volleByte <= 40_960, `${volleByte} Byte`);
+
+    // N6: EIN Punkt geändert in der vollen Zone → Diff (echter `git diff --no-index`).
+    const vorPfad = join(dir, 'vor.json');
+    const nachPfad = join(dir, 'nach.json');
+    writeFileSync(vorPfad, layoutText(volleZone));
+    const geaendertePunkte = vollePunkte.map((p, i) => (i === 0 ? [p[0], p[1] + 1] : p)) as [number, number][];
+    const volleZoneGeaendert = dok({ heightDeltas: [zone(0, 0, geaendertePunkte)] });
+    writeFileSync(nachPfad, layoutText(volleZoneGeaendert));
+    const diff = spawnSync('git', ['diff', '--no-index', '--no-color', vorPfad, nachPfad], { encoding: 'utf-8' });
+    const diffByte = Buffer.byteLength(diff.stdout ?? '', 'utf-8');
+    check(
+      'N6: git diff bei EINEM geänderten Punkt in einer vollen Zone ist klein (≤ 4 KB, Ziel ~2 KB) statt der ganzen Zone',
+      diffByte > 0 && diffByte <= 4096,
+      `${diffByte} Byte`
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ── 13) 422-Weg (Sanitizer-Ebene): layoutSchreiben verweigert ──────────
 {
   const dir = mkdtempSync(join(tmpdir(), 'wov-hoehenkorrektur-'));
   const pfad = join(dir, 'welt.json');
@@ -467,7 +526,7 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
     try {
       layoutSchreiben(pfad, {
         ...gueltig,
-        heightDeltas: [zone(1, 1, [[10, 50]]), { zx: 0, zz: 0, i: '99999', d: '5' }],
+        heightDeltas: [zone(1, 1, [[10, 50]]), { zx: 0, zz: 0, r: ['0|99999|5'] }],
       });
     } catch (e) {
       warf = e;

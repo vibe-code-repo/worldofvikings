@@ -388,7 +388,7 @@ export interface LakeDef {
 
 /**
  * Handkorrektur der Geländehöhe einer 64-m-Zone (Editor-Pinsel, T2+; diese
- * Karte T1/N1 legt nur das Feld fest — Dateiformat, bevor T2 darauf baut).
+ * Karte T1/N1/N2 legt nur das Feld fest — Dateiformat, bevor T2 darauf baut).
  *
  * **Zone/Index-Schema (N1, nach Angriffsbefund B2):** Eine Zone besitzt
  * genau EIGENE 64×64 Rasterpunkte, `rx`/`ry` je 0…63 — NICHT 65×65. Der
@@ -400,34 +400,56 @@ export interface LakeDef {
  * zugelassen (`RegionGeo.zoneUndIndex` rundet die Weltposition zuerst auf
  * den nächsten Rasterpunkt und bestimmt ERST DANACH die Zone, sodass ein
  * Punkt auf der Kante immer eindeutig der Nachbarzone mit `rx=0`/`ry=0`
- * zufällt). `index = ry * 64 + rx`, Bereich 0…4095 (64×64 = 4096 Punkte).
- * Jeder Index in diesem Bereich ist ein ECHTER, erreichbarer Rasterpunkt —
- * keine toten Adressen mehr.
+ * zufällt). Jeder Rasterpunkt einer Zone ist damit ein ECHTER, erreichbarer
+ * Punkt — keine toten Adressen mehr.
  *
- * `i`/`d` speichern NUR die veränderten Rasterpunkte, als zwei parallele,
- * komma-getrennte Ganzzahllisten gleicher Länge und Reihenfolge (aufsteigend
- * nach Index sortiert): `i` die Rasterindizes, `d` die Deltas in ganzen
- * Zentimetern (±10 000 = ±100 m). Bewusst STRINGS statt verschachtelter
- * Zahlen-Arrays: Das Speicherformat ist `JSON.stringify(layout, null, 2)`
- * (`layoutDatei.ts`, Vertrag) — darin bricht JEDES Zahlen-Array auf eine
- * Zeile je Element um, ein Array aus `[index, delta]`-Paaren also auf VIER
- * Zeilen je Punkt (Angriffsbefund B5). Ein String-Wert bleibt dagegen immer
- * eine Zeile, beliebig lang; zwei komma-getrennte Listen sind git-diffbar
- * genug (ein einzelner geänderter Punkt ändert eine kurze Teilstrecke
- * innerhalb der Zeile) und treffen das Größenziel der Karte (Strich r=3m
- * ≤ 400 B, volle Zone ≤ 40 KB — gemessen in `shared/test/hoehenkorrektur.ts`).
+ * **Zeilenweise Speicherung (N2, Orchestrator-Formatentscheidung, behebt
+ * Angriffsbefund N6):** `r` gruppiert die Punkte nach Rasterzeile `ry`
+ * (0…63); jede Zeile ist EIN STRING `"ry|i|d"` (Format-Feinschliff
+ * gegenüber der Karten-Skizze `[ry,"i","d"]`, „eine gleichwertige Form"
+ * ausdrücklich erlaubt — s. u., warum), aufsteigend nach `ry` sortiert.
+ * `i`/`d` darin sind — wie zuvor — zwei parallele, komma-getrennte
+ * Ganzzahllisten gleicher Länge/Reihenfolge (aufsteigend nach `rx`
+ * sortiert): `i` die Spalten `rx` (0…63) DIESER Zeile, `d` die Deltas in
+ * ganzen Zentimetern (±10 000 = ±100 m).
+ *
+ * Bewusst EIN STRING je Zeile, nicht das Tripel `[ry,"i","d"]`: Das
+ * Speicherformat ist `JSON.stringify(layout, null, 2)` (`layoutDatei.ts`,
+ * Vertrag) — darin bricht JEDES Array auf eine Zeile je Element um,
+ * unabhängig vom Elementtyp (Angriffsbefund B5). Ein Array `[ry,"i","d"]`
+ * kostet dadurch SELBST schon fünf JSON-Zeilen (Klammer, drei Werte,
+ * Klammer) allein an Struktur, bevor ein einziges Zahlenzeichen steht —
+ * gemessen brauchte ein 3-m-Pinselstrich (7 betroffene Zeilen) damit
+ * 533 B, über dem Ziel von 400 B. Ein Zeilen-STRING bleibt dagegen immer
+ * eine JSON-Zeile, egal wie lang `i`/`d` darin sind — derselbe Trick wie
+ * beim ersten Format-Schliff (T1/N1, `i`/`d` als String statt Zahlen-
+ * Array), nur eine Ebene weiter außen angewandt.
+ *
+ * Die Aufteilung nach Zeilen (statt einer Zone-weiten `i`/`d`) hält den
+ * GIT-DIFF klein: Ein einzelner geänderter Punkt ändert nur den EINEN
+ * String SEINER Zeile — bei einer vollen Zone (64 Zeilen) also ~1/64 der
+ * Zone, nicht die ganze Zone (Angriffsbefund N6: vorher 51 745 Byte Diff
+ * für einen Punkt in einer vollen Zone). Größenziele (gemessen in
+ * `shared/test/hoehenkorrektur.ts`): Strich r=3m ≤ 400 B, volle Zone
+ * ≤ 40 KB, Diff bei einem geänderten Punkt in einer vollen Zone ≈ 1 KB.
  * Sparse wie `shared/src/worldgen/terrainCompCodec.ts` (D9: "verdichtet
- * wird nicht die Liste, sondern ihr Ergebnis").
+ * wird nicht die Liste, sondern ihr Ergebnis"). **Delta 0 wird vom
+ * Sanitizer verworfen** (N2): ein Punkt ohne Höhenwirkung ist keine
+ * Korrektur und zählt nicht in die Grenzen, den Editor-Vergleich oder die
+ * Geo-Neustart-Erkennung.
  */
 export interface ZoneHeightDelta {
   /** Zonen-X (wie `HeightmapProvider.worldToZone`). */
   zx: number;
   /** Zonen-Z. */
   zz: number;
-  /** Rasterindizes 0…4095, komma-getrennt, aufsteigend sortiert, z. B. `"3,64,4095"`. */
-  i: string;
-  /** Deltas in ganzen Zentimetern, ±10 000, gleiche Reihenfolge/Länge wie `i`. */
-  d: string;
+  /**
+   * Zeilen als Strings `"ry|i|d"`, aufsteigend nach `ry` sortiert. `ry`
+   * 0…63; `i` die Spalten `rx` dieser Zeile (0…63, komma-getrennt,
+   * aufsteigend sortiert); `d` die Deltas in Zentimetern, gleiche
+   * Reihenfolge/Länge wie `i`.
+   */
+  r: readonly string[];
 }
 
 export interface WorldLayout {

@@ -38,7 +38,13 @@
  * bleiben, nicht in einer Klick-Behandlung stecken.
  */
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
-import { platzierungenFehler, platzierungenFehlerText, type PlatzierungsFehler } from '@wov/shared/src/worldlayout/sanitize.js';
+import {
+  hoehenkorrekturFehlerText,
+  platzierungenFehler,
+  platzierungenFehlerText,
+  type HoehenkorrekturFehler,
+  type PlatzierungsFehler,
+} from '@wov/shared/src/worldlayout/sanitize.js';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 
 /**
@@ -421,6 +427,9 @@ export async function schreibeWeltdokument(
     zaehler?: unknown;
     fehlerhaft?: unknown;
     anzahlFehlerhaft?: unknown;
+    art?: unknown;
+    fehlerhaftHoehe?: unknown;
+    anzahlFehlerhaftHoehe?: unknown;
   } = {};
   try {
     d = JSON.parse(await antwort.text()) as typeof d;
@@ -453,6 +462,18 @@ export async function schreibeWeltdokument(
         message: `Zu viele Platzierungen: ${anzahl} (Grenze ${grenze}) — nicht gespeichert.`,
       };
     }
+  }
+  // N3 (Angriffsbefund N3): heightDeltas-Fehler kommen als EIGENE Liste `fehlerhaftHoehe`
+  // ({zone, feld, wert}) mit `art: 'hoehenkorrektur'` an — vor der Platzierungs-Prüfung
+  // unten, deren Filter (`typeof id === 'string'`) diese Einträge sonst stumm verwirft
+  // (sie haben `zone`, nicht `id`), und die Meldung erschien als „Fehler in Platzierungen“
+  // mit leerer Liste.
+  if (antwort.status === 422 && d.art === 'hoehenkorrektur' && Array.isArray(d.fehlerhaftHoehe) && d.fehlerhaftHoehe.length > 0) {
+    const liste = (d.fehlerhaftHoehe as unknown[]).filter(
+      (e): e is HoehenkorrekturFehler => typeof e === 'object' && e !== null && typeof (e as HoehenkorrekturFehler).zone === 'string' && typeof (e as HoehenkorrekturFehler).feld === 'string'
+    );
+    const alle = Number(d.anzahlFehlerhaftHoehe);
+    return { art: 'fehler', message: `Nicht gespeichert: ${Number.isFinite(alle) ? alle : liste.length} Fehler in der Handkorrektur (heightDeltas) — ${hoehenkorrekturFehlerText(liste)}` };
   }
   // N4: Platzierungen mit Tippfehlern (`yaw: "abc"`, unbekannter Schlüssel, kaputte Koordinate) weist der Dienst mit
   // 422 und der Liste ab; geschrieben ist nichts. Der Editor zeigt die Liste, statt „HTTP 422“ zu sagen.
@@ -666,26 +687,52 @@ export function vergleiche(server: WorldLayout, entwurf: WorldLayout): Unterschi
     });
   }
 
-  // Handkorrektur (heightDeltas, T1/N1, Angriffsbefund B7): Ohne diese Zeile
-  // sah der Vergleich einen Entwurf, der die Korrekturebene verloren hat
-  // (etwa ein alter Entwurf von vor der Karte), als unauffällig an — "Regionen
-  // 1/1, Platzierungen 0/0" und sonst nichts, das Speichern hätte die
-  // Korrektur ohne Warnung gelöscht. Gezählt wird die GESAMTE Punktzahl über
-  // alle Zonen (nicht die Zonenzahl: dieselbe Zonenzahl mit weniger Punkten
-  // je Zone wäre sonst unsichtbar); `schwer`, wenn der Entwurf weniger
-  // Punkte hat als der Server — dieselbe Verlust-Regel wie bei den übrigen
-  // Zeilen.
-  const hoehenPunkte = (l: WorldLayout): number =>
-    (l.heightDeltas ?? []).reduce((n, z) => n + (z.i.length > 0 ? z.i.split(',').length : 0), 0);
+  // Handkorrektur (heightDeltas, T1/N1/N2, Angriffsbefunde B7/N2): Ohne diese
+  // Zeile sah der Vergleich einen Entwurf, der die Korrekturebene verloren
+  // hat (etwa ein alter Entwurf von vor der Karte), als unauffällig an —
+  // "Regionen 1/1, Platzierungen 0/0" und sonst nichts, das Speichern hätte
+  // die Korrektur ohne Warnung gelöscht.
+  //
+  // `schwer` gilt INHALTLICH (Angriffsbefund N2), nicht nach Punktzahl: Ein
+  // Punkt (Zone + Rasterposition), den der SERVER hat und der Entwurf NICHT
+  // oder mit einem ANDEREN Delta — das ist der Fall, gegen den B7 schützen
+  // soll, auch wenn der Entwurf zufällig gleich viele oder mehr Punkte hat
+  // (eine fremde Zone gleicher Größe hätte die reine Punktzahl-Regel aus T1
+  // N1 nicht erkannt). Reines Hinzufügen (neue Punkte, die der Server nicht
+  // hat) und reines Umsortieren zählen NICHT als schwer — beide ändern an
+  // den Schlüsseln des Vergleichs (Zone+Position → Delta) nichts, was der
+  // Server bereits hatte.
+  const hoehenPunkte = (l: WorldLayout): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const z of l.heightDeltas ?? []) {
+      for (const zeile of z.r) {
+        const teile = zeile.split('|');
+        if (teile.length !== 3) continue;
+        const ry = teile[0]!;
+        const rx = teile[1]!.length > 0 ? teile[1]!.split(',') : [];
+        const delta = teile[2]!.length > 0 ? teile[2]!.split(',') : [];
+        const n = Math.min(rx.length, delta.length);
+        for (let k = 0; k < n; k++) m.set(`${z.zx},${z.zz},${ry},${rx[k]}`, Number(delta[k]));
+      }
+    }
+    return m;
+  };
   const sHoehe = hoehenPunkte(server);
   const eHoehe = hoehenPunkte(entwurf);
-  if (sHoehe !== eHoehe || JSON.stringify(server.heightDeltas ?? []) !== JSON.stringify(entwurf.heightDeltas ?? [])) {
+  let hoeheVerlorenOderGeaendert = false;
+  for (const [schluessel, wert] of sHoehe) {
+    if (eHoehe.get(schluessel) !== wert) {
+      hoeheVerlorenOderGeaendert = true;
+      break;
+    }
+  }
+  if (sHoehe.size !== eHoehe.size || hoeheVerlorenOderGeaendert) {
     zeilen.push({
       art: 'zeile',
       feld: 'Handkorrektur (Rasterpunkte)',
-      server: String(sHoehe),
-      entwurf: String(eHoehe),
-      schwer: eHoehe < sHoehe,
+      server: String(sHoehe.size),
+      entwurf: String(eHoehe.size),
+      schwer: hoeheVerlorenOderGeaendert,
     });
   }
 

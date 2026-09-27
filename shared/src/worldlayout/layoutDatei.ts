@@ -402,6 +402,25 @@ export interface SchreibOptionen {
    * Dass genau eine Stelle sie setzt, hält admin/test/welt-zuruecksetzen.ts am Syntaxbaum fest.
    */
   leereWelt?: boolean;
+  /**
+   * `heightDeltas` gilt als UNBERÜHRT vom aktuellen Schreibvorgang: weder die Fehlerliste
+   * (`hoehenkorrekturFehler`) noch die Zonen-/Punktgrenze werden geprüft, und der Sanitizer
+   * kappt die Zonenzahl nicht (`deckel=false`, `sanitizeHeightDeltas`). NUR für Schreibwege,
+   * die dieses Feld nachweislich nicht selbst ändern (PATCH-Ops auf andere Sammlungen,
+   * `admin/src/routen/weltOps.ts`) — Angriffsbefund N1, „nicht aussperren“: Eine bereits auf
+   * der Platte stehende Korrektur, ob zu groß oder (durch einen Git-Merge, eine Hand-
+   * Bearbeitung) fehlerhaft, darf einen unabhängigen Platzierungs-Vorgang weder dauerhaft
+   * blockieren noch stillschweigend kürzen — sie ist schon vor diesem Schreibvorgang so
+   * gewesen und wird durch ihn nicht neu. Der Sanitizer normalisiert das Feld trotzdem WIE
+   * IMMER (verwirft strukturell kaputte Einträge, wie er es beim blossen LESEN auch täte) —
+   * diese Option ändert nur, dass ein solcher Fund den Schreibvorgang nicht ABWEIST.
+   *
+   * Sie darf sonst NIRGENDS gesetzt werden: nicht im Speicherweg des Editors (POST), nicht
+   * im MCP — dort MUSS heightDeltas selbst geprüft werden, weil dort absichtlich geschrieben
+   * wird und eine stille Normalisierung genau das verschleiern würde, was der Nutzer gerade
+   * abgeschickt hat.
+   */
+  heightDeltasUnberuehrt?: boolean;
   sperreWartenMs?: number;
   /** Frist für eine Sperre ohne lesbare Besitzangabe (Vorgabe `SPERRE_VERALTET_MS`). */
   sperreVeraltetMs?: number;
@@ -913,7 +932,12 @@ function tmpLeichenRaeumen(pfad: string, unentscheidbarMs: number): void {
  * Bestand mit 200 OK. `regions` fehlt hier absichtlich: Ein Dokument ohne
  * Regionen wird ohnehin verworfen (siehe unten, 400).
  */
-const LISTENFELDER = ['placements', 'continents', 'routes', 'rivers', 'lakes', 'heightDeltas'] as const;
+// `heightDeltas` steht bewusst NICHT in dieser Liste: Es hat seine eigene, frühere Prüfung
+// (Nicht-Array, Grenzen, Fehlerliste) weiter unten in `schreibenVorbereiten` — die läuft VOR
+// dem Sanitizer, damit auch der häufigste Fall (die EINZIGE Zone ist ungültig) die volle
+// `fehlerhaft`-Liste bekommt, statt hier still auf die generische "keiner der N Einträge
+// gültig"-Meldung ohne Zone/Index/Wert zu treffen (Angriffsbefund N4).
+const LISTENFELDER = ['placements', 'continents', 'routes', 'rivers', 'lakes'] as const;
 
 /**
  * Ein Listenfeld ist vorhanden, aber kein Array. Unterklasse von
@@ -967,11 +991,10 @@ const LISTEN = [
   { feld: 'routes', name: 'eine gültige Route', behalten: (l: WorldLayout): number => l.routes?.length ?? 0 },
   { feld: 'rivers', name: 'ein gültiger Fluss', behalten: (l: WorldLayout): number => l.rivers?.length ?? 0 },
   { feld: 'lakes', name: 'ein gültiger See', behalten: (l: WorldLayout): number => l.lakes?.length ?? 0 },
-  { feld: 'heightDeltas', name: 'eine gültige Zonen-Korrektur', behalten: (l: WorldLayout): number => l.heightDeltas?.length ?? 0 },
 ] as const;
 
 /** Alles, was vor der Sperre feststehen kann: Prüfung des Rohdokuments, Sanitizer, Text. */
-function schreibenVorbereiten(eingabe: unknown, leereWelt = false): {
+function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: SchreibOptionen = {}): {
   layout: WorldLayout;
   text: string;
   verworfen: number;
@@ -984,17 +1007,26 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false): {
   listenPruefen(eingabe);
   const anzahl = platzierungenZaehlen(eingabe);
   if (anzahl > PLATZIERUNGEN_GRENZE) throw new LayoutZuVielePlatzierungen(anzahl);
-  // Ebenso fuer heightDeltas (Angriffsbefund B3): der Sanitizer wuerde bei
-  // ueberschrittener Grenze still kappen (200 OK mit Verlust) statt 422 zu
-  // melden. Zonen zuerst, weil eine absurde Zonenzahl schon fuer sich allein
-  // zu viel ist, unabhaengig von der (teureren) Punktzaehlung je Zone.
-  if (typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe)) {
+  // heightDeltas VOR dem Sanitizer prüfen (Angriffsbefund N4): so bekommt auch der
+  // häufigste Fall — die EINZIGE Zone ist ungültig — die volle `fehlerhaft`-Liste, statt
+  // über die generische Listenprüfung (oben, `heightDeltas` steht dort bewusst nicht mehr
+  // drin) auf eine Meldung ohne Zone/Index/Wert zu treffen. `hoehenkorrekturFehler` meldet
+  // auch ein gesetztes, aber nicht-Array-`heightDeltas` (Angriffsbefund N1, dritter Punkt:
+  // "kaputt" ist ungültig, nicht leer). NICHTS davon greift, wenn `heightDeltasUnberuehrt`
+  // gesetzt ist (PATCH auf eine andere Sammlung, s. dort) — das Feld ist dann nachweislich
+  // nicht Teil dieses Schreibvorgangs, und weder seine Größe noch ein bereits vorhandener
+  // Fehler darf ihn aufhalten.
+  if (!optionen.heightDeltasUnberuehrt && typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe)) {
     const roheHoehe = (eingabe as { heightDeltas?: unknown }).heightDeltas;
+    const hoehenFehlerhaft = hoehenkorrekturFehler(roheHoehe);
+    if (hoehenFehlerhaft.length > 0) throw new LayoutHoehenkorrekturUngueltig(hoehenFehlerhaft);
+    // Zonen zuerst, weil eine absurde Zonenzahl schon fuer sich allein zu viel ist,
+    // unabhaengig von der (teureren) Punktzaehlung je Zone (Angriffsbefund B3).
     const { zonen, punkte } = hoehenkorrekturZaehlen(roheHoehe);
     if (zonen > HOEHENKORREKTUR_ZONEN_GRENZE) throw new LayoutHoehenkorrekturZuVieleZonen(zonen);
     if (punkte > HOEHENKORREKTUR_PUNKTE_GRENZE) throw new LayoutHoehenkorrekturZuVielePunkte(punkte);
   }
-  const bericht = sanitizeWorldLayoutMitBericht(eingabe);
+  const bericht = sanitizeWorldLayoutMitBericht(eingabe, { heightDeltasOhneDeckel: optionen.heightDeltasUnberuehrt === true });
   if (!bericht) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
   const layout = bericht.layout;
   // ── Warum diese zusätzliche Hürde ──────────────────────────────────
@@ -1056,8 +1088,6 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false): {
   if (typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe)) {
     const fehlerhaft = platzierungenFehler((eingabe as { placements?: unknown }).placements);
     if (fehlerhaft.length > 0) throw new LayoutPlatzierungenUngueltig(fehlerhaft);
-    const hoehenFehlerhaft = hoehenkorrekturFehler((eingabe as { heightDeltas?: unknown }).heightDeltas);
-    if (hoehenFehlerhaft.length > 0) throw new LayoutHoehenkorrekturUngueltig(hoehenFehlerhaft);
   }
   return { layout, text: layoutText(layout), verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld };
 }
@@ -1169,7 +1199,7 @@ export function layoutSchreiben(
   behalten = SICHERUNGEN_BEHALTEN,
   optionen: SchreibOptionen = {}
 ): SchreibErgebnis {
-  const v = schreibenVorbereiten(eingabe, optionen.leereWelt === true);
+  const v = schreibenVorbereiten(eingabe, optionen.leereWelt === true, optionen);
   mkdirSync(dirname(pfad), { recursive: true });
   const sperre = sperreNehmen(
     pfad,
@@ -1192,7 +1222,7 @@ export async function layoutSchreibenAsync(
   behalten = SICHERUNGEN_BEHALTEN,
   optionen: SchreibOptionen = {}
 ): Promise<SchreibErgebnis> {
-  const v = schreibenVorbereiten(eingabe, optionen.leereWelt === true);
+  const v = schreibenVorbereiten(eingabe, optionen.leereWelt === true, optionen);
   mkdirSync(dirname(pfad), { recursive: true });
   const sperre = await sperreNehmenAsync(
     pfad,

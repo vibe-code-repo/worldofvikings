@@ -227,6 +227,16 @@ export async function schreibe(layout: WorldLayout, basis: string): Promise<stri
         'Aufruf hat gespeichert). Bitte layout_get aufrufen und die Änderung erneut machen.'
     );
   }
+  // N3 (Angriffsbefund N3): heightDeltas-Fehler kommen als eigene Liste `fehlerhaftHoehe`
+  // ({ zone, feld, wert }) mit `art: 'hoehenkorrektur'` — VOR der Platzierungs-Prüfung
+  // unten, sonst läse die KI „Fehler in Platzierungen" für einen Fund in der Handkorrektur.
+  if (status === 422 && daten.art === 'hoehenkorrektur' && Array.isArray(daten.fehlerhaftHoehe) && daten.fehlerhaftHoehe.length > 0) {
+    const zeilen = (daten.fehlerhaftHoehe as { zone?: unknown; feld?: unknown; wert?: unknown }[]).slice(0, 40).map((f) => `  - Zone ${String(f.zone)}: ${String(f.feld)} = ${JSON.stringify(f.wert)}`);
+    const alle = Number(daten.anzahlFehlerhaftHoehe);
+    throw new Error(
+      `Nichts gespeichert: ${Number.isFinite(alle) ? alle : zeilen.length} Fehler in der Handkorrektur (heightDeltas; Zone, Feld und gelesener Wert). Bitte korrigieren und erneut senden:\n${zeilen.join('\n')}`
+    );
+  }
   // N4: 422 `ungueltig` mit der Liste `fehlerhaft` ({ id, feld, wert }): Platzierungen mit Tippfehlern. Die KI bekommt die
   // Liste wörtlich, damit sie die Einträge korrigiert und noch einmal sendet.
   if (status === 422 && Array.isArray(daten.fehlerhaft) && daten.fehlerhaft.length > 0) {

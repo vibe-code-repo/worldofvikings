@@ -1869,15 +1869,20 @@ async function behandeln(
           code: 422,
           daten: {
             ok: false,
+            // N3 (Angriffsbefund N3): eigene Liste `fehlerhaftHoehe` statt der
+            // Platzierungs-Liste `fehlerhaft` wiederzuverwenden — deren Einträge
+            // haben `id`, diese hier `zone`; ein Leser (Editor, MCP), der beide
+            // Formen kennt, muss sie ohne Ratewerk unterscheiden können. `art`
+            // zusätzlich als expliziter Diskriminator.
+            art: 'hoehenkorrektur',
             fehler: 'ungueltig',
             grund: 'ungueltig',
             message: f.message,
-            // Dieselbe Form wie `fehlerhaftAntwort` (weltOps.ts), das aber auf
-            // `PlatzierungsFehler` (Feld `id`) getypt ist und hier nicht passt
-            // (Feld `zone`) — deshalb eine eigene, gleich kurze Kappung (200,
-            // wie `FEHLERHAFT_MAX` dort).
-            fehlerhaft: f.fehlerhaft.slice(0, 200),
-            anzahlFehlerhaft: f.fehlerhaft.length,
+            // Dieselbe Kappung wie `fehlerhaftAntwort` (weltOps.ts, `FEHLERHAFT_MAX`
+            // = 200), das aber auf `PlatzierungsFehler` (Feld `id`) getypt ist und
+            // hier nicht passt (Feld `zone`) — deshalb eine eigene, gleich kurze.
+            fehlerhaftHoehe: f.fehlerhaft.slice(0, 200),
+            anzahlFehlerhaftHoehe: f.fehlerhaft.length,
           },
         };
       }

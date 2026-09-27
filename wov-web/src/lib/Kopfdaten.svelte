@@ -1,11 +1,15 @@
 <script lang="ts">
   import { page } from '$app/state';
   import {
-    DEFAULT_LOCALE,
+    CANONICAL_HOME,
+    hreflangAdresse,
+    kanonischeAdresse,
+    xDefaultAdresse,
+  } from './basisDomains';
+  import {
     LOCALES,
     OG_LOCALE,
     localeFrom,
-    localizedPath,
     messages,
     stripLocale,
   } from './i18n';
@@ -40,8 +44,6 @@
     noindex?: boolean;
   } = $props();
 
-  const URSPRUNG = 'https://world-of-vikings.com';
-
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
@@ -55,8 +57,15 @@
    * Beide Adressen bleiben erreichbar — alte Links sollen nicht brechen —,
    * aber sie zeigen jetzt auf dieselbe kanonische Fassung. Das Sprachpräfix
    * steht bereits im Pfad, es muss hier nicht angehängt werden.
+   *
+   * Der Ursprung ist die Heimat-Domain DIESER Sprache (Karte D1,
+   * `basisDomains.ts`), nicht die Domain, über die die Seite gerade
+   * ausgeliefert wurde — world-of-mmorpg.com und world-of-mmorpg.de sind
+   * gleichwertige Hauptdomains, aber jede Sprache hat genau eine Heimat.
    */
-  const kanonisch = $derived(URSPRUNG + (page.url.pathname.replace(/\.html$/, '') || '/'));
+  const kanonisch = $derived(
+    kanonischeAdresse(lang, page.url.pathname.replace(/\.html$/, '') || '/'),
+  );
 
   /**
    * Dieselbe Seite in jeder Sprache, plus x-default.
@@ -64,8 +73,9 @@
    * Jede Fassung listet ALLE Sprachen einschliesslich ihrer eigenen — so
    * verlangt es die hreflang-Spezifikation, und eine Fassung, die sich selbst
    * ausliesse, würde von Suchmaschinen als einseitige Angabe verworfen.
-   * `x-default` zeigt auf die Vorgabesprache: Wer keine der beiden
-   * ausdrücklich will, landet dort, wo auch die Sprachweiche hinführt.
+   * `x-default` zeigt auf world-of-mmorpg.com (Karte D1, `basisDomains.ts`),
+   * nicht auf die Heimat von DEFAULT_LOCALE (`de` → .de) — die beiden fallen
+   * bewusst nicht zusammen.
    */
   const nackt = $derived(stripLocale(page.url.pathname));
 </script>
@@ -75,13 +85,9 @@
   <meta name="description" content={beschreibung} />
   <link rel="canonical" href={kanonisch} />
   {#each LOCALES as l (l)}
-    <link rel="alternate" hreflang={l} href={URSPRUNG + localizedPath(l, nackt)} />
+    <link rel="alternate" hreflang={l} href={hreflangAdresse(l, nackt)} />
   {/each}
-  <link
-    rel="alternate"
-    hreflang="x-default"
-    href={URSPRUNG + localizedPath(DEFAULT_LOCALE, nackt)}
-  />
+  <link rel="alternate" hreflang="x-default" href={xDefaultAdresse(nackt)} />
   {#if noindex}
     <meta name="robots" content="noindex" />
   {/if}
@@ -95,12 +101,12 @@
   <meta property="og:title" content={ganzerTitel} />
   <meta property="og:description" content={beschreibung} />
   <meta property="og:url" content={kanonisch} />
-  <meta property="og:image" content={URSPRUNG + bild} />
+  <meta property="og:image" content={CANONICAL_HOME[lang] + bild} />
 
   <!-- Grosse Karte statt Vorschaustreifen: Das Heldenbild ist im Querformat
        und verliert in der kleinen Fassung genau das, was es zeigen soll. -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content={ganzerTitel} />
   <meta name="twitter:description" content={beschreibung} />
-  <meta name="twitter:image" content={URSPRUNG + bild} />
+  <meta name="twitter:image" content={CANONICAL_HOME[lang] + bild} />
 </svelte:head>

@@ -153,6 +153,13 @@ const KERN = [
     Liste). Fake-Request/Response, kein Netz — dieselbe Weiche wie oben.
   */
   ['server/test', 'forum-api.ts'],
+  /*
+    Karte D1 (Zweitdomains/Ablösung): die gemeinsame Ursprungs-Liste von
+    KontoApi.ts und ForumApi.ts (world-of-mmorpg.com/.de, world-of-vikings.com
+    während der Übergangszeit) — echtes HTTP für KontoApi, Fake-Request für
+    ForumApi, kein assets/, keine GPU.
+  */
+  ['server/test', 'website-urspruenge.ts'],
   ['client/test', 'ironward.ts'],
   ['server/test', 'ironward.ts'],
   /*

@@ -78,11 +78,20 @@ export function dungeonUrl(id: string, base: string = clientBase()): string {
  * `live.staging`, `/de/anmelden` served by the website there). `live.` does not
  * exist in production (no vhost, no certificate), `play.dev`/`play.staging` do
  * not exist on dev/staging.
+ *
+ * Karte D1 (Zweitdomains): `world-of-mmorpg.com`/`.de` bekommen dieselbe
+ * `editor.` → `play.`-Zuordnung wie world-of-vikings.com — "innerhalb einer
+ * Domain bleiben" (Mikes Entscheid): wer auf `.de` ist, spielt auf
+ * `play.world-of-mmorpg.de`, nicht auf einer anderen Domain. Kein `dev.`/
+ * `staging.` für die neuen Domains (die bleiben vorerst nur unter
+ * world-of-vikings.com, Karte D1).
  */
 const SPIEL_HOSTS: Readonly<Record<string, string>> = {
   'editor.world-of-vikings.com': 'play.world-of-vikings.com',
   'editor.dev.world-of-vikings.com': 'live.dev.world-of-vikings.com',
-  'editor.staging.world-of-vikings.com': 'live.staging.world-of-vikings.com'
+  'editor.staging.world-of-vikings.com': 'live.staging.world-of-vikings.com',
+  'editor.world-of-mmorpg.com': 'play.world-of-mmorpg.com',
+  'editor.world-of-mmorpg.de': 'play.world-of-mmorpg.de',
 };
 
 /**
@@ -128,4 +137,21 @@ export function dungeonMeldung(id: string, ziel: DungeonZiel): string {
   return ziel.gleicherUrsprung
     ? `${id} wird im Spiel geöffnet …`
     : `${id} wird im Spiel geöffnet … Führt das Spiel zuerst zur Anmeldung, öffnet sich der Dungeon danach von selbst, wenn du dich innerhalb von 10 Minuten anmeldest.`;
+}
+
+/**
+ * The website's base domain, derived from the game client's OWN host —
+ * Karte D1 (Zweitdomains): with two equal main domains
+ * (`world-of-mmorpg.com`/`.de`, plus the transitional
+ * `world-of-vikings.com`), a visitor with no session must be sent back to
+ * sign in on the SAME domain they were playing on ("innerhalb einer Domain
+ * bleiben" — the login lives in `localStorage`, which is per origin).
+ *
+ * Only a `play.` host is a separate domain from the website; every other
+ * host (a same-origin dev/lab container, `localhost`, a slot port) IS the
+ * website's own host already, verbatim.
+ */
+export function basisDomainVonSpielHost(hostname: string): string {
+  const h = hostname.toLowerCase();
+  return h.startsWith('play.') ? hostname.slice('play.'.length) : hostname;
 }

@@ -84,7 +84,15 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: 'Schalter $oeffentlich wird gesetzt', muster: /set\s+\$oeffentlich\s+0;/ },
   // Verankert auf den Namen selbst: `[\s\S]{0,80}?world-of-vikings` traefe auch den
   // Editor-Schalter unten und hielte den Test gruen, obwohl `$oeffentlich` fehlt.
-  { weg: 'Schalter erkennt world-of-vikings.com', muster: /if\s*\(\$host\s*~\*\s*"\^\(www\\\.\)\?world-of-vikings\\\.com\$"\)/ },
+  //
+  // Karte D1 (Zweitdomains): world-of-mmorpg.com/.de sind gleichwertige
+  // oeffentliche Hauptdomains und muessen im SELBEN Schalter stehen wie
+  // world-of-vikings.com — ein Umbau, der sie in eine eigene, vergessene
+  // zweite Bedingung schriebe, liesse `$oeffentlich` fuer sie bei 0 stehen.
+  {
+    weg: 'Schalter erkennt world-of-vikings.com UND world-of-mmorpg.com/.de',
+    muster: /if\s*\(\$host\s*~\*\s*"\^\(www\\\.\)\?\(world-of-vikings\\\.com\|world-of-mmorpg\\\.\(com\|de\)\)\$"\)/,
+  },
   { weg: '/api/ (Betriebsdienst) ist unter dem oeffentlichen Namen dicht', muster: /location\s+\/api\/\s*\{[^}]*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
   { weg: '/editor/ ist unter dem oeffentlichen Namen dicht', muster: /location\s+=\s*\/editor\/\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
   { weg: '/editor (ohne Schraegstrich) ebenso', muster: /location\s+=\s*\/editor\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },

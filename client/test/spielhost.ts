@@ -14,7 +14,14 @@
 import { readFileSync } from 'node:fs';
 import * as ts from 'typescript';
 import { PacketType } from '@wov/shared';
-import { dungeonMeldung, dungeonUrl, dungeonZiel, gameUrl, spielHostVon } from '../src/editor/spielAdresse';
+import {
+  basisDomainVonSpielHost,
+  dungeonMeldung,
+  dungeonUrl,
+  dungeonZiel,
+  gameUrl,
+  spielHostVon,
+} from '../src/editor/spielAdresse';
 import { DungeonSeite } from '../src/editor/DungeonKatalog';
 import { Dungeon2Seite } from '../src/editor/dungeon2/Dungeon2Katalog';
 import { GameSocket } from '../src/net/GameSocket';
@@ -47,6 +54,12 @@ const faelle: Array<[string, string | null]> = [
   [`editor.dev.${H}`, `live.dev.${H}`],
   [`editor.staging.${H}`, `live.staging.${H}`],
   [`EDITOR.dev.${H}`, `live.dev.${H}`],
+  // Karte D1 (Zweitdomains): dieselbe Zuordnung für die beiden neuen
+  // Hauptdomains, ohne dev./staging. (die bleiben vorerst nur bei H).
+  ['editor.world-of-mmorpg.com', 'play.world-of-mmorpg.com'],
+  ['editor.world-of-mmorpg.de', 'play.world-of-mmorpg.de'],
+  ['play.world-of-mmorpg.com', null],
+  ['play.world-of-mmorpg.de', null],
   [`live.${H}`, null],
   [`play.${H}`, null],
   [`live.dev.${H}`, null],
@@ -76,6 +89,27 @@ for (const [host, soll] of faelle) {
   const ist = spielHostVon(host);
   pruefe(ist === soll, `spielHostVon(${JSON.stringify(host)}) = ${JSON.stringify(ist)} (soll ${JSON.stringify(soll)})`);
 }
+
+// ── Karte D1: die Basis-Domain des AKTUELLEN play.-Hosts (client/src/main.ts,
+// websiteLoginUrl) ───────────────────────────────────────────────────────
+const basisFaelle: Array<[string, string]> = [
+  [`play.${H}`, H],
+  ['play.world-of-mmorpg.com', 'world-of-mmorpg.com'],
+  ['play.world-of-mmorpg.de', 'world-of-mmorpg.de'],
+  [`PLAY.${H}`, H],
+  // Gleicher Ursprung (wov-lab/dev): kein play.-Präfix, der Host bleibt,
+  // wie er ist — er IST bereits die Webseite.
+  [H, H],
+  ['localhost', 'localhost'],
+  ['localhost:2470', 'localhost:2470'],
+  // "play." mitten im Namen ist kein Präfix.
+  ['x.play.world-of-mmorpg.com', 'x.play.world-of-mmorpg.com'],
+];
+for (const [host, soll] of basisFaelle) {
+  const ist = basisDomainVonSpielHost(host);
+  pruefe(ist === soll, `basisDomainVonSpielHost(${JSON.stringify(host)}) = ${JSON.stringify(ist)} (soll ${JSON.stringify(soll)})`);
+}
+
 let z = dungeonZiel('steingrab-2', { host: `editor.dev.${H}`, protocol: 'https:' }, '/play/');
 pruefe(z.url === `https://live.dev.${H}/play/?dungeon=steingrab-2` && !z.gleicherUrsprung, `editor.dev → ${z.url}`);
 z = dungeonZiel('steingrab-2', { host: `live.dev.${H}`, protocol: 'https:' }, '/play/');

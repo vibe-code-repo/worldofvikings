@@ -11,57 +11,102 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
 
 ## Reihenfolge beim Ausrollen / Rollout order
 
-1. **Merge-Vorbereitung:** Wer als Zweiter von K5.7/K5.0 mergt, stellt `admin/test/weltops-quittung.ts` (K5.0) auf
-   `welten-arbeit/dev.json` oder ein eigenes `WOV_WELT_VERZEICHNIS` um und `admin/test/welt-ohne-variable.ts` (K5.7) auf
-   200 **oder** 202 (oder `WOV_QUITTUNG=aus`); in `tools/worldlayout-mcp/probe-kontext.ts` bleiben `WOV_QUITTUNG` und
-   `WOV_WELT_VERZEICHNIS` beide stehen. Danach voller `npm test` grün.
+1. **Merge-Vorbereitung** (bestätigtes Rezept, K5.0-N5/K5.7-N4 gegeneinander gegengelesen — bei einem Merge mit
+   `agent/sonnet/layout-live` **unverändert gültig**, unabhängig vom genauen Commit): `git merge --no-commit --no-ff
+   origin/agent/sonnet/layout-live`, danach von Hand:
+   1. `server/src/main.ts`: **beide** Importe behalten (`quittungLoeschenSicher, quittungsDatei` aus `quittung.js`
+      und `weltAbgleichen` aus `weltArbeitskopie.js`).
+   2. `tools/worldlayout-mcp/probe-kontext.ts`: die layout-live-Zeile nehmen (mit `WOV_QUITTUNG: 'aus'`,
+      `NODE_ENV: 'test'`, `WOV_WELT_VERZEICHNIS`) — **beide** Schlüssel bleiben stehen.
+   3. `tools/worldlayout-mcp/server.ts`: `import { platzierungenFehler } from
+      '@wov/shared/src/worldlayout/sanitize.js';` und `import { mcp, ADMIN_URL, CHECKOUT_WURZEL, lade, schreibe,
+      zusammenfassung } from './kern.js';`.
+   4. Doppeltes `WOV_WELT_VERZEICHNIS` entfernen (jeweils die **zweite** Zeile ohne K5.7-Kommentar):
+      `admin/test/betriebsdienst.ts`, `testwelt-einstellungen.ts`, `welt-ops.ts`, `welt-zuruecksetzen.ts` (dort steht
+      die zweite Zeile vor `NODE_ENV`), `weltdokument-basis.ts`.
+   5. `admin/test/welt-ohne-variable.ts` (`umgebung`): `WOV_QUITTUNG: 'aus', NODE_ENV: 'test'`.
+   6. `admin/test/welt-arbeitskopie.ts` (`dienstStarten`, nach `WOV_ADMIN_PORT`): dieselben zwei Schlüssel.
+   7. `scripts/run-tests.mjs` wird automatisch zusammengeführt.
+   Danach prüfen: `tools/sperre.sh build -- npm run typecheck` (0 `error TS`), `node
+   scripts/pruefe-runner-liste.mjs` (OK), die betroffenen Tests einzeln, dann der Volltest unter `tools/sperre.sh
+   test`. Ein älterer Plan in dieser Datei nannte statt Schritt 4–6 eine Umstellung von
+   `admin/test/weltops-quittung.ts`; im gegengelesenen Merge-Stand war die Datei **ohne** Änderung grün — Schritt 4–6
+   oben sind die tatsächlich nötigen.
 2. **Vor dem Rollout auf wov-dev:** `git -C /opt/worldofvikings status --porcelain` ist leer (keine unabgenommene
    Bearbeitung in `server/data/welten/dev.json`). **Eine offene Editor-Bearbeitung in `dev.json` wird vor dem Rollout
-   abgenommen (Worktree, `tools/welt-abnehmen.sh`, Pull Request) — nie mit `git checkout --` verworfen:** das löscht
-   sie unwiederbringlich. `wov-update.sh` bricht mit ihr schon in der Sauberkeitsprüfung ab (nichts getan).
+   abgenommen — nie mit `git checkout --` verworfen:** das löscht sie unwiederbringlich. `wov-update.sh` bricht mit
+   ihr schon in der Sauberkeitsprüfung ab (nichts getan). Solange die Welt-Arbeitskopie (dieser Stand) noch nicht
+   ausgerollt ist, liest und schreibt der Server diese Datei noch direkt im Checkout; `tools/welt-abnehmen.sh` (das
+   liest die Arbeitskopie unter `WOV_WELT_VERZEICHNIS`/`welten-arbeit/`) greift hier also noch nicht. Reihenfolge:
+   1. Bearbeitung in einen eigenen Worktree kopieren: `cp /opt/worldofvikings/server/data/welten/dev.json
+      <worktree>/server/data/welten/dev.json`, dort committen, Pull Request, mergen.
+   2. Auf wov-dev prüfen, dass der Inhalt jetzt in `main` steckt: `git -C /opt/worldofvikings fetch origin main &&
+      git -C /opt/worldofvikings diff --quiet origin/main -- server/data/welten/dev.json` (Exit 0 heißt: gleich).
+   3. **Erst dann**, nie vorher: `git -C /opt/worldofvikings checkout -- server/data/welten/dev.json`. Gehört die
+      Bearbeitung einer anderen Sitzung, entscheidet die, ob sie so übernommen wird.
 3. **Units zuerst, aus dem neuen Stand, bei laufendem alten Code — beim ERSTEN Rollout dieses Stands von Hand.**
    Beim ersten Rollout läuft noch das **alte** `wov-update.sh` ohne jede Prüfung (Stufe 1 führt die Fassung aus, die vor
    dem Pull auf der Platte liegt). Die Prüfung unten greift daher erst ab dem Rollout **nach** diesem Stand. Für den
    ersten (und für jeden Rollout nach einem `zurueck` auf einen Stand vor K5.7) gilt: Units vorher von Hand installieren
-   und prüfen. Als root, **erst holen, dann installieren, nie die Unit-Datei direkt mit einer Pipe überschreiben**
-   (ein gescheiterter `git show` würde sie sonst leeren):
+   und prüfen. **Ohne `sudo`:** auf wov-dev läuft die Sitzung schon als root, `sudo` ist dort nicht einmal installiert.
+   Auf einer Maschine, auf der die Sitzung selbst nicht root ist, `sudo` vor `bash -c '…'` setzen. **Erst holen, dann
+   installieren, nie die Unit-Datei direkt mit einer Pipe überschreiben** (ein gescheiterter `git show` würde sie
+   sonst leeren), und **`origin/main` auf genau den geprüften Commit pinnen** (sonst kann zwischen dem `fetch` und dem
+   `install` ein fremder Push den Stand unter der Hand wechseln):
    ```bash
-   sudo bash -c 'set -euo pipefail
+   bash -c 'set -euo pipefail
    git -C /opt/worldofvikings fetch origin main
+   sha=$(git -C /opt/worldofvikings rev-parse origin/main)
    for u in wov-server wov-admin wov-sicherung; do
+     [ "$u" = wov-sicherung ] && [ ! -e /etc/systemd/system/wov-sicherung.service ] && continue
      t=$(mktemp)
-     git -C /opt/worldofvikings show origin/main:deploy/systemd/$u.service > "$t"
+     git -C /opt/worldofvikings show "$sha:deploy/systemd/$u.service" > "$t"
      test -s "$t"
      install -m 644 "$t" /etc/systemd/system/$u.service
      rm -f "$t"
    done
    systemctl daemon-reload'
    ```
-   (`wov-sicherung` nur, wenn die Unit auf dem Container schon installiert ist.) Danach die **Handprüfung**, je Unit:
+   (`wov-sicherung` installiert die Schleife selbst nur, wenn die Unit auf dem Container **schon** installiert ist —
+   sie legt sie nicht neu an.) Danach die **Handprüfung**, je Unit (denselben `$sha` von oben weiterverwenden):
    ```bash
    for u in wov-server wov-admin wov-sicherung; do
-     diff <(git -C /opt/worldofvikings show origin/main:deploy/systemd/$u.service) /etc/systemd/system/$u.service && echo "$u: Datei gleich"
+     diff <(git -C /opt/worldofvikings show "$sha:deploy/systemd/$u.service") /etc/systemd/system/$u.service && echo "$u: Datei gleich"
      systemctl show -p NeedDaemonReload,Environment,UnsetEnvironment,EnvironmentFiles $u
    done
    ```
    Erwartet: `diff` ohne Ausgabe, `NeedDaemonReload=no`, `Environment=` enthält `WOV_WELT_VERZEICHNIS=/var/lib/wov/welten`,
-   `UnsetEnvironment=` nennt die Variable nicht, und `/etc/wov.env` setzt sie nicht
-   (`grep -c '^WOV_WELT_VERZEICHNIS' /etc/wov.env` → 0; der Inhalt der Datei wird nicht angezeigt).
-   Der alte Code kennt die Variable nicht; das ist unschädlich, und es wird nichts neu gestartet.
+   `UnsetEnvironment=` nennt die Variable nicht, und `/etc/wov.env` setzt sie nicht — die Prüfung dafür erkennt auch ein
+   vorangestelltes `export` und führenden Leerraum, nicht nur die nackte Zuweisung:
+   `grep -Ec '^[[:space:]]*(export[[:space:]]+)?WOV_WELT_VERZEICHNIS[[:space:]]*=' /etc/wov.env` → 0 (der Inhalt der
+   Datei wird dabei nicht angezeigt). Der alte Code kennt die Variable nicht; das ist unschädlich, und es wird nichts
+   neu gestartet.
    **Ab dem Rollout nach diesem Stand prüft `wov-update.sh` das selbst (Stufe 1, vor Pull und jeder Änderung)** für die
-   drei Units: (a) installierte Datei = `origin/main:deploy/systemd/<unit>.service`, (b) `NeedDaemonReload=no`,
+   drei Units: (a) installierte Datei = `origin/main:deploy/systemd/<unit>.service` (der beim Fetch geprüfte Commit
+   wird dabei festgehalten und danach für den Merge, die Installationsbefehle in der Meldung und die Handprüfung oben
+   verwendet, nicht ein zwischenzeitlich weitergewanderter `origin/main`), (b) `NeedDaemonReload=no`,
    (c) die wirksame Umgebung (`systemctl show -p Environment`, Unit plus Drop-ins) enthält
    `WOV_WELT_VERZEICHNIS=<absoluter Pfad>`; der Schlüssel wird exakt gelesen, Werte mit Leerzeichen bleiben ganz,
    (d) der wirksame Wert gleicht dem der Unit-Datei, (e) `UnsetEnvironment` nennt die Variable nicht, (f) keine
    `EnvironmentFile` (etwa `/etc/wov.env`) setzt sie („Variable nie in wov.env“). `wov-sicherung` wird nur geprüft,
    wenn die Unit installiert ist; fehlt sie, gibt es eine Warnung und keinen Abbruch (`wov-server` und `wov-admin` sind
-   Pflicht). Bei einer Abweichung bricht es mit „NICHTS getan“ ab und nennt Unit und einen sicheren Befehl (`sudo bash -c
+   Pflicht). Bei einer Abweichung bricht es mit „NICHTS getan“ ab und nennt Unit und einen sicheren Befehl (`bash -c
    'set -o pipefail; … git -C /opt/worldofvikings show <sha>:… > "$t" && test -s "$t" && install -m 644 …&& systemctl
-   daemon-reload'`). Der geprüfte Commit wird festgehalten; der Pull nimmt genau ihn (`git merge --ff-only`), keinen neuen.
+   daemon-reload'`, **ohne `sudo`**: das Skript läuft an dieser Stelle selbst schon als root). Nach dem `git merge
+   --ff-only` auf genau diesen Commit prüft es zusätzlich, dass HEAD wirklich dort gelandet ist (nicht schon vorher
+   dort stand, etwa durch einen lokalen Commit auf `main`); sonst bricht es ab, **bevor** irgendein Dienst gestoppt
+   wird.
    Vor dem Test-Tor entfernt das Skript `WOV_WELT_VERZEICHNIS` und `WOV_ADMIN_URL` aus der Umgebung (`unset`); der Runner
    tut es zusätzlich, samt `WOV_DEV_CHECKOUT`. **Nach dem Start** prüft es (in Stufe 2, also auch beim ersten Rollout),
-   dass der laufende `wov-server` die Variable wirklich in seiner Umgebung hat (`/proc/<MainPID>/environ`); sonst bricht es
-   laut ab. Der Prüfhaken `WOV_UNIT_VERZEICHNIS` gilt nur mit der Testmarke `WOV_KAEFIG=1` des Käfigs.
+   dass die laufenden `wov-server` **und** `wov-admin` die Variable wirklich, mit demselben Wert wie in
+   `deploy/systemd/` und untereinander gleich, in ihrer Umgebung haben (`/proc/<MainPID>/environ`); eine MainPID von 0
+   (kurze Neustart-Lücke) wird bis zu 10s erneut geprüft, bevor gemeldet wird. Weicht einer der beiden ab, bricht es
+   laut ab **und** schreibt eine Journalzeile (`logger -t wov-update`), die klar sagt: „Dienste laufen, aber auf
+   falscher Welt; Units prüfen, Rückweg: …“ — die Dienste laufen dann weiter (nur eben auf der falschen Welt), ein
+   zweiter Lauf nach dem Unit-Fix verliert dabei nicht den Rückweg auf den Stand vor K5.7 (`WOV_UPDATE_VORHER` bleibt
+   so lange der zuletzt wirklich bestätigte Stand, wie diese Prüfung nie grün war). Der Prüfhaken `WOV_UNIT_VERZEICHNIS`
+   gilt nur mit der Testmarke `WOV_KAEFIG=1` des Käfigs; sie wirkt nur aus der eigenen Aufrufumgebung, nie aus
+   `/etc/wov.env` (dort gesourct, aber unmittelbar davor gesichert und danach wiederhergestellt).
    (`deploy/install-services.sh` installiert aus dem **eigenen** Checkout; vor dem Pull ausgeführt, installiert es
    die alten Units.)
 4. Die Variable **nicht** nach `/etc/wov.env`.

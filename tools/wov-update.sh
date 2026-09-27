@@ -186,6 +186,11 @@ TEST_PROTOKOLL=""
 STOPP_FEHLER=0
 STOPP_MANGEL=""
 STOPP_JOURNAL=""
+# Wird von welt_laufzeit_pruefen auf 1 gesetzt, wenn NICHT die HTTP-Gesundheitspruefung,
+# sondern die Welt-Umgebung des laufenden Dienstes abweicht (N5/N4-5). Ohne die eigene
+# Marke saehe die Aufraeumfunktion nur "Dienste laufen, Gesundheitspruefung rot" und
+# schickte auf die falsche Fährte (curl/HTTP statt Units/WOV_WELT_VERZEICHNIS).
+WELT_PRUEFUNG_FEHLGESCHLAGEN=0
 
 # Der zuletzt ausgerollte Stand: das Commit aus VERSION (wird erst nach
 # Gesundheitsprüfung geschrieben), sonst das, was vor dem Pull lief.
@@ -301,6 +306,9 @@ aufraeumen() {
     echo "ABBRUCH nach bestandenen Tests (Webseitenbau) — die Dienste werden" >&2
     echo "wieder gestartet, damit $INSTANZ nicht ausfällt. Der neue Stand ist" >&2
     echo "getestet, aber NICHT fertig ausgerollt: die Webseite ist nicht neu gebaut." >&2
+    echo "WARNUNG: Die Weltprüfung (welt_laufzeit_pruefen) wird bei diesem Neustart" >&2
+    echo "übersprungen (WELT_LAUFZEIT_PRUEFEN ist hier nicht gesetzt); erst der" >&2
+    echo "nächste erfolgreiche 'sudo tools/wov-update.sh' prüft sie wieder." >&2
     # Bewusst KEIN version_schreiben: der Stand ist nicht fertig ausgerollt.
     # Der Rückweg-Text kommt VOR dem Start: er geht auch bei SIGKILL nicht verloren.
     echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
@@ -348,7 +356,23 @@ aufraeumen() {
     echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
   elif [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ]; then
     echo >&2
-    if [ "$DIENSTE_LAUFEN" = "1" ]; then
+    if [ "$DIENSTE_LAUFEN" = "1" ] && [ "$WELT_PRUEFUNG_FEHLGESCHLAGEN" = "1" ]; then
+      # N5 (N4-5): eigener Zweig fuer den Welt-Fehler, sonst behauptet der
+      # naechste Zweig faelschlich "Gesundheitspruefung" (das war die HTTP-Probe,
+      # die hier schon gruen war) und schickt an die falsche Stelle (curl/HTTP
+      # statt Units/WOV_WELT_VERZEICHNIS).
+      echo "Dienste laufen, aber auf falscher Welt; Units prüfen, Rückweg:" >&2
+      echo "  Units prüfen:  systemctl show -p Environment,UnsetEnvironment,EnvironmentFiles,DropInPaths wov-server wov-admin" >&2
+      echo "  Hintergrund:   deploy/welt-einbau.md (Schritt 3)" >&2
+      echo "  Journal:       journalctl -t wov-update -n 20" >&2
+      if [ -n "$alt" ]; then
+        echo "  Rückweg von Hand (die HTTP-Gesundheitsprüfung war grün; 'wov-update.sh zurueck' läuft nicht an, HEAD" >&2
+        echo "  steht schon auf dem neuen Stand und VERSION wurde absichtlich nicht geschrieben):" >&2
+        echo "    cd $WURZEL && git checkout -B main $alt && npm ci --include=dev && systemctl restart wov-server wov-admin" >&2
+      else
+        echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
+      fi
+    elif [ "$DIENSTE_LAUFEN" = "1" ]; then
       # Gescheitert ist die Gesundheitsprüfung, nicht das Ausrollen. Die
       # Dienste laufen — zu behaupten, sie lägen, schickt jemanden mitten in
       # einer Störung an die falsche Stelle.
@@ -538,13 +562,13 @@ unit_pruefung() {
     if [ "$ist" != "$soll" ]; then
       # S-4: nie eine leere Unit schreiben: pipefail, git -C mit fester Wurzel, erst in eine Tmp-Datei, nicht-leer pruefen, dann installieren.
       probleme="$probleme
-  - $u: $verz/$u.service weicht von origin/main:deploy/systemd/$u.service ab (oder fehlt). Befehl (als root): sudo bash -c 'set -o pipefail; t=\$(mktemp); trap \"rm -f \$t\" EXIT; git -C /opt/worldofvikings show $ref:deploy/systemd/$u.service > \"\$t\" && test -s \"\$t\" && install -m 644 \"\$t\" $verz/$u.service && systemctl daemon-reload'"
+  - $u: $verz/$u.service weicht von origin/main:deploy/systemd/$u.service ab (oder fehlt). Befehl (wov-update.sh laeuft schon als root, kein sudo noetig; auf einer anderen Maschine ohne Root-Aufruf davorsetzen): bash -c 'set -o pipefail; t=\$(mktemp); trap \"rm -f \$t\" EXIT; git -C /opt/worldofvikings show $ref:deploy/systemd/$u.service > \"\$t\" && test -s \"\$t\" && install -m 644 \"\$t\" $verz/$u.service && systemctl daemon-reload'"
       continue
     fi
     nd="$(systemctl show -p NeedDaemonReload --value "$u" 2>/dev/null)" || nd="?"
     if [ "$nd" != "no" ]; then
       probleme="$probleme
-  - $u: NeedDaemonReload=$nd, die Datei ist installiert, aber systemd hat sie nicht neu geladen und startet mit der alten Fassung. Befehl: sudo systemctl daemon-reload"
+  - $u: NeedDaemonReload=$nd, die Datei ist installiert, aber systemd hat sie nicht neu geladen und startet mit der alten Fassung. Befehl: systemctl daemon-reload"
       continue
     fi
     env="$(systemctl show -p Environment --value "$u" 2>/dev/null)" || env=""
@@ -553,14 +577,14 @@ unit_pruefung() {
       /*) ;;
       *)
         probleme="$probleme
-  - $u: die wirksame Umgebung (systemctl show -p Environment $u) enthaelt kein WOV_WELT_VERZEICHNIS=<absoluter Pfad>. Ein Drop-in kann sie geleert haben: systemctl show -p DropInPaths $u, dann das Drop-in entfernen und sudo systemctl daemon-reload"
+  - $u: die wirksame Umgebung (systemctl show -p Environment $u) enthaelt kein WOV_WELT_VERZEICHNIS=<absoluter Pfad>. Ein Drop-in kann sie geleert haben: systemctl show -p DropInPaths $u, dann das Drop-in entfernen und systemctl daemon-reload"
         continue ;;
     esac
     wert_datei="$(env_wert "$(printf '%s\n' "$soll" | sed -n 's/^Environment=//p')" WOV_WELT_VERZEICHNIS)" || wert_datei=""
     if [ "$wert_datei" != "$wert_wirksam" ]; then
       di="$(systemctl show -p DropInPaths --value "$u" 2>/dev/null)" || di="?"
       probleme="$probleme
-  - $u: WOV_WELT_VERZEICHNIS wirksam '$wert_wirksam', in der Unit-Datei '${wert_datei:-nichts}'. Drop-ins: ${di:-keine}. Drop-in entfernen oder anpassen, dann sudo systemctl daemon-reload"
+  - $u: WOV_WELT_VERZEICHNIS wirksam '$wert_wirksam', in der Unit-Datei '${wert_datei:-nichts}'. Drop-ins: ${di:-keine}. Drop-in entfernen oder anpassen, dann systemctl daemon-reload"
       continue
     fi
     if ! un="$(systemctl show -p UnsetEnvironment --value "$u" 2>/dev/null)"; then
@@ -570,7 +594,7 @@ unit_pruefung() {
     fi
     if env_nennt "$un" WOV_WELT_VERZEICHNIS; then
       probleme="$probleme
-  - $u: UnsetEnvironment nennt WOV_WELT_VERZEICHNIS; systemd loescht die Variable zuletzt wieder. Drop-in suchen (systemctl show -p DropInPaths $u), UnsetEnvironment entfernen, sudo systemctl daemon-reload"
+  - $u: UnsetEnvironment nennt WOV_WELT_VERZEICHNIS; systemd loescht die Variable zuletzt wieder. Drop-in suchen (systemctl show -p DropInPaths $u), UnsetEnvironment entfernen, systemctl daemon-reload"
       continue
     fi
     if ! ef="$(systemctl show -p EnvironmentFiles --value "$u" 2>/dev/null)"; then
@@ -601,28 +625,84 @@ EOF_EF
 # END unit-pruefung
 
 # BEGIN welt-laufzeit
-# Nach dem Start: liest der laufende wov-server die Welt wirklich aus WOV_WELT_VERZEICHNIS? Der einzige Zeuge, der
-# auch beim ERSTEN Rollout dieses Stands zaehlt (Stufe 2 laeuft in der neuen Fassung): /proc/<MainPID>/environ.
+# Nach dem Start: lesen die laufenden wov-server UND wov-admin die Welt wirklich aus demselben
+# WOV_WELT_VERZEICHNIS, das origin/main fuer sie vorsieht? Der einzige Zeuge, der auch beim ERSTEN
+# Rollout dieses Stands zaehlt (Stufe 2 laeuft in der neuen Fassung): /proc/<MainPID>/environ.
 # Gegenprobe der Stufe-1-Pruefung, die nur Unit-Dateien und systemctl sieht.
+#
+# N5 (N4-1): "irgendein absoluter Pfad" (der alte Stand) reicht nicht -- geprueft wird der Wert
+# gegen deploy/systemd/<u>.service DES GEPRUEFTEN STANDS (nach S-5/N4-3 ist das schon HEAD), und
+# wov-server und wov-admin muessen denselben Wert haben. wov-admin ist genau der Dienst, der beim
+# Speichern im Editor die Weltdatei schreibt; ohne ihn zu pruefen, saehe ein einseitig ausgerollter
+# oder ueber /etc/wov.env umgelenkter wov-admin nie eine rote Pruefung (N4-1-Probe W2).
+#
+# N5 (N4-6): eine MainPID von 0 kann eine kurze Neustart-Luecke sein (RestartSec); bis zu 10s
+# erneut nachsehen, statt sofort zu melden.
+_mainpid_mit_wartezeit() {
+  local dienst="$1" pid beginn=$SECONDS frist=10
+  # Pruefhaken der Probe: wirkt nur mit der Testmarke WOV_KAEFIG=1 des Kaefigs (wie WOV_UNIT_VERZEICHNIS in S-6),
+  # damit echte Rollouts immer die vollen 10s bekommen.
+  if [ -n "${WOV_WELT_MAINPID_FRIST:-}" ] && [ "${WOV_KAEFIG:-}" = "1" ]; then frist="$WOV_WELT_MAINPID_FRIST"; fi
+  pid="$(systemctl show -p MainPID --value "$dienst.service" 2>/dev/null)" || pid=""
+  while :; do
+    case "$pid" in
+      ''|0|*[!0-9]*) ;;
+      *) break ;;
+    esac
+    [ $((SECONDS - beginn)) -ge "$frist" ] && break
+    sleep 1
+    pid="$(systemctl show -p MainPID --value "$dienst.service" 2>/dev/null)" || pid=""
+  done
+  printf '%s' "$pid"
+}
 welt_laufzeit_pruefen() {
-  local pid wert
-  pid="$(systemctl show -p MainPID --value wov-server.service 2>/dev/null)" || pid=""
-  case "$pid" in
-    ''|0|*[!0-9]*)
-      echo "  ✗ wov-server hat keine MainPID ('$pid'); die Welt-Umgebung lässt sich nicht prüfen." >&2
-      return 1 ;;
-  esac
-  if ! wert="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | awk 'index($0, "WOV_WELT_VERZEICHNIS=") == 1 { v = substr($0, 22); f = 1 } END { if (!f) exit 1; print v }')"; then
-    wert=""
+  local u pid wert vorgabe probleme="" wert_server=""
+  for u in wov-server wov-admin; do
+    pid="$(_mainpid_mit_wartezeit "$u")"
+    case "$pid" in
+      ''|0|*[!0-9]*)
+        probleme="$probleme
+  - $u hat keine MainPID ('$pid'); die Welt-Umgebung lässt sich nicht prüfen."
+        continue ;;
+    esac
+    if [ ! -r "/proc/$pid/environ" ]; then
+      probleme="$probleme
+  - $u (PID $pid): /proc/$pid/environ ist nicht (mehr) lesbar."
+      continue
+    fi
+    if ! wert="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | awk 'index($0, "WOV_WELT_VERZEICHNIS=") == 1 { v = substr($0, 22); f = 1 } END { if (!f) exit 1; print v }')"; then
+      wert=""
+    fi
+    case "$wert" in
+      /*) ;;
+      *)
+        probleme="$probleme
+  - $u (PID $pid) hat KEIN WOV_WELT_VERZEICHNIS=<absoluter Pfad> in seiner Umgebung (/proc/$pid/environ). Er liest
+    die Welt sonst aus <Checkout>/server/data/welten-arbeit, einer Datei, die kein Dienst sonst liest."
+        continue ;;
+    esac
+    vorgabe="$(env_wert "$(sed -n 's/^Environment=//p' "deploy/systemd/$u.service" 2>/dev/null)" WOV_WELT_VERZEICHNIS)" || vorgabe=""
+    if [ "$wert" != "$vorgabe" ]; then
+      probleme="$probleme
+  - $u (PID $pid): WOV_WELT_VERZEICHNIS=$wert weicht von deploy/systemd/$u.service (${vorgabe:-nichts}) ab."
+      continue
+    fi
+    if [ "$u" = "wov-server" ]; then
+      wert_server="$wert"
+    elif [ -n "$wert_server" ] && [ "$wert" != "$wert_server" ]; then
+      probleme="$probleme
+  - wov-admin (PID $pid): WOV_WELT_VERZEICHNIS=$wert weicht von wov-server ($wert_server) ab."
+      continue
+    fi
+    echo "  ✓ $u (PID $pid) liest die Welt aus WOV_WELT_VERZEICHNIS=$wert (gleich deploy/systemd/$u.service)"
+  done
+  if [ -n "$probleme" ]; then
+    echo "  ✗ Weltprüfung nach dem Start gescheitert:$probleme" >&2
+    echo "    Units prüfen: systemctl show -p Environment,UnsetEnvironment,EnvironmentFiles,DropInPaths wov-server wov-admin; deploy/welt-einbau.md" >&2
+    WELT_PRUEFUNG_FEHLGESCHLAGEN=1
+    logger -t wov-update "ABBRUCH wov-update: Dienste laufen, aber auf falscher Welt; Units pruefen, Rueckweg: git -C ${WURZEL:-.} checkout -B main ${WOV_UPDATE_VORHER:-<unbekannt>} && npm ci --include=dev && systemctl restart wov-server wov-admin" 2>/dev/null || true
+    return 1
   fi
-  case "$wert" in
-    /*) echo "  ✓ wov-server (PID $pid) liest die Welt aus WOV_WELT_VERZEICHNIS=$wert" ;;
-    *)
-      echo "  ✗ wov-server (PID $pid) hat KEIN WOV_WELT_VERZEICHNIS=<absoluter Pfad> in seiner Umgebung (/proc/$pid/environ)." >&2
-      echo "    Er liest die Welt aus <Checkout>/server/data/welten-arbeit, einer Datei, die kein Dienst sonst liest." >&2
-      echo "    Units prüfen: systemctl show -p Environment,UnsetEnvironment,EnvironmentFiles,DropInPaths wov-server; deploy/welt-einbau.md" >&2
-      return 1 ;;
-  esac
 }
 # END welt-laufzeit
 
@@ -960,10 +1040,24 @@ fi
 # Kommentarzeile) ist gültiges Shell. Ein eigener Parser wäre eine zweite
 # Wahrheit, die irgendwann von systemds abweicht — und dann startet der
 # Dienst mit anderen Werten als die, gegen die hier geprüft wurde.
+#
+# BEGIN wov-env-sourcen (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
+# N5 (N4-4): WOV_KAEFIG und WOV_UNIT_VERZEICHNIS wirken NUR aus der eigenen
+# Aufrufumgebung, nie aus $ENV_DATEI: sonst liesse root mit zwei Zeilen in
+# /etc/wov.env (WOV_KAEFIG=1 plus WOV_UNIT_VERZEICHNIS=<eigener Ordner>) den
+# S-6-Pruefhaken der Probe auf dem echten Container greifen und unit_pruefung
+# eine andere Unit lesen (G2 in der N4-Kaefigprobe). Vor dem Sourcen sichern,
+# danach exakt wiederherstellen (auch "war gar nicht gesetzt").
+_WOV_KAEFIG_VORHER="${WOV_KAEFIG-}"; _WOV_KAEFIG_GESETZT="${WOV_KAEFIG+1}"
+_WOV_UNIT_VERZEICHNIS_VORHER="${WOV_UNIT_VERZEICHNIS-}"; _WOV_UNIT_VERZEICHNIS_GESETZT="${WOV_UNIT_VERZEICHNIS+1}"
 set -a
 # shellcheck source=/dev/null
 . "$ENV_DATEI"
 set +a
+if [ -n "$_WOV_KAEFIG_GESETZT" ]; then WOV_KAEFIG="$_WOV_KAEFIG_VORHER"; else unset WOV_KAEFIG; fi
+if [ -n "$_WOV_UNIT_VERZEICHNIS_GESETZT" ]; then WOV_UNIT_VERZEICHNIS="$_WOV_UNIT_VERZEICHNIS_VORHER"; else unset WOV_UNIT_VERZEICHNIS; fi
+unset _WOV_KAEFIG_VORHER _WOV_KAEFIG_GESETZT _WOV_UNIT_VERZEICHNIS_VORHER _WOV_UNIT_VERZEICHNIS_GESETZT
+# END wov-env-sourcen
 
 INSTANZ="${WOV_INSTANZ:-}"
 case "$INSTANZ" in
@@ -1135,14 +1229,44 @@ if [ "${WOV_UPDATE_STUFE2:-}" != "1" ]; then
     echo "ABBRUCH (Stufe 1): git fetch origin main ist gescheitert, der Stand von origin/main ist unbekannt. Es wurde NICHTS getan." >&2
     exit 1
   fi
+  # BEGIN merge-gepruefter-stand (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
   unit_pruefung || exit 1
   echo
   echo "▶ git merge --ff-only ${GEPRUEFTER_STAND:0:7} (der gepruefte Stand von origin/main)"
   # Vor dem Pull merken, was gerade lief — das ist das "vorher" in
   # VERSION und damit das Ziel eines künftigen "zurueck". Muss VOR dem
   # Pull passieren, danach zeigt HEAD schon auf den neuen Stand.
-  export WOV_UPDATE_VORHER="$(git rev-parse HEAD)"
+  #
+  # N5 (N4-5): Normalerweise ist "vorher" HEAD vor diesem Merge. War aber schon
+  # ein FRUEHERER Lauf bis hierher gekommen (Merge lief, die Weltpruefung nach
+  # dem Start unten aber nie gruen — s. welt_laufzeit_pruefen), zeigt HEAD schon
+  # auf GEPRUEFTER_STAND, waehrend VERSION noch den aelteren, zuletzt wirklich
+  # bestaetigten Stand nennt: dann bleibt "vorher" der Stand aus VERSION, sonst
+  # zeigte ein zweiter, diesmal erfolgreicher Lauf den Rueckweg auf sich selbst.
+  HEAD_VOR_MERGE="$(git rev-parse HEAD)"
+  VERSION_COMMIT_VOR_MERGE="$(version_feld "$VERSION_DATEI" WOV_VERSION_COMMIT)" || VERSION_COMMIT_VOR_MERGE=""
+  if [ -n "$VERSION_COMMIT_VOR_MERGE" ] && [ "$HEAD_VOR_MERGE" = "$GEPRUEFTER_STAND" ] && [ "$HEAD_VOR_MERGE" != "$VERSION_COMMIT_VOR_MERGE" ]; then
+    export WOV_UPDATE_VORHER="$VERSION_COMMIT_VOR_MERGE"
+    echo "  Hinweis: HEAD steht schon auf ${HEAD_VOR_MERGE:0:7} (ein frueherer Lauf hat schon gemergt, die"
+    echo "  Weltpruefung nach dem Start war aber nie gruen); WOV_UPDATE_VORHER bleibt der zuletzt bestaetigte"
+    echo "  Stand ${VERSION_COMMIT_VOR_MERGE:0:7} aus VERSION."
+  else
+    export WOV_UPDATE_VORHER="$HEAD_VOR_MERGE"
+  fi
   git merge --ff-only "$GEPRUEFTER_STAND"
+
+  # N5 (N4-3): der Merge darf NUR auf den geprueften Stand fuehren. Ein lokaler
+  # Commit auf main (von Hand oder versehentlich) liesse "git merge --ff-only"
+  # sonst mit "Already up to date." durchlaufen, HEAD bliebe vor GEPRUEFTER_STAND
+  # stehen, und der Rest des Laufs (npm ci, Tests, Dienste) liefe mit einer nie
+  # gegen unit_pruefung geprueften Unit-Datei weiter. Abbruch NOCH VOR dem Stoppen.
+  if [ "$(git rev-parse HEAD)" != "$GEPRUEFTER_STAND" ]; then
+    echo "ABBRUCH (Stufe 1): HEAD ist nach dem Merge nicht der geprüfte Stand ${GEPRUEFTER_STAND:0:7} (lokale Commits auf main?)." >&2
+    echo "Es wurde NICHTS getan: kein Dienst gestoppt, kein npm ci." >&2
+    echo "  git -C $WURZEL log --oneline ${GEPRUEFTER_STAND:0:7}..HEAD" >&2
+    exit 1
+  fi
+  # END merge-gepruefter-stand
 
   # Bash liest ein Skript häppchenweise von der Platte und merkt sich den
   # Byte-Offset. Der Pull kann GENAU DIESE DATEI ändern; bash liest dann

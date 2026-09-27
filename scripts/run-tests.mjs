@@ -2217,6 +2217,8 @@ const KERN = [
   ['server', 'test/herkunft-xff.ts'],
   // World-map publisher: the small probe (256 px, ~20-35 s); `--gross` runs the full 4096 px probe by hand.
   ['tools', 'test/weltkarte-probe.mjs'],
+  // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
+  ['client', 'test/testflug-ops.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -331,10 +331,34 @@ function bauSchattenSzene() {
   pruefe(!liste.includes(klon), 'B1: ein zweiter Rescan ohne Neupacken nimmt den aufgegebenen Klon doch noch auf');
 
   // Eine ECHTE Uebergabe (Neupacken, danach bereit) hebt die Sperre wieder auf.
+  // 17 m liegt > NACHFUEHR_ABSTAND (16 m, loest ein Neupacken aus), die
+  // Instanzen (x=0,2,4) bleiben aber im Auswahlradius — anders als bei
+  // 200 m, wo der radiale Packer keine Instanz mehr packt (aktiv=0) und
+  // die Pruefung ueber den Leerpack-Zweig liefe, ohne dass eine echte
+  // Uebergabe stattfindet (Nachangriff #119 N2, Auflage N2-1).
   fake.bereit = true;
-  shadows.setPlayerPosition(200, 0); // > NACHFUEHR_ABSTAND: packt alle Staende neu
+  shadows.setPlayerPosition(17, 0);
   for (let i = 0; i < 5; i++) shadows.tick();
-  pruefe(liste.includes(klon) && !liste.includes(laub), 'nach einer echten Uebergabe nach dem Neupacken bleibt der Klon gesperrt');
+  const internStand = shadows as unknown as {
+    vegetationsSchatten: Map<Mesh, { aktiv: number; tiefeBereit: boolean }>;
+  };
+  const stand = internStand.vegetationsSchatten.get(laub)!;
+  pruefe(
+    stand.aktiv > 0,
+    'B1: nach der Uebergabe packt der Stand keine Instanz (aktiv=0) — die Pruefung liefe ueber den Leerpack-Zweig statt ueber eine echte Uebergabe'
+  );
+  pruefe(stand.tiefeBereit === true, 'B1: nach der Uebergabe ist der Tiefen-Eintrag nicht bereit');
+  pruefe(liste.includes(klon) && !liste.includes(laub), 'nach einer echten Uebergabe nach dem Neupacken wirft nicht der Klon allein');
+
+  // Ein weiterer Rescan OHNE Neupacken (z.B. setDistantShadows) darf die
+  // echte Uebergabe nicht wieder aufheben.
+  shadows.setDistantShadows(false);
+  shadows.tick();
+  shadows.tick();
+  pruefe(
+    liste.includes(klon) && !liste.includes(laub),
+    'B1: ein weiterer Rescan ohne Neupacken wirft die echte Uebergabe wieder um'
+  );
 
   scene.dispose();
   engine.dispose();

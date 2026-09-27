@@ -158,6 +158,8 @@ mkdir -p "$DATEN"/{worlds,welten,konten,forum,dungeons/dev}
 head -c 200000 /dev/urandom | zstd -q --no-check -o "$DATEN/worlds/dev.db.zst"
 cp "$DATEN/worlds/dev.db.zst" "$DATEN/worlds/dev.db.zst.prev"
 echo '{"welt":true}' > "$DATEN/welten/dev.json"
+# K5.7: die Basis der Arbeitskopie (Hash des Repo-Stands) liegt neben der Weltdatei und wird mitgesichert.
+printf '%s\n' "$(printf 'basis' | sha256sum | cut -d' ' -f1)" > "$DATEN/welten/dev.basis"
 echo '{"raum":1}' > "$DATEN/dungeons/dev/a.json"
 echo 'x: 1' > "$DATEN/server.yml"
 
@@ -217,6 +219,8 @@ echo "── Dateien"
 pruef "Welt-Sicherung da"   test -s "$L/worlds/dev.db.zst"
 pruef "Konten-Sicherung da" test -s "$L/konten/dev.db"
 pruef "Forum-Sicherung da"  test -s "$L/forum/dev.db"
+pruef "Welt-Sicherung = Quelle (auch mit exportiertem WOV_WELT_VERZEICHNIS: der Probe-Haken gilt vor der Variable)" cmp -s "$DATEN/welten/dev.json" "$L/welten/dev.json"
+pruef "Basis der Arbeitskopie mitgesichert (dev.basis), byte-gleich" cmp -s "$DATEN/welten/dev.basis" "$L/welten/dev.basis"
 
 echo "── Inhalt"
 if [[ -s "${L:-/nix}/konten/dev.db" && -s "$L/forum/dev.db" ]]; then

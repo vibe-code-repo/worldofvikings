@@ -70,7 +70,8 @@ import { promisify } from 'node:util';
 // gleichem Dateiformat: siehe die lange Begruendung bei ADMINS_DATEI
 // weiter unten.
 import { DatabaseSync } from 'node:sqlite';
-import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
+import { instanzName, weltDatei, weltRepoDatei } from '@wov/shared/src/instanz.js';
+import { weltAbgleichen } from '@wov/shared/src/worldlayout/weltArbeitskopie.js';
 // Direktimport am Barrel vorbei: shared/src/index.ts geht in den
 // Client-Bundle, und layoutDatei.ts zieht node:fs herein. Gleiche
 // Begruendung wie bei instanz.ts eine Zeile hoeher.
@@ -190,7 +191,25 @@ if (SYSTEMCTL_ERSATZ !== null) {
 
 const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
-const LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
+// Die Arbeitskopie der Welt (WOV_WELT_VERZEICHNIS, sonst <Wurzel>/server/data/welten-arbeit), nicht die Repo-Datei: Speichern
+// macht den Git-Baum nicht schmutzig. Fehlt sie beim Start, legt der Dienst sie einmal aus dem Repo an
+// (dieselbe Regel wie im Spielserver, nur ohne Nachziehen); Nachziehen und Konfliktwarnung gehoeren dem
+// Spielserver-Start, Abnehmen und Verwerfen tools/welt-abnehmen.sh. Kein Git in diesem Prozess.
+// Ein relativer WOV_WELT_VERZEICHNIS wird hier abgelehnt (der Start endet mit der Meldung), nicht geraten.
+let LAYOUT_DATEI: string;
+try {
+  LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
+} catch (fehler) {
+  console.error(`[Admin] ${(fehler as Error).message}`);
+  process.exit(1);
+}
+try {
+  const abgleich = weltAbgleichen({ repoDatei: weltRepoDatei(WURZEL, INSTANZ), arbeitsDatei: LAYOUT_DATEI, modus: 'anlegen' });
+  if (abgleich.fall === 'angelegt') console.log(`[Admin] ${abgleich.meldung}`);
+  else if (abgleich.fall === 'arbeit-kaputt' || abgleich.fall === 'repo-kaputt') console.error(`[Admin] ${abgleich.meldung}`);
+} catch (fehler) {
+  console.error(`[Admin] Arbeitskopie der Welt nicht angelegt: ${(fehler as Error).message}`);
+}
 const WELTEN_ORDNER = resolve(WURZEL, 'server/data/worlds');
 // K5.0: nach dem Schreiben der Weltdatei auf die Quittung des Spielservers warten (200 angewendet / 202 nicht angewendet).
 // WOV_QUITTUNG=aus: nur fuer Tests der Schreibwege OHNE Spielserver (sie pruefen Dateiinhalt und Statuscodes 200/409/422
@@ -1325,7 +1344,7 @@ async function behandeln(
     // faengt der Sammel-catch das ENOENT und meldet "unbrauchbares
     // Dokument" — eine Diagnose, die in die falsche Richtung schickt.
     if (!existsSync(LAYOUT_DATEI)) {
-      const fehlt = `${basename(LAYOUT_DATEI)} fehlt (Instanz ${INSTANZ}) — WOV_INSTANZ und server/data/welten/ pruefen.`;
+      const fehlt = `${basename(LAYOUT_DATEI)} fehlt (Instanz ${INSTANZ}) — WOV_INSTANZ, WOV_WELT_VERZEICHNIS und server/data/welten/ pruefen.`;
       return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
     }
     // Basisversion (E0): Der Hash gehoert zu den BYTES auf der Platte, aus

@@ -11,6 +11,11 @@ Type=simple
 WorkingDirectory=/opt/worldofvikings/admin
 EnvironmentFile=/etc/wov.env
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Arbeitskopie der Welt: der Ordner steht AUSDRUECKLICH hier, nicht in einer Vorgabe des Codes. Ohne diese Zeile
+# arbeitet der Dienst mit <Checkout>/server/data/welten-arbeit/ (von Git ignoriert) statt mit /var/lib/wov/welten.
+# Die geaenderte Unit muss VOR oder MIT dem Rollout dieses Stands installiert werden
+# (nach /etc/systemd/system kopieren, systemctl daemon-reload).
+Environment=WOV_WELT_VERZEICHNIS=/var/lib/wov/welten
 ExecStart=/opt/worldofvikings/node_modules/.bin/tsx src/main.ts
 Restart=always
 RestartSec=5

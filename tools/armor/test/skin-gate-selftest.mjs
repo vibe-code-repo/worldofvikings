@@ -69,7 +69,7 @@ const WEB_BONES = ['Root', 'Hips', 'UpperLeg_L', ...Array.from({ length: 60 }, (
 // The game's female body (wov-female-v1, non-web): same segmented layout as the web body, plus the extra IK/pole
 // bones the canonical export always carries, so its bone count is never 63 like the web fit (mirrors the real
 // body's 71 = 63 + 8; see Bericht "Wikingerin 71 Rüstung", Nachtrag). Structurally identical to the male body's
-// own rig (same Synty skeleton for both figures) -- nothing in the bone shape tells male and female game bodies
+// own rig (same skeleton for both figures) -- nothing in the bone shape tells male and female game bodies
 // apart, only the mesh they carry does; this check was never designed to and still cannot make that distinction.
 const GAME_FEMALE_BONES = [...WEB_BONES, 'IK_Foot_L', 'IK_Foot_R', 'IK_Hand_L', 'IK_Hand_R',
   'Pole_Elbow_L', 'Pole_Elbow_R', 'Pole_Knee_L', 'Pole_Knee_R'];
@@ -323,11 +323,14 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   // Seidraven's hood REPLACES Head (unlike Plainhide, which leaves it free): a body with no Head mesh at all then
   // fails the ordinary "hides exactly its registered regions" check (0 hidden, 1 expected), not a free-region check.
   bad('female-body-without-head', 'seidraven', 'female', {}, /seidraven\/seidraven_female_hood must hide exactly its 1 registered regions/, { bodyFile: body.noHead });
-  // Male and the game's female body now share one Synty skeleton (same names, same 71 bones): nothing in the body's
-  // own shape tells them apart any more, only the mesh does (see GAME_FEMALE_BONES above) -- unlike the retired
-  // legacy body, which used entirely different bone names and so WAS distinguishable this way. What the gate can
-  // still catch here is a body of the wrong RIG STYLE (the 63-bone web fit) for a non-web request; that is exactly
-  // 'web-fit-on-web-body-without-flag' below, so a dedicated male/female-game case would only duplicate it.
+  // Male and the game's female body now share one skeleton (same names, same bone count): the bone SHAPE no
+  // longer tells them apart, only their segmented body meshes' names do ("..._Male_00" vs. "..._Female_00", see
+  // GAME_FEMALE_BONES above and the mesh-name check in skin-gate.mjs) -- unlike the retired legacy body, which used
+  // entirely different bone names and so was distinguishable that way too. Nachbesserung N1 (Angriff B3): these two
+  // cases were dropped when the profile rename first made them wrongly PASS; restored now that the gate checks the
+  // body's mesh names as well as its bones.
+  bad('female-set-on-male-body', 'plainhide', 'female', {}, /plainhide\/female: the body GLB is not a wov-female-v1 body/, { bodyFile: body.male });
+  bad('male-set-on-female-body', 'plainhide', 'male', {}, /plainhide\/male: the body GLB is not a wov-male-v1 body/, { bodyFile: body.female });
   bad('male-set-on-web-body', 'emberrage', 'male', {}, /emberrage\/male: the body GLB is not a wov-male-v1 body/, { bodyFile: body.web });
   bad('seidraven-needs-variant', 'seidraven', 'male', {}, /choose the body with --variant=male\|female/, { args: ['--family=seidraven'] });
   bad('unknown-family', 'wildwarden', 'male', {}, /Unknown armor family "nonsense"; the registry knows: .*seidraven.*emberrage.*plainhide.*gravethorn/, { args: ['--family=nonsense'] });

@@ -30,8 +30,8 @@ function jointNames(path) {
 }
 
 const bodyJoints = jointNames(bodyPath);
-// The whole point of the card: the old body had 51 bones (a different, Tripo-style rig); the new one has 71,
-// the same Synty rig as the male body. This is the assertion that would have been red before the card's export.
+// The whole point of the card: the old body had 51 bones (a different rig); the new one has 71,
+// the same skeleton as the male body. This is the assertion that would have been red before the card's export.
 assert.equal(bodyJoints.length, 71, `assets/models/wikingerin/WikingerinKoerper.glb: expected the new 71-bone ` +
   `body, found ${bodyJoints.length} bones -- is this still the retired 51-bone one?`);
 

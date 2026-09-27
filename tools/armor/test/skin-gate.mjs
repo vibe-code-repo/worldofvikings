@@ -3,9 +3,11 @@
  * --family is any family the item registry knows (the folder part of `datei` in RUESTUNG); default ironward.
  * --variant picks the body when a family has male and female items (Seidraven, Emberrage, Plainhide, Gravethorn); a family with a
  *   single variant needs none. The body GLB must match that variant's bodyProfile.
- * --web checks the web-body fit of a female set instead of the game fit: the body GLB is the 63-bone web body, and the GLBs
- *   must be skinned to it and carry the `previewBodyProfile` the catalog names for the set (wov-female-v1), not the registered
- *   game profile (legacy-female-v1). The items are the same registry items; only the body and its rig differ.
+ * --web checks the web-body fit of a female set instead of the game fit: the body GLB is the 63-bone web body, and the
+ *   GLBs must be skinned to it. The catalog's `previewBodyProfile` and the registry's game `bodyProfile` are now the
+ *   same string (wov-female-v1 names both the 63-bone web/authoring rig and the 71-bone canonical game skin, the way
+ *   wov-male-v1 always did); --web tells the two fits apart by bone count and by comparing the actual GLB files, not
+ *   by profile name. The items are the same registry items; only the body and its rig differ.
  * A registered run is driven by the registry: every item it lists for the family and variant must be in
  * manifest.json and exist as a GLB, and the `replaces` / `attachment` extras of each GLB must name exactly the
  * regions the registry lists, in both directions.
@@ -164,12 +166,23 @@ for (const group of body.animationGroups) group.stop();
 if (profile) {
   // The two shipped bodies have different rigs; the registry names which one the items were fitted to.
   const bones = new Set(skeleton.bones.map(b => b.name));
+  // wov-male-v1 and wov-female-v1 now share the same bone names and, for the 71-bone game fit, the same bone
+  // count: the game male and female bodies are no longer distinguishable by skeleton shape at all. Their segmented
+  // body meshes are, though: every mesh node of the male body is named "..._Male_00", every one of the female body
+  // (both the 71-bone game fit and the 63-bone web fit checked separately below) "..._Female_00" -- measured on all
+  // four shipped body GLBs (game and web, male and female). Checked as an ABSENCE of the wrong sex's suffix, not a
+  // requirement that every mesh carry the right one: an unrelated or unrecognized body mesh (caught later, by name,
+  // as "does not name a known body region") must not also fail here as if the body were simply the wrong sex.
+  const bodyMeshNames = body.meshes.filter(m => m.getTotalVertices()).map(m => m.name);
+  const opposite = { Male: 'Female', Female: 'Male' };
+  const notNamedForOpposite = sex => !bodyMeshNames.some(n => n.includes(`_${opposite[sex]}_`));
   const fits = profile === 'legacy-female-v1' ? bones.has('L_Thigh') && !bones.has('UpperLeg_L')
     : profile === 'wov-male-v1' ? bones.has('UpperLeg_L') && !bones.has('L_Thigh') && skeleton.bones.length !== 63
+      && notNamedForOpposite('Male')
     // Like wov-male-v1: one profile name spans the 63-bone authoring/web rig and the canonical game
     // skin. --web asks for the 63-bone fit specifically; without it, the game figure is anything else.
     : profile === 'wov-female-v1' ? bones.has('UpperLeg_L') && !bones.has('L_Thigh')
-      && (web ? skeleton.bones.length === 63 : skeleton.bones.length !== 63) : undefined;
+      && (web ? skeleton.bones.length === 63 : skeleton.bones.length !== 63) && notNamedForOpposite('Female') : undefined;
   assert(fits !== undefined, `No body check for bodyProfile ${profile}`);
   assert(fits, `${family}/${variant}: the body GLB is not a ${profile} body (${skeleton.bones.length} bones)`);
 }

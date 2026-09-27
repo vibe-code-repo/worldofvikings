@@ -135,20 +135,24 @@ which body it fits. The game rejects a mismatch even if the character owns the i
 | Ironward, Wildwarden, Ashenveil | `male` | `wov-male-v1` | `wikinger` | 63-bone authoring rig, 71-bone canonical game skin |
 | Seidraven / Emberrage / Plainhide / Gravethorn / Crowshade male | `male` | `wov-male-v1` | `wikinger` | same |
 | Seidraven / Emberrage / Plainhide / Gravethorn / Crowshade female, as built by `female/build.py` | `female` | `wov-female-v1` | (not playable) | 63-bone authoring rig |
-| Seidraven / Emberrage / Plainhide / Gravethorn / Crowshade female, canonical export (since 27.09.2026) | `female` | `wov-female-v1` | `wikingerin` | 71-bone canonical game skin (`wikingerin/WikingerinKoerper.glb`), same Synty rig as the male body |
+| Seidraven / Emberrage / Plainhide / Gravethorn / Crowshade female, canonical export (since 27.09.2026) | `female` | `wov-female-v1` | `wikingerin` | 71-bone canonical game skin (`wikingerin/WikingerinKoerper.glb`), same skeleton as the male body |
 
 **One profile name spans two rigs, for both figures.** Exactly like `wov-male-v1`
 (63-bone authoring rig **and** 71-bone canonical game skin), `wov-female-v1` now names
-both the 63-bone authoring/web-preview rig and the 71-bone canonical game skin: the
-game's female body (`WikingerinKoerper.glb`, since 27.09.2026) has the **same geometry**
-as the web preview body (bytegleiche Vertexpositionen und Gewichte, siehe
-`Berichte/2026-09-25 Wikingerin-Export 71er-Rig — Bauer.md`), just re-skinned onto more
-bones. `tools/armor/test/skin-gate.mjs` tells the two fits of one profile apart by bone
-count (`--web` expects exactly 63; without it, anything else), the same way it already
-told `wov-male-v1`'s two fits apart — **never by profile name alone.**
+both the 63-bone authoring/web-preview rig and the 71-bone canonical game skin: ten of
+the eleven body regions and all 63 shared bone heads of the game's female body
+(`WikingerinKoerper.glb`, since 27.09.2026) match the web preview body within 0.0012 mm;
+only `Hips` differs (up to 130 mm, mean 50 mm), the same order of magnitude the male
+body's own game/web `Hips` already differed by before this change. Armor always
+replaces `Hips`, so every item is re-skinned onto the game body's actual joints by name,
+not assumed identical to the web body's. `tools/armor/test/skin-gate.mjs` tells the two
+fits of one profile apart by bone count (`--web` expects exactly 63; without it,
+anything else), the same way it already told `wov-male-v1`'s two fits apart — **never by
+profile name alone.**
 The male and the female game body are themselves indistinguishable by bone shape (same
-Synty skeleton, same names, both 71 bones): nothing about the rig says which figure a
-canonical body belongs to, only the mesh attached to it does.
+skeleton, same names, both 71 bones): nothing about the rig says which figure a
+canonical body belongs to; `skin-gate.mjs` tells them apart by the body's own mesh names
+(`..._Male_00` vs. `..._Female_00`) instead.
 
 **Retired since 27.09.2026: the 51-bone legacy female avatar and its fit.** The type
 `ArmorBodyProfile` still has `legacy-female-v1` and `fit-legacy.py` / `lib/fit_legacy.py`

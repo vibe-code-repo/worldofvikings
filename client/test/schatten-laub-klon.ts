@@ -305,6 +305,66 @@ function wrapperKenntSubMesh(m: Mesh): boolean {
   engine.dispose();
 }
 
+// ── X8: Das Zeitbudget schiebt einen zweiten Master wirklich auf ────────
+// Gegenstueck zu tickeEingefroren oben: hier LAEUFT die Uhr ueber das
+// Budget hinaus, zwischen dem ersten und dem zweiten anstehenden Master.
+// Ohne den Waechter (`gepackt > 0 && performance.now() >= budgetEnde`,
+// Shadows.tick()) packte tick() beide sofort, unabhaengig von der Uhr —
+// dann bliebe hier kein Master mehr in vegetationsPackPending stehen.
+{
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const shadows = new Shadows(scene, new DirectionalLight('sonne', new Vector3(0.3, -1, 0.2), scene));
+  const fake = {
+    freezeShadowCastersBoundingInfo: false,
+    numCascades: 2,
+    shadowMaxZ: 50,
+    addShadowCaster: () => undefined,
+    getShadowMap: () => ({ renderList: [] as Mesh[] }),
+    isReady: () => false,
+    dispose: () => undefined,
+  };
+  const intern = shadows as unknown as { generator: unknown; stufe: number };
+  intern.generator = fake;
+  intern.stufe = 2;
+
+  const laubX = prototyp(scene, 'leaves_x8_a', true);
+  const laubY = prototyp(scene, 'leaves_x8_b', true);
+  const matrizen = new Float32Array(16 * 3);
+  for (let i = 0; i < 3; i++) {
+    matrizen.set(EINHEIT, i * 16);
+    matrizen[i * 16 + 12] = i * 2;
+  }
+  shadows.setPlayerPosition(0, 0);
+  shadows.setVegetationsInstanzen(laubX, matrizen);
+  shadows.setVegetationsInstanzen(laubY, matrizen); // beide stehen jetzt zum Packen an
+
+  // Deterministische Uhr statt echter Wartezeit: 1. Aufruf (budgetEnde-Berechnung
+  // in tick()) liefert 0, jeder weitere 1000 — weit ueber WERFER_BUDGET_MS (4ms)
+  // hinaus. tiefeNachziehen() (vor der Budget-Berechnung) ruft performance.now
+  // nicht auf, s. Shadows.ts.
+  const echt = performance.now;
+  let aufrufe = 0;
+  performance.now = () => (aufrufe++ === 0 ? 0 : 1000);
+  try {
+    shadows.tick();
+  } finally {
+    performance.now = echt;
+  }
+
+  const st = shadows.vegetationsSchattenStats();
+  pruefe(
+    st.pending === 1,
+    `das Zeitbudget hat den zweiten Master nicht aufgeschoben: ${st.pending} stehen noch an, erwartet 1 (X8)`
+  );
+  pruefe(st.aktiv === 3, `der erste Master wurde trotz Budget nicht fertig gepackt: aktiv ${st.aktiv}`);
+
+  intern.generator = null;
+  shadows.dispose();
+  scene.dispose();
+  engine.dispose();
+}
+
 if (fehler > 0) {
   console.error(`\n${fehler} Fehler`);
   process.exit(1);

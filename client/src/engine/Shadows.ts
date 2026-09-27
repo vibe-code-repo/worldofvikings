@@ -78,6 +78,7 @@ import {
   zellMeshAusPrototyp,
 } from '../entities/EntityManager';
 import { beiLook, look, type LookProfil } from './lookProfil';
+import { tiefeSchonGebaut, vorlageHatDefines } from './ShadowDepthWrapperSicher';
 import {
   NEUPACK_ABSTAND,
   konservativerAuswahlRadius,
@@ -778,9 +779,6 @@ interface VegetationsSchattenMaster {
  */
 const TIEFE_MAX_VERSUCHE = 1200;
 
-/** Ticks between two checks that handed-over clones still have their depth effect. */
-const TIEFE_PRUEF_TAKT = 15;
-
 export class Shadows {
   private generator: CascadedShadowGenerator | null = null;
   /** Das geltende Look-Profil (vor dem Anmelden die Vorgabe). */
@@ -823,7 +821,16 @@ export class Shadows {
   private readonly vegetationsPackPending = new Set<VegetationsSchattenMaster>();
   /** Klone, die auf ihren Tiefen-Shader warten; die Quelle wirft solange weiter (G20). */
   private readonly vegetationsTiefePending = new Set<VegetationsSchattenMaster>();
-  private tiefePruefTakt = 0;
+  /**
+   * Bereits übergebene Klone mit Tiefen-Wrapper — die einzigen, die ihre
+   * Bereitschaft nachträglich verlieren können (N1-Nachbesserung, s.
+   * pruefeWrapperWerferBereitschaft). Nur diese Teilmenge wird JEDES Bild
+   * geprüft, nicht die ganze vegetationsSchatten-Map: Einziger Einstiegspunkt
+   * ist uebergebeAnKlon(), einzige Ausstiegspunkte sind der Bereitschaftsverlust
+   * selbst und die lose Räumung am Kopf von pruefeWrapperWerferBereitschaft
+   * (nicht mehr bereit / zum Packen vorgemerkt / entsorgt).
+   */
+  private readonly vegetationsWrapperWerfer = new Set<VegetationsSchattenMaster>();
   /** Wie oft der Basis-Effekt eines Klons angemeldet wurde (Zeuge fuer die Kosten von G20). */
   private tiefeAnmeldungen = 0;
   /*
@@ -1030,7 +1037,7 @@ export class Shadows {
     // Bis der neue Puffer steht, wirft die Quelle weiter. Das verhindert
     // die wandernden schattenlosen Bäume des ersten Anlaufs vollständig.
     if (this.vegetationsInstanzKeulung) {
-      stand.bereit = false;
+      this.setzeBereit(stand, false);
       stand.schatten.setEnabled(false);
       this.vegetationsQuellen.delete(quelle);
       this.nimmAuf(quelle);
@@ -1046,13 +1053,13 @@ export class Shadows {
     this.vegetationsTiefePending.clear();
     for (const stand of this.vegetationsSchatten.values()) {
       if (an) {
-        stand.bereit = false;
+        this.setzeBereit(stand, false);
         this.vegetationsPackPending.add(stand);
       } else {
         this.vegetationsQuellen.delete(stand.quelle);
         this.entferneWerfer(stand.schatten);
         stand.schatten.setEnabled(false);
-        stand.bereit = false;
+        this.setzeBereit(stand, false);
         this.nimmAuf(stand.quelle);
       }
     }
@@ -1184,26 +1191,70 @@ export class Shadows {
    * then reports "not ready" until someone registers the clone again. Until
    * it is, the source throws again (like the initial hand-over) — otherwise
    * there would be a gap where the clone cannot throw yet and the source has
-   * already stopped. Every TIEFE_PRUEF_TAKT ticks this iterates the existing
-   * map to find such a clone; `g.isReady()` itself still allocates (a small
-   * `defines` array per call, ~4-5 µs/frame measured with the real
-   * generator), only the iteration here is free of it. The registration
-   * itself happens once, in the waiting-list loop right below, in the same
-   * tick — registering here too would just double it.
+   * already stopped.
+   *
+   * ── N1-Nachbesserung: jedes Bild statt alle 15 Ticks ────────────────
+   * Der volle `g.isReady(teil, true, false)` legt je Aufruf ein `defines`-
+   * Array an (~4-5 µs/Aufruf, mit dem echten Generator gemessen) — über die
+   * ganze `vegetationsSchatten`-Map (mehrere hundert bis tausende Master,
+   * s. WERFER_BUDGET_MS oben) ist das jedes Bild zu teuer, deshalb der alte
+   * 15er-Takt. Der Takt liess aber genau die Bilder ohne jeden Werfer
+   * entstehen, die er verhindern sollte (Angriffsbericht F1, bis zu 15
+   * Bilder je betroffener Vegetationsart).
+   *
+   * Statt des vollen `isReady()` fragt diese Methode nur, WAS
+   * `SicherTiefenWrapper.isReadyForSubMesh` selbst zum Blockieren bringt
+   * (`ShadowDepthWrapperSicher.ts`): `tiefeSchonGebaut`/`vorlageHatDefines`
+   * lesen nur zwei vorhandene Karten, ohne etwas anzulegen — deutlich
+   * billiger als der volle Aufruf. Und sie läuft nicht über die ganze Map,
+   * sondern nur über `vegetationsWrapperWerfer`, die Teilmenge der gerade
+   * aktiv werfenden Klone mit Tiefen-Wrapper (einziger Eintragsort:
+   * uebergebeAnKlon). Nur diese Klone können ihre Bereitschaft überhaupt
+   * verlieren; alles andere (Rinde, Fels, noch nicht übergebene Klone)
+   * bleibt aussen vor. Register-Aufruf bleibt einmalig in der Warteschleife
+   * unten, im selben Tick — hier nur die Erkennung.
    * Ein uebergebener Klon, der nicht mehr bereit ist, wartet wieder; bis
    * dahin wirft die Quelle erneut.
    */
-  private pruefeUebergebeneKlone(g: CascadedShadowGenerator): void {
-    for (const stand of this.vegetationsSchatten.values()) {
-      if (!stand.bereit || !stand.tiefeBereit || stand.aktiv === 0) continue;
+  private pruefeWrapperWerferBereitschaft(g: CascadedShadowGenerator): void {
+    if (this.vegetationsWrapperWerfer.size === 0) return;
+    for (const stand of this.vegetationsWrapperWerfer) {
+      // Lose Räumung: bereit-Wechsel und Entsorgung laufen anderswo (setzeBereit,
+      // vergissMaster); hier nur nachziehen, damit die Menge nicht veraltet.
+      if (!stand.bereit || stand.aktiv === 0 || this.vegetationsPackPending.has(stand)) {
+        this.vegetationsWrapperWerfer.delete(stand);
+        continue;
+      }
+      const wrapper = stand.schatten.material?.shadowDepthWrapper;
       const teil = stand.schatten.subMeshes?.[0];
-      if (!teil || stand.schatten.isDisposed() || this.vegetationsPackPending.has(stand)) continue;
-      if (g.isReady(teil, true, false)) continue;
+      if (!wrapper || !teil || stand.schatten.isDisposed()) {
+        this.vegetationsWrapperWerfer.delete(stand);
+        continue;
+      }
+      const feld = (wrapper as unknown as { _subMeshToDepthWrapper?: unknown })._subMeshToDepthWrapper;
+      // Unbekannte Babylon-Form: wie SicherTiefenWrapper selbst nichts annehmen.
+      if (!feld) continue;
+      if (tiefeSchonGebaut(wrapper, teil, g) || vorlageHatDefines(wrapper, teil)) continue;
       stand.tiefeBereit = false;
       stand.tiefeVersuche = 0;
       this.vegetationsQuellen.delete(stand.quelle);
       this.nimmAuf(stand.quelle);
       this.vegetationsTiefePending.add(stand);
+      this.vegetationsWrapperWerfer.delete(stand);
+    }
+  }
+
+  /**
+   * Setzt `bereit` und pflegt zugleich `vegetationsWrapperWerfer` nach (F1):
+   * einziger Ort, an dem der Wurf-Status eines Standes ausserhalb der
+   * Bereitschaftspruefung selbst wechselt.
+   */
+  private setzeBereit(stand: VegetationsSchattenMaster, bereit: boolean): void {
+    stand.bereit = bereit;
+    if (!bereit || !stand.schatten.material?.shadowDepthWrapper) {
+      this.vegetationsWrapperWerfer.delete(stand);
+    } else {
+      this.vegetationsWrapperWerfer.add(stand);
     }
   }
 
@@ -1212,7 +1263,7 @@ export class Shadows {
     this.vegetationsQuellen.add(stand.quelle);
     this.entferneWerfer(stand.quelle);
     this.nimmAuf(stand.schatten);
-    stand.bereit = true;
+    this.setzeBereit(stand, true);
   }
 
   /**
@@ -1227,10 +1278,7 @@ export class Shadows {
   private tiefeNachziehen(): void {
     const g = this.generator;
     if (!g) return;
-    if (++this.tiefePruefTakt >= TIEFE_PRUEF_TAKT) {
-      this.tiefePruefTakt = 0;
-      this.pruefeUebergebeneKlone(g);
-    }
+    this.pruefeWrapperWerferBereitschaft(g);
     if (this.vegetationsTiefePending.size === 0) return;
     for (const stand of this.vegetationsTiefePending) {
       const teil = stand.schatten.subMeshes?.[0];
@@ -1267,6 +1315,14 @@ export class Shadows {
       meldeKlonAnBasisEffekt(stand.schatten);
       if (++stand.tiefeVersuche >= TIEFE_MAX_VERSUCHE) {
         this.vegetationsTiefePending.delete(stand);
+        // F2: den Klon auch aus der renderList nehmen, nicht nur aus der
+        // Warteliste. Sonst bleibt er dort als abgeschriebener, aber
+        // weiter eingetragener Werfer stehen; wird er (an anderer Stelle
+        // im Farbpass, ausserhalb dieser Buchfuehrung) doch noch bereit,
+        // wirft er zusammen mit der laengst zurueckgeholten Quelle dauerhaft
+        // doppelt, bis zum naechsten Neupacken. Ohne Eintrag hier ist immer
+        // hoechstens einer von beiden Werfer.
+        this.entferneWerfer(stand.schatten);
         console.warn(
           `[shadows] Schattenklon ${stand.schatten.name} wird nicht bereit — die Quelle wirft weiter`
         );
@@ -1386,7 +1442,7 @@ export class Shadows {
         radiusGeaendert = true;
         if (radius > stand.gepackterRadius) {
           stand.schatten.setEnabled(false);
-          stand.bereit = false;
+          this.setzeBereit(stand, false);
           this.vegetationsQuellen.delete(stand.quelle);
           this.nimmAuf(stand.quelle);
         }
@@ -1730,6 +1786,7 @@ export class Shadows {
     this.vegetationsSchatten.delete(mesh as Mesh);
     this.vegetationsPackPending.delete(stand);
     this.vegetationsTiefePending.delete(stand);
+    this.vegetationsWrapperWerfer.delete(stand);
     this.vegetationsKlone.delete(stand.schatten);
     // Erst abmelden, dann entsorgen — dieselbe Reihenfolge, aus der der
     // Kopf von entferneWerfer() oben seine Begruendung bezieht.
@@ -1964,7 +2021,7 @@ export class Shadows {
     if (this.vegetationsInstanzKeulung) {
       for (const stand of this.vegetationsSchatten.values()) {
         stand.schatten.setEnabled(false);
-        stand.bereit = false;
+        this.setzeBereit(stand, false);
         // Ein neuer Generator kennt die Tiefen-Shader der Klone noch nicht.
         stand.tiefeBereit = false;
         this.vegetationsQuellen.delete(stand.quelle);

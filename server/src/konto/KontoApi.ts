@@ -389,8 +389,16 @@ export class KontoApi {
     // Gezaehlt wird VOR dem Hashen (gleichzeitige Versuche umgehen die Sperre
     // sonst) und bei Erfolg zurueckgenommen. Unbekannte Namen teilen sich einen
     // Schluessel, damit das Abklappern von Namen nicht je Name neu zaehlt.
-    const versuchsSchluessel = `${ip}|${konto?.id ?? '-'}`;
-    if (this.loginVersuchGesperrt(versuchsSchluessel)) {
+    // Unbekannte Namen zaehlen je NAME (genauso normalisiert wie beim Konto-
+    // Lookup, ohne Gross/Klein): bekannte und unbekannte Namen verhalten sich
+    // dann gleich (fuenf Versuche, dann 429). Ein gemeinsamer Schluessel fuer
+    // alle unbekannten Namen waere ein Orakel: unbekannt = sofort 429 ohne Hash,
+    // bekannt = 401 nach dem Hash. Das Abklappern vieler Namen deckelt der
+    // Herkunftszaehler.
+    const versuchsSchluessel = `${ip}|${konto ? konto.id : `?${benutzername.toLowerCase()}`}`;
+    // Herkunftsgrenze auch NACH dem Lesen des Koerpers: viele offene Anfragen mit
+    // verzoegertem Koerper haben die fruehe Pruefung sonst alle bestanden.
+    if (this.herkunftGesperrt(ip) || this.loginVersuchGesperrt(versuchsSchluessel)) {
       return this.json(res, 429, { error: 'too-many-attempts' });
     }
     this.loginVersuchZaehlen(versuchsSchluessel, ip);
@@ -874,6 +882,21 @@ export class KontoApi {
     return herkunftErmitteln(req);
   }
 
+  /**
+   * Abgelaufene Eintraege aus den Zaehlkarten entfernen, hoechstens alle fuenf
+   * Minuten. Ohne das wuechsen die Karten mit jedem je gesehenen Schluessel;
+   * die Zaehlung selbst lief schon ohne diesen Durchlauf korrekt ab.
+   */
+  private naechsteAufraeumung = 0;
+  private abgelaufenesAufraeumen(): void {
+    const jetzt = Date.now();
+    if (jetzt < this.naechsteAufraeumung) return;
+    this.naechsteAufraeumung = jetzt + 5 * 60 * 1000;
+    for (const karte of [this.fehlversuche, this.loginVersuche, this.bestaetigungen]) {
+      for (const [schluessel, e] of karte) if (jetzt > e.bis) karte.delete(schluessel);
+    }
+  }
+
   private herkunftGesperrt(ip: string): boolean {
     const e = this.fehlversuche.get(ip);
     if (!e) return false;
@@ -890,6 +913,7 @@ export class KontoApi {
 
   /** Ein Login-Versuch: je (Herkunft, Konto) UND je Herkunft. */
   private loginVersuchZaehlen(schluessel: string, ip: string): void {
+    this.abgelaufenesAufraeumen();
     const jetzt = Date.now();
     const k = this.loginVersuche.get(schluessel);
     if (!k || jetzt > k.bis) {

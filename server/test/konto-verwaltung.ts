@@ -653,6 +653,108 @@ try {
     assert.equal(db.charaktereVonKonto(u.kontoId).length, 0, 'kein Charakter angelegt');
   }
 
+  // ══ N4 (Opus-Pruefung N3) ═════════════════════════════════════════════
+
+  // A1: bekannte und unbekannte Benutzernamen verhalten sich gleich (kein Orakel).
+  {
+    await neuesKonto('Orakelopfer');
+    const ip = '198.51.100.40';
+    for (let n = 0; n < 5; n++) {
+      assert.equal((await aufruf('POST', '/accounts/login', { username: `Gibtsnicht${n}`, password: 'egal123456' }, undefined, ip)).status, 401, `unbekannt ${n}`);
+    }
+    const t0 = Date.now();
+    const neuUnbekannt = await aufruf('POST', '/accounts/login', { username: 'Niemand', password: 'egal123456' }, undefined, ip);
+    const dauerUnbekannt = Date.now() - t0;
+    const bekannt = await aufruf('POST', '/accounts/login', { username: 'Orakelopfer', password: 'egal123456' }, undefined, ip);
+    assert.equal(neuUnbekannt.status, bekannt.status, 'neuer unbekannter und bekannter Name: gleicher Status');
+    assert.equal(neuUnbekannt.status, 401);
+    assert.ok(dauerUnbekannt > 20, `unbekannter Name kostet wie ein bekannter einen Hash (${dauerUnbekannt} ms)`);
+    // je Name: derselbe erfundene Name wird nach fuenf Versuchen gesperrt, wie ein bekannter
+    for (let n = 0; n < 4; n++) await aufruf('POST', '/accounts/login', { username: 'Niemand', password: `egal${n}12345` }, undefined, ip);
+    assert.equal((await aufruf('POST', '/accounts/login', { username: 'niemand', password: 'egal123456' }, undefined, ip)).status, 429, 'sechster Versuch mit demselben erfundenen Namen (Gross/Klein egal): 429');
+  }
+
+  // N-1: Herkunftsgrenze auch nach dem Lesen verzoegerter Koerper.
+  {
+    const namen: string[] = [];
+    for (let i = 0; i < 30; i++) { namen.push(`Schwall${i}`); await neuesKonto(`Schwall${i}`); }
+    const [host, port] = basis.replace('http://', '').split(':');
+    const senden: (() => void)[] = [];
+    const ergebnisse = namen.map((name) => new Promise<number>((ok, scheitern) => {
+      const text = JSON.stringify({ username: name, password: 'falsch123456' });
+      const rq = httpRequest({
+        host, port: Number(port), method: 'POST', path: '/accounts/login',
+        headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(text)), 'x-forwarded-for': '198.51.100.50' },
+      }, (res) => { res.resume(); res.on('end', () => ok(res.statusCode ?? 0)); });
+      rq.on('error', scheitern);
+      rq.flushHeaders();
+      senden.push(() => rq.end(text));
+    }));
+    await new Promise((r) => setTimeout(r, 300));
+    for (const s of senden) s();
+    const stati = await Promise.all(ergebnisse);
+    assert.ok(stati.filter((x) => x === 401).length <= 25, `verzoegerte Koerper: hoechstens 25 kommen bis zum Hash (${stati.filter((x) => x === 401).length})`);
+    assert.ok(stati.includes(429), 'der Rest wird gesperrt');
+  }
+
+  // N-2 (a): gleichzeitige Fehl-Logins auf EIN Konto, hoechstens 5 bis zum Hash.
+  {
+    await neuesKonto('Gleichzeitig');
+    const r = await Promise.all(Array.from({ length: 12 }, (_, i) =>
+      aufruf('POST', '/accounts/login', { username: 'Gleichzeitig', password: `falsch${i}xxxxx` }, undefined, '198.51.100.51')));
+    assert.ok(r.filter((x) => x.status === 401).length <= 5, `gleichzeitige Logins: hoechstens 5 bis zum Hash (${r.map((x) => x.status)})`);
+    assert.ok(r.some((x) => x.status === 429));
+  }
+
+  // N-2 (b): erfolgreiche Logins verbrauchen kein Herkunftsbudget (30 Gast-Logins von einer Adresse).
+  for (let n = 0; n < 30; n++) {
+    assert.equal((await aufruf('POST', '/accounts/login', { username: 'gast', password: 'gastpasswort1' }, undefined, '198.51.100.52')).status, 200, `Gast-Login ${n}`);
+  }
+
+  // N-2 (c): auch Avatar und Melden pruefen das Token nach dem Koerper; (d) die Rettung raeumt nur das eigene Konto.
+  {
+    const langsam = (pfad: string, koerper: unknown, token: string, ip: string): { fertig: Promise<number>; senden: () => void } => {
+      const text = JSON.stringify(koerper);
+      const [host, port] = basis.replace('http://', '').split(':');
+      let senden: () => void = () => undefined;
+      const fertig = new Promise<number>((ok, scheitern) => {
+        const rq = httpRequest({
+          host, port: Number(port), method: 'POST', path: pfad,
+          headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(text)), 'x-wov-account': token, 'x-forwarded-for': ip },
+        }, (res) => { res.resume(); res.on('end', () => ok(res.statusCode ?? 0)); });
+        rq.on('error', scheitern);
+        rq.flushHeaders();
+        senden = () => rq.end(text);
+      });
+      return { fertig, senden };
+    };
+    const u = await neuesKonto('Langsam2');
+    const ziel = await neuesKonto('Meldeziel');
+    const zielChar = await charakter(ziel.token, 'Meldezielr');
+    await aufruf('POST', '/accounts/avatar', { characterId: zielChar }, ziel.token);
+    await aufruf('POST', '/accounts/profile', { text: 'Anstoessig' }, ziel.token);
+    const avatar = langsam('/accounts/avatar', { characterId: null }, u.token, '198.51.100.53');
+    const melden = langsam(`/accounts/characters/${zielChar}/report`, { reason: 'x' }, u.token, '198.51.100.53');
+    await new Promise((r) => setTimeout(r, 200));
+    const rette = await aufruf('POST', '/accounts/login', { username: 'Langsam2', password: 'altespasswort1', logoutOthers: true }, undefined, '198.51.100.54');
+    assert.equal(rette.status, 200);
+    avatar.senden(); melden.senden();
+    assert.deepEqual([await avatar.fertig, await melden.fertig], [401, 401], 'Avatar und Melden nach der Rettung abgewiesen');
+    assert.equal(db.profilMeldungenOffen().filter((m) => m.gemeldetKontoId === ziel.kontoId).length, 0, 'keine Meldung geschrieben');
+
+    // (d) zwei Konten von DERSELBEN Adresse gesperrt, Rettung von einem: das andere bleibt gesperrt
+    const a2 = await neuesKonto('Haus2a');
+    const b2 = await neuesKonto('Haus2b');
+    const ip = '198.51.100.60';
+    for (const t of [a2.token, b2.token]) {
+      for (let n = 0; n < 5; n++) assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: `falsch${n}xxxx`, email: 'h@example.org' }, t, ip)).status, 401);
+    }
+    const r2 = await aufruf('POST', '/accounts/login', { username: 'Haus2a', password: 'altespasswort1', logoutOthers: true }, undefined, '198.51.100.61');
+    assert.equal(r2.status, 200);
+    assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: 'altespasswort1', email: 'h@example.org' }, r2.daten.token, ip)).status, 200, 'gerettetes Konto: frei');
+    assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: 'altespasswort1', email: 'h@example.org' }, b2.token, ip)).status, 429, 'anderes Konto derselben Adresse bleibt gesperrt');
+  }
+
   console.log('konto-verwaltung: alle Zusicherungen erfuellt');
 } finally {
   server.close();

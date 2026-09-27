@@ -15,6 +15,9 @@
  *                     `detail` nennt die Zahl; die Datei gilt ab dem nächsten Neustart
  *      `keine-quittung` der Dienst läuft, hat aber binnen der Wartezeit nicht quittiert
  *
+ * Speichern ohne Änderung (gleicher Hash wie vorher, `vorherHash`): 200 mit `unveraendert: true` und Zähler 0,
+ * nicht die Zähler der vorigen Quittung.
+ *
  * Die Datei ist geschrieben, egal was hier herauskommt: 202 heißt nie „nicht
  * gespeichert“. Eine Quittung zählt nur mit dem Hash der eigenen Bytes.
  */
@@ -29,6 +32,8 @@ export interface QuittungOptionen {
   quittungsPfad: string;
   /** Läuft der Spielserver? */
   dienstAktiv: () => Promise<boolean>;
+  /** Hash der Datei vor dem Schreiben: gleich `hash` heißt, das Speichern hat nichts geändert. */
+  vorherHash?: string;
   /** Wie lange auf die Quittung gewartet wird (Vorgabe 3000 ms). */
   warteMs?: number;
   intervallMs?: number;
@@ -78,6 +83,12 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
   const daten = antwort.daten as { hash?: unknown } | null;
   if ((antwort.code !== 200 && antwort.code !== 201) || !daten || typeof daten.hash !== 'string') return antwort;
   const stand = await quittungAbwarten({ ...o, hash: daten.hash });
+  if (stand.angewendet && o.vorherHash === daten.hash) {
+    // Dieselben Bytes wie vorher: Die Quittung ist die des früheren Speicherns, ihre Zähler (und ihr `detail`) gälten
+    // nicht für dieses. Ein Speichern ohne Änderung meldet Zähler 0 und `unveraendert`.
+    const null_ = Object.fromEntries(Object.keys(stand.quittung.zaehler ?? {}).map((k) => [k, 0]));
+    return { ...antwort, daten: { ...daten, angewendet: true, unveraendert: true, zaehler: null_ } };
+  }
   if (stand.angewendet) {
     // `detail` bei 200 nur, wenn die Quittung eines hat (Z5a: ein Grabstein hat ein Neusetzen verschluckt, `zaehler.zurueck`):
     // Ohne es sähe der Nutzer „angewendet“ und wüsste nicht, dass ein Objekt nicht wiederkam.

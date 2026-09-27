@@ -34,7 +34,7 @@ import {
   type RouteDef,
   type WorldLayout,
 } from './types.js';
-import { ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
+import { gleicherInhalt, ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
 
 // Über diese Datei nach außen (index.ts lässt sie ohnehin durch): die Werkzeuge, die eine Platzierung anlegen.
 export {
@@ -242,8 +242,8 @@ export function platzierungenEinzeln(roh: unknown): PlacementDef[] {
       const z = koordinate(o.z);
       if (x === null || z === null) continue;
       const eintrag: PlacementDef = { prefab: o.prefab, x, z };
-      // Eine ungültige `id` wird nicht verworfen, sondern unten abgeleitet:
-      // Der Eintrag selbst ist in Ordnung, nur seine Adresse fehlt.
+      // Eine ungültige `id` wird nicht verworfen, sondern unten abgeleitet: Der Eintrag selbst ist in Ordnung, nur
+      // seine Adresse fehlt. Der Schreibweg lässt sie nicht bis hierher durch (`platzierungenFehler`: feld `id`).
       if (typeof o.id === 'string' && ID_RE.test(o.id)) eintrag.id = o.id;
       // Nur die SCHREIBWEISE prüfen, nicht die Existenz der Route: Ob es
       // sie gibt, meldet pruefeLayout — wie bei `continentId` an der
@@ -292,8 +292,9 @@ const NPC_SCHLUESSEL: ReadonlySet<string> = new Set(['name', 'rolle', 'fraktion'
  *  - Zahltexte (`scale: "3"`), Rundung (Millimeter bei x/z, 0,1 bei `einebnen`, ganze Stufe)
  *  - `null` bei `yaw`, `route`, `npc`, `npc.name/rolle/fraktion/quest`: gilt wie ein fehlendes Feld. Bei `scale`,
  *    `einebnen` und `npc.stufe` NICHT: Dort macht der Sanitizer aus `null` die Zahl 0 und klemmt sie (`scale` 0,2).
- *  - `prefab` und `id`: ein falsches Prefab oder eine falsche id ist ein anderer, gültiger Eintrag (kein Klemmen);
- *    ein unbekanntes Prefab meldet der Abgleich als `unbekannt`, eine ungültige id wird abgeleitet.
+ *  - `prefab`: ein falsches Prefab ist ein anderer, gültiger Eintrag (kein Klemmen); ein unbekanntes Prefab meldet
+ *    der Abgleich als `unbekannt`.
+ *  - eine FEHLENDE id (wird abgeleitet). Eine gesetzte, aber ungültige id zählt (Feld `id`).
  *
  * Gilt nur für Einträge, die der Sanitizer NICHT verworfen hat (die zählen als verworfen: `platzierungenFehler`).
  */
@@ -305,6 +306,10 @@ export function geklemmteFelder(roh: unknown): string[] {
   /** Gesetzt UND nicht in [min, max] lesbar; `null` zählt hier mit (Sanitizer: `Number(null)` = 0). */
   const zahlFalsch = (v: unknown, min: number, max: number): boolean => v !== undefined && (v === null || !zahlInBereich(v, min, max));
   for (const k of Object.keys(o)) if (!PLATZIERUNG_SCHLUESSEL.has(k)) felder.push(k);
+  // Eine GESETZTE, aber ungültige id (Großbuchstabe, Leerzeichen, Umlaut, Zahl, null, über 64 Zeichen) würde still neu
+  // abgeleitet: ein gefällter Baum würde belebt, ein stehender live gelöscht und neu gespawnt. Fehlt die id ganz, ist
+  // das erlaubt (Altdokumente ohne ids).
+  if (o.id !== undefined && !(typeof o.id === 'string' && ID_RE.test(o.id))) felder.push('id');
   if (gesetzt(o.yaw) && !zahlInBereich(o.yaw, -Math.PI * 2, Math.PI * 2)) felder.push('yaw');
   if (zahlFalsch(o.scale, 0.2, 5)) felder.push('scale');
   if (zahlFalsch(o.einebnen, 1, 100)) felder.push('einebnen');
@@ -376,6 +381,33 @@ export function platzierungenFehler(roh: unknown): PlatzierungsFehler[] {
       fehler.push({ id, feld, wert: wertKurz(wert) });
     }
   });
+  fehler.push(...doppelteIds(roh.slice(0, 2000)));
+  return fehler;
+}
+
+/**
+ * Dieselbe gültige id mehrfach mit VERSCHIEDENEM Inhalt: `platzierungenNormalisieren` behielte den ersten Eintrag und
+ * leitete dem zweiten eine neue id ab. Steht die Kopie vor dem Original, verlöre das Original seine Adresse
+ * (ein gefällter Baum würde belebt, ein stehender verschoben). Exakte Duplikate (gleiche id, gleicher Inhalt) faltet
+ * der Sanitizer weiter still zusammen. Eine Meldung je id (`wert: "doppelt"`).
+ */
+function doppelteIds(roh: readonly unknown[]): PlatzierungsFehler[] {
+  const erste = new Map<string, PlacementDef>();
+  const gemeldet = new Set<string>();
+  const fehler: PlatzierungsFehler[] = [];
+  for (const p of roh) {
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) continue;
+    const id = (p as { id?: unknown }).id;
+    if (typeof id !== 'string' || !ID_RE.test(id)) continue;
+    const e = platzierungenEinzeln([p])[0];
+    if (!e) continue; // verworfen: zählt dort
+    const vorher = erste.get(id);
+    if (!vorher) erste.set(id, e);
+    else if (!gemeldet.has(id) && !gleicherInhalt(vorher, e)) {
+      gemeldet.add(id);
+      fehler.push({ id, feld: 'id', wert: 'doppelt' });
+    }
+  }
   return fehler;
 }
 

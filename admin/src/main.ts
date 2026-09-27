@@ -81,6 +81,7 @@ import {
   LayoutUngueltig,
   LayoutVeraltet,
   LayoutZuVielePlatzierungen,
+  layoutDateiHash,
   layoutLesenMitHash,
   layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
@@ -204,10 +205,13 @@ if (QUITTUNG_AUS && process.env.NODE_ENV !== 'test') {
   );
   process.exit(1);
 }
-const mitAnwendung = <T extends { code: number; daten: unknown; kopf?: Record<string, string> }>(antwort: T): Promise<T> | T =>
+// `vorherHash`: der Hash der Datei VOR dem Schreiben. Ist er gleich dem neuen, hat das Speichern nichts geaendert, und die
+// Quittung dieses Hashs ist die alte (N4-F): Die Zaehler kaemen sonst ein zweites Mal.
+const mitAnwendung = <T extends { code: number; daten: unknown; kopf?: Record<string, string> }>(antwort: T, vorherHash?: string | null): Promise<T> | T =>
   QUITTUNG_AUS ? antwort : anwendungAnhaengen(antwort, {
     quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
     dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
+    ...(vorherHash ? { vorherHash } : {}),
   }) as Promise<T>;
 // Je Instanz ein eigener Unterordner — dieselbe Ableitung wie im
 // Spielserver (`DungeonManager`, resolve(worldsDir, '..', 'dungeons',
@@ -1688,7 +1692,10 @@ async function behandeln(
   }
 
   // Einzelne Objekte aendern statt das ganze Dokument ersetzen (Editor E1, K1.2).
-  if (pfad === '/api/worldlayout/ops' && methode === 'PATCH') return mitAnwendung(await weltOpsBehandeln(leib, { datei: LAYOUT_DATEI, instanz: INSTANZ }));
+  if (pfad === '/api/worldlayout/ops' && methode === 'PATCH') {
+    const vorherHash = layoutDateiHash(LAYOUT_DATEI);
+    return mitAnwendung(await weltOpsBehandeln(leib, { datei: LAYOUT_DATEI, instanz: INSTANZ }), vorherHash);
+  }
 
   if (pfad === '/api/worldlayout' && methode === 'POST') {
     // Gepruefte wird mit sanitizeWorldLayout, der STRENGEN Pruefung —
@@ -1744,6 +1751,8 @@ async function behandeln(
       // Async: Wartet ein fremder Schreiber auf der Sperre, bleibt die
       // Ereignisschleife frei (/status, /metriken, der Log-Strom laufen weiter).
       let geschrieben;
+      // Unter dem Basis-Vergleich der Sperre ist `basis` genau der Hash vor dem Schreiben.
+      const vorherHash = anlegen ? null : (basis ?? layoutDateiHash(LAYOUT_DATEI));
       if (anlegen) {
         const a = await weltAnlegen(LAYOUT_DATEI, dokument);
         if (a.art === 'existiert') {
@@ -1763,7 +1772,8 @@ async function behandeln(
       if (verworfen > 0) {
         console.warn(
           `[Admin] POST /api/worldlayout: ${verworfen} ungueltige(r) Eintrag/Eintraege im Dokument verworfen ` +
-            `(${Object.entries(verworfenJeFeld).map(([feld, n]) => `${feld} ${n}`).join(', ')}), Rest gespeichert`
+            `(${Object.entries(verworfenJeFeld).map(([feld, n]) => `${feld} ${n}`).join(', ')}), Rest gespeichert ` +
+            '(Platzierungen mit Fehlern kommen hier nie an: sie weist der Schreibweg vorher mit 422 ab)'
         );
       }
       return mitAnwendung({
@@ -1783,7 +1793,7 @@ async function behandeln(
           // Exakte Duplikate, die der Sanitizer zu einem Eintrag zusammengefasst hat: KEIN Verlust, zählt nicht bei `verworfen`.
           ...(zusammengefasst > 0 ? { zusammengefasst, zusammengefasstJeFeld } : {}),
         },
-      });
+      }, vorherHash);
     } catch (fehler) {
       // Zusatzfelder `ok`/`message` neben `fehler`: Der bestehende Client
       // liest nur diese beiden, und eine Ablehnung soll bei ihm nicht als

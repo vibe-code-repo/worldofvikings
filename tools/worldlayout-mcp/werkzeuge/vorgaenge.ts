@@ -140,7 +140,10 @@ mcp.registerTool(
       `Höchstens ${OPS_MAX_JE_AUFRUF} Operationen; ein Objekt höchstens einmal je Aufruf. ` +
       'Platzierungen brauchen ein Prefab aus catalog_search bzw. uploads_list (sonst Fehler, nichts gesendet). ' +
       '`vorher` weglassen heißt: der Stand, den dieser Aufruf gerade liest; wer strenger sein will, gibt `vorher` mit ' +
-      '(dann meldet eine fremde Änderung am selben Objekt einen Konflikt). Geländeänderungen (Regionen, Flüsse, Seen, ' +
+      '(dann meldet eine fremde Änderung am selben Objekt einen Konflikt; ein `vorher` aus area_describe ist ok, es wird bereinigt abgelegt). ' +
+      'Ein `nachher` einer Platzierung mit Tippfehlern (Zahl außerhalb des Bereichs, `null` bei scale/einebnen/npc.stufe, unbekannter Schlüssel wie `Yaw`, ' +
+      'ungültige id, gleiche id mit verschiedenem Inhalt) weist der Dienst mit 422 und der Liste {id, feld, wert} ab: nichts geschrieben, korrigieren und neu senden. ' +
+      'Geländeänderungen (Regionen, Flüsse, Seen, ' +
       'Kontinente, einebnen) wirken erst nach Neustart des Spielservers. Rückgängig: undo_last (nur Vorgänge von ops_apply, ' +
       'nicht von den alten *_set/*_delete).',
     inputSchema: {

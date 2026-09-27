@@ -2227,6 +2227,8 @@ const KERN = [
   // ... N4: the operations service (real, port 0) refuses typed-wrong placements with 422 + list and writes nothing; the note about a swallowed re-set reaches the answer.
   ['admin', 'test/weltops-tippfehler.ts'],
   ['shared', 'test/platzierungen-fehler.ts'],
+  // ... N5: a set but invalid id and duplicate ids with other content are refused (422); ops_apply `vorher` from area_describe can be undone; placement_set reports clamped values; a save without a change counts 0. Real service + real MCP.
+  ['admin', 'test/weltops-n5.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

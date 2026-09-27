@@ -474,9 +474,9 @@ export async function schreibeWeltdokument(
     };
   }
   if (antwort.ok && d.ok !== false) {
-    // Hat der Betriebsdienst Einträge verworfen (nur erreichbar mit einem
-    // Fremdschreiber oder einer älteren Editorfassung: Editor und Testflug
-    // schicken schon gefilterte Listen), steht die Zahl in der Meldung.
+    // Hat der Betriebsdienst Einträge verworfen, steht die Zahl in der Meldung. Für Platzierungen nie: Die weist der
+    // Dienst mit 422 ab (oben). Erreichbar nur noch für Kontinente, Routen, Flüsse und Seen mit einem Fremdschreiber
+    // oder einer älteren Editorfassung: Editor und Testflug schicken schon gefilterte Listen.
     const verworfen = Number(d.verworfen);
     const jeFeld =
       d.verworfenJeFeld && typeof d.verworfenJeFeld === 'object'

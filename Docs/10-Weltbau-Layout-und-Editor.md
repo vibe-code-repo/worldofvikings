@@ -142,6 +142,34 @@ Grenzen (sanitize): Bbox ±40 km (Dungeon-Band + float32), ≤512 Regionen,
 gezwungen — dann greift die Prefab-Vorgabe. Höhen der
 Placements werden NIE gespeichert — sie folgen beim Spawnen dem Boden.
 
+**Platzierungen: der Betriebsdienst klemmt nicht still, er weist ab.**
+`POST /api/worldlayout` und `PATCH /api/worldlayout/ops` prüfen das ROHE
+Dokument vor dem Bereinigen. Was der Sanitizer still ändern würde, ergibt
+`422` (`fehler: "ungueltig"`, `grund: "ungueltig"`) mit der Liste
+`fehlerhaft: [{id, feld, wert}]`, und nichts wird geschrieben (Datei
+byte-gleich, kein Baum belebt oder gelöscht). Die Liste erfasst:
+- Zahlen außerhalb des Bereichs (`yaw` ±2π, `scale` 0,2–5, `einebnen` 1–100,
+  `npc.stufe`), Unsinn statt Zahl (`"abc"`, `[1]`, `Infinity`), `null` bei
+  `scale`, `einebnen`, `npc.stufe`;
+- ungültige `route`, `npc` (kein Objekt, leer, ungültige `rolle`/`fraktion`/
+  `quest`), einen gekürzten `npc.name`;
+- **unbekannte Schlüssel** in einer Platzierung oder im `npc`-Block (`Yaw`);
+- eine **gesetzte, aber ungültige `id`** (Großbuchstabe, Leerzeichen, Umlaut,
+  Zahl, `null`, über 64 Zeichen), Feld `id`. Eine fehlende `id` ist erlaubt
+  (Altdokumente ohne ids bekommen sie abgeleitet);
+- **doppelte ids mit verschiedenem Inhalt** (`feld: "id"`, `wert: "doppelt"`).
+  Doppelte ids mit gleichem Inhalt faltet der Sanitizer weiter still zusammen;
+- Einträge, die der Sanitizer streicht (`prefab`, `x`, `z` ungültig, kein Objekt).
+
+Zahltexte, die der Server eindeutig liest (`"3"`), zählen nicht. Der Editor
+zeigt die Liste beim Speichern und fragt beim Import, statt still zu
+bereinigen; der MCP (`ops_apply`, `schreibe`) reicht sie an die KI weiter.
+Die alten `placement_set`-Werkzeuge klemmen weiter, melden aber jede
+geklemmte Größe als `{id, feld, wert, neu}`. Ein Speichern ohne Änderung
+(gleicher Hash) meldet `unveraendert: true` und Zähler 0, nicht die Zähler der
+vorigen Quittung. Listen außer `placements` (Kontinente, Routen, Flüsse, Seen)
+werden weiter bereinigt gespeichert und als `verworfen` gezählt.
+
 ## Kuratierung je Biom
 
 `region.vegetation` ist eine **exklusive** Liste: Steht eine Art darin,
@@ -361,7 +389,8 @@ Sicherung (`<instanz>.json.<ts>.bak`, letzte 10), dieselbe Byte-Darstellung
 und dieselbe Sperre wie für den Editor. Hat der Editor oder ein zweiter
 Aufruf in der Zwischenzeit gespeichert (`409`), meldet das Werkzeug es,
 statt die fremde Änderung zu überschreiben; mehr als 2.000 Platzierungen
-lehnt der Betriebsdienst mit `422` ab. *Vorher schrieb der MCP-Server die
+lehnt der Betriebsdienst mit `422` ab, ebenso Platzierungen mit Tippfehlern
+(Liste `{id, feld, wert}`, siehe „Grenzen (sanitize)“). *Vorher schrieb der MCP-Server die
 Datei selbst, an der Basisprüfung vorbei: ein Werkzeugaufruf konnte eine
 Editor-Sitzung stumm überschreiben, und ein Editor-Speichern den Aufruf.*
 

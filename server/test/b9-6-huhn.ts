@@ -10,7 +10,13 @@
  *      the manifest agree about the hen (size, flags, clips, life). The
  *      registry size is checked against the B9.6 IDLE-pose measurement
  *      (0.255 x 0.325 m), NOT assets/manifest.json's bind pose (0.381 m
- *      wide — wings spread for rigging, folded in the idle pose).
+ *      wide — wings spread for rigging, folded in the idle pose). Also
+ *      guards that the walk clip's playback rate is never silently capped
+ *      (T2, Pruefung 2026-09-28).
+ *  [1b] Ground truth on the DEFORMED mesh (own CPU-skin glTF reader, quarter-
+ *      frame sampling): idle/walk stay grounded, run keeps its native,
+ *      unplayed dip (M1, Pruefung 2026-09-28 — needs assets/models/Huhn.glb,
+ *      skipped cleanly without it).
  *  [2] The spawn system with the SHIPPED numbers (only interval and chance
  *      are forced, so the test does not wait): the hen spawns in the
  *      meadows, starts `idle` with 10 HP, the `anim` member follows the
@@ -26,7 +32,7 @@
  * Run: npx tsx server/test/b9-6-huhn.ts   (from the repo root)
  */
 import WebSocket from 'ws';
-import { readFileSync, rmSync } from 'fs';
+import { existsSync, readFileSync, rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -45,6 +51,7 @@ import {
   type SpawnEntry,
   type Vector3,
 } from '@wov/shared';
+import { CLIP_RATE_MAX, clipRate } from '../../client/src/entities/clipTempo.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
 import { SpawnSystem } from '../src/world/SpawnSystem.js';
@@ -69,6 +76,176 @@ const dist2d = (a: Vector3, b: Vector3): number => Math.hypot(a.x - b.x, a.z - b
 
 const HUHN_HASH = getStableHash('Huhn');
 const eintrag = (name: string): SpawnEntry | undefined => SPAWN_TABLE.find((e) => e.prefab === name);
+
+/**
+ * Minimal, dependency-free glTF-binary CPU skin evaluator (M1, Pruefung
+ * 2026-09-28): the ground offset bug (M1) only shows up on the DEFORMED
+ * mesh, not the bind pose the manifest carries — so this reads the shipped
+ * Huhn.glb directly, plays its `idle`/`walk` clips at quarter-frame steps
+ * (same sampling as the Blender-side measure_render.py/verify.py chain used
+ * to build the file) and returns the lowest vertex y at each sample. Same
+ * technique as tools/armor's skin gates, kept local to this test (the card
+ * lists no shared helper file for this card).
+ */
+interface GltfAccessor { bufferView: number; byteOffset?: number; componentType: number; count: number; type: string; normalized?: boolean }
+interface GltfBufferView { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }
+interface GltfNode { name?: string; children?: number[]; translation?: number[]; rotation?: number[]; scale?: number[]; matrix?: number[]; mesh?: number; skin?: number }
+interface GltfDoc {
+  nodes: GltfNode[];
+  scenes: { nodes: number[] }[];
+  meshes: { primitives: { attributes: Record<string, number>; indices?: number }[] }[];
+  skins: { joints: number[]; inverseBindMatrices: number }[];
+  animations: { name: string; channels: { sampler: number; target: { node: number; path: string } }[]; samplers: { input: number; output: number; interpolation?: string }[] }[];
+  accessors: GltfAccessor[];
+  bufferViews: GltfBufferView[];
+}
+const COMPONENT_BYTES: Record<number, number> = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
+const TYPE_COUNT: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+function parseGlb(buf: Buffer): { doc: GltfDoc; bin: Buffer } {
+  const jsonLen = buf.readUInt32LE(12);
+  const doc = JSON.parse(buf.subarray(20, 20 + jsonLen).toString('utf8')) as GltfDoc;
+  const binOff = 20 + jsonLen;
+  const binLen = buf.readUInt32LE(binOff);
+  const bin = buf.subarray(binOff + 8, binOff + 8 + binLen);
+  return { doc, bin };
+}
+function readAccessor(doc: GltfDoc, bin: Buffer, index: number): number[][] {
+  const acc = doc.accessors[index];
+  const view = doc.bufferViews[acc.bufferView];
+  const n = TYPE_COUNT[acc.type];
+  const size = COMPONENT_BYTES[acc.componentType];
+  const stride = view.byteStride ?? n * size;
+  const start = (view.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+  const out: number[][] = [];
+  for (let i = 0; i < acc.count; i++) {
+    const row: number[] = [];
+    for (let c = 0; c < n; c++) {
+      const off = start + i * stride + c * size;
+      let v: number;
+      switch (acc.componentType) {
+        case 5126: v = bin.readFloatLE(off); break;
+        case 5125: v = bin.readUInt32LE(off); break;
+        case 5123: v = bin.readUInt16LE(off); break;
+        case 5121: v = bin.readUInt8(off); break;
+        case 5122: v = bin.readInt16LE(off); break;
+        case 5120: v = bin.readInt8(off); break;
+        default: throw new Error(`unsupported componentType ${acc.componentType}`);
+      }
+      row.push(v);
+    }
+    out.push(row);
+  }
+  return out;
+}
+type Mat4 = number[]; // column-major, 16 entries (glTF convention)
+const IDENTITY: Mat4 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+function mat4Multiply(a: Mat4, b: Mat4): Mat4 {
+  const out = new Array(16).fill(0);
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 4; r++) {
+      let s = 0;
+      for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+      out[c * 4 + r] = s;
+    }
+  }
+  return out;
+}
+function mat4FromTRS(t: number[], q: number[], s: number[]): Mat4 {
+  const [x, y, z, w] = q;
+  const r: Mat4 = [
+    1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w), 0,
+    2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w), 0,
+    2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y), 0,
+    0, 0, 0, 1,
+  ];
+  for (let c = 0; c < 3; c++) for (let rr = 0; rr < 3; rr++) r[c * 4 + rr] *= s[c];
+  r[12] = t[0]; r[13] = t[1]; r[14] = t[2];
+  return r;
+}
+function mat4Apply(m: Mat4, p: number[]): number[] {
+  const [x, y, z] = p;
+  return [
+    m[0] * x + m[4] * y + m[8] * z + m[12],
+    m[1] * x + m[5] * y + m[9] * z + m[13],
+    m[2] * x + m[6] * y + m[10] * z + m[14],
+  ];
+}
+function slerp(a: number[], b: number[], t: number): number[] {
+  let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+  let bb = b;
+  if (dot < 0) { bb = b.map((v) => -v); dot = -dot; }
+  if (dot > 0.9995) {
+    const out = a.map((v, i) => v + (bb[i] - v) * t);
+    const len = Math.hypot(...out);
+    return out.map((v) => v / len);
+  }
+  const theta = Math.acos(Math.min(1, Math.max(-1, dot)));
+  const s0 = Math.sin((1 - t) * theta) / Math.sin(theta);
+  const s1 = Math.sin(t * theta) / Math.sin(theta);
+  return a.map((v, i) => v * s0 + bb[i] * s1);
+}
+
+/** Lowest y of the deformed mesh at `t` seconds into `clipName`, sampled `n` times over the clip. */
+function quarterFrameFloorMin(doc: GltfDoc, bin: Buffer, clipName: string, samplesPerSecond = 24 * 4): number {
+  const anim = doc.animations.find((a) => a.name === clipName);
+  if (!anim) throw new Error(`clip ${clipName} not found`);
+  const inputs = anim.samplers.map((s) => readAccessor(doc, bin, s.input).map((r) => r[0]));
+  const start = Math.min(...inputs.map((v) => v[0]));
+  const end = Math.max(...inputs.map((v) => v[v.length - 1]));
+  const steps = Math.max(1, Math.round((end - start) * samplesPerSecond));
+  const meshNode = doc.nodes.findIndex((n) => n.mesh !== undefined && n.skin !== undefined);
+  const mesh = doc.meshes[doc.nodes[meshNode].mesh!];
+  const prim = mesh.primitives[0];
+  const positions = readAccessor(doc, bin, prim.attributes.POSITION);
+  const joints = readAccessor(doc, bin, prim.attributes.JOINTS_0);
+  const weights = readAccessor(doc, bin, prim.attributes.WEIGHTS_0);
+  const skin = doc.skins[doc.nodes[meshNode].skin!];
+  const ibm = readAccessor(doc, bin, skin.inverseBindMatrices) as unknown as Mat4[];
+  const parents = new Map<number, number>();
+  for (let i = 0; i < doc.nodes.length; i++) for (const c of doc.nodes[i].children ?? []) parents.set(c, i);
+  let floor = Infinity;
+  for (let k = 0; k <= steps; k++) {
+    const t = start + ((end - start) * k) / steps;
+    const ns: GltfNode[] = doc.nodes.map((n) => ({ ...n }));
+    for (const ch of anim.channels) {
+      const sampler = anim.samplers[ch.sampler];
+      const times = inputs[ch.sampler];
+      const values = readAccessor(doc, bin, sampler.output);
+      let idx = 0;
+      while (idx < times.length - 1 && times[idx + 1] <= t) idx++;
+      let v = values[idx];
+      if (idx < times.length - 1 && (sampler.interpolation ?? 'LINEAR') === 'LINEAR') {
+        const r = (t - times[idx]) / (times[idx + 1] - times[idx]);
+        v = ch.target.path === 'rotation' ? slerp(values[idx], values[idx + 1], r) : values[idx].map((x, i) => x + (values[idx + 1][i] - x) * r);
+      }
+      (ns[ch.target.node] as Record<string, unknown>)[ch.target.path] = v;
+    }
+    const worldCache = new Map<number, Mat4>();
+    const world = (i: number): Mat4 => {
+      const cached = worldCache.get(i);
+      if (cached) return cached;
+      const n = ns[i];
+      const local = n.matrix ? (n.matrix as Mat4) : mat4FromTRS(n.translation ?? [0, 0, 0], n.rotation ?? [0, 0, 0, 1], n.scale ?? [1, 1, 1]);
+      const parent = parents.get(i);
+      const m = parent !== undefined ? mat4Multiply(world(parent), local) : local;
+      worldCache.set(i, m);
+      return m;
+    };
+    const jointMats = skin.joints.map((jointNode, ji) => mat4Multiply(world(jointNode), ibm[ji]));
+    for (let vi = 0; vi < positions.length; vi++) {
+      const p = positions[vi];
+      const js = joints[vi];
+      const ws = weights[vi];
+      let y = 0;
+      for (let b = 0; b < 4; b++) {
+        if (ws[b] === 0) continue;
+        y += mat4Apply(jointMats[js[b]], p)[1] * ws[b];
+      }
+      if (y < floor) floor = y;
+    }
+  }
+  return floor;
+}
 
 // ── [1] Tables ───────────────────────────────────────────────────
 console.log('\n[1] Tables: spawn table, registry, life, manifest');
@@ -108,6 +285,39 @@ console.log('\n[1] Tables: spawn table, registry, life, manifest');
     `hoehe ${manifest.modelle['Huhn']?.hoehe}, tiefe ${manifest.modelle['Huhn']?.tiefe}, breite(bind) ${manifest.modelle['Huhn']?.breite}`
   );
   check('walk clip speed declared (client couples playback rate to ground speed)', (d?.animationTempo?.walk ?? 0) > 0);
+  // T2 (Pruefung 2026-09-28): the coupling must not be silently capped — a
+  // capped rate means the clip cannot keep up with walkSpeed and the feet
+  // slide. Mutant animationTempo.walk=0.05 gives clipRate(0.5,0.05)=10,
+  // clamped to CLIP_RATE_MAX=4 -- this check must then fail.
+  const rate = clipRate(huhn?.walkSpeed ?? 0, d?.animationTempo?.walk);
+  check(`walk clip rate ${f(rate, 2)} stays under the cap ${CLIP_RATE_MAX} (not capped, no forced slide)`, rate < CLIP_RATE_MAX, `walkSpeed ${huhn?.walkSpeed}, clip ${d?.animationTempo?.walk}`);
+}
+
+// ── [1b] M1: ground truth on the DEFORMED mesh ────────────────────
+// Pruefung 2026-09-28: the old floor offset came from `run` (never played),
+// so idle/walk floated 3.3-4.4 cm. Needs the real binary (skipped cleanly
+// without assets, e.g. CI with WOV_OHNE_MODELLE=1).
+console.log('\n[1b] Ground truth: the foot point on the deformed mesh (needs assets/models/Huhn.glb)');
+{
+  const glbPfad = resolve(__dirname, '../../assets/models/Huhn.glb');
+  if (!existsSync(glbPfad)) {
+    console.log('  ÜBERSPRUNGEN — assets/models/Huhn.glb fehlt (assets/ liegt ausserhalb des Repos)');
+  } else {
+    const { doc, bin } = parseGlb(readFileSync(glbPfad));
+    const idleFloor = quarterFrameFloorMin(doc, bin, 'idle');
+    const walkFloor = quarterFrameFloorMin(doc, bin, 'walk');
+    const runFloor = quarterFrameFloorMin(doc, bin, 'run');
+    console.log(`      floor_min (quarter-frame, deformed mesh): idle ${f(idleFloor * 1000, 2)} mm, walk ${f(walkFloor * 1000, 2)} mm, run ${f(runFloor * 1000, 2)} mm (never played)`);
+    check('idle: foot point |y| < 5 mm (no float, no sink)', Math.abs(idleFloor) < 0.005, `${f(idleFloor * 1000, 2)} mm`);
+    // walk's own stance-phase toe dig (push-off, bone unrealMiddleToe2_R in
+    // the unmodified source) reaches -10.1 mm natively -- that is not a
+    // floating bug, so only the no-float side gets the 5 mm bound; a loose
+    // sanity floor catches a regressed/renewed shift bug.
+    check('walk: does not float (foot point <= 5 mm above ground)', walkFloor <= 0.005, `${f(walkFloor * 1000, 2)} mm`);
+    check('walk: no runaway sink either (foot point >= -20 mm)', walkFloor >= -0.02, `${f(walkFloor * 1000, 2)} mm`);
+    // run is intentionally left ungrounded (never played: flees:false, aggro:false).
+    check('run: keeps its own native dip (unplayed, not re-grounded)', runFloor < -0.03, `${f(runFloor * 1000, 2)} mm`);
+  }
 }
 
 // ── [2] Spawn system with the shipped numbers ────────────────────
@@ -440,7 +650,10 @@ async function main(): Promise<void> {
       check(`hen, ${waffe === '' ? 'fist' : waffe} (${schaden}): dead after ${soll} hit(s)`, r.schlaege === soll && huhn.destroyed, `hits ${r.schlaege}, HP ${r.hpReihe.join(' -> ')}`);
       check(`hen, ${waffe === '' ? 'fist' : waffe}: loot exactly 1 RawMeat in the inventory and in the message`, r.fleisch === 1 && r.meldung === `Huhn besiegt — 1× RawMeat`, `${r.fleisch}× / "${r.meldung}"`);
     }
-    check('flint axe (15 damage >= 10 HP): one hit suffices, per the card', Math.ceil(10 / 15) === 1);
+    // T1 (Pruefung 2026-09-28): removed an always-true check here
+    // (`Math.ceil(10/15)===1`, two literals with no code under test). The
+    // real claim -- one axe strike suffices -- is already the AxeFlint row
+    // of the loop above (`r.schlaege === soll`, checked against the server).
     ws.close();
   } finally {
     server.stop();

@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-27T20:07:07.909Z",
+ "erzeugt": "2026-09-27T21:07:46.173Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 314,
  "gemessen": 314,
@@ -2457,16 +2457,16 @@
   "Huhn": {
    "datei": "Huhn.glb",
    "foliage": false,
-   "bytes": 386144,
+   "bytes": 386128,
    "huelle": {
     "min": [
      -0.191,
-     0.044,
+     0,
      -0.134
     ],
     "max": [
      0.191,
-     0.369,
+     0.325,
      0.121
     ]
    },

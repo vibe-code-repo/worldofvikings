@@ -257,9 +257,9 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     // `flees: false` — it neither attacks nor bolts, it just wanders and
     // pecks, per B9.6.
     //
-    // Ring and count radius are tightened from the cow's 35-100 m to 15-40 m:
-    // a cow is 2.9 m long and reads at 80 m, a 0.26 m hen at that range is a
-    // few pixels — it needs to pop in closer to be noticed at all.
+    // Ring is tightened from the cow's 35-80 m to 15-40 m: a cow is 2.9 m
+    // long and reads at 80 m, a 0.26 m hen at that range is a few pixels —
+    // it needs to pop in closer to be noticed at all.
     //
     // Hens flock: groupSize 2-4 (vs. the cow's 1-2) in a tight 3 m radius,
     // and a short wander radius (8 m, vs. the cow's 15 m) — real chickens

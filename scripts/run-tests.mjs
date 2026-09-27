@@ -1591,13 +1591,6 @@ const KERN = [
   // schlaegt nie, Wolf jede 2 s mit 8) und der echte Paketweg: Treffer,
   // Tod nach gezaehlten Schlaegen, Beute im Inventar. ~70 s.
   ['server', 'test/b9-kreaturen-spiel.ts'],
-  // B9.6: das Huhn im Spiel — Tabellen (Spawn-Tabelle, Registry, Leben,
-  // Manifest-Clips, renderScale gegen die IDLE-Pose aus B9.6/Blender statt
-  // der Bindepose des Manifests), das Spawnsystem mit den ausgelieferten
-  // Zahlen (Wiese, `anim`-Member folgt der Bewegung, greift nie an) und der
-  // echte Paketweg: Treffer, Tod nach einem Steinaxt-Schlag, Beute im
-  // Inventar. ~40 s.
-  ['server', 'test/b9-6-huhn.ts'],
   // Besitz und Grenzen: fremde Betten und Truhen bleiben dem Besitzer (Bett,
   // Oeffnen und ContainerAction), der Wiedereinstieg im Instanz-Band gilt nicht,
   // Chat und Graben ueberqueren die Weltgrenze nicht, der Zaehler
@@ -2309,6 +2302,13 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  // B9.6: das Huhn im Spiel — Tabellen (Spawn-Tabelle, Registry, Leben,
+  // Manifest-Clips, renderScale gegen die IDLE-Pose aus B9.6/Blender statt
+  // der Bindepose des Manifests), das Spawnsystem mit den ausgelieferten
+  // Zahlen (Wiese, `anim`-Member folgt der Bewegung, greift nie an) und der
+  // echte Paketweg: Treffer, Tod nach einem Steinaxt-Schlag, Beute im
+  // Inventar. ~40 s.
+  ['server', 'test/b9-6-huhn.ts'],
   // PR #119 N1 (Befund B4/M9): uebergebeAnKlon() gibt einen aufgegebenen
   // Klon aus vegetationsAufgegebeneKlone frei, BEVOR es ihn per nimmAuf()
   // anmeldet — sonst blockiert die Sperre die eigene Freigabe, und weder

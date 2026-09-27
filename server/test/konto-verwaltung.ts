@@ -18,7 +18,7 @@
  *  6. Standardkonten sind gesperrt; Profiltext-Regeln; Meldung.
  */
 import { strict as assert } from 'node:assert';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { scryptSync, randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -553,6 +553,104 @@ try {
       ['Hangul fertig', '한글 안녕하세요'],
     ];
     for (const [name, text] of erlaubt) assert.equal((await setze(text)).status, 200, `erlaubt: ${name}`);
+  }
+
+  // ══ N3 (Opus-Pruefung N2) ═════════════════════════════════════════════
+
+  // M1: Ein erfolgreicher Login (auch in das oeffentliche gast-Konto) setzt die
+  // Login-Zaehlung gegen andere Konten nicht zurueck: vier falsch am Opferkonto,
+  // ein Gast-Login, 14 Runden, von EINER Adresse.
+  {
+    await neuesKonto('LoginOpfer');
+    const ip = '198.51.100.120';
+    let biszumHash = 0;
+    let gesperrt429 = 0;
+    for (let runde = 0; runde < 14; runde++) {
+      for (let n = 0; n < 4; n++) {
+        const r = await aufruf('POST', '/accounts/login', { username: 'LoginOpfer', password: `rate${runde}-${n}xx` }, undefined, ip);
+        if (r.status === 401) biszumHash++; else if (r.status === 429) gesperrt429++;
+      }
+      const g = await aufruf('POST', '/accounts/login', { username: 'gast', password: 'gastpasswort1' }, undefined, ip);
+      assert.equal(g.status, 200, `gast-Login in Runde ${runde}`);
+    }
+    assert.ok(biszumHash <= 5, `Login-Raten von einer Adresse: hoechstens fuenf kommen bis zum Hash (waren ${biszumHash})`);
+    assert.ok(gesperrt429 >= 50, `der Rest wird gesperrt (${gesperrt429})`);
+    assert.equal((await aufruf('POST', '/accounts/login', { username: 'LoginOpfer', password: 'altespasswort1' }, undefined, '198.18.9.9')).status, 200, 'der Besitzer von anderer Adresse kommt durch');
+  }
+
+  // Herkunftszaehler: viele Konten von einer Adresse, Erfolge setzen ihn nicht zurueck.
+  {
+    const konten: string[] = [];
+    for (let i = 0; i < 7; i++) { konten.push(`Klapper${i}`); await neuesKonto(`Klapper${i}`); }
+    const ip = '198.51.100.121';
+    let biszumHash = 0;
+    let gesperrt429 = 0;
+    for (const name of konten) {
+      for (let n = 0; n < 4; n++) {
+        const r = await aufruf('POST', '/accounts/login', { username: name, password: `falsch${n}xxxxx` }, undefined, ip);
+        if (r.status === 401) biszumHash++; else if (r.status === 429) gesperrt429++;
+      }
+      await aufruf('POST', '/accounts/login', { username: 'gast', password: 'gastpasswort1' }, undefined, ip);
+    }
+    assert.ok(biszumHash <= 25, `hoechstens 25 Login-Fehlversuche je Herkunft ueber alle Konten (waren ${biszumHash})`);
+    assert.ok(gesperrt429 >= 1, 'danach 429');
+  }
+
+  // L7: Die Rettung umgeht die Herkunftssperre des Logins nicht.
+  {
+    await neuesKonto('Rettung2');
+    const ip = '198.51.100.122';
+    for (let n = 0; n < 5; n++) {
+      assert.equal((await aufruf('POST', '/accounts/login', { username: 'Rettung2', password: `falsch${n}xxxxx` }, undefined, ip)).status, 401);
+    }
+    const r = await aufruf('POST', '/accounts/login', { username: 'Rettung2', password: 'altespasswort1', logoutOthers: true }, undefined, ip);
+    assert.equal(r.status, 429, 'Rettung von gesperrter Herkunft: 429');
+    const von = await aufruf('POST', '/accounts/login', { username: 'Rettung2', password: 'altespasswort1', logoutOthers: true }, undefined, '198.51.100.123');
+    assert.equal(von.status, 200, 'von anderer Herkunft geht sie');
+  }
+
+  // N2: Die Rettung raeumt auch die Bestaetigungssperre (Herkunft, Konto).
+  {
+    const u = await neuesKonto('Hausnetz');
+    const ip = '198.51.100.160';
+    for (let n = 0; n < 5; n++) {
+      assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: `falsch${n}xxxx`, email: 'h@example.org' }, u.token, ip)).status, 401);
+    }
+    assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: 'altespasswort1', email: 'h@example.org' }, u.token, ip)).status, 429, 'gesperrt');
+    const rette = await aufruf('POST', '/accounts/login', { username: 'Hausnetz', password: 'altespasswort1', logoutOthers: true }, undefined, '198.51.100.161');
+    assert.equal(rette.status, 200);
+    assert.equal((await aufruf('POST', '/accounts/email', { currentPassword: 'altespasswort1', email: 'h@example.org' }, rette.daten.token, ip)).status, 200,
+      'nach der Rettung geht die Bestaetigung auch von der vorher gesperrten Adresse');
+  }
+
+  // N4: Ein VOR der Rettung begonnener, langsamer Schreibaufruf schreibt danach nicht mehr.
+  {
+    const u = await neuesKonto('Langsam');
+    const langsam = (pfad: string, koerper: unknown): { fertig: Promise<number>; senden: () => void } => {
+      const text = JSON.stringify(koerper);
+      const [host, port] = basis.replace('http://', '').split(':');
+      let senden: () => void = () => undefined;
+      const fertig = new Promise<number>((ok, scheitern) => {
+        const rq = httpRequest({
+          host, port: Number(port), method: 'POST', path: pfad,
+          headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(text)),
+            'x-wov-account': u.token, 'x-forwarded-for': '198.51.100.170' },
+        }, (res) => { res.resume(); res.on('end', () => ok(res.statusCode ?? 0)); });
+        rq.on('error', scheitern);
+        rq.flushHeaders();
+        senden = () => rq.end(text);
+      });
+      return { fertig, senden };
+    };
+    const profil = langsam('/accounts/profile', { text: 'Ich schreibe nach der Rettung' });
+    const anlegen = langsam('/accounts/characters', { name: 'Nachzuegler', ...aussehen });
+    await new Promise((r) => setTimeout(r, 200));
+    const rette = await aufruf('POST', '/accounts/login', { username: 'Langsam', password: 'altespasswort1', logoutOthers: true }, undefined, '198.51.100.171');
+    assert.equal(rette.status, 200);
+    profil.senden(); anlegen.senden();
+    assert.deepEqual([await profil.fertig, await anlegen.fertig], [401, 401], 'beide Aufrufe werden abgewiesen');
+    assert.equal(db.profilTextVon(u.kontoId), '', 'kein Profiltext geschrieben');
+    assert.equal(db.charaktereVonKonto(u.kontoId).length, 0, 'kein Charakter angelegt');
   }
 
   console.log('konto-verwaltung: alle Zusicherungen erfuellt');

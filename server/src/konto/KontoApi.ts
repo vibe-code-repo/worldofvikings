@@ -60,6 +60,14 @@ const MAX_KOERPER_BYTES = 4096;
 
 /** Failed logins per IP: five in fifteen minutes, then a pause. */
 const FEHLVERSUCHE_MAX = 5;
+/**
+ * Login-Versuche je Herkunft ueber ALLE Konten, die ein Erfolg NICHT
+ * zuruecksetzt. Gegen das Abklappern vieler Konten von einer Adresse; hoeher
+ * als `FEHLVERSUCHE_MAX`, weil hinter einer Adresse (NAT, Haushalt) mehrere
+ * Menschen sitzen koennen. Bewusst KEIN kontoweites Login-Limit: das koennte
+ * ein Dieb dem Besitzer zudrehen, und der Rettungsweg laeuft ueber den Login.
+ */
+const LOGIN_HERKUNFT_MAX = 25;
 const FEHLVERSUCHE_FENSTER_MS = 15 * 60 * 1000;
 
 /**
@@ -162,6 +170,13 @@ export class KontoApi {
    * Erfolg, wieder von vorn).
    */
   private readonly bestaetigungen = new Map<string, { anzahl: number; bis: number }>();
+  /**
+   * Login-Versuche je (Herkunft, Konto). Ein Erfolg loescht NUR diesen
+   * Schluessel — sonst setzte jeder erfolgreiche Login in ein beliebiges
+   * Konto (auch das oeffentliche `gast`) die Zaehlung gegen andere Konten
+   * dieser Adresse zurueck (vier falsch, ein Gast-Login, von vorn).
+   */
+  private readonly loginVersuche = new Map<string, { anzahl: number; bis: number }>();
   /** Nur fuer Tests, s. `KontoTestHaken`. */
   testHaken: KontoTestHaken = {};
 
@@ -362,7 +377,7 @@ export class KontoApi {
 
   private async anmelden(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const ip = this.herkunft(req);
-    if (this.gesperrt(ip)) return this.json(res, 429, { error: 'too-many-attempts' });
+    if (this.herkunftGesperrt(ip)) return this.json(res, 429, { error: 'too-many-attempts' });
 
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
@@ -370,6 +385,15 @@ export class KontoApi {
     const benutzername = String(k.username ?? '').trim();
     const passwort = String(k.password ?? '');
     const konto = benutzername ? this.db.kontoNachName(benutzername) : null;
+
+    // Gezaehlt wird VOR dem Hashen (gleichzeitige Versuche umgehen die Sperre
+    // sonst) und bei Erfolg zurueckgenommen. Unbekannte Namen teilen sich einen
+    // Schluessel, damit das Abklappern von Namen nicht je Name neu zaehlt.
+    const versuchsSchluessel = `${ip}|${konto?.id ?? '-'}`;
+    if (this.loginVersuchGesperrt(versuchsSchluessel)) {
+      return this.json(res, 429, { error: 'too-many-attempts' });
+    }
+    this.loginVersuchZaehlen(versuchsSchluessel, ip);
     // Die Generation VOR dem Hashen: Nur ein Passwortwechsel (oder "ueberall
     // abmelden") zaehlt sie hoch, das Hash-Upgrade eines gleichzeitigen Logins
     // nicht. Verglichen wird nach dem letzten await nur diese Zahl, nicht der
@@ -387,12 +411,15 @@ export class KontoApi {
     await this.testHaken.nachLoginPruefung?.();
 
     if (!konto || !stimmt) {
-      this.fehlversuchZaehlen(ip);
       // One message for both cases — "unknown user" would be an oracle.
       return this.json(res, 401, { error: 'login-failed' });
     }
 
-    this.fehlversuche.delete(ip);
+    // Erfolg: nur der Schluessel dieses Kontos faellt weg, der Herkunftszaehler
+    // bekommt seinen Versuch zurueck (ein Erfolg verbraucht kein Budget), wird
+    // aber nie auf null gesetzt.
+    this.loginVersuche.delete(versuchsSchluessel);
+    this.herkunftErstatten(ip);
     // Ein gemeinsames Ausprobier-Konto kennt jeder; "ueberall abmelden" darf dort
     // nicht dazu taugen, allen anderen die Sitzung zu nehmen.
     if (ueberallAbmelden && this.istGeschuetzt(konto.benutzername)) {
@@ -424,6 +451,11 @@ export class KontoApi {
       if (!neu) return this.json(res, 401, { error: 'login-failed' });
       generation = neu.generation;
       this.kontoFehlversuche.delete(konto.id);
+      // Auch die Bestaetigungssperren dieses Kontos (je Herkunft): das Token des
+      // Diebs, gegen das sie gedacht waren, ist damit ohnehin tot.
+      for (const schluessel of [...this.bestaetigungen.keys()]) {
+        if (schluessel.endsWith(`|${konto.id}`)) this.bestaetigungen.delete(schluessel);
+      }
       try {
         this.haken.spielerTrennen?.(this.db.charaktereVonKonto(konto.id).map((c) => c.spielerId));
       } catch (e) {
@@ -454,12 +486,23 @@ export class KontoApi {
     });
   }
 
+  /**
+   * Das Token gilt NACH dem Lesen des Koerpers noch? Der Koerper kann langsam
+   * kommen (bis zum requestTimeout); in der Zwischenzeit kann eine Rettung
+   * ("ueberall abmelden") oder ein Passwortwechsel das Token beendet haben.
+   * Ohne diese zweite Pruefung schriebe ein davor begonnener Aufruf noch.
+   */
+  private nochAngemeldet(req: IncomingMessage, kontoId: number): boolean {
+    return this.kontoAus(req) === kontoId;
+  }
+
   private async charakterAnlegen(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const kontoId = this.kontoAus(req);
     if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
 
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
 
     const name = String(k.name ?? '').trim();
     if (!CHARAKTERNAME_REGEX.test(name)) return this.json(res, 400, { error: 'name-invalid' });
@@ -541,6 +584,7 @@ export class KontoApi {
 
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
 
     if (k.characterId === null || k.characterId === undefined || k.characterId === '') {
       this.db.avatarSetzen(kontoId, null);
@@ -578,6 +622,7 @@ export class KontoApi {
     if (this.kontoGeschuetzt(kontoId)) return this.json(res, 403, { error: 'standard-account' });
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
     const text = typeof k.text === 'string' ? bereinigeText(k.text, PROFILTEXT_MAX) : null;
     if (text === null) return this.json(res, 400, { error: 'profile-invalid' });
     this.db.profilTextSetzen(kontoId, text);
@@ -590,6 +635,7 @@ export class KontoApi {
     if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
     const grund = typeof k.reason === 'string' ? bereinigeText(k.reason, 200) : '';
     if (grund === null) return this.json(res, 400, { error: 'reason-invalid' });
     const r = this.db.profilMelden(kontoId, charakterId, grund);
@@ -828,21 +874,41 @@ export class KontoApi {
     return herkunftErmitteln(req);
   }
 
-  private gesperrt(ip: string): boolean {
+  private herkunftGesperrt(ip: string): boolean {
     const e = this.fehlversuche.get(ip);
     if (!e) return false;
     if (Date.now() > e.bis) { this.fehlversuche.delete(ip); return false; }
+    return e.anzahl >= LOGIN_HERKUNFT_MAX;
+  }
+
+  private loginVersuchGesperrt(schluessel: string): boolean {
+    const e = this.loginVersuche.get(schluessel);
+    if (!e) return false;
+    if (Date.now() > e.bis) { this.loginVersuche.delete(schluessel); return false; }
     return e.anzahl >= FEHLVERSUCHE_MAX;
   }
 
-  private fehlversuchZaehlen(ip: string): void {
+  /** Ein Login-Versuch: je (Herkunft, Konto) UND je Herkunft. */
+  private loginVersuchZaehlen(schluessel: string, ip: string): void {
     const jetzt = Date.now();
-    const e = this.fehlversuche.get(ip);
-    if (!e || jetzt > e.bis) {
+    const k = this.loginVersuche.get(schluessel);
+    if (!k || jetzt > k.bis) {
+      this.loginVersuche.set(schluessel, { anzahl: 1, bis: jetzt + FEHLVERSUCHE_FENSTER_MS });
+    } else {
+      k.anzahl++;
+    }
+    const h = this.fehlversuche.get(ip);
+    if (!h || jetzt > h.bis) {
       this.fehlversuche.set(ip, { anzahl: 1, bis: jetzt + FEHLVERSUCHE_FENSTER_MS });
     } else {
-      e.anzahl++;
+      h.anzahl++;
     }
+  }
+
+  /** Ein erfolgreicher Login gibt seinen Versuch am Herkunftszaehler zurueck (nie unter null). */
+  private herkunftErstatten(ip: string): void {
+    const h = this.fehlversuche.get(ip);
+    if (h && h.anzahl > 0) h.anzahl--;
   }
 
   private bestaetigungGesperrt(schluessel: string): boolean {

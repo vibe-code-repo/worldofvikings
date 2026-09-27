@@ -16,8 +16,11 @@
  *     in `instance.players`, kein Absturz, keine ZDOs mit seinem Besitz in
  *     irgendeiner Welt, die leere Instanz wird verworfen.
  *  C. Passwortwechsel trennt Spiel UND Editor-Verbindung des Kontos (jede
- *     einzeln als Objekt), der Spielstand bleibt, das alte Spieler-Token wird
- *     abgewiesen, ein neues gilt. "Überall abmelden" trennt ebenso.
+ *     einzeln als Objekt, FREMDE Verbindungen mit aehnlichem oder gleichem Namen
+ *     und der Zeuge bleiben), der Spielstand bleibt, das alte Spieler-Token wird
+ *     abgewiesen, ein neues gilt. "Überall abmelden" trennt ebenso, beendet das
+ *     alte Konto-Token und weist auch Spieler-Token von vor der Rettung ab.
+ *     (Prueffragen aus der Opus-Probe des Nachangriffs uebernommen.)
  *
  * Ablauf: npx tsx server/test/konto-verwaltung-welt.ts   (aus der Wurzel)
  */
@@ -281,19 +284,37 @@ async function main(): Promise<void> {
     const vE = verbinde(dagmar.charName, t1, true);
     await vD.fertig; await vE.fertig;
     check('C: Spiel- und Editor-Verbindung stehen', vD.angemeldet && vE.angemeldet);
+    // OPUS: fremde Verbindungen mit aehnlichen/gleichen Namen
+    const dagmara = await konto(server, 'Dagmara', 'Dagmarra');
+    const vAehnlich = verbinde(dagmara.charName, await dagmara.play(dagmara.token));
+    const vGastEditor = verbinde(dagmar.charName, '', true);
+    const vGastSpiel = verbinde('Dagmar', '');
+    await vAehnlich.fertig; await vGastEditor.fertig; await vGastSpiel.fertig;
+    check('OPUS C: fremde Verbindungen stehen', vAehnlich.angemeldet && vGastEditor.angemeldet && vGastSpiel.angemeldet,
+      `aehnlich=${vAehnlich.angemeldet} gastEditor=${vGastEditor.angemeldet}/${vGastEditor.ablehnung} gastSpiel=${vGastSpiel.angemeldet}/${vGastSpiel.ablehnung}`);
     await warte(400);
     const w = await http('/accounts/password', { currentPassword: PASSWORT, newPassword: 'neuespasswort2' }, dagmar.token);
     check('C: Passwortwechsel 200', w.code === 200, JSON.stringify(w.daten));
     await bis(() => vD.geschlossen && vE.geschlossen, 3_000);
     check('C: beide Verbindungen getrennt (Spiel und Editor)', vD.geschlossen && vE.geschlossen, `spiel=${vD.geschlossen} editor=${vE.geschlossen}`);
-    check('C: keine Peers des Kontos mehr', !peerVon(dagmar.charName) && !peerVon(dagmar.charName, true));
+    await warte(500);
+    check('OPUS C: Zeuge, aehnliches Konto, Gast-Editor gleichen Namens und Gast-Spiel bleiben nach Passwortwechsel',
+      !vZ.geschlossen && !vAehnlich.geschlossen && !vGastEditor.geschlossen && !vGastSpiel.geschlossen,
+      `zeuge=${!vZ.geschlossen} aehnlich=${!vAehnlich.geschlossen} gastEditor=${!vGastEditor.geschlossen} gastSpiel=${!vGastSpiel.geschlossen}`);
+    vGastEditor.ws.close(); await bis(() => vGastEditor.geschlossen, 3_000); await warte(300);
+    check('C: keine Peers des Kontos mehr', !peerVon(dagmar.charName) && server.net.getPeers().filter((p) => p.spielerId === dagmar.spielerId).length === 0);
     check('C: der Spielstand bleibt', innen.savedPlayers.has(dagmar.spielerId));
     const alt = verbinde(dagmar.charName, t1);
     await alt.fertig;
     check('C: das alte Spieler-Token wird abgewiesen', !alt.angemeldet, alt.ablehnung);
     const neu = await dagmar.play(String(w.daten.token));
     const vN = verbinde(dagmar.charName, neu);
-    await vN.fertig;
+    const vNE = verbinde(dagmar.charName, neu, true);
+    await vN.fertig; await vNE.fertig;
+    check('OPUS C: Editor mit neuem Token steht', vNE.angemeldet, vNE.ablehnung);
+    const vGastEditor2 = verbinde(dagmar.charName, '', true);
+    await vGastEditor2.fertig;
+    check('OPUS R: Gast-Editor mit Charakternamen steht', vGastEditor2.angemeldet, vGastEditor2.ablehnung);
     check('C: ein neues Spieler-Token gilt', vN.angemeldet, vN.ablehnung);
 
     // "Ueberall abmelden" trennt ebenso.
@@ -302,6 +323,26 @@ async function main(): Promise<void> {
     check('C: "ueberall abmelden" antwortet 200', abm.code === 200);
     await bis(() => vN.geschlossen, 3_000);
     check('C: die laufende Verbindung ist getrennt', vN.geschlossen);
+    await bis(() => vNE.geschlossen, 3_000);
+    check('OPUS R: Rettung trennt auch den Editor', vNE.geschlossen);
+    const mw = await http('/accounts/me', undefined, String(w.daten.token));
+    check('OPUS R: Konto-Token aus dem Wechsel danach 401', mw.code === 401, String(mw.code));
+    const mr = await http('/accounts/me', undefined, String(abm.daten.token));
+    check('OPUS R: Rettungs-Token gilt', mr.code === 200, String(mr.code));
+    await warte(300);
+    check('OPUS R: Zeuge, aehnliches Konto und Gaeste bleiben nach Rettung',
+      !vZ.geschlossen && !vAehnlich.geschlossen && !vGastEditor2.geschlossen && !vGastSpiel.geschlossen,
+      `zeuge=${!vZ.geschlossen} aehnlich=${!vAehnlich.geschlossen} gastEditor=${!vGastEditor2.geschlossen} gastSpiel=${!vGastSpiel.geschlossen}`);
+    vGastEditor2.ws.close(); await bis(() => vGastEditor2.geschlossen, 3_000); await warte(300);
+    const altN = verbinde(dagmar.charName, neu);
+    await altN.fertig;
+    check('OPUS R: Spieler-Token von vor der Rettung abgewiesen (Grund spieler_ab)', !altN.angemeldet && /Passwort geaendert/.test(altN.ablehnung), altN.ablehnung || 'angemeldet');
+    if (altN.angemeldet) { altN.ws.close(); await bis(() => altN.geschlossen, 3_000); await warte(300); }
+    const nachR = await dagmar.play(String(abm.daten.token));
+    const vR = verbinde(dagmar.charName, nachR);
+    await vR.fertig;
+    check('OPUS R: nach der Rettung neues Spieler-Token gilt', vR.angemeldet, vR.ablehnung);
+    vR.ws.close(); vAehnlich.ws.close(); vGastSpiel.ws.close();
     vZ.ws.close();
   } finally {
     server.stop();

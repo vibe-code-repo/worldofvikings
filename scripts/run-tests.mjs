@@ -2266,6 +2266,13 @@ const KERN = [
   ['client', 'test/testflug-greifen.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // A foreign peer never gets the builder's account id (`besitzer`) or the ZDO owner field of a character, full state or delta, real clients + strict wire reader.
+  ['server', 'test/besitzer-sichtbar.ts'],
+  // Privacy fix: PlayerList carries only name+ping now (no userId, no position),
+  // and Chat's senderId field is a constant placeholder, not the sender's account
+  // identity — real WS clients, strict wire reader (checks the packet is fully
+  // consumed after the known fields).
+  ['server', 'test/spielerliste-privat.ts'],
   // Karte „Editor Upload-Größe": Grundskala in Registry + Hülle (huellenAufloeser) —
   // Feld optional (fehlt = 1), Grenzen 0,01…100, Hülle multipliziert statt abschreibt.
   // Nachbesserung N1 (H1): applyUploadedModelRegistry übernimmt eine geänderte

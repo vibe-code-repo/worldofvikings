@@ -2874,8 +2874,13 @@ export class WovServer {
     // ChatReichweite.ts. Der Absender ist über waehleChatEmpfaenger IMMER
     // dabei, auch ohne Empfänger in der Nähe — sonst wirkt der Chat für
     // ihn kaputt.
+    // Privacy fix (2026-09-27): this first field used to be the sender's
+    // userId (account identity), broadcast to every recipient. The client
+    // reads and discards it (main.ts, PacketType.ChatMessage handler) —
+    // senderName already carries what the UI shows — so it now carries a
+    // constant placeholder instead of an identity.
     const writer = new Writer();
-    writer.writeString(peer.userId.toString());
+    writer.writeString('0');
     writer.writeString(peer.name);
     writer.writeInt32(chatType);
     writer.writeString(text);

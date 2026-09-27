@@ -598,13 +598,16 @@ export class NetManager {
     });
   }
 
+  // Privacy fix (2026-09-27): userId and position used to go out for every
+  // online peer, world-wide and unrange-checked — nobody reads this packet
+  // client-side today (no PacketType.PlayerList listener anywhere), so both
+  // fields only leaked account identity and live position. Name + ping is
+  // what a future player-list UI needs; identity and position are dropped.
   private sendPlayerList(): void {
     const writer = new Writer();
     writer.writeInt32(this.onlinePeers.length);
     for (const p of this.onlinePeers) {
       writer.writeString(p.name);
-      writer.writeString(p.userId.toString());
-      writer.writeVector3(p.position);
       writer.writeInt32(p.ping);
     }
     const payload = writer.toBuffer();

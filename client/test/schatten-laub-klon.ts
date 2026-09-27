@@ -36,6 +36,30 @@ const pruefe = (bedingung: boolean, text: string): void => {
   }
 };
 
+/**
+ * Shadows.tick() teilt Packen und Werfer-Scan ein WALL-CLOCK-Budget
+ * (WERFER_BUDGET_MS = 4ms, Shadows.ts). Stehen mehrere Master zugleich zum
+ * Packen an, verarbeitet der Tick den ersten immer, jeden weiteren nur, wenn
+ * seit Tick-Beginn real weniger als 4ms vergangen sind. Unter Last kann der
+ * Scheduler allein zwischen zwei performance.now()-Aufrufen mehr als 4ms
+ * verstreichen lassen, ohne dass der Code irgendetwas Teures tut — dann faellt
+ * das Packen eines zweiten Masters in den naechsten Tick, und eine Zusicherung
+ * ueber den Zustand NACH einem einzigen tick() wird flackernd rot (beobachtet
+ * unter Last in einem anderen Testlauf, 27.09.2026). Fuer einen Tick, der
+ * mehrere Master zugleich packen soll, wird die Uhr deshalb eingefroren: das
+ * macht den Test unabhaengig vom Scheduler, ohne das Zeitbudget selbst
+ * (Produktionsverhalten, gegen Sprint-Ruckler) anzufassen.
+ */
+function tickeEingefroren(shadows: { tick(): void }): void {
+  const echt = performance.now;
+  performance.now = () => 0;
+  try {
+    shadows.tick();
+  } finally {
+    performance.now = echt;
+  }
+}
+
 console.log('Schatten G20: Laub-Klone');
 const EINHEIT = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
@@ -156,8 +180,8 @@ function wrapperKenntSubMesh(m: Mesh): boolean {
     shadows.tick();
     pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 1, 'ein neuer Klon wartet nicht auf seinen Shader');
     const vorLeerlauf = shadows.vegetationsSchattenStats().tiefeAnmeldungen;
-    shadows.setPlayerPosition(9000, 9000); // alle Instanzen fallen aus dem Ring
-    shadows.tick();
+    shadows.setPlayerPosition(9000, 9000); // alle Instanzen fallen aus dem Ring, zwei Master stehen jetzt zum Packen an
+    tickeEingefroren(shadows); // deterministisch: beide Master muessen in DIESEM Tick fertig werden, s. Kommentar oben
     // M1: In dem Bild, in dem der Ring leerlaeuft, wird nichts mehr angemeldet.
     // tick() ruft tiefeNachziehen() VOR dem Packen; der Klon hatte da noch
     // `aktiv` 3 und wurde noch einmal angemeldet, obwohl das Packen ihn gleich
@@ -274,6 +298,66 @@ function wrapperKenntSubMesh(m: Mesh): boolean {
     );
     innen.vegetationsPackPending.clear();
   }
+
+  intern.generator = null;
+  shadows.dispose();
+  scene.dispose();
+  engine.dispose();
+}
+
+// ── X8: Das Zeitbudget schiebt einen zweiten Master wirklich auf ────────
+// Gegenstueck zu tickeEingefroren oben: hier LAEUFT die Uhr ueber das
+// Budget hinaus, zwischen dem ersten und dem zweiten anstehenden Master.
+// Ohne den Waechter (`gepackt > 0 && performance.now() >= budgetEnde`,
+// Shadows.tick()) packte tick() beide sofort, unabhaengig von der Uhr —
+// dann bliebe hier kein Master mehr in vegetationsPackPending stehen.
+{
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const shadows = new Shadows(scene, new DirectionalLight('sonne', new Vector3(0.3, -1, 0.2), scene));
+  const fake = {
+    freezeShadowCastersBoundingInfo: false,
+    numCascades: 2,
+    shadowMaxZ: 50,
+    addShadowCaster: () => undefined,
+    getShadowMap: () => ({ renderList: [] as Mesh[] }),
+    isReady: () => false,
+    dispose: () => undefined,
+  };
+  const intern = shadows as unknown as { generator: unknown; stufe: number };
+  intern.generator = fake;
+  intern.stufe = 2;
+
+  const laubX = prototyp(scene, 'leaves_x8_a', true);
+  const laubY = prototyp(scene, 'leaves_x8_b', true);
+  const matrizen = new Float32Array(16 * 3);
+  for (let i = 0; i < 3; i++) {
+    matrizen.set(EINHEIT, i * 16);
+    matrizen[i * 16 + 12] = i * 2;
+  }
+  shadows.setPlayerPosition(0, 0);
+  shadows.setVegetationsInstanzen(laubX, matrizen);
+  shadows.setVegetationsInstanzen(laubY, matrizen); // beide stehen jetzt zum Packen an
+
+  // Deterministische Uhr statt echter Wartezeit: 1. Aufruf (budgetEnde-Berechnung
+  // in tick()) liefert 0, jeder weitere 1000 — weit ueber WERFER_BUDGET_MS (4ms)
+  // hinaus. tiefeNachziehen() (vor der Budget-Berechnung) ruft performance.now
+  // nicht auf, s. Shadows.ts.
+  const echt = performance.now;
+  let aufrufe = 0;
+  performance.now = () => (aufrufe++ === 0 ? 0 : 1000);
+  try {
+    shadows.tick();
+  } finally {
+    performance.now = echt;
+  }
+
+  const st = shadows.vegetationsSchattenStats();
+  pruefe(
+    st.pending === 1,
+    `das Zeitbudget hat den zweiten Master nicht aufgeschoben: ${st.pending} stehen noch an, erwartet 1 (X8)`
+  );
+  pruefe(st.aktiv === 3, `der erste Master wurde trotz Budget nicht fertig gepackt: aktiv ${st.aktiv}`);
 
   intern.generator = null;
   shadows.dispose();

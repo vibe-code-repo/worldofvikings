@@ -45,9 +45,16 @@ function check(name: string, cond: boolean, detail = ''): void {
 // createWovServer ohne init(): Der Konstruktor verdrahtet nur Subsysteme,
 // writeZDO hängt an keinem Weltzustand.
 const server = createWovServer({ port: 0 /* init() only, never bound */, worldsDir: '/tmp/wov-d6-test-unused', kontenDir: '/tmp/wov-d6-test-unused-konten' });
+type TestPeer = { userId: bigint };
 const schreibe = (server as unknown as {
-  writeZDO(w: Writer, zdo: ZDO, peerRev: number | undefined): void;
+  writeZDO(w: Writer, zdo: ZDO, peerRev: number | undefined, peer: TestPeer): void;
 }).writeZDO.bind(server);
+
+// writeZDO braucht seit der Besitzer-Sichtbar-Karte einen Peer (Bit1 des
+// Satzkopfs traegt seither "ist der EMPFAENGER der Besitzer" statt "hat
+// irgendeinen Besitzer") — ein neutraler Peer ohne passende userId genuegt
+// fuer alle Faelle ausser [6], die die Zuordnung selbst pruefen.
+const FREMDER_TEST_PEER: TestPeer = { userId: 0n };
 
 /**
  * Ein Sync-Paket bauen — exakt der Rahmen aus syncZDOs: tick, Satzanzahl,
@@ -55,13 +62,14 @@ const schreibe = (server as unknown as {
  */
 function paket(
   saetze: Array<{ zdo: ZDO; peerRev: number | undefined }>,
-  zerstoert: ZDOID[] = []
+  zerstoert: ZDOID[] = [],
+  peer: TestPeer = FREMDER_TEST_PEER
 ): { puffer: Buffer; satzBytes: number } {
   const w = new Writer(1024);
   w.writeInt32(4711);
   w.writeInt32(saetze.length);
   const vorher = w.geschrieben;
-  for (const s of saetze) schreibe(w, s.zdo, s.peerRev);
+  for (const s of saetze) schreibe(w, s.zdo, s.peerRev, peer);
   const satzBytes = w.geschrieben - vorher;
   w.writeInt32(zerstoert.length);
   for (const id of zerstoert) {
@@ -196,16 +204,23 @@ check(
 console.log('\n[6] Besitzer (eigener Spieler):');
 const held = new ZDO(new ZDOID(1n, 7), getStableHash('Player'), { x: 0, y: 30, z: 0 }, { x: 0, y: 0, z: 0, w: 1 });
 held.setOwner(new ZDOID(555n, 0));
+const eigenerPeer: TestPeer = { userId: 555n };
+const fremderPeer: TestPeer = { userId: 999n };
 const spiegel6 = new ZDOSpiegel();
-const r6a = lies(paket([{ zdo: held, peerRev: undefined }]).puffer, spiegel6, '555');
+const r6a = lies(paket([{ zdo: held, peerRev: undefined }], [], eigenerPeer).puffer, spiegel6, '555');
 check('Vollstand: eigener Spieler erkannt', r6a.updates[0]?.isOwnPlayer === true);
 const rev6 = held.revision.dataRevision;
 held.position = { x: 1, y: 30, z: 1 };
 held.revision.reviseData();
-const r6b = lies(paket([{ zdo: held, peerRev: rev6 }]).puffer, spiegel6, '555');
+const r6b = lies(paket([{ zdo: held, peerRev: rev6 }], [], eigenerPeer).puffer, spiegel6, '555');
 check('Delta: eigener Spieler weiterhin erkannt', r6b.updates[0]?.isOwnPlayer === true);
-const r6c = lies(paket([{ zdo: held, peerRev: undefined }]).puffer, new ZDOSpiegel(), '999');
+const p6c = paket([{ zdo: held, peerRev: undefined }], [], fremderPeer);
+const r6c = lies(p6c.puffer, new ZDOSpiegel(), '999');
 check('fremder Spieler ist nicht der eigene', r6c.updates[0]?.isOwnPlayer === false);
+check(
+  'Konto-Kennung des Besitzers geht NICHT an den Fremden (Befund 2)',
+  !p6c.puffer.toString('latin1').includes('555')
+);
 
 // ── [7] Zerstörung räumt den Spiegel ───────────────────────────────
 console.log('\n[7] Zerstörung räumt den Spiegel:');

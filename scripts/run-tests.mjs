@@ -2266,6 +2266,8 @@ const KERN = [
   ['client', 'test/testflug-greifen.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // A foreign peer never gets the builder's account id (`besitzer`) or the ZDO owner field of a character, full state or delta, real clients + strict wire reader.
+  ['server', 'test/besitzer-sichtbar.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

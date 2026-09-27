@@ -2601,7 +2601,7 @@
     },
     {
       "id": "startinsel",
-      "biome": "grassland",
+      "biome": "blackforest",
       "shape": {
         "kind": "polygon",
         "points": [
@@ -2708,8 +2708,8 @@
         ]
       },
       "edgeFalloff": 160,
-      "baseLevel": 0.19,
-      "heightScale": 0.05,
+      "baseLevel": 0.525,
+      "heightScale": 0.4,
       "tier": 0,
       "forestDensity": 0.5,
       "bewuchsDichte": 1,
@@ -3240,6 +3240,48 @@
       "z": -5209.6,
       "yaw": 4.46013460491306,
       "einebnen": 7.4
+    },
+    {
+      "id": "environment-barrel-destructible_-22603_-5829-a3ca",
+      "prefab": "environment-barrel-destructible",
+      "x": -22602.9,
+      "z": -5829.4,
+      "yaw": 0.8726646259971648
+    },
+    {
+      "id": "environment-chestbottom_-22615_-5842-i1qv",
+      "prefab": "environment-chestbottom",
+      "x": -22615.2,
+      "z": -5842,
+      "yaw": 0.8726646259971648
+    },
+    {
+      "id": "environment-crate-wood-destructible_-22603_-5826-wiwv",
+      "prefab": "environment-crate-wood-destructible",
+      "x": -22603.1,
+      "z": -5825.6,
+      "yaw": 0.8726646259971648
+    },
+    {
+      "id": "environment-sm-env-rock-04_-22598_-5824-ik1i",
+      "prefab": "environment-sm-env-rock-04",
+      "x": -22597.7,
+      "z": -5824.3,
+      "yaw": 0.8726646259971648
+    },
+    {
+      "id": "environment-sm-env-statue-03_-22599_-5834-ca65",
+      "prefab": "environment-sm-env-statue-03",
+      "x": -22597.6,
+      "z": -5833.5,
+      "yaw": 0.32947228538702494
+    },
+    {
+      "id": "environment-sm-env-statue-04_-22606_-5832-qcbv",
+      "prefab": "environment-sm-env-statue-04",
+      "x": -22606.2,
+      "z": -5831.8,
+      "yaw": 0.8726646259971648
     },
     {
       "id": "felsblock3_-16578_-5692",
@@ -3813,6 +3855,15 @@
       "yaw": 1.0638274321967005
     },
     {
+      "id": "steinkreis_-22615_-5822-y77o",
+      "prefab": "Steinkreis",
+      "x": -22614.7,
+      "z": -5822.1,
+      "yaw": 2.356194490192345,
+      "scale": 3,
+      "einebnen": 7
+    },
+    {
       "id": "surtr_-27109_-5462",
       "prefab": "Surtr",
       "x": -27109.4,
@@ -4061,6 +4112,14 @@
       "z": -5849.5,
       "yaw": 0,
       "einebnen": 13
+    },
+    {
+      "id": "u-marktstand2_-22601_-5821-s1g9",
+      "prefab": "U_Marktstand2",
+      "x": -22600.7,
+      "z": -5820.7,
+      "yaw": 3.0892327760299634,
+      "scale": 3
     },
     {
       "id": "u-marktstand_-22590_-5830-wltx",
@@ -4544,8 +4603,8 @@
     {
       "id": "voelva_-22605_-5843-imaj",
       "prefab": "Voelva",
-      "x": -22605.5,
-      "z": -5843.5,
+      "x": -22604.1,
+      "z": -5843.2,
       "yaw": 0.3218,
       "npc": {
         "name": "Völva Sigrun",
@@ -4574,6 +4633,14 @@
       "z": -5308.5,
       "yaw": 3.6350030419318333,
       "scale": 0.2
+    },
+    {
+      "id": "wikingerbasis_-22598_-5842-lxdz",
+      "prefab": "WikingerBasis",
+      "x": -22597.9,
+      "z": -5842.1,
+      "yaw": 5.66437187724672,
+      "scale": 3
     },
     {
       "id": "wikingerstatue_-16883_-5319",
@@ -4609,6 +4676,14 @@
       "x": -1740.6,
       "z": -25811.8,
       "yaw": 2.0245819323134224
+    },
+    {
+      "id": "wikingerstatue_-22609_-5842-h7f9",
+      "prefab": "WikingerStatue",
+      "x": -22608.9,
+      "z": -5842.3,
+      "yaw": 2.356194490192345,
+      "scale": 3
     }
   ],
   "defaultSpawn": [

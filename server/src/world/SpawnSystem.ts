@@ -506,6 +506,10 @@ export class SpawnSystem {
           const dist = Math.sqrt(nearest.distSqr);
           this.zeigeAnim(c, dist > 1.7 ? 'run' : 'attack');
           if (dist > 1.7) {
+            // Left strike range while chasing: drop any accumulated timer so
+            // a later return to range starts the 2 s cooldown from zero,
+            // same as losing a slot below (see berechneAngriffsSlots).
+            c.attackAccum = 0;
             const dx = nearest.pos.x - c.zdo.position.x;
             const dz = nearest.pos.z - c.zdo.position.z;
             this.moveStep(c, dx / dist, dz / dist, entry.runSpeed * deltaSec);

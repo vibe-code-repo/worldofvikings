@@ -21,9 +21,28 @@
  * es tut) und prüft danach zweierlei: keine `src/main.ts`-Prozess mit
  * PPID 1 mehr, und der gemeldete Port wieder frei (bindbar).
  *
+ * N4 (Nachangriff N3, Befund N3-1): DIESER Test — nicht mehr der innere
+ * Betriebsdienst-Test — spielte selbst wieder B1: Er startet sein Kind mit
+ * `detached: true` in einer EIGENEN Gruppe; bricht `run-tests.mjs` DIESEN
+ * äußeren Test im Startfenster ab (Zeitlimit, Speicherwächter, Strg-C),
+ * trifft `gruppeSignal` nur die Gruppe DIESES Prozesses — die losgelöste
+ * innere Gruppe (samt Betriebsdienst) bekommt nichts ab. Zwei Riegel dagegen:
+ *   1. `process.on('exit'|'SIGTERM'|'SIGINT', …)` beendet die zuletzt
+ *      gestartete innere Gruppe explizit — deckt SIGTERM/SIGINT UND die
+ *      normale Beendigung.
+ *   2. Gegen SIGKILL (kein Handler möglich) hilft nur, dass die innere Gruppe
+ *      sich SELBST beendet: Das Kind bekommt eine ECHTE Pipe auf stdin
+ *      (`WOV_STDIN_WAECHTER=1`) statt `ignore`. Stirbt dieser Prozess — auch
+ *      per SIGKILL —, schließt der Kernel automatisch das Ende der Pipe, die
+ *      dieser Prozess hält; das Kind sieht EOF auf stdin und beendet seine
+ *      eigene Gruppe selbst (s. Kopfkommentar von `upload-grundskala-
+ *      betriebsdienst.ts`).
+ * Der Sweep-Nachweis (Zeitlimit/SIGINT gegen DIESEN Prozess, über den echten
+ * Runner-Weg) steht in `upload-grundskala-betriebsdienst-abbruch-sweep.ts`.
+ *
  * Lauf:  npx tsx admin/test/upload-grundskala-betriebsdienst-abbruch.ts
  */
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -31,6 +50,27 @@ import { fileURLToPath } from 'node:url';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
+
+/** N4/N3-1: die zuletzt gestartete innere Gruppe, für die Riegel unten. */
+let aktuellesKind: ChildProcess | null = null;
+function beendeAktuelleGruppe(): void {
+  if (aktuellesKind?.pid === undefined) return;
+  try {
+    process.kill(-aktuellesKind.pid, 'SIGKILL');
+  } catch {
+    /* Gruppe schon weg */
+  }
+}
+process.on('exit', beendeAktuelleGruppe);
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    beendeAktuelleGruppe();
+    // Node liefert bei einem installierten Handler NICHT mehr das normale
+    // Signal-Verhalten (Prozessende) von selbst — das muss dieser Handler
+    // jetzt explizit nachholen, sonst liefe der Testprozess einfach weiter.
+    process.exit(128 + (signal === 'SIGTERM' ? 15 : 2));
+  });
+}
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -88,8 +128,13 @@ async function probeAbbruch(signal: NodeJS.Signals): Promise<void> {
     // für jeden gestarteten Test spielt (`spawn(..., { detached: true })`,
     // `scripts/run-tests.mjs` Zeile ~2455).
     detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // N4/N3-1: stdin ist jetzt eine ECHTE Pipe (nicht `ignore`) und
+    // `WOV_STDIN_WAECHTER=1` schaltet den EOF-Wächter im Kind ein — der
+    // Riegel gegen SIGKILL DIESES Prozesses, s. Kopfkommentar.
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, WOV_STDIN_WAECHTER: '1' },
   });
+  aktuellesKind = kind;
 
   let puffer = '';
   let port: number | null = null;

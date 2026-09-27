@@ -46,7 +46,7 @@
  * Sprache: neue Bezeichner englisch, wo sie nicht an einen bestehenden
  * deutschen Namen andocken.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -127,7 +127,36 @@ export class HochgeladenDirUngueltig extends Error {
  * und eine Nicht-Ordner-Stelle brechen sofort ab; ein noch NICHT
  * existierender Pfad wird angelegt (wie bisher, `mkdirSync`) und mit einer
  * Schreibprobe bestätigt.
+ *
+ * N4 (Nachangriff „Editor Upload-Größe N3", Befund N3-4, Info): B8 prüfte
+ * nur den ROHEN Text (`roh.startsWith('/proc/')`) — `//proc/x` und
+ * `/./proc/x` liefen daran vorbei, direkt in `mkdirSync(roh, { recursive:
+ * true })`, und hingen dort synchron bei 100 % CPU (dieselbe Endlosschleife
+ * wie beim Upload selbst, nur jetzt schon beim Start). Ein Symlink auf
+ * `/proc/self` wurde nur zufällig über die Schreibprobe abgefangen (falsche
+ * Meldung „nicht beschreibbar"), ein Tippfehler im Pfad legte still einen
+ * mehrstufigen Ordnerbaum an, und die feste Schreibprobe `.wov-
+ * schreibprobe` folgte einem dort liegenden Symlink und kürzte dessen Ziel
+ * auf 0 Byte. Jetzt: erst `resolve()` (Normalisierung, faltet `//`, `/./`,
+ * `..`, ohne dem Dateisystem zu folgen), DANN die Sperrliste prüfen —
+ * `//proc/x` wird so VOR jedem Dateisystemzugriff abgelehnt, keine
+ * Endlosschleife mehr möglich. Ein vorhandener Symlink wird zusätzlich
+ * über `realpathSync` (folgt der GANZEN Kette) gegen dieselbe Sperrliste
+ * geprüft. Fehlt der Pfad noch, wird nur EIN Elternverzeichnis vorausgesetzt
+ * — existiert es nicht, bricht der Start mit einer Meldung ab, statt still
+ * einen Baum aus mehreren Ebenen anzulegen (ein Tippfehler bleibt so
+ * sichtbar). Die Schreibprobe läuft über einen ZUFÄLLIGEN Dateinamen mit
+ * `O_CREAT|O_EXCL` (keine feste, vorhersagbare Stelle mehr, der ein Symlink
+ * auflauern könnte, und `O_EXCL` folgt ohnehin nie einem vorhandenen Eintrag).
  */
+const GESPERRTE_WURZELN = ['/dev/shm', '/dev', '/proc', '/sys'] as const;
+
+/** `pfad` ist eine der gesperrten Wurzeln selbst oder liegt darunter (bzw. ist `/`). */
+function unterGesperrterWurzel(pfad: string): boolean {
+  if (pfad === '/') return true;
+  return GESPERRTE_WURZELN.some((g) => pfad === g || pfad.startsWith(`${g}/`));
+}
+
 export function ermittleUploadDir(roh: string | undefined = process.env.WOV_HOCHGELADEN_DIR): string {
   if (roh === undefined) return UPLOAD_DIR_VORGABE;
   if (roh === '' || !isAbsolute(roh)) {
@@ -138,42 +167,73 @@ export function ermittleUploadDir(roh: string | undefined = process.env.WOV_HOCH
         'verschiedene Ordner. Absoluten Pfad setzen oder die Variable weglassen.'
     );
   }
-  if (roh === '/proc' || roh.startsWith('/proc/') || roh === '/sys' || roh.startsWith('/sys/')) {
+  // N4/N3-4: erst normalisieren (faltet "//proc/x", "/./proc/x", ".." — rein
+  // textuell, OHNE dem Dateisystem zu folgen), DANN gegen die Sperrliste
+  // pruefen — vor jedem mkdirSync/lstatSync, damit keine dieser Formen je
+  // in einen Dateisystemzugriff unter /proc bzw. /sys gelangt.
+  const normalisiert = resolve(roh);
+  if (unterGesperrterWurzel(normalisiert)) {
     throw new HochgeladenDirUngueltig(
       roh,
-      'liegt unter /proc oder /sys — das ist eine virtuelle Schnittstelle des Kernels, kein Ordner fuer Dateien.'
+      `liegt unter '${normalisiert}' — das ist eine virtuelle oder besonders geschuetzte Systemstelle, kein Ordner fuer Dateien.`
     );
   }
   // Existiert der Pfad schon (als Symlink oder sonst), muss er ein ECHTER,
-  // erreichbarer Ordner sein — ein hängender Symlink oder eine Datei an
-  // dieser Stelle sollen den Start verhindern, nicht erst den ersten Upload.
+  // erreichbarer Ordner sein — ein hängender Symlink, ein Symlink auf eine
+  // gesperrte Wurzel oder eine Datei an dieser Stelle sollen den Start
+  // verhindern, nicht erst den ersten Upload.
   let liegtSchonDa = false;
   try {
-    const linkStand = lstatSync(roh);
+    const linkStand = lstatSync(normalisiert);
     liegtSchonDa = true;
     if (linkStand.isSymbolicLink()) {
+      let ziel: string;
       try {
-        statSync(roh); // folgt dem Link; wirft ENOENT bei einem haengenden Symlink
+        ziel = realpathSync(normalisiert); // folgt der GANZEN Kette; wirft ENOENT bei einem haengenden Symlink
       } catch {
         throw new HochgeladenDirUngueltig(roh, 'ist ein haengender Symlink (das Ziel existiert nicht).');
       }
+      if (unterGesperrterWurzel(ziel)) {
+        throw new HochgeladenDirUngueltig(
+          roh,
+          `zeigt auf '${ziel}' — das ist eine virtuelle oder besonders geschuetzte Systemstelle, kein Ordner fuer Dateien.`
+        );
+      }
     }
-    if (!statSync(roh).isDirectory()) {
+    if (!statSync(normalisiert).isDirectory()) {
       throw new HochgeladenDirUngueltig(roh, 'ist kein Ordner (dort liegt schon eine Datei oder etwas anderes).');
     }
   } catch (e) {
     if (e instanceof HochgeladenDirUngueltig) throw e;
     liegtSchonDa = false; // existiert nicht -- wird unten angelegt
   }
+  if (!liegtSchonDa) {
+    // N4/N3-4: nur EIN Elternverzeichnis wird vorausgesetzt, nie ein ganzer
+    // Baum still angelegt — ein Tippfehler im Pfad bricht so sichtbar ab,
+    // statt einen leeren Ordner irgendwo im Dateisystem zu hinterlassen.
+    const elternordner = dirname(normalisiert);
+    if (!existsSync(elternordner) || !statSync(elternordner).isDirectory()) {
+      throw new HochgeladenDirUngueltig(
+        roh,
+        `das Elternverzeichnis '${elternordner}' existiert nicht — vermutlich ein Tippfehler. ` +
+          'Verzeichnis von Hand anlegen oder den Pfad pruefen.'
+      );
+    }
+  }
   try {
-    if (!liegtSchonDa) mkdirSync(roh, { recursive: true });
-    const schreibprobe = join(roh, '.wov-schreibprobe');
-    writeFileSync(schreibprobe, '');
+    if (!liegtSchonDa) mkdirSync(normalisiert);
+    // N4/N3-4: zufälliger Dateiname statt der festen ".wov-schreibprobe" —
+    // ein dort abgelegter Symlink kann nicht mehr auflauern, weil sein Name
+    // nie vorher bekannt ist; O_CREAT|O_EXCL folgt ohnehin nie einem
+    // vorhandenen Eintrag (Datei oder Symlink), sondern bricht sofort ab.
+    const schreibprobe = join(normalisiert, `.wov-schreibprobe-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const fd = openSync(schreibprobe, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+    closeSync(fd);
     rmSync(schreibprobe, { force: true });
   } catch (e) {
     throw new HochgeladenDirUngueltig(roh, `ist nicht beschreibbar: ${(e as Error).message}`);
   }
-  return roh;
+  return normalisiert;
 }
 
 export const UPLOAD_DIR = ermittleUploadDir();

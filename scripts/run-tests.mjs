@@ -2303,6 +2303,11 @@ const KERN = [
   // Nachbesserung M1: der Weltbau-Katalog (tools/worldlayout-mcp-Grundlage) meldet für
   // Uploads die GRUNDSKALIERTEN Maße, nicht die rohe Hüllbox der Datei.
   ['shared', 'test/upload-grundskala-katalog.ts'],
+  // Nachbesserung N4 (N3-4, Info): WOV_HOCHGELADEN_DIR robust gegen /proc-Umgehung
+  // (//proc/x, /./proc/x — erst resolve(), dann Sperrliste, keine mkdirSync-
+  // Endlosschleife mehr), Symlink-Ziel via realpathSync, Tippfehler bricht ab statt
+  // still einen Baum anzulegen, Schreibprobe über zufälligen Namen mit O_EXCL.
+  ['shared', 'test/upload-hochgeladen-dir-haerten.ts'],
   // Betriebsdienst-Verdrahtung (Syntaxbaum, wie modell-upload-verdrahtung.ts): Kopfzeile
   // x-wov-grundskala geprüft und durchgereicht, neuer PATCH-Zweig für „nachträglich ändern"
   // (422 bei ungültiger Grundskala, keine Bestätigungslogik wie bei DELETE).
@@ -2322,8 +2327,16 @@ const KERN = [
   // B1 (Nachangriff N2): der Abbruch des GANZEN Tests (TERM/KILL an seine Gruppe,
   // wie run-tests.mjs es bei Zeitlimit/Speicherwächter tut) darf keinen Dienst mit
   // PPID 1 und offenem Port hinterlassen — Rot auf bd8fa6c (detached-Fix), grün seit
-  // dem wrapper-/detached-losen Start. ~3 s.
+  // dem wrapper-/detached-losen Start. Nachbesserung N4 (N3-1): der Abbruch-Test
+  // selbst startete sein Kind detached in einer eigenen Gruppe und hinterließ dabei
+  // im Startfenster eine Waise — jetzt ein exit/SIGTERM/SIGINT-Riegel plus ein
+  // EOF-auf-stdin-Wächter im Kind gegen SIGKILL. ~3 s.
   ['admin', 'test/upload-grundskala-betriebsdienst-abbruch.ts'],
+  // N4 (Nachangriff N3, Befund N3-1), Sweep-Nachweis über den ECHTEN Runner-Weg:
+  // startet den Abbruch-Test selbst als Kind (wie run-tests.mjs jeden Test startet)
+  // und bricht ihn zu sieben festen Zeitpunkten ab (Zeitlimit 0,3–3 s, SIGINT 0,4/1,6 s)
+  // — in jedem Fall keine Waise mehr. ~1 min.
+  ['admin', 'test/upload-grundskala-betriebsdienst-abbruch-sweep.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

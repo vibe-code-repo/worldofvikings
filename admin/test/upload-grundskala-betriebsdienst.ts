@@ -146,6 +146,12 @@ function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: str
   const tokenDatei = resolve(ordner, 'token');
   writeFileSync(tokenDatei, `${token}\n`);
   // H2: eigener Upload-Ordner UNTER dem Wegwerf-WOV_WURZEL, nie im Checkout.
+  // N4/N3-4: `ermittleUploadDir` legt nur noch EINE Ebene selbst an (das
+  // Elternverzeichnis muss existieren, s. Kopfkommentar dort) — der Ordner
+  // `assets/` liegt hier zwei Ebenen unter `ordner`, wird also selbst vorab
+  // angelegt, damit `hochgeladenDir` (eine Ebene darunter) diese Vorbedingung
+  // erfüllt.
+  mkdirSync(resolve(ordner, 'assets'), { recursive: true });
   const hochgeladenDir = resolve(ordner, 'assets/hochgeladen');
   return { ordner, hochgeladenDir, tokenDatei, token };
 }
@@ -173,7 +179,18 @@ function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: stri
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let puffer = '';
-    const zeitgrenze = setTimeout(() => scheitern(new Error(`Dienst startet nicht:\n${puffer}`)), 30_000);
+    // N4 (Nachangriff N3, Befund N3-5): Vorher verwarf `starten()` nach 30 s
+    // nur das Versprechen — der Dienst selbst lief weiter, als Waise, bis
+    // ihn niemand mehr kannte. Jetzt beendet der eigene Zeitwächter das Kind
+    // (SIGKILL, kein Gruppen-Signal nötig, s. Kopfkommentar zu `kind`).
+    const zeitgrenze = setTimeout(() => {
+      try {
+        kind.kill('SIGKILL');
+      } catch {
+        /* Prozess schon weg */
+      }
+      scheitern(new Error(`Dienst startet nicht:\n${puffer}`));
+    }, 30_000);
     kind.stdout.on('data', (s: Buffer) => {
       puffer += s.toString();
       const t = /bereit auf 127\.0\.0\.1:(\d+)/.exec(puffer);
@@ -351,6 +368,27 @@ function jsonAnfrage(opt: { port: number; token: string; pfad: string; methode: 
     req.on('error', scheitern);
     req.write(text);
     req.end();
+  });
+}
+
+// N4 (Nachangriff N3, Befund N3-1): Startet ein ANDERER Test dieses Skript
+// als Kind (der Abbruch-Test, `upload-grundskala-betriebsdienst-abbruch.ts`),
+// meldet er das über `WOV_STDIN_WAECHTER=1` UND eine echte Pipe auf stdin
+// (kein `ignore`). Stirbt der äußere Test — auch per SIGKILL, das keinen
+// Handler erlaubt —, schließt der Kernel automatisch dessen Ende der Pipe;
+// dieser Prozess sieht dann EOF auf stdin, ganz ohne eigenes Signal, und
+// beendet die EIGENE Gruppe (sich selbst und den Betriebsdienst-Kindprozess,
+// der dieselbe Gruppe teilt, s. `starten()`/B1). `run-tests.mjs` startet
+// diesen Test normalerweise mit `stdio: ['ignore', …]` (kein Elternteil, das
+// je EOF liefert) — der Wächter bleibt deshalb aus, wenn die Variable fehlt.
+if (process.env.WOV_STDIN_WAECHTER === '1') {
+  process.stdin.resume();
+  process.stdin.once('end', () => {
+    try {
+      process.kill(-process.pid, 'SIGKILL');
+    } catch {
+      /* eigene Gruppe schon weg */
+    }
   });
 }
 
@@ -581,13 +619,29 @@ console.log('\n14. B8 — WOV_HOCHGELADEN_DIR wird auch inhaltlich geprüft (/pr
   );
 
   // Gegenprobe: ein guter, noch nicht vorhandener Pfad startet weiterhin und wird angelegt.
-  const guterPfad = resolve(bereich, 'wird-frisch-angelegt/hg');
+  // N4/N3-4: nur EINE fehlende Ebene — das Elternverzeichnis (`bereich`) muss
+  // existieren (s. Kopfkommentar von `ermittleUploadDir`), zwei fehlende Ebenen
+  // wären jetzt der Tippfehler-Fall aus Abschnitt 14b.
+  const guterPfad = resolve(bereich, 'wird-frisch-angelegt');
   const HAUPT_B8 = wegwerfWurzelBauen('grundskala-b8-gut');
   const { port: port3, kind: kind3 } = await starten({ ...HAUPT_B8, hochgeladenDir: guterPfad });
   check('guter, noch nicht vorhandener Pfad: Dienst wird bereit', port3 > 0, `port=${port3}`);
   await beendeDienst(kind3, 'SIGTERM');
   rmSync(HAUPT_B8.ordner, { recursive: true, force: true });
   check('guter Pfad wurde beim Start tatsächlich angelegt', existsSync(guterPfad));
+
+  // N4 (Nachangriff N3, Befund N3-4): ein Tippfehler (ZWEI fehlende Ebenen)
+  // bricht jetzt ab, statt still einen mehrstufigen Baum anzulegen.
+  const tippfehlerPfad = resolve(bereich, 'gibt-es-nicht/tief/hg');
+  const tippfehlerEltern = resolve(bereich, 'gibt-es-nicht');
+  const tippfehler = await probeFehlgeschlagenerStart(tippfehlerPfad);
+  check('Tippfehler (fehlendes Elternverzeichnis): Dienst wird NICHT bereit (Exit ≠ 0)', tippfehler.code !== 0, `Exit=${tippfehler.code}`);
+  check(
+    "Tippfehler: Meldung nennt 'Elternverzeichnis'",
+    tippfehler.ausgabe.includes('Elternverzeichnis'),
+    tippfehler.ausgabe.slice(0, 400)
+  );
+  check('Tippfehler: kein Baum wurde still angelegt', !existsSync(tippfehlerEltern));
 
   rmSync(bereich, { recursive: true, force: true });
 }

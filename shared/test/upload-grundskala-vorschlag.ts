@@ -109,30 +109,52 @@ console.log('\n2. `ausschlussName` — ein Modell schlägt sich beim "nachträgl
   );
 }
 
-console.log('\n3. (b) Größentabelle — kein ähnliches Modell, aber ein GANZES Wort aus der Liste passt\n');
+console.log('\n3. (b) Größentabelle — kein ähnliches Modell, aber das KOPFWORT trifft die Liste\n');
 {
-  // B2 (Nachangriff N2): Komposita treffen jetzt NUR noch über eine
-  // ausdrückliche Liste (holzfass, marktstand, zaunstück/palisadenstück,
-  // drachenboot/langschiff, langhaus/halle), nie mehr über ein Wortende —
-  // "Bierfass"/"Schatztruhe"/"Ochsenkarren"/"Fischerhütte" sind darum HIER
-  // bewusst durch ein vorangestelltes Wort ERSETZT ("Volles Fass" statt
-  // "Bierfass"): Der Bestandteil "fass" ist dann ein eigener, GANZER
-  // Bestandteil (Leerzeichen trennt), kein Kompositum-Ende mehr.
+  // B2 (Nachangriff N2): Komposita treffen NUR über eine ausdrückliche
+  // Liste (holzfass, marktstand, zaunstück/palisadenstück,
+  // drachenboot/langschiff, langhaus/halle), nie mehr über ein Wortende.
+  // N4 (Nachangriff N3, Befund N3-3): zusätzlich zählt nur noch das
+  // KOPFWORT (der letzte Bestandteil) — "Marktbude Nord" und
+  // "Drachenboot Rot" hatten das Kategoriewort VOR einem Zusatz
+  // (Himmelsrichtung/Farbe) stehen und sind deshalb umbenannt
+  // ("Neue Marktbude", "Rotes Drachenboot"), genau wie N3 schon
+  // "Bierfass" -> "Volles Fass" umbenannt hatte, um denselben Bestandteil
+  // unter der jeweils neuen, strengeren Regel zu belegen. "Bierfass" und
+  // "Schatztruhe" sind jetzt (N4-3) selbst als Komposita in der Liste und
+  // brauchen die Umschreibung nicht mehr.
   const rohMasse = { breite: 1.0, hoehe: 1.0 };
   const faelle: [string, number][] = [
     ['Neues Langhaus', 8],
+    ['Langhaus', 8],
     ['Kleine Hütte', 8],
-    ['Marktbude Nord', 4],
+    ['Neue Marktbude', 4],
     ['Palisadenstück', 2],
     ['Volles Fass', 0.7],
     ['Alte Truhe', 1],
     ['Brauner Karren', 3],
-    ['Drachenboot Rot', 10],
+    ['Rotes Drachenboot', 10],
+    // N4-3 (Karte): die ausdrücklich verlangte Mindestliste.
+    ['Holzkiste', 1],
+    ['Holzhaus', 8],
+    ['Wikingerschiff', 10],
+    ['Ruderboot', 10],
+    ['Bauernhaus', 8],
+    ['Bierfass', 0.7],
+    ['Schatztruhe', 1],
+    ['Holzfass', 0.7],
   ];
   for (const [name, erwartet] of faelle) {
     const v = schlageZielgroesseVor(name, 'breite', rohMasse, []);
     pruefe(v.quelle === 'kategorie' && v.meter === erwartet, `'${name}' -> Kategorie ${erwartet} m (bekommen ${v.meter}, ${v.quelle})`);
   }
+  // "Marktstand2" ohne Kandidaten: die Ziffer ist kein Kopfwort, das
+  // Kopfwort bleibt "marktstand" (N4-3, letzte Zeile der Mindestliste).
+  const vMarktstand2 = schlageZielgroesseVor('Marktstand2', 'breite', rohMasse, []);
+  pruefe(
+    vMarktstand2.quelle === 'kategorie' && vMarktstand2.meter === 4,
+    `'Marktstand2' ohne Vorbild -> Kategorie 4 m (bekommen ${vMarktstand2.meter}, ${vMarktstand2.quelle})`
+  );
   // B2 (Nachangriff N2): "Marktstandzaun" endet auf "zaun" — als GANZER
   // unzerlegter Bestandteil "marktstandzaun" trifft es aber weder "zaun"
   // (kein Kompositum-Ende mehr) noch "marktstand" (das steht nicht am
@@ -171,7 +193,7 @@ console.log('\n6. cm-Verdacht — Warnung ab > 50 m, keine an der Schwelle selbs
   pruefe(cmVerdacht({ breite: 200, hoehe: 150, tiefe: 90 }) === true, 'typischer cm-Export (200 × 150 × 90) löst den Verdacht aus');
 }
 
-console.log('\n7. Nachweis-Tabelle B2–B6 (Nachangriff N2) — kein Treffer\n');
+console.log('\n7. Nachweis-Tabelle B2–B6/N4-3 — kein Treffer\n');
 {
   // Jedes dieser Wörter ist ENTWEDER ein Kompositum-ENDE, das die alte
   // N2-Regel noch fing (B4: Gegenstand/Zustand/Abstand/Vogelhaus/
@@ -179,15 +201,17 @@ console.log('\n7. Nachweis-Tabelle B2–B6 (Nachangriff N2) — kein Treffer\n')
   // Regel durch den Wortanfang wieder öffnete (B3: StandUhr/BoxSack/
   // WagenRad/FassAde), ODER ein „stück"-Wort ohne den Zaun-Wortanfang
   // (B2: Frühstück/Goldstück/Möbelstück/Werkstück/Stück), ODER ein
-  // doppelsinniges Kurzwort in einem längeren Bestandteil (Leather_Boot,
-  // Friendship). Unter der neuen Regel (ganzes Wort aus einer festen
-  // Liste, nie Kompositum-Ende) treffen sie alle NICHT.
+  // doppelsinniges Kurzwort, das die neue Liste (N4) gar nicht mehr kennt
+  // ("Friendship" enthält "ship" nur als TEIL eines längeren, nicht
+  // getrennten Bestandteils — nie als eigenes Kopfwort). Unter der neuen
+  // Regel (ganzes Wort aus einer festen Liste, nie Kompositum-Ende)
+  // treffen sie alle NICHT.
   const keineKategorie = [
     'Frühstück', 'Goldstück', 'Möbelstück', 'Werkstück', 'Stück',
     'StandUhr', 'BoxSack', 'WagenRad', 'FassAde',
     'Gegenstand', 'Zustand', 'Abstand',
     'Vogelhaus', 'Puppenhaus', 'Skybox',
-    'Leather_Boot', 'Friendship',
+    'Friendship',
   ];
   for (const name of keineKategorie) {
     const treffer = kategorieFuerName(name);
@@ -198,6 +222,31 @@ console.log('\n7. Nachweis-Tabelle B2–B6 (Nachangriff N2) — kein Treffer\n')
   for (const name of ['Fassade', 'Fassung', 'Standuhr', 'Boxsack', 'Abstandshalter', 'Abstandhalter', 'Wagenräder', 'Wagenrad', 'Fassadenteil', 'Shuttle', 'Boxhandschuh']) {
     pruefe(kategorieFuerName(name) === null, `'${name}' trifft weiterhin KEINE Kategorie`);
   }
+  // N4-3 (Nachangriff N3, Befund N3-3): das Kategoriewort steht nur als
+  // BESTIMMUNGSWORT (Modifikator) vor einem ANDEREN, eigenständigen Wort
+  // — "Haus Tür" ist eine Tür, "Bird House" ein Vogelhaus als Deko (kein
+  // 8-m-Haus), "Hit Box" eine Trefferzone (keine 1-m-Kiste). Das Kopfwort
+  // ("tür"/"house"/"box") ist entweder gar nicht mehr in der Liste
+  // ("house"/"box", s. Kopfkommentar der Tabelle) oder von Anfang an kein
+  // Kategoriewort ("tür").
+  for (const name of ['Haus Tür', 'Haus Schlüssel', 'Haus Katze', 'Bird House', 'Dog House', 'Tree House', 'Doll House', 'House Plant', 'Hit Box', 'Sky Box', 'Bounding Box', 'Collision Box']) {
+    pruefe(kategorieFuerName(name) === null, `'${name}' trifft KEINE Kategorie (Kopfwort ist kein Kategoriewort mehr)`);
+  }
+  // N4-3: "hut" ist zurückgenommen (die N3-Vorgabe „Wooden Hut" -> Haus
+  // gilt nicht mehr, s. Kopfkommentar der Tabelle).
+  pruefe(kategorieFuerName('Wooden Hut') === null, "'Wooden Hut' trifft KEINE Kategorie mehr ('hut' ist aus der Liste genommen)");
+}
+
+console.log('\n7b. N4-3, ABWEICHUNG dokumentiert: "Boot" wieder in der Liste öffnet Leather_Boot\n');
+{
+  // Die Karte N4 verlangt "Boot"/"boat" zurück in der Liste (N3-3). Unter
+  // der neuen Kopfwort-Regel ist "boot" in "Leather_Boot" das LETZTE und
+  // damit einzige geprüfte Wort — ein lederner Schuh trifft jetzt
+  // unvermeidbar dieselbe Kategorie wie ein Boot. Das ist ein bewusster,
+  // in der Karte selbst angelegter Zielkonflikt (nicht heimlich behoben),
+  // s. ABWEICHUNGEN im Bericht.
+  const treffer = kategorieFuerName('Leather_Boot');
+  pruefe(treffer?.kategorie === 'Boot', `'Leather_Boot' trifft jetzt 'Boot' (bekommen '${treffer?.kategorie}') — Folge des N4-Auftrags, "boot" zurückzunehmen`);
 }
 
 console.log('\n8. Nachweis-Tabelle B2–B6 (Nachangriff N2) — richtiger Treffer\n');
@@ -210,7 +259,7 @@ console.log('\n8. Nachweis-Tabelle B2–B6 (Nachangriff N2) — richtiger Treffe
     ['Kisten', 'Kiste'],
     ['Hütten', 'Haus'],
     ['Boote', 'Boot'],
-    ['Wooden Hut', 'Haus'],
+    ['Boot.001', 'Boot'], // N4-3: bloßes "Boot" ist wieder in der Liste
     [`Holzhu${'̈'}tte`, 'Haus'], // NFD: 'u' + KOMBINIERENDER TREMA statt 'ü' (macOS-Dateiname)
     [`Zaunstu${'̈'}ck`, 'Zaunstück'], // NFD-Zaunstück, dieselbe Bauart
     ['Holzfass', 'Fass'],
@@ -258,6 +307,29 @@ console.log('\n9. Ähnlichkeitsvergleich ist umlaut- und NFD-unabhängig (N3/F6)
     vCrepe.quelle === 'aehnliches-modell' && vCrepe.meter === 2.5,
     `'Crepestand2' (ohne Akzent) findet 'Crêpestand' (${vCrepe.meter}, ${vCrepe.quelle})`
   );
+}
+
+console.log('\n10. N4/N3-2: kein quadratisches Verhalten mehr bei viel Leerraum vor „(n)"\n');
+{
+  // Nachangriff N3, Befund N3-2: `.replace(/\s*\([0-9]+\)$/, '')` brauchte
+  // bei 100 000 Leerzeichen + "(x" (kein gültiges "(n)" am Ende, also
+  // Rückverfolgung durch JEDE mögliche Aufteilung von `\s*`) rund 13 s.
+  // Die Karte verlangt den Nachweis: 100 000 Leerzeichen bleiben unter
+  // 50 ms. Vier Formen, alle ohne echtes "(n)"-Ende bzw. mit einem am
+  // Ende, jeweils zusätzlich zu einem harmlosen "fass" davor, damit die
+  // Messung dieselbe Funktion trifft wie ein echter Namensvorschlag.
+  const faelle = [
+    `fass${' '.repeat(100_000)}(x`,
+    `fass${' '.repeat(100_000)}`,
+    `${' '.repeat(5_000)}fass${' '.repeat(4_999)}(1)`,
+    `fass${'\t'.repeat(100_000)}`,
+  ];
+  for (const eingabe of faelle) {
+    const start = Date.now();
+    kategorieFuerName(eingabe);
+    const dauer = Date.now() - start;
+    pruefe(dauer < 50, `Eingabelänge ${eingabe.length}: ${dauer} ms (< 50 ms)`);
+  }
 }
 
 console.log(fehler === 0 ? '\nOK — Vorschlagslogik korrekt.\n' : `\n${fehler} FEHLER\n`);

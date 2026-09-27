@@ -14,68 +14,51 @@
  * die Maske gerade steuert, entscheidet der Aufrufer, s.
  * `schlageZielgroesseVor`).
  *
- * ── B2–B6 (Nachangriff „Editor Upload-Größe N2"): lieber kein Vorschlag
- *    als ein falscher ──────────────────────────────────────────────────
- * N1 hatte reine Teilzeichenketten-Muster mit gezielten negativen
- * Lookaheads gegen BEOBACHTETE Fehltreffer geflickt. N2 stellte das auf
- * „ganzer Bestandteil ODER Kompositum-ENDE" um (CamelCase getrennt) — das
- * behob die damals bekannten Fälle, aber:
- *   - **B2:** „stück" allein in der Zaun-Zeile machte JEDES „…stück"
- *     (Frühstück, Möbelstück, Werkstück, …) zu einem 2-m-Zaun.
- *   - **B3:** CamelCase-Trennung hob die Regel wieder auf — „StandUhr"
- *     (getrennt: „stand"+„uhr", „stand" endet ein Bestandteil) traf
- *     „Marktstand", aber „Standuhr" (ein Bestandteil, endet nicht auf
- *     „stand") traf nicht. Derselbe Gegenstand, zwei Ergebnisse.
- *   - **B4:** Kompositum-ENDE trifft weiterhin Wörter ohne jeden Bezug:
- *     Gegenstand/Zustand/Abstand (enden auf „stand"), Vogelhaus/Puppenhaus
- *     (enden auf „haus"), Skybox/Hitbox (enden auf „box"), Reboot/
- *     Leather_Boot (enthalten „boot").
- *   - **B5/B6:** Blender-/Windows-Suffixe (`Fass.001`, `Kiste(1)`), Plural
- *     (Kisten, Hütten, Boote) und NFD-Schreibweisen (macOS) trafen gar
- *     nicht mehr oder inkonsistent.
+ * ── N4 (Nachangriff „Editor Upload-Größe N3", Befund N3-3): das KOPFWORT,
+ *    nicht irgendein Bestandteil ─────────────────────────────────────────
+ * B2–B6 (N2) stellten auf „ganzer Bestandteil aus einer festen Liste" um,
+ * aber JEDER Bestandteil zählte gleich — „Haus Tür", „Bird House" und
+ * „Hit Box" trafen dadurch über ihr ERSTES bzw. ein mittleres Wort, obwohl
+ * das eigentlich gemeinte Objekt (Tür, Vogelhaus als Deko, Trefferzone) ein
+ * ganz anderes ist. Auf Deutsch UND Englisch steht das namensgebende Wort
+ * (Grundwort/Kopfwort) bei einer Wortgruppe zuletzt: „Haus-Tür" ist eine
+ * Tür, „Bird House" ein House. Jetzt zählt nur noch der LETZTE Bestandteil,
+ * der keine reine Zahl ist (Zahlen sind Instanz-Zähler wie in
+ * „Marktstand2" oder „Fass (3)", nie das Kopfwort). Zusammengesetzte
+ * Wörter wie „Marktbude Nord" oder „Drachenboot Rot", bei denen das
+ * Kategoriewort selbst VOR einem Zusatz steht (Himmelsrichtung, Farbe),
+ * bleiben nur über ihre eigene Umbenennung als Kopfwort erreichbar — siehe
+ * Test, Abschnitt 3, und die ABWEICHUNGEN im Bericht.
  *
- * Die Regel jetzt, wie von der Karte verlangt: **kein Kompositum-Ende mehr,
- * nur noch ganze Wörter aus einer FESTEN LISTE je Kategorie** (Einzahl,
- * Mehrzahl, Deutsch, Englisch). Ein zusammengesetztes Wort trifft NUR, wenn
- * es selbst — als GANZER Bestandteil — auf einer eigenen, von Hand
- * gepflegten Liste steht (`holzfass`, `zaunstück`, `marktstand`, …), nie
- * über ein Wortende. Das löst B2 (kein „stück" mehr, nur noch „zaunstück"/
- * „palisadenstück" als eigene Einträge), B4 (Gegenstand/Zustand/Vogelhaus/
- * Skybox/Reboot sind als GANZES Wort auf keiner Liste) und, zusammen mit
- * der Vorverarbeitung unten, B3/B5/B6.
+ * „hut" (Englisch, homograph mit der Kopfbedeckung) fliegt aus der
+ * Haus-Liste: Die Karte N4 nimmt die N3-Vorgabe „Wooden Hut → Haus"
+ * ausdrücklich zurück, weil Englisch „hut" die Lücke über „Hütte" nicht
+ * aufwiegt. Aus demselben Grund („zu häufiges, zu generisches Kurzwort
+ * eines fremden Vokabulars") fliegen „house"/„houses" und „box"/„boxes"
+ * ebenfalls heraus: Als KOPFWORT träfen „Bird House"/„Dog House"/
+ * „Tree House"/„Doll House" bzw. „Hit Box"/„Sky Box"/„Bounding Box"/
+ * „Collision Box" sonst unweigerlich, obwohl das keine 8-m-Häuser oder
+ * 1-m-Kisten sind, sondern Spielentwickler-Jargon bzw. Miniaturdeko. Die
+ * deutschen Wörter „haus"/„häuser"/„kiste"/„kisten" bleiben unverändert –
+ * betroffen sind nur die englischen Kurzwörter.
  *
- * **Vorverarbeitung** (`namensBestandteile`): NFC, dann NFKD (faltet eine
- * ZERLEGT geschriebene Eingabe wie macOS-Dateinamen auf dieselbe Form wie
- * eine ZUSAMMENGESETZTE — B6), Kleinschreibung, ein Blender-Suffix
- * (`.001`) oder eine Windows-Dopplung (`(1)`) am Ende abschneiden (B5),
- * DANACH erst in Bestandteile zerlegen: Leerzeichen, `_`, `-` und jeder
- * Übergang zwischen Buchstabe und Ziffer trennen hart. **CamelCase trennt
- * NICHT mehr** (B3) — „StandUhr" und „Standuhr" ergeben jetzt denselben
- * EINEN Bestandteil „standuhr" und damit dasselbe Ergebnis (kein Treffer,
- * weil „standuhr" auf keiner Liste steht).
- *
- * **Doppelsinnige Kurzwörter** („hut", das englische Wort für eine kleine
- * Hütte, homograph mit der Kopfbedeckung; „boot", homograph mit dem
- * englischen Schuh/Kofferraum) werden nur für die Bedeutung aufgenommen,
- * die als GANZES, ISOLIERTES Wort im Spiel Sinn ergibt: „hut" bleibt in
- * der Haus-Liste (das Kopfbedeckungs-Risiko ist unvermeidbar, aber gering
- * und ausdrücklich gewünscht — B5 verlangt „Wooden Hut" → Haus zurück).
- * Das bloße, einzeln stehende „Boot" (deutsch) fehlt dagegen BEWUSST auf
- * der Liste: Kein Testfall verlangt es, und als isolierter Bestandteil
- * träfe es unweigerlich auch „Leather_Boot" oder „Boot_Left" (Englisch für
- * Schuh) — nur die eindeutige Mehrzahl „Boote"/„boats" und die
- * unzweideutigen Komposita (`drachenboot`, `langschiff`) stehen deshalb auf
- * der Liste. Siehe den Bericht für die als Zweifelsfall genannten Wörter
- * (z. B. Puppenhaus als möglicher Deko-Sonderfall).
+ * „Boot"/„boat" sind — anders als in N3 — wieder in der Liste (Auftrag
+ * N4, N3-3: „das fehlte, entgegen der Karte N3"). Das öffnet unvermeidbar
+ * wieder den Doppelsinn mit dem englischen Schuh: „Leather_Boot" hat
+ * „boot" als eigenes, LETZTES Wort (Kopfwort „ein Boot aus Leder") und
+ * trifft jetzt „Boot" (10 m) — ein Homograph zwischen zwei Sprachen lässt
+ * sich rein über den Text nicht auflösen, sobald das Wort selbst gebraucht
+ * wird. Siehe ABWEICHUNGEN im Bericht.
  */
 
 export interface Groessenkategorie {
   readonly kategorie: string;
   /**
    * GANZE Wörter (Einzahl/Mehrzahl, Deutsch/Englisch) und ausdrücklich
-   * gepflegte Komposita — nie ein Wortanfang, nie ein Wortende, nie eine
-   * Wortmitte. Groß-/Kleinschreibung, CamelCase und NFC/NFD sind für den
-   * Vergleich gleich (s. `namensBestandteile`).
+   * gepflegte Komposita — geprüft wird nur gegen das KOPFWORT (den letzten,
+   * nicht rein numerischen Bestandteil), nie gegen einen anderen. Groß-/
+   * Kleinschreibung, CamelCase und NFC/NFD sind für den Vergleich gleich
+   * (s. `namensBestandteile`).
    */
   readonly worte: readonly string[];
   readonly meter: number;
@@ -84,17 +67,17 @@ export interface Groessenkategorie {
 export const GROESSENTABELLE: readonly Groessenkategorie[] = [
   {
     kategorie: 'Haus',
-    // Atomar: Haus/Hütte/Halle/Langhaus (eigenständige Wörter des Spiels,
-    // kein Kompositum aus zwei ANDEREN Kategoriewörtern), Ein- und
-    // Mehrzahl, Deutsch/Englisch, dazu das englische Kurzwort für eine
-    // kleine Hütte (Doppelsinn mit Kopfbedeckung akzeptiert, s.
-    // Kopfkommentar). Komposita: nur der NFD-Nachweis „Holzhütte".
+    // Atomar: Haus/Hütte/Halle/Langhaus, Ein- und Mehrzahl, Deutsch. Kein
+    // „house"/„hut" mehr (Kopfkommentar) — dazu die Holz-/Bauern-/
+    // Fischer-Komposita aus N4-3.
     worte: [
-      'haus', 'häuser', 'haeuser', 'house', 'houses',
+      'haus', 'häuser', 'haeuser',
       'hütte', 'hütten', 'huette', 'huetten',
-      'halle', 'hallen', 'langhaus', 'langhäuser', 'langhaeuser',
-      'hut', 'huts',
-      'holzhütte', 'holzhuette',
+      'halle', 'hallen',
+      'langhaus', 'langhäuser', 'langhaeuser',
+      'holzhütte', 'holzhuette', 'holzhaus', 'holzhäuser', 'holzhaeuser',
+      'bauernhaus', 'bauernhäuser', 'bauernhaeuser',
+      'fischerhütte', 'fischerhuette',
     ],
     meter: 8,
   },
@@ -103,37 +86,63 @@ export const GROESSENTABELLE: readonly Groessenkategorie[] = [
     // Kein bloßes „stand" (zu allgemein, träfe Gegenstand/Zustand/Abstand
     // als GANZES Wort nie, aber ein einzeln hochgeladenes „Stand" ist zu
     // uneindeutig, um 4 m vorzuschlagen). „Markt"/„Bude" bleiben atomar,
-    // „Marktstand" ist die ausdrücklich gepflegte Zusammensetzung.
+    // „Marktstand"/„Marktbude" sind die ausdrücklich gepflegten Zusammensetzungen.
     worte: ['markt', 'market', 'markets', 'bude', 'buden', 'marktstand', 'marktstände', 'marktstaende', 'marktbude', 'marktbuden'],
     meter: 4,
   },
   {
     kategorie: 'Zaunstück',
     // B2: „stück" ist KEIN eigenes Wort mehr — nur die vollen Komposita
-    // „zaunstück"/„palisadenstück" (inkl. NFD-Nachweis „Zaunstück").
-    worte: ['zaun', 'zäune', 'zaeune', 'fence', 'fences', 'palisade', 'palisaden', 'palisades', 'zaunstück', 'zaunstueck', 'palisadenstück', 'palisadenstueck'],
+    // „zaunstück"/„palisadenstück" (inkl. NFD-Nachweis „Zaunstück") sowie
+    // „holzzaun" (N4-3).
+    worte: [
+      'zaun', 'zäune', 'zaeune', 'fence', 'fences',
+      'palisade', 'palisaden', 'palisades',
+      'zaunstück', 'zaunstueck', 'palisadenstück', 'palisadenstueck',
+      'holzzaun', 'holzzäune', 'holzzaeune',
+    ],
     meter: 2,
   },
   {
     kategorie: 'Fass',
-    worte: ['fass', 'fässer', 'faesser', 'barrel', 'barrels', 'tonne', 'tonnen', 'holzfass', 'holzfässer', 'holzfaesser'],
+    worte: [
+      'fass', 'fässer', 'faesser', 'barrel', 'barrels', 'tonne', 'tonnen',
+      'holzfass', 'holzfässer', 'holzfaesser',
+      'bierfass', 'bierfässer', 'bierfaesser',
+      'weinfass', 'weinfässer', 'weinfaesser',
+    ],
     meter: 0.7,
   },
   {
     kategorie: 'Kiste',
-    worte: ['kiste', 'kisten', 'crate', 'crates', 'truhe', 'truhen', 'kasten', 'kästen', 'kaesten', 'box', 'boxes'],
+    // Kein „box"/„boxes" mehr (Kopfkommentar) — „crate"/„truhe"/„kasten"
+    // decken das Englische/Deutsche weiter ab, dazu die Holz-Komposita.
+    worte: [
+      'kiste', 'kisten', 'crate', 'crates', 'truhe', 'truhen',
+      'kasten', 'kästen', 'kaesten',
+      'schatztruhe', 'schatztruhen',
+      'holzkiste', 'holzkisten', 'holztruhe', 'holztruhen',
+    ],
     meter: 1,
   },
   {
     kategorie: 'Karren',
-    worte: ['karren', 'wagen', 'cart', 'carts', 'kutsche', 'kutschen'],
+    worte: ['karren', 'wagen', 'cart', 'carts', 'kutsche', 'kutschen', 'handkarren', 'ochsenkarren'],
     meter: 3,
   },
   {
     kategorie: 'Boot',
-    // Bewusst OHNE bloßes „boot"/„Boot" — s. Kopfkommentar (Doppelsinn mit
-    // dem englischen Schuh/Kofferraum, kein Testfall braucht es).
-    worte: ['boote', 'boat', 'boats', 'schiff', 'schiffe', 'ship', 'ships', 'drachenboot', 'drachenboote', 'langschiff', 'langschiffe'],
+    // N4: „boot"/„boots"/„boat" wieder aufgenommen (s. Kopfkommentar zum
+    // dadurch unvermeidbaren Leather_Boot-Doppelsinn), dazu die üblichen
+    // Wikinger-/Fischer-Komposita.
+    worte: [
+      'boot', 'boote', 'boots', 'boat', 'boats',
+      'schiff', 'schiffe', 'ship', 'ships',
+      'drachenboot', 'drachenboote', 'langschiff', 'langschiffe',
+      'ruderboot', 'ruderboote',
+      'wikingerschiff', 'wikingerschiffe', 'wikingerboot', 'wikingerboote',
+      'fischerboot', 'fischerboote',
+    ],
     meter: 10,
   },
 ];
@@ -147,11 +156,23 @@ function kanon(s: string): string {
  * Einen Blender-Suffix (`.001`, auch echte Dateiendungen wie `.glb`) bzw.
  * eine Windows-Dopplung (`(1)`) am ENDE abschneiden (B5). Läuft NACH der
  * Kanonisierung, also auf bereits kleingeschriebenem Text.
+ *
+ * N4 (Nachangriff N3, Befund N3-2): Die alte Reihenfolge prüfte zuerst
+ * `\s*\([0-9]+\)$` — ein UNBEGRENZTES `\s*` unmittelbar vor einem starren
+ * Literal `(`. Bei sehr vielen Leerzeichen ohne folgendes `(` probiert die
+ * Engine dafür jede mögliche Aufteilung der Leerzeichen durch, bevor sie
+ * aufgibt (quadratisch: 100 000 Leerzeichen + „(x" brauchten ~13 s). Die
+ * Reihenfolge jetzt: erst die Dateiendung (fester, kurzer Rest am Ende,
+ * kein Leerraum-Rückstau möglich), dann EIN lineares `trimEnd()` statt
+ * eines `\s*` im Muster, dann `(n)$` ohne führendes `\s*` — jeder Schritt
+ * einzeln linear in der Länge der Eingabe.
  */
 function schneideEndungUndNummer(kanonisch: string): string {
   return kanonisch
-    .replace(/\s*\([0-9]+\)$/, '') // "kiste(1)" -> "kiste"
-    .replace(/\.[a-z0-9]{1,6}$/, ''); // "fass.001" / "haus.glb" -> "fass" / "haus"
+    .replace(/\.[a-z0-9]{1,6}$/, '') // "fass.001" / "haus.glb" -> "fass" / "haus"
+    .trimEnd()
+    .replace(/\([0-9]+\)$/, '') // "kiste(1)" -> "kiste" (Leerraum davor schon per trimEnd weg)
+    .trimEnd();
 }
 
 /**
@@ -169,23 +190,31 @@ function namensBestandteile(anzeigename: string): readonly string[] {
     .filter((s) => s.length > 0);
 }
 
-/** Ob `wort` GENAU einen Bestandteil trifft — nie Anfang, Ende oder Mitte. */
-function trifftBestandteil(bestandteile: readonly string[], wort: string): boolean {
-  const kanonischesWort = kanon(wort);
-  return bestandteile.some((b) => b === kanonischesWort);
+/**
+ * Das Kopfwort (N4/N3-3): der LETZTE Bestandteil, der nicht rein aus
+ * Ziffern besteht — eine angehängte Nummer („Marktstand2", „Fass 3") ist
+ * ein Instanz-Zähler, nie das namensgebende Wort. `null`, wenn kein
+ * solcher Bestandteil übrig ist (z. B. der Name war nur eine Zahl).
+ */
+function kopfwort(bestandteile: readonly string[]): string | null {
+  for (let i = bestandteile.length - 1; i >= 0; i--) {
+    if (!/^[0-9]+$/.test(bestandteile[i]!)) return bestandteile[i]!;
+  }
+  return null;
 }
 
 /**
  * Die erste passende Kategorie für einen Anzeigenamen — `null`, wenn
  * keine passt. „Kein Vorschlag" ist der sichere Normalfall (Auftrag
- * B2–B6: „lieber kein Vorschlag als ein falscher"); die Tabellenreihenfolge
- * entscheidet nur, falls ein Name auf zwei Kategoriewörter zugleich passt
+ * B2–B6/N4: „lieber kein Vorschlag als ein falscher"); die Tabellenreihenfolge
+ * entscheidet nur, falls ein Kopfwort auf zwei Kategorien zugleich passt
  * (kommt in der Vorgabeliste nicht vor).
  */
 export function kategorieFuerName(anzeigename: string): Groessenkategorie | null {
-  const bestandteile = namensBestandteile(anzeigename);
+  const kopf = kopfwort(namensBestandteile(anzeigename));
+  if (kopf === null) return null;
   for (const eintrag of GROESSENTABELLE) {
-    if (eintrag.worte.some((wort) => trifftBestandteil(bestandteile, wort))) return eintrag;
+    if (eintrag.worte.some((wort) => kopf === kanon(wort))) return eintrag;
   }
   return null;
 }

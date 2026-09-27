@@ -203,6 +203,23 @@ export const HINT_DEFS: PrefabDef[] = [
   { ...def('Wolf', F.MONSTER_AI | F.PERSISTENT | F.SYNCED_TRANSFORM, 'raw_meat', 1.23, 1.019, 'Wolf'),
     animation: 'idle', animationTempo: { walk: 0.62, run: 1.42 } },
 
+  // Hen (B9.6): same treatment, third animal with its own skinned model.
+  // renderScale is again the IDLE pose (measured in B9.6, quarter-frame CPU
+  // skinning like the cow and wolf), NOT assets/manifest.json: the manifest's
+  // `breite` (0.381) is the BIND pose with the wings spread for rigging: the
+  // idle pose folds them in (width 0.168 m). `w` is the longest horizontal
+  // edge, which for the folded idle pose is the length (0.255 m, not the
+  // width) — manifest `hoehe`/`tiefe` (0.325/0.255) agree with this pose.
+  //
+  // Like the cow it never attacks and never flees (aggro: false, flees:
+  // false in spawnData.ts) and only walks, so only `walk` is listed.
+  // animationTempo.walk (0.14 m/s) is the median stance-phase foot speed of
+  // the shipped walk clip (both feet, quarter-frame Blender sampling) — a
+  // real hen's trippeln, not a guess: without the coupling the feet would
+  // slide by a factor of ~3.5 at the chosen wander speed (spawnData.ts).
+  { ...def('Huhn', F.ANIMAL_AI | F.PERSISTENT | F.SYNCED_TRANSFORM, 'raw_meat', 0.255, 0.325, 'Huhn'),
+    animation: 'idle', animationTempo: { walk: 0.14 } },
+
   // ── Trees / vegetation ───────────────────────────────────────────
   def('Beech1', F.TREE_BASE | F.PERSISTENT, 'sapling_beech', 4.0, 8.0),
   def('FirTree', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 3.5, 9.0),
@@ -1322,6 +1339,8 @@ const EIGENE_MODELLE_ALT: readonly string[] = [
   // `bauSpawnTabelle()` filters them out of the spawn table.
   'Kuh',
   'Wolf',
+  // Hen (B9.6): same reason.
+  'Huhn',
 ];
 
 /**

@@ -1591,6 +1591,13 @@ const KERN = [
   // schlaegt nie, Wolf jede 2 s mit 8) und der echte Paketweg: Treffer,
   // Tod nach gezaehlten Schlaegen, Beute im Inventar. ~70 s.
   ['server', 'test/b9-kreaturen-spiel.ts'],
+  // B9.6: das Huhn im Spiel — Tabellen (Spawn-Tabelle, Registry, Leben,
+  // Manifest-Clips, renderScale gegen die IDLE-Pose aus B9.6/Blender statt
+  // der Bindepose des Manifests), das Spawnsystem mit den ausgelieferten
+  // Zahlen (Wiese, `anim`-Member folgt der Bewegung, greift nie an) und der
+  // echte Paketweg: Treffer, Tod nach einem Steinaxt-Schlag, Beute im
+  // Inventar. ~40 s.
+  ['server', 'test/b9-6-huhn.ts'],
   // Besitz und Grenzen: fremde Betten und Truhen bleiben dem Besitzer (Bett,
   // Oeffnen und ContainerAction), der Wiedereinstieg im Instanz-Band gilt nicht,
   // Chat und Graben ueberqueren die Weltgrenze nicht, der Zaehler
@@ -1644,6 +1651,9 @@ const KERN = [
   //
   // Cow and wolf join the switch: a tree that predates them holds
   // PlayerAvatar.glb but not the two files and would go red on the new manifest.
+  //
+  // B9.6: the hen joins for the same reason — a tree that predates it has
+  // Kuh.glb/Wolf.glb but not Huhn.glb.
   [
     'tools',
     'test/manifest-vollstaendig.ts',
@@ -1651,6 +1661,7 @@ const KERN = [
       'assets/models/PlayerAvatar.glb',
       'assets/models/Kuh.glb',
       'assets/models/Wolf.glb',
+      'assets/models/Huhn.glb',
     ),
   ],
   /*

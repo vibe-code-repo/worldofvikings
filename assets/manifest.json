@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-24T00:18:58.739Z",
+ "erzeugt": "2026-09-27T20:07:07.909Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 313,
- "gemessen": 313,
+ "anzahl": 314,
+ "gemessen": 314,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -2453,6 +2453,45 @@
    ],
    "meshlos": false,
    "skins": 0
+  },
+  "Huhn": {
+   "datei": "Huhn.glb",
+   "foliage": false,
+   "bytes": 386144,
+   "huelle": {
+    "min": [
+     -0.191,
+     0.044,
+     -0.134
+    ],
+    "max": [
+     0.191,
+     0.369,
+     0.121
+    ]
+   },
+   "breite": 0.381,
+   "hoehe": 0.325,
+   "tiefe": 0.255,
+   "dreiecke": 660,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "idle",
+     "dauer": 3.333
+    },
+    {
+     "name": "run",
+     "dauer": 0.458
+    },
+    {
+     "name": "walk",
+     "dauer": 1.125
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
   },
   "KiPine2": {
    "datei": "KiPine2.glb",

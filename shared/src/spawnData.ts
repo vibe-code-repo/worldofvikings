@@ -250,6 +250,52 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     calmDistance: 0,
     clips: ['idle', 'walk', 'run', 'attack'],
   },
+  {
+    // Hen (B9.6): the meadow's smallest animal (0.26 x 0.17 x 0.33 m, 660
+    // triangles — under half the cow's mesh cost), so a higher cap than the
+    // cow is affordable. Same behaviour as the cow: `aggro: false` and
+    // `flees: false` — it neither attacks nor bolts, it just wanders and
+    // pecks, per B9.6.
+    //
+    // Ring and count radius are tightened from the cow's 35-100 m to 15-40 m:
+    // a cow is 2.9 m long and reads at 80 m, a 0.26 m hen at that range is a
+    // few pixels — it needs to pop in closer to be noticed at all.
+    //
+    // Hens flock: groupSize 2-4 (vs. the cow's 1-2) in a tight 3 m radius,
+    // and a short wander radius (8 m, vs. the cow's 15 m) — real chickens
+    // stay close to where they started, they do not roam a meadow.
+    //
+    // Walk 0.5 m/s: half the cow's amble (1.0), a slow peck-and-shuffle
+    // rather than a purposeful walk (clip: 0.14 m/s median stance-phase foot
+    // speed, prefabs.ts — the client couples playback rate to ground speed,
+    // so any wander speed is slide-free). `runSpeed` is required by the type
+    // but never read (flees: false, aggro: false, like the cow's own unused
+    // 5.0); kept at the same 5x ratio to `walkSpeed` as the cow (1.0 -> 5.0)
+    // for consistency: 0.5 x 5 = 2.5.
+    prefab: 'Huhn',
+    biomes: Biome.Meadows,
+    maxPerPlayer: 5,
+    countRadius: 60,
+    globalMax: 40,
+    spawnIntervalSec: 5,
+    spawnChance: 0.4,
+    groupSizeMin: 2,
+    groupSizeMax: 4,
+    groupRadius: 3,
+    ringMin: 15,
+    ringMax: 40,
+    minAltitude: 30.5,
+    walkSpeed: 0.5,
+    runSpeed: 2.5,
+    wanderRadius: 8,
+    idleMinSec: 2,
+    idleMaxSec: 5,
+    flees: false,
+    fleeDistance: 0,
+    calmDistance: 0,
+    aggro: false,
+    clips: ['idle', 'walk', 'run'],
+  },
 ];
 
 /**

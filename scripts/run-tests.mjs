@@ -2223,6 +2223,18 @@ const KERN = [
   ['shared', 'test/welt-abgleich-wettlauf.ts'],
   ['tools', 'test/wov-sicherung-welt.ts'],
   ['shared', 'test/kollision-upload-entscheid.ts'],
+  // Plateau diff and tie-break independent of list order: a live-patched geo matches a fresh compile.
+  ['shared', 'test/sockel-diff.ts'],
+  // A dropped dungeon instance moves its players out first (no stale character id in another world); player list per connection.
+  ['server', 'test/instanz-verwurf.ts'],
+  // Offline flight draws the placement scale (`scale`) like the server: threshold, clamp 0.2-5, replaces localScale. ~5 s.
+  ['client', 'test/testflug-skala.ts'],
+  // The client address is the trusted hop's (rightmost X-Forwarded-For), never a visitor-supplied prefix (F3).
+  ['server', 'test/herkunft-xff.ts'],
+  // World-map publisher: the small probe (256 px, ~20-35 s); `--gross` runs the full 4096 px probe by hand.
+  ['tools', 'test/weltkarte-probe.mjs'],
+  // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
+  ['client', 'test/testflug-ops.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

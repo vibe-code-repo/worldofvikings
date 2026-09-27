@@ -102,16 +102,18 @@ const SPRACHEN: readonly Sprache[] = [
  */
 export type SsaoZustand = 'korrigiert' | 'babylon-faengt-ab' | 'muster-veraendert' | 'kein-shader';
 
-const zustaende = new Map<string, SsaoZustand>();
-
 function korrigiere(sprache: Sprache): SsaoZustand {
   const quelle = sprache.store[SHADER];
   if (typeof quelle !== 'string') return 'kein-shader';
-  if (quelle.includes(sprache.neu)) return 'korrigiert';
-  if (!quelle.includes(sprache.alt)) {
+  // Fruehes Ende nur, wenn die Korrektur drinsteht UND das Original nirgends mehr
+  // vorkommt (sonst stuende sie etwa in einem Kommentar, und der Shader bliebe ungeschuetzt).
+  const hatAlt = quelle.includes(sprache.alt);
+  if (quelle.includes(sprache.neu) && !hatAlt) return 'korrigiert';
+  if (!hatAlt) {
     return sprache.ungeschuetzt.test(quelle) ? 'muster-veraendert' : 'babylon-faengt-ab';
   }
-  sprache.store[SHADER] = quelle.replace(sprache.alt, sprache.neu);
+  // Alle Vorkommen ersetzen, nicht nur das erste.
+  sprache.store[SHADER] = quelle.split(sprache.alt).join(sprache.neu);
   return 'korrigiert';
 }
 
@@ -121,10 +123,14 @@ function korrigiere(sprache: Sprache): SsaoZustand {
  * korrigiert sind. Den Grund eines false nennt `ssaoHimmelZustand()`.
  */
 export function korrigiereSsaoHimmel(): boolean {
+  let ok = true;
   for (const sprache of SPRACHEN) {
-    if (zustaende.get(sprache.name) !== 'korrigiert') zustaende.set(sprache.name, korrigiere(sprache));
+    // Jeder Aufruf sieht im Store nach (ein frueher Ausstieg ist nur ueber die
+    // Zeile in `korrigiere` erlaubt): setzt ein Modul den Shader spaeter zurueck,
+    // repariert der naechste Aufruf ihn.
+    if (korrigiere(sprache) !== 'korrigiert') ok = false;
   }
-  return SPRACHEN.every((s) => zustaende.get(s.name) === 'korrigiert');
+  return ok;
 }
 
 /** Zeuge: Zustand je Sprache, frisch aus dem Store gelesen. / Witness. */

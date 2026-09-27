@@ -518,15 +518,25 @@ export class PlateauField {
   }
 
   /**
-   * Platte am Mittelpunkt totlegen (Editor: Platzierung gelöscht oder
-   * verschoben). Bewusst KEIN Umbau der Chunk-Listen: Sie speichern
-   * Indizes, Nachrücken würde alle folgenden verschieben — der tote
-   * Eintrag wird in probe() einfach übersprungen. true = getroffen.
+   * Platte totlegen (Editor: Platzierung gelöscht oder verschoben). Bewusst
+   * KEIN Umbau der Chunk-Listen: Sie speichern Indizes, Nachrücken würde alle
+   * folgenden verschieben — der tote Eintrag wird in probe() einfach
+   * übersprungen. true = getroffen.
+   *
+   * Mit `radius`: EXAKT die Platte mit genau diesen Werten (x, z, radius),
+   * ohne Toleranz; bei mehreren gleichen genau eine. So trifft ein Diff nie
+   * eine Nachbarplatte. Ohne `radius` (Testflug): Mittelpunkt innerhalb 5 cm,
+   * die zuletzt angelegte gewinnt.
    */
-  entferne(x: number, z: number): boolean {
+  entferne(x: number, z: number, radius?: number): boolean {
     for (let i = this.platten.length - 1; i >= 0; i--) {
       const pl = this.platten[i];
-      if (pl && Math.abs(pl.x - x) < 0.05 && Math.abs(pl.z - z) < 0.05) {
+      if (!pl) continue;
+      const treffer =
+        radius === undefined
+          ? Math.abs(pl.x - x) < 0.05 && Math.abs(pl.z - z) < 0.05
+          : pl.x === x && pl.z === z && pl.radius === radius;
+      if (treffer) {
         this.platten[i] = null;
         this.memoX = Number.NaN;
         return true;
@@ -563,7 +573,16 @@ export class PlateauField {
       if (!pl) continue;
       const dist = Math.hypot(wx - pl.x, wz - pl.z);
       const rand = dist - pl.radius;
-      if (rand < bestRand) {
+      // Exact tie: a fixed key (radius, x, z) decides, never the list position,
+      // so a plate appended live computes like a freshly compiled one.
+      // Gleichstand: fester Schlüssel statt Listenposition.
+      if (
+        rand < bestRand ||
+        (rand === bestRand &&
+          beste !== null &&
+          (pl.radius < beste.radius ||
+            (pl.radius === beste.radius && (pl.x < beste.x || (pl.x === beste.x && pl.z < beste.z)))))
+      ) {
         bestRand = rand;
         beste = { abstand: dist, radius: pl.radius, x: pl.x, z: pl.z, index: i };
       }

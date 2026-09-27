@@ -87,7 +87,7 @@
  * build ops and to predict what the service will do. The file side lives in
  * admin/src/routen/weltOps.ts.
  */
-import { sanitizeWorldLayout } from './sanitize.js';
+import { platzierungenFehler, platzierungenFehlerText, sanitizeWorldLayout, type PlatzierungsFehler } from './sanitize.js';
 import { WORLD_LAYOUT_VERSION, type WorldLayout } from './types.js';
 
 export const OP_COLLECTIONS = ['placements', 'regions', 'routes', 'rivers', 'lakes', 'continents'] as const;
@@ -162,7 +162,7 @@ export type WendeErgebnis =
       stellen: { sammlung: OpCollection; id: string }[];
     }
   | { ok: false; art: 'grenze'; sammlung: OpCollection; anzahl: number; grenze: number; message: string }
-  | { ok: false; art: 'ungueltig'; message: string };
+  | { ok: false; art: 'ungueltig'; message: string; fehlerhaft?: PlatzierungsFehler[] };
 
 export type VorgangPruefung = { ok: true; vorgang: Vorgang } | { ok: false; message: string };
 
@@ -322,6 +322,21 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
   // sanitizer would drop makes the whole Vorgang invalid (422), whatever the
   // document looks like. `vorher` is different: a `vorher` that is not even
   // a valid entry can never equal the current one, that is a conflict.
+  // A placement the writer typed wrong (`yaw: "abc"`, `scale: null`, a key `Yaw`) is refused with the list, not
+  // canonicalised: the canonical entry would read as a change or a removal to the running server (N4).
+  const fehlerhaft: PlatzierungsFehler[] = [];
+  for (const op of ops) {
+    if (op.sammlung !== 'placements' || !op.nachher) continue;
+    for (const f of platzierungenFehler([op.nachher])) fehlerhaft.push({ ...f, id: op.id });
+  }
+  if (fehlerhaft.length > 0) {
+    return {
+      ok: false,
+      art: 'ungueltig',
+      message: `${fehlerhaft.length} Fehler in Platzierungen (${platzierungenFehlerText(fehlerhaft)}) — nichts geschrieben`,
+      fehlerhaft,
+    };
+  }
   const nachherKanon = new Map<Op, OpEntry>();
   const vorherText = new Map<Op, string | null>();
   for (const [i, op] of ops.entries()) {

@@ -1,8 +1,13 @@
 /**
  * Live sync of the world document (Editor E2, card K5.0 N2/N3, finding Z6): the WHOLE guard tick at the limit of
- * live-applied changes (`AENDERUNGEN_MAX` = 40 new / changed entries in ONE write), median in ms. The limit is only
- * worth what this measures: above 250 ms the limit has to come down (N3: 100 measured 361-449 ms at +-1500 m on land,
- * so it went to 50, and case 7 measured 349 ms at 50 under load 7.7, so it went to 40). Prints the machine load (1-minute loadavg) with every measurement.
+ * live-applied changes (`AENDERUNGEN_MAX` = 40 new / changed entries in ONE write).
+ *
+ * In the full run (`npm test`) this checks ONLY the receipts: the limit, the count and the reasons, no milliseconds
+ * (N4: a timing check turned other people's full runs red whenever the machine was busy; case 7 alone measured
+ * 416-515 ms under load 8-14). The timing is a tool: `tools/layout-live-messung.sh` sets `WOV_GRENZE_MESSEN=1`
+ * (median <= 250 ms per case, the machine load printed with every measurement) and runs under `sperre.sh measure`.
+ * The limit is only worth what that measures: above 250 ms it has to come down (N3: 100 measured 361-449 ms at
+ * +-1500 m on land, so it went to 50, and case 7 measured 349 ms at 50 under load 7.7, so it went to 40).
  *
  *  1. N new entries per write, close together (400 m); the document grows from 700 entries
  *  2. N new entries, spread wide (1800 m)
@@ -10,7 +15,7 @@
  *  4. N existing entries switch prefab (each ZDO is replaced), wide
  *  5. N+1 changes: the limit refuses, the tick is cheap (no scan, nothing applied)
  *  6. N new entries at +-1500 m on land (region radius 1900 m): cold ground tiles, the attacker's case
- *  7. as 6, in a document whose ~2000 entries are ALL one prefab (the sanitizer folds duplicates per prefab)
+ *  7. as 6, in a document whose entries are ALL one prefab: 1520 at the first tick (2000 - 12 x 40), growing by 40 a tick to 2000 (the sanitizer folds duplicates per prefab)
  *  7b. one new entry in that document (reference: the fixed cost of the sanitizer, not of the limit)
  *  8. 2N new entries at +-1500 m: refused (the old limit of 100 must not come back)
  *
@@ -36,8 +41,9 @@ function check(name: string, ok: boolean, detail = ''): void {
 }
 
 const WURZEL = mkdtempSync(join(tmpdir(), 'wov-layout-grenze-'));
-/** Card N2: above 250 ms the limit comes down. */
+/** Card N2: above 250 ms the limit comes down. Only checked by the measuring tool (`WOV_GRENZE_MESSEN=1`), never in the full run. */
 const GRENZE_MEDIAN_MS = 250;
+const MESSEN = process.env.WOV_GRENZE_MESSEN === '1';
 const LAEUFE = 12;
 /** The limit under test (the card starts at 50; 40 after the measurement of case 7). */
 const N = AENDERUNGEN_MAX;
@@ -120,7 +126,7 @@ async function fall(name: string, basis: Platz[], aendern: (lauf: number) => Pla
     console.log(`MESSUNG ${name}: ${basis.length} placements, ${anzahl} changes per write, ${LAEUFE} ticks, median ${median.toFixed(1)} ms, max ${sortiert[LAEUFE - 1]!.toFixed(1)} ms`);
     console.log(`LOAD ${name}: loadavg ${loadavg()[0]!.toFixed(1)} (1 min)`);
     check(`${name}: every tick ended with the receipt "${erwartet}"`, richtig === LAEUFE, `${richtig}/${LAEUFE}`);
-    check(`${name}: median <= ${GRENZE_MEDIAN_MS} ms`, erwartet !== 'angewendet' || median <= GRENZE_MEDIAN_MS, `${median.toFixed(1)} ms`);
+    if (MESSEN) check(`${name}: median <= ${GRENZE_MEDIAN_MS} ms`, erwartet !== 'angewendet' || median <= GRENZE_MEDIAN_MS, `${median.toFixed(1)} ms`);
   } finally {
     console.log = orig.log;
     console.warn = orig.warn;
@@ -153,7 +159,7 @@ try {
   const EIN = ['Eiche1'];
   const einBasis = verteilt(2000 - LAEUFE * N, 1500, 0, 'b', EIN);
   const einNeu = verteilt(LAEUFE * N, 1500, 10_000, 'n', EIN);
-  await fall(`7 ${N} NEW entries, +-1500 m, document of ONE prefab (~2000)`, einBasis, (lauf) => [...einBasis, ...einNeu.slice(0, (lauf + 1) * N)], 'angewendet', N);
+  await fall(`7 ${N} NEW entries, +-1500 m, document of ONE prefab (1520 to 2000)`, einBasis, (lauf) => [...einBasis, ...einNeu.slice(0, (lauf + 1) * N)], 'angewendet', N);
   // Reference for case 7: ONE new entry in the same document. What it costs is the sanitizer's duplicate folding
   // (quadratic per prefab), not the limit: the follow-up card "duplicate folding with tiles" (N1) owns it.
   await fall('7b 1 NEW entry, same document of ONE prefab (fixed cost, reference)', einBasis, (lauf) => [...einBasis, ...einNeu.slice(0, lauf + 1)], 'angewendet', 1);

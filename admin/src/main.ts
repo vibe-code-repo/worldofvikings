@@ -76,6 +76,7 @@ import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
 // Begruendung wie bei instanz.ts eine Zeile hoeher.
 import {
   LayoutFeldUngueltig,
+  LayoutPlatzierungenUngueltig,
   LayoutGesperrt,
   LayoutUngueltig,
   LayoutVeraltet,
@@ -83,7 +84,7 @@ import {
   layoutLesenMitHash,
   layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
+import { fehlerhaftAntwort, weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
 import { anwendungAnhaengen } from './routen/anwendung.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import {
@@ -1809,6 +1810,13 @@ async function behandeln(
             grenze: fehler.grenze,
             message: fehler.message,
           },
+        };
+      }
+      if (fehler instanceof LayoutPlatzierungenUngueltig) {
+        console.warn(`[Admin] POST /api/worldlayout -> 422 ungueltig: ${fehler.message}`);
+        return {
+          code: 422,
+          daten: { ok: false, fehler: 'ungueltig', grund: 'ungueltig', message: fehler.message, ...fehlerhaftAntwort(fehler.fehlerhaft) },
         };
       }
       if (fehler instanceof LayoutFeldUngueltig) {

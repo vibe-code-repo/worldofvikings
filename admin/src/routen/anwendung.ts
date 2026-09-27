@@ -71,7 +71,7 @@ type Antwort = { code: number; daten: unknown; kopf?: Record<string, string> };
 
 /**
  * Hängt das Ergebnis an eine erfolgreiche Schreibantwort (200/201 mit `hash`):
- * `angewendet` und Zähler bei 200, bei nicht angewendet Code 202 mit `grund`.
+ * `angewendet`, Zähler und (falls die Quittung eines hat) `detail` bei 200, bei nicht angewendet Code 202 mit `grund`.
  * Alle anderen Antworten bleiben unberührt (dort wurde nichts geschrieben).
  */
 export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptionen, 'hash'>): Promise<Antwort> {
@@ -79,7 +79,12 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
   if ((antwort.code !== 200 && antwort.code !== 201) || !daten || typeof daten.hash !== 'string') return antwort;
   const stand = await quittungAbwarten({ ...o, hash: daten.hash });
   if (stand.angewendet) {
-    return { ...antwort, daten: { ...daten, angewendet: true, zaehler: stand.quittung.zaehler } };
+    // `detail` bei 200 nur, wenn die Quittung eines hat (Z5a: ein Grabstein hat ein Neusetzen verschluckt, `zaehler.zurueck`):
+    // Ohne es sähe der Nutzer „angewendet“ und wüsste nicht, dass ein Objekt nicht wiederkam.
+    return {
+      ...antwort,
+      daten: { ...daten, angewendet: true, zaehler: stand.quittung.zaehler, ...(stand.quittung.detail ? { detail: stand.quittung.detail } : {}) },
+    };
   }
   return {
     ...antwort,

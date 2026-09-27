@@ -278,40 +278,111 @@ function zahlInBereich(v: unknown, min: number, max: number): boolean {
   return Number.isFinite(n) && n >= min && n <= max;
 }
 
+/** Die Schlüssel einer Platzierung und ihres npc-Blocks. Alles andere streicht der Sanitizer still (Schlüssel-Tippfehler `Yaw`). */
+const PLATZIERUNG_SCHLUESSEL: ReadonlySet<string> = new Set(['id', 'prefab', 'x', 'z', 'yaw', 'scale', 'einebnen', 'route', 'npc']);
+const NPC_SCHLUESSEL: ReadonlySet<string> = new Set(['name', 'rolle', 'fraktion', 'stufe', 'quest']);
+
 /**
- * Welche vom Nutzer GESETZTEN Felder eines rohen Eintrags hat `platzierungenEinzeln` geklemmt oder gestrichen
- * (Roheintrag ≠ bereinigter Eintrag)? Etwa `yaw: "abc"` (wird 0), `scale: 99` (wird 5), `route: "Nord Weg"`
- * (fällt weg), `npc: "x"`, `npc.rolle: "typo"`.
+ * Welche vom Nutzer GESETZTEN Felder eines rohen Eintrags hat `platzierungenEinzeln` geklemmt, gekürzt oder
+ * gestrichen (Roheintrag ≠ bereinigter Eintrag)? Etwa `yaw: "abc"` (wird 0), `scale: 99` (wird 5), `scale: null`
+ * (wird 0,2), `route: "Nord Weg"` (fällt weg), `npc: "x"`, `npc: []`, `npc.rolle: "typo"`, ein `npc.name` über 32
+ * Zeichen (wird gekürzt) und jeder unbekannte Schlüssel (`Yaw`, `scael`, `npc.Rolle`: fällt weg, gälte als fehlend).
  *
  * Nicht dabei, weil eindeutig und ohne Bedeutungsänderung:
  *  - Zahltexte (`scale: "3"`), Rundung (Millimeter bei x/z, 0,1 bei `einebnen`, ganze Stufe)
- *  - `null` in einem der optionalen Felder: gilt wie ein fehlendes Feld
+ *  - `null` bei `yaw`, `route`, `npc`, `npc.name/rolle/fraktion/quest`: gilt wie ein fehlendes Feld. Bei `scale`,
+ *    `einebnen` und `npc.stufe` NICHT: Dort macht der Sanitizer aus `null` die Zahl 0 und klemmt sie (`scale` 0,2).
  *  - `prefab` und `id`: ein falsches Prefab oder eine falsche id ist ein anderer, gültiger Eintrag (kein Klemmen);
  *    ein unbekanntes Prefab meldet der Abgleich als `unbekannt`, eine ungültige id wird abgeleitet.
  *
- * Gilt nur für Einträge, die der Sanitizer NICHT verworfen hat (die zählen als verworfen).
+ * Gilt nur für Einträge, die der Sanitizer NICHT verworfen hat (die zählen als verworfen: `platzierungenFehler`).
  */
 export function geklemmteFelder(roh: unknown): string[] {
   const felder: string[] = [];
   if (typeof roh !== 'object' || roh === null) return felder;
   const o = roh as Record<string, unknown>;
   const gesetzt = (v: unknown): boolean => v !== undefined && v !== null;
+  /** Gesetzt UND nicht in [min, max] lesbar; `null` zählt hier mit (Sanitizer: `Number(null)` = 0). */
+  const zahlFalsch = (v: unknown, min: number, max: number): boolean => v !== undefined && (v === null || !zahlInBereich(v, min, max));
+  for (const k of Object.keys(o)) if (!PLATZIERUNG_SCHLUESSEL.has(k)) felder.push(k);
   if (gesetzt(o.yaw) && !zahlInBereich(o.yaw, -Math.PI * 2, Math.PI * 2)) felder.push('yaw');
-  if (gesetzt(o.scale) && !zahlInBereich(o.scale, 0.2, 5)) felder.push('scale');
-  if (gesetzt(o.einebnen) && !zahlInBereich(o.einebnen, 1, 100)) felder.push('einebnen');
+  if (zahlFalsch(o.scale, 0.2, 5)) felder.push('scale');
+  if (zahlFalsch(o.einebnen, 1, 100)) felder.push('einebnen');
   if (gesetzt(o.route) && !(typeof o.route === 'string' && ID_RE.test(o.route))) felder.push('route');
   if (gesetzt(o.npc)) {
-    if (typeof o.npc !== 'object') felder.push('npc');
+    if (typeof o.npc !== 'object' || Array.isArray(o.npc)) felder.push('npc');
     else {
       const n = o.npc as Record<string, unknown>;
-      if (gesetzt(n.name) && typeof n.name !== 'string') felder.push('npc.name');
+      if (Object.keys(n).length === 0) felder.push('npc');
+      for (const k of Object.keys(n)) if (!NPC_SCHLUESSEL.has(k)) felder.push(`npc.${k}`);
+      if (gesetzt(n.name) && (typeof n.name !== 'string' || n.name.trim().length > NPC_NAME_MAX)) felder.push('npc.name');
       if (gesetzt(n.rolle) && !istNpcRolle(n.rolle)) felder.push('npc.rolle');
       if (gesetzt(n.fraktion) && !istFraktion(n.fraktion)) felder.push('npc.fraktion');
-      if (gesetzt(n.stufe) && !zahlInBereich(n.stufe, NPC_STUFE_MIN, NPC_STUFE_MAX)) felder.push('npc.stufe');
+      if (zahlFalsch(n.stufe, NPC_STUFE_MIN, NPC_STUFE_MAX)) felder.push('npc.stufe');
       if (gesetzt(n.quest) && !istQuestZustand(n.quest)) felder.push('npc.quest');
     }
   }
   return felder;
+}
+
+/** Ein Befund am ROHEN Eintrag: welche Platzierung (`id`, sonst `#<Stelle>`), welches Feld, welcher Wert (gekürzt). */
+export interface PlatzierungsFehler {
+  id: string;
+  feld: string;
+  wert: unknown;
+}
+
+/** Ein Wert für die Meldung: Zahlen, Wahrheitswerte und null bleiben, Texte und Verschachteltes werden auf 80 Zeichen gekürzt. */
+function wertKurz(v: unknown): unknown {
+  if (v === null || typeof v === 'boolean') return v;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : String(v);
+  if (typeof v === 'string') return v.length > 80 ? `${v.slice(0, 80)}…` : v;
+  if (v === undefined) return null;
+  let text: string | undefined;
+  try {
+    text = JSON.stringify(v);
+  } catch {
+    text = undefined;
+  }
+  return text === undefined ? String(typeof v) : text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+/**
+ * Was am ROHEN Platzierungs-Array (vor dem Sanitizer) verworfen oder verändert würde: ein Eintrag, den
+ * `platzierungenEinzeln` streicht (kein Objekt, `prefab` fehlt oder ist leer / über 64 Zeichen, `x` oder `z`
+ * keine endliche Zahl im Weltrahmen), und jedes Feld aus `geklemmteFelder`. Nur die ersten 2000 Einträge (mehr nimmt
+ * der Sanitizer nicht; die Obergrenze meldet der Schreibweg vorher). Leer heißt: der Sanitizer ändert nichts außer
+ * Rundung, Zahltexten, Sortierung und dem Zusammenlegen exakter Duplikate.
+ *
+ * Kein Array (fehlt, `null`, Text) liefert eine leere Liste: Das prüft `listenPruefen` des Schreibwegs.
+ */
+export function platzierungenFehler(roh: unknown): PlatzierungsFehler[] {
+  const fehler: PlatzierungsFehler[] = [];
+  if (!Array.isArray(roh)) return fehler;
+  roh.slice(0, 2000).forEach((p, i) => {
+    const id = typeof p === 'object' && p !== null && typeof (p as { id?: unknown }).id === 'string' && (p as { id: string }).id.length <= 64 ? (p as { id: string }).id : `#${i}`;
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) {
+      fehler.push({ id, feld: 'eintrag', wert: wertKurz(p) });
+      return;
+    }
+    const o = p as Record<string, unknown>;
+    if (typeof o.prefab !== 'string' || o.prefab.length === 0 || o.prefab.length > 64) fehler.push({ id, feld: 'prefab', wert: wertKurz(o.prefab) });
+    if (koordinate(o.x) === null) fehler.push({ id, feld: 'x', wert: wertKurz(o.x) });
+    if (koordinate(o.z) === null) fehler.push({ id, feld: 'z', wert: wertKurz(o.z) });
+    for (const feld of geklemmteFelder(o)) {
+      const teile = feld.split('.');
+      let wert: unknown = o;
+      for (const t of teile) wert = typeof wert === 'object' && wert !== null ? (wert as Record<string, unknown>)[t] : undefined;
+      fehler.push({ id, feld, wert: wertKurz(wert) });
+    }
+  });
+  return fehler;
+}
+
+/** Die Liste als Satz für Editor, KI und Log: `t9 yaw="abc"`, höchstens `max` Stück, der Rest als Zahl. */
+export function platzierungenFehlerText(liste: readonly PlatzierungsFehler[], max = 20): string {
+  const teile = liste.slice(0, max).map((f) => `${f.id} ${f.feld}=${JSON.stringify(f.wert)}`);
+  return teile.join(', ') + (liste.length > max ? ` … (+${liste.length - max})` : '');
 }
 
 export function sanitizeWorldLayout(input: unknown): WorldLayout | null {

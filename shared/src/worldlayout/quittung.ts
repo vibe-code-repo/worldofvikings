@@ -30,7 +30,11 @@ export interface Quittung {
   grund: QuittungsGrund;
   /** Ausführlicher Text zum Grund (welche Geo-Teile, welche Schutzrückgabe). */
   detail?: string;
-  /** Zähler des Abgleichs (`gespawnt`, `aktualisiert`, `unveraendert`, `entfernt`, …), sonst null. */
+  /**
+   * Zähler des Abgleichs (`gespawnt`, `aktualisiert`, `unveraendert`, `entfernt`, …), sonst null. Live kommt
+   * `zurueck` dazu: Einträge, die ein Grabstein verschluckt hat (gleiche id, gleicher Inhalt wie ein gelöschter,
+   * gefällter Eintrag; nichts gespawnt). Bei `zurueck > 0` nennt `detail` die ids, auch bei `angewendet`.
+   */
   zaehler: Record<string, number> | null;
   /** ISO-Zeitstempel. */
   zeit: string;

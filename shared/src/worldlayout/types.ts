@@ -388,24 +388,46 @@ export interface LakeDef {
 
 /**
  * Handkorrektur der Geländehöhe einer 64-m-Zone (Editor-Pinsel, T2+; diese
- * Karte T1 baut nur das Feld). Zone-Koordinaten wie
- * `shared/src/worldgen/Heightmap.ts` (`HeightmapProvider.worldToZone`,
- * `zx = floor((w + 32) / 64)`); ein Rasterpunkt-Index wie die dortige
- * 65×65-Zonengrid (`E_WIDTH`), `index = ry * 65 + rx`, 0…4224.
+ * Karte T1/N1 legt nur das Feld fest — Dateiformat, bevor T2 darauf baut).
  *
- * `points` speichert je Eintrag NUR die veränderten Rasterpunkte als
- * `[index, deltaCm]` — Delta in ganzen Zentimetern, ±10 000 (±100 m). Sparse
- * wie `shared/src/worldgen/terrainCompCodec.ts` (D9: "verdichtet wird nicht
- * die Liste, sondern ihr Ergebnis"), aufsteigend nach Index sortiert, damit
- * ein einzelner geänderter Punkt einen kleinen, lokalen Diff ergibt.
+ * **Zone/Index-Schema (N1, nach Angriffsbefund B2):** Eine Zone besitzt
+ * genau EIGENE 64×64 Rasterpunkte, `rx`/`ry` je 0…63 — NICHT 65×65. Der
+ * Randpunkt `rx=64` bzw. `ry=64` ist immer eine Alias-Adresse des
+ * NACHBAR-Vertex `rx=0`/`ry=0` der jeweils nächsten Zone (beide Zonen
+ * fragen beim Bau denselben Weltpunkt ab, s. `Heightmap`-Kopfkommentar
+ * „neighboring zones share their edge vertices“) — er ist deshalb als
+ * EIGENER Index dieser Zone nie erreichbar und wird hier gar nicht erst
+ * zugelassen (`RegionGeo.zoneUndIndex` rundet die Weltposition zuerst auf
+ * den nächsten Rasterpunkt und bestimmt ERST DANACH die Zone, sodass ein
+ * Punkt auf der Kante immer eindeutig der Nachbarzone mit `rx=0`/`ry=0`
+ * zufällt). `index = ry * 64 + rx`, Bereich 0…4095 (64×64 = 4096 Punkte).
+ * Jeder Index in diesem Bereich ist ein ECHTER, erreichbarer Rasterpunkt —
+ * keine toten Adressen mehr.
+ *
+ * `i`/`d` speichern NUR die veränderten Rasterpunkte, als zwei parallele,
+ * komma-getrennte Ganzzahllisten gleicher Länge und Reihenfolge (aufsteigend
+ * nach Index sortiert): `i` die Rasterindizes, `d` die Deltas in ganzen
+ * Zentimetern (±10 000 = ±100 m). Bewusst STRINGS statt verschachtelter
+ * Zahlen-Arrays: Das Speicherformat ist `JSON.stringify(layout, null, 2)`
+ * (`layoutDatei.ts`, Vertrag) — darin bricht JEDES Zahlen-Array auf eine
+ * Zeile je Element um, ein Array aus `[index, delta]`-Paaren also auf VIER
+ * Zeilen je Punkt (Angriffsbefund B5). Ein String-Wert bleibt dagegen immer
+ * eine Zeile, beliebig lang; zwei komma-getrennte Listen sind git-diffbar
+ * genug (ein einzelner geänderter Punkt ändert eine kurze Teilstrecke
+ * innerhalb der Zeile) und treffen das Größenziel der Karte (Strich r=3m
+ * ≤ 400 B, volle Zone ≤ 40 KB — gemessen in `shared/test/hoehenkorrektur.ts`).
+ * Sparse wie `shared/src/worldgen/terrainCompCodec.ts` (D9: "verdichtet
+ * wird nicht die Liste, sondern ihr Ergebnis").
  */
 export interface ZoneHeightDelta {
   /** Zonen-X (wie `HeightmapProvider.worldToZone`). */
   zx: number;
   /** Zonen-Z. */
   zz: number;
-  /** `[Rasterindex 0…4224, Delta in cm]`, nach Index aufsteigend sortiert. */
-  points: readonly (readonly [number, number])[];
+  /** Rasterindizes 0…4095, komma-getrennt, aufsteigend sortiert, z. B. `"3,64,4095"`. */
+  i: string;
+  /** Deltas in ganzen Zentimetern, ±10 000, gleiche Reihenfolge/Länge wie `i`. */
+  d: string;
 }
 
 export interface WorldLayout {

@@ -23,7 +23,7 @@ import { GeoManager, type GeoManagerSettings } from './GeoManager.js';
 import { perlinNoise } from './Perlin.js';
 import { smoothStep, lerp } from './Mathf.js';
 import { Biome } from '../types.js';
-import { ZONE_UNITS, E_WIDTH } from './Heightmap.js';
+import { ZONE_UNITS } from './Heightmap.js';
 import {
   BIOME_BY_NAME,
   DEFAULT_BASE_LEVEL,
@@ -42,24 +42,44 @@ import {
 const f32 = Math.fround;
 
 /**
- * Weltposition → (Zone, Rasterindex) — GENAU wie `Heightmap` sie für denselben
- * Punkt vergibt (`vertexWorldX`/`vertexWorldZ`, `HeightmapProvider.worldToZone`),
- * damit ein geteilter Randvertex zweier Nachbarzonen (dieselbe Weltposition)
- * für beide Zonen dieselbe Korrektur nachschlägt: Er wird kanonisch der Zone
- * mit `rx`/`ry` = 0 zugeschlagen, nie der mit 64 — reine Funktion der
- * Weltposition, unabhängig davon, welche Heightmap-Zone gerade baut.
+ * Weltposition → (Zone, Rasterindex) — GENAU die Zuordnung, die `Heightmap`
+ * für denselben Punkt trifft (`vertexWorldX`/`vertexWorldZ`,
+ * `HeightmapProvider.worldToZone`).
  *
- * Für nicht rastergenaue Aufrufer (Sockel-Zielhöhen-Messung am Platten­
- * mittelpunkt, Kartenvorschau) rundet `Math.round` auf den nächsten
- * Rasterpunkt — dieselbe Rundung wie `Heightmap.worldToVertex`.
+ * **N1, Angriffsbefund B2 (Randzeile/-spalte war ein toter Index):** ERST auf
+ * den nächsten Rasterpunkt runden, DANN aus dieser GANZZAHLIGEN Position die
+ * Zone bestimmen — nicht umgekehrt. Der frühere Code bestimmte die Zone aus
+ * der UNGERUNDETEN Position und rundete `rx`/`ry` erst danach lokal; ein
+ * Punkt bei x = 31,7 (klar innerhalb der Zone `zx=0`, die bis 32 reicht)
+ * rundete dann auf `rx = 64` DERSELBEN Zone — eine Adresse, die die Heightmap
+ * nie abfragt (sie fragt an dieser Weltposition, x = 32, die Nachbarzone
+ * `zx=1` mit `rx = 0` ab, s. u.). Mit der Reihenfolge hier rundet 31,7
+ * zuerst auf 32 und fällt danach GENAU wie bei der Heightmap in Zone `zx=1`,
+ * `rx=0`.
+ *
+ * Jede Zone hat dadurch GENAU 64×64 EIGENE Rasterpunkte (`rx`/`ry` je
+ * 0…63): Die Weltposition einer geteilten Randzeile/-spalte (Vielfaches von
+ * 64 plus 32) ist für floor-basiertes `zx`/`zz` IMMER die niedrigste
+ * Position der NÄCHSTEN Zone (`rx`/`ry` = 0) — nie `rx`/`ry` = 64 einer
+ * Zone. Zwei Nachbarzonen, die beim Bau unabhängig voneinander genau diese
+ * Weltposition abfragen (`Heightmap`-Kopfkommentar: „neighboring zones share
+ * their edge vertices"), erhalten deshalb immer denselben Wert — es gibt
+ * keine toten Indizes mehr, und `HOEHENKORREKTUR_INDEX_MAX` (`sanitize.ts`)
+ * ist entsprechend auf 4095 (64×64 − 1) gesetzt.
  */
 function zoneUndIndex(wx: number, wz: number): { zx: number; zz: number; index: number } {
   const halb = ZONE_UNITS / 2;
-  const zx = Math.floor((wx + halb) / ZONE_UNITS);
-  const zz = Math.floor((wz + halb) / ZONE_UNITS);
-  const rx = Math.min(ZONE_UNITS, Math.max(0, Math.round(wx - (zx * ZONE_UNITS - halb))));
-  const ry = Math.min(ZONE_UNITS, Math.max(0, Math.round(wz - (zz * ZONE_UNITS - halb))));
-  return { zx, zz, index: ry * E_WIDTH + rx };
+  const rwx = Math.round(wx);
+  const rwz = Math.round(wz);
+  const zx = Math.floor((rwx + halb) / ZONE_UNITS);
+  const zz = Math.floor((rwz + halb) / ZONE_UNITS);
+  // rx/ry liegen fuer JEDE Ganzzahl rwx/rwz durch die floor-Formel oben
+  // immer in [0, ZONE_UNITS-1] (0..63) — die Klemmung ist nur eine
+  // Absicherung gegen Gleitkomma-Sonderfaelle (Infinity, extrem grosse
+  // Weltkoordinaten jenseits von LAYOUT_MAX_EXTENT).
+  const rx = Math.min(ZONE_UNITS - 1, Math.max(0, rwx - (zx * ZONE_UNITS - halb)));
+  const ry = Math.min(ZONE_UNITS - 1, Math.max(0, rwz - (zz * ZONE_UNITS - halb)));
+  return { zx, zz, index: ry * ZONE_UNITS + rx };
 }
 
 /** Basis des offenen Ozeans (normiert; ×200 = −56 m — segelbar, kein Abgrund). */

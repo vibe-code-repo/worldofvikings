@@ -666,6 +666,29 @@ export function vergleiche(server: WorldLayout, entwurf: WorldLayout): Unterschi
     });
   }
 
+  // Handkorrektur (heightDeltas, T1/N1, Angriffsbefund B7): Ohne diese Zeile
+  // sah der Vergleich einen Entwurf, der die Korrekturebene verloren hat
+  // (etwa ein alter Entwurf von vor der Karte), als unauffällig an — "Regionen
+  // 1/1, Platzierungen 0/0" und sonst nichts, das Speichern hätte die
+  // Korrektur ohne Warnung gelöscht. Gezählt wird die GESAMTE Punktzahl über
+  // alle Zonen (nicht die Zonenzahl: dieselbe Zonenzahl mit weniger Punkten
+  // je Zone wäre sonst unsichtbar); `schwer`, wenn der Entwurf weniger
+  // Punkte hat als der Server — dieselbe Verlust-Regel wie bei den übrigen
+  // Zeilen.
+  const hoehenPunkte = (l: WorldLayout): number =>
+    (l.heightDeltas ?? []).reduce((n, z) => n + (z.i.length > 0 ? z.i.split(',').length : 0), 0);
+  const sHoehe = hoehenPunkte(server);
+  const eHoehe = hoehenPunkte(entwurf);
+  if (sHoehe !== eHoehe || JSON.stringify(server.heightDeltas ?? []) !== JSON.stringify(entwurf.heightDeltas ?? [])) {
+    zeilen.push({
+      art: 'zeile',
+      feld: 'Handkorrektur (Rasterpunkte)',
+      server: String(sHoehe),
+      entwurf: String(eHoehe),
+      schwer: eHoehe < sHoehe,
+    });
+  }
+
   // Regionen namentlich: Zahlen allein verschleiern den Fall „eine
   // gelöscht, eine neu" — der Zähler bleibt gleich, die Welt nicht.
   const sRegionen = new Map(server.regions.map((r) => [r.id, JSON.stringify(r)]));

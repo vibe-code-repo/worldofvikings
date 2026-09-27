@@ -1855,6 +1855,44 @@ async function behandeln(
           daten: { ok: false, fehler: 'ungueltig', feld: fehler.feld, message: fehler.message },
         };
       }
+      // T1 N1 (Angriffsbefund B1): heightDeltas fiel bisher durch diesen ganzen
+      // Block und landete im Sammel-catch als 400 ohne Liste. Dieselbe 422-mit-
+      // Liste-Form wie bei Platzierungen, ohne admin/src/main.ts ausserhalb
+      // dieses Fehlerzweigs anzufassen: `instanceof LayoutUngueltig` traegt
+      // schon jede Unterklasse (bereits oben importiert), `.name` (von jedem
+      // Konstruktor in layoutDatei.ts gesetzt) engt sie ohne einen weiteren
+      // Klassen-Import ein.
+      if (fehler instanceof LayoutUngueltig && fehler.name === 'LayoutHoehenkorrekturUngueltig') {
+        const f = fehler as LayoutUngueltig & { fehlerhaft: readonly { zone: string; feld: string; wert: unknown }[] };
+        console.warn(`[Admin] POST /api/worldlayout -> 422 ungueltig (heightDeltas): ${f.message}`);
+        return {
+          code: 422,
+          daten: {
+            ok: false,
+            fehler: 'ungueltig',
+            grund: 'ungueltig',
+            message: f.message,
+            // Dieselbe Form wie `fehlerhaftAntwort` (weltOps.ts), das aber auf
+            // `PlatzierungsFehler` (Feld `id`) getypt ist und hier nicht passt
+            // (Feld `zone`) — deshalb eine eigene, gleich kurze Kappung (200,
+            // wie `FEHLERHAFT_MAX` dort).
+            fehlerhaft: f.fehlerhaft.slice(0, 200),
+            anzahlFehlerhaft: f.fehlerhaft.length,
+          },
+        };
+      }
+      if (
+        fehler instanceof LayoutUngueltig &&
+        (fehler.name === 'LayoutHoehenkorrekturZuVieleZonen' || fehler.name === 'LayoutHoehenkorrekturZuVielePunkte')
+      ) {
+        const f = fehler as LayoutUngueltig & { anzahl: number; grenze: number };
+        const art = fehler.name === 'LayoutHoehenkorrekturZuVieleZonen' ? 'zu-viele-hoehenzonen' : 'zu-viele-hoehenpunkte';
+        console.warn(`[Admin] POST /api/worldlayout -> 422 ${art}: ${f.anzahl} > ${f.grenze}, nichts gespeichert`);
+        return {
+          code: 422,
+          daten: { ok: false, fehler: art, anzahl: f.anzahl, grenze: f.grenze, message: f.message },
+        };
+      }
       if (fehler instanceof LayoutGesperrt) {
         console.warn(`[Admin] POST /api/worldlayout -> 503: ${fehler.message}`);
         // Retry-After: Die Sperre eines Schreibers, der gerade arbeitet, ist in

@@ -593,35 +593,70 @@ export class PlateauField {
 
 /**
  * HoehenKorrekturField — Nachschlagewerk für `WorldLayout.heightDeltas`
- * (Handkorrektur der Geländehöhe, Editor-Pinsel T2+; diese Karte T1 baut nur
- * das Feld und die Einrechnung).
+ * (Handkorrektur der Geländehöhe, Editor-Pinsel T2+; diese Karte T1/N1 baut
+ * nur das Feld und die Einrechnung).
  *
  * Reine Zuordnung Zone → Rasterindex → Delta in METERN (f32, aus den
  * gespeicherten Zentimetern gerechnet); keine Geometrie wie bei WaterField/
  * PlateauField, weil der Aufrufer (`RegionGeo`) Zone und Index selbst aus der
  * Weltposition ableitet — genau wie `Heightmap` es für denselben Punkt tut,
- * damit geteilte Randvertices zweier Nachbarzonen (dieselbe Weltposition, je
- * einmal als `rx=64` der einen und `rx=0` der anderen Zone abgefragt) immer
- * denselben Wert bekommen und keine Kante entsteht.
+ * damit geteilte Randvertices zweier Nachbarzonen (dieselbe Weltposition)
+ * immer denselben Wert bekommen und keine Kante entsteht (Zone/Index-Schema
+ * je Zone 64×64, `RegionGeo.zoneUndIndex`; s. auch `types.ts`).
+ *
+ * Speicher (N1, Angriffsbefund B6): je Zone zwei TYPISIERTE Arrays
+ * (`Uint16Array` der Indizes, aufsteigend sortiert wie `sanitizeHeightDeltas`
+ * es garantiert; `Int16Array` der Deltas in Zentimetern, ±10 000 passt
+ * bequem in 16 Bit) statt einer `Map` je Punkt — eine `Map<number,number>`
+ * kostet in V8 grob 50–60 Byte je Eintrag (Knoten, Hash-Bucket, Boxing der
+ * Zahlen), die beiden typisierten Arrays zusammen 4 Byte je Punkt. Die
+ * Abfrage sucht binär (Indizes sind sortiert), O(log n) statt O(1) — bei
+ * realistischen Punktzahlen je Zone (Pinselstriche, nicht Millionen) ist das
+ * um Größenordnungen billiger als der Speicherunterschied wichtig ist.
  */
 export class HoehenKorrekturField {
-  private readonly zonen = new Map<string, ReadonlyMap<number, number>>();
+  private readonly indices = new Map<string, Uint16Array>();
+  private readonly deltasCm = new Map<string, Int16Array>();
 
   constructor(layout: WorldLayout) {
     for (const z of layout.heightDeltas ?? []) {
-      const punkte = new Map<number, number>();
-      for (const [index, deltaCm] of z.points) punkte.set(index, Math.fround(deltaCm * 0.01));
-      if (punkte.size > 0) this.zonen.set(`${z.zx},${z.zz}`, punkte);
+      if (z.i.length === 0) continue;
+      const iTeile = z.i.split(',');
+      const dTeile = z.d.split(',');
+      const n = Math.min(iTeile.length, dTeile.length);
+      if (n === 0) continue;
+      const idx = new Uint16Array(n);
+      const delta = new Int16Array(n);
+      for (let k = 0; k < n; k++) {
+        idx[k] = Number(iTeile[k]);
+        delta[k] = Number(dTeile[k]);
+      }
+      const schluessel = `${z.zx},${z.zz}`;
+      this.indices.set(schluessel, idx);
+      this.deltasCm.set(schluessel, delta);
     }
   }
 
   /** Kein einziger Eintrag — der ganz überwiegende Regelfall (Feld fehlt oder ist leer). */
   get isEmpty(): boolean {
-    return this.zonen.size === 0;
+    return this.indices.size === 0;
   }
 
   /** Delta in Metern am genannten Rasterpunkt einer Zone; 0, wenn dort keine Korrektur liegt. */
   delta(zx: number, zz: number, index: number): number {
-    return this.zonen.get(`${zx},${zz}`)?.get(index) ?? 0;
+    const schluessel = `${zx},${zz}`;
+    const idx = this.indices.get(schluessel);
+    if (!idx) return 0;
+    const deltas = this.deltasCm.get(schluessel)!;
+    let lo = 0;
+    let hi = idx.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const v = idx[mid]!;
+      if (v === index) return Math.fround(deltas[mid]! * 0.01);
+      if (v < index) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    return 0;
   }
 }

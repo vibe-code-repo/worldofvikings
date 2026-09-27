@@ -2273,6 +2273,9 @@ const KERN = [
   ['shared', 'test/hoehenkorrektur.ts'],
   // ... K5.0: heightDeltas ist eine geo-Aenderung wie Regionen/Wasser/Sockel (202, Neustart), reiner Klassifizierungstest.
   ['server', 'test/layout-live-hoehenkorrektur.ts'],
+  // ... N1/B1/B3: die echte 422-mit-Liste (doppelte Zone, gemischte Punkte, __proto__, Index 64) und die
+  // Obergrenzen (Zonen/Punkte) ueber den echten Betriebsdienst.
+  ['admin', 'test/weltops-hoehenkorrektur.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

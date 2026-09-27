@@ -42,10 +42,36 @@
  */
 import { statSync, readFileSync } from 'node:fs';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { sanitizeWorldLayoutMitBericht, type SanitizeBericht } from '@wov/shared/src/worldlayout/sanitize.js';
+import {
+  hoehenkorrekturFehler,
+  hoehenkorrekturFehlerText,
+  sanitizeWorldLayoutMitBericht,
+  type SanitizeBericht,
+} from '@wov/shared/src/worldlayout/sanitize.js';
 import { quittungLoeschenSicher, quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
-import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
+import type { WorldLayout, ZoneHeightDelta } from '@wov/shared/src/worldlayout/types.js';
 import { AENDERUNGEN_MAX, type Grabsteine } from './layoutLiveAbgleich.js';
+
+/**
+ * Kanonische Form von `heightDeltas` für den Geo-Vergleich: Punkte mit
+ * `delta = 0` (gültig, aber ohne Wirkung, s. `sanitizeHeightDeltas`) fallen
+ * heraus, eine dadurch leere Zone ganz. Zwei Dokumente, die sich nur in
+ * solchen wirkungslosen Einträgen unterscheiden, gelten hier als GLEICH —
+ * kein Geo-Neustart für eine Änderung ohne Höhenwirkung.
+ */
+function hoehenkorrekturKanon(liste: readonly ZoneHeightDelta[] | undefined): string {
+  const zonen = (liste ?? [])
+    .map((z) => {
+      const is = z.i.length > 0 ? z.i.split(',') : [];
+      const ds = z.d.length > 0 ? z.d.split(',') : [];
+      const n = Math.min(is.length, ds.length);
+      const behalten: [string, string][] = [];
+      for (let k = 0; k < n; k++) if (ds[k] !== '0') behalten.push([is[k]!, ds[k]!]);
+      return { zx: z.zx, zz: z.zz, i: behalten.map((p) => p[0]).join(','), d: behalten.map((p) => p[1]).join(',') };
+    })
+    .filter((z) => z.i.length > 0);
+  return JSON.stringify(zonen);
+}
 
 /** Die Teile eines Dokuments, die die Welt formen und NICHT live geändert werden. */
 export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
@@ -59,7 +85,11 @@ export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
   if (!gleich(alt.routes, neu.routes)) teile.push('routen');
   // Handkorrektur (Editor-Pinsel, T2+): Teil der kompilierten Geo wie
   // Regionen und Sockel — jede Änderung braucht deshalb denselben Neustart.
-  if (!gleich(alt.heightDeltas, neu.heightDeltas)) teile.push('gelaende');
+  // N1 (Info-Punkt): NORMALISIEREN vor dem Vergleich — ein `delta: 0`
+  // (gültig, aber wirkungslos, s. `sanitizeHeightDeltas`) darf allein keinen
+  // Neustart ausloesen, sonst zaehlt ein Schreibvorgang als Geo-Aenderung,
+  // obwohl sich am Gelaende nichts aendert.
+  if (hoehenkorrekturKanon(alt.heightDeltas) !== hoehenkorrekturKanon(neu.heightDeltas)) teile.push('gelaende');
   // Einebnen: die Platte ist Teil der kompilierten Geo. Verglichen wird je `id`,
   // was den Boden formt (Ort und Radius); ohne Einebnen gibt es keinen Eintrag.
   const ebnen = (l: WorldLayout): Map<string, string> => {
@@ -191,6 +221,22 @@ export class LayoutWache {
     const neuBericht = sanitizeWorldLayoutMitBericht(roh);
     if (!neuBericht) {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, 'Dokument vom Sanitizer abgelehnt');
+      return;
+    }
+    // B8 (T1 N1): Ein Sanitizer, der Punkte in `heightDeltas` still verwirft
+    // (Tippfehler), darf hier nicht unbemerkt bleiben — sonst koennte ein
+    // Schreibvorgang mit `heightDeltas`-Tippfehlern UND einer echten
+    // Platzierungsaenderung als "angewendet" durchgehen, waehrend die
+    // Korrektur lautlos verschwindet (der sanitisierte Stand saehe dann
+    // zufaellig gleich aus wie zuvor, also KEINE Geo-Aenderung, und
+    // `anwenden` liefe fuer den Objektteil normal durch). Dieselbe Regel wie
+    // bei geklemmten Platzierungsfeldern: ein Vorgang gilt ganz oder gar
+    // nicht.
+    const hoehenFehler = hoehenkorrekturFehler((roh as { heightDeltas?: unknown } | null)?.heightDeltas);
+    if (hoehenFehler.length > 0) {
+      const detail = hoehenkorrekturFehlerText(hoehenFehler);
+      console.warn(`[WoV] Layout-Wache: heightDeltas verworfen, nichts angewendet (${detail}) — nach der Korrektur greift der Abgleich`);
+      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, detail);
       return;
     }
     const neuKanonisch = JSON.stringify(neuBericht.layout);

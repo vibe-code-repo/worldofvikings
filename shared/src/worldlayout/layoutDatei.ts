@@ -57,6 +57,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import {
   hoehenkorrekturFehler,
+  hoehenkorrekturZaehlen,
   platzierungenFehler,
   platzierungenFehlerText,
   sanitizeWorldLayout,
@@ -129,14 +130,49 @@ export class LayoutPlatzierungenUngueltig extends LayoutUngueltig {
 
 /**
  * Das Dokument enthält `heightDeltas`-Einträge, die der Sanitizer verwerfen würde (falscher oder doppelter
- * Zonenschlüssel, Index außerhalb 0…4224 oder doppelt, Delta außerhalb ±10 000 cm oder keine Ganzzahl). Wie bei
- * `LayoutPlatzierungenUngueltig`: Der Betriebsdienst antwortet 422 mit `fehlerhaft` und schreibt nichts — ein stilles
- * Bereinigen ließe den Spielserver einen Tippfehler als absichtlich gelöschte Handkorrektur lesen.
+ * Zonenschlüssel, `i`/`d` kein String oder unterschiedlich lang, Index außerhalb 0…4095 oder doppelt, Delta
+ * außerhalb ±10 000 cm). Wie bei `LayoutPlatzierungenUngueltig`: Der Betriebsdienst antwortet 422 mit `fehlerhaft`
+ * und schreibt nichts — gemischte gültige/ungültige Punkte werden GANZ abgelehnt, nie teilweise gespeichert; ein
+ * stilles Bereinigen ließe den Spielserver einen Tippfehler als absichtlich gelöschte Handkorrektur lesen.
  */
 export class LayoutHoehenkorrekturUngueltig extends LayoutUngueltig {
   constructor(readonly fehlerhaft: readonly HoehenkorrekturFehler[]) {
     super(`${fehlerhaft.length} Fehler in heightDeltas — nichts gespeichert`);
     this.name = 'LayoutHoehenkorrekturUngueltig';
+  }
+}
+
+/**
+ * So viele Zonen bzw. Punkte INSGESAMT nimmt `heightDeltas` an (gezählt am ROHEN Dokument, vor dem Sanitizer, der
+ * darüber hinaus ohne Meldung abschneiden würde — Angriffsbefund B3: 5000 Zonen ergaben vorher 200 OK mit einer
+ * schweigenden Kürzung auf 4096). Die Punktzahl ist die eigentlich scharfe Grenze: 4096 Zonen mit je 4096 Punkten
+ * (17 Mio.) wären mehrere hundert MB allein an typisierten Arrays (`compile.ts`, `HoehenKorrekturField`) — in JEDEM
+ * angeschlossenen Client, weil das ganze Dokument als `WorldLayoutData` verschickt wird. 100 000 Punkte sind bei der
+ * kompakten `i`/`d`-Kodierung (`types.ts`) rund 1 MB Text, deutlich unter dem 8-MB-Körperlimit des Schreibwegs, und
+ * als typisierte Arrays rund 400 KB Speicher — für jeden Zweck reichlich, ohne eine Wand für reale Bearbeitung zu sein.
+ */
+export const HOEHENKORREKTUR_ZONEN_GRENZE = 4096;
+export const HOEHENKORREKTUR_PUNKTE_GRENZE = 100_000;
+
+/** Mehr als `HOEHENKORREKTUR_ZONEN_GRENZE` Zonen in `heightDeltas` (gezählt am rohen Dokument). */
+export class LayoutHoehenkorrekturZuVieleZonen extends LayoutUngueltig {
+  constructor(
+    readonly anzahl: number,
+    readonly grenze: number = HOEHENKORREKTUR_ZONEN_GRENZE
+  ) {
+    super(`${anzahl} heightDeltas-Zonen — mehr als ${grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`);
+    this.name = 'LayoutHoehenkorrekturZuVieleZonen';
+  }
+}
+
+/** Mehr als `HOEHENKORREKTUR_PUNKTE_GRENZE` Rasterpunkte INSGESAMT in `heightDeltas` (gezählt am rohen Dokument). */
+export class LayoutHoehenkorrekturZuVielePunkte extends LayoutUngueltig {
+  constructor(
+    readonly anzahl: number,
+    readonly grenze: number = HOEHENKORREKTUR_PUNKTE_GRENZE
+  ) {
+    super(`${anzahl} heightDeltas-Rasterpunkte — mehr als ${grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`);
+    this.name = 'LayoutHoehenkorrekturZuVielePunkte';
   }
 }
 
@@ -948,6 +984,16 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false): {
   listenPruefen(eingabe);
   const anzahl = platzierungenZaehlen(eingabe);
   if (anzahl > PLATZIERUNGEN_GRENZE) throw new LayoutZuVielePlatzierungen(anzahl);
+  // Ebenso fuer heightDeltas (Angriffsbefund B3): der Sanitizer wuerde bei
+  // ueberschrittener Grenze still kappen (200 OK mit Verlust) statt 422 zu
+  // melden. Zonen zuerst, weil eine absurde Zonenzahl schon fuer sich allein
+  // zu viel ist, unabhaengig von der (teureren) Punktzaehlung je Zone.
+  if (typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe)) {
+    const roheHoehe = (eingabe as { heightDeltas?: unknown }).heightDeltas;
+    const { zonen, punkte } = hoehenkorrekturZaehlen(roheHoehe);
+    if (zonen > HOEHENKORREKTUR_ZONEN_GRENZE) throw new LayoutHoehenkorrekturZuVieleZonen(zonen);
+    if (punkte > HOEHENKORREKTUR_PUNKTE_GRENZE) throw new LayoutHoehenkorrekturZuVielePunkte(punkte);
+  }
   const bericht = sanitizeWorldLayoutMitBericht(eingabe);
   if (!bericht) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
   const layout = bericht.layout;

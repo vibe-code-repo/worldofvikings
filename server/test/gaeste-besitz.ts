@@ -21,16 +21,28 @@
  *      dem Namen eines Kontos traegt ihn nicht, chattet nicht darunter, sperrt
  *      die echte Person nicht aus, und `admin add` trifft nicht ihn. Ein echter
  *      Editor (auch mit Konto-Token) loest den Spielclient nicht ab.
+ *  [F3] Ein Editor-Gast ohne Recht sendet TerrainOp/PlacePiece/Interact:
+ *      nichts davon erreicht WovServer (C2).
+ *  [F4] Ein echter Admin-Editor speichert weiterhin — die Allowlist aus F3
+ *      nimmt den erlaubten drei Pakettypen nichts.
  *  [H] Zwei gespeicherte Gaeste gleichen Namens: `admin add` meldet
- *      „nicht eindeutig“ und tut nichts.
+ *      „nicht eindeutig“ und tut nichts. Eine andere Schreibung desselben
+ *      Namens kommt online nicht mehr gleichzeitig herein (C3).
  *  [H2] Dieselben zwei Staende: `spieler entfernen Ole` meldet „nicht
  *      eindeutig“ und loescht nichts (C5).
+ *  [H3] `spieler entfernen` mit einem Treffer in anderer Schreibung loescht
+ *      ihn (C5b/C5c).
+ *  [H4] `spieler entfernen` erkennt einen Online-Spieler auch in anderer
+ *      Schreibung und loescht nichts (D2).
+ *  [H5] `kick` erkennt eine andere Schreibung (C3).
  *  [I] Namen mit Steuer-/Nullbreiten-Zeichen und andere Schreibweisen eines
  *      Kontonamens (NFD, Grossbuchstaben mit Umlaut) werden abgewiesen.
  *  [J] Der Name "Editor" ist fuer Gaeste reserviert (auch waehrend ein
- *      Editor online ist); ein zweiter Editor bleibt moeglich; `admin add
- *      Editor` trifft keinen Editor-Peer; ein Konto mit anderem Namen bleibt
- *      unbeeinflusst.
+ *      Editor online ist, auch mit Leerzeichen: MR2); ein zweiter Editor
+ *      bleibt moeglich; `admin add Editor` trifft keinen Editor-Peer; ein
+ *      Konto mit anderem Namen bleibt unbeeinflusst.
+ *  [J2] Ein Konto-Charakter „Editor“ kommt herein, obwohl Editor-Verbindungen
+ *      online sind, und `admin add Editor` trifft ihn (C1a).
  *  [K] `admin add` mit einer NFD-geschriebenen Eingabe trifft einen
  *      NFC-benannten Peer.
  *
@@ -76,6 +88,8 @@ interface Klient {
   /** Chat lines seen (`Name: text`) and AdminEvent replies, in order. */
   chats: string[];
   antworten: string[];
+  /** C2: Zahl empfangener Pakete je Typ (PacketType), fuer Zeugen-Proben. */
+  typen: Map<number, number>;
 }
 
 /** Verbinden wie der Browser: `token` leer = kein Token im localStorage. */
@@ -83,7 +97,7 @@ function verbinde(name: string, token: string, nurEditor = false): Promise<Klien
   return new Promise((fertig, scheitern) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
     ws.binaryType = 'nodebuffer';
-    const k: Klient = { ws, angemeldet: false, userId: '', token: '', geschlossen: false, chats: [], antworten: [] };
+    const k: Klient = { ws, angemeldet: false, userId: '', token: '', geschlossen: false, chats: [], antworten: [], typen: new Map() };
     let authGesendet = false;
     const uhr = setTimeout(() => scheitern(new Error(`${name}: Handshake ueberfaellig`)), 15_000);
     const schluss = (): void => { clearTimeout(uhr); fertig(k); };
@@ -91,6 +105,7 @@ function verbinde(name: string, token: string, nurEditor = false): Promise<Klien
     ws.on('error', schluss);
     ws.on('message', (data: Buffer) => {
       const type = data.readUInt8(0);
+      k.typen.set(type, (k.typen.get(type) ?? 0) + 1);
       const r = new Reader(Buffer.from(data.subarray(1)));
       if (type === P.VersionCheck) {
         ws.send(Buffer.concat([Buffer.from([P.VersionCheck]), new Writer().writeInt32(2).toBuffer()]));
@@ -143,6 +158,11 @@ function sendeChat(k: Klient, text: string): void {
   k.ws.send(Buffer.concat([Buffer.from([P.ChatMessage]), w.toBuffer()]));
 }
 
+/** C2: rohes Paket senden, ohne den Umweg ueber einen GameSocket-Client. */
+function sendePaket(k: Klient, typ: number, w: Writer): void {
+  k.ws.send(Buffer.concat([Buffer.from([typ]), w.toBuffer()]));
+}
+
 /** One admin command; the drossel refills 1/s, so wait first. Returns the reply text. */
 async function admin(k: Klient, zeile: string): Promise<string> {
   await warte(1100);
@@ -179,6 +199,9 @@ async function main(): Promise<void> {
       { name: 'anna', passwort: 'anna', charakter: 'Anna' },
       { name: 'bjoern', passwort: 'bjoern', charakter: 'Björn' },
       { name: 'boss', passwort: 'boss', charakter: 'Boss', admin: true },
+      // D3 (Pruefung 3): fuer [J] — ein KONTO-Charakter namens „Editor“,
+      // um C1a zu toeten (P1 in gast-pruef3).
+      { name: 'editorkonto', passwort: 'editorkonto', charakter: 'Editor' },
     ],
   });
   server.init();
@@ -353,6 +376,83 @@ async function main(): Promise<void> {
     check('F2: ein Editor ohne Konto (Name „Editor“) kommt herein', editorOhne.angemeldet);
     await trenne(editorOhne);
 
+    // ── [F3] C2: eine Editor-Verbindung ohne Recht sendet keine Spielpakete ──
+    // GameSocket schickt ueber eine nurEditor-Verbindung nur DungeonModulBau,
+    // DungeonModulLoeschen und DungeonEditSave (client/src/editor/{DungeonNeuerSaal,
+    // DungeonSpeichern,dungeon2/Dungeon2Speichern}.ts). Vorher liess NetManager
+    // trotzdem jedes andere Paket durch — TerrainOp kam beim Zeugen als
+    // TerrainOpSync an, unsichtbar fuer jeden Namensweg (Pruefung 2, C2).
+    console.log('\n[F3] Editor-Gast ohne Recht: TerrainOp/PlacePiece/Interact wirken nicht (C2):');
+    const betAmSchmied = await verbinde('Schmied', '', true);
+    const pSchmied = peerVon(betAmSchmied)!;
+    check('F3: Editor-Gast ist kein Admin', !pSchmied.isAdmin);
+    // An der Zeugenposition graben (nicht irgendwo abseits): applyTerrainOp
+    // meldet sonst "kein Effekt" unabhaengig vom C2-Riegel, und der Test
+    // waere leer wahr. „KiPine2" (bau_kipine) ist zurzeit das einzige
+    // buildbare Piece mit trivialen Kosten -- die anderen acht Hammer-Teile
+    // sind Fremdprefabs und aus BAU_PREFABS gefiltert (PieceTable.ts
+    // hammerTabelle()), ein Bett waere also selbst mit Admin-Recht nicht
+    // baubar und der Test damit unabhaengig vom C2-Riegel immer gruen.
+    pSchmied.position = { ...peerVon(zeuge)!.position };
+    pSchmied.inventar.addItem(findItem('Wood')!, 1);
+    const kiefernHash = server.prefabs.getByName('KiPine2')!.hash;
+    const zdosVorC2 = server.hauptwelt.zdos.getAllZDOs().length;
+    const terrainOpSyncVor = zeuge.typen.get(P.TerrainOpSync) ?? 0;
+
+    // TerrainOp: dieselbe Grabung wie in der Pruefung (4 m Radius, −3 m).
+    { const w = new Writer();
+      w.writeFloat32(pSchmied.position.x); w.writeFloat32(pSchmied.position.y); w.writeFloat32(pSchmied.position.z);
+      w.writeString(JSON.stringify({ level: true, square: true, levelRadius: 4, levelOffset: -3 }));
+      sendePaket(betAmSchmied, P.TerrainOp, w); }
+    // PlacePiece: eine KI-Kiefer, mit genug Holz im Inventar, um am Kostencheck vorbeizukommen.
+    { const w = new Writer();
+      w.writeInt32(kiefernHash);
+      w.writeFloat32(pSchmied.position.x); w.writeFloat32(pSchmied.position.y); w.writeFloat32(pSchmied.position.z);
+      w.writeFloat32(0); w.writeFloat32(0); w.writeFloat32(0); w.writeFloat32(1);
+      sendePaket(betAmSchmied, P.PlacePiece, w); }
+    // Interact: Oles Truhe steht bei (305,50,400); der Editor-Gast wird extra dorthin gestellt.
+    pSchmied.position = { ...truhe.position };
+    { const w = new Writer();
+      w.writeFloat32(truhe.position.x); w.writeFloat32(truhe.position.y); w.writeFloat32(truhe.position.z);
+      w.writeInt32(truhenHash);
+      sendePaket(betAmSchmied, P.Interact, w); }
+    await warte(1000);
+
+    check('F3: Zeuge bekommt keine TerrainOpSync vom Editor-Gast',
+      (zeuge.typen.get(P.TerrainOpSync) ?? 0) === terrainOpSyncVor,
+      `${terrainOpSyncVor} → ${zeuge.typen.get(P.TerrainOpSync) ?? 0}`);
+    check('F3: kein neues ZDO durch PlacePiece', server.hauptwelt.zdos.getAllZDOs().length === zdosVorC2,
+      `${zdosVorC2} → ${server.hauptwelt.zdos.getAllZDOs().length}`);
+    check('F3: Holz des Editor-Gasts unangetastet (PlacePiece nie ausgefuehrt)', pSchmied.inventar.countOf('Wood') === 1, String(pSchmied.inventar.countOf('Wood')));
+    check('F3: der Editor-Gast bekommt keine Quittung (InteractResult/ContainerSync) — die Pakete erreichten WovServer nie',
+      (betAmSchmied.typen.get(P.InteractResult) ?? 0) === 0 && (betAmSchmied.typen.get(P.ContainerSync) ?? 0) === 0,
+      JSON.stringify([...betAmSchmied.typen]));
+    await trenne(betAmSchmied);
+
+    console.log('\n[F4] Ein echter Admin-Editor speichert weiterhin (C2 nimmt der Allowlist nichts):');
+    const adminEditor = await verbinde('BossEditor', await spieltoken('boss'), true);
+    check('F4: Admin-Editor kommt herein', adminEditor.angemeldet && peerVon(adminEditor)?.isAdmin === true);
+    let speicherQuittung: { ok: boolean; message: string } | null = null;
+    adminEditor.ws.on('message', (data: Buffer) => {
+      if (data.readUInt8(0) === P.DungeonEditData && !speicherQuittung) {
+        const r = new Reader(Buffer.from(data.subarray(1)));
+        speicherQuittung = { ok: r.readBool(), message: r.readString() };
+      }
+    });
+    const dungeonDoc = {
+      version: 2, id: 'f4-probe', name: 'F4', base: 'DG_Steingrab', mode: 'custom', seed: 1, zoneSize: 64,
+      layout: { rooms: [{ room: 'SteingrabGang', pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, seed: 1 }], doors: [], props: [] },
+    };
+    // Kein Pruefsummen-Feld: ein leeres waere KEIN „aelterer Client ohne das
+    // Feld“ (dann wuerde der Server sie mit der echten vergleichen und ablehnen),
+    // sondern schlicht weggelassen — wie in g9-editor-verbindung.ts.
+    { const w = new Writer(); w.writeString(JSON.stringify(dungeonDoc));
+      sendePaket(adminEditor, P.DungeonEditSave, w); }
+    await bis(() => speicherQuittung !== null, 3000);
+    check('F4: DungeonEditSave vom Admin-Editor wird weiterhin ausgefuehrt (C2 sperrt keinen erlaubten Pakettyp)',
+      (speicherQuittung as { ok: boolean; message: string } | null)?.ok === true, JSON.stringify(speicherQuittung));
+    await trenne(adminEditor);
+
     // ── [J] Der Name „Editor“ ist reserviert (C1); admin add trifft keinen
     //      Editor-Peer (ME) ──────────────────────────────────────────────
     console.log('\n[J] Editor online, Gast „Editor“/„editor“, zweiter Editor, admin add Editor, Konto unbeeinflusst (C1, ME):');
@@ -366,6 +466,11 @@ async function main(): Promise<void> {
     const gastEditorKlein = await verbinde('editor', '');
     check('J: Gast „editor“ (Kleinschreibung) wird abgewiesen', !gastEditorKlein.angemeldet);
     if (gastEditorKlein.angemeldet) await trenne(gastEditorKlein);
+    // MR2 (Pruefung 3): die Reservierung muss trimmen, nicht nur klein
+    // schreiben — sonst kommt "Editor" mit Leerzeichen durch.
+    const gastEditorLeer = await verbinde(' Editor', '');
+    check('J: Gast „ Editor“ (mit Leerzeichen) wird ebenfalls abgewiesen (MR2)', !gastEditorLeer.angemeldet);
+    if (gastEditorLeer.angemeldet) await trenne(gastEditorLeer);
     const editorAntwort = await admin(boss, 'admin add Editor');
     console.log(`    admin add Editor → ${editorAntwort}`);
     // Exakte Nachricht statt einer Verneinung: Mit zwei Editoren online liefert
@@ -380,6 +485,22 @@ async function main(): Promise<void> {
     check('J: Konto-Charakter mit anderem Namen bleibt unbeeinflusst, während Editoren online sind',
       annaUnbeeinflusst.angemeldet && annaUnbeeinflusst.userId === annaId);
     await trenne(annaUnbeeinflusst);
+
+    // ── [J2] Konto-Charakter „Editor“ kommt herein, obwohl Editoren online
+    //      sind, und `admin add Editor` trifft ihn (C1a) ──────────────────
+    console.log('\n[J2] Konto-Charakter „Editor“, während Editor-Verbindungen online sind (C1a):');
+    const editorKontoToken = await spieltoken('editorkonto');
+    const kontoEditor = await verbinde('irrelevant', editorKontoToken);
+    check('J2: Konto-Charakter „Editor“ kommt herein, obwohl Editoren online sind (C1a)', kontoEditor.angemeldet);
+    const kontoEditorPeer = peerVon(kontoEditor);
+    check('J2: er ist ein Nicht-Editor mit dem Namen „Editor“',
+      !!kontoEditorPeer && !kontoEditorPeer.nurEditor && kontoEditorPeer.name === 'Editor');
+    const editorAntwort2 = await admin(boss, 'admin add Editor');
+    console.log(`    admin add Editor (Konto „Editor“ online) → ${editorAntwort2}`);
+    check('J2: `admin add Editor` trifft jetzt den Konto-Charakter (C1a)',
+      !!kontoEditorPeer && innen.adminListe.enthaelt(kontoEditorPeer.spielerId), editorAntwort2);
+    await trenne(kontoEditor);
+
     await trenne(editor1);
     await trenne(editor2);
 
@@ -404,14 +525,21 @@ async function main(): Promise<void> {
     console.log(`    admin add Ole → ${mehrdeutig}`);
     check('H: admin add Ole meldet „nicht eindeutig“', mehrdeutig.includes('nicht eindeutig'), mehrdeutig);
     check('H: und macht niemanden zum Admin', !innen.adminListe.enthaelt(oleSpielerId) && !innen.adminListe.enthaelt(diebSpielerId));
+    // C3: die Doppelnamen-Prüfung beim Anmelden vergleicht jetzt über
+    // namenSchluessel statt exakt — „Kai“ und „kai“/„KAI “ stehen deshalb
+    // nicht mehr gleichzeitig online (vorher, Pruefung 2 §3). Das macht die
+    // Online-Mehrdeutigkeit in spielerIdFuerName für Nicht-Editoren
+    // unerreichbar; die Ambiguität bei `admin add`/`spieler entfernen`
+    // bleibt über gespeicherte Stände erhalten (Ole, oben/unten).
     const kai1 = await verbinde('Kai', '');
+    check('H: „Kai“ kommt herein (Kontrolle)', kai1.angemeldet);
     const kai2 = await verbinde('kai', '');
-    check('H: zwei online Gäste „Kai“/„kai“ (sonst beweist nichts etwas)', kai1.angemeldet && kai2.angemeldet);
-    const kaiAntwort = await admin(boss, 'admin add KAI');
-    check('H: admin add KAI (zwei online) meldet „nicht eindeutig“ und tut nichts',
-      kaiAntwort.includes('nicht eindeutig') && !innen.adminListe.enthaelt(peerVon(kai1)!.spielerId) && !innen.adminListe.enthaelt(peerVon(kai2)!.spielerId), kaiAntwort);
+    check('H: „kai“ (andere Schreibung) wird abgewiesen, solange „Kai“ online ist (C3)', !kai2.angemeldet);
+    if (kai2.angemeldet) await trenne(kai2);
+    const kai3 = await verbinde('KAI ', '');
+    check('H: „KAI “ (groß + Leerzeichen) wird ebenfalls abgewiesen (C3)', !kai3.angemeldet);
+    if (kai3.angemeldet) await trenne(kai3);
     await trenne(kai1);
-    await trenne(kai2);
     const eindeutig = await admin(boss, 'admin add Frischling');
     check('H: Kontrolle: ein eindeutiger Name geht', innen.adminListe.enthaelt(frischSpielerId), eindeutig);
 
@@ -426,6 +554,48 @@ async function main(): Promise<void> {
       innen.savedPlayers.size === vorEntfernen, `${innen.savedPlayers.size} vs ${vorEntfernen}`);
     check('H2: beide „Ole“-Stände bleiben erhalten',
       [...innen.savedPlayers.values()].filter((e) => e.name === 'Ole').length === 2);
+
+    // ── [H3] `spieler entfernen` mit einem Treffer, andere Schreibung (C5b/C5c) ──
+    console.log('\n[H3] `spieler entfernen SVEN` (andere Schreibung), ein Treffer:');
+    const sven = await verbinde('Sven', '');
+    const svenSpielerId = peerVon(sven)!.spielerId;
+    await trenne(sven);
+    const vorSven = innen.savedPlayers.size;
+    const svenAntwort = await admin(boss, 'spieler entfernen SVEN');
+    console.log(`    spieler entfernen SVEN → ${svenAntwort}`);
+    check('H3: `spieler entfernen SVEN` (Großschreibung) löscht den einen Treffer (C5b/C5c)',
+      svenAntwort.includes('Entfernt') && !innen.savedPlayers.has(svenSpielerId) && innen.savedPlayers.size === vorSven - 1,
+      `${svenAntwort} (${vorSven} → ${innen.savedPlayers.size})`);
+
+    // ── [H4] `spieler entfernen` erkennt einen Online-Spieler auch in
+    //      anderer Schreibung (D2) ──────────────────────────────────────
+    console.log('\n[H4] `spieler entfernen ulf` bei online „Ulf“ (D2):');
+    const ulf = await verbinde('Ulf', '');
+    check('H4: „Ulf“ online (Kontrolle)', ulf.angemeldet);
+    const vorUlf = innen.savedPlayers.size;
+    const ulfAntwort = await admin(boss, 'spieler entfernen ulf');
+    console.log(`    spieler entfernen ulf → ${ulfAntwort}`);
+    check('H4: `spieler entfernen ulf` erkennt den online „Ulf“ trotz anderer Schreibung (verbunden) (D2)',
+      ulfAntwort.includes('verbunden'), ulfAntwort);
+    check('H4: kein Datensatz wurde gelöscht', innen.savedPlayers.size === vorUlf, `${vorUlf} → ${innen.savedPlayers.size}`);
+    await trenne(ulf);
+
+    // ── [H5] `kick` mit anderer Schreibung (C3) ──────────────────────────
+    console.log('\n[H5] `kick` erkennt eine andere Schreibung (C3):');
+    const wanda = await verbinde('Wanda', '');
+    check('H5: „Wanda“ online (Kontrolle)', wanda.angemeldet);
+    const kickAntwort = await admin(boss, 'kick WANDA');
+    await bis(() => wanda.geschlossen, 3_000);
+    check('H5: `kick WANDA` (andere Schreibung) trennt „Wanda“ (C3)', wanda.geschlossen, kickAntwort);
+
+    // C3 fuer `bann herkunft` (WovServer.ts ~5007, derselbe Umbau wie bei
+    // `kick`) bekommt HIER bewusst KEINE eigene Live-Probe: Alle Testclients
+    // in dieser Datei verbinden von 127.0.0.1, ein echter `bann herkunft`
+    // wuerde also nicht nur das Ziel treffen, sondern JEDE offene Verbindung
+    // (inklusive `boss`, ueber den `admin()` laeuft) -- genau die Falle, die
+    // Pruefung 2 mit `bann herkunft Kai` in der eigenen Probe schon einmal
+    // ausgeloest hat ("bannt 127.0.0.1"). Der Codepfad ist zeilengleich mit
+    // `kick` (H5 oben) und wird per Review geprueft, nicht per Lauf.
 
     // ── [I] Namensformen ────────────────────────────────────────────
     console.log('\n[I] Namen mit Steuerzeichen und andere Schreibweisen eines Kontonamens:');

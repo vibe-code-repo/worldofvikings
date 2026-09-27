@@ -310,6 +310,34 @@ export class NetManager {
       return;
     }
 
+    // C2 (Pruefung 2/3, Karte "Gaestebesitz — Folgen aus #102"): eine
+    // Editor-Verbindung (nurEditor) steht nie in der Welt und hat kein
+    // ZDO — sie existiert nur, damit der Karteneditor Dungeon-Raeume baut,
+    // loescht und Dokumente speichert. GameSocket schickt ueber eine
+    // solche Verbindung tatsaechlich nur diese drei Pakettypen
+    // (client/src/editor/DungeonNeuerSaal.ts, DungeonSpeichern.ts,
+    // dungeon2/Dungeon2Speichern.ts — jeweils nur EIN send*-Aufruf je
+    // Datei) plus den Grundverkehr, den GameSocket beim Verbinden von
+    // selbst sendet: VersionCheck (GameSocket.ts:240) und PasswordAuth
+    // (GameSocket.ts:272) laufen vor diesem Gate durch die eigenen
+    // switch-Zweige, Ping (GameSocket.ts:606) wird schon oben in dieser
+    // Methode geechot und erreicht diese Stelle nie. Eine gefaelschte
+    // nurEditor-Verbindung (das Bit setzt der Client) konnte bisher jedes
+    // andere Paket senden, das WovServer ueber onPacket bekommt —
+    // TerrainOp etwa kam beim Zeugen als TerrainOpSync an, unsichtbar
+    // fuer jeden Admin-Namensweg, weil alle Editoren "Editor" heissen.
+    // Die drei Dungeon-Handler pruefen ohnehin selbst peer.isAdmin; diese
+    // Zeile nimmt ihnen nichts, sie verwirft nur, was ein Editor nie
+    // schickt.
+    if (
+      peer.nurEditor &&
+      type !== PacketType.DungeonModulBau &&
+      type !== PacketType.DungeonModulLoeschen &&
+      type !== PacketType.DungeonEditSave
+    ) {
+      return;
+    }
+
     switch (type) {
       case PacketType.VersionCheck:
         this.handleVersionCheck(peer, reader);
@@ -516,9 +544,15 @@ export class NetManager {
     // denselben — und ohne diese Ausnahme loeste ein Klick auf
     // „Speichern" im Karteneditor den offenen Spielclient ab. Genau die
     // Schleife, fuer die der Editor gebaut ist.
+    // C3 (Namensvergleich vereinheitlicht): namenSchluessel statt `===`,
+    // wie die Gastregel darueber und `kick`/`bann herkunft` jetzt auch —
+    // vorher liessen "Kai", "kai" und "Kai " gleichzeitig online stehen
+    // (Pruefung 2 §3), obwohl der Anspruch "eine Normalisierungsstelle"
+    // war.
+    const schluesselNeu = namenSchluessel(playerName);
     const namensgleich = nurEditor
       ? undefined
-      : this.onlinePeers.find((p) => !p.nurEditor && p.name === playerName);
+      : this.onlinePeers.find((p) => !p.nurEditor && namenSchluessel(p.name) === schluesselNeu);
     if (namensgleich) {
       if (namensgleich.spielerId === spielerId) {
         namensgleich.disconnect('Von einer neuen Verbindung abgelöst');
@@ -618,8 +652,10 @@ export class NetManager {
 
   // ── Peer lookup ──────────────────────────────────────────────────
 
+  /** C3: namenSchluessel statt `===`, wie die Doppelnamen-Pruefung oben. */
   findPeerByName(name: string): Peer | undefined {
-    return this.onlinePeers.find(p => p.name === name);
+    const schluessel = namenSchluessel(name);
+    return this.onlinePeers.find(p => namenSchluessel(p.name) === schluessel);
   }
 
   findPeerByUserId(userId: bigint): Peer | undefined {

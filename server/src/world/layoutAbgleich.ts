@@ -134,7 +134,7 @@ function laeuftRoute(layout: WorldLayout, p: PlacementDef): boolean {
 const prefabDerAltenKennung = (layoutId: string): string | null => /^([^@]+)@-?\d+,-?\d+$/.exec(layoutId)?.[1] ?? null;
 
 /** Skalierung, wie sie im ZDO stehen soll: 0 = kein Member (Prefab-Vorgabe). */
-function sollSkala(p: PlacementDef): number {
+export function sollSkala(p: PlacementDef): number {
   return p.scale !== undefined && Math.abs(p.scale - 1) > TOLERANZ.skala ? p.scale : 0;
 }
 

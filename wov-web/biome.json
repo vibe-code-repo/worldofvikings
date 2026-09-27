@@ -8,7 +8,6 @@
       "*.ts",
       "*.json",
       "!**/*.svelte",
-      "!src/lib/account.ts",
       "!.svelte-kit",
       "!build",
       "!node_modules"

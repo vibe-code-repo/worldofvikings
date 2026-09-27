@@ -359,11 +359,12 @@ export class RegionGeo extends GeoManager {
     this.plateaus.lege(x, z, radius);
   }
 
-  /** Gegenstück zu sockelEinfuegen; true = dort lag eine Platte. Der
+  /** Gegenstück zu sockelEinfuegen; true = dort lag eine Platte. Mit `radius`
+   *  (aus sockelDiff) wird exakt diese Platte entfernt, sonst gilt 5 cm Toleranz. Der
    *  Zielhöhen-Cache des toten Index wird nie wieder abgefragt (Indizes
    *  werden nicht wiederverwendet) — stehen lassen ist billiger. */
-  sockelEntfernen(x: number, z: number): boolean {
-    return this.plateaus.entferne(x, z);
+  sockelEntfernen(x: number, z: number, radius?: number): boolean {
+    return this.plateaus.entferne(x, z, radius);
   }
 
   /** Kuratierung/Diagnose: Region an einer Weltposition (null = See). */

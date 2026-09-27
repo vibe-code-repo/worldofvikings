@@ -34,11 +34,11 @@ function attrappe(remoteAddress: string | undefined, headers: Record<string, str
 
 // ── 1. Herkunft.ts direkt ────────────────────────────────────────────────
 
-// Loopback + X-Forwarded-For -> erster Eintrag des Kopfes.
+// Loopback + X-Forwarded-For -> letzter Eintrag des Kopfes (siehe herkunft-xff.ts).
 assert.equal(
-  herkunftErmitteln(attrappe('127.0.0.1', { 'x-forwarded-for': '203.0.113.9, 10.10.10.5' })),
+  herkunftErmitteln(attrappe('127.0.0.1', { 'x-forwarded-for': '10.10.10.5, 203.0.113.9' })),
   '203.0.113.9',
-  'Loopback-Peer + X-Forwarded-For: erster Eintrag gewinnt',
+  'Loopback-Peer + X-Forwarded-For: letzter Eintrag gewinnt (der des vertrauten Sprungs)',
 );
 assert.equal(
   herkunftErmitteln(attrappe('::1', { 'x-forwarded-for': '203.0.113.9' })),

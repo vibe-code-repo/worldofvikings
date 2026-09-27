@@ -1181,11 +1181,17 @@ export class Shadows {
   /**
    * A handed-over clone can lose its depth effect later: `resetDrawCache()` (a
    * material plugin added late) drops the base effect, and the depth wrapper
-   * then reports "not ready" until someone registers the clone again. The
-   * clone never renders in the colour pass, so nobody would. Every
-   * TIEFE_PRUEF_TAKT ticks a clone that is no longer ready goes back to the
-   * waiting list (no allocation, only iterates the existing map).
-   * Ein uebergebener Klon, der nicht mehr bereit ist, wartet wieder.
+   * then reports "not ready" until someone registers the clone again. Until
+   * it is, the source throws again (like the initial hand-over) — otherwise
+   * there would be a gap where the clone cannot throw yet and the source has
+   * already stopped. Every TIEFE_PRUEF_TAKT ticks this iterates the existing
+   * map to find such a clone; `g.isReady()` itself still allocates (a small
+   * `defines` array per call, ~4-5 µs/frame measured with the real
+   * generator), only the iteration here is free of it. The registration
+   * itself happens once, in the waiting-list loop right below, in the same
+   * tick — registering here too would just double it.
+   * Ein uebergebener Klon, der nicht mehr bereit ist, wartet wieder; bis
+   * dahin wirft die Quelle erneut.
    */
   private pruefeUebergebeneKlone(g: CascadedShadowGenerator): void {
     for (const stand of this.vegetationsSchatten.values()) {
@@ -1195,9 +1201,9 @@ export class Shadows {
       if (g.isReady(teil, true, false)) continue;
       stand.tiefeBereit = false;
       stand.tiefeVersuche = 0;
+      this.vegetationsQuellen.delete(stand.quelle);
+      this.nimmAuf(stand.quelle);
       this.vegetationsTiefePending.add(stand);
-      this.tiefeAnmeldungen++;
-      meldeKlonAnBasisEffekt(stand.schatten);
     }
   }
 

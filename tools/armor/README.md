@@ -133,28 +133,39 @@ which body it fits. The game rejects a mismatch even if the character owns the i
 | Set / variant | `bodyVariant` | `bodyProfile` | `figure` | Skeleton |
 |---|---|---|---|---|
 | Ironward, Wildwarden, Ashenveil | `male` | `wov-male-v1` | `wikinger` | 63-bone authoring rig, 71-bone canonical game skin |
-| Seidraven / Emberrage male | `male` | `wov-male-v1` | `wikinger` | same |
-| Seidraven / Emberrage female, as built by `female/build.py` | `female` | `wov-female-v1` | (not playable) | 63-bone authoring rig |
-| Seidraven / Emberrage female, after `fit-legacy.py` | `female` | `legacy-female-v1` | `wikingerin` | the game's current 51-bone female avatar |
-| Plainhide / Gravethorn | as Seidraven / Emberrage: male, female web fit (`wov-female-v1`), female game fit (`legacy-female-v1`) | | | same |
+| Seidraven / Emberrage / Plainhide / Gravethorn / Crowshade male | `male` | `wov-male-v1` | `wikinger` | same |
+| Seidraven / Emberrage / Plainhide / Gravethorn / Crowshade female, as built by `female/build.py` | `female` | `wov-female-v1` | (not playable) | 63-bone authoring rig |
+| Seidraven / Emberrage / Plainhide / Gravethorn / Crowshade female, canonical export (since 27.09.2026) | `female` | `wov-female-v1` | `wikingerin` | 71-bone canonical game skin (`wikingerin/WikingerinKoerper.glb`), same Synty rig as the male body |
 
-**There are two female skeletons. Never conclude the body profile from a file name:**
-both `female/build.py` and `fit-legacy.py` write items called `<set>_female_<key>`,
-but only the `bodyProfile` inside `equipment.json` says which skeleton the geometry
-is skinned to. Check that field. The set that ships for the female figure in the game is
-the `legacy-female-v1` one; the `wov-female-v1` fit is the web preview's
-(`previewBodyProfile` in the catalog, files under `armor/<set>/` on the website).
+**One profile name spans two rigs, for both figures.** Exactly like `wov-male-v1`
+(63-bone authoring rig **and** 71-bone canonical game skin), `wov-female-v1` now names
+both the 63-bone authoring/web-preview rig and the 71-bone canonical game skin: the
+game's female body (`WikingerinKoerper.glb`, since 27.09.2026) has the **same geometry**
+as the web preview body (bytegleiche Vertexpositionen und Gewichte, siehe
+`Berichte/2026-09-25 Wikingerin-Export 71er-Rig — Bauer.md`), just re-skinned onto more
+bones. `tools/armor/test/skin-gate.mjs` tells the two fits of one profile apart by bone
+count (`--web` expects exactly 63; without it, anything else), the same way it already
+told `wov-male-v1`'s two fits apart — **never by profile name alone.**
+The male and the female game body are themselves indistinguishable by bone shape (same
+Synty skeleton, same names, both 71 bones): nothing about the rig says which figure a
+canonical body belongs to, only the mesh attached to it does.
 
-The 51-bone female avatar is a single monolithic mesh, so `fit-legacy.py` rebuilds
-each item's lining from an exact triangle partition of that body and the game masks
-exactly those triangles. Details: `docs/armor-body-variants.md`.
+**Retired since 27.09.2026: the 51-bone legacy female avatar and its fit.** The type
+`ArmorBodyProfile` still has `legacy-female-v1` and `fit-legacy.py` / `lib/fit_legacy.py`
+still exist, but **no registered family uses that profile any more** — the game's
+female figure moved from the old 51-bone monolithic body to the 71-bone segmented one
+above, and every female set was re-exported onto it (Bericht "Wikingerin 71 Rüstung",
+2026-09-27). `tools/armor/test/legacy-female-armor.mjs` (the stand-alone legacy check)
+cannot run for any family while that holds, and skips itself in the selftest for exactly
+that reason. Kept for reference and in case a future body ever needs that fit again, not
+because anything still calls it. Details on the retired mechanism: `docs/armor-body-variants.md`.
 
 ## The chain: from build script to a registered set
 
 `BODY_BASE_MALE.blend` / `BODY_BASE_FEMALE.blend` are the body sources,
 `MASTER_ANIMATIONS.blend` the master animation file, `GAME_BODY.glb` the canonical
 game body of the matching figure (male: `wikinger/WikingerKoerper.glb`, 71 bones;
-female: `wikingerin/WikingerinKoerper.glb`, 51 bones), `<SET>` and `<PREFIX>` the set
+female: `wikingerin/WikingerinKoerper.glb`, 71 bones, since 27.09.2026), `<SET>` and `<PREFIX>` the set
 folder and the Blender object prefix (`WoV_<Set>_`). Run the Node tools from the
 repository root. Give Blender absolute paths for `--python` and `OUTPUT_DIR`: with the
 Flatpak build its working directory is not yours (`/app/blender`), so a relative script

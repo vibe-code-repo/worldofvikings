@@ -78,8 +78,13 @@ if (!unregistered) {
   if (web) {
     // The catalog says which body the web fit of this set was made for; the registry only knows the game figure.
     const set = equipmentSetCatalog().sets.find(s => s.familyId === family && s.bodyVariant === variant);
-    const preview = [...new Set((set?.parts ?? []).map(p => p.previewBodyProfile))];
-    assert(variant === 'female' && preview.length === 1 && preview[0] !== profile,
+    const parts = set?.parts ?? [];
+    const preview = [...new Set(parts.map(p => p.previewBodyProfile))];
+    // A genuinely separate web fit means a different FILE, not necessarily a different profile name: like
+    // wov-male-v1, wov-female-v1 now names both the 63-bone web body and the canonical game skin (same geometry,
+    // re-skinned), so the profile string alone no longer tells web and game fits apart.
+    const hasOwnFiles = parts.length > 0 && parts.every(p => p.previewModel !== p.model);
+    assert(variant === 'female' && preview.length === 1 && hasOwnFiles,
       `--web: ${family}/${variant} has no separate web fit (catalog previewBodyProfile: ${preview.join(', ') || 'none'})`);
     profile = preview[0];
   }
@@ -161,7 +166,10 @@ if (profile) {
   const bones = new Set(skeleton.bones.map(b => b.name));
   const fits = profile === 'legacy-female-v1' ? bones.has('L_Thigh') && !bones.has('UpperLeg_L')
     : profile === 'wov-male-v1' ? bones.has('UpperLeg_L') && !bones.has('L_Thigh') && skeleton.bones.length !== 63
-    : profile === 'wov-female-v1' ? bones.has('UpperLeg_L') && !bones.has('L_Thigh') && skeleton.bones.length === 63 : undefined;
+    // Like wov-male-v1: one profile name spans the 63-bone authoring/web rig and the canonical game
+    // skin. --web asks for the 63-bone fit specifically; without it, the game figure is anything else.
+    : profile === 'wov-female-v1' ? bones.has('UpperLeg_L') && !bones.has('L_Thigh')
+      && (web ? skeleton.bones.length === 63 : skeleton.bones.length !== 63) : undefined;
   assert(fits !== undefined, `No body check for bodyProfile ${profile}`);
   assert(fits, `${family}/${variant}: the body GLB is not a ${profile} body (${skeleton.bones.length} bones)`);
 }

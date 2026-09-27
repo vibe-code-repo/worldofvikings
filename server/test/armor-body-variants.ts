@@ -47,7 +47,7 @@ assert(canWearArmor(FEMALE_ARMOR_BODY,'wikingerin'));
 assert(!canWearArmor(MALE_ARMOR_BODY,'wikingerin'));
 assert(!canWearArmor(FEMALE_ARMOR_BODY,'wikinger'));
 assert(!canWearArmor(FEMALE_ARMOR_BODY,undefined));
-assert(!canWearArmor({...FEMALE_ARMOR_BODY,bodyProfile:'wov-female-v1'},'wikingerin'));
+assert(!canWearArmor({...FEMALE_ARMOR_BODY,bodyProfile:'legacy-female-v1'},'wikingerin'));
 for (const part of [...IRONWARD_PARTS,...WILDWARDEN_PARTS,...ASHENVEIL_PARTS,...SEIDRAVEN_MALE_PARTS,...SEIDRAVEN_FEMALE_PARTS]) {
   const item=findItem(part.item)!;const armor=ruestungZu(part.id)!;
   assert.equal(item.bodyVariant,part.bodyVariant);assert.equal(armor.bodyProfile,part.bodyProfile);

@@ -201,7 +201,7 @@ async function mcpStarten(wurzel: string, url: string): Promise<Client> {
     command: 'npx',
     args: ['tsx', 'tools/worldlayout-mcp/server.ts'],
     cwd: wurzel,
-    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN },
+    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN, WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten') },
   });
   const c = new Client({ name: 'probe-kontext', version: '1.0.0' });
   await c.connect(t);

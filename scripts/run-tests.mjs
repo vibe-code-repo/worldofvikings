@@ -59,6 +59,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Tests erben nie die Welt-Variablen einer Shell oder eines Dienstes: sonst schriebe ein Test in die echte
+// (DEV-)Welt oder trafe einen fremden Betriebsdienst. Ein Test, der sie braucht, setzt sie selbst auf Temp.
+// Tests never inherit the world variables of a shell or a service; a test that needs them sets them to a temp dir.
+delete process.env.WOV_WELT_VERZEICHNIS;
+delete process.env.WOV_ADMIN_URL;
+delete process.env.WOV_DEV_CHECKOUT;
+
 /*
   Die BUCHFUEHRUNG (Laufzeitzeuge): Der Runner bucht jeden Start (`fahre` schreibt
   die Testdatei auf, die WIRKLICH an den Kindprozess geht), jede Weiche
@@ -2212,6 +2219,16 @@ const KERN = [
   // and the tracked appearance.json is checked against its generator.
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
+  // K5.7 world working copy: the four start cases (missing / only repo changed / both changed / none), accept and discard;
+  // 10 saves through the operations service leave `git status --porcelain` empty; tools/welt-abnehmen.sh commits only with --commit.
+  ['shared', 'test/welt-arbeitskopie.ts'],
+  ['admin', 'test/welt-arbeitskopie.ts'],
+  ['tools', 'test/welt-abnehmen.ts'],
+  // K5.7 N1: the default working-copy folder (no WOV_WELT_VERZEICHNIS) stays inside the checkout; sync vs. editor save under one lock
+  // (two processes, 300 rounds, 0 lost edits); the backup script also saves the base file.
+  ['admin', 'test/welt-ohne-variable.ts'],
+  ['shared', 'test/welt-abgleich-wettlauf.ts'],
+  ['tools', 'test/wov-sicherung-welt.ts'],
   ['shared', 'test/kollision-upload-entscheid.ts'],
   // Plateau diff and tie-break independent of list order: a live-patched geo matches a fresh compile.
   ['shared', 'test/sockel-diff.ts'],

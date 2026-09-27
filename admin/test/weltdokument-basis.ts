@@ -252,13 +252,14 @@ function dienstStarten(): Promise<number> {
       env: {
         ...process.env,
         WOV_WURZEL: ORDNER,
+        // K5.7: die Welt liegt als Arbeitskopie im Weltverzeichnis; hier dasselbe wie die Wurzel-Datei (kein Abgleich, nie /var/lib/wov).
+        WOV_WELT_VERZEICHNIS: resolve(ORDNER, 'server/data/welten'),
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: process.env.WOV_TEST_ADMIN_PORT ?? '0',
         // K5.0: no game server here, so no receipt to wait for (the write answers stay 200/409/422 as tested).
         WOV_QUITTUNG: 'aus',
         NODE_ENV: 'test',
-        WOV_WELT_VERZEICHNIS: resolve(ORDNER, 'server/data/welten'),
         WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -566,16 +567,19 @@ try {
     check('gebrochene Sperre: danach keine .lock', !existsSync(`${sPfad}.lock`));
 
     const beiDerFrischen = readFileSync(sPfad, 'utf-8');
-    writeFileSync(`${sPfad}.lock`, 'lebender-prozess');
+    // Lesbare Besitzangabe eines nicht pruefbaren Besitzers (anderer Rechner): bleibt. Eine leere oder unlesbare Sperre
+    // dagegen ist ohne Besitzer und wird sofort gebrochen (K5.7 N2, siehe unten).
+    const lesbareSperre = JSON.stringify({ pid: process.ppid, start: null, host: 'ein-anderer-rechner', marke: 'frisch' });
+    writeFileSync(`${sPfad}.lock`, lesbareSperre);
     let fehlerName = '';
     try {
       layoutSchreiben(sPfad, koerper('gegen-frische-sperre'), undefined, { sperreWartenMs: 200 });
     } catch (f) {
       fehlerName = (f as Error).name;
     }
-    check('frische Sperre ohne Besitzangabe: LayoutGesperrt nach kurzer Wartezeit', fehlerName === 'LayoutGesperrt', `= "${fehlerName}"`);
-    check('frische Sperre ohne Besitzangabe: Datei unverändert', readFileSync(sPfad, 'utf-8') === beiDerFrischen);
-    check('frische Sperre ohne Besitzangabe: bleibt liegen', readFileSync(`${sPfad}.lock`, 'utf-8') === 'lebender-prozess');
+    check('frische Sperre mit lesbarer Angabe eines nicht pruefbaren Besitzers: LayoutGesperrt nach kurzer Wartezeit', fehlerName === 'LayoutGesperrt', `= "${fehlerName}"`);
+    check('frische Sperre mit lesbarer Angabe: Datei unverändert', readFileSync(sPfad, 'utf-8') === beiDerFrischen);
+    check('frische Sperre mit lesbarer Angabe: bleibt liegen', readFileSync(`${sPfad}.lock`, 'utf-8') === lesbareSperre);
     rmSync(`${sPfad}.lock`, { force: true });
 
     // (Tmp-Dateien und ihr Besitz: siehe Abschnitt 27.)
@@ -803,10 +807,15 @@ try {
       check('Besitzer auf anderem Rechner, Sperre 11 min alt: als verwaist gebrochen, Schreiben gelingt', r.ok && r.ms < 500, JSON.stringify(r));
       check('… laute Logzeile mit Rechner, pid und Alter', log.some((z) => new RegExp(`verwaiste Sperre .* gebrochen: ACHTUNG Besitzer pid ${totePid} auf Rechner ein-anderer-rechner .* 660 s alt`).test(z)), log.join(' | '));
 
-      // ohne Besitzangabe: jung bleibt, alt ist Müll
+      // ohne Besitzangabe (leer oder unlesbar): sofort gebrochen, auch frisch (K5.7 N2; die Sperre wird atomar angelegt und
+      // erscheint nie leer, ein solcher Rest hat keinen Besitzer)
       sperreSchreiben('hier hat jemand von Hand etwas hingelegt');
       r = versuch({ sperreWartenMs: 250 });
-      check('Sperre ohne Besitzangabe, frisch: bleibt (LayoutGesperrt)', !r.ok && r.name === 'LayoutGesperrt', JSON.stringify(r));
+      check('Sperre ohne Besitzangabe, frisch: sofort als Müll gebrochen, Schreiben gelingt', r.ok, JSON.stringify(r));
+      check('danach keine .lock (frische Müllsperre)', !existsSync(lockDatei));
+      sperreSchreiben('');
+      r = versuch({ sperreWartenMs: 250 });
+      check('leere Sperre, frisch: sofort gebrochen, Schreiben gelingt', r.ok, JSON.stringify(r));
       sperreSchreiben('hier hat jemand von Hand etwas hingelegt', 60_000);
       r = versuch({ sperreWartenMs: 2000 });
       check('Sperre ohne Besitzangabe, 60 s alt: als Müll gebrochen', r.ok, JSON.stringify(r));

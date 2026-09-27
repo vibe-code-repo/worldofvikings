@@ -78,8 +78,13 @@
 # ── So spielst du eine Sicherung zurück ─────────────────────────────────────
 #   1. Server stoppen:  systemctl stop wov-server
 #   2. Lauf wählen:     L=/var/backups/wov/welten/<instanz>/<stempel>
-#      NUR Ordner OHNE Endung (weder .fehlerhaft noch .laeuft) — so heissen
-#      gescheiterte bzw. unfertige Läufe.
+#      Nimm Ordner OHNE Endung. .laeuft ist ein unfertiger Lauf: nie nehmen.
+#      Ausnahme .fehlerhaft: ein Ordner aus der Teilsicherung (Meldung "der Welt-Teil
+#      wird NICHT gesichert", alte Unit ohne WOV_WELT_VERZEICHNIS) enthaelt gueltige,
+#      geprueft gesicherte DB-, Konten- und Forum-Staende und darf fuer Spielstand,
+#      Konten und Forum genommen werden; nur Weltdatei und Basis fehlen darin
+#      (es gibt dort keinen welten/-Ordner). Ein .fehlerhaft-Ordner aus einem
+#      anderen Grund (kaputte DB, Abbruch) nur nach Blick in die Meldung im Journal.
 #      Hinweis: Welt (.zst), Konten und Forum werden nacheinander gezogen
 #      (Sekunden bis Minuten Abstand), sind also nicht auf die Sekunde
 #      gleich alt.
@@ -97,7 +102,10 @@
 #   5. Server starten, in der Oberfläche Konten und Charaktere prüfen.
 #   Spielstand: "$L/worlds/<instanz>.db.zst" nach server/data/worlds/ (bei
 #   gestopptem Server, die alte .db.zst und .prev vorher beiseite legen).
-#   Weltdokument: "$L/welten/<instanz>.json" nach server/data/welten/.
+#   Weltdokument: "$L/welten/<instanz>.json" UND "$L/welten/<instanz>.basis" nach
+#   $WOV_WELT_VERZEICHNIS (Units: /var/lib/wov/welten), das ist die Arbeitskopie samt
+#   ihrer Basis; beide zurueckspielen (die Basis entscheidet beim naechsten Start ueber
+#   Nachziehen oder Konflikt), den Server danach neu starten.
 #
 # ── Warum `cp` für .db.zst sicher ist, für .db.zst.prev aber NICHT ────────
 # WorldManager.save() und saveAsync() (server/src/world/WorldManager.ts,
@@ -207,7 +215,57 @@ FEHLER_DB=0
 
 DB_DATEI="$DATEN/worlds/$INSTANZ.db.zst"
 PREV_DATEI="$DB_DATEI.prev"
-WELT_DATEI="$DATEN/welten/$INSTANZ.json"
+# Gesichert wird die ARBEITSKOPIE der Welt (die der Editor beschreibt) samt ihrer Basis (<instanz>.basis: Hash
+# des Repo-Stands, aus dem sie zuletzt angelegt oder nachgezogen wurde; nach dem Zurueckspielen entscheidet sie
+# ueber Nachziehen oder Konflikt), nicht der abgenommene Stand im Repo: der steht in Git.
+# Ordner, in dieser Rangfolge:
+#   1. WOV_SICHERUNG_DATEN (Probe-Haken): "$DATEN/welten". Der Haken gilt vor allem anderen, auch wenn
+#      WOV_WELT_VERZEICHNIS exportiert ist, damit eine Probe nie ausserhalb ihres Datenordners liest.
+#   2. WOV_WELT_VERZEICHNIS (absolut; die Unit setzt /var/lib/wov/welten).
+#   3. sonst "$DATEN/welten-arbeit" (wie der Spielserver ohne die Variable). Ausnahme: im DEV-Deployment
+#      (/opt/worldofvikings) verweigert das Skript ohne die Variable nur den Welt-Teil (Meldung, Exit 1 am Ende,
+#      Lauf als .fehlerhaft), statt still die falsche Datei zu sichern; Spielstand, Konten und Forum werden gesichert.
+# Leerzeichen am Rand des Wertes werden abgeschnitten; ein Wert nur aus Leerzeichen oder ein relativer Wert bricht ab.
+# Gibt es die Arbeitskopie noch nicht (vor dem ersten Start des Spielservers seit K5.7), wird ersatzweise die
+# Repo-Datei gesichert.
+WELT_REPO_DATEI="$DATEN/welten/$INSTANZ.json"
+# Leerzeichen am Rand abschneiden, wie es der TS-Weg tut (shared/src/instanz.ts: trim). Ein Wert, der danach leer
+# bleibt (nur Leerzeichen) oder nicht absolut ist, bricht ab: nie still auf die Repo-Datei ausweichen.
+WELT_VERZ_ROH="${WOV_WELT_VERZEICHNIS:-}"
+WELT_VERZ="${WELT_VERZ_ROH#"${WELT_VERZ_ROH%%[![:space:]]*}"}"
+WELT_VERZ="${WELT_VERZ%"${WELT_VERZ##*[![:space:]]}"}"
+DEV_CHECKOUT="${WOV_DEV_CHECKOUT:-/opt/worldofvikings}"
+WELT_VERWEIGERT=0
+if [[ -n "${WOV_SICHERUNG_DATEN:-}" ]]; then
+  WELT_DATEI="$WELT_REPO_DATEI"
+elif [[ -n "$WELT_VERZ_ROH" && -z "$WELT_VERZ" ]]; then
+  echo "ABBRUCH: WOV_WELT_VERZEICHNIS='$WELT_VERZ_ROH' ist leer (nur Leerzeichen). Ungesetzt lassen oder einen absoluten Pfad setzen." >&2
+  exit 1
+elif [[ -n "$WELT_VERZ" ]]; then
+  if [[ "$WELT_VERZ" != /* ]]; then
+    echo "ABBRUCH: WOV_WELT_VERZEICHNIS='$WELT_VERZ_ROH' ist kein absoluter Pfad." >&2
+    exit 1
+  fi
+  WELT_DATEI="${WELT_VERZ%/}/$INSTANZ.json"
+else
+  # Im DEV-Deployment gibt es die Arbeitskopie nur unter dem Ordner aus der Unit; <Daten>/welten-arbeit ist dort
+  # eine Datei, die kein Dienst liest. Nicht still die falsche sichern.
+  if [[ "$(realpath -m "$WURZEL")" == "$(realpath -m "$DEV_CHECKOUT")" ]]; then
+    # Nur der WELT-Teil wird verweigert: Spielstand, Konten und Forum werden trotzdem gesichert, der Lauf endet am
+    # Schluss mit Exit 1 (wie FEHLER_DB). Ein Abbruch vor allem haette bei einer alten Unit auch die Spielstaende
+    # ungesichert gelassen.
+    WELT_VERWEIGERT=1
+    echo "FEHLER: $WURZEL ist das DEV-Deployment und WOV_WELT_VERZEICHNIS ist nicht gesetzt — der Welt-Teil wird NICHT gesichert (Spielstand, Konten und Forum schon; Exit 1 am Ende). Die Unit wov-sicherung setzt die Variable (Environment=WOV_WELT_VERZEICHNIS=/var/lib/wov/welten); alte Unit? Units aus deploy/systemd/ installieren und systemctl daemon-reload. Von Hand: WOV_WELT_VERZEICHNIS=/var/lib/wov/welten tools/wov-sicherung.sh" >&2
+    WELT_DATEI=""
+  fi
+  (( WELT_VERWEIGERT )) || WELT_DATEI="$DATEN/welten-arbeit/$INSTANZ.json"
+fi
+if (( ! WELT_VERWEIGERT )) && [[ ! -f "$WELT_DATEI" && -f "$WELT_REPO_DATEI" ]]; then
+  echo "  … Arbeitskopie $WELT_DATEI fehlt, gesichert wird ersatzweise $WELT_REPO_DATEI"
+  WELT_DATEI="$WELT_REPO_DATEI"
+fi
+WELT_BASIS_DATEI=""
+(( WELT_VERWEIGERT )) || WELT_BASIS_DATEI="${WELT_DATEI%.json}.basis"
 DUNGEON_ORDNER="$DATEN/dungeons/$INSTANZ"
 SERVER_YML="$DATEN/server.yml"
 KONTEN_DB="$DATEN/konten/$INSTANZ.db"
@@ -218,7 +276,9 @@ if [[ ! -f "$DB_DATEI" ]]; then
   exit 1
 fi
 
-for pflicht in "$WELT_DATEI" "$SERVER_YML"; do
+PFLICHT=("$SERVER_YML")
+(( WELT_VERWEIGERT )) || PFLICHT=("$WELT_DATEI" "$SERVER_YML")
+for pflicht in "${PFLICHT[@]}"; do
   if [[ ! -f "$pflicht" ]]; then
     echo "ABBRUCH: $pflicht fehlt — Sicherung nicht möglich, nichts geschrieben." >&2
     exit 1
@@ -309,7 +369,9 @@ echo "  Quelle: $DATEN"
 echo "  Ziel:   $LAUF_ORDNER"
 
 # ── 2. Freien Platz prüfen, BEVOR irgendetwas kopiert wird ─────────────
-QUELL_PFADE=("$DB_DATEI" "$WELT_DATEI" "$SERVER_YML")
+QUELL_PFADE=("$DB_DATEI" "$SERVER_YML")
+(( WELT_VERWEIGERT )) || QUELL_PFADE+=("$WELT_DATEI")
+[[ -n "$WELT_BASIS_DATEI" && -f "$WELT_BASIS_DATEI" ]] && QUELL_PFADE+=("$WELT_BASIS_DATEI")
 # Konten/Forum samt -wal (dort stehen die Daten); ob sie fehlen, meldet die
 # Sicherung selbst.
 for db in "$KONTEN_DB" "$FORUM_DB"; do
@@ -347,7 +409,9 @@ fi
 # Ohne -p: existiert der Ordner schon, ist das ein Abbruch.
 mkdir "$LAUF_ARBEIT"
 LAUF_ANGELEGT=1
-mkdir "$LAUF_ARBEIT/worlds" "$LAUF_ARBEIT/welten" "$LAUF_ARBEIT/konten" "$LAUF_ARBEIT/forum"
+mkdir "$LAUF_ARBEIT/worlds" "$LAUF_ARBEIT/konten" "$LAUF_ARBEIT/forum"
+# Kein leerer welten/-Ordner, wenn der Welt-Teil verweigert wurde: er sähe beim Zurückspielen wie eine leere Welt aus.
+(( WELT_VERWEIGERT )) || mkdir "$LAUF_ARBEIT/welten"
 
 # ── 3. Kopieren ──────────────────────────────────────────────────────────
 # kopiere_mit_pruefung QUELLE ZIEL [zstd]: kopiert und prüft die Kopie mit `cmp`
@@ -388,8 +452,18 @@ else
   echo "  … keine .prev vorhanden (erster Save seit Anlegen der Welt?), übersprungen"
 fi
 
+if (( WELT_VERWEIGERT )); then
+  echo "  … Welt-Teil verweigert (DEV ohne WOV_WELT_VERZEICHNIS), Weltdatei und Basis werden nicht gesichert"
+else
 echo "  kopiere $WELT_DATEI"
 kopiere_mit_pruefung "$WELT_DATEI" "$LAUF_ARBEIT/welten/$INSTANZ.json"
+if [[ -f "$WELT_BASIS_DATEI" ]]; then
+  echo "  kopiere $WELT_BASIS_DATEI"
+  kopiere_mit_pruefung "$WELT_BASIS_DATEI" "$LAUF_ARBEIT/welten/$INSTANZ.basis"
+else
+  echo "  … keine Basis-Datei neben der Weltdatei ($WELT_BASIS_DATEI), uebersprungen"
+fi
+fi
 
 if [[ -d "$DUNGEON_ORDNER" ]]; then
   echo "  kopiere $DUNGEON_ORDNER"
@@ -453,6 +527,10 @@ find "$LAUF_ARBEIT" -type f -exec chmod 600 {} +
 # schon beim Kopieren per cmp geprüft — kein späterer Grössenvergleich gegen
 # die inzwischen möglicherweise ersetzte Quelle.
 FEHLER=$FEHLER_DB
+if (( WELT_VERWEIGERT )); then
+  FEHLER=1
+  echo "FEHLER: Welt-Teil nicht gesichert (DEV ohne WOV_WELT_VERZEICHNIS, s. oben)" >&2
+fi
 if (( FEHLER_DB != 0 )); then
   echo "FEHLER: Konten- oder Forumsdatenbank nicht sauber gesichert (s. oben)" >&2
 fi
@@ -471,7 +549,7 @@ if [[ -f "$PREV_DATEI" ]]; then
   zstd -t "$LAUF_ARBEIT/worlds/$INSTANZ.db.zst.prev" -q || { echo "FEHLER: .prev-Sicherung besteht zstd -t nicht" >&2; FEHLER=1; }
 fi
 
-pruef_json "$LAUF_ARBEIT/welten/$INSTANZ.json"
+(( WELT_VERWEIGERT )) || pruef_json "$LAUF_ARBEIT/welten/$INSTANZ.json"
 
 if [[ -d "$DUNGEON_ORDNER" ]]; then
   while IFS= read -r -d '' datei; do

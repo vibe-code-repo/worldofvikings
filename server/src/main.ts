@@ -10,6 +10,7 @@ import { createWovServer } from './WovServer.js';
 import { erstelleHerunterfahren } from './herunterfahren.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
+import { weltAbgleichen } from '@wov/shared/src/worldlayout/weltArbeitskopie.js';
 import { quittungLoeschenSicher, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { ladeModulRegistrierung, sorgeFuerRegistryDatei } from './world/dungeon/ModuleBuild.js';
 import {
@@ -58,6 +59,27 @@ const config = leseServerKonfig(DATA_DIR, INSTANZ);
 // Stand als angewendet melden, den erst dieser Lauf (oder gar nicht) anwendet.
 // K5.0 N2: Ein Fehler dort (Ordner nicht beschreibbar) geht ins Log und stoppt den Start nicht.
 quittungLoeschenSicher(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ), (text) => console.error(`[WoV] ${text}`));
+
+/*
+  Welt: Arbeitskopie anlegen oder nachziehen (im selben Ablauf wie das Lesen, vor dem Server-Start).
+  Der abgenommene Stand liegt im Repo, gelesen und beschrieben wird die Arbeitskopie. Nie ueberschreiben,
+  wenn beide geaendert sind: dann laute Warnung, der Server startet mit der Arbeitskopie.
+*/
+if (config.worldMode === 'layout' && config.worldLayoutPath) {
+  let abgleich;
+  try {
+    abgleich = weltAbgleichen({ repoDatei: resolve(DATA_DIR, 'welten', `${INSTANZ}.json`), arbeitsDatei: config.worldLayoutPath });
+  } catch (fehler) {
+    console.error(`[Main] Weltabgleich gescheitert: ${(fehler as Error).message}`);
+    process.exit(1);
+  }
+  if (abgleich.fall === 'konflikt') console.warn(abgleich.meldung);
+  else if (abgleich.fall === 'arbeit-kaputt' || abgleich.fall === 'repo-kaputt') {
+    console.error(abgleich.meldung);
+    // Ohne lesbare Welt gibt es nichts zu starten: die Arbeitskopie ist kaputt, oder sie fehlt und das Repo ist kaputt.
+    if (abgleich.fall === 'arbeit-kaputt' || abgleich.arbeitHash === null) process.exit(1);
+  } else console.log(abgleich.meldung);
+}
 
 /*
   Fremd-Installation, nie zuvor ein Saal gebaut: assets/generiert/ existiert

@@ -53,6 +53,8 @@ const FREMD_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-fremd-
 const LEER_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-leer-'));
 const SYMDATEI_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-symdatei-'));
 const SYMORDNER_WURZEL = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-symordner-'));
+// systemctl-Attrappe fuer layout_deploy (M2): das echte systemctl wird in dieser Probe nie gerufen.
+const FAKE_ORDNER = mkdtempSync(resolve(tmpdir(), 'worldlayout-mcp-probe-fake-'));
 const ELTERNLINK = resolve(tmpdir(), `worldlayout-mcp-probe-link-${process.pid}`);
 
 /** Ein „Checkout": eine Kopie des Ordners tools/worldlayout-mcp an derselben Stelle relativ zur Wurzel, mit den node_modules des Repos. */
@@ -92,6 +94,8 @@ function dienstStarten(): Promise<{ kind: ChildProcess; url: string }> {
       env: {
         ...process.env,
         WOV_WURZEL: TEST_WURZEL,
+        // K5.7: Arbeitskopie im Weltverzeichnis; hier dieselbe Datei wie in der Testwurzel.
+        WOV_WELT_VERZEICHNIS: resolve(TEST_WURZEL, 'server/data/welten'),
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: '0',
@@ -129,7 +133,7 @@ function dienstStarten(): Promise<{ kind: ChildProcess; url: string }> {
 /** Räumt die Testwurzeln samt Weltdatei und Sicherungen weg. */
 function aufraeumen(): void {
   rmSync(ELTERNLINK, { force: true });
-  for (const w of [TEST_WURZEL, FREMD_WURZEL, LEER_WURZEL, SYMDATEI_WURZEL, SYMORDNER_WURZEL]) {
+  for (const w of [TEST_WURZEL, FREMD_WURZEL, LEER_WURZEL, SYMDATEI_WURZEL, SYMORDNER_WURZEL, FAKE_ORDNER]) {
     rmSync(w, { recursive: true, force: true });
   }
 }
@@ -161,7 +165,7 @@ try {
     // deshalb erst die Standardauswahl holen und die Betriebsdienst-Angaben
     // ergänzen, statt versehentlich PATH & Co. zu verlieren (npx würde sonst
     // nicht mehr gefunden).
-    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: gestartet.url, WOV_ADMIN_TOKEN: TOKEN },
+    env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: gestartet.url, WOV_ADMIN_TOKEN: TOKEN, WOV_WELT_VERZEICHNIS: resolve(TEST_WURZEL, 'server/data/welten') },
   });
   const c = new Client({ name: 'probe', version: '1.0.0' });
   client = c;
@@ -465,7 +469,7 @@ try {
       command: 'npx',
       args: ['tsx', 'tools/worldlayout-mcp/server.ts'],
       cwd,
-      env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN, ...extra },
+      env: { ...getDefaultEnvironment(), WOV_ADMIN_URL: url, WOV_ADMIN_TOKEN: TOKEN, WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten'), ...extra },
     });
     const k = new Client({ name: 'probe-sperre', version: '1.0.0' });
     await k.connect(tr);
@@ -553,6 +557,75 @@ try {
     check('Checkout ohne Weltdatei: Schreiben verweigert, sagt warum', istFehler(r) && /existiert nicht/.test(text(r)), text(r));
   } finally {
     await ohneDatei.close();
+  }
+
+  // (3c2) H1 (K5.7): Die Sperre richtet sich nach dem ZIEL, nicht nach dem Ort des Checkouts. Ohne ausdruecklich
+  // gesetztes WOV_ADMIN_URL verweigert der MCP alle Schreibwerkzeuge, gleich wo der Checkout liegt (hier: unter
+  // dem Temp-Verzeichnis, also ausserhalb von wov-worktrees/, wie im Angriff). Lesen bleibt erlaubt.
+  {
+    const port = new URL(gestartet.url).port;
+    const ohneUrl = await mcpStarten(TEST_WURZEL, { WOV_ADMIN_URL: '', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: port });
+    try {
+      const sumVorher = pruefsumme();
+      const dateienVorher = sicherungen();
+      const lesen = await ohneUrl.callTool({ name: 'layout_get', arguments: {} });
+      check('H1 ohne WOV_ADMIN_URL: layout_get (Lesen) bleibt erlaubt', !istFehler(lesen) && /Region\(en\)/.test(text(lesen)), text(lesen).slice(0, 80));
+      for (const [name, argumente] of [
+        ['placement_set', platzierung],
+        ['defaultSpawn_set', { x: 7, z: 7 }],
+      ] as const) {
+        const r = await ohneUrl.callTool({ name, arguments: argumente as Record<string, unknown> });
+        check(`H1 ohne WOV_ADMIN_URL: ${name} wird verweigert, Meldung nennt WOV_ADMIN_URL`, istFehler(r) && /WOV_ADMIN_URL ist nicht gesetzt/.test(text(r)), text(r).slice(0, 160));
+      }
+      check('H1 ohne WOV_ADMIN_URL: Weltdatei und Sicherungen unveraendert', pruefsumme() === sumVorher && sicherungen() === dateienVorher);
+    } finally {
+      await ohneUrl.close();
+    }
+    // Mit gesetzter URL, aber einem Checkout, dessen Arbeitskopie (ohne WOV_WELT_VERZEICHNIS: <Checkout>/server/data/welten-arbeit)
+    // eine andere Datei ist als die des Dienstes: die Kennung passt nicht, verweigert.
+    mkdirSync(resolve(FREMD_WURZEL, 'server/data/welten-arbeit'), { recursive: true });
+    writeFileSync(resolve(FREMD_WURZEL, 'server/data/welten-arbeit/dev.json'), weltMitName('FremdArbeit'));
+    const anderes = await mcpStarten(FREMD_WURZEL, { WOV_WELT_VERZEICHNIS: '' });
+    try {
+      const sumVorher = pruefsumme();
+      const r = await anderes.callTool({ name: 'placement_set', arguments: platzierung });
+      check('H1 mit WOV_ADMIN_URL, fremde Arbeitskopie des Checkouts: verweigert (Kennung passt nicht)', istFehler(r) && /weltKennung passt nicht/.test(text(r)), text(r).slice(0, 200));
+      check('H1 mit WOV_ADMIN_URL, fremde Arbeitskopie: Weltdatei unveraendert', pruefsumme() === sumVorher);
+    } finally {
+      await anderes.close();
+    }
+  }
+
+  // (3c3) M2 (K5.7 N2): layout_deploy startet wov-server nur neu, wenn der Checkout DEV ist (Haken WOV_DEV_CHECKOUT) UND
+  // WOV_ADMIN_URL ausdruecklich gesetzt ist. systemctl ist eine Attrappe, die ihre Aufrufe protokolliert.
+  {
+    const log = resolve(FAKE_ORDNER, 'systemctl.log');
+    writeFileSync(resolve(FAKE_ORDNER, 'systemctl'), `#!/bin/sh\necho "$@" >> "${log}"\n`, { mode: 0o755 });
+    const aufrufe = (): string => {
+      try {
+        return readFileSync(log, 'utf-8');
+      } catch {
+        return '';
+      }
+    };
+    const mitFake = { PATH: `${FAKE_ORDNER}:${process.env.PATH ?? ''}` };
+    const versuch = async (extra: Record<string, string>): Promise<{ r: unknown; vorher: string }> => {
+      const k = await mcpStarten(TEST_WURZEL, { ...mitFake, ...extra });
+      try {
+        const vorher = aufrufe();
+        return { r: await k.callTool({ name: 'layout_deploy', arguments: {} }), vorher };
+      } finally {
+        await k.close();
+      }
+    };
+    const a = await versuch({ WOV_DEV_CHECKOUT: FREMD_WURZEL });
+    check('M2 layout_deploy: Checkout nicht DEV, URL gesetzt: verweigert, systemctl nicht gerufen', istFehler(a.r) && /nicht DEV/.test(text(a.r)) && aufrufe() === '', text(a.r).slice(0, 200));
+    const b = await versuch({ WOV_DEV_CHECKOUT: TEST_WURZEL, WOV_ADMIN_URL: '' });
+    check('M2 layout_deploy: Checkout DEV, aber WOV_ADMIN_URL nicht gesetzt: verweigert, systemctl nicht gerufen', istFehler(b.r) && /WOV_ADMIN_URL nicht gesetzt/.test(text(b.r)) && aufrufe() === '', text(b.r).slice(0, 200));
+    const b2 = await versuch({ WOV_DEV_CHECKOUT: FREMD_WURZEL, WOV_ADMIN_URL: '' });
+    check('M2 layout_deploy: weder DEV noch URL (Vorgabe): verweigert, systemctl nicht gerufen', istFehler(b2.r) && aufrufe() === '', text(b2.r).slice(0, 200));
+    const c = await versuch({ WOV_DEV_CHECKOUT: TEST_WURZEL });
+    check('M2 layout_deploy: Checkout DEV und URL gesetzt: startet neu (systemctl restart wov-server, genau einmal)', !istFehler(c.r) && aufrufe() === 'restart wov-server\n', `${text(c.r).slice(0, 100)} | ${JSON.stringify(aufrufe())}`);
   }
 
   // (3d) Symlink aus dem Checkout hinaus: Die eigene Weltdatei ist nur ein Verweis auf die vom

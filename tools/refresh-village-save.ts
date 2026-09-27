@@ -21,6 +21,7 @@ import { FOLIAGE_HASHES } from '../shared/src/vegetation.js';
 import { streueZone } from '../shared/src/worldgen/streuung.js';
 import { terrainCompAusBase64 } from '../shared/src/worldgen/terrainCompCodec.js';
 import { leseServerKonfig } from '../server/src/ServerKonfig.js';
+import { weltAbgleichen } from '../shared/src/worldlayout/weltArbeitskopie.js';
 import { createWovServer } from '../server/src/WovServer.js';
 import { ZDOManager } from '../server/src/zdo/ZDOManager.js';
 import type { WorldSaveData } from '../server/src/world/WorldManager.js';
@@ -38,6 +39,8 @@ const data: WorldSaveData = JSON.parse(zstdDecompressSync(readFileSync(input)).t
 assert(data.meta.worldName === 'dev', 'Only the DEV save may be migrated');
 assert(data.version === 3 && !data.terrainOps?.length, 'Requires migrated v3 terrain');
 assert(data.meta.worldSeed === config.worldSeed && data.meta.worldGenVersion === config.worldGenVersion);
+// The world is the working copy (WOV_WELT_VERZEICHNIS); create it from the repo if it does not exist yet.
+weltAbgleichen({ repoDatei: resolve('server/data/welten/dev.json'), arbeitsDatei: config.worldLayoutPath!, modus: 'anlegen' });
 const layout = sanitizeWorldLayout(JSON.parse(readFileSync(config.worldLayoutPath!, 'utf8')));
 assert(layout && layout.regions.some(r => r.id === region), 'Region must exist');
 console.log('Save and layout validated');

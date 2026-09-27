@@ -410,6 +410,14 @@ async function main(): Promise<void> {
       w.writeFloat32(pSchmied.position.x); w.writeFloat32(pSchmied.position.y); w.writeFloat32(pSchmied.position.z);
       w.writeFloat32(0); w.writeFloat32(0); w.writeFloat32(0); w.writeFloat32(1);
       sendePaket(betAmSchmied, P.PlacePiece, w); }
+    // Beide oben verarbeiten lassen, BEVOR die Position fuer Interact
+    // umgesetzt wird: handleTerrainOp/handlePlacePiece lesen peer.position
+    // (dieselbe Server-Instanz) erst beim Eintreffen des Pakets, nicht beim
+    // Senden. Ohne dieses Warten stand pSchmied schon bei der Truhe, wenn
+    // die beiden Pakete ankamen — die Entfernungspruefung in handleTerrainOp
+    // (max. 10 m zu peer.position) schlug dann fehl, und beide Checks unten
+    // waren leer wahr, auf beiden Staenden gleich, unabhaengig vom C2-Riegel.
+    await warte(300);
     // Interact: Oles Truhe steht bei (305,50,400); der Editor-Gast wird extra dorthin gestellt.
     pSchmied.position = { ...truhe.position };
     { const w = new Writer();

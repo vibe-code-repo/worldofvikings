@@ -2304,6 +2304,10 @@ const KERN = [
   // Klon noch (schon entfernte) Quelle wirft bis zum naechsten Neupacken.
   // NullEngine, <1 s.
   ['client', 'test/schatten-werfer-uebergabe-reihenfolge.ts'],
+  // Karte M1: Vollstaendigkeitstest der Uebersetzungskataloge (client/src/i18n/katalog
+  // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
+  // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
+  ['shared', 'test/i18n-katalog.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

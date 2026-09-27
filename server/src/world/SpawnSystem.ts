@@ -141,6 +141,21 @@ const TWO_PI = Math.PI * 2;
 /** Arrival tolerance for wander targets (meters). */
 const ARRIVE_DIST = 0.4;
 
+/**
+ * Wolfsbalance (27.09.2026): how many aggro creatures may run their own
+ * strike timer against the SAME nearest player at once. Without this, a
+ * pack that spawns as up to 4 overlapping wolves (maxPerPlayer 3 + a group
+ * of 2, see spawnData.ts) all struck independently every 2 s — a starter
+ * player measured 24 damage in 9 s from three at once (Befund, Karte
+ * Wolfsbalance). The cap holds regardless of how many creatures cluster
+ * nearby: extras stay in melee range (still shown attacking, cosmetic
+ * only) but do not accumulate a strike timer until a slot frees up (a
+ * ranked creature dies or loses aggro). Ranking is by ZDO id (stable for a
+ * creature's lifetime), so the same two attackers keep the slot instead of
+ * it flickering between candidates every tick.
+ */
+const MAX_GLEICHZEITIGE_ANGREIFER = 2;
+
 export class SpawnSystem {
   private readonly table: readonly SpawnEntry[];
   private readonly rng: XorShiftRandom;
@@ -457,6 +472,7 @@ export class SpawnSystem {
 
   private simulateTick(deltaSec: number, peerPositions: readonly Vector3[]): void {
     const simSqr = this.simRadius * this.simRadius;
+    const angriffsSlots = this.berechneAngriffsSlots(peerPositions);
     for (const [key, c] of this.creatures) {
       // Extern getötet (Spieler-Angriff): Zustand aufräumen.
       if (c.zdo.destroyed) {
@@ -493,13 +509,19 @@ export class SpawnSystem {
             const dx = nearest.pos.x - c.zdo.position.x;
             const dz = nearest.pos.z - c.zdo.position.z;
             this.moveStep(c, dx / dist, dz / dist, entry.runSpeed * deltaSec);
-          } else {
+          } else if (angriffsSlots.has(key)) {
             c.attackAccum = (c.attackAccum ?? 0) + deltaSec;
             if (c.attackAccum >= 2) {
               c.attackAccum = 0;
               this.einmal(c, 'attack');
               this.onCreatureAttack?.(c.zdo.position, 8, 2.4);
             }
+          } else {
+            // No free slot (MAX_GLEICHZEITIGE_ANGREIFER already taken for this
+            // target): wait without a running timer, so a freed slot starts
+            // this creature's own 2 s cooldown from zero, not with a
+            // pre-loaded hit.
+            c.attackAccum = 0;
           }
           c.syncAccum += deltaSec;
           if (c.syncAccum >= this.syncIntervalSec) {
@@ -643,6 +665,37 @@ export class SpawnSystem {
       if (dx * dx + dz * dz <= rSqr) return true;
     }
     return false;
+  }
+
+  /**
+   * Which creatures may run their strike timer this tick (see
+   * MAX_GLEICHZEITIGE_ANGREIFER). Grouped by the nearest peer's array index
+   * (peerPositions is the same array for the whole tick, so the index is a
+   * stable per-tick key even without peer identity) and ranked by ZDO id —
+   * a deterministic order that stays the same from tick to tick as long as
+   * the same creatures are in range, so a slot does not flicker between
+   * candidates.
+   */
+  private berechneAngriffsSlots(peerPositions: readonly Vector3[]): ReadonlySet<string> {
+    const kandidatenJeZiel = new Map<number, { key: string; dist: number }[]>();
+    for (const [key, c] of this.creatures) {
+      if (c.zdo.destroyed || c.stirbtBis !== undefined) continue;
+      if (c.entry.flees || c.entry.aggro === false) continue;
+      const nearest = this.nearestPeer(c.zdo.position, peerPositions);
+      if (!nearest) continue;
+      const dist = Math.sqrt(nearest.distSqr);
+      if (dist > 1.7) continue;
+      const idx = peerPositions.indexOf(nearest.pos);
+      const liste = kandidatenJeZiel.get(idx) ?? [];
+      liste.push({ key, dist });
+      kandidatenJeZiel.set(idx, liste);
+    }
+    const slots = new Set<string>();
+    for (const liste of kandidatenJeZiel.values()) {
+      liste.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+      for (const { key } of liste.slice(0, MAX_GLEICHZEITIGE_ANGREIFER)) slots.add(key);
+    }
+    return slots;
   }
 
   private nearestPeer(

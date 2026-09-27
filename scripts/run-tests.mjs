@@ -2308,6 +2308,11 @@ const KERN = [
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  // Wolfsbalance: chase speed rescaled from the real B9.2 GPU trace stays
+  // under 3 % p90 foot-sliding (was ~11-14 % at the old 5.5 m/s), and at
+  // most two of three wolves pinned on one peer ever strike at once, with
+  // the third taking a freed slot when an active attacker dies.
+  ['server', 'test/wolf-rudel-begrenzung.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

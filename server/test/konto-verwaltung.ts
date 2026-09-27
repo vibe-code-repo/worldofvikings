@@ -19,6 +19,7 @@
  */
 import { strict as assert } from 'node:assert';
 import { createServer } from 'node:http';
+import { scryptSync, randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -472,6 +473,86 @@ try {
     for (const [name, text] of erlaubt) assert.equal((await setze(text)).status, 200, `erlaubt: ${name}`);
     assert.equal((await setze('e\u0301\u0302'.repeat(301))).status, 400, '301 Graphem-Cluster abgelehnt');
     assert.equal((await aufruf('POST', `/accounts/characters/1/report`, { reason: 'a\u200Bb' }, n.token)).status, 400, 'Meldegrund: dieselbe Regel');
+  }
+
+  // ══ N2 (Opus-Nachangriff) ═════════════════════════════════════════════
+
+  // N1-1: Ein Erfolg im EIGENEN Konto setzt die Zaehlung gegen das Opfer nicht
+  // zurueck (vier falsch, einmal eigener Erfolg, 14 Runden, von EINER Adresse).
+  for (const weg of ['login', 'email'] as const) {
+    const opfer = await neuesKonto(`Opfer${weg}`);
+    const dieb = await neuesKonto(`Dieb${weg}`);
+    const ip = weg === 'login' ? '198.51.100.66' : '198.51.100.67';
+    let biszumHash = 0;
+    let gesperrtAnzahl = 0;
+    for (let runde = 0; runde < 14; runde++) {
+      for (let n = 0; n < 4; n++) {
+        const r = await aufruf('POST', '/accounts/password', { currentPassword: `raten${runde}-${n}`, newPassword: 'gekapert1234' }, opfer.token, ip);
+        if (r.status === 401) biszumHash++; else if (r.status === 429) gesperrtAnzahl++;
+      }
+      const eigen = weg === 'login'
+        ? await aufruf('POST', '/accounts/login', { username: `Dieb${weg}`, password: 'altespasswort1' }, undefined, ip)
+        : await aufruf('POST', '/accounts/email', { currentPassword: 'altespasswort1', email: `d${runde}@example.org` }, dieb.token, ip);
+      assert.equal(eigen.status, 200, `Erfolg im eigenen Konto (${weg}) in Runde ${runde}`);
+    }
+    assert.ok(biszumHash <= 5, `${weg}: hoechstens fuenf Versuche von einer Adresse kommen bis zum Hash (waren ${biszumHash})`);
+    assert.ok(gesperrtAnzahl >= 50, `${weg}: der Rest wird gesperrt (${gesperrtAnzahl})`);
+    const besitzer = await aufruf('POST', '/accounts/password', { currentPassword: 'altespasswort1', newPassword: 'neuespasswort2' }, opfer.token, '198.18.7.7');
+    assert.equal(besitzer.status, 200, `${weg}: der Besitzer von anderer Adresse kommt durch`);
+  }
+
+  // Rettungsweg: Ein verteilter Dieb (50 Adressen) sperrt die Passwortbestaetigung
+  // des Kontos; "ueberall abmelden" mit dem RICHTIGEN Passwort geht trotzdem und
+  // beendet die Sitzung des Diebs.
+  {
+    const r = await neuesKonto('Rettung');
+    for (let n = 0; n < 50; n++) {
+      const x = await aufruf('POST', '/accounts/password', { currentPassword: `verteilt${n}xx`, newPassword: 'gekapert1234' }, r.token, `198.22.${Math.floor(n / 200)}.${(n % 200) + 1}`);
+      assert.equal(x.status, 401, `verteilter Versuch ${n}`);
+    }
+    assert.equal((await aufruf('POST', '/accounts/password', { currentPassword: 'altespasswort1', newPassword: 'neuespasswort2' }, r.token, '198.23.0.1')).status, 429, 'Konto-Sperre greift');
+    assert.equal((await aufruf('POST', '/accounts/login', { username: 'Rettung', password: 'falsch12345', logoutOthers: true }, undefined, '198.23.0.2')).status, 401, 'falsches Passwort: keine Abmeldung');
+    assert.equal((await ich(r.token)).status, 200, 'Token gilt nach dem falschen Versuch weiter');
+    const rette = await aufruf('POST', '/accounts/login', { username: 'Rettung', password: 'altespasswort1', logoutOthers: true }, undefined, '198.23.0.3');
+    assert.equal(rette.status, 200, 'Rettungsweg trotz Kontosperre');
+    assert.equal((await ich(r.token)).status, 401, 'die alte (gestohlene) Sitzung ist beendet');
+    assert.equal((await ich(rette.daten.token)).status, 200, 'die neue Sitzung gilt');
+    const wechsel = await aufruf('POST', '/accounts/password', { currentPassword: 'altespasswort1', newPassword: 'neuespasswort2' }, rette.daten.token, '198.23.0.4');
+    assert.equal(wechsel.status, 200, 'danach ist die Sperre aufgehoben, Passwortwechsel geht');
+    // Standardkonten: kein "ueberall abmelden"
+    assert.equal((await aufruf('POST', '/accounts/login', { username: 'gast', password: 'gastpasswort1', logoutOthers: true }, undefined, '198.23.0.5')).status, 403);
+  }
+
+  // N1-2: gleichzeitige, richtige Logins mit VERALTETEM Hash bekommen alle ein Token.
+  for (let lauf = 0; lauf < 3; lauf++) {
+    const salz = randomBytes(16);
+    const roh = scryptSync('altespasswort1'.normalize('NFKC'), salz, 32, { N: 16384, r: 8, p: 1 });
+    const eintrag = `scrypt$16384$8$1$${salz.toString('base64url')}$${roh.toString('base64url')}`;
+    const name = `Veraltet${lauf}`;
+    assert.ok(db.kontoAnlegen(name, `${name}@example.org`, eintrag).ok);
+    const antworten = await Promise.all(Array.from({ length: 4 }, (_, i) =>
+      aufruf('POST', '/accounts/login', { username: name, password: 'altespasswort1' }, undefined, `198.24.${lauf}.${i + 1}`)));
+    assert.deepEqual(antworten.map((a) => a.status), [200, 200, 200, 200], `Lauf ${lauf}: alle vier Logins bekommen ein Token`);
+    for (const a of antworten) assert.equal((await ich(a.daten.token)).status, 200, `Lauf ${lauf}: Token gilt`);
+  }
+
+  // N1-3: Hangul-Jamo-Ketten, einzelne Variantenselektoren.
+  {
+    const n = await neuesKonto('Nils');
+    const setze = (text: unknown) => aufruf('POST', '/accounts/profile', { text }, n.token);
+    const abgelehnt: [string, string][] = [
+      ['Jamo-Kette', '\u1100'.repeat(50) + '\u1161' + '\u11A8'.repeat(50)],
+      ['vier Jamo hintereinander', '\u1100\u1100\u1100\u1100'],
+      ['U+180B allein', '\u180B'], ['U+FE0F allein', '\uFE0F'], ['U+FE0F hinter Leerzeichen', 'a \uFE0F'],
+      ['U+FE0F hinter Buchstabe', 'a\uFE0F'], ['U+180B hinter Buchstabe', 'a\u180B'], ['Kombinierendes am Anfang', '\u0301abc'],
+      ['Kombinierendes nach Umbruch', 'a\n\u0301'],
+    ];
+    for (const [name, text] of abgelehnt) assert.equal((await setze(text)).status, 400, `abgelehnt: ${name}`);
+    const erlaubt: [string, string][] = [
+      ['Emoji mit VS16', '\u2764\uFE0F'], ['Han mit Selektor', '\u845B\uFE00'], ['Hangul (NFD, wird NFC)', '\u1112\u1161\u11AB\u1100\u1173\u11AF'],
+      ['Hangul fertig', '한글 안녕하세요'],
+    ];
+    for (const [name, text] of erlaubt) assert.equal((await setze(text)).status, 200, `erlaubt: ${name}`);
   }
 
   console.log('konto-verwaltung: alle Zusicherungen erfuellt');

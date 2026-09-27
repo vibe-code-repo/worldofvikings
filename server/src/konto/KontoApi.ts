@@ -153,6 +153,15 @@ export class KontoApi {
   private readonly registrierungen = new Map<string, { anzahl: number; bis: number }>();
   /** Fehlversuche beim Bestaetigen des Passworts, je Konto (zusaetzlich zur Herkunft). */
   private readonly kontoFehlversuche = new Map<number, { anzahl: number; bis: number }>();
+  /**
+   * Fehlversuche beim Bestaetigen des Passworts je (Herkunft, Konto). Bewusst
+   * NICHT der Herkunftszaehler des Logins: Ein Erfolg im EIGENEN Konto setzte
+   * sonst die Zaehlung fuer JEDES Konto dieser Adresse zurueck, und ein Dieb
+   * mit gestohlenem Token haette von einer einzigen Adresse beliebig viele
+   * Versuche gegen das Opfer gehabt (vier falsch, einmal im eigenen Konto
+   * Erfolg, wieder von vorn).
+   */
+  private readonly bestaetigungen = new Map<string, { anzahl: number; bis: number }>();
   /** Nur fuer Tests, s. `KontoTestHaken`. */
   testHaken: KontoTestHaken = {};
 
@@ -361,6 +370,13 @@ export class KontoApi {
     const benutzername = String(k.username ?? '').trim();
     const passwort = String(k.password ?? '');
     const konto = benutzername ? this.db.kontoNachName(benutzername) : null;
+    // Die Generation VOR dem Hashen: Nur ein Passwortwechsel (oder "ueberall
+    // abmelden") zaehlt sie hoch, das Hash-Upgrade eines gleichzeitigen Logins
+    // nicht. Verglichen wird nach dem letzten await nur diese Zahl, nicht der
+    // ganze Passwort-Eintrag — sonst bekaeme von vier gleichzeitigen, richtigen
+    // Logins nach einer Parameteraenderung nur einer ein Token.
+    const generationVorher = konto ? this.db.tokenAbVon(konto.id) : null;
+    const ueberallAbmelden = k.logoutOthers === true;
 
     // Always run the (expensive) check, even when the account does not
     // exist: otherwise the response time tells an attacker which
@@ -377,12 +393,16 @@ export class KontoApi {
     }
 
     this.fehlversuche.delete(ip);
+    // Ein gemeinsames Ausprobier-Konto kennt jeder; "ueberall abmelden" darf dort
+    // nicht dazu taugen, allen anderen die Sitzung zu nehmen.
+    if (ueberallAbmelden && this.istGeschuetzt(konto.benutzername)) {
+      return this.json(res, 403, { error: 'standard-account' });
+    }
     // Raise the cost on the fly: this is the only moment the plain
     // password is available to write a stronger record with.
-    let gueltigerEintrag = eintrag;
     if (veraltet(eintrag)) {
       const neu = await passwortEinlagern(passwort);
-      if (this.db.passwortErsetzen(konto.id, neu, eintrag)) gueltigerEintrag = neu;
+      this.db.passwortErsetzen(konto.id, neu, eintrag);
     }
 
     // Erst JETZT, nach dem letzten await, ohne weiteren dazwischen: Hat sich
@@ -390,10 +410,25 @@ export class KontoApi {
     // Ergebnis der Pruefung nicht mehr — sonst bekaeme ein Login mit dem
     // ALTEN Passwort ein Token, das den Wechsel ueberlebt. Die Generation
     // wird hier gelesen und ins Token geschrieben, im selben Zug.
-    const frisch = this.db.kontoMitPasswort(konto.id);
-    const generation = frisch ? this.db.tokenAbVon(konto.id) : null;
-    if (!frisch || generation === null || frisch.passwort !== gueltigerEintrag) {
+    let generation = this.db.tokenAbVon(konto.id);
+    if (generation === null || generation !== generationVorher) {
       return this.json(res, 401, { error: 'login-failed' });
+    }
+    if (ueberallAbmelden) {
+      // Rettungsweg: mit dem RICHTIGEN Passwort alle bisherigen Sitzungen
+      // beenden (auch die eines Tokendiebs), ohne dass die Konto-Sperre der
+      // Passwortbestaetigung im Weg steht — die kann ein Dieb dem Besitzer
+      // sonst dauerhaft zudrehen. Der Login selbst ist ueber die Herkunft
+      // gedrosselt.
+      const neu = this.db.alleAbmelden(konto.id);
+      if (!neu) return this.json(res, 401, { error: 'login-failed' });
+      generation = neu.generation;
+      this.kontoFehlversuche.delete(konto.id);
+      try {
+        this.haken.spielerTrennen?.(this.db.charaktereVonKonto(konto.id).map((c) => c.spielerId));
+      } catch (e) {
+        console.error(`[Konto] Trennen der Spiele von Konto ${konto.id} fehlgeschlagen:`, e);
+      }
     }
 
     this.json(res, 200, {
@@ -578,12 +613,12 @@ export class KontoApi {
     req: IncomingMessage, res: ServerResponse, k: Record<string, unknown>, feld: string,
     konto: { id: number; passwort: string },
   ): Promise<boolean> {
-    const ip = this.herkunft(req);
-    if (this.gesperrt(ip) || this.kontoGesperrt(konto.id)) {
+    const schluessel = `${this.herkunft(req)}|${konto.id}`;
+    if (this.bestaetigungGesperrt(schluessel) || this.kontoGesperrt(konto.id)) {
       this.json(res, 429, { error: 'too-many-attempts' });
       return false;
     }
-    this.fehlversuchZaehlen(ip);
+    this.bestaetigungZaehlen(schluessel);
     this.kontoFehlversuchZaehlen(konto.id);
     const stimmt = await passwortPruefen(String(k[feld] ?? ''), konto.passwort);
     await this.testHaken.nachBestaetigung?.();
@@ -591,7 +626,8 @@ export class KontoApi {
       this.json(res, 401, { error: 'password-wrong' });
       return false;
     }
-    this.fehlversuche.delete(ip);
+    // Nur die Zaehler DIESES Kontos, nie die einer Adresse fuer andere Konten.
+    this.bestaetigungen.delete(schluessel);
     this.kontoFehlversuche.delete(konto.id);
     return true;
   }
@@ -809,6 +845,23 @@ export class KontoApi {
     }
   }
 
+  private bestaetigungGesperrt(schluessel: string): boolean {
+    const e = this.bestaetigungen.get(schluessel);
+    if (!e) return false;
+    if (Date.now() > e.bis) { this.bestaetigungen.delete(schluessel); return false; }
+    return e.anzahl >= FEHLVERSUCHE_MAX;
+  }
+
+  private bestaetigungZaehlen(schluessel: string): void {
+    const jetzt = Date.now();
+    const e = this.bestaetigungen.get(schluessel);
+    if (!e || jetzt > e.bis) {
+      this.bestaetigungen.set(schluessel, { anzahl: 1, bis: jetzt + FEHLVERSUCHE_FENSTER_MS });
+    } else {
+      e.anzahl++;
+    }
+  }
+
   private kontoGesperrt(kontoId: number): boolean {
     const e = this.kontoFehlversuche.get(kontoId);
     if (!e) return false;
@@ -908,10 +961,18 @@ const UNSICHTBAR = new Set([
 ]);
 const ERLAUBTES_ZEICHEN = /^[\p{L}\p{M}\p{N}\p{P}\p{S} \n]$/u;
 const KOMBINIEREND = /^\p{M}$/u;
+/** Variantenselektoren: nur direkt hinter einem Emoji- oder CJK-/mongolischen Zeichen sinnvoll. */
+const VARIANTENSELEKTOR = /^[\uFE00-\uFE0F\u180B-\u180D\u{E0100}-\u{E01EF}]$/u;
+const TRAEGT_SELEKTOR = /^[\p{Emoji}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Mongolian}]$/u;
+/** Hangul-Jamo (Anfangs-, Mittel-, Endlaut): NFC macht daraus Silben, uebrig bleibt nur Unfug. */
+const JAMO = /^[\u1100-\u11FF\uA960-\uA97F\uD7B0-\uD7FF]$/u;
 
 /** Hoechstens so viele kombinierende Zeichen hintereinander (gegen "Zalgo"). */
 const KOMBINIEREND_MAX = 2;
+const JAMO_MAX = 3;
 const ZEILENUMBRUECHE_MAX = 5;
+/** Deckel in Codepunkten je erlaubtem Graphem-Cluster: kein Text laesst sich hinter wenigen Clustern verstecken. */
+const CODEPUNKTE_JE_GRAPHEM = 4;
 
 /**
  * Reiner Text nach einer POSITIVREGEL: Nach NFC und Vereinheitlichung der
@@ -930,15 +991,27 @@ const ZEILENUMBRUECHE_MAX = 5;
 export function bereinigeText(roh: string, maxGrapheme: number): string | null {
   const text = roh.normalize('NFC').replace(/\r\n?/g, '\n').trim();
   // Grosszuegige Obergrenze vor der Zeichenpruefung, gegen aufwaendige Eingaben.
-  if (text.length > maxGrapheme * 8) return null;
+  if (text.length > maxGrapheme * CODEPUNKTE_JE_GRAPHEM * 2) return null;
   let umbrueche = 0;
   let marken = 0;
+  let jamo = 0;
+  let codepunkte = 0;
+  let vorher: string | null = null;
   for (const zeichen of text) {
     const cp = zeichen.codePointAt(0)!;
     if (cp >= 0xd800 && cp <= 0xdfff) return null;
     if (UNSICHTBAR.has(cp) || !ERLAUBTES_ZEICHEN.test(zeichen)) return null;
+    if (++codepunkte > maxGrapheme * CODEPUNKTE_JE_GRAPHEM) return null;
     if (zeichen === '\n') { if (++umbrueche > ZEILENUMBRUECHE_MAX) return null; }
-    if (KOMBINIEREND.test(zeichen)) { if (++marken > KOMBINIEREND_MAX) return null; } else marken = 0;
+    if (KOMBINIEREND.test(zeichen)) {
+      // Ein kombinierendes Zeichen braucht ein Basiszeichen davor (nicht Anfang,
+      // Leerzeichen, Zeilenumbruch); Variantenselektoren nur hinter Emoji/CJK.
+      if (vorher === null || vorher === ' ' || vorher === '\n') return null;
+      if (VARIANTENSELEKTOR.test(zeichen) && !TRAEGT_SELEKTOR.test(vorher) && !KOMBINIEREND.test(vorher)) return null;
+      if (++marken > KOMBINIEREND_MAX) return null;
+    } else marken = 0;
+    if (JAMO.test(zeichen)) { if (++jamo > JAMO_MAX) return null; } else jamo = 0;
+    vorher = zeichen;
   }
   let grapheme = 0;
   for (const _ of new Intl.Segmenter('und', { granularity: 'grapheme' }).segment(text)) {

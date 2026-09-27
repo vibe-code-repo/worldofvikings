@@ -645,6 +645,26 @@ export class NetManager {
   }
 
   /**
+   * Alle Verbindungen dieser Spieler-Kennungen trennen (auch Editor-
+   * Verbindungen) — nach einem Passwortwechsel: das Token, mit dem sie
+   * hereinkamen, gilt nicht mehr. Trennt die Peers als Objekte, nicht ueber
+   * ihren Namen (der kann mehreren Verbindungen gehoeren). Der Spielstand
+   * bleibt: `onPeerQuit` schreibt ihn wie bei jedem Verlassen.
+   */
+  trenneSpieler(spielerIds: readonly string[], grund: string): Peer[] {
+    const ids = new Set(spielerIds);
+    const getroffen: Peer[] = [];
+    for (const peer of [...this.onlinePeers, ...this.connectedPeers]) {
+      if (!peer.authenticated || !ids.has(peer.spielerId)) continue;
+      peer.status = ConnectionStatus.ErrorKicked;
+      peer.disconnect(grund);
+      this.handleDisconnect(peer);
+      getroffen.push(peer);
+    }
+    return getroffen;
+  }
+
+  /**
    * Herkunfts-Adresse einer offenen Verbindung, '' wenn unbekannt.
    *
    * Damit kann der Adminbefehl `bann <Name> herkunft` die Adresse dessen

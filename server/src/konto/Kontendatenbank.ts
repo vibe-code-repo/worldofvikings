@@ -493,6 +493,21 @@ export class Kontendatenbank {
     return { generation: Number(z.token_ab), spielerAb: Number(z.spieler_ab) };
   }
 
+  /**
+   * "Ueberall abmelden": Generation und `spieler_ab` wie bei einem
+   * Passwortwechsel hochzaehlen, ohne das Passwort zu aendern. null, wenn es
+   * das Konto nicht (mehr) gibt.
+   */
+  alleAbmelden(kontoId: number, jetzt = Date.now()): { generation: number; spielerAb: number } | null {
+    const r = this.db
+      .prepare('UPDATE konten SET token_ab = token_ab + 1, spieler_ab = MAX(?, spieler_ab + 1) WHERE id = ?')
+      .run(jetzt, kontoId);
+    if (Number(r.changes) === 0) return null;
+    const z = this.db.prepare('SELECT token_ab, spieler_ab FROM konten WHERE id = ?')
+      .get(kontoId) as Record<string, unknown>;
+    return { generation: Number(z.token_ab), spielerAb: Number(z.spieler_ab) };
+  }
+
   /** `spieler_ab` des Kontos hinter einer spielerId, oder null (Gast / unbekannt). */
   spielerAbZuSpielerId(spielerId: string): number | null {
     const z = this.db.prepare(`SELECT k.spieler_ab FROM charaktere c JOIN konten k ON k.id = c.konto_id

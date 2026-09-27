@@ -804,7 +804,7 @@ export class WovServer {
       // Passwortwechsel: laufende Spiele des Kontos beenden. Der Spielstand
       // bleibt (onPeerQuit schreibt ihn wie bei jedem Verlassen).
       spielerTrennen: (ids) => {
-        for (const p of [...this.net.getPeers()]) if (ids.includes(p.spielerId)) this.net.kick(p.name);
+        this.net.trenneSpieler(ids, 'Passwort geändert, bitte neu anmelden');
       },
     });
     // Ausstehende Forum-Bereinigungen einer unterbrochenen Loeschung nachholen.

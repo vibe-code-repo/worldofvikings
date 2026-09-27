@@ -57,6 +57,13 @@ export interface NetManagerConfig {
    */
   httpBehandler?: HttpBehandler;
   /**
+   * Is this name held by an account character? A guest (an identity that
+   * belongs to no character) may not wear it: two owners under one name
+   * would mix saved state, bans and admin lookups that go by name.
+   * Absent = no names are reserved (every test that starts a bare NetManager).
+   */
+  kontoNameBelegt?: (name: string) => boolean;
+  /**
    * Look up the character an identity belongs to, or null when the token
    * predates accounts (or the character was deleted).
    *
@@ -455,6 +462,14 @@ export class NetManager {
     // still how the connect screen works.
     const ausKonto = this.config.charakterZuSpielerId?.(spielerId) ?? null;
     if (ausKonto) playerName = ausKonto.name;
+    // Gast-Token: Ein Gast (Identitaet ohne Charakter) behaelt seine Kennung
+    // ueber sein Token, den Namen waehlt er selbst -- aber keinen, den ein
+    // Konto-Charakter traegt. Der Editor beansprucht keinen Namen.
+    if (!ausKonto && !nurEditor && this.config.kontoNameBelegt?.(playerName.trim())) {
+      peer.status = ConnectionStatus.ErrorAlreadyConnected;
+      peer.disconnect('Name already in use');
+      return;
+    }
 
     // Duplicate name — checked AFTER the identity is resolved, deliberately.
     //

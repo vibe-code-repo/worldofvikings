@@ -554,14 +554,11 @@ export class WovServer {
    * Peers, NICHT mehr ueber peer.name — ein frei getippter Anzeigename
    * ist keine Identitaet. Datensaetze aus der Zeit VOR diesem Umbau (und
    * jeder Datensatz, dem eine gueltige spielerId fehlt) liegen weiterhin
-   * unter ihrem NAMEN — ermittleGespeichertenStand() findet und migriert
-   * sie beim naechsten Login des betreffenden Spielers automatisch auf
-   * die neue spielerId (siehe dort). Das ist auch der Normalfall NACH
-   * jedem Serverneustart: das Sitzungsgeheimnis lebt absichtlich nur im
-   * Arbeitsspeicher (siehe `sessionSecret` im Konstruktor), jedes Token
-   * wird beim Neustart ungueltig, und jeder Spieler bekommt beim naechsten
-   * Connect eine frische spielerId zugewiesen — ohne den Namens-Fallback
-   * wuerde das Position/Inventar bei JEDEM Neustart verlieren.
+   * unter ihrem NAMEN, werden aber nicht mehr zugeordnet: Es gibt keinen
+   * Namens-Rueckweg mehr (siehe ermittleGespeichertenStand()). Ist das
+   * Sitzungsgeheimnis nicht fest gesetzt (WOV_SESSION_SECRET_HEX), lebt es
+   * nur im Arbeitsspeicher (siehe `sessionSecret` im Konstruktor): Nach
+   * einem Neustart ist jedes Token ungueltig, und ein Gast beginnt neu.
    */
   private readonly savedPlayers = new Map<string, SavedPlayer>();
   /** S6 (Security-Review): dauerhafte Admin-Liste ueber stabile Spieler-
@@ -697,9 +694,10 @@ export class WovServer {
     // verloren, wie es HEUTE schon bei jedem einzelnen Reconnect passiert,
     // siehe Identitaet.ts Kopfkommentar — hier passiert es nur noch beim
     // Neustart statt bei jeder Verbindung, das ist eine Verbesserung,
-    // keine Verschlechterung). Position/Inventar ueberleben trotzdem: der
-    // Migrationspfad ueber den Anzeigenamen greift automatisch (siehe
-    // savedPlayers/ermittleGespeichertenStand).
+    // keine Verschlechterung). Konten sind davon nicht betroffen (ihre
+    // spielerId steht in der Kontendatenbank); ein Gast beginnt nach dem
+    // Neustart neu, seit es keinen Namens-Rueckweg mehr gibt (siehe
+    // ermittleGespeichertenStand).
     //
     // Fuer den jetzigen Betrieb hinnehmbar: der Server laeuft tagelang
     // durch, und es ist ohnehin kein Passwort gesetzt.
@@ -858,6 +856,7 @@ export class WovServer {
       // Der Name kommt aus dem Konto, nicht aus der Behauptung des
       // Browsers -- Begruendung in NetManager.handlePasswordAuth.
       charakterZuSpielerId: (id) => this.kontenDb.charakterZuSpielerId(id),
+      kontoNameBelegt: (name) => this.kontenDb.charakterNachName(name) !== null,
       /*
         Die Bannliste, angeschlossen (Pakete 0.5 und 0.1 zusammengefuehrt).
         Ohne dieses eine Feld bleibt `bannPruefen` im NetManager undefined
@@ -2254,62 +2253,24 @@ export class WovServer {
   }
 
   /**
-   * F3 (Security-Review): den gespeicherten Zustand fuer einen frisch
-   * authentifizierten Peer ermitteln — und falls noetig, einen alten,
-   * NAMENTLICH abgelegten Datensatz auf die stabile spielerId migrieren.
+   * Den gespeicherten Zustand fuer einen frisch authentifizierten Peer
+   * ermitteln — ausschliesslich ueber die stabile `spielerId`.
    *
-   * Ablauf:
-   *  1. Direkter Treffer unter der spielerId (schneller Normalfall:
-   *     derselbe Serverlauf, gueltiges Token — die meiste Zeit).
-   *  2. Kein Treffer → Suche nach einem Datensatz mit demselben
-   *     ANZEIGENAMEN (das ist der Fall nach jedem Serverneustart, weil
-   *     das SessionToken absichtlich nicht ueberlebt, siehe Konstruktor —
-   *     UND der Fall bei geleertem localStorage/altem Client ohne Token
-   *     innerhalb eines laufenden Serverprozesses). Gefunden → auf die
-   *     NEUE spielerId umschluesseln (alten Namens-Schluessel entfernen,
-   *     sonst waechst savedPlayers bei jedem Neustart um einen weiteren
-   *     Eintrag PRO SPIELER, statt konstant zu bleiben).
+   * Die spielerId kommt aus dem SessionToken (Konto-Charaktere und Gaeste
+   * legen es beide wieder vor, s. NetManager.handlePasswordAuth), nie aus
+   * einer Behauptung des Clients. Wer kein gueltiges Token vorlegt, ist ein
+   * NEUER Spieler und beginnt neu.
    *
-   * Bewusste Grenze: exakter Namensabgleich, kein Identitaetsnachweis.
-   * Wer zufaellig (oder absichtlich) denselben Anzeigenamen waehlt wie
-   * ein zuvor gesehener, gerade abwesender Spieler, erbt dessen
-   * Position/Inventar — GENAU dieselbe Grenze wie im bisherigen System
-   * (dort war der Name selbst der einzige Schluessel, IMMER, ohne jede
-   * Pruefung). Sicherheitsrelevant ist das NICHT: ZDO-Besitz (wer welche
-   * Bauten abreissen, Betten und Truhen benutzen darf) haengt
-   * ausschliesslich an der frisch bzw. aus einem gueltigen Token
-   * abgeleiteten altlastUserId, nie an diesem Namensabgleich — dieser Pfad
-   * ist reine Komfort-Wiederherstellung von Position/Inventar, keine
-   * Berechtigung.
-   *
-   * GRENZE DIESER TRENNUNG: Position und Inventar kommen ueber den Namen
-   * zurueck, der Besitz nicht. Die altlastUserId ist nur stabil, solange
-   * der Client sein Token wieder vorlegt (bzw. fuer Konten, die sie in der
-   * Kontendatenbank tragen). Ein Gast ohne Token bekommt beim naechsten
-   * Verbinden eine frisch gewuerfelte — seine Truhen, Betten und Bauten
-   * melden dann „gehoert einem anderen Spieler", obwohl er unter demselben
-   * Namen wieder da ist. Ob Gaeste dauerhaften Besitz haben sollen, ist
-   * offen (Produktentscheidung), nicht hier geloest.
+   * Bis 2026-09 fiel die Funktion bei einem Fehlschlag auf den Namen
+   * zurueck: Wer denselben Anzeigenamen tippte wie ein gerade abwesender
+   * Spieler, bekam dessen Position und Inventar (und der Eigentuemer beim
+   * naechsten Login den Stand des Fremden). Das war eine Uebernahme
+   * fremder Staende und ist gestrichen. Folge: Staende, die noch unter dem
+   * Namen liegen (Saves vor der spielerId), und Gaeste ohne Token kommen
+   * nicht mehr zurueck — gewollt.
    */
   private ermittleGespeichertenStand(peer: Peer): SavedPlayer | undefined {
-    const direkt = this.savedPlayers.get(peer.spielerId);
-    if (direkt) return direkt;
-
-    // Werte durchsuchen statt per Schluessel nachzuschlagen: ein Alt-
-    // datensatz kann unter dem NAMEN liegen (aus einem Save vor diesem
-    // Umbau — siehe loadWorld), aber genauso unter einer FRUEHEREN
-    // spielerId desselben Spielers aus DIESEM Serverlauf (onPeerQuit
-    // schluesselt seit F3 immer ueber spielerId, nie mehr ueber den
-    // Namen — ein reiner Schluessel-Lookup mit peer.name wuerde diesen
-    // zweiten, im Alltag haeufigeren Fall nie finden).
-    for (const [schluessel, kandidat] of this.savedPlayers) {
-      if (kandidat.name !== peer.name) continue;
-      this.savedPlayers.delete(schluessel);
-      const migriert: SavedPlayer = { ...kandidat, spielerId: peer.spielerId };
-      this.savedPlayers.set(peer.spielerId, migriert);
-      return migriert;
-    }
-    return undefined;
+    return this.savedPlayers.get(peer.spielerId);
   }
 
   /**
@@ -2911,8 +2872,9 @@ export class WovServer {
    * stabil fuer Konten und fuer Clients, die ihr Session-Token wieder
    * vorlegen — nicht fuer einen Gast ohne Token: er bekommt bei jedem neuen
    * Verbinden eine frische und ist danach fuer seine eigenen Bauten ein
-   * Fremder (s. `ermittleGespeichertenStand`). Ob Gaeste dauerhaften Besitz
-   * haben sollen, ist eine offene Produktentscheidung.
+   * Fremder — und beginnt dann auch mit leerem Stand (s.
+   * `ermittleGespeichertenStand`). Gaeste behalten Besitz und Stand, solange
+   * sie ihr Token (localStorage) wieder vorlegen.
    */
   private darfBenutzen(zdo: ZDO, peer: Peer): boolean {
     const besitzer = zdo.getString('besitzer');
@@ -5987,8 +5949,8 @@ export class WovServer {
     // Save-Format schon eine gueltige mitbringt (Staende ab diesem
     // Umbau) — sonst unter dem NAMEN, exakt wie vor dem Umbau. Das ist
     // KEIN Praefix-Trick: ein Altstand ohne spielerId landet bit-genau
-    // unter demselben Schluessel wie frueher, ermittleGespeichertenStand()
-    // migriert ihn beim naechsten Login des betreffenden Spielers.
+    // unter demselben Schluessel wie frueher; zugeordnet wird er nicht mehr
+    // (ermittleGespeichertenStand() kennt nur die spielerId).
     for (const player of data.players) {
       const schluessel =
         player.spielerId && istSpielerId(player.spielerId) ? player.spielerId : player.name;
@@ -6185,8 +6147,7 @@ export class WovServer {
       // F3 (Security-Review): unter der spielerId, nicht mehr unter dem
       // Namen — ueberschreibt hier zuverlaessig einen evtl. noch unter
       // dem NAMEN liegenden Alteintrag desselben Spielers nicht (anderer
-      // Schluessel), das erledigt ermittleGespeichertenStand() beim naechsten
-      // Login. Was tatsaechlich auf die Platte geht, sind nur die WERTE
+      // Schluessel); der bleibt unbenutzt liegen. Was tatsaechlich auf die Platte geht, sind nur die WERTE
       // (players[] ist ein Array) — der Map-Schluessel selbst ist reiner
       // Laufzeitzustand.
       players.set(peer.spielerId, {

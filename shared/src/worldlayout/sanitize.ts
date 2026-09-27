@@ -32,6 +32,7 @@ import {
   type RiverDef,
   type LakeDef,
   type RouteDef,
+  type ZoneHeightDelta,
   type WorldLayout,
 } from './types.js';
 import { gleicherInhalt, ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
@@ -420,6 +421,127 @@ export function platzierungenFehlerText(liste: readonly PlatzierungsFehler[], ma
   return teile.join(', ') + (liste.length > max ? ` … (+${liste.length - max})` : '');
 }
 
+// ── Handkorrektur der Geländehöhe (heightDeltas, Editor-Pinsel T2+) ─────
+
+/** Größter Rasterindex einer Zone: 65×65 − 1 (wie `Heightmap.E_WIDTH`). */
+export const HOEHENKORREKTUR_INDEX_MAX = 4224;
+/** Größtes erlaubtes Delta in Zentimetern (±100 m). */
+export const HOEHENKORREKTUR_DELTA_MAX_CM = 10_000;
+/** Mehr Zonen nimmt das Feld nicht auf (Rest wird ohne Meldung abgeschnitten, wie bei Regionen/Platzierungen). */
+const MAX_HOEHENZONEN = 4096;
+/** Mehr Punkte je Zone gibt es nicht (65×65 Rasterpunkte). */
+const MAX_PUNKTE_JE_ZONE = 4225;
+/** Zonen-Koordinate: klein genug für `LAYOUT_MAX_EXTENT` (40 km / 64 m ≈ 625), reichlich Marge. */
+const HOEHENZONE_MAX = 2048;
+
+/** Ganzzahl in [min, max], sonst `null` — Unsinn (Text, NaN, Bruch, außerhalb) wird verworfen, nicht geklemmt. */
+function ganzzahlInBereich(v: unknown, min: number, max: number): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v) || !Number.isInteger(v)) return null;
+  return v < min || v > max ? null : v;
+}
+
+/**
+ * `WorldLayout.heightDeltas` aus dem rohen Dokument: pro Zone ein gültiger
+ * Zonenschlüssel (`zx`/`zz` ganzzahlig, nicht doppelt) und je Rasterpunkt ein
+ * gültiger Index (0…4224, nicht doppelt) mit ganzzahligem Delta in
+ * Zentimetern (±10 000). Ungültige EINZELNE Punkte verwirft er, ohne die
+ * ganze Zone zu verlieren; bleibt eine Zone ohne gültigen Punkt, entfällt sie
+ * — ein leeres `points` wäre keine Korrektur. Ergebnis stabil sortiert (Zone
+ * nach `zx`,`zz`, Punkte nach Index), damit kleine Änderungen kleine Diffs
+ * ergeben (git-freundlich, wie bei Platzierungen).
+ */
+export function sanitizeHeightDeltas(input: unknown): ZoneHeightDelta[] {
+  if (!Array.isArray(input)) return [];
+  const gesehen = new Set<string>();
+  const zonen: ZoneHeightDelta[] = [];
+  for (const roh of input.slice(0, MAX_HOEHENZONEN)) {
+    if (typeof roh !== 'object' || roh === null) continue;
+    const o = roh as Record<string, unknown>;
+    const zx = ganzzahlInBereich(o.zx, -HOEHENZONE_MAX, HOEHENZONE_MAX);
+    const zz = ganzzahlInBereich(o.zz, -HOEHENZONE_MAX, HOEHENZONE_MAX);
+    if (zx === null || zz === null) continue;
+    const schluessel = `${zx},${zz}`;
+    if (gesehen.has(schluessel)) continue; // doppelter Zonenschlüssel: der zweite Eintrag entfällt
+    if (!Array.isArray(o.points)) continue;
+    const indices = new Set<number>();
+    const punkte: [number, number][] = [];
+    for (const p of o.points.slice(0, MAX_PUNKTE_JE_ZONE)) {
+      if (!Array.isArray(p) || p.length !== 2) continue;
+      const index = ganzzahlInBereich(p[0], 0, HOEHENKORREKTUR_INDEX_MAX);
+      const delta = ganzzahlInBereich(p[1], -HOEHENKORREKTUR_DELTA_MAX_CM, HOEHENKORREKTUR_DELTA_MAX_CM);
+      if (index === null || delta === null) continue;
+      if (indices.has(index)) continue; // doppelter Index: der zweite Eintrag entfällt
+      indices.add(index);
+      punkte.push([index, delta]);
+    }
+    if (punkte.length === 0) continue; // keine gültigen Punkte übrig: die Zone entfällt ganz
+    punkte.sort((a, b) => a[0] - b[0]);
+    gesehen.add(schluessel);
+    zonen.push({ zx, zz, points: punkte });
+  }
+  zonen.sort((a, b) => a.zx - b.zx || a.zz - b.zz);
+  return zonen;
+}
+
+/** Ein Befund am ROHEN `heightDeltas`-Eintrag: welche Zone (`zx,zz`, sonst `#<Stelle>`), welches Feld, welcher Wert. */
+export interface HoehenkorrekturFehler {
+  zone: string;
+  feld: string;
+  wert: unknown;
+}
+
+/**
+ * Was am ROHEN `heightDeltas`-Array (vor dem Sanitizer) verworfen würde:
+ * falscher oder doppelter Zonenschlüssel, ein `points`, das kein Array ist,
+ * zu viele Punkte, ein Punkt, der kein `[index, delta]`-Paar ist, ein Index
+ * außerhalb 0…4224 oder doppelt, ein Delta außerhalb ±10 000 cm oder keine
+ * Ganzzahl (Bruch, Text, `NaN`). Analog zu `platzierungenFehler`: Der
+ * Schreibweg hält mit einem gemeldeten Fund die ganze Datei zurück (422),
+ * statt den Tippfehler still zu bereinigen.
+ */
+export function hoehenkorrekturFehler(roh: unknown): HoehenkorrekturFehler[] {
+  const fehler: HoehenkorrekturFehler[] = [];
+  if (!Array.isArray(roh)) return fehler;
+  const gesehen = new Set<string>();
+  roh.slice(0, MAX_HOEHENZONEN).forEach((z, i) => {
+    if (typeof z !== 'object' || z === null || Array.isArray(z)) {
+      fehler.push({ zone: `#${i}`, feld: 'eintrag', wert: wertKurz(z) });
+      return;
+    }
+    const o = z as Record<string, unknown>;
+    const zx = ganzzahlInBereich(o.zx, -HOEHENZONE_MAX, HOEHENZONE_MAX);
+    const zz = ganzzahlInBereich(o.zz, -HOEHENZONE_MAX, HOEHENZONE_MAX);
+    const zone = zx !== null && zz !== null ? `${zx},${zz}` : `#${i}`;
+    if (zx === null) fehler.push({ zone, feld: 'zx', wert: wertKurz(o.zx) });
+    if (zz === null) fehler.push({ zone, feld: 'zz', wert: wertKurz(o.zz) });
+    if (zx !== null && zz !== null) {
+      if (gesehen.has(zone)) fehler.push({ zone, feld: 'zone', wert: 'doppelt' });
+      else gesehen.add(zone);
+    }
+    if (!Array.isArray(o.points)) {
+      fehler.push({ zone, feld: 'points', wert: wertKurz(o.points) });
+      return;
+    }
+    if (o.points.length > MAX_PUNKTE_JE_ZONE) {
+      fehler.push({ zone, feld: 'points', wert: `${o.points.length} Einträge` });
+    }
+    const indices = new Set<number>();
+    o.points.slice(0, MAX_PUNKTE_JE_ZONE + 1).forEach((p: unknown, j: number) => {
+      if (!Array.isArray(p) || p.length !== 2) {
+        fehler.push({ zone, feld: `points[${j}]`, wert: wertKurz(p) });
+        return;
+      }
+      const index = ganzzahlInBereich(p[0], 0, HOEHENKORREKTUR_INDEX_MAX);
+      const delta = ganzzahlInBereich(p[1], -HOEHENKORREKTUR_DELTA_MAX_CM, HOEHENKORREKTUR_DELTA_MAX_CM);
+      if (index === null) fehler.push({ zone, feld: `points[${j}].index`, wert: wertKurz(p[0]) });
+      else if (indices.has(index)) fehler.push({ zone, feld: `points[${j}].index`, wert: 'doppelt' });
+      else indices.add(index);
+      if (delta === null) fehler.push({ zone, feld: `points[${j}].delta`, wert: wertKurz(p[1]) });
+    });
+  });
+  return fehler;
+}
+
 export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
   return sanitizeWorldLayoutMitBericht(input)?.layout ?? null;
 }
@@ -562,6 +684,8 @@ export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht |
     if (sx !== null && sz !== null) defaultSpawn = [sx, sz];
   }
 
+  const heightDeltas = sanitizeHeightDeltas(d.heightDeltas);
+
   const layout: WorldLayout = {
     version: WORLD_LAYOUT_VERSION,
     name: d.name,
@@ -573,6 +697,7 @@ export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht |
     ...(rivers.length > 0 ? { rivers } : {}),
     ...(lakes.length > 0 ? { lakes } : {}),
     ...(routes.length > 0 ? { routes } : {}),
+    ...(heightDeltas.length > 0 ? { heightDeltas } : {}),
   };
   merkeZusammengefasst(layout, zusammengefasst);
   return { layout, zusammengefasst };

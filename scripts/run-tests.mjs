@@ -2266,6 +2266,11 @@ const KERN = [
   ['client', 'test/testflug-greifen.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // Handkorrektur der Gelaendehoehe (heightDeltas, T1): Schema, Sanitizer, Einrechnung nach den
+  // Regionen (Sockel gewinnt), Cache je Zone, Server = Client, 422-Weg.
+  ['shared', 'test/hoehenkorrektur.ts'],
+  // ... K5.0: heightDeltas ist eine geo-Aenderung wie Regionen/Wasser/Sockel (202, Neustart), reiner Klassifizierungstest.
+  ['server', 'test/layout-live-hoehenkorrektur.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

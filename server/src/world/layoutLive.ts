@@ -57,6 +57,9 @@ export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
   if (!gleich(alt.rivers, neu.rivers) || !gleich(alt.lakes, neu.lakes)) teile.push('wasser');
   if (!gleich(alt.defaultSpawn, neu.defaultSpawn)) teile.push('spawn');
   if (!gleich(alt.routes, neu.routes)) teile.push('routen');
+  // Handkorrektur (Editor-Pinsel, T2+): Teil der kompilierten Geo wie
+  // Regionen und Sockel — jede Änderung braucht deshalb denselben Neustart.
+  if (!gleich(alt.heightDeltas, neu.heightDeltas)) teile.push('gelaende');
   // Einebnen: die Platte ist Teil der kompilierten Geo. Verglichen wird je `id`,
   // was den Boden formt (Ort und Radius); ohne Einebnen gibt es keinen Eintrag.
   const ebnen = (l: WorldLayout): Map<string, string> => {

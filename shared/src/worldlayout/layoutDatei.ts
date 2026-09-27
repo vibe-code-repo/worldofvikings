@@ -56,10 +56,12 @@ import { hostname } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import {
+  hoehenkorrekturFehler,
   platzierungenFehler,
   platzierungenFehlerText,
   sanitizeWorldLayout,
   sanitizeWorldLayoutMitBericht,
+  type HoehenkorrekturFehler,
   type PlatzierungsFehler,
 } from './sanitize.js';
 import type { WorldLayout } from './types.js';
@@ -122,6 +124,19 @@ export class LayoutPlatzierungenUngueltig extends LayoutUngueltig {
   constructor(readonly fehlerhaft: readonly PlatzierungsFehler[]) {
     super(`${fehlerhaft.length} Fehler in Platzierungen (${platzierungenFehlerText(fehlerhaft)}) — nichts gespeichert`);
     this.name = 'LayoutPlatzierungenUngueltig';
+  }
+}
+
+/**
+ * Das Dokument enthält `heightDeltas`-Einträge, die der Sanitizer verwerfen würde (falscher oder doppelter
+ * Zonenschlüssel, Index außerhalb 0…4224 oder doppelt, Delta außerhalb ±10 000 cm oder keine Ganzzahl). Wie bei
+ * `LayoutPlatzierungenUngueltig`: Der Betriebsdienst antwortet 422 mit `fehlerhaft` und schreibt nichts — ein stilles
+ * Bereinigen ließe den Spielserver einen Tippfehler als absichtlich gelöschte Handkorrektur lesen.
+ */
+export class LayoutHoehenkorrekturUngueltig extends LayoutUngueltig {
+  constructor(readonly fehlerhaft: readonly HoehenkorrekturFehler[]) {
+    super(`${fehlerhaft.length} Fehler in heightDeltas — nichts gespeichert`);
+    this.name = 'LayoutHoehenkorrekturUngueltig';
   }
 }
 
@@ -862,7 +877,7 @@ function tmpLeichenRaeumen(pfad: string, unentscheidbarMs: number): void {
  * Bestand mit 200 OK. `regions` fehlt hier absichtlich: Ein Dokument ohne
  * Regionen wird ohnehin verworfen (siehe unten, 400).
  */
-const LISTENFELDER = ['placements', 'continents', 'routes', 'rivers', 'lakes'] as const;
+const LISTENFELDER = ['placements', 'continents', 'routes', 'rivers', 'lakes', 'heightDeltas'] as const;
 
 /**
  * Ein Listenfeld ist vorhanden, aber kein Array. Unterklasse von
@@ -916,6 +931,7 @@ const LISTEN = [
   { feld: 'routes', name: 'eine gültige Route', behalten: (l: WorldLayout): number => l.routes?.length ?? 0 },
   { feld: 'rivers', name: 'ein gültiger Fluss', behalten: (l: WorldLayout): number => l.rivers?.length ?? 0 },
   { feld: 'lakes', name: 'ein gültiger See', behalten: (l: WorldLayout): number => l.lakes?.length ?? 0 },
+  { feld: 'heightDeltas', name: 'eine gültige Zonen-Korrektur', behalten: (l: WorldLayout): number => l.heightDeltas?.length ?? 0 },
 ] as const;
 
 /** Alles, was vor der Sperre feststehen kann: Prüfung des Rohdokuments, Sanitizer, Text. */
@@ -994,6 +1010,8 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false): {
   if (typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe)) {
     const fehlerhaft = platzierungenFehler((eingabe as { placements?: unknown }).placements);
     if (fehlerhaft.length > 0) throw new LayoutPlatzierungenUngueltig(fehlerhaft);
+    const hoehenFehlerhaft = hoehenkorrekturFehler((eingabe as { heightDeltas?: unknown }).heightDeltas);
+    if (hoehenFehlerhaft.length > 0) throw new LayoutHoehenkorrekturUngueltig(hoehenFehlerhaft);
   }
   return { layout, text: layoutText(layout), verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld };
 }

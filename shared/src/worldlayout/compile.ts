@@ -590,3 +590,38 @@ export class PlateauField {
     return bestRand <= PLATEAU_RAND_MAX ? beste : null;
   }
 }
+
+/**
+ * HoehenKorrekturField — Nachschlagewerk für `WorldLayout.heightDeltas`
+ * (Handkorrektur der Geländehöhe, Editor-Pinsel T2+; diese Karte T1 baut nur
+ * das Feld und die Einrechnung).
+ *
+ * Reine Zuordnung Zone → Rasterindex → Delta in METERN (f32, aus den
+ * gespeicherten Zentimetern gerechnet); keine Geometrie wie bei WaterField/
+ * PlateauField, weil der Aufrufer (`RegionGeo`) Zone und Index selbst aus der
+ * Weltposition ableitet — genau wie `Heightmap` es für denselben Punkt tut,
+ * damit geteilte Randvertices zweier Nachbarzonen (dieselbe Weltposition, je
+ * einmal als `rx=64` der einen und `rx=0` der anderen Zone abgefragt) immer
+ * denselben Wert bekommen und keine Kante entsteht.
+ */
+export class HoehenKorrekturField {
+  private readonly zonen = new Map<string, ReadonlyMap<number, number>>();
+
+  constructor(layout: WorldLayout) {
+    for (const z of layout.heightDeltas ?? []) {
+      const punkte = new Map<number, number>();
+      for (const [index, deltaCm] of z.points) punkte.set(index, Math.fround(deltaCm * 0.01));
+      if (punkte.size > 0) this.zonen.set(`${z.zx},${z.zz}`, punkte);
+    }
+  }
+
+  /** Kein einziger Eintrag — der ganz überwiegende Regelfall (Feld fehlt oder ist leer). */
+  get isEmpty(): boolean {
+    return this.zonen.size === 0;
+  }
+
+  /** Delta in Metern am genannten Rasterpunkt einer Zone; 0, wenn dort keine Korrektur liegt. */
+  delta(zx: number, zz: number, index: number): number {
+    return this.zonen.get(`${zx},${zz}`)?.get(index) ?? 0;
+  }
+}

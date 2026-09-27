@@ -386,6 +386,28 @@ export interface LakeDef {
   depth?: number;
 }
 
+/**
+ * Handkorrektur der Geländehöhe einer 64-m-Zone (Editor-Pinsel, T2+; diese
+ * Karte T1 baut nur das Feld). Zone-Koordinaten wie
+ * `shared/src/worldgen/Heightmap.ts` (`HeightmapProvider.worldToZone`,
+ * `zx = floor((w + 32) / 64)`); ein Rasterpunkt-Index wie die dortige
+ * 65×65-Zonengrid (`E_WIDTH`), `index = ry * 65 + rx`, 0…4224.
+ *
+ * `points` speichert je Eintrag NUR die veränderten Rasterpunkte als
+ * `[index, deltaCm]` — Delta in ganzen Zentimetern, ±10 000 (±100 m). Sparse
+ * wie `shared/src/worldgen/terrainCompCodec.ts` (D9: "verdichtet wird nicht
+ * die Liste, sondern ihr Ergebnis"), aufsteigend nach Index sortiert, damit
+ * ein einzelner geänderter Punkt einen kleinen, lokalen Diff ergibt.
+ */
+export interface ZoneHeightDelta {
+  /** Zonen-X (wie `HeightmapProvider.worldToZone`). */
+  zx: number;
+  /** Zonen-Z. */
+  zz: number;
+  /** `[Rasterindex 0…4224, Delta in cm]`, nach Index aufsteigend sortiert. */
+  points: readonly (readonly [number, number])[];
+}
+
 export interface WorldLayout {
   version: typeof WORLD_LAYOUT_VERSION;
   name: string;
@@ -405,6 +427,12 @@ export interface WorldLayout {
   lakes?: readonly LakeDef[];
   /** Benannte NPC-Routen; eine Platzierung verweist per `route` darauf. */
   routes?: readonly RouteDef[];
+  /**
+   * Handkorrektur der Geländehöhe, je Zone (Editor-Pinsel, T2+). Fehlt das
+   * Feld oder ist es leer, verhält sich die Höhenberechnung exakt wie ohne
+   * dieses Feld (`shared/src/worldgen/RegionGeo.ts`, `getBiomeHeight`).
+   */
+  heightDeltas?: readonly ZoneHeightDelta[];
 }
 
 /**

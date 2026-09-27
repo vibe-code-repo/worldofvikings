@@ -23,6 +23,7 @@ import { GeoManager, type GeoManagerSettings } from './GeoManager.js';
 import { perlinNoise } from './Perlin.js';
 import { smoothStep, lerp } from './Mathf.js';
 import { Biome } from '../types.js';
+import { ZONE_UNITS, E_WIDTH } from './Heightmap.js';
 import {
   BIOME_BY_NAME,
   DEFAULT_BASE_LEVEL,
@@ -31,6 +32,7 @@ import {
   UFER_MAX,
   PlateauField,
   PLATEAU_RAND_MAX,
+  HoehenKorrekturField,
   type FieldSample,
   type PlateauProbe,
   type RegionDef,
@@ -38,6 +40,27 @@ import {
 } from '../worldlayout/index.js';
 
 const f32 = Math.fround;
+
+/**
+ * Weltposition → (Zone, Rasterindex) — GENAU wie `Heightmap` sie für denselben
+ * Punkt vergibt (`vertexWorldX`/`vertexWorldZ`, `HeightmapProvider.worldToZone`),
+ * damit ein geteilter Randvertex zweier Nachbarzonen (dieselbe Weltposition)
+ * für beide Zonen dieselbe Korrektur nachschlägt: Er wird kanonisch der Zone
+ * mit `rx`/`ry` = 0 zugeschlagen, nie der mit 64 — reine Funktion der
+ * Weltposition, unabhängig davon, welche Heightmap-Zone gerade baut.
+ *
+ * Für nicht rastergenaue Aufrufer (Sockel-Zielhöhen-Messung am Platten­
+ * mittelpunkt, Kartenvorschau) rundet `Math.round` auf den nächsten
+ * Rasterpunkt — dieselbe Rundung wie `Heightmap.worldToVertex`.
+ */
+function zoneUndIndex(wx: number, wz: number): { zx: number; zz: number; index: number } {
+  const halb = ZONE_UNITS / 2;
+  const zx = Math.floor((wx + halb) / ZONE_UNITS);
+  const zz = Math.floor((wz + halb) / ZONE_UNITS);
+  const rx = Math.min(ZONE_UNITS, Math.max(0, Math.round(wx - (zx * ZONE_UNITS - halb))));
+  const ry = Math.min(ZONE_UNITS, Math.max(0, Math.round(wz - (zz * ZONE_UNITS - halb))));
+  return { zx, zz, index: ry * E_WIDTH + rx };
+}
 
 /** Basis des offenen Ozeans (normiert; ×200 = −56 m — segelbar, kein Abgrund). */
 const OZEAN_BASIS = -0.28;
@@ -52,6 +75,7 @@ export class RegionGeo extends GeoManager {
   private feld!: RegionField;
   private wasser!: WaterField;
   private plateaus!: PlateauField;
+  private korrektur!: HoehenKorrekturField;
   readonly layout: WorldLayout;
   /** Zielhöhe je Sockel-Platte (Platten-Index → Meter), lazy gemessen. */
   private readonly plateauZiele = new Map<number, number>();
@@ -88,6 +112,7 @@ export class RegionGeo extends GeoManager {
     this.feld = new RegionField(layout);
     this.wasser = new WaterField(layout);
     this.plateaus = new PlateauField(layout);
+    this.korrektur = new HoehenKorrekturField(layout);
   }
 
   /** Radiale Seen/Flüsse/Bäche entfallen im Layout-Modus vollständig. */
@@ -201,7 +226,22 @@ export class RegionGeo extends GeoManager {
     // gezogen, außen läuft eine Böschung aus — sonst durchstoßen Bodenwellen
     // große Bauwerke (Grabhügel). Nach dem Wasser, damit der Sockel auch am
     // Flussufer gewinnt und das Bauwerk trocken steht.
+    //
+    // Handkorrektur (Editor-Pinsel, T1: nur das Datenmodell) NACH Regionen
+    // UND Wasser, aber INNERHALB desselben `!plateauMessung`-Zweigs wie der
+    // Sockel: Die Zielhöhen-Messung des Sockels (`plateauHoehe`) bleibt damit
+    // IMMER die reine, unkorrigierte Geländehöhe, unabhängig davon, ob am
+    // Plattenmittelpunkt zufällig ein Korrekturpunkt liegt. Der folgende Lerp
+    // gegen `ziel` nimmt dann automatisch die bestehende Sockelrand-Formel:
+    // volle Sockelfläche (anteil=1) ⇒ Ergebnis exakt `ziel`, Korrektur ist
+    // vollständig überschrieben; außerhalb (anteil=0) bleibt die Korrektur
+    // voll erhalten; dazwischen blendet dieselbe Böschung wie bisher.
     if (!this.plateauMessung) {
+      if (!this.korrektur.isEmpty) {
+        const { zx, zz, index } = zoneUndIndex(wx, wy);
+        const d = this.korrektur.delta(zx, zz, index);
+        if (d !== 0) r = { height: f32(r.height + d), mask: r.mask };
+      }
       const p = this.plateaus.probe(wx, wy);
       if (p) {
         const ziel = this.plateauHoehe(p);

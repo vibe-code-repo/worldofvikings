@@ -2207,6 +2207,12 @@ const KERN = [
   ['tools', 'test/vorschau-nicht-getrackt.ts'],
   ['tools', 'test/appearance-frisch.ts'],
   ['shared', 'test/kollision-upload-entscheid.ts'],
+  // Plateau diff and tie-break independent of list order: a live-patched geo matches a fresh compile.
+  ['shared', 'test/sockel-diff.ts'],
+  // A dropped dungeon instance moves its players out first (no stale character id in another world); player list per connection.
+  ['server', 'test/instanz-verwurf.ts'],
+  // Offline flight draws the placement scale (`scale`) like the server: threshold, clamp 0.2-5, replaces localScale. ~5 s.
+  ['client', 'test/testflug-skala.ts'],
   // World file goes live (K5.0): the running server applies a written document within a second (objects only,
   // geo and typos are refused with a receipt), and the operations service answers 200 / 202 from that receipt.
   ['server', 'test/layout-live.ts'],

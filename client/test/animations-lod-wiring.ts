@@ -39,6 +39,31 @@
  *      zusammenfallen): [7] nah, aber hinter der Kamera; [8] im
  *      Sichtkegel, aber jenseits von 60 m.
  *
+ * Nachbesserung N2 (Nachangriff, Befund A3 — 6 ueberlebende Mutanten aus
+ * `Berichte/angriff-fps-animation-einfrieren-n1/mutationen-n1.sh`):
+ *  [9]  A2 an der Verdrahtung (probe-n1.ts N1/N2): ein Tod auf 70 m oder
+ *       hinter der Kamera endet nach ca. 1 s, statt mitten im Clip stehen
+ *       zu bleiben.
+ *  [10] N-M1 (probe-n1b.ts G1): ein Modell OHNE "idle"-Clip (wie
+ *       npc_1_walk.glb) — wechsleAnimation() stoppt die pausierte
+ *       walk-Gruppe komplett, OHNE etwas zu starten; der isStarted-
+ *       Waechter darf sie beim Rueckkehren nicht wieder anlaufen lassen.
+ *  [11] N-M13 (probe-n1b.ts G2): idle pausiert, dann Server-Zustand
+ *       `attack` — das Fortsetzen im attack-Zweig darf nicht fehlen, sonst
+ *       bleibt die Figur bis zum ersten Schlag starr.
+ *  [12] N-M6+N-M7: ein winziger Wuerfel knapp ausserhalb der reinen
+ *       Sichtlinie — ohne Mindestradius (M6) oder mit ignoriertem Radius
+ *       im Vergleich (M7) wuerde er faelschlich einfrieren.
+ *  [13] N-M8+N-M9: ein kleiner Wuerfel, dessen Netz 3,2 m ueber der Wurzel
+ *       SCHWEBT — die GEMESSENE Huellmitte liegt im Sichtkegel, waehrend
+ *       die Wurzel selbst weit ausserhalb liegt — ohne Mittelhoehe (M8)
+ *       oder ohne jemals gemessene Huelle (M9, Rueckfall 0,9 m) friert er
+ *       ein.
+ *
+ * [9]–[13] nutzen `frustumAbstand`/`sucheYFuerAbstand` NUR zum Platzieren
+ * der Proben (Babylon-Frustumebenen sind normiert, der Abstand ist echte
+ * Meter) — nicht als Nachbau der geprueften Regel selbst.
+ *
  * Lauf: npx tsx client/test/animations-lod-wiring.ts
  */
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
@@ -51,6 +76,7 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { AssetContainer } from '@babylonjs/core/assetContainer';
 import { Animation } from '@babylonjs/core/Animations/animation';
 import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
+import { Frustum } from '@babylonjs/core/Maths/math.frustum';
 
 import type { ZDOEntityUpdate } from '../src/net/ZDOSync';
 import { AssetManager } from '../src/engine/AssetManager';
@@ -193,11 +219,82 @@ function stelleTierBereit(assets: AssetManager, name: string): void {
   );
 }
 
+/**
+ * Wie `stelleTierBereit`, aber NUR mit einem "walk"-Clip (kein "idle") —
+ * wie das echte `npc_1_walk.glb` fuer NPC_1/Player (A3/N-M1, probe-n1b.ts
+ * G1): `wechsleAnimation()` findet auf einem Server-Zustandswechsel zu
+ * 'idle' KEINE Zielgruppe und stoppt trotzdem ALLE Gruppen, auch die
+ * gerade pausierte.
+ */
+function stelleNurWalkBereit(assets: AssetManager, name: string): void {
+  const wurzel = new TransformNode(`${name}_wurzel`, scene);
+  const koerper = wuerfel(`${name}_koerper`);
+  koerper.parent = wurzel;
+  const anim = new Animation('walk-clip', 'position.y', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+  anim.setKeys([
+    { frame: 0, value: 0 },
+    { frame: 30, value: 1 },
+  ]);
+  const gruppe = new AnimationGroup('walk', scene);
+  gruppe.addTargetedAnimation(anim, koerper);
+  const container = new AssetContainer(scene);
+  container.meshes.push(koerper);
+  container.transformNodes.push(wurzel);
+  container.animationGroups.push(gruppe);
+  container.removeAllFromScene();
+  (assets as unknown as { containers: Map<string, Promise<AssetContainer | null>> }).containers.set(
+    name,
+    Promise.resolve(container)
+  );
+}
+
+/**
+ * Kleiner (0,4 m) Wuerfel, dessen Geometrie lokal von y=3,0 bis y=3,4
+ * SCHWEBT (die Wurzel selbst bleibt bei y=0) — A3/N-M8+N-M9: eine ECHTE
+ * Huellmitte weit ueber der Wurzel (3,2 m), aber ein KLEINER Radius
+ * (Mindestradius greift). Ein Tier-/NPC-Rig, dessen Wurzel am Boden sitzt
+ * waehrend das Netz weiter oben haengt, waere strukturell aehnlich. Mit
+ * einer schlanken SAEULE (Radius ≈ halbe Hoehe) liesse sich M8 nicht von
+ * M9 trennen: der noetige Hoehenversatz waechst dort proportional zum
+ * Radius selbst mit, ein hoeherer Turm macht die Kugel automatisch
+ * gleich groesser mit.
+ */
+function stelleSchwebendBereit(assets: AssetManager, name: string): void {
+  const wurzel = new TransformNode(`${name}_wurzel`, scene);
+  const m = new Mesh(`${name}_koerper`, scene);
+  const d = new VertexData();
+  const p: number[] = [];
+  for (const x of [-0.2, 0.2]) for (const y of [3.0, 3.4]) for (const z of [-0.2, 0.2]) p.push(x, y, z);
+  d.positions = p;
+  d.indices = [0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6, 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3];
+  d.applyToMesh(m);
+  m.parent = wurzel;
+  const anim = new Animation('idle-clip', 'position.y', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+  anim.setKeys([
+    { frame: 0, value: 0 },
+    { frame: 100, value: 1 },
+  ]);
+  m.animations.push(anim);
+  const gruppe = new AnimationGroup('idle', scene);
+  gruppe.addTargetedAnimation(anim, m);
+  const container = new AssetContainer(scene);
+  container.meshes.push(m);
+  container.transformNodes.push(wurzel);
+  container.animationGroups.push(gruppe);
+  container.removeAllFromScene();
+  (assets as unknown as { containers: Map<string, Promise<AssetContainer | null>> }).containers.set(
+    name,
+    Promise.resolve(container)
+  );
+}
+
 const assets = new AssetManager(scene);
 stelleContainerBereit(assets, 'npcModell');
 stelleContainerBereit(assets, 'spielerModell');
 stelleContainerBereitHoehe(assets, 'menschModell');
 stelleTierBereit(assets, 'tierModell');
+stelleNurWalkBereit(assets, 'nurWalkModell');
+stelleSchwebendBereit(assets, 'schwebendModell');
 
 const mgr = new EntityManager(scene, null as never, assets, null as never);
 const anlegen = (
@@ -267,6 +364,47 @@ function bilder(n: number): void {
     mgr.updateDynamics(0.016);
     scene.render();
   }
+}
+
+/**
+ * Testhilfe fuer [12]/[13] (NICHT Teil der geprueften Regel): kleinster
+ * Ebenenabstand (`Plane.dotCoordinate`) eines Punkts zu den AKTUELLEN
+ * Frustum-Ebenen der `kamera` — negativ heisst "ausserhalb", der Betrag
+ * ist der Abstand in Metern (Babylons `Frustum.GetPlanes` liefert
+ * normierte Ebenen).
+ */
+function frustumAbstand(p: Vector3): number {
+  const ebenen = Frustum.GetPlanes(kamera.getTransformationMatrix());
+  return Math.min(...ebenen.map((e) => e.dotCoordinate(p)));
+}
+
+/**
+ * Testhilfe (NICHT Teil der geprueften Regel): sucht per Bisektion ein y,
+ * sodass der Punkt (0, y, z) einen `frustumAbstand` nahe `ziel` hat —
+ * fuer y=0 klar innerhalb (auf der Blickachse), fuer y=60 klar ausserhalb
+ * (obere Sichtkegel-Ebene).
+ */
+function sucheYFuerAbstand(z: number, ziel: number): number {
+  let lo = 0;
+  let hi = 60;
+  for (let i = 0; i < 60; i++) {
+    const mitte = (lo + hi) / 2;
+    if (frustumAbstand(new Vector3(0, mitte, z)) > ziel) lo = mitte;
+    else hi = mitte;
+  }
+  return (lo + hi) / 2;
+}
+
+/** Wie `sucheYFuerAbstand`, aber fuer die UNTERE Sichtkegel-Ebene (y=0 innen, y=-60 aussen). */
+function sucheYFuerAbstandUnten(z: number, ziel: number): number {
+  let lo = -60;
+  let hi = 0;
+  for (let i = 0; i < 60; i++) {
+    const mitte = (lo + hi) / 2;
+    if (frustumAbstand(new Vector3(0, mitte, z)) > ziel) hi = mitte;
+    else lo = mitte;
+  }
+  return (lo + hi) / 2;
 }
 
 /** Namen der gerade spielenden Gruppen dieser Instanz, mit Schleifenmodus — der Beleg fuer "hoechstens EINE Dauergruppe" (P1/P4). */
@@ -364,7 +502,7 @@ console.log('\n[P1] Kampfbeginn ausser Sicht (probe-lod-fortsetzen.ts P1): nie m
   pruefe(laufendeNamen('p1').length === 1, `30 Bilder spaeter, jetzt im Bild (5 m): weiterhin genau eine Gruppe, nicht ${JSON.stringify(laufendeNamen('p1'))}`);
 }
 
-console.log('\n[P2]+[P3] Einmal-Clip (hit/die) ausser Sicht gestartet, dann ins Bild (probe-lod-fortsetzen.ts P2/P3, B1)');
+console.log('\n[P2]+[P3] Einmal-Clip (hit/die) ausser Sicht gestartet, dann ins Bild (probe-lod-fortsetzen.ts P2/P3, B1; Pausier-Verhalten A2)');
 {
   const HINTEN = new Vector3(0, 0, -20);
   const VORN = new Vector3(0, 0, 5);
@@ -378,10 +516,10 @@ console.log('\n[P2]+[P3] Einmal-Clip (hit/die) ausser Sicht gestartet, dann ins 
     let enden = 0;
     gruppe.onAnimationGroupLoopObservable.add(() => schleifen++);
     gruppe.onAnimationGroupEndObservable.add(() => enden++);
-    bilder(10); // 0,16 s ausser Sicht -> pausiert mitten im Clip (Clip ist 1 s = 30 Bilder)
-    pruefe(!spieltNoch(key), `${key}: nach 10 Bildern ausser Sicht pausiert`);
+    bilder(10); // 0,16 s ausser Sicht -> A2: laeuft trotzdem unveraendert weiter (kein Pausieren mehr)
+    pruefe(spieltNoch(key), `${key}: nach 10 Bildern ausser Sicht LAEUFT weiter (A2: Einmal-Clip pausiert nie)`);
     hartVersetzen(key, VORN);
-    bilder(250); // 4 s im Bild
+    bilder(250); // 4 s im Bild — der 1-s-Clip ist laengst durchgelaufen
     return { schleifen, enden };
   }
   const hit = await einmalProbe('p2-hit', 'hit');
@@ -439,6 +577,102 @@ console.log('\n[7]+[8] Verdrahtung mit einer Kamera AUSSERHALB des Ursprungs (B5
     !spieltNoch('npc:im-kegel-fern'),
     '[8] im Sichtkegel, aber 62 m von der echten Kamera entfernt -> pausiert (toetet M7 und M11: beide rechnen ' +
       'mit 57 m ab dem Ursprung und blieben faelschlich animiert)'
+  );
+}
+
+// Kamera fuer [9]–[13] auf die Grundeinstellung zuruecksetzen.
+kamera.position.set(0, 0, 0);
+kamera.fov = 0.8;
+kamera.setTarget(new Vector3(0, 0, 1));
+kamera.getViewMatrix(true);
+kamera.getProjectionMatrix(true);
+
+console.log('\n[9] A2: ein Tod auf 70 m oder hinter der Kamera endet nach ca. 1 s (probe-n1.ts N1/N2)');
+{
+  const FERN_SICHTBAR = new Vector3(0, 0, 70); // im Sichtkegel, aber jenseits der 60-m-Grenze
+  const HINTEN = new Vector3(0, 0, -20); // hinter der Kamera, ausserhalb jedes Sichtkegels
+  for (const [key, pos, was] of [
+    ['n2-tot-70m', FERN_SICHTBAR, '70 m entfernt (im Bild, aber jenseits 60 m)'],
+    ['n2-tot-hinten', HINTEN, 'hinter der Kamera'],
+  ] as const) {
+    await anlegenMitEinmal(key, 'Tier', 'tierModell', pos, 'idle');
+    bilder(2);
+    await anlegenMitEinmal(key, 'Tier', 'tierModell', pos, 'idle', `die#${key}`);
+    bilder(180); // 2,88 s — der 1-s-Clip (30 Bilder) muss laengst durchgelaufen sein
+    pruefe(
+      laufendeNamen(key).length === 0,
+      `${key}: der Tod (${was}) ist nach 3 s zuende, nichts spielt mehr, nicht ${JSON.stringify(laufendeNamen(key))}`
+    );
+  }
+}
+
+console.log('\n[10] A3/N-M1: Modell ohne idle-Clip — wechsleAnimation() stoppt walk ganz, Rueckkehr startet NICHTS (probe-n1b.ts G1)');
+{
+  const HINTEN = new Vector3(0, 0, -20);
+  const VORN = new Vector3(0, 0, 5);
+  await anlegenMitEinmal('g1', 'TestNpc', 'nurWalkModell', HINTEN, 'walk');
+  bilder(3);
+  pruefe(!spieltNoch('g1'), 'Vorbereitung: walk pausiert (ausser Sicht)');
+  await anlegenMitEinmal('g1', 'TestNpc', 'nurWalkModell', HINTEN, 'idle');
+  bilder(1);
+  hartVersetzen('g1', VORN);
+  bilder(30);
+  pruefe(
+    !spieltNoch('g1'),
+    'zurueck im Bild: NICHTS spielt — die gestoppte walk-Gruppe darf nicht wieder anlaufen (isStarted-Waechter, A3/N-M1)'
+  );
+}
+
+console.log('\n[11] A3/N-M13: idle pausiert, dann Server-Zustand attack — Fortsetzen im attack-Zweig (probe-n1b.ts G2)');
+{
+  const HINTEN = new Vector3(0, 0, -20);
+  await anlegenMitEinmal('g2', 'Tier', 'tierModell', HINTEN, 'idle');
+  bilder(3);
+  pruefe(!spieltNoch('g2'), 'Vorbereitung: idle pausiert (ausser Sicht)');
+  await anlegenMitEinmal('g2', 'Tier', 'tierModell', HINTEN, 'attack');
+  bilder(60);
+  pruefe(
+    laufendeNamen('g2').join() === 'idle(loop)',
+    `attack-Zustand setzt die gemerkte idle-Gruppe fort statt sie starr zu lassen (A3/N-M13), nicht ${JSON.stringify(laufendeNamen('g2'))}`
+  );
+}
+
+console.log('\n[12] A3/N-M6+N-M7: Mindestradius und Radius im Sichtkegeltest (winziger Wuerfel am Kegelrand)');
+{
+  const Z = 20;
+  const yRand = sucheYFuerAbstand(Z, -0.8); // 0,8 m ausserhalb der reinen Sichtlinie
+  // npcModell ist ein 0,4-m-Wuerfel (echter Huellradius ~0,35 m VOR dem
+  // Mindestradius) — ohne Mindestradius (N-M6) oder mit im Vergleich
+  // ignoriertem Radius (N-M7, `dotCoordinate < 0` statt `< -radius`)
+  // wuerde die Kugel hier NICHT bis in den Sichtkegel reichen.
+  await anlegen('npc:klein-randnah', 'TestNpc', 'npcModell', new Vector3(0, yRand, Z), 'idle');
+  pruefe(spieltNoch('npc:klein-randnah'), 'Vorbereitung: animiert beim Erscheinen');
+  mgr.updateDynamics(0.016);
+  pruefe(
+    spieltNoch('npc:klein-randnah'),
+    'winziger Wuerfel 0,8 m ausserhalb der reinen Sichtlinie friert NICHT ein — der Mindestradius (1,5 m) traegt ' +
+      'die Kugel in den Sichtkegel (toetet N-M6: kein Mindestradius, und N-M7: Radius im Vergleich ignoriert)'
+  );
+}
+
+console.log('\n[13] A3/N-M8+N-M9: Huellmitte (Mittelhoehe) und dass die Huelle ueberhaupt gemessen wird');
+{
+  const Z = 20;
+  const MITTE_Y_ECHT = 3.2; // stelleSchwebendBereit: Netz schwebt lokal y=3,0..3,4, Wurzel bei y=0
+  // Untere Sichtkegel-Ebene (wie [6]/B4): die Wurzel liegt TIEFER als das
+  // schwebende Netz, muss also unterhalb der Kugel getestet werden, sonst
+  // waere die Wurzel (M8s "Mitte = Wurzel") automatisch IMMER weiter innen
+  // als die echte Mitte, statt weiter aussen.
+  const zielMitteY = sucheYFuerAbstandUnten(Z, 0.3); // knapp INNERHALB des Sichtkegels
+  const wurzelY = zielMitteY - MITTE_Y_ECHT;
+  await anlegen('schwebend:rand', 'TestNpc', 'schwebendModell', new Vector3(0, wurzelY, Z), 'idle');
+  pruefe(spieltNoch('schwebend:rand'), 'Vorbereitung: animiert beim Erscheinen');
+  mgr.updateDynamics(0.016);
+  pruefe(
+    spieltNoch('schwebend:rand'),
+    'der schwebende Wuerfel friert NICHT ein — die Kugel um die GEMESSENE Huellmitte (3,2 m ueber der Wurzel) liegt ' +
+      'im Sichtkegel, obwohl die Wurzel selbst 3,2 m tiefer liegt (toetet N-M8: Mittelhoehe ignoriert, und N-M9: ' +
+      'Huelle nie gemessen, Rueckfall 0,9 m/1,5 m)'
   );
 }
 

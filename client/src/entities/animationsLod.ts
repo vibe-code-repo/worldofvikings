@@ -24,6 +24,14 @@
  * (`isStarted && !isPlaying`) ist UND keine andere Gruppe der Instanz
  * bereits laeuft — sonst wurde sie unterdessen gestoppt oder ersetzt, und
  * wird vergessen. Fortgesetzt wird mit ihrem EIGENEN `loopAnimation`.
+ *
+ * Nachbesserung N2 (Befund A2, VORLAeUFIG — Mikes Antwort steht noch aus):
+ * B1–B3 reparierten nur das FORTSETZEN, nicht dass ein Einmal-Clip
+ * (`hit`/`attack`/`die`) ueberhaupt erst PAUSIERT wurde — ein toter Wolf
+ * blieb dadurch aufrecht im ersten Bild von `die` stehen, bis man
+ * zurueckblickte. `ANIMATIONS_LOD_EINMAL_LAEUFT_IMMER` unten haelt diese
+ * Entscheidung an EINER Stelle: Einmal-Clips (`loopAnimation === false`)
+ * werden gar nicht erst angehalten, sie sind hoechstens rund 1 s lang.
  */
 import type { SicherbareGruppe } from './gruppenSicherung';
 
@@ -42,6 +50,16 @@ export interface SicherbareGruppeMitZustand extends SicherbareGruppe {
 
 /** Vorschlag der Karte fps-analyse (#9): jenseits dieser Distanz pausiert die Animation. */
 export const ANIMATIONS_LOD_GRENZE_M = 60;
+
+/**
+ * Entscheidung A2 (Nachbesserung N2, VORLAeUFIG — Mikes Antwort steht noch
+ * aus): auf `true` werden Einmal-Clips (`hit`/`attack`/`die`,
+ * `loopAnimation === false`) NIE pausiert — sie laufen immer zu Ende, egal
+ * wie weit weg oder ausser Sicht. Auf `false` gilt fuer sie dieselbe Regel
+ * wie fuer jede Schleife (Verhalten vor dieser Nachbesserung: ein Einmal-
+ * Clip kann mitten im Bild einfrieren und setzt beim Rueckkehren fort).
+ */
+export const ANIMATIONS_LOD_EINMAL_LAEUFT_IMMER = true;
 
 /**
  * Ob eine Figur an dieser Stelle animiert werden soll: im Sichtkegel UND
@@ -65,6 +83,9 @@ export function sollAnimieren(distanzM: number, imSichtkegel: boolean, grenzeM: 
  * so merkt sich NICHT diese Funktion, sondern der Aufrufer (ein Feld an der
  * dynamischen Instanz), welche Gruppe wieder anlaufen soll.
  *
+ * - `animieren === false` und die gerade laufende Gruppe ist ein Einmal-Clip
+ *   (`!loopAnimation`, s. `ANIMATIONS_LOD_EINMAL_LAEUFT_IMMER`): sie wird
+ *   NICHT angehalten, der gemerkte Stand bleibt unveraendert.
  * - `animieren === false`: die gerade laufende Gruppe (falls es eine gibt)
  *   wird pausiert und zurueckgegeben — AUCH wenn schon etwas gemerkt war.
  *   Das faengt den Fall ab, dass ein echter Zustandswechsel (Server schickt
@@ -92,6 +113,9 @@ export function wendeAnimationsLodAn(
   if (!animieren) {
     const laufend = gruppen.find((g) => g.isPlaying);
     if (!laufend) return gepaust;
+    // A2: ein spielender Einmal-Clip wird NICHT angehalten (s. Konstante
+    // oben) — nichts Neues zu merken, der gemerkte Stand bleibt unveraendert.
+    if (ANIMATIONS_LOD_EINMAL_LAEUFT_IMMER && !laufend.loopAnimation) return gepaust;
     laufend.pause();
     return laufend;
   }

@@ -637,6 +637,16 @@ interface DynamicEntity {
    */
   lodMitteY?: number;
   lodRadius?: number;
+  /**
+   * Animations-LOD (Nachbesserung N2, A5): `root.scaling` IM MOMENT der
+   * Huellmessung — dieselbe Referenz, die `applyDynamic` beim naechsten
+   * Update durch ein NEUES `Vector3` ersetzt (nie in-place mutiert), bleibt
+   * also eingefroren auf dem Messwert. Weicht die AKTUELLE Skalierung
+   * spaeter davon ab, skaliert `aktualisiereAnimationsLod` `lodMitteY`/
+   * `lodRadius` mit dem Verhaeltnis nach, statt neu zu vermessen (das waere
+   * die Allokation je Figur und Bild, die B4 ausschliesst).
+   */
+  lodSkalierungBeiMessung?: Vector3Like;
 }
 
 /** Wiederverwendetes Nick-Quaternion des prozeduralen Gangs (kein Alloc pro Frame). */
@@ -658,22 +668,45 @@ const LOD_MITTE_TMP = new Vector3();
  * Instanz, EINMAL bei der Instanziierung aus ihren Meshes gemessen (wie
  * `merkeModellHoehe` bei den Clutter-Mastern oben) — NICHT jedes Bild neu,
  * das waere die Allokation je Figur und Bild, die B4 ausdruecklich
- * ausschliesst. Der Radius ist der halbe Diagonalabstand der Huelle
- * (umschliesst sie exakt, unabhaengig von einem seitlichen Versatz der
- * Mitte), mindestens `ANIMATIONS_LOD_MIN_RADIUS_M`. Ohne Meshes (leerer
- * Platzhalter waere ein Fehler in `makePlaceholder`, kommt praktisch nicht
- * vor) ein sicherer Rueckfallwert statt einer entarteten Huelle.
+ * ausschliesst.
+ *
+ * Der Radius ist NICHT die halbe Diagonale der Huelle (Nachbesserung N2,
+ * A4: das nimmt an, die Huelle sei symmetrisch um ihre EIGENE Mitte) —
+ * er ist der groesste Abstand von der WURZEL-ACHSE (x/z von
+ * `root.position`, Hoehe `root.position.y + mitteY`) zu einer der acht
+ * Huellecken, mindestens `ANIMATIONS_LOD_MIN_RADIUS_M`. Das umschliesst die
+ * Huelle wirklich exakt, AUCH bei einem seitlichen Versatz der Mitte (eine
+ * Kuh mit vorgestrecktem Kopf: die Diagonale reichte nur bis 81 % der
+ * tatsaechlich fernsten Ecke, `Berichte/angriff-fps-animation-einfrieren-n1/
+ * probe-huelle-glb.ts`). Der Abstand von dieser Achse aendert sich zudem
+ * NICHT bei einer spaeteren Drehung um die Hochachse (Gieren, der
+ * haeufige Fall bei NPCs) — nur ihre Richtung tut es.
+ *
+ * Ohne Meshes (leerer Platzhalter waere ein Fehler in `makePlaceholder`,
+ * kommt praktisch nicht vor) ODER ohne `getHierarchyBoundingVectors`
+ * (Nachbesserung N2, A1: eine Test-Attrappe ohne echtes Mesh) ein sicherer
+ * Rueckfallwert statt einer entarteten Huelle oder eines Absturzes.
  */
 function berechneLodHuelle(root: TransformNode): { mitteY: number; radius: number } {
+  if (typeof root.getHierarchyBoundingVectors !== 'function') {
+    return { mitteY: 0.9, radius: ANIMATIONS_LOD_MIN_RADIUS_M };
+  }
   const { min, max } = root.getHierarchyBoundingVectors(true);
   const spanne = max.subtract(min);
   if (!(spanne.x >= 0) || !(spanne.y >= 0) || !(spanne.z >= 0)) {
     return { mitteY: 0.9, radius: ANIMATIONS_LOD_MIN_RADIUS_M };
   }
-  return {
-    mitteY: (min.y + max.y) / 2 - root.position.y,
-    radius: Math.max(spanne.length() / 2, ANIMATIONS_LOD_MIN_RADIUS_M),
-  };
+  const mitteY = (min.y + max.y) / 2 - root.position.y;
+  const achse = new Vector3(root.position.x, root.position.y + mitteY, root.position.z);
+  let radius = ANIMATIONS_LOD_MIN_RADIUS_M;
+  for (const x of [min.x, max.x]) {
+    for (const y of [min.y, max.y]) {
+      for (const z of [min.z, max.z]) {
+        radius = Math.max(radius, Vector3.Distance(achse, new Vector3(x, y, z)));
+      }
+    }
+  }
+  return { mitteY, radius };
 }
 
 /** Ob eine Kugel (Huellmitte, Radius) den Sichtkegel schneidet — dieselbe Ebenen-Konvention wie `Frustum.IsPointInFrustum` (Abstand ≥ 0 = innerhalb), nur um den Radius nach aussen verschoben. */
@@ -3457,6 +3490,25 @@ export class EntityManager {
    * (`berechneLodHuelle`, `istKugelImSichtkegel`) — ein Punkttest liess
    * sichtbare Figuren am Bildrand faelschlich einfrieren, besonders lange
    * Tiere und bei Blick nach oben/unten.
+   *
+   * Skalierung (Nachbesserung N2, A5): `lodMitteY`/`lodRadius` sind vom
+   * Messzeitpunkt eingefroren. Weicht `dyn.root.scaling` seither von
+   * `dyn.lodSkalierungBeiMessung` ab, wird NACHskaliert statt neu vermessen
+   * (kein Alloc je Bild). Heute nicht erreichbar (Kreaturen aendern ihre
+   * Skalierung zur Laufzeit nicht, und Testflug-/Editor-Vorschau sind ohnehin
+   * ausgenommen), aber ohne Kosten fuer den Fall, dass sich das aendert.
+   *
+   * Vergessene Pausen (Hinweis, A6): eine gemerkte, pausierte Gruppe, die
+   * NIE zurueckkehrt (z. B. weil eine kuenftige Ueberblendung zwei Gruppen
+   * gleichzeitig spielen liesse und nur eine von `wendeAnimationsLodAn`
+   * fortgesetzt wird), bleibt fuer immer `isStarted && !isPlaying` stehen.
+   * Ein spaeterer `start()` auf GENAU dieser Gruppe wuerde in Babylon 9.28
+   * sofort abbrechen (`_isStarted`-Wächter), die Figur bliebe dann starr.
+   * Heute nicht erreichbar: jeder Verdrahtungsweg (`wechsleAnimation`,
+   * `spieleEinmal(Kreatur)`, `starteAnfangsgruppe`) stoppt vorher ALLE
+   * anderen Gruppen der Instanz. Robuster waere, eine vergessene Gruppe mit
+   * `stop()` statt stillschweigend liegenzulassen — keine Aenderung hier,
+   * nur der Hinweis fuer eine kuenftige Mehrgruppen-Verdrahtung.
    */
   private aktualisiereAnimationsLod(dyn: DynamicEntity, ebenen: Plane[], kameraPos: Vector3): void {
     if (dyn.istSpieler || dyn.istVorschau) return;
@@ -3465,9 +3517,21 @@ export class EntityManager {
       return;
     }
     const distanzM = Vector3.Distance(kameraPos, dyn.root.position);
+    let mitteY = dyn.lodMitteY ?? 0.9;
+    let radius = dyn.lodRadius ?? ANIMATIONS_LOD_MIN_RADIUS_M;
+    const gemessen = dyn.lodSkalierungBeiMessung;
+    if (gemessen) {
+      const aktuell = dyn.root.scaling;
+      mitteY *= gemessen.y !== 0 ? aktuell.y / gemessen.y : 1;
+      radius *= Math.max(
+        gemessen.x !== 0 ? aktuell.x / gemessen.x : 1,
+        gemessen.y !== 0 ? aktuell.y / gemessen.y : 1,
+        gemessen.z !== 0 ? aktuell.z / gemessen.z : 1
+      );
+    }
     LOD_MITTE_TMP.copyFrom(dyn.root.position);
-    LOD_MITTE_TMP.y += dyn.lodMitteY ?? 0.9;
-    const imSichtkegel = istKugelImSichtkegel(LOD_MITTE_TMP, dyn.lodRadius ?? ANIMATIONS_LOD_MIN_RADIUS_M, ebenen);
+    LOD_MITTE_TMP.y += mitteY;
+    const imSichtkegel = istKugelImSichtkegel(LOD_MITTE_TMP, radius, ebenen);
     const animieren = sollAnimieren(distanzM, imSichtkegel, ANIMATIONS_LOD_GRENZE_M);
     dyn.lodPausiert = wendeAnimationsLodAn(this.assets.gruppenVon(dyn.root), dyn.lodPausiert, animieren);
   }
@@ -3636,6 +3700,9 @@ export class EntityManager {
       const huelle = berechneLodHuelle(dyn.root);
       dyn.lodMitteY = huelle.mitteY;
       dyn.lodRadius = huelle.radius;
+      // A5: `dyn.root.scaling` wird nie in-place mutiert (immer ein neues
+      // Vector3 oben), die Referenz bleibt also auf dem Messwert stehen.
+      dyn.lodSkalierungBeiMessung = dyn.root.scaling;
     }
   }
 

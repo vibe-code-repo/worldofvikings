@@ -19,6 +19,12 @@
  * Zustandsaenderung ERSETZTEN Gruppe startet eine zweite Dauergruppe statt
  * nichts zu tun.
  *
+ * Nachbesserung N2 (Nachangriff, Befunde A2/A3): [2] bekam zusaetzlich den
+ * neuen A2-Fall (ein spielender Einmal-Clip wird gar nicht erst
+ * angehalten, s. `ANIMATIONS_LOD_EINMAL_LAEUFT_IMMER`) und einen
+ * A3-Testluecken-Fall (N-M1: eine gestoppte Gruppe OHNE Ersatz darf nicht
+ * wieder anlaufen — der `isStarted`-Waechter war ungeprueft).
+ *
  *   npx tsx client/test/animations-lod.ts
  */
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
@@ -123,18 +129,59 @@ console.log('\n[2] wendeAnimationsLodAn: reine Regel gegen erfundene Gruppen');
   check('die alte, laengst pausierte Gruppe bleibt unberuehrt', alt.pauseAufrufe === 1);
 }
 {
-  // B1: ein Einmal-Clip (hit/attack/die, start(false, ...)) darf beim
-  // Fortsetzen NICHT zur Schleife werden — play(loopAnimation), nicht
-  // play(true). Sonst feuert das Ende-Ereignis nie mehr (ein toter Wolf
-  // stirbt endlos).
+  // A2 (Nachbesserung N2, VORLAEUFIG — Mikes Antwort steht noch aus): ein
+  // SPIELENDER Einmal-Clip (hit/attack/die, start(false, ...)) wird gar
+  // nicht erst angehalten — er laeuft immer zu Ende, egal wie weit weg
+  // oder ausser Sicht. B1–B3 hatten nur das FORTSETZEN repariert
+  // (play(loopAnimation) statt play(true)), nicht dass ein Einmal-Clip
+  // ueberhaupt erst mitten im Bild einfriert (ein Toter blieb im ersten
+  // Bild von `die` aufrecht stehen, bis man ihn wieder ansah).
   const einmal = new FakeGruppe();
   einmal.start(false);
-  const gepaust = wendeAnimationsLodAn([einmal], undefined, false);
-  check('Vorbereitung: Einmal-Clip pausiert', gepaust === einmal && !einmal.isPlaying);
-  const nachResume = wendeAnimationsLodAn([einmal], gepaust, true);
+  const ergebnis = wendeAnimationsLodAn([einmal], undefined, false);
+  check(
+    'ein spielender Einmal-Clip wird NICHT angehalten (A2)',
+    ergebnis === undefined && einmal.pauseAufrufe === 0 && einmal.isPlaying
+  );
+}
+{
+  // B1: bleibt die Ausnahme oben aus (Konstante umgestellt) oder wird ein
+  // Einmal-Clip aus einem anderen Grund bereits als "gemerkt, echt pausiert"
+  // hereingereicht, darf das Fortsetzen ihn NICHT zur Schleife machen —
+  // play(loopAnimation), nicht play(true). Sonst feuert das Ende-Ereignis
+  // nie mehr (ein toter Wolf stirbt endlos).
+  const einmal = new FakeGruppe();
+  einmal.start(false);
+  einmal.pause(); // wie eine Pause vor Nachbesserung N2 (Ausnahme aus)
+  check('Vorbereitung: Einmal-Clip pausiert', einmal.isStarted && !einmal.isPlaying);
+  const nachResume = wendeAnimationsLodAn([einmal], einmal, true);
   check(
     'Einmal-Clip laeuft NICHT als Schleife weiter: play(false), nicht play(true)',
     nachResume === undefined && einmal.playAufrufe.length === 1 && einmal.playAufrufe[0] === false
+  );
+}
+{
+  // A3/N-M1 (Testluecke, Angriff 27.09.2026): die gemerkte Gruppe wurde
+  // GESTOPPT, OHNE dass eine Ersatzgruppe angelaufen ist — z. B. ein
+  // Modell ohne "idle"-Clip (npc_1_walk.glb): wechsleAnimation() findet
+  // keine Zielgruppe, stoppt aber trotzdem ALLE (auch die gerade
+  // pausierte). `!gruppen.some(isPlaying)` ist dann WAHR wie im
+  // echten Fortsetzen — nur `isStarted` unterscheidet "echt pausiert"
+  // von "laengst gestoppt, nichts zu tun". Ohne diesen Waechter wuerde
+  // die Mutante N-M1 die gestoppte Gruppe wieder anlaufen lassen (Soll:
+  // gar nichts).
+  const gestopptOhneErsatz = new FakeGruppe();
+  gestopptOhneErsatz.start(true);
+  gestopptOhneErsatz.pause();
+  gestopptOhneErsatz.stop();
+  check(
+    'Vorbereitung: gestoppt, keine andere Gruppe laeuft',
+    !gestopptOhneErsatz.isStarted && !gestopptOhneErsatz.isPlaying
+  );
+  const ergebnis = wendeAnimationsLodAn([gestopptOhneErsatz], gestopptOhneErsatz, true);
+  check(
+    'gestoppte Gruppe OHNE Ersatz wird NICHT wieder gestartet (isStarted-Waechter, A3/N-M1)',
+    ergebnis === undefined && gestopptOhneErsatz.playAufrufe.length === 0
   );
 }
 {
@@ -210,10 +257,11 @@ console.log('\n[3] Echte Babylon-AnimationGroup (NullEngine): Ruecckehr ohne Spr
 }
 
 {
-  // B1 an der echten Babylon-Klasse: ein Einmal-Clip (start(false, ...),
-  // wie spieleEinmalKreatur() ihn startet) bleibt nach dem Fortsetzen
-  // WEITERHIN ein Einmal-Clip und feuert sein Ende-Ereignis — statt in
-  // eine Endlosschleife zu geraten (ein toter Wolf, der endlos stirbt).
+  // A2 an der echten Babylon-Klasse (Nachbesserung N2): ein spielender
+  // Einmal-Clip (start(false, ...), wie spieleEinmalKreatur() ihn startet)
+  // wird durch wendeAnimationsLodAn NICHT angehalten, obwohl "pausieren"
+  // verlangt ist — er laeuft ungestoert bis zum Ende und feuert sein
+  // Ende-Ereignis GENAU einmal, egal was der Sichtkegeltest sagt.
   const engine = new NullEngine();
   const scene = new Scene(engine);
   scene.useConstantAnimationDeltaTime = true;
@@ -232,12 +280,11 @@ console.log('\n[3] Echte Babylon-AnimationGroup (NullEngine): Ruecckehr ohne Spr
   let enden = 0;
   gruppe.onAnimationGroupEndObservable.add(() => enden++);
 
-  const gepaust = wendeAnimationsLodAn([gruppe], undefined, false);
-  check('Vorbereitung: Einmal-Clip pausiert, bevor er endet', gepaust === gruppe && !gruppe.isPlaying);
-
-  const nachRueckkehr = wendeAnimationsLodAn([gruppe], gepaust, true);
-  check('Rueckkehr setzt den Einmal-Clip fort', nachRueckkehr === undefined && gruppe.isPlaying);
-  check('Rueckkehr setzt loopAnimation NICHT auf true', gruppe.loopAnimation === false);
+  const ergebnis = wendeAnimationsLodAn([gruppe], undefined, false);
+  check(
+    'A2: der spielende Einmal-Clip wird NICHT angehalten, obwohl "pausieren" verlangt ist',
+    ergebnis === undefined && gruppe.isPlaying
+  );
 
   for (let i = 0; i < 20; i++) scene.render(); // Clip ist 10 Bilder lang bei 16 ms/Bild
 

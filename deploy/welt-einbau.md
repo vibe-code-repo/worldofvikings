@@ -54,11 +54,11 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    sonst leeren), und **`origin/main` auf genau den geprüften Commit pinnen** (sonst kann zwischen dem `fetch` und dem
    `install` ein fremder Push den Stand unter der Hand wechseln):
    `sha` in der **eigenen** Shell setzen (nicht in einer verschachtelten `bash -c '…'`, sonst ist die Variable danach
-   wieder leer, s. N5-4/N6) und an den Installationsblock als Positionsparameter weiterreichen:
+   wieder leer, s. N5-4/N6) und an den Installationsblock als Positionsparameter weiterreichen. Die ganze Zeile steht
+   in einer `&&`-Kette (N7/B5): scheitert `fetch` (Netz weg, Remote nicht erreichbar), bricht die Zeile VOR dem
+   `sha=$(…)` ab, `sha` bleibt leer/ungesetzt statt eines veralteten Werts, und es wird nichts installiert:
    ```bash
-   git -C /opt/worldofvikings fetch origin main
-   sha=$(git -C /opt/worldofvikings rev-parse origin/main)
-   bash -c 'set -euo pipefail
+   git -C /opt/worldofvikings fetch origin main && sha=$(git -C /opt/worldofvikings rev-parse origin/main) && echo "sha=$sha" && bash -c 'set -euo pipefail
    for u in wov-server wov-admin wov-sicherung; do
      [ "$u" = wov-sicherung ] && [ ! -e /etc/systemd/system/wov-sicherung.service ] && continue
      t=$(mktemp)
@@ -69,10 +69,14 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    done
    systemctl daemon-reload' _ "$sha"
    ```
+   Die ausgegebene `sha=…`-Zeile mit dem Merge-Commit des PR vergleichen, bevor die Handprüfung als „gleich" gilt.
    (`wov-sicherung` installiert die Schleife selbst nur, wenn die Unit auf dem Container **schon** installiert ist —
    sie legt sie nicht neu an.) Danach die **Handprüfung**, je Unit, in **derselben** Shell wie oben — `sha` steht dort
-   noch, weil es außerhalb des `bash -c '…'` gesetzt wurde:
+   noch, weil es außerhalb des `bash -c '…'` gesetzt wurde. Die erste Zeile bricht sofort ab, wenn `sha` (etwa nach
+   einem neuen Login oder in einer anderen Shell als Block 1) doch leer ist, statt still gegen den lokalen Index zu
+   vergleichen (N7/B5, derselbe Mechanismus wie N5-4):
    ```bash
+   : "${sha:?sha fehlt — Block 1 in DIESER Shell ausführen, nicht in einer neuen}"
    for u in wov-server wov-admin wov-sicherung; do
      diff <(git -C /opt/worldofvikings show "$sha:deploy/systemd/$u.service") /etc/systemd/system/$u.service && echo "$u: Datei gleich"
      systemctl show -p NeedDaemonReload,Environment,UnsetEnvironment,EnvironmentFiles $u

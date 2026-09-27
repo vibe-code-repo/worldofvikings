@@ -2264,6 +2264,8 @@ const KERN = [
   ['client', 'test/testflug-sockel-dienst.ts'],
   // Test flight: a click places while a prefab is chosen (Alt grabs), series switch, drag only past 4 px (8 touch) with grab offset; offline bytes unchanged.
   ['client', 'test/testflug-greifen.ts'],
+  // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
+  ['server', 'test/gaeste-besitz.ts'],
   // Karte „Editor Upload-Größe": Grundskala in Registry + Hülle (huellenAufloeser) —
   // Feld optional (fehlt = 1), Grenzen 0,01…100, Hülle multipliziert statt abschreibt.
   // Nachbesserung N1 (H1): applyUploadedModelRegistry übernimmt eine geänderte
@@ -2276,6 +2278,8 @@ const KERN = [
   // Nachbesserung N1 (H1): eine geänderte Grundskala eines SCHON registrierten
   // Uploads wirkt ohne Neuladen der Seite — zweimal applyUploadedModelRegistry,
   // dann AssetManager.getMasters() erneut (in-place aktualisiert, kein Neuladen der GLB).
+  // Nachbesserung N2 (F2/F3): zwei gleichzeitige getMasters() ergeben dieselbe Skala
+  // (gebündelt), eine vorher gehaltene localMatrix-Referenz sieht eine spätere Änderung.
   ['client', 'test/upload-grundskala-neu-anwenden.ts'],
   // Grundskala in der Server-Kollision (KollisionsFormen, echte Kette bewegungsSchritt/
   // Kollisionswelt) und im Nachträglich-ändern-Weg (aendereGrundskala): Registry-Datei UND
@@ -2285,6 +2289,9 @@ const KERN = [
   // Rohgröße, cm-Verdacht (>50 m), rohMasseAusGlb (Hüllbox browserseitig vor dem Upload).
   // Nachbesserung N2/N3: Tabellenmuster ohne echten Wortkern lösen nicht mehr aus
   // (Fassade/Shuttle/Abstandhalter/Wagenrad/Boxhandschuh), Namensvergleich umlaut-unabhängig.
+  // Nachbesserung N2 (F5/F6): Abgleich auf ganze Namensbestandteile/Kompositum-Ende
+  // umgestellt (Fassung/Standuhr/Boxsack/Abstandshalter/Wagenräder ebenfalls kein
+  // Treffer mehr), Namensvergleich zusätzlich NFD-unabhängig (macOS-Dateinamen).
   ['shared', 'test/upload-grundskala-vorschlag.ts'],
   // Nachbesserung M1: der Weltbau-Katalog (tools/worldlayout-mcp-Grundlage) meldet für
   // Uploads die GRUNDSKALIERTEN Maße, nicht die rohe Hüllbox der Datei.
@@ -2297,7 +2304,10 @@ const KERN = [
   // POST mit/ohne X-Wov-Grundskala, Grenzen 0,01…100 inkl. 422, PATCH „nachträglich ändern"
   // (Registry-Datei UND Antwort), unbekannter Name/fehlende Felder. Nachbesserung H2: eigener
   // Upload-Ordner je Lauf (WOV_HOCHGELADEN_DIR), NIE der Checkout — geprüft auch nach SIGKILL
-  // mitten im Upload (Angriff Probe C4). Nachbesserung N1: 0x10/1e1/Leerzeichen/+4 -> 422. ~10 s.
+  // mitten im Upload (Angriff Probe C4). Nachbesserung N1: 0x10/1e1/Leerzeichen/+4 -> 422.
+  // Nachbesserung N2 (F1): Dienst startet detached, jedes Beenden trifft die ganze
+  // Prozessgruppe (kein verwaister Enkelprozess mehr). F4: leerer/relativer
+  // WOV_HOCHGELADEN_DIR bricht den Start mit klarer Meldung ab. ~10 s.
   ['admin', 'test/upload-grundskala-betriebsdienst.ts'],
 ];
 

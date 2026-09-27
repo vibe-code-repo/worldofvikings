@@ -70,12 +70,14 @@ interface Verbindung {
   angemeldet: Promise<void>;
   admin: string[];
   teleports: number;
+  /** Aus PeerInfo — Editor-Verbindungen tragen alle denselben Namen ("Editor"), die userId unterscheidet sie. */
+  userId: string;
 }
 
 function verbinde(name: string, nurEditor: boolean, token = ''): Verbindung {
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
   ws.binaryType = 'nodebuffer';
-  const v: Verbindung = { ws, angemeldet: Promise.resolve(), admin: [], teleports: 0 };
+  const v: Verbindung = { ws, angemeldet: Promise.resolve(), admin: [], teleports: 0, userId: '' };
   let authGesendet = false;
   v.angemeldet = new Promise<void>((fertig, scheitern) => {
     const uhr = setTimeout(() => scheitern(new Error(`${name}: Anmeldung überfällig`)), 15_000);
@@ -105,6 +107,9 @@ function verbinde(name: string, nurEditor: boolean, token = ''): Verbindung {
           ])
         );
       } else if (type === P.PeerInfo) {
+        let pos = 0;
+        [, pos] = readString(view, pos); // name
+        [v.userId, pos] = readString(view, pos);
         clearTimeout(uhr);
         fertig();
       } else if (type === P.AdminEvent) {
@@ -160,6 +165,9 @@ async function main(): Promise<void> {
 
   const peerVon = (name: string, nurEditor: boolean) =>
     server.net.getPeers().find((p) => p.name === name && !!p.nurEditor === nurEditor);
+  /** Editor-Verbindungen tragen alle denselben Namen — ueber die userId auseinanderhalten. */
+  const peerVonVerbindung = (v: Verbindung) =>
+    server.net.getPeers().find((p) => p.userId.toString() === v.userId);
   const dungeonAnlegen = async (v: Verbindung, seed: number): Promise<string> => {
     const vorher = v.admin.length;
     await admin(v, `dungeon create forestcrypt ${seed}`);
@@ -184,7 +192,7 @@ async function main(): Promise<void> {
   const editor = verbinde('Ed1', true);
   await editor.angemeldet;
   await warte(500);
-  const ed = peerVon('Ed1', true)!;
+  const ed = peerVonVerbindung(editor)!;
 
   await admin(spieler, `dungeon enter ${dungeonA}`);
   await admin(editor, `dungeon enter ${dungeonA}`);
@@ -243,7 +251,7 @@ async function main(): Promise<void> {
   const editorB = verbinde('Tester', true);
   await editorB.angemeldet;
   await warte(500);
-  const edB = peerVon('Tester', true)!;
+  const edB = peerVonVerbindung(editorB)!;
   await admin(spieler, `dungeon enter ${dungeonB}`);
   await admin(editorB, `dungeon enter ${dungeonB}`);
   await bis(() => sp.worldId !== 'haupt' && edB.worldId !== 'haupt');
@@ -261,10 +269,13 @@ async function main(): Promise<void> {
   const editorC = verbinde('Ed3', true);
   await editorC.angemeldet;
   await warte(500);
-  const edC = peerVon('Ed3', true)!;
+  const edC = peerVonVerbindung(editorC)!;
   await admin(editorC, `dungeon enter ${dungeonB}`);
   await bis(() => edC.worldId !== 'haupt');
-  check('B: Editor mit anderem Namen trägt sich ein', instB?.players.size === 2, `size ${instB?.players.size}`);
+  // C4 (Pruefung 2): beide Editoren heissen serverseitig jetzt fest "Editor";
+  // was diese Zeile beweist, ist eine zweite, andere Verbindung (Kennung),
+  // nicht ein anderer Name.
+  check('B: zweiter Editor (andere Kennung) trägt sich ein', instB?.players.size === 2, `size ${instB?.players.size}`);
   editorC.ws.close();
   await bis(() => instB?.players.size === 1, 3_000);
   check('B: getrennter Editor trägt sich aus', instB?.players.size === 1, `size ${instB?.players.size}`);
@@ -294,7 +305,7 @@ async function main(): Promise<void> {
   await edD.angemeldet;
   await warte(500);
   const pD = peerVon('Konto', false)!;
-  const eD = peerVon('KontoEd', true)!;
+  const eD = peerVonVerbindung(edD)!;
   check('D: beide Verbindungen haben dieselbe userId', pD.userId === eD.userId, pD.userId.toString());
   await admin(spD, `dungeon enter ${dungeonD}`);
   await admin(edD, `dungeon enter ${dungeonD}`);

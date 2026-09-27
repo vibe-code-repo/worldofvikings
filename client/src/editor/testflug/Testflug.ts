@@ -272,6 +272,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       const e = panel.einstellung;
       const wx = Math.round(player.position.x - Math.sin(player.yaw) * e.abstand);
       const wz = Math.round(player.position.z - Math.cos(player.yaw) * e.abstand);
+      // Ein stehender Spieler trifft immer dieselbe Zelle: nicht deckungsgleich stapeln.
+      const jetzt = performance.now();
+      if (doppelSperre.blockiertZelle(jetzt, { x: wx, z: wz })) return;
       const roh = persistenz.laden();
       if (!roh) return;
       const sockel = e.einebnen ? sockelRadius() : undefined;
@@ -286,6 +289,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         ...(sockel !== undefined ? { einebnen: sockel } : {}),
       };
       if (!anwenden(aktionen.setzen(eintrag))) return;
+      doppelSperre.gesetzt(jetzt, { x: wx, z: wz });
       const anzahlNun = (persistenz.laden()?.placements ?? []).length;
       // Erst planieren, DANN zeichnen: zeige() liest getGroundHeight —
       // das Bauwerk soll auf der Platte sitzen, nicht auf der alten Welle.
@@ -343,7 +347,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
             : 'Spawn-Editor zu'
         );
       }
-      if (e.code === 'KeyP' && panel.istOffen) platziere();
+      if (e.code === 'KeyP' && !e.repeat && panel.istOffen) platziere();
       // Esc beendet den Platzier-Modus (die Vorauswahl in der Liste bleibt).
       if (e.code === 'Escape') panel.beendePlatzierModus();
     });
@@ -882,7 +886,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         // man gerade gar nicht sieht.
         // Zweiter Klick eines Doppelklicks: nichts setzen (sonst zwei Objekte an einer Stelle).
         const jetzt = performance.now();
-        if (doppelSperre.blockiert(jetzt, p, e.detail)) return;
+        const bild = { x: e.offsetX, z: e.offsetY };
+        if (doppelSperre.blockiert(jetzt, bild, e.pointerType || 'mouse')) return;
         const einst = panel.einstellung;
         const sockel = einst.einebnen ? sockelRadius() : undefined;
         const eintrag = {
@@ -895,7 +900,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           ...(sockel !== undefined ? { einebnen: sockel } : {}),
         };
         if (!anwenden(aktionen.setzen(eintrag))) return;
-        doppelSperre.gesetzt(jetzt, p);
+        doppelSperre.gesetzt(jetzt, { x: eintrag.x, z: eintrag.z }, bild);
         // Erst planieren, DANN zeichnen — siehe platziere().
         if (sockel !== undefined) sockelLiveDazu(eintrag.x, eintrag.z, sockel);
         zeige(eintrag, (persistenz.laden()?.placements ?? []).length - 1);

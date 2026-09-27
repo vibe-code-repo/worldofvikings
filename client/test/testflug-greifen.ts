@@ -9,8 +9,8 @@
  *  4. Threshold: 3 px jitter = 0 Vorgaenge, no move; 5 px = one drag, one Vorgang, offset kept.
  *  5. The plain (offline) way stores the same bytes as on main.
  *  6. The stored series switch; Testflug.ts and SpawnPanel.ts use the new logic.
- *  7. Double click: the second click within 400 ms / 0.1 m (or with detail > 1) places nothing;
- *     0.5 m apart or 500 ms later places again.
+ *  7. Double click, judged on the SCREEN: within 400 ms and 5 px (10 px touch) places nothing, 6 px
+ *     or 401 ms places again; key P / button / captured mouse block the same rounded cell for 400 ms.
  *  8. Grab offset against the VISIBLE place (a walking route NPC): < 0.1 m from the pointer.
  *
  * Run: npx tsx client/test/testflug-greifen.ts
@@ -252,31 +252,62 @@ function zieh(z: ReturnType<typeof frisch>, id: string, art: string, wege: Array
   pruefe(/modusNachSetzen\(panel\.einstellung\.serie\)/.test(testflug), 'Testflug.ts ends the mode after placing only without series');
   pruefe(/serie: ladeSerie\(\)/.test(panel) && /speichereSerie\(/.test(panel), 'SpawnPanel has the stored series switch');
   pruefe(/serie\.blur\(\)/.test(panel), 'the series tick gives up its focus (space no longer toggles it)');
-  pruefe(/doppelSperre\.blockiert\(jetzt, p, e\.detail\)/.test(testflug) && /doppelSperre\.gesetzt\(/.test(testflug), 'Testflug.ts blocks the double click');
+  pruefe(/doppelSperre\.blockiert\(jetzt, bild, e\.pointerType/.test(testflug) && /doppelSperre\.gesetzt\(/.test(testflug), 'Testflug.ts blocks the double click on the screen');
+  pruefe(!/e\.detail/.test(testflug.slice(testflug.indexOf("addEventListener('pointerdown'"), testflug.indexOf("addEventListener('pointerdown'") + 6000)), 'pointerdown does not read the always-0 detail');
+  pruefe(/KeyP' && !e\.repeat/.test(testflug), 'key P ignores auto-repeat');
+  pruefe(/doppelSperre\.blockiertZelle\(/.test(testflug.slice(testflug.indexOf('const platziere = '), testflug.indexOf('kontext.setzeSpawnEditorOffen'))), 'platziere() blocks the same cell');
   pruefe(/griffPosition\(vorschau\.positionVon\(best\), q\)/.test(testflug), 'Testflug.ts measures the grab offset at the visible place');
   const platzBlock = testflug.slice(testflug.indexOf('const platziere = '), testflug.indexOf('kontext.setzeSpawnEditorOffen'));
   pruefe(/modusNachSetzen\(panel\.einstellung\.serie\)/.test(platzBlock) && !/^\s*panel\.beendePlatzierModus\(\);/m.test(platzBlock), 'key P / captured-mouse click keep the mode with series');
 }
 
 // ── 7. double click ─────────────────────────────────────────────────
-/** Clicks as the handler runs them: block check, then place. */
-function klickFolge(folge: Array<{ t: number; x: number; z: number; detail?: number }>): number {
+/** Clicks as the handler runs them: block check on the screen, then place. `x`/`z` are the world point, `px`/`py` the screen point. */
+type Kl = { t: number; x: number; z: number; px: number; py: number; typ?: string };
+function klickFolge(folge: Kl[]): number {
   const z = frisch();
   const sperre = new DoppelklickSperre();
   const vorher = liste(z.p).length;
   for (const k of folge) {
     const punkt = { x: k.x, z: k.z };
-    if (sperre.blockiert(k.t, punkt, k.detail ?? 1)) continue;
-    if (klick(z, punkt, { setzenModus: true }).art === 'setzen') sperre.gesetzt(k.t, punkt);
+    if (sperre.blockiert(k.t, { x: k.px, z: k.py }, k.typ)) continue;
+    if (klick(z, punkt, { setzenModus: true }).art === 'setzen') {
+      sperre.gesetzt(k.t, { x: Math.round(k.x * 10) / 10, z: Math.round(k.z * 10) / 10 }, { x: k.px, z: k.py });
+    }
   }
   return liste(z.p).length - vorher;
 }
-pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1120, x: 50, z: 50, detail: 2 }]) === 1, 'double click (120 ms, same spot) = 1 object');
-pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1120, x: 50.05, z: 50 }]) === 1, 'second click 0.05 m / 120 ms = 1 object');
-pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1500, x: 50, z: 50, detail: 2 }]) === 1, 'detail > 1 on the same spot after 500 ms = 1 object');
-pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1120, x: 50.5, z: 50 }]) === 2, 'two clicks 0.5 m apart = 2 objects');
-pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1500, x: 50, z: 50 }]) === 2, 'two clicks at the same spot 500 ms apart = 2 objects (wanted)');
-pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1120, x: 50, z: 50, detail: 2 }, { t: 1900, x: 50, z: 50 }]) === 2, 'a blocked click does not extend the window: the click after 900 ms places');
+const K = (t: number, px: number, py: number, x = 50, z = 50, typ?: string): Kl => ({ t, x, z, px, py, typ });
+// 1 px / 4 px jitter at 20 m: the world point moves 0.14 m per px, the screen point decides.
+pruefe(klickFolge([K(1000, 400, 300, 50, 50), K(1120, 400, 301, 50, 50.14)]) === 1, '1 px jitter at 20 m (0.14 m) = 1 object');
+pruefe(klickFolge([K(1000, 400, 300, 50, 50), K(1120, 402, 303, 50.3, 50.56)]) === 1, '3+4 px diagonal (5 px) jitter at 20 m = 1 object');
+pruefe(klickFolge([K(1000, 400, 300), K(1120, 400, 304, 50, 50.56)]) === 1, '4 px jitter at 20 m (0.56 m) = 1 object');
+pruefe(klickFolge([K(1000, 400, 300), K(1120, 406, 300, 50.3, 50)]) === 2, '6 px apart = 2 objects');
+pruefe(klickFolge([K(1000, 400, 300), K(1401, 400, 300)]) === 2, '401 ms later on the same pixel = 2 objects');
+pruefe(klickFolge([K(1000, 400, 300), K(1400, 400, 300)]) === 1, 'exactly 400 ms on the same pixel = 1 object');
+pruefe(klickFolge([K(1000, 400, 300, 50, 50, 'touch'), K(1120, 408, 300, 50, 50, 'touch')]) === 1, 'touch: 8 px = 1 object');
+pruefe(klickFolge([K(1000, 400, 300, 50, 50, 'touch'), K(1120, 411, 300, 50, 50, 'touch')]) === 2, 'touch: 11 px = 2 objects');
+pruefe(klickFolge([K(1000, 400, 300), K(1120, 408, 300)]) === 2, 'mouse: 8 px = 2 objects (the mouse limit is 5 px)');
+// series placing: 0.15 m steps every 100 ms with the pixels apart are NOT blocked
+pruefe(klickFolge([0, 1, 2, 3, 4].map((i) => K(1000 + i * 100, 400 + i * 12, 300, 50 + i * 0.15, 50))) === 5, 'series 0.15 m / 100 ms with pixels apart = 5 objects');
+pruefe(klickFolge([K(1000, 400, 300), K(1120, 400, 300), K(1900, 400, 300)]) === 2, 'a blocked click does not extend the window: the click after 900 ms places');
+
+// key P / button / captured mouse: the same rounded cell within 400 ms is one placement
+{
+  const s = new DoppelklickSperre();
+  const zelle = { x: 10, z: 15 };
+  pruefe(!s.blockiertZelle(0, zelle), 'P: first press places');
+  s.gesetzt(0, zelle);
+  let gesperrt = 0;
+  for (let t = 50; t <= 1500; t += 50) if (s.blockiertZelle(t, zelle) && t <= 400) gesperrt++;
+  pruefe(gesperrt === 8, 'P: presses in the same cell within 400 ms are blocked');
+  pruefe(s.blockiertZelle(400, zelle) && !s.blockiertZelle(401, zelle), 'P: 400 ms blocks, 401 ms places');
+  pruefe(!s.blockiertZelle(100, { x: 11, z: 15 }), 'P: another grid cell places at once');
+  pruefe(s.blockiertZelle(100, { x: 10, z: 15 }), 'P: the same cell is blocked');
+  const nur = new DoppelklickSperre();
+  nur.gesetzt(0, zelle);
+  pruefe(!nur.blockiert(100, { x: 1, z: 1 }), 'no screen point stored (P): a click is not blocked by the pixel rule');
+}
 
 // ── 8. grab offset against the visible place ────────────────────────
 {

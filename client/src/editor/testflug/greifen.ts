@@ -16,9 +16,10 @@ export const GRIFFRADIUS = 3;
 /** Pointer travel (px) after which a grab becomes a drag. */
 export const SCHWELLE_MAUS = 4;
 export const SCHWELLE_BERUEHRUNG = 8;
-/** A second place click within this time (ms) and closer than DOPPEL_ABSTAND (m) to the last one is a double click. */
+/** A second place click within this time (ms) and DOPPEL_BILD_PX screen pixels of the last one is a double click. */
 export const DOPPEL_ZEIT = 400;
-export const DOPPEL_ABSTAND = 0.1;
+export const DOPPEL_BILD_PX = 5;
+export const DOPPEL_TOUCH_PX = 10;
 /** Browser key of the "series" switch. */
 export const SERIE_SCHLUESSEL = 'wov-editor-spawn-serie';
 
@@ -68,19 +69,30 @@ export function griffPosition(sichtbar: Punkt | null | undefined, gespeichert: P
 
 /** Stops a double click from placing twice at the same spot (series mode keeps the place mode on). */
 export class DoppelklickSperre {
-  private letzte: { zeit: number; punkt: Punkt } | null = null;
+  private letzte: { zeit: number; bild: Punkt | null; zelle: Punkt } | null = null;
 
-  /** `true`: this place click is the second of a double click and places nothing. */
-  blockiert(zeit: number, punkt: Punkt, detail: number): boolean {
+  /**
+   * `true`: this place click is the second of a double click and places nothing.
+   * It is judged on the SCREEN (a double click scatters in pixels, not in metres): within
+   * DOPPEL_ZEIT and DOPPEL_BILD_PX (DOPPEL_TOUCH_PX for touch) of the last placement.
+   */
+  blockiert(zeit: number, bild: Punkt, pointerType = 'mouse'): boolean {
     const l = this.letzte;
-    if (!l) return false;
-    if (Math.hypot(punkt.x - l.punkt.x, punkt.z - l.punkt.z) >= DOPPEL_ABSTAND) return false;
-    return zeit - l.zeit <= DOPPEL_ZEIT || detail > 1;
+    if (!l?.bild || !(zeit - l.zeit <= DOPPEL_ZEIT)) return false;
+    const grenze = pointerType === 'mouse' ? DOPPEL_BILD_PX : DOPPEL_TOUCH_PX;
+    return Math.hypot(bild.x - l.bild.x, bild.z - l.bild.z) <= grenze;
   }
 
-  /** A placement happened at `punkt` at `zeit`. */
-  gesetzt(zeit: number, punkt: Punkt): void {
-    this.letzte = { zeit, punkt };
+  /** `true`: the same (rounded) cell was placed on within DOPPEL_ZEIT (key P, button, captured mouse). */
+  blockiertZelle(zeit: number, zelle: Punkt): boolean {
+    const l = this.letzte;
+    if (!l || !(zeit - l.zeit <= DOPPEL_ZEIT)) return false;
+    return l.zelle.x === zelle.x && l.zelle.z === zelle.z;
+  }
+
+  /** A placement happened in `zelle` at `zeit`; `bild` is the screen point of a click (null for P/button). */
+  gesetzt(zeit: number, zelle: Punkt, bild: Punkt | null = null): void {
+    this.letzte = { zeit, bild, zelle };
   }
 }
 

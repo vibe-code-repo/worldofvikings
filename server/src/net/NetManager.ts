@@ -19,6 +19,7 @@ import { Reader } from '../io/Reader.js';
 import { Writer } from '../io/Writer.js';
 import { getStableHash } from '../util/Hash.js';
 import { Drossel } from './Drossel.js';
+import { EDITOR_NAME, nameHatSteuerzeichen, namenSchluessel, namenVarianten } from './Namen.js';
 import {
   nonceErzeugen,
   antwortPruefen,
@@ -56,6 +57,13 @@ export interface NetManagerConfig {
    * Host samt Zertifikat zu brauchen -- Begruendung in KontoApi.ts.
    */
   httpBehandler?: HttpBehandler;
+  /**
+   * Is this name held by an account character? A guest (an identity that
+   * belongs to no character) may not wear it: two owners under one name
+   * would mix saved state, bans and admin lookups that go by name.
+   * Absent = no names are reserved (every test that starts a bare NetManager).
+   */
+  kontoNameBelegt?: (name: string) => boolean;
   /**
    * Look up the character an identity belongs to, or null when the token
    * predates accounts (or the character was deleted).
@@ -455,6 +463,37 @@ export class NetManager {
     // still how the connect screen works.
     const ausKonto = this.config.charakterZuSpielerId?.(spielerId) ?? null;
     if (ausKonto) playerName = ausKonto.name;
+    // `nurEditor` is a bit the CLIENT sends, so it must unlock nothing: an
+    // editor connection never carries a name the client picked. The server
+    // fixes it (EDITOR_NAME), which no chat line, admin lookup or name check
+    // ever resolves to a player (editor peers are skipped there).
+    // Gast-Token: Ein Gast (Identitaet ohne Charakter) behaelt seine Kennung
+    // ueber sein Token, den Namen waehlt er selbst -- aber keinen, den ein
+    // Konto-Charakter traegt, und keinen mit Steuer- oder Nullbreiten-Zeichen.
+    if (nurEditor) {
+      playerName = EDITOR_NAME;
+    } else if (!ausKonto) {
+      if (nameHatSteuerzeichen(playerName)) {
+        peer.status = ConnectionStatus.ErrorDisconnected;
+        peer.disconnect('Invalid name');
+        return;
+      }
+      // "Editor" is reserved for guests only (this check runs in the guest
+      // branch): without it, a guest could sit in the world under the very
+      // name every editor peer answers to. An account character may still
+      // be named "Editor" -- it is told apart by player id, not by name
+      // (C1, Pruefung 2).
+      if (namenSchluessel(playerName) === namenSchluessel(EDITOR_NAME)) {
+        peer.status = ConnectionStatus.ErrorAlreadyConnected;
+        peer.disconnect('Name already in use');
+        return;
+      }
+      if (namenVarianten(playerName).some((n) => this.config.kontoNameBelegt?.(n))) {
+        peer.status = ConnectionStatus.ErrorAlreadyConnected;
+        peer.disconnect('Name already in use');
+        return;
+      }
+    }
 
     // Duplicate name — checked AFTER the identity is resolved, deliberately.
     //
@@ -479,7 +518,7 @@ export class NetManager {
     // Schleife, fuer die der Editor gebaut ist.
     const namensgleich = nurEditor
       ? undefined
-      : this.onlinePeers.find((p) => p.name === playerName);
+      : this.onlinePeers.find((p) => !p.nurEditor && p.name === playerName);
     if (namensgleich) {
       if (namensgleich.spielerId === spielerId) {
         namensgleich.disconnect('Von einer neuen Verbindung abgelöst');

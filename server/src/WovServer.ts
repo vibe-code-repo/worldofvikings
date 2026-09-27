@@ -129,6 +129,7 @@ import { Writer } from './io/Writer.js';
 import { AdminCommandRegistry } from './admin/AdminCommands.js';
 import { AdminListe } from './admin/AdminListe.js';
 import { geheimnisAusEnv, istSpielerId, type SpielerId } from './net/Identitaet.js';
+import { namenSchluessel } from './net/Namen.js';
 import {
   ZONE_SIZE,
   findItem, ITEM_DEFS,
@@ -289,6 +290,8 @@ export interface ServerConfig {
 }
 
 /** Parade: Fenster (ms), in dem ein Treffer abgewehrt wird (Clip 0,45 s + Nachlauf). */
+/** `spielerIdFuerName` found several players of that name: the admin command must do nothing. */
+const NAME_NICHT_EINDEUTIG = 'nicht-eindeutig' as const;
 const PARADE_FENSTER_MS = 600;
 /** Parade: Ausdauerkosten (ein Schlag kostet 8). */
 const PARADE_AUSDAUER = 4;
@@ -554,14 +557,11 @@ export class WovServer {
    * Peers, NICHT mehr ueber peer.name — ein frei getippter Anzeigename
    * ist keine Identitaet. Datensaetze aus der Zeit VOR diesem Umbau (und
    * jeder Datensatz, dem eine gueltige spielerId fehlt) liegen weiterhin
-   * unter ihrem NAMEN — ermittleGespeichertenStand() findet und migriert
-   * sie beim naechsten Login des betreffenden Spielers automatisch auf
-   * die neue spielerId (siehe dort). Das ist auch der Normalfall NACH
-   * jedem Serverneustart: das Sitzungsgeheimnis lebt absichtlich nur im
-   * Arbeitsspeicher (siehe `sessionSecret` im Konstruktor), jedes Token
-   * wird beim Neustart ungueltig, und jeder Spieler bekommt beim naechsten
-   * Connect eine frische spielerId zugewiesen — ohne den Namens-Fallback
-   * wuerde das Position/Inventar bei JEDEM Neustart verlieren.
+   * unter ihrem NAMEN, werden aber nicht mehr zugeordnet: Es gibt keinen
+   * Namens-Rueckweg mehr (siehe ermittleGespeichertenStand()). Ist das
+   * Sitzungsgeheimnis nicht fest gesetzt (WOV_SESSION_SECRET_HEX), lebt es
+   * nur im Arbeitsspeicher (siehe `sessionSecret` im Konstruktor): Nach
+   * einem Neustart ist jedes Token ungueltig, und ein Gast beginnt neu.
    */
   private readonly savedPlayers = new Map<string, SavedPlayer>();
   /** S6 (Security-Review): dauerhafte Admin-Liste ueber stabile Spieler-
@@ -697,9 +697,10 @@ export class WovServer {
     // verloren, wie es HEUTE schon bei jedem einzelnen Reconnect passiert,
     // siehe Identitaet.ts Kopfkommentar — hier passiert es nur noch beim
     // Neustart statt bei jeder Verbindung, das ist eine Verbesserung,
-    // keine Verschlechterung). Position/Inventar ueberleben trotzdem: der
-    // Migrationspfad ueber den Anzeigenamen greift automatisch (siehe
-    // savedPlayers/ermittleGespeichertenStand).
+    // keine Verschlechterung). Konten sind davon nicht betroffen (ihre
+    // spielerId steht in der Kontendatenbank); ein Gast beginnt nach dem
+    // Neustart neu, seit es keinen Namens-Rueckweg mehr gibt (siehe
+    // ermittleGespeichertenStand).
     //
     // Fuer den jetzigen Betrieb hinnehmbar: der Server laeuft tagelang
     // durch, und es ist ohnehin kein Passwort gesetzt.
@@ -858,6 +859,7 @@ export class WovServer {
       // Der Name kommt aus dem Konto, nicht aus der Behauptung des
       // Browsers -- Begruendung in NetManager.handlePasswordAuth.
       charakterZuSpielerId: (id) => this.kontenDb.charakterZuSpielerId(id),
+      kontoNameBelegt: (name) => this.kontenDb.charakterNachName(name) !== null,
       /*
         Die Bannliste, angeschlossen (Pakete 0.5 und 0.1 zusammengefuehrt).
         Ohne dieses eine Feld bleibt `bannPruefen` im NetManager undefined
@@ -2254,62 +2256,24 @@ export class WovServer {
   }
 
   /**
-   * F3 (Security-Review): den gespeicherten Zustand fuer einen frisch
-   * authentifizierten Peer ermitteln — und falls noetig, einen alten,
-   * NAMENTLICH abgelegten Datensatz auf die stabile spielerId migrieren.
+   * Den gespeicherten Zustand fuer einen frisch authentifizierten Peer
+   * ermitteln — ausschliesslich ueber die stabile `spielerId`.
    *
-   * Ablauf:
-   *  1. Direkter Treffer unter der spielerId (schneller Normalfall:
-   *     derselbe Serverlauf, gueltiges Token — die meiste Zeit).
-   *  2. Kein Treffer → Suche nach einem Datensatz mit demselben
-   *     ANZEIGENAMEN (das ist der Fall nach jedem Serverneustart, weil
-   *     das SessionToken absichtlich nicht ueberlebt, siehe Konstruktor —
-   *     UND der Fall bei geleertem localStorage/altem Client ohne Token
-   *     innerhalb eines laufenden Serverprozesses). Gefunden → auf die
-   *     NEUE spielerId umschluesseln (alten Namens-Schluessel entfernen,
-   *     sonst waechst savedPlayers bei jedem Neustart um einen weiteren
-   *     Eintrag PRO SPIELER, statt konstant zu bleiben).
+   * Die spielerId kommt aus dem SessionToken (Konto-Charaktere und Gaeste
+   * legen es beide wieder vor, s. NetManager.handlePasswordAuth), nie aus
+   * einer Behauptung des Clients. Wer kein gueltiges Token vorlegt, ist ein
+   * NEUER Spieler und beginnt neu.
    *
-   * Bewusste Grenze: exakter Namensabgleich, kein Identitaetsnachweis.
-   * Wer zufaellig (oder absichtlich) denselben Anzeigenamen waehlt wie
-   * ein zuvor gesehener, gerade abwesender Spieler, erbt dessen
-   * Position/Inventar — GENAU dieselbe Grenze wie im bisherigen System
-   * (dort war der Name selbst der einzige Schluessel, IMMER, ohne jede
-   * Pruefung). Sicherheitsrelevant ist das NICHT: ZDO-Besitz (wer welche
-   * Bauten abreissen, Betten und Truhen benutzen darf) haengt
-   * ausschliesslich an der frisch bzw. aus einem gueltigen Token
-   * abgeleiteten altlastUserId, nie an diesem Namensabgleich — dieser Pfad
-   * ist reine Komfort-Wiederherstellung von Position/Inventar, keine
-   * Berechtigung.
-   *
-   * GRENZE DIESER TRENNUNG: Position und Inventar kommen ueber den Namen
-   * zurueck, der Besitz nicht. Die altlastUserId ist nur stabil, solange
-   * der Client sein Token wieder vorlegt (bzw. fuer Konten, die sie in der
-   * Kontendatenbank tragen). Ein Gast ohne Token bekommt beim naechsten
-   * Verbinden eine frisch gewuerfelte — seine Truhen, Betten und Bauten
-   * melden dann „gehoert einem anderen Spieler", obwohl er unter demselben
-   * Namen wieder da ist. Ob Gaeste dauerhaften Besitz haben sollen, ist
-   * offen (Produktentscheidung), nicht hier geloest.
+   * Bis 2026-09 fiel die Funktion bei einem Fehlschlag auf den Namen
+   * zurueck: Wer denselben Anzeigenamen tippte wie ein gerade abwesender
+   * Spieler, bekam dessen Position und Inventar (und der Eigentuemer beim
+   * naechsten Login den Stand des Fremden). Das war eine Uebernahme
+   * fremder Staende und ist gestrichen. Folge: Staende, die noch unter dem
+   * Namen liegen (Saves vor der spielerId), und Gaeste ohne Token kommen
+   * nicht mehr zurueck — gewollt.
    */
   private ermittleGespeichertenStand(peer: Peer): SavedPlayer | undefined {
-    const direkt = this.savedPlayers.get(peer.spielerId);
-    if (direkt) return direkt;
-
-    // Werte durchsuchen statt per Schluessel nachzuschlagen: ein Alt-
-    // datensatz kann unter dem NAMEN liegen (aus einem Save vor diesem
-    // Umbau — siehe loadWorld), aber genauso unter einer FRUEHEREN
-    // spielerId desselben Spielers aus DIESEM Serverlauf (onPeerQuit
-    // schluesselt seit F3 immer ueber spielerId, nie mehr ueber den
-    // Namen — ein reiner Schluessel-Lookup mit peer.name wuerde diesen
-    // zweiten, im Alltag haeufigeren Fall nie finden).
-    for (const [schluessel, kandidat] of this.savedPlayers) {
-      if (kandidat.name !== peer.name) continue;
-      this.savedPlayers.delete(schluessel);
-      const migriert: SavedPlayer = { ...kandidat, spielerId: peer.spielerId };
-      this.savedPlayers.set(peer.spielerId, migriert);
-      return migriert;
-    }
-    return undefined;
+    return this.savedPlayers.get(peer.spielerId);
   }
 
   /**
@@ -2318,15 +2282,23 @@ export class WovServer {
    * zuverlaessigster Stand), dann in savedPlayers (auch fuer gerade
    * abwesende Spieler, die schon einmal verbunden waren).
    */
-  private spielerIdFuerName(name: string): SpielerId | undefined {
-    const online = this.net.getPeers().find((p) => p.name === name);
-    if (online) return online.spielerId;
+  private spielerIdFuerName(name: string): SpielerId | undefined | typeof NAME_NICHT_EINDEUTIG {
+    const schluessel = namenSchluessel(name);
+    // Editor connections are never a player (their name is fixed by the server).
+    const online = new Set(
+      this.net.getPeers().filter((p) => !p.nurEditor && namenSchluessel(p.name) === schluessel).map((p) => p.spielerId),
+    );
+    if (online.size > 1) return NAME_NICHT_EINDEUTIG;
+    if (online.size === 1) return [...online][0];
+    // Without the name path, two guests of the same name are two entries: never pick one silently.
+    const gespeichert = new Set<SpielerId>();
     for (const eintrag of this.savedPlayers.values()) {
-      if (eintrag.name === name && eintrag.spielerId && istSpielerId(eintrag.spielerId)) {
-        return eintrag.spielerId;
+      if (namenSchluessel(eintrag.name) === schluessel && eintrag.spielerId && istSpielerId(eintrag.spielerId)) {
+        gespeichert.add(eintrag.spielerId);
       }
     }
-    return undefined;
+    if (gespeichert.size > 1) return NAME_NICHT_EINDEUTIG;
+    return [...gespeichert][0];
   }
 
   // ── Packet handling ────────────────────────────────────────────
@@ -2819,6 +2791,8 @@ export class WovServer {
   }
 
   private handleChatMessage(peer: Peer, reader: Reader): void {
+    // An editor connection is not in the world and never speaks in it.
+    if (peer.nurEditor) return;
     const chatType = reader.readInt32();
     // Serverseitige Längengrenze (F14) — eine rein clientseitige Grenze
     // hält einen manipulierten/zweiten Client nie auf. kuerzeChatText
@@ -2911,8 +2885,9 @@ export class WovServer {
    * stabil fuer Konten und fuer Clients, die ihr Session-Token wieder
    * vorlegen — nicht fuer einen Gast ohne Token: er bekommt bei jedem neuen
    * Verbinden eine frische und ist danach fuer seine eigenen Bauten ein
-   * Fremder (s. `ermittleGespeichertenStand`). Ob Gaeste dauerhaften Besitz
-   * haben sollen, ist eine offene Produktentscheidung.
+   * Fremder — und beginnt dann auch mit leerem Stand (s.
+   * `ermittleGespeichertenStand`). Gaeste behalten Besitz und Stand, solange
+   * sie ihr Token (localStorage) wieder vorlegen.
    */
   private darfBenutzen(zdo: ZDO, peer: Peer): boolean {
     const besitzer = zdo.getString('besitzer');
@@ -4727,6 +4702,7 @@ export class WovServer {
         const name = args.join(' ').trim();
         if (!name) return { ok: false, active: false, message: 'Aufruf: admin add <Name>' };
         const id = this.spielerIdFuerName(name);
+        if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
         if (!id) {
           return { ok: false, active: false,
             message: `Unbekannter Spieler: "${name}" (muss schon einmal verbunden gewesen sein)` };
@@ -4743,6 +4719,7 @@ export class WovServer {
         const name = args.join(' ').trim();
         if (!name) return { ok: false, active: false, message: 'Aufruf: admin remove <Name>' };
         const id = this.spielerIdFuerName(name);
+        if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
         if (!id) {
           return { ok: false, active: false, message: `Unbekannter Spieler: "${name}"` };
         }
@@ -5007,6 +4984,7 @@ export class WovServer {
           kontoId = charakter.kontoId;
         } else {
           const id = this.spielerIdFuerName(name);
+          if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
           if (!id) {
             return { ok: false, active: false,
               message: `Unbekannter Spieler: "${name}" (kein Konto dieses Namens und nie verbunden gewesen)` };
@@ -5059,6 +5037,7 @@ export class WovServer {
         return { ok: true, active: false, message: `Kontobann auf ${name} aufgehoben` };
       }
       const id = this.spielerIdFuerName(name);
+      if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
       if (id && this.kontenDb.bannAufheben('spieler', id)) {
         return { ok: true, active: false, message: `Spielerbann auf ${name} aufgehoben` };
       }
@@ -5179,8 +5158,8 @@ export class WovServer {
         if (this.speichertGerade) return { ok: false, active: false, message: 'Sicherung läuft; bitte gleich erneut versuchen. Nichts verändert.' };
         const name = args.join(' ').trim();
         if (!name) return { ok: false, active: false, message: `Aufruf: item ${sub} <Spielername>` };
-        const online = this.net.getPeers().filter(p => !p.nurEditor && p.name.toLowerCase() === name.toLowerCase());
-        const saved = [...this.savedPlayers.entries()].filter(([, p]) => p.name.toLowerCase() === name.toLowerCase());
+        const online = this.net.getPeers().filter(p => !p.nurEditor && namenSchluessel(p.name) === namenSchluessel(name));
+        const saved = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === namenSchluessel(name));
         if (online.length > 1 || (!online.length && saved.length !== 1)) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
         const target = online[0]; const record = saved[0];
         if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };
@@ -5385,9 +5364,14 @@ export class WovServer {
         const uebersprungen: string[] = [];
         for (const name of args) {
           if (verbunden.has(name)) { uebersprungen.push(`${name} (verbunden)`); continue; }
-          const treffer = [...this.savedPlayers.entries()].find(([, p]) => p.name === name);
-          if (!treffer) { uebersprungen.push(`${name} (unbekannt)`); continue; }
-          this.savedPlayers.delete(treffer[0]);
+          // C5 (Pruefung 2): mehrere gespeicherte Treffer sind eine
+          // Verwechslungsgefahr wie bei `admin add`/`bann` — nicht still den
+          // ersten (aeltesten) loeschen, sondern melden und nichts tun.
+          const schluessel = namenSchluessel(name);
+          const treffer = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === schluessel);
+          if (treffer.length === 0) { uebersprungen.push(`${name} (unbekannt)`); continue; }
+          if (treffer.length > 1) { uebersprungen.push(`${name} (nicht eindeutig)`); continue; }
+          this.savedPlayers.delete(treffer[0][0]);
           weg.push(name);
         }
         const rest = this.savedPlayers.size;
@@ -5987,8 +5971,8 @@ export class WovServer {
     // Save-Format schon eine gueltige mitbringt (Staende ab diesem
     // Umbau) — sonst unter dem NAMEN, exakt wie vor dem Umbau. Das ist
     // KEIN Praefix-Trick: ein Altstand ohne spielerId landet bit-genau
-    // unter demselben Schluessel wie frueher, ermittleGespeichertenStand()
-    // migriert ihn beim naechsten Login des betreffenden Spielers.
+    // unter demselben Schluessel wie frueher; zugeordnet wird er nicht mehr
+    // (ermittleGespeichertenStand() kennt nur die spielerId).
     for (const player of data.players) {
       const schluessel =
         player.spielerId && istSpielerId(player.spielerId) ? player.spielerId : player.name;
@@ -6185,8 +6169,7 @@ export class WovServer {
       // F3 (Security-Review): unter der spielerId, nicht mehr unter dem
       // Namen — ueberschreibt hier zuverlaessig einen evtl. noch unter
       // dem NAMEN liegenden Alteintrag desselben Spielers nicht (anderer
-      // Schluessel), das erledigt ermittleGespeichertenStand() beim naechsten
-      // Login. Was tatsaechlich auf die Platte geht, sind nur die WERTE
+      // Schluessel); der bleibt unbenutzt liegen. Was tatsaechlich auf die Platte geht, sind nur die WERTE
       // (players[] ist ein Array) — der Map-Schluessel selbst ist reiner
       // Laufzeitzustand.
       players.set(peer.spielerId, {

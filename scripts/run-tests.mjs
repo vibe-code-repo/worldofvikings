@@ -2264,6 +2264,8 @@ const KERN = [
   ['client', 'test/testflug-sockel-dienst.ts'],
   // Test flight: a click places while a prefab is chosen (Alt grabs), series switch, drag only past 4 px (8 touch) with grab offset; offline bytes unchanged.
   ['client', 'test/testflug-greifen.ts'],
+  // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
+  ['server', 'test/gaeste-besitz.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

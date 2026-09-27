@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { de } from '../src/i18n/de.js';
-import { en } from '../src/i18n/en.js';
+import de from '../src/i18n/katalog/de.json';
+import en from '../src/i18n/katalog/en.json';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const clientRoot = resolve(HERE, '..');

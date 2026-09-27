@@ -1,5 +1,5 @@
-import { de } from './de';
-import { en } from './en';
+import de from './katalog/de.json';
+import en from './katalog/en.json';
 
 const CATALOGUES = { de, en } as const;
 

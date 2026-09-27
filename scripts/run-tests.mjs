@@ -2274,6 +2274,10 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  // Karte M1: Vollstaendigkeitstest der Uebersetzungskataloge (client/src/i18n/katalog
+  // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
+  // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
+  ['shared', 'test/i18n-katalog.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

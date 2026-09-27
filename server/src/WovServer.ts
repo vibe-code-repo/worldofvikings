@@ -1867,7 +1867,7 @@ export class WovServer {
    *
    * Drahtformat (Bit 0 von `satzFlags` unterscheidet die beiden Fälle):
    *
-   *   uint8   satzFlags   Bit0 = Vollstand, Bit1 = Besitzer folgt
+   *   uint8   satzFlags   Bit0 = Vollstand, Bit1 = Empfänger ist selbst Besitzer
    *   string  userId
    *   int32   id
    *   int32   prefabHash  NUR im Vollstand (ändert sich nie)
@@ -1890,12 +1890,22 @@ export class WovServer {
    * nach einer Member-Entfernung (die ein Delta nicht ausdrücken kann) und
    * nach dem Überlauf der 23-Bit-Datenrevision — dann ist `peerRev` größer
    * als die aktuelle Revision, und der Vergleich wäre wertlos.
+   *
+   * Bit1 sagt NICHT mehr "ein Besitzer existiert" (das ging als Kontenkennung
+   * an jeden Fremden mit, s. `Berichte/2026-09-23 Truheninhalt lesen —
+   * Angriff.md`, Befund 2), sondern "der EMPFÄNGER ist der Besitzer" — heute
+   * nur beim eigenen Spielercharakter gesetzt (`onPeerAuthenticated`,
+   * `charakterUmziehen`) und vom Client nur dafür gebraucht
+   * (`isOwnPlayer`, `client/src/net/ZDOSync.ts`). Für jeden anderen Peer
+   * bleibt das Bit 0, `ownerUserId`/`ownerId` fehlen ganz — dieselbe
+   * Kennung, die schon `darfBenutzen` schützt, wird sonst zum zweiten Mal
+   * unverdeckt verschickt.
    */
   private writeZDO(w: Writer, zdo: ZDO, peerRev: number | undefined, peer: Peer): void {
     const datenRev = zdo.revision.dataRevision;
     const voll =
       peerRev === undefined || peerRev > datenRev || zdo.entfernungsRevision > peerRev;
-    const hatBesitzer = !zdo.owner.isNone();
+    const hatBesitzer = this.istBesitzerFuerPeer(zdo, peer);
 
     w.writeUInt8((voll ? 1 : 0) | (hatBesitzer ? 2 : 0));
     w.writeString(zdo.zdoid.userId.toString());
@@ -1911,16 +1921,19 @@ export class WovServer {
     }
 
     const members = zdo.getMembers();
-    // Der Truheninhalt geht nur an den, der die Truhe benutzen darf. Der
-    // Client liest ihn gar nicht aus dem Sync (er bekommt ihn per
-    // ContainerSync beim Oeffnen), fuer alle anderen war er nur mitgereist.
-    const verdeckt = this.verdeckterMember(zdo, peer);
+    // Der Truheninhalt und die Konto-Kennung des Erbauers gehen nur an den,
+    // der das Bauteil benutzen darf. Der Client liest beides nicht aus dem
+    // Sync (Inhalt kommt per ContainerSync beim Oeffnen, `besitzer` hat gar
+    // keinen Leser, s. Karte), fuer alle anderen waren sie nur mitgereist.
+    const verdeckt = this.verdeckteMember(zdo, peer);
     if (voll) {
       let anzahlVoll = members.size;
-      if (verdeckt !== undefined && members.has(verdeckt)) anzahlVoll--;
+      if (verdeckt !== undefined) {
+        for (const hash of verdeckt) if (members.has(hash)) anzahlVoll--;
+      }
       w.writeInt32(anzahlVoll);
       for (const [hash, member] of members) {
-        if (hash === verdeckt) continue;
+        if (verdeckt?.has(hash)) continue;
         w.writeInt32(hash);
         w.writeUInt8(member.type);
         w.writeByTypeTag(member.type, member.value);
@@ -1932,11 +1945,11 @@ export class WovServer {
     // mehr als eine Handvoll Member, und eine Allokation je ZDO und Tick
     // ist bei 20 Hz teurer als die zweite Schleife.
     let neue = 0;
-    for (const [hash, member] of members) if (member.rev > peerRev! && hash !== verdeckt) neue++;
+    for (const [hash, member] of members) if (member.rev > peerRev! && !verdeckt?.has(hash)) neue++;
     w.writeInt32(neue);
     if (neue === 0) return;
     for (const [hash, member] of members) {
-      if (member.rev <= peerRev! || hash === verdeckt) continue;
+      if (member.rev <= peerRev! || verdeckt?.has(hash)) continue;
       w.writeInt32(hash);
       w.writeUInt8(member.type);
       w.writeByTypeTag(member.type, member.value);
@@ -1944,15 +1957,36 @@ export class WovServer {
   }
 
   private static readonly TRUHE_INHALT_HASH = getStableHash(TRUHE_INHALT_MEMBER);
+  private static readonly BESITZER_HASH = getStableHash('besitzer');
 
   /**
-   * Hash des Members, den `peer` von diesem ZDO NICHT bekommt (sonst
-   * `undefined`). Heute nur der Truheninhalt fremder Truhen; die Regel ist
-   * `darfBenutzen`, keine zweite daneben.
+   * Ist `peer` selbst der ZDO-Owner (Satzkopf-Feld, heute nur beim
+   * Spielercharakter gesetzt)? Andere Peers bekommen das Feld gar nicht —
+   * sonst ginge die Konto-Kennung des Besitzers an jeden Fremden in
+   * Reichweite mit, wie `besitzer` bei Bauten (Befund 2,
+   * `Berichte/2026-09-23 Truheninhalt lesen — Angriff.md`). Der Client
+   * braucht das Feld nur, um seine eigene Spielfigur zu erkennen
+   * (`isOwnPlayer`) — ein Fremdbesitz ist fuer ihn ohnehin nie "eigen".
    */
-  private verdeckterMember(zdo: ZDO, peer: Peer): number | undefined {
-    if (!zdo.hasMember(WovServer.TRUHE_INHALT_HASH)) return undefined;
-    return this.darfBenutzen(zdo, peer) ? undefined : WovServer.TRUHE_INHALT_HASH;
+  private istBesitzerFuerPeer(zdo: ZDO, peer: Peer): boolean {
+    return !zdo.owner.isNone() && zdo.owner.userId === peer.userId;
+  }
+
+  /**
+   * Hashes der Member, die `peer` von diesem ZDO NICHT bekommt (sonst
+   * `undefined`). Heute der Truheninhalt und die Konto-Kennung des
+   * Erbauers (`besitzer`) fremder Bauten; die Regel ist `darfBenutzen`,
+   * keine zweite daneben.
+   */
+  private verdeckteMember(zdo: ZDO, peer: Peer): ReadonlySet<number> | undefined {
+    const hatTruheInhalt = zdo.hasMember(WovServer.TRUHE_INHALT_HASH);
+    const hatBesitzerMember = zdo.hasMember(WovServer.BESITZER_HASH);
+    if (!hatTruheInhalt && !hatBesitzerMember) return undefined;
+    if (this.darfBenutzen(zdo, peer)) return undefined;
+    const verdeckt = new Set<number>();
+    if (hatTruheInhalt) verdeckt.add(WovServer.TRUHE_INHALT_HASH);
+    if (hatBesitzerMember) verdeckt.add(WovServer.BESITZER_HASH);
+    return verdeckt;
   }
 
   // ── Peer lifecycle ─────────────────────────────────────────────

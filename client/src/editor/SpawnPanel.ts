@@ -395,6 +395,8 @@ export class SpawnPanel {
     serie.onchange = () => {
       this.einstellung.serie = serie.checked;
       speichereSerie(serie.checked);
+      // Fokus abgeben: Sonst schaltet die Leertaste („Leer steigt“) den Haken um.
+      serie.blur();
     };
     const serieTxt = document.createElement('span');
     serieTxt.textContent = 'Serie (mehrere hintereinander setzen; Esc/Rechtsklick beendet, Alt+Klick greift)';

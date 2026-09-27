@@ -38,7 +38,7 @@ import type { TestflugKontext } from './TestflugKontext';
 import { antwortText } from './TestflugPersistenz';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebnis } from './TestflugPersistenz';
 import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
-import { Ziehgriff, entscheideKlick, modusNachSetzen } from './greifen';
+import { DoppelklickSperre, Ziehgriff, entscheideKlick, griffPosition, modusNachSetzen } from './greifen';
 
 /**
  * ?layout=editor lädt den Editor-Entwurf — der "Testflug" des 3D-Map-
@@ -248,6 +248,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // nur Luft.
       return Math.round(((w * e.scale) / 2) + 1);
     };
+    const doppelSperre = new DoppelklickSperre();
     const platziere = (): void => {
       const player = kontext.player();
       if (!player || !kontext.world()) return;
@@ -301,10 +302,10 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         `${e.prefab} platziert @ (${wx}, ${wz})` +
           (sockel !== undefined ? ` — Boden planiert (r=${sockel} m)` : '')
       );
-      // Nutzerwunsch: Nach dem Setzen hängt NICHTS mehr an der Maus —
-      // der Modus endet mit der Platzierung (aufWahl räumt den Geist ab).
-      // Wer ein weiteres Exemplar will, klickt den Eintrag erneut an.
-      panel.beendePlatzierModus();
+      // Ohne „Serie“ hängt nach dem Setzen NICHTS mehr an der Maus — der Modus
+      // endet mit der Platzierung (aufWahl räumt den Geist ab). Mit „Serie“
+      // (Vorgabe) bleibt er an, wie beim Linksklick.
+      if (!modusNachSetzen(panel.einstellung.serie)) panel.beendePlatzierModus();
     };
     kontext.setzeSpawnEditorOffen(() => panel.istOffen);
     /**
@@ -857,12 +858,14 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         auswahlId = q.id!;
         // Erst eine Bewegung über die Schwelle macht daraus ein Ziehen; bis dahin
         // ist es nur Auswählen und erzeugt keinen Vorgang.
-        griff = new Ziehgriff(q.id!, { x: e.offsetX, y: e.offsetY }, p, q, e.pointerType || 'mouse');
+        // Der Griffversatz gilt gegen die SICHTBARE Stelle (ein Routen-NPC läuft
+        // in der Vorschau weiter), sonst zieht die Figur neben dem Zeiger.
+        const sicht = griffPosition(vorschau.positionVon(best), q);
+        griff = new Ziehgriff(q.id!, { x: e.offsetX, y: e.offsetY }, p, sicht, e.pointerType || 'mouse');
         geistWeg();
         // ziehStart bleibt die GESPEICHERTE Stelle: Von dort muss beim
         // Absetzen ein etwaiger Sockel weggeräumt werden.
         ziehStart = { x: q.x, z: q.z };
-        const sicht = vorschau.positionVon(best) ?? q;
         ringZu(sicht.x, sicht.z);
         // Der Routen-Editor zeigt die gewählte Platzierung an (Ziel von
         // „→ zuweisen") — er erfährt den Wechsel nur hierüber.
@@ -877,6 +880,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         // Gesetzt wird weiterhin nur mit sichtbarer Prefab-Liste — sonst
         // platzierte ein Klick beim Routenzeichnen aus einem Modus, den
         // man gerade gar nicht sieht.
+        // Zweiter Klick eines Doppelklicks: nichts setzen (sonst zwei Objekte an einer Stelle).
+        const jetzt = performance.now();
+        if (doppelSperre.blockiert(jetzt, p, e.detail)) return;
         const einst = panel.einstellung;
         const sockel = einst.einebnen ? sockelRadius() : undefined;
         const eintrag = {
@@ -889,6 +895,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           ...(sockel !== undefined ? { einebnen: sockel } : {}),
         };
         if (!anwenden(aktionen.setzen(eintrag))) return;
+        doppelSperre.gesetzt(jetzt, p);
         // Erst planieren, DANN zeichnen — siehe platziere().
         if (sockel !== undefined) sockelLiveDazu(eintrag.x, eintrag.z, sockel);
         zeige(eintrag, (persistenz.laden()?.placements ?? []).length - 1);

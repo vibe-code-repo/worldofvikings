@@ -9,6 +9,9 @@
  *  4. Threshold: 3 px jitter = 0 Vorgaenge, no move; 5 px = one drag, one Vorgang, offset kept.
  *  5. The plain (offline) way stores the same bytes as on main.
  *  6. The stored series switch; Testflug.ts and SpawnPanel.ts use the new logic.
+ *  7. Double click: the second click within 400 ms / 0.1 m (or with detail > 1) places nothing;
+ *     0.5 m apart or 500 ms later places again.
+ *  8. Grab offset against the VISIBLE place (a walking route NPC): < 0.1 m from the pointer.
  *
  * Run: npx tsx client/test/testflug-greifen.ts
  */
@@ -35,7 +38,7 @@ console.warn = (): void => undefined;
 const { localStoragePersistenz, ENTWURF_SCHLUESSEL } = await import('../src/editor/testflug/LocalStoragePersistenz');
 const { TestflugAktionen } = await import('../src/editor/testflug/TestflugAktionen');
 const greifen = await import('../src/editor/testflug/greifen');
-const { entscheideKlick, modusNachSetzen, Ziehgriff, ladeSerie, speichereSerie, SERIE_SCHLUESSEL } = greifen;
+const { entscheideKlick, modusNachSetzen, Ziehgriff, ladeSerie, speichereSerie, SERIE_SCHLUESSEL, DoppelklickSperre, griffPosition } = greifen;
 
 const KUH = 'kuh_20_20-c3d4';
 const BUCHE = 'beech1_10_10-a1b2';
@@ -248,6 +251,48 @@ function zieh(z: ReturnType<typeof frisch>, id: string, art: string, wege: Array
   pruefe(/new Ziehgriff\(/.test(testflug) && /griff\?\.bewege\(/.test(testflug), 'Testflug.ts drags only through Ziehgriff');
   pruefe(/modusNachSetzen\(panel\.einstellung\.serie\)/.test(testflug), 'Testflug.ts ends the mode after placing only without series');
   pruefe(/serie: ladeSerie\(\)/.test(panel) && /speichereSerie\(/.test(panel), 'SpawnPanel has the stored series switch');
+  pruefe(/serie\.blur\(\)/.test(panel), 'the series tick gives up its focus (space no longer toggles it)');
+  pruefe(/doppelSperre\.blockiert\(jetzt, p, e\.detail\)/.test(testflug) && /doppelSperre\.gesetzt\(/.test(testflug), 'Testflug.ts blocks the double click');
+  pruefe(/griffPosition\(vorschau\.positionVon\(best\), q\)/.test(testflug), 'Testflug.ts measures the grab offset at the visible place');
+  const platzBlock = testflug.slice(testflug.indexOf('const platziere = '), testflug.indexOf('kontext.setzeSpawnEditorOffen'));
+  pruefe(/modusNachSetzen\(panel\.einstellung\.serie\)/.test(platzBlock) && !/^\s*panel\.beendePlatzierModus\(\);/m.test(platzBlock), 'key P / captured-mouse click keep the mode with series');
+}
+
+// ── 7. double click ─────────────────────────────────────────────────
+/** Clicks as the handler runs them: block check, then place. */
+function klickFolge(folge: Array<{ t: number; x: number; z: number; detail?: number }>): number {
+  const z = frisch();
+  const sperre = new DoppelklickSperre();
+  const vorher = liste(z.p).length;
+  for (const k of folge) {
+    const punkt = { x: k.x, z: k.z };
+    if (sperre.blockiert(k.t, punkt, k.detail ?? 1)) continue;
+    if (klick(z, punkt, { setzenModus: true }).art === 'setzen') sperre.gesetzt(k.t, punkt);
+  }
+  return liste(z.p).length - vorher;
+}
+pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1120, x: 50, z: 50, detail: 2 }]) === 1, 'double click (120 ms, same spot) = 1 object');
+pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1120, x: 50.05, z: 50 }]) === 1, 'second click 0.05 m / 120 ms = 1 object');
+pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1500, x: 50, z: 50, detail: 2 }]) === 1, 'detail > 1 on the same spot after 500 ms = 1 object');
+pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1120, x: 50.5, z: 50 }]) === 2, 'two clicks 0.5 m apart = 2 objects');
+pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1500, x: 50, z: 50 }]) === 2, 'two clicks at the same spot 500 ms apart = 2 objects (wanted)');
+pruefe(klickFolge([{ t: 1000, x: 50, z: 50 }, { t: 1120, x: 50, z: 50, detail: 2 }, { t: 1900, x: 50, z: 50 }]) === 2, 'a blocked click does not extend the window: the click after 900 ms places');
+
+// ── 8. grab offset against the visible place ────────────────────────
+{
+  const z = frisch();
+  const gespeichert = liste(z.p).find((e) => (e as { id?: string }).id === KUH)!;
+  const sichtbar = { x: 40, z: 20 }; // the route NPC walked 20 m away from its entry
+  const start: Punkt = { x: 40.5, z: 20 }; // mouse 0.5 m beside the visible figure
+  const griff = new Ziehgriff(KUH, { x: 100, y: 100 }, start, griffPosition(sichtbar, gespeichert), 'mouse');
+  const maus: Punkt = { x: 60, z: 25 };
+  const ziel = griff.bewege({ x: 110, y: 100 }, maus)!;
+  const abstand = Math.hypot(ziel.x - maus.x, ziel.z - maus.z);
+  pruefe(abstand < 0.1 + 0.5, `route NPC stays at the pointer (offset ${abstand.toFixed(3)} m, the 0.5 m grab offset)`);
+  pruefe(Math.abs(abstand - 0.5) < 0.001, 'the offset is the 0.5 m of the grab, not 20.5 m');
+  const alt = new Ziehgriff(KUH, { x: 100, y: 100 }, start, gespeichert, 'mouse').bewege({ x: 110, y: 100 }, maus)!;
+  pruefe(Math.hypot(alt.x - maus.x, alt.z - maus.z) > 20, 'against the stored entry it would be 20 m off (the old fault)');
+  pruefe(griffPosition(undefined, gespeichert) === gespeichert, 'without a preview the stored entry counts');
 }
 
 if (fehler > 0) {

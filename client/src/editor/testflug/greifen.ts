@@ -16,6 +16,9 @@ export const GRIFFRADIUS = 3;
 /** Pointer travel (px) after which a grab becomes a drag. */
 export const SCHWELLE_MAUS = 4;
 export const SCHWELLE_BERUEHRUNG = 8;
+/** A second place click within this time (ms) and closer than DOPPEL_ABSTAND (m) to the last one is a double click. */
+export const DOPPEL_ZEIT = 400;
+export const DOPPEL_ABSTAND = 0.1;
 /** Browser key of the "series" switch. */
 export const SERIE_SCHLUESSEL = 'wov-editor-spawn-serie';
 
@@ -56,6 +59,29 @@ export function entscheideKlick(e: KlickEingabe): KlickEntscheidung {
 /** Place mode after a placement: with "series" it stays on, without it ends (the old behaviour). */
 export function modusNachSetzen(serie: boolean): boolean {
   return serie;
+}
+
+/** The place a grab measures its offset against: where the object is SEEN, else its stored entry. */
+export function griffPosition(sichtbar: Punkt | null | undefined, gespeichert: Punkt): Punkt {
+  return sichtbar ?? gespeichert;
+}
+
+/** Stops a double click from placing twice at the same spot (series mode keeps the place mode on). */
+export class DoppelklickSperre {
+  private letzte: { zeit: number; punkt: Punkt } | null = null;
+
+  /** `true`: this place click is the second of a double click and places nothing. */
+  blockiert(zeit: number, punkt: Punkt, detail: number): boolean {
+    const l = this.letzte;
+    if (!l) return false;
+    if (Math.hypot(punkt.x - l.punkt.x, punkt.z - l.punkt.z) >= DOPPEL_ABSTAND) return false;
+    return zeit - l.zeit <= DOPPEL_ZEIT || detail > 1;
+  }
+
+  /** A placement happened at `punkt` at `zeit`. */
+  gesetzt(zeit: number, punkt: Punkt): void {
+    this.letzte = { zeit, punkt };
+  }
 }
 
 type Speicher = Pick<Storage, 'getItem' | 'setItem'>;

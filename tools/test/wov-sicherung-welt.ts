@@ -12,7 +12,8 @@
  *     /var/lib/wov/welten;
  *  5. ein relatives WOV_WELT_VERZEICHNIS bricht ab;
  *  6. Leerzeichen am Rand des Wertes werden abgeschnitten, ein Wert nur aus Leerzeichen bricht ab (N2);
- *  7. im DEV-Deployment (Haken WOV_DEV_CHECKOUT) bricht die Sicherung ohne die Variable ab (M1).
+ *  7. im DEV-Deployment (Haken WOV_DEV_CHECKOUT) verweigert die Sicherung ohne die Variable nur den Welt-Teil: Datenbanken
+ *     werden gesichert, Exit 1 am Ende (M-A).
  * Alles unter einem Temp-Verzeichnis; /var/lib/wov wird nie gelesen oder geschrieben (der Test prueft es nur auf Aenderungen).
  */
 import { spawnSync } from 'node:child_process';
@@ -89,7 +90,7 @@ f.commit(); f.close()`,
   symlinkSync(DATEN, resolve(WURZEL, 'server/data'));
 
   const laufNr = { n: 0 };
-  const lauf = (env: NodeJS.ProcessEnv): { rc: number; aus: string; ordner: string } => {
+  const lauf = (env: NodeJS.ProcessEnv): { rc: number; aus: string; ordner: string; fehlerhaft: string } => {
     const ziel = resolve(ZIEL, `l${laufNr.n++}`);
     const umgebung: NodeJS.ProcessEnv = { ...process.env, WOV_ENV_DATEI: resolve(T, 'wov.env'), WOV_SICHERUNG_ZIEL: ziel, WOV_SICHERUNG_MINDEST_FREI_MB: '1', WOV_SICHERUNG_DB_FRIST: '60' };
     delete umgebung.WOV_WELT_VERZEICHNIS;
@@ -98,7 +99,8 @@ f.commit(); f.close()`,
     const r = spawnSync('bash', [resolve(WURZEL, 'tools/wov-sicherung.sh')], { env: { ...umgebung, ...env }, encoding: 'utf-8' });
     const dev = resolve(ziel, 'dev');
     const laeufe = existsSync(dev) ? readdirSync(dev).filter((n) => !n.includes('.')).sort() : [];
-    return { rc: r.status ?? -1, aus: `${r.stdout}${r.stderr}`, ordner: laeufe.length > 0 ? resolve(dev, laeufe[laeufe.length - 1]!) : '' };
+    const kaputt = existsSync(dev) ? readdirSync(dev).filter((n) => n.endsWith('.fehlerhaft')).sort() : [];
+    return { rc: r.status ?? -1, aus: `${r.stdout}${r.stderr}`, ordner: laeufe.length > 0 ? resolve(dev, laeufe[laeufe.length - 1]!) : '', fehlerhaft: kaputt.length > 0 ? resolve(dev, kaputt[kaputt.length - 1]!) : '' };
   };
 
   // 1+2) Haken + exportierte Variable
@@ -130,8 +132,13 @@ f.commit(); f.close()`,
   check('relativ mit fuehrendem Leerzeichen: Abbruch mit Meldung, kein Lauf-Ordner', e4.rc !== 0 && /kein absoluter Pfad/.test(e4.aus) && e4.ordner === '', e4.aus.slice(-200));
 
   // 7) M1: im DEV-Deployment ohne die Variable bricht die Sicherung ab (nicht still <Daten>/welten-arbeit)
+  // N3 (M-A): nur der WELT-Teil wird verweigert. Spielstand, Konten und Forum werden gesichert, der Lauf endet mit Exit 1
+  // und bleibt als <stempel>.fehlerhaft liegen (wie bei einer kaputten Datenbank), ohne Weltdatei und ohne Basis.
   const f1 = lauf({ WOV_DEV_CHECKOUT: WURZEL });
-  check('DEV-Checkout ohne Variable: Abbruch mit Meldung, kein Lauf-Ordner', f1.rc !== 0 && /DEV-Deployment/.test(f1.aus) && /WOV_WELT_VERZEICHNIS=\/var\/lib\/wov\/welten/.test(f1.aus) && f1.ordner === '', f1.aus.slice(-300));
+  const f1o = f1.fehlerhaft;
+  check('DEV-Checkout ohne Variable: Exit 1 mit Meldung (DEV-Deployment, Welt-Teil nicht gesichert, Aufruf mit der Variable)', f1.rc === 1 && /DEV-Deployment/.test(f1.aus) && /Welt-Teil/.test(f1.aus) && /WOV_WELT_VERZEICHNIS=\/var\/lib\/wov\/welten/.test(f1.aus), f1.aus.slice(-400));
+  check('DEV-Checkout ohne Variable: Spielstand, Konten und Forum sind trotzdem gesichert (worlds/dev.db.zst, konten/dev.db, forum/dev.db)', f1o !== '' && existsSync(resolve(f1o, 'worlds/dev.db.zst')) && existsSync(resolve(f1o, 'konten/dev.db')) && existsSync(resolve(f1o, 'forum/dev.db')), f1.aus.slice(-400));
+  check('DEV-Checkout ohne Variable: die Weltdatei und die Basis sind NICHT gesichert (auch nicht die Repo- oder welten-arbeit-Datei), kein gueltiger Lauf-Ordner', f1o !== '' && !existsSync(resolve(f1o, 'welten/dev.json')) && !existsSync(resolve(f1o, 'welten/dev.basis')) && f1.ordner === '', f1.aus.slice(-400));
   const f2 = lauf({ WOV_DEV_CHECKOUT: WURZEL, WOV_WELT_VERZEICHNIS: ANDERE });
   check('DEV-Checkout mit Variable: Exit 0, gesichert ist der Variablen-Ordner', f2.rc === 0 && f2.ordner !== '' && lies(resolve(f2.ordner, 'welten/dev.json')) === lies(resolve(ANDERE, 'dev.json')), f2.aus.slice(-300));
 

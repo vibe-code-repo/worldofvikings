@@ -469,6 +469,66 @@ version_feld() {
   grep -E "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-
 }
 
+# BEGIN unit-pruefung
+# Stufe 1, vor jeder Aenderung: Stimmen die installierten Units mit dem Stand ueberein, der gleich ausgerollt wird?
+# Nur wov-server, wov-admin und wov-sicherung (die drei, die die Welt-Arbeitskopie betreffen); auf alle Units
+# ausgeweitet braeche der Abgleich jeden Rollout ab (wov-karten.service weicht schon heute ab).
+# Je Unit vier Pruefungen an der WIRKSAMEN Unit, nicht nur an der Datei:
+#   (a) die installierte Datei ist byte-gleich mit deploy/systemd/<u>.service aus origin/main,
+#   (b) NeedDaemonReload=no: eine installierte, aber nicht neu geladene Unit laeuft mit der alten Fassung,
+#   (c) die wirksame Umgebung (Unit plus Drop-ins) enthaelt WOV_WELT_VERZEICHNIS=<absoluter Pfad>,
+#   (d) Drop-ins (DropInPaths) duerfen die Variable weder leeren noch auf einen anderen Wert als die Unit-Datei setzen.
+# Ohne die Variable in der Unit arbeitet der neue Code mit <Checkout>/server/data/welten-arbeit, einer Datei, die kein
+# Dienst liest (deploy/welt-einbau.md). Abbruch heisst: es wurde NICHTS getan; die Meldung nennt Unit und Befehl.
+# WOV_UNIT_VERZEICHNIS ist der Pruefhaken der Probe (Vorgabe /etc/systemd/system).
+unit_pruefung() {
+  local verz="${WOV_UNIT_VERZEICHNIS:-/etc/systemd/system}" u soll ist nd env di wert_datei wert_wirksam probleme=""
+  for u in wov-server wov-admin wov-sicherung; do
+    soll="$(git show "origin/main:deploy/systemd/$u.service" 2>/dev/null)" || soll=""
+    if [ -z "$soll" ]; then
+      probleme="$probleme
+  - $u: deploy/systemd/$u.service ist in origin/main nicht lesbar (git show origin/main:deploy/systemd/$u.service)."
+      continue
+    fi
+    ist="$(cat "$verz/$u.service" 2>/dev/null)" || ist=""
+    if [ "$ist" != "$soll" ]; then
+      probleme="$probleme
+  - $u: $verz/$u.service weicht von origin/main:deploy/systemd/$u.service ab (oder fehlt). Befehl: git show origin/main:deploy/systemd/$u.service | sudo tee $verz/$u.service >/dev/null && sudo systemctl daemon-reload"
+      continue
+    fi
+    nd="$(systemctl show -p NeedDaemonReload --value "$u" 2>/dev/null)" || nd="?"
+    if [ "$nd" != "no" ]; then
+      probleme="$probleme
+  - $u: NeedDaemonReload=$nd, die Datei ist installiert, aber systemd hat sie nicht neu geladen und startet mit der alten Fassung. Befehl: sudo systemctl daemon-reload"
+      continue
+    fi
+    env="$(systemctl show -p Environment --value "$u" 2>/dev/null)" || env=""
+    wert_wirksam="$(printf '%s\n' "$env" | grep -o 'WOV_WELT_VERZEICHNIS=/[^[:space:]"]*' | tail -n 1)" || wert_wirksam=""
+    if [ -z "$wert_wirksam" ]; then
+      probleme="$probleme
+  - $u: die wirksame Umgebung (systemctl show -p Environment $u) enthaelt kein WOV_WELT_VERZEICHNIS=<absoluter Pfad>. Ein Drop-in kann sie geleert haben: systemctl show -p DropInPaths $u, dann das Drop-in entfernen und sudo systemctl daemon-reload"
+      continue
+    fi
+    di="$(systemctl show -p DropInPaths --value "$u" 2>/dev/null)" || di=""
+    if [ -n "$di" ]; then
+      wert_datei="$(printf '%s\n' "$soll" | grep -o 'WOV_WELT_VERZEICHNIS=/[^[:space:]"]*' | tail -n 1)" || wert_datei=""
+      if [ "$wert_datei" != "$wert_wirksam" ]; then
+        probleme="$probleme
+  - $u: Drop-ins ($di) aendern WOV_WELT_VERZEICHNIS (Unit: ${wert_datei:-nichts}, wirksam: $wert_wirksam). Drop-in entfernen oder anpassen, dann sudo systemctl daemon-reload"
+      fi
+    fi
+  done
+  if [ -n "$probleme" ]; then
+    echo "ABBRUCH (Stufe 1): die installierten Units passen nicht zu origin/main:$probleme" >&2
+    echo >&2
+    echo "Es wurde NICHTS getan: kein Pull, kein npm ci, kein Dienst gestoppt." >&2
+    echo "Hintergrund und Reihenfolge: deploy/welt-einbau.md (Schritt 3)." >&2
+    return 1
+  fi
+  echo "  Units wov-server, wov-admin, wov-sicherung: gleich wie origin/main, geladen, WOV_WELT_VERZEICHNIS wirksam"
+}
+# END unit-pruefung
+
 # ── Dienste-Reigen, geteilt zwischen Update und Rückweg ──────────────
 # BEGIN dienste-reigen (tools/test/vorschau-nicht-getrackt.ts fuehrt diesen Block aus)
 dienste_stoppen() {
@@ -968,6 +1028,13 @@ fi
 # ── 3. Pull, danach mit der neuen Fassung weitermachen ───────────────
 if [ "${WOV_UPDATE_STUFE2:-}" != "1" ]; then
   echo
+  echo "▶ Units prüfen (origin/main gegen die installierten)"
+  if ! git fetch origin main; then
+    echo "ABBRUCH (Stufe 1): git fetch origin main ist gescheitert, der Stand von origin/main ist unbekannt. Es wurde NICHTS getan." >&2
+    exit 1
+  fi
+  unit_pruefung || exit 1
+  echo
   echo "▶ git pull --ff-only origin main"
   # Vor dem Pull merken, was gerade lief — das ist das "vorher" in
   # VERSION und damit das Ziel eines künftigen "zurueck". Muss VOR dem
@@ -1042,6 +1109,9 @@ echo "▶ Typecheck"
 npm run typecheck
 echo
 echo "▶ Tests"
+# Tests erben nie die Welt-Variablen der Umgebung (auch nicht aus /etc/wov.env): sonst schriebe ein Test in die echte
+# Welt oder rufte den echten Betriebsdienst. Der Runner entfernt sie zusaetzlich selbst (zweiter Riegel).
+unset WOV_WELT_VERZEICHNIS WOV_ADMIN_URL
 # Mitschnitt nach TEST_PROTOKOLL (mktemp) — NUR damit die Aufräumfunktion im
 # Fehlerfall die roten Testnamen zitieren kann. Die Ausgabe selbst bleibt
 # unverändert (tee schreibt und leitet gleichzeitig durch); set -o pipefail

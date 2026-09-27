@@ -16,7 +16,9 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    200 **oder** 202 (oder `WOV_QUITTUNG=aus`); in `tools/worldlayout-mcp/probe-kontext.ts` bleiben `WOV_QUITTUNG` und
    `WOV_WELT_VERZEICHNIS` beide stehen. Danach voller `npm test` grün.
 2. **Vor dem Rollout auf wov-dev:** `git -C /opt/worldofvikings status --porcelain` ist leer (keine unabgenommene
-   Bearbeitung in `server/data/welten/dev.json`).
+   Bearbeitung in `server/data/welten/dev.json`). **Eine offene Editor-Bearbeitung in `dev.json` wird vor dem Rollout
+   abgenommen (Worktree, `tools/welt-abnehmen.sh`, Pull Request) — nie mit `git checkout --` verworfen:** das löscht
+   sie unwiederbringlich. `wov-update.sh` bricht mit ihr schon in der Sauberkeitsprüfung ab (nichts getan).
 3. **Units zuerst, aus dem neuen Stand, bei laufendem alten Code:**
    ```bash
    for u in wov-server wov-admin wov-sicherung; do
@@ -25,6 +27,13 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    systemctl daemon-reload
    ```
    Der alte Code kennt die Variable nicht; das ist unschädlich, und es wird nichts neu gestartet.
+   **`wov-update.sh` prüft das jetzt selbst (Stufe 1, vor Pull und jeder Änderung)** für genau diese drei Units:
+   (a) installierte Datei = `origin/main:deploy/systemd/<unit>.service`, (b) `NeedDaemonReload=no`, (c) die wirksame
+   Umgebung (`systemctl show -p Environment`, Unit plus Drop-ins) enthält `WOV_WELT_VERZEICHNIS=<absoluter Pfad>`,
+   (d) Drop-ins (`DropInPaths`) ändern den Wert nicht. Bei einer Abweichung bricht es mit „NICHTS getan“ ab und nennt
+   Unit und Befehl (`git show origin/main:… | sudo tee /etc/systemd/system/<unit>.service` und
+   `sudo systemctl daemon-reload`). Vor dem Test-Tor entfernt es `WOV_WELT_VERZEICHNIS` und `WOV_ADMIN_URL` aus der
+   Umgebung (`unset`); der Runner tut es zusätzlich, samt `WOV_DEV_CHECKOUT`.
    (`deploy/install-services.sh` installiert aus dem **eigenen** Checkout; vor dem Pull ausgeführt, installiert es
    die alten Units.)
 4. Die Variable **nicht** nach `/etc/wov.env`.
@@ -34,9 +43,14 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    - `journalctl -u wov-server -n 50 | grep '\[Welt\]'` nennt `/var/lib/wov/welten/dev.json`;
    - die Admin-Logzeile „bereit … Welt /var/lib/wov/welten/dev.json“;
    - `ls /opt/worldofvikings/server/data/welten-arbeit` → existiert nicht.
-7. `systemctl start wov-sicherung` einmal von Hand; im Protokoll steht „kopiere /var/lib/wov/welten/dev.json … dev.basis“.
+7. Läuft die Sicherung mit einer alten Unit (ohne die Variable) gegen den neuen Stand, sichert sie Spielstand, Konten
+   und Forum trotzdem, verweigert nur den Welt-Teil und endet mit Exit 1 (Lauf-Ordner `….fehlerhaft`, Meldung im
+   Journal: `journalctl -u wov-sicherung`, `systemctl --failed`). Ein `OnFailure=` gibt es nicht: keine Meldeeinheit
+   vorhanden, und die Verweigerung steht ohnehin im Journal.
+   `systemctl start wov-sicherung` einmal von Hand; im Protokoll steht „kopiere /var/lib/wov/welten/dev.json … dev.basis“.
 8. **Abnehmen auf DEV:** `tools/welt-abnehmen.sh dev --status|--diff|--verwerfen` liest die Variable aus der Unit
-   (`systemctl show -p Environment wov-server`). Gelingt das nicht, verweigert es mit Exit 2 und nennt
+   (`systemctl show -p Environment`) und verlangt, dass **`wov-server` und `wov-admin` denselben Wert** haben; fehlt er in
+   einer der beiden oder widersprechen sie sich, verweigert es. Gelingt das nicht, verweigert es mit Exit 2 und nennt
    `WOV_WELT_VERZEICHNIS=/var/lib/wov/welten tools/welt-abnehmen.sh dev --status`. Abnehmen und `--commit` gibt es
    nur im eigenen Worktree.
 

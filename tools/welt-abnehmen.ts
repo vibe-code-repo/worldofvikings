@@ -15,7 +15,7 @@
  * Im DEV-Deployment gilt fuer alle anderen Befehle (pruefen, verwerfen, pfad; damit auch --status, --diff und
  * --verwerfen des Shell-Skripts): Ist WOV_WELT_VERZEICHNIS nicht gesetzt (eine Shell auf DEV hat die Variable
  * nicht, sie steht nur in den Units), liest dieses Werkzeug sie aus der installierten Unit (`systemctl show -p
- * Environment wov-server`, gegengeprueft mit wov-admin). Steht sie dort nicht, oder widersprechen sich die
+ * Environment wov-server`, geprueft an wov-server UND wov-admin: beide muessen denselben Wert haben). Steht sie in einer der beiden nicht, oder widersprechen sich die
  * Units, endet es mit Exit 2 und nennt den Aufruf, der funktioniert. Es arbeitet dort nie still auf
  * <Wurzel>/server/data/welten-arbeit, der Datei, die kein Dienst liest.
  */
@@ -66,11 +66,14 @@ function unitVariable(unit: string, schluessel: string): string | null {
   }
   const zeile = aus.split('\n').find((z) => z.startsWith('Environment='));
   if (!zeile) return null;
+  // systemd schreibt C-Escapes (\t, \n, \xNN, \\, \"); bei doppeltem Schluessel gilt der letzte Eintrag.
+  const escapes: Record<string, string> = { t: '\t', n: '\n', r: '\r', a: '\x07', b: '\b', f: '\f', v: '\v', s: ' ' };
+  let wert: string | null = null;
   for (const m of zeile.slice('Environment='.length).matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)) {
-    const eintrag = (m[1] ?? m[2] ?? '').replace(/\\(.)/g, '$1');
-    if (eintrag.startsWith(`${schluessel}=`)) return eintrag.slice(schluessel.length + 1).trim() || null;
+    const eintrag = (m[1] ?? m[2] ?? '').replace(/\\(x[0-9a-fA-F]{2}|.)/g, (_g, c: string) => (c.length === 3 ? String.fromCharCode(parseInt(c.slice(1), 16)) : (escapes[c] ?? c)));
+    if (eintrag.startsWith(`${schluessel}=`)) wert = eintrag.slice(schluessel.length + 1).trim() || null;
   }
-  return null;
+  return wert;
 }
 
 if (befehl === 'abnehmen') {
@@ -96,7 +99,13 @@ if (befehl === 'abnehmen') {
         `einer Datei, die kein Dienst liest. Aufruf, der funktioniert: ${aufruf}`
     );
   }
-  if (vomAdmin !== null && vomAdmin !== vomServer) {
+  if (vomAdmin === null) {
+    abbruch(
+      `Verweigert: in der Unit wov-admin ist WOV_WELT_VERZEICHNIS nicht zu lesen (systemctl show -p Environment wov-admin), in wov-server steht ${vomServer}. ` +
+        `Der Editor schriebe dann in eine andere Datei als der Server liest. Erst die Units angleichen (deploy/systemd/ installieren, systemctl daemon-reload); oder ausdruecklich: ${aufruf}`
+    );
+  }
+  if (vomAdmin !== vomServer) {
     abbruch(
       `Verweigert: die Units widersprechen sich (wov-server: ${vomServer}, wov-admin: ${vomAdmin}). ` +
         `Erst die Units angleichen; oder ausdruecklich: ${aufruf}`

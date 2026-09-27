@@ -64,6 +64,7 @@ import { fileURLToPath } from 'node:url';
 // Tests never inherit the world variables of a shell or a service; a test that needs them sets them to a temp dir.
 delete process.env.WOV_WELT_VERZEICHNIS;
 delete process.env.WOV_ADMIN_URL;
+delete process.env.WOV_DEV_CHECKOUT;
 
 /*
   Die BUCHFUEHRUNG (Laufzeitzeuge): Der Runner bucht jeden Start (`fahre` schreibt

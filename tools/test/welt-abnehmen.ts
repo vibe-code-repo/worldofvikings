@@ -70,13 +70,13 @@ const skript = (...args: string[]): { rc: number; aus: string } => {
 };
 
 try {
-  // M3 (K5.7 N2): der Runner (scripts/run-tests.mjs) reicht die Welt-Variablen einer Shell oder eines Dienstes nicht an Tests durch.
+  // M3 (K5.7 N2/N3): der Runner (scripts/run-tests.mjs) reicht die Welt-Variablen und den Haken WOV_DEV_CHECKOUT einer Shell oder eines Dienstes nicht an Tests durch.
   // Dieser Test ist der Zeuge dafuer: laeuft er mit gesetzter Variable, hat sie jemand am Runner vorbei gesetzt.
-  check('M3: WOV_WELT_VERZEICHNIS und WOV_ADMIN_URL sind in der Umgebung dieses Tests nicht gesetzt (der Runner entfernt sie)', process.env.WOV_WELT_VERZEICHNIS === undefined && process.env.WOV_ADMIN_URL === undefined, `WOV_WELT_VERZEICHNIS=${process.env.WOV_WELT_VERZEICHNIS} WOV_ADMIN_URL=${process.env.WOV_ADMIN_URL}`);
+  check('M3: WOV_WELT_VERZEICHNIS, WOV_ADMIN_URL und WOV_DEV_CHECKOUT sind in der Umgebung dieses Tests nicht gesetzt (der Runner entfernt sie)', process.env.WOV_WELT_VERZEICHNIS === undefined && process.env.WOV_ADMIN_URL === undefined && process.env.WOV_DEV_CHECKOUT === undefined, `WOV_WELT_VERZEICHNIS=${process.env.WOV_WELT_VERZEICHNIS} WOV_ADMIN_URL=${process.env.WOV_ADMIN_URL} WOV_DEV_CHECKOUT=${process.env.WOV_DEV_CHECKOUT}`);
   mkdirSync(FAKEBIN, { recursive: true });
   writeFileSync(
     resolve(FAKEBIN, 'systemctl'),
-    '#!/bin/sh\necho "$@" >> "$FAKE_LOG"\ncase "$4" in\n  wov-server) [ -n "${FAKE_SERVER_ENV+x}" ] && { echo "Environment=$FAKE_SERVER_ENV"; exit 0; } ;;\n  wov-admin) [ -n "${FAKE_ADMIN_ENV+x}" ] && { echo "Environment=$FAKE_ADMIN_ENV"; exit 0; } ;;\nesac\nexit 1\n'
+    '#!/bin/sh\necho "$@" >> "$FAKE_LOG"\ncase "$4" in\n  wov-server) [ -n "${FAKE_SERVER_ENV+x}" ] && { printf "Environment=%s\\n" "$FAKE_SERVER_ENV"; exit 0; } ;;\n  wov-admin) [ -n "${FAKE_ADMIN_ENV+x}" ] && { printf "Environment=%s\\n" "$FAKE_ADMIN_ENV"; exit 0; } ;;\nesac\nexit 1\n'
   );
   chmodSync(resolve(FAKEBIN, 'systemctl'), 0o755);
   mkdirSync(resolve(WURZEL, 'tools'), { recursive: true });
@@ -207,6 +207,7 @@ try {
     const mitUnit = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
       ...dev,
       FAKE_SERVER_ENV: `WOV_INSTANZ=dev "WOV_WELT_VERZEICHNIS=${ARBEITSORDNER}" ANDERES=x`,
+      FAKE_ADMIN_ENV: `WOV_INSTANZ=dev "WOV_WELT_VERZEICHNIS=${ARBEITSORDNER}"`,
       ...extra,
     });
     wegDamit();
@@ -214,7 +215,7 @@ try {
     writeFileSync(ARBEIT, dokument('Aus der Unit', 91));
     const u1 = skript('dev', '--status');
     check('M1: DEV, Variable aus der Unit gelesen: --status Exit 0 auf der Datei des Dienstes (WELT_FALL, Hinweis "aus der Unit")', u1.rc === 0 && /WELT_FALL=/.test(u1.aus) && /aus der Unit wov-server gelesen/.test(u1.aus) && !existsSync(imWurzelOrdner), u1.aus.slice(0, 300));
-    check('M1: der Unit-Aufruf war genau `show -p Environment <unit>`', /^show -p Environment wov-server$/m.test(readFileSync(FAKE_LOG, 'utf-8')), readFileSync(FAKE_LOG, 'utf-8'));
+    check('M1: der Unit-Aufruf war genau `show -p Environment <unit>`, fuer wov-server UND wov-admin', /^show -p Environment wov-server$/m.test(readFileSync(FAKE_LOG, 'utf-8')) && /^show -p Environment wov-admin$/m.test(readFileSync(FAKE_LOG, 'utf-8')), readFileSync(FAKE_LOG, 'utf-8'));
     const u2 = skript('dev', '--diff');
     check('M1: DEV, --diff zeigt die Datei des Dienstes (nicht welten-arbeit)', u2.rc === 0 && /Aus der Unit/.test(u2.aus) && !existsSync(imWurzelOrdner), u2.aus.slice(0, 300));
     const gesichertVor = readdirSync(ARBEITSORDNER).filter((n) => n.includes('.verworfen-')).length;
@@ -225,7 +226,24 @@ try {
     zusatzEnv = mitUnit({ FAKE_ADMIN_ENV: 'WOV_WELT_VERZEICHNIS=/tmp/anderswo' });
     const w1 = skript('dev', '--status');
     check('M1: wov-server und wov-admin widersprechen sich: Exit 2, nennt beide Werte', w1.rc === 2 && /widersprechen sich/.test(w1.aus) && w1.aus.includes('/tmp/anderswo'), w1.aus.slice(0, 300));
-    zusatzEnv = mitUnit({ FAKE_SERVER_ENV: 'WOV_WELT_VERZEICHNIS=relwelt' });
+    // N-C (K5.7 N3): hat wov-admin die Variable NICHT (Mischzustand), bricht das Werkzeug ab; ebenso, wenn die Unit nicht lesbar ist.
+    const ohneVar = (extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv => mitUnit(extra);
+    zusatzEnv = ohneVar({ FAKE_ADMIN_ENV: 'WOV_INSTANZ=dev' });
+    const n1 = skript('dev', '--status');
+    check('N-C: wov-admin ohne die Variable: Exit 2 mit Meldung (wov-admin), nichts gelesen oder angelegt', n1.rc === 2 && /wov-admin/.test(n1.aus) && /nicht zu lesen/.test(n1.aus) && !/aus der Unit wov-server gelesen/.test(n1.aus) && !existsSync(imWurzelOrdner), n1.aus.slice(0, 300));
+    zusatzEnv = ohneVar({ FAKE_ADMIN_ENV: undefined });
+    const n2 = skript('dev', '--verwerfen');
+    check('N-C: wov-admin nicht lesbar (systemctl Exit 1): --verwerfen Exit 2, Arbeitskopie unveraendert', n2.rc === 2 && /wov-admin/.test(n2.aus) && readFileSync(ARBEIT, 'utf-8') === repoVor, n2.aus.slice(0, 300));
+    // INFO: systemd schreibt einen Tab als \t; der Dienst trimmt ihn. Bei doppeltem Schluessel gilt der letzte Eintrag.
+    const tabEnv = `"WOV_WELT_VERZEICHNIS=${ARBEITSORDNER}\\t"`;
+    zusatzEnv = ohneVar({ FAKE_SERVER_ENV: tabEnv, FAKE_ADMIN_ENV: tabEnv });
+    const t1 = skript('dev', '--status');
+    check('INFO: \\t am Ende des Werts wird wie systemd gelesen (Tab, getrimmt): Pfad = Datei des Dienstes, kein "t" angehaengt', t1.rc === 0 && t1.aus.includes(`aus der Unit wov-server gelesen: ${ARBEITSORDNER}\n`), t1.aus.slice(0, 300));
+    const doppelt = `WOV_WELT_VERZEICHNIS=/tmp/falsch WOV_WELT_VERZEICHNIS=${ARBEITSORDNER}`;
+    zusatzEnv = ohneVar({ FAKE_SERVER_ENV: doppelt, FAKE_ADMIN_ENV: doppelt });
+    const t2 = skript('dev', '--status');
+    check('INFO: doppelter Schluessel: der letzte Eintrag gilt (wie bei systemd)', t2.rc === 0 && t2.aus.includes(`aus der Unit wov-server gelesen: ${ARBEITSORDNER}\n`), t2.aus.slice(0, 300));
+    zusatzEnv = mitUnit({ FAKE_SERVER_ENV: 'WOV_WELT_VERZEICHNIS=relwelt', FAKE_ADMIN_ENV: 'WOV_WELT_VERZEICHNIS=relwelt' });
     const w2 = skript('dev', '--status');
     check('M1: relativer Wert in der Unit: Exit 2 (kein absoluter Pfad)', w2.rc === 2 && /kein absoluter Pfad/.test(w2.aus) && !existsSync(resolve(WURZEL, 'relwelt')), w2.aus.slice(0, 300));
 

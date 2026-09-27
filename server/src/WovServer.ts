@@ -5364,9 +5364,14 @@ export class WovServer {
         const uebersprungen: string[] = [];
         for (const name of args) {
           if (verbunden.has(name)) { uebersprungen.push(`${name} (verbunden)`); continue; }
-          const treffer = [...this.savedPlayers.entries()].find(([, p]) => p.name === name);
-          if (!treffer) { uebersprungen.push(`${name} (unbekannt)`); continue; }
-          this.savedPlayers.delete(treffer[0]);
+          // C5 (Pruefung 2): mehrere gespeicherte Treffer sind eine
+          // Verwechslungsgefahr wie bei `admin add`/`bann` — nicht still den
+          // ersten (aeltesten) loeschen, sondern melden und nichts tun.
+          const schluessel = namenSchluessel(name);
+          const treffer = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === schluessel);
+          if (treffer.length === 0) { uebersprungen.push(`${name} (unbekannt)`); continue; }
+          if (treffer.length > 1) { uebersprungen.push(`${name} (nicht eindeutig)`); continue; }
+          this.savedPlayers.delete(treffer[0][0]);
           weg.push(name);
         }
         const rest = this.savedPlayers.size;

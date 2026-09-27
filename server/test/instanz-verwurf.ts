@@ -272,7 +272,10 @@ async function main(): Promise<void> {
   const edC = peerVonVerbindung(editorC)!;
   await admin(editorC, `dungeon enter ${dungeonB}`);
   await bis(() => edC.worldId !== 'haupt');
-  check('B: Editor mit anderem Namen trägt sich ein', instB?.players.size === 2, `size ${instB?.players.size}`);
+  // C4 (Pruefung 2): beide Editoren heissen serverseitig jetzt fest "Editor";
+  // was diese Zeile beweist, ist eine zweite, andere Verbindung (Kennung),
+  // nicht ein anderer Name.
+  check('B: zweiter Editor (andere Kennung) trägt sich ein', instB?.players.size === 2, `size ${instB?.players.size}`);
   editorC.ws.close();
   await bis(() => instB?.players.size === 1, 3_000);
   check('B: getrennter Editor trägt sich aus', instB?.players.size === 1, `size ${instB?.players.size}`);

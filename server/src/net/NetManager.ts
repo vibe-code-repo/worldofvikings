@@ -19,7 +19,7 @@ import { Reader } from '../io/Reader.js';
 import { Writer } from '../io/Writer.js';
 import { getStableHash } from '../util/Hash.js';
 import { Drossel } from './Drossel.js';
-import { EDITOR_NAME, nameHatSteuerzeichen, namenVarianten } from './Namen.js';
+import { EDITOR_NAME, nameHatSteuerzeichen, namenSchluessel, namenVarianten } from './Namen.js';
 import {
   nonceErzeugen,
   antwortPruefen,
@@ -478,6 +478,15 @@ export class NetManager {
         peer.disconnect('Invalid name');
         return;
       }
+      // "Editor" is reserved for editor connections, independent of whether
+      // an account character happens to carry it: without this, a guest or
+      // a fresh character could sit in the world under the very name every
+      // editor peer answers to (C1, Pruefung 2).
+      if (namenSchluessel(playerName) === namenSchluessel(EDITOR_NAME)) {
+        peer.status = ConnectionStatus.ErrorAlreadyConnected;
+        peer.disconnect('Name already in use');
+        return;
+      }
       if (namenVarianten(playerName).some((n) => this.config.kontoNameBelegt?.(n))) {
         peer.status = ConnectionStatus.ErrorAlreadyConnected;
         peer.disconnect('Name already in use');
@@ -508,7 +517,7 @@ export class NetManager {
     // Schleife, fuer die der Editor gebaut ist.
     const namensgleich = nurEditor
       ? undefined
-      : this.onlinePeers.find((p) => p.name === playerName);
+      : this.onlinePeers.find((p) => !p.nurEditor && p.name === playerName);
     if (namensgleich) {
       if (namensgleich.spielerId === spielerId) {
         namensgleich.disconnect('Von einer neuen Verbindung abgelöst');

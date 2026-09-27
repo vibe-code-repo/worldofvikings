@@ -23,8 +23,16 @@
  *      Editor (auch mit Konto-Token) loest den Spielclient nicht ab.
  *  [H] Zwei gespeicherte Gaeste gleichen Namens: `admin add` meldet
  *      „nicht eindeutig“ und tut nichts.
+ *  [H2] Dieselben zwei Staende: `spieler entfernen Ole` meldet „nicht
+ *      eindeutig“ und loescht nichts (C5).
  *  [I] Namen mit Steuer-/Nullbreiten-Zeichen und andere Schreibweisen eines
  *      Kontonamens (NFD, Grossbuchstaben mit Umlaut) werden abgewiesen.
+ *  [J] Der Name "Editor" ist fuer Gaeste reserviert (auch waehrend ein
+ *      Editor online ist); ein zweiter Editor bleibt moeglich; `admin add
+ *      Editor` trifft keinen Editor-Peer; ein Konto mit anderem Namen bleibt
+ *      unbeeinflusst.
+ *  [K] `admin add` mit einer NFD-geschriebenen Eingabe trifft einen
+ *      NFC-benannten Peer.
  *
  * Run: npx tsx server/test/gaeste-besitz.ts   (from the repo root)
  */
@@ -345,6 +353,49 @@ async function main(): Promise<void> {
     check('F2: ein Editor ohne Konto (Name „Editor“) kommt herein', editorOhne.angemeldet);
     await trenne(editorOhne);
 
+    // ── [J] Der Name „Editor“ ist reserviert (C1); admin add trifft keinen
+    //      Editor-Peer (ME) ──────────────────────────────────────────────
+    console.log('\n[J] Editor online, Gast „Editor“/„editor“, zweiter Editor, admin add Editor, Konto unbeeinflusst (C1, ME):');
+    const editor1 = await verbinde('Editor', '', true);
+    check('J: erster Editor kommt herein', editor1.angemeldet);
+    const editor2 = await verbinde('Zweiter', '', true);
+    check('J: zweiter Editor kommt gleichzeitig herein (weiterhin möglich)', editor2.angemeldet);
+    const gastEditor = await verbinde('Editor', '');
+    check('J: Gast „Editor“ wird abgewiesen, solange ein Editor online ist', !gastEditor.angemeldet);
+    if (gastEditor.angemeldet) await trenne(gastEditor);
+    const gastEditorKlein = await verbinde('editor', '');
+    check('J: Gast „editor“ (Kleinschreibung) wird abgewiesen', !gastEditorKlein.angemeldet);
+    if (gastEditorKlein.angemeldet) await trenne(gastEditorKlein);
+    const editorAntwort = await admin(boss, 'admin add Editor');
+    console.log(`    admin add Editor → ${editorAntwort}`);
+    // Exakte Nachricht statt einer Verneinung: Mit zwei Editoren online liefert
+    // der ME-Mutant (Filter `!p.nurEditor` entfernt) "nicht eindeutig" statt
+    // "Unbekannter Spieler" -- eine bloße Verneinung von "ist jetzt"/"war schon
+    // Admin" würde das nicht fangen.
+    check('J: `admin add Editor` trifft keinen Editor-Peer (ME)',
+      editorAntwort.includes('Unbekannter Spieler'), editorAntwort);
+    check('J: kein Editor-Peer wurde Admin',
+      server.net.getPeers().filter((p) => p.nurEditor).every((p) => !innen.adminListe.enthaelt(p.spielerId)));
+    const annaUnbeeinflusst = await verbinde('Anna', annaToken);
+    check('J: Konto-Charakter mit anderem Namen bleibt unbeeinflusst, während Editoren online sind',
+      annaUnbeeinflusst.angemeldet && annaUnbeeinflusst.userId === annaId);
+    await trenne(annaUnbeeinflusst);
+    await trenne(editor1);
+    await trenne(editor2);
+
+    // ── [K] `admin add` mit einer NFD-Eingabe trifft die NFC-Kennung (MN) ──
+    console.log('\n[K] Admin-Namensauflösung mit einer NFD-Eingabe (MN):');
+    const nfcName = 'Öyvind';
+    const nfdName = 'O\u0308yvind';
+    const nfdGast = await verbinde(nfcName, '');
+    check('K: Gast mit NFC-geschriebenem Namen kommt herein (Kontrolle)', nfdGast.angemeldet);
+    const nfdSpielerId = peerVon(nfdGast)!.spielerId;
+    const nfdAntwort = await admin(boss, `admin add ${nfdName}`);
+    console.log(`    admin add ${nfdName} (NFD) → ${nfdAntwort}`);
+    check('K: `admin add` mit NFD-Eingabe trifft den NFC-benannten Peer (MN)',
+      innen.adminListe.enthaelt(nfdSpielerId), nfdAntwort);
+    await trenne(nfdGast);
+
     // ── [H] Zwei Gäste gleichen Namens: der Adminbefehl wählt nicht still ──
     console.log('\n[H] Zwei gespeicherte Gäste „Ole“:');
     const zweiOle = [...innen.savedPlayers.values()].filter((e) => e.name === 'Ole').length;
@@ -363,6 +414,18 @@ async function main(): Promise<void> {
     await trenne(kai2);
     const eindeutig = await admin(boss, 'admin add Frischling');
     check('H: Kontrolle: ein eindeutiger Name geht', innen.adminListe.enthaelt(frischSpielerId), eindeutig);
+
+    // ── [H2] `spieler entfernen` bei zwei gespeicherten Treffern (C5) ──
+    console.log('\n[H2] `spieler entfernen Ole` bei zwei gespeicherten Ständen:');
+    const vorEntfernen = innen.savedPlayers.size;
+    const entfernenAntwort = await admin(boss, 'spieler entfernen Ole');
+    console.log(`    spieler entfernen Ole → ${entfernenAntwort}`);
+    check('H2: `spieler entfernen Ole` meldet „nicht eindeutig“ statt zu löschen',
+      entfernenAntwort.includes('nicht eindeutig'), entfernenAntwort);
+    check('H2: nichts wurde gelöscht (Zahl der Datensätze unverändert)',
+      innen.savedPlayers.size === vorEntfernen, `${innen.savedPlayers.size} vs ${vorEntfernen}`);
+    check('H2: beide „Ole“-Stände bleiben erhalten',
+      [...innen.savedPlayers.values()].filter((e) => e.name === 'Ole').length === 2);
 
     // ── [I] Namensformen ────────────────────────────────────────────
     console.log('\n[I] Namen mit Steuerzeichen und andere Schreibweisen eines Kontonamens:');

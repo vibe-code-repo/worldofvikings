@@ -1131,9 +1131,33 @@ const KERN = [
   // ueber Babylons NullEngine: ohne GPU, ohne Assets, synthetische
   // Geometrie und Instanzlagen.
   ['client', 'test/master-huelle.ts'],
+  // fps-analyse #8: Clutter-Zell-Master (Gras/Bewuchs) froren bislang NICHT
+  // ein — 116 Master mit 47.426 Thin-Instanzen allein am Startdorf, unter
+  // den 320 von 788 nicht eingefrorenen Meshes der Messung. Die Baulogik
+  // steht jetzt in einer eigenen Funktion (`baueClutterZellMesh()`), die
+  // hier gegen echte Babylon-Thin-Instances prueft: eingefroren, die Huelle
+  // folgt trotzdem den Instanzen, und `clearArea()`s Puffer-Neuschreiben
+  // (weniger Instanzen) platziert die Huelle richtig, ohne den Freeze zu
+  // loesen. NullEngine, keine GPU, kein `assets/`.
+  ['client', 'test/gras-zellen-einfrieren.ts'],
   // B9.2: die Abspielgeschwindigkeit der Geh- und Lauf-Clips folgt dem
   // Bodentempo (reine Regel + die Daten jedes ausgelieferten Tiers). ~2 s.
   ['client', 'test/kreaturen-clip-tempo.ts'],
+  // fps-analyse #9: Animations-LOD — Figuren ausserhalb des Sichtkegels
+  // oder weiter als 60 m pausieren ihre Animationsgruppe statt sie jedes
+  // Bild auszuwerten, und setzen bei Rueckkehr OHNE Sprung fort. [1]+[2]
+  // pruefen die reine Regel gegen erfundene Gruppen (auch den Fall, dass
+  // waehrend der Pause ein echter Zustandswechsel eine FRISCHE Gruppe
+  // gestartet hat), [3] gegen eine echte Babylon-AnimationGroup auf der
+  // NullEngine: `play()` nimmt das pausierte Bild wieder auf statt bei 0
+  // neu zu beginnen. NullEngine, keine GPU, <1 s.
+  ['client', 'test/animations-lod.ts'],
+  // Dieselbe Regel, jetzt gegen die VERDRAHTUNG in EntityManager.updateDynamics():
+  // echtes Kamera-Frustum + echte Distanz (nicht von Hand erfundene Booleans),
+  // und die drei Ausnahmen der Karte — Spieler (Prefab `Player`), NPCs im
+  // Kampfzustand (`anim: 'attack'`) und Rueckkehr ohne Sprung — an den echten
+  // Klassen EntityManager/AssetManager (NullEngine, nur der Ladeweg ersetzt).
+  ['client', 'test/animations-lod-wiring.ts'],
   // Die `_col`-Konvention (ein GLB-Mesh ist NUR Kollision): unsichtbar,
   // kein Schattenwerfer, und es ERSETZT die Kollision des Prefabs. Beide
   // Fehlerrichtungen sind im Spiel schwer zu sehen — ein grauer Klotz in

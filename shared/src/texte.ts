@@ -15,12 +15,27 @@ export type InhaltSprache = keyof typeof KATALOGE;
 export type InhaltSchluessel = keyof typeof de;
 
 /**
- * Text zu einem Inhaltsschluessel. Fehlt er in der gewuenschten Sprache,
- * faellt die Funktion auf Deutsch zurueck, und fehlt er auch dort, auf den
- * Schluessel selbst (nie ein leerer Text im Spiel).
+ * Text zu einem Inhaltsschluessel. Der Sprachparameter ist bewusst `string`
+ * (nicht `InhaltSprache`): Aufrufer aus Server, Webseite oder gespeicherten
+ * Werten haben die Sprache oft nur als ungeprueften String vorliegen, und
+ * genau dafuer ist der Rueckfall gedacht.
+ *
+ * Fehlt der Schluessel in der gewuenschten Sprache, faellt die Funktion auf
+ * Deutsch zurueck, und fehlt er auch dort, auf den Schluessel selbst (nie
+ * ein leerer Text im Spiel). Eine unbekannte oder fehlende Sprache faellt
+ * ebenso auf Deutsch zurueck, ohne zu werfen.
+ *
+ * Der Zugriff laeuft durchgehend ueber `Object.hasOwn`, nicht `in` oder
+ * `??` auf dem Objekt selbst: Ein Schluessel wie `constructor`,
+ * `__proto__`, `toString`, `hasOwnProperty` oder `valueOf` waere sonst ein
+ * Treffer auf `Object.prototype` statt auf den Katalog (liefert eine
+ * Funktion bzw. `[object Object]` statt Text).
  */
-export function inhaltText(schluessel: string, sprache: InhaltSprache): string {
-  const katalog = KATALOGE[sprache] as Record<string, string>;
-  const basis = de as Record<string, string>;
-  return katalog[schluessel] ?? basis[schluessel] ?? schluessel;
+export function inhaltText(schluessel: string, sprache: string | undefined): string {
+  const katalog: Record<string, string> = Object.hasOwn(KATALOGE, sprache ?? '')
+    ? (KATALOGE as Record<InhaltSprache, Record<string, string>>)[sprache as InhaltSprache]
+    : de;
+  if (Object.hasOwn(katalog, schluessel)) return katalog[schluessel];
+  if (Object.hasOwn(de, schluessel)) return (de as Record<string, string>)[schluessel];
+  return schluessel;
 }

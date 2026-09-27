@@ -1123,7 +1123,11 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
     writeFileSync(join(wurzel, 'deploy/systemd/wov-server.service'), unitDatei('/var/lib/wov/welten'));
     writeFileSync(join(wurzel, 'deploy/systemd/wov-admin.service'), unitDatei('/var/lib/wov/welten'));
     writeFileSync(join(fakeBin, 'systemctl'), `#!${bash}\nf="${zustand}/$5.$3"\nif [ -f "$f" ]; then cat "$f"; fi\nexit 0\n`);
-    writeFileSync(join(fakeBin, 'curl'), `#!${bash}\necho 426\n`);
+    // N6 (N5-2): GESTARTET kann jetzt auch wov-admin nennen, dann laeuft in gesundheit_pruefen
+    // zusaetzlich die admin-HTTP-Gesundheitspruefung (unabhaengig von welt_laufzeit_pruefen, die
+    // hier eigentlich getestet wird). "-o /dev/null" erkennt den Spielserver-Aufruf (426 wie bisher);
+    // der Betriebsdienst-Aufruf bekommt Body+200, sonst wartet die Pruefung bis zum 60s-Timeout.
+    writeFileSync(join(fakeBin, 'curl'), `#!${bash}\nfor a in "$@"; do if [ "$a" = /dev/null ]; then echo 426; exit 0; fi; done\necho ok\necho 200\n`);
     writeFileSync(join(fakeBin, 'journalctl'), `#!${bash}\nexit 0\n`);
     const loggerLog = join(zustand, 'logger.log');
     writeFileSync(join(fakeBin, 'logger'), `#!${bash}\necho "$*" >> ${JSON.stringify(loggerLog)}\n`);
@@ -1136,6 +1140,7 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
       adminPidVerzoegert?: number; // Sekunden, nach denen die echte admin-PID erst geschrieben wird (Neustart-Luecke)
       frist?: string; // WOV_WELT_MAINPID_FRIST (nur mit WOV_KAEFIG=1 wirksam -- hier immer der Fall, s.o.)
       vorher?: string; // WOV_UPDATE_VORHER, fuer den Rueckweg-Text im Logger
+      gestartet?: string[]; // N6 (N5-2): GESTARTET-Inhalt selbst vorgeben; Vorgabe (wov-server wov-admin) wie bisher
     }
     const lauf = (serverEnv: string[], flag: string, opt: Optionen = {}) => {
       const q = (arr: string[]) => arr.map((e) => `'${e.replace(/'/g, `'\\''`)}'`).join(' ');
@@ -1143,6 +1148,7 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
       // Frischer Zustand je Lauf: sonst saehe z.B. "nieBereit" (kein admin-Prozess) noch die
       // MainPID einer FRUEHEREN Probe im selben zustand-Ordner und liefe nicht in den Fehlerfall.
       for (const u of ['wov-server', 'wov-admin']) rmSync(join(zustand, `${u}.service.MainPID`), { force: true });
+      const gestartet = opt.gestartet ?? ['wov-server', 'wov-admin'];
       const zeilen: string[] = [
         'set -euo pipefail',
         // welt_laufzeit_pruefen braucht env_wert (aus dem unit-pruefung-Block); unit_pruefung selbst wird hier nie
@@ -1152,7 +1158,13 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
         weltBlock as string,
         '# END welt-laufzeit',
         gesundFn as string,
-        'GESTARTET=(wov-server)',
+        // ADMIN_TOKEN_DATEI ist im echten Skript global definiert; gesundFn zieht nur den
+        // Funktionskoerper, daher hier nachreichen (nicht lesbarer Pfad -> admin_token bleibt leer).
+        `ADMIN_TOKEN_DATEI=${JSON.stringify(join(temp, 'kein-token'))}`,
+        // N6 (N5-2): GESTARTET muss wov-admin nennen, sonst uebergeht welt_laufzeit_pruefen ihn jetzt bewusst
+        // (er waere ja nicht aktiviert/gestartet) -- alle bisherigen Faelle hier wollen wov-admin aber wirklich
+        // geprueft sehen (auch "nieBereit": kein Prozess, aber trotzdem als gestartet erwartet).
+        `GESTARTET=(${gestartet.join(' ')})`,
         flag === '' ? '' : `WELT_LAUFZEIT_PRUEFEN=${flag}`,
         `env -i ${q(serverEnv)} sleep 300 & server_kid=$!`,
       ];
@@ -1197,6 +1209,20 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
         ende(ok),
       'N5/S-1: wov-server UND wov-admin haben die Variable, gleich deploy/systemd/*.service: beide gruen, kein Journal-Eintrag',
       `rc=${ok.status} ${ok.stdout} ${ok.stderr}`,
+    );
+    // N6 (N5-2, Angriffsprobe W9): wov-admin ist nicht aktiviert (steht gar nicht in GESTARTET) --
+    // das darf KEIN falscher Alarm "auf falscher Welt" sein, wov-server allein reicht.
+    const w9 = lauf(['WOV_INSTANZ=dev', 'WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1', { adminEnv: null, gestartet: ['wov-server'] });
+    pruefe(
+      w9.status === 0 &&
+        w9.stdout.includes('GESUND_OK') &&
+        /✓ wov-server \(PID \d+\) liest die Welt aus WOV_WELT_VERZEICHNIS=\/var\/lib\/wov\/welten/.test(w9.stdout) &&
+        w9.stdout.includes('übersprungen (wov-admin nicht aktiviert/gestartet)') &&
+        !w9.stdout.includes('Weltprüfung nach dem Start gescheitert') &&
+        w9.journal === '' &&
+        ende(w9),
+      'N6/W9: wov-admin nicht aktiviert (nicht in GESTARTET) — kein falscher Alarm, wov-server allein reicht, kein Journal-Eintrag',
+      `rc=${w9.status} ${w9.stdout} ${w9.stderr} journal=${w9.journal}`,
     );
     const leerzeichen = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/we lten'], '1', { adminEnv: ['WOV_WELT_VERZEICHNIS=/var/lib/wov/we lten'] });
     pruefe(leerzeichen.status !== 0 && leerzeichen.stderr.includes('weicht von deploy/systemd/wov-server.service'), 'N5: ein Wert mit Leerzeichen wird ganz gelesen, weicht aber vom Vorgabewert /var/lib/wov/welten in deploy/systemd ab: rot', `rc=${leerzeichen.status} ${leerzeichen.stderr}`);

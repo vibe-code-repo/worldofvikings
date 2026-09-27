@@ -53,22 +53,25 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    installieren, nie die Unit-Datei direkt mit einer Pipe überschreiben** (ein gescheiterter `git show` würde sie
    sonst leeren), und **`origin/main` auf genau den geprüften Commit pinnen** (sonst kann zwischen dem `fetch` und dem
    `install` ein fremder Push den Stand unter der Hand wechseln):
+   `sha` in der **eigenen** Shell setzen (nicht in einer verschachtelten `bash -c '…'`, sonst ist die Variable danach
+   wieder leer, s. N5-4/N6) und an den Installationsblock als Positionsparameter weiterreichen:
    ```bash
-   bash -c 'set -euo pipefail
    git -C /opt/worldofvikings fetch origin main
    sha=$(git -C /opt/worldofvikings rev-parse origin/main)
+   bash -c 'set -euo pipefail
    for u in wov-server wov-admin wov-sicherung; do
      [ "$u" = wov-sicherung ] && [ ! -e /etc/systemd/system/wov-sicherung.service ] && continue
      t=$(mktemp)
-     git -C /opt/worldofvikings show "$sha:deploy/systemd/$u.service" > "$t"
+     git -C /opt/worldofvikings show "$1:deploy/systemd/$u.service" > "$t"
      test -s "$t"
      install -m 644 "$t" /etc/systemd/system/$u.service
      rm -f "$t"
    done
-   systemctl daemon-reload'
+   systemctl daemon-reload' _ "$sha"
    ```
    (`wov-sicherung` installiert die Schleife selbst nur, wenn die Unit auf dem Container **schon** installiert ist —
-   sie legt sie nicht neu an.) Danach die **Handprüfung**, je Unit (denselben `$sha` von oben weiterverwenden):
+   sie legt sie nicht neu an.) Danach die **Handprüfung**, je Unit, in **derselben** Shell wie oben — `sha` steht dort
+   noch, weil es außerhalb des `bash -c '…'` gesetzt wurde:
    ```bash
    for u in wov-server wov-admin wov-sicherung; do
      diff <(git -C /opt/worldofvikings show "$sha:deploy/systemd/$u.service") /etc/systemd/system/$u.service && echo "$u: Datei gleich"
@@ -110,7 +113,7 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    (`deploy/install-services.sh` installiert aus dem **eigenen** Checkout; vor dem Pull ausgeführt, installiert es
    die alten Units.)
 4. Die Variable **nicht** nach `/etc/wov.env`.
-5. `sudo tools/wov-update.sh`: stoppt und startet alle Dienste, die dann mit der Variable laufen. Der erste Start legt
+5. `tools/wov-update.sh`: stoppt und startet alle Dienste, die dann mit der Variable laufen. Der erste Start legt
    `/var/lib/wov/welten/dev.json` aus dem Repo an (`angelegt`).
 6. **Nachweis direkt danach:**
    - `journalctl -u wov-server -n 50 | grep '\[Welt\]'` nennt `/var/lib/wov/welten/dev.json`;

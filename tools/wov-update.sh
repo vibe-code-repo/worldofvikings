@@ -191,6 +191,11 @@ STOPP_JOURNAL=""
 # Marke saehe die Aufraeumfunktion nur "Dienste laufen, Gesundheitspruefung rot" und
 # schickte auf die falsche Fährte (curl/HTTP statt Units/WOV_WELT_VERZEICHNIS).
 WELT_PRUEFUNG_FEHLGESCHLAGEN=0
+# N6 (I-7): wird gesetzt, wenn welt_laufzeit_pruefen NUR an einer dauerhaft fehlenden
+# MainPID gescheitert ist (kein Dienst hatte eine PID, also wurde gar keine Welt
+# verglichen) — dann ist "auf falscher Welt" der falsche Text, es gab schlicht nichts
+# zu vergleichen.
+WELT_PRUEFUNG_KEINE_PID=0
 
 # Der zuletzt ausgerollte Stand: das Commit aus VERSION (wird erst nach
 # Gesundheitsprüfung geschrieben), sonst das, was vor dem Pull lief.
@@ -308,7 +313,7 @@ aufraeumen() {
     echo "getestet, aber NICHT fertig ausgerollt: die Webseite ist nicht neu gebaut." >&2
     echo "WARNUNG: Die Weltprüfung (welt_laufzeit_pruefen) wird bei diesem Neustart" >&2
     echo "übersprungen (WELT_LAUFZEIT_PRUEFEN ist hier nicht gesetzt); erst der" >&2
-    echo "nächste erfolgreiche 'sudo tools/wov-update.sh' prüft sie wieder." >&2
+    echo "nächste erfolgreiche 'tools/wov-update.sh' prüft sie wieder." >&2
     # Bewusst KEIN version_schreiben: der Stand ist nicht fertig ausgerollt.
     # Der Rückweg-Text kommt VOR dem Start: er geht auch bei SIGKILL nicht verloren.
     echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
@@ -356,7 +361,17 @@ aufraeumen() {
     echo "VERSION bleibt unverändert und nennt weiter den alten Stand ${alt:-(unbekannt)}." >&2
   elif [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ]; then
     echo >&2
-    if [ "$DIENSTE_LAUFEN" = "1" ] && [ "$WELT_PRUEFUNG_FEHLGESCHLAGEN" = "1" ]; then
+    if [ "$DIENSTE_LAUFEN" = "1" ] && [ "$WELT_PRUEFUNG_KEINE_PID" = "1" ]; then
+      # N6 (I-7): eigener Text statt "auf falscher Welt" — es gab schlicht keine MainPID,
+      # also wurde gar keine Welt verglichen. Das ist kein Widerspruch, sondern ein Dienst
+      # ohne laufenden Prozess (haengender Neustart, Absturz ohne "failed").
+      echo "Dienste laufen, aber mindestens einer hat dauerhaft keine MainPID; die" >&2
+      echo "Weltprüfung konnte NICHT laufen (kein Vergleich möglich — das ist NICHT" >&2
+      echo "'auf falscher Welt', dafür fehlte schlicht der Prozess)." >&2
+      echo "  Zustand ansehen:  systemctl status wov-server wov-admin" >&2
+      echo "  Log:              journalctl -u wov-server -u wov-admin -n 60" >&2
+      echo "  Hintergrund:      deploy/welt-einbau.md (Schritt 3)" >&2
+    elif [ "$DIENSTE_LAUFEN" = "1" ] && [ "$WELT_PRUEFUNG_FEHLGESCHLAGEN" = "1" ]; then
       # N5 (N4-5): eigener Zweig fuer den Welt-Fehler, sonst behauptet der
       # naechste Zweig faelschlich "Gesundheitspruefung" (das war die HTTP-Probe,
       # die hier schon gruen war) und schickt an die falsche Stelle (curl/HTTP
@@ -368,7 +383,7 @@ aufraeumen() {
       if [ -n "$alt" ]; then
         echo "  Rückweg von Hand (die HTTP-Gesundheitsprüfung war grün; 'wov-update.sh zurueck' läuft nicht an, HEAD" >&2
         echo "  steht schon auf dem neuen Stand und VERSION wurde absichtlich nicht geschrieben):" >&2
-        echo "    cd $WURZEL && git checkout -B main $alt && npm ci --include=dev && systemctl restart wov-server wov-admin" >&2
+        echo "    cd $WURZEL && systemctl stop ${DIENSTE[*]} && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
       else
         echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
       fi
@@ -656,8 +671,17 @@ _mainpid_mit_wartezeit() {
   printf '%s' "$pid"
 }
 welt_laufzeit_pruefen() {
-  local u pid wert vorgabe probleme="" wert_server=""
+  local u pid wert vorgabe probleme="" wert_server="" nur_keine_pid_probleme=1
   for u in wov-server wov-admin; do
+    # N6 (N5-2): wov-admin nur pruefen, wenn er tatsaechlich gestartet wurde (GESTARTET,
+    # von dienste_starten gesetzt). Ist er nicht aktiviert, startet ihn dienste_starten gar
+    # nicht erst — dann hat er auch keine MainPID, und das war bisher ein falscher Alarm
+    # ("auf falscher Welt"), obwohl der Dienst schlicht abgeschaltet ist. wov-server ist
+    # dagegen Pflicht (gesundheit_pruefen bricht sonst schon vorher ab) und bleibt ungefragt.
+    if [ "$u" = "wov-admin" ] && ! printf '%s\n' "${GESTARTET[@]:-}" | grep -qx 'wov-admin'; then
+      echo "  übersprungen (wov-admin nicht aktiviert/gestartet): keine Weltprüfung möglich"
+      continue
+    fi
     pid="$(_mainpid_mit_wartezeit "$u")"
     case "$pid" in
       ''|0|*[!0-9]*)
@@ -668,6 +692,7 @@ welt_laufzeit_pruefen() {
     if [ ! -r "/proc/$pid/environ" ]; then
       probleme="$probleme
   - $u (PID $pid): /proc/$pid/environ ist nicht (mehr) lesbar."
+      nur_keine_pid_probleme=0
       continue
     fi
     if ! wert="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | awk 'index($0, "WOV_WELT_VERZEICHNIS=") == 1 { v = substr($0, 22); f = 1 } END { if (!f) exit 1; print v }')"; then
@@ -679,12 +704,14 @@ welt_laufzeit_pruefen() {
         probleme="$probleme
   - $u (PID $pid) hat KEIN WOV_WELT_VERZEICHNIS=<absoluter Pfad> in seiner Umgebung (/proc/$pid/environ). Er liest
     die Welt sonst aus <Checkout>/server/data/welten-arbeit, einer Datei, die kein Dienst sonst liest."
+        nur_keine_pid_probleme=0
         continue ;;
     esac
     vorgabe="$(env_wert "$(sed -n 's/^Environment=//p' "deploy/systemd/$u.service" 2>/dev/null)" WOV_WELT_VERZEICHNIS)" || vorgabe=""
     if [ "$wert" != "$vorgabe" ]; then
       probleme="$probleme
   - $u (PID $pid): WOV_WELT_VERZEICHNIS=$wert weicht von deploy/systemd/$u.service (${vorgabe:-nichts}) ab."
+      nur_keine_pid_probleme=0
       continue
     fi
     if [ "$u" = "wov-server" ]; then
@@ -692,6 +719,7 @@ welt_laufzeit_pruefen() {
     elif [ -n "$wert_server" ] && [ "$wert" != "$wert_server" ]; then
       probleme="$probleme
   - wov-admin (PID $pid): WOV_WELT_VERZEICHNIS=$wert weicht von wov-server ($wert_server) ab."
+      nur_keine_pid_probleme=0
       continue
     fi
     echo "  ✓ $u (PID $pid) liest die Welt aus WOV_WELT_VERZEICHNIS=$wert (gleich deploy/systemd/$u.service)"
@@ -699,8 +727,17 @@ welt_laufzeit_pruefen() {
   if [ -n "$probleme" ]; then
     echo "  ✗ Weltprüfung nach dem Start gescheitert:$probleme" >&2
     echo "    Units prüfen: systemctl show -p Environment,UnsetEnvironment,EnvironmentFiles,DropInPaths wov-server wov-admin; deploy/welt-einbau.md" >&2
-    WELT_PRUEFUNG_FEHLGESCHLAGEN=1
-    logger -t wov-update "ABBRUCH wov-update: Dienste laufen, aber auf falscher Welt; Units pruefen, Rueckweg: git -C ${WURZEL:-.} checkout -B main ${WOV_UPDATE_VORHER:-<unbekannt>} && npm ci --include=dev && systemctl restart wov-server wov-admin" 2>/dev/null || true
+    # N6 (I-7): "$nur_keine_pid_probleme" bleibt 1, wenn JEDE gemeldete Zeile eine fehlende
+    # MainPID ist (dann wurde nirgends wirklich eine Welt verglichen — kein Widerspruch,
+    # sondern schlicht kein laufender Prozess). Sobald auch nur EINE Zeile ein echter
+    # Wert-Widerspruch ist (Pfad falsch, Server/Admin verschieden, environ unlesbar/leer),
+    # bleibt es beim "falsche Welt"-Text, unabhaengig davon, ob ein ANDERER Dienst PID-los war.
+    if [ "$nur_keine_pid_probleme" = "1" ]; then
+      WELT_PRUEFUNG_KEINE_PID=1
+    else
+      WELT_PRUEFUNG_FEHLGESCHLAGEN=1
+    fi
+    logger -t wov-update "ABBRUCH wov-update: Dienste laufen, aber auf falscher Welt; Units pruefen, Rueckweg: cd ${WURZEL:-.} && systemctl stop ${DIENSTE[*]} && git checkout -B main ${WOV_UPDATE_VORHER:-<unbekannt>} && npm ci --include=dev && systemctl start wov.target" 2>/dev/null || true
     return 1
   fi
 }
@@ -1240,12 +1277,22 @@ if [ "${WOV_UPDATE_STUFE2:-}" != "1" ]; then
   # N5 (N4-5): Normalerweise ist "vorher" HEAD vor diesem Merge. War aber schon
   # ein FRUEHERER Lauf bis hierher gekommen (Merge lief, die Weltpruefung nach
   # dem Start unten aber nie gruen — s. welt_laufzeit_pruefen), zeigt HEAD schon
-  # auf GEPRUEFTER_STAND, waehrend VERSION noch den aelteren, zuletzt wirklich
-  # bestaetigten Stand nennt: dann bleibt "vorher" der Stand aus VERSION, sonst
-  # zeigte ein zweiter, diesmal erfolgreicher Lauf den Rueckweg auf sich selbst.
+  # den VERSION-Commit als Vorfahren, waehrend VERSION noch den aelteren, zuletzt
+  # wirklich bestaetigten Stand nennt: dann bleibt "vorher" der Stand aus VERSION,
+  # sonst zeigte ein zweiter, diesmal erfolgreicher Lauf den Rueckweg auf sich selbst.
+  #
+  # N6 (N5-1): Die Gleichheit HEAD_VOR_MERGE = GEPRUEFTER_STAND allein reicht nicht.
+  # Zieht origin/main zwischen dem gescheiterten ersten und diesem zweiten Lauf
+  # weiter, ist GEPRUEFTER_STAND nicht mehr HEAD_VOR_MERGE, sondern ein neuerer
+  # Commit — die alte Bedingung griff dann nicht mehr, und "vorher" waere faelschlich
+  # HEAD_VOR_MERGE (der nie bestaetigte K5.7-Stand) statt des VERSION-Commits.
+  # Richtig ist daher: der VERSION-Commit gilt als Rueckweg, sobald er von HEAD_VOR_MERGE
+  # verschieden UND sein Vorfahre ist — unabhaengig davon, wie weit origin/main
+  # inzwischen gewandert ist.
   HEAD_VOR_MERGE="$(git rev-parse HEAD)"
   VERSION_COMMIT_VOR_MERGE="$(version_feld "$VERSION_DATEI" WOV_VERSION_COMMIT)" || VERSION_COMMIT_VOR_MERGE=""
-  if [ -n "$VERSION_COMMIT_VOR_MERGE" ] && [ "$HEAD_VOR_MERGE" = "$GEPRUEFTER_STAND" ] && [ "$HEAD_VOR_MERGE" != "$VERSION_COMMIT_VOR_MERGE" ]; then
+  if [ -n "$VERSION_COMMIT_VOR_MERGE" ] && [ "$HEAD_VOR_MERGE" != "$VERSION_COMMIT_VOR_MERGE" ] \
+    && git merge-base --is-ancestor "$VERSION_COMMIT_VOR_MERGE" "$HEAD_VOR_MERGE"; then
     export WOV_UPDATE_VORHER="$VERSION_COMMIT_VOR_MERGE"
     echo "  Hinweis: HEAD steht schon auf ${HEAD_VOR_MERGE:0:7} (ein frueherer Lauf hat schon gemergt, die"
     echo "  Weltpruefung nach dem Start war aber nie gruen); WOV_UPDATE_VORHER bleibt der zuletzt bestaetigte"

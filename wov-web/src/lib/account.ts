@@ -775,6 +775,23 @@ export function changePassword(
 }
 
 /**
+ * „Überall abmelden“ (Rettungsweg): meldet mit dem RICHTIGEN Passwort alle
+ * bisherigen Sitzungen des Kontos ab, auch gestohlene, und antwortet mit einem
+ * neuen Token für diese. Geht auch, wenn die Passwortbestätigung der anderen
+ * Aufrufe gesperrt ist (ein Dieb kann sie sonst dem Besitzer zudrehen).
+ */
+export function logoutEverywhere(
+  shore: ShoreId,
+  username: string,
+  password: string,
+): Promise<AuthResponse> {
+  return call<AuthResponse>(shore, '/accounts/login', {
+    method: 'POST',
+    body: { username, password, logoutOthers: true },
+  });
+}
+
+/**
  * Konto endgültig löschen. `confirm` ist der eigene Benutzername, den die
  * Person dafür eintippt; der Server vergleicht ihn ohne Beachtung der
  * Groß-/Kleinschreibung.

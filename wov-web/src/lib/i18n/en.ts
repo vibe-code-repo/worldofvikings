@@ -669,6 +669,11 @@ export const en: Messages = {
     'Afterwards every other sign-in of this account is ended, running games included. You stay signed in here.',
   'account.manage.password.save': 'Change password',
   'account.manage.password.saved': 'Password changed. All other sign-ins have been ended.',
+  'account.manage.logout.heading': 'Sign out everywhere',
+  'account.manage.logout.hint':
+    'Ends every other sign-in of this account and all running games, for example if you think someone else has access. Works with your password even when other inputs are locked. You stay signed in here.',
+  'account.manage.logout.button': 'Sign out all others',
+  'account.manage.logout.done': 'All other sign-ins have been ended.',
   'account.manage.delete.heading': 'Delete account',
   'account.manage.delete.warning':
     'This deletes your account and all your heroes for good. Game state and inventory are gone, and so are your chests with their contents; your buildings stay behind without an owner. Your Thing posts stay readable, with “Deleted hero” as the author. Reactions, subscriptions, notifications and your reports are deleted. The username becomes free again. This cannot be undone.',

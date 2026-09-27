@@ -729,6 +729,11 @@ export const de = {
     'Danach sind alle anderen Anmeldungen dieses Kontos beendet, auch laufende Spiele. Hier bleibst du angemeldet.',
   'account.manage.password.save': 'Passwort ändern',
   'account.manage.password.saved': 'Passwort geändert. Alle anderen Anmeldungen wurden beendet.',
+  'account.manage.logout.heading': 'Überall abmelden',
+  'account.manage.logout.hint':
+    'Beendet alle anderen Anmeldungen dieses Kontos und alle laufenden Spiele, zum Beispiel wenn du glaubst, dass jemand Fremdes Zugriff hat. Geht mit deinem Passwort auch dann, wenn andere Eingaben gesperrt sind. Du bleibst hier angemeldet.',
+  'account.manage.logout.button': 'Alle anderen abmelden',
+  'account.manage.logout.done': 'Alle anderen Anmeldungen wurden beendet.',
   'account.manage.delete.heading': 'Konto löschen',
   'account.manage.delete.warning':
     'Das löscht dein Konto und alle deine Recken endgültig. Spielstand und Inventar sind weg, deine Truhen mit Inhalt auch; deine Bauten bleiben herrenlos stehen. Deine Beiträge im Thing bleiben lesbar, als Verfasser steht dann „Gelöschter Recke“. Reaktionen, Abos, Benachrichtigungen und deine Meldungen werden gelöscht. Der Benutzername wird wieder frei. Das lässt sich nicht rückgängig machen.',

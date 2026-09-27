@@ -9,6 +9,7 @@
     deleteAccount,
     errorMessageKey,
     isLoggedOut,
+    logoutEverywhere,
     readToken,
     setProfile,
     writeToken,
@@ -93,6 +94,10 @@
   let pwWiederholt = $state('');
   let pw = $state<Abschnitt>(leer());
 
+  /* ------------------------------------------------- Überall abmelden */
+  let abmPw = $state('');
+  let abm = $state<Abschnitt>(leer());
+
   /* ------------------------------------------------------------ Löschen */
   let loeschPw = $state('');
   let loeschName = $state('');
@@ -174,6 +179,30 @@
       writeToken(shore, r.token);
     });
     pw = ergebnis.error === null && !ergebnis.busy ? { ...ergebnis, done: 'account.manage.password.saved' } : ergebnis;
+  }
+
+  async function ueberallAbmelden(e: Event) {
+    e.preventDefault();
+    if (abm.busy) return;
+    if (abmPw === '') {
+      abm = { busy: false, error: 'account.manage.error.current_required', done: null };
+      return;
+    }
+    const passwort = abmPw;
+    abmPw = '';
+    abm = { ...abm, busy: true, error: null, done: null };
+    // Meldet über die Anmeldung ab, nicht über das Token: ein 401 heißt hier
+    // „Passwort falsch“ (login-failed), nicht „Token weg“.
+    let neu: string | null = null;
+    try {
+      const r = await logoutEverywhere(shore, account.username, passwort);
+      neu = r.token;
+    } catch (err) {
+      abm = { busy: false, error: fehlerSchluessel(err), done: null };
+      return;
+    }
+    writeToken(shore, neu);
+    abm = { busy: false, error: null, done: 'account.manage.logout.done' };
   }
 
   async function kontoLoeschen(e: Event) {
@@ -316,6 +345,29 @@
       <div class="account-actions">
         <button class="knopf account-primary" type="submit" disabled={pw.busy}>
           {pw.busy ? t['account.manage.saving'] : t['account.manage.password.save']}
+        </button>
+      </div>
+    </form>
+
+    <form class="account-panel konto-abschnitt" onsubmit={ueberallAbmelden} aria-labelledby="km-abm">
+      <h3 id="km-abm">{t['account.manage.logout.heading']}</h3>
+      <p class="account-hint">{t['account.manage.logout.hint']}</p>
+      <div class="account-field">
+        <label class="account-label" for="km-abm-pw">{t['account.manage.current_password']}</label>
+        <input
+          class="account-input"
+          id="km-abm-pw"
+          type="password"
+          autocomplete="current-password"
+          maxlength="200"
+          bind:value={abmPw}
+        />
+      </div>
+      {#if abm.error}<p class="account-error" role="alert">{t[abm.error]}</p>{/if}
+      {#if abm.done}<p class="account-notice" role="status">{t[abm.done]}</p>{/if}
+      <div class="account-actions">
+        <button class="knopf knopf-rand" type="submit" disabled={abm.busy}>
+          {abm.busy ? t['account.manage.saving'] : t['account.manage.logout.button']}
         </button>
       </div>
     </form>

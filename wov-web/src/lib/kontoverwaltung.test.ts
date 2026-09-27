@@ -184,6 +184,23 @@ describe('Aufrufe gegen einen Stub', () => {
     expect(gesehen[0].url).not.toContain('geheim');
   });
 
+  it('logoutEverywhere ist eine Anmeldung mit logoutOthers, ohne Token-Kopfzeile', async () => {
+    gesehen.length = 0;
+    antwort = {
+      status: 200,
+      body: { token: 'NEU', account: { username: 'a', email: 'e@b.de' }, characters: [] },
+    };
+    await account.logoutEverywhere(shore, 'Mike', 'geheim');
+    expect(gesehen).toEqual([
+      {
+        method: 'POST',
+        url: '/accounts/login',
+        token: undefined,
+        body: { username: 'Mike', password: 'geheim', logoutOthers: true },
+      },
+    ]);
+  });
+
   it('reportProfile meldet den Recken mit Grund', async () => {
     gesehen.length = 0;
     antwort = { status: 201, body: { ok: true } };

@@ -405,6 +405,49 @@ function bauSchattenSzene() {
   intern.vegetationsPackPending.add(standPackend);
   intern.vegetationsWrapperWerfer.add(standPackend);
 
+  // B3 (Nachangriff #105 N1, Befund B3/M7): Tiefen-Eintrag schon GEBAUT, bevor
+  // die Vorlage per resetDrawCache ihre defines verliert — genau der Zweig, den
+  // tiefeSchonGebaut() bewacht. Babylon kopiert nur beim ANLEGEN eines Eintrags;
+  // ein schon gebauter bleibt gueltig. Ohne diesen Fall im Test bleibt die
+  // Mutante "tiefeSchonGebaut aus dem Praedikat gestrichen" gruen, weil die
+  // Attrappen-Generatoren der anderen Staende nie einen Eintrag anlegen.
+  const standTiefeGebaut = (() => {
+    const name = 'w4';
+    const quelle = new Mesh(`${name}_q`, scene);
+    const klon = new Mesh(`${name}_k`, scene);
+    const vd = new VertexData();
+    vd.positions = [0, 0, 0, 1, 0, 0, 0, 2, 0];
+    vd.indices = [0, 1, 2];
+    vd.normals = [0, 0, 1, 0, 0, 1, 0, 0, 1];
+    vd.uvs = [0, 0, 1, 0, 0, 1];
+    vd.applyToMesh(klon);
+    const material = new PBRMaterial(`${name}_mat`, scene);
+    const wrapper = new SicherTiefenWrapper(material, scene, { doNotInjectCode: true });
+    material.shadowDepthWrapper = wrapper;
+    klon.material = material;
+    const teil = klon.subMeshes[0]!;
+    material.isReadyForSubMesh(klon, teil, false);
+    // Vorlage als fertig ausgeben, wie zustandNachReset() oben — sonst baut
+    // wrapper.isReadyForSubMesh() auf der NullEngine keinen echten Eintrag.
+    const vorlage = (wrapper as unknown as Tabellen)._subMeshToEffect.get(teil)?.[0] as object | undefined;
+    if (vorlage) {
+      Object.defineProperty(vorlage, 'isReady', { value: () => true });
+      Object.defineProperty(vorlage, 'vertexSourceCodeBeforeMigration', { value: 'void main(){}' });
+      Object.defineProperty(vorlage, 'fragmentSourceCodeBeforeMigration', { value: 'void main(){}' });
+    }
+    // Eintrag anlegen, keyed auf `fake` — denselben Generator, den
+    // pruefeWrapperWerferBereitschaft(fake) unten befragt.
+    wrapper.isReadyForSubMesh(teil, [], fake as unknown as ShadowGenerator, false, 0);
+    teil.resetDrawCache();
+    return { quelle, schatten: klon, bereit: true, tiefeBereit: true, tiefeVersuche: 0, aktiv: 3 };
+  })();
+  const wDrawWrapper = (standTiefeGebaut.schatten.material as PBRMaterial).shadowDepthWrapper!;
+  pruefe(
+    !vorlageHatDefines(wDrawWrapper, standTiefeGebaut.schatten.subMeshes[0]!),
+    'Ausgangslage B3: die Vorlage hat nach dem Reset noch defines — der Test misst nichts'
+  );
+  intern.vegetationsWrapperWerfer.add(standTiefeGebaut);
+
   intern.pruefeWrapperWerferBereitschaft(fake);
 
   pruefe(!intern.vegetationsWrapperWerfer.has(standNichtBereit), 'ein nicht mehr bereiter Stand blieb in der Menge stehen');
@@ -415,6 +458,21 @@ function bauSchattenSzene() {
   pruefe(!intern.vegetationsWrapperWerfer.has(standPackend), 'ein zum Packen anstehender Stand blieb in der Menge stehen');
   pruefe(!intern.vegetationsTiefePending.has(standPackend), 'ein zum Packen anstehender Klon wurde trotzdem angefasst');
   pruefe(!liste.includes(standPackend.quelle), 'die Quelle eines zum Packen anstehenden Stands wurde trotzdem als Werfer angemeldet');
+
+  // B3: ein schon GEBAUTER Tiefen-Eintrag gilt weiter, auch ohne defines an der
+  // Vorlage — die Mutante "tiefeSchonGebaut gestrichen" muss hier rot werden.
+  pruefe(
+    intern.vegetationsWrapperWerfer.has(standTiefeGebaut),
+    'B3: ein Klon mit schon gebautem Tiefen-Eintrag wurde nach resetDrawCache faelschlich als Verlust behandelt'
+  );
+  pruefe(
+    !intern.vegetationsTiefePending.has(standTiefeGebaut),
+    'B3: ein Klon mit schon gebautem Tiefen-Eintrag landete trotzdem in der Warteliste'
+  );
+  pruefe(
+    !liste.includes(standTiefeGebaut.quelle),
+    'B3: die Quelle eines Klons mit schon gebautem Tiefen-Eintrag wurde grundlos wieder als Werfer angemeldet'
+  );
 
   // Gegenprobe: ein wirklich bereiter Klon (echter Wrapper, echte defines aus
   // bauSchattenSzene) wird nicht angefasst.

@@ -2298,6 +2298,14 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  // FPS-Welle Karte 2/3: darfWerfen() bekommt eine groessenabhaengige
+  // Zusatz-Reichweite (KLEINWERFER_*/MITTELWERFER_*); ein kleiner ferner
+  // Werfer faellt heraus, ein naher bleibt drin, beim Naehern kommt er
+  // zurueck. Die G20-Klon-Huelle bleibt aussen vor. Dazu B1-Regression
+  // (Nachangriff #105 N1): ein aufgegebener Klon bleibt nach einem
+  // Neubestimmen der Werferliste OHNE Neupacken (setDistantShadows)
+  // gesperrt, bis eine echte Uebergabe ihn freigibt. NullEngine, <1 s.
+  ['client', 'test/schatten-werfer-groesse.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

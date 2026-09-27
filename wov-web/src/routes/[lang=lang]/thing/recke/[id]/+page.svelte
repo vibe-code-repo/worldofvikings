@@ -4,6 +4,7 @@
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import { localeFrom, messages } from '$lib/i18n';
   import { datumKurz } from '$lib/formate';
+  import ProfilMelden from './ProfilMelden.svelte';
   import type { PageData } from './$types';
 
   /*
@@ -54,6 +55,19 @@
           {datumKurz(iso(data.charakter.lastPlayed), lang)}{/if}
       </p>
     </header>
+
+    {#if data.charakter.profile}
+      <!--
+        Der Profiltext des Kontos: REINER TEXT. Die Ausgabe unten ist eine
+        gewöhnliche Interpolation, die Svelte maskiert — ohne HTML-Einsatz, ohne
+        Markdown. `pre-line` behält die Zeilenumbrüche, mehr nicht.
+      -->
+      <section class="tafel bio">
+        <h2>{t['thing.profile.bio']}</h2>
+        <p class="bio-text">{data.charakter.profile}</p>
+        <ProfilMelden characterId={data.charakter.id} />
+      </section>
+    {/if}
 
     <section class="tafel aussehen">
       <h2>{t['thing.profile.appearance']}</h2>
@@ -133,6 +147,15 @@
     font-size: 15px;
   }
 
+  .bio {
+    margin-bottom: 1.4rem;
+    padding: 1rem 1.2rem;
+  }
+  .bio-text {
+    margin: 0;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+  }
   .aussehen {
     margin-bottom: 1.4rem;
     padding: 1rem 1.2rem;

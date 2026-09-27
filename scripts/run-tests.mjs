@@ -822,6 +822,9 @@ const KERN = [
   // (Date.now gestellt) fuer den Ablauf des Fensters. Echter node:http-
   // Server, Sekunden.
   ['server', 'test/konto-registrierung-drossel.ts'],
+  // Konto-Verwaltung (W3): Passwort/E-Mail/Profil/Loeschung, Token-Sperre, Forum-
+  // Anonymisierung, gleichzeitige Loeschung und play. Echter node:http-Server.
+  ['server', 'test/konto-verwaltung.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die
@@ -1065,6 +1068,9 @@ const KERN = [
   // fest: Vorlage wird angemeldet, die Quelle wirft bis zur Bereitschaft
   // weiter, ein Klon ohne Instanzen wird nicht angemeldet. NullEngine, <1 s.
   ['client', 'test/schatten-laub-klon.ts'],
+  // WebGPU-Stillstand: Der Tiefen-Wrapper baut nie aus einer Vorlage ohne defines
+  // (Draw-Cache zurueckgesetzt), er meldet stattdessen "nicht bereit". NullEngine, <1 s.
+  ['client', 'test/schatten-wrapper-sicher.ts'],
   // G18: Die scharfe Nahkaskade endete bei 9 m, dahinter 5,4-fach groebere
   // Texel. Rechnet Babylons Kaskadenteilung nach (an der Messung geeicht) und
   // prueft die ausgelieferte Look-Vorgabe gegen eine Mindestreichweite.
@@ -2219,6 +2225,8 @@ const KERN = [
   ['tools', 'test/weltkarte-probe.mjs'],
   // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
   ['client', 'test/testflug-ops.ts'],
+  // Account management against a real server (W3): delete in the main world and inside a dungeon instance (chest by CONTAINER, build ownerless, no leftovers in instance.players), password change and log-out-everywhere cut game and editor connections, old player token refused. ~20 s.
+  ['server', 'test/konto-verwaltung-welt.ts'],
   // World file goes live (K5.0): the running server applies a written document within a second (objects only,
   // geo and typos are refused with a receipt), and the operations service answers 200 / 202 from that receipt.
   ['server', 'test/layout-live.ts'],

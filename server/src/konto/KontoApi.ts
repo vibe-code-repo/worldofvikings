@@ -43,7 +43,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
-import { Kontendatenbank, type Charakter } from './Kontendatenbank.js';
+import { Kontendatenbank, PROFILTEXT_MAX, type Charakter, type GeloeschtesKonto } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
 import {
   AUGENFARBE_VORGABE, istAugenfarbe, istFigur, istFrisur, istHaarfarbe, istRuestung, isCharacterClass,
@@ -60,7 +60,24 @@ const MAX_KOERPER_BYTES = 4096;
 
 /** Failed logins per IP: five in fifteen minutes, then a pause. */
 const FEHLVERSUCHE_MAX = 5;
+/**
+ * Login-Versuche je Herkunft ueber ALLE Konten, die ein Erfolg NICHT
+ * zuruecksetzt. Gegen das Abklappern vieler Konten von einer Adresse; hoeher
+ * als `FEHLVERSUCHE_MAX`, weil hinter einer Adresse (NAT, Haushalt) mehrere
+ * Menschen sitzen koennen. Bewusst KEIN kontoweites Login-Limit: das koennte
+ * ein Dieb dem Besitzer zudrehen, und der Rettungsweg laeuft ueber den Login.
+ */
+const LOGIN_HERKUNFT_MAX = 25;
 const FEHLVERSUCHE_FENSTER_MS = 15 * 60 * 1000;
+
+/**
+ * Fehlversuche beim Bestaetigen des Passworts je KONTO (alle Herkuenfte
+ * zusammen). Bewusst weit ueber dem Herkunfts-Limit: Die Herkunft haelt
+ * einen Dieb an seiner Adresse fest, dieses Limit nur verteiltes Raten. Waere
+ * es klein, sperrte ein Dieb mit gestohlenem Token von fuenf Adressen aus den
+ * Besitzer aus seiner eigenen Rettung (Passwort aendern, Konto loeschen).
+ */
+const KONTO_FEHLVERSUCHE_MAX = 50;
 
 /**
  * Registrations per origin: five per hour, then 429.
@@ -88,7 +105,36 @@ export const BENUTZERNAME_REGEX = /^[\p{L}\p{N}_-]{3,24}$/u;
 /** Character name shape, shared with `StandardKonto.ts` for the same reason. */
 export const CHARAKTERNAME_REGEX = /^[\p{L}\p{N} _-]{2,24}$/u;
 
-interface KontoTokenPayload { k: number; i: number; e: number }
+/**
+ * Was nach einer Kontoloeschung ausserhalb der Kontendatenbank zu tun ist.
+ * Beides sind Haken statt fester Abhaengigkeiten: die KontoApi kennt weder
+ * die Forendatei noch die Spielwelt.
+ */
+export interface KontoHaken {
+  /** Forum anonymisieren (Beitraege bleiben, Autor wird "Geloeschter Recke"). Darf werfen; der Auftrag bleibt dann stehen. */
+  forumBereinigen?: (auftrag: { kontoId: number; charakterIds: number[]; namen: string[] }) => void;
+  /** Laufende Spiele trennen, Spielstand/Inventar entfernen, Bauten herrenlos, Truhen entfernen. */
+  weltBereinigen?: (konto: GeloeschtesKonto) => void;
+  /** Laufende Spielverbindungen dieser Spieler-Kennungen beenden (nach einem Passwortwechsel). */
+  spielerTrennen?: (spielerIds: string[]) => void;
+}
+
+/**
+ * Einhaengepunkte NUR fuer Tests, die ein Zeitfenster zwischen zwei awaits
+ * erzwingen muessen. In der Produktion nie gesetzt; die Aufrufe sind dann
+ * ein `undefined?.()`.
+ */
+export interface KontoTestHaken {
+  /** In `anmelden()`, direkt nach der Passwortpruefung. */
+  nachLoginPruefung?: () => Promise<void>;
+  /** In `passwortBestaetigen()`, direkt nach der Passwortpruefung. */
+  nachBestaetigung?: () => Promise<void>;
+}
+
+/** Name, unter dem die Beitraege eines geloeschten Kontos weiterstehen. */
+export const GELOESCHTER_AUTOR = 'Gelöschter Recke';
+
+interface KontoTokenPayload { k: number; i: number; e: number; g?: number }
 
 /**
  * What the server says about itself when anyone asks.
@@ -113,6 +159,26 @@ export class KontoApi {
   private readonly kontoSchluessel: Buffer;
   private readonly fehlversuche = new Map<string, { anzahl: number; bis: number }>();
   private readonly registrierungen = new Map<string, { anzahl: number; bis: number }>();
+  /** Fehlversuche beim Bestaetigen des Passworts, je Konto (zusaetzlich zur Herkunft). */
+  private readonly kontoFehlversuche = new Map<number, { anzahl: number; bis: number }>();
+  /**
+   * Fehlversuche beim Bestaetigen des Passworts je (Herkunft, Konto). Bewusst
+   * NICHT der Herkunftszaehler des Logins: Ein Erfolg im EIGENEN Konto setzte
+   * sonst die Zaehlung fuer JEDES Konto dieser Adresse zurueck, und ein Dieb
+   * mit gestohlenem Token haette von einer einzigen Adresse beliebig viele
+   * Versuche gegen das Opfer gehabt (vier falsch, einmal im eigenen Konto
+   * Erfolg, wieder von vorn).
+   */
+  private readonly bestaetigungen = new Map<string, { anzahl: number; bis: number }>();
+  /**
+   * Login-Versuche je (Herkunft, Konto). Ein Erfolg loescht NUR diesen
+   * Schluessel — sonst setzte jeder erfolgreiche Login in ein beliebiges
+   * Konto (auch das oeffentliche `gast`) die Zaehlung gegen andere Konten
+   * dieser Adresse zurueck (vier falsch, ein Gast-Login, von vorn).
+   */
+  private readonly loginVersuche = new Map<string, { anzahl: number; bis: number }>();
+  /** Nur fuer Tests, s. `KontoTestHaken`. */
+  testHaken: KontoTestHaken = {};
 
   constructor(
     private readonly db: Kontendatenbank,
@@ -138,6 +204,14 @@ export class KontoApi {
      * Antwort ist der ERSTE Eintrag, und daran haengen aeltere Clients.
      */
     private readonly standardKontoNamen: readonly string[] = [],
+    /**
+     * ALLE Standardkonten (auch das Adminkonto): Passwort, E-Mail und
+     * Loeschung sind dort gesperrt. Ihr Passwort steht oeffentlich in
+     * server.yml; wer es kennt, koennte sonst allen anderen das Konto
+     * wegnehmen oder es loeschen.
+     */
+    private readonly geschuetzteNamen: readonly string[] = [],
+    private readonly haken: KontoHaken = {},
   ) {
     // Domain separation: a different key for account tokens, derived from
     // the same secret. See the header comment.
@@ -180,6 +254,13 @@ export class KontoApi {
     if (pfad === '/accounts/me' && m === 'GET') return this.ich(req, res);
     if (pfad === '/accounts/characters' && m === 'POST') return this.charakterAnlegen(req, res);
     if (pfad === '/accounts/avatar' && m === 'POST') return this.avatarSetzen(req, res);
+    if (pfad === '/accounts/profile' && m === 'POST') return this.profilSetzen(req, res);
+    if (pfad === '/accounts/email' && m === 'POST') return this.emailAendern(req, res);
+    if (pfad === '/accounts/password' && m === 'POST') return this.passwortAendern(req, res);
+    if (pfad === '/accounts/delete' && m === 'POST') return this.kontoLoeschen(req, res);
+
+    const melden = /^\/accounts\/characters\/(\d+)\/report$/.exec(pfad);
+    if (melden && m === 'POST') return this.profilMelden(req, res, Number(melden[1]));
 
     const spielen = /^\/accounts\/characters\/(\d+)\/play$/.exec(pfad);
     if (spielen && m === 'POST') return this.spielen(req, res, Number(spielen[1]));
@@ -287,7 +368,7 @@ export class KontoApi {
 
     console.log(`[Konto] angelegt: "${benutzername}"`);
     this.json(res, 201, {
-      token: this.kontoTokenAusstellen(r.konto.id),
+      token: this.kontoTokenAusstellen(r.konto.id, this.db.tokenAbVon(r.konto.id) ?? 0),
       account: { username: r.konto.benutzername, email: r.konto.email },
       characters: [],
       avatar: null,
@@ -296,7 +377,7 @@ export class KontoApi {
 
   private async anmelden(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const ip = this.herkunft(req);
-    if (this.gesperrt(ip)) return this.json(res, 429, { error: 'too-many-attempts' });
+    if (this.herkunftGesperrt(ip)) return this.json(res, 429, { error: 'too-many-attempts' });
 
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
@@ -305,31 +386,97 @@ export class KontoApi {
     const passwort = String(k.password ?? '');
     const konto = benutzername ? this.db.kontoNachName(benutzername) : null;
 
+    // Gezaehlt wird VOR dem Hashen (gleichzeitige Versuche umgehen die Sperre
+    // sonst) und bei Erfolg zurueckgenommen. Unbekannte Namen teilen sich einen
+    // Schluessel, damit das Abklappern von Namen nicht je Name neu zaehlt.
+    // Unbekannte Namen zaehlen je NAME (genauso normalisiert wie beim Konto-
+    // Lookup, ohne Gross/Klein): bekannte und unbekannte Namen verhalten sich
+    // dann gleich (fuenf Versuche, dann 429). Ein gemeinsamer Schluessel fuer
+    // alle unbekannten Namen waere ein Orakel: unbekannt = sofort 429 ohne Hash,
+    // bekannt = 401 nach dem Hash. Das Abklappern vieler Namen deckelt der
+    // Herkunftszaehler.
+    const versuchsSchluessel = `${ip}|${konto ? konto.id : `?${benutzername.toLowerCase()}`}`;
+    // Herkunftsgrenze auch NACH dem Lesen des Koerpers: viele offene Anfragen mit
+    // verzoegertem Koerper haben die fruehe Pruefung sonst alle bestanden.
+    if (this.herkunftGesperrt(ip) || this.loginVersuchGesperrt(versuchsSchluessel)) {
+      return this.json(res, 429, { error: 'too-many-attempts' });
+    }
+    this.loginVersuchZaehlen(versuchsSchluessel, ip);
+    // Die Generation VOR dem Hashen: Nur ein Passwortwechsel (oder "ueberall
+    // abmelden") zaehlt sie hoch, das Hash-Upgrade eines gleichzeitigen Logins
+    // nicht. Verglichen wird nach dem letzten await nur diese Zahl, nicht der
+    // ganze Passwort-Eintrag — sonst bekaeme von vier gleichzeitigen, richtigen
+    // Logins nach einer Parameteraenderung nur einer ein Token.
+    const generationVorher = konto ? this.db.tokenAbVon(konto.id) : null;
+    const ueberallAbmelden = k.logoutOthers === true;
+
     // Always run the (expensive) check, even when the account does not
     // exist: otherwise the response time tells an attacker which
     // usernames are real.
     const eintrag = konto?.passwort
       ?? 'scrypt$32768$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const stimmt = await passwortPruefen(passwort, eintrag);
+    await this.testHaken.nachLoginPruefung?.();
 
     if (!konto || !stimmt) {
-      this.fehlversuchZaehlen(ip);
       // One message for both cases — "unknown user" would be an oracle.
       return this.json(res, 401, { error: 'login-failed' });
     }
 
-    this.fehlversuche.delete(ip);
+    // Erfolg: nur der Schluessel dieses Kontos faellt weg, der Herkunftszaehler
+    // bekommt seinen Versuch zurueck (ein Erfolg verbraucht kein Budget), wird
+    // aber nie auf null gesetzt.
+    this.loginVersuche.delete(versuchsSchluessel);
+    this.herkunftErstatten(ip);
+    // Ein gemeinsames Ausprobier-Konto kennt jeder; "ueberall abmelden" darf dort
+    // nicht dazu taugen, allen anderen die Sitzung zu nehmen.
+    if (ueberallAbmelden && this.istGeschuetzt(konto.benutzername)) {
+      return this.json(res, 403, { error: 'standard-account' });
+    }
     // Raise the cost on the fly: this is the only moment the plain
     // password is available to write a stronger record with.
     if (veraltet(eintrag)) {
-      this.db.passwortErsetzen(konto.id, await passwortEinlagern(passwort));
+      const neu = await passwortEinlagern(passwort);
+      this.db.passwortErsetzen(konto.id, neu, eintrag);
+    }
+
+    // Erst JETZT, nach dem letzten await, ohne weiteren dazwischen: Hat sich
+    // das Passwort waehrend des Hashens geaendert (Passwortwechsel), gilt das
+    // Ergebnis der Pruefung nicht mehr — sonst bekaeme ein Login mit dem
+    // ALTEN Passwort ein Token, das den Wechsel ueberlebt. Die Generation
+    // wird hier gelesen und ins Token geschrieben, im selben Zug.
+    let generation = this.db.tokenAbVon(konto.id);
+    if (generation === null || generation !== generationVorher) {
+      return this.json(res, 401, { error: 'login-failed' });
+    }
+    if (ueberallAbmelden) {
+      // Rettungsweg: mit dem RICHTIGEN Passwort alle bisherigen Sitzungen
+      // beenden (auch die eines Tokendiebs), ohne dass die Konto-Sperre der
+      // Passwortbestaetigung im Weg steht — die kann ein Dieb dem Besitzer
+      // sonst dauerhaft zudrehen. Der Login selbst ist ueber die Herkunft
+      // gedrosselt.
+      const neu = this.db.alleAbmelden(konto.id);
+      if (!neu) return this.json(res, 401, { error: 'login-failed' });
+      generation = neu.generation;
+      this.kontoFehlversuche.delete(konto.id);
+      // Auch die Bestaetigungssperren dieses Kontos (je Herkunft): das Token des
+      // Diebs, gegen das sie gedacht waren, ist damit ohnehin tot.
+      for (const schluessel of [...this.bestaetigungen.keys()]) {
+        if (schluessel.endsWith(`|${konto.id}`)) this.bestaetigungen.delete(schluessel);
+      }
+      try {
+        this.haken.spielerTrennen?.(this.db.charaktereVonKonto(konto.id).map((c) => c.spielerId));
+      } catch (e) {
+        console.error(`[Konto] Trennen der Spiele von Konto ${konto.id} fehlgeschlagen:`, e);
+      }
     }
 
     this.json(res, 200, {
-      token: this.kontoTokenAusstellen(konto.id),
+      token: this.kontoTokenAusstellen(konto.id, generation),
       account: { username: konto.benutzername, email: konto.email },
       characters: this.db.charaktereVonKonto(konto.id).map(nachAussen),
       avatar: this.db.avatarVon(konto.id),
+      profile: this.db.profilTextVon(konto.id),
     });
   }
 
@@ -342,7 +489,19 @@ export class KontoApi {
       account: { username: konto.benutzername, email: konto.email },
       characters: this.db.charaktereVonKonto(kontoId).map(nachAussen),
       avatar: this.db.avatarVon(kontoId),
+      profile: this.db.profilTextVon(kontoId),
+      manageable: !this.istGeschuetzt(konto.benutzername),
     });
+  }
+
+  /**
+   * Das Token gilt NACH dem Lesen des Koerpers noch? Der Koerper kann langsam
+   * kommen (bis zum requestTimeout); in der Zwischenzeit kann eine Rettung
+   * ("ueberall abmelden") oder ein Passwortwechsel das Token beendet haben.
+   * Ohne diese zweite Pruefung schriebe ein davor begonnener Aufruf noch.
+   */
+  private nochAngemeldet(req: IncomingMessage, kontoId: number): boolean {
+    return this.kontoAus(req) === kontoId;
   }
 
   private async charakterAnlegen(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -351,6 +510,7 @@ export class KontoApi {
 
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
 
     const name = String(k.name ?? '').trim();
     if (!CHARAKTERNAME_REGEX.test(name)) return this.json(res, 400, { error: 'name-invalid' });
@@ -411,7 +571,11 @@ export class KontoApi {
   private charakterOeffentlich(res: ServerResponse, id: number): void {
     const c = this.db.charakterNachId(id);
     if (!c) return this.json(res, 404, { error: 'unknown' });
-    this.json(res, 200, { character: nachAussen(c) });
+    // Der Profiltext gehoert zum KONTO, erscheint aber nur beim Avatar-
+    // Recken: wuerde er an jedem Charakter haengen, verriete der gleiche
+    // Text, welche Charaktere derselben Person gehoeren.
+    const profil = this.db.avatarVon(c.kontoId) === c.id ? this.db.profilTextVon(c.kontoId) : '';
+    this.json(res, 200, { character: { ...nachAussen(c), profile: profil } });
   }
 
   /**
@@ -423,8 +587,12 @@ export class KontoApi {
     const kontoId = this.kontoAus(req);
     if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
 
+    // Standardkonten: ihr Passwort ist oeffentlich, ihr Avatar darf nicht jedem gehoeren.
+    if (this.kontoGeschuetzt(kontoId)) return this.json(res, 403, { error: 'standard-account' });
+
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
 
     if (k.characterId === null || k.characterId === undefined || k.characterId === '') {
       this.db.avatarSetzen(kontoId, null);
@@ -439,6 +607,190 @@ export class KontoApi {
 
     this.db.avatarSetzen(kontoId, id);
     this.json(res, 200, { avatar: id });
+  }
+
+
+  // ── Konto-Verwaltung (W3) ───────────────────────────────────────────
+
+  private istGeschuetzt(benutzername: string): boolean {
+    const n = benutzername.toLowerCase();
+    return this.geschuetzteNamen.some((g) => g.toLowerCase() === n)
+      || this.standardKontoNamen.some((g) => g.toLowerCase() === n);
+  }
+
+  private kontoGeschuetzt(kontoId: number): boolean {
+    const k = this.db.kontoNachId(kontoId);
+    return k !== null && this.istGeschuetzt(k.benutzername);
+  }
+
+  /** Profiltext: reiner Text nach `bereinigeText`, hoechstens PROFILTEXT_MAX Zeichen. */
+  private async profilSetzen(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const kontoId = this.kontoAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    if (this.kontoGeschuetzt(kontoId)) return this.json(res, 403, { error: 'standard-account' });
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
+    const text = typeof k.text === 'string' ? bereinigeText(k.text, PROFILTEXT_MAX) : null;
+    if (text === null) return this.json(res, 400, { error: 'profile-invalid' });
+    this.db.profilTextSetzen(kontoId, text);
+    this.json(res, 200, { profile: text });
+  }
+
+  /** Meldung gegen den Profiltext des Kontos hinter einem Charakter. */
+  private async profilMelden(req: IncomingMessage, res: ServerResponse, charakterId: number): Promise<void> {
+    const kontoId = this.kontoAus(req);
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
+    const grund = typeof k.reason === 'string' ? bereinigeText(k.reason, 200) : '';
+    if (grund === null) return this.json(res, 400, { error: 'reason-invalid' });
+    const r = this.db.profilMelden(kontoId, charakterId, grund);
+    if (!r.ok) return this.json(res, 404, { error: 'unknown' });
+    this.json(res, 201, { ok: true });
+  }
+
+  /**
+   * Gemeinsamer Vorspann der drei Aenderungen, die das aktuelle Passwort
+   * verlangen (E-Mail, Passwort, Loeschung). Liefert das Konto samt dem
+   * Passwort-Eintrag, gegen den GEPRUEFT wurde — die Aufrufer schreiben nur
+   * mit Bedingung auf genau diesen Eintrag zurueck.
+   *
+   * Der Fehlversuch wird VOR dem (teuren, awaiteten) Hashen gezaehlt und bei
+   * Erfolg zurueckgenommen. Wuerde erst nach dem await gezaehlt, koennte ein
+   * Angreifer beliebig viele Versuche gleichzeitig starten, die alle die
+   * Sperre noch offen sehen. Gezaehlt wird je Herkunft UND je Konto (ein
+   * gestohlenes Token kommt von jeder Adresse).
+   */
+  private async passwortBestaetigen(
+    req: IncomingMessage, res: ServerResponse, k: Record<string, unknown>, feld: string,
+    konto: { id: number; passwort: string },
+  ): Promise<boolean> {
+    const schluessel = `${this.herkunft(req)}|${konto.id}`;
+    if (this.bestaetigungGesperrt(schluessel) || this.kontoGesperrt(konto.id)) {
+      this.json(res, 429, { error: 'too-many-attempts' });
+      return false;
+    }
+    this.bestaetigungZaehlen(schluessel);
+    this.kontoFehlversuchZaehlen(konto.id);
+    const stimmt = await passwortPruefen(String(k[feld] ?? ''), konto.passwort);
+    await this.testHaken.nachBestaetigung?.();
+    if (!stimmt) {
+      this.json(res, 401, { error: 'password-wrong' });
+      return false;
+    }
+    // Nur die Zaehler DIESES Kontos, nie die einer Adresse fuer andere Konten.
+    this.bestaetigungen.delete(schluessel);
+    this.kontoFehlversuche.delete(konto.id);
+    return true;
+  }
+
+  /** Konto fuer eine Aenderung laden: 401 ohne Anmeldung, 403 bei Standardkonten. */
+  private kontoFuerAenderung(req: IncomingMessage, res: ServerResponse) {
+    const kontoId = this.kontoAus(req);
+    const konto = kontoId === null ? null : this.db.kontoMitPasswort(kontoId);
+    if (!konto) { this.json(res, 401, { error: 'not-signed-in' }); return null; }
+    if (this.istGeschuetzt(konto.benutzername)) {
+      this.json(res, 403, { error: 'standard-account' });
+      return null;
+    }
+    return konto;
+  }
+
+  private async emailAendern(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const konto = this.kontoFuerAenderung(req, res);
+    if (!konto) return;
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    const email = String(k.email ?? '').trim();
+    const mangel = pruefeEmail(email);
+    if (mangel) return this.json(res, 400, { error: mangel });
+    if (!(await this.passwortBestaetigen(req, res, k, 'currentPassword', konto))) return;
+
+    if (!this.db.emailSetzen(konto.id, email, konto.passwort)) {
+      return this.json(res, 409, { error: 'conflict' });
+    }
+    this.json(res, 200, { account: { username: konto.benutzername, email } });
+  }
+
+  /**
+   * Passwort aendern und alle ANDEREN Anmeldungen beenden.
+   *
+   * Die Token sind zustandslos; beendet wird ueber die Generation
+   * `konten.token_ab` (jedes Konto-Token traegt seine, `g`). Die aufrufende
+   * Sitzung bekommt ein Token der neuen Generation zurueck. Spieler-Token
+   * aus /play prueft der Handshake gegen `konten.spieler_ab`.
+   */
+  private async passwortAendern(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const konto = this.kontoFuerAenderung(req, res);
+    if (!konto) return;
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    const neu = String(k.newPassword ?? '');
+    const mangel = pruefePasswort(neu);
+    if (mangel) return this.json(res, 400, { error: mangel });
+    if (!(await this.passwortBestaetigen(req, res, k, 'currentPassword', konto))) return;
+
+    const eintrag = await passwortEinlagern(neu);
+    const wechsel = this.db.passwortWechseln(konto.id, eintrag, konto.passwort);
+    if (!wechsel) return this.json(res, 409, { error: 'conflict' });
+    console.log(`[Konto] Passwort gewechselt: Konto ${konto.id}`);
+    // Spieler-Token aus /play sind damit ueber `spieler_ab` ungueltig
+    // (Kontendatenbank.bannFuerZugang); laufende Verbindungen trennen wir hier.
+    try {
+      this.haken.spielerTrennen?.(this.db.charaktereVonKonto(konto.id).map((c) => c.spielerId));
+    } catch (e) {
+      console.error(`[Konto] Trennen der Spiele von Konto ${konto.id} fehlgeschlagen:`, e);
+    }
+    this.json(res, 200, { token: this.kontoTokenAusstellen(konto.id, wechsel.generation) });
+  }
+
+  /**
+   * Konto loeschen: Passwort UND der eigene Benutzername als Bestaetigung.
+   *
+   * Nach dem await laeuft alles synchron in einem Zug (Loeschung, Haken):
+   * ein gleichzeitiger `play`-Aufruf sieht das Konto entweder ganz oder gar
+   * nicht mehr, und ein davor abgeholtes Spieler-Token ist ueber
+   * `geloeschte_spieler` wertlos (Kontendatenbank.bannFuerZugang).
+   */
+  private async kontoLoeschen(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const konto = this.kontoFuerAenderung(req, res);
+    if (!konto) return;
+    const k = await this.koerper(req);
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (String(k.confirm ?? '').trim().toLowerCase() !== konto.benutzername.toLowerCase()) {
+      return this.json(res, 400, { error: 'confirm-mismatch' });
+    }
+    if (!(await this.passwortBestaetigen(req, res, k, 'password', konto))) return;
+
+    const weg = this.db.kontoLoeschen(konto.id, konto.passwort);
+    if (!weg) return this.json(res, 409, { error: 'conflict' });
+    console.log(`[Konto] geloescht: Konto ${weg.kontoId} mit ${weg.charaktere.length} Charakteren`);
+    this.kontoFehlversuche.delete(konto.id);
+
+    // Welt zuerst: dort muss der Spieler raus, bevor irgendetwas anderes
+    // ihn noch einmal in savedPlayers schreibt.
+    try { this.haken.weltBereinigen?.(weg); } catch (e) {
+      console.error(`[Konto] Welt-Bereinigung fuer Konto ${weg.kontoId} fehlgeschlagen:`, e);
+    }
+    this.forumAuftraegeAbarbeiten();
+    this.json(res, 200, { ok: true });
+  }
+
+  /**
+   * Offene Forum-Bereinigungen ausfuehren. Beim Start aufrufen (holt nach,
+   * was ein Abbruch liegen liess) und nach jeder Loeschung.
+   */
+  forumAuftraegeAbarbeiten(): void {
+    for (const a of this.db.forumAuftraege()) {
+      try {
+        this.haken.forumBereinigen?.(a);
+        if (this.haken.forumBereinigen) this.db.forumAuftragErledigt(a.kontoId);
+      } catch (e) {
+        console.error(`[Konto] Forum-Bereinigung fuer Konto ${a.kontoId} fehlgeschlagen (wird beim Start wiederholt):`, e);
+      }
+    }
   }
 
   /**
@@ -456,17 +808,22 @@ export class KontoApi {
     if (!c) return this.json(res, 404, { error: 'unknown' });
 
     this.db.gespieltVermerken(c.id);
+    // Nie vor `spieler_ab` des Kontos ausgestellt, auch wenn die Uhr nach
+    // einem Passwortwechsel zurueckgesprungen ist (s. bannFuerZugang).
+    const ab = this.db.spielerAbZuSpielerId(c.spielerId) ?? 0;
     this.json(res, 200, {
-      sessionToken: tokenAusstellen(c.spielerId, c.altlastUserId, this.sessionSecret),
+      sessionToken: tokenAusstellen(
+        c.spielerId, c.altlastUserId, this.sessionSecret, undefined, Math.max(Date.now(), ab + 1),
+      ),
       character: nachAussen(c),
     });
   }
 
   // ── Account tokens ──────────────────────────────────────────────────
 
-  private kontoTokenAusstellen(kontoId: number): string {
+  private kontoTokenAusstellen(kontoId: number, generation: number): string {
     const jetzt = Date.now();
-    const payload: KontoTokenPayload = { k: kontoId, i: jetzt, e: jetzt + KONTO_TOKEN_GUELTIG_MS };
+    const payload: KontoTokenPayload = { k: kontoId, i: jetzt, e: jetzt + KONTO_TOKEN_GUELTIG_MS, g: generation };
     const b64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
     const sig = createHmac('sha256', this.kontoSchluessel).update(b64).digest('base64url');
     return `${b64}.${sig}`;
@@ -509,6 +866,12 @@ export class KontoApi {
       const p = JSON.parse(Buffer.from(teile[0], 'base64url').toString('utf8')) as KontoTokenPayload;
       if (typeof p.k !== 'number' || typeof p.e !== 'number') return null;
       if (Date.now() > p.e) return null;
+      // Das Konto muss noch existieren, und das Token muss unter der
+      // AKTUELLEN Generation ausgestellt sein (`konten.token_ab`); Token
+      // ohne `g` stammen von vor der Verwaltung und zaehlen als Generation 0.
+      const generation = this.db.tokenAbVon(p.k);
+      const g = p.g === undefined ? 0 : p.g;
+      if (generation === null || typeof g !== 'number' || g !== generation) return null;
       return p.k;
     } catch { return null; }
   }
@@ -519,18 +882,88 @@ export class KontoApi {
     return herkunftErmitteln(req);
   }
 
-  private gesperrt(ip: string): boolean {
+  /**
+   * Abgelaufene Eintraege aus den Zaehlkarten entfernen, hoechstens alle fuenf
+   * Minuten. Ohne das wuechsen die Karten mit jedem je gesehenen Schluessel;
+   * die Zaehlung selbst lief schon ohne diesen Durchlauf korrekt ab.
+   */
+  private naechsteAufraeumung = 0;
+  private abgelaufenesAufraeumen(): void {
+    const jetzt = Date.now();
+    if (jetzt < this.naechsteAufraeumung) return;
+    this.naechsteAufraeumung = jetzt + 5 * 60 * 1000;
+    for (const karte of [this.fehlversuche, this.loginVersuche, this.bestaetigungen]) {
+      for (const [schluessel, e] of karte) if (jetzt > e.bis) karte.delete(schluessel);
+    }
+  }
+
+  private herkunftGesperrt(ip: string): boolean {
     const e = this.fehlversuche.get(ip);
     if (!e) return false;
     if (Date.now() > e.bis) { this.fehlversuche.delete(ip); return false; }
+    return e.anzahl >= LOGIN_HERKUNFT_MAX;
+  }
+
+  private loginVersuchGesperrt(schluessel: string): boolean {
+    const e = this.loginVersuche.get(schluessel);
+    if (!e) return false;
+    if (Date.now() > e.bis) { this.loginVersuche.delete(schluessel); return false; }
     return e.anzahl >= FEHLVERSUCHE_MAX;
   }
 
-  private fehlversuchZaehlen(ip: string): void {
+  /** Ein Login-Versuch: je (Herkunft, Konto) UND je Herkunft. */
+  private loginVersuchZaehlen(schluessel: string, ip: string): void {
+    this.abgelaufenesAufraeumen();
     const jetzt = Date.now();
-    const e = this.fehlversuche.get(ip);
-    if (!e || jetzt > e.bis) {
+    const k = this.loginVersuche.get(schluessel);
+    if (!k || jetzt > k.bis) {
+      this.loginVersuche.set(schluessel, { anzahl: 1, bis: jetzt + FEHLVERSUCHE_FENSTER_MS });
+    } else {
+      k.anzahl++;
+    }
+    const h = this.fehlversuche.get(ip);
+    if (!h || jetzt > h.bis) {
       this.fehlversuche.set(ip, { anzahl: 1, bis: jetzt + FEHLVERSUCHE_FENSTER_MS });
+    } else {
+      h.anzahl++;
+    }
+  }
+
+  /** Ein erfolgreicher Login gibt seinen Versuch am Herkunftszaehler zurueck (nie unter null). */
+  private herkunftErstatten(ip: string): void {
+    const h = this.fehlversuche.get(ip);
+    if (h && h.anzahl > 0) h.anzahl--;
+  }
+
+  private bestaetigungGesperrt(schluessel: string): boolean {
+    const e = this.bestaetigungen.get(schluessel);
+    if (!e) return false;
+    if (Date.now() > e.bis) { this.bestaetigungen.delete(schluessel); return false; }
+    return e.anzahl >= FEHLVERSUCHE_MAX;
+  }
+
+  private bestaetigungZaehlen(schluessel: string): void {
+    const jetzt = Date.now();
+    const e = this.bestaetigungen.get(schluessel);
+    if (!e || jetzt > e.bis) {
+      this.bestaetigungen.set(schluessel, { anzahl: 1, bis: jetzt + FEHLVERSUCHE_FENSTER_MS });
+    } else {
+      e.anzahl++;
+    }
+  }
+
+  private kontoGesperrt(kontoId: number): boolean {
+    const e = this.kontoFehlversuche.get(kontoId);
+    if (!e) return false;
+    if (Date.now() > e.bis) { this.kontoFehlversuche.delete(kontoId); return false; }
+    return e.anzahl >= KONTO_FEHLVERSUCHE_MAX;
+  }
+
+  private kontoFehlversuchZaehlen(kontoId: number): void {
+    const jetzt = Date.now();
+    const e = this.kontoFehlversuche.get(kontoId);
+    if (!e || jetzt > e.bis) {
+      this.kontoFehlversuche.set(kontoId, { anzahl: 1, bis: jetzt + FEHLVERSUCHE_FENSTER_MS });
     } else {
       e.anzahl++;
     }
@@ -608,16 +1041,93 @@ function nachAussen(c: Charakter): Record<string, unknown> {
   };
 }
 
+/**
+ * Zeichen, die in Buchstaben-/Symbolkategorien stehen, aber unsichtbar sind
+ * oder wie Leerraum wirken (Fuellzeichen, Braille-Leer, khmerische
+ * Eigenvokale, CGJ). Die Positivregel unten laesst sie sonst durch.
+ */
+const UNSICHTBAR = new Set([
+  0x034f, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x2800, 0x3164, 0xffa0,
+]);
+const ERLAUBTES_ZEICHEN = /^[\p{L}\p{M}\p{N}\p{P}\p{S} \n]$/u;
+const KOMBINIEREND = /^\p{M}$/u;
+/** Variantenselektoren: nur direkt hinter einem Emoji- oder CJK-/mongolischen Zeichen sinnvoll. */
+const VARIANTENSELEKTOR = /^[\uFE00-\uFE0F\u180B-\u180D\u{E0100}-\u{E01EF}]$/u;
+const TRAEGT_SELEKTOR = /^[\p{Emoji}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Mongolian}]$/u;
+/** Hangul-Jamo (Anfangs-, Mittel-, Endlaut): NFC macht daraus Silben, uebrig bleibt nur Unfug. */
+const JAMO = /^[\u1100-\u11FF\uA960-\uA97F\uD7B0-\uD7FF]$/u;
+
+/** Hoechstens so viele kombinierende Zeichen hintereinander (gegen "Zalgo"). */
+const KOMBINIEREND_MAX = 2;
+const JAMO_MAX = 3;
+const ZEILENUMBRUECHE_MAX = 5;
+/** Deckel in Codepunkten je erlaubtem Graphem-Cluster: kein Text laesst sich hinter wenigen Clustern verstecken. */
+const CODEPUNKTE_JE_GRAPHEM = 4;
+
+/**
+ * Reiner Text nach einer POSITIVREGEL: Nach NFC und Vereinheitlichung der
+ * Zeilenenden ist erlaubt, was Buchstabe, Zeichen, Zahl, Satzzeichen oder
+ * Symbol ist, dazu das Leerzeichen und der Zeilenumbruch. Alles andere
+ * (Steuer-, Format-, Richtungs-, Tag-Zeichen, einzelne Surrogate, private
+ * Zeichen, Tabulator, Zeilentrenner) wird abgelehnt, ebenso unsichtbare
+ * Fuellzeichen. Hoechstens `KOMBINIEREND_MAX` kombinierende Zeichen in Folge
+ * und `ZEILENUMBRUECHE_MAX` Umbrueche. Die Laenge zaehlt Graphem-Cluster
+ * (`Intl.Segmenter`), was eine Nutzerin als "ein Zeichen" sieht.
+ *
+ * Gibt den bereinigten Text zurueck oder null bei einem Verstoss. Die
+ * Ausgabe des Textes ist Sache des Aufrufers: er wird roh gespeichert und
+ * darf nie als HTML oder Markdown gerendert werden.
+ */
+export function bereinigeText(roh: string, maxGrapheme: number): string | null {
+  const text = roh.normalize('NFC').replace(/\r\n?/g, '\n').trim();
+  // Grosszuegige Obergrenze vor der Zeichenpruefung, gegen aufwaendige Eingaben.
+  if (text.length > maxGrapheme * CODEPUNKTE_JE_GRAPHEM * 2) return null;
+  let umbrueche = 0;
+  let marken = 0;
+  let jamo = 0;
+  let codepunkte = 0;
+  let vorher: string | null = null;
+  for (const zeichen of text) {
+    const cp = zeichen.codePointAt(0)!;
+    if (cp >= 0xd800 && cp <= 0xdfff) return null;
+    if (UNSICHTBAR.has(cp) || !ERLAUBTES_ZEICHEN.test(zeichen)) return null;
+    if (++codepunkte > maxGrapheme * CODEPUNKTE_JE_GRAPHEM) return null;
+    if (zeichen === '\n') { if (++umbrueche > ZEILENUMBRUECHE_MAX) return null; }
+    if (KOMBINIEREND.test(zeichen)) {
+      // Ein kombinierendes Zeichen braucht ein Basiszeichen davor (nicht Anfang,
+      // Leerzeichen, Zeilenumbruch); Variantenselektoren nur hinter Emoji/CJK.
+      if (vorher === null || vorher === ' ' || vorher === '\n') return null;
+      if (VARIANTENSELEKTOR.test(zeichen) && !TRAEGT_SELEKTOR.test(vorher) && !KOMBINIEREND.test(vorher)) return null;
+      if (++marken > KOMBINIEREND_MAX) return null;
+    } else marken = 0;
+    if (JAMO.test(zeichen)) { if (++jamo > JAMO_MAX) return null; } else jamo = 0;
+    vorher = zeichen;
+  }
+  let grapheme = 0;
+  for (const _ of new Intl.Segmenter('und', { granularity: 'grapheme' }).segment(text)) {
+    void _;
+    if (++grapheme > maxGrapheme) return null;
+  }
+  return text;
+}
+
+/** Deliberately loose: the address is never verified. */
+export function pruefeEmail(email: string): string | null {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return 'email-invalid';
+  return null;
+}
+
+export function pruefePasswort(passwort: string): string | null {
+  if (passwort.length < 8 || passwort.length > 200) return 'password-too-short';
+  return null;
+}
+
 /** Returns an error key, or null when the input is acceptable. */
 export function pruefeAnmeldedaten(
   benutzername: string, email: string, passwort: string,
 ): string | null {
   if (!BENUTZERNAME_REGEX.test(benutzername)) return 'username-invalid';
-  // Deliberately loose: the address is never verified, so a strict pattern
-  // would only reject valid unusual addresses without buying anything.
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return 'email-invalid';
-  if (passwort.length < 8 || passwort.length > 200) return 'password-too-short';
-  return null;
+  return pruefeEmail(email) ?? pruefePasswort(passwort);
 }
 
 export type { SpielerId };

@@ -29,6 +29,7 @@
     writeShore,
   } from '$lib/account';
   import '$lib/stil/account.css';
+  import KontoVerwaltung from './KontoVerwaltung.svelte';
 
   /**
    * The account page: which characters exist, and what can be done with them.
@@ -67,6 +68,12 @@
   /** Der Konto-Avatar (Charakter-Id) oder null — Das Thing, M4. */
   let avatar = $state<number | null>(null);
   let avatarBusy = $state(false);
+  /** Öffentlicher Profiltext des Kontos (W3). */
+  let profile = $state('');
+  /** `false` bei den gemeinsamen Ausprobier-Konten (nichts davon änderbar). */
+  let manageable = $state(true);
+  /** Das Konto wurde eben hier gelöscht: statt der Sperrseite ein Satz. */
+  let deleted = $state(false);
   let error = $state<MessageKey | null>(null);
   /** The character the delete question is currently standing for. */
   let deleteAsk = $state<number | null>(null);
@@ -138,6 +145,7 @@
       account = null;
       characters = [];
       avatar = null;
+      profile = '';
       return;
     }
     loading = true;
@@ -146,6 +154,9 @@
       account = data.account;
       characters = data.characters;
       avatar = data.avatar ?? null;
+      profile = data.profile ?? '';
+      manageable = data.manageable !== false;
+      deleted = false;
       signedIn = true;
       // Die frischeste Auskunft über den Namen, die es gibt — sie geht
       // gleich an die Kopfleiste weiter, die ihn sonst selbst erfragen
@@ -158,6 +169,7 @@
         account = null;
         characters = [];
         avatar = null;
+        profile = '';
       } else {
         // A server error or a broken connection is NOT a confirmed sign-in.
         // This used to say `signedIn = true`: the page then showed the
@@ -256,6 +268,18 @@
     account = null;
     characters = [];
     error = null;
+  }
+
+  /** Konto gelöscht (Server hat es bestätigt): zurück in den abgemeldeten Zustand. */
+  function afterDelete() {
+    signedIn = false;
+    unreachable = false;
+    account = null;
+    characters = [];
+    avatar = null;
+    profile = '';
+    error = null;
+    deleted = true;
   }
 
   onMount(async () => {
@@ -481,6 +505,21 @@
           </a>
         </div>
       {/if}
+
+      {#if account && !loading && !(error && characters.length === 0)}
+        <!-- Nach der Liste, nicht zwischen ihr und dem Kopf: erst die Recken,
+             dann das, was das ganze Konto betrifft. -->
+        <KontoVerwaltung
+          {shore}
+          {account}
+          {profile}
+          {manageable}
+          onAccount={(a) => (account = a)}
+          onProfile={(text) => (profile = text)}
+          onDeleted={afterDelete}
+          onLoggedOut={toLogin}
+        />
+      {/if}
     {:else}
       <!--
         The default state. It stands like this in the prerendered HTML and is
@@ -488,6 +527,9 @@
         ways onward, no half button and no empty list.
       -->
       <div class="account-panel" style="max-width:460px">
+        {#if deleted}
+          <p class="account-notice" role="status">{t['account.manage.delete.done']}</p>
+        {/if}
         <h2>{t['account.page.locked.title']}</h2>
         <p style="color:var(--text-matt)">{t['account.page.locked.text']}</p>
         {#if ready && loading}

@@ -11,7 +11,7 @@ import {
   type GameLocale,
   type TranslationKey,
 } from '../i18n';
-import type { SettingsStore } from './Settings';
+import { detectQualityTier, type QualityTier, type SettingsStore } from './Settings';
 
 type TabId = 'general' | 'graphics' | 'effects';
 
@@ -168,6 +168,9 @@ export class SettingsPanel {
   }
 
   private renderGraphics(): void {
+    this.content.appendChild(this.buildSection('settings.section.quality_tier'));
+    this.content.appendChild(this.buildQualityTierRow());
+
     this.content.appendChild(this.buildSection('settings.section.image'));
     this.content.appendChild(
       this.buildRow('settings.render_scale', (s) => s.renderScale,
@@ -248,6 +251,39 @@ export class SettingsPanel {
     ]>) {
       this.content.appendChild(this.buildToggle(key, get, set));
     }
+  }
+
+  /** Setzt neun Grafikfelder auf einmal (fps-analyse.md Abschnitt 6); die
+   * einzelnen Regler darunter bleiben bedienbar und weichen dann von der
+   * hervorgehobenen Stufe ab. */
+  private buildQualityTierRow(): HTMLDivElement {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:4px;margin-bottom:14px';
+    const tiers: QualityTier[] = ['low', 'medium', 'high'];
+    const labelKeys: Record<QualityTier, TranslationKey> = {
+      low: 'quality.low', medium: 'quality.medium', high: 'quality.high',
+    };
+    const buttons: HTMLButtonElement[] = [];
+    const paint = (active: QualityTier | null) => buttons.forEach((button, index) => {
+      const on = tiers[index] === active;
+      button.style.background = on
+        ? 'linear-gradient(180deg,#7a5f2e,#4a3a1c)'
+        : 'linear-gradient(180deg,#332818,#241b10)';
+      button.style.color = on ? '#ffe9b0' : '#a8916a';
+      button.style.borderColor = on ? '#f2c86a' : '#5a4726';
+    });
+    for (const tier of tiers) {
+      const button = document.createElement('button');
+      button.textContent = this.i18n.t(labelKeys[tier]);
+      button.style.cssText =
+        'flex:1;padding:6px 2px;font:inherit;font-size:12px;border:1px solid #5a4726;' +
+        'border-radius:3px;cursor:pointer;min-width:0';
+      button.addEventListener('click', () => this.settings.applyQualityTier(tier));
+      buttons.push(button);
+      row.appendChild(button);
+    }
+    this.settingSubscriptions.push(this.settings.onChange((state) => paint(detectQualityTier(state))));
+    return row;
   }
 
   private buildSection(key: TranslationKey): HTMLDivElement {

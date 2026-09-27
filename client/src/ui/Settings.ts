@@ -382,6 +382,85 @@ function bool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined;
 }
 
+export type QualityTier = 'low' | 'medium' | 'high';
+
+type QualityTierFields = Pick<
+  GameSettings,
+  | 'shadowQuality'
+  | 'depthOfField'
+  | 'grassDensity'
+  | 'detailQuality'
+  | 'waterQuality'
+  | 'vegetationRange'
+  | 'bloom'
+  | 'chromaticAberration'
+  | 'antiAliasing'
+>;
+
+/**
+ * Werte je Qualitätsstufe (Berichte/fps-analyse.md Abschnitt 6). "Hoch" ist
+ * DEFAULTS selbst ("bleibt wie heute"); alle drei Stufen belegen dieselben
+ * neun Felder, damit ein Wechsel deterministisch ist, egal was vorher manuell
+ * eingestellt wurde. Felder ausserhalb dieser Liste (z. B. `nameplates`,
+ * `temporalAA`, `dungeonQuality`) fasst keine Stufe an.
+ *
+ * Zwei Punkte aus der Tabelle fehlen bewusst:
+ *  - "nur nahe Kaskade" (Niedrig) gibt es noch nicht als eigenen Schalter,
+ *    darum bleibt es bei "Schatten aus" (shadowQuality 0).
+ *  - "Ferntakt 3" (Mittel) ist kein Feld hier, sondern eine Zahl in
+ *    Shadows.ts, das diese Karte nicht anfasst.
+ */
+export const QUALITY_TIERS: Record<QualityTier, QualityTierFields> = {
+  low: {
+    shadowQuality: 0,
+    depthOfField: false,
+    grassDensity: 0,
+    detailQuality: 0,
+    waterQuality: 1,
+    vegetationRange: 0, // 160 m
+    bloom: false,
+    chromaticAberration: false,
+    antiAliasing: false,
+  },
+  medium: {
+    shadowQuality: 2,
+    depthOfField: false,
+    grassDensity: 2,
+    detailQuality: 1,
+    waterQuality: 2,
+    vegetationRange: 2, // 240 m
+    bloom: DEFAULTS.bloom,
+    chromaticAberration: DEFAULTS.chromaticAberration,
+    antiAliasing: DEFAULTS.antiAliasing,
+  },
+  high: {
+    shadowQuality: DEFAULTS.shadowQuality,
+    depthOfField: DEFAULTS.depthOfField,
+    grassDensity: DEFAULTS.grassDensity,
+    detailQuality: DEFAULTS.detailQuality,
+    waterQuality: DEFAULTS.waterQuality,
+    vegetationRange: DEFAULTS.vegetationRange,
+    bloom: DEFAULTS.bloom,
+    chromaticAberration: DEFAULTS.chromaticAberration,
+    antiAliasing: DEFAULTS.antiAliasing,
+  },
+};
+
+const QUALITY_TIER_KEYS = Object.keys(QUALITY_TIERS.high) as (keyof QualityTierFields)[];
+
+/**
+ * Errät die aktuell wirksame Stufe aus den neun verwalteten Feldern, für die
+ * Hervorhebung im Panel. `null`, wenn der Spieler manuell von jeder Stufe
+ * abgewichen ist.
+ */
+export function detectQualityTier(settings: GameSettings): QualityTier | null {
+  for (const tier of ['low', 'medium', 'high'] as const) {
+    const fields = QUALITY_TIERS[tier];
+    if (QUALITY_TIER_KEYS.every((key) => settings[key] === fields[key])) return tier;
+  }
+  return null;
+}
+
 export class SettingsStore {
   private state: GameSettings = { ...DEFAULTS, ...loadSaved() };
   private readonly listeners = new Set<(s: GameSettings) => void>();
@@ -398,6 +477,12 @@ export class SettingsStore {
       // localStorage unavailable (private mode/quota) — settings stay session-only
     }
     for (const fn of this.listeners) fn(this.state);
+  }
+
+  /** Setzt die neun Stufen-Felder auf die Werte von `tier`; alle anderen
+   * gespeicherten Einstellungen bleiben unverändert. */
+  applyQualityTier(tier: QualityTier): void {
+    this.set(QUALITY_TIERS[tier]);
   }
 
   /** Fires immediately with the current state, then on every change. */

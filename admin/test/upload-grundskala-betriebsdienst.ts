@@ -292,9 +292,16 @@ try {
     check("grundskala 'abc' -> 422", a.code === 422, `= ${a.code} ${JSON.stringify(a.daten)}`);
   }
 
-  console.log('\n6b. N1 — Kopfzeile nimmt nur schlichte Dezimalzahlen an (0x10, 1e1, Leerzeichen, +4 werden abgewiesen)\n');
+  console.log('\n6b. N1 — Kopfzeile nimmt nur schlichte Dezimalzahlen an (0x10, 1e1, +4 werden abgewiesen)\n');
   {
-    for (const roh of ['0x10', '1e1', ' 4 ', '+4', '0b11', '4.', '.5']) {
+    // ' 4 ' (mit umgebenden Leerzeichen) steht NICHT in dieser Liste: Node
+    // kuerzt optionale Leerzeichen (OWS, RFC 7230) an Kopfzeilenwerten schon
+    // im HTTP-Parser, BEVOR der Wert bei `modellHochladenBehandeln` ankommt
+    // — der Handler sieht dann nur noch '4', nicht mehr ' 4 '. Ueber ein
+    // echtes HTTP-Kopffeld laesst sich dieser Fall also gar nicht auslösen;
+    // der Riegel im Code bleibt trotzdem stehen (er greift, wenn der Wert
+    // je aus einer anderen Quelle als einem HTTP-Header kommt).
+    for (const roh of ['0x10', '1e1', '+4', '0b11', '4.', '.5']) {
       const a = await hochladen({ port, token: HAUPT.token, name: `GrundskalaN1${roh.replace(/[^A-Za-z0-9]/g, '')}`, bytes: bauGlb(1), grundskala: roh });
       check(`grundskala '${roh}' -> 422 (N1)`, a.code === 422, `= ${a.code} ${JSON.stringify(a.daten)}`);
       check(`grundskala '${roh}': Fehlerkennung 'grundskala-ungueltig'`, a.daten.fehler === 'grundskala-ungueltig', `= ${a.daten.fehler}`);

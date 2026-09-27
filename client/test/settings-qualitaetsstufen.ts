@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
-import { DEFAULTS, QUALITY_TIERS, SettingsStore, detectQualityTier, type GameSettings } from '../src/ui/Settings.js';
+import { DEFAULTS, QUALITY_TIERS, SettingsStore, detectQualityTier, schattenStufeFuer, type GameSettings } from '../src/ui/Settings.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 
@@ -201,38 +201,182 @@ for (const tier of ['low', 'medium', 'high'] as const) {
   assert.equal(store.get().temporalAA, false, 'Niedrig laesst ausgeschaltetes TAA unangetastet');
 }
 
-// Entscheidung 1: main.ts:1168 darf die Schattenstufe nicht mehr auf 1
-// zwingen, wenn das 100-FPS-Profil an ist -- die gewaehlte Qualitaetsstufe
-// (bzw. der manuelle Regler) hat Vorrang. main.ts hat dafuer keinen
-// DOM-freien Kern (siehe client/test/werkzeug-registry.ts fuer denselben
-// Ansatz bei editorMain.ts): Quelltextpruefung am Syntaxbaum statt an
-// Formatierung/Kommentaren, damit Prettier-Umbrueche den Test nicht treffen.
-{
-  const kanonisch = (text: string): string =>
-    ts.createPrinter({ removeComments: true }).printFile(ts.createSourceFile('x.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)).replace(/"/g, "'");
-  const mainQuelle = kanonisch(readFileSync(resolve(HIER, '../src/main.ts'), 'utf-8'));
-  assert.match(
-    mainQuelle,
-    /shadows\?\.setLevel\(schattenErzwingenAus \? 0 : s\.shadowQuality\)/,
-    'main.ts: onChange-Pfad -- shadows.setLevel folgt s.shadowQuality direkt (kein hundertFpsProfil-Zwang mehr)'
-  );
-  // Zweite Stelle: der Erstaufbau beim Welt-Betreten (`shadows = new
-  // Shadows(...)`, ohne `?.` weil dort nicht optional) hatte denselben
-  // Zwang in einer eigenen Kopie -- der obige Treffer allein haette ihn
-  // nicht gefangen, weil das Muster das `?.` verlangt. Ohne diese zweite
-  // Zeile bliebe ein frischer Login mit gespeicherter Stufe Niedrig +
-  // aktivem 100-FPS-Profil auf Schattenstufe 1 haengen (gemessen: N1,
-  // schattenStufe 1 statt 0 vor dieser Korrektur).
-  assert.match(
-    mainQuelle,
-    /shadows\.setLevel\(schattenErzwingenAus \? 0 : startSettings\.shadowQuality\)/,
-    'main.ts: Erstaufbau -- shadows.setLevel folgt startSettings.shadowQuality direkt (kein hundertFpsProfil-Zwang mehr)'
-  );
-  assert.doesNotMatch(
-    mainQuelle,
-    /shadows\??\.setLevel\([^)]*hundertFpsProfil[^)]*\)/,
-    'main.ts: keine shadows.setLevel-Stelle (onChange oder Erstaufbau) erzwingt noch eine Mindeststufe ueber hundertFpsProfil'
-  );
+// ── Mikes Entscheidung vom 27.09. zum 100-FPS-Profil (N2) ─────────────────
+// Angriffsbefund 4 auf N1: Die alte Quelltextwache war ein Text-Regex und
+// damit zugleich zu eng (eine dritte setLevel-Stelle ohne die exakte
+// Klammerform rutschte durch) und zu weit (ein gleichwertiger Umbau ueber
+// eine Hilfsfunktion wurde als Fehlalarm rot). Die Karte verlangt deshalb,
+// die Regel selbst in eine reine Funktion zu ziehen (schattenStufeFuer(),
+// Settings.ts) und main.ts nur noch darauf zu pruefen, dass es diese
+// Funktion an beiden Stellen tatsaechlich AUFRUFT -- am Syntaxbaum, nicht
+// am Text, damit Formatierung/Kommentare/Zeilenumbrueche egal sind.
+
+/** Alle `shadows.setLevel(...)`-Aufrufe im Syntaxbaum, `shadows?.` und
+ * `shadows!.` eingeschlossen (Non-Null-Assertion wird vor dem Vergleich
+ * abgestreift, wie eine umschliessende Klammer um den Empfaenger). */
+function sammleShadowsSetLevelAufrufe(quelltext: string): ts.CallExpression[] {
+  const datei = ts.createSourceFile('main.ts', quelltext, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const treffer: ts.CallExpression[] = [];
+  const kern = (ausdruck: ts.Expression): ts.Expression => {
+    if (ts.isNonNullExpression(ausdruck)) return kern(ausdruck.expression);
+    if (ts.isParenthesizedExpression(ausdruck)) return kern(ausdruck.expression);
+    return ausdruck;
+  };
+  const empfaengerIstShadows = (ausdruck: ts.Expression): boolean => {
+    const e = kern(ausdruck);
+    return ts.isIdentifier(e) && e.text === 'shadows';
+  };
+  const besuche = (knoten: ts.Node): void => {
+    if (
+      ts.isCallExpression(knoten) &&
+      ts.isPropertyAccessExpression(knoten.expression) &&
+      knoten.expression.name.text === 'setLevel' &&
+      empfaengerIstShadows(knoten.expression.expression)
+    ) {
+      treffer.push(knoten);
+    }
+    ts.forEachChild(knoten, besuche);
+  };
+  besuche(datei);
+  return treffer;
 }
 
-console.log('PASS Qualitaetsstufen: Niedrig/Mittel/Hoch treffen fps-analyse.md Abschnitt 6, fremde Einstellungen ueberleben, Erkennung robust, Persistenz/onChange/N1-Entscheidungen geprueft');
+/** Jeder `shadows.setLevel(...)`-Aufruf muss sein Argument (bis auf
+ * umschliessende Klammern) direkt von einem Aufruf `schattenStufeFuer(...)`
+ * beziehen -- kein Ternary, keine Zwischenvariable, kein zweiter,
+ * unbewachter setLevel-Aufruf daneben. */
+function pruefeSchattenStufeVerdrahtung(quelltext: string): { anzahl: number; alleRufenFunktionAuf: boolean } {
+  const entpacke = (ausdruck: ts.Expression): ts.Expression =>
+    ts.isParenthesizedExpression(ausdruck) ? entpacke(ausdruck.expression) : ausdruck;
+  const aufrufe = sammleShadowsSetLevelAufrufe(quelltext);
+  const alleRufenFunktionAuf = aufrufe.every((aufruf) => {
+    const argument = aufruf.arguments[0];
+    if (argument === undefined) return false;
+    const kern = entpacke(argument);
+    return ts.isCallExpression(kern) && ts.isIdentifier(kern.expression) && kern.expression.text === 'schattenStufeFuer';
+  });
+  return { anzahl: aufrufe.length, alleRufenFunktionAuf };
+}
+
+// Nachweis am echten main.ts: genau die beiden Stellen (onChange +
+// Erstaufbau), beide ueber schattenStufeFuer().
+{
+  const mainQuelle = readFileSync(resolve(HIER, '../src/main.ts'), 'utf-8');
+  const { anzahl, alleRufenFunktionAuf } = pruefeSchattenStufeVerdrahtung(mainQuelle);
+  assert.equal(anzahl, 2, 'main.ts: genau zwei shadows.setLevel-Aufrufe (onChange-Pfad + Erstaufbau)');
+  assert.ok(alleRufenFunktionAuf, 'main.ts: beide shadows.setLevel-Aufrufe beziehen ihr Argument aus schattenStufeFuer()');
+}
+
+// Gleichwertige Umformung (andere Formatierung, Kommentar, umschliessende
+// Klammern, mehrzeilig, Non-Null statt Optional-Chaining) bleibt gruen --
+// die Wache haengt an der Struktur, nicht am Text.
+{
+  const gleichwertig = `
+    function onChange() {
+      shadows
+        ?.setLevel(
+          (schattenStufeFuer(s, schattenErzwingenAus)) // Kommentar, egal
+        );
+    }
+    function init() {
+      shadows!.setLevel(schattenStufeFuer(startSettings, schattenErzwingenAus));
+    }
+  `;
+  const { anzahl, alleRufenFunktionAuf } = pruefeSchattenStufeVerdrahtung(gleichwertig);
+  assert.equal(anzahl, 2, 'gleichwertiger Umbau: weiterhin zwei Aufrufe erkannt');
+  assert.ok(alleRufenFunktionAuf, 'gleichwertiger Umbau (Formatierung/Klammern/shadows!) bleibt gruen');
+}
+
+// Die vier Mutanten aus dem Nachangriff (Befund 4, angepasst an die neue
+// Funktion): jeder ersetzt eine der beiden Stellen durch dieselbe alte,
+// fehlerhafte Zwangslogik in einer anderen syntaktischen Form. Alle vier
+// muessen rot werden.
+const MUTANTEN: Record<string, string> = {
+  'if-Zeile (zweiter, unbewachter setLevel-Aufruf)': `
+    function onChange() {
+      shadows?.setLevel(s.shadowQuality);
+      if (s.hundertFpsProfil) { shadows?.setLevel(Math.max(1, s.shadowQuality)); }
+    }
+    function init() {
+      shadows.setLevel(schattenStufeFuer(startSettings, schattenErzwingenAus));
+    }
+  `,
+  "get()-Klammer (Ternary statt schattenStufeFuer, ueber gameSettings.get())": `
+    function onChange() {
+      shadows?.setLevel(gameSettings.get().hundertFpsProfil ? 1 : s.shadowQuality);
+    }
+    function init() {
+      shadows.setLevel(schattenStufeFuer(startSettings, schattenErzwingenAus));
+    }
+  `,
+  'shadows! mit eingebautem Ternary statt schattenStufeFuer': `
+    function onChange() {
+      shadows!.setLevel(s.hundertFpsProfil ? 1 : s.shadowQuality);
+    }
+    function init() {
+      shadows.setLevel(schattenStufeFuer(startSettings, schattenErzwingenAus));
+    }
+  `,
+  'Zwischenvariable statt direktem schattenStufeFuer-Aufruf': `
+    function onChange() {
+      const stufe = s.hundertFpsProfil ? 1 : s.shadowQuality;
+      shadows?.setLevel(stufe);
+    }
+    function init() {
+      shadows.setLevel(schattenStufeFuer(startSettings, schattenErzwingenAus));
+    }
+  `,
+};
+for (const [name, quelle] of Object.entries(MUTANTEN)) {
+  const { anzahl, alleRufenFunktionAuf } = pruefeSchattenStufeVerdrahtung(quelle);
+  const gruen = anzahl === 2 && alleRufenFunktionAuf;
+  assert.ok(!gruen, `Mutant "${name}" muss die Wache rot machen (anzahl=${anzahl}, alleRufenFunktionAuf=${alleRufenFunktionAuf})`);
+}
+
+// ── schattenStufeFuer(): die reine Regel selbst, unit-getestet ────────────
+// Karte: Profil an + Niedrig -> 0; Profil an + Mittel/Hoch -> 1; Profil aus
+// -> shadowQuality; erzwungen aus -> 0.
+assert.equal(schattenStufeFuer({ hundertFpsProfil: true, shadowQuality: 0 }, false), 0, 'Profil an + Niedrig (shadowQuality 0) -> 0');
+assert.equal(schattenStufeFuer({ hundertFpsProfil: true, shadowQuality: 1 }, false), 1, 'Profil an + Mittel (shadowQuality 1) -> 1 (Profil-Schattenvariante)');
+assert.equal(schattenStufeFuer({ hundertFpsProfil: true, shadowQuality: 2 }, false), 1, 'Profil an + Hoch (shadowQuality 2) -> 1 (Profil-Schattenvariante)');
+assert.equal(schattenStufeFuer({ hundertFpsProfil: true, shadowQuality: 3 }, false), 1, 'Profil an + Sehr hoch (shadowQuality 3) -> 1 (Profil-Schattenvariante)');
+assert.equal(schattenStufeFuer({ hundertFpsProfil: false, shadowQuality: 2 }, false), 2, 'Profil aus -> shadowQuality unveraendert (Hoch)');
+assert.equal(schattenStufeFuer({ hundertFpsProfil: false, shadowQuality: 0 }, false), 0, 'Profil aus -> shadowQuality unveraendert (Niedrig)');
+assert.equal(schattenStufeFuer({ hundertFpsProfil: true, shadowQuality: 2 }, true), 0, 'erzwungen aus hat Vorrang vor Profil und Stufe');
+assert.equal(schattenStufeFuer({ hundertFpsProfil: false, shadowQuality: 2 }, true), 0, 'erzwungen aus hat Vorrang auch ohne Profil');
+
+// Dieselben vier Faelle noch einmal ueber die echten Stufen-Voreinstellungen
+// (QUALITY_TIERS via SettingsStore), damit die Regel nicht nur isoliert,
+// sondern am tatsaechlichen Datenweg der Karte geprueft ist.
+{
+  const store = new SettingsStore();
+  store.applyQualityTier('low');
+  store.set({ hundertFpsProfil: true });
+  assert.equal(schattenStufeFuer(store.get(), false), 0, 'Karte: Profil an + Niedrig -> 0');
+}
+{
+  const store = new SettingsStore();
+  store.applyQualityTier('medium');
+  store.set({ hundertFpsProfil: true });
+  assert.equal(schattenStufeFuer(store.get(), false), 1, 'Karte: Profil an + Mittel -> 1 (Profil-Schattenvariante)');
+}
+{
+  const store = new SettingsStore();
+  store.applyQualityTier('high');
+  store.set({ hundertFpsProfil: true });
+  assert.equal(schattenStufeFuer(store.get(), false), 1, 'Karte: Profil an + Hoch -> 1 (Profil-Schattenvariante)');
+}
+{
+  const store = new SettingsStore();
+  store.applyQualityTier('high');
+  store.set({ hundertFpsProfil: false });
+  assert.equal(schattenStufeFuer(store.get(), false), store.get().shadowQuality, 'Karte: Profil aus -> shadowQuality unveraendert');
+}
+{
+  const store = new SettingsStore();
+  store.applyQualityTier('high');
+  store.set({ hundertFpsProfil: true });
+  assert.equal(schattenStufeFuer(store.get(), true), 0, 'Karte: erzwungen aus -> 0, auch mit Profil und Hoch');
+}
+
+console.log('PASS Qualitaetsstufen: Niedrig/Mittel/Hoch treffen fps-analyse.md Abschnitt 6, fremde Einstellungen ueberleben, Erkennung robust, Persistenz/onChange/N1+N2-Entscheidungen geprueft, schattenStufeFuer()-Wache haelt allen vier Mutanten stand');

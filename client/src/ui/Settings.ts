@@ -475,6 +475,22 @@ export function detectQualityTier(settings: GameSettings): QualityTier | null {
   return null;
 }
 
+/**
+ * Schattenstufe fuer `Shadows.setLevel()` (Mikes Entscheidung vom 27.09.):
+ * Die gewaehlte Qualitaetsstufe (bzw. der manuelle Regler) hat Vorrang vor
+ * dem 100-FPS-Profil, ausser bei "Niedrig" (shadowQuality 0) -- dort bleibt
+ * es bei "Schatten aus", auch mit aktivem Profil. Ist das Profil an und die
+ * Stufe ueber 0, gilt die Profil-Schattenvariante (Stufe 1). `erzwungenAus`
+ * (z. B. `?shadows=off`) hat in jedem Fall Vorrang vor beidem.
+ */
+export function schattenStufeFuer(
+  settings: Pick<GameSettings, 'hundertFpsProfil' | 'shadowQuality'>,
+  erzwungenAus: boolean
+): number {
+  if (erzwungenAus) return 0;
+  return settings.hundertFpsProfil && settings.shadowQuality > 0 ? 1 : settings.shadowQuality;
+}
+
 export class SettingsStore {
   private state: GameSettings = { ...DEFAULTS, ...loadSaved() };
   private readonly listeners = new Set<(s: GameSettings) => void>();

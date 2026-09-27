@@ -64,6 +64,29 @@
  * der Proben (Babylon-Frustumebenen sind normiert, der Abstand ist echte
  * Meter) — nicht als Nachbau der geprueften Regel selbst.
  *
+ * Nachbesserung N2 (Nachangriff N2, Befund C2 — 7 ueberlebende Mutanten aus
+ * `Berichte/angriff-fps-animation-einfrieren-n2/mutationen-n2.sh`, A4/A5):
+ *  [14] N2-M7+M8+M10 (Eckenradius, A4): ein seitlich versetztes Netz (wie
+ *       die Kuh) an zwei Stellen im Sichtkegelrand — die Achse an der
+ *       Sohle statt auf Huellmitte-Hoehe (M8) macht den Radius zu GROSS,
+ *       die halbe Diagonale (M7) oder nur die min.x-Ecke (M10) machen ihn
+ *       zu KLEIN. Beide Richtungen brauchen eine eigene Stelle.
+ *  [15] N2-M11+M12+M14 (Nachskalieren des Radius, A5): eine Skalierung
+ *       {6,3,1} nach der Messung — ohne Nachskalieren (M11), mit
+ *       ignoriertem Vergleich (M12, `radius *= 1 || Math.max(...)`) oder
+ *       ohne das x-Verhaeltnis im Vergleich (M14, bei ungleichmaessiger
+ *       Skalierung entscheidend) bleibt der Radius zu klein.
+ *  [16] N2-M13 (Nachskalieren von mitteY bei Skala 0, A5): eine Messung mit
+ *       `scale.y = 0` (im Spiel durch `sanitize.ts` unerreichbar, aber von
+ *       `applyDynamic()` nicht selbst geprueft, wie `probe-n2.ts` E6 der
+ *       Angreifer-Probe) darf beim Nachskalieren NICHT durch 0 teilen
+ *       (`aktuell.y / gemessen.y` = Infinity) — der Rueckfall (kein
+ *       Nachskalieren) muss bei `gemessen.y === 0` greifen.
+ *
+ * [14]–[16] nutzen ebenfalls nur `frustumAbstand`/`sucheYFuerAbstand` zum
+ * Platzieren, mit von Hand nachgerechneten Radien/Hoehen (Kommentare an
+ * den jeweiligen Stellen) — nicht als Nachbau der Regel selbst.
+ *
  * Lauf: npx tsx client/test/animations-lod-wiring.ts
  */
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
@@ -288,6 +311,52 @@ function stelleSchwebendBereit(assets: AssetManager, name: string): void {
   );
 }
 
+/**
+ * Menschengrosser Quader mit einem SEITLICH VERSETZTEN Netz (lokal
+ * x 1,5..2,5 m statt symmetrisch um die Wurzelachse) — wie die Kuh, deren
+ * Netz nicht um die eigene Wurzel zentriert ist (`Berichte/
+ * angriff-fps-animation-einfrieren-n1/probe-huelle-glb.ts`). Fuer
+ * [14]/A4 (Nachbesserung N2): der Radius ist der Eckenabstand zur
+ * WURZELACHSE (x/z des `root`, Hoehe `root.y + mitteY`), NICHT die halbe
+ * Diagonale der Huelle (die nimmt faelschlich an, die Huelle sei um ihre
+ * EIGENE Mitte symmetrisch — bei diesem Versatz waere sie das nicht).
+ * mitteY = 1,0, korrekter Radius (Ecke bei x=2,5) = 2,567 m.
+ */
+function wuerfelVersetzt(name: string): Mesh {
+  const m = new Mesh(name, scene);
+  const d = new VertexData();
+  const p: number[] = [];
+  for (const x of [1.5, 2.5]) for (const y of [0.5, 1.5]) for (const z of [-0.3, 0.3]) p.push(x, y, z);
+  d.positions = p;
+  d.indices = [0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6, 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3];
+  d.applyToMesh(m);
+  return m;
+}
+
+/** Wie `stelleContainerBereitHoehe`, aber mit dem seitlich versetzten Netz ([14]/A4). */
+function stelleVersetztBereit(assets: AssetManager, name: string): void {
+  const wurzel = new TransformNode(`${name}_wurzel`, scene);
+  const koerper = wuerfelVersetzt(`${name}_koerper`);
+  koerper.parent = wurzel;
+  const anim = new Animation('idle-clip', 'position.y', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+  anim.setKeys([
+    { frame: 0, value: 0 },
+    { frame: 100, value: 1 },
+  ]);
+  koerper.animations.push(anim);
+  const gruppe = new AnimationGroup('idle', scene);
+  gruppe.addTargetedAnimation(anim, koerper);
+  const container = new AssetContainer(scene);
+  container.meshes.push(koerper);
+  container.transformNodes.push(wurzel);
+  container.animationGroups.push(gruppe);
+  container.removeAllFromScene();
+  (assets as unknown as { containers: Map<string, Promise<AssetContainer | null>> }).containers.set(
+    name,
+    Promise.resolve(container)
+  );
+}
+
 const assets = new AssetManager(scene);
 stelleContainerBereit(assets, 'npcModell');
 stelleContainerBereit(assets, 'spielerModell');
@@ -295,6 +364,7 @@ stelleContainerBereitHoehe(assets, 'menschModell');
 stelleTierBereit(assets, 'tierModell');
 stelleNurWalkBereit(assets, 'nurWalkModell');
 stelleSchwebendBereit(assets, 'schwebendModell');
+stelleVersetztBereit(assets, 'versetztModell');
 
 const mgr = new EntityManager(scene, null as never, assets, null as never);
 const anlegen = (
@@ -350,6 +420,25 @@ const anlegenMitEinmal = (
     prefabName,
     model,
     anim
+  );
+
+/** Wie `anlegen`, aber mit `scale` (Zahl oder {x,y,z}) — fuer [14]-[16] (A4/A5). Ein zweiter Aufruf mit demselben `key` aendert nur die Skalierung der bestehenden Instanz (die Huelle wird NICHT neu vermessen, `warNeu` ist dann false). */
+const anlegenMitSkala = (
+  key: string,
+  prefabName: string,
+  model: string,
+  pos: Vector3,
+  scale: number | { x: number; y: number; z: number }
+): Promise<void> =>
+  (
+    mgr as unknown as {
+      applyDynamic: (u: ZDOEntityUpdate, p: string, m: string | null, a?: string) => Promise<void>;
+    }
+  ).applyDynamic(
+    { key, prefabHash: 0, position: pos, rotation: Quaternion.Identity(), isOwnPlayer: false, anim: 'idle', scale } as ZDOEntityUpdate,
+    prefabName,
+    model,
+    'idle'
   );
 
 /** Figur hart versetzen (ohne Gleiten) — Wurzel UND das gemerkte Ziel, sonst zieht updateDynamics() sie im naechsten Bild wieder zurueck. */
@@ -673,6 +762,85 @@ console.log('\n[13] A3/N-M8+N-M9: Huellmitte (Mittelhoehe) und dass die Huelle u
     'der schwebende Wuerfel friert NICHT ein — die Kugel um die GEMESSENE Huellmitte (3,2 m ueber der Wurzel) liegt ' +
       'im Sichtkegel, obwohl die Wurzel selbst 3,2 m tiefer liegt (toetet N-M8: Mittelhoehe ignoriert, und N-M9: ' +
       'Huelle nie gemessen, Rueckfall 0,9 m/1,5 m)'
+  );
+}
+
+console.log('\n[14] N2-M7+M8+M10: Eckenradius von der Wurzelachse, seitlich versetztes Netz (wie die Kuh)');
+{
+  // wuerfelVersetzt: lokal x 1,5..2,5, y 0,5..1,5, z -0,3..0,3 -> mitteY=1,0.
+  // Eckenradius von der Wurzelachse (0, 1,0, 0) zur fernsten Ecke (x=2,5):
+  // sqrt(2,5^2 + 0,5^2 + 0,3^2) = 2,567 m (korrekt).
+  // Halbe Diagonale (M7): Spanne (1,0/1,0/0,6), Laenge/2 = 0,768 m, unter dem
+  // Mindestradius 1,5 m -> Radius 1,5 m.
+  // Nur min.x=1,5 (M10): sqrt(1,5^2+0,5^2+0,3^2) = 1,609 m.
+  // Achse an der Sohle statt bei mitteY (M8): sqrt(2,5^2+1,5^2+0,3^2) = 2,931 m.
+  const Z = 20;
+  const y1 = sucheYFuerAbstand(Z, -2.0); // zwischen M7/M10 (<= 1,609 m) und korrekt (2,567 m)
+  await anlegenMitSkala('versetzt:m7-m10', 'TestNpc', 'versetztModell', new Vector3(0, y1 - 1.0, Z), 1);
+  pruefe(spieltNoch('versetzt:m7-m10'), 'Vorbereitung: animiert beim Erscheinen');
+  mgr.updateDynamics(0.016);
+  pruefe(
+    spieltNoch('versetzt:m7-m10'),
+    'das seitlich versetzte Netz friert NICHT ein — der Eckenradius (2,567 m) reicht in den Sichtkegel, waehrend die ' +
+      'halbe Diagonale (M7, 1,5 m) oder nur die min.x-Ecke (M10, 1,609 m) hier zu klein waeren'
+  );
+
+  const y2 = sucheYFuerAbstand(Z, -2.75); // zwischen korrekt (2,567 m) und Achse-an-der-Sohle (M8, 2,931 m)
+  await anlegenMitSkala('versetzt:m8', 'TestNpc', 'versetztModell', new Vector3(0, y2 - 1.0, Z), 1);
+  pruefe(spieltNoch('versetzt:m8'), 'Vorbereitung: animiert beim Erscheinen');
+  mgr.updateDynamics(0.016);
+  pruefe(
+    !spieltNoch('versetzt:m8'),
+    'an dieser Stelle friert die Figur EIN — mit der Achse an der Sohle (M8, Radius 2,931 m statt 2,567 m) waere der ' +
+      'Radius zu gross und sie bliebe faelschlich sichtbar'
+  );
+}
+
+console.log('\n[15] N2-M11+M12+M14: Radius nach einer Skalierung nachziehen (A5)');
+{
+  // menschModell (0,5x1,8x0,5 m) misst bei Skala {1,1,1} mitteY=0,9 und
+  // (Mindestradius) Radius=1,5. Nach {6,3,1}: mitteY_korrekt=0,9*3=2,7,
+  // radius_korrekt=1,5*max(6,3,1)=9,0.
+  //
+  // WICHTIG: die Instanz wird direkt AN DER ZIELPOSITION erzeugt (erster
+  // applyDynamic-Aufruf misst die Huelle bei Skala {1,1,1}) und danach NUR
+  // die Skala geaendert — kein zweiter Aufruf mit einer ANDEREN Position
+  // auf demselben Key, der glitte (`ziel`) statt zu teleportieren und die
+  // Probe an der falschen Stelle ausfuehren wuerde.
+  const Z = 20;
+  // Ziel zwischen korrekt (9,0) und dem kleinsten falschen Radius (M11/M12:
+  // 1,5 ohne Nachskalieren; M14: 1,5*max(3,1)=4,5 ohne das x-Verhaeltnis),
+  // bei der korrekt nachskalierten Mitte (mitteY=2,7) platziert.
+  const yA = sucheYFuerAbstand(Z, -6.5);
+  await anlegenMitSkala('mensch:radius', 'TestNpc', 'menschModell', new Vector3(0, yA - 2.7, Z), { x: 1, y: 1, z: 1 });
+  pruefe(spieltNoch('mensch:radius'), 'Vorbereitung: animiert beim Erscheinen (Skala 1,1,1)');
+  await anlegenMitSkala('mensch:radius', 'TestNpc', 'menschModell', new Vector3(0, yA - 2.7, Z), { x: 6, y: 3, z: 1 });
+  mgr.updateDynamics(0.016);
+  pruefe(
+    spieltNoch('mensch:radius'),
+    'nach einer Skalierung 1 -> {6,3,1} friert die Figur NICHT ein — der Radius wuchs auf 9,0 m mit (toetet N2-M11: ' +
+      'nie nachskaliert, N2-M12: Radius nicht nachskaliert, und N2-M14: das x-Verhaeltnis fehlt im Vergleich, hier ' +
+      'das entscheidende)'
+  );
+}
+
+console.log('\n[16] N2-M13: mitteY bei einer Messung mit Skala 0 (Rueckfall statt Division durch 0, A5)');
+{
+  // Ein scale.y von 0 bei der Messung ist im Spiel nicht erreichbar
+  // (`sanitize.ts` klemmt 0,2..5), aber `applyDynamic()` prueft es nicht
+  // selbst (wie `probe-n2.ts` E6 der Angreifer-Probe). Korrekt bleibt
+  // mitteY beim Rueckfall stehen (kein Nachskalieren, ~0). M13 waehlt
+  // dagegen IMMER `aktuell.y / gemessen.y`, auch bei `gemessen.y === 0`
+  // -> 4/0 = Infinity, das die Sichtkegelprobe verfaelscht.
+  const HINTEN = new Vector3(0, 0, -20);
+  await anlegenMitSkala('mensch:skala0', 'TestNpc', 'menschModell', HINTEN, { x: 1, y: 0, z: 1 });
+  pruefe(spieltNoch('mensch:skala0'), 'Vorbereitung: animiert beim Erscheinen (Skala y=0)');
+  await anlegenMitSkala('mensch:skala0', 'TestNpc', 'menschModell', HINTEN, { x: 1, y: 4, z: 1 });
+  mgr.updateDynamics(0.016);
+  pruefe(
+    !spieltNoch('mensch:skala0'),
+    'hinter der Kamera friert die Figur weiterhin ein — N2-M13 waehlt bei gemessen.y=0 IMMER die Division ' +
+      '(4/0=Infinity statt des Rueckfalls) und bliebe faelschlich sichtbar'
   );
 }
 

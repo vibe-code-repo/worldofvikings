@@ -1112,7 +1112,7 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null) {
     const zustand = join(temp, 'zustand');
     mkdirSync(join(wurzel, 'server/data'), { recursive: true });
     for (const d of [fakeBin, zustand]) mkdirSync(d, { recursive: true });
-    writeFileSync(join(wurzel, 'server/data/server.yml'), 'server:\n  port: 2467\n');
+    writeFileSync(join(wurzel, 'server/data/server.yml'), 'server:\n  port: 0\n');
     writeFileSync(join(fakeBin, 'systemctl'), `#!${bash}\nf="${zustand}/$5.$3"\nif [ -f "$f" ]; then cat "$f"; fi\nexit 0\n`);
     writeFileSync(join(fakeBin, 'curl'), `#!${bash}\necho 426\n`);
     writeFileSync(join(fakeBin, 'journalctl'), `#!${bash}\nexit 0\n`);

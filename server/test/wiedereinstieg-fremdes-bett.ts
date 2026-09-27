@@ -12,7 +12,7 @@
  *  [M]  Ein abgerissenes eigenes Bett wird nicht still gegen ein anderes Bett
  *       derselben x/z-Saeule getauscht (zwei Weltbetten ohne Kennung darueber
  *       und darunter): Weltspawn und Meldung.
- *  [G]  Ein Gast (jede Verbindung eine neue userId) behaelt sein eigenes
+ *  [G]  Ein Gast (mit seinem Token; ohne gibt es keinen Stand mehr) behaelt sein eigenes
  *       Spielerbett ueber den Neustart: er erwacht dort.
  *  [L]  Ein Layout-Bett (Kennung) zieht in der Hoehe und um 1,9 m seitlich mit; gibt
  *       es die Kennung zweimal in der Saeule, gilt der Punkt nicht (verwerfen und
@@ -58,13 +58,13 @@ function check(label: string, ok: boolean, detail = ''): void {
   if (!ok) failures++;
 }
 
-interface Klient { ws: WebSocket; ergebnisse: Array<{ ok: boolean; message: string }>; teleports: Vector3[] }
-function verbinde(port: number, name: string): Promise<Klient> {
+interface Klient { ws: WebSocket; ergebnisse: Array<{ ok: boolean; message: string }>; teleports: Vector3[]; token: string }
+function verbinde(port: number, name: string, token = ''): Promise<Klient> {
   return new Promise((res, rej) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     ws.binaryType = 'nodebuffer';
     let authSent = false;
-    const k: Klient = { ws, ergebnisse: [], teleports: [] };
+    const k: Klient = { ws, ergebnisse: [], teleports: [], token: '' };
     const t = setTimeout(() => rej(new Error('Handshake ' + name)), 8000);
     ws.on('message', (data: Buffer) => {
       const type = data.readUInt8(0);
@@ -76,9 +76,13 @@ function verbinde(port: number, name: string): Promise<Klient> {
         const w = new Writer();
         w.writeString(antwortBerechnen(r.readString(), ''));
         w.writeString(name);
-        w.writeString('');
+        w.writeString(token);
         ws.send(Buffer.concat([Buffer.from([P.PasswordAuth]), w.toBuffer()]));
       } else if (type === P.PeerInfo) {
+        r.readString(); // name
+        r.readString(); // userId
+        r.readString(); // server name
+        k.token = r.remaining() > 0 ? r.readString() : '';
         clearTimeout(t);
         res(k);
       } else if (type === P.InteractResult) {
@@ -112,12 +116,16 @@ function remove(ws: WebSocket, p: Vector3): void {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
+// Fixed session secret = an operator who set WOV_SESSION_SECRET_HEX: tokens survive the restart.
+// (Without it every token dies with the process and a guest starts anew — there is no name path any more.)
+const GEHEIMNIS = Buffer.alloc(32, 7);
 function starte(): Any {
   const s = createWovServer({
     port: 0,
     worldsDir: resolve(TMP, 'welten'),
     kontenDir: resolve(TMP, 'konten'),
     worldName: 'fremdes-bett',
+    sessionSecret: GEHEIMNIS,
     worldSeed: 'FremdesBett1',
     saveIntervalMs: 3600_000,
     everyoneAdmin: true,
@@ -137,6 +145,8 @@ async function main(): Promise<void> {
   const kn: Record<string, Klient> = {};
   let port = portVon(server);
   for (const n of namen) kn[n] = await verbinde(port, n);
+  const tokens: Record<string, string> = {};
+  for (const n of namen) tokens[n] = kn[n]!.token;
   await warte(300);
   const peer = (n: string): Any => server.net.getPeers().find((x: Any) => x.name === n);
   const stelle = async (n: string, x: number, z: number): Promise<void> => {
@@ -346,7 +356,7 @@ async function main(): Promise<void> {
   await warte(600);
   server = starte();
   port = portVon(server);
-  for (const n of namen) kn[n] = await verbinde(port, n);
+  for (const n of namen) kn[n] = await verbinde(port, n, tokens[n]);
   await warte(600);
   console.log('\n[nach Neustart]');
   check('F3: Annas verworfener Punkt kommt nicht aus dem Spielstand zurueck', peer('Anna').spawnPoint === null, pos(peer('Anna').spawnPoint));
@@ -363,7 +373,7 @@ async function main(): Promise<void> {
   check('D: Dora nach dem Neustart: keine Wiederholung der Meldung', !VERLUST.test(d2.meldung) && gleich(d2.ziel, weltSpawn), `${pos(d2.ziel)} "${d2.meldung}"`);
   check('G: Emils Punkt kommt aus dem Spielstand', gleich(peer('Emil').spawnPoint, sollE), pos(peer('Emil').spawnPoint));
   const e2 = await tot('Emil');
-  check('G: Emil (Gast, neue userId) erwacht an seinem Bett', gleich(e2.ziel, sollE) && !VERLUST.test(e2.meldung), `${pos(e2.ziel)} "${e2.meldung}"`);
+  check('G: Emil (Gast, mit Token) erwacht an seinem Bett', gleich(e2.ziel, sollE) && !VERLUST.test(e2.meldung), `${pos(e2.ziel)} "${e2.meldung}"`);
 
   for (const n of namen) kn[n]!.ws.close();
   await warte(300);

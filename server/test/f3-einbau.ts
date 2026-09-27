@@ -12,10 +12,10 @@
  *  2. Ein Peer, der sich unter einem ANDEREN Namen verbindet, bekommt NICHT
  *     die Position eines zuvor gesehenen, andersnamigen Spielers — die vom
  *     Auftrag geforderte Kernzusicherung ("Zustand eines fremden Namens
- *     NICHT bekommt"). Der GLEICHE Name (Namens-Migrationspfad, siehe
- *     WovServer.ermittleGespeichertenStand) bekommt die Position dagegen
- *     zurueck — das ist die gewollte Komfort-Wiederherstellung, keine
- *     Sicherheitsluecke (Begruendung dort).
+ *     NICHT bekommt"). Auch der GLEICHE Name ohne Token bekommt sie NICHT
+ *     mehr (kein Namens-Rueckweg, siehe
+ *     WovServer.ermittleGespeichertenStand und gaeste-besitz.ts): den Stand
+ *     gibt es nur mit dem Token.
  *  3. Ein gueltiges SessionToken liefert bei der naechsten Verbindung
  *     dieselbe userId zurueck (Sitzung bleibt stabil, ohne dass der Client
  *     irgendein Identitaetsfeld schickt).
@@ -205,14 +205,14 @@ async function main(): Promise<void> {
     await schliesseUndWarte(bjorn.ws);
     await warte(200);
 
-    console.log('\n[3] Erik verbindet sich WIEDER unter demselben Namen (kein Token) — Migrationspfad:');
+    console.log('\n[3] Erik verbindet sich WIEDER unter demselben Namen (kein Token) — kein Namens-Rueckweg:');
     const erik2 = await verbindeUndAuth(PORT, 'Erik');
     await warte(200);
     const peerErik2 = server.net.getPeers().find((p) => p.name === 'Erik');
     check(
-      'Erik bekommt seine eigene Position zurueck (Namens-Migration)',
+      'Erik bekommt seine Position OHNE Token nicht zurueck (kein Namens-Rueckweg)',
       peerErik2 !== undefined &&
-        Math.abs(peerErik2.position.x - 4200) < 1 && Math.abs(peerErik2.position.z - 1300) < 1,
+        !(Math.abs(peerErik2.position.x - 4200) < 1 && Math.abs(peerErik2.position.z - 1300) < 1),
       peerErik2 ? `${peerErik2.position.x}, ${peerErik2.position.z}` : 'nicht gefunden'
     );
     check(

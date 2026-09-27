@@ -177,6 +177,18 @@ const KERN = [
   */
   ['tools/armor/test', 'skin-gate-selftest.mjs'],
   /*
+    All 33 female armor items (five sets) against the real, shipped
+    WikingerinKoerper.glb (71 bones, since 27.09.2026): every item's skin
+    joints match the body's joints by name and order, and canWearArmor
+    accepts the shipped wov-female-v1 policy and rejects the retired
+    legacy-female-v1 profile. Needs the real body and item GLBs.
+  */
+  [
+    'tools/armor/test',
+    'female-71-skin.mjs',
+    brauchtModelle('assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  /*
     The four thin armor build entry points (Seidraven/Emberrage, male/female)
     check their command line before any build starts: run under python3 with a
     stand-in for the call that would start build_common.py, good command lines

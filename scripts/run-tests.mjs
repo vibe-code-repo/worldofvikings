@@ -2215,6 +2215,8 @@ const KERN = [
   ['client', 'test/testflug-skala.ts'],
   // The client address is the trusted hop's (rightmost X-Forwarded-For), never a visitor-supplied prefix (F3).
   ['server', 'test/herkunft-xff.ts'],
+  // World-map publisher: the small probe (256 px, ~20-35 s); `--gross` runs the full 4096 px probe by hand.
+  ['tools', 'test/weltkarte-probe.mjs'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

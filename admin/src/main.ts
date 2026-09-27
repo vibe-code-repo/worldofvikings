@@ -1986,10 +1986,8 @@ async function behandeln(
     return weltBestaetigenBehandeln(leib, {
       datei: LAYOUT_DATEI,
       anfragePfad: bestaetigenAnfrageDatei(WELTEN_ORDNER, INSTANZ),
-      wartenOptionen: {
-        quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
-        dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
-      },
+      quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
+      dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
       warten: !QUITTUNG_AUS,
     });
   }

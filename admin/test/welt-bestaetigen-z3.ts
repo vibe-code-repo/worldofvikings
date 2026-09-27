@@ -86,18 +86,28 @@ function schreibe(text: string): string {
   return layoutHash(text);
 }
 const json = (d: unknown): string => JSON.stringify(d);
-// wov-dev runs several sessions' tests concurrently (sperre.sh only caps it at 2 heavy jobs at a time); a
-// second real game server or admin service sharing the 8 cores can stretch a 1-second wache tick well past
-// a few seconds. 20 s of margin here (this file only, not the default elsewhere) is about patience under
-// load, not about how fast the mechanism itself is — the isolated case (no other load) applies in well
-// under 100 ms (see the repro used to diagnose this while building the card).
-async function quittung(hash: string, ms = 20000): Promise<Quittung | null> {
+/** Wait for a receipt of exactly `hash`, whatever its outcome (a fresh hash never had one before). */
+async function quittung(hash: string, ms = 8000): Promise<Quittung | null> {
   let q: Quittung | null = null;
   await warteAuf(() => {
     q = quittungLesen(QUITTUNG);
     return q?.hash === hash;
   }, ms);
   return q && (q as Quittung).hash === hash ? (q as Quittung) : null;
+}
+/**
+ * Wait for `hash` to become `angewendet` specifically — unlike `quittung`, this is for the ONE case
+ * where a receipt for this exact hash already exists (`bestaetigung-noetig`, that is the whole point of
+ * confirming it): waiting for "any receipt with this hash" would return immediately with the STALE one
+ * and never see the wache's follow-up tick that actually flips it.
+ */
+async function quittungAngewendet(hash: string, ms = 8000): Promise<Quittung | null> {
+  let q: Quittung | null = null;
+  await warteAuf(() => {
+    q = quittungLesen(QUITTUNG);
+    return q?.hash === hash && q.ergebnis === 'angewendet';
+  }, ms);
+  return q && (q as Quittung).hash === hash && (q as Quittung).ergebnis === 'angewendet' ? (q as Quittung) : null;
 }
 
 const BAEUME: Platz[] = Array.from({ length: 5 }, (_, i) => ({ id: `t${i}`, prefab: 'Beech1', x: 30 + i * 4, z: 20 }));
@@ -224,8 +234,8 @@ async function haupt(): Promise<void> {
     writeFileSync(LAEUFT, '');
     const layoutZdos2 = (): ZDO[] => server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER));
     const nach2 = (id: string): ZDO | undefined => layoutZdos2().find((z) => z.getString(LAYOUT_ID_MEMBER) === id);
-    // Boot + at least one tick of the new instance's layout wache; generous margin under load (see `quittung`).
-    await warteAuf(() => quittungLesen(QUITTUNG) !== null, 20000);
+    // Boot + at least one tick of the new instance's layout wache.
+    await warteAuf(() => quittungLesen(QUITTUNG) !== null, 8000);
     q = quittungLesen(QUITTUNG);
     check('2 restart: receipt STAYS bestaetigung-noetig for the same hash (does not flip to angewendet)', q?.hash === hashLeer && q.ergebnis === 'nicht-angewendet' && q.grund === 'bestaetigung-noetig', `${q?.hash === hashLeer ? '' : `hash mismatch (${q?.hash} vs ${hashLeer}) `}${q?.ergebnis} ${q?.grund}`);
     check('2 restart: chest (with content) still stands, 6 layout ZDOs', layoutZdos2().length === 6 && nach2('kiste-1')?.getString('truheInhalt') === '[[Wood,9]]', `${layoutZdos2().length} ZDOs, inhalt=${nach2('kiste-1')?.getString('truheInhalt')}`);
@@ -237,18 +247,18 @@ async function haupt(): Promise<void> {
     check('3 nothing changed by the refused confirmation: 6 layout ZDOs', layoutZdos2().length === 6);
 
     // ── 4: confirming the right hash applies the withheld deletion ──
-    // The endpoint itself waits up to 3 s for the receipt (same pattern as every other write path,
-    // `quittungAbwarten`); under load that window can end a beat before the wache's next 1-second
-    // tick actually consumes the confirmation, exactly like the "silent service" case elsewhere
-    // (weltops-quittung.ts, case 6). So: the answer must be self-consistent either way, and the
-    // receipt itself — polled separately, with its own margin — is the authoritative witness.
+    // The endpoint itself waits (up to 3 s) for the receipt to flip to `angewendet` — not merely for a
+    // receipt of this hash to exist, since one already does (`bestaetigung-noetig`, the very reason for
+    // this call). Under load that window can end a beat before the wache's next tick actually consumes
+    // the confirmation, so the answer must be self-consistent either way; `quittungAngewendet` (with its
+    // own, longer margin) is the authoritative witness for what actually happened.
     const ok = await bestaetigen(hashLeer);
     check(
       '4 confirm with the right hash: self-consistent answer (200+angewendet, or 202+bestaetigung-noetig while the wache catches up)',
-      (ok.status === 200 && ok.daten.angewendet === true) || (ok.status === 202 && ok.daten.angewendet === false && ok.daten.grund === 'bestaetigung-noetig'),
+      (ok.status === 200 && ok.daten.angewendet === true) || (ok.status === 202 && ok.daten.angewendet === false),
       `${ok.status} ${JSON.stringify(ok.daten)}`
     );
-    const q4 = await quittung(hashLeer);
+    const q4 = await quittungAngewendet(hashLeer);
     check('4 receipt angewendet for the confirmed hash', q4?.hash === hashLeer && q4.ergebnis === 'angewendet', `${q4?.hash} ${q4?.ergebnis}`);
     check('4 the chest (and the trees) are gone: 0 layout ZDOs', layoutZdos2().length === 0, `${layoutZdos2().length}`);
 

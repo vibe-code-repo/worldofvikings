@@ -20,13 +20,22 @@
  * geänderten Einträge — nur so geschieht die zurückgehaltene Löschung jetzt
  * wirklich. Anschließend steht die Quittung auf `angewendet`.
  *
+ * ── Warum nicht `quittungAbwarten` (wie jeder andere Schreibweg) ──────
+ * Diese Anfrage ändert NICHT den Hash der Weltdatei — sie hebt nur eine
+ * bestehende `bestaetigung-noetig`-Quittung FÜR DENSELBEN Hash auf. Genau die
+ * liegt aber schon vor der Anfrage (sie ist ja deren Grund): `quittungAbwarten`
+ * würde also sofort einen "passenden" Stand sehen und ohne jede Wartezeit mit
+ * `nicht angewendet` zurückkommen, egal wie schnell die Wache danach tatsächlich
+ * anwendet. Hier wird deshalb ausdrücklich auf den ÜBERGANG zu `angewendet`
+ * gewartet, nicht nur auf einen Treffer des Hashs.
+ *
  * Geschützt wie jeder andere Schreibweg: Anmeldung (Token), Herkunft und
  * Netz-Riegel prüft der allgemeine Vorschalter in `admin/src/main.ts`, bevor
  * dieser Code erreicht wird.
  */
 import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { quittungLesen } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
-import { quittungAbwarten, type QuittungOptionen } from './anwendung.js';
 
 /** Same shape as `Antwort` in admin/src/main.ts. */
 export type BestaetigenAntwort = { code: number; daten: unknown };
@@ -36,14 +45,21 @@ export interface BestaetigenUmgebung {
   datei: string;
   /** Pfad der Bestätigungsanfrage (`bestaetigenAnfrageDatei`). */
   anfragePfad: string;
-  /** `quittungsPfad` und `dienstAktiv` — wie bei jedem anderen Schreibweg (`mitAnwendung`). */
-  wartenOptionen: Omit<QuittungOptionen, 'hash'>;
+  quittungsPfad: string;
+  /** Läuft der Spielserver? */
+  dienstAktiv: () => Promise<boolean>;
   /**
    * WOV_QUITTUNG=aus (nur Tests ohne Spielserver): die Anfrage wird geschrieben, aber nicht auf eine
    * Quittung gewartet — es gäbe nie eine.
    */
   warten: boolean;
+  /** Wie lange auf den Übergang zu `angewendet` gewartet wird (Vorgabe 3000 ms, wie `quittungAbwarten`). */
+  warteMs?: number;
 }
+
+/** Monotone Uhr: ein Sprung der Wanduhr verkürzt oder verlängert die Wartezeit nicht (wie `quittungAbwarten`). */
+const jetzt = (): number => performance.now();
+const schlafen = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** `body` ist der geparste JSON-Rumpf des POST. */
 export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUmgebung): Promise<BestaetigenAntwort> {
@@ -75,19 +91,44 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
   if (!umg.warten) {
     return { code: 202, daten: { ok: true, hash: aktuell, angewendet: false, message: 'Bestätigungsanfrage geschrieben (Quittung aus).' } };
   }
-  const stand = await quittungAbwarten({ ...umg.wartenOptionen, hash: aktuell });
-  if (stand.angewendet) {
-    return { code: 200, daten: { ok: true, hash: aktuell, angewendet: true, zaehler: stand.quittung.zaehler, message: 'Zurückgehaltene Löschung angewendet.' } };
+  let aktiv = false;
+  try {
+    aktiv = await umg.dienstAktiv();
+  } catch {
+    aktiv = false;
   }
-  console.warn(`[Admin] POST /api/welt/bestaetigen -> 202: nicht (rechtzeitig) angewendet (${stand.grund})`);
+  if (!aktiv) {
+    console.warn('[Admin] POST /api/welt/bestaetigen -> 202: der Spielserver läuft nicht');
+    return {
+      code: 202,
+      daten: {
+        ok: true,
+        hash: aktuell,
+        angewendet: false,
+        grund: 'server-aus',
+        message: 'Bestätigungsanfrage geschrieben, aber der Spielserver läuft nicht — sie wirkt beim nächsten Start.',
+      },
+    };
+  }
+  const warteMs = umg.warteMs ?? 3000;
+  const ende = jetzt() + warteMs;
+  for (;;) {
+    const q = quittungLesen(umg.quittungsPfad);
+    if (q && q.hash === aktuell && q.ergebnis === 'angewendet') {
+      return { code: 200, daten: { ok: true, hash: aktuell, angewendet: true, zaehler: q.zaehler, message: 'Zurückgehaltene Löschung angewendet.' } };
+    }
+    if (jetzt() >= ende) break;
+    await schlafen(100);
+  }
+  console.warn(`[Admin] POST /api/welt/bestaetigen -> 202: nicht rechtzeitig angewendet (${warteMs} ms)`);
   return {
     code: 202,
     daten: {
       ok: true,
       hash: aktuell,
       angewendet: false,
-      grund: stand.grund,
-      message: `Bestätigungsanfrage geschrieben, aber (noch) nicht angewendet (${stand.grund}).`,
+      grund: 'keine-quittung',
+      message: 'Bestätigungsanfrage geschrieben, aber (noch) nicht angewendet — die Wache übernimmt sie beim nächsten Takt.',
     },
   };
 }

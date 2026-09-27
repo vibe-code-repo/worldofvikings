@@ -55,15 +55,14 @@ console.log('╚═════════════════════�
 console.log();
 
 const config = leseServerKonfig(DATA_DIR, INSTANZ);
-const quittungsPfad = quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ);
 // Karte Z3: die Quittung des vorigen Laufs VOR dem Loeschen lesen — nur so laesst sich unten noch
 // feststellen, ob sie eine offene bestaetigung-noetig fuer GENAU die Datei war, die dieser Boot gleich laedt.
-const alteQuittung = quittungLesen(quittungsPfad);
+const alteQuittung = quittungLesen(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ));
 // K5.0 N1: Die Quittung des vorigen Laufs gilt fuer diesen nicht. So frueh wie moeglich weg (die Datei-Wache tut es
 // beim Anlegen noch einmal): Der Betriebsdienst sieht "aktiv" ab dem Prozessstart und soll im Boot-Fenster nie einen
 // Stand als angewendet melden, den erst dieser Lauf (oder gar nicht) anwendet.
 // K5.0 N2: Ein Fehler dort (Ordner nicht beschreibbar) geht ins Log und stoppt den Start nicht.
-quittungLoeschenSicher(quittungsPfad, (text) => console.error(`[WoV] ${text}`));
+quittungLoeschenSicher(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ), (text) => console.error(`[WoV] ${text}`));
 
 /*
   Welt: Arbeitskopie anlegen oder nachziehen (im selben Ablauf wie das Lesen, vor dem Server-Start).

@@ -19,6 +19,7 @@ export const de = {
   'settings.section.language': 'Sprache',
   'settings.section.controls': 'Steuerung',
   'settings.section.display': 'Anzeige',
+  'settings.section.quality_tier': 'Qualitätsstufe',
   'settings.section.image': 'Bildqualität',
   'settings.section.effects': 'Effekte',
   'settings.language': 'Sprache',

@@ -67,12 +67,14 @@ interface Verbindung {
   angemeldet: Promise<void>;
   admin: string[];
   teleports: number;
+  /** Aus PeerInfo — Editor-Verbindungen tragen alle denselben Namen ("Editor"), die userId unterscheidet sie. */
+  userId: string;
 }
 
 function verbinde(name: string, nurEditor: boolean): Verbindung {
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
   ws.binaryType = 'nodebuffer';
-  const v: Verbindung = { ws, angemeldet: Promise.resolve(), admin: [], teleports: 0 };
+  const v: Verbindung = { ws, angemeldet: Promise.resolve(), admin: [], teleports: 0, userId: '' };
   let authGesendet = false;
   v.angemeldet = new Promise<void>((fertig, scheitern) => {
     const uhr = setTimeout(() => scheitern(new Error(`${name}: Anmeldung überfällig`)), 15_000);
@@ -102,6 +104,9 @@ function verbinde(name: string, nurEditor: boolean): Verbindung {
           ])
         );
       } else if (type === P.PeerInfo) {
+        let pos = 0;
+        [, pos] = readString(view, pos); // name
+        [v.userId, pos] = readString(view, pos);
         clearTimeout(uhr);
         fertig();
       } else if (type === P.AdminEvent) {
@@ -168,6 +173,9 @@ async function main(): Promise<void> {
   };
   const peerVon = (name: string, nurEditor: boolean) =>
     server.net.getPeers().find((p) => p.name === name && !!p.nurEditor === nurEditor);
+  /** Editor-Verbindungen tragen alle denselben Namen — ueber die userId auseinanderhalten. */
+  const peerVonVerbindung = (v: Verbindung) =>
+    server.net.getPeers().find((p) => p.userId.toString() === v.userId);
 
   // ── 1. Spieler: Umzug in eine Instanz und zurück, Charakter-ZDO bleibt ──
   const spieler = verbinde('Tester', false);
@@ -204,7 +212,7 @@ async function main(): Promise<void> {
   const editor = verbinde('Tester', true);
   await editor.angemeldet;
   await warte(500);
-  const ed = peerVon('Tester', true);
+  const ed = peerVonVerbindung(editor);
   check('Editor-Verbindung angemeldet', !!ed);
   check('Editor legt beim Anmelden kein Hash-0-ZDO an und verliert keins', hash0() === vorher.hash0 && verloren(vorher.ids, zdos()) === 0, `hash0 ${hash0()}`);
 

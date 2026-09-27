@@ -63,13 +63,14 @@ interface Klient {
   ws: WebSocket;
   ergebnisse: Array<{ ok: boolean; message: string }>;
   teleports: Vector3[];
+  token: string;
 }
-function verbinde(port: number, name: string): Promise<Klient> {
+function verbinde(port: number, name: string, token = ''): Promise<Klient> {
   return new Promise((res, rej) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     ws.binaryType = 'nodebuffer';
     let authSent = false;
-    const k: Klient = { ws, ergebnisse: [], teleports: [] };
+    const k: Klient = { ws, ergebnisse: [], teleports: [], token: '' };
     const timeout = setTimeout(() => rej(new Error(`Timeout beim Handshake fuer "${name}"`)), 8000);
     ws.on('message', (data: Buffer) => {
       const type = data.readUInt8(0);
@@ -82,9 +83,13 @@ function verbinde(port: number, name: string): Promise<Klient> {
         const w = new Writer();
         w.writeString(antwortBerechnen(r.readString(), ''));
         w.writeString(name);
-        w.writeString('');
+        w.writeString(token);
         ws.send(Buffer.concat([Buffer.from([P.PasswordAuth]), w.toBuffer()]));
       } else if (type === P.PeerInfo) {
+        r.readString(); // name
+        r.readString(); // userId
+        r.readString(); // server name
+        k.token = r.remaining() > 0 ? r.readString() : '';
         clearTimeout(timeout);
         res(k);
       } else if (type === P.InteractResult) {
@@ -132,12 +137,16 @@ function schreibeDokument(baseLevel: number, betten: Array<{ x: number; z: numbe
   );
 }
 
+// Fixed session secret = an operator who set WOV_SESSION_SECRET_HEX: tokens survive the restart.
+// (Without it every token dies with the process and a guest starts anew — there is no name path any more.)
+const GEHEIMNIS = Buffer.alloc(32, 7);
 function starteServer() {
   const server = createWovServer({
     port: 0,
     worldsDir: resolve(TMP, 'welten'),
     kontenDir: resolve(TMP, 'konten'),
     worldName: 'wiedereinstieg',
+    sessionSecret: GEHEIMNIS,
     worldSeed: 'WiedereinstiegBett1',
     saveIntervalMs: 3600_000,
     everyoneAdmin: true,
@@ -170,6 +179,8 @@ async function main(): Promise<void> {
   try {
     let port = portVon(server);
     for (const n of namen) kn[n] = await verbinde(port, n);
+    const tokens: Record<string, string> = {};
+    for (const n of namen) tokens[n] = kn[n]!.token;
     await warte(300);
     const peer = (name: string) => server.net.getPeers().find((x) => x.name === name)!;
 
@@ -211,7 +222,7 @@ async function main(): Promise<void> {
     schreibeDokument(BASIS_NACHHER, [{ x: 100, z: 100 }, { x: 200.3, z: 100 }, { x: 405, z: 100 }]);
     server = starteServer();
     port = portVon(server);
-    for (const n of namen) kn[n] = await verbinde(port, n);
+    for (const n of namen) kn[n] = await verbinde(port, n, tokens[n]);
     await warte(600);
     const bett1 = bettBei(server, 100, 100)!;
     console.log(`      Bett 1: ${pos(bettVorher.Anna)} -> ${pos(bett1.position)} (dy = ${f(bett1.position.y - bettVorher.Anna!.y)} m)`);

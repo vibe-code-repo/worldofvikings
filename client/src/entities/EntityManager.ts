@@ -23,6 +23,8 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math';
+import { Frustum } from '@babylonjs/core/Maths/math.frustum';
+import type { Plane } from '@babylonjs/core/Maths/math.plane';
 import type { Scene } from '@babylonjs/core/scene';
 import {
   PrefabFlag,
@@ -89,6 +91,8 @@ import type { ClientWorld } from '../world/World';
 import type { ZDOEntityUpdate } from '../net/ZDOSync';
 import { clipRate } from './clipTempo';
 import { pausiereFuerMessung } from './gruppenSicherung';
+import type { SicherbareGruppe } from './gruppenSicherung';
+import { ANIMATIONS_LOD_GRENZE_M, sollAnimieren, wendeAnimationsLodAn } from './animationsLod';
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
 const DYNAMIC_FLAGS =
@@ -598,6 +602,21 @@ interface DynamicEntity {
    * sich nicht geändert", nicht „ist auf null gefallen".
    */
   leben?: number;
+  /**
+   * Animations-LOD (fps-analyse #9): die Gruppe, die
+   * `wendeAnimationsLodAn()` pausiert hat, oder `undefined`, solange nichts
+   * pausiert ist. Gehalten HIER und nicht in der Regel selbst — der
+   * Aufrufer merkt sich den Zustand je Instanz, s. animationsLod.ts.
+   */
+  lodPausiert?: SicherbareGruppe;
+  /**
+   * Animations-LOD (fps-analyse #9): FREMDER Spieler-Avatar (Prefab
+   * `Player`, s. `HINT_DEFS` in shared/src/prefabs.ts) — von der Karte
+   * ausdrücklich von der Pause ausgenommen ("Spieler, NPCs im Kampf und die
+   * eigene Figur laufen immer"). Einmal bei der Instanziierung gesetzt und
+   * danach unveränderlich, wie `prefabName` selbst.
+   */
+  istSpieler?: boolean;
 }
 
 /** Wiederverwendetes Nick-Quaternion des prozeduralen Gangs (kein Alloc pro Frame). */
@@ -3293,7 +3312,14 @@ export class EntityManager {
 
   updateDynamics(dt: number): void {
     const f = 1 - Math.exp(-dt / 0.09);
+    // Animations-LOD (fps-analyse #9): die Kamerafrustum-Ebenen kostet EINMAL
+    // je Bild etwas, nicht je Instanz — dieselben sechs Ebenen gelten fuer
+    // alle. Ohne aktive Kamera (z. B. im allerersten Bild) passiert nichts.
+    const kamera = this.scene.activeCamera;
+    const lodEbenen = kamera ? Frustum.GetPlanes(kamera.getTransformationMatrix()) : null;
+    const lodKameraPos = kamera ? kamera.globalPosition : null;
     for (const dyn of this.dynamics.values()) {
+      if (lodEbenen && lodKameraPos) this.aktualisiereAnimationsLod(dyn, lodEbenen, lodKameraPos);
       const z = dyn.ziel;
       if (!z) continue;
       const g = dyn.gang;
@@ -3340,6 +3366,37 @@ export class EntityManager {
         g.basisRot.multiplyToRef(GANG_NICK_TMP, dyn.root.rotationQuaternion);
       }
     }
+  }
+
+  /**
+   * Animations-LOD (fps-analyse #9): pausiert die Animationsgruppen einer
+   * Instanz, die weder im Sichtkegel noch naeher als
+   * {@link ANIMATIONS_LOD_GRENZE_M} steht, und setzt sie beim Rueckkehren
+   * ohne Sprung fort (animationsLod.ts).
+   *
+   * `attack` ist ein Kampfzustand: der Server schickt ihn nur waehrend ein
+   * NPC gerade zuschlaegt, und ein zuschlagendes NPC pausieren hiesse, es im
+   * Ausholen einzufrieren, sobald es zufaellig aus dem Sichtkegel faellt.
+   * Der lokale Spieler laeuft NIE durch diese Funktion — er haengt nicht in
+   * `dynamics` und hat gar keine `animGruppen` (AvatarRig.ts treibt sein
+   * Rig prozedural, nicht ueber AssetManager.wechsleAnimation).
+   *
+   * FREMDE Spieler (`dyn.istSpieler`) sind ebenfalls ausgenommen — die
+   * Karte verlangt "Spieler ... laufen immer" ausdruecklich getrennt von
+   * "die eigene Figur": anders als NPCs sind es nur eine Handvoll
+   * Instanzen, und ein anderer Mitspieler soll nie durch einen
+   * LOD-Stillstand auffallen.
+   */
+  private aktualisiereAnimationsLod(dyn: DynamicEntity, ebenen: Plane[], kameraPos: Vector3): void {
+    if (dyn.istSpieler) return;
+    if (dyn.anim === 'attack') {
+      if (dyn.lodPausiert) dyn.lodPausiert = wendeAnimationsLodAn(this.assets.gruppenVon(dyn.root), dyn.lodPausiert, true);
+      return;
+    }
+    const distanzM = Vector3.Distance(kameraPos, dyn.root.position);
+    const imSichtkegel = Frustum.IsPointInFrustum(dyn.root.position, ebenen);
+    const animieren = sollAnimieren(distanzM, imSichtkegel, ANIMATIONS_LOD_GRENZE_M);
+    dyn.lodPausiert = wendeAnimationsLodAn(this.assets.gruppenVon(dyn.root), dyn.lodPausiert, animieren);
   }
 
   /**
@@ -3433,7 +3490,7 @@ export class EntityManager {
       root.name = prefabName;
       // An event already in the member when we first see the creature is
       // history (no late joiner replays a swing); no member counts as 0.
-      dyn = { root, anim: wunschAnim, einmalN: parseEinmal(u.animEinmal)?.n ?? 0 };
+      dyn = { root, anim: wunschAnim, einmalN: parseEinmal(u.animEinmal)?.n ?? 0, istSpieler: prefabName === 'Player' };
       const clipTabelle = findPrefabByHash(u.prefabHash)?.animationTempo;
       if (clipTabelle) dyn.clipTempo = { tabelle: clipTabelle, ist: 0, rate: 1 };
       if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);

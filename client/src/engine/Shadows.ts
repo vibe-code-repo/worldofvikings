@@ -638,37 +638,6 @@ export function meldeKlonAnBasisEffekt(klon: Mesh): boolean {
 export const MIN_WURF_HOEHE_M = 0.35;
 
 /**
- * Groessenabhaengige ZUSATZ-Reichweite fuer kleine Werfer (FPS-Welle,
- * Karte 2/3, nach fps-analyse.md Rang 3).
- *
- * Jede Kaskade zeichnet die komplette Werferliste neu — im Startdorf sind
- * das 196 Aufrufe je Bild allein im Schattenpass (fps-analyse.md, Abschnitt
- * 2c), ein Grossteil davon Bauwerksteile (`U_*_primitive`, sechs je Haus).
- * Ihr Schatten ist ab einer gewissen Entfernung im Bild nicht mehr
- * auszumachen, kostet aber unveraendert einen Zeichenaufruf je Kaskade.
- *
- * Zwei Stufen statt einer einzigen Grenze, weil „klein" relativ zur
- * Entfernung ist: Ein 0,9-m-Fass verschwindet im Bild frueher als ein
- * 2,5-m-Karren, der wiederum vor einem Haus verschwinden darf. Die Regel
- * gilt NUR zusaetzlich zur normalen Kaskadendistanz (darfWerfen prueft
- * beides, die schaerfere Grenze gewinnt) — ein grosser, ferner Werfer
- * faellt wie bisher erst an der Kaskadengrenze heraus.
- *
- * Gemessen wird an der WELTWEITEN Huellkugel (`boundingSphere.radiusWorld`),
- * nicht an MIN_WURF_HOEHE_M oben: Die Hoehen-Schwelle beantwortet „wirft
- * dieses Prefab ueberhaupt einen sichtbaren Schatten", die Reichweiten-Regel
- * hier „wie weit lohnt sich das". Ein gestreuter Vegetations-Zellmaster hat
- * nach dem Zellschnitt (E19 c) eine Huelle von hier ueblicherweise weit ueber
- * 3 m (rund 90 m plus Kronenhoehe, s. huellkoerperAufweiten) und faellt daher
- * NIE ueber diese Regel heraus — sie trifft echte kleine Einzelobjekte mit
- * eigener Position, nicht die G20-Klone.
- */
-export const KLEINWERFER_RADIUS_M = 1;
-export const KLEINWERFER_REICHWEITE_M = 30;
-export const MITTELWERFER_RADIUS_M = 3;
-export const MITTELWERFER_REICHWEITE_M = 60;
-
-/**
  * Meshes, die keinen Schatten WERFEN.
  *
  * ⚠ Diese Liste ist seit G5 KEINE Grössenliste mehr — die Grössenfrage
@@ -1437,13 +1406,6 @@ export class Shadows {
    * Regel unten ungeprüft in der Liste stehen, `werferAnzahl()` ist
    * damit allein kein Mass mehr — die belastbare Zahl liefert
    * EntityManager.zellStats().aktiv.
-   *
-   * ── Klein UND weit weg (FPS-Welle, Karte 2/3) ────────────────────────
-   * Zusaetzlich zur Kaskadendistanz eine kuerzere, groessenabhaengige
-   * Reichweite (KLEINWERFER_… / MITTELWERFER_… oben): Ein 0,8-m-Fass 40 m
-   * entfernt zeichnet in jeder Kaskade mit, ist im Bild aber nicht mehr
-   * auszumachen. Greift NICHT auf die Klon-Huellen der Vegetation (G20,
-   * s. dortige Erklaerung) und NICHT auf Meshes ohne gemessene Groesse.
    */
   private darfWerfen(mesh: AbstractMesh, cfg: ShadowLevel): boolean {
     // Entsorgte Meshes ZUERST — vor dem Freifahrtschein fuer Abgeschaltete.
@@ -1485,11 +1447,6 @@ export class Shadows {
     const p = mesh.getBoundingInfo().boundingSphere.centerWorld;
     const r = mesh.getBoundingInfo().boundingSphere.radiusWorld;
     const abstand = Math.hypot(p.x - this.letzteX, p.z - this.letzteZ);
-    // Klein UND weit weg: eigene, kuerzere Reichweite (s. KLEINWERFER_* oben).
-    // Vor der Kaskadendistanz geprueft, weil sie hier meist die schaerfere
-    // Grenze ist; auf grosse oder ferne Klon-Huellen (G20) wirkt sie nie.
-    if (r < KLEINWERFER_RADIUS_M && abstand > KLEINWERFER_REICHWEITE_M) return false;
-    if (r < MITTELWERFER_RADIUS_M && abstand > MITTELWERFER_REICHWEITE_M) return false;
     // Ohne ferne Schatten nur die halbe Kaskadendistanz.
     return abstand - r <= cfg.distanz * (this.fern ? 1 : 0.5);
   }

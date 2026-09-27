@@ -146,6 +146,9 @@ pruefe(korrigiereSsaoHimmel() === true, 'die SSAO-Korrektur ist nicht in beiden 
 pruefe(ssaoHimmelKorrigiert(), 'die SSAO-Korrektur steht nicht in beiden Shadern');
 const ssaoQuelle = Effect.ShadersStore['ssao2PixelShader'] ?? '';
 pruefe(!ssaoQuelle.includes('vec3 normal=normalize(textureLod('), 'GLSL: die Normale wird noch ungeschuetzt normalisiert');
+// Grenze der Zaehlung: traegt Babylon die Zielzeile in zwei `#ifdef`-Zweigen, wird
+// jedes Vorkommen korrigiert (Shader richtig), der Zeuge meldet aber "nicht genau
+// viermal". Das ist bewusst so: ein Babylon-Wechsel soll angesehen werden.
 pruefe(
   (ssaoQuelle.match(/normalRoh/g) ?? []).length === 4,
   'GLSL: der Shader nennt `normalRoh` nicht genau viermal (Lesen, zwei Mal dot, normalize)'
@@ -190,19 +193,43 @@ Effect.ShadersStore['ssao2PixelShader'] = ssaoQuelle.replace(GLSL_NEU, GLSL_ALT)
 ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] = ssaoWgsl.replace(WGSL_NEU, WGSL_ALT);
 const glslZurueck = Effect.ShadersStore['ssao2PixelShader'] !== ssaoQuelle;
 const wgslZurueck = ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] !== ssaoWgsl;
-pruefe(glslZurueck, 'GLSL: das Zuruecksetzen war ein Leerlauf, Test-Literal GLSL_NEU/GLSL_ALT passt nicht mehr zum Babylon-Shader, Literal nachziehen');
-pruefe(wgslZurueck, 'WGSL: das Zuruecksetzen war ein Leerlauf, Test-Literal WGSL_NEU/WGSL_ALT passt nicht mehr zum Babylon-Shader, Literal nachziehen');
-// Folgepruefungen nur, wenn die Literale taugen (sonst waeren sie Falschmeldungen).
-if (glslLiteralOk && wgslLiteralOk && glslZurueck && wgslZurueck) {
-  pruefe(korrigiereSsaoHimmel() === true, 'nach Zuruecksetzen des Stores meldet der Aufruf keinen Erfolg');
-  pruefe(
-    (Effect.ShadersStore['ssao2PixelShader'] ?? '').includes(GLSL_NEU),
-    'GLSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht'
-  );
-  pruefe(
-    (ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] ?? '').includes(WGSL_NEU),
-    'WGSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht'
-  );
+// Je Sprache eine eigene Wache: ist ein Test-Literal oder das Zuruecksetzen in
+// der einen Sprache hin, bleibt die Pruefung der anderen trotzdem scharf.
+// (Ein Leerlauf beim Zuruecksetzen meldet schon die Pruefung der korrigierten
+// Zeile oben; hier keine zweite, moeglicherweise falsche Meldung.)
+const glslPruefbar = glslLiteralOk && glslZurueck;
+const wgslPruefbar = wgslLiteralOk && wgslZurueck;
+if (glslPruefbar || wgslPruefbar) {
+  const erneut = korrigiereSsaoHimmel();
+  if (glslPruefbar && wgslPruefbar) pruefe(erneut === true, 'nach Zuruecksetzen des Stores meldet der Aufruf keinen Erfolg');
+  if (glslPruefbar) {
+    pruefe((Effect.ShadersStore['ssao2PixelShader'] ?? '').includes(GLSL_NEU), 'GLSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht');
+  }
+  if (wgslPruefbar) {
+    pruefe((ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] ?? '').includes(WGSL_NEU), 'WGSL: ein erneuter Aufruf repariert den zurueckgesetzten Store nicht');
+  }
+}
+
+// ── B98-1: alle Vorkommen, und Erfolg nur ohne Original ─────────────────
+// Vorschlag des Nachangriffs: zwei Proben, die die N1-Quellaenderung festhalten.
+{
+  const gOrig = ssao2PixelShader.shader;
+  const wOrig = ssao2PixelShaderWGSL.shader;
+  // (a) Das Original steht ZWEIMAL im Store: ein Aufruf muss beide abraeumen
+  //     (`replace` erwischt nur das erste und liesse den zweiten Zweig ungeschuetzt).
+  Effect.ShadersStore['ssao2PixelShader'] = gOrig.replace(GLSL_ALT, GLSL_ALT + '\n' + GLSL_ALT);
+  ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] = wOrig.replace(WGSL_ALT, WGSL_ALT + '\n' + WGSL_ALT);
+  korrigiereSsaoHimmel();
+  pruefe(ssaoHimmelKorrigiert(), 'ein zweites Vorkommen des Originals bleibt unkorrigiert — es wird nur das erste ersetzt');
+  // (b) Die korrigierte Zeile steht im Store, das Original ZUSAETZLICH noch:
+  //     der fruehe Ausstieg darf hier nicht greifen, sonst bleibt der Shader ungeschuetzt.
+  Effect.ShadersStore['ssao2PixelShader'] = (Effect.ShadersStore['ssao2PixelShader'] ?? '') + '\n' + GLSL_ALT;
+  ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] = (ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] ?? '') + '\n' + WGSL_ALT;
+  korrigiereSsaoHimmel();
+  pruefe(ssaoHimmelKorrigiert(), 'steht das Original neben der Korrektur, meldet der Aufruf Erfolg ohne zu reparieren');
+  Effect.ShadersStore['ssao2PixelShader'] = gOrig;
+  ShaderStore.ShadersStoreWGSL['ssao2PixelShader'] = wOrig;
+  korrigiereSsaoHimmel();
 }
 
 if (fehler > 0) {

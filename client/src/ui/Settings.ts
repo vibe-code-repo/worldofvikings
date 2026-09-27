@@ -382,6 +382,115 @@ function bool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined;
 }
 
+export type QualityTier = 'low' | 'medium' | 'high';
+
+type QualityTierFields = Pick<
+  GameSettings,
+  | 'shadowQuality'
+  | 'depthOfField'
+  | 'grassDensity'
+  | 'detailQuality'
+  | 'waterQuality'
+  | 'vegetationRange'
+  | 'bloom'
+  | 'chromaticAberration'
+  | 'antiAliasing'
+  | 'sunShafts'
+  | 'ambientOcclusion'
+  | 'motionBlur'
+>;
+
+/**
+ * Werte je Qualitätsstufe (Berichte/fps-analyse.md Abschnitt 6, dazu Mikes
+ * Entscheidung vom 27.09. zu Sonnenstrahlen/AO/Bewegungsunschärfe). "Hoch"
+ * ist DEFAULTS selbst ("bleibt wie heute"); alle drei Stufen belegen
+ * dieselben zwölf Felder, damit ein Wechsel deterministisch ist, egal was
+ * vorher manuell eingestellt wurde. Felder ausserhalb dieser Liste (z. B.
+ * `nameplates`, `temporalAA`, `dungeonQuality`) fasst keine Stufe an — TAA
+ * bleibt an jeder Stufe, wie der Spieler es eingestellt hat.
+ *
+ * Zwei Punkte aus der Tabelle fehlen bewusst:
+ *  - "nur nahe Kaskade" (Niedrig) gibt es noch nicht als eigenen Schalter,
+ *    darum bleibt es bei "Schatten aus" (shadowQuality 0).
+ *  - "Ferntakt 3" (Mittel) ist kein Feld hier, sondern eine Zahl in
+ *    Shadows.ts, das diese Karte nicht anfasst.
+ */
+export const QUALITY_TIERS: Record<QualityTier, QualityTierFields> = {
+  low: {
+    shadowQuality: 0,
+    depthOfField: false,
+    grassDensity: 0,
+    detailQuality: 0,
+    waterQuality: 1,
+    vegetationRange: 0, // 160 m
+    bloom: false,
+    chromaticAberration: false,
+    antiAliasing: false,
+    sunShafts: false,
+    ambientOcclusion: false,
+    motionBlur: false,
+  },
+  medium: {
+    shadowQuality: 2,
+    depthOfField: false,
+    grassDensity: 2,
+    detailQuality: 1,
+    waterQuality: 2,
+    vegetationRange: 2, // 240 m
+    bloom: DEFAULTS.bloom,
+    chromaticAberration: DEFAULTS.chromaticAberration,
+    antiAliasing: DEFAULTS.antiAliasing,
+    sunShafts: DEFAULTS.sunShafts,
+    ambientOcclusion: DEFAULTS.ambientOcclusion,
+    motionBlur: DEFAULTS.motionBlur,
+  },
+  high: {
+    shadowQuality: DEFAULTS.shadowQuality,
+    depthOfField: DEFAULTS.depthOfField,
+    grassDensity: DEFAULTS.grassDensity,
+    detailQuality: DEFAULTS.detailQuality,
+    waterQuality: DEFAULTS.waterQuality,
+    vegetationRange: DEFAULTS.vegetationRange,
+    bloom: DEFAULTS.bloom,
+    chromaticAberration: DEFAULTS.chromaticAberration,
+    antiAliasing: DEFAULTS.antiAliasing,
+    sunShafts: DEFAULTS.sunShafts,
+    ambientOcclusion: DEFAULTS.ambientOcclusion,
+    motionBlur: DEFAULTS.motionBlur,
+  },
+};
+
+const QUALITY_TIER_KEYS = Object.keys(QUALITY_TIERS.high) as (keyof QualityTierFields)[];
+
+/**
+ * Errät die aktuell wirksame Stufe aus den zwölf verwalteten Feldern, für die
+ * Hervorhebung im Panel. `null`, wenn der Spieler manuell von jeder Stufe
+ * abgewichen ist.
+ */
+export function detectQualityTier(settings: GameSettings): QualityTier | null {
+  for (const tier of ['low', 'medium', 'high'] as const) {
+    const fields = QUALITY_TIERS[tier];
+    if (QUALITY_TIER_KEYS.every((key) => settings[key] === fields[key])) return tier;
+  }
+  return null;
+}
+
+/**
+ * Schattenstufe fuer `Shadows.setLevel()` (Mikes Entscheidung vom 27.09.):
+ * Die gewaehlte Qualitaetsstufe (bzw. der manuelle Regler) hat Vorrang vor
+ * dem 100-FPS-Profil, ausser bei "Niedrig" (shadowQuality 0) -- dort bleibt
+ * es bei "Schatten aus", auch mit aktivem Profil. Ist das Profil an und die
+ * Stufe ueber 0, gilt die Profil-Schattenvariante (Stufe 1). `erzwungenAus`
+ * (z. B. `?shadows=off`) hat in jedem Fall Vorrang vor beidem.
+ */
+export function schattenStufeFuer(
+  settings: Pick<GameSettings, 'hundertFpsProfil' | 'shadowQuality'>,
+  erzwungenAus: boolean
+): number {
+  if (erzwungenAus) return 0;
+  return settings.hundertFpsProfil && settings.shadowQuality > 0 ? 1 : settings.shadowQuality;
+}
+
 export class SettingsStore {
   private state: GameSettings = { ...DEFAULTS, ...loadSaved() };
   private readonly listeners = new Set<(s: GameSettings) => void>();
@@ -398,6 +507,12 @@ export class SettingsStore {
       // localStorage unavailable (private mode/quota) — settings stay session-only
     }
     for (const fn of this.listeners) fn(this.state);
+  }
+
+  /** Setzt die zwölf Stufen-Felder auf die Werte von `tier`; alle anderen
+   * gespeicherten Einstellungen bleiben unverändert. */
+  applyQualityTier(tier: QualityTier): void {
+    this.set(QUALITY_TIERS[tier]);
   }
 
   /** Fires immediately with the current state, then on every change. */

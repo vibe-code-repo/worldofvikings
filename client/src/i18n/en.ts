@@ -21,6 +21,7 @@ export const en = {
   'settings.section.language': 'Language',
   'settings.section.controls': 'Controls',
   'settings.section.display': 'Display',
+  'settings.section.quality_tier': 'Quality tier',
   'settings.section.image': 'Image quality',
   'settings.section.effects': 'Effects',
   'settings.language': 'Language',

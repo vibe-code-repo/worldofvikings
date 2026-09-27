@@ -2308,6 +2308,12 @@ const KERN = [
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  // G3 Stufe 1: Namensschilder, Objektnamen und das Fadenkreuz-Ziel projizierten
+  // mit der TAA-verzitterten Projektionsmatrix und sprangen deshalb bei
+  // stehender Kamera jedes Bild um den Halton-Versatz. transformOhneJitter()
+  // (PostProcessing.ts) setzt den Versatz zurueck; drei echte Mutanten (je
+  // Aufrufstelle) bestaetigen, dass der Test die Stellen einzeln trifft.
+  ['client', 'test/schilder-transform-ohne-jitter.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

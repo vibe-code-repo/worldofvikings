@@ -235,6 +235,28 @@ console.log('\n7. Nachweis-Tabelle B2–B6/N4-3 — kein Treffer\n');
   // N4-3: "hut" ist zurückgenommen (die N3-Vorgabe „Wooden Hut" -> Haus
   // gilt nicht mehr, s. Kopfkommentar der Tabelle).
   pruefe(kategorieFuerName('Wooden Hut') === null, "'Wooden Hut' trifft KEINE Kategorie mehr ('hut' ist aus der Liste genommen)");
+
+  // N5 (Nachangriff N4, Befund A2): Satzzeichen trennen weiterhin NICHT
+  // (bleibt so, N3-3/N2-B5) — keines dieser Zeichen steht im Trenner-Muster
+  // von `namensBestandteile`, der Bestandteil bleibt als GANZES ungleich
+  // jedem Kategoriewort.
+  for (const name of ['Fass!', '(Fass)', '[Fass]', 'Fass#2', 'Fass,Kiste', 'Fass+Deckel', 'Fass–Kiste', 'Faß']) {
+    pruefe(kategorieFuerName(name) === null, `'${name}' trifft KEINE Kategorie (Satzzeichen trennen nicht)`);
+  }
+  // N5 (A2): ein Punkt vor einer NICHT erkannten Endung trennt zwar (neu,
+  // s. u. Abschnitt 8), aber "Mr.Box" bleibt "—", weil "box" selbst aus der
+  // Liste entfernt ist (Kopfkommentar der Tabelle) — nicht weil der Punkt
+  // nichts täte.
+  pruefe(kategorieFuerName('Mr.Box') === null, "'Mr.Box' trifft KEINE Kategorie ('box' ist aus der Liste genommen, nicht der Punkt)");
+  // N5 (A2): "Boot.links" — ".links" ist keine erkannte Endung, bleibt also
+  // stehen und wird durch den neuen Punkt-Trenner zu einem EIGENEN
+  // Bestandteil "links", der das Kopfwort ist (nicht "boot"). Genau der
+  // Stand von b1b1ee8 ("Boot.links" -> "—", damals weil "boot" fehlte) —
+  // jetzt aus einem anderen Grund, aber demselben Ergebnis.
+  pruefe(kategorieFuerName('Boot.links') === null, "'Boot.links' trifft KEINE Kategorie (Kopfwort ist 'links', nicht 'boot')");
+  // N5 (A2): "Box.Office" — Punkt trennt jetzt, aber weder "box" (aus der
+  // Liste genommen) noch "office" ist ein Kategoriewort.
+  pruefe(kategorieFuerName('Box.Office') === null, "'Box.Office' trifft KEINE Kategorie");
 }
 
 console.log('\n7b. N4-3, ABWEICHUNG dokumentiert: "Boot" wieder in der Liste öffnet Leather_Boot\n');
@@ -247,6 +269,23 @@ console.log('\n7b. N4-3, ABWEICHUNG dokumentiert: "Boot" wieder in der Liste öf
   // s. ABWEICHUNGEN im Bericht.
   const treffer = kategorieFuerName('Leather_Boot');
   pruefe(treffer?.kategorie === 'Boot', `'Leather_Boot' trifft jetzt 'Boot' (bekommen '${treffer?.kategorie}') — Folge des N4-Auftrags, "boot" zurückzunehmen`);
+}
+
+console.log('\n7c. N5 (Nachangriff N4, Befund A3): "boots" ist aus der Liste genommen\n');
+{
+  // "Boots" ist kein deutscher Plural (der lautet "Boote"), sondern der
+  // englische Plural von Schuh/Stiefel — anders als das unvermeidbare
+  // Einzahl-"boot" (7b) traf "boots" gerade die im Editor übliche
+  // Schreibweise für ein PAAR Stiefel und hätte den Vorschlag (10 m)
+  // automatisch in ein leeres Zielfeld eingetragen.
+  for (const name of ['Leather Boots', 'Iron Boots', 'Boots', 'Fur_Boots_01', 'Boots.glb']) {
+    pruefe(kategorieFuerName(name) === null, `'${name}' trifft KEINE Kategorie ('boots' ist aus der Liste genommen)`);
+  }
+  // Einzahl "Boot"/"Boat" treffen weiterhin (Kartenforderung).
+  for (const [name, erwartet] of [['Boot', 'Boot'], ['Boat', 'Boot']] as [string, string][]) {
+    const treffer = kategorieFuerName(name);
+    pruefe(treffer?.kategorie === erwartet, `'${name}' trifft weiterhin '${erwartet}' (bekommen '${treffer?.kategorie}')`);
+  }
 }
 
 console.log('\n8. Nachweis-Tabelle B2–B6 (Nachangriff N2) — richtiger Treffer\n');
@@ -268,6 +307,35 @@ console.log('\n8. Nachweis-Tabelle B2–B6 (Nachangriff N2) — richtiger Treffe
   for (const [name, erwartet] of faelle) {
     const treffer = kategorieFuerName(name);
     pruefe(treffer?.kategorie === erwartet, `'${name}' -> '${erwartet}' (bekommen '${treffer?.kategorie}')`);
+  }
+}
+
+console.log('\n8b. N5 (Nachangriff N4, Befund A2): die neue Endungsregel — echte Endung, Blender-Suffix, Windows-Dopplung, auch verkettet\n');
+{
+  const faelle: [string, string][] = [
+    // Kartenbeispiele wörtlich.
+    ['Neues.Fass', 'Fass'],
+    ['Fass.001(1)', 'Fass'],
+    // Nicht in der Karte gefordert, aber dieselbe Verkettung umgekehrt bzw.
+    // mit einer falsch einsortierten echten Endung — die Schleife in
+    // `schneideEndungUndNummer` löst beide unabhängig von der Reihenfolge.
+    ['Fass(1).001', 'Fass'],
+    ['Fass.001.001', 'Fass'],
+    ['Fass.glb.001', 'Fass'],
+    // Ein Punkt vor einem NICHT erkannten Suffix trennt wie ein Leerzeichen
+    // (neu, N5) — "Kiste" ist hier das Bestimmungswort, "Fass" das
+    // Kopfwort (anders als vorher, wo ".Fass" fälschlich als generische
+    // Endung galt und "Kiste" übrig blieb).
+    ['Kiste.Fass', 'Fass'],
+    // Zwei Wagenrad-Schreibweisen: unter der Kopfwort-Regel treffen BEIDE
+    // konsistent nicht mehr (kein B3-Unterschied zwischen '_' und keinem Trenner).
+  ];
+  for (const [name, erwartet] of faelle) {
+    const treffer = kategorieFuerName(name);
+    pruefe(treffer?.kategorie === erwartet, `'${name}' -> '${erwartet}' (bekommen '${treffer?.kategorie}')`);
+  }
+  for (const name of ['WagenRad', 'Wagen_Rad', 'Roter Hut', 'Hut_Rot']) {
+    pruefe(kategorieFuerName(name) === null, `'${name}' trifft weiterhin KEINE Kategorie`);
   }
 }
 

@@ -133,9 +133,36 @@ function bauGlb(groesse: number): Buffer {
   return Buffer.concat([kopf, jsonChunk, binChunk]);
 }
 
+/**
+ * N5 (Nachangriff N4, Befund A6): Der äußere Sweep-Test tötet diesen
+ * Prozess mitunter, BEVOR sein eigenes `finally` (unten, löscht
+ * `HAUPT.ordner`) je zum Zug kommt — der EOF-Wächter beendet die Gruppe per
+ * SIGKILL, das überspringt jedes `finally`. Damit blieb der mkdtemp'te
+ * Ordner als Waise in `os.tmpdir()` liegen (9 Reste über einen halben Tag
+ * Bauer-Läufe, vom Angreifer gefunden).
+ *
+ * Die Lösung folgt der Karte: Das Temp-Verzeichnis kommt vom ÄUSSEREN Test
+ * (hier über `WOV_WEGWERF_WURZEL`), der es selbst anlegt UND selbst wieder
+ * löscht (der Sweep-Test tut das in seinem eigenen `finally` — sein Code
+ * läuft garantiert, weil ER es ist, der das Signal schickt, nicht der, der
+ * es bekommt). Nur der ERSTE Aufruf je Prozess verbraucht die Vorgabe (ein
+ * einzelner Sweep-Fall startet höchstens einen Betriebsdienst-Testlauf
+ * innerhalb des Zeitfensters, in dem der Sweep überhaupt killt); jeder
+ * weitere Aufruf im selben Prozess (Abschnitt 12 `ZWEIT`, Abschnitt 14
+ * `HAUPT_B8`) verwaltet sich weiter selbst wie bisher — sie laufen erst
+ * nach vielen HTTP-Umläufen und liegen damit ohnehin außerhalb des
+ * Sweep-Zeitfensters. Läuft dieser Test normal über `run-tests.mjs` (ohne
+ * Sweep), ist die Variable nie gesetzt, und nichts ändert sich.
+ */
+let wegwerfWurzelExternVerbraucht = false;
+
 /** Ein Wegwerf-WOV_WURZEL samt eigenem, UMGELENKTEM Upload-Ordner (H2) für einen Dienst-Lauf. */
-function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: string; tokenDatei: string; token: string } {
-  const ordner = mkdtempSync(resolve(tmpdir(), `wov-${slug}-`));
+function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: string; tokenDatei: string; token: string; eigen: boolean } {
+  const vorgegeben = !wegwerfWurzelExternVerbraucht ? process.env.WOV_WEGWERF_WURZEL : undefined;
+  const eigen = !vorgegeben;
+  if (vorgegeben) wegwerfWurzelExternVerbraucht = true;
+  const ordner = vorgegeben ?? mkdtempSync(resolve(tmpdir(), `wov-${slug}-`));
+  if (vorgegeben) mkdirSync(ordner, { recursive: true }); // vom Aufrufer angelegt, hier nur zur Sicherheit idempotent
   const serverDaten = resolve(ordner, 'server/data');
   mkdirSync(serverDaten, { recursive: true });
   writeFileSync(
@@ -153,7 +180,7 @@ function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: str
   // erfüllt.
   mkdirSync(resolve(ordner, 'assets'), { recursive: true });
   const hochgeladenDir = resolve(ordner, 'assets/hochgeladen');
-  return { ordner, hochgeladenDir, tokenDatei, token };
+  return { ordner, hochgeladenDir, tokenDatei, token, eigen };
 }
 
 function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: string }): Promise<{ port: number; kind: ChildProcess }> {
@@ -532,7 +559,9 @@ try {
   }
 
   await beendeDienst(kind, 'SIGTERM');
-  rmSync(HAUPT.ordner, { recursive: true, force: true });
+  // N5/A6: nur löschen, wenn dieser Prozess den Ordner selbst angelegt hat —
+  // ein vom Sweep-Test vorgegebener Ordner gehört dessen eigenem `finally`.
+  if (HAUPT.eigen) rmSync(HAUPT.ordner, { recursive: true, force: true });
 }
 
 console.log('\n12. H2 — SIGKILL mitten im Test darf im Checkout NICHTS hinterlassen (Angriff Probe C4)\n');
@@ -567,7 +596,7 @@ console.log('\n12. H2 — SIGKILL mitten im Test darf im Checkout NICHTS hinterl
     echteRegistryVorher !== null || !existsSync(ECHTE_REGISTRY_DATEI),
     `existiert jetzt: ${existsSync(ECHTE_REGISTRY_DATEI)}, existierte vorher: ${echteRegistryVorher !== null}`
   );
-  rmSync(ZWEIT.ordner, { recursive: true, force: true });
+  if (ZWEIT.eigen) rmSync(ZWEIT.ordner, { recursive: true, force: true });
 }
 
 console.log('\n13. F4 — WOV_HOCHGELADEN_DIR leer oder relativ bricht den Start mit klarer Meldung ab\n');
@@ -627,7 +656,7 @@ console.log('\n14. B8 — WOV_HOCHGELADEN_DIR wird auch inhaltlich geprüft (/pr
   const { port: port3, kind: kind3 } = await starten({ ...HAUPT_B8, hochgeladenDir: guterPfad });
   check('guter, noch nicht vorhandener Pfad: Dienst wird bereit', port3 > 0, `port=${port3}`);
   await beendeDienst(kind3, 'SIGTERM');
-  rmSync(HAUPT_B8.ordner, { recursive: true, force: true });
+  if (HAUPT_B8.eigen) rmSync(HAUPT_B8.ordner, { recursive: true, force: true });
   check('guter Pfad wurde beim Start tatsächlich angelegt', existsSync(guterPfad));
 
   // N4 (Nachangriff N3, Befund N3-4): ein Tippfehler (ZWEI fehlende Ebenen)

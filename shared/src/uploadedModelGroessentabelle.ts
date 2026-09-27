@@ -132,11 +132,19 @@ export const GROESSENTABELLE: readonly Groessenkategorie[] = [
   },
   {
     kategorie: 'Boot',
-    // N4: „boot"/„boots"/„boat" wieder aufgenommen (s. Kopfkommentar zum
-    // dadurch unvermeidbaren Leather_Boot-Doppelsinn), dazu die üblichen
-    // Wikinger-/Fischer-Komposita.
+    // N4: „boot"/„boat" wieder aufgenommen (s. Kopfkommentar zum dadurch
+    // unvermeidbaren Leather_Boot-Doppelsinn), dazu die üblichen
+    // Wikinger-/Fischer-Komposita. N5 (Nachangriff N4, Befund A3): „boots"
+    // wieder gestrichen — kein deutscher Plural („Boote"), sondern der
+    // englische Plural von Schuh/Stiefel. Anders als beim Einzahl-Homograph
+    // „boot" (unvermeidbar, weil beide Bedeutungen dasselbe Wort sind) traf
+    // „boots" gerade die im Editor übliche Schreibweise für ein PAAR Stiefel
+    // (Leather Boots, Iron Boots) und hätte den automatischen Vorschlag
+    // (10 m) ungefragt in ein leeres Zielfeld eingetragen — ohne dass „lieber
+    // kein Vorschlag" das noch auffängt, weil hier ein FALSCHER Vorschlag
+    // entsteht, keiner ausbleibt.
     worte: [
-      'boot', 'boote', 'boots', 'boat', 'boats',
+      'boot', 'boote', 'boat', 'boats',
       'schiff', 'schiffe', 'ship', 'ships',
       'drachenboot', 'drachenboote', 'langschiff', 'langschiffe',
       'ruderboot', 'ruderboote',
@@ -153,40 +161,55 @@ function kanon(s: string): string {
 }
 
 /**
- * Einen Blender-Suffix (`.001`, auch echte Dateiendungen wie `.glb`) bzw.
- * eine Windows-Dopplung (`(1)`) am ENDE abschneiden (B5). Läuft NACH der
- * Kanonisierung, also auf bereits kleingeschriebenem Text.
+ * Eine ECHTE Dateiendung (`.glb`, `.gltf`, `.fbx`, `.obj`), ein
+ * Blender-Suffix (`.001`…`.999`) oder eine Windows-Dopplung (`(1)`) am ENDE
+ * abschneiden — auch in Kombination und in beliebiger Reihenfolge
+ * (`Fass.001(1)`, `Fass(1).001`, `Fass.glb.001`). Läuft NACH der
+ * Kanonisierung, also auf bereits kleingeschriebenem Text (deckt „ohne
+ * Beachtung der Groß-/Kleinschreibung" ab, ohne ein eigenes `i`-Flag).
  *
- * N4 (Nachangriff N3, Befund N3-2): Die alte Reihenfolge prüfte zuerst
- * `\s*\([0-9]+\)$` — ein UNBEGRENZTES `\s*` unmittelbar vor einem starren
- * Literal `(`. Bei sehr vielen Leerzeichen ohne folgendes `(` probiert die
- * Engine dafür jede mögliche Aufteilung der Leerzeichen durch, bevor sie
- * aufgibt (quadratisch: 100 000 Leerzeichen + „(x" brauchten ~13 s). Die
- * Reihenfolge jetzt: erst die Dateiendung (fester, kurzer Rest am Ende,
- * kein Leerraum-Rückstau möglich), dann EIN lineares `trimEnd()` statt
- * eines `\s*` im Muster, dann `(n)$` ohne führendes `\s*` — jeder Schritt
- * einzeln linear in der Länge der Eingabe.
+ * N5 (Nachangriff N4, Befund A2): Die alte Fassung schnitt JEDES 1–6
+ * Zeichen lange Wort nach einem Punkt ab (`/\.[a-z0-9]{1,6}$/`) — „Neues"
+ * blieb aus „Neues.Fass" nie übrig, weil „.Fass" selbst als Endung galt,
+ * und `Boot.links` wurde zu „Boot", weil „.links" ebenfalls durchging. Die
+ * Karte verlangt jetzt eine FESTE Liste echter Endungen. Ein Punkt, der
+ * KEINER dieser Endungen bzw. keinem Suffixmuster vorausgeht, bleibt daher
+ * stehen — `namensBestandteile` trennt ihn wie Leerzeichen/`_`/`-` (unten),
+ * damit „Neues.Fass" trotzdem in die Bestandteile „neues" und „fass"
+ * zerfällt und „fass" als Kopfwort zählt.
+ *
+ * Die Schleife wendet alle drei Muster wiederholt an, bis sich nichts mehr
+ * ändert (höchstens 5 Durchläufe, weit über jeder realistischen
+ * Verkettung) — das deckt jede Reihenfolge (Endung vor/nach Nummer vor/nach
+ * Klammer) mit drei einfachen, am Ende verankerten Mustern ohne
+ * Mehrdeutigkeit ab, keines davon rückverfolgt quadratisch (N3-2 bleibt
+ * behoben, s. Test Abschnitt 10).
  */
 function schneideEndungUndNummer(kanonisch: string): string {
-  return kanonisch
-    .replace(/\.[a-z0-9]{1,6}$/, '') // "fass.001" / "haus.glb" -> "fass" / "haus"
-    .trimEnd()
-    .replace(/\([0-9]+\)$/, '') // "kiste(1)" -> "kiste" (Leerraum davor schon per trimEnd weg)
-    .trimEnd();
+  let s = kanonisch;
+  for (let i = 0; i < 5; i++) {
+    const vorher = s;
+    s = s.replace(/\.(glb|gltf|fbx|obj)$/, ''); // echte Endung
+    s = s.replace(/\.\d{3}$/, ''); // Blender-Suffix .001….999
+    s = s.trimEnd().replace(/\(\d+\)$/, '').trimEnd(); // Windows-Dopplung "(1)"
+    if (s === vorher) break;
+  }
+  return s;
 }
 
 /**
  * `anzeigename` in Bestandteile zerlegen: erst NFC+NFKD+Kleinschreibung
- * (`kanon`), dann Dateiendung/Nummer abschneiden (`schneideEndungUndNummer`),
- * dann an Leerzeichen, `_`, `-` und jedem Übergang zwischen Buchstabe und
- * Ziffer trennen. **CamelCase trennt NICHT** (B3) — nach `kanon()` gibt es
- * ohnehin keine Großbuchstaben mehr, die Regel ist also strukturell
- * ausgeschlossen, nicht nur unterlassen.
+ * (`kanon`), dann Endung/Suffix/Nummer abschneiden
+ * (`schneideEndungUndNummer`), dann an Leerzeichen, `_`, `-`, **`.`** (N5,
+ * s. Kopfkommentar von `schneideEndungUndNummer`) und jedem Übergang
+ * zwischen Buchstabe und Ziffer trennen. **CamelCase trennt NICHT** (B3) —
+ * nach `kanon()` gibt es ohnehin keine Großbuchstaben mehr, die Regel ist
+ * also strukturell ausgeschlossen, nicht nur unterlassen.
  */
 function namensBestandteile(anzeigename: string): readonly string[] {
   const vorbereitet = schneideEndungUndNummer(kanon(anzeigename));
   return vorbereitet
-    .split(/[\s_-]+|(?<=[a-z])(?=[0-9])|(?<=[0-9])(?=[a-z])/)
+    .split(/[\s_.-]+|(?<=[a-z])(?=[0-9])|(?<=[0-9])(?=[a-z])/)
     .filter((s) => s.length > 0);
 }
 

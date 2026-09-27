@@ -19,9 +19,22 @@
  *
  * Lauf:  npx tsx admin/test/upload-grundskala-betriebsdienst-abbruch-sweep.ts
  * Dauer: ca. 1 Minute (7 Fälle, je mit Beobachtungsfenster).
+ *
+ * ── N5 (Nachangriff N4, Befund A6): keine Wegwerf-Ordner-Waisen mehr ──────
+ * Der innere Betriebsdienst-Test legt seinen `WOV_WURZEL`-Ordner sonst
+ * selbst per `mkdtemp` an und löscht ihn in seinem eigenen `finally` — das
+ * läuft nie, wenn der EOF-Wächter die Gruppe per SIGKILL beendet (genau der
+ * Normalfall hier). Dieser Test legt den Ordner deshalb selbst an, reicht
+ * ihn über `WOV_WEGWERF_WURZEL` nach unten durch (der Abbruch-Test muss
+ * dafür nichts Eigenes tun — er vererbt seine Umgebung ohnehin an sein
+ * Kind) und löscht ihn selbst in einem `finally`, dessen Code garantiert
+ * läuft: Dieser Prozess ist es, der das Signal SCHICKT, nicht der, der es
+ * bekommt. Der Zeuge unten zählt `wov-grundskala-betriebsdienst-*`-Ordner
+ * in `os.tmpdir()` vor und nach dem ganzen Sweep.
  */
 import { spawn } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -65,45 +78,58 @@ interface SweepFall {
 
 async function probeFall(fall: SweepFall): Promise<{ waisen: number[] }> {
   const marke = `sweep-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const kind = spawn(process.execPath, ['--import', 'tsx', 'test/upload-grundskala-betriebsdienst-abbruch.ts'], {
-    cwd: ADMIN,
-    // Dieselbe Rolle, die `run-tests.mjs` für JEDEN Test spielt.
-    detached: true,
-    stdio: 'ignore',
-    env: { ...process.env, WOV_SWEEP_MARKE: marke },
-  });
+  // N5/A6: DIESER Prozess legt den Wegwerf-Ordner an und reicht ihn über
+  // die Umgebung nach unten durch — er räumt ihn im `finally` unten auch
+  // wieder weg, egal was mit dem Kind passiert.
+  const wurzel = mkdtempSync(resolve(tmpdir(), 'wov-sweep-wegwerf-'));
+  try {
+    const kind = spawn(process.execPath, ['--import', 'tsx', 'test/upload-grundskala-betriebsdienst-abbruch.ts'], {
+      cwd: ADMIN,
+      // Dieselbe Rolle, die `run-tests.mjs` für JEDEN Test spielt.
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, WOV_SWEEP_MARKE: marke, WOV_WEGWERF_WURZEL: wurzel },
+    });
 
-  await verzoegerung(fall.ms);
+    await verzoegerung(fall.ms);
 
-  if (fall.art === 'zeitlimit') {
-    // gruppeSignal: SIGTERM sofort, SIGKILL nach 5 s, falls die Gruppe dann
-    // noch lebt (`scripts/run-tests.mjs`).
-    try {
-      process.kill(-kind.pid!, 'SIGTERM');
-    } catch {
-      /* Gruppe schon weg */
+    if (fall.art === 'zeitlimit') {
+      // gruppeSignal: SIGTERM sofort, SIGKILL nach 5 s, falls die Gruppe dann
+      // noch lebt (`scripts/run-tests.mjs`).
+      try {
+        process.kill(-kind.pid!, 'SIGTERM');
+      } catch {
+        /* Gruppe schon weg */
+      }
+      await verzoegerung(5_000);
+      try {
+        process.kill(-kind.pid!, 'SIGKILL');
+      } catch {
+        /* schon weg — der Normalfall, wenn SIGTERM schon aufgeräumt hat */
+      }
+    } else {
+      try {
+        process.kill(-kind.pid!, 'SIGINT');
+      } catch {
+        /* Gruppe schon weg */
+      }
     }
-    await verzoegerung(5_000);
-    try {
-      process.kill(-kind.pid!, 'SIGKILL');
-    } catch {
-      /* schon weg — der Normalfall, wenn SIGTERM schon aufgeräumt hat */
-    }
-  } else {
-    try {
-      process.kill(-kind.pid!, 'SIGINT');
-    } catch {
-      /* Gruppe schon weg */
-    }
+
+    // Beobachtungsfenster: Unser Mechanismus ist EREIGNISBASIERT (Pipe-EOF
+    // beim Sterben des Elternteils, kein Polling/keine Wiederholung), deshalb
+    // reichen wenige Sekunden — anders als die 15 s im Nachangriff, die eine
+    // denkbare Verzögerung zwischen Elterntod und Kind-EOF ausschließen
+    // wollten, ohne den Mechanismus selbst zu kennen.
+    await verzoegerung(3_000);
+    return { waisen: findeProzesseMitMarke(marke) };
+  } finally {
+    rmSync(wurzel, { recursive: true, force: true });
   }
+}
 
-  // Beobachtungsfenster: Unser Mechanismus ist EREIGNISBASIERT (Pipe-EOF
-  // beim Sterben des Elternteils, kein Polling/keine Wiederholung), deshalb
-  // reichen wenige Sekunden — anders als die 15 s im Nachangriff, die eine
-  // denkbare Verzögerung zwischen Elterntod und Kind-EOF ausschließen
-  // wollten, ohne den Mechanismus selbst zu kennen.
-  await verzoegerung(3_000);
-  return { waisen: findeProzesseMitMarke(marke) };
+/** Anzahl der `wov-grundskala-betriebsdienst-*`-Ordner in `os.tmpdir()` (N5/A6-Zeuge). */
+function zaehleBetriebsdienstReste(): number {
+  return readdirSync(tmpdir()).filter((name) => name.startsWith('wov-grundskala-betriebsdienst-')).length;
 }
 
 const FAELLE: readonly SweepFall[] = [
@@ -115,6 +141,8 @@ const FAELLE: readonly SweepFall[] = [
   { art: 'sigint', ms: 400 },
   { art: 'sigint', ms: 1600 },
 ];
+
+const restVorher = zaehleBetriebsdienstReste();
 
 const zeilen: string[] = ['| Fall | Waise |', '|---|---|'];
 for (const fall of FAELLE) {
@@ -133,6 +161,18 @@ for (const fall of FAELLE) {
   }
 }
 console.log(`\n${zeilen.join('\n')}\n`);
+
+// N5/A6: der eigentliche Zeuge — vor und nach dem ganzen Sweep (7 Abbrüche)
+// liegt in os.tmpdir() dieselbe Anzahl an `wov-grundskala-betriebsdienst-*`-
+// Ordnern. Reste, die NICHT von diesem Lauf stammen (ein fremder,
+// gleichzeitig laufender Bauer auf demselben Rechner), zählen auf beiden
+// Seiten gleich mit und verfälschen den Vergleich nicht.
+const restNachher = zaehleBetriebsdienstReste();
+check(
+  'kein Wegwerf-Ordner-Rest nach dem Sweep (A6)',
+  restNachher === restVorher,
+  `vorher ${restVorher}, nachher ${restNachher}`
+);
 
 console.log(fehler === 0 ? '\nOK — kein Fall hinterlässt eine Waise.\n' : `\n${fehler} FEHLER\n`);
 process.exit(fehler > 0 ? 1 : 0);

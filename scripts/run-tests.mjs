@@ -132,6 +132,7 @@ function brauchtPython(was) {
 
 const KERN = [
   ['client', 'test/village-biome.ts'],
+  ['client', 'test/settings-qualitaetsstufen.ts'],
   ['client/test', 'appearance-visibility.ts'],
   ['client/test', 'head-skin.ts'],
   ['server/test', 'equipment-sets.ts'],

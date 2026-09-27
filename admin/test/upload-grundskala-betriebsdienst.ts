@@ -26,6 +26,20 @@
  * per sha256-Vergleich, dass die ECHTE `assets/hochgeladen/registry.json`
  * dieses Checkouts vorher und nachher byte-gleich ist.
  *
+ * ── F1 (Nachangriff „Editor Upload-Größe N1"): kein verwaister Enkel ──────
+ * `kind` ist der `node_modules/.bin/tsx`-WRAPPER, nicht der Dienst selbst —
+ * der eigentliche Prozess ist ein ENKEL (`node --require …/tsx/preflight.cjs
+ * --import …/tsx/loader.mjs src/main.ts`). `kind.kill('SIGKILL')` traf nur
+ * den Wrapper; tsx kann SIGKILL nicht weiterreichen, der Enkel blieb als
+ * Waise (PPID 1) auf seinem Port hängen — genau das fand der Nachangriff
+ * (Befund F1). Sogar das schlichte `kind.kill()` (SIGTERM) am Ende des
+ * Normalfalls wartete nie auf das tatsächliche Ende, bevor der Testprozess
+ * weiterlief. Jetzt startet `starten()` mit `detached: true` (derselbe Weg
+ * wie `scripts/run-tests.mjs`, `gruppeSignal`): Der Wrapper wird zum Leiter
+ * einer EIGENEN Prozessgruppe, `beendeGruppe()` schickt das Signal an
+ * `-kind.pid` (die ganze Gruppe, Wrapper UND Enkel) und wartet auf das
+ * `exit`-Ereignis, mit einer SIGKILL-Eskalation nach 3 s als Netz.
+ *
  * Lauf:  npx tsx admin/test/upload-grundskala-betriebsdienst.ts
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -121,6 +135,9 @@ function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: stri
   return new Promise((fertig, scheitern) => {
     const kind = spawn(resolve(WURZEL_REPO, 'node_modules/.bin/tsx'), ['src/main.ts'], {
       cwd: ADMIN,
+      // F1 (Nachangriff): eigene Prozessgruppe, s. Kopfkommentar — nur so
+      // erreicht `beendeGruppe()` auch den Enkelprozess (den echten Dienst).
+      detached: true,
       env: {
         ...process.env,
         WOV_WURZEL: opt.ordner,
@@ -152,6 +169,91 @@ function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: stri
     kind.on('exit', (code) => {
       clearTimeout(zeitgrenze);
       scheitern(new Error(`Dienst beendet mit ${code}:\n${puffer}`));
+    });
+  });
+}
+
+/**
+ * Die GANZE Prozessgruppe von `kind` beenden und auf das tatsächliche Ende
+ * warten (F1, Nachangriff) — `kind.kill()` träfe nur den `tsx`-Wrapper,
+ * nicht den Enkelprozess, der der eigentliche Dienst ist. `detached: true`
+ * beim Start macht `kind.pid` zur PGID einer eigenen Gruppe (wie
+ * `scripts/run-tests.mjs`, `gruppeSignal`); `-kind.pid` adressiert sie.
+ * Eine SIGKILL-Eskalation nach 3 s fängt den Fall ab, dass `signal` allein
+ * (z. B. SIGTERM) nicht binnen nützlicher Frist wirkt.
+ */
+function beendeGruppe(kind: ChildProcess, signal: NodeJS.Signals = 'SIGTERM'): Promise<void> {
+  return new Promise((fertig) => {
+    if (kind.pid === undefined || kind.exitCode !== null || kind.signalCode !== null) {
+      fertig();
+      return;
+    }
+    const eskalation = setTimeout(() => {
+      try {
+        process.kill(-kind.pid!, 'SIGKILL');
+      } catch {
+        /* Gruppe ist schon weg */
+      }
+    }, 3_000);
+    kind.once('exit', () => {
+      clearTimeout(eskalation);
+      fertig();
+    });
+    try {
+      process.kill(-kind.pid, signal);
+    } catch {
+      // Gruppe existiert nicht mehr (Dienst schon beendet) — nichts zu tun.
+      clearTimeout(eskalation);
+      fertig();
+    }
+  });
+}
+
+/**
+ * F4 (Nachangriff „Editor Upload-Größe N1"): den Dienst mit einem
+ * UNGÜLTIGEN `WOV_HOCHGELADEN_DIR` starten und erwarten, dass er NICHT
+ * bereit wird, sondern mit einer klaren Meldung abbricht — anders als
+ * `starten()` oben, das gerade den Erfolgsfall erwartet.
+ */
+function probeFehlgeschlagenerStart(hochgeladenDirWert: string): Promise<{ code: number | null; ausgabe: string }> {
+  return new Promise((fertig) => {
+    const ordner = mkdtempSync(resolve(tmpdir(), 'wov-grundskala-f4-'));
+    const serverDaten = resolve(ordner, 'server/data');
+    mkdirSync(serverDaten, { recursive: true });
+    writeFileSync(
+      resolve(serverDaten, 'server.yml'),
+      'uploads:\n  modell-hochladen: true\nplayers:\n  everyone-admin: false\n'
+    );
+    const tokenDatei = resolve(ordner, 'token');
+    writeFileSync(tokenDatei, 'egal-fuer-diese-probe\n');
+    const kind = spawn(resolve(WURZEL_REPO, 'node_modules/.bin/tsx'), ['src/main.ts'], {
+      cwd: ADMIN,
+      detached: true,
+      env: {
+        ...process.env,
+        WOV_WURZEL: ordner,
+        WOV_HOCHGELADEN_DIR: hochgeladenDirWert,
+        WOV_INSTANZ: 'dev',
+        WOV_ADMIN_ADRESSE: '127.0.0.1',
+        WOV_ADMIN_PORT: '0',
+        WOV_ADMIN_TOKEN_DATEI: tokenDatei,
+        WOV_LOG_STROEME_MAX: '1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let ausgabe = '';
+    kind.stdout.on('data', (s: Buffer) => (ausgabe += s.toString()));
+    kind.stderr.on('data', (s: Buffer) => (ausgabe += s.toString()));
+    const zeitgrenze = setTimeout(() => {
+      void beendeGruppe(kind, 'SIGKILL').then(() => {
+        rmSync(ordner, { recursive: true, force: true });
+        fertig({ code: -1, ausgabe: `${ausgabe}\n[Testfehler: Dienst lief trotz ungültigem WOV_HOCHGELADEN_DIR länger als 5 s]` });
+      });
+    }, 5_000);
+    kind.on('exit', (code) => {
+      clearTimeout(zeitgrenze);
+      rmSync(ordner, { recursive: true, force: true });
+      fertig({ code, ausgabe });
     });
   });
 }
@@ -375,7 +477,7 @@ try {
     }
   }
 
-  kind.kill();
+  await beendeGruppe(kind, 'SIGTERM');
   rmSync(HAUPT.ordner, { recursive: true, force: true });
 }
 
@@ -394,9 +496,9 @@ console.log('\n12. H2 — SIGKILL mitten im Test darf im Checkout NICHTS hinterl
     );
   } finally {
     // Das eigentliche Signal, wie run-tests.mjs es beim Zeitlimit/Speicher-
-    // wächter gegen die ganze Prozessgruppe schickt — hier gegen den einen
-    // Kindprozess, der Effekt auf den Zielordner ist derselbe.
-    kind2.kill('SIGKILL');
+    // wächter gegen die ganze Prozessgruppe schickt (F1: jetzt wirklich
+    // gegen die GANZE Gruppe, nicht nur den tsx-Wrapper).
+    await beendeGruppe(kind2, 'SIGKILL');
   }
   // Der Checkout darf davon nichts gesehen haben — weder durch den PATCH-
   // Testfall oben noch durch diesen SIGKILL-Fall: derselbe Hash wie ganz am
@@ -413,6 +515,25 @@ console.log('\n12. H2 — SIGKILL mitten im Test darf im Checkout NICHTS hinterl
     `existiert jetzt: ${existsSync(ECHTE_REGISTRY_DATEI)}, existierte vorher: ${echteRegistryVorher !== null}`
   );
   rmSync(ZWEIT.ordner, { recursive: true, force: true });
+}
+
+console.log('\n13. F4 — WOV_HOCHGELADEN_DIR leer oder relativ bricht den Start mit klarer Meldung ab\n');
+{
+  const leer = await probeFehlgeschlagenerStart('');
+  check('leerer Wert: Dienst wird NICHT bereit (Exit ≠ 0)', leer.code !== 0, `Exit=${leer.code}`);
+  check(
+    "leerer Wert: Meldung nennt 'WOV_HOCHGELADEN_DIR'",
+    leer.ausgabe.includes('WOV_HOCHGELADEN_DIR'),
+    leer.ausgabe.slice(0, 400)
+  );
+
+  const relativ = await probeFehlgeschlagenerStart('relativ/hg');
+  check('relativer Wert: Dienst wird NICHT bereit (Exit ≠ 0)', relativ.code !== 0, `Exit=${relativ.code}`);
+  check(
+    "relativer Wert: Meldung nennt 'WOV_HOCHGELADEN_DIR'",
+    relativ.ausgabe.includes('WOV_HOCHGELADEN_DIR'),
+    relativ.ausgabe.slice(0, 400)
+  );
 }
 
 console.log(fehler === 0 ? '\nOK — Grundskala im Betriebsdienst korrekt, Checkout unberührt (H2).\n' : `\n${fehler} FEHLER\n`);

@@ -47,7 +47,7 @@
  * deutschen Namen andocken.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { findPrefabByName } from './prefabs.js';
@@ -84,21 +84,50 @@ import {
   type UploadedModelEntry,
 } from './uploadedModelRegistry.js';
 
+/** `<repo>/assets/hochgeladen` — zwei Ebenen hinauf: Diese Datei liegt in `shared/src/`, also `src → shared → <repo>`. */
+const UPLOAD_DIR_VORGABE = resolve(dirname(fileURLToPath(import.meta.url)), '../../assets/hochgeladen');
+
+/** `WOV_HOCHGELADEN_DIR` ist gesetzt, aber leer oder kein absoluter Pfad. */
+export class HochgeladenDirUngueltig extends Error {
+  constructor(readonly wert: string) {
+    super(
+      `WOV_HOCHGELADEN_DIR="${wert}" ist leer oder kein absoluter Pfad. Ein relativer oder leerer Wert ` +
+        `loest sich je Prozess (Spielserver, Betriebsdienst) gegen ein anderes Arbeitsverzeichnis auf und ` +
+        `meinte zwei verschiedene Ordner. Absoluten Pfad setzen oder die Variable weglassen.`
+    );
+    this.name = 'HochgeladenDirUngueltig';
+  }
+}
+
 /**
- * `<repo>/assets/hochgeladen` — zwei Ebenen hinauf: Diese Datei liegt in
- * `shared/src/`, also `src → shared → <repo>`.
+ * Der Ordner der hochgeladenen Modelle — geprüft wie `weltArbeitsOrdner`
+ * (`shared/src/instanz.ts`): `WOV_HOCHGELADEN_DIR` MUSS, wenn gesetzt, ein
+ * absoluter Pfad sein, sonst wirft dieser Aufruf `HochgeladenDirUngueltig`.
  *
- * H2 (Angriff „Editor Upload-Größe"): Anders als jeder andere Pfad im
- * Betriebsdienst (`WOV_WURZEL`) hängt dieser hier am Ort DIESER Moduldatei,
+ * H2 (Angriff „Editor Upload-Größe" N1): Anders als jeder andere Pfad im
+ * Betriebsdienst (`WOV_WURZEL`) hing dieser Ordner am Ort DIESER Moduldatei,
  * nicht an der Umgebung — ein Prozess-Test mit eigenem `WOV_WURZEL` schrieb
  * dadurch trotzdem in die ECHTE `assets/hochgeladen/` des Checkouts (beim
  * Ausrollen die von DEV). `WOV_HOCHGELADEN_DIR` überschreibt ihn deshalb,
  * wenn gesetzt — nur Tests setzen es, Server und Betriebsdienst laufen ohne
  * Änderung weiter am bisherigen, moduleigenen Pfad.
+ *
+ * F4 (Nachangriff „Editor Upload-Größe N1"): Anders als bei
+ * `WOV_WELT_VERZEICHNIS` gilt ein LEERER Wert hier NICHT als „nicht
+ * gesetzt" — `WOV_HOCHGELADEN_DIR=` liess `UPLOAD_DIR` vorher zu `""`
+ * werden, der Dienst startete, und jeder Upload scheiterte erst danach mit
+ * 500 statt schon beim Start mit einer verständlichen Meldung. Ein
+ * relativer Wert löste sich zuvor gegen das `cwd` des jeweiligen Prozesses
+ * auf (`admin/` beim Betriebsdienst, `server/` beim Spielserver) — zwei
+ * verschiedene Ordner für denselben Namen.
  */
-export const UPLOAD_DIR =
-  process.env.WOV_HOCHGELADEN_DIR ??
-  resolve(dirname(fileURLToPath(import.meta.url)), '../../assets/hochgeladen');
+export function ermittleUploadDir(roh: string | undefined = process.env.WOV_HOCHGELADEN_DIR): string {
+  if (roh === undefined) return UPLOAD_DIR_VORGABE;
+  if (roh === '' || !isAbsolute(roh)) throw new HochgeladenDirUngueltig(roh);
+  return roh;
+}
+
+export const UPLOAD_DIR = ermittleUploadDir();
 
 // ── Freigabeliste für glTF-Erweiterungen ─────────────────────────────
 /**

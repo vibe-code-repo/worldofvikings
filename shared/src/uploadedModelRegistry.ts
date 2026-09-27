@@ -425,6 +425,17 @@ function ersetzeRegistriertenEintrag(m: UploadedModelEntry): void {
  * nur eine Meldung geht ins Log. Das Modell verschwindet dadurch nicht
  * plötzlich aus Katalog und Welt, nur weil eine einzelne Neu-Anwendung der
  * Registry eine kaputte Zeile enthielt.
+ *
+ * F7 (Nachangriff „Editor Upload-Größe N1", Info): Steht derselbe Name
+ * ZWEIMAL in einer Datei (Handarbeit — kein Schreibweg dieses Codes legt
+ * das je an), gewinnt bewusst der LETZTE Eintrag in Dateireihenfolge: Jede
+ * spätere Zeile desselben Namens läuft durch denselben Vergleich- und
+ * Ersetzen-Weg wie eine echte Änderung (`eintraegeGleich`/
+ * `ersetzeRegistriertenEintrag`), ohne eigene Sonderbehandlung für diesen
+ * Randfall. Server, Betriebsdienst und Browser rufen alle dieselbe Funktion
+ * und verhalten sich deshalb gleich — ein Unterschied, der eine eigene
+ * "erster gewinnt"-Buchführung nur für einen Fall bräuchte, den kein
+ * legitimer Schreibweg je erzeugt.
  */
 export function applyUploadedModelRegistry(datei: RegistryDatei): AnwendungsErgebnis {
   const meldungen: string[] = [];

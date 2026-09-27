@@ -159,6 +159,67 @@ async function lauf(): Promise<void> {
     uploadedModelRegistry.unregisterUploadedPrefab('U_Neuanwendentest');
   }
 
+  console.log('\n4. F2 (Nachangriff): zwei GLEICHZEITIGE getMasters() desselben Uploads ergeben dieselbe Grundskala\n');
+  {
+    const eintrag: uploadedModelRegistry.UploadedModelEntry = { ...basisEintrag(4), name: 'U_F2Test', anzeigename: 'F2Test' };
+    uploadedModelRegistry.registerUploadedPrefab(eintrag);
+    const modellName2 = `${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}U_F2Test`;
+    try {
+      (assets as unknown as { containers: Map<string, Promise<AssetContainer | null>> }).containers.set(
+        modellName2,
+        Promise.resolve(baueContainer('U_F2Test'))
+      );
+      // Auf 28314ea trafen beide gleichzeitigen Aufrufe auf einen leeren
+      // Cache und bauten UNABHÄNGIG je ein eigenes Array — der Aufruf, dessen
+      // `wendeGrundskalaAn` zuletzt lief, gewann den geteilten `mastersGrundskala`-
+      // Eintrag, und das ANDERE (gerade erst gewonnene) Array blieb ungeskaliert.
+      const [erster, zweiter] = await Promise.all([assets.getMasters(modellName2), assets.getMasters(modellName2)]);
+      pruefe(erster === zweiter, 'F2: beide gleichzeitigen Aufrufe liefern DASSELBE Array-Objekt (gebündelt)');
+      const masseErster = huelleUnter(erster, Matrix.Scaling(1, 1, 1));
+      const masseZweiter = huelleUnter(zweiter, Matrix.Scaling(1, 1, 1));
+      nah(masseErster.breite, 4.0, 'F2: erster gleichzeitiger Aufruf — Breite');
+      nah(masseZweiter.breite, 4.0, 'F2: zweiter gleichzeitiger Aufruf — Breite (auf 28314ea zeitweise 1 statt 4)');
+      const dritter = await assets.getMasters(modellName2);
+      const masseDritter = huelleUnter(dritter, Matrix.Scaling(1, 1, 1));
+      nah(masseDritter.breite, 4.0, 'F2: ein späterer, dritter Aufruf bleibt korrekt bei 4 (kein bleibender Fehlzustand)');
+    } finally {
+      uploadedModelRegistry.unregisterUploadedPrefab('U_F2Test');
+    }
+  }
+
+  console.log('\n5. F3 (Nachangriff): eine VORHER gehaltene Referenz auf master.localMatrix sieht eine spätere Grundskala-Änderung\n');
+  {
+    const eintrag: uploadedModelRegistry.UploadedModelEntry = { ...basisEintrag(1), name: 'U_F3Test', anzeigename: 'F3Test' };
+    uploadedModelRegistry.registerUploadedPrefab(eintrag);
+    const modellName3 = `${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}U_F3Test`;
+    try {
+      (assets as unknown as { containers: Map<string, Promise<AssetContainer | null>> }).containers.set(
+        modellName3,
+        Promise.resolve(baueContainer('U_F3Test'))
+      );
+      const masters = await assets.getMasters(modellName3);
+      // Wie EntityManager.masterLocals/kollisionsLocals es tun (Angriff,
+      // Fundstelle EntityManager.ts:2390/2393): eine Referenz auf das
+      // localMatrix-OBJEKT selbst halten, nicht nur auf den PrefabMaster.
+      const gehalteneReferenz = masters[0]!.localMatrix;
+      pruefe(Math.abs(gehalteneReferenz.m[0]! - 1) < 1e-6, 'F3: gehaltene Referenz zeigt vorher die Skala 1');
+
+      uploadedModelRegistry.applyUploadedModelRegistry({ version: 1, modelle: [{ ...eintrag, grundskala: 4 }] });
+      await assets.getMasters(modellName3);
+
+      pruefe(
+        masters[0]!.localMatrix === gehalteneReferenz,
+        'F3: dasselbe Matrix-Objekt bleibt bestehen (in-place mutiert, nicht durch ein neues ersetzt)'
+      );
+      pruefe(
+        Math.abs(gehalteneReferenz.m[0]! - 4) < 1e-6,
+        `F3: die VORHER gehaltene Referenz zeigt jetzt die neue Skala 4 (m[0] = ${gehalteneReferenz.m[0]})`
+      );
+    } finally {
+      uploadedModelRegistry.unregisterUploadedPrefab('U_F3Test');
+    }
+  }
+
   console.log(fehler === 0 ? '\nOK — Grundskala-Änderung wirkt im Loader ohne Neuladen der Seite.\n' : `\n${fehler} FEHLER\n`);
   scene.dispose();
   engine.dispose();

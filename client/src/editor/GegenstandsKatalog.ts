@@ -1626,6 +1626,12 @@ export class GegenstandsKatalog {
    * (N6) — `null` blendet sie aus. Vorher zeigte das Zielfeld weiter den
    * eingegebenen (z. B. 500 m), tatsächlich hochgeladen/vorgeschaut wurde
    * aber mit dem geklemmten Wert (g = 100), ohne jeden Hinweis.
+   *
+   * F8 (Nachangriff „Editor Upload-Größe N1"): `toFixed(2)` zeigte bei einer
+   * sehr kleinen Grundskala (unter 0,005, geklemmt auf `GRUNDSKALA_MIN`
+   * 0,01) „×0.00" — eine Zahl, die aussieht, als wäre gar nichts mehr da.
+   * `toPrecision(3)` zeigt stattdessen immer drei bedeutende Ziffern, auch
+   * für sehr kleine oder sehr große Werte (z. B. „×0.00499" oder „×250").
    */
   private hochladenGrenzwarnungAktualisieren(geklemmtVon: number | null): void {
     if (geklemmtVon === null) {
@@ -1637,7 +1643,7 @@ export class GegenstandsKatalog {
       geklemmtVon > uploadedModelRegistry.GRUNDSKALA_MAX
         ? uploadedModelRegistry.GRUNDSKALA_MAX
         : uploadedModelRegistry.GRUNDSKALA_MIN;
-    this.hochladenGrenzwarnung.textContent = `Grundskala auf ${grenze} begrenzt (Zielwert entspräche ×${geklemmtVon.toFixed(2)}) — hochgeladen/vorgeschaut wird mit ${grenze}.`;
+    this.hochladenGrenzwarnung.textContent = `Grundskala auf ${grenze} begrenzt (Zielwert entspräche ×${geklemmtVon.toPrecision(3)}) — hochgeladen/vorgeschaut wird mit ${grenze}.`;
     this.hochladenGrenzwarnung.style.display = '';
   }
 
@@ -2101,7 +2107,17 @@ export class GegenstandsKatalog {
       // ein LAUFENDER Spielserver eine geänderte Grundskala erst nach einem
       // Neustart. „Übernommen." allein sagte das nicht ehrlich; ein neuer
       // Server-Weg dafür ist nicht Teil dieser Nachbesserung.
-      status.textContent = 'Übernommen — Editor sofort, Spielserver erst nach dessen Neustart.';
+      //
+      // F3 (Nachangriff): „Editor sofort" allein war zu weit gefasst — wahr
+      // ist es nur für DIESEN Katalog (er baut die Vorschau unten neu auf)
+      // und für neu geöffnete Testflüge (die laden das Modell zum ersten
+      // Mal). Ein SCHON offener Testflug-Tab oder ein laufender Spielclient
+      // hält seine Thin-Instance-Puffer bereits im Bild und baut sie nicht
+      // von selbst neu — `AssetManager.wendeGrundskalaAn` aktualisiert zwar
+      // `master.localMatrix` seit dieser Nachbesserung in-place, aber ein
+      // schon ins GPU-Bild geschriebener Puffer liest davon nichts nach.
+      status.textContent =
+        'Übernommen — Katalog und neu geöffnete Testflüge sofort, offene Flüge und Spielclients erst nach Neuladen, Spielserver erst nach Neustart.';
       status.style.color = F.textRuhig;
       // Die Vorschau (dieses Modell steht gerade, sonst gäbe es die
       // Grundskala-Zeile nicht) und der Infoblock neu aufbauen — beide

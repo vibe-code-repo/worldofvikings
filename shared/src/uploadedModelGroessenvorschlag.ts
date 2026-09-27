@@ -35,17 +35,35 @@ export interface Groessenvorschlag {
 }
 
 /**
- * `U_`-Präfix weg, Umlaute ausgeschrieben, Kleinschreibung, nur `[a-z0-9]` —
- * der Vergleichskern eines Namens.
+ * `U_`-Präfix weg, auf eine einzige Unicode-Form gebracht, Umlaute
+ * ausgeschrieben, Kleinschreibung, nur `[a-z0-9]` — der Vergleichskern
+ * eines Namens.
  *
  * N3 (Angriff „Editor Upload-Größe"): Ohne `schreibeUmlauteAus` (dieselbe
  * Funktion wie in `uploadedModelRegistry.erzwingeName`, die den TATSÄCHLICH
  * gespeicherten Registry-Namen bestimmt) traf „Käsestand2" nicht auf ein
  * schon registriertes „Kaesestand2" — die Registry schreibt Umlaute beim
  * Speichern aus, dieser Vergleich hier tat es vorher nicht.
+ *
+ * F6 (Nachangriff „Editor Upload-Größe N1"): Das allein reichte nicht für
+ * ZERLEGT geschriebene Umlaute (NFD, wie macOS-Dateinamen sie liefern:
+ * „a" + U+0308 KOMBINIERENDER TREMA statt des EINEN Zeichens „ä"). Der
+ * zeichenweise Vergleich in `schreibeUmlauteAus` erkennt nur das
+ * ZUSAMMENGESETZTE „ä" — bei zerlegter Eingabe blieb „a" unverändert, der
+ * Trema-Codepunkt fiel dem `[^a-z0-9]`-Sieb zum Opfer, und aus „Käsestand2"
+ * (NFD) wurde „kasestand" statt „kaesestand" — kein Treffer auf ein
+ * getipptes „Kaesestand2". `normalize('NFC')` VOR `schreibeUmlauteAus`
+ * setzt jede zerlegte Eingabe erst wieder zu einem einzigen Zeichen
+ * zusammen, das die Umlauttabelle dann erkennt. Das nachfolgende
+ * `normalize('NFKD')` ist unverändert aus N1: Es zerlegt jeden ANDEREN
+ * Akzent (nicht in der Umlauttabelle, z. B. „ê"), den das Sieb danach
+ * verwirft — verliert den Akzent, behält aber den Grundbuchstaben
+ * („Crêpestand" und „Crepestand2" liefern beide „crepestand").
  */
 function normKern(s: string): string {
-  return schreibeUmlauteAus(s.replace(/^u_/i, '').toLowerCase()).replace(/[^a-z0-9]/g, '');
+  return schreibeUmlauteAus(s.normalize('NFC').replace(/^u_/i, '').toLowerCase())
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]/g, '');
 }
 
 /** Denselben Kern ohne eine Zahl am Ende — „marktstand2" → „marktstand". */

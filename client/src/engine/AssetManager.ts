@@ -385,6 +385,8 @@ export class AssetManager {
   private readonly mastersBasis = new Map<string, Matrix[]>();
   /** Die Grundskala, mit der `masters.get(name)` zuletzt gebacken wurde. */
   private readonly mastersGrundskala = new Map<string, number>();
+  /** In Arbeit befindliche `baueMasters()`-Aufrufe je Name (F2, Nachangriff „Editor Upload-Größe N1"). */
+  private readonly mastersLaufend = new Map<string, Promise<PrefabMaster[]>>();
   private readonly addedToScene = new Set<string>();
   private readonly alphaChecked = new Set<string>();
   /** Materialien, deren Metallgrad schon korrigiert wurde (siehe setzeMetallgrad). */
@@ -720,6 +722,31 @@ export class AssetManager {
       return cached;
     }
 
+    // F2 (Nachangriff „Editor Upload-Größe N1"): Zwei GLEICHZEITIGE Aufrufe
+    // für denselben Namen trafen hier beide auf einen Cache-Fehltreffer
+    // (`this.masters` ist noch leer, solange der erste Aufbau läuft) und
+    // bauten UNABHÄNGIG voneinander je ein eigenes Master-Array — der
+    // zuletzt fertige `masters.set()`-Aufruf gewann. `mastersGrundskala`
+    // gilt aber je NAME, nicht je Array: Lief der erste Aufbau seine
+    // `wendeGrundskalaAn()` schon durch, bevor der zweite fertig wurde,
+    // hielt `mastersGrundskala.get(name)` schon den Zielwert `g`, und der
+    // zweite (spätere) Aufruf übersprang die Skalierung für sein EIGENES,
+    // gerade erst gewonnenes Array — ein bis zur nächsten Grundskala-
+    // Änderung ungeskaliert bleibender Master. Die Bündelung hier lässt
+    // nur EINEN tatsächlichen Aufbau je Name laufen; jeder gleichzeitige
+    // Aufrufer wartet auf dasselbe Ergebnis.
+    const laufend = this.mastersLaufend.get(name);
+    if (laufend) return laufend;
+    const aufbau = this.baueMasters(name);
+    this.mastersLaufend.set(name, aufbau);
+    try {
+      return await aufbau;
+    } finally {
+      this.mastersLaufend.delete(name);
+    }
+  }
+
+  private async baueMasters(name: string): Promise<PrefabMaster[]> {
     const container = await this.loadContainer(name);
     if (!container) return [];
     if (!this.addedToScene.has(name)) {
@@ -871,11 +898,22 @@ export class AssetManager {
 
   /**
    * Die aktuell gültige Grundskala aus der unskalierten Basis neu auf
-   * `result` anwenden — mutiert `localMatrix` IN PLACE, damit jeder Halter
-   * einer Referenz auf dieselben `PrefabMaster`-Objekte (z. B.
-   * `mastersSofort()`) die Änderung ohne eigenes Zutun sieht. Ein Aufruf,
-   * bei dem sich die Grundskala seit dem letzten Mal nicht geändert hat,
-   * ist ein reiner Map-Vergleich (kein Neu-Multiplizieren).
+   * `result` anwenden. Ein Aufruf, bei dem sich die Grundskala seit dem
+   * letzten Mal nicht geändert hat, ist ein reiner Map-Vergleich (kein
+   * Neu-Multiplizieren).
+   *
+   * F3 (Nachangriff „Editor Upload-Größe N1"): `master.localMatrix` wird
+   * jetzt per `copyFrom`/`multiplyToRef` IN PLACE überschrieben, statt (wie
+   * vorher) durch ein neues `Matrix`-Objekt ERSETZT zu werden — der
+   * Nachangriff zeigte, dass die vorherige Fassung trotz ihres eigenen
+   * Kommentars „mutiert IN PLACE" genau das NICHT tat: eine anderswo schon
+   * gehaltene Referenz auf dasselbe `localMatrix`-Objekt (nicht nur auf den
+   * `PrefabMaster`) blieb dadurch bei der alten Matrix stehen. Mit der
+   * echten In-Place-Mutation sehen auch SOLCHE Referenzen die Änderung.
+   * Das baut aber KEINE Thin-Instance-Puffer neu, die aus den Werten
+   * bereits vor der Änderung ins GPU-Bild geschrieben wurden (unverändert
+   * gegenüber dem Nachangriffsbefund) — s. dazu den Statustext in
+   * `GegenstandsKatalog.grundskalaAendernAusfuehren`.
    */
   private wendeGrundskalaAn(name: string, result: readonly PrefabMaster[]): void {
     const g = uploadedModelRegistry.grundskalaFuerModell(name);
@@ -886,7 +924,8 @@ export class AssetManager {
     for (let i = 0; i < result.length; i++) {
       const master = result[i]!;
       const basisMatrix = basis[i]!;
-      master.localMatrix = skalierung ? basisMatrix.multiply(skalierung) : basisMatrix.clone();
+      if (skalierung) basisMatrix.multiplyToRef(skalierung, master.localMatrix);
+      else master.localMatrix.copyFrom(basisMatrix);
     }
     this.mastersGrundskala.set(name, g);
   }

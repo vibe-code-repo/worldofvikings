@@ -2262,6 +2262,8 @@ const KERN = [
   ['admin', 'test/weltops-n5.ts'],
   // ... N5 with the test flight (#91): its Sockel radius never exceeds the service's limit of 100 (real flight code against the real service).
   ['client', 'test/testflug-sockel-dienst.ts'],
+  // Test flight: a click places while a prefab is chosen (Alt grabs), series switch, drag only past 4 px (8 touch) with grab offset; offline bytes unchanged.
+  ['client', 'test/testflug-greifen.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

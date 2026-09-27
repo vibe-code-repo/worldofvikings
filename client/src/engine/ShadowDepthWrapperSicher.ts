@@ -2,7 +2,7 @@
  * ShadowDepthWrapper that never builds its depth effect from a stale base effect.
  * ShadowDepthWrapper, der seinen Tiefen-Shader nie aus einer veralteten Vorlage baut.
  *
- * Problem (WebGPU render freeze, measured 26.09.2026 on 13 of 127 loads):
+ * Problem (WebGPU render freeze, measured 26.09.2026 on 17 of 150 loads, about 11 %, main alone, natural loads):
  * Babylon's `ShadowDepthWrapper` remembers, per sub mesh, the effect the colour pass
  * created (`_subMeshToEffect`, with the id of the render pass it was created in) and
  * copies that draw wrapper's `defines` when it builds the depth effect. If the
@@ -15,9 +15,13 @@
  * `createBindGroup` throws in EVERY frame's shadow pass. The colour pass that would
  * repair the entry never runs any more, so the freeze is permanent.
  *
- * Fix: while the base draw wrapper has no usable defines, report "not ready". The
- * shadow pass skips the sub mesh, the colour pass re-creates the base effect (and
- * with it the wrapper's entry), and the next frame builds the depth effect for real.
+ * Fix: while the base draw wrapper has no usable defines AND Babylon would still
+ * have to copy them (no depth entry built yet), report "not ready". The shadow pass
+ * skips the sub mesh, the colour pass re-creates the base effect (and with it the
+ * wrapper's entry), and the next frame builds the depth effect for real. An entry
+ * that is already built stays valid: Babylon never copies again, and clones that
+ * never render in the colour pass (G20 vegetation) would otherwise lose their
+ * shadow for good.
  *
  * Deutsch: Solange der Farbpass-Draw-Wrapper eines Sub-Meshes keine `defines` mehr
  * hat (Draw-Cache zurueckgesetzt), meldet der Wrapper „nicht bereit". Der
@@ -44,9 +48,20 @@ interface WrapperIntern {
 export function vorlageHatDefines(wrapper: ShadowDepthWrapper, subMesh: SubMesh): boolean {
   const eintrag = (wrapper as unknown as WrapperIntern)._subMeshToEffect.get(subMesh);
   if (!eintrag) return true;
-  const defines = subMesh._getDrawWrapper(eintrag[1])?.defines;
-  // A string means "no defines object" for Babylon's copy as well.
-  return defines != null && typeof defines !== 'string';
+  // A string counts as present: Babylon accepts one there.
+  return subMesh._getDrawWrapper(eintrag[1])?.defines != null;
+}
+
+/** Babylon's private table: does a depth entry exist for this sub mesh and generator? */
+interface TiefenEintraege {
+  _subMeshToDepthWrapper?: { get(subMesh: unknown, generator: unknown): unknown };
+}
+
+/** True when Babylon has already built the depth entry (it never copies `defines` again). */
+export function tiefeSchonGebaut(wrapper: ShadowDepthWrapper, subMesh: SubMesh, generator: ShadowGenerator): boolean {
+  const tabelle = (wrapper as unknown as TiefenEintraege)._subMeshToDepthWrapper;
+  // Field missing (Babylon changed): assume "not built", but the guard below then never blocks.
+  return tabelle?.get(subMesh, generator) !== undefined;
 }
 
 export class SicherTiefenWrapper extends ShadowDepthWrapper {
@@ -57,7 +72,10 @@ export class SicherTiefenWrapper extends ShadowDepthWrapper {
     useInstances: boolean,
     passIdForDrawWrapper: number
   ): boolean {
-    if (!vorlageHatDefines(this, subMesh)) return false;
+    // Block only where Babylon would copy: no depth entry yet and no defines on the base.
+    // Without the private field we cannot tell, so never block.
+    const feld = (this as unknown as TiefenEintraege)._subMeshToDepthWrapper;
+    if (feld && !tiefeSchonGebaut(this, subMesh, shadowGenerator) && !vorlageHatDefines(this, subMesh)) return false;
     return super.isReadyForSubMesh(subMesh, defines, shadowGenerator, useInstances, passIdForDrawWrapper);
   }
 }

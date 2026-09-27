@@ -34,6 +34,10 @@
  *     bereiter Klon werden nicht angefasst.
  *  9. Ein Klon, der seine Tiefe zum ZWEITEN Mal verliert, startet wieder bei
  *     null Versuchen (F3/X3) — sonst gibt er beim zweiten Verlust zu frueh auf.
+ * 10. B1 (Nachangriff #105 N1): ein aufgegebener Klon bleibt nach einem
+ *     Neubestimmen der Werferliste OHNE Neupacken (z.B. setDistantShadows)
+ *     aus der renderList ausgeschlossen und kommt erst nach einer echten,
+ *     erfolgreichen Uebergabe zurueck.
  *
  * Lauf: npx tsx client/test/schatten-wrapper-sicher.ts
  */
@@ -291,6 +295,47 @@ function bauSchattenSzene() {
   for (let i = 0; i < 5; i++) shadows.tick();
   pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 0, 'ein aufgegebener Klon wird wieder in die Warteliste aufgenommen');
   pruefe(!liste.includes(klon), 'ein aufgegebener Klon kommt ohne Neupacken wieder in die renderList');
+  scene.dispose();
+  engine.dispose();
+}
+
+// ── B1: aufgegebener Klon bleibt nach Rescan ohne Neupacken draussen (Nachangriff #105 N1) ──
+// Ohne vegetationsAufgegebeneKlone nahm ein Neubestimmen der Werferliste OHNE
+// Neupacken (z.B. setDistantShadows) einen aufgegebenen Klon ueber darfWerfen()
+// wieder in die renderList auf — Doppelwurf mit der weiter werfenden Quelle.
+{
+  const { engine, scene, shadows, fake, liste, laub, klon } = bauSchattenSzene();
+  const material = klon.material as PBRMaterial;
+  material.resetDrawCache();
+  fake.bereit = false;
+  // Wie in 7b: bis TIEFE_MAX_VERSUCHE (1200) aufgeben, 20 Bilder Luft.
+  for (let i = 0; i < 1220; i++) shadows.tick();
+  pruefe(!liste.includes(klon), 'Vorbedingung: der aufgegebene Klon steht noch in der renderList');
+  pruefe(liste.includes(laub), 'Vorbedingung: die Quelle wirft nach dem Aufgeben nicht weiter');
+
+  // Neubestimmen OHNE Neupacken: setDistantShadows durchsucht scene.meshes
+  // erneut ueber darfWerfen(), ruehrt vegetationsPackPending aber nicht an.
+  shadows.setDistantShadows(false);
+  shadows.tick();
+  shadows.tick();
+  pruefe(
+    !liste.includes(klon),
+    'B1: ein aufgegebener Klon ist nach setDistantShadows (Rescan ohne Neupacken) wieder in der renderList — droht Doppelwurf mit der Quelle'
+  );
+  pruefe(liste.includes(laub), 'B1: die Quelle wirft nach dem Rescan nicht mehr, obwohl der Klon weiter aufgegeben ist');
+
+  // Ein zweiter Rescan ohne Neupacken aendert daran nichts (keine einmalige Ausnahme).
+  shadows.setDistantShadows(true);
+  shadows.tick();
+  shadows.tick();
+  pruefe(!liste.includes(klon), 'B1: ein zweiter Rescan ohne Neupacken nimmt den aufgegebenen Klon doch noch auf');
+
+  // Eine ECHTE Uebergabe (Neupacken, danach bereit) hebt die Sperre wieder auf.
+  fake.bereit = true;
+  shadows.setPlayerPosition(200, 0); // > NACHFUEHR_ABSTAND: packt alle Staende neu
+  for (let i = 0; i < 5; i++) shadows.tick();
+  pruefe(liste.includes(klon) && !liste.includes(laub), 'nach einer echten Uebergabe nach dem Neupacken bleibt der Klon gesperrt');
+
   scene.dispose();
   engine.dispose();
 }

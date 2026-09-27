@@ -106,6 +106,15 @@ export default {
           'https://play.dev.world-of-vikings.com',
           'https://play.world-of-mmorpg.com',
           'https://play.world-of-mmorpg.de',
+          // Karte D1-N2 (Niedrig, geprueft an account.ts/SHORES): dieselbe
+          // Absicherung wie play.dev.world-of-vikings.com zwei Zeilen
+          // darueber — WOV_DEV_ORIGIN (der Vite-Schalter fuer SHORES.dev)
+          // kann jederzeit auf einen zweiten Host zeigen, und ohne diesen
+          // Eintrag braeche das lautlos an der CSP, sobald er auf einen
+          // dev-Host der neuen Domains zeigt. SHORES.live selbst baut nur
+          // play.world-of-mmorpg.com/.de (oben bereits erlaubt).
+          'https://play.dev.world-of-mmorpg.com',
+          'https://play.dev.world-of-mmorpg.de',
         ],
         'form-action': ['self'],
         'upgrade-insecure-requests': true,

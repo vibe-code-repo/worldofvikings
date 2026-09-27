@@ -19,6 +19,16 @@ const WURZEL = resolve(import.meta.dirname, '../..');
 const PFAD = resolve(WURZEL, 'deploy/npm-weiterleitung-vikings.conf');
 
 const ERWARTUNGEN: { weg: string; muster: RegExp }[] = [
+  /*
+    Angriffsbefund N-2 (dieselbe Bauart wie M1a in nginx-wov-lab-pfade.ts):
+    ohne eigene Zusicherung koennte ein Mutant "www." aus server_name
+    entfernen, und kein Test hier wuerde es merken — www.world-of-vikings.com
+    saehe dann die ganze Weiterleitung nicht.
+  */
+  {
+    weg: 'server_name deckt world-of-vikings.com UND www. ab',
+    muster: /server_name\s+world-of-vikings\.com\s+www\.world-of-vikings\.com;/,
+  },
   {
     weg: '/de/ (Präfix) leitet auf world-of-mmorpg.de',
     muster: /location\s+\/de\/\s*\{\s*#\s*return\s+301\s+https:\/\/world-of-mmorpg\.de\$request_uri;/,

@@ -33,8 +33,12 @@ function main(): void {
   }
 
   let fehler = 0;
+  // Angriffsbefund N-2: Ohne diesen Schritt macht eine auskommentierte
+  // Zeile (`#    editor.world-of-mmorpg.de    1;`) den Text-Treffer
+  // trotzdem gruen — der alte F2-Mutant ueberlebte genau so.
+  const ohneKommentare = text.replace(/(^|\s)#.*$/gm, '$1');
   for (const { weg, muster } of ERWARTUNGEN) {
-    const treffer = muster.test(text);
+    const treffer = muster.test(ohneKommentare);
     console.log(`${treffer ? 'OK  ' : 'FEHL'}  ${weg}`);
     if (!treffer) fehler++;
   }

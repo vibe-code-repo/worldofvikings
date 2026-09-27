@@ -32,7 +32,7 @@
  * schon beim Boot nicht angewendet (`placements` unlesbar), gibt es keinen
  * Vergleichsstand: jede Quittung bis zum nächsten Neustart ist `abgelehnt`. Würde der Abgleich viele Objekte oder Objekte mit
  * Zustand entfernen, meldet die Quittung `bestaetigung-noetig` und nichts
- * geschieht (der Neustart räumt dann ab wie bisher). Solange ein Speichern läuft, wird nichts
+ * geschieht. Solange ein Speichern läuft, wird nichts
  * angewendet; die Wache probiert es eine Sekunde später erneut.
  *
  * ── Quittung ─────────────────────────────────────────────────────────
@@ -40,32 +40,44 @@
  * (`shared/worldlayout/quittung.ts`). Der Spielserver schreibt nie ins
  * Weltdokument.
  *
- * ── Offene Bestätigung (Karte Z3) ───────────────────────────────────
- * `bestaetigung-noetig` heißt live wie beim Boot: nichts geschieht, die Datei
- * bleibt liegen. Anders als bisher springt die Quittung NICHT von selbst auf
- * `angewendet`, solange derselbe Hash noch offen ist — auch nicht beim ersten
- * Tick nach einem Boot, der die Sperre vom vorigen Lauf übernommen hat
- * (`offeneBestaetigung`, von `WovServer` aus einer noch offenen Quittung
- * gelesen, BEVOR sie gelöscht wird). Aufgehoben wird sie durch:
- *  - eine ausdrückliche Bestätigung für GENAU diesen Hash (`bestaetigenPfad`,
- *    `POST /api/welt/bestaetigen`): Dann gleicht dieser Tick das GANZE
- *    Dokument gegen den ZDO-Bestand ab (wie ein Boot, nicht nur die
- *    geänderten Einträge) — nur so geschieht die zurückgehaltene Löschung
- *    jetzt wirklich (`spawnLayoutPlacements`, `vorgabe.bestaetigt`);
- *  - einen neuen Schreibvorgang mit einem ANDEREN Hash (Rücknahme): die
- *    offene Bestätigung erlischt, ohne dass irgendetwas sie ausdrücklich
- *    zurücknimmt — der nächste Tick sieht schlicht einen anderen Stand.
- * Die Bestätigungsanfrage wird bei jedem Tick verbraucht (gelöscht), gleich
- * ob ihr Hash noch passt: Eine Anfrage für einen überholten Stand soll nicht
- * liegen bleiben und einen späteren, andersartigen Stand treffen.
+ * ── Dauerhafte Löschsperre (Karte Z3 N1) ──────────────────────────────
+ * `bestaetigung-noetig` heißt: nichts geschieht, die Datei bleibt liegen — GENAU wie bisher. Neu ist, dass
+ * die betroffenen ids dabei in einer eigenen, dauerhaften Sperrdatei landen (`layoutBootSchutz.ts`,
+ * `sperreErweitern`), die weder ein Neustart noch eine harmlose Folgeänderung an ANDEREN Objekten löscht.
+ * Diese Prüfung (`this.d.pruefeLoeschregel`) läuft VOR jeder anderen Entscheidung dieses Ticks — auch vor
+ * einer Geo-Änderung und unabhängig von `AENDERUNGEN_MAX` (Angriffsbefund A1: sonst bliebe der Kartenfall
+ * auf einer Welt mit mehr als 40 Platzierungen ungeschützt). Die Quittung DIESES Schreibvorgangs behält
+ * ihren bisherigen Grund (auch `zu-viele-aenderungen` oder `geo`); sie bekommt nur zusätzlich das Feld
+ * `loeschsperre`. Ob eine id danach wirklich noch etwas schützt, entscheidet nicht diese Wache, sondern
+ * `layoutAbgleich`/`liveAbgleich` bei JEDEM Abgleich frisch (`sperreAbgleichen`): Die Wache selbst hält
+ * über die Sperre kein eigenes Gedächtnis mehr (kein `offenerHash`) — sie lebt ausschließlich in der Datei.
+ *
+ * Aufgehoben wird eine gesperrte id durch:
+ *  - eine ausdrückliche Bestätigung (`POST /api/welt/bestaetigen`): Der nächste Tick sieht die neue
+ *    Anfrage-Datei (per `stat`, s. u.) und löscht GENAU die gesperrten ids, die im aktuellen Dokument
+ *    fehlen — kein Abgleich im Boot-Stil (`vorgabe.bestaetigt`, ausgewertet in `WovServer`);
+ *  - Rücknahme je id: Steht sie wieder im Dokument, fällt sie beim nächsten Abgleich aus der Sperrdatei
+ *    (`sperreAbgleichen`), ohne dass diese Wache das ausdrücklich anstößt;
+ *  - „Welt zurücksetzen": schreibt ein neues Dokument mit anderem Hash; die alte Sperrdatei bleibt zwar
+ *    zunächst liegen, ihre ids haben aber nach dem harten Reset (neuer Spielstand) kein ZDO mehr und
+ *    gelten damit nicht mehr als aktiv — der nächste Abgleich räumt die (dann leere) Sperrdatei mit auf.
+ *
+ * ── Takt (Karte Z3 N1, E-e) ────────────────────────────────────────────
+ * Die Abkürzung „Stand unverändert" bleibt AUCH bei offener Sperre erhalten: Ein Tick, der weder eine
+ * neue Weltdatei noch eine neue Bestätigungsanfrage sieht, tut nichts außer zwei `stat`-Aufrufen. Die
+ * Bestätigungsanfrage wird deshalb nicht mehr wie vor dieser Karte bei JEDEM Tick gelesen, sondern nur,
+ * wenn ihr `stat` sich seit dem letzten Tick geändert hat (neu angelegt oder ersetzt) — das genügt, weil
+ * sie ohnehin binnen einer Sekunde verbraucht wird.
  */
 import { statSync, readFileSync } from 'node:fs';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { sanitizeWorldLayoutMitBericht, type SanitizeBericht } from '@wov/shared/src/worldlayout/sanitize.js';
 import { quittungLoeschenSicher, quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageLesen, bestaetigenAnfrageLoeschen } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
+import type { LoeschsperreGrund } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
 import { AENDERUNGEN_MAX, type Grabsteine } from './layoutLiveAbgleich.js';
+import { sperreErweitern } from './layoutBootSchutz.js';
 
 /** Die Teile eines Dokuments, die die Welt formen und NICHT live geändert werden. */
 export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
@@ -125,11 +137,19 @@ export interface LiveVorgabe {
   /** Entfernte Einträge ohne Objekt (gefällt), siehe `layoutLiveAbgleich.ts`; die Wache besitzt sie. */
   readonly grabsteine: Grabsteine;
   /**
-   * Karte Z3: eine ausdrückliche Bestätigung für GENAU diesen Hash liegt vor — das ganze Dokument gegen den
-   * ZDO-Bestand abgleichen (wie ein Boot), nicht nur die geänderten Einträge, damit die zurückgehaltene
-   * Löschung jetzt wirklich geschieht.
+   * Karte Z3 N1: eine ausdrückliche Bestätigung für GENAU diesen Hash liegt vor — `WovServer` löscht dann
+   * genau die dauerhaft gesperrten ids, die im Dokument fehlen (kein Abgleich im Boot-Stil).
    */
   readonly bestaetigt?: boolean;
+  /**
+   * Karte Z3 N1: dauerhaft gesperrte ids, als Schnappschuss VOM ANFANG dieses Takts (vor einer
+   * möglichen Erweiterung durch `pruefeLoeschregel` weiter unten im selben Takt). `WovServer` muss
+   * GENAU diesen alten Stand für die Anwendung benutzen, nicht neu einlesen: Sonst sähe ein Takt, der
+   * gerade selbst eine neue Sperre anlegt, seine eigenen, druckfrischen ids schon als „längst gesperrt"
+   * und stufte eine echte Massenlöschung fälschlich als folgenlose Nicht-Änderung ein (0 entfernt) statt
+   * als `bestaetigung-noetig` zu quittieren. `'kaputt'`: die Datei ist da, aber unlesbar.
+   */
+  readonly geschuetzteIds?: ReadonlySet<string> | 'kaputt';
 }
 
 export interface LayoutWacheAbhaengigkeiten {
@@ -142,11 +162,34 @@ export interface LayoutWacheAbhaengigkeiten {
    */
   readonly bestaetigenPfad?: string;
   /**
-   * Karte Z3: Hash und Text einer offenen `bestaetigung-noetig`-Quittung des VORIGEN Laufs für GENAU die
-   * Weltdatei, die dieser Boot geladen hat (aus `WovServer`, das den alten Stand vor dem Löschen der
-   * Quittung gelesen hat). null/fehlt: keine offene Bestätigung übernommen.
+   * Karte Z3 N1: Pfad der dauerhaften Löschsperre. Nötig, damit diese Wache eine neu erkannte
+   * Massenlöschung (`pruefeLoeschregel`) dort ablegen kann. Fehlt er, wird nichts abgelegt (wie
+   * `bestaetigenPfad` fehlend: ältere Aufrufer, Tests ohne Z3-N1-Bezug).
    */
-  readonly offeneBestaetigung?: { hash: string; detail: string } | null;
+  readonly loeschsperrePfad?: string;
+  /**
+   * Karte Z3 N1: die AKTUELL (vor jeder Änderung durch diesen Takt) aktiv gesperrten ids — aus der
+   * Sperrdatei, abgeglichen mit `neu` (Rücknahme je id, s. Kopfkommentar `layoutBootSchutz.ts`,
+   * `sperreAbgleichen`) und dem ZDO-Bestand. Wird EINMAL pro Takt gerufen (nicht bei jedem
+   * unveränderten Tick) und ihr Ergebnis unverändert an `anwenden()` weitergereicht — s.
+   * `LiveVorgabe.geschuetzteIds`. `'kaputt'`: die Datei ist da, aber unlesbar.
+   */
+  readonly geschuetzteIdsJetzt?: (neu: WorldLayout) => ReadonlySet<string> | 'kaputt';
+  /**
+   * Karte Z3 N1: Würde `neu` gegenüber `alt` Objekte entfernen, die Regel (a) oder (b) einer
+   * Massenlöschung träfe — UNABHÄNGIG von `AENDERUNGEN_MAX` und einer gleichzeitigen Geo-Änderung? Von
+   * `WovServer` mit Zugriff auf den ZDO-Bestand implementiert (`layoutLiveAbgleich.ts`, `wuerdeEntfernen`).
+   * `bereitsGesperrt` (derselbe Schnappschuss wie `geschuetzteIdsJetzt`, s. dort): ids, die schon VOR
+   * diesem Takt gesperrt waren, zählen hier nicht als „neu entdeckt" — sonst würde jede Folgeänderung an
+   * einem ANDEREN Objekt, die im selben Vergleich zufällig alte, längst gesperrte ids mit nennt, die
+   * Regel erneut auslösen (E-c). `null`: die Regel greift nicht, nichts wird NEU gesperrt.
+   */
+  readonly pruefeLoeschregel?: (
+    alt: WorldLayout,
+    neu: WorldLayout,
+    grabsteine: Grabsteine,
+    bereitsGesperrt: ReadonlySet<string>
+  ) => { ids: readonly string[]; grund: LoeschsperreGrund } | null;
   /** Das Dokument, das der Server gerade in Gebrauch hat (roh). */
   readonly aktuell: () => unknown;
   /** Läuft ein Speichern? Dann nicht anwenden. */
@@ -164,21 +207,20 @@ export interface LayoutWacheAbhaengigkeiten {
 
 export class LayoutWache {
   private letzterStand = '';
+  /** Stand der Bestätigungsanfrage-Datei (Karte Z3 N1, E-e): nur per `stat`, nicht gelesen. */
+  private letzterAnfrageStand: string | null = null;
   /** Kanonische Darstellung des Standes, den der Server hat: gleicher Inhalt ⇒ nichts zu tun. */
   private kanonisch: string | null = null;
   /** Das Dokument, das zuletzt angewendet wurde (sanitisiert): Vergleichsstand für die id-Auswahl. */
   private angewendet: WorldLayout | null = null;
   private readonly grabsteine: Grabsteine = new Map();
-  /** Karte Z3: Hash der offenen Bestätigung, solange sie gilt (null: keine offen). */
-  private offenerHash: string | null;
-  private offenerDetail = '';
 
   constructor(private readonly d: LayoutWacheAbhaengigkeiten) {
     // Eine Quittung des vorigen Serverlaufs gilt für diesen nicht: Sie würde im Boot-Fenster
     // dem Betriebsdienst ein 200 für einen Stand liefern, den dieser Lauf nie angewendet hat.
+    // Die Löschsperre (Karte Z3 N1) ist eine ANDERE Datei und wird hier bewusst NIE gelöscht — sie lebt
+    // unabhängig von diesem Prozess, s. Kopfkommentar.
     quittungLoeschenSicher(d.quittungsPfad, (text) => console.error(`[WoV] Layout-Wache: ${text}`));
-    this.offenerHash = d.offeneBestaetigung?.hash ?? null;
-    this.offenerDetail = d.offeneBestaetigung?.detail ?? '';
   }
 
   /** Im 1-Sekunden-Takt aufrufen. Wirft nie. */
@@ -198,10 +240,21 @@ export class LayoutWache {
     } catch {
       return; // Datei fehlt gerade (Umbenennen, Wartung): nichts tun.
     }
-    // Z3: eine offene Bestätigung wird auch OHNE neuen Schreibvorgang der Weltdatei geprüft — die
-    // Bestätigungsanfrage kommt über eine eigene, kleine Datei (POST /api/welt/bestaetigen), nicht
-    // notwendig zusammen mit einem neuen Stand der Weltdatei selbst.
-    if (stand === this.letzterStand && this.offenerHash === null) return;
+    // Karte Z3 N1 (E-e): die Bestätigungsanfrage wird NUR per `stat` beobachtet, nicht gelesen — ein Tick
+    // ohne neuen Stand UND ohne neue Anfrage bleibt bei zwei `stat`-Aufrufen (die Abkürzung unten greift).
+    let anfrageStand: string | null = null;
+    if (this.d.bestaetigenPfad) {
+      try {
+        const s = statSync(this.d.bestaetigenPfad);
+        anfrageStand = `${s.mtimeMs}:${s.size}:${s.ino}`;
+      } catch {
+        anfrageStand = null;
+      }
+    }
+    const neueAnfrage = anfrageStand !== null && anfrageStand !== this.letzterAnfrageStand;
+    this.letzterAnfrageStand = anfrageStand;
+
+    if (stand === this.letzterStand && !neueAnfrage) return;
     // Speichern hat Vorrang: den Stand NICHT merken, damit der nächste Takt es erneut versucht.
     if (this.d.speichertGerade()) return;
 
@@ -211,10 +264,11 @@ export class LayoutWache {
     const hash = layoutHash(bytes);
     this.letzterStand = stand;
 
-    // Z3: die Bestätigungsanfrage wird IMMER verbraucht (gelöscht), gleich ob ihr Hash zu diesem
-    // Tick passt — sonst träfe eine Anfrage für einen überholten Stand einen SPÄTEREN, andersartigen.
+    // Karte Z3 N1: die Bestätigungsanfrage wird IMMER verbraucht (gelöscht), sobald ihr `stat` sich
+    // geändert hat — gleich ob ihr Hash zu DIESEM Tick passt: Eine Anfrage für einen überholten Stand
+    // soll nicht liegen bleiben und einen SPÄTEREN, andersartigen Stand treffen.
     let bestaetigt = false;
-    if (this.d.bestaetigenPfad) {
+    if (neueAnfrage && this.d.bestaetigenPfad) {
       try {
         const anfrage = bestaetigenAnfrageLesen(this.d.bestaetigenPfad);
         if (anfrage) {
@@ -252,44 +306,65 @@ export class LayoutWache {
       return;
     }
     const neuKanonisch = JSON.stringify(neuBericht.layout);
-    // Der Inhalt hat sich seit der offenen Bestätigung geändert (ein neuer Schreibvorgang mit einem
-    // ANDEREN Hash, oder — nach einem Boot mit dieser Wache — ein Tick, den ein anderer Hash trifft):
-    // Sie gilt ab jetzt nicht mehr (Aufheben durch Rücknahme, Auftrag 3).
-    if (this.offenerHash !== null && this.offenerHash !== hash) this.offenerHash = null;
-    if (neuKanonisch === this.kanonisch && !bestaetigt) {
-      if (this.offenerHash === hash) {
-        // Derselbe (zurückgehaltene) Inhalt, keine passende Bestätigung: bleibt bei bestaetigung-noetig,
-        // springt NICHT von selbst auf angewendet — auch nicht beim ersten Tick nach dem Boot.
-        console.warn(`[WoV] Layout-Wache: offene Bestätigung übernommen (${this.offenerDetail}) — weiterhin nichts angewendet`);
-        this.quittiere(hash, 'nicht-angewendet', 'bestaetigung-noetig', null, this.offenerDetail);
-      } else {
-        // Wirklich nichts zu tun (etwa neu formatiert oder der Stand des Boots): nichts anwenden.
-        this.quittiere(hash, 'angewendet', null, null);
+
+    // Karte Z3 N1: Schnappschuss der AKTUELL (vor diesem Takt) aktiv gesperrten ids — EINMAL gelesen und
+    // unverändert an `anwenden()` weitergegeben (`vorgabe.geschuetzteIds`). Würde `anwenden()` stattdessen
+    // die Sperrdatei selbst neu einlesen, sähe es die ids, die `pruefeLoeschregel` gleich im selben Takt
+    // NEU anlegt, schon als „längst gesperrt" — und stufte eine echte Massenlöschung fälschlich als
+    // folgenlose Nicht-Änderung ein, statt sie (wie vor dieser Nachbesserung) mit `bestaetigung-noetig`
+    // bzw. `zu-viele-aenderungen` zu quittieren.
+    //
+    // UNBEDINGT aufgerufen (nicht erst, wenn `neuKanonisch !== this.kanonisch`): Er räumt dabei auch per
+    // id ab (Rücknahme, `sperreAbgleichen`), was im Dokument wieder auftaucht — und DAS muss auch dann
+    // laufen, wenn dieser Tick sonst als „unverändert" gilt. Ein Dokument, das nach einem abgelehnten
+    // Schreibvorgang exakt auf den zuletzt ERFOLGREICH angewendeten Stand zurückgeschrieben wird (Karte
+    // Z3 N1, Fall „Rücknahme statt Bestätigen"), ist genau so ein Fall: `this.kanonisch` blieb dort
+    // stehen (ein abgelehnter Schreibvorgang aktualisiert ihn nie), die Rücknahme wäre also unsichtbar,
+    // liefe dieser Aufruf nur innerhalb des `neuKanonisch !== this.kanonisch`-Zweigs.
+    const geschuetzteIdsJetzt = this.d.geschuetzteIdsJetzt?.(neuBericht.layout);
+    let sperrDetail: { anzahl: number; hash: string } | undefined;
+    if (geschuetzteIdsJetzt !== undefined && neuKanonisch !== this.kanonisch && this.angewendet && this.d.pruefeLoeschregel && this.d.loeschsperrePfad) {
+      const bereitsGesperrt = geschuetzteIdsJetzt === 'kaputt' ? new Set<string>() : geschuetzteIdsJetzt;
+      const pruefung = this.d.pruefeLoeschregel(this.angewendet, neuBericht.layout, this.grabsteine, bereitsGesperrt);
+      if (pruefung && pruefung.ids.length > 0) {
+        const gezeigt = pruefung.ids.slice(0, 40).join(', ') + (pruefung.ids.length > 40 ? ` … (+${pruefung.ids.length - 40})` : '');
+        console.warn(
+          `[WoV] Löschsperre: ${pruefung.ids.length} Objekt(e) dauerhaft gesperrt (${gezeigt}) — ` +
+            `„POST /api/welt/bestaetigen" hebt sie ausdrücklich auf, sonst überlebt die Sperre jeden Neustart.`
+        );
+        const sperre = sperreErweitern(this.d.loeschsperrePfad, pruefung.ids, hash, pruefung.grund);
+        if (sperre) sperrDetail = { anzahl: sperre.ids.length, hash: sperre.hash };
       }
+    }
+
+    if (neuKanonisch === this.kanonisch && !bestaetigt) {
+      // Wirklich nichts zu tun (etwa neu formatiert): nichts anwenden. Eine offene Sperre lebt allein in
+      // der Sperrdatei und braucht dafür keine eigene Quittung mehr.
+      this.quittiere(hash, 'angewendet', null, null, undefined, sperrDetail);
       return;
     }
     if (neuKanonisch !== this.kanonisch && this.angewendet && !bestaetigt) {
       const teile = geoAenderung(this.angewendet, neuBericht.layout);
       if (teile.length > 0) {
         console.warn(`[WoV] Layout-Wache: Geo-Änderung (${teile.join(', ')}) — geschrieben, aber erst nach dem Neustart wirksam, nichts angewendet`);
-        this.quittiere(hash, 'nicht-angewendet', 'geo', null, teile.join(', '));
+        this.quittiere(hash, 'nicht-angewendet', 'geo', null, teile.join(', '), sperrDetail);
         return;
       }
     }
-    const ergebnis = this.d.anwenden(roh, { neu: neuBericht, alt: this.angewendet, grabsteine: this.grabsteine, bestaetigt });
+    const ergebnis = this.d.anwenden(roh, { neu: neuBericht, alt: this.angewendet, grabsteine: this.grabsteine, bestaetigt, geschuetzteIds: geschuetzteIdsJetzt });
     if (ergebnis.art === 'abgelehnt') {
-      this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, ergebnis.grund);
+      this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, ergebnis.grund, sperrDetail);
       return;
     }
     if (ergebnis.art === 'verworfen') {
       console.warn(`[WoV] Layout-Wache: Einträge verworfen, nichts angewendet (${ergebnis.detail}) — nach der Korrektur greift der Abgleich`);
-      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, ergebnis.detail);
+      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, ergebnis.detail, sperrDetail);
       return;
     }
     if (ergebnis.art === 'zuViele') {
       const detail = `${ergebnis.anzahl} Änderungen (Grenze ${AENDERUNGEN_MAX})`;
       console.warn(`[WoV] Layout-Wache: ${detail}, nichts angewendet — die Datei gilt ab dem nächsten Neustart`);
-      this.quittiere(hash, 'nicht-angewendet', 'zu-viele-aenderungen', null, detail);
+      this.quittiere(hash, 'nicht-angewendet', 'zu-viele-aenderungen', null, detail, sperrDetail);
       return;
     }
     if (ergebnis.art === 'bestaetigung') {
@@ -297,17 +372,14 @@ export class LayoutWache {
         `[WoV] Layout-Wache: Bestätigung nötig, nichts angewendet (${ergebnis.detail}) — die Datei bleibt; ` +
           `„POST /api/welt/bestaetigen" wendet sie trotzdem an, sonst übernimmt der nächste Neustart dieselbe Sperre`
       );
-      this.offenerHash = hash;
-      this.offenerDetail = ergebnis.detail;
-      this.quittiere(hash, 'nicht-angewendet', 'bestaetigung-noetig', null, ergebnis.detail);
+      this.quittiere(hash, 'nicht-angewendet', 'bestaetigung-noetig', null, ergebnis.detail, sperrDetail);
       return;
     }
     this.d.uebernehmen(roh);
     this.kanonisch = neuKanonisch;
     this.angewendet = neuBericht.layout;
-    this.offenerHash = null;
     console.log(`[WoV] Layout-Wache: angewendet in ${(performance.now() - t0).toFixed(1)} ms (ganzer Takt)`);
-    this.quittiere(hash, 'angewendet', null, ergebnis.zaehler, ergebnis.detail);
+    this.quittiere(hash, 'angewendet', null, ergebnis.zaehler, ergebnis.detail, sperrDetail);
   }
 
   private quittiere(
@@ -315,9 +387,18 @@ export class LayoutWache {
     ergebnis: Quittung['ergebnis'],
     grund: Quittung['grund'],
     zaehler: Record<string, number> | null,
-    detail?: string
+    detail?: string,
+    loeschsperre?: { anzahl: number; hash: string }
   ): void {
-    const q: Quittung = { hash, ergebnis, grund, ...(detail ? { detail } : {}), zaehler, zeit: new Date().toISOString() };
+    const q: Quittung = {
+      hash,
+      ergebnis,
+      grund,
+      ...(detail ? { detail } : {}),
+      zaehler,
+      zeit: new Date().toISOString(),
+      ...(loeschsperre ? { loeschsperre } : {}),
+    };
     try {
       quittungSchreiben(this.d.quittungsPfad, q);
     } catch (fehler) {

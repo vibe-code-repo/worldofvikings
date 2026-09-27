@@ -57,12 +57,24 @@
  *   (b) ZDOs mit Zustand entfernen würde (Truheninhalt, Trefferpunkte, Türzustand,
  *       auch das Ersetzen bei einem Prefab-Wechsel), gemessen wie `zustand()`.
  * Dann kommt `bestaetigung` mit den betroffenen ids zurück, es geschieht nichts,
- * und die Datei bleibt, wie sie ist. Der Boot beim nächsten Neustart verhält
- * sich wie bisher (er räumt ab).
+ * und die Datei bleibt, wie sie ist.
+ *
+ * ── Dauerhafte Sperre (Karte Z3 N1) ────────────────────────────────────
+ * Dieselbe Regel (a)/(b) läuft AUSSERDEM unabhängig und ZUERST — vor der Obergrenze und vor einer
+ * Geo-Änderung, in `layoutLive.ts` — über `wuerdeEntfernen()`: Sie kennt keine Obergrenze und wird auch
+ * bei einer Geo-Änderung ausgewertet, damit ein Schreibvorgang, der BEIDES auf einmal tut (mehr als 40
+ * Änderungen samt Massenlöschung, oder eine Geo-Änderung samt Massenlöschung), die betroffenen ids
+ * trotzdem in die dauerhafte Sperrdatei aufnimmt — sonst bliebe der Kartenfall auf einer Welt mit mehr
+ * als 40 Platzierungen ungeschützt (Angriffsbefund A1). Die Quittung DIESES Schreibvorgangs behält
+ * ihren bisherigen Grund (`zu-viele-aenderungen`/`geo`/`bestaetigung`); nur die Sperrdatei wird erweitert.
+ * Einmal gesperrt, gilt eine id dauerhaft: `liveAbgleich()` bekommt die aktuell aktiven ids
+ * (`geschuetzteIds`, aus der Sperrdatei UND noch als ZDO vorhanden) und löscht sie NIE, gleich welche
+ * Regel diesen Schreibvorgang sonst einordnet — Folgeänderungen an ANDEREN Objekten laufen normal.
  */
 import type { PlacementDef, WorldLayout } from '@wov/shared';
 import { LAYOUT_ID_MEMBER, layoutKennung } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
+import type { LoeschsperreGrund } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import {
   istSpielerbau,
   layoutAbgleich,
@@ -162,11 +174,77 @@ export function idDiff(
   return { geaendert, entfernt, vorher, zurueck };
 }
 
+/** Nur die ZDO-Kandidaten, die die Regel (a)/(b) einer Massenlöschung träfe — ohne Prefab-Ersatz (dort bleibt die ZDO, nur ihr Prefab wechselt). */
+function entfernteZdoKandidaten(
+  kontext: Pick<LayoutAbgleichKontext, 'zdos' | 'prefabs'>,
+  neuListe: readonly PlacementDef[],
+  entfernt: readonly string[]
+): { id: string; zdo: ZDO }[] {
+  if (entfernt.length === 0) return [];
+  const ids = new Set(entfernt);
+  const bekannt = (p: PlacementDef): { hash: number } | undefined => kontext.prefabs.getByName(p.prefab);
+  const unbekannte = neuListe.filter((p) => !bekannt(p));
+  const geschont = (zdo: ZDO, layoutId: string): boolean =>
+    unbekannte.some(
+      (p) =>
+        layoutId === p.id ||
+        layoutId === layoutKennung(p) ||
+        Math.hypot(zdo.position.x - p.x, zdo.position.z - p.z) <= SCHONZONE
+    );
+  const kandidaten: { id: string; zdo: ZDO }[] = [];
+  for (const zdo of kontext.zdos.getAllZDOs()) {
+    const layoutId = zdo.getString(LAYOUT_ID_MEMBER);
+    if (!layoutId || !ids.has(layoutId) || istSpielerbau(zdo)) continue;
+    if (geschont(zdo, layoutId)) continue;
+    kandidaten.push({ id: layoutId, zdo });
+  }
+  return kandidaten;
+}
+
+/**
+ * Karte Z3 N1: Würde dieser Schreibvorgang gegenüber `alt` Objekte entfernen, die Regel (a) (viele/alle) oder
+ * (b) (Zustand) einer Massenlöschung träfe — UNABHÄNGIG von `AENDERUNGEN_MAX` und ohne Rücksicht auf eine
+ * gleichzeitige Geo-Änderung? Für die dauerhafte Sperrdatei (`layoutBootSchutz.ts`), nicht für die Quittung
+ * dieses Schreibvorgangs (die bleibt bei ihrem bisherigen Grund). `null`: die Regel greift nicht.
+ */
+export function wuerdeEntfernen(
+  kontext: Pick<LayoutAbgleichKontext, 'zdos' | 'prefabs'>,
+  alt: WorldLayout,
+  neu: WorldLayout,
+  grabsteine: ReadonlyMap<string, string> = new Map(),
+  /**
+   * ids, die JETZT schon aktiv gesperrt sind (aus der Sperrdatei, noch als ZDO vorhanden). Sie werden aus
+   * `entfernt` ausgeklammert, BEVOR die Regel geprüft wird: Sonst würde jeder weitere Schreibvorgang, der
+   * (gegenüber dem alten Vergleichsstand `alt`) zufällig dieselben, längst gesperrten ids MIT nennt, die
+   * Regel erneut auslösen und eine ganz normale, kleine Folgeänderung an einem ANDEREN Objekt fälschlich
+   * mitsperren (E-c).
+   */
+  bereitsGesperrt: ReadonlySet<string> = new Set()
+): { ids: string[]; grund: LoeschsperreGrund } | null {
+  const altListe = alt.placements ?? [];
+  const neuListe = neu.placements ?? [];
+  const { entfernt: entferntRoh } = idDiff(altListe, neuListe, grabsteine);
+  const entfernt = entferntRoh.filter((id) => !bereitsGesperrt.has(id));
+  const kandidaten = entfernteZdoKandidaten(kontext, neuListe, entfernt);
+  const betroffen = [...new Set(kandidaten.map((k) => k.id))];
+  const mitZustand = [...new Set(kandidaten.filter((k) => zustand(k.zdo) > 0).map((k) => k.id))];
+  const alle = altListe.length > 0 && neuListe.length === 0;
+  const zuViele =
+    betroffen.length > MASSENLOESCHUNG_ANZAHL ||
+    (betroffen.length >= MASSENLOESCHUNG_MINDEST && betroffen.length > MASSENLOESCHUNG_ANTEIL * altListe.length) ||
+    (alle && betroffen.length > 0);
+  if (!zuViele && mitZustand.length === 0) return null;
+  const grund: LoeschsperreGrund = alle ? 'alle' : zuViele ? 'anteil' : 'zustand';
+  return { ids: zuViele ? betroffen : mitZustand, grund };
+}
+
 export function liveAbgleich(
   kontext: LayoutAbgleichKontext,
   alt: WorldLayout,
   neu: WorldLayout,
-  grabsteine: Grabsteine = new Map()
+  grabsteine: Grabsteine = new Map(),
+  /** Karte Z3 N1: dauerhaft gesperrte ids (aus der Sperrdatei, noch als ZDO vorhanden) — nie löschen. */
+  geschuetzteIds?: ReadonlySet<string>
 ): LiveAbgleich | LiveBestaetigung | LiveZuViele {
   const altListe = alt.placements ?? [];
   const neuListe = neu.placements ?? [];
@@ -209,6 +287,10 @@ export function liveAbgleich(
       const hash = ersatz.get(id);
       // Geänderte Platzierung: nur ersetzen, wenn KEIN ZDO der id zum neuen Prefab passt.
       if (hash !== undefined && gruppe.some((z) => z.prefabHash === hash)) continue;
+      // Karte Z3 N1: eine dauerhaft gesperrte id wird NIE gelöscht, gleich welche Regel diesen
+      // Schreibvorgang sonst einordnet. Ein Prefab-WECHSEL bleibt möglich (das alte ZDO ginge dabei
+      // ohnehin nur im selben Atemzug, in dem das neue entsteht); nur ein reines Entfernen wird verweigert.
+      if (hash === undefined && geschuetzteIds?.has(id)) continue;
       for (const zdo of gruppe) if (!geschont(zdo, id)) kandidaten.push({ zdo, id, ersetzt: hash !== undefined });
     }
   }
@@ -244,6 +326,8 @@ export function liveAbgleich(
   for (const id of zurueck) grabsteine.delete(id);
   for (const p of geaendert) grabsteine.delete(p.id!);
   for (const id of entfernt) {
+    // Eine dauerhaft gesperrte id hat noch ein ZDO (sonst wäre sie nicht mehr aktiv gesperrt) und steht
+    // deshalb schon über `mitZdo.has(id)` hier nie zur Debatte: kein Grabstein, sie steht ja noch.
     if (mitZdo.has(id)) continue;
     grabsteine.delete(id);
     grabsteine.set(id, vorher.get(id)!);

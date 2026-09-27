@@ -246,6 +246,11 @@ export interface LayoutAbgleichErgebnis {
    */
   ohneLoeschen: { verworfen: number; stehenGeblieben: number } | null;
   /**
+   * Karte Z3 N1: Layout-ZDOs, deren `layoutId` in `geschuetzteIds` stand — nicht gelöscht, weil eine
+   * dauerhafte Löschsperre sie schützt (unabhängig von `ohneLoeschen`, das eine andere Ursache hat).
+   */
+  geschuetztStehenGeblieben: number;
+  /**
    * Platzierungen, deren Prefab die Registry nicht kennt (`kennung` ist ihre
    * `id`). Sie erzeugen nie ein ZDO. Die ZDOs, die zu ihnen gehören könnten
    * (gleiche `id` oder alte Kennung, oder im Umkreis von 1 m), bleiben
@@ -304,11 +309,13 @@ export function layoutAbgleich(
   /**
    * `verworfen`: Einträge, die der Sanitizer aus dem rohen Dokument gestrichen hat (roh − gültig);
    * `zusammengefasst`: davon exakte Duplikate, die er zu einem Eintrag zusammengelegt hat (kein Verlust).
-   * `keineLoeschung` (Karte Z3): eine offene Bestätigung für GENAU diesen Stand hält den Boot auf demselben
-   * Stand wie den Live-Weg — nichts wird gelöscht, alles andere schon. Dieselbe Sperre wie bei `verworfen`
-   * (`ohneLoeschen`), nur mit einer anderen Ursache: kein unlesbarer Eintrag, sondern eine offene Bestätigung.
+   * `keineLoeschung` (Karte Z3 N1): die Löschsperre-Datei ist da, aber nicht lesbar — gilt als
+   * GESCHLOSSEN, nichts wird gelöscht, alles andere schon. Dieselbe Sperre wie bei `verworfen`
+   * (`ohneLoeschen`), nur mit einer anderen Ursache: kein unlesbarer Eintrag, sondern eine unlesbare Sperre.
+   * `geschuetzteIds` (Karte Z3 N1): NUR diese ids werden nicht gelöscht (per-id, aus der Sperrdatei UND
+   * noch als ZDO vorhanden) — alles andere läuft normal, auch andere Löschungen im selben Abgleich.
    */
-  optionen: { verworfen?: number; zusammengefasst?: number; keineLoeschung?: boolean } = {}
+  optionen: { verworfen?: number; zusammengefasst?: number; keineLoeschung?: boolean; geschuetzteIds?: ReadonlySet<string> } = {}
 ): LayoutAbgleichErgebnis {
   const { zdos } = kontext;
   // Jede Platzierung hat eine `id` (dafür sorgt der Sanitizer). Wer ein
@@ -328,6 +335,7 @@ export function layoutAbgleich(
     ueberzaehlig: 0,
     ueberzaehligeZdos: [],
     ohneLoeschen: null,
+    geschuetztStehenGeblieben: 0,
     unbekanntePrefabs: [],
   };
   // Exakte Duplikate, die der Sanitizer zu einem Eintrag zusammengefasst hat,
@@ -377,8 +385,19 @@ export function layoutAbgleich(
   // unbekannten Prefab gehören könnte, und nein, wenn der Sanitizer Einträge
   // verworfen hat (dann zählt es als stehen geblieben).
   const gezaehlt = new Set<ZDO>();
+  const gesperrtGezaehlt = new Set<ZDO>();
   const darfLoeschen = (zdo: ZDO, layoutId: string): boolean => {
     if (geschont(zdo, layoutId)) return false;
+    // Karte Z3 N1: eine per-id gesperrte id — geprüft VOR der pauschalen `ohneLoeschen`-Sperre, damit
+    // beide unabhängig zählen (ein kaputt gelesener Sanitizer-Bericht UND eine aktive Löschsperre wären
+    // sonst nicht auseinanderzuhalten).
+    if (optionen.geschuetzteIds?.has(layoutId)) {
+      if (!gesperrtGezaehlt.has(zdo)) {
+        gesperrtGezaehlt.add(zdo);
+        ergebnis.geschuetztStehenGeblieben++;
+      }
+      return false;
+    }
     if (ergebnis.ohneLoeschen) {
       if (!gezaehlt.has(zdo)) {
         gezaehlt.add(zdo);

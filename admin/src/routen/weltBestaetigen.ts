@@ -32,10 +32,16 @@
  * Geschützt wie jeder andere Schreibweg: Anmeldung (Token), Herkunft und
  * Netz-Riegel prüft der allgemeine Vorschalter in `admin/src/main.ts`, bevor
  * dieser Code erreicht wird.
+ *
+ * ── Karte Z3 N1 ────────────────────────────────────────────────────────
+ * Gibt es keine (gültige) dauerhafte Löschsperre, ist hier nichts zu bestätigen: 409 `nichts-offen`,
+ * ohne die Anfrage-Datei zu schreiben — anders als vorher antwortet dieser Weg nicht mehr fälschlich
+ * 200, wenn zufällig schon eine Quittung `angewendet` für den Hash vorliegt (Angriffsbefund A6).
  */
 import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungLesen } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
+import { loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
 
 /** Same shape as `Antwort` in admin/src/main.ts. */
 export type BestaetigenAntwort = { code: number; daten: unknown };
@@ -45,6 +51,8 @@ export interface BestaetigenUmgebung {
   datei: string;
   /** Pfad der Bestätigungsanfrage (`bestaetigenAnfrageDatei`). */
   anfragePfad: string;
+  /** Pfad der dauerhaften Löschsperre (Karte Z3 N1, `loeschsperreDatei`). */
+  loeschsperrePfad: string;
   quittungsPfad: string;
   /** Läuft der Spielserver? */
   dienstAktiv: () => Promise<boolean>;
@@ -66,6 +74,16 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
   const eingabe = (typeof body === 'object' && body !== null ? body : {}) as { hash?: unknown };
   if (typeof eingabe.hash !== 'string' || eingabe.hash.length === 0) {
     return { code: 400, daten: { ok: false, fehler: 'hash', message: 'hash (der zurückgehaltene Stand) fehlt oder ist leer — nichts geändert.' } };
+  }
+  const sperre = loeschsperreLesen(umg.loeschsperrePfad);
+  if (sperre === null) {
+    return { code: 409, daten: { ok: false, fehler: 'nichts-offen', message: 'Keine zurückgehaltene Löschung offen — nichts zu bestätigen.' } };
+  }
+  if (sperre === 'kaputt') {
+    return {
+      code: 409,
+      daten: { ok: false, fehler: 'nichts-offen', message: 'Die Löschsperre-Datei ist da, aber nicht lesbar — von Hand prüfen. Nichts bestätigt.' },
+    };
   }
   const aktuell = layoutDateiHash(umg.datei);
   if (aktuell === null) {

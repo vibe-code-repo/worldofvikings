@@ -51,7 +51,7 @@
  * (409): a double click must not stop the service twice.
  */
 import { randomBytes } from 'node:crypto';
-import { constants, copyFileSync, existsSync, linkSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { constants, copyFileSync, existsSync, linkSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { zstdDecompressSync } from 'node:zlib';
@@ -75,6 +75,14 @@ export interface ResetUmgebung {
   spielstand: string;
   /** `server/data/konten/<instanz>.db` (SQLite, WAL: `-wal` and `-shm` sit beside it) */
   kontenDb: string;
+  /**
+   * Karte Z3 N1: the persistent deletion lock (`loeschsperreDatei`). A reset writes a brand-new document
+   * and a fresh save (no ZDOs at all until the next boot), so the old lock's ids can never be "active"
+   * again either way — this field just makes that fact literal (`ids: []` in the head comment of
+   * `loeschsperre.ts`) instead of leaving a stale file lying around. Optional: a caller that never sets a
+   * lock (older tests) simply skips this.
+   */
+  loeschsperrePfad?: string;
   dienstStoppen(): Promise<void>;
   dienstStarten(): Promise<void>;
   dienstZustand(): Promise<{ aktiv: boolean; seit: string | null }>;
@@ -540,6 +548,10 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
       markerSchreiben(umg, marker);
       // `leereWelt`: the write path otherwise refuses a document without a region (shared/src/worldlayout/layoutDatei.ts).
       geschrieben = await layoutSchreibenAsync(umg.layoutDatei, leeresWeltdokument(altesDokument, seed), undefined, { leereWelt: true });
+      // Karte Z3 N1, E-a: „Welt zurücksetzen" ist einer der drei Wege, die die dauerhafte Löschsperre
+      // entfernen — nach dem Dokument, weil erst dann feststeht, dass der Reset durchläuft (ein Fehler
+      // davor rollt alles zurück, s. `catch` unten, und die Sperre soll dann stehen bleiben).
+      if (umg.loeschsperrePfad) rmSync(umg.loeschsperrePfad, { force: true });
     } catch (fehler) {
       tauschFehler = fehler;
       // Put back what already moved, newest first. The document is written last and atomically, so it never needs this.

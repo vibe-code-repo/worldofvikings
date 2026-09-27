@@ -91,6 +91,7 @@ import { anwendungAnhaengen } from './routen/anwendung.js';
 import { weltBestaetigenBehandeln } from './routen/weltBestaetigen.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
+import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import {
   unfertigenResetMelden,
   weltZuruecksetzenBehandeln,
@@ -1132,6 +1133,7 @@ function resetUmgebung(): ResetUmgebung {
     layoutDatei: LAYOUT_DATEI,
     spielstand: resolve(WELTEN_ORDNER, `${INSTANZ}.db.zst`),
     kontenDb: KONTEN_DB,
+    loeschsperrePfad: loeschsperreDatei(WELTEN_ORDNER, INSTANZ),
     dienstStoppen: async () => {
       await ausfuehren(SYSTEMCTL, ['stop', 'wov-server']);
     },
@@ -1986,6 +1988,7 @@ async function behandeln(
     return weltBestaetigenBehandeln(leib, {
       datei: LAYOUT_DATEI,
       anfragePfad: bestaetigenAnfrageDatei(WELTEN_ORDNER, INSTANZ),
+      loeschsperrePfad: loeschsperreDatei(WELTEN_ORDNER, INSTANZ),
       quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
       dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
       warten: !QUITTUNG_AUS,

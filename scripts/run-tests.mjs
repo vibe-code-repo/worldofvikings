@@ -2274,9 +2274,15 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
-  // Card Z3: a mass-deletion guard withheld live survives a restart of the real game server (chest content
-  // stays, the receipt stays bestaetigung-noetig), an explicit confirm endpoint applies it (409 on a stale
-  // hash), and writing the objects back instead of confirming drops the open confirmation on its own.
+  // Card Z3 N1: the deletion lock is now a DURABLE file, checked afresh on every boot and every live
+  // apply, not an in-memory/receipt-only guard — this rules out mass deletion above AENDERUNGEN_MAX or
+  // together with a geo change (finding A1), a kill mid-boot (A2) and a later, unrelated change (A3).
+  // A1a/A2/A3 run against a REAL main.ts child process (server/test/z3n1-hauptprozess.ts); A1b/A1c and
+  // the per-id lock/timing logic run in-process (server/test/z3n1-live-inproc.ts). This file now covers
+  // only the confirm endpoint (exactly the locked ids, nothing else — no boot-style reconciliation,
+  // finding A5), 409 with no open lock (finding A6), a stale hash, revocation and a reset.
+  ['server', 'test/z3n1-live-inproc.ts'],
+  ['server', 'test/z3n1-hauptprozess.ts'],
   ['admin', 'test/welt-bestaetigen-z3.ts'],
 ];
 

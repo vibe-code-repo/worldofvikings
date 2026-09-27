@@ -1,36 +1,31 @@
 /**
- * Editor E2, card Z3: a withheld mass deletion (`bestaetigung-noetig`) survives a restart of the
- * game server, and stays withheld until an explicit `POST /api/welt/bestaetigen` — a restart alone
- * must not apply it, and the receipt must not silently flip to `angewendet`.
+ * Editor E2, Karte Z3 N1 (Nachbesserung nach dem Angriff auf PR #120): `POST /api/welt/bestaetigen`
+ * löscht GENAU die dauerhaft gesperrten ids, die im aktuellen Dokument fehlen — kein Abgleich im
+ * Boot-Stil mehr (Angriffsbefund A5: das belebte vorher gefällte Bäume und getötete NPCs). Die
+ * Boot-über-Neustart-Fälle (A1a/A2/A3) stehen als echter `main.ts`-Kindprozess in
+ * `server/test/z3n1-hauptprozess.ts`; A1b/A1c und die Sperrlogik selbst in
+ * `server/test/z3n1-live-inproc.ts`. Hier: der echte Betriebsdienst (Kindprozess) + ein echter
+ * Spielserver (in diesem Prozess, Port 0) für die BESTÄTIGEN/RÜCKNAHME/RESET-Wege.
  *
- * The real operations service (spawned, port 0) answers the confirmation endpoint; a REAL game
- * server (in this process, layout mode, its own temp world directory, port 0) is stopped and a
- * FRESH instance started against the same files — that is what a process restart looks like from
- * outside (`WovServer` keeps no state beyond the file system).
+ *   npx tsx test/welt-bestaetigen-z3.ts   (aus admin/)
  *
- *   npx tsx test/welt-bestaetigen-z3.ts   (from admin/)
- *
- * Cases:
- *  1. 5 trees + a chest with content, then `placements: []`: receipt `bestaetigung-noetig`, 0 ZDOs
- *     removed, the chest keeps its content, a warning names the count and the ids.
- *  2. Restart the REAL game server: the chest (with content) is STILL there, a warning was logged
- *     during the boot, and the receipt STAYS `bestaetigung-noetig` for the same hash (it does not
- *     flip to `angewendet` on its own).
- *  3. `POST /api/welt/bestaetigen` with a hash that no longer matches the file: 409, nothing applied.
- *  4. `POST /api/welt/bestaetigen` with the right hash: 200, the chest is gone, receipt `angewendet`.
- *  5. Revocation: writing the file back WITHOUT the mass deletion (the objects return) makes the open
- *     confirmation moot — the next receipt is a plain `angewendet` for the new hash, not stuck.
- *  6. `welt-zuruecksetzen`'s effect on an open confirmation: a boot against a DIFFERENT document (the
- *     kind a reset writes) ignores a stale confirmation of another hash and boots unprotected, as
- *     `main.ts` only ever applies the lock when the hash still matches exactly.
+ * Fälle:
+ *  1. Massenlöschung wird zurückgehalten, dauerhaft gesperrt (Sperrdatei mit ids).
+ *  2. Bestätigen ohne offene Sperre: 409 nichts-offen, keine Anfrage-Datei.
+ *  3. Bestätigen mit veraltetem Hash: 409, nichts geändert.
+ *  4. Bestätigen mit dem richtigen Hash: GENAU die gesperrten ids weg, ein vorher gefällter Baum
+ *     bleibt gefällt (kein Abgleich im Boot-Stil), Sperrdatei weg.
+ *  5. Rücknahme: die Truhe wieder ins Dokument schreiben → Sperrdatei weg (ohne Bestätigen).
+ *  6. Welt zurücksetzen (K4.0) mit offener Sperre → Sperrdatei weg.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { LAYOUT_ID_MEMBER } from '@wov/shared';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungLesen, quittungsDatei, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { loeschsperreDatei, loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { createWovServer } from '../../server/src/WovServer.js';
 import type { ZDO } from '../../server/src/zdo/ZDO.js';
 
@@ -57,6 +52,7 @@ const SPIELSTAENDE = resolve(ORDNER, 'server/data/worlds');
 const WELT_DATEI = resolve(WELTEN, 'dev.json');
 const INSTANZ = 'dev';
 const QUITTUNG = quittungsDatei(SPIELSTAENDE, INSTANZ);
+const SPERRE = loeschsperreDatei(SPIELSTAENDE, INSTANZ);
 const LAEUFT = resolve(ORDNER, 'laeuft');
 const TOKEN = 'z3-token';
 const TOKEN_DATEI = resolve(ORDNER, 'token');
@@ -71,8 +67,8 @@ type Platz = { id: string; prefab: string; x: number; z: number };
 function dokument(placements: Platz[]): Record<string, unknown> {
   return {
     version: 1,
-    name: 'Z3',
-    detailSeed: 'z3-loeschschutz',
+    name: 'Z3N1',
+    detailSeed: 'z3n1-bestaetigen',
     continents: [],
     regions: [{ id: 'heim', biome: 'grassland', shape: { kind: 'circle', x: 0, z: 0, radius: 1600 }, edgeFalloff: 200, baseLevel: 0.3, vegetation: [] }],
     defaultSpawn: [0, 0],
@@ -86,7 +82,6 @@ function schreibe(text: string): string {
   return layoutHash(text);
 }
 const json = (d: unknown): string => JSON.stringify(d);
-/** Wait for a receipt of exactly `hash`, whatever its outcome (a fresh hash never had one before). */
 async function quittung(hash: string, ms = 8000): Promise<Quittung | null> {
   let q: Quittung | null = null;
   await warteAuf(() => {
@@ -95,12 +90,6 @@ async function quittung(hash: string, ms = 8000): Promise<Quittung | null> {
   }, ms);
   return q && (q as Quittung).hash === hash ? (q as Quittung) : null;
 }
-/**
- * Wait for `hash` to become `angewendet` specifically — unlike `quittung`, this is for the ONE case
- * where a receipt for this exact hash already exists (`bestaetigung-noetig`, that is the whole point of
- * confirming it): waiting for "any receipt with this hash" would return immediately with the STALE one
- * and never see the wache's follow-up tick that actually flips it.
- */
 async function quittungAngewendet(hash: string, ms = 8000): Promise<Quittung | null> {
   let q: Quittung | null = null;
   await warteAuf(() => {
@@ -110,45 +99,27 @@ async function quittungAngewendet(hash: string, ms = 8000): Promise<Quittung | n
   return q && (q as Quittung).hash === hash && (q as Quittung).ergebnis === 'angewendet' ? (q as Quittung) : null;
 }
 
-const BAEUME: Platz[] = Array.from({ length: 5 }, (_, i) => ({ id: `t${i}`, prefab: 'Beech1', x: 30 + i * 4, z: 20 }));
+const BAEUME: Platz[] = Array.from({ length: 30 }, (_, i) => ({ id: `t${i}`, prefab: 'Beech1', x: 30 + i * 4, z: 20 }));
 const KISTE: Platz = { id: 'kiste-1', prefab: 'piece_chest_wood', x: 60, z: 20 };
 const DOC_VOLL: Platz[] = [...BAEUME, KISTE];
 const HASH_VOLL = layoutHash(json(dokument(DOC_VOLL)));
 schreibe(json(dokument(DOC_VOLL)));
 
-/**
- * `bootLoeschschutz` mimics what `main.ts` computes at a REAL process start: it reads the previous
- * run's receipt BEFORE deleting it, and passes it on only when its hash still matches the file this
- * boot is about to load. Every test here calls `createWovServer` directly (like every other test in
- * this codebase) instead of running `main.ts` itself, so it has to do that same read explicitly —
- * `main.ts`'s own part of Karte Z3 is exercised in isolation, not by proxy through this test.
- */
-function neuerServer(bootLoeschschutz?: { hash: string; detail: string } | null): ReturnType<typeof createWovServer> {
-  return createWovServer({
-    port: 0,
-    everyoneAdmin: true,
-    worldName: INSTANZ,
-    worldSeed: 'z3-loeschschutz',
-    worldFeatures: false,
-    worldVegetation: false,
-    worldsDir: SPIELSTAENDE,
-    kontenDir: resolve(ORDNER, 'konten'),
-    worldMode: 'layout',
-    worldLayoutPath: WELT_DATEI,
-    saveIntervalMs: 3600_000,
-    ...(bootLoeschschutz !== undefined ? { bootLoeschschutz } : {}),
-  });
-}
+const server = createWovServer({
+  port: 0,
+  everyoneAdmin: true,
+  worldName: INSTANZ,
+  worldSeed: 'z3n1-bestaetigen',
+  worldFeatures: false,
+  worldVegetation: false,
+  worldsDir: SPIELSTAENDE,
+  kontenDir: resolve(ORDNER, 'konten'),
+  worldMode: 'layout',
+  worldLayoutPath: WELT_DATEI,
+  saveIntervalMs: 3600_000,
+});
 
-/** What `main.ts` does before it deletes the previous receipt: read it, and hand it on only if its hash still matches. */
-function bootLoeschschutzWieMain(): { hash: string; detail: string } | null {
-  const alt = quittungLesen(QUITTUNG);
-  if (alt?.ergebnis !== 'nicht-angewendet' || alt.grund !== 'bestaetigung-noetig') return null;
-  const aktuell = layoutHash(readFileSync(WELT_DATEI));
-  return aktuell === alt.hash ? { hash: alt.hash, detail: alt.detail ?? '' } : null;
-}
-
-// ── real operations service (subprocess) ──
+// ── echter Betriebsdienst (Kindprozess) ──
 const HIER = resolve(new URL('.', import.meta.url).pathname);
 const ADMIN = resolve(HIER, '..');
 const TSX = resolve(ADMIN, '..', 'node_modules/.bin/tsx');
@@ -196,7 +167,6 @@ async function bestaetigen(hash: string): Promise<{ status: number; daten: Recor
 }
 
 async function haupt(): Promise<void> {
-  let server = neuerServer();
   server.start();
   writeFileSync(LAEUFT, '');
   const layoutZdos = (): ZDO[] => server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER));
@@ -210,48 +180,41 @@ async function haupt(): Promise<void> {
   };
 
   try {
-    check('set-up: boot applies the 6 entries', (await quittung(HASH_VOLL))?.ergebnis === 'angewendet', `${layoutZdos().length} ZDOs`);
-    check('set-up: 6 layout ZDOs stand', layoutZdos().length === 6, `${layoutZdos().length}`);
+    check('set-up: boot applies the 31 entries', (await quittung(HASH_VOLL))?.ergebnis === 'angewendet', `${layoutZdos().length} ZDOs`);
+    check('set-up: 31 layout ZDOs stand', layoutZdos().length === 31, `${layoutZdos().length}`);
     nach('kiste-1')?.setString('truheInhalt', '[[Wood,9]]');
-    const kisteId = nach('kiste-1')?.zdoid.toString();
+    // Ein bereits gefällter Baum (kein Löschen, nur "gefällt"): sein ZDO geht, der EINTRAG bleibt im
+    // Dokument stehen. Boot-Stil-Reconciliation würde ihn wiederbeleben (Angriffsbefund A5) — dieser
+    // Weg (E-d) darf das nicht.
+    const t3 = nach('t3');
+    check('set-up: t3 exists before felling', !!t3);
+    t3 && server.zdos.destroyZDO(t3.zdoid);
+    check('set-up: t3 felled (30 ZDOs)', layoutZdos().length === 30, `${layoutZdos().length}`);
 
-    // ── 1: placements: [] is withheld (live, no restart yet) ──
+    // ── 2: confirming without any open lock is refused ──
+    const ohneSperre = await bestaetigen(HASH_VOLL);
+    check('2 confirm without an open lock: 409 nichts-offen', ohneSperre.status === 409 && ohneSperre.daten.fehler === 'nichts-offen', `${ohneSperre.status} ${JSON.stringify(ohneSperre.daten)}`);
+
+    // ── 1: placements: [] is withheld and durably locked ──
     zeilen.length = 0;
     const hashLeer = schreibe(json(dokument([])));
     let q = await quittung(hashLeer);
     check('1 placements:[] -> receipt bestaetigung-noetig', q?.ergebnis === 'nicht-angewendet' && q.grund === 'bestaetigung-noetig', `${q?.ergebnis} ${q?.grund}`);
-    check('1 nothing removed: 6 layout ZDOs, chest content intact', layoutZdos().length === 6 && nach('kiste-1')?.getString('truheInhalt') === '[[Wood,9]]');
-    check('1 warning names a count and ids', zeilen.some((z) => /bestätigung/i.test(z) && /kiste-1|t0|t1/.test(z)), zeilen.join(' | ').slice(0, 200));
-
-    // ── 2: restart the REAL game server; the withheld state survives ──
-    server.stop();
-    await warte(300);
-    const schutzB = bootLoeschschutzWieMain(); // what main.ts computes: the old receipt still matches this file
-    check('2 set-up: main.ts would find a matching open confirmation for this restart', schutzB?.hash === hashLeer, JSON.stringify(schutzB));
-    zeilen.length = 0;
-    server = neuerServer(schutzB);
-    server.start();
-    writeFileSync(LAEUFT, '');
-    const layoutZdos2 = (): ZDO[] => server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER));
-    const nach2 = (id: string): ZDO | undefined => layoutZdos2().find((z) => z.getString(LAYOUT_ID_MEMBER) === id);
-    // Boot + at least one tick of the new instance's layout wache.
-    await warteAuf(() => quittungLesen(QUITTUNG) !== null, 8000);
-    q = quittungLesen(QUITTUNG);
-    check('2 restart: receipt STAYS bestaetigung-noetig for the same hash (does not flip to angewendet)', q?.hash === hashLeer && q.ergebnis === 'nicht-angewendet' && q.grund === 'bestaetigung-noetig', `${q?.hash === hashLeer ? '' : `hash mismatch (${q?.hash} vs ${hashLeer}) `}${q?.ergebnis} ${q?.grund}`);
-    check('2 restart: chest (with content) still stands, 6 layout ZDOs', layoutZdos2().length === 6 && nach2('kiste-1')?.getString('truheInhalt') === '[[Wood,9]]', `${layoutZdos2().length} ZDOs, inhalt=${nach2('kiste-1')?.getString('truheInhalt')}`);
-    check('2 restart: a warning was logged during/after the boot', zeilen.some((z) => /offene Bestätigung|zurückgehaltene Löschung/.test(z)), zeilen.join(' | ').slice(0, 200));
+    check('1 nothing removed: 30 layout ZDOs, chest content intact', layoutZdos().length === 30 && nach('kiste-1')?.getString('truheInhalt') === '[[Wood,9]]');
+    const sperre1 = loeschsperreLesen(SPERRE);
+    check(
+      '1 Sperrdatei enthält die 30 zurückgehaltenen ids',
+      sperre1 !== null && sperre1 !== 'kaputt' && sperre1.ids.length === 30 && sperre1.ids.includes('kiste-1') && !sperre1.ids.includes('t3'),
+      JSON.stringify(sperre1)
+    );
+    check('1 warning names a count and ids', zeilen.some((z) => /Löschsperre/.test(z) && /kiste-1|t0|t1/.test(z)), zeilen.join(' | ').slice(0, 200));
 
     // ── 3: confirming a stale hash is refused ──
     const stale = await bestaetigen('a'.repeat(64));
     check('3 confirm with a wrong hash: 409, nothing applied', stale.status === 409 && stale.daten.ok === false && stale.daten.aktuell === hashLeer, `${stale.status} ${JSON.stringify(stale.daten)}`);
-    check('3 nothing changed by the refused confirmation: 6 layout ZDOs', layoutZdos2().length === 6);
+    check('3 nothing changed by the refused confirmation: 30 layout ZDOs', layoutZdos().length === 30);
 
-    // ── 4: confirming the right hash applies the withheld deletion ──
-    // The endpoint itself waits (up to 3 s) for the receipt to flip to `angewendet` — not merely for a
-    // receipt of this hash to exist, since one already does (`bestaetigung-noetig`, the very reason for
-    // this call). Under load that window can end a beat before the wache's next tick actually consumes
-    // the confirmation, so the answer must be self-consistent either way; `quittungAngewendet` (with its
-    // own, longer margin) is the authoritative witness for what actually happened.
+    // ── 4: confirming the right hash removes EXACTLY the locked ids, nothing else ──
     const ok = await bestaetigen(hashLeer);
     check(
       '4 confirm with the right hash: self-consistent answer (200+angewendet, or 202+bestaetigung-noetig while the wache catches up)',
@@ -260,45 +223,42 @@ async function haupt(): Promise<void> {
     );
     const q4 = await quittungAngewendet(hashLeer);
     check('4 receipt angewendet for the confirmed hash', q4?.hash === hashLeer && q4.ergebnis === 'angewendet', `${q4?.hash} ${q4?.ergebnis}`);
-    check('4 the chest (and the trees) are gone: 0 layout ZDOs', layoutZdos2().length === 0, `${layoutZdos2().length}`);
+    check('4 the chest and the 29 standing trees are gone: 0 layout ZDOs', layoutZdos().length === 0, `${layoutZdos().length}`);
+    check('4 lock file is gone', loeschsperreLesen(SPERRE) === null, JSON.stringify(loeschsperreLesen(SPERRE)));
+    check('4 the felled t3 was NOT resurrected (no boot-style reconciliation, findet A5)', !nach('t3'));
 
-    // ── 5: revocation — writing the objects back drops the open confirmation ──
+    // ── 5: revocation — writing the objects back drops the open lock, WITHOUT confirming ──
     let hash = schreibe(json(dokument(DOC_VOLL)));
     q = await quittung(hash);
-    check('5 set-up: the 6 entries return (fresh ZDOs)', q?.ergebnis === 'angewendet' && layoutZdos2().length === 6, `${q?.ergebnis} ${layoutZdos2().length}`);
-    nach2('kiste-1')?.setString('truheInhalt', '[[Wood,5]]');
+    check('5 set-up: the 31 entries return (fresh ZDOs)', q?.ergebnis === 'angewendet' && layoutZdos().length === 31, `${q?.ergebnis} ${layoutZdos().length}`);
+    nach('kiste-1')?.setString('truheInhalt', '[[Wood,5]]');
     zeilen.length = 0;
     const hashLeer2 = schreibe(json(dokument([])));
     q = await quittung(hashLeer2);
     check('5 set-up: bestaetigung-noetig again for the new empty document', q?.ergebnis === 'nicht-angewendet' && q.grund === 'bestaetigung-noetig', `${q?.ergebnis} ${q?.grund}`);
+    check('5 set-up: lock file exists', loeschsperreLesen(SPERRE) !== null);
     hash = schreibe(json(dokument(DOC_VOLL))); // undo: bring the objects back instead of confirming
     q = await quittung(hash);
     check('5 revocation: writing the objects back is a plain "angewendet" for the new hash', q?.ergebnis === 'angewendet' && q.grund === null, `${q?.ergebnis} ${q?.grund}`);
-    check('5 revocation: no longer stuck on bestaetigung-noetig, 6 ZDOs (fresh)', layoutZdos2().length === 6, `${layoutZdos2().length}`);
+    check('5 revocation: no longer stuck on bestaetigung-noetig, 31 ZDOs (fresh)', layoutZdos().length === 31, `${layoutZdos().length}`);
+    check('5 revocation: lock file is gone (every id is back in the document)', loeschsperreLesen(SPERRE) === null, JSON.stringify(loeschsperreLesen(SPERRE)));
     const nochOffen = await bestaetigen(hashLeer2);
-    check('5 the old (revoked) confirmation no longer matches the current file: 409', nochOffen.status === 409, `${nochOffen.status} ${JSON.stringify(nochOffen.daten)}`);
+    check('5 confirming the revoked (gone) lock: 409 nichts-offen', nochOffen.status === 409 && nochOffen.daten.fehler === 'nichts-offen', `${nochOffen.status} ${JSON.stringify(nochOffen.daten)}`);
 
-    // ── 6: welt-zuruecksetzen writes a DIFFERENT document — a stale confirmation of another hash never applies ──
+    // ── 6: welt-zuruecksetzen removes an open lock file ──
     zeilen.length = 0;
     const hashLeer3 = schreibe(json(dokument([])));
     await quittung(hashLeer3);
-    check('6 set-up: bestaetigung-noetig once more', quittungLesen(QUITTUNG)?.grund === 'bestaetigung-noetig');
-    server.stop();
-    await warte(300);
-    // A reset writes a fresh, valid, EMPTY-of-placements document with a NEW detailSeed (a different hash even
-    // though it also has no placements) — the same shape `weltZuruecksetzenBehandeln`'s `leeresWeltdokument`
-    // produces. It is written directly here (not through the reset route) to isolate exactly the boot-side
-    // question the card asks: does a stale confirmation of the WITHHELD hash ever reach a document it was
-    // never about? It must not — `main.ts` only sets `bootLoeschschutz` when the hash still matches exactly.
-    const hashReset = schreibe(json({ ...dokument([]), detailSeed: 'nach-reset' }));
-    check('6 the reset document has a DIFFERENT hash than the withheld one', hashReset !== hashLeer3);
-    const schutzNachReset = bootLoeschschutzWieMain(); // main.ts's own hash check: the old receipt (hashLeer3) no longer matches
-    check('6 main.ts finds NO matching confirmation for the reset document (hash differs)', schutzNachReset === null, JSON.stringify(schutzNachReset));
-    server = neuerServer(schutzNachReset);
-    server.start();
-    writeFileSync(LAEUFT, '');
-    const q6 = await quittung(hashReset);
-    check('6 boot against the reset document: applies normally (angewendet), the stale confirmation never matched', q6?.ergebnis === 'angewendet' && q6.grund === null, `${q6?.ergebnis} ${q6?.grund}`);
+    check('6 set-up: bestaetigung-noetig once more, lock file present', quittungLesen(QUITTUNG)?.grund === 'bestaetigung-noetig' && loeschsperreLesen(SPERRE) !== null);
+    const reset = await fetch(`http://127.0.0.1:${port}/api/welt-zuruecksetzen`, {
+      method: 'POST',
+      headers: { 'x-wov-token': TOKEN, 'content-type': 'application/json' },
+      body: JSON.stringify({ bestaetigung: INSTANZ, seed: 'neu', konten: false }),
+    });
+    const resetDaten = (await reset.json().catch(() => ({}))) as Record<string, unknown>;
+    check('6 reset accepted', reset.status === 200, `${reset.status} ${JSON.stringify(resetDaten).slice(0, 300)}`);
+    check('6 reset removes the lock file', loeschsperreLesen(SPERRE) === null, JSON.stringify(loeschsperreLesen(SPERRE)));
+    writeFileSync(LAEUFT, ''); // the reset restarted the (faked) service; keep the "aktiv" marker consistent
   } finally {
     console.warn = orig;
     dienst?.kill('SIGTERM');

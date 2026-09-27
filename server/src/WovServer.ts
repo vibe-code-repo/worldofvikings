@@ -129,6 +129,7 @@ import { Writer } from './io/Writer.js';
 import { AdminCommandRegistry } from './admin/AdminCommands.js';
 import { AdminListe } from './admin/AdminListe.js';
 import { geheimnisAusEnv, istSpielerId, type SpielerId } from './net/Identitaet.js';
+import { namenSchluessel } from './net/Namen.js';
 import {
   ZONE_SIZE,
   findItem, ITEM_DEFS,
@@ -289,6 +290,8 @@ export interface ServerConfig {
 }
 
 /** Parade: Fenster (ms), in dem ein Treffer abgewehrt wird (Clip 0,45 s + Nachlauf). */
+/** `spielerIdFuerName` found several players of that name: the admin command must do nothing. */
+const NAME_NICHT_EINDEUTIG = 'nicht-eindeutig' as const;
 const PARADE_FENSTER_MS = 600;
 /** Parade: Ausdauerkosten (ein Schlag kostet 8). */
 const PARADE_AUSDAUER = 4;
@@ -2279,15 +2282,23 @@ export class WovServer {
    * zuverlaessigster Stand), dann in savedPlayers (auch fuer gerade
    * abwesende Spieler, die schon einmal verbunden waren).
    */
-  private spielerIdFuerName(name: string): SpielerId | undefined {
-    const online = this.net.getPeers().find((p) => p.name === name);
-    if (online) return online.spielerId;
+  private spielerIdFuerName(name: string): SpielerId | undefined | typeof NAME_NICHT_EINDEUTIG {
+    const schluessel = namenSchluessel(name);
+    // Editor connections are never a player (their name is fixed by the server).
+    const online = new Set(
+      this.net.getPeers().filter((p) => !p.nurEditor && namenSchluessel(p.name) === schluessel).map((p) => p.spielerId),
+    );
+    if (online.size > 1) return NAME_NICHT_EINDEUTIG;
+    if (online.size === 1) return [...online][0];
+    // Without the name path, two guests of the same name are two entries: never pick one silently.
+    const gespeichert = new Set<SpielerId>();
     for (const eintrag of this.savedPlayers.values()) {
-      if (eintrag.name === name && eintrag.spielerId && istSpielerId(eintrag.spielerId)) {
-        return eintrag.spielerId;
+      if (namenSchluessel(eintrag.name) === schluessel && eintrag.spielerId && istSpielerId(eintrag.spielerId)) {
+        gespeichert.add(eintrag.spielerId);
       }
     }
-    return undefined;
+    if (gespeichert.size > 1) return NAME_NICHT_EINDEUTIG;
+    return [...gespeichert][0];
   }
 
   // ── Packet handling ────────────────────────────────────────────
@@ -2780,6 +2791,8 @@ export class WovServer {
   }
 
   private handleChatMessage(peer: Peer, reader: Reader): void {
+    // An editor connection is not in the world and never speaks in it.
+    if (peer.nurEditor) return;
     const chatType = reader.readInt32();
     // Serverseitige Längengrenze (F14) — eine rein clientseitige Grenze
     // hält einen manipulierten/zweiten Client nie auf. kuerzeChatText
@@ -4689,6 +4702,7 @@ export class WovServer {
         const name = args.join(' ').trim();
         if (!name) return { ok: false, active: false, message: 'Aufruf: admin add <Name>' };
         const id = this.spielerIdFuerName(name);
+        if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
         if (!id) {
           return { ok: false, active: false,
             message: `Unbekannter Spieler: "${name}" (muss schon einmal verbunden gewesen sein)` };
@@ -4705,6 +4719,7 @@ export class WovServer {
         const name = args.join(' ').trim();
         if (!name) return { ok: false, active: false, message: 'Aufruf: admin remove <Name>' };
         const id = this.spielerIdFuerName(name);
+        if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
         if (!id) {
           return { ok: false, active: false, message: `Unbekannter Spieler: "${name}"` };
         }
@@ -4969,6 +4984,7 @@ export class WovServer {
           kontoId = charakter.kontoId;
         } else {
           const id = this.spielerIdFuerName(name);
+          if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
           if (!id) {
             return { ok: false, active: false,
               message: `Unbekannter Spieler: "${name}" (kein Konto dieses Namens und nie verbunden gewesen)` };
@@ -5021,6 +5037,7 @@ export class WovServer {
         return { ok: true, active: false, message: `Kontobann auf ${name} aufgehoben` };
       }
       const id = this.spielerIdFuerName(name);
+      if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
       if (id && this.kontenDb.bannAufheben('spieler', id)) {
         return { ok: true, active: false, message: `Spielerbann auf ${name} aufgehoben` };
       }
@@ -5141,8 +5158,8 @@ export class WovServer {
         if (this.speichertGerade) return { ok: false, active: false, message: 'Sicherung läuft; bitte gleich erneut versuchen. Nichts verändert.' };
         const name = args.join(' ').trim();
         if (!name) return { ok: false, active: false, message: `Aufruf: item ${sub} <Spielername>` };
-        const online = this.net.getPeers().filter(p => !p.nurEditor && p.name.toLowerCase() === name.toLowerCase());
-        const saved = [...this.savedPlayers.entries()].filter(([, p]) => p.name.toLowerCase() === name.toLowerCase());
+        const online = this.net.getPeers().filter(p => !p.nurEditor && namenSchluessel(p.name) === namenSchluessel(name));
+        const saved = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === namenSchluessel(name));
         if (online.length > 1 || (!online.length && saved.length !== 1)) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
         const target = online[0]; const record = saved[0];
         if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };

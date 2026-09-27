@@ -19,6 +19,7 @@ import { Reader } from '../io/Reader.js';
 import { Writer } from '../io/Writer.js';
 import { getStableHash } from '../util/Hash.js';
 import { Drossel } from './Drossel.js';
+import { EDITOR_NAME, nameHatSteuerzeichen, namenVarianten } from './Namen.js';
 import {
   nonceErzeugen,
   antwortPruefen,
@@ -462,13 +463,26 @@ export class NetManager {
     // still how the connect screen works.
     const ausKonto = this.config.charakterZuSpielerId?.(spielerId) ?? null;
     if (ausKonto) playerName = ausKonto.name;
+    // `nurEditor` is a bit the CLIENT sends, so it must unlock nothing: an
+    // editor connection never carries a name the client picked. The server
+    // fixes it (EDITOR_NAME), which no chat line, admin lookup or name check
+    // ever resolves to a player (editor peers are skipped there).
     // Gast-Token: Ein Gast (Identitaet ohne Charakter) behaelt seine Kennung
     // ueber sein Token, den Namen waehlt er selbst -- aber keinen, den ein
-    // Konto-Charakter traegt. Der Editor beansprucht keinen Namen.
-    if (!ausKonto && !nurEditor && this.config.kontoNameBelegt?.(playerName.trim())) {
-      peer.status = ConnectionStatus.ErrorAlreadyConnected;
-      peer.disconnect('Name already in use');
-      return;
+    // Konto-Charakter traegt, und keinen mit Steuer- oder Nullbreiten-Zeichen.
+    if (nurEditor) {
+      playerName = EDITOR_NAME;
+    } else if (!ausKonto) {
+      if (nameHatSteuerzeichen(playerName)) {
+        peer.status = ConnectionStatus.ErrorDisconnected;
+        peer.disconnect('Invalid name');
+        return;
+      }
+      if (namenVarianten(playerName).some((n) => this.config.kontoNameBelegt?.(n))) {
+        peer.status = ConnectionStatus.ErrorAlreadyConnected;
+        peer.disconnect('Name already in use');
+        return;
+      }
     }
 
     // Duplicate name — checked AFTER the identity is resolved, deliberately.

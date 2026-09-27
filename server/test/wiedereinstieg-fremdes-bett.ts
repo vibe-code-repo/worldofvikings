@@ -372,6 +372,12 @@ async function main(): Promise<void> {
   const d2 = await tot('Dora');
   check('D: Dora nach dem Neustart: keine Wiederholung der Meldung', !VERLUST.test(d2.meldung) && gleich(d2.ziel, weltSpawn), `${pos(d2.ziel)} "${d2.meldung}"`);
   check('G: Emils Punkt kommt aus dem Spielstand', gleich(peer('Emil').spawnPoint, sollE), pos(peer('Emil').spawnPoint));
+  // A token keeps the userId, so "a guest under a NEW userId" can no longer arise by reconnecting.
+  // The rule it exercised still holds: the bed belongs to the REMEMBERED owner, not to the current
+  // userId, so the userId is changed by hand here (a mutant comparing with the current one goes red).
+  const emilsAlteId = peer('Emil').userId;
+  peer('Emil').userId = emilsAlteId + 424242n;
+  check('G: Emils userId ist jetzt eine andere als die im Bett gemerkte', peer('Emil').userId.toString() !== peer('Emil').spawnBettBesitzer, `${peer('Emil').userId} vs ${peer('Emil').spawnBettBesitzer}`);
   const e2 = await tot('Emil');
   check('G: Emil (Gast, mit Token) erwacht an seinem Bett', gleich(e2.ziel, sollE) && !VERLUST.test(e2.meldung), `${pos(e2.ziel)} "${e2.meldung}"`);
 

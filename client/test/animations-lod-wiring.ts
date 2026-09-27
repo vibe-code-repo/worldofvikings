@@ -21,6 +21,24 @@
  *  [4] Eine NPC-Figur im Kampfzustand (`anim: 'attack'`) bleibt ebenfalls
  *      animiert, obwohl sie ausserhalb des Sichtkegels steht.
  *
+ * Nachbesserung (Angriff 27.09.2026, B4–B6, B5-Testluecke):
+ *  [5] Die Spawn-Vorschau im Editor-Testflug (`edplace-*`/`edghost`) friert
+ *      nie ein, egal wie weit oder ausserhalb des Sichtkegels.
+ *  [6] Sichtprobe als Kugel um die Huellmitte statt als Punkt an der
+ *      Fusssohle (B4): eine Figur, deren Fusssohle knapp ausserhalb des
+ *      Sichtkegels liegt, deren Koerper aber hineinragt, friert NICHT ein.
+ *  [P1]–[P4] Aus `Berichte/angriff-fps-animation-einfrieren/
+ *      probe-lod-fortsetzen.ts` uebernommene Faelle (B1–B3): Kampfbeginn
+ *      ausser Sicht (P1), Einmal-Clips `hit`/`die` ausser Sicht gestartet
+ *      und ins Bild zurueckgekehrt (P2/P3), Zustandswechsel im selben Bild
+ *      wie die Rueckkehr (P4). Auf 0484f3d alle vier rot.
+ *  [7]+[8] Die Verdrahtung mit einer Kamera AUSSERHALB des Ursprungs
+ *      (B5-Testluecke: mit Kamera im Ursprung ueberleben die Mutanten
+ *      M7/M8/M11, weil "Distanz vom Ursprung" und "Distanz von der
+ *      Kamera" sowie "echte Kameraposition" und "Ursprung" dort
+ *      zusammenfallen): [7] nah, aber hinter der Kamera; [8] im
+ *      Sichtkegel, aber jenseits von 60 m.
+ *
  * Lauf: npx tsx client/test/animations-lod-wiring.ts
  */
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
@@ -50,6 +68,7 @@ function pruefe(bedingung: boolean, was: string): void {
 
 const engine = new NullEngine();
 const scene = new Scene(engine);
+scene.useConstantAnimationDeltaTime = true; // 16 ms je render(), fuer die P1–P4-Faelle unten
 // Kamera bei (0,0,0), Blick auf +Z — der eine "nahe, im Bild"-Punkt liegt
 // vor ihr, der "weit, hinter ihr"-Punkt liegt HINTER der Kamera und damit
 // sicher ausserhalb jedes Sichtkegels, egal wie breit dessen Oeffnung ist.
@@ -103,9 +122,82 @@ function stelleContainerBereit(assets: AssetManager, name: string): void {
   );
 }
 
+/**
+ * Menschengrosser Quader (0,5 × 1,8 × 0,5 m), Fuesse bei lokal y=0 — fuer
+ * [6]/B4: eine echte Huelle, deren Mitte (`berechneLodHuelle`) spuerbar
+ * ueber der Fusssohle liegt.
+ */
+function wuerfelHoehe(name: string): Mesh {
+  const m = new Mesh(name, scene);
+  const d = new VertexData();
+  const p: number[] = [];
+  for (const x of [-0.25, 0.25]) for (const y of [0, 1.8]) for (const z of [-0.25, 0.25]) p.push(x, y, z);
+  d.positions = p;
+  d.indices = [0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6, 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3];
+  d.applyToMesh(m);
+  return m;
+}
+
+/** Wie `stelleContainerBereit`, aber mit der menschengrossen Huelle (B4/[6]). */
+function stelleContainerBereitHoehe(assets: AssetManager, name: string): void {
+  const wurzel = new TransformNode(`${name}_wurzel`, scene);
+  const koerper = wuerfelHoehe(`${name}_koerper`);
+  koerper.parent = wurzel;
+  const anim = new Animation('idle-clip', 'position.y', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+  anim.setKeys([
+    { frame: 0, value: 0 },
+    { frame: 100, value: 1 },
+  ]);
+  koerper.animations.push(anim);
+  const gruppe = new AnimationGroup('idle', scene);
+  gruppe.addTargetedAnimation(anim, koerper);
+  const container = new AssetContainer(scene);
+  container.meshes.push(koerper);
+  container.transformNodes.push(wurzel);
+  container.animationGroups.push(gruppe);
+  container.removeAllFromScene();
+  (assets as unknown as { containers: Map<string, Promise<AssetContainer | null>> }).containers.set(
+    name,
+    Promise.resolve(container)
+  );
+}
+
+/**
+ * Container mit VIER Clips (idle/walk/hit/die) — wie ein Tier, das der
+ * Server in Bewegung, im Kampf, getroffen oder sterbend zeigen kann (fuer
+ * die aus `probe-lod-fortsetzen.ts` uebernommenen Faelle P1–P4 unten).
+ * `hit`/`die` sind Einmal-Clips: 30 Bilder = 1 s bei 30 fps.
+ */
+function stelleTierBereit(assets: AssetManager, name: string): void {
+  const wurzel = new TransformNode(`${name}_wurzel`, scene);
+  const koerper = wuerfel(`${name}_koerper`);
+  koerper.parent = wurzel;
+  const container = new AssetContainer(scene);
+  const eigenschaften = ['position.y', 'position.x', 'scaling.y', 'scaling.x'];
+  ['idle', 'walk', 'hit', 'die'].forEach((clipName, i) => {
+    const a = new Animation(`${clipName}-clip`, eigenschaften[i]!, 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+    a.setKeys([
+      { frame: 0, value: 0 },
+      { frame: 30, value: 1 },
+    ]);
+    const g = new AnimationGroup(clipName, scene);
+    g.addTargetedAnimation(a, koerper);
+    container.animationGroups.push(g);
+  });
+  container.meshes.push(koerper);
+  container.transformNodes.push(wurzel);
+  container.removeAllFromScene();
+  (assets as unknown as { containers: Map<string, Promise<AssetContainer | null>> }).containers.set(
+    name,
+    Promise.resolve(container)
+  );
+}
+
 const assets = new AssetManager(scene);
 stelleContainerBereit(assets, 'npcModell');
 stelleContainerBereit(assets, 'spielerModell');
+stelleContainerBereitHoehe(assets, 'menschModell');
+stelleTierBereit(assets, 'tierModell');
 
 const mgr = new EntityManager(scene, null as never, assets, null as never);
 const anlegen = (
@@ -143,6 +235,47 @@ await anlegen('npc:kampf-fern', 'TestNpc', 'npcModell', new Vector3(0, 0, -80), 
 
 const spieltNoch = (key: string): boolean => assets.gruppenVon(wurzelVon(key)).some((g) => g.isPlaying);
 
+/** Wie `anlegen`, aber mit `animEinmal` — fuer die Einmal-Clip-Faelle P2/P3. */
+const anlegenMitEinmal = (
+  key: string,
+  prefabName: string,
+  model: string,
+  pos: Vector3,
+  anim: string,
+  animEinmal?: string
+): Promise<void> =>
+  (
+    mgr as unknown as {
+      applyDynamic: (u: ZDOEntityUpdate, p: string, m: string | null, a?: string, belebt?: boolean) => Promise<void>;
+    }
+  ).applyDynamic(
+    { key, prefabHash: 0, position: pos, rotation: Quaternion.Identity(), isOwnPlayer: false, anim, animEinmal } as ZDOEntityUpdate,
+    prefabName,
+    model,
+    anim
+  );
+
+/** Figur hart versetzen (ohne Gleiten) — Wurzel UND das gemerkte Ziel, sonst zieht updateDynamics() sie im naechsten Bild wieder zurueck. */
+function hartVersetzen(key: string, p: Vector3): void {
+  const d = (mgr as unknown as { dynamics: Map<string, { root: TransformNode; ziel?: { pos: Vector3 } }> }).dynamics.get(key)!;
+  d.root.position.copyFrom(p);
+  if (d.ziel) d.ziel.pos.copyFrom(p);
+}
+
+function bilder(n: number): void {
+  for (let i = 0; i < n; i++) {
+    mgr.updateDynamics(0.016);
+    scene.render();
+  }
+}
+
+/** Namen der gerade spielenden Gruppen dieser Instanz, mit Schleifenmodus — der Beleg fuer "hoechstens EINE Dauergruppe" (P1/P4). */
+const laufendeNamen = (key: string): string[] =>
+  assets
+    .gruppenVon(wurzelVon(key))
+    .filter((g) => g.isPlaying)
+    .map((g) => `${g.name}${g.loopAnimation ? '(loop)' : '(einmal)'}`);
+
 console.log('\n[0] Vorbereitung: alle vier Instanzen animieren beim Erscheinen');
 pruefe(spieltNoch('npc:nah'), 'nahe NPC-Figur spielt von Anfang an');
 pruefe(spieltNoch('npc:fern'), 'ferne NPC-Figur spielt von Anfang an');
@@ -177,6 +310,137 @@ pruefe(
   Math.abs(gruppeVorher.animatables[0]!.masterFrame - 37) < 1e-6,
   `kein Sprung auf Bild 0 — Bild ist ${gruppeVorher.animatables[0]?.masterFrame}`
 );
+
+console.log('\n[5] Editor-Vorschau (edplace-*/edghost) friert nie ein (B6)');
+await anlegen('edplace-0', 'TestNpc', 'npcModell', new Vector3(0, 0, -80), 'idle');
+await anlegen('edghost', 'TestNpc', 'npcModell', new Vector3(0, 0, -80), 'idle');
+mgr.updateDynamics(0.016);
+pruefe(spieltNoch('edplace-0'), '`edplace-0` (Testflug-Platzierung) laeuft weiter, obwohl weit hinter der Kamera');
+pruefe(spieltNoch('edghost'), '`edghost` (Testflug-Geist) laeuft weiter, obwohl weit hinter der Kamera');
+
+console.log('\n[6] Sichtprobe als Kugel um die Huellmitte statt als Punkt an der Fusssohle (B4)');
+{
+  // Kamera auf Augenhoehe (1,65 m), Blick LEVEL nach +Z, FOV 1,05 (wie
+  // PlayerController) — eine 1,8 m grosse Figur direkt 1 m vor der Kamera:
+  // die FUSSSOHLE (Wurzel) liegt ausserhalb des Sichtkegels (die untere
+  // Ebene schneidet bei diesem Abstand ueber Bodenhoehe), der Koerper
+  // ragt aber sichtbar hinein. Rechnerisch vorab geprueft
+  // (.tmp-n1-experiment/experiment-b4.ts, nicht Teil dieses Commits):
+  // Punkttest an der Sohle false, Kugeltest true.
+  kamera.position.set(0, 1.65, 0);
+  kamera.fov = 1.05;
+  kamera.setTarget(new Vector3(0, 0, 5));
+  kamera.getViewMatrix(true);
+  kamera.getProjectionMatrix(true);
+  await anlegen('mensch:nah-tief', 'TestMensch', 'menschModell', new Vector3(0, 0, 1), 'idle');
+  pruefe(spieltNoch('mensch:nah-tief'), 'Vorbereitung: Figur animiert beim Erscheinen');
+  mgr.updateDynamics(0.016);
+  pruefe(
+    spieltNoch('mensch:nah-tief'),
+    'Figur direkt vor der Kamera friert NICHT ein — die Kugel um die Huellmitte reicht in den Sichtkegel, ' +
+      'auch wenn die Fusssohle knapp ausserhalb liegt'
+  );
+  // Kamera fuer die folgenden Abschnitte zuruecksetzen.
+  kamera.position.set(0, 0, 0);
+  kamera.fov = 0.8;
+  kamera.setTarget(new Vector3(0, 0, 1));
+  kamera.getViewMatrix(true);
+  kamera.getProjectionMatrix(true);
+}
+
+console.log('\n[P1] Kampfbeginn ausser Sicht (probe-lod-fortsetzen.ts P1): nie mehr als eine Dauergruppe (B2)');
+{
+  const HINTEN = new Vector3(0, 0, -20);
+  const VORN = new Vector3(0, 0, 5);
+  await anlegenMitEinmal('p1', 'Tier', 'tierModell', HINTEN, 'walk');
+  bilder(3);
+  pruefe(!spieltNoch('p1') || laufendeNamen('p1').join() === 'walk(loop)', 'nach 3 Bildern hinter der Kamera: walk pausiert oder unveraendert');
+  await anlegenMitEinmal('p1', 'Tier', 'tierModell', HINTEN, 'attack');
+  pruefe(laufendeNamen('p1').length === 1, `direkt nach Server-Zustand attack (vor der naechsten LOD-Aktualisierung): genau eine Gruppe, nicht ${JSON.stringify(laufendeNamen('p1'))}`);
+  bilder(1);
+  pruefe(laufendeNamen('p1').length === 1, `1 Bild spaeter: genau eine Gruppe (walk NICHT daneben wieder angelaufen), nicht ${JSON.stringify(laufendeNamen('p1'))}`);
+  hartVersetzen('p1', VORN);
+  bilder(30);
+  pruefe(laufendeNamen('p1').length === 1, `30 Bilder spaeter, jetzt im Bild (5 m): weiterhin genau eine Gruppe, nicht ${JSON.stringify(laufendeNamen('p1'))}`);
+}
+
+console.log('\n[P2]+[P3] Einmal-Clip (hit/die) ausser Sicht gestartet, dann ins Bild (probe-lod-fortsetzen.ts P2/P3, B1)');
+{
+  const HINTEN = new Vector3(0, 0, -20);
+  const VORN = new Vector3(0, 0, 5);
+  let marke = 0;
+  async function einmalProbe(key: string, clip: string): Promise<{ schleifen: number; enden: number }> {
+    await anlegenMitEinmal(key, 'Tier', 'tierModell', HINTEN, 'idle');
+    bilder(2);
+    await anlegenMitEinmal(key, 'Tier', 'tierModell', HINTEN, 'idle', `${clip}#${++marke}`);
+    const gruppe = assets.gruppenVon(wurzelVon(key)).find((g) => g.name === clip)!;
+    let schleifen = 0;
+    let enden = 0;
+    gruppe.onAnimationGroupLoopObservable.add(() => schleifen++);
+    gruppe.onAnimationGroupEndObservable.add(() => enden++);
+    bilder(10); // 0,16 s ausser Sicht -> pausiert mitten im Clip (Clip ist 1 s = 30 Bilder)
+    pruefe(!spieltNoch(key), `${key}: nach 10 Bildern ausser Sicht pausiert`);
+    hartVersetzen(key, VORN);
+    bilder(250); // 4 s im Bild
+    return { schleifen, enden };
+  }
+  const hit = await einmalProbe('p2-hit', 'hit');
+  pruefe(hit.schleifen === 0, `p2-hit: kein Schleifendurchlauf (loopAnimation blieb false) — ${hit.schleifen}`);
+  pruefe(hit.enden === 1, `p2-hit: das Ende-Ereignis feuert genau einmal — ${hit.enden}`);
+  pruefe(laufendeNamen('p2-hit').join() === 'idle(loop)', `p2-hit: faellt nach dem Ende auf idle zurueck — ${JSON.stringify(laufendeNamen('p2-hit'))}`);
+
+  const die = await einmalProbe('p3-die', 'die');
+  pruefe(die.schleifen === 0, `p3-die: kein Schleifendurchlauf — ${die.schleifen}`);
+  pruefe(die.enden === 1, `p3-die: das Ende-Ereignis feuert genau einmal (stirbt einmal, nicht endlos) — ${die.enden}`);
+  pruefe(laufendeNamen('p3-die').length === 0, `p3-die: bleibt auf dem letzten Bild stehen, keine Gruppe laeuft mehr danach — ${JSON.stringify(laufendeNamen('p3-die'))}`);
+}
+
+console.log('\n[P4] Zustandswechsel und Rueckkehr im selben Bild (probe-lod-fortsetzen.ts P4, B3)');
+{
+  const HINTEN = new Vector3(0, 0, -20);
+  const VORN = new Vector3(0, 0, 5);
+  await anlegenMitEinmal('p4', 'Tier', 'tierModell', HINTEN, 'walk');
+  bilder(3);
+  await anlegenMitEinmal('p4', 'Tier', 'tierModell', HINTEN, 'idle');
+  hartVersetzen('p4', VORN);
+  bilder(1);
+  pruefe(laufendeNamen('p4').length === 1, `Server idle + im selben Bild ins Bild versetzt: genau eine Gruppe, nicht ${JSON.stringify(laufendeNamen('p4'))}`);
+  bilder(60);
+  pruefe(laufendeNamen('p4').length === 1, `60 Bilder spaeter: weiterhin genau eine Gruppe, nicht ${JSON.stringify(laufendeNamen('p4'))}`);
+}
+
+console.log('\n[7]+[8] Verdrahtung mit einer Kamera AUSSERHALB des Ursprungs (B5-Testluecke: toetet M7/M8/M11)');
+{
+  // Kamera NICHT im Ursprung: (0, 0, -5), Blick auf +Z. Mit Kamera im
+  // Ursprung fallen "Distanz vom Ursprung" (M7) und "Kameraposition =
+  // Ursprung" (M11) mit dem echten Wert zusammen — genau das hat die
+  // Mutanten ueberleben lassen (Angriff, Befund B5).
+  kamera.position.set(0, 0, -5);
+  kamera.setTarget(new Vector3(0, 0, -4));
+  kamera.getViewMatrix(true);
+  kamera.getProjectionMatrix(true);
+
+  await anlegen('npc:nah-hinter-kamera', 'TestNpc', 'npcModell', new Vector3(0, 0, -10), 'idle');
+  pruefe(spieltNoch('npc:nah-hinter-kamera'), 'Vorbereitung: animiert beim Erscheinen');
+  mgr.updateDynamics(0.016);
+  pruefe(
+    !spieltNoch('npc:nah-hinter-kamera'),
+    '[7] nah (5 m), aber HINTER der echten Kamera -> pausiert (toetet M8: Sichtkegel immer wahr wuerde hier faelschlich animieren)'
+  );
+
+  // 62 m vor der Kamera (0,0,-5), also (0,0,57): im Sichtkegel (auf der
+  // Blickachse), aber jenseits der 60-m-Grenze. Vom URSPRUNG aus gemessen
+  // sind es nur 57 m (<= 60) — mit "Distanz vom Ursprung" (M7) oder
+  // "Kamera = Ursprung" (M11) wuerde das faelschlich animieren.
+  await anlegen('npc:im-kegel-fern', 'TestNpc', 'npcModell', new Vector3(0, 0, 57), 'idle');
+  pruefe(spieltNoch('npc:im-kegel-fern'), 'Vorbereitung: animiert beim Erscheinen');
+  mgr.updateDynamics(0.016);
+  pruefe(
+    !spieltNoch('npc:im-kegel-fern'),
+    '[8] im Sichtkegel, aber 62 m von der echten Kamera entfernt -> pausiert (toetet M7 und M11: beide rechnen ' +
+      'mit 57 m ab dem Ursprung und blieben faelschlich animiert)'
+  );
+}
 
 scene.dispose();
 engine.dispose();

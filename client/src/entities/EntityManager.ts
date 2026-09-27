@@ -91,8 +91,8 @@ import type { ClientWorld } from '../world/World';
 import type { ZDOEntityUpdate } from '../net/ZDOSync';
 import { clipRate } from './clipTempo';
 import { pausiereFuerMessung } from './gruppenSicherung';
-import type { SicherbareGruppe } from './gruppenSicherung';
 import { ANIMATIONS_LOD_GRENZE_M, sollAnimieren, wendeAnimationsLodAn } from './animationsLod';
+import type { SicherbareGruppeMitZustand } from './animationsLod';
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
 const DYNAMIC_FLAGS =
@@ -608,7 +608,7 @@ interface DynamicEntity {
    * pausiert ist. Gehalten HIER und nicht in der Regel selbst — der
    * Aufrufer merkt sich den Zustand je Instanz, s. animationsLod.ts.
    */
-  lodPausiert?: SicherbareGruppe;
+  lodPausiert?: SicherbareGruppeMitZustand;
   /**
    * Animations-LOD (fps-analyse #9): FREMDER Spieler-Avatar (Prefab
    * `Player`, s. `HINT_DEFS` in shared/src/prefabs.ts) — von der Karte
@@ -617,10 +617,72 @@ interface DynamicEntity {
    * danach unveränderlich, wie `prefabName` selbst.
    */
   istSpieler?: boolean;
+  /**
+   * Animations-LOD (fps-analyse #9, Nachbesserung B6): die Spawn-Vorschau
+   * im Editor-Testflug (ZDO-Schlüssel `edplace-<i>`/`edghost`,
+   * s. vorschauZeichnen.ts) — von der Pause ausgenommen. Diese Instanzen
+   * werden meist aus einer hoch stehenden Editor-Kamera betrachtet, unter
+   * der sie staendig ausserhalb des 60-m-Kegels oder der Distanzgrenze
+   * fallen wuerden; anders als bei echten NPCs waere ein einfrierendes
+   * Vorschaumodell im laufenden Editieren sofort sichtbar und verwirrend.
+   * Einmal bei der Instanziierung gesetzt, wie `istSpieler`.
+   */
+  istVorschau?: boolean;
+  /**
+   * Animations-LOD (fps-analyse #9, Nachbesserung B4): Y-Versatz der
+   * Huellmitte gegenueber `root.position` und Huellradius, EINMAL bei der
+   * Instanziierung aus den Meshes gemessen (s. `berechneLodHuelle`). Ein
+   * Punkttest an der Fusssohle liess sichtbare Figuren am Bildrand
+   * (besonders lange Tiere, Blick nach oben/unten) faelschlich einfrieren.
+   */
+  lodMitteY?: number;
+  lodRadius?: number;
 }
 
 /** Wiederverwendetes Nick-Quaternion des prozeduralen Gangs (kein Alloc pro Frame). */
 const GANG_NICK_TMP = new Quaternion();
+
+/**
+ * Animations-LOD B4 (Nachbesserung): Mindestradius der Sichtkegel-Kugel,
+ * auch wenn eine gemessene Huelle kleiner waere — sonst faellt ein
+ * winziger Hitbox-Mittelpunkt genau auf eine Kegelkante und ein sichtbarer
+ * Rand friert trotzdem ein.
+ */
+const ANIMATIONS_LOD_MIN_RADIUS_M = 1.5;
+
+/** Wiederverwendete Huellmitte fuer den Animations-LOD-Sichtkegeltest (kein Alloc je Figur und Bild, B4). */
+const LOD_MITTE_TMP = new Vector3();
+
+/**
+ * Huellmitte (Y-Versatz gegenueber `root.position`) und Huellradius einer
+ * Instanz, EINMAL bei der Instanziierung aus ihren Meshes gemessen (wie
+ * `merkeModellHoehe` bei den Clutter-Mastern oben) — NICHT jedes Bild neu,
+ * das waere die Allokation je Figur und Bild, die B4 ausdruecklich
+ * ausschliesst. Der Radius ist der halbe Diagonalabstand der Huelle
+ * (umschliesst sie exakt, unabhaengig von einem seitlichen Versatz der
+ * Mitte), mindestens `ANIMATIONS_LOD_MIN_RADIUS_M`. Ohne Meshes (leerer
+ * Platzhalter waere ein Fehler in `makePlaceholder`, kommt praktisch nicht
+ * vor) ein sicherer Rueckfallwert statt einer entarteten Huelle.
+ */
+function berechneLodHuelle(root: TransformNode): { mitteY: number; radius: number } {
+  const { min, max } = root.getHierarchyBoundingVectors(true);
+  const spanne = max.subtract(min);
+  if (!(spanne.x >= 0) || !(spanne.y >= 0) || !(spanne.z >= 0)) {
+    return { mitteY: 0.9, radius: ANIMATIONS_LOD_MIN_RADIUS_M };
+  }
+  return {
+    mitteY: (min.y + max.y) / 2 - root.position.y,
+    radius: Math.max(spanne.length() / 2, ANIMATIONS_LOD_MIN_RADIUS_M),
+  };
+}
+
+/** Ob eine Kugel (Huellmitte, Radius) den Sichtkegel schneidet — dieselbe Ebenen-Konvention wie `Frustum.IsPointInFrustum` (Abstand ≥ 0 = innerhalb), nur um den Radius nach aussen verschoben. */
+function istKugelImSichtkegel(mitte: Vector3, radius: number, ebenen: readonly Plane[]): boolean {
+  for (const e of ebenen) {
+    if (e.dotCoordinate(mitte) < -radius) return false;
+  }
+  return true;
+}
 
 /**
  * Den Hüllkörper eines Thin-Instance-Masters um SCHWUNG_RESERVE_M
@@ -3386,15 +3448,26 @@ export class EntityManager {
    * "die eigene Figur": anders als NPCs sind es nur eine Handvoll
    * Instanzen, und ein anderer Mitspieler soll nie durch einen
    * LOD-Stillstand auffallen.
+   *
+   * Die Spawn-Vorschau im Editor-Testflug (`dyn.istVorschau`) ist ebenso
+   * ausgenommen (Nachbesserung B6) — s. Feldkommentar an `istVorschau`.
+   *
+   * Sichtbarkeit (Nachbesserung B4): keine Punktprobe an der Fusssohle
+   * mehr, sondern eine Kugel um die gemessene Huellmitte
+   * (`berechneLodHuelle`, `istKugelImSichtkegel`) — ein Punkttest liess
+   * sichtbare Figuren am Bildrand faelschlich einfrieren, besonders lange
+   * Tiere und bei Blick nach oben/unten.
    */
   private aktualisiereAnimationsLod(dyn: DynamicEntity, ebenen: Plane[], kameraPos: Vector3): void {
-    if (dyn.istSpieler) return;
+    if (dyn.istSpieler || dyn.istVorschau) return;
     if (dyn.anim === 'attack') {
       if (dyn.lodPausiert) dyn.lodPausiert = wendeAnimationsLodAn(this.assets.gruppenVon(dyn.root), dyn.lodPausiert, true);
       return;
     }
     const distanzM = Vector3.Distance(kameraPos, dyn.root.position);
-    const imSichtkegel = Frustum.IsPointInFrustum(dyn.root.position, ebenen);
+    LOD_MITTE_TMP.copyFrom(dyn.root.position);
+    LOD_MITTE_TMP.y += dyn.lodMitteY ?? 0.9;
+    const imSichtkegel = istKugelImSichtkegel(LOD_MITTE_TMP, dyn.lodRadius ?? ANIMATIONS_LOD_MIN_RADIUS_M, ebenen);
     const animieren = sollAnimieren(distanzM, imSichtkegel, ANIMATIONS_LOD_GRENZE_M);
     dyn.lodPausiert = wendeAnimationsLodAn(this.assets.gruppenVon(dyn.root), dyn.lodPausiert, animieren);
   }
@@ -3467,6 +3540,7 @@ export class EntityManager {
     // alle anderen Prefabs schicken kein `anim` und bleiben wie gehabt.
     const wunschAnim = u.anim ?? animation;
     let dyn = this.dynamics.get(u.key);
+    const warNeu = !dyn;
     if (!dyn) {
       let root: TransformNode | null = null;
       if (model) {
@@ -3490,7 +3564,13 @@ export class EntityManager {
       root.name = prefabName;
       // An event already in the member when we first see the creature is
       // history (no late joiner replays a swing); no member counts as 0.
-      dyn = { root, anim: wunschAnim, einmalN: parseEinmal(u.animEinmal)?.n ?? 0, istSpieler: prefabName === 'Player' };
+      dyn = {
+        root,
+        anim: wunschAnim,
+        einmalN: parseEinmal(u.animEinmal)?.n ?? 0,
+        istSpieler: prefabName === 'Player',
+        istVorschau: u.key.startsWith('edplace-') || u.key === 'edghost',
+      };
       const clipTabelle = findPrefabByHash(u.prefabHash)?.animationTempo;
       if (clipTabelle) dyn.clipTempo = { tabelle: clipTabelle, ist: 0, rate: 1 };
       if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);
@@ -3548,6 +3628,15 @@ export class EntityManager {
     const f =
       typeof s === 'number' ? { x: s, y: s, z: s } : s ? { x: s.x, y: s.y, z: s.z } : { x: 1, y: 1, z: 1 };
     dyn.root.scaling = new Vector3(basis.x * f.x, basis.y * f.y, basis.z * f.z);
+    // Animations-LOD B4: die Huelle EINMAL messen, nachdem Position, Rotation
+    // UND Skalierung der neuen Instanz feststehen — nicht frueher (die rohe,
+    // unskalierte Geometrie waere zu klein) und nicht jedes Mal (das waere
+    // die Allokation je Figur und Bild, die B4 ausschliesst).
+    if (warNeu) {
+      const huelle = berechneLodHuelle(dyn.root);
+      dyn.lodMitteY = huelle.mitteY;
+      dyn.lodRadius = huelle.radius;
+    }
   }
 
   // ── Location terrain leveling (F4) ───────────────────────────────

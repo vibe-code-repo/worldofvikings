@@ -1065,6 +1065,9 @@ const KERN = [
   // fest: Vorlage wird angemeldet, die Quelle wirft bis zur Bereitschaft
   // weiter, ein Klon ohne Instanzen wird nicht angemeldet. NullEngine, <1 s.
   ['client', 'test/schatten-laub-klon.ts'],
+  // WebGPU-Stillstand: Der Tiefen-Wrapper baut nie aus einer Vorlage ohne defines
+  // (Draw-Cache zurueckgesetzt), er meldet stattdessen "nicht bereit". NullEngine, <1 s.
+  ['client', 'test/schatten-wrapper-sicher.ts'],
   // G18: Die scharfe Nahkaskade endete bei 9 m, dahinter 5,4-fach groebere
   // Texel. Rechnet Babylons Kaskadenteilung nach (an der Messung geeicht) und
   // prueft die ausgelieferte Look-Vorgabe gegen eine Mindestreichweite.

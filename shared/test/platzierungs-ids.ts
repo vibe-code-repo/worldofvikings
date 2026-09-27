@@ -12,7 +12,7 @@
  *   npx tsx test/platzierungs-ids.ts   (from shared/)
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -203,13 +203,11 @@ const schreibBasis = welt({
   placements: [{ prefab: 'Beech1', x: 5, z: 5 }, { prefab: 'Tanne4', x: 9, z: 9 }],
 });
 const dupEintrag = { prefab: 'Beech1', x: 5.004, z: 5 }; // exact duplicate of the first
-const kaputterEintrag = { prefab: 'Beech1', x: null, z: 5 }; // really dropped
+const kaputterEintrag = { prefab: 'Beech1', x: null, z: 5 }; // really dropped: since N4 the write path REFUSES it (below)
 const schreibDir = mkdtempSync(join(tmpdir(), 'wov-platzierungs-ids-schreiben-'));
 try {
   const faelle: [string, unknown[], number, number][] = [
     ['only a duplicate', [dupEintrag], 0, 1],
-    ['only an invalid entry', [kaputterEintrag], 1, 0],
-    ['both', [dupEintrag, kaputterEintrag], 1, 1],
   ];
   for (const [name, extra, verworfenErwartet, zusammengefasstErwartet] of faelle) {
     const r = layoutSchreiben(join(schreibDir, 'welt.json'), { ...schreibBasis, placements: [...(schreibBasis.placements as unknown[]), ...extra] }) as unknown as {
@@ -228,6 +226,17 @@ try {
         r.layout.placements?.length === 2,
       JSON.stringify({ verworfen: r.verworfen, jeFeld: r.verworfenJeFeld, zusammengefasst: r.zusammengefasst, zusammengefasstJeFeld: r.zusammengefasstJeFeld })
     );
+  }
+  // N4: an entry the sanitizer would drop is no longer dropped quietly: the write path refuses the document.
+  for (const [name, extra] of [['only an invalid entry', [kaputterEintrag]], ['both', [dupEintrag, kaputterEintrag]]] as const) {
+    let abgewiesen: unknown = null;
+    try {
+      layoutSchreiben(join(schreibDir, 'abgewiesen.json'), { ...schreibBasis, placements: [...(schreibBasis.placements as unknown[]), ...extra] });
+    } catch (fehler) {
+      abgewiesen = fehler;
+    }
+    const liste = (abgewiesen as { fehlerhaft?: { id: string; feld: string }[] } | null)?.fehlerhaft;
+    check(`write path, ${name}: refused (LayoutPlatzierungenUngueltig, x named), nothing written`, (abgewiesen as Error | null)?.name === 'LayoutPlatzierungenUngueltig' && liste?.length === 1 && liste[0]!.feld === 'x' && !existsSync(join(schreibDir, 'abgewiesen.json')), String(abgewiesen));
   }
 } finally {
   rmSync(schreibDir, { recursive: true, force: true });

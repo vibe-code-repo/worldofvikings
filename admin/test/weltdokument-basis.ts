@@ -1003,10 +1003,14 @@ try {
     check('placements = [] → weiterhin 200, kein verworfen-Feld', leerListe.status === 200 && leerListe.daten.verworfen === undefined, `= ${leerListe.status}`);
     const hN = plattenHash();
     const teil = await anfrage('POST', { leib: { ...koerper('teil-muell'), placements: [{ prefab: 'Beech1', x: 1, z: 2 }, 'x', { prefab: 'Beech1', x: 3, z: 4 }, null] }, ifMatch: `"${hN}"` });
-    check('2 gültige + 2 Müll → 200 mit verworfen: 2 und verworfenJeFeld {placements: 2}', teil.status === 200 && teil.daten.verworfen === 2 && JSON.stringify(teil.daten.verworfenJeFeld) === '{"placements":2}', `= ${teil.status} ${JSON.stringify(teil.daten)}`);
-    check('… die zwei gültigen stehen auf der Platte', (JSON.parse(platte().toString('utf-8')) as { placements: unknown[] }).placements.length === 2);
+    // N4: Müll in der Platzierungsliste bereinigt der Dienst nicht mehr still (200 „Rest gespeichert“): 422 mit der Liste, nichts geschrieben.
+    check(
+      '2 gültige + 2 Müll → 422 ungueltig mit der Liste (#1 und #3 als eintrag), nichts geschrieben',
+      teil.status === 422 && teil.daten.fehler === 'ungueltig' && teil.daten.anzahlFehlerhaft === 2 && JSON.stringify((teil.daten.fehlerhaft as { id: string; feld: string }[]).map((f) => `${f.id}.${f.feld}`)) === '["#1.eintrag","#3.eintrag"]' && plattenHash() === hN,
+      `= ${teil.status} ${JSON.stringify(teil.daten)}`
+    );
     await warte(150);
-    check('… Logzeile nennt die verworfenen Einträge je Feld', /2 ungueltige\(r\) Eintrag\/Eintraege im Dokument verworfen \(placements 2\)/.test(protokoll));
+    check('… Logzeile nennt den Grund', /POST \/api\/worldlayout -> 422 ungueltig: 2 Fehler in Platzierungen/.test(protokoll));
     const ganz = await anfrage('POST', { leib: koerper('ganz-gueltig', 3), ifMatch: `"${plattenHash()}"` });
     check('lauter gültige Platzierungen → 200 ohne verworfen-Felder', ganz.status === 200 && ganz.daten.verworfen === undefined && ganz.daten.verworfenJeFeld === undefined);
 
@@ -1028,15 +1032,21 @@ try {
       lakes: { id: 'see-1', x: 10, z: 10, radius: 50 },
     };
     for (const feld of Object.keys(gueltig)) {
-      const r = await anfrage('POST', { leib: { ...koerper('ein-gueltig-ein-muell'), [feld]: [gueltig[feld], 'x'] }, ifMatch: `"${plattenHash()}"` });
+      const vorPlatte = plattenHash();
+      const r = await anfrage('POST', { leib: { ...koerper('ein-gueltig-ein-muell'), [feld]: [gueltig[feld], 'x'] }, ifMatch: `"${vorPlatte}"` });
+      if (feld === 'placements') {
+        // N4: bei den Platzierungen ist ein Müll-Eintrag ein Fehler (422 mit Liste), bei den anderen Listen bleibt „Rest gespeichert“.
+        check('placements: 1 gültig + 1 Müll → 422 ungueltig, Liste nennt #1, nichts geschrieben', r.status === 422 && r.daten.fehler === 'ungueltig' && JSON.stringify(r.daten.fehlerhaft) === '[{"id":"#1","feld":"eintrag","wert":"x"}]' && plattenHash() === vorPlatte, `= ${r.status} ${JSON.stringify(r.daten).slice(0, 200)}`);
+        continue;
+      }
       const inDatei = (JSON.parse(platte().toString('utf-8')) as Record<string, unknown[] | undefined>)[feld];
       check(`${feld}: 1 gültig + 1 Müll → 200 mit verworfen: 1, verworfenJeFeld {${feld}: 1}, genau 1 Eintrag auf der Platte`, r.status === 200 && r.daten.verworfen === 1 && JSON.stringify(r.daten.verworfenJeFeld) === JSON.stringify({ [feld]: 1 }) && inDatei?.length === 1, `= ${r.status} ${JSON.stringify(r.daten).slice(0, 200)}`);
     }
     // Mehrere Felder in einem Dokument: Summe und Aufteilung, Logzeile.
-    const gemischt = await anfrage('POST', { leib: { ...koerper('gemischt-muell'), placements: [{ prefab: 'Beech1', x: 1, z: 2 }, 'a', 'b'], routes: [{ id: 'route-1', points: [[0, 0]], mode: 'loop' }, null] }, ifMatch: `"${plattenHash()}"` });
-    check('zwei Felder mit Verlust → verworfen: 3, verworfenJeFeld {placements: 2, routes: 1}', gemischt.status === 200 && gemischt.daten.verworfen === 3 && JSON.stringify(gemischt.daten.verworfenJeFeld) === '{"placements":2,"routes":1}', `= ${gemischt.status} ${JSON.stringify(gemischt.daten)}`);
+    const gemischt = await anfrage('POST', { leib: { ...koerper('gemischt-muell'), continents: [{ id: 'nord', name: 'Nordland' }, 'a', 'b'], routes: [{ id: 'route-1', points: [[0, 0]], mode: 'loop' }, null] }, ifMatch: `"${plattenHash()}"` });
+    check('zwei Felder mit Verlust → verworfen: 3, verworfenJeFeld {continents: 2, routes: 1}', gemischt.status === 200 && gemischt.daten.verworfen === 3 && JSON.stringify(gemischt.daten.verworfenJeFeld) === '{"continents":2,"routes":1}', `= ${gemischt.status} ${JSON.stringify(gemischt.daten)}`);
     await warte(150);
-    check('… Logzeile nennt beide Felder', /3 ungueltige\(r\) Eintrag\/Eintraege im Dokument verworfen \(placements 2, routes 1\)/.test(protokoll));
+    check('… Logzeile nennt beide Felder', /3 ungueltige\(r\) Eintrag\/Eintraege im Dokument verworfen \(continents 2, routes 1\)/.test(protokoll));
     // Auch routes ohne Ausnahme: Der Editor schickt nur Saniertes (Entwürfe fliegen vorher heraus). Eine Liste
     // aus lauter Entwürfen, aus Müll oder aus `{}` ersetzt sonst still die echten Routen.
     const hR = plattenHash();

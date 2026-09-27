@@ -78,8 +78,13 @@
 # ── So spielst du eine Sicherung zurück ─────────────────────────────────────
 #   1. Server stoppen:  systemctl stop wov-server
 #   2. Lauf wählen:     L=/var/backups/wov/welten/<instanz>/<stempel>
-#      NUR Ordner OHNE Endung (weder .fehlerhaft noch .laeuft) — so heissen
-#      gescheiterte bzw. unfertige Läufe.
+#      Nimm Ordner OHNE Endung. .laeuft ist ein unfertiger Lauf: nie nehmen.
+#      Ausnahme .fehlerhaft: ein Ordner aus der Teilsicherung (Meldung "der Welt-Teil
+#      wird NICHT gesichert", alte Unit ohne WOV_WELT_VERZEICHNIS) enthaelt gueltige,
+#      geprueft gesicherte DB-, Konten- und Forum-Staende und darf fuer Spielstand,
+#      Konten und Forum genommen werden; nur Weltdatei und Basis fehlen darin
+#      (es gibt dort keinen welten/-Ordner). Ein .fehlerhaft-Ordner aus einem
+#      anderen Grund (kaputte DB, Abbruch) nur nach Blick in die Meldung im Journal.
 #      Hinweis: Welt (.zst), Konten und Forum werden nacheinander gezogen
 #      (Sekunden bis Minuten Abstand), sind also nicht auf die Sekunde
 #      gleich alt.
@@ -218,7 +223,8 @@ PREV_DATEI="$DB_DATEI.prev"
 #      WOV_WELT_VERZEICHNIS exportiert ist, damit eine Probe nie ausserhalb ihres Datenordners liest.
 #   2. WOV_WELT_VERZEICHNIS (absolut; die Unit setzt /var/lib/wov/welten).
 #   3. sonst "$DATEN/welten-arbeit" (wie der Spielserver ohne die Variable). Ausnahme: im DEV-Deployment
-#      (/opt/worldofvikings) bricht das Skript ohne die Variable ab, statt still die falsche Datei zu sichern.
+#      (/opt/worldofvikings) verweigert das Skript ohne die Variable nur den Welt-Teil (Meldung, Exit 1 am Ende,
+#      Lauf als .fehlerhaft), statt still die falsche Datei zu sichern; Spielstand, Konten und Forum werden gesichert.
 # Leerzeichen am Rand des Wertes werden abgeschnitten; ein Wert nur aus Leerzeichen oder ein relativer Wert bricht ab.
 # Gibt es die Arbeitskopie noch nicht (vor dem ersten Start des Spielservers seit K5.7), wird ersatzweise die
 # Repo-Datei gesichert.
@@ -403,7 +409,9 @@ fi
 # Ohne -p: existiert der Ordner schon, ist das ein Abbruch.
 mkdir "$LAUF_ARBEIT"
 LAUF_ANGELEGT=1
-mkdir "$LAUF_ARBEIT/worlds" "$LAUF_ARBEIT/welten" "$LAUF_ARBEIT/konten" "$LAUF_ARBEIT/forum"
+mkdir "$LAUF_ARBEIT/worlds" "$LAUF_ARBEIT/konten" "$LAUF_ARBEIT/forum"
+# Kein leerer welten/-Ordner, wenn der Welt-Teil verweigert wurde: er sähe beim Zurückspielen wie eine leere Welt aus.
+(( WELT_VERWEIGERT )) || mkdir "$LAUF_ARBEIT/welten"
 
 # ── 3. Kopieren ──────────────────────────────────────────────────────────
 # kopiere_mit_pruefung QUELLE ZIEL [zstd]: kopiert und prüft die Kopie mit `cmp`

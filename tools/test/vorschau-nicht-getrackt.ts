@@ -37,7 +37,7 @@
  * after the web build.
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -859,7 +859,9 @@ pruefe(unitBlock !== null, 'wov-update.sh markiert unit-pruefung genau einmal (B
   const iAufruf = zeile(/^\s*unit_pruefung \|\| exit 1\s*$/);
   const iSchmutz = zeile(/^SCHMUTZ="\$\(git status --porcelain\)"/);
   const iVorher = zeile(/^\s*export WOV_UPDATE_VORHER=/);
-  const iPull = zeile(/^\s*git pull --ff-only origin main\s*$/);
+  const iPull = zeile(/^\s*git merge --ff-only "\$GEPRUEFTER_STAND"\s*$/);
+  const pullZeilen = zl.filter((z) => /^\s*git pull\b/.test(z));
+  pruefe(pullZeilen.length === 0 && iPull >= 0, 'S-5: Stufe 1 holt keinen neuen Stand (kein "git pull"), sie nimmt genau den geprueften Commit (git merge --ff-only "$GEPRUEFTER_STAND")', pullZeilen.join(' | '));
   const iStopp = zeile(/^dienste_stoppen\s*$/);
   pruefe(iSchmutz >= 0 && iAufruf > iSchmutz && iVorher > iAufruf && iPull > iAufruf && iStopp > iAufruf, 'Stufe 1: die Unit-Pruefung steht nach der Sauberkeitspruefung und VOR dem Pull und vor dienste_stoppen', `${iSchmutz} ${iAufruf} ${iVorher} ${iPull} ${iStopp}`);
   const iEnv = zeile(/^\. "\$ENV_DATEI"\s*$/);
@@ -867,6 +869,11 @@ pruefe(unitBlock !== null, 'wov-update.sh markiert unit-pruefung genau einmal (B
   const iTests = zeile(/^echo "▶ Tests"\s*$/);
   const iTor = zeile(/^node scripts\/run-tests\.mjs 2>&1 \| tee /);
   pruefe(iEnv >= 0 && iUnset > iEnv && iUnset > iTests && iTor > iUnset, 'unset der Welt-Variablen steht nach dem Laden von /etc/wov.env und vor dem Test-Tor', `${iEnv} ${iTests} ${iUnset} ${iTor}`);
+  // N4 S-1: the post-start check runs in the update path only (flag set directly before the last health check).
+  const gesundZeilen = zl.map((z, i) => [z, i] as const).filter(([z]) => /^gesundheit_pruefen(\s+#.*)?$/.test(z));
+  const letzte = gesundZeilen.length > 0 ? gesundZeilen[gesundZeilen.length - 1]![1] : -1;
+  pruefe(letzte > 0 && /^WELT_LAUFZEIT_PRUEFEN=1\s*$/.test(zl[letzte - 1] ?? ''), 'S-1: WELT_LAUFZEIT_PRUEFEN=1 steht direkt vor dem letzten gesundheit_pruefen (Update-Weg, Stufe 2)', zl[letzte - 1] ?? '');
+  pruefe(zl.filter((z) => /^\s*WELT_LAUFZEIT_PRUEFEN=1\b/.test(z)).length === 1, 'S-1: WELT_LAUFZEIT_PRUEFEN=1 wird genau einmal gesetzt (Rueckweg und Neustart nach Abbruch pruefen die Welt nicht)');
 }
 if (ausfuehren && unitBlock !== null) {
   const temp = mkdtempSync(join(tmpdir(), 'unit-pruefung-'));
@@ -888,11 +895,21 @@ if (ausfuehren && unitBlock !== null) {
     git('init', '-q');
     git('add', '.');
     git('commit', '-q', '--no-verify', '-m', 'x');
-    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('branch', 'stand-a');
+    writeFileSync(join(repo, 'b.txt'), 'b\n');
+    git('add', 'b.txt');
+    git('commit', '-q', '--no-verify', '-m', 'b');
+    git('branch', 'stand-b');
+    writeFileSync(join(repo, 'c.txt'), 'c\n');
+    git('add', 'c.txt');
+    git('commit', '-q', '--no-verify', '-m', 'c');
+    git('branch', 'stand-c');
+    git('reset', '-q', '--hard', 'stand-b');
+    git('update-ref', 'refs/remotes/origin/main', 'stand-b');
     // Fake systemctl: `show -p <Eigenschaft> --value <Unit>` liest <zustand>/<Unit>.<Eigenschaft>, sonst die Vorgabe (alles in Ordnung).
     writeFileSync(
       join(fakeBin, 'systemctl'),
-      `#!${bash}\nf="${zustand}/$5.$3"\nif [ -f "$f" ]; then cat "$f"; [ -f "$f.rc" ] && exit "$(cat "$f.rc")"; exit 0; fi\ncase "$3" in NeedDaemonReload) echo no;; DropInPaths) ;; Environment) echo "WOV_INSTANZ=dev WOV_WELT_VERZEICHNIS=/var/lib/wov/welten";; esac\n`,
+      `#!${bash}\n[ "$1" = daemon-reload ] && echo reload >> "${zustand}/reload.log"\nif [ "$3" = EnvironmentFiles ] && [ "$5" = wov-sicherung ] && [ -f "${zustand}/verschiebe" ]; then git -C "${repo}" update-ref refs/remotes/origin/main refs/heads/stand-c; fi\nf="${zustand}/$5.$3"\nif [ -f "$f" ]; then cat "$f"; [ -f "$f.rc" ] && exit "$(cat "$f.rc")"; exit 0; fi\ncase "$3" in NeedDaemonReload) echo no;; DropInPaths) ;; Environment) echo "WOV_INSTANZ=dev WOV_WELT_VERZEICHNIS=/var/lib/wov/welten";; esac\n`,
     );
     chmodSync(join(fakeBin, 'systemctl'), 0o755);
     const alleInstallieren = () => {
@@ -900,11 +917,11 @@ if (ausfuehren && unitBlock !== null) {
       for (const d of readdirSync(zustand)) rmSync(join(zustand, d), { force: true });
     };
     const setze = (u: string, eigenschaft: string, inhalt: string) => writeFileSync(join(zustand, `${u}.${eigenschaft}`), `${inhalt}\n`);
-    const lauf = () =>
-      spawnSync(bash, ['-c', `set -euo pipefail\n${unitBlock}\n# END unit-pruefung\nunit_pruefung || exit 1\necho MARKER_WEITER`], {
+    const lauf = (extra: Record<string, string> = {}, danach = '') =>
+      spawnSync(bash, ['-c', `set -euo pipefail\n${unitBlock}\n# END unit-pruefung\nunit_pruefung || exit 1\necho MARKER_WEITER\n${danach}`], {
         cwd: repo,
         encoding: 'utf8',
-        env: { ...SAUBERE_UMGEBUNG, PATH: `${fakeBin}:${process.env.PATH ?? ''}`, WOV_UNIT_VERZEICHNIS: verz },
+        env: { ...SAUBERE_UMGEBUNG, PATH: `${fakeBin}:${process.env.PATH ?? ''}`, WOV_UNIT_VERZEICHNIS: verz, WOV_KAEFIG: '1', ...extra },
       });
     const abbruch = (name: string, r: ReturnType<typeof lauf>, unit: string, befehl: RegExp) =>
       pruefe(r.status === 1 && !r.stdout.includes('MARKER_WEITER') && r.stderr.includes('ABBRUCH (Stufe 1)') && r.stderr.includes('NICHTS getan') && r.stderr.includes(unit) && befehl.test(r.stderr), name, `rc=${r.status} ${r.stderr}`);
@@ -914,11 +931,11 @@ if (ausfuehren && unitBlock !== null) {
     pruefe(ok.status === 0 && ok.stdout.includes('MARKER_WEITER') && !ok.stderr.includes('ABBRUCH'), 'Units: alles passt, das Skript laeuft weiter', `rc=${ok.status} ${ok.stderr}`);
 
     writeFileSync(join(verz, 'wov-admin.service'), unitText('wov-admin').replace('/var/lib/wov/welten', '/anderswo'));
-    abbruch('Units: installierte Datei weicht von origin/main ab: Abbruch, nennt Unit und den Installationsbefehl', lauf(), 'wov-admin', /git show origin\/main:deploy\/systemd\/wov-admin\.service \| sudo tee .*wov-admin\.service.*daemon-reload/);
+    abbruch('Units: installierte Datei weicht von origin/main ab: Abbruch, nennt Unit und den Installationsbefehl', lauf(), 'wov-admin', /git -C \/opt\/worldofvikings show [0-9a-f]{40}:deploy\/systemd\/wov-admin\.service .*install -m 644 .*wov-admin\.service.*daemon-reload/);
     alleInstallieren();
 
     rmSync(join(verz, 'wov-server.service'));
-    abbruch('Units: installierte Datei fehlt: Abbruch', lauf(), 'wov-server', /sudo tee/);
+    abbruch('Units: installierte Datei fehlt: Abbruch', lauf(), 'wov-server', /install -m 644/);
     alleInstallieren();
 
     setze('wov-sicherung', 'NeedDaemonReload', 'yes');
@@ -940,7 +957,7 @@ if (ausfuehren && unitBlock !== null) {
 
     setze('wov-admin', 'Environment', 'WOV_WELT_VERZEICHNIS=/fremd/welten');
     setze('wov-admin', 'DropInPaths', '/etc/systemd/system/wov-admin.service.d/x.conf');
-    abbruch('Units: ein Drop-in setzt einen anderen Wert: Abbruch', lauf(), 'wov-admin', /Drop-ins[\s\S]*\/fremd\/welten/);
+    abbruch('Units: ein Drop-in setzt einen anderen Wert: Abbruch', lauf(), 'wov-admin', /wirksam '\/fremd\/welten'[\s\S]*Drop-ins/);
     alleInstallieren();
 
     setze('wov-server', 'DropInPaths', '/etc/systemd/system/wov-server.service.d/harmlos.conf');
@@ -953,8 +970,187 @@ if (ausfuehren && unitBlock !== null) {
     abbruch('Units: systemctl scheitert (Exit 1): Abbruch, nie stilles Weitermachen', lauf(), 'wov-server', /NeedDaemonReload/);
     alleInstallieren();
 
+    // ── N4 S-2: wov-sicherung nur pruefen, wenn installiert ──
+    rmSync(join(verz, 'wov-sicherung.service'));
+    const ohneSich = lauf();
+    pruefe(ohneSich.status === 0 && ohneSich.stdout.includes('MARKER_WEITER') && /WARNUNG:.*wov-sicherung.*nicht installiert/.test(ohneSich.stderr) && !ohneSich.stderr.includes('ABBRUCH'), 'S-2: wov-sicherung nicht installiert: Warnung, kein Abbruch', `rc=${ohneSich.status} ${ohneSich.stderr}`);
+    rmSync(join(verz, 'wov-admin.service'));
+    abbruch('S-2: wov-admin fehlt bleibt Pflicht (auch wenn wov-sicherung fehlt): Abbruch', lauf(), 'wov-admin', /install -m 644/);
+    alleInstallieren();
+
+    // ── N4 S-3: strengere Pruefung der wirksamen Umgebung ──
+    setze('wov-server', 'Environment', 'WOV_WELT_VERZEICHNIS= ALT_WOV_WELT_VERZEICHNIS=/var/lib/wov/welten');
+    abbruch('S-3: Teilwort ALT_WOV_WELT_VERZEICHNIS zaehlt nicht (der echte Schluessel ist leer): Abbruch', lauf(), 'wov-server', /kein WOV_WELT_VERZEICHNIS/);
+    alleInstallieren();
+
+    setze('wov-server', 'Environment', 'ALT_WOV_WELT_VERZEICHNIS=/var/lib/wov/welten');
+    abbruch('S-3: nur das Teilwort in der Umgebung: Abbruch', lauf(), 'wov-server', /kein WOV_WELT_VERZEICHNIS/);
+    alleInstallieren();
+
+    setze('wov-server', 'Environment', 'WOV_INSTANZ=dev "WOV_WELT_VERZEICHNIS=/var/lib/wov/welten /fremd"');
+    abbruch('S-3: Wert mit Leerzeichen wird ganz gelesen und weicht von der Unit-Datei ab: Abbruch, Meldung nennt den ganzen Wert', lauf(), 'wov-server', /wirksam '\/var\/lib\/wov\/welten \/fremd'/);
+    alleInstallieren();
+
+    setze('wov-admin', 'UnsetEnvironment', 'FOO WOV_WELT_VERZEICHNIS');
+    abbruch('S-3: UnsetEnvironment nennt die Variable: Abbruch', lauf(), 'wov-admin', /UnsetEnvironment nennt WOV_WELT_VERZEICHNIS/);
+    alleInstallieren();
+
+    setze('wov-admin', 'UnsetEnvironment', 'ALT_WOV_WELT_VERZEICHNIS FOO');
+    const unsetAnders = lauf();
+    pruefe(unsetAnders.status === 0 && unsetAnders.stdout.includes('MARKER_WEITER'), 'S-3: UnsetEnvironment mit anderen Namen (Teilwort) ist erlaubt', `rc=${unsetAnders.status} ${unsetAnders.stderr}`);
+    alleInstallieren();
+
+    const envDatei = join(temp, 'wov.env');
+    writeFileSync(envDatei, 'WOV_INSTANZ=dev\nWOV_WELT_VERZEICHNIS=/geheim-anderswo\n');
+    setze('wov-admin', 'EnvironmentFiles', `${envDatei} (ignore_errors=no)`);
+    const inEnv = lauf();
+    abbruch('S-3: WOV_WELT_VERZEICHNIS steht in einer EnvironmentFile: Abbruch "Variable nie in wov.env"', inEnv, 'wov-admin', /Variable nie in wov\.env/);
+    pruefe(!inEnv.stderr.includes('/geheim-anderswo') && !inEnv.stdout.includes('/geheim-anderswo'), 'S-3: der Inhalt der EnvironmentFile wird nie ausgegeben', inEnv.stderr);
+    alleInstallieren();
+
+    writeFileSync(envDatei, 'WOV_INSTANZ=dev\n# WOV_WELT_VERZEICHNIS=/auskommentiert\nALT_WOV_WELT_VERZEICHNIS=/teilwort\n');
+    setze('wov-admin', 'EnvironmentFiles', `${envDatei} (ignore_errors=no)`);
+    const envHarmlos = lauf();
+    pruefe(envHarmlos.status === 0 && envHarmlos.stdout.includes('MARKER_WEITER'), 'S-3: eine EnvironmentFile ohne den Schluessel (nur Kommentar und Teilwort) ist erlaubt', `rc=${envHarmlos.status} ${envHarmlos.stderr}`);
+    alleInstallieren();
+
+    // Die Zerlegung selbst, mit Randfaellen (systemd quotiert Werte mit Leerraum).
+    const zerlegt = (funktion: string, liste: string, schluessel: string) =>
+      spawnSync(bash, ['-c', `set -euo pipefail\n${unitBlock}\n# END unit-pruefung\n${funktion} "$1" "$2"`, 'x', liste, schluessel], { encoding: 'utf8', env: SAUBERE_UMGEBUNG });
+    const w1 = zerlegt('env_wert', 'A=1 "WOV_WELT_VERZEICHNIS=/a b/c" X=2', 'WOV_WELT_VERZEICHNIS');
+    pruefe(w1.status === 0 && w1.stdout === '/a b/c\n', 'S-3: env_wert liest einen Wert mit Leerzeichen ganz', JSON.stringify(w1.stdout));
+    const w2 = zerlegt('env_wert', 'ALT_WOV_WELT_VERZEICHNIS=/x', 'WOV_WELT_VERZEICHNIS');
+    pruefe(w2.status === 1 && w2.stdout === '', 'S-3: env_wert: ein Teilwort ist kein Treffer (Exit 1)', `rc=${w2.status} ${JSON.stringify(w2.stdout)}`);
+    const w3 = zerlegt('env_wert', 'WOV_WELT_VERZEICHNIS=/erst WOV_WELT_VERZEICHNIS=/zweit', 'WOV_WELT_VERZEICHNIS');
+    pruefe(w3.status === 0 && w3.stdout === '/zweit\n', 'S-3: env_wert: bei doppeltem Schluessel gilt der letzte', JSON.stringify(w3.stdout));
+    const w4 = zerlegt('env_wert', 'WOV_WELT_VERZEICHNIS=', 'WOV_WELT_VERZEICHNIS');
+    pruefe(w4.status === 0 && w4.stdout === '\n', 'S-3: env_wert: ein leerer Wert ist ein Treffer mit leerem Wert', JSON.stringify(w4.stdout));
+    const w5 = zerlegt('env_wert', '"WOV_WELT_VERZEICHNIS=/a\\"b\\\\c"', 'WOV_WELT_VERZEICHNIS');
+    pruefe(w5.status === 0 && w5.stdout === '/a"b\\c\n', 'S-3: env_wert: \\" und \\\\ in Anfuehrungszeichen wie bei systemd', JSON.stringify(w5.stdout));
+    const w6 = zerlegt('env_nennt', 'FOO ALT_WOV_WELT_VERZEICHNIS', 'WOV_WELT_VERZEICHNIS');
+    pruefe(w6.status === 1, 'S-3: env_nennt: ein Teilwort ist kein Treffer', `rc=${w6.status}`);
+    const w7 = zerlegt('env_nennt', 'FOO WOV_WELT_VERZEICHNIS=/x', 'WOV_WELT_VERZEICHNIS');
+    pruefe(w7.status === 0, 'S-3: env_nennt: KEY=Wert zaehlt als Nennung', `rc=${w7.status}`);
+
+    // ── N4 S-4: der Befehl der Abbruchmeldung schreibt nie eine leere Unit ──
+    {
+      writeFileSync(join(verz, 'wov-admin.service'), unitText('wov-admin').replace('/var/lib/wov/welten', '/anderswo'));
+      const meldung = lauf();
+      const befehl = /Befehl \(als root\): sudo (bash -c '[^\n]*')\n/.exec(`${meldung.stderr}\n`);
+      pruefe(befehl !== null && befehl[1]!.includes('set -o pipefail') && befehl[1]!.includes('test -s') && befehl[1]!.includes('install -m 644') && befehl[1]!.includes('git -C /opt/worldofvikings show'), 'S-4: der Befehl hat pipefail, git -C mit fester Wurzel, Nicht-leer-Pruefung und install -m 644', meldung.stderr);
+      if (befehl !== null) {
+        const ziel = join(verz, 'wov-admin.service');
+        const vorher = readFileSync(ziel, 'utf8');
+        const ausfuehren = (cmd: string, pfad: string) => {
+          rmSync(join(zustand, 'reload.log'), { force: true });
+          return spawnSync(bash, ['-c', cmd], { encoding: 'utf8', cwd: '/', env: { ...SAUBERE_UMGEBUNG, PATH: `${pfad}:${process.env.PATH ?? ''}` } });
+        };
+        // (1) falscher Ordner / kein Repo: git scheitert, die Zieldatei bleibt, kein daemon-reload
+        const keinRepo = join(temp, 'kein-repo');
+        mkdirSync(keinRepo, { recursive: true });
+        const f1 = ausfuehren(befehl[1]!.replace('/opt/worldofvikings', keinRepo), fakeBin);
+        pruefe(f1.status !== 0 && readFileSync(ziel, 'utf8') === vorher && !existsSync(join(zustand, 'reload.log')), 'S-4: falscher Ordner: der Befehl schlaegt fehl, die Unit-Datei bleibt unveraendert (nicht leer), kein daemon-reload', `rc=${f1.status} ${f1.stderr}`);
+        // (2) git liefert nichts (Exit 0, leere Ausgabe): Nicht-leer-Pruefung greift
+        const leerBin = join(temp, 'leer-bin');
+        mkdirSync(leerBin, { recursive: true });
+        writeFileSync(join(leerBin, 'git'), `#!${bash}\nexit 0\n`);
+        chmodSync(join(leerBin, 'git'), 0o755);
+        const f2 = ausfuehren(befehl[1]!, `${leerBin}:${fakeBin}`);
+        pruefe(f2.status !== 0 && readFileSync(ziel, 'utf8') === vorher && !existsSync(join(zustand, 'reload.log')), 'S-4: git liefert nichts: der Befehl schlaegt fehl, die Unit-Datei bleibt, kein daemon-reload', `rc=${f2.status} ${f2.stderr}`);
+        // (4) richtiger Ordner: die Datei wird ersetzt, Modus 644, danach daemon-reload
+        const f3 = ausfuehren(befehl[1]!.replace('/opt/worldofvikings', repo), fakeBin);
+        pruefe(f3.status === 0 && readFileSync(ziel, 'utf8') === unitText('wov-admin') && (statSync(ziel).mode & 0o777) === 0o644 && existsSync(join(zustand, 'reload.log')), 'S-4: richtiger Ordner: Unit installiert (Inhalt gleich origin/main, Modus 644), danach daemon-reload', `rc=${f3.status} ${f3.stderr}`);
+      }
+      alleInstallieren();
+    }
+
+    // ── N4 S-5: genau der gepruefte Commit wird genommen, nicht ein neuer Pull ──
+    {
+      const mergeZeile = update.split('\n').find((z) => /^\s*git merge --ff-only "\$GEPRUEFTER_STAND"\s*$/.test(z)) ?? 'false # Zeile fehlt';
+      git('reset', '-q', '--hard', 'stand-a');
+      writeFileSync(join(zustand, 'verschiebe'), '1\n');
+      const r = lauf({}, `${mergeZeile.trim()}\ngit rev-parse HEAD\ngit rev-parse refs/remotes/origin/main\necho STAND=$GEPRUEFTER_STAND`);
+      const zeilen = r.stdout.trim().split('\n');
+      const rev = (n: string) => spawnSync('git', ['rev-parse', n], { cwd: repo, encoding: 'utf8', env: SAUBERE_UMGEBUNG }).stdout.trim();
+      const kopf = zeilen[zeilen.length - 3];
+      const ursprung = zeilen[zeilen.length - 2];
+      const gepr = (zeilen[zeilen.length - 1] ?? '').replace('STAND=', '');
+      pruefe(r.status === 0 && ursprung === rev('stand-c') && gepr === rev('stand-b') && kopf === rev('stand-b'), 'S-5: origin/main wandert waehrend der Pruefung (stand-b -> stand-c): HEAD nimmt genau den geprueften Commit (stand-b), nicht den neuen', `rc=${r.status} kopf=${kopf} ursprung=${ursprung} gepr=${gepr} ${r.stderr}`);
+      rmSync(join(zustand, 'verschiebe'), { force: true });
+      git('reset', '-q', '--hard', 'stand-b');
+      git('update-ref', 'refs/remotes/origin/main', 'stand-b');
+      alleInstallieren();
+    }
+
+    // ── N4 S-6: der Pruefhaken wirkt nur mit der Testmarke des Kaefigs ──
+    {
+      const ohneMarke = lauf({ WOV_KAEFIG: '' });
+      pruefe(ohneMarke.status === 1 && ohneMarke.stderr.includes('/etc/systemd/system/wov-server.service'), 'S-6: WOV_UNIT_VERZEICHNIS ohne Testmarke (WOV_KAEFIG=1) wirkt nicht: es wird /etc/systemd/system gelesen', `rc=${ohneMarke.status} ${ohneMarke.stderr}`);
+      const mitMarke = lauf({ WOV_KAEFIG: '1' });
+      pruefe(mitMarke.status === 0 && mitMarke.stdout.includes('MARKER_WEITER'), 'S-6: mit Testmarke wirkt der Haken', `rc=${mitMarke.status} ${mitMarke.stderr}`);
+    }
+
     git('update-ref', '-d', 'refs/remotes/origin/main');
     abbruch('Units: origin/main nicht lesbar: Abbruch', lauf(), 'wov-server', /nicht lesbar/);
+    git('update-ref', 'refs/remotes/origin/main', 'stand-b');
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+// ── K5.7 N4 S-1: Nachpruefung nach dem Start (wov-server liest die Welt aus WOV_WELT_VERZEICHNIS) ──
+const weltBlock = ausschnitt(update, 'welt-laufzeit');
+pruefe(weltBlock !== null, 'wov-update.sh markiert welt-laufzeit genau einmal (BEGIN/END welt-laufzeit)');
+const gesundFn = /\ngesundheit_pruefen\(\) \{\n[\s\S]*?\n\}\n/.exec(update)?.[0] ?? null;
+pruefe(gesundFn !== null && /^\s*welt_laufzeit_pruefen \|\| exit 1\s*$/m.test(gesundFn), 'S-1: gesundheit_pruefen ruft welt_laufzeit_pruefen und bricht bei Fehler ab (exit 1, der bestehende Weg nach #88)');
+if (ausfuehren && weltBlock !== null && gesundFn !== null) {
+  const temp = mkdtempSync(join(tmpdir(), 'welt-laufzeit-'));
+  try {
+    const bash = ['/usr/bin/bash', '/bin/bash'].find((p) => existsSync(p)) ?? 'bash';
+    const wurzel = join(temp, 'wurzel');
+    const fakeBin = join(temp, 'bin');
+    const zustand = join(temp, 'zustand');
+    mkdirSync(join(wurzel, 'server/data'), { recursive: true });
+    for (const d of [fakeBin, zustand]) mkdirSync(d, { recursive: true });
+    writeFileSync(join(wurzel, 'server/data/server.yml'), 'server:\n  port: 2467\n');
+    writeFileSync(join(fakeBin, 'systemctl'), `#!${bash}\nf="${zustand}/$5.$3"\nif [ -f "$f" ]; then cat "$f"; fi\nexit 0\n`);
+    writeFileSync(join(fakeBin, 'curl'), `#!${bash}\necho 426\n`);
+    writeFileSync(join(fakeBin, 'journalctl'), `#!${bash}\nexit 0\n`);
+    for (const f of ['systemctl', 'curl', 'journalctl']) chmodSync(join(fakeBin, f), 0o755);
+    /** childEnv: the environment of the fake wov-server process (env -i …); mainPid 0 = no process; flag = WELT_LAUFZEIT_PRUEFEN. */
+    const lauf = (childEnv: string[], flag: string, mainPid?: string) => {
+      const kind = childEnv.map((e) => `'${e.replace(/'/g, `'\\''`)}'`).join(' ');
+      const skript = [
+        'set -euo pipefail',
+        weltBlock,
+        '# END welt-laufzeit',
+        gesundFn,
+        'GESTARTET=(wov-server)',
+        flag === '' ? '' : `WELT_LAUFZEIT_PRUEFEN=${flag}`,
+        `env -i ${kind} sleep 300 & kid=$!`,
+        'trap \'kill "$kid" 2>/dev/null || true; wait "$kid" 2>/dev/null || true; if kill -0 "$kid" 2>/dev/null; then echo KIND_LEBT; else echo KIND_ENDE; fi\' EXIT',
+        'for _ in $(seq 1 200); do [ "$(cat /proc/$kid/comm 2>/dev/null || true)" = sleep ] && break; sleep 0.05; done',
+        `echo "\${mainPidOverride:-$kid}" > "${zustand}/wov-server.service.MainPID"`,
+        'gesundheit_pruefen',
+        'echo GESUND_OK',
+      ].join('\n');
+      return spawnSync(bash, ['-c', skript], { cwd: wurzel, encoding: 'utf8', env: { ...SAUBERE_UMGEBUNG, PATH: `${fakeBin}:${process.env.PATH ?? ''}`, ...(mainPid !== undefined ? { mainPidOverride: mainPid } : {}) } });
+    };
+    const ende = (r: ReturnType<typeof lauf>) => r.stdout.includes('KIND_ENDE') && !r.stdout.includes('KIND_LEBT');
+    const ok = lauf(['WOV_INSTANZ=dev', 'WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1');
+    pruefe(ok.status === 0 && ok.stdout.includes('GESUND_OK') && /✓ wov-server \(PID \d+\) liest die Welt aus WOV_WELT_VERZEICHNIS=\/var\/lib\/wov\/welten/.test(ok.stdout) && ende(ok), 'S-1: Umgebung des laufenden wov-server hat die Variable: Nachpruefung gruen, Kindprozess beendet', `rc=${ok.status} ${ok.stdout} ${ok.stderr}`);
+    const leerzeichen = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/we lten'], '1');
+    pruefe(leerzeichen.status === 0 && leerzeichen.stdout.includes('WOV_WELT_VERZEICHNIS=/var/lib/wov/we lten') && ende(leerzeichen), 'S-1: ein Wert mit Leerzeichen wird ganz gelesen', `rc=${leerzeichen.status} ${leerzeichen.stdout}`);
+    const rot = (name: string, r: ReturnType<typeof lauf>) =>
+      pruefe(r.status === 1 && !r.stdout.includes('GESUND_OK') && r.stderr.includes('KEIN WOV_WELT_VERZEICHNIS') && r.stderr.includes('welt-einbau.md') && ende(r), name, `rc=${r.status} ${r.stdout} ${r.stderr}`);
+    rot('S-1: die Umgebung des laufenden wov-server hat die Variable nicht: lauter Fehler, exit 1, kein Weiter', lauf(['WOV_INSTANZ=dev'], '1'));
+    rot('S-1: nur das Teilwort ALT_WOV_WELT_VERZEICHNIS in der Umgebung: Fehler', lauf(['ALT_WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1'));
+    rot('S-1: die Variable ist leer: Fehler', lauf(['WOV_WELT_VERZEICHNIS='], '1'));
+    rot('S-1: die Variable ist relativ: Fehler', lauf(['WOV_WELT_VERZEICHNIS=welten'], '1'));
+    const keinPid = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1', '0');
+    pruefe(keinPid.status === 1 && !keinPid.stdout.includes('GESUND_OK') && keinPid.stderr.includes('keine MainPID') && ende(keinPid), 'S-1: MainPID 0 (kein laufender Prozess): Fehler statt stillem Weiter', `rc=${keinPid.status} ${keinPid.stderr}`);
+    const ohneFlag = lauf(['WOV_INSTANZ=dev'], '');
+    pruefe(ohneFlag.status === 0 && ohneFlag.stdout.includes('GESUND_OK') && !ohneFlag.stdout.includes('liest die Welt') && ende(ohneFlag), 'S-1: ohne WELT_LAUFZEIT_PRUEFEN (Rueckweg, Neustart nach Abbruch) wird die Welt-Umgebung nicht geprueft', `rc=${ohneFlag.status} ${ohneFlag.stdout} ${ohneFlag.stderr}`);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

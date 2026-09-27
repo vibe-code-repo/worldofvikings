@@ -139,6 +139,13 @@ f.commit(); f.close()`,
   check('DEV-Checkout ohne Variable: Exit 1 mit Meldung (DEV-Deployment, Welt-Teil nicht gesichert, Aufruf mit der Variable)', f1.rc === 1 && /DEV-Deployment/.test(f1.aus) && /Welt-Teil/.test(f1.aus) && /WOV_WELT_VERZEICHNIS=\/var\/lib\/wov\/welten/.test(f1.aus), f1.aus.slice(-400));
   check('DEV-Checkout ohne Variable: Spielstand, Konten und Forum sind trotzdem gesichert (worlds/dev.db.zst, konten/dev.db, forum/dev.db)', f1o !== '' && existsSync(resolve(f1o, 'worlds/dev.db.zst')) && existsSync(resolve(f1o, 'konten/dev.db')) && existsSync(resolve(f1o, 'forum/dev.db')), f1.aus.slice(-400));
   check('DEV-Checkout ohne Variable: die Weltdatei und die Basis sind NICHT gesichert (auch nicht die Repo- oder welten-arbeit-Datei), kein gueltiger Lauf-Ordner', f1o !== '' && !existsSync(resolve(f1o, 'welten/dev.json')) && !existsSync(resolve(f1o, 'welten/dev.basis')) && f1.ordner === '', f1.aus.slice(-400));
+  // N4 (M-A-2): kein leerer welten/-Ordner im Teillauf; die Rueckspielanleitung nennt den .fehlerhaft-Ordner der Teilsicherung
+  // ausdruecklich als brauchbar fuer DB, Konten und Forum; der veraltete Kommentar ("bricht das Skript ... ab") ist weg.
+  check('DEV-Checkout ohne Variable: im .fehlerhaft-Ordner gibt es keinen (leeren) welten/-Ordner', f1o !== '' && !existsSync(resolve(f1o, 'welten')), f1o === '' ? 'kein Ordner' : readdirSync(f1o).join(','));
+  const skriptText = readFileSync(resolve(QUELLE, 'tools/wov-sicherung.sh'), 'utf-8');
+  const anleitung = /So spielst du eine Sicherung zurück[\s\S]*?Server starten/.exec(skriptText)?.[0] ?? '';
+  check('Rueckspielanleitung: ein .fehlerhaft-Ordner der Teilsicherung enthaelt gueltige DB-, Konten- und Forum-Staende', /\.fehlerhaft/.test(anleitung) && /Teilsicherung/.test(anleitung) && /Konten und Forum/.test(anleitung), anleitung.slice(0, 500));
+  check('veralteter Kommentar ("bricht das Skript ohne die Variable ab") ist berichtigt', !/bricht das Skript ohne die Variable ab/.test(skriptText));
   const f2 = lauf({ WOV_DEV_CHECKOUT: WURZEL, WOV_WELT_VERZEICHNIS: ANDERE });
   check('DEV-Checkout mit Variable: Exit 0, gesichert ist der Variablen-Ordner', f2.rc === 0 && f2.ordner !== '' && lies(resolve(f2.ordner, 'welten/dev.json')) === lies(resolve(ANDERE, 'dev.json')), f2.aus.slice(-300));
 

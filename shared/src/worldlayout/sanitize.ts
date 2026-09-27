@@ -34,7 +34,7 @@ import {
   type RouteDef,
   type WorldLayout,
 } from './types.js';
-import { ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
+import { gleicherInhalt, ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
 
 // Über diese Datei nach außen (index.ts lässt sie ohnehin durch): die Werkzeuge, die eine Platzierung anlegen.
 export {
@@ -242,8 +242,8 @@ export function platzierungenEinzeln(roh: unknown): PlacementDef[] {
       const z = koordinate(o.z);
       if (x === null || z === null) continue;
       const eintrag: PlacementDef = { prefab: o.prefab, x, z };
-      // Eine ungültige `id` wird nicht verworfen, sondern unten abgeleitet:
-      // Der Eintrag selbst ist in Ordnung, nur seine Adresse fehlt.
+      // Eine ungültige `id` wird nicht verworfen, sondern unten abgeleitet: Der Eintrag selbst ist in Ordnung, nur
+      // seine Adresse fehlt. Der Schreibweg lässt sie nicht bis hierher durch (`platzierungenFehler`: feld `id`).
       if (typeof o.id === 'string' && ID_RE.test(o.id)) eintrag.id = o.id;
       // Nur die SCHREIBWEISE prüfen, nicht die Existenz der Route: Ob es
       // sie gibt, meldet pruefeLayout — wie bei `continentId` an der
@@ -254,7 +254,7 @@ export function platzierungenEinzeln(roh: unknown): PlacementDef[] {
       if (o.einebnen !== undefined) {
         // Wie beim Kreis-Radius: Unsinn verwerfen statt auf einen Wert zu
         // klemmen — ein erfundener Sockel wäre schlimmer als keiner.
-        const r = klemm(o.einebnen, 1, 100, NaN);
+        const r = klemm(o.einebnen, 1, PLATZIERUNG_EINEBNEN_MAX, NaN);
         if (Number.isFinite(r)) eintrag.einebnen = Math.round(r * 10) / 10;
       }
       const npc = sanitizeNpc(o.npc);
@@ -263,6 +263,161 @@ export function platzierungenEinzeln(roh: unknown): PlacementDef[] {
     }
   }
   return roheEintraege;
+}
+
+/** Größter Sockelradius `einebnen` in m: Sanitizer, Server-Klemme, Schreibweg und Testflug halten dieselbe Grenze. */
+export const PLATZIERUNG_EINEBNEN_MAX = 100;
+
+/** Ein Zahltext, den `Number()` unzweideutig liest: Dezimalzahl mit Vorzeichen und Exponent, kein Hex, kein `Infinity`, kein Leerstring. */
+const ZAHLTEXT_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+/**
+ * Ist der Wert eine Zahl in [min, max], oder ein Zahltext, der eindeutig eine solche Zahl ist? `"3"` ist die Zahl 3
+ * (der Sanitizer liest es genau so): kein Tippfehler. `"abc"`, `""`, `true`, `[]` und `99` (bei Höchstwert 5,
+ * geklemmt) sind es.
+ */
+function zahlInBereich(v: unknown, min: number, max: number): boolean {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && ZAHLTEXT_RE.test(v.trim()) ? Number(v.trim()) : NaN;
+  return Number.isFinite(n) && n >= min && n <= max;
+}
+
+/** Die Schlüssel einer Platzierung und ihres npc-Blocks. Alles andere streicht der Sanitizer still (Schlüssel-Tippfehler `Yaw`). */
+const PLATZIERUNG_SCHLUESSEL: ReadonlySet<string> = new Set(['id', 'prefab', 'x', 'z', 'yaw', 'scale', 'einebnen', 'route', 'npc']);
+const NPC_SCHLUESSEL: ReadonlySet<string> = new Set(['name', 'rolle', 'fraktion', 'stufe', 'quest']);
+
+/**
+ * Welche vom Nutzer GESETZTEN Felder eines rohen Eintrags hat `platzierungenEinzeln` geklemmt, gekürzt oder
+ * gestrichen (Roheintrag ≠ bereinigter Eintrag)? Etwa `yaw: "abc"` (wird 0), `scale: 99` (wird 5), `scale: null`
+ * (wird 0,2), `route: "Nord Weg"` (fällt weg), `npc: "x"`, `npc: []`, `npc.rolle: "typo"`, ein `npc.name` über 32
+ * Zeichen (wird gekürzt) und jeder unbekannte Schlüssel (`Yaw`, `scael`, `npc.Rolle`: fällt weg, gälte als fehlend).
+ *
+ * Nicht dabei, weil eindeutig und ohne Bedeutungsänderung:
+ *  - Zahltexte (`scale: "3"`), Rundung (Millimeter bei x/z, 0,1 bei `einebnen`, ganze Stufe)
+ *  - `null` bei `yaw`, `route`, `npc`, `npc.name/rolle/fraktion/quest`: gilt wie ein fehlendes Feld. Bei `scale`,
+ *    `einebnen` und `npc.stufe` NICHT: Dort macht der Sanitizer aus `null` die Zahl 0 und klemmt sie (`scale` 0,2).
+ *  - `prefab`: ein falsches Prefab ist ein anderer, gültiger Eintrag (kein Klemmen); ein unbekanntes Prefab meldet
+ *    der Abgleich als `unbekannt`.
+ *  - eine FEHLENDE id (wird abgeleitet). Eine gesetzte, aber ungültige id zählt (Feld `id`).
+ *
+ * Gilt nur für Einträge, die der Sanitizer NICHT verworfen hat (die zählen als verworfen: `platzierungenFehler`).
+ */
+export function geklemmteFelder(roh: unknown): string[] {
+  const felder: string[] = [];
+  if (typeof roh !== 'object' || roh === null) return felder;
+  const o = roh as Record<string, unknown>;
+  const gesetzt = (v: unknown): boolean => v !== undefined && v !== null;
+  /** Gesetzt UND nicht in [min, max] lesbar; `null` zählt hier mit (Sanitizer: `Number(null)` = 0). */
+  const zahlFalsch = (v: unknown, min: number, max: number): boolean => v !== undefined && (v === null || !zahlInBereich(v, min, max));
+  for (const k of Object.keys(o)) if (!PLATZIERUNG_SCHLUESSEL.has(k)) felder.push(k);
+  // Eine GESETZTE, aber ungültige id (Großbuchstabe, Leerzeichen, Umlaut, Zahl, null, über 64 Zeichen) würde still neu
+  // abgeleitet: ein gefällter Baum würde belebt, ein stehender live gelöscht und neu gespawnt. Fehlt die id ganz, ist
+  // das erlaubt (Altdokumente ohne ids).
+  if (o.id !== undefined && !(typeof o.id === 'string' && ID_RE.test(o.id))) felder.push('id');
+  if (gesetzt(o.yaw) && !zahlInBereich(o.yaw, -Math.PI * 2, Math.PI * 2)) felder.push('yaw');
+  if (zahlFalsch(o.scale, 0.2, 5)) felder.push('scale');
+  if (zahlFalsch(o.einebnen, 1, PLATZIERUNG_EINEBNEN_MAX)) felder.push('einebnen');
+  if (gesetzt(o.route) && !(typeof o.route === 'string' && ID_RE.test(o.route))) felder.push('route');
+  if (gesetzt(o.npc)) {
+    if (typeof o.npc !== 'object' || Array.isArray(o.npc)) felder.push('npc');
+    else {
+      const n = o.npc as Record<string, unknown>;
+      if (Object.keys(n).length === 0) felder.push('npc');
+      for (const k of Object.keys(n)) if (!NPC_SCHLUESSEL.has(k)) felder.push(`npc.${k}`);
+      if (gesetzt(n.name) && (typeof n.name !== 'string' || n.name.trim().length > NPC_NAME_MAX)) felder.push('npc.name');
+      if (gesetzt(n.rolle) && !istNpcRolle(n.rolle)) felder.push('npc.rolle');
+      if (gesetzt(n.fraktion) && !istFraktion(n.fraktion)) felder.push('npc.fraktion');
+      if (zahlFalsch(n.stufe, NPC_STUFE_MIN, NPC_STUFE_MAX)) felder.push('npc.stufe');
+      if (gesetzt(n.quest) && !istQuestZustand(n.quest)) felder.push('npc.quest');
+    }
+  }
+  return felder;
+}
+
+/** Ein Befund am ROHEN Eintrag: welche Platzierung (`id`, sonst `#<Stelle>`), welches Feld, welcher Wert (gekürzt). */
+export interface PlatzierungsFehler {
+  id: string;
+  feld: string;
+  wert: unknown;
+}
+
+/** Ein Wert für die Meldung: Zahlen, Wahrheitswerte und null bleiben, Texte und Verschachteltes werden auf 80 Zeichen gekürzt. */
+function wertKurz(v: unknown): unknown {
+  if (v === null || typeof v === 'boolean') return v;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : String(v);
+  if (typeof v === 'string') return v.length > 80 ? `${v.slice(0, 80)}…` : v;
+  if (v === undefined) return null;
+  let text: string | undefined;
+  try {
+    text = JSON.stringify(v);
+  } catch {
+    text = undefined;
+  }
+  return text === undefined ? String(typeof v) : text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+/**
+ * Was am ROHEN Platzierungs-Array (vor dem Sanitizer) verworfen oder verändert würde: ein Eintrag, den
+ * `platzierungenEinzeln` streicht (kein Objekt, `prefab` fehlt oder ist leer / über 64 Zeichen, `x` oder `z`
+ * keine endliche Zahl im Weltrahmen), und jedes Feld aus `geklemmteFelder`. Nur die ersten 2000 Einträge (mehr nimmt
+ * der Sanitizer nicht; die Obergrenze meldet der Schreibweg vorher). Leer heißt: der Sanitizer ändert nichts außer
+ * Rundung, Zahltexten, Sortierung und dem Zusammenlegen exakter Duplikate.
+ *
+ * Kein Array (fehlt, `null`, Text) liefert eine leere Liste: Das prüft `listenPruefen` des Schreibwegs.
+ */
+export function platzierungenFehler(roh: unknown): PlatzierungsFehler[] {
+  const fehler: PlatzierungsFehler[] = [];
+  if (!Array.isArray(roh)) return fehler;
+  roh.slice(0, 2000).forEach((p, i) => {
+    const id = typeof p === 'object' && p !== null && typeof (p as { id?: unknown }).id === 'string' && (p as { id: string }).id.length <= 64 ? (p as { id: string }).id : `#${i}`;
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) {
+      fehler.push({ id, feld: 'eintrag', wert: wertKurz(p) });
+      return;
+    }
+    const o = p as Record<string, unknown>;
+    if (typeof o.prefab !== 'string' || o.prefab.length === 0 || o.prefab.length > 64) fehler.push({ id, feld: 'prefab', wert: wertKurz(o.prefab) });
+    if (koordinate(o.x) === null) fehler.push({ id, feld: 'x', wert: wertKurz(o.x) });
+    if (koordinate(o.z) === null) fehler.push({ id, feld: 'z', wert: wertKurz(o.z) });
+    for (const feld of geklemmteFelder(o)) {
+      const teile = feld.split('.');
+      let wert: unknown = o;
+      for (const t of teile) wert = typeof wert === 'object' && wert !== null ? (wert as Record<string, unknown>)[t] : undefined;
+      fehler.push({ id, feld, wert: wertKurz(wert) });
+    }
+  });
+  fehler.push(...doppelteIds(roh.slice(0, 2000)));
+  return fehler;
+}
+
+/**
+ * Dieselbe gültige id mehrfach mit VERSCHIEDENEM Inhalt: `platzierungenNormalisieren` behielte den ersten Eintrag und
+ * leitete dem zweiten eine neue id ab. Steht die Kopie vor dem Original, verlöre das Original seine Adresse
+ * (ein gefällter Baum würde belebt, ein stehender verschoben). Exakte Duplikate (gleiche id, gleicher Inhalt) faltet
+ * der Sanitizer weiter still zusammen. Eine Meldung je id (`wert: "doppelt"`).
+ */
+function doppelteIds(roh: readonly unknown[]): PlatzierungsFehler[] {
+  const erste = new Map<string, PlacementDef>();
+  const gemeldet = new Set<string>();
+  const fehler: PlatzierungsFehler[] = [];
+  for (const p of roh) {
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) continue;
+    const id = (p as { id?: unknown }).id;
+    if (typeof id !== 'string' || !ID_RE.test(id)) continue;
+    const e = platzierungenEinzeln([p])[0];
+    if (!e) continue; // verworfen: zählt dort
+    const vorher = erste.get(id);
+    if (!vorher) erste.set(id, e);
+    else if (!gemeldet.has(id) && !gleicherInhalt(vorher, e)) {
+      gemeldet.add(id);
+      fehler.push({ id, feld: 'id', wert: 'doppelt' });
+    }
+  }
+  return fehler;
+}
+
+/** Die Liste als Satz für Editor, KI und Log: `t9 yaw="abc"`, höchstens `max` Stück, der Rest als Zahl. */
+export function platzierungenFehlerText(liste: readonly PlatzierungsFehler[], max = 20): string {
+  const teile = liste.slice(0, max).map((f) => `${f.id} ${f.feld}=${JSON.stringify(f.wert)}`);
+  return teile.join(', ') + (liste.length > max ? ` … (+${liste.length - max})` : '');
 }
 
 export function sanitizeWorldLayout(input: unknown): WorldLayout | null {

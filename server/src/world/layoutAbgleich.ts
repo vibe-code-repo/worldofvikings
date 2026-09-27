@@ -97,7 +97,7 @@ const ZUSTANDS_HASHES: readonly number[] = [
 ].map(getStableHash);
 
 /** Wie viel Zustand am Exemplar hängt: die Zahl der vorhandenen Zustands-Member. */
-function zustand(zdo: ZDO): number {
+export function zustand(zdo: ZDO): number {
   return ZUSTANDS_HASHES.filter((h) => zdo.hasMember(h)).length;
 }
 

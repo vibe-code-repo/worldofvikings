@@ -93,7 +93,7 @@ function dienstStarten(wurzel: string): Promise<{ kind: ChildProcess; url: strin
   return new Promise((fertig, scheitern) => {
     const kind = spawn(resolve(WURZEL, 'node_modules/.bin/tsx'), ['src/main.ts'], {
       cwd: resolve(WURZEL, 'admin'),
-      env: { ...process.env, WOV_WURZEL: wurzel, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_ADMIN_TOKEN_DATEI: resolve(wurzel, 'token') },
+      env: { ...process.env, WOV_WURZEL: wurzel, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_QUITTUNG: 'aus', NODE_ENV: 'test', WOV_WELT_VERZEICHNIS: resolve(wurzel, 'server/data/welten'), WOV_ADMIN_TOKEN_DATEI: resolve(wurzel, 'token') },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let puffer = '';
@@ -124,6 +124,11 @@ interface Zaehl {
   anfragen: Array<{ methode: string; pfad: string; status: number }>;
   /** Läuft vor dem Weiterreichen des nächsten PATCH (einmalig). */
   vorPatch?: () => Promise<void>;
+  /**
+   * Einmalig: die Antwort des Dienstes auf den nächsten PATCH/POST wird zu 202 mit diesen Feldern (der Dienst
+   * quittiert in dieser Probe nie, `WOV_QUITTUNG=aus`; so spielt sie „geschrieben, aber nicht angewendet“ durch).
+   */
+  als202?: { grund: string; detail?: string };
   zaehle(methode: string, status?: number): number;
 }
 async function zaehlProxy(ziel: string): Promise<Zaehl> {
@@ -144,7 +149,21 @@ async function zaehlProxy(ziel: string): Promise<Zaehl> {
           await h();
         }
         const u = new URL(ziel);
+        const wie202 = req.method === 'PATCH' || req.method === 'POST' ? z.als202 : undefined;
+        if (wie202) z.als202 = undefined;
         const aus = request({ host: u.hostname, port: u.port, path: req.url, method: req.method, headers: req.headers }, (antwort) => {
+          if (wie202 && antwort.statusCode === 200) {
+            const stuecke: Buffer[] = [];
+            antwort.on('data', (c: Buffer) => stuecke.push(c));
+            antwort.on('end', () => {
+              const daten = JSON.parse(Buffer.concat(stuecke).toString('utf-8')) as Record<string, unknown>;
+              const neu = Buffer.from(JSON.stringify({ ...daten, angewendet: false, ...wie202 }));
+              z.anfragen.push({ methode: req.method ?? '?', pfad: req.url ?? '', status: 202 });
+              res.writeHead(202, { 'content-type': 'application/json', 'content-length': neu.length });
+              res.end(neu);
+            });
+            return;
+          }
           z.anfragen.push({ methode: req.method ?? '?', pfad: req.url ?? '', status: antwort.statusCode ?? 0 });
           res.writeHead(antwort.statusCode ?? 502, antwort.headers);
           antwort.pipe(res);
@@ -355,6 +374,20 @@ try {
   const dateiText = readFileSync(weltDatei(A), 'utf-8');
   check('Wettlauf: die Datei enthält den Stand des ersten Schreibers (x 82)', /"x":\s*82/.test(dateiText) && !/"x":\s*90/.test(dateiText));
   check('Wettlauf: Datei nach dem 409 unverändert', sha(weltDatei(A)) === hashNachWettlauf);
+
+  // ── 202 (geschrieben, im laufenden Spiel nicht angewendet): Grund und Detail kommen bei der KI an ──
+  pA.als202 = { grund: 'bestaetigung-noetig', detail: 'würde ZDOs mit Zustand entfernen: kiste-1' };
+  const z202 = await rufe(c, 'ops_apply', { trocken: false, ops: [{ art: 'setze', sammlung: 'placements', id: 'z202', nachher: { id: 'z202', prefab: 'environment-chestbottom', x: 95, z: 95 } }] });
+  const j202 = json(z202);
+  check('202 im ops_apply: kein Fehler, Datei geschrieben', !istFehler(z202) && /"x":\s*95/.test(readFileSync(weltDatei(A), 'utf-8')), text(z202).slice(0, 200));
+  check('202 im ops_apply: der Text sagt NICHT angewendet, Grund und Detail', /NICHT angewendet/.test(text(z202)) && /bestaetigung-noetig/.test(text(z202)) && /kiste-1/.test(text(z202)), text(z202).slice(0, 300));
+  check('202 im ops_apply: strukturiert angewendet=false, grund, detail', j202.angewendet === false && j202.grund === 'bestaetigung-noetig' && j202.detail === 'würde ZDOs mit Zustand entfernen: kiste-1', JSON.stringify(j202).slice(0, 300));
+  pA.als202 = { grund: 'geo', detail: 'wasser' };
+  const alt202 = await rufe(c, 'lake_set', { see: { id: 'k202', x: 5, z: 5, radius: 3 } });
+  check('202 im alten Schreibweg (lake_set): Text nennt NICHT angewendet, geo, wasser', !istFehler(alt202) && /NICHT angewendet/.test(text(alt202)) && /geo: wasser/.test(text(alt202)), text(alt202).slice(0, 300));
+  const normal = await rufe(c, 'lake_delete', { id: 'k202' });
+  check('ohne 202 (Dienst quittiert nicht): kein „NICHT angewendet“ im Text', !istFehler(normal) && !/NICHT angewendet/.test(text(normal)), text(normal).slice(0, 200));
+  check('undo_last nimmt den 202-Vorgang zurück', !istFehler(await rufe(c, 'undo_last', {})));
 
   // ── Schreibsperre: MCP im Checkout A gegen den Dienst von B ──
   const cB = await mcpStarten(A, pB.url);

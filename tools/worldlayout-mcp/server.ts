@@ -17,6 +17,11 @@
  *
  * Jede Änderung läuft durch sanitizeWorldLayout — die KI kann das Dokument
  * nicht in einen Zustand bringen, den der Spielserver ablehnen würde.
+ * Ausnahme Platzierungen über `ops_apply`/`schreibe`: Was der Sanitizer dort still
+ * ändern würde (Tippfehler wie `yaw: "abc"`, `scale: null`, ein Schlüssel `Yaw`, eine
+ * ungültige oder doppelte `id` mit verschiedenem Inhalt), weist der Betriebsdienst mit
+ * 422 und der Liste `{id, feld, wert}` ab; nichts wird geschrieben, die Liste kommt an
+ * die KI. `placement_set` klemmt und meldet die Änderung als `{id, feld, wert, neu}`.
  * `layout_deploy` startet den wov-Server neu (systemd).
  *
  * ── Ein Schreiber: der Betriebsdienst ────────────────────────────────
@@ -94,6 +99,7 @@ import {
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { PLATZIERUNGEN_GRENZE } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { ID_RE } from '@wov/shared/src/worldlayout/platzierungsId.js';
+import { platzierungenFehler } from '@wov/shared/src/worldlayout/sanitize.js';
 import { mcp, ADMIN_URL, lade, schreibe, zusammenfassung } from './kern.js';
 
 // Biomnamen NICHT von Hand aufgezählt, sondern aus BIOME_BY_NAME (der
@@ -193,9 +199,9 @@ const placementSchema = z.object({
   x: z.number(),
   z: z.number(),
   yaw: z.number().optional().describe('Drehung um die Hochachse in Radiant (Default 0)'),
-  scale: z.number().optional().describe('Einheitliche Skalierung (Default 1)'),
+  scale: z.number().optional().describe('Einheitliche Skalierung 0,2–5 (Default 1; außerhalb wird geklemmt und gemeldet)'),
   route: z.string().optional().describe('ID einer Route aus WorldLayout.routes'),
-  einebnen: z.number().optional().describe('Radius in m, in dem der Untergrund eingeebnet wird'),
+  einebnen: z.number().optional().describe('Radius in m, 1–100, in dem der Untergrund eingeebnet wird (größer: geklemmt und gemeldet)'),
   npc: npcSchema.optional(),
 });
 
@@ -239,8 +245,8 @@ mcp.tool(
         isError: true,
       };
     }
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 
@@ -250,8 +256,8 @@ mcp.tool('region_delete', 'Region löschen', { id: z.string() }, async ({ id }) 
     return { content: [{ type: 'text', text: `Unbekannte Region: ${id}` }], isError: true };
   }
   const neu = { ...layout, regions: layout.regions.filter((r) => r.id !== id) };
-  await schreibe(neu, hash);
-  return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
+  const wirkung = await schreibe(neu, hash);
+  return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}${wirkung}` }] };
 });
 
 /** Eintrag mit gleicher `id` ersetzen (oder anhängen) — Muster von region_set. */
@@ -275,8 +281,8 @@ mcp.tool(
         isError: true,
       };
     }
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 
@@ -291,8 +297,8 @@ mcp.tool(
       return { content: [{ type: 'text', text: `Unbekannter Kontinent: ${id}` }], isError: true };
     }
     const neu = { ...layout, continents: layout.continents.filter((k) => k.id !== id) };
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 
@@ -309,8 +315,8 @@ mcp.tool(
     if (!neu || !(neu.rivers ?? []).some((r) => r.id === fluss.id)) {
       return { content: [{ type: 'text', text: 'Abgelehnt: Fluss übersteht sanitize nicht.' }], isError: true };
     }
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 
@@ -320,8 +326,8 @@ mcp.tool('river_delete', 'Fluss löschen', { id: z.string() }, async ({ id }) =>
     return { content: [{ type: 'text', text: `Unbekannter Fluss: ${id}` }], isError: true };
   }
   const neu = { ...layout, rivers: (layout.rivers ?? []).filter((r) => r.id !== id) };
-  await schreibe(neu, hash);
-  return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
+  const wirkung = await schreibe(neu, hash);
+  return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}${wirkung}` }] };
 });
 
 mcp.tool(
@@ -337,8 +343,8 @@ mcp.tool(
     if (!neu || !(neu.lakes ?? []).some((l) => l.id === see.id)) {
       return { content: [{ type: 'text', text: 'Abgelehnt: See übersteht sanitize nicht.' }], isError: true };
     }
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 
@@ -348,8 +354,8 @@ mcp.tool('lake_delete', 'See löschen', { id: z.string() }, async ({ id }) => {
     return { content: [{ type: 'text', text: `Unbekannter See: ${id}` }], isError: true };
   }
   const neu = { ...layout, lakes: (layout.lakes ?? []).filter((l) => l.id !== id) };
-  await schreibe(neu, hash);
-  return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
+  const wirkung = await schreibe(neu, hash);
+  return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}${wirkung}` }] };
 });
 
 mcp.tool(
@@ -366,8 +372,8 @@ mcp.tool(
     if (!neu || !(neu.routes ?? []).some((r) => r.id === route.id)) {
       return { content: [{ type: 'text', text: 'Abgelehnt: Route übersteht sanitize nicht.' }], isError: true };
     }
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 
@@ -382,8 +388,8 @@ mcp.tool(
       return { content: [{ type: 'text', text: `Unbekannte Route: ${id}` }], isError: true };
     }
     const neu = { ...layout, routes: (layout.routes ?? []).filter((r) => r.id !== id) };
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gelöscht.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 
@@ -434,11 +440,24 @@ mcp.tool(
     if (!neu || !(neu.placements ?? []).some((p) => p.id === neueId)) {
       return fehler('Abgelehnt: Platzierung übersteht sanitize nicht (Prefab/Position prüfen).');
     }
-    await schreibe(neu, hash);
+    // Was der Sanitizer an den Werten geklemmt hat, sagen wir der KI (N4-E): `{id, feld, wert, neu}`.
+    const gespeichert = (neu.placements ?? []).find((p) => p.id === neueId) as unknown as Record<string, unknown> | undefined;
+    const geklemmt = platzierungenFehler([{ ...platzierung, id: neueId }])
+      .filter((f) => f.feld !== 'id')
+      .map((f) => {
+        let n: unknown = gespeichert;
+        for (const t of f.feld.split('.')) n = typeof n === 'object' && n !== null ? (n as Record<string, unknown>)[t] : undefined;
+        return { id: neueId, feld: f.feld, wert: f.wert, neu: n === undefined ? null : n };
+      });
+    const geklemmtText =
+      geklemmt.length > 0
+        ? `\nGeklemmt (${geklemmt.length}): ${geklemmt.map((g) => `${g.feld} ${JSON.stringify(g.wert)} → ${JSON.stringify(g.neu)}`).join(', ')}\n${JSON.stringify(geklemmt)}`
+        : '';
+    const wirkung = await schreibe(neu, hash);
     return {
       content: [{
         type: 'text',
-        text: `Gespeichert (id ${neueId}, ${ersetzt ? 'ersetzt' : 'neu angelegt'}).${hinweis}\n${zusammenfassung(neu)}`,
+        text: `Gespeichert (id ${neueId}, ${ersetzt ? 'ersetzt' : 'neu angelegt'}).${hinweis}${geklemmtText}\n${zusammenfassung(neu)}${wirkung}`,
       }],
     };
   }
@@ -480,9 +499,9 @@ mcp.tool(
     const uebrig = bestehend.filter((p) => p.id !== ziel);
     if (uebrig.length === bestehend.length) return fehler(`Keine Platzierung mit id ${ziel}`);
     const neu = { ...layout, placements: uebrig };
-    await schreibe(neu, hash);
+    const wirkung = await schreibe(neu, hash);
     return {
-      content: [{ type: 'text', text: `Platzierung gelöscht (id ${ziel}).${hinweis}\n${zusammenfassung(neu)}` }],
+      content: [{ type: 'text', text: `Platzierung gelöscht (id ${ziel}).${hinweis}\n${zusammenfassung(neu)}${wirkung}` }],
     };
   }
 );
@@ -501,8 +520,8 @@ mcp.tool(
         isError: true,
       };
     }
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 
@@ -518,8 +537,8 @@ mcp.tool(
     if (!neu) {
       return { content: [{ type: 'text', text: 'Unerwartet abgelehnt.' }], isError: true };
     }
-    await schreibe(neu, hash);
-    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}` }] };
+    const wirkung = await schreibe(neu, hash);
+    return { content: [{ type: 'text', text: `Gespeichert.\n${zusammenfassung(neu)}${wirkung}` }] };
   }
 );
 

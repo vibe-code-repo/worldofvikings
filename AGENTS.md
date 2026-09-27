@@ -340,23 +340,70 @@ you touched.
 
 ## 5. Checks: what "done" means
 
-Run these in your worktree before you open the pull request:
+**Rule B (2026-09-27): the full test run is the GitHub CI.** The CI job runs
+`npm test` (with `WOV_OHNE_MODELLE=1`) against your pull request head and does
+that run regardless of anything you ran locally, so a second full run on your
+machine buys nothing. In your worktree, before you open the pull request, run:
 
 ```bash
-npm ci                 # once per worktree
-npm run typecheck      # shared, server, client, admin
+npm ci                                        # once per worktree
+tools/sperre.sh build -- npm run typecheck    # shared, server, client, admin
 npm run lint
-npm test               # the runner; CI runs it with WOV_OHNE_MODELLE=1
-npm run build
+tools/sperre.sh build -- npm run build
 ```
 
-"I ran it on my machine" is not a check — the CI job on the pull request is the
-arbiter, and a pull request is merged only when it is green.
+plus the tests **affected** by your change, one file at a time under
+`tools/sperre.sh test --` (see the next section) — not the collective `npm test`.
+"Affected" means: every test file you added or changed, the tests of the
+modules you touched (`git grep` the changed file's path or its exports under
+`*/test/`), and `scripts/pruefe-runner-liste.mjs` whenever you added a test
+file — it is the guard that a new file is really entered in `KERN`.
 
-Playwright based measurements (`tools/pw-*`) are deliberately NOT part of CI:
-they run locally against the `:5274` tunnel, because no Chromium starts in a
-plain runner container. If your task depends on one of them, say so in the pull
-request and give the measured numbers.
+Run a full local `npm test` only when the task explicitly asks for it: changes
+to the runner itself, to `scripts/testweichen.mjs`, to test helpers several
+packages share, or to chase down a red CI. Why: one full run takes about 25
+minutes on the build host, there are only two `test` places (section 3.3), and
+CI runs the identical list again on the pull request head.
+
+"I ran it on my machine" is not a check — the CI job on the pull request head is
+the arbiter. A pull request is merged only when it is green, and "green" means
+reading the CI log itself: the count of passed plus skipped tests must equal
+the total, not just a green badge.
+
+### Which tests to run locally
+
+The runner (`scripts/run-tests.mjs`) starts every `KERN` entry the same way,
+whatever its file extension: `tsx <file>` with the working directory set to the
+entry's package — `['server/test', 'equipment-sets.ts']` runs as
+`tsx equipment-sets.ts` with `cwd: server/test`; `['client', 'test/village-biome.ts']`
+runs with `cwd: client`. To run one file exactly the way the collective run
+does, read its package and its file off the matching `KERN` entry and:
+
+```bash
+tools/sperre.sh test -- bash -c 'cd <package> && "$OLDPWD/node_modules/.bin/tsx" <file>'
+```
+
+(`$OLDPWD` is the repository root here, because `sperre.sh` runs the command
+with your current directory as its own — invoke it from the repository root.)
+For `['server/test', 'equipment-sets.ts']` that is
+`cd server/test && ... tsx equipment-sets.ts`. Checked against
+`server/test/forum-database.ts` on 2026-09-27: 20 checks, all green, well under
+a second.
+
+### What the CI run does not cover
+
+CI checks out a fresh clone and runs with `WOV_OHNE_MODELLE=1`: no `assets/`
+(section 1) and no browser. A test whose switch trips on either
+(`brauchtModelle`, `brauchtStore`, `brauchtBodenQuellen`, `brauchtBlender` in
+`scripts/testweichen.mjs`) is reported skipped there, not run — a green CI job
+says nothing about it. If your change touches models, assets, armor tooling or
+the Blender pipeline, run the affected tests locally too, with assets in place
+(section 3.2), so they actually run instead of skipping.
+
+Playwright based measurements (`tools/pw-*`) are deliberately NOT part of
+`npm test` at all: they run locally against the `:5274` tunnel, because no
+Chromium starts in a plain runner container. If your task depends on one of
+them, say so in the pull request and give the measured numbers.
 
 ## 6. Line endings: do not flatten them
 

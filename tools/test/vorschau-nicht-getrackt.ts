@@ -67,9 +67,19 @@ function ausschnitt(quelle: string, name: string): string | null {
   return ende > beginn ? quelle.slice(beginn, ende) : null;
 }
 
-/** Environment without GIT_* (a git hook would otherwise redirect the scratch repo into the caller's). */
+/**
+ * Environment without GIT_* (a git hook would otherwise redirect the scratch repo into the caller's)
+ * and without any WOV_* variable. The latter closes N8 (I-1, Ausrollversuch main 657c87e,
+ * 27.09.2026): this file cuts fragments out of wov-update.sh and runs them as if "the caller set
+ * nothing", but this very process can itself be running INSIDE a real tools/wov-update.sh (its
+ * test-tor calls `node scripts/run-tests.mjs`, which loads this file as a child process) -- before
+ * this fix, only GIT_* was stripped, so WOV_HEAD_VOR_MERGE, WOV_UPDATE_VORHER and WOV_UPDATE_STUFE2
+ * (the variables the script exports before that point, see `grep -n 'export ' tools/wov-update.sh`)
+ * leaked through and were mistaken for a value "untergeschoben" via wov.env. Every spot below that
+ * needs a specific WOV_* value sets it explicitly on top of this base.
+ */
 const SAUBERE_UMGEBUNG: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
+  Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_') && !k.startsWith('WOV_')),
 );
 
 // ── Der Kaefig ───────────────────────────────────────────────────────
@@ -124,6 +134,66 @@ function kaefigBefehl(befehl: string[], viaSudo = false, umgebung: Record<string
 const IN_CI = /^(true|1)$/i.test(process.env.CI ?? '');
 /** The cage run prints KAEFIG-PROBE OK=<n>; fewer than this many measured checks is not green. */
 const MINDEST_OK = 150;
+
+// ── K5.7: Zeuge fuer die echte Update-Umgebung (Ausrollversuch main 657c87e, 27.09.2026, N8/I-1) ──
+// tools/wov-update.sh exportiert vor "▶ Tests" WOV_HEAD_VOR_MERGE, WOV_UPDATE_VORHER und
+// WOV_UPDATE_STUFE2 (grep -n 'export ' tools/wov-update.sh) und startet DANACH node
+// scripts/run-tests.mjs, das diese Datei als eigenen Prozess laedt -- SAUBERE_UMGEBUNG wird beim
+// Import DIESES Prozesses aus dessen process.env gebaut. Der Fehler vom 27.09. zeigte sich deshalb
+// erst in einem frischen Prozess mit genau dieser geerbten Umgebung, nie durch einen spawnSync
+// innerhalb eines schon laufenden Prozesses (die Proben weiter unten wie "mitKopf" setzen die drei
+// Variablen nur fuer EINEN Bash-Unterprozess, nicht fuer die eigene SAUBERE_UMGEBUNG-Berechnung
+// dieser Datei). Deshalb hier ein echter Kindprozess derselben Datei, mit WOV_KAEFIG=1 und den drei
+// Variablen vorbelegt wie im echten Rollout -- er startet damit schon "im Kaefig" und fuehrt diesen
+// Abschnitt (nur `!IM_KAEFIG`) nicht noch einmal aus, es bleibt bei einer Verschachtelungsstufe.
+if (!IM_KAEFIG) {
+  const k57BasisUmgebung = Object.fromEntries(
+    Object.entries(process.env).filter(([k, v]) => !k.startsWith('TSX_') && v !== undefined),
+  ) as Record<string, string>;
+  let k57ViaSudo = false;
+  let [k57Prog, k57Args] = kaefigBefehl(['true']);
+  let k57Probe = spawnSync(k57Prog, k57Args, { encoding: 'utf8' });
+  if (k57Probe.status !== 0 && IN_CI && process.getuid?.() !== 0 && spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' }).status === 0) {
+    const k57SudoLauf = { ...k57BasisUmgebung, WOV_KAEFIG: '1' };
+    [k57Prog, k57Args] = kaefigBefehl(['true'], true, k57SudoLauf);
+    const k57Probe2 = spawnSync(k57Prog, k57Args, { encoding: 'utf8' });
+    if (k57Probe2.status === 0) {
+      k57ViaSudo = true;
+      k57Probe = k57Probe2;
+    }
+  }
+  if (k57Probe.status === 0) {
+    const K57_UPDATE_UMGEBUNG: Record<string, string> = {
+      ...k57BasisUmgebung,
+      WOV_KAEFIG: '1',
+      WOV_UPDATE_STUFE2: '1',
+      WOV_HEAD_VOR_MERGE: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
+      WOV_UPDATE_VORHER: '392453106b95b9af545cdf08523fdbeec06cbe8f',
+    };
+    const [k57RunProg, k57RunArgs] = kaefigBefehl(
+      [process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)],
+      k57ViaSudo,
+      K57_UPDATE_UMGEBUNG,
+    );
+    const k57Lauf = spawnSync(k57RunProg, k57RunArgs, {
+      encoding: 'utf8',
+      env: K57_UPDATE_UMGEBUNG,
+      maxBuffer: 256 * 1024 * 1024,
+      timeout: 300_000,
+    });
+    pruefe(
+      k57Lauf.status === 0 && !/ROT {2}N8 \(I-1\)/.test(k57Lauf.stdout ?? ''),
+      'K5.7: dieser Test bleibt gruen, wenn er (wie im echten Rollout) mit WOV_HEAD_VOR_MERGE/WOV_UPDATE_VORHER/WOV_UPDATE_STUFE2 in der ererbten Umgebung startet',
+      `rc=${k57Lauf.status} ${(k57Lauf.stdout ?? '').slice(-2000)}${(k57Lauf.stderr ?? '').slice(-500)}`,
+    );
+    if (fehler > 0) {
+      console.error(`\n${fehler} Pruefung(en) rot (K5.7-Zeuge).`);
+      process.exit(1);
+    }
+  } else {
+    console.error('  K5.7-Zeuge uebersprungen: kein Namensraum verfuegbar (siehe Kaefig-Pruefung unten).');
+  }
+}
 
 let ausfuehren = IM_KAEFIG;
 if (!IM_KAEFIG) {
@@ -1309,12 +1379,11 @@ if (ausfuehren && envSourcenBlock !== null) {
     // N8 (I-1): wov.env versucht zusaetzlich, WOV_HEAD_VOR_MERGE und WOV_UPDATE_VORHER
     // unterzuschieben -- genau die Probe S-WOVENV/S-WOVENV2 aus dem N7-Angriffsbericht.
     writeFileSync(envDatei, 'WOV_INSTANZ=dev\nWOV_KAEFIG=0\nWOV_UNIT_VERZEICHNIS=/von-wov-env\nWOV_HEAD_VOR_MERGE=untergeschoben-kopf\nWOV_UPDATE_VORHER=untergeschoben-vorher\n');
-    // Diese Testdatei laeuft selbst im Kaefig (WOV_KAEFIG=1 in der Aufrufumgebung des ganzen Laufs):
-    // die Basisumgebung fuer den "Aufrufer hat nichts gesetzt"-Fall muss beide Variablen deshalb explizit
-    // entfernen, sonst wuerde der Kaefig der aeusseren Probe selbst als "vom Aufrufer gesetzt" durchgehen.
-    const OHNE_KAEFIG_MARKEN: NodeJS.ProcessEnv = { ...SAUBERE_UMGEBUNG };
-    delete OHNE_KAEFIG_MARKEN.WOV_KAEFIG;
-    delete OHNE_KAEFIG_MARKEN.WOV_UNIT_VERZEICHNIS;
+    // SAUBERE_UMGEBUNG entfernt inzwischen JEDE WOV_*-Variable (s. Kommentar an ihrer Definition):
+    // diese Testdatei laeuft selbst im Kaefig (WOV_KAEFIG=1 in der Aufrufumgebung des ganzen Laufs)
+    // und kann, waehrend eines echten tools/wov-update.sh-Laufs, auch dessen exportierte
+    // WOV_HEAD_VOR_MERGE/WOV_UPDATE_VORHER geerbt haben -- der "Aufrufer hat nichts gesetzt"-Fall
+    // braucht dafuer keine eigene Entfernliste mehr, die genau diese Luecke offen liess (N8/I-1).
     const lauf = (extra: Record<string, string> = {}) => {
       const skript = [
         'set -euo pipefail',
@@ -1326,7 +1395,7 @@ if (ausfuehren && envSourcenBlock !== null) {
         'echo "KOPFVOR=${WOV_HEAD_VOR_MERGE-X}"',
         'echo "VORHERWERT=${WOV_UPDATE_VORHER-X}"',
       ].join('\n');
-      return spawnSync('bash', ['-c', skript], { encoding: 'utf8', env: { ...OHNE_KAEFIG_MARKEN, ...extra } });
+      return spawnSync('bash', ['-c', skript], { encoding: 'utf8', env: { ...SAUBERE_UMGEBUNG, ...extra } });
     };
     const ohne = lauf();
     pruefe(

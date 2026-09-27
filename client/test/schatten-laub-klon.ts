@@ -36,6 +36,30 @@ const pruefe = (bedingung: boolean, text: string): void => {
   }
 };
 
+/**
+ * Shadows.tick() teilt Packen und Werfer-Scan ein WALL-CLOCK-Budget
+ * (WERFER_BUDGET_MS = 4ms, Shadows.ts). Stehen mehrere Master zugleich zum
+ * Packen an, verarbeitet der Tick den ersten immer, jeden weiteren nur, wenn
+ * seit Tick-Beginn real weniger als 4ms vergangen sind. Unter Last kann der
+ * Scheduler allein zwischen zwei performance.now()-Aufrufen mehr als 4ms
+ * verstreichen lassen, ohne dass der Code irgendetwas Teures tut — dann faellt
+ * das Packen eines zweiten Masters in den naechsten Tick, und eine Zusicherung
+ * ueber den Zustand NACH einem einzigen tick() wird flackernd rot (beobachtet
+ * unter Last in einem anderen Testlauf, 27.09.2026). Fuer einen Tick, der
+ * mehrere Master zugleich packen soll, wird die Uhr deshalb eingefroren: das
+ * macht den Test unabhaengig vom Scheduler, ohne das Zeitbudget selbst
+ * (Produktionsverhalten, gegen Sprint-Ruckler) anzufassen.
+ */
+function tickeEingefroren(shadows: { tick(): void }): void {
+  const echt = performance.now;
+  performance.now = () => 0;
+  try {
+    shadows.tick();
+  } finally {
+    performance.now = echt;
+  }
+}
+
 console.log('Schatten G20: Laub-Klone');
 const EINHEIT = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
@@ -156,8 +180,8 @@ function wrapperKenntSubMesh(m: Mesh): boolean {
     shadows.tick();
     pruefe(shadows.vegetationsSchattenStats().tiefeWartend === 1, 'ein neuer Klon wartet nicht auf seinen Shader');
     const vorLeerlauf = shadows.vegetationsSchattenStats().tiefeAnmeldungen;
-    shadows.setPlayerPosition(9000, 9000); // alle Instanzen fallen aus dem Ring
-    shadows.tick();
+    shadows.setPlayerPosition(9000, 9000); // alle Instanzen fallen aus dem Ring, zwei Master stehen jetzt zum Packen an
+    tickeEingefroren(shadows); // deterministisch: beide Master muessen in DIESEM Tick fertig werden, s. Kommentar oben
     // M1: In dem Bild, in dem der Ring leerlaeuft, wird nichts mehr angemeldet.
     // tick() ruft tiefeNachziehen() VOR dem Packen; der Klon hatte da noch
     // `aktiv` 3 und wurde noch einmal angemeldet, obwohl das Packen ihn gleich

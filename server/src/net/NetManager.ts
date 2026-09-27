@@ -317,39 +317,55 @@ export class NetManager {
     // DungeonSpeichern.ts, dungeon2/Dungeon2Speichern.ts — jeweils nur
     // EIN send*-Aufruf je Datei) plus den Grundverkehr, den GameSocket
     // beim Verbinden von selbst sendet: VersionCheck (GameSocket.ts:240)
-    // und PasswordAuth (GameSocket.ts:272) laufen vor diesem Gate durch
-    // die eigenen switch-Zweige, Ping (GameSocket.ts:606) wird schon oben
-    // in dieser Methode geechot und erreicht diese Stelle nie. Eine
-    // gefaelschte nurEditor-Verbindung (das Bit setzt der Client) konnte
-    // bisher jedes andere Paket senden, das WovServer ueber onPacket
-    // bekommt — TerrainOp etwa kam beim Zeugen als TerrainOpSync an,
-    // unsichtbar fuer jeden Admin-Namensweg, weil alle Editoren "Editor"
-    // heissen.
+    // und PasswordAuth (GameSocket.ts:272) ERREICHEN diese Zeile — der
+    // switch steht dahinter, nicht davor (Berichtigung, Pruefung 4: die
+    // vorige Fassung dieses Kommentars behauptete das Gegenteil). Sie
+    // kommen trotzdem durch, weil `peer.nurEditor` in diesem Moment noch
+    // `false` ist: Das Feld wird erst WEITER UNTEN in handlePasswordAuth
+    // aus genau dem Paket gesetzt, das diese Pruefung gerade durchlaeuft
+    // — zu spaet, um sich selbst noch zu blockieren. Ping
+    // (GameSocket.ts:606) wird schon ganz oben in dieser Methode geechot
+    // und erreicht diese Stelle nie. Eine gefaelschte nurEditor-Verbindung
+    // (das Bit setzt der Client) konnte bisher jedes andere Paket senden,
+    // das WovServer ueber onPacket bekommt — TerrainOp etwa kam beim
+    // Zeugen als TerrainOpSync an, unsichtbar fuer jeden Admin-Namensweg,
+    // weil alle Editoren "Editor" heissen.
     //
     // Die Allowlist ist deshalb nicht "was der Editor-CLIENT schickt",
     // sondern "was serverseitig schon sein eigenes isAdmin-Gate hat"
     // (Pruefung 2, Zeile 18: "Nur fuer Admins sind AdminCommand,
     // SetTimeOfDay und die vier Dungeon-Pakete"): AdminCommand
     // (handleAdminCommand -> this.adminCommands.execute, das intern
-    // jeden Befehl gegen peer.isAdmin prueft), SetTimeOfDay
-    // (handleSetTimeOfDay) und DungeonEditRequest (handleDungeonEditRequest)
-    // pruefen isAdmin genauso wie die drei Dungeon-Bau/Speicher-Handler.
-    // Ohne AdminCommand hier waere der in Pruefung 2 §84 bestaetigte Weg
-    // "Admin ueber die spielerId" (ein Admin-Editor fuehrt admin-Befehle
-    // ueber seine Editor-Verbindung aus, etwa um eine Testinstanz
-    // aufzuraeumen) zerstoert — genau das brach instanz-verwurf.ts, weil
-    // der Test einen Editor-Admin per AdminCommand in eine Dungeon-
-    // Instanz stellt. Diese Zeile nimmt keinem der sechs Handler etwas,
-    // sie verwirft nur, was ein Editor nie schickt und was KEIN eigenes
+    // jeden Befehl gegen peer.isAdmin prueft) prueft isAdmin genauso wie
+    // die drei Dungeon-Bau/Speicher-Handler. Ohne AdminCommand hier waere
+    // der in Pruefung 2 §84 bestaetigte Weg "Admin ueber die spielerId"
+    // (ein Admin-Editor fuehrt admin-Befehle ueber seine
+    // Editor-Verbindung aus, etwa um eine Testinstanz aufzuraeumen)
+    // zerstoert — genau das brach instanz-verwurf.ts, weil der Test einen
+    // Editor-Admin per AdminCommand in eine Dungeon-Instanz stellt.
+    //
+    // SetTimeOfDay (handleSetTimeOfDay) und DungeonEditRequest
+    // (handleDungeonEditRequest) pruefen isAdmin ebenso, stehen aber seit
+    // dieser Nachbesserung (Pruefung 4, T1) NICHT mehr in der Liste: kein
+    // Editor-Client und kein Werkzeug schickt sie ueber eine
+    // nurEditor-Verbindung — beide Sender sitzen ausschliesslich in
+    // client/src/main.ts, ueber die normale Spielverbindung ohne
+    // nurEditor-Bit (git grep client/src/editor, GameSocket.ts, tools/,
+    // admin/ zeigt keinen anderen Aufrufer). Die kleinere Liste ist die
+    // kleinere Angriffsflaeche; kommt je ein echter Bedarf dazu, gehoert
+    // ein Test dazu, der ihn belegt (server/test/gaeste-besitz.ts [F3b]
+    // probiert deshalb ausdruecklich, dass ein ADMIN-Editor mit beiden
+    // Typen nichts bewirkt).
+    //
+    // Diese Zeile nimmt keinem der vier verbleibenden Handler etwas, sie
+    // verwirft nur, was ein Editor nie schickt und was KEIN eigenes
     // Rechte-Gate hat (PlayerInput, TerrainOp, PlacePiece, Interact, …).
     if (
       peer.nurEditor &&
       type !== PacketType.DungeonModulBau &&
       type !== PacketType.DungeonModulLoeschen &&
       type !== PacketType.DungeonEditSave &&
-      type !== PacketType.DungeonEditRequest &&
-      type !== PacketType.AdminCommand &&
-      type !== PacketType.SetTimeOfDay
+      type !== PacketType.AdminCommand
     ) {
       return;
     }
@@ -668,10 +684,16 @@ export class NetManager {
 
   // ── Peer lookup ──────────────────────────────────────────────────
 
-  /** C3: namenSchluessel statt `===`, wie die Doppelnamen-Pruefung oben. */
+  /**
+   * C3: namenSchluessel statt `===`, wie die Doppelnamen-Pruefung oben.
+   * B2 (Nachbesserung Pruefung 4): Editor-Peers bleiben aussen vor, genau
+   * wie bei `spielerIdFuerName` und `spieler entfernen` — sie heissen
+   * alle "Editor" und wuerden sonst `kick editor` reihenfolgeabhaengig
+   * statt dem Konto-Charakter treffen.
+   */
   findPeerByName(name: string): Peer | undefined {
     const schluessel = namenSchluessel(name);
-    return this.onlinePeers.find(p => namenSchluessel(p.name) === schluessel);
+    return this.onlinePeers.find(p => !p.nurEditor && namenSchluessel(p.name) === schluessel);
   }
 
   findPeerByUserId(userId: bigint): Peer | undefined {

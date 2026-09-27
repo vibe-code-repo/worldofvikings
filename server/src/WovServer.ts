@@ -4949,7 +4949,13 @@ export class WovServer {
     this.adminCommands.register('kick', (peer, args) => {
       const name = args.join(' ').trim();
       if (!name) return { ok: false, active: false, message: 'Aufruf: kick <Name>' };
-      if (name === peer.name) {
+      // B1 (Nachbesserung Pruefung 4, Regression aus C3): Selbstschutz
+      // ueber das TATSAECHLICH GEFUNDENE Ziel, nicht ueber den rohen
+      // Namen — findPeerByName normalisiert (namenSchluessel), ein
+      // exakter String-Vergleich liess sich mit anderer Gross-/
+      // Kleinschreibung oder Leerzeichen umgehen ("kick boss" traf den
+      // Admin "Boss" vorher nicht als sich selbst).
+      if (this.net.findPeerByName(name) === peer) {
         return { ok: false, active: false, message: 'Dich selbst kannst du nicht werfen' };
       }
       const getroffen = this.net.kick(name);
@@ -4985,7 +4991,16 @@ export class WovServer {
         return { ok: false, active: false,
           message: 'Aufruf: bann <Name> [30m|2h|7d|dauerhaft] [Grund] | bann herkunft <Name> ... | bann liste' };
       }
-      if (name === peer.name) {
+      // B1 (Nachbesserung Pruefung 4, Regression aus C3): dieselbe
+      // Umstellung wie bei `kick` — ueber das gefundene Ziel, nicht ueber
+      // den rohen Namen. `peer` ist online, also findet `findPeerByName`
+      // ihn selbst, sobald der getippte Name (normalisiert) seinem
+      // eigenen entspricht — unabhaengig davon, ob `bann herkunft`
+      // gemeint ist oder ein Konto-/Spielerbann; `trifftAdmin` weiter
+      // unten schuetzt nur Konto-/Spielerbanns, KEINEN Herkunftsbann
+      // (Pruefung 4 §2: Admin "Boss" sperrte sich per "bann herkunft
+      // BOSS" dauerhaft selbst aus).
+      if (this.net.findPeerByName(name) === peer) {
         return { ok: false, active: false, message: 'Dich selbst kannst du nicht bannen' };
       }
 
@@ -5005,9 +5020,13 @@ export class WovServer {
       let kontoId: number | null = null;
       if (aufHerkunft) {
         // C3: namenSchluessel statt `===`, wie kick und die Doppelnamen-
-        // Pruefung beim Anmelden jetzt auch.
+        // Pruefung beim Anmelden jetzt auch. B2 (Nachbesserung Pruefung
+        // 4): Editor-Peers bleiben aussen vor, wie bei `findPeerByName`
+        // und `spieler entfernen` — sie heissen alle "Editor" und
+        // wuerden sonst reihenfolgeabhaengig statt dem Konto-Charakter
+        // getroffen.
         const zielSchluessel = namenSchluessel(name);
-        const ziel = this.net.getPeers().find((p) => namenSchluessel(p.name) === zielSchluessel);
+        const ziel = this.net.getPeers().find((p) => !p.nurEditor && namenSchluessel(p.name) === zielSchluessel);
         if (!ziel) {
           return { ok: false, active: false,
             message: `${name} ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen` };

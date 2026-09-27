@@ -16,19 +16,26 @@ export function namenSchluessel(name: string): string {
 }
 
 /**
- * A handful of code points that render as blank or near-blank but sit
- * outside \p{Cc}/\p{Cf}/\p{Zl}/\p{Zp} and so slip past the check below:
- * U+3164 Hangul Filler, U+115F/U+1160 Hangul Choseong/Jungseong Filler and
- * U+FFA0 Halfwidth Hangul Filler are category Lo (letters, not format
- * characters, because Hangul fillers must combine like syllables); U+2800
- * Braille Pattern Blank is category So; U+034F Combining Grapheme Joiner is
- * category Mn. All six were used in Pruefung 3 (gast-pruef3) to smuggle an
- * invisible extra character onto the end of "Editor" and get a name that
- * reads as the reserved one. Look-alikes across scripts (Cyrillic "Е" for
- * Latin "E") are a different, larger problem (homoglyphs) and are out of
- * scope here — see C3 in Pruefung 2 §3 / Pruefung 3 §1.
+ * B3 (Nachbesserung Pruefung 4): `\p{Default_Ignorable_Code_Point}` statt
+ * einer festen Liste. Die alte Sechserliste (Hangul-Fuellzeichen, das
+ * Combining Grapheme Joiner, Braille Pattern Blank) hat in Pruefung 4 noch
+ * Luecken gezeigt: U+FE00–FE0F (Variantenselektoren), U+E0100… (VS17+),
+ * U+17B4/U+17B5 (Khmer, unsichtbar) und U+180B–180F (mongolische FVS) kamen
+ * weiterhin durch, alle Default_Ignorable. Die Unicode-Eigenschaft deckt
+ * das automatisch ab (in Node geprueft: 034F, 115F, 1160, 3164, FFA0, 17B4,
+ * 180B, FE0F und E0100), NUR U+2800 Braille Pattern Blank NICHT — es ist
+ * unsichtbar, aber nicht als default-ignorable eingestuft, deshalb bleibt
+ * es als eigener Zusatz stehen. Alle genannten Zeichen wurden in Pruefung
+ * 3/4 (gast-pruef3, Pruefung 4 §2.3) genutzt, um eine unsichtbare
+ * Erweiterung an "Editor" oder einen Kontonamen zu haengen und trotzdem
+ * wie der reservierte bzw. fremde Name auszusehen. Nebenwirkung: das
+ * Combining Grapheme Joiner (U+034F) wird jetzt auch MITTEN in einem Namen
+ * abgewiesen, nicht nur am Ende — bei europaeischen Namen kommt es
+ * praktisch nicht vor. Look-alikes across scripts (Cyrillic "Е" for Latin
+ * "E") sind ein anderes, groesseres Problem (Homoglyphe) und bleiben
+ * ausserhalb dieses Umfangs — s. C3 in Pruefung 2 §3 / Pruefung 3 §1.
  */
-const UNSICHTBARE_ZEICHEN = /[ㅤ⠀͏ᅟᅠﾠ]/u;
+const UNSICHTBARE_ZEICHEN = /[\p{Default_Ignorable_Code_Point}⠀]/u;
 
 /** Control, format (zero-width, BOM, joiners), line/paragraph separator and the invisible outliers above. */
 export function nameHatSteuerzeichen(name: string): boolean {

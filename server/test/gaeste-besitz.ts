@@ -23,8 +23,11 @@
  *      Editor (auch mit Konto-Token) loest den Spielclient nicht ab.
  *  [F3] Ein Editor-Gast ohne Recht sendet TerrainOp/PlacePiece/Interact:
  *      nichts davon erreicht WovServer (C2).
- *  [F4] Ein echter Admin-Editor speichert weiterhin — die Allowlist aus F3
- *      nimmt den erlaubten drei Pakettypen nichts.
+ *  [F3b] Ein ADMIN-Editor sendet SetTimeOfDay/DungeonEditRequest: beide sind
+ *      seit dieser Nachbesserung aus der Allowlist gestrichen (T1) und
+ *      bewirken nichts, obwohl der Handler selbst isAdmin erfuellt saehe.
+ *  [F4] Ein echter Admin-Editor speichert weiterhin — die Allowlist nimmt
+ *      den erlaubten vier Pakettypen nichts.
  *  [H] Zwei gespeicherte Gaeste gleichen Namens: `admin add` meldet
  *      „nicht eindeutig“ und tut nichts. Eine andere Schreibung desselben
  *      Namens kommt online nicht mehr gleichzeitig herein (C3).
@@ -33,16 +36,28 @@
  *  [H3] `spieler entfernen` mit einem Treffer in anderer Schreibung loescht
  *      ihn (C5b/C5c).
  *  [H4] `spieler entfernen` erkennt einen Online-Spieler auch in anderer
- *      Schreibung und loescht nichts (D2).
+ *      Schreibung und loescht nichts (D2); die Eingabe ist bewusst GROSS
+ *      geschrieben (ULF), damit ihr Schluessel vom Wortlaut abweicht (A11).
  *  [H5] `kick` erkennt eine andere Schreibung (C3).
- *  [I] Namen mit Steuer-/Nullbreiten-Zeichen und andere Schreibweisen eines
- *      Kontonamens (NFD, Grossbuchstaben mit Umlaut) werden abgewiesen.
+ *  [H6] Ein Admin trifft sich per `kick` unter anderer Schreibung nicht
+ *      mehr selbst (B1, Regression aus C3). Die gleiche Umstellung fuer
+ *      `bann herkunft` steht — aus demselben Grund wie bei C3 oben — in
+ *      server/test/adminbefehle-bann.ts, wo jede Verbindung ihre eigene
+ *      Herkunft bekommt.
+ *  [I] Namen mit Steuer-/Nullbreiten-Zeichen, weiteren unsichtbaren Default-
+ *      Ignorable-Zeichen (B3) und andere Schreibweisen eines Kontonamens
+ *      (NFD, Grossbuchstaben mit Umlaut) werden abgewiesen.
+ *  [I2] Echte Namen mit Sonderzeichen (Koreanisch, Zoë in NFD, Braille
+ *      ausser dem Blank-Zeichen) bleiben erlaubt (Gegenprobe zu B3).
  *  [J] Der Name "Editor" ist fuer Gaeste reserviert (auch waehrend ein
  *      Editor online ist, auch mit Leerzeichen: MR2); ein zweiter Editor
  *      bleibt moeglich; `admin add Editor` trifft keinen Editor-Peer; ein
  *      Konto mit anderem Namen bleibt unbeeinflusst.
  *  [J2] Ein Konto-Charakter „Editor“ kommt herein, obwohl Editor-Verbindungen
- *      online sind, und `admin add Editor` trifft ihn (C1a).
+ *      online sind, und `admin add Editor`/`kick editor` treffen ihn, nie
+ *      die Editor-Peers, in beiden Verbindungsreihenfolgen (C1a, B2). Ein
+ *      `spieler entfernen editor` waehrend Editor-Peers online sind loescht
+ *      trotzdem den (jetzt offline) Konto-Charakter (A10).
  *  [K] `admin add` mit einer NFD-geschriebenen Eingabe trifft einen
  *      NFC-benannten Peer.
  *
@@ -417,7 +432,16 @@ async function main(): Promise<void> {
     // die beiden Pakete ankamen — die Entfernungspruefung in handleTerrainOp
     // (max. 10 m zu peer.position) schlug dann fehl, und beide Checks unten
     // waren leer wahr, auf beiden Staenden gleich, unabhaengig vom C2-Riegel.
-    await warte(300);
+    //
+    // T4 (Testluecke Pruefung 4): eine feste Wartezeit kann unter Last
+    // wieder zu kurz sein und den Test still leer-wahr machen, ohne dass
+    // er rot wird. Ein Ping NACH beiden Paketen kommt garantiert erst
+    // zurueck, wenn der Server sie verarbeitet hat — handlePacket ist je
+    // Verbindung synchron und geordnet (Ping wird ganz oben in derselben
+    // Methode geechot, s. NetManager.ts), unabhaengig von der Systemlast.
+    const pingVorC2 = betAmSchmied.typen.get(P.Ping) ?? 0;
+    sendePaket(betAmSchmied, P.Ping, new Writer());
+    await bis(() => (betAmSchmied.typen.get(P.Ping) ?? 0) > pingVorC2, 5_000);
     // Interact: Oles Truhe steht bei (305,50,400); der Editor-Gast wird extra dorthin gestellt.
     pSchmied.position = { ...truhe.position };
     { const w = new Writer();
@@ -459,6 +483,30 @@ async function main(): Promise<void> {
     await bis(() => speicherQuittung !== null, 3000);
     check('F4: DungeonEditSave vom Admin-Editor wird weiterhin ausgefuehrt (C2 sperrt keinen erlaubten Pakettyp)',
       (speicherQuittung as { ok: boolean; message: string } | null)?.ok === true, JSON.stringify(speicherQuittung));
+
+    // ── [F3b] T1/A2/A3: SetTimeOfDay/DungeonEditRequest bewusst NICHT
+    //      mehr in der Editor-Allowlist ────────────────────────────────
+    // Beide Handler pruefen selbst isAdmin, wie die vier verbliebenen
+    // Typen auch — die Probe nimmt deshalb bewusst den ADMIN-Editor aus
+    // [F4] (isAdmin ist erfuellt): haette die Allowlist die beiden Typen
+    // noch drin, wirkten sie hier. Dass sie es nicht tun, zeigt, dass die
+    // Allowlist selbst blockt, nicht (nur) der jeweilige Handler.
+    console.log('\n[F3b] Admin-Editor: SetTimeOfDay/DungeonEditRequest bewirken nichts (Allowlist schlank, T1):');
+    const zeitVorher = server.getTimeOfDay();
+    const timeSyncVorher = zeuge.typen.get(P.TimeSync) ?? 0;
+    const dungeonEditDataVorher = adminEditor.typen.get(P.DungeonEditData) ?? 0;
+    { const w = new Writer(); w.writeFloat64(777);
+      sendePaket(adminEditor, P.SetTimeOfDay, w); }
+    { const w = new Writer(); w.writeString('');
+      sendePaket(adminEditor, P.DungeonEditRequest, w); }
+    await warte(500);
+    check('F3b: SetTimeOfDay vom Admin-Editor aendert die Weltzeit nicht (A2)',
+      Math.abs(server.getTimeOfDay() - zeitVorher) < 1, `${zeitVorher} → ${server.getTimeOfDay()}`);
+    check('F3b: kein TimeSync-Broadcast durch das geblockte SetTimeOfDay',
+      (zeuge.typen.get(P.TimeSync) ?? 0) === timeSyncVorher);
+    check('F3b: DungeonEditRequest vom Admin-Editor bekommt keine (neue) Antwort (A3)',
+      (adminEditor.typen.get(P.DungeonEditData) ?? 0) === dungeonEditDataVorher, JSON.stringify([...adminEditor.typen]));
+
     await trenne(adminEditor);
 
     // ── [J] Der Name „Editor“ ist reserviert (C1); admin add trifft keinen
@@ -507,10 +555,41 @@ async function main(): Promise<void> {
     console.log(`    admin add Editor (Konto „Editor“ online) → ${editorAntwort2}`);
     check('J2: `admin add Editor` trifft jetzt den Konto-Charakter (C1a)',
       !!kontoEditorPeer && innen.adminListe.enthaelt(kontoEditorPeer.spielerId), editorAntwort2);
-    await trenne(kontoEditor);
+
+    // B2 (Nachbesserung Pruefung 4): `kick` soll wie `spielerIdFuerName`
+    // und `spieler entfernen` die Editor-Peers nicht ueber den Namen
+    // treffen. Reihenfolge 1: editor1/editor2 (nurEditor) sind schon
+    // laenger verbunden als der Konto-Charakter „Editor“.
+    const kickEditorAntwort1 = await admin(boss, 'kick editor');
+    await warte(300);
+    check('J2 (B2, Reihenfolge 1: Editor-Peers zuerst): `kick editor` trennt den Konto-Charakter, nicht die Editor-Peers',
+      kontoEditor.geschlossen && !editor1.geschlossen && !editor2.geschlossen, kickEditorAntwort1);
+
+    // A10 (Testluecke Pruefung 4, T3): "spieler entfernen editor" darf
+    // Editor-Peers (editor1/editor2, noch online) nicht als "verbunden"
+    // zaehlen — der Konto-Charakter „Editor“ ist gerade per kick offline
+    // gegangen, sein Datensatz liegt noch in savedPlayers.
+    const vorSpielerEntfernenEditor = innen.savedPlayers.size;
+    const entfernenEditorAntwort = await admin(boss, 'spieler entfernen editor');
+    console.log(`    spieler entfernen editor (Editor-Peers online) → ${entfernenEditorAntwort}`);
+    check('A10: `spieler entfernen editor` loescht den (jetzt offline) Konto-Charakter trotz Editor-Peers online (D2)',
+      entfernenEditorAntwort.includes('Entfernt: editor') && innen.savedPlayers.size === vorSpielerEntfernenEditor - 1,
+      entfernenEditorAntwort);
 
     await trenne(editor1);
     await trenne(editor2);
+
+    // Reihenfolge 2 (B2): Konto-Charakter zuerst, dann ein Editor-Peer.
+    const editorKontoToken2 = await spieltoken('editorkonto');
+    const kontoEditor2 = await verbinde('irrelevant', editorKontoToken2);
+    check('J2 (B2, Reihenfolge 2): Konto-Charakter „Editor“ kommt erneut herein', kontoEditor2.angemeldet);
+    const editor3 = await verbinde('Dritter', '', true);
+    check('J2 (B2, Reihenfolge 2): ein Editor-Peer kommt an, waehrend der Konto-Charakter „Editor“ online ist', editor3.angemeldet);
+    const kickEditorAntwort2 = await admin(boss, 'kick editor');
+    await warte(300);
+    check('J2 (B2, Reihenfolge 2: Konto-Charakter zuerst): `kick editor` trennt den Konto-Charakter, nicht den Editor-Peer',
+      kontoEditor2.geschlossen && !editor3.geschlossen, kickEditorAntwort2);
+    await trenne(editor3);
 
     // ── [K] `admin add` mit einer NFD-Eingabe trifft die NFC-Kennung (MN) ──
     console.log('\n[K] Admin-Namensauflösung mit einer NFD-Eingabe (MN):');
@@ -577,13 +656,19 @@ async function main(): Promise<void> {
 
     // ── [H4] `spieler entfernen` erkennt einen Online-Spieler auch in
     //      anderer Schreibung (D2) ──────────────────────────────────────
-    console.log('\n[H4] `spieler entfernen ulf` bei online „Ulf“ (D2):');
+    // A11 (Testluecke Pruefung 4, T3): die Eingabe ist bewusst GROSS
+    // geschrieben ("ULF") statt komplett klein — mit "ulf" ist der
+    // Schluessel zufaellig gleich der Eingabe, und ein Mutant, der
+    // `verbunden.has(name)` statt `verbunden.has(namenSchluessel(name))`
+    // schreibt, faellt nicht auf. Mit "ULF" unterscheiden sich Eingabe
+    // und Schluessel ("ulf"), der Mutant wird sichtbar.
+    console.log('\n[H4] `spieler entfernen ULF` bei online „Ulf“ (D2/A11):');
     const ulf = await verbinde('Ulf', '');
     check('H4: „Ulf“ online (Kontrolle)', ulf.angemeldet);
     const vorUlf = innen.savedPlayers.size;
-    const ulfAntwort = await admin(boss, 'spieler entfernen ulf');
-    console.log(`    spieler entfernen ulf → ${ulfAntwort}`);
-    check('H4: `spieler entfernen ulf` erkennt den online „Ulf“ trotz anderer Schreibung (verbunden) (D2)',
+    const ulfAntwort = await admin(boss, 'spieler entfernen ULF');
+    console.log(`    spieler entfernen ULF → ${ulfAntwort}`);
+    check('H4: `spieler entfernen ULF` erkennt den online „Ulf“ trotz anderer Schreibung (verbunden) (D2/A11)',
       ulfAntwort.includes('verbunden'), ulfAntwort);
     check('H4: kein Datensatz wurde gelöscht', innen.savedPlayers.size === vorUlf, `${vorUlf} → ${innen.savedPlayers.size}`);
     await trenne(ulf);
@@ -596,6 +681,14 @@ async function main(): Promise<void> {
     await bis(() => wanda.geschlossen, 3_000);
     check('H5: `kick WANDA` (andere Schreibung) trennt „Wanda“ (C3)', wanda.geschlossen, kickAntwort);
 
+    // ── [H6] B1: ein Admin trifft sich per `kick` nicht selbst, auch nicht
+    //      unter anderer Schreibung (Regression aus C3) ──────────────────
+    console.log('\n[H6] `kick BOSS` (eigener Name, andere Schreibung) trifft den Admin selbst nicht (B1):');
+    const kickSelbstAntwort = await admin(boss, 'kick BOSS');
+    check('H6: `kick BOSS` wird abgelehnt (Selbstschutz, B1)',
+      kickSelbstAntwort.includes('Dich selbst'), kickSelbstAntwort);
+    check('H6: Boss bleibt verbunden', !boss.geschlossen);
+
     // C3 fuer `bann herkunft` (WovServer.ts ~5007, derselbe Umbau wie bei
     // `kick`) bekommt HIER bewusst KEINE eigene Live-Probe: Alle Testclients
     // in dieser Datei verbinden von 127.0.0.1, ein echter `bann herkunft`
@@ -603,7 +696,10 @@ async function main(): Promise<void> {
     // (inklusive `boss`, ueber den `admin()` laeuft) -- genau die Falle, die
     // Pruefung 2 mit `bann herkunft Kai` in der eigenen Probe schon einmal
     // ausgeloest hat ("bannt 127.0.0.1"). Der Codepfad ist zeilengleich mit
-    // `kick` (H5 oben) und wird per Review geprueft, nicht per Lauf.
+    // `kick` (H5/H6 oben); B1 (Selbstschutz) und A8 (bann-herkunft-Suche
+    // exakt statt normalisiert) werden deshalb live in
+    // server/test/adminbefehle-bann.ts geprueft, wo jede Verbindung ihre
+    // eigene, per X-Forwarded-For vorgetaeuschte Herkunft bekommt.
 
     // ── [I] Namensformen ────────────────────────────────────────────
     console.log('\n[I] Namen mit Steuerzeichen und andere Schreibweisen eines Kontonamens:');
@@ -613,6 +709,15 @@ async function main(): Promise<void> {
       ['Björn zerlegt (NFD)', 'Bjo\u0308rn'],
       ['BJÖRN groß', 'BJÖRN'],
       ['bjÖrn gemischt', 'bjÖrn'],
+      // B3 (Nachbesserung Pruefung 4, A9): \p{Default_Ignorable_Code_Point}
+      // deckt mehr ab als die alte feste Sechserliste — diese vier kamen in
+      // Pruefung 4 noch durch (§2.3) und liessen "Anna"/"Editor" mit einem
+      // unsichtbaren Anhaengsel wie das Original bzw. den reservierten
+      // Namen aussehen.
+      ['Anna mit Variantenselektor (VS16, U+FE0F)', 'Anna\uFE0F'],
+      ['Anna mit Variantenselektor (VS17+, U+E0100)', 'Anna\u{E0100}'],
+      ['Anna mit Khmer-Unsichtbarem (U+17B4)', 'Anna\u17B4'],
+      ['Editor mit Variantenselektor (VS16, U+FE0F)', 'Editor\uFE0F'],
     ] as const) {
       const g = await verbinde(name, '');
       check(`I: ${was} wird abgewiesen`, !g.angemeldet);
@@ -621,6 +726,19 @@ async function main(): Promise<void> {
     const bjoern = await verbinde('Bjoern', '');
     check('I: Kontrolle: „Bjoern“ (anderer Name) geht', bjoern.angemeldet);
     await trenne(bjoern);
+
+    // ── [I2] Echte Namen mit Sonderzeichen bleiben erlaubt (Gegenprobe zu
+    //      B3/A9) ────────────────────────────────────────────────────────
+    console.log('\n[I2] Echte Namen mit Sonderzeichen werden zugelassen:');
+    for (const [was, name] of [
+      ['Koreanisch (Hangul)', '민준'],
+      ['Zoë in NFD (e + combining diaeresis)', 'Zoe\u0308'],
+      ['Braille außer dem Blank-Zeichen (kein U+2800)', '\u2801\u2803\u2807'],
+    ] as const) {
+      const g = await verbinde(name, '');
+      check(`I2: ${was} wird zugelassen`, g.angemeldet);
+      if (g.angemeldet) await trenne(g);
+    }
   } finally {
     server.stop();
     rmSync(ordner, { recursive: true, force: true });

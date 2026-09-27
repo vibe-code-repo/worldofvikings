@@ -649,11 +649,16 @@ function sperreBrechen(sperrPfad: string, pfad: string, u: { roh: string; pid: n
 /** Solange das Dateisystem harte Links kann, legt `sperreAnlegen` die Sperre atomar an. */
 let linkGeht = true;
 
+/** Tmp-Name des Sperr-Anlegers: versteckt (fuehrender Punkt), damit er nie wie eine Tmp-Datei der Weltdatei (`<datei>.<pid>.<hex>.tmp`) aussieht. */
+function versteckterTmpName(sperrPfad: string, pid: number, marke: string): string {
+  return resolve(dirname(sperrPfad), `.${basename(sperrPfad)}.${pid}.${marke}.tmp`);
+}
+
 /** Raeumt Tmp-Dateien von Sperr-Anlegern weg, die nicht mehr leben (kill -9 zwischen Schreiben und `link`). Nur eigene Namen. */
 function sperrTmpRaeumen(sperrPfad: string): void {
   try {
     const ordner = dirname(sperrPfad);
-    const muster = dateiMuster(sperrPfad, '(\\d+)\\.[0-9a-f]+\\.tmp');
+    const muster = dateiMuster(resolve(dirname(sperrPfad), `.${basename(sperrPfad)}`), '(\\d+)\\.[0-9a-f]+\\.tmp');
     for (const f of readdirSync(ordner)) {
       const m = muster.exec(f);
       if (m && Number(m[1]) !== process.pid && pidStatus(Number(m[1])) === 'tot') rmSync(resolve(ordner, f), { force: true });
@@ -668,8 +673,8 @@ function sperreAnlegen(sperrPfad: string): Sperre | null {
   if (linkGeht) {
     // Atomar: erst eine vollstaendige Tmp-Datei, dann `link` auf den Sperrnamen (EEXIST = besetzt). Die Sperre
     // erscheint nie leer oder halb geschrieben; nach `kill -9` zwischen Schreiben und `link` liegt hoechstens die
-    // Tmp-Datei `<datei>.lock.<pid>.<hex>.tmp` herum, die der naechste Halter (siehe unten) wegraeumt.
-    const tmp = `${sperrPfad}.${process.pid}.${zufall()}.tmp`;
+    // Tmp-Datei `.<datei>.lock.<pid>.<hex>.tmp` herum, die der naechste Halter (siehe unten) wegraeumt.
+    const tmp = versteckterTmpName(sperrPfad, process.pid, zufall());
     try {
       writeFileSync(tmp, inhalt, { flag: 'wx' });
       try {

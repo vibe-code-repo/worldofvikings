@@ -369,11 +369,11 @@ try {
     rmSync(`${h.arbeit}.lock`, { force: true });
     // Ein Anleger, der zwischen Schreiben und `link` starb, laesst `<datei>.lock.<pid>.<hex>.tmp` zurueck: der naechste Halter raeumt es weg.
     const o = fall(dokument('R0', 100));
-    writeFileSync(`${o.arbeit}.lock.2147483646.abcdef123456.tmp`, '{}');
-    writeFileSync(`${o.arbeit}.lock.${process.pid}.abcdef123456.tmp`, '{}');
+    writeFileSync(resolve(o.ordner, '.dev.json.lock.2147483646.abcdef123456.tmp'), '{}');
+    writeFileSync(resolve(o.ordner, `.dev.json.lock.${process.pid}.abcdef123456.tmp`), '{}');
     weltAbgleichen({ repoDatei: o.repo, arbeitsDatei: o.arbeit });
-    check('N1: Tmp-Rest eines toten Sperr-Anlegers wird beim naechsten Halten weggeraeumt, ein Tmp der eigenen pid bleibt', !existsSync(`${o.arbeit}.lock.2147483646.abcdef123456.tmp`) && existsSync(`${o.arbeit}.lock.${process.pid}.abcdef123456.tmp`), readdirSync(o.ordner).join(','));
-    rmSync(`${o.arbeit}.lock.${process.pid}.abcdef123456.tmp`, { force: true });
+    check('N1: Tmp-Rest eines toten Sperr-Anlegers wird beim naechsten Halten weggeraeumt, ein Tmp der eigenen pid bleibt', !existsSync(resolve(o.ordner, '.dev.json.lock.2147483646.abcdef123456.tmp')) && existsSync(resolve(o.ordner, `.dev.json.lock.${process.pid}.abcdef123456.tmp`)), readdirSync(o.ordner).join(','));
+    rmSync(resolve(o.ordner, `.dev.json.lock.${process.pid}.abcdef123456.tmp`), { force: true });
   }
 
   const nachVarLibWov = existsSync('/var/lib/wov') ? readdirSync('/var/lib/wov').sort().join(',') : null;

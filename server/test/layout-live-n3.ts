@@ -4,7 +4,7 @@
  *  Z1b an entry the sanitizer CLAMPED (not dropped) in a field the user set counts like a dropped one: receipt
  *      `verworfen` with id and field, nothing applied (`yaw: "abc"`, `scale: 99`, `route`, `npc.rolle`); a felled
  *      tree stays felled through typo + correction. Number texts (`scale: "3"`) are NOT typos. Known behaviour, not
- *      code: a prefab typo (`Beeech1`) and an id typo (`T5`) are valid changes.
+ *      code: a prefab typo (`Beeech1`) is a valid change; an id typo (`T5`) is not since N5 (`verworfen`).
  *  Z5a a swallowed re-set (tombstone) is never "applied, all counters 0" without a hint: `zaehler.zurueck` and `detail`
  *  Z7a `quittungLoeschenSicher` through the guard logs exactly ONE `[WoV]` prefix
  *  (Z6: the limit is 40: `layout-live-grenze.ts`, `layout-live-n2.ts`)
@@ -156,14 +156,15 @@ async function haupt(): Promise<void> {
     hash = schreibe(json(dokument(mit('t3', (p) => ({ ...p, scale: '3', yaw: ' 0.5 ' })))));
     q = await quittung(hash);
     ausgabe('Z1b yaw " 0.5 " (number text with blanks): applied', q?.ergebnis === 'angewendet' && q.grund === null, `${q?.grund}: ${q?.detail}`);
-    // Known behaviour (risk table, not code): a prefab typo and an id typo are valid, other entries.
+    // Known behaviour (risk table, not code): a prefab typo is a valid, other entry. An id typo is NOT (N5): the service refuses
+    // it with 422; in a file written behind its back the game server (second safeguard) holds the apply back (`verworfen`).
     server.zdos.destroyZDO(nach('t7')!.zdoid);
     hash = schreibe(json(dokument(mit('t7', (p) => ({ ...p, prefab: 'Beeech1' }), mit('t3', (p) => ({ ...p, scale: '3', yaw: ' 0.5 ' }))))));
     q = await quittung(hash);
     ausgabe('known: a prefab typo (Beeech1) is a valid change: applied, not verworfen', q?.ergebnis === 'angewendet' && q.grund === null, `${q?.grund}: ${q?.detail}`);
     hash = schreibe(json(dokument(mit('t8', (p) => ({ ...p, id: 'T8' }), mit('t3', (p) => ({ ...p, scale: '3', yaw: ' 0.5 ' }))))));
     q = await quittung(hash);
-    ausgabe('known: an id typo (T8) is a valid change: applied, not verworfen', q?.ergebnis === 'angewendet' && q.grund === null, `${q?.grund}: ${q?.detail}`);
+    ausgabe('N5: an id typo (T8) in a raw file is held back (verworfen, names T8), not applied', q?.ergebnis === 'nicht-angewendet' && q.grund === 'verworfen' && (q.detail ?? '').includes('T8'), `${q?.ergebnis} ${q?.grund}: ${q?.detail}`);
 
     // ── Z5a: a swallowed re-set is reported ──
     const Z = baeume(10).map((p) => (p.id === 't9' ? { id: 't9', prefab: 'Beech1', x: 66, z: 20 } : p)); // fresh baseline
@@ -208,7 +209,8 @@ async function haupt(): Promise<void> {
     ['npc.stufe "x"', { npc: { stufe: 'x' } }, ['npc.stufe']],
     ['npc.stufe 2.5 (rounding only)', { npc: { stufe: 2.5 } }, []],
     ['prefab typo is not a clamped field', { prefab: 'Beeech1' }, []],
-    ['id typo is not a clamped field', { id: 'T5' }, []],
+    ['id typo is a clamped field since N5 (would be derived anew)', { id: 'T5' }, ['id']],
+    ['id missing is not', { prefab: 'Beech1' }, []],
   ];
   for (const [name, roh, erwartet] of tabelle) {
     const ist = geklemmteFelder(roh);

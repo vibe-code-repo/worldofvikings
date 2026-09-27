@@ -822,6 +822,9 @@ const KERN = [
   // (Date.now gestellt) fuer den Ablauf des Fensters. Echter node:http-
   // Server, Sekunden.
   ['server', 'test/konto-registrierung-drossel.ts'],
+  // Konto-Verwaltung (W3): Passwort/E-Mail/Profil/Loeschung, Token-Sperre, Forum-
+  // Anonymisierung, gleichzeitige Loeschung und play. Echter node:http-Server.
+  ['server', 'test/konto-verwaltung.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die
@@ -2222,6 +2225,8 @@ const KERN = [
   ['tools', 'test/weltkarte-probe.mjs'],
   // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
   ['client', 'test/testflug-ops.ts'],
+  // Account management against a real server (W3): delete in the main world and inside a dungeon instance (chest by CONTAINER, build ownerless, no leftovers in instance.players), password change and log-out-everywhere cut game and editor connections, old player token refused. ~20 s.
+  ['server', 'test/konto-verwaltung-welt.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -11,7 +11,8 @@ import { erstelleHerunterfahren } from './herunterfahren.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
 import { weltAbgleichen } from '@wov/shared/src/worldlayout/weltArbeitskopie.js';
-import { quittungLoeschenSicher, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
+import { quittungLesen, quittungLoeschenSicher, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
+import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { ladeModulRegistrierung, sorgeFuerRegistryDatei } from './world/dungeon/ModuleBuild.js';
 import {
   ladeHochgeladeneRegistrierung,
@@ -54,11 +55,15 @@ console.log('╚═════════════════════�
 console.log();
 
 const config = leseServerKonfig(DATA_DIR, INSTANZ);
+const quittungsPfad = quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ);
+// Karte Z3: die Quittung des vorigen Laufs VOR dem Loeschen lesen — nur so laesst sich unten noch
+// feststellen, ob sie eine offene bestaetigung-noetig fuer GENAU die Datei war, die dieser Boot gleich laedt.
+const alteQuittung = quittungLesen(quittungsPfad);
 // K5.0 N1: Die Quittung des vorigen Laufs gilt fuer diesen nicht. So frueh wie moeglich weg (die Datei-Wache tut es
 // beim Anlegen noch einmal): Der Betriebsdienst sieht "aktiv" ab dem Prozessstart und soll im Boot-Fenster nie einen
 // Stand als angewendet melden, den erst dieser Lauf (oder gar nicht) anwendet.
 // K5.0 N2: Ein Fehler dort (Ordner nicht beschreibbar) geht ins Log und stoppt den Start nicht.
-quittungLoeschenSicher(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ), (text) => console.error(`[WoV] ${text}`));
+quittungLoeschenSicher(quittungsPfad, (text) => console.error(`[WoV] ${text}`));
 
 /*
   Welt: Arbeitskopie anlegen oder nachziehen (im selben Ablauf wie das Lesen, vor dem Server-Start).
@@ -79,6 +84,22 @@ if (config.worldMode === 'layout' && config.worldLayoutPath) {
     // Ohne lesbare Welt gibt es nichts zu starten: die Arbeitskopie ist kaputt, oder sie fehlt und das Repo ist kaputt.
     if (abgleich.fall === 'arbeit-kaputt' || abgleich.arbeitHash === null) process.exit(1);
   } else console.log(abgleich.meldung);
+
+  /*
+    Karte Z3: Passt die alte Quittung (Hash) zu GENAU dem Stand, den WovServer.init() gleich liest (nach dem
+    Abgleich oben — derselbe Zeitpunkt, dieselbe Datei), haelt der Boot dieselbe Sperre wie live: nichts wird
+    geloescht, alles andere schon (server/src/world/layoutAbgleich.ts, Option `keineLoeschung`). Passt der Hash
+    NICHT mehr (die Datei hat sich seither geaendert, etwa durch ein "Welt zuruecksetzen"), bleibt das Feld leer
+    und der Boot verhaelt sich wie vor dieser Karte — die alte Bestaetigung war schon oben geloescht, sie war
+    ohnehin nur fuer einen Stand gueltig, den es so nicht mehr gibt.
+  */
+  if (alteQuittung?.ergebnis === 'nicht-angewendet' && alteQuittung.grund === 'bestaetigung-noetig') {
+    const aktuellerHash = layoutDateiHash(config.worldLayoutPath);
+    if (aktuellerHash !== null && aktuellerHash === alteQuittung.hash) {
+      config.bootLoeschschutz = { hash: alteQuittung.hash, detail: alteQuittung.detail ?? '' };
+      console.warn(`[Main] Offene Bestätigung aus dem vorigen Lauf übernommen (${config.bootLoeschschutz.detail}) — der Boot wendet die Löschsperre an.`);
+    }
+  }
 }
 
 /*

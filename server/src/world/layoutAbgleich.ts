@@ -304,8 +304,11 @@ export function layoutAbgleich(
   /**
    * `verworfen`: Einträge, die der Sanitizer aus dem rohen Dokument gestrichen hat (roh − gültig);
    * `zusammengefasst`: davon exakte Duplikate, die er zu einem Eintrag zusammengelegt hat (kein Verlust).
+   * `keineLoeschung` (Karte Z3): eine offene Bestätigung für GENAU diesen Stand hält den Boot auf demselben
+   * Stand wie den Live-Weg — nichts wird gelöscht, alles andere schon. Dieselbe Sperre wie bei `verworfen`
+   * (`ohneLoeschen`), nur mit einer anderen Ursache: kein unlesbarer Eintrag, sondern eine offene Bestätigung.
    */
-  optionen: { verworfen?: number; zusammengefasst?: number } = {}
+  optionen: { verworfen?: number; zusammengefasst?: number; keineLoeschung?: boolean } = {}
 ): LayoutAbgleichErgebnis {
   const { zdos } = kontext;
   // Jede Platzierung hat eine `id` (dafür sorgt der Sanitizer). Wer ein
@@ -333,7 +336,7 @@ export function layoutAbgleich(
   // reicht der Aufrufer ausdrücklich herein (`sanitizeWorldLayoutMitBericht`),
   // dieselbe wie im Schreibweg — nichts hängt an einem Layout-Objekt.
   const verworfen = Math.max(0, (optionen.verworfen ?? 0) - (optionen.zusammengefasst ?? 0));
-  if (verworfen > 0) ergebnis.ohneLoeschen = { verworfen, stehenGeblieben: 0 };
+  if (verworfen > 0 || optionen.keineLoeschung) ergebnis.ohneLoeschen = { verworfen, stehenGeblieben: 0 };
   // Der ZDO-Member `layoutId` trägt die `id` der Platzierung. Damit lassen
   // sich beim Boot ZDOs entfernen, deren Eintrag der Designer gelöscht hat
   // (vorher blieben sie für immer stehen, Review-Punkt 13) — und der Client

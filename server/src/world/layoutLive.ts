@@ -39,11 +39,31 @@
  * Nach jedem gesehenen Stand schreibt die Wache die Quittung
  * (`shared/worldlayout/quittung.ts`). Der Spielserver schreibt nie ins
  * Weltdokument.
+ *
+ * ── Offene Bestätigung (Karte Z3) ───────────────────────────────────
+ * `bestaetigung-noetig` heißt live wie beim Boot: nichts geschieht, die Datei
+ * bleibt liegen. Anders als bisher springt die Quittung NICHT von selbst auf
+ * `angewendet`, solange derselbe Hash noch offen ist — auch nicht beim ersten
+ * Tick nach einem Boot, der die Sperre vom vorigen Lauf übernommen hat
+ * (`offeneBestaetigung`, von `WovServer` aus einer noch offenen Quittung
+ * gelesen, BEVOR sie gelöscht wird). Aufgehoben wird sie durch:
+ *  - eine ausdrückliche Bestätigung für GENAU diesen Hash (`bestaetigenPfad`,
+ *    `POST /api/welt/bestaetigen`): Dann gleicht dieser Tick das GANZE
+ *    Dokument gegen den ZDO-Bestand ab (wie ein Boot, nicht nur die
+ *    geänderten Einträge) — nur so geschieht die zurückgehaltene Löschung
+ *    jetzt wirklich (`spawnLayoutPlacements`, `vorgabe.bestaetigt`);
+ *  - einen neuen Schreibvorgang mit einem ANDEREN Hash (Rücknahme): die
+ *    offene Bestätigung erlischt, ohne dass irgendetwas sie ausdrücklich
+ *    zurücknimmt — der nächste Tick sieht schlicht einen anderen Stand.
+ * Die Bestätigungsanfrage wird bei jedem Tick verbraucht (gelöscht), gleich
+ * ob ihr Hash noch passt: Eine Anfrage für einen überholten Stand soll nicht
+ * liegen bleiben und einen späteren, andersartigen Stand treffen.
  */
 import { statSync, readFileSync } from 'node:fs';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { sanitizeWorldLayoutMitBericht, type SanitizeBericht } from '@wov/shared/src/worldlayout/sanitize.js';
 import { quittungLoeschenSicher, quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { bestaetigenAnfrageLesen, bestaetigenAnfrageLoeschen } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
 import { AENDERUNGEN_MAX, type Grabsteine } from './layoutLiveAbgleich.js';
 
@@ -104,12 +124,29 @@ export interface LiveVorgabe {
   readonly alt: WorldLayout | null;
   /** Entfernte Einträge ohne Objekt (gefällt), siehe `layoutLiveAbgleich.ts`; die Wache besitzt sie. */
   readonly grabsteine: Grabsteine;
+  /**
+   * Karte Z3: eine ausdrückliche Bestätigung für GENAU diesen Hash liegt vor — das ganze Dokument gegen den
+   * ZDO-Bestand abgleichen (wie ein Boot), nicht nur die geänderten Einträge, damit die zurückgehaltene
+   * Löschung jetzt wirklich geschieht.
+   */
+  readonly bestaetigt?: boolean;
 }
 
 export interface LayoutWacheAbhaengigkeiten {
   /** Die Weltdatei dieser Instanz. */
   readonly pfad: string;
   readonly quittungsPfad: string;
+  /**
+   * Karte Z3: Pfad der Bestätigungsanfrage ("trotzdem anwenden", `POST /api/welt/bestaetigen`). Fehlt er
+   * (ältere Aufrufer, Tests ohne Z3-Bezug), wird nie eine Anfrage gesucht — wie vor dieser Karte.
+   */
+  readonly bestaetigenPfad?: string;
+  /**
+   * Karte Z3: Hash und Text einer offenen `bestaetigung-noetig`-Quittung des VORIGEN Laufs für GENAU die
+   * Weltdatei, die dieser Boot geladen hat (aus `WovServer`, das den alten Stand vor dem Löschen der
+   * Quittung gelesen hat). null/fehlt: keine offene Bestätigung übernommen.
+   */
+  readonly offeneBestaetigung?: { hash: string; detail: string } | null;
   /** Das Dokument, das der Server gerade in Gebrauch hat (roh). */
   readonly aktuell: () => unknown;
   /** Läuft ein Speichern? Dann nicht anwenden. */
@@ -132,11 +169,16 @@ export class LayoutWache {
   /** Das Dokument, das zuletzt angewendet wurde (sanitisiert): Vergleichsstand für die id-Auswahl. */
   private angewendet: WorldLayout | null = null;
   private readonly grabsteine: Grabsteine = new Map();
+  /** Karte Z3: Hash der offenen Bestätigung, solange sie gilt (null: keine offen). */
+  private offenerHash: string | null;
+  private offenerDetail = '';
 
   constructor(private readonly d: LayoutWacheAbhaengigkeiten) {
     // Eine Quittung des vorigen Serverlaufs gilt für diesen nicht: Sie würde im Boot-Fenster
     // dem Betriebsdienst ein 200 für einen Stand liefern, den dieser Lauf nie angewendet hat.
     quittungLoeschenSicher(d.quittungsPfad, (text) => console.error(`[WoV] Layout-Wache: ${text}`));
+    this.offenerHash = d.offeneBestaetigung?.hash ?? null;
+    this.offenerDetail = d.offeneBestaetigung?.detail ?? '';
   }
 
   /** Im 1-Sekunden-Takt aufrufen. Wirft nie. */
@@ -156,7 +198,10 @@ export class LayoutWache {
     } catch {
       return; // Datei fehlt gerade (Umbenennen, Wartung): nichts tun.
     }
-    if (stand === this.letzterStand) return;
+    // Z3: eine offene Bestätigung wird auch OHNE neuen Schreibvorgang der Weltdatei geprüft — die
+    // Bestätigungsanfrage kommt über eine eigene, kleine Datei (POST /api/welt/bestaetigen), nicht
+    // notwendig zusammen mit einem neuen Stand der Weltdatei selbst.
+    if (stand === this.letzterStand && this.offenerHash === null) return;
     // Speichern hat Vorrang: den Stand NICHT merken, damit der nächste Takt es erneut versucht.
     if (this.d.speichertGerade()) return;
 
@@ -165,6 +210,22 @@ export class LayoutWache {
     const bytes = readFileSync(this.d.pfad);
     const hash = layoutHash(bytes);
     this.letzterStand = stand;
+
+    // Z3: die Bestätigungsanfrage wird IMMER verbraucht (gelöscht), gleich ob ihr Hash zu diesem
+    // Tick passt — sonst träfe eine Anfrage für einen überholten Stand einen SPÄTEREN, andersartigen.
+    let bestaetigt = false;
+    if (this.d.bestaetigenPfad) {
+      try {
+        const anfrage = bestaetigenAnfrageLesen(this.d.bestaetigenPfad);
+        if (anfrage) {
+          bestaetigenAnfrageLoeschen(this.d.bestaetigenPfad);
+          bestaetigt = anfrage.hash === hash;
+        }
+      } catch (fehler) {
+        console.error(`[WoV] Layout-Wache: Bestätigungsanfrage: ${(fehler as Error).message}`);
+      }
+    }
+
     if (this.d.boot && this.d.boot.art !== 'angewendet') {
       // Der Boot hat das Dokument nicht angewendet: Es gibt keinen Stand, gegen den ein Abgleich sinnvoll wäre
       // (alles gälte als neu und belebte gefällte Bäume). Bis zum nächsten sauberen Boot wirkt nichts live.
@@ -191,12 +252,23 @@ export class LayoutWache {
       return;
     }
     const neuKanonisch = JSON.stringify(neuBericht.layout);
-    if (neuKanonisch === this.kanonisch) {
-      // Derselbe Inhalt (etwa neu formatiert oder der Stand des Boots): nichts anwenden.
-      this.quittiere(hash, 'angewendet', null, null);
+    // Der Inhalt hat sich seit der offenen Bestätigung geändert (ein neuer Schreibvorgang mit einem
+    // ANDEREN Hash, oder — nach einem Boot mit dieser Wache — ein Tick, den ein anderer Hash trifft):
+    // Sie gilt ab jetzt nicht mehr (Aufheben durch Rücknahme, Auftrag 3).
+    if (this.offenerHash !== null && this.offenerHash !== hash) this.offenerHash = null;
+    if (neuKanonisch === this.kanonisch && !bestaetigt) {
+      if (this.offenerHash === hash) {
+        // Derselbe (zurückgehaltene) Inhalt, keine passende Bestätigung: bleibt bei bestaetigung-noetig,
+        // springt NICHT von selbst auf angewendet — auch nicht beim ersten Tick nach dem Boot.
+        console.warn(`[WoV] Layout-Wache: offene Bestätigung übernommen (${this.offenerDetail}) — weiterhin nichts angewendet`);
+        this.quittiere(hash, 'nicht-angewendet', 'bestaetigung-noetig', null, this.offenerDetail);
+      } else {
+        // Wirklich nichts zu tun (etwa neu formatiert oder der Stand des Boots): nichts anwenden.
+        this.quittiere(hash, 'angewendet', null, null);
+      }
       return;
     }
-    if (this.angewendet) {
+    if (neuKanonisch !== this.kanonisch && this.angewendet && !bestaetigt) {
       const teile = geoAenderung(this.angewendet, neuBericht.layout);
       if (teile.length > 0) {
         console.warn(`[WoV] Layout-Wache: Geo-Änderung (${teile.join(', ')}) — geschrieben, aber erst nach dem Neustart wirksam, nichts angewendet`);
@@ -204,7 +276,7 @@ export class LayoutWache {
         return;
       }
     }
-    const ergebnis = this.d.anwenden(roh, { neu: neuBericht, alt: this.angewendet, grabsteine: this.grabsteine });
+    const ergebnis = this.d.anwenden(roh, { neu: neuBericht, alt: this.angewendet, grabsteine: this.grabsteine, bestaetigt });
     if (ergebnis.art === 'abgelehnt') {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, ergebnis.grund);
       return;
@@ -221,13 +293,19 @@ export class LayoutWache {
       return;
     }
     if (ergebnis.art === 'bestaetigung') {
-      console.warn(`[WoV] Layout-Wache: Bestätigung nötig, nichts angewendet (${ergebnis.detail}) — die Datei bleibt; der nächste Neustart übernimmt sie`);
+      console.warn(
+        `[WoV] Layout-Wache: Bestätigung nötig, nichts angewendet (${ergebnis.detail}) — die Datei bleibt; ` +
+          `„POST /api/welt/bestaetigen" wendet sie trotzdem an, sonst übernimmt der nächste Neustart dieselbe Sperre`
+      );
+      this.offenerHash = hash;
+      this.offenerDetail = ergebnis.detail;
       this.quittiere(hash, 'nicht-angewendet', 'bestaetigung-noetig', null, ergebnis.detail);
       return;
     }
     this.d.uebernehmen(roh);
     this.kanonisch = neuKanonisch;
     this.angewendet = neuBericht.layout;
+    this.offenerHash = null;
     console.log(`[WoV] Layout-Wache: angewendet in ${(performance.now() - t0).toFixed(1)} ms (ganzer Takt)`);
     this.quittiere(hash, 'angewendet', null, ergebnis.zaehler, ergebnis.detail);
   }

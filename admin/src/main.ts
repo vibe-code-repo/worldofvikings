@@ -88,7 +88,9 @@ import {
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { fehlerhaftAntwort, weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
 import { anwendungAnhaengen } from './routen/anwendung.js';
+import { weltBestaetigenBehandeln } from './routen/weltBestaetigen.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
+import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import {
   unfertigenResetMelden,
   weltZuruecksetzenBehandeln,
@@ -1974,6 +1976,22 @@ async function behandeln(
     }
     const umgebung = resetUmgebung();
     return methode === 'GET' ? weltZuruecksetzenVorschau(umgebung) : weltZuruecksetzenBehandeln(leib, umgebung);
+  }
+
+  // ── Zurückgehaltene Massenlöschung trotzdem anwenden (Editor Z3) ──
+  //
+  // Begruendung und Ablauf stehen im Kopf von routen/weltBestaetigen.ts. Hier nur die Verdrahtung —
+  // dieselben Bausteine wie jeder andere Schreibweg (`QUITTUNG_AUS`, `quittungsDatei`, `dienstZustand`).
+  if (pfad === '/api/welt/bestaetigen' && methode === 'POST') {
+    return weltBestaetigenBehandeln(leib, {
+      datei: LAYOUT_DATEI,
+      anfragePfad: bestaetigenAnfrageDatei(WELTEN_ORDNER, INSTANZ),
+      wartenOptionen: {
+        quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
+        dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
+      },
+      warten: !QUITTUNG_AUS,
+    });
   }
 
   // ── Weltsicherungen ──

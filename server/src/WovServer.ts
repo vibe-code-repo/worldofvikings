@@ -106,7 +106,9 @@ import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
 import { liveAbgleich } from './world/layoutLiveAbgleich.js';
+import { betroffeneIds } from './world/layoutBootSchutz.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
+import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
@@ -257,6 +259,15 @@ export interface ServerConfig {
    * Feld aber vergessen. main.ts setzt ihn fuer den echten Betrieb.
    */
   metrikenDatei?: string;
+  /**
+   * Karte Z3: Hash und Text einer offenen `bestaetigung-noetig`-Quittung des VORIGEN Laufs für GENAU die
+   * Weltdatei, die dieser Boot lädt. `main.ts` liest die alte Quittung, BEVOR sie gelöscht wird, und setzt
+   * dieses Feld nur, wenn ihr Hash noch zum Stand passt, den dieser Boot gleich liest — sonst (Datei
+   * inzwischen anders, etwa nach `welt-zuruecksetzen`) bleibt es leer, und der Boot verhält sich wie bisher.
+   * Passt er, wendet der Boot dieselbe Sperre an wie live: nichts wird gelöscht, alles andere schon.
+   * undefined/null: keine offene Bestätigung, Boot wie vor dieser Karte.
+   */
+  bootLoeschschutz?: { hash: string; detail: string } | null;
   /**
    * Festgenageltes Wetter und feste Nebeldichte (server.yml `wetter:`).
    * Der Server RECHNET damit nicht — Wetter und Licht sind reine
@@ -1195,6 +1206,8 @@ export class WovServer {
         boot: bootAnwendung,
         pfad: this.config.worldLayoutPath,
         quittungsPfad: quittungsDatei(this.config.worldsDir, this.config.worldName),
+        bestaetigenPfad: bestaetigenAnfrageDatei(this.config.worldsDir, this.config.worldName),
+        offeneBestaetigung: this.config.bootLoeschschutz ?? null,
         aktuell: () => this.worldLayoutRaw,
         speichertGerade: () => this.speichertGerade,
         anwenden: (roh, vorgabe) => this.spawnLayoutPlacements('live', roh, vorgabe),
@@ -1318,7 +1331,7 @@ export class WovServer {
     let ergebnis: LayoutAbgleichErgebnis;
     let zuPruefen: WorldLayout = layout;
     let zurueck: readonly string[] | null = null;
-    if (modus === 'live') {
+    if (modus === 'live' && !vorgabe?.bestaetigt) {
       if (!vorgabe?.alt) return abgelehnt('kein Vergleichsstand');
       const live = liveAbgleich(kontext, vorgabe.alt, layout, vorgabe.grabsteine);
       if (live.art === 'zuViele') return { art: 'zuViele', anzahl: live.anzahl };
@@ -1327,12 +1340,30 @@ export class WovServer {
       zurueck = live.zurueck;
       zuPruefen = { ...layout, placements: [...live.geaendert] };
     } else {
+      // Boot, oder Karte Z3: eine ausdrückliche Bestätigung ("trotzdem anwenden", `vorgabe.bestaetigt`)
+      // gleicht — wie ein Boot — das GANZE Dokument gegen den ZDO-Bestand ab, nicht nur die seit dem
+      // letzten Anwenden geänderten Einträge: Nur so geschieht die zurückgehaltene Löschung jetzt wirklich
+      // (ein Vergleich gegen `vorgabe.alt` fände die verwaisten ids nicht, weil deren Eintrag im Dokument
+      // schon vor dem Neustart fehlte, s. Kopfkommentar `layoutLive.ts`).
+      //
+      // Boot-Sperre (Auftrag 1): passt eine offene Bestätigung aus dem VORIGEN Lauf zu GENAU dieser Datei
+      // (main.ts, `ServerConfig.bootLoeschschutz`), wendet dieser Boot dieselbe Sperre an wie live — nichts
+      // wird gelöscht, alles andere schon.
+      const gesperrt = modus === 'boot' && this.config.bootLoeschschutz != null;
       ergebnis = layoutAbgleich(
         kontext,
         layout,
         // Zusammengefasste exakte Duplikate sind nichts Verworfenes (dieselbe Zahl wie im Schreibweg).
-        { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0 }
+        { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0, keineLoeschung: gesperrt }
       );
+      if (gesperrt) {
+        const ids = betroffeneIds(this.zdos, layout);
+        const gezeigt = ids.slice(0, 40).join(', ') + (ids.length > 40 ? ` … (+${ids.length - 40})` : '');
+        console.warn(
+          `[WoV] Layout-Abgleich (Boot): offene Bestätigung aus dem vorigen Lauf übernommen (${this.config.bootLoeschschutz!.detail}) — ` +
+            `${ids.length} zurückgehaltene Löschung(en) bleiben stehen${ids.length > 0 ? `: ${gezeigt}` : ''}`
+        );
+      }
     }
     if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
     console.log(

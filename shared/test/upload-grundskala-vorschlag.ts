@@ -339,6 +339,27 @@ console.log('\n8b. N5 (Nachangriff N4, Befund A2): die neue Endungsregel — ech
   }
 }
 
+console.log('\n8c. N6 (Nachangriff N5, Befund B4): Blender-Seitenendungen .L/.R werden wie .001 abgeschnitten\n');
+{
+  const faelle: [string, string][] = [
+    ['Fass.L', 'Fass'],
+    ['Fass.R', 'Fass'],
+    ['Fass_L', 'Fass'],
+    ['Fass_R', 'Fass'],
+    ['Barrel.L', 'Fass'],
+    // Verkettet mit dem Blender-Nummer-Suffix, in beliebiger Reihenfolge.
+    ['Fass.L.001', 'Fass'],
+    ['Fass.001.L', 'Fass'],
+  ];
+  for (const [name, erwartet] of faelle) {
+    const treffer = kategorieFuerName(name);
+    pruefe(treffer?.kategorie === erwartet, `'${name}' -> '${erwartet}' (bekommen '${treffer?.kategorie}')`);
+  }
+  // Gegenprobe (Karte): "Boot.links" bleibt, wie es ist — ".links" hat VIER
+  // Buchstaben nach dem Punkt, nicht einen, das Suffix-Muster greift nicht.
+  pruefe(kategorieFuerName('Boot.links') === null, "'Boot.links' bleibt unverändert KEINE Kategorie (kein Ein-Buchstaben-Suffix)");
+}
+
 console.log('\n9. Ähnlichkeitsvergleich ist umlaut- und NFD-unabhängig (N3/F6) — Käsestand2, NFD-Käsestand2, Crêpestand2\n');
 {
   const rohMasse = { breite: 1.0, hoehe: 1.0 };

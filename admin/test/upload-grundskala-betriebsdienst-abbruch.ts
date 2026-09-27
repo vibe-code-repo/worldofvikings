@@ -47,18 +47,62 @@ import { createServer } from 'node:net';
 import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pruefeWegwerfPfad } from './wegwerf-wurzel-pruefung.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
 
+/** B1 (Nachangriff N5): beide Präfixe, die an dieser Stelle legitim vorkommen können. */
+const WEGWERF_PRAEFIXE = ['wov-sweep-wegwerf-', 'wov-grundskala-betriebsdienst-'];
+
+/**
+ * B1 (Nachangriff N5): denselben Ordner nur löschen, wenn er die Prüfung
+ * besteht — zweite, unabhängige Bremse (Verteidigung in der Tiefe): Der
+ * Wert kommt hier nicht aus der Umgebungsvariable selbst, sondern aus der
+ * geparsten „# Betriebsdienst auf …"-Meldung des inneren Tests; sollte
+ * dessen eigene Prüfung (`wegwerfWurzelBauen`) je umgangen werden, verhindert
+ * diese zweite Prüfung trotzdem ein `rmSync` auf einen falschen Pfad. Ohne
+ * `pruefeLeer` — der Ordner ist zu diesem Zeitpunkt vom Testlauf befüllt,
+ * das ist der Normalfall, kein Angriffszeichen.
+ */
+function raeumeWurzelSicherAuf(wurzel: string): boolean {
+  const pruefung = pruefeWegwerfPfad(wurzel, WEGWERF_PRAEFIXE, false);
+  if (!pruefung.ok) {
+    console.error(`FAIL Aufräumen abgelehnt für '${wurzel}': ${pruefung.grund}`);
+    return false;
+  }
+  try {
+    rmSync(wurzel, { recursive: true, force: true });
+  } catch {
+    /* schon weg */
+  }
+  return true;
+}
+
 /** N4/N3-1: die zuletzt gestartete innere Gruppe, für die Riegel unten. */
 let aktuellesKind: ChildProcess | null = null;
+/**
+ * B2 (Nachangriff N5): der zuletzt vom inneren Test gemeldete Wegwerf-
+ * Ordner — wird auf `null` gesetzt, sobald der normale Ablauf (`probeAbbruch`)
+ * ihn selbst schon aufgeräumt hat, damit der Signal-Riegel unten nicht doppelt
+ * (und nicht auf einen längst wiederverwendeten Namen) zugreift.
+ */
+let aktuelleWurzel: string | null = null;
 function beendeAktuelleGruppe(): void {
-  if (aktuellesKind?.pid === undefined) return;
-  try {
-    process.kill(-aktuellesKind.pid, 'SIGKILL');
-  } catch {
-    /* Gruppe schon weg */
+  if (aktuellesKind?.pid !== undefined) {
+    try {
+      process.kill(-aktuellesKind.pid, 'SIGKILL');
+    } catch {
+      /* Gruppe schon weg */
+    }
+  }
+  // B2: Wird DIESER Testprozess selbst abgebrochen (Zeitlimit/Strg-C im
+  // echten Runner-Weg), kam das eigene Aufräumen in `probeAbbruch` (unten)
+  // nie zum Zug — der vom inneren Test angelegte `wov-grundskala-
+  // betriebsdienst-*`-Ordner bliebe sonst als Waise liegen.
+  if (aktuelleWurzel) {
+    raeumeWurzelSicherAuf(aktuelleWurzel);
+    aktuelleWurzel = null;
   }
 }
 process.on('exit', beendeAktuelleGruppe);
@@ -147,6 +191,9 @@ async function probeAbbruch(signal: NodeJS.Signals): Promise<void> {
         clearTimeout(zeitgrenze);
         port = Number(t[1]);
         wurzel = t[2]!;
+        // B2 (Nachangriff N5): ab hier kann der Signal-Riegel (oben) diesen
+        // Ordner aufräumen, falls DIESER Prozess selbst abgebrochen wird.
+        aktuelleWurzel = wurzel;
         fertig();
       }
     };
@@ -180,12 +227,11 @@ async function probeAbbruch(signal: NodeJS.Signals): Promise<void> {
     const ueberlebende = findeProzesseMitWurzel(wurzel);
     check(`${signal}: kein Prozess mit WOV_WURZEL=${wurzel} übrig`, ueberlebende.length === 0, `übrig: ${ueberlebende.join(',')}`);
     // Aufräumen: Der innere Test wurde mitten im Lauf getötet, sein eigenes
-    // `finally` (Löschen von HAUPT.ordner) kam nie zum Zug.
-    try {
-      rmSync(wurzel, { recursive: true, force: true });
-    } catch {
-      /* schon weg oder nie angelegt */
-    }
+    // `finally` (Löschen von HAUPT.ordner) kam nie zum Zug. B1 (Nachangriff
+    // N5): erst die zweite, unabhängige Prüfung, DANN löschen (Kopfkommentar
+    // `raeumeWurzelSicherAuf`).
+    check(`${signal}: Wegwerf-Ordner besteht die Löschprüfung`, raeumeWurzelSicherAuf(wurzel));
+    aktuelleWurzel = null;
   }
   if (port !== null) {
     const frei = await portIstFrei(port);

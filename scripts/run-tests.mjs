@@ -2360,8 +2360,17 @@ const KERN = [
   // N4 (Nachangriff N3, Befund N3-1), Sweep-Nachweis über den ECHTEN Runner-Weg:
   // startet den Abbruch-Test selbst als Kind (wie run-tests.mjs jeden Test startet)
   // und bricht ihn zu sieben festen Zeitpunkten ab (Zeitlimit 0,3–3 s, SIGINT 0,4/1,6 s)
-  // — in jedem Fall keine Waise mehr. ~1 min.
+  // — in jedem Fall keine Waise mehr. ~1 min. N6 (Nachangriff N5, Befund B2): Signal-
+  // Riegel gegen TERM/INT für den eigenen Wegwerf-Ordner, plus Aufräumen verwaister
+  // wov-sweep-wegwerf-*-Ordner (älter als 1 h) beim Start.
   ['admin', 'test/upload-grundskala-betriebsdienst-abbruch-sweep.ts'],
+  // N6 (Nachangriff N5, Befund B1, BLOCKER): WOV_WEGWERF_WURZEL wurde ungeprüft
+  // übernommen — ein gesetzter Wert (z. B. /opt/worldofvikings) ließ den Betriebsdienst-
+  // Test fremde server.yml überschreiben, grün. Fährt die vier Proben des Angreifers
+  // (Opfer außerhalb tmp, Symlink mit korrektem Präfix, nicht-leeres Verzeichnis,
+  // falscher Präfix) gegen den ECHTEN Betriebsdienst-Test: jeder Fall muss ablehnen
+  // (Exit ≠ 0), Opferdateien bleiben byte-gleich.
+  ['admin', 'test/upload-grundskala-wegwerf-wurzel-schutz.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

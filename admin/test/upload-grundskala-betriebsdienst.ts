@@ -68,6 +68,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pruefeWegwerfPfad } from './wegwerf-wurzel-pruefung.js';
+
+/** B1 (Nachangriff N5): einziges erlaubtes Präfix für einen von AUSSEN vorgegebenen Wegwerf-Ordner. */
+const WEGWERF_PRAEFIX_SWEEP = 'wov-sweep-wegwerf-';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
@@ -153,16 +157,30 @@ function bauGlb(groesse: number): Buffer {
  * nach vielen HTTP-Umläufen und liegen damit ohnehin außerhalb des
  * Sweep-Zeitfensters. Läuft dieser Test normal über `run-tests.mjs` (ohne
  * Sweep), ist die Variable nie gesetzt, und nichts ändert sich.
+ *
+ * ── B1 (Nachangriff N5): der Wert wurde bislang UNGEPRÜFT übernommen ──────
+ * `export WOV_WEGWERF_WURZEL=/opt/worldofvikings` in der Umgebung eines
+ * `npm test` überschrieb dort `server/data/server.yml` — grün. Jetzt läuft
+ * `pruefeWegwerfPfad` (realpath direkt unter `os.tmpdir()`, Präfix
+ * `wov-sweep-wegwerf-`, kein Symlink, leer) VOR jedem Zugriff; schlägt sie
+ * fehl, wirft dieser Aufruf, BEVOR irgendetwas angelegt oder geschrieben
+ * wird — der uncaught throw beendet den Prozess mit Exit ≠ 0 und einer
+ * Meldung auf stderr, ganz ohne eigenes try/catch an der Aufrufstelle.
  */
 let wegwerfWurzelExternVerbraucht = false;
 
 /** Ein Wegwerf-WOV_WURZEL samt eigenem, UMGELENKTEM Upload-Ordner (H2) für einen Dienst-Lauf. */
 function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: string; tokenDatei: string; token: string; eigen: boolean } {
   const vorgegeben = !wegwerfWurzelExternVerbraucht ? process.env.WOV_WEGWERF_WURZEL : undefined;
+  if (vorgegeben) {
+    const pruefung = pruefeWegwerfPfad(vorgegeben, [WEGWERF_PRAEFIX_SWEEP], true);
+    if (!pruefung.ok) {
+      throw new Error(`WOV_WEGWERF_WURZEL abgelehnt (${vorgegeben}): ${pruefung.grund}`);
+    }
+    wegwerfWurzelExternVerbraucht = true;
+  }
   const eigen = !vorgegeben;
-  if (vorgegeben) wegwerfWurzelExternVerbraucht = true;
   const ordner = vorgegeben ?? mkdtempSync(resolve(tmpdir(), `wov-${slug}-`));
-  if (vorgegeben) mkdirSync(ordner, { recursive: true }); // vom Aufrufer angelegt, hier nur zur Sicherheit idempotent
   const serverDaten = resolve(ordner, 'server/data');
   mkdirSync(serverDaten, { recursive: true });
   writeFileSync(

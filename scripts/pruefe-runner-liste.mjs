@@ -126,6 +126,7 @@ const AUSNAHMEN = [
   { pfad: 'tools/armor/test/armor-motion.py', art: 'werkzeug', grund: 'Blender-Skript (bpy), braucht master.blend und Ausgabeordner als Argumente' },
   { pfad: 'tools/armor/test/render-compare.py', art: 'werkzeug', grund: 'Blender-Skript (bpy), braucht ein gebautes Rüstungs-Blend, Zielordner, Master-Animationsdatei und --prefix/--regions/--items als Argumente' },
   { pfad: 'tools/armor/test/keep_body.py', art: 'werkzeug', grund: 'kein Test, Stand-alone-Modul (kein bpy): die --keep-body-Pruefung fuer armor-motion.py, importiert von keep-body-args.mjs und von armor-motion.py selbst' },
+  { pfad: 'admin/test/wegwerf-wurzel-pruefung.ts', art: 'werkzeug', grund: 'kein Test, Stand-alone-Modul: die pruefeWegwerfPfad-Pruefung fuer WOV_WEGWERF_WURZEL, importiert von upload-grundskala-betriebsdienst.ts und upload-grundskala-betriebsdienst-abbruch.ts' },
   { pfad: 'tools/armor/test/probe.py', art: 'werkzeug', grund: 'Blender-Skript (bpy), braucht ein gebautes Rüstungs-Blend, Master-Animationsdatei, Zielordner und --prefix/--regions/--items/--body als Argumente' },
   { pfad: 'tools/armor/test/emberrage-assets.mjs', art: 'werkzeug', grund: 'braucht die Exportordner (Wurzel, Referenz) als Argumente' },
   { pfad: 'tools/armor/test/emberrage-browser.mjs', art: 'werkzeug', grund: 'echtes WebGL über Playwright, braucht den gebauten wov-web und die Exporte' },

@@ -178,12 +178,19 @@ function kanon(s: string): string {
  * damit „Neues.Fass" trotzdem in die Bestandteile „neues" und „fass"
  * zerfällt und „fass" als Kopfwort zählt.
  *
- * Die Schleife wendet alle drei Muster wiederholt an, bis sich nichts mehr
+ * Die Schleife wendet alle vier Muster wiederholt an, bis sich nichts mehr
  * ändert (höchstens 5 Durchläufe, weit über jeder realistischen
  * Verkettung) — das deckt jede Reihenfolge (Endung vor/nach Nummer vor/nach
- * Klammer) mit drei einfachen, am Ende verankerten Mustern ohne
+ * Klammer) mit vier einfachen, am Ende verankerten Mustern ohne
  * Mehrdeutigkeit ab, keines davon rückverfolgt quadratisch (N3-2 bleibt
  * behoben, s. Test Abschnitt 10).
+ *
+ * B4 (Nachangriff N5, Info): eine Blender-Seitenendung (`.L`, `.R`, `_L`,
+ * `_R` — nach `kanon()` klein: `.l`, `.r`, `_l`, `_r`) am Namensende wird
+ * wie `.001` abgeschnitten — Blenders übliche Spiegel-Namenskonvention,
+ * genau EIN Buchstabe nach Punkt/Unterstrich, am Ende verankert. `Boot.links`
+ * bleibt unverändert (das Muster verlangt genau einen Buchstaben nach dem
+ * Trenner, „links" hat vier).
  */
 function schneideEndungUndNummer(kanonisch: string): string {
   let s = kanonisch;
@@ -191,6 +198,7 @@ function schneideEndungUndNummer(kanonisch: string): string {
     const vorher = s;
     s = s.replace(/\.(glb|gltf|fbx|obj)$/, ''); // echte Endung
     s = s.replace(/\.\d{3}$/, ''); // Blender-Suffix .001….999
+    s = s.replace(/[._][lr]$/, ''); // Blender-Seitenendung .L/.R/_L/_R (B4)
     s = s.trimEnd().replace(/\(\d+\)$/, '').trimEnd(); // Windows-Dopplung "(1)"
     if (s === vorher) break;
   }

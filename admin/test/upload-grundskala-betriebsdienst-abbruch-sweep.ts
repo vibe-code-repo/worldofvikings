@@ -29,17 +29,117 @@
  * dafür nichts Eigenes tun — er vererbt seine Umgebung ohnehin an sein
  * Kind) und löscht ihn selbst in einem `finally`, dessen Code garantiert
  * läuft: Dieser Prozess ist es, der das Signal SCHICKT, nicht der, der es
- * bekommt. Der Zeuge unten zählt `wov-grundskala-betriebsdienst-*`-Ordner
- * in `os.tmpdir()` vor und nach dem ganzen Sweep.
+ * bekommt. Der Zeuge unten zählt `wov-grundskala-betriebsdienst-*`- UND
+ * `wov-sweep-wegwerf-*`-Ordner (B3, Nachangriff N5) in `os.tmpdir()` vor und
+ * nach dem ganzen Sweep.
+ *
+ * ── B2 (Nachangriff N5): DIESER Prozess selbst abgebrochen ────────────────
+ * Die Aussage „läuft garantiert, weil dieser Prozess das Signal schickt"
+ * (oben) gilt nur, solange DIESER Prozess selbst weiterläuft. Bricht
+ * `run-tests.mjs` genau IHN ab (Zeitlimit/Speicherwächter/Strg-C), kommt das
+ * eigene `finally` in `probeFall` bei SIGTERM/SIGINT NICHT automatisch zum
+ * Zug — Node liefert dafür kein „finally garantiert" wie bei einem
+ * synchronen Ablauf, ein `process.on(...)`-Handler ist nötig (unten). Gegen
+ * SIGKILL hilft kein Handler; der NÄCHSTE Lauf räumt deshalb beim Start
+ * eigene, verwaiste `wov-sweep-wegwerf-*`-Ordner auf, die älter als 1 h sind
+ * und in denen laut `/proc/<pid>/cwd` kein Prozess arbeitet.
  */
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
+
+/**
+ * B2 (Nachangriff N5): der aktuell laufende Kind-Testprozess UND sein
+ * eigener Wegwerf-Ordner — für den Signal-Riegel unten. `aktuelleWurzel`
+ * wird von `probeFall` selbst auf `null` gesetzt, sobald sein eigenes
+ * `finally` den Ordner schon geräumt hat.
+ */
+let aktuellesKind: ChildProcess | null = null;
+let aktuelleWurzel: string | null = null;
+function raeumeBeimAbbruchAuf(): void {
+  if (aktuellesKind?.pid !== undefined) {
+    try {
+      process.kill(-aktuellesKind.pid, 'SIGKILL');
+    } catch {
+      /* Gruppe schon weg */
+    }
+  }
+  if (aktuelleWurzel) {
+    try {
+      rmSync(aktuelleWurzel, { recursive: true, force: true });
+    } catch {
+      /* schon weg */
+    }
+    aktuelleWurzel = null;
+  }
+}
+process.on('exit', raeumeBeimAbbruchAuf);
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    raeumeBeimAbbruchAuf();
+    process.exit(128 + (signal === 'SIGTERM' ? 15 : 2));
+  });
+}
+
+/** Ob irgendein Prozess laut `/proc/<pid>/cwd` gerade in `ordner` arbeitet. */
+function irgendeinProzessArbeitetIn(ordner: string): boolean {
+  let real: string;
+  try {
+    real = realpathSync(ordner);
+  } catch {
+    return false;
+  }
+  for (const eintrag of readdirSync('/proc')) {
+    if (!/^\d+$/.test(eintrag)) continue;
+    try {
+      if (readlinkSync(`/proc/${eintrag}/cwd`) === real) return true;
+    } catch {
+      // Prozess schon weg oder kein Zugriff — kein Treffer.
+    }
+  }
+  return false;
+}
+
+/**
+ * B2 (Nachangriff N5): verwaiste, EIGENE `wov-sweep-wegwerf-*`-Ordner
+ * (älter als 1 h, kein Prozess arbeitet laut `/proc/<pid>/cwd` dort) aus einem
+ * per SIGKILL beendeten früheren Lauf DIESES Tests aufräumen — der einzige
+ * Fall, den kein Signal-Handler auffangen kann (Kopfkommentar).
+ */
+function raeumeVerwaisteWegwerfWurzelnAuf(): void {
+  const EINE_STUNDE_MS = 60 * 60 * 1000;
+  const jetzt = Date.now();
+  let eintraege: string[];
+  try {
+    eintraege = readdirSync(tmpdir());
+  } catch {
+    return;
+  }
+  for (const name of eintraege) {
+    if (!name.startsWith('wov-sweep-wegwerf-')) continue;
+    const pfad = resolve(tmpdir(), name);
+    let stat;
+    try {
+      stat = statSync(pfad);
+    } catch {
+      continue;
+    }
+    if (!stat.isDirectory() || jetzt - stat.mtimeMs < EINE_STUNDE_MS) continue;
+    if (irgendeinProzessArbeitetIn(pfad)) continue;
+    try {
+      rmSync(pfad, { recursive: true, force: true });
+      console.log(`# Aufräumen: verwaister Ordner '${pfad}' entfernt (älter als 1 h, kein Prozess arbeitet dort)`);
+    } catch {
+      /* schon weg */
+    }
+  }
+}
+raeumeVerwaisteWegwerfWurzelnAuf();
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -82,6 +182,9 @@ async function probeFall(fall: SweepFall): Promise<{ waisen: number[] }> {
   // die Umgebung nach unten durch — er räumt ihn im `finally` unten auch
   // wieder weg, egal was mit dem Kind passiert.
   const wurzel = mkdtempSync(resolve(tmpdir(), 'wov-sweep-wegwerf-'));
+  // B2 (Nachangriff N5): ab hier kennt der Signal-Riegel (oben) diesen
+  // Ordner, falls DIESER Prozess selbst abgebrochen wird.
+  aktuelleWurzel = wurzel;
   try {
     const kind = spawn(process.execPath, ['--import', 'tsx', 'test/upload-grundskala-betriebsdienst-abbruch.ts'], {
       cwd: ADMIN,
@@ -90,6 +193,7 @@ async function probeFall(fall: SweepFall): Promise<{ waisen: number[] }> {
       stdio: 'ignore',
       env: { ...process.env, WOV_SWEEP_MARKE: marke, WOV_WEGWERF_WURZEL: wurzel },
     });
+    aktuellesKind = kind;
 
     await verzoegerung(fall.ms);
 
@@ -124,12 +228,21 @@ async function probeFall(fall: SweepFall): Promise<{ waisen: number[] }> {
     return { waisen: findeProzesseMitMarke(marke) };
   } finally {
     rmSync(wurzel, { recursive: true, force: true });
+    aktuelleWurzel = null;
+    aktuellesKind = null;
   }
 }
 
-/** Anzahl der `wov-grundskala-betriebsdienst-*`-Ordner in `os.tmpdir()` (N5/A6-Zeuge). */
-function zaehleBetriebsdienstReste(): number {
-  return readdirSync(tmpdir()).filter((name) => name.startsWith('wov-grundskala-betriebsdienst-')).length;
+/**
+ * Anzahl der `wov-grundskala-betriebsdienst-*`- UND `wov-sweep-wegwerf-*`-
+ * Ordner in `os.tmpdir()` (B3, Nachangriff N5: der alte Zeuge zählte nur den
+ * ERSTEN Präfix — mit der Vorgabe legt der innere Test diesen Präfix gar
+ * nicht mehr an, eigene Reste des Sweeps selbst zählte er also nicht).
+ */
+function zaehleWegwerfReste(): number {
+  return readdirSync(tmpdir()).filter(
+    (name) => name.startsWith('wov-grundskala-betriebsdienst-') || name.startsWith('wov-sweep-wegwerf-')
+  ).length;
 }
 
 const FAELLE: readonly SweepFall[] = [
@@ -142,7 +255,7 @@ const FAELLE: readonly SweepFall[] = [
   { art: 'sigint', ms: 1600 },
 ];
 
-const restVorher = zaehleBetriebsdienstReste();
+const restVorher = zaehleWegwerfReste();
 
 const zeilen: string[] = ['| Fall | Waise |', '|---|---|'];
 for (const fall of FAELLE) {
@@ -162,12 +275,13 @@ for (const fall of FAELLE) {
 }
 console.log(`\n${zeilen.join('\n')}\n`);
 
-// N5/A6: der eigentliche Zeuge — vor und nach dem ganzen Sweep (7 Abbrüche)
-// liegt in os.tmpdir() dieselbe Anzahl an `wov-grundskala-betriebsdienst-*`-
-// Ordnern. Reste, die NICHT von diesem Lauf stammen (ein fremder,
-// gleichzeitig laufender Bauer auf demselben Rechner), zählen auf beiden
-// Seiten gleich mit und verfälschen den Vergleich nicht.
-const restNachher = zaehleBetriebsdienstReste();
+// N5/A6 (B3 erweitert): der eigentliche Zeuge — vor und nach dem ganzen
+// Sweep (7 Abbrüche) liegt in os.tmpdir() dieselbe Anzahl an
+// `wov-grundskala-betriebsdienst-*`- und `wov-sweep-wegwerf-*`-Ordnern.
+// Reste, die NICHT von diesem Lauf stammen (ein fremder, gleichzeitig
+// laufender Bauer auf demselben Rechner), zählen auf beiden Seiten gleich
+// mit und verfälschen den Vergleich nicht.
+const restNachher = zaehleWegwerfReste();
 check(
   'kein Wegwerf-Ordner-Rest nach dem Sweep (A6)',
   restNachher === restVorher,

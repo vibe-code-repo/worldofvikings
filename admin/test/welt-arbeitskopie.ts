@@ -86,6 +86,8 @@ function dienstStarten(): Promise<{ port: number; kind: ChildProcess; log: () =>
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: process.env.WOV_TEST_ADMIN_PORT ?? '0',
+        WOV_QUITTUNG: 'aus',
+        NODE_ENV: 'test',
         WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

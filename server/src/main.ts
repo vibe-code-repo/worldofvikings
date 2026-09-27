@@ -11,6 +11,7 @@ import { erstelleHerunterfahren } from './herunterfahren.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
 import { weltAbgleichen } from '@wov/shared/src/worldlayout/weltArbeitskopie.js';
+import { quittungLoeschenSicher, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { ladeModulRegistrierung, sorgeFuerRegistryDatei } from './world/dungeon/ModuleBuild.js';
 import {
   ladeHochgeladeneRegistrierung,
@@ -53,6 +54,11 @@ console.log('╚═════════════════════�
 console.log();
 
 const config = leseServerKonfig(DATA_DIR, INSTANZ);
+// K5.0 N1: Die Quittung des vorigen Laufs gilt fuer diesen nicht. So frueh wie moeglich weg (die Datei-Wache tut es
+// beim Anlegen noch einmal): Der Betriebsdienst sieht "aktiv" ab dem Prozessstart und soll im Boot-Fenster nie einen
+// Stand als angewendet melden, den erst dieser Lauf (oder gar nicht) anwendet.
+// K5.0 N2: Ein Fehler dort (Ordner nicht beschreibbar) geht ins Log und stoppt den Start nicht.
+quittungLoeschenSicher(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ), (text) => console.error(`[WoV] ${text}`));
 
 /*
   Welt: Arbeitskopie anlegen oder nachziehen (im selben Ablauf wie das Lesen, vor dem Server-Start).

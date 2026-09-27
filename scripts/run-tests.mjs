@@ -829,6 +829,9 @@ const KERN = [
   // (Date.now gestellt) fuer den Ablauf des Fensters. Echter node:http-
   // Server, Sekunden.
   ['server', 'test/konto-registrierung-drossel.ts'],
+  // Konto-Verwaltung (W3): Passwort/E-Mail/Profil/Loeschung, Token-Sperre, Forum-
+  // Anonymisierung, gleichzeitige Loeschung und play. Echter node:http-Server.
+  ['server', 'test/konto-verwaltung.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die
@@ -1072,6 +1075,9 @@ const KERN = [
   // fest: Vorlage wird angemeldet, die Quelle wirft bis zur Bereitschaft
   // weiter, ein Klon ohne Instanzen wird nicht angemeldet. NullEngine, <1 s.
   ['client', 'test/schatten-laub-klon.ts'],
+  // WebGPU-Stillstand: Der Tiefen-Wrapper baut nie aus einer Vorlage ohne defines
+  // (Draw-Cache zurueckgesetzt), er meldet stattdessen "nicht bereit". NullEngine, <1 s.
+  ['client', 'test/schatten-wrapper-sicher.ts'],
   // G18: Die scharfe Nahkaskade endete bei 9 m, dahinter 5,4-fach groebere
   // Texel. Rechnet Babylons Kaskadenteilung nach (an der Messung geeicht) und
   // prueft die ausgelieferte Look-Vorgabe gegen eine Mindestreichweite.
@@ -2236,6 +2242,26 @@ const KERN = [
   ['tools', 'test/weltkarte-probe.mjs'],
   // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
   ['client', 'test/testflug-ops.ts'],
+  // Account management against a real server (W3): delete in the main world and inside a dungeon instance (chest by CONTAINER, build ownerless, no leftovers in instance.players), password change and log-out-everywhere cut game and editor connections, old player token refused. ~20 s.
+  ['server', 'test/konto-verwaltung-welt.ts'],
+  // World file goes live (K5.0): the running server applies a written document within a second (objects only,
+  // geo and typos are refused with a receipt), and the operations service answers 200 / 202 from that receipt.
+  ['server', 'test/layout-live.ts'],
+  // ... and the whole guard tick stays cheap: 2000 placements, one changed, median in ms (finding B2 of the attack).
+  ['server', 'test/layout-live-takt.ts'],
+  // ... N2: a typo applies nothing live, defaults count as missing, the limit of changes and the receipts at that limit (N4: no milliseconds here, the timing is `tools/layout-live-messung.sh` under `sperre.sh measure`), boot without a baseline.
+  ['server', 'test/layout-live-n2.ts'],
+  ['server', 'test/layout-live-grenze.ts'],
+  // ... N3: limit 40, clamped typos count as dropped, swallowed re-set reported, one log prefix.
+  ['server', 'test/layout-live-n3.ts'],
+  ['admin', 'test/weltops-quittung.ts'],
+  // ... N4: the operations service (real, port 0) refuses typed-wrong placements with 422 + list and writes nothing; the note about a swallowed re-set reaches the answer.
+  ['admin', 'test/weltops-tippfehler.ts'],
+  ['shared', 'test/platzierungen-fehler.ts'],
+  // ... N5: a set but invalid id and duplicate ids with other content are refused (422); ops_apply `vorher` from area_describe can be undone; placement_set reports clamped values; a save without a change counts 0. Real service + real MCP.
+  ['admin', 'test/weltops-n5.ts'],
+  // ... N5 with the test flight (#91): its Sockel radius never exceeds the service's limit of 100 (real flight code against the real service).
+  ['client', 'test/testflug-sockel-dienst.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

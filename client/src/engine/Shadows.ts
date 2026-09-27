@@ -778,6 +778,9 @@ interface VegetationsSchattenMaster {
  */
 const TIEFE_MAX_VERSUCHE = 1200;
 
+/** Ticks between two checks that handed-over clones still have their depth effect. */
+const TIEFE_PRUEF_TAKT = 15;
+
 export class Shadows {
   private generator: CascadedShadowGenerator | null = null;
   /** Das geltende Look-Profil (vor dem Anmelden die Vorgabe). */
@@ -820,6 +823,7 @@ export class Shadows {
   private readonly vegetationsPackPending = new Set<VegetationsSchattenMaster>();
   /** Klone, die auf ihren Tiefen-Shader warten; die Quelle wirft solange weiter (G20). */
   private readonly vegetationsTiefePending = new Set<VegetationsSchattenMaster>();
+  private tiefePruefTakt = 0;
   /** Wie oft der Basis-Effekt eines Klons angemeldet wurde (Zeuge fuer die Kosten von G20). */
   private tiefeAnmeldungen = 0;
   /*
@@ -1174,6 +1178,29 @@ export class Shadows {
     this.uebergebeAnKlon(stand);
   }
 
+  /**
+   * A handed-over clone can lose its depth effect later: `resetDrawCache()` (a
+   * material plugin added late) drops the base effect, and the depth wrapper
+   * then reports "not ready" until someone registers the clone again. The
+   * clone never renders in the colour pass, so nobody would. Every
+   * TIEFE_PRUEF_TAKT ticks a clone that is no longer ready goes back to the
+   * waiting list (no allocation, only iterates the existing map).
+   * Ein uebergebener Klon, der nicht mehr bereit ist, wartet wieder.
+   */
+  private pruefeUebergebeneKlone(g: CascadedShadowGenerator): void {
+    for (const stand of this.vegetationsSchatten.values()) {
+      if (!stand.bereit || !stand.tiefeBereit || stand.aktiv === 0) continue;
+      const teil = stand.schatten.subMeshes?.[0];
+      if (!teil || stand.schatten.isDisposed() || this.vegetationsPackPending.has(stand)) continue;
+      if (g.isReady(teil, true, false)) continue;
+      stand.tiefeBereit = false;
+      stand.tiefeVersuche = 0;
+      this.vegetationsTiefePending.add(stand);
+      this.tiefeAnmeldungen++;
+      meldeKlonAnBasisEffekt(stand.schatten);
+    }
+  }
+
   /** Die Quelle gibt den Wurf an ihren gepackten Klon ab. */
   private uebergebeAnKlon(stand: VegetationsSchattenMaster): void {
     this.vegetationsQuellen.add(stand.quelle);
@@ -1193,7 +1220,12 @@ export class Shadows {
    */
   private tiefeNachziehen(): void {
     const g = this.generator;
-    if (!g || this.vegetationsTiefePending.size === 0) return;
+    if (!g) return;
+    if (++this.tiefePruefTakt >= TIEFE_PRUEF_TAKT) {
+      this.tiefePruefTakt = 0;
+      this.pruefeUebergebeneKlone(g);
+    }
+    if (this.vegetationsTiefePending.size === 0) return;
     for (const stand of this.vegetationsTiefePending) {
       const teil = stand.schatten.subMeshes?.[0];
       // Ohne Instanzen NICHT anmelden (der Basis-Effekt entstuende ohne

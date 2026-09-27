@@ -108,6 +108,9 @@ function starten(): Promise<{ port: number; kind: ChildProcess }> {
         // 0 = der Kern sucht einen freien Port. Ein fest gewaehlter
         // Testport waere ein Wettlauf mit allem, was sonst lauscht.
         WOV_ADMIN_PORT: '0',
+        // K5.0: no game server here, so no receipt to wait for (the write answers stay 200/409/422 as tested).
+        WOV_QUITTUNG: 'aus',
+        NODE_ENV: 'test',
         WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
         // Eine einzige Konsole gleichzeitig — damit die Obergrenze mit
         // zwei Anfragen pruefbar ist statt mit fuenf.

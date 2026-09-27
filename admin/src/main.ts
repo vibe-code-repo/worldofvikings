@@ -77,14 +77,18 @@ import { weltAbgleichen } from '@wov/shared/src/worldlayout/weltArbeitskopie.js'
 // Begruendung wie bei instanz.ts eine Zeile hoeher.
 import {
   LayoutFeldUngueltig,
+  LayoutPlatzierungenUngueltig,
   LayoutGesperrt,
   LayoutUngueltig,
   LayoutVeraltet,
   LayoutZuVielePlatzierungen,
+  layoutDateiHash,
   layoutLesenMitHash,
   layoutSchreibenAsync,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
+import { fehlerhaftAntwort, weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
+import { anwendungAnhaengen } from './routen/anwendung.js';
+import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import {
   unfertigenResetMelden,
   weltZuruecksetzenBehandeln,
@@ -207,6 +211,27 @@ try {
   console.error(`[Admin] Arbeitskopie der Welt nicht angelegt: ${(fehler as Error).message}`);
 }
 const WELTEN_ORDNER = resolve(WURZEL, 'server/data/worlds');
+// K5.0: nach dem Schreiben der Weltdatei auf die Quittung des Spielservers warten (200 angewendet / 202 nicht angewendet).
+// WOV_QUITTUNG=aus: nur fuer Tests der Schreibwege OHNE Spielserver (sie pruefen Dateiinhalt und Statuscodes 200/409/422
+// und sollen nicht 3 s je Schreibvorgang auf eine Quittung warten). Im Betrieb nie setzen: Der Dienst startet dann nicht.
+// Gilt nur bei ausdruecklich NODE_ENV=test: bei leerem oder anderem Wert (auch `development`) startet der Dienst nicht,
+// statt den Schalter still anzunehmen und wie vor K5.0 ein 200 ohne Beweis zu melden.
+const QUITTUNG_AUS = process.env.WOV_QUITTUNG === 'aus';
+if (QUITTUNG_AUS && process.env.NODE_ENV !== 'test') {
+  console.error(
+    `[Admin] WOV_QUITTUNG=aus ist gesetzt, aber NODE_ENV=${process.env.NODE_ENV ? process.env.NODE_ENV : '(leer)'}: ` +
+      'Der Schalter gilt nur bei NODE_ENV=test. Der Dienst startet nicht. Variable aus der Umgebung entfernen.'
+  );
+  process.exit(1);
+}
+// `vorherHash`: der Hash der Datei VOR dem Schreiben. Ist er gleich dem neuen, hat das Speichern nichts geaendert, und die
+// Quittung dieses Hashs ist die alte (N4-F): Die Zaehler kaemen sonst ein zweites Mal.
+const mitAnwendung = <T extends { code: number; daten: unknown; kopf?: Record<string, string> }>(antwort: T, vorherHash?: string | null): Promise<T> | T =>
+  QUITTUNG_AUS ? antwort : anwendungAnhaengen(antwort, {
+    quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
+    dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
+    ...(vorherHash ? { vorherHash } : {}),
+  }) as Promise<T>;
 // Je Instanz ein eigener Unterordner — dieselbe Ableitung wie im
 // Spielserver (`DungeonManager`, resolve(worldsDir, '..', 'dungeons',
 // worldName)). Zwei Wege zu einem Ordner waeren zwei Gelegenheiten,
@@ -1686,7 +1711,10 @@ async function behandeln(
   }
 
   // Einzelne Objekte aendern statt das ganze Dokument ersetzen (Editor E1, K1.2).
-  if (pfad === '/api/worldlayout/ops' && methode === 'PATCH') return weltOpsBehandeln(leib, { datei: LAYOUT_DATEI, instanz: INSTANZ });
+  if (pfad === '/api/worldlayout/ops' && methode === 'PATCH') {
+    const vorherHash = layoutDateiHash(LAYOUT_DATEI);
+    return mitAnwendung(await weltOpsBehandeln(leib, { datei: LAYOUT_DATEI, instanz: INSTANZ }), vorherHash);
+  }
 
   if (pfad === '/api/worldlayout' && methode === 'POST') {
     // Gepruefte wird mit sanitizeWorldLayout, der STRENGEN Pruefung —
@@ -1742,6 +1770,8 @@ async function behandeln(
       // Async: Wartet ein fremder Schreiber auf der Sperre, bleibt die
       // Ereignisschleife frei (/status, /metriken, der Log-Strom laufen weiter).
       let geschrieben;
+      // Unter dem Basis-Vergleich der Sperre ist `basis` genau der Hash vor dem Schreiben.
+      const vorherHash = anlegen ? null : (basis ?? layoutDateiHash(LAYOUT_DATEI));
       if (anlegen) {
         const a = await weltAnlegen(LAYOUT_DATEI, dokument);
         if (a.art === 'existiert') {
@@ -1761,10 +1791,11 @@ async function behandeln(
       if (verworfen > 0) {
         console.warn(
           `[Admin] POST /api/worldlayout: ${verworfen} ungueltige(r) Eintrag/Eintraege im Dokument verworfen ` +
-            `(${Object.entries(verworfenJeFeld).map(([feld, n]) => `${feld} ${n}`).join(', ')}), Rest gespeichert`
+            `(${Object.entries(verworfenJeFeld).map(([feld, n]) => `${feld} ${n}`).join(', ')}), Rest gespeichert ` +
+            '(Platzierungen mit Fehlern kommen hier nie an: sie weist der Schreibweg vorher mit 422 ab)'
         );
       }
-      return {
+      return mitAnwendung({
         code: anlegen ? 201 : 200,
         kopf: { ETag: `"${hash}"` },
         daten: {
@@ -1781,7 +1812,7 @@ async function behandeln(
           // Exakte Duplikate, die der Sanitizer zu einem Eintrag zusammengefasst hat: KEIN Verlust, zählt nicht bei `verworfen`.
           ...(zusammengefasst > 0 ? { zusammengefasst, zusammengefasstJeFeld } : {}),
         },
-      };
+      }, vorherHash);
     } catch (fehler) {
       // Zusatzfelder `ok`/`message` neben `fehler`: Der bestehende Client
       // liest nur diese beiden, und eine Ablehnung soll bei ihm nicht als
@@ -1808,6 +1839,13 @@ async function behandeln(
             grenze: fehler.grenze,
             message: fehler.message,
           },
+        };
+      }
+      if (fehler instanceof LayoutPlatzierungenUngueltig) {
+        console.warn(`[Admin] POST /api/worldlayout -> 422 ungueltig: ${fehler.message}`);
+        return {
+          code: 422,
+          daten: { ok: false, fehler: 'ungueltig', grund: 'ungueltig', message: fehler.message, ...fehlerhaftAntwort(fehler.fehlerhaft) },
         };
       }
       if (fehler instanceof LayoutFeldUngueltig) {

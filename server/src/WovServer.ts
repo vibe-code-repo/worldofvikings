@@ -25,10 +25,13 @@ import {
   createGeo,
   sanitizeWorldLayout,
   sanitizeWorldLayoutMitBericht,
+  platzierungenEinzeln,
+  geklemmteFelder,
   pruefeLayout,
   HEALTH_MEMBER,
   maxLeben,
   type IGeo,
+  type WorldLayout,
   HeightmapProvider,
   getStableHash,
   kodiereTerrainComp,
@@ -96,11 +99,14 @@ import { ZoneManager } from './world/ZoneManager.js';
 import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
-import { befreieSpielerbauten, istSpielerbau, layoutAbgleich } from './world/layoutAbgleich.js';
+import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleichErgebnis, type LayoutAbgleichKontext } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
+import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
+import { liveAbgleich } from './world/layoutLiveAbgleich.js';
+import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
@@ -109,7 +115,7 @@ import { Spielerbewegung } from './world/Spielerbewegung.js';
 import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Kontendatenbank, type BannArt } from './konto/Kontendatenbank.js';
-import { KontoApi } from './konto/KontoApi.js';
+import { KontoApi, GELOESCHTER_AUTOR } from './konto/KontoApi.js';
 import { ForumDatabase } from './forum/ForumDatabase.js';
 import { ForumApi } from './forum/ForumApi.js';
 import {
@@ -585,6 +591,8 @@ export class WovServer {
   private updateTimer: ReturnType<typeof setInterval> | null;
   private saveTimer: ReturnType<typeof setInterval> | null;
   private zdoSyncAccumulator: number;
+  /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
+  private layoutWache: LayoutWache | null = null;
   private timeSyncAccumulator: number;
 
   // ── Server identity ────────────────────────────────────────────
@@ -793,7 +801,22 @@ export class WovServer {
         Sein Passwort steht ohnehin im oeffentlichen Repo; einen Grund,
         auch noch den Namen aktiv zu bewerben, gibt es nicht.
       */
-    }), standardKonten.filter((k) => !k.admin).map((k) => k.name));
+    }), standardKonten.filter((k) => !k.admin).map((k) => k.name),
+    // Konto-Verwaltung (W3): Standardkonten sind gesperrt; nach einer
+    // Loeschung bereinigen Forum und Welt.
+    standardKonten.map((k) => k.name), {
+      forumBereinigen: (a) => {
+        this.forumDb.kontoEntfernen(a.kontoId, a.charakterIds, a.namen, GELOESCHTER_AUTOR);
+      },
+      weltBereinigen: (konto) => this.kontoAusWeltEntfernen(konto),
+      // Passwortwechsel: laufende Spiele des Kontos beenden. Der Spielstand
+      // bleibt (onPeerQuit schreibt ihn wie bei jedem Verlassen).
+      spielerTrennen: (ids) => {
+        this.net.trenneSpieler(ids, 'Passwort geändert, bitte neu anmelden');
+      },
+    });
+    // Ausstehende Forum-Bereinigungen einer unterbrochenen Loeschung nachholen.
+    kontoApi.forumAuftraegeAbarbeiten();
 
     // Das Thing haengt am SELBEN Port wie die Konten: erst die Konten,
     // dann das Forum. `behandle` gibt `false` zurueck, wenn der Pfad nicht
@@ -1164,7 +1187,26 @@ export class WovServer {
     // `Welt`). `spawnLayoutPlacements` meldet nur noch die Platzierungen
     // mit `route` beim RoutenLaeufer an — und MUSS deshalb hier stehen,
     // nach dem Aufbau der Welt.
-    this.spawnLayoutPlacements();
+    const bootAnwendung = this.spawnLayoutPlacements('boot', this.worldLayoutRaw);
+    if (this.config.worldMode === 'layout') {
+      this.layoutWache = new LayoutWache({
+        boot: bootAnwendung,
+        pfad: this.config.worldLayoutPath,
+        quittungsPfad: quittungsDatei(this.config.worldsDir, this.config.worldName),
+        aktuell: () => this.worldLayoutRaw,
+        speichertGerade: () => this.speichertGerade,
+        anwenden: (roh, vorgabe) => this.spawnLayoutPlacements('live', roh, vorgabe),
+        uebernehmen: (roh) => {
+          this.worldLayoutRaw = roh;
+          for (const peer of this.net.getPeers()) {
+            if (peer.worldId !== HAUPTWELT_ID) continue;
+            peer.sendPacketWith(PacketType.LayoutAktualisiert, (w) => {
+              w.writeString(JSON.stringify(roh));
+            });
+          }
+        },
+      });
+    }
 
     console.log('[WoV] Initialized');
   }
@@ -1184,9 +1226,11 @@ export class WovServer {
    * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
    * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
    */
-  private spawnLayoutPlacements(): void {
-    if (this.config.worldMode !== 'layout') return;
-    const bericht = sanitizeWorldLayoutMitBericht(this.worldLayoutRaw);
+  private spawnLayoutPlacements(modus: 'boot' | 'live', dokument: unknown, vorgabe?: LiveVorgabe): Anwendung {
+    const abgelehnt = (grund: string): Anwendung => ({ art: 'abgelehnt', grund });
+    if (this.config.worldMode !== 'layout') return abgelehnt('kein Layout-Modus');
+    // Live hat die Wache das Dokument schon sanitisiert (einmal je Takt, nicht dreimal).
+    const bericht = vorgabe?.neu ?? sanitizeWorldLayoutMitBericht(dokument);
     const layout = bericht?.layout ?? null;
     // Ein Dokument ohne Platzierungen ist gültig und heißt „keine": Der
     // Abgleich räumt dann die Layout-ZDOs ab, die sonst für immer stünden.
@@ -1204,13 +1248,13 @@ export class WovServer {
     // (`layout` ist hier nie null: lehnt der Sanitizer das ganze Dokument ab,
     // bricht der Boot schon beim Laden ab, s. init(). Der Zweig steht für den
     // Typ.)
-    if (!layout) return;
-    const rohPlacements = (this.worldLayoutRaw as { placements?: unknown } | null)?.placements;
+    if (!layout) return abgelehnt('Dokument unlesbar');
+    const rohPlacements = (dokument as { placements?: unknown } | null)?.placements;
     if (rohPlacements !== undefined && !Array.isArray(rohPlacements)) {
-      this.meldeUnlesbar(
-        `placements unlesbar (${rohPlacements === null ? 'null' : typeof rohPlacements}) – Layout-Objekte bleiben unangetastet`
-      );
-      return;
+      const text = `placements unlesbar (${rohPlacements === null ? 'null' : typeof rohPlacements}) – Layout-Objekte bleiben unangetastet`;
+      if (modus === 'boot') this.meldeUnlesbar(text);
+      else console.warn(`[WoV] Layout-Abgleich (live): ${text}`);
+      return abgelehnt(text);
     }
     // Dasselbe Loch in anderer Form: Ein Array mit Einträgen, von dem der
     // Sanitizer ALLE verwirft (Text, leere Objekte, kaputte Koordinaten), ist
@@ -1220,11 +1264,32 @@ export class WovServer {
     const rohAnzahl = Array.isArray(rohPlacements) ? rohPlacements.length : 0;
     const gueltigeAnzahl = layout.placements?.length ?? 0;
     if (rohAnzahl > 0 && gueltigeAnzahl === 0) {
-      this.meldeUnlesbar(`placements: alle ${rohAnzahl} Einträge verworfen – Layout-Objekte bleiben unangetastet`);
-      return;
+      const text = `placements: alle ${rohAnzahl} Einträge verworfen – Layout-Objekte bleiben unangetastet`;
+      if (modus === 'boot') this.meldeUnlesbar(text);
+      else console.warn(`[WoV] Layout-Abgleich (live): ${text}`);
+      return abgelehnt(text);
     }
-    const ergebnis = layoutAbgleich(
-      {
+    // Live: Hat der Sanitizer einzelne Einträge verworfen (Tippfehler), wird NICHTS angewendet. Ein verworfener Eintrag
+    // gälte sonst als entfernt (sein Objekt ginge), und nach der Korrektur als neu (ein gefälltes Objekt käme zurück).
+    // Ebenso, wenn er in einem vom Nutzer gesetzten Feld geklemmt hat (`yaw: "abc"` wird 0, `scale: 99` wird 5): der
+    // Eintrag gälte sonst als geändert und setzte ein gefälltes Objekt neu. Ein falsches Prefab und eine falsche id sind
+    // dagegen gültige, andere Einträge und gelten als Änderung (bekanntes Verhalten, `geklemmteFelder`).
+    if (modus === 'live') {
+      const verworfen = Math.max(0, rohAnzahl - gueltigeAnzahl - (bericht?.zusammengefasst.length ?? 0));
+      const geklemmt = Array.isArray(rohPlacements) ? this.geklemmteEintraege(rohPlacements) : [];
+      if (verworfen > 0 || geklemmt.length > 0) {
+        const teile: string[] = [];
+        if (verworfen > 0) teile.push(`${verworfen} von ${rohAnzahl} Einträgen verworfen: ${this.verworfeneEintraege(rohPlacements as unknown[])}`);
+        if (geklemmt.length > 0) {
+          const gezeigt = geklemmt.slice(0, 40).join(', ');
+          teile.push(`${geklemmt.length} Einträge mit unlesbarem Feld: ${gezeigt}${geklemmt.length > 40 ? ` … (+${geklemmt.length - 40})` : ''}`);
+        }
+        const detail = teile.join('; ');
+        console.warn(`[WoV] Layout-Abgleich (live): ${detail} – nichts angewendet`);
+        return { art: 'verworfen', detail };
+      }
+    }
+    const kontext: LayoutAbgleichKontext = {
         zdos: this.zdos,
         prefabs: this.prefabs,
         bodenHoehe: (x, z) => this.getGroundHeight(x, z),
@@ -1244,11 +1309,29 @@ export class WovServer {
           this.spawns?.entlasse(zdo);
           this.spawns?.adoptSingle(zdo, entry);
         },
-      },
-      layout,
-      // Zusammengefasste exakte Duplikate sind nichts Verworfenes (dieselbe Zahl wie im Schreibweg).
-      { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0 }
-    );
+    };
+    // Boot: alle Platzierungen. Live: nur die, deren Eintrag sich gegenüber dem zuletzt angewendeten
+    // Dokument geändert hat (ein gefällter Baum und ein toter NPC bleiben so); viele oder zustandstragende
+    // Löschungen wendet er nicht an (`layoutLiveAbgleich.ts`).
+    let ergebnis: LayoutAbgleichErgebnis;
+    let zuPruefen: WorldLayout = layout;
+    let zurueck: readonly string[] | null = null;
+    if (modus === 'live') {
+      if (!vorgabe?.alt) return abgelehnt('kein Vergleichsstand');
+      const live = liveAbgleich(kontext, vorgabe.alt, layout, vorgabe.grabsteine);
+      if (live.art === 'zuViele') return { art: 'zuViele', anzahl: live.anzahl };
+      if (live.art === 'bestaetigung') return { art: 'bestaetigung', detail: live.detail };
+      ergebnis = live.ergebnis;
+      zurueck = live.zurueck;
+      zuPruefen = { ...layout, placements: [...live.geaendert] };
+    } else {
+      ergebnis = layoutAbgleich(
+        kontext,
+        layout,
+        // Zusammengefasste exakte Duplikate sind nichts Verworfenes (dieselbe Zahl wie im Schreibweg).
+        { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0 }
+      );
+    }
     if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
     console.log(
       `[WoV] Layout-Abgleich: ${ergebnis.gespawnt} gespawnt, ${ergebnis.aktualisiert} aktualisiert, ` +
@@ -1288,9 +1371,43 @@ export class WovServer {
     }
     // Inhaltlicher Bericht (Review-Punkt 32): unbekannte Namen und ein
     // fehlender Startpunkt stehen jetzt im Boot-Log statt still zu bleiben.
-    for (const b of pruefeLayout(layout)) {
+    for (const b of pruefeLayout(zuPruefen)) {
       console.warn(`[WoV] Layout-Hinweis (${b.wo}): ${b.text}`);
     }
+    const zaehler: Record<string, number> = {};
+    for (const [k, v] of Object.entries(ergebnis)) if (typeof v === 'number') zaehler[k] = v;
+    // Live: Einträge, die ein Grabstein verschluckt hat (gleiche id, gleicher Inhalt wie ein gelöschter, gefällter
+    // Eintrag), stehen als eigener Zähler in der Quittung, nie als „angewendet, alles 0“ ohne Hinweis.
+    if (zurueck) zaehler.zurueck = zurueck.length;
+    const zurueckDetail =
+      zurueck && zurueck.length > 0
+        ? `${zurueck.length} Einträge gelten als gefällt (gleicher Eintrag wie ein gelöschter, gefällter): ${zurueck.slice(0, 40).join(', ')}${zurueck.length > 40 ? ` … (+${zurueck.length - 40})` : ''}; nichts gespawnt`
+        : undefined;
+    return { art: 'angewendet', zaehler, ...(zurueckDetail ? { detail: zurueckDetail } : {}) };
+  }
+
+  /** Die rohen Einträge, die der Sanitizer streicht: ihre id, sonst die Stelle in der Liste (für die Quittung). */
+  private geklemmteEintraege(roh: readonly unknown[]): string[] {
+    const treffer: string[] = [];
+    roh.slice(0, 2000).forEach((eintrag, i) => {
+      if (platzierungenEinzeln([eintrag]).length === 0) return; // verworfen: zählt dort
+      const felder = geklemmteFelder(eintrag);
+      if (felder.length === 0) return;
+      const id = (eintrag as { id?: unknown }).id;
+      treffer.push(`${typeof id === 'string' && id.length <= 64 ? id : `#${i}`} (${felder.join(', ')})`);
+    });
+    return treffer;
+  }
+
+  private verworfeneEintraege(roh: readonly unknown[]): string {
+    const namen: string[] = [];
+    roh.forEach((eintrag, i) => {
+      if (platzierungenEinzeln([eintrag]).length > 0) return;
+      const id = (eintrag as { id?: unknown } | null)?.id;
+      namen.push(typeof id === 'string' && id.length <= 64 ? id : `#${i}`);
+    });
+    const gezeigt = namen.slice(0, 40).join(', ');
+    return namen.length > 40 ? `${gezeigt} … (+${namen.length - 40})` : gezeigt || 'Zusammenlegung nicht erklärbar (Einträge jenseits von 2000)';
   }
 
   /**
@@ -1571,6 +1688,7 @@ export class WovServer {
       // demselben Grund wie der Rest dieses Blocks. Warum ueberhaupt
       // getaktet und nicht nur beim Befehl: s. gleicheAdminrechteAb().
       this.gleicheAdminrechteAb();
+      this.layoutWache?.tick();
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
       this.dungeons.tick(now);
       this.eventTick(now);
@@ -2035,6 +2153,51 @@ export class WovServer {
     console.log(
       `[WoV] Player "${peer.name}" spawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})${saved ? ' (restored)' : ''}`
     );
+  }
+
+  /**
+   * Konto geloescht (KontoApi, W3): die Welt raeumt auf.
+   *
+   *  1. Laufende Spiele trennen. Die Spielerkennungen stehen schon auf der
+   *     Liste geloeschter Charaktere (`bannFuerZugang`), `trenneGebannte`
+   *     wirft also genau diese hinaus — und onPeerQuit schreibt dabei ein
+   *     letztes Mal in savedPlayers, deshalb kommt das Entfernen DANACH.
+   *  2. Spielstand und Inventar (savedPlayers, auch Altbestand unter dem
+   *     Namen) entfernen; das Speichern schreibt es beim naechsten Mal fort.
+   *  3. Bauten bleiben herrenlos stehen (`besitzer` leer), Truhen gehen mit
+   *     ihrem Inhalt — eine herrenlose Truhe stuende jedem offen.
+   * Synchron, ohne await: kein Spielzug schiebt sich dazwischen.
+   */
+  private kontoAusWeltEntfernen(konto: { charaktere: readonly { spielerId: string; altlastUserId: bigint; name: string }[] }): void {
+    this.net.trenneGebannte();
+    const ids = new Set(konto.charaktere.map((c) => c.spielerId));
+    const namen = new Set(konto.charaktere.map((c) => c.name));
+    for (const [schluessel, p] of [...this.savedPlayers]) {
+      if (ids.has(schluessel) || ids.has(p.spielerId ?? '') || (!p.spielerId && namen.has(p.name))) {
+        this.savedPlayers.delete(schluessel);
+      }
+    }
+    const besitzer = new Set(konto.charaktere.map((c) => c.altlastUserId.toString()));
+    let truhen = 0;
+    let bauten = 0;
+    for (const welt of this.welten.values()) {
+      for (const zdo of welt.zdos.getAllZDOs()) {
+        if (!besitzer.has(zdo.getString('besitzer'))) continue;
+        // Truhe = Prefab mit F.CONTAINER (wie in handleInteract), nicht der
+        // Inhalt: eine nie geoeffnete Truhe hat noch keinen.
+        const def = this.prefabs.getByHash(zdo.prefabHash);
+        if (zdo.hasMember(WovServer.TRUHE_INHALT_HASH) || (def !== undefined && (def.flags & PrefabFlag.CONTAINER) !== 0n)) {
+          welt.zdos.destroyZDO(zdo.zdoid);
+          truhen++;
+        } else {
+          zdo.setString('besitzer', '');
+          zdo.revision.reviseData();
+          zdo.dirty = true;
+          bauten++;
+        }
+      }
+    }
+    console.log(`[Konto] Welt bereinigt: ${truhen} Truhen entfernt, ${bauten} Bauten herrenlos`);
   }
 
   private onPeerQuit(peer: Peer): void {

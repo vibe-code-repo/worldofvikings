@@ -59,6 +59,7 @@ import { existsSync, linkSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 import {
   LayoutGesperrt,
+  LayoutPlatzierungenUngueltig,
   LayoutUngueltig,
   LayoutVeraltet,
   layoutDateiHash,
@@ -67,6 +68,7 @@ import {
   type SchreibErgebnis,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { eintraegeVon, wende, type OpCollection, type OpEntry } from '@wov/shared/src/worldlayout/ops.js';
+import type { PlatzierungsFehler } from '@wov/shared/src/worldlayout/sanitize.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
 
 /** Same shape as `Antwort` in admin/src/main.ts. */
@@ -87,7 +89,7 @@ export type OpsErgebnis =
   | { art: 'ok'; hash: string; sicherung: string | null; layout: WorldLayout; versuche: number; positionUngenau: { sammlung: OpCollection; id: string }[] }
   | { art: 'konflikt'; ids: string[]; aktuell: string; stellen: Konfliktstelle[] }
   | { art: 'grenze'; sammlung: OpCollection; anzahl: number; grenze: number; message: string }
-  | { art: 'ungueltig'; message: string }
+  | { art: 'ungueltig'; message: string; fehlerhaft?: PlatzierungsFehler[] }
   | { art: 'wettlauf'; versuche: number };
 
 async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptionen): Promise<OpsErgebnis> {
@@ -109,7 +111,7 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
         };
       }
       if (r.art === 'grenze') return { art: 'grenze', sammlung: r.sammlung, anzahl: r.anzahl, grenze: r.grenze, message: r.message };
-      return { art: 'ungueltig', message: r.message };
+      return { art: 'ungueltig', message: r.message, ...(r.fehlerhaft ? { fehlerhaft: r.fehlerhaft } : {}) };
     }
     await optionen.nachLesen?.(versuch);
     try {
@@ -125,6 +127,7 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
     } catch (fehler) {
       if (fehler instanceof LayoutVeraltet) continue;
       // `LayoutGesperrt` goes up (503); everything else the write path refuses is a document problem.
+      if (fehler instanceof LayoutPlatzierungenUngueltig) return { art: 'ungueltig', message: fehler.message, fehlerhaft: [...fehler.fehlerhaft] };
       if (fehler instanceof LayoutUngueltig) return { art: 'ungueltig', message: fehler.message };
       throw fehler;
     }
@@ -184,6 +187,14 @@ export function weltAnlegen(pfad: string, dokument: unknown): Promise<AnlegenErg
       rmSync(eigene, { force: true });
     }
   });
+}
+
+/** Cap of the list in an answer: the rest is counted (`anzahlFehlerhaft`). */
+const FEHLERHAFT_MAX = 200;
+
+/** The 422 body part for refused placements: `fehlerhaft` = list of `{ id, feld, wert }` (first 200), `anzahlFehlerhaft` = all. */
+export function fehlerhaftAntwort(liste: readonly PlatzierungsFehler[]): { fehlerhaft: PlatzierungsFehler[]; anzahlFehlerhaft: number } {
+  return { fehlerhaft: liste.slice(0, FEHLERHAFT_MAX), anzahlFehlerhaft: liste.length };
 }
 
 /** The route itself: `body` is the parsed JSON body of the PATCH. */
@@ -250,7 +261,7 @@ export async function weltOpsBehandeln(body: unknown, umgebung: { datei: string;
       };
     case 'ungueltig':
       console.warn(`[Admin] PATCH /api/worldlayout/ops -> 422 ungueltig: ${r.message}`);
-      return { code: 422, daten: { ok: false, fehler: 'ungueltig', message: r.message } };
+      return { code: 422, daten: { ok: false, fehler: 'ungueltig', grund: 'ungueltig', message: r.message, ...(r.fehlerhaft ? fehlerhaftAntwort(r.fehlerhaft) : {}) } };
     case 'wettlauf': {
       const meldung = `Die Weltdatei hat sich ${r.versuche}-mal während des Anwendens geändert — nichts geschrieben, bitte erneut senden.`;
       console.warn(`[Admin] PATCH /api/worldlayout/ops -> 503 wettlauf: ${meldung}`);

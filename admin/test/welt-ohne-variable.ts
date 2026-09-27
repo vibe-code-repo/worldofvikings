@@ -82,7 +82,7 @@ function dienstStarten(extra: NodeJS.ProcessEnv = {}): Promise<{ port: number | 
   return new Promise((fertig, scheitern) => {
     let protokoll = '';
     let ende: number | null = null;
-    const umgebung: NodeJS.ProcessEnv = { ...process.env, WOV_WURZEL: WURZEL, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI };
+    const umgebung: NodeJS.ProcessEnv = { ...process.env, WOV_WURZEL: WURZEL, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_QUITTUNG: 'aus', NODE_ENV: 'test', WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI };
     delete umgebung.WOV_WELT_VERZEICHNIS;
     const kind = spawn(TSX, ['src/main.ts'], { cwd: ADMIN, env: { ...umgebung, ...extra }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     kinder.push(kind);

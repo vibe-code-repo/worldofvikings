@@ -38,6 +38,7 @@
  * bleiben, nicht in einer Klick-Behandlung stecken.
  */
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
+import { platzierungenFehler, platzierungenFehlerText, type PlatzierungsFehler } from '@wov/shared/src/worldlayout/sanitize.js';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 
 /**
@@ -353,7 +354,20 @@ export const BASIS_VERLANGT =
 
 /** Ausgang von `schreibeWeltdokument`. */
 export type SchreibAntwort =
-  | { art: 'ok'; message: string; hash: string | null }
+  | {
+      art: 'ok';
+      message: string;
+      hash: string | null;
+      /**
+       * K5.0: hat der LAUFENDE Spielserver den Stand angewendet (200 mit `angewendet`), oder nur die Datei steht
+       * (202 mit `grund`)? `null`: ältere Gegenstelle ohne diese Auskunft.
+       */
+      angewendet: boolean | null;
+      grund: string | null;
+      detail: string | null;
+      /** Neusetzen, die ein Grabstein verschluckt hat (`zaehler.zurueck` der Quittung); fehlt bei älteren Gegenstellen. */
+      zurueck?: number;
+    }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
   /** Der Betriebsdienst verlangt eine Basis (428) und hat nichts geschrieben: den Serverstand laden/abgleichen. */
@@ -397,10 +411,16 @@ export async function schreibeWeltdokument(
     fehler?: string;
     aktuell?: unknown;
     hash?: unknown;
+    angewendet?: unknown;
+    grund?: unknown;
+    detail?: unknown;
     anzahl?: unknown;
     grenze?: unknown;
     verworfen?: unknown;
     verworfenJeFeld?: unknown;
+    zaehler?: unknown;
+    fehlerhaft?: unknown;
+    anzahlFehlerhaft?: unknown;
   } = {};
   try {
     d = JSON.parse(await antwort.text()) as typeof d;
@@ -434,6 +454,13 @@ export async function schreibeWeltdokument(
       };
     }
   }
+  // N4: Platzierungen mit Tippfehlern (`yaw: "abc"`, unbekannter Schlüssel, kaputte Koordinate) weist der Dienst mit
+  // 422 und der Liste ab; geschrieben ist nichts. Der Editor zeigt die Liste, statt „HTTP 422“ zu sagen.
+  if (antwort.status === 422 && d.fehler === 'ungueltig' && Array.isArray(d.fehlerhaft) && d.fehlerhaft.length > 0) {
+    const liste = (d.fehlerhaft as unknown[]).filter((e): e is PlatzierungsFehler => typeof e === 'object' && e !== null && typeof (e as PlatzierungsFehler).id === 'string' && typeof (e as PlatzierungsFehler).feld === 'string');
+    const alle = Number(d.anzahlFehlerhaft);
+    return { art: 'fehler', message: `Nicht gespeichert: ${Number.isFinite(alle) ? alle : liste.length} Fehler in Platzierungen — ${platzierungenFehlerText(liste)}` };
+  }
   // Gesperrt: ein anderer Vorgang schreibt gerade dieselbe Weltdatei. Nichts
   // ist verloren, ein zweiter Versuch gelingt fast immer nach Sekunden.
   if (antwort.status === 503) {
@@ -447,9 +474,9 @@ export async function schreibeWeltdokument(
     };
   }
   if (antwort.ok && d.ok !== false) {
-    // Hat der Betriebsdienst Einträge verworfen (nur erreichbar mit einem
-    // Fremdschreiber oder einer älteren Editorfassung: Editor und Testflug
-    // schicken schon gefilterte Listen), steht die Zahl in der Meldung.
+    // Hat der Betriebsdienst Einträge verworfen, steht die Zahl in der Meldung. Für Platzierungen nie: Die weist der
+    // Dienst mit 422 ab (oben). Erreichbar nur noch für Kontinente, Routen, Flüsse und Seen mit einem Fremdschreiber
+    // oder einer älteren Editorfassung: Editor und Testflug schicken schon gefilterte Listen.
     const verworfen = Number(d.verworfen);
     const jeFeld =
       d.verworfenJeFeld && typeof d.verworfenJeFeld === 'object'
@@ -466,9 +493,33 @@ export async function schreibeWeltdokument(
       art: 'ok',
       message: (d.message ?? 'Gespeichert') + hinweis,
       hash: hashNormalisieren(d.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
+      angewendet: typeof d.angewendet === 'boolean' ? d.angewendet : null,
+      grund: typeof d.grund === 'string' ? d.grund : null,
+      detail: typeof d.detail === 'string' ? d.detail : null,
+      zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
     };
   }
   return { art: 'fehler', message: d.message ?? d.fehler ?? `HTTP ${antwort.status}` };
+}
+
+/**
+ * Der Satz hinter „Gespeichert …“ (K5.0): was aus dem Speichern für die LAUFENDE Welt wurde.
+ * 200 `angewendet`: live übernommen, kein Neustart. 202: geschrieben, aber nicht angewendet; der Grund
+ * (und bei `bestaetigung-noetig` die betroffenen ids) stehen dabei. Ohne Auskunft (ältere Gegenstelle): wie früher.
+ */
+export function wirkungsText(a: Extract<SchreibAntwort, { art: 'ok' }>): string {
+  if (a.angewendet === true) {
+    // Z5a: Ein Grabstein hat ein Neusetzen verschluckt (Objekt gelöscht, dann derselbe Eintrag wieder da): angewendet,
+    // aber das Objekt kam nicht wieder. Das sagt der Satz mit, mit den ids aus `detail`.
+    if ((a.zurueck ?? 0) > 0) {
+      return ` — live angewendet, ${a.zurueck} Neusetzen von einem gelöschten Objekt zurückgehalten${a.detail ? ` (${a.detail})` : ''}.`;
+    }
+    return ' — live angewendet.';
+  }
+  if (a.angewendet === false) {
+    return ` [${a.grund ?? 'nicht angewendet'}${a.detail ? `: ${a.detail}` : ''}]`;
+  }
+  return ' — Server neu starten, damit die Welt sie lädt.';
 }
 
 /**
@@ -651,4 +702,23 @@ export function alter(iso: string): string {
   const std = Math.round(min / 60);
   if (std < 48) return `vor ${std} Stunde(n)`;
   return `vor ${Math.round(std / 24)} Tag(en)`;
+}
+
+/**
+ * Import einer JSON-Datei (Schalter „Import“), ohne DOM: das bereinigte Dokument und die Liste dessen, was die
+ * Bereinigung an den Platzierungen still ändern würde (`yaw: "abc"` → 0, `scale: null` → 0,2, kaputte Koordinate →
+ * Eintrag weg, unbekannter Schlüssel → Feld weg). Der Editor zeigt die Liste und lässt den Nutzer entscheiden, ob er
+ * bereinigt importiert (N4); ohne Fehler geht es wie bisher. `layout` ist null bei Nicht-JSON oder ungültigem Dokument.
+ */
+export function importPruefen(text: string): { layout: WorldLayout | null; fehlerhaft: PlatzierungsFehler[] } {
+  let roh: unknown;
+  try {
+    roh = JSON.parse(text);
+  } catch {
+    return { layout: null, fehlerhaft: [] };
+  }
+  const layout = sanitizeWorldLayout(roh);
+  if (!layout) return { layout: null, fehlerhaft: [] };
+  const fehlerhaft = typeof roh === 'object' && roh !== null && !Array.isArray(roh) ? platzierungenFehler((roh as { placements?: unknown }).placements) : [];
+  return { layout, fehlerhaft };
 }

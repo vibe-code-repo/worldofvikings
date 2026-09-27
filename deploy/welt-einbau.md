@@ -74,10 +74,13 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    sie legt sie nicht neu an.) Danach die **Handprüfung**, je Unit, in **derselben** Shell wie oben — `sha` steht dort
    noch, weil es außerhalb des `bash -c '…'` gesetzt wurde. Die erste Zeile bricht sofort ab, wenn `sha` (etwa nach
    einem neuen Login oder in einer anderen Shell als Block 1) doch leer ist, statt still gegen den lokalen Index zu
-   vergleichen (N7/B5, derselbe Mechanismus wie N5-4):
+   vergleichen (N7/B5, derselbe Mechanismus wie N5-4). Wächter und Schleife sind **ein** Befehl
+   (`&&` zwischen Wächter und `for`): eine interaktive Shell wertet einen eingefügten Block Zeile
+   für Zeile aus, und dort beendet ein Expansionsfehler nur den GERADE laufenden Befehl, nicht die
+   ganze Eingabe — stand der Wächter als eigene Zeile, lief die Schleife danach trotzdem, mit
+   leerem `sha` gegen den lokalen Index (N8/B3, im Käfig mit `bash -i` **und** `bash -s` nachgestellt):
    ```bash
-   : "${sha:?sha fehlt — Block 1 in DIESER Shell ausführen, nicht in einer neuen}"
-   for u in wov-server wov-admin wov-sicherung; do
+   : "${sha:?sha fehlt — Block 1 in DIESER Shell ausführen, nicht in einer neuen}" && for u in wov-server wov-admin wov-sicherung; do
      diff <(git -C /opt/worldofvikings show "$sha:deploy/systemd/$u.service") /etc/systemd/system/$u.service && echo "$u: Datei gleich"
      systemctl show -p NeedDaemonReload,Environment,UnsetEnvironment,EnvironmentFiles $u
    done

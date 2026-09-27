@@ -1306,7 +1306,9 @@ if (ausfuehren && envSourcenBlock !== null) {
   const temp = mkdtempSync(join(tmpdir(), 'env-sourcen-'));
   try {
     const envDatei = join(temp, 'wov.env');
-    writeFileSync(envDatei, 'WOV_INSTANZ=dev\nWOV_KAEFIG=0\nWOV_UNIT_VERZEICHNIS=/von-wov-env\n');
+    // N8 (I-1): wov.env versucht zusaetzlich, WOV_HEAD_VOR_MERGE und WOV_UPDATE_VORHER
+    // unterzuschieben -- genau die Probe S-WOVENV/S-WOVENV2 aus dem N7-Angriffsbericht.
+    writeFileSync(envDatei, 'WOV_INSTANZ=dev\nWOV_KAEFIG=0\nWOV_UNIT_VERZEICHNIS=/von-wov-env\nWOV_HEAD_VOR_MERGE=untergeschoben-kopf\nWOV_UPDATE_VORHER=untergeschoben-vorher\n');
     // Diese Testdatei laeuft selbst im Kaefig (WOV_KAEFIG=1 in der Aufrufumgebung des ganzen Laufs):
     // die Basisumgebung fuer den "Aufrufer hat nichts gesetzt"-Fall muss beide Variablen deshalb explizit
     // entfernen, sonst wuerde der Kaefig der aeusseren Probe selbst als "vom Aufrufer gesetzt" durchgehen.
@@ -1314,7 +1316,16 @@ if (ausfuehren && envSourcenBlock !== null) {
     delete OHNE_KAEFIG_MARKEN.WOV_KAEFIG;
     delete OHNE_KAEFIG_MARKEN.WOV_UNIT_VERZEICHNIS;
     const lauf = (extra: Record<string, string> = {}) => {
-      const skript = ['set -euo pipefail', `ENV_DATEI=${JSON.stringify(envDatei)}`, envSourcenBlock as string, 'echo "INSTANZ=${WOV_INSTANZ-X}"', 'echo "KAEFIG=${WOV_KAEFIG-X}"', 'echo "VERZ=${WOV_UNIT_VERZEICHNIS-X}"'].join('\n');
+      const skript = [
+        'set -euo pipefail',
+        `ENV_DATEI=${JSON.stringify(envDatei)}`,
+        envSourcenBlock as string,
+        'echo "INSTANZ=${WOV_INSTANZ-X}"',
+        'echo "KAEFIG=${WOV_KAEFIG-X}"',
+        'echo "VERZ=${WOV_UNIT_VERZEICHNIS-X}"',
+        'echo "KOPFVOR=${WOV_HEAD_VOR_MERGE-X}"',
+        'echo "VORHERWERT=${WOV_UPDATE_VORHER-X}"',
+      ].join('\n');
       return spawnSync('bash', ['-c', skript], { encoding: 'utf8', env: { ...OHNE_KAEFIG_MARKEN, ...extra } });
     };
     const ohne = lauf();
@@ -1323,6 +1334,10 @@ if (ausfuehren && envSourcenBlock !== null) {
       'N4-4: WOV_KAEFIG und WOV_UNIT_VERZEICHNIS aus /etc/wov.env wirken NICHT, wenn der Aufrufer sie nicht selbst gesetzt hat (WOV_INSTANZ aus wov.env schon)',
       `${ohne.stdout} ${ohne.stderr}`,
     );
+    // N8 (I-1): auch ohne dass der Aufrufer sie gesetzt hat, duerfen WOV_HEAD_VOR_MERGE und
+    // WOV_UPDATE_VORHER nicht aus wov.env "erscheinen" (sie blieben unter der alten Zusage nur
+    // deshalb unauffaellig, weil kein Test je beide gleichzeitig geprueft hat).
+    pruefe(ohne.stdout.includes('KOPFVOR=X') && ohne.stdout.includes('VORHERWERT=X'), 'N8 (I-1): WOV_HEAD_VOR_MERGE/WOV_UPDATE_VORHER aus wov.env wirken NICHT, wenn der Aufrufer sie nicht selbst gesetzt hat', ohne.stdout);
     const mit = lauf({ WOV_KAEFIG: '1', WOV_UNIT_VERZEICHNIS: '/vom-aufrufer' });
     pruefe(
       mit.status === 0 && mit.stdout.includes('KAEFIG=1') && mit.stdout.includes('VERZ=/vom-aufrufer'),
@@ -1331,6 +1346,16 @@ if (ausfuehren && envSourcenBlock !== null) {
     );
     const leerAufrufer = lauf({ WOV_KAEFIG: '' });
     pruefe(leerAufrufer.status === 0 && leerAufrufer.stdout.split('\n').includes('KAEFIG='), 'N4-4: ein leer (aber) gesetztes WOV_KAEFIG des Aufrufers bleibt leer, nicht der Wert 1 aus wov.env', leerAufrufer.stdout);
+    // N8 (I-1, Proben S-WOVENV/S-WOVENV2 aus dem N7-Angriffsbericht): Stufe 1 hat
+    // WOV_HEAD_VOR_MERGE/WOV_UPDATE_VORHER selbst gesetzt (echte Commits), bevor Stufe 2 per
+    // exec neu startet und wov.env erneut sourct -- die untergeschobenen Werte aus wov.env
+    // duerfen sie NICHT ersetzen.
+    const mitKopf = lauf({ WOV_KAEFIG: '1', WOV_UNIT_VERZEICHNIS: '/vom-aufrufer', WOV_HEAD_VOR_MERGE: 'echterkopf123', WOV_UPDATE_VORHER: 'echtervorher456' });
+    pruefe(
+      mitKopf.status === 0 && mitKopf.stdout.includes('KOPFVOR=echterkopf123') && mitKopf.stdout.includes('VORHERWERT=echtervorher456'),
+      'N8 (I-1): WOV_HEAD_VOR_MERGE/WOV_UPDATE_VORHER aus Stufe 1 ueberleben das erneute Sourcen von wov.env in Stufe 2 unveraendert, wov.env schiebt keinen eigenen Wert unter',
+      `${mitKopf.stdout} ${mitKopf.stderr}`,
+    );
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -1385,8 +1410,13 @@ if (ausfuehren && mergeBlock !== null) {
     };
 
     // (1) Normalfall: HEAD wandert von A nach B, VORHER = A (aus HEAD, nicht aus VERSION).
-    const normal = lauf('WOV_VERSION_COMMIT=irrelevant999999\n', 'echo "HEAD=$(git rev-parse HEAD)"\necho "VORHER=$WOV_UPDATE_VORHER"\necho MARKER_WEITER');
+    const normal = lauf('WOV_VERSION_COMMIT=irrelevant999999\n', 'echo "HEAD=$(git rev-parse HEAD)"\necho "VORHER=$WOV_UPDATE_VORHER"\necho "KOPFVOR=$WOV_HEAD_VOR_MERGE"\necho MARKER_WEITER');
     pruefe(normal.status === 0 && normal.stdout.includes(`HEAD=${standB}`) && normal.stdout.includes(`VORHER=${standA}`) && normal.stdout.includes('MARKER_WEITER'), 'N4-3 Normalfall: HEAD landet auf dem gepruepften Stand (B), WOV_UPDATE_VORHER ist das vorherige HEAD (A)', `rc=${normal.status} ${normal.stdout} ${normal.stderr}`);
+    // N8 (B1): Setzseite von WOV_HEAD_VOR_MERGE -- ohne die export-Zeile bliebe die Variable
+    // leer und der Stopp-Rueckweg in aufraeumen ganz weg (Mutant N1b aus dem N7-Angriffsbericht).
+    // Im Normalfall faellt KOPFVOR mit VORHER zusammen (A), das ist Zufall dieses Falls, kein
+    // Beleg fuer die Setzseite -- die faellt erst in N4-5/V2 unten auseinander.
+    pruefe(normal.stdout.includes(`KOPFVOR=${standA}`), 'N8 (B1, Mutant N1b wuerde hier sterben): WOV_HEAD_VOR_MERGE steht auf dem HEAD vor diesem Merge (A)', normal.stdout);
     git('reset', '-q', '--hard', standA);
 
     // (2) N4-3 (Probe K_lokal_voraus des Angreifers): origin/main bewegt sich NICHT (bleibt A), aber der Checkout hat
@@ -1406,12 +1436,16 @@ if (ausfuehren && mergeBlock !== null) {
     // (3) N4-5: ein frueherer Lauf hat schon gemergt (HEAD == B), aber VERSION nennt noch A (die Weltpruefung
     // war nie gruen) -> WOV_UPDATE_VORHER bleibt A, nicht B (sonst zeigte "zurueck" auf sich selbst).
     git('reset', '-q', '--hard', standB);
-    const zweiterLauf = lauf(`WOV_VERSION_COMMIT=${standA}\nWOV_VERSION_VORHER=${standA}\n`, 'echo "HEAD=$(git rev-parse HEAD)"\necho "VORHER=$WOV_UPDATE_VORHER"\necho MARKER_WEITER');
+    const zweiterLauf = lauf(`WOV_VERSION_COMMIT=${standA}\nWOV_VERSION_VORHER=${standA}\n`, 'echo "HEAD=$(git rev-parse HEAD)"\necho "VORHER=$WOV_UPDATE_VORHER"\necho "KOPFVOR=$WOV_HEAD_VOR_MERGE"\necho MARKER_WEITER');
     pruefe(
       zweiterLauf.status === 0 && zweiterLauf.stdout.includes(`HEAD=${standB}`) && zweiterLauf.stdout.includes(`VORHER=${standA}`) && zweiterLauf.stdout.includes('MARKER_WEITER') && zweiterLauf.stdout.includes('nie gruen gewordenen Lauf'),
       'N4-5: zweiter Lauf nach einem gemergten, aber nie gruen geprueften Rollout: WOV_UPDATE_VORHER bleibt der zuletzt bestaetigte Stand aus VERSION (A), nicht das schon verschobene HEAD (B)',
       `rc=${zweiterLauf.status} ${zweiterLauf.stdout} ${zweiterLauf.stderr}`,
     );
+    // N8 (B1, Mutant N1b): hier faellt die Setzseite von WOV_UPDATE_VORHER (B2, N7) und der
+    // Setzseite von WOV_HEAD_VOR_MERGE (B1) tatsaechlich auseinander -- KOPFVOR ist B (der
+    // echte HEAD-Stand vor DIESEM Merge), VORHER bleibt A (der zuletzt bestaetigte Stand).
+    pruefe(zweiterLauf.stdout.includes(`KOPFVOR=${standB}`), 'N8 (B1, Mutant N1b wuerde hier sterben): WOV_HEAD_VOR_MERGE ist B (HEAD vor diesem Merge), nicht A wie WOV_UPDATE_VORHER', zweiterLauf.stdout);
     git('reset', '-q', '--hard', standA);
 
     // (4) N7 (B2, N5-1 V2 aus dem N6-Angriffsbericht): origin/main zieht zwischen zwei
@@ -1428,12 +1462,15 @@ if (ausfuehren && mergeBlock !== null) {
     const standC = git('rev-parse', 'HEAD');
     git('update-ref', 'refs/remotes/origin/main', standC);
     git('reset', '-q', '--hard', standB);
-    const v2 = lauf(`WOV_VERSION_COMMIT=${standA}\nWOV_VERSION_VORHER=${standA}\n`, 'echo "HEAD=$(git rev-parse HEAD)"\necho "VORHER=$WOV_UPDATE_VORHER"\necho MARKER_WEITER');
+    const v2 = lauf(`WOV_VERSION_COMMIT=${standA}\nWOV_VERSION_VORHER=${standA}\n`, 'echo "HEAD=$(git rev-parse HEAD)"\necho "VORHER=$WOV_UPDATE_VORHER"\necho "KOPFVOR=$WOV_HEAD_VOR_MERGE"\necho MARKER_WEITER');
     pruefe(
       v2.status === 0 && v2.stdout.includes(`HEAD=${standC}`) && v2.stdout.includes(`VORHER=${standA}`) && v2.stdout.includes('MARKER_WEITER'),
       'N7 (B2, N5-1 V2): origin/main zieht zwischen zwei Laeufen weiter (HEAD schon auf B, GEPRUEFTER_STAND jetzt C) -- WOV_UPDATE_VORHER bleibt der zuletzt bestaetigte Stand A',
       `rc=${v2.status} ${v2.stdout} ${v2.stderr}`,
     );
+    // N8 (B1, Mutant N1b): alle drei Werte fallen hier auseinander -- HEAD landet auf C (neu
+    // gemergt), KOPFVOR ist B (HEAD vor DIESEM Merge), VORHER bleibt A (zuletzt bestaetigt).
+    pruefe(v2.stdout.includes(`KOPFVOR=${standB}`), 'N8 (B1, Mutant N1b wuerde hier sterben): WOV_HEAD_VOR_MERGE ist B, ungleich HEAD (C) und VORHER (A)', v2.stdout);
     git('reset', '-q', '--hard', standA);
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -1484,25 +1521,25 @@ if (ausfuehren && weltBlock !== null && unitBlock !== null) {
       'GESTARTET=(wov-server wov-admin)',
       'env -i WOV_WELT_VERZEICHNIS=/anderswo sleep 300 & server_kid=$!',
       'env -i WOV_WELT_VERZEICHNIS=/var/lib/wov/welten sleep 300 & admin_kid=$!',
+      // N8 (B5): "rc=0; … || rc=$?" (N7-Fix) schuetzt vor set -e, aber NICHT vor set -u --
+      // eine ungesetzte Variable irgendwo im aufgerufenen Codestueck beendet die Shell trotzdem,
+      // VOR kill/wait, und die beiden sleep-300 halten dann bis zu 300 s die geerbte
+      // stdout/stderr-Pipe offen (Angriff N7, Mutant N5: 910 s statt 11 s). Ein trap auf EXIT
+      // deckt jeden Ausstiegsweg ab, nicht nur den erwarteten.
       `echo "$server_kid" > "${zustand}/wov-server.service.MainPID"`,
       `echo "$admin_kid" > "${zustand}/wov-admin.service.MainPID"`,
-      // N7 (Testfehler): NICHT "welt_laufzeit_pruefen; rc=$?" -- unter set -e beendet ein
-      // rc=1 (der hier erwartete Fall) das Skript SOFORT auf dieser Zeile, VOR kill/wait; die
-      // beiden sleep-300-Hintergrundprozesse werden dann verwaist, halten stdout/stderr offen
-      // und spawnSync haengt bis zu 300 s (beobachtet). "rc=0; … || rc=$?" ist Teil einer
-      // ||-Liste und loest set -e nicht aus.
+      'kids="$server_kid $admin_kid"',
+      'trap \'for k in $kids; do kill "$k" 2>/dev/null || true; done; for k in $kids; do wait "$k" 2>/dev/null || true; done\' EXIT',
       'rc=0; welt_laufzeit_pruefen || rc=$?',
-      'kill "$server_kid" "$admin_kid" 2>/dev/null || true',
-      'wait "$server_kid" "$admin_kid" 2>/dev/null || true',
       'exit $rc',
     ].join('\n');
     const r = spawnSync(bash, ['-c', skript], { cwd: repo, encoding: 'utf8', env: { ...SAUBERE_UMGEBUNG, PATH: `${fakeBin}:${process.env.PATH ?? ''}`, WOV_KAEFIG: '1', WOV_WELT_MAINPID_FRIST: '1' } });
     const journal = existsSync(loggerLog) ? readFileSync(loggerLog, 'utf8') : '';
 
-    const muster = /cd "[^"]+" && \(systemctl stop wov-server wov-client wov-admin wov-web \|\| true\) && git checkout -B main [0-9a-f]+ && npm ci --include=dev && systemctl start wov\.target/;
+    const muster = /cd "[^"]+" && \(systemctl stop wov-server wov-client wov-admin wov-web \|\| echo '[^']*' >&2\) && git checkout -B main [0-9a-f]+ && npm ci --include=dev && systemctl start wov\.target/;
     pruefe(
       r.status === 1 && muster.test(r.stderr) && muster.test(journal) && !/restart/.test(r.stderr) && !/restart/.test(journal),
-      'N7 (B2/B3/I-1): Rueckweg-Befehl in Konsole UND Journal in robuster, gleicher Form (stop || true, gequoteter Pfad, kein restart, Start ueber wov.target)',
+      'N7 (B2/B3/I-1): Rueckweg-Befehl in Konsole UND Journal in robuster, gleicher Form (Stop-Fehlschlag meldet sich statt zu schweigen, gequoteter Pfad, kein restart, Start ueber wov.target)',
       `rc=${r.status}\nstderr=${r.stderr}\njournal=${journal}`,
     );
 
@@ -1526,6 +1563,13 @@ if (ausfuehren && weltBlock !== null && unitBlock !== null) {
         `rc=${ausfuehrung.status} ${ausfuehrung.stdout} ${ausfuehrung.stderr}`,
       );
       pruefe(git('rev-parse', 'HEAD').stdout.trim() === standAlt, 'N7 (B3): git checkout griff trotz Stop-Fehlern (HEAD ist wieder der alte Stand)', git('log', '--oneline', '-1').stdout);
+      // N8 (I-2): "|| true" schluckte den Stop-Fehler stumm -- jetzt meldet sich der
+      // Fehlschlag auf stderr, ohne den Rueckweg anzuhalten (rc bleibt 0, siehe oben).
+      pruefe(
+        ausfuehrung.stderr.includes('WARNUNG: Stop mindestens eines Dienstes scheiterte'),
+        'N8 (I-2): ein Stop-Fehlschlag meldet sich auf der Konsole, statt stumm zu bleiben',
+        ausfuehrung.stderr,
+      );
     }
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -1558,12 +1602,76 @@ if (ausfuehren && aufraeumen !== null) {
       'exit 1',
     ].join('\n');
     const r = spawnSync(bash, ['-c', zeilen], { cwd: wurzel, encoding: 'utf8', env: SAUBERE_UMGEBUNG });
-    const muster = /cd "[^"]+" && \(systemctl stop wov-server wov-client wov-admin wov-web \|\| true\) && git checkout -B main altstand1234 && npm ci --include=dev && systemctl start wov\.target/;
+    const muster = /cd "[^"]+" && \(systemctl stop wov-server wov-client wov-admin wov-web \|\| echo '[^']*' >&2\) && git checkout -B main altstand1234 && npm ci --include=dev && systemctl start wov\.target/;
     pruefe(
       r.status === 1 && r.stderr.includes('auf falscher Welt') && muster.test(r.stderr) && !/restart/.test(r.stderr),
-      'N7 (Mutant M5 wuerde hier ueberleben): aufraeumen druckt bei "auf falscher Welt" den robusten Rueckweg (stop || true, gequoteter Pfad, kein restart, Start ueber wov.target)',
+      'N7 (Mutant M5 wuerde hier ueberleben): aufraeumen druckt bei "auf falscher Welt" den robusten Rueckweg (Stop-Fehlschlag meldet sich, gequoteter Pfad, kein restart, Start ueber wov.target)',
       `rc=${r.status}\nstderr=${r.stderr}`,
     );
+  } finally {
+    rmSync(wurzel, { recursive: true, force: true });
+  }
+}
+
+// N8 (B2, Angriffsbericht N7): der Rueckweg im Zweig "ABBRUCH nach bestandenen Tests
+// (Webseitenbau)" (NEUSTART_BEI_ABBRUCH=1) hatte noch die alte, bruechige Form -- der
+// M5-Test deckt nur den FEHLGESCHLAGEN-Zweig ab, dieser Zweig ist ein eigenes Codestueck.
+// Zusaetzlich der gedruckte Befehl woertlich ausgefuehrt: einmal ohne wov-web (Attrappe
+// scheitert dort mit rc 5) und mit einem WURZEL-Pfad, der ein Leerzeichen enthaelt --
+// beides zusammen, weil das die Probe R-WEB-OHNEWEB/R-WEB-LEER aus dem N7-Angriffsbericht war.
+if (ausfuehren && aufraeumen !== null) {
+  const wurzel = mkdtempSync(join(tmpdir(), 'aufraeumen webbau abbruch '));
+  try {
+    const bash = ['/usr/bin/bash', '/bin/bash'].find((p) => existsSync(p)) ?? 'bash';
+    const zeilen = [
+      'set -euo pipefail',
+      `WURZEL=${JSON.stringify(wurzel)}`,
+      'DIENSTE=(wov-server wov-client wov-admin wov-web)',
+      'INSTANZ=dev',
+      'WOV_UPDATE_VORHER=altstand5678',
+      aufraeumen as string,
+      'DIENSTE_GESTOPPT=1',
+      'NEUSTART_BEI_ABBRUCH=1',
+      'exit 1',
+    ].join('\n');
+    const r = spawnSync(bash, ['-c', zeilen], { cwd: wurzel, encoding: 'utf8', env: SAUBERE_UMGEBUNG });
+    pruefe(r.status === 1 && r.stderr.includes('ABBRUCH nach bestandenen Tests'), 'N8 (B2): Zweig getroffen (ABBRUCH nach bestandenen Tests, Webseitenbau)', r.stderr);
+    const muster = /cd "[^"]+" && \(systemctl stop wov-server wov-client wov-admin wov-web \|\| echo '[^']*' >&2\) && git checkout -B main altstand5678 && npm ci --include=dev && systemctl start wov\.target/;
+    const befehlMatch = r.stderr.match(muster);
+    pruefe(
+      befehlMatch !== null && !/restart/.test(r.stderr),
+      'N8 (B2): Rueckweg im Webbau-Abbruch-Zweig in der robusten Form (gequoteter Pfad, Stop-Fehlschlag meldet sich statt abzubrechen, kein restart, Start ueber wov.target)',
+      r.stderr,
+    );
+    if (befehlMatch) {
+      // eigenes Wegwerf-Repo in WURZEL selbst (der Leerzeichen-Pfad), damit "git checkout -B
+      // main altstand5678" auf diesem Pfad real greift
+      const git = (...a: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { cwd: wurzel, encoding: 'utf8', env: SAUBERE_UMGEBUNG });
+      git('init', '-q');
+      writeFileSync(join(wurzel, 'alt.txt'), 'alt\n');
+      git('add', '.');
+      git('commit', '-q', '--no-verify', '-m', 'alt');
+      const standAlt = git('rev-parse', 'HEAD').stdout.trim();
+      writeFileSync(join(wurzel, 'neu.txt'), 'neu\n');
+      git('add', '.');
+      git('commit', '-q', '--no-verify', '-m', 'neu');
+      const befehlOhneWeb = befehlMatch[0].replace('altstand5678', standAlt);
+      const kaefigBin = mkdtempSync(join(tmpdir(), 'b2-kaefigbin-'));
+      // Attrappen-systemctl: wov-web ist "nicht geladen" (rc 5, wie eine fehlende Unit), die
+      // uebrigen drei Stops gelingen -- der reale Fall aus dem N7-Angriffsbericht (R-WEB-OHNEWEB).
+      writeFileSync(join(kaefigBin, 'systemctl'), `#!${bash}\nif [ "$1" = stop ]; then for u in "$@"; do [ "$u" = wov-web ] && { echo "ATTRAPPE stop wov-web: not loaded"; exit 5; }; done; echo "ATTRAPPE stop: $*"; exit 0; fi\necho "ATTRAPPE: $*"\nexit 0\n`);
+      writeFileSync(join(kaefigBin, 'npm'), `#!${bash}\necho "ATTRAPPE npm: $*"\nexit 0\n`);
+      chmodSync(join(kaefigBin, 'systemctl'), 0o755);
+      chmodSync(join(kaefigBin, 'npm'), 0o755);
+      const ausfuehrung = spawnSync(bash, ['-c', befehlOhneWeb], { cwd: '/', encoding: 'utf8', env: { ...SAUBERE_UMGEBUNG, PATH: `${kaefigBin}:${process.env.PATH ?? ''}` } });
+      pruefe(
+        ausfuehrung.status === 0 && ausfuehrung.stderr.includes('WARNUNG: Stop mindestens eines Dienstes scheiterte'),
+        'N8 (B2, Probe R-WEB-OHNEWEB): der gedruckte Befehl laeuft trotz fehlendem wov-web durch (rc=0), meldet den Fehlschlag aber',
+        `rc=${ausfuehrung.status} ${ausfuehrung.stdout} ${ausfuehrung.stderr}`,
+      );
+      pruefe(git('rev-parse', 'HEAD').stdout.trim() === standAlt, 'N8 (B2, Probe R-WEB-OHNEWEB): git checkout griff trotz fehlendem wov-web (HEAD ist wieder der alte Stand)', git('log', '--oneline', '-1').stdout);
+      rmSync(kaefigBin, { recursive: true, force: true });
+    }
   } finally {
     rmSync(wurzel, { recursive: true, force: true });
   }
@@ -1612,10 +1720,18 @@ if (ausfuehren && weltBlock !== null && unitBlock !== null) {
         zeilen.push('server_kid=', `echo 0 > "${zustand}/wov-server.service.MainPID"`);
       }
       const adminWelt = opt.adminAnderswo ? '/anderswo' : '/var/lib/wov/welten';
-      // N7 (Testfehler, wie oben): "rc=0; … || rc=$?" statt "welt_laufzeit_pruefen; rc=$?" --
-      // sonst beendet set -e das Skript beim erwarteten rc=1 vor kill/wait, admin_kid (sleep
-      // 300) bleibt verwaist und haelt spawnSync bis zu 300 s pro Fall.
-      zeilen.push(`env -i WOV_WELT_VERZEICHNIS=${adminWelt} sleep 300 & admin_kid=$!`, `echo "$admin_kid" > "${zustand}/wov-admin.service.MainPID"`, 'rc=0; welt_laufzeit_pruefen || rc=$?', 'kill ${server_kid:-} "$admin_kid" 2>/dev/null || true', 'wait ${server_kid:-} "$admin_kid" 2>/dev/null || true', 'exit $rc');
+      // N8 (B5): trap ... EXIT statt kill/wait erst am Skriptende -- "rc=0; … || rc=$?" (N7-Fix)
+      // schuetzt nur vor set -e, nicht vor set -u (eine ungesetzte Variable beendet die Shell
+      // trotzdem vor kill/wait, admin_kid (sleep 300) bleibt dann bis zu 300 s verwaist und
+      // haelt spawnSync auf; Angriff N7, Mutant N5: 910 s statt 11 s).
+      zeilen.push(
+        `env -i WOV_WELT_VERZEICHNIS=${adminWelt} sleep 300 & admin_kid=$!`,
+        `echo "$admin_kid" > "${zustand}/wov-admin.service.MainPID"`,
+        'kids="${server_kid:-} $admin_kid"',
+        'trap \'for k in $kids; do kill "$k" 2>/dev/null || true; done; for k in $kids; do wait "$k" 2>/dev/null || true; done\' EXIT',
+        'rc=0; welt_laufzeit_pruefen || rc=$?',
+        'exit $rc',
+      );
       return spawnSync(bash, ['-c', zeilen.join('\n')], { cwd: wurzel, encoding: 'utf8', env: { ...SAUBERE_UMGEBUNG, PATH: `${fakeBin}:${process.env.PATH ?? ''}`, WOV_KAEFIG: '1', WOV_WELT_MAINPID_FRIST: '1' } });
     };
 
@@ -1626,6 +1742,12 @@ if (ausfuehren && weltBlock !== null && unitBlock !== null) {
       'N7 (B2/B4, Mutant M7 wuerde hier sterben): reiner PID-Fall (wov-server dauerhaft ohne MainPID, wov-admin sonst korrekt) meldet "Welt nicht pruefbar", NICHT "auf falscher Welt"',
       `rc=${reinePid.status} journal=${journalRein} stderr=${reinePid.stderr}`,
     );
+    // N8 (B4, Mutant N4 aus dem N7-Angriffsbericht): das KEINE_PID-Journal nennt bisher nur
+    // die richtige PHRASE, nicht die Form des Rueckweg-Befehls darin -- ein alter, bruechiger
+    // Rueckweg in der Journalzeile (git -C … checkout … && systemctl restart …) faellt sonst
+    // nicht auf.
+    const musterJournal = /cd "[^"]+" && \(systemctl stop wov-server wov-client wov-admin wov-web \|\| echo '[^']*' >&2\) && git checkout -B main [^ ]+ && npm ci --include=dev && systemctl start wov\.target/;
+    pruefe(musterJournal.test(journalRein) && !/restart/.test(journalRein), 'N8 (B4, Mutant N4 wuerde hier sterben): KEINE_PID-Journalzeile nennt den Rueckweg in der robusten Form', journalRein);
 
     const gemischt = lauf({ serverPid: 'keine', adminAnderswo: true });
     const journalGemischt = existsSync(loggerLog) ? readFileSync(loggerLog, 'utf8') : '';
@@ -1636,6 +1758,42 @@ if (ausfuehren && weltBlock !== null && unitBlock !== null) {
     );
   } finally {
     rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+// N8 (B4, Mutanten N2/N2b aus dem N7-Angriffsbericht): der KEINE_PID-Text, den `aufraeumen`
+// selbst auf die Konsole druckt (Zweig DIENSTE_LAUFEN=1/WELT_PRUEFUNG_KEINE_PID=1), war bisher
+// ungetestet -- der M5-Test deckt nur den FEHLGESCHLAGEN-Zweig ab, dies ist ein eigenes
+// Codestueck mit eigenem Erklaertext ("Welt NICHT prüfbar ... NICHT zwingend richtige Welt").
+if (ausfuehren && aufraeumen !== null) {
+  const wurzel = mkdtempSync(join(tmpdir(), 'aufraeumen-keine-pid-'));
+  try {
+    const bash = ['/usr/bin/bash', '/bin/bash'].find((p) => existsSync(p)) ?? 'bash';
+    const zeilen = [
+      'set -euo pipefail',
+      `WURZEL=${JSON.stringify(wurzel)}`,
+      'DIENSTE=(wov-server wov-client wov-admin wov-web)',
+      'WOV_UPDATE_VORHER=altstand9012',
+      aufraeumen as string,
+      'DIENSTE_GESTOPPT=1',
+      'DIENSTE_LAUFEN=1',
+      'WELT_PRUEFUNG_KEINE_PID=1',
+      'exit 1',
+    ].join('\n');
+    const r = spawnSync(bash, ['-c', zeilen], { cwd: wurzel, encoding: 'utf8', env: SAUBERE_UMGEBUNG });
+    pruefe(
+      r.status === 1 && r.stderr.includes('Welt NICHT') && r.stderr.includes('prüfbar') && r.stderr.includes('NICHT zwingend richtige Welt'),
+      'N8 (B4, Mutant N2b wuerde hier sterben): aufraeumen erklaert im KEINE_PID-Zweig, warum "NICHT zwingend richtige Welt" gilt',
+      r.stderr,
+    );
+    const muster = /cd "[^"]+" && \(systemctl stop wov-server wov-client wov-admin wov-web \|\| echo '[^']*' >&2\) && git checkout -B main altstand9012 && npm ci --include=dev && systemctl start wov\.target/;
+    pruefe(
+      muster.test(r.stderr) && !/restart/.test(r.stderr),
+      'N8 (B4, Mutant N2 wuerde hier sterben): aufraeumen druckt im KEINE_PID-Zweig den robusten Rueckweg (gequoteter Pfad, Stop-Fehlschlag meldet sich, kein restart, Start ueber wov.target)',
+      r.stderr,
+    );
+  } finally {
+    rmSync(wurzel, { recursive: true, force: true });
   }
 }
 

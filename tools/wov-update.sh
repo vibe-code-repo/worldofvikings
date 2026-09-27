@@ -324,7 +324,12 @@ aufraeumen() {
     echo "'sudo tools/wov-update.sh zurueck' geht hier NICHT: HEAD weicht von VERSION ab," >&2
     echo "es bricht mit \"von Hand am Baum gearbeitet\" ab. Rückweg von Hand:" >&2
     if [ -n "$alt" ]; then
-      echo "  cd $WURZEL && systemctl stop ${DIENSTE[*]} && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
+      # N8 (B2): dieselbe robuste Form wie :404/:757 -- gequoteter Pfad, ein Stop-Fehlschlag
+      # (ein fehlender/nicht geladener wov-web darf den Rueckweg nicht vor git checkout/npm
+      # ci/start abbrechen, Angriff N6 B3/N53c) haelt den Befehl nicht an, meldet sich aber
+      # (N8/I-2: "|| true" schluckte auch einen ECHTEN Stop-Fehler stumm), Start ueber
+      # wov.target statt restart.
+      echo "  cd \"$WURZEL\" && (systemctl stop ${DIENSTE[*]} || echo 'WARNUNG: Stop mindestens eines Dienstes scheiterte, Rueckweg laeuft trotzdem weiter' >&2) && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
     else
       echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
     fi
@@ -381,7 +386,7 @@ aufraeumen() {
       if [ -n "$alt" ]; then
         echo "  Rückweg von Hand ('wov-update.sh zurueck' läuft nicht an, HEAD steht schon auf dem" >&2
         echo "  neuen Stand und VERSION wurde absichtlich nicht geschrieben):" >&2
-        echo "    cd \"$WURZEL\" && (systemctl stop ${DIENSTE[*]} || true) && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
+        echo "    cd \"$WURZEL\" && (systemctl stop ${DIENSTE[*]} || echo 'WARNUNG: Stop mindestens eines Dienstes scheiterte, Rueckweg laeuft trotzdem weiter' >&2) && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
       else
         echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
       fi
@@ -398,10 +403,11 @@ aufraeumen() {
       if [ -n "$alt" ]; then
         echo "  Rückweg von Hand (die HTTP-Gesundheitsprüfung war grün; 'wov-update.sh zurueck' läuft nicht an, HEAD" >&2
         echo "  steht schon auf dem neuen Stand und VERSION wurde absichtlich nicht geschrieben):" >&2
-        # N7 (B3): "|| true" um den Stop -- ein fehlender/nicht geladener wov-web (rc 5) darf
-        # den Rueckweg nicht vor git checkout/npm ci/start abbrechen (Angriff N6, N53c). Pfad
-        # gequotet (N53b).
-        echo "    cd \"$WURZEL\" && (systemctl stop ${DIENSTE[*]} || true) && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
+        # N7 (B3): ein fehlender/nicht geladener wov-web (rc 5) darf den Rueckweg nicht vor
+        # git checkout/npm ci/start abbrechen (Angriff N6, N53c). Pfad gequotet (N53b).
+        # N8 (I-2): "|| true" schluckte auch einen ECHTEN Stop-Fehler stumm -- jetzt meldet
+        # sich ein Stop-Fehlschlag, haelt den Rueckweg aber weiterhin nicht an.
+        echo "    cd \"$WURZEL\" && (systemctl stop ${DIENSTE[*]} || echo 'WARNUNG: Stop mindestens eines Dienstes scheiterte, Rueckweg laeuft trotzdem weiter' >&2) && git checkout -B main $alt && npm ci --include=dev && systemctl start wov.target" >&2
       else
         echo "  Der alte Stand ist nicht bekannt (kein VERSION): git reflog ansehen." >&2
       fi
@@ -427,7 +433,8 @@ aufraeumen() {
       echo "  Ursache beheben, dann erneut:  sudo tools/wov-update.sh" >&2
       if [ -n "$alt" ]; then
         echo "  Zurück auf den alten Stand, von Hand:" >&2
-        echo "    cd $WURZEL" >&2
+        # N8 (B2): Pfad gequotet, wie die uebrigen Rueckwege.
+        echo "    cd \"$WURZEL\"" >&2
         echo "    systemctl stop ${DIENSTE[*]}" >&2
         echo "    git checkout -B main $alt" >&2
         echo "    npm ci --include=dev" >&2
@@ -749,12 +756,15 @@ welt_laufzeit_pruefen() {
     # steht jetzt schon HIER auf der Konsole (nicht erst spaeter in aufraeumen), damit ein Blick
     # allein auf diese Meldung genuegt -- "jeweils mit Rueckweg" (Karte B4).
     #
-    # N7 (B3): Rueckweg-Befehl robust -- "|| true" um den Stop, sonst haelt ein fehlender/nicht
-    # geladener wov-web (rc 5 von systemctl) den gesamten Befehl vor git checkout/npm ci/start
-    # an (Angriff N6, B3/N53c). Pfad gequotet (N53b).
+    # N7 (B3): Rueckweg-Befehl robust -- ein fehlender/nicht geladener wov-web (rc 5 von
+    # systemctl) haelt den gesamten Befehl nicht vor git checkout/npm ci/start an (Angriff N6,
+    # B3/N53c). Pfad gequotet (N53b).
+    # N8 (I-2): "|| true" schluckte auch einen ECHTEN Stop-Fehler stumm (nicht nur "not
+    # loaded") -- jetzt meldet sich ein Stop-Fehlschlag auf der Konsole, der Rueckweg laeuft
+    # trotzdem weiter (Abwaegung aus dem N7-Angriffsbericht, I-2).
     local alt_rueckweg
     alt_rueckweg="$(alter_stand)"
-    local rueckweg_befehl="cd \"${WURZEL:-.}\" && (systemctl stop ${DIENSTE[*]} || true) && git checkout -B main ${alt_rueckweg:-<unbekannt>} && npm ci --include=dev && systemctl start wov.target"
+    local rueckweg_befehl="cd \"${WURZEL:-.}\" && (systemctl stop ${DIENSTE[*]} || echo 'WARNUNG: Stop mindestens eines Dienstes scheiterte, Rueckweg laeuft trotzdem weiter' >&2) && git checkout -B main ${alt_rueckweg:-<unbekannt>} && npm ci --include=dev && systemctl start wov.target"
     echo "  ✗ Weltprüfung nach dem Start gescheitert:$probleme" >&2
     echo "    Units prüfen: systemctl show -p Environment,UnsetEnvironment,EnvironmentFiles,DropInPaths wov-server wov-admin; deploy/welt-einbau.md" >&2
     echo "    Rückweg: $rueckweg_befehl" >&2
@@ -1120,15 +1130,26 @@ fi
 # S-6-Pruefhaken der Probe auf dem echten Container greifen und unit_pruefung
 # eine andere Unit lesen (G2 in der N4-Kaefigprobe). Vor dem Sourcen sichern,
 # danach exakt wiederherstellen (auch "war gar nicht gesetzt").
+#
+# N8 (I-1): dieselbe Sicherung fuer WOV_HEAD_VOR_MERGE und WOV_UPDATE_VORHER --
+# sonst koennte root mit einer Zeile in /etc/wov.env den Stopp-Fehler-Rueckweg in
+# Stufe 2 (die dieses Skript per exec neu startet und ENV_DATEI dabei erneut
+# sourct) auf einen beliebigen Commit umlenken, obwohl beide Werte in Stufe 1
+# aus dem eigenen Checkout gesetzt wurden (Angriff N7, S-WOVENV/S-WOVENV2).
 _WOV_KAEFIG_VORHER="${WOV_KAEFIG-}"; _WOV_KAEFIG_GESETZT="${WOV_KAEFIG+1}"
 _WOV_UNIT_VERZEICHNIS_VORHER="${WOV_UNIT_VERZEICHNIS-}"; _WOV_UNIT_VERZEICHNIS_GESETZT="${WOV_UNIT_VERZEICHNIS+1}"
+_WOV_HEAD_VOR_MERGE_VORHER="${WOV_HEAD_VOR_MERGE-}"; _WOV_HEAD_VOR_MERGE_GESETZT="${WOV_HEAD_VOR_MERGE+1}"
+_WOV_UPDATE_VORHER_VORHER="${WOV_UPDATE_VORHER-}"; _WOV_UPDATE_VORHER_GESETZT="${WOV_UPDATE_VORHER+1}"
 set -a
 # shellcheck source=/dev/null
 . "$ENV_DATEI"
 set +a
 if [ -n "$_WOV_KAEFIG_GESETZT" ]; then WOV_KAEFIG="$_WOV_KAEFIG_VORHER"; else unset WOV_KAEFIG; fi
 if [ -n "$_WOV_UNIT_VERZEICHNIS_GESETZT" ]; then WOV_UNIT_VERZEICHNIS="$_WOV_UNIT_VERZEICHNIS_VORHER"; else unset WOV_UNIT_VERZEICHNIS; fi
+if [ -n "$_WOV_HEAD_VOR_MERGE_GESETZT" ]; then WOV_HEAD_VOR_MERGE="$_WOV_HEAD_VOR_MERGE_VORHER"; else unset WOV_HEAD_VOR_MERGE; fi
+if [ -n "$_WOV_UPDATE_VORHER_GESETZT" ]; then WOV_UPDATE_VORHER="$_WOV_UPDATE_VORHER_VORHER"; else unset WOV_UPDATE_VORHER; fi
 unset _WOV_KAEFIG_VORHER _WOV_KAEFIG_GESETZT _WOV_UNIT_VERZEICHNIS_VORHER _WOV_UNIT_VERZEICHNIS_GESETZT
+unset _WOV_HEAD_VOR_MERGE_VORHER _WOV_HEAD_VOR_MERGE_GESETZT _WOV_UPDATE_VORHER_VORHER _WOV_UPDATE_VORHER_GESETZT
 # END wov-env-sourcen
 
 INSTANZ="${WOV_INSTANZ:-}"

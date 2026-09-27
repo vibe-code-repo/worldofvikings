@@ -38,6 +38,7 @@ import type { TestflugKontext } from './TestflugKontext';
 import { antwortText } from './TestflugPersistenz';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebnis } from './TestflugPersistenz';
 import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
+import { sockelRadiusFuer } from './sockel';
 import { DoppelklickSperre, Ziehgriff, entscheideKlick, griffPosition, modusNachSetzen } from './greifen';
 
 /**
@@ -234,19 +235,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     const sockelRadius = (): number => {
       const e = panel.einstellung;
       const w = findPrefabByName(e.prefab)?.renderScale.w ?? 4;
-      // Halbe LÄNGSTE Ausdehnung plus ein Meter Zugabe. Ein Kreis mit
-      // diesem Radius deckt das Bauwerk in JEDER Drehung, weil w bereits
-      // die größte waagerechte Kante ist.
-      //
-      // Vorher stand hier zusätzlich ein √2 — das rechnet die Diagonale
-      // eines QUADRATS aus und ist für längliche Bauten schlicht zu
-      // grosszügig: Beim Grabhügel (42,6 × 29,4 m) ergab das 31 m statt
-      // 22 m, also einen Ring von bis zu 9 m planierter Wiese rund um
-      // den Fuss. Gemeldet als „es wird sehr viel rund um den Hügel
-      // planiert". Die Ecken einer gedachten Bbox deckt der Kreis dann
-      // zwar nicht mehr — dort ist bei einem runden Hügel aber ohnehin
-      // nur Luft.
-      return Math.round(((w * e.scale) / 2) + 1);
+      return sockelRadiusFuer(w, e.scale);
     };
     const doppelSperre = new DoppelklickSperre();
     const platziere = (): void => {

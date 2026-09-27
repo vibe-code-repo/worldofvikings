@@ -29,6 +29,7 @@ import {
   type Vorgang,
 } from '../worldlayout/ops.js';
 import { frischePlatzierungsId } from '../worldlayout/platzierungsId.js';
+import { platzierungenEinzeln } from '../worldlayout/sanitize.js';
 import type { WorldLayout } from '../worldlayout/types.js';
 
 export const OPS_MAX_JE_AUFRUF = 500;
@@ -60,6 +61,15 @@ export class VorgangFehler extends Error {
 
 const istText = (v: unknown): v is string => typeof v === 'string' && v !== '';
 const istZahl = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** `vorher` in der gespeicherten Form: bei Platzierungen die bereinigte Kopie, sonst wie gegeben. */
+function vorherAblegen(sammlung: OpCollection, vorher: Record<string, unknown>, id: string): OpEntry {
+  if (sammlung === 'placements') {
+    const kanon = platzierungenEinzeln([{ ...vorher, id }])[0];
+    if (kanon) return { ...kanon, id } as OpEntry;
+  }
+  return { ...vorher, id } as OpEntry;
+}
 
 export function baueVorgang(layout: WorldLayout, ops: readonly OpEingabe[], opt: BauOptionen): Vorgang {
   if (ops.length === 0) throw new VorgangFehler('ops ist leer.');
@@ -113,10 +123,10 @@ export function baueVorgang(layout: WorldLayout, ops: readonly OpEingabe[], opt:
         bauteile.push(opSetzen(e.sammlung, nachher!));
       } else if (e.art === 'aendere') {
         const op = opAendern(layout, e.sammlung, nachher!);
-        bauteile.push(e.vorher !== undefined ? { ...op, vorher: { ...e.vorher, id } as OpEntry } : op);
+        bauteile.push(e.vorher !== undefined ? { ...op, vorher: vorherAblegen(e.sammlung, e.vorher, id) } : op);
       } else {
         const op = opEntfernen(layout, e.sammlung, id);
-        bauteile.push(e.vorher !== undefined ? { ...op, vorher: { ...e.vorher, id } as OpEntry } : op);
+        bauteile.push(e.vorher !== undefined ? { ...op, vorher: vorherAblegen(e.sammlung, e.vorher, id) } : op);
       }
     } catch (f) {
       throw new VorgangFehler(`${wo}: ${(f as Error).message}`);

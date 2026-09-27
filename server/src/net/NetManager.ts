@@ -77,7 +77,7 @@ export interface NetManagerConfig {
    * abgewiesen. Das ist der Zustand jedes Tests, der NetManager ohne
    * Konten hochzieht, und darf ihn nicht zum Absturz bringen.
    */
-  bannPruefen?: (zugang: { spielerId: SpielerId | null; herkunft: string })
+  bannPruefen?: (zugang: { spielerId: SpielerId | null; herkunft: string; ausgestelltAm?: number })
     => { grund: string; bis: number | null } | null;
 }
 
@@ -432,7 +432,10 @@ export class NetManager {
     // NICHT aus socket.remoteAddress; hinter dem Proxy waere die fuer alle
     // gleich.
     const herkunft = this.herkunftJeVerbindung.get(peer.verbindungsId) ?? '';
-    const bann = this.config.bannPruefen?.({ spielerId, herkunft }) ?? null;
+    const bann = this.config.bannPruefen?.({
+      spielerId, herkunft,
+      ausgestelltAm: geprueft.status === 'gueltig' ? geprueft.ausgestelltAm : undefined,
+    }) ?? null;
     if (bann) {
       peer.status = ConnectionStatus.ErrorBanned;
       console.warn(`[NetManager] Gebannter Zugang abgewiesen (spielerId: ${spielerId}, Herkunft: ${herkunft || 'unbekannt'})`);
@@ -635,6 +638,26 @@ export class NetManager {
       if (!bann) continue;
       peer.status = ConnectionStatus.ErrorBanned;
       peer.disconnect(bannMeldung(bann));
+      this.handleDisconnect(peer);
+      getroffen.push(peer);
+    }
+    return getroffen;
+  }
+
+  /**
+   * Alle Verbindungen dieser Spieler-Kennungen trennen (auch Editor-
+   * Verbindungen) — nach einem Passwortwechsel: das Token, mit dem sie
+   * hereinkamen, gilt nicht mehr. Trennt die Peers als Objekte, nicht ueber
+   * ihren Namen (der kann mehreren Verbindungen gehoeren). Der Spielstand
+   * bleibt: `onPeerQuit` schreibt ihn wie bei jedem Verlassen.
+   */
+  trenneSpieler(spielerIds: readonly string[], grund: string): Peer[] {
+    const ids = new Set(spielerIds);
+    const getroffen: Peer[] = [];
+    for (const peer of [...this.onlinePeers, ...this.connectedPeers]) {
+      if (!peer.authenticated || !ids.has(peer.spielerId)) continue;
+      peer.status = ConnectionStatus.ErrorKicked;
+      peer.disconnect(grund);
       this.handleDisconnect(peer);
       getroffen.push(peer);
     }

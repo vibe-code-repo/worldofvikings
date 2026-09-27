@@ -772,6 +772,58 @@ export class ForumDatabase {
     this.db.prepare('DELETE FROM posts_fts WHERE rowid = ?').run(postId);
   }
 
+  /**
+   * Ein geloeschtes Konto aus dem Forum nehmen (Konto-Verwaltung, W3).
+   *
+   * Beitraege und Themen BLEIBEN, damit Gespraeche lesbar bleiben; der Autor
+   * wird zu `geloeschterName`, Konto- und Charakter-Id werden entfernt. Was
+   * am Konto haengt und niemandem sonst nutzt, faellt weg: Reaktionen, Abos,
+   * Benachrichtigungen und die eigenen Meldungen. Kopien des Namens in
+   * fremden Benachrichtigungen und in "bearbeitet von" werden ebenfalls
+   * ersetzt. Der Text der Beitraege selbst (Zitate, @Namen) bleibt unberuehrt.
+   *
+   * Alles in EINER Transaktion und wiederholbar: bricht der Aufrufer danach
+   * ab, ergibt ein zweiter Aufruf dasselbe.
+   */
+  kontoEntfernen(
+    kontoId: number, charakterIds: readonly number[], namen: readonly string[], geloeschterName: string,
+  ): { themen: number; beitraege: number; reaktionen: number; abos: number; benachrichtigungen: number; meldungen: number } {
+    const ids = charakterIds.length ? charakterIds : [0];
+    const idPlatz = ids.map(() => '?').join(',');
+    const namenPlatz = namen.length ? namen.map(() => '?').join(',') : "''";
+    const namenWerte = namen.length ? [...namen] : [];
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const themen = Number(this.db.prepare(
+        `UPDATE threads SET author_konto_id = NULL, author_character_id = NULL, author_name = ?
+          WHERE author_konto_id = ? OR author_character_id IN (${idPlatz})`,
+      ).run(geloeschterName, kontoId, ...ids).changes);
+      const beitraege = Number(this.db.prepare(
+        `UPDATE posts SET author_konto_id = NULL, author_character_id = NULL, author_name = ?
+          WHERE author_konto_id = ? OR author_character_id IN (${idPlatz})`,
+      ).run(geloeschterName, kontoId, ...ids).changes);
+      if (namen.length) {
+        this.db.prepare(`UPDATE posts SET edited_by_name = ? WHERE edited_by_name IN (${namenPlatz})`)
+          .run(geloeschterName, ...namenWerte);
+        this.db.prepare(`UPDATE notifications SET from_name = ? WHERE from_name IN (${namenPlatz})`)
+          .run(geloeschterName, ...namenWerte);
+      }
+      const reaktionen = Number(this.db.prepare('DELETE FROM reactions WHERE konto_id = ?').run(kontoId).changes);
+      const abos = Number(this.db.prepare('DELETE FROM subscriptions WHERE konto_id = ?').run(kontoId).changes);
+      const benachrichtigungen = Number(
+        this.db.prepare('DELETE FROM notifications WHERE konto_id = ?').run(kontoId).changes,
+      );
+      const meldungen = Number(
+        this.db.prepare('DELETE FROM reports WHERE reporter_konto_id = ?').run(kontoId).changes,
+      );
+      this.db.exec('COMMIT');
+      return { themen, beitraege, reaktionen, abos, benachrichtigungen, meldungen };
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
   schliessen(): void {
     this.db.close();
   }

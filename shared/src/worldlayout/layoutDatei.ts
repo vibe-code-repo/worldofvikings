@@ -55,7 +55,13 @@ import {
 import { hostname } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { sanitizeWorldLayout, sanitizeWorldLayoutMitBericht } from './sanitize.js';
+import {
+  platzierungenFehler,
+  platzierungenFehlerText,
+  sanitizeWorldLayout,
+  sanitizeWorldLayoutMitBericht,
+  type PlatzierungsFehler,
+} from './sanitize.js';
 import type { WorldLayout } from './types.js';
 
 /**
@@ -102,6 +108,20 @@ export class LayoutZuVielePlatzierungen extends LayoutUngueltig {
   ) {
     super(`${anzahl} Platzierungen — mehr als ${grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`);
     this.name = 'LayoutZuVielePlatzierungen';
+  }
+}
+
+/**
+ * Das Dokument enthält Platzierungen, die der Sanitizer verwerfen oder verändern würde (kaputte Koordinate,
+ * `yaw: "abc"`, `scale: null`, gekürzter `npc.name`, `npc: []`, unbekannter Schlüssel wie `Yaw`). Gezählt am ROHEN
+ * Dokument, vor dem Sanitizer, weil danach nichts mehr davon zu sehen ist. Der Betriebsdienst antwortet 422 mit
+ * `fehlerhaft` und schreibt nichts; ein stilles Bereinigen ließe den Spielserver einen Tippfehler als Änderung
+ * oder Löschung eines Objekts lesen. Eine Unterklasse von `LayoutUngueltig` (jeder andere Aufrufer: „Dokument unbrauchbar“).
+ */
+export class LayoutPlatzierungenUngueltig extends LayoutUngueltig {
+  constructor(readonly fehlerhaft: readonly PlatzierungsFehler[]) {
+    super(`${fehlerhaft.length} Fehler in Platzierungen (${platzierungenFehlerText(fehlerhaft)}) — nichts gespeichert`);
+    this.name = 'LayoutPlatzierungenUngueltig';
   }
 }
 
@@ -909,6 +929,14 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false): {
       verworfenJeFeld[liste.feld] = roh - behalten - gefaltet;
       verworfen += roh - behalten - gefaltet;
     }
+  }
+  // Am ROHEN Dokument, nach der Prüfung „alle Einträge verworfen“ (die hat ihren eigenen Grund): Verworfene und
+  // geklemmte Platzierungen weist der Schreibweg ab, statt sie still zu bereinigen (N4). Sonst sähe der Spielserver
+  // nur das bereinigte Dokument: `yaw: "abc"` wäre für ihn `yaw 0`, also eine Änderung, die ein gefälltes Objekt neu
+  // setzt; `x: "abc"` eine Löschung, die ein stehendes Objekt live entfernt.
+  if (typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe)) {
+    const fehlerhaft = platzierungenFehler((eingabe as { placements?: unknown }).placements);
+    if (fehlerhaft.length > 0) throw new LayoutPlatzierungenUngueltig(fehlerhaft);
   }
   return { layout, text: layoutText(layout), verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld };
 }

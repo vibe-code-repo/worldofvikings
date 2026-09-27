@@ -59,7 +59,7 @@ import { Material } from '@babylonjs/core/Materials/material';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import type { Scene } from '@babylonjs/core/scene';
 import '@babylonjs/loaders/glTF/2.0';
-import { ShadowDepthWrapper } from '@babylonjs/core/Materials/shadowDepthWrapper';
+import { erzeugeTiefenWrapper } from './ShadowDepthWrapperSicher';
 import { WindPlugin } from './WindPlugin';
 import { FlammenAtlas } from './FlammenAtlas';
 import { GlutPuls } from './GlutPuls';
@@ -1219,7 +1219,7 @@ export class AssetManager {
     // Dutzend), nur für den Schattenpass. Keine zusätzlichen Draw Calls —
     // die Werfer werden ohnehin gezeichnet.
     if (!material.shadowDepthWrapper) {
-      material.shadowDepthWrapper = new ShadowDepthWrapper(material, material.getScene());
+      material.shadowDepthWrapper = erzeugeTiefenWrapper(material, material.getScene());
     }
 
     if (!mesh) return;

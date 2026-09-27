@@ -67,6 +67,7 @@ import type { Dungeon2Vorschau } from './dungeon2/Dungeon2Vorschau';
 // selbst kommt beim ersten Umschalten auf „3D" ueber `import()` herein.
 import type { DungeonVorschau3d } from './DungeonVorschau3d';
 import { befundSchwere } from './befundSchwere';
+import { platzierungenFehlerText } from '@wov/shared/src/worldlayout/sanitize.js';
 import {
   BASIS_FEHLT,
   alter,
@@ -76,9 +77,11 @@ import {
   entwurfStandLesen,
   gleich,
   holeWeltdokument,
+  importPruefen,
   leeresLayout,
   schreibeWeltdokument,
   vergleiche,
+  wirkungsText,
   type EntwurfsQuelle,
 } from './weltdokument';
 import {
@@ -3168,10 +3171,18 @@ function weltFeldBauen(): void {
           const f = inp.files?.[0];
           if (!f) return;
           void f.text().then((t) => {
-            let s: WorldLayout | null = null;
-            try {
-              s = sanitizeWorldLayout(JSON.parse(t));
-            } catch { /* kein JSON — fällt in den Fehlerzweig unten */ }
+            // N4: Die Bereinigung ändert Platzierungen mit Tippfehlern still (`yaw: "abc"` → 0, kaputte Koordinate →
+            // Eintrag weg, unbekannter Schlüssel → Feld weg). Der Editor zeigt die Liste und lässt entscheiden.
+            const { layout: s, fehlerhaft } = importPruefen(t);
+            if (s && fehlerhaft.length > 0) {
+              const frage =
+                `Die Datei enthält ${fehlerhaft.length} Fehler in Platzierungen:\n${platzierungenFehlerText(fehlerhaft, 12)}\n\n` +
+                'Beim Import werden diese Felder bereinigt (Wert auf die Vorgabe gesetzt, Eintrag oder Feld gestrichen). Bereinigt importieren?';
+              if (!window.confirm(frage)) {
+                shell.meldung(`Import abgebrochen — ${fehlerhaft.length} Fehler in Platzierungen: ${platzierungenFehlerText(fehlerhaft, 8)}`, true);
+                return;
+              }
+            }
             if (s) {
               // Ohne Schritt wäre der vorige Entwurf nach dem Import nirgends
               // mehr — und die Übernahme-Regel des Verlaufs ginge von einem
@@ -3512,7 +3523,7 @@ async function inDieWeltSpeichern(): Promise<boolean> {
   // antwortet der Server 409, und es wird NICHTS geschrieben.
   const antwort = await schreibeWeltdokument(sauber, basis);
   if (antwort.art === 'ok') {
-    shell.meldung(`${antwort.message} — Server neu starten, damit die Welt sie lädt.`);
+    shell.meldung(`${antwort.message}${wirkungsText(antwort)}`);
     // Ab jetzt sind Entwurf und Serverstand deckungsgleich. Ohne diese
     // Zeilen fragte der Abgleich beim nächsten Öffnen nach einem
     // Unterschied, den es nicht mehr gibt — und man lernt, den Dialog

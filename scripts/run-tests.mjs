@@ -2268,6 +2268,10 @@ const KERN = [
   ['server', 'test/gaeste-besitz.ts'],
   // A foreign peer never gets the builder's account id (`besitzer`) or the ZDO owner field of a character, full state or delta, real clients + strict wire reader.
   ['server', 'test/besitzer-sichtbar.ts'],
+  // Card Z3: a mass-deletion guard withheld live survives a restart of the real game server (chest content
+  // stays, the receipt stays bestaetigung-noetig), an explicit confirm endpoint applies it (409 on a stale
+  // hash), and writing the objects back instead of confirming drops the open confirmation on its own.
+  ['admin', 'test/welt-bestaetigen-z3.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

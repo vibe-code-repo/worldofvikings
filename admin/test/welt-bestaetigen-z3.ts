@@ -86,7 +86,12 @@ function schreibe(text: string): string {
   return layoutHash(text);
 }
 const json = (d: unknown): string => JSON.stringify(d);
-async function quittung(hash: string, ms = 5000): Promise<Quittung | null> {
+// wov-dev runs several sessions' tests concurrently (sperre.sh only caps it at 2 heavy jobs at a time); a
+// second real game server or admin service sharing the 8 cores can stretch a 1-second wache tick well past
+// a few seconds. 20 s of margin here (this file only, not the default elsewhere) is about patience under
+// load, not about how fast the mechanism itself is — the isolated case (no other load) applies in well
+// under 100 ms (see the repro used to diagnose this while building the card).
+async function quittung(hash: string, ms = 20000): Promise<Quittung | null> {
   let q: Quittung | null = null;
   await warteAuf(() => {
     q = quittungLesen(QUITTUNG);
@@ -101,7 +106,14 @@ const DOC_VOLL: Platz[] = [...BAEUME, KISTE];
 const HASH_VOLL = layoutHash(json(dokument(DOC_VOLL)));
 schreibe(json(dokument(DOC_VOLL)));
 
-function neuerServer(): ReturnType<typeof createWovServer> {
+/**
+ * `bootLoeschschutz` mimics what `main.ts` computes at a REAL process start: it reads the previous
+ * run's receipt BEFORE deleting it, and passes it on only when its hash still matches the file this
+ * boot is about to load. Every test here calls `createWovServer` directly (like every other test in
+ * this codebase) instead of running `main.ts` itself, so it has to do that same read explicitly —
+ * `main.ts`'s own part of Karte Z3 is exercised in isolation, not by proxy through this test.
+ */
+function neuerServer(bootLoeschschutz?: { hash: string; detail: string } | null): ReturnType<typeof createWovServer> {
   return createWovServer({
     port: 0,
     everyoneAdmin: true,
@@ -114,7 +126,16 @@ function neuerServer(): ReturnType<typeof createWovServer> {
     worldMode: 'layout',
     worldLayoutPath: WELT_DATEI,
     saveIntervalMs: 3600_000,
+    ...(bootLoeschschutz !== undefined ? { bootLoeschschutz } : {}),
   });
+}
+
+/** What `main.ts` does before it deletes the previous receipt: read it, and hand it on only if its hash still matches. */
+function bootLoeschschutzWieMain(): { hash: string; detail: string } | null {
+  const alt = quittungLesen(QUITTUNG);
+  if (alt?.ergebnis !== 'nicht-angewendet' || alt.grund !== 'bestaetigung-noetig') return null;
+  const aktuell = layoutHash(readFileSync(WELT_DATEI));
+  return aktuell === alt.hash ? { hash: alt.hash, detail: alt.detail ?? '' } : null;
 }
 
 // ── real operations service (subprocess) ──
@@ -195,13 +216,16 @@ async function haupt(): Promise<void> {
     // ── 2: restart the REAL game server; the withheld state survives ──
     server.stop();
     await warte(300);
+    const schutzB = bootLoeschschutzWieMain(); // what main.ts computes: the old receipt still matches this file
+    check('2 set-up: main.ts would find a matching open confirmation for this restart', schutzB?.hash === hashLeer, JSON.stringify(schutzB));
     zeilen.length = 0;
-    server = neuerServer();
+    server = neuerServer(schutzB);
     server.start();
     writeFileSync(LAEUFT, '');
-    await warte(2000); // boot + at least one tick of the new instance's layout wache
     const layoutZdos2 = (): ZDO[] => server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER));
     const nach2 = (id: string): ZDO | undefined => layoutZdos2().find((z) => z.getString(LAYOUT_ID_MEMBER) === id);
+    // Boot + at least one tick of the new instance's layout wache; generous margin under load (see `quittung`).
+    await warteAuf(() => quittungLesen(QUITTUNG) !== null, 20000);
     q = quittungLesen(QUITTUNG);
     check('2 restart: receipt STAYS bestaetigung-noetig for the same hash (does not flip to angewendet)', q?.hash === hashLeer && q.ergebnis === 'nicht-angewendet' && q.grund === 'bestaetigung-noetig', `${q?.hash === hashLeer ? '' : `hash mismatch (${q?.hash} vs ${hashLeer}) `}${q?.ergebnis} ${q?.grund}`);
     check('2 restart: chest (with content) still stands, 6 layout ZDOs', layoutZdos2().length === 6 && nach2('kiste-1')?.getString('truheInhalt') === '[[Wood,9]]', `${layoutZdos2().length} ZDOs, inhalt=${nach2('kiste-1')?.getString('truheInhalt')}`);
@@ -213,11 +237,20 @@ async function haupt(): Promise<void> {
     check('3 nothing changed by the refused confirmation: 6 layout ZDOs', layoutZdos2().length === 6);
 
     // ── 4: confirming the right hash applies the withheld deletion ──
+    // The endpoint itself waits up to 3 s for the receipt (same pattern as every other write path,
+    // `quittungAbwarten`); under load that window can end a beat before the wache's next 1-second
+    // tick actually consumes the confirmation, exactly like the "silent service" case elsewhere
+    // (weltops-quittung.ts, case 6). So: the answer must be self-consistent either way, and the
+    // receipt itself — polled separately, with its own margin — is the authoritative witness.
     const ok = await bestaetigen(hashLeer);
-    check('4 confirm with the right hash: 200, angewendet', ok.status === 200 && ok.daten.angewendet === true, `${ok.status} ${JSON.stringify(ok.daten)}`);
-    check('4 the chest (and the trees) are gone: 0 layout ZDOs', layoutZdos2().length === 0, `${layoutZdos2().length}`);
-    const q4 = quittungLesen(QUITTUNG);
+    check(
+      '4 confirm with the right hash: self-consistent answer (200+angewendet, or 202+bestaetigung-noetig while the wache catches up)',
+      (ok.status === 200 && ok.daten.angewendet === true) || (ok.status === 202 && ok.daten.angewendet === false && ok.daten.grund === 'bestaetigung-noetig'),
+      `${ok.status} ${JSON.stringify(ok.daten)}`
+    );
+    const q4 = await quittung(hashLeer);
     check('4 receipt angewendet for the confirmed hash', q4?.hash === hashLeer && q4.ergebnis === 'angewendet', `${q4?.hash} ${q4?.ergebnis}`);
+    check('4 the chest (and the trees) are gone: 0 layout ZDOs', layoutZdos2().length === 0, `${layoutZdos2().length}`);
 
     // ── 5: revocation — writing the objects back drops the open confirmation ──
     let hash = schreibe(json(dokument(DOC_VOLL)));
@@ -249,7 +282,9 @@ async function haupt(): Promise<void> {
     // never about? It must not — `main.ts` only sets `bootLoeschschutz` when the hash still matches exactly.
     const hashReset = schreibe(json({ ...dokument([]), detailSeed: 'nach-reset' }));
     check('6 the reset document has a DIFFERENT hash than the withheld one', hashReset !== hashLeer3);
-    server = neuerServer();
+    const schutzNachReset = bootLoeschschutzWieMain(); // main.ts's own hash check: the old receipt (hashLeer3) no longer matches
+    check('6 main.ts finds NO matching confirmation for the reset document (hash differs)', schutzNachReset === null, JSON.stringify(schutzNachReset));
+    server = neuerServer(schutzNachReset);
     server.start();
     writeFileSync(LAEUFT, '');
     const q6 = await quittung(hashReset);

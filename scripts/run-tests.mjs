@@ -2213,6 +2213,12 @@ const KERN = [
   ['server', 'test/instanz-verwurf.ts'],
   // Offline flight draws the placement scale (`scale`) like the server: threshold, clamp 0.2-5, replaces localScale. ~5 s.
   ['client', 'test/testflug-skala.ts'],
+  // The client address is the trusted hop's (rightmost X-Forwarded-For), never a visitor-supplied prefix (F3).
+  ['server', 'test/herkunft-xff.ts'],
+  // World-map publisher: the small probe (256 px, ~20-35 s); `--gross` runs the full 4096 px probe by hand.
+  ['tools', 'test/weltkarte-probe.mjs'],
+  // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
+  ['client', 'test/testflug-ops.ts'],
   // World file goes live (K5.0): the running server applies a written document within a second (objects only,
   // geo and typos are refused with a receipt), and the operations service answers 200 / 202 from that receipt.
   ['server', 'test/layout-live.ts'],
@@ -2229,6 +2235,8 @@ const KERN = [
   ['shared', 'test/platzierungen-fehler.ts'],
   // ... N5: a set but invalid id and duplicate ids with other content are refused (422); ops_apply `vorher` from area_describe can be undone; placement_set reports clamped values; a save without a change counts 0. Real service + real MCP.
   ['admin', 'test/weltops-n5.ts'],
+  // ... N5 with the test flight (#91): its Sockel radius never exceeds the service's limit of 100 (real flight code against the real service).
+  ['client', 'test/testflug-sockel-dienst.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

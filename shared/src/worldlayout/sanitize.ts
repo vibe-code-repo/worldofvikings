@@ -254,7 +254,7 @@ export function platzierungenEinzeln(roh: unknown): PlacementDef[] {
       if (o.einebnen !== undefined) {
         // Wie beim Kreis-Radius: Unsinn verwerfen statt auf einen Wert zu
         // klemmen — ein erfundener Sockel wäre schlimmer als keiner.
-        const r = klemm(o.einebnen, 1, 100, NaN);
+        const r = klemm(o.einebnen, 1, PLATZIERUNG_EINEBNEN_MAX, NaN);
         if (Number.isFinite(r)) eintrag.einebnen = Math.round(r * 10) / 10;
       }
       const npc = sanitizeNpc(o.npc);
@@ -264,6 +264,9 @@ export function platzierungenEinzeln(roh: unknown): PlacementDef[] {
   }
   return roheEintraege;
 }
+
+/** Größter Sockelradius `einebnen` in m: Sanitizer, Server-Klemme, Schreibweg und Testflug halten dieselbe Grenze. */
+export const PLATZIERUNG_EINEBNEN_MAX = 100;
 
 /** Ein Zahltext, den `Number()` unzweideutig liest: Dezimalzahl mit Vorzeichen und Exponent, kein Hex, kein `Infinity`, kein Leerstring. */
 const ZAHLTEXT_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
@@ -312,7 +315,7 @@ export function geklemmteFelder(roh: unknown): string[] {
   if (o.id !== undefined && !(typeof o.id === 'string' && ID_RE.test(o.id))) felder.push('id');
   if (gesetzt(o.yaw) && !zahlInBereich(o.yaw, -Math.PI * 2, Math.PI * 2)) felder.push('yaw');
   if (zahlFalsch(o.scale, 0.2, 5)) felder.push('scale');
-  if (zahlFalsch(o.einebnen, 1, 100)) felder.push('einebnen');
+  if (zahlFalsch(o.einebnen, 1, PLATZIERUNG_EINEBNEN_MAX)) felder.push('einebnen');
   if (gesetzt(o.route) && !(typeof o.route === 'string' && ID_RE.test(o.route))) felder.push('route');
   if (gesetzt(o.npc)) {
     if (typeof o.npc !== 'object' || Array.isArray(o.npc)) felder.push('npc');

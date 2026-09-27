@@ -109,30 +109,36 @@ console.log('\n2. `ausschlussName` — ein Modell schlägt sich beim "nachträgl
   );
 }
 
-console.log('\n3. (b) Größentabelle — kein ähnliches Modell, aber ein Namensmuster passt\n');
+console.log('\n3. (b) Größentabelle — kein ähnliches Modell, aber ein GANZES Wort aus der Liste passt\n');
 {
+  // B2 (Nachangriff N2): Komposita treffen jetzt NUR noch über eine
+  // ausdrückliche Liste (holzfass, marktstand, zaunstück/palisadenstück,
+  // drachenboot/langschiff, langhaus/halle), nie mehr über ein Wortende —
+  // "Bierfass"/"Schatztruhe"/"Ochsenkarren"/"Fischerhütte" sind darum HIER
+  // bewusst durch ein vorangestelltes Wort ERSETZT ("Volles Fass" statt
+  // "Bierfass"): Der Bestandteil "fass" ist dann ein eigener, GANZER
+  // Bestandteil (Leerzeichen trennt), kein Kompositum-Ende mehr.
   const rohMasse = { breite: 1.0, hoehe: 1.0 };
   const faelle: [string, number][] = [
     ['Neues Langhaus', 8],
-    ['Fischerhütte', 8],
+    ['Kleine Hütte', 8],
     ['Marktbude Nord', 4],
     ['Palisadenstück', 2],
-    ['Bierfass', 0.7],
-    ['Schatztruhe', 1],
-    ['Ochsenkarren', 3],
+    ['Volles Fass', 0.7],
+    ['Alte Truhe', 1],
+    ['Brauner Karren', 3],
     ['Drachenboot Rot', 10],
   ];
   for (const [name, erwartet] of faelle) {
     const v = schlageZielgroesseVor(name, 'breite', rohMasse, []);
     pruefe(v.quelle === 'kategorie' && v.meter === erwartet, `'${name}' -> Kategorie ${erwartet} m (bekommen ${v.meter}, ${v.quelle})`);
   }
-  // F5 (Nachangriff): "Marktstandzaun" endet auf "zaun", nicht auf "stand"
-  // ("markt" und "stand" stehen beide nur am ANFANG bzw. in der MITTE) —
-  // seit der Umstellung auf ganze Namensbestandteile/Kompositum-Enden trifft
-  // deshalb GENAU 'Zaunstück', nicht mehr 'Marktstand' (Tabellenreihenfolge
-  // entscheidet hier nichts mehr, weil kein anderer Eintrag mehr passt).
-  const spezifisch = kategorieFuerName('Marktstandzaun');
-  pruefe(spezifisch?.kategorie === 'Zaunstück', `'Marktstandzaun' endet auf 'zaun' -> 'Zaunstück' (bekommen '${spezifisch?.kategorie}')`);
+  // B2 (Nachangriff N2): "Marktstandzaun" endet auf "zaun" — als GANZER
+  // unzerlegter Bestandteil "marktstandzaun" trifft es aber weder "zaun"
+  // (kein Kompositum-Ende mehr) noch "marktstand" (das steht nicht am
+  // ENDE des Bestandteils) — unter der neuen, strengeren Regel also KEIN
+  // Treffer mehr. „Lieber kein Vorschlag als ein falscher" (Auftrag B2–B6).
+  pruefe(kategorieFuerName('Marktstandzaun') === null, "'Marktstandzaun' trifft unter der neuen Regel KEINE Kategorie mehr (kein Kompositum-Ende)");
 }
 
 console.log('\n4. (c) Rohgröße — weder ähnliches Modell noch Kategorie passt\n');
@@ -165,35 +171,58 @@ console.log('\n6. cm-Verdacht — Warnung ab > 50 m, keine an der Schwelle selbs
   pruefe(cmVerdacht({ breite: 200, hoehe: 150, tiefe: 90 }) === true, 'typischer cm-Export (200 × 150 × 90) löst den Verdacht aus');
 }
 
-console.log('\n7. Tabellenmuster: ganze Namensbestandteile bzw. Kompositum-Enden, nie Wortanfang/-mitte (F5 — Nachangriff)\n');
+console.log('\n7. Nachweis-Tabelle B2–B6 (Nachangriff N2) — kein Treffer\n');
 {
-  // Die N1-Ausnahmeliste deckte nur die damals beobachteten Wörter — der
-  // Nachangriff fand sofort neue Varianten (Fassung statt Fassade, Standuhr
-  // statt Abstandhalter, Boxsack statt Boxhandschuh, Abstandshalter MIT
-  // Fugen-s, der Plural Wagenräder). Alle sechs hier sind Wortanfang/-mitte,
-  // nicht das Ende eines Bestandteils, und müssen darum NICHT treffen.
-  const keineKategorie = ['Fassade', 'Fassung', 'Standuhr', 'Boxsack', 'Abstandshalter', 'Wagenräder'];
+  // Jedes dieser Wörter ist ENTWEDER ein Kompositum-ENDE, das die alte
+  // N2-Regel noch fing (B4: Gegenstand/Zustand/Abstand/Vogelhaus/
+  // Puppenhaus/Skybox), ODER eine CamelCase-Schreibweise, die die alte
+  // Regel durch den Wortanfang wieder öffnete (B3: StandUhr/BoxSack/
+  // WagenRad/FassAde), ODER ein „stück"-Wort ohne den Zaun-Wortanfang
+  // (B2: Frühstück/Goldstück/Möbelstück/Werkstück/Stück), ODER ein
+  // doppelsinniges Kurzwort in einem längeren Bestandteil (Leather_Boot,
+  // Friendship). Unter der neuen Regel (ganzes Wort aus einer festen
+  // Liste, nie Kompositum-Ende) treffen sie alle NICHT.
+  const keineKategorie = [
+    'Frühstück', 'Goldstück', 'Möbelstück', 'Werkstück', 'Stück',
+    'StandUhr', 'BoxSack', 'WagenRad', 'FassAde',
+    'Gegenstand', 'Zustand', 'Abstand',
+    'Vogelhaus', 'Puppenhaus', 'Skybox',
+    'Leather_Boot', 'Friendship',
+  ];
   for (const name of keineKategorie) {
     const treffer = kategorieFuerName(name);
     pruefe(treffer === null, `'${name}' trifft KEINE Kategorie (bekommen '${treffer?.kategorie}')`);
   }
-  // Dieselben Fälle wie im N1-Test bleiben ebenfalls abgewiesen.
-  for (const name of ['Fassadenteil', 'Shuttle', 'Abstandhalter', 'Wagenrad', 'Boxhandschuh']) {
+  // Zusätzlich die schon aus N1/N2 bekannten Fehltreffer, die weiterhin
+  // abgewiesen bleiben müssen.
+  for (const name of ['Fassade', 'Fassung', 'Standuhr', 'Boxsack', 'Abstandshalter', 'Abstandhalter', 'Wagenräder', 'Wagenrad', 'Fassadenteil', 'Shuttle', 'Boxhandschuh']) {
     pruefe(kategorieFuerName(name) === null, `'${name}' trifft weiterhin KEINE Kategorie`);
   }
-  // 'Hut' (Kopfbedeckung) ist aus der Haus-Zeile entfernt (F5) — ein Hut ist
-  // keine 8-m-Struktur, egal wie gezielt \bhut\b vorher traf.
-  pruefe(kategorieFuerName('Hut') === null, "'Hut' allein trifft jetzt KEINE Kategorie mehr (F5)");
-
-  // Gegenprobe: echte Zusammensetzungen mit demselben Wortende bleiben erkannt.
-  pruefe(kategorieFuerName('Holzfass')?.kategorie === 'Fass', "'Holzfass' bleibt 'Fass' (Kompositum-Ende)");
-  pruefe(kategorieFuerName('Fass')?.kategorie === 'Fass', "'Fass' allein bleibt 'Fass' (ganzer Bestandteil)");
-  pruefe(kategorieFuerName('Zaunstück')?.kategorie === 'Zaunstück', "'Zaunstück' bleibt 'Zaunstück' (endet auf 'stück')");
-  pruefe(kategorieFuerName('Palisadenstück')?.kategorie === 'Zaunstück', "'Palisadenstück' bleibt 'Zaunstück' (endet auf 'stück')");
-  pruefe(kategorieFuerName('Marktstand2')?.kategorie === 'Marktstand', "'Marktstand2' bleibt 'Marktstand' (Bestandteil endet auf 'stand')");
 }
 
-console.log('\n8. Ähnlichkeitsvergleich ist umlaut-unabhängig (N3) — Käsestand2 vs. Kaesestand2\n');
+console.log('\n8. Nachweis-Tabelle B2–B6 (Nachangriff N2) — richtiger Treffer\n');
+{
+  const faelle: [string, string][] = [
+    ['Fass.001', 'Fass'],
+    ['Barrel.001', 'Fass'],
+    ['Kiste(1)', 'Kiste'],
+    ['Haus.glb', 'Haus'],
+    ['Kisten', 'Kiste'],
+    ['Hütten', 'Haus'],
+    ['Boote', 'Boot'],
+    ['Wooden Hut', 'Haus'],
+    [`Holzhu${'̈'}tte`, 'Haus'], // NFD: 'u' + KOMBINIERENDER TREMA statt 'ü' (macOS-Dateiname)
+    [`Zaunstu${'̈'}ck`, 'Zaunstück'], // NFD-Zaunstück, dieselbe Bauart
+    ['Holzfass', 'Fass'],
+    ['Marktstand2', 'Marktstand'],
+  ];
+  for (const [name, erwartet] of faelle) {
+    const treffer = kategorieFuerName(name);
+    pruefe(treffer?.kategorie === erwartet, `'${name}' -> '${erwartet}' (bekommen '${treffer?.kategorie}')`);
+  }
+}
+
+console.log('\n9. Ähnlichkeitsvergleich ist umlaut- und NFD-unabhängig (N3/F6) — Käsestand2, NFD-Käsestand2, Crêpestand2\n');
 {
   const rohMasse = { breite: 1.0, hoehe: 1.0 };
   const kandidaten = [kandidat({ name: 'U_Kaesestand', anzeigename: 'Käsestand', breite: 3.0 })];
@@ -205,24 +234,19 @@ console.log('\n8. Ähnlichkeitsvergleich ist umlaut-unabhängig (N3) — Käsest
   const v2 = schlageZielgroesseVor('Kaesestand2', 'breite', rohMasse, kandidaten);
   pruefe(
     v2.quelle === 'aehnliches-modell' && v2.meter === 3.0,
-    `'Kaesestand2' (ausgeschrieben) findet ebenfalls 'Käsestand' (${v2.meter}, ${v2.quelle}) — vorher (N3) fiel es auf die Kategorie zurück`
+    `'Kaesestand2' (ausgeschrieben) findet ebenfalls 'Käsestand' (${v2.meter}, ${v2.quelle})`
   );
-}
 
-console.log('\n9. Ähnlichkeitsvergleich ist NFD-unabhängig (F6 — Nachangriff, macOS-Dateinamen)\n');
-{
-  const rohMasse = { breite: 1.0, hoehe: 1.0 };
-  const kandidaten = [kandidat({ name: 'U_Kaesestand', anzeigename: 'Käsestand', breite: 3.0 })];
   // 'K', 'a', KOMBINIERENDER TREMA (U+0308), 'sestand2' — dieselbe Anzeige
   // wie 'Käsestand2', aber ZERLEGT statt als ein einziges Zeichen 'ä'
   // (genau die Schreibweise, die macOS für Dateinamen liefert).
   const nfd = `K${'ä'}sestand2`;
   pruefe(nfd !== 'Käsestand2', 'Gegenprobe: die NFD-Schreibweise ist als JS-String tatsächlich ANDERS als die vorkomponierte');
   pruefe(nfd.normalize('NFC') === 'Käsestand2', 'Gegenprobe: NFC-normalisiert sind beide dieselbe Zeichenkette');
-  const v = schlageZielgroesseVor(nfd, 'breite', rohMasse, kandidaten);
+  const v3 = schlageZielgroesseVor(nfd, 'breite', rohMasse, kandidaten);
   pruefe(
-    v.quelle === 'aehnliches-modell' && v.meter === 3.0,
-    `NFD-'Käsestand2' findet 'Käsestand' (${v.meter}, ${v.quelle}) — vorher (F6) fiel es auf die Kategorie zurück`
+    v3.quelle === 'aehnliches-modell' && v3.meter === 3.0,
+    `NFD-'Käsestand2' findet 'Käsestand' (${v3.meter}, ${v3.quelle})`
   );
 
   // Nebenbefund F6: ein anderer Akzent (nicht in der Umlauttabelle) verliert

@@ -2307,8 +2307,16 @@ const KERN = [
   // mitten im Upload (Angriff Probe C4). Nachbesserung N1: 0x10/1e1/Leerzeichen/+4 -> 422.
   // Nachbesserung N2 (F1): Dienst startet detached, jedes Beenden trifft die ganze
   // Prozessgruppe (kein verwaister Enkelprozess mehr). F4: leerer/relativer
-  // WOV_HOCHGELADEN_DIR bricht den Start mit klarer Meldung ab. ~10 s.
+  // WOV_HOCHGELADEN_DIR bricht den Start mit klarer Meldung ab.
+  // Nachbesserung N3 (B1): kein Wrapper, kein detached mehr — der Dienst ist ein
+  // gewöhnliches Kind (node --import tsx direkt). B8: /proc/sys, hängender Symlink
+  // und Datei-statt-Ordner brechen den Start zusätzlich ab. ~10 s.
   ['admin', 'test/upload-grundskala-betriebsdienst.ts'],
+  // B1 (Nachangriff N2): der Abbruch des GANZEN Tests (TERM/KILL an seine Gruppe,
+  // wie run-tests.mjs es bei Zeitlimit/Speicherwächter tut) darf keinen Dienst mit
+  // PPID 1 und offenem Port hinterlassen — Rot auf bd8fa6c (detached-Fix), grün seit
+  // dem wrapper-/detached-losen Start. ~3 s.
+  ['admin', 'test/upload-grundskala-betriebsdienst-abbruch.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

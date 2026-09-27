@@ -27,25 +27,44 @@
  * dieses Checkouts vorher und nachher byte-gleich ist.
  *
  * ── F1 (Nachangriff „Editor Upload-Größe N1"): kein verwaister Enkel ──────
- * `kind` ist der `node_modules/.bin/tsx`-WRAPPER, nicht der Dienst selbst —
- * der eigentliche Prozess ist ein ENKEL (`node --require …/tsx/preflight.cjs
+ * `kind` war der `node_modules/.bin/tsx`-WRAPPER, nicht der Dienst selbst —
+ * der eigentliche Prozess war ein ENKEL (`node --require …/tsx/preflight.cjs
  * --import …/tsx/loader.mjs src/main.ts`). `kind.kill('SIGKILL')` traf nur
  * den Wrapper; tsx kann SIGKILL nicht weiterreichen, der Enkel blieb als
- * Waise (PPID 1) auf seinem Port hängen — genau das fand der Nachangriff
- * (Befund F1). Sogar das schlichte `kind.kill()` (SIGTERM) am Ende des
- * Normalfalls wartete nie auf das tatsächliche Ende, bevor der Testprozess
- * weiterlief. Jetzt startet `starten()` mit `detached: true` (derselbe Weg
- * wie `scripts/run-tests.mjs`, `gruppeSignal`): Der Wrapper wird zum Leiter
- * einer EIGENEN Prozessgruppe, `beendeGruppe()` schickt das Signal an
- * `-kind.pid` (die ganze Gruppe, Wrapper UND Enkel) und wartet auf das
- * `exit`-Ereignis, mit einer SIGKILL-Eskalation nach 3 s als Netz.
+ * Waise (PPID 1) auf seinem Port hängen.
+ *
+ * ── B1 (Nachangriff „Editor Upload-Größe N2"): `detached: true` war der
+ *    falsche Ersatz ────────────────────────────────────────────────────
+ * Die N1-Nachbesserung fing den NORMALFALL ab, indem sie den Wrapper mit
+ * `detached: true` startete und `-kind.pid` (die ganze Gruppe) signalisierte.
+ * Das behob den Normalfall, führte aber eine NEUE Waise im ABBRUCHFALL ein:
+ * `scripts/run-tests.mjs` beendet bei Zeitlimit oder Speicherwächter nur die
+ * Prozessgruppe des TESTS selbst (`gruppeSignal`). Mit `detached: true` hatte
+ * der Dienst eine EIGENE Gruppe — kein Signal des Runners erreichte ihn noch,
+ * und das eigene `finally` mit `beendeGruppe()` lief bei einem SIGKILL/
+ * SIGTERM des Testprozesses selbst nie. Jeder abgebrochene Lauf (Zeitlimit,
+ * Strg-C, `tools/wov-update.sh`) hinterließ so einen ~200-MB-Dienst mit
+ * offenem Port.
+ *
+ * Die Lösung, wie vom Nachangriff vorgezeichnet: KEIN Wrapper, KEIN
+ * `detached`. `starten()` ruft `process.execPath` mit `--import tsx`
+ * DIREKT auf `src/main.ts` — `kind` IST damit der Dienst selbst, ein
+ * gewöhnliches Kind OHNE eigene Prozessgruppe. Ein Signal an die Gruppe des
+ * TESTPROZESSES (wie `run-tests.mjs` es im Abbruchfall schickt) trifft ihn
+ * jetzt automatisch mit, ganz ohne eigenen Code dafür — genau das beweist
+ * `upload-grundskala-betriebsdienst-abbruch.ts`. `beendeDienst()` (vormals
+ * `beendeGruppe()`) ruft für den NORMALEN Abschluss `kind.kill(signal)`
+ * direkt (kein `-pid` mehr nötig) und wartet auf das `exit`-Ereignis, mit
+ * einer SIGKILL-Eskalation nach 3 s als Netz — B9 aus dem Nachangriff ist
+ * damit gegenstandslos: Es gibt keinen Wrapper mehr, auf dessen Tod man
+ * versehentlich warten könnte, statt auf den Dienst.
  *
  * Lauf:  npx tsx admin/test/upload-grundskala-betriebsdienst.ts
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { request, type IncomingMessage } from 'node:http';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -133,11 +152,11 @@ function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: str
 
 function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: string }): Promise<{ port: number; kind: ChildProcess }> {
   return new Promise((fertig, scheitern) => {
-    const kind = spawn(resolve(WURZEL_REPO, 'node_modules/.bin/tsx'), ['src/main.ts'], {
+    // B1 (Nachangriff N2): direkt `node --import tsx src/main.ts`, kein
+    // `.bin/tsx`-Wrapper und kein `detached` — `kind` ist der Dienst selbst
+    // und bleibt in der Prozessgruppe DIESES Testprozesses (s. Kopfkommentar).
+    const kind = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
       cwd: ADMIN,
-      // F1 (Nachangriff): eigene Prozessgruppe, s. Kopfkommentar — nur so
-      // erreicht `beendeGruppe()` auch den Enkelprozess (den echten Dienst).
-      detached: true,
       env: {
         ...process.env,
         WOV_WURZEL: opt.ordner,
@@ -174,15 +193,13 @@ function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: stri
 }
 
 /**
- * Die GANZE Prozessgruppe von `kind` beenden und auf das tatsächliche Ende
- * warten (F1, Nachangriff) — `kind.kill()` träfe nur den `tsx`-Wrapper,
- * nicht den Enkelprozess, der der eigentliche Dienst ist. `detached: true`
- * beim Start macht `kind.pid` zur PGID einer eigenen Gruppe (wie
- * `scripts/run-tests.mjs`, `gruppeSignal`); `-kind.pid` adressiert sie.
- * Eine SIGKILL-Eskalation nach 3 s fängt den Fall ab, dass `signal` allein
- * (z. B. SIGTERM) nicht binnen nützlicher Frist wirkt.
+ * `kind` (den Dienst selbst, s. Kopfkommentar B1) beenden und auf das
+ * tatsächliche Ende warten. Eine SIGKILL-Eskalation nach 3 s fängt den Fall
+ * ab, dass `signal` allein (z. B. SIGTERM) nicht binnen nützlicher Frist
+ * wirkt. Kein `-pid`/Prozessgruppen-Signal mehr nötig — `kind` ist ein
+ * gewöhnliches Kind, kein Gruppenleiter.
  */
-function beendeGruppe(kind: ChildProcess, signal: NodeJS.Signals = 'SIGTERM'): Promise<void> {
+function beendeDienst(kind: ChildProcess, signal: NodeJS.Signals = 'SIGTERM'): Promise<void> {
   return new Promise((fertig) => {
     if (kind.pid === undefined || kind.exitCode !== null || kind.signalCode !== null) {
       fertig();
@@ -190,9 +207,9 @@ function beendeGruppe(kind: ChildProcess, signal: NodeJS.Signals = 'SIGTERM'): P
     }
     const eskalation = setTimeout(() => {
       try {
-        process.kill(-kind.pid!, 'SIGKILL');
+        kind.kill('SIGKILL');
       } catch {
-        /* Gruppe ist schon weg */
+        /* Prozess ist schon weg */
       }
     }, 3_000);
     kind.once('exit', () => {
@@ -200,9 +217,9 @@ function beendeGruppe(kind: ChildProcess, signal: NodeJS.Signals = 'SIGTERM'): P
       fertig();
     });
     try {
-      process.kill(-kind.pid, signal);
+      kind.kill(signal);
     } catch {
-      // Gruppe existiert nicht mehr (Dienst schon beendet) — nichts zu tun.
+      // Prozess existiert nicht mehr (Dienst schon beendet) — nichts zu tun.
       clearTimeout(eskalation);
       fertig();
     }
@@ -226,9 +243,8 @@ function probeFehlgeschlagenerStart(hochgeladenDirWert: string): Promise<{ code:
     );
     const tokenDatei = resolve(ordner, 'token');
     writeFileSync(tokenDatei, 'egal-fuer-diese-probe\n');
-    const kind = spawn(resolve(WURZEL_REPO, 'node_modules/.bin/tsx'), ['src/main.ts'], {
+    const kind = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
       cwd: ADMIN,
-      detached: true,
       env: {
         ...process.env,
         WOV_WURZEL: ordner,
@@ -245,7 +261,7 @@ function probeFehlgeschlagenerStart(hochgeladenDirWert: string): Promise<{ code:
     kind.stdout.on('data', (s: Buffer) => (ausgabe += s.toString()));
     kind.stderr.on('data', (s: Buffer) => (ausgabe += s.toString()));
     const zeitgrenze = setTimeout(() => {
-      void beendeGruppe(kind, 'SIGKILL').then(() => {
+      void beendeDienst(kind, 'SIGKILL').then(() => {
         rmSync(ordner, { recursive: true, force: true });
         fertig({ code: -1, ausgabe: `${ausgabe}\n[Testfehler: Dienst lief trotz ungültigem WOV_HOCHGELADEN_DIR länger als 5 s]` });
       });
@@ -477,7 +493,7 @@ try {
     }
   }
 
-  await beendeGruppe(kind, 'SIGTERM');
+  await beendeDienst(kind, 'SIGTERM');
   rmSync(HAUPT.ordner, { recursive: true, force: true });
 }
 
@@ -495,10 +511,9 @@ console.log('\n12. H2 — SIGKILL mitten im Test darf im Checkout NICHTS hinterl
       registryImTemp
     );
   } finally {
-    // Das eigentliche Signal, wie run-tests.mjs es beim Zeitlimit/Speicher-
-    // wächter gegen die ganze Prozessgruppe schickt (F1: jetzt wirklich
-    // gegen die GANZE Gruppe, nicht nur den tsx-Wrapper).
-    await beendeGruppe(kind2, 'SIGKILL');
+    // Dasselbe Signal, wie run-tests.mjs es beim Zeitlimit/Speicherwächter
+    // schickt — `kind2` ist der Dienst selbst (B1), kein `-pid` mehr nötig.
+    await beendeDienst(kind2, 'SIGKILL');
   }
   // Der Checkout darf davon nichts gesehen haben — weder durch den PATCH-
   // Testfall oben noch durch diesen SIGKILL-Fall: derselbe Hash wie ganz am
@@ -534,6 +549,47 @@ console.log('\n13. F4 — WOV_HOCHGELADEN_DIR leer oder relativ bricht den Start
     relativ.ausgabe.includes('WOV_HOCHGELADEN_DIR'),
     relativ.ausgabe.slice(0, 400)
   );
+}
+
+console.log('\n14. B8 — WOV_HOCHGELADEN_DIR wird auch inhaltlich geprüft (/proc, hängender Symlink, Datei statt Ordner)\n');
+{
+  const bereich = mkdtempSync(resolve(tmpdir(), 'wov-grundskala-b8-'));
+
+  const proc = await probeFehlgeschlagenerStart('/proc/self');
+  check('/proc/self: Dienst wird NICHT bereit (Exit ≠ 0)', proc.code !== 0, `Exit=${proc.code}`);
+  check("/proc/self: Meldung nennt '/proc'", proc.ausgabe.includes('/proc'), proc.ausgabe.slice(0, 400));
+
+  const ziel = resolve(bereich, 'ziel-gibt-es-nicht');
+  const link = resolve(bereich, 'haengender-link');
+  symlinkSync(ziel, link);
+  const symlinkProbe = await probeFehlgeschlagenerStart(link);
+  check('hängender Symlink: Dienst wird NICHT bereit (Exit ≠ 0)', symlinkProbe.code !== 0, `Exit=${symlinkProbe.code}`);
+  check(
+    "hängender Symlink: Meldung nennt 'Symlink'",
+    symlinkProbe.ausgabe.includes('Symlink'),
+    symlinkProbe.ausgabe.slice(0, 400)
+  );
+
+  const datei = resolve(bereich, 'ich-bin-eine-datei');
+  writeFileSync(datei, 'x');
+  const dateiProbe = await probeFehlgeschlagenerStart(datei);
+  check('Datei statt Ordner: Dienst wird NICHT bereit (Exit ≠ 0)', dateiProbe.code !== 0, `Exit=${dateiProbe.code}`);
+  check(
+    "Datei statt Ordner: Meldung nennt 'Ordner'",
+    dateiProbe.ausgabe.includes('Ordner'),
+    dateiProbe.ausgabe.slice(0, 400)
+  );
+
+  // Gegenprobe: ein guter, noch nicht vorhandener Pfad startet weiterhin und wird angelegt.
+  const guterPfad = resolve(bereich, 'wird-frisch-angelegt/hg');
+  const HAUPT_B8 = wegwerfWurzelBauen('grundskala-b8-gut');
+  const { port: port3, kind: kind3 } = await starten({ ...HAUPT_B8, hochgeladenDir: guterPfad });
+  check('guter, noch nicht vorhandener Pfad: Dienst wird bereit', port3 > 0, `port=${port3}`);
+  await beendeDienst(kind3, 'SIGTERM');
+  rmSync(HAUPT_B8.ordner, { recursive: true, force: true });
+  check('guter Pfad wurde beim Start tatsächlich angelegt', existsSync(guterPfad));
+
+  rmSync(bereich, { recursive: true, force: true });
 }
 
 console.log(fehler === 0 ? '\nOK — Grundskala im Betriebsdienst korrekt, Checkout unberührt (H2).\n' : `\n${fehler} FEHLER\n`);

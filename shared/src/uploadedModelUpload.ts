@@ -46,7 +46,7 @@
  * Sprache: neue Bezeichner englisch, wo sie nicht an einen bestehenden
  * deutschen Namen andocken.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -87,14 +87,10 @@ import {
 /** `<repo>/assets/hochgeladen` — zwei Ebenen hinauf: Diese Datei liegt in `shared/src/`, also `src → shared → <repo>`. */
 const UPLOAD_DIR_VORGABE = resolve(dirname(fileURLToPath(import.meta.url)), '../../assets/hochgeladen');
 
-/** `WOV_HOCHGELADEN_DIR` ist gesetzt, aber leer oder kein absoluter Pfad. */
+/** `WOV_HOCHGELADEN_DIR` ist gesetzt, aber leer, kein absoluter Pfad oder inhaltlich unbrauchbar (B8). */
 export class HochgeladenDirUngueltig extends Error {
-  constructor(readonly wert: string) {
-    super(
-      `WOV_HOCHGELADEN_DIR="${wert}" ist leer oder kein absoluter Pfad. Ein relativer oder leerer Wert ` +
-        `loest sich je Prozess (Spielserver, Betriebsdienst) gegen ein anderes Arbeitsverzeichnis auf und ` +
-        `meinte zwei verschiedene Ordner. Absoluten Pfad setzen oder die Variable weglassen.`
-    );
+  constructor(readonly wert: string, grund: string) {
+    super(`WOV_HOCHGELADEN_DIR="${wert}" ${grund}`);
     this.name = 'HochgeladenDirUngueltig';
   }
 }
@@ -120,10 +116,63 @@ export class HochgeladenDirUngueltig extends Error {
  * relativer Wert löste sich zuvor gegen das `cwd` des jeweiligen Prozesses
  * auf (`admin/` beim Betriebsdienst, `server/` beim Spielserver) — zwei
  * verschiedene Ordner für denselben Namen.
+ *
+ * B8 (Nachangriff „Editor Upload-Größe N2", Info): F4 prüfte nur die FORM
+ * des Pfads, nicht, ob er tatsächlich benutzbar ist. Ein Pfad unter
+ * `/proc`/`/sys` (virtuelle Kernel-Schnittstellen, keine echten Ordner),
+ * ein hängender Symlink (Ziel existiert nicht) oder eine Datei statt eines
+ * Ordners liessen den Dienst zwar starten, aber jeder Upload scheiterte
+ * erst danach mit einem nackten 500 (ENOENT/ENOTDIR/EEXIST nur im
+ * Server-Log). Jetzt wird das beim Start geprüft: ein hängender Symlink
+ * und eine Nicht-Ordner-Stelle brechen sofort ab; ein noch NICHT
+ * existierender Pfad wird angelegt (wie bisher, `mkdirSync`) und mit einer
+ * Schreibprobe bestätigt.
  */
 export function ermittleUploadDir(roh: string | undefined = process.env.WOV_HOCHGELADEN_DIR): string {
   if (roh === undefined) return UPLOAD_DIR_VORGABE;
-  if (roh === '' || !isAbsolute(roh)) throw new HochgeladenDirUngueltig(roh);
+  if (roh === '' || !isAbsolute(roh)) {
+    throw new HochgeladenDirUngueltig(
+      roh,
+      'ist leer oder kein absoluter Pfad. Ein relativer oder leerer Wert loest sich je Prozess ' +
+        '(Spielserver, Betriebsdienst) gegen ein anderes Arbeitsverzeichnis auf und meinte zwei ' +
+        'verschiedene Ordner. Absoluten Pfad setzen oder die Variable weglassen.'
+    );
+  }
+  if (roh === '/proc' || roh.startsWith('/proc/') || roh === '/sys' || roh.startsWith('/sys/')) {
+    throw new HochgeladenDirUngueltig(
+      roh,
+      'liegt unter /proc oder /sys — das ist eine virtuelle Schnittstelle des Kernels, kein Ordner fuer Dateien.'
+    );
+  }
+  // Existiert der Pfad schon (als Symlink oder sonst), muss er ein ECHTER,
+  // erreichbarer Ordner sein — ein hängender Symlink oder eine Datei an
+  // dieser Stelle sollen den Start verhindern, nicht erst den ersten Upload.
+  let liegtSchonDa = false;
+  try {
+    const linkStand = lstatSync(roh);
+    liegtSchonDa = true;
+    if (linkStand.isSymbolicLink()) {
+      try {
+        statSync(roh); // folgt dem Link; wirft ENOENT bei einem haengenden Symlink
+      } catch {
+        throw new HochgeladenDirUngueltig(roh, 'ist ein haengender Symlink (das Ziel existiert nicht).');
+      }
+    }
+    if (!statSync(roh).isDirectory()) {
+      throw new HochgeladenDirUngueltig(roh, 'ist kein Ordner (dort liegt schon eine Datei oder etwas anderes).');
+    }
+  } catch (e) {
+    if (e instanceof HochgeladenDirUngueltig) throw e;
+    liegtSchonDa = false; // existiert nicht -- wird unten angelegt
+  }
+  try {
+    if (!liegtSchonDa) mkdirSync(roh, { recursive: true });
+    const schreibprobe = join(roh, '.wov-schreibprobe');
+    writeFileSync(schreibprobe, '');
+    rmSync(schreibprobe, { force: true });
+  } catch (e) {
+    throw new HochgeladenDirUngueltig(roh, `ist nicht beschreibbar: ${(e as Error).message}`);
+  }
   return roh;
 }
 

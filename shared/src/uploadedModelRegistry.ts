@@ -543,7 +543,17 @@ export function erzwingeName(gewuenscht: string): string | null {
   // Umlaut-Ausschreibung wirkungslos, wenn sie NACH NFKD liefe (die
   // Diaerese wäre dann schon abgetrennt) — deshalb: erst Umlaute
   // ausschreiben, dann NFKD, dann die Pfad-Ablehnung auf dem normalisierten Text.
-  const ausgeschrieben = schreibeUmlauteAus(gewuenscht);
+  //
+  // B7 (Nachangriff „Editor Upload-Größe N2", Info): `normalize('NFC')`
+  // GANZ VORNE, vor `schreibeUmlauteAus` — ohne sie erkennt die Umlauttabelle
+  // (die nach dem EINEN, ZUSAMMENGESETZTEN Zeichen 'ä' sucht) eine ZERLEGT
+  // geschriebene Eingabe nicht ('a' + U+0308 KOMBINIERENDER TREMA, wie
+  // macOS-Dateinamen sie liefern): 'a' bleibt stehen, der Trema-Codepunkt
+  // wird von der Zeichenklasse unten zu '_'. NFD-„Käsestand" ergäbe so
+  // `U_Ka_sestand` statt `U_Kaesestand` — zwei Registry-Namen für denselben
+  // sichtbaren Namen, je nachdem, ob der Upload von einem Mac kommt.
+  const kanonisch = gewuenscht.normalize('NFC');
+  const ausgeschrieben = schreibeUmlauteAus(kanonisch);
   const normalisiert = ausgeschrieben.normalize('NFKD');
   if (pfadanteilGrund(normalisiert) !== null) return null;
   const kern = normalisiert
@@ -566,7 +576,8 @@ export function erzwingeName(gewuenscht: string): string | null {
  * auch dann, wenn der wahre Grund ein erkannter Pfadanteil war).
  */
 export function nameAblehnungsGrund(gewuenscht: string): string {
-  const normalisiert = schreibeUmlauteAus(gewuenscht).normalize('NFKD');
+  // B7 (Nachangriff N2): dieselbe NFC-zuerst-Reihenfolge wie in `erzwingeName`.
+  const normalisiert = schreibeUmlauteAus(gewuenscht.normalize('NFC')).normalize('NFKD');
   const grund = pfadanteilGrund(normalisiert);
   if (grund !== null) {
     return `Der Name '${gewuenscht}' enthält ${grund} — das ist als Teil eines Dateinamens nicht erlaubt.`;

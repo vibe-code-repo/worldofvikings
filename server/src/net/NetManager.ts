@@ -312,28 +312,44 @@ export class NetManager {
 
     // C2 (Pruefung 2/3, Karte "Gaestebesitz — Folgen aus #102"): eine
     // Editor-Verbindung (nurEditor) steht nie in der Welt und hat kein
-    // ZDO — sie existiert nur, damit der Karteneditor Dungeon-Raeume baut,
-    // loescht und Dokumente speichert. GameSocket schickt ueber eine
-    // solche Verbindung tatsaechlich nur diese drei Pakettypen
-    // (client/src/editor/DungeonNeuerSaal.ts, DungeonSpeichern.ts,
-    // dungeon2/Dungeon2Speichern.ts — jeweils nur EIN send*-Aufruf je
-    // Datei) plus den Grundverkehr, den GameSocket beim Verbinden von
-    // selbst sendet: VersionCheck (GameSocket.ts:240) und PasswordAuth
-    // (GameSocket.ts:272) laufen vor diesem Gate durch die eigenen
-    // switch-Zweige, Ping (GameSocket.ts:606) wird schon oben in dieser
-    // Methode geechot und erreicht diese Stelle nie. Eine gefaelschte
-    // nurEditor-Verbindung (das Bit setzt der Client) konnte bisher jedes
-    // andere Paket senden, das WovServer ueber onPacket bekommt —
-    // TerrainOp etwa kam beim Zeugen als TerrainOpSync an, unsichtbar
-    // fuer jeden Admin-Namensweg, weil alle Editoren "Editor" heissen.
-    // Die drei Dungeon-Handler pruefen ohnehin selbst peer.isAdmin; diese
-    // Zeile nimmt ihnen nichts, sie verwirft nur, was ein Editor nie
-    // schickt.
+    // ZDO. GameSocket schickt ueber eine solche Verbindung tatsaechlich
+    // nur drei Pakettypen (client/src/editor/DungeonNeuerSaal.ts,
+    // DungeonSpeichern.ts, dungeon2/Dungeon2Speichern.ts — jeweils nur
+    // EIN send*-Aufruf je Datei) plus den Grundverkehr, den GameSocket
+    // beim Verbinden von selbst sendet: VersionCheck (GameSocket.ts:240)
+    // und PasswordAuth (GameSocket.ts:272) laufen vor diesem Gate durch
+    // die eigenen switch-Zweige, Ping (GameSocket.ts:606) wird schon oben
+    // in dieser Methode geechot und erreicht diese Stelle nie. Eine
+    // gefaelschte nurEditor-Verbindung (das Bit setzt der Client) konnte
+    // bisher jedes andere Paket senden, das WovServer ueber onPacket
+    // bekommt — TerrainOp etwa kam beim Zeugen als TerrainOpSync an,
+    // unsichtbar fuer jeden Admin-Namensweg, weil alle Editoren "Editor"
+    // heissen.
+    //
+    // Die Allowlist ist deshalb nicht "was der Editor-CLIENT schickt",
+    // sondern "was serverseitig schon sein eigenes isAdmin-Gate hat"
+    // (Pruefung 2, Zeile 18: "Nur fuer Admins sind AdminCommand,
+    // SetTimeOfDay und die vier Dungeon-Pakete"): AdminCommand
+    // (handleAdminCommand -> this.adminCommands.execute, das intern
+    // jeden Befehl gegen peer.isAdmin prueft), SetTimeOfDay
+    // (handleSetTimeOfDay) und DungeonEditRequest (handleDungeonEditRequest)
+    // pruefen isAdmin genauso wie die drei Dungeon-Bau/Speicher-Handler.
+    // Ohne AdminCommand hier waere der in Pruefung 2 §84 bestaetigte Weg
+    // "Admin ueber die spielerId" (ein Admin-Editor fuehrt admin-Befehle
+    // ueber seine Editor-Verbindung aus, etwa um eine Testinstanz
+    // aufzuraeumen) zerstoert — genau das brach instanz-verwurf.ts, weil
+    // der Test einen Editor-Admin per AdminCommand in eine Dungeon-
+    // Instanz stellt. Diese Zeile nimmt keinem der sechs Handler etwas,
+    // sie verwirft nur, was ein Editor nie schickt und was KEIN eigenes
+    // Rechte-Gate hat (PlayerInput, TerrainOp, PlacePiece, Interact, …).
     if (
       peer.nurEditor &&
       type !== PacketType.DungeonModulBau &&
       type !== PacketType.DungeonModulLoeschen &&
-      type !== PacketType.DungeonEditSave
+      type !== PacketType.DungeonEditSave &&
+      type !== PacketType.DungeonEditRequest &&
+      type !== PacketType.AdminCommand &&
+      type !== PacketType.SetTimeOfDay
     ) {
       return;
     }

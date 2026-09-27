@@ -45,6 +45,7 @@ import type { Fraktion, NpcDef, NpcRolle, QuestZustand } from '@wov/shared';
 // eine nie erzeugte GrabhuegelGras.png und faellt auf reinen Text zurueck.
 import { MODELL_ALIAS } from '../engine/AssetManager';
 import { SKALA_MAX, SKALA_MIN } from './testflug/vorschauZeichnen';
+import { ladeSerie, speichereSerie } from './testflug/greifen';
 
 export interface SpawnEinstellung {
   prefab: string;
@@ -55,6 +56,8 @@ export interface SpawnEinstellung {
   scale: number;
   /** Untergrund unter der Grundfläche einebnen (Sockel im Layout). */
   einebnen: boolean;
+  /** Series: place mode stays on after a placement (Esc or right click ends it). */
+  serie: boolean;
 }
 
 export interface SpawnPanelCallbacks {
@@ -242,6 +245,7 @@ export class SpawnPanel {
     // die Vorgabe dabei jede Handabwahl — der Boden wurde trotz
     // abgewähltem Haken planiert.
     einebnen: false,
+    serie: ladeSerie(),
   };
   private readonly root: HTMLDivElement;
   private readonly liste: HTMLDivElement;
@@ -381,6 +385,22 @@ export class SpawnPanel {
     sockelTxt.style.cssText = 'font-size:11px;color:#9a8f6a;';
     sockelZeile.append(sockel, sockelTxt);
     this.root.appendChild(sockelZeile);
+
+    // ── Serie: Modus bleibt nach dem Setzen ──────────────────────────
+    const serieZeile = document.createElement('div');
+    serieZeile.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:4px;';
+    const serie = document.createElement('input');
+    serie.type = 'checkbox';
+    serie.checked = this.einstellung.serie;
+    serie.onchange = () => {
+      this.einstellung.serie = serie.checked;
+      speichereSerie(serie.checked);
+    };
+    const serieTxt = document.createElement('span');
+    serieTxt.textContent = 'Serie (mehrere hintereinander setzen; Esc/Rechtsklick beendet, Alt+Klick greift)';
+    serieTxt.style.cssText = 'font-size:11px;color:#9a8f6a;';
+    serieZeile.append(serie, serieTxt);
+    this.root.appendChild(serieZeile);
 
     // ── NPC: Name, Rolle, Fraktion, Stufe, Quest ─────────────────────
     // Der ganze Block ist ausgeblendet, solange keine FIGUR gewählt ist

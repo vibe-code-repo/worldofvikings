@@ -2219,6 +2219,8 @@ const KERN = [
   ['tools', 'test/weltkarte-probe.mjs'],
   // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
   ['client', 'test/testflug-ops.ts'],
+  // Test flight: a click places while a prefab is chosen (Alt grabs), series switch, drag only past 4 px (8 touch) with grab offset; offline bytes unchanged.
+  ['client', 'test/testflug-greifen.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

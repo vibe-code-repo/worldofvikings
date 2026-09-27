@@ -38,6 +38,7 @@ import type { TestflugKontext } from './TestflugKontext';
 import { antwortText } from './TestflugPersistenz';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebnis } from './TestflugPersistenz';
 import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
+import { Ziehgriff, entscheideKlick, modusNachSetzen } from './greifen';
 
 /**
  * ?layout=editor lädt den Editor-Entwurf — der "Testflug" des 3D-Map-
@@ -424,6 +425,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
      *  von dort zur neuen Position (die alte steht sonst als verwaiste
      *  Platte im Gelände). */
     let ziehStart: { x: number; z: number } | null = null;
+    /** The open grab: it becomes a drag only past the pointer threshold. */
+    let griff: Ziehgriff | null = null;
     /** Ausgewählte (zuletzt gegriffene) Platzierung — Ziel von Entf. */
     let auswahlId: string | null = null;
     const auswahl = (): EntwurfEintrag | null => (auswahlId === null ? null : (leseEntwurf()?.placements.find((p) => p.id === auswahlId) ?? null));
@@ -832,21 +835,18 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           return;
         }
       }
-      // Nächste Platzierung im Griffradius? Dann greifen statt setzen.
-      // Gemessen wird an der SICHTBAREN Stelle: Ein Routen-NPC ist in der
-      // Vorschau längst weitergelaufen, und auf seinen unsichtbaren
-      // Startpunkt zu zielen wäre Raten. Ohne Vorschau ist das der
-      // Eintrag selbst (positionVon liefert dann null).
-      let best = -1;
-      let bestD = 3;
-      roh.placements.forEach((q, i) => {
-        const sicht = vorschau.positionVon(i) ?? q;
-        const d = Math.hypot(sicht.x - p.x, sicht.z - p.z);
-        if (d < bestD) {
-          bestD = d;
-          best = i;
-        }
+      // Setzen-Modus (Prefab gewählt, Geist sichtbar): der Klick SETZT, er greift
+      // nie — gegriffen wird dann nur mit gehaltener Alt-Taste. Sonst greift die
+      // nächste Platzierung im Griffradius. Gemessen wird an der SICHTBAREN Stelle:
+      // Ein Routen-NPC ist in der Vorschau längst weitergelaufen.
+      const setzenModus = panel.istOffen && panel.istPlatzierModus;
+      const entscheidung = entscheideKlick({
+        setzenModus,
+        alt: e.altKey,
+        punkt: p,
+        platzierungen: roh.placements.map((q, i) => vorschau.positionVon(i) ?? q),
       });
+      const best = entscheidung.art === 'greifen' ? entscheidung.index : -1;
       if (best >= 0 && !roh.placements[best]!.id) {
         hud.meldung(KEINE_ID);
       } else if (best >= 0 && doppelteIds(roh.placements).includes(roh.placements[best]!.id!)) {
@@ -855,6 +855,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         const q = roh.placements[best]!;
         ziehId = q.id!;
         auswahlId = q.id!;
+        // Erst eine Bewegung über die Schwelle macht daraus ein Ziehen; bis dahin
+        // ist es nur Auswählen und erzeugt keinen Vorgang.
+        griff = new Ziehgriff(q.id!, { x: e.offsetX, y: e.offsetY }, p, q, e.pointerType || 'mouse');
         geistWeg();
         // ziehStart bleibt die GESPEICHERTE Stelle: Von dort muss beim
         // Absetzen ein etwaiger Sockel weggeräumt werden.
@@ -868,7 +871,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         // zur gewählten Platzierung und müssen jetzt die ihre zeigen.
         panel.aktualisiere();
         hud.meldung(`${q.prefab} gegriffen — ziehen verschiebt, Entf löscht`);
-      } else if (panel.istOffen && panel.istPlatzierModus) {
+      } else if (entscheidung.art === 'setzen') {
         // `panel.istOffen` steht hier zusätzlich, weil der Klick seit dem
         // Routen-Editor auch bei GESCHLOSSENEM Spawn-Panel hier ankommt:
         // Gesetzt wird weiterhin nur mit sichtbarer Prefab-Liste — sonst
@@ -897,10 +900,10 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           `${einst.prefab} platziert @ (${eintrag.x}, ${eintrag.z})` +
             (sockel !== undefined ? ` — Boden planiert (r=${sockel} m)` : '')
         );
-        // Ein Klick = eine Platzierung: Modus endet, der Geist folgt der
-        // Maus nicht weiter — sonst setzt der nächste beiläufige Klick
-        // (oder das Schließen-und-Wiederklicken um B) ungewollt erneut.
-        panel.beendePlatzierModus();
+        // Ohne „Serie“: ein Klick = eine Platzierung, der Modus endet und der Geist
+        // folgt der Maus nicht weiter. Mit „Serie“ (Vorgabe) bleibt er an; Esc oder
+        // Rechtsklick beendet ihn.
+        if (!modusNachSetzen(panel.einstellung.serie)) panel.beendePlatzierModus();
       }
     });
     canvas.addEventListener('pointermove', (e) => {
@@ -928,8 +931,11 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       }
       // Ein Bild des Ziehens: lokal angewendet, aber erst mit dem Absetzen
       // ein (1) Vorgang (`aktionen.abschliessen`).
-      const x = Math.round(p.x * 10) / 10;
-      const z = Math.round(p.z * 10) / 10;
+      // Bis zur Ziehschwelle bleibt es ein Klick; danach mit Griffversatz.
+      const ziel = griff?.bewege({ x: e.offsetX, y: e.offsetY }, p);
+      if (!ziel) return;
+      const x = Math.round(ziel.x * 10) / 10;
+      const z = Math.round(ziel.z * 10) / 10;
       if (!aktionen.verschieben(ziehId, x, z).ok) return;
       const q = zeigeId(ziehId);
       if (!q) return;
@@ -963,6 +969,14 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         return;
       }
       if (ziehId === null) return;
+      if (!griff?.istGezogen) {
+        // Bloßer Klick: nur ausgewählt, nichts bewegt, kein Vorgang.
+        griff = null;
+        ziehStart = null;
+        ziehId = null;
+        return;
+      }
+      griff = null;
       const gezogen = ziehId;
       const abgesetzt = aktionen.abschliessen();
       if (abgesetzt) melde(abgesetzt);

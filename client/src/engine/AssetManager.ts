@@ -376,6 +376,15 @@ export const NUR_KOLLISION_NAME = /_col(_primitive\d+)?$/i;
 export class AssetManager {
   private readonly containers = new Map<string, Promise<AssetContainer | null>>();
   private readonly masters = new Map<string, PrefabMaster[]>();
+  /**
+   * Die UNSKALIERTE `localMatrix` je Master, in derselben Reihenfolge wie
+   * `masters.get(name)` — die Grundlage, aus der `wendeGrundskalaAn()` die
+   * aktuelle Grundskala neu anwendet, ohne die GLB neu zu verarbeiten
+   * (H1-Nachbesserung „Editor Upload-Größe N1", s. dort).
+   */
+  private readonly mastersBasis = new Map<string, Matrix[]>();
+  /** Die Grundskala, mit der `masters.get(name)` zuletzt gebacken wurde. */
+  private readonly mastersGrundskala = new Map<string, number>();
   private readonly addedToScene = new Set<string>();
   private readonly alphaChecked = new Set<string>();
   /** Materialien, deren Metallgrad schon korrigiert wurde (siehe setzeMetallgrad). */
@@ -697,7 +706,19 @@ export class AssetManager {
 
   async getMasters(name: string): Promise<PrefabMaster[]> {
     const cached = this.masters.get(name);
-    if (cached) return cached;
+    if (cached) {
+      // H1-Nachbesserung „Editor Upload-Größe N1": Eine spätere Änderung
+      // der Grundskala (Editor-Maske „nachträglich ändern", PATCH gefolgt
+      // von einem erneuten `applyUploadedModelRegistry` im Browser) soll
+      // beim NÄCHSTEN Aufruf hier ankommen, ohne die GLB neu zu laden und
+      // zu verarbeiten — `zuMaster()` weiter unten mutiert die Original-
+      // Meshes destruktiv (parent = null, Transform zurückgesetzt), ein
+      // zweiter Durchlauf über denselben Container wäre falsch. Deshalb
+      // wird nur die schon gebaute `localMatrix` aus der unskalierten Basis
+      // neu multipliziert, nicht die Geometrie neu verarbeitet.
+      this.wendeGrundskalaAn(name, cached);
+      return cached;
+    }
 
     const container = await this.loadContainer(name);
     if (!container) return [];
@@ -828,23 +849,46 @@ export class AssetManager {
     // `PrefabDef.localScale` abzubilden ist Absicht (Kopfkommentar
     // uploadedModelRegistry.uploadedPrefabDef) — `composeZdoWorld` ERSETZT
     // `localScale` durch eine gesetzte ZDO-`scale`, statt beide zu
-    // multiplizieren. Stattdessen wird sie hier, EINMAL je geladenem
-    // Modell, in `localMatrix` gebacken — genau der Zwischenknoten, den
-    // die Diagnose vom 26.09. vorschlägt: `localMatrix` ist bereits die
-    // Transformation der Master-Geometrie UNTER der Instanzwurzel
-    // (Kopfkommentar `getMasters`, „instance matrices are localMatrix ×
-    // zdoWorld"); eine zusätzliche Skalierung darin wirkt multiplikativ
-    // MIT der Platzierungs-`scale`, statt sie zu ersetzen — für JEDEN
-    // Verbraucher von `getMasters()` (Spiel, Testflug-Buckets über
-    // `EntityManager.applyStatic`), ohne `Testflug.ts` oder
+    // multiplizieren. Stattdessen wird sie hier in `localMatrix` gebacken —
+    // genau der Zwischenknoten, den die Diagnose vom 26.09. vorschlägt:
+    // `localMatrix` ist bereits die Transformation der Master-Geometrie
+    // UNTER der Instanzwurzel (Kopfkommentar `getMasters`, „instance
+    // matrices are localMatrix × zdoWorld"); eine zusätzliche Skalierung
+    // darin wirkt multiplikativ MIT der Platzierungs-`scale`, statt sie zu
+    // ersetzen — für JEDEN Verbraucher von `getMasters()` (Spiel, Testflug-
+    // Buckets über `EntityManager.applyStatic`), ohne `Testflug.ts` oder
     // `composeZdoWorld` anzufassen.
-    const g = uploadedModelRegistry.grundskalaFuerModell(name);
-    if (g !== 1) {
-      const skalierung = Matrix.Scaling(g, g, g);
-      for (const master of result) master.localMatrix = master.localMatrix.multiply(skalierung);
-    }
+    //
+    // Die unskalierte Basis wird separat gemerkt (s. Kopfkommentar
+    // `mastersBasis`), damit eine SPÄTERE Änderung der Grundskala
+    // (H1-Nachbesserung) sie neu anwenden kann, ohne diese teure
+    // Verarbeitung zu wiederholen.
+    this.mastersBasis.set(name, result.map((m) => m.localMatrix.clone()));
     this.masters.set(name, result);
+    this.wendeGrundskalaAn(name, result);
     return result;
+  }
+
+  /**
+   * Die aktuell gültige Grundskala aus der unskalierten Basis neu auf
+   * `result` anwenden — mutiert `localMatrix` IN PLACE, damit jeder Halter
+   * einer Referenz auf dieselben `PrefabMaster`-Objekte (z. B.
+   * `mastersSofort()`) die Änderung ohne eigenes Zutun sieht. Ein Aufruf,
+   * bei dem sich die Grundskala seit dem letzten Mal nicht geändert hat,
+   * ist ein reiner Map-Vergleich (kein Neu-Multiplizieren).
+   */
+  private wendeGrundskalaAn(name: string, result: readonly PrefabMaster[]): void {
+    const g = uploadedModelRegistry.grundskalaFuerModell(name);
+    if (this.mastersGrundskala.get(name) === g) return;
+    const basis = this.mastersBasis.get(name);
+    if (!basis) return;
+    const skalierung = g === 1 ? null : Matrix.Scaling(g, g, g);
+    for (let i = 0; i < result.length; i++) {
+      const master = result[i]!;
+      const basisMatrix = basis[i]!;
+      master.localMatrix = skalierung ? basisMatrix.multiply(skalierung) : basisMatrix.clone();
+    }
+    this.mastersGrundskala.set(name, g);
   }
 
   /**

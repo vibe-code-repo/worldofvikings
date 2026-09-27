@@ -8,24 +8,30 @@
  * `admin/test/betriebsdienst.ts` (eigenes WOV_WURZEL, Wegwerf-Token,
  * WOV_ADMIN_PORT=0).
  *
- * ── Eine Besonderheit: `assets/hochgeladen/` ist NICHT über WOV_WURZEL
- *    umlenkbar ────────────────────────────────────────────────────────
- * `UPLOAD_DIR` (`shared/src/uploadedModelUpload.ts`) hängt an
- * `import.meta.url`, nicht an WOV_WURZEL (Kopfkommentar dort, und
- * `admin/test/modell-upload-verdrahtung.ts` Abschnitt „Warum das hier in
- * shared/ liegt"). Ein echter Prozess-Upload schreibt deshalb IMMER in
- * `<dieses Worktree>/assets/hochgeladen/` — hier also in den eigenen
- * Worktree, nicht in ein Wegwerfverzeichnis. Jeder Test-Upload wird
- * darum am Ende über die echte DELETE-Route wieder entfernt, und
- * `registry.json`/`entfernt/` werden danach vom Dateisystem entfernt,
- * damit der Ordner wieder genau so dasteht wie vorher (nur
- * `U_Marktstand2.glb` und `registry.json.dev-referenz`).
+ * ── H2 (Nachbesserung „Editor Upload-Größe N1"): `assets/hochgeladen/`
+ *    war NICHT über WOV_WURZEL umlenkbar ─────────────────────────────────
+ * `UPLOAD_DIR` (`shared/src/uploadedModelUpload.ts`) hing an
+ * `import.meta.url`, nicht an WOV_WURZEL. Ein echter Prozess-Upload schrieb
+ * deshalb IMMER in `<dieses Worktree>/assets/hochgeladen/` — im Checkout,
+ * das beim Ausrollen die echte DEV-Registry ist. Der Angriff zum
+ * Marktstand2-PR fand das (`upload-grundskala-betriebsdienst-*`-Reste in
+ * `/tmp` von abgebrochenen Läufen) und zeigte per SIGKILL, dass Testmodelle
+ * in der echten `registry.json` stehen blieben, wenn der Testprozess selbst
+ * (Zeitlimit, Speicherwächter) mitten im Lauf beendet wird.
+ *
+ * `UPLOAD_DIR` nimmt jetzt `WOV_HOCHGELADEN_DIR` an, wenn gesetzt — dieser
+ * Test setzt es auf einen Ordner UNTER dem eigenen Wegwerf-`WOV_WURZEL`
+ * (`ORDNER`), der Betriebsdienst schreibt also nie mehr in den Checkout.
+ * Abschnitt 12 fährt genau die SIGKILL-Probe des Angriffs nach und beweist
+ * per sha256-Vergleich, dass die ECHTE `assets/hochgeladen/registry.json`
+ * dieses Checkouts vorher und nachher byte-gleich ist.
  *
  * Lauf:  npx tsx admin/test/upload-grundskala-betriebsdienst.ts
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { request, type IncomingMessage } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +39,17 @@ import { fileURLToPath } from 'node:url';
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
 const WURZEL_REPO = resolve(ADMIN, '..');
-const HOCHGELADEN_DIR = resolve(WURZEL_REPO, 'assets/hochgeladen');
+/** Der ECHTE Ordner dieses Checkouts — ab jetzt nur noch GELESEN, nie beschrieben (H2). */
+const ECHTER_HOCHGELADEN_DIR = resolve(WURZEL_REPO, 'assets/hochgeladen');
+const ECHTE_REGISTRY_DATEI = join(ECHTER_HOCHGELADEN_DIR, 'registry.json');
+
+function sha256VonDatei(pfad: string): string | null {
+  if (!existsSync(pfad)) return null;
+  return createHash('sha256').update(readFileSync(pfad)).digest('hex');
+}
+
+/** Nachweis für H2: der Hash der echten Registry-Datei VOR jedem Prozessstart. */
+const echteRegistryVorher = sha256VonDatei(ECHTE_REGISTRY_DATEI);
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -44,10 +60,6 @@ function check(name: string, ok: boolean, detail = ''): void {
     console.log(`ok   ${name}`);
   }
 }
-
-// ── Vorherigen Stand von assets/hochgeladen/ merken, um am Ende exakt
-//    dahin zurückzukehren (der Ordner ist der ECHTE des Worktrees). ────
-const vorherigeDateien = new Set(existsSync(HOCHGELADEN_DIR) ? readdirSync(HOCHGELADEN_DIR) : []);
 
 // ── Ein winziges, gültiges GLB — wie server/test/upload-grundskala-kollision.ts. ──
 function u32le(n: number): Buffer {
@@ -88,31 +100,38 @@ function bauGlb(groesse: number): Buffer {
   return Buffer.concat([kopf, jsonChunk, binChunk]);
 }
 
-// ── Wegwerf-WOV_WURZEL: nur server.yml mit dem Upload-Schalter, sonst
-//    nichts — das Layout-Dokument fuer die Instanz existiert absichtlich
-//    nicht (DELETE braucht dann nie eine Bestaetigung, Nutzung ist immer 0). ──
-const ORDNER = mkdtempSync(resolve(tmpdir(), 'wov-grundskala-betriebsdienst-'));
-const SERVER_DATEN = resolve(ORDNER, 'server/data');
-mkdirSync(SERVER_DATEN, { recursive: true });
-writeFileSync(
-  resolve(SERVER_DATEN, 'server.yml'),
-  'uploads:\n  modell-hochladen: true\nplayers:\n  everyone-admin: false\n'
-);
-const TOKEN = 'pruef-grundskala-token-4711';
-const TOKEN_DATEI = resolve(ORDNER, 'token');
-writeFileSync(TOKEN_DATEI, `${TOKEN}\n`);
+/** Ein Wegwerf-WOV_WURZEL samt eigenem, UMGELENKTEM Upload-Ordner (H2) für einen Dienst-Lauf. */
+function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: string; tokenDatei: string; token: string } {
+  const ordner = mkdtempSync(resolve(tmpdir(), `wov-${slug}-`));
+  const serverDaten = resolve(ordner, 'server/data');
+  mkdirSync(serverDaten, { recursive: true });
+  writeFileSync(
+    resolve(serverDaten, 'server.yml'),
+    'uploads:\n  modell-hochladen: true\nplayers:\n  everyone-admin: false\n'
+  );
+  const token = `pruef-grundskala-token-${slug}`;
+  const tokenDatei = resolve(ordner, 'token');
+  writeFileSync(tokenDatei, `${token}\n`);
+  // H2: eigener Upload-Ordner UNTER dem Wegwerf-WOV_WURZEL, nie im Checkout.
+  const hochgeladenDir = resolve(ordner, 'assets/hochgeladen');
+  return { ordner, hochgeladenDir, tokenDatei, token };
+}
 
-function starten(): Promise<{ port: number; kind: ChildProcess }> {
+function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: string }): Promise<{ port: number; kind: ChildProcess }> {
   return new Promise((fertig, scheitern) => {
     const kind = spawn(resolve(WURZEL_REPO, 'node_modules/.bin/tsx'), ['src/main.ts'], {
       cwd: ADMIN,
       env: {
         ...process.env,
-        WOV_WURZEL: ORDNER,
+        WOV_WURZEL: opt.ordner,
+        // H2 (Nachbesserung „Editor Upload-Größe N1"): erst DIESE Zeile lenkt
+        // `UPLOAD_DIR` tatsächlich um — ohne sie schriebe der Dienst weiter
+        // in den Checkout, egal was WOV_WURZEL sagt (Kopfkommentar oben).
+        WOV_HOCHGELADEN_DIR: opt.hochgeladenDir,
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: '0',
-        WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
+        WOV_ADMIN_TOKEN_DATEI: opt.tokenDatei,
         WOV_LOG_STROEME_MAX: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -142,6 +161,7 @@ type Antwort = { code: number; daten: Record<string, unknown> };
 /** POST mit einem GLB-Körper (application/octet-stream) und den Upload-Kopfzeilen. */
 function hochladen(opt: {
   port: number;
+  token: string;
   name: string;
   bytes: Buffer;
   grundskala?: string;
@@ -149,7 +169,7 @@ function hochladen(opt: {
 }): Promise<Antwort> {
   return new Promise((fertig, scheitern) => {
     const kopf: Record<string, string> = {
-      'x-wov-token': TOKEN,
+      'x-wov-token': opt.token,
       'content-type': 'application/octet-stream',
       'content-length': String(opt.bytes.length),
       'x-wov-modellname': encodeURIComponent(opt.name),
@@ -180,7 +200,7 @@ function hochladen(opt: {
 }
 
 /** JSON-Anfrage (PATCH/DELETE) mit Token. */
-function jsonAnfrage(opt: { port: number; pfad: string; methode: string; leib: unknown }): Promise<Antwort> {
+function jsonAnfrage(opt: { port: number; token: string; pfad: string; methode: string; leib: unknown }): Promise<Antwort> {
   return new Promise((fertig, scheitern) => {
     const text = JSON.stringify(opt.leib);
     const req = request(
@@ -190,7 +210,7 @@ function jsonAnfrage(opt: { port: number; pfad: string; methode: string; leib: u
         path: opt.pfad,
         method: opt.methode,
         headers: {
-          'x-wov-token': TOKEN,
+          'x-wov-token': opt.token,
           'content-type': 'application/json',
           'content-length': String(Buffer.byteLength(text)),
         },
@@ -216,8 +236,9 @@ function jsonAnfrage(opt: { port: number; pfad: string; methode: string; leib: u
   });
 }
 
-const { port, kind } = await starten();
-console.log(`# Betriebsdienst auf 127.0.0.1:${port}, WOV_WURZEL ${ORDNER}, Uploads nach ${HOCHGELADEN_DIR}`);
+const HAUPT = wegwerfWurzelBauen('grundskala-betriebsdienst');
+const { port, kind } = await starten(HAUPT);
+console.log(`# Betriebsdienst auf 127.0.0.1:${port}, WOV_WURZEL ${HAUPT.ordner}, Uploads nach ${HAUPT.hochgeladenDir} (NICHT im Checkout, H2)`);
 
 // Namen der waehrend des Laufs tatsaechlich REGISTRIERTEN Modelle — am
 // Ende alle per DELETE zurueckgezogen, egal wo der Test sonst abbricht.
@@ -226,7 +247,7 @@ const angelegteNamen: string[] = [];
 try {
   console.log('\n1. Annahme — POST ohne Grundskala-Kopfzeile: "wie Datei" (Feld fehlt in der Registry)\n');
   {
-    const a = await hochladen({ port, name: 'GrundskalaOhne', bytes: bauGlb(1) });
+    const a = await hochladen({ port, token: HAUPT.token, name: 'GrundskalaOhne', bytes: bauGlb(1) });
     check('ohne Kopfzeile -> 200', a.code === 200, `= ${a.code} ${JSON.stringify(a.daten)}`);
     const eintrag = a.daten.eintrag as { name?: string; grundskala?: number } | undefined;
     check('ohne Kopfzeile: kein grundskala-Feld im Eintrag', eintrag?.grundskala === undefined, `= ${eintrag?.grundskala}`);
@@ -235,7 +256,7 @@ try {
 
   console.log('\n2. Annahme — POST MIT gültiger Grundskala-Kopfzeile (4)\n');
   {
-    const a = await hochladen({ port, name: 'U_GrundskalaVier', bytes: bauGlb(1), grundskala: '4' });
+    const a = await hochladen({ port, token: HAUPT.token, name: 'U_GrundskalaVier', bytes: bauGlb(1), grundskala: '4' });
     check('grundskala 4 -> 200', a.code === 200, `= ${a.code} ${JSON.stringify(a.daten)}`);
     const eintrag = a.daten.eintrag as { name?: string; grundskala?: number } | undefined;
     check('Eintrag trägt grundskala 4', eintrag?.grundskala === 4, `= ${eintrag?.grundskala}`);
@@ -244,7 +265,7 @@ try {
 
   console.log('\n3. Grenzen — POST mit Grundskala GENAU an GRUNDSKALA_MAX (100) wird angenommen\n');
   {
-    const a = await hochladen({ port, name: 'GrundskalaGrenzeMax', bytes: bauGlb(1), grundskala: '100' });
+    const a = await hochladen({ port, token: HAUPT.token, name: 'GrundskalaGrenzeMax', bytes: bauGlb(1), grundskala: '100' });
     check('grundskala 100 (Grenze) -> 200', a.code === 200, `= ${a.code} ${JSON.stringify(a.daten)}`);
     const eintrag = a.daten.eintrag as { name?: string; grundskala?: number } | undefined;
     check('Eintrag trägt grundskala 100', eintrag?.grundskala === 100, `= ${eintrag?.grundskala}`);
@@ -253,33 +274,48 @@ try {
 
   console.log('\n4. Grenzen — POST mit Grundskala knapp ÜBER 100 wird mit 422 abgelehnt, NICHTS wird geschrieben\n');
   {
-    const a = await hochladen({ port, name: 'GrundskalaZuGross', bytes: bauGlb(1), grundskala: '100.01' });
+    const a = await hochladen({ port, token: HAUPT.token, name: 'GrundskalaZuGross', bytes: bauGlb(1), grundskala: '100.01' });
     check('grundskala 100.01 -> 422', a.code === 422, `= ${a.code} ${JSON.stringify(a.daten)}`);
     check("Fehlerkennung 'grundskala-ungueltig'", a.daten.fehler === 'grundskala-ungueltig', `= ${a.daten.fehler}`);
   }
 
   console.log('\n5. Grenzen — POST mit Grundskala knapp UNTER 0,01 wird mit 422 abgelehnt\n');
   {
-    const a = await hochladen({ port, name: 'GrundskalaZuKlein', bytes: bauGlb(1), grundskala: '0.005' });
+    const a = await hochladen({ port, token: HAUPT.token, name: 'GrundskalaZuKlein', bytes: bauGlb(1), grundskala: '0.005' });
     check('grundskala 0.005 -> 422', a.code === 422, `= ${a.code} ${JSON.stringify(a.daten)}`);
     check("Fehlerkennung 'grundskala-ungueltig'", a.daten.fehler === 'grundskala-ungueltig', `= ${a.daten.fehler}`);
   }
 
   console.log('\n6. Grenzen — POST mit einer NICHT-Zahl in der Kopfzeile wird abgelehnt (NaN)\n');
   {
-    const a = await hochladen({ port, name: 'GrundskalaKeineZahl', bytes: bauGlb(1), grundskala: 'abc' });
+    const a = await hochladen({ port, token: HAUPT.token, name: 'GrundskalaKeineZahl', bytes: bauGlb(1), grundskala: 'abc' });
     check("grundskala 'abc' -> 422", a.code === 422, `= ${a.code} ${JSON.stringify(a.daten)}`);
+  }
+
+  console.log('\n6b. N1 — Kopfzeile nimmt nur schlichte Dezimalzahlen an (0x10, 1e1, Leerzeichen, +4 werden abgewiesen)\n');
+  {
+    for (const roh of ['0x10', '1e1', ' 4 ', '+4', '0b11', '4.', '.5']) {
+      const a = await hochladen({ port, token: HAUPT.token, name: `GrundskalaN1${roh.replace(/[^A-Za-z0-9]/g, '')}`, bytes: bauGlb(1), grundskala: roh });
+      check(`grundskala '${roh}' -> 422 (N1)`, a.code === 422, `= ${a.code} ${JSON.stringify(a.daten)}`);
+      check(`grundskala '${roh}': Fehlerkennung 'grundskala-ungueltig'`, a.daten.fehler === 'grundskala-ungueltig', `= ${a.daten.fehler}`);
+    }
+    // Gegenprobe: eine schlichte Dezimalzahl bleibt erlaubt.
+    const gut = await hochladen({ port, token: HAUPT.token, name: 'GrundskalaN1Gut', bytes: bauGlb(1), grundskala: '2.5' });
+    check("grundskala '2.5' -> 200 (schlichte Dezimalzahl bleibt erlaubt)", gut.code === 200, `= ${gut.code} ${JSON.stringify(gut.daten)}`);
+    const eintrag = gut.daten.eintrag as { name?: string } | undefined;
+    if (eintrag?.name) angelegteNamen.push(eintrag.name);
   }
 
   console.log('\n7. Nachträglich ändern — PATCH mit gültigem Namen und gültiger Grundskala\n');
   {
-    const a = await jsonAnfrage({ port, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GrundskalaVier', grundskala: 2 } });
+    const a = await jsonAnfrage({ port, token: HAUPT.token, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GrundskalaVier', grundskala: 2 } });
     check('PATCH auf 2 -> 200', a.code === 200, `= ${a.code} ${JSON.stringify(a.daten)}`);
     const eintrag = a.daten.eintrag as { grundskala?: number } | undefined;
     check('Antwort trägt die neue grundskala 2', eintrag?.grundskala === 2, `= ${eintrag?.grundskala}`);
 
     // Auf der Platte UND in einem frischen Aufruf sichtbar — kein Halbzustand.
-    const registryPfad = join(HOCHGELADEN_DIR, 'registry.json');
+    // H2: das ist der Ordner UNTER HAUPT.ordner, nie der Checkout.
+    const registryPfad = join(HAUPT.hochgeladenDir, 'registry.json');
     const aufPlatte = JSON.parse(readFileSync(registryPfad, 'utf-8')) as { modelle: { name: string; grundskala?: number }[] };
     const geschrieben = aufPlatte.modelle.find((m) => m.name === 'U_GrundskalaVier');
     check('registry.json auf der Platte trägt grundskala 2', geschrieben?.grundskala === 2, `= ${geschrieben?.grundskala}`);
@@ -287,26 +323,26 @@ try {
 
   console.log('\n8. PATCH — Körperfeld "name" fehlt -> 400\n');
   {
-    const a = await jsonAnfrage({ port, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { grundskala: 2 } });
+    const a = await jsonAnfrage({ port, token: HAUPT.token, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { grundskala: 2 } });
     check('ohne name -> 400', a.code === 400, `= ${a.code} ${JSON.stringify(a.daten)}`);
     check("Fehlerkennung 'name-fehlt'", a.daten.fehler === 'name-fehlt', `= ${a.daten.fehler}`);
   }
 
   console.log('\n9. PATCH — Körperfeld "grundskala" fehlt oder ist keine Zahl -> 400\n');
   {
-    const a1 = await jsonAnfrage({ port, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GrundskalaVier' } });
+    const a1 = await jsonAnfrage({ port, token: HAUPT.token, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GrundskalaVier' } });
     check('ohne grundskala -> 400', a1.code === 400, `= ${a1.code} ${JSON.stringify(a1.daten)}`);
     check("Fehlerkennung 'grundskala-fehlt'", a1.daten.fehler === 'grundskala-fehlt', `= ${a1.daten.fehler}`);
-    const a2 = await jsonAnfrage({ port, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GrundskalaVier', grundskala: '2' } });
+    const a2 = await jsonAnfrage({ port, token: HAUPT.token, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GrundskalaVier', grundskala: '2' } });
     check('grundskala als Text (kein number) -> 400', a2.code === 400, `= ${a2.code} ${JSON.stringify(a2.daten)}`);
   }
 
   console.log('\n10. PATCH — grundskala ausserhalb 0,01…100 -> 422, Eintrag bleibt unveraendert\n');
   {
-    const a = await jsonAnfrage({ port, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GrundskalaVier', grundskala: 500 } });
+    const a = await jsonAnfrage({ port, token: HAUPT.token, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GrundskalaVier', grundskala: 500 } });
     check('grundskala 500 -> 422', a.code === 422, `= ${a.code} ${JSON.stringify(a.daten)}`);
     check("Fehlerkennung 'grundskala-ungueltig'", a.daten.fehler === 'grundskala-ungueltig', `= ${a.daten.fehler}`);
-    const registryPfad = join(HOCHGELADEN_DIR, 'registry.json');
+    const registryPfad = join(HAUPT.hochgeladenDir, 'registry.json');
     const aufPlatte = JSON.parse(readFileSync(registryPfad, 'utf-8')) as { modelle: { name: string; grundskala?: number }[] };
     const geschrieben = aufPlatte.modelle.find((m) => m.name === 'U_GrundskalaVier');
     check('unveraendert: registry.json trägt weiter grundskala 2', geschrieben?.grundskala === 2, `= ${geschrieben?.grundskala}`);
@@ -314,7 +350,7 @@ try {
 
   console.log('\n11. PATCH — unbekannter Name wird abgelehnt, nicht abgestürzt\n');
   {
-    const a = await jsonAnfrage({ port, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GibtEsNicht', grundskala: 2 } });
+    const a = await jsonAnfrage({ port, token: HAUPT.token, pfad: '/api/modell-hochladen', methode: 'PATCH', leib: { name: 'U_GibtEsNicht', grundskala: 2 } });
     check('unbekannter Name -> 400', a.code === 400, `= ${a.code} ${JSON.stringify(a.daten)}`);
     check("Fehlerkennung 'abgelehnt'", a.daten.fehler === 'abgelehnt', `= ${a.daten.fehler}`);
   }
@@ -325,7 +361,7 @@ try {
   //    nicht -> Nutzung ist immer 0, keine Bestaetigung noetig). ────────
   for (const name of angelegteNamen) {
     try {
-      const a = await jsonAnfrage({ port, pfad: '/api/modell-hochladen', methode: 'DELETE', leib: { name } });
+      const a = await jsonAnfrage({ port, token: HAUPT.token, pfad: '/api/modell-hochladen', methode: 'DELETE', leib: { name } });
       check(`Aufräumen: '${name}' entfernt`, a.code === 200, `= ${a.code} ${JSON.stringify(a.daten)}`);
     } catch (e) {
       console.error(`[Aufräumen] Entfernen von '${name}' fehlgeschlagen: ${(e as Error).message}`);
@@ -333,18 +369,44 @@ try {
   }
 
   kind.kill();
-  rmSync(ORDNER, { recursive: true, force: true });
-
-  // Der echte Ordner (assets/hochgeladen/ dieses Worktrees) bekam durch
-  // die Uploads oben eine registry.json und einen entfernt/-Ordner, die
-  // es vorher nicht gab — hier wieder auf den Stand davor zurueckgesetzt.
-  if (existsSync(HOCHGELADEN_DIR)) {
-    for (const eintrag of readdirSync(HOCHGELADEN_DIR)) {
-      if (vorherigeDateien.has(eintrag)) continue;
-      rmSync(join(HOCHGELADEN_DIR, eintrag), { recursive: true, force: true });
-    }
-  }
+  rmSync(HAUPT.ordner, { recursive: true, force: true });
 }
 
-console.log(fehler === 0 ? '\nOK — Grundskala im Betriebsdienst korrekt.\n' : `\n${fehler} FEHLER\n`);
+console.log('\n12. H2 — SIGKILL mitten im Test darf im Checkout NICHTS hinterlassen (Angriff Probe C4)\n');
+{
+  const ZWEIT = wegwerfWurzelBauen('grundskala-betriebsdienst-sigkill');
+  const { port: port2, kind: kind2 } = await starten(ZWEIT);
+  try {
+    const a = await hochladen({ port: port2, token: ZWEIT.token, name: 'U_SigkillProbe', bytes: bauGlb(1), grundskala: '3' });
+    check('SIGKILL-Probe: Upload vor dem Kill -> 200', a.code === 200, `= ${a.code} ${JSON.stringify(a.daten)}`);
+    const registryImTemp = join(ZWEIT.hochgeladenDir, 'registry.json');
+    check(
+      'SIGKILL-Probe: registry.json wurde tatsächlich geschrieben (im Wegwerf-Ordner)',
+      existsSync(registryImTemp),
+      registryImTemp
+    );
+  } finally {
+    // Das eigentliche Signal, wie run-tests.mjs es beim Zeitlimit/Speicher-
+    // wächter gegen die ganze Prozessgruppe schickt — hier gegen den einen
+    // Kindprozess, der Effekt auf den Zielordner ist derselbe.
+    kind2.kill('SIGKILL');
+  }
+  // Der Checkout darf davon nichts gesehen haben — weder durch den PATCH-
+  // Testfall oben noch durch diesen SIGKILL-Fall: derselbe Hash wie ganz am
+  // Anfang, VOR dem allerersten Prozessstart dieses Laufs.
+  const echteRegistryNachher = sha256VonDatei(ECHTE_REGISTRY_DATEI);
+  check(
+    'H2: die ECHTE assets/hochgeladen/registry.json des Checkouts ist byte-gleich (vorher/nachher, auch nach SIGKILL)',
+    echteRegistryNachher === echteRegistryVorher,
+    `vorher=${echteRegistryVorher} nachher=${echteRegistryNachher}`
+  );
+  check(
+    'H2: kein neuer Eintrag "entfernt/" oder "registry.json" wurde im Checkout ANGELEGT',
+    echteRegistryVorher !== null || !existsSync(ECHTE_REGISTRY_DATEI),
+    `existiert jetzt: ${existsSync(ECHTE_REGISTRY_DATEI)}, existierte vorher: ${echteRegistryVorher !== null}`
+  );
+  rmSync(ZWEIT.ordner, { recursive: true, force: true });
+}
+
+console.log(fehler === 0 ? '\nOK — Grundskala im Betriebsdienst korrekt, Checkout unberührt (H2).\n' : `\n${fehler} FEHLER\n`);
 process.exit(fehler > 0 ? 1 : 0);

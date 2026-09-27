@@ -347,28 +347,109 @@ export function unregisterUploadedPrefab(name: string): void {
 
 export interface AnwendungsErgebnis {
   readonly geladen: number;
+  /**
+   * Namen, deren Eintrag sich gegenüber dem vorher registrierten Stand
+   * geändert hat (H1, Nachbesserung „Editor Upload-Größe N1") — z. B. eine
+   * geänderte `grundskala`. Wer Lader-Zwischenspeicher je Modellname hält
+   * (`AssetManager.getMasters`), kann daran erkennen, welche er verwerfen
+   * muss, statt jedes Mal alle zu verwerfen.
+   */
+  readonly geaendert: string[];
   /** Einträge, die NICHT registriert wurden — mit Grund. */
   readonly meldungen: string[];
 }
 
 /**
+ * Ob zwei Einträge desselben Namens INHALTLICH gleich sind — jedes Feld,
+ * das ein Verbraucher (Loader, Hülle, Kollision, Katalog) liest. Neue Felder
+ * an `UploadedModelEntry` gehören hier mit dazu, sonst bleibt eine echte
+ * Änderung unerkannt und `applyUploadedModelRegistry` überspringt sie wie
+ * vor der H1-Nachbesserung.
+ */
+function eintraegeGleich(a: UploadedModelEntry, b: UploadedModelEntry): boolean {
+  return (
+    a.anzeigename === b.anzeigename &&
+    a.bytes === b.bytes &&
+    a.dreiecke === b.dreiecke &&
+    a.meshes === b.meshes &&
+    a.materialien === b.materialien &&
+    a.bilder === b.bilder &&
+    a.fehlendeTexturen === b.fehlendeTexturen &&
+    a.breite === b.breite &&
+    a.hoehe === b.hoehe &&
+    a.tiefe === b.tiefe &&
+    a.kollisionsart === b.kollisionsart &&
+    a.hatKollisionsnetz === b.hatKollisionsnetz &&
+    a.kollisionsnetzAbgelehnt === b.kollisionsnetzAbgelehnt &&
+    a.hochgeladenVon === b.hochgeladenVon &&
+    a.zeitpunkt === b.zeitpunkt &&
+    grundskalaVon(a) === grundskalaVon(b)
+  );
+}
+
+/**
+ * Einen SCHON bekannten Eintrag durch eine neue Fassung ersetzen, ohne ihn
+ * aus `EIGENE_MODELLE` auszutragen und wieder anzuhängen — sonst wanderte
+ * ein Upload bei jeder Grundskala-Änderung ans Ende der Katalog-Liste. Der
+ * Hash hängt nur am NAMEN (unverändert), kann hier also nie neu kollidieren.
+ */
+function ersetzeRegistriertenEintrag(m: UploadedModelEntry): void {
+  const prefab = uploadedPrefabDef(m);
+  const hash: Hash = getStableHash(m.name);
+  UPLOADED_BY_NAME.set(m.name, m);
+  const iPrefab = PREFAB_DEFS.findIndex((p) => p.name === m.name);
+  if (iPrefab >= 0) PREFAB_DEFS[iPrefab] = prefab;
+  else PREFAB_DEFS.push(prefab);
+  (PREFABS_BY_NAME as Map<string, PrefabDef>).set(m.name, prefab);
+  (PREFABS_BY_HASH as Map<Hash, PrefabDef>).set(hash, prefab);
+}
+
+/**
  * Den Stand einer gelesenen Registry-Datei auf die Nachschlagewerke
- * anwenden — Diff aus AUSTRAGEN (was nicht mehr in der Datei steht)
- * und EINTRAGEN (was neu ist). Läuft im Server beim Start (einmalig)
- * UND im Betriebsdienst je Anfrage (Abgleich, wie `moduleAbgleichen`
- * in `admin/src/main.ts` es für Dungeon-Module schon tut) UND im
- * Browser vor dem ersten Katalogaufbau.
+ * anwenden — Diff aus AUSTRAGEN (was nicht mehr in der Datei steht),
+ * EINTRAGEN (was neu ist) und ERSETZEN (was sich geändert hat). Läuft im
+ * Server beim Start (einmalig) UND im Betriebsdienst je Anfrage (Abgleich,
+ * wie `moduleAbgleichen` in `admin/src/main.ts` es für Dungeon-Module schon
+ * tut) UND im Browser vor dem ersten Katalogaufbau.
+ *
+ * H1 (Angriff „Editor Upload-Größe", Befund H1): Vorher übersprang diese
+ * Funktion jeden schon registrierten Namen (`geladen++; continue`) — eine
+ * geänderte `grundskala` (oder jedes andere Feld) eines BEKANNTEN Uploads
+ * kam dadurch nie im Browser an, obwohl der Betriebsdienst (`aendereGrund
+ * skala`, das eigene Austragen+Eintragen dort) längst den neuen Wert hielt.
+ * „Übernommen" nach einem PATCH stimmte im Browser also nicht.
+ *
+ * Eine geänderte Zeile, deren NEUER Inhalt die Strukturprüfung nicht
+ * besteht (Handarbeit an der Datei, N5), wird NICHT übernommen — der
+ * zuletzt gültige, schon registrierte Stand bleibt stehen (fail closed),
+ * nur eine Meldung geht ins Log. Das Modell verschwindet dadurch nicht
+ * plötzlich aus Katalog und Welt, nur weil eine einzelne Neu-Anwendung der
+ * Registry eine kaputte Zeile enthielt.
  */
 export function applyUploadedModelRegistry(datei: RegistryDatei): AnwendungsErgebnis {
   const meldungen: string[] = [];
+  const geaendert: string[] = [];
   const sollen = new Set(datei.modelle.map((m) => m.name));
   for (const name of [...UPLOADED_BY_NAME.keys()]) {
     if (!sollen.has(name)) unregisterUploadedPrefab(name);
   }
   let geladen = 0;
   for (const m of datei.modelle) {
-    if (UPLOADED_BY_NAME.has(m.name)) {
+    const vorhanden = UPLOADED_BY_NAME.get(m.name);
+    if (vorhanden) {
+      if (eintraegeGleich(vorhanden, m)) {
+        geladen++;
+        continue;
+      }
+      const grund = pruefeRegistryEintrag(m);
+      if (grund) {
+        meldungen.push(`'${String(m.name)}' NICHT aktualisiert (bleibt beim zuletzt gültigen Stand): ${grund}`);
+        geladen++;
+        continue;
+      }
+      ersetzeRegistriertenEintrag(m);
       geladen++;
+      geaendert.push(m.name);
       continue;
     }
     const grund = pruefeRegistryEintrag(m);
@@ -383,7 +464,7 @@ export function applyUploadedModelRegistry(datei: RegistryDatei): AnwendungsErge
       meldungen.push((e as Error).message);
     }
   }
-  return { geladen, meldungen };
+  return { geladen, geaendert, meldungen };
 }
 
 /**
@@ -400,7 +481,7 @@ const UMLAUT_AUSSCHREIBEN: ReadonlyMap<string, string> = new Map([
   ['ä', 'ae'], ['ö', 'oe'], ['ü', 'ue'], ['ß', 'ss'],
   ['Ä', 'Ae'], ['Ö', 'Oe'], ['Ü', 'Ue'],
 ]);
-function schreibeUmlauteAus(s: string): string {
+export function schreibeUmlauteAus(s: string): string {
   let aus = '';
   for (const zeichen of s) aus += UMLAUT_AUSSCHREIBEN.get(zeichen) ?? zeichen;
   return aus;

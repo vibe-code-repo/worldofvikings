@@ -22,13 +22,28 @@ export interface Groessenkategorie {
   readonly meter: number;
 }
 
+/**
+ * N2 (Angriff „Editor Upload-Größe"): einige der ursprünglichen Muster
+ * trafen als reine Teilzeichenketten auch mitten in unrelated Wörtern —
+ * „Fassade" → „Fass", „Shuttle" → „Haus" (über „hut"), „Abstandhalter" →
+ * „Marktstand", „Wagenrad" → „Karren", „Boxhandschuh" → „Kiste". Ein
+ * generischer Wortgrenzen-Riegel scheitert an echten deutschen
+ * Zusammensetzungen, die genau SO gebildet sind (`Zaunstück` = „zaun" +
+ * „stück" ohne Trennzeichen, `Holzfass` = „holz" + „fass") und laut
+ * bestehender Prüfung weiter treffen müssen (auch `Marktstandzaun` →
+ * „Marktstand" vor „Zaunstück", Tabellenreihenfolge). Deshalb hier gezielte
+ * Ausschlüsse nur für die BEOBACHTETEN Fehltreffer (`(?!…)`), statt einer
+ * allgemeinen Regel, die echte Zusammensetzungen mit abgeschnitten hätte;
+ * `\bhut\b` für die einzige Alternative, die (anders als „zaun"/„stand"/
+ * „fass"/„wagen"/„box") kaum als Wortanfang einer Zusammensetzung auftritt.
+ */
 export const GROESSENTABELLE: readonly Groessenkategorie[] = [
-  { kategorie: 'Haus', muster: /haus|huette|hütte|hut|house|langhaus|halle/i, meter: 8 },
-  { kategorie: 'Marktstand', muster: /markt|stand|market|bude/i, meter: 4 },
+  { kategorie: 'Haus', muster: /haus|huette|hütte|\bhut\b|house|langhaus|halle/i, meter: 8 },
+  { kategorie: 'Marktstand', muster: /markt|stand(?!halter)|market|bude/i, meter: 4 },
   { kategorie: 'Zaunstück', muster: /zaun|fence|palisad/i, meter: 2 },
-  { kategorie: 'Fass', muster: /fass|barrel|tonne/i, meter: 0.7 },
-  { kategorie: 'Kiste', muster: /kiste|box|crate|truhe|kasten/i, meter: 1 },
-  { kategorie: 'Karren', muster: /karren|wagen|cart|kutsche/i, meter: 3 },
+  { kategorie: 'Fass', muster: /fass(?!ade)|barrel|tonne/i, meter: 0.7 },
+  { kategorie: 'Kiste', muster: /kiste|box(?!hand)|crate|truhe|kasten/i, meter: 1 },
+  { kategorie: 'Karren', muster: /karren|wagen(?!rad)|cart|kutsche/i, meter: 3 },
   { kategorie: 'Boot', muster: /boot|schiff|boat|ship|drachenboot|langschiff/i, meter: 10 },
 ];
 

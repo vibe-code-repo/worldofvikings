@@ -20,7 +20,7 @@
  * („U_Marktstand"), gewinnt der — er ist das kanonische Vorbild, nicht
  * eine seiner nummerierten Varianten.
  */
-import { grundskalaVon, type UploadedModelEntry } from './uploadedModelRegistry.js';
+import { grundskalaVon, schreibeUmlauteAus, type UploadedModelEntry } from './uploadedModelRegistry.js';
 import { kategorieFuerName } from './uploadedModelGroessentabelle.js';
 
 export type Zieldimension = 'breite' | 'hoehe';
@@ -34,9 +34,18 @@ export interface Groessenvorschlag {
   readonly begruendung: string;
 }
 
-/** `U_`-Präfix weg, Kleinschreibung, nur `[a-z0-9]` — der Vergleichskern eines Namens. */
+/**
+ * `U_`-Präfix weg, Umlaute ausgeschrieben, Kleinschreibung, nur `[a-z0-9]` —
+ * der Vergleichskern eines Namens.
+ *
+ * N3 (Angriff „Editor Upload-Größe"): Ohne `schreibeUmlauteAus` (dieselbe
+ * Funktion wie in `uploadedModelRegistry.erzwingeName`, die den TATSÄCHLICH
+ * gespeicherten Registry-Namen bestimmt) traf „Käsestand2" nicht auf ein
+ * schon registriertes „Kaesestand2" — die Registry schreibt Umlaute beim
+ * Speichern aus, dieser Vergleich hier tat es vorher nicht.
+ */
 function normKern(s: string): string {
-  return s.replace(/^u_/i, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return schreibeUmlauteAus(s.replace(/^u_/i, '').toLowerCase()).replace(/[^a-z0-9]/g, '');
 }
 
 /** Denselben Kern ohne eine Zahl am Ende — „marktstand2" → „marktstand". */

@@ -411,6 +411,8 @@ export class GegenstandsKatalog {
   private readonly hochladenZielFeld: HTMLInputElement;
   private readonly hochladenVorschlagText: HTMLSpanElement;
   private readonly hochladenCmKnopf: HTMLButtonElement;
+  /** N6 (Angriff „Editor Upload-Größe"): sichtbare Warnung statt stillem Klemmen der Grundskala. */
+  private readonly hochladenGrenzwarnung: HTMLSpanElement;
   private hochladenRohMasse: { breite: number; hoehe: number; tiefe: number } | null = null;
   /**
    * Größenvorschau (Auftrag Punkt 4, „Vorschau"): der Regler-Behälter,
@@ -892,6 +894,16 @@ export class GegenstandsKatalog {
     );
     this.hochladenCmKnopf.style.display = 'none';
     vorschlagZeile.appendChild(this.hochladenCmKnopf);
+    // N6 (Angriff „Editor Upload-Größe"): Grundskala wird weiter geklemmt
+    // (0,01…100, gewollt gegen Tippfehler-422), aber nicht mehr STILL — das
+    // Zielfeld zeigt sonst z. B. weiterhin 500 m, während Vorschau und
+    // Upload längst mit dem geklemmten g = 100 rechnen.
+    this.hochladenGrenzwarnung = el(
+      'span',
+      stil({ 'font-size': '11px', color: F.fehler, 'line-height': '1.4', display: 'none' }),
+      ''
+    );
+    vorschlagZeile.appendChild(this.hochladenGrenzwarnung);
     tafel.appendChild(vorschlagZeile);
 
     // ── Hauptteil: Liste links, Vorschau rechts ──────────────────────
@@ -1580,26 +1592,53 @@ export class GegenstandsKatalog {
   }
 
   /**
-   * Grundskala aus Zielfeld und Rohgröße — `undefined`, wenn das Zielfeld
-   * leer ist ("wie Datei", Grundskala 1) oder keine Rohgröße vorliegt.
-   * Geklemmt auf denselben Bereich wie der Betriebsdienst
+   * Grundskala aus Zielfeld und Rohgröße — `wert` ist `undefined`, wenn das
+   * Zielfeld leer ist ("wie Datei", Grundskala 1) oder keine Rohgröße
+   * vorliegt. Geklemmt auf denselben Bereich wie der Betriebsdienst
    * (`GRUNDSKALA_MIN`…`GRUNDSKALA_MAX`), damit ein Tippfehler nie eine
    * 422-Ablehnung auslöst, die der Nutzer nicht versteht — eine Zahl
    * ausserhalb des Bereichs wird stattdessen an den Rand geklemmt.
+   *
+   * N6 (Angriff „Editor Upload-Größe"): Das Klemmen selbst bleibt (siehe
+   * oben, gewollt), darf aber nicht STILL passieren — `geklemmtVon` trägt
+   * den unklemmten Wert, wenn geklemmt wurde, sonst `null`; der Aufrufer
+   * zeigt daraus eine sichtbare Warnung (`hochladenGrenzwarnungAktualisieren`).
    */
-  private hochladenGrundskala(): number | undefined {
+  private hochladenGrundskala(): { readonly wert: number | undefined; readonly geklemmtVon: number | null } {
+    const nichts = { wert: undefined, geklemmtVon: null } as const;
     const text = this.hochladenZielFeld.value.trim();
-    if (text === '') return undefined;
+    if (text === '') return nichts;
     const ziel = Number(text.replace(',', '.'));
     const rohMasse = this.hochladenRohMasse;
-    if (!Number.isFinite(ziel) || ziel <= 0 || !rohMasse) return undefined;
+    if (!Number.isFinite(ziel) || ziel <= 0 || !rohMasse) return nichts;
     const roh = this.hochladenZielDimension === 'breite' ? rohMasse.breite : rohMasse.hoehe;
-    if (!Number.isFinite(roh) || roh <= 0) return undefined;
+    if (!Number.isFinite(roh) || roh <= 0) return nichts;
     const g = ziel / roh;
-    return Math.min(
+    const geklemmt = Math.min(
       uploadedModelRegistry.GRUNDSKALA_MAX,
       Math.max(uploadedModelRegistry.GRUNDSKALA_MIN, g)
     );
+    return { wert: geklemmt, geklemmtVon: geklemmt === g ? null : g };
+  }
+
+  /**
+   * Sichtbare Warnung, wenn `hochladenGrundskala()` gerade geklemmt hat
+   * (N6) — `null` blendet sie aus. Vorher zeigte das Zielfeld weiter den
+   * eingegebenen (z. B. 500 m), tatsächlich hochgeladen/vorgeschaut wurde
+   * aber mit dem geklemmten Wert (g = 100), ohne jeden Hinweis.
+   */
+  private hochladenGrenzwarnungAktualisieren(geklemmtVon: number | null): void {
+    if (geklemmtVon === null) {
+      this.hochladenGrenzwarnung.style.display = 'none';
+      this.hochladenGrenzwarnung.textContent = '';
+      return;
+    }
+    const grenze =
+      geklemmtVon > uploadedModelRegistry.GRUNDSKALA_MAX
+        ? uploadedModelRegistry.GRUNDSKALA_MAX
+        : uploadedModelRegistry.GRUNDSKALA_MIN;
+    this.hochladenGrenzwarnung.textContent = `Grundskala auf ${grenze} begrenzt (Zielwert entspräche ×${geklemmtVon.toFixed(2)}) — hochgeladen/vorgeschaut wird mit ${grenze}.`;
+    this.hochladenGrenzwarnung.style.display = '';
   }
 
   /**
@@ -1708,7 +1747,9 @@ export class GegenstandsKatalog {
     const wurzel = this.gezeigt;
     const scene = this.scene;
     if (!wurzel || !scene) return;
-    const g = this.hochladenGrundskala() ?? 1;
+    const { wert: hochladenG, geklemmtVon } = this.hochladenGrundskala();
+    const g = hochladenG ?? 1;
+    this.hochladenGrenzwarnungAktualisieren(geklemmtVon);
     wurzel.scaling.setAll(g);
     const masse = this.messen(wurzel);
     const halbBreite = masse.breite / 2;
@@ -1786,6 +1827,7 @@ export class GegenstandsKatalog {
    */
   private hochladenVorschauEntfernen(): void {
     ++this.ladeNummer;
+    this.hochladenGrenzwarnungAktualisieren(null);
     if (!this.hochladenVorschauAktiv) return;
     this.hochladenVorschauAktiv = false;
     this.hochladenReferenzenEntfernen();
@@ -1823,7 +1865,7 @@ export class GegenstandsKatalog {
       // Grundskala (Karte „Editor Upload-Größe"): nur mitschicken, wenn das
       // Zielfeld tatsächlich eine gültige Zielgröße ergibt — leer bleibt
       // „wie Datei" (keine Kopfzeile, Server nimmt 1 an).
-      const grundskala = this.hochladenGrundskala();
+      const { wert: grundskala } = this.hochladenGrundskala();
       const antwort = await fetch('/api/modell-hochladen', {
         method: 'POST',
         headers: {
@@ -2052,12 +2094,21 @@ export class GegenstandsKatalog {
         return;
       }
       await ladeHochgeladeneRegistrierung();
-      status.textContent = 'Übernommen.';
+      // H1b (Angriff „Editor Upload-Größe"): Der Spielserver liest die
+      // Upload-Registry nur beim eigenen Prozessstart (`server/src/main.ts`,
+      // Kopfkommentar dort) — anders als Editor-Katalog und Layout-Prüfung
+      // (beide im Betriebsdienst, der die Änderung sofort übernimmt) sieht
+      // ein LAUFENDER Spielserver eine geänderte Grundskala erst nach einem
+      // Neustart. „Übernommen." allein sagte das nicht ehrlich; ein neuer
+      // Server-Weg dafür ist nicht Teil dieser Nachbesserung.
+      status.textContent = 'Übernommen — Editor sofort, Spielserver erst nach dessen Neustart.';
       status.style.color = F.textRuhig;
       // Die Vorschau (dieses Modell steht gerade, sonst gäbe es die
       // Grundskala-Zeile nicht) und der Infoblock neu aufbauen — beide
       // lesen die Grundskala über `uploadedModelRegistry.
-      // grundskalaFuerModell`, die die neu registrierte Registry schon kennt.
+      // grundskalaFuerModell`, die die neu registrierte Registry jetzt
+      // (H1-Nachbesserung an `applyUploadedModelRegistry`) auch bei einem
+      // schon bekannten Namen aktuell hält.
       if (this.gewaehlt === name) void this.waehle(name);
     } catch (e) {
       status.textContent = `Netzwerkfehler: ${(e as Error).message}`;

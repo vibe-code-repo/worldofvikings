@@ -87,11 +87,18 @@ import {
 /**
  * `<repo>/assets/hochgeladen` — zwei Ebenen hinauf: Diese Datei liegt in
  * `shared/src/`, also `src → shared → <repo>`.
+ *
+ * H2 (Angriff „Editor Upload-Größe"): Anders als jeder andere Pfad im
+ * Betriebsdienst (`WOV_WURZEL`) hängt dieser hier am Ort DIESER Moduldatei,
+ * nicht an der Umgebung — ein Prozess-Test mit eigenem `WOV_WURZEL` schrieb
+ * dadurch trotzdem in die ECHTE `assets/hochgeladen/` des Checkouts (beim
+ * Ausrollen die von DEV). `WOV_HOCHGELADEN_DIR` überschreibt ihn deshalb,
+ * wenn gesetzt — nur Tests setzen es, Server und Betriebsdienst laufen ohne
+ * Änderung weiter am bisherigen, moduleigenen Pfad.
  */
-export const UPLOAD_DIR = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../assets/hochgeladen'
-);
+export const UPLOAD_DIR =
+  process.env.WOV_HOCHGELADEN_DIR ??
+  resolve(dirname(fileURLToPath(import.meta.url)), '../../assets/hochgeladen');
 
 // ── Freigabeliste für glTF-Erweiterungen ─────────────────────────────
 /**

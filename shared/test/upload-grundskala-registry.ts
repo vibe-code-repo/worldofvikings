@@ -17,6 +17,7 @@
  * Lauf:  npx tsx shared/test/upload-grundskala-registry.ts
  */
 import {
+  applyUploadedModelRegistry,
   GRUNDSKALA_MAX,
   GRUNDSKALA_MIN,
   grundskalaFuerModell,
@@ -24,6 +25,7 @@ import {
   pruefeRegistryEintrag,
   registerUploadedPrefab,
   unregisterUploadedPrefab,
+  uploadedModelEntry,
   UPLOAD_MODEL_PREFIX,
   type UploadedModelEntry,
 } from '../src/uploadedModelRegistry.js';
@@ -153,6 +155,65 @@ console.log('\n5. Hülle (huellenAufloeser/ausUpload) — multipliziert, nicht a
     const huellen = huellenAufloeser();
     const h = huellen('U_Testgrundskala');
     pruefe(h !== null && Math.abs(h.halbX * 2 - 1.0) < 1e-9, 'ohne grundskala: Breite bleibt die rohe 1,0 m');
+  } finally {
+    unregisterUploadedPrefab('U_Testgrundskala');
+  }
+}
+
+console.log('\n6. applyUploadedModelRegistry übernimmt eine geänderte grundskala bei bekanntem Namen (H1)\n');
+{
+  const v1 = { version: 1, modelle: [basisEintrag({ grundskala: 1 })] };
+  const erg1 = applyUploadedModelRegistry(v1);
+  try {
+    pruefe(erg1.geladen === 1, 'erster apply: 1 Eintrag geladen');
+    pruefe(erg1.geaendert.length === 0, 'erster apply (neu): nichts als geändert gemeldet');
+    pruefe(
+      grundskalaFuerModell(`${UPLOAD_MODEL_PREFIX}U_Testgrundskala`) === 1,
+      'nach apply v1: grundskalaFuerModell === 1'
+    );
+
+    const v2 = { version: 1, modelle: [basisEintrag({ grundskala: 4 })] };
+    const erg2 = applyUploadedModelRegistry(v2);
+    pruefe(erg2.geladen === 1, 'zweiter apply (geändert): weiterhin 1 geladen');
+    pruefe(erg2.geaendert.includes('U_Testgrundskala'), "zweiter apply meldet 'U_Testgrundskala' als geändert");
+    pruefe(
+      grundskalaFuerModell(`${UPLOAD_MODEL_PREFIX}U_Testgrundskala`) === 4,
+      'nach apply v2 (g=4): grundskalaFuerModell === 4 (H1 — auf 2c0a7ed blieb das bei 1)'
+    );
+    pruefe(uploadedModelEntry('U_Testgrundskala')?.grundskala === 4, 'uploadedModelEntry(...) trägt jetzt grundskala 4');
+
+    // Ein DRITTER apply mit UNVERÄNDERTEM Inhalt meldet nichts als geändert
+    // (eintraegeGleich) — sonst würde jeder blosse Abgleich (Betriebsdienst,
+    // jede Anfrage) den Eintrag fälschlich als "geändert" zählen.
+    const erg3 = applyUploadedModelRegistry(v2);
+    pruefe(erg3.geaendert.length === 0, 'dritter apply mit gleichem Inhalt: nichts als geändert gemeldet');
+
+    // Dieselbe Hülle spiegelt die Änderung, weil huellenAufloeser() jedes
+    // Mal frisch gebaut wird und ausUpload() live nachschlägt.
+    const huellen = huellenAufloeser();
+    const h = huellen('U_Testgrundskala');
+    pruefe(
+      h !== null && Math.abs(h.halbX * 2 - 4.0) < 1e-9,
+      `Hülle nach Änderung: Breite = ${h ? (h.halbX * 2).toFixed(4) : '?'} (erwartet 4.0)`
+    );
+  } finally {
+    unregisterUploadedPrefab('U_Testgrundskala');
+  }
+}
+
+console.log('\n7. Eine manipulierte grundskala bei einem SCHON registrierten Modell verwirft nur die Änderung (fail closed, N5)\n');
+{
+  registerUploadedPrefab(basisEintrag({ grundskala: 2 }));
+  try {
+    const kaputt = { version: 1, modelle: [basisEintrag({ grundskala: -1 })] };
+    const erg = applyUploadedModelRegistry(kaputt);
+    pruefe(erg.geladen === 1, 'eine ungültige Änderung zählt trotzdem als (weiter) geladen — der alte Stand bleibt');
+    pruefe(erg.geaendert.length === 0, 'eine ungültige Änderung wird NICHT als geändert gemeldet');
+    pruefe(erg.meldungen.length > 0, 'eine ungültige Änderung erzeugt eine Meldung (Warnung im Log)');
+    pruefe(
+      grundskalaFuerModell(`${UPLOAD_MODEL_PREFIX}U_Testgrundskala`) === 2,
+      'der zuletzt gültige Stand (2) bleibt registriert, nicht die kaputte -1 (fail closed)'
+    );
   } finally {
     unregisterUploadedPrefab('U_Testgrundskala');
   }

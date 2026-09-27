@@ -55,7 +55,8 @@
  *           WOV_ADMIN_ADRESSE, WOV_WURZEL (Projektpfad),
  *           WOV_ADMIN_TOKEN_DATEI, WOV_NAHE_NETZE, WOV_PROXY_ADRESSEN,
  *           WOV_LOG_STROEME_MAX, WOV_SYSTEMCTL (nur Tests/Probelaeufe, s. SYSTEMCTL),
- *           WOV_ERLAUBTE_URSPRUENGE (kommagetrennte Host-Namen, s. fremdeHerkunft)
+ *           WOV_ERLAUBTE_URSPRUENGE (kommagetrennte Host-Namen, s. fremdeHerkunft),
+ *           WOV_HOCHGELADEN_DIR (nur Tests, s. uploadedModelUpload.ts UPLOAD_DIR)
  */
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
@@ -951,7 +952,21 @@ async function modellHochladenBehandeln(
   const grundskalaRoh = req.headers['x-wov-grundskala'];
   let grundskala: number | undefined;
   if (grundskalaRoh !== undefined) {
-    grundskala = Number(grundskalaRoh);
+    // N1 (Angriff „Editor Upload-Größe"): `Number(...)` nimmt Hex ('0x10'),
+    // Binär ('0b11'), wissenschaftliche Schreibweise ('1e1'), führende/
+    // folgende Leerzeichen und ein führendes '+' an — der Editor schickt
+    // aber nie mehr als `String(zahl)` einer schon geprüften Zahl. Ein
+    // Kopfzeilenwert, der nicht genau eine schlichte Dezimalzahl ist, wird
+    // hier abgelehnt, BEVOR er überhaupt bei `Number()` ankommt.
+    const einzelwert = Array.isArray(grundskalaRoh) ? grundskalaRoh.join(',') : grundskalaRoh;
+    if (!/^\d+(\.\d+)?$/.test(einzelwert)) {
+      return json(res, 422, {
+        ok: false,
+        fehler: 'grundskala-ungueltig',
+        message: `Kopfzeile x-wov-grundskala muss eine einfache Dezimalzahl sein (kein Hex/Binär, keine Exponentialschreibweise, kein Vorzeichen, keine Leerzeichen) — bekommen: '${einzelwert}'.`,
+      });
+    }
+    grundskala = Number(einzelwert);
     const grundskalaFehler = pruefeGrundskala(grundskala);
     if (grundskalaFehler !== null) {
       return json(res, 422, { ok: false, fehler: 'grundskala-ungueltig', message: grundskalaFehler });

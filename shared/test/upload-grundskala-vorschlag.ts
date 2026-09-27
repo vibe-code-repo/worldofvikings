@@ -163,5 +163,39 @@ console.log('\n6. cm-Verdacht — Warnung ab > 50 m, keine an der Schwelle selbs
   pruefe(cmVerdacht({ breite: 200, hoehe: 150, tiefe: 90 }) === true, 'typischer cm-Export (200 × 150 × 90) löst den Verdacht aus');
 }
 
+console.log('\n7. Tabellenmuster ohne echten Wortkern lösen NICHT aus (N2 — Fassade, Shuttle, Abstandhalter, Wagenrad, Boxhandschuh)\n');
+{
+  const keineKategorie = ['Fassade', 'Fassadenteil', 'Shuttle', 'Abstandhalter', 'Wagenrad', 'Boxhandschuh'];
+  for (const name of keineKategorie) {
+    const treffer = kategorieFuerName(name);
+    pruefe(treffer === null, `'${name}' trifft KEINE Kategorie (bekommen '${treffer?.kategorie}')`);
+  }
+  // Gegenprobe: echte Zusammensetzungen mit demselben Wortkern bleiben erkannt.
+  pruefe(kategorieFuerName('Holzfass')?.kategorie === 'Fass', "'Holzfass' bleibt 'Fass'");
+  pruefe(kategorieFuerName('Fass')?.kategorie === 'Fass', "'Fass' allein bleibt 'Fass'");
+  pruefe(kategorieFuerName('Zaunstück')?.kategorie === 'Zaunstück', "'Zaunstück' bleibt 'Zaunstück' (eigener Name der Kategorie)");
+  pruefe(kategorieFuerName('Hut')?.kategorie === 'Haus', "'Hut' allein bleibt 'Haus'");
+  pruefe(
+    kategorieFuerName('Marktstandzaun')?.kategorie === 'Marktstand',
+    "'Marktstandzaun' bleibt weiter 'Marktstand' (Tabellenreihenfolge unverändert)"
+  );
+}
+
+console.log('\n8. Ähnlichkeitsvergleich ist umlaut-unabhängig (N3) — Käsestand2 vs. Kaesestand2\n');
+{
+  const rohMasse = { breite: 1.0, hoehe: 1.0 };
+  const kandidaten = [kandidat({ name: 'U_Kaesestand', anzeigename: 'Käsestand', breite: 3.0 })];
+  const v1 = schlageZielgroesseVor('Käsestand2', 'breite', rohMasse, kandidaten);
+  pruefe(
+    v1.quelle === 'aehnliches-modell' && v1.meter === 3.0,
+    `'Käsestand2' (mit Umlaut) findet 'Käsestand' (${v1.meter}, ${v1.quelle})`
+  );
+  const v2 = schlageZielgroesseVor('Kaesestand2', 'breite', rohMasse, kandidaten);
+  pruefe(
+    v2.quelle === 'aehnliches-modell' && v2.meter === 3.0,
+    `'Kaesestand2' (ausgeschrieben) findet ebenfalls 'Käsestand' (${v2.meter}, ${v2.quelle}) — vorher (N3) fiel es auf die Kategorie zurück`
+  );
+}
+
 console.log(fehler === 0 ? '\nOK — Vorschlagslogik korrekt.\n' : `\n${fehler} FEHLER\n`);
 process.exit(fehler > 0 ? 1 : 0);

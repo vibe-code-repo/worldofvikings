@@ -178,6 +178,15 @@ function sendePaket(k: Klient, typ: number, w: Writer): void {
   k.ws.send(Buffer.concat([Buffer.from([typ]), w.toBuffer()]));
 }
 
+async function pingBarriere(k: Klient, was: string): Promise<void> {
+  const vorher = k.typen.get(P.Ping) ?? 0;
+  sendePaket(k, P.Ping, new Writer());
+  const angekommen = await bis(() => (k.typen.get(P.Ping) ?? 0) > vorher, 5_000);
+  const nachher = k.typen.get(P.Ping) ?? 0;
+  check(was, angekommen, `${vorher} → ${nachher}`);
+  if (!angekommen) throw new Error(`${was}: Ping-Barriere ueberfaellig (${vorher} → ${nachher})`);
+}
+
 /** One admin command; the drossel refills 1/s, so wait first. Returns the reply text. */
 async function admin(k: Klient, zeile: string): Promise<string> {
   await warte(1100);
@@ -439,9 +448,7 @@ async function main(): Promise<void> {
     // zurueck, wenn der Server sie verarbeitet hat — handlePacket ist je
     // Verbindung synchron und geordnet (Ping wird ganz oben in derselben
     // Methode geechot, s. NetManager.ts), unabhaengig von der Systemlast.
-    const pingVorC2 = betAmSchmied.typen.get(P.Ping) ?? 0;
-    sendePaket(betAmSchmied, P.Ping, new Writer());
-    await bis(() => (betAmSchmied.typen.get(P.Ping) ?? 0) > pingVorC2, 5_000);
+    await pingBarriere(betAmSchmied, 'F3: Pakete vor der Interact-Probe sind verarbeitet');
     // Interact: Oles Truhe steht bei (305,50,400); der Editor-Gast wird extra dorthin gestellt.
     pSchmied.position = { ...truhe.position };
     { const w = new Writer();
@@ -492,20 +499,38 @@ async function main(): Promise<void> {
     // noch drin, wirkten sie hier. Dass sie es nicht tun, zeigt, dass die
     // Allowlist selbst blockt, nicht (nur) der jeweilige Handler.
     console.log('\n[F3b] Admin-Editor: SetTimeOfDay/DungeonEditRequest bewirken nichts (Allowlist schlank, T1):');
-    const zeitVorher = server.getTimeOfDay();
-    const timeSyncVorher = zeuge.typen.get(P.TimeSync) ?? 0;
-    const dungeonEditDataVorher = adminEditor.typen.get(P.DungeonEditData) ?? 0;
-    { const w = new Writer(); w.writeFloat64(777);
-      sendePaket(adminEditor, P.SetTimeOfDay, w); }
-    { const w = new Writer(); w.writeString('');
-      sendePaket(adminEditor, P.DungeonEditRequest, w); }
-    await warte(500);
-    check('F3b: SetTimeOfDay vom Admin-Editor aendert die Weltzeit nicht (A2)',
-      Math.abs(server.getTimeOfDay() - zeitVorher) < 1, `${zeitVorher} → ${server.getTimeOfDay()}`);
-    check('F3b: kein TimeSync-Broadcast durch das geblockte SetTimeOfDay',
-      (zeuge.typen.get(P.TimeSync) ?? 0) === timeSyncVorher);
-    check('F3b: DungeonEditRequest vom Admin-Editor bekommt keine (neue) Antwort (A3)',
-      (adminEditor.typen.get(P.DungeonEditData) ?? 0) === dungeonEditDataVorher, JSON.stringify([...adminEditor.typen]));
+    const zeitTakt = server as unknown as { timeSyncAccumulator: number };
+    const timeSyncAccumulatorVorher = zeitTakt.timeSyncAccumulator;
+    // The server emits normal TimeSync packets every second. F3b wants to
+    // prove that the forbidden editor packets do not trigger their handlers,
+    // so the independent periodic tick is moved out of this observation
+    // window and restored afterwards. Ping barriers on the witness sockets
+    // drain packets already queued before the counters are sampled, and after
+    // the forbidden packets they prove same-socket processing instead of just
+    // sleeping for a fixed interval.
+    zeitTakt.timeSyncAccumulator = -60_000;
+    try {
+      await pingBarriere(zeuge, 'F3b: Zeuge vor dem Messfenster geleert');
+      await pingBarriere(adminEditor, 'F3b: Admin-Editor vor dem Messfenster geleert');
+      const zeitVorher = server.getTimeOfDay();
+      const timeSyncVorher = zeuge.typen.get(P.TimeSync) ?? 0;
+      const dungeonEditDataVorher = adminEditor.typen.get(P.DungeonEditData) ?? 0;
+      { const w = new Writer(); w.writeFloat64(777);
+        sendePaket(adminEditor, P.SetTimeOfDay, w); }
+      { const w = new Writer(); w.writeString('');
+        sendePaket(adminEditor, P.DungeonEditRequest, w); }
+      await pingBarriere(adminEditor, 'F3b: Admin-Editor hat die verbotenen Pakete verarbeitet');
+      await pingBarriere(zeuge, 'F3b: Zeuge nach den verbotenen Paketen geleert');
+      check('F3b: SetTimeOfDay vom Admin-Editor aendert die Weltzeit nicht (A2)',
+        Math.abs(server.getTimeOfDay() - zeitVorher) < 1, `${zeitVorher} → ${server.getTimeOfDay()}`);
+      check('F3b: kein TimeSync-Broadcast durch das geblockte SetTimeOfDay',
+        (zeuge.typen.get(P.TimeSync) ?? 0) === timeSyncVorher, `${timeSyncVorher} → ${zeuge.typen.get(P.TimeSync) ?? 0}`);
+      check('F3b: DungeonEditRequest vom Admin-Editor bekommt keine (neue) Antwort (A3)',
+        (adminEditor.typen.get(P.DungeonEditData) ?? 0) === dungeonEditDataVorher,
+        `${dungeonEditDataVorher} → ${adminEditor.typen.get(P.DungeonEditData) ?? 0}; ${JSON.stringify([...adminEditor.typen])}`);
+    } finally {
+      zeitTakt.timeSyncAccumulator = timeSyncAccumulatorVorher;
+    }
 
     await trenne(adminEditor);
 

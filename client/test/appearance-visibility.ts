@@ -11,11 +11,14 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import { Bone } from '@babylonjs/core/Bones/bone';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { hiddenAppearance, hiddenAppearanceForFiles, equipmentSetCatalog, findItem, Inventory,
   encodeArmor, frisurMitGesicht, AUGENBRAUEN, PLAINHIDE_FREE_REGIONS, legacyFemaleRegionForBone } from '@wov/shared';
 import { armorFileForSkeleton, prepareLegacyFemaleBody, updateArmorVisibility } from '../src/player/armorVisibility.js';
 import { bodyRegionOfMeshName, type BodyRegion } from '../src/player/bodyRegions.js';
+import { faerbeHaar } from '../src/player/haarfarbe.js';
 
 const all = ['hair', 'beard', 'eyebrows'];
 assert.deepEqual([...hiddenAppearance([{}])], []);
@@ -41,6 +44,31 @@ inventory.load(inventory.serialize());
 assert.deepEqual(inventory.all[0].shared.hideAppearance, all, 'Restored inventory resolves current item policy');
 
 const engine = new NullEngine();
+{
+  const scene = new Scene(engine);
+  const shared = new PBRMaterial('hair__wovHairNeutralReference_0.932105', scene);
+  const tex = RawTexture.CreateRGBATexture(new Uint8Array([255, 255, 255, 255]), 1, 1, scene, false, false);
+  shared.albedoTexture = tex;
+  const first = CreateBox('first-hair', {}, scene);
+  const second = CreateBox('second-hair', {}, scene);
+  first.material = shared; second.material = shared;
+  faerbeHaar([first], '#6F593F', true);
+  faerbeHaar([second], '#9A9691', true);
+  assert.notEqual(first.material, second.material, 'two remote figures with different hair colors get isolated materials');
+  assert.notEqual(first.material, shared, 'first remote hair material is cloned away from the shared container material');
+  assert.notEqual(second.material, shared, 'second remote hair material is cloned away from the shared container material');
+  assert.equal((first.material as PBRMaterial).albedoTexture, tex, 'cloned first material keeps the neutral hair texture');
+  assert.equal((second.material as PBRMaterial).albedoTexture, tex, 'cloned second material keeps the neutral hair texture');
+  assert.notDeepEqual((first.material as PBRMaterial).albedoColor.asArray(), (second.material as PBRMaterial).albedoColor.asArray(),
+    'different palette choices stay different after neutral-reference compensation');
+  const local = CreateBox('local-hair', {}, scene);
+  const own = new PBRMaterial('local__wovHairNeutralReference_0.932105', scene);
+  own.albedoTexture = tex; local.material = own;
+  faerbeHaar([local], '#DED9D0', false);
+  assert.equal(local.material, own, 'local/avatar path keeps its already private material');
+  assert.equal(own.albedoTexture, tex, 'local/avatar path keeps the neutral hair texture');
+  scene.dispose();
+}
 for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   const scene = new Scene(engine);
   const head = CreateBox('Chr_Head_Male_00', {}, scene);

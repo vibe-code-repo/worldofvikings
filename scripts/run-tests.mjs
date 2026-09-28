@@ -2313,6 +2313,7 @@ const KERN = [
   // most two of three wolves pinned on one peer ever strike at once, with
   // the third taking a freed slot when an active attacker dies.
   ['server', 'test/wolf-rudel-begrenzung.ts'],
+  ['server', 'test/wolf-zielschaden.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

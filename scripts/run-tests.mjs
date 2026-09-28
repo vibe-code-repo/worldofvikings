@@ -2314,6 +2314,7 @@ const KERN = [
   // the third taking a freed slot when an active attacker dies.
   ['server', 'test/wolf-rudel-begrenzung.ts'],
   ['server', 'test/wolf-zielschaden.ts'],
+  ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

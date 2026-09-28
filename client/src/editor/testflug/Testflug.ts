@@ -295,9 +295,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         `${e.prefab} platziert @ (${wx}, ${wz})` +
           (sockel !== undefined ? ` — Boden planiert (r=${sockel} m)` : '')
       );
-      // Ohne „Serie“ hängt nach dem Setzen NICHTS mehr an der Maus — der Modus
-      // endet mit der Platzierung (aufWahl räumt den Geist ab). Mit „Serie“
-      // (Vorgabe) bleibt er an, wie beim Linksklick.
+      // Ohne „Serie“ (die Vorgabe) hängt nach dem Setzen NICHTS mehr an der Maus —
+      // der Modus endet mit der Platzierung (aufWahl räumt den Geist ab). Mit
+      // „Serie“ bleibt er an, wie beim Linksklick.
       if (!modusNachSetzen(panel.einstellung.serie)) panel.beendePlatzierModus();
     };
     kontext.setzeSpawnEditorOffen(() => panel.istOffen);
@@ -834,11 +834,20 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // nächste Platzierung im Griffradius. Gemessen wird an der SICHTBAREN Stelle:
       // Ein Routen-NPC ist in der Vorschau längst weitergelaufen.
       const setzenModus = panel.istOffen && panel.istPlatzierModus;
+      const jetzt = performance.now();
+      const bild = { x: e.offsetX, z: e.offsetY };
+      // Ohne „Serie“ endet der Setzen-Modus sofort nach dem Setzen (siehe unten) — der
+      // zweite Klick eines Doppelklicks käme dann OHNE setzenModus an und griffe das
+      // eben gesetzte Objekt (kein Alt nötig). Dieselbe Bildpunkt-Sperre wie beim
+      // Setzen gilt darum auch vor dem Greifen: bleibt der Klick innerhalb der
+      // Sperrzeit/-pixel am selben Punkt, geschieht nichts.
+      const geradeGesperrt = doppelSperre.blockiert(jetzt, bild, e.pointerType || 'mouse');
       const entscheidung = entscheideKlick({
         setzenModus,
         alt: e.altKey,
         punkt: p,
         platzierungen: roh.placements.map((q, i) => vorschau.positionVon(i) ?? q),
+        geradeGesperrt,
       });
       const best = entscheidung.art === 'greifen' ? entscheidung.index : -1;
       if (best >= 0 && !roh.placements[best]!.id) {
@@ -874,9 +883,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         // platzierte ein Klick beim Routenzeichnen aus einem Modus, den
         // man gerade gar nicht sieht.
         // Zweiter Klick eines Doppelklicks: nichts setzen (sonst zwei Objekte an einer Stelle).
-        const jetzt = performance.now();
-        const bild = { x: e.offsetX, z: e.offsetY };
-        if (doppelSperre.blockiert(jetzt, bild, e.pointerType || 'mouse')) return;
+        if (geradeGesperrt) return;
         const einst = panel.einstellung;
         const sockel = einst.einebnen ? sockelRadius() : undefined;
         const eintrag = {
@@ -901,9 +908,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           `${einst.prefab} platziert @ (${eintrag.x}, ${eintrag.z})` +
             (sockel !== undefined ? ` — Boden planiert (r=${sockel} m)` : '')
         );
-        // Ohne „Serie“: ein Klick = eine Platzierung, der Modus endet und der Geist
-        // folgt der Maus nicht weiter. Mit „Serie“ (Vorgabe) bleibt er an; Esc oder
-        // Rechtsklick beendet ihn.
+        // Ohne „Serie“ (die Vorgabe): ein Klick = eine Platzierung, der Modus endet
+        // und der Geist folgt der Maus nicht weiter. Mit „Serie“ bleibt er an; Esc
+        // oder Rechtsklick beendet ihn.
         if (!modusNachSetzen(panel.einstellung.serie)) panel.beendePlatzierModus();
       }
     });

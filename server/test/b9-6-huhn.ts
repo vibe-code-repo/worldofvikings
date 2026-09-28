@@ -42,6 +42,7 @@ import {
   HEALTH_MEMBER,
   HeightmapProvider,
   PrefabFlag,
+  SPAWN_SYNC_INTERVAL_SEC,
   SPAWN_TABLE,
   XorShiftRandom,
   findPrefabByName,
@@ -255,6 +256,16 @@ console.log('\n[1] Tables: spawn table, registry, life, manifest');
   check('the hen is on the whitelist', istEigenesModell('Huhn'));
   check('hen flees like the deer but never attacks', huhn?.aggro === false && huhn.flees === true && huhn.fleeDistance === 10 && huhn.calmDistance === 40, `flees ${huhn?.flees}, flee ${huhn?.fleeDistance}, calm ${huhn?.calmDistance}, aggro ${huhn?.aggro}`);
   check('hen lives in the meadows', huhn?.biomes === Biome.Meadows);
+  // N3 (Pruefung 2026-09-28): the behavioural cap probe below (line ~410)
+  // did not kill a maxPerPlayer 5->50 / globalMax 40->400 mutant -- the
+  // short, stochastic spawn window in that probe never produced enough hens
+  // to hit either cap regardless of its value, so a wrong table number went
+  // unnoticed. Guard the shipped numbers directly.
+  check(
+    'hen caps match the shipped table (maxPerPlayer 5 within 60 m, globalMax 40)',
+    huhn?.maxPerPlayer === 5 && huhn?.countRadius === 60 && huhn?.globalMax === 40,
+    `maxPerPlayer ${huhn?.maxPerPlayer}, countRadius ${huhn?.countRadius}, globalMax ${huhn?.globalMax}`
+  );
 
   const d = findPrefabByName('Huhn');
   check('the player can hit it (ANIMAL_AI)', ((d?.flags ?? 0n) & PrefabFlag.ANIMAL_AI) !== 0n);
@@ -287,12 +298,32 @@ console.log('\n[1] Tables: spawn table, registry, life, manifest');
   check('walk and run clip speeds declared (client couples playback rate to ground speed)', (d?.animationTempo?.walk ?? 0) > 0 && (d?.animationTempo?.run ?? 0) > 0, JSON.stringify(d?.animationTempo));
   // T2 (Pruefung 2026-09-28): the coupling must not be silently capped — a
   // capped rate means the clip cannot keep up with walkSpeed and the feet
-  // slide. Mutant animationTempo.walk=0.05 gives clipRate(0.5,0.05)=10,
-  // clamped to CLIP_RATE_MAX=4 -- this check must then fail.
+  // slide. Mutant animationTempo.walk=0.05 gives clipRate(0.15,0.05)=3,
+  // still under the cap at the steady speed -- see T2b below for the check
+  // that actually kills a too-fast walkSpeed.
   const walkRate = clipRate(huhn?.walkSpeed ?? 0, d?.animationTempo?.walk);
   check(`walk clip rate ${f(walkRate, 2)} stays under the cap ${CLIP_RATE_MAX} (not capped, no forced slide)`, walkRate < CLIP_RATE_MAX, `walkSpeed ${huhn?.walkSpeed}, clip ${d?.animationTempo?.walk}`);
   const runRate = clipRate(huhn?.runSpeed ?? 0, d?.animationTempo?.run);
   check(`run clip rate ${f(runRate, 2)} stays under the cap ${CLIP_RATE_MAX} because fleeing now uses run`, runRate < CLIP_RATE_MAX, `runSpeed ${huhn?.runSpeed}, clip ${d?.animationTempo?.run}`);
+
+  // T2b (N3, Pruefung 2026-09-28, Befund: 772 of 2173 real GPU Walk samples
+  // capped): the check above only looks at the table's STEADY walkSpeed,
+  // which is not what the rendered root actually does frame to frame. The
+  // client's position lerp (client/src/entities/EntityManager.ts:3409, tau
+  // 0.09 s) catches up to each new ZDO position faster than the server
+  // sends them (SPAWN_SYNC_INTERVAL_SEC, 0.25 s), so right after every sync
+  // the rendered root briefly moves at up to walkSpeed * SPAWN_SYNC_INTERVAL_SEC
+  // / 0.09 before decaying back down — that peak, not the steady speed, is
+  // what must clear the cap. This is the check the old 0.5 m/s walkSpeed
+  // would have failed (peak 1.39 m/s -> clipRate(1.39, 0.14) capped at 4).
+  const LERP_TAU_SEC = 0.09;
+  const walkPeak = (huhn?.walkSpeed ?? 0) * (SPAWN_SYNC_INTERVAL_SEC / LERP_TAU_SEC);
+  const walkPeakRate = clipRate(walkPeak, d?.animationTempo?.walk);
+  check(
+    `walk clip rate at the post-sync speed peak ${f(walkPeak, 2)} m/s stays clear of the cap (rate ${f(walkPeakRate, 2)} < ${CLIP_RATE_MAX})`,
+    walkPeakRate < CLIP_RATE_MAX,
+    `walkSpeed ${huhn?.walkSpeed}, clip ${d?.animationTempo?.walk}, peak ${f(walkPeak, 3)} m/s`
+  );
 }
 
 // ── [1b] M1: ground truth on the DEFORMED mesh ────────────────────

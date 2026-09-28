@@ -265,10 +265,23 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     // and a short wander radius (8 m, vs. the cow's 15 m) — real chickens
     // stay close to where they started, they do not roam a meadow.
     //
-    // Walk 0.5 m/s: half the cow's amble (1.0), a slow peck-and-shuffle
-    // rather than a purposeful walk (walk clip: 0.14 m/s). Flee uses the
-    // already-shipped `run` clip at 2.5 m/s (run clip: 0.97 m/s); both rates
-    // stay below the client cap, so the clip coupling remains measurable.
+    // Walk 0.15 m/s (N3, Pruefung 2026-09-28): a slow peck-and-shuffle, far
+    // slower than the cow's amble (1.0) and than the 0.5 m/s this carried
+    // before N3. 0.5 m/s left only 12% headroom to the client's 4x clip-rate
+    // cap over the hen's own slow walk clip (0.14 m/s) -- fine for the
+    // steady-state number the table shows, but the position the client
+    // renders does not move at a constant rate: it chases the ZDO position
+    // sent every SPAWN_SYNC_INTERVAL_SEC (0.25 s) with a much faster lerp
+    // (client/src/entities/EntityManager.ts:3409, time constant 0.09 s), so
+    // right after every sync the rendered root briefly moves at up to
+    // walkSpeed * 0.25/0.09 (~2.8x the nominal speed) before decaying back
+    // down. At 0.5 m/s that peak alone reached the cap, and real network/
+    // render jitter pushed measured ground speed over it on 772 of 2173
+    // Walk samples in the GPU probe (Bericht Huhn N2 -- Pruefung). 0.15 m/s
+    // keeps even that peak (~0.42 m/s) clearly under the cap threshold
+    // (CLIP_RATE_MAX 4 x 0.14 m/s = 0.56 m/s). Flee still uses the
+    // already-shipped `run` clip at 2.5 m/s (run clip: 0.97 m/s, ratio 2.58),
+    // which has enough headroom and was not touched.
     prefab: 'Huhn',
     biomes: Biome.Meadows,
     maxPerPlayer: 5,
@@ -282,7 +295,7 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     ringMin: 15,
     ringMax: 40,
     minAltitude: 30.5,
-    walkSpeed: 0.5,
+    walkSpeed: 0.15,
     runSpeed: 2.5,
     wanderRadius: 8,
     idleMinSec: 2,

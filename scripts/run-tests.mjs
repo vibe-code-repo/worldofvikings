@@ -2308,6 +2308,7 @@ const KERN = [
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

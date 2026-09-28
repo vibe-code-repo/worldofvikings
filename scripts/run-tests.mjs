@@ -2298,6 +2298,10 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  // Karte M1: Vollstaendigkeitstest der Uebersetzungskataloge (client/src/i18n/katalog
+  // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
+  // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
+  ['shared', 'test/i18n-katalog.ts'],
   // Karte „Editor Upload-Größe": Grundskala in Registry + Hülle (huellenAufloeser) —
   // Feld optional (fehlt = 1), Grenzen 0,01…100, Hülle multipliziert statt abschreibt.
   // Nachbesserung N1 (H1): applyUploadedModelRegistry übernimmt eine geänderte
@@ -2347,7 +2351,8 @@ const KERN = [
   // WOV_HOCHGELADEN_DIR bricht den Start mit klarer Meldung ab.
   // Nachbesserung N3 (B1): kein Wrapper, kein detached mehr — der Dienst ist ein
   // gewöhnliches Kind (node --import tsx direkt). B8: /proc/sys, hängender Symlink
-  // und Datei-statt-Ordner brechen den Start zusätzlich ab. ~10 s.
+  // and invalid upload directories fail at startup. Each temporary directory
+  // is owned by this test; immediate signal/exit handlers clean up. ~10 s.
   ['admin', 'test/upload-grundskala-betriebsdienst.ts'],
   // B1 (Nachangriff N2): der Abbruch des GANZEN Tests (TERM/KILL an seine Gruppe,
   // wie run-tests.mjs es bei Zeitlimit/Speicherwächter tut) darf keinen Dienst mit
@@ -2355,22 +2360,10 @@ const KERN = [
   // dem wrapper-/detached-losen Start. Nachbesserung N4 (N3-1): der Abbruch-Test
   // selbst startete sein Kind detached in einer eigenen Gruppe und hinterließ dabei
   // im Startfenster eine Waise — jetzt ein exit/SIGTERM/SIGINT-Riegel plus ein
-  // EOF-auf-stdin-Wächter im Kind gegen SIGKILL. ~3 s.
+  // stdin EOF guard covers parent SIGKILL. Each TERM/KILL probe owns a separate
+  // temporary directory, cleaned on exit/TERM/INT. SIGKILL of this test can
+  // leave its own directory behind; no old-directory cleanup. ~4 s.
   ['admin', 'test/upload-grundskala-betriebsdienst-abbruch.ts'],
-  // N4 (Nachangriff N3, Befund N3-1), Sweep-Nachweis über den ECHTEN Runner-Weg:
-  // startet den Abbruch-Test selbst als Kind (wie run-tests.mjs jeden Test startet)
-  // und bricht ihn zu sieben festen Zeitpunkten ab (Zeitlimit 0,3–3 s, SIGINT 0,4/1,6 s)
-  // — in jedem Fall keine Waise mehr. ~1 min. N6 (Nachangriff N5, Befund B2): Signal-
-  // Riegel gegen TERM/INT für den eigenen Wegwerf-Ordner, plus Aufräumen verwaister
-  // wov-sweep-wegwerf-*-Ordner (älter als 1 h) beim Start.
-  ['admin', 'test/upload-grundskala-betriebsdienst-abbruch-sweep.ts'],
-  // N6 (Nachangriff N5, Befund B1, BLOCKER): WOV_WEGWERF_WURZEL wurde ungeprüft
-  // übernommen — ein gesetzter Wert (z. B. /opt/worldofvikings) ließ den Betriebsdienst-
-  // Test fremde server.yml überschreiben, grün. Fährt die vier Proben des Angreifers
-  // (Opfer außerhalb tmp, Symlink mit korrektem Präfix, nicht-leeres Verzeichnis,
-  // falscher Präfix) gegen den ECHTEN Betriebsdienst-Test: jeder Fall muss ablehnen
-  // (Exit ≠ 0), Opferdateien bleiben byte-gleich.
-  ['admin', 'test/upload-grundskala-wegwerf-wurzel-schutz.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -68,10 +68,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pruefeWegwerfPfad } from './wegwerf-wurzel-pruefung.js';
-
-/** B1 (Nachangriff N5): einziges erlaubtes Präfix für einen von AUSSEN vorgegebenen Wegwerf-Ordner. */
-const WEGWERF_PRAEFIX_SWEEP = 'wov-sweep-wegwerf-';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
@@ -137,50 +133,37 @@ function bauGlb(groesse: number): Buffer {
   return Buffer.concat([kopf, jsonChunk, binChunk]);
 }
 
-/**
- * N5 (Nachangriff N4, Befund A6): Der äußere Sweep-Test tötet diesen
- * Prozess mitunter, BEVOR sein eigenes `finally` (unten, löscht
- * `HAUPT.ordner`) je zum Zug kommt — der EOF-Wächter beendet die Gruppe per
- * SIGKILL, das überspringt jedes `finally`. Damit blieb der mkdtemp'te
- * Ordner als Waise in `os.tmpdir()` liegen (9 Reste über einen halben Tag
- * Bauer-Läufe, vom Angreifer gefunden).
- *
- * Die Lösung folgt der Karte: Das Temp-Verzeichnis kommt vom ÄUSSEREN Test
- * (hier über `WOV_WEGWERF_WURZEL`), der es selbst anlegt UND selbst wieder
- * löscht (der Sweep-Test tut das in seinem eigenen `finally` — sein Code
- * läuft garantiert, weil ER es ist, der das Signal schickt, nicht der, der
- * es bekommt). Nur der ERSTE Aufruf je Prozess verbraucht die Vorgabe (ein
- * einzelner Sweep-Fall startet höchstens einen Betriebsdienst-Testlauf
- * innerhalb des Zeitfensters, in dem der Sweep überhaupt killt); jeder
- * weitere Aufruf im selben Prozess (Abschnitt 12 `ZWEIT`, Abschnitt 14
- * `HAUPT_B8`) verwaltet sich weiter selbst wie bisher — sie laufen erst
- * nach vielen HTTP-Umläufen und liegen damit ohnehin außerhalb des
- * Sweep-Zeitfensters. Läuft dieser Test normal über `run-tests.mjs` (ohne
- * Sweep), ist die Variable nie gesetzt, und nichts ändert sich.
- *
- * ── B1 (Nachangriff N5): der Wert wurde bislang UNGEPRÜFT übernommen ──────
- * `export WOV_WEGWERF_WURZEL=/opt/worldofvikings` in der Umgebung eines
- * `npm test` überschrieb dort `server/data/server.yml` — grün. Jetzt läuft
- * `pruefeWegwerfPfad` (realpath direkt unter `os.tmpdir()`, Präfix
- * `wov-sweep-wegwerf-`, kein Symlink, leer) VOR jedem Zugriff; schlägt sie
- * fehl, wirft dieser Aufruf, BEVOR irgendetwas angelegt oder geschrieben
- * wird — der uncaught throw beendet den Prozess mit Exit ≠ 0 und einer
- * Meldung auf stderr, ganz ohne eigenes try/catch an der Aufrufstelle.
+/** Only resources created by this process are cleaned up; no old-folder sweep.
+ * SIGKILL cannot run handlers and may leave a directory behind.
  */
-let wegwerfWurzelExternVerbraucht = false;
+const ownedDirectories = new Set<string>();
+const ownedChildren = new Set<ChildProcess>();
+function cleanup(): void {
+  for (const child of ownedChildren) {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
+  for (const directory of ownedDirectories) removeDirectory(directory);
+}
+function removeDirectory(directory: string): void {
+  rmSync(directory, { recursive: true, force: true });
+  ownedDirectories.delete(directory);
+}
+let handlersInstalled = false;
+function temporaryDirectory(prefix: string): string {
+  const directory = mkdtempSync(resolve(tmpdir(), prefix));
+  ownedDirectories.add(directory);
+  if (!handlersInstalled) {
+    process.on('exit', cleanup);
+    process.on('SIGTERM', () => process.exit(143));
+    process.on('SIGINT', () => process.exit(130));
+    handlersInstalled = true;
+  }
+  return directory;
+}
 
 /** Ein Wegwerf-WOV_WURZEL samt eigenem, UMGELENKTEM Upload-Ordner (H2) für einen Dienst-Lauf. */
-function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: string; tokenDatei: string; token: string; eigen: boolean } {
-  const vorgegeben = !wegwerfWurzelExternVerbraucht ? process.env.WOV_WEGWERF_WURZEL : undefined;
-  if (vorgegeben) {
-    const pruefung = pruefeWegwerfPfad(vorgegeben, [WEGWERF_PRAEFIX_SWEEP], true);
-    if (!pruefung.ok) {
-      throw new Error(`WOV_WEGWERF_WURZEL abgelehnt (${vorgegeben}): ${pruefung.grund}`);
-    }
-    wegwerfWurzelExternVerbraucht = true;
-  }
-  const eigen = !vorgegeben;
-  const ordner = vorgegeben ?? mkdtempSync(resolve(tmpdir(), `wov-${slug}-`));
+function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: string; tokenDatei: string; token: string } {
+  const ordner = temporaryDirectory(`wov-${slug}-`);
   const serverDaten = resolve(ordner, 'server/data');
   mkdirSync(serverDaten, { recursive: true });
   writeFileSync(
@@ -198,7 +181,7 @@ function wegwerfWurzelBauen(slug: string): { ordner: string; hochgeladenDir: str
   // erfüllt.
   mkdirSync(resolve(ordner, 'assets'), { recursive: true });
   const hochgeladenDir = resolve(ordner, 'assets/hochgeladen');
-  return { ordner, hochgeladenDir, tokenDatei, token, eigen };
+  return { ordner, hochgeladenDir, tokenDatei, token };
 }
 
 function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: string }): Promise<{ port: number; kind: ChildProcess }> {
@@ -223,6 +206,8 @@ function starten(opt: { ordner: string; hochgeladenDir: string; tokenDatei: stri
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    ownedChildren.add(kind);
+    kind.once('exit', () => ownedChildren.delete(kind));
     let puffer = '';
     // N4 (Nachangriff N3, Befund N3-5): Vorher verwarf `starten()` nach 30 s
     // nur das Versprechen — der Dienst selbst lief weiter, als Waise, bis
@@ -296,7 +281,7 @@ function beendeDienst(kind: ChildProcess, signal: NodeJS.Signals = 'SIGTERM'): P
  */
 function probeFehlgeschlagenerStart(hochgeladenDirWert: string): Promise<{ code: number | null; ausgabe: string }> {
   return new Promise((fertig) => {
-    const ordner = mkdtempSync(resolve(tmpdir(), 'wov-grundskala-f4-'));
+    const ordner = temporaryDirectory('wov-grundskala-f4-');
     const serverDaten = resolve(ordner, 'server/data');
     mkdirSync(serverDaten, { recursive: true });
     writeFileSync(
@@ -319,18 +304,20 @@ function probeFehlgeschlagenerStart(hochgeladenDirWert: string): Promise<{ code:
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    ownedChildren.add(kind);
+    kind.once('exit', () => ownedChildren.delete(kind));
     let ausgabe = '';
     kind.stdout.on('data', (s: Buffer) => (ausgabe += s.toString()));
     kind.stderr.on('data', (s: Buffer) => (ausgabe += s.toString()));
     const zeitgrenze = setTimeout(() => {
       void beendeDienst(kind, 'SIGKILL').then(() => {
-        rmSync(ordner, { recursive: true, force: true });
+        removeDirectory(ordner);
         fertig({ code: -1, ausgabe: `${ausgabe}\n[Testfehler: Dienst lief trotz ungültigem WOV_HOCHGELADEN_DIR länger als 5 s]` });
       });
     }, 5_000);
     kind.on('exit', (code) => {
       clearTimeout(zeitgrenze);
-      rmSync(ordner, { recursive: true, force: true });
+      removeDirectory(ordner);
       fertig({ code, ausgabe });
     });
   });
@@ -577,9 +564,7 @@ try {
   }
 
   await beendeDienst(kind, 'SIGTERM');
-  // N5/A6: nur löschen, wenn dieser Prozess den Ordner selbst angelegt hat —
-  // ein vom Sweep-Test vorgegebener Ordner gehört dessen eigenem `finally`.
-  if (HAUPT.eigen) rmSync(HAUPT.ordner, { recursive: true, force: true });
+  removeDirectory(HAUPT.ordner);
 }
 
 console.log('\n12. H2 — SIGKILL mitten im Test darf im Checkout NICHTS hinterlassen (Angriff Probe C4)\n');
@@ -614,7 +599,7 @@ console.log('\n12. H2 — SIGKILL mitten im Test darf im Checkout NICHTS hinterl
     echteRegistryVorher !== null || !existsSync(ECHTE_REGISTRY_DATEI),
     `existiert jetzt: ${existsSync(ECHTE_REGISTRY_DATEI)}, existierte vorher: ${echteRegistryVorher !== null}`
   );
-  if (ZWEIT.eigen) rmSync(ZWEIT.ordner, { recursive: true, force: true });
+  removeDirectory(ZWEIT.ordner);
 }
 
 console.log('\n13. F4 — WOV_HOCHGELADEN_DIR leer oder relativ bricht den Start mit klarer Meldung ab\n');
@@ -638,7 +623,7 @@ console.log('\n13. F4 — WOV_HOCHGELADEN_DIR leer oder relativ bricht den Start
 
 console.log('\n14. B8 — WOV_HOCHGELADEN_DIR wird auch inhaltlich geprüft (/proc, hängender Symlink, Datei statt Ordner)\n');
 {
-  const bereich = mkdtempSync(resolve(tmpdir(), 'wov-grundskala-b8-'));
+  const bereich = temporaryDirectory('wov-grundskala-b8-');
 
   const proc = await probeFehlgeschlagenerStart('/proc/self');
   check('/proc/self: Dienst wird NICHT bereit (Exit ≠ 0)', proc.code !== 0, `Exit=${proc.code}`);
@@ -674,7 +659,7 @@ console.log('\n14. B8 — WOV_HOCHGELADEN_DIR wird auch inhaltlich geprüft (/pr
   const { port: port3, kind: kind3 } = await starten({ ...HAUPT_B8, hochgeladenDir: guterPfad });
   check('guter, noch nicht vorhandener Pfad: Dienst wird bereit', port3 > 0, `port=${port3}`);
   await beendeDienst(kind3, 'SIGTERM');
-  if (HAUPT_B8.eigen) rmSync(HAUPT_B8.ordner, { recursive: true, force: true });
+  removeDirectory(HAUPT_B8.ordner);
   check('guter Pfad wurde beim Start tatsächlich angelegt', existsSync(guterPfad));
 
   // N4 (Nachangriff N3, Befund N3-4): ein Tippfehler (ZWEI fehlende Ebenen)
@@ -690,7 +675,7 @@ console.log('\n14. B8 — WOV_HOCHGELADEN_DIR wird auch inhaltlich geprüft (/pr
   );
   check('Tippfehler: kein Baum wurde still angelegt', !existsSync(tippfehlerEltern));
 
-  rmSync(bereich, { recursive: true, force: true });
+  removeDirectory(bereich);
 }
 
 console.log(fehler === 0 ? '\nOK — Grundskala im Betriebsdienst korrekt, Checkout unberührt (H2).\n' : `\n${fehler} FEHLER\n`);

@@ -1,254 +1,108 @@
 /**
- * B1 (Nachangriff „Editor Upload-Größe N2"): Abbruch des ganzen Tests
- * (Zeitlimit oder Strg-C, wie `scripts/run-tests.mjs` es per `gruppeSignal`
- * tut) darf keinen Dienst mit PPID 1 und offenem Port hinterlassen.
+ * Abort the real service test's process group (TERM and KILL), then check
+ * both process survival and the service port. Each probe owns a fresh mkdtemp
+ * directory; its child creates its own temporary directories below it.
+ * Signal/exit handlers are installed immediately after mkdtemp, before spawn.
+ * No caller-supplied directory is removed and no previous run is cleaned up.
  *
- * Auf `bd8fa6c` (N2-Stand) startete `upload-grundskala-betriebsdienst.ts`
- * den Dienst mit `detached: true` in einer EIGENEN Prozessgruppe — ein
- * Signal an die Gruppe des TESTPROZESSES (genau das, was `run-tests.mjs`
- * bei Zeitlimit/Speicherwächter schickt) erreichte den Dienst deshalb NICHT
- * mehr. Seit der N3-Nachbesserung startet `starten()` ohne `.bin/tsx`-
- * Wrapper und ohne `detached` (`process.execPath --import tsx src/main.ts`
- * direkt) — der Dienst ist ein gewöhnliches Kind OHNE eigene Gruppe und
- * stirbt automatisch mit, wenn die Gruppe seines Elternprozesses (hier:
- * der innere Testprozess) ein Signal bekommt.
- *
- * Dieser Test bildet GENAU das nach: Er startet den vollständigen Test
- * `upload-grundskala-betriebsdienst.ts` als KIND in einer EIGENEN,
- * losgelösten Gruppe (das spielt die Rolle, die `run-tests.mjs` für JEDEN
- * Test spielt), wartet, bis dessen Dienst bereit ist, schickt dann ein
- * Signal an die GANZE Gruppe dieses Kindes (TERM bzw. KILL, wie der Runner
- * es tut) und prüft danach zweierlei: keine `src/main.ts`-Prozess mit
- * PPID 1 mehr, und der gemeldete Port wieder frei (bindbar).
- *
- * N4 (Nachangriff N3, Befund N3-1): DIESER Test — nicht mehr der innere
- * Betriebsdienst-Test — spielte selbst wieder B1: Er startet sein Kind mit
- * `detached: true` in einer EIGENEN Gruppe; bricht `run-tests.mjs` DIESEN
- * äußeren Test im Startfenster ab (Zeitlimit, Speicherwächter, Strg-C),
- * trifft `gruppeSignal` nur die Gruppe DIESES Prozesses — die losgelöste
- * innere Gruppe (samt Betriebsdienst) bekommt nichts ab. Zwei Riegel dagegen:
- *   1. `process.on('exit'|'SIGTERM'|'SIGINT', …)` beendet die zuletzt
- *      gestartete innere Gruppe explizit — deckt SIGTERM/SIGINT UND die
- *      normale Beendigung.
- *   2. Gegen SIGKILL (kein Handler möglich) hilft nur, dass die innere Gruppe
- *      sich SELBST beendet: Das Kind bekommt eine ECHTE Pipe auf stdin
- *      (`WOV_STDIN_WAECHTER=1`) statt `ignore`. Stirbt dieser Prozess — auch
- *      per SIGKILL —, schließt der Kernel automatisch das Ende der Pipe, die
- *      dieser Prozess hält; das Kind sieht EOF auf stdin und beendet seine
- *      eigene Gruppe selbst (s. Kopfkommentar von `upload-grundskala-
- *      betriebsdienst.ts`).
- * Der Sweep-Nachweis (Zeitlimit/SIGINT gegen DIESEN Prozess, über den echten
- * Runner-Weg) steht in `upload-grundskala-betriebsdienst-abbruch-sweep.ts`.
- *
- * Lauf:  npx tsx admin/test/upload-grundskala-betriebsdienst-abbruch.ts
+ * The stdin EOF guard in the inner test ends its detached group if this test
+ * dies. SIGKILL of THIS test cannot run cleanup: its directory may remain.
+ * This is an explicit limit, not a reason to delete old directories next time.
+ * Manual runner-abort sweep: upload-grundskala-betriebsdienst-abbruch-sweep.ts.
+ * Run: npx tsx admin/test/upload-grundskala-betriebsdienst-abbruch.ts
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
-import { readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pruefeWegwerfPfad } from './wegwerf-wurzel-pruefung.js';
 
-const HIER = dirname(fileURLToPath(import.meta.url));
-const ADMIN = resolve(HIER, '..');
-
-/** B1 (Nachangriff N5): beide Präfixe, die an dieser Stelle legitim vorkommen können. */
-const WEGWERF_PRAEFIXE = ['wov-sweep-wegwerf-', 'wov-grundskala-betriebsdienst-'];
-
-/**
- * B1 (Nachangriff N5): denselben Ordner nur löschen, wenn er die Prüfung
- * besteht — zweite, unabhängige Bremse (Verteidigung in der Tiefe): Der
- * Wert kommt hier nicht aus der Umgebungsvariable selbst, sondern aus der
- * geparsten „# Betriebsdienst auf …"-Meldung des inneren Tests; sollte
- * dessen eigene Prüfung (`wegwerfWurzelBauen`) je umgangen werden, verhindert
- * diese zweite Prüfung trotzdem ein `rmSync` auf einen falschen Pfad. Ohne
- * `pruefeLeer` — der Ordner ist zu diesem Zeitpunkt vom Testlauf befüllt,
- * das ist der Normalfall, kein Angriffszeichen.
- */
-function raeumeWurzelSicherAuf(wurzel: string): boolean {
-  const pruefung = pruefeWegwerfPfad(wurzel, WEGWERF_PRAEFIXE, false);
-  if (!pruefung.ok) {
-    console.error(`FAIL Aufräumen abgelehnt für '${wurzel}': ${pruefung.grund}`);
-    return false;
-  }
-  try {
-    rmSync(wurzel, { recursive: true, force: true });
-  } catch {
-    /* schon weg */
-  }
-  return true;
-}
-
-/** N4/N3-1: die zuletzt gestartete innere Gruppe, für die Riegel unten. */
-let aktuellesKind: ChildProcess | null = null;
-/**
- * B2 (Nachangriff N5): der zuletzt vom inneren Test gemeldete Wegwerf-
- * Ordner — wird auf `null` gesetzt, sobald der normale Ablauf (`probeAbbruch`)
- * ihn selbst schon aufgeräumt hat, damit der Signal-Riegel unten nicht doppelt
- * (und nicht auf einen längst wiederverwendeten Namen) zugreift.
- */
-let aktuelleWurzel: string | null = null;
-function beendeAktuelleGruppe(): void {
-  if (aktuellesKind?.pid !== undefined) {
-    try {
-      process.kill(-aktuellesKind.pid, 'SIGKILL');
-    } catch {
-      /* Gruppe schon weg */
-    }
-  }
-  // B2: Wird DIESER Testprozess selbst abgebrochen (Zeitlimit/Strg-C im
-  // echten Runner-Weg), kam das eigene Aufräumen in `probeAbbruch` (unten)
-  // nie zum Zug — der vom inneren Test angelegte `wov-grundskala-
-  // betriebsdienst-*`-Ordner bliebe sonst als Waise liegen.
-  if (aktuelleWurzel) {
-    raeumeWurzelSicherAuf(aktuelleWurzel);
-    aktuelleWurzel = null;
-  }
-}
-process.on('exit', beendeAktuelleGruppe);
-for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(signal, () => {
-    beendeAktuelleGruppe();
-    // Node liefert bei einem installierten Handler NICHT mehr das normale
-    // Signal-Verhalten (Prozessende) von selbst — das muss dieser Handler
-    // jetzt explizit nachholen, sonst liefe der Testprozess einfach weiter.
-    process.exit(128 + (signal === 'SIGTERM' ? 15 : 2));
-  });
-}
-
-let fehler = 0;
+const ADMIN = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const delay = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
-  if (!ok) {
-    fehler++;
-    console.error(`FAIL ${name} ${detail}`);
-  } else {
-    console.log(`ok   ${name}`);
-  }
+  console.log(`${ok ? 'ok' : 'FAIL'} ${name} ${detail}`);
+  if (!ok) failures++;
 }
-
-function verzoegerung(ms: number): Promise<void> {
-  return new Promise((fertig) => setTimeout(fertig, ms));
-}
-
-/** Ob irgendein Prozess `WOV_WURZEL=<wurzel>` in seiner Umgebung trägt (der zuverlässigste Weg, GENAU diesen Dienst wiederzufinden). */
-function findeProzesseMitWurzel(wurzel: string): number[] {
-  const treffer: number[] = [];
-  const marke = `WOV_WURZEL=${wurzel}`;
-  for (const eintrag of readdirSync('/proc')) {
-    if (!/^\d+$/.test(eintrag)) continue;
-    const pid = Number(eintrag);
+function processesWithRoot(root: string): number[] {
+  return readdirSync('/proc').filter((entry) => /^\d+$/.test(entry)).flatMap((entry) => {
     try {
-      const environ = readFileSync(`/proc/${eintrag}/environ`, 'utf8');
-      if (environ.split('\0').includes(marke)) treffer.push(pid);
-    } catch {
-      // Prozess schon weg oder /proc/<pid>/environ nicht lesbar — kein Treffer.
-    }
-  }
-  return treffer;
+      return readFileSync(`/proc/${entry}/environ`, 'utf8').split('\0').includes(`WOV_WURZEL=${root}`) ? [Number(entry)] : [];
+    } catch { return []; }
+  });
 }
-
-/** Ob sich `port` auf 127.0.0.1 sofort binden lässt (also frei ist). */
-function portIstFrei(port: number): Promise<boolean> {
-  return new Promise((fertig) => {
+function portIsFree(port: number): Promise<boolean> {
+  return new Promise((done) => {
     const server = createServer();
-    server.once('error', () => fertig(false));
-    server.listen(port, '127.0.0.1', () => {
-      server.close(() => fertig(true));
-    });
+    server.once('error', () => done(false));
+    server.listen(port, '127.0.0.1', () => server.close(() => done(true)));
   });
 }
-
-/**
- * Den vollständigen Betriebsdienst-Test als Kind in einer EIGENEN,
- * losgelösten Gruppe starten (spielt die Rolle von `run-tests.mjs` je
- * Test), dann `signal` an die GANZE Gruppe schicken, sobald der innere
- * Dienst bereit ist. Danach: kein Prozess mit der bekannten `WOV_WURZEL`
- * mehr, und der gemeldete Port ist wieder frei.
- */
-async function probeAbbruch(signal: NodeJS.Signals): Promise<void> {
-  const kind = spawn(process.execPath, ['--import', 'tsx', 'test/upload-grundskala-betriebsdienst.ts'], {
-    cwd: ADMIN,
-    // Löst eine EIGENE Gruppe aus — genau die Rolle, die `run-tests.mjs`
-    // für jeden gestarteten Test spielt (`spawn(..., { detached: true })`,
-    // `scripts/run-tests.mjs` Zeile ~2455).
-    detached: true,
-    // N4/N3-1: stdin ist jetzt eine ECHTE Pipe (nicht `ignore`) und
-    // `WOV_STDIN_WAECHTER=1` schaltet den EOF-Wächter im Kind ein — der
-    // Riegel gegen SIGKILL DIESES Prozesses, s. Kopfkommentar.
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, WOV_STDIN_WAECHTER: '1' },
-  });
-  aktuellesKind = kind;
-
-  let puffer = '';
-  let port: number | null = null;
-  let wurzel: string | null = null;
-  const bereit = new Promise<void>((fertig, scheitern) => {
-    const zeitgrenze = setTimeout(() => scheitern(new Error(`Innerer Test wurde nie bereit:\n${puffer}`)), 30_000);
-    const pruefeZeile = (): void => {
-      const t = /# Betriebsdienst auf 127\.0\.0\.1:(\d+), WOV_WURZEL (\S+),/.exec(puffer);
-      if (t) {
-        clearTimeout(zeitgrenze);
-        port = Number(t[1]);
-        wurzel = t[2]!;
-        // B2 (Nachangriff N5): ab hier kann der Signal-Riegel (oben) diesen
-        // Ordner aufräumen, falls DIESER Prozess selbst abgebrochen wird.
-        aktuelleWurzel = wurzel;
-        fertig();
-      }
-    };
-    kind.stdout!.on('data', (s: Buffer) => {
-      puffer += s.toString();
-      pruefeZeile();
+async function probe(signal: 'SIGTERM' | 'SIGKILL'): Promise<void> {
+  let child: ChildProcess | undefined;
+  const directory = mkdtempSync(resolve(tmpdir(), 'wov-upload-abort-'));
+  const cleanup = (): void => {
+    if (child?.pid !== undefined) {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already gone. */ }
+    }
+    rmSync(directory, { recursive: true, force: true });
+  };
+  const term = (): never => { process.exit(143); };
+  const interrupt = (): never => { process.exit(130); };
+  process.on('exit', cleanup);
+  process.on('SIGTERM', term);
+  process.on('SIGINT', interrupt);
+  try {
+    console.log(`# probe ${signal} directory ${directory}`);
+    child = spawn(process.execPath, ['--import', 'tsx', 'test/upload-grundskala-betriebsdienst.ts'], {
+      cwd: ADMIN, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, TMPDIR: directory, WOV_STDIN_WAECHTER: '1' },
     });
-    kind.stderr!.on('data', (s: Buffer) => {
-      puffer += s.toString();
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) => {
+      child!.once('exit', (code, exitSignal) => done({ code, signal: exitSignal }));
     });
-    kind.on('exit', (code) => {
-      clearTimeout(zeitgrenze);
-      scheitern(new Error(`Innerer Test endete vorzeitig mit ${code}, bevor der Dienst bereit war:\n${puffer}`));
+    let output = '';
+    const ready = await new Promise<{ port: number; root: string }>((done, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Service test never ready: ${output}`)), 30_000);
+      child!.once('error', (error) => { clearTimeout(timer); reject(error); });
+      child!.once('exit', (code, exitSignal) => {
+        clearTimeout(timer);
+        reject(new Error(`Premature exit ${code}/${exitSignal}: ${output}`));
+      });
+      child!.stdout!.on('data', (data: Buffer) => {
+        output += data.toString();
+        const match = /# Betriebsdienst auf 127\.0\.0\.1:(\d+), WOV_WURZEL (.*?), Uploads nach /.exec(output);
+        if (match) { clearTimeout(timer); done({ port: Number(match[1]), root: match[2]! }); }
+      });
+      child!.stderr!.on('data', (data: Buffer) => { output += data.toString(); });
     });
-  });
-
-  await bereit;
-  check(`${signal}: Port gemeldet`, port !== null && port > 0, `port=${port}`);
-  check(`${signal}: WOV_WURZEL gemeldet`, wurzel !== null, `wurzel=${wurzel}`);
-
-  // Das eigentliche Signal, wie `run-tests.mjs` es bei Zeitlimit/
-  // Speicherwächter gegen die GANZE Gruppe des Tests schickt.
-  process.kill(-kind.pid!, signal);
-
-  // Der Kill braucht keine Millisekunden zu warten (kein SIGTERM-Handler im
-  // Dienst, der eine Gnadenfrist bräuchte) — eine knappe Sekunde reicht,
-  // deutlich unter jeder sinnvollen Testfrist.
-  await verzoegerung(1_000);
-
-  if (wurzel) {
-    const ueberlebende = findeProzesseMitWurzel(wurzel);
-    check(`${signal}: kein Prozess mit WOV_WURZEL=${wurzel} übrig`, ueberlebende.length === 0, `übrig: ${ueberlebende.join(',')}`);
-    // Aufräumen: Der innere Test wurde mitten im Lauf getötet, sein eigenes
-    // `finally` (Löschen von HAUPT.ordner) kam nie zum Zug. B1 (Nachangriff
-    // N5): erst die zweite, unabhängige Prüfung, DANN löschen (Kopfkommentar
-    // `raeumeWurzelSicherAuf`).
-    check(`${signal}: Wegwerf-Ordner besteht die Löschprüfung`, raeumeWurzelSicherAuf(wurzel));
-    aktuelleWurzel = null;
-  }
-  if (port !== null) {
-    const frei = await portIstFrei(port);
-    check(`${signal}: Port ${port} ist wieder frei (bindbar)`, frei);
+    check(`${signal}: service port reported`, ready.port > 0);
+    check(`${signal}: inner root belongs to this probe`, ready.root.startsWith(`${directory}/`), ready.root);
+    process.kill(-child.pid!, signal);
+    const result = await Promise.race([exited, delay(5_000).then(() => { throw new Error('Child did not exit'); })]);
+    check(`${signal}: expected child exit`, signal === 'SIGTERM'
+      ? result.code === 143 || result.signal === 'SIGTERM'
+      : result.signal === 'SIGKILL', JSON.stringify(result));
+    await delay(1_000);
+    if (signal === 'SIGTERM') check('SIGTERM: inner test removed its own directory', !existsSync(ready.root));
+    const survivors = processesWithRoot(ready.root);
+    check(`${signal}: no surviving service`, survivors.length === 0, survivors.join(','));
+    check(`${signal}: service port released`, await portIsFree(ready.port));
+  } finally {
+    cleanup();
+    process.removeListener('exit', cleanup);
+    process.removeListener('SIGTERM', term);
+    process.removeListener('SIGINT', interrupt);
+    check(`${signal}: own directory removed`, !existsSync(directory));
   }
 }
-
 try {
-  console.log('\n1. SIGTERM an die Gruppe des Tests — der Dienst stirbt mit\n');
-  await probeAbbruch('SIGTERM');
-
-  console.log('\n2. SIGKILL an die Gruppe des Tests — der Dienst stirbt mit\n');
-  await probeAbbruch('SIGKILL');
-} catch (e) {
-  console.error(`[Abbruch-Probe] ${(e as Error).message}`);
-  fehler++;
+  await probe('SIGTERM');
+  await probe('SIGKILL');
+} catch (error) {
+  console.error(error);
+  failures++;
 }
-
-console.log(fehler === 0 ? '\nOK — kein verwaister Dienst nach Abbruch des Tests.\n' : `\n${fehler} FEHLER\n`);
-process.exit(fehler > 0 ? 1 : 0);
+console.log(failures === 0 ? 'OK — no orphan after either abort probe.' : `${failures} FAILURES`);
+process.exit(failures === 0 ? 0 : 1);

@@ -2298,6 +2298,12 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  // PR #119 N1 (Befund B4/M9): uebergebeAnKlon() gibt einen aufgegebenen
+  // Klon aus vegetationsAufgegebeneKlone frei, BEVOR es ihn per nimmAuf()
+  // anmeldet — sonst blockiert die Sperre die eigene Freigabe, und weder
+  // Klon noch (schon entfernte) Quelle wirft bis zum naechsten Neupacken.
+  // NullEngine, <1 s.
+  ['client', 'test/schatten-werfer-uebergabe-reihenfolge.ts'],
   // Karte M1: Vollstaendigkeitstest der Uebersetzungskataloge (client/src/i18n/katalog
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.

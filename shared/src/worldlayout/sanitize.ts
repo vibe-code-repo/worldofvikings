@@ -212,6 +212,8 @@ function sanitizeRegion(input: unknown, bekannteIds: Set<string>): RegionDef | n
 
 /** Das geprüfte Dokument samt dem, was der Sanitizer dabei zusammengelegt hat. */
 export interface SanitizeBericht {
+  /** A correction was rejected; callers must not persist the sanitized remainder. */
+  heightProblem?: HeightProblem;
   layout: WorldLayout;
   /**
    * Eine Zeile je exaktem Duplikat, das er zu einem Eintrag zusammengefasst hat
@@ -443,20 +445,9 @@ const HOEHENKORREKTUR_ZEILEN_JE_ZONE_MAX = 64;
 export const HOEHENKORREKTUR_DELTA_MAX_CM = 10_000;
 /** Zonen-Koordinate: klein genug für `LAYOUT_MAX_EXTENT` (40 km / 64 m ≈ 625), reichlich Marge. */
 const HOEHENZONE_MAX = 2048;
-/**
- * Sicherheitsnetz beim LESEN, unabhängig vom 422-Schreibweg-Deckel
- * (`HOEHENKORREKTUR_ZONEN_GRENZE`, `layoutDatei.ts` — dieselbe Zahl, aber
- * `sanitize.ts` darf `layoutDatei.ts` nicht importieren, s. dessen
- * Kopfkommentar: `node:fs` geht sonst in den Client-Bundle). Analog zu
- * `roh.slice(0, 2000)` bei Platzierungen: Der Sanitizer kappt beim Lesen
- * standardmäßig (Parameter `deckel`, s. `sanitizeHeightDeltas`), der
- * Schreibweg weist ein Überschreiten zusätzlich mit 422 ab, statt still zu
- * kappen (Angriffsbefund B3) — AUSSER ein vertrauenswürdiger interner
- * Schreiber (PATCH auf eine andere Sammlung, `weltOps.ts`) reicht
- * `heightDeltas` unverändert durch (Angriffsbefund N1, „nicht aussperren“):
- * dann gilt `deckel=false`, und der Rasterinhalt bleibt vollständig erhalten.
- */
-const MAX_HOEHENZONEN_LESEN = 4096;
+/** Content limits shared by writers, strict readers and the live watcher. */
+export const HEIGHT_ZONE_LIMIT = 4096;
+export const HEIGHT_POINT_LIMIT = 100_000;
 /**
  * Wie viele ROHE Zonen `hoehenkorrekturFehler` höchstens einzeln prüft — viel
  * mehr als `MAX_HOEHENZONEN_LESEN`, weil diese Funktion Fehler auch dann noch
@@ -533,22 +524,20 @@ function zeileTeilen(v: unknown): [string, string, string] | null {
  * (Zone nach `zx`,`zz`, Zeile nach `ry`, Punkte nach `rx`), damit kleine
  * Änderungen kleine Diffs ergeben (git-freundlich, wie bei Platzierungen).
  *
- * `deckel` (Vorgabe `true`) kappt die Zonenzahl beim Lesen auf
- * `MAX_HOEHENZONEN_LESEN` — der normale Weg für jeden Leser. `deckel=false`
- * lässt jede STRUKTURELL gültige Zone durch, unabhängig von der Zahl:
- * NUR für einen Schreiber, der `heightDeltas` nachweislich unverändert
- * durchreicht (PATCH auf eine andere Sammlung, `weltOps.ts`,
- * Angriffsbefund N1 „nicht aussperren“) — ein solcher Schreibvorgang darf
- * eine bereits vorhandene, größere Korrektur nicht stillschweigend kürzen.
- * Die Obergrenze für die GESAMTE Punktzahl (`HOEHENKORREKTUR_PUNKTE_GRENZE`,
- * `layoutDatei.ts`) prüft ohnehin nicht diese Funktion, sondern der
- * Schreibweg VOR dem Sanitizer.
+ * The low-level parser remains lenient for individual entries. With `deckel`,
+ * a size/budget rejection returns no correction, NEVER a truncated prefix.
+ * Document consumers use sanitizeWorldLayoutMitBericht for the diagnostic.
  */
 export function sanitizeHeightDeltas(input: unknown, deckel = true): ZoneHeightDelta[] {
   if (!Array.isArray(input)) return [];
   const gesehen = new Set<string>();
   const zonen: ZoneHeightDelta[] = [];
-  for (const roh of deckel ? input.slice(0, MAX_HOEHENZONEN_LESEN) : input) {
+  // Never expose a prefix of a correction. The report carries the rejection.
+  if (deckel) {
+    const problem = heightProblem(input);
+    if (problem && problem.reason !== 'invalid') return [];
+  }
+  for (const roh of input) {
     if (typeof roh !== 'object' || roh === null) continue;
     const o = roh as Record<string, unknown>;
     const zx = ganzzahlInBereich(o.zx, -HOEHENZONE_MAX, HOEHENZONE_MAX);
@@ -692,44 +681,60 @@ export function hoehenkorrekturFehlerText(liste: readonly HoehenkorrekturFehler[
   return teile.join(', ') + (liste.length > max ? ` … (+${liste.length - max})` : '');
 }
 
-/**
- * Gesamtzahl der rohen Zonen bzw. Punkte (Summe über alle `r`-Zeilen), ohne
- * den Sanitizer zu bemühen — für die 422-Obergrenzen in `layoutDatei.ts`
- * (und, wenn dort `heightDeltasGrenzeIgnorieren` NICHT gesetzt ist, auch
- * für PATCH/die Live-Wache), VOR jeder teureren Prüfung. `roh.length` ist
- * O(1); bei absichtlich sehr vielen (Müll-)Einträgen wird gar nicht erst
- * gezählt, sondern sofort "eindeutig zu viele" gemeldet (Schutz gegen eine
- * Zählschleife über Millionen Einträge).
- */
+/** Count only non-zero, syntactically valid points; empty zones have no effect. */
 export function hoehenkorrekturZaehlen(roh: unknown): { zonen: number; punkte: number } {
   if (!Array.isArray(roh)) return { zonen: 0, punkte: 0 };
-  const zonen = roh.length;
-  if (zonen > MAX_HOEHENZONEN_LESEN * 4) return { zonen, punkte: Number.POSITIVE_INFINITY };
+  let zonen = 0;
   let punkte = 0;
-  for (const z of roh) {
-    if (typeof z !== 'object' || z === null || Array.isArray(z)) continue;
-    const r = (z as Record<string, unknown>).r;
-    if (!Array.isArray(r)) continue;
-    for (const zeile of r) {
-      const teile = zeileTeilen(zeile);
-      if (teile === null) continue;
-      const i = teile[1];
-      if (i.length === 0) continue;
-      // Nur billig zaehlen (Kommas + 1), nicht voll parsen — reicht fuer die Obergrenze.
-      punkte += i.length > HOEHENKORREKTUR_ZEICHEN_MAX ? Number.POSITIVE_INFINITY : i.split(',').length;
+  for (const z of roh.slice(0, MAX_HOEHENZONEN_PRUEFEN)) {
+    if (typeof z !== 'object' || z === null || !Array.isArray(z.r)) continue;
+    let count = 0;
+    for (const row of z.r.slice(0, HOEHENKORREKTUR_ZEILEN_JE_ZONE_MAX)) {
+      const parts = zeileTeilen(row);
+      if (!parts) continue;
+      const indices = parseZahlenListe(parts[1]);
+      const deltas = parseZahlenListe(parts[2]);
+      if (!indices || !deltas || indices.length !== deltas.length) continue;
+      for (let i = 0; i < indices.length; i++) {
+        const delta = deltas[i]!;
+        if (indices[i]! >= 0 && indices[i]! <= HOEHENKORREKTUR_ZEILE_MAX &&
+            delta !== 0 && Math.abs(delta) <= HOEHENKORREKTUR_DELTA_MAX_CM) count++;
+      }
     }
+    if (count > 0) zonen++;
+    punkte += count;
   }
   return { zonen, punkte };
 }
 
-/** Optionen für `sanitizeWorldLayout(MitBericht)` — heute nur die Handkorrektur betroffen. */
+export interface HeightProblem {
+  reason: 'invalid' | 'limit' | 'inspection-limit';
+  zonen: number;
+  punkte: number;
+  zoneLimit: number;
+  pointLimit: number;
+  fehlerhaftHoehe: HoehenkorrekturFehler[];
+  rawZones?: number;
+  inspectionLimit?: number;
+}
+
+/** Shared disk/write/live policy. The inspection budget is NOT a content limit. */
+export function heightProblem(raw: unknown): HeightProblem | null {
+  const counts = hoehenkorrekturZaehlen(raw);
+  const errors = hoehenkorrekturFehler(raw);
+  const budget = Array.isArray(raw) && raw.length > MAX_HOEHENZONEN_PRUEFEN;
+  const reason = budget ? 'inspection-limit' : errors.length ? 'invalid' :
+    counts.zonen > HEIGHT_ZONE_LIMIT || counts.punkte > HEIGHT_POINT_LIMIT ? 'limit' : null;
+  return reason ? {
+    reason, ...counts, zoneLimit: HEIGHT_ZONE_LIMIT, pointLimit: HEIGHT_POINT_LIMIT,
+    fehlerhaftHoehe: errors,
+    ...(budget ? { rawZones: raw.length, inspectionLimit: MAX_HOEHENZONEN_PRUEFEN } : {}),
+  } : null;
+}
+
+/** Legacy option retained for source compatibility; it no longer bypasses validation. */
 export interface SanitizeOptionen {
-  /**
-   * `heightDeltas` ohne Zonen-Deckel lesen (`sanitizeHeightDeltas(…, false)`) — NUR für einen
-   * Schreiber, der das Feld nachweislich unverändert durchreicht (PATCH auf eine andere
-   * Sammlung, `weltOps.ts`, Angriffsbefund N1 „nicht aussperren“). Ohne diese Option gilt der
-   * normale Deckel (`MAX_HOEHENZONEN_LESEN`) wie für jeden anderen Leser.
-   */
+  /** @deprecated PATCH preserves the raw JSON value outside the sanitizer. */
   heightDeltasOhneDeckel?: boolean;
 }
 
@@ -737,7 +742,7 @@ export function sanitizeWorldLayout(input: unknown, optionen?: SanitizeOptionen)
   return sanitizeWorldLayoutMitBericht(input, optionen)?.layout ?? null;
 }
 
-export function sanitizeWorldLayoutMitBericht(input: unknown, optionen: SanitizeOptionen = {}): SanitizeBericht | null {
+export function sanitizeWorldLayoutMitBericht(input: unknown, _optionen: SanitizeOptionen = {}): SanitizeBericht | null {
   if (typeof input !== 'object' || input === null) return null;
   const d = input as Record<string, unknown>;
   if (d.version !== WORLD_LAYOUT_VERSION) return null;
@@ -875,7 +880,8 @@ export function sanitizeWorldLayoutMitBericht(input: unknown, optionen: Sanitize
     if (sx !== null && sz !== null) defaultSpawn = [sx, sz];
   }
 
-  const heightDeltas = sanitizeHeightDeltas(d.heightDeltas, !optionen.heightDeltasOhneDeckel);
+  const heightIssue = heightProblem(d.heightDeltas);
+  const heightDeltas = heightIssue ? [] : sanitizeHeightDeltas(d.heightDeltas, false);
 
   const layout: WorldLayout = {
     version: WORLD_LAYOUT_VERSION,
@@ -891,5 +897,5 @@ export function sanitizeWorldLayoutMitBericht(input: unknown, optionen: Sanitize
     ...(heightDeltas.length > 0 ? { heightDeltas } : {}),
   };
   merkeZusammengefasst(layout, zusammengefasst);
-  return { layout, zusammengefasst };
+  return { layout, zusammengefasst, ...(heightIssue ? { heightProblem: heightIssue } : {}) };
 }

@@ -38,14 +38,18 @@
  * bleiben, nicht in einer Klick-Behandlung stecken.
  */
 import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
-import {
-  hoehenkorrekturFehlerText,
-  platzierungenFehler,
-  platzierungenFehlerText,
-  type HoehenkorrekturFehler,
-  type PlatzierungsFehler,
-} from '@wov/shared/src/worldlayout/sanitize.js';
+import { platzierungenFehler, platzierungenFehlerText, type PlatzierungsFehler } from '@wov/shared/src/worldlayout/sanitize.js';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
+
+function sichereSprache(locale?: string): string {
+  if (locale) return locale;
+  try {
+    return localStorage.getItem('wov-language') ?? 'de';
+  } catch {
+    return 'de';
+  }
+}
 
 /**
  * Der Entwurfsschlüssel. Er hiess schon immer so und heisst weiter so:
@@ -245,7 +249,7 @@ export function leeresLayout(): WorldLayout {
  * sowieso braucht, und stammt im Betriebsdienst aus derselben Konstante
  * `INSTANZ` — dieselbe Wahrheit, ein Rundlauf weniger.
  */
-export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<ServerStand> {
+export async function holeWeltdokument(fetchFn: typeof fetch = fetch, locale?: string): Promise<ServerStand> {
   let antwort: Response;
   try {
     antwort = await fetchFn('/api/worldlayout', {
@@ -274,6 +278,11 @@ export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<S
     datei?: string;
     hash?: unknown;
     layout?: unknown;
+    heightProblem?: unknown;
+    fehlerhaftHoehe?: unknown;
+    anzahlFehlerhaftHoehe?: unknown;
+    fehlerhaft?: unknown;
+    anzahlFehlerhaft?: unknown;
   };
   try {
     daten = JSON.parse(roh) as typeof daten;
@@ -286,6 +295,10 @@ export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<S
     };
   }
 
+  if (antwort.status === 422) {
+    const hoehenText = heightResponseMessage(daten as Record<string, unknown>, sichereSprache(locale));
+    return { erreichbar: false, grund: hoehenText ?? daten.message ?? `HTTP ${antwort.status}` };
+  }
   if (!antwort.ok || daten.ok === false) {
     return { erreichbar: false, grund: daten.message ?? `HTTP ${antwort.status}` };
   }
@@ -398,7 +411,8 @@ export type SchreibAntwort =
 export async function schreibeWeltdokument(
   layout: WorldLayout,
   basis: string | null,
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch = fetch,
+  locale?: string
 ): Promise<SchreibAntwort> {
   const kopf: Record<string, string> = { 'Content-Type': 'application/json' };
   const b = hashNormalisieren(basis);
@@ -428,6 +442,7 @@ export async function schreibeWeltdokument(
     fehlerhaft?: unknown;
     anzahlFehlerhaft?: unknown;
     art?: unknown;
+    heightProblem?: unknown;
     fehlerhaftHoehe?: unknown;
     anzahlFehlerhaftHoehe?: unknown;
   } = {};
@@ -451,6 +466,10 @@ export async function schreibeWeltdokument(
   if (antwort.status === 428) {
     return { art: 'basis-fehlt', message: BASIS_VERLANGT };
   }
+  if (antwort.status === 422) {
+    const hoehenText = heightResponseMessage(d as Record<string, unknown>, sichereSprache(locale));
+    if (hoehenText) return { art: 'fehler', message: hoehenText };
+  }
   if (antwort.status === 422 && d.fehler === 'zu-viele-platzierungen') {
     const anzahl = Number(d.anzahl);
     const grenze = Number(d.grenze);
@@ -462,18 +481,6 @@ export async function schreibeWeltdokument(
         message: `Zu viele Platzierungen: ${anzahl} (Grenze ${grenze}) — nicht gespeichert.`,
       };
     }
-  }
-  // N3 (Angriffsbefund N3): heightDeltas-Fehler kommen als EIGENE Liste `fehlerhaftHoehe`
-  // ({zone, feld, wert}) mit `art: 'hoehenkorrektur'` an — vor der Platzierungs-Prüfung
-  // unten, deren Filter (`typeof id === 'string'`) diese Einträge sonst stumm verwirft
-  // (sie haben `zone`, nicht `id`), und die Meldung erschien als „Fehler in Platzierungen“
-  // mit leerer Liste.
-  if (antwort.status === 422 && d.art === 'hoehenkorrektur' && Array.isArray(d.fehlerhaftHoehe) && d.fehlerhaftHoehe.length > 0) {
-    const liste = (d.fehlerhaftHoehe as unknown[]).filter(
-      (e): e is HoehenkorrekturFehler => typeof e === 'object' && e !== null && typeof (e as HoehenkorrekturFehler).zone === 'string' && typeof (e as HoehenkorrekturFehler).feld === 'string'
-    );
-    const alle = Number(d.anzahlFehlerhaftHoehe);
-    return { art: 'fehler', message: `Nicht gespeichert: ${Number.isFinite(alle) ? alle : liste.length} Fehler in der Handkorrektur (heightDeltas) — ${hoehenkorrekturFehlerText(liste)}` };
   }
   // N4: Platzierungen mit Tippfehlern (`yaw: "abc"`, unbekannter Schlüssel, kaputte Koordinate) weist der Dienst mit
   // 422 und der Liste ab; geschrieben ist nichts. Der Editor zeigt die Liste, statt „HTTP 422“ zu sagen.
@@ -510,13 +517,15 @@ export async function schreibeWeltdokument(
         ? ` — ACHTUNG: ${verworfen} Eintrag/Einträge vom Betriebsdienst verworfen` +
           (jeFeld.length > 0 ? ` (${jeFeld.join(', ')})` : '')
         : '';
+    const hoehenText = heightResponseMessage(d as Record<string, unknown>, sichereSprache(locale));
+    const detail = typeof d.detail === 'string' ? d.detail : null;
     return {
       art: 'ok',
-      message: (d.message ?? 'Gespeichert') + hinweis,
+      message: (d.message ?? 'Gespeichert') + (hoehenText ? ` — ${hoehenText}` : '') + hinweis,
       hash: hashNormalisieren(d.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
       angewendet: typeof d.angewendet === 'boolean' ? d.angewendet : null,
       grund: typeof d.grund === 'string' ? d.grund : null,
-      detail: typeof d.detail === 'string' ? d.detail : null,
+      detail: hoehenText ? `${hoehenText}${detail ? ` ${detail}` : ''}` : detail,
       zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
     };
   }

@@ -1,3 +1,4 @@
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 /**
  * Betriebsdienst der Live-Instanz — die Gegenstelle der Einstellungsseite
  * im Editor.
@@ -226,6 +227,25 @@ if (QUITTUNG_AUS && process.env.NODE_ENV !== 'test') {
 }
 // `vorherHash`: der Hash der Datei VOR dem Schreiben. Ist er gleich dem neuen, hat das Speichern nichts geaendert, und die
 // Quittung dieses Hashs ist die alte (N4-F): Die Zaehler kaemen sonst ein zweites Mal.
+function heightErrorAnswer(error: LayoutUngueltig): { code: number; daten: Record<string, unknown> } | null {
+  const problem = error.heightProblem;
+  if (!problem) return null;
+  const kind = problem.reason === 'limit' ?
+    (problem.zonen > problem.zoneLimit ? 'zu-viele-hoehenzonen' : 'zu-viele-hoehenpunkte') : 'ungueltig';
+  const data = {
+    ok: false, art: 'hoehenkorrektur', fehler: kind, grund: 'ungueltig',
+    heightProblem: { ...problem, fehlerhaftHoehe: problem.fehlerhaftHoehe.slice(0, 200) },
+    fehlerhaftHoehe: problem.fehlerhaftHoehe.slice(0, 200),
+    anzahlFehlerhaftHoehe: problem.fehlerhaftHoehe.length,
+    ...fehlerhaftAntwort(error.placementErrors ?? []),
+    ...(problem.reason === 'limit' ? {
+      anzahl: kind === 'zu-viele-hoehenzonen' ? problem.zonen : problem.punkte,
+      grenze: kind === 'zu-viele-hoehenzonen' ? problem.zoneLimit : problem.pointLimit,
+    } : {}),
+  };
+  return { code: 422, daten: { ...data, message: heightResponseMessage(data, process.env.WOV_LANGUAGE) } };
+}
+
 const mitAnwendung = <T extends { code: number; daten: unknown; kopf?: Record<string, string> }>(antwort: T, vorherHash?: string | null): Promise<T> | T =>
   QUITTUNG_AUS ? antwort : anwendungAnhaengen(antwort, {
     quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
@@ -1352,7 +1372,17 @@ async function behandeln(
     // als ETag-Kopf UND im Rumpf — der Editor liest den Rumpf, ein
     // Zwischenspeicher oder curl -i sieht den Kopf. Der Client schickt ihn
     // beim Speichern als If-Match bzw. `basis` zurueck.
-    const { layout, hash } = layoutLesenMitHash(LAYOUT_DATEI);
+    let read: ReturnType<typeof layoutLesenMitHash>;
+    try {
+      read = layoutLesenMitHash(LAYOUT_DATEI);
+    } catch (error) {
+      if (error instanceof LayoutUngueltig) {
+        const answer = heightErrorAnswer(error);
+        if (answer) return answer;
+      }
+      throw error;
+    }
+    const { layout, hash } = read;
     // Verschwindet die Datei zwischen `existsSync` und hier, fehlt die
     // Kennung nur (statt eines 500): Der MCP-Server verweigert das Schreiben
     // dann. / A vanished file only drops the kennung instead of a 500.
@@ -1840,6 +1870,10 @@ async function behandeln(
             message: fehler.message,
           },
         };
+      }
+      if (fehler instanceof LayoutUngueltig) {
+        const answer = heightErrorAnswer(fehler);
+        if (answer) return answer;
       }
       if (fehler instanceof LayoutPlatzierungenUngueltig) {
         console.warn(`[Admin] POST /api/worldlayout -> 422 ungueltig: ${fehler.message}`);

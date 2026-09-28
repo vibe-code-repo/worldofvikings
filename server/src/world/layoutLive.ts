@@ -1,3 +1,4 @@
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 /**
  * Live-Abgleich des Weltdokuments (Editor E2, Karte K5.0): Der laufende
  * Spielserver übernimmt eine geschriebene Weltdatei binnen einer Sekunde,
@@ -41,11 +42,9 @@
  * Weltdokument.
  */
 import { statSync, readFileSync } from 'node:fs';
-import { HOEHENKORREKTUR_PUNKTE_GRENZE, HOEHENKORREKTUR_ZONEN_GRENZE, layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import {
-  hoehenkorrekturFehler,
-  hoehenkorrekturFehlerText,
-  hoehenkorrekturZaehlen,
+  type HeightProblem,
   sanitizeWorldLayoutMitBericht,
   type SanitizeBericht,
 } from '@wov/shared/src/worldlayout/sanitize.js';
@@ -204,35 +203,13 @@ export class LayoutWache {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, 'Dokument vom Sanitizer abgelehnt');
       return;
     }
-    // B8 (T1 N1): Ein Sanitizer, der Punkte in `heightDeltas` still verwirft
-    // (Tippfehler), darf hier nicht unbemerkt bleiben — sonst koennte ein
-    // Schreibvorgang mit `heightDeltas`-Tippfehlern UND einer echten
-    // Platzierungsaenderung als "angewendet" durchgehen, waehrend die
-    // Korrektur lautlos verschwindet (der sanitisierte Stand saehe dann
-    // zufaellig gleich aus wie zuvor, also KEINE Geo-Aenderung, und
-    // `anwenden` liefe fuer den Objektteil normal durch). Dieselbe Regel wie
-    // bei geklemmten Platzierungsfeldern: ein Vorgang gilt ganz oder gar
-    // nicht.
-    const roheHoehe = (roh as { heightDeltas?: unknown } | null)?.heightDeltas;
-    const hoehenFehler = hoehenkorrekturFehler(roheHoehe);
-    if (hoehenFehler.length > 0) {
-      const detail = hoehenkorrekturFehlerText(hoehenFehler);
-      console.warn(`[WoV] Layout-Wache: heightDeltas verworfen, nichts angewendet (${detail}) — nach der Korrektur greift der Abgleich`);
-      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, detail);
-      return;
-    }
-    // N1: dieselbe Grenze wie beim Schreibweg (POST) — sonst kaeme eine Datei ueber der
-    // Zonen-/Punktgrenze (git-Merge, Hand-Bearbeitung) hier nur als "geo" durch, und der
-    // Sanitizer wuerde sie beim naechsten Neustart still auf die Grenze kuerzen, ohne dass
-    // die Quittung das je gesagt haette (Angriffsbefund N1: "122 880 Punkte → ebenfalls nur
-    // geo, keine Grenze"). Die Live-Wache haelt hier zurueck (kein Aussperren noetig: Diese
-    // Datei steht schon so auf der Platte, ein spaeterer POST/PATCH kann sie unabhaengig
-    // korrigieren, s. weltOps.ts).
-    const { zonen, punkte } = hoehenkorrekturZaehlen(roheHoehe);
-    if (zonen > HOEHENKORREKTUR_ZONEN_GRENZE || punkte > HOEHENKORREKTUR_PUNKTE_GRENZE) {
-      const detail = `${zonen} Zonen, ${punkte} Punkte (Grenze ${HOEHENKORREKTUR_ZONEN_GRENZE} Zonen bzw. ${HOEHENKORREKTUR_PUNKTE_GRENZE} Punkte)`;
-      console.warn(`[WoV] Layout-Wache: heightDeltas ueber der Grenze, nichts angewendet (${detail})`);
-      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, detail);
+    // Reject before geo comparison or any placement mutation. Z3 must record pending
+    // deletions before this early return when its separate change lands.
+    if (neuBericht.heightProblem) {
+      const problem = neuBericht.heightProblem;
+      const detail = heightResponseMessage({ heightProblem: problem }, process.env.WOV_LANGUAGE)!;
+      console.warn(`[Welt] ${detail}`);
+      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, detail, problem);
       return;
     }
     const neuKanonisch = JSON.stringify(neuBericht.layout);
@@ -282,9 +259,10 @@ export class LayoutWache {
     ergebnis: Quittung['ergebnis'],
     grund: Quittung['grund'],
     zaehler: Record<string, number> | null,
-    detail?: string
+    detail?: string,
+    heightProblem?: HeightProblem
   ): void {
-    const q: Quittung = { hash, ergebnis, grund, ...(detail ? { detail } : {}), zaehler, zeit: new Date().toISOString() };
+    const q: Quittung = { hash, ergebnis, grund, ...(detail ? { detail } : {}), ...(heightProblem ? { heightProblem } : {}), zaehler, zeit: new Date().toISOString() };
     try {
       quittungSchreiben(this.d.quittungsPfad, q);
     } catch (fehler) {

@@ -16,7 +16,7 @@
  *
  * Lauf:  npx tsx client/test/welt-abgleich-hoehenkorrektur.ts
  */
-import { vergleiche, type Unterschied } from '../src/editor/weltdokument';
+import { holeWeltdokument, schreibeWeltdokument, vergleiche, type Unterschied } from '../src/editor/weltdokument';
 import type { WorldLayout, ZoneHeightDelta } from '@wov/shared';
 
 let fehler = 0;
@@ -114,6 +114,69 @@ const BASIS: ZoneHeightDelta[] = [
     z !== undefined && z.schwer === false && z.server === '0' && z.entwurf === '4',
     JSON.stringify(z)
   );
+}
+
+function jsonAntwort(status: number, body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ETag: '"neu"' } });
+}
+
+const GUELTIGES_LAYOUT: WorldLayout = dok([]);
+const HOEHEN_UND_PLATZIERUNGEN = {
+  ok: false,
+  message: 'ungueltig',
+  heightProblem: {
+    reason: 'invalid',
+    zonen: 1,
+    punkte: 1,
+    zoneLimit: 10,
+    pointLimit: 20,
+    fehlerhaftHoehe: [{ zone: '0,0', feld: 'r[0]', wert: 'kaputt' }],
+  },
+  fehlerhaftHoehe: [{ zone: '0,0', feld: 'r[0]', wert: 'kaputt' }],
+  anzahlFehlerhaftHoehe: 1,
+  fehlerhaft: [{ id: 'haus-1', feld: 'yaw', wert: 'abc' }],
+  anzahlFehlerhaft: 1,
+};
+
+// ── 7) DOM-freier echter Schreibweg: Höhe UND Platzierungen in einer 422-Meldung ──
+{
+  const fetchFn: typeof fetch = async () => jsonAntwort(422, HOEHEN_UND_PLATZIERUNGEN);
+  const de = await schreibeWeltdokument(GUELTIGES_LAYOUT, 'basis', fetchFn, 'de');
+  check('POST 422 (de): Höhe und Platzierung stehen gemeinsam in der Fehlermeldung', de.art === 'fehler' && /0,0/.test(de.message) && /r\[0\]/.test(de.message) && /haus-1/.test(de.message) && /yaw/.test(de.message), JSON.stringify(de));
+  const en = await schreibeWeltdokument(GUELTIGES_LAYOUT, 'basis', fetchFn, 'en');
+  check('POST 422 (en): dieselbe kombinierte Meldung ist englisch auswählbar und enthält beide Listen', en.art === 'fehler' && /0,0/.test(en.message) && /haus-1/.test(en.message) && /yaw/.test(en.message) && !/Nicht gespeichert/.test(en.message), JSON.stringify(en));
+}
+
+// ── 8) DOM-freier echter Leseweg: GET 422 übernimmt nie ein mitgeliefertes gekürztes Layout ──
+{
+  const gekuerzt: WorldLayout = { ...GUELTIGES_LAYOUT, name: 'Darf nicht übernommen werden', heightDeltas: [] } as WorldLayout;
+  const fetchFn: typeof fetch = async () => jsonAntwort(422, { ...HOEHEN_UND_PLATZIERUNGEN, layout: gekuerzt });
+  const standDe = await holeWeltdokument(fetchFn, 'de');
+  check('GET 422 (de): liefert Fehler statt gekürztes Layout zu übernehmen', standDe.erreichbar === false && /0,0/.test(standDe.grund) && /haus-1/.test(standDe.grund) && !('layout' in standDe), JSON.stringify(standDe));
+  const standEn = await holeWeltdokument(fetchFn, 'en');
+  check('GET 422 (en): übersetzter Fehlerzweig bleibt ohne Layoutübernahme', standEn.erreichbar === false && /0,0/.test(standEn.grund) && /haus-1/.test(standEn.grund) && !('layout' in standEn), JSON.stringify(standEn));
+}
+
+// ── 9) Legacy-Weg bleibt mutationssensitiv: fehlerhaftHoehe allein darf nicht stumm verschwinden ──
+{
+  const fetchFn: typeof fetch = async () =>
+    jsonAntwort(422, {
+      ok: false,
+      art: 'hoehenkorrektur',
+      fehlerhaftHoehe: [{ zone: '9,9', feld: 'delta', wert: 'NaN' }],
+      anzahlFehlerhaftHoehe: 1,
+    });
+  const antwort = await schreibeWeltdokument(GUELTIGES_LAYOUT, 'basis', fetchFn, 'de');
+  check('Legacy POST 422: fehlerhaftHoehe ohne heightProblem erzeugt weiterhin eine konkrete Höhenmeldung', antwort.art === 'fehler' && /9,9/.test(antwort.message) && /delta/.test(antwort.message) && /NaN/.test(antwort.message), JSON.stringify(antwort));
+}
+
+// ── 10) 202 bleibt ok (Datei geschrieben), lokalisiert aber verworfene Höhen vor generischen Hinweisen ──
+{
+  const fetchFn: typeof fetch = async () => jsonAntwort(202, { ...HOEHEN_UND_PLATZIERUNGEN, ok: true, message: 'File saved', angewendet: false, grund: 'verworfen' });
+  const de = await schreibeWeltdokument(GUELTIGES_LAYOUT, 'basis', fetchFn, 'de');
+  check('POST 202 (de): bleibt art ok und enthält Höhe + Platzierung in message/detail', de.art === 'ok' && /0,0/.test(de.message) && /haus-1/.test(de.message) && /0,0/.test(de.detail ?? '') && /haus-1/.test(de.detail ?? '') && de.grund === 'verworfen', JSON.stringify(de));
+  const en = await schreibeWeltdokument(GUELTIGES_LAYOUT, 'basis', fetchFn, 'en');
+  check('POST 202 (en): ok-Zweig nutzt Locale ohne deutschen Fehlerwrapper', en.art === 'ok' && /0,0/.test(en.message) && /haus-1/.test(en.message) && !/Nicht gespeichert/.test(en.message), JSON.stringify(en));
 }
 
 console.log(fehler === 0 ? '\nall ok' : `\n${fehler} FAIL`);

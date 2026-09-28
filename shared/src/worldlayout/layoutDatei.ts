@@ -56,8 +56,10 @@ import { hostname } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import {
-  hoehenkorrekturFehler,
-  hoehenkorrekturZaehlen,
+  heightProblem,
+  HEIGHT_ZONE_LIMIT,
+  HEIGHT_POINT_LIMIT,
+  type HeightProblem,
   platzierungenFehler,
   platzierungenFehlerText,
   sanitizeWorldLayout,
@@ -66,6 +68,7 @@ import {
   type PlatzierungsFehler,
 } from './sanitize.js';
 import type { WorldLayout } from './types.js';
+import { heightResponseMessage } from './heightMessages.js';
 
 /**
  * So viele Sicherungen bleiben liegen. Zehn ist kein magischer Wert,
@@ -82,6 +85,8 @@ export const SICHERUNGEN_BEHALTEN = 10;
  * kaputt" unterscheiden kann, ohne in Meldungen zu greppen.
  */
 export class LayoutUngueltig extends Error {
+  heightProblem?: HeightProblem;
+  placementErrors?: readonly PlatzierungsFehler[];
   constructor(meldung: string) {
     super(meldung);
     this.name = 'LayoutUngueltig';
@@ -151,8 +156,8 @@ export class LayoutHoehenkorrekturUngueltig extends LayoutUngueltig {
  * kompakten `i`/`d`-Kodierung (`types.ts`) rund 1 MB Text, deutlich unter dem 8-MB-Körperlimit des Schreibwegs, und
  * als typisierte Arrays rund 400 KB Speicher — für jeden Zweck reichlich, ohne eine Wand für reale Bearbeitung zu sein.
  */
-export const HOEHENKORREKTUR_ZONEN_GRENZE = 4096;
-export const HOEHENKORREKTUR_PUNKTE_GRENZE = 100_000;
+export const HOEHENKORREKTUR_ZONEN_GRENZE = HEIGHT_ZONE_LIMIT;
+export const HOEHENKORREKTUR_PUNKTE_GRENZE = HEIGHT_POINT_LIMIT;
 
 /** Mehr als `HOEHENKORREKTUR_ZONEN_GRENZE` Zonen in `heightDeltas` (gezählt am rohen Dokument). */
 export class LayoutHoehenkorrekturZuVieleZonen extends LayoutUngueltig {
@@ -249,7 +254,9 @@ export function layoutLesen(pfad: string): WorldLayout {
  * dem Dokument, das er gesehen hat. Zwei Lesevorgänge hintereinander
  * könnten dazwischen einen fremden Schreibvorgang erwischen.
  */
-export function layoutLesenMitHash(pfad: string): { layout: WorldLayout; hash: string } {
+export function layoutLesenMitHash(pfad: string, optionen: { preserveRawHeight?: boolean } = {}): {
+  layout: WorldLayout; hash: string; rawHeight?: unknown;
+} {
   let bytes: Buffer;
   let roh: unknown;
   try {
@@ -258,9 +265,26 @@ export function layoutLesenMitHash(pfad: string): { layout: WorldLayout; hash: s
   } catch (fehler) {
     throw new LayoutUngueltig(`${basename(pfad)} nicht lesbar: ${(fehler as Error).message}`);
   }
-  const sauber = sanitizeWorldLayout(roh);
+  const object = roh && typeof roh === 'object' && !Array.isArray(roh) ? roh as Record<string, unknown> : null;
+  if (!optionen.preserveRawHeight && object) rejectHeight(object);
+  // PATCH never consumes the correction: exclude it before sanitizing unrelated fields.
+  const sauber = sanitizeWorldLayout(optionen.preserveRawHeight && object ? { ...object, heightDeltas: undefined } : roh);
   if (!sauber) throw new LayoutUngueltig(`${basename(pfad)} ist kein gültiges WorldLayout`);
-  return { layout: sauber, hash: layoutHash(bytes) };
+  return { layout: sauber, hash: layoutHash(bytes), ...(object && Object.hasOwn(object, 'heightDeltas') ? { rawHeight: object.heightDeltas } : {}) };
+}
+
+/** Preserve the established exception types, but carry both diagnostic lists. */
+function rejectHeight(input: Record<string, unknown>): void {
+  const problem = heightProblem(input.heightDeltas);
+  if (!problem) return;
+  const placements = platzierungenFehler(input.placements);
+  const error = problem.reason === 'invalid' ? new LayoutHoehenkorrekturUngueltig(problem.fehlerhaftHoehe) :
+    problem.reason === 'limit' && problem.zonen > problem.zoneLimit ? new LayoutHoehenkorrekturZuVieleZonen(problem.zonen) :
+    problem.reason === 'limit' ? new LayoutHoehenkorrekturZuVielePunkte(problem.punkte) : new LayoutUngueltig('Height inspection budget exceeded');
+  error.heightProblem = problem;
+  error.placementErrors = placements;
+  error.message = heightResponseMessage({ heightProblem: problem, fehlerhaft: placements })!;
+  throw error;
 }
 
 /**
@@ -1007,26 +1031,9 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
   listenPruefen(eingabe);
   const anzahl = platzierungenZaehlen(eingabe);
   if (anzahl > PLATZIERUNGEN_GRENZE) throw new LayoutZuVielePlatzierungen(anzahl);
-  // heightDeltas VOR dem Sanitizer prüfen (Angriffsbefund N4): so bekommt auch der
-  // häufigste Fall — die EINZIGE Zone ist ungültig — die volle `fehlerhaft`-Liste, statt
-  // über die generische Listenprüfung (oben, `heightDeltas` steht dort bewusst nicht mehr
-  // drin) auf eine Meldung ohne Zone/Index/Wert zu treffen. `hoehenkorrekturFehler` meldet
-  // auch ein gesetztes, aber nicht-Array-`heightDeltas` (Angriffsbefund N1, dritter Punkt:
-  // "kaputt" ist ungültig, nicht leer). NICHTS davon greift, wenn `heightDeltasUnberuehrt`
-  // gesetzt ist (PATCH auf eine andere Sammlung, s. dort) — das Feld ist dann nachweislich
-  // nicht Teil dieses Schreibvorgangs, und weder seine Größe noch ein bereits vorhandener
-  // Fehler darf ihn aufhalten.
-  if (!optionen.heightDeltasUnberuehrt && typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe)) {
-    const roheHoehe = (eingabe as { heightDeltas?: unknown }).heightDeltas;
-    const hoehenFehlerhaft = hoehenkorrekturFehler(roheHoehe);
-    if (hoehenFehlerhaft.length > 0) throw new LayoutHoehenkorrekturUngueltig(hoehenFehlerhaft);
-    // Zonen zuerst, weil eine absurde Zonenzahl schon fuer sich allein zu viel ist,
-    // unabhaengig von der (teureren) Punktzaehlung je Zone (Angriffsbefund B3).
-    const { zonen, punkte } = hoehenkorrekturZaehlen(roheHoehe);
-    if (zonen > HOEHENKORREKTUR_ZONEN_GRENZE) throw new LayoutHoehenkorrekturZuVieleZonen(zonen);
-    if (punkte > HOEHENKORREKTUR_PUNKTE_GRENZE) throw new LayoutHoehenkorrekturZuVielePunkte(punkte);
-  }
-  const bericht = sanitizeWorldLayoutMitBericht(eingabe, { heightDeltasOhneDeckel: optionen.heightDeltasUnberuehrt === true });
+  const raw = typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe) ? eingabe as Record<string, unknown> : null;
+  if (!optionen.heightDeltasUnberuehrt && raw) rejectHeight(raw);
+  const bericht = sanitizeWorldLayoutMitBericht(optionen.heightDeltasUnberuehrt && raw ? { ...raw, heightDeltas: undefined } : eingabe);
   if (!bericht) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
   const layout = bericht.layout;
   // ── Warum diese zusätzliche Hürde ──────────────────────────────────
@@ -1089,7 +1096,11 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
     const fehlerhaft = platzierungenFehler((eingabe as { placements?: unknown }).placements);
     if (fehlerhaft.length > 0) throw new LayoutPlatzierungenUngueltig(fehlerhaft);
   }
-  return { layout, text: layoutText(layout), verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld };
+  // Raw height is an opaque JSON value on PATCH, never a sanitized WorldLayout field.
+  const document = optionen.heightDeltasUnberuehrt && raw && Object.hasOwn(raw, 'heightDeltas')
+    ? { ...layout, heightDeltas: raw.heightDeltas } : layout;
+  const text = optionen.heightDeltasUnberuehrt ? JSON.stringify(document, null, 2) : layoutText(layout);
+  return { layout, text, verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld };
 }
 
 /** Der Teil, der die Sperre HÄLT: Basisvergleich, Sicherung, Tmp-Datei, Rename. Rein synchron, ohne `await`. */

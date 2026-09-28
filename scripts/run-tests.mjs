@@ -2313,6 +2313,9 @@ const KERN = [
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  // Height correction: real boot terrain and structured MCP reader diagnostics.
+  ['server', 'test/height-correction-boot.ts'],
+  ['tools/worldlayout-mcp', 'height-correction-readers.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

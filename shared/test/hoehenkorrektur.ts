@@ -46,6 +46,8 @@ import {
   sanitizeWorldLayout,
   sanitizeHeightDeltas,
   hoehenkorrekturFehler,
+  hoehenkorrekturZaehlen,
+  sanitizeWorldLayoutMitBericht,
   HOEHENKORREKTUR_ZEILE_MAX,
   type WorldLayout,
   type ZoneHeightDelta,
@@ -496,20 +498,22 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
     const volleByte = groesse(volleZone) - basisGroesse;
     check(`Volle Zone (${vollePunkte.length} Punkte, realistisch): ≤ 40 KB`, volleByte <= 40_960, `${volleByte} Byte`);
 
-    // N6: EIN Punkt geändert in der vollen Zone → Diff (echter `git diff --no-index`).
-    const vorPfad = join(dir, 'vor.json');
-    const nachPfad = join(dir, 'nach.json');
-    writeFileSync(vorPfad, layoutText(volleZone));
-    const geaendertePunkte = vollePunkte.map((p, i) => (i === 0 ? [p[0], p[1] + 1] : p)) as [number, number][];
-    const volleZoneGeaendert = dok({ heightDeltas: [zone(0, 0, geaendertePunkte)] });
-    writeFileSync(nachPfad, layoutText(volleZoneGeaendert));
-    const diff = spawnSync('git', ['diff', '--no-index', '--no-color', vorPfad, nachPfad], { encoding: 'utf-8' });
-    const diffByte = Buffer.byteLength(diff.stdout ?? '', 'utf-8');
-    check(
-      'N6: git diff bei EINEM geänderten Punkt in einer vollen Zone ist klein (≤ 4 KB, Ziel ~2 KB) statt der ganzen Zone',
-      diffByte > 0 && diffByte <= 4096,
-      `${diffByte} Byte`
-    );
+    // Three zones expose the full git context for a middle-row edit. 8 KiB
+    // allows ~50% margin over the measured ~5.5 KiB worst case, not just the edge case.
+    for (const [name, point, extreme] of [['best', 0, false], ['middle', 30 * 64 + 30, false], ['worst', 30 * 64 + 30, true]] as const) {
+      const points = vollePunkte.map(([index, delta]) => [index, extreme ? -10000 : delta] as [number, number]);
+      const before = dok({ heightDeltas: [zone(-1, 0, points), zone(0, 0, points), zone(1, 0, points)] });
+      const afterPoints = points.map(([index, delta]) => [index, index === point ? delta + 1 : delta] as [number, number]);
+      const after = dok({ heightDeltas: [zone(-1, 0, points), zone(0, 0, afterPoints), zone(1, 0, points)] });
+      layoutSchreiben(join(dir, 'before.json'), before);
+      layoutSchreiben(join(dir, 'after.json'), after);
+      const diff = spawnSync('git', ['diff', '--no-index', '--no-color', '--unified=3', 'before.json', 'after.json'], { cwd: dir, encoding: 'utf8' });
+      const bytes = Buffer.byteLength(diff.stdout ?? '', 'utf8');
+      const additions = diff.stdout.split('\n').filter(line => line.startsWith('+') && !line.startsWith('+++')).length;
+      const removals = diff.stdout.split('\n').filter(line => line.startsWith('-') && !line.startsWith('---')).length;
+      check(`A6 ${name}: bounded diff with exactly one edited row`, diff.status === 1 && bytes > 0 && bytes <= 8192 && additions === 1 && removals === 1, `${bytes} bytes; +${additions}/-${removals}`);
+    }
+
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -541,6 +545,33 @@ function weltpos(zx: number, zz: number, index: number): [number, number] {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// N3: diagnostic catalogue parity (no production import, also runnable on the old baseline).
+{
+  const root = new URL('../data/worldlayout/', import.meta.url);
+  const dePath = fileURLToPath(new URL('de.json', root));
+  const enPath = fileURLToPath(new URL('en.json', root));
+  check('A3: German and English diagnostic catalogues exist', existsSync(dePath) && existsSync(enPath));
+  if (existsSync(dePath) && existsSync(enPath)) {
+    const de = JSON.parse(readFileSync(dePath, 'utf8')) as Record<string, string>;
+    const en = JSON.parse(readFileSync(enPath, 'utf8')) as Record<string, string>;
+    const slots = (value: string) => JSON.stringify([...value.matchAll(/\{([^}]+)\}/g)].map(m => m[1]).sort());
+    check('A3: diagnostic key parity', JSON.stringify(Object.keys(de).sort()) === JSON.stringify(Object.keys(en).sort()));
+    check('A3: translated text and placeholder parity', Object.entries(de).every(([key, value]) =>
+      value.trim().length > 0 && typeof en[key] === 'string' && en[key]!.trim().length > 0 && slots(value) === slots(en[key]!)));
+  }
+}
+
+// N3: the report must never present a truncated correction as a valid one.
+{
+  const zero = hoehenkorrekturZaehlen([{ zx: 0, zz: 0, r: ['0|0,1|0,-0'] }]);
+  check('A4: zero-only zone contributes neither points nor zones', zero.zonen === 0 && zero.punkte === 0);
+  const raw = Array.from({ length: 5000 }, (_, i) => ({ zx: i % 64, zz: Math.floor(i / 64), r: ['0|0|1'] }));
+  const report = sanitizeWorldLayoutMitBericht(dok({ heightDeltas: raw }));
+  check('A2: zone cap reports rejection rather than a valid prefix', !!(report as unknown as { heightProblem?: unknown })?.heightProblem && !report?.layout.heightDeltas);
+  const invalid = sanitizeWorldLayoutMitBericht(dok({ heightDeltas: [{ zx: 0, zz: 0, r: ['0|0|1', '1|0|bad'] }] }));
+  check('A3: a partly invalid correction is not applied in part', !!(invalid as unknown as { heightProblem?: unknown })?.heightProblem && !invalid?.layout.heightDeltas);
 }
 
 if (fehler > 0) {

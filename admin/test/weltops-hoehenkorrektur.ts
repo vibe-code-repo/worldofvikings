@@ -22,6 +22,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { WorldLayout } from '@wov/shared';
 import { createWovServer } from '../../server/src/WovServer.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -29,7 +30,9 @@ const ADMIN = resolve(HIER, '..');
 const TSX = resolve(ADMIN, '..', 'node_modules/.bin/tsx');
 
 let fehler = 0;
+let checks = 0;
 function check(name: string, ok: boolean, detail = ''): void {
+  checks++;
   if (!ok) {
     fehler++;
     console.error(`FAIL ${name}${detail ? ` (${detail})` : ''}`);
@@ -87,6 +90,17 @@ function dienstStarten(): Promise<number> {
   });
 }
 const port = await dienstStarten();
+process.env.WOV_ADMIN_URL = `http://127.0.0.1:${port}`;
+process.env.WOV_ADMIN_TOKEN = TOKEN;
+process.env.WOV_MCP_FREMDE_WELT = '1';
+// Load foreign package entry points at runtime; their DOM/SDK type environments
+// belong to their own package checks, not to the admin Node-only tsconfig.
+const mcp = await import(new URL('../../tools/worldlayout-mcp/kern.ts', import.meta.url).href);
+const { holeWeltdokument, schreibeWeltdokument } = await import(new URL('../../client/src/editor/weltdokument.ts', import.meta.url).href);
+const adminFetch: typeof fetch = async (input, init) => {
+  const headers = new Headers(init?.headers); headers.set('x-wov-token', TOKEN);
+  return fetch(`http://127.0.0.1:${port}${String(input)}`, { ...init, headers });
+};
 
 const server = createWovServer({
   port: 0,
@@ -100,7 +114,7 @@ const server = createWovServer({
   worldLayoutPath: WELT_DATEI,
   saveIntervalMs: 3600_000,
 });
-server.start();
+await server.start();
 writeFileSync(LAEUFT, '');
 
 interface HoehenFehlerEintrag {
@@ -118,6 +132,9 @@ interface Daten {
   message?: string;
   art?: string;
   fehlerhaftHoehe?: HoehenFehlerEintrag[];
+  fehlerhaft?: { id: string; feld: string; wert: unknown }[];
+  heightProblem?: unknown;
+  detail?: string;
   anzahlFehlerhaftHoehe?: number;
   angewendet?: boolean;
   zaehler?: Record<string, number>;
@@ -344,24 +361,77 @@ try {
     'N1 nicht aussperren (b): die neue Platzierung wurde trotzdem gesetzt',
     (nachPatchKorrupt.placements ?? []).some((p) => p.id === 'patch-korrupt')
   );
-  // "nicht aussperren" heißt NICHT blockieren/422 (das prüfen die beiden Checks oben) — der PATCH-Weg reicht
-  // heightDeltas trotzdem durch den normalen, LEISEN Sanitizer (deckel=false kappt nur die ZONENZAHL nicht, s.
-  // sanitize.ts): die strukturell kaputte Zeile (ry=99, außerhalb 0…63) fällt wie bei jedem Lesen still weg, die
-  // gültige Zeile bleibt. Genau DAS ist der Unterschied zu einem POST desselben Inhalts (422 mit Liste, ganz
-  // zurückgehalten) — ein PATCH, das heightDeltas gar nicht anfasst, darf an einer schon vorhandenen Korruption
-  // nicht scheitern, muss sie aber auch nicht ungeprüft konservieren.
-  check(
-    'N1 nicht aussperren (b): die strukturell kaputte Zeile (ry=99) fällt beim Durchreichen wie üblich weg, die gültige Zeile bleibt',
-    nachPatchKorrupt.heightDeltas?.length === 1 &&
-      nachPatchKorrupt.heightDeltas[0]!.zx === 9 &&
-      nachPatchKorrupt.heightDeltas[0]!.zz === 9 &&
-      JSON.stringify(nachPatchKorrupt.heightDeltas[0]!.r) === JSON.stringify(['0|1|2']),
-    JSON.stringify(nachPatchKorrupt.heightDeltas)
-  );
+  check('A1: PATCH preserves every malformed row, not just its valid remainder',
+    JSON.stringify(nachPatchKorrupt.heightDeltas) === JSON.stringify(korruptesHoehe));
+
+  for (const [label, raw] of [
+    ['rows', [{ zx: 3, zz: 3, r: ['0|1,2|30,4O', '1|5|77'] }, { zx: '0x10', zz: 4, r: ['2|3|0x10'] }]],
+    ['string', 'kaputt'], ['null', null], ['points', vielePunkteWenigeZonen(100_001)],
+  ] as const) {
+    writeFileSync(WELT_DATEI, JSON.stringify(dokument({ heightDeltas: raw })));
+    const before = JSON.stringify(raw);
+    const get = await anfrage('GET', '/api/worldlayout');
+    check(`A2 ${label}: GET rejects bad height without exposing a partial layout`, label === 'null' ? get.status === 200 :
+      get.status === 422 && !get.daten.layout && !!get.daten.heightProblem && /Git/.test(get.daten.message ?? ''));
+    const result = await patch({ id: `raw-${label}`, prefab: 'Beech1', x: 8, z: 8 });
+    check(`A1 ${label}: strict GET does not block PATCH`, [200, 202].includes(result.status));
+    check(`A1 ${label}: raw JSON value unchanged`, JSON.stringify(JSON.parse(readFileSync(WELT_DATEI, 'utf8')).heightDeltas) === before);
+    if (label !== 'null') {
+      check(`A3 ${label}: actual Live→receipt→Admin carries specific rejection`, result.status === 202 && result.daten.grund === 'verworfen' &&
+        !!result.daten.heightProblem && /Git/.test(result.daten.message ?? '') && !/Tippfehler/.test(result.daten.message ?? ''), JSON.stringify(result.daten));
+      for (const locale of ['de', 'en']) {
+        const editorRead = await holeWeltdokument(adminFetch, locale);
+        check(`A2 ${label}/${locale}: real GET rejected by Editor`, !editorRead.erreichbar && /Git/.test(editorRead.grund));
+        let mcpError = '';
+        try { await mcp.lade(locale); } catch (error) { mcpError = (error as Error).message; }
+        check(`A2 ${label}/${locale}: real GET rejected by MCP`, /Git/.test(mcpError));
+        // Replay the actual PATCH response through the Editor's response reader:
+        // its public save method sends POST, which correctly cannot create bad height.
+        const replay: typeof fetch = async () => new Response(JSON.stringify(result.daten), { status: result.status });
+        const editor = await schreibeWeltdokument(dokument() as unknown as WorldLayout, null, replay, locale);
+        const hint = mcp.wirkungsHinweis(result.status, result.daten as Record<string, unknown>, locale);
+        const translated = locale === 'en' ? /height correction/i : /Höhenkorrektur/;
+        check(`A3 ${label}/${locale}: actual receipt displayed by Editor and MCP`,
+          editor.art === 'ok' && editor.angewendet === false && translated.test(editor.message) && translated.test(hint) && /Git/.test(hint));
+      }
+
+    }
+  }
+
+  writeFileSync(WELT_DATEI, JSON.stringify(dokument()));
+  const zeroPoints = await post([...vielePunkteWenigeZonen(100_000), { zx: 100, zz: 100, r: ['0|0,1|0,-0'] }]);
+  check('A4: exactly 100000 effective points plus zero points are writable', [200, 202].includes(zeroPoints.status));
+  const zeroZones = await post([...vieleZonenJeEinPunkt(4096), { zx: 100, zz: 100, r: ['0|0|0'] }]);
+  check('A4: 4096 effective zones plus zero-only zone are writable', [200, 202].includes(zeroZones.status));
+
+  const both = await anfrage('POST', '/api/worldlayout', dokument({
+    heightDeltas: [{ zx: 3, zz: 3, r: ['0|1,2|30,4O'] }],
+    placements: [{ id: 'broken-placement', prefab: 'Beech1', x: 1, z: 1, yaw: 'broken' }],
+  }), await aktuellerHash());
+  check('A6: real 422 includes BOTH lists in the same response', both.status === 422 &&
+    (both.daten.fehlerhaft?.length ?? 0) > 0 && (both.daten.fehlerhaftHoehe?.length ?? 0) > 0, JSON.stringify(both.daten));
+  const badDocument = dokument({ heightDeltas: [{ zx: 3, zz: 3, r: ['0|1,2|30,4O'] }],
+    placements: [{ id: 'broken-placement', prefab: 'Beech1', x: 1, z: 1, yaw: 'broken' }] }) as unknown as WorldLayout;
+  for (const locale of ['de', 'en']) {
+    const hash = await aktuellerHash();
+    const editor = await schreibeWeltdokument(badDocument, hash, adminFetch, locale);
+    let error = '';
+    try { await mcp.schreibe(badDocument, hash, locale); } catch (e) { error = (e as Error).message; }
+    check(`A6 ${locale}: real Editor/MCP POST each displays both lists`, editor.art === 'fehler' &&
+      /3,3/.test(editor.message) && /broken-placement/.test(editor.message) && /3,3/.test(error) && /broken-placement/.test(error));
+  }
+
+
 } finally {
   console.log = orig.log;
   console.warn = orig.warn;
-  dienst?.kill('SIGTERM');
+  const child = dienst as ChildProcess | null;
+  if (child && child.exitCode === null) {
+    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    child.kill('SIGTERM');
+    await exited;
+  }
+  console.log(`ADMIN_CHILD_EXIT pid=${child?.pid} code=${child?.exitCode} signal=${child?.signalCode}`);
   try {
     server.stop();
   } catch {
@@ -370,5 +440,6 @@ try {
   await schlafen(500);
   rmSync(ORDNER, { recursive: true, force: true });
 }
+console.log(`CHECKS ${checks} FAILURES ${fehler}`);
 console.log(fehler === 0 ? '\nall ok' : `\n${fehler} FAIL`);
 process.exit(fehler === 0 ? 0 : 1);

@@ -148,7 +148,7 @@ async function b8(): Promise<void> {
     saveIntervalMs: 3600_000,
   });
   try {
-    server.start();
+    await server.start();
     await warteAuf(() => quittungLesen(QUITTUNG) !== null);
     const layoutZdos = () => server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER));
     console.log = orig.log;
@@ -184,6 +184,17 @@ async function b8(): Promise<void> {
     );
     check('B8: die Quittung nennt die betroffene Zone (0,0)', (q?.detail ?? '').includes('0,0'), q?.detail ?? '');
     check('B8: die neue Platzierung t2 wurde NICHT angewendet (ganz oder gar nicht)', !layoutZdos().some((z) => z.getString(LAYOUT_ID_MEMBER) === 't2'), `${layoutZdos().length} ZDOs`);
+    const previousHash = q?.hash;
+    schreibe(dokument([...T0, { id: 'invalid-height-placement', prefab: 'Beech1', x: 65, z: 20 }], { heightDeltas: 'kaputt' }));
+    check('A5: watcher acknowledges the new non-array correction', await warteAuf(() => {
+      const receipt = quittungLesen(QUITTUNG);
+      if (receipt && receipt.hash !== previousHash) { q = receipt; return true; }
+      return false;
+    }));
+    check('A5: kaputt is rejected with repair instructions and no placement mutation',
+      q?.grund === 'verworfen' && /Git/.test(q?.detail ?? '') && /heightDeltas/.test(q?.detail ?? '') &&
+      !layoutZdos().some(z => z.getString(LAYOUT_ID_MEMBER) === 'invalid-height-placement'), q?.detail);
+
   } finally {
     console.log = orig.log;
     console.warn = orig.warn;
@@ -253,7 +264,7 @@ async function b9(): Promise<void> {
     saveIntervalMs: 3600_000,
   });
   try {
-    server.start();
+    await server.start();
     await warteAuf(() => quittungLesen(QUITTUNG) !== null);
     const layoutZdos = () => server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER));
     console.log = orig.log;

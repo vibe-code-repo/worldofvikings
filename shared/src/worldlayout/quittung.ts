@@ -1,3 +1,4 @@
+import type { HeightProblem } from './sanitize.js';
 /**
  * Quittung des Spielservers für das Weltdokument (Editor E2, Karte K5.0).
  *
@@ -18,6 +19,8 @@ import { resolve } from 'node:path';
 export type QuittungsGrund = 'geo' | 'abgelehnt' | 'bestaetigung-noetig' | 'verworfen' | 'zu-viele-aenderungen' | 'boot' | null;
 
 export interface Quittung {
+  /** Optional structured height rejection; older receipts remain readable. */
+  heightProblem?: HeightProblem;
   /** SHA-256 über die BYTES der Weltdatei, wie `layoutHash`. */
   hash: string;
   ergebnis: 'angewendet' | 'nicht-angewendet';

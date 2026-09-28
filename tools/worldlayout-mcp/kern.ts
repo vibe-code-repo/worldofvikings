@@ -17,6 +17,7 @@ import { sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout, layoutBounds, type WorldLayout } from '@wov/shared';
 import { instanzName, weltArbeitsOrdner, weltDatei } from '@wov/shared/src/instanz.js';
+import { heightResponseMessage } from '../../shared/src/worldlayout/heightMessages.js';
 
 // Der Betriebsdienst ist der einzige Schreiber der Weltdatei — dieser
 // Prozess redet nur mit ihm, siehe Kopfkommentar. Aus layoutDatei.ts kommt
@@ -176,8 +177,12 @@ let ersterStand: WorldLayout | undefined;
 export const sitzungsBasis = (): WorldLayout | undefined => ersterStand;
 
 /** Dokument UND Hash, aus einer einzigen Antwort — der Hash ist die Basis für das spätere Schreiben. */
-export async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
+export async function lade(locale = process.env.WOV_LANGUAGE ?? 'de'): Promise<{ layout: WorldLayout; hash: string }> {
   const { status, daten } = await adminAnfrage('GET');
+  if (status === 422) {
+    const hoehenText = heightResponseMessage(daten, locale);
+    throw new Error(hoehenText ?? `Betriebsdienst: GET /api/worldlayout -> ${status}: ${meldungVon(daten)}`);
+  }
   if (status !== 200) throw new Error(`Betriebsdienst: GET /api/worldlayout -> ${status}: ${meldungVon(daten)}`);
   verwalteteWeltKennung = typeof daten.weltKennung === 'string' ? daten.weltKennung : undefined;
   const layout = sanitizeWorldLayout(daten.layout);
@@ -193,11 +198,12 @@ export async function lade(): Promise<{ layout: WorldLayout; hash: string }> {
  * 202 heißt „geschrieben, aber NICHT angewendet“ mit `grund` und `detail` (Geländeänderung, Spielserver aus,
  * Bestätigung nötig …). Ohne diesen Satz hielte die KI eine nicht angewendete Änderung für wirksam.
  */
-export function wirkungsHinweis(status: number, daten: Record<string, unknown>): string {
+export function wirkungsHinweis(status: number, daten: Record<string, unknown>, locale = process.env.WOV_LANGUAGE ?? 'de'): string {
+  const hoehenText = heightResponseMessage(daten, locale);
   if (status === 202) {
     const grund = typeof daten.grund === 'string' ? daten.grund : 'unbekannt';
     const detail = typeof daten.detail === 'string' && daten.detail ? `: ${daten.detail}` : '';
-    return `\nACHTUNG: geschrieben, aber im laufenden Spiel NICHT angewendet (grund: ${grund}${detail}).`;
+    return `${hoehenText ? `\n${hoehenText}` : ''}\nACHTUNG: geschrieben, aber im laufenden Spiel NICHT angewendet (grund: ${grund}${detail}).`;
   }
   if (daten.angewendet !== true) return '';
   // Z5a: angewendet, aber ein Grabstein hat ein Neusetzen verschluckt (Objekt gelöscht, derselbe Eintrag wieder da).
@@ -216,26 +222,20 @@ export function wirkungsHinweis(status: number, daten: Record<string, unknown>):
  * Werkzeugfehler, statt ihn zu verschlucken und trotzdem „Gespeichert" zu
  * sagen.
  */
-export async function schreibe(layout: WorldLayout, basis: string): Promise<string> {
+export async function schreibe(layout: WorldLayout, basis: string, locale = process.env.WOV_LANGUAGE ?? 'de'): Promise<string> {
   pruefeEigeneWelt();
   const { status, daten } = await adminAnfrage('POST', { ...layout, basis });
   // 202 (K5.0): geschrieben, aber vom laufenden Spielserver nicht (gleich) angewendet — die Datei steht.
-  if (status === 200 || status === 202) return wirkungsHinweis(status, daten);
+  if (status === 200 || status === 202) return wirkungsHinweis(status, daten, locale);
   if (status === 409) {
     throw new Error(
       'Nichts gespeichert: Das Weltdokument hat sich seit dem Lesen geändert (Editor oder ein anderer ' +
         'Aufruf hat gespeichert). Bitte layout_get aufrufen und die Änderung erneut machen.'
     );
   }
-  // N3 (Angriffsbefund N3): heightDeltas-Fehler kommen als eigene Liste `fehlerhaftHoehe`
-  // ({ zone, feld, wert }) mit `art: 'hoehenkorrektur'` — VOR der Platzierungs-Prüfung
-  // unten, sonst läse die KI „Fehler in Platzierungen" für einen Fund in der Handkorrektur.
-  if (status === 422 && daten.art === 'hoehenkorrektur' && Array.isArray(daten.fehlerhaftHoehe) && daten.fehlerhaftHoehe.length > 0) {
-    const zeilen = (daten.fehlerhaftHoehe as { zone?: unknown; feld?: unknown; wert?: unknown }[]).slice(0, 40).map((f) => `  - Zone ${String(f.zone)}: ${String(f.feld)} = ${JSON.stringify(f.wert)}`);
-    const alle = Number(daten.anzahlFehlerhaftHoehe);
-    throw new Error(
-      `Nichts gespeichert: ${Number.isFinite(alle) ? alle : zeilen.length} Fehler in der Handkorrektur (heightDeltas; Zone, Feld und gelesener Wert). Bitte korrigieren und erneut senden:\n${zeilen.join('\n')}`
-    );
+  if (status === 422) {
+    const hoehenText = heightResponseMessage(daten, locale);
+    if (hoehenText) throw new Error(hoehenText);
   }
   // N4: 422 `ungueltig` mit der Liste `fehlerhaft` ({ id, feld, wert }): Platzierungen mit Tippfehlern. Die KI bekommt die
   // Liste wörtlich, damit sie die Einträge korrigiert und noch einmal sendet.

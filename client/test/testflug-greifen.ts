@@ -12,6 +12,9 @@
  *  7. Double click, judged on the SCREEN: within 400 ms and 5 px (10 px touch) places nothing, 6 px
  *     or 401 ms places again; key P / button / captured mouse block the same rounded cell for 400 ms.
  *  8. Grab offset against the VISIBLE place (a walking route NPC): < 0.1 m from the pointer.
+ *  9. M1: with series off (the default) place mode ends right after a placement; the
+ *     screen-pixel double-click sperre now also blocks the grab a stray second click
+ *     would otherwise make on the object just placed, and lifts again after 400 ms.
  *
  * Run: npx tsx client/test/testflug-greifen.ts
  */
@@ -324,6 +327,54 @@ pruefe(klickFolge([K(1000, 400, 300), K(1120, 400, 300), K(1900, 400, 300)]) ===
   const alt = new Ziehgriff(KUH, { x: 100, y: 100 }, start, gespeichert, 'mouse').bewege({ x: 110, y: 100 }, maus)!;
   pruefe(Math.hypot(alt.x - maus.x, alt.z - maus.z) > 20, 'against the stored entry it would be 20 m off (the old fault)');
   pruefe(griffPosition(undefined, gespeichert) === gespeichert, 'without a preview the stored entry counts');
+}
+
+// ── 9. M1: grab blocked right after a placement (double-click artifact) ─
+{
+  const z = frisch();
+  const sperre = new DoppelklickSperre();
+  const bild = { x: 400, z: 300 };
+  const punkt = { x: 5, z: 5 };
+  const vorher = liste(z.p).length;
+
+  // Klick 1: Setzen-Modus an, Serie aus (die Vorgabe) → setzt und beendet den Modus.
+  const geradeGesperrt1 = sperre.blockiert(1000, bild, 'mouse');
+  pruefe(geradeGesperrt1 === false, 'M1: first click, nothing stored yet, not blocked');
+  const e1 = entscheideKlick({ setzenModus: true, alt: false, punkt, platzierungen: liste(z.p), geradeGesperrt: geradeGesperrt1 });
+  pruefe(e1.art === 'setzen', 'M1: the first click places');
+  z.a.setzen({ id: 'neu_m1-abcd', prefab: 'Tanne', x: punkt.x, z: punkt.z, yaw: 0 });
+  sperre.gesetzt(1000, { x: punkt.x, z: punkt.z }, bild);
+  const modusNachKlick1 = modusNachSetzen(false); // series off: the mode ends
+  pruefe(modusNachKlick1 === false, 'M1: series off ends the mode after the first click');
+
+  // Klick 2 (zweiter Klick eines Doppelklicks): 300 ms später, 2 px daneben, Modus schon aus.
+  // Ohne die Sperre vor dem Greif-Zweig griffe entscheideKlick hier das eben gesetzte Objekt.
+  const bild2 = { x: 402, z: 301 };
+  const geradeGesperrt2 = sperre.blockiert(1300, bild2, 'mouse');
+  pruefe(geradeGesperrt2 === true, 'M1: 300 ms / 2 px later still counts as the same double click');
+  const e2 = entscheideKlick({ setzenModus: modusNachKlick1, alt: false, punkt, platzierungen: liste(z.p), geradeGesperrt: geradeGesperrt2 });
+  pruefe(e2.art === 'nichts', 'M1: the blocked click neither grabs nor sets, though the point matches the placement');
+  pruefe(liste(z.p).length === vorher + 1, 'M1: still exactly one new object, the blocked click added or moved nothing');
+  const e2Alt = entscheideKlick({ setzenModus: true, alt: true, punkt, platzierungen: liste(z.p), geradeGesperrt: geradeGesperrt2 });
+  pruefe(e2Alt.art === 'nichts', 'M1: Alt held does not lift the block within the sperr window');
+  const eSetzenGesperrt = entscheideKlick({ setzenModus: true, alt: false, punkt: { x: 6, z: 6 }, platzierungen: liste(z.p), geradeGesperrt: geradeGesperrt2 });
+  pruefe(eSetzenGesperrt.art === 'setzen', 'M1: a "setzen" decision itself is unaffected (the caller still blocks it the same way as before)');
+
+  // Klick 3: 401 ms später greift ein Klick auf denselben Punkt wieder wie gewohnt.
+  const geradeGesperrt3 = sperre.blockiert(1701, bild2, 'mouse');
+  pruefe(geradeGesperrt3 === false, 'M1: 401 ms later the block lifts');
+  const e3 = entscheideKlick({ setzenModus: false, alt: false, punkt, platzierungen: liste(z.p), geradeGesperrt: geradeGesperrt3 });
+  pruefe(e3.art === 'greifen', 'M1: after the sperr window a plain click on the placement grabs again');
+  const e3Alt = entscheideKlick({ setzenModus: true, alt: true, punkt, platzierungen: liste(z.p), geradeGesperrt: geradeGesperrt3 });
+  pruefe(e3Alt.art === 'greifen', 'M1: after the sperr window Alt + click grabs as usual, even in place mode');
+}
+{
+  const testflug = readFileSync(new URL('../src/editor/testflug/Testflug.ts', import.meta.url), 'utf-8');
+  const pointerdownBlock = testflug.slice(testflug.indexOf("addEventListener('pointerdown'"), testflug.indexOf("addEventListener('pointermove'"));
+  pruefe(/doppelSperre\.blockiert\(jetzt, bild, e\.pointerType[^)]*\)/.test(pointerdownBlock), 'M1: pointerdown computes geradeGesperrt via doppelSperre.blockiert');
+  pruefe(/geradeGesperrt,?\s*\}\);/.test(pointerdownBlock), 'M1: geradeGesperrt is passed into entscheideKlick');
+  pruefe((pointerdownBlock.match(/const jetzt = performance\.now\(\);/g) ?? []).length === 1, 'M1: jetzt/bild are computed once, not again in the setzen branch');
+  pruefe(/if \(geradeGesperrt\) return;/.test(pointerdownBlock), 'M1: the setzen branch blocks on the same geradeGesperrt flag');
 }
 
 if (fehler > 0) {

@@ -211,14 +211,13 @@ export const HINT_DEFS: PrefabDef[] = [
   // edge, which for the folded idle pose is the length (0.255 m, not the
   // width) — manifest `hoehe`/`tiefe` (0.325/0.255) agree with this pose.
   //
-  // Like the cow it never attacks and never flees (aggro: false, flees:
-  // false in spawnData.ts) and only walks, so only `walk` is listed.
-  // animationTempo.walk (0.14 m/s) is the median stance-phase foot speed of
-  // the shipped walk clip (both feet, quarter-frame Blender sampling) — a
-  // real hen's trippeln, not a guess: without the coupling the feet would
-  // slide by a factor of ~3.5 at the chosen wander speed (spawnData.ts).
+  // It never attacks (`aggro: false`) but now flees with the same gate as the
+  // deer. `walk` and `run` therefore both need clip tempos. The numbers are
+  // stance-phase foot speeds of the shipped clips (quarter-frame Blender/CPU
+  // sampling): walk 0.14 m/s, run about 0.97 m/s after the run clip was
+  // grounded for use by fleeing.
   { ...def('Huhn', F.ANIMAL_AI | F.PERSISTENT | F.SYNCED_TRANSFORM, 'raw_meat', 0.255, 0.325, 'Huhn'),
-    animation: 'idle', animationTempo: { walk: 0.14 } },
+    animation: 'idle', animationTempo: { walk: 0.14, run: 0.97 } },
 
   // ── Trees / vegetation ───────────────────────────────────────────
   def('Beech1', F.TREE_BASE | F.PERSISTENT, 'sapling_beech', 4.0, 8.0),

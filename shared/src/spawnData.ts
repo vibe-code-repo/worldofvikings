@@ -253,9 +253,9 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
   {
     // Hen (B9.6): the meadow's smallest animal (0.26 x 0.17 x 0.33 m, 660
     // triangles — under half the cow's mesh cost), so a higher cap than the
-    // cow is affordable. Same behaviour as the cow: `aggro: false` and
-    // `flees: false` — it neither attacks nor bolts, it just wanders and
-    // pecks, per B9.6.
+    // cow is affordable. It uses the deer-style flee gate (`flees: true`,
+    // 10 m trigger / 40 m calm distance) but keeps `aggro: false`: it bolts
+    // from players and never attacks.
     //
     // Ring is tightened from the cow's 35-80 m to 15-40 m: a cow is 2.9 m
     // long and reads at 80 m, a 0.26 m hen at that range is a few pixels —
@@ -266,12 +266,9 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     // stay close to where they started, they do not roam a meadow.
     //
     // Walk 0.5 m/s: half the cow's amble (1.0), a slow peck-and-shuffle
-    // rather than a purposeful walk (clip: 0.14 m/s median stance-phase foot
-    // speed, prefabs.ts — the client couples playback rate to ground speed,
-    // so any wander speed is slide-free). `runSpeed` is required by the type
-    // but never read (flees: false, aggro: false, like the cow's own unused
-    // 5.0); kept at the same 5x ratio to `walkSpeed` as the cow (1.0 -> 5.0)
-    // for consistency: 0.5 x 5 = 2.5.
+    // rather than a purposeful walk (walk clip: 0.14 m/s). Flee uses the
+    // already-shipped `run` clip at 2.5 m/s (run clip: 0.97 m/s); both rates
+    // stay below the client cap, so the clip coupling remains measurable.
     prefab: 'Huhn',
     biomes: Biome.Meadows,
     maxPerPlayer: 5,
@@ -290,9 +287,9 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     wanderRadius: 8,
     idleMinSec: 2,
     idleMaxSec: 5,
-    flees: false,
-    fleeDistance: 0,
-    calmDistance: 0,
+    flees: true,
+    fleeDistance: 10,
+    calmDistance: 40,
     aggro: false,
     clips: ['idle', 'walk', 'run'],
   },

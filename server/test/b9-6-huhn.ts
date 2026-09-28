@@ -1,6 +1,6 @@
 /**
  * B9.6 — the hen is in the game: it spawns in the meadows, walks with its
- * own clips, never attacks (aggro: false, like the cow), can be hit and
+ * own clips, flees like the deer without attacking (aggro: false), can be hit and
  * killed with one flint-axe strike, and drops loot.
  *
  * Same three levels as B9.2 (server/test/b9-kreaturen-spiel.ts), scoped to
@@ -81,7 +81,7 @@ const eintrag = (name: string): SpawnEntry | undefined => SPAWN_TABLE.find((e) =
  * Minimal, dependency-free glTF-binary CPU skin evaluator (M1, Pruefung
  * 2026-09-28): the ground offset bug (M1) only shows up on the DEFORMED
  * mesh, not the bind pose the manifest carries — so this reads the shipped
- * Huhn.glb directly, plays its `idle`/`walk` clips at quarter-frame steps
+ * Huhn.glb directly, plays its `idle`/`walk`/`run` clips at quarter-frame steps
  * (same sampling as the Blender-side measure_render.py/verify.py chain used
  * to build the file) and returns the lowest vertex y at each sample. Same
  * technique as tools/armor's skin gates, kept local to this test (the card
@@ -253,7 +253,7 @@ console.log('\n[1] Tables: spawn table, registry, life, manifest');
   const huhn = eintrag('Huhn');
   check('SPAWN_TABLE (as shipped) lists the hen', huhn !== undefined, `${SPAWN_TABLE.length} entries: ${SPAWN_TABLE.map((e) => e.prefab).join(', ')}`);
   check('the hen is on the whitelist', istEigenesModell('Huhn'));
-  check('hen never attacks (aggro: false), never flees', huhn?.aggro === false && huhn.flees === false);
+  check('hen flees like the deer but never attacks', huhn?.aggro === false && huhn.flees === true && huhn.fleeDistance === 10 && huhn.calmDistance === 40, `flees ${huhn?.flees}, flee ${huhn?.fleeDistance}, calm ${huhn?.calmDistance}, aggro ${huhn?.aggro}`);
   check('hen lives in the meadows', huhn?.biomes === Biome.Meadows);
 
   const d = findPrefabByName('Huhn');
@@ -284,18 +284,20 @@ console.log('\n[1] Tables: spawn table, registry, life, manifest');
     Math.abs((manifest.modelle['Huhn']?.hoehe ?? 0) - 0.325) < 0.01 && Math.abs((manifest.modelle['Huhn']?.tiefe ?? 0) - 0.255) < 0.01,
     `hoehe ${manifest.modelle['Huhn']?.hoehe}, tiefe ${manifest.modelle['Huhn']?.tiefe}, breite(bind) ${manifest.modelle['Huhn']?.breite}`
   );
-  check('walk clip speed declared (client couples playback rate to ground speed)', (d?.animationTempo?.walk ?? 0) > 0);
+  check('walk and run clip speeds declared (client couples playback rate to ground speed)', (d?.animationTempo?.walk ?? 0) > 0 && (d?.animationTempo?.run ?? 0) > 0, JSON.stringify(d?.animationTempo));
   // T2 (Pruefung 2026-09-28): the coupling must not be silently capped — a
   // capped rate means the clip cannot keep up with walkSpeed and the feet
   // slide. Mutant animationTempo.walk=0.05 gives clipRate(0.5,0.05)=10,
   // clamped to CLIP_RATE_MAX=4 -- this check must then fail.
-  const rate = clipRate(huhn?.walkSpeed ?? 0, d?.animationTempo?.walk);
-  check(`walk clip rate ${f(rate, 2)} stays under the cap ${CLIP_RATE_MAX} (not capped, no forced slide)`, rate < CLIP_RATE_MAX, `walkSpeed ${huhn?.walkSpeed}, clip ${d?.animationTempo?.walk}`);
+  const walkRate = clipRate(huhn?.walkSpeed ?? 0, d?.animationTempo?.walk);
+  check(`walk clip rate ${f(walkRate, 2)} stays under the cap ${CLIP_RATE_MAX} (not capped, no forced slide)`, walkRate < CLIP_RATE_MAX, `walkSpeed ${huhn?.walkSpeed}, clip ${d?.animationTempo?.walk}`);
+  const runRate = clipRate(huhn?.runSpeed ?? 0, d?.animationTempo?.run);
+  check(`run clip rate ${f(runRate, 2)} stays under the cap ${CLIP_RATE_MAX} because fleeing now uses run`, runRate < CLIP_RATE_MAX, `runSpeed ${huhn?.runSpeed}, clip ${d?.animationTempo?.run}`);
 }
 
 // ── [1b] M1: ground truth on the DEFORMED mesh ────────────────────
-// Pruefung 2026-09-28: the old floor offset came from `run` (never played),
-// so idle/walk floated 3.3-4.4 cm. Needs the real binary (skipped cleanly
+// Pruefung 2026-09-28/N2: the old floor offset came from `run`; now run is
+// played by fleeing, so it is grounded independently without moving idle/walk. Needs the real binary (skipped cleanly
 // without assets, e.g. CI with WOV_OHNE_MODELLE=1).
 console.log('\n[1b] Ground truth: the foot point on the deformed mesh (needs assets/models/Huhn.glb)');
 {
@@ -307,7 +309,7 @@ console.log('\n[1b] Ground truth: the foot point on the deformed mesh (needs ass
     const idleFloor = quarterFrameFloorMin(doc, bin, 'idle');
     const walkFloor = quarterFrameFloorMin(doc, bin, 'walk');
     const runFloor = quarterFrameFloorMin(doc, bin, 'run');
-    console.log(`      floor_min (quarter-frame, deformed mesh): idle ${f(idleFloor * 1000, 2)} mm, walk ${f(walkFloor * 1000, 2)} mm, run ${f(runFloor * 1000, 2)} mm (never played)`);
+    console.log(`      floor_min (quarter-frame, deformed mesh): idle ${f(idleFloor * 1000, 2)} mm, walk ${f(walkFloor * 1000, 2)} mm, run ${f(runFloor * 1000, 2)} mm (flee clip)`);
     check('idle: foot point |y| < 5 mm (no float, no sink)', Math.abs(idleFloor) < 0.005, `${f(idleFloor * 1000, 2)} mm`);
     // walk's own stance-phase toe dig (push-off, bone unrealMiddleToe2_R in
     // the unmodified source) reaches -10.1 mm natively -- that is not a
@@ -315,8 +317,8 @@ console.log('\n[1b] Ground truth: the foot point on the deformed mesh (needs ass
     // sanity floor catches a regressed/renewed shift bug.
     check('walk: does not float (foot point <= 5 mm above ground)', walkFloor <= 0.005, `${f(walkFloor * 1000, 2)} mm`);
     check('walk: no runaway sink either (foot point >= -20 mm)', walkFloor >= -0.02, `${f(walkFloor * 1000, 2)} mm`);
-    // run is intentionally left ungrounded (never played: flees:false, aggro:false).
-    check('run: keeps its own native dip (unplayed, not re-grounded)', runFloor < -0.03, `${f(runFloor * 1000, 2)} mm`);
+    // N2: run is used by fleeing and must no longer sink by its old -43 mm dip.
+    check('run: foot point |y| < 5 mm too (flee uses run)', Math.abs(runFloor) < 0.005, `${f(runFloor * 1000, 2)} mm`);
   }
 }
 
@@ -412,7 +414,7 @@ function einzelnes(peer: Vector3, ring: number, ueberschreibe: Partial<SpawnEntr
   return { ...w, zdo };
 }
 
-console.log("\n[2b] The `anim` member follows the movement; the hen walks at its walk speed");
+console.log("\n[2b] The `anim` member follows movement: walk while wandering, run while fleeing");
 {
   const peer = { ...wiese };
   const { spawns, zdo } = einzelnes(peer, 20);
@@ -442,13 +444,13 @@ console.log("\n[2b] The `anim` member follows the movement; the hen walks at its
   const mittel = geschw.reduce((s, g) => s + g, 0) / Math.max(1, geschw.length);
   console.log(`      300 s simulated: ${walkTicks} walk ticks, ${idleTicks} idle ticks, states seen: ${[...zustaende].join(',')}`);
   check('the hen both stands and walks', walkTicks > 100 && idleTicks > 100, `walk ${walkTicks}, idle ${idleTicks}`);
-  check('only idle and walk ever appear (no run, no attack)', [...zustaende].every((z) => z === 'idle' || z === 'walk'), [...zustaende].join(','));
+  check('only idle and walk appear while the peer stays outside flee distance', [...zustaende].every((z) => z === 'idle' || z === 'walk'), [...zustaende].join(','));
   check('it moves ONLY while `anim` says walk', bewegtOhneWalk === 0, `${bewegtOhneWalk} moving ticks without walk`);
   check('`anim` says walk only while it moves (allowing the turn-around tick)', walkOhneBewegung <= 30, `${walkOhneBewegung} of ${walkTicks} walk ticks without movement`);
   check(`ground speed while walking = walkSpeed ${walk} m/s (mean of ${geschw.length} steps)`, Math.abs(mittel - walk) < 0.05, `${f(mittel, 3)} m/s`);
 }
 
-console.log('\n[2c] The hen never attacks (peer one metre away, 60 s)');
+console.log('\n[2c] The hen flees like the deer and never attacks (peer one metre away, 60 s)');
 {
   const peer = { ...wiese };
   const huhn = einzelnes(peer, 1, { wanderRadius: 0, idleMinSec: 999, idleMaxSec: 999 });
@@ -457,13 +459,16 @@ console.log('\n[2c] The hen never attacks (peer one metre away, 60 s)');
   huhn.spawns.onCreatureAttack = () => {
     schlaege++;
   };
-  let minAbstand = abstand0;
+  let maxAbstand = abstand0;
+  const zustaende = new Set<string>();
   for (let i = 0; i < 600; i++) {
     huhn.spawns.update(0.1, [peer]);
-    minAbstand = Math.min(minAbstand, dist2d(huhn.zdo.position, peer));
+    maxAbstand = Math.max(maxAbstand, dist2d(huhn.zdo.position, peer));
+    zustaende.add(huhn.zdo.getString(ANIM_MEMBER));
   }
-  check('hen: stands 1 m from the peer for 60 s (closest ' + f(minAbstand) + ' m, inside the 2.4 m strike radius)', minAbstand <= 2.4, `start ${f(abstand0)} m`);
-  check('hen: 0 strikes in 60 s (a hostile creature would strike ~30 times)', schlaege === 0, `${schlaege} strikes`);
+  check('hen: starts inside flee distance 10 m', abstand0 < 10, `start ${f(abstand0)} m`);
+  check('hen: flees beyond calm distance 40 m and uses run', maxAbstand > 40 && zustaende.has('run'), `max ${f(maxAbstand)} m, states ${[...zustaende].join(',')}`);
+  check('hen: 0 strikes in 60 s despite starting inside the 2.4 m strike radius', schlaege === 0, `${schlaege} strikes`);
   check('hen: HP untouched (10)', huhn.zdo.getInt(HEALTH_MEMBER) === 10);
 }
 
@@ -616,29 +621,27 @@ async function main(): Promise<void> {
       return { schlaege, hpReihe, fleisch: beute() - fleischVorher, meldung: meldungen.filter((m) => m.includes('besiegt')).slice(-1)[0] ?? '' };
     }
 
-    // [3a] Hen next to the player: no damage to the player.
-    console.log('\n[3a] Hen next to the player: no damage (real server tick)');
+    // [3a] Hen next to the player: it flees and causes no damage.
+    console.log('\n[3a] Hen next to the player: flees, no damage (real server tick)');
     let mitte = await neuerPlatz(geoAnker);
     const ruhehuhn = setze(vorn(mitte, 1.2));
     const hp0 = peer.health;
-    let naheMs = 0;
     const ende = performance.now() + 15_000;
-    let letzt = performance.now();
     const animGesehen = new Set<string>();
+    let maxAbstand = dist2d(ruhehuhn.position, mitte);
     while (performance.now() < ende) {
-      if (dist2d(ruhehuhn.position, mitte) > 1.8) server.zdos.updateZDOZone(ruhehuhn, { ...vorn(mitte, 1.2), y: ruhehuhn.position.y });
-      if (dist2d(ruhehuhn.position, mitte) <= 2.4) naheMs += performance.now() - letzt;
+      maxAbstand = Math.max(maxAbstand, dist2d(ruhehuhn.position, mitte));
       animGesehen.add(ruhehuhn.getString(ANIM_MEMBER));
-      letzt = performance.now();
       await warte(50);
     }
     check(
-      `hen within the 2.4 m strike radius for ${f(naheMs / 1000, 1)} s of 15 s: player HP ${hp0} -> ${peer.health}`,
-      naheMs > 12_000 && peer.health === hp0 && ruhehuhn.getInt(HEALTH_MEMBER) === 10,
-      `HP ${peer.health}`
+      `hen fled to ${f(maxAbstand)} m in 15 s and player HP stayed ${hp0} -> ${peer.health}`,
+      maxAbstand > 20 && peer.health === hp0 && ruhehuhn.getInt(HEALTH_MEMBER) === 10,
+      `HP ${peer.health}, states ${[...animGesehen].join(',')}`
     );
-    check('hen: anim member only idle/walk on the real server', [...animGesehen].every((a) => a === 'idle' || a === 'walk'), [...animGesehen].join(','));
+    check('hen: anim member includes run and never attack on the real server', animGesehen.has('run') && !animGesehen.has('attack'), [...animGesehen].join(','));
     server.zdos.destroyZDO(ruhehuhn.zdoid);
+
 
     // [3b] Hen: hits to kill and loot, per weapon.
     console.log('\n[3b] Hen: hits to kill and loot');

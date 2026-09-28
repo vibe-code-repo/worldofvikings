@@ -77,4 +77,10 @@ equip(female.appearance);assert.deepEqual(decodeArmor(peer.ruestung),female.appe
 peer.figur='wikinger';server.inventarSync(peer);assert.equal(peer.ruestung,'|');
 assert.equal(peer.inventar.all.length,14,'Changing body must retain, not delete, incompatible owned items');
 peer.ruestung=encodeArmor(female.appearance);server.inventarSync(peer);assert.equal(peer.ruestung,'|');
+const leatherPeer={name:'LeatherProfileTest',figur:'wikingerin',frisur:'H_02',haarfarbe:'mittelbraun',ruestung:encodeArmor({oberkoerper:'leder_bh',beine:'leder_shorts'}),inventar:new Inventory(),sendPacketWith:()=>{}};
+leatherPeer.inventar.addItem(findItem('LederBH')!,1);leatherPeer.inventar.addItem(findItem('LederShorts')!,1);
+server.inventarSync(leatherPeer);assert.deepEqual(decodeArmor(leatherPeer.ruestung),{oberkoerper:'leder_bh',beine:'leder_shorts'},'Wikingerin login repair must keep equipped leather starter items');
+assert(leatherPeer.inventar.all.every(i=>i.equipped),'Wikingerin leather starter items must remain equipped after inventory sync');
+leatherPeer.figur='wikinger';server.inventarSync(leatherPeer);assert.equal(leatherPeer.ruestung,'|','Wikinger login repair must unequip female-only leather starter items');
+assert.equal(leatherPeer.inventar.all.length,2,'Unequipping incompatible leather starter items must keep the owned inventory entries');
 console.log('PASS armor body variants: registry, mixed sets, ownership, login repair and no item deletion');

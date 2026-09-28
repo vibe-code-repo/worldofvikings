@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { canWearArmor, FEMALE_ARMOR_BODY, RUESTUNG } from '@wov/shared';
+import { canWearArmor, FEMALE_ARMOR_BODY, findItem, RUESTUNG, ruestungZu } from '@wov/shared';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const bodyPath = join(root, 'assets/models/wikingerin/WikingerinKoerper.glb');
@@ -64,3 +64,24 @@ assert(canWearArmor(FEMALE_ARMOR_BODY, 'wikingerin'), 'the new profile must be w
 assert(!canWearArmor({ ...FEMALE_ARMOR_BODY, bodyProfile: 'legacy-female-v1' }, 'wikingerin'),
   'the retired legacy-female-v1 profile must no longer be wearable, even for the same figure/variant');
 console.log('PASS: canWearArmor accepts wov-female-v1 and rejects the retired legacy-female-v1 for the Wikingerin');
+
+
+const leatherProfiles = [
+  { id: 'leder_bh', item: 'LederBH' },
+  { id: 'leder_shorts', item: 'LederShorts' },
+];
+for (const { id, item } of leatherProfiles) {
+  const appearance = ruestungZu(id);
+  const inventoryItem = findItem(item);
+  assert(appearance, `${id}: missing appearance armor entry`);
+  assert(inventoryItem, `${item}: missing inventory item entry`);
+  assert.equal(appearance.bodyProfile, FEMALE_ARMOR_BODY.bodyProfile,
+    `${id}: appearance entry must use the current female armor profile`);
+  assert.equal(inventoryItem.bodyProfile, FEMALE_ARMOR_BODY.bodyProfile,
+    `${item}: inventory item entry must use the current female armor profile`);
+  assert(canWearArmor(appearance, 'wikingerin'), `${id}: Wikingerin must be able to wear the leather appearance part`);
+  assert(canWearArmor(inventoryItem, 'wikingerin'), `${item}: Wikingerin must be able to wear the leather inventory item`);
+  assert(!canWearArmor(appearance, 'wikinger'), `${id}: Wikinger must not be able to wear the female leather part`);
+  assert(!canWearArmor(inventoryItem, 'wikinger'), `${item}: Wikinger must not be able to wear the female leather item`);
+}
+console.log('PASS: leather_bh and leather_shorts use the current female profile and stay Wikingerin-only');

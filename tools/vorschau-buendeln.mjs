@@ -51,7 +51,11 @@ const AUS = argv.includes('--aus')
 console.log('Typen pruefen …');
 execFileSync(resolve(WURZEL, 'node_modules/.bin/tsc'), [
   '--noEmit', '--skipLibCheck', '--strict',
-  '--target', 'es2020', '--module', 'esnext', '--moduleResolution', 'bundler',
+  // target/lib wie die Wurzel-tsconfig (ES2022): shared/src/texte.ts nutzt
+  // Object.hasOwn (ES2022). es2020 liess den Typpruefer hier mit TS2550
+  // scheitern, waehrend der Rest des Repos (Wurzel/client/server: ES2022)
+  // gruen baute. Der Default-Lib-Satz enthaelt DOM weiterhin (window etc.).
+  '--target', 'es2022', '--module', 'esnext', '--moduleResolution', 'bundler',
   resolve(WURZEL, 'tools/web/vorschau-web.ts'),
 ], { stdio: 'inherit' });
 

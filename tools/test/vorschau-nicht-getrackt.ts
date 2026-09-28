@@ -106,7 +106,11 @@ const IM_KAEFIG = process.env.WOV_KAEFIG === '1';
  * of SUDO_UMGEBUNG (each checked against NAME_OK). The caller's PATH, LD_PRELOAD, NODE_OPTIONS never get through.
  */
 const NAME_OK = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const SUDO_UMGEBUNG = ['HOME', 'CI', 'WOV_KAEFIG', 'TMPDIR'];
+const SUDO_UMGEBUNG = [
+  'HOME', 'CI', 'WOV_KAEFIG', 'TMPDIR',
+  // The rollout witness must inherit these on the sudo path too, before sanitizing them.
+  'WOV_HEAD_VOR_MERGE', 'WOV_UPDATE_VORHER', 'WOV_UPDATE_STUFE2',
+];
 const SUDO_PFAD = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 const SUDO_WERKZEUGE = { env: '/usr/bin/env', setpriv: '/usr/bin/setpriv', unshare: '/usr/bin/unshare' };
 
@@ -180,11 +184,17 @@ if (!IM_KAEFIG) {
       env: K57_UPDATE_UMGEBUNG,
       maxBuffer: 256 * 1024 * 1024,
       timeout: 300_000,
+      // PID 1 in a PID namespace may ignore SIGTERM; unshare --kill-child reaps the cage.
+      killSignal: 'SIGKILL',
     });
+    const witnessOutput = `${k57Lauf.stdout ?? ''}\n${k57Lauf.stderr ?? ''}`;
+    const redLines = witnessOutput.split(/\r?\n/).filter((line) => /^\s*ROT\s/.test(line));
     pruefe(
-      k57Lauf.status === 0 && !/ROT {2}N8 \(I-1\)/.test(k57Lauf.stdout ?? ''),
+      k57Lauf.status === 0 && redLines.length === 0,
       'K5.7: dieser Test bleibt gruen, wenn er (wie im echten Rollout) mit WOV_HEAD_VOR_MERGE/WOV_UPDATE_VORHER/WOV_UPDATE_STUFE2 in der ererbten Umgebung startet',
-      `rc=${k57Lauf.status} ${(k57Lauf.stdout ?? '').slice(-2000)}${(k57Lauf.stderr ?? '').slice(-500)}`,
+      // Details may continue after a ROT line (for example the inherited environment).
+      // Keep both complete streams on failure rather than truncating the decisive values.
+      `rc=${k57Lauf.status} signal=${k57Lauf.signal} error=${k57Lauf.error?.message ?? 'none'}\n${witnessOutput}`,
     );
     if (fehler > 0) {
       console.error(`\n${fehler} Pruefung(en) rot (K5.7-Zeuge).`);
@@ -1208,7 +1218,8 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
       serverPidDatei?: string; // literaler Inhalt statt der echten Kind-PID (fuer "0"/leer)
       adminPidDatei?: string;
       adminPidVerzoegert?: number; // Sekunden, nach denen die echte admin-PID erst geschrieben wird (Neustart-Luecke)
-      frist?: string; // WOV_WELT_MAINPID_FRIST (nur mit WOV_KAEFIG=1 wirksam -- hier immer der Fall, s.o.)
+      frist?: string; // WOV_WELT_MAINPID_FRIST; lauf() explicitly supplies its required cage mark.
+      virtualClock?: boolean; // Exercise the real deadline loop without wall-clock/load assertions.
       vorher?: string; // WOV_UPDATE_VORHER, fuer den Rueckweg-Text im Logger
       gestartet?: string[]; // N6 (N5-2): GESTARTET-Inhalt selbst vorgeben; Vorgabe (wov-server wov-admin) wie bisher
     }
@@ -1264,12 +1275,17 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
       } else if (opt.adminPidDatei !== undefined) {
         zeilen.push(`echo "${opt.adminPidDatei}" > "${zustand}/wov-admin.service.MainPID"`);
       }
+      if (opt.virtualClock) {
+        // Unsetting Bash's special SECONDS removes its clock semantics. The production loop
+        // still runs unchanged, but each requested sleep advances a deterministic logical clock.
+        zeilen.push('unset SECONDS; SECONDS=0', 'sleep() { SECONDS=$((SECONDS + $1)); echo "CLOCK_WAIT=$1" >&2; }');
+      }
       zeilen.push('gesundheit_pruefen', 'echo GESUND_OK');
       const skript = zeilen.filter((z) => z !== '').join('\n');
       const r = spawnSync(bash, ['-c', skript], {
         cwd: wurzel,
         encoding: 'utf8',
-        env: { ...SAUBERE_UMGEBUNG, PATH: `${fakeBin}:${process.env.PATH ?? ''}`, ...(opt.frist ? { WOV_WELT_MAINPID_FRIST: opt.frist } : {}), ...(opt.vorher ? { WOV_UPDATE_VORHER: opt.vorher } : {}) },
+        env: { ...SAUBERE_UMGEBUNG, WOV_KAEFIG: '1', PATH: `${fakeBin}:${process.env.PATH ?? ''}`, ...(opt.frist ? { WOV_WELT_MAINPID_FRIST: opt.frist } : {}), ...(opt.vorher ? { WOV_UPDATE_VORHER: opt.vorher } : {}) },
       });
       const journal = existsSync(loggerLog) ? readFileSync(loggerLog, 'utf8') : '';
       return { ...r, journal };
@@ -1342,7 +1358,14 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
     });
     const erholtDauer = Date.now() - startZeit;
     pruefe(erholtSich.status === 0 && erholtSich.stdout.includes('GESUND_OK') && erholtDauer >= 1500, 'N4-6: MainPID von wov-admin ist zunaechst leer und wird erst nach ~2s gueltig: die Nachpruefung wartet (mind. 1,5s gemessen) und wird dann gruen, kein sofortiger Abbruch', `rc=${erholtSich.status} dauer=${erholtDauer}ms ${erholtSich.stdout} ${erholtSich.stderr}`);
+    const deadlineProbe = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1', { adminEnv: null, frist: '1', virtualClock: true });
+    const waitedSeconds = [...deadlineProbe.stderr.matchAll(/^CLOCK_WAIT=(\d+)$/gm)].reduce((sum, match) => sum + Number(match[1]), 0);
+    pruefe(deadlineProbe.status === 1 && waitedSeconds === 1 && deadlineProbe.stderr.includes('wov-admin hat keine MainPID') && ende(deadlineProbe),
+      'N1/B2: the cage deadline requests exactly one second, not the production ten-second fallback',
+      `rc=${deadlineProbe.status} requestedSeconds=${waitedSeconds} ${deadlineProbe.stderr}`);
+    const deadlineStart = Date.now();
     const nieBereit = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1', { adminEnv: null, frist: '1' });
+    console.log(`N1/B2 real deadline elapsed=${Date.now() - deadlineStart}ms`);
     pruefe(nieBereit.status === 1 && !nieBereit.stdout.includes('GESUND_OK') && nieBereit.stderr.includes('wov-admin hat keine MainPID'), 'N4-6: wov-admin bleibt ohne MainPID (kein Prozess): nach der Frist ein klarer Fehler, kein stilles Uebergehen', `rc=${nieBereit.status} ${nieBereit.stderr}`);
 
     const keinPid = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1', { adminEnv: ['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], serverPidDatei: '0', frist: '1' });

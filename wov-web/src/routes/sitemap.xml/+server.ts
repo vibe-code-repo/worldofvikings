@@ -1,4 +1,5 @@
-import { DEFAULT_LOCALE, LOCALES, localizedPath } from '$lib/i18n';
+import { sitemapAdresse, X_DEFAULT_ADRESSE } from '$lib/basisDomains';
+import { LOCALES } from '$lib/i18n';
 import { SITEMAP } from '$lib/seiten';
 
 /**
@@ -23,27 +24,29 @@ import { SITEMAP } from '$lib/seiten';
  * `robots.txt` bleibt unverändert: eine gemeinsame Sitemap für beide
  * Sprachen ist richtig, getrennte wären zwei Dateien, die auseinanderlaufen
  * können.
+ *
+ * ── Zwei Heimat-Domains statt einer (Karte D1) ────────────────────────
+ * Jede Sprachfassung trägt ihre eigene Heimat-Domain ein
+ * (`sitemapAdresse`/`basisDomains.ts`): /de auf world-of-mmorpg.de, /en auf
+ * world-of-mmorpg.com — unabhängig davon, über welche der beiden
+ * gleichwertigen Domains diese Datei selbst ausgeliefert wird. `x-default`
+ * ist auf JEDEM Eintrag dieselbe eine Adresse (`X_DEFAULT_ADRESSE`, wie in
+ * `Kopfdaten.svelte`): die Sprachweiche unter `/`, NICHT eine je Eintrag
+ * lokalisierte Fassung — Mikes ausdrückliche Vorgabe (Angriffsbefund M2).
  */
 export const prerender = true;
-
-const URSPRUNG = 'https://world-of-vikings.com';
-
-/** Volle Adresse eines sprachlosen Pfads in einer Sprache. */
-function adresse(sprache: (typeof LOCALES)[number], pfad: string): string {
-  return URSPRUNG + localizedPath(sprache, pfad);
-}
 
 export function GET() {
   const eintraege = SITEMAP.flatMap((pfad) => {
     const alternates = [
-      ...LOCALES.map((l) => `hreflang="${l}" href="${adresse(l, pfad)}"`),
-      `hreflang="x-default" href="${adresse(DEFAULT_LOCALE, pfad)}"`,
+      ...LOCALES.map((l) => `hreflang="${l}" href="${sitemapAdresse(l, pfad)}"`),
+      `hreflang="x-default" href="${X_DEFAULT_ADRESSE}"`,
     ]
       .map((a) => `    <xhtml:link rel="alternate" ${a} />`)
       .join('\n');
 
     return LOCALES.map(
-      (l) => `  <url>\n    <loc>${adresse(l, pfad)}</loc>\n${alternates}\n  </url>`,
+      (l) => `  <url>\n    <loc>${sitemapAdresse(l, pfad)}</loc>\n${alternates}\n  </url>`,
     );
   }).join('\n');
 

@@ -121,6 +121,8 @@ Sie liegen jetzt in `admin/` (Port 2468). Auf dev proxyt Vite dorthin, auf live 
 
 Die Passwortabfrage hängt im Proxy am **Host**, nicht am Pfad. Deshalb sperrt in `deploy/nginx-live.conf` eine `map $host`-Weiche `/editor.html` und `/api/` auf allem außer dem Editor-Host — sonst wären beide über `play.*` ohne Passwort erreichbar.
 
+Karte D1 (Zweitdomains): `world-of-mmorpg.com` und `world-of-mmorpg.de` bekommen dieselben vier Rollen ein zweites Mal (`play.`/`editor.` je Domain, dieselbe `map`-Weiche in `deploy/nginx-live.conf`), sobald Teil 3 (NPM-Proxy-Hosts, Zertifikate) ausgeführt ist — die Tabelle oben beschreibt den heutigen, noch nicht umgestellten Stand.
+
 ### Ausrollen
 
 `tools/wov-update.sh` ersetzt seit 16.08.2026 `tools/deploy.sh` (gelöscht). Ablauf: `/etc/wov.env` lesen → **Abbruch bei schmutzigem Arbeitsbaum** → `git pull --ff-only origin main` → Dienste stoppen → `npm ci --include=dev` → Typecheck und Tests → auf live zusätzlich Client-Build nach `dist.neu` mit anschließendem Tausch → Dienste starten → Gesundheitsprüfung bis 120 s auf HTTP 426.

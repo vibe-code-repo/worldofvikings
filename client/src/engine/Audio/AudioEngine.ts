@@ -111,7 +111,13 @@ export class AudioEngine {
 
     let engine: AudioEngineV2;
     try {
-      engine = await CreateAudioEngineAsync({ resumeOnInteraction: false });
+      // listenerEnabled defaults to false (Babylon 9.28) — without it the
+      // listener's position/rotation never reach the real AudioContext
+      // listener, so every spatial sound's distance attenuation (which
+      // Babylon's native PannerNode computes against that listener when
+      // panning is on) is computed against the origin instead of the
+      // camera. Verified against a real AudioContext, not documentation.
+      engine = await CreateAudioEngineAsync({ resumeOnInteraction: false, listenerEnabled: true });
     } catch (err) {
       automaton.buildupFailed();
       throw err;
@@ -170,7 +176,18 @@ export class AudioEngine {
     // per-instance) — acceptable for the one-shots this drives; concurrent
     // overlapping plays of the very same clip will share the newest jitter.
     sound.playbackRate = 1 + (Math.random() * 2 - 1) * PITCH_JITTER;
-    if (options.position) sound.spatial.position.copyFrom(options.position);
+    if (options.position) {
+      // Re-applied on every play, not just once at load: setting these
+      // right after createSoundAsync() resolves is a race against the
+      // spatial subnode's own (unawaited) async creation and silently
+      // keeps Babylon's defaults (linear, minDistance 1) — verified
+      // against a real AudioContext. By play time the subnode reliably
+      // exists.
+      sound.spatial.distanceModel = 'inverse';
+      sound.spatial.minDistance = WORLD_MIN_DISTANCE;
+      sound.spatial.rolloffFactor = WORLD_ROLLOFF_FACTOR;
+      sound.spatial.position.copyFrom(options.position);
+    }
     sound.play({ loop: options.loop ?? false });
   }
 
@@ -242,14 +259,7 @@ export class AudioEngine {
     if (!pending) {
       const entry = this.manifest[name];
       if (!entry) throw new Error(`Unknown audio clip '${name}'`);
-      const spatial = bus === 'world';
-      pending = this.engine.createSoundAsync(name, `${AUDIO_BASE_URL}${entry.file}`, {
-        outBus: this.buses[bus],
-        spatialEnabled: spatial,
-        spatialMinDistance: WORLD_MIN_DISTANCE,
-        spatialRolloffFactor: WORLD_ROLLOFF_FACTOR,
-        spatialDistanceModel: 'inverse',
-      });
+      pending = this.engine.createSoundAsync(name, `${AUDIO_BASE_URL}${entry.file}`, { outBus: this.buses[bus] });
       this.clipCache.set(name, pending);
     }
     return pending;

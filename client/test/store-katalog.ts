@@ -74,7 +74,7 @@ const kategorieNachPfad = new Map(prefabs.prefabs.map((p) => [p.asset, p.categor
 
 /*
   Ton und Symbole (Bauer B1, 28.09.2026): `assets/manifest.json` ergänzt
-  die 280 Töne und 353 UI-Bilder, die der Store-Speicher selbst nicht
+  die 281 Töne und 353 UI-Bilder, die der Store-Speicher selbst nicht
   führt — s. Kopfkommentar von `mitTonUndSymbolenErgaenzen`. Die Datei
   ist GETRACKT (die eine Ausnahme in `.gitignore` unter `assets/`) und
   liegt deshalb in jedem Checkout, auch ohne `assets/store` — fehlen ihr

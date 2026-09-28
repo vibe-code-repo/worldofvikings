@@ -88,7 +88,7 @@ const prefabs = JSON.parse(readFileSync(join(STORE, 'prefabs.json'), 'utf8')) as
 };
 /*
   Ton und Symbole: STORE_KATALOG führt seit Bauer B1 auch die Einträge
-  aus `assets/manifest.json` (280 Töne, 353 UI-Bilder), die der
+  aus `assets/manifest.json` (281 Töne, 353 UI-Bilder), die der
   Store-Speicher selbst nicht kennt — ohne diese Ergänzung stünden sie
   hier als "ohne Manifest" da, obwohl sie es nur über die zweite Quelle
   sind. `assets/manifest.json` ist GETRACKT und liegt deshalb immer vor.

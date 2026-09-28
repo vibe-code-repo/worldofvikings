@@ -2315,6 +2315,27 @@ const KERN = [
   ['server', 'test/wolf-rudel-begrenzung.ts'],
   ['server', 'test/wolf-zielschaden.ts'],
   ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
+  /*
+    Karte D1 (Zweitdomains/Ablösung): die gemeinsame Ursprungs-Liste von
+    KontoApi.ts und ForumApi.ts (world-of-mmorpg.com/.de, world-of-vikings.com
+    während der Übergangszeit), dazu feindliche Ursprünge mit Präfix-/
+    Suffix-Treffer (Angriffsbefund M5) — echtes HTTP für KontoApi,
+    Fake-Request für ForumApi, kein assets/, keine GPU.
+  */
+  ['server/test', 'website-urspruenge.ts'],
+  /*
+    Karte D1, Angriffsbefund F2: Textnachweis über deploy/nginx-live.conf —
+    der $editor_host-Schalter kennt jede produktive Editor-Domain. Liest
+    nur Text, ~0.1 s.
+  */
+  ['tools/test', 'nginx-live-editor-host.ts'],
+  /*
+    Karte D1, Angriffsbefund E2: die Weiterleitungsvorlage
+    (deploy/npm-weiterleitung-vikings.conf) bildet dieselbe Regel ab wie
+    wov-web/src/lib/basisDomains.ts (weiterleitungsZielVikings). Liest nur
+    Text, ~0.1 s.
+  */
+  ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

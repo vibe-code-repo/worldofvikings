@@ -1,5 +1,6 @@
-import { de } from './de';
-import { en } from './en';
+import { inhaltText, type InhaltSchluessel } from '@wov/shared';
+import de from './katalog/de.json';
+import en from './katalog/en.json';
 
 const CATALOGUES = { de, en } as const;
 
@@ -10,8 +11,23 @@ export type TranslationVars = Readonly<Record<string, string | number>>;
 export const GAME_LOCALES = Object.keys(CATALOGUES) as GameLocale[];
 const STORAGE_KEY = 'wov-language';
 
+/**
+ * Typwaechter (F1): Der typecheck faellt aus, wenn `en` gegenueber `de`
+ * einen Schluessel zu viel ODER zu wenig hat. Der Laufzeittest
+ * `shared/test/i18n-katalog.ts` prueft dieselbe Zusicherung im Rohtext;
+ * hier haelt sie zusaetzlich schon den Typweg an, bevor der Katalog
+ * ueberhaupt geladen wird. `satisfies` auf ein importiertes JSON-Modul
+ * macht keinen Excess-Property-Check (das JSON ist keine Objektliteral-
+ * Syntax mehr), deshalb der explizite Vergleich in beide Richtungen.
+ */
+type KeineUeberzaehligenSchluesselInEn =
+  [Exclude<keyof typeof en, keyof typeof de>] extends [never] ? true : never;
+type KeinFehlenderSchluesselInEn =
+  [Exclude<keyof typeof de, keyof typeof en>] extends [never] ? true : never;
+const _katalogSchluesselGleich: KeineUeberzaehligenSchluesselInEn & KeinFehlenderSchluesselInEn = true;
+
 export function isGameLocale(value: string | null | undefined): value is GameLocale {
-  return value != null && value in CATALOGUES;
+  return value != null && Object.hasOwn(CATALOGUES, value);
 }
 
 function storedLocale(): GameLocale | null {
@@ -47,6 +63,16 @@ export class GameI18n {
     return CATALOGUES[this.current][key].replace(/\{([^}]+)\}/g, (token, name: string) =>
       Object.hasOwn(variables, name) ? String(variables[name]) : token
     );
+  }
+
+  /**
+   * Inhaltstexte (F4, Namensraum `inhalt.*`): Items, NPCs und Ruestungssets
+   * liegen nicht im Client-Katalog, sondern in `shared/data/texte`. Der
+   * Schluesseltyp `InhaltSchluessel` haelt Tippfehler schon beim
+   * Uebersetzen an, `inhaltText()` traegt den Sprach-Rueckfall.
+   */
+  tInhalt(key: InhaltSchluessel): string {
+    return inhaltText(key, this.current);
   }
 
   setLanguage(language: GameLocale): void {

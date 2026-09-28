@@ -2309,6 +2309,10 @@ const KERN = [
   // ... N2: vergleiche() (Editor) prueft heightDeltas INHALTLICH (entfernt/geaendert = schwer, nicht nur die
   // Punktzahl); DOM-frei.
   ['client', 'test/welt-abgleich-hoehenkorrektur.ts'],
+  // Karte M1: Vollstaendigkeitstest der Uebersetzungskataloge (client/src/i18n/katalog
+  // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
+  // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
+  ['shared', 'test/i18n-katalog.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

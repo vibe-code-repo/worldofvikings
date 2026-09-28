@@ -6,6 +6,7 @@ import { AutoplayAutomaton, type AutoplayState } from './AutoplayAutomaton';
 import {
   readAudioManifest,
   groupByBus,
+  BACKGROUND_MUSIC_NAME,
   type AudioBusName,
   type AudioManifest,
   type AudioManifestEntry,
@@ -13,8 +14,8 @@ import {
 import { audibleRadius } from './AudibleRadius';
 import { syncListenerPosition, type CameraPositionLike } from './ListenerSync';
 import { isPlaybackAllowed } from './PlaybackGate';
+import { loadWithWarnOnce } from './ClipLoader';
 
-const AUDIO_BASE_URL = '/assets/audio/';
 const MANIFEST_URL = '/assets/manifest.json';
 
 /** Default bus volumes for as long as no player setting exists (none do today, see karte B2). */
@@ -58,7 +59,8 @@ export class AudioEngine {
   private readonly buses: Record<AudioBusName, AudioBus>;
   private readonly manifest: Record<string, AudioManifestEntry>;
   private readonly groups: Record<AudioBusName, Map<string, string[]>>;
-  private readonly clipCache = new Map<string, Promise<StaticSound>>();
+  private readonly clipCache = new Map<string, Promise<StaticSound | null>>();
+  private readonly failedClipsWarned = new Set<string>();
   private readonly shuffleBags = new Map<string, ShuffleBag<string>>();
   private readonly camera: CameraPositionLike;
   private muted: boolean;
@@ -100,6 +102,12 @@ export class AudioEngine {
     return this.muted;
   }
 
+  /**
+   * Builds the engine and arms the first-gesture unlock. The caller
+   * (client/src/main.ts) must attach a `.catch` — a rejection here
+   * (no audio device, too many AudioContexts, …) leaves the game
+   * running without sound rather than crashing it.
+   */
   static async create(
     scene: Scene,
     camera: CameraPositionLike,
@@ -111,12 +119,14 @@ export class AudioEngine {
 
     let engine: AudioEngineV2;
     try {
-      // listenerEnabled defaults to false (Babylon 9.28) — without it the
-      // listener's position/rotation never reach the real AudioContext
-      // listener, so every spatial sound's distance attenuation (which
-      // Babylon's native PannerNode computes against that listener when
-      // panning is on) is computed against the origin instead of the
-      // camera. Verified against a real AudioContext, not documentation.
+      // listenerEnabled only decides eager vs. lazy creation of the
+      // listener (webAudioEngine.js: `_HasSpatialAudioListenerOptions`
+      // gates an eager create+setOptions in _initAsync; otherwise the
+      // `get listener()` getter creates it lazily on first access, with
+      // the same auto-update default). AudioEngine touches
+      // engine.listener every frame regardless (syncListenerPosition
+      // below), so the lazy path would work too — this is set
+      // explicitly for clarity, not because it changes behaviour.
       engine = await CreateAudioEngineAsync({ resumeOnInteraction: false, listenerEnabled: true });
     } catch (err) {
       automaton.buildupFailed();
@@ -156,8 +166,9 @@ export class AudioEngine {
   /**
    * Plays the next clip from the (bus, group) shuffle bag. No-op before
    * 'unlocked' and while muted — nothing is queued for later, per karte B2.
-   * `group` defaults to a manifest entry's own name when it has no
-   * explicit `group` (see AudioManifest.groupByBus).
+   * A clip that fails to load (404, decode error) warns once (see
+   * loadClip) and is otherwise silently skipped — never an unhandled
+   * rejection and never a thrown error out of this method.
    */
   async playAsync(bus: AudioBusName, group: string, options: PlayOptions = {}): Promise<void> {
     if (this.disposed || !isPlaybackAllowed(this.automaton.current, this.muted)) return;
@@ -171,18 +182,25 @@ export class AudioEngine {
     }
     const clipName = bag.next();
     const sound = await this.loadClip(clipName, bus);
-    if (this.disposed) return;
+    if (this.disposed || !sound) return;
     // Shared across a clip's instances (StaticSound stores playbackRate, not
     // per-instance) — acceptable for the one-shots this drives; concurrent
     // overlapping plays of the very same clip will share the newest jitter.
     sound.playbackRate = 1 + (Math.random() * 2 - 1) * PITCH_JITTER;
     if (options.position) {
-      // Re-applied on every play, not just once at load: setting these
-      // right after createSoundAsync() resolves is a race against the
-      // spatial subnode's own (unawaited) async creation and silently
-      // keeps Babylon's defaults (linear, minDistance 1) — verified
-      // against a real AudioContext. By play time the subnode reliably
-      // exists.
+      // Set here, at play time, rather than once at creation: the
+      // spatial subnode is created lazily on the first `sound.spatial`
+      // access (Babylon does this whenever a sound isn't given spatial
+      // options at createSoundAsync() time, which loadClip() doesn't),
+      // and a fresh subnode starts at Babylon's own defaults (linear
+      // model, minDistance 1) regardless of what was assigned before it
+      // existed. Position self-heals every frame via Babylon's own
+      // updater once the subnode exists; distanceModel/minDistance/
+      // rolloffFactor do not, so they are (re-)assigned on every play,
+      // by which point the subnode reliably already exists (loadClip()
+      // has already resolved at least once before). Verified against
+      // node_modules/@babylonjs/core/AudioV2 and a real AudioContext,
+      // not assumed from the type declarations.
       sound.spatial.distanceModel = 'inverse';
       sound.spatial.minDistance = WORLD_MIN_DISTANCE;
       sound.spatial.rolloffFactor = WORLD_ROLLOFF_FACTOR;
@@ -192,10 +210,10 @@ export class AudioEngine {
   }
 
   /**
-   * Registers a manifest entry at runtime. B1 (assets/manifest.json's
-   * future `audio` section) is the normal source; this is also how the
-   * Hörprobe measurement harness exercises the 'world' bus before B1
-   * lands, and how B3/B4 could add procedural clips later.
+   * Registers a manifest entry at runtime. `assets/manifest.json`'s
+   * `toene` section (B1) is the normal source; this is also how the
+   * Hörprobe measurement harness can add a clip on the fly, and how
+   * B3/B4 could add procedural clips later.
    */
   registerClip(name: string, entry: AudioManifestEntry): void {
     this.manifest[name] = entry;
@@ -248,18 +266,30 @@ export class AudioEngine {
 
   private startMusicIfNeeded(): void {
     if (this.musicStarted) return;
-    const [firstGroup] = this.groups.music.keys();
-    if (!firstGroup) return;
+    if (!this.groups.music.has(BACKGROUND_MUSIC_NAME)) return;
     this.musicStarted = true;
-    void this.playAsync('music', firstGroup, { loop: true });
+    void this.playAsync('music', BACKGROUND_MUSIC_NAME, { loop: true });
   }
 
-  private async loadClip(name: string, bus: AudioBusName): Promise<StaticSound> {
+  /**
+   * Resolves to `null` (after warning once per clip name) instead of
+   * rejecting when the network fetch or decode fails — a missing/broken
+   * clip must not crash playAsync() or produce an unhandled rejection
+   * (karte B2 N1, Befund B2). An unknown clip *name* (a bag entry with
+   * no matching manifest entry) is a programming error, not a runtime
+   * asset failure, and still throws.
+   */
+  private async loadClip(name: string, bus: AudioBusName): Promise<StaticSound | null> {
     let pending = this.clipCache.get(name);
     if (!pending) {
       const entry = this.manifest[name];
       if (!entry) throw new Error(`Unknown audio clip '${name}'`);
-      pending = this.engine.createSoundAsync(name, `${AUDIO_BASE_URL}${entry.file}`, { outBus: this.buses[bus] });
+      pending = loadWithWarnOnce(
+        name,
+        () => this.engine.createSoundAsync(name, entry.url, { outBus: this.buses[bus] }),
+        this.failedClipsWarned,
+        (clipName, err) => console.warn(`[audio] failed to load clip '${clipName}' (${entry.url}):`, err),
+      );
       this.clipCache.set(name, pending);
     }
     return pending;

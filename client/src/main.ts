@@ -1403,9 +1403,15 @@ async function main() {
     // Audio: one call site owns bus setup, the clip cache, and the unlock
     // gesture (B2) — needs player.camera, so it lives here and not at the
     // top of main() like the old GameAudio did.
-    void AudioEngine.create(scene, player.camera, { muted: params.has('mute') }).then((e) => {
-      audioEngine = e;
-    });
+    void AudioEngine.create(scene, player.camera, { muted: params.has('mute') })
+      .then((e) => {
+        audioEngine = e;
+      })
+      .catch((err: unknown) => {
+        // No audio device, too many AudioContexts, … — the game keeps
+        // running without sound rather than crashing (B2 N1, Befund B2).
+        console.warn('[audio] AudioEngine.create failed, playing without sound:', err);
+      });
     entities = new EntityManager(scene, world, assets, terrain);
     entities.setHundertFpsProfil(gameSettings.get().hundertFpsProfil);
     entities.setVegetationsGrenze(

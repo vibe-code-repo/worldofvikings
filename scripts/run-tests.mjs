@@ -2347,6 +2347,15 @@ const KERN = [
   // PlaybackGate -- `?mute=1` bleibt in jedem Automatenzustand stumm;
   // AudioEngine.playAsync ruft genau dieses Praedikat. Pure.
   ['client', 'test/audio-mute.ts'],
+  // Karte B2 N1 (Befund B1): AudioManifest liest B1s echten `toene`-
+  // Abschnitt (nicht das erfundene `audio`), Bus/Gruppe aus dem Pfad,
+  // Hintergrundmusik als fester Eintrag. Fixture-basiert plus
+  // Echtdaten-Teil, der übersprungen meldet, bis B1 gemergt ist.
+  ['client', 'test/audio-manifest.ts'],
+  // Karte B2 N1 (Befund B2): ein fehlschlagender Klip-Ladeversuch liefert
+  // null, warnt genau einmal je Klip, nie eine unhandled rejection
+  // (per process.on('unhandledRejection') gezählt). Pure, DOM-frei.
+  ['client', 'test/audio-clip-loader.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

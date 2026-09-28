@@ -2309,6 +2309,12 @@ const KERN = [
   // ... N2: vergleiche() (Editor) prueft heightDeltas INHALTLICH (entfernt/geaendert = schwer, nicht nur die
   // Punktzahl); DOM-frei.
   ['client', 'test/welt-abgleich-hoehenkorrektur.ts'],
+  // PR #119 N1 (Befund B4/M9): uebergebeAnKlon() gibt einen aufgegebenen
+  // Klon aus vegetationsAufgegebeneKlone frei, BEVOR es ihn per nimmAuf()
+  // anmeldet — sonst blockiert die Sperre die eigene Freigabe, und weder
+  // Klon noch (schon entfernte) Quelle wirft bis zum naechsten Neupacken.
+  // NullEngine, <1 s.
+  ['client', 'test/schatten-werfer-uebergabe-reihenfolge.ts'],
   // Karte M1: Vollstaendigkeitstest der Uebersetzungskataloge (client/src/i18n/katalog
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.

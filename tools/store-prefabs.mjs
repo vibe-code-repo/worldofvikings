@@ -74,7 +74,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { einsortieren } from '../client/src/editor/StoreKatalogDaten.ts';
+import { einsortieren, mitTonUndSymbolenErgaenzen } from '../client/src/editor/StoreKatalogDaten.ts';
 import { PrefabFlag } from '../shared/src/types.ts';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -201,8 +201,19 @@ if (!existsSync(STORE)) {
   process.exit(2);
 }
 
-const manifest = lies(join(STORE, 'manifest.json'));
+const manifestRoh = lies(join(STORE, 'manifest.json'));
 const prefabQuelle = lies(join(STORE, 'prefabs.json'));
+
+/*
+  Ton und Symbole: das Store-Manifest selbst führt nur 45 der 325 Töne
+  und kein UI-Bild (Bauer B1, 28.09.2026) — der vollständig gemessene
+  Bestand liegt in `assets/manifest.json` (`tools/asset-manifest.mjs`).
+  Ohne die Datei (älterer Checkout, `assets/manifest.json` noch nicht
+  erzeugt) bleibt das Store-Manifest unverändert.
+*/
+const ASSET_MANIFEST_PFAD = join(WURZEL, 'assets/manifest.json');
+const assetManifest = existsSync(ASSET_MANIFEST_PFAD) ? lies(ASSET_MANIFEST_PFAD) : null;
+const manifest = mitTonUndSymbolenErgaenzen(manifestRoh, assetManifest);
 
 /*
   NUR was wirklich auf der Platte liegt.
@@ -402,6 +413,7 @@ for (const a of vorhanden) {
     Ton: 'ton',
     Höhenfelder: 'terrain',
     Kulisse: 'kulisse',
+    Symbole: 'symbol',
   };
   const art = kennzeichen.includes('kollision') ? 'kollision' : ART_KENNUNG[ordnung.art];
   if (art === undefined) throw new Error(`${a.path}: unbekannte Art ${ordnung.art}`);
@@ -635,12 +647,36 @@ const katalogTeile = [
  */
 import type { StoreEintrag, StorePrefabName } from './storeKatalog.js';
 
-/** Die ${katalog.length} Einträge, nach \\\`id\\\` sortiert. */
-export const STORE_KATALOG: readonly StoreEintrag[] = [
 `,
 ];
-katalogTeile.push(katalog.map(katalogZeile).join('\n'));
+/*
+  In TEILE zerlegt (Bauer B1, 28.09.2026): Seit Ton und Symbole dazukommen
+  (670 → ${katalog.length} Einträge) meldet \`tsc\` auf EINEM Array-Literal
+  dieser Länge "TS2590 Expression produces a union type that is too
+  complex to represent" — ein bekanntes Verhalten des Typprüfers bei sehr
+  langen Objekt-Array-Literalen gegen ein Interface mit mehreren optionalen
+  Feldern, kein Fehler in den Daten. Kleinere, einzeln typisierte Teile
+  umgehen es: \`tsc\` prüft dann ${'`STORE_KATALOG_TEIL_N`'} für sich, nie
+  die volle Länge auf einmal. Der Katalog bleibt inhaltlich unverändert —
+  \`STORE_KATALOG\` ist weiterhin EIN flaches, sortiertes Array.
+*/
+const KATALOG_TEILGROESSE = 300;
+const katalogTeileArrays = [];
+for (let i = 0; i < katalog.length; i += KATALOG_TEILGROESSE) {
+  katalogTeileArrays.push(katalog.slice(i, i + KATALOG_TEILGROESSE));
+}
+katalogTeile.push(
+  katalogTeileArrays
+    .map(
+      (teil, i) =>
+        `const STORE_KATALOG_TEIL_${i}: readonly StoreEintrag[] = [\n${teil.map(katalogZeile).join('\n')}\n];\n`
+    )
+    .join('\n')
+);
 katalogTeile.push(`
+/** Die ${katalog.length} Einträge, nach \\\`id\\\` sortiert (s. TEILE oben). */
+export const STORE_KATALOG: readonly StoreEintrag[] = [
+  ${katalogTeileArrays.map((_, i) => `...STORE_KATALOG_TEIL_${i}`).join(',\n  ')},
 ];
 
 /** \\\`id\\\` → Katalogeintrag. */

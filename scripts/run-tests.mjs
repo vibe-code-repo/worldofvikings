@@ -2330,6 +2330,10 @@ const KERN = [
     Text, ~0.1 s.
   */
   ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
+  // Karte B1: Vollstaendigkeit der Ton- und Symbol-Abschnitte von
+  // assets/manifest.json (tools/asset-manifest.mjs) gegen den echten
+  // Bestand unter assets/store/audio bzw. assets/store/ui.
+  ['tools', 'test/manifest-ton-symbole.ts', brauchtModelle('assets/store/audio', 'assets/store/ui')],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

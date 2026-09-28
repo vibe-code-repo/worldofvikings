@@ -40,8 +40,10 @@ import {
   gruppenDerArt,
   istKollisionsnetz,
   lizenzstatus,
+  mitTonUndSymbolenErgaenzen,
   sucheSpeicher,
   untergruppenDerGruppe,
+  type AssetManifestDatei,
   type ManifestDatei,
   type PrefabDatei,
   type StoreArt,
@@ -66,9 +68,22 @@ function check(name: string, ok: boolean, detail = ''): void {
   Ebene hoeher (run-tests.mjs) — hier unten waere sie nicht von einem
   kaputten Speicher zu unterscheiden.
 */
-const manifest = JSON.parse(readFileSync(resolve(SPEICHER, 'manifest.json'), 'utf-8')) as ManifestDatei;
+const manifestRoh = JSON.parse(readFileSync(resolve(SPEICHER, 'manifest.json'), 'utf-8')) as ManifestDatei;
 const prefabs = JSON.parse(readFileSync(resolve(SPEICHER, 'prefabs.json'), 'utf-8')) as PrefabDatei;
 const kategorieNachPfad = new Map(prefabs.prefabs.map((p) => [p.asset, p.category]));
+
+/*
+  Ton und Symbole (Bauer B1, 28.09.2026): `assets/manifest.json` ergänzt
+  die 280 Töne und 353 UI-Bilder, die der Store-Speicher selbst nicht
+  führt — s. Kopfkommentar von `mitTonUndSymbolenErgaenzen`. Die Datei
+  ist GETRACKT (die eine Ausnahme in `.gitignore` unter `assets/`) und
+  liegt deshalb in jedem Checkout, auch ohne `assets/store` — fehlen ihr
+  aber `toene`/`symbole` (älterer Stand vor Bauer B1), ergänzt
+  `mitTonUndSymbolenErgaenzen` einfach nichts.
+*/
+const assetManifestPfad = resolve(WURZEL, 'assets/manifest.json');
+const assetManifest = JSON.parse(readFileSync(assetManifestPfad, 'utf-8')) as AssetManifestDatei;
+const manifest = mitTonUndSymbolenErgaenzen(manifestRoh, assetManifest);
 
 // ── (a) Einsortierung ueber JEDEN Manifest-Eintrag ────────────────────
 
@@ -131,24 +146,32 @@ check('Gegenstände ≥ 60', zahl('Modelle', 'Gegenstände') >= 60, `${zahl('Mod
 check('Umgebung ≥ 100', zahl('Modelle', 'Umgebung') >= 100, `${zahl('Modelle', 'Umgebung')}`);
 check('Fahrzeuge ≥ 3', zahl('Modelle', 'Fahrzeuge') >= 3, `${zahl('Modelle', 'Fahrzeuge')}`);
 check(
-  'Ton zählt genau 44 Klänge im Speicher (45 im Manifest, einer davon Platzhalter)',
-  katalog.filter((e) => e.art === 'Ton').length === 44,
+  // 325 Aufnahmen auf der Platte: 44 schon vorher im Store-Manifest (45
+  // minus einem Platzhalter), 281 von Bauer B1 aus assets/manifest.json
+  // ergänzt (Messung 28.09.2026, s. Bericht).
+  'Ton zählt genau 325 Klänge im Speicher (alle Aufnahmen unter assets/store/audio, Bauer B1)',
+  katalog.filter((e) => e.art === 'Ton').length === 325,
   `${katalog.filter((e) => e.art === 'Ton').length}`
 );
 check(
-  'Ton zählt 45 Einträge über das ganze Manifest',
-  (artZahl.get('Ton') ?? 0) === 45,
+  'Ton zählt 326 Einträge über das ganze Manifest (325 Klänge + 1 Platzhalter)',
+  (artZahl.get('Ton') ?? 0) === 326,
   `${artZahl.get('Ton') ?? 0}`
 );
 check('Boden-Texturen = 12', zahl('Texturen', 'Boden-Texturen') === 12, `${zahl('Texturen', 'Boden-Texturen')}`);
 check('Höhenfelder = 15', zahl('Höhenfelder', 'Höhenfelder') === 15, `${zahl('Höhenfelder', 'Höhenfelder')}`);
 check('Kulisse = 6', zahl('Kulisse', 'Kulisse') === 6, `${zahl('Kulisse', 'Kulisse')}`);
+check('Symbole zählt genau 353 UI-Bilder (Bauer B1)', zahl('Symbole', 'Symbole') === 353, `${zahl('Symbole', 'Symbole')}`);
 
 // Die vier Ton-Gruppen der Vorgabe müssen wirklich alle vorkommen — ohne
-// das wäre „Ton = 45" auch dann grün, wenn alles in einem Topf läge.
+// das wäre „Ton = 325" auch dann grün, wenn alles in einem Topf läge.
 for (const g of ['Schritte', 'Tiere', 'Umgebungston', 'Quellen']) {
   check(`Ton-Gruppe „${g}" ist besetzt`, zahl('Ton', g) > 0, `${zahl('Ton', g)}`);
 }
+// Dieselbe Gegenprobe für Symbole: beide Fächer des Speichers müssen
+// wirklich vorkommen, nicht nur eines.
+check('Symbol-Untergruppe „Bedienelemente" (HUD) zählt 124', katalog.filter((e) => e.art === 'Symbole' && e.untergruppe === 'Bedienelemente').length === 124, `${katalog.filter((e) => e.art === 'Symbole' && e.untergruppe === 'Bedienelemente').length}`);
+check('Symbol-Untergruppe „Gegenstandssymbole" (Icons) zählt 229', katalog.filter((e) => e.art === 'Symbole' && e.untergruppe === 'Gegenstandssymbole').length === 229, `${katalog.filter((e) => e.art === 'Symbole' && e.untergruppe === 'Gegenstandssymbole').length}`);
 
 // Vegetation: die Untergruppen der Vorgabe, an echten Dateien geprüft.
 function untergruppeVon(id: string): string | undefined {

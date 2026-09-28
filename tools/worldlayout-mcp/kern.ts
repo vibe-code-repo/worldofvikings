@@ -17,7 +17,7 @@ import { sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout, layoutBounds, type WorldLayout } from '@wov/shared';
 import { instanzName, weltArbeitsOrdner, weltDatei } from '@wov/shared/src/instanz.js';
-import { heightResponseMessage } from '../../shared/src/worldlayout/heightMessages.js';
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 
 // Der Betriebsdienst ist der einzige Schreiber der Weltdatei — dieser
 // Prozess redet nur mit ihm, siehe Kopfkommentar. Aus layoutDatei.ts kommt

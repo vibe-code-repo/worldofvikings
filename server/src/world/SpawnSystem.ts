@@ -467,8 +467,8 @@ export class SpawnSystem {
 
   // ── Simulation (wander / flee) ───────────────────────────────────
 
-  /** Kreatur greift an: Position, Schaden, Radius — verdrahtet der Server. */
-  onCreatureAttack: ((pos: Vector3, damage: number, radius: number) => void) | null = null;
+  /** Creature strike: position, damage, radius and selected target — wired by the server. */
+  onCreatureAttack: ((pos: Vector3, damage: number, radius: number, target: Vector3) => void) | null = null;
 
   private simulateTick(deltaSec: number, peerPositions: readonly Vector3[]): void {
     const simSqr = this.simRadius * this.simRadius;
@@ -518,7 +518,7 @@ export class SpawnSystem {
             if (c.attackAccum >= 2) {
               c.attackAccum = 0;
               this.einmal(c, 'attack');
-              this.onCreatureAttack?.(c.zdo.position, 8, 2.4);
+              this.onCreatureAttack?.(c.zdo.position, 8, 2.4, nearest.pos);
             }
           } else {
             // No free slot (MAX_GLEICHZEITIGE_ANGREIFER already taken for this

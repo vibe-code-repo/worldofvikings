@@ -220,11 +220,11 @@ function zieh(z: ReturnType<typeof frisch>, id: string, art: string, wege: Array
 {
   const mem = new Map<string, string>();
   const st = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
-  pruefe(ladeSerie(st) === true, 'series defaults to ON with an empty store');
+  pruefe(ladeSerie(st) === false, 'series defaults to OFF with an empty store');
+  speichereSerie(true, st);
+  pruefe(mem.get(SERIE_SCHLUESSEL) === '1' && ladeSerie(st) === true, 'series ON is stored and read back (a deliberate choice stays on)');
   speichereSerie(false, st);
   pruefe(mem.get(SERIE_SCHLUESSEL) === '0' && ladeSerie(st) === false, 'series OFF is stored and read back');
-  speichereSerie(true, st);
-  pruefe(ladeSerie(st) === true, 'series ON is stored and read back');
   const kaputt = {
     getItem: (): string | null => {
       throw new Error('blocked');
@@ -233,7 +233,7 @@ function zieh(z: ReturnType<typeof frisch>, id: string, art: string, wege: Array
       throw new Error('blocked');
     },
   };
-  pruefe(ladeSerie(kaputt) === true, 'a store that throws on read gives the default (ON)');
+  pruefe(ladeSerie(kaputt) === false, 'a store that throws on read gives the default (OFF)');
   let warf = false;
   try {
     speichereSerie(false, kaputt);

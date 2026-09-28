@@ -106,12 +106,12 @@ function standardSpeicher(): Speicher | undefined {
   }
 }
 
-/** The stored "series" switch, default ON; a blocked or empty store gives the default. */
+/** The stored "series" switch, default OFF; a blocked or empty store gives the default. */
 export function ladeSerie(speicher: Speicher | undefined = standardSpeicher()): boolean {
   try {
-    return speicher?.getItem(SERIE_SCHLUESSEL) !== '0';
+    return speicher?.getItem(SERIE_SCHLUESSEL) === '1';
   } catch {
-    return true;
+    return false;
   }
 }
 

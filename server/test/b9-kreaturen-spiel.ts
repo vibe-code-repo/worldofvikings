@@ -530,7 +530,8 @@ async function main(): Promise<void> {
       const d = hpReihe[i - 1].hp - hpReihe[i].hp;
       if (d > 0) abzuege.push(d);
     }
-    check(`wolf ran the 8 m in ${f(ankunftMs / 1000, 2)} s (8 m at 5.5 m/s = 1.5 s incl. the 20 m aggro start)`, ankunftMs > 0 && ankunftMs < 3000, `${f(ankunftMs / 1000, 2)} s`);
+    const laufWolf = eintrag('Wolf')!.runSpeed;
+    check(`wolf ran the 8 m in ${f(ankunftMs / 1000, 2)} s (8 m at ${laufWolf} m/s = ${f(8 / laufWolf, 1)} s incl. the 20 m aggro start)`, ankunftMs > 0 && ankunftMs < 3000, `${f(ankunftMs / 1000, 2)} s`);
     check('wolf strikes: every strike takes exactly 8 HP, at least two in 7.5 s', abzuege.length >= 2 && abzuege.every((d) => d === 8), `strikes ${abzuege.join(',')}, HP 100 -> ${peer.health}`);
     check('wolf anim member on the real server: run then attack', animSicht.has('run') && animSicht.has('attack'), [...animSicht].join(','));
     const gegen = await erschlage(wolf, mitte, 'AxeFlint');

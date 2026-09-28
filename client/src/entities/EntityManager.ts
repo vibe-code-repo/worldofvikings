@@ -23,6 +23,8 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math';
+import { Frustum } from '@babylonjs/core/Maths/math.frustum';
+import type { Plane } from '@babylonjs/core/Maths/math.plane';
 import type { Scene } from '@babylonjs/core/scene';
 import {
   PrefabFlag,
@@ -89,6 +91,8 @@ import type { ClientWorld } from '../world/World';
 import type { ZDOEntityUpdate } from '../net/ZDOSync';
 import { clipRate } from './clipTempo';
 import { pausiereFuerMessung } from './gruppenSicherung';
+import { ANIMATIONS_LOD_GRENZE_M, sollAnimieren, wendeAnimationsLodAn } from './animationsLod';
+import type { SicherbareGruppeMitZustand } from './animationsLod';
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
 const DYNAMIC_FLAGS =
@@ -598,10 +602,120 @@ interface DynamicEntity {
    * sich nicht geändert", nicht „ist auf null gefallen".
    */
   leben?: number;
+  /**
+   * Animations-LOD (fps-analyse #9): die Gruppe, die
+   * `wendeAnimationsLodAn()` pausiert hat, oder `undefined`, solange nichts
+   * pausiert ist. Gehalten HIER und nicht in der Regel selbst — der
+   * Aufrufer merkt sich den Zustand je Instanz, s. animationsLod.ts.
+   */
+  lodPausiert?: SicherbareGruppeMitZustand;
+  /**
+   * Animations-LOD (fps-analyse #9): FREMDER Spieler-Avatar (Prefab
+   * `Player`, s. `HINT_DEFS` in shared/src/prefabs.ts) — von der Karte
+   * ausdrücklich von der Pause ausgenommen ("Spieler, NPCs im Kampf und die
+   * eigene Figur laufen immer"). Einmal bei der Instanziierung gesetzt und
+   * danach unveränderlich, wie `prefabName` selbst.
+   */
+  istSpieler?: boolean;
+  /**
+   * Animations-LOD (fps-analyse #9, Nachbesserung B6): die Spawn-Vorschau
+   * im Editor-Testflug (ZDO-Schlüssel `edplace-<i>`/`edghost`,
+   * s. vorschauZeichnen.ts) — von der Pause ausgenommen. Diese Instanzen
+   * werden meist aus einer hoch stehenden Editor-Kamera betrachtet, unter
+   * der sie staendig ausserhalb des 60-m-Kegels oder der Distanzgrenze
+   * fallen wuerden; anders als bei echten NPCs waere ein einfrierendes
+   * Vorschaumodell im laufenden Editieren sofort sichtbar und verwirrend.
+   * Einmal bei der Instanziierung gesetzt, wie `istSpieler`.
+   */
+  istVorschau?: boolean;
+  /**
+   * Animations-LOD (fps-analyse #9, Nachbesserung B4): Y-Versatz der
+   * Huellmitte gegenueber `root.position` und Huellradius, EINMAL bei der
+   * Instanziierung aus den Meshes gemessen (s. `berechneLodHuelle`). Ein
+   * Punkttest an der Fusssohle liess sichtbare Figuren am Bildrand
+   * (besonders lange Tiere, Blick nach oben/unten) faelschlich einfrieren.
+   */
+  lodMitteY?: number;
+  lodRadius?: number;
+  /**
+   * Animations-LOD (Nachbesserung N2, A5): `root.scaling` IM MOMENT der
+   * Huellmessung — dieselbe Referenz, die `applyDynamic` beim naechsten
+   * Update durch ein NEUES `Vector3` ersetzt (nie in-place mutiert), bleibt
+   * also eingefroren auf dem Messwert. Weicht die AKTUELLE Skalierung
+   * spaeter davon ab, skaliert `aktualisiereAnimationsLod` `lodMitteY`/
+   * `lodRadius` mit dem Verhaeltnis nach, statt neu zu vermessen (das waere
+   * die Allokation je Figur und Bild, die B4 ausschliesst).
+   */
+  lodSkalierungBeiMessung?: Vector3Like;
 }
 
 /** Wiederverwendetes Nick-Quaternion des prozeduralen Gangs (kein Alloc pro Frame). */
 const GANG_NICK_TMP = new Quaternion();
+
+/**
+ * Animations-LOD B4 (Nachbesserung): Mindestradius der Sichtkegel-Kugel,
+ * auch wenn eine gemessene Huelle kleiner waere — sonst faellt ein
+ * winziger Hitbox-Mittelpunkt genau auf eine Kegelkante und ein sichtbarer
+ * Rand friert trotzdem ein.
+ */
+const ANIMATIONS_LOD_MIN_RADIUS_M = 1.5;
+
+/** Wiederverwendete Huellmitte fuer den Animations-LOD-Sichtkegeltest (kein Alloc je Figur und Bild, B4). */
+const LOD_MITTE_TMP = new Vector3();
+
+/**
+ * Huellmitte (Y-Versatz gegenueber `root.position`) und Huellradius einer
+ * Instanz, EINMAL bei der Instanziierung aus ihren Meshes gemessen (wie
+ * `merkeModellHoehe` bei den Clutter-Mastern oben) — NICHT jedes Bild neu,
+ * das waere die Allokation je Figur und Bild, die B4 ausdruecklich
+ * ausschliesst.
+ *
+ * Der Radius ist NICHT die halbe Diagonale der Huelle (Nachbesserung N2,
+ * A4: das nimmt an, die Huelle sei symmetrisch um ihre EIGENE Mitte) —
+ * er ist der groesste Abstand von der WURZEL-ACHSE (x/z von
+ * `root.position`, Hoehe `root.position.y + mitteY`) zu einer der acht
+ * Huellecken, mindestens `ANIMATIONS_LOD_MIN_RADIUS_M`. Das umschliesst die
+ * Huelle wirklich exakt, AUCH bei einem seitlichen Versatz der Mitte (eine
+ * Kuh mit vorgestrecktem Kopf: die Diagonale reichte nur bis 81 % der
+ * tatsaechlich fernsten Ecke, `Berichte/angriff-fps-animation-einfrieren-n1/
+ * probe-huelle-glb.ts`). Der Abstand von dieser Achse aendert sich zudem
+ * NICHT bei einer spaeteren Drehung um die Hochachse (Gieren, der
+ * haeufige Fall bei NPCs) — nur ihre Richtung tut es.
+ *
+ * Ohne Meshes (leerer Platzhalter waere ein Fehler in `makePlaceholder`,
+ * kommt praktisch nicht vor) ODER ohne `getHierarchyBoundingVectors`
+ * (Nachbesserung N2, A1: eine Test-Attrappe ohne echtes Mesh) ein sicherer
+ * Rueckfallwert statt einer entarteten Huelle oder eines Absturzes.
+ */
+function berechneLodHuelle(root: TransformNode): { mitteY: number; radius: number } {
+  if (typeof root.getHierarchyBoundingVectors !== 'function') {
+    return { mitteY: 0.9, radius: ANIMATIONS_LOD_MIN_RADIUS_M };
+  }
+  const { min, max } = root.getHierarchyBoundingVectors(true);
+  const spanne = max.subtract(min);
+  if (!(spanne.x >= 0) || !(spanne.y >= 0) || !(spanne.z >= 0)) {
+    return { mitteY: 0.9, radius: ANIMATIONS_LOD_MIN_RADIUS_M };
+  }
+  const mitteY = (min.y + max.y) / 2 - root.position.y;
+  const achse = new Vector3(root.position.x, root.position.y + mitteY, root.position.z);
+  let radius = ANIMATIONS_LOD_MIN_RADIUS_M;
+  for (const x of [min.x, max.x]) {
+    for (const y of [min.y, max.y]) {
+      for (const z of [min.z, max.z]) {
+        radius = Math.max(radius, Vector3.Distance(achse, new Vector3(x, y, z)));
+      }
+    }
+  }
+  return { mitteY, radius };
+}
+
+/** Ob eine Kugel (Huellmitte, Radius) den Sichtkegel schneidet — dieselbe Ebenen-Konvention wie `Frustum.IsPointInFrustum` (Abstand ≥ 0 = innerhalb), nur um den Radius nach aussen verschoben. */
+function istKugelImSichtkegel(mitte: Vector3, radius: number, ebenen: readonly Plane[]): boolean {
+  for (const e of ebenen) {
+    if (e.dotCoordinate(mitte) < -radius) return false;
+  }
+  return true;
+}
 
 /**
  * Den Hüllkörper eines Thin-Instance-Masters um SCHWUNG_RESERVE_M
@@ -3293,7 +3407,14 @@ export class EntityManager {
 
   updateDynamics(dt: number): void {
     const f = 1 - Math.exp(-dt / 0.09);
+    // Animations-LOD (fps-analyse #9): die Kamerafrustum-Ebenen kostet EINMAL
+    // je Bild etwas, nicht je Instanz — dieselben sechs Ebenen gelten fuer
+    // alle. Ohne aktive Kamera (z. B. im allerersten Bild) passiert nichts.
+    const kamera = this.scene.activeCamera;
+    const lodEbenen = kamera ? Frustum.GetPlanes(kamera.getTransformationMatrix()) : null;
+    const lodKameraPos = kamera ? kamera.globalPosition : null;
     for (const dyn of this.dynamics.values()) {
+      if (lodEbenen && lodKameraPos) this.aktualisiereAnimationsLod(dyn, lodEbenen, lodKameraPos);
       const z = dyn.ziel;
       if (!z) continue;
       const g = dyn.gang;
@@ -3340,6 +3461,79 @@ export class EntityManager {
         g.basisRot.multiplyToRef(GANG_NICK_TMP, dyn.root.rotationQuaternion);
       }
     }
+  }
+
+  /**
+   * Animations-LOD (fps-analyse #9): pausiert die Animationsgruppen einer
+   * Instanz, die weder im Sichtkegel noch naeher als
+   * {@link ANIMATIONS_LOD_GRENZE_M} steht, und setzt sie beim Rueckkehren
+   * ohne Sprung fort (animationsLod.ts).
+   *
+   * `attack` ist ein Kampfzustand: der Server schickt ihn nur waehrend ein
+   * NPC gerade zuschlaegt, und ein zuschlagendes NPC pausieren hiesse, es im
+   * Ausholen einzufrieren, sobald es zufaellig aus dem Sichtkegel faellt.
+   * Der lokale Spieler laeuft NIE durch diese Funktion — er haengt nicht in
+   * `dynamics` und hat gar keine `animGruppen` (AvatarRig.ts treibt sein
+   * Rig prozedural, nicht ueber AssetManager.wechsleAnimation).
+   *
+   * FREMDE Spieler (`dyn.istSpieler`) sind ebenfalls ausgenommen — die
+   * Karte verlangt "Spieler ... laufen immer" ausdruecklich getrennt von
+   * "die eigene Figur": anders als NPCs sind es nur eine Handvoll
+   * Instanzen, und ein anderer Mitspieler soll nie durch einen
+   * LOD-Stillstand auffallen.
+   *
+   * Die Spawn-Vorschau im Editor-Testflug (`dyn.istVorschau`) ist ebenso
+   * ausgenommen (Nachbesserung B6) — s. Feldkommentar an `istVorschau`.
+   *
+   * Sichtbarkeit (Nachbesserung B4): keine Punktprobe an der Fusssohle
+   * mehr, sondern eine Kugel um die gemessene Huellmitte
+   * (`berechneLodHuelle`, `istKugelImSichtkegel`) — ein Punkttest liess
+   * sichtbare Figuren am Bildrand faelschlich einfrieren, besonders lange
+   * Tiere und bei Blick nach oben/unten.
+   *
+   * Skalierung (Nachbesserung N2, A5): `lodMitteY`/`lodRadius` sind vom
+   * Messzeitpunkt eingefroren. Weicht `dyn.root.scaling` seither von
+   * `dyn.lodSkalierungBeiMessung` ab, wird NACHskaliert statt neu vermessen
+   * (kein Alloc je Bild). Heute nicht erreichbar (Kreaturen aendern ihre
+   * Skalierung zur Laufzeit nicht, und Testflug-/Editor-Vorschau sind ohnehin
+   * ausgenommen), aber ohne Kosten fuer den Fall, dass sich das aendert.
+   *
+   * Vergessene Pausen (Hinweis, A6): eine gemerkte, pausierte Gruppe, die
+   * NIE zurueckkehrt (z. B. weil eine kuenftige Ueberblendung zwei Gruppen
+   * gleichzeitig spielen liesse und nur eine von `wendeAnimationsLodAn`
+   * fortgesetzt wird), bleibt fuer immer `isStarted && !isPlaying` stehen.
+   * Ein spaeterer `start()` auf GENAU dieser Gruppe wuerde in Babylon 9.28
+   * sofort abbrechen (`_isStarted`-Wächter), die Figur bliebe dann starr.
+   * Heute nicht erreichbar: jeder Verdrahtungsweg (`wechsleAnimation`,
+   * `spieleEinmal(Kreatur)`, `starteAnfangsgruppe`) stoppt vorher ALLE
+   * anderen Gruppen der Instanz. Robuster waere, eine vergessene Gruppe mit
+   * `stop()` statt stillschweigend liegenzulassen — keine Aenderung hier,
+   * nur der Hinweis fuer eine kuenftige Mehrgruppen-Verdrahtung.
+   */
+  private aktualisiereAnimationsLod(dyn: DynamicEntity, ebenen: Plane[], kameraPos: Vector3): void {
+    if (dyn.istSpieler || dyn.istVorschau) return;
+    if (dyn.anim === 'attack') {
+      if (dyn.lodPausiert) dyn.lodPausiert = wendeAnimationsLodAn(this.assets.gruppenVon(dyn.root), dyn.lodPausiert, true);
+      return;
+    }
+    const distanzM = Vector3.Distance(kameraPos, dyn.root.position);
+    let mitteY = dyn.lodMitteY ?? 0.9;
+    let radius = dyn.lodRadius ?? ANIMATIONS_LOD_MIN_RADIUS_M;
+    const gemessen = dyn.lodSkalierungBeiMessung;
+    if (gemessen) {
+      const aktuell = dyn.root.scaling;
+      mitteY *= gemessen.y !== 0 ? aktuell.y / gemessen.y : 1;
+      radius *= Math.max(
+        gemessen.x !== 0 ? aktuell.x / gemessen.x : 1,
+        gemessen.y !== 0 ? aktuell.y / gemessen.y : 1,
+        gemessen.z !== 0 ? aktuell.z / gemessen.z : 1
+      );
+    }
+    LOD_MITTE_TMP.copyFrom(dyn.root.position);
+    LOD_MITTE_TMP.y += mitteY;
+    const imSichtkegel = istKugelImSichtkegel(LOD_MITTE_TMP, radius, ebenen);
+    const animieren = sollAnimieren(distanzM, imSichtkegel, ANIMATIONS_LOD_GRENZE_M);
+    dyn.lodPausiert = wendeAnimationsLodAn(this.assets.gruppenVon(dyn.root), dyn.lodPausiert, animieren);
   }
 
   /**
@@ -3410,6 +3604,7 @@ export class EntityManager {
     // alle anderen Prefabs schicken kein `anim` und bleiben wie gehabt.
     const wunschAnim = u.anim ?? animation;
     let dyn = this.dynamics.get(u.key);
+    const warNeu = !dyn;
     if (!dyn) {
       let root: TransformNode | null = null;
       if (model) {
@@ -3433,7 +3628,13 @@ export class EntityManager {
       root.name = prefabName;
       // An event already in the member when we first see the creature is
       // history (no late joiner replays a swing); no member counts as 0.
-      dyn = { root, anim: wunschAnim, einmalN: parseEinmal(u.animEinmal)?.n ?? 0 };
+      dyn = {
+        root,
+        anim: wunschAnim,
+        einmalN: parseEinmal(u.animEinmal)?.n ?? 0,
+        istSpieler: prefabName === 'Player',
+        istVorschau: u.key.startsWith('edplace-') || u.key === 'edghost',
+      };
       const clipTabelle = findPrefabByHash(u.prefabHash)?.animationTempo;
       if (clipTabelle) dyn.clipTempo = { tabelle: clipTabelle, ist: 0, rate: 1 };
       if (model) prepareLegacyFemaleBody(root.getChildMeshes(), model);
@@ -3491,6 +3692,18 @@ export class EntityManager {
     const f =
       typeof s === 'number' ? { x: s, y: s, z: s } : s ? { x: s.x, y: s.y, z: s.z } : { x: 1, y: 1, z: 1 };
     dyn.root.scaling = new Vector3(basis.x * f.x, basis.y * f.y, basis.z * f.z);
+    // Animations-LOD B4: die Huelle EINMAL messen, nachdem Position, Rotation
+    // UND Skalierung der neuen Instanz feststehen — nicht frueher (die rohe,
+    // unskalierte Geometrie waere zu klein) und nicht jedes Mal (das waere
+    // die Allokation je Figur und Bild, die B4 ausschliesst).
+    if (warNeu) {
+      const huelle = berechneLodHuelle(dyn.root);
+      dyn.lodMitteY = huelle.mitteY;
+      dyn.lodRadius = huelle.radius;
+      // A5: `dyn.root.scaling` wird nie in-place mutiert (immer ein neues
+      // Vector3 oben), die Referenz bleibt also auf dem Messwert stehen.
+      dyn.lodSkalierungBeiMessung = dyn.root.scaling;
+    }
   }
 
   // ── Location terrain leveling (F4) ───────────────────────────────

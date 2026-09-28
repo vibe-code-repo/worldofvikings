@@ -831,6 +831,17 @@ export class Shadows {
    * (nicht mehr bereit / zum Packen vorgemerkt / entsorgt).
    */
   private readonly vegetationsWrapperWerfer = new Set<VegetationsSchattenMaster>();
+  /**
+   * Klon-Meshes, die nach TIEFE_MAX_VERSUCHEN aufgegeben haben (B1,
+   * Nachangriff #105 N1). Ohne diese Sperre in darfWerfen() nahm ein
+   * Neubestimmen der Werferliste OHNE Neupacken (z. B. setDistantShadows)
+   * den aufgegebenen Klon ueber den normalen scene.meshes-Scan wieder in
+   * die renderList auf — er wirft dann zusammen mit der laengst
+   * zurueckgeholten Quelle dauerhaft doppelt. Einziger Ausstiegspunkt ist
+   * eine ERFOLGREICHE Uebergabe (uebergebeAnKlon); vergissMaster raeumt
+   * beim Entsorgen auf.
+   */
+  private readonly vegetationsAufgegebeneKlone = new Set<AbstractMesh>();
   /** Wie oft der Basis-Effekt eines Klons angemeldet wurde (Zeuge fuer die Kosten von G20). */
   private tiefeAnmeldungen = 0;
   /*
@@ -1215,6 +1226,16 @@ export class Shadows {
    * unten, im selben Tick — hier nur die Erkennung.
    * Ein uebergebener Klon, der nicht mehr bereit ist, wartet wieder; bis
    * dahin wirft die Quelle erneut.
+   *
+   * ── B2 (Nachangriff #105 N1): das ist NICHT jedes „nicht bereit" ────
+   * Erkannt wird ausschliesslich der SPERRZUSTAND von SicherTiefenWrapper
+   * selbst — kein Tiefen-Eintrag UND keine `defines` mehr an der Vorlage
+   * (`!tiefeSchonGebaut && !vorlageHatDefines`). Ein Klon, den der echte
+   * Generator aus einem ANDEREN Grund als „nicht bereit" meldet (etwa ein
+   * neuer Basis-Effekt ohne Sperrzustand), bleibt fuer diese Pruefung
+   * unsichtbar bereit — die frueher hier stehende Zusage „nur diese Klone
+   * koennen ihre Bereitschaft ueberhaupt verlieren" meinte nur diesen einen
+   * Fall, nicht jede denkbare Ursache.
    */
   private pruefeWrapperWerferBereitschaft(g: CascadedShadowGenerator): void {
     if (this.vegetationsWrapperWerfer.size === 0) return;
@@ -1260,6 +1281,10 @@ export class Shadows {
 
   /** Die Quelle gibt den Wurf an ihren gepackten Klon ab. */
   private uebergebeAnKlon(stand: VegetationsSchattenMaster): void {
+    // Vor nimmAuf(): darfWerfen() sperrt einen aufgegebenen Klon (B1) —
+    // ohne die Freigabe hier wuerde die erfolgreiche Uebergabe selbst
+    // abgewiesen.
+    this.vegetationsAufgegebeneKlone.delete(stand.schatten);
     this.vegetationsQuellen.add(stand.quelle);
     this.entferneWerfer(stand.quelle);
     this.nimmAuf(stand.schatten);
@@ -1320,8 +1345,18 @@ export class Shadows {
         // weiter eingetragener Werfer stehen; wird er (an anderer Stelle
         // im Farbpass, ausserhalb dieser Buchfuehrung) doch noch bereit,
         // wirft er zusammen mit der laengst zurueckgeholten Quelle dauerhaft
-        // doppelt, bis zum naechsten Neupacken. Ohne Eintrag hier ist immer
-        // hoechstens einer von beiden Werfer.
+        // doppelt.
+        //
+        // ── B1-Nachbesserung (Nachangriff #105 N1) ──────────────────────
+        // entferneWerfer() raeumt nur die AKTUELLEN Listen (renderList,
+        // werferPending), keine dauerhafte Sperre. Ein Neubestimmen der
+        // Werferliste OHNE Neupacken (z. B. setDistantShadows) durchsucht
+        // scene.meshes erneut ueber darfWerfen() und haette den Klon dabei
+        // wieder aufgenommen. vegetationsAufgegebeneKlone haelt ihn deshalb
+        // in darfWerfen() selbst gesperrt, bis eine ERFOLGREICHE Uebergabe
+        // (uebergebeAnKlon) ihn wieder freigibt — nicht nur bis zum
+        // naechsten Neubestimmen.
+        this.vegetationsAufgegebeneKlone.add(stand.schatten);
         this.entferneWerfer(stand.schatten);
         console.warn(
           `[shadows] Schattenklon ${stand.schatten.name} wird nicht bereit — die Quelle wirft weiter`
@@ -1381,6 +1416,11 @@ export class Shadows {
     // danach als Leiche in der Schattenkarte — je Kaskade je Bild durch
     // isReady()/getLOD(), bis zum naechsten Nachfuehren.
     if (mesh.isDisposed()) return false;
+    // B1-Nachbesserung (Nachangriff #105 N1): ein aufgegebener Klon (s.
+    // tiefeNachziehen) bleibt gesperrt, bis er ERFOLGREICH neu uebergeben
+    // wird — sonst haette ihn ein Neubestimmen der Werferliste OHNE
+    // Neupacken (z. B. setDistantShadows) wieder aufgenommen, s. dort.
+    if (this.vegetationsAufgegebeneKlone.has(mesh)) return false;
     if (this.vegetationsInstanzKeulung && this.vegetationsQuellen.has(mesh)) return false;
     if (!this.vegetationsInstanzKeulung && this.vegetationsKlone.has(mesh)) return false;
     if (NIE_WERFEN.test(mesh.name) || NIE_WERFEN_SUFFIX.test(mesh.name)) return false;
@@ -1406,9 +1446,9 @@ export class Shadows {
     if (Number.isNaN(this.letzteX)) return true;
     const p = mesh.getBoundingInfo().boundingSphere.centerWorld;
     const r = mesh.getBoundingInfo().boundingSphere.radiusWorld;
-    const d = Math.hypot(p.x - this.letzteX, p.z - this.letzteZ) - r;
+    const abstand = Math.hypot(p.x - this.letzteX, p.z - this.letzteZ);
     // Ohne ferne Schatten nur die halbe Kaskadendistanz.
-    return d <= cfg.distanz * (this.fern ? 1 : 0.5);
+    return abstand - r <= cfg.distanz * (this.fern ? 1 : 0.5);
   }
 
   /**
@@ -1788,6 +1828,7 @@ export class Shadows {
     this.vegetationsTiefePending.delete(stand);
     this.vegetationsWrapperWerfer.delete(stand);
     this.vegetationsKlone.delete(stand.schatten);
+    this.vegetationsAufgegebeneKlone.delete(stand.schatten);
     // Erst abmelden, dann entsorgen — dieselbe Reihenfolge, aus der der
     // Kopf von entferneWerfer() oben seine Begruendung bezieht.
     this.entferneWerfer(stand.schatten);

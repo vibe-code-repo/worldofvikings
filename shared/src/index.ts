@@ -58,6 +58,8 @@ export * from './kollision/formen.js';
 export * from './kollision/festeKoerper.js';
 export * from './kollision/formUebersteuerung.js';
 export * from './npc.js';
+// Inhaltstexte (`inhalt.*`, Karte M1): Item-/NPC-/Set-Namen fuer Client, Server und Webseite.
+export * from './texte.js';
 export * from './leben.js';
 export * from './aggro.js';
 export * from './vegetation.js';

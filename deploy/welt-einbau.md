@@ -53,24 +53,34 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    installieren, nie die Unit-Datei direkt mit einer Pipe überschreiben** (ein gescheiterter `git show` würde sie
    sonst leeren), und **`origin/main` auf genau den geprüften Commit pinnen** (sonst kann zwischen dem `fetch` und dem
    `install` ein fremder Push den Stand unter der Hand wechseln):
+   `sha` in der **eigenen** Shell setzen (nicht in einer verschachtelten `bash -c '…'`, sonst ist die Variable danach
+   wieder leer, s. N5-4/N6) und an den Installationsblock als Positionsparameter weiterreichen. Die ganze Zeile steht
+   in einer `&&`-Kette (N7/B5): scheitert `fetch` (Netz weg, Remote nicht erreichbar), bricht die Zeile VOR dem
+   `sha=$(…)` ab, `sha` bleibt leer/ungesetzt statt eines veralteten Werts, und es wird nichts installiert:
    ```bash
-   bash -c 'set -euo pipefail
-   git -C /opt/worldofvikings fetch origin main
-   sha=$(git -C /opt/worldofvikings rev-parse origin/main)
+   git -C /opt/worldofvikings fetch origin main && sha=$(git -C /opt/worldofvikings rev-parse origin/main) && echo "sha=$sha" && bash -c 'set -euo pipefail
    for u in wov-server wov-admin wov-sicherung; do
      [ "$u" = wov-sicherung ] && [ ! -e /etc/systemd/system/wov-sicherung.service ] && continue
      t=$(mktemp)
-     git -C /opt/worldofvikings show "$sha:deploy/systemd/$u.service" > "$t"
+     git -C /opt/worldofvikings show "$1:deploy/systemd/$u.service" > "$t"
      test -s "$t"
      install -m 644 "$t" /etc/systemd/system/$u.service
      rm -f "$t"
    done
-   systemctl daemon-reload'
+   systemctl daemon-reload' _ "$sha"
    ```
+   Die ausgegebene `sha=…`-Zeile mit dem Merge-Commit des PR vergleichen, bevor die Handprüfung als „gleich" gilt.
    (`wov-sicherung` installiert die Schleife selbst nur, wenn die Unit auf dem Container **schon** installiert ist —
-   sie legt sie nicht neu an.) Danach die **Handprüfung**, je Unit (denselben `$sha` von oben weiterverwenden):
+   sie legt sie nicht neu an.) Danach die **Handprüfung**, je Unit, in **derselben** Shell wie oben — `sha` steht dort
+   noch, weil es außerhalb des `bash -c '…'` gesetzt wurde. Die erste Zeile bricht sofort ab, wenn `sha` (etwa nach
+   einem neuen Login oder in einer anderen Shell als Block 1) doch leer ist, statt still gegen den lokalen Index zu
+   vergleichen (N7/B5, derselbe Mechanismus wie N5-4). Wächter und Schleife sind **ein** Befehl
+   (`&&` zwischen Wächter und `for`): eine interaktive Shell wertet einen eingefügten Block Zeile
+   für Zeile aus, und dort beendet ein Expansionsfehler nur den GERADE laufenden Befehl, nicht die
+   ganze Eingabe — stand der Wächter als eigene Zeile, lief die Schleife danach trotzdem, mit
+   leerem `sha` gegen den lokalen Index (N8/B3, im Käfig mit `bash -i` **und** `bash -s` nachgestellt):
    ```bash
-   for u in wov-server wov-admin wov-sicherung; do
+   : "${sha:?sha fehlt — Block 1 in DIESER Shell ausführen, nicht in einer neuen}" && for u in wov-server wov-admin wov-sicherung; do
      diff <(git -C /opt/worldofvikings show "$sha:deploy/systemd/$u.service") /etc/systemd/system/$u.service && echo "$u: Datei gleich"
      systemctl show -p NeedDaemonReload,Environment,UnsetEnvironment,EnvironmentFiles $u
    done
@@ -110,7 +120,7 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    (`deploy/install-services.sh` installiert aus dem **eigenen** Checkout; vor dem Pull ausgeführt, installiert es
    die alten Units.)
 4. Die Variable **nicht** nach `/etc/wov.env`.
-5. `sudo tools/wov-update.sh`: stoppt und startet alle Dienste, die dann mit der Variable laufen. Der erste Start legt
+5. `tools/wov-update.sh`: stoppt und startet alle Dienste, die dann mit der Variable laufen. Der erste Start legt
    `/var/lib/wov/welten/dev.json` aus dem Repo an (`angelegt`).
 6. **Nachweis direkt danach:**
    - `journalctl -u wov-server -n 50 | grep '\[Welt\]'` nennt `/var/lib/wov/welten/dev.json`;

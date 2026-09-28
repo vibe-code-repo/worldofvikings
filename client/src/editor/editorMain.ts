@@ -3173,7 +3173,7 @@ function weltFeldBauen(): void {
           void f.text().then((t) => {
             // N4: Die Bereinigung ändert Platzierungen mit Tippfehlern still (`yaw: "abc"` → 0, kaputte Koordinate →
             // Eintrag weg, unbekannter Schlüssel → Feld weg). Der Editor zeigt die Liste und lässt entscheiden.
-            const { layout: s, fehlerhaft } = importPruefen(t);
+            const { layout: s, fehlerhaft, message } = importPruefen(t);
             if (s && fehlerhaft.length > 0) {
               const frage =
                 `Die Datei enthält ${fehlerhaft.length} Fehler in Platzierungen:\n${platzierungenFehlerText(fehlerhaft, 12)}\n\n` +
@@ -3215,7 +3215,7 @@ function weltFeldBauen(): void {
                 );
               }
             } else {
-              shell.meldung('Import verworfen — kein gültiges WorldLayout.', true);
+              shell.meldung(message ?? 'Import verworfen — kein gültiges WorldLayout.', true);
             }
           });
         };

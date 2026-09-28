@@ -37,7 +37,7 @@
  * Schritts — sie soll ohne Editor-Fenster nachvollziehbar und prüfbar
  * bleiben, nicht in einer Klick-Behandlung stecken.
  */
-import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
+import { sanitizeWorldLayout, sanitizeWorldLayoutMitBericht, type WorldLayout } from '@wov/shared';
 import { platzierungenFehler, platzierungenFehlerText, type PlatzierungsFehler } from '@wov/shared/src/worldlayout/sanitize.js';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
@@ -789,15 +789,21 @@ export function alter(iso: string): string {
  * Eintrag weg, unbekannter Schlüssel → Feld weg). Der Editor zeigt die Liste und lässt den Nutzer entscheiden, ob er
  * bereinigt importiert (N4); ohne Fehler geht es wie bisher. `layout` ist null bei Nicht-JSON oder ungültigem Dokument.
  */
-export function importPruefen(text: string): { layout: WorldLayout | null; fehlerhaft: PlatzierungsFehler[] } {
+export function importPruefen(text: string, locale?: string): { layout: WorldLayout | null; fehlerhaft: PlatzierungsFehler[]; message?: string } {
   let roh: unknown;
   try {
     roh = JSON.parse(text);
   } catch {
     return { layout: null, fehlerhaft: [] };
   }
-  const layout = sanitizeWorldLayout(roh);
-  if (!layout) return { layout: null, fehlerhaft: [] };
+  const report = sanitizeWorldLayoutMitBericht(roh);
+  if (!report) return { layout: null, fehlerhaft: [] };
   const fehlerhaft = typeof roh === 'object' && roh !== null && !Array.isArray(roh) ? platzierungenFehler((roh as { placements?: unknown }).placements) : [];
-  return { layout, fehlerhaft };
+  // Import must not offer a sanitized-away correction as an editable replacement.
+  // Placement-only cleanup remains the existing explicit user decision.
+  if (report.heightProblem) return {
+    layout: null, fehlerhaft,
+    message: heightResponseMessage({ heightProblem: report.heightProblem, fehlerhaft }, sichereSprache(locale))!,
+  };
+  return { layout: report.layout, fehlerhaft };
 }

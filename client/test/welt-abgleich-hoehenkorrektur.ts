@@ -16,7 +16,7 @@
  *
  * Lauf:  npx tsx client/test/welt-abgleich-hoehenkorrektur.ts
  */
-import { holeWeltdokument, schreibeWeltdokument, vergleiche, type Unterschied } from '../src/editor/weltdokument';
+import { holeWeltdokument, importPruefen, schreibeWeltdokument, vergleiche, type Unterschied } from '../src/editor/weltdokument';
 import type { WorldLayout, ZoneHeightDelta } from '@wov/shared';
 
 let fehler = 0;
@@ -177,6 +177,22 @@ const HOEHEN_UND_PLATZIERUNGEN = {
   check('POST 202 (de): bleibt art ok und enthält Höhe + Platzierung in message/detail', de.art === 'ok' && /0,0/.test(de.message) && /haus-1/.test(de.message) && /0,0/.test(de.detail ?? '') && /haus-1/.test(de.detail ?? '') && de.grund === 'verworfen', JSON.stringify(de));
   const en = await schreibeWeltdokument(GUELTIGES_LAYOUT, 'basis', fetchFn, 'en');
   check('POST 202 (en): ok-Zweig nutzt Locale ohne deutschen Fehlerwrapper', en.art === 'ok' && /0,0/.test(en.message) && /haus-1/.test(en.message) && !/Nicht gespeichert/.test(en.message), JSON.stringify(en));
+}
+
+// Manual import is also a reader: never accept an editable sanitized remainder.
+{
+  const oversized = Array.from({ length: 5000 }, (_, index) => ({ zx: index % 64, zz: Math.floor(index / 64), r: ['0|0|1'] }));
+  for (const [name, raw] of [['invalid', [{ zx: 0, zz: 0, r: ['0|0|1', '1|0|bad'] }]], ['string', 'kaputt'], ['over-limit', oversized]] as const) {
+    for (const locale of ['de', 'en']) {
+      const result = importPruefen(JSON.stringify({ ...dok(), heightDeltas: raw }), locale);
+      check(`Import ${name}/${locale}: refuses whole correction with repair advice`, result.layout === null &&
+        /Git/.test(result.message ?? '') && (locale === 'en' ? /height correction/i : /Höhenkorrektur/).test(result.message ?? ''), JSON.stringify(result));
+    }
+  }
+  check('Import: valid correction is preserved', JSON.stringify(importPruefen(JSON.stringify(dok(BASIS))).layout?.heightDeltas) === JSON.stringify(BASIS));
+  check('Import: absent correction is still accepted', importPruefen(JSON.stringify(dok())).layout !== null);
+  const placementOnly = importPruefen(JSON.stringify({ ...dok(BASIS), placements: [{ id: 'import-tree', prefab: 'Beech1', x: 1, z: 1, yaw: 'bad' }] }));
+  check('Import: placement-only cleanup still requires the existing decision', placementOnly.layout !== null && placementOnly.fehlerhaft.length > 0 && !placementOnly.message);
 }
 
 console.log(fehler === 0 ? '\nall ok' : `\n${fehler} FAIL`);

@@ -9,7 +9,9 @@
  *
  *  [B1] PlayerList (alle 2 s, an ALLE Peers, weltweit): traegt nur noch
  *       Name + Ping. Kein userId-, kein Positionsfeld mehr auf dem Draht,
- *       auch nicht fuer einen 5 km entfernten Fremden in einer anderen Welt.
+ *       auch nicht fuer einen 5 km entfernten Fremden (dieselbe Welt — der
+ *       Test teleportiert nur innerhalb der Hauptwelt, siehe T1-Nachtrag,
+ *       Pruefung 2026-09-27 zu #115, Punkt 7).
  *  [B2] Chat: das erste Feld (frueher `senderId` = userId) ist fuer JEDEN
  *       Empfaenger derselbe wertlose Platzhalter, nie die echte userId des
  *       Senders. Name, Typ, Text und Position (vom Client ohnehin nicht
@@ -164,14 +166,27 @@ async function main(): Promise<void> {
     const r = new Reader(paket);
     const anzahl = r.readInt32();
     const namen: string[] = [];
+    const pings = new Map<string, number>();
     for (let i = 0; i < anzahl; i++) {
-      namen.push(r.readString());
-      r.readInt32(); // ping
+      const n = r.readString();
+      namen.push(n);
+      pings.set(n, r.readInt32());
     }
     check('Paket ist nach Name+Ping je Spieler exakt zu Ende (kein zusaetzliches Feld)', r.remaining() === 0, `${r.remaining()} Byte(s) uebrig`);
     check('beide Namen kommen an (das reicht fuer eine spaetere Spielerliste im UI)',
       namen.includes('Anna') && namen.includes('Bjoern'), JSON.stringify(namen));
     console.log(`      Spieler im Paket: ${JSON.stringify(namen)}, Rohpaket ${paket.length} Byte(s)`);
+
+    // T1 (Pruefung #115): der Wert des ping-Feldes wurde bisher gar nicht
+    // geprueft -- ein Mutant, der Position (x·65536+z, M3) oder userId (M4,
+    // int32) hineinschreibt statt den echten Ping, blieb gruen. Keiner der
+    // Testclients hier schickt je ein Ping-Paket, `peer.ping` bleibt also
+    // beim Server-Anfangswert 0 (Peer.ts) — ein exakter Vergleich ist damit
+    // robust und nicht auf einen Toleranzbereich angewiesen.
+    check('ping von Anna im Paket entspricht dem Serverwert (peer.ping), nicht Position/userId (M3/M4)',
+      pings.get('Anna') === pA.ping, `${pings.get('Anna')} vs ${pA.ping}`);
+    check('ping von Bjoern im Paket entspricht dem Serverwert (peer.ping), nicht Position/userId (M3/M4)',
+      pings.get('Bjoern') === pB.ping, `${pings.get('Bjoern')} vs ${pB.ping}`);
 
     // ── [B2] Chat ──────────────────────────────────────────────────
     console.log('\n[B2] Chat — senderId verraet die Kennung nicht mehr:');
@@ -196,8 +211,14 @@ async function main(): Promise<void> {
     const senderName = rc.readString();
     const chatType = rc.readInt32();
     const text = rc.readString();
-    rc.readVector3(); // Position des Absenders — unveraendert, nicht Teil dieser Karte
+    const chatPos = rc.readVector3(); // Position des Absenders
     check('senderId ist der Platzhalter, nicht die echte userId', senderId === '0', JSON.stringify(senderId));
+    // T1: die Chat-Position wurde bisher gar nicht geprueft — ein Mutant,
+    // der die userId in die z-Koordinate schreibt (M8), blieb gruen. A
+    // steht seit der Teleport-Zeile oben bei (0, 40, 0).
+    const chatPosAbstand = Math.hypot(chatPos.x - pA.position.x, chatPos.z - pA.position.z);
+    check('Chat-Position ist As echte Position, nicht die userId (M8)',
+      chatPosAbstand < 1, `Paket ${JSON.stringify(chatPos)} vs Server ${JSON.stringify(pA.position)}`);
     check('senderId ist bei A und B (verschiedene userId) derselbe wertlose Wert', senderId !== idA && senderId !== idB, senderId);
     check('senderName kommt weiter unveraendert an (das braucht die Anzeige)', senderName === 'Anna', senderName);
     check('chatType und Text kommen weiter an', chatType === ChatMsgType.Normal && text === 'hallo an B', `${chatType} "${text}"`);

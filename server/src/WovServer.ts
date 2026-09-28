@@ -4949,7 +4949,13 @@ export class WovServer {
     this.adminCommands.register('kick', (peer, args) => {
       const name = args.join(' ').trim();
       if (!name) return { ok: false, active: false, message: 'Aufruf: kick <Name>' };
-      if (name === peer.name) {
+      // B1 (Nachbesserung Pruefung 4, Regression aus C3): Selbstschutz
+      // ueber das TATSAECHLICH GEFUNDENE Ziel, nicht ueber den rohen
+      // Namen — findPeerByName normalisiert (namenSchluessel), ein
+      // exakter String-Vergleich liess sich mit anderer Gross-/
+      // Kleinschreibung oder Leerzeichen umgehen ("kick boss" traf den
+      // Admin "Boss" vorher nicht als sich selbst).
+      if (this.net.findPeerByName(name) === peer) {
         return { ok: false, active: false, message: 'Dich selbst kannst du nicht werfen' };
       }
       const getroffen = this.net.kick(name);
@@ -4985,7 +4991,16 @@ export class WovServer {
         return { ok: false, active: false,
           message: 'Aufruf: bann <Name> [30m|2h|7d|dauerhaft] [Grund] | bann herkunft <Name> ... | bann liste' };
       }
-      if (name === peer.name) {
+      // B1 (Nachbesserung Pruefung 4, Regression aus C3): dieselbe
+      // Umstellung wie bei `kick` — ueber das gefundene Ziel, nicht ueber
+      // den rohen Namen. `peer` ist online, also findet `findPeerByName`
+      // ihn selbst, sobald der getippte Name (normalisiert) seinem
+      // eigenen entspricht — unabhaengig davon, ob `bann herkunft`
+      // gemeint ist oder ein Konto-/Spielerbann; `trifftAdmin` weiter
+      // unten schuetzt nur Konto-/Spielerbanns, KEINEN Herkunftsbann
+      // (Pruefung 4 §2: Admin "Boss" sperrte sich per "bann herkunft
+      // BOSS" dauerhaft selbst aus).
+      if (this.net.findPeerByName(name) === peer) {
         return { ok: false, active: false, message: 'Dich selbst kannst du nicht bannen' };
       }
 
@@ -5004,7 +5019,14 @@ export class WovServer {
       let wert: string;
       let kontoId: number | null = null;
       if (aufHerkunft) {
-        const ziel = this.net.getPeers().find((p) => p.name === name);
+        // C3: namenSchluessel statt `===`, wie kick und die Doppelnamen-
+        // Pruefung beim Anmelden jetzt auch. B2 (Nachbesserung Pruefung
+        // 4): Editor-Peers bleiben aussen vor, wie bei `findPeerByName`
+        // und `spieler entfernen` — sie heissen alle "Editor" und
+        // wuerden sonst reihenfolgeabhaengig statt dem Konto-Charakter
+        // getroffen.
+        const zielSchluessel = namenSchluessel(name);
+        const ziel = this.net.getPeers().find((p) => !p.nurEditor && namenSchluessel(p.name) === zielSchluessel);
         if (!ziel) {
           return { ok: false, active: false,
             message: `${name} ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen` };
@@ -5398,15 +5420,25 @@ export class WovServer {
         if (args.length === 0) {
           return { ok: false, active: false, message: 'Aufruf: spieler entfernen <name> [<name> …]' };
         }
-        const verbunden = new Set(this.net.getPeers().map((p) => p.name));
+        // D2 (Pruefung 3): namenSchluessel statt `===`, sonst meldet
+        // `spieler entfernen <andere Schreibung>` "Entfernt" fuer einen
+        // Online-Spieler, dessen Datensatz gleich danach beim naechsten
+        // Speichern/Trennen neu geschrieben wird — die Meldung war falsch,
+        // nicht der Zustand. Editor-Peers bleiben aussen vor: Sie heissen
+        // alle "Editor" und wuerden sonst jedes "spieler entfernen editor"
+        // auf "verbunden" ziehen, obwohl der Konto-Charakter "Editor"
+        // laengst offline ist.
+        const verbunden = new Set(
+          this.net.getPeers().filter((p) => !p.nurEditor).map((p) => namenSchluessel(p.name))
+        );
         const weg: string[] = [];
         const uebersprungen: string[] = [];
         for (const name of args) {
-          if (verbunden.has(name)) { uebersprungen.push(`${name} (verbunden)`); continue; }
+          const schluessel = namenSchluessel(name);
+          if (verbunden.has(schluessel)) { uebersprungen.push(`${name} (verbunden)`); continue; }
           // C5 (Pruefung 2): mehrere gespeicherte Treffer sind eine
           // Verwechslungsgefahr wie bei `admin add`/`bann` — nicht still den
           // ersten (aeltesten) loeschen, sondern melden und nichts tun.
-          const schluessel = namenSchluessel(name);
           const treffer = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === schluessel);
           if (treffer.length === 0) { uebersprungen.push(`${name} (unbekannt)`); continue; }
           if (treffer.length > 1) { uebersprungen.push(`${name} (nicht eindeutig)`); continue; }

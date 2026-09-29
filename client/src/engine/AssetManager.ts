@@ -68,6 +68,7 @@ import { toeneStoreMaterial } from './StoreToenung';
 import { laubSpitzenAuftragen } from './LaubSpitzen';
 
 import { GENERATED_PREFIX, modelBaseUrl, modelDateiName, modelUrl } from './assetUrls';
+import { LIEGE_CLIPS, messeUndEntferneWurzelbewegung } from '../player/wurzelbewegung';
 import { storeSpiegelung, uploadedModelRegistry, waehleGruppe, type GruppenWahl } from '@wov/shared';
 
 const TEXTUR_BASE_URL = '/assets/textures/';
@@ -499,6 +500,9 @@ export class AssetManager {
       for (const node of inst.rootNodes) node.dispose();
       return null;
     }
+    // Lying and stooping clips of a body model (death, getting up ...): take their travel out of the
+    // ground plane, never out of the height (the same rule as the own figure, wurzelbewegung.ts).
+    for (const g of inst.animationGroups) if (LIEGE_CLIPS.test(g.name)) messeUndEntferneWurzelbewegung(g, 1);
     // Gewünschte Animationsgruppe in Schleife starten (PrefabDef.animation
     // — eigene NPC-GLBs bringen echte Skin-Clips mit; der Fremdexport
     // nicht, dort ist die Liste schlicht leer und nichts passiert).

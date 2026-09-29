@@ -376,5 +376,6 @@
   "testflug.tab_selbst_schliessen": "Diesen Tab bitte selbst schließen",
   "testflug.wegpunkt_abgesetzt": "Wegpunkt {n} abgesetzt",
   "testflug.wegpunkt_gegriffen": "Wegpunkt {n} von {route} gegriffen — ziehen verschiebt",
-  "testflug.zurueck_zur_karte": "Zurück zur Karte …"
+  "testflug.zurueck_zur_karte": "Zurück zur Karte …",
+  "tod.bett_verloren": "Dein Schlafplatz ist nicht mehr da"
 }

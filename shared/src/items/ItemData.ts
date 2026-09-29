@@ -120,8 +120,6 @@ export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
   ernte?: { readonly baum?: number; readonly fels?: number };
   /** Extra factor on the held model (holder scaling), on top of the upload's base scale. Data items only. */
   modellSkala?: number;
-  /** Translation key (`inhalt.*`) of the display name. Data items only; `label` stays as the German fallback. */
-  nameSchluessel?: string;
   /** True for items that come from the data file (shared/data/gegenstaende.json), not from the code. */
   datenItem?: boolean;
 

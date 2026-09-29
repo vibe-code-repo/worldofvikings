@@ -140,7 +140,7 @@ const item = gegenstandZuItem(e0);
 pruefe(item.name === 'Holzaxt' && item.label === 'Holzaxt', 'name = id, label = deutscher Name');
 pruefe(item.model === 'hochgeladen/U_Holzaxt' && item.modellSkala === 0.6, 'model = Upload-Kennung, modellSkala 0,6');
 pruefe(JSON.stringify(item.holdPosition) === JSON.stringify(axt.holdPosition) && JSON.stringify(item.holdRotation) === JSON.stringify(axt.holdRotation), 'Griff gleich AxeFlint');
-pruefe(item.datenItem === true && item.toolTier === 0 && item.ernte?.baum === 1 && item.nameSchluessel === 'inhalt.gegenstand.Holzaxt.name', 'datenItem, toolTier 0, ernte, nameSchluessel');
+pruefe(item.datenItem === true && item.toolTier === 0 && item.ernte?.baum === 1 && item.textKey === 'inhalt.gegenstand.Holzaxt.name' && !('nameSchluessel' in item), 'datenItem, toolTier 0, ernte, textKey = nameSchluessel des Eintrags (kein zweites Feld)');
 pruefe(item.stats?.damage === 10 && item.maxStackSize === 1 && item.weight === 2 && item.icon === '', 'Werte, Stapel, Gewicht, kein Symbol (Rueckfall)');
 pruefe(item.maxDurability === 150 && item.attackStamina === 8 && item.useDurabilityDrain === 1, 'Haltbarkeitsfelder');
 pruefe(item.itemType === axt.itemType, 'zweihaendigWaffe wie AxeFlint (TwoHandedWeapon)');
@@ -658,6 +658,8 @@ wendeGegenstandsDatenAn(zwei);
 pruefe(findItem('Holzaxt')?.datenItem === true && ITEMS_BY_NAME.get('Bruch')?.name === 'Bruch', 'findItem und ITEMS_BY_NAME kennen die Datenitems');
 pruefe(ITEMS_BY_NAME !== mapVorher && ITEM_DEFS.every((d) => !d.datenItem), 'ITEMS_BY_NAME ist eine neue Map, ITEM_DEFS bleibt nur Code');
 pruefe(datenRezepte().length === 1 && inhaltText('inhalt.gegenstand.Holzaxt.name', 'en') === 'Wooden axe', 'Rezept und Text sind da');
+const holz = findItem('Holzaxt');
+pruefe(holz?.textKey !== undefined && inhaltText(holz.textKey, 'de') === 'Holzaxt' && inhaltText(holz.textKey, 'en') === 'Wooden axe', 'inhaltText(textKey) liefert den Datentext (de und en)');
 const stand = zustand();
 // Failure in the middle of the build: a getter that throws on the second element.
 const kaputtesItem = { get name(): string { throw new Error('Aufbau bricht ab'); } } as unknown as ItemShared;
@@ -716,7 +718,7 @@ pruefe(gegenstandsRepoDatei('/srv/wov') === '/srv/wov/shared/data/gegenstaende.j
 // ── 14. Code items unchanged ─────────────────────────────────────────
 console.log('Gegenstandsdaten — Code-Items unveraendert');
 pruefe(hash() === hashVorher, `ITEM_DEFS-Hash nach allen Laeufen gleich (${hash()})`);
-pruefe(findItem('AxeFlint') === axtVorher && ITEM_DEFS.every((d) => d.datenItem === undefined && d.ernte === undefined && d.modellSkala === undefined && d.nameSchluessel === undefined), 'Code-Items tragen keines der neuen Felder');
+pruefe(findItem('AxeFlint') === axtVorher && ITEM_DEFS.every((d) => d.datenItem === undefined && d.ernte === undefined && d.modellSkala === undefined && !('nameSchluessel' in d)), 'Code-Items tragen keines der neuen Felder');
 
 if (fehler > 0) {
   console.error(`\n${fehler} von ${geprueft} Pruefungen FEHLGESCHLAGEN`);

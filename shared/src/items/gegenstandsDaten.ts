@@ -594,7 +594,7 @@ function labelVon(e: GegenstandsEintrag): string {
 
 /**
  * `ItemShared` of an entry. `name = id`, `label` is the German fallback, the client shows
- * `inhaltText(nameSchluessel, language)`. `toolTier` stays 0 (unused); harvesting reads `ernte`.
+ * `inhaltText(textKey, language)` (`textKey` = the entry's `nameSchluessel`). `toolTier` stays 0 (unused); harvesting reads `ernte`.
  */
 export function gegenstandZuItem(e: GegenstandsEintrag): ItemShared {
   const m = e.modell;
@@ -618,7 +618,7 @@ export function gegenstandZuItem(e: GegenstandsEintrag): ItemShared {
     ...(e.haltbarkeit.ausdauer !== undefined ? { attackStamina: e.haltbarkeit.ausdauer } : {}),
     ernte: { ...e.ernte },
     modellSkala: m.skala,
-    nameSchluessel: e.nameSchluessel,
+    textKey: e.nameSchluessel,
     datenItem: true,
     ...stufe,
   };

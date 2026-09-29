@@ -2204,8 +2204,21 @@ export class EntityManager {
    *
    * Nur Buckets DIESES Modells werden angefasst (`findPrefabByHash(...)
    * .model`) — ein Testflug, der das geänderte Modell (noch) nicht gesetzt
-   * hat, bleibt unberührt und der `getMasters()`-Aufruf selbst ist dann ein
-   * reiner Cache-Vergleich ohne Neuverarbeitung.
+   * hat, bleibt unberührt.
+   *
+   * N1 (Nachbesserung nach Angriff, Befund B3): Vor dieser Fassung lief
+   * `assets.getMasters(model)` bedingungslos — für ein Modell, das dieser
+   * Testflug (noch) gar nicht gesetzt UND (noch) nicht selbst geladen hat,
+   * war das kein „reiner Cache-Vergleich", sondern der ERSTE Aufruf für
+   * diesen Namen: `getMasters` lädt dann die GLB und hängt sie in die Szene
+   * (`AssetManager.baueMasters` → `loadContainer` → `addAllToScene`). Der
+   * Wächter `assets.mastersSofort(model)` unterscheidet „schon einmal
+   * angefordert" von „noch nie" OHNE selbst etwas anzustossen; ist er leer,
+   * bricht die Funktion sofort ab — die inzwischen neu geladene Registry
+   * (B1, `Testflug.ts`) reicht: Eine SPÄTERE Setzung dieses Modells ruft
+   * `getMasters` ohnehin zum ersten Mal auf und bekommt die neue Grundskala
+   * automatisch (`AssetManager.baueMasters` wendet sie am Ende jedes
+   * Aufbaus an, unabhängig davon, ob das hier vorher lief).
    *
    * `this.colliders` (Kopfkommentar dort) baut die Kollisionsform je
    * `masterKey` genau EINMAL und danach nie wieder — ein Verhalten, das
@@ -2214,8 +2227,16 @@ export class EntityManager {
    * Eintrag wird hier verworfen (samt Havok-Körpern und Träger-Mesh), damit
    * `rebuildBucketColliders()` ihn beim nächsten `flush()` aus den jetzt
    * aktuellen `masterLocals` neu ableitet.
+   *
+   * N1 (Befund B6): `this.colliderless` (Kopfkommentar dort) merkt sich je
+   * `prefabName`, dass sich aus dem Netz KEINE Form ableiten liess, und
+   * überspringt die Ableitung danach für immer — auch das ist eine Aussage
+   * über die GRÖSSE des Netzes und muss mit der Grundskala mit verworfen
+   * werden, sonst bliebe ein Prefab, das vor der Änderung `colliderless`
+   * war, das für immer, selbst wenn die neue Größe eine Form ergäbe.
    */
   async aktualisiereGrundskala(model: string): Promise<{ buckets: number }> {
+    if (!this.assets.mastersSofort(model)) return { buckets: 0 };
     await this.assets.getMasters(model);
     let n = 0;
     for (const bucket of this.buckets.values()) {
@@ -2228,6 +2249,7 @@ export class EntityManager {
         this.colliders.delete(bucket.masterKey);
         this.colliderSpecs.delete(bucket.masterKey);
       }
+      this.colliderless.delete(bucket.prefabName);
       bucket.dirty = true;
       n++;
     }

@@ -144,13 +144,20 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // ── Grundskala live (G1) ─────────────────────────────────────────
     // Der Katalog meldet per BroadcastChannel, wenn ein Upload eine neue
     // Grundskala bekommen hat (`GegenstandsKatalog.
-    // grundskalaAendernAusfuehren`, anderer Tab). `aktualisiereGrundskala`
-    // holt sich die geänderte Grundskala über `AssetManager.getMasters`
-    // erneut und schreibt alle Buckets dieses Modells neu — `flush()`
+    // grundskalaAendernAusfuehren`, anderer Tab). N1 (Nachbesserung nach
+    // Angriff, Befund B1): DIESES Fenster hat seine eigene Upload-Registry
+    // (`main.ts` lädt sie nur EINMAL beim Start, s. Kopfkommentar
+    // `UploadedModelRegistryLoad.ts`) — ohne einen erneuten Abruf HIER läse
+    // `AssetManager.wendeGrundskalaAn` weiter den alten Wert aus
+    // `uploadedModelRegistry.grundskalaFuerModell`, egal wie oft
+    // `getMasters` erneut läuft. Erst NACH dem Abruf (`await`, nicht nur
+    // angestossen) trägt die Registry dieses Fensters den neuen Wert, und
+    // `aktualisiereGrundskala` kann ihn über `AssetManager.getMasters`
+    // abholen und alle Buckets dieses Modells neu schreiben — `flush()`
     // führt den markierten Bucket noch in diesem Tick aus.
     const grundskalaAbmelden = hoereGrundskalaGeaendert((name) => {
-      void ent
-        .aktualisiereGrundskala(`${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}${name}`)
+      void ladeHochgeladeneRegistrierung()
+        .then(() => ent.aktualisiereGrundskala(`${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}${name}`))
         .then(() => ent.flush());
     });
     scene.onDisposeObservable.add(grundskalaAbmelden);

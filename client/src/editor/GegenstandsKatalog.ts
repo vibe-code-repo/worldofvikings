@@ -2121,7 +2121,13 @@ export class GegenstandsKatalog {
       status.textContent =
         'Übernommen — Katalog, neu geöffnete und schon offene Testflüge sofort; Spielclients erst nach Neuladen, die Kollision im laufenden Spielserver erst nach dessen Neustart (Serversteuerung im Editor).';
       status.style.color = F.textRuhig;
-      sendeGrundskalaGeaendert(name);
+      // N1 (Nachbesserung nach Angriff, Befund B4): der vom Betriebsdienst
+      // BESTÄTIGTE Wert (`rumpf.eintrag.grundskala`), nicht der lokal
+      // eingegebene — der Betriebsdienst kann klemmen/runden, und die
+      // Meldung soll nie einen Wert behaupten, den die Registry gar nicht
+      // trägt. Fällt `eintrag` aus irgendeinem Grund weg, bleibt der
+      // gesendete Wert der angeforderte.
+      sendeGrundskalaGeaendert(name, rumpf.eintrag?.grundskala ?? grundskala);
       // Die Vorschau (dieses Modell steht gerade, sonst gäbe es die
       // Grundskala-Zeile nicht) und der Infoblock neu aufbauen — beide
       // lesen die Grundskala über `uploadedModelRegistry.

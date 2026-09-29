@@ -17,7 +17,9 @@
  *      `keine-quittung` der Dienst läuft, hat aber binnen der Wartezeit nicht quittiert
  *
  * Steht eine Löschsperre offen (Z3), trägt JEDE Antwort 200/202 zusätzlich `loeschsperre: { anzahl, hash }`; bei 200 ist der
- * Rest angewendet, die gesperrten Objekte stehen aber weiter (`message` sagt es, de/en über den Katalog).
+ * Rest angewendet, die gesperrten Objekte stehen aber weiter. Den Satz dazu baut der LESER aus `loeschsperre.anzahl`
+ * (Editor und MCP je in ihrer Sprache, Katalog `lock.applied`); die 200-Antwort trägt bewusst keinen fertigen Text
+ * (Z3 N3, C3: ein zweites Feld war ein toter Doppelgänger). Bei 202 steht der Text in `message`.
  *
  * Speichern ohne Änderung (gleicher Hash wie vorher, `vorherHash`): 200 mit `unveraendert: true` und Zähler 0,
  * nicht die Zähler der vorigen Quittung.
@@ -109,13 +111,8 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
         zaehler: stand.quittung.zaehler,
         ...(stand.quittung.detail ? { detail: stand.quittung.detail } : {}),
         // Die Quittung trägt die offene Sperre; ohne sie hielten Editor und MCP „angewendet“ für „die Truhe ist weg“.
-        ...(gesperrt > 0
-          ? {
-              loeschsperre: sperre,
-              // Eigenes Feld statt `message`: Der Editor hängt `message` und seinen eigenen Wirkungssatz aneinander (sonst stünde der Hinweis doppelt).
-              loeschsperreHinweis: lockMessage('lock.applied', { count: gesperrt }, sprache),
-            }
-          : {}),
+        // Kein fertiger Satz hier: Editor und MCP bauen ihn aus `anzahl` (eine Quelle, übersetzbar), `message` bleibt frei.
+        ...(gesperrt > 0 ? { loeschsperre: sperre } : {}),
       },
     };
   }

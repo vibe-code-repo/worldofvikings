@@ -54,7 +54,7 @@ function vorhandeneLayoutIds(zdos: ZDOManager): Set<string> {
 
 /**
  * Karte Z3 N2 (B1): ids des Dokuments, die ein Prefab-WECHSEL sind — es gibt Layout-ZDOs mit dieser id, aber
- * keins mit dem Prefab, das das Dokument jetzt nennt. Der Wechsel würde das alte ZDO samt Zustand ersetzen.
+ * keins mit dem Prefab, das das Dokument jetzt nennt (oder ein fremdes neben einem passenden). Der Wechsel würde das alte ZDO samt Zustand ersetzen.
  * Eine solche id gilt NICHT als zurückgenommen, nur weil sie im Dokument steht. Unbekannte Prefabs zählen nicht.
  */
 export function ersetzteIds(zdos: ZDOManager, layout: WorldLayout, prefabHash: (name: string) => number | undefined): Set<string> {
@@ -64,15 +64,17 @@ export function ersetzteIds(zdos: ZDOManager, layout: WorldLayout, prefabHash: (
     const hash = prefabHash(p.prefab);
     if (hash !== undefined) soll.set(p.id, hash);
   }
-  const vorhanden = new Map<string, boolean>(); // id → passt ein ZDO zum Soll-Prefab?
+  // Z3 N3 (C1): one ZDO under the id with ANOTHER prefab is enough — a second ZDO that does match (left by an
+  // earlier boot) must not read as a revocation and let the next boot delete the old one with its state.
+  const ersetzt = new Set<string>();
   for (const zdo of zdos.getAllZDOs()) {
     if (istSpielerbau(zdo)) continue;
     const id = zdo.getString(LAYOUT_ID_MEMBER);
     const hash = id ? soll.get(id) : undefined;
     if (!id || hash === undefined) continue;
-    vorhanden.set(id, (vorhanden.get(id) ?? false) || zdo.prefabHash === hash);
+    if (zdo.prefabHash !== hash) ersetzt.add(id);
   }
-  return new Set([...vorhanden].filter(([, passt]) => !passt).map(([id]) => id));
+  return ersetzt;
 }
 
 /** Was die Sperrdatei JETZT sagt, für die Quittung (liest, schreibt nie). */

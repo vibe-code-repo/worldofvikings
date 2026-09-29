@@ -333,7 +333,6 @@ async function haupt(): Promise<void> {
         message?: string;
         angewendet?: boolean;
         loeschsperre?: { anzahl: number };
-        loeschsperreHinweis?: string;
       }
       const post = async (d: unknown): Promise<{ status: number; daten: Antwort7 }> => {
         const r = await fetch(`http://127.0.0.1:${port}/api/worldlayout`, {
@@ -353,7 +352,7 @@ async function haupt(): Promise<void> {
       );
       const zweite = await post(dokument([...BAEUME, { id: 'neu-b', prefab: 'Beech1', x: 700, z: 20 }])); // a harmless follow-up change
       check('7 second document (+1 tree): 200 angewendet, the tree stands, the chest stands with content', zweite.status === 200 && zweite.daten.angewendet === true && !!nach('neu-b') && nach('kiste-1')?.getString('truheInhalt') === '[[Wood,7]]', `${zweite.status} ${JSON.stringify(zweite.daten).slice(0, 300)}`);
-      check('7 the 200 answer carries the lock (anzahl 1) and a hint that the chest stays locked and how to confirm', zweite.daten.loeschsperre?.anzahl === 1 && /gesperrt/.test(String(zweite.daten.loeschsperreHinweis)) && /bestaetigen/.test(String(zweite.daten.loeschsperreHinweis)), `${JSON.stringify(zweite.daten.loeschsperre)} ${String(zweite.daten.loeschsperreHinweis)}`);
+      check('7 the 200 answer carries the lock (anzahl 1) and no ready-made sentence (one source: the readers build it, Z3 N3 C3)', zweite.daten.loeschsperre?.anzahl === 1 && !('loeschsperreHinweis' in zweite.daten), JSON.stringify(zweite.daten).slice(0, 300));
       const mcpText = mcp.wirkungsHinweis(zweite.status, zweite.daten as Record<string, unknown>);
       check('7 MCP reader: not the bare success sentence; names the locked object and the confirmation', mcpText !== '\nIm laufenden Spiel angewendet.' && /1 Objekt\(e\) bleiben gesperrt/.test(mcpText) && /bestaetigen/.test(mcpText), mcpText);
       check('7 MCP reader (en): same content, English', /stay locked/.test(mcp.wirkungsHinweis(200, zweite.daten as Record<string, unknown>, 'en')) && !/gesperrt/.test(mcp.wirkungsHinweis(200, zweite.daten as Record<string, unknown>, 'en')), mcp.wirkungsHinweis(200, zweite.daten as Record<string, unknown>, 'en'));

@@ -25,6 +25,7 @@
  *       gefällt, die Sperrdatei ist weg.
  *  RUE  Rücknahme im echten Kindprozess: die Truhe wieder ins Dokument → Sperrdatei weg, Truhe steht.
  *
+ *  PKAPUTT/PZWEI (Z3 N3, C1) Prefab-Wechsel + kaputte Sperrdatei beim Boot (kein zweites ZDO, nach der Reparatur bleibt die Truhe)
  *  PREFAB (Z3 N2, B1) Prefab-Wechsel an einer Truhe mit Inhalt (dieselbe id, anderes Prefab): live zurückgehalten UND
  *       gesperrt → NEUSTART (echter Kindprozess) → die Truhe steht mit Inhalt, kein zweites ZDO unter der id →
  *       Folgeänderung an einem anderen Objekt läuft → Bestätigen wirkt (Truhe weg, Beech1 entsteht, Sperre weg).
@@ -636,6 +637,72 @@ async function prefabWechsel(): Promise<void> {
   check('PREFAB nach dem Bestätigen: die Folgeänderung steht, kein Baum ging verloren (10 + Ersatz + neu-1)', liste2.length === 12 && liste2.some((e) => e.id === 'neu-1'), `${liste2.length}`);
 }
 
+/**
+ * Z3 N3 (C1, attack probe Q4): an unreadable lock file at boot plus a held-back prefab change must not leave a second ZDO
+ * under the id — after the file is repaired byte for byte the next boot would read the matching ZDO as a revocation and
+ * delete the chest with its content. Two cases: (K) the order broken → boot → repaired → boot; (Z) a state that already
+ * holds BOTH ZDOs under the id (chest + tree) with an intact lock: the chest must stay.
+ */
+async function prefabWechselKaputt(): Promise<void> {
+  const HASH_KISTE = getStableHash('piece_chest_wood');
+  const HASH_BAUM = getStableHash('Beech1');
+  const baeume: Platz[] = Array.from({ length: 10 }, (_, i) => ({ id: `b${i}`, prefab: 'Beech1', x: 20 + i * 3, z: 20 }));
+  const alsBaum: Platz = { id: 'kiste-h', prefab: 'Beech1', x: 400, z: 400 };
+  const aufbau = (inst: Instanz, zweitesZdo: boolean): void => {
+    schreibe(inst.layoutDatei, dokument([...baeume, KISTE]));
+    const setup = materialisiere(inst, SEED);
+    setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-h')?.setString('truheInhalt', '[[Wood,9]]');
+    schreibe(inst.layoutDatei, dokument([...baeume, alsBaum]));
+    wacheVon(setup).tick();
+    if (zweitesZdo) {
+      const z = setup.zdos.createZDO(HASH_BAUM, { x: 400, y: 30, z: 400 });
+      z.setString(LAYOUT_ID_MEMBER, 'kiste-h');
+    }
+    setup.stop();
+  };
+  const truhe = (inst: Instanz): { id: string; prefab: number | undefined }[] => saveListe(inst.savePfad).filter((e) => e.id === 'kiste-h').map((e) => ({ id: e.id, prefab: e.prefab }));
+  const inhaltDa = (inst: Instanz): boolean => saveListe(inst.savePfad).some((e) => e.id === 'kiste-h' && e.z.members[String(HASH_TRUHE_INHALT)]?.v === '[[Wood,9]]');
+
+  // (K) broken → boot → repaired → boot
+  {
+    const inst = instanz(resolve(WURZEL, 'prefab-kaputt'), 'dev');
+    aufbau(inst, false);
+    await warte(300);
+    const gut = lies(inst.loeschsperrePfad);
+    check('PKAPUTT Aufbau: die Sperre nennt die Truhe', /kiste-h/.test(String(gut)), String(gut).slice(0, 120));
+    writeFileSync(inst.loeschsperrePfad, '{"ids":');
+    const lauf1 = starteHauptprozess(inst, 20_000, BEREIT);
+    const bereit1 = await lauf1.warten();
+    check('PKAPUTT kaputte Sperre: bereit, GESCHLOSSEN im Log', bereit1.bereitErreicht && /GESCHLOSSEN/.test(bereit1.ausgabe), bereit1.ausgabe.slice(-300));
+    const ende1 = await lauf1.stoppen('SIGTERM');
+    check('PKAPUTT kaputte Sperre: Exit 0', ende1.code === 0, `Code ${ende1.code}`);
+    await warte(200);
+    check('PKAPUTT kaputte Sperre: unter der id steht GENAU EIN ZDO, die Truhe mit Inhalt (kein zweites, kein Baum)', truhe(inst).length === 1 && truhe(inst)[0]!.prefab === HASH_KISTE && inhaltDa(inst), JSON.stringify(truhe(inst)));
+    writeFileSync(inst.loeschsperrePfad, gut as string);
+    const lauf2 = starteHauptprozess(inst, 20_000, BEREIT);
+    const bereit2 = await lauf2.warten();
+    check('PKAPUTT repariert: bereit, die Sperre hält 1 Objekt', bereit2.bereitErreicht && /Löschsperre hält 1 Objekt/.test(bereit2.ausgabe), bereit2.ausgabe.slice(-300));
+    const ende2 = await lauf2.stoppen('SIGTERM');
+    check('PKAPUTT repariert: Exit 0', ende2.code === 0, `Code ${ende2.code}`);
+    await warte(200);
+    check('PKAPUTT repariert: die Truhe steht mit Inhalt, die Sperre ist unverändert', truhe(inst).length === 1 && inhaltDa(inst) && lies(inst.loeschsperrePfad) === gut, JSON.stringify(truhe(inst)));
+  }
+  // (Z) two ZDOs under the id, intact lock
+  {
+    const inst = instanz(resolve(WURZEL, 'prefab-zwei'), 'dev');
+    aufbau(inst, true);
+    await warte(300);
+    const gut = lies(inst.loeschsperrePfad);
+    const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+    const bereit = await lauf.warten();
+    check('PZWEI zwei ZDOs unter der id: bereit', bereit.bereitErreicht, bereit.ausgabe.slice(-300));
+    const ende = await lauf.stoppen('SIGTERM');
+    check('PZWEI Exit 0', ende.code === 0, `Code ${ende.code}`);
+    await warte(200);
+    check('PZWEI die Truhe mit Inhalt bleibt (ein Baum-ZDO neben ihr ist keine Rücknahme), die Sperre bleibt', inhaltDa(inst) && lies(inst.loeschsperrePfad) === gut, `${JSON.stringify(truhe(inst))} ${String(lies(inst.loeschsperrePfad)).slice(0, 80)}`);
+  }
+}
+
 // Jeder Fall für sich: Ein Fehlschlag/Absturz eines Falls (etwa auf einem Stand OHNE Sperrdatei) verdeckt die anderen nicht.
 try {
   for (const [name, fall] of [
@@ -644,6 +711,7 @@ try {
     ['A2k', kaputteSperre],
     ['BEST/RUE', bestaetigenUndRuecknahme],
     ['PREFAB', prefabWechsel],
+    ['PKAPUTT/PZWEI', prefabWechselKaputt],
   ] as const) {
     try {
       await fall();

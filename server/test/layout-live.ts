@@ -279,9 +279,12 @@ async function haupt(): Promise<void> {
     // Z3 N2 (B1): the held-back prefab change is locked per id, durably (like every held-back deletion). The designer takes it
     // back (the chest prefab returns: not a replacement any more, the lock falls), empties the chest by hand, and only then
     // is the same change an ordinary replacement without state.
+    // Z3 N3 (C4): the lock must EXIST before the revocation, else "no lock afterwards" would also hold if it never came up.
+    const davor = loeschsperreLesen(SPERRE);
+    check('(i) the held-back prefab change locks the chest id durably (before the revocation)', davor !== null && davor !== 'kaputt' && davor.ids.includes('kiste-1'), JSON.stringify(davor));
     hash = schreibe(json(dokument([{ ...P1, x: 34.123, z: 21.456 }, { ...KISTE, x: 42, z: 22 }])));
     await quittung(hash);
-    check('(i) the prefab change is locked; writing the chest prefab back revokes the lock', loeschsperreLesen(SPERRE) === null && nach('kiste-1')?.zdoid.toString() === kisteId);
+    check('(i) writing the chest prefab back revokes the lock; the chest stays', loeschsperreLesen(SPERRE) === null && nach('kiste-1')?.zdoid.toString() === kisteId);
     nach('kiste-1')?.removeMember(getStableHash('truheInhalt'));
     zeilen.length = 0;
     hash = schreibe(wechsel + ' ');

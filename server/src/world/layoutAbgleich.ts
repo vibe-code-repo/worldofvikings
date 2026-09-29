@@ -477,7 +477,9 @@ export function layoutAbgleich(
     if (!prefab || alle.length === 0) continue;
     const passend = alle.filter((z) => z.prefabHash === prefab.hash);
     if (passend.length === 0) {
-      if (optionen.geschuetzteIds?.has(p.id!)) {
+      // Z3 N3 (C1): also with an unreadable lock file (`keineLoeschung`, fail-closed) nothing may die, so the old ZDO
+      // stays and no second one may appear under the id (the next boot would read that as a revocation).
+      if (optionen.geschuetzteIds?.has(p.id!) || optionen.keineLoeschung) {
         for (const z of alle) darfLoeschen(z, p.id!);
         zurueckgehalten.add(p);
         continue;

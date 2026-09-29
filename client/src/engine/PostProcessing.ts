@@ -65,7 +65,7 @@ import { MotionBlurPostProcess } from '@babylonjs/core/PostProcesses/motionBlurP
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration';
 import { ColorCurves } from '@babylonjs/core/Materials/colorCurves';
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { FarDof } from './FarDof';
 import {
   ankerDurchmesser,
@@ -263,6 +263,52 @@ interface ThinTaaHaken {
   camera: Nullable<Camera>;
   _hs: { x: number; y: number; next: () => void };
   _updateProjectionMatrix: () => void;
+}
+
+/** Wiederverwendete Puffer fuer `transformOhneJitter` — kein Allokieren pro Bild. */
+const OHNE_JITTER_PROJEKTION = new Matrix();
+const OHNE_JITTER_TRANSFORM = new Matrix();
+
+/**
+ * `scene.getTransformMatrix()` (View × Projektion), aber ohne den TAA-
+ * Halton-Versatz aus `entsperreTaaJitter` (G3 Stufe 1).
+ *
+ * `_updateProjectionMatrix` schreibt den Versatz jedes Bild in Zeile 2 der
+ * GECACHTEN Projektionsmatrix der Kamera (Spalten 8/9 — x/y, Babylons
+ * eigene Konvention, s. `thinTAAPostProcess.js:174-190` und die Ableitung
+ * oben). Bei einer symmetrischen, perspektivischen Kamera stehen dort ohne
+ * Versatz IMMER 0 — dieselbe Annahme, mit der Babylons Original-Update
+ * arbeitet (es *ersetzt* die Spalten, statt zu ihrem Vorwert zu addieren).
+ * Die Funktion nutzt genau das: eine Kopie der Projektionsmatrix mit
+ * Spalten 8/9 auf 0 zurueckgesetzt ist die unverzitterte Matrix — und ist
+ * bei ausgeschaltetem TAA ein Nullbetrieb (die Spalten stehen dann schon
+ * auf 0), liefert also bitgleich `scene.getTransformMatrix()`.
+ *
+ * Nur fuer PERSPECTIVE_CAMERA: Bei orthografischen Kameras (Weltkarte,
+ * Baum-Impostor-Kamera) traegt genau diese Zeile die echte Kamera-
+ * Verschiebung, nicht nur Jitter — sie zu nullen wuerde das Bild
+ * verschieben. Diese Kameras haengen ohnehin nie an der TAA-Pipeline, also
+ * faellt die Funktion dort auf `scene.getTransformMatrix()` zurueck.
+ *
+ * Returns View × Projection without the TAA jitter offset that
+ * `entsperreTaaJitter` writes into the camera's cached projection matrix
+ * every frame; a no-op (bit-identical to `scene.getTransformMatrix()`)
+ * when TAA is off, since those columns are already zero then.
+ */
+export function transformOhneJitter(scene: Scene, camera: Camera): Matrix {
+  if (camera.mode !== Constants.PERSPECTIVE_CAMERA) {
+    return scene.getTransformMatrix();
+  }
+  const proj = camera.getProjectionMatrix();
+  OHNE_JITTER_PROJEKTION.copyFrom(proj);
+  OHNE_JITTER_PROJEKTION.setRowFromFloats(
+    2,
+    0,
+    0,
+    OHNE_JITTER_PROJEKTION.m[10]!,
+    OHNE_JITTER_PROJEKTION.m[11]!
+  );
+  return scene.getViewMatrix().multiplyToRef(OHNE_JITTER_PROJEKTION, OHNE_JITTER_TRANSFORM);
 }
 
 /**

@@ -2323,6 +2323,12 @@ const KERN = [
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  // G3 Stufe 1: Namensschilder, Objektnamen und das Fadenkreuz-Ziel projizierten
+  // mit der TAA-verzitterten Projektionsmatrix und sprangen deshalb bei
+  // stehender Kamera jedes Bild um den Halton-Versatz. transformOhneJitter()
+  // (PostProcessing.ts) setzt den Versatz zurueck; drei echte Mutanten (je
+  // Aufrufstelle) bestaetigen, dass der Test die Stellen einzeln trifft.
+  ['client', 'test/schilder-transform-ohne-jitter.ts'],
   // Wolfsbalance: chase speed rescaled from the real B9.2 GPU trace stays
   // under 3 % p90 foot-sliding (was ~11-14 % at the old 5.5 m/s), and at
   // most two of three wolves pinned on one peer ever strike at once, with
@@ -2351,6 +2357,21 @@ const KERN = [
     Text, ~0.1 s.
   */
   ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
+  /*
+    Karte W3-Reste (2026-09-28), U1-U3/N3/N5/N6/Punkt 10: Namensorakel ueber
+    Unicode-Schreibweisen (Kelvin-Zeichen, Å/å), ungekuerzte Schluessel,
+    verfruehtes Aufraeumen, 409 bei Generationswechsel, IPv6-/64-Zaehlung,
+    Variantenselektor hinter Keycap-Basen, "Editor" als reservierter
+    Kontocharaktername. Echter node:http-Server, ~1-2 s (U3 stellt die Uhr).
+  */
+  ['server', 'test/konto-namensorakel.ts'],
+  /*
+    Karte W3-Reste (2026-09-28), N-3: Die Forum-Schreibrouten pruefen das
+    Konto-Token nach dem Lesen des Koerpers erneut (dasselbe Fenster wie
+    N4 in KontoApi.ts, hier fuer ForumApi.ts). In-Process-Attrappen wie
+    server/test/forum-api.ts, kein Netz, ~0.2 s.
+  */
+  ['server', 'test/forum-token-nach-koerper.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

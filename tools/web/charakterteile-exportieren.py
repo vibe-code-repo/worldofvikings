@@ -4,15 +4,27 @@ Die Wikingerin entsteht am 71er-Rig der Standardfigur (dasselbe Rig wie
 WikingerKoerper.glb: 63 deformierende Knochen plus IK-/Pole-Knochen, 48 Clips).
 Koerper und Teile kommen aus master2, Rig und Actions aus der Standardfigur.
 
-Aufruf (headless, alle Pfade absolut):
-  flatpak run org.blender.Blender --factory-startup -b --python-exit-code 1 \
-    --python tools/web/charakterteile-exportieren.py -- \
-    --standard /home/mike/wov-assets/PlayerCharacter/temp/<standard>.blend \
-    --master /home/mike/wov-assets/PlayerCharacter/Blender/wov-player-master2.blend \
+Gueltige Quelle fuer --standard ist die v1-Blend
+(wov-player-standard_2026-09-29_1217_anim-kern_v1.blend). Mike hat am 29.09.2026
+entschieden, dass die Liegeposen ohne Bodenkorrektur bleiben; die Blends v2 bis v4
+sind verworfene Versuche und ergeben einen anderen Koerper.
+
+Aufruf (headless). Blender-Dateien und --ausgabe absolut angeben; der --python-Pfad
+ist relativ zum Arbeitsverzeichnis von Blender. Bei Flatpak ist das ein anderes
+cwd als in der Shell (Sandbox), deshalb auch --python absolut schreiben:
+  flatpak run org.blender.Blender --factory-startup -b --python-exit-code 1 \\
+    --python <absoluter Pfad>/tools/web/charakterteile-exportieren.py -- \\
+    --standard /home/mike/wov-assets/PlayerCharacter/temp/<standard>.blend \\
+    --master /home/mike/wov-assets/PlayerCharacter/Blender/wov-player-master2.blend \\
     --ausgabe <ordner>
 
 --python-exit-code 1 macht aus einem Abbruch des Skripts einen Fehlerstatus; ohne die
 Option meldet Blender auch nach einem Abbruch 0.
+Alle Ausgaben entstehen zuerst in <ausgabe>/.neu-<pid>. Erst nach allen Pruefungen
+ersetzt das Skript die Dateien im Ziel und entfernt nur die bekannten Namen
+(WikingerinKoerper.glb, H_*, B_*, AM_*, AF_*, teile-export.json), die nicht mehr
+erzeugt wurden. Bei einem Abbruch wird der Temp-Ordner geloescht, das Ziel bleibt
+unveraendert; fremde Dateien im Ziel fasst das Skript nicht an.
 Beide Blender-Dateien werden nur gelesen, nie gespeichert. Der Koerper muss aus
 master2 kommen: master3 hat einen anderen Kopf (518 statt 495 Vertices) und
 wird vom Skript abgelehnt.
@@ -25,6 +37,8 @@ Animationen von Wikinger und Wikingerin nicht zusammen.
 
 import argparse
 import json
+import os
+import shutil
 import struct
 import sys
 from pathlib import Path
@@ -92,6 +106,9 @@ SPUREN = (
     ("knopf", "InteractPressButton"),
 )
 
+# Namen, die dieses Skript im Ziel erzeugt. Nur diese ersetzt oder entfernt es.
+BEKANNTE_MUSTER = ("WikingerinKoerper.glb", "H_*", "B_*", "AM_*", "AF_*", "teile-export.json")
+
 PRAEFIXE = ("Chr_Hair_", "Chr_FacialHair_Male_", "Chr_Eyebrow_Male_", "Chr_Eyebrow_Female_")
 
 
@@ -116,214 +133,248 @@ for datei in (STANDARD, MASTER):
 # gestartet, wird sie hier geoeffnet. Gespeichert wird nie.
 if Path(bpy.data.filepath).resolve() != STANDARD:
     bpy.ops.wm.open_mainfile(filepath=str(STANDARD))
-AUSGABE.mkdir(parents=True, exist_ok=True)
+TEMP = AUSGABE / f".neu-{os.getpid()}"
+AUSGABE_NEU = not AUSGABE.exists()
 
-ARMATUR = bpy.data.objects["WoV_Player_Armature"]
-if len(ARMATUR.data.bones) != ERWARTETE_KNOCHEN:
-    raise RuntimeError(
-        f"Standardfigur hat {len(ARMATUR.data.bones)} Knochen, erwartet {ERWARTETE_KNOCHEN}"
+
+def verwerfen() -> None:
+    """Abbruch: Temp-Ordner weg, Ziel unveraendert (ein neu angelegtes leeres Ziel auch)."""
+    shutil.rmtree(TEMP, ignore_errors=True)
+    if AUSGABE_NEU:
+        try:
+            AUSGABE.rmdir()
+        except OSError:
+            pass
+
+
+def veroeffentlichen() -> None:
+    """Erst nach allen Pruefungen: neue Dateien ins Ziel, dann nicht mehr erzeugte alte weg."""
+    neue = sorted(p.name for p in TEMP.iterdir())
+    for name in neue:
+        os.replace(TEMP / name, AUSGABE / name)
+    TEMP.rmdir()
+    entfernt = sorted(
+        p.name
+        for muster in BEKANNTE_MUSTER
+        for p in AUSGABE.glob(muster)
+        if p.is_file() and p.name not in neue
     )
-fehlende_actions = sorted({a for _, a in SPUREN if bpy.data.actions.get(a) is None})
-if fehlende_actions:
-    raise RuntimeError(f"Actions fehlen in der Standardfigur: {fehlende_actions}")
-
-# Namenskonflikte vermeiden: vorhandene Objekte, Materialien und Bilder der
-# Standardfigur zur Seite benennen (nur im Speicher).
-for objekt in list(bpy.data.objects):
-    if objekt.name.startswith(PRAEFIXE) or "_Female_" in objekt.name:
-        objekt.name = objekt.name + "__std"
-for material in bpy.data.materials:
-    material.name = material.name + "__std"
-for bild in bpy.data.images:
-    bild.name = bild.name + "__std"
-
-# Koerper (Collection Player_Female) und Teile aus master2 anhaengen (kein Link).
-with bpy.data.libraries.load(str(MASTER), link=False) as (quelle, ziel):
-    ziel.collections = ["Player_Female"]
-    ziel.objects = [n for n in quelle.objects if n.startswith(PRAEFIXE)]
-
-weiblich = bpy.data.collections["Player_Female"]
-bpy.context.scene.collection.children.link(weiblich)
-teile_sammlung = bpy.data.collections.new("Teile_Import")
-bpy.context.scene.collection.children.link(teile_sammlung)
-for objekt in bpy.data.objects:
-    if objekt.name.startswith(PRAEFIXE) and not objekt.users_collection:
-        teile_sammlung.objects.link(objekt)
-
-# Die mitgekommene Armatur aus master2 wird durch die der Standardfigur ersetzt:
-# Parent und Armature-Modifier umhaengen, Vertexgruppen gegen die Knochen pruefen.
-fremde_armaturen = [o for o in bpy.data.objects if o.type == "ARMATURE" and o is not ARMATUR]
-for objekt in bpy.data.objects:
-    if objekt.type != "MESH" or objekt.name.endswith("__std"):
-        continue
-    if not (objekt.name.startswith(PRAEFIXE) or objekt.name in weiblich.objects):
-        continue
-    welt = objekt.matrix_world.copy()
-    if objekt.parent is not None and objekt.parent is not ARMATUR:
-        objekt.parent = ARMATUR
-        objekt.matrix_world = welt
-    for modifikator in objekt.modifiers:
-        if modifikator.type == "ARMATURE":
-            modifikator.object = ARMATUR
-    ohne_knochen = [g.name for g in objekt.vertex_groups if g.name not in ARMATUR.data.bones]
-    if ohne_knochen:
-        raise RuntimeError(f"{objekt.name}: Vertexgruppen ohne Knochen {ohne_knochen}")
-for armatur in fremde_armaturen:
-    bpy.data.objects.remove(armatur, do_unlink=True)
+    for name in entfernt:
+        (AUSGABE / name).unlink()
+    print(f"VEROEFFENTLICHT: {len(neue)} Dateien, entfernt (nicht mehr erzeugt): {entfernt}", flush=True)
 
 
-def sammlungen_einblenden(layer=None) -> None:
-    layer = layer or bpy.context.view_layer.layer_collection
-    layer.exclude = False
-    layer.hide_viewport = False
-    for kind in layer.children:
-        sammlungen_einblenden(kind)
+try:
+    TEMP.mkdir(parents=True)
 
-
-def auswaehlen(objekte) -> None:
-    for objekt in bpy.data.objects:
-        objekt.select_set(False)
-    for objekt in objekte:
-        objekt.hide_set(False)
-        objekt.hide_viewport = False
-        objekt.hide_render = False
-        objekt.select_set(True)
-    ARMATUR.hide_set(False)
-    ARMATUR.hide_viewport = False
-    ARMATUR.hide_render = False
-    ARMATUR.select_set(True)
-    bpy.context.view_layer.objects.active = ARMATUR
-
-
-def glb_exportieren(ziel: Path, animationen: bool) -> None:
-    bpy.ops.export_scene.gltf(
-        filepath=str(ziel),
-        export_format="GLB",
-        use_selection=True,
-        export_animations=animationen,
-        export_animation_mode="NLA_TRACKS" if animationen else "ACTIONS",
-        export_skins=True,
-        export_apply=False,
-        export_yup=True,
-        export_morph=False,
-        export_materials="EXPORT",
-    )
-    print(f"EXPORT {ziel.name} {ziel.stat().st_size}", flush=True)
-
-
-def glb_kopf(pfad: Path) -> dict:
-    """Liest den glTF-JSON-Kopf einer geschriebenen GLB-Datei."""
-    daten = pfad.read_bytes()
-    magie, _version, _laenge = struct.unpack_from("<4sII", daten, 0)
-    if magie != b"glTF":
-        raise RuntimeError(f"{pfad.name}: keine GLB-Datei")
-    json_laenge, json_typ = struct.unpack_from("<I4s", daten, 12)
-    if json_typ != b"JSON":
-        raise RuntimeError(f"{pfad.name}: erster Block ist kein JSON")
-    return json.loads(daten[20 : 20 + json_laenge])
-
-
-sammlungen_einblenden()
-
-# Spurbelegung setzen: eine stumme NLA-Spur je Clip, in der Reihenfolge von SPUREN.
-animation = ARMATUR.animation_data_create()
-for spur in list(animation.nla_tracks):
-    animation.nla_tracks.remove(spur)
-animation.action = None
-for name, action_name in SPUREN:
-    action = bpy.data.actions[action_name]
-    spur = animation.nla_tracks.new()
-    spur.name = name
-    streifen = spur.strips.new(name, int(action.frame_range[0]), action)
-    streifen.name = name
-    spur.mute = True
-
-# Weiblicher Grundkoerper ohne die im Master nur als Beispiel eingesetzte
-# Frisur und Augenbraue. Beides wird im Editor als eigenes Modul aufgelegt.
-weiblich_koerper = [
-    o
-    for o in weiblich.objects
-    if o.type == "MESH" and not o.name.startswith(("Chr_Hair_", "Chr_Eyebrow_"))
-]
-if len(weiblich_koerper) != 11:
-    raise RuntimeError(f"Erwartet 11 weibliche Koerperteile, gefunden: {len(weiblich_koerper)}")
-
-auswaehlen(weiblich_koerper)
-koerper_datei = AUSGABE / "WikingerinKoerper.glb"
-glb_exportieren(koerper_datei, True)
-
-# Selbstpruefung an der geschriebenen Datei. Bei einem Fehler wird die Datei
-# wieder entfernt, damit keine falsche Wikingerin liegen bleibt.
-kopf_json = glb_kopf(koerper_datei)
-
-
-def kopf_vertices_in_glb(kopf: dict) -> int:
-    treffer = [m for m in kopf.get("meshes", []) if m.get("name", "").startswith("Chr_Head_Female")]
-    if len(treffer) != 1:
-        raise RuntimeError(f"Erwartet einen Kopf Chr_Head_Female*, gefunden: {len(treffer)}")
-    return sum(kopf["accessors"][p["attributes"]["POSITION"]]["count"] for p in treffer[0]["primitives"])
-
-
-kopf_vertices = kopf_vertices_in_glb(kopf_json)
-gelenke = sum(len(s["joints"]) for s in kopf_json.get("skins", [])[:1])
-animationen = len(kopf_json.get("animations", []))
-print(f"SELBSTPRUEFUNG gelenke={gelenke} animationen={animationen} kopf_vertices={kopf_vertices}", flush=True)
-if kopf_vertices != ERWARTETE_KOPF_VERTICES:
-    koerper_datei.unlink()
-    raise RuntimeError(
-        f"Kopf hat {kopf_vertices} Vertices, erwartet {ERWARTETE_KOPF_VERTICES} "
-        f"(master2). Falsche Master-Datei? {MASTER.name}"
-    )
-if gelenke != ERWARTETE_KNOCHEN or animationen != ERWARTETE_ANIMATIONEN:
-    koerper_datei.unlink()
-    raise RuntimeError(
-        f"WikingerinKoerper.glb hat {gelenke} Gelenke und {animationen} Animationen, "
-        f"erwartet {ERWARTETE_KNOCHEN} und {ERWARTETE_ANIMATIONEN}"
-    )
-
-# Teile ohne Animationen: ein Modul je Datei. Die stabilen Kurzkennungen H_XX/B_XX
-# stehen spaeter im Spielstand; der originale Blender-Objektname bleibt im Bericht.
-for spur in list(animation.nla_tracks):
-    animation.nla_tracks.remove(spur)
-bericht = {
-    "femaleBody": [o.name for o in weiblich_koerper],
-    "hair": [],
-    "beards": [],
-    "eyebrowsMale": [],
-    "eyebrowsFemale": [],
-}
-for praefix, ziel_praefix, schluessel, erwartet in (
-    ("Chr_Hair_", "H_", "hair", 38),
-    ("Chr_FacialHair_Male_", "B_", "beards", 18),
-    ("Chr_Eyebrow_Male_", "AM_", "eyebrowsMale", 10),
-    ("Chr_Eyebrow_Female_", "AF_", "eyebrowsFemale", 7),
-):
-    objekte = sorted(
-        (
-            o
-            for o in bpy.data.objects
-            if o.type == "MESH" and o.name.startswith(praefix) and not o.name.endswith("__std")
-        ),
-        key=lambda o: int(o.name.rsplit("_", 1)[1]),
-    )
-    if len(objekte) != erwartet:
+    ARMATUR = bpy.data.objects["WoV_Player_Armature"]
+    if len(ARMATUR.data.bones) != ERWARTETE_KNOCHEN:
         raise RuntimeError(
-            f"Erwartet {erwartet} Objekte fuer {schluessel}, gefunden: {len(objekte)}"
+            f"Standardfigur hat {len(ARMATUR.data.bones)} Knochen, erwartet {ERWARTETE_KNOCHEN}"
         )
-    for objekt in objekte:
-        nummer = int(objekt.name.rsplit("_", 1)[1])
-        datei = f"{ziel_praefix}{nummer:02d}"
-        auswaehlen([objekt])
-        glb_exportieren(AUSGABE / f"{datei}.glb", False)
-        bericht[schluessel].append({"id": datei, "source": objekt.name})
+    fehlende_actions = sorted({a for _, a in SPUREN if bpy.data.actions.get(a) is None})
+    if fehlende_actions:
+        raise RuntimeError(f"Actions fehlen in der Standardfigur: {fehlende_actions}")
 
-(AUSGABE / "teile-export.json").write_text(
-    json.dumps(bericht, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-)
-print(
-    f"FERTIG: {len(bericht['hair'])} Haare, {len(bericht['beards'])} Baerte, "
-    f"{len(bericht['eyebrowsMale'])} maennliche und "
-    f"{len(bericht['eyebrowsFemale'])} weibliche Augenbrauen, "
-    f"{len(bericht['femaleBody'])} weibliche Koerperteile",
-    flush=True,
-)
+    # Namenskonflikte vermeiden: vorhandene Objekte, Materialien und Bilder der
+    # Standardfigur zur Seite benennen (nur im Speicher).
+    for objekt in list(bpy.data.objects):
+        if objekt.name.startswith(PRAEFIXE) or "_Female_" in objekt.name:
+            objekt.name = objekt.name + "__std"
+    for material in bpy.data.materials:
+        material.name = material.name + "__std"
+    for bild in bpy.data.images:
+        bild.name = bild.name + "__std"
+
+    # Koerper (Collection Player_Female) und Teile aus master2 anhaengen (kein Link).
+    with bpy.data.libraries.load(str(MASTER), link=False) as (quelle, ziel):
+        ziel.collections = ["Player_Female"]
+        ziel.objects = [n for n in quelle.objects if n.startswith(PRAEFIXE)]
+
+    weiblich = bpy.data.collections["Player_Female"]
+    bpy.context.scene.collection.children.link(weiblich)
+    teile_sammlung = bpy.data.collections.new("Teile_Import")
+    bpy.context.scene.collection.children.link(teile_sammlung)
+    for objekt in bpy.data.objects:
+        if objekt.name.startswith(PRAEFIXE) and not objekt.users_collection:
+            teile_sammlung.objects.link(objekt)
+
+    # Die mitgekommene Armatur aus master2 wird durch die der Standardfigur ersetzt:
+    # Parent und Armature-Modifier umhaengen, Vertexgruppen gegen die Knochen pruefen.
+    fremde_armaturen = [o for o in bpy.data.objects if o.type == "ARMATURE" and o is not ARMATUR]
+    for objekt in bpy.data.objects:
+        if objekt.type != "MESH" or objekt.name.endswith("__std"):
+            continue
+        if not (objekt.name.startswith(PRAEFIXE) or objekt.name in weiblich.objects):
+            continue
+        welt = objekt.matrix_world.copy()
+        if objekt.parent is not None and objekt.parent is not ARMATUR:
+            objekt.parent = ARMATUR
+            objekt.matrix_world = welt
+        for modifikator in objekt.modifiers:
+            if modifikator.type == "ARMATURE":
+                modifikator.object = ARMATUR
+        ohne_knochen = [g.name for g in objekt.vertex_groups if g.name not in ARMATUR.data.bones]
+        if ohne_knochen:
+            raise RuntimeError(f"{objekt.name}: Vertexgruppen ohne Knochen {ohne_knochen}")
+    for armatur in fremde_armaturen:
+        bpy.data.objects.remove(armatur, do_unlink=True)
+
+
+    def sammlungen_einblenden(layer=None) -> None:
+        layer = layer or bpy.context.view_layer.layer_collection
+        layer.exclude = False
+        layer.hide_viewport = False
+        for kind in layer.children:
+            sammlungen_einblenden(kind)
+
+
+    def auswaehlen(objekte) -> None:
+        for objekt in bpy.data.objects:
+            objekt.select_set(False)
+        for objekt in objekte:
+            objekt.hide_set(False)
+            objekt.hide_viewport = False
+            objekt.hide_render = False
+            objekt.select_set(True)
+        ARMATUR.hide_set(False)
+        ARMATUR.hide_viewport = False
+        ARMATUR.hide_render = False
+        ARMATUR.select_set(True)
+        bpy.context.view_layer.objects.active = ARMATUR
+
+
+    def glb_exportieren(ziel: Path, animationen: bool) -> None:
+        bpy.ops.export_scene.gltf(
+            filepath=str(ziel),
+            export_format="GLB",
+            use_selection=True,
+            export_animations=animationen,
+            export_animation_mode="NLA_TRACKS" if animationen else "ACTIONS",
+            export_skins=True,
+            export_apply=False,
+            export_yup=True,
+            export_morph=False,
+            export_materials="EXPORT",
+        )
+        print(f"EXPORT {ziel.name} {ziel.stat().st_size}", flush=True)
+
+
+    def glb_kopf(pfad: Path) -> dict:
+        """Liest den glTF-JSON-Kopf einer geschriebenen GLB-Datei."""
+        daten = pfad.read_bytes()
+        magie, _version, _laenge = struct.unpack_from("<4sII", daten, 0)
+        if magie != b"glTF":
+            raise RuntimeError(f"{pfad.name}: keine GLB-Datei")
+        json_laenge, json_typ = struct.unpack_from("<I4s", daten, 12)
+        if json_typ != b"JSON":
+            raise RuntimeError(f"{pfad.name}: erster Block ist kein JSON")
+        return json.loads(daten[20 : 20 + json_laenge])
+
+
+    sammlungen_einblenden()
+
+    # Spurbelegung setzen: eine stumme NLA-Spur je Clip, in der Reihenfolge von SPUREN.
+    animation = ARMATUR.animation_data_create()
+    for spur in list(animation.nla_tracks):
+        animation.nla_tracks.remove(spur)
+    animation.action = None
+    for name, action_name in SPUREN:
+        action = bpy.data.actions[action_name]
+        spur = animation.nla_tracks.new()
+        spur.name = name
+        streifen = spur.strips.new(name, int(action.frame_range[0]), action)
+        streifen.name = name
+        spur.mute = True
+
+    # Weiblicher Grundkoerper ohne die im Master nur als Beispiel eingesetzte
+    # Frisur und Augenbraue. Beides wird im Editor als eigenes Modul aufgelegt.
+    weiblich_koerper = [
+        o
+        for o in weiblich.objects
+        if o.type == "MESH" and not o.name.startswith(("Chr_Hair_", "Chr_Eyebrow_"))
+    ]
+    if len(weiblich_koerper) != 11:
+        raise RuntimeError(f"Erwartet 11 weibliche Koerperteile, gefunden: {len(weiblich_koerper)}")
+
+    auswaehlen(weiblich_koerper)
+    koerper_datei = TEMP / "WikingerinKoerper.glb"
+    glb_exportieren(koerper_datei, True)
+
+    # Selbstpruefung an der geschriebenen Datei (noch im Temp-Ordner).
+    kopf_json = glb_kopf(koerper_datei)
+
+
+    def kopf_vertices_in_glb(kopf: dict) -> int:
+        treffer = [m for m in kopf.get("meshes", []) if m.get("name", "").startswith("Chr_Head_Female")]
+        if len(treffer) != 1:
+            raise RuntimeError(f"Erwartet einen Kopf Chr_Head_Female*, gefunden: {len(treffer)}")
+        return sum(kopf["accessors"][p["attributes"]["POSITION"]]["count"] for p in treffer[0]["primitives"])
+
+
+    kopf_vertices = kopf_vertices_in_glb(kopf_json)
+    gelenke = sum(len(s["joints"]) for s in kopf_json.get("skins", [])[:1])
+    animationen = len(kopf_json.get("animations", []))
+    print(f"SELBSTPRUEFUNG gelenke={gelenke} animationen={animationen} kopf_vertices={kopf_vertices}", flush=True)
+    if kopf_vertices != ERWARTETE_KOPF_VERTICES:
+        raise RuntimeError(
+            f"Kopf hat {kopf_vertices} Vertices, erwartet {ERWARTETE_KOPF_VERTICES} "
+            f"(master2). Falsche Master-Datei? {MASTER.name}"
+        )
+    if gelenke != ERWARTETE_KNOCHEN or animationen != ERWARTETE_ANIMATIONEN:
+        raise RuntimeError(
+            f"WikingerinKoerper.glb hat {gelenke} Gelenke und {animationen} Animationen, "
+            f"erwartet {ERWARTETE_KNOCHEN} und {ERWARTETE_ANIMATIONEN}"
+        )
+
+    # Teile ohne Animationen: ein Modul je Datei. Die stabilen Kurzkennungen H_XX/B_XX
+    # stehen spaeter im Spielstand; der originale Blender-Objektname bleibt im Bericht.
+    for spur in list(animation.nla_tracks):
+        animation.nla_tracks.remove(spur)
+    bericht = {
+        "femaleBody": [o.name for o in weiblich_koerper],
+        "hair": [],
+        "beards": [],
+        "eyebrowsMale": [],
+        "eyebrowsFemale": [],
+    }
+    for praefix, ziel_praefix, schluessel, erwartet in (
+        ("Chr_Hair_", "H_", "hair", 38),
+        ("Chr_FacialHair_Male_", "B_", "beards", 18),
+        ("Chr_Eyebrow_Male_", "AM_", "eyebrowsMale", 10),
+        ("Chr_Eyebrow_Female_", "AF_", "eyebrowsFemale", 7),
+    ):
+        objekte = sorted(
+            (
+                o
+                for o in bpy.data.objects
+                if o.type == "MESH" and o.name.startswith(praefix) and not o.name.endswith("__std")
+            ),
+            key=lambda o: int(o.name.rsplit("_", 1)[1]),
+        )
+        if len(objekte) != erwartet:
+            raise RuntimeError(
+                f"Erwartet {erwartet} Objekte fuer {schluessel}, gefunden: {len(objekte)}"
+            )
+        for objekt in objekte:
+            nummer = int(objekt.name.rsplit("_", 1)[1])
+            datei = f"{ziel_praefix}{nummer:02d}"
+            auswaehlen([objekt])
+            glb_exportieren(TEMP / f"{datei}.glb", False)
+            bericht[schluessel].append({"id": datei, "source": objekt.name})
+
+    (TEMP / "teile-export.json").write_text(
+        json.dumps(bericht, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        f"FERTIG: {len(bericht['hair'])} Haare, {len(bericht['beards'])} Baerte, "
+        f"{len(bericht['eyebrowsMale'])} maennliche und "
+        f"{len(bericht['eyebrowsFemale'])} weibliche Augenbrauen, "
+        f"{len(bericht['femaleBody'])} weibliche Koerperteile",
+        flush=True,
+    )
+
+    veroeffentlichen()
+except BaseException:
+    verwerfen()
+    raise

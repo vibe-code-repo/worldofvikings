@@ -375,5 +375,6 @@
   "testflug.tab_selbst_schliessen": "Please close this tab yourself",
   "testflug.wegpunkt_abgesetzt": "Waypoint {n} dropped",
   "testflug.wegpunkt_gegriffen": "Waypoint {n} of {route} grabbed — dragging moves it",
-  "testflug.zurueck_zur_karte": "Back to the map …"
+  "testflug.zurueck_zur_karte": "Back to the map …",
+  "tod.bett_verloren": "Your bed is gone"
 }

@@ -54,6 +54,9 @@ import { armorByFile, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from './armorVisibility.js';
 import { stabilizeHeadSkin } from './headSkin.js';
 import { canWearArmor } from '@wov/shared';
+import { TOD_CLIPS, TREFFER_CLIPS, TREFFER_MINDESTABSTAND_S, type TodClip } from '@wov/shared';
+import { messeUndEntferneWurzelbewegung } from './wurzelbewegung';
+import { istKernClip } from './kernClips';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
@@ -343,7 +346,7 @@ const SCHICHT_OBERKOERPER = [
   'Clavicle_L', 'Shoulder_L', 'Elbow_L', 'Hand_L',
   'Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R',
 ] as const;
-const AKTION_TEMPO: Record<string, number> = { ausruesten: 2.75, ablegen: 2.25, parade: 1.5 };
+const AKTION_TEMPO: Record<string, number> = { ausruesten: 2.75, ablegen: 2.25, parade: 1.5, treffer: 1 };
 
 interface Clip {
   grp: AnimationGroup;
@@ -504,6 +507,15 @@ export class AvatarRig {
   private clipsFaust: Clip[] = [];
   /** Beidhaendige Stabkette: stab_angriff, stab_angriff2, stab_angriff3 (Katana-Familie des Originals). */
   private clipsStab: Clip[] = [];
+  /** Death clips by name (`tod_vorn`, `tod_hinten`); played on demand by `starteTod`. */
+  private readonly clipsTod = new Map<TodClip, Clip>();
+  /**
+   * Lying: the death clip that has been started. While set, the figure shows nothing but that
+   * clip — no state selection, no weapon layers, no foot adaption, no hit reaction.
+   */
+  private liegend: Clip | null = null;
+  /** Seconds since the last hit reaction started (the minimum gap, TREFFER_MINDESTABSTAND_S). */
+  private trefferUhr = Number.POSITIVE_INFINITY;
   /**
    * Waffensatz des zuletzt ergriffenen Gegenstands. Bleibt beim Ablegen
    * stehen, damit Ablegen-Clip und ausblendende Schichten noch zur
@@ -598,6 +610,8 @@ export class AvatarRig {
    * damit Client und Server dieselbe kennen.
    */
   private readonly modellDatei: string;
+  /** Settles when the body model is loaded (or failed to). For tests and probes; the game does not wait for it. */
+  readonly geladen: Promise<void>;
 
   constructor(scene: Scene, modellDatei: string = modellDateiZu(FIGUR_VORGABE)) {
     this.modellDatei = modellDatei;
@@ -612,7 +626,7 @@ export class AvatarRig {
     hair.specularColor = new Color3(0.03, 0.03, 0.03);
 
     this.root = new TransformNode('avatar', scene);
-    void this.ladeModell(scene);
+    this.geladen = this.ladeModell(scene);
 
     this.hips = new TransformNode('avatar_hips', scene);
     this.hips.parent = this.root;
@@ -825,7 +839,7 @@ export class AvatarRig {
         .sort((a, b) => (a.to - a.from) - (b.to - b.from))[0] ?? null;
 
       const clips = res.animationGroups
-        .map((grp) => ({ grp, tempo: this.messeUndEntferneWurzelbewegung(grp, grp === sprungGruppe) }))
+        .map((grp) => ({ grp, tempo: messeUndEntferneWurzelbewegung(grp, this.modellSkalierung, grp === sprungGruppe) }))
         .sort((a, b) => a.tempo - b.tempo);
       // Ein Clip ohne nennenswerte Wegstrecke ist eine Standpose. Weitere
       // Standposen bleiben liegen und können später als Abwechslung im
@@ -872,7 +886,7 @@ export class AvatarRig {
       this.komboRest = 0;
       // Waffenschichten (arm_*, hand_*) sind keine Zustaende: Sie werden
       // unten zu Schichten und nehmen an keiner Einteilung teil.
-      const schichtClips = clips.filter((c) => /^(arm|hand)_|^(stab_)?(ausruesten|ablegen|parade)/i.test(c.grp.name));
+      const schichtClips = clips.filter((c) => /^(arm|hand)_|^(stab_)?(ausruesten|ablegen|parade)|^treffer_(vorn|hinten)_(links|rechts)$/i.test(c.grp.name));
       this.baueSchichten(schichtClips);
       const rest = clips.filter(
         (c) =>
@@ -880,8 +894,18 @@ export class AvatarRig {
           !this.clipsAngriff.includes(c) &&
           !this.clipsFaust.includes(c) &&
           !this.clipsStab.includes(c) &&
-          !schichtClips.includes(c)
+          !schichtClips.includes(c) &&
+          // The 20 core clips (death, hit, stooping, doors ...) are no movement state: the door
+          // clips travel 2.4 m and would otherwise be taken for the run cycle.
+          !istKernClip(c.grp.name)
       );
+      this.clipsTod.clear();
+      for (const name of TOD_CLIPS) {
+        const c = clips.find((k) => k.grp.name === name);
+        if (c) this.clipsTod.set(name, c);
+      }
+      // Death clips play only on demand: never as a state.
+      for (const c of this.clipsTod.values()) c.grp.stop();
       const wandernd = rest.filter((c) => c.tempo > 0.1);
       this.clipsRuhe = rest.filter((c) => c.tempo <= 0.1);
       // Sprechende Namen schlagen die Messung. Der Tripo-Export vergibt
@@ -1214,103 +1238,6 @@ export class AvatarRig {
       return { hoehe: SPIELER_HOEHE / MODELL_SKALIERUNG, unten: -MODELL_HALBHOEHE };
     }
     return { hoehe, unten };
-  }
-
-  /**
-   * Misst die im Clip eingebackene Vorwärtsbewegung, entfernt sie und gibt
-   * das Tempo in m/s zurück.
-   *
-   * ── Warum die Bewegung weg muss ─────────────────────────────────────
-   * Beide Clips wandern: Die Hüfte legt im Rennzyklus 3,2, im Gehzyklus
-   * 1,6 Modelleinheiten zurück. Mitgespielt liefe die Figur aus ihrer
-   * eigenen Position heraus — die Fortbewegung steuert bei uns aber der
-   * PlayerController über `root`.
-   *
-   * ── Warum nur EINE Achse und nicht die ganze Spur ───────────────────
-   * Ein früherer Versuch entfernte die komplette Positionsspur der
-   * wurzelnahen Knochen. Damit verschwindet aber auch das Auf-und-Ab der
-   * Hüfte und der seitliche Versatz — der Gang wird brettsteif. Die
-   * Wanderung steckt in genau einer lokalen Achse (Spannweite 3,2 gegen
-   * 0,03 und 0,04 der beiden anderen); nur die wird auf ihren
-   * Bindepose-Wert festgenagelt. Welche Achse das ist, wird gemessen statt
-   * angenommen: Der glTF-Export kommt aus Blender (Z-up) und die
-   * Achsenlage ändert sich mit den Exporteinstellungen.
-   *
-   * Ein weiterer Versuch verwarf ALLE Verschiebungsspuren aller Knochen.
-   * Das tötete die Animation komplett — bei diesem Export haben die
-   * Drehspuren nur 2 Keyframes, die Bewegung steckt fast vollständig in
-   * den Translationen.
-   */
-  private messeUndEntferneWurzelbewegung(grp: AnimationGroup, istSprung = false): number {
-    let weiteste = 0;
-    for (const ta of grp.targetedAnimations) {
-      if (ta.animation.targetProperty !== 'position') continue;
-      const zielName = (ta.target as { name?: string })?.name ?? '';
-      // Nur wurzelnahe Knochen können den Körper als Ganzes versetzen.
-      // `mixamorig:Hips` gehört dazu: Ohne den Namen blieb die eingebackene
-      // Wegstrecke der Walküre unentdeckt — sie wurde weder entfernt (die
-      // Figur wäre beim Laufen aus ihrer eigenen Kollisionskapsel gewandert)
-      // noch gemessen, weshalb alle vier Clips als Standpose galten und es
-      // schlicht kein "gehen" und kein "rennen" gab.
-      if (!/^(Root|Hip|Hips|Pelvis|mixamorig:Hips)$/.test(zielName)) continue;
-      const keys = ta.animation.getKeys();
-      if (keys.length < 2) continue;
-
-      const min = (keys[0].value as Vector3).clone();
-      const max = min.clone();
-      for (const k of keys) {
-        min.minimizeInPlace(k.value as Vector3);
-        max.maximizeInPlace(k.value as Vector3);
-      }
-      const spann = max.subtract(min);
-      const achse: 'x' | 'y' | 'z' =
-        spann.x >= spann.y && spann.x >= spann.z ? 'x' : spann.y >= spann.z ? 'y' : 'z';
-      const weite = spann[achse];
-
-      // Von Modelleinheiten auf METER: Die Keyframes stehen im ELTERNraum
-      // des Hüftknotens, also zählt dessen Weltmaßstab — nicht der Faktor
-      // des Halters allein.
-      //
-      // Für unsere eigenen Modelle ist beides dasselbe (zwischen Halter und
-      // Hüfte sitzt nur eine Verschiebung). Die Walküre bringt aber eine
-      // Armature mit Maßstab 0,01 mit, weil Mixamo in Zentimetern rechnet:
-      // Ihre Gehstrecke steht als 186 in der Datei und sind 1,86 m.
-      const eltern = (ta.target as TransformNode).parent as TransformNode | null;
-      eltern?.computeWorldMatrix(true);
-      const massstab = eltern?.absoluteScaling?.x ?? this.modellSkalierung;
-      const weiteMeter = weite * massstab;
-
-      // Ein Wippen von wenigen Zentimetern ist Gang, keine Wanderung.
-      // Die Schwelle steht in METERN, seit es Modelle mit anderem Maßstab
-      // gibt: In Modelleinheiten gemessen hätte das Atmen der Walküre
-      // (5,9 Einheiten = 5,6 cm) als Wanderung gegolten und ihr die
-      // Auf-und-ab-Bewegung im Stand genommen.
-      if (weiteMeter < 0.2) continue;
-
-      // Festnageln auf den Wert der BINDEPOSE, nicht auf den ersten
-      // Keyframe: Der Rennzyklus startet bereits 0,64 Einheiten vor dem
-      // Ursprung: eingefroren stünde die Figur 1,2 m vor ihrem eigenen
-      // Mittelpunkt und damit neben der Kollisionskapsel.
-      // Sonst NUR die wandernde Achse — beim Sprung ALLE DREI.
-      //
-      // Waehrend des Fluges gehoert die Position der Figur vollstaendig
-      // der Physik: Sie hebt, traegt vorwaerts und laesst fallen. Legt
-      // der Clip auch nur eine Achse mit drauf, addieren sich beide.
-      // Beim Sprungclip `weitsprung` sind das 0,32 Modelleinheiten nach
-      // oben (0,58 m) ZUSAETZLICH zum physikalischen Sprung — die Figur
-      // schoesse doppelt so hoch, ohne dass die Kollision davon wuesste.
-      const achsen: Array<'x' | 'y' | 'z'> = istSprung ? ['x', 'y', 'z'] : [achse];
-      for (const ax of achsen) {
-        const ruhewert = (ta.target as TransformNode).position[ax];
-        for (const k of keys) (k.value as Vector3)[ax] = ruhewert;
-      }
-      ta.animation.setKeys(keys);
-
-      const fps = ta.animation.framePerSecond || 60;
-      const dauer = (keys[keys.length - 1].frame - keys[0].frame) / fps;
-      if (dauer > 0) weiteste = Math.max(weiteste, weiteMeter / dauer);
-    }
-    return weiteste;
   }
 
   /**
@@ -1739,6 +1666,13 @@ export class AvatarRig {
    */
   update(dt: number, speed: number, maxSpeed: number, rennt = false, inDerLuft = false): void {
     this.inDerLuftMerker = inDerLuft;
+    this.trefferUhr += dt;
+    // Lying: the death clip runs on its own and stays at its last pose; nothing else may move the figure.
+    if (this.liegend && this.nutzeClip) {
+      this.passeAnBodenAn(dt, true);
+      this.treibeUeberblendung(dt);
+      return;
+    }
     // Fussanpassung ZUERST: Sie liest die Pose des vorigen Bildes und
     // setzt nur den Halter — die Clipwahl weiter unten stört sie nicht.
     this.passeAnBodenAn(dt, inDerLuft);
@@ -1911,7 +1845,7 @@ export class AvatarRig {
       const istArm = /^arm_/i.test(clip.grp.name);
       const istStab = /^(arm_stab|hand_stab|stab_)/i.test(clip.grp.name);
       const istSpeer = /^(arm_speer|hand_speer|speer_)/i.test(clip.grp.name);
-      const istAktion = /^(stab_)?(ausruesten|ablegen|parade)/i.test(clip.grp.name);
+      const istAktion = /^(stab_)?(ausruesten|ablegen|parade)|^treffer_(vorn|hinten)_(links|rechts)$/i.test(clip.grp.name);
       const maske = (name: string) =>
         istAktion
           ? oberkoerper.has(name)
@@ -1978,6 +1912,67 @@ export class AvatarRig {
     return true;
   }
 
+  /**
+   * Hit reaction: plays the upper-body clip `name` (`treffer_vorn_links` ...) over whatever the
+   * figure does (walking, standing — the legs are not touched).
+   *
+   * Two rules, both on purpose:
+   *  - a swing wins (the attack clip moves the whole body, so the flinch must not fight it);
+   *  - a reaction that started less than TREFFER_MINDESTABSTAND_S ago is not restarted — the next
+   *    blow of a pack would otherwise hold the upper body at the first frames forever.
+   *
+   * @returns whether the reaction started
+   */
+  zeigeTreffer(name: string): boolean {
+    if (this.liegend || this.trefferUhr < TREFFER_MINDESTABSTAND_S) return false;
+    if (!(TREFFER_CLIPS as readonly string[]).includes(name) || this.angriffRest > 0) return false;
+    if (!this.starteAktion(name)) return false;
+    this.trefferUhr = 0;
+    return true;
+  }
+
+  /**
+   * Death: plays `tod_vorn` / `tod_hinten` once from the start and stays lying in its last pose
+   * until `endeTod`. Nothing else moves the figure meanwhile.
+   *
+   * @returns false if the model brings no such clip (the figure then just stands)
+   */
+  starteTod(name: TodClip): boolean {
+    const clip = this.clipsTod.get(name);
+    if (!clip || !this.nutzeClip) return false;
+    this.aktion = null;
+    this.angriffRest = 0;
+    this.komboRest = 0;
+    this.liegend = clip;
+    if (this.aktiv === clip) {
+      clip.grp.play(false);
+      clip.grp.goToFrame(clip.grp.from);
+      clip.grp.setWeightForAllAnimatables(1);
+      return true;
+    }
+    this.wechsleZu(clip, false, true, UEBERBLENDUNG);
+    return true;
+  }
+
+  /** Get up (the server revived the player): back to the idle pose. */
+  endeTod(): void {
+    const tod = this.liegend;
+    if (!tod) return;
+    this.liegend = null;
+    this.trefferUhr = Number.POSITIVE_INFINITY;
+    tod.grp.stop();
+    if (this.clipRuhe) {
+      this.blende = null;
+      this.aktiv = null;
+      this.stelleRuhepose();
+    }
+  }
+
+  /** Lying dead (from `starteTod` until `endeTod`)? For input lock, HUD and probes. */
+  get liegt(): boolean {
+    return this.liegend !== null;
+  }
+
   /** Laeuft gerade eine Parade? Fuer HUD und Messzellen. */
   get pariert(): boolean {
     return this.aktion !== null && this.aktion.schicht.name.toLowerCase().startsWith('parade');
@@ -2018,7 +2013,7 @@ export class AvatarRig {
     // Arm des Ruheclips durchscheinen — das „Zucken" beim ersten Hieb,
     // das Mike am 10.09. gemeldet hat.
     let ziel = 0;
-    if (this.held && this.nutzeClip) {
+    if (this.held && this.nutzeClip && !this.liegend) {
       const b = this.blende;
       const hieb = (c: Clip | null) => this.istHieb(c);
       if (this.angriffRest > 0 || hieb(this.aktiv)) {
@@ -2096,7 +2091,7 @@ export class AvatarRig {
    */
   private wendeFussIkAn(): void {
     const dt = this.root.getScene().getEngine().getDeltaTime() / 1000;
-    if (!this.bodenSonde || this.fussKnoten.length < 2 || !this.nutzeClip) return;
+    if (!this.bodenSonde || this.fussKnoten.length < 2 || !this.nutzeClip || this.liegend) return;
     const sonde = this.bodenSonde;
     const rigBoden = this.root.getAbsolutePosition().y;
     const vorn = this.root.forward.clone();

@@ -171,12 +171,16 @@ export class Welt {
    * bekommt eine leere Liste und rechnet dann fast nichts — Vegetation,
    * Kreaturen und Routen hängen alle am Umkreis der Spieler. Genau
    * deshalb kostet eine leerstehende Instanz nichts.
+   *
+   * `ziele` sind die Positionen, die Kreaturen angreifen dürfen (Standard: alle
+   * `positionen`). Ein toter Spieler bleibt in `positionen` — Zonen, Spawns und
+   * Routen laufen weiter — fällt aber aus `ziele` heraus.
    */
-  tick(deltaSec: number, positionen: readonly Vector3[]): { neueZonen: number } {
+  tick(deltaSec: number, positionen: readonly Vector3[], ziele: readonly Vector3[] = positionen): { neueZonen: number } {
     const neueZonen = this.mitZonengenerierung ? this.zones.update(positionen) : 0;
-    this.spawns?.update(deltaSec, positionen);
+    this.spawns?.update(deltaSec, positionen, ziele);
     this.routen.update(deltaSec, positionen);
-    this.aggro.update(deltaSec, positionen);
+    this.aggro.update(deltaSec, ziele);
     return { neueZonen };
   }
 

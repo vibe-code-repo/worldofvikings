@@ -148,6 +148,7 @@ import { CharakterPanel } from './ui/CharakterPanel';
 import { ChatPanel } from './ui/ChatPanel';
 import { AudioEngine, startAudioEngine } from './engine/Audio';
 import { EigeneSchritte } from './engine/Audio/EigeneSchritte';
+import { KampfToene } from './engine/Audio/KampfToene';
 import {
   aktiviereWebGpuGlslKompatibilitaet,
   istWebGpuGlslKompatibilitaetAktiv,
@@ -812,6 +813,7 @@ async function main() {
   let loading: LoadingScreen | null = null;
   let inventory: Inventory | null = null;
   let equipment: Equipment | null = null;
+  const kampfToene = new KampfToene(() => audioEngine, () => player, () => equipment?.rightItem?.shared.name ?? '');
   /** Slash, Trefferblitz, Blut, Paradefunke (KampfEffekte.ts). */
   const kampfEffekte = new KampfEffekte(scene);
   let hotbar: Hotbar | null = null;
@@ -2478,6 +2480,7 @@ async function main() {
       const pos = reader.readVector3();
       const art = reader.readInt32();
       kampfEffekte.treffer(new Vector3(pos.x, pos.y, pos.z), art);
+      kampfToene.treffer(pos, art, reader.remaining > 0 && reader.readBool());
     });
 
     socket.on(PacketType.InteractResult, (reader) => {
@@ -2610,6 +2613,7 @@ async function main() {
       // Punkte stehen alle am alten Ort, und ein Versatz daraus wäre die
       // Teleportstrecke selbst.
       abgleicher.zuruecksetzen();
+      kampfToene.abbrechen();
       imDungeon = drin;
       // Das dokumenteigene Steinmaterial anlegen, BEVOR die Kit-Teile
       // geladen werden — `prepareMasters` bemalt sie beim Laden, und beim
@@ -2845,6 +2849,7 @@ async function main() {
     };
     socket.onDisconnected = (reason) => {
       netStatus = `getrennt${reason ? `: ${reason}` : ''}`;
+      kampfToene.dispose();
       // Auto-Reconnect (Review-Punkt 9): drei Versuche mit wachsendem
       // Abstand, erst danach zur Anmeldung auf der Webseite. Ein Kick durch
       // den Server (reason gesetzt) wird NICHT automatisch wiederholt.
@@ -3452,17 +3457,9 @@ async function main() {
             ? ('speer' as const)
             : ('schwert' as const)
         : ('faust' as const);
-      // Der Slash-Halbmond gehoert zur Klinge; der Stab bekommt keinen.
-      if (player.avatar.schlage(satz) && satz === 'schwert') {
-        // Slash-Halbmond zur Spitze des jeweiligen Hiebs (Hand_R-Maxima
-        // der drei Clips bei Tempo 2,5: 0,28 / 0,40 / 0,68 s), vor der
-        // Figur in Brusthoehe; Hieb 2 ist der Querhieb von der anderen Seite.
-        const hieb = player.avatar.letzterHieb;
-        const verzug = [0.28, 0.4, 0.68][hieb] ?? 0.3;
-        setTimeout(() => {
-          const halter = equipment?.gehalten;
-          if (halter) kampfEffekte.schlagBogen(halter);
-        }, verzug * 1000);
+      // Schwungton und Slash-Halbmond (nur Klinge) zum Hiebzeitpunkt: KampfToene.
+      if (player.avatar.schlage(satz)) {
+        kampfToene.schlag(satz, player.avatar.letzterHieb, satz === 'schwert' ? () => { const h = equipment?.gehalten; if (h) kampfEffekte.schlagBogen(h); } : undefined);
       }
       socket.sendAttack(
         player.position.x,

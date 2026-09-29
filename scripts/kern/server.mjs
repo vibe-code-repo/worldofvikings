@@ -390,7 +390,7 @@ export default [
   ['server', 'test/herkunft-xff.ts'],
   /*
     I1 step 0 (N1): the surface of WovServer that the cuts of steps 1-10 must not lose: the 20 `case PacketType` labels of
-    `onPacket`, the 13 admin command names, the 32 private methods and 11 fields that tests reach by name, the 19
+    `onPacket`, the 13 admin command names, the 33 private methods and 11 fields that tests reach by name, the 19
     methods tests replace on the instance, the text tests that read WovServer.ts, and a scan of all test folders that
     fails (with the line to add) when a test reaches a new private name. Builds one server without starting it, in a
     temp folder.

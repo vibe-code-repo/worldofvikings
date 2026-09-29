@@ -147,6 +147,7 @@ import { CraftingPanel } from './ui/CraftingPanel';
 import { CharakterPanel } from './ui/CharakterPanel';
 import { ChatPanel } from './ui/ChatPanel';
 import { AudioEngine, startAudioEngine } from './engine/Audio';
+import { EigeneSchritte } from './engine/Audio/EigeneSchritte';
 import {
   aktiviereWebGpuGlslKompatibilitaet,
   istWebGpuGlslKompatibilitaetAktiv,
@@ -802,6 +803,7 @@ async function main() {
   let player: PlayerController | null = null;
   let entities: EntityManager | null = null;
   let audioEngine: AudioEngine | null = null;
+  let eigeneSchritte: EigeneSchritte | null = null;
   let baumImpostor: BaumImpostor | null = null;
   let grass: GrassClutter | null = null;
   let huegelGras: HuegelGras | null = null;
@@ -1408,6 +1410,8 @@ async function main() {
       () => AudioEngine.create(scene, audioKamera, { muted: params.has('mute') }),
       (e) => { audioEngine = e; },
     );
+    // Footsteps of the own figure (B4): per-frame update is at the player update below.
+    eigeneSchritte = new EigeneSchritte(player, () => world?.heightmaps ?? null, () => audioEngine);
     entities = new EntityManager(scene, world, assets, terrain);
     entities.setHundertFpsProfil(gameSettings.get().hundertFpsProfil);
     entities.setVegetationsGrenze(
@@ -3154,6 +3158,7 @@ async function main() {
     input.setUiOpen(cursorNoetig());
 
     miss('spieler', () => player!.update(dt));
+    eigeneSchritte?.update(dt);
     // Abgleich Client↔Server. Die Entscheidung ist beim Eintreffen des
     // PlayerState gefallen (abgleicher.serverMeldung, gegen die eigene
     // Position ZUM ZEITPUNKT der bestätigten Eingabe statt gegen jetzt);

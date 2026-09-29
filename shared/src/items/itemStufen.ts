@@ -90,6 +90,9 @@ export function stufeFuerRuestungsteil(id: string): ItemStufe | undefined {
   return STUFE_JE_RUESTUNGSTEIL.get(id);
 }
 
+/** Highest item level a data item may carry (format of the data items, #152). */
+export const MAX_ITEMLEVEL = 100;
+
 /** Level and rarity of an item nobody has rated: the plainest possible item. */
 export const STUFE_RUECKFALL: ItemStufe = { itemLevel: 1, rarity: 'common' };
 
@@ -111,9 +114,16 @@ export function loeseStufe(
     ? ITEM_STUFEN[def.name]
     : def.ruestungsteil ? stufeFuerRuestungsteil(def.ruestungsteil) : undefined;
   if (tabelle) return { stufe: tabelle, quelle: 'tabelle' };
-  const level = eigen?.itemLevel;
-  if (typeof level === 'number' && Number.isInteger(level) && level >= 1 && istRarity(eigen?.rarity)) {
-    return { stufe: { itemLevel: level, rarity: eigen.rarity }, quelle: 'eigen' };
+  // Own values come from a file or from the editor: read them defensively (a getter may throw), accept them only
+  // inside the range of the data-item format (#152): integer 1..MAX_ITEMLEVEL, rarity out of RARITY_IDS.
+  try {
+    const level = eigen?.itemLevel;
+    const rarity = eigen?.rarity;
+    if (typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= MAX_ITEMLEVEL && istRarity(rarity)) {
+      return { stufe: { itemLevel: level, rarity }, quelle: 'eigen' };
+    }
+  } catch {
+    // an object whose getter throws: same as no values
   }
   return { stufe: STUFE_RUECKFALL, quelle: 'rueckfall' };
 }

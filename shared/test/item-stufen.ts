@@ -13,7 +13,7 @@
  */
 import {
   ITEM_DEFS, findItem, RARITY_IDS, ITEM_STUFEN, SET_STUFEN, SET_TEILE, ESSEN, istRarity, anzeigeName,
-  stufeFuerRuestungsteil, RARITY_TEXT_KEYS, inhaltText, loeseStufe, STUFE_RUECKFALL,
+  stufeFuerRuestungsteil, RARITY_TEXT_KEYS, inhaltText, loeseStufe, STUFE_RUECKFALL, MAX_ITEMLEVEL,
 } from '../src/index.js';
 
 let failures = 0;
@@ -81,6 +81,13 @@ check('artificial item without an entry: no throw, level 1 / common, source "rue
 check('an armor part of an unknown family: fallback, no throw', loeseStufe({ name: 'x', ruestungsteil: 'unbekannt_teil' }).quelle === 'rueckfall');
 check('data item with valid own values: taken', JSON.stringify(loeseStufe({ name: 'DatenItem' }, { itemLevel: 7, rarity: 'epic' })) === JSON.stringify({ stufe: { itemLevel: 7, rarity: 'epic' }, quelle: 'eigen' }));
 check('data item with invalid own values (0, 1.5, "7", unknown rarity, half set): fallback', [{ itemLevel: 0, rarity: 'rare' }, { itemLevel: 1.5, rarity: 'rare' }, { itemLevel: '7', rarity: 'rare' }, { itemLevel: 3, rarity: 'mythic' }, { itemLevel: 3 }, { rarity: 'rare' }, {}].every((e) => loeseStufe({ name: 'D' }, e).quelle === 'rueckfall'));
+check('own level range: 1 and 100 taken, 0 / 101 / 1e9 / 1e300 / -5 fall back', MAX_ITEMLEVEL === 100 && [1, 100].every((l) => loeseStufe({ name: 'D' }, { itemLevel: l, rarity: 'rare' }).quelle === 'eigen') && [0, 101, 1e9, 1e300, -5, Number.MAX_SAFE_INTEGER].every((l) => loeseStufe({ name: 'D' }, { itemLevel: l, rarity: 'rare' }).quelle === 'rueckfall'));
+check('own rarity only out of RARITY_IDS', RARITY_IDS.every((rr) => loeseStufe({ name: 'D' }, { itemLevel: 5, rarity: rr }).quelle === 'eigen') && ['Rare', 'constructor', '__proto__', '', null, 3].every((rr) => loeseStufe({ name: 'D' }, { itemLevel: 5, rarity: rr }).quelle === 'rueckfall'));
+const werfend = { get itemLevel(): number { throw new Error('boese'); }, rarity: 'rare' };
+const werfend2 = { itemLevel: 5, get rarity(): string { throw new Error('boese'); } };
+let werfendGeworfen = false; let werfendQuelle = '';
+try { werfendQuelle = loeseStufe({ name: 'D' }, werfend).quelle + loeseStufe({ name: 'D' }, werfend2).quelle; } catch { werfendGeworfen = true; }
+check('a getter that throws on read: caught, fallback (both fields)', !werfendGeworfen && werfendQuelle === 'rueckfallrueckfall');
 check('the table wins over own values of a code item', loeseStufe({ name: 'Coins' }, { itemLevel: 50, rarity: 'legendary' }).stufe.rarity === 'common');
 check('a name like "constructor" is not a table hit', loeseStufe({ name: 'constructor' }).quelle === 'rueckfall');
 

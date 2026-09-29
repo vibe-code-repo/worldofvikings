@@ -613,6 +613,50 @@ export default [
   // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
   // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
   ['client', 'test/testflug-texte-vollstaendig.ts'],
+  /*
+    Tod und Treffer N1: die Wurzelbewegungs-Zeile in AssetManager.instantiate (Liegeclips fremder Koerper) am ECHTEN Pfad: echter
+    AssetManager, echter Koerper (v1), Bodenweg des Falls flach, Hoehenkeys wie im File. In der CI ohne Assets uebersprungen.
+  */
+  ['client', 'test/tod-treffer-assetmanager.ts', brauchtModelle('assets/models/wikinger/WikingerKoerper.glb')],
+  /*
+    Tod und Treffer sichtbar: AvatarRig auf den ECHTEN Koerpern (48 Clips): Zustaende unveraendert, Tod liegt bei 0,12 m,
+    Treffer-Schicht nur Oberkoerper, Mindestabstand. In der CI ohne Assets uebersprungen.
+  */
+  [
+    'client',
+    'test/tod-treffer-avatar.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  /*
+    Tod und Treffer sichtbar: der Blut-Pool (KampfEffekte: die geteilte Textur wurde nach dem ersten Stoss entsorgt, deshalb Blut
+    nur einmal). Ohne Assets.
+  */
+  ['client', 'test/tod-treffer-blut.ts'],
+  /*
+    Tod und Treffer sichtbar: der Eingabe-Riegel (InputManager.gesperrt), TodTreffer und die Verdrahtung in main.ts
+    (Zeilenwaechter < 3700). Ohne Assets.
+  */
+  ['client', 'test/tod-treffer-eingabe.ts'],
+  /*
+    Die Figuren ANDERER Spieler (EntityManager mit Attrappen-Assets): Treffer-Schicht faellt auf `idle` zurueck (nicht auf den
+    Prefab-Zustand `Walking`, der keine Gruppe nennt), Tod bleibt liegen, Spaeteinsteiger sehen die Liegepose, Beleben.
+    Gefunden im Browserlauf auf mike-pc (Sicht des zweiten Spielers). Ohne Assets.
+  */
+  ['client', 'test/tod-treffer-fremd.ts'],
+  /*
+    Tod und Treffer N1: Servermeldungen als Katalogschluessel (`@tod.bett_verloren`) erreichen den Client uebersetzt (de/en),
+    Klartext und unbekannte Schluessel laufen unveraendert durch.
+  */
+  ['client', 'test/tod-treffer-meldung.ts'],
+  /*
+    Tod und Treffer sichtbar: Wurzelbewegung der Liege-/Bueck-Clips (A4: nie die Hoehe festnageln, die 28 alten Clips bitgleich)
+    auf den ECHTEN Koerpern (48 Clips). In der CI ohne Assets uebersprungen.
+  */
+  [
+    'client',
+    'test/tod-treffer-wurzel.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
   // Grundskala im Loader (AssetManager.getMasters, synthetischer Container): wirkt
   // multiplikativ auf die Platzierungs-scale — 1,0×0,72×0,6 m ×Grundskala 4 -> 4,0×2,88×2,4 m
   // bei scale 1, 8,0×5,76×4,8 m bei scale 2. Gemessen im Szenengraph.

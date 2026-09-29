@@ -16,6 +16,6 @@ const PARTS = [
 /** Body regions no Plainhide piece replaces: they are never masked. */
 export const PLAINHIDE_FREE_REGIONS = ['Head', 'HandLeft', 'HandRight'] as const;
 
-export const PLAINHIDE_MALE_PARTS = PARTS.map(p => ({ ...p, ...MALE_ARMOR_BODY, id: `plainhide_male_${p.key}`, item: `plainhide_male_${p.key}` }));
-export const PLAINHIDE_FEMALE_PARTS = PARTS.map(p => ({ ...p, ...FEMALE_ARMOR_BODY, id: `plainhide_female_${p.key}`, item: `plainhide_female_${p.key}` }));
+export const PLAINHIDE_MALE_PARTS = PARTS.map(p => ({ ...p, ...MALE_ARMOR_BODY, id: `plainhide_male_${p.key}`, item: `plainhide_male_${p.key}`, textKey: `inhalt.item.plainhide_${p.key}` }));
+export const PLAINHIDE_FEMALE_PARTS = PARTS.map(p => ({ ...p, ...FEMALE_ARMOR_BODY, id: `plainhide_female_${p.key}`, item: `plainhide_female_${p.key}`, textKey: `inhalt.item.plainhide_${p.key}` }));
 export const PLAINHIDE_PARTS = [...PLAINHIDE_MALE_PARTS, ...PLAINHIDE_FEMALE_PARTS];

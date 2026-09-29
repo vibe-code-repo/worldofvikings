@@ -125,6 +125,7 @@ async function main(): Promise<void> {
     worldVegetation: false,
   });
   server.start();
+  server.liegezeitMs = 0; // the death path resets health at once here; the lying time is tested in tod-treffer.ts
   const port = portVon(server);
   const sockets: WebSocket[] = [];
   try {

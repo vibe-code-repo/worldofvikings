@@ -146,6 +146,7 @@ async function main(): Promise<void> {
     saveIntervalMs: 3600_000,
   });
   server.start();
+  server.liegezeitMs = 0; // these checks are about WHERE the player wakes up, not about the lying time (tod-treffer.ts)
   PORT = portVon(server);
   let laeuft = true;
 

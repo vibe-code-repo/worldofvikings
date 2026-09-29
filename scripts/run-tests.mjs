@@ -2506,6 +2506,50 @@ const KERN = [
   */
   ['server', 'test/forum-token-nach-koerper.ts'],
   /*
+    Karte G1 N1 (2026-09-29, Nachbesserung nach Angriff — URTEIL
+    BLOCKIEREN, Befunde B4/B5): der reine Übernahme-Filter für die
+    Grundskala-Live-Meldung (BroadcastChannel, `grundskalaLive.ts`), jetzt
+    WERT- statt zeitstempelbasiert (eine zurückspringende Absenderuhr
+    verliert keine echte Änderung mehr), die strenge Formprüfung
+    (`istGueltigesEreignis`, elf Angriffsproben: null/String/Liste, Name
+    ausserhalb des Musters, Grundskala ausserhalb des erlaubten Bereichs)
+    UND der volle Kanal-Weg über Node's globales `BroadcastChannel`
+    (senden, hören, abmelden, rohe ungültige Nachrichten, Umgebung ohne
+    Unterstützung). DOM-frei, < 1 s.
+  */
+  ['client', 'test/grundskala-live.ts'],
+  /*
+    Karte G1 N1 (2026-09-29, Nachbesserung nach Angriff, Befunde B1/B3/B6):
+    `EntityManager.aktualisiereGrundskala` — nur Buckets DES GEMELDETEN
+    Modells werden dirty markiert, ein anderes schon gesetztes Modell
+    bleibt unberührt (M3). Zählt den erneuten `getMasters()`-Aufruf AB
+    einem Rücksetzpunkt statt mit `calls.includes(...)` (die Vorfassung
+    hätte einen entfernten erneuten Aufruf nie gemerkt, M4), prüft dass ein
+    NIE gesetztes Modell keinen einzigen `getMasters()`-Aufruf auslöst (B3
+    — vorher lud das unbedingt eine GLB) und dass veralteter
+    Collider-Cache samt `colliderless`-Eintrag wirklich entsorgt wird (B6,
+    mit Entsorgungs-Zählern, kein Attrappen-Objekt daneben). DOM-frei wie
+    entity-index.ts (steinKitOverride leer, kein Szene-Zugriff), < 1 s.
+  */
+  ['client', 'test/entity-grundskala.ts'],
+  /*
+    Karte G1 N1 (2026-09-29, Nachbesserung nach Angriff, Befunde B1/B2):
+    der volle Weg über ZWEI GETRENNTE Realms (Hauptthread = Katalog, ein
+    `worker_thread` = Testflug, wie zwei Browserfenster mit je eigener
+    Upload-Registry), verbunden nur über ein echtes, globales
+    `BroadcastChannel` und eine echte HTTP-Antwort (Attrappe des
+    Betriebsdienstes). Gemessen wird die EFFEKTIVE Weltskala
+    (`localMatrix × ZDO-Weltmatrix`) eines im Testflug-Realm gesetzten
+    Exemplars vor und nach einer simulierten PATCH-Änderung, an echter
+    synthetischer Geometrie — keine Attrappe mit Identity-Matrix, die jede
+    Grundskala gleich aussehen liesse (Angriffsbefund an der Vorfassung
+    von `entity-grundskala.ts`). Dazu Quelltext-Wächter gegen einen
+    stillen Wegfall der Verdrahtung in `Testflug.ts`/`GegenstandsKatalog.ts`
+    (M2/M5/M6) — ein voller `starteTestflug()` mit echtem DOM ist für einen
+    DOM-freien Lauf unverhältnismässig. DOM-frei (NullEngine), < 5 s.
+  */
+  ['client', 'test/grundskala-live-wirkung.ts'],
+  /*
     Karte B4 (2026-09-29): Schrittgeraeusche je Untergrund.
     `shared/test/boden-mischung.ts` rechnet die Bodenmischung
     (shared/src/worldgen/bodenMischung.ts) an 676 Punkten der echten Insel

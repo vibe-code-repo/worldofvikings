@@ -40,6 +40,7 @@ import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwor
 import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
 import { sockelRadiusFuer } from './sockel';
 import { DoppelklickSperre, Ziehgriff, entscheideKlick, griffPosition, modusNachSetzen } from './greifen';
+import { t } from '../i18n';
 
 /**
  * ?layout=editor lädt den Editor-Entwurf — der "Testflug" des 3D-Map-
@@ -102,7 +103,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     };
     // Alles, was der Testflug am Entwurf ändert, läuft als Vorgang über id.
     const aktionen = new TestflugAktionen(persistenz);
-    const KEINE_ID = 'Diese Platzierung hat keine id — im Editor öffnen und speichern, dort bekommt sie eine.';
+    const KEINE_ID = t('testflug.keine_id');
     /** Antwort der Gegenseite (200/202/409) in die Meldungszeile; bei Rücknahme die Anzeige neu aufbauen. */
     const melde = (antwort: Promise<VorgangAntwort>): void => {
       void antwort.then((a) => {
@@ -116,7 +117,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     {
       const doppelt = doppelteIds(persistenz.laden()?.placements);
       if (doppelt.length > 0) {
-        hud.meldung(`Doppelte ids im Entwurf (${doppelt.join(', ')}) — diese Einträge werden nicht gegriffen, gedreht oder gelöscht`);
+        hud.meldung(t('testflug.doppelte_ids', { ids: doppelt.join(', ') }));
       }
     }
     /** Ein lokales Ergebnis: bei Ablehnung melden, sonst die Antwort abwarten und zeigen. */
@@ -207,7 +208,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         // Figur erst verschieben zu müssen.
         zeigeId(alt.id);
         ent.flush();
-        hud.meldung(`${alt.prefab}: Angaben übernommen`);
+        hud.meldung(t('testflug.npc_angaben_uebernommen', { prefab: alt.prefab }));
       },
       entferneLetztes: () => {
         const roh = persistenz.laden();
@@ -220,7 +221,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         ent.flush();
         // Kein verwaister Sockel: Der Untergrund geht mit der Platzierung.
         sockelLiveWeg(weg);
-        hud.meldung('Letzte Platzierung entfernt');
+        hud.meldung(t('testflug.letzte_platzierung_entfernt'));
       },
     });
     // Sockel-Radius fürs Einebnen: halbe DIAGONALE der Grundfläche plus
@@ -247,7 +248,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // setzte z. B. der Klick, der nach dem Schließen mit B die Maus
       // wieder einfängt, still das localStorage-Prefab in die Welt.
       if (!panel.istPlatzierModus) {
-        hud.meldung('Kein Prefab aktiv — erst in der Liste (B) anklicken');
+        hud.meldung(t('testflug.kein_prefab_aktiv'));
         return;
       }
       // Zweite Schranke: Solange Wegpunkte gesetzt werden, gehört der
@@ -255,7 +256,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // ungewollt ein Baum. Kann eigentlich nicht eintreten, weil
       // aufZeichenStart den Platzier-Modus beendet; billiger Rückhalt.
       if (routen.istZeichenModus) {
-        hud.meldung('Routen-Zeichnen aktiv — erst mit ✎ oder Esc beenden');
+        hud.meldung(t('testflug.routen_zeichnen_aktiv'));
         return;
       }
       const e = panel.einstellung;
@@ -292,8 +293,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (istNpcPrefab(e.prefab)) auswahlId = eintrag.id;
       panel.aktualisiere();
       hud.meldung(
-        `${e.prefab} platziert @ (${wx}, ${wz})` +
-          (sockel !== undefined ? ` — Boden planiert (r=${sockel} m)` : '')
+        t('testflug.platziert', { prefab: e.prefab, x: wx, z: wz }) +
+          (sockel !== undefined ? t('testflug.boden_planiert', { r: sockel }) : '')
       );
       // Ohne „Serie“ (die Vorgabe) hängt nach dem Setzen NICHTS mehr an der Maus —
       // der Modus endet mit der Platzierung (aufWahl räumt den Geist ab). Mit
@@ -330,11 +331,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           // Wieder-Einfangen übernimmt der Game-Loop (cursorNoetig).
           document.exitPointerLock();
         }
-        hud.meldung(
-          offen
-            ? 'Spawn-Editor offen — Prefab anklicken startet die Platzierung, B schließt'
-            : 'Spawn-Editor zu'
-        );
+        hud.meldung(offen ? t('testflug.spawn_editor_offen') : t('testflug.spawn_editor_zu'));
       }
       if (e.code === 'KeyP' && !e.repeat && panel.istOffen) platziere();
       // Esc beendet den Platzier-Modus (die Vorauswahl in der Liste bleibt).
@@ -353,11 +350,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const an = !player.bauModus;
       player.setBauModus(an);
-      hud.meldung(
-        an
-          ? 'Baumodus AN — WASD fliegt, Leer steigt, X/Strg sinkt, Rad zoomt weit, V beendet'
-          : 'Baumodus AUS — Figur fällt zu Boden'
-      );
+      hud.meldung(an ? t('testflug.baumodus_an') : t('testflug.baumodus_aus'));
     });
     window.addEventListener('mousedown', (e) => {
       // Bei gefangener Maus platziert der Linksklick vor dem Spieler;
@@ -447,25 +440,21 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       aufSpeichern: () => {
         const roh = leseEntwurf();
         if (!roh) {
-          hud.meldung('Kein Entwurf zum Speichern');
+          hud.meldung(t('testflug.kein_entwurf_speichern'));
           return;
         }
         const sauber = sanitizeWorldLayout(roh as never);
         if (!sauber) {
-          hud.meldung('Entwurf ist unbrauchbar — nicht gespeichert');
+          hud.meldung(t('testflug.entwurf_unbrauchbar'));
           return;
         }
-        hud.meldung('Speichere in die Welt …');
+        hud.meldung(t('testflug.speichere_in_welt'));
         void persistenz
           .speichern(sauber)
           .then((a) => {
-            hud.meldung(
-              a.ok
-                ? `${a.message} — Server neu starten, damit die Welt sie lädt`
-                : a.message
-            );
+            hud.meldung(a.ok ? t('testflug.gespeichert_neustart_noetig', { message: a.message }) : a.message);
           })
-          .catch((err) => hud.meldung(`Speichern fehlgeschlagen: ${String(err)}`));
+          .catch((err) => hud.meldung(t('testflug.speichern_fehlgeschlagen', { fehler: String(err) })));
       },
       // Umschalter „Vorschau an/aus" (Vorgabe AN). Der Zustand lebt im
       // Panel, das Laufen in RoutenVorschau — beim Ausschalten kehren die
@@ -551,11 +540,11 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       });
       // G, not V: V is the build mode (above). Both used to share V, so one
       // press flew AND threw the vegetation preview away.
-      hud.meldung('Bewuchs-Vorschau: wächst um dich herum nach (G baut sie neu auf)');
+      hud.meldung(t('testflug.bewuchs_vorschau_hinweis'));
       window.addEventListener('keydown', (e) => {
         if (tipptImFeld(e) || e.code !== 'KeyG') return;
         bewuchs.neuAufbauen();
-        hud.meldung('Bewuchs-Vorschau neu aufgebaut');
+        hud.meldung(t('testflug.bewuchs_vorschau_neu_aufgebaut'));
       });
     }
 
@@ -564,7 +553,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // times a second (the region test walks every region; no need per frame).
     // Q writes the position for the editor tab and closes this one.
     const gebiet = sanitizeWorldLayout(testflug);
-    const lage = new LageAnzeige('Q: zurück zur Karte');
+    const lage = new LageAnzeige(t('testflug.lage.zurueck_zur_karte'));
     // A refused jump stays on the panel: a HUD message would sit under the
     // loading screen and be gone (4 s) before the first frame is visible.
     const abgelehnt = kontext.einsprungMeldung?.() ?? null;
@@ -597,7 +586,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         gebiet !== null && regionAt(gebiet, player.position.x, player.position.z) !== null
       );
       if (plan === 'stay') {
-        hud.meldung('Der Sprung wurde abgelehnt, es gibt keine Stelle für die Karte — diesen Tab bitte selbst schließen');
+        hud.meldung(t('testflug.sprung_abgelehnt_bleibt'));
         return;
       }
       if (plan === 'send') {
@@ -608,19 +597,15 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           at: Date.now(),
         });
         if (!gesendet) {
-          hud.meldung('Rückweg nicht möglich — der Browser hat keinen Kanal zum Editor');
+          hud.meldung(t('testflug.rueckweg_nicht_moeglich'));
           return;
         }
-        hud.meldung('Zurück zur Karte …');
+        hud.meldung(t('testflug.zurueck_zur_karte'));
       }
       // A beat after the message, so it is on its way before the tab goes.
       setTimeout(() => window.close(), 150);
       setTimeout(() => {
-        hud.meldung(
-          plan === 'send'
-            ? 'Stelle an den Editor geschickt — nur ein offener Editor im selben Browserprofil zentriert die Karte. Diesen Tab bitte selbst schließen'
-            : 'Diesen Tab bitte selbst schließen'
-        );
+        hud.meldung(plan === 'send' ? t('testflug.stelle_geschickt') : t('testflug.tab_selbst_schliessen'));
       }, 600);
     });
 
@@ -651,11 +636,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         // Wie bei B: Maus freigeben, das Wieder-Einfangen macht der
         // Game-Loop über cursorNoetig().
         if (offen) document.exitPointerLock();
-        hud.meldung(
-          offen
-            ? 'Routen-Editor offen — Route wählen/anlegen, ✎ schaltet das Setzen scharf, R schließt'
-            : 'Routen-Editor zu'
-        );
+        hud.meldung(offen ? t('testflug.routen_editor_offen') : t('testflug.routen_editor_zu'));
       }
       // Esc beendet nur das Zeichnen, nicht das Panel — die Route bleibt.
       if (e.code === 'Escape') routen.beendeZeichnen();
@@ -738,7 +719,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // getGroundHeight — Nachbarn sollen wieder auf dem Urgelände sitzen.
       sockelLiveWeg(weg);
       alleNeuZeichnen(roh, vorher);
-      hud.meldung(`${weg.prefab} gelöscht`);
+      hud.meldung(t('testflug.geloescht', { prefab: weg.prefab }));
       auswahlId = null;
       ring.setEnabled(false);
       panel.aktualisiere();
@@ -760,7 +741,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (!anwenden(aktionen.drehen(p.id, (p.yaw ?? 0) + schritt))) return;
       zeigeId(p.id);
       ent.flush();
-      hud.meldung(`${p.prefab} gedreht`);
+      hud.meldung(t('testflug.gedreht', { prefab: p.prefab }));
     });
 
     /** Verwerfen: von Rechtsklick-pointerdown UND contextmenu gerufen —
@@ -787,7 +768,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Rechtsklick verwirft auch das Routen-Zeichnen — dieselbe Geste,
       // dieselbe Bedeutung wie beim Prefab-Geist.
       routen.beendeZeichnen();
-      hud.meldung('Auswahl verworfen — Prefab in der Liste wählen startet die Vorschau neu');
+      hud.meldung(t('testflug.auswahl_verworfen'));
     };
     canvas.addEventListener('pointerdown', (e) => {
       // Der Routen-Editor darf dieselben Wege benutzen (Wegpunkt setzen,
@@ -825,7 +806,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         if (wp >= 0) {
           routenZiehIndex = wp;
           geistWeg();
-          hud.meldung(`Wegpunkt ${wp + 1} von ${routen.gewaehlteId} gegriffen — ziehen verschiebt`);
+          hud.meldung(t('testflug.wegpunkt_gegriffen', { n: wp + 1, route: routen.gewaehlteId ?? '' }));
           return;
         }
       }
@@ -853,7 +834,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (best >= 0 && !roh.placements[best]!.id) {
         hud.meldung(KEINE_ID);
       } else if (best >= 0 && doppelteIds(roh.placements).includes(roh.placements[best]!.id!)) {
-        hud.meldung(`Doppelte id ${roh.placements[best]!.id} im Entwurf — nicht gegriffen`);
+        hud.meldung(t('testflug.doppelte_id_nicht_gegriffen', { id: roh.placements[best]!.id! }));
       } else if (best >= 0) {
         const q = roh.placements[best]!;
         ziehId = q.id!;
@@ -875,7 +856,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         // Aus demselben Grund das Spawn-Panel: Die NPC-Felder gehören
         // zur gewählten Platzierung und müssen jetzt die ihre zeigen.
         panel.aktualisiere();
-        hud.meldung(`${q.prefab} gegriffen — ziehen verschiebt, Entf löscht`);
+        hud.meldung(t('testflug.gegriffen', { prefab: q.prefab }));
       } else if (entscheidung.art === 'setzen') {
         // `panel.istOffen` steht hier zusätzlich, weil der Klick seit dem
         // Routen-Editor auch bei GESCHLOSSENEM Spawn-Panel hier ankommt:
@@ -905,8 +886,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         if (istNpcPrefab(einst.prefab)) auswahlId = eintrag.id;
         panel.aktualisiere();
         hud.meldung(
-          `${einst.prefab} platziert @ (${eintrag.x}, ${eintrag.z})` +
-            (sockel !== undefined ? ` — Boden planiert (r=${sockel} m)` : '')
+          t('testflug.platziert', { prefab: einst.prefab, x: eintrag.x, z: eintrag.z }) +
+            (sockel !== undefined ? t('testflug.boden_planiert', { r: sockel }) : '')
         );
         // Ohne „Serie“ (die Vorgabe): ein Klick = eine Platzierung, der Modus endet
         // und der Geist folgt der Maus nicht weiter. Mit „Serie“ bleibt er an; Esc
@@ -972,7 +953,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     /** Ende eines Ziehens (Loslassen, Rechtsklick, Esc, Fokusverlust, Fenster verlassen): EIN Vorgang, Sockel und Ring nachziehen. */
     setzeAb = (): void => {
       if (routenZiehIndex >= 0) {
-        hud.meldung(`Wegpunkt ${routenZiehIndex + 1} abgesetzt`);
+        hud.meldung(t('testflug.wegpunkt_abgesetzt', { n: routenZiehIndex + 1 }));
         routenZiehIndex = -1;
         return;
       }
@@ -999,7 +980,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         ringZu(q.x, q.z);
         ent.flush();
       }
-      if (q) hud.meldung(`${q.prefab} abgesetzt @ (${q.x}, ${q.z})`);
+      if (q) hud.meldung(t('testflug.abgesetzt', { prefab: q.prefab, x: q.x, z: q.z }));
       ziehStart = null;
       ziehId = null;
       panel.aktualisiere();

@@ -163,6 +163,7 @@ import {
   type StoreArt,
   type StoreEintrag,
 } from './StoreKatalogDaten';
+import { t } from './i18n';
 
 /** Zeilen je Listenseite — s. Kopf („Warum Seiten"). */
 const SEITE_GROESSE = 60;
@@ -772,7 +773,7 @@ export class GegenstandsKatalog {
       })
     );
     hochladenZeile.appendChild(
-      el('span', stil({ 'font-size': '11.5px', color: F.gedimmt, 'white-space': 'nowrap' }), '.glb hochladen:')
+      el('span', stil({ 'font-size': '11.5px', color: F.gedimmt, 'white-space': 'nowrap' }), t('editor.upload.glb_hochladen'))
     );
 
     const dateiEingabe = el(
@@ -787,10 +788,10 @@ export class GegenstandsKatalog {
 
     const nameFeldHuelle = feld('', () => {}, {
       breite: '170px',
-      titel: 'Angezeigter Name — der Server macht daraus einen zulässigen, kollisionsfreien Dateinamen',
+      titel: t('editor.upload.name_titel'),
     });
     this.hochladenNameFeld = nameFeldHuelle.querySelector('input')!;
-    this.hochladenNameFeld.placeholder = 'Name (z. B. Holzfass)';
+    this.hochladenNameFeld.placeholder = t('editor.upload.name_platzhalter');
     this.hochladenNameFeld.oninput = () => this.hochladenVorschlagAktualisieren();
     hochladenZeile.appendChild(nameFeldHuelle);
 
@@ -807,8 +808,8 @@ export class GegenstandsKatalog {
     );
     const dimensionAuswahl = auswahl(
       [
-        { id: 'breite', name: 'Breite' },
-        { id: 'hoehe', name: 'Höhe' },
+        { id: 'breite', name: t('editor.upload.breite') },
+        { id: 'hoehe', name: t('editor.upload.hoehe') },
       ],
       this.hochladenZielDimension,
       (id) => {
@@ -818,16 +819,16 @@ export class GegenstandsKatalog {
     );
     dimensionAuswahl.style.flex = 'none';
     dimensionAuswahl.style.width = '92px';
-    dimensionAuswahl.title = 'Welche Kante die Zielgröße festlegt — die andere Kante wächst proportional mit.';
+    dimensionAuswahl.title = t('editor.upload.dimension_titel');
     this.hochladenDimensionZeile.appendChild(dimensionAuswahl);
 
     const zielFeldHuelle = feld('', () => {}, {
       breite: '104px',
-      titel: 'Zielgröße in Metern — leer heisst „wie Datei" (Grundskala 1). Vorschlag füllt sich nach Namen und Datei.',
+      titel: t('editor.upload.zielgroesse_titel'),
       einheit: 'm',
     });
     this.hochladenZielFeld = zielFeldHuelle.querySelector('input')!;
-    this.hochladenZielFeld.placeholder = 'wie Datei';
+    this.hochladenZielFeld.placeholder = t('editor.upload.wie_datei');
     // `feld()` verdrahtet nur `onchange` (Verlassen des Felds) — dieselbe
     // Live-Kopplung wie beim Namensfeld (`hochladenNameFeld.oninput`
     // oben), damit Regler und 3D-Vorschau schon während des Tippens
@@ -844,8 +845,8 @@ export class GegenstandsKatalog {
 
     const kollisionAuswahl = auswahl(
       [
-        { id: 'fest', name: 'fest' },
-        { id: 'durchlaessig', name: 'durchlässig' },
+        { id: 'fest', name: t('editor.upload.kollision.fest') },
+        { id: 'durchlaessig', name: t('editor.upload.kollision.durchlaessig') },
       ],
       this.hochladenKollisionswunsch,
       (id) => {
@@ -854,11 +855,11 @@ export class GegenstandsKatalog {
     );
     kollisionAuswahl.style.flex = 'none';
     kollisionAuswahl.style.width = '118px';
-    kollisionAuswahl.title = 'Kollision: fest blockiert Spieler, durchlässig ist reine Deko. Voreinstellung: fest.';
+    kollisionAuswahl.title = t('editor.upload.kollision_titel');
     hochladenZeile.appendChild(kollisionAuswahl);
 
     hochladenZeile.appendChild(
-      knopf('Hochladen', () => void this.hochladenAusfuehren(), { art: 'bronze', pfad: PFAD.import, hoehe: 30 })
+      knopf(t('editor.upload.hochladen_knopf'), () => void this.hochladenAusfuehren(), { art: 'bronze', pfad: PFAD.import, hoehe: 30 })
     );
 
     this.hochladenStatus = el(
@@ -889,9 +890,9 @@ export class GegenstandsKatalog {
     );
     vorschlagZeile.appendChild(this.hochladenVorschlagText);
     this.hochladenCmKnopf = knopf(
-      '× 0,01 anwenden',
+      t('editor.upload.cm_anwenden'),
       () => this.hochladenCmKorrekturAnwenden(),
-      { art: 'leise', randHover: F.warnRand, titel: 'Rohgröße wahrscheinlich in Zentimetern exportiert — Zielwert durch 100 teilen.' }
+      { art: 'leise', randHover: F.warnRand, titel: t('editor.upload.cm_titel') }
     );
     this.hochladenCmKnopf.style.display = 'none';
     vorschlagZeile.appendChild(this.hochladenCmKnopf);
@@ -1644,7 +1645,10 @@ export class GegenstandsKatalog {
       geklemmtVon > uploadedModelRegistry.GRUNDSKALA_MAX
         ? uploadedModelRegistry.GRUNDSKALA_MAX
         : uploadedModelRegistry.GRUNDSKALA_MIN;
-    this.hochladenGrenzwarnung.textContent = `Grundskala auf ${grenze} begrenzt (Zielwert entspräche ×${geklemmtVon.toPrecision(3)}) — hochgeladen/vorgeschaut wird mit ${grenze}.`;
+    this.hochladenGrenzwarnung.textContent = t('editor.upload.grundskala_begrenzt', {
+      grenze,
+      ziel: geklemmtVon.toPrecision(3),
+    });
     this.hochladenGrenzwarnung.style.display = '';
   }
 
@@ -1668,7 +1672,7 @@ export class GegenstandsKatalog {
     // bei der eigenen Zielgröße enden lassen.
     const max = Math.max(roh * 4, wert * 2, 20);
     const el2 = regler(
-      'Zielgröße',
+      t('editor.upload.zielgroesse'),
       wert,
       0.05,
       max,
@@ -1856,17 +1860,17 @@ export class GegenstandsKatalog {
     if (this.hochladenLaeuft) return;
     const datei = this.hochladenDateiEingabe.files?.[0];
     if (!datei) {
-      this.hochladenStatusSchreiben('Bitte zuerst eine .glb-Datei wählen.', true);
+      this.hochladenStatusSchreiben(t('editor.upload.bitte_datei_waehlen'), true);
       return;
     }
     const angezeigterName = this.hochladenNameFeld.value.trim();
     if (!angezeigterName) {
-      this.hochladenStatusSchreiben('Bitte einen Namen vergeben.', true);
+      this.hochladenStatusSchreiben(t('editor.upload.bitte_namen_vergeben'), true);
       return;
     }
 
     this.hochladenLaeuft = true;
-    this.hochladenStatusSchreiben(`Lade '${datei.name}' hoch …`, false);
+    this.hochladenStatusSchreiben(t('editor.upload.laedt_hoch', { name: datei.name }), false);
     try {
       const bytes = await datei.arrayBuffer();
       // Grundskala (Karte „Editor Upload-Größe"): nur mitschicken, wenn das
@@ -1901,8 +1905,8 @@ export class GegenstandsKatalog {
         // Quellen, statt eines nackten Statuscodes.
         const meldung =
           antwort.status === 413
-            ? `Datei zu groß (höchstens ${(uploadedModelRegistry.MAX_BYTES / 1_000_000).toFixed(0)} MB).`
-            : (rumpf?.message ?? `Hochladen fehlgeschlagen (HTTP ${antwort.status}).`);
+            ? t('editor.upload.datei_zu_gross', { mb: (uploadedModelRegistry.MAX_BYTES / 1_000_000).toFixed(0) })
+            : (rumpf?.message ?? t('editor.upload.hochladen_fehlgeschlagen', { status: antwort.status }));
         this.hochladenStatusSchreiben(meldung, true);
         return;
       }
@@ -1933,12 +1937,21 @@ export class GegenstandsKatalog {
 
       const g = uploadedModelRegistry.grundskalaVon(eintrag);
       const zahlen =
-        `${eintrag.dreiecke.toLocaleString('de-DE')} Dreiecke, ` +
-        `${eintrag.breite.toFixed(2)} × ${eintrag.hoehe.toFixed(2)} × ${eintrag.tiefe.toFixed(2)} m roh` +
+        t('editor.upload.dreiecke', { n: eintrag.dreiecke.toLocaleString('de-DE') }) +
+        t('editor.upload.masse_roh', {
+          breite: eintrag.breite.toFixed(2),
+          hoehe: eintrag.hoehe.toFixed(2),
+          tiefe: eintrag.tiefe.toFixed(2),
+        }) +
         (g !== 1
-          ? ` × Grundskala ${g.toFixed(2)} = ${(eintrag.breite * g).toFixed(2)} × ${(eintrag.hoehe * g).toFixed(2)} × ${(eintrag.tiefe * g).toFixed(2)} m, `
+          ? t('editor.upload.masse_grundskala', {
+              g: g.toFixed(2),
+              breite: (eintrag.breite * g).toFixed(2),
+              hoehe: (eintrag.hoehe * g).toFixed(2),
+              tiefe: (eintrag.tiefe * g).toFixed(2),
+            })
           : ', ') +
-        `Kollision: ${eintrag.kollisionsart}`;
+        t('editor.upload.kollision_wert', { art: eintrag.kollisionsart });
       // N1 (Angriff, Befund B4): Im Katalog UND im Testflug steht das
       // Modell sofort (beide bauen client-seitig aus der Registry bzw.
       // direkt aus den Platzierungen, Browser-Sichtnachweis
@@ -1948,16 +1961,14 @@ export class GegenstandsKatalog {
       // (`ladeHochgeladeneRegistrierung`, VOR `createWovServer`), nicht
       // laufend wie der Betriebsdienst. Das war vorher nur im Bericht
       // erwähnt, nicht in der Oberfläche selbst.
-      const hinweisNeustart =
-        'Sofort im Katalog und im Testflug sichtbar. Im laufenden Spiel (Spielserver-Prozess) ' +
-        'erst nach einem Neustart des Spielservers sichtbar und mit Kollision.';
+      const hinweisNeustart = t('editor.upload.hinweis_neustart');
       const text =
         hinweise.length > 0
-          ? `'${eintrag.name}' hochgeladen — ${zahlen}. ${hinweise.join(' ')} ${hinweisNeustart}`
-          : `'${eintrag.name}' hochgeladen — ${zahlen}. ${hinweisNeustart}`;
+          ? t('editor.upload.hochgeladen_text', { name: eintrag.name, zahlen, hinweise: hinweise.join(' '), hinweisNeustart })
+          : t('editor.upload.hochgeladen_text_ohne_hinweise', { name: eintrag.name, zahlen, hinweisNeustart });
       this.hochladenStatusSchreiben(text, false);
     } catch (e) {
-      this.hochladenStatusSchreiben(`Netzwerkfehler: ${(e as Error).message}`, true);
+      this.hochladenStatusSchreiben(t('editor.upload.netzwerkfehler', { fehler: (e as Error).message }), true);
     } finally {
       this.hochladenLaeuft = false;
     }
@@ -1993,8 +2004,11 @@ export class GegenstandsKatalog {
       if (rumpf?.brauchtBestaetigung) {
         const orte = (rumpf.nutzung?.orte ?? []).map((o) => `(${Math.round(o.x)}, ${Math.round(o.z)})`).join(', ');
         const weiter = window.confirm(
-          `'${name}' wird noch ${rumpf.nutzung?.anzahl ?? '?'} Mal platziert${orte ? ` — ${orte}` : ''}. ` +
-            `Trotzdem entfernen? Die Platzierungen bleiben stehen, zeigen danach aber kein Modell mehr.`
+          t('editor.upload.entfernen_bestaetigen', {
+            name,
+            anzahl: rumpf.nutzung?.anzahl ?? '?',
+            orte: orte ? t('editor.upload.entfernen_orte', { orte }) : '',
+          })
         );
         if (!weiter) return;
         antwort = await aufruf(true);
@@ -2002,7 +2016,7 @@ export class GegenstandsKatalog {
       }
 
       if (!antwort.ok || !rumpf?.ok) {
-        window.alert(rumpf?.message ?? `Entfernen fehlgeschlagen (HTTP ${antwort.status}).`);
+        window.alert(rumpf?.message ?? t('editor.upload.entfernen_fehlgeschlagen', { status: antwort.status }));
         return;
       }
 
@@ -2010,7 +2024,7 @@ export class GegenstandsKatalog {
       katAnzahlen = null;
       this.listeFuellen();
     } catch (e) {
-      window.alert(`Netzwerkfehler: ${(e as Error).message}`);
+      window.alert(t('editor.upload.netzwerkfehler', { fehler: (e as Error).message }));
     }
   }
 
@@ -2026,21 +2040,21 @@ export class GegenstandsKatalog {
       stil({ display: 'flex', 'align-items': 'center', gap: '8px', 'flex-wrap': 'wrap', 'margin-top': '2px' })
     );
     zeile.appendChild(
-      el('span', stil({ 'font-size': '11.5px', color: F.gedimmt, 'white-space': 'nowrap' }), 'Grundskala:')
+      el('span', stil({ 'font-size': '11.5px', color: F.gedimmt, 'white-space': 'nowrap' }), t('editor.upload.grundskala_label'))
     );
     const g = uploadedModelRegistry.grundskalaVon(eintrag);
     let dimension: Zieldimension = 'breite';
     const zielFeldHuelle = feld('', () => {}, {
       breite: '96px',
-      titel: 'Zielgröße in Metern für die gewählte Kante — rechnet die Grundskala aus der rohen Registry-Größe.',
+      titel: t('editor.upload.zielgroesse_kante_titel'),
       einheit: 'm',
     });
     const zielFeld = zielFeldHuelle.querySelector('input')!;
     zielFeld.value = (dimension === 'breite' ? eintrag.breite * g : eintrag.hoehe * g).toFixed(2);
     const dimensionAuswahl = auswahl(
       [
-        { id: 'breite', name: 'Breite' },
-        { id: 'hoehe', name: 'Höhe' },
+        { id: 'breite', name: t('editor.upload.breite') },
+        { id: 'hoehe', name: t('editor.upload.hoehe') },
       ],
       dimension,
       (id) => {
@@ -2056,24 +2070,29 @@ export class GegenstandsKatalog {
       el(
         'span',
         stil({ 'font-size': '11px', color: F.gedimmt2, 'white-space': 'nowrap' }),
-        `— jetzt ${g.toFixed(2)}× (Rohgröße ${eintrag.breite.toFixed(2)} × ${eintrag.hoehe.toFixed(2)} × ${eintrag.tiefe.toFixed(2)} m)`
+        t('editor.upload.jetzt_faktor', {
+          g: g.toFixed(2),
+          breite: eintrag.breite.toFixed(2),
+          hoehe: eintrag.hoehe.toFixed(2),
+          tiefe: eintrag.tiefe.toFixed(2),
+        })
       )
     );
     const status = el('span', stil({ 'font-size': '11px', color: F.gedimmt, 'white-space': 'nowrap' }), '');
     zeile.appendChild(
       knopf(
-        'Übernehmen',
+        t('editor.upload.uebernehmen'),
         () => {
           const roh = dimension === 'breite' ? eintrag.breite : eintrag.hoehe;
           const ziel = Number(zielFeld.value.trim().replace(',', '.'));
           if (!Number.isFinite(ziel) || ziel <= 0 || !Number.isFinite(roh) || roh <= 0) {
-            status.textContent = 'Ungültige Zielgröße.';
+            status.textContent = t('editor.upload.ungueltige_zielgroesse');
             status.style.color = F.fehler;
             return;
           }
           void this.grundskalaAendernAusfuehren(eintrag.name, ziel / roh, status);
         },
-        { art: 'leise', titel: 'Grundskala in der Registry ändern — wirkt auf alle Platzierungen dieses Modells.' }
+        { art: 'leise', titel: t('editor.upload.grundskala_aendern_titel') }
       )
     );
     zeile.appendChild(status);
@@ -2082,7 +2101,7 @@ export class GegenstandsKatalog {
 
   /** PATCH /api/modell-hochladen — Grundskala eines bestehenden Uploads ändern. */
   private async grundskalaAendernAusfuehren(name: string, grundskala: number, status: HTMLSpanElement): Promise<void> {
-    status.textContent = 'Ändere …';
+    status.textContent = t('editor.upload.aendere');
     status.style.color = F.gedimmt;
     try {
       const antwort = await fetch('/api/modell-hochladen', {
@@ -2096,7 +2115,7 @@ export class GegenstandsKatalog {
         eintrag?: uploadedModelRegistry.UploadedModelEntry;
       } | null;
       if (!antwort.ok || !rumpf?.ok) {
-        status.textContent = rumpf?.message ?? `Fehlgeschlagen (HTTP ${antwort.status}).`;
+        status.textContent = rumpf?.message ?? t('editor.upload.fehlgeschlagen', { status: antwort.status });
         status.style.color = F.fehler;
         return;
       }
@@ -2117,8 +2136,7 @@ export class GegenstandsKatalog {
       // von selbst neu — `AssetManager.wendeGrundskalaAn` aktualisiert zwar
       // `master.localMatrix` seit dieser Nachbesserung in-place, aber ein
       // schon ins GPU-Bild geschriebener Puffer liest davon nichts nach.
-      status.textContent =
-        'Übernommen — Katalog und neu geöffnete Testflüge sofort, offene Flüge und Spielclients erst nach Neuladen, Spielserver erst nach Neustart.';
+      status.textContent = t('editor.upload.uebernommen_hinweis');
       status.style.color = F.textRuhig;
       // Die Vorschau (dieses Modell steht gerade, sonst gäbe es die
       // Grundskala-Zeile nicht) und der Infoblock neu aufbauen — beide
@@ -2128,7 +2146,7 @@ export class GegenstandsKatalog {
       // schon bekannten Namen aktuell hält.
       if (this.gewaehlt === name) void this.waehle(name);
     } catch (e) {
-      status.textContent = `Netzwerkfehler: ${(e as Error).message}`;
+      status.textContent = t('editor.upload.netzwerkfehler', { fehler: (e as Error).message });
       status.style.color = F.fehler;
     }
   }

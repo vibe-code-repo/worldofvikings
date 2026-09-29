@@ -2504,6 +2504,13 @@ const KERN = [
     server/test/forum-api.ts, kein Netz, ~0.2 s.
   */
   ['server', 'test/forum-token-nach-koerper.ts'],
+  // Karte T0a (2026-09-29): Testflug, SpawnPanel und der Upload-Dialog
+  // (GegenstandsKatalog.ts) sind jetzt uebersetzbar -- ein Scanner findet
+  // verbliebene deutsche Klartext-Literale in diesen Dateien (Kommentare
+  // und console.*-Zeilen zaehlen nicht), dazu prueft er, dass jeder
+  // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
+  // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
+  ['client', 'test/testflug-texte-vollstaendig.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -15,6 +15,7 @@
  */
 import type { NpcDef } from '@wov/shared';
 import { invertiere, verschmelze, type Vorgang } from '@wov/shared/src/worldlayout/ops.js';
+import { t } from '../i18n';
 
 /**
  * Ein Eintrag des Entwurfs — dieselben Felder wie PlacementDef, aber
@@ -156,16 +157,18 @@ export function wendeAufEntwurf(
   }
   if (konflikte.length > 0) {
     const ids = [...new Set(konflikte)];
-    return { ok: false, ids, message: `Konflikt bei ${ids.join(', ')} — nichts geändert` };
+    return { ok: false, ids, message: t('testflug.persistenz.konflikt_bei', { ids: ids.join(', ') }) };
   }
   dokument.placements = liste;
   return { ok: true };
 }
 
 const ZURUECK = (a: { zurueckgenommen: boolean; verworfen?: number }): string => {
-  if (!a.zurueckgenommen) return ' — Entwurf NICHT zurückgesetzt, bitte neu laden';
+  if (!a.zurueckgenommen) return t('testflug.persistenz.zurueck.nicht');
   const n = a.verworfen ?? 1;
-  return n > 1 ? ` (Entwurf zurückgesetzt, ${n} Gesten verworfen)` : ' (Entwurf zurückgesetzt)';
+  return n > 1
+    ? t('testflug.persistenz.zurueck.mehrere', { n })
+    : t('testflug.persistenz.zurueck.eine');
 };
 
 /** The line for the HUD; `null` = nothing to say (local store, or an empty text). */
@@ -174,13 +177,16 @@ export function antwortText(a: VorgangAntwort): string | null {
     case 'angewendet':
       return a.message === '' ? null : a.message;
     case 'nur-geschrieben':
-      return `Geschrieben, aber nicht angewendet (${a.grund})${a.message ? `: ${a.message}` : ''}`;
+      return t('testflug.persistenz.nur_geschrieben', {
+        grund: a.grund,
+        detail: a.message ? t('testflug.persistenz.detail_anhang', { message: a.message }) : '',
+      });
     case 'konflikt':
-      return `Konflikt bei ${a.ids.join(', ')} — nichts geändert${ZURUECK(a)}`;
+      return t('testflug.persistenz.konflikt_bei', { ids: a.ids.join(', ') }) + ZURUECK(a);
     case 'fehler':
       return `${a.message}${ZURUECK(a)}`;
     case 'unklar':
-      return `Unklar — bitte neu laden: ${a.message}`;
+      return t('testflug.persistenz.unklar_neu_laden', { message: a.message });
   }
 }
 
@@ -213,11 +219,11 @@ export function mitVorgaengen(
   let laeuft = false;
   /** After an answer that left it unknown whether the server has a Vorgang: nothing more until a reload. */
   let unklar = false;
-  const UNKLAR_TEXT = 'Stand unklar — bitte neu laden';
+  const UNKLAR_TEXT = t('testflug.persistenz.stand_unklar');
 
   const lokal = (v: Vorgang): { ok: true } | { ok: false; ids: string[]; message: string } => {
     const dok = speicher.laden();
-    if (!dok) return { ok: false, ids: [], message: 'Kein Entwurf' };
+    if (!dok) return { ok: false, ids: [], message: t('testflug.persistenz.kein_entwurf') };
     const r = wendeAufEntwurf(dok, v);
     if (r.ok) speicher.aendern(dok);
     return r;
@@ -255,15 +261,21 @@ export function mitVorgaengen(
     const bei = (w: string): VorgangAntwort =>
       ausnahme === null
         ? { art: 'fehler', message: w, zurueckgenommen: alleZurueck, verworfen: anzahl }
-        : { art: 'fehler', message: `${w}; Rücknahme scheiterte: ${String(ausnahme)}`, zurueckgenommen: false, verworfen: anzahl };
+        : {
+            art: 'fehler',
+            message: t('testflug.persistenz.ruecknahme_gescheitert', { message: w, grund: String(ausnahme) }),
+            zurueckgenommen: false,
+            verworfen: anzahl,
+          };
     // The later ones first, so that the line of the refused one (with the count) is the one left on the HUD.
-    for (const w of verworfene.slice(1)) w.erledigt(bei('Verworfen, weil ein früherer Vorgang abgelehnt wurde'));
+    for (const w of verworfene.slice(1)) w.erledigt(bei(t('testflug.persistenz.verworfen_frueher')));
     verworfene[0]!.erledigt(ausnahme === null ? { ...a, zurueckgenommen: alleZurueck, verworfen: anzahl } : bei(a.message));
   };
   const gibtAuf = (a: VorgangAntwort & { art: 'unklar' }): void => {
     unklar = true;
     const rest = wartend.splice(0);
-    for (const [i, w] of rest.entries()) w.erledigt(i === 0 ? a : { art: 'unklar', message: 'nicht gesendet, weil ein früherer Vorgang unklar blieb' });
+    for (const [i, w] of rest.entries())
+      w.erledigt(i === 0 ? a : { art: 'unklar', message: t('testflug.persistenz.nicht_gesendet_unklar') });
   };
   const pumpe = (): void => {
     if (laeuft || wartend.length === 0 || !senden) return;
@@ -271,7 +283,10 @@ export function mitVorgaengen(
     const kopf = wartend[0]!;
     senden(kopf.v).then(
       (a) => a,
-      (fehler: unknown): VorgangAntwort => ({ art: 'unklar', message: `Senden ohne Antwort: ${String(fehler)}` })
+      (fehler: unknown): VorgangAntwort => ({
+        art: 'unklar',
+        message: t('testflug.persistenz.senden_ohne_antwort', { fehler: String(fehler) }),
+      })
     ).then((a) => {
       laeuft = false;
       try {
@@ -285,7 +300,11 @@ export function mitVorgaengen(
         // Whatever threw: nobody is left waiting, and nothing more goes out.
         unklar = true;
         for (const w of wartend.splice(0)) {
-          w.erledigt({ art: 'fehler', message: `Antwort nicht verarbeitet: ${String(e)}`, zurueckgenommen: false });
+          w.erledigt({
+            art: 'fehler',
+            message: t('testflug.persistenz.antwort_nicht_verarbeitet', { fehler: String(e) }),
+            zurueckgenommen: false,
+          });
         }
       }
       pumpe();
@@ -295,7 +314,7 @@ export function mitVorgaengen(
     protokoll.push(v);
     if (protokoll.length > PROTOKOLL_MAX) protokoll.shift();
     if (!senden) return Promise.resolve({ art: 'angewendet', message: '' });
-    if (unklar) return Promise.resolve({ art: 'unklar', message: 'nicht gesendet, der Stand ist unklar' });
+    if (unklar) return Promise.resolve({ art: 'unklar', message: t('testflug.persistenz.nicht_gesendet_stand_unklar') });
     return new Promise<VorgangAntwort>((erledigt) => {
       wartend.push({ v, erledigt });
       pumpe();
@@ -318,8 +337,8 @@ export function mitVorgaengen(
       if (unklar) return { ok: false, ids: [], message: UNKLAR_TEXT };
       if (ziehGesperrt) {
         // The drag was refused with the mouse still down: frames are ignored until the release (`abschliessen`).
-        if (zwischen) return { ok: false, ids: [], message: 'Ziehen abgelehnt — Maus loslassen' };
-        return { ok: false, ids: [], message: 'Erst absetzen — das Ziehen wurde abgelehnt' };
+        if (zwischen) return { ok: false, ids: [], message: t('testflug.persistenz.ziehen_abgelehnt') };
+        return { ok: false, ids: [], message: t('testflug.persistenz.erst_absetzen_abgelehnt') };
       }
       // A frame of ANOTHER object, or any other gesture, ends the open drag first: never two gestures in one Vorgang.
       if (offen && (!zwischen || !gleicheObjekte(offen, v))) {

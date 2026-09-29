@@ -164,7 +164,9 @@ import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad'
 // Serversteuerung (29.09.): die vorhandene Uebersetzungsfunktion des Spiels
 // fuer die neuen editor.server.*-Texte -- der Editor hatte bisher gar keine
 // i18n-Anbindung, s. Kopfkommentar bei serverSteuerung.ts.
-import { GameI18n } from '../i18n';
+// T0a (29.09.): die Instanz liegt jetzt in i18n.ts, weil Testflug, SpawnPanel
+// und der Upload-Dialog dieselbe brauchen -- s. Kopfkommentar dort.
+import { editorI18nInstance } from './i18n';
 import {
   karteLiveTestenAktion,
   neustartOptionen,
@@ -525,8 +527,8 @@ let stoppenKnopf: HTMLButtonElement | null = null;
 let startenKnopf: HTMLButtonElement | null = null;
 let serverStatusFeld: HTMLSpanElement | null = null;
 let serverAktionLaeuft = false;
-/** Die vorhandene Übersetzungsfunktion des Spiels (client/src/i18n) — der Editor selbst hatte bisher keine i18n-Anbindung, s. Kopfkommentar bei serverSteuerung.ts. */
-const serverI18n = new GameI18n();
+// Instanz jetzt in i18n.ts (T0a), lazy gebaut — s. Import oben.
+const serverI18n = editorI18nInstance();
 /**
  * Öffnet den Gegenstands-Katalog. Aus demselben Grund hier oben wie
  * `speicherKnopf`: Der Werkzeugleisten-Block weist zu, und die

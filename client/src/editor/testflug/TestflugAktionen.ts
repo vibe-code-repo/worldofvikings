@@ -16,6 +16,7 @@
 import type { NpcDef, WorldLayout } from '@wov/shared';
 import { opAendern, opEntfernen, opSetzen, type Op, type OpEntry, type Vorgang } from '@wov/shared/src/worldlayout/ops.js';
 import type { EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebnis } from './TestflugPersistenz';
+import { t } from '../i18n';
 
 const VOLLE_DREHUNG = Math.PI * 2;
 
@@ -66,14 +67,14 @@ export class TestflugAktionen {
   private fehlt(id: string): VorgangErgebnis {
     const n = this.persistenz.laden()?.placements?.filter((p) => p.id === id).length ?? 0;
     return n > 1
-      ? { ok: false, ids: [id], message: `Doppelte id ${id} (${n} Einträge) — nichts geändert` }
-      : { ok: false, ids: [id], message: `Konflikt bei ${id} — nichts geändert` };
+      ? { ok: false, ids: [id], message: t('testflug.aktionen.doppelte_id', { id, n }) }
+      : { ok: false, ids: [id], message: t('testflug.aktionen.konflikt_bei', { id }) };
   }
 
   /** Turning and NPC fields are their own gestures: not while a drag is open (release first). */
   private gesperrt(id: string): VorgangErgebnis | null {
     return this.persistenz.ziehOffen?.()
-      ? { ok: false, ids: [id], message: 'Erst absetzen — während des Ziehens wird nicht gedreht oder umbenannt' }
+      ? { ok: false, ids: [id], message: t('testflug.aktionen.gesperrt') }
       : null;
   }
 

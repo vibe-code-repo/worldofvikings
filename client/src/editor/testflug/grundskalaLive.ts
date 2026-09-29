@@ -41,6 +41,36 @@
  *     Kanal-Instanzen liefern dieselbe Nachricht) werden verworfen, jede
  *     Meldung mit einem ANDEREN Wert — auch zurück auf einen früheren
  *     Stand — wird übernommen, unabhängig von Uhrzeit oder Reihenfolge.
+ *
+ * N1 (Nachangriff, Befunde N1-1/N1-2/N1-3):
+ *
+ *   - **N1-1** — der Empfänger-Handler lag bisher als anonyme Funktion
+ *     direkt in `Testflug.ts`; ein Test, der ihn prüfen wollte, musste die
+ *     Verdrahtung im Test selbst nachbauen und sah damit nie die echte
+ *     Datei — zwei Mutationen, die den ursprünglichen Blocker B1 wieder
+ *     eingebaut hätten (Abruf nur angestoßen statt abgewartet, Modellname
+ *     ohne Upload-Präfix), blieben unbemerkt. `verdrahteGrundskalaLive`
+ *     unten ist jetzt die EINE Fassung dieses Handlers; `Testflug.ts` und
+ *     der Test (`grundskala-live-wirkung.ts`) importieren beide sie.
+ *   - **N1-2** — mehrere Meldungen kurz hintereinander liefen bisher
+ *     PARALLEL (jede rief `uebernehmen` sofort auf, ohne auf die vorherige
+ *     zu warten): ein langsamer erster Registry-Abruf konnte einen später
+ *     gestarteten, aber früher fertigen Abruf überschreiben (Probe im
+ *     Angriffsbericht: 2→3→4 mit langsamem ersten Abruf endete bei 3 statt
+ *     4). Eine Promise-Kette JE EMPFÄNGER (`kette` unten) serialisiert die
+ *     Verarbeitung: `uebernehmen` für eine Meldung startet erst, nachdem
+ *     die vorherige vollständig verarbeitet ist. Jede Folge endet damit
+ *     beim ZULETZT GESENDETEN Wert, unabhängig von der Antwortzeit.
+ *   - **N1-3** — der Wert-Duplikatfilter merkte sich einen Wert schon beim
+ *     EMPFANG, bevor `uebernehmen` überhaupt lief. Scheiterte der Abruf
+ *     (Server kurz nicht erreichbar), verwarf der Filter jede spätere
+ *     Meldung mit demselben Wert als „schon erledigt“, obwohl nichts
+ *     angewendet wurde — der Fehlerfall war für denselben Wert unheilbar,
+ *     ausser über einen Neuladen oder einen anderen Wert. `zuletzt` wird
+ *     jetzt erst NACH erfolgreichem `uebernehmen` gesetzt; scheitert es
+ *     (die zurückgegebene Zusage lehnt ab), bleibt der alte Stand
+ *     vermerkt und eine erneute Meldung mit demselben Wert wird wieder
+ *     versucht (nur `console.warn`, kein unbehandelter Fehler).
  */
 
 import { uploadedModelRegistry } from '@wov/shared';
@@ -81,22 +111,6 @@ export function istGueltigesEreignis(x: unknown): x is GrundskalaEreignis {
   );
 }
 
-/**
- * Ob ein empfangenes (schon als gültig geprüftes) Ereignis übernommen
- * werden soll. `false` nur bei einem echten WERT-Duplikat: derselbe Name
- * meldet dieselbe Grundskala wie die zuletzt übernommene Meldung (B5,
- * Kopfkommentar). `zuletzt` wird bei Übernahme aktualisiert; andere
- * Modellnamen darin bleiben unberührt.
- */
-export function sollGrundskalaUebernehmen(
-  zuletzt: Map<string, number>,
-  ereignis: GrundskalaEreignis
-): boolean {
-  if (zuletzt.get(ereignis.name) === ereignis.grundskala) return false;
-  zuletzt.set(ereignis.name, ereignis.grundskala);
-  return true;
-}
-
 /** Der Teil von `BroadcastChannel`, den dieses Modul braucht — DOM-frei testbar. */
 interface KanalQuelle {
   new (name: string): {
@@ -128,24 +142,71 @@ export function sendeGrundskalaGeaendert(name: string, grundskala: number): void
 
 /**
  * Empfänger-Seite (Testflug): auf Grundskala-Änderungen hören, solange die
- * Rückgabefunktion nicht aufgerufen wurde. Ungültige Meldungen (B4) und
- * Wert-Duplikate (B5) filtert diese Funktion heraus, bevor `uebernehmen`
- * läuft — sie wirft nie, egal was auf dem Kanal ankommt. Ohne
- * `BroadcastChannel` ein No-Op mit leerer Abmeldefunktion.
+ * Rückgabefunktion nicht aufgerufen wurde. Ungültige Meldungen (B4) filtert
+ * diese Funktion heraus, bevor `uebernehmen` läuft — sie wirft nie, egal was
+ * auf dem Kanal ankommt. Ohne `BroadcastChannel` ein No-Op mit leerer
+ * Abmeldefunktion.
+ *
+ * N1-2/N1-3 (Kopfkommentar): `uebernehmen` darf eine Zusage zurückgeben.
+ * Mehrere Meldungen werden über `kette` STRENG NACHEINANDER verarbeitet
+ * (N1-2), und `zuletzt` — der Wert-Duplikatfilter (B5) — wird erst nach
+ * erfolgreichem `uebernehmen` aktualisiert (N1-3), nie schon beim Empfang.
+ * Eine abgelehnte Zusage geht nur in `console.warn`, nie als unbehandelter
+ * Fehler zum Aufrufer.
  */
-export function hoereGrundskalaGeaendert(uebernehmen: (name: string) => void): () => void {
+export function hoereGrundskalaGeaendert(
+  uebernehmen: (name: string, grundskala: number) => void | Promise<void>
+): () => void {
   const Kanal = kanalQuelle();
   if (!Kanal) return () => {};
   const kanal = new Kanal(GRUNDSKALA_KANAL);
   const zuletzt = new Map<string, number>();
+  let kette: Promise<void> = Promise.resolve();
   const hoerer = (e: MessageEvent<unknown>): void => {
     if (!istGueltigesEreignis(e.data)) return;
-    if (!sollGrundskalaUebernehmen(zuletzt, e.data)) return;
-    uebernehmen(e.data.name);
+    const ereignis = e.data;
+    if (zuletzt.get(ereignis.name) === ereignis.grundskala) return;
+    kette = kette
+      .then(() => uebernehmen(ereignis.name, ereignis.grundskala))
+      .then(() => {
+        zuletzt.set(ereignis.name, ereignis.grundskala);
+      })
+      .catch((fehler: unknown) => {
+        console.warn(
+          '[grundskalaLive] Übernahme fehlgeschlagen, wird bei einer erneuten Meldung wiederholt:',
+          ereignis.name,
+          fehler
+        );
+      });
   };
   kanal.addEventListener('message', hoerer);
   return () => {
     kanal.removeEventListener('message', hoerer);
     kanal.close();
   };
+}
+
+/**
+ * Der DOM-freie Empfänger-Handler selbst (N1-1): `Testflug.ts` ruft GENAU
+ * diese Funktion auf und enthält keine eigene Verdrahtungslogik mehr — sie
+ * bekommt ihre Abhängigkeiten (Registry-Lader, `aktualisiereGrundskala`,
+ * `flush`) als Parameter, ist damit DOM-frei aufrufbar und wird von
+ * `client/test/grundskala-live-wirkung.ts` im Worker-Realm importiert und
+ * benutzt, statt die Verdrahtung nachzubauen.
+ */
+export interface GrundskalaLiveEmpfaenger {
+  /** Lädt die Upload-Registry DIESES Fensters neu (Blocker B1: ohne das bleibt `AssetManager.wendeGrundskalaAn` beim alten Wert). */
+  readonly ladeRegistry: () => Promise<unknown>;
+  /** `EntityManager.aktualisiereGrundskala`, mit dem VOLLEN Prefab-Namen inklusive Upload-Präfix. */
+  readonly aktualisiereGrundskala: (model: string) => Promise<unknown>;
+  /** Den markierten Bucket noch in diesem Tick ausführen. */
+  readonly flush: () => void;
+}
+
+export function verdrahteGrundskalaLive(empfaenger: GrundskalaLiveEmpfaenger): () => void {
+  return hoereGrundskalaGeaendert(async (name) => {
+    await empfaenger.ladeRegistry();
+    await empfaenger.aktualisiereGrundskala(`${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}${name}`);
+    empfaenger.flush();
+  });
 }

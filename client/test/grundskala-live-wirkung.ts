@@ -63,23 +63,37 @@ function nah(ist: number, soll: number, was: string, eps = 1e-3): void {
 //    Eigenschaften der Datei schon tut) — ein voller DOM-Testflug ist für
 //    einen DOM-freien Lauf unverhältnismässig, ein stiller Wegfall der
 //    Verdrahtung (M2/M5/M6 aus dem Angriffsbericht) darf aber nicht
-//    unbemerkt bleiben. ───────────────────────────────────────────────
+//    unbemerkt bleiben.
+//
+//    N1-1 (Nachangriff): Der eigentliche Handler (Registry neu laden,
+//    `await`en, `aktualisiereGrundskala`, `flush`) lebt seit dieser Fassung
+//    DOM-frei in `verdrahteGrundskalaLive` (`grundskalaLive.ts`) — Abschnitt
+//    2 unten importiert und benutzt GENAU diese Funktion, misst die T1/T2-
+//    Mutationen also an der echten Wirkung. Was Abschnitt 2 NICHT sehen
+//    kann, weil sein eigener Realm-Quelltext `verdrahteGrundskalaLive`
+//    unabhängig vom Aufruf in `Testflug.ts` importiert, ist ein fehlender
+//    AUFRUF in `Testflug.ts` selbst — das prüft dieser Wächter. ─────────
 
 function strukturWaechter(): void {
   const testflug = readFileSync(new URL('../src/editor/testflug/Testflug.ts', import.meta.url), 'utf-8');
   const katalog = readFileSync(new URL('../src/editor/GegenstandsKatalog.ts', import.meta.url), 'utf-8');
 
-  const handlerMatch = /hoereGrundskalaGeaendert\(\(name\) => \{([\s\S]*?)\}\);/.exec(testflug);
-  pruefe(!!handlerMatch, 'Testflug.ts ruft hoereGrundskalaGeaendert(...) mit einem Handler auf (M2)');
-  const handlerBody = handlerMatch?.[1] ?? '';
-  const iRegistry = handlerBody.indexOf('ladeHochgeladeneRegistrierung()');
-  const iAktualisiere = handlerBody.indexOf('.aktualisiereGrundskala(');
-  pruefe(iRegistry >= 0, 'der Handler lädt die Registry DIESES Fensters neu (B1)');
-  pruefe(iAktualisiere >= 0, 'der Handler ruft aktualisiereGrundskala auf');
   pruefe(
-    iRegistry >= 0 && iAktualisiere >= 0 && iRegistry < iAktualisiere,
-    'die Registry wird VOR aktualisiereGrundskala neu geladen, nicht nur irgendwann (B1)'
+    (testflug.match(/\bverdrahteGrundskalaLive\(/g) ?? []).length === 1,
+    'Testflug.ts ruft verdrahteGrundskalaLive(...) genau einmal auf (N1-1 — „Aufruf fehlt")'
   );
+  const handlerMatch = /verdrahteGrundskalaLive\(\{([\s\S]*?)\}\);/.exec(testflug);
+  pruefe(!!handlerMatch, 'Testflug.ts ruft verdrahteGrundskalaLive(...) mit einem Abhängigkeiten-Objekt auf');
+  const handlerBody = handlerMatch?.[1] ?? '';
+  pruefe(
+    /ladeRegistry:\s*\(\)\s*=>\s*ladeHochgeladeneRegistrierung\(\)/.test(handlerBody),
+    'ladeRegistry ist an ladeHochgeladeneRegistrierung DIESES Fensters gebunden (B1)'
+  );
+  pruefe(
+    /aktualisiereGrundskala:\s*\(model\)\s*=>\s*ent\.aktualisiereGrundskala\(model\)/.test(handlerBody),
+    'aktualisiereGrundskala ist an ent.aktualisiereGrundskala gebunden'
+  );
+  pruefe(/flush:\s*\(\)\s*=>\s*ent\.flush\(\)/.test(handlerBody), 'flush ist an ent.flush gebunden');
   pruefe(
     testflug.includes('scene.onDisposeObservable.add(grundskalaAbmelden)'),
     'Testflug.ts meldet den Kanal beim Verwerfen der Szene wieder ab (kein Leck)'
@@ -225,7 +239,7 @@ async function haupt() {
   const AssetManager = (await import(wd.assetManagerUrl)).AssetManager;
   const EntityManager = (await import(wd.entityManagerUrl)).EntityManager;
   const ladeHochgeladeneRegistrierung = (await import(wd.registryLoadUrl)).ladeHochgeladeneRegistrierung;
-  const hoereGrundskalaGeaendert = (await import(wd.grundskalaLiveUrl)).hoereGrundskalaGeaendert;
+  const verdrahteGrundskalaLive = (await import(wd.grundskalaLiveUrl)).verdrahteGrundskalaLive;
 
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -324,16 +338,31 @@ async function haupt() {
   const anfangKontroll = messeHuelle(ent, wd.kontrollName, wd.kontrollName);
   parentPort.postMessage({ typ: 'bereit', anfangModel: anfangModel, anfangKontroll: anfangKontroll });
 
-  // ── Genau die Verdrahtung aus Testflug.ts (B1-Nachbesserung): erst die
-  // Registry DIESES Fensters neu laden, dann aktualisiereGrundskala. ────
-  hoereGrundskalaGeaendert((name) => {
-    void ladeHochgeladeneRegistrierung(wd.registryUrl)
-      .then(() => ent.aktualisiereGrundskala(uploadedModelRegistry.UPLOAD_MODEL_PREFIX + name))
-      .then((ergebnis) => {
-        const nachModel = messeHuelle(ent, wd.modelName, wd.modelName);
-        const nachKontroll = messeHuelle(ent, wd.kontrollName, wd.kontrollName);
-        parentPort.postMessage({ typ: 'nach-aenderung', name: name, ergebnis: ergebnis, nachModel: nachModel, nachKontroll: nachKontroll });
-      });
+  // ── N1-1: DIESELBE Funktion wie Testflug.ts, nicht nachgebaut — eine
+  // Mutation in verdrahteGrundskalaLive (T1: await/Kette weggelassen, T2:
+  // Praefix weggelassen) wirkt hier genauso wie im echten Testflug. Die
+  // Abhaengigkeiten binden wie in Testflug.ts an die Realm-eigene Registry
+  // und den Realm-eigenen EntityManager; flush misst und meldet, weil es
+  // hier (anders als bei ent.flush() im echten Fenster) auch der Punkt
+  // ist, an dem die Wirkung sichtbar wird. Keine Backticks in diesem
+  // Abschnitt (Kopfkommentar der Datei: reine, statische Text-Quelle,
+  // ein Backtick wuerde das umgebende Template-Literal vorzeitig
+  // schliessen). ──────────────────────────────────────────────────────
+  let letzterModelPfad = '';
+  let letztesErgebnis;
+  verdrahteGrundskalaLive({
+    ladeRegistry: () => ladeHochgeladeneRegistrierung(wd.registryUrl),
+    aktualisiereGrundskala: async (model) => {
+      letzterModelPfad = model;
+      letztesErgebnis = await ent.aktualisiereGrundskala(model);
+      return letztesErgebnis;
+    },
+    flush: () => {
+      const name = letzterModelPfad.slice(uploadedModelRegistry.UPLOAD_MODEL_PREFIX.length);
+      const nachModel = messeHuelle(ent, wd.modelName, wd.modelName);
+      const nachKontroll = messeHuelle(ent, wd.kontrollName, wd.kontrollName);
+      parentPort.postMessage({ typ: 'nach-aenderung', name: name, ergebnis: letztesErgebnis, nachModel: nachModel, nachKontroll: nachKontroll });
+    },
   });
 }
 

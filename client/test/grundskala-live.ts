@@ -1,9 +1,10 @@
 /**
- * G1 N1 (Nachbesserung nach Angriff, Befunde B4/B5): der reine
- * Übernahme-Filter (`sollGrundskalaUebernehmen`), die strenge Formprüfung
- * (`istGueltigesEreignis`) UND der volle Kanal-Weg (senden, hören,
- * abmelden) über das echte `BroadcastChannel` aus Node (seit v18 global,
- * DOM-frei).
+ * G1 N1 (Nachbesserung nach Angriff, Befunde B4/B5) und G1 N2
+ * (Nachangriff-Auflagen N1-2/N1-3): die strenge Formprüfung
+ * (`istGueltigesEreignis`), der volle Kanal-Weg (senden, hören, abmelden)
+ * über das echte `BroadcastChannel` aus Node (seit v18 global, DOM-frei),
+ * die serialisierte Verarbeitung mehrerer Meldungen (N1-2) und das Merken
+ * des Wert-Duplikatfilters ERST nach erfolgreicher Übernahme (N1-3).
  *
  * Vorherige Fassung testete einen Zeitstempel-Duplikatfilter, den der
  * Angriff als schädlich einstufte (B5: eine spätere Meldung mit
@@ -14,6 +15,15 @@
  * ausserhalb des Musters, Grundskala ausserhalb des erlaubten Bereichs)
  * müssen ohne Ausnahme und ohne Übernahme verworfen werden.
  *
+ * N2: `sollGrundskalaUebernehmen` gibt es nicht mehr als eigene, reine
+ * Funktion — das Merken (wann ein Wert als „übernommen" gilt) ist jetzt an
+ * den ECHTEN Verarbeitungsweg gebunden (`hoereGrundskalaGeaendert` ruft
+ * `uebernehmen` auf und merkt den Wert nur bei Erfolg). Die vorherigen
+ * reinen Filtertests sind deshalb durch Abschnitt 3/4 unten ersetzt, die
+ * genau dasselbe Verhalten über den echten Kanal prüfen — B5 (Rücksprung
+ * auf einen früheren Wert wird übernommen) bleibt dabei in Abschnitt 2
+ * (`kanalDurchlauf`) abgedeckt.
+ *
  * Lauf: npx tsx client/test/grundskala-live.ts
  */
 import {
@@ -21,7 +31,6 @@ import {
   hoereGrundskalaGeaendert,
   istGueltigesEreignis,
   sendeGrundskalaGeaendert,
-  sollGrundskalaUebernehmen,
   type GrundskalaEreignis,
 } from '../src/editor/testflug/grundskalaLive';
 
@@ -33,37 +42,7 @@ function pruefe(bedingung: boolean, text: string): void {
   }
 }
 
-// ── 1) sollGrundskalaUebernehmen: reine Filterlogik, WERT-basiert (B5) ──
-
-{
-  const zuletzt = new Map<string, number>();
-  const e1: GrundskalaEreignis = { name: 'U_Fass1', grundskala: 2 };
-  pruefe(sollGrundskalaUebernehmen(zuletzt, e1) === true, 'erstes Ereignis wird übernommen');
-  pruefe(zuletzt.get('U_Fass1') === 2, 'Wert gemerkt');
-
-  // Exaktes Duplikat (gleicher Wert) — verworfen.
-  const dup: GrundskalaEreignis = { name: 'U_Fass1', grundskala: 2 };
-  pruefe(sollGrundskalaUebernehmen(zuletzt, dup) === false, 'Duplikat (gleicher Wert) verworfen');
-
-  // Andere Grundskala DESSELBEN Namens — übernommen, unabhängig von jeder Uhrzeit.
-  const neu: GrundskalaEreignis = { name: 'U_Fass1', grundskala: 4 };
-  pruefe(sollGrundskalaUebernehmen(zuletzt, neu) === true, 'geänderter Wert übernommen');
-  pruefe(zuletzt.get('U_Fass1') === 4, 'Wert aktualisiert');
-
-  // B5 (Angriffsbefund an der Zeitstempel-Fassung): zurück auf einen FRÜHEREN
-  // Wert ist trotzdem eine echte Änderung und muss übernommen werden — ein
-  // Zeitstempel-Vergleich hätte das je nach Uhr auch schon getan, ein reiner
-  // Wertvergleich tut es UNABHÄNGIG von jeder Uhr.
-  const zurueck: GrundskalaEreignis = { name: 'U_Fass1', grundskala: 2 };
-  pruefe(sollGrundskalaUebernehmen(zuletzt, zurueck) === true, 'Rücksprung auf einen früheren Wert wird übernommen (B5)');
-
-  // Ein ANDERES Modell — eigene Spur, unabhängig vom ersten.
-  const anderesModell: GrundskalaEreignis = { name: 'U_Fass2', grundskala: 1 };
-  pruefe(sollGrundskalaUebernehmen(zuletzt, anderesModell) === true, 'anderes Modell unabhängig übernommen');
-  pruefe(zuletzt.size === 2, 'zwei getrennte Modellspuren');
-}
-
-// ── 2) istGueltigesEreignis: die Angriffsproben aus dem Bericht (B4) ────
+// ── 1) istGueltigesEreignis: die Angriffsproben aus dem Bericht (B4) ────
 
 {
   const gueltig: GrundskalaEreignis = { name: 'U_Fass1', grundskala: 2 };
@@ -96,7 +75,7 @@ function pruefe(bedingung: boolean, text: string): void {
   pruefe(istGueltigesEreignis({ name: 'U_Fass1', grundskala: 100 }), 'oberer Rand (100) gültig');
 }
 
-// ── 3) Der volle Kanal-Weg: senden -> hören, in einem eigenen Kanalnamen,
+// ── 2) Der volle Kanal-Weg: senden -> hören, in einem eigenen Kanalnamen,
 //    damit ein Fehlschlag hier keinen anderen Testlauf im selben Prozess
 //    stört (jede Instanz von `BroadcastChannel(GRUNDSKALA_KANAL)` mit
 //    demselben Namen hört mit — s. `grundskalaLive.ts`-Kopf). Zusätzlich
@@ -108,7 +87,9 @@ async function kanalDurchlauf(): Promise<void> {
   pruefe(typeof GRUNDSKALA_KANAL === 'string' && GRUNDSKALA_KANAL.length > 0, 'Kanalname gesetzt');
 
   const empfangen: string[] = [];
-  const abmelden = hoereGrundskalaGeaendert((name) => empfangen.push(name));
+  const abmelden = hoereGrundskalaGeaendert((name) => {
+    empfangen.push(name);
+  });
 
   sendeGrundskalaGeaendert('U_Testobjekt', 2);
   // BroadcastChannel liefert asynchron (auch in Node) — auf den Tick warten.
@@ -143,7 +124,108 @@ async function kanalDurchlauf(): Promise<void> {
   pruefe(empfangen.length === 3, 'nach dem Abmelden kein weiterer Empfang');
 }
 
-// ── 4) Ohne `BroadcastChannel` (Umgebung ohne Unterstützung): No-Op statt
+// ── 3) N1-2: mehrere Meldungen kurz hintereinander werden JE EMPFÄNGER
+//    STRENG NACHEINANDER verarbeitet — ein langsamer erster Abruf darf
+//    einen später gestarteten, aber früher fertigen nicht überschreiben.
+//    `uebernehmen` bekommt hier eine künstliche Verzögerung, wie sie ein
+//    echter Registry-`fetch` hätte (Angriffsprobe N1-2: 2→3→4 mit
+//    langsamem ersten Abruf blieb ohne Serialisierung bei 3 stehen). ────
+
+async function reihenfolgeDurchlauf(): Promise<void> {
+  // 2 → 3 → 4, der ERSTE Abruf (Wert 2) ist langsam — muss trotzdem bei 4 enden.
+  {
+    const angewendet: number[] = [];
+    let ruf = 0;
+    const abmelden = hoereGrundskalaGeaendert(async (_name, grundskala) => {
+      ruf++;
+      if (ruf === 1) await new Promise((r) => setTimeout(r, 60));
+      angewendet.push(grundskala);
+    });
+    sendeGrundskalaGeaendert('U_Reihenfolge1', 2);
+    sendeGrundskalaGeaendert('U_Reihenfolge1', 3);
+    sendeGrundskalaGeaendert('U_Reihenfolge1', 4);
+    await new Promise((r) => setTimeout(r, 150));
+    pruefe(angewendet.length === 3, `alle drei Meldungen verarbeitet (${angewendet.length}: ${angewendet.join(',')})`);
+    pruefe(
+      angewendet[angewendet.length - 1] === 4,
+      `2→3→4 mit langsamem ersten Abruf endet bei 4 (N1-2), Reihenfolge ${angewendet.join(',')}`
+    );
+    abmelden();
+  }
+
+  // 4 → 1 → 4, der ERSTE Abruf (Wert 4) ist langsam — muss wieder bei 4 enden.
+  {
+    const angewendet: number[] = [];
+    let ruf = 0;
+    const abmelden = hoereGrundskalaGeaendert(async (_name, grundskala) => {
+      ruf++;
+      if (ruf === 1) await new Promise((r) => setTimeout(r, 60));
+      angewendet.push(grundskala);
+    });
+    sendeGrundskalaGeaendert('U_Reihenfolge2', 4);
+    sendeGrundskalaGeaendert('U_Reihenfolge2', 1);
+    sendeGrundskalaGeaendert('U_Reihenfolge2', 4);
+    await new Promise((r) => setTimeout(r, 150));
+    pruefe(angewendet.length === 3, `alle drei Meldungen verarbeitet (${angewendet.length}: ${angewendet.join(',')})`);
+    pruefe(
+      angewendet[angewendet.length - 1] === 4,
+      `4→1→4 mit langsamem ersten Abruf endet bei 4 (N1-2), Reihenfolge ${angewendet.join(',')}`
+    );
+    abmelden();
+  }
+}
+
+// ── 4) N1-3: ein gescheiterter Abruf darf denselben Wert nicht für immer
+//    als „übernommen" markieren — eine erneute Meldung mit demselben Wert
+//    muss wieder versucht werden, statt als Duplikat zu gelten. Der
+//    Fehlschlag selbst darf nie als unbehandelte Ablehnung entkommen,
+//    sondern nur über `console.warn`. ───────────────────────────────────
+
+async function fehlschlagDurchlauf(): Promise<void> {
+  const rufe: number[] = [];
+  let naechsterSchlaegtFehl = true;
+  const abmelden = hoereGrundskalaGeaendert(async (_name, grundskala) => {
+    rufe.push(grundskala);
+    if (naechsterSchlaegtFehl) {
+      naechsterSchlaegtFehl = false;
+      throw new Error('HTTP 500 (simulierter Registry-Abruf)');
+    }
+  });
+  const urspruenglichesWarn = console.warn;
+  const warnungen: unknown[][] = [];
+  console.warn = (...teile: unknown[]) => void warnungen.push(teile);
+  let unbehandelt = 0;
+  const aufUnbehandelt = (): void => void unbehandelt++;
+  process.on('unhandledRejection', aufUnbehandelt);
+  try {
+    sendeGrundskalaGeaendert('U_Fehlschlag', 2);
+    await new Promise((r) => setTimeout(r, 40));
+    pruefe(rufe.length === 1, `erster Versuch lief (${rufe.length})`);
+    pruefe(warnungen.length === 1, `der Fehlschlag wird nur gewarnt, nicht geworfen (${warnungen.length} Warnungen)`);
+    pruefe(unbehandelt === 0, 'kein unhandledRejection beim Fehlschlag');
+
+    // Dieselbe Meldung, derselbe Wert, ERNEUT — darf NICHT als Duplikat
+    // verworfen werden, weil der erste Versuch nie erfolgreich war (N1-3).
+    sendeGrundskalaGeaendert('U_Fehlschlag', 2);
+    await new Promise((r) => setTimeout(r, 40));
+    pruefe(
+      rufe.length === 2,
+      `erneute Meldung mit demselben Wert nach einem Fehlschlag wird verarbeitet (N1-3), rufe=${rufe.length}`
+    );
+
+    // Jetzt gelingt der Abruf — eine DRITTE, identische Meldung ist ein
+    // echtes Duplikat (der Wert wurde inzwischen erfolgreich übernommen).
+    sendeGrundskalaGeaendert('U_Fehlschlag', 2);
+    await new Promise((r) => setTimeout(r, 40));
+    pruefe(rufe.length === 2, `ein Wert-Duplikat NACH erfolgreicher Übernahme wird weiterhin verworfen, rufe=${rufe.length}`);
+  } finally {
+    console.warn = urspruenglichesWarn;
+    process.off('unhandledRejection', aufUnbehandelt);
+    abmelden();
+  }
+}
+
+// ── 5) Ohne `BroadcastChannel` (Umgebung ohne Unterstützung): No-Op statt
 //    Absturz — `hoereGrundskalaGeaendert` liefert eine harmlose Abmelde-
 //    funktion, `sendeGrundskalaGeaendert` schickt still nichts. ────────
 
@@ -152,7 +234,9 @@ function ohneKanalDurchlauf(): void {
   try {
     (globalThis as { BroadcastChannel?: unknown }).BroadcastChannel = undefined;
     let hoerAufruf = 0;
-    const abmelden = hoereGrundskalaGeaendert(() => hoerAufruf++);
+    const abmelden = hoereGrundskalaGeaendert(() => {
+      hoerAufruf++;
+    });
     sendeGrundskalaGeaendert('U_OhneKanal', 2);
     abmelden();
     pruefe(hoerAufruf === 0, 'ohne BroadcastChannel: kein Absturz, kein Empfang');
@@ -163,6 +247,8 @@ function ohneKanalDurchlauf(): void {
 
 async function haupt(): Promise<void> {
   await kanalDurchlauf();
+  await reihenfolgeDurchlauf();
+  await fehlschlagDurchlauf();
   ohneKanalDurchlauf();
   console.log(fehler === 0 ? 'OK — grundskala-live' : `${fehler} ABWEICHUNGEN`);
   process.exit(fehler > 0 ? 1 : 0);

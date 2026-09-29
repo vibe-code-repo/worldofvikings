@@ -347,6 +347,23 @@ try {
       }
       abbauen(u);
     }
+    // R5c (Z3 N5, E3): Altbestand mit ZWEI ZDOs MIT Zustand unter einer id — das passende (Dokument-Prefab Beech1) mit
+    // eigenem Inhalt, dazu die alte Truhe. Bestätigen zerstört nur das ZDO mit fremdem Prefab (die Truhe); das passende
+    // behält seinen Inhalt. Tötet die Mutante "bestaetigungsZdos zerstört wieder ALLE ZDOs der id" (D1 (c)), die R5a/R5b
+    // überlebt, weil deren passendes ZDO zustandslos ist und im nächsten Abgleich ohnehin neu entsteht.
+    {
+      let u = aufD('d1-r5c');
+      const h = schreibTick(u, doc('Beech1'));
+      const k = u.server.zdos.getAllZDOs().find((z: ZDO) => z.getString(LAYOUT_ID_MEMBER) === 'kiste')!;
+      const passend = u.server.zdos.createZDO(prefabHash(u, 'Beech1'), { x: k.position.x, y: k.position.y, z: k.position.z });
+      passend.setString(LAYOUT_ID_MEMBER, 'kiste');
+      passend.setString('truheInhalt', '[[Stone,3]]');
+      u = neustartD(u, () => undefined);
+      check('D1/R5c Boot Altbestand: beide ZDOs mit Inhalt leben, Sperre hält', sperre(u) === 'kiste' && zdosVon(u, 'kiste').startsWith('2:') && zdosVon(u, 'kiste').includes(INHALT) && zdosVon(u, 'kiste').includes('[[Stone,3]]'), `${sperre(u)} ${zdosVon(u, 'kiste')}`);
+      bestaetige(u, h);
+      check('D1/R5c Bestätigen: die Truhe (fremdes Prefab) fällt, das passende Beech1 behält SEINEN Inhalt', zdosVon(u, 'kiste') === '1:Beech1+[[Stone,3]]' && sperre(u) === 'KEINE', `${zdosVon(u, 'kiste')} ${sperre(u)}`);
+      abbauen(u);
+    }
   }
 } finally {
   if (existsSync(WURZEL)) rmSync(WURZEL, { recursive: true, force: true });

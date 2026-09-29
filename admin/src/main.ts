@@ -2137,6 +2137,12 @@ async function behandeln(
     const sperre = loeschsperreDatei(WELTEN_ORDNER, INSTANZ);
     const sperreBeiseite = `${sperre}.beiseite`;
     const sperreTestAblage = `${sperre}.testwelt`;
+    // Z3 N5 (E1): Auch die Bestaetigungs-Anfrage ist Zustand je Instanz. Sie gehoert zu der Welt, in der sie gestellt
+    // wurde (bei gestopptem Server bleibt sie liegen, 202 server-aus); nach einem Tausch darf sie nie in der anderen
+    // Welt wirken. Deshalb wandert sie wie die Sperre: beiseite, zurueck, oder als `.testwelt` aufgehoben.
+    const anfrage = bestaetigenAnfrageDatei(WELTEN_ORDNER, INSTANZ);
+    const anfrageBeiseite = `${anfrage}.beiseite`;
+    const anfrageTestAblage = `${anfrage}.testwelt`;
 
     if (aktion === 'starten' && existsSync(beiseite)) {
       return { code: 409, daten: { fehler: 'Es laeuft bereits eine Testwelt — erst zurueckholen' } };
@@ -2173,27 +2179,39 @@ async function behandeln(
       // Jede erledigte Umbenennung wird gemerkt: Scheitert eine spaetere, laufen die frueheren rueckwaerts zurueck
       // (Spielstand und Sperre bleiben beisammen), bevor der Dienst wieder startet.
       const getan: [string, string][] = [];
-      const tausche = (von: string, nach: string): void => {
-        if (!existsSync(von)) return;
+      const tausche = (von: string, nach: string): boolean => {
+        if (!existsSync(von)) return false;
         renameSync(von, nach);
         getan.push([von, nach]);
+        return true;
+      };
+      const meldeAnfrage = (bewegt: boolean, seite: string, was: string): void => {
+        if (bewegt) console.log(`[Admin] Testwelt-Tausch (${aktion}): liegende Bestaetigungs-Anfrage der ${seite}-Welt ${was}`);
       };
       try {
         try {
           if (aktion === 'starten') {
-            tausche(welt, beiseite);
-            tausche(vorher, vorherBeiseite);
-            tausche(sperre, sperreBeiseite);
+            // Z3 N5 (E2): Sperre und Anfrage nur mitnehmen, wenn auch der Spielstand beiseitegeht. Ohne dev-Spielstand
+            // gilt keine Testwelt als aktiv ("aktiv" haengt allein an `beiseite`); eine beiseitegelegte Sperre laege dann
+            // fest, und "zurueck" wie "starten" antworteten beide mit 409.
+            if (existsSync(welt)) {
+              tausche(welt, beiseite);
+              tausche(vorher, vorherBeiseite);
+              tausche(sperre, sperreBeiseite);
+              meldeAnfrage(tausche(anfrage, anfrageBeiseite), 'dev', 'beiseitegelegt');
+            }
           } else if (aktion === 'zurueck') {
             // Die Testwelt aufheben statt loeschen — wer sie noch einmal
             // ansehen will, findet sie unter testwelt.db.zst.
             tausche(welt, testAblage);
             if (existsSync(vorher)) unlinkSync(vorher);
             tausche(sperre, sperreTestAblage);
+            meldeAnfrage(tausche(anfrage, anfrageTestAblage), 'Testwelt', 'aufgehoben');
             renameSync(beiseite, welt);
             getan.push([beiseite, welt]);
             tausche(vorherBeiseite, vorher);
             tausche(sperreBeiseite, sperre);
+            meldeAnfrage(tausche(anfrageBeiseite, anfrage), 'dev', 'zurueckgelegt');
           } else {
             // "erneuern": genau das Muster, mit dem "zurueck" den
             // Testwelt-Spielstand behandelt (aufheben statt loeschen) —
@@ -2203,6 +2221,7 @@ async function behandeln(
             tausche(welt, testAblage);
             if (existsSync(vorher)) unlinkSync(vorher);
             tausche(sperre, sperreTestAblage);
+            meldeAnfrage(tausche(anfrage, anfrageTestAblage), 'Testwelt', 'aufgehoben');
           }
         } catch (fehler) {
           for (const [von, nach] of getan.reverse()) {

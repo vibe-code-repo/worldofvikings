@@ -388,6 +388,8 @@ export class ZDO {
     this.owner = quelle.owner;
     this.rotation = quelle.rotation;
     this.dirty = false;
+    // Die Mitglieder kamen ohne setMember herein: den Index der Spielerbauten (F2) trotzdem informieren.
+    if (this.getInt('spieler') === 1) this.beiSpielerMember?.(this);
   }
 
   /** Restore from a snapshot (persistence load). */

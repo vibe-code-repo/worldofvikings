@@ -31,6 +31,8 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { findItem, getStableHash, packContainer, unpackContainer } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
+import { ZDO } from '../src/zdo/ZDO.js';
+import { ueberlagern } from '../src/spiel/WeltZdoSicherung.js';
 import { erstelleHerunterfahren } from '../src/herunterfahren.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -372,6 +374,34 @@ async function haupt(): Promise<void> {
       const s2 = await k2.stand();
       check('Bauen + Abreissen ohne Takt: neues Teil da, altes weg, Holz -1', s2.waendeX.join() === '118' && s2.holz === s0.holz - 1, `x=${s2.waendeX} holz=${s2.holz} (start ${s0.holz}), vor dem Kill x=${sVor.waendeX}, Zeilen vor dem Kill: ${zeilenVorKill}`);
       ws2.terminate(); await k2.beende('SIGKILL');
+    }
+
+    console.log('\n[I] Index der Spielerbauten (F2) nach Laden und Ueberlagern = Vollscan:');
+    if (laeuft('I')) {
+      const dir = resolve(WURZEL, 'index');
+      mkdirSync(dir, { recursive: true });
+      const mk = () => createWovServer({ port: 0, worldName: 'world', worldSeed: SEED, worldFeatures: false, worldVegetation: false, worldCreatures: false, dungeonsEnabled: false, worldsDir: dir, kontenDir: resolve(dir, 'konten') });
+      const a = mk(); a.init();
+      const x = a.zdos.createZDO(WAND, { x: 5, y: 1, z: 5 }); x.setInt('spieler', 1);
+      const x2 = a.zdos.createZDO(WAND, { x: 9, y: 1, z: 5 }); x2.setInt('spieler', 1);
+      a.saveWorld();
+      const b = mk(); b.init();
+      b.zdos.spielerbauten(); // Index bauen, DANACH ueberlagern
+      const echtes = b.zdos.getAllZDOs().find((z) => z.position.x === 5)!;
+      const ersatz = ZDO.fromSnapshot(echtes.toSnapshot());
+      ersatz.setInt('spieler', 1); ersatz.setInt('marke', 7); // hoehere Datenrevision
+      const neuesTeil = a.zdos.createZDO(WAND, { x: 20, y: 1, z: 5 }); neuesTeil.setInt('spieler', 1);
+      const zeilen = [
+        { zdoId: echtes.zdoid.toString(), daten: JSON.stringify(ersatz.toSnapshot()) },
+        { zdoId: neuesTeil.zdoid.toString(), daten: JSON.stringify(neuesTeil.toSnapshot()) },
+        { zdoId: b.zdos.getAllZDOs().find((z) => z.position.x === 9)!.zdoid.toString(), daten: null },
+      ];
+      const e = ueberlagern(zeilen, b.zdos, ZDO);
+      const index = [...b.zdos.spielerbauten()].map((z) => z.zdoid.toString()).sort().join();
+      const scan = b.zdos.getAllZDOs().filter((z) => z.getInt('spieler') === 1).map((z) => z.zdoid.toString()).sort().join();
+      check('Ueberlagerung: 1 ersetzt, 1 neu, 1 entfernt', e.ersetzt === 1 && e.neu === 1 && e.entfernt === 1, JSON.stringify(e));
+      check('Index der Spielerbauten == Vollscan', index === scan && index.split(',').length === 2, `index ${index} | scan ${scan}`);
+      check('ersetztes ZDO traegt den Zeilenstand', b.zdos.getAllZDOs().find((z) => z.position.x === 5)!.getInt('marke') === 7);
     }
 
     console.log('\n[B2] welt_id nur aus Seed und Modus:');

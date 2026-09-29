@@ -21,6 +21,13 @@
  *     ENTSCHEIDUNGSLOGIK vor dem echten Dienstwechsel (ungueltige
  *     aktion, Konfliktzustaende), s. Begruendung unten zum bewusst
  *     ausgelassenen Erfolgspfad.
+ *  7. Nachbesserung N1 (29.09.): die NEUE Aktion "erneuern" -- anders als
+ *     "starten"/"zurueck" MIT einem systemctl-Stand-in (WOV_SYSTEMCTL,
+ *     eigener zweiter Prozess, eigene Wurzel), weil ihr Erfolgspfad genau
+ *     das ist, was Mikes Befund behebt (kein Testwelt-Spielstand mehr am
+ *     Ladeort danach, .beiseite/Sicherung unberuehrt). S. Abschnitt [7]
+ *     unten (Zaehlung geht an der bestehenden "[6] BEFUND"-Unterueberschrift
+ *     in Abschnitt [3] vorbei, die schon vor dieser Karte so hiess).
  *
  * ── Warum hier NICHT getestet wird: POST /api/testwelt (Erfolgspfad),
  *    POST /dienst, PUT /einstellungen/auslieferung ─────────────────────
@@ -75,7 +82,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { request, type IncomingMessage } from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -180,9 +187,9 @@ function starten(instanz = 'dev'): Promise<{ port: number; kind: ChildProcess }>
 
 type Antwort = { code: number; daten: Record<string, unknown> };
 
-function anfrage(opt: { port: number; pfad: string; methode?: string; leib?: string }): Promise<Antwort> {
+function anfrage(opt: { port: number; pfad: string; methode?: string; leib?: string; token?: string }): Promise<Antwort> {
   return new Promise((fertig, scheitern) => {
-    const kopf: Record<string, string> = { 'x-wov-token': TOKEN };
+    const kopf: Record<string, string> = { 'x-wov-token': opt.token ?? TOKEN };
     if (opt.leib !== undefined) {
       kopf['content-type'] = 'application/json';
       kopf['content-length'] = String(Buffer.byteLength(opt.leib));
@@ -427,8 +434,140 @@ async function main(): Promise<void> {
     rmSync(ORDNER, { recursive: true, force: true });
   }
 
+  await testErneuern();
+
   console.log(fehler === 0 ? '\nAlle Pruefungen gruen.' : `\n${fehler} Pruefung(en) fehlgeschlagen.`);
   process.exit(fehler > 0 ? 1 : 0);
+}
+
+/**
+ * [7] Nachbesserung N1 — POST /api/testwelt {aktion:'erneuern'}, MIT einem
+ * echten systemctl-Stand-in (Muster admin/test/server-steuerung.ts). Ein
+ * eigener zweiter Prozess mit eigener Wurzel, damit dieser Stand-in nicht
+ * in den Prozess oben hineinwirkt (der absichtlich KEINEN hat, s.
+ * Kopfkommentar). "erneuern" behandelt den aktuellen Testwelt-Spielstand
+ * genau wie "zurueck" seinen (aufheben nach testwelt.db.zst statt
+ * loeschen) — nur OHNE den dev-Stand (.beiseite/.prev.beiseite)
+ * anzuruehren.
+ */
+async function testErneuern(): Promise<void> {
+  console.log('\n[7] /api/testwelt {aktion:"erneuern"} — mit systemctl-Stand-in:');
+  const ORDNER3 = mkdtempSync(resolve(tmpdir(), 'wov-testwelt-erneuern-'));
+  try {
+    const WELTEN3 = resolve(ORDNER3, 'server/data/welten');
+    const WORLDS3 = resolve(ORDNER3, 'server/data/worlds');
+    const FAKE3 = resolve(ORDNER3, 'fake');
+    const TOKEN3 = 'pruef-token-erneuern';
+    const TOKEN_DATEI3 = resolve(ORDNER3, 'token');
+    const FAKE_SYSTEMCTL3 = resolve(FAKE3, 'systemctl');
+    for (const d of [WELTEN3, WORLDS3, FAKE3]) mkdirSync(d, { recursive: true });
+    writeFileSync(TOKEN_DATEI3, `${TOKEN3}\n`);
+    writeFileSync(
+      FAKE_SYSTEMCTL3,
+      `#!/bin/sh
+D="${FAKE3}"
+echo "$1 $2" >> "$D/log"
+case "$1" in
+  show) if [ -f "$D/aktiv" ]; then echo "ActiveState=active"; else echo "ActiveState=inactive"; fi ;;
+  start) touch "$D/aktiv" ;;
+  stop) rm -f "$D/aktiv" ;;
+esac
+exit 0
+`
+    );
+    chmodSync(FAKE_SYSTEMCTL3, 0o755);
+    const fakeLog3 = (): string[] =>
+      existsSync(resolve(FAKE3, 'log')) ? readFileSync(resolve(FAKE3, 'log'), 'utf-8').trim().split('\n').filter((z) => z && !z.startsWith('show')) : [];
+
+    const { port, kind } = await new Promise<{ port: number; kind: ChildProcess }>((fertig, scheitern) => {
+      const k = spawn(resolve(WURZEL_PROJEKT, 'node_modules/.bin/tsx'), ['src/main.ts'], {
+        cwd: ADMIN,
+        env: {
+          ...process.env,
+          WOV_WURZEL: ORDNER3,
+          WOV_WELT_VERZEICHNIS: WELTEN3,
+          WOV_INSTANZ: 'dev',
+          WOV_ADMIN_ADRESSE: '127.0.0.1',
+          WOV_ADMIN_PORT: '0',
+          WOV_QUITTUNG: 'aus',
+          NODE_ENV: 'test',
+          WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI3,
+          WOV_SYSTEMCTL: FAKE_SYSTEMCTL3,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let puffer = '';
+      const zeitgrenze = setTimeout(() => scheitern(new Error(`Dienst startet nicht:\n${puffer}`)), 30_000);
+      k.stdout.on('data', (s: Buffer) => {
+        puffer += s.toString();
+        const t = /bereit auf 127\.0\.0\.1:(\d+)/.exec(puffer);
+        if (t) {
+          clearTimeout(zeitgrenze);
+          fertig({ port: Number(t[1]), kind: k });
+        }
+      });
+      k.stderr.on('data', (s: Buffer) => (puffer += s.toString()));
+      k.on('exit', (code) => {
+        clearTimeout(zeitgrenze);
+        scheitern(new Error(`Dienst beendet mit ${code}:\n${puffer}`));
+      });
+    });
+
+    try {
+      const anfrage3 = (opt: { pfad: string; methode?: string; leib?: string }): Promise<Antwort> => anfrage({ port, token: TOKEN3, ...opt });
+
+      const ohneAktiv = await anfrage3({ pfad: '/api/testwelt', methode: 'POST', leib: JSON.stringify({ aktion: 'erneuern' }) });
+      check(
+        'erneuern ohne aktive Testwelt → 409, kein systemctl-Aufruf',
+        ohneAktiv.code === 409 && fakeLog3().length === 0,
+        `= ${ohneAktiv.code} ${JSON.stringify(ohneAktiv.daten)} log=${fakeLog3().join(',')}`
+      );
+
+      // Testwelt aktiv simulieren: .beiseite = der dev-Stand (beiseitegelegt), die
+      // Datei am Ladeort = der AKTUELLE (laufende) Testwelt-Spielstand.
+      const weltDatei = resolve(WORLDS3, 'dev.db.zst');
+      const beiseiteDatei = `${weltDatei}.beiseite`;
+      const vorherDatei = `${weltDatei}.prev`;
+      // N1-3 (Nachangriff 29.09., M22): .prev.beiseite ist die VORIGE
+      // dev-Generation (die "zurueck" nach .prev zuruecklegt) — muss von
+      // "erneuern" genauso unberuehrt bleiben wie .beiseite selbst.
+      const vorherBeiseiteDatei = `${weltDatei}.prev.beiseite`;
+      const testAblage = resolve(WORLDS3, 'testwelt.db.zst');
+      const sicherungDatei = resolve(WORLDS3, 'dev.db.zst.2026-09-20T00-00-00.bak');
+      writeFileSync(weltDatei, 'testwelt-spielstand-aktuell');
+      writeFileSync(vorherDatei, 'testwelt-spielstand-prev');
+      writeFileSync(beiseiteDatei, 'dev-stand-beiseite');
+      writeFileSync(vorherBeiseiteDatei, 'dev-stand-prev-beiseite');
+      writeFileSync(sicherungDatei, 'sicherung-unberuehrt');
+      const beiseiteVorher = readFileSync(beiseiteDatei);
+      const vorherBeiseiteVorher = readFileSync(vorherBeiseiteDatei);
+      const sicherungVorher = readFileSync(sicherungDatei);
+
+      const erneuern = await anfrage3({ pfad: '/api/testwelt', methode: 'POST', leib: JSON.stringify({ aktion: 'erneuern' }) });
+      check('erneuern waehrend aktiver Testwelt → 200', erneuern.code === 200, `= ${erneuern.code} ${JSON.stringify(erneuern.daten)}`);
+      check('systemctl-Folge genau stop,start', fakeLog3().join(',') === 'stop wov-server,start wov-server', fakeLog3().join(','));
+      check(
+        'kein Testwelt-Spielstand mehr am Ladeort (weder .db.zst noch .prev)',
+        !existsSync(weltDatei) && !existsSync(vorherDatei)
+      );
+      check(
+        'der alte Testwelt-Spielstand liegt jetzt unter testwelt.db.zst (aufgehoben statt geloescht, wie bei "zurueck")',
+        existsSync(testAblage) && readFileSync(testAblage, 'utf-8') === 'testwelt-spielstand-aktuell'
+      );
+      check('.beiseite (der dev-Stand) byte-gleich wie vorher — erneuern fasst ihn NICHT an', readFileSync(beiseiteDatei).equals(beiseiteVorher));
+      check(
+        '.prev.beiseite (die vorige dev-Generation) byte-gleich wie vorher — erneuern fasst sie NICHT an (N1-3, M22)',
+        readFileSync(vorherBeiseiteDatei).equals(vorherBeiseiteVorher)
+      );
+      check('die Sicherung byte-gleich wie vorher — erneuern fasst sie NICHT an', readFileSync(sicherungDatei).equals(sicherungVorher));
+      check('aktiv bleibt true (die Testwelt laeuft weiter, nur frisch erzeugt)', erneuern.daten.aktiv === true, JSON.stringify(erneuern.daten));
+    } finally {
+      kind.kill('SIGTERM');
+      await warte(200);
+    }
+  } finally {
+    rmSync(ORDNER3, { recursive: true, force: true });
+  }
 }
 
 main().catch((err) => {

@@ -1,0 +1,416 @@
+/**
+ * Terrain brush core of the offline flight (`Reiter „Gelände“`, card T2).
+ * Pure and DOM-free: a stroke is a series of stamps on the hand-correction
+ * layer `WorldLayout.heightDeltas` (T1). Nothing here touches a scene, the
+ * draft or the network; `Testflug.ts` wires it, `GelaendeAktionen.ts` writes
+ * the finished stroke into the draft.
+ *
+ * Reiterkern des Geländepinsels im Testflug: Ein Strich ist eine Folge von
+ * Stempeln auf der Handkorrektur-Ebene `heightDeltas`. Rein und ohne DOM.
+ *
+ * ── Model ───────────────────────────────────────────────────────────
+ * The ground has one vertex per integer world coordinate. Zone `zx`/`zz` and
+ * the index `ry*64+rx` are exactly what `RegionGeo` derives for the same
+ * vertex (`zoneUndIndex`, `shared/src/worldgen/RegionGeo.ts`; pinned against
+ * the real geo in `client/test/gelaende-pinsel.ts`). A delta is a whole number
+ * of centimetres; 0 means "no correction" and is not stored.
+ *
+ *  - anheben / absenken: every vertex inside the radius moves by
+ *    `round(staerke · w)` cm (sign by tool), `w = (1 − (d/r)²)²`. The falloff
+ *    is a FIXED curve (zero value and zero slope at the rim, no seam to the
+ *    untouched ground); a slider for it would only add a knob nobody can judge
+ *    without a picture. Strength is cm per stamp at the centre.
+ *  - glaetten: every vertex moves towards the mean height of its 3×3
+ *    neighbourhood by `w · min(1, staerke/25)` of the difference.
+ *  - A stamp is refused as a whole under a lock circle (plinth or building,
+ *    `gelaendeSperre.ts`), and the whole STROKE is refused, not shortened,
+ *    when a value or a count would break the limits of `sanitize.ts`.
+ *
+ * ── One stroke = one Vorgang ────────────────────────────────────────
+ * `Strich` applies each stamp to the live `DeltaKarte` at once (the ground is
+ * rebuilt from it while the mouse is down) and remembers, per vertex, the value
+ * BEFORE the stroke. `ende()` turns that into ONE `GelaendeVorgang` however
+ * many frames the stroke ran; `invertiere` swaps before/after.
+ */
+import {
+  HEIGHT_POINT_LIMIT,
+  HEIGHT_ZONE_LIMIT,
+  HOEHENKORREKTUR_DELTA_MAX_CM,
+  heightProblem,
+  sanitizeHeightDeltas,
+  type ZoneHeightDelta,
+} from '@wov/shared';
+
+/** Vertices per zone axis (`Heightmap.ZONE_UNITS`). */
+const ZONE = 64;
+/** Zone coordinates the document allows (`HOEHENZONE_MAX` in sanitize.ts). */
+const ZONEN_GRENZE = 2048;
+
+export const RADIUS_MIN = 1;
+export const RADIUS_MAX = 20;
+export const RADIUS_START = 6;
+export const STAERKE_MIN = 1;
+export const STAERKE_MAX = 50;
+export const STAERKE_START = 10;
+/** Smoothing reaches full strength at this many cm per stamp. */
+const GLAETTEN_VOLL = 25;
+
+/** Stamps while moving are spaced this fraction of the radius apart … */
+export const STEMPEL_ABSTAND_ANTEIL = 0.25;
+/** … but never closer in time than this (each stamp rebuilds up to four zones). */
+export const STEMPEL_MIN_MS = 60;
+/** A held, motionless brush repeats its stamp at this interval. */
+export const STEMPEL_HALTE_MS = 120;
+
+export type Werkzeug = 'anheben' | 'absenken' | 'glaetten';
+
+export interface Aenderung {
+  zx: number;
+  zz: number;
+  /** Flat index `ry*64+rx` inside the zone. */
+  index: number;
+  /** Delta in cm before / after. */
+  alt: number;
+  neu: number;
+}
+
+export interface GelaendeVorgang {
+  vorgangId: string;
+  aenderungen: Aenderung[];
+}
+
+const UMKEHR_MARKE = '~';
+
+/** The Vorgang that takes `v` back: before and after swapped, id with / without a leading `~`. */
+export function invertiere(v: GelaendeVorgang): GelaendeVorgang {
+  return {
+    vorgangId: v.vorgangId.startsWith(UMKEHR_MARKE) ? v.vorgangId.slice(UMKEHR_MARKE.length) : UMKEHR_MARKE + v.vorgangId,
+    aenderungen: v.aenderungen.map((a) => ({ ...a, alt: a.neu, neu: a.alt })),
+  };
+}
+
+/** Zone and flat index of the vertex at integer world position (`RegionGeo.zoneUndIndex`). */
+export function punktVon(wx: number, wz: number): { zx: number; zz: number; index: number } {
+  const halb = ZONE / 2;
+  const zx = Math.floor((wx + halb) / ZONE);
+  const zz = Math.floor((wz + halb) / ZONE);
+  const rx = wx - (zx * ZONE - halb);
+  const ry = wz - (zz * ZONE - halb);
+  return { zx, zz, index: ry * ZONE + rx };
+}
+
+const zonenNummer = (zx: number, zz: number): number => (zx + ZONEN_GRENZE) * (2 * ZONEN_GRENZE + 1) + (zz + ZONEN_GRENZE);
+const punktNummer = (zx: number, zz: number, index: number): number => zonenNummer(zx, zz) * (ZONE * ZONE) + index;
+
+/**
+ * The hand-correction layer in memory: cm per vertex, sparse. Doubles as the
+ * live lookup of the ground (`gelaendeGeo.ts` reads `deltaM` from it), so it is
+ * keyed by numbers, not strings — it is asked once per vertex of every zone build.
+ */
+export class DeltaKarte {
+  private readonly punkte = new Map<number, number>();
+  private readonly zonen = new Map<number, number>();
+
+  get punktzahl(): number {
+    return this.punkte.size;
+  }
+  get zonenzahl(): number {
+    return this.zonen.size;
+  }
+
+  /** Delta in cm; 0 where there is none. */
+  delta(zx: number, zz: number, index: number): number {
+    return this.punkte.get(punktNummer(zx, zz, index)) ?? 0;
+  }
+
+  /** Delta in metres, the same f32 rounding as `HoehenKorrekturField.delta`. */
+  deltaM(zx: number, zz: number, index: number): number {
+    const cm = this.punkte.get(punktNummer(zx, zz, index));
+    return cm === undefined ? 0 : Math.fround(cm * 0.01);
+  }
+
+  setze(zx: number, zz: number, index: number, cm: number): void {
+    const nr = punktNummer(zx, zz, index);
+    const zone = zonenNummer(zx, zz);
+    const da = this.punkte.has(nr);
+    if (cm === 0) {
+      if (!da) return;
+      this.punkte.delete(nr);
+      const n = (this.zonen.get(zone) ?? 1) - 1;
+      if (n <= 0) this.zonen.delete(zone);
+      else this.zonen.set(zone, n);
+      return;
+    }
+    this.punkte.set(nr, cm);
+    if (!da) this.zonen.set(zone, (this.zonen.get(zone) ?? 0) + 1);
+  }
+
+  /** The layer of a (sanitised) document. */
+  static ausZonen(zonen: readonly ZoneHeightDelta[] | undefined): DeltaKarte {
+    const karte = new DeltaKarte();
+    for (const z of zonen ?? []) {
+      for (const zeile of z.r) {
+        const teile = zeile.split('|');
+        if (teile.length !== 3) continue;
+        const ry = Number(teile[0]);
+        const rx = teile[1]!.length > 0 ? teile[1]!.split(',') : [];
+        const d = teile[2]!.length > 0 ? teile[2]!.split(',') : [];
+        const n = Math.min(rx.length, d.length);
+        for (let k = 0; k < n; k++) karte.setze(z.zx, z.zz, ry * ZONE + Number(rx[k]), Number(d[k]));
+      }
+    }
+    return karte;
+  }
+
+  /**
+   * Back to the document form, in the sanitizer's canonical order (zones by
+   * `zx`,`zz`; rows by `ry`; columns by `rx`), so that
+   * `sanitizeHeightDeltas(karte.alsZonen())` returns it unchanged.
+   */
+  alsZonen(): ZoneHeightDelta[] {
+    const jeZone = new Map<number, Map<number, [number, number][]>>();
+    const koordinaten = new Map<number, [number, number]>();
+    const zw = 2 * ZONEN_GRENZE + 1;
+    for (const [nr, cm] of this.punkte) {
+      const index = nr % (ZONE * ZONE);
+      const zone = (nr - index) / (ZONE * ZONE);
+      if (!koordinaten.has(zone)) koordinaten.set(zone, [Math.floor(zone / zw) - ZONEN_GRENZE, (zone % zw) - ZONEN_GRENZE]);
+      let zeilen = jeZone.get(zone);
+      if (!zeilen) jeZone.set(zone, (zeilen = new Map()));
+      const ry = Math.floor(index / ZONE);
+      let liste = zeilen.get(ry);
+      if (!liste) zeilen.set(ry, (liste = []));
+      liste.push([index % ZONE, cm]);
+    }
+    const aus: ZoneHeightDelta[] = [];
+    for (const [zone, zeilen] of jeZone) {
+      const [zx, zz] = koordinaten.get(zone)!;
+      const r = [...zeilen.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([ry, liste]) => {
+          liste.sort((a, b) => a[0] - b[0]);
+          return `${ry}|${liste.map((p) => p[0]).join(',')}|${liste.map((p) => p[1]).join(',')}`;
+        });
+      aus.push({ zx, zz, r });
+    }
+    return aus.sort((a, b) => a.zx - b.zx || a.zz - b.zz);
+  }
+}
+
+/** Height falloff of the brush: 1 in the middle, 0 with zero slope at the rim. */
+export function falloff(d: number, radius: number): number {
+  if (d >= radius) return 0;
+  const s = d / radius;
+  const q = 1 - s * s;
+  return q * q;
+}
+
+export interface StempelEingabe {
+  x: number;
+  z: number;
+  radius: number;
+  /** cm per stamp at the centre. */
+  staerke: number;
+  werkzeug: Werkzeug;
+  /** Current ground height at an integer vertex (only read by `glaetten`). */
+  hoehe: (wx: number, wz: number) => number;
+}
+
+/**
+ * What one stamp would change (only vertices whose value differs), in a fixed
+ * order (rows, then columns). Does not modify `karte`.
+ */
+export function berechneStempel(karte: DeltaKarte, e: StempelEingabe): Aenderung[] {
+  const r = e.radius;
+  const x0 = Math.ceil(e.x - r);
+  const x1 = Math.floor(e.x + r);
+  const z0 = Math.ceil(e.z - r);
+  const z1 = Math.floor(e.z + r);
+  const aus: Aenderung[] = [];
+  const glaetten = e.werkzeug === 'glaetten';
+  // One block of heights (with a one-vertex border) so that the 3×3 mean reads each vertex once and
+  // sees the state BEFORE this stamp for every vertex.
+  const breite = x1 - x0 + 3;
+  const hoehen = glaetten ? new Float64Array(breite * (z1 - z0 + 3)) : null;
+  if (hoehen) {
+    for (let iz = z0 - 1; iz <= z1 + 1; iz++) {
+      for (let ix = x0 - 1; ix <= x1 + 1; ix++) hoehen[(iz - z0 + 1) * breite + (ix - x0 + 1)] = e.hoehe(ix, iz);
+    }
+  }
+  const vorzeichen = e.werkzeug === 'absenken' ? -1 : 1;
+  const k = Math.min(1, e.staerke / GLAETTEN_VOLL);
+  for (let iz = z0; iz <= z1; iz++) {
+    for (let ix = x0; ix <= x1; ix++) {
+      const w = falloff(Math.hypot(ix - e.x, iz - e.z), r);
+      if (w <= 0) continue;
+      let zuwachs: number;
+      if (hoehen) {
+        let summe = 0;
+        for (let dz = -1; dz <= 1; dz++) {
+          for (let dx = -1; dx <= 1; dx++) summe += hoehen[(iz - z0 + 1 + dz) * breite + (ix - x0 + 1 + dx)]!;
+        }
+        const mitte = hoehen[(iz - z0 + 1) * breite + (ix - x0 + 1)]!;
+        zuwachs = Math.round((summe / 9 - mitte) * 100 * k * w);
+      } else {
+        zuwachs = vorzeichen * Math.round(e.staerke * w);
+      }
+      if (zuwachs === 0) continue;
+      const { zx, zz, index } = punktVon(ix, iz);
+      const alt = karte.delta(zx, zz, index);
+      aus.push({ zx, zz, index, alt, neu: alt + zuwachs });
+    }
+  }
+  return aus;
+}
+
+export type StempelErgebnis =
+  /** Applied; `geaendert` are the vertices that moved (for the rebuild). */
+  | { art: 'ok'; geaendert: Aenderung[] }
+  /** A lock circle lies under the brush: nothing changed, the stroke goes on. */
+  | { art: 'gesperrt' }
+  /** A limit would break: the WHOLE stroke was put back (`zurueckgenommen`), the stroke is dead until it ends. */
+  | { art: 'grenze'; grund: GrenzGrund; zurueckgenommen: Aenderung[] }
+  /** The stroke was refused earlier; further stamps are ignored. */
+  | { art: 'abgelehnt' };
+
+export type GrenzGrund = 'wert' | 'punkte' | 'zonen';
+
+/** One stroke of the brush: many stamps, ONE Vorgang. */
+export class Strich {
+  /** First value (cm) per vertex before this stroke, with its coordinates. */
+  private readonly vorher = new Map<number, Aenderung>();
+  private tot: GrenzGrund | null = null;
+  private beendet = false;
+
+  constructor(
+    private readonly karte: DeltaKarte,
+    readonly vorgangId: string
+  ) {}
+
+  /** Why the stroke was refused, or `null`. */
+  get abgelehnt(): GrenzGrund | null {
+    return this.tot;
+  }
+
+  stempel(e: StempelEingabe, gesperrt: boolean): StempelErgebnis {
+    if (this.tot || this.beendet) return { art: 'abgelehnt' };
+    if (gesperrt) return { art: 'gesperrt' };
+    const aenderungen = berechneStempel(this.karte, e);
+    for (const a of aenderungen) {
+      const nr = punktNummer(a.zx, a.zz, a.index);
+      if (!this.vorher.has(nr)) this.vorher.set(nr, { ...a, neu: a.alt });
+      this.karte.setze(a.zx, a.zz, a.index, a.neu);
+    }
+    const grund = this.grenzeGerissen(aenderungen);
+    if (grund) {
+      this.tot = grund;
+      return { art: 'grenze', grund, zurueckgenommen: this.zuruecknehmen() };
+    }
+    return { art: 'ok', geaendert: aenderungen };
+  }
+
+  private grenzeGerissen(aenderungen: readonly Aenderung[]): GrenzGrund | null {
+    for (const a of aenderungen) if (Math.abs(a.neu) > HOEHENKORREKTUR_DELTA_MAX_CM) return 'wert';
+    if (this.karte.punktzahl > HEIGHT_POINT_LIMIT) return 'punkte';
+    if (this.karte.zonenzahl > HEIGHT_ZONE_LIMIT) return 'zonen';
+    return null;
+  }
+
+  /** Puts every vertex touched by this stroke back to its value before the stroke; returns what moved (for the rebuild). */
+  private zuruecknehmen(): Aenderung[] {
+    const aus: Aenderung[] = [];
+    for (const v of this.vorher.values()) {
+      const jetzt = this.karte.delta(v.zx, v.zz, v.index);
+      if (jetzt !== v.alt) aus.push({ zx: v.zx, zz: v.zz, index: v.index, alt: jetzt, neu: v.alt });
+      this.karte.setze(v.zx, v.zz, v.index, v.alt);
+    }
+    this.vorher.clear();
+    return aus;
+  }
+
+  /** Ends the stroke: the ONE Vorgang of all stamps, or `null` when nothing changed (or the stroke was refused). */
+  ende(): GelaendeVorgang | null {
+    if (this.tot) return null;
+    this.beendet = true;
+    const aenderungen: Aenderung[] = [];
+    for (const v of this.vorher.values()) {
+      const neu = this.karte.delta(v.zx, v.zz, v.index);
+      if (neu !== v.alt) aenderungen.push({ zx: v.zx, zz: v.zz, index: v.index, alt: v.alt, neu });
+    }
+    if (aenderungen.length === 0) return null;
+    aenderungen.sort((a, b) => a.zx - b.zx || a.zz - b.zz || a.index - b.index);
+    return { vorgangId: this.vorgangId, aenderungen };
+  }
+
+  /** Abandons the stroke (e.g. Esc before the mouse goes up): puts everything back; returns what moved. */
+  verwerfen(): Aenderung[] {
+    this.beendet = true;
+    return this.zuruecknehmen();
+  }
+}
+
+/**
+ * Applies a Vorgang to a layer: stands only if every vertex still has the
+ * `alt` value the writer saw (all or nothing), and only within the limits.
+ * Used for the draft and for undo (`invertiere`).
+ */
+export function wendeVorgang(karte: DeltaKarte, v: GelaendeVorgang): { ok: true } | { ok: false; grund: 'konflikt' | GrenzGrund } {
+  for (const a of v.aenderungen) if (karte.delta(a.zx, a.zz, a.index) !== a.alt) return { ok: false, grund: 'konflikt' };
+  const sicherung = v.aenderungen.map((a) => ({ a, alt: a.alt }));
+  for (const a of v.aenderungen) karte.setze(a.zx, a.zz, a.index, a.neu);
+  let grund: GrenzGrund | null = null;
+  if (v.aenderungen.some((a) => Math.abs(a.neu) > HOEHENKORREKTUR_DELTA_MAX_CM)) grund = 'wert';
+  else if (karte.punktzahl > HEIGHT_POINT_LIMIT) grund = 'punkte';
+  else if (karte.zonenzahl > HEIGHT_ZONE_LIMIT) grund = 'zonen';
+  if (grund) {
+    for (const s of sicherung) karte.setze(s.a.zx, s.a.zz, s.a.index, s.alt);
+    return { ok: false, grund };
+  }
+  return { ok: true };
+}
+
+/**
+ * The layer of a raw draft field; `null` when the field is not usable as it is
+ * (not a list, invalid entries, over the limits): then nothing may be painted
+ * over it, because writing it back would silently cut what the sanitizer drops.
+ */
+export function karteAusEntwurf(roh: unknown): DeltaKarte | null {
+  if (roh === undefined) return new DeltaKarte();
+  if (!Array.isArray(roh) || heightProblem(roh) !== null) return null;
+  return DeltaKarte.ausZonen(sanitizeHeightDeltas(roh, false));
+}
+
+/**
+ * When the next stamp is due. The first stamp of a stroke is always due;
+ * afterwards one per `radius/4` metres of travel, at most one per `STEMPEL_MIN_MS`,
+ * and — motionless — one per `STEMPEL_HALTE_MS`.
+ */
+export class StempelTakt {
+  private letzte: { x: number; z: number; t: number } | null = null;
+
+  faellig(x: number, z: number, radius: number, jetztMs: number): boolean {
+    const l = this.letzte;
+    if (l) {
+      const dt = jetztMs - l.t;
+      const weg = Math.hypot(x - l.x, z - l.z);
+      const abstand = Math.max(0.5, radius * STEMPEL_ABSTAND_ANTEIL);
+      const faellig = weg >= abstand ? dt >= STEMPEL_MIN_MS : dt >= STEMPEL_HALTE_MS;
+      if (!faellig) return false;
+    }
+    this.letzte = { x, z, t: jetztMs };
+    return true;
+  }
+}
+
+/** `[` / `]` change the radius; on a German keyboard those need AltGr, so `-`/`+` (and the number pad) work too. Returns −1, 0 or +1. */
+export function radiusSchritt(e: { key: string; code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean }): -1 | 0 | 1 {
+  if (e.metaKey) return 0;
+  // AltGr reports ctrl+alt together on Windows; a lone Ctrl or Alt is a different shortcut.
+  if (e.ctrlKey !== e.altKey) return 0;
+  if (e.key === '[' || e.key === '-' || e.code === 'NumpadSubtract') return -1;
+  if (e.key === ']' || e.key === '+' || e.code === 'NumpadAdd') return 1;
+  return 0;
+}
+
+export const klemmeRadius = (r: number): number => Math.min(RADIUS_MAX, Math.max(RADIUS_MIN, Math.round(r)));
+export const klemmeStaerke = (s: number): number => Math.min(STAERKE_MAX, Math.max(STAERKE_MIN, Math.round(s)));

@@ -1,59 +1,172 @@
 """Exportiert die modularen Figurenbausteine fuer den Web- und Spielclient.
 
-Aufruf:
-  flatpak run org.blender.Blender --background \
-    /home/mike/wov-assets/PlayerCharacter/Blender/wov-player-master2.blend \
-    --python tools/web/charakterteile-exportieren.py -- \
-    --ausgabe wov-web/static/assets/models/wikingerin
+Die Wikingerin entsteht am 71er-Rig der Standardfigur (dasselbe Rig wie
+WikingerKoerper.glb: 63 deformierende Knochen plus IK-/Pole-Knochen, 48 Clips).
+Koerper und Teile kommen aus master2, Rig und Actions aus der Standardfigur.
 
-Die Master-Datei wird nur gelesen. Alle Ausgaben tragen dieselbe Armatur und
-damit dieselbe Gelenkreihenfolge wie der maennliche Spielkoerper.
+Aufruf (headless, alle Pfade absolut):
+  flatpak run org.blender.Blender --factory-startup -b \
+    --python tools/web/charakterteile-exportieren.py -- \
+    --standard /home/mike/wov-assets/PlayerCharacter/temp/<standard>.blend \
+    --master /home/mike/wov-assets/PlayerCharacter/Blender/wov-player-master2.blend \
+    --ausgabe <ordner>
+
+Beide Blender-Dateien werden nur gelesen, nie gespeichert. Der Koerper muss aus
+master2 kommen: master3 hat einen anderen Kopf (518 statt 495 Vertices) und
+wird vom Skript abgelehnt.
+
+Der maennliche Koerper kommt nicht von hier, sondern von
+Tools/export_game_glb.py auf dem Arbeitsplatz. SPUREN unten und die Spurliste
+dort muessen gleich bleiben (Namen, Actions, Reihenfolge), sonst passen die
+Animationen von Wikinger und Wikingerin nicht zusammen.
 """
 
 import argparse
 import json
+import struct
+import sys
 from pathlib import Path
 
 import bpy
 
+ERWARTETE_KNOCHEN = 71
+ERWARTETE_ANIMATIONEN = 48
+# Der weibliche Kopf im Baukasten von master2. master3 liefert 518.
+ERWARTETE_KOPF_VERTICES = 495
+
+# Spurbelegung des Spiel-Exports: (Clip-Name im GLB, Action in der Standardfigur).
+# Die ersten 28 stammen aus Tools/export_game_glb.py, die 20 dahinter sind die
+# Kernanimationen. Reihenfolge nicht aendern: Clip-Indizes und Spielwerte
+# haengen daran.
+SPUREN = (
+    ("idle", "Idle1"),
+    ("gehen", "WalkFwd"),
+    ("rennen", "RunFwd"),
+    ("springen", "springen"),
+    ("angriff", "schwertschlag"),
+    ("angriff2", "schwertschlag2"),
+    ("angriff3", "schwertschlag3"),
+    ("faust", "BodyPunch1FromIdle"),
+    ("faust2", "BodyPunch2FromIdle"),
+    ("faust3", "BodyKickFromIdle"),
+    ("arm_schwert", "SwordIdleMovement"),
+    ("hand_schwert", "SwordIdle"),
+    ("ausruesten", "SwordEquipFromIdle"),
+    ("ablegen", "SwordUnequipFromIdle"),
+    ("parade_links", "SwordParryLeft"),
+    ("parade_rechts", "SwordParryRight"),
+    ("parade_unten", "SwordParryDown"),
+    ("stab_angriff", "KatanaAttack1FromIdle"),
+    ("stab_angriff2", "KatanaAttack2FromIdle"),
+    ("stab_angriff3", "KatanaAttack3FromIdle"),
+    ("arm_stab", "KatanaIdle"),
+    ("stab_ausruesten", "KatanaEquipFromIdle"),
+    ("stab_ablegen", "KatanaUnequipFromIdle"),
+    ("stab_parade_links", "KatanaParryLeft"),
+    ("stab_parade_rechts", "KatanaParryRight"),
+    ("stab_parade_unten", "KatanaParryDown"),
+    ("arm_speer", "SpearIdle"),
+    ("hand_speer", "SwordIdle"),
+    ("tod_vorn", "DieFwd"),
+    ("tod_hinten", "DieBwd"),
+    ("aufstehen_vorn", "ReviveFwd"),
+    ("aufstehen_hinten", "ReviveBwd"),
+    ("treffer_vorn_links", "DamageVisualizationFrontLeft"),
+    ("treffer_vorn_rechts", "DamageVisualizationFrontRight"),
+    ("treffer_hinten_links", "DamageVisualizationBackLeft"),
+    ("treffer_hinten_rechts", "DamageVisualizationBackRight"),
+    ("treffer_schwer", "Hit Big Front"),
+    ("rueckstoss", "ImpactKnockBackResponse"),
+    ("umgeworfen", "Damage_KnockDown_02_iP"),
+    ("aufrappeln", "Damage_Getup01_P_iP"),
+    ("betaeubt", "Damage_Stun01_loop"),
+    ("aufheben", "PickupItem"),
+    ("buecken_runter", "Pick_Down"),
+    ("buecken_hoch", "Pick_Up"),
+    ("truhe_oeffnen", "InteractOpenChest"),
+    ("tuer_links", "InteractOpenDoorLeft"),
+    ("tuer_rechts", "InteractOpenDoorRight"),
+    ("knopf", "InteractPressButton"),
+)
+
+PRAEFIXE = ("Chr_Hair_", "Chr_FacialHair_Male_", "Chr_Eyebrow_Male_", "Chr_Eyebrow_Female_")
+
 
 def argumente() -> argparse.Namespace:
-    nach_trenner = []
-    if "--" in __import__("sys").argv:
-        nach_trenner = __import__("sys").argv[__import__("sys").argv.index("--") + 1 :]
+    nach_trenner = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser()
+    parser.add_argument("--standard", required=True, help="Standardfigur mit 71 Knochen (.blend)")
+    parser.add_argument("--master", required=True, help="wov-player-master2.blend")
     parser.add_argument("--ausgabe", required=True)
-    parser.add_argument(
-        "--waffen-animationen",
-        help="Optionale Blender-Datei mit zusaetzlichen Actions wie SpearIdle",
-    )
     return parser.parse_args(nach_trenner)
 
 
 ARGS = argumente()
+STANDARD = Path(ARGS.standard).expanduser().resolve()
+MASTER = Path(ARGS.master).expanduser().resolve()
 AUSGABE = Path(ARGS.ausgabe).expanduser().resolve()
+for datei in (STANDARD, MASTER):
+    if not datei.is_file():
+        raise RuntimeError(f"Blender-Datei fehlt: {datei}")
+
+# Die Standardfigur ist die Arbeitsdatei. Wurde Blender nicht schon mit ihr
+# gestartet, wird sie hier geoeffnet. Gespeichert wird nie.
+if Path(bpy.data.filepath).resolve() != STANDARD:
+    bpy.ops.wm.open_mainfile(filepath=str(STANDARD))
 AUSGABE.mkdir(parents=True, exist_ok=True)
 
 ARMATUR = bpy.data.objects["WoV_Player_Armature"]
+if len(ARMATUR.data.bones) != ERWARTETE_KNOCHEN:
+    raise RuntimeError(
+        f"Standardfigur hat {len(ARMATUR.data.bones)} Knochen, erwartet {ERWARTETE_KNOCHEN}"
+    )
+fehlende_actions = sorted({a for _, a in SPUREN if bpy.data.actions.get(a) is None})
+if fehlende_actions:
+    raise RuntimeError(f"Actions fehlen in der Standardfigur: {fehlende_actions}")
 
+# Namenskonflikte vermeiden: vorhandene Objekte, Materialien und Bilder der
+# Standardfigur zur Seite benennen (nur im Speicher).
+for objekt in list(bpy.data.objects):
+    if objekt.name.startswith(PRAEFIXE) or "_Female_" in objekt.name:
+        objekt.name = objekt.name + "__std"
+for material in bpy.data.materials:
+    material.name = material.name + "__std"
+for bild in bpy.data.images:
+    bild.name = bild.name + "__std"
 
-def fehlende_waffen_animationen_laden() -> None:
-    if not ARGS.waffen_animationen:
-        return
-    quelle = Path(ARGS.waffen_animationen).expanduser().resolve()
-    if not quelle.is_file():
-        raise RuntimeError(f"Datei mit Waffenanimationen fehlt: {quelle}")
-    benoetigt = [name for name in ("SpearIdle",) if bpy.data.actions.get(name) is None]
-    if not benoetigt:
-        return
-    namen = list(benoetigt)
-    with bpy.data.libraries.load(str(quelle), link=False) as (_, ziel):
-        # Blender ersetzt die Einträge dieser Liste beim Laden durch die
-        # erzeugten Action-Objekte; deshalb die Namensliste separat halten.
-        ziel.actions = list(namen)
-    weiterhin_fehlen = [name for name in namen if bpy.data.actions.get(name) is None]
-    if weiterhin_fehlen:
-        raise RuntimeError(f"Waffenanimationen fehlen in {quelle}: {weiterhin_fehlen}")
+# Koerper (Collection Player_Female) und Teile aus master2 anhaengen (kein Link).
+with bpy.data.libraries.load(str(MASTER), link=False) as (quelle, ziel):
+    ziel.collections = ["Player_Female"]
+    ziel.objects = [n for n in quelle.objects if n.startswith(PRAEFIXE)]
+
+weiblich = bpy.data.collections["Player_Female"]
+bpy.context.scene.collection.children.link(weiblich)
+teile_sammlung = bpy.data.collections.new("Teile_Import")
+bpy.context.scene.collection.children.link(teile_sammlung)
+for objekt in bpy.data.objects:
+    if objekt.name.startswith(PRAEFIXE) and not objekt.users_collection:
+        teile_sammlung.objects.link(objekt)
+
+# Die mitgekommene Armatur aus master2 wird durch die der Standardfigur ersetzt:
+# Parent und Armature-Modifier umhaengen, Vertexgruppen gegen die Knochen pruefen.
+fremde_armaturen = [o for o in bpy.data.objects if o.type == "ARMATURE" and o is not ARMATUR]
+for objekt in bpy.data.objects:
+    if objekt.type != "MESH" or objekt.name.endswith("__std"):
+        continue
+    if not (objekt.name.startswith(PRAEFIXE) or objekt.name in weiblich.objects):
+        continue
+    welt = objekt.matrix_world.copy()
+    if objekt.parent is not None and objekt.parent is not ARMATUR:
+        objekt.parent = ARMATUR
+        objekt.matrix_world = welt
+    for modifikator in objekt.modifiers:
+        if modifikator.type == "ARMATURE":
+            modifikator.object = ARMATUR
+    ohne_knochen = [g.name for g in objekt.vertex_groups if g.name not in ARMATUR.data.bones]
+    if ohne_knochen:
+        raise RuntimeError(f"{objekt.name}: Vertexgruppen ohne Knochen {ohne_knochen}")
+for armatur in fremde_armaturen:
+    bpy.data.objects.remove(armatur, do_unlink=True)
 
 
 def sammlungen_einblenden(layer=None) -> None:
@@ -64,13 +177,9 @@ def sammlungen_einblenden(layer=None) -> None:
         sammlungen_einblenden(kind)
 
 
-def auswahl_leeren() -> None:
+def auswaehlen(objekte) -> None:
     for objekt in bpy.data.objects:
         objekt.select_set(False)
-
-
-def auswaehlen(objekte) -> None:
-    auswahl_leeren()
     for objekt in objekte:
         objekt.hide_set(False)
         objekt.hide_viewport = False
@@ -99,73 +208,75 @@ def glb_exportieren(ziel: Path, animationen: bool) -> None:
     print(f"EXPORT {ziel.name} {ziel.stat().st_size}", flush=True)
 
 
-def spiel_animationen_vorbereiten() -> None:
-    zuordnung = [
-        ("idle", "Idle1"),
-        ("gehen", "WalkFwd"),
-        ("rennen", "RunFwd"),
-        # Fuer die Vorschau und den ersten Spieleinsatz reicht der vollstaendige
-        # Aufwaertsclip; der maennliche Export besitzt zusaetzlich den aus drei
-        # Quellen zusammengesetzten Sprung.
-        ("springen", "JumpUp"),
-        ("angriff", "SwordAttack1FromIdle"),
-        ("angriff2", "SwordAttack2FromIdle"),
-        ("angriff3", "SwordAttack3FromIdle"),
-        ("faust", "BodyPunch1FromIdle"),
-        ("faust2", "BodyPunch2FromIdle"),
-        ("faust3", "BodyKickFromIdle"),
-        ("arm_schwert", "SwordIdleMovement"),
-        ("hand_schwert", "SwordIdle"),
-        # Beidhändige Stabhaltung für Druiden. Der männliche Standardexport
-        # trägt denselben Clip unter diesem stabilen Web-/Spielnamen.
-        ("arm_stab", "KatanaIdle"),
-        # Senkrechte Stabhaltung: der Arm richtet die lokale Hand-X-Achse
-        # nach oben, die Handspur schliesst die Finger um den Schaft.
-        ("arm_speer", "SpearIdle"),
-        ("hand_speer", "SwordIdle"),
-        ("ausruesten", "SwordEquipFromIdle"),
-        ("ablegen", "SwordUnequipFromIdle"),
-        ("parade_links", "SwordParryLeft"),
-        ("parade_rechts", "SwordParryRight"),
-        ("parade_unten", "SwordParryDown"),
-    ]
-    ARMATUR.animation_data_create()
-    daten = ARMATUR.animation_data
-    for spur in list(daten.nla_tracks):
-        daten.nla_tracks.remove(spur)
-    daten.action = None
-    for name, action_name in zuordnung:
-        action = bpy.data.actions.get(action_name)
-        if action is None:
-            raise RuntimeError(f"Animation fehlt im Master: {action_name}")
-        spur = daten.nla_tracks.new()
-        spur.name = name
-        streifen = spur.strips.new(name, int(action.frame_range[0]), action)
-        streifen.name = name
-        spur.mute = True
+def glb_kopf(pfad: Path) -> dict:
+    """Liest den glTF-JSON-Kopf einer geschriebenen GLB-Datei."""
+    daten = pfad.read_bytes()
+    magie, _version, _laenge = struct.unpack_from("<4sII", daten, 0)
+    if magie != b"glTF":
+        raise RuntimeError(f"{pfad.name}: keine GLB-Datei")
+    json_laenge, json_typ = struct.unpack_from("<I4s", daten, 12)
+    if json_typ != b"JSON":
+        raise RuntimeError(f"{pfad.name}: erster Block ist kein JSON")
+    return json.loads(daten[20 : 20 + json_laenge])
 
 
 sammlungen_einblenden()
-fehlende_waffen_animationen_laden()
+
+# Spurbelegung setzen: eine stumme NLA-Spur je Clip, in der Reihenfolge von SPUREN.
+animation = ARMATUR.animation_data_create()
+for spur in list(animation.nla_tracks):
+    animation.nla_tracks.remove(spur)
+animation.action = None
+for name, action_name in SPUREN:
+    action = bpy.data.actions[action_name]
+    spur = animation.nla_tracks.new()
+    spur.name = name
+    streifen = spur.strips.new(name, int(action.frame_range[0]), action)
+    streifen.name = name
+    spur.mute = True
 
 # Weiblicher Grundkoerper ohne die im Master nur als Beispiel eingesetzte
 # Frisur und Augenbraue. Beides wird im Editor als eigenes Modul aufgelegt.
-female = [
-    objekt
-    for objekt in bpy.data.collections["Player_Female"].objects
-    if objekt.type == "MESH"
-    and not objekt.name.startswith(("Chr_Hair_", "Chr_Eyebrow_"))
+weiblich_koerper = [
+    o
+    for o in weiblich.objects
+    if o.type == "MESH" and not o.name.startswith(("Chr_Hair_", "Chr_Eyebrow_"))
 ]
-if len(female) != 11:
-    raise RuntimeError(f"Erwartet 11 weibliche Koerperteile, gefunden: {len(female)}")
-spiel_animationen_vorbereiten()
-auswaehlen(female)
-glb_exportieren(AUSGABE / "WikingerinKoerper.glb", True)
+if len(weiblich_koerper) != 11:
+    raise RuntimeError(f"Erwartet 11 weibliche Koerperteile, gefunden: {len(weiblich_koerper)}")
 
-# Ein Modul je Datei. Die stabilen Kurzkennungen H_XX/B_XX stehen spaeter im
-# Spielstand; der originale Blender-Objektname bleibt im Bericht erhalten.
+# Schutz vor der falschen Master-Datei: der Kopf muss aus master2 stammen.
+kopf = [o for o in weiblich_koerper if o.name.startswith("Chr_Head_Female")]
+if len(kopf) != 1:
+    raise RuntimeError(f"Erwartet einen Kopf Chr_Head_Female*, gefunden: {[o.name for o in kopf]}")
+kopf_vertices = len(kopf[0].data.vertices)
+if kopf_vertices != ERWARTETE_KOPF_VERTICES:
+    raise RuntimeError(
+        f"Kopf {kopf[0].name} hat {kopf_vertices} Vertices, erwartet {ERWARTETE_KOPF_VERTICES} "
+        f"(master2). Falsche Master-Datei? {MASTER.name}"
+    )
+
+auswaehlen(weiblich_koerper)
+koerper_datei = AUSGABE / "WikingerinKoerper.glb"
+glb_exportieren(koerper_datei, True)
+
+# Selbstpruefung an der geschriebenen Datei.
+kopf_json = glb_kopf(koerper_datei)
+gelenke = sum(len(s["joints"]) for s in kopf_json.get("skins", [])[:1])
+animationen = len(kopf_json.get("animations", []))
+print(f"SELBSTPRUEFUNG gelenke={gelenke} animationen={animationen} kopf_vertices={kopf_vertices}", flush=True)
+if gelenke != ERWARTETE_KNOCHEN or animationen != ERWARTETE_ANIMATIONEN:
+    raise RuntimeError(
+        f"WikingerinKoerper.glb hat {gelenke} Gelenke und {animationen} Animationen, "
+        f"erwartet {ERWARTETE_KNOCHEN} und {ERWARTETE_ANIMATIONEN}"
+    )
+
+# Teile ohne Animationen: ein Modul je Datei. Die stabilen Kurzkennungen H_XX/B_XX
+# stehen spaeter im Spielstand; der originale Blender-Objektname bleibt im Bericht.
+for spur in list(animation.nla_tracks):
+    animation.nla_tracks.remove(spur)
 bericht = {
-    "femaleBody": [o.name for o in female],
+    "femaleBody": [o.name for o in weiblich_koerper],
     "hair": [],
     "beards": [],
     "eyebrowsMale": [],
@@ -178,7 +289,11 @@ for praefix, ziel_praefix, schluessel, erwartet in (
     ("Chr_Eyebrow_Female_", "AF_", "eyebrowsFemale", 7),
 ):
     objekte = sorted(
-        (o for o in bpy.data.objects if o.type == "MESH" and o.name.startswith(praefix)),
+        (
+            o
+            for o in bpy.data.objects
+            if o.type == "MESH" and o.name.startswith(praefix) and not o.name.endswith("__std")
+        ),
         key=lambda o: int(o.name.rsplit("_", 1)[1]),
     )
     if len(objekte) != erwartet:

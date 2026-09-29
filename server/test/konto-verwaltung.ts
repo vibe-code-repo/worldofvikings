@@ -308,7 +308,12 @@ try {
     };
     const spaet = await aufruf('POST', '/accounts/login', { username: 'Hilda', password: 'altespasswort1' });
     assert.equal(haken, 1, 'das Fenster wurde tatsaechlich erzwungen');
-    assert.equal(spaet.status, 401, `Login mit altem Passwort im Fenster: kein Token (war ${spaet.status})`);
+    // N3 (W3-Reste): Das Passwort WAR richtig, nur die Generation ist waehrend
+    // des Hashens weitergezaehlt worden — das ist kein "Benutzername oder
+    // Passwort falsch", sondern ein Zusammenstoss mit dem gleichzeitigen
+    // Wechsel. Vor N3 stand hier 401 "login-failed".
+    assert.equal(spaet.status, 409, `Login mit altem Passwort im Fenster: Zusammenstoss, kein Token (war ${spaet.status})`);
+    assert.equal(spaet.daten.error, 'conflict');
     assert.equal(spaet.daten.token, undefined);
     assert.equal((await aufruf('POST', '/accounts/login', { username: 'Hilda', password: 'neuespasswort2' })).status, 200);
   }

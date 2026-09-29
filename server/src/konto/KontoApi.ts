@@ -43,6 +43,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
+import { EDITOR_NAME, nameHatSteuerzeichen, namenSchluessel } from '../net/Namen.js';
 import { WEBSITE_URSPRUENGE } from '../net/WebsiteUrspruenge.js';
 import { Kontendatenbank, PROFILTEXT_MAX, type Charakter, type GeloeschtesKonto } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
@@ -102,6 +103,46 @@ export const BENUTZERNAME_REGEX = /^[\p{L}\p{N}_-]{3,24}$/u;
 
 /** Character name shape, shared with `StandardKonto.ts` for the same reason. */
 export const CHARAKTERNAME_REGEX = /^[\p{L}\p{N} _-]{2,24}$/u;
+
+/**
+ * Wie SQLite `COLLATE NOCASE`: faltet NUR A-Z. Volles `toLowerCase()` faltet
+ * zusaetzlich Å/Ü/Ø und das Kelvin-Zeichen (U+212A) zu Kleinbuchstaben, die
+ * der SQL-Lookup so nicht kennt — ein Login-Orakel ueber die Schreibweise
+ * (U1, W3-N4-Pruefung: bekannt vs. unbekannt unterscheidet sich in Status
+ * und Zeit, sobald eine Nicht-ASCII-Schreibweise im Spiel ist).
+ */
+function asciiFalten(s: string): string {
+  return s.replace(/[A-Z]+/g, (x) => x.toLowerCase());
+}
+
+/**
+ * Schluessel eines unbekannten Namens im Login-Versuchszaehler. Nur was die
+ * Registrierung ueberhaupt zulaesst (`BENUTZERNAME_REGEX`), bekommt einen
+ * eigenen, ASCII-gefalteten Schluessel — deckungsgleich mit dem SQL-Lookup
+ * (U1) UND kurz (U2): Ohne die Regelpruefung landete jede beliebige Eingabe
+ * bis 4 KB ungekuerzt in der Karte. Ein fester Schluessel fuer Regelverstoesse
+ * ist kein neues Orakel, die Regel ist oeffentlich.
+ */
+function unbekannterNameSchluessel(benutzername: string): string {
+  return BENUTZERNAME_REGEX.test(benutzername) ? `?${asciiFalten(benutzername)}` : '?#ungueltig';
+}
+
+/**
+ * IPv6-/64-Praefix einer (von `Herkunft.ts` schon validierten, ggf.
+ * verkuerzten) Adresse: die ersten vier 16-Bit-Gruppen. Ohne das zaehlt
+ * jede der 2^64 Adressen eines Anschlusses einzeln (N5) — ein Angreifer mit
+ * einem eigenen /64 (der Regelfall bei IPv6-Zuteilungen) waere von der
+ * Herkunftsgrenze praktisch nie betroffen. IPv4 bleibt unveraendert.
+ */
+function herkunftSchluessel(adresse: string): string {
+  if (!adresse.includes(':')) return adresse;
+  const [kopfTeil, schwanzTeil] = adresse.split('::');
+  const kopf = kopfTeil ? kopfTeil.split(':') : [];
+  const schwanz = schwanzTeil ? schwanzTeil.split(':') : [];
+  const fehlend = Math.max(0, 8 - kopf.length - schwanz.length);
+  const gruppen = [...kopf, ...Array<string>(fehlend).fill('0'), ...schwanz];
+  return `v6:${gruppen.slice(0, 4).join(':')}`;
+}
 
 /**
  * Was nach einer Kontoloeschung ausserhalb der Kontendatenbank zu tun ist.
@@ -385,15 +426,16 @@ export class KontoApi {
     const konto = benutzername ? this.db.kontoNachName(benutzername) : null;
 
     // Gezaehlt wird VOR dem Hashen (gleichzeitige Versuche umgehen die Sperre
-    // sonst) und bei Erfolg zurueckgenommen. Unbekannte Namen teilen sich einen
-    // Schluessel, damit das Abklappern von Namen nicht je Name neu zaehlt.
-    // Unbekannte Namen zaehlen je NAME (genauso normalisiert wie beim Konto-
-    // Lookup, ohne Gross/Klein): bekannte und unbekannte Namen verhalten sich
-    // dann gleich (fuenf Versuche, dann 429). Ein gemeinsamer Schluessel fuer
-    // alle unbekannten Namen waere ein Orakel: unbekannt = sofort 429 ohne Hash,
-    // bekannt = 401 nach dem Hash. Das Abklappern vieler Namen deckelt der
+    // sonst) und bei Erfolg zurueckgenommen. Unbekannte Namen zaehlen je NAME,
+    // mit demselben ASCII-only-Falten wie der SQL-Lookup (`asciiFalten`, U1):
+    // bekannte und unbekannte Namen verhalten sich dann gleich (fuenf
+    // Versuche, dann 429). Ein gemeinsamer Schluessel fuer alle unbekannten
+    // Namen waere ein Orakel: unbekannt = sofort 429 ohne Hash, bekannt = 401
+    // nach dem Hash. Was `BENUTZERNAME_REGEX` nicht erfuellt, kann kein Konto
+    // sein und bekommt einen festen Schluessel statt ungekuerzt (bis zu 4 KB)
+    // in der Karte zu stehen (U2). Das Abklappern vieler Namen deckelt der
     // Herkunftszaehler.
-    const versuchsSchluessel = `${ip}|${konto ? konto.id : `?${benutzername.toLowerCase()}`}`;
+    const versuchsSchluessel = `${ip}|${konto ? konto.id : unbekannterNameSchluessel(benutzername)}`;
     // Herkunftsgrenze auch NACH dem Lesen des Koerpers: viele offene Anfragen mit
     // verzoegertem Koerper haben die fruehe Pruefung sonst alle bestanden.
     if (this.herkunftGesperrt(ip) || this.loginVersuchGesperrt(versuchsSchluessel)) {
@@ -444,8 +486,16 @@ export class KontoApi {
     // ALTEN Passwort ein Token, das den Wechsel ueberlebt. Die Generation
     // wird hier gelesen und ins Token geschrieben, im selben Zug.
     let generation = this.db.tokenAbVon(konto.id);
-    if (generation === null || generation !== generationVorher) {
+    if (generation === null) {
       return this.json(res, 401, { error: 'login-failed' });
+    }
+    if (generation !== generationVorher) {
+      // Das Passwort war richtig, aber waehrend des Hashens hat ein
+      // gleichzeitiger Wechsel (oder eine Rettung) die Generation
+      // hochgezaehlt. Ein eigener Schluessel statt "login-failed" (N3):
+      // die Seite kann dem Nutzer "nochmal versuchen" sagen statt
+      // "falsches Passwort".
+      return this.json(res, 409, { error: 'conflict' });
     }
     if (ueberallAbmelden) {
       // Rettungsweg: mit dem RICHTIGEN Passwort alle bisherigen Sitzungen
@@ -512,6 +562,20 @@ export class KontoApi {
 
     const name = String(k.name ?? '').trim();
     if (!CHARAKTERNAME_REGEX.test(name)) return this.json(res, 400, { error: 'name-invalid' });
+    // M1 (W3-Reste-Pruefung, Opus, 28.09.2026): CHARAKTERNAME_REGEX laesst
+    // Hangul-Fuellzeichen durch (sie gehoeren zu \p{Lo}), und namenSchluessel
+    // entfernt sie nicht. Damit liesse sich "Editor" (und jeder andere Name)
+    // unsichtbar verlaengern. Das Spiel selbst sperrt genau diese Zeichen
+    // ueber `nameHatSteuerzeichen` (server/src/net/Namen.ts, NetManager.ts);
+    // hier gilt dieselbe Regel.
+    if (nameHatSteuerzeichen(name)) return this.json(res, 400, { error: 'name-invalid' });
+    // Derselbe Namensvergleich wie im Spiel (Namen.ts): "Editor" ist der vom
+    // Server fest vergebene Name jeder Editor-Verbindung, nie aus dem Client.
+    // Ein Charakter mit diesem Namen (auch Gross/Klein oder eine unsichtbar
+    // erweiterte Schreibweise) waere im Spiel damit ununterscheidbar.
+    if (namenSchluessel(name) === namenSchluessel(EDITOR_NAME)) {
+      return this.json(res, 409, { error: 'name-taken' });
+    }
 
     const figur = String(k.figure ?? '');
     const klasse = k.classId ?? '';
@@ -877,7 +941,9 @@ export class KontoApi {
   // ── Plumbing ────────────────────────────────────────────────────────
 
   private herkunft(req: IncomingMessage): string {
-    return herkunftErmitteln(req);
+    // Auf das /64-Praefix gekuerzt (N5): sonst zaehlt jede IPv6-Adresse
+    // eines Anschlusses fuer sich, siehe herkunftSchluessel() oben.
+    return herkunftSchluessel(herkunftErmitteln(req));
   }
 
   /**
@@ -1052,6 +1118,16 @@ const KOMBINIEREND = /^\p{M}$/u;
 /** Variantenselektoren: nur direkt hinter einem Emoji- oder CJK-/mongolischen Zeichen sinnvoll. */
 const VARIANTENSELEKTOR = /^[\uFE00-\uFE0F\u180B-\u180D\u{E0100}-\u{E01EF}]$/u;
 const TRAEGT_SELEKTOR = /^[\p{Emoji}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Mongolian}]$/u;
+/**
+ * `\p{Emoji}` umfasst auch ASCII-Ziffern, `#` und `*` (Keycap-Basen). Ohne
+ * diese Ausnahme liesse TRAEGT_SELEKTOR einen Variantenselektor hinter
+ * IRGENDEINER dieser Basen durch, auch OHNE die anschliessende Einfassung
+ * U+20E3 \u2014 also ein unsichtbares Anhaengsel hinter jeder Ziffer, `#` oder
+ * `*` (N6). Nur eine ECHTE Keycap-Folge (Basis + Selektor + U+20E3) bleibt
+ * erlaubt.
+ */
+const KEYCAP_BASIS = /^[0-9#*]$/;
+const KEYCAP_EINFASSUNG = '\u20E3';
 /** Hangul-Jamo (Anfangs-, Mittel-, Endlaut): NFC macht daraus Silben, uebrig bleibt nur Unfug. */
 const JAMO = /^[\u1100-\u11FF\uA960-\uA97F\uD7B0-\uD7FF]$/u;
 
@@ -1085,7 +1161,11 @@ export function bereinigeText(roh: string, maxGrapheme: number): string | null {
   let jamo = 0;
   let codepunkte = 0;
   let vorher: string | null = null;
-  for (const zeichen of text) {
+  // Array statt for-of, damit der Keycap-Fall (N6) den NAECHSTEN Codepunkt
+  // ansehen kann, ohne den Iterator anzufassen.
+  const zeichenListe = [...text];
+  for (let i = 0; i < zeichenListe.length; i++) {
+    const zeichen = zeichenListe[i]!;
     const cp = zeichen.codePointAt(0)!;
     if (cp >= 0xd800 && cp <= 0xdfff) return null;
     if (UNSICHTBAR.has(cp) || !ERLAUBTES_ZEICHEN.test(zeichen)) return null;
@@ -1095,7 +1175,13 @@ export function bereinigeText(roh: string, maxGrapheme: number): string | null {
       // Ein kombinierendes Zeichen braucht ein Basiszeichen davor (nicht Anfang,
       // Leerzeichen, Zeilenumbruch); Variantenselektoren nur hinter Emoji/CJK.
       if (vorher === null || vorher === ' ' || vorher === '\n') return null;
-      if (VARIANTENSELEKTOR.test(zeichen) && !TRAEGT_SELEKTOR.test(vorher) && !KOMBINIEREND.test(vorher)) return null;
+      if (VARIANTENSELEKTOR.test(zeichen)) {
+        if (!TRAEGT_SELEKTOR.test(vorher) && !KOMBINIEREND.test(vorher)) return null;
+        // Ziffer/#/* zaehlen nur als Keycap-Basis, wenn WIRKLICH eine
+        // Keycap-Folge daraus wird (Basis + Selektor + U+20E3, N6) — sonst
+        // waere jede Ziffer im Profiltext ein unsichtbares Versteck.
+        if (KEYCAP_BASIS.test(vorher) && zeichenListe[i + 1] !== KEYCAP_EINFASSUNG) return null;
+      }
       if (++marken > KOMBINIEREND_MAX) return null;
     } else marken = 0;
     if (JAMO.test(zeichen)) { if (++jamo > JAMO_MAX) return null; } else jamo = 0;

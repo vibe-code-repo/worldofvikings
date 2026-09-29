@@ -8,4 +8,4 @@ export const ASHENVEIL_PARTS = ([
   { id: 'ashenveil_bracers', item: 'ashenveil_bracers', name: 'Aschenschleier-Runenarmschienen', slot: 'unterarme', equipment: 'unterarme', regions: ['ArmLowerLeft', 'ArmLowerRight'], hideAppearance: [], weight: 1 },
   { id: 'ashenveil_gloves', item: 'ashenveil_gloves', name: 'Aschenschleier-Schattenhandschuhe', slot: 'haende', equipment: 'haende', regions: ['HandLeft', 'HandRight'], hideAppearance: [], weight: .5 },
   { id: 'ashenveil_boots', item: 'ashenveil_boots', name: 'Aschenschleier-Panzerstiefel', slot: 'fuesse', equipment: 'schuhe', regions: ['LegLeft', 'LegRight'], hideAppearance: [], weight: 2 },
-] as const).map(part => ({ ...part, ...MALE_ARMOR_BODY }));
+] as const).map(part => ({ ...part, ...MALE_ARMOR_BODY, textKey: `inhalt.item.${part.id}` }));

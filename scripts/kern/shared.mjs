@@ -375,6 +375,9 @@ export default [
   // Stable placement ids: the sanitizer derives / keeps / sorts ids, folds exact duplicates.
   ['shared', 'test/platzierungs-ids.ts'],
   ['shared', 'test/region-geo.ts'],
+  // Armor names via translation keys: every set and piece has a textKey that follows the schema and
+  // exists in de.json and en.json; no orphan inhalt.item.* / inhalt.set.* key, no German text in en. <1 s.
+  ['shared', 'test/ruestung-namen.ts'],
   // Plateau diff and tie-break independent of list order: a live-patched geo matches a fresh compile.
   ['shared', 'test/sockel-diff.ts'],
   // ── Asset-Bruecke: der Speicher unter assets/store ─────────────────

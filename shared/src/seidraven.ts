@@ -11,7 +11,7 @@ const PARTS = [
 ] as const;
 
 export const SEIDRAVEN_MALE_PARTS = PARTS.map(p => ({ ...p, ...MALE_ARMOR_BODY,
-  id: `seidraven_male_${p.key}`, item: `seidraven_male_${p.key}` }));
+  id: `seidraven_male_${p.key}`, item: `seidraven_male_${p.key}`, textKey: `inhalt.item.seidraven_${p.key}` }));
 export const SEIDRAVEN_FEMALE_PARTS = PARTS.map(p => ({ ...p, ...FEMALE_ARMOR_BODY,
-  id: `seidraven_female_${p.key}`, item: `seidraven_female_${p.key}` }));
+  id: `seidraven_female_${p.key}`, item: `seidraven_female_${p.key}`, textKey: `inhalt.item.seidraven_${p.key}` }));
 export const SEIDRAVEN_PARTS = [...SEIDRAVEN_MALE_PARTS, ...SEIDRAVEN_FEMALE_PARTS];

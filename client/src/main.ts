@@ -135,7 +135,7 @@ import { baumenueHinweis } from './player/BaumenueHinweis';
 import { ladeTestflugEntwurf, starteTestflug } from './editor/testflug/Testflug';
 import { localStoragePersistenz } from './editor/testflug/LocalStoragePersistenz';
 import { checkJumpFromDraft } from './editor/testflug/inselwahl';
-import { basisDomainVonSpielHost } from './editor/spielAdresse';
+import { websiteLoginUrl as websiteLoginUrlFuer } from './net/websiteLogin';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { DungeonEditor } from './ui/DungeonEditor';
 import { DekoPlatzierung } from './ui/DekoPlatzierung';
@@ -450,26 +450,9 @@ async function main() {
 
   const offlineMode = ausAdresse.has('offline');
   const accountSessionPresent = ticketVorgelegt || storedSessionPresent;
-  // Karte D1 (Zweitdomains): die Basis-Domain des AKTUELLEN play.-Hosts,
-  // nicht mehr fest world-of-vikings.com — sonst landete ein Spieler auf
-  // play.world-of-mmorpg.de bei der Anmeldung auf der jeweils anderen
-  // Domain, und die Anmeldung (localStorage je Ursprung) griffe nicht.
-  //
-  // `location.host`, nicht `.hostname` (Angriffsbefund N1): Ein Slot-Port
-  // (`127.0.0.1:5295`) gehört zur Adresse dazu — ohne ihn führte der
-  // Rücksprung nach einem Verbindungsabbruch auf Port 80 des DEV-nginx statt
-  // zum eigenen Slot.
-  const websiteLoginUrl = (expired = false): URL => {
-    const loginPath = i18n.language === 'en' ? '/en/login' : '/de/anmelden';
-    const basis = basisDomainVonSpielHost(window.location.host);
-    const url = new URL(loginPath, `${window.location.protocol}//${basis}`);
-    url.searchParams.set(
-      'shore',
-      window.location.hostname.includes('.dev.') ? 'dev' : 'live',
-    );
-    if (expired) url.searchParams.set('abgelaufen', '1');
-    return url;
-  };
+  // Way back to the website's sign-in, on the domain the game runs on (net/websiteLogin.ts).
+  const websiteLoginUrl = (expired = false): URL =>
+    websiteLoginUrlFuer(window.location, i18n.language, expired);
 
   // Online play is account-only. The former anonymous `?go=1` route and
   // the in-game login/character picker were removed as one unit; the

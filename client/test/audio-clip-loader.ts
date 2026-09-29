@@ -24,6 +24,7 @@ function pruefe(name: string, an: boolean, detail = ''): void {
 let unhandledRejections = 0;
 process.on('unhandledRejection', (reason) => {
   unhandledRejections += 1;
+  process.exitCode = 1;
   console.error('  UNHANDLED REJECTION:', reason);
 });
 
@@ -90,4 +91,7 @@ async function lauf(): Promise<void> {
   console.log('\n=== ClipLoader: ALLE GRÜN ===');
 }
 
-void lauf();
+lauf().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

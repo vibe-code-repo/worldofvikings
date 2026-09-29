@@ -188,19 +188,16 @@ export class AudioEngine {
     // overlapping plays of the very same clip will share the newest jitter.
     sound.playbackRate = 1 + (Math.random() * 2 - 1) * PITCH_JITTER;
     if (options.position) {
-      // Set here, at play time, rather than once at creation: the
-      // spatial subnode is created lazily on the first `sound.spatial`
-      // access (Babylon does this whenever a sound isn't given spatial
-      // options at createSoundAsync() time, which loadClip() doesn't),
-      // and a fresh subnode starts at Babylon's own defaults (linear
-      // model, minDistance 1) regardless of what was assigned before it
-      // existed. Position self-heals every frame via Babylon's own
-      // updater once the subnode exists; distanceModel/minDistance/
-      // rolloffFactor do not, so they are (re-)assigned on every play,
-      // by which point the subnode reliably already exists (loadClip()
-      // has already resolved at least once before). Verified against
-      // node_modules/@babylonjs/core/AudioV2 and a real AudioContext,
-      // not assumed from the type declarations.
+      // Assigned on every play. loadClip() passes no spatial options to
+      // createSoundAsync(), so the spatial sub node does not exist yet:
+      // the first `sound.spatial` access creates it asynchronously.
+      // Babylon's callOnSubNode() (abstractAudioSubGraph.js) defers a
+      // property assignment until the sub node exists and then applies
+      // it, so values set before that are not lost. Until such an
+      // assignment lands, a lazily created sub node keeps the native
+      // PannerNode defaults (distanceModel 'inverse', refDistance 1).
+      // Re-assigning per play is harmless; once would do. Checked
+      // against node_modules/@babylonjs/core/AudioV2 (9.28.0).
       sound.spatial.distanceModel = 'inverse';
       sound.spatial.minDistance = WORLD_MIN_DISTANCE;
       sound.spatial.rolloffFactor = WORLD_ROLLOFF_FACTOR;

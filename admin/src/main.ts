@@ -96,6 +96,7 @@ import {
   zuruecksetzenStatus,
   type ResetUmgebung,
 } from './routen/weltZuruecksetzen.js';
+import { serverStatusLesen, serverAktionBehandeln, type ServerSteuerungUmgebung } from './routen/serverSteuerung.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
 // geschickt wie beim Server. Der Editor soll sehen, was auch der
 // Spielserver sieht — ein Rohtext koennte Raeume enthalten, die dort
@@ -1141,6 +1142,23 @@ function resetUmgebung(): ResetUmgebung {
   };
 }
 
+/** The server-control route's view of this process: same `wov-server` target as `resetUmgebung`, just restart/stop/start instead of the reset's file dance. */
+function serverSteuerungUmgebung(): ServerSteuerungUmgebung {
+  return {
+    instanz: INSTANZ,
+    zustand: () => dienstZustand('wov-server'),
+    neustart: async () => {
+      await ausfuehren(SYSTEMCTL, ['restart', 'wov-server']);
+    },
+    stoppen: async () => {
+      await ausfuehren(SYSTEMCTL, ['stop', 'wov-server']);
+    },
+    starten: async () => {
+      await ausfuehren(SYSTEMCTL, ['start', 'wov-server']);
+    },
+  };
+}
+
 // ── Routen ────────────────────────────────────────────────────────────
 
 // `kopf`: zusaetzliche Antwortkopfzeilen (bisher nur der ETag des Weltdokuments).
@@ -1216,6 +1234,18 @@ async function behandeln(
     const eingabe = (leib ?? {}) as Record<string, string>;
     const erledigt = await nginxSchreiben(eingabe);
     return { code: 200, daten: { geaendert: erledigt, hinweis: 'Sofort wirksam (nginx neu geladen).' } };
+  }
+
+  // ── Serversteuerung (Editor) ──
+  //
+  // Begruendung, Absicherung und Sperre stehen im Kopf von
+  // routen/serverSteuerung.ts. Hier nur die Verdrahtung, wie bei
+  // /api/welt-zuruecksetzen.
+  if (pfad === '/api/server' && methode === 'GET') {
+    return serverStatusLesen(serverSteuerungUmgebung());
+  }
+  if (pfad === '/api/server' && methode === 'POST') {
+    return serverAktionBehandeln(leib, serverSteuerungUmgebung());
   }
 
   // ── Dienste ──

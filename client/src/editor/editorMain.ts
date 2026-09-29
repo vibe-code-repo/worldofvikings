@@ -161,6 +161,17 @@ import { baueKartenMassAnzeige, aktualisiereKartenMassAnzeige } from './KartenMa
 // assetUrls.ts).
 import { ladeModulRegistrierung } from '../net/ModuleRegistryLoad';
 import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
+// Serversteuerung (29.09.): die vorhandene Uebersetzungsfunktion des Spiels
+// fuer die neuen editor.server.*-Texte -- der Editor hatte bisher gar keine
+// i18n-Anbindung, s. Kopfkommentar bei serverSteuerung.ts.
+import { GameI18n } from '../i18n';
+import {
+  karteLiveTestenAktion,
+  neustartOptionen,
+  serverKnoepfeZustand,
+  serverStatusAnzeige,
+  type DienstZustand,
+} from './serverSteuerung';
 
 // ── E6: die Modulregistry, BEVOR der erste Katalog gebaut wird ────────
 //
@@ -503,6 +514,19 @@ let speicherPunkt: HTMLSpanElement | null = null;
 let speicherText: HTMLElement | null = null;
 let liveKnopf: HTMLButtonElement | null = null;
 let zurueckKnopf: HTMLButtonElement | null = null;
+/**
+ * Serversteuerung (Mikes Befund, 29.09.): dieselbe Regel wie bei
+ * `speicherKnopf` zwei Zeilen darüber — `seiteBauen()` weist diese Felder
+ * beim Laden des Moduls zu, die `let`-Deklaration muss also VOR diesem
+ * Aufruf stehen, nicht erst im Block selbst, der sie zuweist.
+ */
+let neustartKnopf: HTMLButtonElement | null = null;
+let stoppenKnopf: HTMLButtonElement | null = null;
+let startenKnopf: HTMLButtonElement | null = null;
+let serverStatusFeld: HTMLSpanElement | null = null;
+let serverAktionLaeuft = false;
+/** Die vorhandene Übersetzungsfunktion des Spiels (client/src/i18n) — der Editor selbst hatte bisher keine i18n-Anbindung, s. Kopfkommentar bei serverSteuerung.ts. */
+const serverI18n = new GameI18n();
 /**
  * Öffnet den Gegenstands-Katalog. Aus demselben Grund hier oben wie
  * `speicherKnopf`: Der Werkzeugleisten-Block weist zu, und die
@@ -3147,6 +3171,27 @@ function weltFeldBauen(): void {
   testweltGruppe.appendChild(zurueckKnopf);
   void testweltKnoepfeAktualisieren();
 
+  // Serversteuerung (Mikes Befund, 29.09.): der Neustart-Knopf oben blieb
+  // gesperrt, sobald eine Testwelt lief, und es gab sonst keinen Weg, den
+  // Spielserver einfach neu zu starten oder zu stoppen — eine eigene
+  // Gruppe direkt daneben, DOM-frei entschieden in serverSteuerung.ts.
+  const serverGruppe = shell.toolbarGruppe();
+  neustartKnopf = knopf(serverI18n.t('editor.server.button.restart'), () => void serverNeustartStarten(), {
+    art: 'leise',
+    titel: serverI18n.t('editor.server.button.restart_hint'),
+  });
+  stoppenKnopf = knopf(serverI18n.t('editor.server.button.stop'), () => void serverStoppenStarten(), {
+    art: 'leise',
+    titel: serverI18n.t('editor.server.button.stop_hint'),
+  });
+  startenKnopf = knopf(serverI18n.t('editor.server.button.start'), () => void serverAktionAusfuehren('starten'), {
+    art: 'leise',
+    titel: serverI18n.t('editor.server.button.start_hint'),
+  });
+  serverStatusFeld = el('span', stil({ 'font-size': '11px', color: F.gedimmt, padding: '0 4px' }));
+  serverGruppe.append(neustartKnopf, stoppenKnopf, startenKnopf, serverStatusFeld);
+  void serverSteuerungAktualisieren();
+
   const datei = shell.toolbarGruppe();
   datei.appendChild(
     knopf(
@@ -3682,12 +3727,17 @@ async function testweltKnoepfeAktualisieren(): Promise<void> {
     // Kopfzeile — beides zu beschriften ergäbe zweimal dieselbe
     // Auskunft nebeneinander, und die auf einem Knopf, der in diesem
     // Zustand gar nichts mehr tut. Sein Zustand steht im Tooltip.
+    // Mikes Befund (29.09.): der Knopf blieb bei aktiver Testwelt gesperrt
+    // (kein Weg mehr, eine zweite Änderung wirksam zu machen, ohne erst
+    // "dev-Welt zurückholen"). Jetzt bleibt er IMMER benutzbar — bei
+    // aktiver Testwelt bedeutet ein Klick "speichern und neu starten"
+    // statt eines erneuten Umschaltens, s. karteLiveTesten().
     liveKnopf.title = aktiv
-      ? 'Die Testwelt läuft bereits — Zustand siehe Marke rechts in der Kopfzeile.'
+      ? serverI18n.t('editor.server.live_test.active_title')
       : 'Startet den Spielserver mit dem gespeicherten Kartenstand neu.';
-    liveKnopf.disabled = aktiv;
-    liveKnopf.style.opacity = aktiv ? '.5' : '1';
-    liveKnopf.style.cursor = aktiv ? 'default' : 'pointer';
+    liveKnopf.disabled = false;
+    liveKnopf.style.opacity = '1';
+    liveKnopf.style.cursor = 'pointer';
   }
   testweltMarkeZeigen(stand);
 }
@@ -3790,22 +3840,32 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
  * lange genau haengt an der Karte — eine feste Zahl waere entweder zu
  * kurz oder verschenkte Zeit. Gemeinsam fuer die Testwelt und das
  * Zuruecksetzen der Welt. Liefert den Startzeitpunkt (ms).
+ *
+ * `zielAktiv` (Serversteuerung, 29.09.): Standard `true` — auf "läuft"
+ * warten, wie bisher bei Testwelt und Zurücksetzen. Für ein einfaches
+ * Stoppen (`serverAktionAusfuehren('stoppen')`) wird auf "gestoppt"
+ * gewartet, deshalb hier verallgemeinert statt eine zweite Wartefunktion
+ * zu schreiben. Die Wortwahl der bestehenden drei Aufrufer (ohne dritten
+ * Parameter) bleibt dabei UNVERÄNDERT.
  */
-async function dienstAbwarten(schirm: { text: (t: string) => void }, basis: string): Promise<number> {
+async function dienstAbwarten(schirm: { text: (t: string) => void }, basis: string, zielAktiv = true): Promise<number> {
   const start = Date.now();
-  let laeuftSeit = 0;
+  let stabilSeit = 0;
+  const stabilMs = zielAktiv ? 6_000 : 1_500;
   for (;;) {
     const stand = await testweltStand();
     const laeuft = stand?.zustand?.aktiv ?? false;
+    const erreicht = laeuft === zielAktiv;
     const sek = Math.round((Date.now() - start) / 1000);
-    schirm.text(`${basis} … ${sek} s — Dienst ${laeuft ? 'läuft' : 'startet'}`);
-    if (laeuft) {
-      if (!laeuftSeit) laeuftSeit = Date.now();
+    const zustandText = laeuft ? 'läuft' : zielAktiv ? 'startet' : 'gestoppt';
+    schirm.text(`${basis} … ${sek} s — Dienst ${zustandText}`);
+    if (erreicht) {
+      if (!stabilSeit) stabilSeit = Date.now();
       // Kurz nachhalten: `systemctl start` kehrt zurueck, bevor die Welt
       // steht, und ein Restart=always faengt einen Fehlstart wieder ein.
-      if (Date.now() - laeuftSeit > 6_000) break;
+      if (Date.now() - stabilSeit > stabilMs) break;
     } else {
-      laeuftSeit = 0;
+      stabilSeit = 0;
     }
     if (Date.now() - start > 60_000) break;
     await new Promise((f) => window.setTimeout(f, 1_500));
@@ -3815,8 +3875,35 @@ async function dienstAbwarten(schirm: { text: (t: string) => void }, basis: stri
 
 async function karteLiveTesten(): Promise<void> {
   const stand = await testweltStand();
-  if (stand?.aktiv) {
-    shell.meldung('Es läuft bereits eine Testwelt — erst „dev-Welt zurückholen".', true);
+  // Mikes Befund (29.09.): bisher endete das hier mit einer Meldung und
+  // gar nichts geschah — der einzige Weg war "dev-Welt zurückholen" und
+  // dann noch einmal umschalten. `karteLiveTestenAktion` (serverSteuerung.ts)
+  // entscheidet DOM-frei: läuft die Testwelt schon, bedeutet der Klick
+  // jetzt "speichern und neu starten", kein erneutes Umschalten. Das geht,
+  // weil "In die Welt speichern" immer in dieselbe Weltdatei schreibt
+  // (admin/src/main.ts: LAYOUT_DATEI hängt nicht vom Testwelt-Umschalter
+  // ab, der nur den SPIELSTAND beiseitelegt) — belegt in
+  // admin/test/testwelt-einstellungen.ts (Ist-Analyse) und admin/src/
+  // main.ts selbst (POST /api/worldlayout schreibt immer nach LAYOUT_DATEI).
+  if (karteLiveTestenAktion({ testweltAktiv: Boolean(stand?.aktiv) }) === 'server-neustart') {
+    const wahlNeustart = await frage(
+      serverI18n.t('editor.server.live_test.restart_title'),
+      serverI18n.t('editor.server.live_test.restart_body'),
+      [
+        { id: 'ab', text: serverI18n.t('editor.server.cancel'), hinweis: serverI18n.t('editor.server.cancel_hint'), betont: true },
+        { id: 'ja', text: serverI18n.t('editor.server.live_test.restart_confirm'), warnung: true },
+      ]
+    );
+    if (wahlNeustart !== 'ja') {
+      shell.meldung(serverI18n.t('editor.server.cancelled'));
+      return;
+    }
+    const gespeichertVorNeustart = await inDieWeltSpeichern();
+    if (!gespeichertVorNeustart) {
+      shell.meldung(serverI18n.t('editor.server.live_test.save_failed'), true);
+      return;
+    }
+    await serverAktionAusfuehren('neustart');
     return;
   }
   const wahl = await frage(
@@ -3867,6 +3954,149 @@ async function devWeltZurueckholen(): Promise<void> {
   );
   if (wahl !== 'ja') return;
   await testweltSchalten('zurueck');
+}
+
+// ── Serversteuerung (29.09., Mikes Befund) ────────────────────────────
+//
+// Der Spielserver soll sich JEDERZEIT neu starten, stoppen und starten
+// lassen — unabhängig vom Testwelt-Umschalter oben, dessen Sperre genau
+// das verhindert hat. Eigene Route (POST /api/server, admin/src/routen/
+// serverSteuerung.ts), eigene Knöpfe direkt daneben. Die Entscheidung, was
+// wann sichtbar/benutzbar ist, steht DOM-frei in client/src/editor/
+// serverSteuerung.ts.
+
+async function serverStand(): Promise<DienstZustand | null> {
+  try {
+    const r = await fetch('/api/server');
+    if (!r.ok) return null;
+    const a = (await r.json()) as { zustand?: DienstZustand };
+    return a.zustand ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function serverSteuerungAktualisieren(): Promise<void> {
+  const zustand = await serverStand();
+  const knoepfe = serverKnoepfeZustand({ dienstAktiv: zustand ? zustand.aktiv : null, aktionLaeuft: serverAktionLaeuft });
+  if (neustartKnopf) neustartKnopf.disabled = !knoepfe.neustartBenutzbar;
+  if (stoppenKnopf) {
+    stoppenKnopf.style.display = knoepfe.stoppenSichtbar ? '' : 'none';
+    stoppenKnopf.disabled = !knoepfe.stoppenBenutzbar;
+  }
+  if (startenKnopf) {
+    startenKnopf.style.display = knoepfe.startenSichtbar ? '' : 'none';
+    startenKnopf.disabled = !knoepfe.startenBenutzbar;
+  }
+  if (serverStatusFeld) {
+    const anzeige = serverStatusAnzeige(zustand);
+    serverStatusFeld.textContent =
+      anzeige.art === 'laeuft'
+        ? serverI18n.t('editor.server.status.running', { seit: anzeige.seit })
+        : anzeige.art === 'gestoppt'
+          ? serverI18n.t('editor.server.status.stopped')
+          : serverI18n.t('editor.server.status.unknown');
+  }
+}
+
+/**
+ * Führt neustart/stoppen/starten wirklich aus. Konsole wie bei
+ * `testweltSchalten` als eigentliche Rückmeldung; `serverAktionLaeuft`
+ * sperrt die Knöpfe hier UND spiegelt serverAktionBehandeln()s eigene
+ * Prozess-Sperre (409 bei einer zweiten Anfrage) — zwei unabhängige
+ * Schranken, keine ersetzt die andere (ein zweiter Tab hat die Browser-
+ * Sperre nicht, dafür ist die Sperre im Betriebsdienst da).
+ */
+async function serverAktionAusfuehren(aktion: 'neustart' | 'stoppen' | 'starten'): Promise<void> {
+  if (serverAktionLaeuft) return;
+  const marke =
+    aktion === 'neustart'
+      ? serverI18n.t('editor.server.button.restart')
+      : aktion === 'stoppen'
+        ? serverI18n.t('editor.server.button.stop')
+        : serverI18n.t('editor.server.button.start');
+  shell.konsoleZeigen();
+  shell.konsoleZeile(`── ${marke}: wov-server ──`);
+  const basis = marke;
+  const schirm = vorhang(`${basis} …`);
+  serverAktionLaeuft = true;
+  await serverSteuerungAktualisieren();
+  try {
+    const r = await fetch('/api/server', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aktion }),
+    });
+    const a = (await r.json()) as { fehler?: string; message?: string };
+    if (!r.ok) {
+      schirm.schliessen();
+      const grund = a.message ?? a.fehler ?? 'unbekannt';
+      shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${grund} ──`);
+      const schluessel = aktion === 'neustart' ? 'editor.server.restart.failed' : aktion === 'stoppen' ? 'editor.server.stop.failed' : 'editor.server.start.failed';
+      shell.meldung(serverI18n.t(schluessel, { grund }), true);
+      return;
+    }
+    const zielAktiv = aktion !== 'stoppen';
+    const start = await dienstAbwarten(schirm, basis, zielAktiv);
+    schirm.schliessen();
+    shell.konsoleZeile(`── ${marke}: fertig nach ${Math.round((Date.now() - start) / 1000)} s ──`);
+    shell.meldung(serverI18n.t(aktion === 'neustart' ? 'editor.server.restart.done' : aktion === 'stoppen' ? 'editor.server.stop.done' : 'editor.server.start.done'));
+  } catch (err) {
+    schirm.schliessen();
+    shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${String(err)} ──`);
+    const schluessel = aktion === 'neustart' ? 'editor.server.restart.failed' : aktion === 'stoppen' ? 'editor.server.stop.failed' : 'editor.server.start.failed';
+    shell.meldung(serverI18n.t(schluessel, { grund: String(err) }), true);
+  } finally {
+    serverAktionLaeuft = false;
+    await serverSteuerungAktualisieren();
+    await testweltKnoepfeAktualisieren();
+  }
+}
+
+/**
+ * Bestätigungsdialog für "Server neu starten" — immer benutzbar (anders
+ * als der alte "Karte live testen"-Knopf), deshalb IMMER mit Bestätigung:
+ * Spieler werden getrennt, unabhängig davon, ob dabei etwas gespeichert
+ * wird. Die dritte Option "erst speichern" erscheint nur, wenn der
+ * Schmutz-Merker (serverKanon vs. sanitizeWorldLayout(layout), s.
+ * faerbeSpeicherKnopf) einen Unterschied zum Serverstand zeigt —
+ * `neustartOptionen()` (serverSteuerung.ts) entscheidet das DOM-frei.
+ */
+async function serverNeustartStarten(): Promise<void> {
+  const weichtAb = serverKanon !== JSON.stringify(sanitizeWorldLayout(layout));
+  const optionen = neustartOptionen(weichtAb);
+  const wahlen = optionen.map((id) => {
+    if (id === 'ab') return { id, text: serverI18n.t('editor.server.cancel'), hinweis: serverI18n.t('editor.server.cancel_hint'), betont: true };
+    if (id === 'speichern-neustart') {
+      return { id, text: serverI18n.t('editor.server.restart.save_and_restart'), warnung: true };
+    }
+    return { id, text: serverI18n.t('editor.server.restart.just_restart'), hinweis: serverI18n.t('editor.server.restart.just_restart_hint') };
+  });
+  const wahl = await frage(serverI18n.t('editor.server.restart.title'), serverI18n.t('editor.server.restart.body'), wahlen);
+  if (wahl !== 'speichern-neustart' && wahl !== 'nur-neustart') {
+    shell.meldung(serverI18n.t('editor.server.cancelled'));
+    return;
+  }
+  if (wahl === 'speichern-neustart') {
+    const gespeichert = await inDieWeltSpeichern();
+    if (!gespeichert) {
+      shell.meldung(serverI18n.t('editor.server.live_test.save_failed'), true);
+      return;
+    }
+  }
+  await serverAktionAusfuehren('neustart');
+}
+
+async function serverStoppenStarten(): Promise<void> {
+  const wahl = await frage(serverI18n.t('editor.server.stop.title'), serverI18n.t('editor.server.stop.body'), [
+    { id: 'ab', text: serverI18n.t('editor.server.cancel'), hinweis: serverI18n.t('editor.server.cancel_hint'), betont: true },
+    { id: 'ja', text: serverI18n.t('editor.server.button.stop'), hinweis: serverI18n.t('editor.server.stop.confirm_hint'), warnung: true },
+  ]);
+  if (wahl !== 'ja') {
+    shell.meldung(serverI18n.t('editor.server.cancelled'));
+    return;
+  }
+  await serverAktionAusfuehren('stoppen');
 }
 
 // ── Welt zurücksetzen (K4.0) ──────────────────────────────────────────

@@ -1306,6 +1306,15 @@ const KERN = [
   // statt 400 (Sammel-catch in admin/src/main.ts stuft nur
   // LayoutUngueltig/SyntaxError als Eingabefehler ein). ~1s.
   ['admin', 'test/testwelt-einstellungen.ts'],
+  // Serversteuerung im Editor (29.09., Mikes Befund): GET/POST /api/server
+  // gegen den echten Betriebsdienst mit einem systemctl-Stand-in — anders
+  // als /api/testwelt und /dienst hier NICHT nur die Entscheidungslogik,
+  // weil der Dienstname bei dieser Route nie aus der Anfrage kommt (fest
+  // "wov-server"). Deckt genau einen systemctl-Aufruf je Aktion, den
+  // fremden Dienstnamen im Leib als ignoriert, die Prozess-Sperre (409 bei
+  // zwei gleichzeitigen Anfragen) und dass die Testwelt-Marker unberuehrt
+  // bleiben. ~2s.
+  ['admin', 'test/server-steuerung.ts'],
   // E8: der Betriebsdienst und die Modul-Registry. Steht neben den beiden
   // obigen und nicht in ihnen, weil er eine andere Frage stellt: nicht
   // „darf diese Anfrage", sondern „sieht dieser Dienst dasselbe wie der
@@ -1520,6 +1529,12 @@ const KERN = [
   // ... and the editor's side: the typed confirmation, the numbers in the dialog, the state after a success
   // (draft, base, empty undo stack), the wiring in editorMain.ts.
   ['client', 'test/welt-zuruecksetzen.ts'],
+  // Serversteuerung im Editor (29.09., Mikes Befund): die DOM-freie
+  // Entscheidungslogik (welche der drei Knoepfe wann sichtbar/benutzbar
+  // sind, was "Karte live testen" bei aktiver Testwelt jetzt tut, welche
+  // Dialog-Optionen der Schmutz-Merker freischaltet). Kein DOM, keine
+  // Netzanfrage. ~0,3s.
+  ['client', 'test/editor-serversteuerung.ts'],
   // U1 (uploaded-model editor upload): the runtime code/data seam
   // (shared/src/uploadedModelRegistry.ts) — registers/unregisters exactly
   // like a hand-built prefab, and pruefeLayout/istEigenesModell accept an

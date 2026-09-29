@@ -66,6 +66,13 @@ const MALE_BONES = ['Root', 'Hips', 'UpperLeg_L'];
 const FEMALE_BONES = ['Root', 'Hips', 'L_Thigh', ...new Set(Object.values(REGION_BONE).filter(b => b !== 'Hips'))];
 // The web body is the 63-bone rig of the newer female; it has one mesh per region, like the male body.
 const WEB_BONES = ['Root', 'Hips', 'UpperLeg_L', ...Array.from({ length: 60 }, (_, i) => `Web_${i}`)];
+// The game's female body (wov-female-v1, non-web): same segmented layout as the web body, plus the extra IK/pole
+// bones the canonical export always carries, so its bone count is never 63 like the web fit (mirrors the real
+// body's 71 = 63 + 8; see Bericht "Wikingerin 71 Rüstung", Nachtrag). Structurally identical to the male body's
+// own rig (same skeleton for both figures) -- nothing in the bone shape tells male and female game bodies
+// apart, only the mesh they carry does; this check was never designed to and still cannot make that distinction.
+const GAME_FEMALE_BONES = [...WEB_BONES, 'IK_Foot_L', 'IK_Foot_R', 'IK_Hand_L', 'IK_Hand_R',
+  'Pole_Elbow_L', 'Pole_Elbow_R', 'Pole_Knee_L', 'Pole_Knee_R'];
 
 /** One skinned GLB: a flat rig, meshes made of triangles that follow one bone each, optional clips on Hips. */
 function file(bones, meshes, clips = 0) {
@@ -112,15 +119,19 @@ function file(bones, meshes, clips = 0) {
 const maleBody = (...without) => file(MALE_BONES, REGIONS.filter(r => !without.includes(r)).map(r => ({ name: `WoV_BodyBase_Male_${r}`, triangleBones: [1] })), 3);
 const femaleBodyWithClips = (clips, without) => file(FEMALE_BONES,
   [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.filter(r => !without.includes(r)).map(r => FEMALE_BONES.indexOf(REGION_BONE[r])) }], clips);
-const femaleBody = (...without) => femaleBodyWithClips(3, without);
 // The 51-bone body with one stray index after the last whole triangle: no whole number of triangles.
 const femaleBodyPartialTriangle = (clips = 3) => file(FEMALE_BONES,
   [{ name: 'Chr_Wikingerin_Body', triangleBones: REGIONS.map(r => FEMALE_BONES.indexOf(REGION_BONE[r])), indexCount: REGIONS.length * 3 + 1 }], clips);
-const webBodyWith = ({ without = [], indexCount = {}, rename = {}, extra = [], primitiveMode = {}, noIndexBuffer = [] } = {}) => file(WEB_BONES,
+// One segmented body builder, parametrized by bone list: the web fit and the game's female body share the exact
+// same mesh-naming layout, they only differ in which bones (and how many) back the skin.
+const segmentedBodyWith = bones => ({ without = [], indexCount = {}, rename = {}, extra = [], primitiveMode = {}, noIndexBuffer = [] } = {}) => file(bones,
   [...REGIONS.filter(r => !without.includes(r)).map(r => ({ name: rename[r] ?? `Chr_${r}_Female_00`, triangleBones: [1],
       indexCount: indexCount[r], primitiveMode: primitiveMode[r], noIndices: noIndexBuffer.includes(r) })),
     ...extra.map(name => ({ name, triangleBones: [1] }))], 3);
+const webBodyWith = segmentedBodyWith(WEB_BONES);
 const webBody = (...without) => webBodyWith({ without });
+const gameFemaleBodyWith = segmentedBodyWith(GAME_FEMALE_BONES);
+const gameFemaleBody = (...without) => gameFemaleBodyWith({ without });
 // The gate's own closed list of families whose GLBs carry no identity extras. Pinned here, so it cannot grow unnoticed.
 const LEGACY_FAMILIES = JSON.parse(execFileSync(tsx, [gate, '--list-legacy-sets'], { cwd: root, encoding: 'utf8' }).trim().split('\n').pop());
 assert.deepEqual(LEGACY_FAMILIES, ['ironward', 'wildwarden', 'ashenveil'], 'The legacy list is closed: a new entry needs a reviewed change of this test as well');
@@ -140,7 +151,11 @@ function writeSet(dir, family, variant, tweak = {}) {
   mkdirSync(dir, { recursive: true });
   // A web fit is skinned to the web body and says so: the catalog's web profile, not the game profile.
   const web = tweak.web === true;
-  const bones = web ? WEB_BONES : variant === 'female' ? FEMALE_BONES : MALE_BONES;
+  // Driven by the registry's own bodyProfile, not by variant/family: whichever profile a set actually carries
+  // decides its bones, so a future profile needs no new branch here either.
+  const profile = partsOf(family, variant)[0]?.bodyProfile;
+  const bones = web ? WEB_BONES : profile === 'legacy-female-v1' ? FEMALE_BONES
+    : profile === 'wov-female-v1' ? GAME_FEMALE_BONES : MALE_BONES;
   // The older sets carry the region only; every later family's GLBs carry the body policy and the item id.
   const policy = !LEGACY_FAMILIES.includes(family);
   const items = [];
@@ -166,11 +181,13 @@ function writeSet(dir, family, variant, tweak = {}) {
 const scratch = mkdtempSync(join(tmpdir(), 'wov-armor-skin-'));
 try {
   writeFileSync(join(scratch, 'male.glb'), maleBody());
-  writeFileSync(join(scratch, 'female.glb'), femaleBody());
-  writeFileSync(join(scratch, 'female-no-head.glb'), femaleBody('Head'));
-  writeFileSync(join(scratch, 'female-no-free.glb'), femaleBody('Head', 'HandLeft', 'HandRight'));
+  // The game's female body (wov-female-v1): segmented, like male/web, not the legacy one-mesh body.
+  writeFileSync(join(scratch, 'female-game.glb'), gameFemaleBody());
+  writeFileSync(join(scratch, 'female-game-no-head.glb'), gameFemaleBody('Head'));
+  writeFileSync(join(scratch, 'female-game-no-free.glb'), gameFemaleBody('Head', 'HandLeft', 'HandRight'));
   writeFileSync(join(scratch, 'web.glb'), webBody());
-  writeFileSync(join(scratch, 'female-no-left-hand.glb'), femaleBody('HandLeft'));
+  writeFileSync(join(scratch, 'female-game-no-left-hand.glb'), gameFemaleBody('HandLeft'));
+  writeFileSync(join(scratch, 'game-female-head-4.glb'), gameFemaleBodyWith({ indexCount: { Head: 4 } }));
   writeFileSync(join(scratch, 'web-no-head.glb'), webBody('Head'));
   writeFileSync(join(scratch, 'web-no-right-hand.glb'), webBody('HandRight'));
   writeFileSync(join(scratch, 'male-no-head.glb'), maleBody('Head'));
@@ -253,8 +270,8 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   const withState = (target, state) => ({ command: [harness],
     env: { WOV_ST_TARGET: target, WOV_ST_STATE: JSON.stringify(state, (_key, v) => v === Infinity ? '__Infinity__' : v),
     WOV_ST_LOADER: join(root, 'node_modules/@babylonjs/core/Loading/sceneLoader.js') } });
-  const body = { male: join(scratch, 'male.glb'), female: join(scratch, 'female.glb'), noHead: join(scratch, 'female-no-head.glb'),
-    noFree: join(scratch, 'female-no-free.glb'), web: join(scratch, 'web.glb'), noLeftHand: join(scratch, 'female-no-left-hand.glb'),
+  const body = { male: join(scratch, 'male.glb'), female: join(scratch, 'female-game.glb'), noHead: join(scratch, 'female-game-no-head.glb'),
+    noFree: join(scratch, 'female-game-no-free.glb'), web: join(scratch, 'web.glb'), noLeftHand: join(scratch, 'female-game-no-left-hand.glb'),
     webNoHead: join(scratch, 'web-no-head.glb'), webNoRightHand: join(scratch, 'web-no-right-hand.glb'), maleNoHead: join(scratch, 'male-no-head.glb') };
   const run = (name, bodyFile, args, state) => new Promise(resolve => {
     const harnessed = state ? withState(gate, state) : undefined;
@@ -303,9 +320,17 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
     /seidraven_female_vest: the GLB replaces \[Head\] but the registry lists \[Torso\]/);
   bad('female-hood-wrong-profile', 'emberrage', 'female', swap('emberrage_female_hood', e => ({ ...e, bodyProfile: 'wov-male-v1' })),
     /extras\.bodyProfile differs from the registry/);
-  bad('female-body-without-head', 'seidraven', 'female', {}, /seidraven_female_hood: hides 0 body triangles for regions \[Head\]/, { bodyFile: body.noHead });
-  bad('female-set-on-male-body', 'seidraven', 'female', {}, /seidraven\/female: the body GLB is not a legacy-female-v1 body/, { bodyFile: body.male });
-  bad('male-set-on-female-body', 'emberrage', 'male', {}, /emberrage\/male: the body GLB is not a wov-male-v1 body/, { bodyFile: body.female });
+  // Seidraven's hood REPLACES Head (unlike Plainhide, which leaves it free): a body with no Head mesh at all then
+  // fails the ordinary "hides exactly its registered regions" check (0 hidden, 1 expected), not a free-region check.
+  bad('female-body-without-head', 'seidraven', 'female', {}, /seidraven\/seidraven_female_hood must hide exactly its 1 registered regions/, { bodyFile: body.noHead });
+  // Male and the game's female body now share one skeleton (same names, same bone count): the bone SHAPE no
+  // longer tells them apart, only their segmented body meshes' names do ("..._Male_00" vs. "..._Female_00", see
+  // GAME_FEMALE_BONES above and the mesh-name check in skin-gate.mjs) -- unlike the retired legacy body, which used
+  // entirely different bone names and so was distinguishable that way too. Nachbesserung N1 (Angriff B3): these two
+  // cases were dropped when the profile rename first made them wrongly PASS; restored now that the gate checks the
+  // body's mesh names as well as its bones.
+  bad('female-set-on-male-body', 'plainhide', 'female', {}, /plainhide\/female: the body GLB is not a wov-female-v1 body/, { bodyFile: body.male });
+  bad('male-set-on-female-body', 'plainhide', 'male', {}, /plainhide\/male: the body GLB is not a wov-male-v1 body/, { bodyFile: body.female });
   bad('male-set-on-web-body', 'emberrage', 'male', {}, /emberrage\/male: the body GLB is not a wov-male-v1 body/, { bodyFile: body.web });
   bad('seidraven-needs-variant', 'seidraven', 'male', {}, /choose the body with --variant=male\|female/, { args: ['--family=seidraven'] });
   bad('unknown-family', 'wildwarden', 'male', {}, /Unknown armor family "nonsense"; the registry knows: .*seidraven.*emberrage.*plainhide.*gravethorn/, { args: ['--family=nonsense'] });
@@ -314,7 +339,9 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
     /plainhide_female_vest: the GLB replaces \[Head\] but the registry lists \[Torso\]/);
   bad('plainhide-boots-replace-hands', 'plainhide', 'male', swap('plainhide_male_boots', e => ({ ...e, replaces: 'HandLeft' })),
     /plainhide_male_boots: the GLB replaces \[HandLeft,HandLeft\] but the registry lists \[LegLeft,LegRight\]/);
-  bad('plainhide-body-has-no-free-regions', 'plainhide', 'female', {}, /plainhide\/female: the full set leaves 0 body triangles for the free regions \[Head,HandLeft,HandRight\]/, { bodyFile: body.noFree });
+  // A segmented body has no single "leaves 0 triangles for the free regions" message: each free region is checked
+  // on its own (M1 below), so a body missing all three fails on the first one checked, Head, same as its dedicated case.
+  bad('plainhide-body-has-no-free-regions', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has no body mesh: it is missing from the body/, { bodyFile: body.noFree });
   bad('gravethorn-hood-attachment', 'gravethorn', 'female', swap('gravethorn_female_hood', ({ replaces: _replaced, ...rest }) => ({ ...rest, attachment: true })),
     /gravethorn_female_hood: the GLB replaces \[\] but the registry lists \[Head\]/);
   // The web fit: right body and right profile, or refused.
@@ -327,12 +354,12 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   webBad('web-vest-replaces-head', 'plainhide', 'female', swap('plainhide_female_vest', e => ({ ...e, replaces: 'Head' })),
     /plainhide_female_vest: the GLB replaces \[Head\] but the registry lists \[Torso\]/, { bodyFile: body.web });
   webBad('web-flag-on-male-set', 'plainhide', 'male', {}, /--web: plainhide\/male has no separate web fit/, { bodyFile: body.web });
-  bad('web-fit-on-web-body-without-flag', 'plainhide', 'female', { web: true }, /plainhide\/female: the body GLB is not a legacy-female-v1 body/, { bodyFile: body.web });
+  bad('web-fit-on-web-body-without-flag', 'plainhide', 'female', { web: true }, /plainhide\/female: the body GLB is not a wov-female-v1 body \(63 bones\)/, { bodyFile: body.web });
   bad('web-and-unregistered', 'plainhide', 'female', { web: true }, /--web needs the registry/, { bodyFile: body.web, args: ['--web', '--unregistered'] });
 
   // M1: every free region on its own. A body that still has SOME free triangles or meshes is not enough.
-  bad('plainhide-game-body-lacks-head', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has no body triangles: it is missing from the body/, { bodyFile: body.noHead });
-  bad('plainhide-game-body-lacks-left-hand', 'plainhide', 'female', {}, /plainhide\/female: the free region HandLeft has no body triangles/, { bodyFile: body.noLeftHand });
+  bad('plainhide-game-body-lacks-head', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has no body mesh: it is missing from the body/, { bodyFile: body.noHead });
+  bad('plainhide-game-body-lacks-left-hand', 'plainhide', 'female', {}, /plainhide\/female: the free region HandLeft has no body mesh/, { bodyFile: body.noLeftHand });
   webBad('plainhide-web-body-lacks-head', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has no body mesh: it is missing from the body/, { bodyFile: body.webNoHead });
   webBad('plainhide-web-body-lacks-right-hand', 'plainhide', 'female', {}, /plainhide\/female: the free region HandRight has no body mesh/, { bodyFile: body.webNoRightHand });
   bad('plainhide-male-body-lacks-head', 'plainhide', 'male', {}, /plainhide\/male: the free region Head has no body mesh/, { bodyFile: body.maleNoHead });
@@ -374,12 +401,14 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   // parser boundary. Kept as a witness that the M1 fix below does not paper over it: still rejected, only now as
   // an unknown body mesh, same as any other unrecognized name.
   webBad('plainhide-web-head-multi-triangles-plain', 'plainhide', 'female', {}, /plainhide\/female: body mesh Chr_Head_Female_00_primitive0 does not name a known body region/, { bodyFile: join(scratch, 'web-head-multi-triangles-plain.glb') });
-  bad('plainhide-game-body-invisible', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=false, visibility=1\)/, { bodyFile: body.female, state: webState('isVisible', false, '') });
-  bad('plainhide-game-body-faded-out', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=true, visibility=0\)/, { bodyFile: body.female, state: webState('visibility', 0, '') });
+  // A segmented body has no single "free regions not visible after the full set" message either: each free region
+  // is checked on its own, so a state that hides every mesh fails on the first one checked, Head.
+  bad('plainhide-game-body-invisible', 'plainhide', 'female', {}, /plainhide\/female: the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_00: isEnabled=true, isVisible=false, visibility=1\)/, { bodyFile: body.female, state: webState('isVisible', false, '') });
+  bad('plainhide-game-body-faded-out', 'plainhide', 'female', {}, /plainhide\/female: the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_00: isEnabled=true, isVisible=true, visibility=0\)/, { bodyFile: body.female, state: webState('visibility', 0, '') });
   // F3: visibility must be a finite number; Infinity used to pass the literal `> 0` check.
   webBad('plainhide-web-head-infinite-visibility', 'plainhide', 'female', {}, /the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_00: isEnabled=true, isVisible=true, visibility=Infinity\)/, { bodyFile: body.web, state: webState('visibility', Infinity) });
-  bad('plainhide-game-body-infinite-visibility', 'plainhide', 'female', {}, /the free regions \[Head,HandLeft,HandRight\] are not visible after the full set \(body mesh Chr_Wikingerin_Body: isEnabled=true, isVisible=true, visibility=Infinity\)/, { bodyFile: body.female, state: webState('visibility', Infinity, '') });
-  bad('plainhide-game-body-partial-triangle', 'plainhide', 'female', {}, /plainhide\/female: the body mesh has 34 indices: it needs whole triangles/, { bodyFile: join(scratch, 'female-partial-triangle.glb') });
+  bad('plainhide-game-body-infinite-visibility', 'plainhide', 'female', {}, /plainhide\/female: the free region Head is not visible although no item replaces it \(mesh Chr_Head_Female_00: isEnabled=true, isVisible=true, visibility=Infinity\)/, { bodyFile: body.female, state: webState('visibility', Infinity, '') });
+  bad('plainhide-game-body-partial-triangle', 'plainhide', 'female', {}, /plainhide\/female: the free region Head has 4 indices in mesh Chr_Head_Female_00: it needs whole triangles/, { bodyFile: join(scratch, 'game-female-head-4.glb') });
   // Positive controls: initially disabled, then switched on by the mask code: PASS is right.
   for (const [name, variant, isWeb, bodyFile, match] of [['head-starts-disabled-web', 'female', true, body.web, 'Head'], ['body-starts-disabled-game', 'female', false, body.female, '']]) {
     writeSet(join(scratch, name), 'plainhide', variant, { web: isWeb });
@@ -442,7 +471,10 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
       assert.equal(report.identityExtras, LEGACY_FAMILIES.includes(c.family) ? 'legacy-exempt' : 'required', `${c.name}: identity extras mode`);
       // Each free region is proven on its own: one synthetic triangle (or mesh) per region.
       assert.deepEqual(report.freeRegionTriangles, Object.fromEntries(free.map(region => [region, 1])), `${c.name}: per-region free triangles`);
-      if (c.variant === 'female' && !c.web) {
+      // The triangle-partition fields only exist for the legacy monolithic body (Object.assign in skin-gate.mjs is
+      // conditional on it); driven by the report's own profile, so this reactivates itself if a family ever uses
+      // legacy-female-v1 again, instead of a variant/web check that assumed only the retired body could be female.
+      if (report.bodyProfile === 'legacy-female-v1') {
         const hidden = Object.values(report.hiddenBodyTrianglesPerItem);
         assert.equal(hidden.reduce((a, b) => a + b, 0), replaced.size, `${c.name}: the full set hides exactly its replaced regions`);
         assert.equal(report.bodyTriangles - replaced.size, free.length, `${c.name}: the free regions stay on the body`);
@@ -480,6 +512,20 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
   assert.notEqual(k1Negative.status, 0, 'k1-decoy-negative-case: the headless body must still fail for its own, unrelated reason');
   assert.match(k1Negative.err, /the free region Head has no body mesh: it is missing from the body/, 'k1-decoy-negative-case: the ordinary message still applies');
   assert.equal(mutatedCount(k1Negative.err), 0, 'k1-decoy-negative-case: the observer must genuinely have touched nothing');
+  // The stand-alone legacy check (legacy-female-armor.mjs) needs at least one registered family whose female variant
+  // still carries bodyProfile legacy-female-v1: the tool filters the registry for exactly that (its own line ~31),
+  // so with none left (the profile rename in the Wikingerin-71 card retired the last user, Plainhide/Seidraven/etc.
+  // all moved to wov-female-v1) it cannot run for ANY family name, not just these ones. Retired here the same way,
+  // general and not tied to one family: this reactivates itself the moment a family uses the profile again.
+  // Mirrors the tool's own filter exactly (its line ~31): an armor family (a "/" in datei), not a standalone
+  // cosmetic item such as leder_bh/leder_shorts, which still carry legacy-female-v1 on their own and are not armor
+  // sets (no family the tool could even be pointed at, no regions, not part of the export/registration pipeline).
+  const anyLegacyFemale = RUESTUNG.some(p => p.datei.includes('/') && p.bodyProfile === 'legacy-female-v1');
+  if (!anyLegacyFemale) {
+    console.log('SKIP legacy-female-armor.mjs: no registered family carries bodyProfile legacy-female-v1 any more '
+      + '(retired by the Wikingerin-71 profile rename, Bericht "Wikingerin 71 Rüstung" 2026-09-27) -- the tool cannot '
+      + 'run for any family while that holds, see its own guard at tools/armor/test/legacy-female-armor.mjs:31');
+  } else {
   // The stand-alone legacy check (legacy-female-armor.mjs) on a synthetic 51-bone body with six clips: it must prove every free
   // region too, and a failed run must not leave a report that still claims an exact mask.
   const legacyDir = writeSet(join(scratch, 'legacy-plainhide'), 'plainhide', 'female');
@@ -528,6 +574,7 @@ await import(pathToFileURL(process.env.WOV_ST_TARGET).href);
     legacyBad++;
   }
   console.log(`PASS legacy-female-armor.mjs: 2 bodies pass (complete; starts disabled), ${legacyBad} failing runs (missing region, invisible, faded out, unknown family, missing fit file) are rejected and leave no report`);
+  }
   console.log(`PASS skin gate: ${good} complete sets (${families.length} families; male, game female and web female fits) pass, ${bad_} deviations rejected with their own message`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });

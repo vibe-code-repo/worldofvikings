@@ -2,6 +2,17 @@
 
 Implemented in an isolated DEV worktree on its own branch. Deployed to the running DEV deployment on 2026-09-13 at approximately 13:58 UTC, code `6bbcc4d`, after merging the intervening DEV/Wildwarden fixes. No old production deployment, inventory grant, body-file replacement or account migration.
 
+**Retired since 27.09.2026.** The 51-bone `legacy-female-v1` body and fit described below is
+no longer the game's female body: no registered family (Seidraven, Emberrage, Plainhide,
+Gravethorn, Crowshade) carries that profile any more. The game's female figure moved to the
+71-bone canonical `wikingerin/WikingerinKoerper.glb`, `bodyProfile: wov-female-v1` — the same
+profile name the 63-bone authoring/web rig already used, the way `wov-male-v1` always spanned
+both rigs for the male figure. Every female set was re-exported onto the new body by joint-name
+matching (`tools/armor/export/export-armor.mjs`); see `tools/armor/README.md` for the current
+policy table and the tool that replaced the fitting steps below. This document is kept as a
+historical record of the 2026-09-13 deployment and the retired fitting method, not as the
+current state.
+
 ## One compatibility policy
 
 Every fitted armor definition now carries `bodyVariant` (`male` / `female`), `bodyProfile` (exact body/rig version), and `figure` (playable figure ID). `canWearArmor` is shared by request validation and rendering. A missing/unknown target fails closed for fitted equipment. The profile distinguishes the two incompatible female rigs; a female label alone is insufficient.
@@ -22,7 +33,7 @@ ItemShared, appearance definitions, catalog sets/parts and generated figure meta
 
 Character creation still sends its existing empty top/legs fields. The login grant (`grantStarterSet`, see `docs/equipment-set-catalog.md`) consumes the variant catalog and item IDs and delivers the Plainhide set that fits the figure to every new character. Do not trust client-supplied compatibility flags or use them instead of server-side item definitions.
 
-## Real female avatar fitting
+## Real female avatar fitting (retired 27.09.2026, kept for reference)
 
 Asset output: the `Female_Legacy_v1` folder of the Seidraven set in the authoring asset store.
 

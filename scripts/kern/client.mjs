@@ -594,6 +594,8 @@ export default [
   ['client', 'test/taa-reihenfolge.ts'],
   // Test flight: a click places while a prefab is chosen (Alt grabs), series switch, drag only past 4 px (8 touch) with grab offset; offline bytes unchanged.
   ['client', 'test/testflug-greifen.ts'],
+  // Test flight shows the deletion-lock hint: PATCH answers (200/202) and the publish carry `loeschsperre`; the HUD line says how many are held back and to confirm in the map editor (de/en); no field, no hint.
+  ['client', 'test/testflug-loeschsperre.ts'],
   // Offline-flight module (moved out of main.ts): what stays true afterwards.
   ['client', 'test/testflug-modul.ts'],
   // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.

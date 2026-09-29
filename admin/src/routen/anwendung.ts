@@ -22,7 +22,7 @@
  * (Z3 N3, C3: ein zweites Feld war ein toter Doppelgänger). Bei 202 steht der Text in `message`.
  *
  * Speichern ohne Änderung (gleicher Hash wie vorher, `vorherHash`): 200 mit `unveraendert: true` und Zähler 0,
- * nicht die Zähler der vorigen Quittung; eine offene Sperre steht auch dort (, Z3 Folgen C2).
+ * nicht die Zähler der vorigen Quittung; eine offene Sperre steht auch dort (`loeschsperre`, Z3 Folgen C2).
  *
  * Die Datei ist geschrieben, egal was hier herauskommt: 202 heißt nie „nicht
  * gespeichert“. Eine Quittung zählt nur mit dem Hash der eigenen Bytes.

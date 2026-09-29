@@ -14,7 +14,7 @@
 ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A5_22.5-5FA04E?logo=nodedotjs&logoColor=white)
 ![Status](https://img.shields.io/badge/status-early_access-C9A227)
 
-[**▶ Play / Spielen**](https://world-of-vikings.com) ·
+[**▶ Play / Spielen**](https://world-of-mmorpg.com) ·
 [🇬🇧 English](#-english) ·
 [🇩🇪 Deutsch](#-deutsch) ·
 [Developer guide](docs/getting-started.md)
@@ -191,5 +191,5 @@ schreiben wir auf Englisch und Deutsch.
 ---
 
 <div align="center">
-<sub><a href="https://world-of-vikings.com">world-of-vikings.com</a></sub>
+<sub><a href="https://world-of-mmorpg.com">world-of-mmorpg.com</a></sub>
 </div>

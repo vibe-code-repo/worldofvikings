@@ -37,9 +37,19 @@
  * Schritts — sie soll ohne Editor-Fenster nachvollziehbar und prüfbar
  * bleiben, nicht in einer Klick-Behandlung stecken.
  */
-import { sanitizeWorldLayout, type WorldLayout } from '@wov/shared';
+import { sanitizeWorldLayout, sanitizeWorldLayoutMitBericht, type WorldLayout } from '@wov/shared';
 import { platzierungenFehler, platzierungenFehlerText, type PlatzierungsFehler } from '@wov/shared/src/worldlayout/sanitize.js';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
+
+function sichereSprache(locale?: string): string {
+  if (locale) return locale;
+  try {
+    return localStorage.getItem('wov-language') ?? 'de';
+  } catch {
+    return 'de';
+  }
+}
 
 /**
  * Der Entwurfsschlüssel. Er hiess schon immer so und heisst weiter so:
@@ -239,7 +249,7 @@ export function leeresLayout(): WorldLayout {
  * sowieso braucht, und stammt im Betriebsdienst aus derselben Konstante
  * `INSTANZ` — dieselbe Wahrheit, ein Rundlauf weniger.
  */
-export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<ServerStand> {
+export async function holeWeltdokument(fetchFn: typeof fetch = fetch, locale?: string): Promise<ServerStand> {
   let antwort: Response;
   try {
     antwort = await fetchFn('/api/worldlayout', {
@@ -268,6 +278,11 @@ export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<S
     datei?: string;
     hash?: unknown;
     layout?: unknown;
+    heightProblem?: unknown;
+    fehlerhaftHoehe?: unknown;
+    anzahlFehlerhaftHoehe?: unknown;
+    fehlerhaft?: unknown;
+    anzahlFehlerhaft?: unknown;
   };
   try {
     daten = JSON.parse(roh) as typeof daten;
@@ -280,6 +295,10 @@ export async function holeWeltdokument(fetchFn: typeof fetch = fetch): Promise<S
     };
   }
 
+  if (antwort.status === 422) {
+    const hoehenText = heightResponseMessage(daten as Record<string, unknown>, sichereSprache(locale));
+    return { erreichbar: false, grund: hoehenText ?? daten.message ?? `HTTP ${antwort.status}` };
+  }
   if (!antwort.ok || daten.ok === false) {
     return { erreichbar: false, grund: daten.message ?? `HTTP ${antwort.status}` };
   }
@@ -392,7 +411,8 @@ export type SchreibAntwort =
 export async function schreibeWeltdokument(
   layout: WorldLayout,
   basis: string | null,
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch = fetch,
+  locale?: string
 ): Promise<SchreibAntwort> {
   const kopf: Record<string, string> = { 'Content-Type': 'application/json' };
   const b = hashNormalisieren(basis);
@@ -421,6 +441,10 @@ export async function schreibeWeltdokument(
     zaehler?: unknown;
     fehlerhaft?: unknown;
     anzahlFehlerhaft?: unknown;
+    art?: unknown;
+    heightProblem?: unknown;
+    fehlerhaftHoehe?: unknown;
+    anzahlFehlerhaftHoehe?: unknown;
   } = {};
   try {
     d = JSON.parse(await antwort.text()) as typeof d;
@@ -441,6 +465,10 @@ export async function schreibeWeltdokument(
   // was sicher ist.
   if (antwort.status === 428) {
     return { art: 'basis-fehlt', message: BASIS_VERLANGT };
+  }
+  if (antwort.status === 422) {
+    const hoehenText = heightResponseMessage(d as Record<string, unknown>, sichereSprache(locale));
+    if (hoehenText) return { art: 'fehler', message: hoehenText };
   }
   if (antwort.status === 422 && d.fehler === 'zu-viele-platzierungen') {
     const anzahl = Number(d.anzahl);
@@ -489,13 +517,15 @@ export async function schreibeWeltdokument(
         ? ` — ACHTUNG: ${verworfen} Eintrag/Einträge vom Betriebsdienst verworfen` +
           (jeFeld.length > 0 ? ` (${jeFeld.join(', ')})` : '')
         : '';
+    const hoehenText = heightResponseMessage(d as Record<string, unknown>, sichereSprache(locale));
+    const detail = typeof d.detail === 'string' ? d.detail : null;
     return {
       art: 'ok',
-      message: (d.message ?? 'Gespeichert') + hinweis,
+      message: (d.message ?? 'Gespeichert') + (hoehenText ? ` — ${hoehenText}` : '') + hinweis,
       hash: hashNormalisieren(d.hash) ?? hashNormalisieren(antwort.headers?.get('ETag')),
       angewendet: typeof d.angewendet === 'boolean' ? d.angewendet : null,
       grund: typeof d.grund === 'string' ? d.grund : null,
-      detail: typeof d.detail === 'string' ? d.detail : null,
+      detail: hoehenText ? `${hoehenText}${detail ? ` ${detail}` : ''}` : detail,
       zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
     };
   }
@@ -666,6 +696,55 @@ export function vergleiche(server: WorldLayout, entwurf: WorldLayout): Unterschi
     });
   }
 
+  // Handkorrektur (heightDeltas, T1/N1/N2, Angriffsbefunde B7/N2): Ohne diese
+  // Zeile sah der Vergleich einen Entwurf, der die Korrekturebene verloren
+  // hat (etwa ein alter Entwurf von vor der Karte), als unauffällig an —
+  // "Regionen 1/1, Platzierungen 0/0" und sonst nichts, das Speichern hätte
+  // die Korrektur ohne Warnung gelöscht.
+  //
+  // `schwer` gilt INHALTLICH (Angriffsbefund N2), nicht nach Punktzahl: Ein
+  // Punkt (Zone + Rasterposition), den der SERVER hat und der Entwurf NICHT
+  // oder mit einem ANDEREN Delta — das ist der Fall, gegen den B7 schützen
+  // soll, auch wenn der Entwurf zufällig gleich viele oder mehr Punkte hat
+  // (eine fremde Zone gleicher Größe hätte die reine Punktzahl-Regel aus T1
+  // N1 nicht erkannt). Reines Hinzufügen (neue Punkte, die der Server nicht
+  // hat) und reines Umsortieren zählen NICHT als schwer — beide ändern an
+  // den Schlüsseln des Vergleichs (Zone+Position → Delta) nichts, was der
+  // Server bereits hatte.
+  const hoehenPunkte = (l: WorldLayout): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const z of l.heightDeltas ?? []) {
+      for (const zeile of z.r) {
+        const teile = zeile.split('|');
+        if (teile.length !== 3) continue;
+        const ry = teile[0]!;
+        const rx = teile[1]!.length > 0 ? teile[1]!.split(',') : [];
+        const delta = teile[2]!.length > 0 ? teile[2]!.split(',') : [];
+        const n = Math.min(rx.length, delta.length);
+        for (let k = 0; k < n; k++) m.set(`${z.zx},${z.zz},${ry},${rx[k]}`, Number(delta[k]));
+      }
+    }
+    return m;
+  };
+  const sHoehe = hoehenPunkte(server);
+  const eHoehe = hoehenPunkte(entwurf);
+  let hoeheVerlorenOderGeaendert = false;
+  for (const [schluessel, wert] of sHoehe) {
+    if (eHoehe.get(schluessel) !== wert) {
+      hoeheVerlorenOderGeaendert = true;
+      break;
+    }
+  }
+  if (sHoehe.size !== eHoehe.size || hoeheVerlorenOderGeaendert) {
+    zeilen.push({
+      art: 'zeile',
+      feld: 'Handkorrektur (Rasterpunkte)',
+      server: String(sHoehe.size),
+      entwurf: String(eHoehe.size),
+      schwer: hoeheVerlorenOderGeaendert,
+    });
+  }
+
   // Regionen namentlich: Zahlen allein verschleiern den Fall „eine
   // gelöscht, eine neu" — der Zähler bleibt gleich, die Welt nicht.
   const sRegionen = new Map(server.regions.map((r) => [r.id, JSON.stringify(r)]));
@@ -710,15 +789,21 @@ export function alter(iso: string): string {
  * Eintrag weg, unbekannter Schlüssel → Feld weg). Der Editor zeigt die Liste und lässt den Nutzer entscheiden, ob er
  * bereinigt importiert (N4); ohne Fehler geht es wie bisher. `layout` ist null bei Nicht-JSON oder ungültigem Dokument.
  */
-export function importPruefen(text: string): { layout: WorldLayout | null; fehlerhaft: PlatzierungsFehler[] } {
+export function importPruefen(text: string, locale?: string): { layout: WorldLayout | null; fehlerhaft: PlatzierungsFehler[]; message?: string } {
   let roh: unknown;
   try {
     roh = JSON.parse(text);
   } catch {
     return { layout: null, fehlerhaft: [] };
   }
-  const layout = sanitizeWorldLayout(roh);
-  if (!layout) return { layout: null, fehlerhaft: [] };
+  const report = sanitizeWorldLayoutMitBericht(roh);
+  if (!report) return { layout: null, fehlerhaft: [] };
   const fehlerhaft = typeof roh === 'object' && roh !== null && !Array.isArray(roh) ? platzierungenFehler((roh as { placements?: unknown }).placements) : [];
-  return { layout, fehlerhaft };
+  // Import must not offer a sanitized-away correction as an editable replacement.
+  // Placement-only cleanup remains the existing explicit user decision.
+  if (report.heightProblem) return {
+    layout: null, fehlerhaft,
+    message: heightResponseMessage({ heightProblem: report.heightProblem, fehlerhaft }, sichereSprache(locale))!,
+  };
+  return { layout: report.layout, fehlerhaft };
 }

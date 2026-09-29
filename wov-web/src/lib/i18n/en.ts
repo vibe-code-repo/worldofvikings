@@ -89,7 +89,7 @@ export const en: Messages = {
      the markup, not here. */
   'hall.gate.eyebrow': 'The official World of Vikings site',
   'hall.gate.intro':
-    'world-of-vikings.com is the official browser game set in Midgard: Anglo-Saxons against Vikings, nine lands, five guardians. No download, no client — explore the world, build, endure. The map, the saga and the hall of fame all live on this site.',
+    'This is the official browser game set in Midgard: Anglo-Saxons against Vikings, nine lands, five guardians. No download, no client — explore the world, build, endure. The map, the saga and the hall of fame all live on this site.',
   'hall.gate.play_button': 'Play',
   'hall.gate.early_access_text':
     'Midgard is under construction. What gets built stays built — but rules, worlds and values may still change.',
@@ -828,9 +828,8 @@ export const en: Messages = {
   'legal.privacy.rights.heading': 'Your rights',
   'legal.privacy.rights.intro':
     'You have the right to access (Art. 15 GDPR), rectification (Art. 16), restriction of processing (Art. 18), data portability (Art. 20) and to object to processing based on legitimate interest (Art. 21). To use them, write to the email address in the legal notice.',
-  /* Deletion: this one paragraph is where account management (W3) makes the
-     switch once accounts can be deleted in the account page. Nothing else in
-     the text depends on it. */
+  /* Deletion: this one paragraph is the place account management (W3)
+     switched. Nothing else in the text depends on it. */
   'legal.privacy.rights.delete':
     'Erasure (Art. 17 GDPR): you can delete your account yourself, under “Account” on this website (password and your username as confirmation). This deletes your account and all your heroes, plus game state, inventory and your chests; your buildings stay behind without an owner. Your Thing posts stay in place so conversations remain readable; the author then shows as “Deleted hero”, detached from your account and hero. Reactions, subscriptions, notifications and your reports are deleted. Individual names may remain in the text of posts, for example in quotes; write to the e-mail address in the legal notice about those. The data disappears from backups after 30 days at the latest (see “Backups”).',
   'legal.privacy.rights.complaint':

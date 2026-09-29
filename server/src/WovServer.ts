@@ -10,6 +10,7 @@
 
 import { LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
   EVENT_INTERVAL_MS,
@@ -404,7 +405,7 @@ export class WovServer {
    */
   private readonly weltUmgebung: WeltUmgebung = {
     prefabName: (hash) => this.prefabs.getByHash(hash)?.name,
-    kreaturTrifft: (pos, dmg, r, weltId) => this.applyCreatureAttack(pos, dmg, r, weltId),
+    kreaturTrifft: (pos, dmg, r, weltId, target) => this.applyCreatureAttack(pos, dmg, r, weltId, target),
   };
 
   /**
@@ -992,6 +993,15 @@ export class WovServer {
     if (this.config.worldMode === 'layout') {
       const roh = readFileSync(this.config.worldLayoutPath, 'utf-8');
       this.worldLayoutRaw = JSON.parse(roh) as unknown;
+      // Validate before terrain creation and before the document is sent to peers.
+      // The on-disk correction is never rewritten or partially applied at boot.
+      const report = sanitizeWorldLayoutMitBericht(this.worldLayoutRaw);
+      if (report?.heightProblem) {
+        console.error(`[Welt] ${heightResponseMessage({ heightProblem: report.heightProblem }, process.env.WOV_LANGUAGE)}`);
+        const effective = { ...(this.worldLayoutRaw as Record<string, unknown>) };
+        delete effective.heightDeltas;
+        this.worldLayoutRaw = effective;
+      }
     }
     // Layout-Modus: Der detailSeed des Dokuments ist maßgeblich — das
     // Dokument definiert die Welt VOLLSTÄNDIG (Editor, MCP-Probe, Server
@@ -3858,7 +3868,7 @@ export class WovServer {
    * Dungeon an denselben Koordinaten — und er starb an einer Figur, die es
    * in seiner Welt nicht gibt.
    */
-  private applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId: string): void {
+  private applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId: string, target?: Vector3): void {
     // Ein Test greift ueber `as unknown as` hierher, und dort sieht tsc einen
     // fehlenden Parameter nicht: Ohne diese Zeile uebersprang der Weltfilter
     // unten JEDEN Peer, und ein Aufruf mit drei Argumenten traf still niemanden
@@ -3870,8 +3880,9 @@ export class WovServer {
     const r2 = radius * radius;
     for (const peer of this.net.getPeers()) {
       if (peer.worldId !== weltId) continue;
+      if (target && peer.position !== target) continue;
       const d = (peer.position.x - pos.x) ** 2 + (peer.position.z - pos.z) ** 2;
-      if (d > r2) continue;
+      if (!target && d > r2) continue;
       // Parade: Treffer im Fenster prallt ab. Kein Schaden, aber der
       // Spieler erfaehrt es — sonst sieht ein abgewehrter Treffer aus wie
       // ein Fehlschlag der Kreatur.
@@ -4949,7 +4960,13 @@ export class WovServer {
     this.adminCommands.register('kick', (peer, args) => {
       const name = args.join(' ').trim();
       if (!name) return { ok: false, active: false, message: 'Aufruf: kick <Name>' };
-      if (name === peer.name) {
+      // B1 (Nachbesserung Pruefung 4, Regression aus C3): Selbstschutz
+      // ueber das TATSAECHLICH GEFUNDENE Ziel, nicht ueber den rohen
+      // Namen — findPeerByName normalisiert (namenSchluessel), ein
+      // exakter String-Vergleich liess sich mit anderer Gross-/
+      // Kleinschreibung oder Leerzeichen umgehen ("kick boss" traf den
+      // Admin "Boss" vorher nicht als sich selbst).
+      if (this.net.findPeerByName(name) === peer) {
         return { ok: false, active: false, message: 'Dich selbst kannst du nicht werfen' };
       }
       const getroffen = this.net.kick(name);
@@ -4985,7 +5002,16 @@ export class WovServer {
         return { ok: false, active: false,
           message: 'Aufruf: bann <Name> [30m|2h|7d|dauerhaft] [Grund] | bann herkunft <Name> ... | bann liste' };
       }
-      if (name === peer.name) {
+      // B1 (Nachbesserung Pruefung 4, Regression aus C3): dieselbe
+      // Umstellung wie bei `kick` — ueber das gefundene Ziel, nicht ueber
+      // den rohen Namen. `peer` ist online, also findet `findPeerByName`
+      // ihn selbst, sobald der getippte Name (normalisiert) seinem
+      // eigenen entspricht — unabhaengig davon, ob `bann herkunft`
+      // gemeint ist oder ein Konto-/Spielerbann; `trifftAdmin` weiter
+      // unten schuetzt nur Konto-/Spielerbanns, KEINEN Herkunftsbann
+      // (Pruefung 4 §2: Admin "Boss" sperrte sich per "bann herkunft
+      // BOSS" dauerhaft selbst aus).
+      if (this.net.findPeerByName(name) === peer) {
         return { ok: false, active: false, message: 'Dich selbst kannst du nicht bannen' };
       }
 
@@ -5004,7 +5030,14 @@ export class WovServer {
       let wert: string;
       let kontoId: number | null = null;
       if (aufHerkunft) {
-        const ziel = this.net.getPeers().find((p) => p.name === name);
+        // C3: namenSchluessel statt `===`, wie kick und die Doppelnamen-
+        // Pruefung beim Anmelden jetzt auch. B2 (Nachbesserung Pruefung
+        // 4): Editor-Peers bleiben aussen vor, wie bei `findPeerByName`
+        // und `spieler entfernen` — sie heissen alle "Editor" und
+        // wuerden sonst reihenfolgeabhaengig statt dem Konto-Charakter
+        // getroffen.
+        const zielSchluessel = namenSchluessel(name);
+        const ziel = this.net.getPeers().find((p) => !p.nurEditor && namenSchluessel(p.name) === zielSchluessel);
         if (!ziel) {
           return { ok: false, active: false,
             message: `${name} ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen` };
@@ -5398,15 +5431,25 @@ export class WovServer {
         if (args.length === 0) {
           return { ok: false, active: false, message: 'Aufruf: spieler entfernen <name> [<name> …]' };
         }
-        const verbunden = new Set(this.net.getPeers().map((p) => p.name));
+        // D2 (Pruefung 3): namenSchluessel statt `===`, sonst meldet
+        // `spieler entfernen <andere Schreibung>` "Entfernt" fuer einen
+        // Online-Spieler, dessen Datensatz gleich danach beim naechsten
+        // Speichern/Trennen neu geschrieben wird — die Meldung war falsch,
+        // nicht der Zustand. Editor-Peers bleiben aussen vor: Sie heissen
+        // alle "Editor" und wuerden sonst jedes "spieler entfernen editor"
+        // auf "verbunden" ziehen, obwohl der Konto-Charakter "Editor"
+        // laengst offline ist.
+        const verbunden = new Set(
+          this.net.getPeers().filter((p) => !p.nurEditor).map((p) => namenSchluessel(p.name))
+        );
         const weg: string[] = [];
         const uebersprungen: string[] = [];
         for (const name of args) {
-          if (verbunden.has(name)) { uebersprungen.push(`${name} (verbunden)`); continue; }
+          const schluessel = namenSchluessel(name);
+          if (verbunden.has(schluessel)) { uebersprungen.push(`${name} (verbunden)`); continue; }
           // C5 (Pruefung 2): mehrere gespeicherte Treffer sind eine
           // Verwechslungsgefahr wie bei `admin add`/`bann` — nicht still den
           // ersten (aeltesten) loeschen, sondern melden und nichts tun.
-          const schluessel = namenSchluessel(name);
           const treffer = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === schluessel);
           if (treffer.length === 0) { uebersprungen.push(`${name} (unbekannt)`); continue; }
           if (treffer.length > 1) { uebersprungen.push(`${name} (nicht eindeutig)`); continue; }
@@ -6366,6 +6409,11 @@ const KREATUR_DROPS: Record<string, Array<[string, number, number, number]>> = {
   // long), so one more than the boar; the wolf drops what the boar drops.
   Kuh: [['RawMeat', 2, 3, 1]],
   Wolf: [['RawMeat', 1, 2, 1]],
+  // B9.6: same reason — no Feathers item exists in itemDefs.ts (only a
+  // decorative ITEM_DROP prefab of that name, not a carriable item), so the
+  // hen drops meat too. It is the smallest animal in the table (0.26 m),
+  // smaller than the boar's drop: exactly 1, always (chance 1, min=max=1).
+  Huhn: [['RawMeat', 1, 1, 1]],
   Neck: [['NeckTail', 1, 1, 0.75]],
   Skeleton: [['Coins', 2, 5, 0.6]],
   Draugr: [['Entrails', 1, 2, 1]],

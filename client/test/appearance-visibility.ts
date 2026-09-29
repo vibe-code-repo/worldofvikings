@@ -11,11 +11,14 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import { Bone } from '@babylonjs/core/Bones/bone';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { hiddenAppearance, hiddenAppearanceForFiles, equipmentSetCatalog, findItem, Inventory,
   encodeArmor, frisurMitGesicht, AUGENBRAUEN, PLAINHIDE_FREE_REGIONS, legacyFemaleRegionForBone } from '@wov/shared';
 import { armorFileForSkeleton, prepareLegacyFemaleBody, updateArmorVisibility } from '../src/player/armorVisibility.js';
 import { bodyRegionOfMeshName, type BodyRegion } from '../src/player/bodyRegions.js';
+import { faerbeHaar } from '../src/player/haarfarbe.js';
 
 const all = ['hair', 'beard', 'eyebrows'];
 assert.deepEqual([...hiddenAppearance([{}])], []);
@@ -41,6 +44,31 @@ inventory.load(inventory.serialize());
 assert.deepEqual(inventory.all[0].shared.hideAppearance, all, 'Restored inventory resolves current item policy');
 
 const engine = new NullEngine();
+{
+  const scene = new Scene(engine);
+  const shared = new PBRMaterial('hair__wovHairNeutralReference_0.932105', scene);
+  const tex = RawTexture.CreateRGBATexture(new Uint8Array([255, 255, 255, 255]), 1, 1, scene, false, false);
+  shared.albedoTexture = tex;
+  const first = CreateBox('first-hair', {}, scene);
+  const second = CreateBox('second-hair', {}, scene);
+  first.material = shared; second.material = shared;
+  faerbeHaar([first], '#6F593F', true);
+  faerbeHaar([second], '#9A9691', true);
+  assert.notEqual(first.material, second.material, 'two remote figures with different hair colors get isolated materials');
+  assert.notEqual(first.material, shared, 'first remote hair material is cloned away from the shared container material');
+  assert.notEqual(second.material, shared, 'second remote hair material is cloned away from the shared container material');
+  assert.equal((first.material as PBRMaterial).albedoTexture, tex, 'cloned first material keeps the neutral hair texture');
+  assert.equal((second.material as PBRMaterial).albedoTexture, tex, 'cloned second material keeps the neutral hair texture');
+  assert.notDeepEqual((first.material as PBRMaterial).albedoColor.asArray(), (second.material as PBRMaterial).albedoColor.asArray(),
+    'different palette choices stay different after neutral-reference compensation');
+  const local = CreateBox('local-hair', {}, scene);
+  const own = new PBRMaterial('local__wovHairNeutralReference_0.932105', scene);
+  own.albedoTexture = tex; local.material = own;
+  faerbeHaar([local], '#DED9D0', false);
+  assert.equal(local.material, own, 'local/avatar path keeps its already private material');
+  assert.equal(own.albedoTexture, tex, 'local/avatar path keeps the neutral hair texture');
+  scene.dispose();
+}
 for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   const scene = new Scene(engine);
   const head = CreateBox('Chr_Head_Male_00', {}, scene);
@@ -144,49 +172,63 @@ for (const kind of ['avatar', 'inventory-preview', 'web-preview']) {
   assert.equal(armorFileForSkeleton('R_LederBH', web), 'R_LederBH', 'the old leather pieces have no web fit');
 }
 
-// The 51-bone game figure is one mesh; Plainhide (eight regions) must leave head and hands visible and unmasked.
+// The retired 51-bone triangle-partition mask (shared/src/armorCompatibility.ts: no figure's armorBodyForFigure()
+// returns bodyProfile legacy-female-v1 any more) is kept, not deleted, in case a future body needs it again. Its
+// bone-to-region data mapping still stands on its own and is checked here; the gated activation itself is now a
+// documented no-op for every real figure name, also checked here, rather than exercised end to end (nothing left
+// produces the profile that used to unlock it).
 {
-  const scene = new Scene(engine);
   const REGIONS = ['Head', 'Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft', 'ArmLowerRight', 'HandLeft', 'HandRight', 'LegLeft', 'LegRight'];
   const BONE_OF: Record<string, string> = { Head: 'Head', Torso: 'Spine01', Hips: 'Hips', ArmUpperLeft: 'L_Upperarm', ArmUpperRight: 'R_Upperarm',
     ArmLowerLeft: 'L_Forearm', ArmLowerRight: 'R_Forearm', HandLeft: 'L_Hand', HandRight: 'R_Hand', LegLeft: 'L_Calf', LegRight: 'R_Calf' };
-  const skeleton = new Skeleton('legacy', 'legacy', scene);
-  const bones = ['Root', 'L_Thigh', ...REGIONS.map(region => BONE_OF[region]!)].map(name => new Bone(name, skeleton));
+  for (const region of REGIONS) assert.equal(legacyFemaleRegionForBone(BONE_OF[region]!), region, `retired body-bone data: ${region} bone`);
+  const scene = new Scene(engine);
+  const skeleton = new Skeleton('synthetic-retired-body', 'synthetic-retired-body', scene);
+  new Bone('L_Thigh', skeleton);
   const body = new Mesh('Chr_Wikingerin_Body', scene);
-  // One triangle per region, weighted fully to that region's bone: the mask sorts triangles by bone.
   const data = new VertexData();
-  data.positions = REGIONS.flatMap((_, r) => [0, r, 0, 1, r, 0, 0, r, 1]);
-  data.indices = REGIONS.flatMap((_, r) => [3 * r, 3 * r + 1, 3 * r + 2]);
-  data.matricesIndices = REGIONS.flatMap(region => Array(3).fill([bones.findIndex(b => b.name === BONE_OF[region]), 0, 0, 0]).flat());
-  data.matricesWeights = REGIONS.flatMap(() => Array(3).fill([1, 0, 0, 0]).flat());
+  data.positions = [0, 0, 0, 1, 0, 0, 0, 0, 1];
+  data.indices = [0, 1, 2];
+  data.matricesIndices = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  data.matricesWeights = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
   data.applyToMesh(body); body.skeleton = skeleton;
-  for (const region of REGIONS) assert.equal(legacyFemaleRegionForBone(BONE_OF[region]!), region, `test body: ${region} bone`);
-  prepareLegacyFemaleBody([body], 'wikingerin');
-  const visible = () => {
-    const indices = body.getIndices()!;
-    return REGIONS.filter((_, r) => Array.from(indices).some(i => Math.floor(i / 3) === r));
-  };
+  const before = Array.from(body.getIndices()!);
+  for (const figure of ['wikingerin', 'wikinger', 'no-such-figure']) prepareLegacyFemaleBody([body], figure);
+  updateArmorVisibility([body], ['plainhide/plainhide_female_vest']);
+  assert.deepEqual(Array.from(body.getIndices()!), before, 'retired mask: no figure unlocks it any more, the body stays untouched');
+  assert(body.isEnabled(), 'retired mask: never disables the body either');
+  scene.dispose();
+}
+
+// Today's segmented Wikingerin body (Chr_<Region>_Female_00, eleven meshes, one per region): masked purely by
+// mesh name, exactly like the male body already works (bodyRegionOfMeshName / updateArmorVisibility, no
+// partition mask involved). Plainhide (eight regions) must leave head and hands visible and unmasked.
+{
+  const scene = new Scene(engine);
+  const REGIONS = ['Head', 'Torso', 'Hips', 'ArmUpperLeft', 'ArmUpperRight', 'ArmLowerLeft', 'ArmLowerRight', 'HandLeft', 'HandRight', 'LegLeft', 'LegRight'] as const;
+  const meshes = new Map(REGIONS.map(region => [region, CreateBox(`Chr_${region}_Female_00`, {}, scene)]));
+  const all = [...meshes.values()];
+  const visible = () => REGIONS.filter(region => meshes.get(region)!.isEnabled());
   const plainhide = ['shoulders', 'vest', 'bracers', 'robe', 'boots'].map(key => `plainhide/plainhide_female_${key}`);
-  updateArmorVisibility([body], plainhide);
+  updateArmorVisibility(all, plainhide);
   assert.deepEqual(visible().sort(), [...PLAINHIDE_FREE_REGIONS].sort(), 'Plainhide masks eight regions and leaves head and hands');
-  assert(body.isEnabled(), 'the body mesh stays on for the free regions');
   const each: Record<string, string[]> = { shoulders: ['ArmUpperLeft', 'ArmUpperRight'], vest: ['Torso'], bracers: ['ArmLowerLeft', 'ArmLowerRight'], robe: ['Hips'], boots: ['LegLeft', 'LegRight'] };
   for (const [key, regions] of Object.entries(each)) {
-    updateArmorVisibility([body], [`plainhide/plainhide_female_${key}`]);
+    updateArmorVisibility(all, [`plainhide/plainhide_female_${key}`]);
     assert.deepEqual(REGIONS.filter(region => !visible().includes(region)).sort(), [...regions].sort(), `plainhide ${key} hides only its regions`);
   }
-  // A full Gravethorn set covers the whole figure, so the mesh is switched off; unequipping restores every triangle.
-  updateArmorVisibility([body], ['hood', 'vest', 'robe', 'shoulders', 'bracers', 'gloves', 'boots'].map(key => `gravethorn/gravethorn_female_${key}`));
-  assert.equal(visible().length, 0); assert(!body.isEnabled());
-  updateArmorVisibility([body], []);
-  assert.equal(visible().length, REGIONS.length); assert(body.isEnabled());
-  // Crowshade (seven pieces, all eleven regions) is masked on the 51-bone figure like Gravethorn; without the mask the head stays.
+  // A full Gravethorn set covers the whole figure, so every region mesh is switched off; unequipping restores all.
+  updateArmorVisibility(all, ['hood', 'vest', 'robe', 'shoulders', 'bracers', 'gloves', 'boots'].map(key => `gravethorn/gravethorn_female_${key}`));
+  assert.equal(visible().length, 0, 'Gravethorn masks every region of the segmented body');
+  updateArmorVisibility(all, []);
+  assert.equal(visible().length, REGIONS.length, 'unequip restores every region');
+  // Crowshade (seven pieces, all eleven regions) is masked like Gravethorn; without the hood only the head stays.
   const crowshade = ['hood', 'vest', 'robe', 'shoulders', 'bracers', 'gloves', 'boots'].map(key => `crowshade/crowshade_female_${key}`);
-  updateArmorVisibility([body], crowshade);
-  assert.equal(visible().length, 0, 'Crowshade masks every region of the 51-bone figure'); assert(!body.isEnabled());
-  updateArmorVisibility([body], crowshade.filter(file => !file.endsWith('_hood')));
-  assert.deepEqual(visible(), ['Head'], 'without the mask only the head stays visible');
-  updateArmorVisibility([body], []);
+  updateArmorVisibility(all, crowshade);
+  assert.equal(visible().length, 0, 'Crowshade masks every region of the segmented body');
+  updateArmorVisibility(all, crowshade.filter(file => !file.endsWith('_hood')));
+  assert.deepEqual(visible(), ['Head'], 'without the hood mask only the head stays visible');
+  updateArmorVisibility(all, []);
   assert.equal(visible().length, REGIONS.length);
   scene.dispose();
 }

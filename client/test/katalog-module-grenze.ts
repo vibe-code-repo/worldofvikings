@@ -15,9 +15,17 @@
  *     `client/src/editor/GegenstandsKatalog.ts` and inside `katalog/` itself.
  *  2. Nothing imports `GegenstandsKatalog.ts` statically as a value. Allowed:
  *     `import type` and `import('./GegenstandsKatalog')`.
+ *  2b. Every `import()` of `GegenstandsKatalog.ts` stands in the body of a
+ *     function, so it runs when that function is called. At module level it
+ *     runs while the importing module loads and is a violation, also with
+ *     `void`, with a top-level `await` or with `.then(…)`. The rule names no
+ *     file and no line.
  *  3. No file under `katalog/` imports `GegenstandsKatalog.ts` as a value,
  *     not even dynamically.
  *  4. Behaviour of the moved functions and of the derived lists.
+ *  5. There is no symbolic link under `client/src`. The scanner follows none:
+ *     it does not enter a linked folder, and an import through a link
+ *     resolves to the path of the link, not to the file behind it.
  *
  * What counts as a value import: `import … from`, `import '…'`,
  * `export … from`, `import x = require('…')`, `import('…')`, `require('…')`,
@@ -28,17 +36,44 @@
  * import on purpose: whether the statement survives the build depends on
  * compiler options, and the boundary must not.
  *
- * Section [0] proves first that the scanner can turn red: it runs the same
- * rules over synthetic sources, one per import form.
+ * What counts as the body of a function (rule 2b): the body of a function, of
+ * an arrow function, of a method, of a constructor and of an accessor.
+ * Everything else counts as module level, in places stricter than needed: a
+ * class field, a `static` block, a decorator, a computed name and the default
+ * of a parameter.
  *
- * Limit: the test pins the FORM of the imports, not the moment of the
- * dynamic one. An `await import('./GegenstandsKatalog')` placed before the
- * registrations would pass here.
+ * Section [0] proves first that the scanner can turn red: it runs the same
+ * rules over synthetic sources, one per import form. Section [0b] does the
+ * same for the search for symbolic links, in a temporary folder.
+ *
+ * Known limits:
+ *  - Rule 2b sees where an `import()` STANDS, not when its function is
+ *    CALLED. A function that is called at module level passes: a function
+ *    invoked on the spot, a callback handed to `then` or `setTimeout`, a
+ *    function that a glob without `eager` hands out.
+ *  - A path that is computed completely (`const p = …; import(p)`) is not
+ *    read. Read are a string, a template (`${…}` stands for any text), a
+ *    concatenation and a tagged template (by its text, the tag is not run).
+ *  - An alias (`paths` in a tsconfig, `resolve.alias` in the Vite config) is
+ *    not resolved.
+ *  - A query counts as a value import, also `?url`, which does not evaluate
+ *    the module. That is stricter than needed.
  *
  * Run (from client/): npx tsx test/katalog-module-grenze.ts
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, relative, resolve, sep } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { ITEM_DEFS, PREFAB_DEFS, isRenderable } from '@wov/shared';
@@ -94,7 +129,14 @@ interface Reference {
   readonly typeOnly: boolean;
   /** Loaded when the statement RUNS (`import()`, a glob without `eager`), not when the importing module loads. */
   readonly dynamic: boolean;
+  /** The statement stands in the body of a function: it runs when the function is called, not while the module loads. */
+  readonly inFunctionBody: boolean;
   readonly target: Target;
+}
+
+interface Link {
+  readonly path: string;
+  readonly target: string;
 }
 
 function isInside(dir: string, path: string): boolean {
@@ -116,11 +158,51 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
+ * Every symbolic link under `dir`, and the number of entries looked at. A linked folder is reported
+ * and not entered, so a link to an ancestor cannot hang the walk.
+ */
+function scanLinks(dir: string): { readonly links: readonly Link[]; readonly entries: number } {
+  const links: Link[] = [];
+  let entries = 0;
+  const walk = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      entries++;
+      const path = resolve(folder, entry.name);
+      if (entry.isSymbolicLink()) links.push({ path, target: readlinkSync(path) });
+      else if (entry.isDirectory()) walk(path);
+    }
+  };
+  walk(dir);
+  links.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return { links, entries };
+}
+
+/** The links as text, each path relative to `root`. */
+const describeLinks = (root: string, links: readonly Link[]): string =>
+  links.map((link) => `${relative(root, link.path).split(sep).join('/')} -> ${link.target}`).join(' | ');
+
+/**
+ * Whether `node` stands in the body of a function. Only the body counts: a decorator, a computed
+ * name and the default of a parameter belong to the node of the function too, and the first two run
+ * where the function is declared.
+ */
+function isInFunctionBody(node: ts.Node): boolean {
+  let child = node;
+  for (let parent = node.parent; parent && !ts.isSourceFile(parent); parent = parent.parent) {
+    if (ts.isFunctionLike(parent) && 'body' in parent && parent.body === child) return true;
+    child = parent;
+  }
+  return false;
+}
+
+/**
  * Static text of a specifier expression, with {@link ANY} for every part that
  * is only known at run time. `null` when nothing at all is static.
  */
 function specifierText(node: ts.Expression): string | null {
   if (ts.isStringLiteralLike(node)) return node.text;
+  // A tagged template (String.raw`./katalog/x`) is read by the text of its template. The tag is not run.
+  if (ts.isTaggedTemplateExpression(node)) return specifierText(node.template);
   if (ts.isTemplateExpression(node)) {
     return node.head.text + node.templateSpans.map((span) => ANY + span.literal.text).join('');
   }
@@ -129,7 +211,13 @@ function specifierText(node: ts.Expression): string | null {
     const right = specifierText(node.right) ?? ANY;
     return left === ANY && right === ANY ? null : left + right;
   }
-  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node)) {
+  if (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isNonNullExpression(node)
+  ) {
     return specifierText(node.expression);
   }
   return null;
@@ -228,8 +316,10 @@ function referencesIn(file: string, text: string, katalogFiles: readonly string[
   const add = (node: ts.Node, form: Form, specifier: string | null, typeOnly: boolean, dynamic = false): void => {
     if (specifier === null) return;
     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+    const inFunctionBody = isInFunctionBody(node);
     for (const target of targetsOf(file, specifier, katalogFiles, form === 'import.meta.glob')) {
-      out.push({ file, line, form, specifier: specifier.split(ANY).join('${…}'), typeOnly, dynamic, target });
+      const shown = specifier.split(ANY).join('${…}');
+      out.push({ file, line, form, specifier: shown, typeOnly, dynamic, inFunctionBody, target });
     }
   };
   const visit = (node: ts.Node): void => {
@@ -281,8 +371,10 @@ function referencesIn(file: string, text: string, katalogFiles: readonly string[
 
 // ── Rules ──────────────────────────────────────────────────────────────
 
+type Rule = 1 | 2 | '2b' | 3;
+
 interface Violation {
-  readonly rule: 1 | 2 | 3;
+  readonly rule: Rule;
   readonly reference: Reference;
 }
 
@@ -297,6 +389,8 @@ function violationsOf(references: readonly Reference[]): Violation[] {
       out.push({ rule: 3, reference });
     } else if (!reference.dynamic) {
       out.push({ rule: 2, reference });
+    } else if (reference.form === 'import()' && !reference.inFunctionBody) {
+      out.push({ rule: '2b', reference });
     }
   }
   return out;
@@ -311,6 +405,7 @@ const files = existsSync(SRC) ? sourceFiles(SRC) : [];
 const katalogFiles = files.filter((file) => isInside(KATALOG_DIR, file));
 const references = files.flatMap((file) => referencesIn(file, readFileSync(file, 'utf-8'), katalogFiles));
 const violations = violationsOf(references);
+const linkScan = existsSync(SRC) ? scanLinks(SRC) : { links: [], entries: 0 };
 
 // ── [0] Teeth: every import form, against the same rules ───────────────
 
@@ -319,7 +414,7 @@ console.log('── [0] The scanner can turn red (synthetic sources) ──');
   const EDITOR_MAIN = 'src/editor/editorMain.ts';
   const MAIN = 'src/main.ts';
   const FORMAT = 'src/editor/katalog/format.ts';
-  const PROBES: ReadonlyArray<readonly [file: string, source: string, rules: readonly number[]]> = [
+  const PROBES: ReadonlyArray<readonly [file: string, source: string, rules: readonly Rule[]]> = [
     // rule 1: value imports of katalog/* outside GegenstandsKatalog.ts and katalog/
     [EDITOR_MAIN, `import { KATEGORIEN } from './katalog/kategorien';`, [1]],
     [EDITOR_MAIN, `import k from './katalog/kategorien.ts';`, [1]],
@@ -360,14 +455,55 @@ console.log('── [0] The scanner can turn red (synthetic sources) ──');
     [EDITOR_MAIN, `const o = { eager: true }; const m = import.meta.glob('./Gegenstands*.ts', o);`, [2]],
     [MAIN, `export * from './editor/GegenstandsKatalog.ts';`, [2]],
     [EDITOR_MAIN, `import type { GegenstandsKatalog } from './GegenstandsKatalog';`, []],
-    [EDITOR_MAIN, `void import('./GegenstandsKatalog');`, []],
+    [EDITOR_MAIN, `const open = () => import('./GegenstandsKatalog');`, []],
     [EDITOR_MAIN, `const m = import.meta.glob('./Gegenstands*.ts');`, []],
     [EDITOR_MAIN, `const m = import.meta.glob('./Gegenstands*.ts', { eager: false });`, []],
+    // rule 2b: an import() of GegenstandsKatalog.ts at module level
+    [EDITOR_MAIN, `void import('./GegenstandsKatalog');`, ['2b']],
+    [EDITOR_MAIN, `await import('./GegenstandsKatalog');`, ['2b']],
+    [EDITOR_MAIN, `const k = await import('./GegenstandsKatalog').then((m) => m);`, ['2b']],
+    [EDITOR_MAIN, `if (location.hash) { void import('./GegenstandsKatalog'); }`, ['2b']],
+    [EDITOR_MAIN, `export default import('./GegenstandsKatalog.ts');`, ['2b']],
+    [MAIN, `void import('./editor/GegenstandsKatalog');`, ['2b']],
+    // rule 2b: what counts as module level although it stands inside a class or a function node
+    [EDITOR_MAIN, `class A { static { void import('./GegenstandsKatalog'); } }`, ['2b']],
+    [EDITOR_MAIN, `class A { static k = import('./GegenstandsKatalog'); }`, ['2b']],
+    [EDITOR_MAIN, `class A { k = import('./GegenstandsKatalog'); }`, ['2b']],
+    [EDITOR_MAIN, `class A { @mark(import('./GegenstandsKatalog')) m() {} }`, ['2b']],
+    [EDITOR_MAIN, `class A { [(void import('./GegenstandsKatalog'), 'm')]() {} }`, ['2b']],
+    [EDITOR_MAIN, `function f(k = import('./GegenstandsKatalog')) { return k; }`, ['2b']],
+    // rule 2b: in the body of a function it is allowed
+    [EDITOR_MAIN, `btn.onclick = () => { void import('./GegenstandsKatalog'); };`, []],
+    [EDITOR_MAIN, `async function oeffne() { await import('./GegenstandsKatalog'); }`, []],
+    [EDITOR_MAIN, `class A { m() { return import('./GegenstandsKatalog'); } }`, []],
+    [EDITOR_MAIN, `class A { constructor() { void import('./GegenstandsKatalog'); } }`, []],
+    [EDITOR_MAIN, `class A { get k() { return import('./GegenstandsKatalog'); } }`, []],
+    [EDITOR_MAIN, `const o = { open: function () { return import('./GegenstandsKatalog'); } };`, []],
+    [EDITOR_MAIN, `function f() { if (location.hash) { for (;;) void import('./GegenstandsKatalog'); } }`, []],
+    [EDITOR_MAIN, `class A { k = () => import('./GegenstandsKatalog'); }`, []],
+    // rule 2b: a type position loads nothing, and the known limit (a function called at module level)
+    [EDITOR_MAIN, `type K = typeof import('./GegenstandsKatalog');`, []],
+    [EDITOR_MAIN, `(async () => { await import('./GegenstandsKatalog'); })();`, []],
     // rule 3: katalog/ never loads GegenstandsKatalog.ts
     [FORMAT, `import { GegenstandsKatalog } from '../GegenstandsKatalog';`, [3]],
     [FORMAT, `void import('../GegenstandsKatalog');`, [3]],
     [FORMAT, `const m = import.meta.glob('../Gegenstands*.ts');`, [3]],
     [FORMAT, `import type { GegenstandsKatalog } from '../GegenstandsKatalog';`, []],
+    [FORMAT, `function f() { return import('../GegenstandsKatalog'); }`, [3]],
+    // a tagged template is read by its text, the tag is not run
+    [EDITOR_MAIN, 'void import(String.raw`./katalog/kategorien`);', [1]],
+    [EDITOR_MAIN, 'const k = require(String.raw`./katalog/kategorien`);', [1]],
+    [EDITOR_MAIN, 'const name = "format"; void import(String.raw`./katalog/${name}`);', [1]],
+    [EDITOR_MAIN, 'void import(tag`./katalog/kategorien`);', [1]],
+    [EDITOR_MAIN, 'const u = new URL(String.raw`./GegenstandsKatalog.ts`, import.meta.url);', [2]],
+    [EDITOR_MAIN, 'void import(String.raw`./GegenstandsKatalog`);', ['2b']],
+    [FORMAT, 'function f() { return import(String.raw`../GegenstandsKatalog`); }', [3]],
+    [EDITOR_MAIN, 'const s = String.raw`./katalog/kategorien`;', []],
+    [EDITOR_MAIN, 'void import(String.raw`./katalogAnderes`);', []],
+    // a type around the path changes nothing
+    [EDITOR_MAIN, `void import('./katalog/kategorien' as string);`, [1]],
+    [EDITOR_MAIN, `void import('./katalog/kategorien' satisfies string);`, [1]],
+    [EDITOR_MAIN, `void import(<string>'./katalog/kategorien');`, [1]],
     // neither target, and text that only LOOKS like an import
     [EDITOR_MAIN, `import { DungeonSeite } from './DungeonKatalog';`, []],
     [EDITOR_MAIN, `import { x } from './katalogAnderes';`, []],
@@ -386,6 +522,37 @@ console.log('── [0] The scanner can turn red (synthetic sources) ──');
       found.join(',') === rules.join(','),
       `rules hit: ${found.join(',') || 'none'}, expected: ${rules.join(',') || 'none'}`,
     );
+  }
+}
+
+console.log('\n── [0b] The search for symbolic links can turn red (temporary folder) ──');
+{
+  const root = mkdtempSync(join(tmpdir(), 'katalog-module-grenze-'));
+  try {
+    mkdirSync(join(root, 'editor/katalog'), { recursive: true });
+    writeFileSync(join(root, 'editor/katalog/kategorien.ts'), 'export const KATEGORIEN = [];\n');
+    const probe = (name: string, expected: string): void => {
+      const { links, entries } = scanLinks(root);
+      const found = describeLinks(root, links);
+      check(name, found === expected, `found: ${found || 'none'}, expected: ${expected || 'none'}, ${entries} entries`);
+    };
+    probe('folders and files without a link: nothing found', '');
+    symlinkSync('editor/katalog', join(root, 'kk'));
+    probe('a linked folder is found and not entered', 'kk -> editor/katalog');
+    symlinkSync('katalog/kategorien.ts', join(root, 'editor/kat.ts'));
+    probe('a linked file is found', 'editor/kat.ts -> katalog/kategorien.ts | kk -> editor/katalog');
+    rmSync(join(root, 'kk'));
+    rmSync(join(root, 'editor/kat.ts'));
+    symlinkSync('..', join(root, 'editor/katalog/up'));
+    symlinkSync('missing.ts', join(root, 'editor/katalog/lost.ts'));
+    probe(
+      'a link to an ancestor ends the walk, a link to nothing is found too',
+      'editor/katalog/lost.ts -> missing.ts | editor/katalog/up -> ..',
+    );
+  } catch (error) {
+    check('the temporary folder with links could be built', false, error instanceof Error ? error.message : String(error));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -438,6 +605,22 @@ console.log('\n── [2] GegenstandsKatalog.ts is never imported statically as 
     found.length
       ? found.map(describe).join(' | ')
       : `${ofClass.length} references: ${ofClass.filter((r) => r.typeOnly).length} type-only, ${dynamic.length} dynamic`,
+  );
+}
+
+console.log('\n── [2b] Every import() of GegenstandsKatalog.ts stands in the body of a function ──');
+{
+  const calls = references.filter(
+    (r) => r.target === 'GegenstandsKatalog' && r.form === 'import()' && !isInside(KATALOG_DIR, r.file),
+  );
+  // Witness against an empty rule: there is such a call, and it stands in the body of a function.
+  const inBody = calls.filter((r) => r.inFunctionBody);
+  check('GegenstandsKatalog.ts is loaded with import() from the body of a function', inBody.length > 0, list(inBody));
+  const found = violations.filter((v) => v.rule === '2b');
+  check(
+    'no import() of GegenstandsKatalog.ts at module level',
+    found.length === 0,
+    found.length ? found.map(describe).join(' | ') : `${calls.length} import() calls, ${inBody.length} in a function body`,
   );
 }
 
@@ -551,6 +734,15 @@ if (kategorien) {
 
 // No check of the values: they are tuning. Loading without a browser is the point (no runtime import).
 await load('konstanten', () => import('../src/editor/katalog/konstanten'));
+
+// ── [5] Symbolic links ─────────────────────────────────────────────────
+
+console.log('\n── [5] No symbolic link under client/src ──');
+check(
+  'no symbolic link under client/src',
+  linkScan.entries > 0 && linkScan.links.length === 0,
+  linkScan.links.length ? describeLinks(CLIENT_ROOT, linkScan.links) : `${linkScan.entries} entries looked at`,
+);
 
 console.log('');
 if (failures === 0) {

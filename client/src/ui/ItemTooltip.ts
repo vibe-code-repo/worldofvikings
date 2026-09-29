@@ -95,8 +95,13 @@ function bauBox(): HTMLDivElement {
 }
 
 function beiBewegung(e: PointerEvent): void {
+  // A pointerup that never reached us (released outside the window, swallowed by a canvas handler) must not
+  // leave the tooltip off for good: no button down means no press.
+  if (gedrueckt && e.buttons === 0) gedrueckt = false;
   if (gedrueckt || e.pointerType === 'touch' || !kontext) return;
-  let el = e.target instanceof Element ? e.target : null;
+  // Not e.target: while the game canvas holds pointer capture (mouse look without pointer lock) every move is
+  // aimed at the canvas, however it lies over the hotbar. The element under the pointer is what counts.
+  let el = document.elementFromPoint(e.clientX, e.clientY);
   let bindung: Bindung | undefined;
   while (el && !(bindung = BINDUNGEN.get(el))) el = el.parentElement;
   const quelle = bindung?.holen() ?? null;

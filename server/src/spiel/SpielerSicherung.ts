@@ -50,13 +50,19 @@
  * spaeter geschriebener Weltspeicher verloren, und ein aelterer
  * Weltspeicher (z. B. nach einem Absturz) macht keinen Rueckschritt.
  *
- * Zeilen tragen die `welt_id` (Seed + Layout-Hash). Nach "Welt
- * zuruecksetzen" ohne Konten gehoeren sie einer anderen Welt und werden beim
- * Start ignoriert und geloescht — sonst kaemen alte Inventare in die neue
- * Welt.
+ * Zeilen tragen die `welt_id` (Seed + Modus, NICHT das Layout). Zeilen einer
+ * anderen Welt werden beim Start nur ignoriert, nie geloescht; geloescht wird
+ * ausschliesslich beim ausdruecklichen "Welt zuruecksetzen" (Admin-Dienst).
+ *
+ * ── Truhen und Bauten im selben Schreibvorgang (F8 N2) ───────────────
+ * `sichere` nimmt optional die geaenderten Behaelter-/Bau-ZDOs
+ * (spiel/WeltZdoSicherung.ts) mit und schreibt sie in DERSELBEN Transaktion
+ * wie die Spielerzeilen. Nach einem Kill stammen Inventar und Truhe damit vom
+ * selben Zeitpunkt: keine Verdopplung, kein Verlust.
  */
 import type { Kontendatenbank } from '../konto/Kontendatenbank.js';
 import type { SavedPlayer } from '../world/WorldManager.js';
+import type { WeltZdoAenderung } from './WeltZdoSicherung.js';
 
 /** Obergrenze des Verlustfensters ausserhalb von Ereignissen. Roadmap F8: unter einer Minute. */
 export const SPIELER_SICHERUNG_INTERVALL_MS = 30_000;
@@ -73,6 +79,8 @@ export function neuerAls(a: SavedPlayer | undefined, b: SavedPlayer | undefined)
 export interface SicherungsStatistik {
   laeufe: number;
   zeilen: number;
+  /** F8 N2: mitgeschriebene ZDO-Zeilen (Truhen, Bauten, Grabsteine). */
+  zdoZeilen: number;
   fehler: number;
   summeMs: number;
   maxMs: number;
@@ -86,7 +94,7 @@ export interface SicherungsLog {
 export class SpielerSicherung {
   /** spielerId -> serialisierter Stand (ohne Zeitstempel) des letzten ERFOLGREICHEN Schreibens. */
   private readonly zuletzt = new Map<string, string>();
-  private readonly zaehler: SicherungsStatistik = { laeufe: 0, zeilen: 0, fehler: 0, summeMs: 0, maxMs: 0 };
+  private readonly zaehler: SicherungsStatistik = { laeufe: 0, zeilen: 0, zdoZeilen: 0, fehler: 0, summeMs: 0, maxMs: 0 };
 
   constructor(
     private readonly db: Kontendatenbank,
@@ -100,17 +108,10 @@ export class SpielerSicherung {
   }
 
   /**
-   * Alle Staende dieser Welt aus der Tabelle. Fremde Welten werden dabei
-   * weggeraeumt; unlesbare Zeilen uebersprungen und gemeldet.
+   * Alle Staende dieser Welt aus der Tabelle. Zeilen anderer Welten bleiben
+   * unberuehrt (nur ignoriert); unlesbare Zeilen werden uebersprungen und gemeldet.
    */
   laden(): SavedPlayer[] {
-    let fremd = 0;
-    try {
-      fremd = this.db.spielerzustandFremdeWeltenLoeschen(this.weltId);
-    } catch (err) {
-      this.log.error(`[Spielerzustand] Aufraeumen fremder Welten fehlgeschlagen: ${err}`);
-    }
-    if (fremd > 0) console.log(`[Spielerzustand] ${fremd} Zeile(n) einer anderen Welt verworfen`);
     const staende: SavedPlayer[] = [];
     for (const z of this.db.spielerzustandLesen(this.weltId)) {
       try {
@@ -132,7 +133,7 @@ export class SpielerSicherung {
    * schmutzig). Wirft nie: Ein Fehler im Nebenweg darf den Tick und den
    * Stopp nicht reissen.
    */
-  sichere(staende: readonly SavedPlayer[], grund: string): number {
+  sichere(staende: readonly SavedPlayer[], grund: string, welt: WeltZdoAenderung | null = null): number {
     const zeilen: { spielerId: string; weltId: string; stand: number; daten: string }[] = [];
     const schluessel: [string, string][] = [];
     const stand = this.jetzt();
@@ -148,15 +149,16 @@ export class SpielerSicherung {
       });
       schluessel.push([s.spielerId, vergleich]);
     }
-    if (zeilen.length === 0) return 0;
+    const zdoZeilen = welt?.zeilen ?? [];
+    if (zeilen.length === 0 && zdoZeilen.length === 0) return 0;
 
     const t0 = performance.now();
     try {
-      this.db.spielerzustandSchreiben(zeilen);
+      this.db.zustandSchreiben(zeilen, zdoZeilen);
     } catch (err) {
       this.zaehler.fehler++;
       this.log.error(
-        `[Spielerzustand] SPIELER_SICHERUNG_FEHLER (${grund}, ${zeilen.length} Zeile(n)) — bleiben schmutzig: ${
+        `[Spielerzustand] SPIELER_SICHERUNG_FEHLER (${grund}, ${zeilen.length} Zeile(n), ${zdoZeilen.length} ZDO-Zeile(n)) — bleiben schmutzig: ${
           err instanceof Error ? (err.stack ?? err.message) : String(err)
         }`,
       );
@@ -164,14 +166,16 @@ export class SpielerSicherung {
     }
     const ms = performance.now() - t0;
     for (const [id, vergleich] of schluessel) this.zuletzt.set(id, vergleich);
+    welt?.erfolg();
+    this.zaehler.zdoZeilen += zdoZeilen.length;
     this.zaehler.laeufe++;
     this.zaehler.zeilen += zeilen.length;
     this.zaehler.summeMs += ms;
     this.zaehler.maxMs = Math.max(this.zaehler.maxMs, ms);
     if (ms > WARN_MS) {
-      this.log.warn(`[Spielerzustand] Sicherungslauf (${grund}) dauerte ${ms.toFixed(1)} ms fuer ${zeilen.length} Zeile(n)`);
+      this.log.warn(`[Spielerzustand] Sicherungslauf (${grund}) dauerte ${ms.toFixed(1)} ms fuer ${zeilen.length} Zeile(n) + ${zdoZeilen.length} ZDO-Zeile(n)`);
     }
-    return zeilen.length;
+    return zeilen.length + zdoZeilen.length;
   }
 
   /** Spieler hat die Verbindung verlassen: Merker freigeben (die Zeile bleibt). */

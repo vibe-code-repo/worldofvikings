@@ -104,6 +104,7 @@ import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleic
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { SpielerSicherung, SPIELER_SICHERUNG_INTERVALL_MS, neuerAls } from './spiel/SpielerSicherung.js';
+import { WeltZdoSicherung, ueberlagern as weltZdoUeberlagern } from './spiel/WeltZdoSicherung.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
@@ -600,6 +601,12 @@ export class WovServer {
   private spielerTimer: ReturnType<typeof setInterval> | null = null;
   /** F8: null bis init() (Unit-Tests ohne init). */
   private spielerSicherung: SpielerSicherung | null = null;
+  /** F8 N2: Behaelter-/Bau-ZDOs im selben Schreibvorgang wie der Spielerzustand. */
+  private weltZdoSicherung: WeltZdoSicherung | null = null;
+  /** Prefab-Hash -> ist Behaelter/Bauteil (persistent)? Nur fuer die ZDO-Sicherung. */
+  private readonly weltZdoRelevantCache = new Map<number, boolean>();
+  /** Welt-Kennung der Zustandszeilen (Seed + Modus), s. weltKennung(). */
+  private zustandWeltId = '';
   private zdoSyncAccumulator: number;
   /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
   private layoutWache: LayoutWache | null = null;
@@ -1169,12 +1176,17 @@ export class WovServer {
       this.config.worldGenVersion,
       this.worldLayoutHash()
     );
-    // F8: Welt-Kennung der Spielerzustands-Zeilen. Seed + Layout-Hash: nach
-    // "Welt zuruecksetzen" ohne Konten aendert sich (mindestens) der Hash,
-    // und die alten Zeilen gelten als fremd (s. SpielerSicherung).
-    this.spielerSicherung = new SpielerSicherung(
-      this.kontenDb,
-      `${this.config.worldSeed}|${this.worldLayoutHash() ?? ''}`
+    // F8: Welt-Kennung der Zustandszeilen: NUR Seed und Modus (radial/layout),
+    // nicht das Layout. Ein Layout-Speichern im Editor macht die Zeilen nicht
+    // zu "fremden" (F8-Angriff B2). Zeilen einer anderen Kennung werden beim
+    // Start ignoriert, nie geloescht; geloescht wird nur beim ausdruecklichen
+    // "Welt zuruecksetzen" (admin/src/routen/weltZuruecksetzen.ts).
+    this.zustandWeltId = WovServer.weltKennung(this.config.worldSeed, this.config.worldMode);
+    this.spielerSicherung = new SpielerSicherung(this.kontenDb, this.zustandWeltId);
+    this.weltZdoSicherung = new WeltZdoSicherung(
+      this.zustandWeltId,
+      (hash) => this.weltZdoRelevant(hash),
+      (id) => this.zdos.getZDOByKey(id),
     );
     this.loadWorld();
 
@@ -1658,9 +1670,14 @@ export class WovServer {
       void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
 
+    // F8 N2: Ausgangslage der Behaelter-/Bau-ZDOs (Weltspeicher + Zeilen sind
+    // geladen, Generatoren sind durch): ab hier zaehlt jede Aenderung.
+    this.weltZdoSicherung?.grundstand(this.zdos.getAllZDOs());
+
     // F8: Spielerzustand alle 30 s (write-behind), s. spiel/SpielerSicherung.ts.
+    // Behaelter- und Bau-ZDOs gehen im selben Takt und derselben Transaktion mit.
     this.spielerTimer = setInterval(() => {
-      this.sichereSpieler(this.net.getPeers(), 'takt');
+      this.sichereSpieler(this.net.getPeers(), 'takt', 'alle');
     }, this.config.spielerSicherungMs);
 
     return gebunden.then(
@@ -1712,7 +1729,7 @@ export class WovServer {
     // in der Liste). Scheitert sie, ist das laut, aber kein Grund, den
     // Stopp-Rueckgabewert zu aendern: der Weltspeicher traegt dieselben
     // Staende in players[] (S1: "Stopp immer mit Ende").
-    this.sichereSpieler(this.net.getPeers(), 'stopp');
+    this.sichereSpieler(this.net.getPeers(), 'stopp', 'alle');
     try {
       this.saveWorld();
     } catch (err) {
@@ -3058,6 +3075,8 @@ export class WovServer {
     zdo.setString('besitzer', peer.userId.toString());
     zdo.revision.reviseData();
     zdo.dirty = true;
+    // F8 N2: Material weg UND Bauteil da, im selben Schreibvorgang.
+    this.sichereSpielerSofort(peer, 'bauen', [zdo]);
     antwort(true, `${def.name} gebaut`);
   }
 
@@ -3110,6 +3129,8 @@ export class WovServer {
     const def = this.prefabs.getByHash(ziel.prefabHash);
     this.zdosVon(peer).destroyZDO(ziel.zdoid);
     // Halbe Materialkosten zurueck (je Zutat eine Meldung).
+    // F8 N2: der Grabstein des Bauteils geht zusammen mit dem zurueckgegebenen
+    // Material auf die Platte (unten, nach dem Zurueckgeben).
     if (peer.bautenAnzahl > 0) peer.bautenAnzahl--;
     const piece = Object.values(PIECES).find((p) => p.bauPrefab === def?.name);
     for (const r of piece?.resources ?? []) {
@@ -3123,6 +3144,7 @@ export class WovServer {
         w.writeInt32(menge);
       });
     }
+    this.sichereSpielerSofort(peer, 'abreissen', [ziel]);
   }
 
   /**
@@ -4576,6 +4598,9 @@ export class WovServer {
     ziel.setString(TRUHE_INHALT_MEMBER, packContainer(inv));
     ziel.revision.reviseData();
     ziel.dirty = true;
+    // F8 N2: Truhe und Inventar im selben Schreibvorgang — nach einem Kill
+    // weder Verdopplung (aus der Truhe genommen, dort wieder da) noch Verlust.
+    this.sichereSpielerSofort(peer, 'truhe', [ziel]);
     this.inventarSync(peer);
     this.sendeTruheInhalt(peer, ziel);
   }
@@ -5492,8 +5517,16 @@ export class WovServer {
           if (staged.addItem(findItem(part.item)!, 1)) return { ok: false, active: false, message: 'Nicht genug Platz für das vollständige Set; nichts verändert' };
           added++;
         }
-        if (target) { target.inventar.load(staged.serialize()); this.inventarSync(target); }
-        else record![1].inventar = staged.serialize();
+        if (target) { target.inventar.load(staged.serialize()); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
+        else {
+          // F8 N2 (B4): ein Eingriff an einem ABWESENDEN Spieler bekommt einen neuen
+          // Stempel und geht sofort in die Konten-SQLite: sonst gewinnt beim
+          // Neustart die aeltere Zeile mit dem Stempel vom Abmelden (oder der
+          // Eingriff fehlt nach einem Kill bis zum naechsten Weltspeichern).
+          record![1].inventar = staged.serialize();
+          record![1].gespeichertAm = Date.now();
+          this.spielerSicherung?.sichere([record![1]], 'admin');
+        }
         void this.saveWorldAsync();
         return { ok: true, active: false, message: `${name}: ${label} vollständig (7/7), ${added} neue Gegenstände. Sicherung angefordert.` };
       }
@@ -6305,15 +6338,71 @@ export class WovServer {
    * angemeldete Verbindungen nie: Sie tragen keine Figur und koennten die
    * spielerId eines echten Charakters teilen.
    */
-  private sichereSpieler(peers: readonly Peer[], grund: string): void {
+  private sichereSpieler(peers: readonly Peer[], grund: string, welt: 'alle' | readonly ZDO[] | null = null): void {
     if (!this.spielerSicherung) return;
     const staende = peers.filter((p) => p.authenticated && !p.nurEditor && p.spielerId).map((p) => this.spielerStand(p));
-    this.spielerSicherung.sichere(staende, grund);
+    // F8 N2: die geaenderten Behaelter-/Bau-ZDOs kommen in DERSELBEN Transaktion
+    // mit auf die Platte ('alle' = Vollabtastung im Takt, sonst nur die
+    // beruehrten ZDOs eines Ereignisses).
+    const zdoAenderung = !this.weltZdoSicherung || welt === null
+      ? null
+      : welt === 'alle'
+        ? this.weltZdoSicherung.abtasten(this.zdos.getAllZDOs())
+        : this.weltZdoSicherung.pruefe(welt);
+    this.spielerSicherung.sichere(staende, grund, zdoAenderung);
   }
 
   /** F8: Ereignis, das sofort auf die Platte muss (Ausruestung, Schlafplatz, ...). */
-  private sichereSpielerSofort(peer: Peer, grund: string): void {
-    this.sichereSpieler([peer], grund);
+  private sichereSpielerSofort(peer: Peer, grund: string, welt: readonly ZDO[] | null = null): void {
+    this.sichereSpieler([peer], grund, welt);
+  }
+
+  /**
+   * F8: Kennung der Welt fuer die Zustandszeilen. Nur Seed und Modus: Beides
+   * zusammen sagt "andere Welt"; das Layout aendert sich im Editor laufend
+   * und darf die Zeilen nicht entwerten.
+   */
+  static weltKennung(seed: string, modus: string): string {
+    return `${seed}|${modus}`;
+  }
+
+  /** F8 N2: ist ein ZDO dieses Prefabs ein persistenter Behaelter oder ein Bauteil? */
+  private weltZdoRelevant(prefabHash: number): boolean {
+    let r = this.weltZdoRelevantCache.get(prefabHash);
+    if (r === undefined) {
+      const def = this.prefabs.getByHash(prefabHash);
+      r = !!def && def.isPersistent() && (((def.flags & PrefabFlag.CONTAINER) !== 0n) || BAU_PREFABS.has(def.name));
+      this.weltZdoRelevantCache.set(prefabHash, r);
+    }
+    return r;
+  }
+
+  /**
+   * F8 N2: Zeilen der Tabelle `weltzdo` ueber die eben geladenen ZDOs legen
+   * (je ZDO gewinnt der neuere Stand, s. spiel/WeltZdoSicherung.ueberlagern).
+   */
+  private weltZdoAusKonto(): void {
+    let zeilen;
+    try {
+      zeilen = this.kontenDb.weltzdoLesen(this.zustandWeltId);
+    } catch (err) {
+      console.error(`[Weltzustand] Zeilen nicht lesbar: ${err}`);
+      return;
+    }
+    if (zeilen.length === 0) return;
+    const e = weltZdoUeberlagern(zeilen, this.zdos, ZDO);
+    console.log(
+      `[WoV] Weltzustand aus der Konten-SQLite: ${e.neu} neu, ${e.ersetzt} ersetzt, ${e.entfernt} entfernt, ${e.uebersprungen} nicht neuer als der Weltspeicher`
+    );
+  }
+
+  /** F8 N2: nach erfolgreichem Weltspeichern die Zeilen wegraeumen, die der Weltspeicher schon traegt. */
+  private weltZdoBereinigen(vorStand: number): void {
+    try {
+      this.kontenDb.weltzdoBereinigen(this.zustandWeltId, vorStand);
+    } catch (err) {
+      console.error(`[Weltzustand] Aufraeumen fehlgeschlagen (unkritisch): ${err}`);
+    }
   }
 
   /**
@@ -6328,6 +6417,7 @@ export class WovServer {
       // F8: auch ohne Weltdatei (Absturz vor dem ersten Weltspeichern) kann
       // die Konten-SQLite Spielerstaende halten.
       this.spielerstaendeAusKonto();
+      this.weltZdoAusKonto();
       return;
     }
 
@@ -6384,6 +6474,7 @@ export class WovServer {
       this.savedPlayers.set(schluessel, player);
     }
     this.spielerstaendeAusKonto();
+    this.weltZdoAusKonto();
 
     // Vegetation nachsetzen: gebackene y-Werte stammen aus dem Boden ZUM
     // GENERIERUNGSZEITPUNKT. Ändert sich der danach — Terrain-Modifier
@@ -6432,12 +6523,15 @@ export class WovServer {
   saveWorld(): void {
     if (!this.worldManager) return; // init() not run (unit tests)
 
+    const vorStand = Date.now();
     const aufnahme = this.momentaufnahme();
     const t0 = Date.now();
     this.worldManager.save({
       ...aufnahme.kopf,
       zdos: aufnahme.zdos.map((z) => z.toSnapshot()),
     });
+    // F8 N2: der Weltspeicher traegt jetzt alles bis `vorStand`.
+    this.weltZdoBereinigen(vorStand);
 
     console.log(
       `[WoV] World saved: ${aufnahme.zdos.length} persistent ZDOs, ` +
@@ -6487,6 +6581,7 @@ export class WovServer {
     try {
       const aufnahme = this.momentaufnahme();
       let uebersprungen = 0;
+      const vorStand = t0;
       await this.worldManager.saveAsync(aufnahme.kopf, {
         laenge: aufnahme.zdos.length,
         json: (i) => {
@@ -6498,6 +6593,10 @@ export class WovServer {
           return JSON.stringify(zdo.toSnapshot());
         },
       });
+      // F8 N2: Zeilen, die der Weltspeicher schon traegt, wegraeumen. STRIKT
+      // vor dem Beginn (t0): Was in derselben Millisekunde oder waehrend des
+      // Laufs geschrieben wurde, bleibt (beim Laden entscheidet die Revision).
+      this.weltZdoBereinigen(vorStand);
       console.log(
         `[WoV] World saved: ${aufnahme.zdos.length - uebersprungen} persistent ZDOs, ` +
           `${aufnahme.kopf.zones.length} zones, ${aufnahme.kopf.players.length} players ` +

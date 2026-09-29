@@ -454,6 +454,26 @@ try {
   const neu6b = JSON.parse(readFileSync(resolve(WELTEN, 'dev.json'), 'utf-8')) as { detailSeed: string };
   check('noch einmal seed neu: wieder ein anderer Seed', a6b.code === 200 && neu6b.detailSeed !== neu6.detailSeed, `${neu6.detailSeed} → ${neu6b.detailSeed}`);
 
+  // ── A6c. F8 N2: the running player/container state is deleted by the reset, and only by it ──
+  console.log('\n[A6c] Zustandstabellen (spielerzustand, weltzdo) ohne konten:');
+  fixturenSchreiben('dev');
+  kontenDb.exec(`
+    CREATE TABLE IF NOT EXISTS spielerzustand (spieler_id TEXT NOT NULL COLLATE NOCASE, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT NOT NULL, PRIMARY KEY (spieler_id, welt_id));
+    CREATE TABLE IF NOT EXISTS weltzdo (zdo_id TEXT NOT NULL, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT, PRIMARY KEY (zdo_id, welt_id));
+  `);
+  kontenDb.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('spieler-a', 'x|radial', 1, '{}');
+  kontenDb.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('spieler-b', 'y|layout', 2, '{}');
+  kontenDb.prepare('INSERT INTO weltzdo VALUES (?, ?, ?, ?)').run('1:5', 'x|radial', 1, '{}');
+  const bakVorher = readdirSync(KONTEN).filter((f) => f.endsWith('.bak')).length;
+  const a6c = await reset(port, { bestaetigung: 'dev', seed: 'behalten' });
+  const zaehle = (t: string) => (kontenDb!.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+  check('200 ohne konten', a6c.code === 200, `= ${a6c.code} ${a6c.text.slice(0, 200)}`);
+  check('spielerzustand und weltzdo sind leer (alle Welten)', zaehle('spielerzustand') === 0 && zaehle('weltzdo') === 0, `${zaehle('spielerzustand')} / ${zaehle('weltzdo')}`);
+  check('Konten und Charaktere unberuehrt (3 / 5)', zaehle('konten') === 3 && zaehle('charaktere') === 5);
+  check('vorher wurde eine .bak der Kontendatenbank gezogen', readdirSync(KONTEN).filter((f) => f.endsWith('.bak')).length > bakVorher, readdirSync(KONTEN).join(' '));
+  const a6d = await reset(port, { bestaetigung: 'dev', seed: 'behalten' });
+  check('leere Tabellen: noch ein Reset geht ohne Fehler, keine weitere .bak', a6d.code === 200 && readdirSync(KONTEN).filter((f) => f.endsWith('.bak')).length === bakVorher + 1, `= ${a6d.code}`);
+
   // ── A7. With accounts ────────────────────────────────────────────────
   console.log('\n[A7] konten: true:');
   fixturenSchreiben('dev');

@@ -175,6 +175,11 @@ export class ZDOManager {
 
   // ── ZDO Lookup ───────────────────────────────────────────────────
 
+  /** Lookup by the string key `ZDOID.toString()` (F8 N2: rows in the world-state table carry it). */
+  getZDOByKey(key: string): ZDO | undefined {
+    return this.objectsByID.get(key);
+  }
+
   getZDO(zdoid: ZDOID): ZDO | undefined {
     return this.objectsByID.get(zdoid.toString());
   }

@@ -356,15 +356,48 @@ export class Kontendatenbank {
     // F8: laufender Spielerzustand (write-behind, s. spiel/SpielerSicherung.ts).
     // Kein Fremdschluessel auf charaktere: Gaeste ohne Konto haben eine
     // spielerId und keine Kontozeile, und ihr Stand gehoert genauso
-    // gesichert. `welt_id` bindet die Zeile an die Welt, in der sie
-    // entstand — nach "Welt zuruecksetzen" ohne Konten bliebe sie sonst
-    // liegen und braechte alte Inventare in die neue Welt.
+    // gesichert. `welt_id` (Seed + Modus) bindet die Zeile an die Welt, in
+    // der sie entstand; Zeilen einer anderen Welt werden beim Start nur
+    // IGNORIERT, nie geloescht — geloescht wird ausschliesslich beim
+    // ausdruecklichen "Welt zuruecksetzen". Deshalb gehoert `welt_id` in den
+    // Schluessel: Eine Testwelt mit demselben Weltnamen darf die Zeile der
+    // dev-Welt nicht ueberschreiben.
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS spielerzustand (
-        spieler_id TEXT PRIMARY KEY COLLATE NOCASE,
+        spieler_id TEXT NOT NULL COLLATE NOCASE,
         welt_id    TEXT NOT NULL,
         stand      INTEGER NOT NULL,
-        daten      TEXT NOT NULL
+        daten      TEXT NOT NULL,
+        PRIMARY KEY (spieler_id, welt_id)
+      );
+    `);
+    // Stand vor N2: Schluessel nur spieler_id. Umbauen, Zeilen behalten.
+    const alteSpalten = this.db.prepare('PRAGMA table_info(spielerzustand)').all() as { name: string; pk: number }[];
+    if (alteSpalten.some((c) => c.name === 'welt_id' && c.pk === 0)) {
+      this.db.exec(`
+        ALTER TABLE spielerzustand RENAME TO spielerzustand_alt;
+        CREATE TABLE spielerzustand (
+          spieler_id TEXT NOT NULL COLLATE NOCASE,
+          welt_id    TEXT NOT NULL,
+          stand      INTEGER NOT NULL,
+          daten      TEXT NOT NULL,
+          PRIMARY KEY (spieler_id, welt_id)
+        );
+        INSERT INTO spielerzustand SELECT spieler_id, welt_id, stand, daten FROM spielerzustand_alt;
+        DROP TABLE spielerzustand_alt;
+      `);
+    }
+    // F8 N2: Behaelter- und Bau-ZDOs (Truhen, Bauteile) im selben Takt und in
+    // derselben Transaktion wie der Spielerzustand. `daten` NULL = das ZDO
+    // wurde abgebaut (Grabstein). Ausgewertet wird beim Laden gegen den
+    // Weltspeicher, s. spiel/WeltZdoSicherung.ts.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS weltzdo (
+        zdo_id  TEXT NOT NULL,
+        welt_id TEXT NOT NULL,
+        stand   INTEGER NOT NULL,
+        daten   TEXT,
+        PRIMARY KEY (zdo_id, welt_id)
       );
     `);
   }
@@ -958,13 +991,30 @@ export class Kontendatenbank {
    * rollt zurueck — der Aufrufer behaelt die Eintraege dann als schmutzig.
    */
   spielerzustandSchreiben(zeilen: readonly { spielerId: string; weltId: string; stand: number; daten: string }[]): void {
-    if (zeilen.length === 0) return;
+    this.zustandSchreiben(zeilen, []);
+  }
+
+  /**
+   * F8 N2: Spielerzeilen UND Behaelter-/Bau-ZDO-Zeilen in EINER Transaktion.
+   * Genau das ist die Zusage "Inventar und Welt vom selben Zeitpunkt": Nach
+   * einem harten Abbruch steht entweder beides oder nichts auf der Platte.
+   * Wirft (und rollt zurueck), wenn irgendetwas scheitert.
+   */
+  zustandSchreiben(
+    spieler: readonly { spielerId: string; weltId: string; stand: number; daten: string }[],
+    zdos: readonly { zdoId: string; weltId: string; stand: number; daten: string | null }[],
+  ): void {
+    if (spieler.length === 0 && zdos.length === 0) return;
     const ersetzen = this.db.prepare(
       'INSERT OR REPLACE INTO spielerzustand (spieler_id, welt_id, stand, daten) VALUES (?, ?, ?, ?)',
     );
+    const zdoErsetzen = this.db.prepare(
+      'INSERT OR REPLACE INTO weltzdo (zdo_id, welt_id, stand, daten) VALUES (?, ?, ?, ?)',
+    );
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      for (const z of zeilen) ersetzen.run(z.spielerId, z.weltId, z.stand, z.daten);
+      for (const z of spieler) ersetzen.run(z.spielerId, z.weltId, z.stand, z.daten);
+      for (const z of zdos) zdoErsetzen.run(z.zdoId, z.weltId, z.stand, z.daten);
       this.db.exec('COMMIT');
     } catch (err) {
       try { this.db.exec('ROLLBACK'); } catch { /* Transaktion schon weg */ }
@@ -972,7 +1022,7 @@ export class Kontendatenbank {
     }
   }
 
-  /** Alle Zeilen der Welt `weltId` (Zeitstempel in ms, JSON-Text). */
+  /** Alle Zeilen der Welt `weltId` (Zeitstempel in ms, JSON-Text). Zeilen anderer Welten bleiben unberuehrt. */
   spielerzustandLesen(weltId: string): { spielerId: string; stand: number; daten: string }[] {
     return (
       this.db
@@ -981,12 +1031,24 @@ export class Kontendatenbank {
     ).map((z) => ({ spielerId: String(z.spieler_id), stand: Number(z.stand), daten: String(z.daten) }));
   }
 
-  /** Zeilen fremder Welten wegraeumen (Weltwechsel nach einem Zuruecksetzen); liefert die Zahl. */
-  spielerzustandFremdeWeltenLoeschen(weltId: string): number {
-    return Number(this.db.prepare('DELETE FROM spielerzustand WHERE welt_id <> ?').run(weltId).changes);
+  /** F8 N2: Behaelter-/Bau-ZDO-Zeilen der Welt `weltId` (`daten` null = abgebaut). */
+  weltzdoLesen(weltId: string): { zdoId: string; stand: number; daten: string | null }[] {
+    return (
+      this.db
+        .prepare('SELECT zdo_id, stand, daten FROM weltzdo WHERE welt_id = ?')
+        .all(weltId) as Record<string, unknown>[]
+    ).map((z) => ({ zdoId: String(z.zdo_id), stand: Number(z.stand), daten: z.daten === null ? null : String(z.daten) }));
   }
 
-  /** Zeilen einzelner Spieler loeschen (Konto geloescht, `spieler entfernen`). */
+  /**
+   * F8 N2: ZDO-Zeilen, die der Weltspeicher schon traegt (Stand STRIKT
+   * vor `vorStand`), wegraeumen — nach einem ERFOLGREICHEN Weltspeichern. Liefert die Zahl.
+   */
+  weltzdoBereinigen(weltId: string, vorStand: number): number {
+    return Number(this.db.prepare('DELETE FROM weltzdo WHERE welt_id = ? AND stand < ?').run(weltId, vorStand).changes);
+  }
+
+  /** Zeilen einzelner Spieler loeschen (Konto geloescht, `spieler entfernen`) — in allen Welten. */
   spielerzustandLoeschen(spielerIds: readonly string[]): void {
     const weg = this.db.prepare('DELETE FROM spielerzustand WHERE spieler_id = ?');
     for (const id of spielerIds) weg.run(id);

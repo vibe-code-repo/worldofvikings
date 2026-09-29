@@ -429,6 +429,58 @@ export function zuruecksetzenStatus(umg: ResetUmgebung): { laeuft: boolean; unfe
 const wortZdos = (s: ResetZahlen['spielstand']): string =>
   s === null ? 'es gab keinen Spielstand' : s.zdos === null ? 'Spielstand beiseite (Anzahl der Objekte nicht ermittelbar)' : `${s.zdos} Objekte im Spielstand beiseite`;
 
+/**
+ * F8 N2: empty `spielerzustand` and `weltzdo` in the accounts database (server stopped, so nobody writes). Nothing
+ * else in that database is touched. A missing file or table is fine (nothing to delete); anything else throws, and the
+ * caller's rollback puts the moved files back. The database gets a `.bak` first when it holds rows.
+ */
+function spielzustandLeeren(umg: ResetUmgebung): { spieler: number; zdos: number } | null {
+  if (!existsSync(umg.kontenDb)) return null;
+  // Count first through a READ-ONLY handle: a database without rows (or not a database at all) is not touched in any way,
+  // not even by opening it read-write.
+  let spieler = 0;
+  let zdos = 0;
+  {
+    const lesen = new DatabaseSync(umg.kontenDb, { readOnly: true });
+    try {
+      const zaehle = (tabelle: string): number => {
+        try {
+          return Number((lesen.prepare(`SELECT COUNT(*) AS n FROM ${tabelle}`).get() as { n: number }).n);
+        } catch (fehler) {
+          const text = fehlerText(fehler);
+          // No such table: nothing to delete. Not an SQLite file at all (the in-process tests plant a text file): nothing of
+          // ours can be in it, and the server could not have used it either. Any OTHER error (locked, I/O) still throws.
+          if (/no such table|not a database/i.test(text)) return 0;
+          throw fehler;
+        }
+      };
+      spieler = zaehle('spielerzustand');
+      zdos = zaehle('weltzdo');
+    } finally {
+      lesen.close();
+    }
+  }
+  if (spieler === 0 && zdos === 0) return { spieler, zdos };
+  const db = new DatabaseSync(umg.kontenDb);
+  try {
+    db.exec('PRAGMA busy_timeout = 5000');
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    umg.sichern(umg.kontenDb, SICHERUNGEN_SPIELSTAND);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (spieler > 0) db.exec('DELETE FROM spielerzustand');
+      if (zdos > 0) db.exec('DELETE FROM weltzdo');
+      db.exec('COMMIT');
+    } catch (fehler) {
+      try { db.exec('ROLLBACK'); } catch { /* transaction already gone */ }
+      throw fehler;
+    }
+    return { spieler, zdos };
+  } finally {
+    db.close();
+  }
+}
+
 async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: boolean): Promise<ResetAntwort> {
   const jetzt = (umg.jetzt ?? (() => new Date()))();
   const stempel = zeitmarke(jetzt);
@@ -552,6 +604,11 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
           beiseite.push({ von: datei, nach });
         }
       }
+      // F8 N2 (B2): the rows of the running player state and of the container/building state (`spielerzustand`, `weltzdo`
+      // in the accounts database) belong to the world that is being reset, and this is the ONLY place that deletes them
+      // (the game server merely ignores rows of another world id). With `konten` the whole database was moved above, and
+      // the tables go with it. A `.bak` of the database is taken first, because these rows are not moved like files.
+      if (!mitKonten) spielzustandLeeren(umg);
       // Z3 N1, E-a: „Welt zurücksetzen" ist einer der drei Wege, die die dauerhafte Löschsperre entfernen. Z3 N2 (B3): sie
       // wird VOR dem Dokument beiseite gelegt (nicht danach gelöscht): scheitert das, ist das Dokument noch das alte, und das
       // Rückrollen legt sie mit den übrigen Dateien zurück. Scheitert das Schreiben des Dokuments danach, steht die Sperre

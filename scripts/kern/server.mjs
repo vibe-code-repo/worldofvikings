@@ -213,6 +213,15 @@ export default [
   // setzt defeated_eikthyr, ein Reh NICHT (Regressionswache). ~2s.
   ['server', 'test/f5-weltmarken.ts'],
   /*
+    F8 N2 (2026-09-29): Truhen und Bauten im selben Schreibvorgang wie der
+    Spielerzustand. Echte Serverprozesse mit SIGKILL, ein echter WebSocket-
+    Spieler: Truhe nehmen/legen, Bauen/Abreissen, Kill zwischen zwei Takten,
+    Ereignis; dazu welt_id (nur Seed + Modus, fremde Zeilen bleiben), die
+    Takt-Klemme, der Offline-Stempel und die Stopp-Zeile. Keine Assets.
+    Ephemerer Port, ~2 min.
+  */
+  ['server', 'test/f8n2-truhen-takt.ts'],
+  /*
     Das Thing, M1: die lesende API (Wege, Blaettern, 404 statt leerer
     Liste). Fake-Request/Response, kein Netz — dieselbe Weiche wie oben.
   */

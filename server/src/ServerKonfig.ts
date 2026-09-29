@@ -61,6 +61,38 @@ export function parseDauerMs(wert: unknown, fallbackMs: number): number {
   return zahl * faktor;
 }
 
+/** Grenzen des Spielerzustand-Takts (F8 N2, B3): darunter lief er im Millisekundentakt, darueber gaebe es kein Verlustfenster mehr. */
+export const SPIELER_SICHERUNG_MIN_MS = 5_000;
+export const SPIELER_SICHERUNG_MAX_MS = 600_000;
+
+/**
+ * `world.player-save-interval`: fehlt der Schluessel, gilt die Vorgabe (30 s).
+ * Ist er da, aber unlesbar (Text, reine Zahl, negativ), gilt die Vorgabe MIT
+ * lauter Meldung; ausserhalb von 5 s bis 10 min wird auf die Grenze geklemmt,
+ * ebenfalls mit Meldung. `0s` und Werte ueber 2^31 ms (Node setzt sonst 1 ms)
+ * kommen so nie beim Timer an.
+ */
+export function leseSpielerSicherungMs(wert: unknown, warn: (text: string) => void = console.warn): number {
+  if (wert === undefined || wert === null) return SPIELER_SICHERUNG_INTERVALL_MS;
+  const ms = parseDauerMs(wert, Number.NaN);
+  if (!Number.isFinite(ms)) {
+    warn(
+      `[Konfig] world.player-save-interval "${String(wert)}" ist keine Dauer (erwartet z. B. "30s", "2min") — ` +
+        `es gilt die Vorgabe ${SPIELER_SICHERUNG_INTERVALL_MS / 1000} s`,
+    );
+    return SPIELER_SICHERUNG_INTERVALL_MS;
+  }
+  if (ms < SPIELER_SICHERUNG_MIN_MS || ms > SPIELER_SICHERUNG_MAX_MS) {
+    const geklemmt = Math.min(SPIELER_SICHERUNG_MAX_MS, Math.max(SPIELER_SICHERUNG_MIN_MS, ms));
+    warn(
+      `[Konfig] world.player-save-interval "${String(wert)}" liegt ausserhalb von ` +
+        `${SPIELER_SICHERUNG_MIN_MS / 1000} s bis ${SPIELER_SICHERUNG_MAX_MS / 60_000} min — geklemmt auf ${geklemmt / 1000} s`,
+    );
+    return geklemmt;
+  }
+  return ms;
+}
+
 /**
  * Was diese Datei ueberhaupt auswertet, Abschnitt fuer Abschnitt.
  *
@@ -552,7 +584,7 @@ export function leseServerKonfig(
       // (WovServer.start() armiert damit seinen Speichertakt).
       saveIntervalMs: parseDauerMs(world['save-interval'], SAVE_INTERVAL_MS),
       // F8: Takt der Spielerzustand-Sicherung in die Konten-SQLite.
-      spielerSicherungMs: parseDauerMs(world['player-save-interval'], SPIELER_SICHERUNG_INTERVALL_MS),
+      spielerSicherungMs: leseSpielerSicherungMs(world['player-save-interval']),
       // G1: world saves live next to server.yml
       worldsDir: resolve(datenVerzeichnis, 'worlds'),
       // Kontendatenbanken als Geschwister von worlds/ unter server/data --

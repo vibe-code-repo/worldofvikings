@@ -21,8 +21,8 @@
  *   [H] Waffe (K2a): getragene Waffe steckt in der Zeile und kommt nach SIGKILL
  *       + Neustart zurück (peer.waffe).
  *   [E] Stopp (SIGTERM): eine letzte Sicherung, Exit 0, Zeile stimmt.
- *   [F] Fremde Welt: eine Zeile mit anderer welt_id wird nicht übernommen
- *       und weggeräumt (Welt zurückgesetzt, Konten behalten).
+ *   [F] Fremde Welt: eine Zeile mit anderer welt_id wird nicht übernommen,
+ *       aber auch NICHT gelöscht (F8 N2, B2: ignorieren statt löschen).
  *   [G] Fehlerweg (Einheit): scheitert das Schreiben, ist es laut, der
  *       Eintrag bleibt schmutzig und der nächste Lauf schreibt ihn.
  *   [H] Zahlen: Verlustfenster und Zeit je Schreibvorgang.
@@ -391,19 +391,18 @@ async function haupt(): Promise<void> {
     check('Zeile einer anderen Welt wird nicht übernommen', s.holz === startD && Math.abs(s.x - 200) > 1, `holz=${s.holz} x=${s.x}`);
     wsF.terminate();
     await f.beende('SIGKILL');
-    check('… und weggeräumt', leseZeilen(dirD).length === 0, `${leseZeilen(dirD).length}`);
+    check('… und NICHT gelöscht (ignorieren statt löschen)', leseZeilen(dirD).length === 1 && leseZeilen(dirD)[0]!.welt_id === 'andere-welt', `${leseZeilen(dirD).length}`);
 
     console.log('\n[G] Fehlerweg: laut, bleibt schmutzig, nächster Lauf schreibt:');
     {
       let scheitern = true;
       const geschrieben: string[] = [];
       const db = {
-        spielerzustandSchreiben: (z: { spielerId: string }[]) => {
+        zustandSchreiben: (z: { spielerId: string }[]) => {
           if (scheitern) throw new Error('disk I/O error (Test)');
           for (const r of z) geschrieben.push(r.spielerId);
         },
         spielerzustandLesen: () => [],
-        spielerzustandFremdeWeltenLoeschen: () => 0,
         spielerzustandLoeschen: () => {},
       };
       const laut: string[] = [];

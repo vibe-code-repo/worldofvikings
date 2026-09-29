@@ -6,7 +6,7 @@
  */
 import { REZEPTE, findItem, anzeigeName, type Inventory } from '@wov/shared';
 import type { GameI18n } from '../i18n';
-import { konfiguriereTooltip, mitTooltip } from './ItemTooltip';
+import { konfiguriereTooltip, mitTooltip, versteckeTooltip } from './ItemTooltip';
 
 export class CraftingPanel {
   private readonly root: HTMLDivElement;
@@ -71,6 +71,7 @@ export class CraftingPanel {
 
   private fuellen(): void {
     const inv = this.inventory();
+    versteckeTooltip();
     this.liste.textContent = '';
     if (!inv) return;
     for (const r of REZEPTE) {

@@ -34,7 +34,7 @@ import type { Equipment } from '../player/Equipment';
 import type { GameI18n, TranslationKey } from '../i18n';
 import { UI, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
-import { konfiguriereTooltip, mitTooltip } from './ItemTooltip';
+import { konfiguriereTooltip, mitTooltip, versteckeTooltip } from './ItemTooltip';
 
 const SLOT = 52;
 /** Zwischenraum zwischen Charakterfenster und Inventar. */
@@ -228,6 +228,7 @@ export class CharakterPanel {
   zeichne(): void {
     if (!this.isVisible) return;
     const eq = this.equipment();
+    versteckeTooltip();
     this.spalteLinks.replaceChildren();
     this.spalteRechts.replaceChildren();
     this.unten.replaceChildren();

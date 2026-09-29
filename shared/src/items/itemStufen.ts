@@ -14,7 +14,7 @@
  *
  * The tooltip shows the level only for equippable items and tools/weapons, never for materials.
  */
-import type { Rarity } from './stats.js';
+import { istRarity, type Rarity } from './stats.js';
 import { SET_TEILE } from './setWerte.js';
 
 export interface ItemStufe {
@@ -88,4 +88,32 @@ const STUFE_JE_RUESTUNGSTEIL: ReadonlyMap<string, ItemStufe> = new Map(
 /** Level and rarity of an armor part by its appearance id; undefined for parts of an unknown family. */
 export function stufeFuerRuestungsteil(id: string): ItemStufe | undefined {
   return STUFE_JE_RUESTUNGSTEIL.get(id);
+}
+
+/** Level and rarity of an item nobody has rated: the plainest possible item. */
+export const STUFE_RUECKFALL: ItemStufe = { itemLevel: 1, rarity: 'common' };
+
+export type StufenQuelle = 'tabelle' | 'eigen' | 'rueckfall';
+
+/**
+ * Level and rarity of one definition, never throwing:
+ *  1. code items: the explicit entry (`ITEM_STUFEN` by name, `SET_STUFEN` by armor part);
+ *  2. data items (`datenItem`) carry their own optional `itemLevel` / `rarity`; used when valid
+ *     (integer >= 1, known rarity);
+ *  3. otherwise `STUFE_RUECKFALL` (the caller warns once). A test makes sure that no CODE item
+ *     ever lands here (`shared/test/item-stufen.ts`).
+ */
+export function loeseStufe(
+  def: { readonly name: string; readonly ruestungsteil?: string },
+  eigen?: { readonly itemLevel?: unknown; readonly rarity?: unknown },
+): { stufe: ItemStufe; quelle: StufenQuelle } {
+  const tabelle = Object.hasOwn(ITEM_STUFEN, def.name)
+    ? ITEM_STUFEN[def.name]
+    : def.ruestungsteil ? stufeFuerRuestungsteil(def.ruestungsteil) : undefined;
+  if (tabelle) return { stufe: tabelle, quelle: 'tabelle' };
+  const level = eigen?.itemLevel;
+  if (typeof level === 'number' && Number.isInteger(level) && level >= 1 && istRarity(eigen?.rarity)) {
+    return { stufe: { itemLevel: level, rarity: eigen.rarity }, quelle: 'eigen' };
+  }
+  return { stufe: STUFE_RUECKFALL, quelle: 'rueckfall' };
 }

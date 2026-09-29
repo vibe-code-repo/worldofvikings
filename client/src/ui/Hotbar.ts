@@ -9,7 +9,7 @@ import type { Inventory, ItemStack } from '@wov/shared';
 import { HOTBAR_SIZE, anzeigeName } from '@wov/shared';
 import type { Equipment } from '../player/Equipment';
 import { UI, slotStyle } from './theme';
-import { mitTooltip } from './ItemTooltip';
+import { mitTooltip, versteckeTooltip } from './ItemTooltip';
 
 const SLOT = 52;
 
@@ -57,6 +57,7 @@ export class Hotbar {
   }
 
   private render(): void {
+    versteckeTooltip(); // cells are rebuilt below; the mouse may rest on one that changes
     const items = this.inventory.hotbar();
     this.aktuell = items;
     for (let i = 0; i < this.cells.length; i++) {

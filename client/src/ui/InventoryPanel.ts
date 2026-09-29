@@ -10,13 +10,13 @@
  * stacks and swaps otherwise — same rule as the original.
  */
 
-import { SLOT_VORGABE, type AusruestungsSlot, type Inventory, type ItemShared, type ItemStack } from '@wov/shared';
+import type { AusruestungsSlot, Inventory, ItemShared, ItemStack } from '@wov/shared';
 import type { Equipment } from '../player/Equipment';
 import type { GameI18n } from '../i18n';
 import { UI, overlayStyle, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
-import { konfiguriereTooltip, mitTooltip } from './ItemTooltip';
-import { TYP_WAFFE } from './itemTooltipInhalt';
+import { konfiguriereTooltip, mitTooltip, versteckeTooltip } from './ItemTooltip';
+import { getragenAmSlot } from './itemTooltipInhalt';
 
 const SLOT = 56;
 const GAP = 4;
@@ -90,7 +90,7 @@ export class InventoryPanel {
     // The one item tooltip of the UI: language and "worn in the same slot" comparison.
     konfiguriereTooltip({
       i18n: this.i18n,
-      vergleich: (shared, stack) => this.getragenAmSlot(shared, stack),
+      vergleich: (shared, stack) => getragenAmSlot(shared, stack, (slot) => this.equipment.imSlot(slot as AusruestungsSlot)),
     });
 
     // Drag is tracked on the document so it survives leaving a slot.
@@ -153,6 +153,7 @@ export class InventoryPanel {
 
   private render(): void {
     if (!this.visible) return;
+    versteckeTooltip();
     this.grid.replaceChildren();
 
     for (let y = 0; y < this.inventory.height; y++) {
@@ -180,13 +181,6 @@ export class InventoryPanel {
     this.weightLabel.textContent = this.i18n.t('inventory.weight', {
       weight: this.inventory.totalWeight().toFixed(1),
     });
-  }
-
-  /** The part worn in the slot this item would go to, for the tooltip comparison (armor and weapons only). */
-  private getragenAmSlot(shared: ItemShared, stack: ItemStack | null): ItemShared | null {
-    if (!shared.stats || (shared.ausruestung === undefined && shared.itemType !== TYP_WAFFE)) return null;
-    const getragen = this.equipment.imSlot((shared.ausruestung ?? SLOT_VORGABE) as AusruestungsSlot);
-    return getragen && getragen !== stack && getragen.shared !== shared ? getragen.shared : null;
   }
 
   private startDrag(e: PointerEvent, item: ItemStack): void {

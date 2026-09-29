@@ -357,6 +357,8 @@ export default [
   */
   ['client', 'test/instanz-toenung.ts'],
   ['client/test', 'ironward.ts'],
+  // Item tooltip DOM path with a fake DOM, no innerHTML by syntax tree, comparison rule (N1 of the attack).
+  ['client', 'test/item-tooltip-dom.ts'],
   // Item-Tooltip (2026-09-29): Tooltip-Inhalt de/en mit den echten Katalogen und
   // Vergleich mit dem Getragenen (rein). Keine Assets noetig.
   ['client', 'test/item-tooltip.ts'],

@@ -13,7 +13,7 @@
  */
 import {
   ITEM_DEFS, findItem, RARITY_IDS, ITEM_STUFEN, SET_STUFEN, SET_TEILE, ESSEN, istRarity, anzeigeName,
-  stufeFuerRuestungsteil, RARITY_TEXT_KEYS, inhaltText,
+  stufeFuerRuestungsteil, RARITY_TEXT_KEYS, inhaltText, loeseStufe, STUFE_RUECKFALL,
 } from '../src/index.js';
 
 let failures = 0;
@@ -52,6 +52,37 @@ check(`${teile.length} set parts: Plainhide 1 common, class sets 10 rare`, teile
 const gruppen = new Map<string, number>();
 for (const d of ITEM_DEFS) gruppen.set(`${d.itemLevel}/${d.rarity}`, (gruppen.get(`${d.itemLevel}/${d.rarity}`) ?? 0) + 1);
 console.log('  table actually set:', [...gruppen].sort().map(([k, n]) => `${k} x${n}`).join(', '));
+
+console.log('\n[2b] the whole table, item by item (own expected list, not derived from the code under test)');
+const SOLL: Record<string, string> = {
+  Messer: '1/common', Hoe: '1/common', Cultivator: '1/common', Hammer: '1/common',
+  Club: '2/common', PickaxeAntler: '2/common',
+  AxeFlint: '5/common', SwordNorth: '5/common', Staff: '5/common', Spear: '5/common',
+  Wood: '1/common', Stone: '1/common', Flint: '1/common', Resin: '1/common', Raspberry: '1/common', Blueberries: '1/common',
+  Mushroom: '1/common', Thistle: '1/common', Dandelion: '1/common', Carrot: '1/common', RawMeat: '1/common', Entrails: '1/common',
+  Coins: '1/common', Amber: '1/common', NeckTail: '1/common', CookedMeat: '1/common', HardAntler: '1/common', TrophyDeer: '1/common',
+  TrophyEikthyr: '10/uncommon', LederBH: '1/common', LederShorts: '1/common',
+};
+const ist = Object.fromEntries(Object.entries(ITEM_STUFEN).map(([n, s]) => [n, `${s.itemLevel}/${s.rarity}`]));
+check(`ITEM_STUFEN has exactly the ${Object.keys(SOLL).length} expected rows`, JSON.stringify(Object.keys(ist).sort()) === JSON.stringify(Object.keys(SOLL).sort()));
+check('every row equals the expected value', Object.entries(SOLL).every(([n, v]) => ist[n] === v), Object.entries(SOLL).filter(([n, v]) => ist[n] !== v).map(([n, v]) => `${n}: ${ist[n]} != ${v}`).join('; '));
+check('every definition of those rows carries exactly that', Object.entries(SOLL).every(([n, v]) => wert(n) === v));
+check('13 raw materials/food single-checked', ['Flint', 'Resin', 'Raspberry', 'Blueberries', 'Mushroom', 'Thistle', 'Dandelion', 'Carrot', 'RawMeat', 'Entrails', 'Coins', 'Amber', 'NeckTail'].every((n) => wert(n) === '1/common'));
+const SET_SOLL: Record<string, string> = { plainhide: '1/common', ironward: '10/rare', wildwarden: '10/rare', ashenveil: '10/rare', seidraven: '10/rare', emberrage: '10/rare', gravethorn: '10/rare', crowshade: '10/rare' };
+check('SET_STUFEN equals the expected families', JSON.stringify(Object.fromEntries(Object.entries(SET_STUFEN).map(([f, s]) => [f, `${s.itemLevel}/${s.rarity}`]))) === JSON.stringify(SET_SOLL));
+check('group counts asserted: 34x 1/common, 2x 2/common, 4x 5/common, 1x 10/uncommon, 77x 10/rare (118)',
+  JSON.stringify([...gruppen].sort()) === JSON.stringify([['1/common', 34], ['10/rare', 77], ['10/uncommon', 1], ['2/common', 2], ['5/common', 4]]) && ITEM_DEFS.length === 118);
+
+console.log('\n[2c] a missing entry never throws; code items all have one');
+check('every CODE item resolves from the table (none uses the fallback)', ITEM_DEFS.every((d) => loeseStufe(d).quelle === 'tabelle'), ITEM_DEFS.filter((d) => loeseStufe(d).quelle !== 'tabelle').map((d) => d.name).join(','));
+let geworfen = false; let kuenstlich = { stufe: STUFE_RUECKFALL, quelle: '' as string };
+try { kuenstlich = loeseStufe({ name: 'ErfundenesItem' }); } catch { geworfen = true; }
+check('artificial item without an entry: no throw, level 1 / common, source "rueckfall"', !geworfen && kuenstlich.stufe.itemLevel === 1 && kuenstlich.stufe.rarity === 'common' && kuenstlich.quelle === 'rueckfall');
+check('an armor part of an unknown family: fallback, no throw', loeseStufe({ name: 'x', ruestungsteil: 'unbekannt_teil' }).quelle === 'rueckfall');
+check('data item with valid own values: taken', JSON.stringify(loeseStufe({ name: 'DatenItem' }, { itemLevel: 7, rarity: 'epic' })) === JSON.stringify({ stufe: { itemLevel: 7, rarity: 'epic' }, quelle: 'eigen' }));
+check('data item with invalid own values (0, 1.5, "7", unknown rarity, half set): fallback', [{ itemLevel: 0, rarity: 'rare' }, { itemLevel: 1.5, rarity: 'rare' }, { itemLevel: '7', rarity: 'rare' }, { itemLevel: 3, rarity: 'mythic' }, { itemLevel: 3 }, { rarity: 'rare' }, {}].every((e) => loeseStufe({ name: 'D' }, e).quelle === 'rueckfall'));
+check('the table wins over own values of a code item', loeseStufe({ name: 'Coins' }, { itemLevel: 50, rarity: 'legendary' }).stufe.rarity === 'common');
+check('a name like "constructor" is not a table hit', loeseStufe({ name: 'constructor' }).quelle === 'rueckfall');
 
 console.log('\n[3] no orphan rows');
 check('every ITEM_STUFEN name is an item', Object.keys(ITEM_STUFEN).every((n) => findItem(n) !== undefined), Object.keys(ITEM_STUFEN).filter((n) => !findItem(n)).join(','));

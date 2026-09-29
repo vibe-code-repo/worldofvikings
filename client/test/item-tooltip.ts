@@ -96,6 +96,9 @@ check('without comparison no difference', ohne.zeilen.every((z) => !z.zusatz));
 const mitAktion = tooltipInhalt(brustDef, de, { aktion: 'Klick legt ab' });
 check('action is the last, gray line', mitAktion.zeilen.at(-1)?.art === 'aktion' && mitAktion.zeilen.at(-1)?.text === 'Klick legt ab');
 
+const ohneGewicht = tooltipInhalt({ ...item('Wood'), weight: 0 }, de);
+check('weight 0: no weight line (and with weight it is there)', art(ohneGewicht, 'gewicht').length === 0 && art(tooltipInhalt(item('Wood'), de), 'gewicht').length === 1);
+
 console.log('\n[4b] name through textKey (set parts) or label');
 const mitKey = { ...item('AxeFlint'), textKey: 'inhalt.item.beispiel' };
 check('with textKey: name from the catalogue in the language of the tooltip', tooltipInhalt(mitKey, de, { sprache: 'en' }).name === 'Example text' && tooltipInhalt(mitKey, de, { sprache: 'de' }).name === 'Beispieltext');

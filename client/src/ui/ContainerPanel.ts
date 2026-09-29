@@ -22,7 +22,7 @@ import type { Inventory, ItemStack } from '@wov/shared';
 import { CONTAINER_WIDTH, INVENTORY_WIDTH } from '@wov/shared';
 import { UI, overlayStyle, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
-import { konfiguriereTooltip, mitTooltip } from './ItemTooltip';
+import { konfiguriereTooltip, mitTooltip, versteckeTooltip } from './ItemTooltip';
 import type { GameI18n } from '../i18n';
 
 const SLOT = 56;
@@ -155,6 +155,7 @@ export class ContainerPanel {
 
   private render(): void {
     if (!this.visible) return;
+    versteckeTooltip();
     this.eigenesGrid.replaceChildren();
     this.truheGrid.replaceChildren();
 

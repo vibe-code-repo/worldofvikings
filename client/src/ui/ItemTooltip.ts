@@ -47,8 +47,15 @@ let zeigtVergleich: ItemShared | null = null;
 let zeigtAktion: string | null = null;
 let zeigtSprache = '';
 
+let beobachteteSprache: GameI18n | null = null;
+
 export function konfiguriereTooltip(neu: TooltipKontext): void {
   kontext = { ...kontext, ...neu };
+  // A language change redraws the windows; an open tooltip would keep the old language until the next move.
+  if (neu.i18n !== beobachteteSprache) {
+    beobachteteSprache = neu.i18n;
+    neu.i18n.onChange(versteckeTooltip);
+  }
 }
 
 /** Shows the tooltip of `holen()` while the pointer is over `zelle` (or a child of it). */

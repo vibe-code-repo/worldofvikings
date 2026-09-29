@@ -5,7 +5,7 @@
  * Every visible word comes through the translator `t` (catalogue keys `rarity.*`, `stat.*`,
  * `tooltip.*`, `character.slot.*`); the numbers and colors are the only things that live here.
  */
-import { ESSEN, STAT_IDS, RARITY_TEXT_KEYS, anzeigeName, type ItemShared, type ItemStats, type Rarity, type StatId } from '@wov/shared';
+import { ESSEN, STAT_IDS, RARITY_TEXT_KEYS, SLOT_VORGABE, anzeigeName, type ItemShared, type ItemStack, type ItemStats, type Rarity, type StatId } from '@wov/shared';
 
 export type Uebersetzer = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -106,4 +106,22 @@ export function tooltipInhalt(shared: ItemShared, t: Uebersetzer, opt: TooltipOp
   }
   if (opt.aktion) zeilen.push({ art: 'aktion', text: opt.aktion, farbe: FARBE_GEDAEMPFT });
   return { name: anzeigeName(shared, opt.sprache), nameFarbe: farbe, zeilen };
+}
+
+/**
+ * The part worn in the slot `shared` would go to, if a comparison makes sense; else null.
+ * Only armor parts and weapons compare, and only with a worn part that has attribute values: a tool
+ * without `stats` (hammer, knife) in the weapon slot is not a weapon with 0 damage. In the weapon slot both
+ * sides need `damage`. The very same stack, or the same definition, is not compared with itself.
+ */
+export function getragenAmSlot(
+  shared: ItemShared,
+  stack: ItemStack | null,
+  imSlot: (slot: string) => ItemStack | null,
+): ItemShared | null {
+  if (!shared.stats || (shared.ausruestung === undefined && shared.itemType !== TYP_WAFFE)) return null;
+  const getragen = imSlot(shared.ausruestung ?? SLOT_VORGABE);
+  if (!getragen || getragen === stack || getragen.shared === shared || !getragen.shared.stats) return null;
+  if (shared.ausruestung === undefined && (shared.stats.damage === undefined || getragen.shared.stats.damage === undefined)) return null;
+  return getragen.shared;
 }

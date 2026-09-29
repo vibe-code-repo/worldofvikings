@@ -136,6 +136,13 @@ export class Peer {
    * keine Parade. Gesetzt von handleParry, gelesen in applyCreatureAttack.
    */
   paradeBis: number;
+  /**
+   * Tod: Zeitstempel (ms), bis zu dem der Spieler tot am Boden liegt. 0 = lebt.
+   * Solange er laeuft, nimmt der Spieler keinen Schaden, gilt Kreaturen nicht als
+   * Ziel und seine Eingaben (Bewegung, Schlag, Parade, Interaktion) werden
+   * ignoriert; danach belebt ihn der Server (WovServer.belebeFaellige).
+   */
+  totBis = 0;
 
   /** Respawn-Punkt (Bett) — null = Weltspawn. */
   spawnPoint: Vector3 | null;

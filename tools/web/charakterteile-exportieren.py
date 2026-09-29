@@ -5,12 +5,14 @@ WikingerKoerper.glb: 63 deformierende Knochen plus IK-/Pole-Knochen, 48 Clips).
 Koerper und Teile kommen aus master2, Rig und Actions aus der Standardfigur.
 
 Aufruf (headless, alle Pfade absolut):
-  flatpak run org.blender.Blender --factory-startup -b \
+  flatpak run org.blender.Blender --factory-startup -b --python-exit-code 1 \
     --python tools/web/charakterteile-exportieren.py -- \
     --standard /home/mike/wov-assets/PlayerCharacter/temp/<standard>.blend \
     --master /home/mike/wov-assets/PlayerCharacter/Blender/wov-player-master2.blend \
     --ausgabe <ordner>
 
+--python-exit-code 1 macht aus einem Abbruch des Skripts einen Fehlerstatus; ohne die
+Option meldet Blender auch nach einem Abbruch 0.
 Beide Blender-Dateien werden nur gelesen, nie gespeichert. Der Koerper muss aus
 master2 kommen: master3 hat einen anderen Kopf (518 statt 495 Vertices) und
 wird vom Skript abgelehnt.
@@ -31,7 +33,8 @@ import bpy
 
 ERWARTETE_KNOCHEN = 71
 ERWARTETE_ANIMATIONEN = 48
-# Der weibliche Kopf im Baukasten von master2. master3 liefert 518.
+# Vertices des weiblichen Kopfes in der exportierten GLB (nach dem Aufteilen an
+# UV-Kanten). master2 liefert 495, master3 518.
 ERWARTETE_KOPF_VERTICES = 495
 
 # Spurbelegung des Spiel-Exports: (Clip-Name im GLB, Action in der Standardfigur).
@@ -245,27 +248,34 @@ weiblich_koerper = [
 if len(weiblich_koerper) != 11:
     raise RuntimeError(f"Erwartet 11 weibliche Koerperteile, gefunden: {len(weiblich_koerper)}")
 
-# Schutz vor der falschen Master-Datei: der Kopf muss aus master2 stammen.
-kopf = [o for o in weiblich_koerper if o.name.startswith("Chr_Head_Female")]
-if len(kopf) != 1:
-    raise RuntimeError(f"Erwartet einen Kopf Chr_Head_Female*, gefunden: {[o.name for o in kopf]}")
-kopf_vertices = len(kopf[0].data.vertices)
-if kopf_vertices != ERWARTETE_KOPF_VERTICES:
-    raise RuntimeError(
-        f"Kopf {kopf[0].name} hat {kopf_vertices} Vertices, erwartet {ERWARTETE_KOPF_VERTICES} "
-        f"(master2). Falsche Master-Datei? {MASTER.name}"
-    )
-
 auswaehlen(weiblich_koerper)
 koerper_datei = AUSGABE / "WikingerinKoerper.glb"
 glb_exportieren(koerper_datei, True)
 
-# Selbstpruefung an der geschriebenen Datei.
+# Selbstpruefung an der geschriebenen Datei. Bei einem Fehler wird die Datei
+# wieder entfernt, damit keine falsche Wikingerin liegen bleibt.
 kopf_json = glb_kopf(koerper_datei)
+
+
+def kopf_vertices_in_glb(kopf: dict) -> int:
+    treffer = [m for m in kopf.get("meshes", []) if m.get("name", "").startswith("Chr_Head_Female")]
+    if len(treffer) != 1:
+        raise RuntimeError(f"Erwartet einen Kopf Chr_Head_Female*, gefunden: {len(treffer)}")
+    return sum(kopf["accessors"][p["attributes"]["POSITION"]]["count"] for p in treffer[0]["primitives"])
+
+
+kopf_vertices = kopf_vertices_in_glb(kopf_json)
 gelenke = sum(len(s["joints"]) for s in kopf_json.get("skins", [])[:1])
 animationen = len(kopf_json.get("animations", []))
 print(f"SELBSTPRUEFUNG gelenke={gelenke} animationen={animationen} kopf_vertices={kopf_vertices}", flush=True)
+if kopf_vertices != ERWARTETE_KOPF_VERTICES:
+    koerper_datei.unlink()
+    raise RuntimeError(
+        f"Kopf hat {kopf_vertices} Vertices, erwartet {ERWARTETE_KOPF_VERTICES} "
+        f"(master2). Falsche Master-Datei? {MASTER.name}"
+    )
 if gelenke != ERWARTETE_KNOCHEN or animationen != ERWARTETE_ANIMATIONEN:
+    koerper_datei.unlink()
     raise RuntimeError(
         f"WikingerinKoerper.glb hat {gelenke} Gelenke und {animationen} Animationen, "
         f"erwartet {ERWARTETE_KNOCHEN} und {ERWARTETE_ANIMATIONEN}"

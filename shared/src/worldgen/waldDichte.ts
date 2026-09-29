@@ -21,7 +21,8 @@
  * Reine Rechnung, keine Engine. B3 (Ton je Region) kann die Kurve später je
  * Region überschreiben: `waldStufe` nimmt die Grenzen als Parameter.
  */
-import { FOLIAGE } from '../vegetation.js';
+import { FOLIAGE, type Foliage } from '../vegetation.js';
+import { WATER_LEVEL } from './Heightmap.js';
 
 /** Radius der Kreisscheibe (m), über die gemittelt wird; 40 m korreliert mit der echten Zählung besser als 25 m (siehe wald-dichte.ts). */
 export const WALD_RADIUS = 40;
@@ -37,59 +38,103 @@ export function istWaldbaum(prefabName: string): boolean {
   return /^(vegetation-(tree|pine|massive-tree|split-tree|small-thin-tree|branched-tree)-\d|(Eiche|Birke|Kiefer|Fichte|Tanne)\d)/.test(prefabName);
 }
 
-/** Was die Dichte von der Welt braucht: der Waldfaktor und (Layoutwelt) die Region. */
+/** Gelände an einem Punkt: Höhe und y-Anteil der Normalen (1 = flach). */
+export interface WaldGelaende {
+  hoehe: number;
+  normalY: number;
+}
+
+/** Was die Dichte von der Welt braucht: der Waldfaktor, (Layoutwelt) die Region und das Gelände. */
 export interface WaldQuelle {
   getForestFactor(x: number, z: number): number;
   /** Nur in der Layoutwelt. Fehlt sie, gibt es keine Kuratierung und damit keinen Baum. */
   regionAt?(x: number, z: number): { vegetation?: readonly string[]; bewuchsDichte?: number } | null;
+  /**
+   * Füllt `aus` mit Höhe und Normale am Punkt (kein Objekt je Aufruf). Mit ihr
+   * gelten dieselben Höhenfenster (relativ zum Wasserspiegel) und Neigungsgrenzen
+   * wie in der Streuung: über dem Meer und im Gebirge wächst nichts. Ohne sie
+   * (Tests, reine Waldfaktor-Rechnung) gelten sie nicht.
+   */
+  gelaende?(x: number, z: number, aus: WaldGelaende): void;
 }
 
-/** Erwartete Bäume je Zone bei diesem Waldfaktor, für die erlaubten Arten (`null` = alle). */
-export function baumErwartung(waldfaktor: number, erlaubt: readonly string[] | null): number {
-  let summe = 0;
+interface Baumart {
+  readonly v: Foliage;
+  /** Erwartete Stämme je Zone (Gruppen × Gruppengröße). */
+  readonly anzahl: number;
+  /** Neigungsfenster wie in der Streuung: normalY in [cosMax, cosMin]. */
+  readonly cosMax: number;
+  readonly cosMin: number;
+}
+
+const RAD = Math.PI / 180;
+
+function baumarten(erlaubt: readonly string[] | null): Baumart[] {
+  const liste: Baumart[] = [];
   for (const v of FOLIAGE) {
     if (!istWaldbaum(v.prefabName)) continue;
     if (erlaubt && !erlaubt.includes(v.prefabName)) continue;
-    // Das Fenster gilt nur mit `inForest`; ohne die Bedingung wächst die Art überall (wie in der Streuung).
-    if (v.inForest && (waldfaktor < v.forestTresholdMin || waldfaktor > v.forestTresholdMax)) continue;
     // max < 1: Wahrscheinlichkeit für ein Stück; sonst Gleichverteilung min..max.
     // `min…max` zählt Gruppen; jede Gruppe bringt groupSizeMin…groupSizeMax Stämme.
     const gruppen = v.max < 1 ? v.max : (v.min + v.max) / 2;
-    summe += gruppen * ((v.groupSizeMin + v.groupSizeMax) / 2);
+    liste.push({
+      v,
+      anzahl: gruppen * ((v.groupSizeMin + v.groupSizeMax) / 2),
+      cosMax: Math.cos(v.maxTilt * RAD),
+      cosMin: Math.cos(v.minTilt * RAD),
+    });
+  }
+  return liste;
+}
+
+const listen = new WeakMap<readonly string[], Baumart[]>();
+let listeAlle: Baumart[] | null = null;
+
+function artenFuer(erlaubt: readonly string[] | null): Baumart[] {
+  if (erlaubt === null) return (listeAlle ??= baumarten(null));
+  let l = listen.get(erlaubt);
+  if (!l) {
+    l = baumarten(erlaubt);
+    listen.set(erlaubt, l);
+  }
+  return l;
+}
+
+/**
+ * Erwartete Bäume je Zone bei diesem Waldfaktor (und, mit `gelaende`, dieser
+ * Höhe/Neigung), für die erlaubten Arten (`null` = alle).
+ */
+export function baumErwartung(waldfaktor: number, erlaubt: readonly string[] | null, gelaende?: WaldGelaende): number {
+  const ueberWasser = gelaende ? gelaende.hoehe - WATER_LEVEL : 0;
+  let summe = 0;
+  for (const a of artenFuer(erlaubt)) {
+    const v = a.v;
+    // Das Fenster gilt nur mit `inForest`; ohne die Bedingung wächst die Art überall (wie in der Streuung).
+    if (v.inForest && (waldfaktor < v.forestTresholdMin || waldfaktor > v.forestTresholdMax)) continue;
+    if (gelaende) {
+      if (ueberWasser < v.minAltitude || ueberWasser > v.maxAltitude) continue;
+      if (gelaende.normalY < a.cosMax || gelaende.normalY > a.cosMin) continue;
+    }
+    summe += a.anzahl;
   }
   return summe;
 }
 
 const MUSTER_RADIUS = 25;
-const STUFE = 0.01;
-const TABELLEN_MAX = 2;
-const tabellen = new WeakMap<readonly string[], Float32Array>();
-let tabelleAlle: Float32Array | null = null;
+const scratch: WaldGelaende = { hoehe: 0, normalY: 1 };
 
-function baueTabelle(erlaubt: readonly string[] | null): Float32Array {
-  const t = new Float32Array(Math.round(TABELLEN_MAX / STUFE) + 1);
-  for (let i = 0; i < t.length; i++) t[i] = baumErwartung(i * STUFE, erlaubt);
-  return t;
-}
-
-function tabelleFuer(erlaubt: readonly string[] | null): Float32Array {
-  if (erlaubt === null) return (tabelleAlle ??= baueTabelle(null));
-  let t = tabellen.get(erlaubt);
-  if (!t) {
-    t = baueTabelle(erlaubt);
-    tabellen.set(erlaubt, t);
-  }
-  return t;
-}
-
-/** Erwartete Bäume je Zone an einem Punkt (Tabelle je Kuratierungsliste, Stufe 0,01 im Waldfaktor). */
+/** Erwartete Bäume je Zone an einem Punkt (Kuratierungsliste, Waldfaktor, Höhe, Neigung). */
 export function baumErwartungBei(x: number, z: number, quelle: WaldQuelle): number {
   const region = quelle.regionAt?.(x, z);
   if (!region?.vegetation) return 0; // ohne Kuratierungsliste wächst nichts
   const faktor = quelle.getForestFactor(x, z);
   if (!(faktor >= 0)) return 0;
-  const i = Math.min(Math.round(faktor / STUFE), Math.round(TABELLEN_MAX / STUFE));
-  return tabelleFuer(region.vegetation)[i] * (region.bewuchsDichte ?? 1);
+  let g: WaldGelaende | undefined;
+  if (quelle.gelaende) {
+    quelle.gelaende(x, z, scratch);
+    g = scratch;
+  }
+  return baumErwartung(faktor, region.vegetation, g) * (region.bewuchsDichte ?? 1);
 }
 
 /** Abtastmuster der Scheibe für 25 m (mit Radius/25 skaliert): Mitte, 8 Punkte bei 10 m, 16 bei 20 m (Gewicht ~ Fläche des Rings). */

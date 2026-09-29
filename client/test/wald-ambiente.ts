@@ -156,7 +156,30 @@ async function main(): Promise<void> {
   }
   pruefe('Morgen: Tagesanteil steigt monoton, Abend: fällt monoton', morgenMonoton && abendMonoton);
   const dd = zielPegel(1, FRACTION_SUNRISE);
-  pruefe('Dämmerung: Vögel und Wind zugleich leise (Überblendung, Summe = 1)', dd.vogel > 0 && dd.wind > 0 && Math.abs(dd.vogel + dd.wind - 1) < 1e-9, `${dd.vogel.toFixed(2)} + ${dd.wind.toFixed(2)}`);
+  pruefe('Dämmerung: Vögel und Wind zugleich hörbar (Überblendung)', dd.vogel > 0 && dd.wind > 0, `${dd.vogel.toFixed(2)} / ${dd.wind.toFixed(2)}`);
+  // Gleichleistung: Amplitudenleistung gv² + gw² (Höchstwerte 1 / 0,6) fällt in der Überblendung nie unter die leisere Seite
+  // und steigt nie über die lautere (Toleranz 1,5 dB); die alte lineare Überblendung lag bis 6 dB darunter.
+  {
+    const leistung = (f: number): number => {
+      const z = zielPegel(1, f);
+      const gv = pegelZuLautstaerke(z.vogel, WALD_WERTE.vogelMax);
+      const gw = pegelZuLautstaerke(z.wind, WALD_WERTE.windMax);
+      return gv * gv + gw * gw;
+    };
+    const nachtP = leistung(0);
+    const tagP = leistung(0.5);
+    let tiefste = Infinity;
+    let hoechste = -Infinity;
+    for (let f = 0.05; f <= 0.3; f += 0.001) {
+      const p = 10 * Math.log10(leistung(f));
+      tiefste = Math.min(tiefste, p);
+      hoechste = Math.max(hoechste, p);
+    }
+    const unten = 10 * Math.log10(Math.min(nachtP, tagP));
+    const oben = 10 * Math.log10(Math.max(nachtP, tagP));
+    pruefe('Gleichleistung Wind ↔ Vögel: Leistungssumme höchstens 1,5 dB unter der leiseren Seite', tiefste >= unten - 1.5, `tiefste ${tiefste.toFixed(2)} dB gegen ${unten.toFixed(2)} dB`);
+    pruefe('… und höchstens 1,5 dB über der lauteren Seite', hoechste <= oben + 1.5, `höchste ${hoechste.toFixed(2)} dB gegen ${oben.toFixed(2)} dB`);
+  }
 
   // ── 2. Lauf: von der Wiese in den Wald ────────────────────────────
   console.log('Lauf Wiese → Wald (60 Bilder/s, 4,5 m/s)');
@@ -220,6 +243,106 @@ async function main(): Promise<void> {
   pruefe('Nacht → Morgen: Sprung je Bild (Vögel) ≤ 2,1 dB', groessterSprungDb(wechsel.bilder.map((b) => b.vogel)) <= 2.1, `${groessterSprungDb(wechsel.bilder.map((b) => b.vogel)).toFixed(2)} dB`);
   pruefe('Nacht → Morgen: Sprung je Bild (Wind) ≤ 2,1 dB', groessterSprungDb(wechsel.bilder.map((b) => b.wind)) <= 2.1, `${groessterSprungDb(wechsel.bilder.map((b) => b.wind)).toFixed(2)} dB`);
 
+  // ── 3b. Schwelle, Glättung, Doppelstart, Takt, Anhalten, Allokation ──
+  console.log('Schwelle, Glättung, Doppelstart, Takt, Anhalten, Allokation');
+  const nurListe = (name: string): WaldQuelle => ({ getForestFactor: () => 0.5, regionAt: () => ({ vegetation: [name] }) });
+  const knapp = await lauf({ quelle: nurListe('vegetation-pine-1b2'), x0: 0, vx: 0, sekunden: 20 }); // ≈ 14,7 erwartete Bäume: unter `von` (20)
+  const knappE = Math.max(...knapp.bilder.map((b) => b.baeume));
+  pruefe('unter der Schwelle (≈ 15 erwartete Bäume, von = 20): still', knappE > 5 && knappE < 20 && knapp.bilder.every((b) => b.vogel === 0), `${knappE.toFixed(1)} Bäume`);
+  const ueber = await lauf({ quelle: nurListe('vegetation-small-thin-tree-1a2'), x0: 0, vx: 0, sekunden: 20 }); // ≈ 39,3
+  pruefe('über der Schwelle (≈ 39 erwartete Bäume): leise hörbar', ueber.bilder[ueber.bilder.length - 1].vogel > 0.001, ueber.bilder[ueber.bilder.length - 1].vogel.toFixed(4));
+
+  // Glättung: Sprung des Stufen-Ziels (Teleport in den Wald) darf `stufe` nicht sofort auf 1 heben.
+  {
+    const a = attrappe();
+    const f = { position: { x: 100, y: WATER_LEVEL + 20, z: 0 }, dungeonMode: false };
+    const w = new WaldAmbiente(() => f, () => waldAbNull, () => 0.5, () => a.audio);
+    const stufen: number[] = [];
+    for (let i = 0; i < 90; i++) {
+      w.update(1 / 60);
+      stufen.push((a.audio.diagnose!.wald as { stufe: number }).stufe);
+    }
+    pruefe('Glättung: nach 0,1 s erst ≈ 10 % der Stufe (Zeitkonstante 1 s)', stufen[5] > 0.05 && stufen[5] < 0.2, stufen[5].toFixed(3));
+    pruefe('Glättung: nach 1 s ≈ 63 %', stufen[59] > 0.55 && stufen[59] < 0.72, stufen[59].toFixed(3));
+  }
+
+  // Doppelstart: solange der Start einer Schleife noch aussteht, kommt kein zweiter Aufruf derselben Gruppe.
+  {
+    const aufrufe: string[] = [];
+    const wartende: ((h: SchleifenHandle | null) => void)[] = [];
+    const audio: AmbienteAudio = {
+      diagnose: {},
+      startLoopAsync: (_b, g) => {
+        aufrufe.push(g);
+        return new Promise((res) => wartende.push(res));
+      },
+    };
+    const f = { position: { x: 100, y: WATER_LEVEL + 20, z: 0 }, dungeonMode: false };
+    const w = new WaldAmbiente(() => f, () => waldAbNull, () => 0.5, () => audio);
+    for (let i = 0; i < 180; i++) {
+      w.update(1 / 60);
+      await Promise.resolve();
+    }
+    pruefe('ausstehender Start: genau ein Aufruf trotz 180 Bildern', aufrufe.length === 1, `${aufrufe.length}`);
+  }
+
+  // Takt: die Dichte wird höchstens alle 0,5 s gerechnet (vorher: jedes Bild).
+  {
+    let regionAbfragen = 0;
+    const gezaehlt: WaldQuelle = { getForestFactor: () => 0.5, regionAt: () => (regionAbfragen++, { vegetation: BAUMNAMEN }) };
+    const a = attrappe();
+    const f = { position: { x: 0, y: WATER_LEVEL + 20, z: 0 }, dungeonMode: false };
+    const w = new WaldAmbiente(() => f, () => gezaehlt, () => 0.5, () => a.audio);
+    for (let i = 0; i < 120; i++) w.update(1 / 60); // 2 s
+    pruefe('Dichte-Takt: in 2 s höchstens 5 Rechnungen zu 25 Abtastpunkten', regionAbfragen >= 25 && regionAbfragen <= 5 * 25, `${regionAbfragen} Abfragen`);
+  }
+
+  // Anhalten: 10 s bei Ziel 0 (Wiese) stoppt die Schleife, die Rückkehr startet sie neu (genau eine laufende Instanz).
+  {
+    const gestartet: { volume: number; gestoppt: boolean }[] = [];
+    const audio: AmbienteAudio = {
+      diagnose: {},
+      startLoopAsync: async () => {
+        const h = { volume: -1, gestoppt: false };
+        gestartet.push(h);
+        return { get volume() { return h.volume; }, set volume(v: number) { h.volume = v; }, stop: () => { h.gestoppt = true; } };
+      },
+    };
+    const f = { position: { x: 100, y: WATER_LEVEL + 20, z: 0 }, dungeonMode: false };
+    const w = new WaldAmbiente(() => f, () => waldAbNull, () => 0.5, () => audio);
+    const laufe = async (sekunden: number): Promise<void> => {
+      for (let i = 0; i < sekunden * 60; i++) {
+        w.update(1 / 60);
+        await Promise.resolve();
+      }
+    };
+    await laufe(15);
+    const erste = gestartet[0];
+    pruefe('im Wald läuft genau eine Schleife mit Lautstärke', gestartet.length === 1 && erste.volume > 0.9 && !erste.gestoppt);
+    f.position.x = -300;
+    await laufe(12); // Ausblenden 2,5 s + Glättung, dann < 10 s Stille
+    pruefe('nach dem Ausblenden, vor 10 s Stille: Schleife läuft noch (Lautstärke 0)', !erste.gestoppt && erste.volume === 0, `${erste.volume}`);
+    await laufe(12);
+    pruefe('nach 10 s Stille: Schleife angehalten', erste.gestoppt);
+    f.position.x = 100;
+    await laufe(15);
+    const zweite = gestartet[1];
+    pruefe('zurück im Wald: neue Schleife (kein Doppelstart, die alte bleibt gestoppt)', gestartet.length === 2 && zweite !== undefined && !zweite.gestoppt && zweite.volume > 0.9 && erste.gestoppt, `${gestartet.length} Starts`);
+  }
+
+  // Allokation: der Zeuge `diagnose.wald` ist ein einziges wiederverwendetes Objekt, `zielPegel` schreibt in eines.
+  {
+    const a = attrappe();
+    const f = { position: { x: 100, y: WATER_LEVEL + 20, z: 0 }, dungeonMode: false };
+    const w = new WaldAmbiente(() => f, () => waldAbNull, () => 0.5, () => a.audio);
+    w.update(1 / 60);
+    const erstes = a.audio.diagnose!.wald;
+    for (let i = 0; i < 30; i++) w.update(1 / 60);
+    pruefe('diagnose.wald ist über die Bilder dasselbe Objekt', a.audio.diagnose!.wald === erstes);
+    const aus = { vogel: 0, wind: 0 };
+    pruefe('zielPegel schreibt in das übergebene Objekt', zielPegel(0.5, 0.5, aus) === aus);
+  }
+
   // ── 4. Aus-Fälle ──────────────────────────────────────────────────
   console.log('Aus-Fälle');
   const dung = await lauf({ quelle: ueberallWald, x0: 0, vx: 0, sekunden: 20, dungeon: true });
@@ -265,7 +388,7 @@ async function main(): Promise<void> {
   const hauptdatei = readFileSync(resolve(wurzel, 'client/src/main.ts'), 'utf-8');
   pruefe('Modul ist rein (kein Babylon-Import)', !/@babylonjs/.test(modul));
   pruefe('Ton-Engine hat startLoopAsync und diagnose', /async startLoopAsync\(/.test(engine) && /readonly diagnose/.test(engine));
-  pruefe('main.ts hängt es ein (Aufrufstelle je Frame) und bleibt unter 3700 Zeilen', /waldAmbiente\?\.update\(dt\)/.test(hauptdatei) && hauptdatei.split('\n').length < 3700, `${hauptdatei.split('\n').length} Zeilen`);
+  pruefe('main.ts hängt es ein (Aufrufstelle je Frame) und bleibt unter 3700 Zeilen', /weltToene\.update\(dt\)/.test(hauptdatei) && hauptdatei.split('\n').length < 3700, `${hauptdatei.split('\n').length} Zeilen`);
 
   if (fehler > 0) {
     console.error(`\n${fehler} Prüfung(en) fehlgeschlagen`);

@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RegionGeo } from '../src/worldgen/RegionGeo.js';
-import { HeightmapProvider, ZONE_UNITS } from '../src/worldgen/Heightmap.js';
+import { HeightmapProvider, WATER_LEVEL, ZONE_UNITS } from '../src/worldgen/Heightmap.js';
 import { streueZone } from '../src/worldgen/streuung.js';
 import { sanitizeWorldLayout } from '../src/worldlayout/sanitize.js';
 import {
@@ -29,6 +29,7 @@ import {
   baumErwartungBei,
   istWaldbaum,
   waldStufe,
+  type WaldGelaende,
   type WaldQuelle,
 } from '../src/worldgen/waldDichte.js';
 import { FOLIAGE } from '../src/vegetation.js';
@@ -73,6 +74,21 @@ pruefe('Waldfaktor weit über allen Fenstern: nur die Arten ohne Waldbedingung',
 pruefe('im Wald (0,5) mehr Erwartung als am Rand (1,3)', baumErwartung(0.5, null) > baumErwartung(1.3, null), `${baumErwartung(0.5, null).toFixed(0)} > ${baumErwartung(1.3, null).toFixed(0)}`);
 pruefe('Tabelle und Rechnung stimmen (Stufe 0,01)', Math.abs(baumErwartungBei(0, 0, frei) - baumErwartung(0.5, frei.regionAt!(0, 0)!.vegetation!)) < 1e-4);
 
+// Gelände: dieselben Höhen- und Neigungsregeln wie die Streuung
+const mitGelaende = (hoehe: number, normalY: number): WaldQuelle => ({
+  ...frei,
+  gelaende: (_x: number, _z: number, aus: WaldGelaende) => {
+    aus.hoehe = hoehe;
+    aus.normalY = normalY;
+  },
+});
+pruefe('Wiese 5 m über dem Wasser, flach: Bäume', baeumeImUmkreis(0, 0, mitGelaende(WATER_LEVEL + 5, 1)) > 100);
+pruefe('offenes Meer (5 m unter dem Wasserspiegel): 0 Bäume', baeumeImUmkreis(0, 0, mitGelaende(WATER_LEVEL - 5, 1)) === 0);
+pruefe('Wasserlinie (0,2 m über dem Spiegel, unter minAltitude 0,5): 0 Bäume', baeumeImUmkreis(0, 0, mitGelaende(WATER_LEVEL + 0.2, 1)) === 0);
+pruefe('60°-Hang (normalY 0,5): 0 Bäume', baeumeImUmkreis(0, 0, mitGelaende(WATER_LEVEL + 5, 0.5)) === 0);
+pruefe('25°-Hang (normalY 0,906): weniger Bäume als flach, aber welche', baeumeImUmkreis(0, 0, mitGelaende(WATER_LEVEL + 5, 0.906)) > 0 && baeumeImUmkreis(0, 0, mitGelaende(WATER_LEVEL + 5, 0.906)) < baeumeImUmkreis(0, 0, mitGelaende(WATER_LEVEL + 5, 1)));
+pruefe('ohne Gelände-Funktion gelten die Fenster nicht (Meer zählt)', baeumeImUmkreis(0, 0, frei) > 100);
+
 let monoton = true;
 let vorher = -1;
 for (let b = 0; b <= 400; b += 0.5) {
@@ -92,7 +108,14 @@ if (!layout) throw new Error('dev.json wurde verworfen');
 const seed = getStableHash(layout.detailSeed);
 const geo = new RegionGeo(seed, { worldGenVersion: 2 }, layout);
 const hm = new HeightmapProvider(geo, { blendSmoothStep: true, bilinearSampling: false });
-const quelle: WaldQuelle = { getForestFactor: (x, z) => geo.getForestFactor(x, z), regionAt: (x, z) => geo.regionAt(x, z) };
+const quelle: WaldQuelle = {
+  getForestFactor: (x, z) => geo.getForestFactor(x, z),
+  regionAt: (x, z) => geo.regionAt(x, z),
+  gelaende: (x, z, aus) => {
+    aus.hoehe = hm.getGroundHeight(x, z);
+    aus.normalY = hm.getZoneAt(x, z).getWorldNormal(x, z)?.y ?? 1;
+  },
+};
 
 let zufall = 12345;
 const rnd = (): number => (zufall = (Math.imul(zufall, 1664525) + 1013904223) >>> 0) / 4294967296;
@@ -118,6 +141,19 @@ for (let versuch = 0, n = 0; n < 30 && versuch < 20000; versuch++) {
   if (!rg || hm.getGroundHeight(x, z) < 31.5) continue;
   punkte.push({ x, z, id: `start:${rg.id}` });
   n++;
+}
+// Meer und Strand rund um Insel 1 (dort reicht die Region über das Wasser)
+const kategorie = new Map<number, string>();
+for (const [kat, lo, hi] of [['ozean', -1e9, 29], ['strand', 29, 31.5]] as const) {
+  for (let versuch = 0, n = 0; n < 25 && versuch < 200000; versuch++) {
+    const x = -20000 + rnd() * 4000;
+    const z = -8000 + rnd() * 4000;
+    const h = hm.getGroundHeight(x, z);
+    if (h < lo || h >= hi) continue;
+    kategorie.set(punkte.length, kat);
+    punkte.push({ x, z, id: kat });
+    n++;
+  }
 }
 pruefe('mindestens 50 Messpunkte', punkte.length >= 50, `${punkte.length}`);
 
@@ -172,19 +208,31 @@ pruefe('Pearson Erwartung gegen Zählung ≥ 0,5', rP >= 0.5, rP.toFixed(3));
 pruefe('Spearman Erwartung gegen Zählung ≥ 0,55', rS >= 0.55, rS.toFixed(3));
 const leer = P.map((e, i) => [e, N[i]] as const).filter(([e]) => e === 0);
 pruefe('mindestens 5 Punkte ohne Erwartung (offene/unkuratierte Fläche)', leer.length >= 5, `${leer.length}`);
+// Falsch-positiv: hörbare Stufe (≥ 0,3) bei weniger als 10 gezählten Bäumen (Vögel im baumarmen Sumpf, im Gebirge, über dem Meer)
+const stufen = P.map((e) => waldStufe(e, 20, 150));
+const falschPositiv = punkte.map((p, i) => ({ p, i })).filter(({ i }) => stufen[i] >= 0.3 && N[i] < 10);
+pruefe('Falsch-positive (Stufe ≥ 0,3, < 10 Bäume) höchstens 5', falschPositiv.length <= 5, `${falschPositiv.length} von ${punkte.length}: ${falschPositiv.map(({ p }) => p.id).join(',')}`);
+const meer = punkte.map((p, i) => ({ p, i })).filter(({ i }) => kategorie.get(i) === 'ozean');
+pruefe('offenes Meer (25 Punkte, Höhe < Wasserspiegel): Stufe 0 und Erwartung unter der Schwelle (Küstenpunkte sehen Land in der Scheibe)', meer.length === 25 && meer.every(({ i }) => stufen[i] === 0 && P[i] < 20), `max Erwartung ${Math.max(...meer.map(({ i }) => P[i])).toFixed(1)}`);
+const sumpf = punkte.map((p, i) => ({ p, i })).filter(({ p }) => p.id === 'insel-3');
+pruefe('Sumpf (insel-3): höchstens 2 von 20 mit Stufe ≥ 0,3', sumpf.filter(({ i }) => stufen[i] >= 0.3).length <= 2, `${sumpf.filter(({ i }) => stufen[i] >= 0.3).length}`);
+console.log(`  falsch-positiv ${falschPositiv.length}/${punkte.length}`);
 pruefe('Erwartung 0 ⇒ wirklich kein Baum in der Scheibe', leer.every(([, n]) => n === 0), `max gezählt ${Math.max(0, ...leer.map(([, n]) => n))}`);
 const dicht = P.map((e, i) => [e, N[i]] as const).filter(([e]) => e >= 150);
 const mittelDicht = dicht.reduce((s, [, n]) => s + n, 0) / Math.max(1, dicht.length);
 const mittelAlle = N.reduce((s, n) => s + n, 0) / N.length;
 pruefe('dicht (Erwartung ≥ 150): im Mittel mehr gezählte Bäume als im Durchschnitt', mittelDicht > mittelAlle * 1.3, `${mittelDicht.toFixed(1)} gegen ${mittelAlle.toFixed(1)}`);
 
+// Kosten mit warmem Gelände-Zwischenspeicher (im Spiel liegen die Zonen um die Figur ohnehin geladen)
+const messPunkt = punkte[0];
+for (let i = 0; i < 50; i++) baeumeImUmkreis(messPunkt.x + (i % 10), messPunkt.z + (i % 7), quelle);
 const t0 = performance.now();
 let acc = 0;
-const AUFRUFE = 2000;
-for (let i = 0; i < AUFRUFE; i++) acc += baeumeImUmkreis(punkte[i % punkte.length].x + i * 0.37, punkte[i % punkte.length].z, quelle);
+const AUFRUFE = 3000;
+for (let i = 0; i < AUFRUFE; i++) acc += baeumeImUmkreis(messPunkt.x + (i % 10), messPunkt.z + (i % 7), quelle);
 const us = ((performance.now() - t0) / AUFRUFE) * 1000;
 console.log(`  Kosten: ${us.toFixed(1)} µs je Aufruf (25 Abtastpunkte)`);
-pruefe('Aufruf unter 200 µs (Takt 0,5 s)', us < 200 && acc >= 0, `${us.toFixed(1)} µs`);
+pruefe('Aufruf unter 100 µs (Takt 0,5 s; Ziel 50 µs)', us < 100 && acc >= 0, `${us.toFixed(1)} µs`);
 
 if (fehler > 0) {
   console.error(`\n${fehler} Prüfung(en) fehlgeschlagen`);

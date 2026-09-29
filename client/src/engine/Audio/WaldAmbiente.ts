@@ -58,16 +58,29 @@ export const GLAETTUNG_S = 1;
 export const DICHTE_TAKT_S = 0.5;
 /** Wassertiefe, ab der still ist (m), wie bei den Schritten die Knietiefe. */
 export const WASSER_AUS_M = 0.5;
+/** So lange bei Ziel 0 und Pegel 0, dann wird die Schleife angehalten (s). */
+export const ANHALTEN_NACH_S = 10;
+/** Eine Schleife wird erst geladen, wenn ihr Zielpegel diese Schwelle übersteigt (Gain 1e-4, ≈ −80 dB). */
+export const START_MIN = 0.01;
 
 /** Tagesanteil 0..1 aus der Tageszeit (Bruchteil des Tages, 0,5 = Mittag). */
 export function tagesAnteil(tageszeit: number): number {
   return tagseitenAnteil(elevationFactor(tageszeit));
 }
 
-/** Zielpegel (0..1, vor der Quadratkurve und vor dem Höchstwert der Schleife) aus geglätteter Stufe und Tageszeit. */
-export function zielPegel(stufe: number, tageszeit: number): { vogel: number; wind: number } {
+/**
+ * Zielpegel (0..1, vor der Quadratkurve und vor dem Höchstwert der Schleife)
+ * aus geglätteter Stufe und Tageszeit. Gleichleistungs-Überblendung: die
+ * Lautstärken (Pegel²) sind Stufe²·sin bzw. Stufe²·cos des Tagesanteils, ihre
+ * Quadratsumme bleibt beim Wechsel Wind ↔ Vögel gleich (keine Senke in der
+ * Dämmerung). `aus` (wiederverwendet) verhindert eine Allokation je Bild.
+ */
+export function zielPegel(stufe: number, tageszeit: number, aus: { vogel: number; wind: number } = { vogel: 0, wind: 0 }): { vogel: number; wind: number } {
   const tag = tagesAnteil(tageszeit);
-  return { vogel: stufe * tag, wind: stufe * (1 - tag) };
+  const winkel = tag * (Math.PI / 2);
+  aus.vogel = stufe * Math.sqrt(Math.sin(winkel));
+  aus.wind = tag >= 1 ? 0 : stufe * Math.sqrt(Math.cos(winkel)); // cos(π/2) ist in Gleitkomma nicht 0
+  return aus;
 }
 
 /** Pegel → Lautstärke der Schleife (Quadratkurve wie `reglerZuGain`), mal Höchstwert. */
@@ -105,6 +118,8 @@ interface Schleife {
   handle: SchleifenHandle | null;
   wartet: boolean;
   naechsterVersuch: number;
+  /** Zeitpunkt, ab dem Ziel und Pegel 0 sind (−1: nicht 0). */
+  nullSeit: number;
   pegel: number;
   lautstaerke: number;
 }
@@ -115,8 +130,10 @@ export class WaldAmbiente {
   private baeume = 0;
   private stufeZiel = 0;
   private stufe = 0;
-  private readonly vogel: Schleife = { gruppe: GRUPPE_VOEGEL, handle: null, wartet: false, naechsterVersuch: 0, pegel: 0, lautstaerke: 0 };
-  private readonly wind: Schleife = { gruppe: GRUPPE_WIND, handle: null, wartet: false, naechsterVersuch: 0, pegel: 0, lautstaerke: 0 };
+  private readonly vogel: Schleife = { gruppe: GRUPPE_VOEGEL, handle: null, wartet: false, naechsterVersuch: 0, nullSeit: -1, pegel: 0, lautstaerke: 0 };
+  private readonly wind: Schleife = { gruppe: GRUPPE_WIND, handle: null, wartet: false, naechsterVersuch: 0, nullSeit: -1, pegel: 0, lautstaerke: 0 };
+  private readonly ziel = { vogel: 0, wind: 0 };
+  private readonly diag = { baeume: 0, stufe: 0, vogelPegel: 0, vogelLautstaerke: 0, windPegel: 0, windLautstaerke: 0, vogelLaeuft: false, windLaeuft: false };
 
   constructor(
     private readonly figur: () => WaldFigur | null,
@@ -142,31 +159,39 @@ export class WaldAmbiente {
     this.stufe += (this.stufeZiel - this.stufe) * (1 - Math.exp(-dt / GLAETTUNG_S));
     if (this.stufeZiel === 0 && this.stufe < 1e-3) this.stufe = 0; // die Glättung erreicht 0 nie von selbst
 
-    const ziel = zielPegel(this.stufe, this.tageszeit());
+    const ziel = zielPegel(this.stufe, this.tageszeit(), this.ziel);
     this.fahre(this.vogel, ziel.vogel, this.werte.vogelMax, dt, audio);
     this.fahre(this.wind, ziel.wind, this.werte.windMax, dt, audio);
 
     const d = audio.diagnose;
     if (d) {
-      d.wald = {
-        baeume: this.baeume,
-        stufe: this.stufe,
-        vogelPegel: this.vogel.pegel,
-        vogelLautstaerke: this.vogel.lautstaerke,
-        windPegel: this.wind.pegel,
-        windLautstaerke: this.wind.lautstaerke,
-        vogelLaeuft: this.vogel.handle !== null,
-        windLaeuft: this.wind.handle !== null,
-      };
+      const w = this.diag;
+      w.baeume = this.baeume;
+      w.stufe = this.stufe;
+      w.vogelPegel = this.vogel.pegel;
+      w.vogelLautstaerke = this.vogel.lautstaerke;
+      w.windPegel = this.wind.pegel;
+      w.windLautstaerke = this.wind.lautstaerke;
+      w.vogelLaeuft = this.vogel.handle !== null;
+      w.windLaeuft = this.wind.handle !== null;
+      d.wald = w;
     }
   }
 
   private fahre(s: Schleife, ziel: number, max: number, dt: number, audio: AmbienteAudio): void {
     s.pegel = rampe(s.pegel, ziel, 1 / RAMPE_S, dt);
     s.lautstaerke = pegelZuLautstaerke(s.pegel, max);
+    if (ziel === 0 && s.pegel === 0) {
+      if (s.nullSeit < 0) s.nullSeit = this.zeit;
+      // Lange still (Wiese, Regler Umgebung 0): Schleife anhalten; bei Bedarf startet sie neu, bei Lautstärke 0.
+      if (s.handle && this.zeit - s.nullSeit >= ANHALTEN_NACH_S) {
+        s.handle.stop();
+        s.handle = null;
+      }
+    } else s.nullSeit = -1;
     if (!s.handle) {
       // Erst laden, wenn die Schleife gebraucht wird (Vögel: 203 s Stereo, ~78 MB dekodiert).
-      if (ziel > 0 && !s.wartet && this.zeit >= s.naechsterVersuch) {
+      if (ziel > START_MIN && !s.wartet && this.zeit >= s.naechsterVersuch) {
         s.wartet = true;
         void audio.startLoopAsync('ambience', s.gruppe).then(
           (h) => {
@@ -191,6 +216,11 @@ export class WaldAmbiente {
 /** Was `main.ts` an Welt hat (`ClientWorld`); nur die zwei Funktionen, die die Dichte braucht. */
 export interface WaldWelt {
   geo: { getForestFactor(x: number, z: number): number };
+  /** Höhe und Normale wie in der Streuung (`getZoneAt(...).getWorldNormal`). */
+  heightmaps?: {
+    getGroundHeight(x: number, z: number): number;
+    getZoneAt(x: number, z: number): { getWorldNormal(x: number, z: number): { y: number } | null };
+  };
   regionGeo: { regionAt(x: number, z: number): { vegetation?: readonly string[]; bewuchsDichte?: number } | null } | null;
 }
 
@@ -202,9 +232,16 @@ export function weltZuQuelle(welt: WaldWelt | null | undefined): WaldQuelle | nu
   let q = quellen.get(welt);
   if (!q) {
     const region = welt.regionGeo;
+    const hm = welt.heightmaps;
     q = {
       getForestFactor: (x, z) => welt.geo.getForestFactor(x, z),
       regionAt: region ? (x, z) => region.regionAt(x, z) : undefined,
+      gelaende: hm
+        ? (x, z, aus) => {
+            aus.hoehe = hm.getGroundHeight(x, z);
+            aus.normalY = hm.getZoneAt(x, z).getWorldNormal(x, z)?.y ?? 1;
+          }
+        : undefined,
     };
     quellen.set(welt, q);
   }

@@ -51,7 +51,7 @@
  * (409): a double click must not stop the service twice.
  */
 import { randomBytes } from 'node:crypto';
-import { constants, copyFileSync, existsSync, linkSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { constants, copyFileSync, existsSync, linkSync, lstatSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { zstdDecompressSync } from 'node:zlib';
@@ -76,6 +76,14 @@ export interface ResetUmgebung {
   spielstand: string;
   /** `server/data/konten/<instanz>.db` (SQLite, WAL: `-wal` and `-shm` sit beside it) */
   kontenDb: string;
+  /**
+   * Karte Z3 N1: the persistent deletion lock (`loeschsperreDatei`). A reset writes a brand-new document
+   * and a fresh save (no ZDOs at all until the next boot), so the old lock's ids can never be "active"
+   * again either way — this field just makes that fact literal (`ids: []` in the head comment of
+   * `loeschsperre.ts`) instead of leaving a stale file lying around. Optional: a caller that never sets a
+   * lock (older tests) simply skips this.
+   */
+  loeschsperrePfad?: string;
   dienstStoppen(): Promise<void>;
   dienstStarten(): Promise<void>;
   dienstZustand(): Promise<{ aktiv: boolean; seit: string | null }>;
@@ -190,12 +198,24 @@ export function spielstandZahlen(umg: ResetUmgebung): ResetZahlen['spielstand'] 
 }
 
 /** The files a reset moves, only those that exist: the save with its `.prev`, and with `konten` the account database with its WAL files. */
-function beiseiteKandidaten(umg: ResetUmgebung, mitKonten: boolean): { spielstand: string[]; konten: string[] } {
+function beiseiteKandidaten(umg: ResetUmgebung, mitKonten: boolean): { spielstand: string[]; konten: string[]; sperre: string[] } {
   const vorhanden = (dateien: string[]): string[] => dateien.filter((d) => existsSync(d));
   return {
+    // Z3 N2 (B3): the deletion lock, whatever it is (file, broken file, even a directory): `lstat`, not `exists`.
+    sperre: umg.loeschsperrePfad && lstatVorhanden(umg.loeschsperrePfad) ? [umg.loeschsperrePfad] : [],
     spielstand: vorhanden([umg.spielstand, `${umg.spielstand}.prev`]),
     konten: mitKonten ? vorhanden([umg.kontenDb, `${umg.kontenDb}-wal`, `${umg.kontenDb}-shm`]) : [],
   };
+}
+
+/** Is there anything at this path (a dangling symlink or a directory counts)? */
+function lstatVorhanden(pfad: string): boolean {
+  try {
+    lstatSync(pfad);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** One suffix for the whole reset: the stamp, or `<stamp>-2`, `-3` … when any target name is taken. */
@@ -418,7 +438,7 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
   // names is taken (the copy of the world document included), so the copy and the moved files always share their name.
   // The names are checked for every file that COULD be moved, not only for those there now: the save may not exist yet
   // (the game server writes it when it stops).
-  const moegliche = [umg.spielstand, `${umg.spielstand}.prev`, ...(mitKonten ? [umg.kontenDb, `${umg.kontenDb}-wal`, `${umg.kontenDb}-shm`] : [])];
+  const moegliche = [umg.spielstand, `${umg.spielstand}.prev`, ...(umg.loeschsperrePfad ? [umg.loeschsperrePfad] : []), ...(mitKonten ? [umg.kontenDb, `${umg.kontenDb}-wal`, `${umg.kontenDb}-shm`] : [])];
   const kopieName = (k: string): string => resolve(weltenOrdner, `${basename(umg.layoutDatei)}.${k}`);
   const kennung = freieKennung(stempel, (k) => [kopieName(k), ...moegliche.map((d) => `${d}.vor-reset-${k}`)]);
 
@@ -516,7 +536,7 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
       }
       // The marker says what is about to be moved BEFORE anything is: a kill between a move and a later note would leave
       // a file gone that the marker never mentioned. At recovery the planned files that exist are the ones that moved.
-      marker.beiseite = [...kandidaten.spielstand, ...kandidaten.konten].map((datei) => `${datei}.vor-reset-${kennung}`);
+      marker.beiseite = [...kandidaten.spielstand, ...kandidaten.konten, ...kandidaten.sperre].map((datei) => `${datei}.vor-reset-${kennung}`);
       marker.schritt = 'beiseite';
       markerSchreiben(umg, marker);
       for (const datei of kandidaten.spielstand) {
@@ -532,6 +552,17 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
           beiseite.push({ von: datei, nach });
         }
       }
+      // Z3 N1, E-a: „Welt zurücksetzen" ist einer der drei Wege, die die dauerhafte Löschsperre entfernen. Z3 N2 (B3): sie
+      // wird VOR dem Dokument beiseite gelegt (nicht danach gelöscht): scheitert das, ist das Dokument noch das alte, und das
+      // Rückrollen legt sie mit den übrigen Dateien zurück. Scheitert das Schreiben des Dokuments danach, steht die Sperre
+      // ebenfalls wieder da. So stimmt „Alles steht wieder wie vorher" mit dem Zustand überein.
+      for (const datei of kandidaten.sperre) {
+        const nach = `${datei}.vor-reset-${kennung}`;
+        // `rename`, nicht `link`: Die Sperre kann ein Verzeichnis sein (kaputt = geschlossen), und `link` legt kein Verzeichnis um.
+        if (existsSync(nach)) throw new Error(`${basename(nach)} existiert schon`);
+        renameSync(datei, nach);
+        beiseite.push({ von: datei, nach });
+      }
       await umg.vorSchritt?.('dokument');
       // Before the write, for the same reason: a kill after it must not find a marker that still says "document untouched".
       marker.schritt = 'dokument';
@@ -541,8 +572,14 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
     } catch (fehler) {
       tauschFehler = fehler;
       // Put back what already moved, newest first. The document is written last and atomically, so it never needs this.
+      // The lock is moved with `rename` (it may be a directory); the rest with `link`, which never overwrites.
       for (const { von, nach } of [...beiseite].reverse()) {
         try {
+          if (von === umg.loeschsperrePfad) {
+            if (lstatVorhanden(von)) throw new Error(`${basename(von)} existiert schon`);
+            renameSync(nach, von);
+            continue;
+          }
           linkSync(nach, von);
           unlinkSync(nach);
         } catch (e) {

@@ -435,6 +435,8 @@ async function main(): Promise<void> {
   }
 
   await testErneuern();
+  await testSperreMitnehmen();
+  await testAnfrageMitnehmen();
 
   console.log(fehler === 0 ? '\nAlle Pruefungen gruen.' : `\n${fehler} Pruefung(en) fehlgeschlagen.`);
   process.exit(fehler > 0 ? 1 : 0);
@@ -567,6 +569,298 @@ exit 0
     }
   } finally {
     rmSync(ORDNER3, { recursive: true, force: true });
+  }
+}
+
+/**
+ * [8] Z3 N4 (D2) — die Loeschsperre wandert mit dem Spielstand, ueber die ECHTE Route POST /api/testwelt (mit
+ * systemctl-Stand-in). Angriffsbefund R9/R9m: Blieb `layout-loeschsperre.dev.json` beim Tausch liegen, nahm der Boot
+ * der frischen Testwelt sie als Ruecknahme zurueck (Truhe beim Zurueckholen samt Inhalt weg), und ein Bestaetigen dort
+ * hob die Massensperre der dev-Welt auf. Geprueft wird, was die Route mit den Dateien tut: starten legt die dev-Sperre
+ * beiseite, zurueck legt sie zurueck (eine Testwelt-Sperre wird aufgehoben statt geloescht), erneuern fasst die dev-Sperre
+ * nicht an, ein Rest von `.beiseite` sperrt das Starten, und scheitert ein Tausch mittendrin, laufen die fruehen
+ * Schritte zurueck (Spielstand und Sperre bleiben beisammen).
+ */
+async function testSperreMitnehmen(): Promise<void> {
+  console.log('\n[8] /api/testwelt — die Loeschsperre wandert mit dem Spielstand (Z3 N4, D2):');
+  const ORDNER = mkdtempSync(resolve(tmpdir(), 'wov-testwelt-sperre-'));
+  try {
+    const WELTEN = resolve(ORDNER, 'server/data/welten');
+    const WORLDS = resolve(ORDNER, 'server/data/worlds');
+    const FAKE = resolve(ORDNER, 'fake');
+    const TOKEN = 'pruef-token-sperre';
+    const TOKEN_DATEI = resolve(ORDNER, 'token');
+    const FAKE_SYSTEMCTL = resolve(FAKE, 'systemctl');
+    for (const d of [WELTEN, WORLDS, FAKE]) mkdirSync(d, { recursive: true });
+    writeFileSync(TOKEN_DATEI, `${TOKEN}\n`);
+    writeFileSync(
+      FAKE_SYSTEMCTL,
+      `#!/bin/sh
+D="${FAKE}"
+echo "$1 $2" >> "$D/log"
+case "$1" in
+  show) if [ -f "$D/aktiv" ]; then echo "ActiveState=active"; else echo "ActiveState=inactive"; fi ;;
+  start) touch "$D/aktiv" ;;
+  stop) rm -f "$D/aktiv" ;;
+esac
+exit 0
+`
+    );
+    chmodSync(FAKE_SYSTEMCTL, 0o755);
+    const fakeLog = (): string[] =>
+      existsSync(resolve(FAKE, 'log')) ? readFileSync(resolve(FAKE, 'log'), 'utf-8').trim().split('\n').filter((z) => z && !z.startsWith('show')) : [];
+
+    const { port, kind } = await new Promise<{ port: number; kind: ChildProcess }>((fertig, scheitern) => {
+      const k = spawn(resolve(WURZEL_PROJEKT, 'node_modules/.bin/tsx'), ['src/main.ts'], {
+        cwd: ADMIN,
+        env: {
+          ...process.env,
+          WOV_WURZEL: ORDNER,
+          WOV_WELT_VERZEICHNIS: WELTEN,
+          WOV_INSTANZ: 'dev',
+          WOV_ADMIN_ADRESSE: '127.0.0.1',
+          WOV_ADMIN_PORT: '0',
+          WOV_QUITTUNG: 'aus',
+          NODE_ENV: 'test',
+          WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
+          WOV_SYSTEMCTL: FAKE_SYSTEMCTL,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let puffer = '';
+      const zeitgrenze = setTimeout(() => scheitern(new Error(`Dienst startet nicht:\n${puffer}`)), 30_000);
+      k.stdout.on('data', (s: Buffer) => {
+        puffer += s.toString();
+        const t = /bereit auf 127\.0\.0\.1:(\d+)/.exec(puffer);
+        if (t) {
+          clearTimeout(zeitgrenze);
+          fertig({ port: Number(t[1]), kind: k });
+        }
+      });
+      k.stderr.on('data', (s: Buffer) => (puffer += s.toString()));
+      k.on('exit', (code) => {
+        clearTimeout(zeitgrenze);
+        scheitern(new Error(`Dienst beendet mit ${code}:\n${puffer}`));
+      });
+    });
+
+    try {
+      const aktion = (a: string): Promise<Antwort> => anfrage({ port, token: TOKEN, pfad: '/api/testwelt', methode: 'POST', leib: JSON.stringify({ aktion: a }) });
+      const weltDatei = resolve(WORLDS, 'dev.db.zst');
+      const sperre = resolve(WORLDS, 'layout-loeschsperre.dev.json');
+      const sperreBeiseite = `${sperre}.beiseite`;
+      const sperreTest = `${sperre}.testwelt`;
+      // Eine bewusst UNLESBARE Sperre als dev-Sperre: die Route darf sie nur verschieben, nie lesen oder veraendern.
+      const DEV_SPERRE = '{"ids":["kiste"],"hash":"h-dev","grund":"zustand","zeit":"2026-09-29T00:00:00.000Z"}';
+      const TEST_SPERRE = '{"ids":["testkiste"],"hash":"h-test","grund":"zustand","zeit":"2026-09-29T01:00:00.000Z"}';
+      writeFileSync(weltDatei, 'dev-spielstand');
+      writeFileSync(sperre, DEV_SPERRE);
+
+      // ── R9: starten legt die dev-Sperre beiseite ──
+      const start = await aktion('starten');
+      check('starten → 200', start.code === 200, `${start.code} ${JSON.stringify(start.daten)}`);
+      check('starten: die dev-Sperre liegt NICHT mehr am Ladeort (sonst nimmt der Boot der Testwelt sie zurueck)', !existsSync(sperre));
+      check('starten: die dev-Sperre liegt unveraendert unter .beiseite', existsSync(sperreBeiseite) && readFileSync(sperreBeiseite, 'utf-8') === DEV_SPERRE);
+      check('starten: der Spielstand liegt beiseite (wie bisher)', existsSync(`${weltDatei}.beiseite`) && !existsSync(weltDatei));
+
+      // Die Testwelt entwickelt eine EIGENE Sperre (der frische Boot schreibt sie).
+      writeFileSync(weltDatei, 'testwelt-spielstand');
+      writeFileSync(sperre, TEST_SPERRE);
+
+      // ── R9m: ein zweites Starten waehrend die Testwelt laeuft, faellt aus (409) und fasst nichts an ──
+      const nochmal = await aktion('starten');
+      check('starten bei laufender Testwelt → 409, Sperren unberuehrt', nochmal.code === 409 && readFileSync(sperre, 'utf-8') === TEST_SPERRE && readFileSync(sperreBeiseite, 'utf-8') === DEV_SPERRE);
+
+      // ── erneuern: die Testwelt-Sperre geht mit dem Testwelt-Spielstand, die dev-Sperre bleibt ──
+      const erneuert = await aktion('erneuern');
+      check('erneuern → 200', erneuert.code === 200, `${erneuert.code} ${JSON.stringify(erneuert.daten)}`);
+      check('erneuern: die Testwelt-Sperre ist aufgehoben (.testwelt), am Ladeort liegt keine', !existsSync(sperre) && existsSync(sperreTest) && readFileSync(sperreTest, 'utf-8') === TEST_SPERRE);
+      check('erneuern: die dev-Sperre unter .beiseite ist byte-gleich', readFileSync(sperreBeiseite, 'utf-8') === DEV_SPERRE);
+
+      // Testwelt bekommt wieder eine Sperre (frischer Boot, Prefab-Wechsel), dann zurueck.
+      writeFileSync(weltDatei, 'testwelt-spielstand-2');
+      writeFileSync(sperre, TEST_SPERRE.replace('testkiste', 'testkiste2'));
+
+      // ── Rollback: ein Tausch, der mittendrin scheitert, laesst nichts halb getauscht liegen ──
+      // `.testwelt` als nicht leeres Verzeichnis: das Aufheben der Testwelt-Sperre scheitert NACH dem Aufheben des Spielstands.
+      rmSync(sperreTest, { force: true });
+      mkdirSync(sperreTest);
+      writeFileSync(resolve(sperreTest, 'x'), 'x');
+      const kaputt = await aktion('zurueck');
+      check('zurueck mit scheiterndem Tausch → kein 200', kaputt.code !== 200, `${kaputt.code}`);
+      check(
+        'Rollback: der Testwelt-Spielstand liegt wieder am Ladeort, die Sperre unberuehrt, .beiseite unberuehrt',
+        existsSync(weltDatei) && readFileSync(weltDatei, 'utf-8') === 'testwelt-spielstand-2' && existsSync(sperre) && readFileSync(sperreBeiseite, 'utf-8') === DEV_SPERRE && readFileSync(`${weltDatei}.beiseite`, 'utf-8') === 'dev-spielstand',
+        `welt=${existsSync(weltDatei)} sperre=${existsSync(sperre)}`
+      );
+      check('Rollback: der Dienst laeuft trotzdem wieder (start als letzter Aufruf)', fakeLog().at(-1) === 'start wov-server', fakeLog().join(','));
+      rmSync(sperreTest, { recursive: true, force: true });
+
+      // ── R9: zurueck legt die dev-Sperre zurueck, die Testwelt-Sperre wird aufgehoben ──
+      const zurueck = await aktion('zurueck');
+      check('zurueck → 200', zurueck.code === 200, `${zurueck.code} ${JSON.stringify(zurueck.daten)}`);
+      check('zurueck: die dev-Sperre liegt wieder am Ladeort, byte-gleich (Truhe bleibt gesperrt)', existsSync(sperre) && readFileSync(sperre, 'utf-8') === DEV_SPERRE);
+      check('zurueck: .beiseite der Sperre ist weg', !existsSync(sperreBeiseite));
+      check('zurueck: die Testwelt-Sperre ist aufgehoben statt geloescht (.testwelt)', existsSync(sperreTest) && readFileSync(sperreTest, 'utf-8').includes('testkiste2'));
+      check('zurueck: der dev-Spielstand liegt wieder am Ladeort', readFileSync(weltDatei, 'utf-8') === 'dev-spielstand');
+
+      // ── dev ohne Sperre: zurueck hinterlaesst keine Testwelt-Sperre am Ladeort ──
+      rmSync(sperre, { force: true });
+      const start2 = await aktion('starten');
+      check('starten ohne dev-Sperre → 200, keine Sperre entsteht', start2.code === 200 && !existsSync(sperre) && !existsSync(sperreBeiseite));
+      writeFileSync(sperre, TEST_SPERRE);
+      const zurueck2 = await aktion('zurueck');
+      check('zurueck ohne dev-Sperre → 200, die Testwelt-Sperre liegt NICHT am Ladeort (sonst waere sie die der dev-Welt)', zurueck2.code === 200 && !existsSync(sperre) && existsSync(sperreTest));
+
+      // ── Rest eines abgebrochenen Wechsels: nie ueberschreiben ──
+      writeFileSync(sperreBeiseite, 'rest');
+      const logVorher = fakeLog().length;
+      const rest = await aktion('starten');
+      check('starten bei vorhandenem .beiseite der Sperre → 409, kein systemctl-Aufruf, nichts ueberschrieben', rest.code === 409 && readFileSync(sperreBeiseite, 'utf-8') === 'rest' && fakeLog().length === logVorher, `${rest.code}`);
+    } finally {
+      kind.kill('SIGTERM');
+      await warte(200);
+    }
+  } finally {
+    rmSync(ORDNER, { recursive: true, force: true });
+  }
+}
+
+async function testAnfrageMitnehmen(): Promise<void> {
+  console.log('\n[9] /api/testwelt — die Bestaetigungs-Anfrage wandert mit der Welt (Z3 N5, E1/E2):');
+  const ORDNER = mkdtempSync(resolve(tmpdir(), 'wov-testwelt-anfrage-'));
+  try {
+    const WELTEN = resolve(ORDNER, 'server/data/welten');
+    const WORLDS = resolve(ORDNER, 'server/data/worlds');
+    const FAKE = resolve(ORDNER, 'fake');
+    const TOKEN = 'pruef-token-anfrage';
+    const TOKEN_DATEI = resolve(ORDNER, 'token');
+    const FAKE_SYSTEMCTL = resolve(FAKE, 'systemctl');
+    for (const d of [WELTEN, WORLDS, FAKE]) mkdirSync(d, { recursive: true });
+    writeFileSync(TOKEN_DATEI, `${TOKEN}\n`);
+    writeFileSync(
+      FAKE_SYSTEMCTL,
+      `#!/bin/sh
+D="${FAKE}"
+echo "$1 $2" >> "$D/log"
+case "$1" in
+  show) if [ -f "$D/aktiv" ]; then echo "ActiveState=active"; else echo "ActiveState=inactive"; fi ;;
+  start) touch "$D/aktiv" ;;
+  stop) rm -f "$D/aktiv" ;;
+esac
+exit 0
+`
+    );
+    chmodSync(FAKE_SYSTEMCTL, 0o755);
+    const fakeLog = (): string[] =>
+      existsSync(resolve(FAKE, 'log')) ? readFileSync(resolve(FAKE, 'log'), 'utf-8').trim().split('\n').filter((z) => z && !z.startsWith('show')) : [];
+
+    const { port, kind } = await new Promise<{ port: number; kind: ChildProcess }>((fertig, scheitern) => {
+      const k = spawn(resolve(WURZEL_PROJEKT, 'node_modules/.bin/tsx'), ['src/main.ts'], {
+        cwd: ADMIN,
+        env: {
+          ...process.env,
+          WOV_WURZEL: ORDNER,
+          WOV_WELT_VERZEICHNIS: WELTEN,
+          WOV_INSTANZ: 'dev',
+          WOV_ADMIN_ADRESSE: '127.0.0.1',
+          WOV_ADMIN_PORT: '0',
+          WOV_QUITTUNG: 'aus',
+          NODE_ENV: 'test',
+          WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
+          WOV_SYSTEMCTL: FAKE_SYSTEMCTL,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let puffer = '';
+      const zeitgrenze = setTimeout(() => scheitern(new Error(`Dienst startet nicht:\n${puffer}`)), 30_000);
+      k.stdout.on('data', (s: Buffer) => {
+        puffer += s.toString();
+        const t = /bereit auf 127\.0\.0\.1:(\d+)/.exec(puffer);
+        if (t) {
+          clearTimeout(zeitgrenze);
+          fertig({ port: Number(t[1]), kind: k });
+        }
+      });
+      k.stderr.on('data', (s: Buffer) => (puffer += s.toString()));
+      k.on('exit', (code) => {
+        clearTimeout(zeitgrenze);
+        scheitern(new Error(`Dienst beendet mit ${code}:\n${puffer}`));
+      });
+    });
+
+    try {
+      const aktion = (a: string): Promise<Antwort> => anfrage({ port, token: TOKEN, pfad: '/api/testwelt', methode: 'POST', leib: JSON.stringify({ aktion: a }) });
+      // Fehlende Datei = null statt Wurf: auf dem alten Stand soll der Test ROT werden, nicht abbrechen.
+      const lies = (pfad: string): string | null => (existsSync(pfad) ? readFileSync(pfad, 'utf-8') : null);
+      const weltDatei = resolve(WORLDS, 'dev.db.zst');
+      const sperre = resolve(WORLDS, 'layout-loeschsperre.dev.json');
+      const sperreBeiseite = `${sperre}.beiseite`;
+      const bitte = resolve(WORLDS, 'layout-bestaetigen.dev.json');
+      const bitteBeiseite = `${bitte}.beiseite`;
+      const bitteTest = `${bitte}.testwelt`;
+      const DEV_SPERRE = '{"ids":["kiste"],"hash":"h-dev","grund":"zustand","zeit":"2026-09-29T00:00:00.000Z"}';
+      const DEV_BITTE = '{"hash":"h-dev","zeit":"2026-09-29T00:00:00.000Z","id":"dev-anfrage"}';
+      const TEST_BITTE = '{"hash":"h-test","zeit":"2026-09-29T01:00:00.000Z","id":"test-anfrage"}';
+      writeFileSync(weltDatei, 'dev-spielstand');
+      writeFileSync(sperre, DEV_SPERRE);
+
+      // ── E2: fehlt der dev-Spielstand, nimmt starten weder Sperre noch Anfrage mit (sonst stranden sie in .beiseite) ──
+      rmSync(weltDatei, { force: true });
+      writeFileSync(sperre, DEV_SPERRE);
+      writeFileSync(bitte, DEV_BITTE);
+      const start3 = await aktion('starten');
+      check('E2 starten ohne dev-Spielstand → 200', start3.code === 200, `${start3.code}`);
+      check('E2 Sperre und Anfrage bleiben am Ladeort, nichts liegt in .beiseite', lies(sperre) === DEV_SPERRE && lies(bitte) === DEV_BITTE && !existsSync(sperreBeiseite) && !existsSync(bitteBeiseite));
+      check('E2 keine Testwelt gilt als aktiv (kein .beiseite des Spielstands)', !existsSync(`${weltDatei}.beiseite`) && start3.daten.aktiv === false, JSON.stringify(start3.daten));
+      const zurueck3 = await aktion('zurueck');
+      check('E2 zurueck → 409 (nichts zurueckzuholen), das ist erwartbar', zurueck3.code === 409);
+      // Der Ausweg besteht: sobald es einen dev-Spielstand gibt, startet die Testwelt normal.
+      writeFileSync(weltDatei, 'dev-spielstand');
+      const start4 = await aktion('starten');
+      check('E2 danach: mit dev-Spielstand startet die Testwelt normal (200), Sperre + Anfrage wandern mit', start4.code === 200 && !existsSync(sperre) && !existsSync(bitte) && existsSync(sperreBeiseite) && existsSync(bitteBeiseite), `${start4.code}`);
+      const zurueck4 = await aktion('zurueck');
+      check('E2 danach: zurueck holt alles heil zurueck (200, Sperre + Anfrage am Ladeort)', zurueck4.code === 200 && existsSync(sperre) && existsSync(bitte) && !existsSync(sperreBeiseite) && !existsSync(bitteBeiseite), `${zurueck4.code}`);
+
+      // ── E1: die dev-Anfrage darf nie in die Testwelt (starten legt sie beiseite) ──
+      writeFileSync(bitte, DEV_BITTE);
+      const start = await aktion('starten');
+      check('starten → 200', start.code === 200, `${start.code} ${JSON.stringify(start.daten)}`);
+      check('starten: die dev-Anfrage liegt NICHT mehr am Ladeort (sonst verbraucht sie der Boot der Testwelt)', !existsSync(bitte));
+      check('starten: die dev-Anfrage liegt byte-gleich unter .beiseite', existsSync(bitteBeiseite) && lies(bitteBeiseite) === DEV_BITTE);
+
+      // ── E1 (Angriff T5/A6): in der Testwelt bestaetigt bei gestopptem Server → liegt; erneuern nimmt sie beiseite ──
+      writeFileSync(weltDatei, 'testwelt-spielstand');
+      writeFileSync(bitte, TEST_BITTE);
+      const erneuert = await aktion('erneuern');
+      check('erneuern → 200', erneuert.code === 200, `${erneuert.code}`);
+      check('erneuern: die Testwelt-Anfrage ist aufgehoben (.testwelt), am Ladeort liegt keine', !existsSync(bitte) && existsSync(bitteTest) && lies(bitteTest) === TEST_BITTE);
+      check('erneuern: die dev-Anfrage unter .beiseite ist byte-gleich', lies(bitteBeiseite) === DEV_BITTE);
+
+      // ── E1 (A6): zurueck mit liegender Testwelt-Anfrage ──
+      writeFileSync(weltDatei, 'testwelt-spielstand-2');
+      writeFileSync(bitte, TEST_BITTE.replace('h-test', 'h-test2'));
+      const zurueck = await aktion('zurueck');
+      check('zurueck → 200', zurueck.code === 200, `${zurueck.code} ${JSON.stringify(zurueck.daten)}`);
+      check('zurueck: die Testwelt-Anfrage liegt NICHT am Ladeort — statt ihrer die dev-Anfrage, byte-gleich', existsSync(bitte) && lies(bitte) === DEV_BITTE);
+      check('zurueck: die Testwelt-Anfrage ist aufgehoben (.testwelt)', existsSync(bitteTest) && (lies(bitteTest) ?? '').includes('h-test2'));
+      check('zurueck: .beiseite der Anfrage ist weg', !existsSync(bitteBeiseite));
+      check('zurueck: die dev-Sperre liegt wieder am Ladeort (Massensperre bleibt)', lies(sperre) === DEV_SPERRE);
+
+      // ── E1: dev ohne eigene Anfrage — eine Testwelt-Anfrage landet nie in dev ──
+      rmSync(bitte, { force: true });
+      const start2 = await aktion('starten');
+      check('starten ohne dev-Anfrage → 200, keine entsteht', start2.code === 200 && !existsSync(bitte) && !existsSync(bitteBeiseite));
+      writeFileSync(bitte, TEST_BITTE);
+      const zurueck2 = await aktion('zurueck');
+      check('zurueck ohne dev-Anfrage → 200, die Testwelt-Anfrage liegt NICHT am Ladeort', zurueck2.code === 200 && !existsSync(bitte) && existsSync(bitteTest));
+
+    } finally {
+      kind.kill('SIGTERM');
+      await warte(200);
+    }
+  } finally {
+    rmSync(ORDNER, { recursive: true, force: true });
   }
 }
 

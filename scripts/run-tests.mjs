@@ -2341,10 +2341,6 @@ const KERN = [
   // ... N2: vergleiche() (Editor) prueft heightDeltas INHALTLICH (entfernt/geaendert = schwer, nicht nur die
   // Punktzahl); DOM-frei.
   ['client', 'test/welt-abgleich-hoehenkorrektur.ts'],
-  // Gelaende T2: Pinsel im Testflug (Reiter Gelaende) - Kern (Stempel, Randabfall, Glaetten), Sperre unter Sockel/Gebaeude, Grenzen
-  // (Strich wird abgelehnt statt gekuerzt), ein Strich = ein Vorgang, Umkehr, Anbindung an eine echte RegionGeo und Bitgleichheit mit
-  // der frisch kompilierten Welt (Server-Weg), Tasten (deutsche Tastatur), Takt, Texte de/en. DOM-frei.
-  ['client', 'test/gelaende-pinsel.ts'],
   // B9.6: das Huhn im Spiel — Tabellen (Spawn-Tabelle, Registry, Leben,
   // Manifest-Clips, renderScale gegen die IDLE-Pose aus B9.6/Blender statt
   // der Bindepose des Manifests), das Spawnsystem mit den ausgelieferten
@@ -2644,6 +2640,11 @@ const KERN = [
   */
   ['server', 'test/kampf-waffe.ts'],
   ['client', 'test/kampf-waffe-abgleich.ts'],
+  // Gelaende T2: Pinsel im Testflug (Reiter Gelaende) - Kern (Stempel, Randabfall, Glaetten), Sperre unter Sockel/Gebaeude, Grenzen
+  // (Strich wird abgelehnt statt gekuerzt), ein Strich = ein Vorgang, Umkehr, Anbindung an eine echte RegionGeo und Bitgleichheit mit
+  // der frisch kompilierten Welt (Server-Weg), Tasten (deutsche Tastatur), Takt, Texte de/en. DOM-frei.
+  // N1: Bauteil-Sperre (PIECE/sm-bld-), Wirkradius, Flug folgt dem Entwurf (fremder Tab), enthaelt() mit heightDeltas, Zonennaht, Wertgrenze.
+  ['client', 'test/gelaende-pinsel.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

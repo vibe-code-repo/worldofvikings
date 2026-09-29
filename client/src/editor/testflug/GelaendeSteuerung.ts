@@ -22,6 +22,7 @@ import {
   invertiere,
   klemmeRadius,
   Strich,
+  wirkRadius,
   StempelTakt,
   wendeVorgang,
   type Aenderung,
@@ -68,6 +69,10 @@ export class GelaendeSteuerung {
   private kreise: SperrKreis[] = [];
   private kreiseZeit = -Infinity;
   private gesperrtGemeldet = false;
+  /** Another tab changed the draft while a stroke was open: the ground is compared with the draft when the stroke ends. */
+  private ausstehend = false;
+  /** The draft's layer is unusable (message), the brush stays locked until a draft comes back that can be used. */
+  private entwurfKaputt: string | null = null;
 
   constructor(private readonly abh: GelaendeAbh) {}
 
@@ -99,6 +104,42 @@ export class GelaendeSteuerung {
     return true;
   }
 
+  /**
+   * Another tab changed the draft (`storage` event): the flight takes the new
+   * `heightDeltas` layer into the live ground and rebuilds what differs. A stroke
+   * that is running is not torn: the takeover waits for its end.
+   */
+  entwurfGeaendert(): void {
+    if (!this.karte) return;
+    if (this.strich) {
+      this.ausstehend = true;
+      return;
+    }
+    this.abgleichen();
+  }
+
+  /**
+   * Makes the live layer equal to the draft's. Changes are rebuilt zone by zone
+   * (a box around scattered points would rebuild half the map); loose objects
+   * are put back on the new ground.
+   */
+  private abgleichen(): void {
+    const karte = this.karte;
+    if (!karte) return;
+    const geladen = this.abh.aktionen.ladeKarte();
+    if (!geladen.ok) {
+      if (this.entwurfKaputt !== geladen.message) this.abh.meldung(geladen.message);
+      this.entwurfKaputt = geladen.message;
+      return;
+    }
+    this.entwurfKaputt = null;
+    const geaendert = karte.abgleichenMit(geladen.karte);
+    if (geaendert.length === 0) return;
+    this.neuBauenJeZone(geaendert);
+    this.abh.nachStrich();
+    this.abh.meldung(t('testflug.gelaende.entwurf_uebernommen', { n: geaendert.length }));
+  }
+
   get strichOffen(): boolean {
     return this.strich !== null;
   }
@@ -124,7 +165,8 @@ export class GelaendeSteuerung {
       return;
     }
     const e = this.abh.einstellung();
-    this.abh.kreis.zeige(p.x, p.z, e.radius, gesperrtDurch(this.sperrkreiseHolen(), p.x, p.z, e.radius) !== null);
+    const r = wirkRadius(e.werkzeug, klemmeRadius(e.radius), e.staerke);
+    this.abh.kreis.zeige(p.x, p.z, r, gesperrtDurch(this.sperrkreiseHolen(), p.x, p.z, r) !== null);
   }
 
   verberge(): void {
@@ -134,6 +176,9 @@ export class GelaendeSteuerung {
   /** Mouse down on the ground: starts a stroke with its first stamp. */
   druecken(p: { x: number; z: number }, shift: boolean): void {
     if (this.strich || !this.bereit() || !this.karte) return;
+    // The ground must show the draft before a stroke lands on it (also when the event was missed).
+    this.abgleichen();
+    if (this.entwurfKaputt) return;
     this.strich = new Strich(this.karte, this.abh.vorgangId());
     this.takt = new StempelTakt();
     this.gesperrtGemeldet = false;
@@ -163,12 +208,14 @@ export class GelaendeSteuerung {
       return;
     }
     const werkzeug: Werkzeug = e.werkzeug === 'glaetten' ? 'glaetten' : (e.werkzeug === 'anheben') !== shift ? 'anheben' : 'absenken';
-    const sperre = gesperrtDurch(this.sperrkreiseHolen(), p.x, p.z, radius);
+    // The circle and the lock use the radius the stamp really reaches (a weak stamp is narrower than the radius).
+    const wirk = wirkRadius(werkzeug, radius, e.staerke);
+    const sperre = gesperrtDurch(this.sperrkreiseHolen(), p.x, p.z, wirk);
     const r = strich.stempel(
       { x: p.x, z: p.z, radius, staerke: e.staerke, werkzeug, hoehe: (ix, iz) => this.abh.hoehe(ix, iz) },
       sperre !== null
     );
-    this.abh.kreis.zeige(p.x, p.z, radius, sperre !== null);
+    this.abh.kreis.zeige(p.x, p.z, wirk, sperre !== null);
     switch (r.art) {
       case 'ok':
         this.neuBauen(r.geaendert);
@@ -194,6 +241,18 @@ export class GelaendeSteuerung {
     }
   }
 
+  /** One rebuild per zone that has changes: scattered changes must not become one giant box. */
+  private neuBauenJeZone(aenderungen: readonly Aenderung[]): void {
+    const jeZone = new Map<string, Aenderung[]>();
+    for (const a of aenderungen) {
+      const schluessel = `${a.zx},${a.zz}`;
+      const liste = jeZone.get(schluessel);
+      if (liste) liste.push(a);
+      else jeZone.set(schluessel, [a]);
+    }
+    for (const liste of jeZone.values()) this.neuBauen(liste);
+  }
+
   private neuBauen(aenderungen: readonly Aenderung[]): void {
     if (aenderungen.length === 0) return;
     let minX = Infinity;
@@ -216,6 +275,19 @@ export class GelaendeSteuerung {
     const strich = this.strich;
     this.strich = null;
     if (!strich || !this.karte) return;
+    try {
+      this.strichAbschliessen(strich);
+    } finally {
+      // Another tab changed the draft during the stroke: take it over now that the stroke is written or taken back.
+      if (this.ausstehend) {
+        this.ausstehend = false;
+        this.abgleichen();
+      }
+    }
+  }
+
+  private strichAbschliessen(strich: Strich): void {
+    if (!this.karte) return;
     const v = strich.ende();
     if (!v) return;
     const r = this.abh.aktionen.strichAbschliessen(v);
@@ -228,6 +300,8 @@ export class GelaendeSteuerung {
     // The draft refused: take the stroke back from the live ground too, so ground and draft agree.
     const zurueck = invertiere(v);
     if (wendeVorgang(this.karte, zurueck).ok) this.neuBauen(zurueck.aenderungen);
+    // The draft is what counts: if it was changed elsewhere, the ground follows it (also when no event arrived).
+    this.abgleichen();
     this.abh.meldung(t('testflug.gelaende.abgelehnt', { grund: r.message }));
   }
 

@@ -46,6 +46,7 @@ import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
 import { sockelRadiusFuer } from './sockel';
 import { DoppelklickSperre, Ziehgriff, entscheideKlick, griffPosition, modusNachSetzen } from './greifen';
 import { t } from '../i18n';
+import { ENTWURF_KEY } from '../weltdokument';
 import { verdrahteGrundskalaLive } from './grundskalaLive';
 import { GelaendeAktionen } from './GelaendeAktionen';
 import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
@@ -879,6 +880,12 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     });
     window.addEventListener('keyup', (e) => {
       gelaendeShift = e.shiftKey;
+    });
+    // Ändert ein anderer Tab (der Editor) den Entwurf, übernimmt der Flug dessen Geländeebene und baut neu
+    // (ein laufender Strich wird nicht zerrissen, die Übernahme wartet auf sein Ende). `storage` feuert nur in
+    // den ANDEREN Tabs, eigene Schreibungen des Flugs kommen hier nicht an.
+    window.addEventListener('storage', (e) => {
+      if (e.key === null || e.key === ENTWURF_KEY) gelaende.entwurfGeaendert();
     });
     // Ein Bild lang stehende Maustaste: der Pinsel wiederholt seinen Stempel (StempelTakt bestimmt, wann).
     scene.onBeforeRenderObservable.add(() => {

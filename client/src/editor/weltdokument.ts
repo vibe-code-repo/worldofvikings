@@ -131,6 +131,27 @@ export type ServerStand =
   | { erreichbar: false; grund: string };
 
 /**
+ * Die Handkorrektur eines Dokuments als Karte „Zone + Rasterposition → Delta (cm)“
+ * (Schlüssel `zx,zz,ry,rx`). Gemeinsame Quelle für den Vergleich der Rasterpunkte
+ * und für `enthaelt`.
+ */
+function hoehenPunkte(l: WorldLayout): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const z of l.heightDeltas ?? []) {
+    for (const zeile of z.r) {
+      const teile = zeile.split('|');
+      if (teile.length !== 3) continue;
+      const ry = teile[0]!;
+      const rx = teile[1]!.length > 0 ? teile[1]!.split(',') : [];
+      const delta = teile[2]!.length > 0 ? teile[2]!.split(',') : [];
+      const n = Math.min(rx.length, delta.length);
+      for (let k = 0; k < n; k++) m.set(`${z.zx},${z.zz},${ry},${rx[k]}`, Number(delta[k]));
+    }
+  }
+  return m;
+}
+
+/**
  * Steckt alles, was `klein` enthält, schon in `gross`? Grundlage der Frage
  * „geht beim Verdrängen von `klein` etwas verloren, wenn `gross` bleibt?":
  * Ein Schreiber, der seinen Stand aus dem AKTUELLEN Speicher aufbaut (der
@@ -151,6 +172,11 @@ export type ServerStand =
  *    zählen, `[P]` enthält `[P, P]` nicht. Bei Platzierungen bleibt das Feld
  *    `id` außen vor: Es ist eine Kennung, kein Inhalt, und Stände von vor
  *    dem Feld tragen keine, Ring-Einträge und `layoutMitPlatzierung` schon.
+ *  - Handkorrektur (`heightDeltas`) punktweise: Jeder Rasterpunkt von `klein`
+ *    muss in `gross` mit demselben Delta stehen. Ein Dokument ohne Handkorrektur
+ *    verlangt nichts (für Entwürfe ohne `heightDeltas` ändert sich das Ergebnis
+ *    nicht); wer Striche trägt, wird nur von einem Stand enthalten, der sie
+ *    (noch) hat — sonst ginge beim Verdrängen ein Geländestrich still verloren.
  *  - Name, Detail-Seed und Startpunkt müssen übereinstimmen.
  * Elemente werden als JSON verglichen. Im Zweifel `false`: ein Stand zu viel
  * zu sichern kostet nur Platz.
@@ -196,6 +222,13 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     }
     return true;
   };
+  /** Jeder Rasterpunkt der Handkorrektur von `klein` steht in `gross` mit demselben Delta. */
+  const hoehe = (): boolean => {
+    if (!klein.heightDeltas || klein.heightDeltas.length === 0) return true;
+    const g = hoehenPunkte(gross);
+    for (const [schluessel, wert] of hoehenPunkte(klein)) if (g.get(schluessel) !== wert) return false;
+    return true;
+  };
   return (
     gross.name === klein.name &&
     gross.detailSeed === klein.detailSeed &&
@@ -205,7 +238,8 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     multimenge(gross.placements, klein.placements, ohneId) &&
     multimenge(gross.rivers, klein.rivers) &&
     multimenge(gross.lakes, klein.lakes) &&
-    multimenge(gross.routes, klein.routes)
+    multimenge(gross.routes, klein.routes) &&
+    hoehe()
   );
 }
 
@@ -721,21 +755,6 @@ export function vergleiche(server: WorldLayout, entwurf: WorldLayout): Unterschi
   // hat) und reines Umsortieren zählen NICHT als schwer — beide ändern an
   // den Schlüsseln des Vergleichs (Zone+Position → Delta) nichts, was der
   // Server bereits hatte.
-  const hoehenPunkte = (l: WorldLayout): Map<string, number> => {
-    const m = new Map<string, number>();
-    for (const z of l.heightDeltas ?? []) {
-      for (const zeile of z.r) {
-        const teile = zeile.split('|');
-        if (teile.length !== 3) continue;
-        const ry = teile[0]!;
-        const rx = teile[1]!.length > 0 ? teile[1]!.split(',') : [];
-        const delta = teile[2]!.length > 0 ? teile[2]!.split(',') : [];
-        const n = Math.min(rx.length, delta.length);
-        for (let k = 0; k < n; k++) m.set(`${z.zx},${z.zz},${ry},${rx[k]}`, Number(delta[k]));
-      }
-    }
-    return m;
-  };
   const sHoehe = hoehenPunkte(server);
   const eHoehe = hoehenPunkte(entwurf);
   let hoeheVerlorenOderGeaendert = false;

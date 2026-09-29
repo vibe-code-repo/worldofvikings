@@ -101,6 +101,13 @@ export function punktVon(wx: number, wz: number): { zx: number; zz: number; inde
 
 const zonenNummer = (zx: number, zz: number): number => (zx + ZONEN_GRENZE) * (2 * ZONEN_GRENZE + 1) + (zz + ZONEN_GRENZE);
 const punktNummer = (zx: number, zz: number, index: number): number => zonenNummer(zx, zz) * (ZONE * ZONE) + index;
+/** Inverse of `punktNummer`. */
+const punktAusNummer = (nr: number): { zx: number; zz: number; index: number } => {
+  const index = nr % (ZONE * ZONE);
+  const zone = (nr - index) / (ZONE * ZONE);
+  const breite = 2 * ZONEN_GRENZE + 1;
+  return { zx: Math.floor(zone / breite) - ZONEN_GRENZE, zz: (zone % breite) - ZONEN_GRENZE, index };
+};
 
 /**
  * The hand-correction layer in memory: cm per vertex, sparse. Doubles as the
@@ -143,6 +150,23 @@ export class DeltaKarte {
     }
     this.punkte.set(nr, cm);
     if (!da) this.zonen.set(zone, (this.zonen.get(zone) ?? 0) + 1);
+  }
+
+  /**
+   * Makes this layer equal to `neu` IN PLACE (the live view of the ground keeps
+   * pointing at this object) and returns what changed, `alt` = before, `neu` = after.
+   */
+  abgleichenMit(neu: DeltaKarte): Aenderung[] {
+    const aus: Aenderung[] = [];
+    for (const [nr, cm] of this.punkte) {
+      const soll = neu.punkte.get(nr) ?? 0;
+      if (soll !== cm) aus.push({ ...punktAusNummer(nr), alt: cm, neu: soll });
+    }
+    for (const [nr, cm] of neu.punkte) {
+      if (!this.punkte.has(nr)) aus.push({ ...punktAusNummer(nr), alt: 0, neu: cm });
+    }
+    for (const a of aus) this.setze(a.zx, a.zz, a.index, a.neu);
+    return aus;
   }
 
   /** The layer of a (sanitised) document. */
@@ -203,6 +227,18 @@ export function falloff(d: number, radius: number): number {
   const s = d / radius;
   const q = 1 - s * s;
   return q * q;
+}
+
+/**
+ * How far a stamp REALLY reaches: raise and lower move a vertex by `round(staerke · w)` cm, which is 0
+ * where `w < 0.5/staerke`, so a weak stamp is narrower than its radius (strength 1: 54 % of it). The
+ * preview circle and the lock use this radius, so the circle shows what the stroke changes. Smoothing
+ * depends on the ground and keeps the full radius.
+ */
+export function wirkRadius(werkzeug: Werkzeug, radius: number, staerke: number): number {
+  if (werkzeug === 'glaetten') return radius;
+  const w = 0.5 / Math.max(staerke, 0.5);
+  return radius * Math.sqrt(1 - Math.sqrt(w));
 }
 
 export interface StempelEingabe {
@@ -405,8 +441,9 @@ export class StempelTakt {
 /** `[` / `]` change the radius; on a German keyboard those need AltGr, so `-`/`+` (and the number pad) work too. Returns −1, 0 or +1. */
 export function radiusSchritt(e: { key: string; code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean }): -1 | 0 | 1 {
   if (e.metaKey) return 0;
-  // AltGr reports ctrl+alt together on Windows; a lone Ctrl or Alt is a different shortcut.
-  if (e.ctrlKey !== e.altKey) return 0;
+  // `e.key` is the character the layout produced, whatever modifier made it: AltGr (Windows: ctrl+alt,
+  // Linux: neither), Option on a Mac (alt alone). Only a Ctrl WITHOUT Alt is a shortcut (browser zoom).
+  if (e.ctrlKey && !e.altKey) return 0;
   if (e.key === '[' || e.key === '-' || e.code === 'NumpadSubtract') return -1;
   if (e.key === ']' || e.key === '+' || e.code === 'NumpadAdd') return 1;
   return 0;

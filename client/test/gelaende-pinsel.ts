@@ -16,15 +16,22 @@
  *     way) agrees.
  *  8. Keys and pace: `[` `]` (AltGr on a German keyboard), `-` `+`, the stamp pace.
  *  9. Texts: every `testflug.gelaende.*` key exists in de and en with the same placeholders.
+ * 11. Lock: modular building parts (PIECE flag, store `sm-bld-`) lock, natural objects do not (T2 N1, B3).
+ * 12. Effective radius: the preview circle and the lock use what a stamp really reaches (B5).
+ * 13. The flight follows the draft when another tab changes it, without tearing an open stroke (B1).
+ * 14. `enthaelt` sees `heightDeltas`; the sequence stroke → Ctrl+Z → new change keeps the stroke in the ring (B2).
+ * 15. Smoothing across zone seams and the value limit of `wendeVorgang` (B7).
  *
  * Run: npx tsx test/gelaende-pinsel.ts   (from client/)
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createGeo, getStableHash, HeightmapProvider, PrefabFlag, RegionGeo, sanitizeHeightDeltas } from '@wov/shared';
+import { createGeo, findPrefabByName, FOLIAGE, getStableHash, HeightmapProvider, istFesterKoerperImSpiel, PrefabFlag, RegionGeo, sanitizeHeightDeltas } from '@wov/shared';
 import type { WorldLayout } from '@wov/shared';
 import { createWorld } from '../src/world/World';
+import { EntwurfsSpeicher } from '../src/editor/entwurfsSpeicher';
+import { enthaelt } from '../src/editor/weltdokument';
 import {
   DeltaKarte,
   Strich,
@@ -36,11 +43,12 @@ import {
   punktVon,
   radiusSchritt,
   wendeVorgang,
+  wirkRadius,
   STEMPEL_HALTE_MS,
   STEMPEL_MIN_MS,
   type StempelEingabe,
 } from '../src/editor/testflug/gelaendePinsel';
-import { gebaeudeRadius, gesperrtDurch, sperrKreise, type SperrKatalog } from '../src/editor/testflug/gelaendeSperre';
+import { gebaeudeRadius, gesperrtDurch, istBauteil, sperrKreise, type SperrKatalog } from '../src/editor/testflug/gelaendeSperre';
 import { GelaendeAktionen } from '../src/editor/testflug/GelaendeAktionen';
 import { GelaendeSteuerung, type GelaendeAbh, type Kasten } from '../src/editor/testflug/GelaendeSteuerung';
 import { entferneKorrekturSicht, installiereKorrekturSicht } from '../src/editor/testflug/gelaendeGeo';
@@ -56,6 +64,8 @@ const pruefe = (bedingung: boolean, text: string): void => {
 };
 
 const HIER = dirname(fileURLToPath(import.meta.url));
+/** Lock circles add this rim to half the box diagonal (`SPERR_RAND_M`); a part's radius must exceed it. */
+const SPERR_RAND_TEST = 0.5;
 const flach = (): number => 0;
 const deltaAn = (k: DeltaKarte, x: number, z: number): number => {
   const p = punktVon(x, z);
@@ -295,6 +305,7 @@ interface Aufbau {
   nachStrich: () => number;
   welt: ReturnType<typeof createWorld>;
   setzeZeit(ms: number): number;
+  kreise: Array<{ r: number; gesperrt: boolean }>;
   ein: { werkzeug: 'anheben' | 'absenken' | 'glaetten'; radius: number; staerke: number };
 }
 function aufbau(doc: Record<string, unknown>): Aufbau {
@@ -304,6 +315,7 @@ function aufbau(doc: Record<string, unknown>): Aufbau {
   const meldungen: string[] = [];
   const neuBauen: Kasten[] = [];
   let nach = 0;
+  const kreise: Array<{ r: number; gesperrt: boolean }> = [];
   let zeit = 1000;
   let vorgaenge = 0;
   const ein: Aufbau['ein'] = { werkzeug: 'anheben', radius: 6, staerke: 20 };
@@ -319,14 +331,14 @@ function aufbau(doc: Record<string, unknown>): Aufbau {
     aktionen,
     einstellung: () => ein,
     meldung: (t) => meldungen.push(t),
-    kreis: { zeige: () => undefined, verberge: () => undefined },
+    kreis: { zeige: (_x, _z, r, gesperrt) => void kreise.push({ r, gesperrt }), verberge: () => undefined },
     nachStrich: () => {
       nach++;
     },
     jetztMs: () => zeit,
     vorgangId: () => `strich-${++vorgaenge}`,
   };
-  return { steuerung: new GelaendeSteuerung(abh), aktionen, entwurf: e, meldungen, neuBauen, nachStrich: () => nach, welt, setzeZeit: (ms) => (zeit += ms), ein };
+  return { steuerung: new GelaendeSteuerung(abh), aktionen, entwurf: e, meldungen, neuBauen, nachStrich: () => nach, welt, setzeZeit: (ms) => (zeit += ms), kreise, ein };
 }
 const zieheStrich = (a: Aufbau, von: [number, number], bis: [number, number], bilder: number, shift = false): void => {
   a.steuerung.druecken({ x: von[0], z: von[1] }, shift);
@@ -389,11 +401,16 @@ const zieheStrich = (a: Aufbau, von: [number, number], bis: [number, number], bi
   b.setzeZeit(200);
   b.steuerung.tick({ x: 0, z: 0 }, false);
   b.entwurf.setze({ ...LAYOUT, heightDeltas: [{ zx: 0, zz: 0, r: [`32|32|999`] }] });
-  const vorKonflikt = b.welt.getGroundHeight(0, 0);
   b.steuerung.loslassen();
   pruefe(b.aktionen.protokoll().length === 0 && b.entwurf.schreibungen() === 0, '6: Konflikt: kein Vorgang, kein Schreiben');
-  pruefe(b.welt.getGroundHeight(0, 0) < vorKonflikt, '6: Konflikt: der Strich ist auch aus dem lebenden Gelände zurückgenommen');
+  // The stroke is out of the live ground and the ground shows what the draft says (the foreign 999 cm), bit for bit.
+  const frischK = createWorld('gelaende-pinsel-test', {}, b.entwurf.doc());
+  let ungleichK = 0;
+  for (let z = -8; z <= 8; z++) for (let x = -8; x <= 8; x++) if (b.welt.getGroundHeight(x, z) !== frischK.getGroundHeight(x, z)) ungleichK++;
+  pruefe(ungleichK === 0, `6: Konflikt: der Strich ist aus dem lebenden Gelände raus, das Gelände zeigt den Entwurf (${ungleichK} Abweichungen)`);
   pruefe(b.meldungen.some((m) => m.includes('geändert') || m.includes('changed')), '6: Konflikt: HUD sagt es');
+  const konfliktMeldung = b.meldungen.find((m) => m.includes('unter dem Strich') || m.includes('under the stroke')) ?? '';
+  pruefe(/Strich abgelehnt und zurückgenommen/.test(konfliktMeldung) && (konfliktMeldung.match(/zurückgenommen/g) ?? []).length === 1, `6: Konflikt: die Meldung sagt „zurückgenommen“ genau einmal („${konfliktMeldung}“)`);
 
   // A draft with an unusable field locks the brush
   const c = aufbau(LAYOUT as unknown as Record<string, unknown>);
@@ -472,7 +489,12 @@ const zieheStrich = (a: Aufbau, von: [number, number], bis: [number, number], bi
   pruefe(taste('-', 'Slash') === -1 && taste('+', 'BracketRight') === 1, '8: „-“ und „+“ als Zweitbelegung (deutsche Tasten)');
   pruefe(taste('', 'NumpadSubtract') === -1 && taste('', 'NumpadAdd') === 1, '8: Ziffernblock − und +');
   pruefe(taste('ü', 'BracketLeft') === 0 && taste('+', 'BracketRight', { ctrlKey: true }) === 0, '8: das ü der deutschen Tastatur (code BracketLeft) und Strg+Plus (Browser-Zoom) tun nichts');
-  pruefe(taste('-', 'Slash', { altKey: true }) === 0 && taste('[', 'BracketLeft', { metaKey: true }) === 0, '8: Alt allein und Meta allein sind andere Kürzel');
+  // e.key gilt unabhängig von Alt und AltGr; ausgeschlossen bleiben nur Strg ohne Alt und Meta.
+  pruefe(taste('[', 'Digit5', { altKey: true }) === -1 && taste(']', 'Digit6', { altKey: true }) === 1, '8: Mac (deutsch): Option+5 liefert „[“ → −1, Option+6 „]“ → +1 (alt allein)');
+  pruefe(taste('[', 'Digit8', { altKey: true }) === -1 && taste(']', 'Digit9', { altKey: true }) === 1, '8: Linux/Mac: „[“ und „]“ mit gehaltener Alt-Taste tun dasselbe');
+  pruefe(taste('[', 'Digit8') === -1 && taste(']', 'Digit9') === 1, '8: deutsche Tastatur mit AltGr ohne Modifikatorflags (Linux)');
+  pruefe(taste('[', 'BracketLeft', { ctrlKey: true }) === 0 && taste(']', 'BracketRight', { ctrlKey: true }) === 0, '8: Strg ohne Alt ist ein Kürzel und tut nichts');
+  pruefe(taste('[', 'BracketLeft', { metaKey: true }) === 0 && taste('[', 'Digit5', { altKey: true, metaKey: true }) === 0, '8: Meta tut nichts');
   const takt = new StempelTakt();
   pruefe(takt.faellig(0, 0, 8, 0) === true, '8: der erste Stempel ist sofort fällig');
   pruefe(takt.faellig(0.1, 0, 8, 10) === false, '8: zu wenig Weg und Zeit: nichts');
@@ -515,6 +537,278 @@ const zieheStrich = (a: Aufbau, von: [number, number], bis: [number, number], bi
   pruefe(/aufZeichenStart: \(\) => \{[^}]*panel\.beendeGelaendeModus\(\)/.test(tf), '10: Routenzeichnen beendet das Geländewerkzeug');
   pruefe(sp.includes('get istGelaendeModus(): boolean') && sp.includes("if (tab === 'gelaende') this.beendePlatzierModus();"), '10: Reiterwechsel beendet den Setzen-Modus, istGelaendeModus gibt es');
   pruefe(/else if \(this\.tab === 'gelaende'\) \{\s*this\.tab = 'objekte';/.test(sp), '10: ein geschlossenes Panel verlässt den Gelände-Reiter');
+}
+
+// ── 11. Sperre: modulare Bauteile (B3) ────────────────────────────────────────
+{
+  const foliage: ReadonlySet<string> = new Set(FOLIAGE.map((f) => f.prefabName));
+  const echt: SperrKatalog = {
+    def: (n) => findPrefabByName(n),
+    fest: (n) => istFesterKoerperImSpiel(findPrefabByName(n), n),
+    vegetation: (n) => foliage.has(n),
+    upload: () => undefined,
+  };
+  const teile = [
+    'wood_wall',
+    'wood_floor',
+    'wood_roof',
+    'wood_door',
+    'environment-sm-bld-house-floor-wood-beam-01',
+    'environment-sm-bld-house-roof-thatch-angled-01',
+    'environment-sm-bld-house-wall-peak-04',
+    'environment-sm-bld-house-tower-flooring-01',
+    'environment-sm-bld-roof-long-01',
+  ];
+  for (const n of teile) {
+    pruefe(findPrefabByName(n) !== undefined, `11: ${n} steht in der Registry`);
+    const r = gebaeudeRadius({ prefab: n, x: 0, z: 0 }, echt);
+    pruefe(r !== null && r > SPERR_RAND_TEST, `11: Bauteil ${n} sperrt (Radius ${r?.toFixed(2)} m)`);
+    pruefe(istBauteil(findPrefabByName(n), n), `11: ${n} gilt als Bauteil`);
+  }
+  // Every hammer piece counts (the build mode's pieces), not just wall/floor/roof.
+  for (const n of ['piece_workbench', 'wood_door', 'portal_wood', 'bed']) {
+    pruefe(gebaeudeRadius({ prefab: n, x: 0, z: 0 }, echt) !== null, `11: Baumodus-Teil ${n} sperrt`);
+  }
+  for (const n of ['Beech1', 'Rock_3', 'Rock_4', 'MineRock_Tin']) {
+    pruefe(findPrefabByName(n) !== undefined, `11: ${n} steht in der Registry`);
+    pruefe(gebaeudeRadius({ prefab: n, x: 0, z: 0 }, echt) === null, `11: natürliches Objekt ${n} sperrt nicht`);
+    pruefe(!istBauteil(findPrefabByName(n), n), `11: ${n} ist kein Bauteil`);
+  }
+  const kreise = sperrKreise(teile.map((n, i) => ({ prefab: n, x: i * 20, z: 0 })), echt);
+  pruefe(kreise.length === teile.length && kreise.every((c) => c.art === 'gebaeude'), `11: ein Gebäudekreis je Bauteil (${kreise.length})`);
+  pruefe(gesperrtDurch(kreise, 2 * 20 + 1.5, 0, 0.4) !== null && gesperrtDurch(kreise, 2 * 20 + 6, 0, 1) === null, '11: ein Pinsel am Dachstück ist gesperrt, einer 6 m daneben frei');
+}
+
+// ── 12. Wirkradius, Vorschaukreis und Sperre (B5) ─────────────────────────────
+{
+  let alleWeitenStimmen = true;
+  let beispiel = '';
+  for (const r of [6, 20]) {
+    for (const staerke of [1, 2, 5, 10, 25, 50]) {
+      const wirk = wirkRadius('anheben', r, staerke);
+      const bl = berechneStempel(new DeltaKarte(), eingabe(0.3, 0.7, { radius: r, staerke }));
+      const abstand = (a: (typeof bl)[number]): number => {
+        const wx = a.zx * 64 - 32 + (a.index % 64);
+        const wz = a.zz * 64 - 32 + Math.floor(a.index / 64);
+        return Math.hypot(wx - 0.3, wz - 0.7);
+      };
+      const geaendert = new Set(bl.map((a) => `${a.zx},${a.zz},${a.index}`));
+      const weitester = Math.max(...bl.map(abstand));
+      let innenLuecke = 0;
+      for (let z = -25; z <= 25; z++) {
+        for (let x = -25; x <= 25; x++) {
+          const d = Math.hypot(x - 0.3, z - 0.7);
+          const p = punktVon(x, z);
+          if (d < wirk - 1e-9 && !geaendert.has(`${p.zx},${p.zz},${p.index}`)) innenLuecke++;
+        }
+      }
+      if (weitester > wirk + 1e-9 || innenLuecke > 0) alleWeitenStimmen = false;
+      if (staerke === 1 && r === 6) beispiel = `${wirk.toFixed(3)} m von 6 m`;
+    }
+  }
+  pruefe(alleWeitenStimmen, '12: wirkRadius = Reichweite des Stempels (kein Punkt außerhalb, keine Lücke innen) für Radius 6/20 und Stärke 1…50');
+  pruefe(wirkRadius('glaetten', 6, 1) === 6, '12: Glätten behält den vollen Radius');
+  pruefe(wirkRadius('anheben', 6, 1) < 6 * 0.55 && wirkRadius('anheben', 6, 50) > 6 * 0.94, `12: schwacher Stempel schmal (${beispiel}), starker fast voll`);
+  // The circle the flight draws and the lock use it.
+  const a = aufbau({ ...LAYOUT, placements: [{ id: 'sockel-2', prefab: 'BirkeHoch1', x: 60, z: 0, einebnen: 10 }] });
+  a.ein.radius = 6;
+  a.ein.staerke = 1;
+  a.steuerung.vorschau({ x: 45, z: 0 });
+  const schwach = a.kreise[a.kreise.length - 1]!;
+  pruefe(Math.abs(schwach.r - wirkRadius('anheben', 6, 1)) < 1e-12, `12: die Vorschau zeichnet den Wirkradius (${schwach.r.toFixed(3)} m statt 6 m)`);
+  pruefe(schwach.gesperrt === false, '12: Abstand 15 m zum Sockel (r 10): mit Wirkradius 3,25 m frei (der volle Radius 6 m hätte „rot“ gezeigt)');
+  a.ein.staerke = 50;
+  a.steuerung.vorschau({ x: 45, z: 0 });
+  pruefe(a.kreise[a.kreise.length - 1]!.gesperrt === true, '12: derselbe Ort mit Stärke 50 (Wirkradius 5,7 m): gesperrt');
+}
+
+// ── 13. Der Flug folgt dem Entwurf (B1) ───────────────────────────────────────
+{
+  /** A foreign layer: a hill of raw points around (cx, cz), as another tab would have written it. */
+  const fremdeEbene = (cx: number, cz: number, cm: number): unknown[] => {
+    const k = new DeltaKarte();
+    for (let z = -3; z <= 3; z++) for (let x = -3; x <= 3; x++) {
+      const p = punktVon(cx + x, cz + z);
+      k.setze(p.zx, p.zz, p.index, cm);
+    }
+    return k.alsZonen();
+  };
+  const gleichWieEntwurf = (a: Aufbau, punkte: Array<[number, number]>): number => {
+    const frisch = createWorld('gelaende-pinsel-test', {}, a.entwurf.doc());
+    return punkte.filter(([x, z]) => a.welt.getGroundHeight(x, z) !== frisch.getGroundHeight(x, z)).length;
+  };
+  const raster: Array<[number, number]> = [];
+  for (let z = -8; z <= 60; z += 2) for (let x = -8; x <= 60; x += 2) raster.push([x, z]);
+
+  // (a) event: another tab replaced the layer, the flight takes it over
+  {
+    const a = aufbau(LAYOUT as unknown as Record<string, unknown>);
+    pruefe(a.steuerung.bereit(), '13: bereit');
+    const basis = a.welt.getGroundHeight(40, 40);
+    a.entwurf.setze({ ...LAYOUT, heightDeltas: fremdeEbene(40, 40, 300) });
+    pruefe(a.welt.getGroundHeight(40, 40) === basis, '13: ohne Nachricht bleibt das Gelände, wie es war (Vorbedingung)');
+    const bauteVorher = a.neuBauen.length;
+    a.steuerung.entwurfGeaendert();
+    const soll = createWorld('gelaende-pinsel-test', {}, a.entwurf.doc()).getGroundHeight(40, 40);
+    pruefe(Math.abs(soll - basis - 3) < 1e-9, `13: der Entwurf sagt +3,00 m bei (40,40) (${(soll - basis).toFixed(3)})`);
+    pruefe(a.welt.getGroundHeight(40, 40) === soll, `13: nach der Änderung im anderen Tab zeigt der Flug die Höhe des Entwurfs (${a.welt.getGroundHeight(40, 40).toFixed(3)} m = ${soll.toFixed(3)} m)`);
+    pruefe(gleichWieEntwurf(a, raster) === 0, `13: … und auf dem ganzen Raster bitgleich zur Welt aus dem Entwurf (${raster.length} Punkte)`);
+    pruefe(a.neuBauen.length > bauteVorher && a.nachStrich() === 1, '13: Neuaufbau gemeldet, lose Objekte einmal neu aufgesetzt (auch sie)');
+    pruefe(a.meldungen.some((m) => m.includes('anderen Tab')), '13: HUD nennt den Grund');
+    // and back: the other tab removes its layer again
+    a.entwurf.setze({ ...LAYOUT });
+    a.steuerung.entwurfGeaendert();
+    pruefe(a.welt.getGroundHeight(40, 40) === basis && gleichWieEntwurf(a, raster) === 0, '13: entfernt der andere Tab die Ebene, ist das Gelände wieder wie am Anfang');
+    // nothing changed: no rebuild, no message
+    const n = a.neuBauen.length;
+    a.steuerung.entwurfGeaendert();
+    pruefe(a.neuBauen.length === n, '13: gleicher Entwurf: kein Neuaufbau');
+  }
+  // (b) an open stroke is not torn; the takeover waits for its end
+  {
+    const a = aufbau(LAYOUT as unknown as Record<string, unknown>);
+    a.steuerung.druecken({ x: 0, z: 0 }, false);
+    a.setzeZeit(200);
+    a.steuerung.tick({ x: 0, z: 0 }, false);
+    const nachStempel = a.neuBauen.length;
+    const basis = a.welt.getGroundHeight(40, 40);
+    // the foreign layer does not overlap the stroke (0,0 ± 6 m), so the stroke will still be written
+    a.entwurf.setze({ ...LAYOUT, heightDeltas: fremdeEbene(40, 40, 300) });
+    a.steuerung.entwurfGeaendert();
+    pruefe(a.neuBauen.length === nachStempel && a.welt.getGroundHeight(40, 40) === basis, '13: während des Strichs wird nichts übernommen (kein Neuaufbau, Gelände unverändert)');
+    pruefe(a.steuerung.strichOffen, '13: der Strich läuft weiter');
+    a.steuerung.loslassen();
+    const doc = a.entwurf.doc();
+    const punkte = DeltaKarte.ausZonen(doc.heightDeltas as never);
+    const p40 = punktVon(40, 40);
+    pruefe(a.aktionen.protokoll().length === 1 && punkte.delta(p40.zx, p40.zz, p40.index) === 300, '13: der Strich wurde auf den fremden Entwurf geschrieben, die fremde Ebene blieb');
+    pruefe(gleichWieEntwurf(a, raster) === 0, '13: nach dem Strichende zeigt der Flug fremde Ebene + Strich, bitgleich zum Entwurf');
+    pruefe(a.welt.getGroundHeight(40, 40) > basis + 2.9, '13: die fremde Höhe ist jetzt im Flug');
+  }
+  // (c) a stroke that collides with the foreign change: taken back, the ground follows the draft
+  {
+    const a = aufbau(LAYOUT as unknown as Record<string, unknown>);
+    a.steuerung.druecken({ x: 0, z: 0 }, false);
+    a.entwurf.setze({ ...LAYOUT, heightDeltas: fremdeEbene(0, 0, 500) });
+    a.steuerung.entwurfGeaendert();
+    a.steuerung.loslassen();
+    pruefe(a.aktionen.protokoll().length === 0 && gleichWieEntwurf(a, raster) === 0, '13: Kollision: kein Vorgang, das Gelände zeigt den Entwurf (bitgleich)');
+  }
+  // (d) no event at all (missed): the next stroke start compares the ground with the draft first
+  {
+    const a = aufbau(LAYOUT as unknown as Record<string, unknown>);
+    a.steuerung.bereit();
+    a.entwurf.setze({ ...LAYOUT, heightDeltas: fremdeEbene(40, 40, 300) });
+    a.steuerung.druecken({ x: -30, z: -30 }, false);
+    a.steuerung.loslassen();
+    pruefe(gleichWieEntwurf(a, raster) === 0, '13: auch ohne Nachricht: der Strichbeginn gleicht das Gelände mit dem Entwurf ab');
+  }
+  // (e) a foreign draft the brush cannot use locks it and says so; a good one unlocks it again
+  {
+    const a = aufbau(LAYOUT as unknown as Record<string, unknown>);
+    a.steuerung.bereit();
+    a.entwurf.setze({ ...LAYOUT, heightDeltas: 'kaputt' });
+    a.steuerung.entwurfGeaendert();
+    a.steuerung.druecken({ x: 0, z: 0 }, false);
+    pruefe(!a.steuerung.strichOffen && a.meldungen.some((m) => m.includes('unbrauchbar')), '13: unbrauchbares fremdes Feld sperrt den Pinsel, HUD sagt es');
+    a.entwurf.setze({ ...LAYOUT });
+    a.steuerung.druecken({ x: 0, z: 0 }, false);
+    pruefe(a.steuerung.strichOffen, '13: ein brauchbarer Entwurf entsperrt ihn wieder');
+    a.steuerung.loslassen();
+  }
+  // wiring in the flight
+  const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
+  pruefe(/addEventListener\('storage'[^]*?ENTWURF_KEY[^]*?gelaende\.entwurfGeaendert\(\)/.test(tf), '13: Verdrahtung: das storage-Ereignis des Entwurfs ruft entwurfGeaendert()');
+}
+
+// ── 14. enthaelt() und der Ring der verdrängten Entwürfe (B2) ─────────────────
+{
+  const E = { ...LAYOUT, placements: [] } as unknown as WorldLayout;
+  const strich = new DeltaKarte();
+  strich.setze(0, 0, 32 * 64 + 32, 120);
+  strich.setze(0, 0, 32 * 64 + 33, 80);
+  const F = { ...E, heightDeltas: strich.alsZonen() } as WorldLayout;
+  pruefe(!enthaelt(E, F), '14: ein Stand ohne Striche enthält den Stand MIT Strichen nicht');
+  pruefe(enthaelt(F, E), '14: … der Stand mit Strichen enthält den ohne (nichts geht verloren)');
+  pruefe(enthaelt(F, F) && enthaelt(E, E), '14: gleiche Stände enthalten einander');
+  const mehr = new DeltaKarte();
+  mehr.setze(0, 0, 32 * 64 + 32, 120);
+  mehr.setze(0, 0, 32 * 64 + 33, 80);
+  mehr.setze(3, -1, 7, 15);
+  const G = { ...E, heightDeltas: mehr.alsZonen() } as WorldLayout;
+  pruefe(enthaelt(G, F) && !enthaelt(F, G), '14: mehr Punkte enthalten die weniger (punktweise), nicht umgekehrt');
+  const andererWert = new DeltaKarte();
+  andererWert.setze(0, 0, 32 * 64 + 32, 121);
+  andererWert.setze(0, 0, 32 * 64 + 33, 80);
+  pruefe(!enthaelt({ ...E, heightDeltas: andererWert.alsZonen() } as WorldLayout, F), '14: derselbe Punkt mit anderem Delta: der alte Wert ginge verloren → nicht enthalten');
+  pruefe(enthaelt({ ...E, name: E.name } as WorldLayout, { ...E, heightDeltas: [] } as unknown as WorldLayout), '14: leere Ebene verlangt nichts (Entwürfe ohne heightDeltas: Ergebnis unverändert)');
+
+  // The sequence from the attack: a stroke in the flight, Ctrl+Z in the editor, a new change.
+  const speicher = new Map<string, string>();
+  const kv = { getItem: (k: string) => speicher.get(k) ?? null, setItem: (k: string, v: string) => void speicher.set(k, v), removeItem: (k: string) => void speicher.delete(k) };
+  let editorStand: WorldLayout = E;
+  const rueckgaengig: WorldLayout[] = [];
+  const ring: WorldLayout[] = [];
+  const s = new EntwurfsSpeicher({
+    speicher: kv,
+    aktuell: () => editorStand,
+    beiFremdem: (fremd) => {
+      rueckgaengig.push(editorStand); // the editor takes the foreign stand over, its own goes on the undo stack
+      editorStand = fremd;
+    },
+    beiVerdraengt: (alt) => void ring.push(alt),
+  });
+  s.schreiben(E, 'bearbeitet', null); // the editor's own draft
+  kv.setItem('wov-editor-layout', JSON.stringify(F)); // the flight writes the strokes
+  pruefe(s.abgleichen() === true && JSON.stringify(editorStand.heightDeltas) === JSON.stringify(F.heightDeltas), '14: der Editor übernimmt den Flugstand mit den Strichen');
+  editorStand = rueckgaengig.pop()!; // Ctrl+Z
+  pruefe(s.schreiben(editorStand, 'bearbeitet', null) === 'ok', '14: Strg+Z schreibt den Stand ohne Striche');
+  pruefe(ring.length === 1 && ring[0]!.heightDeltas?.length === 1 && JSON.stringify(ring[0]!.heightDeltas) === JSON.stringify(F.heightDeltas), `14: der verdrängte Flugstand mit den Strichen liegt im Ring (${ring.length} Eintrag)`);
+  // then a new change: the redo entry F is dropped; it must not count as "already contained"
+  const G2 = { ...E, placements: [{ id: 'p1', prefab: 'Beech1', x: 5, z: 5 }] } as unknown as WorldLayout;
+  pruefe(!enthaelt(G2, F), '14: nach einer neuen Änderung ist der verworfene Flugstand NICHT „schon enthalten“ (der Ring sichert ihn)');
+}
+
+// ── 15. Glätten über die Zonengrenze, Wertgrenze in wendeVorgang (B7) ─────────
+{
+  // Translation invariance: the same spike next to a zone seam and in the middle of a zone must smooth alike.
+  const bild = (sx: number, sz: number, cx: number, cz: number): string => {
+    const spitze = (x: number, z: number): number => (x === sx && z === sz ? 2 : 0);
+    const bl = berechneStempel(new DeltaKarte(), eingabe(cx, cz, { werkzeug: 'glaetten', staerke: 25, radius: 3, hoehe: spitze }));
+    // the same list relative to the stamp centre, so that two places can be compared
+    return JSON.stringify(
+      bl
+        .map((a) => [a.zx * 64 - 32 + (a.index % 64) - cx, a.zz * 64 - 32 + Math.floor(a.index / 64) - cz, a.neu])
+        .sort((p, q) => p[1]! - q[1]! || p[0]! - q[0]!)
+    );
+  };
+  const innen = bild(20, 20, 19, 20); // deep inside zone 0/0
+  pruefe(innen !== '[]', '15: Vergleichsprobe innerhalb einer Zone glättet');
+  pruefe(bild(32, 0, 31, 0) === bild(20, 0, 19, 0), '15: Glätten über die Zonennaht in x (Zone 0/0 | 1/0) = Glätten mitten in einer Zone');
+  pruefe(bild(0, 32, 0, 31) === bild(0, 20, 0, 19), '15: … in z (Zone 0/0 | 0/1)');
+  pruefe(bild(-32, 5, -33, 5) === bild(-10, 5, -11, 5), '15: … über die Naht bei negativen Zonen (−1/0 | 0/0)');
+  pruefe(bild(32, 32, 31, 31) === bild(10, 10, 9, 9), '15: … über die Ecke (vier Zonen)');
+  const naht = berechneStempel(new DeltaKarte(), eingabe(31, 0, { werkzeug: 'glaetten', staerke: 25, radius: 3, hoehe: (x, z) => (x === 32 && z === 0 ? 2 : 0) }));
+  const links = naht.find((a) => a.zx === 0 && a.zz === 0 && a.index === 32 * 64 + 63);
+  const rechts = naht.find((a) => a.zx === 1 && a.zz === 0 && a.index === 32 * 64 + 0);
+  pruefe(links !== undefined && links.neu > 0 && rechts !== undefined && rechts.neu < 0, '15: die Spitze in Zone 1 hebt den Nachbarn in Zone 0 und wird selbst gesenkt');
+
+  // Wertgrenze: direkt am Vorgang (der Strich prüft sie schon selbst, wendeVorgang ist das zweite Tor: Entwurf, Umkehr)
+  const k = new DeltaKarte();
+  const zuHoch = wendeVorgang(k, { vorgangId: 'v', aenderungen: [{ zx: 0, zz: 0, index: 5, alt: 0, neu: 10_001 }] });
+  pruefe(!zuHoch.ok && zuHoch.grund === 'wert' && k.punktzahl === 0, '15: wendeVorgang lehnt 10 001 cm ab (Grund „wert“) und lässt die Ebene, wie sie war');
+  const zuTief = wendeVorgang(k, { vorgangId: 'v', aenderungen: [{ zx: 0, zz: 0, index: 5, alt: 0, neu: -10_001 }] });
+  pruefe(!zuTief.ok && zuTief.grund === 'wert' && k.punktzahl === 0, '15: … und −10 001 cm');
+  const genau = wendeVorgang(k, { vorgangId: 'v', aenderungen: [{ zx: 0, zz: 0, index: 5, alt: 0, neu: 10_000 }, { zx: 0, zz: 0, index: 6, alt: 0, neu: -10_000 }] });
+  pruefe(genau.ok && k.delta(0, 0, 5) === 10_000 && k.delta(0, 0, 6) === -10_000, '15: genau ±10 000 cm sind erlaubt');
+  const halb = wendeVorgang(k, { vorgangId: 'v', aenderungen: [{ zx: 0, zz: 0, index: 7, alt: 0, neu: 5 }, { zx: 0, zz: 0, index: 8, alt: 0, neu: 20_000 }] });
+  pruefe(!halb.ok && halb.grund === 'wert' && k.delta(0, 0, 7) === 0, '15: ein Vorgang mit einem zu hohen Punkt wird GANZ zurückgenommen (auch der gute Punkt)');
+  const viele = new DeltaKarte();
+  const punkte = Array.from({ length: 100_001 }, (_, i) => ({ zx: Math.floor(i / 4096), zz: 0, index: i % 4096, alt: 0, neu: 1 }));
+  const zuViele = wendeVorgang(viele, { vorgangId: 'v', aenderungen: punkte });
+  pruefe(!zuViele.ok && zuViele.grund === 'punkte' && viele.punktzahl === 0, '15: 100 001 Punkte: abgelehnt (Grund „punkte“), Ebene leer');
+  const zonen = wendeVorgang(new DeltaKarte(), { vorgangId: 'v', aenderungen: Array.from({ length: 4097 }, (_, i) => ({ zx: i, zz: 0, index: 0, alt: 0, neu: 1 })) });
+  pruefe(!zonen.ok && zonen.grund === 'zonen', '15: 4097 Zonen: abgelehnt (Grund „zonen“)');
 }
 
 console.log(`\n${geprueft - fehler}/${geprueft} Prüfungen bestanden`);

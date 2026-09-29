@@ -9,8 +9,12 @@
  * sperren nicht (Mitwandern ist T3).
  *
  * ── What is a "building"? ───────────────────────────────────────────
- * The catalogue has no category "building", so the rule is built from what it
- * does have, and it is the same rule the game uses for "you cannot walk
+ * Two kinds. (A) A modular PART (`istBauteil`): a prefab with the `PIECE` flag
+ * (the hammer's pieces: wood wall, floor, roof, door, …) or a store piece of the
+ * building group (`sm-bld-`). Always locked, at any size (2 m walls are the
+ * point) and without the size rule below. (B) A whole building or a big solid
+ * object; the catalogue has no category for it, so the rule is built from what
+ * it does have, and it is the same rule the game uses for "you cannot walk
  * through it":
  *   1. the prefab has a solid collision body in the game (`fest`), AND
  *   2. it is not natural (no tree, log, breakable rock, plant, pickable, drop
@@ -81,16 +85,34 @@ function grundflaeche(p: string, k: SperrKatalog): { b: number; t: number } | nu
 
 /** Radius of the lock circle of a building placement, or `null` when it is not a building. */
 export function gebaeudeRadius(p: SperrPlatzierung, k: SperrKatalog): number | null {
-  if (!k.fest(p.prefab) || k.vegetation(p.prefab)) return null;
+  if (k.vegetation(p.prefab)) return null;
   const def = k.def(p.prefab);
   if (def && (def.flags & NATUERLICH) !== 0n) return null;
-  const g = grundflaeche(p.prefab, k);
+  const teil = istBauteil(def, p.prefab);
+  // A building PART is locked whatever its size and whether or not the flight gives it a solid body:
+  // a house built of 2 m walls, floors and roofs must not tear apart when the ground under one piece moves.
+  if (!teil && !k.fest(p.prefab)) return null;
+  const g = grundflaeche(p.prefab, k) ?? (teil ? { b: 1, t: 1 } : null);
   if (!g) return null;
   const s = typeof p.scale === 'number' && p.scale > 0 ? p.scale : 1;
   const breite = g.b * s;
   const tiefe = g.t * s;
-  if (Math.max(breite, tiefe) < GEBAEUDE_MIN_M) return null;
+  if (!teil && Math.max(breite, tiefe) < GEBAEUDE_MIN_M) return null;
   return Math.hypot(breite, tiefe) / 2 + SPERR_RAND_M;
+}
+
+/** The store names its building pieces with this segment (`sm-bld-`); the catalogue sorts them into the group „Gebäude“. */
+const STORE_GEBAEUDE = /-sm-bld-/;
+
+/**
+ * A modular building part: a prefab with the `PIECE` flag (what the hammer builds and
+ * `PieceTable.BAU_PREFABS` lists: wall, floor, roof, door, …) or a store piece of the
+ * building group (`environment-sm-bld-house-floor-…`, `-roof-…`, `-wall-peak-…`).
+ * Both are properties of the prefab itself, not of its size.
+ */
+export function istBauteil(def: PrefabDef | undefined, prefab: string): boolean {
+  if (def && (def.flags & PrefabFlag.PIECE) !== 0n) return true;
+  return STORE_GEBAEUDE.test(prefab);
 }
 
 /** All lock circles of a draft's placements: one per plinth, one per building (a plinth building gets both). */

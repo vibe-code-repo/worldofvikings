@@ -20,11 +20,18 @@ cwd als in der Shell (Sandbox), deshalb auch --python absolut schreiben:
 
 --python-exit-code 1 macht aus einem Abbruch des Skripts einen Fehlerstatus; ohne die
 Option meldet Blender auch nach einem Abbruch 0.
-Alle Ausgaben entstehen zuerst in <ausgabe>/.neu-<pid>. Erst nach allen Pruefungen
-ersetzt das Skript die Dateien im Ziel und entfernt nur die bekannten Namen
-(WikingerinKoerper.glb, H_*, B_*, AM_*, AF_*, teile-export.json), die nicht mehr
-erzeugt wurden. Bei einem Abbruch wird der Temp-Ordner geloescht, das Ziel bleibt
-unveraendert; fremde Dateien im Ziel fasst das Skript nicht an.
+Alle Ausgaben entstehen zuerst in einem Temp-Ordner <ausgabe>/.neu-<zufall>. Erst nach
+allen Pruefungen ersetzt das Skript die Dateien im Ziel und entfernt nur die exakt
+bekannten Namen (WikingerinKoerper.glb, teile-export.json sowie ^(H|B|AM|AF)_\\d{2}\\.glb$),
+die nicht mehr erzeugt wurden. Andere Dateien im Ziel (H_01.glb.bak, H_notes.txt,
+h_01.glb, ...) bleiben unberuehrt.
+Bricht das Skript bis einschliesslich der Selbstpruefung ab, wird der Temp-Ordner
+geloescht und das Ziel bleibt unveraendert. Bricht es erst WAEHREND des Verschiebens
+ab (Rechte, voller Datentraeger, ein Verzeichnis unter einem Zielnamen), kann das Ziel
+teils neu, teils alt sein; das Verschieben ist nicht atomar. Das Skript meldet diesen
+Fall mit "ZIEL TEILWEISE AKTUALISIERT" und der Abhilfe: den Lauf wiederholen, bis er
+mit "VEROEFFENTLICHT" endet. Ein von hartem Abbruch (SIGKILL) uebrig gebliebener
+.neu-*-Ordner wird beim naechsten Lauf gemeldet, aber nicht geloescht.
 Beide Blender-Dateien werden nur gelesen, nie gespeichert. Der Koerper muss aus
 master2 kommen: master3 hat einen anderen Kopf (518 statt 495 Vertices) und
 wird vom Skript abgelehnt.
@@ -37,10 +44,11 @@ Animationen von Wikinger und Wikingerin nicht zusammen.
 
 import argparse
 import json
-import os
+import re
 import shutil
 import struct
 import sys
+import tempfile
 from pathlib import Path
 
 import bpy
@@ -107,7 +115,7 @@ SPUREN = (
 )
 
 # Namen, die dieses Skript im Ziel erzeugt. Nur diese ersetzt oder entfernt es.
-BEKANNTE_MUSTER = ("WikingerinKoerper.glb", "H_*", "B_*", "AM_*", "AF_*", "teile-export.json")
+BEKANNTE_NAMEN = re.compile(r"(?:(?:H|B|AM|AF)_\d{2}\.glb|WikingerinKoerper\.glb|teile-export\.json)")
 
 PRAEFIXE = ("Chr_Hair_", "Chr_FacialHair_Male_", "Chr_Eyebrow_Male_", "Chr_Eyebrow_Female_")
 
@@ -133,13 +141,14 @@ for datei in (STANDARD, MASTER):
 # gestartet, wird sie hier geoeffnet. Gespeichert wird nie.
 if Path(bpy.data.filepath).resolve() != STANDARD:
     bpy.ops.wm.open_mainfile(filepath=str(STANDARD))
-TEMP = AUSGABE / f".neu-{os.getpid()}"
+TEMP = None
 AUSGABE_NEU = not AUSGABE.exists()
 
 
 def verwerfen() -> None:
     """Abbruch: Temp-Ordner weg, Ziel unveraendert (ein neu angelegtes leeres Ziel auch)."""
-    shutil.rmtree(TEMP, ignore_errors=True)
+    if TEMP is not None:
+        shutil.rmtree(TEMP, ignore_errors=True)
     if AUSGABE_NEU:
         try:
             AUSGABE.rmdir()
@@ -150,22 +159,32 @@ def verwerfen() -> None:
 def veroeffentlichen() -> None:
     """Erst nach allen Pruefungen: neue Dateien ins Ziel, dann nicht mehr erzeugte alte weg."""
     neue = sorted(p.name for p in TEMP.iterdir())
-    for name in neue:
-        os.replace(TEMP / name, AUSGABE / name)
-    TEMP.rmdir()
-    entfernt = sorted(
-        p.name
-        for muster in BEKANNTE_MUSTER
-        for p in AUSGABE.glob(muster)
-        if p.is_file() and p.name not in neue
-    )
-    for name in entfernt:
-        (AUSGABE / name).unlink()
+    try:
+        for name in neue:
+            (TEMP / name).replace(AUSGABE / name)
+        TEMP.rmdir()
+        entfernt = sorted(
+            p.name
+            for p in AUSGABE.iterdir()
+            if BEKANNTE_NAMEN.fullmatch(p.name) and p.is_file() and p.name not in neue
+        )
+        for name in entfernt:
+            (AUSGABE / name).unlink()
+    except BaseException:
+        print(
+            "ZIEL TEILWEISE AKTUALISIERT: Fehler beim Verschieben, das Ziel kann teils neu, "
+            "teils alt sein. Lauf wiederholen, bis VEROEFFENTLICHT gemeldet wird.",
+            flush=True,
+        )
+        raise
     print(f"VEROEFFENTLICHT: {len(neue)} Dateien, entfernt (nicht mehr erzeugt): {entfernt}", flush=True)
 
 
 try:
-    TEMP.mkdir(parents=True)
+    for rest in sorted(AUSGABE.glob(".neu-*")) if AUSGABE.is_dir() else []:
+        print(f"ALTER REST (nicht geloescht): {rest}", flush=True)
+    AUSGABE.mkdir(parents=True, exist_ok=True)
+    TEMP = Path(tempfile.mkdtemp(prefix=".neu-", dir=AUSGABE))
 
     ARMATUR = bpy.data.objects["WoV_Player_Armature"]
     if len(ARMATUR.data.bones) != ERWARTETE_KNOCHEN:

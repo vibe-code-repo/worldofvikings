@@ -25,6 +25,9 @@ export default [
   // NullEngine: `play()` nimmt das pausierte Bild wieder auf statt bei 0
   // neu zu beginnen. NullEngine, keine GPU, <1 s.
   ['client', 'test/animations-lod.ts'],
+  // Der Anmeldedialog kennt die Antwort 409 `conflict` (gleichzeitiger
+  // Passwortwechsel) und zeigt dafuer einen eigenen, uebersetzten Satz.
+  ['client', 'test/anmeldung-konflikt.ts'],
   ['client/test', 'appearance-visibility.ts'],
   // AudibleRadius -- Rueckwaertsprobe der Umkehrformel des 'inverse'-
   // Abstandsmodells (Radius bei 2 % Lautstaerke), nicht gemessen. Pure.
@@ -599,6 +602,8 @@ export default [
   ['client', 'test/taa-reihenfolge.ts'],
   // Test flight: a click places while a prefab is chosen (Alt grabs), series switch, drag only past 4 px (8 touch) with grab offset; offline bytes unchanged.
   ['client', 'test/testflug-greifen.ts'],
+  // Test flight shows the deletion-lock hint: PATCH answers (200/202) and the publish carry `loeschsperre`; the HUD line says how many are held back and to confirm in the map editor (de/en); no field, no hint.
+  ['client', 'test/testflug-loeschsperre.ts'],
   // Offline-flight module (moved out of main.ts): what stays true afterwards.
   ['client', 'test/testflug-modul.ts'],
   // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.
@@ -618,6 +623,50 @@ export default [
   // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
   // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
   ['client', 'test/testflug-texte-vollstaendig.ts'],
+  /*
+    Tod und Treffer N1: die Wurzelbewegungs-Zeile in AssetManager.instantiate (Liegeclips fremder Koerper) am ECHTEN Pfad: echter
+    AssetManager, echter Koerper (v1), Bodenweg des Falls flach, Hoehenkeys wie im File. In der CI ohne Assets uebersprungen.
+  */
+  ['client', 'test/tod-treffer-assetmanager.ts', brauchtModelle('assets/models/wikinger/WikingerKoerper.glb')],
+  /*
+    Tod und Treffer sichtbar: AvatarRig auf den ECHTEN Koerpern (48 Clips): Zustaende unveraendert, Tod liegt bei 0,12 m,
+    Treffer-Schicht nur Oberkoerper, Mindestabstand. In der CI ohne Assets uebersprungen.
+  */
+  [
+    'client',
+    'test/tod-treffer-avatar.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  /*
+    Tod und Treffer sichtbar: der Blut-Pool (KampfEffekte: die geteilte Textur wurde nach dem ersten Stoss entsorgt, deshalb Blut
+    nur einmal). Ohne Assets.
+  */
+  ['client', 'test/tod-treffer-blut.ts'],
+  /*
+    Tod und Treffer sichtbar: der Eingabe-Riegel (InputManager.gesperrt), TodTreffer und die Verdrahtung in main.ts
+    (Zeilenwaechter < 3700). Ohne Assets.
+  */
+  ['client', 'test/tod-treffer-eingabe.ts'],
+  /*
+    Die Figuren ANDERER Spieler (EntityManager mit Attrappen-Assets): Treffer-Schicht faellt auf `idle` zurueck (nicht auf den
+    Prefab-Zustand `Walking`, der keine Gruppe nennt), Tod bleibt liegen, Spaeteinsteiger sehen die Liegepose, Beleben.
+    Gefunden im Browserlauf auf mike-pc (Sicht des zweiten Spielers). Ohne Assets.
+  */
+  ['client', 'test/tod-treffer-fremd.ts'],
+  /*
+    Tod und Treffer N1: Servermeldungen als Katalogschluessel (`@tod.bett_verloren`) erreichen den Client uebersetzt (de/en),
+    Klartext und unbekannte Schluessel laufen unveraendert durch.
+  */
+  ['client', 'test/tod-treffer-meldung.ts'],
+  /*
+    Tod und Treffer sichtbar: Wurzelbewegung der Liege-/Bueck-Clips (A4: nie die Hoehe festnageln, die 28 alten Clips bitgleich)
+    auf den ECHTEN Koerpern (48 Clips). In der CI ohne Assets uebersprungen.
+  */
+  [
+    'client',
+    'test/tod-treffer-wurzel.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
   // Grundskala im Loader (AssetManager.getMasters, synthetischer Container): wirkt
   // multiplikativ auf die Platzierungs-scale — 1,0×0,72×0,6 m ×Grundskala 4 -> 4,0×2,88×2,4 m
   // bei scale 1, 8,0×5,76×4,8 m bei scale 2. Gemessen im Szenengraph.

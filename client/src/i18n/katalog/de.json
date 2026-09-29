@@ -133,6 +133,7 @@
   "login.character.play": "Spielen",
   "login.character.title": "Charakter wählen",
   "login.email": "E-Mail",
+  "login.error.conflict": "Anmeldung gerade an anderer Stelle geändert — bitte erneut versuchen.",
   "login.error.email-invalid": "E-Mail-Adresse ungültig.",
   "login.error.login-failed": "Benutzername oder Passwort falsch.",
   "login.error.malformed-body": "Fehlerhafte Anfrage.",
@@ -316,6 +317,7 @@
   "testflug.lage.sprung_abgelehnt": "Sprung abgelehnt",
   "testflug.lage.zurueck_zur_karte": "Q: zurück zur Karte",
   "testflug.letzte_platzierung_entfernt": "Letzte Platzierung entfernt",
+  "testflug.loeschsperre": "{count} Löschung(en) zurückgehalten und noch nicht ausgeführt — im Karteneditor bestätigen.",
   "testflug.npc_angaben_uebernommen": "{prefab}: Angaben übernommen",
   "testflug.ops.angewendet": "Angewendet",
   "testflug.ops.grund_unbekannt": "unbekannt",
@@ -400,5 +402,6 @@
   "testflug.tab_selbst_schliessen": "Diesen Tab bitte selbst schließen",
   "testflug.wegpunkt_abgesetzt": "Wegpunkt {n} abgesetzt",
   "testflug.wegpunkt_gegriffen": "Wegpunkt {n} von {route} gegriffen — ziehen verschiebt",
-  "testflug.zurueck_zur_karte": "Zurück zur Karte …"
+  "testflug.zurueck_zur_karte": "Zurück zur Karte …",
+  "tod.bett_verloren": "Dein Schlafplatz ist nicht mehr da"
 }

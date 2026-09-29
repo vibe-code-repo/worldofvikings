@@ -134,6 +134,7 @@ async function main(): Promise<void> {
     saveIntervalMs: 3600_000, everyoneAdmin: true, worldCreatures: false, worldFeatures: false, worldVegetation: false,
   });
   server.start();
+  server.liegezeitMs = 0; // these checks are about the numbers of a death, not about the lying time (tod-treffer.ts)
   PORT = portVon(server);
   const zugriff = server as unknown as {
     applyCreatureAttack(pos: Vector3, dmg: number, r: number, weltId: string, target?: Vector3): void;

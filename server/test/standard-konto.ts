@@ -268,6 +268,21 @@ function serverKonfigValidiert(): void {
       pruefe('ungueltiger Charaktername -> kein Standardkonto', k.standardKonten?.length === 0);
     });
 
+    // Unsichtbares Zeichen im Charakternamen (Hangul-Fuellzeichen U+3164 und
+    // Zeilentrenner U+2028 wuerden die Namensregel des Spielbeitritts umgehen).
+    for (const [bezeichnung, zeichen] of [['U+3164', '\u3164'], ['U+115F', '\u115f'], ['U+2028', '\u2028']] as const) {
+      schreiben(['standard-konto:', '  name: gast', '  passwort: gast', `  charakter: "Ga${zeichen}st"`].join('\n'));
+      const { warnungen: wU } = eingefangen(() => {
+        const k = leseServerKonfig(verzeichnis, 'test');
+        pruefe(`unsichtbares Zeichen ${bezeichnung} im Charakternamen -> kein Standardkonto`, k.standardKonten?.length === 0);
+      });
+      pruefe(
+        `Warnung zu ${bezeichnung} nennt den Charakternamen`,
+        wU.some((w) => w.includes('charakter') && w.includes('unsichtbare')),
+        wU.join(' | '),
+      );
+    }
+
     // Ganz ohne Block.
     writeFileSync(
       resolve(verzeichnis, 'server.yml'),

@@ -123,6 +123,7 @@ import {
   type Zieldimension,
 } from '@wov/shared';
 import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
+import { sendeGrundskalaGeaendert } from './testflug/grundskalaLive';
 // Karte „Editor Upload-Größe": NICHT über den Barrel (`@wov/shared`) —
 // zieht `kollision/glb.ts` sonst in jedes Spiel-Bundle, s. Kopfkommentar
 // `uploadedModelRohmasse.ts`. Nur der Editor braucht diese Messung.
@@ -2101,25 +2102,32 @@ export class GegenstandsKatalog {
         return;
       }
       await ladeHochgeladeneRegistrierung();
+      // G1 (Grundskala live im Testflug, Mikes Beschluss 27.09.): Ein
+      // schon OFFENER Testflug-Tab hört per BroadcastChannel mit
+      // (`grundskalaLive.ts`) und zieht seine Master-Matrizen UND schon
+      // gesetzten Thin-Instance-Puffer nach (`EntityManager.
+      // aktualisiereGrundskala`) — die frühere Einschränkung „offene
+      // Flüge erst nach Neuladen" (F3-Nachbesserung „Editor Upload-
+      // Größe") gilt damit nicht mehr.
+      //
       // H1b (Angriff „Editor Upload-Größe"): Der Spielserver liest die
       // Upload-Registry nur beim eigenen Prozessstart (`server/src/main.ts`,
       // Kopfkommentar dort) — anders als Editor-Katalog und Layout-Prüfung
       // (beide im Betriebsdienst, der die Änderung sofort übernimmt) sieht
-      // ein LAUFENDER Spielserver eine geänderte Grundskala erst nach einem
-      // Neustart. „Übernommen." allein sagte das nicht ehrlich; ein neuer
-      // Server-Weg dafür ist nicht Teil dieser Nachbesserung.
-      //
-      // F3 (Nachangriff): „Editor sofort" allein war zu weit gefasst — wahr
-      // ist es nur für DIESEN Katalog (er baut die Vorschau unten neu auf)
-      // und für neu geöffnete Testflüge (die laden das Modell zum ersten
-      // Mal). Ein SCHON offener Testflug-Tab oder ein laufender Spielclient
-      // hält seine Thin-Instance-Puffer bereits im Bild und baut sie nicht
-      // von selbst neu — `AssetManager.wendeGrundskalaAn` aktualisiert zwar
-      // `master.localMatrix` seit dieser Nachbesserung in-place, aber ein
-      // schon ins GPU-Bild geschriebener Puffer liest davon nichts nach.
+      // ein LAUFENDER Spielserver (und damit seine Kollisionsform,
+      // `server/src/world/KollisionsFormen.ts`, dort ebenfalls dauerhaft
+      // gecacht) eine geänderte Grundskala erst nach einem Neustart. Dafür
+      // gibt es die Serversteuerung im Editor (PR #130).
       status.textContent =
-        'Übernommen — Katalog und neu geöffnete Testflüge sofort, offene Flüge und Spielclients erst nach Neuladen, Spielserver erst nach Neustart.';
+        'Übernommen — Katalog, neu geöffnete und schon offene Testflüge sofort; Spielclients erst nach Neuladen, die Kollision im laufenden Spielserver erst nach dessen Neustart (Serversteuerung im Editor).';
       status.style.color = F.textRuhig;
+      // N1 (Nachbesserung nach Angriff, Befund B4): der vom Betriebsdienst
+      // BESTÄTIGTE Wert (`rumpf.eintrag.grundskala`), nicht der lokal
+      // eingegebene — der Betriebsdienst kann klemmen/runden, und die
+      // Meldung soll nie einen Wert behaupten, den die Registry gar nicht
+      // trägt. Fällt `eintrag` aus irgendeinem Grund weg, bleibt der
+      // gesendete Wert der angeforderte.
+      sendeGrundskalaGeaendert(name, rumpf.eintrag?.grundskala ?? grundskala);
       // Die Vorschau (dieses Modell steht gerade, sonst gäbe es die
       // Grundskala-Zeile nicht) und der Infoblock neu aufbauen — beide
       // lesen die Grundskala über `uploadedModelRegistry.

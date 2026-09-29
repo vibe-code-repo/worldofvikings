@@ -37,15 +37,23 @@ export interface RegistryLadeBericht {
  * Registrierung danach trägt zwar ein, bleibt aber unsichtbar, ohne dass
  * etwas fehlschlägt.
  *
+ * `signal` (Karte G1 N4, Befund N3-1): optional, nur für Aufrufer, die
+ * einen zu langsamen oder hängenden Abruf wirklich abbrechen müssen
+ * (`grundskalaLive.ts`s `verdrahteGrundskalaLive`) — ohne `signal` ändert
+ * sich für die anderen Aufrufer nichts. Ein abgebrochener Abruf landet im
+ * `catch` unten wie jeder andere Fehlschlag: `text` bleibt `null`, die
+ * globale Registry wird NICHT geschrieben.
+ *
  * Wirft nie.
  */
 export async function ladeHochgeladeneRegistrierung(
-  basis: string = REGISTRY_URL
+  basis: string = REGISTRY_URL,
+  signal?: AbortSignal
 ): Promise<RegistryLadeBericht> {
   const meldungen: string[] = [];
   let text: string | null = null;
   try {
-    const antwort = await fetch(basis, { cache: 'no-store' });
+    const antwort = await fetch(basis, { cache: 'no-store', signal });
     if (antwort.ok) text = await antwort.text();
     else if (antwort.status !== 404) meldungen.push(`${basis}: HTTP ${antwort.status}`);
   } catch (e) {

@@ -2189,6 +2189,73 @@ export class EntityManager {
     return { an, buckets: n };
   }
 
+  /**
+   * G1 (Grundskala live im Testflug, Mikes Beschluss 27.09.): nach einem
+   * PATCH `/api/modell-hochladen` (`GegenstandsKatalog.
+   * grundskalaAendernAusfuehren`) erst `assets.getMasters(model)` erneut
+   * anstossen — der Cache-Treffer dort lässt `wendeGrundskalaAn()` erneut
+   * laufen und schreibt `master.localMatrix` IN PLACE auf den neuen Wert
+   * (Kopfkommentar `AssetManager.wendeGrundskalaAn`). `masterLocals` hält
+   * dieselben Matrix-Objekte (keine Kopien, s. `prepareMasters`), sieht die
+   * Änderung also automatisch mit — was fehlt, ist ein erneutes Schreiben
+   * der schon auf die GPU geladenen Thin-Instance-Puffer. Das übernimmt
+   * `bucket.dirty = true`; `rebuildBucketInstances()` liest `masterLocals`
+   * beim nächsten Tick neu.
+   *
+   * Nur Buckets DIESES Modells werden angefasst (`findPrefabByHash(...)
+   * .model`) — ein Testflug, der das geänderte Modell (noch) nicht gesetzt
+   * hat, bleibt unberührt.
+   *
+   * N1 (Nachbesserung nach Angriff, Befund B3): Vor dieser Fassung lief
+   * `assets.getMasters(model)` bedingungslos — für ein Modell, das dieser
+   * Testflug (noch) gar nicht gesetzt UND (noch) nicht selbst geladen hat,
+   * war das kein „reiner Cache-Vergleich", sondern der ERSTE Aufruf für
+   * diesen Namen: `getMasters` lädt dann die GLB und hängt sie in die Szene
+   * (`AssetManager.baueMasters` → `loadContainer` → `addAllToScene`). Der
+   * Wächter `assets.mastersSofort(model)` unterscheidet „schon einmal
+   * angefordert" von „noch nie" OHNE selbst etwas anzustossen; ist er leer,
+   * bricht die Funktion sofort ab — die inzwischen neu geladene Registry
+   * (B1, `Testflug.ts`) reicht: Eine SPÄTERE Setzung dieses Modells ruft
+   * `getMasters` ohnehin zum ersten Mal auf und bekommt die neue Grundskala
+   * automatisch (`AssetManager.baueMasters` wendet sie am Ende jedes
+   * Aufbaus an, unabhängig davon, ob das hier vorher lief).
+   *
+   * `this.colliders` (Kopfkommentar dort) baut die Kollisionsform je
+   * `masterKey` genau EINMAL und danach nie wieder — ein Verhalten, das
+   * bisher stimmte, weil sich die Form eines schon geladenen Prefabs nie
+   * änderte. Eine Grundskala-Änderung bricht diese Annahme; der veraltete
+   * Eintrag wird hier verworfen (samt Havok-Körpern und Träger-Mesh), damit
+   * `rebuildBucketColliders()` ihn beim nächsten `flush()` aus den jetzt
+   * aktuellen `masterLocals` neu ableitet.
+   *
+   * N1 (Befund B6): `this.colliderless` (Kopfkommentar dort) merkt sich je
+   * `prefabName`, dass sich aus dem Netz KEINE Form ableiten liess, und
+   * überspringt die Ableitung danach für immer — auch das ist eine Aussage
+   * über die GRÖSSE des Netzes und muss mit der Grundskala mit verworfen
+   * werden, sonst bliebe ein Prefab, das vor der Änderung `colliderless`
+   * war, das für immer, selbst wenn die neue Größe eine Form ergäbe.
+   */
+  async aktualisiereGrundskala(model: string): Promise<{ buckets: number }> {
+    if (!this.assets.mastersSofort(model)) return { buckets: 0 };
+    await this.assets.getMasters(model);
+    let n = 0;
+    for (const bucket of this.buckets.values()) {
+      if (!bucket.mastersReady) continue;
+      if (findPrefabByHash(bucket.prefabHash)?.model !== model) continue;
+      const alterCollider = this.colliders.get(bucket.masterKey);
+      if (alterCollider) {
+        alterCollider.set.dispose();
+        alterCollider.carrier.dispose();
+        this.colliders.delete(bucket.masterKey);
+        this.colliderSpecs.delete(bucket.masterKey);
+      }
+      this.colliderless.delete(bucket.prefabName);
+      bucket.dirty = true;
+      n++;
+    }
+    return { buckets: n };
+  }
+
   /** Diagnose fuer A/B-Messungen ueber window.__dbg.entities. */
   vegetationsGrenzeInfo(): {
     grenzeM: number;

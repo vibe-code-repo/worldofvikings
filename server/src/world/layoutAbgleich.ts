@@ -260,6 +260,22 @@ export interface LayoutAbgleichErgebnis {
 }
 
 /**
+ * DIE EINE Bedingung, unter der die Nähesuche ein ZDO für eine Platzierung übernehmen darf: keine Kennung oder eine
+ * alte (`Prefab@x,z`) mit dem Prefab des ZDO selbst. `bootLoeschRegel` nutzt sie ebenfalls (Karte Z3 Folgen N1, B1),
+ * damit die Boot-Regel nie schont, was der Abgleich doch zerstört.
+ */
+export function zdoDarfUebernommenWerden(z: ZDO, prefabs: LayoutAbgleichKontext['prefabs']): boolean {
+  const member = z.getMember(LAYOUT_ID_HASH);
+  // Ein Member, der da ist, aber kein Text: eine unlesbare Kennung ist trotzdem eine — nicht „ohne Kennung“.
+  if (member !== undefined && typeof member.value !== 'string') return false;
+  const kennung = z.getString(LAYOUT_ID_MEMBER);
+  if (!kennung) return true;
+  // Eine alte Kennung, die dieser Server je geschrieben hat, nennt das Prefab des ZDO selbst: `irgendwas@7,7` ist keine.
+  const prefab = prefabDerAltenKennung(kennung);
+  return prefab !== null && prefabs.getByName(prefab)?.hash === z.prefabHash;
+}
+
+/**
  * Handplatzierte Objekte des WorldLayouts materialisieren.
  *
  * Idempotent über die `id` der Platzierung im ZDO-Member `layoutId`,
@@ -524,16 +540,7 @@ export function layoutAbgleich(
   // Das ist die einzige Stelle, die das entscheidet: Die Zurückstellung in der ersten Schleife (Nähe zu einer
   // Platzierung) schont ein id-förmiges ZDO nur bis hierher, danach nimmt es diese Sperre — eine zweite Sperre dort
   // hätte keine beobachtbare Wirkung (das ZDO stürbe im Nachlauf im selben Boot).
-  const darfUebernehmen = (z: ZDO): boolean => {
-    const member = z.getMember(LAYOUT_ID_HASH);
-    // Ein Member, der da ist, aber kein Text: eine unlesbare Kennung ist trotzdem eine — nicht „ohne Kennung“.
-    if (member !== undefined && typeof member.value !== 'string') return false;
-    const kennung = z.getString(LAYOUT_ID_MEMBER);
-    if (!kennung) return true;
-    // Eine alte Kennung, die dieser Server je geschrieben hat, nennt das Prefab des ZDO selbst: `irgendwas@7,7` ist keine.
-    const prefab = prefabDerAltenKennung(kennung);
-    return prefab !== null && kontext.prefabs.getByName(prefab)?.hash === z.prefabHash;
-  };
+  const darfUebernehmen = (z: ZDO): boolean => zdoDarfUebernommenWerden(z, kontext.prefabs);
 
   const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
   const neuErzeugt = new Set<string>();

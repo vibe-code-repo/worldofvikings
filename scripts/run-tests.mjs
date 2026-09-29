@@ -2587,6 +2587,12 @@ const KERN = [
   // 6 s tick witness (in-process; the real-main.ts cases are in z3n1-hauptprozess.ts).
   ['server', 'test/z3n1-abschluss.ts'],
   ['admin', 'test/welt-bestaetigen-z3.ts'],
+  // Card Z3 Folgen: the deletion lock also holds at server boot (a world file written while the server was stopped:
+  // all / over 25 % / state / prefab swap with content; real main.ts child, kill windows, confirm, legacy ids), and the
+  // operating service side: /api/welt/bestaetigen takes the shared server lock (F1), the test-world messages and the
+  // leftover .beiseite request (F2/F3), the lock hint on an unchanged save (C2).
+  ['server', 'test/z3f-boot-schutz.ts'],
+  ['admin', 'test/z3f-folgen.ts'],
   /*
     Wikingerin, Webkopien ueberdecken Spiel-Assets (2026-09-29): nginx liefert
     /assets/ zuerst aus wov-web/static/assets/, sonst aus assets/ -- eine

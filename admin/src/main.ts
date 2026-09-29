@@ -61,7 +61,7 @@ import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessage
  */
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync, renameSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync, renameSync, realpathSync, rmSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, createHash } from 'node:crypto';
@@ -92,7 +92,7 @@ import { fehlerhaftAntwort, weltAnlegen, weltOpsBehandeln } from './routen/weltO
 import { anwendungAnhaengen } from './routen/anwendung.js';
 import { weltBestaetigenBehandeln } from './routen/weltBestaetigen.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
-import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
+import { bestaetigenAnfrageDatei, bestaetigenAnfrageLesen } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import {
   unfertigenResetMelden,
@@ -2185,6 +2185,36 @@ async function behandeln(
         getan.push([von, nach]);
         return true;
       };
+      // Z3 Folgen (F3): Ein `.beiseite` der Anfrage stammt aus "starten" (die dev-Anfrage ging mit dem dev-Spielstand beiseite).
+      // Ein Rest von Hand oder aus einem abgebrochenen Wechsel darf nicht ungeprueft am dev-Ladeort wirken: nur eine lesbare
+      // Anfrage, deren Hash noch zur aktuellen Weltdatei passt, kommt zurueck; alles andere wird geloggt und verworfen.
+      const anfrageZurueckLegen = (
+        von: string,
+        nach: string,
+        bewegen: (von: string, nach: string) => boolean,
+        melde: (bewegt: boolean, seite: string, was: string) => void
+      ): void => {
+        if (!existsSync(von)) return;
+        const gelesen = bestaetigenAnfrageLesen(von);
+        let stand: string | null = null;
+        try {
+          stand = layoutDateiHash(LAYOUT_DATEI);
+        } catch {
+          stand = null;
+        }
+        if (gelesen && stand !== null && gelesen.hash === stand) {
+          melde(bewegen(von, nach), 'dev', 'zurueckgelegt');
+          return;
+        }
+        console.warn(
+          `[Admin] Testwelt-Tausch (zurueck): beiseitegelegte Bestaetigungs-Anfrage ${gelesen ? 'ist fuer einen ueberholten Stand' : 'ist nicht lesbar'} — verworfen`
+        );
+        try {
+          rmSync(von, { recursive: true, force: true });
+        } catch (fehler) {
+          console.error(`[Admin] Testwelt-Tausch (zurueck): verworfene Anfrage nicht entfernt (${(fehler as Error).message})`);
+        }
+      };
       const meldeAnfrage = (bewegt: boolean, seite: string, was: string): void => {
         if (bewegt) console.log(`[Admin] Testwelt-Tausch (${aktion}): liegende Bestaetigungs-Anfrage der ${seite}-Welt ${was}`);
       };
@@ -2211,7 +2241,7 @@ async function behandeln(
             getan.push([beiseite, welt]);
             tausche(vorherBeiseite, vorher);
             tausche(sperreBeiseite, sperre);
-            meldeAnfrage(tausche(anfrageBeiseite, anfrage), 'dev', 'zurueckgelegt');
+            anfrageZurueckLegen(anfrageBeiseite, anfrage, tausche, meldeAnfrage);
           } else {
             // "erneuern": genau das Muster, mit dem "zurueck" den
             // Testwelt-Spielstand behandelt (aufheben statt loeschen) —
@@ -2246,7 +2276,10 @@ async function behandeln(
           aktiv: existsSync(beiseite),
           sicherung: sicherung ? basename(sicherung) : null,
           message:
-            aktion === 'starten'
+            aktion === 'starten' && !existsSync(beiseite)
+              ? // Z3 Folgen (F2): ohne dev-Spielstand gab es nichts beiseitezulegen; es ist KEINE Testwelt aktiv (`aktiv=false`).
+                `Kein dev-Spielstand vorhanden — nichts beiseitegelegt, es ist keine Testwelt aktiv. Der Server wurde neu gestartet und baut die Welt aus dem Layout.`
+              : aktion === 'starten'
               ? `Testwelt gestartet — ${basename(welt)} liegt beiseite, der Server erzeugt die Karte neu aus dem Layout.`
               : aktion === 'zurueck'
                 ? `dev-Welt zurueckgeholt. Die Testwelt liegt als ${basename(testAblage)} daneben.`
@@ -2276,14 +2309,24 @@ async function behandeln(
   // Begruendung und Ablauf stehen im Kopf von routen/weltBestaetigen.ts. Hier nur die Verdrahtung —
   // dieselben Bausteine wie jeder andere Schreibweg (`QUITTUNG_AUS`, `quittungsDatei`, `dienstZustand`).
   if (pfad === '/api/welt/bestaetigen' && methode === 'POST') {
-    return weltBestaetigenBehandeln(leib, {
-      datei: LAYOUT_DATEI,
-      anfragePfad: bestaetigenAnfrageDatei(WELTEN_ORDNER, INSTANZ),
-      loeschsperrePfad: loeschsperreDatei(WELTEN_ORDNER, INSTANZ),
-      quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
-      dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
-      warten: !QUITTUNG_AUS,
-    });
+    // Z3 Folgen (F1): dieselbe Serversperre wie /api/testwelt, /api/server und /api/welt-zuruecksetzen. Sonst kaeme eine
+    // Bestaetigung in der Startphase von "zurueck" (nach den Umbenennungen, vor dem Boot) an und wuerde am dev-Ladeort
+    // abgelegt, obwohl sie fuer die Testwelt gestellt wurde.
+    if (!sperreVersuchen()) {
+      return { code: 409, daten: { fehler: 'aktion-laeuft', message: 'Eine andere Serveraktion läuft bereits — bitte warten.' } };
+    }
+    try {
+      return await weltBestaetigenBehandeln(leib, {
+        datei: LAYOUT_DATEI,
+        anfragePfad: bestaetigenAnfrageDatei(WELTEN_ORDNER, INSTANZ),
+        loeschsperrePfad: loeschsperreDatei(WELTEN_ORDNER, INSTANZ),
+        quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
+        dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
+        warten: !QUITTUNG_AUS,
+      });
+    } finally {
+      sperreFreigeben();
+    }
   }
 
   // ── Weltsicherungen ──

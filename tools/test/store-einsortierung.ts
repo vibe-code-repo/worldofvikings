@@ -44,9 +44,11 @@ import { fileURLToPath } from 'node:url';
 import { STORE_KATALOG } from '@wov/shared/src/storeKatalogDaten.js';
 import {
   einsortieren,
+  mitTonUndSymbolenErgaenzen,
+  type AssetManifestDatei,
+  type ManifestDatei,
   type PrefabKategorie,
   type StoreArt as KatalogArt,
-  type StoreSorte,
 } from '../../client/src/editor/StoreKatalogDaten.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -75,17 +77,26 @@ const ART_KENNUNG: Record<KatalogArt, string> = {
   Ton: 'ton',
   Höhenfelder: 'terrain',
   Kulisse: 'kulisse',
+  Symbole: 'symbol',
 };
 
-type ManifestEintrag = { id: string; path: string; kind: StoreSorte };
 type PrefabEintrag = { asset: string; category?: PrefabKategorie };
 
-const manifest = JSON.parse(readFileSync(join(STORE, 'manifest.json'), 'utf8')) as {
-  assets: ManifestEintrag[];
-};
+const manifestRoh = JSON.parse(readFileSync(join(STORE, 'manifest.json'), 'utf8')) as ManifestDatei;
 const prefabs = JSON.parse(readFileSync(join(STORE, 'prefabs.json'), 'utf8')) as {
   prefabs: PrefabEintrag[];
 };
+/*
+  Ton und Symbole: STORE_KATALOG führt seit Bauer B1 auch die Einträge
+  aus `assets/manifest.json` (281 Töne, 353 UI-Bilder), die der
+  Store-Speicher selbst nicht kennt — ohne diese Ergänzung stünden sie
+  hier als "ohne Manifest" da, obwohl sie es nur über die zweite Quelle
+  sind. `assets/manifest.json` ist GETRACKT und liegt deshalb immer vor.
+*/
+const assetManifest = JSON.parse(
+  readFileSync(join(WURZEL, 'assets/manifest.json'), 'utf8')
+) as AssetManifestDatei;
+const manifest = mitTonUndSymbolenErgaenzen(manifestRoh, assetManifest);
 const manifestNachPfad = new Map(manifest.assets.map((a) => [a.path, a]));
 const kategorieNachPfad = new Map(prefabs.prefabs.map((p) => [p.asset, p.category ?? null]));
 

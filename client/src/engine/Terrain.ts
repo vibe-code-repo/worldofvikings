@@ -41,6 +41,7 @@ import {
   ZONE_UNITS,
   WATER_LEVEL,
 } from '@wov/shared';
+import { BODEN_REGELN } from '@wov/shared/src/worldgen/bodenKacheln.js';
 import type { ClientWorld } from '../world/World';
 import { TerrainSplatMaterial, TILE, BIOME_TILE, FELS_TILE, maskUV, maskUVEmpty } from './TerrainSplat';
 import type { HimmelsFarben } from './TerrainSplat';
@@ -1343,7 +1344,7 @@ export class TerrainManager {
     const ox = zx0 * ZONE_UNITS - ZONE_UNITS / 2;
     const oz = zy0 * ZONE_UNITS - ZONE_UNITS / 2;
     const vertexCount = n * n;
-    const SNOW_LINE = 80;
+    const SNOW_LINE = BODEN_REGELN.schneeLinie;
 
     // Cache zone heightmaps
     //
@@ -1494,9 +1495,9 @@ export class TerrainManager {
             : 0;
         aSnow[vi] =
           biome === Biome.Mountain && h > SNOW_LINE
-            ? Math.min(1, (h - SNOW_LINE) / 20)
+            ? Math.min(1, (h - SNOW_LINE) / BODEN_REGELN.schneeAnstieg)
             : biome === Biome.DeepNorth
-              ? 0.9
+              ? BODEN_REGELN.schneeTiefNord
               : 0;
         // Kachel der MITTLEREN Felsstufe. Hier stand
         // `biome === AshLands ? Basalt : Rock` — jedes Biom ausser der
@@ -1980,7 +1981,7 @@ export class TerrainManager {
    * they are built normally.
    */
   refreshZones(zones: ReadonlyArray<readonly [number, number]>): void {
-    const SNOW_LINE = 80;
+    const SNOW_LINE = BODEN_REGELN.schneeLinie;
     // Ein halbfertiger Chunk derselben Zone trüge in den schon gefüllten
     // Zeilen die ALTEN Höhen und in den übrigen die neuen — er wird
     // deshalb verworfen und neu begonnen.
@@ -2023,9 +2024,9 @@ export class TerrainManager {
           const biome = hm.getBiome(ox + rx, oz + ry);
           chunk.aSnow[vi] =
             biome === Biome.Mountain && h > SNOW_LINE
-              ? Math.min(1, (h - SNOW_LINE) / 20)
+              ? Math.min(1, (h - SNOW_LINE) / BODEN_REGELN.schneeAnstieg)
               : biome === Biome.DeepNorth
-                ? 0.9
+                ? BODEN_REGELN.schneeTiefNord
                 : 0;
         }
       }

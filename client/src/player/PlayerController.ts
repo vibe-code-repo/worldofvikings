@@ -361,6 +361,7 @@ export class PlayerController {
    * Sonderpfad: Die Figur fällt einfach von dort, wo sie schwebte.
    */
   private _bauModus = false;
+  private _rennt = false;
   /** Auf true gesetzt, sobald die Leertaste gedrückt wurde; von stepPhysics geleert. */
   private sprungWunsch = false;
   /** Restzeit der Absprungsperre (s) — siehe SPRUNG_SPERRE. */
@@ -897,6 +898,9 @@ export class PlayerController {
   /** Nur für Messungen: ob die Sprunganimation gerade laufen soll. */
   get inLuft(): boolean { return this.inDerLuft; }
 
+  /** Ob die Figur im letzten Frame tatsächlich rannte (Ausdauer mitgerechnet, nicht nur Shift gedrückt). */
+  get rennt(): boolean { return this._rennt; }
+
 
   get bauModus(): boolean { return this._bauModus; }
 
@@ -962,6 +966,7 @@ export class PlayerController {
     this.ausdauer = ausdauer.wert;
     this.ausdauerZuletztVerbraucht = ausdauer.zuletztVerbraucht;
     const running = ausdauer.rennt;
+    this._rennt = running;
     const speed = running ? RUN_SPEED : WALK_SPEED;
 
     // Leertaste als FLANKE, nicht als Dauerzustand: Gedrückthalten soll nicht

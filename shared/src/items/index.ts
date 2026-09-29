@@ -4,3 +4,5 @@ export * from './Inventory.js';
 export * from './PieceTable.js';
 export * from './recipes.js';
 export * from './Container.js';
+export * from './stats.js';
+export * from './setWerte.js';

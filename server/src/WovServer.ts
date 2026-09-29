@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
+import { KEINE_WERTE, type Werte, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
@@ -299,14 +299,6 @@ const NAME_NICHT_EINDEUTIG = 'nicht-eindeutig' as const;
 const PARADE_FENSTER_MS = 600;
 /** Parade: Ausdauerkosten (ein Schlag kostet 8). */
 const PARADE_AUSDAUER = 4;
-/**
- * Schlag: Ausdauerkosten.
- *
- * Stand frueher als blanke 8 zweimal in `handleAttack`. Sie gehoert
- * NICHT in die gemeinsame Ausdauerregel: Was ein Schlag kostet, ist eine
- * Kampfzahl, und `ausdauerAbzug` nimmt die Kosten deshalb als Parameter.
- */
-const SCHLAG_AUSDAUER = 8;
 const DEFAULT_CONFIG: ServerConfig = {
   name: 'World of Vikings Server',
   password: '',
@@ -1772,7 +1764,7 @@ export class WovServer {
           // Buff ausgelaufen: Obergrenze faellt zurueck, HP kappen.
           peer.foodBis = 0;
           peer.foodBonus = 0;
-          peer.health = Math.min(100, peer.health);
+          peer.health = Math.min(this.maxHealth(peer), peer.health);
           this.sendPlayerState(peer);
         }
       }
@@ -3244,7 +3236,27 @@ export class WovServer {
 
   /** Maximale HP inkl. aktivem Essens-Buff. */
   private maxHealth(peer: Peer): number {
-    return 100 + (Date.now() < peer.foodBis ? peer.foodBonus : 0);
+    return lebensmaximum(this.werteVon(peer).vitality, Date.now() < peer.foodBis ? peer.foodBonus : 0);
+  }
+
+  /**
+   * Die Attributsummen eines Spielers (Peer.werte, bei jeder Aenderung der Ruestung einmal gerechnet).
+   * Aelteren Tests reichen schlichte Objekte statt eines Peer herein (`as unknown as Peer`): ohne
+   * `werte` gilt "keine Ausruestung" = die alten Zahlen, statt zu werfen.
+   */
+  private werteVon(peer: Peer): Werte {
+    return peer.werte ?? KEINE_WERTE;
+  }
+
+  /**
+   * Nach jeder Aenderung der Ruestung: Legte man Vitalitaets-Ruestung ab, sinkt das Maximum, und Leben
+   * darueber wird gekappt (kein Heilen durch An-/Ablegen: Anlegen hebt das Leben NICHT).
+   */
+  private kappeLeben(peer: Peer): void {
+    if (peer.health > this.maxHealth(peer)) {
+      peer.health = this.maxHealth(peer);
+      this.sendPlayerState(peer);
+    }
   }
 
   /** Health(%)/Stamina/Serverposition an den Client (PlayerState-Paket). */
@@ -3307,6 +3319,7 @@ export class WovServer {
     }
     peer.ruestung = encodeArmor(parts);
     if (peer.characterID) this.zdosVon(peer).getZDO(peer.characterID)?.setString(RUESTUNG_MEMBER, peer.ruestung);
+    this.kappeLeben(peer);
     const remaining = new Set(Object.values(parts));
     for (const item of peer.inventar.all) {
       if (!item.shared.ruestungsteil) continue;
@@ -3678,14 +3691,15 @@ export class WovServer {
     waffe = gepruefteWaffe(peer.inventar, waffe);
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
-      SCHLAG_AUSDAUER,
+      schlagKosten(this.werteVon(peer).agility),
       Date.now()
     );
     if (!nachSchlag) return;
     peer.stamina = nachSchlag.wert;
     peer.staminaZuletztVerbraucht = nachSchlag.zuletztVerbraucht;
     this.sendPlayerState(peer);
-    const schaden = WAFFEN_SCHADEN[waffe] ?? 4; // Faust
+    // Waffenschaden aus den Item-Werten (Faust 4), dazu Staerke. Nur gegen Wesen, nie beim Ernten.
+    const schaden = ausgehenderNahkampfSchaden(waffenSchaden(findItem(waffe)?.stats), this.werteVon(peer).strength);
     /*
       Gesucht wird um die SERVER-Position, nicht um die gemeldete.
 
@@ -3828,7 +3842,7 @@ export class WovServer {
     }
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
-    const schaden = WAFFEN_SCHADEN[waffe] ?? 4;
+    const schaden = waffenSchaden(findItem(waffe)?.stats);
     this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0, peer.worldId);
     const hp = (ziel.getInt(HEALTH_MEMBER) || startHp) - schaden;
     if (hp > 0) {
@@ -3979,10 +3993,11 @@ export class WovServer {
         continue;
       }
       this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1, weltId);
-      peer.health = Math.max(0, peer.health - damage);
+      // Ruestung mindert erst NACH der Parade (ein parierter Schlag tut gar nichts).
+      peer.health = Math.max(0, peer.health - eingehenderSchaden(damage, this.werteVon(peer).armor));
       if (peer.health <= 0) {
         // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
-        peer.health = 100;
+        peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
         peer.stamina = AUSDAUER_REGEL.max;
         // EIN Teleport: aus einer Instanz geht es direkt an den Wiedereinstiegs-
         // punkt der Oberwelt, nicht erst an den Eingang und dann weiter.
@@ -4310,6 +4325,7 @@ export class WovServer {
       charZDO.setString(AUGENFARBE_MEMBER, augenfarbe);
       charZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
     }
+    this.kappeLeben(peer);
   }
 
   private handleSetFigur(peer: Peer, reader: Reader): void {
@@ -6403,18 +6419,6 @@ function pickableItem(prefabName: string): { name: string; amount: number } | nu
  * Kreaturen-Drops (nah am Original, beschränkt auf existierende itemDefs).
  * Format: [Item, min, max, Chance 0..1].
  */
-/** Nahkampfschaden je Waffe ('' = Faust). */
-const WAFFEN_SCHADEN: Record<string, number> = {
-  '': 4,
-  SwordNorth: 12,
-  Staff: 10,
-  Spear: 11,
-  Club: 12,
-  AxeFlint: 15,
-  PickaxeAntler: 8,
-  Hoe: 2,
-  Cultivator: 2,
-};
 
 /**
  * Waffenname aus dem Angriffs-/Ernte-Paket nur übernehmen, wenn er

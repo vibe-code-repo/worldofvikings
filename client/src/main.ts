@@ -119,7 +119,7 @@ import { GameI18n } from './i18n';
 import { Equipment } from './player/Equipment';
 import { waffenStandHandler } from './player/WaffenAbgleich';
 import { KampfEffekte } from './engine/KampfEffekte';
-import { TodTreffer } from './player/TodTreffer';
+import { verdrahteKampf } from './net/KampfNetz';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
 import { ContainerPanel } from './ui/ContainerPanel';
@@ -2477,14 +2477,7 @@ async function main() {
       }
     });
 
-    // Treffereffekt vom Server (Blut, Funken, Parade-Funke), auch fuer Treffer der Mitspieler; Tod/Treffer der eigenen Figur: TodTreffer.
-    new TodTreffer(input, () => player?.avatar ?? null).verdrahte(socket);
-    socket.on(PacketType.HitEffect, (reader) => {
-      const pos = reader.readVector3();
-      const art = reader.readInt32();
-      kampfEffekte.treffer(new Vector3(pos.x, pos.y, pos.z), art);
-      kampfToene.treffer(pos, art, reader.remaining > 0 && reader.readBool());
-    });
+    verdrahteKampf(socket, input, () => player?.avatar ?? null, { kampfEffekte, kampfToene });
 
     socket.on(PacketType.InteractResult, (reader) => {
       reader.readBool();

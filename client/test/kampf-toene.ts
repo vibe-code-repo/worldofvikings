@@ -468,7 +468,9 @@ console.log('\n[9] Einbau in main.ts:');
   const q = readFileSync(resolve(wurzel, 'client/src/main.ts'), 'utf-8');
   const zeilen = q.split('\n').length;
   pruefe('Zeilenwächter: main.ts < 3700 Zeilen', zeilen < 3700, String(zeilen));
-  pruefe('HitEffect-Handler ruft kampfToene.treffer', /PacketType\.HitEffect[\s\S]{0,400}?kampfToene\.treffer\(pos, art, reader\.remaining > 0 && reader\.readBool\(\)\)/.test(q));
+  // Der HitEffect-Handler wohnt seit "Tod und Treffer" in net/KampfNetz.ts (main.ts hat ein Zeilenbudget); main.ts ruft ihn ein.
+  const netz = readFileSync(resolve(wurzel, 'client/src/net/KampfNetz.ts'), 'utf-8');
+  pruefe('HitEffect-Handler ruft kampfToene.treffer', /PacketType\.HitEffect[\s\S]{0,400}?kampfToene\.treffer\(pos, art, reader\.remaining > 0 && reader\.readBool\(\)\)/.test(netz) && /verdrahteKampf\(socket, input, \(\) => player\?\.avatar \?\? null, \{ kampfEffekte, kampfToene \}\)/.test(q));
   pruefe('Sprung/Instanzwechsel ruft kampfToene.abbrechen, Verbindungsende dispose', /abgleicher\.zuruecksetzen\(\);\s*kampfToene\.abbrechen\(\)/.test(q) && /onDisconnected = \(reason\) => \{[\s\S]{0,200}?kampfToene\.dispose\(\)/.test(q));
   pruefe('Schlag ruft kampfToene.schlag mit letzterHieb', /schlage\(satz\)[\s\S]{0,200}?kampfToene\.schlag\(satz, player\.avatar\.letzterHieb/.test(q));
 }

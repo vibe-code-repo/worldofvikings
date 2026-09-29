@@ -121,8 +121,10 @@ async function main(): Promise<void> {
   {
     const q = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf8');
     const zeilen = q.split('\n').length;
-    check('main.ts wires TodTreffer exactly once', (q.match(/new TodTreffer\(input, \(\) => player\?\.avatar \?\? null\)\.verdrahte\(socket\)/g) ?? []).length === 1);
-    check(`main.ts stays under its line budget (< 3700 lines)`, zeilen < 3700, `${zeilen} lines`);
+    check('main.ts wires the combat packets exactly once (KampfNetz: HitEffect, PlayerTod, PlayerTreffer, Teleport)', (q.match(/verdrahteKampf\(socket, input, \(\) => player\?\.avatar \?\? null, \{ kampfEffekte, kampfToene \}\)/g) ?? []).length === 1);
+    const netz = readFileSync(resolve(__dirname, '../src/net/KampfNetz.ts'), 'utf8');
+    check('KampfNetz hooks up TodTreffer and the HitEffect handler', /new TodTreffer\(/.test(netz) && /PacketType\.HitEffect/.test(netz));
+    check(`main.ts stays under its line budget (the orchestrator asked for <= 3696 lines, the guards allow < 3700)`, zeilen <= 3696, `${zeilen} lines`);
   }
 
   console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);

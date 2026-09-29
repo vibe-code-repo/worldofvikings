@@ -31,6 +31,8 @@ export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
   name: string;
   /** Display name. */
   label: string;
+  /** Catalog key of the display name (`inhalt.item.*`); set only on armor set pieces. */
+  textKey?: string;
   itemType: ItemType;
   /** File in assets/sprites/, without ".png". */
   icon: string;

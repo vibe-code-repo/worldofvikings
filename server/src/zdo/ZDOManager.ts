@@ -58,6 +58,14 @@ export class ZDOManager {
   /** By ZDOID (primary lookup) */
   private objectsByID: Map<string, ZDO>;
 
+  /**
+   * Index der Spielerbauten (ZDOs mit `spieler` = 1), lazy beim ersten Zugriff
+   * aus einem Vollscan gebaut und danach nachgeführt (F2). `null` = noch nicht
+   * gebaut oder verworfen. Bedient den Login-Zähler (`spielerbauten`); ohne ihn
+   * kopierte jeder Login alle ZDOs der Welt (`getAllZDOs`).
+   */
+  private spielerBautenIndex: Set<ZDO> | null = null;
+
   /** Recently destroyed ZDOs pending network notification */
   private destroySendList: ZDOID[];
 
@@ -338,6 +346,33 @@ export class ZDOManager {
     return [...this.objectsByID.values()];
   }
 
+  /**
+   * Die Spielerbauten dieser Welt (ZDOs mit `spieler` = 1), ohne Kopie und
+   * ohne Vollscan ab dem zweiten Aufruf. Nur lesend verwenden.
+   *
+   * Der Index wird beim ersten Aufruf aus allen ZDOs gebaut und danach an EINER
+   * Stelle nachgeführt: Jedes aufgenommene ZDO meldet Schreibzugriffe auf sein
+   * Member `spieler` (`ZDO.beiSpielerMember`), und beim Aufnehmen (Erzeugen,
+   * Laden) wird ein bereits gesetztes `spieler` = 1 gelesen. Der Index ist eine
+   * Obermenge (auch `spieler` = 0 kann drin stehen); das Prädikat prüft der
+   * Aufrufer beim Durchlaufen. Der Abriss (`destroyZDO`) nimmt ZDOs heraus.
+   */
+  spielerbauten(): ReadonlySet<ZDO> {
+    if (!this.spielerBautenIndex) {
+      const index = new Set<ZDO>();
+      for (const zdo of this.objectsByID.values()) {
+        if (zdo.getInt('spieler') === 1) index.add(zdo);
+      }
+      this.spielerBautenIndex = index;
+    }
+    return this.spielerBautenIndex;
+  }
+
+  /** Vom ZDO gemeldet, wenn sein Member `spieler` geschrieben wird. */
+  private readonly merkeSpielerbau = (zdo: ZDO): void => {
+    this.spielerBautenIndex?.add(zdo);
+  };
+
   /** Get persistent ZDOs only (for world save). */
   getPersistentZDOs(): ZDO[] {
     return [...this.objectsByID.values()].filter(z => z.isPersistent());
@@ -346,11 +381,22 @@ export class ZDOManager {
   // ── Internal helpers ─────────────────────────────────────────────
 
   private _addToIDMap(zdo: ZDO): void {
-    this.objectsByID.set(zdo.zdoid.toString(), zdo);
+    const key = zdo.zdoid.toString();
+    const vorher = this.objectsByID.get(key);
+    if (vorher && vorher !== zdo) {
+      // Gleiche Kennung überschrieben (Laden in einen laufenden Manager): das alte ZDO ist raus.
+      this.spielerBautenIndex?.delete(vorher);
+      vorher.beiSpielerMember = null;
+    }
+    this.objectsByID.set(key, zdo);
+    zdo.beiSpielerMember = this.merkeSpielerbau;
+    if (this.spielerBautenIndex && zdo.getInt('spieler') === 1) this.spielerBautenIndex.add(zdo);
   }
 
   private _removeFromIDMap(zdo: ZDO): void {
     this.objectsByID.delete(zdo.zdoid.toString());
+    this.spielerBautenIndex?.delete(zdo);
+    zdo.beiSpielerMember = null; // ein abgerissenes ZDO kommt nicht wieder in den Index
   }
 
   private _addToSector(zdo: ZDO): void {

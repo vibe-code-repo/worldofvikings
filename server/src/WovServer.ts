@@ -106,8 +106,9 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
-import { liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
-import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreFreigeben } from './world/layoutBootSchutz.js';
+import { bootLoeschRegel, liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
+import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreErweitern, sperreFreigeben } from './world/layoutBootSchutz.js';
+import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
@@ -1354,6 +1355,37 @@ export class WovServer {
       const sperrAuswertung = sperreAbgleichen(this.loeschsperrePfad, this.zdos, layout, (t) => console.error(t), true, (name) => this.prefabs.getByName(name)?.hash);
       geschuetzteIds = sperrAuswertung.aktive === 'kaputt' ? undefined : sperrAuswertung.aktive;
       sperreKaputt = sperrAuswertung.aktive === 'kaputt';
+      // Karte Z3 Folgen (H1): dieselbe Löschregel wie live, gegen den Bestand an Layout-ZDOs. Eine Datei, die bei
+      // gestopptem Server geschrieben wurde, hat keine Wache gesehen. Greift die Regel, kommen die ids in die
+      // Sperrdatei (VOR jeder Löschung, atomar) und bleiben stehen; kleine Änderungen laufen durch. Bei verworfenen
+      // Einträgen löscht der Boot ohnehin nichts (`ohneLoeschen`), dort gibt es nichts zu sperren.
+      const verworfenBoot = Math.max(0, rohAnzahl - gueltigeAnzahl - (bericht?.zusammengefasst.length ?? 0));
+      if (!sperreKaputt && verworfenBoot === 0) {
+        const regel = bootLoeschRegel({ zdos: this.zdos, prefabs: this.prefabs }, layout, geschuetzteIds);
+        if (regel && regel.ids.length > 0) {
+          let hash = '';
+          try {
+            hash = (this.config.worldLayoutPath ? layoutDateiHash(this.config.worldLayoutPath) : null) ?? '';
+          } catch {
+            /* the hash is only for display; the lock file is still written */
+          }
+          const erweitert = sperreErweitern(this.loeschsperrePfad, regel.ids, hash, regel.grund);
+          if (erweitert?.art === 'ok') {
+            geschuetzteIds = new Set([...(geschuetzteIds ?? []), ...regel.ids]);
+            const gezeigt = regel.ids.slice(0, 40).join(', ') + (regel.ids.length > 40 ? ` … (+${regel.ids.length - 40})` : '');
+            console.warn(
+              `[WoV] Layout-Abgleich (Boot): Löschsperre NEU — die Weltdatei löscht ${regel.ids.length} Objekt(e) (${regel.grund}: ${gezeigt}); ` +
+                `sie bleiben stehen, bis „POST /api/welt/bestaetigen" sie ausdrücklich freigibt.`
+            );
+          } else if (erweitert) {
+            // Sperre nicht schreibbar oder kaputt: GESCHLOSSEN, im Zweifel wird nichts gelöscht.
+            sperreKaputt = true;
+            console.error(
+              `[WoV] Layout-Abgleich (Boot): Löschsperre nicht gespeichert (${erweitert.art === 'fehler' ? erweitert.text : 'Datei unlesbar'}) — GESCHLOSSEN: kein Layout-Objekt wird gelöscht.`
+            );
+          }
+        }
+      }
     } else if (!vorgabe?.bestaetigt) {
       geschuetzteIds = vorgabe?.geschuetzteIds === 'kaputt' ? undefined : vorgabe?.geschuetzteIds;
       sperreKaputt = vorgabe?.geschuetzteIds === 'kaputt';

@@ -95,7 +95,10 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
     // Dieselben Bytes wie vorher: Die Quittung ist die des früheren Speicherns, ihre Zähler (und ihr `detail`) gälten
     // nicht für dieses. Ein Speichern ohne Änderung meldet Zähler 0 und `unveraendert`.
     const null_ = Object.fromEntries(Object.keys(stand.quittung.zaehler ?? {}).map((k) => [k, 0]));
-    return { ...antwort, daten: { ...daten, angewendet: true, unveraendert: true, zaehler: null_ } };
+    // Z3 Folgen (C2): auch ein Speichern ohne Änderung meldet eine offene Sperre — die Quittung des früheren Speicherns trägt sie.
+    const offen = stand.quittung.loeschsperre;
+    const offenAnzahl = offen && !offen.kaputt && offen.anzahl > 0 ? offen.anzahl : 0;
+    return { ...antwort, daten: { ...daten, angewendet: true, unveraendert: true, zaehler: null_, ...(offenAnzahl > 0 ? { loeschsperre: offen } : {}) } };
   }
   const sperre = stand.quittung?.loeschsperre;
   const gesperrt = sperre && !sperre.kaputt && sperre.anzahl > 0 ? sperre.anzahl : 0;

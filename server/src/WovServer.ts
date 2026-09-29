@@ -1216,7 +1216,7 @@ export class WovServer {
         // Einmal je Takt gelesen (samt Rücknahme je id) und UNVERÄNDERT sowohl an `pruefeLoeschregel`
         // als auch an `anwenden()` weitergegeben (`LiveVorgabe.geschuetzteIds`) — s. Kopfkommentar dort,
         // warum ein zweites, frisches Einlesen innerhalb desselben Takts falsch wäre.
-        geschuetzteIdsJetzt: (neu, ruecknahme) => sperreAbgleichen(this.loeschsperrePfad, this.zdos, neu, () => undefined, ruecknahme),
+        geschuetzteIdsJetzt: (neu, ruecknahme) => sperreAbgleichen(this.loeschsperrePfad, this.zdos, neu, () => undefined, ruecknahme, (name) => this.prefabs.getByName(name)?.hash),
         // `bereitsGesperrt`: ids, die schon VOR diesem Takt galten, zählen nicht als "neu entdeckt" — sonst
         // würde eine ganz normale Folgeänderung an einem ANDEREN Objekt, die im selben Vergleich zufällig
         // dieselben, längst gesperrten ids "mit nennt" (weil `alt` der alte, ungeänderte Vergleichsstand
@@ -1351,7 +1351,7 @@ export class WovServer {
     let geschuetzteIds: ReadonlySet<string> | undefined;
     let sperreKaputt = false;
     if (modus === 'boot') {
-      const sperrAuswertung = sperreAbgleichen(this.loeschsperrePfad, this.zdos, layout, (t) => console.error(t));
+      const sperrAuswertung = sperreAbgleichen(this.loeschsperrePfad, this.zdos, layout, (t) => console.error(t), true, (name) => this.prefabs.getByName(name)?.hash);
       geschuetzteIds = sperrAuswertung.aktive === 'kaputt' ? undefined : sperrAuswertung.aktive;
       sperreKaputt = sperrAuswertung.aktive === 'kaputt';
     } else if (!vorgabe?.bestaetigt) {
@@ -1366,7 +1366,7 @@ export class WovServer {
     // dieses Dokuments wiederbeleben, Angriffsbefund A5). Alles andere (Position, Zustand anderer
     // Objekte) bleibt unangetastet.
     if (vorgabe?.bestaetigt) {
-      const plan = sperreBestaetigenPlan(this.loeschsperrePfad, layout);
+      const plan = sperreBestaetigenPlan(this.loeschsperrePfad, layout, this.zdos, (name) => this.prefabs.getByName(name)?.hash);
       // Eine unlesbare Sperre wird nie ungeprüft freigegeben (und keine ihrer ids ist bekannt): nichts geschieht.
       if (plan.art === 'kaputt') return abgelehnt('Löschsperre-Datei unlesbar (GESCHLOSSEN) — nichts bestätigt');
       if (plan.art === 'keine') return { art: 'bestaetigt', ids: [], entfernt: 0 };

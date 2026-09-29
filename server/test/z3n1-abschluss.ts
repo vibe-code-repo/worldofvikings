@@ -10,6 +10,11 @@
  *  F5  Bestätigen übernimmt weder Geo noch andere Objektänderungen und quittiert nicht „angewendet“.
  *  F6  Mehr als 40 gesperrte Alt-Löschungen blockieren eine erlaubte neue Einzelplatzierung nicht.
  *  F7  A5: gefällter Baum bleibt im Dokument und gefällt, nur die Truhe wird gelöscht.
+ *  H3  (Z3 N2, B4) Ein Hash, der nicht der des aktuellen Standes ist, entsperrt nie: alter voller Stand, überholter
+ *      Sperr-Auslöser und ein Fantasie-Hash werden verbraucht (`abgelehnt: veraltet`), die Truhe steht, die Sperre bleibt.
+ *      Tötet die Mutante „Bestätigen ohne Hash-Prüfung“ (`bestaetigt = true` in `layoutLive.ts`).
+ *  PW  (Z3 N2, B1) Prefab-Wechsel an einer Truhe mit Inhalt: gesperrt, Folgeänderung läuft, Rücknahme (Prefab zurück)
+ *      und Bestätigen (Truhe weg, neues Prefab entsteht) wirken; ein Wechsel an einem Objekt OHNE Zustand sperrt nichts.
  *  T1  Kreuzfälle mit der Höhenkorrektur: Sperre vor dem Höhenfehler, Reparatur entsperrt nichts, ungültiges
  *      Dokument ist keine Rücknahme, Bestätigen trotz Höhenfehler löscht nur die Truhe.
  *  Takt (E-e) über echte 6 s: Median ≤ 1 ms, genau eine Auslöserwarnung, höchstens eine neue Quittung.
@@ -314,6 +319,72 @@ try {
     check('F7 der gefällte Baum t3 ist NICHT wieder da (kein Abgleich im Boot-Stil)', !u.zdo('t3') && u.layoutIds().size === 9, `${u.layoutIds().size}`);
     const q = quittungLesen(u.quittungsPfad);
     check('F7 Zähler: nichts gespawnt', q?.bestaetigung?.entfernt === 1 && (q.zaehler?.gespawnt ?? 0) === 0, JSON.stringify(q));
+    abbauen(u);
+  }
+
+  // ── H3 (B4): ein anderer Hash entsperrt nie ──
+  {
+    const u = aufsetzen('h3', [...BAEUME(10), KISTE]);
+    u.zdo('kiste')!.setString('truheInhalt', '[[Wood,9]]');
+    const hVoll = layoutHash(JSON.stringify(dokument([...BAEUME(10), KISTE])));
+    const hAusloeser = schreibe(u.layout, dokument(BAEUME(10)));
+    u.tick();
+    schreibe(u.layout, dokument([...BAEUME(10), { id: 'neu1', prefab: 'Beech1', x: 500, z: 500 }])); // der Stand ändert sich: der Auslöser-Hash ist überholt
+    u.tick();
+    for (const [name, h] of [['alter voller Stand', hVoll], ['überholter Sperr-Auslöser', hAusloeser], ['Fantasie-Hash', 'deadbeef'.repeat(8)]] as const) {
+      bestaetigenAnfrageSchreiben(u.anfragePfad, h);
+      const { zeilen } = mitFang(() => u.tick());
+      const q = quittungLesen(u.quittungsPfad);
+      check(`H3 ${name}: Anfrage verbraucht, abgelehnt „veraltet“, Truhe steht, Sperre bleibt`, !existsSync(u.anfragePfad) && q?.bestaetigung?.abgelehnt === 'veraltet' && !!u.zdo('kiste') && loeschsperreLesen(u.loeschsperrePfad) !== null, JSON.stringify(q?.bestaetigung));
+      check(`H3 ${name}: Logzeile „überholten Stand“`, zeilen.some((z) => /überholten Stand/.test(z)), zeilen.join(' | ').slice(0, 200));
+    }
+    abbauen(u);
+  }
+
+  // ── PW (B1): Prefab-Wechsel an einer Truhe mit Inhalt ──
+  {
+    const alsBaum: Platz = { id: 'kiste', prefab: 'Beech1', x: KISTE.x, z: KISTE.z };
+    const u = aufsetzen('pw', [...BAEUME(10), KISTE]);
+    u.zdo('kiste')!.setString('truheInhalt', '[[Wood,9]]');
+    const h1 = schreibe(u.layout, dokument([...BAEUME(10), alsBaum]));
+    u.tick();
+    const q1 = quittungLesen(u.quittungsPfad);
+    check('PW Wechsel: zurückgehalten (bestaetigung-noetig) UND Quittung nennt die Sperre', q1?.hash === h1 && q1.grund === 'bestaetigung-noetig' && q1.loeschsperre?.anzahl === 1, JSON.stringify(q1));
+    const s1 = loeschsperreLesen(u.loeschsperrePfad);
+    check('PW Wechsel: Sperrdatei nennt die Truhe', s1 !== null && s1 !== 'kaputt' && s1.ids.join() === 'kiste', JSON.stringify(s1));
+    // Folgeänderung an einem ANDEREN Objekt: läuft, die Truhe bleibt eine Truhe mit Inhalt.
+    const h2 = schreibe(u.layout, dokument([...BAEUME(10), alsBaum, { id: 'neu1', prefab: 'Beech1', x: 500, z: 500 }]));
+    u.tick();
+    const q2 = quittungLesen(u.quittungsPfad);
+    check('PW Folgeänderung: angewendet (neu1 steht), Sperre bleibt gemeldet', q2?.hash === h2 && q2.ergebnis === 'angewendet' && !!u.zdo('neu1') && q2.loeschsperre?.anzahl === 1, JSON.stringify(q2));
+    check('PW Folgeänderung: die Truhe steht mit Inhalt, kein Beech1 unter ihrer id', u.zdo('kiste')?.getString('truheInhalt') === '[[Wood,9]]' && u.server.zdos.getAllZDOs().filter((z: ZDO) => z.getString(LAYOUT_ID_MEMBER) === 'kiste').length === 1);
+    // Bestätigen: die Truhe geht, das neue Prefab entsteht, die Sperre ist weg.
+    bestaetigenAnfrageSchreiben(u.anfragePfad, h2);
+    u.tick();
+    const q3 = quittungLesen(u.quittungsPfad);
+    const nachher = u.server.zdos.getAllZDOs().filter((z: ZDO) => z.getString(LAYOUT_ID_MEMBER) === 'kiste');
+    check('PW Bestätigen: Sperre weg, 1 entfernt', !existsSync(u.loeschsperrePfad) && q3?.bestaetigung?.entfernt === 1, JSON.stringify(q3));
+    check('PW Bestätigen: unter der id genau ein ZDO, ohne Inhalt (das neue Prefab)', nachher.length === 1 && nachher[0]!.getString('truheInhalt') === '' && q3?.ergebnis === 'angewendet', `${nachher.length}`);
+    abbauen(u);
+  }
+  {
+    // Rücknahme: das alte Prefab kommt zurück → die Truhe fällt aus der Sperre und bleibt stehen.
+    const u = aufsetzen('pw-ruecknahme', [...BAEUME(10), KISTE]);
+    u.zdo('kiste')!.setString('truheInhalt', '[[Wood,9]]');
+    schreibe(u.layout, dokument([...BAEUME(10), { id: 'kiste', prefab: 'Beech1', x: KISTE.x, z: KISTE.z }]));
+    u.tick();
+    check('PW Rücknahme Aufbau: gesperrt', existsSync(u.loeschsperrePfad));
+    schreibe(u.layout, dokument([...BAEUME(10), KISTE, { id: 'neu1', prefab: 'Beech1', x: 500, z: 500 }]));
+    u.tick();
+    check('PW Rücknahme: Prefab wieder wie das ZDO → Sperrdatei weg, Truhe mit Inhalt steht', !existsSync(u.loeschsperrePfad) && u.zdo('kiste')?.getString('truheInhalt') === '[[Wood,9]]');
+    abbauen(u);
+  }
+  {
+    // Ohne Zustand: ein Prefab-Wechsel bleibt wie bisher erlaubt und sperrt nichts.
+    const u = aufsetzen('pw-leer', [...BAEUME(10), KISTE]);
+    schreibe(u.layout, dokument([...BAEUME(10), { id: 'kiste', prefab: 'Beech1', x: KISTE.x, z: KISTE.z }]));
+    u.tick();
+    check('PW ohne Zustand: keine Sperre, Wechsel angewendet', !existsSync(u.loeschsperrePfad) && quittungLesen(u.quittungsPfad)?.ergebnis === 'angewendet');
     abbauen(u);
   }
 

@@ -28,6 +28,7 @@ import { quittungLesen, quittungSchreiben, quittungsDatei, type Quittung } from 
 import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreDatei, loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { createWovServer } from '../../server/src/WovServer.js';
+import { weltBestaetigenBehandeln } from '../src/routen/weltBestaetigen.js';
 import type { ZDO } from '../../server/src/zdo/ZDO.js';
 
 let fehler = 0;
@@ -126,6 +127,37 @@ const HIER = resolve(new URL('.', import.meta.url).pathname);
 const ADMIN = resolve(HIER, '..');
 const TSX = resolve(ADMIN, '..', 'node_modules/.bin/tsx');
 let dienst: ChildProcess | null = null;
+/** Z3 N2 (B6): end the service's whole process group (a KILL to the tsx wrapper alone leaves the node behind it). */
+function gruppeBeenden(signal: NodeJS.Signals = 'SIGKILL'): void {
+  const pid = dienst?.pid;
+  if (!pid) return;
+  for (const ziel of [-pid, pid]) {
+    try {
+      process.kill(ziel, signal);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+function aufraeumenAlles(): void {
+  gruppeBeenden('SIGKILL');
+  rmSync(ORDNER, { recursive: true, force: true });
+}
+process.on('exit', aufraeumenAlles);
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(sig, () => {
+    aufraeumenAlles();
+    process.exit(1);
+  });
+}
+// The wrapper above us is gone (KILL to it re-parents this process): clean up instead of running on.
+const ELTERN = process.ppid;
+setInterval(() => {
+  if (process.ppid !== ELTERN) {
+    aufraeumenAlles();
+    process.exit(1);
+  }
+}, 500).unref();
 function dienstStarten(): Promise<number> {
   return new Promise((fertig, scheitern) => {
     let protokoll = '';
@@ -142,6 +174,7 @@ function dienstStarten(): Promise<number> {
         WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
         WOV_SYSTEMCTL: SYSTEMCTL,
       },
+      detached: true, // own process group (Z3 N2, B6): the tsx wrapper AND the node behind it die with `gruppeBeenden`
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const zeit = setTimeout(() => scheitern(new Error(`service does not start:\n${protokoll}`)), 30_000);
@@ -279,6 +312,91 @@ async function haupt(): Promise<void> {
     const nochOffen = await bestaetigen(hashLeer2);
     check('5 confirming the revoked (gone) lock: 409 nichts-offen', nochOffen.status === 409 && nochOffen.daten.fehler === 'nichts-offen', `${nochOffen.status} ${JSON.stringify(nochOffen.daten)}`);
 
+    // ── 7 (Z3 N2, B2): the answer of the operations service carries the open lock; editor and MCP show it ──
+    {
+      // Editor and MCP code are loaded by a path in a variable (the admin package is type-checked without the DOM lib and
+      // the MCP SDK's types); their constants are read at import, so the environment is set first.
+      process.env.WOV_ADMIN_URL = `http://127.0.0.1:${port}`;
+      process.env.WOV_ADMIN_TOKEN = TOKEN;
+      process.env.WOV_MCP_FREMDE_WELT = '1';
+      const laden = (pfad: string): Promise<unknown> => import(pfad);
+      const mcp = (await laden(resolve(HIER, '../../tools/worldlayout-mcp/kern.ts'))) as {
+        wirkungsHinweis(status: number, daten: Record<string, unknown>, locale?: string): string;
+      };
+      const { schreibeWeltdokument, wirkungsText } = (await laden(resolve(HIER, '../../client/src/editor/weltdokument.ts'))) as {
+        schreibeWeltdokument(layout: unknown, basis: string | null, fetchFn: typeof fetch, locale?: string): Promise<{ art: string; message: string; angewendet: boolean | null; sperrHinweis?: string | null }>;
+        wirkungsText(a: unknown): string;
+      };
+      const dateiHash = (): string => layoutHash(readFileSync(WELT_DATEI));
+      interface Antwort7 {
+        grund?: string;
+        message?: string;
+        angewendet?: boolean;
+        loeschsperre?: { anzahl: number };
+        loeschsperreHinweis?: string;
+      }
+      const post = async (d: unknown): Promise<{ status: number; daten: Antwort7 }> => {
+        const r = await fetch(`http://127.0.0.1:${port}/api/worldlayout`, {
+          method: 'POST',
+          headers: { 'x-wov-token': TOKEN, 'content-type': 'application/json', 'if-match': `"${dateiHash()}"` },
+          body: JSON.stringify(d),
+        });
+        return { status: r.status, daten: (await r.json().catch(() => ({}))) as Antwort7 };
+      };
+      nach('kiste-1')?.setString('truheInhalt', '[[Wood,7]]');
+      const erste = await post(dokument(BAEUME)); // the chest (with content) leaves the document
+      check('7 first document without the chest: 202 bestaetigung-noetig, the answer names the lock (1)', erste.status === 202 && erste.daten.grund === 'bestaetigung-noetig' && erste.daten.loeschsperre?.anzahl === 1, `${erste.status} ${JSON.stringify(erste.daten).slice(0, 300)}`);
+      check(
+        '7 the 202 text no longer promises that the next restart takes the file; it names the durable lock and the confirmation',
+        !/nächste Neustart übernimmt/.test(String(erste.daten.message)) && /dauerhaft gesperrt/.test(String(erste.daten.message)) && /bestaetigen/.test(String(erste.daten.message)),
+        String(erste.daten.message)
+      );
+      const zweite = await post(dokument([...BAEUME, { id: 'neu-b', prefab: 'Beech1', x: 700, z: 20 }])); // a harmless follow-up change
+      check('7 second document (+1 tree): 200 angewendet, the tree stands, the chest stands with content', zweite.status === 200 && zweite.daten.angewendet === true && !!nach('neu-b') && nach('kiste-1')?.getString('truheInhalt') === '[[Wood,7]]', `${zweite.status} ${JSON.stringify(zweite.daten).slice(0, 300)}`);
+      check('7 the 200 answer carries the lock (anzahl 1) and a hint that the chest stays locked and how to confirm', zweite.daten.loeschsperre?.anzahl === 1 && /gesperrt/.test(String(zweite.daten.loeschsperreHinweis)) && /bestaetigen/.test(String(zweite.daten.loeschsperreHinweis)), `${JSON.stringify(zweite.daten.loeschsperre)} ${String(zweite.daten.loeschsperreHinweis)}`);
+      const mcpText = mcp.wirkungsHinweis(zweite.status, zweite.daten as Record<string, unknown>);
+      check('7 MCP reader: not the bare success sentence; names the locked object and the confirmation', mcpText !== '\nIm laufenden Spiel angewendet.' && /1 Objekt\(e\) bleiben gesperrt/.test(mcpText) && /bestaetigen/.test(mcpText), mcpText);
+      check('7 MCP reader (en): same content, English', /stay locked/.test(mcp.wirkungsHinweis(200, zweite.daten as Record<string, unknown>, 'en')) && !/gesperrt/.test(mcp.wirkungsHinweis(200, zweite.daten as Record<string, unknown>, 'en')), mcp.wirkungsHinweis(200, zweite.daten as Record<string, unknown>, 'en'));
+      check('7 MCP reader for the 202: names the durable lock', /dauerhaft gesperrt/.test(mcp.wirkungsHinweis(erste.status, erste.daten as Record<string, unknown>)), mcp.wirkungsHinweis(erste.status, erste.daten as Record<string, unknown>));
+      const editorFetch = ((url: string, init?: RequestInit) => fetch(`http://127.0.0.1:${port}${url}`, { ...init, headers: { ...(init?.headers as Record<string, string>), 'x-wov-token': TOKEN } })) as typeof fetch;
+      const ed = await schreibeWeltdokument(dokument([...BAEUME, { id: 'neu-b', prefab: 'Beech1', x: 700, z: 20 }, { id: 'neu-c', prefab: 'Beech1', x: 720, z: 20 }]), dateiHash(), editorFetch);
+      const edSatz = ed.art === 'ok' ? wirkungsText(ed) : '';
+      check('7 editor: applied, but the sentence is not "live angewendet." alone; it names the locked object', ed.art === 'ok' && ed.angewendet === true && edSatz !== ' — live angewendet.' && /gesperrt/.test(edSatz) && /bestaetigen/.test(edSatz), edSatz);
+      const edEn = await schreibeWeltdokument(dokument([...BAEUME, { id: 'neu-b', prefab: 'Beech1', x: 700, z: 20 }, { id: 'neu-c', prefab: 'Beech1', x: 720, z: 20 }, { id: 'neu-d', prefab: 'Beech1', x: 740, z: 20 }]), dateiHash(), editorFetch, 'en');
+      check('7 editor (en): the lock sentence is English', edEn.art === 'ok' && /stay locked/.test(edEn.sperrHinweis ?? ''), String((edEn as { sperrHinweis?: string }).sperrHinweis));
+      // put the chest back: the lock is revoked, and step 6 starts from a clean state
+      const zurueckHash = schreibe(json(dokument(DOC_VOLL)));
+      await quittung(zurueckHash);
+      check('7 clean-up: chest back in the document, lock revoked', loeschsperreLesen(SPERRE) === null && !!nach('kiste-1'));
+    }
+
+    // ── 8 (Z3 N2, B5): the texts of POST /api/welt/bestaetigen come from the catalog, in both languages ──
+    {
+      const vorher = process.env.WOV_LANGUAGE;
+      try {
+        const umgKaputt = { datei: WELT_DATEI, anfragePfad: ANFRAGE, loeschsperrePfad: SPERRE, quittungsPfad: QUITTUNG, dienstAktiv: async () => true, warten: false };
+        process.env.WOV_LANGUAGE = 'de';
+        const de = (await weltBestaetigenBehandeln({ hash: 'x' }, umgKaputt)) as { code: number; daten: { message: string } };
+        process.env.WOV_LANGUAGE = 'en';
+        const en = (await weltBestaetigenBehandeln({ hash: 'x' }, umgKaputt)) as { code: number; daten: { message: string } };
+        const enLeer = (await weltBestaetigenBehandeln({}, umgKaputt)) as { code: number; daten: { message: string } };
+        check('8 no open lock: 409, German text by default', de.code === 409 && /Keine zurückgehaltene Löschung/.test(de.daten.message), de.daten.message);
+        check('8 no open lock: 409, English text with WOV_LANGUAGE=en', en.code === 409 && /No held-back deletion/.test(en.daten.message) && !/Löschung/.test(en.daten.message), en.daten.message);
+        check('8 empty hash: 400, English text', enLeer.code === 400 && /missing or empty/.test(enLeer.daten.message), enLeer.daten.message);
+      } finally {
+        if (vorher === undefined) delete process.env.WOV_LANGUAGE;
+        else process.env.WOV_LANGUAGE = vorher;
+      }
+      // the two catalogs carry the same keys and the same placeholders (a text without its English twin would show a hole)
+      const katalog = (sprache: string): Record<string, string> => JSON.parse(readFileSync(resolve(HIER, `../../shared/data/worldlayout/${sprache}.json`), 'utf-8'));
+      const kd = katalog('de');
+      const ke = katalog('en');
+      const platz = (t: string): string => [...t.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]).sort().join(',');
+      check('8 catalog: de and en have the same keys', Object.keys(kd).sort().join('|') === Object.keys(ke).sort().join('|'));
+      check('8 catalog: same placeholders per key', Object.keys(kd).every((k) => platz(kd[k]!) === platz(ke[k] ?? '')), Object.keys(kd).filter((k) => platz(kd[k]!) !== platz(ke[k] ?? '')).join(','));
+      check('8 catalog: the confirm.* and lock.* texts exist (>= 15 keys)', Object.keys(kd).filter((k) => /^(confirm|lock)\./.test(k)).length >= 15);
+    }
+
     // ── 6: welt-zuruecksetzen removes an open lock file ──
     zeilen.length = 0;
     const hashLeer3 = schreibe(json(dokument([])));
@@ -295,7 +413,7 @@ async function haupt(): Promise<void> {
     writeFileSync(LAEUFT, ''); // the reset restarted the (faked) service; keep the "aktiv" marker consistent
   } finally {
     console.warn = orig;
-    dienst?.kill('SIGTERM');
+    gruppeBeenden('SIGTERM');
     try {
       server.stop();
     } catch {

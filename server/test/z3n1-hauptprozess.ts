@@ -25,6 +25,10 @@
  *       gefällt, die Sperrdatei ist weg.
  *  RUE  Rücknahme im echten Kindprozess: die Truhe wieder ins Dokument → Sperrdatei weg, Truhe steht.
  *
+ *  PREFAB (Z3 N2, B1) Prefab-Wechsel an einer Truhe mit Inhalt (dieselbe id, anderes Prefab): live zurückgehalten UND
+ *       gesperrt → NEUSTART (echter Kindprozess) → die Truhe steht mit Inhalt, kein zweites ZDO unter der id →
+ *       Folgeänderung an einem anderen Objekt läuft → Bestätigen wirkt (Truhe weg, Beech1 entsteht, Sperre weg).
+ *
  * Lauf: npx tsx test/z3n1-hauptprozess.ts   (aus server/)
  */
 import { spawn } from 'node:child_process';
@@ -56,29 +60,41 @@ const WURZEL = resolve(tmpdir(), `z3n1-hauptprozess-${process.pid}`);
 rmSync(WURZEL, { recursive: true, force: true });
 
 // ── Aufräumen auch bei einem abgebrochenen Lauf (Karte Z3 N1, Test 2: SIGTERM an die Prozessgruppe) ──
+// Karte Z3 N2 (B6): Jedes Kind läuft in einer EIGENEN Prozessgruppe (`detached`), und der Aufräum-Handler beendet
+// die GRUPPE, nicht nur das Kind: `main.ts` startet selbst Unterprozesse, und ein KILL nur an den tsx-Wrapper ließ
+// Test-node und Kind bisher zurück. Hängt der Wrapper nicht mehr über uns (KILL an ihn: wir werden umgehängt),
+// räumt der Wächter unten ebenfalls auf.
 const kindPids = new Set<number>();
 let aufgeraeumt = false;
 function aufraeumen(): void {
   if (aufgeraeumt) return;
   aufgeraeumt = true;
   for (const pid of kindPids) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      /* schon weg */
+    for (const ziel of [-pid, pid]) {
+      try {
+        process.kill(ziel, 'SIGKILL');
+      } catch {
+        /* schon weg */
+      }
     }
   }
   rmSync(WURZEL, { recursive: true, force: true });
 }
 process.on('exit', aufraeumen);
-process.on('SIGTERM', () => {
-  aufraeumen();
-  process.exit(1);
-});
-process.on('SIGINT', () => {
-  aufraeumen();
-  process.exit(1);
-});
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(sig, () => {
+    aufraeumen();
+    process.exit(1);
+  });
+}
+const ELTERN = process.ppid;
+const waechter = setInterval(() => {
+  if (process.ppid !== ELTERN) {
+    aufraeumen();
+    process.exit(1);
+  }
+}, 500);
+waechter.unref();
 
 type Platz = { id: string; prefab: string; x: number; z: number };
 function dokument(placements: Platz[]): Record<string, unknown> {
@@ -170,6 +186,7 @@ function starteHauptprozess(inst: Instanz, warteMs: number, bereit: RegExp): { w
   let aufloesenBereit: (() => void) | null = null;
   const kind = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
     cwd: inst.server,
+    detached: true, // eigene Prozessgruppe (B6): `aufraeumen()` beendet sie als Ganzes
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, WOV_INSTANZ: inst.instanz, WOV_WELT_VERZEICHNIS: inst.weltenArbeit },
   });
@@ -198,7 +215,13 @@ function starteHauptprozess(inst: Instanz, warteMs: number, bereit: RegExp): { w
   const stoppen = async (signal: NodeJS.Signals = 'SIGTERM'): Promise<Lauf> => {
     kind.kill(signal);
     const code = await Promise.race([beendet, warte(10_000).then(() => -999)]);
-    if (code === -999) kind.kill('SIGKILL');
+    if (code === -999) {
+      try {
+        process.kill(-kind.pid!, 'SIGKILL');
+      } catch {
+        kind.kill('SIGKILL');
+      }
+    }
     kindPids.delete(kind.pid!);
     return { code: code === -999 ? null : code, ms: Date.now() - t0, ausgabe, bereitErreicht };
   };
@@ -206,7 +229,18 @@ function starteHauptprozess(inst: Instanz, warteMs: number, bereit: RegExp): { w
 }
 
 interface SaveSnapshotZdo {
+  prefab?: number;
   members: Record<string, { t: number; v: unknown }>;
+}
+/** Alle Layout-ZDOs des Spielstands als Liste (mehrere unter derselben id bleiben sichtbar, anders als bei `saveLesen`). */
+function saveListe(pfad: string): { id: string; prefab: number | undefined; z: SaveSnapshotZdo }[] {
+  const daten = JSON.parse(zstdDecompressSync(readFileSync(pfad)).toString('utf-8')) as { zdos: SaveSnapshotZdo[] };
+  const out: { id: string; prefab: number | undefined; z: SaveSnapshotZdo }[] = [];
+  for (const z of daten.zdos) {
+    const id = z.members[String(getStableHash(LAYOUT_ID_MEMBER))]?.v;
+    if (typeof id === 'string') out.push({ id, prefab: z.prefab, z });
+  }
+  return out;
 }
 const HASH_LAYOUT_ID = getStableHash(LAYOUT_ID_MEMBER);
 const HASH_TRUHE_INHALT = getStableHash('truheInhalt');
@@ -540,6 +574,68 @@ async function bestaetigenUndRuecknahme(): Promise<void> {
   }
 }
 
+async function prefabWechsel(): Promise<void> {
+  const inst = instanz(resolve(WURZEL, 'prefab'), 'dev');
+  const baeume: Platz[] = Array.from({ length: 10 }, (_, i) => ({ id: `b${i}`, prefab: 'Beech1', x: 20 + i * 3, z: 20 }));
+  const alsBaum: Platz = { id: 'kiste-h', prefab: 'Beech1', x: 400, z: 400 };
+  const HASH_KISTE = getStableHash('piece_chest_wood');
+  const HASH_BAUM = getStableHash('Beech1');
+  schreibe(inst.layoutDatei, dokument([...baeume, KISTE]));
+  const setup = materialisiere(inst, SEED);
+  setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-h')?.setString('truheInhalt', '[[Wood,9]]');
+  // Der Prefab-Wechsel: dieselbe id, anderes Prefab. Live wird er zurückgehalten (Zustand), bisher OHNE Sperrdatei.
+  const hashWechsel = schreibe(inst.layoutDatei, dokument([...baeume, alsBaum]));
+  wacheVon(setup).tick();
+  const q = quittungLesen(inst.quittungsPfad);
+  check('PREFAB live: bestaetigung-noetig, Quittung nennt die Sperre (1 id)', q?.hash === hashWechsel && q.grund === 'bestaetigung-noetig' && q.loeschsperre?.anzahl === 1, JSON.stringify(q));
+  const sperre = loeschsperreLesen(inst.loeschsperrePfad);
+  check('PREFAB live: Sperrdatei nennt die Truhe', sperre !== null && sperre !== 'kaputt' && sperre.ids.join() === 'kiste-h', JSON.stringify(sperre));
+  setup.stop();
+  await warte(300);
+  const sperreText = lies(inst.loeschsperrePfad);
+
+  // ── Neustart 1: die Truhe steht, mit Inhalt, kein zweites ZDO unter der id ──
+  const lauf1 = starteHauptprozess(inst, 20_000, BEREIT);
+  const bereit1 = await lauf1.warten();
+  check('PREFAB Neustart: bereit, Boot-Log nennt die Sperre', bereit1.bereitErreicht && /Löschsperre hält 1 Objekt/.test(bereit1.ausgabe), bereit1.ausgabe.slice(-300));
+  const ende1 = await lauf1.stoppen('SIGTERM');
+  check('PREFAB Neustart: Exit 0', ende1.code === 0, `Code ${ende1.code}`);
+  await warte(200);
+  const liste1 = saveListe(inst.savePfad).filter((e) => e.id === 'kiste-h');
+  check(
+    'PREFAB Neustart: genau EIN ZDO unter der id, noch die Truhe, Inhalt byte-gleich',
+    liste1.length === 1 && liste1[0]!.prefab === HASH_KISTE && liste1[0]!.z.members[String(HASH_TRUHE_INHALT)]?.v === '[[Wood,9]]',
+    JSON.stringify(liste1.map((e) => ({ id: e.id, prefab: e.prefab })))
+  );
+  check('PREFAB Neustart: alle 10 Bäume stehen, 11 ZDOs', saveListe(inst.savePfad).length === 11, `${saveListe(inst.savePfad).length}`);
+  check('PREFAB Neustart: Sperrdatei unverändert', lies(inst.loeschsperrePfad) === sperreText);
+
+  // ── Neustart 2: Folgeänderung an einem anderen Objekt, dann Bestätigen ──
+  const lauf2 = starteHauptprozess(inst, 20_000, BEREIT);
+  const bereit2 = await lauf2.warten();
+  check('PREFAB zweiter Start: bereit', bereit2.bereitErreicht, bereit2.ausgabe.slice(-300));
+  const hashFolge = schreibe(inst.layoutDatei, dokument([...baeume, alsBaum, { id: 'neu-1', prefab: 'Beech1', x: 999, z: 999 }]));
+  const qFolge = await warteAufQuittung(inst.quittungsPfad, hashFolge);
+  check('PREFAB Folgeänderung an einem anderen Objekt wird angewendet (Sperre bleibt gemeldet)', qFolge?.ergebnis === 'angewendet' && qFolge.loeschsperre?.anzahl === 1, JSON.stringify(qFolge));
+  check('PREFAB Folgeänderung: Sperrdatei unverändert (die Truhe fällt NICHT als „zurückgenommen" aus der Sperre)', lies(inst.loeschsperrePfad) === sperreText);
+  const anfrage = bestaetigenAnfrageSchreiben(bestaetigenAnfrageDatei(inst.worldsDir, inst.instanz), hashFolge);
+  const erkannt = await warteBis(() => quittungLesen(inst.quittungsPfad)?.bestaetigung?.id === anfrage);
+  const qBest = quittungLesen(inst.quittungsPfad);
+  check('PREFAB Bestätigen wirkt: Kennung erkannt, 1 entfernt, nicht abgelehnt', erkannt && qBest?.bestaetigung?.entfernt === 1 && !qBest.bestaetigung.abgelehnt, JSON.stringify(qBest));
+  check('PREFAB Bestätigen: Sperrdatei weg, Anfrage verbraucht', !existsSync(inst.loeschsperrePfad) && !existsSync(bestaetigenAnfrageDatei(inst.worldsDir, inst.instanz)));
+  const ende2 = await lauf2.stoppen('SIGTERM');
+  check('PREFAB zweiter Start: Exit 0', ende2.code === 0, `Code ${ende2.code}`);
+  await warte(200);
+  const liste2 = saveListe(inst.savePfad);
+  const kiste2 = liste2.filter((e) => e.id === 'kiste-h');
+  check(
+    'PREFAB nach dem Bestätigen: unter der id nur noch das Baum-Prefab, ohne Truheninhalt',
+    kiste2.length === 1 && kiste2[0]!.prefab === HASH_BAUM && kiste2[0]!.z.members[String(HASH_TRUHE_INHALT)] === undefined,
+    JSON.stringify(kiste2.map((e) => ({ id: e.id, prefab: e.prefab })))
+  );
+  check('PREFAB nach dem Bestätigen: die Folgeänderung steht, kein Baum ging verloren (10 + Ersatz + neu-1)', liste2.length === 12 && liste2.some((e) => e.id === 'neu-1'), `${liste2.length}`);
+}
+
 // Jeder Fall für sich: Ein Fehlschlag/Absturz eines Falls (etwa auf einem Stand OHNE Sperrdatei) verdeckt die anderen nicht.
 try {
   for (const [name, fall] of [
@@ -547,6 +643,7 @@ try {
     ['A1b/A1c', a1bA1c],
     ['A2k', kaputteSperre],
     ['BEST/RUE', bestaetigenUndRuecknahme],
+    ['PREFAB', prefabWechsel],
   ] as const) {
     try {
       await fall();

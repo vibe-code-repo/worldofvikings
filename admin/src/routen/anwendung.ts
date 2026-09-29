@@ -8,12 +8,16 @@
  *      `geo`          der Stand enthält Geo-Änderungen, die erst nach dem Neustart wirken
  *      `abgelehnt`    der Server hat den Stand aus Schutz nicht angewendet
  *      `bestaetigung-noetig` der Abgleich hätte viele Objekte oder Objekte mit Zustand entfernt;
- *                     `detail` nennt die ids, nichts ging live verloren, der Neustart übernimmt die Datei
+ *                     `detail` nennt die ids, nichts ging live verloren; die betroffenen Objekte stehen in der
+ *                     dauerhaften Löschsperre und bleiben auch über einen Neustart stehen, bis `POST /api/welt/bestaetigen`
  *      `verworfen`    der Sanitizer hat Einträge des Dokuments gestrichen (Tippfehler): live geschah nichts,
  *                     `detail` nennt die Einträge; nach der Korrektur greift der Abgleich
  *      `zu-viele-aenderungen` mehr als die Obergrenze an Änderungen in einem Schreibvorgang: live geschah nichts,
  *                     `detail` nennt die Zahl; die Datei gilt ab dem nächsten Neustart
  *      `keine-quittung` der Dienst läuft, hat aber binnen der Wartezeit nicht quittiert
+ *
+ * Steht eine Löschsperre offen (Z3), trägt JEDE Antwort 200/202 zusätzlich `loeschsperre: { anzahl, hash }`; bei 200 ist der
+ * Rest angewendet, die gesperrten Objekte stehen aber weiter (`message` sagt es, de/en über den Katalog).
  *
  * Speichern ohne Änderung (gleicher Hash wie vorher, `vorherHash`): 200 mit `unveraendert: true` und Zähler 0,
  * nicht die Zähler der vorigen Quittung.
@@ -23,6 +27,7 @@
  */
 import { quittungLesen, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
+import { lockMessage } from '@wov/shared/src/worldlayout/lockMessages.js';
 
 export type AnwendungsStand =
   | { angewendet: true; quittung: Quittung }
@@ -90,12 +95,28 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
     const null_ = Object.fromEntries(Object.keys(stand.quittung.zaehler ?? {}).map((k) => [k, 0]));
     return { ...antwort, daten: { ...daten, angewendet: true, unveraendert: true, zaehler: null_ } };
   }
+  const sperre = stand.quittung?.loeschsperre;
+  const gesperrt = sperre && !sperre.kaputt && sperre.anzahl > 0 ? sperre.anzahl : 0;
+  const sprache = process.env.WOV_LANGUAGE;
   if (stand.angewendet) {
     // `detail` bei 200 nur, wenn die Quittung eines hat (Z5a: ein Grabstein hat ein Neusetzen verschluckt, `zaehler.zurueck`):
     // Ohne es sähe der Nutzer „angewendet“ und wüsste nicht, dass ein Objekt nicht wiederkam.
     return {
       ...antwort,
-      daten: { ...daten, angewendet: true, zaehler: stand.quittung.zaehler, ...(stand.quittung.detail ? { detail: stand.quittung.detail } : {}) },
+      daten: {
+        ...daten,
+        angewendet: true,
+        zaehler: stand.quittung.zaehler,
+        ...(stand.quittung.detail ? { detail: stand.quittung.detail } : {}),
+        // Die Quittung trägt die offene Sperre; ohne sie hielten Editor und MCP „angewendet“ für „die Truhe ist weg“.
+        ...(gesperrt > 0
+          ? {
+              loeschsperre: sperre,
+              // Eigenes Feld statt `message`: Der Editor hängt `message` und seinen eigenen Wirkungssatz aneinander (sonst stünde der Hinweis doppelt).
+              loeschsperreHinweis: lockMessage('lock.applied', { count: gesperrt }, sprache),
+            }
+          : {}),
+      },
     };
   }
   return {
@@ -107,6 +128,7 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
       grund: stand.grund,
       ...(stand.detail ? { detail: stand.detail } : {}),
       ...(stand.quittung?.heightProblem ? { heightProblem: stand.quittung.heightProblem } : {}),
+      ...(gesperrt > 0 ? { loeschsperre: sperre } : {}),
       message: heightResponseMessage({ heightProblem: stand.quittung?.heightProblem }, process.env.WOV_LANGUAGE) ??
         `Geschrieben, aber nicht angewendet (${stand.grund}): ` +
         (stand.grund === 'server-aus'
@@ -116,12 +138,13 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
             : stand.grund === 'abgelehnt'
               ? 'der Server hat den Stand aus Schutz nicht angewendet.'
               : stand.grund === 'bestaetigung-noetig'
-                ? 'der Abgleich hätte viele Objekte oder Objekte mit Zustand entfernt; live geschah nichts, der nächste Neustart übernimmt die Datei (Einzelheiten in `detail`).'
+                ? lockMessage('lock.pending', {}, sprache)
                 : stand.grund === 'verworfen'
                   ? 'der Sanitizer hat Einträge des Dokuments gestrichen (Tippfehler?); live geschah nichts, die Einträge stehen in `detail`.'
                   : stand.grund === 'zu-viele-aenderungen'
                     ? 'zu viele Änderungen für den Live-Weg; live geschah nichts, die Datei gilt ab dem nächsten Neustart (Zahl in `detail`).'
-                    : 'keine Quittung des Spielservers.'),
+                    : 'keine Quittung des Spielservers.') +
+        (gesperrt > 0 && stand.grund !== 'bestaetigung-noetig' ? ` ${lockMessage('lock.open', { count: gesperrt }, sprache)}` : ''),
     },
   };
 }

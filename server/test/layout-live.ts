@@ -276,6 +276,12 @@ async function haupt(): Promise<void> {
     hash = schreibe(wechsel);
     q = await quittung(hash);
     check('(i) prefab change of a chest WITH content: bestaetigung-noetig, ZDO and content stay', q?.grund === 'bestaetigung-noetig' && q.ergebnis === 'nicht-angewendet' && nach('kiste-1')?.zdoid.toString() === kisteId && nach('kiste-1')?.getString('truheInhalt') === '[[Wood,3]]', `${q?.grund}: ${q?.detail}`);
+    // Z3 N2 (B1): the held-back prefab change is locked per id, durably (like every held-back deletion). The designer takes it
+    // back (the chest prefab returns: not a replacement any more, the lock falls), empties the chest by hand, and only then
+    // is the same change an ordinary replacement without state.
+    hash = schreibe(json(dokument([{ ...P1, x: 34.123, z: 21.456 }, { ...KISTE, x: 42, z: 22 }])));
+    await quittung(hash);
+    check('(i) the prefab change is locked; writing the chest prefab back revokes the lock', loeschsperreLesen(SPERRE) === null && nach('kiste-1')?.zdoid.toString() === kisteId);
     nach('kiste-1')?.removeMember(getStableHash('truheInhalt'));
     zeilen.length = 0;
     hash = schreibe(wechsel + ' ');

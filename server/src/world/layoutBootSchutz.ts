@@ -52,6 +52,29 @@ function vorhandeneLayoutIds(zdos: ZDOManager): Set<string> {
   return vorhanden;
 }
 
+/**
+ * Karte Z3 N2 (B1): ids des Dokuments, die ein Prefab-WECHSEL sind — es gibt Layout-ZDOs mit dieser id, aber
+ * keins mit dem Prefab, das das Dokument jetzt nennt. Der Wechsel würde das alte ZDO samt Zustand ersetzen.
+ * Eine solche id gilt NICHT als zurückgenommen, nur weil sie im Dokument steht. Unbekannte Prefabs zählen nicht.
+ */
+export function ersetzteIds(zdos: ZDOManager, layout: WorldLayout, prefabHash: (name: string) => number | undefined): Set<string> {
+  const soll = new Map<string, number>();
+  for (const p of layout.placements ?? []) {
+    if (typeof p.id !== 'string') continue;
+    const hash = prefabHash(p.prefab);
+    if (hash !== undefined) soll.set(p.id, hash);
+  }
+  const vorhanden = new Map<string, boolean>(); // id → passt ein ZDO zum Soll-Prefab?
+  for (const zdo of zdos.getAllZDOs()) {
+    if (istSpielerbau(zdo)) continue;
+    const id = zdo.getString(LAYOUT_ID_MEMBER);
+    const hash = id ? soll.get(id) : undefined;
+    if (!id || hash === undefined) continue;
+    vorhanden.set(id, (vorhanden.get(id) ?? false) || zdo.prefabHash === hash);
+  }
+  return new Set([...vorhanden].filter(([, passt]) => !passt).map(([id]) => id));
+}
+
 /** Was die Sperrdatei JETZT sagt, für die Quittung (liest, schreibt nie). */
 export function sperrInfo(pfad: string): { anzahl: number; hash: string; kaputt?: boolean } | null {
   const sperre = loeschsperreLesen(pfad);
@@ -69,7 +92,8 @@ export function sperreAbgleichen(
   zdos: ZDOManager,
   layout: WorldLayout,
   protokoll: (text: string) => void = console.error,
-  ruecknahme = true
+  ruecknahme = true,
+  prefabHash?: (name: string) => number | undefined
 ): SperrAuswertung {
   const sperre = loeschsperreLesen(pfad);
   if (sperre === null) return { aktive: new Set(), info: null };
@@ -80,7 +104,9 @@ export function sperreAbgleichen(
     return { aktive: 'kaputt', info: { anzahl: 0, hash: '', kaputt: true } };
   }
   const imDokument = new Set((layout.placements ?? []).map((p) => p.id).filter((id): id is string => typeof id === 'string'));
-  const behalten = ruecknahme ? sperre.ids.filter((id) => !imDokument.has(id)) : sperre.ids;
+  // Ein Prefab-Wechsel an einem Objekt mit Zustand (B1) steht mit seiner id im Dokument und ist trotzdem keine Rücknahme.
+  const ersetzt = ruecknahme && prefabHash ? ersetzteIds(zdos, layout, prefabHash) : new Set<string>();
+  const behalten = ruecknahme ? sperre.ids.filter((id) => !imDokument.has(id) || ersetzt.has(id)) : sperre.ids;
   if (behalten.length !== sperre.ids.length) {
     try {
       if (behalten.length === 0) loeschsperreEntfernen(pfad);
@@ -129,12 +155,19 @@ export type BestaetigungsPlan = { art: 'kaputt' } | { art: 'keine' } | { art: 'i
  * danach mit `sperreFreigeben` frei (nie vorher: bricht er ab, bleibt der Schutz stehen). Kein Abgleich im
  * Boot-Stil, damit gefällte Bäume und getötete NPCs unangetastet bleiben.
  */
-export function sperreBestaetigenPlan(pfad: string, layout: WorldLayout): BestaetigungsPlan {
+export function sperreBestaetigenPlan(
+  pfad: string,
+  layout: WorldLayout,
+  zdos?: ZDOManager,
+  prefabHash?: (name: string) => number | undefined
+): BestaetigungsPlan {
   const sperre = loeschsperreLesen(pfad);
   if (sperre === 'kaputt') return { art: 'kaputt' };
   if (sperre === null) return { art: 'keine' };
   const imDokument = new Set((layout.placements ?? []).map((p) => p.id).filter((id): id is string => typeof id === 'string'));
-  return { art: 'ids', ids: sperre.ids.filter((id) => !imDokument.has(id)) };
+  // Auch ein zurückgehaltener Prefab-Wechsel (B1): sein altes ZDO geht, das neue entsteht danach im normalen Abgleich.
+  const ersetzt = zdos && prefabHash ? ersetzteIds(zdos, layout, prefabHash) : new Set<string>();
+  return { art: 'ids', ids: sperre.ids.filter((id) => !imDokument.has(id) || ersetzt.has(id)) };
 }
 
 /** Die Sperre nach einer erfolgreichen Bestätigung freigeben. */

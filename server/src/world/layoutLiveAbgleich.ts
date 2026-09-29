@@ -202,6 +202,36 @@ function entfernteZdoKandidaten(
 }
 
 /**
+ * Karte Z3 N2 (B1): Die ZDOs geänderter Platzierungen, die ein Prefab-WECHSEL ersetzen würde — es gibt ZDOs unter der
+ * id, aber keins mit dem neuen (bekannten) Prefab.
+ */
+function ersetzteZdoKandidaten(
+  kontext: Pick<LayoutAbgleichKontext, 'zdos' | 'prefabs'>,
+  geaendert: readonly PlacementDef[]
+): { id: string; zdo: ZDO }[] {
+  const soll = new Map<string, number>();
+  for (const p of geaendert) {
+    const prefab = kontext.prefabs.getByName(p.prefab);
+    if (prefab && p.id) soll.set(p.id, prefab.hash);
+  }
+  if (soll.size === 0) return [];
+  const gruppen = new Map<string, ZDO[]>();
+  for (const zdo of kontext.zdos.getAllZDOs()) {
+    const layoutId = zdo.getString(LAYOUT_ID_MEMBER);
+    if (!layoutId || !soll.has(layoutId) || istSpielerbau(zdo)) continue;
+    const g = gruppen.get(layoutId);
+    if (g) g.push(zdo);
+    else gruppen.set(layoutId, [zdo]);
+  }
+  const kandidaten: { id: string; zdo: ZDO }[] = [];
+  for (const [id, gruppe] of gruppen) {
+    if (gruppe.some((z) => z.prefabHash === soll.get(id))) continue;
+    for (const zdo of gruppe) kandidaten.push({ id, zdo });
+  }
+  return kandidaten;
+}
+
+/**
  * Karte Z3 N1: Würde dieser Schreibvorgang gegenüber `alt` Objekte entfernen, die Regel (a) (viele/alle) oder
  * (b) (Zustand) einer Massenlöschung träfe — UNABHÄNGIG von `AENDERUNGEN_MAX` und ohne Rücksicht auf eine
  * gleichzeitige Geo-Änderung? Für die dauerhafte Sperrdatei (`layoutBootSchutz.ts`), nicht für die Quittung
@@ -223,11 +253,16 @@ export function wuerdeEntfernen(
 ): { ids: string[]; grund: LoeschsperreGrund } | null {
   const altListe = alt.placements ?? [];
   const neuListe = neu.placements ?? [];
-  const { entfernt: entferntRoh } = idDiff(altListe, neuListe, grabsteine);
+  const { entfernt: entferntRoh, geaendert } = idDiff(altListe, neuListe, grabsteine);
   const entfernt = entferntRoh.filter((id) => !bereitsGesperrt.has(id));
   const kandidaten = entfernteZdoKandidaten(kontext, neuListe, entfernt);
   const betroffen = [...new Set(kandidaten.map((k) => k.id))];
-  const mitZustand = [...new Set(kandidaten.filter((k) => zustand(k.zdo) > 0).map((k) => k.id))];
+  // Karte Z3 N2 (B1): Ein Prefab-Wechsel ersetzt das ZDO samt Zustand — für die Sperre so schlimm wie ein Entfernen.
+  // Er zählt nicht als entfernte Platzierung (`betroffen`), sperrt aber seine id, wenn das alte ZDO Zustand trägt.
+  const ersetzt = ersetzteZdoKandidaten(kontext, geaendert.filter((p) => !bereitsGesperrt.has(p.id!)));
+  const mitZustand = [
+    ...new Set([...kandidaten, ...ersetzt].filter((k) => zustand(k.zdo) > 0).map((k) => k.id)),
+  ];
   const alle = altListe.length > 0 && neuListe.length === 0;
   const zuViele =
     betroffen.length > MASSENLOESCHUNG_ANZAHL ||
@@ -235,7 +270,7 @@ export function wuerdeEntfernen(
     (alle && betroffen.length > 0);
   if (!zuViele && mitZustand.length === 0) return null;
   const grund: LoeschsperreGrund = alle ? 'alle' : zuViele ? 'anteil' : 'zustand';
-  return { ids: zuViele ? betroffen : mitZustand, grund };
+  return { ids: zuViele ? [...new Set([...betroffen, ...mitZustand])] : mitZustand, grund };
 }
 
 export function liveAbgleich(
@@ -265,6 +300,9 @@ export function liveAbgleich(
     if (prefab) ersatz.set(p.id!, prefab.hash);
   }
   for (const id of ersatz.keys()) ids.add(id);
+  // Karte Z3 N2 (B1): Ein Prefab-Wechsel an einer dauerhaft gesperrten id bleibt liegen: das alte ZDO steht, das
+  // neue entsteht nicht (bis zum Bestätigen); Folgeänderungen an anderen Objekten laufen normal.
+  const gehalten = new Set<string>();
   const kandidaten: { zdo: ZDO; id: string; ersetzt: boolean }[] = [];
   const mitZdo = new Set<string>(); // ids, zu denen es (noch) ein Layout-ZDO gibt
   if (ids.size > 0) {
@@ -290,6 +328,10 @@ export function liveAbgleich(
       const hash = ersatz.get(id);
       // Geänderte Platzierung: nur ersetzen, wenn KEIN ZDO der id zum neuen Prefab passt.
       if (hash !== undefined && gruppe.some((z) => z.prefabHash === hash)) continue;
+      if (hash !== undefined && geschuetzteIds?.has(id)) {
+        gehalten.add(id);
+        continue;
+      }
       // Karte Z3 N1: eine dauerhaft gesperrte id wird NIE gelöscht, gleich welche Regel diesen
       // Schreibvorgang sonst einordnet. Ein Prefab-WECHSEL bleibt möglich (das alte ZDO ginge dabei
       // ohnehin nur im selben Atemzug, in dem das neue entsteht); nur ein reines Entfernen wird verweigert.
@@ -327,7 +369,8 @@ export function liveAbgleich(
   // Grabsteine nachführen: ein entfernter Eintrag OHNE Objekt (gefällt) merkt sich seinen Schlüssel; ein
   // zurückgekehrter oder anders neu gesetzter Eintrag löscht seinen.
   for (const id of zurueck) grabsteine.delete(id);
-  for (const p of geaendert) grabsteine.delete(p.id!);
+  const anzuwenden = gehalten.size > 0 ? geaendert.filter((p) => !gehalten.has(p.id!)) : geaendert;
+  for (const p of anzuwenden) grabsteine.delete(p.id!);
   for (const id of entfernt) {
     // Eine dauerhaft gesperrte id hat noch ein ZDO (sonst wäre sie nicht mehr aktiv gesperrt) und steht
     // deshalb schon über `mitZdo.has(id)` hier nie zur Debatte: kein Grabstein, sie steht ja noch.
@@ -337,10 +380,10 @@ export function liveAbgleich(
   }
   while (grabsteine.size > GRABSTEINE_MAX) grabsteine.delete(grabsteine.keys().next().value as string);
   // `verworfen: 1` sperrt das Löschen im Abgleich: Alles, was nicht in der Auswahl steht, gälte sonst als verwaist.
-  const ergebnis = layoutAbgleich(kontext, { ...neu, placements: geaendert }, { verworfen: 1, zusammengefasst: 0 });
+  const ergebnis = layoutAbgleich(kontext, { ...neu, placements: anzuwenden }, { verworfen: 1, zusammengefasst: 0 });
   ergebnis.ohneLoeschen = null;
   ergebnis.entfernt += entferntZdos;
   ergebnis.ueberzaehlig += ueberzaehligeZdos.length;
   ergebnis.ueberzaehligeZdos.push(...ueberzaehligeZdos);
-  return { art: 'angewendet', ergebnis, geaendert, unberuehrt: neuListe.length - geaendert.length, zurueck };
+  return { art: 'angewendet', ergebnis, geaendert: anzuwenden, unberuehrt: neuListe.length - anzuwenden.length, zurueck };
 }

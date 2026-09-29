@@ -460,6 +460,10 @@ export function layoutAbgleich(
   // gleicher `id`, oder ein ZDO mit falschem Prefab an einer alten Kennung):
   // Sie gehen, sobald unten das neue entstanden ist (im selben Boot).
   const stale: { zdo: ZDO; layoutId: string; besitzer: PlacementDef[] }[] = [];
+  // Karte Z3 N2 (B1): Platzierungen, deren id dauerhaft gesperrt ist und deren ZDO ein anderes Prefab trägt
+  // (Prefab-Wechsel an einem Objekt mit Zustand). Das alte ZDO bleibt samt Zustand stehen, das neue entsteht
+  // nicht — sonst stünden nach dem Boot zwei ZDOs unter einer id, und das nächste Boot löschte das alte.
+  const zurueckgehalten = new Set<PlacementDef>();
   const ueberzaehligEntfernen = (z: ZDO, layoutId: string): void => {
     if (!darfLoeschen(z, layoutId)) return;
     meldeUeberzaehlig(ergebnis, z, layoutId);
@@ -473,6 +477,11 @@ export function layoutAbgleich(
     if (!prefab || alle.length === 0) continue;
     const passend = alle.filter((z) => z.prefabHash === prefab.hash);
     if (passend.length === 0) {
+      if (optionen.geschuetzteIds?.has(p.id!)) {
+        for (const z of alle) darfLoeschen(z, p.id!);
+        zurueckgehalten.add(p);
+        continue;
+      }
       for (const z of alle) stale.push({ zdo: z, layoutId: p.id!, besitzer: [p] });
       continue;
     }
@@ -527,7 +536,7 @@ export function layoutAbgleich(
   for (const p of placements) {
     const prefab = bekannt(p);
     // Ein unbekanntes Prefab erzeugt nie ein ZDO (und wird oben gezählt).
-    if (!prefab) continue;
+    if (!prefab || zurueckgehalten.has(p)) continue;
     const boden = kontext.bodenHoehe(p.x, p.z);
     const abstand = kontext.bodenAbstand(prefab.hash);
     const pos = { x: p.x, y: boden + abstand, z: p.z };

@@ -38,6 +38,7 @@ import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungLesen } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
+import { lockMessage } from '@wov/shared/src/worldlayout/lockMessages.js';
 
 /** Same shape as `Antwort` in admin/src/main.ts. */
 export type BestaetigenAntwort = { code: number; daten: unknown };
@@ -67,23 +68,24 @@ const schlafen = (ms: number): Promise<void> => new Promise((r) => setTimeout(r,
 
 /** `body` ist der geparste JSON-Rumpf des POST. */
 export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUmgebung): Promise<BestaetigenAntwort> {
+  const sprache = process.env.WOV_LANGUAGE;
   const eingabe = (typeof body === 'object' && body !== null ? body : {}) as { hash?: unknown };
   if (typeof eingabe.hash !== 'string' || eingabe.hash.length === 0) {
-    return { code: 400, daten: { ok: false, fehler: 'hash', message: 'hash (der zurückgehaltene Stand) fehlt oder ist leer — nichts geändert.' } };
+    return { code: 400, daten: { ok: false, fehler: 'hash', message: lockMessage('confirm.no-hash', {}, sprache) } };
   }
   const sperre = loeschsperreLesen(umg.loeschsperrePfad);
   if (sperre === null) {
-    return { code: 409, daten: { ok: false, fehler: 'nichts-offen', message: 'Keine zurückgehaltene Löschung offen — nichts zu bestätigen.' } };
+    return { code: 409, daten: { ok: false, fehler: 'nichts-offen', message: lockMessage('confirm.nothing-open', {}, sprache) } };
   }
   if (sperre === 'kaputt') {
     return {
       code: 409,
-      daten: { ok: false, fehler: 'nichts-offen', message: 'Die Löschsperre-Datei ist da, aber nicht lesbar — von Hand prüfen. Nichts bestätigt.' },
+      daten: { ok: false, fehler: 'nichts-offen', message: lockMessage('confirm.lock-unreadable', {}, sprache) },
     };
   }
   const aktuell = layoutDateiHash(umg.datei);
   if (aktuell === null) {
-    return { code: 404, daten: { ok: false, fehler: 'datei-fehlt', message: 'Weltdatei nicht lesbar — nichts geändert.' } };
+    return { code: 404, daten: { ok: false, fehler: 'datei-fehlt', message: lockMessage('confirm.file-missing', {}, sprache) } };
   }
   if (aktuell !== eingabe.hash) {
     return {
@@ -92,7 +94,7 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
         ok: false,
         fehler: 'veraltet',
         aktuell,
-        message: `Die Weltdatei hat sich seit der zurückgehaltenen Löschung geändert (jetzt ${aktuell}) — nichts angewendet. Neu laden und erneut prüfen.`,
+        message: lockMessage('confirm.stale', { current: aktuell }, sprache),
       },
     };
   }
@@ -101,10 +103,10 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
     anfrageId = bestaetigenAnfrageSchreiben(umg.anfragePfad, aktuell);
   } catch (fehler) {
     console.error(`[Admin] POST /api/welt/bestaetigen -> 500: ${(fehler as Error).message}`);
-    return { code: 500, daten: { ok: false, fehler: 'schreiben', message: `Bestätigungsanfrage nicht schreibbar: ${(fehler as Error).message}` } };
+    return { code: 500, daten: { ok: false, fehler: 'schreiben', message: lockMessage('confirm.write-failed', { reason: (fehler as Error).message }, sprache) } };
   }
   if (!umg.warten) {
-    return { code: 202, daten: { ok: true, hash: aktuell, angewendet: false, message: 'Bestätigungsanfrage geschrieben (Quittung aus).' } };
+    return { code: 202, daten: { ok: true, hash: aktuell, angewendet: false, message: lockMessage('confirm.written-no-receipt', {}, sprache) } };
   }
   let aktiv = false;
   try {
@@ -121,7 +123,7 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
         hash: aktuell,
         angewendet: false,
         grund: 'server-aus',
-        message: 'Bestätigungsanfrage geschrieben, aber der Spielserver läuft nicht — sie wirkt beim nächsten Start.',
+        message: lockMessage('confirm.server-off', {}, sprache),
       },
     };
   }
@@ -140,7 +142,7 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
             fehler: 'abgelehnt',
             grund: q.bestaetigung.abgelehnt,
             hash: aktuell,
-            message: `Die Bestätigung wurde nicht ausgeführt (${q.bestaetigung.abgelehnt}) — nichts gelöscht.`,
+            message: lockMessage('confirm.rejected', { reason: q.bestaetigung.abgelehnt }, sprache),
           },
         };
       }
@@ -158,8 +160,8 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
           ...(q.detail ? { detail: q.detail } : {}),
           message:
             q.ergebnis === 'angewendet'
-              ? 'Zurückgehaltene Löschung ausgeführt.'
-              : 'Zurückgehaltene Löschung ausgeführt; der Rest des Dokuments ist noch nicht angewendet.',
+              ? lockMessage('confirm.done', {}, sprache)
+              : lockMessage('confirm.done-rest-pending', {}, sprache),
         },
       };
     }
@@ -174,7 +176,7 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
       hash: aktuell,
       angewendet: false,
       grund: 'keine-quittung',
-      message: 'Bestätigungsanfrage geschrieben, aber (noch) nicht angewendet — die Wache übernimmt sie beim nächsten Takt.',
+      message: lockMessage('confirm.pending', {}, sprache),
     },
   };
 }

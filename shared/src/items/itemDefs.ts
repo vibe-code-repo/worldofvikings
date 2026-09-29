@@ -11,6 +11,10 @@ import { ItemType, type ItemShared } from './ItemData.js';
 import { istEigenesModell } from '../prefabs.js';
 import { FEMALE_ARMOR_BODY } from '../armorCompatibility.js';
 import { werteFuerRuestungsteil } from './setWerte.js';
+import { ITEM_STUFEN, stufeFuerRuestungsteil } from './itemStufen.js';
+
+/** Definition before level and rarity are merged in (`bauItemDefs`). */
+type ItemRoh = Omit<ItemShared, 'itemLevel' | 'rarity'>;
 
 /**
  * `Hammer.glb` is a 248-byte stub with zero meshes — the real geometry sits in
@@ -22,7 +26,7 @@ import { werteFuerRuestungsteil } from './setWerte.js';
  * Der Rohbestand. Ausgeliefert wird `ITEM_DEFS` weiter unten — dort wird
  * jedes `model` gegen die Whitelist `EIGENE_MODELLE` (prefabs.ts) geprüft.
  */
-const ITEM_DEFS_ROH: readonly ItemShared[] = [
+const ITEM_DEFS_ROH: readonly ItemRoh[] = [
   {
     // Sax — das wikingerzeitliche Allzweckmesser. Kein Fund aus dem
     // Fremdbestand, sondern eigens gebaut (tools/messer-erzeugen.py),
@@ -487,7 +491,7 @@ import { EMBERRAGE_PARTS } from '../emberrage.js';
 import { PLAINHIDE_PARTS } from '../plainhide.js';
 import { GRAVETHORN_PARTS } from '../gravethorn.js';
 import { CROWSHADE_PARTS } from '../crowshade.js';
-const KLEIDUNG: ItemShared[] = [
+const KLEIDUNG: ItemRoh[] = [
   ...[...IRONWARD_PARTS, ...WILDWARDEN_PARTS, ...ASHENVEIL_PARTS, ...SEIDRAVEN_PARTS, ...EMBERRAGE_PARTS, ...PLAINHIDE_PARTS, ...GRAVETHORN_PARTS, ...CROWSHADE_PARTS].map(p => ({ name: p.item, label: p.name, itemType: ItemType.Material,
     icon: p.id, model: null, maxStackSize: 1, weight: p.weight, toolTier: 0,
     ausruestung: p.equipment, ruestungsteil: p.id, hideAppearance: p.hideAppearance,
@@ -545,7 +549,11 @@ export const ITEM_DEFS: readonly ItemShared[] = bauItemDefs();
 
 function bauItemDefs(): ItemShared[] {
   let ohneModell = 0;
-  const liste = [...ITEM_DEFS_ROH, ...KLEIDUNG].map((d) => {
+  const liste = [...ITEM_DEFS_ROH, ...KLEIDUNG].map((roh) => {
+    const stufe = ITEM_STUFEN[roh.name] ?? (roh.ruestungsteil ? stufeFuerRuestungsteil(roh.ruestungsteil) : undefined);
+    // No silent default: a new item without an entry in itemStufen.ts must fail at startup.
+    if (!stufe) throw new Error(`[items] ${roh.name}: itemLevel/rarity fehlen in itemStufen.ts`);
+    const d: ItemShared = { ...roh, itemLevel: stufe.itemLevel, rarity: stufe.rarity };
     if (d.model === null || istEigenesModell(d.model)) return d;
     ohneModell++;
     return { ...d, model: null };

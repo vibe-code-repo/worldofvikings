@@ -22,6 +22,7 @@ import type { Inventory, ItemStack } from '@wov/shared';
 import { CONTAINER_WIDTH, INVENTORY_WIDTH } from '@wov/shared';
 import { UI, overlayStyle, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
+import { konfiguriereTooltip, mitTooltip } from './ItemTooltip';
 import type { GameI18n } from '../i18n';
 
 const SLOT = 56;
@@ -58,6 +59,7 @@ export class ContainerPanel {
     ) => void,
     private readonly i18n: GameI18n
   ) {
+    konfiguriereTooltip({ i18n });
     const root = document.createElement('div');
     root.style.cssText = overlayStyle();
     root.addEventListener('click', (e) => {
@@ -169,10 +171,7 @@ export class ContainerPanel {
         if (item) {
           cell.appendChild(itemVisual(item));
           cell.style.cursor = 'pointer';
-          cell.title = this.i18n.t('container.move', {
-            item: item.shared.label,
-            amount: item.stack,
-          });
+          mitTooltip(cell, () => item, () => this.i18n.t('tooltip.action.move', { amount: item.stack }));
           cell.addEventListener('click', () => this.verschiebe(item, richtung));
         }
         grid.appendChild(cell);

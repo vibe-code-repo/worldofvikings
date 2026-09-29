@@ -34,6 +34,7 @@ import type { Equipment } from '../player/Equipment';
 import type { GameI18n, TranslationKey } from '../i18n';
 import { UI, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
+import { konfiguriereTooltip, mitTooltip } from './ItemTooltip';
 
 const SLOT = 52;
 /** Zwischenraum zwischen Charakterfenster und Inventar. */
@@ -131,6 +132,7 @@ export class CharakterPanel {
 
     this.wurzel.appendChild(this.panel);
     document.body.appendChild(this.wurzel);
+    konfiguriereTooltip({ i18n: this.i18n });
     this.unsubscribe = this.i18n.onChange(() => {
       titel.textContent = this.i18n.t('character.title');
       this.ladehinweis.textContent = this.i18n.t(
@@ -246,12 +248,12 @@ export class CharakterPanel {
     // DAS Attribut, an dem der Einwurf aus dem Inventar erkennt, dass hier
     // ein Ausrüstungsslot liegt (siehe InventoryPanel.aufFremdesZiel).
     zelle.dataset.slot = id;
-    zelle.title = item
-      ? this.i18n.t('character.unequip', { item: item.shared.label })
-      : name;
+    // Empty slot: its name as a plain hint; worn part: the item tooltip with the unequip action.
+    if (!item) zelle.title = name;
 
     if (item) {
       zelle.appendChild(itemVisual(item));
+      mitTooltip(zelle, () => item, () => this.i18n.t('tooltip.action.unequip'));
       zelle.style.cursor = 'pointer';
       zelle.addEventListener('pointerdown', () => {
         this.equipment()?.unequip(id);

@@ -2640,6 +2640,13 @@ const KERN = [
   */
   ['server', 'test/kampf-waffe.ts'],
   ['client', 'test/kampf-waffe-abgleich.ts'],
+  /*
+    Item-Tooltip (2026-09-29): Itemlevel und Seltenheit jeder Definition nach
+    Tabelle B2 (rein), Tooltip-Inhalt de/en mit den echten Katalogen und dem
+    Vergleich mit dem Getragenen (rein). Keine Assets noetig, je unter 5 s.
+  */
+  ['shared', 'test/item-stufen.ts'],
+  ['client', 'test/item-tooltip.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

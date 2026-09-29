@@ -22,7 +22,7 @@ export const enum ItemType {
 
 import type { AppearancePolicy } from '../appearanceVisibility.js';
 import type { ArmorBodyPolicy, ArmorVfxProfile } from '../armorCompatibility.js';
-import type { ItemStats } from './stats.js';
+import type { ItemStats, Rarity } from './stats.js';
 
 /** Shared, immutable definition of an item type. */
 export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
@@ -53,6 +53,10 @@ export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
    * `armor` and the primary attributes (from shared/src/items/setWerte.ts). A missing entry means 0.
    */
   stats?: ItemStats;
+  /** Item level (>= 1), set by hand (shared/src/items/itemStufen.ts). Materials, food and trophies carry 1 and do not show it. */
+  itemLevel: number;
+  /** Rarity: colors the name in the tooltip (shared/src/items/itemStufen.ts). */
+  rarity: Rarity;
   /** Tool tier — which rocks/trees this can damage. Unused so far. */
   toolTier: number;
 

@@ -1408,10 +1408,8 @@ async function main() {
     const audioKamera = player.camera;
     startAudioEngine(
       () => AudioEngine.create(scene, audioKamera, { muted: params.has('mute') }),
-      (e) => { audioEngine = e; },
+      (e) => { audioEngine = e; eigeneSchritte = new EigeneSchritte(() => player, () => world?.heightmaps ?? null, () => audioEngine); },
     );
-    // Footsteps of the own figure (B4): per-frame update is at the player update below.
-    eigeneSchritte = new EigeneSchritte(player, () => world?.heightmaps ?? null, () => audioEngine);
     entities = new EntityManager(scene, world, assets, terrain);
     entities.setHundertFpsProfil(gameSettings.get().hundertFpsProfil);
     entities.setVegetationsGrenze(

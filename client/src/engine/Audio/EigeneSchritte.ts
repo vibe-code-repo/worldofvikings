@@ -26,14 +26,15 @@ export class EigeneSchritte {
   private readonly fuss = new Vector3();
 
   constructor(
-    private readonly figur: SchrittFigur,
+    private readonly figur: () => SchrittFigur | null,
     private readonly quelle: () => BodenQuelle | null,
     private readonly audio: () => AudioEngine | null,
   ) {}
 
   update(dt: number): void {
-    const f = this.figur;
+    const f = this.figur();
     this.zeit += dt;
+    if (!f) return;
     if (f.bauModus || f.frozen) {
       this.takt.zuruecksetzen();
       return;

@@ -114,6 +114,8 @@ export interface SavedPlayer {
   klasse?: string;
   starterSetGranted?: string;
   ruestung?: string;
+  /** Getragene Waffe (Kampfkern K2a), Name des Gegenstands; fehlt bei Altstaenden = Faust. */
+  waffe?: string;
   /**
    * F8: Zeitpunkt (ms seit Epoch), zu dem dieser Stand gezogen wurde.
    * Optional — Staende von vor F8 haben ihn nicht und zaehlen als 0.

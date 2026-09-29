@@ -70,6 +70,15 @@ export const REGLER: StatRegler = {
 /** All-zero values: a player without any gear. */
 export const KEINE_WERTE: Werte = { damage: 0, armor: 0, strength: 0, vitality: 0, agility: 0 };
 
+/** A health remainder below this counts as 0 (float residue after many armored blows, ~1e-14). */
+export const LEBEN_REST_SCHWELLE = 1e-6;
+
+/** Health after taking damage; float residue below `LEBEN_REST_SCHWELLE` counts as dead (0). */
+export function lebenNachSchaden(health: number, schaden: number): number {
+  const rest = health - schaden;
+  return rest < LEBEN_REST_SCHWELLE ? 0 : rest;
+}
+
 /** Base melee damage of a weapon: its `damage` attribute, the fist damage without one. */
 export function waffenSchaden(stats: ItemStats | undefined): number {
   return stats?.damage ?? FAUST_SCHADEN;

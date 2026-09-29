@@ -155,6 +155,8 @@ export class Peer {
 
   /** Aktiver Essens-Buff: maxHP-Bonus bis Zeitstempel (ms). */
   foodBonus: number;
+  /** Lebensmaximum, das der Client mit dem letzten PlayerState mitbekam (Anzeige-Prozent bezieht sich darauf). */
+  gesendetesLebensmax = 100;
   foodBis: number;
 
   /** Phase G: dungeon instance the peer is currently inside (null = overworld). */

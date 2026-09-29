@@ -27,7 +27,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { rmSync } from 'fs';
 import {
-  HEALTH_MEMBER, PacketType, SET_TEILE, getStableHash, maxLeben, ruestungZu, REGLER, type Vector3,
+  HEALTH_MEMBER, PacketType, SET_TEILE, getStableHash, maxLeben, ruestungZu, REGLER, type Vector3, ESSEN, eingehenderSchaden, lebenNachSchaden,
 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
@@ -51,11 +51,11 @@ function check(label: string, ok: boolean, detail = ''): void {
 const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const nah = (a: number, b: number, eps = 1e-6): boolean => Math.abs(a - b) < eps;
 
-interface Spieler { ws: WebSocket; peer: Peer; healthProzent: () => number }
+interface Spieler { ws: WebSocket; peer: Peer; healthProzent: () => number; anzahl: () => number }
 
-function verbinde(name: string): Promise<WebSocket & { _prozent?: number }> {
+function verbinde(name: string): Promise<WebSocket & { _prozent?: number; _anzahl?: number }> {
   return new Promise((ok, fail) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}`) as WebSocket & { _prozent?: number };
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}`) as WebSocket & { _prozent?: number; _anzahl?: number };
     ws.binaryType = 'nodebuffer';
     let auth = false;
     const timer = setTimeout(() => fail(new Error(`handshake timeout: ${name}`)), 8000);
@@ -74,6 +74,7 @@ function verbinde(name: string): Promise<WebSocket & { _prozent?: number }> {
         ws.send(Buffer.concat([Buffer.from([P.PasswordAuth]), w.toBuffer()]));
       } else if (type === PacketType.PlayerState) {
         ws._prozent = r.readFloat32();
+        ws._anzahl = (ws._anzahl ?? 0) + 1;
       } else if (type === P.PeerInfo) {
         clearTimeout(timer);
         ok(ws);
@@ -139,6 +140,7 @@ async function main(): Promise<void> {
     maxHealth(peer: Peer): number;
     sendPlayerState(peer: Peer): void;
     gebeItem(peer: Peer, name: string, amount: number): void;
+    inventarSync(peer: Peer): void;
   };
   const sockets: WebSocket[] = [];
   try {
@@ -149,7 +151,7 @@ async function main(): Promise<void> {
       if (!p) throw new Error(`peer ${n} missing`);
       return p;
     };
-    const mk = (ws: WebSocket & { _prozent?: number }, n: string): Spieler => ({ ws, peer: hole(n), healthProzent: () => ws._prozent ?? NaN });
+    const mk = (ws: WebSocket & { _prozent?: number; _anzahl?: number }, n: string): Spieler => ({ ws, peer: hole(n), healthProzent: () => ws._prozent ?? NaN, anzahl: () => ws._anzahl ?? 0 });
     const anna = mk(wsA, 'Anna'); const bernd = mk(wsB, 'Bernd'); const clara = mk(wsC, 'Clara');
     const alle = [anna, bernd, clara];
 
@@ -315,6 +317,97 @@ async function main(): Promise<void> {
     check('Anna now loses 8, Bernd still 4', biss(anna) === 8 && biss(bernd) === 4);
     check('sums are one object per peer, not shared', anna.peer.werte !== bernd.peer.werte && bernd.peer.werte !== clara.peer.werte);
     void vorher;
+
+    // ══ N1 ═══════════════════════════════════════════════════════
+    const sendPaket = (s: Spieler, typ: number, text: string): void => {
+      const w = new Writer();
+      w.writeString(text);
+      s.ws.send(Buffer.concat([Buffer.from([typ]), w.toBuffer()]));
+    };
+    const iroIds = iro.map((t) => t.id);
+    const krIds = kro.map((t) => t.id);
+
+    console.log('\n[7] N1/B1: the client health display follows the maximum, one packet per change');
+    await ziehAn(bernd, []);
+    bernd.peer.health = 100;
+    (bernd.ws as { _prozent?: number })._prozent = NaN;
+    let n0 = bernd.anzahl();
+    await ziehAn(bernd, iroIds);
+    check('put on Ironward at full health (100/110): client shows 90.91 % within 250 ms', nah(bernd.healthProzent(), 100 / 110 * 100, 1e-3), `${bernd.healthProzent()}`);
+    check('... with exactly ONE PlayerState packet', bernd.anzahl() - n0 === 1, `${bernd.anzahl() - n0} packets`);
+    n0 = bernd.anzahl();
+    await ziehAn(bernd, []);
+    check('take it off without capping (health 100, max 100): client shows 100 %', nah(bernd.healthProzent(), 100, 1e-3) && bernd.anzahl() - n0 === 1, `${bernd.healthProzent()} %, ${bernd.anzahl() - n0} packets`);
+    n0 = anna.anzahl();
+    await ziehAn(anna, krIds);
+    check('Crowshade (no vitality): maximum unchanged -> no packet at all', anna.anzahl() - n0 === 0, `${anna.anzahl() - n0}`);
+    await ziehAn(bernd, iroIds);
+
+    console.log('\n[8] N1/T1-T4: health rules that only gear + food + death together show');
+    // T1: gear leaves the inventory -> inventarSync drops the parts and caps health.
+    bernd.peer.health = 110;
+    for (const t of iro) bernd.peer.inventar.removeByName(t.item, 1);
+    zugriff.inventarSync(bernd.peer);
+    check('T1 items gone: inventarSync drops the parts (armor 0) and caps health 110 -> 100', bernd.peer.werte.armor === 0 && bernd.peer.health === 100, `armor ${bernd.peer.werte.armor}, health ${bernd.peer.health}`);
+    for (const t of iro) gib(bernd, t.item);
+    await ziehAn(bernd, iroIds);
+    // T2: the food buff runs out -> health is capped to the GEAR maximum (110), not to 100.
+    bernd.peer.foodBonus = 20; bernd.peer.foodBis = Date.now() + 400; bernd.peer.health = 125;
+    await warte(2500);
+    check('T2 food ends: health 125 -> 110 (gear maximum), buff cleared', bernd.peer.health === 110 && bernd.peer.foodBis === 0, `health ${bernd.peer.health}`);
+    // T3: eating heals up to the gear maximum + food bonus.
+    bernd.peer.health = 105;
+    gib(bernd, 'CookedMeat');
+    sendPaket(bernd, PacketType.Eat, 'CookedMeat');
+    await warte(300);
+    const b30 = ESSEN.CookedMeat!.bonus;
+    check(`T3 eating (+10, max 110+${b30}): health 105 -> 115 (not capped at 100)`, bernd.peer.health === 115, `${bernd.peer.health}`);
+    // T4: death restores the gear maximum WITHOUT the food bonus (food still active here).
+    check('T4 precondition: food is active', bernd.peer.foodBis > Date.now() && zugriff.maxHealth(bernd.peer) === 110 + b30);
+    bernd.peer.health = 3; bernd.peer.paradeBis = 0;
+    zugriff.applyCreatureAttack({ ...bernd.peer.position }, 8, 2.4, bernd.peer.worldId, bernd.peer.position);
+    check('T4 death with food active: health 110 (gear maximum), not 140', bernd.peer.health === 110, `${bernd.peer.health}`);
+    bernd.peer.foodBis = 0; bernd.peer.foodBonus = 0; bernd.peer.health = 100;
+    await platz(bernd, 400, 200);
+
+    console.log('\n[9] N1/B3: float residue after many armored blows is death');
+    // Review example H=120 / R16: Waldhueter chest + mantle (armor 11 + 5 = 16, vitality 4 -> 108) plus a food bonus of 12.
+    const wild = ['wildwarden_vest', 'wildwarden_mantle'].map((id) => SET_TEILE.find((t) => t.id === id)!);
+    for (const t of wild) gib(bernd, t.item);
+    await ziehAn(bernd, wild.map((t) => t.id));
+    bernd.peer.foodBonus = 12; bernd.peer.foodBis = Date.now() + 120_000;
+    const max9 = zugriff.maxHealth(bernd.peer);
+    check('setup: armor 16, maximum 120', bernd.peer.werte.armor === 16 && max9 === 120, `armor ${bernd.peer.werte.armor}, max ${max9}`);
+    const dR = eingehenderSchaden(8, 16);
+    let alt = 120; let altN = 0;
+    while (alt > 0 && altN < 500) { alt = Math.max(0, alt - dR); altN++; }
+    let neu = 120; let neuN = 0;
+    while (neu > 0 && neuN < 500) { neu = lebenNachSchaden(neu, dR); neuN++; }
+    check(`arithmetic: the old code needs ${altN} blows, the rule ${neuN}`, neuN === 21 && altN === 22);
+    bernd.peer.health = 120; bernd.peer.paradeBis = 0;
+    let gebissen = 0; let tot = false; let vorTod = 0;
+    while (!tot && gebissen < 60) {
+      vorTod = bernd.peer.health;
+      zugriff.applyCreatureAttack({ ...bernd.peer.position }, 8, 2.4, bernd.peer.worldId, bernd.peer.position);
+      gebissen++;
+      tot = bernd.peer.health === 108; // the death path resets to the gear maximum without food
+    }
+    check('the 21st blow kills (death path ran, health reset to 108), not the 22nd', tot && gebissen === 21, `${gebissen} blows, health ${bernd.peer.health}, before the last blow ${vorTod}`);
+    bernd.peer.foodBis = 0; bernd.peer.foodBonus = 0; bernd.peer.health = 100;
+    await platz(bernd, 400, 200);
+    await ziehAn(bernd, iroIds);
+
+    console.log('\n[10] N1/B2: switching the body drops parts that do not fit, values follow');
+    await ziehAn(anna, krIds);
+    check('precondition: Anna wears male Crowshade (armor 40)', anna.peer.werte.armor === 40);
+    sendPaket(anna, PacketType.SetFigur, 'wikingerin');
+    await warte(300);
+    check('after SetFigur wikingerin: figure changed, male parts gone, armor/agility/strength 0',
+      anna.peer.figur === 'wikingerin' && !krIds.some((id) => anna.peer.ruestung.includes(id)) && anna.peer.werte.armor === 0 && anna.peer.werte.agility === 0 && anna.peer.werte.strength === 0,
+      `figur ${anna.peer.figur}, ruestung "${anna.peer.ruestung}", armor ${anna.peer.werte.armor}`);
+    sendPaket(anna, PacketType.SetFigur, 'wikinger');
+    await warte(300);
+    check('and back: figure wikinger again, nothing worn', anna.peer.figur === 'wikinger' && anna.peer.werte.armor === 0);
   } finally {
     for (const ws of sockets) if (ws.readyState === WebSocket.OPEN) ws.close();
     server.stop();

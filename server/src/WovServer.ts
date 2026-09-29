@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { KEINE_WERTE, type Werte, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
+import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
@@ -3285,10 +3285,14 @@ export class WovServer {
    * darueber wird gekappt (kein Heilen durch An-/Ablegen: Anlegen hebt das Leben NICHT).
    */
   private kappeLeben(peer: Peer): void {
-    if (peer.health > this.maxHealth(peer)) {
-      peer.health = this.maxHealth(peer);
-      this.sendPlayerState(peer);
-    }
+    const max = this.maxHealth(peer);
+    const gekappt = peer.health > max;
+    if (gekappt) peer.health = max;
+    // Der Client bekommt Prozent des Maximums: aendert sich das Maximum (Vitalitaet an-/abgelegt), stimmt
+    // seine Anzeige nicht mehr, auch wenn nichts gekappt wird. EIN Paket: sendPlayerState merkt sich das Maximum.
+    // (Attrappen-Peers aus alten Tests kennen das Feld nicht: dort nur beim Kappen senden.)
+    const alt = peer.gesendetesLebensmax as number | undefined;
+    if (gekappt || (alt !== undefined && alt !== max)) this.sendPlayerState(peer);
   }
 
   /** Health(%)/Stamina/Serverposition an den Client (PlayerState-Paket). */
@@ -3296,7 +3300,9 @@ export class WovServer {
     peer.sendPacketWith(PacketType.PlayerState, (w) => {
       // Prozent statt Absolutwert: der HUD-Balken bleibt 0..100, egal wie
       // hoch der Essens-Bonus die Obergrenze schiebt.
-      w.writeFloat32((peer.health / this.maxHealth(peer)) * 100);
+      const max = this.maxHealth(peer);
+      peer.gesendetesLebensmax = max;
+      w.writeFloat32((peer.health / max) * 100);
       w.writeFloat32(peer.stamina);
       w.writeVector3(peer.position);
       // F6: letzte verarbeitete Eingabe-Sequenznummer, ANGEHÄNGT statt
@@ -4026,7 +4032,8 @@ export class WovServer {
       }
       this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1, weltId);
       // Ruestung mindert erst NACH der Parade (ein parierter Schlag tut gar nichts).
-      peer.health = Math.max(0, peer.health - eingehenderSchaden(damage, this.werteVon(peer).armor));
+      // Rest unter 1e-6 (Fliesskomma nach vielen geminderten Bissen) zaehlt als tot, sonst lebt man mit 1e-14.
+      peer.health = lebenNachSchaden(peer.health, eingehenderSchaden(damage, this.werteVon(peer).armor));
       if (peer.health <= 0) {
         // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
         peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
@@ -4373,6 +4380,8 @@ export class WovServer {
     peer.figur = gewuenscht;
     const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) charZDO.setString(FIGUR_MEMBER, gewuenscht);
+    // Teile, die zur neuen Figur nicht passen, fallen ab (dieselbe Pruefung wie sonst), Werte werden neu gerechnet.
+    this.inventarSync(peer);
     console.log(`[WoV] "${peer.name}" spielt jetzt als "${gewuenscht}"`);
   }
 

@@ -15,7 +15,7 @@
 import {
   ITEM_DEFS, findItem, REGLER, KEINE_WERTE, FAUST_SCHADEN, STAT_IDS, RESERVIERTE_STAT_IDS,
   summiereWerte, eingehenderSchaden, ausgehenderNahkampfSchaden, lebensmaximum, schlagKosten, waffenSchaden,
-  SET_WERTE, SET_TEILE, werteFuerRuestungsteil, type StatId,
+  lebenNachSchaden, LEBEN_REST_SCHWELLE, SET_WERTE, SET_TEILE, werteFuerRuestungsteil, type StatId,
 } from '../src/index.js';
 
 let failures = 0;
@@ -116,6 +116,25 @@ const klasse = summiereWerte(satz('ironward').map((t) => werteFuerRuestungsteil(
 const b = [eingehenderSchaden(8, ohne.armor), eingehenderSchaden(8, plain.armor), eingehenderSchaden(8, klasse.armor)];
 console.log(`      ${b.map((x) => +x.toFixed(2)).join(' / ')}`);
 check('8 / 6.67 / 4', b[0] === 8 && Math.abs(b[1]! - 6.67) < 0.005 && b[2] === 4);
+
+// ── 6. N1: minimum damage is only a floor, float residue is death ─
+console.log('\n[6] N1: minimum 1 only as a floor; residue below 1e-6 counts as dead');
+check('blow of 0.5 with armor 40 stays 0.5 (not raised to 1)', eingehenderSchaden(0.5, 40) === 0.5, `${eingehenderSchaden(0.5, 40)}`);
+check('blow of 0 stays 0', eingehenderSchaden(0, 40) === 0);
+check('blow of 3 with armor 400 -> 1 (floor still holds)', eingehenderSchaden(3, 400) === 1);
+check('threshold is 1e-6', LEBEN_REST_SCHWELLE === 1e-6);
+check('health 92 - 8 = 84 exactly (no snapping of real values)', lebenNachSchaden(92, 8) === 84);
+check('rest just above the threshold survives', lebenNachSchaden(1.000002, 1) > 0);
+// The examples of the review: after N blows a float rest of ~1e-14 used to stay alive.
+for (const [h, r, dmg] of [[120, 16, 8], [120, 32, 8], [112, 20, 8], [100, 8, 10]] as const) {
+  const d = eingehenderSchaden(dmg, r);
+  let leben = h; let n = 0;
+  while (leben > 0 && n < 1000) { leben = lebenNachSchaden(leben, d); n++; }
+  const erwartet = Math.ceil((h - LEBEN_REST_SCHWELLE) / d);
+  let alt = h; let m = 0;
+  while (alt > 0 && m < 1000) { alt = Math.max(0, alt - d); m++; }
+  check(`H=${h} R=${r} blow ${dmg}: dead after ${erwartet} blows (old code needed ${m})`, leben === 0 && n === erwartet, `${n} blows`);
+}
 
 console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

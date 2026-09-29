@@ -15,17 +15,14 @@ import { audibleRadius } from './AudibleRadius';
 import { syncListenerPosition, type CameraPositionLike } from './ListenerSync';
 import { isPlaybackAllowed } from './PlaybackGate';
 import { loadWithWarnOnce } from './ClipLoader';
+import {
+  berechnePegel,
+  gemeinsameAudioEinstellungen,
+  type AudioEinstellungen,
+  type AudioPegel,
+} from './AudioEinstellungen';
 
 const MANIFEST_URL = '/assets/manifest.json';
-
-/** Default bus volumes for as long as no player setting exists (none do today, see karte B2). */
-const DEFAULT_BUS_VOLUME: Record<AudioBusName, number> = {
-  ambience: 0.5,
-  world: 0.6,
-  ui: 0.8,
-  // Matches the old GameAudio's combined loudness: 0.7 (master) x 0.16 (track) = 0.112.
-  music: 0.112,
-};
 
 /** World-bus spatial constants; AudioEngine.worldAudibleRadius is their analytic consequence (AudibleRadius.ts). */
 const WORLD_MIN_DISTANCE = 2;
@@ -38,6 +35,8 @@ export interface AudioEngineOptions {
   muted?: boolean;
   /** Element the first-unlock gesture is armed on. Defaults to `window`. */
   gestureTarget?: EventTarget;
+  /** Player volume settings; defaults to the store shared with the options panel. */
+  einstellungen?: AudioEinstellungen;
 }
 
 export interface PlayOptions {
@@ -65,6 +64,8 @@ export class AudioEngine {
   private readonly camera: CameraPositionLike;
   private muted: boolean;
   private musicStarted = false;
+  private pegel: AudioPegel;
+  private abmelden: (() => void) | null = null;
   /**
    * The last 200 clips actually started (`ausgeloest` = when playAsync was
    * called, `zeit` = when the clip started after a possible first load, in s;
@@ -81,6 +82,7 @@ export class AudioEngine {
     scene: Scene,
     camera: CameraPositionLike,
     muted: boolean,
+    pegel: AudioPegel,
   ) {
     this.automaton = automaton;
     this.engine = engine;
@@ -89,7 +91,8 @@ export class AudioEngine {
     this.groups = groupByBus(manifest);
     this.camera = camera;
     this.muted = muted;
-    this.engine.volume = muted ? 0 : 1;
+    this.pegel = pegel;
+    this.engine.volume = muted ? 0 : pegel.gesamt;
     scene.onBeforeRenderObservable.add(() => {
       if (!this.disposed) syncListenerPosition(this.camera, this.engine.listener);
     });
@@ -140,11 +143,14 @@ export class AudioEngine {
     }
     automaton.contextReady(engine.state === 'running' ? 'running' : 'suspended');
 
+    // Saved player volumes are read before any bus exists, so the music never starts at the default level.
+    const einstellungen = options.einstellungen ?? gemeinsameAudioEinstellungen();
+    const startPegel = berechnePegel(einstellungen.get());
     const buses: Record<AudioBusName, AudioBus> = {
-      ambience: await engine.createBusAsync('ambience', { volume: DEFAULT_BUS_VOLUME.ambience }),
-      world: await engine.createBusAsync('world', { volume: DEFAULT_BUS_VOLUME.world }),
-      ui: await engine.createBusAsync('ui', { volume: DEFAULT_BUS_VOLUME.ui }),
-      music: await engine.createBusAsync('music', { volume: DEFAULT_BUS_VOLUME.music }),
+      ambience: await engine.createBusAsync('ambience', { volume: startPegel.bus.ambience }),
+      world: await engine.createBusAsync('world', { volume: startPegel.bus.world }),
+      ui: await engine.createBusAsync('ui', { volume: startPegel.bus.ui }),
+      music: await engine.createBusAsync('music', { volume: startPegel.bus.music }),
     };
 
     let manifest: AudioManifest;
@@ -155,7 +161,8 @@ export class AudioEngine {
       manifest = readAudioManifest(undefined);
     }
 
-    const wov = new AudioEngine(automaton, engine, buses, manifest, scene, camera, options.muted ?? false);
+    const wov = new AudioEngine(automaton, engine, buses, manifest, scene, camera, options.muted ?? false, startPegel);
+    wov.abmelden = einstellungen.onChange((werte) => wov.setzeLautstaerke(berechnePegel(werte)));
     if (automaton.current === 'unlocked') {
       wov.startMusicIfNeeded();
     } else {
@@ -166,7 +173,19 @@ export class AudioEngine {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
-    this.engine.volume = muted ? 0 : 1;
+    this.engine.volume = muted ? 0 : this.pegel.gesamt;
+  }
+
+  /** Sets master and bus gains (0..1) live; `?mute=1` (`muted`) keeps the master at 0. */
+  setzeLautstaerke(pegel: AudioPegel): void {
+    this.pegel = pegel;
+    this.engine.volume = this.muted ? 0 : pegel.gesamt;
+    for (const name of Object.keys(this.buses) as AudioBusName[]) this.buses[name].volume = pegel.bus[name];
+  }
+
+  /** Master and bus gains currently set (what the options sliders resolve to). */
+  get lautstaerke(): AudioPegel {
+    return { gesamt: this.pegel.gesamt, bus: { ...this.pegel.bus } };
   }
 
   /**
@@ -246,6 +265,7 @@ export class AudioEngine {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.abmelden?.();
     this.engine.dispose();
   }
 

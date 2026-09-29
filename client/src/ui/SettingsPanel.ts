@@ -1,5 +1,5 @@
 /**
- * Localized settings overlay with one general and two graphics tabs.
+ * Localized settings overlay with one general, two graphics and one audio tab.
  *
  * The panel is rendered from translation ids instead of keeping translated
  * strings in its DOM. A runtime language change therefore rebuilds only this
@@ -12,13 +12,27 @@ import {
   type TranslationKey,
 } from '../i18n';
 import { detectQualityTier, type QualityTier, type SettingsStore } from './Settings';
+import {
+  AUDIO_BUSSE,
+  gemeinsameAudioEinstellungen,
+  type AudioBus,
+  type AudioEinstellungen,
+} from '../engine/Audio/AudioEinstellungen';
 
-type TabId = 'general' | 'graphics' | 'effects';
+type TabId = 'general' | 'graphics' | 'effects' | 'audio';
 
 const TAB_LABELS: Record<TabId, TranslationKey> = {
   general: 'settings.tab.general',
   graphics: 'settings.tab.graphics',
   effects: 'settings.tab.effects',
+  audio: 'settings.tab.audio',
+};
+
+const AUDIO_BUS_LABELS: Record<AudioBus, TranslationKey> = {
+  music: 'settings.audio.music',
+  ambience: 'settings.audio.ambience',
+  world: 'settings.audio.world',
+  ui: 'settings.audio.ui',
 };
 
 const QUALITY_LEVELS: TranslationKey[] = [
@@ -42,6 +56,7 @@ export class SettingsPanel {
   constructor(
     private readonly settings: SettingsStore,
     private readonly i18n: GameI18n,
+    private readonly audio: AudioEinstellungen = gemeinsameAudioEinstellungen(),
   ) {
     const root = document.createElement('div');
     root.dataset.ui = 'settings';
@@ -72,7 +87,7 @@ export class SettingsPanel {
     panel.appendChild(this.title);
 
     this.tabs = document.createElement('div');
-    this.tabs.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px';
+    this.tabs.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px';
     panel.appendChild(this.tabs);
 
     this.content = document.createElement('div');
@@ -114,7 +129,8 @@ export class SettingsPanel {
 
     if (this.activeTab === 'general') this.renderGeneral();
     else if (this.activeTab === 'graphics') this.renderGraphics();
-    else this.renderEffects();
+    else if (this.activeTab === 'effects') this.renderEffects();
+    else this.renderAudio();
   }
 
   private renderTabs(): void {
@@ -251,6 +267,85 @@ export class SettingsPanel {
     ]>) {
       this.content.appendChild(this.buildToggle(key, get, set));
     }
+  }
+
+  private renderAudio(): void {
+    this.content.appendChild(this.buildSection('settings.section.audio_master'));
+    this.content.appendChild(this.buildSlider('settings.audio.master', 'master', (w) => w.gesamt,
+      (value) => this.audio.setzeGesamt(value)));
+    this.content.appendChild(this.buildAudioMuteToggle());
+
+    this.content.appendChild(this.buildSection('settings.section.audio_channels'));
+    for (const bus of AUDIO_BUSSE) {
+      this.content.appendChild(this.buildSlider(AUDIO_BUS_LABELS[bus], bus, (w) => w.regler[bus],
+        (value) => this.audio.setzeBus(bus, value)));
+    }
+
+    const reset = document.createElement('button');
+    reset.dataset.audio = 'reset';
+    reset.textContent = this.i18n.t('settings.audio.reset');
+    reset.style.cssText =
+      'display:block;margin:16px auto 0;padding:6px 18px;font:inherit;font-size:13px;' +
+      'background:linear-gradient(180deg,#332818,#241b10);color:#a8916a;' +
+      'border:1px solid #5a4726;border-radius:3px;cursor:pointer';
+    reset.addEventListener('click', () => this.audio.zuruecksetzen());
+    this.content.appendChild(reset);
+  }
+
+  /** One 0..100 % slider; changes reach the audio buses while dragging (input event, not change). */
+  private buildSlider(
+    key: TranslationKey,
+    id: string,
+    get: (werte: ReturnType<AudioEinstellungen['get']>) => number,
+    set: (value: number) => void,
+  ): HTMLDivElement {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;margin-bottom:12px';
+    const label = document.createElement('label');
+    label.textContent = this.i18n.t(key);
+    label.style.cssText = 'flex:0 0 38%;font-size:14px;color:#e8d9b8';
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '0';
+    slider.max = '100';
+    slider.step = '1';
+    slider.dataset.audioSlider = id;
+    slider.style.cssText = 'flex:1;min-width:0;accent-color:#f2c86a;cursor:pointer';
+    label.htmlFor = slider.id = `audio-slider-${id}`;
+    const value = document.createElement('div');
+    value.style.cssText = 'flex:0 0 46px;text-align:right;font-size:13px;color:#ffe9b0';
+    slider.addEventListener('input', () => set(Number(slider.value)));
+    row.append(label, slider, value);
+    this.settingSubscriptions.push(this.audio.onChange((werte) => {
+      const prozent = get(werte);
+      if (Number(slider.value) !== prozent) slider.value = String(prozent);
+      value.textContent = `${prozent} %`;
+    }));
+    return row;
+  }
+
+  private buildAudioMuteToggle(): HTMLDivElement {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px';
+    const label = document.createElement('div');
+    label.textContent = this.i18n.t('settings.audio.muted');
+    label.style.cssText = 'font-size:14px;color:#e8d9b8';
+    const button = document.createElement('button');
+    button.dataset.audio = 'mute';
+    button.style.cssText =
+      'min-width:74px;padding:5px 0;font:inherit;font-size:12px;border:1px solid #5a4726;' +
+      'border-radius:3px;cursor:pointer';
+    button.addEventListener('click', () => this.audio.setzeStumm(!this.audio.get().stumm));
+    row.append(label, button);
+    this.settingSubscriptions.push(this.audio.onChange(({ stumm }) => {
+      button.textContent = this.i18n.t(stumm ? 'common.on' : 'common.off');
+      button.style.background = stumm
+        ? 'linear-gradient(180deg,#7a5f2e,#4a3a1c)'
+        : 'linear-gradient(180deg,#332818,#241b10)';
+      button.style.color = stumm ? '#ffe9b0' : '#a8916a';
+      button.style.borderColor = stumm ? '#f2c86a' : '#5a4726';
+    }));
+    return row;
   }
 
   /** Setzt neun Grafikfelder auf einmal (fps-analyse.md Abschnitt 6); die

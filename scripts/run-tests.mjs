@@ -916,6 +916,7 @@ const KERN = [
   ['client', 'test/loading-language.ts'],
   ['client', 'test/spielhost.ts'],
   ['client', 'test/menu-i18n.ts'],
+  ['client', 'test/audio-einstellungen.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
   // Funktion. Seit dem Abgleich per Eingabesequenz nicht mehr tot:
@@ -2505,6 +2506,50 @@ const KERN = [
   */
   ['server', 'test/forum-token-nach-koerper.ts'],
   /*
+    Karte G1 N1 (2026-09-29, Nachbesserung nach Angriff — URTEIL
+    BLOCKIEREN, Befunde B4/B5): der reine Übernahme-Filter für die
+    Grundskala-Live-Meldung (BroadcastChannel, `grundskalaLive.ts`), jetzt
+    WERT- statt zeitstempelbasiert (eine zurückspringende Absenderuhr
+    verliert keine echte Änderung mehr), die strenge Formprüfung
+    (`istGueltigesEreignis`, elf Angriffsproben: null/String/Liste, Name
+    ausserhalb des Musters, Grundskala ausserhalb des erlaubten Bereichs)
+    UND der volle Kanal-Weg über Node's globales `BroadcastChannel`
+    (senden, hören, abmelden, rohe ungültige Nachrichten, Umgebung ohne
+    Unterstützung). DOM-frei, < 1 s.
+  */
+  ['client', 'test/grundskala-live.ts'],
+  /*
+    Karte G1 N1 (2026-09-29, Nachbesserung nach Angriff, Befunde B1/B3/B6):
+    `EntityManager.aktualisiereGrundskala` — nur Buckets DES GEMELDETEN
+    Modells werden dirty markiert, ein anderes schon gesetztes Modell
+    bleibt unberührt (M3). Zählt den erneuten `getMasters()`-Aufruf AB
+    einem Rücksetzpunkt statt mit `calls.includes(...)` (die Vorfassung
+    hätte einen entfernten erneuten Aufruf nie gemerkt, M4), prüft dass ein
+    NIE gesetztes Modell keinen einzigen `getMasters()`-Aufruf auslöst (B3
+    — vorher lud das unbedingt eine GLB) und dass veralteter
+    Collider-Cache samt `colliderless`-Eintrag wirklich entsorgt wird (B6,
+    mit Entsorgungs-Zählern, kein Attrappen-Objekt daneben). DOM-frei wie
+    entity-index.ts (steinKitOverride leer, kein Szene-Zugriff), < 1 s.
+  */
+  ['client', 'test/entity-grundskala.ts'],
+  /*
+    Karte G1 N1 (2026-09-29, Nachbesserung nach Angriff, Befunde B1/B2):
+    der volle Weg über ZWEI GETRENNTE Realms (Hauptthread = Katalog, ein
+    `worker_thread` = Testflug, wie zwei Browserfenster mit je eigener
+    Upload-Registry), verbunden nur über ein echtes, globales
+    `BroadcastChannel` und eine echte HTTP-Antwort (Attrappe des
+    Betriebsdienstes). Gemessen wird die EFFEKTIVE Weltskala
+    (`localMatrix × ZDO-Weltmatrix`) eines im Testflug-Realm gesetzten
+    Exemplars vor und nach einer simulierten PATCH-Änderung, an echter
+    synthetischer Geometrie — keine Attrappe mit Identity-Matrix, die jede
+    Grundskala gleich aussehen liesse (Angriffsbefund an der Vorfassung
+    von `entity-grundskala.ts`). Dazu Quelltext-Wächter gegen einen
+    stillen Wegfall der Verdrahtung in `Testflug.ts`/`GegenstandsKatalog.ts`
+    (M2/M5/M6) — ein voller `starteTestflug()` mit echtem DOM ist für einen
+    DOM-freien Lauf unverhältnismässig. DOM-frei (NullEngine), < 5 s.
+  */
+  ['client', 'test/grundskala-live-wirkung.ts'],
+  /*
     Karte B4 (2026-09-29): Schrittgeraeusche je Untergrund.
     `shared/test/boden-mischung.ts` rechnet die Bodenmischung
     (shared/src/worldgen/bodenMischung.ts) an 676 Punkten der echten Insel
@@ -2538,6 +2583,31 @@ const KERN = [
   // main.ts fuer dieselben Eingaben, dazu editorI18nInstance() in zwei Kindprozessen
   // (memoisiert). DOM-frei, ein paar Sekunden wegen der zwei tsx-Kindprozesse.
   ['client', 'test/editor-i18n-sprache.ts'],
+  // Card Z3 N1: the deletion lock is now a DURABLE file, checked afresh on every boot and every live
+  // apply, not an in-memory/receipt-only guard — this rules out mass deletion above AENDERUNGEN_MAX or
+  // together with a geo change (finding A1), a kill mid-boot (A2) and a later, unrelated change (A3).
+  // A1a/A2/A3 run against a REAL main.ts child process (server/test/z3n1-hauptprozess.ts); A1b/A1c and
+  // the per-id lock/timing logic run in-process (server/test/z3n1-live-inproc.ts). This file now covers
+  // only the confirm endpoint (exactly the locked ids, nothing else — no boot-style reconciliation,
+  // finding A5), 409 with no open lock (finding A6), a stale hash, revocation and a reset.
+  ['server', 'test/z3n1-live-inproc.ts'],
+  ['server', 'test/z3n1-hauptprozess.ts'],
+  // Card Z3 N1 completion: the cases the first N1 left open — only ENOENT means "no lock" (EISDIR/broken JSON close),
+  // a broken lock is never overwritten, a request arriving during a save is not lost, an invalid request is consumed
+  // with a log line, confirming deletes only the locked ids (no geo/object take-over), more than 40 locked old
+  // deletions do not block a small new placement, the felled-tree witness, the height-correction cross cases and the
+  // 6 s tick witness (in-process; the real-main.ts cases are in z3n1-hauptprozess.ts).
+  ['server', 'test/z3n1-abschluss.ts'],
+  ['admin', 'test/welt-bestaetigen-z3.ts'],
+  /*
+    Wikingerin, Webkopien ueberdecken Spiel-Assets (2026-09-29): nginx liefert
+    /assets/ zuerst aus wov-web/static/assets/, sonst aus assets/ -- eine
+    getrackte Webkopie am selben relativen Pfad wie ein Eintrag in
+    assets/manifest.json versteckt die echte Spiel-Datei dauerhaft, egal ob
+    beide gleich sind. Keine echten Assets noetig (nur manifest.json), daher
+    ohne brauchtModelle. ~0.1 s.
+  */
+  ['tools', 'test/webkopien-ueberdeckung.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

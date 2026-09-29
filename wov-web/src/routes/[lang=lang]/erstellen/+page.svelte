@@ -219,9 +219,13 @@
       return set ? [[classId, {
         name: set.name,
         teile: set.parts.map(part => ({
-          // The web body uses the newer female rig; its fitted export is
-          // shipped with the website, while game assets keep the legacy rig.
-          datei: (part.previewModel ?? part.model).replace(/\.glb$/, ''),
+          // Same file as the game. The preview (tools/web/vorschau-web.ts)
+          // loads this path directly -- unlike the game client, it has no
+          // armorFileForSkeleton() body-aware web-fit fallback. A stale,
+          // cached 63-bone body would make its verifyArmorSkin() call
+          // reject the fit; schalteKlassenruestung() below catches that
+          // and silently reverts the toggle (console.warn only).
+          datei: part.model.replace(/\.glb$/, ''),
           regionen: part.regions,
           slot: part.appearanceSlot,
         })),

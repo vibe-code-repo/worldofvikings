@@ -106,8 +106,11 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
-import { liveAbgleich } from './world/layoutLiveAbgleich.js';
+import { liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
+import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreFreigeben } from './world/layoutBootSchutz.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
+import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
+import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
@@ -594,6 +597,8 @@ export class WovServer {
   private zdoSyncAccumulator: number;
   /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
   private layoutWache: LayoutWache | null = null;
+  /** Karte Z3 N1: Pfad der dauerhaften Löschsperre, neben der Quittung. */
+  private readonly loeschsperrePfad: string;
   private timeSyncAccumulator: number;
 
   // ── Server identity ────────────────────────────────────────────
@@ -621,6 +626,7 @@ export class WovServer {
         ? { ...config, forumDir: resolve(config.kontenDir, '..', 'forum') }
         : config;
     this.config = { ...DEFAULT_CONFIG, ...ergaenzt };
+    this.loeschsperrePfad = loeschsperreDatei(this.config.worldsDir, this.config.worldName);
     this.serverUserId = 1n; // Server is always user 1
 
     // Initialize subsystems
@@ -1205,6 +1211,17 @@ export class WovServer {
         boot: bootAnwendung,
         pfad: this.config.worldLayoutPath,
         quittungsPfad: quittungsDatei(this.config.worldsDir, this.config.worldName),
+        bestaetigenPfad: bestaetigenAnfrageDatei(this.config.worldsDir, this.config.worldName),
+        loeschsperrePfad: this.loeschsperrePfad,
+        // Einmal je Takt gelesen (samt Rücknahme je id) und UNVERÄNDERT sowohl an `pruefeLoeschregel`
+        // als auch an `anwenden()` weitergegeben (`LiveVorgabe.geschuetzteIds`) — s. Kopfkommentar dort,
+        // warum ein zweites, frisches Einlesen innerhalb desselben Takts falsch wäre.
+        geschuetzteIdsJetzt: (neu, ruecknahme) => sperreAbgleichen(this.loeschsperrePfad, this.zdos, neu, () => undefined, ruecknahme, (name) => this.prefabs.getByName(name)?.hash),
+        // `bereitsGesperrt`: ids, die schon VOR diesem Takt galten, zählen nicht als "neu entdeckt" — sonst
+        // würde eine ganz normale Folgeänderung an einem ANDEREN Objekt, die im selben Vergleich zufällig
+        // dieselben, längst gesperrten ids "mit nennt" (weil `alt` der alte, ungeänderte Vergleichsstand
+        // bleibt), die Regel erneut auslösen (E-c).
+        pruefeLoeschregel: (alt, neu, grabsteine, bereitsGesperrt) => wuerdeEntfernen({ zdos: this.zdos, prefabs: this.prefabs }, alt, neu, grabsteine, bereitsGesperrt),
         aktuell: () => this.worldLayoutRaw,
         speichertGerade: () => this.speichertGerade,
         anwenden: (roh, vorgabe) => this.spawnLayoutPlacements('live', roh, vorgabe),
@@ -1322,15 +1339,62 @@ export class WovServer {
           this.spawns?.adoptSingle(zdo, entry);
         },
     };
+    // Karte Z3 N1: welche ids GERADE (in diesem Aufruf) dauerhaft gesperrt sind.
+    //   - Boot: hier frisch aus der Sperrdatei gelesen (samt Rücknahme je id) — es gibt keine Wache, die
+    //     das für den Boot schon vorher getan hätte.
+    //   - Live (nicht bestätigt): NICHT hier neu einlesen, sondern den Schnappschuss der WACHE benutzen
+    //     (`vorgabe.geschuetzteIds`, vom SELBEN Takt, VOR einer möglichen Erweiterung durch
+    //     `pruefeLoeschregel`) — sonst sähe dieser Aufruf ids, die der GLEICHE Takt gerade erst neu
+    //     gesperrt hat, schon als "längst gesperrt" und ließe eine echte Massenlöschung wie eine
+    //     folgenlose Nicht-Änderung aussehen, statt sie zu quittieren (s. Kopfkommentar `layoutLive.ts`).
+    //   - Bestätigt: irrelevant, der Zweig unten liest die Sperrdatei ohnehin selbst ab.
+    let geschuetzteIds: ReadonlySet<string> | undefined;
+    let sperreKaputt = false;
+    if (modus === 'boot') {
+      const sperrAuswertung = sperreAbgleichen(this.loeschsperrePfad, this.zdos, layout, (t) => console.error(t), true, (name) => this.prefabs.getByName(name)?.hash);
+      geschuetzteIds = sperrAuswertung.aktive === 'kaputt' ? undefined : sperrAuswertung.aktive;
+      sperreKaputt = sperrAuswertung.aktive === 'kaputt';
+    } else if (!vorgabe?.bestaetigt) {
+      geschuetzteIds = vorgabe?.geschuetzteIds === 'kaputt' ? undefined : vorgabe?.geschuetzteIds;
+      sperreKaputt = vorgabe?.geschuetzteIds === 'kaputt';
+      // Die Wache lässt eine unlesbare Sperre gar nicht erst hierher; steht sie doch hier, wird nichts gelöscht.
+      if (sperreKaputt) return abgelehnt('Löschsperre-Datei unlesbar (GESCHLOSSEN)');
+    }
+
+    // Karte Z3 N1, E-d: eine ausdrückliche Bestätigung löscht GENAU die dauerhaft gesperrten ids, die im
+    // aktuellen Dokument fehlen — kein Abgleich im Boot-Stil (der würde gefällte Bäume und getötete NPCs
+    // dieses Dokuments wiederbeleben, Angriffsbefund A5). Alles andere (Position, Zustand anderer
+    // Objekte) bleibt unangetastet.
+    if (vorgabe?.bestaetigt) {
+      const plan = sperreBestaetigenPlan(this.loeschsperrePfad, layout, this.zdos, (name) => this.prefabs.getByName(name)?.hash);
+      // Eine unlesbare Sperre wird nie ungeprüft freigegeben (und keine ihrer ids ist bekannt): nichts geschieht.
+      if (plan.art === 'kaputt') return abgelehnt('Löschsperre-Datei unlesbar (GESCHLOSSEN) — nichts bestätigt');
+      if (plan.art === 'keine') return { art: 'bestaetigt', ids: [], entfernt: 0 };
+      // Z3 N4 (D1): a held-back prefab change (id still in the document) loses only its ZDOs with the OLD prefab.
+      const zuLoeschen = bestaetigungsZdos(this.zdos, layout, plan.ids, (name) => this.prefabs.getByName(name)?.hash);
+      for (const zdo of zuLoeschen) this.zdos.destroyZDO(zdo.zdoid);
+      // Erst NACH dem Löschen freigeben: bricht etwas davor ab, bleibt der Schutz stehen.
+      try {
+        sperreFreigeben(this.loeschsperrePfad);
+      } catch (fehler) {
+        console.error(`[WoV] Löschsperre: Freigabe nicht gespeichert (${(fehler as Error).message}) — die Datei bleibt, ihre ids haben kein Objekt mehr`);
+      }
+      if (plan.ids.length > 0) {
+        console.warn(`[WoV] Löschsperre: Bestätigung angewendet — ${zuLoeschen.length} Objekt(e) entfernt (${plan.ids.slice(0, 40).join(', ')}), Sperre aufgehoben`);
+      }
+      return { art: 'bestaetigt', ids: plan.ids, entfernt: zuLoeschen.length };
+    }
+
     // Boot: alle Platzierungen. Live: nur die, deren Eintrag sich gegenüber dem zuletzt angewendeten
     // Dokument geändert hat (ein gefällter Baum und ein toter NPC bleiben so); viele oder zustandstragende
-    // Löschungen wendet er nicht an (`layoutLiveAbgleich.ts`).
+    // Löschungen wendet er nicht an (`layoutLiveAbgleich.ts`). Eine dauerhaft gesperrte id (`geschuetzteIds`)
+    // löscht KEIN Weg, gleich ob Boot oder Live.
     let ergebnis: LayoutAbgleichErgebnis;
     let zuPruefen: WorldLayout = layout;
     let zurueck: readonly string[] | null = null;
     if (modus === 'live') {
       if (!vorgabe?.alt) return abgelehnt('kein Vergleichsstand');
-      const live = liveAbgleich(kontext, vorgabe.alt, layout, vorgabe.grabsteine);
+      const live = liveAbgleich(kontext, vorgabe.alt, layout, vorgabe.grabsteine, geschuetzteIds);
       if (live.art === 'zuViele') return { art: 'zuViele', anzahl: live.anzahl };
       if (live.art === 'bestaetigung') return { art: 'bestaetigung', detail: live.detail };
       ergebnis = live.ergebnis;
@@ -1341,8 +1405,25 @@ export class WovServer {
         kontext,
         layout,
         // Zusammengefasste exakte Duplikate sind nichts Verworfenes (dieselbe Zahl wie im Schreibweg).
-        { verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl), zusammengefasst: bericht?.zusammengefasst.length ?? 0 }
+        {
+          verworfen: Math.max(0, rohAnzahl - gueltigeAnzahl),
+          zusammengefasst: bericht?.zusammengefasst.length ?? 0,
+          keineLoeschung: sperreKaputt,
+          geschuetzteIds,
+        }
       );
+      if (sperreKaputt) {
+        console.warn(
+          `[WoV] Layout-Abgleich (Boot): Löschsperre-Datei nicht lesbar — GESCHLOSSEN: kein Layout-Objekt wird gelöscht, bis sie von Hand geprüft ist.`
+        );
+      } else if (geschuetzteIds && geschuetzteIds.size > 0) {
+        const ids = [...geschuetzteIds];
+        const gezeigt = ids.slice(0, 40).join(', ') + (ids.length > 40 ? ` … (+${ids.length - 40})` : '');
+        console.warn(
+          `[WoV] Layout-Abgleich (Boot): Löschsperre hält ${ids.length} Objekt(e) zurück: ${gezeigt} — ` +
+            `„POST /api/welt/bestaetigen" hebt sie ausdrücklich auf, sonst bleiben sie über jeden Neustart geschützt stehen.`
+        );
+      }
     }
     if (ergebnis.aufRoute > 0) console.log(`[WoV] Layout-Routen: ${ergebnis.aufRoute} NPC(s) laufen eine Route`);
     console.log(
@@ -1352,7 +1433,7 @@ export class WovServer {
         (ergebnis.umgestempelt > 0 ? `, davon ${ergebnis.umgestempelt} auf die Platzierungs-id umgestempelt` : '') +
         `, ${ergebnis.unbekannt} unbekannt (Prefab übersprungen)`
     );
-    if (ergebnis.ohneLoeschen) {
+    if (ergebnis.ohneLoeschen && ergebnis.ohneLoeschen.verworfen > 0) {
       console.warn(
         `[WoV] Layout-Abgleich ohne Löschen: ${ergebnis.ohneLoeschen.verworfen} Einträge verworfen – ` +
           `${ergebnis.ohneLoeschen.stehenGeblieben} verwaiste Layout-Objekte bleiben bis zum nächsten sauberen Dokument stehen`

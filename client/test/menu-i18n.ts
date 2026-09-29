@@ -23,13 +23,14 @@ assert.match(i18n, /localStorage\.setItem\(STORAGE_KEY, language\)/);
 assert.match(i18n, /url\.searchParams\.set\('lang', language\)/);
 
 const settings = source('src/ui/SettingsPanel.ts');
-assert.match(settings, /type TabId = 'general' \| 'graphics' \| 'effects'/);
+assert.match(settings, /type TabId = 'general' \| 'graphics' \| 'effects' \| 'audio'/);
 assert.match(settings, /select\.id = 'game-language'/);
 assert.match(settings, /this\.i18n\.setLanguage/);
 assert.match(settings, /button\.dataset\.settingsTab = tab/);
 assert.match(settings, /general: 'settings\.tab\.general'/);
 assert.match(settings, /graphics: 'settings\.tab\.graphics'/);
 assert.match(settings, /effects: 'settings\.tab\.effects'/);
+assert.match(settings, /audio: 'settings\.tab\.audio'/);
 
 const main = source('src/main.ts');
 for (const panel of [
@@ -42,7 +43,7 @@ assert.doesNotMatch(main, /type GameLanguage|gameLanguage/);
 
 console.log('  ✓ German and English catalogues have identical ids');
 console.log('  ✓ language changes persist and update the URL');
-console.log('  ✓ settings expose General, Graphics I and Graphics II');
+console.log('  ✓ settings expose General, Graphics I, Graphics II and Audio');
 console.log('  ✓ gameplay menus share the runtime language service');
 
 console.log('\nContent texts (`inhalt.*`) reach the client (M1 point 3a / N1 F4)');

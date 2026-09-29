@@ -84,6 +84,14 @@ console.log('\n[2] Objekte, Dungeon, Wasser:');
   pruefe('auf einem Holz-Bauteil (Koerper 1,2 m ueber dem Gelaende) -> Holz', holz === GRUPPE_HOLZ, String(holz));
   const nurGelaende = schrittGruppe({ x: 5, z: 5, dungeon: false, koerperHoehe: 60.05, quelle: wiese });
   pruefe('Koerper nur 5 cm ueber dem Gelaende (Terrain-Collider) -> weiter Boden', nurGelaende === 'footsteps/grass', String(nurGelaende));
+  // Am 22°-Hang (Steigung 0,4) liegt der Gelaende-Collider bis 0,22 m neben der Heightmap (Messung im Browser): kein Holz.
+  const hang = quelleMit(Biome.Meadows, (x) => 60 + 0.4 * x);
+  const amHang = schrittGruppe({ x: 5, z: 5, dungeon: false, koerperHoehe: 62 + 0.22, quelle: hang });
+  pruefe('Gelaende-Collider 0,22 m ueber der Heightmap am Hang (Steigung 0,4) -> kein Holz', amHang !== GRUPPE_HOLZ, String(amHang));
+  const holzHang = schrittGruppe({ x: 5, z: 5, dungeon: false, koerperHoehe: 62 + 0.9, quelle: hang });
+  pruefe('Bauteil 0,9 m ueber dem Gelaende am selben Hang -> Holz', holzHang === GRUPPE_HOLZ, String(holzHang));
+  const flachHolz = schrittGruppe({ x: 5, z: 5, dungeon: false, koerperHoehe: 60.2, quelle: wiese });
+  pruefe('flacher Boden: Bauteil 0,2 m ueber dem Gelaende -> Holz', flachHolz === GRUPPE_HOLZ, String(flachHolz));
   const dungeon = schrittGruppe({ x: 5, z: 5, dungeon: true, koerperHoehe: 3, quelle: wiese });
   pruefe('Dungeon -> Stein', dungeon === GRUPPE_STEIN, String(dungeon));
   const flach = schrittGruppe({ x: 5, z: 5, dungeon: false, koerperHoehe: null, quelle: quelleMit(Biome.Meadows, () => WATER_LEVEL - 0.3) });

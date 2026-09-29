@@ -66,10 +66,11 @@ export class AudioEngine {
   private muted: boolean;
   private musicStarted = false;
   /**
-   * The last 200 clips actually started (time in s, bus, group, clip). Hörprobe
-   * witness: what was triggered, not merely what was requested.
+   * The last 200 clips actually started (`ausgeloest` = when playAsync was
+   * called, `zeit` = when the clip started after a possible first load, in s;
+   * bus, group, clip). Hörprobe witness: what was played, not merely requested.
    */
-  readonly wiedergaben: { zeit: number; bus: AudioBusName; gruppe: string; klip: string }[] = [];
+  readonly wiedergaben: { ausgeloest: number; zeit: number; bus: AudioBusName; gruppe: string; klip: string }[] = [];
   private disposed = false;
 
   private constructor(
@@ -177,6 +178,7 @@ export class AudioEngine {
    */
   async playAsync(bus: AudioBusName, group: string, options: PlayOptions = {}): Promise<void> {
     if (this.disposed || !isPlaybackAllowed(this.automaton.current, this.muted)) return;
+    const ausgeloest = performance.now() / 1000;
     const names = this.groups[bus].get(group);
     if (!names || names.length === 0) return;
     const bagKey = `${bus}:${group}`;
@@ -209,7 +211,7 @@ export class AudioEngine {
       sound.spatial.position.copyFrom(options.position);
     }
     sound.play({ loop: options.loop ?? false });
-    this.wiedergaben.push({ zeit: performance.now() / 1000, bus, gruppe: group, klip: clipName });
+    this.wiedergaben.push({ ausgeloest, zeit: performance.now() / 1000, bus, gruppe: group, klip: clipName });
     if (this.wiedergaben.length > 200) this.wiedergaben.shift();
   }
 

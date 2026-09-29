@@ -12,7 +12,7 @@
  * 0.18 s apart), plus the choice of ground sound group.
  */
 import { WATER_LEVEL } from '@wov/shared';
-import { schrittGruppeBei, type BodenQuelle } from '@wov/shared/src/worldgen/bodenMischung.js';
+import { nyBei, schrittGruppeBei, type BodenQuelle } from '@wov/shared/src/worldgen/bodenMischung.js';
 
 export type Gangart = 'gehen' | 'rennen';
 
@@ -91,8 +91,18 @@ export class SchrittTakt {
 export const KNIETIEFE = 0.5;
 /** Ab dieser Wassertiefe klingt es nach Wasser statt nach Boden. */
 export const NASS_AB = 0.05;
-/** So viel höher als das Gelände muss ein Kollisionskörper unter den Füßen liegen, um als Objekt zu zählen. */
-export const OBJEKT_ABSTAND = 0.15;
+/**
+ * So viel höher als das Gelände muss ein Kollisionskörper unter den Füßen
+ * liegen, um als Objekt zu zählen: `OBJEKT_ABSTAND` plus `OBJEKT_HANG` je
+ * Meter Steigung. Der Gelände-Collider ist das Dreiecksnetz, `getGroundHeight`
+ * der nächste Gitterpunkt — am Hang liegen beide bis zu einem halben Gitterabstand
+ * mal Steigung auseinander. Gemessen (Browser, Havok-Sonde gegen Heightmap, 230
+ * Bilder auf Wiese und Fels, Steigung bis 0,45): Unterschied −0,22 … +0,22 m,
+ * bei Steigung < 0,1 höchstens 0,07 m. 0,12 + 0,6 · Steigung liegt an jeder
+ * gemessenen Stelle darüber (bei 0,45: 0,39 m gegen 0,22 m).
+ */
+export const OBJEKT_ABSTAND = 0.12;
+export const OBJEKT_HANG = 0.6;
 
 export const GRUPPE_HOLZ = 'footsteps/wood';
 export const GRUPPE_WASSER = 'footsteps/water';
@@ -112,7 +122,7 @@ export interface BodenKontext {
  * Klanggruppe unter den Füßen, oder null (nichts abspielen):
  *  - Dungeon → Stein (`footsteps/tile`)
  *  - Wasser tiefer als die Kniehöhe → null
- *  - Kollisionskörper mindestens `OBJEKT_ABSTAND` über dem Gelände → Holz
+ *  - Kollisionskörper deutlich über dem Gelände (`OBJEKT_ABSTAND` + Hangzuschlag) → Holz
  *    (Bauteile und Stege; der Client führt kein Material je Bauteil)
  *  - Wasser bis Kniehöhe → Wasser
  *  - sonst die Bodenmischung des Geländes.
@@ -120,7 +130,11 @@ export interface BodenKontext {
 export function schrittGruppe(k: BodenKontext): string | null {
   if (k.dungeon) return GRUPPE_STEIN;
   const gelaende = k.quelle.getGroundHeight(k.x, k.z);
-  if (k.koerperHoehe !== null && k.koerperHoehe > gelaende + OBJEKT_ABSTAND) return GRUPPE_HOLZ;
+  if (k.koerperHoehe !== null) {
+    const ny = nyBei(k.x, k.z, k.quelle);
+    const steigung = Math.sqrt(Math.max(0, 1 - ny * ny)) / ny;
+    if (k.koerperHoehe > gelaende + OBJEKT_ABSTAND + OBJEKT_HANG * steigung) return GRUPPE_HOLZ;
+  }
   const tiefe = WATER_LEVEL - gelaende;
   if (tiefe > KNIETIEFE) return null;
   if (tiefe > NASS_AB) return GRUPPE_WASSER;

@@ -210,11 +210,14 @@ export class KampfToene {
     this.abbrechen();
   }
 
-  /** Der eigene Schlag, dessen Hiebzeitpunkt jetzt am nächsten liegt (schon vorbei zählt gleich). */
+  /** Der eigene Schlag mit der gehaltenen Waffe, dessen Hiebzeitpunkt jetzt am nächsten liegt (schon vorbei zählt gleich). */
   private zuordnen(): Hieb | null {
     const jetzt = this.uhr.jetzt();
     let best: Hieb | null = null;
+    const waffe = this.waffe();
     for (const h of this.hiebe) {
+      // Nur Schläge mit der Waffe, die jetzt in der Hand liegt (Waffenwechsel im Fenster).
+      if (h.waffe !== waffe) continue;
       if (best === null || Math.abs(h.spitze - jetzt) < Math.abs(best.spitze - jetzt)) best = h;
     }
     return best;

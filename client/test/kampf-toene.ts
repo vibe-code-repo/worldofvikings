@@ -384,6 +384,36 @@ console.log('\n[12] N1: schnelle Kombo, Treffer gehört zum nächstliegenden Hie
   pruefe('zwei Klicks kurz hintereinander, ein Paket: es klingt einmal', u.length === 1, JSON.stringify(u));
 }
 
+console.log('\n[12b] N2: Waffenwechsel im Fenster mischt die Sätze nicht (Nachangriff P4/P5):');
+{
+  const a = aufbau('');
+  a.klick('faust', 0);
+  a.setzeWaffe('SwordNorth');
+  a.uhr.bis(0.05);
+  a.klick('schwert', 0);
+  a.uhr.bis(0.08);
+  a.k.treffer({ x: 13, y: 1, z: 10 }, TREFFER_FLEISCH, true);
+  a.uhr.bis(1);
+  const t = ohneSchwung(a.spuren);
+  pruefe('P4: Schwerttreffer nach Faustschlag: sword-flesh, nicht punch', t.length === 1 && t[0]!.gruppe === 'combat/sword-flesh', JSON.stringify(t.map((x) => x.gruppe)));
+  const b = aufbau('SwordNorth');
+  b.klick('schwert', 0);
+  b.setzeWaffe('');
+  b.uhr.bis(0.05);
+  b.klick('faust', 0);
+  b.uhr.bis(0.08);
+  b.k.treffer({ x: 12.5, y: 1, z: 10 }, TREFFER_FLEISCH, true);
+  const u = ohneSchwung(b.spuren);
+  pruefe('P5: Fausttreffer nach Schwerthieb: punch, sofort (nicht stumm/verzögert)', u.length === 1 && u[0]!.gruppe === 'combat/punch' && Math.abs(u[0]!.zeit - 0.08) < 1e-6, JSON.stringify(u.map((x) => x.gruppe + '@' + x.zeit)));
+  const c = aufbau('SwordNorth');
+  c.klick('schwert', 0);
+  c.setzeWaffe('Spear');
+  c.uhr.bis(0.05);
+  c.k.treffer({ x: 13, y: 1, z: 10 }, TREFFER_FLEISCH, true);
+  c.uhr.bis(1);
+  pruefe('Waffe gewechselt, noch kein neuer Schlag: schlichtes sword-flesh, sofort', ohneSchwung(c.spuren).length === 1 && ohneSchwung(c.spuren)[0]!.gruppe === 'combat/sword-flesh');
+}
+
 console.log('\n[13] N1: Hiebzeit kommt aus dem Rig, nicht aus einer Tabelle (Befund B4):');
 {
   const norm = [0, 1, 2].map((h) => hiebSpitzeS(h, 2.5));

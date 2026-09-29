@@ -100,6 +100,12 @@ export const STANDARD_DROSSEL: ReadonlyMap<PacketType, DrosselKonfiguration> = n
   // nacheinander bestätigen), die Füllrate 2/s lässt kein Dauerfeuer zu.
   [PacketType.Craft, { eimergroesse: 5, fuellrateProSekunde: 2 }],
 
+  // Equip (Waffe anlegen/ablegen): eine Hotbar-Taste oder ein Doppelklick
+  // je Wechsel. Stoss 6 deckt schnelles Durchschalten der Leiste, 3/s ist
+  // mehr als ein Mensch dauerhaft wechselt. Jedes Equip loest genau eine
+  // Antwort aus, also bremst das auch den Rueckkanal.
+  [PacketType.Equip, { eimergroesse: 6, fuellrateProSekunde: 3 }],
+
   // Interact (Taste E) wird wie Attack oft schnell hintereinander
   // gedrückt (Ernten, Türen, Altar), hat aber anders als Attack keinen
   // clientseitigen Animations-Cooldown, der es von sich aus bremst.

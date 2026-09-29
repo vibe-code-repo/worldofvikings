@@ -46,6 +46,8 @@ import type { Fraktion, NpcDef, NpcRolle, QuestZustand } from '@wov/shared';
 import { MODELL_ALIAS } from '../engine/AssetManager';
 import { SKALA_MAX, SKALA_MIN } from './testflug/vorschauZeichnen';
 import { ladeSerie, speichereSerie } from './testflug/greifen';
+import { t } from './i18n';
+import type { TranslationKey } from '../i18n';
 
 export interface SpawnEinstellung {
   prefab: string;
@@ -92,25 +94,36 @@ export interface SpawnPanelCallbacks {
 }
 
 /** Anzeigetexte der Listen aus shared/npc.ts (unbekanntes zeigt sich roh). */
-const ROLLE_TEXT: Readonly<Record<string, string>> = {
-  zivil: 'Zivil',
-  quest: 'Quest-Geber',
-  haendler: 'Händler',
-  monster: 'Monster',
+const ROLLE_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
+  zivil: 'testflug.spawn.rolle.zivil',
+  quest: 'testflug.spawn.rolle.quest',
+  haendler: 'testflug.spawn.rolle.haendler',
+  monster: 'testflug.spawn.rolle.monster',
 };
-const FRAKTION_TEXT: Readonly<Record<string, string>> = {
-  neutral: 'Neutral',
-  wikinger: 'Wikinger',
-  sachsen: 'Sachsen',
-  wild: 'Wild (Tiere)',
-  muspel: 'Muspel (Feuer)',
+const FRAKTION_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
+  neutral: 'testflug.spawn.fraktion.neutral',
+  wikinger: 'testflug.spawn.fraktion.wikinger',
+  sachsen: 'testflug.spawn.fraktion.sachsen',
+  wild: 'testflug.spawn.fraktion.wild',
+  muspel: 'testflug.spawn.fraktion.muspel',
 };
-const QUEST_TEXT: Readonly<Record<string, string>> = {
-  keine: 'keine',
-  verfuegbar: 'verfügbar (?)',
-  laeuft: 'läuft',
-  fertig: 'fertig (!)',
+const QUEST_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
+  keine: 'testflug.spawn.quest.keine',
+  verfuegbar: 'testflug.spawn.quest.verfuegbar',
+  laeuft: 'testflug.spawn.quest.laeuft',
+  fertig: 'testflug.spawn.quest.fertig',
 };
+
+/**
+ * N1 (Angriff „Editor T0a", Befund B5): vorher wurden `ROLLE_TEXT` u. a. als
+ * `const … = Object.fromEntries(…, t(v))` beim MODUL-Laden gebaut — vor
+ * jeder Sprachwahl der Sitzung. `schluesselText()` übersetzt jetzt erst beim
+ * Aufruf (aus dem Panel-Konstruktor, s. u.), also mit der Sprache, die zu dem
+ * Zeitpunkt gilt.
+ */
+function schluesselText(schluessel: Readonly<Record<string, TranslationKey>>): Readonly<Record<string, string>> {
+  return Object.fromEntries(Object.entries(schluessel).map(([k, v]) => [k, t(v)]));
+}
 
 /**
  * Pfad zum Vorschaubild eines eigenen Modells (tools/vorschaubilder.py),
@@ -165,14 +178,19 @@ function eigeneZuerst(namen: readonly string[]): string[] {
  */
 const STORE_NAMEN_MENGE: ReadonlySet<string> = new Set(STORE_MODELL_NAMEN);
 
-const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
+/**
+ * N1 (Befund B5, wie oben): `nameSchluessel` statt eines beim Modul-Laden
+ * schon übersetzten `name` — `t()` läuft erst am Aufbau der Auswahl (Panel-
+ * Konstruktor), mit der zu dem Zeitpunkt aktiven Sprache.
+ */
+const KATEGORIEN: ReadonlyArray<{ nameSchluessel: TranslationKey; namen: () => string[] }> = [
   // Zuerst, und damit die Vorgabe beim Öffnen: die kurze Liste der selbst
   // erzeugten Modelle. In den anderen Kategorien gehen sie zwischen
   // hunderten Einträgen unter (die Liste zeigt nur die ersten 80).
   // Nicht vorhandene Namen werden gefiltert, damit ein Eintrag ohne
   // passende GLB die Auswahl nicht mit einer toten Zeile verstopft.
   {
-    name: 'Eigene Modelle',
+    nameSchluessel: 'testflug.spawn.kategorie.eigene_modelle',
     namen: () =>
       EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n) && !STORE_NAMEN_MENGE.has(n)),
   },
@@ -188,11 +206,14 @@ const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
     Gruppe geordnet (`environment-sm-prop-barrel-…`), ein „barrel" im
     Suchfeld holt also das ganze Fach.
   */
-  { name: 'Asset-Speicher', namen: () => [...STORE_MODELL_NAMEN] },
-  { name: 'Vegetation', namen: () => eigeneZuerst([...new Set(FOLIAGE.map((f) => f.prefabName))]) },
-  { name: 'Bauteile', namen: () => eigeneZuerst([...BAU_PREFABS]) },
+  { nameSchluessel: 'testflug.spawn.kategorie.asset_speicher', namen: () => [...STORE_MODELL_NAMEN] },
   {
-    name: 'Alle (mit Modell)',
+    nameSchluessel: 'testflug.spawn.kategorie.vegetation',
+    namen: () => eigeneZuerst([...new Set(FOLIAGE.map((f) => f.prefabName))]),
+  },
+  { nameSchluessel: 'testflug.spawn.kategorie.bauteile', namen: () => eigeneZuerst([...BAU_PREFABS]) },
+  {
+    nameSchluessel: 'testflug.spawn.kategorie.alle_mit_modell',
     namen: () =>
       eigeneZuerst([...PREFABS_BY_NAME.values()].filter((d) => d.model).map((d) => d.name)),
   },
@@ -292,7 +313,7 @@ export class SpawnPanel {
       e.stopPropagation();
     });
     const titel = document.createElement('div');
-    titel.textContent = '✦ Spawn-Editor';
+    titel.textContent = t('testflug.spawn.titel');
     titel.style.cssText = 'font-size:15px;color:#e8d48a;margin-bottom:6px;';
     this.root.appendChild(titel);
 
@@ -302,7 +323,7 @@ export class SpawnPanel {
     KATEGORIEN.forEach((k, i) => {
       const o = document.createElement('option');
       o.value = String(i);
-      o.textContent = k.name;
+      o.textContent = t(k.nameSchluessel);
       kat.appendChild(o);
     });
     kat.onchange = () => {
@@ -312,7 +333,7 @@ export class SpawnPanel {
     this.root.appendChild(kat);
 
     const suche = document.createElement('input');
-    suche.placeholder = 'Suchen … (z. B. birke, fels, grab)';
+    suche.placeholder = t('testflug.spawn.suchen_platzhalter');
     suche.style.cssText = this.feldStil();
     let sucheTimer: number | null = null;
     suche.oninput = () => {
@@ -339,7 +360,7 @@ export class SpawnPanel {
     this.root.appendChild(this.gesperrtZeile);
 
     // Drehung
-    this.root.appendChild(this.label('Drehung'));
+    this.root.appendChild(this.label(t('testflug.spawn.drehung')));
     const drehZeile = document.createElement('div');
     drehZeile.style.cssText = 'display:flex;gap:6px;align-items:center;';
     const dreh = document.createElement('input');
@@ -349,14 +370,14 @@ export class SpawnPanel {
     dreh.value = '0';
     dreh.style.cssText = 'flex:1;';
     const drehWert = document.createElement('span');
-    drehWert.textContent = 'zufällig';
+    drehWert.textContent = t('testflug.spawn.zufaellig');
     drehWert.style.cssText = 'width:58px;font-size:11px;';
     const zufall = document.createElement('input');
     zufall.type = 'checkbox';
     zufall.checked = true;
     const drehAktualisieren = (): void => {
       this.einstellung.yaw = zufall.checked ? null : (Number(dreh.value) * Math.PI) / 180;
-      drehWert.textContent = zufall.checked ? 'zufällig' : `${dreh.value}°`;
+      drehWert.textContent = zufall.checked ? t('testflug.spawn.zufaellig') : `${dreh.value}°`;
     };
     dreh.oninput = () => {
       zufall.checked = false;
@@ -367,8 +388,8 @@ export class SpawnPanel {
     this.root.appendChild(drehZeile);
 
     // Abstand + Größe
-    this.root.appendChild(this.schieber('Abstand (m)', 2, 20, 4, 1, (v) => (this.einstellung.abstand = v)));
-    this.root.appendChild(this.schieber('Größe', SKALA_MIN, SKALA_MAX, 1, 0.1, (v) => (this.einstellung.scale = v)));
+    this.root.appendChild(this.schieber(t('testflug.spawn.abstand_m'), 2, 20, 4, 1, (v) => (this.einstellung.abstand = v)));
+    this.root.appendChild(this.schieber(t('testflug.spawn.groesse'), SKALA_MIN, SKALA_MAX, 1, 0.1, (v) => (this.einstellung.scale = v)));
 
     // ── Untergrund einebnen ──────────────────────────────────────────
     // Rein manuell: Der Haken gilt für die folgenden Platzierungen der
@@ -381,7 +402,7 @@ export class SpawnPanel {
     sockel.checked = this.einstellung.einebnen;
     sockel.onchange = () => (this.einstellung.einebnen = sockel.checked);
     const sockelTxt = document.createElement('span');
-    sockelTxt.textContent = 'Untergrund einebnen (manuell, für große Bauwerke)';
+    sockelTxt.textContent = t('testflug.spawn.untergrund_einebnen');
     sockelTxt.style.cssText = 'font-size:11px;color:#9a8f6a;';
     sockelZeile.append(sockel, sockelTxt);
     this.root.appendChild(sockelZeile);
@@ -399,7 +420,7 @@ export class SpawnPanel {
       serie.blur();
     };
     const serieTxt = document.createElement('span');
-    serieTxt.textContent = 'Serie (mehrere hintereinander setzen; Esc/Rechtsklick beendet, Alt+Klick greift)';
+    serieTxt.textContent = t('testflug.spawn.serie');
     serieTxt.style.cssText = 'font-size:11px;color:#9a8f6a;';
     serieZeile.append(serie, serieTxt);
     this.root.appendChild(serieZeile);
@@ -412,11 +433,11 @@ export class SpawnPanel {
     this.npcBlock.style.cssText =
       'display:none;margin-top:8px;padding-top:6px;border-top:1px solid #3a3325;';
     const npcTitel = document.createElement('div');
-    npcTitel.textContent = '👤 Figur (gewählte Platzierung)';
+    npcTitel.textContent = t('testflug.spawn.npc.titel');
     npcTitel.style.cssText = 'font-size:12px;color:#e8d48a;margin-bottom:2px;';
     this.npcBlock.appendChild(npcTitel);
 
-    this.npcBlock.appendChild(this.label('Name'));
+    this.npcBlock.appendChild(this.label(t('testflug.spawn.npc.name')));
     this.npcName = document.createElement('input');
     this.npcName.maxLength = NPC_NAME_MAX;
     this.npcName.style.cssText = this.feldStil();
@@ -426,10 +447,10 @@ export class SpawnPanel {
     this.npcName.onchange = () => this.npcSchreiben();
     this.npcBlock.appendChild(this.npcName);
 
-    this.npcRolle = this.npcAuswahl('Rolle', NPC_ROLLEN, ROLLE_TEXT);
-    this.npcFraktion = this.npcAuswahl('Fraktion', FRAKTIONEN, FRAKTION_TEXT);
+    this.npcRolle = this.npcAuswahl(t('testflug.spawn.npc.rolle'), NPC_ROLLEN, schluesselText(ROLLE_SCHLUESSEL));
+    this.npcFraktion = this.npcAuswahl(t('testflug.spawn.npc.fraktion'), FRAKTIONEN, schluesselText(FRAKTION_SCHLUESSEL));
 
-    this.npcBlock.appendChild(this.label('Stufe'));
+    this.npcBlock.appendChild(this.label(t('testflug.spawn.npc.stufe')));
     this.npcStufe = document.createElement('input');
     this.npcStufe.type = 'number';
     this.npcStufe.min = String(NPC_STUFE_MIN);
@@ -444,13 +465,14 @@ export class SpawnPanel {
     // wäre eine Angabe, die nirgends gelesen wird (s. questZeichen).
     this.npcQuestZeile = document.createElement('div');
     this.npcQuestZeile.style.cssText = 'display:none;';
-    this.npcQuestZeile.appendChild(this.label('Quest-Zustand'));
+    this.npcQuestZeile.appendChild(this.label(t('testflug.spawn.npc.quest_zustand')));
     this.npcQuest = document.createElement('select');
     this.npcQuest.style.cssText = this.feldStil();
+    const questText = schluesselText(QUEST_SCHLUESSEL);
     for (const q of QUEST_ZUSTAENDE) {
       const o = document.createElement('option');
       o.value = q;
-      o.textContent = QUEST_TEXT[q] ?? q;
+      o.textContent = questText[q] ?? q;
       this.npcQuest.appendChild(o);
     }
     this.npcQuest.onchange = () => this.npcSchreiben();
@@ -459,8 +481,7 @@ export class SpawnPanel {
 
     const npcTip = document.createElement('div');
     npcTip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:4px;';
-    npcTip.textContent =
-      'Leer gelassene Felder erben die Vorgabe des Prefabs. Andere Figur bearbeiten: in der Welt anklicken.';
+    npcTip.textContent = t('testflug.spawn.npc.tip');
     this.npcBlock.appendChild(npcTip);
     this.root.appendChild(this.npcBlock);
 
@@ -472,7 +493,7 @@ export class SpawnPanel {
       this.zeitAngehalten = false;
       const start = Math.round((this.cb.zeit?.() ?? 12) * 10) / 10;
       this.root.appendChild(
-        this.schieber('Tageszeit (h)', 0, 24, start, 0.25, (v) => {
+        this.schieber(t('testflug.spawn.tageszeit_h'), 0, 24, start, 0.25, (v) => {
           this.zeitAngehalten = true;
           this.cb.setzeZeit?.(v, true);
           if (this.laufKasten) this.laufKasten.checked = false;
@@ -489,7 +510,7 @@ export class SpawnPanel {
       };
       this.laufKasten = kasten;
       const txt = document.createElement('span');
-      txt.textContent = 'Zeit läuft weiter';
+      txt.textContent = t('testflug.spawn.zeit_laeuft_weiter');
       txt.style.cssText = 'font-size:11px;color:#9a8f6a;';
       zeile.append(kasten, txt);
       this.root.appendChild(zeile);
@@ -498,8 +519,8 @@ export class SpawnPanel {
     // Aktionen
     const aktionen = document.createElement('div');
     aktionen.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
-    aktionen.appendChild(this.knopf('Platzieren (P)', () => this.cb.platzieren()));
-    aktionen.appendChild(this.knopf('↩ Letztes weg', () => {
+    aktionen.appendChild(this.knopf(t('testflug.spawn.platzieren_p'), () => this.cb.platzieren()));
+    aktionen.appendChild(this.knopf(t('testflug.spawn.letztes_weg'), () => {
       this.cb.entferneLetztes();
       this.aktualisiere();
     }));
@@ -511,10 +532,7 @@ export class SpawnPanel {
 
     const tip = document.createElement('div');
     tip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:4px;';
-    tip.textContent =
-      'Eintrag anklicken startet die Platzierung (Geist an der Maus). Klick/P setzt einmal ' +
-      'und beendet sie; für ein weiteres Exemplar den Eintrag erneut anklicken. ' +
-      'Abbruch: erneuter Klick, Esc oder Rechtsklick.';
+    tip.textContent = t('testflug.spawn.tip');
     this.root.appendChild(tip);
 
     document.body.appendChild(this.root);
@@ -693,7 +711,7 @@ export class SpawnPanel {
         zeile.appendChild(bild);
       }
       const text = document.createElement('span');
-      text.textContent = gesperrt ? `${name} — kein eigenes Modell` : name;
+      text.textContent = gesperrt ? t('testflug.spawn.kein_eigenes_modell', { name }) : name;
       zeile.appendChild(text);
       // Zwei Markierungen: kräftig hinterlegt = Platzier-Modus AKTIV,
       // nur Randstreifen = bloße Vorauswahl (localStorage) ohne Modus.
@@ -711,10 +729,7 @@ export class SpawnPanel {
       if (gesperrt) {
         // Der Grund im Klartext, an der Zeile selbst — sonst bleibt nur
         // die Vermutung, der Editor sei kaputt.
-        zeile.title =
-          `${name} steht nicht in EIGENE_MODELLE (shared/src/prefabs.ts) und gehört seit ` +
-          'Block A nicht mehr in die Welt: Der Client hat kein Modell dafür, und ' +
-          'pruefeLayout weist die Platzierung beim Start des Servers ab.';
+        zeile.title = t('testflug.spawn.gesperrt_titel', { name });
         this.liste.appendChild(zeile);
         continue;
       }
@@ -739,13 +754,13 @@ export class SpawnPanel {
     const gesamt = gefiltert.length;
     if (gesamt > treffer.length) {
       const mehr = document.createElement('div');
-      mehr.textContent = `… und ${gesamt - treffer.length} weitere — Suche verfeinern`;
+      mehr.textContent = t('testflug.spawn.weitere', { n: gesamt - treffer.length });
       mehr.style.cssText = 'padding:2px 6px;color:#9a8f6a;font-style:italic;';
       this.liste.appendChild(mehr);
     }
     if (treffer.length === 0) {
       const leer = document.createElement('div');
-      leer.textContent = 'keine Treffer';
+      leer.textContent = t('testflug.spawn.keine_treffer');
       leer.style.cssText = 'padding:4px 6px;color:#9a8f6a;';
       this.liste.appendChild(leer);
     }
@@ -753,7 +768,7 @@ export class SpawnPanel {
     this.gesperrtZeile.textContent =
       gesperrtGesamt === 0
         ? ''
-        : `${gesperrtGesamt} von ${gesamt} ohne eigenes Modell — grau, nicht platzierbar.`;
+        : t('testflug.spawn.gesperrt_zeile', { gesperrt: gesperrtGesamt, gesamt });
   }
 
   aktualisiere(): void {
@@ -761,10 +776,10 @@ export class SpawnPanel {
     // dann, wenn das hier gerufen wird (Greifen, Setzen, Löschen).
     this.npcAktualisiere();
     this.zaehler.textContent =
-      `${this.cb.anzahl()} Platzierung(en) im Entwurf — ` +
+      t('testflug.spawn.zaehler', { n: this.cb.anzahl() }) +
       (this.modusAktiv
-        ? `platziert: ${this.einstellung.prefab}`
-        : `Vorauswahl: ${this.einstellung.prefab} (Klick in der Liste aktiviert)`);
+        ? t('testflug.spawn.zaehler_platziert', { prefab: this.einstellung.prefab })
+        : t('testflug.spawn.zaehler_vorauswahl', { prefab: this.einstellung.prefab }));
   }
 
   /** Nur im aktiven Modus darf irgendein Pfad (Klick, P, Knopf) setzen. */

@@ -114,6 +114,8 @@ export interface SavedPlayer {
   klasse?: string;
   starterSetGranted?: string;
   ruestung?: string;
+  /** Getragene Waffe (Kampfkern K2a), Name des Gegenstands; fehlt bei Altstaenden = Faust. */
+  waffe?: string;
 }
 
 export interface WorldSaveData {

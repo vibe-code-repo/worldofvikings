@@ -1939,16 +1939,23 @@ export class WovServer {
       let anzahl = 0;
       const gesendet = this.sendePuffer;
       gesendet.length = 0;
-      // F2: Prüfdeckel mit Cursor. Ab `start` höchstens SYNC_PRUEFUNGEN_MAX
-      // ZDOs ansehen; schneidet der Deckel mitten im Fenster ab, macht der
-      // nächste Tick dort weiter (sonst verhungerten die hinteren Ringe).
-      // Bei Fenstern bis zum Deckel ändert sich gegenüber vorher nichts: Es
-      // wird von vorn geprüft, nah zuerst.
-      let start = peer.fenster.cursor;
-      if (start >= fenster.length) start = 0;
-      const ende = Math.min(fenster.length, start + SYNC_PRUEFUNGEN_MAX);
-      let naechsterStart = ende >= fenster.length ? 0 : ende; // Deckel oder Fensterende
-      for (let i = start; i < ende; i++) {
+      // F2: Der NAHE Teil des Fensters (Ring <= SYNC_NAH_RING) wird jeden Tick
+      // vollständig geprüft und hat im Budget Vorrang: Dort laufen die
+      // Kreaturen und Mitspieler, deren Aktualisierung man sieht. Der FERNE
+      // Rest bekommt den Prüfdeckel: ab dem Cursor höchstens
+      // SYNC_PRUEFUNGEN_MAX ZDOs, danach macht der nächste Tick dort weiter
+      // (sonst verhungerten die hinteren Ringe). Je Tick werden also höchstens
+      // nahEnde + SYNC_PRUEFUNGEN_MAX ZDOs angesehen. Bei Fenstern bis zum
+      // Deckel wird von vorn geprüft, wie vor F2.
+      const nahEnde = Math.min(peer.fenster.nahEnde, fenster.length);
+      let ferneStart = nahEnde + peer.fenster.cursor;
+      if (ferneStart >= fenster.length) ferneStart = nahEnde;
+      const ende = Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX);
+      // Cursor für den nächsten Tick: Deckel (ende) oder Fensterende (0).
+      let naechsterCursor = ende >= fenster.length ? 0 : ende - nahEnde;
+      for (let i = 0; i < ende; i++) {
+        if (i === nahEnde) i = Math.max(i, ferneStart); // nahen Teil fertig: zum Cursor springen
+        if (i >= ende) break;
         const zdo = fenster[i]!;
         const stand = peer.syncStand(zdo.zdoid);
         if (
@@ -1958,24 +1965,28 @@ export class WovServer {
         ) {
           continue; // Peer ist auf Stand
         }
-        // Budget VOR der Arbeit: Ist es schon erreicht, wird dieses ZDO gar
-        // nicht erst geschrieben (es bleibt schmutzig und geht im nächsten
-        // Tick raus). Das erste ZDO des Pakets darf das Budget überschreiten:
-        // sonst käme ein übergroßer Vollstand nie an. Ein Paket ist damit
-        // höchstens Budget + ein Satz groß.
+        // Ist das Budget erreicht, wird dieses ZDO nicht mehr geschrieben (es
+        // bleibt schmutzig und geht im nächsten Tick raus). Das erste ZDO des
+        // Pakets darf das Budget überschreiten, sonst käme ein übergroßer
+        // Vollstand nie an. Ein Paket ist damit höchstens Budget + ein Satz
+        // groß. (Das ist dasselbe Verhalten wie die Prüfung nach dem Schreiben
+        // vor F2 — die Pakete sind byte-gleich; die Stelle steht hier, weil
+        // der Cursor den Index des ersten ungeschriebenen ZDOs braucht.)
         if (anzahl > 0 && writer.geschrieben >= budget) {
-          // Nächster Tick setzt bei diesem ZDO an. Steht es noch im vorderen
-          // Teil des Fensters, lieber von vorn (nah zuerst, wie vor F2); liegt
-          // es hinter dem halben Deckel, würde ein Neustart bei 0 den Deckel
-          // vor dem ZDO aufbrauchen — dann genau hier weitermachen.
-          naechsterStart = i < SYNC_PRUEFUNGEN_MAX / 2 ? 0 : i;
+          // Im nahen Teil bleibt der Cursor stehen (der nahe Teil wird ohnehin
+          // nächsten Tick wieder von vorn geprüft). Im fernen Teil: steht das
+          // ZDO noch im vorderen Teil, lieber von vorn (nah zuerst); liegt es
+          // hinter dem halben Deckel, würde ein Neustart den Deckel vor dem
+          // ZDO aufbrauchen — dann genau hier weitermachen.
+          if (i < nahEnde) naechsterCursor = peer.fenster.cursor;
+          else naechsterCursor = i - nahEnde < SYNC_PRUEFUNGEN_MAX / 2 ? 0 : i - nahEnde;
           break;
         }
         this.writeZDO(writer, zdo, stand?.dataRevision, peer);
         anzahl++;
         gesendet.push(zdo);
       }
-      peer.fenster.cursor = naechsterStart;
+      peer.fenster.cursor = naechsterCursor;
 
       if (anzahl === 0 && zerstoerungen.length === 0) continue;
       writer.patchInt32(zaehlerStelle, anzahl);
@@ -3049,7 +3060,6 @@ export class WovServer {
 
     const zdo = this.zdosVon(peer).createZDO(prefabHash, pos, rot);
     zdo.setInt('spieler', 1);
-    this.zdosVon(peer).registriereSpielerbau(zdo);
     // Besitzer festhalten — nur der Erbauer darf abreißen (Review-Punkt 4).
     zdo.setString('besitzer', peer.userId.toString());
     zdo.revision.reviseData();

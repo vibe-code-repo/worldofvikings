@@ -137,8 +137,6 @@ export class ZDOManager {
 
   /** Create a ZDO with a specific ZDOID (for loading from persistence). */
   createZDOWithID(zdoid: ZDOID, prefabHash: Hash, position: Vector3, rotation: Quaternion): ZDO {
-    // Der Aufrufer setzt die Member erst danach: Index beim nächsten Zugriff neu bauen.
-    this.spielerBautenIndex = null;
     const zdo = new ZDO(zdoid, prefabHash, position, rotation);
     zdo.zone = worldToZone(position);
     zdo.isNew = false;
@@ -166,7 +164,6 @@ export class ZDOManager {
    * ever handed out monotonically). Returns the restored count.
    */
   restoreFromSnapshots(snapshots: ReadonlyArray<Record<string, unknown>>): number {
-    this.spielerBautenIndex = null;
     let count = 0;
     for (const data of snapshots) {
       const zdo = ZDO.fromSnapshot(data);
@@ -353,11 +350,12 @@ export class ZDOManager {
    * Die Spielerbauten dieser Welt (ZDOs mit `spieler` = 1), ohne Kopie und
    * ohne Vollscan ab dem zweiten Aufruf. Nur lesend verwenden.
    *
-   * Der Index wird beim ersten Aufruf aus allen ZDOs gebaut und danach von
-   * `registriereSpielerbau` und dem Abriss (`destroyZDO`) nachgeführt. Wer ein
-   * ZDO NEU mit `spieler` = 1 versieht, muss es registrieren (heute nur
-   * `handlePlacePiece`); geladene Stände holt der Neuaufbau nach
-   * `restoreFromSnapshots` / `createZDOWithID`.
+   * Der Index wird beim ersten Aufruf aus allen ZDOs gebaut und danach an EINER
+   * Stelle nachgeführt: Jedes aufgenommene ZDO meldet Schreibzugriffe auf sein
+   * Member `spieler` (`ZDO.beiSpielerMember`), und beim Aufnehmen (Erzeugen,
+   * Laden) wird ein bereits gesetztes `spieler` = 1 gelesen. Der Index ist eine
+   * Obermenge (auch `spieler` = 0 kann drin stehen); das Prädikat prüft der
+   * Aufrufer beim Durchlaufen. Der Abriss (`destroyZDO`) nimmt ZDOs heraus.
    */
   spielerbauten(): ReadonlySet<ZDO> {
     if (!this.spielerBautenIndex) {
@@ -370,10 +368,10 @@ export class ZDOManager {
     return this.spielerBautenIndex;
   }
 
-  /** Ein ZDO, das eben `spieler` = 1 bekommen hat, in den Index aufnehmen. */
-  registriereSpielerbau(zdo: ZDO): void {
+  /** Vom ZDO gemeldet, wenn sein Member `spieler` geschrieben wird. */
+  private readonly merkeSpielerbau = (zdo: ZDO): void => {
     this.spielerBautenIndex?.add(zdo);
-  }
+  };
 
   /** Get persistent ZDOs only (for world save). */
   getPersistentZDOs(): ZDO[] {
@@ -383,12 +381,22 @@ export class ZDOManager {
   // ── Internal helpers ─────────────────────────────────────────────
 
   private _addToIDMap(zdo: ZDO): void {
-    this.objectsByID.set(zdo.zdoid.toString(), zdo);
+    const key = zdo.zdoid.toString();
+    const vorher = this.objectsByID.get(key);
+    if (vorher && vorher !== zdo) {
+      // Gleiche Kennung überschrieben (Laden in einen laufenden Manager): das alte ZDO ist raus.
+      this.spielerBautenIndex?.delete(vorher);
+      vorher.beiSpielerMember = null;
+    }
+    this.objectsByID.set(key, zdo);
+    zdo.beiSpielerMember = this.merkeSpielerbau;
+    if (this.spielerBautenIndex && zdo.getInt('spieler') === 1) this.spielerBautenIndex.add(zdo);
   }
 
   private _removeFromIDMap(zdo: ZDO): void {
     this.objectsByID.delete(zdo.zdoid.toString());
     this.spielerBautenIndex?.delete(zdo);
+    zdo.beiSpielerMember = null; // ein abgerissenes ZDO kommt nicht wieder in den Index
   }
 
   private _addToSector(zdo: ZDO): void {

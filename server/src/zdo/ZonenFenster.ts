@@ -35,17 +35,34 @@ import type { ZDOManager } from './ZDOManager.js';
  */
 export const SYNC_PRUEFUNGEN_MAX = 4096;
 
+/**
+ * Bis zu diesem Ring (Chebyshev-Abstand in Zonen, 0 = eigene Zone) prüft
+ * `syncZDOs` das Fenster JEDEN Tick vollständig; der Deckel und der Cursor
+ * gelten nur für den Rest. Ring 1 = 3×3 Zonen = 192 m um den Spieler: Dort
+ * laufen die Kreaturen und Mitspieler, deren 20-Hz-Aktualisierung man sieht
+ * (Interpolation überbrückt ein paar Ticks, aber nicht 2–5 s). Die Grenze
+ * hängt an der ENTFERNUNG, nicht an einer Eintragszahl: In einem dichten Dorf
+ * liegen mehr ZDOs darin, und genau das sind die, die man sieht.
+ */
+export const SYNC_NAH_RING = 1;
+
 export class ZonenFenster {
   /**
-   * Wo der nächste Tick mit dem Prüfen weitermacht (Index in der Fensterliste).
-   * 0 = von vorn (nah zuerst). `syncZDOs` setzt ihn, wenn der Deckel die
-   * Schleife mitten im Fenster abgeschnitten hat, und auf 0 zurück, sobald das
-   * Ende erreicht ist. Wechselt der Peer die Zone oder wird das Fenster
-   * verworfen, beginnt es wieder bei 0; ein Neuaufbau bei gleicher Zone lässt
-   * ihn stehen (die Liste bleibt ringweise geordnet, ein verschobener Index
-   * kostet höchstens eine Runde Verzögerung).
+   * Wo der nächste Tick im FERNEN Teil des Fensters (hinter `nahEnde`)
+   * weiterprüft, als Abstand ab `nahEnde`. 0 = ab dem ersten fernen Eintrag.
+   * `syncZDOs` setzt ihn, wenn der Deckel die Schleife mitten im fernen Teil
+   * abgeschnitten hat, und auf 0 zurück, sobald das Ende erreicht ist. Wechselt
+   * der Peer die Zone oder wird das Fenster verworfen, beginnt es wieder bei 0;
+   * ein Neuaufbau bei gleicher Zone lässt ihn stehen (die Liste bleibt
+   * ringweise geordnet, ein verschobener Index kostet höchstens eine Runde).
    */
   cursor = 0;
+  /**
+   * Anzahl der Einträge in den Zonen bis Ring `SYNC_NAH_RING`: der nahe Teil
+   * der Liste, der jeden Tick vollständig geprüft wird. Gilt für die Liste,
+   * die `hole` zuletzt geliefert hat.
+   */
+  nahEnde = 0;
   private zoneX = NaN;
   private zoneY = NaN;
   private radius = -1;
@@ -80,13 +97,17 @@ export class ZonenFenster {
     this.zoneX = zoneX;
     this.zoneY = zoneY;
     this.liste.length = 0;
+    // Die Ringpaare sind ringweise sortiert: die ersten (2r+1)² Zonen sind
+    // genau die bis Ring r.
+    const nahZonen = Math.min(anzahl, (2 * SYNC_NAH_RING + 1) ** 2);
+    this.nahEnde = 0;
     for (let i = 0; i < anzahl; i++) {
       const zx = zoneX + this.ringe[i * 2]!;
       const zy = zoneY + this.ringe[i * 2 + 1]!;
       this.gen[i] = zdos.zonenGeneration(zx, zy);
       const menge = zdos.zdosInZoneXY(zx, zy);
-      if (!menge) continue;
-      for (const zdo of menge) this.liste.push(zdo);
+      if (menge) for (const zdo of menge) this.liste.push(zdo);
+      if (i + 1 === nahZonen) this.nahEnde = this.liste.length;
     }
     return this.liste;
   }
@@ -106,6 +127,7 @@ export class ZonenFenster {
     this.zoneY = NaN;
     this.liste.length = 0;
     this.cursor = 0;
+    this.nahEnde = 0;
   }
 
   /**

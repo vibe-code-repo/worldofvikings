@@ -230,7 +230,13 @@ async function main(): Promise<void> {
       }
     });
     check('ZDOID.toString im Sync: 0 Aufrufe', toStringAufrufe === 0, `${toStringAufrufe} Aufrufe in ${gesamtTicks} Ticks`);
-    check(`geprüfte ZDOs je Tick ≤ N (${DECKEL})`, maxJeTick <= DECKEL, `max ${maxJeTick}`);
+    // Nahe Ringe werden jeden Tick vollständig geprüft; der Deckel gilt für den Rest.
+    const nahEnde = (peer.fenster as unknown as { nahEnde?: number }).nahEnde ?? 0;
+    check(
+      `geprüfte ZDOs je Tick ≤ N + nahe Ringe (${DECKEL} + ${nahEnde})`,
+      maxJeTick <= DECKEL + nahEnde,
+      `max ${maxJeTick}`
+    );
     check('das Fensterende wird trotzdem erreicht', summe >= fensterZahl, `${summe} Prüfungen ≥ ${fensterZahl}`);
 
     // Cursor auf den Anfang laufen lassen, damit das Hinterste der Worst Case ist.
@@ -269,12 +275,11 @@ async function main(): Promise<void> {
     const bauNamen = [...BAU_PREFABS];
     const besitzerA = '4711';
     const besitzerB = '4712';
-    const baue = (i: number, registrieren: boolean): ZDO => {
+    const baue = (i: number, _nachIndex: boolean): ZDO => {
       const hash = getStableHash(bauNamen[i % bauNamen.length]!);
       const z = zdos.createZDO(hash, { x: (i % 50) * 5, y: 0, z: Math.floor(i / 50) * 5 });
       z.setInt('spieler', 1);
       z.setString('besitzer', i % 2 === 0 ? besitzerA : besitzerB);
-      if (registrieren) zdos.registriereSpielerbau(z);
       return z;
     };
     // 300 Bauten VOR dem ersten Zählen (Index kommt aus dem Vollscan), ...
@@ -319,6 +324,70 @@ async function main(): Promise<void> {
       const zeitNeu = (performance.now() - t) / N;
       console.log(`  Login-Zählung bei ${zdos.getAllZDOs().length} ZDOs: alt ${zeitAlt.toFixed(2)} ms, neu ${zeitNeu.toFixed(3)} ms`);
     }
+  }
+
+  // ── [5] Nahe ZDOs behalten ihre 20-Hz-Aktualisierung (B1) ───────────────
+  console.log('\n[5] Nahe, sich jeden Tick ändernde Kreaturen:');
+  const fensterMitte = (nr: number): number => Math.round((20_000 + nr * 4_000) / 64) * 64; // Zonenmitte
+  /** `anzahl` ZDOs gleichverteilt im 9×9-Fenster um (mitte, mitte). */
+  function fuelleFenster(mitte: number, anzahl: number): void {
+    for (let i = 0; i < anzahl; i++) {
+      zdos.createZDO(kiPine, { x: mitte + (rnd() - 0.5) * 575, y: 0, z: mitte + (rnd() - 0.5) * 575 });
+    }
+  }
+  function konvergiere(peer: Peer, fenster: readonly ZDO[], maxTicks: number): number {
+    let t = 0;
+    while (t < maxTicks && !fenster.every((z) => peer.syncStand(z.zdoid) !== undefined)) {
+      tick();
+      t++;
+    }
+    return t;
+  }
+  let nr = 0;
+  for (const fensterGroesse of [5600, 10100, 22500]) {
+    const mitte = fensterMitte(nr++);
+    fuelleFenster(mitte, fensterGroesse);
+    const kreatur = zdos.createZDO(kiPine, { x: mitte + 20, y: 0, z: mitte + 20 });
+    const { peer } = neuerPeer(0, mitte, mitte);
+    peers.length = 0;
+    peers.push(peer);
+    const fenster = fensterVon(peer);
+    konvergiere(peer, fenster, 3000);
+    let aktualisiert = 0;
+    for (let t = 0; t < 300; t++) {
+      kreatur.setInt('t', t);
+      tick();
+      if (peer.syncStand(kreatur.zdoid)?.dataRevision === kreatur.revision.dataRevision) aktualisiert++;
+    }
+    // main: 300 von 300 (jeder Tick). Schranke = 95 % davon.
+    check(
+      `Fenster ${fenster.length}: nahe Kreatur aktualisiert in ≥ 95 % der 300 Ticks`,
+      aktualisiert >= 285,
+      `${aktualisiert}/300`
+    );
+  }
+
+  console.log('\n[5b] Langsamer Peer (Budget 2240 B), Fenster 9000, 20 nahe Kreaturen:');
+  {
+    const mitte = fensterMitte(nr++);
+    fuelleFenster(mitte, 10100);
+    const kreaturen: ZDO[] = [];
+    for (let i = 0; i < 20; i++) kreaturen.push(zdos.createZDO(kiPine, { x: mitte + i * 3, y: 0, z: mitte - i * 3 }));
+    const { peer } = neuerPeer(8000, mitte, mitte);
+    peers.length = 0;
+    peers.push(peer);
+    const letzte = new Array<number>(kreaturen.length).fill(0);
+    let maxLuecke = 0;
+    for (let t = 1; t <= 400; t++) {
+      kreaturen.forEach((k) => k.setInt('t', t));
+      tick();
+      kreaturen.forEach((k, i) => {
+        if (peer.syncStand(k.zdoid)?.dataRevision === k.revision.dataRevision) letzte[i] = t;
+        maxLuecke = Math.max(maxLuecke, t - letzte[i]!);
+      });
+    }
+    // Ab dem ersten Auftauchen zählen die Lücken; 1 s = 20 Ticks.
+    check('kein Tick-Fenster über 1 s (20 Ticks) ohne Aktualisierung', maxLuecke <= 20, `längste Lücke ${maxLuecke} Ticks`);
   }
 
   // ── Tick-Zeiten mit 25 Spielern (nur Ausgabe) ──────────────────────────

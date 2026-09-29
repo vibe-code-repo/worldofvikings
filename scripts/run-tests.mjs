@@ -916,6 +916,7 @@ const KERN = [
   ['client', 'test/loading-language.ts'],
   ['client', 'test/spielhost.ts'],
   ['client', 'test/menu-i18n.ts'],
+  ['client', 'test/audio-einstellungen.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
   // Funktion. Seit dem Abgleich per Eingabesequenz nicht mehr tot:

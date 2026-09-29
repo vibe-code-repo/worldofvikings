@@ -20,7 +20,7 @@
  * world check. No source found → not checkable (`null`), never an invented box.
  */
 import { PREFABS_BY_NAME } from '../prefabs.js';
-import { STORE_KATALOG_NACH_PREFAB } from '../storeKatalogDaten.js';
+import { STORE_HUELLE } from '../storeHuelleDaten.js';
 import { storeKollision } from '../storeKollisionDaten.js';
 import { boundsNachWeltraum, type StoreBounds } from '../storeKatalog.js';
 import { istFesterKoerper } from '../kollision/festeKoerper.js';
@@ -63,7 +63,7 @@ function ausBounds(b: StoreBounds, fest: boolean, gebaeude: boolean, quelle: Hue
 }
 
 function ausStore(prefab: string): Huelle | null {
-  const eintrag = STORE_KATALOG_NACH_PREFAB.get(prefab);
+  const eintrag = STORE_HUELLE.get(prefab);
   if (eintrag === undefined) return null;
   const kollision = storeKollision(prefab);
   const kiste = kollision?.art === 'box' ? kollision.box : undefined;

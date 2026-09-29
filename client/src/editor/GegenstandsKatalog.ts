@@ -222,13 +222,14 @@ interface Kategorie {
   dynamisch?: boolean;
 }
 
-/** Erklärungen der fünf Speicher-Arten — eine Zeile je Bereich. */
+/** Erklärungen der sechs Speicher-Arten — eine Zeile je Bereich. */
 const SPEICHER_HINWEIS: Readonly<Record<StoreArt, string>> = {
   Modelle: 'Alle GLBs des Speichers — Gebäude, Requisiten, Gegenstände, Umgebung, Fahrzeuge, Vegetation.',
   Texturen: 'Bilder des Speichers: Boden-Texturen der Landschaft und die Atlanten der Modelle.',
   Ton: 'Klänge des Speichers (Opus in .ogg) — anhören mit dem Abspieler, „Weiter" geht die Untergruppe durch.',
   Höhenfelder: 'Gelände-GLBs (terrain/) — dieselbe 3D-Vorschau wie bei Modellen, nur größer.',
   Kulisse: 'Horizontschalen und Wolken. Bis 600 m Spannweite — die Kamera rückt dafür weiter weg.',
+  Symbole: 'UI-Bilder des Speichers: HUD-Rahmen und Gegenstandssymbole (PNG) — keine 3D-Vorschau, kein Setzen in die Welt.',
 };
 
 /**
@@ -302,7 +303,7 @@ const KATEGORIEN: readonly Kategorie[] = [
     namen: () => MIT_MODELL.map((d) => d.name),
   },
   /*
-    Der Speicher als eigener Bereich — fünf Kategorien, eine je Art.
+    Der Speicher als eigener Bereich — eine Kategorie je Art in {@link STORE_ARTEN}.
 
     Sie stehen HINTEN und nicht vorn: Die Vorgabe-Kategorie bleibt
     „★ Eigene Modelle", wie sie es war. Wer den Katalog öffnet, um ein
@@ -2945,7 +2946,10 @@ export class GegenstandsKatalog {
       this.tonZeigen(eintrag, autoplay);
       return;
     }
-    if (eintrag.art === 'Texturen') {
+    if (eintrag.art === 'Texturen' || eintrag.art === 'Symbole') {
+      // Symbole (Bauer B1) sind PNGs wie Texturen — dieselbe flache
+      // Bildvorschau, keine 3D-Kiste. Eine eigene Art nur für die
+      // Beschriftung, nicht für den Anzeigeweg.
       this.texturZeigen(eintrag, nummer);
       return;
     }
@@ -3512,7 +3516,7 @@ export class GegenstandsKatalog {
         eintrag.kollision === 'box' ? 'Quader' : eintrag.kollision === 'mesh' ? 'Netz' : 'keine',
       ]);
     }
-    if (eintrag.art === 'Texturen') {
+    if (eintrag.art === 'Texturen' || eintrag.art === 'Symbole') {
       felder.push(['Abmessung', this.bildMasse ? `${this.bildMasse.breite} × ${this.bildMasse.hoehe} px` : '—']);
       if (eintrag.gruppe === 'Boden-Texturen') {
         // Die Bodentexturen liegen im Gelände auf einer festen Kachel;

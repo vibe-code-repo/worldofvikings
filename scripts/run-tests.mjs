@@ -2441,6 +2441,10 @@ const KERN = [
     Text, ~0.1 s.
   */
   ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
+  // Karte B1: Vollstaendigkeit der Ton- und Symbol-Abschnitte von
+  // assets/manifest.json (tools/asset-manifest.mjs) gegen den echten
+  // Bestand unter assets/store/audio bzw. assets/store/ui.
+  ['tools', 'test/manifest-ton-symbole.ts', brauchtModelle('assets/store/audio', 'assets/store/ui')],
   /*
     Karte W3-Reste (2026-09-28), U1-U3/N3/N5/N6/Punkt 10: Namensorakel ueber
     Unicode-Schreibweisen (Kelvin-Zeichen, Å/å), ungekuerzte Schluessel,

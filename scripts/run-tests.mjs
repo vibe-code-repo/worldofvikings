@@ -2681,6 +2681,12 @@ const KERN = [
     Uebersetzung der Servermeldung.
   */
   ['server', 'test/tod-treffer-n1.ts'],
+  /*
+    Die Wurzelbewegungs-Zeile in AssetManager.instantiate (Liegeclips fremder Koerper) am ECHTEN Pfad: echter AssetManager,
+    echter Koerper (v1), Bodenweg des Falls flach, Hoehenkeys wie im File. Braucht den echten Koerper, in der CI ohne Assets
+    uebersprungen.
+  */
+  ['client', 'test/tod-treffer-assetmanager.ts', brauchtModelle('assets/models/wikinger/WikingerKoerper.glb')],
   ['client', 'test/tod-treffer-meldung.ts'],
 ];
 

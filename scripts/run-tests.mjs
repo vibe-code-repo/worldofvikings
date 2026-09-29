@@ -2544,6 +2544,15 @@ const KERN = [
   ['server', 'test/z3n1-abschluss.ts'],
   ['admin', 'test/welt-bestaetigen-z3.ts'],
   /*
+    Wikingerin, Webkopien ueberdecken Spiel-Assets (2026-09-29): nginx liefert
+    /assets/ zuerst aus wov-web/static/assets/, sonst aus assets/ -- eine
+    getrackte Webkopie am selben relativen Pfad wie ein Eintrag in
+    assets/manifest.json versteckt die echte Spiel-Datei dauerhaft, egal ob
+    beide gleich sind. Keine echten Assets noetig (nur manifest.json), daher
+    ohne brauchtModelle. ~0.1 s.
+  */
+  ['tools', 'test/webkopien-ueberdeckung.ts'],
+  /*
     Kampftoene (client/src/engine/Audio/KampfToene.ts): Schwung zum
     Hiebzeitpunkt, Treffer/Parade nur mit HitEffect, Faust ohne Schwung,
     alle Gruppen im `toene`-Abschnitt der getrackten assets/manifest.json.

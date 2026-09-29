@@ -35,8 +35,10 @@ export function starterSetForClass(classId: string, figure: string) {
   return EQUIPMENT_SETS.find(set => 'starter' in set && canWearArmor(set.parts[0], figure));
 }
 
+const familyOf = (setId: string) => setId.replace(/_(male|female)$/, '');
+
 /** Stable set IDs, separate from asset revisions. This catalog grants no items. */
-export const EQUIPMENT_SETS = [
+const SET_ROWS = [
   { id: 'ironward', version: 3, name: 'Ironward', figure: 'wikinger', parts: IRONWARD_PARTS },
   { id: 'wildwarden', version: 3, name: 'Waldhüter', figure: 'wikinger', parts: WILDWARDEN_PARTS },
   { id: 'ashenveil', version: 1, name: 'Aschenschleier', figure: 'wikinger', parts: ASHENVEIL_PARTS },
@@ -53,7 +55,11 @@ export const EQUIPMENT_SETS = [
   { id: 'crowshade_female', version: 1, name: 'Crowshade', figure: 'wikingerin', parts: CROWSHADE_FEMALE_PARTS },
 ] as const;
 
-const familyOf = (setId: string) => setId.replace(/_(male|female)$/, '');
+/**
+ * `name` stays the internal identifier and the fallback text. The display name is the catalog text under
+ * `textKey` (`inhalt.set.<family>`, shared by the male and the female set), read with `inhaltText()`.
+ */
+export const EQUIPMENT_SETS = SET_ROWS.map(set => ({ ...set, textKey: `inhalt.set.${familyOf(set.id)}` }));
 const classIdOf = (setId: string) => {
   const classId = Object.entries(CLASS_EQUIPMENT_FAMILIES).find(([, family]) => family === familyOf(setId))?.[0];
   return classId === undefined ? {} : { classId };
@@ -76,7 +82,7 @@ export function equipmentSetCatalog() {
   return {
     schemaVersion: 1,
     sets: EQUIPMENT_SETS.map(set => ({
-      id: set.id, version: set.version, name: set.name, figure: set.figure,
+      id: set.id, version: set.version, name: set.name, textKey: set.textKey, figure: set.figure,
       familyId: familyOf(set.id),
       // A set without a class (Plainhide) has no `classId` key at all, so the object equals its own JSON.
       ...classIdOf(set.id),
@@ -86,7 +92,7 @@ export function equipmentSetCatalog() {
       appearance: Object.fromEntries(set.parts.map(part => [part.slot, part.id])),
       parts: set.parts.map(part => ({
         itemId: part.item, appearanceId: part.id,
-        name: part.name, equipmentSlot: part.equipment, appearanceSlot: part.slot,
+        name: part.name, textKey: part.textKey, equipmentSlot: part.equipment, appearanceSlot: part.slot,
         model: `${familyOf(set.id)}/${part.item}.glb`, icon: `${part.id}.png`, regions: part.regions,
         previewModel: `${femaleWebArmorFile(`${familyOf(set.id)}/${part.item}`) ?? `${familyOf(set.id)}/${part.item}`}.glb`,
         previewBodyProfile: set.figure === 'wikingerin' ? 'wov-female-v1' : 'wov-male-v1',

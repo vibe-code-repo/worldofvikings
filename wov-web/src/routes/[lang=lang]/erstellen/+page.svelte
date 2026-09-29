@@ -30,6 +30,7 @@
   import type { EquipmentSetCatalog } from '../../../../../shared/src/equipmentSets';
   import { CLASS_EQUIPMENT_FAMILIES } from '../../../../../shared/src/equipmentSets';
   import { canWearArmor } from '../../../../../shared/src/armorCompatibility';
+  import { inhaltText } from '../../../../../shared/src/texte';
 
   /**
    * Charaktererstellung — Auswahl, Vorschau und Übergabe an den Spielserver.
@@ -217,7 +218,8 @@
     Object.fromEntries(Object.entries(CLASS_EQUIPMENT_FAMILIES).flatMap(([classId, setId]) => {
       const set = daten?.equipmentSets?.find(entry => (entry.familyId ?? entry.id) === setId && canWearArmor(entry, figur));
       return set ? [[classId, {
-        name: set.name,
+        // Display name from the shared text catalog in the page language; `name` is only the fallback.
+        name: set.textKey ? inhaltText(set.textKey, lang) : set.name,
         teile: set.parts.map(part => ({
           // Same file as the game. The preview (tools/web/vorschau-web.ts)
           // loads this path directly -- unlike the game client, it has no

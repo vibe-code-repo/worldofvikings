@@ -81,6 +81,7 @@ import {
   zustand,
   type LayoutAbgleichErgebnis,
   type LayoutAbgleichKontext,
+  zdoDarfUebernommenWerden,
 } from './layoutAbgleich.js';
 
 /** Mehr als so viele entfernte Platzierungen wendet der Live-Abgleich nicht an. */
@@ -315,8 +316,14 @@ export function bootLoeschRegel(
       (p) => layoutId === p.id || layoutId === layoutKennung(p) || Math.hypot(zdo.position.x - p.x, zdo.position.z - p.z) <= SCHONZONE
     );
     if (geschont) continue;
-    // Der Boot übernimmt ein gleichartiges ZDO neben einer Platzierung (`TOLERANZ.naehe` in `layoutAbgleich`), er löscht es nicht.
-    if (ziele.some((t) => t.hash === zdo.prefabHash && Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < BOOT_UEBERNAHME_NAEHE)) continue;
+    // Der Boot übernimmt ein gleichartiges ZDO neben einer Platzierung (`TOLERANZ.naehe` in `layoutAbgleich`), er löscht es
+    // nicht — aber nur, wenn es übernommen werden DARF (alte Kennung, eigenes Prefab, `zdoDarfUebernommenWerden`): Ein ZDO
+    // mit id-förmiger Kennung, die im Dokument fehlt, ist eine Löschung, gleich wie nah die neue id steht.
+    if (
+      zdoDarfUebernommenWerden(zdo, kontext.prefabs) &&
+      ziele.some((t) => t.hash === zdo.prefabHash && Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < BOOT_UEBERNAHME_NAEHE)
+    )
+      continue;
     kandidaten.push({ id: layoutId, zdo });
   }
   const betroffen = [...new Set(kandidaten.map((k) => k.id))];

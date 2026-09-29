@@ -15,6 +15,15 @@
  *  MIGR   Spielstand von vor E1 (alte Kennungen `prefab@x,z`): der Boot stempelt um, es wird nichts gesperrt.
  *  ZWEI   zweiter Start mit vorhandener Sperre: kein "NEU", die Sperre bleibt byte-gleich.
  *
+ * Karte Z3 Folgen N1 (B1/B3):
+ *  R1     offline ALLE ids umbenannt (gleiches Prefab, gleiche Stelle) → Sperre, alte 46 stehen samt Truheninhalt.
+ *  R2     offline nur die Truhe bekommt eine neue id → Sperre (Zustand), Inhalt da.
+ *  R3     offline die Truhe 0,3 m daneben mit neuer id (Editor-Stil) → Sperre (Zustand), Inhalt da.
+ *  METER  offline ein id-loser Truheneintrag über eine Meterkante geschoben (abgeleitete id ändert sich) → Sperre.
+ *  ALTNAH Gegenprobe: alte Kennung `prefab@x,z` neben der Platzierung wird übernommen (keine Sperre).
+ *  ANTEIL 6 von 16 Bäumen (37 %, unter 20, kein Zustand) → Sperre `anteil`; ANZAHL 21 von 100 (21 %) → Sperre.
+ *  SCHREIB Sperrdatei nicht schreibbar + offline leeres Dokument → GESCHLOSSEN: alles steht, Inhalt da.
+ *
  * Lauf: npx tsx test/z3f-boot-schutz.ts   (aus server/)
  */
 import { spawn } from 'node:child_process';
@@ -82,7 +91,7 @@ const waechter = setInterval(() => {
 }, 500);
 waechter.unref();
 
-type Platz = { id: string; prefab: string; x: number; z: number };
+type Platz = { id?: string; prefab: string; x: number; z: number };
 function dokument(placements: Platz[]): Record<string, unknown> {
   return {
     version: 1,
@@ -290,10 +299,10 @@ const nurSperre = (inst: Instanz): { ids: string[]; grund: string } | null => {
   return s === null || s === 'kaputt' ? null : { ids: [...s.ids].sort(), grund: s.grund };
 };
 /** Spielstand aus `platz` erzeugen (Truhe bekommt Inhalt), speichern und den Server stoppen. */
-async function erzeuge(inst: Instanz, platz: Platz[], vorSpeichern?: (setup: ReturnType<typeof createWovServer>) => void): Promise<void> {
+async function erzeuge(inst: Instanz, platz: Platz[], vorSpeichern?: (setup: ReturnType<typeof createWovServer>) => void, truheId = 'kiste-h'): Promise<void> {
   schreibe(inst.layoutDatei, dokument(platz));
   const setup = materialisiere(inst, SEED);
-  setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-h')?.setString('truheInhalt', '[[Wood,9]]');
+  setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === truheId)?.setString('truheInhalt', '[[Wood,9]]');
   vorSpeichern?.(setup);
   setup.stop();
   await warte(300);
@@ -425,6 +434,118 @@ async function migration(): Promise<void> {
   check('MIGR alle 21 ZDOs stehen unter ihren neuen ids, keine Sperrdatei', save.size === 21 && save.has('kiste-h') && !existsSync(inst.loeschsperrePfad), `${save.size}`);
 }
 
+/** Offline geänderte Weltdatei → Start; liefert Sperre, Save und Boot-Ausgabe (Karte Z3 Folgen N1). */
+async function offlineFall(name: string, alt: Platz[], neu: Platz[], truheId = 'kiste-h'): Promise<{ inst: Instanz; ausgabe: string; save: Map<string, SaveSnapshotZdo> }> {
+  const inst = instanz(resolve(WURZEL, name), 'dev');
+  await erzeuge(inst, alt, undefined, truheId);
+  schreibe(inst.layoutDatei, dokument(neu));
+  const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+  const bereit = await lauf.warten();
+  check(`${name} Start wird bereit`, bereit.bereitErreicht, bereit.ausgabe.slice(-300));
+  const ende = await lauf.stoppen('SIGTERM');
+  check(`${name} Exit 0`, ende.code === 0, `Code ${ende.code}`);
+  await warte(200);
+  return { inst, ausgabe: bereit.ausgabe, save: saveLesen(inst.savePfad) };
+}
+const inhaltDa = (save: Map<string, SaveSnapshotZdo>, id: string): boolean => save.get(id)?.members[String(HASH_TRUHE)]?.v === '[[Wood,9]]';
+
+/** B1: dieselbe Stelle, neue id → der Boot zerstört das alte ZDO samt Inhalt: das ist eine Löschung und braucht die Sperre. */
+async function r1(): Promise<void> {
+  const alt = [...baeume(45), KISTE];
+  const { inst, save } = await offlineFall('R1', alt, alt.map((p) => ({ ...p, id: `n-${p.id}` })));
+  const sp = nurSperre(inst);
+  check('R1 Sperre nennt alle 46 alten ids', sp?.ids.length === 46 && sp.ids.includes('kiste-h') && sp.ids.includes('b0'), JSON.stringify(sp)?.slice(0, 120));
+  check('R1 die alte Truhe steht mit Inhalt, die neue ist leer', inhaltDa(save, 'kiste-h') && !inhaltDa(save, 'n-kiste-h') && save.has('n-kiste-h'), `${save.size}`);
+  check('R1 alle 46 alten ZDOs stehen', alt.every((p) => save.has(p.id!)));
+}
+async function r2(): Promise<void> {
+  const inst = instanz(resolve(WURZEL, 'R2'), 'dev');
+  await erzeuge(inst, [...baeume(20), KISTE]);
+  const hash = schreibe(inst.layoutDatei, dokument([...baeume(20), { ...KISTE, id: 'kiste-neu' }]));
+  const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+  const bereit = await lauf.warten();
+  check('R2 Start wird bereit', bereit.bereitErreicht, bereit.ausgabe.slice(-300));
+  const q0 = await warteAufQuittung(inst.quittungsPfad, hash);
+  check('R2 Quittung zeigt genau 1 gesperrtes Objekt', q0?.loeschsperre?.anzahl === 1, JSON.stringify(q0));
+  const sp = nurSperre(inst);
+  check('R2 Sperre nennt genau die alte Truhe (Zustand)', sp?.ids.join() === 'kiste-h' && sp.grund === 'zustand', JSON.stringify(sp));
+  // Erst nach dem Bestätigen gilt das alte Ergebnis: die alte Truhe ist weg, die neue bleibt leer.
+  const id = bestaetigenAnfrageSchreiben(bestaetigenAnfrageDatei(inst.worldsDir, inst.instanz), hash);
+  const erkannt = await warteBis(() => quittungLesen(inst.quittungsPfad)?.bestaetigung?.id === id);
+  check('R2 Bestätigen: 1 entfernt, Sperrdatei weg', erkannt && quittungLesen(inst.quittungsPfad)?.bestaetigung?.entfernt === 1 && !existsSync(inst.loeschsperrePfad));
+  await lauf.stoppen('SIGTERM');
+  await warte(200);
+  const save = saveLesen(inst.savePfad);
+  check('R2 nach dem Bestätigen: alte Truhe weg, neue Truhe leer, 20 Bäume', !save.has('kiste-h') && save.has('kiste-neu') && !inhaltDa(save, 'kiste-neu') && save.size === 21, `${save.size}`);
+}
+async function r3(): Promise<void> {
+  const alt = [...baeume(20), KISTE];
+  const { inst, save } = await offlineFall('R3', alt, [...baeume(20), { ...KISTE, id: 'kiste-neu', x: KISTE.x + 0.3 }]);
+  const sp = nurSperre(inst);
+  check('R3 Sperre nennt die alte Truhe (0,3 m daneben, neue id)', sp?.ids.join() === 'kiste-h' && sp.grund === 'zustand', JSON.stringify(sp));
+  check('R3 alte Truhe mit Inhalt steht', inhaltDa(save, 'kiste-h'));
+}
+/** Ein Eintrag OHNE id: die abgeleitete id (`prefab_x_z`, gerundet) ändert sich über die Meterkante hinweg. */
+async function meterkante(): Promise<void> {
+  const ohne = (x: number): Platz => ({ prefab: KISTE.prefab, x, z: KISTE.z });
+  const altId = 'piece-chest-wood_400_400';
+  const { inst, save } = await offlineFall('METER', [...baeume(20), ohne(400.4)], [...baeume(20), ohne(400.6)], altId);
+  const sp = nurSperre(inst);
+  check('METER Sperre nennt die alte abgeleitete id', sp?.ids.join() === altId && sp.grund === 'zustand', JSON.stringify(sp));
+  check('METER die Truhe mit Inhalt steht', inhaltDa(save, altId));
+}
+/** Gegenprobe: Ein ZDO mit ALTER Kennung neben der Platzierung ist Migration, keine Löschung. */
+async function altNah(): Promise<void> {
+  const inst = instanz(resolve(WURZEL, 'altnah'), 'dev');
+  await erzeuge(inst, [...baeume(20), KISTE], (setup) => {
+    for (const z of setup.zdos.getAllZDOs()) if (z.getString(LAYOUT_ID_MEMBER) === 'kiste-h') z.setString(LAYOUT_ID_MEMBER, 'piece_chest_wood@400,400');
+  });
+  schreibe(inst.layoutDatei, dokument([...baeume(20), { ...KISTE, id: 'kiste-neu', x: KISTE.x + 0.3 }]));
+  const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+  const bereit = await lauf.warten();
+  check('ALTNAH Start wird bereit', bereit.bereitErreicht, bereit.ausgabe.slice(-300));
+  await lauf.stoppen('SIGTERM');
+  await warte(200);
+  const save = saveLesen(inst.savePfad);
+  check('ALTNAH keine Sperre, die Truhe wird übernommen (Inhalt unter der neuen id)', !existsSync(inst.loeschsperrePfad) && inhaltDa(save, 'kiste-neu') && !save.has('kiste-h'));
+}
+/** B3: die Zweige „Anteil“ und „mehr als 20“ der Boot-Regel einzeln (ohne Zustand, ohne „alle“). */
+async function anteil(): Promise<void> {
+  const { inst, save } = await offlineFall('ANTEIL', baeume(16), baeume(16).slice(6));
+  const sp = nurSperre(inst);
+  check('ANTEIL 6 von 16 (37 %, unter 20, ohne Zustand): Sperre Grund anteil', sp?.ids.length === 6 && sp.grund === 'anteil', JSON.stringify(sp));
+  check('ANTEIL alle 16 Bäume stehen', save.size === 16, `${save.size}`);
+}
+async function anzahl20(): Promise<void> {
+  const { inst, save } = await offlineFall('ANZAHL', baeume(100), baeume(100).slice(21));
+  const sp = nurSperre(inst);
+  check('ANZAHL 21 von 100 (21 %, unter dem Anteil): Sperre', sp?.ids.length === 21 && sp.grund === 'anteil', JSON.stringify(sp)?.slice(0, 100));
+  check('ANZAHL alle 100 Bäume stehen', save.size === 100, `${save.size}`);
+}
+/** B3 (W1 des Angriffs): Sperrdatei nicht schreibbar → GESCHLOSSEN. In-process, weil der Temp-Pfad die PID des Bootenden trägt. */
+async function schreibFehler(): Promise<void> {
+  const inst = instanz(resolve(WURZEL, 'schreib'), 'dev');
+  await erzeuge(inst, [...baeume(10), KISTE]);
+  mkdirSync(`${inst.loeschsperrePfad}.${process.pid}.tmp/x`, { recursive: true }); // der Schreibweg der Sperre scheitert
+  schreibe(inst.layoutDatei, dokument([]));
+  const log: string[] = [];
+  const orig = { log: console.log, warn: console.warn, error: console.error };
+  for (const k of ['log', 'warn', 'error'] as const) console[k] = (...a: unknown[]) => void log.push(a.map(String).join(' '));
+  let s2: ReturnType<typeof createWovServer> | null = null;
+  try {
+    s2 = materialisiere(inst, SEED);
+  } finally {
+    Object.assign(console, orig);
+  }
+  const zdos = s2.zdos.getAllZDOs().filter((z) => !!z.getString(LAYOUT_ID_MEMBER));
+  const truhe = zdos.find((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-h');
+  check('SCHREIB Sperrdatei nicht schreibbar: alle 11 stehen (geschlossen)', zdos.length === 11, `${zdos.length}`);
+  check('SCHREIB Truheninhalt da', truhe?.getString('truheInhalt') === '[[Wood,9]]');
+  check('SCHREIB Fehlerzeile „nicht gespeichert“', log.some((l) => /Löschsperre nicht gespeichert/.test(l)), log.filter((l) => /Löschsperre/.test(l)).join(' | ').slice(0, 200));
+  s2.stop();
+  await warte(300);
+}
+
 try {
   for (const [name, fall] of [
     ['LEER/ZWEI', leer],
@@ -433,6 +554,14 @@ try {
     ['PREFAB', prefabWechsel],
     ['KILL', killFenster],
     ['MIGR', migration],
+    ['R1', r1],
+    ['R2', r2],
+    ['R3', r3],
+    ['METER', meterkante],
+    ['ALTNAH', altNah],
+    ['ANTEIL', anteil],
+    ['ANZAHL', anzahl20],
+    ['SCHREIB', schreibFehler],
   ] as const) {
     try {
       await fall();

@@ -37,13 +37,44 @@
  * selben Prozess), einem echten Kontroll-Exemplar (bleibt unberührt) und
  * einem dritten, im Testflug NIE gesetzten Modell (B3: kein Ladeversuch).
  *
+ * N3 (Karte G1 N3, Nachbesserung nach Nachangriff N2):
+ *
+ *   - **N2-3** — der bisherige Struktur-Wächter (Abschnitt 1) war reine
+ *     Textsuche per Regex: Ein Aufruf von `verdrahteGrundskalaLive` in
+ *     einem toten Zweig (`if (Date.now() < 0) …`) blieb grün, weil die
+ *     Suche nur ZÄHLT, ob der Text `verdrahteGrundskalaLive(` irgendwo
+ *     vorkommt, egal ob der Code je läuft. Ein `ladeRegistry`, das den
+ *     alten, falschen Wert in einem KOMMENTAR neben einem neuen, falschen
+ *     Lambda stehen hatte, bestand die Regex-Prüfung ebenfalls, weil sie
+ *     auf reinem Text sucht und Kommentare nicht unterscheidet. Abschnitt 1
+ *     läuft jetzt auf dem TypeScript-Syntaxbaum (`typescript`-Paket, Muster
+ *     wie `client/test/editor-serversteuerung.ts`): Der Aufruf muss auf
+ *     OBERSTER EBENE von `starteTestflug` stehen (eine `const … =
+ *     verdrahteGrundskalaLive(...)`-Anweisung direkt im Funktionskörper,
+ *     nicht in einem `if`/Zweig), und `ladeRegistry` muss ein Pfeil mit
+ *     KONZISEM Rumpf sein, dessen Rumpf GENAU der Aufruf
+ *     `ladeHochgeladeneRegistrierung()` ist — ein Kommentar daneben ändert
+ *     am Syntaxbaum nichts.
+ *   - **N2-1/N2-2** — Abschnitt 3 unten: der ECHTE `ladeHochgeladeneRegistrierung`
+ *     gegen eine steuerbare HTTP-Attrappe (kein werfender Ersatz für
+ *     `uebernehmen`, anders als die vorherige Fassung von
+ *     `client/test/grundskala-live.ts`, die einen Fehlschlag nur nachbaute,
+ *     ohne dass der echte Lader je scheitern konnte). Gemessen wird die
+ *     TATSÄCHLICH übernommene Grundskala über
+ *     `uploadedModelRegistry.grundskalaFuerModell` — denselben Weg, den
+ *     auch `AssetManager` benutzt.
+ *
  * Lauf: npx tsx client/test/grundskala-live-wirkung.ts
  */
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
-import { sendeGrundskalaGeaendert } from '../src/editor/testflug/grundskalaLive';
+import * as ts from 'typescript';
+import { uploadedModelRegistry } from '@wov/shared';
+import { ladeHochgeladeneRegistrierung } from '../src/net/UploadedModelRegistryLoad';
+import { sendeGrundskalaGeaendert, verdrahteGrundskalaLive } from '../src/editor/testflug/grundskalaLive';
 
 let fehler = 0;
 function pruefe(bedingung: boolean, text: string): void {
@@ -74,30 +105,137 @@ function nah(ist: number, soll: number, was: string, eps = 1e-3): void {
 //    unabhängig vom Aufruf in `Testflug.ts` importiert, ist ein fehlender
 //    AUFRUF in `Testflug.ts` selbst — das prüft dieser Wächter. ─────────
 
-function strukturWaechter(): void {
-  const testflug = readFileSync(new URL('../src/editor/testflug/Testflug.ts', import.meta.url), 'utf-8');
-  const katalog = readFileSync(new URL('../src/editor/GegenstandsKatalog.ts', import.meta.url), 'utf-8');
+/** Erstes `ts.FunctionDeclaration` mit diesem Namen, irgendwo im Baum (Tiefensuche). */
+function funktion(sf: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined {
+  let treffer: ts.FunctionDeclaration | undefined;
+  const geh = (n: ts.Node): void => {
+    if (treffer) return;
+    if (ts.isFunctionDeclaration(n) && n.name?.text === name) {
+      treffer = n;
+      return;
+    }
+    ts.forEachChild(n, geh);
+  };
+  geh(sf);
+  return treffer;
+}
 
-  pruefe(
-    (testflug.match(/\bverdrahteGrundskalaLive\(/g) ?? []).length === 1,
-    'Testflug.ts ruft verdrahteGrundskalaLive(...) genau einmal auf (N1-1 — „Aufruf fehlt")'
+/** Alle Knoten unter `wurzel`, die `passt` erfüllen (Tiefensuche, kein Abbruch). */
+function alle<T extends ts.Node>(wurzel: ts.Node, passt: (n: ts.Node) => n is T): T[] {
+  const treffer: T[] = [];
+  const geh = (n: ts.Node): void => {
+    if (passt(n)) treffer.push(n);
+    ts.forEachChild(n, geh);
+  };
+  geh(wurzel);
+  return treffer;
+}
+
+/** Ob ein Pfeil-Ausdruck einen KONZISEN Rumpf hat, der GENAU `<empfaenger>.<name>(<args>)` aufruft. */
+function konziserAufrufAn(
+  initializer: ts.Expression | undefined,
+  empfaenger: string,
+  parameterName: string | undefined
+): ts.CallExpression | undefined {
+  if (!initializer || !ts.isArrowFunction(initializer) || ts.isBlock(initializer.body)) return undefined;
+  const rumpf = initializer.body;
+  if (!ts.isCallExpression(rumpf) || rumpf.expression.getText() !== empfaenger) return undefined;
+  if (parameterName === undefined) return rumpf.arguments.length === 0 ? rumpf : undefined;
+  return rumpf.arguments.length === 1 && rumpf.arguments[0]!.getText() === parameterName ? rumpf : undefined;
+}
+
+/** Die nächste Anweisung, in der `n` steckt (Elternkette bis zum ersten `ts.Statement`). */
+function umschliessendeAnweisung(n: ts.Node): ts.Statement {
+  let s: ts.Node = n;
+  while (!ts.isStatement(s)) s = s.parent;
+  return s;
+}
+
+/**
+ * Testflug.ts (N2-3, Syntaxbaum statt Regex — Kopfkommentar): der Aufruf
+ * von `verdrahteGrundskalaLive` steht als `const <x> = verdrahteGrundskalaLive(…)`
+ * (eine DEKLARATION, keine spätere Zuweisung) und die zugehörige Abmeldung
+ * `scene.onDisposeObservable.add(<x>)` steht im SELBEN Block — beides
+ * GESCHWISTER-Anweisungen, nicht eine in einem tieferen, eigenen Zweig
+ * (Mb: `let x = noop; if (…) x = verdrahteGrundskalaLive(…);` wäre keine
+ * Deklaration mit diesem Aufruf als Initializer mehr, sondern eine spätere
+ * Zuweisung — fällt schon durch die erste Prüfung unten). Die reale
+ * Verdrahtung liegt selbst innerhalb eines `if (testflug && ent)`, das ist
+ * ein normaler Laufzeit-Wächter, keine tote Bedingung — deshalb wird HIER
+ * nicht auf die oberste Ebene der ganzen Funktion geprüft, sondern auf
+ * gemeinsame Geschwisterschaft der beiden Anweisungen.
+ */
+function strukturWaechterTestflug(): void {
+  const pfad = fileURLToPath(new URL('../src/editor/testflug/Testflug.ts', import.meta.url));
+  const sf = ts.createSourceFile(pfad, readFileSync(pfad, 'utf-8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+
+  const starteTestflugFn = funktion(sf, 'starteTestflug');
+  pruefe(!!starteTestflugFn, 'Testflug.ts enthält starteTestflug');
+  if (!starteTestflugFn?.body) return;
+  const body = starteTestflugFn.body;
+
+  const istVerdrahtungsAufruf = (e: ts.Expression | undefined): e is ts.CallExpression =>
+    !!e && ts.isCallExpression(e) && e.expression.getText() === 'verdrahteGrundskalaLive';
+
+  const deklarationen = alle(
+    body,
+    (n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && istVerdrahtungsAufruf(n.initializer)
   );
-  const handlerMatch = /verdrahteGrundskalaLive\(\{([\s\S]*?)\}\);/.exec(testflug);
-  pruefe(!!handlerMatch, 'Testflug.ts ruft verdrahteGrundskalaLive(...) mit einem Abhängigkeiten-Objekt auf');
-  const handlerBody = handlerMatch?.[1] ?? '';
   pruefe(
-    /ladeRegistry:\s*\(\)\s*=>\s*ladeHochgeladeneRegistrierung\(\)/.test(handlerBody),
-    'ladeRegistry ist an ladeHochgeladeneRegistrierung DIESES Fensters gebunden (B1)'
+    deklarationen.length === 1,
+    `genau eine Deklaration \`const … = verdrahteGrundskalaLive(...)\` (keine spätere Zuweisung, kein toter Zweig — N1-1/N2-3), n=${deklarationen.length}`
   );
+  if (deklarationen.length !== 1) return;
+
+  const decl = deklarationen[0]!;
+  const call = decl.initializer as ts.CallExpression;
+  const abmeldeVar = decl.name.getText();
+  const deklarationsBlock = umschliessendeAnweisung(decl).parent;
+  const arg = call.arguments[0];
+  pruefe(!!arg && ts.isObjectLiteralExpression(arg), 'verdrahteGrundskalaLive wird mit einem Abhängigkeiten-Objekt aufgerufen');
+  if (!arg || !ts.isObjectLiteralExpression(arg)) return;
+
+  const prop = (name: string): ts.PropertyAssignment | undefined =>
+    arg.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === name);
+
+  const ladeRegistryProp = prop('ladeRegistry');
   pruefe(
-    /aktualisiereGrundskala:\s*\(model\)\s*=>\s*ent\.aktualisiereGrundskala\(model\)/.test(handlerBody),
-    'aktualisiereGrundskala ist an ent.aktualisiereGrundskala gebunden'
+    !!konziserAufrufAn(ladeRegistryProp?.initializer, 'ladeHochgeladeneRegistrierung', undefined),
+    'ladeRegistry ist DIREKT an ladeHochgeladeneRegistrierung() DIESES Fensters gebunden, kein Ersatz-Lambda (B1/N2-3)'
   );
-  pruefe(/flush:\s*\(\)\s*=>\s*ent\.flush\(\)/.test(handlerBody), 'flush ist an ent.flush gebunden');
+
+  const aktualisiereProp = prop('aktualisiereGrundskala');
+  const aktualisiereArrow =
+    aktualisiereProp && ts.isArrowFunction(aktualisiereProp.initializer) ? aktualisiereProp.initializer : undefined;
+  const aktualisiereParam = aktualisiereArrow?.parameters[0]?.name.getText();
   pruefe(
-    testflug.includes('scene.onDisposeObservable.add(grundskalaAbmelden)'),
-    'Testflug.ts meldet den Kanal beim Verwerfen der Szene wieder ab (kein Leck)'
+    !!konziserAufrufAn(aktualisiereProp?.initializer, 'ent.aktualisiereGrundskala', aktualisiereParam),
+    'aktualisiereGrundskala ist an ent.aktualisiereGrundskala gebunden, mit demselben Parameter durchgereicht'
   );
+
+  const flushProp = prop('flush');
+  pruefe(!!konziserAufrufAn(flushProp?.initializer, 'ent.flush', undefined), 'flush ist an ent.flush gebunden');
+
+  const abmeldeAufrufe = alle(
+    body,
+    (n): n is ts.CallExpression => ts.isCallExpression(n) && n.expression.getText() === 'scene.onDisposeObservable.add'
+  ).filter((c) => c.arguments.length === 1 && c.arguments[0]!.getText() === abmeldeVar);
+  pruefe(
+    abmeldeAufrufe.length === 1,
+    `genau eine Abmeldung scene.onDisposeObservable.add(${abmeldeVar}) im ganzen Testflug-Aufbau (kein Leck)`
+  );
+  if (abmeldeAufrufe.length === 1) {
+    const abmeldeBlock = umschliessendeAnweisung(abmeldeAufrufe[0]!).parent;
+    pruefe(
+      abmeldeBlock === deklarationsBlock,
+      'die Abmeldung steht im SELBEN Block wie die Deklaration (Geschwister-Anweisungen, kein toter Zweig — N2-3)'
+    );
+  }
+}
+
+function strukturWaechter(): void {
+  strukturWaechterTestflug();
+  const katalog = readFileSync(new URL('../src/editor/GegenstandsKatalog.ts', import.meta.url), 'utf-8');
 
   const fnMatch = /private async grundskalaAendernAusfuehren\([\s\S]*?\n {2}\}/.exec(katalog);
   pruefe(!!fnMatch, 'GegenstandsKatalog.ts enthält grundskalaAendernAusfuehren unverändert auffindbar');
@@ -468,9 +606,192 @@ async function realmLauf(): Promise<void> {
   }
 }
 
+// ── 3) N3 (Karte G1 N3, Auftrag 2): der ECHTE `ladeHochgeladeneRegistrierung`
+//    gegen eine STEUERBARE HTTP-Attrappe (kein werfender Ersatz für
+//    `uebernehmen` — der echte Lader wirft nie, ein Test, der das
+//    voraussetzt, prüft ein Verhalten, das es im Produkt nicht gibt, N2-1).
+//    Beide Realms hier sind derselbe Prozess (kein `worker_thread` nötig —
+//    anders als Abschnitt 2 geht es nicht um zwei getrennte Browser-Tabs,
+//    sondern um den echten Netzweg). Gemessen wird die TATSÄCHLICH
+//    angewendete Grundskala über `uploadedModelRegistry.grundskalaFuerModell`
+//    — denselben Weg, den auch `AssetManager` benutzt. ───────────────────
+
+interface RegistryAttrappe {
+  readonly url: string;
+  readonly zustand: { registry: RegistryEintrag[]; verzoegerungMs: number; antwort500: number; anfragen: number };
+  close(): Promise<void>;
+}
+
+/** Eine steuerbare HTTP-Attrappe für `registry.json`: Wert, Verzögerung und ein einmaliger 500 lassen sich je Anfrage vorgeben. */
+function starteRegistryAttrappe(anfangsEintraege: RegistryEintrag[]): Promise<RegistryAttrappe> {
+  const zustand = { registry: anfangsEintraege, verzoegerungMs: 0, antwort500: 0, anfragen: 0 };
+  const server = createServer((_req, res) => {
+    zustand.anfragen++;
+    // Momentaufnahme JETZT (Anfrageeingang), nicht erst beim Antworten —
+    // wie ein echter Server, der die Datei beim Eintreffen der Anfrage
+    // liest: eine VERZÖGERTE Antwort liefert sonst den WERT einer später
+    // eingetroffenen Anfrage, sobald `zustand.registry` inzwischen
+    // weitergeschaltet wurde, und würde damit genau den Race, den Test B
+    // (N2-2) prüfen soll, verdecken statt ihn nachzustellen.
+    const istFehler = zustand.antwort500 > 0;
+    if (istFehler) zustand.antwort500--;
+    const koerper = istFehler ? null : JSON.stringify({ version: 1, modelle: zustand.registry });
+    const antworten = (): void => {
+      if (istFehler) {
+        res.writeHead(500);
+        res.end('simulierter Serverfehler');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(koerper!);
+    };
+    if (zustand.verzoegerungMs > 0) {
+      const ms = zustand.verzoegerungMs;
+      zustand.verzoegerungMs = 0;
+      setTimeout(antworten, ms);
+    } else {
+      antworten();
+    }
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as AddressInfo).port;
+      resolve({
+        url: `http://127.0.0.1:${port}/registry.json`,
+        zustand,
+        close: () => new Promise<void>((r) => server.close(() => r())),
+      });
+    });
+  });
+}
+
+/** Wartet, bis `bedingung` zutrifft oder `timeoutMs` um sind — bricht NIE mit einem Fehler ab (die Prüfung danach zeigt einen Zeitablauf als Abweichung, nicht als Absturz). */
+async function warteOderZeitlimit(bedingung: () => boolean, timeoutMs: number, schrittMs = 5): Promise<void> {
+  const start = Date.now();
+  while (!bedingung() && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, schrittMs));
+  }
+}
+
+/**
+ * N2-1: HTTP 500, danach dieselbe Meldung erneut — muss ZWEI Abrufe
+ * auslösen und am Ende die richtige Grundskala stehen haben. Der
+ * fehlgeschlagene erste Abruf darf den Wert nicht dauerhaft sperren.
+ */
+async function fehlschlagUndWiederholungDurchlauf(): Promise<void> {
+  const NAME = 'U_G1N3Retry';
+  const modelPfad = uploadedModelRegistry.UPLOAD_MODEL_PREFIX + NAME;
+  const attrappe = await starteRegistryAttrappe([registryEintrag(NAME, 1)]);
+  try {
+    await ladeHochgeladeneRegistrierung(attrappe.url); // Erstregistrierung, wie main.ts vor dem ersten Katalogaufbau
+    const anfragenVorMeldung = attrappe.zustand.anfragen;
+
+    const abmelden = verdrahteGrundskalaLive({
+      ladeRegistry: () => ladeHochgeladeneRegistrierung(attrappe.url),
+      aktualisiereGrundskala: async () => {},
+      flush: () => {},
+    });
+    try {
+      // Der Katalog hat den Server schon auf 5 gepatcht und meldet es —
+      // der ERSTE Abruf danach scheitert (Server kurz nicht erreichbar).
+      attrappe.zustand.registry = [registryEintrag(NAME, 5)];
+      attrappe.zustand.antwort500 = 1;
+      sendeGrundskalaGeaendert(NAME, 5);
+      await warteOderZeitlimit(() => attrappe.zustand.anfragen >= anfragenVorMeldung + 1, 2000);
+      await new Promise((r) => setTimeout(r, 50));
+      pruefe(
+        uploadedModelRegistry.grundskalaFuerModell(modelPfad) === 1,
+        `nach dem HTTP 500 bleibt die alte Grundskala stehen (${uploadedModelRegistry.grundskalaFuerModell(modelPfad)})`
+      );
+
+      // Dieselbe Meldung erneut (Katalog-Wiederholung oder zweiter Tab) —
+      // MUSS einen neuen Abruf auslösen: kein Wert-Duplikatfilter mehr
+      // (N2-1 — der erste, fehlgeschlagene Abruf darf denselben Wert nicht
+      // für immer sperren; der echte Lader wirft dabei nie, s. Kopfkommentar).
+      sendeGrundskalaGeaendert(NAME, 5);
+      await warteOderZeitlimit(() => attrappe.zustand.anfragen >= anfragenVorMeldung + 2, 2000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      pruefe(
+        attrappe.zustand.anfragen === anfragenVorMeldung + 2,
+        `genau 2 Abrufe nach der Meldung (500, dann Erfolg), N2-1: ${attrappe.zustand.anfragen - anfragenVorMeldung}`
+      );
+      pruefe(
+        uploadedModelRegistry.grundskalaFuerModell(modelPfad) === 5,
+        `nach der Wiederholung stimmt die Grundskala (N2-1): ${uploadedModelRegistry.grundskalaFuerModell(modelPfad)}`
+      );
+    } finally {
+      abmelden();
+    }
+  } finally {
+    await attrappe.close();
+    if (uploadedModelRegistry.uploadedModelEntry(NAME)) uploadedModelRegistry.unregisterUploadedPrefab(NAME);
+  }
+}
+
+/**
+ * N2-2: 4 wird erfolgreich übernommen, dann kommt 1 mit einem LANGSAMEN
+ * Abruf, und während der noch läuft, meldet der Katalog erneut 4 — muss
+ * bei 4 enden (der vorherige Duplikatfilter verglich beim EMPFANG gegen
+ * einen Stand, der erst nach Abarbeitung galt, und verwarf die zweite 4
+ * fälschlich als Duplikat der ERSTEN).
+ */
+async function reihenfolgeMitLangsamemAbrufDurchlauf(): Promise<void> {
+  const NAME = 'U_G1N3Order';
+  const modelPfad = uploadedModelRegistry.UPLOAD_MODEL_PREFIX + NAME;
+  const attrappe = await starteRegistryAttrappe([registryEintrag(NAME, 1)]);
+  try {
+    await ladeHochgeladeneRegistrierung(attrappe.url); // Erstregistrierung
+
+    const abmelden = verdrahteGrundskalaLive({
+      ladeRegistry: () => ladeHochgeladeneRegistrierung(attrappe.url),
+      aktualisiereGrundskala: async () => {},
+      flush: () => {},
+    });
+    try {
+      attrappe.zustand.registry = [registryEintrag(NAME, 4)];
+      sendeGrundskalaGeaendert(NAME, 4);
+      await warteOderZeitlimit(() => uploadedModelRegistry.grundskalaFuerModell(modelPfad) === 4, 1000);
+      pruefe(
+        uploadedModelRegistry.grundskalaFuerModell(modelPfad) === 4,
+        `erste Meldung (4) angewendet, bevor die zweite beginnt (${uploadedModelRegistry.grundskalaFuerModell(modelPfad)})`
+      );
+
+      const VERZOEGERUNG_MS = 150;
+      attrappe.zustand.registry = [registryEintrag(NAME, 1)];
+      attrappe.zustand.verzoegerungMs = VERZOEGERUNG_MS;
+      sendeGrundskalaGeaendert(NAME, 1);
+      // Während der Abruf zu "1" noch läuft (Verzögerung), meldet der
+      // Katalog erneut 4 — genau der Angriffsfall N2-2.
+      await new Promise((r) => setTimeout(r, 20));
+      attrappe.zustand.registry = [registryEintrag(NAME, 4)];
+      sendeGrundskalaGeaendert(NAME, 4);
+
+      // FESTE Wartezeit statt Polling auf "=== 4": die Grundskala steht
+      // zwischenzeitlich schon auf 4 (Rest von der ersten Meldung, noch
+      // nicht durch die zweite auf 1 überschrieben) — ein Polling auf
+      // "=== 4" würde deshalb sofort (fälschlich) anschlagen, BEVOR der
+      // langsame Abruf überhaupt fertig ist. Reserve: die Verzögerung
+      // plus genug Zeit für den dritten, schnellen Abruf danach.
+      await new Promise((r) => setTimeout(r, VERZOEGERUNG_MS + 150));
+      pruefe(
+        uploadedModelRegistry.grundskalaFuerModell(modelPfad) === 4,
+        `4 übernommen, dann 1 mit langsamem Abruf, dann 4 (N2-2) — endet bei 4: ${uploadedModelRegistry.grundskalaFuerModell(modelPfad)}`
+      );
+    } finally {
+      abmelden();
+    }
+  } finally {
+    await attrappe.close();
+    if (uploadedModelRegistry.uploadedModelEntry(NAME)) uploadedModelRegistry.unregisterUploadedPrefab(NAME);
+  }
+}
+
 async function haupt(): Promise<void> {
   strukturWaechter();
   await realmLauf();
+  await fehlschlagUndWiederholungDurchlauf();
+  await reihenfolgeMitLangsamemAbrufDurchlauf();
   console.log(fehler === 0 ? 'OK — grundskala-live-wirkung' : `${fehler} ABWEICHUNGEN`);
   process.exit(fehler > 0 ? 1 : 0);
 }

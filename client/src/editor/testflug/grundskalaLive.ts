@@ -64,13 +64,41 @@
  *   - **N1-3** — der Wert-Duplikatfilter merkte sich einen Wert schon beim
  *     EMPFANG, bevor `uebernehmen` überhaupt lief. Scheiterte der Abruf
  *     (Server kurz nicht erreichbar), verwarf der Filter jede spätere
- *     Meldung mit demselben Wert als „schon erledigt“, obwohl nichts
+ *     Meldung mit demselben Wert als „schon erledigt”, obwohl nichts
  *     angewendet wurde — der Fehlerfall war für denselben Wert unheilbar,
- *     ausser über einen Neuladen oder einen anderen Wert. `zuletzt` wird
- *     jetzt erst NACH erfolgreichem `uebernehmen` gesetzt; scheitert es
- *     (die zurückgegebene Zusage lehnt ab), bleibt der alte Stand
- *     vermerkt und eine erneute Meldung mit demselben Wert wird wieder
- *     versucht (nur `console.warn`, kein unbehandelter Fehler).
+ *     ausser über einen Neuladen oder einen anderen Wert. (Diese N1-Fassung
+ *     ist inzwischen durch N3 unten ersetzt — der Filter selbst ist weg.)
+ *
+ * N3 (Nachbesserung nach Nachangriff N2, Befunde N2-1/N2-2/N2-4):
+ *
+ *   - **N2-1/N2-2** — der Wert-Duplikatfilter (`zuletzt`) ist GESTRICHEN.
+ *     `ladeHochgeladeneRegistrierung` (der echte Registry-Lader) WIRFT NIE
+ *     (Kopfkommentar dort) — bei HTTP 500 oder Netzfehler löst er mit der
+ *     ALTEN Registry auf, kein Fehlschlag, den N1-3 hätte auffangen können.
+ *     Der Filter markierte also selbst einen fehlgeschlagenen Abruf als
+ *     „übernommen” (N2-1: ein 500 sperrte denselben Wert dauerhaft) UND
+ *     verglich beim EMPFANG gegen einen Stand, der erst nach Abarbeitung
+ *     galt (N2-2: A → B → A endete bei B, wenn der Abruf zu B noch lief,
+ *     als das zweite A gesendet wurde). Beide Fehler sind Folgen des
+ *     Filters selbst, keine Ausnahmefälle, die sich absichern liessen. Der
+ *     Registry-Abruf ist idempotent (derselbe Wert wird einfach erneut
+ *     geholt), und die Kette (N1-2 oben) sorgt schon für die Reihenfolge —
+ *     ein doppelter Lauf kostet nur einen zusätzlichen `fetch`, mehr
+ *     Absicherung braucht es nicht.
+ *   - **N2-4** — die Kette lief nach dem Abmelden (Szene geschlossen)
+ *     weiter: schon eingereihte Einträge riefen `aktualisiereGrundskala`
+ *     und `flush` noch auf einer verworfenen Szene auf. `verdrahteGrundskalaLive`
+ *     prüft jetzt ein `beendet`-Flag, das die Abmeldefunktion setzt, vor
+ *     `aktualisiereGrundskala` UND vor `flush` — ein zu diesem Zeitpunkt
+ *     schon laufender `ladeRegistry`-Abruf darf zu Ende laufen (er wirft
+ *     nie und hat keine sichtbare Nebenwirkung), nur die beiden
+ *     Szenen-Zugriffe danach unterbleiben. Zusätzlich ein Zeitlimit für
+ *     den Registry-Abruf NUR in dieser Verdrahtung (nicht im gemeinsamen
+ *     `ladeHochgeladeneRegistrierung` — der hat andere Aufrufer, z. B.
+ *     `main.ts` beim Start, für die ein hartes Zeitlimit falsch wäre):
+ *     ein hängender `fetch` (toter Proxy) blockierte die Kette sonst
+ *     unbegrenzt. Nach dem Zeitlimit läuft die Kette mit dem zu diesem
+ *     Zeitpunkt bekannten Registry-Stand weiter, statt zu hängen.
  */
 
 import { uploadedModelRegistry } from '@wov/shared';
@@ -80,11 +108,12 @@ export const GRUNDSKALA_KANAL = 'wov-grundskala-live';
 
 /**
  * Eine Meldung: der Registry-Name (`UploadedModelEntry.name`, z. B.
- * `U_Fass1`) und die neue Grundskala — nur zur STRENGEN Prüfung und zum
- * Duplikatfilter (B4/B5 oben). Die tatsächlich angewendete Grundskala holt
- * der Empfänger immer frisch über `ladeHochgeladeneRegistrierung`, nie aus
- * diesem Feld — eine Kanalmeldung ist same-origin, aber same-origin heißt
- * nicht vertrauenswürdig (jeder Tab kann auf denselben Kanal senden).
+ * `U_Fass1`) und die neue Grundskala — nur zur STRENGEN Prüfung (B4 oben,
+ * kein Duplikatfilter mehr, N3/N2-1/N2-2). Die tatsächlich angewendete
+ * Grundskala holt der Empfänger immer frisch über
+ * `ladeHochgeladeneRegistrierung`, nie aus diesem Feld — eine Kanalmeldung
+ * ist same-origin, aber same-origin heißt nicht vertrauenswürdig (jeder
+ * Tab kann auf denselben Kanal senden).
  */
 export interface GrundskalaEreignis {
   readonly name: string;
@@ -147,12 +176,12 @@ export function sendeGrundskalaGeaendert(name: string, grundskala: number): void
  * auf dem Kanal ankommt. Ohne `BroadcastChannel` ein No-Op mit leerer
  * Abmeldefunktion.
  *
- * N1-2/N1-3 (Kopfkommentar): `uebernehmen` darf eine Zusage zurückgeben.
+ * N1-2/N3 (Kopfkommentar): `uebernehmen` darf eine Zusage zurückgeben.
  * Mehrere Meldungen werden über `kette` STRENG NACHEINANDER verarbeitet
- * (N1-2), und `zuletzt` — der Wert-Duplikatfilter (B5) — wird erst nach
- * erfolgreichem `uebernehmen` aktualisiert (N1-3), nie schon beim Empfang.
- * Eine abgelehnte Zusage geht nur in `console.warn`, nie als unbehandelter
- * Fehler zum Aufrufer.
+ * (N1-2). Kein Wert-Duplikatfilter mehr (N3/N2-1/N2-2) — jede gültige
+ * Meldung löst einen Lauf aus, ein doppelter Lauf kostet nur einen
+ * zusätzlichen Abruf. Eine abgelehnte Zusage geht nur in `console.warn`,
+ * nie als unbehandelter Fehler zum Aufrufer.
  */
 export function hoereGrundskalaGeaendert(
   uebernehmen: (name: string, grundskala: number) => void | Promise<void>
@@ -160,17 +189,12 @@ export function hoereGrundskalaGeaendert(
   const Kanal = kanalQuelle();
   if (!Kanal) return () => {};
   const kanal = new Kanal(GRUNDSKALA_KANAL);
-  const zuletzt = new Map<string, number>();
   let kette: Promise<void> = Promise.resolve();
   const hoerer = (e: MessageEvent<unknown>): void => {
     if (!istGueltigesEreignis(e.data)) return;
     const ereignis = e.data;
-    if (zuletzt.get(ereignis.name) === ereignis.grundskala) return;
     kette = kette
       .then(() => uebernehmen(ereignis.name, ereignis.grundskala))
-      .then(() => {
-        zuletzt.set(ereignis.name, ereignis.grundskala);
-      })
       .catch((fehler: unknown) => {
         console.warn(
           '[grundskalaLive] Übernahme fehlgeschlagen, wird bei einer erneuten Meldung wiederholt:',
@@ -203,10 +227,54 @@ export interface GrundskalaLiveEmpfaenger {
   readonly flush: () => void;
 }
 
-export function verdrahteGrundskalaLive(empfaenger: GrundskalaLiveEmpfaenger): () => void {
-  return hoereGrundskalaGeaendert(async (name) => {
-    await empfaenger.ladeRegistry();
+/** N2-4: Zeitlimit für den Registry-Abruf NUR in dieser Verdrahtung — der gemeinsame Lader (andere Aufrufer, z. B. `main.ts`) bleibt unverändert. */
+const REGISTRY_ZEITLIMIT_MS = 10_000;
+
+/**
+ * `p` abwarten, aber nach `ms` spätestens weitermachen (N2-4: ein
+ * hängender `fetch`, z. B. toter Proxy, darf die Kette nicht unbegrenzt
+ * blockieren). Löst IMMER auf, nie ab — `ladeRegistry` wirft ohnehin nie
+ * (Kopfkommentar `UploadedModelRegistryLoad.ts`), dieser Wrapper ist nur
+ * die zeitliche Grenze, kein Fehlerpfad.
+ */
+function mitZeitlimit(p: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    let erledigt = false;
+    const timer = setTimeout(() => {
+      erledigt = true;
+      resolve();
+    }, ms);
+    p.then(
+      () => {
+        if (erledigt) return;
+        erledigt = true;
+        clearTimeout(timer);
+        resolve();
+      },
+      () => {
+        if (erledigt) return;
+        erledigt = true;
+        clearTimeout(timer);
+        resolve();
+      }
+    );
+  });
+}
+
+export function verdrahteGrundskalaLive(
+  empfaenger: GrundskalaLiveEmpfaenger,
+  zeitlimitMs: number = REGISTRY_ZEITLIMIT_MS
+): () => void {
+  let beendet = false;
+  const abmelden = hoereGrundskalaGeaendert(async (name) => {
+    await mitZeitlimit(empfaenger.ladeRegistry(), zeitlimitMs);
+    if (beendet) return;
     await empfaenger.aktualisiereGrundskala(`${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}${name}`);
+    if (beendet) return;
     empfaenger.flush();
   });
+  return () => {
+    beendet = true;
+    abmelden();
+  };
 }

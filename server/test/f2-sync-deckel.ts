@@ -390,6 +390,46 @@ async function main(): Promise<void> {
     check('kein Tick-Fenster über 1 s (20 Ticks) ohne Aktualisierung', maxLuecke <= 20, `längste Lücke ${maxLuecke} Ticks`);
   }
 
+  console.log('\n[5c] Langsamer Peer, Bursts im nahen Teil: ferne ZDOs verhungern nicht:');
+  {
+    const mitte = fensterMitte(nr++);
+    fuelleFenster(mitte, 22500);
+    const kreaturen: ZDO[] = [];
+    for (let i = 0; i < 80; i++) kreaturen.push(zdos.createZDO(kiPine, { x: mitte + (i % 10) * 3, y: 0, z: mitte - Math.floor(i / 10) * 3 }));
+    const { peer, sock } = neuerPeer(0, mitte, mitte);
+    peers.length = 0;
+    peers.push(peer);
+    const fenster = fensterVon(peer);
+    konvergiere(peer, fenster, 3000);
+    // Ab jetzt langsam: Budget 2240 B. Jeden 2. Tick ändern sich alle 80 nahen
+    // Kreaturen; 80 Deltas passen nicht ins Budget, der nahe Teil bricht ab.
+    sock.bufferedAmount = 8000;
+    const nahEnde = (peer.fenster as unknown as { nahEnde?: number }).nahEnde ?? 1000;
+    const fern = fenster.slice(Math.max(nahEnde + DECKEL, fenster.length - 40)).slice(-10);
+    const ROLLE = fern.map((z) => z.zdoid);
+    let nahAbbrueche = 0;
+    let letzteRev = 0;
+    for (const z of fern) {
+      z.setInt('probe', 1);
+      letzteRev = z.revision.dataRevision;
+    }
+    const angekommen = new Array<number>(fern.length).fill(-1);
+    for (let t = 1; t <= 200; t++) {
+      if (t % 2 === 0) kreaturen.forEach((k) => k.setInt('t', t));
+      const vorher = sock.pakete.length;
+      tick();
+      const p = sock.pakete[sock.pakete.length - 1];
+      if (sock.pakete.length > vorher && p && p.length > 2240) nahAbbrueche++;
+      fern.forEach((z, i) => {
+        if (angekommen[i] === -1 && peer.syncStand(ROLLE[i]!)?.dataRevision === z.revision.dataRevision) angekommen[i] = t;
+      });
+    }
+    void letzteRev;
+    const spaetest = Math.max(...angekommen.map((v) => (v === -1 ? 9999 : v)));
+    check('der nahe Teil bricht im Budget ab (Testlage stimmt)', nahAbbrueche >= 50, `${nahAbbrueche} Pakete über Budget`);
+    check('ferne ZDOs kommen trotz nahem Budgetabbruch in ≤ 20 Ticks an', spaetest <= 20, `spätestens Tick ${spaetest === 9999 ? 'nie' : spaetest}`);
+  }
+
   // ── Tick-Zeiten mit 25 Spielern (nur Ausgabe) ──────────────────────────
   console.log('\n[Zeit] syncZDOs mit 25 Spielern:');
   {

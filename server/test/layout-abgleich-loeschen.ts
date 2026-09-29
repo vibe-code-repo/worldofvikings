@@ -173,7 +173,8 @@ console.log('\n[2] a chest deleted, another prefab set where it stood');
 {
   const { uid } = ersterBoot('anderes-prefab', ALT);
   const b2 = starte('anderes-prefab', dokument([{ id: 'wand-neu-a1b2', prefab: 'woodwall', x: 100, z: 100 }]));
-  check('the chest is removed, the wall is a new ZDO', !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid) && layoutZdos(b2.server, 'wand-neu-a1b2').length === 1, abgleich(b2.zeilen));
+  // Z3 Folgen (H1): the chest carries contents (state), so deleting it offline is held back by the boot lock; the wall is still new.
+  check('the chest (with contents) is held back by the boot lock, the wall is a new ZDO', b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid) && layoutZdos(b2.server, 'wand-neu-a1b2').length === 1 && b2.zeilen.some((z) => /Löschsperre NEU/.test(z)), abgleich(b2.zeilen));
 }
 
 // ── 2b. An id the MCP server or a hand-written file gives, in derived form: still a NEW object ──

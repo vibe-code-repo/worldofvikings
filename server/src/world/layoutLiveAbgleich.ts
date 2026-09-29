@@ -81,6 +81,7 @@ import {
   zustand,
   type LayoutAbgleichErgebnis,
   type LayoutAbgleichKontext,
+  zdoDarfUebernommenWerden,
 } from './layoutAbgleich.js';
 
 /** Mehr als so viele entfernte Platzierungen wendet der Live-Abgleich nicht an. */
@@ -94,6 +95,8 @@ export const MASSENLOESCHUNG_ANTEIL = 0.25;
 export const MASSENLOESCHUNG_MINDEST = 5;
 /** Meter um eine Platzierung mit unbekanntem Prefab, in denen ZDOs geschont werden (wie beim Boot). */
 const SCHONZONE = 1.0;
+/** Nähe (m), ab der der Boot ein gleichartiges ZDO als das Objekt einer Platzierung übernimmt (`TOLERANZ.naehe`, `layoutAbgleich.ts`). */
+const BOOT_UEBERNAHME_NAEHE = 0.5;
 /** Wie viele ids im Text der Quittung stehen (der Rest als Zahl). */
 const IDS_IM_TEXT = 40;
 
@@ -204,6 +207,11 @@ function entfernteZdoKandidaten(
 /**
  * Karte Z3 N2 (B1): Die ZDOs geänderter Platzierungen, die ein Prefab-WECHSEL ersetzen würde — es gibt ZDOs unter der
  * id, aber keins mit dem neuen (bekannten) Prefab.
+ *
+ * Bewusst so (Z3 N4, Abweichung 2 aus D1): Ein einzelnes fremdes ZDO unter der id, zu dem es kein passendes
+ * Gegenstück gibt, zählt als ersetzt — auch wenn es nie „dieses" Objekt war. Das kostet nichts (es trägt entweder
+ * keinen Zustand, dann sperrt es nichts, oder es trägt welchen, dann ist die Sperre richtig); ein Datenverlust
+ * entsteht daraus nicht. Ein passendes ZDO in der Gruppe nimmt der Prüfung den Fall (`some`, weiter unten).
  */
 function ersetzteZdoKandidaten(
   kontext: Pick<LayoutAbgleichKontext, 'zdos' | 'prefabs'>,
@@ -267,6 +275,67 @@ export function wuerdeEntfernen(
   const zuViele =
     betroffen.length > MASSENLOESCHUNG_ANZAHL ||
     (betroffen.length >= MASSENLOESCHUNG_MINDEST && betroffen.length > MASSENLOESCHUNG_ANTEIL * altListe.length) ||
+    (alle && betroffen.length > 0);
+  if (!zuViele && mitZustand.length === 0) return null;
+  const grund: LoeschsperreGrund = alle ? 'alle' : zuViele ? 'anteil' : 'zustand';
+  return { ids: zuViele ? [...new Set([...betroffen, ...mitZustand])] : mitZustand, grund };
+}
+
+/**
+ * Karte Z3 Folgen (H1): dieselbe Löschregel (a)/(b) wie `wuerdeEntfernen`, aber für den BOOT — gegen den Bestand
+ * an Layout-ZDOs statt gegen den zuletzt angewendeten Stand. Eine Weltdatei, die bei gestopptem Server geschrieben
+ * wurde, hat keine Live-Wache gesehen; ohne diese Prüfung löschte der Boot alle fehlenden Objekte ohne Sperre.
+ *
+ * Gezählt wird, was `layoutAbgleich` beim Boot tatsächlich zerstören würde: Layout-ZDOs, deren id weder im Dokument
+ * steht noch eine alte Kennung einer Platzierung ist (Migration, wird umgestempelt), die nicht zu einem unbekannten
+ * Prefab gehören könnten (Schonzone) und die nicht von einer gleichartigen Platzierung in der Nähe übernommen werden.
+ * Dazu der Prefab-Ersatz (`ersetzteZdoKandidaten`). `bestand` (Nenner des 25-%-Anteils) sind die verschiedenen
+ * Layout-ids im Spielstand. `null`: Die Regel greift nicht, der Boot löscht wie bisher.
+ */
+export function bootLoeschRegel(
+  kontext: Pick<LayoutAbgleichKontext, 'zdos' | 'prefabs'>,
+  neu: WorldLayout,
+  bereitsGesperrt: ReadonlySet<string> = new Set()
+): { ids: string[]; grund: LoeschsperreGrund } | null {
+  const neuListe = neu.placements ?? [];
+  const gewollt = new Set(neuListe.map((p) => p.id).filter((id): id is string => typeof id === 'string'));
+  const kennungen = new Set(neuListe.map((p) => layoutKennung(p)));
+  const unbekannte = neuListe.filter((p) => !kontext.prefabs.getByName(p.prefab));
+  const ziele = neuListe.flatMap((p) => {
+    const prefab = kontext.prefabs.getByName(p.prefab);
+    return prefab ? [{ hash: prefab.hash, x: p.x, z: p.z }] : [];
+  });
+  const bestand = new Set<string>();
+  const kandidaten: { id: string; zdo: ZDO }[] = [];
+  for (const zdo of kontext.zdos.getAllZDOs()) {
+    const layoutId = zdo.getString(LAYOUT_ID_MEMBER);
+    if (!layoutId || istSpielerbau(zdo)) continue;
+    bestand.add(layoutId);
+    if (gewollt.has(layoutId) || kennungen.has(layoutId) || bereitsGesperrt.has(layoutId)) continue;
+    const geschont = unbekannte.some(
+      (p) => layoutId === p.id || layoutId === layoutKennung(p) || Math.hypot(zdo.position.x - p.x, zdo.position.z - p.z) <= SCHONZONE
+    );
+    if (geschont) continue;
+    // Der Boot übernimmt ein gleichartiges ZDO neben einer Platzierung (`TOLERANZ.naehe` in `layoutAbgleich`), er löscht es
+    // nicht — aber nur, wenn es übernommen werden DARF (alte Kennung, eigenes Prefab, `zdoDarfUebernommenWerden`): Ein ZDO
+    // mit id-förmiger Kennung, die im Dokument fehlt, ist eine Löschung, gleich wie nah die neue id steht.
+    if (
+      zdoDarfUebernommenWerden(zdo, kontext.prefabs) &&
+      ziele.some((t) => t.hash === zdo.prefabHash && Math.hypot(zdo.position.x - t.x, zdo.position.z - t.z) < BOOT_UEBERNAHME_NAEHE)
+    )
+      continue;
+    kandidaten.push({ id: layoutId, zdo });
+  }
+  const betroffen = [...new Set(kandidaten.map((k) => k.id))];
+  const ersetzt = ersetzteZdoKandidaten(
+    kontext,
+    neuListe.filter((p) => !p.id || !bereitsGesperrt.has(p.id))
+  );
+  const mitZustand = [...new Set([...kandidaten, ...ersetzt].filter((k) => zustand(k.zdo) > 0).map((k) => k.id))];
+  const alle = bestand.size > 0 && neuListe.length === 0;
+  const zuViele =
+    betroffen.length > MASSENLOESCHUNG_ANZAHL ||
+    (betroffen.length >= MASSENLOESCHUNG_MINDEST && betroffen.length > MASSENLOESCHUNG_ANTEIL * bestand.size) ||
     (alle && betroffen.length > 0);
   if (!zuViele && mitZustand.length === 0) return null;
   const grund: LoeschsperreGrund = alle ? 'alle' : zuViele ? 'anteil' : 'zustand';

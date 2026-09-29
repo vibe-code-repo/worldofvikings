@@ -86,6 +86,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
@@ -800,7 +801,10 @@ exit 0
       const bitteBeiseite = `${bitte}.beiseite`;
       const bitteTest = `${bitte}.testwelt`;
       const DEV_SPERRE = '{"ids":["kiste"],"hash":"h-dev","grund":"zustand","zeit":"2026-09-29T00:00:00.000Z"}';
-      const DEV_BITTE = '{"hash":"h-dev","zeit":"2026-09-29T00:00:00.000Z","id":"dev-anfrage"}';
+      // Z3 Folgen (F3): "zurueck" legt eine beiseitegelegte dev-Anfrage nur noch zurueck, wenn ihr Hash zur Weltdatei passt
+      // (sonst gilt der Rest als verwaist und wird verworfen) — die Anfrage traegt deshalb den echten Hash der Weltdatei.
+      writeFileSync(resolve(WELTEN, 'dev.json'), JSON.stringify({ version: 1, regions: [], placements: [] }));
+      const DEV_BITTE = JSON.stringify({ hash: layoutDateiHash(resolve(WELTEN, 'dev.json')), zeit: '2026-09-29T00:00:00.000Z', id: 'dev-anfrage' });
       const TEST_BITTE = '{"hash":"h-test","zeit":"2026-09-29T01:00:00.000Z","id":"test-anfrage"}';
       writeFileSync(weltDatei, 'dev-spielstand');
       writeFileSync(sperre, DEV_SPERRE);

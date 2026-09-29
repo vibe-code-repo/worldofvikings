@@ -96,6 +96,11 @@ check('without comparison no difference', ohne.zeilen.every((z) => !z.zusatz));
 const mitAktion = tooltipInhalt(brustDef, de, { aktion: 'Klick legt ab' });
 check('action is the last, gray line', mitAktion.zeilen.at(-1)?.art === 'aktion' && mitAktion.zeilen.at(-1)?.text === 'Klick legt ab');
 
+console.log('\n[4b] name through textKey (set parts) or label');
+const mitKey = { ...item('AxeFlint'), textKey: 'inhalt.item.beispiel' };
+check('with textKey: name from the catalogue in the language of the tooltip', tooltipInhalt(mitKey, de, { sprache: 'en' }).name === 'Example text' && tooltipInhalt(mitKey, de, { sprache: 'de' }).name === 'Beispieltext');
+check('without textKey: the label, whatever the language', tooltipInhalt(item('AxeFlint'), de, { sprache: 'en' }).name === item('AxeFlint').label);
+
 console.log('\n[5] level only for tools, weapons and wearables');
 const material = ITEM_DEFS.filter((d) => d.ausruestung === undefined && d.itemType === 1);
 check(`${material.length} materials/food/trophies show no level`, material.length > 15 && material.every((d) => !zeigtItemLevel(d) && art(tooltipInhalt(d, de), 'itemlevel').length === 0));

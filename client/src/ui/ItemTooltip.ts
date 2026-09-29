@@ -125,7 +125,7 @@ function zeichne(shared: ItemShared, vergleich: ItemShared | null, aktion: strin
   const inhalt: TooltipInhalt = tooltipInhalt(
     shared,
     (key, vars) => i18n.t(key as TranslationKey, vars),
-    { vergleich: vergleich ? (vergleich.stats ?? {}) : undefined, aktion },
+    { vergleich: vergleich ? (vergleich.stats ?? {}) : undefined, aktion, sprache: i18n.language },
   );
   nameZeile!.textContent = inhalt.name;
   nameZeile!.style.color = inhalt.nameFarbe;

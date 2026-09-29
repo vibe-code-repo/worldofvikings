@@ -46,6 +46,8 @@ export interface TooltipOptionen {
   readonly vergleich?: ItemStats;
   /** Gray last line (the click action). */
   readonly aktion?: string | null;
+  /** Language for the item name (`anzeigeName`); default German. */
+  readonly sprache?: string;
 }
 
 /** Materials, food and trophies show no level: only tools, weapons and wearable parts do. */
@@ -103,5 +105,5 @@ export function tooltipInhalt(shared: ItemShared, t: Uebersetzer, opt: TooltipOp
     zeilen.push({ art: 'gewicht', text: t('tooltip.weight', { weight: shared.weight.toFixed(1) }), farbe: FARBE_GEDAEMPFT });
   }
   if (opt.aktion) zeilen.push({ art: 'aktion', text: opt.aktion, farbe: FARBE_GEDAEMPFT });
-  return { name: anzeigeName(shared), nameFarbe: farbe, zeilen };
+  return { name: anzeigeName(shared, opt.sprache), nameFarbe: farbe, zeilen };
 }

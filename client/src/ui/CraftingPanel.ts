@@ -84,7 +84,7 @@ export class CraftingPanel {
       const info = document.createElement('div');
       const kopf = document.createElement('div');
       kopf.style.color = '#f2c86a';
-      kopf.textContent = anzeigeName(def);
+      kopf.textContent = anzeigeName(def, this.i18n.language);
       mitTooltip(kopf, () => def);
       const kosten = document.createElement('div');
       kosten.style.cssText = `font-size:12px;color:${machbar ? '#a8916a' : '#7a5b4a'}`;
@@ -92,7 +92,7 @@ export class CraftingPanel {
         const zutat = findItem(z.item);
         if (i > 0) kosten.appendChild(document.createTextNode(', '));
         const teil = document.createElement('span');
-        teil.textContent = `${z.menge}× ${zutat ? anzeigeName(zutat) : z.item}`;
+        teil.textContent = `${z.menge}× ${zutat ? anzeigeName(zutat, this.i18n.language) : z.item}`;
         if (zutat) mitTooltip(teil, () => zutat);
         kosten.appendChild(teil);
       });
@@ -117,7 +117,7 @@ export class CraftingPanel {
         }
         for (const z of r.zutaten) jetzt.removeByName(z.item, z.menge);
         jetzt.addItem(def, r.menge);
-        this.meldung(this.i18n.t('crafting.created', { item: anzeigeName(def) }));
+        this.meldung(this.i18n.t('crafting.created', { item: anzeigeName(def, this.i18n.language) }));
         this.fuellen();
       });
       zeile.appendChild(btn);

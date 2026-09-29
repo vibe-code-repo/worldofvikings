@@ -65,8 +65,13 @@ check('male == female for every part key', SET_TEILE.filter((t) => t.id.includes
   return w === undefined || JSON.stringify(stufeFuerRuestungsteil(w.id)) === JSON.stringify(stufeFuerRuestungsteil(m.id));
 }));
 
-console.log('\n[5] display name');
-check('anzeigeName is the label today', ITEM_DEFS.every((d) => anzeigeName(d) === d.label));
+console.log('\n[5] display name: label, or textKey through the shared text function');
+check('no textKey: the label, in any language', ITEM_DEFS.filter((d) => !('textKey' in d)).every((d) => anzeigeName(d) === d.label && anzeigeName(d, 'en') === d.label));
+const mitSchluessel = { label: 'Rohtext', textKey: 'inhalt.item.beispiel' };
+check('textKey: catalogue text per language', anzeigeName(mitSchluessel, 'de') === 'Beispieltext' && anzeigeName(mitSchluessel, 'en') === 'Example text');
+check('textKey: unknown language falls back to German, no language too', anzeigeName(mitSchluessel, 'fr') === 'Beispieltext' && anzeigeName(mitSchluessel) === 'Beispieltext');
+check('textKey missing in the catalogue: the key itself, never empty', anzeigeName({ label: 'Rohtext', textKey: 'inhalt.item.gibt_es_nicht' }, 'en') === 'inhalt.item.gibt_es_nicht');
+check('empty textKey counts as none', anzeigeName({ label: 'Rohtext', textKey: '' }, 'en') === 'Rohtext');
 
 console.log(failures === 0 ? '\nOK' : `\n${failures} FAIL`);
 process.exit(failures === 0 ? 0 : 1);

@@ -14,8 +14,8 @@
  * hash if it is stale. The body IS the document (`{version, gegenstaende}`). It goes through the shared sanitiser
  * `leseGegenstandsDatei` (imported, never copied): a broken file or ANY discarded entry is a 422 and nothing is
  * written — never a part silently dropped. What is written is the canonical text `schreibeGegenstandsDatei(entries)`,
- * not the request bytes, atomically (`<file>.<pid>.<random>.tmp`, then `rename`) under `<file>.lock` (the same lock
- * file the world uses, `layoutUnterSperre`). Compare, check and rename are ONE synchronous section, so two PUTs with
+ * not the request bytes, atomically (`<file>.<pid>.<random>.tmp`, then `rename`) under `<file>.lock` (the same lock mechanism
+ * as the world, `layoutUnterSperre`, but its own lock file; the game server watch (G2) must take this one). Compare, check and rename are ONE synchronous section, so two PUTs with
  * the same `If-Match` give exactly one 200 and one 412.
  *
  * ── Removing items (nothing is ever lost silently) ───────────────────

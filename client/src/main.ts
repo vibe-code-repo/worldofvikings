@@ -146,7 +146,7 @@ import { DungeonGrafikStufe, setzeDungeonStufe } from './engine/DungeonMaterial'
 import { CraftingPanel } from './ui/CraftingPanel';
 import { CharakterPanel } from './ui/CharakterPanel';
 import { ChatPanel } from './ui/ChatPanel';
-import { GameAudio } from './engine/GameAudio';
+import { AudioEngine, startAudioEngine } from './engine/Audio';
 import {
   aktiviereWebGpuGlslKompatibilitaet,
   istWebGpuGlslKompatibilitaetAktiv,
@@ -801,6 +801,7 @@ async function main() {
   let terrain: TerrainManager | null = null;
   let player: PlayerController | null = null;
   let entities: EntityManager | null = null;
+  let audioEngine: AudioEngine | null = null;
   let baumImpostor: BaumImpostor | null = null;
   let grass: GrassClutter | null = null;
   let huegelGras: HuegelGras | null = null;
@@ -1006,15 +1007,6 @@ async function main() {
    * Empfangen, anwenden je Bild.
    */
   const abgleicher = new Abgleicher();
-  // Audio: startet mit der ersten Nutzergeste (Browser-Autoplay-Regel).
-  const audio = new GameAudio();
-  // Diagnoseschalter Paket 0.14: `?mute=1` schaltet den Ton fest ab, ohne
-  // dass ein Bauer der Roadmap dafür Code anfassen muss (Messläufe wollen
-  // keinen Hintergrundton, und wer Ruckler eingrenzt, will Audio als
-  // Ursache ausschliessen können).
-  if (params.has('mute')) audio.setMuted(true);
-  window.addEventListener('pointerdown', () => audio.start(), { once: true });
-  window.addEventListener('keydown', () => audio.start(), { once: true });
   /** Dungeon-Eingänge vom Server — Kartenmarker (kommen ggf. vor buildWorld). */
   let dungeonEingaenge: Array<{ feature: string; dungeonId: string; x: number; z: number }> = [];
   // Letzte Zeigerposition — Ursprung des Zielstrahls beim Platzieren.
@@ -1408,6 +1400,14 @@ async function main() {
     if (import.meta.env.DEV) {
       (window as unknown as Record<string, unknown>).__avatar = player.avatar;
     }
+    // Audio: one call site owns bus setup, the clip cache, and the unlock
+    // gesture (B2) — needs player.camera, so it lives here and not at the
+    // top of main() like the old GameAudio did.
+    const audioKamera = player.camera;
+    startAudioEngine(
+      () => AudioEngine.create(scene, audioKamera, { muted: params.has('mute') }),
+      (e) => { audioEngine = e; },
+    );
     entities = new EntityManager(scene, world, assets, terrain);
     entities.setHundertFpsProfil(gameSettings.get().hundertFpsProfil);
     entities.setVegetationsGrenze(
@@ -3672,7 +3672,7 @@ async function main() {
   window.addEventListener('resize', () => engine.resize());
 
   // dev/debug handle (Playwright probes, F9 inspector sessions)
-  (window as unknown as Record<string, unknown>).__dbg = { scene, input, gameSettings, kampfEffekte, get post() { return post; }, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; },
+  (window as unknown as Record<string, unknown>).__dbg = { scene, input, gameSettings, kampfEffekte, get post() { return post; }, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; }, get audio() { return audioEngine; },
     // Fackeln: Helligkeit auf echter Hardware nachziehen, Notbremse von
     // Hand auslösen oder wieder lösen — s. engine/FackelLicht.ts.
     fackeln: {

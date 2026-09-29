@@ -2441,6 +2441,35 @@ const KERN = [
     Text, ~0.1 s.
   */
   ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
+  // Karte B2: Ton-Engine (client/src/engine/Audio/*, ersetzt GameAudio.ts).
+  // ShuffleBag -- kein Klip zweimal hintereinander, auch nicht ueber die
+  // Batch-Grenze. Pure, DOM-frei.
+  ['client', 'test/audio-shuffle-bag.ts'],
+  // AudibleRadius -- Rueckwaertsprobe der Umkehrformel des 'inverse'-
+  // Abstandsmodells (Radius bei 2 % Lautstaerke), nicht gemessen. Pure.
+  ['client', 'test/audio-audible-radius.ts'],
+  // AutoplayAutomaton -- Sechs-Zustands-Automat fuer die Browser-
+  // Autoplay-Regel, Pflichtpfad starting -> blocked -> unlocked sowie
+  // beide Fehlerpfade. Pure, kein AudioContext.
+  ['client', 'test/audio-autoplay-automaton.ts'],
+  // ListenerSync -- der raeumliche Listener uebernimmt jeden Frame die
+  // Kameraposition. NullEngine, echte UniversalCamera.
+  ['client', 'test/audio-listener-sync.ts'],
+  // PlaybackGate -- `?mute=1` bleibt in jedem Automatenzustand stumm;
+  // AudioEngine.playAsync ruft genau dieses Praedikat. Pure.
+  ['client', 'test/audio-mute.ts'],
+  // Karte B2 N1 (Befund B1): AudioManifest liest B1s echten `toene`-
+  // Abschnitt (nicht das erfundene `audio`), Bus/Gruppe aus dem Pfad,
+  // Hintergrundmusik als fester Eintrag. Fixture-basiert plus
+  // Echtdaten-Teil, der übersprungen meldet, bis B1 gemergt ist.
+  ['client', 'test/audio-manifest.ts'],
+  // Karte B2 N1 (Befund B2): ein fehlschlagender Klip-Ladeversuch liefert
+  // null, warnt genau einmal je Klip, nie eine unhandled rejection
+  // (per process.on('unhandledRejection') gezählt). Pure, DOM-frei.
+  ['client', 'test/audio-clip-loader.ts'],
+  // Karte B2 N3: startAudioEngine kapselt create/.then/.catch aus main.ts;
+  // ein fehlschlagendes create warnt genau einmal, nie unhandled rejection.
+  ['client', 'test/audio-start.ts'],
   // Karte B1: Vollstaendigkeit der Ton- und Symbol-Abschnitte von
   // assets/manifest.json (tools/asset-manifest.mjs) gegen den echten
   // Bestand unter assets/store/audio bzw. assets/store/ui.

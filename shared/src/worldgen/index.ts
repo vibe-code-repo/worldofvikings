@@ -12,3 +12,7 @@ export * from './terrainCompCodec.js';
 // root.
 export * from './RegionGeo.js';
 export * from './streuung.js';
+export * from './terrainRampen.js';
+export * from './felsRauschen.js';
+export * from './bodenKacheln.js';
+export * from './bodenMischung.js';

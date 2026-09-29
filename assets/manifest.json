@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-29T03:07:33.101Z",
+ "erzeugt": "2026-09-29T15:31:53.812Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 366,
  "gemessen": 366,
@@ -9981,8 +9981,8 @@
    "skins": 1
   }
  },
- "toeneAnzahl": 325,
- "toeneGemessen": 325,
+ "toeneAnzahl": 327,
+ "toeneGemessen": 327,
  "toeneUebernommen": [],
  "toene": {
   "ambience/forest-birds": {
@@ -10102,6 +10102,22 @@
    "bytes": 16738,
    "hash": "sha256-20e3cd3838cf1200288cbce38eb01961494fd2c50a8d7cdc317d6b9f2cb3013d",
    "dauer": 2.22,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/fist-swing-01": {
+   "datei": "combat/fist-swing-01.ogg",
+   "bytes": 2167,
+   "hash": "sha256-b5b1cd7510908a2e6d618f61f0dd9dd531b9b704bf20d243b50cd86a2e5bb74d",
+   "dauer": 0.35,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/fist-swing-02": {
+   "datei": "combat/fist-swing-02.ogg",
+   "bytes": 2330,
+   "hash": "sha256-40f3ad91c04ed6ab7d3b266f66853c7f33e659c72863dedfb53328920e59dbf6",
+   "dauer": 0.35,
    "kanaele": "mono",
    "abtastrate": 48000
   },

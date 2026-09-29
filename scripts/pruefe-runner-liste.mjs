@@ -20,7 +20,10 @@
  * Übersprungen werden `node_modules`, `.git`, `assets` und Bauordner.
  *
  * Was der Runner kennt: die Einträge der Liste `KERN` in `scripts/run-tests.mjs`,
- * gelesen am Syntaxbaum (nicht per Textsuche — Kommentare nennen Dateinamen,
+ * die in einer Datei je Bereich unter `scripts/kern/` stehen (`import NAME from
+ * './kern/x.mjs'`, `...NAME` in KERN; der Zeuge folgt dem Import). Jede Bereichsdatei
+ * ist nach vollem Pfad sortiert und enthält nur Einträge ihres Bereichs; eine Datei in
+ * `scripts/kern/`, die KERN nicht liest, ist ein Befund. Gelesen wird am Syntaxbaum (nicht per Textsuche — Kommentare nennen Dateinamen,
  * und ein umformatierter Eintrag bliebe für eine Textsuche unsichtbar). Es
  * zählt nur die Deklaration auf OBERSTER Ebene; eine gleichnamige Liste in
  * einer Funktion oder einem Block schaltet keine Datei ein. `...TEIL` folgt
@@ -218,10 +221,28 @@ function kandidaten(wurzel) {
  * same way at the end of a run), plus `formfehler`: only what the tree side cannot do
  * without (see the header). How the run is built is NOT looked at.
  */
-function eingetragene(quelltext) {
-  const gelesen = leseKern(ts, quelltext);
+function eingetragene(quelltext, verzeichnis) {
+  const gelesen = leseKern(ts, quelltext, { verzeichnis });
   const kern = gelesen.eintraege.map(([ordner, datei]) => kanonisch(`${ordner}/${datei}`));
   const formfehler = [...gelesen.fehler];
+
+  // Area files (scripts/kern/<bereich>.mjs): sorted by full path, and every entry belongs to its area. Sorting is what
+  // lets two pull requests insert at different places; an entry appended at the end would bring the collisions back.
+  for (const teil of gelesen.teile) {
+    const name = relative(verzeichnis, teil.datei).split(sep).join('/');
+    const bereich = name.replace(/^kern\//, '').replace(/\.mjs$/, '');
+    let davor = null;
+    for (const [ordner, datei] of teil.eintraege) {
+      const pfad = kanonisch(`${ordner}/${datei}`);
+      if (pfad.split('/')[0] !== bereich) {
+        formfehler.push(`${name}: ${pfad} gehört nicht in den Bereich \`${bereich}\` (Bereich = erstes Stück des Pfads)`);
+      }
+      if (davor !== null && pfad < davor) {
+        formfehler.push(`${name}: ${pfad} steht hinter ${davor}, gehört aber davor (sortiert nach vollem Pfad, Bytevergleich; nicht ans Ende anhängen)`);
+      }
+      davor = davor === null || pfad >= davor ? pfad : davor;
+    }
+  }
 
   // The bookkeeping must still be wired in: `beende` imported from runner-buchfuehrung.mjs and called.
   // (What makes it hold is the exit code that `neueBuchfuehrung` sets to 1 until `beende` decides;
@@ -403,7 +424,7 @@ function vitestWebBefunde(wurzel, pfade) {
 function befunde(wurzel, ausnahmen) {
   const lauf = join(wurzel, 'scripts', 'run-tests.mjs');
   if (!existsSync(lauf)) return [`scripts/run-tests.mjs fehlt unter ${wurzel}`];
-  const { kern, unlesbar, formfehler } = eingetragene(readFileSync(lauf, 'utf8'));
+  const { kern, unlesbar, formfehler } = eingetragene(readFileSync(lauf, 'utf8'), dirname(lauf));
   const gefunden = [...formfehler];
   for (const u of unlesbar) gefunden.push(`Eintrag nicht lesbar (kein [ordner, datei] aus Textliteralen): ${u}`);
 
@@ -653,6 +674,43 @@ console.log('\n[1] Zahnprobe — der Zeuge muss in jede Richtung rot werden kön
     pruefe(enthaelt(mit([]), 'mehrfach'), 'zwei Deklarationen von KERN auf oberster Ebene ⇒ Befund');
     schreibe('scripts/run-tests.mjs', `${KOPF}const KERN = [].concat([]);\n${NACH_LISTE}${SCHLEIFE}`);
     pruefe(enthaelt(mit([]), 'kein Array-Literal'), 'KERN aus einem Ausdruck statt einem Array-Literal ⇒ Befund');
+
+    console.log('  — Bereichsdateien unter scripts/kern/ (Aufteilung von KERN)');
+    const KERN_IMPORTE = "import KERN_CLIENT from './kern/client.mjs';\nimport KERN_SERVER from './kern/server.mjs';\n";
+    const setzeBereiche = (server, client, kern = 'const KERN = [...KERN_CLIENT, ...KERN_SERVER];\n', importe = KERN_IMPORTE) => {
+      schreibe('scripts/kern/server.mjs', server);
+      schreibe('scripts/kern/client.mjs', client);
+      schreibe('scripts/run-tests.mjs', `${KOPF}${importe}${kern}${NACH_LISTE}${SCHLEIFE}`);
+    };
+    const SERVER_AB = "export default [\n  ['server', 'test/a.ts'],\n  ['server', 'test/b.ts'],\n];\n";
+    const CLIENT_C = "export default [\n  ['client/test', 'c.ts'],\n];\n";
+    setzeBereiche(SERVER_AB, CLIENT_C);
+    pruefe(mit([]).length === 0, 'Ausgangslage: alle drei Tests in zwei Bereichsdateien, importiert und in KERN aufgenommen ⇒ kein Befund');
+    setzeBereiche("export default [\n  ['server', 'test/b.ts'],\n  ['server', 'test/a.ts'],\n];\n", CLIENT_C);
+    pruefe(enthaelt(mit([]), 'server/test/a.ts steht hinter server/test/b.ts'), 'Bereichsdatei nicht nach Pfad sortiert (Eintrag ans falsche Ende gehängt) ⇒ Befund');
+    setzeBereiche("export default [\n  ['client/test', 'c.ts'],\n  ['server', 'test/a.ts'],\n  ['server', 'test/b.ts'],\n];\n", 'export default [];\n');
+    pruefe(enthaelt(mit([]), 'client/test/c.ts gehört nicht in den Bereich `server`'), 'Eintrag in der Datei eines fremden Bereichs ⇒ Befund');
+    setzeBereiche(SERVER_AB, CLIENT_C);
+    schreibe('scripts/kern/tools.mjs', 'export default [];\n');
+    pruefe(enthaelt(mit([]), 'kern/tools.mjs wird von KERN nicht gelesen'), 'Bereichsdatei liegt in kern/, wird aber nicht importiert ⇒ Befund');
+    rmSync(join(wegwerf, 'scripts/kern/tools.mjs'));
+    setzeBereiche(SERVER_AB, CLIENT_C, 'const KERN = [...KERN_CLIENT];\n');
+    const nichtAufgenommen = mit([]);
+    pruefe(
+      enthaelt(nichtAufgenommen, 'kern/server.mjs wird von KERN nicht gelesen') && enthaelt(nichtAufgenommen, 'verwaist'),
+      'Bereichsdatei importiert, aber nicht mit `...NAME` in KERN aufgenommen ⇒ Befund, und ihre Tests gelten als verwaist',
+    );
+    setzeBereiche(SERVER_AB, CLIENT_C, 'const KERN = [...KERN_CLIENT, ...KERN_SERVER];\n', "import KERN_CLIENT from './kern/client.mjs';\nimport KERN_SERVER from './kern/fehlt.mjs';\n");
+    pruefe(enthaelt(mit([]), 'Bereichsdatei ./kern/fehlt.mjs nicht lesbar'), 'Import einer Bereichsdatei, die es nicht gibt ⇒ Befund');
+    setzeBereiche('const liste = [];\nexport default liste;\n', CLIENT_C);
+    pruefe(enthaelt(mit([]), 'nicht genau ein `export default [ ... ]`'), 'Bereichsdatei ohne Array-Literal als Default-Export ⇒ Befund');
+    setzeBereiche("export default [\n  ['server', 'test/a.ts'],\n  ['server', nichtText],\n];\n", CLIENT_C);
+    pruefe(enthaelt(mit([]), 'Eintrag nicht lesbar'), 'Eintrag in der Bereichsdatei ist kein [ordner, datei] aus Textliteralen ⇒ Befund');
+    setzeBereiche("export default [\n  ['server', 'test/a.ts'],\n  ['server', 'test/a.ts'],\n  ['server', 'test/b.ts'],\n];\n", CLIENT_C);
+    pruefe(enthaelt(mit([]), 'doppelt eingetragen (KERN): server/test/a.ts'), 'derselbe Test zweimal in einer Bereichsdatei ⇒ Befund');
+    setzeBereiche("export default [\n  ['server', 'test/a.ts'],\n  ['server', 'test/b.ts'],\n];\n", "export default [\n  ['client/test', 'c.ts'],\n  ['server', 'test/b.ts'],\n];\n");
+    pruefe(enthaelt(mit([]), 'doppelt eingetragen (KERN): server/test/b.ts'), 'derselbe Test in zwei Bereichsdateien ⇒ Befund');
+    rmSync(join(wegwerf, 'scripts/kern'), { recursive: true, force: true });
     // Back to the base state: b.ts is unregistered again, so exceptions for it are valid.
     setzeRunner(grundEintraege);
 
@@ -1027,6 +1085,37 @@ console.log('\n[1b] Buchführung des Laufs (scripts/runner-buchfuehrung.mjs) —
     schreibeQuelle(`const KERN = [].concat([]);\n`);
     const rotQuelle = await beenden(vollesBuch());
     pruefe(rotQuelle.code === 1 && rotQuelle.text.includes('kein Array-Literal'), 'KERN im Quelltext nicht als Literal lesbar ⇒ Exit 1 (die Buchführung rät nicht)');
+    schreibeQuelle();
+
+    // ── KERN in Bereichsdateien (scripts/kern/): the books are held against the entries of the area files
+    mkdirSync(join(wegwerfB, 'kern'), { recursive: true });
+    const schreibeBereiche = (kern = 'const KERN = [...KERN_SERVER, ...KERN_CLIENT];\n') => {
+      writeFileSync(join(wegwerfB, 'kern', 'server.mjs'), "export default [\n  ['server', 'test/a.ts'],\n  ['server/test', 'b.ts'],\n];\n");
+      writeFileSync(join(wegwerfB, 'kern', 'client.mjs'), "export default [\n  ['client', 'test/c.ts', () => 'Weiche'],\n];\n");
+      schreibeQuelle(`import KERN_SERVER from './kern/server.mjs';\nimport KERN_CLIENT from './kern/client.mjs';\n${kern}`);
+    };
+    schreibeBereiche();
+    const gruenBereiche = await beenden(vollesBuch());
+    pruefe(
+      gruenBereiche.code === 0 && gruenBereiche.text.includes('2/3 Tests grün, 1 übersprungen'),
+      'KERN aus zwei Bereichsdateien, alles gefahren oder übersprungen ⇒ Exit 0 und 3 Einträge gezählt',
+    );
+    const ohneBBereich = neueBuchfuehrung(attrappeProzess());
+    nach(ohneBBereich, [['test/a.ts'], A]);
+    ueberspringe(ohneBBereich, w, 'client', 'test/c.ts');
+    const rotOhneB = await beenden(ohneBBereich);
+    pruefe(rotOhneB.code === 1 && rotOhneB.text.includes('nie gestartet') && rotOhneB.text.includes('server/test/b.ts'), 'ein Eintrag einer Bereichsdatei läuft nicht ⇒ Exit 1, der ihn nennt');
+    schreibeBereiche('const KERN = [...KERN_SERVER];\n');
+    const rotNichtAufgenommen = await beenden(vollesBuch());
+    pruefe(
+      rotNichtAufgenommen.code === 1 && rotNichtAufgenommen.text.includes('kern/client.mjs wird von KERN nicht gelesen') && rotNichtAufgenommen.text.includes('stehen nicht in KERN'),
+      'eine Bereichsdatei wird von KERN nicht gelesen ⇒ Exit 1, auch wenn ihre Tests laufen (sie stehen dann in keiner Liste)',
+    );
+    writeFileSync(join(wegwerfB, 'kern', 'nebenbei.mjs'), 'export default [];\n');
+    schreibeBereiche();
+    const rotNebenbei = await beenden(vollesBuch());
+    pruefe(rotNebenbei.code === 1 && rotNebenbei.text.includes('kern/nebenbei.mjs wird von KERN nicht gelesen'), 'eine Datei in kern/, die niemand importiert ⇒ Exit 1');
+    rmSync(join(wegwerfB, 'kern'), { recursive: true, force: true });
     schreibeQuelle();
   } finally {
     rmSync(wegwerfB, { recursive: true, force: true });

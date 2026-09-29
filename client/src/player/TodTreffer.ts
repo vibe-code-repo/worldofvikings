@@ -43,7 +43,8 @@ export class TodTreffer {
 
   constructor(
     private readonly eingabe: TodTrefferEingabe,
-    private readonly figur: () => TodTrefferFigur | null
+    private readonly figur: () => TodTrefferFigur | null,
+    private readonly reserveMs = RESERVE_MS
   ) {}
 
   /** Dead and lying? */
@@ -58,7 +59,7 @@ export class TodTreffer {
     this.figur()?.starteTod(todClipVonIndex(clipIndex) ?? 'tod_vorn');
     if (this.uhr !== null) clearTimeout(this.uhr);
     const ms = Number.isFinite(liegeMs) && liegeMs > 0 ? liegeMs : TOD_LIEGEZEIT_MS;
-    this.uhr = setTimeout(() => this.belebt(), ms + RESERVE_MS);
+    this.uhr = setTimeout(() => this.belebt(), ms + this.reserveMs);
   }
 
   /** The server says: you were struck from the side `clipIndex` names. */

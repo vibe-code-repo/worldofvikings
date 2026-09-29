@@ -2620,6 +2620,34 @@ const KERN = [
   */
   ['shared', 'test/kampf-attribute.ts'],
   ['server', 'test/kampf-attribute.ts'],
+  /*
+    Tod und Treffer sichtbar (2026-09-29): die reine Regel Seite → Clip (8 Richtungen, Wire-Indizes, Einmal-Member) und der
+    Weg durch den echten Server (zwei WebSocket-Spieler: Treffer-Schicht, Tod 5 s, tot = kein Schaden/keine Eingabe,
+    Beleben durch den Server, Kreaturen lassen ab). Der Servertest wartet ~5 s Liegezeit ein paar Mal, ~40 s.
+  */
+  ['shared', 'test/tod-treffer.ts'],
+  ['server', 'test/tod-treffer.ts'],
+  /*
+    Der Eingabe-Riegel (InputManager.gesperrt), TodTreffer und die Verdrahtung in main.ts (Zeilenwaechter < 3700), und der
+    Blut-Pool (KampfEffekte: die geteilte Textur wurde nach dem ersten Stoss entsorgt, deshalb Blut nur einmal). Ohne Assets.
+  */
+  ['client', 'test/tod-treffer-eingabe.ts'],
+  ['client', 'test/tod-treffer-blut.ts'],
+  /*
+    Wurzelbewegung der Liege-/Bueck-Clips (A4: nie die Hoehe festnageln, die 28 alten Clips bitgleich) und AvatarRig auf den
+    ECHTEN Koerpern (48 Clips): Zustaende unveraendert, Tod liegt bei 0,12 m, Treffer-Schicht nur Oberkoerper, Mindestabstand.
+    Braucht die beiden echten Koerper (v1), in der CI ohne Assets uebersprungen.
+  */
+  [
+    'client',
+    'test/tod-treffer-wurzel.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  [
+    'client',
+    'test/tod-treffer-avatar.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

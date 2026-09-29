@@ -610,6 +610,8 @@ export class AvatarRig {
    * damit Client und Server dieselbe kennen.
    */
   private readonly modellDatei: string;
+  /** Settles when the body model is loaded (or failed to). For tests and probes; the game does not wait for it. */
+  readonly geladen: Promise<void>;
 
   constructor(scene: Scene, modellDatei: string = modellDateiZu(FIGUR_VORGABE)) {
     this.modellDatei = modellDatei;
@@ -624,7 +626,7 @@ export class AvatarRig {
     hair.specularColor = new Color3(0.03, 0.03, 0.03);
 
     this.root = new TransformNode('avatar', scene);
-    void this.ladeModell(scene);
+    this.geladen = this.ladeModell(scene);
 
     this.hips = new TransformNode('avatar_hips', scene);
     this.hips.parent = this.root;

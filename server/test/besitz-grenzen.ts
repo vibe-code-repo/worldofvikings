@@ -213,6 +213,7 @@ async function main(): Promise<void> {
     metrikenDatei: METRIKEN_DATEI,
   });
   server.start();
+  server.liegezeitMs = 0; // these checks are about ownership at the respawn, not about the lying time (tod-treffer.ts)
   const PORT = portVon(server);
   const zugriff = server as unknown as Zugriff;
 

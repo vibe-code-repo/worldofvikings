@@ -27,6 +27,16 @@ import type { AudioEngine } from './AudioEngine';
 
 export type Waffensatz = 'schwert' | 'stab' | 'speer' | 'faust';
 
+/**
+ * Stab, Speer, Faust: späteste Hiebspitze (s). Die Rohzeiten von `hiebSpitzeS`
+ * sind die des Schwerts; Hieb 3 dieser Ketten meldete damit 1,13 s, sein Clip
+ * endet aber nach 0,97 s (Stab) bzw. 1,06 s (Tritt), im Browser gemessen — der
+ * Ton wäre verfallen. 0,66 s
+ * = Spitze von Schwert-Hieb 3 bei gleicher Clip-Länge (geschätzt, nicht an
+ * der Hand gemessen).
+ */
+export const ANDERE_SPITZE_MAX_S = 0.66;
+
 /** Rückfall, wenn die Figur keine Hiebzeit meldet: Sekunden bis zur Spitze von Hieb 1/2/3 (Tempo 2,5). */
 export const SCHWUNG_VERZUG_S: readonly number[] = [0.28, 0.4, 0.68];
 
@@ -86,13 +96,14 @@ const HIEB_MERKZEIT_S = 2;
  * Schwunggruppe des Hiebs `hieb` (0…) im Satz mit der Waffe `waffe`. Es gibt
  * nur die Aufnahmen `slash`, `slash-heavy`, `fist-swing`, also entscheidet die
  * Wucht: Klinge/Axt leicht, der dritte Hieb schwer; Stab und Keule (Holz,
- * beidhändig, schwer geführt) immer schwer; Speer (Stich, schnell) leicht.
+ * beidhändig, schwer geführt; der Stab `Staff` trägt im Katalog den Speer-Satz,
+ * darum zählt hier die Waffe) immer schwer; Speer (Stich, schnell) leicht.
  * Faust: eigene, leisere Luftaufnahme `fist-swing` (die `punch`-Aufnahmen sind
  * Aufprall und haben vor dem Schlag nur -45 dB Luft); `punch` bleibt der Treffer.
  */
 export function schwungGruppe(satz: Waffensatz, hieb: number, waffe = ''): string {
   if (satz === 'faust') return GRUPPE_SCHWUNG_FAUST;
-  if (satz === 'stab' || waffe === 'Club') return GRUPPE_SCHWUNG_SCHWER;
+  if (satz === 'stab' || waffe === 'Club' || waffe === 'Staff') return GRUPPE_SCHWUNG_SCHWER;
   if (satz === 'speer') return GRUPPE_SCHWUNG;
   return hieb >= 2 ? GRUPPE_SCHWUNG_SCHWER : GRUPPE_SCHWUNG;
 }
@@ -157,7 +168,8 @@ export class KampfToene {
     const jetzt = this.uhr.jetzt();
     const f = this.figur();
     const gemeldet = f?.avatar.hiebSpitzeS ?? NaN;
-    const verzug = Number.isFinite(gemeldet) && gemeldet > 0 ? gemeldet : (SCHWUNG_VERZUG_S[hieb] ?? 0.3);
+    let verzug = Number.isFinite(gemeldet) && gemeldet > 0 ? gemeldet : (SCHWUNG_VERZUG_S[hieb] ?? 0.3);
+    if (satz !== 'schwert') verzug = Math.min(verzug, ANDERE_SPITZE_MAX_S);
     if (this.wartend !== null) this.uhr.loesche(this.wartend);
     this.wartend = null;
     const eintrag: Hieb = {

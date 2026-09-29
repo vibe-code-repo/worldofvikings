@@ -14,6 +14,7 @@ import {
   KAMPF_GRUPPEN,
   KampfToene,
   HOECHSTTEMPO,
+  ANDERE_SPITZE_MAX_S,
   ORTSRAND_M,
   schwungGruppe,
   SCHWUNG_VERZUG_S,
@@ -457,6 +458,8 @@ console.log('\n[14] Schwungton je Waffenart (Faust: fist-swing):');
     ['schwert', 'AxeFlint', 0, 'combat/slash'],
     ['schwert', 'Club', 0, 'combat/slash-heavy'],
     ['schwert', 'Club', 1, 'combat/slash-heavy'],
+    ['speer', 'Staff', 0, 'combat/slash-heavy'], // Katalog: Staff hat den Speer-Satz
+    ['speer', 'Staff', 2, 'combat/slash-heavy'],
     ['stab', 'Staff', 0, 'combat/slash-heavy'],
     ['stab', 'Staff', 2, 'combat/slash-heavy'],
     ['speer', 'Spear', 0, 'combat/slash'],
@@ -481,6 +484,23 @@ console.log('\n[14] Schwungton je Waffenart (Faust: fist-swing):');
     a.uhr.bis(0.52);
     pruefe(`${satz}: Ton zur gemeldeten Hiebspitze (0,5 s)`, davor === 0 && a.spuren.length === 1);
   }
+}
+
+console.log('\n[14b] Stab/Speer/Faust Hieb 3: Ton vor dem Clip-Ende (Browser: Rest 0,972 s / 1,056 s, Rohspitze 1,133 s):');
+{
+  for (const [satz, waffe] of [['stab', 'Staff'], ['speer', 'Staff'], ['speer', 'Spear'], ['faust', '']] as [Waffensatz, string][]) {
+    const a = aufbau(waffe);
+    a.figur.avatar.hiebSpitzeS = 1.133;
+    a.klick(satz, 2);
+    a.uhr.setze(() => { a.figur.avatar.schlaegt = false; }, 972); // Clip zu Ende
+    a.uhr.bis(2);
+    pruefe(`${satz}/${waffe} Hieb 3: klingt, bevor der Schlag endet`, a.spuren.length === 1 && Math.abs(a.spuren[0]!.zeit - ANDERE_SPITZE_MAX_S) < 1e-6, JSON.stringify(a.spuren.map((x) => x.zeit)));
+  }
+  const b = aufbau('SwordNorth');
+  b.figur.avatar.hiebSpitzeS = 0.68;
+  b.klick('schwert', 2);
+  b.uhr.bis(2);
+  pruefe('Schwert Hieb 3 bleibt bei 0,68 s (Kappe gilt nicht für das Schwert)', b.spuren.length === 1 && Math.abs(b.spuren[0]!.zeit - 0.68) < 1e-6);
 }
 
 console.log('\n[15] Sprint verschluckt keinen Hieb, Teleport verwirft:');

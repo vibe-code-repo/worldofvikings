@@ -19,6 +19,7 @@ import { resolve } from 'path';
 import { weltArbeitsOrdnerImDatenOrdner, WeltVerzeichnisUngueltig } from '@wov/shared/src/instanz.js';
 import { parse as parseYaml } from 'yaml';
 import { type ServerConfig } from './WovServer.js';
+import { SPIELER_SICHERUNG_INTERVALL_MS } from './spiel/SpielerSicherung.js';
 import { BENUTZERNAME_REGEX, CHARAKTERNAME_REGEX } from './konto/KontoApi.js';
 import {
   ADMINKONTO_PASSWORT_ENV,
@@ -92,6 +93,7 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
       'mode',
       'seed',
       'save-interval',
+      'player-save-interval',
       'features',
       'vegetation',
       'creatures',
@@ -549,6 +551,8 @@ export function leseServerKonfig(
       // SAVE_INTERVAL_MS in WovServer.ts. Jetzt wirkt eine Aenderung wirklich
       // (WovServer.start() armiert damit seinen Speichertakt).
       saveIntervalMs: parseDauerMs(world['save-interval'], SAVE_INTERVAL_MS),
+      // F8: Takt der Spielerzustand-Sicherung in die Konten-SQLite.
+      spielerSicherungMs: parseDauerMs(world['player-save-interval'], SPIELER_SICHERUNG_INTERVALL_MS),
       // G1: world saves live next to server.yml
       worldsDir: resolve(datenVerzeichnis, 'worlds'),
       // Kontendatenbanken als Geschwister von worlds/ unter server/data --

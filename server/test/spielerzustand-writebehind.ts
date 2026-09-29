@@ -18,6 +18,8 @@
  *       -> es gibt keine Zeile, der Neustart beginnt frisch.
  *   [D] Neuester gewinnt: SQLite neuer als Weltspeicher -> SQLite; SQLite
  *       künstlich älter als Weltspeicher -> Weltspeicher (kein Rückschritt).
+ *   [H] Waffe (K2a): getragene Waffe steckt in der Zeile und kommt nach SIGKILL
+ *       + Neustart zurück (peer.waffe).
  *   [E] Stopp (SIGTERM): eine letzte Sicherung, Exit 0, Zeile stimmt.
  *   [F] Fremde Welt: eine Zeile mit anderer welt_id wird nicht übernommen
  *       und weggeräumt (Welt zurückgesetzt, Konten behalten).
@@ -50,7 +52,7 @@ const DATEI = fileURLToPath(import.meta.url);
 const SEED = 'KxSYuZquuw';
 const GEHEIMNIS_HEX = 'ab'.repeat(32);
 const RIESIG = 3_600_000;
-const P = { VersionCheck: 1, PasswordAuth: 2, PeerInfo: 3, PlayerInput: 40, AdminCommand: 53, SetAussehen: 73, AuthChallenge: 68 };
+const P = { VersionCheck: 1, PasswordAuth: 2, PeerInfo: 3, PlayerInput: 40, AdminCommand: 53, SetAussehen: 73, Equip: 80, AuthChallenge: 68 };
 const warte = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ── Kindmodus: ein Weltserver, der Befehle über stdin annimmt ─────────
@@ -89,6 +91,7 @@ if (process.argv[2] === 'kind') {
           z: peer?.position.z,
           holz: peer?.inventar.countOf('Wood') ?? 0,
           ruestung: peer?.ruestung,
+          waffe: peer?.waffe,
           figur: peer?.figur,
           stats: s?.stats(),
         }),
@@ -107,6 +110,7 @@ interface Standmeldung {
   z: number;
   holz: number;
   ruestung?: string;
+  waffe?: string;
   figur?: string;
   stats?: { laeufe: number; zeilen: number; fehler: number; summeMs: number; maxMs: number };
 }
@@ -303,6 +307,28 @@ async function haupt(): Promise<void> {
     check(`Neustart beginnt frisch (${startC} Holz wie vorher, nicht ${startC}+7)`, s.holz === startC && Math.abs(s.x - 300) > 1, `holz=${s.holz} x=${s.x}`);
     wsC2.terminate();
     await c2.beende('SIGKILL');
+
+    console.log('\n[H] Waffe: Equip -> Takt -> SIGKILL -> Neustart, die Waffe ist wieder da:');
+    const dirH = resolve(WURZEL, 'h');
+    mkdirSync(dirH, { recursive: true });
+    const h1 = await neu(dirH, TAKT);
+    const wsH = await verbinde(h1.port, token);
+    admin(wsH, 'item give AxeFlint 1');
+    await warte(300);
+    wsH.send(Buffer.concat([Buffer.from([P.Equip]), new Writer().writeString('waffe').writeString('AxeFlint').toBuffer()]));
+    await warte(400);
+    check('vor dem Kill: der Server trägt die Axt', (await h1.stand()).waffe === 'AxeFlint', String((await h1.stand()).waffe));
+    await warte(TAKT + 1500);
+    await h1.beende('SIGKILL');
+    wsH.terminate();
+    zeilen = leseZeilen(dirH);
+    const dH = zeilen[0] ? (JSON.parse(zeilen[0].daten) as SavedPlayer) : null;
+    check('Zeile trägt die Waffe (SavedPlayer.waffe)', dH?.waffe === 'AxeFlint', String(dH?.waffe));
+    const h2 = await neu(dirH, TAKT);
+    const wsH2 = await verbinde(h2.port, token);
+    check('Neustart: getragene Waffe wiederhergestellt', (await h2.stand()).waffe === 'AxeFlint', String((await h2.stand()).waffe));
+    wsH2.terminate();
+    await h2.beende('SIGKILL');
 
     console.log('\n[D/E] Neuester gewinnt, Stopp sichert zuletzt:');
     const dirD = resolve(WURZEL, 'd');

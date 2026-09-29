@@ -12,7 +12,7 @@
  */
 
 import type { Vector3, ZoneID, ConnectionStatus } from '@wov/shared';
-import { Inventory } from '@wov/shared';
+import { Inventory, decodeArmor, summiereWerte, werteFuerRuestungsteil, KEINE_WERTE, type Werte } from '@wov/shared';
 import { ZDOID } from '../zdo/ZDOID.js';
 import { ZDORevision } from '../zdo/ZDO.js';
 import { ZonenFenster } from '../zdo/ZonenFenster.js';
@@ -80,7 +80,23 @@ export class Peer {
    * heisst "nichts angezogen". Zusammengefasst statt zweier Felder, damit
    * ein weiterer Slot spaeter weder Peer noch Spielstand aufbläht.
    */
-  ruestung: string = '|';
+  private ruestungWert = '|';
+  private werteWert: Werte = KEINE_WERTE;
+  get ruestung(): string {
+    return this.ruestungWert;
+  }
+  /**
+   * Every assignment recomputes `werte` ONCE (not per blow): login, `inventarSync`, `SetAussehen`
+   * all go through here, so the sums can never lag behind the worn parts.
+   */
+  set ruestung(wert: string) {
+    this.ruestungWert = wert;
+    this.werteWert = summiereWerte(Object.values(decodeArmor(wert)).map((id) => werteFuerRuestungsteil(id)));
+  }
+  /** Summed item attributes of the worn armor (shared/src/items/stats.ts), read-only. */
+  get werte(): Werte {
+    return this.werteWert;
+  }
 
   /** Connection status */
   status: ConnectionStatus;
@@ -139,6 +155,8 @@ export class Peer {
 
   /** Aktiver Essens-Buff: maxHP-Bonus bis Zeitstempel (ms). */
   foodBonus: number;
+  /** Lebensmaximum, das der Client mit dem letzten PlayerState mitbekam (Anzeige-Prozent bezieht sich darauf). */
+  gesendetesLebensmax = 100;
   foodBis: number;
 
   /** Phase G: dungeon instance the peer is currently inside (null = overworld). */

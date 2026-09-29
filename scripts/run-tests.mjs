@@ -2599,6 +2599,12 @@ const KERN = [
   // 6 s tick witness (in-process; the real-main.ts cases are in z3n1-hauptprozess.ts).
   ['server', 'test/z3n1-abschluss.ts'],
   ['admin', 'test/welt-bestaetigen-z3.ts'],
+  // Card Z3 Folgen: the deletion lock also holds at server boot (a world file written while the server was stopped:
+  // all / over 25 % / state / prefab swap with content; real main.ts child, kill windows, confirm, legacy ids), and the
+  // operating service side: /api/welt/bestaetigen takes the shared server lock (F1), the test-world messages and the
+  // leftover .beiseite request (F2/F3), the lock hint on an unchanged save (C2).
+  ['server', 'test/z3f-boot-schutz.ts'],
+  ['admin', 'test/z3f-folgen.ts'],
   /*
     Wikingerin, Webkopien ueberdecken Spiel-Assets (2026-09-29): nginx liefert
     /assets/ zuerst aus wov-web/static/assets/, sonst aus assets/ -- eine
@@ -2608,6 +2614,24 @@ const KERN = [
     ohne brauchtModelle. ~0.1 s.
   */
   ['tools', 'test/webkopien-ueberdeckung.ts'],
+  /*
+    Kampftoene (client/src/engine/Audio/KampfToene.ts): Schwung zum
+    Hiebzeitpunkt, Treffer/Parade nur mit HitEffect, Faust ohne Schwung,
+    alle Gruppen im `toene`-Abschnitt der getrackten assets/manifest.json.
+  */
+  ['client', 'test/kampf-toene.ts'],
+  /*
+    Kampftoene N1: HitEffect traegt hinten ein Bool je Empfaenger „du bist der
+    Angreifer“ (echter Server, zwei WebSocket-Spieler, Layout bleibt 17 Byte).
+  */
+  ['server/test', 'kampf-toene-hiteffect.ts'],
+  /*
+    Kampfkern K1 (2026-09-29): Item-Attribute und Formeln (rein) und ihr Weg
+    durch den Server (drei echte WebSocket-Spieler mit verschiedener
+    Ausruestung). Keine Assets noetig. ~10 s bzw. ~25 s.
+  */
+  ['shared', 'test/kampf-attribute.ts'],
+  ['server', 'test/kampf-attribute.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

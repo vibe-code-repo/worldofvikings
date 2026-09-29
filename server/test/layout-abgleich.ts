@@ -472,8 +472,10 @@ const boot4c = starte('welt4', dokument(BASIS_VORHER, []));
 const u3 = boot4c.server;
 console.log(`     log: ${boot4c.zeilen.join(' | ')}`);
 const uebrig = u3.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '' && z.getInt('spieler') !== 1);
-check('(A4) a document without placements removes the orphaned layout ZDOs', uebrig.length === 0, `${uebrig.length} left`);
-check('(A4) ... and logs how many', boot4c.zeilen.some((z) => /2 entfernt/.test(z)) && boot4c.zeilen.some((z) => /ohne Platzierungen — 2/.test(z)), boot4c.zeilen.join(' | '));
+// Z3 Folgen (H1): a document that empties the world (rule "all") is held back by the boot lock instead of deleting; the same
+// deletion in smaller steps (below the rule) still goes through, see server/test/z3f-boot-schutz.ts (KLEIN).
+check('(A4) a document without placements is held back by the boot lock: the two orphaned layout ZDOs stay', uebrig.length === 2, `${uebrig.length} left`);
+check('(A4) ... and logs the new lock with the number', boot4c.zeilen.some((z) => /0 entfernt/.test(z)) && boot4c.zeilen.some((z) => /Löschsperre NEU — die Weltdatei löscht 2 Objekt/.test(z)), boot4c.zeilen.join(' | '));
 check('(A4) ... but player pieces stay', [baut1Id, baut2Id].every((id) => u3.zdos.getAllZDOs().some((z) => z.zdoid.toString() === id)));
 
 // ── World 5: the id in the file is the address ──────────────────────
@@ -601,7 +603,8 @@ delete ohneFeld.placements;
 for (const [doc, name] of [[ohneFeld, 'missing'], [dokument(BASIS_VORHER, []), '[]']] as const) {
   const b = starte('welt7', doc);
   const uebrig7 = b.server.zdos.getAllZDOs().filter((z) => z.getString(LAYOUT_ID_MEMBER) !== '');
-  check(`(B1) placements ${name}: means "none", the orphans are cleared`, uebrig7.length === 0 && b.zeilen.some((z) => /2 entfernt/.test(z)), `${uebrig7.length} left; ${b.zeilen.join(' | ')}`);
+  // Z3 Folgen (H1): "none" means all layout objects would go: the boot lock holds both back (the first boot sets the lock, the second finds it).
+  check(`(B1) placements ${name}: means "none", the boot lock holds the orphans back`, uebrig7.length === 2 && b.zeilen.some((z) => /Löschsperre (NEU — die Weltdatei löscht|hält) 2 Objekt/.test(z)) && b.zeilen.some((z) => /0 entfernt/.test(z)), `${uebrig7.length} left; ${b.zeilen.join(' | ')}`);
 }
 
 // ── World 8: one id, several ZDOs ───────────────────────────────────
@@ -752,7 +755,8 @@ console.log(`     log: ${boot11d.zeilen.join(' | ')}`);
 check('(A1) unknown prefab + duplicate: both ZDOs stay, nothing is cut down', nur11(boot11d.server, [2, 3]) && !boot11d.zeilen.some((z) => /überzählig/.test(z)), `alive: ${lebt11(boot11d.server).join(',')}; ${boot11d.zeilen.join(' | ')}`);
 
 const boot11e = starte('welt11', dokument(BASIS_NACHHER, []));
-check('(A1) a document without placements clears them all as usual', lebt11(boot11e.server).length === 0 && boot11e.zeilen.some((z) => /\b4 entfernt/.test(z)) && !boot11e.zeilen.some((z) => /ohne Löschen/.test(z)), `${lebt11(boot11e.server).length} alive; ${boot11e.zeilen.join(' | ')}`);
+// Z3 Folgen (H1): all four would go — the boot lock holds them back (not the sanitizer's "without deleting").
+check('(A1) a document without placements: the boot lock holds all four back (three by the lock, one is spared as before: unknown prefab)', lebt11(boot11e.server).length === 4 && boot11e.zeilen.some((z) => /Löschsperre NEU — die Weltdatei löscht 3 Objekt/.test(z)) && !boot11e.zeilen.some((z) => /ohne Löschen/.test(z)), `${lebt11(boot11e.server).length} alive; ${boot11e.zeilen.join(' | ')}`);
 
 // ── World 12: no ZDO of the id fits the prefab ──────────────────────
 console.log('\n[18] World 12: no ZDO of an id fits the prefab -> the new one is spawned and the stale ones go in the same boot');

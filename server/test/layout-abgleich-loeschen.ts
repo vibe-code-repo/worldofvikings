@@ -40,6 +40,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as gemeinsam from '@wov/shared';
 import { LAYOUT_ID_MEMBER, TRUHE_INHALT_MEMBER, layoutKennung } from '@wov/shared';
+import { loeschsperreDatei, loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { createWovServer } from '../src/WovServer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
 
@@ -47,7 +48,7 @@ let fehler = 0;
 let gut = 0;
 // The number of checks this file runs. A crash in the middle (an exception, a section that never ran) prints a plain error
 // and no FAIL line -- counted as "0 FAIL" it would pass; so the end (and the exit hook) compares ok + FAIL with this number.
-const SOLL = 74;
+const SOLL = 137;
 let fertig = false;
 process.on('exit', () => {
   if (fertig) return;
@@ -130,13 +131,32 @@ const zahl = (zeile: string, was: string): number => Number(new RegExp(`(\\d+) $
 const platzierungsIdBasis = gemeinsam.platzierungsIdBasis as (p: { prefab: string; x: number; z: number }) => string;
 
 /** Boot 1: one chest with contents; returns the world so that boot 2 can load its save. */
-function ersterBoot(welt: string, alt: Platzierung) {
+function ersterBoot(welt: string, alt: Platzierung, mitInhalt = true) {
   const b1 = starte(welt, dokument([alt]));
   const z1 = layoutZdos(b1.server, alt.id!)[0];
   check(`${welt}: boot 1 spawned the chest with its id`, z1 !== undefined && layoutZdos(b1.server, alt.id!).length === 1);
-  z1?.setString(TRUHE_INHALT_MEMBER, INHALT);
+  if (mitInhalt) z1?.setString(TRUHE_INHALT_MEMBER, INHALT);
   b1.server.saveWorld();
   return { uid: z1?.zdoid.toString(), boot: b1 };
+}
+
+/**
+ * Z3 Folgen N1 (B1/B2, Mikes Beschluss: the deletion lock also holds at boot): a chest WITH contents that the file no longer
+ * has is a deletion with state. The boot does not do it: the chest stands with its contents, the lock file names its id, and only
+ * the confirmation (`POST /api/welt/bestaetigen`, covered by `z3f-boot-schutz.ts` BEST/R2) deletes it. What each section pins
+ * stays true: the placement with the NEW id is a NEW, empty ZDO and never inherits (`darfUebernehmen`). Where it is about
+ * the gate alone, the same case runs once more with a chest WITHOUT contents (nothing to hold back: the old result).
+ */
+function erwarteSperre(welt: string, b2: ReturnType<typeof starte>, uid: string | undefined, altId: string, gespawnt: number): void {
+  const zeile = abgleich(b2.zeilen);
+  const alt = b2.server.zdos.getAllZDOs().find((z) => z.zdoid.toString() === uid);
+  check('the chest WITH contents is held back by the boot lock: it stands, contents kept', alt !== undefined && !alt.destroyed && inhalt(alt) === INHALT, `${alt ? inhalt(alt) : '-'}`);
+  const sp = loeschsperreLesen(loeschsperreDatei(join(WURZEL, welt, 'worlds'), 'world'));
+  check(
+    `... the lock file names its id, the log names the lock and says ${gespawnt} spawned, 0 removed`,
+    sp !== null && sp !== 'kaputt' && sp.ids.includes(altId) && b2.zeilen.some((z) => /Löschsperre (NEU|hält)/.test(z)) && zahl(zeile, 'gespawnt') === gespawnt && zahl(zeile, 'entfernt') === 0,
+    `${JSON.stringify(sp)} | ${b2.zeilen.join(' | ')}`
+  );
 }
 
 // ── 1. Delete the chest, set another one where it stood (editor id with a tail) ──
@@ -148,24 +168,31 @@ for (const [name, abstand] of [
   ['0.3 m beside it', 0.3],
   ['0.49 m beside it', 0.49],
 ] as const) {
-  console.log(`\n[1] delete + set a chest ${name}, editor-style id (derived + letter tail)`);
-  const welt = `loeschen-${abstand}`;
-  const { uid } = ersterBoot(welt, ALT);
-  const NEU = { id: `${ALT_ID}-k3x9`, prefab: TRUHE, x: 100 + abstand, z: 100 };
-  const b2 = starte(welt, dokument([NEU]));
-  const zeile = abgleich(b2.zeilen);
-  console.log(`     log: ${zeile}`);
-  const neu = layoutZdos(b2.server, NEU.id!);
-  check(`the new chest has exactly one ZDO`, neu.length === 1, `${neu.length}`);
-  check(`... a NEW one (uid ${neu[0]?.zdoid.toString()} != old ${uid})`, neu[0] !== undefined && neu[0].zdoid.toString() !== uid);
-  check(`... WITHOUT the old contents`, neu[0] !== undefined && inhalt(neu[0]) === '', `"${neu[0] ? inhalt(neu[0]) : '-'}"`);
-  check(`the deleted chest is gone (no ZDO with its id, its uid does not exist)`, layoutZdos(b2.server, ALT_ID).length === 0 && !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid));
-  check(`the log says 1 spawned, 1 removed`, zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1, zeile);
-  check(`one layout ZDO in the world (no doubling)`, alleLayoutZdos(b2.server).length === 1, `${alleLayoutZdos(b2.server).length}`);
-  // boot 3 on the same document: stable
-  b2.server.saveWorld();
-  const b3 = starte(welt, dokument([NEU]));
-  check(`boot 3 (same document): 0 spawned, 0 removed, the new chest keeps its ZDO`, zahl(abgleich(b3.zeilen), 'gespawnt') === 0 && zahl(abgleich(b3.zeilen), 'entfernt') === 0 && layoutZdos(b3.server, NEU.id!)[0]?.zdoid.toString() === neu[0]?.zdoid.toString());
+  for (const mitInhalt of [true, false]) {
+    console.log(`\n[1] delete + set a chest ${name}, editor-style id (derived + letter tail), ${mitInhalt ? 'WITH contents (held back by the boot lock)' : 'without contents'}`);
+    const welt = `loeschen-${abstand}-${mitInhalt ? 'mit' : 'ohne'}`;
+    const { uid } = ersterBoot(welt, ALT, mitInhalt);
+    const NEU = { id: `${ALT_ID}-k3x9`, prefab: TRUHE, x: 100 + abstand, z: 100 };
+    const b2 = starte(welt, dokument([NEU]));
+    const zeile = abgleich(b2.zeilen);
+    console.log(`     log: ${zeile}`);
+    const neu = layoutZdos(b2.server, NEU.id!);
+    check(`the new chest has exactly one ZDO`, neu.length === 1, `${neu.length}`);
+    check(`... a NEW one (uid ${neu[0]?.zdoid.toString()} != old ${uid})`, neu[0] !== undefined && neu[0].zdoid.toString() !== uid);
+    check(`... WITHOUT the old contents`, neu[0] !== undefined && inhalt(neu[0]) === '', `"${neu[0] ? inhalt(neu[0]) : '-'}"`);
+    if (mitInhalt) {
+      erwarteSperre(welt, b2, uid, ALT_ID, 1);
+      check(`two layout ZDOs in the world (the held-back chest and the new one)`, alleLayoutZdos(b2.server).length === 2, `${alleLayoutZdos(b2.server).length}`);
+    } else {
+      check(`the deleted chest is gone (no ZDO with its id, its uid does not exist)`, layoutZdos(b2.server, ALT_ID).length === 0 && !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid));
+      check(`the log says 1 spawned, 1 removed`, zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1, zeile);
+      check(`one layout ZDO in the world (no doubling)`, alleLayoutZdos(b2.server).length === 1, `${alleLayoutZdos(b2.server).length}`);
+    }
+    // boot 3 on the same document: stable
+    b2.server.saveWorld();
+    const b3 = starte(welt, dokument([NEU]));
+    check(`boot 3 (same document): 0 spawned, 0 removed, the new chest keeps its ZDO`, zahl(abgleich(b3.zeilen), 'gespawnt') === 0 && zahl(abgleich(b3.zeilen), 'entfernt') === 0 && layoutZdos(b3.server, NEU.id!)[0]?.zdoid.toString() === neu[0]?.zdoid.toString());
+  }
 }
 
 // ── 2. The same with another prefab at that place (unchanged behaviour) ──
@@ -173,7 +200,8 @@ console.log('\n[2] a chest deleted, another prefab set where it stood');
 {
   const { uid } = ersterBoot('anderes-prefab', ALT);
   const b2 = starte('anderes-prefab', dokument([{ id: 'wand-neu-a1b2', prefab: 'woodwall', x: 100, z: 100 }]));
-  check('the chest is removed, the wall is a new ZDO', !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid) && layoutZdos(b2.server, 'wand-neu-a1b2').length === 1, abgleich(b2.zeilen));
+  // Z3 Folgen (H1): the chest carries contents (state), so deleting it offline is held back by the boot lock; the wall is still new.
+  check('the chest (with contents) is held back by the boot lock, the wall is a new ZDO', b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid) && layoutZdos(b2.server, 'wand-neu-a1b2').length === 1 && b2.zeilen.some((z) => /Löschsperre NEU/.test(z)), abgleich(b2.zeilen));
 }
 
 // ── 2b. An id the MCP server or a hand-written file gives, in derived form: still a NEW object ──
@@ -182,14 +210,20 @@ for (const [name, altId, neuId] of [
   ['the counter form `-2`', ALT_ID, `${ALT_ID}-2`],
   ['the counter form `-7`', `${ALT_ID}-k3x9`, `${ALT_ID}-7`],
 ] as const) {
-  console.log(`\n[2b] delete + set a chest with an EXPLICIT id in derived form: ${name}`);
-  const welt = `explizit-${neuId}`;
-  const { uid } = ersterBoot(welt, { id: altId, prefab: TRUHE, x: 100, z: 100 });
-  const b2 = starte(welt, dokument([{ id: neuId, prefab: TRUHE, x: 100.3, z: 100 }]));
-  const zeile = abgleich(b2.zeilen);
-  const neu = layoutZdos(b2.server, neuId);
-  check('a NEW ZDO, WITHOUT the old contents, the old one is gone', neu.length === 1 && neu[0]!.zdoid.toString() !== uid && inhalt(neu[0]!) === '' && !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid), `${uid} -> ${neu[0]?.zdoid.toString()}, "${neu[0] ? inhalt(neu[0]) : '-'}"`);
-  check('the log says 1 spawned, 1 removed, 0 re-stamped', zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1 && !/umgestempelt/.test(zeile), zeile);
+  for (const mitInhalt of [true, false]) {
+    console.log(`\n[2b] delete + set a chest with an EXPLICIT id in derived form: ${name}, ${mitInhalt ? 'WITH contents (held back)' : 'without contents'}`);
+    const welt = `explizit-${neuId}-${mitInhalt ? 'mit' : 'ohne'}`;
+    const { uid } = ersterBoot(welt, { id: altId, prefab: TRUHE, x: 100, z: 100 }, mitInhalt);
+    const b2 = starte(welt, dokument([{ id: neuId, prefab: TRUHE, x: 100.3, z: 100 }]));
+    const zeile = abgleich(b2.zeilen);
+    const neu = layoutZdos(b2.server, neuId);
+    check('a NEW ZDO, WITHOUT the old contents', neu.length === 1 && neu[0]!.zdoid.toString() !== uid && inhalt(neu[0]!) === '', `${uid} -> ${neu[0]?.zdoid.toString()}, "${neu[0] ? inhalt(neu[0]) : '-'}"`);
+    if (mitInhalt) erwarteSperre(welt, b2, uid, altId, 1);
+    else {
+      check('the old one is gone', !b2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uid));
+      check('the log says 1 spawned, 1 removed, 0 re-stamped', zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1 && !/umgestempelt/.test(zeile), zeile);
+    }
+  }
 }
 
 console.log('\n[2c] two chests in one metre, one of them deleted, an editor chest set where it stood: the other keeps its ZDO and contents');
@@ -200,7 +234,7 @@ console.log('\n[2c] two chests in one metre, one of them deleted, an editor ches
   const b1 = starte(welt, dokument([X, Y]));
   const zx = layoutZdos(b1.server, X.id)[0]!;
   const zy = layoutZdos(b1.server, Y.id)[0]!;
-  zx.setString(TRUHE_INHALT_MEMBER, '[["Holz",1,0,0]]');
+  // X carries no contents: deleting it is not held back (a deleted chest WITH contents is the lock case, [1]); Y's contents are what this section pins.
   zy.setString(TRUHE_INHALT_MEMBER, '[["Stein",2,0,0]]');
   const uidX = zx.zdoid.toString();
   const uidY = zy.zdoid.toString();
@@ -215,15 +249,18 @@ console.log('\n[2c] two chests in one metre, one of them deleted, an editor ches
 }
 
 // ── 3. A document WITHOUT ids: the derived id is the address, and it changes across the rounding edge ──
-console.log('\n[3] an entry WITHOUT an id in the file, pushed across the rounding edge of a metre: a NEW id -- the old ZDO goes, a new one spawns');
-{
+console.log('\n[3] an entry WITHOUT an id in the file, pushed across the rounding edge of a metre: a NEW id -- without contents the old ZDO goes and a new one spawns; WITH contents the boot lock holds the old one');
+for (const mitInhalt of [true, false]) {
+  const welt = `abgeleitet-${mitInhalt ? 'mit' : 'ohne'}`;
   const alt = { id: 'piece-chest-wood_140_100', prefab: TRUHE, x: 140.4, z: 100 };
-  const { uid } = ersterBoot('abgeleitet', alt);
-  const b2 = starte('abgeleitet', dokument([{ prefab: TRUHE, x: 140.5, z: 100 }])); // no id: the sanitizer derives ..._141_100
-  const z = alleLayoutZdos(b2.server)[0];
+  const { uid } = ersterBoot(welt, alt, mitInhalt);
+  const b2 = starte(welt, dokument([{ prefab: TRUHE, x: 140.5, z: 100 }])); // no id: the sanitizer derives ..._141_100
+  const neuId = platzierungsIdBasis({ prefab: TRUHE, x: 140.5, z: 100 });
+  const z = layoutZdos(b2.server, neuId)[0];
   const zeile = abgleich(b2.zeilen);
-  check('a NEW ZDO carries the new derived id, WITHOUT the old contents', alleLayoutZdos(b2.server).length === 1 && z?.zdoid.toString() !== uid && z?.getString(LAYOUT_ID_MEMBER) === platzierungsIdBasis({ prefab: TRUHE, x: 140.5, z: 100 }) && inhalt(z!) === '', `${uid} -> ${z?.zdoid.toString()}`);
-  check('... the log says 1 spawned, 1 removed (the documented consequence of a file without ids)', zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1, zeile);
+  check(`${mitInhalt ? 'with' : 'without'} contents: a NEW ZDO carries the new derived id, WITHOUT the old contents`, z !== undefined && z.zdoid.toString() !== uid && inhalt(z) === '', `${uid} -> ${z?.zdoid.toString()}`);
+  if (mitInhalt) erwarteSperre(welt, b2, uid, alt.id, 1);
+  else check('... the old one is gone, the log says 1 spawned, 1 removed (the documented consequence of a file without ids)', alleLayoutZdos(b2.server).length === 1 && zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1, zeile);
 }
 
 console.log('\n[3b] the chain of attack 3 (save from before E1, file without ids, the entry pushed across the edge, a write path in between)');
@@ -249,9 +286,11 @@ console.log('\n[3b] the chain of attack 3 (save from before E1, file without ids
   for (const [name, mitSchreibweg] of [['without a write path', false], ['with a write path in between', true]] as const) {
     const bewegt = dokument([{ ...alt, x: 140.5 }]);
     const bb = starte(w, mitSchreibweg ? geschrieben(bewegt) : bewegt);
-    const zz = alleLayoutZdos(bb.server)[0];
     const zeile = abgleich(bb.zeilen);
-    check(`(ii) no id in the file when it moves, ${name}: a NEW ZDO without the contents (1 spawned, 1 removed -- the documented consequence)`, alleLayoutZdos(bb.server).length === 1 && zz?.zdoid.toString() !== uid0 && inhalt(zz!) === '' && zahl(zeile, 'gespawnt') === 1 && zahl(zeile, 'entfernt') === 1, zeile);
+    const neuId = platzierungsIdBasis({ prefab: TRUHE, x: 140.5, z: 100 });
+    const zNeu = layoutZdos(bb.server, neuId)[0];
+    check(`(ii) no id in the file when it moves, ${name}: a NEW ZDO without the contents`, zNeu !== undefined && zNeu.zdoid.toString() !== uid0 && inhalt(zNeu) === '', zeile);
+    erwarteSperre(w, bb, uid0, 'piece-chest-wood_140_100', 1); // the old one has contents: held back by the boot lock, not deleted
   }
 }
 
@@ -265,9 +304,10 @@ console.log('\n[3c] two entries near a deleted chest: an editor id and an entry 
   for (const [name, reihenfolge] of [['document order A, B', [A, B]], ['document order B, A', [B, A]]] as const) {
     const b2 = starte(w, dokument([...reihenfolge]));
     const zeile = abgleich(b2.zeilen);
-    const alle = alleLayoutZdos(b2.server);
-    check(`${name}: two NEW empty ZDOs, the old one is gone`, alle.length === 2 && alle.every((z) => z.zdoid.toString() !== uid && inhalt(z) === ''), `${alle.map((z) => `${z.zdoid}:"${inhalt(z)}"`).join(' ')}`);
-    check(`${name}: the log says 2 spawned, 1 removed`, zahl(zeile, 'gespawnt') === 2 && zahl(zeile, 'entfernt') === 1, zeile);
+    const neue = alleLayoutZdos(b2.server).filter((z) => z.zdoid.toString() !== uid);
+    check(`${name}: two NEW empty ZDOs (neither inherits)`, neue.length === 2 && neue.every((z) => inhalt(z) === ''), `${neue.map((z) => `${z.zdoid}:"${inhalt(z)}"`).join(' ')}`);
+    // the old chest has contents: held back by the boot lock (the first order writes the lock, the second finds it)
+    erwarteSperre(w, b2, uid, ALT_ID, 2);
   }
 }
 
@@ -332,34 +372,27 @@ console.log('\n[6] the E0 protection keeps an orphan alive (an entry the sanitiz
 console.log('\n[7] the old key is recognised by its FULL form (`prefab@x,z`); a member that is not a text counts as a name, not as "none"');
 {
   const NEU = { id: 'truhe-neu-a1b2', prefab: TRUHE, x: 100.2, z: 100 };
-  // (a) a forged key: it contains an `@`, but no server ever wrote `irgendwas@7,7`
-  const wa = 'kennung-gefaelscht';
-  const { uid: uidA } = ersterBoot(wa, ALT);
-  const ba = starte(wa, dokument([ALT]));
-  layoutZdos(ba.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, 'irgendwas@7,7');
-  ba.server.saveWorld();
-  const ba2 = starte(wa, dokument([NEU]));
-  const za = layoutZdos(ba2.server, NEU.id)[0];
-  check('(a) `irgendwas@7,7` beside a new placement: NOT taken over -- a NEW empty ZDO, the old one gone', za !== undefined && za.zdoid.toString() !== uidA && inhalt(za) === '' && !ba2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uidA), abgleich(ba2.zeilen));
-  check('(a) ... the log says 1 spawned, 1 removed, nothing re-stamped', zahl(abgleich(ba2.zeilen), 'gespawnt') === 1 && zahl(abgleich(ba2.zeilen), 'entfernt') === 1 && !/umgestempelt/.test(abgleich(ba2.zeilen)), abgleich(ba2.zeilen));
-  // (a2) the full form, but the prefab part is another prefab than the ZDO's own: no key this server wrote for this object
-  const wa2 = 'kennung-fremdes-prefab';
-  const { uid: uidA2 } = ersterBoot(wa2, ALT);
-  const ba3 = starte(wa2, dokument([ALT]));
-  layoutZdos(ba3.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, 'woodwall@100,100');
-  ba3.server.saveWorld();
-  const ba4 = starte(wa2, dokument([NEU]));
-  const za2 = layoutZdos(ba4.server, NEU.id)[0];
-  check('(a2) `woodwall@100,100` on a chest ZDO (the prefab part is not the ZDO\'s prefab): NOT taken over, a NEW empty ZDO', za2 !== undefined && za2.zdoid.toString() !== uidA2 && inhalt(za2) === '', abgleich(ba4.zeilen));
-  // (a3) the own prefab, but no whole numbers after the `@`
-  const wa3 = 'kennung-zahlen';
-  const { uid: uidA3 } = ersterBoot(wa3, ALT);
-  const ba5 = starte(wa3, dokument([ALT]));
-  layoutZdos(ba5.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, 'piece_chest_wood@abc,def');
-  ba5.server.saveWorld();
-  const ba6 = starte(wa3, dokument([NEU]));
-  const za3 = layoutZdos(ba6.server, NEU.id)[0];
-  check('(a3) `piece_chest_wood@abc,def` (the own prefab, but no numbers): NOT taken over, a NEW empty ZDO', za3 !== undefined && za3.zdoid.toString() !== uidA3 && inhalt(za3) === '', abgleich(ba6.zeilen));
+  // (a) a forged key: it contains an `@`, but no server ever wrote `irgendwas@7,7`; (a2) the full form, but the prefab part is another
+  // prefab than the ZDO's own; (a3) the own prefab, but no whole numbers after the `@`: none is an old key, none is taken over
+  for (const [label, kennung] of [
+    ['(a) `irgendwas@7,7`', 'irgendwas@7,7'],
+    ['(a2) `woodwall@100,100` on a chest ZDO (the prefab part is not the ZDO\'s prefab)', 'woodwall@100,100'],
+    ['(a3) `piece_chest_wood@abc,def` (the own prefab, but no numbers)', 'piece_chest_wood@abc,def'],
+  ] as const) {
+    for (const mitInhalt of [true, false]) {
+      const wa = `kennung-${kennung.replace(/\W/g, '')}-${mitInhalt ? 'mit' : 'ohne'}`;
+      const { uid: uidA } = ersterBoot(wa, ALT, mitInhalt);
+      const ba = starte(wa, dokument([ALT]));
+      layoutZdos(ba.server, ALT_ID)[0]!.setString(LAYOUT_ID_MEMBER, kennung);
+      ba.server.saveWorld();
+      const ba2 = starte(wa, dokument([NEU]));
+      const za = layoutZdos(ba2.server, NEU.id)[0];
+      const zeileA = abgleich(ba2.zeilen);
+      check(`${label}, ${mitInhalt ? 'with' : 'without'} contents: beside a new placement NOT taken over -- a NEW empty ZDO`, za !== undefined && za.zdoid.toString() !== uidA && inhalt(za) === '', zeileA);
+      if (mitInhalt) erwarteSperre(wa, ba2, uidA, kennung, 1);
+      else check(`${label}: the old one is gone, 1 spawned, 1 removed, nothing re-stamped`, !ba2.server.zdos.getAllZDOs().some((z) => z.zdoid.toString() === uidA) && zahl(zeileA, 'gespawnt') === 1 && zahl(zeileA, 'entfernt') === 1 && !/umgestempelt/.test(zeileA), zeileA);
+    }
+  }
   // (b) a `layoutId` member of the wrong type (an Int): unreadable as a text, but there -- so a name, not "no key": left alone, never inherited
   const wb = 'kennung-int';
   const { uid: uidB } = ersterBoot(wb, ALT);

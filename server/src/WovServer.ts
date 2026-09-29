@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
+import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
@@ -106,8 +106,9 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
-import { liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
-import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreFreigeben } from './world/layoutBootSchutz.js';
+import { bootLoeschRegel, liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
+import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreErweitern, sperreFreigeben } from './world/layoutBootSchutz.js';
+import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
@@ -299,14 +300,6 @@ const NAME_NICHT_EINDEUTIG = 'nicht-eindeutig' as const;
 const PARADE_FENSTER_MS = 600;
 /** Parade: Ausdauerkosten (ein Schlag kostet 8). */
 const PARADE_AUSDAUER = 4;
-/**
- * Schlag: Ausdauerkosten.
- *
- * Stand frueher als blanke 8 zweimal in `handleAttack`. Sie gehoert
- * NICHT in die gemeinsame Ausdauerregel: Was ein Schlag kostet, ist eine
- * Kampfzahl, und `ausdauerAbzug` nimmt die Kosten deshalb als Parameter.
- */
-const SCHLAG_AUSDAUER = 8;
 const DEFAULT_CONFIG: ServerConfig = {
   name: 'World of Vikings Server',
   password: '',
@@ -1354,6 +1347,37 @@ export class WovServer {
       const sperrAuswertung = sperreAbgleichen(this.loeschsperrePfad, this.zdos, layout, (t) => console.error(t), true, (name) => this.prefabs.getByName(name)?.hash);
       geschuetzteIds = sperrAuswertung.aktive === 'kaputt' ? undefined : sperrAuswertung.aktive;
       sperreKaputt = sperrAuswertung.aktive === 'kaputt';
+      // Karte Z3 Folgen (H1): dieselbe Löschregel wie live, gegen den Bestand an Layout-ZDOs. Eine Datei, die bei
+      // gestopptem Server geschrieben wurde, hat keine Wache gesehen. Greift die Regel, kommen die ids in die
+      // Sperrdatei (VOR jeder Löschung, atomar) und bleiben stehen; kleine Änderungen laufen durch. Bei verworfenen
+      // Einträgen löscht der Boot ohnehin nichts (`ohneLoeschen`), dort gibt es nichts zu sperren.
+      const verworfenBoot = Math.max(0, rohAnzahl - gueltigeAnzahl - (bericht?.zusammengefasst.length ?? 0));
+      if (!sperreKaputt && verworfenBoot === 0) {
+        const regel = bootLoeschRegel({ zdos: this.zdos, prefabs: this.prefabs }, layout, geschuetzteIds);
+        if (regel && regel.ids.length > 0) {
+          let hash = '';
+          try {
+            hash = (this.config.worldLayoutPath ? layoutDateiHash(this.config.worldLayoutPath) : null) ?? '';
+          } catch {
+            /* the hash is only for display; the lock file is still written */
+          }
+          const erweitert = sperreErweitern(this.loeschsperrePfad, regel.ids, hash, regel.grund);
+          if (erweitert?.art === 'ok') {
+            geschuetzteIds = new Set([...(geschuetzteIds ?? []), ...regel.ids]);
+            const gezeigt = regel.ids.slice(0, 40).join(', ') + (regel.ids.length > 40 ? ` … (+${regel.ids.length - 40})` : '');
+            console.warn(
+              `[WoV] Layout-Abgleich (Boot): Löschsperre NEU — die Weltdatei löscht ${regel.ids.length} Objekt(e) (${regel.grund}: ${gezeigt}); ` +
+                `sie bleiben stehen, bis „POST /api/welt/bestaetigen" sie ausdrücklich freigibt.`
+            );
+          } else if (erweitert) {
+            // Sperre nicht schreibbar oder kaputt: GESCHLOSSEN, im Zweifel wird nichts gelöscht.
+            sperreKaputt = true;
+            console.error(
+              `[WoV] Layout-Abgleich (Boot): Löschsperre nicht gespeichert (${erweitert.art === 'fehler' ? erweitert.text : 'Datei unlesbar'}) — GESCHLOSSEN: kein Layout-Objekt wird gelöscht.`
+            );
+          }
+        }
+      }
     } else if (!vorgabe?.bestaetigt) {
       geschuetzteIds = vorgabe?.geschuetzteIds === 'kaputt' ? undefined : vorgabe?.geschuetzteIds;
       sperreKaputt = vorgabe?.geschuetzteIds === 'kaputt';
@@ -1772,7 +1796,7 @@ export class WovServer {
           // Buff ausgelaufen: Obergrenze faellt zurueck, HP kappen.
           peer.foodBis = 0;
           peer.foodBonus = 0;
-          peer.health = Math.min(100, peer.health);
+          peer.health = Math.min(this.maxHealth(peer), peer.health);
           this.sendPlayerState(peer);
         }
       }
@@ -3244,7 +3268,31 @@ export class WovServer {
 
   /** Maximale HP inkl. aktivem Essens-Buff. */
   private maxHealth(peer: Peer): number {
-    return 100 + (Date.now() < peer.foodBis ? peer.foodBonus : 0);
+    return lebensmaximum(this.werteVon(peer).vitality, Date.now() < peer.foodBis ? peer.foodBonus : 0);
+  }
+
+  /**
+   * Die Attributsummen eines Spielers (Peer.werte, bei jeder Aenderung der Ruestung einmal gerechnet).
+   * Aelteren Tests reichen schlichte Objekte statt eines Peer herein (`as unknown as Peer`): ohne
+   * `werte` gilt "keine Ausruestung" = die alten Zahlen, statt zu werfen.
+   */
+  private werteVon(peer: Peer): Werte {
+    return peer.werte ?? KEINE_WERTE;
+  }
+
+  /**
+   * Nach jeder Aenderung der Ruestung: Legte man Vitalitaets-Ruestung ab, sinkt das Maximum, und Leben
+   * darueber wird gekappt (kein Heilen durch An-/Ablegen: Anlegen hebt das Leben NICHT).
+   */
+  private kappeLeben(peer: Peer): void {
+    const max = this.maxHealth(peer);
+    const gekappt = peer.health > max;
+    if (gekappt) peer.health = max;
+    // Der Client bekommt Prozent des Maximums: aendert sich das Maximum (Vitalitaet an-/abgelegt), stimmt
+    // seine Anzeige nicht mehr, auch wenn nichts gekappt wird. EIN Paket: sendPlayerState merkt sich das Maximum.
+    // (Attrappen-Peers aus alten Tests kennen das Feld nicht: dort nur beim Kappen senden.)
+    const alt = peer.gesendetesLebensmax as number | undefined;
+    if (gekappt || (alt !== undefined && alt !== max)) this.sendPlayerState(peer);
   }
 
   /** Health(%)/Stamina/Serverposition an den Client (PlayerState-Paket). */
@@ -3252,7 +3300,9 @@ export class WovServer {
     peer.sendPacketWith(PacketType.PlayerState, (w) => {
       // Prozent statt Absolutwert: der HUD-Balken bleibt 0..100, egal wie
       // hoch der Essens-Bonus die Obergrenze schiebt.
-      w.writeFloat32((peer.health / this.maxHealth(peer)) * 100);
+      const max = this.maxHealth(peer);
+      peer.gesendetesLebensmax = max;
+      w.writeFloat32((peer.health / max) * 100);
       w.writeFloat32(peer.stamina);
       w.writeVector3(peer.position);
       // F6: letzte verarbeitete Eingabe-Sequenznummer, ANGEHÄNGT statt
@@ -3307,6 +3357,7 @@ export class WovServer {
     }
     peer.ruestung = encodeArmor(parts);
     if (peer.characterID) this.zdosVon(peer).getZDO(peer.characterID)?.setString(RUESTUNG_MEMBER, peer.ruestung);
+    this.kappeLeben(peer);
     const remaining = new Set(Object.values(parts));
     for (const item of peer.inventar.all) {
       if (!item.shared.ruestungsteil) continue;
@@ -3678,14 +3729,15 @@ export class WovServer {
     waffe = gepruefteWaffe(peer.inventar, waffe);
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
-      SCHLAG_AUSDAUER,
+      schlagKosten(this.werteVon(peer).agility),
       Date.now()
     );
     if (!nachSchlag) return;
     peer.stamina = nachSchlag.wert;
     peer.staminaZuletztVerbraucht = nachSchlag.zuletztVerbraucht;
     this.sendPlayerState(peer);
-    const schaden = WAFFEN_SCHADEN[waffe] ?? 4; // Faust
+    // Waffenschaden aus den Item-Werten (Faust 4), dazu Staerke. Nur gegen Wesen, nie beim Ernten.
+    const schaden = ausgehenderNahkampfSchaden(waffenSchaden(findItem(waffe)?.stats), this.werteVon(peer).strength);
     /*
       Gesucht wird um die SERVER-Position, nicht um die gemeldete.
 
@@ -3731,7 +3783,7 @@ export class WovServer {
     */
     if (!ziel) return this.handleHarvest(peer, von, waffe);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
-    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId);
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId, peer);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der
     // `||`-Zweig greift nur noch für Wesen aus Saves von VOR dieser
     // Änderung — seit `stelleLebenSicher` bringt jede Kreatur ihre Punkte
@@ -3828,8 +3880,8 @@ export class WovServer {
     }
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
-    const schaden = WAFFEN_SCHADEN[waffe] ?? 4;
-    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0, peer.worldId);
+    const schaden = waffenSchaden(findItem(waffe)?.stats);
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0, peer.worldId, peer);
     const hp = (ziel.getInt(HEALTH_MEMBER) || startHp) - schaden;
     if (hp > 0) {
       ziel.setInt(HEALTH_MEMBER, hp);
@@ -3856,12 +3908,17 @@ export class WovServer {
    * bloodSplash / MeleeSpark des Originals, hier als Ereignis, das der
    * Client in Partikel uebersetzt). `art`: 0 hart, 1 Fleisch, 2 Parade.
    *
+   * Hinten angehaengt: ein Bool je Empfaenger, ob DIESER Empfaenger der
+   * Angreifer ist (`angreifer`; Kreaturenangriffe und Paraden haben keinen).
+   * Ein aelterer Client liest nach `art` nicht weiter, ein neuer prueft
+   * BinaryReader.remaining und behandelt ein fehlendes Feld wie „fremd“.
+   *
    * Nur an Spieler DERSELBEN Welt (`weltId`). Alle Instanzen liegen am
    * Ursprung, die Koordinaten zweier Welten sagen also nichts darueber, wer
    * nebeneinander steht; ohne die Weltpruefung sah ein Spieler im Dungeon
    * den Treffer-Blitz eines Schlags aus der Oberwelt.
    */
-  private sendeTrefferEffekt(pos: Vector3, art: number, weltId: string, umkreis = 40): void {
+  private sendeTrefferEffekt(pos: Vector3, art: number, weltId: string, angreifer?: Peer, umkreis = 40): void {
     if (!this.weltIdGueltig('sendeTrefferEffekt', weltId)) return;
     const r2 = umkreis * umkreis;
     for (const p of this.net.getPeers()) {
@@ -3871,6 +3928,7 @@ export class WovServer {
       p.sendPacketWith(PacketType.HitEffect, (w) => {
         w.writeVector3(pos);
         w.writeInt32(art);
+        w.writeBool(p === angreifer);
       });
     }
   }
@@ -3979,10 +4037,12 @@ export class WovServer {
         continue;
       }
       this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1, weltId);
-      peer.health = Math.max(0, peer.health - damage);
+      // Ruestung mindert erst NACH der Parade (ein parierter Schlag tut gar nichts).
+      // Rest unter 1e-6 (Fliesskomma nach vielen geminderten Bissen) zaehlt als tot, sonst lebt man mit 1e-14.
+      peer.health = lebenNachSchaden(peer.health, eingehenderSchaden(damage, this.werteVon(peer).armor));
       if (peer.health <= 0) {
         // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
-        peer.health = 100;
+        peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
         peer.stamina = AUSDAUER_REGEL.max;
         // EIN Teleport: aus einer Instanz geht es direkt an den Wiedereinstiegs-
         // punkt der Oberwelt, nicht erst an den Eingang und dann weiter.
@@ -4310,6 +4370,7 @@ export class WovServer {
       charZDO.setString(AUGENFARBE_MEMBER, augenfarbe);
       charZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
     }
+    this.kappeLeben(peer);
   }
 
   private handleSetFigur(peer: Peer, reader: Reader): void {
@@ -4325,6 +4386,8 @@ export class WovServer {
     peer.figur = gewuenscht;
     const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) charZDO.setString(FIGUR_MEMBER, gewuenscht);
+    // Teile, die zur neuen Figur nicht passen, fallen ab (dieselbe Pruefung wie sonst), Werte werden neu gerechnet.
+    this.inventarSync(peer);
     console.log(`[WoV] "${peer.name}" spielt jetzt als "${gewuenscht}"`);
   }
 
@@ -6403,18 +6466,6 @@ function pickableItem(prefabName: string): { name: string; amount: number } | nu
  * Kreaturen-Drops (nah am Original, beschränkt auf existierende itemDefs).
  * Format: [Item, min, max, Chance 0..1].
  */
-/** Nahkampfschaden je Waffe ('' = Faust). */
-const WAFFEN_SCHADEN: Record<string, number> = {
-  '': 4,
-  SwordNorth: 12,
-  Staff: 10,
-  Spear: 11,
-  Club: 12,
-  AxeFlint: 15,
-  PickaxeAntler: 8,
-  Hoe: 2,
-  Cultivator: 2,
-};
 
 /**
  * Waffenname aus dem Angriffs-/Ernte-Paket nur übernehmen, wenn er

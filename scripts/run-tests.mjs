@@ -2548,6 +2548,28 @@ const KERN = [
     DOM-freien Lauf unverhältnismässig. DOM-frei (NullEngine), < 5 s.
   */
   ['client', 'test/grundskala-live-wirkung.ts'],
+  /*
+    Karte B4 (2026-09-29): Schrittgeraeusche je Untergrund.
+    `shared/test/boden-mischung.ts` rechnet die Bodenmischung
+    (shared/src/worldgen/bodenMischung.ts) an 676 Punkten der echten Insel
+    gegen eine unabhaengige Nachrechnung der Shaderformel (Literale statt
+    RAMPEN; <= 1e-6 je Anteil) und prueft am Quelltext, dass der Shader die
+    gemeinsamen Konstanten benutzt. ~5 s, keine Assets.
+  */
+  ['shared', 'test/boden-mischung.ts'],
+  /*
+    Schritttakt (client/src/engine/Audio/Schritte.ts): Meter statt Zeit,
+    Gehen 11 m -> 10, Rennen 15 m -> 10, Stand/Luft/Teleport -> 0,
+    Mindestabstand 0,18 s. Pure, kein Babylon.
+  */
+  ['client', 'test/schritte-takt.ts'],
+  /*
+    Untergrundwahl (Wiese -> Gras, Felshang -> Fels, Holz-Koerper -> Holz,
+    Dungeon -> Stein, Wasser) und Vollstaendigkeit der Klanggruppen gegen den
+    `toene`-Abschnitt der echten assets/manifest.json (getrackt, kein Asset
+    noetig).
+  */
+  ['client', 'test/schritte-gruppe.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -1,0 +1,20 @@
+{
+  "admin/src/main.ts": "frei",
+  "client/src/editor/GegenstandsKatalog.ts": "frei",
+  "client/src/editor/editorMain.ts": "frei",
+  "client/src/engine/AssetManager.ts": 2000,
+  "client/src/engine/GrassClutter.ts": 1900,
+  "client/src/engine/PostProcessing.ts": 1900,
+  "client/src/engine/Shadows.ts": 2350,
+  "client/src/engine/Terrain.ts": 2450,
+  "client/src/engine/TerrainSplat.ts": 3200,
+  "client/src/entities/EntityManager.ts": "frei",
+  "client/src/main.ts": "frei",
+  "client/src/player/AvatarRig.ts": 2650,
+  "server/src/WovServer.ts": "frei",
+  "shared/src/dungeon2/builder.ts": 1700,
+  "shared/src/dungeon2/generator.ts": 1900,
+  "shared/src/dungeonRasterGenerator.ts": 2700,
+  "shared/src/eigeneDungeons.ts": 2800,
+  "shared/src/prefabs.ts": 1800
+}

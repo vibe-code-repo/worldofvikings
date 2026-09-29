@@ -420,6 +420,26 @@ Playwright based measurements (`tools/pw-*`) are deliberately NOT part of
 Chromium starts in a plain runner container. If your task depends on one of
 them, say so in the pull request and give the measured numbers.
 
+### File size guard
+
+`scripts/pruefe-groessen.mjs` (in the collective run) counts lines like `wc -l`
+in every `.ts` file under `client/src`, `server/src`, `shared/src` and
+`admin/src`. **A file that is not in `scripts/groessen-grenzen.json` may have at
+most 1,500 lines.** The 18 files above that limit are listed with a cap: the
+file may not grow past it, and the cap may not be more than the current line
+count plus 10 %, rounded up to 50, so a file that shrinks pulls its cap down in
+the same pull request (the checker prints the number). A file that falls to
+1,500 lines or fewer, or that no longer exists, must leave the list. The six
+files that are being cut up (`WovServer.ts`, `editorMain.ts`, `EntityManager.ts`,
+`GegenstandsKatalog.ts`, `client/src/main.ts`, `admin/src/main.ts`) carry
+`"frei"` (no cap) until the first cutting step on that file is merged; that step
+sets the number. If a cutting step is merged before the checker existed, the
+entry stays `"frei"` until the next step on that file sets it. For
+`client/src/main.ts` the line guards in `client/test` stay in charge. The list
+has one entry per line, sorted by path. Never add a large new file to it: split
+the file. The checker proves itself on a throwaway tree first, every rule in
+both directions.
+
 ## 6. Line endings: do not flatten them
 
 Many files still carry **CRLF** from the original Windows import. Python's

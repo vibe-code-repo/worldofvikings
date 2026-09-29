@@ -30,10 +30,17 @@ WorkingDirectory=/opt/worldofvikings/wov-web
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=3000
-# ORIGIN = die OEFFENTLICHE Adresse. SvelteKit baut daraus canonical- und
-# hreflang-Adressen sowie die Pruefung von Formularzielen; ohne den Wert
-# stuende in jeder Seite http://127.0.0.1:3000.
-Environment=ORIGIN=https://world-of-vikings.com
+# KEIN festes ORIGIN mehr (Karte D1, Zweitdomains): Seit world-of-mmorpg.com
+# und world-of-mmorpg.de gleichwertige Hauptdomains sind, waere eine einzige
+# feste Adresse fuer die eine der beiden falsch. Stattdessen liest
+# adapter-node den Host aus den Kopfzeilen, die nginx bereits setzt
+# (deploy/nginx/wov-lab.conf, `location /`: X-Forwarded-Proto/-Host) — genau
+# dafuer sind PROTOCOL_HEADER/HOST_HEADER da. Ein Host, den weder nginx noch
+# `hooks.server.ts` kennt, faellt dort auf world-of-mmorpg.com zurueck
+# (`istBekannterHost`), bevor irgendeine Seite daraus eine absolute Adresse
+# (canonical, hreflang) baut.
+Environment=PROTOCOL_HEADER=x-forwarded-proto
+Environment=HOST_HEADER=x-forwarded-host
 # Die Forum-Seiten holen ihre Daten serverseitig beim Spielserver ab.
 Environment=WOV_GAME_API=http://127.0.0.1:2467
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

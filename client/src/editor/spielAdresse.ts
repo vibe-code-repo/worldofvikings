@@ -78,11 +78,27 @@ export function dungeonUrl(id: string, base: string = clientBase()): string {
  * `live.staging`, `/de/anmelden` served by the website there). `live.` does not
  * exist in production (no vhost, no certificate), `play.dev`/`play.staging` do
  * not exist on dev/staging.
+ *
+ * Karte D1 (Zweitdomains): `world-of-mmorpg.com`/`.de` bekommen dieselbe
+ * `editor.` → `play.`-Zuordnung wie world-of-vikings.com — "innerhalb einer
+ * Domain bleiben" (Mikes Entscheid): wer auf `.de` ist, spielt auf
+ * `play.world-of-mmorpg.de`, nicht auf einer anderen Domain. `dev.`/
+ * `staging.` kommen für beide neue Domains ZUSÄTZLICH dazu (Angriffsbefund
+ * M4 / Orchestrator-Entscheid 27.09.2026 abends): DNS für `editor.dev.`,
+ * `live.dev.` und `*.staging.` liegt für world-of-mmorpg.com/.de bereits an,
+ * genau wie für world-of-vikings.com — dieselbe `editor.` → `live.`-Regel
+ * gilt deshalb überall dort, wo sie heute für world-of-vikings.com gilt.
  */
 const SPIEL_HOSTS: Readonly<Record<string, string>> = {
   'editor.world-of-vikings.com': 'play.world-of-vikings.com',
   'editor.dev.world-of-vikings.com': 'live.dev.world-of-vikings.com',
-  'editor.staging.world-of-vikings.com': 'live.staging.world-of-vikings.com'
+  'editor.staging.world-of-vikings.com': 'live.staging.world-of-vikings.com',
+  'editor.world-of-mmorpg.com': 'play.world-of-mmorpg.com',
+  'editor.world-of-mmorpg.de': 'play.world-of-mmorpg.de',
+  'editor.dev.world-of-mmorpg.com': 'live.dev.world-of-mmorpg.com',
+  'editor.staging.world-of-mmorpg.com': 'live.staging.world-of-mmorpg.com',
+  'editor.dev.world-of-mmorpg.de': 'live.dev.world-of-mmorpg.de',
+  'editor.staging.world-of-mmorpg.de': 'live.staging.world-of-mmorpg.de',
 };
 
 /**
@@ -128,4 +144,27 @@ export function dungeonMeldung(id: string, ziel: DungeonZiel): string {
   return ziel.gleicherUrsprung
     ? `${id} wird im Spiel geöffnet …`
     : `${id} wird im Spiel geöffnet … Führt das Spiel zuerst zur Anmeldung, öffnet sich der Dungeon danach von selbst, wenn du dich innerhalb von 10 Minuten anmeldest.`;
+}
+
+/**
+ * The website's base domain, derived from the game client's OWN host —
+ * Karte D1 (Zweitdomains): with two equal main domains
+ * (`world-of-mmorpg.com`/`.de`, plus the transitional
+ * `world-of-vikings.com`), a visitor with no session must be sent back to
+ * sign in on the SAME domain they were playing on ("innerhalb einer Domain
+ * bleiben" — the login lives in `localStorage`, which is per origin).
+ *
+ * Only a `play.` host is a separate domain from the website; every other
+ * host (a same-origin dev/lab container, `localhost`, a slot port) IS the
+ * website's own host already, verbatim.
+ *
+ * Takes `location.host` (hostname **plus port**), not `.hostname`
+ * (Angriffsbefund N1): dropping the port sent a visitor on a slot port back
+ * to port 80 of the DEV nginx on a connection failure, instead of to their
+ * own slot. Stripping the `play.` prefix leaves a trailing port untouched —
+ * it belongs to the address, not to the prefix.
+ */
+export function basisDomainVonSpielHost(host: string): string {
+  const h = host.toLowerCase();
+  return h.startsWith('play.') ? host.slice('play.'.length) : host;
 }

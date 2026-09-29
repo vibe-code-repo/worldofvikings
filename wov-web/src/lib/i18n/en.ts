@@ -89,7 +89,7 @@ export const en: Messages = {
      the markup, not here. */
   'hall.gate.eyebrow': 'The official World of Vikings site',
   'hall.gate.intro':
-    'world-of-vikings.com is the official browser game set in Midgard: Anglo-Saxons against Vikings, nine lands, five guardians. No download, no client — explore the world, build, endure. The map, the saga and the hall of fame all live on this site.',
+    'This is the official browser game set in Midgard: Anglo-Saxons against Vikings, nine lands, five guardians. No download, no client — explore the world, build, endure. The map, the saga and the hall of fame all live on this site.',
   'hall.gate.play_button': 'Play',
   'hall.gate.early_access_text':
     'Midgard is under construction. What gets built stays built — but rules, worlds and values may still change.',

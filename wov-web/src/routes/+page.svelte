@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { CANONICAL_HOME } from '$lib/basisDomains';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import { DEFAULT_LOCALE, LOCALES, LOCALE_NAME, localizedPath, messages } from '$lib/i18n';
 
@@ -16,16 +17,20 @@
    * selbst, ohne Skript und ohne CSP-Ausnahme — und wer ihn abgeschaltet hat,
    * sieht darunter zwei gewöhnliche Links und kommt genauso weiter.
    *
-   * Ein serverseitiges 301 wäre sauberer, aber es gibt keinen Server: Die
-   * Seite ist eine Sammlung von Dateien hinter nginx. Eine Umleitung dort
-   * einzutragen bleibt möglich (und ist in der nginx-Konfiguration von CT 103
-   * vorgesehen) — diese Datei ist der Teil, der im Repo liegt und ohne sie
-   * arbeitet.
+   * Ein serverseitiges 301 wäre sauberer, aber adapter-node liefert diese
+   * vorgerenderte Datei aus, BEVOR `hooks.server.ts` überhaupt läuft — ein
+   * host-abhängiges Ziel geht deshalb nur in nginx. Für `world-of-mmorpg.com`
+   * und `.de` steht die Weiche in `deploy/nginx/wov-lab.conf`s eigenem
+   * `location = /` (Angriffsbefund M1: `.de` → `/de`, `.com` → `/en`, VOR
+   * dieser Datei). Diese Datei bleibt der Rückfall für jeden anderen Host
+   * (world-of-vikings.com, dev/staging, `localhost`).
    *
    * Die Seite gehört zu keiner Sprache. Ihre Texte stehen deshalb nicht im
    * Katalog, sondern zweisprachig im Markup: ein Katalogeintrag müsste sich
    * für eine Sprache entscheiden, und das ist gerade die Frage, die hier noch
-   * offen ist.
+   * offen ist. Ihre eigene Adresse (canonical) ist deshalb auch nicht die
+   * Heimat einer Sprache, sondern `X_DEFAULT_ADRESSE` — dieselbe, auf die
+   * jede andere Seite per x-default zeigt (`Kopfdaten.svelte`).
    */
   const ziel = localizedPath(DEFAULT_LOCALE, '/');
   const de = messages('de');
@@ -40,6 +45,7 @@
   blankerTitel
   titel="World of Vikings"
   beschreibung="{de['hall.meta.description']} — {en['hall.meta.description']}"
+  ursprungUeberschreiben={CANONICAL_HOME.en}
 />
 
 <main class="mitte seite">

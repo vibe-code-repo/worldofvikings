@@ -43,17 +43,15 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
+import { WEBSITE_URSPRUENGE } from '../net/WebsiteUrspruenge.js';
 import { Kontendatenbank, PROFILTEXT_MAX, type Charakter, type GeloeschtesKonto } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
 import {
   AUGENFARBE_VORGABE, istAugenfarbe, istFigur, istFrisur, istHaarfarbe, istRuestung, isCharacterClass,
 } from '@wov/shared';
 
-/** Origins allowed to call this API from a browser. */
-const ERLAUBTE_URSPRUENGE = new Set([
-  'https://world-of-vikings.com',
-  'https://www.world-of-vikings.com',
-]);
+/** Origins allowed to call this API from a browser (Karte D1: eine gemeinsame Stelle mit ForumApi.ts). */
+const ERLAUBTE_URSPRUENGE = WEBSITE_URSPRUENGE;
 
 const KONTO_TOKEN_GUELTIG_MS = 30 * 24 * 60 * 60 * 1000; // 30 Tage
 const MAX_KOERPER_BYTES = 4096;

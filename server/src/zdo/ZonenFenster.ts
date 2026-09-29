@@ -26,7 +26,26 @@
 import type { ZDO } from './ZDO.js';
 import type { ZDOManager } from './ZDOManager.js';
 
+/**
+ * Höchstens so viele ZDOs prüft `syncZDOs` je Peer und Tick (F2). Ohne Deckel
+ * läuft die Schleife bei einem Peer, dem nichts zu schicken ist, jedes Mal bis
+ * zum Ende des Fensters. Das Fenster ist ringweise sortiert; was der Deckel
+ * abschneidet, holt der Cursor (`ZonenFenster.cursor`) im nächsten Tick nach,
+ * sonst wären die hinteren Ringe für diesen Peer unsichtbar.
+ */
+export const SYNC_PRUEFUNGEN_MAX = 4096;
+
 export class ZonenFenster {
+  /**
+   * Wo der nächste Tick mit dem Prüfen weitermacht (Index in der Fensterliste).
+   * 0 = von vorn (nah zuerst). `syncZDOs` setzt ihn, wenn der Deckel die
+   * Schleife mitten im Fenster abgeschnitten hat, und auf 0 zurück, sobald das
+   * Ende erreicht ist. Wechselt der Peer die Zone oder wird das Fenster
+   * verworfen, beginnt es wieder bei 0; ein Neuaufbau bei gleicher Zone lässt
+   * ihn stehen (die Liste bleibt ringweise geordnet, ein verschobener Index
+   * kostet höchstens eine Runde Verzögerung).
+   */
+  cursor = 0;
   private zoneX = NaN;
   private zoneY = NaN;
   private radius = -1;
@@ -57,6 +76,7 @@ export class ZonenFenster {
     }
     if (gueltig) return this.liste;
 
+    if (zoneX !== this.zoneX || zoneY !== this.zoneY) this.cursor = 0;
     this.zoneX = zoneX;
     this.zoneY = zoneY;
     this.liste.length = 0;
@@ -85,6 +105,7 @@ export class ZonenFenster {
     this.zoneX = NaN;
     this.zoneY = NaN;
     this.liste.length = 0;
+    this.cursor = 0;
   }
 
   /**

@@ -187,6 +187,12 @@ export default [
   ],
   ['server', 'test/f18-haarfarbe.ts'],
   ['server', 'test/f19-wettervorgabe.ts'],
+  // F2 (MMO hardening): the ZDO sync stops costing string keys and unbounded scans. 48,000 ZDOs, peers with a fake
+  // socket, private syncZDOs ticked directly: zero ZDOID.toString() calls in the sync, a small budget never
+  // yields a packet larger than budget + one record and everything still arrives, at most 4096 checks per
+  // peer and tick with a cursor (the far rings still arrive), and the login build count equals the old
+  // full-scan value (500 builds, two owners). Also prints tick times with 25 peers. ~10 s, no socket.
+  ['server', 'test/f2-sync-deckel.ts'],
   // F3/F4 (Security-Review): der VERDRAHTETE Zustand, nicht nur die reine
   // Logik. E2E ueber echte WebSocket-Verbindungen: kein Client bekommt je
   // eine feste/geteilte userId ohne Token (Luecke A), ein anderer Name

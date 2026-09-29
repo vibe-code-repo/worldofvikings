@@ -84,6 +84,7 @@ import type { SteinKitConfig } from '@wov/shared';
 // Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
 import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZDOManager, worldToZone } from './zdo/ZDOManager.js';
+import { SYNC_PRUEFUNGEN_MAX } from './zdo/ZonenFenster.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
 import {
   GENERIERT_DIR,
@@ -1938,7 +1939,17 @@ export class WovServer {
       let anzahl = 0;
       const gesendet = this.sendePuffer;
       gesendet.length = 0;
-      for (const zdo of fenster) {
+      // F2: Prüfdeckel mit Cursor. Ab `start` höchstens SYNC_PRUEFUNGEN_MAX
+      // ZDOs ansehen; schneidet der Deckel mitten im Fenster ab, macht der
+      // nächste Tick dort weiter (sonst verhungerten die hinteren Ringe).
+      // Bei Fenstern bis zum Deckel ändert sich gegenüber vorher nichts: Es
+      // wird von vorn geprüft, nah zuerst.
+      let start = peer.fenster.cursor;
+      if (start >= fenster.length) start = 0;
+      const ende = Math.min(fenster.length, start + SYNC_PRUEFUNGEN_MAX);
+      let naechsterStart = ende >= fenster.length ? 0 : ende; // Deckel oder Fensterende
+      for (let i = start; i < ende; i++) {
+        const zdo = fenster[i]!;
         const stand = peer.syncStand(zdo.zdoid);
         if (
           stand &&
@@ -1947,11 +1958,24 @@ export class WovServer {
         ) {
           continue; // Peer ist auf Stand
         }
+        // Budget VOR der Arbeit: Ist es schon erreicht, wird dieses ZDO gar
+        // nicht erst geschrieben (es bleibt schmutzig und geht im nächsten
+        // Tick raus). Das erste ZDO des Pakets darf das Budget überschreiten:
+        // sonst käme ein übergroßer Vollstand nie an. Ein Paket ist damit
+        // höchstens Budget + ein Satz groß.
+        if (anzahl > 0 && writer.geschrieben >= budget) {
+          // Nächster Tick setzt bei diesem ZDO an. Steht es noch im vorderen
+          // Teil des Fensters, lieber von vorn (nah zuerst, wie vor F2); liegt
+          // es hinter dem halben Deckel, würde ein Neustart bei 0 den Deckel
+          // vor dem ZDO aufbrauchen — dann genau hier weitermachen.
+          naechsterStart = i < SYNC_PRUEFUNGEN_MAX / 2 ? 0 : i;
+          break;
+        }
         this.writeZDO(writer, zdo, stand?.dataRevision, peer);
         anzahl++;
         gesendet.push(zdo);
-        if (writer.geschrieben >= budget) break;
       }
+      peer.fenster.cursor = naechsterStart;
 
       if (anzahl === 0 && zerstoerungen.length === 0) continue;
       writer.patchInt32(zaehlerStelle, anzahl);
@@ -2287,10 +2311,7 @@ export class WovServer {
       ? saved.waffe : peer.inventar.all.find((i) => i.equipped && !i.shared.ruestungsteil)?.shared.name ?? '';
     this.inventarSync(peer);
     // Piece-Budget: eigene Bauten einmalig zählen (15k-ZDO-Scan, nur Login).
-    const meineId = peer.userId.toString();
-    peer.bautenAnzahl = this.zdosVon(peer)
-      .getAllZDOs()
-      .filter((z) => z.getInt('spieler') === 1 && z.getString('besitzer') === meineId).length;
+    peer.bautenAnzahl = this.zaehleEigeneBauten(peer);
 
     // Send initial time sync
     this.sendTimeSync(peer);
@@ -3028,11 +3049,30 @@ export class WovServer {
 
     const zdo = this.zdosVon(peer).createZDO(prefabHash, pos, rot);
     zdo.setInt('spieler', 1);
+    this.zdosVon(peer).registriereSpielerbau(zdo);
     // Besitzer festhalten — nur der Erbauer darf abreißen (Review-Punkt 4).
     zdo.setString('besitzer', peer.userId.toString());
     zdo.revision.reviseData();
     zdo.dirty = true;
     antwort(true, `${def.name} gebaut`);
+  }
+
+  /**
+   * Wie viele Bauwerke `peer` besitzt (Piece-Budget), beim Login gezählt.
+   *
+   * Vorher: `getAllZDOs()` = Vollkopie aller ZDOs der Welt (bei ~48.000 ein
+   * spürbarer Tick-Stopp je Login). Jetzt: nur die Spielerbauten aus dem
+   * Index des ZDOManager, mit demselben Prädikat wie vorher (spieler == 1 und
+   * besitzer == userId). Ein Zählen über die Prefab-Mengen der Bauteile ginge
+   * nicht: `KiPine2` ist Bauteil UND Weltbaum, die Menge hat Tausende Einträge.
+   */
+  private zaehleEigeneBauten(peer: Peer): number {
+    const meineId = peer.userId.toString();
+    let n = 0;
+    for (const z of this.zdosVon(peer).spielerbauten()) {
+      if (z.getInt('spieler') === 1 && z.getString('besitzer') === meineId) n++;
+    }
+    return n;
   }
 
   /**

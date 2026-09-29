@@ -3734,7 +3734,7 @@ async function testweltKnoepfeAktualisieren(): Promise<void> {
     // statt eines erneuten Umschaltens, s. karteLiveTesten().
     liveKnopf.title = aktiv
       ? serverI18n.t('editor.server.live_test.active_title')
-      : 'Startet den Spielserver mit dem gespeicherten Kartenstand neu.';
+      : serverI18n.t('editor.server.live_test.inactive_title');
     liveKnopf.disabled = false;
     liveKnopf.style.opacity = '1';
     liveKnopf.style.cursor = 'pointer';
@@ -3792,7 +3792,7 @@ async function testweltStand(): Promise<TestweltStand | null> {
   }
 }
 
-async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
+async function testweltSchalten(aktion: 'starten' | 'zurueck' | 'erneuern'): Promise<void> {
   // Die Server-Konsole ist hier die eigentliche Rueckmeldung: Sie folgt
   // `journalctl -fu wov-server`, also laufen Stop, Start und der komplette
   // Weltaufbau dort ohnehin durch. Ein Wartebalken davor waere nicht nur
@@ -3800,12 +3800,14 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
   // passiert. Deshalb: Konsole aufklappen, eigene Marken hineinschreiben,
   // und der Vorhang meldet nur den Fortschritt.
   shell.konsoleZeigen();
-  const marke = aktion === 'starten' ? 'Karte live testen' : 'dev-Welt zurückholen';
+  const marke = aktion === 'starten' ? 'Karte live testen' : aktion === 'zurueck' ? 'dev-Welt zurückholen' : 'Karte live testen (Testwelt erneuern)';
   shell.konsoleZeile(`── ${marke}: Weltdatei wird getauscht, wov-server startet neu ──`);
   const basis =
     aktion === 'starten'
       ? 'Welt wird beiseitegelegt, Server startet neu'
-      : 'dev-Welt wird zurückgeholt, Server startet neu';
+      : aktion === 'zurueck'
+        ? 'dev-Welt wird zurückgeholt, Server startet neu'
+        : 'Testwelt wird erneuert, Server startet neu';
   const schirm = vorhang(`${basis} …`);
   try {
     const r = await fetch('/api/testwelt', {
@@ -3820,12 +3822,21 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
       shell.meldung(a.fehler ?? 'Umschalten fehlgeschlagen.', true);
       return;
     }
-    const start = await dienstAbwarten(schirm, basis);
+    const { start, erreicht } = await dienstAbwarten(schirm, basis);
     schirm.schliessen();
-    shell.konsoleZeile(`── ${marke}: fertig nach ${Math.round((Date.now() - start) / 1000)} s ──`);
+    const dauer = Math.round((Date.now() - start) / 1000);
+    if (!erreicht) {
+      shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — Zeitlimit nach ${dauer} s ──`);
+      shell.meldung(serverI18n.t('editor.server.wait.timeout'), true);
+      await testweltKnoepfeAktualisieren();
+      await serverSteuerungAktualisieren();
+      return;
+    }
+    shell.konsoleZeile(`── ${marke}: fertig nach ${dauer} s ──`);
     shell.meldung(a.message ?? 'Fertig.');
     await testweltKnoepfeAktualisieren();
-    if (aktion === 'starten') window.open(gameUrl(), '_blank');
+    await serverSteuerungAktualisieren();
+    if (aktion === 'starten' || aktion === 'erneuern') window.open(gameUrl(), '_blank');
   } catch (err) {
     schirm.schliessen();
     shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${String(err)} ──`);
@@ -3848,17 +3859,33 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
  * zu schreiben. Die Wortwahl der bestehenden drei Aufrufer (ohne dritten
  * Parameter) bleibt dabei UNVERÄNDERT.
  */
-async function dienstAbwarten(schirm: { text: (t: string) => void }, basis: string, zielAktiv = true): Promise<number> {
+/**
+ * `erreicht` (29.09., B5): war der Zielzustand beim Abbruch tatsächlich da,
+ * oder ist die Schleife nach 60 s aufgegeben? Bisher meldeten alle drei
+ * Aufrufer danach blind "fertig" — auch wenn der Dienst nie in den
+ * Zielzustand kam (Angriffsbefund). Der Aufrufer entscheidet jetzt selbst,
+ * was er bei `erreicht: false` zeigt.
+ */
+async function dienstAbwarten(
+  schirm: { text: (t: string) => void },
+  basis: string,
+  zielAktiv = true
+): Promise<{ start: number; erreicht: boolean }> {
   const start = Date.now();
   let stabilSeit = 0;
+  let erreicht = false;
   const stabilMs = zielAktiv ? 6_000 : 1_500;
   for (;;) {
     const stand = await testweltStand();
     const laeuft = stand?.zustand?.aktiv ?? false;
-    const erreicht = laeuft === zielAktiv;
+    erreicht = laeuft === zielAktiv;
     const sek = Math.round((Date.now() - start) / 1000);
-    const zustandText = laeuft ? 'läuft' : zielAktiv ? 'startet' : 'gestoppt';
-    schirm.text(`${basis} … ${sek} s — Dienst ${zustandText}`);
+    const zustandText = laeuft
+      ? serverI18n.t('editor.server.wait.running')
+      : zielAktiv
+        ? serverI18n.t('editor.server.wait.starting')
+        : serverI18n.t('editor.server.wait.stopped');
+    schirm.text(`${basis} … ${sek} s — ${serverI18n.t('editor.server.wait.label', { zustand: zustandText })}`);
     if (erreicht) {
       if (!stabilSeit) stabilSeit = Date.now();
       // Kurz nachhalten: `systemctl start` kehrt zurueck, bevor die Welt
@@ -3870,7 +3897,7 @@ async function dienstAbwarten(schirm: { text: (t: string) => void }, basis: stri
     if (Date.now() - start > 60_000) break;
     await new Promise((f) => window.setTimeout(f, 1_500));
   }
-  return start;
+  return { start, erreicht };
 }
 
 async function karteLiveTesten(): Promise<void> {
@@ -3879,31 +3906,35 @@ async function karteLiveTesten(): Promise<void> {
   // gar nichts geschah — der einzige Weg war "dev-Welt zurückholen" und
   // dann noch einmal umschalten. `karteLiveTestenAktion` (serverSteuerung.ts)
   // entscheidet DOM-frei: läuft die Testwelt schon, bedeutet der Klick
-  // jetzt "speichern und neu starten", kein erneutes Umschalten. Das geht,
-  // weil "In die Welt speichern" immer in dieselbe Weltdatei schreibt
-  // (admin/src/main.ts: LAYOUT_DATEI hängt nicht vom Testwelt-Umschalter
-  // ab, der nur den SPIELSTAND beiseitelegt) — belegt in
-  // admin/test/testwelt-einstellungen.ts (Ist-Analyse) und admin/src/
+  // jetzt "speichern und Testwelt frisch erzeugen" (`/api/testwelt
+  // {aktion:'erneuern'}`), kein erneutes Umschalten und KEIN `/api/server
+  // neustart` — ein bloßer Neustart lädt den alten Testwelt-Spielstand
+  // wieder (Nachbesserung N1: `ZoneManager.restoreGeneratedZones` sieht
+  // dann die bereits besiedelten Zonen der ERSTEN Testwelt, nicht die
+  // neue Karte). "In die Welt speichern" schreibt immer in dieselbe
+  // Weltdatei (admin/src/main.ts: LAYOUT_DATEI hängt nicht vom
+  // Testwelt-Umschalter ab, der nur den SPIELSTAND beiseitelegt) — belegt
+  // in admin/test/testwelt-einstellungen.ts (Ist-Analyse) und admin/src/
   // main.ts selbst (POST /api/worldlayout schreibt immer nach LAYOUT_DATEI).
-  if (karteLiveTestenAktion({ testweltAktiv: Boolean(stand?.aktiv) }) === 'server-neustart') {
-    const wahlNeustart = await frage(
-      serverI18n.t('editor.server.live_test.restart_title'),
-      serverI18n.t('editor.server.live_test.restart_body'),
+  if (karteLiveTestenAktion({ testweltAktiv: Boolean(stand?.aktiv) }) === 'testwelt-erneuern') {
+    const wahlErneuern = await frage(
+      serverI18n.t('editor.server.live_test.refresh_title'),
+      serverI18n.t('editor.server.live_test.refresh_body'),
       [
         { id: 'ab', text: serverI18n.t('editor.server.cancel'), hinweis: serverI18n.t('editor.server.cancel_hint'), betont: true },
-        { id: 'ja', text: serverI18n.t('editor.server.live_test.restart_confirm'), warnung: true },
+        { id: 'ja', text: serverI18n.t('editor.server.live_test.refresh_confirm'), warnung: true },
       ]
     );
-    if (wahlNeustart !== 'ja') {
+    if (wahlErneuern !== 'ja') {
       shell.meldung(serverI18n.t('editor.server.cancelled'));
       return;
     }
-    const gespeichertVorNeustart = await inDieWeltSpeichern();
-    if (!gespeichertVorNeustart) {
+    const gespeichertVorErneuern = await inDieWeltSpeichern();
+    if (!gespeichertVorErneuern) {
       shell.meldung(serverI18n.t('editor.server.live_test.save_failed'), true);
       return;
     }
-    await serverAktionAusfuehren('neustart');
+    await testweltSchalten('erneuern');
     return;
   }
   const wahl = await frage(
@@ -3979,14 +4010,22 @@ async function serverStand(): Promise<DienstZustand | null> {
 async function serverSteuerungAktualisieren(): Promise<void> {
   const zustand = await serverStand();
   const knoepfe = serverKnoepfeZustand({ dienstAktiv: zustand ? zustand.aktiv : null, aktionLaeuft: serverAktionLaeuft });
-  if (neustartKnopf) neustartKnopf.disabled = !knoepfe.neustartBenutzbar;
+  // Waehrend einer eigenen Aktion erklaert der Tooltip, WARUM die Knoepfe
+  // gesperrt sind (editor.server.busy, 29.09. — vorher ein toter Schluessel).
+  const busy = serverAktionLaeuft ? serverI18n.t('editor.server.busy') : null;
+  if (neustartKnopf) {
+    neustartKnopf.disabled = !knoepfe.neustartBenutzbar;
+    neustartKnopf.title = busy ?? serverI18n.t('editor.server.button.restart_hint');
+  }
   if (stoppenKnopf) {
     stoppenKnopf.style.display = knoepfe.stoppenSichtbar ? '' : 'none';
     stoppenKnopf.disabled = !knoepfe.stoppenBenutzbar;
+    stoppenKnopf.title = busy ?? serverI18n.t('editor.server.button.stop_hint');
   }
   if (startenKnopf) {
     startenKnopf.style.display = knoepfe.startenSichtbar ? '' : 'none';
     startenKnopf.disabled = !knoepfe.startenBenutzbar;
+    startenKnopf.title = busy ?? serverI18n.t('editor.server.button.start_hint');
   }
   if (serverStatusFeld) {
     const anzeige = serverStatusAnzeige(zustand);
@@ -3995,7 +4034,9 @@ async function serverSteuerungAktualisieren(): Promise<void> {
         ? serverI18n.t('editor.server.status.running', { seit: anzeige.seit })
         : anzeige.art === 'gestoppt'
           ? serverI18n.t('editor.server.status.stopped')
-          : serverI18n.t('editor.server.status.unknown');
+          : anzeige.art === 'wechselt'
+            ? serverI18n.t('editor.server.status.changing')
+            : serverI18n.t('editor.server.status.unknown');
   }
 }
 
@@ -4037,9 +4078,15 @@ async function serverAktionAusfuehren(aktion: 'neustart' | 'stoppen' | 'starten'
       return;
     }
     const zielAktiv = aktion !== 'stoppen';
-    const start = await dienstAbwarten(schirm, basis, zielAktiv);
+    const { start, erreicht } = await dienstAbwarten(schirm, basis, zielAktiv);
     schirm.schliessen();
-    shell.konsoleZeile(`── ${marke}: fertig nach ${Math.round((Date.now() - start) / 1000)} s ──`);
+    const dauer = Math.round((Date.now() - start) / 1000);
+    if (!erreicht) {
+      shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — Zeitlimit nach ${dauer} s ──`);
+      shell.meldung(serverI18n.t('editor.server.wait.timeout'), true);
+      return;
+    }
+    shell.konsoleZeile(`── ${marke}: fertig nach ${dauer} s ──`);
     shell.meldung(serverI18n.t(aktion === 'neustart' ? 'editor.server.restart.done' : aktion === 'stoppen' ? 'editor.server.stop.done' : 'editor.server.start.done'));
   } catch (err) {
     schirm.schliessen();
@@ -4192,11 +4239,20 @@ async function weltZuruecksetzenStarten(): Promise<void> {
     },
     basisSetzen: (hash) => setzeEntwurfBasis(hash),
   });
-  const start = await dienstAbwarten(schirm, basis);
+  const { start, erreicht } = await dienstAbwarten(schirm, basis);
   schirm.schliessen();
-  shell.konsoleZeile(`── Welt zurücksetzen: fertig nach ${Math.round((Date.now() - start) / 1000)} s (Kennung ${ergebnis.kennung}) ──`);
+  const dauer = Math.round((Date.now() - start) / 1000);
+  if (!erreicht) {
+    shell.konsoleZeile(`── Welt zurücksetzen: FEHLGESCHLAGEN — Zeitlimit nach ${dauer} s ──`);
+    shell.meldung(serverI18n.t('editor.server.wait.timeout'), true);
+    await testweltKnoepfeAktualisieren();
+    await serverSteuerungAktualisieren();
+    return;
+  }
+  shell.konsoleZeile(`── Welt zurücksetzen: fertig nach ${dauer} s (Kennung ${ergebnis.kennung}) ──`);
   shell.meldung(erfolgsMeldung(ergebnis, nach), ergebnis.warnung !== null || !nach.basisGesetzt);
   await testweltKnoepfeAktualisieren();
+  await serverSteuerungAktualisieren();
 }
 
 // ── Prüfbericht (Aufgabe B1) ──────────────────────────────────────────

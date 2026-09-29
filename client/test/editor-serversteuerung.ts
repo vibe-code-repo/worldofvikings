@@ -1,10 +1,20 @@
 /**
  * Serversteuerung im Editor (Mikes Befund: Neustart-Knopf blieb gesperrt,
  * sobald eine Testwelt lief) — die DOM-freie Entscheidungslogik aus
- * client/src/editor/serverSteuerung.ts.
+ * client/src/editor/serverSteuerung.ts, dazu (Abschnitt [5], Nachbesserung
+ * N1 29.09.) die Verdrahtung in editorMain.ts selbst auf dem Syntaxbaum:
+ * Der Angriff fand zwei Stellen, an denen die reinen Funktionen zwar
+ * richtig sind, aber NICHT tatsaechlich benutzt werden (M10 liveKnopf.
+ * disabled wieder an die Testwelt gekoppelt, M11 der aktive Zweig ruft
+ * wieder testweltSchalten('starten') statt ('erneuern')) — beides blieb
+ * mit den bisherigen Tests unbemerkt gruen.
  *
  * Run:  npx tsx test/editor-serversteuerung.ts    (aus client/)
  */
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as ts from 'typescript';
 import {
   karteLiveTestenAktion,
   neustartOptionen,
@@ -53,6 +63,25 @@ console.log('\n[2] serverStatusAnzeige:');
   const laeuftOhneSeit = serverStatusAnzeige({ aktiv: true, seit: null });
   check('aktiv ohne seit -> "?" statt null', laeuftOhneSeit.art === 'laeuft' && laeuftOhneSeit.seit === '?');
   check('nicht aktiv -> gestoppt', serverStatusAnzeige({ aktiv: false, seit: null }).art === 'gestoppt');
+
+  // B5 (Angriffsbefund): activating/deactivating/Abfragefehler duerfen
+  // NICHT als "gestoppt" erscheinen.
+  check(
+    'roh=activating, aktiv=false -> wechselt (NICHT gestoppt)',
+    serverStatusAnzeige({ aktiv: false, seit: null, roh: 'activating' }).art === 'wechselt'
+  );
+  check(
+    'roh=deactivating, aktiv=true -> wechselt (NICHT laeuft)',
+    serverStatusAnzeige({ aktiv: true, seit: '2026', roh: 'deactivating' }).art === 'wechselt'
+  );
+  check(
+    'roh=unbekannt (Abfragefehler) -> unbekannt (NICHT gestoppt)',
+    serverStatusAnzeige({ aktiv: false, seit: null, roh: 'unbekannt' }).art === 'unbekannt'
+  );
+  check(
+    'roh=active -> weiterhin laeuft wie gehabt',
+    serverStatusAnzeige({ aktiv: true, seit: '2026', roh: 'active' }).art === 'laeuft'
+  );
 }
 
 // ── karteLiveTestenAktion (Mikes Befund) ─────────────────────────────
@@ -61,8 +90,8 @@ console.log('\n[3] karteLiveTestenAktion — Mikes Befund direkt geprueft:');
 {
   check('ohne aktive Testwelt: der alte Weg (testwelt-starten)', karteLiveTestenAktion({ testweltAktiv: false }) === 'testwelt-starten');
   check(
-    'MIT aktiver Testwelt: server-neustart statt erneutem testwelt-starten (das liefe in den 409 aus /api/testwelt)',
-    karteLiveTestenAktion({ testweltAktiv: true }) === 'server-neustart'
+    'MIT aktiver Testwelt: testwelt-erneuern statt erneutem testwelt-starten (das liefe in den 409 aus /api/testwelt) UND statt server-neustart (laedt den ALTEN Testwelt-Spielstand wieder, Nachbesserung N1)',
+    karteLiveTestenAktion({ testweltAktiv: true }) === 'testwelt-erneuern'
   );
 }
 
@@ -75,6 +104,86 @@ console.log('\n[4] neustartOptionen (Schmutz-Merker aus faerbeSpeicherKnopf):');
     'MIT ungespeicherten Aenderungen: dritte Option "erst speichern, dann neu starten" dazwischen',
     neustartOptionen(true).join(',') === 'ab,speichern-neustart,nur-neustart'
   );
+}
+
+// ── Quelltext: Verdrahtung in editorMain.ts (Syntaxbaum) ───────────────
+//
+// B3 (Angriffsbefund): Die reinen Funktionen oben waren schon richtig,
+// aber NICHT nachweislich benutzt — zwei Mutationen im echten
+// editorMain.ts blieben mit den bisherigen Tests unbemerkt gruen:
+//  M10: liveKnopf.disabled wieder an "aktiv" gekoppelt (Mikes
+//       urspruenglicher Befund kaeme zurueck).
+//  M11: der aktive Zweig von karteLiveTesten() ruft wieder
+//       testweltSchalten('starten') statt ('erneuern') (liefe in den 409
+//       bzw. laeadt den alten Testwelt-Spielstand — B1).
+// Muster wie client/test/welt-zuruecksetzen.ts (Syntaxbaum statt Text:
+// Zeilenumbrueche, Anfuehrungszeichen, Kommentare und Hilfsvariablen
+// aendern nichts).
+
+const HIER = dirname(fileURLToPath(import.meta.url));
+function quelle(datei: string): ts.SourceFile {
+  const pfad = resolve(HIER, datei);
+  return ts.createSourceFile(pfad, readFileSync(pfad, 'utf-8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+function alle<T extends ts.Node>(wurzel: ts.Node, passt: (n: ts.Node) => n is T): T[] {
+  const treffer: T[] = [];
+  const geh = (n: ts.Node): void => {
+    if (passt(n)) treffer.push(n);
+    ts.forEachChild(n, geh);
+  };
+  geh(wurzel);
+  return treffer;
+}
+const istAufruf = (n: ts.Node): n is ts.CallExpression => ts.isCallExpression(n);
+const aufrufName = (c: ts.CallExpression): string => c.expression.getText().replace(/\s+/g, '');
+const funktion = (sf: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined =>
+  alle(sf, (n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n)).find((f) => f.name?.text === name);
+
+console.log('\n[5] Quelltext: Verdrahtung in editorMain.ts (Syntaxbaum) — Mutationen M10/M11 aus dem Angriff:');
+{
+  const main = quelle('../src/editor/editorMain.ts');
+
+  const testweltKnoepfe = funktion(main, 'testweltKnoepfeAktualisieren');
+  check('editorMain hat testweltKnoepfeAktualisieren', testweltKnoepfe !== undefined);
+  if (testweltKnoepfe) {
+    const zuweisungen = alle(
+      testweltKnoepfe,
+      (n): n is ts.BinaryExpression => ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ).filter((b) => b.left.getText() === 'liveKnopf.disabled');
+    check('genau eine Zuweisung an liveKnopf.disabled', zuweisungen.length === 1, `n=${zuweisungen.length}`);
+    check(
+      'liveKnopf.disabled = false (M10: NICHT mehr an "aktiv" gekoppelt — Mikes urspruenglicher Befund)',
+      zuweisungen.length === 1 && zuweisungen[0]!.right.kind === ts.SyntaxKind.FalseKeyword,
+      zuweisungen[0]?.right.getText()
+    );
+  }
+
+  const karteLiveTestenFn = funktion(main, 'karteLiveTesten');
+  check('editorMain hat karteLiveTesten', karteLiveTestenFn !== undefined);
+  if (karteLiveTestenFn) {
+    const ifs = alle(karteLiveTestenFn, (n): n is ts.IfStatement => ts.isIfStatement(n)).filter((i) =>
+      alle(i.expression, istAufruf).some((c) => aufrufName(c) === 'karteLiveTestenAktion')
+    );
+    check('genau ein if fragt karteLiveTestenAktion(...) ab', ifs.length === 1, `n=${ifs.length}`);
+    const aktiverZweig = ifs[0]?.thenStatement;
+    const vergleichtErneuern = ifs[0]
+      ? alle(ifs[0].expression, (n): n is ts.StringLiteral => ts.isStringLiteralLike(n)).some((s) => s.text === 'testwelt-erneuern')
+      : false;
+    check('der Vergleich prueft auf "testwelt-erneuern"', vergleichtErneuern);
+    const ruftErneuern = aktiverZweig
+      ? alle(aktiverZweig, istAufruf).some(
+          (c) =>
+            aufrufName(c) === 'testweltSchalten' &&
+            c.arguments[0] !== undefined &&
+            ts.isStringLiteralLike(c.arguments[0]) &&
+            (c.arguments[0] as ts.StringLiteral).text === 'erneuern'
+        )
+      : false;
+    check(
+      "im aktiven Zweig ruft karteLiveTesten testweltSchalten('erneuern') (M11: NICHT mehr testweltSchalten('starten') oder serverAktionAusfuehren('neustart'))",
+      ruftErneuern
+    );
+  }
 }
 
 console.log(fehler === 0 ? '\nAlle Prüfungen grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);

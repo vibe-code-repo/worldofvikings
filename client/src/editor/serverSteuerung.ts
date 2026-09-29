@@ -11,6 +11,8 @@
 export interface DienstZustand {
   aktiv: boolean;
   seit: string | null;
+  /** Roher `ActiveState` von systemctl (29.09., B5) — `undefined` nur in aelteren Fixturen/Aufrufern ohne dieses Feld. */
+  roh?: string;
 }
 
 /** Welche der drei Serversteuerung-Knöpfe sichtbar bzw. benutzbar sind. */
@@ -40,24 +42,38 @@ export function serverKnoepfeZustand(eingabe: { dienstAktiv: boolean | null; akt
   };
 }
 
-export type ServerStatusAnzeige = { art: 'unbekannt' } | { art: 'laeuft'; seit: string } | { art: 'gestoppt' };
+export type ServerStatusAnzeige = { art: 'unbekannt' } | { art: 'wechselt' } | { art: 'laeuft'; seit: string } | { art: 'gestoppt' };
 
+/**
+ * `roh` (B5, Angriffsbefund): `aktiv`/`seit` allein sagen bei
+ * `activating`/`deactivating` FALSCH "gestoppt", und bei einer
+ * gescheiterten Abfrage (`dienstZustand()`s catch, `roh: 'unbekannt'`)
+ * ebenso. Ein Zustand ohne `roh` (aeltere Aufrufer/Fixturen) verhaelt sich
+ * wie zuvor: nur `aktiv` entscheidet.
+ */
 export function serverStatusAnzeige(zustand: DienstZustand | null): ServerStatusAnzeige {
   if (!zustand) return { art: 'unbekannt' };
+  if (zustand.roh === 'activating' || zustand.roh === 'deactivating') return { art: 'wechselt' };
+  if (zustand.roh === 'unbekannt') return { art: 'unbekannt' };
   return zustand.aktiv ? { art: 'laeuft', seit: zustand.seit ?? '?' } : { art: 'gestoppt' };
 }
 
 /**
  * Was „Karte live testen" tut, wenn schon eine Testwelt läuft (Mikes
- * Befund): NICHT noch einmal `testweltSchalten('starten')` — das liefe in
- * den 409 „Es läuft bereits eine Testwelt". Speichern schreibt ohnehin
- * immer in dieselbe Weltdatei, unabhängig vom Testwelt-Umschalter (der nur
- * den SPIELSTAND beiseitelegt, s. admin/src/main.ts LAYOUT_DATEI); ein
- * einfacher Neustart über `/api/server` reicht, um den neuen Entwurf
- * wirksam zu machen.
+ * Befund, Nachbesserung N1 29.09.): NICHT noch einmal
+ * `testweltSchalten('starten')` — das liefe in den 409 „Es läuft bereits
+ * eine Testwelt". Und NICHT `/api/server neustart`: Ein bloßer Neustart
+ * lädt den Spielstand der LAUFENDEN Testwelt wieder (der Server schreibt
+ * ihn periodisch und synchron beim Stoppen, `WovServer.ts`), die Karte
+ * entstünde also nicht neu — genau der Fehler, den der erste Durchgang
+ * dieser Karte übersehen hat. Richtig ist `testweltSchalten('erneuern')`:
+ * speichern (immer dieselbe Weltdatei, unabhängig vom Testwelt-Umschalter,
+ * der nur den SPIELSTAND beiseitelegt, s. admin/src/main.ts LAYOUT_DATEI),
+ * dann den aktuellen Testwelt-Spielstand aus dem Weg räumen und neu
+ * starten.
  */
-export function karteLiveTestenAktion(eingabe: { testweltAktiv: boolean }): 'testwelt-starten' | 'server-neustart' {
-  return eingabe.testweltAktiv ? 'server-neustart' : 'testwelt-starten';
+export function karteLiveTestenAktion(eingabe: { testweltAktiv: boolean }): 'testwelt-starten' | 'testwelt-erneuern' {
+  return eingabe.testweltAktiv ? 'testwelt-erneuern' : 'testwelt-starten';
 }
 
 /** Optionen im Bestätigungsdialog von „Server neu starten", in Anzeigereihenfolge. */

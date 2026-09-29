@@ -23,18 +23,25 @@
  * sibling: no service name travels in the body, only the action.
  *
  * ── Locking ───────────────────────────────────────────────────────────
- * One action at a time in this process (`laeuft` below), same pattern as
- * `routen/weltZuruecksetzen.ts`: a second POST while `systemctl restart`
- * is still running must not stack a second systemctl call — it gets 409
- * instead. Token, origin and Content-Type checks all happen in main.ts
- * before this module is ever reached (see the header comment there).
+ * The lock is now shared with `/api/testwelt` and `/api/welt-zuruecksetzen`
+ * (`serverSperre.ts`, 2026-09-29 nachbessern): a second POST here while any
+ * of the three is still running gets 409, not just a second POST to THIS
+ * route (that was the gap the attack review found under B2 — a testwelt
+ * swap and a plain restart could interleave their `systemctl` calls).
+ * Token, origin and Content-Type checks all happen in main.ts before this
+ * module is ever reached (see the header comment there). A `systemctl`
+ * call that times out (main.ts, `SYSTEMCTL_ZEITLIMIT_MS`) throws and is
+ * classified to 504 by the same catch-all in main.ts — this module only
+ * has to make sure the lock is freed either way, which the `finally` below
+ * already does.
  */
+import { sperreFreigeben, sperreVersuchen } from './serverSperre.js';
 
 export type ServerAktion = 'neustart' | 'stoppen' | 'starten';
 
 export interface ServerSteuerungUmgebung {
   instanz: string;
-  zustand(): Promise<{ aktiv: boolean; seit: string | null }>;
+  zustand(): Promise<{ aktiv: boolean; seit: string | null; roh?: string }>;
   neustart(): Promise<void>;
   stoppen(): Promise<void>;
   starten(): Promise<void>;
@@ -42,9 +49,6 @@ export interface ServerSteuerungUmgebung {
 
 /** Same shape as `Antwort` in admin/src/main.ts. */
 export type ServerSteuerungAntwort = { code: number; daten: unknown };
-
-/** One action at a time in this process — not per instance: this process runs exactly one instance anyway (see WOV_INSTANZ). */
-let laeuft = false;
 
 export async function serverStatusLesen(umg: ServerSteuerungUmgebung): Promise<ServerSteuerungAntwort> {
   return { code: 200, daten: { dienst: 'wov-server', zustand: await umg.zustand(), instanz: umg.instanz } };
@@ -55,19 +59,18 @@ export async function serverAktionBehandeln(leib: unknown, umg: ServerSteuerungU
   if (aktion !== 'neustart' && aktion !== 'stoppen' && aktion !== 'starten') {
     return { code: 400, daten: { fehler: 'aktion muss "neustart", "stoppen" oder "starten" sein' } };
   }
-  if (laeuft) {
+  if (!sperreVersuchen()) {
     return {
       code: 409,
-      daten: { fehler: 'aktion-laeuft', message: 'Eine Server-Aktion läuft bereits — bitte warten.' },
+      daten: { fehler: 'aktion-laeuft', message: 'Eine andere Serveraktion läuft bereits — bitte warten.' },
     };
   }
-  laeuft = true;
   try {
     if (aktion === 'neustart') await umg.neustart();
     else if (aktion === 'stoppen') await umg.stoppen();
     else await umg.starten();
   } finally {
-    laeuft = false;
+    sperreFreigeben();
   }
   return { code: 200, daten: { dienst: 'wov-server', aktion, zustand: await umg.zustand() } };
 }

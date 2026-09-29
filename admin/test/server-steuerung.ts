@@ -20,9 +20,20 @@
  *     "wov-server", nie mit einem fremden Dienstnamen aus dem Leib.
  *  4. Gleichzeitige Anfragen: die zweite waehrend die erste noch laeuft
  *     -> 409, kein zweiter systemctl-Aufruf gestapelt.
- *  5. Token/Origin: ohne Token -> 401, fremde Herkunft -> 403.
- *  6. Testwelt (.beiseite-Marker) bleibt bei jeder der drei Aktionen
- *     unberuehrt.
+ *  5. Token/Origin: ohne Token -> 401, fremde Herkunft -> 403 (Nachbesserung
+ *     N1: log VOR der Anfrage geleert, nicht danach -- die alte Pruefung
+ *     war wirkungslos, s. Angriffsbericht).
+ *  6. text/plain -> 415 (M6).
+ *  7. Ein systemctl-Fehler (exit 1) gibt die Sperre trotzdem wieder frei
+ *     (M4).
+ *  8./9. Die Sperre ist jetzt GEMEINSAM mit /api/testwelt und
+ *     /api/welt-zuruecksetzen (B2, Angriffsbefund): eine Aktion in einer
+ *     dieser Routen laesst eine gleichzeitige Aktion in einer der beiden
+ *     anderen mit 409 abprallen statt ihre systemctl-Aufrufe zu
+ *     verschachteln.
+ *  10. Ein systemctl, das das Zeitlimit reisst, liefert 504 und gibt die
+ *      Sperre frei (B7) -- eigener Prozess mit kurzem Zeitlimit, damit der
+ *      Test nicht 120 s wartet.
  *
  * Run: npx tsx test/server-steuerung.ts   (aus admin/)
  */
@@ -73,7 +84,9 @@ writeFileSync(
   `#!/bin/sh
 D="${FAKE}"
 echo "$1 $2" >> "$D/log"
+if [ -f "$D/fehler" ]; then echo boom >&2; exit 1; fi
 if [ -f "$D/langsam" ]; then sleep 1.2; fi
+if [ -f "$D/haengt" ]; then sleep 5; fi
 case "$1" in
   show) if [ -f "$D/aktiv" ]; then echo "ActiveState=active"; echo "ActiveEnterTimestamp=Mon 2026-09-29 00:09:40 UTC"; else echo "ActiveState=inactive"; fi ;;
   restart) touch "$D/aktiv" ;;
@@ -95,23 +108,26 @@ fakeSchalter('aktiv', true); // Dienst gilt zu Beginn als aktiv (der ueblichste 
 
 // ── Dienst starten ────────────────────────────────────────────────────
 
-function starten(): Promise<{ port: number; kind: ChildProcess }> {
+function starten(
+  ueberschreibung: { wurzel?: string; welten?: string; tokenDatei?: string; systemctl?: string; extraEnv?: Record<string, string> } = {}
+): Promise<{ port: number; kind: ChildProcess }> {
   return new Promise((fertig, scheitern) => {
     const kind = spawn(resolve(WURZEL_PROJEKT, 'node_modules/.bin/tsx'), ['src/main.ts'], {
       cwd: ADMIN,
       env: {
         ...process.env,
-        WOV_WURZEL: ORDNER,
-        WOV_WELT_VERZEICHNIS: WELTEN,
+        WOV_WURZEL: ueberschreibung.wurzel ?? ORDNER,
+        WOV_WELT_VERZEICHNIS: ueberschreibung.welten ?? WELTEN,
         WOV_INSTANZ: 'dev',
         WOV_ADMIN_ADRESSE: '127.0.0.1',
         WOV_ADMIN_PORT: '0',
         WOV_QUITTUNG: 'aus',
         NODE_ENV: 'test',
-        WOV_ADMIN_TOKEN_DATEI: TOKEN_DATEI,
+        WOV_ADMIN_TOKEN_DATEI: ueberschreibung.tokenDatei ?? TOKEN_DATEI,
         WOV_ERLAUBTE_URSPRUENGE: 'erlaubt.example',
         // Das Stand-in — ohne dieses liefe jeder Aufruf gegen den echten systemctl.
-        WOV_SYSTEMCTL: FAKE_SYSTEMCTL,
+        WOV_SYSTEMCTL: ueberschreibung.systemctl ?? FAKE_SYSTEMCTL,
+        ...ueberschreibung.extraEnv,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -251,14 +267,142 @@ async function main(): Promise<void> {
     check('GET ohne Token -> 401', ohneToken.code === 401, `= ${ohneToken.code}`);
     const postOhneToken = await post(port, 'starten', { token: null });
     check('POST ohne Token -> 401', postOhneToken.code === 401, `= ${postOhneToken.code}`);
+    // Nachbesserung N1: Log VOR der Anfrage leeren, nicht danach -- die alte
+    // Reihenfolge (leeren NACH der Anfrage, dann pruefen) war immer gruen,
+    // egal was passiert war (Angriffsbericht, ~Z. 258).
+    fakeLogLeeren();
     const fremdeHerkunft = await post(port, 'starten', { kopf: { origin: 'https://boese.example' } });
     check('POST von fremder Herkunft -> 403', fremdeHerkunft.code === 403, `= ${fremdeHerkunft.code} ${JSON.stringify(fremdeHerkunft.daten)}`);
-    fakeLogLeeren();
     check('fremde Herkunft: kein systemctl-Aufruf', fakeLog().length === 0, fakeLog().join(','));
+
+    // ── [6] Content-Type-Klemme (M4-Angriffsbefund) ──────────────────
+    console.log('\n[6] text/plain -> 415, kein systemctl-Aufruf:');
+    fakeLogLeeren();
+    const textPlain = await anfrage({
+      port,
+      pfad: '/api/server',
+      methode: 'POST',
+      leib: JSON.stringify({ aktion: 'starten' }),
+      kopf: { 'content-type': 'text/plain' },
+    });
+    check('POST mit text/plain -> 415', textPlain.code === 415, `= ${textPlain.code} ${JSON.stringify(textPlain.daten)}`);
+    check('text/plain: kein systemctl-Aufruf', fakeLog().length === 0, fakeLog().join(','));
+
+    // ── [7] Sperre wird nach einem systemctl-Fehler wieder frei (M4) ──
+    console.log('\n[7] systemctl-Fehler (exit 1) -> 500, Sperre danach wieder frei:');
+    fakeLogLeeren();
+    fakeSchalter('fehler', true);
+    const fehlgeschlagen = await post(port, 'neustart');
+    fakeSchalter('fehler', false);
+    check('systemctl-Fehler -> 500', fehlgeschlagen.code === 500, `= ${fehlgeschlagen.code} ${JSON.stringify(fehlgeschlagen.daten)}`);
+    fakeLogLeeren();
+    const nachFehler = await post(port, 'stoppen');
+    check('Sperre nach Fehler wieder frei (naechster Aufruf 200, nicht 409)', nachFehler.code === 200, `= ${nachFehler.code}`);
+
+    // ── [8]/[9] Sperre jetzt GEMEINSAM mit /api/testwelt und /api/welt-zuruecksetzen (B2) ──
+    console.log('\n[8] Sperre uebergreifend -- /api/testwelt starten + 200 ms spaeter /api/server stoppen (Angriffsprobe F2c):');
+    // "starten" legt NUR beiseite, wenn am Ladeort ueberhaupt eine Datei
+    // liegt (existsSync(welt)) -- ein Platzhalter noetig, sonst bliebe
+    // .beiseite weg und "zurueck" unten saehe keine aktive Testwelt.
+    const weltDatei8 = resolve(WORLDS, 'dev.db.zst');
+    writeFileSync(weltDatei8, 'platzhalter-dev-stand');
+    fakeLogLeeren();
+    fakeSchalter('langsam', true);
+    const [t8, s8] = await Promise.all([
+      anfrage({ port, pfad: '/api/testwelt', methode: 'POST', leib: JSON.stringify({ aktion: 'starten' }) }),
+      warte(200).then(() => post(port, 'stoppen')),
+    ]);
+    fakeSchalter('langsam', false);
+    check('/api/testwelt starten gewinnt die Sperre -> 200', t8.code === 200, `= ${t8.code} ${JSON.stringify(t8.daten)}`);
+    check('gleichzeitiges /api/server stoppen -> 409 (gemeinsame Sperre)', s8.code === 409, `= ${s8.code} ${JSON.stringify(s8.daten)}`);
+    check(
+      'systemctl-Folge nur stop,start von "testwelt starten" -- kein zweiter stop von /api/server gestapelt',
+      fakeLog().join(',') === 'stop wov-server,start wov-server',
+      fakeLog().join(',')
+    );
+    fakeLogLeeren();
+    const zurueck8 = await anfrage({ port, pfad: '/api/testwelt', methode: 'POST', leib: JSON.stringify({ aktion: 'zurueck' }) });
+    check('aufraeumen: testwelt zurueck -> 200 (Ausgangszustand fuer die naechste Pruefung)', zurueck8.code === 200, `= ${zurueck8.code}`);
+
+    console.log('\n[9] Sperre uebergreifend -- /api/server neustart + 200 ms spaeter /api/welt-zuruecksetzen:');
+    fakeLogLeeren();
+    fakeSchalter('langsam', true);
+    const [n9, r9] = await Promise.all([
+      post(port, 'neustart'),
+      warte(200).then(() =>
+        anfrage({ port, pfad: '/api/welt-zuruecksetzen', methode: 'POST', leib: JSON.stringify({ bestaetigung: 'dev', seed: 'behalten' }) })
+      ),
+    ]);
+    fakeSchalter('langsam', false);
+    check('/api/server neustart gewinnt die Sperre -> 200', n9.code === 200, `= ${n9.code}`);
+    check(
+      'gleichzeitiges /api/welt-zuruecksetzen -> 409 laeuft-bereits (gemeinsame Sperre)',
+      r9.code === 409 && r9.daten.fehler === 'laeuft-bereits',
+      `= ${r9.code} ${JSON.stringify(r9.daten)}`
+    );
+    check('systemctl-Folge nur restart wov-server (kein stop von Reset gestapelt)', fakeLog().join(',') === 'restart wov-server', fakeLog().join(','));
   } finally {
     kind.kill('SIGTERM');
     await warte(200);
     rmSync(ORDNER, { recursive: true, force: true });
+  }
+
+  // ── [10] Zeitlimit (B7): eigener Prozess mit kurzem Zeitlimit ────────
+  //
+  // Eigener Prozess statt WOV_SYSTEMCTL_ZEITLIMIT_MS im Hauptprozess zu
+  // aendern: Der ist schon oben mit den ueblichen 120 s (Vorgabe)
+  // gelaufen, und Abschnitt [4]/[8]/[9] verlassen sich auf ein "langsam"
+  // (1,2 s), das bei einem globalen kurzen Zeitlimit selbst als
+  // Zeitueberschreitung durchgegangen waere.
+  console.log('\n[10] systemctl reisst das Zeitlimit -> 504, Sperre danach frei:');
+  const ORDNER2 = mkdtempSync(resolve(tmpdir(), 'wov-serversteuerung-zeitlimit-'));
+  try {
+    const WELTEN2 = resolve(ORDNER2, 'server/data/welten');
+    const WORLDS2 = resolve(ORDNER2, 'server/data/worlds');
+    const FAKE2 = resolve(ORDNER2, 'fake');
+    const TOKEN2 = 'pruef-token-zeitlimit';
+    const TOKEN_DATEI2 = resolve(ORDNER2, 'token');
+    const FAKE_SYSTEMCTL2 = resolve(FAKE2, 'systemctl');
+    for (const d of [WELTEN2, WORLDS2, FAKE2]) mkdirSync(d, { recursive: true });
+    writeFileSync(TOKEN_DATEI2, `${TOKEN2}\n`);
+    // Haengt IMMER 2 s -- laenger als das Zeitlimit unten (300 ms), aber kurz genug fuer einen Test.
+    writeFileSync(
+      FAKE_SYSTEMCTL2,
+      `#!/bin/sh
+D="${FAKE2}"
+echo "$1 $2" >> "$D/log"
+sleep 2
+case "$1" in
+  show) echo "ActiveState=active"; echo "ActiveEnterTimestamp=Mon 2026-09-29 00:09:40 UTC" ;;
+  restart) touch "$D/aktiv" ;;
+esac
+exit 0
+`
+    );
+    chmodSync(FAKE_SYSTEMCTL2, 0o755);
+    const { port: port2, kind: kind2 } = await starten({
+      wurzel: ORDNER2,
+      welten: WELTEN2,
+      tokenDatei: TOKEN_DATEI2,
+      systemctl: FAKE_SYSTEMCTL2,
+      extraEnv: { WOV_SYSTEMCTL_ZEITLIMIT_MS: '300' },
+    });
+    try {
+      const post2 = (aktion: unknown): Promise<Antwort> =>
+        anfrage({ port: port2, pfad: '/api/server', methode: 'POST', leib: JSON.stringify({ aktion }), token: TOKEN2 });
+      const fakeLog2 = (): string[] =>
+        existsSync(resolve(FAKE2, 'log')) ? readFileSync(resolve(FAKE2, 'log'), 'utf-8').trim().split('\n').filter((z) => z && !z.startsWith('show')) : [];
+      const zeitueberschritten = await post2('neustart');
+      check('systemctl reisst das Zeitlimit -> 504', zeitueberschritten.code === 504, `= ${zeitueberschritten.code} ${JSON.stringify(zeitueberschritten.daten)}`);
+      const nachZeitlimit = await post2('neustart');
+      check('Sperre danach wieder frei (naechster Aufruf laeuft an, kein 409)', nachZeitlimit.code !== 409, `= ${nachZeitlimit.code}`);
+      check('zweiter Versuch hat wirklich noch einmal systemctl gerufen (Beweis: Sperre war frei)', fakeLog2().length === 2, fakeLog2().join(','));
+    } finally {
+      kind2.kill('SIGTERM');
+      await warte(200);
+    }
+  } finally {
+    rmSync(ORDNER2, { recursive: true, force: true });
   }
 
   console.log(fehler === 0 ? '\nAlle Pruefungen gruen.' : `\n${fehler} Pruefung(en) fehlgeschlagen.`);

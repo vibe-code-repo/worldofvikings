@@ -58,6 +58,10 @@ const config = leseServerKonfig(DATA_DIR, INSTANZ);
 // beim Anlegen noch einmal): Der Betriebsdienst sieht "aktiv" ab dem Prozessstart und soll im Boot-Fenster nie einen
 // Stand als angewendet melden, den erst dieser Lauf (oder gar nicht) anwendet.
 // K5.0 N2: Ein Fehler dort (Ordner nicht beschreibbar) geht ins Log und stoppt den Start nicht.
+//
+// Karte Z3 N1: Die dauerhafte Löschsperre ist eine ANDERE, eigene Datei (`shared/worldlayout/loeschsperre.ts`)
+// und wird hier bewusst NIE gelesen oder gelöscht — WovServer fragt sie beim Boot (und danach live) direkt und
+// frisch ab (`layoutBootSchutz.ts`, `sperreAbgleichen`), unabhängig von dieser ephemeren Quittung.
 quittungLoeschenSicher(quittungsDatei(config.worldsDir ?? resolve(DATA_DIR, 'worlds'), config.worldName ?? INSTANZ), (text) => console.error(`[WoV] ${text}`));
 
 /*

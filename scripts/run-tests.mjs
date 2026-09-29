@@ -2526,6 +2526,22 @@ const KERN = [
     noetig).
   */
   ['client', 'test/schritte-gruppe.ts'],
+  // Card Z3 N1: the deletion lock is now a DURABLE file, checked afresh on every boot and every live
+  // apply, not an in-memory/receipt-only guard — this rules out mass deletion above AENDERUNGEN_MAX or
+  // together with a geo change (finding A1), a kill mid-boot (A2) and a later, unrelated change (A3).
+  // A1a/A2/A3 run against a REAL main.ts child process (server/test/z3n1-hauptprozess.ts); A1b/A1c and
+  // the per-id lock/timing logic run in-process (server/test/z3n1-live-inproc.ts). This file now covers
+  // only the confirm endpoint (exactly the locked ids, nothing else — no boot-style reconciliation,
+  // finding A5), 409 with no open lock (finding A6), a stale hash, revocation and a reset.
+  ['server', 'test/z3n1-live-inproc.ts'],
+  ['server', 'test/z3n1-hauptprozess.ts'],
+  // Card Z3 N1 completion: the cases the first N1 left open — only ENOENT means "no lock" (EISDIR/broken JSON close),
+  // a broken lock is never overwritten, a request arriving during a save is not lost, an invalid request is consumed
+  // with a log line, confirming deletes only the locked ids (no geo/object take-over), more than 40 locked old
+  // deletions do not block a small new placement, the felled-tree witness, the height-correction cross cases and the
+  // 6 s tick witness (in-process; the real-main.ts cases are in z3n1-hauptprozess.ts).
+  ['server', 'test/z3n1-abschluss.ts'],
+  ['admin', 'test/welt-bestaetigen-z3.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

@@ -628,7 +628,7 @@ if (modul) {
 
   // A folder of its own per run
   let lauf = 0;
-  function bauen(opt: { instanz?: string; vorSchritt?: ResetUmgebung['vorSchritt']; startWirft?: boolean; stoppWirft?: boolean; mitKonten?: boolean; datum?: string } = {}) {
+  function bauen(opt: { sperre?: 'datei' | 'verzeichnis'; instanz?: string; vorSchritt?: ResetUmgebung['vorSchritt']; startWirft?: boolean; stoppWirft?: boolean; mitKonten?: boolean; datum?: string } = {}) {
     const wurzel = resolve(ORDNER, `b${++lauf}`);
     const welten = resolve(wurzel, 'welten');
     const saves = resolve(wurzel, 'worlds');
@@ -639,8 +639,13 @@ if (modul) {
     writeFileSync(resolve(saves, `${instanz}.db.zst`), saveBytes());
     writeFileSync(resolve(saves, `${instanz}.db.zst.prev`), saveBytes(3));
     for (const s of ['', '-wal', '-shm']) writeFileSync(resolve(konten, `${instanz}.db${s}`), `konten${s}`);
+    // Z3 N2 (B3): the persistent deletion lock, a regular file or (the broken case) a directory.
+    const loeschsperrePfad = resolve(saves, `layout-loeschsperre.${instanz}.json`);
+    if (opt.sperre === 'datei') writeFileSync(loeschsperrePfad, JSON.stringify({ ids: ['kiste-1'], hash: 'abc', grund: 'zustand', zeit: '2026-09-20T10:00:00Z' }));
+    if (opt.sperre === 'verzeichnis') mkdirSync(loeschsperrePfad);
     const aufrufe: string[] = [];
     const umg: ResetUmgebung = {
+      loeschsperrePfad,
       instanz,
       instanzBestimmt: true,
       layoutDatei: resolve(welten, `${instanz}.json`),
@@ -671,7 +676,7 @@ if (modul) {
     readdirSync(ordner)
       .filter((f) => !f.endsWith('.test.bak') && !/^dev\.json\.\d{4}-/.test(f))
       .sort()
-      .map((f) => (f.endsWith('-shm') ? f : `${f}:${sha(resolve(ordner, f))}`))
+      .map((f) => (f.endsWith('-shm') ? f : statSync(resolve(ordner, f)).isDirectory() ? `${f}:Verzeichnis` : `${f}:${sha(resolve(ordner, f))}`))
       .join('|');
   const alles = (b: ReturnType<typeof bauen>): string => [dateiSummen(b.welten), dateiSummen(b.saves), dateiSummen(b.konten)].join('##');
   const gut = { bestaetigung: 'dev', seed: 'behalten' as const };
@@ -823,6 +828,31 @@ if (modul) {
     const vorher = alles(b);
     const a = (await weltZuruecksetzenBehandeln(gut, b.umg)) as { code: number; daten: Record<string, any> };
     check('B10: Sicherung scheitert → 500 sicherung-fehlgeschlagen, Platte bitgleich, Server NICHT gestoppt', a.code === 500 && a.daten.fehler === 'sicherung-fehlgeschlagen' && alles(b) === vorher && b.aufrufe.length === 0, `= ${a.code} ${JSON.stringify(a.daten).slice(0, 120)} ${b.aufrufe.join(',')}`);
+  }
+  {
+    // Z3 N2 (B3): the deletion lock goes ASIDE before the document is written, and comes back with the rest on a failed swap.
+    // Whatever is at the lock path (a file, a directory), the message must match the state: "Alles steht wieder wie vorher"
+    // only if the document really is the old one.
+    for (const art of ['datei', 'verzeichnis'] as const) {
+      const ok = bauen({ sperre: art });
+      const sperre = ok.umg.loeschsperrePfad!;
+      const a = (await weltZuruecksetzenBehandeln(gut, ok.umg)) as { code: number; daten: Record<string, any> };
+      const doc = sanitizeWorldLayout(JSON.parse(readFileSync(ok.umg.layoutDatei, 'utf-8')));
+      check(`B11[${art}]: Reset gelingt (200), Dokument leer`, a.code === 200 && a.daten.ok === true && doc !== null && doc.regions.length === 0, `= ${a.code} ${JSON.stringify(a.daten).slice(0, 200)}`);
+      check(`B11[${art}]: die Sperre ist vom Sperrpfad weg und liegt als .vor-reset-<Kennung> daneben`, !existsSync(sperre) && existsSync(`${sperre}.vor-reset-${a.daten.kennung}`) && (a.daten.beiseite ?? []).some((n: string) => n.includes('layout-loeschsperre')), `= ${JSON.stringify(a.daten.beiseite)}`);
+
+      const b = bauen({ sperre: art, vorSchritt: (s) => { if (s === 'dokument') throw new Error('dokument kaputt'); } });
+      const vorher = alles(b);
+      const f = (await weltZuruecksetzenBehandeln(gut, b.umg)) as { code: number; daten: Record<string, any> };
+      check(`B11[${art}]: Fehler beim Dokument → 500, zurückgerollt, ALLES bitgleich wie vorher (die Sperre steht wieder an ihrem Platz)`, f.code === 500 && f.daten.zurueckgerollt === true && alles(b) === vorher && existsSync(b.umg.loeschsperrePfad!), `= ${f.code} ${JSON.stringify(f.daten).slice(0, 160)}`);
+      check(`B11[${art}]: die Meldung "wie vorher" stimmt mit dem Zustand überein (Dokument unverändert)`, !String(f.daten.message).includes('wie vorher') || readFileSync(b.umg.layoutDatei, 'utf-8') === WELT_TEXT);
+    }
+    // Ehrlichkeit als Invariante: eine Sperre, die sich nicht wegräumen lässt, darf nie „wie vorher“ melden, während das Dokument leer ist.
+    const h = bauen({ sperre: 'verzeichnis' });
+    writeFileSync(resolve(h.umg.loeschsperrePfad!, 'inhalt'), 'x');
+    const r = (await weltZuruecksetzenBehandeln(gut, h.umg)) as { code: number; daten: Record<string, any> };
+    const leer = (sanitizeWorldLayout(JSON.parse(readFileSync(h.umg.layoutDatei, 'utf-8')))?.regions.length ?? -1) === 0;
+    check('B11: nicht-leeres Verzeichnis am Sperrpfad: „wie vorher“ nur, wenn das Dokument nicht leer ist', !(String(r.daten.message).includes('wie vorher') && leer), `= ${r.code} leer=${leer} ${String(r.daten.message).slice(0, 160)}`);
   }
   {
     // A copy of the world document from an earlier attempt in the same minute (a reset that failed leaves its copies):

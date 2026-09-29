@@ -41,6 +41,7 @@ import { sanitizeWorldLayout, sanitizeWorldLayoutMitBericht, type WorldLayout } 
 import { platzierungenFehler, platzierungenFehlerText, type PlatzierungsFehler } from '@wov/shared/src/worldlayout/sanitize.js';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
+import { lockCount, lockMessage } from '@wov/shared/src/worldlayout/lockMessages.js';
 
 function sichereSprache(locale?: string): string {
   if (locale) return locale;
@@ -386,6 +387,11 @@ export type SchreibAntwort =
       detail: string | null;
       /** Neusetzen, die ein Grabstein verschluckt hat (`zaehler.zurueck` der Quittung); fehlt bei älteren Gegenstellen. */
       zurueck?: number;
+      /**
+       * Z3 N2: Satz zur offenen Löschsperre (Objekte, die trotz „angewendet“ gesperrt stehen bleiben), in der Sprache des
+       * Editors; `null`/fehlt: keine Sperre offen.
+       */
+      sperrHinweis?: string | null;
     }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
@@ -519,6 +525,7 @@ export async function schreibeWeltdokument(
         : '';
     const hoehenText = heightResponseMessage(d as Record<string, unknown>, sichereSprache(locale));
     const detail = typeof d.detail === 'string' ? d.detail : null;
+    const gesperrt = lockCount(d as Record<string, unknown>);
     return {
       art: 'ok',
       message: (d.message ?? 'Gespeichert') + (hoehenText ? ` — ${hoehenText}` : '') + hinweis,
@@ -527,6 +534,7 @@ export async function schreibeWeltdokument(
       grund: typeof d.grund === 'string' ? d.grund : null,
       detail: hoehenText ? `${hoehenText}${detail ? ` ${detail}` : ''}` : detail,
       zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
+      sperrHinweis: gesperrt > 0 && d.grund !== 'bestaetigung-noetig' ? lockMessage(d.angewendet === true ? 'lock.applied' : 'lock.open', { count: gesperrt }, sichereSprache(locale)) : null,
     };
   }
   return { art: 'fehler', message: d.message ?? d.fehler ?? `HTTP ${antwort.status}` };
@@ -538,16 +546,18 @@ export async function schreibeWeltdokument(
  * (und bei `bestaetigung-noetig` die betroffenen ids) stehen dabei. Ohne Auskunft (ältere Gegenstelle): wie früher.
  */
 export function wirkungsText(a: Extract<SchreibAntwort, { art: 'ok' }>): string {
+  const sperre = a.sperrHinweis ? ` ${a.sperrHinweis}` : '';
   if (a.angewendet === true) {
     // Z5a: Ein Grabstein hat ein Neusetzen verschluckt (Objekt gelöscht, dann derselbe Eintrag wieder da): angewendet,
     // aber das Objekt kam nicht wieder. Das sagt der Satz mit, mit den ids aus `detail`.
     if ((a.zurueck ?? 0) > 0) {
-      return ` — live angewendet, ${a.zurueck} Neusetzen von einem gelöschten Objekt zurückgehalten${a.detail ? ` (${a.detail})` : ''}.`;
+      return ` — live angewendet, ${a.zurueck} Neusetzen von einem gelöschten Objekt zurückgehalten${a.detail ? ` (${a.detail})` : ''}.${sperre}`;
     }
-    return ' — live angewendet.';
+    // Z3 N2: Steht eine Löschsperre offen, ist „live angewendet“ nur der halbe Satz: die gesperrten Objekte stehen weiter.
+    return a.sperrHinweis ? ` — live ${a.sperrHinweis.charAt(0).toLowerCase()}${a.sperrHinweis.slice(1)}` : ' — live angewendet.';
   }
   if (a.angewendet === false) {
-    return ` [${a.grund ?? 'nicht angewendet'}${a.detail ? `: ${a.detail}` : ''}]`;
+    return ` [${a.grund ?? 'nicht angewendet'}${a.detail ? `: ${a.detail}` : ''}]${sperre}`;
   }
   return ' — Server neu starten, damit die Welt sie lädt.';
 }

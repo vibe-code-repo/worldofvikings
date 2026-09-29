@@ -34,6 +34,19 @@ export interface Quittung {
   /** Ausführlicher Text zum Grund (welche Geo-Teile, welche Schutzrückgabe). */
   detail?: string;
   /**
+   * Karte Z3 N1: gesetzt, wenn DIESER Schreibvorgang die dauerhafte Löschsperre erweitert hat (unabhängig
+   * vom obigen `grund`, der `zu-viele-aenderungen` oder `geo` bleiben kann) — `anzahl` und `hash` der
+   * gerade erweiterten Sperrdatei, für Editor und MCP.
+   */
+  loeschsperre?: { anzahl: number; hash: string; kaputt?: boolean };
+  /**
+   * Karte Z3 N1: gesetzt, wenn dieser Takt eine ausdrückliche Bestätigung (`POST /api/welt/bestaetigen`)
+   * verarbeitet hat: `id` ist die Kennung der Anfrage, `entfernt` die Zahl wirklich gelöschter Objekte.
+   * `abgelehnt`: warum die Anfrage nichts bewirkt hat (Hash überholt, Sperre unlesbar, Dokument unzuverlässig).
+   * Der Betriebsdienst wartet auf DIESE Quittung, nicht auf irgendein `angewendet` desselben Hashs.
+   */
+  bestaetigung?: { id: string | null; entfernt: number; abgelehnt?: string };
+  /**
    * Zähler des Abgleichs (`gespawnt`, `aktualisiert`, `unveraendert`, `entfernt`, …), sonst null. Live kommt
    * `zurueck` dazu: Einträge, die ein Grabstein verschluckt hat (gleiche id, gleicher Inhalt wie ein gelöschter,
    * gefällter Eintrag; nichts gespawnt). Bei `zurueck > 0` nennt `detail` die ids, auch bei `angewendet`.

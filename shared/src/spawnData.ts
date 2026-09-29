@@ -219,14 +219,27 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
   {
     // Wolf (B9): plays the greydwarf's part (the roadmap says so) in the same
     // biome, the Black Forest, and takes its combat numbers: 30 HP (leben.ts),
-    // chase 5.5 m/s (player walks 4.5, runs 7.5), 8 damage every 2 s within
-    // 2.4 m (SpawnSystem). Fewer than the greydwarf (3 instead of 5 within
-    // 130 m, 30 instead of 50 server-wide, one roll per 6 s at 30 %): it is
-    // the same damage from a faster body, and every wolf is a skinned mesh of
-    // 1000 triangles that costs a draw call plus a shadow pass.
+    // chase 4.9 m/s (player walks 4.5, runs 7.5), 8 damage every 2 s within
+    // 2.4 m (SpawnSystem, capped to at most two creatures striking the same
+    // player at once — see MAX_GLEICHZEITIGE_ANGREIFER). Fewer than the
+    // greydwarf (3 instead of 5 within 130 m, 30 instead of 50 server-wide,
+    // one roll per 6 s at 30 %): it is the same damage from a faster body,
+    // and every wolf is a skinned mesh of 1000 triangles that costs a draw
+    // call plus a shadow pass.
     //
-    // Walk 1.0 m/s (clip: 0.62), chase 5.5 m/s (clip: 1.42): the client
-    // couples the clip's playback rate to the real ground speed.
+    // Chase speed (Wolfsbalance, 27.09.2026): the B9.2 in-game measurement
+    // found 5.5 m/s pushed the run clip's playback rate against its cap
+    // (CLIP_RATE_MAX 4 x clip tempo 1.42 = 5.68 m/s) often enough to slide
+    // the feet p90 11-14% of the time (`reihe-wolf-jagd.json`, 20 real
+    // GPU-rendered samples). That real jitter trace scales linearly with
+    // the nominal chase speed (same network/render timing, just a shorter
+    // distance per tick), so re-deriving the same 20 samples at lower
+    // candidate speeds gives an honest sliding curve without a fresh GPU
+    // session: 5.0 m/s -> p90 ~2.7 %, 4.9 m/s -> p90 ~0.7 %, 4.8 m/s and
+    // below -> 0 %. Chosen: 4.9 m/s — under the 3 % target with margin for
+    // the linear-rescaling assumption, and still clearly above the 4.5 m/s
+    // walking player (a walker cannot outrun it; a sprinting one at 7.5
+    // still can). Walk 1.0 m/s (clip: 0.62) is unaffected.
     prefab: 'Wolf',
     biomes: Biome.BlackForest,
     maxPerPlayer: 3,
@@ -241,7 +254,7 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     ringMax: 85,
     minAltitude: 30.5,
     walkSpeed: 1.0,
-    runSpeed: 5.5,
+    runSpeed: 4.9,
     wanderRadius: 25,
     idleMinSec: 2,
     idleMaxSec: 5,

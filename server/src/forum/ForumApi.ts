@@ -43,13 +43,11 @@ import {
   type ThreadPage,
   type ThreadView,
 } from '@wov/shared';
+import { WEBSITE_URSPRUENGE } from '../net/WebsiteUrspruenge.js';
 import { ForumDatabase, type ForumAutor } from './ForumDatabase.js';
 
-/** Origins allowed to call this API from a browser (same set as KontoApi). */
-const ERLAUBTE_URSPRUENGE = new Set([
-  'https://world-of-vikings.com',
-  'https://www.world-of-vikings.com',
-]);
+/** Origins allowed to call this API from a browser (Karte D1: dieselbe Konstante wie KontoApi.ts). */
+const ERLAUBTE_URSPRUENGE = WEBSITE_URSPRUENGE;
 
 const PRAEFIX = '/forum';
 const MAX_KOERPER_BYTES = 64 * 1024;

@@ -404,7 +404,7 @@ export class WovServer {
    */
   private readonly weltUmgebung: WeltUmgebung = {
     prefabName: (hash) => this.prefabs.getByHash(hash)?.name,
-    kreaturTrifft: (pos, dmg, r, weltId) => this.applyCreatureAttack(pos, dmg, r, weltId),
+    kreaturTrifft: (pos, dmg, r, weltId, target) => this.applyCreatureAttack(pos, dmg, r, weltId, target),
   };
 
   /**
@@ -3858,7 +3858,7 @@ export class WovServer {
    * Dungeon an denselben Koordinaten — und er starb an einer Figur, die es
    * in seiner Welt nicht gibt.
    */
-  private applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId: string): void {
+  private applyCreatureAttack(pos: Vector3, damage: number, radius: number, weltId: string, target?: Vector3): void {
     // Ein Test greift ueber `as unknown as` hierher, und dort sieht tsc einen
     // fehlenden Parameter nicht: Ohne diese Zeile uebersprang der Weltfilter
     // unten JEDEN Peer, und ein Aufruf mit drei Argumenten traf still niemanden
@@ -3870,8 +3870,9 @@ export class WovServer {
     const r2 = radius * radius;
     for (const peer of this.net.getPeers()) {
       if (peer.worldId !== weltId) continue;
+      if (target && peer.position !== target) continue;
       const d = (peer.position.x - pos.x) ** 2 + (peer.position.z - pos.z) ** 2;
-      if (d > r2) continue;
+      if (!target && d > r2) continue;
       // Parade: Treffer im Fenster prallt ab. Kein Schaden, aber der
       // Spieler erfaehrt es — sonst sieht ein abgewehrter Treffer aus wie
       // ein Fehlschlag der Kreatur.

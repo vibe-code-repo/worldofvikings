@@ -1,5 +1,6 @@
 import type { Handle } from '@sveltejs/kit';
-import { DEFAULT_LOCALE, isLocale } from '$lib/i18n';
+import { istBekannterHost, MMORPG_COM } from './lib/basisDomains';
+import { DEFAULT_LOCALE, isLocale } from './lib/i18n';
 
 /**
  * Fills the `%lang%` placeholder in `src/app.html`.
@@ -17,8 +18,27 @@ import { DEFAULT_LOCALE, isLocale } from '$lib/i18n';
  * Pages without a language prefix — the root language gate at `/` and
  * `sitemap.xml` — fall back to `DEFAULT_LOCALE`. The gate is bilingual by
  * design; `lang="de"` is a compromise, not a claim about its contents.
+ *
+ * ── Unbekannter Host fällt auf world-of-mmorpg.com zurück (Karte D1) ────
+ * `deploy/systemd/wov-web.service` setzt `PROTOCOL_HEADER`/`HOST_HEADER`
+ * statt einer festen `ORIGIN`: adapter-node baut `event.url` seitdem aus dem
+ * Host, den nginx WEITERREICHT (`X-Forwarded-Host`, bereits gesetzt in
+ * `deploy/nginx/wov-lab.conf`) — nötig, weil jetzt ZWEI gleichwertige
+ * Hauptdomains bedient werden, für die eine feste `ORIGIN` nicht mehr
+ * reicht. Ein Host, den nginx nicht kennt (direkter Zugriff auf den
+ * Node-Port, ein erfundener `X-Forwarded-Host`), bekommt hier keinen
+ * eigenen Ursprung zugesprochen: `event.url` fällt auf die Vorgabedomain
+ * zurück, bevor irgendeine Seite daraus eine absolute Adresse baut.
  */
 export const handle: Handle = ({ event, resolve }) => {
+  if (!istBekannterHost(event.url.hostname)) {
+    // `.host` allein wuerde einen erfundenen Port stehen lassen (Node/V8:
+    // der Setter ersetzt nur den Hostnamen-Teil, wenn die neue Zeichenkette
+    // keinen Port traegt) — deshalb Hostname und Port getrennt setzen.
+    event.url.hostname = MMORPG_COM;
+    event.url.port = '';
+  }
+
   const first = event.url.pathname.split('/')[1];
   const lang = isLocale(first) ? first : DEFAULT_LOCALE;
 

@@ -1,0 +1,403 @@
+/**
+ * Items from data, library part G1 (card "Gegenstaende aus Daten G1").
+ * Gegenstaende aus Daten, Bibliotheksteil G1.
+ *
+ * Covers the sanitiser (valid, invalid, broken file, prototype keys, limits, clamps, code collision,
+ * text layer, recipe cycles), the registration (atomic swap, replacing removes old items), the
+ * "code items unchanged" hash of ITEM_DEFS and the working-copy path helper.
+ *
+ * The Holzaxt is only test data here; shared/data/gegenstaende.json stays empty.
+ *
+ * Run: npx tsx shared/test/gegenstands-daten.ts   (from the repo root)
+ */
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  ITEMS_BY_NAME,
+  ITEM_DEFS,
+  REZEPTE,
+  findItem,
+  istCodeItem,
+  replaceDataItems,
+  type ItemShared,
+} from '../src/items/index.js';
+import {
+  MAX_DATEI_BYTES,
+  MAX_EINTRAEGE,
+  datenRezepte,
+  gegenstaendeMitUpload,
+  gegenstandZuItem,
+  leseGegenstandsDatei,
+  wendeGegenstandsDatenAn,
+  type GegenstandsEintrag,
+} from '../src/items/gegenstandsDaten.js';
+import { gegenstandsArbeitsDatei, gegenstandsRepoDatei } from '../src/items/gegenstandsArbeitskopie.js';
+import { ersetzeDatenTexte, inhaltText } from '../src/texte.js';
+
+let fehler = 0;
+let geprueft = 0;
+const pruefe = (bedingung: boolean, text: string): void => {
+  geprueft++;
+  if (!bedingung) {
+    fehler++;
+    console.error(`  FEHLER: ${text}`);
+  }
+};
+
+type Roh = Record<string, unknown>;
+
+const axt = findItem('AxeFlint');
+if (!axt || !axt.holdPosition || !axt.holdRotation) throw new Error('AxeFlint fehlt oder hat keinen Griff');
+
+/** The Holzaxt example with the values of the decision of 29.09. (damage 10, tree level 1, 8 Wood, grip like AxeFlint). */
+function holzaxt(ueberschreibe: Roh = {}): Roh {
+  return {
+    id: 'Holzaxt',
+    nameSchluessel: 'inhalt.gegenstand.Holzaxt.name',
+    beschreibungSchluessel: 'inhalt.gegenstand.Holzaxt.beschreibung',
+    typ: 'zweihaendigWaffe',
+    slot: 'hand',
+    modell: {
+      upload: 'hochgeladen/U_Holzaxt',
+      skala: 0.6,
+      haltePosition: [...axt!.holdPosition!],
+      halteRotation: [...axt!.holdRotation!],
+      hiebVersatz: 0,
+      animationsSatz: axt!.animationSet ?? 'sword',
+    },
+    symbol: null,
+    stapel: 1,
+    gewicht: 2,
+    werte: { damage: 10 },
+    ernte: { baum: 1 },
+    haltbarkeit: { max: 150, verbrauch: 1, ausdauer: 8 },
+    itemLevel: 1,
+    rarity: 'common',
+    rezept: { menge: 1, zutaten: [{ item: 'Wood', menge: 8 }] },
+    texte: {
+      'inhalt.gegenstand.Holzaxt.name': { de: 'Holzaxt', en: 'Wooden axe' },
+      'inhalt.gegenstand.Holzaxt.beschreibung': { de: 'Eine einfache Axt aus Holz.', en: 'A plain axe made of wood.' },
+    },
+    ...ueberschreibe,
+  };
+}
+
+/** A minimal valid entry with a name text. */
+function schlicht(id: string, ueberschreibe: Roh = {}): Roh {
+  return {
+    id,
+    nameSchluessel: `inhalt.gegenstand.${id}.name`,
+    typ: 'material',
+    texte: { [`inhalt.gegenstand.${id}.name`]: { de: id, en: `${id} (en)` } },
+    ...ueberschreibe,
+  };
+}
+
+const datei = (eintraege: unknown[], kopf: Roh = {}): string => JSON.stringify({ version: 1, gegenstaende: eintraege, ...kopf });
+const lese = (...eintraege: unknown[]) => leseGegenstandsDatei(datei(eintraege));
+const grundVon = (r: ReturnType<typeof leseGegenstandsDatei>, i = 0): string | undefined => r.verworfen[i]?.grund;
+const hash = (): string => createHash('sha256').update(JSON.stringify(ITEM_DEFS)).digest('hex');
+const zustand = (): string =>
+  JSON.stringify({
+    namen: [...ITEMS_BY_NAME.keys()].filter((n) => !istCodeItem(n)).sort(),
+    rezepte: datenRezepte(),
+    name: inhaltText('inhalt.gegenstand.Holzaxt.name', 'en'),
+  });
+
+// ── 0. Baseline for "code items unchanged" ───────────────────────────
+console.log('Gegenstandsdaten — Ausgangslage');
+const hashVorher = hash();
+const axtVorher = findItem('AxeFlint');
+const mapVorher = ITEMS_BY_NAME;
+const rezepteVorher = JSON.stringify(REZEPTE);
+console.log(`  ITEM_DEFS-Hash (sha256 von JSON.stringify): ${hashVorher}`);
+pruefe(datenRezepte().length === 0, 'Datenrezepte sind zu Beginn leer');
+
+// ── 1. The shipped file is empty and valid ───────────────────────────
+console.log('Gegenstandsdaten — mitgelieferte Datei');
+const wurzel = resolve(fileURLToPath(import.meta.url), '../../..');
+const leer = leseGegenstandsDatei(readFileSync(gegenstandsRepoDatei(wurzel), 'utf-8'));
+pruefe(leer.ok && leer.dateiFehler === null && leer.eintraege.length === 0 && leer.verworfen.length === 0, 'shared/data/gegenstaende.json ist gueltig und leer');
+wendeGegenstandsDatenAn(leer.eintraege);
+pruefe(hash() === hashVorher, 'ITEM_DEFS byte-gleich nach Anwenden der leeren Datei');
+replaceDataItems([]);
+pruefe(hash() === hashVorher, 'ITEM_DEFS byte-gleich nach replaceDataItems([])');
+
+// ── 2. Valid entry (Holzaxt) ─────────────────────────────────────────
+console.log('Gegenstandsdaten — gueltiger Eintrag');
+const gut = lese(holzaxt());
+pruefe(gut.ok && gut.eintraege.length === 1 && gut.verworfen.length === 0 && gut.unbekannteFelder === 0, 'Holzaxt wird ohne Verlust gelesen');
+const e0 = gut.eintraege[0] as GegenstandsEintrag;
+pruefe(e0.werte.damage === 10 && e0.ernte.baum === 1 && e0.rezept?.zutaten[0].item === 'Wood' && e0.rezept.zutaten[0].menge === 8, 'Schaden 10, ernte.baum 1, Rezept 8 Wood');
+const item = gegenstandZuItem(e0);
+pruefe(item.name === 'Holzaxt' && item.label === 'Holzaxt', 'name = id, label = deutscher Name');
+pruefe(item.model === 'hochgeladen/U_Holzaxt' && item.modellSkala === 0.6, 'model = Upload-Kennung, modellSkala 0,6');
+pruefe(JSON.stringify(item.holdPosition) === JSON.stringify(axt.holdPosition) && JSON.stringify(item.holdRotation) === JSON.stringify(axt.holdRotation), 'Griff gleich AxeFlint');
+pruefe(item.datenItem === true && item.toolTier === 0 && item.ernte?.baum === 1 && item.nameSchluessel === 'inhalt.gegenstand.Holzaxt.name', 'datenItem, toolTier 0, ernte, nameSchluessel');
+pruefe(item.stats?.damage === 10 && item.maxStackSize === 1 && item.weight === 2 && item.icon === '', 'Werte, Stapel, Gewicht, kein Symbol (Rueckfall)');
+pruefe(item.maxDurability === 150 && item.attackStamina === 8 && item.useDurabilityDrain === 1, 'Haltbarkeitsfelder');
+pruefe(item.itemType === axt.itemType, 'zweihaendigWaffe wie AxeFlint (TwoHandedWeapon)');
+const minimal = lese(schlicht('Klein'));
+pruefe(minimal.eintraege.length === 1 && minimal.eintraege[0].stapel === 1 && minimal.eintraege[0].rezept === null && minimal.eintraege[0].modell.upload === null, 'Mindesteintrag bekommt Vorgaben');
+pruefe(gegenstandZuItem(minimal.eintraege[0]).model === null, 'ohne Upload model = null');
+
+// ── 3. Invalid entries: one reason code each ─────────────────────────
+console.log('Gegenstandsdaten — ungueltige Eintraege');
+const faelle: Array<[string, Roh | unknown, string]> = [
+  ['id klein geschrieben', schlicht('holzaxt2', { id: 'holzaxt2' }), 'id-ungueltig'],
+  ['id mit Pfad', schlicht('Ab', { id: 'A/../b' }), 'id-ungueltig'],
+  ['id fehlt', { nameSchluessel: 'inhalt.gegenstand.X.name', typ: 'material' }, 'id-ungueltig'],
+  ['Eintrag kein Objekt', 42, 'eintrag-kein-objekt'],
+  ['Eintrag Liste', [1, 2], 'eintrag-kein-objekt'],
+  ['typ unbekannt', schlicht('Aa', { typ: 'zauberstab' }), 'typ-unbekannt'],
+  ['typ fehlt', schlicht('Ab', { typ: undefined }), 'typ-unbekannt'],
+  ['slot unbekannt', schlicht('Ac', { slot: 'kopf' }), 'slot-unbekannt'],
+  ['Schluessel fremder Praefix', schlicht('Ad', { nameSchluessel: 'inhalt.gegenstand.Anderer.name' }), 'schluessel-ungueltig'],
+  ['Schluessel ohne inhalt.', schlicht('Ae', { nameSchluessel: 'name' }), 'schluessel-ungueltig'],
+  ['Upload ohne Praefix', schlicht('Af', { modell: { upload: 'U_Holzaxt' } }), 'modell-ungueltig'],
+  ['Upload mit ..', schlicht('Ag', { modell: { upload: 'hochgeladen/../U_x' } }), 'modell-ungueltig'],
+  ['Upload mit Schraegstrich', schlicht('Ah', { modell: { upload: 'hochgeladen/U_a/b' } }), 'modell-ungueltig'],
+  ['Upload zu lang', schlicht('Ai', { modell: { upload: `hochgeladen/U_${'x'.repeat(41)}` } }), 'modell-ungueltig'],
+  ['Halteposition zwei Werte', schlicht('Aj', { modell: { haltePosition: [0, 1] } }), 'modell-ungueltig'],
+  ['Animationssatz unbekannt', schlicht('Ak', { modell: { animationsSatz: 'magie' } }), 'modell-ungueltig'],
+  ['Symbol mit Pfad', schlicht('Al', { symbol: '../etc/passwd' }), 'symbol-ungueltig'],
+  ['Schaden als Text', schlicht('Am', { werte: { damage: '10' } }), 'zahl-ungueltig'],
+  ['Schaden unendlich (1e999)', JSON.parse('{"id":"An","nameSchluessel":"inhalt.gegenstand.An.name","typ":"material","werte":{"damage":1e999},"texte":{"inhalt.gegenstand.An.name":{"de":"a","en":"a"}}}'), 'zahl-ungueltig'],
+  ['werte kein Objekt', schlicht('Ao', { werte: [1] }), 'werte-ungueltig'],
+  ['rarity unbekannt', schlicht('Ap', { rarity: 'mythisch' }), 'feld-ungueltig'],
+  ['ernte kein Objekt', schlicht('Aq', { ernte: 3 }), 'feld-ungueltig'],
+  ['Rezept ohne Zutaten', schlicht('Ar', { rezept: { menge: 1, zutaten: [] } }), 'rezept-ungueltig'],
+  ['Rezept 21 Zutaten', schlicht('As', { rezept: { menge: 1, zutaten: Array.from({ length: 21 }, (_, i) => ({ item: `Wood${i}`, menge: 1 })) } }), 'rezept-ungueltig'],
+  ['Rezept Zutat doppelt', schlicht('At', { rezept: { menge: 1, zutaten: [{ item: 'Wood', menge: 1 }, { item: 'Wood', menge: 2 }] } }), 'rezept-ungueltig'],
+  ['Rezept Zutat ohne Menge', schlicht('Au', { rezept: { menge: 1, zutaten: [{ item: 'Wood' }] } }), 'rezept-ungueltig'],
+  ['Rezept Selbstbezug', schlicht('Av', { rezept: { menge: 1, zutaten: [{ item: 'Av', menge: 1 }] } }), 'rezept-selbstbezug'],
+  ['Rezept Zutat unbekannt', schlicht('Aw', { rezept: { menge: 1, zutaten: [{ item: 'GibtEsNicht', menge: 1 }] } }), 'rezept-zutat-unbekannt'],
+];
+for (const [name, roh, grund] of faelle) {
+  const r = lese(roh);
+  pruefe(r.ok && r.eintraege.length === 0 && grundVon(r) === grund, `${name} -> ${grund} (war: ${grundVon(r)})`);
+}
+// Good entries next to bad ones survive.
+const gemischt = lese(schlicht('Gut1'), 42, schlicht('Gut2'));
+pruefe(gemischt.eintraege.map((e) => e.id).join() === 'Gut1,Gut2' && gemischt.verworfen.length === 1 && gemischt.verworfen[0].index === 1, 'gueltige Nachbarn bleiben, Index des verworfenen stimmt');
+const doppelt = lese(schlicht('Zwei'), schlicht('Zwei'));
+pruefe(doppelt.eintraege.length === 1 && grundVon(doppelt) === 'id-doppelt', 'doppelte id: der erste bleibt, der zweite id-doppelt');
+pruefe(lese(42).verworfen.every((v) => typeof v.grund === 'string' && !/\s/.test(v.grund)), 'Grund-Codes sind Kennungen, kein Freitext');
+
+// ── 4. Broken file as a whole ────────────────────────────────────────
+console.log('Gegenstandsdaten — kaputte Datei');
+const dateiFehlerVon = (text: string) => leseGegenstandsDatei(text);
+const kaputt: Array<[string, string, string]> = [
+  ['kein JSON', '{"version":1,', 'datei-kein-json'],
+  ['leerer Text', '', 'datei-kein-json'],
+  ['Wurzel Liste', '[]', 'datei-kopf-falsch'],
+  ['version fehlt', '{"gegenstaende":[]}', 'datei-kopf-falsch'],
+  ['gegenstaende kein Array', '{"version":1,"gegenstaende":{}}', 'datei-kopf-falsch'],
+  ['version als Text', '{"version":"1","gegenstaende":[]}', 'datei-kopf-falsch'],
+  ['version 2', '{"version":2,"gegenstaende":[]}', 'datei-version-unbekannt'],
+];
+for (const [name, text, grund] of kaputt) {
+  const r = dateiFehlerVon(text);
+  pruefe(!r.ok && r.dateiFehler === grund && r.eintraege.length === 0, `${name} -> ${grund} (war: ${r.dateiFehler})`);
+}
+const mitteKaputt = leseGegenstandsDatei('{"version":1,"gegenstaende":[{"id":"Ok1"},');
+pruefe(!mitteKaputt.ok, 'abgeschnittene Datei ist kaputt');
+
+// ── 5. Limits: 500 entries / 256 KB ──────────────────────────────────
+console.log('Gegenstandsdaten — Grenzen');
+const viele = (n: number) => Array.from({ length: n }, (_, i) => schlicht(`Item${i}`.replace(/\d/g, (d) => 'ABCDEFGHIJ'[Number(d)])));
+const vollste = leseGegenstandsDatei(datei(viele(MAX_EINTRAEGE)));
+pruefe(vollste.ok && vollste.eintraege.length === MAX_EINTRAEGE && vollste.verworfen.length === 0, `genau ${MAX_EINTRAEGE} Eintraege sind erlaubt`);
+const zuViele = leseGegenstandsDatei(datei(viele(MAX_EINTRAEGE + 1)));
+pruefe(!zuViele.ok && zuViele.dateiFehler === 'datei-zu-viele-eintraege' && zuViele.eintraege.length === 0, '501 Eintraege: ganze Datei abgelehnt');
+const polster = (n: number) => datei([], { fuellung: 'x'.repeat(n) });
+const grenze = MAX_DATEI_BYTES - polster(0).length;
+pruefe(leseGegenstandsDatei(polster(grenze - 16)).dateiFehler !== 'datei-zu-gross', 'knapp unter 256 KB ist nicht zu gross');
+const genau = polster(MAX_DATEI_BYTES - polster(0).length + 1);
+pruefe(genau.length > MAX_DATEI_BYTES && leseGegenstandsDatei(genau).dateiFehler === 'datei-zu-gross', '256 KB + 1 Byte: zu gross');
+// Multi-byte characters count as bytes, not as characters.
+const umlaute = polster(Math.ceil(MAX_DATEI_BYTES / 2));
+pruefe(umlaute.length < MAX_DATEI_BYTES && leseGegenstandsDatei(datei([], { fuellung: 'ä'.repeat(MAX_DATEI_BYTES / 2 + 10) })).dateiFehler === 'datei-zu-gross', 'Umlaute zaehlen als Bytes (zwei je Zeichen)');
+
+// ── 6. Prototype keys ────────────────────────────────────────────────
+console.log('Gegenstandsdaten — Prototypschluessel');
+const proto = leseGegenstandsDatei(
+  '{"version":1,"gegenstaende":[{"__proto__":{"polluted":1},"constructor":{"x":1},"id":"Pr","nameSchluessel":"inhalt.gegenstand.Pr.name","typ":"material",' +
+  '"werte":{"__proto__":{"damage":99},"damage":5},"texte":{"inhalt.gegenstand.Pr.name":{"de":"a","en":"b","__proto__":{"de":"x"}}}}]}'
+);
+pruefe(proto.eintraege.length === 1 && proto.eintraege[0].werte.damage === 5, 'Prototypschluessel werden nicht gelesen');
+pruefe(proto.unbekannteFelder >= 4, `Prototypschluessel als unbekannte Felder gezaehlt (${proto.unbekannteFelder})`);
+pruefe(({} as Roh).polluted === undefined && ({} as Roh).damage === undefined && !Object.hasOwn(Object.prototype, 'polluted'), 'Object.prototype unveraendert');
+pruefe(lese(schlicht('Ax', { id: 'constructor' })).verworfen[0]?.grund === 'id-ungueltig', 'id "constructor" wird abgelehnt');
+pruefe(grundVon(lese(schlicht('Ay', { texte: { __proto__x: { de: 'a', en: 'b' } } }))) === 'texte-schluessel-fremd', 'fremder Texteschluessel wird abgelehnt');
+
+// ── 7. Clamps and unknown fields ─────────────────────────────────────
+console.log('Gegenstandsdaten — Klemmen und unbekannte Felder');
+const geklemmt = lese(holzaxt({
+  stapel: 5000, gewicht: -3, itemLevel: 500,
+  werte: { damage: 9999, armor: 5000, strength: -4 },
+  ernte: { baum: 99, fels: -2 },
+  modell: { skala: 100, hiebVersatz: 9, haltePosition: [50, -50, 0], halteRotation: [100, 0, -100] },
+  rezept: { menge: 5000, zutaten: [{ item: 'Wood', menge: 0 }, { item: 'Stone', menge: 5000 }] },
+})).eintraege[0];
+pruefe(geklemmt.stapel === 999 && geklemmt.gewicht === 0 && geklemmt.itemLevel === 100, 'stapel <= 999, gewicht >= 0, itemLevel <= 100');
+pruefe(geklemmt.werte.damage === 200 && geklemmt.werte.armor === 1000 && geklemmt.werte.strength === 0, 'damage <= 200, sonst <= 1000, nie negativ');
+pruefe(geklemmt.ernte.baum === 5 && geklemmt.ernte.fels === 0, 'ernte auf 0..5 geklemmt');
+pruefe(geklemmt.modell.skala === 5 && geklemmt.modell.hiebVersatz === 1.5 && geklemmt.modell.haltePosition?.[0] === 2 && geklemmt.modell.haltePosition?.[1] === -2, 'Modellwerte geklemmt');
+pruefe(Math.abs((geklemmt.modell.halteRotation?.[0] ?? 0) - 2 * Math.PI) < 1e-9, 'Rotation auf +-2 pi geklemmt');
+pruefe(geklemmt.rezept?.menge === 999 && geklemmt.rezept.zutaten[0].menge === 1 && geklemmt.rezept.zutaten[1].menge === 999, 'Rezeptmengen auf 1..999');
+const unbekannt = lese(holzaxt({ rezept: { station: 'werkbank', menge: 1, zutaten: [{ item: 'Wood', menge: 8, extra: 1 }] }, zauber: 'feuer', werte: { damage: 10, mana: 3 } }));
+pruefe(unbekannt.eintraege.length === 1 && unbekannt.unbekannteFelder === 4, `unbekannte Felder (station, extra, zauber, mana) verworfen und gezaehlt: ${unbekannt.unbekannteFelder}`);
+pruefe(!('station' in (unbekannt.eintraege[0].rezept as object)) && !('zauber' in unbekannt.eintraege[0]), 'unbekannte Felder kommen im Ergebnis nicht vor');
+
+// ── 8. Collision with code items ─────────────────────────────────────
+console.log('Gegenstandsdaten — Kollision mit Code-Items');
+const setTeil = ITEM_DEFS.find((d) => d.ruestungsteil)?.name as string;
+for (const n of ['AxeFlint', 'Wood', 'Club']) {
+  pruefe(lese(schlicht(n)).verworfen[0]?.grund === 'id-code-kollision', `Code-Item ${n} gewinnt: Eintrag verworfen`);
+}
+// Clothing and set parts are code items too; their names cannot even pass the id pattern (underscore).
+pruefe(istCodeItem(setTeil) && lese(schlicht('Xx', { id: setTeil })).verworfen[0]?.grund !== undefined && lese(schlicht('Xx', { id: setTeil })).eintraege.length === 0, `Set-Teil ${setTeil} kann nicht als Datenitem angelegt werden`);
+const kollision = lese(schlicht('AxeFlint'), schlicht('Neu1'));
+pruefe(kollision.eintraege.length === 1 && kollision.eintraege[0].id === 'Neu1', 'nur der kollidierende Eintrag faellt weg');
+wendeGegenstandsDatenAn(lese(holzaxt()).eintraege);
+pruefe(findItem('AxeFlint') === axtVorher, 'AxeFlint bleibt dasselbe Objekt (Code-Item unangetastet)');
+replaceDataItems([]);
+let geworfen = false;
+try {
+  replaceDataItems([{ ...(axt as ItemShared), datenItem: true }]);
+} catch {
+  geworfen = true;
+}
+pruefe(geworfen && findItem('AxeFlint') === axtVorher, 'replaceDataItems lehnt ein Datenitem mit Code-Namen ab');
+
+// ── 9. Text layer ────────────────────────────────────────────────────
+console.log('Gegenstandsdaten — Texte-Schicht');
+wendeGegenstandsDatenAn([]);
+pruefe(inhaltText('inhalt.gegenstand.Holzaxt.name', 'de') === 'inhalt.gegenstand.Holzaxt.name', 'ohne Datenstand: Schluessel selbst als Rueckfall');
+wendeGegenstandsDatenAn(lese(holzaxt()).eintraege);
+pruefe(inhaltText('inhalt.gegenstand.Holzaxt.name', 'de') === 'Holzaxt' && inhaltText('inhalt.gegenstand.Holzaxt.name', 'en') === 'Wooden axe', 'Schicht liefert de und en ueber inhaltText');
+pruefe(inhaltText('inhalt.gegenstand.Holzaxt.name', 'fr') === 'Holzaxt' && inhaltText('inhalt.gegenstand.Holzaxt.name', undefined) === 'Holzaxt', 'unbekannte Sprache faellt auf Deutsch zurueck');
+pruefe(inhaltText('inhalt.item.beispiel', 'de') === 'Beispieltext', 'Repo-Katalog unveraendert erreichbar');
+ersetzeDatenTexte({ de: new Map([['inhalt.item.beispiel', 'SCHICHT']]), en: new Map([['inhalt.item.beispiel', 'LAYER']]) });
+pruefe(inhaltText('inhalt.item.beispiel', 'de') === 'Beispieltext' && inhaltText('inhalt.item.beispiel', 'en') !== 'LAYER', 'ein Schluessel im Repo-Katalog gewinnt gegen die Schicht');
+pruefe(inhaltText('inhalt.gegenstand.Holzaxt.name', 'de') === 'inhalt.gegenstand.Holzaxt.name', 'Ersetzen der Schicht entfernt die alten Texte');
+ersetzeDatenTexte({ de: new Map([['__proto__', 'x'], ['constructor', 'y']]), en: new Map() });
+pruefe(inhaltText('toString', 'de') === 'toString' && inhaltText('__proto__', 'de') === 'x', 'Prototypnamen bleiben harmlos (Map statt Objekt)');
+wendeGegenstandsDatenAn([]);
+pruefe(inhaltText('__proto__', 'de') === '__proto__', 'wendeGegenstandsDatenAn([]) leert die Schicht');
+const textFaelle: Array<[string, Roh, string]> = [
+  ['fremder Praefix in texte', holzaxt({ texte: { 'inhalt.gegenstand.Anderer.name': { de: 'x', en: 'y' }, 'inhalt.gegenstand.Holzaxt.name': { de: 'a', en: 'b' } } }), 'texte-schluessel-fremd'],
+  ['Schluessel weder Name noch Beschreibung', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.sonst': { de: 'x', en: 'y' }, 'inhalt.gegenstand.Holzaxt.name': { de: 'a', en: 'b' } } }), 'texte-schluessel-fremd'],
+  ['en fehlt', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'Holzaxt' } } }), 'texte-name-fehlt'],
+  ['de fehlt', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { en: 'Axe' } } }), 'texte-name-fehlt'],
+  ['en nur Leerzeichen', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'Holzaxt', en: '   ' } } }), 'texte-name-fehlt'],
+  ['texte fehlt ganz', holzaxt({ texte: undefined }), 'texte-name-fehlt'],
+  ['Text 201 Zeichen', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'x'.repeat(201), en: 'y' } } }), 'texte-ungueltig'],
+  ['Steuerzeichen', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\u0007b', en: 'y' } } }), 'texte-ungueltig'],
+  ['Zeilenumbruch', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\nb', en: 'y' } } }), 'texte-ungueltig'],
+  ['Text keine Zeichenkette', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 5, en: 'y' } } }), 'texte-ungueltig'],
+];
+for (const [name, roh, grund] of textFaelle) {
+  const r = lese(roh);
+  pruefe(r.eintraege.length === 0 && grundVon(r) === grund, `${name} -> ${grund} (war: ${grundVon(r)})`);
+}
+pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'x'.repeat(200), en: 'y' } } })).eintraege.length === 1, '200 Zeichen sind erlaubt');
+const fremdSprache = lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a', en: 'b', fr: 'c' } } }));
+pruefe(fremdSprache.eintraege.length === 1 && fremdSprache.unbekannteFelder === 1 && !('fr' in fremdSprache.eintraege[0].texte['inhalt.gegenstand.Holzaxt.name']), 'weitere Sprache wird verworfen und gezaehlt');
+pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a', en: 'b' } } })).eintraege.length === 1, 'Beschreibung ohne Text ist erlaubt');
+
+// ── 10. Recipes across entries ───────────────────────────────────────
+console.log('Gegenstandsdaten — Rezepte, Zyklen');
+const rz = (id: string, ...zutaten: string[]) => schlicht(id, { rezept: { menge: 1, zutaten: zutaten.map((item) => ({ item, menge: 1 })) } });
+const zyklus = lese(rz('Aa', 'Bb'), rz('Bb', 'Aa'), rz('Cc', 'Aa'), rz('Dd', 'Wood'), rz('Ee', 'Dd'));
+pruefe(zyklus.eintraege.map((e) => e.id).join() === 'Dd,Ee', `Zyklus Aa<->Bb faellt weg, auch Cc (haengt daran); Dd und Ee bleiben: ${zyklus.eintraege.map((e) => e.id).join()}`);
+pruefe(zyklus.verworfen.filter((v) => v.grund === 'rezept-zyklus').length === 2 && zyklus.verworfen.some((v) => v.id === 'Cc' && v.grund === 'rezept-zutat-unbekannt'), 'Codes: zwei mal rezept-zyklus, Cc rezept-zutat-unbekannt');
+const dreier = lese(rz('Aa', 'Bb'), rz('Bb', 'Cc'), rz('Cc', 'Aa'));
+pruefe(dreier.eintraege.length === 0 && dreier.verworfen.length === 3, 'Dreierzyklus faellt ganz weg');
+const raute = lese(rz('Aa', 'Bb', 'Cc'), rz('Bb', 'Dd'), rz('Cc', 'Dd'), rz('Dd', 'Stone'));
+pruefe(raute.eintraege.length === 4, 'Raute (kein Zyklus) bleibt');
+const kette = lese(rz('Aa', 'Bb'), rz('Bb', 'Wood'));
+pruefe(kette.eintraege.length === 2, 'Datenitem als Zutat eines Datenitems ist erlaubt');
+wendeGegenstandsDatenAn(kette.eintraege);
+const dr = datenRezepte();
+pruefe(dr.length === 2 && dr[0].ergebnis === 'Aa' && dr[0].zutaten[0].item === 'Bb', 'datenRezepte() liefert die Rezepte der Datenitems');
+pruefe(REZEPTE.every((r) => r.zutaten.every((z) => istCodeItem(z.item)) && istCodeItem(r.ergebnis)), 'Code-Rezepte nutzen nur Code-Items');
+pruefe(JSON.stringify(REZEPTE) === rezepteVorher, 'REZEPTE byte-gleich');
+wendeGegenstandsDatenAn([]);
+pruefe(datenRezepte().length === 0, 'Rezepte werden mit dem Datenstand ersetzt');
+
+// ── 11. Registration: atomic, replacing removes ──────────────────────
+console.log('Gegenstandsdaten — Registrierung');
+const zwei = lese(holzaxt(), schlicht('Bruch', { werte: { damage: 1 } })).eintraege;
+wendeGegenstandsDatenAn(zwei);
+pruefe(findItem('Holzaxt')?.datenItem === true && ITEMS_BY_NAME.get('Bruch')?.name === 'Bruch', 'findItem und ITEMS_BY_NAME kennen die Datenitems');
+pruefe(ITEMS_BY_NAME !== mapVorher && ITEM_DEFS.every((d) => !d.datenItem), 'ITEMS_BY_NAME ist eine neue Map, ITEM_DEFS bleibt nur Code');
+pruefe(datenRezepte().length === 1 && inhaltText('inhalt.gegenstand.Holzaxt.name', 'en') === 'Wooden axe', 'Rezept und Text sind da');
+const stand = zustand();
+// Failure in the middle of the build: a getter that throws on the second element.
+const kaputtesItem = { get name(): string { throw new Error('Aufbau bricht ab'); } } as unknown as ItemShared;
+let bruch = false;
+try {
+  replaceDataItems([gegenstandZuItem(lese(schlicht('Neuling')).eintraege[0]), kaputtesItem]);
+} catch {
+  bruch = true;
+}
+pruefe(bruch, 'Fehler mitten im Aufbau wirft');
+pruefe(zustand() === stand && findItem('Neuling') === undefined && findItem('Holzaxt') !== undefined && findItem('Bruch') !== undefined, 'alter Stand bleibt stehen, nichts halb uebernommen');
+// Same through the high-level function: an entry that bypasses the sanitiser and collides.
+const boese = { ...lese(schlicht('Zweiter')).eintraege[0], id: 'Club' } as GegenstandsEintrag;
+let bruch2 = false;
+try {
+  wendeGegenstandsDatenAn([lese(schlicht('Erster')).eintraege[0], boese]);
+} catch {
+  bruch2 = true;
+}
+pruefe(bruch2 && zustand() === stand && findItem('Erster') === undefined, 'wendeGegenstandsDatenAn: Kollision mitten in der Liste laesst Items, Rezepte und Texte unveraendert');
+let bruch3 = false;
+try {
+  replaceDataItems([gegenstandZuItem(lese(schlicht('Dupl')).eintraege[0]), gegenstandZuItem(lese(schlicht('Dupl')).eintraege[0])]);
+} catch {
+  bruch3 = true;
+}
+pruefe(bruch3 && zustand() === stand, 'doppelter Name in der Liste wirft, alter Stand bleibt');
+// Replacing removes old data items.
+wendeGegenstandsDatenAn(lese(schlicht('Nur1')).eintraege);
+pruefe(findItem('Holzaxt') === undefined && findItem('Bruch') === undefined && findItem('Nur1') !== undefined, 'erneuter Aufruf ersetzt den ganzen Datenstand, entfernte Eintraege sind weg');
+pruefe(inhaltText('inhalt.gegenstand.Holzaxt.name', 'en') === 'inhalt.gegenstand.Holzaxt.name' && datenRezepte().length === 0, 'auch Text und Rezept der entfernten Eintraege sind weg');
+wendeGegenstandsDatenAn([]);
+pruefe(findItem('Nur1') === undefined && [...ITEMS_BY_NAME.keys()].every((n) => istCodeItem(n)), 'Leerliste entfernt alle Datenitems');
+
+// ── 12. Upload use (Ä4) ─────────────────────────────────────────────
+console.log('Gegenstandsdaten — gegenstaendeMitUpload');
+const mitUpload = lese(holzaxt(), schlicht('Ohne'), schlicht('Andere', { modell: { upload: 'hochgeladen/U_Anderes' } })).eintraege;
+pruefe(gegenstaendeMitUpload(mitUpload, 'U_Holzaxt').map((e) => e.id).join() === 'Holzaxt', 'Treffer ueber den Uploadnamen');
+pruefe(gegenstaendeMitUpload(mitUpload, 'hochgeladen/U_Holzaxt').length === 1, 'Treffer ueber die volle Kennung');
+pruefe(gegenstaendeMitUpload(mitUpload, 'U_Holz').length === 0 && gegenstaendeMitUpload(mitUpload, 'U_Nix').length === 0, 'kein Teiltreffer, kein Treffer ohne Nutzer');
+pruefe(gegenstaendeMitUpload([], 'U_Holzaxt').length === 0, 'leere Liste');
+
+// ── 13. Working-copy path (Ä3) ──────────────────────────────────────
+console.log('Gegenstandsdaten — Pfad der Arbeitskopie');
+pruefe(gegenstandsArbeitsDatei('/srv/wov', '/var/lib/wov/welten') === '/var/lib/wov/welten/gegenstaende.json', 'mit WOV_WELT_VERZEICHNIS: derselbe Ordner wie die Welt, fester Dateiname');
+pruefe(gegenstandsArbeitsDatei('/srv/wov', undefined) === '/srv/wov/server/data/welten-arbeit/gegenstaende.json', 'ohne Variable: Ordner der Welt-Arbeitskopie im Checkout');
+let relativ = false;
+try {
+  gegenstandsArbeitsDatei('/srv/wov', 'relativ/pfad');
+} catch {
+  relativ = true;
+}
+pruefe(relativ, 'relativer Ordner wird abgelehnt (wie bei der Welt)');
+pruefe(gegenstandsRepoDatei('/srv/wov') === '/srv/wov/shared/data/gegenstaende.json', 'Repo-Datei liegt unter shared/data');
+
+// ── 14. Code items unchanged ─────────────────────────────────────────
+console.log('Gegenstandsdaten — Code-Items unveraendert');
+pruefe(hash() === hashVorher, `ITEM_DEFS-Hash nach allen Laeufen gleich (${hash()})`);
+pruefe(findItem('AxeFlint') === axtVorher && ITEM_DEFS.every((d) => d.datenItem === undefined && d.ernte === undefined && d.modellSkala === undefined && d.nameSchluessel === undefined), 'Code-Items tragen keines der neuen Felder');
+
+if (fehler > 0) {
+  console.error(`\n${fehler} von ${geprueft} Pruefungen FEHLGESCHLAGEN`);
+  process.exit(1);
+}
+console.log(`\nalle ${geprueft} Pruefungen bestanden`);

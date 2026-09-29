@@ -558,12 +558,43 @@ function bauItemDefs(): ItemShared[] {
   return liste;
 }
 
-export const ITEMS_BY_NAME: ReadonlyMap<string, ItemShared> = new Map(
+/** Code items only. Never changes after start-up; data items are layered on top of it. */
+const CODE_ITEMS_BY_NAME: ReadonlyMap<string, ItemShared> = new Map(
   ITEM_DEFS.map((d) => [d.name, d])
 );
 
+/**
+ * Code items plus the current data items. A live binding: `replaceDataItems` swaps the whole map, so
+ * read it at the moment of use and do not keep it across a swap. `ITEM_DEFS` stays code-only.
+ */
+export let ITEMS_BY_NAME: ReadonlyMap<string, ItemShared> = CODE_ITEMS_BY_NAME;
+
 export function findItem(name: string): ItemShared | undefined {
   return ITEMS_BY_NAME.get(name);
+}
+
+/** True if `name` is a code item (incl. clothing and set parts). Code items always win over data items. */
+export function istCodeItem(name: string): boolean {
+  return CODE_ITEMS_BY_NAME.has(name);
+}
+
+/**
+ * Replaces the WHOLE data-item state (entries left out are gone afterwards). Atomic: the new map is built
+ * and checked first, the reference is swapped last, so a throw halfway leaves the old state untouched.
+ * Throws on a name that is already a code item or appears twice; the caller sanitises first
+ * (gegenstandsDaten.ts), this is the last line of defence.
+ */
+export function replaceDataItems(liste: readonly ItemShared[]): void {
+  const neu = new Map<string, ItemShared>(CODE_ITEMS_BY_NAME);
+  const daten = new Set<string>();
+  for (const item of liste) {
+    const name = item.name;
+    if (CODE_ITEMS_BY_NAME.has(name)) throw new Error(`[items] data item "${name}" collides with a code item`);
+    if (daten.has(name)) throw new Error(`[items] data item "${name}" appears twice`);
+    daten.add(name);
+    neu.set(name, item);
+  }
+  ITEMS_BY_NAME = neu;
 }
 
 

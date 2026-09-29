@@ -111,6 +111,18 @@ export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
    */
   animationSet?: 'sword' | 'staff' | 'spear';
 
+  /**
+   * Harvest levels (0..5): the highest tree / rock level this item can fell or break. Only data
+   * items carry it so far; code items are still recognised by name on the server.
+   */
+  ernte?: { readonly baum?: number; readonly fels?: number };
+  /** Extra factor on the held model (holder scaling), on top of the upload's base scale. Data items only. */
+  modellSkala?: number;
+  /** Translation key (`inhalt.*`) of the display name. Data items only; `label` stays as the German fallback. */
+  nameSchluessel?: string;
+  /** True for items that come from the data file (shared/data/gegenstaende.json), not from the code. */
+  datenItem?: boolean;
+
   // Cost levers. Deliberately unused in the first pass (see the plan): the
   // fields exist so enabling stamina/durability later is a local change.
   maxDurability?: number;

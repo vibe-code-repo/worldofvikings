@@ -2640,6 +2640,12 @@ const KERN = [
   */
   ['server', 'test/kampf-waffe.ts'],
   ['client', 'test/kampf-waffe-abgleich.ts'],
+  /*
+    Gegenstaende aus Daten, G1 (2026-09-29): Sanitizer, Registrierung (atomar),
+    Texte-Schicht, Rezeptzyklen und Pfad der Arbeitskopie. Rein, keine Assets
+    noetig. < 2 s.
+  */
+  ['shared', 'test/gegenstands-daten.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

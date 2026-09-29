@@ -4,7 +4,9 @@
  *
  * The raw items are keyed by item name, the armor parts by set family (like `setWerte.ts`, and for the
  * same reason: the set files belong to the armor pipeline and stay untouched). `itemDefs.ts` merges
- * both into `ItemShared.itemLevel` / `ItemShared.rarity` and refuses to build an item without an entry.
+ * both into `ItemShared.itemLevel` / `ItemShared.rarity`. An item without an entry does NOT stop the build: it
+ * gets the fallback 1 / common (`STUFE_RUECKFALL`, see `loeseStufe`) and `itemDefs.ts` warns once with the names.
+ * That every CODE item has an explicit entry is guaranteed by `shared/test/item-stufen.ts`, not by a crash.
  *
  *  - materials, food, trophies, simple tools, starter armor: level 1, common
  *  - first weapons (club, antler pickaxe): level 2, common
@@ -99,10 +101,11 @@ export const STUFE_RUECKFALL: ItemStufe = { itemLevel: 1, rarity: 'common' };
 export type StufenQuelle = 'tabelle' | 'eigen' | 'rueckfall';
 
 /**
- * Level and rarity of one definition, never throwing:
+ * Level and rarity of one definition, never throwing (Rueckfall statt Absturz):
  *  1. code items: the explicit entry (`ITEM_STUFEN` by name, `SET_STUFEN` by armor part);
  *  2. data items (`datenItem`) carry their own optional `itemLevel` / `rarity`; used when valid
- *     (integer >= 1, known rarity);
+ *     (integer 1..MAX_ITEMLEVEL = 100, rarity out of RARITY_IDS; anything else, also a getter that throws, is
+ *     treated as "no values");
  *  3. otherwise `STUFE_RUECKFALL` (the caller warns once). A test makes sure that no CODE item
  *     ever lands here (`shared/test/item-stufen.ts`).
  */

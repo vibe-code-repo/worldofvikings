@@ -40,12 +40,20 @@ console.log('\n[1] no HTML injection path in the tooltip and panel code (syntax 
  *    type checker tells a DOM node (it has a property `innerHTML`) from an array or a map;
  *  - Object.assign / defineProperty / defineProperties / setPrototypeOf / Reflect.set with a DOM node as first
  *    argument, and setAttribute on any node (attribute injection: onerror, srcdoc).
- * A computed key on a value typed any / unknown / never counts too (a cast would hide the node). Limits: code in OTHER
- * files, and a node that reaches an untyped element access under another name (`const o: Record<string, string> = el`
- * does not compile without a cast, and the cast is caught above). The fake-DOM part below still catches the tooltip itself through its setter counter.
+ * A computed key on a value typed any / unknown / never counts too (a cast would hide the node).
+ *
+ * HONEST SCOPE: the names above are EXAMPLES of the known ways to turn text into markup, not a complete list (the
+ * platform grows new ones; setHTMLUnsafe, setHTML and parseHTMLUnsafe were added after a second attack). The check
+ * is a tripwire for the usual and the sloppy, not a proof. Known limits:
+ *  - code in OTHER files (only the seven files above are looked at);
+ *  - a node cast to `object` / `Record<string, unknown>` and then written through a helper function in another
+ *    file, or inside a helper that takes `object` (the checker sees `object`, not a DOM node);
+ *  - `Reflect.set` / `Object.assign` on an alias typed `object`;
+ *  - names built at runtime and passed through such a cast.
+ * The fake-DOM part below is the second net for the tooltip itself: its setter counter sees ANY innerHTML write.
  * The one allowed exception is the fixed catalogue text `character.hint` in CharakterPanel.
  */
-const NAMEN = /^(innerHTML|outerHTML|insertAdjacentHTML|createContextualFragment|srcdoc|DOMParser|writeln)$/;
+const NAMEN = /^(innerHTML|outerHTML|insertAdjacentHTML|createContextualFragment|srcdoc|DOMParser|writeln|setHTMLUnsafe|setHTML|parseHTMLUnsafe)$/;
 const DATEIEN = ['ItemTooltip.ts', 'itemTooltipInhalt.ts', 'Hotbar.ts', 'InventoryPanel.ts', 'ContainerPanel.ts', 'CraftingPanel.ts', 'CharakterPanel.ts'];
 const clientWurzel = resolve(HERE, '..');
 const cfg = ts.readConfigFile(resolve(clientWurzel, 'tsconfig.json'), ts.sys.readFile);

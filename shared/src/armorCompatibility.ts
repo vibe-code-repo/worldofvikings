@@ -9,9 +9,9 @@ export interface ArmorBodyPolicy {
 /** Runtime effect an armor set asks for; the client picks the emissive materials that belong to the profile. */
 export type ArmorVfxProfile = 'emberrage_red' | 'gravethorn_red';
 export const MALE_ARMOR_BODY ={ bodyVariant: 'male', bodyProfile: 'wov-male-v1', figure: 'wikinger' } as const;
-export const FEMALE_ARMOR_BODY = { bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' } as const;
+export const FEMALE_ARMOR_BODY = { bodyVariant: 'female', bodyProfile: 'wov-female-v1', figure: 'wikingerin' } as const;
 
-export function armorBodyForFigure(value: string | undefined) {
+export function armorBodyForFigure(value: string | undefined): Required<ArmorBodyPolicy> | undefined {
   switch (value?.replace(/\.glb$/i, '')) {
     case 'wikinger': case 'wikinger/WikingerKoerper': return MALE_ARMOR_BODY;
     case 'wikingerin': case 'wikingerin/WikingerinKoerper': return FEMALE_ARMOR_BODY;

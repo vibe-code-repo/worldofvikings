@@ -2602,6 +2602,17 @@ const KERN = [
     ohne brauchtModelle. ~0.1 s.
   */
   ['tools', 'test/webkopien-ueberdeckung.ts'],
+  /*
+    Kampftoene (client/src/engine/Audio/KampfToene.ts): Schwung zum
+    Hiebzeitpunkt, Treffer/Parade nur mit HitEffect, Faust ohne Schwung,
+    alle Gruppen im `toene`-Abschnitt der getrackten assets/manifest.json.
+  */
+  ['client', 'test/kampf-toene.ts'],
+  /*
+    Kampftoene N1: HitEffect traegt hinten ein Bool je Empfaenger „du bist der
+    Angreifer“ (echter Server, zwei WebSocket-Spieler, Layout bleibt 17 Byte).
+  */
+  ['server/test', 'kampf-toene-hiteffect.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

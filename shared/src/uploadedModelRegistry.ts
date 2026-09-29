@@ -92,6 +92,15 @@ export const HUELLBOX_ABLEHNEN_MAX_M = 5_000;
 /** Darunter ist die Hüllbox entartet (praktisch kein Netz) und wird ABGELEHNT. */
 export const HUELLBOX_ABLEHNEN_MIN_M = 0.0005;
 
+/**
+ * Grenzen der Grundskala (Karte „Editor Upload-Größe"): endliche Zahl in
+ * diesem Bereich, sonst 422 im Betriebsdienst. 100 deckt jeden plausiblen
+ * Nachskalierungsfall (ein 1-m-Tripo-Export auf Haus-Größe); darunter als
+ * 0,01 wäre ein Modell praktisch verschwunden.
+ */
+export const GRUNDSKALA_MIN = 0.01;
+export const GRUNDSKALA_MAX = 100;
+
 export type Kollisionsart = 'fest' | 'durchlaessig';
 
 /** Ein Eintrag der Upload-Registry — Datei, gemessene Zahlen, Wahl der Kollision. */
@@ -114,6 +123,19 @@ export interface UploadedModelEntry {
   readonly kollisionsnetzAbgelehnt: boolean;
   readonly hochgeladenVon: string;
   readonly zeitpunkt: string;
+  /**
+   * Grundskala (Karte „Editor Upload-Größe"): Faktor, um den die DATEI
+   * beim Laden zusätzlich zu `breite`/`hoehe`/`tiefe` gewachsen ist —
+   * `breite`/`hoehe`/`tiefe` bleiben die ROHE Hüllbox der Datei (wie
+   * gemessen), die Grundskala multipliziert erst beim Verbraucher
+   * (Loader, Hülle, Kollision). Anders als eine Platzierungs-`scale`
+   * steht sie NICHT im Weltlayout, sondern EINMAL hier, weil sie eine
+   * Eigenschaft der DATEI ist (Tripo/Meshy normieren auf Kantenlänge 1),
+   * nicht der einzelnen Platzierung — eine Platzierungs-`scale` wirkt
+   * weiterhin multiplikativ AUF die schon grundskalierte Größe. Fehlt
+   * das Feld (Einträge vor dieser Karte), gilt 1 — s. `grundskalaVon`.
+   */
+  readonly grundskala?: number;
 }
 
 export interface RegistryDatei {
@@ -166,7 +188,43 @@ export function pruefeRegistryEintrag(m: UploadedModelEntry): string | null {
   if (m.kollisionsart !== 'fest' && m.kollisionsart !== 'durchlaessig') {
     return `'${m.name}': Kollisionsart '${String(m.kollisionsart)}' unbekannt`;
   }
+  // `grundskala` ist OPTIONAL (fehlt bei jedem Eintrag vor dieser Karte) —
+  // nur wenn das Feld DA ist, muss es im erlaubten Bereich liegen.
+  if (m.grundskala !== undefined) {
+    const g = m.grundskala;
+    if (typeof g !== 'number' || !Number.isFinite(g) || g < GRUNDSKALA_MIN || g > GRUNDSKALA_MAX) {
+      return `'${m.name}': Feld 'grundskala' muss eine endliche Zahl zwischen ${GRUNDSKALA_MIN} und ${GRUNDSKALA_MAX} sein (${String(g)})`;
+    }
+  }
   return null;
+}
+
+/**
+ * Die wirksame Grundskala eines Eintrags — `1`, wenn das Feld fehlt oder
+ * (Handarbeit an der Datei) ausserhalb des gültigen Bereichs liegt.
+ * `pruefeRegistryEintrag` weist einen ungültigen Wert schon beim Anwenden
+ * der Registry ab; diese Funktion ist trotzdem defensiv, weil sie auch
+ * auf einem Eintrag laufen kann, der diese Prüfung nie durchlaufen hat
+ * (z. B. direkt aus `pruefeUndSpeichereUpload`, vor dem Schreiben).
+ */
+export function grundskalaVon(m: Pick<UploadedModelEntry, 'grundskala'>): number {
+  const g = m.grundskala;
+  return typeof g === 'number' && Number.isFinite(g) && g >= GRUNDSKALA_MIN && g <= GRUNDSKALA_MAX ? g : 1;
+}
+
+/**
+ * Grundskala für einen LADER-Modellnamen (`PrefabDef.model`, z. B.
+ * `hochgeladen/U_Marktstand2`) — `1` für jedes Modell, das kein Upload ist
+ * oder (noch) nicht registriert wurde. Der EINE Nachschlagepunkt für
+ * Loader, die nur den Modellnamen kennen, keinen Prefabnamen (`AssetManager`,
+ * Katalog-Vorschau) — `model` und `prefab.name` fallen bei Uploads zwar
+ * zusammen bis auf das Präfix, aber das soll nur HIER stehen.
+ */
+export function grundskalaFuerModell(model: string): number {
+  if (!model.startsWith(UPLOAD_MODEL_PREFIX)) return 1;
+  const name = model.slice(UPLOAD_MODEL_PREFIX.length);
+  const m = UPLOADED_BY_NAME.get(name);
+  return m ? grundskalaVon(m) : 1;
 }
 
 /** Prefabname eines Uploads — auch der Schlüssel in PREFABS_BY_NAME. */
@@ -174,9 +232,22 @@ export function prefabNameVon(m: Pick<UploadedModelEntry, 'name'>): string {
   return m.name;
 }
 
-/** Der Registry-Eintrag als `PrefabDef` — analog zu `roomPrefabDef` in `prefabs.ts`. */
+/**
+ * Der Registry-Eintrag als `PrefabDef` — analog zu `roomPrefabDef` in `prefabs.ts`.
+ *
+ * `localScale` bleibt bewusst 1: Sie wird von `composeZdoWorld`/
+ * `layoutAbgleich` durch eine gesetzte Platzierungs-`scale` ERSETZT statt
+ * mit ihr multipliziert (Diagnose 26.09.), die Grundskala liefe darüber
+ * also verloren, sobald irgendwer eine Platzierung skaliert. Sie wirkt
+ * stattdessen als Zwischenknoten im Loader (`AssetManager.getMasters`,
+ * `grundskalaFuerModell`) und in Hülle/Kollision (`grundskalaVon`).
+ * `renderScale` (nur Platzhalter/Katalog-Anzeige, nie Kollision) bekommt
+ * sie trotzdem mit — sonst zeigt der Platzhalter vor dem Laden und die
+ * Katalog-Maßzeile die falsche, ungrundskalierte Größe.
+ */
 export function uploadedPrefabDef(m: UploadedModelEntry): PrefabDef {
   const ONE: Vector3 = { x: 1, y: 1, z: 1 };
+  const g = grundskalaVon(m);
   return {
     name: m.name,
     // PERSISTENT wie die Store-Prefabs (`tools/store-prefabs.mjs`): „es
@@ -184,7 +255,7 @@ export function uploadedPrefabDef(m: UploadedModelEntry): PrefabDef {
     flags: PrefabFlag.PERSISTENT,
     localScale: ONE,
     sprite: null,
-    renderScale: { w: Math.max(1, m.breite), h: Math.max(1, m.hoehe) },
+    renderScale: { w: Math.max(1, m.breite * g), h: Math.max(1, m.hoehe * g) },
     model: `${UPLOAD_MODEL_PREFIX}${m.name}`,
   };
 }
@@ -276,28 +347,120 @@ export function unregisterUploadedPrefab(name: string): void {
 
 export interface AnwendungsErgebnis {
   readonly geladen: number;
+  /**
+   * Namen, deren Eintrag sich gegenüber dem vorher registrierten Stand
+   * geändert hat (H1, Nachbesserung „Editor Upload-Größe N1") — z. B. eine
+   * geänderte `grundskala`. Wer Lader-Zwischenspeicher je Modellname hält
+   * (`AssetManager.getMasters`), kann daran erkennen, welche er verwerfen
+   * muss, statt jedes Mal alle zu verwerfen.
+   */
+  readonly geaendert: string[];
   /** Einträge, die NICHT registriert wurden — mit Grund. */
   readonly meldungen: string[];
 }
 
 /**
+ * Ob zwei Einträge desselben Namens INHALTLICH gleich sind — jedes Feld,
+ * das ein Verbraucher (Loader, Hülle, Kollision, Katalog) liest. Neue Felder
+ * an `UploadedModelEntry` gehören hier mit dazu, sonst bleibt eine echte
+ * Änderung unerkannt und `applyUploadedModelRegistry` überspringt sie wie
+ * vor der H1-Nachbesserung.
+ */
+function eintraegeGleich(a: UploadedModelEntry, b: UploadedModelEntry): boolean {
+  return (
+    a.anzeigename === b.anzeigename &&
+    a.bytes === b.bytes &&
+    a.dreiecke === b.dreiecke &&
+    a.meshes === b.meshes &&
+    a.materialien === b.materialien &&
+    a.bilder === b.bilder &&
+    a.fehlendeTexturen === b.fehlendeTexturen &&
+    a.breite === b.breite &&
+    a.hoehe === b.hoehe &&
+    a.tiefe === b.tiefe &&
+    a.kollisionsart === b.kollisionsart &&
+    a.hatKollisionsnetz === b.hatKollisionsnetz &&
+    a.kollisionsnetzAbgelehnt === b.kollisionsnetzAbgelehnt &&
+    a.hochgeladenVon === b.hochgeladenVon &&
+    a.zeitpunkt === b.zeitpunkt &&
+    grundskalaVon(a) === grundskalaVon(b)
+  );
+}
+
+/**
+ * Einen SCHON bekannten Eintrag durch eine neue Fassung ersetzen, ohne ihn
+ * aus `EIGENE_MODELLE` auszutragen und wieder anzuhängen — sonst wanderte
+ * ein Upload bei jeder Grundskala-Änderung ans Ende der Katalog-Liste. Der
+ * Hash hängt nur am NAMEN (unverändert), kann hier also nie neu kollidieren.
+ */
+function ersetzeRegistriertenEintrag(m: UploadedModelEntry): void {
+  const prefab = uploadedPrefabDef(m);
+  const hash: Hash = getStableHash(m.name);
+  UPLOADED_BY_NAME.set(m.name, m);
+  const iPrefab = PREFAB_DEFS.findIndex((p) => p.name === m.name);
+  if (iPrefab >= 0) PREFAB_DEFS[iPrefab] = prefab;
+  else PREFAB_DEFS.push(prefab);
+  (PREFABS_BY_NAME as Map<string, PrefabDef>).set(m.name, prefab);
+  (PREFABS_BY_HASH as Map<Hash, PrefabDef>).set(hash, prefab);
+}
+
+/**
  * Den Stand einer gelesenen Registry-Datei auf die Nachschlagewerke
- * anwenden — Diff aus AUSTRAGEN (was nicht mehr in der Datei steht)
- * und EINTRAGEN (was neu ist). Läuft im Server beim Start (einmalig)
- * UND im Betriebsdienst je Anfrage (Abgleich, wie `moduleAbgleichen`
- * in `admin/src/main.ts` es für Dungeon-Module schon tut) UND im
- * Browser vor dem ersten Katalogaufbau.
+ * anwenden — Diff aus AUSTRAGEN (was nicht mehr in der Datei steht),
+ * EINTRAGEN (was neu ist) und ERSETZEN (was sich geändert hat). Läuft im
+ * Server beim Start (einmalig) UND im Betriebsdienst je Anfrage (Abgleich,
+ * wie `moduleAbgleichen` in `admin/src/main.ts` es für Dungeon-Module schon
+ * tut) UND im Browser vor dem ersten Katalogaufbau.
+ *
+ * H1 (Angriff „Editor Upload-Größe", Befund H1): Vorher übersprang diese
+ * Funktion jeden schon registrierten Namen (`geladen++; continue`) — eine
+ * geänderte `grundskala` (oder jedes andere Feld) eines BEKANNTEN Uploads
+ * kam dadurch nie im Browser an, obwohl der Betriebsdienst (`aendereGrund
+ * skala`, das eigene Austragen+Eintragen dort) längst den neuen Wert hielt.
+ * „Übernommen" nach einem PATCH stimmte im Browser also nicht.
+ *
+ * Eine geänderte Zeile, deren NEUER Inhalt die Strukturprüfung nicht
+ * besteht (Handarbeit an der Datei, N5), wird NICHT übernommen — der
+ * zuletzt gültige, schon registrierte Stand bleibt stehen (fail closed),
+ * nur eine Meldung geht ins Log. Das Modell verschwindet dadurch nicht
+ * plötzlich aus Katalog und Welt, nur weil eine einzelne Neu-Anwendung der
+ * Registry eine kaputte Zeile enthielt.
+ *
+ * F7 (Nachangriff „Editor Upload-Größe N1", Info): Steht derselbe Name
+ * ZWEIMAL in einer Datei (Handarbeit — kein Schreibweg dieses Codes legt
+ * das je an), gewinnt bewusst der LETZTE Eintrag in Dateireihenfolge: Jede
+ * spätere Zeile desselben Namens läuft durch denselben Vergleich- und
+ * Ersetzen-Weg wie eine echte Änderung (`eintraegeGleich`/
+ * `ersetzeRegistriertenEintrag`), ohne eigene Sonderbehandlung für diesen
+ * Randfall. Server, Betriebsdienst und Browser rufen alle dieselbe Funktion
+ * und verhalten sich deshalb gleich — ein Unterschied, der eine eigene
+ * "erster gewinnt"-Buchführung nur für einen Fall bräuchte, den kein
+ * legitimer Schreibweg je erzeugt.
  */
 export function applyUploadedModelRegistry(datei: RegistryDatei): AnwendungsErgebnis {
   const meldungen: string[] = [];
+  const geaendert: string[] = [];
   const sollen = new Set(datei.modelle.map((m) => m.name));
   for (const name of [...UPLOADED_BY_NAME.keys()]) {
     if (!sollen.has(name)) unregisterUploadedPrefab(name);
   }
   let geladen = 0;
   for (const m of datei.modelle) {
-    if (UPLOADED_BY_NAME.has(m.name)) {
+    const vorhanden = UPLOADED_BY_NAME.get(m.name);
+    if (vorhanden) {
+      if (eintraegeGleich(vorhanden, m)) {
+        geladen++;
+        continue;
+      }
+      const grund = pruefeRegistryEintrag(m);
+      if (grund) {
+        meldungen.push(`'${String(m.name)}' NICHT aktualisiert (bleibt beim zuletzt gültigen Stand): ${grund}`);
+        geladen++;
+        continue;
+      }
+      ersetzeRegistriertenEintrag(m);
       geladen++;
+      geaendert.push(m.name);
       continue;
     }
     const grund = pruefeRegistryEintrag(m);
@@ -312,7 +475,7 @@ export function applyUploadedModelRegistry(datei: RegistryDatei): AnwendungsErge
       meldungen.push((e as Error).message);
     }
   }
-  return { geladen, meldungen };
+  return { geladen, geaendert, meldungen };
 }
 
 /**
@@ -329,7 +492,7 @@ const UMLAUT_AUSSCHREIBEN: ReadonlyMap<string, string> = new Map([
   ['ä', 'ae'], ['ö', 'oe'], ['ü', 'ue'], ['ß', 'ss'],
   ['Ä', 'Ae'], ['Ö', 'Oe'], ['Ü', 'Ue'],
 ]);
-function schreibeUmlauteAus(s: string): string {
+export function schreibeUmlauteAus(s: string): string {
   let aus = '';
   for (const zeichen of s) aus += UMLAUT_AUSSCHREIBEN.get(zeichen) ?? zeichen;
   return aus;
@@ -380,7 +543,17 @@ export function erzwingeName(gewuenscht: string): string | null {
   // Umlaut-Ausschreibung wirkungslos, wenn sie NACH NFKD liefe (die
   // Diaerese wäre dann schon abgetrennt) — deshalb: erst Umlaute
   // ausschreiben, dann NFKD, dann die Pfad-Ablehnung auf dem normalisierten Text.
-  const ausgeschrieben = schreibeUmlauteAus(gewuenscht);
+  //
+  // B7 (Nachangriff „Editor Upload-Größe N2", Info): `normalize('NFC')`
+  // GANZ VORNE, vor `schreibeUmlauteAus` — ohne sie erkennt die Umlauttabelle
+  // (die nach dem EINEN, ZUSAMMENGESETZTEN Zeichen 'ä' sucht) eine ZERLEGT
+  // geschriebene Eingabe nicht ('a' + U+0308 KOMBINIERENDER TREMA, wie
+  // macOS-Dateinamen sie liefern): 'a' bleibt stehen, der Trema-Codepunkt
+  // wird von der Zeichenklasse unten zu '_'. NFD-„Käsestand" ergäbe so
+  // `U_Ka_sestand` statt `U_Kaesestand` — zwei Registry-Namen für denselben
+  // sichtbaren Namen, je nachdem, ob der Upload von einem Mac kommt.
+  const kanonisch = gewuenscht.normalize('NFC');
+  const ausgeschrieben = schreibeUmlauteAus(kanonisch);
   const normalisiert = ausgeschrieben.normalize('NFKD');
   if (pfadanteilGrund(normalisiert) !== null) return null;
   const kern = normalisiert
@@ -403,7 +576,8 @@ export function erzwingeName(gewuenscht: string): string | null {
  * auch dann, wenn der wahre Grund ein erkannter Pfadanteil war).
  */
 export function nameAblehnungsGrund(gewuenscht: string): string {
-  const normalisiert = schreibeUmlauteAus(gewuenscht).normalize('NFKD');
+  // B7 (Nachangriff N2): dieselbe NFC-zuerst-Reihenfolge wie in `erzwingeName`.
+  const normalisiert = schreibeUmlauteAus(gewuenscht.normalize('NFC')).normalize('NFKD');
   const grund = pfadanteilGrund(normalisiert);
   if (grund !== null) {
     return `Der Name '${gewuenscht}' enthält ${grund} — das ist als Teil eines Dateinamens nicht erlaubt.`;

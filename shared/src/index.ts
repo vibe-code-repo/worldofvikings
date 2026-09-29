@@ -157,6 +157,10 @@ export * as moduleRegistry from './moduleRegistry.js';
 // aus demselben Grund wie moduleRegistry: Registrierfunktionen mit
 // Nebenwirkung gehören sichtbar markiert, nicht im flachen `export *`.
 export * as uploadedModelRegistry from './uploadedModelRegistry.js';
+// Größentabelle + Vorschlagslogik für den Upload-Dialog (Karte „Editor
+// Upload-Größe") — reine Funktionen, deshalb flach statt als Namespace.
+export * from './uploadedModelGroessentabelle.js';
+export * from './uploadedModelGroessenvorschlag.js';
 
 // Rein typseitige Bruecken zu den serverseitigen Datenmodulen — `export type`
 // verschwindet beim Kompilieren restlos und zieht kein JSON nach.

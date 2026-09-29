@@ -56,7 +56,8 @@ import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessage
  *           WOV_ADMIN_ADRESSE, WOV_WURZEL (Projektpfad),
  *           WOV_ADMIN_TOKEN_DATEI, WOV_NAHE_NETZE, WOV_PROXY_ADRESSEN,
  *           WOV_LOG_STROEME_MAX, WOV_SYSTEMCTL (nur Tests/Probelaeufe, s. SYSTEMCTL),
- *           WOV_ERLAUBTE_URSPRUENGE (kommagetrennte Host-Namen, s. fremdeHerkunft)
+ *           WOV_ERLAUBTE_URSPRUENGE (kommagetrennte Host-Namen, s. fremdeHerkunft),
+ *           WOV_HOCHGELADEN_DIR (nur Tests, s. uploadedModelUpload.ts UPLOAD_DIR)
  */
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
@@ -128,7 +129,9 @@ import {
   type Kollisionsart,
 } from '@wov/shared/src/uploadedModelRegistry.js';
 import {
+  aendereGrundskala,
   entferneUpload,
+  pruefeGrundskala,
   pruefeUndSpeichereUpload,
   UPLOAD_DIR as HOCHGELADEN_ORDNER,
 } from '@wov/shared/src/uploadedModelUpload.js';
@@ -1010,6 +1013,34 @@ async function modellHochladenBehandeln(
       message: `Kollisionsart '${kollisionsRoh}' unbekannt — erwartet wird 'fest' oder 'durchlaessig'.`,
     });
   }
+  // Karte „Editor Upload-Größe": Grundskala als eigene Kopfzeile, wie
+  // Name und Kollisionswunsch — optional, fehlt sie, gilt 1 ("wie Datei").
+  // 422 statt 400: eine SEMANTISCH ungültige Zahl in einer syntaktisch
+  // wohlgeformten Anfrage, dieselbe Unterscheidung wie an den anderen
+  // 422-Stellen dieses Dienstes (POST /api/worldlayout).
+  const grundskalaRoh = req.headers['x-wov-grundskala'];
+  let grundskala: number | undefined;
+  if (grundskalaRoh !== undefined) {
+    // N1 (Angriff „Editor Upload-Größe"): `Number(...)` nimmt Hex ('0x10'),
+    // Binär ('0b11'), wissenschaftliche Schreibweise ('1e1'), führende/
+    // folgende Leerzeichen und ein führendes '+' an — der Editor schickt
+    // aber nie mehr als `String(zahl)` einer schon geprüften Zahl. Ein
+    // Kopfzeilenwert, der nicht genau eine schlichte Dezimalzahl ist, wird
+    // hier abgelehnt, BEVOR er überhaupt bei `Number()` ankommt.
+    const einzelwert = Array.isArray(grundskalaRoh) ? grundskalaRoh.join(',') : grundskalaRoh;
+    if (!/^\d+(\.\d+)?$/.test(einzelwert)) {
+      return json(res, 422, {
+        ok: false,
+        fehler: 'grundskala-ungueltig',
+        message: `Kopfzeile x-wov-grundskala muss eine einfache Dezimalzahl sein (kein Hex/Binär, keine Exponentialschreibweise, kein Vorzeichen, keine Leerzeichen) — bekommen: '${einzelwert}'.`,
+      });
+    }
+    grundskala = Number(einzelwert);
+    const grundskalaFehler = pruefeGrundskala(grundskala);
+    if (grundskalaFehler !== null) {
+      return json(res, 422, { ok: false, fehler: 'grundskala-ungueltig', message: grundskalaFehler });
+    }
+  }
 
   // Eine Byte-Grenze GRÖSSER als der harte Deckel der Prüfung: Eine zu
   // grosse Datei soll die eigene, sprechende Ablehnung von
@@ -1032,6 +1063,7 @@ async function modellHochladenBehandeln(
       bytes: new Uint8Array(koerper.buffer, koerper.byteOffset, koerper.byteLength),
       angezeigterName,
       kollisionswunsch: kollisionsRoh as Kollisionsart,
+      grundskala,
     }
   );
   if (!antwort.ok) {
@@ -1516,6 +1548,45 @@ async function behandeln(
     }
     console.log(`[Admin] Modell entfernt: '${antwort.name}', ${antwort.verbleibend} verbleiben`);
     return { code: 200, daten: { ok: true, name: antwort.name, verbleibend: antwort.verbleibend } };
+  }
+
+  // ── Grundskala eines hochgeladenen Modells nachträglich ändern
+  //    (Karte „Editor Upload-Größe", Auftrag Punkt 5) ──
+  //
+  // PATCH statt POST/DELETE: Es ändert einen bestehenden Eintrag, legt
+  // keinen neuen an und braucht — anders als DELETE — nie eine
+  // Bestätigung (Auftrag: gesetzte Platzierungen behalten ihre `scale`
+  // unverändert, sie werden dadurch nur größer/kleiner, und genau das ist
+  // gewollt). Geschützt wie jede andere zustandsändernde Route hier:
+  // Herkunft, Token und JSON-Content-Type liefen schon VOR `behandeln()`.
+  if (pfad === '/api/modell-hochladen' && methode === 'PATCH') {
+    const { name, grundskala: grundskalaRoh } = (leib ?? {}) as { name?: string; grundskala?: unknown };
+    if (!name || typeof name !== 'string') {
+      return { code: 400, daten: { ok: false, fehler: 'name-fehlt', message: 'Körperfeld "name" fehlt.' } };
+    }
+    if (typeof grundskalaRoh !== 'number') {
+      return {
+        code: 400,
+        daten: { ok: false, fehler: 'grundskala-fehlt', message: 'Körperfeld "grundskala" fehlt oder ist keine Zahl.' },
+      };
+    }
+    // 422: eine Zahl ist da, sie liegt nur ausserhalb des gültigen Bereichs
+    // (dieselbe Unterscheidung wie beim Hochladen selbst).
+    const grundskalaFehler = pruefeGrundskala(grundskalaRoh);
+    if (grundskalaFehler !== null) {
+      return { code: 422, daten: { ok: false, fehler: 'grundskala-ungueltig', message: grundskalaFehler } };
+    }
+    const antwort = aendereGrundskala(
+      { erlaubt: uploadsErlaubt(), verzeichnis: HOCHGELADEN_ORDNER },
+      name,
+      grundskalaRoh
+    );
+    if (!antwort.ok) {
+      console.warn(`[Admin] PATCH /api/modell-hochladen -> abgelehnt: ${antwort.meldung}`);
+      return { code: 400, daten: { ok: false, fehler: 'abgelehnt', message: antwort.meldung } };
+    }
+    console.log(`[Admin] Grundskala geändert: '${antwort.eintrag.name}' -> ${grundskalaRoh}`);
+    return { code: 200, daten: { ok: true, eintrag: antwort.eintrag } };
   }
 
   // ── Dungeon-Dokumente (nur lesen) ──

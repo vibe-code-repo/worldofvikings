@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ITEM_DEFS, findItem, RARITY_IDS, STAT_IDS, ESSEN } from '@wov/shared';
+import { ITEM_DEFS, findItem, RARITY_IDS, STAT_IDS, ESSEN, inhaltText } from '@wov/shared';
 import {
   tooltipInhalt, zeigtItemLevel, RARITY_FARBEN, FARBE_PLUS, FARBE_MINUS, type Uebersetzer, type TooltipInhalt,
 } from '../src/ui/itemTooltipInhalt';
@@ -99,6 +99,9 @@ check('action is the last, gray line', mitAktion.zeilen.at(-1)?.art === 'aktion'
 console.log('\n[4b] name through textKey (set parts) or label');
 const mitKey = { ...item('AxeFlint'), textKey: 'inhalt.item.beispiel' };
 check('with textKey: name from the catalogue in the language of the tooltip', tooltipInhalt(mitKey, de, { sprache: 'en' }).name === 'Example text' && tooltipInhalt(mitKey, de, { sprache: 'de' }).name === 'Beispieltext');
+const satz = ITEM_DEFS.find((d) => d.ruestungsteil === 'ironward_brust' && (d as { textKey?: string }).textKey);
+if (!satz) console.log('  (no set part carries a textKey on this base: the tooltip check for a real set part is skipped)');
+else check('real set part: tooltip name is translated (de differs from en, both from the catalogue)', tooltipInhalt(satz, de, { sprache: 'de' }).name !== tooltipInhalt(satz, de, { sprache: 'en' }).name && tooltipInhalt(satz, de, { sprache: 'en' }).name === inhaltText((satz as { textKey?: string }).textKey!, 'en'), `${tooltipInhalt(satz, de, { sprache: 'de' }).name} / ${tooltipInhalt(satz, de, { sprache: 'en' }).name}`);
 check('without textKey: the label, whatever the language', tooltipInhalt(item('AxeFlint'), de, { sprache: 'en' }).name === item('AxeFlint').label);
 
 console.log('\n[5] level only for tools, weapons and wearables');

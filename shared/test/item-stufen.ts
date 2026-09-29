@@ -13,7 +13,7 @@
  */
 import {
   ITEM_DEFS, findItem, RARITY_IDS, ITEM_STUFEN, SET_STUFEN, SET_TEILE, ESSEN, istRarity, anzeigeName,
-  stufeFuerRuestungsteil, RARITY_TEXT_KEYS,
+  stufeFuerRuestungsteil, RARITY_TEXT_KEYS, inhaltText,
 } from '../src/index.js';
 
 let failures = 0;
@@ -71,6 +71,15 @@ const mitSchluessel = { label: 'Rohtext', textKey: 'inhalt.item.beispiel' };
 check('textKey: catalogue text per language', anzeigeName(mitSchluessel, 'de') === 'Beispieltext' && anzeigeName(mitSchluessel, 'en') === 'Example text');
 check('textKey: unknown language falls back to German, no language too', anzeigeName(mitSchluessel, 'fr') === 'Beispieltext' && anzeigeName(mitSchluessel) === 'Beispieltext');
 check('textKey missing in the catalogue: the key itself, never empty', anzeigeName({ label: 'Rohtext', textKey: 'inhalt.item.gibt_es_nicht' }, 'en') === 'inhalt.item.gibt_es_nicht');
+// Set parts carry a `textKey` once the armor-names card is on the base; then the name must be the catalogue text.
+const schluessel = (d: object): string | undefined => (d as { textKey?: string }).textKey;
+const teileMitSchluessel = ITEM_DEFS.filter((d) => schluessel(d));
+if (teileMitSchluessel.length === 0) console.log('  (no definition carries a textKey on this base: the set-part check below is skipped)');
+else {
+  const brust = ITEM_DEFS.find((d) => d.ruestungsteil === 'ironward_brust')!;
+  check(`${teileMitSchluessel.length} set parts with textKey: name = catalogue text, de and en`, teileMitSchluessel.every((d) => anzeigeName(d, 'de') === inhaltText(schluessel(d)!, 'de') && anzeigeName(d, 'en') === inhaltText(schluessel(d)!, 'en')));
+  check('Ironward chest: translated, not the label, not the key', anzeigeName(brust, 'en') !== anzeigeName(brust, 'de') && anzeigeName(brust, 'en') !== schluessel(brust) && anzeigeName(brust, 'de') !== schluessel(brust), `${anzeigeName(brust, 'de')} / ${anzeigeName(brust, 'en')}`);
+}
 check('empty textKey counts as none', anzeigeName({ label: 'Rohtext', textKey: '' }, 'en') === 'Rohtext');
 
 console.log(failures === 0 ? '\nOK' : `\n${failures} FAIL`);

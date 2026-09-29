@@ -10,6 +10,7 @@
 
 import { LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
   EVENT_INTERVAL_MS,
@@ -992,6 +993,15 @@ export class WovServer {
     if (this.config.worldMode === 'layout') {
       const roh = readFileSync(this.config.worldLayoutPath, 'utf-8');
       this.worldLayoutRaw = JSON.parse(roh) as unknown;
+      // Validate before terrain creation and before the document is sent to peers.
+      // The on-disk correction is never rewritten or partially applied at boot.
+      const report = sanitizeWorldLayoutMitBericht(this.worldLayoutRaw);
+      if (report?.heightProblem) {
+        console.error(`[Welt] ${heightResponseMessage({ heightProblem: report.heightProblem }, process.env.WOV_LANGUAGE)}`);
+        const effective = { ...(this.worldLayoutRaw as Record<string, unknown>) };
+        delete effective.heightDeltas;
+        this.worldLayoutRaw = effective;
+      }
     }
     // Layout-Modus: Der detailSeed des Dokuments ist maßgeblich — das
     // Dokument definiert die Welt VOLLSTÄNDIG (Editor, MCP-Probe, Server

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
- * i1-verschiebung.mjs — proof of a purely mechanical move (I1 step 0 + N1, plan section 5.1).
+ * !! EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis. Bekannte Lücken: siehe `Berichte/2026-09-30 I1 Schritt 0 N1 — Nachangriff.md` (H1–H4, M1–M4). Umbau folgt als eigene Karte.
+ * !! RESTRICTED: exit 0 is not yet a proof of a mechanical move; known gaps are listed in the follow-up attack report
+ * !! (H1-H4, M1-M4). The rebuild on the real syntax tree follows as its own card. Until then also check by hand.
+ *
+ * i1-verschiebung.mjs — check for a purely mechanical move (I1 step 0 + N1, plan section 5.1).
  * Verschiebebeweis: belegt, dass ein Schnitt nur verschoben und sonst NICHTS verändert hat.
  *
  * Leitsatz (N1): Der Beweis zeigt „außer den erlaubten Ersetzungen ist nichts anders“. Verglichen wird deshalb
@@ -91,6 +95,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const K = ts.SyntaxKind;
+export const EINGESCHRAENKT = 'EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis. Bekannte Lücken: siehe `Berichte/2026-09-30 I1 Schritt 0 N1 — Nachangriff.md` (H1–H4, M1–M4). Umbau folgt als eigene Karte.';
 
 // ── Einlesen ────────────────────────────────────────────────────────────────────────────
 
@@ -880,6 +885,7 @@ function haupt(argv) {
     console.error(String(e.message ?? e));
     return 2;
   }
+  if (!a.json && !a.hilfe) console.log(`${EINGESCHRAENKT}\n`);
   if (a.hilfe) {
     console.log(readFileSync(fileURLToPath(import.meta.url), 'utf-8').split('*/')[0]);
     return 0;
@@ -911,7 +917,7 @@ function haupt(argv) {
     console.error(`Lesefehler: ${e.message ?? e}`);
     return 2;
   }
-  if (a.json) console.log(JSON.stringify(erg, null, 2));
+  if (a.json) console.log(JSON.stringify({ eingeschraenkt: EINGESCHRAENKT, ...erg }, null, 2));
   else {
     console.log(erg.zeilen.join('\n'));
     const z = erg.zaehler;
@@ -920,7 +926,8 @@ function haupt(argv) {
     for (const f of erg.freigegeben) console.log(`FREIGEGEBEN (in den PR-Text): ${f}`);
     const rest = erg.befunde.filter((b) => !erg.zeilen.some((l) => l.includes(b.replace(/^[^:]+: /, ''))));
     if (rest.length) console.log(`\nWeitere Befunde:\n${rest.map((b) => `  - ${b}`).join('\n')}`);
-    console.log(erg.befunde.length === 0 ? '\nBEWEIS ERBRACHT: verschoben, nichts verändert.' : `\nBEWEIS GESCHEITERT: ${erg.befunde.length} Befund(e).`);
+    console.log(erg.befunde.length === 0 ? '\nKEINE ABWEICHUNG GEFUNDEN (eingeschränkt): das ist kein Beweis.' : `\nABWEICHUNG GEFUNDEN: ${erg.befunde.length} Befund(e).`);
+    console.log(`\n${EINGESCHRAENKT}`);
   }
   return erg.befunde.length === 0 ? 0 : 1;
 }

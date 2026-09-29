@@ -35,6 +35,11 @@
  *           der laut gemeldet wird.
  *       Ohne Git bzw. ohne Basis läuft der Wächter wie bisher und sagt das.
  *
+ * M5 (N2): In der CI zeigt der Runner die Ausgabe erfolgreicher Tests nicht. Deshalb meldet der Wächter seine Kennzeilen (Basis-Commit,
+ * mit/ohne Basis, jede Begründung) zusätzlich in die Job-Zusammenfassung (GITHUB_STEP_SUMMARY) und als `::notice::`/`::warning::` auf den
+ * stderr des Runners. Bei `pull_request` in der CI ist „ohne Basis“ ein Befund (rot); bei `push` und lokal ohne Git nur ein lauter Hinweis.
+ * M6 (N2): Ein "grund" braucht mindestens 10 sichtbare Zeichen (kein Leerraum, keine Unicode-Klassen Cf/Zs/Cc, kein reiner Punkt).
+ *
  * `client/src/main.ts` trägt einen Deckel von 3.700; dort sind zusätzlich die Zeilenwächter in `client/test` zuständig.
  *
  * Damit der Zeuge nicht selbst „immer grün" sein kann, baut er zuerst in einem Wegwerfordner einen Mini-Baum (mit einem
@@ -50,7 +55,7 @@
  * rounded up to 50) or ceiling; caps and entries only shrink in a pull request unless a "grund" says why.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, openSync, writeSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,12 +122,20 @@ function sammle(wurzel, hinweise) {
   return aus;
 }
 
+const GRUND_MIN = 10;
+/** Sichtbare Zeichen eines Grundes: ohne Leerraum und ohne Unicode-Klassen Zs/Cf/Cc; ein reiner Punkt (nur `.`, `…`, `·`) zählt 0. */
+export function sichtbareZeichen(text) {
+  const v = text.replace(/[\p{Zs}\p{Cf}\p{Cc}\s]/gu, '');
+  if (/^[.…·]*$/u.test(v)) return 0;
+  return [...v].length;
+}
+
 /** Ein Eintrag der Grenzdatei als { art, grenze|hoechstens, grund } oder { art:'ungueltig', text }. */
 export function leseEintrag(wert) {
   if (Number.isInteger(wert) && wert > 0) return { art: 'zahl', grenze: wert, grund: null };
   if (wert && typeof wert === 'object' && !Array.isArray(wert)) {
-    const grund = typeof wert.grund === 'string' && wert.grund.trim() !== '' ? wert.grund.trim() : null;
-    if ('grund' in wert && grund === null) return { art: 'ungueltig', text: '"grund" muss ein nichtleerer Text sein' };
+    const grund = typeof wert.grund === 'string' && sichtbareZeichen(wert.grund) >= GRUND_MIN ? wert.grund.trim() : null;
+    if ('grund' in wert && grund === null) return { art: 'ungueltig', text: `"grund" braucht mindestens ${GRUND_MIN} sichtbare Zeichen (kein Leerraum, keine Zeichen der Unicode-Klassen Cf/Zs/Cc, kein reiner Punkt)` };
     if (wert.frei === true && Number.isInteger(wert.hoechstens) && wert.hoechstens > 0) {
       const fremd = Object.keys(wert).filter((k) => !['frei', 'hoechstens', 'grund'].includes(k));
       return fremd.length ? { art: 'ungueltig', text: `unbekannte Schlüssel ${fremd.join(', ')}` } : { art: 'frei', hoechstens: wert.hoechstens, grund };
@@ -401,6 +414,44 @@ export function selbstprobe() {
     fall('M5: "frei" wird zu einer Zahl über dem Deckel', { [gross]: 7600 }, { [gross]: 7700 }, ['M5'], { basis: B({ [gross]: { frei: true, hoechstens: 7550 } }) });
     fall('M5: ohne Basis läuft der Wächter wie bisher (nur Hinweis)', { 'client/src/a.ts': 2000 }, { 'client/src/a.ts': 2200 }, [], { basis: null });
     fall('M5: Basis ohne Grenzdatei (erster PR) ist ein Hinweis, kein Befund', { 'client/src/a.ts': 2000 }, { 'client/src/a.ts': 2200 }, [], { basis: { grenzen: null, fehlt: 'Grenzdatei fehlt', zeilen: () => null, name: 'x' } });
+    // ── M6: Begründung braucht mindestens 10 sichtbare Zeichen ──
+    const mitGrund = (g) => ({ 'client/src/a.ts': { grenze: 2450, grund: g } });
+    const basisA = { grenzen: { 'client/src/a.ts': 2200 }, name: 'basis', zeilen: () => null };
+    for (const [name, g, gut] of [
+      ['Grund ".": rot', '.', false],
+      ['Grund aus Zeichen ohne Breite (U+200B ×12): rot', '\u200b'.repeat(12), false],
+      ['Grund aus geschützten Leerzeichen und Punkten: rot', '\u00a0.\u00a0.\u00a0.....', false],
+      ['Grund aus zwölf Punkten: rot', '............', false],
+      ['Grund mit 9 sichtbaren Zeichen: rot', 'abcdefghi', false],
+      ['Grund mit 10 sichtbaren Zeichen: grün', 'abcdefghij', true],
+      ['Grund mit Leerzeichen dazwischen zählt nur sichtbare (a b c d e f g h i j): grün', 'a b c d e f g h i j', true],
+    ]) {
+      fall(`M6: ${name}`, { 'client/src/a.ts': 2205 }, mitGrund(g), gut ? [] : ['FORM'], { basis: basisA, ...(gut ? { laut: g.trim() } : {}) });
+    }
+    // ── M5: ohne Basis in der CI ──
+    const pr = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_BASE_REF: 'main' };
+    const b1 = bewerteBasis(null, 'nicht holbar', pr);
+    if (b1.befunde.length !== 1 || !/M5 in der CI bei pull_request ohne Basis/.test(b1.befunde[0])) throw new Error('Selbstprobe M5: pull_request ohne Basis muss rot sein');
+    n++;
+    const b2 = bewerteBasis(null, 'kein origin', { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push' });
+    if (b2.befunde.length !== 0 || !/OHNE Basis/.test(b2.hinweise[0] ?? '')) throw new Error('Selbstprobe M5: push ohne Basis grün, aber laut „OHNE Basis“');
+    const b3 = bewerteBasis(null, 'kein Git', {});
+    if (b3.befunde.length !== 0 || !/OHNE Basis/.test(b3.hinweise[0] ?? '')) throw new Error('Selbstprobe M5: lokal ohne Basis grün, aber laut');
+    const b4 = bewerteBasis({ name: 'x' }, undefined, pr);
+    if (b4.befunde.length !== 0 || b4.hinweise.length !== 0) throw new Error('Selbstprobe M5: mit Basis nichts zu melden');
+    n += 3;
+    // ── M5: Meldung in den CI-Log (Job-Zusammenfassung + Runner-stderr) ──
+    {
+      const angehaengt = [];
+      const zeilen = [{ art: 'notice', text: 'pruefe-groessen: Vergleich MIT Basis abc' }, { art: 'warning', text: 'BEGRÜNDUNG (in den PR-Text): x: y' }];
+      const wohin = meldeAnCi(zeilen, { GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: '/summary' }, { anhaengen: (f, t) => angehaengt.push([f, t]), runnerStderr: join(tmp, 'runner-stderr.txt') });
+      const rs = readFileSync(join(tmp, 'runner-stderr.txt'), 'utf8');
+      if (!wohin.includes('summary') || !wohin.includes('runner-stderr')) throw new Error(`Selbstprobe M5: Meldung ging nach ${JSON.stringify(wohin)}`);
+      if (!/::notice title=pruefe-groessen::pruefe-groessen: Vergleich MIT Basis abc/.test(rs) || !/::warning title=pruefe-groessen::BEGRÜNDUNG/.test(rs)) throw new Error(`Selbstprobe M5: Workflow-Befehle fehlen: ${rs}`);
+      if (!angehaengt.some(([f, t]) => f === '/summary' && /Vergleich MIT Basis abc/.test(t))) throw new Error('Selbstprobe M5: Job-Zusammenfassung fehlt');
+      if (meldeAnCi(zeilen, {}, { runnerStderr: join(tmp, 'x.txt') }).length !== 0) throw new Error('Selbstprobe M5: außerhalb der CI wird nichts gemeldet');
+      n += 3;
+    }
     n += gitProbe(tmp);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
@@ -435,12 +486,85 @@ function gitProbe(tmp) {
   if (ohne.basis) throw new Error('Selbstprobe Git: ohne Referenz darf keine Basis gefunden werden');
   const kaputt = findeBasis(w, 'gibt-es-nicht', {});
   if (kaputt.basis || !/kein Commit/.test(kaputt.grund ?? '')) throw new Error('Selbstprobe Git: unbekannte Basis muss gemeldet werden');
+  // CI-Weg pull_request: GITHUB_BASE_REF gesetzt, aber der Zweig lässt sich nicht holen (kein origin) → keine Basis, Grund benannt
+  const ci = findeBasis(w, undefined, { GITHUB_BASE_REF: 'main' });
+  if (ci.basis || !/nicht holen/.test(ci.grund ?? '')) throw new Error(`Selbstprobe Git: GITHUB_BASE_REF ohne erreichbaren Zweig muss „ließ sich nicht holen“ melden, bekam ${JSON.stringify(ci)}`);
+  if (bewerteBasis(ci.basis, ci.grund, { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_BASE_REF: 'main' }).befunde.length !== 1) throw new Error('Selbstprobe Git: dieser Weg muss in der CI rot sein');
+  // CI-Weg pull_request mit erreichbarem Zweig: origin = das Probe-Repo selbst
+  const kopie = join(tmp, 'gitprobe-klon');
+  git(tmp, 'clone', '-q', '--depth=1', `file://${w}`, kopie);
+  const ciOk = findeBasis(kopie, undefined, { GITHUB_BASE_REF: 'main' });
+  if (!ciOk.basis) throw new Error(`Selbstprobe Git: flacher Klon mit GITHUB_BASE_REF=main muss die Basis holen (${ciOk.grund})`);
   // kein Git-Verzeichnis
   const nogit = join(tmp, 'nogit');
   baue(nogit, { 'client/src/a.ts': 10 }, json({}));
   const keins = findeBasis(nogit, undefined, {});
   if (keins.basis || !/Git/.test(keins.grund ?? '')) throw new Error('Selbstprobe Git: ohne Git-Verzeichnis muss das gemeldet werden');
-  return 4;
+  return 6;
+}
+
+/**
+ * M5: Was heißt „keine Basis“? Bei `pull_request` in der CI ist es ein Befund (rot), sonst ein lauter Hinweis „OHNE Basis“.
+ * `umgebung` = process.env (parametrisiert für die Selbstprobe).
+ */
+export function bewerteBasis(basis, grund, umgebung) {
+  if (basis) return { befunde: [], hinweise: [] };
+  const ohne = `OHNE Basis (${grund ?? 'unbekannt'}): das Gedächtnis (M5) wurde NICHT geprüft`;
+  if (umgebung.GITHUB_ACTIONS === 'true' && umgebung.GITHUB_EVENT_NAME === 'pull_request') {
+    return { befunde: [`M5 in der CI bei pull_request ohne Basis: ${ohne}. Basis holen (GITHUB_BASE_REF=${umgebung.GITHUB_BASE_REF ?? '?'}) oder den Lauf wiederholen.`], hinweise: [] };
+  }
+  return { befunde: [], hinweise: [ohne] };
+}
+
+/**
+ * M5: Der Runner zeigt die Ausgabe erfolgreicher Tests nicht. In der CI (GITHUB_ACTIONS=true) melden wir die Kennzeilen deshalb
+ * zusätzlich (a) in die Job-Zusammenfassung (GITHUB_STEP_SUMMARY) und (b) als Workflow-Befehle (`::notice::`) auf den stderr des
+ * Runners `run-tests.mjs`, den wir über die Elternkette in /proc finden. `ziel` und `umgebung` sind für die Selbstprobe einsetzbar.
+ * Gibt zurück, wohin gemeldet wurde ([] = nirgends).
+ */
+export function meldeAnCi(zeilen, umgebung, ziel = {}) {
+  const wohin = [];
+  if (umgebung.GITHUB_ACTIONS !== 'true') return wohin;
+  const kurz = (t) => t.replace(/\r?\n/g, ' ').replace(/%/g, '%25');
+  const befehle = zeilen.map((z) => `::${z.art} title=pruefe-groessen::${kurz(z.text)}\n`).join('');
+  const summary = umgebung.GITHUB_STEP_SUMMARY;
+  if (summary) {
+    try {
+      (ziel.anhaengen ?? appendFileSync)(summary, `#### pruefe-groessen\n${zeilen.map((z) => `- ${z.text}`).join('\n')}\n`);
+      wohin.push('summary');
+    } catch {
+      /* nicht schreibbar */
+    }
+  }
+  try {
+    const fd = ziel.runnerStderr ?? runnerStderr();
+    if (typeof fd === 'string') appendFileSync(fd, befehle);
+    else if (fd !== null && fd !== undefined) writeSync(fd, befehle);
+    if (fd !== null && fd !== undefined) wohin.push('runner-stderr');
+  } catch {
+    /* kein Runner gefunden */
+  }
+  return wohin;
+}
+
+/** Sucht in der Elternkette den Prozess, dessen Kommandozeile `run-tests.mjs` enthält, und öffnet dessen stderr (/proc/<pid>/fd/2). */
+function runnerStderr() {
+  let pid = process.ppid;
+  for (let i = 0; i < 8 && pid > 1; i++) {
+    let cmd = '';
+    try {
+      cmd = readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+    } catch {
+      return null;
+    }
+    if (cmd.includes('run-tests.mjs')) return openSync(`/proc/${pid}/fd/2`, 'a');
+    try {
+      pid = Number(/^\d+ \(.*\) \S (\d+) /.exec(readFileSync(`/proc/${pid}/stat`, 'utf8'))?.[1]);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 // ── Aufruf ───────────────────────────────────────────────────────────────────────────────────
@@ -465,9 +589,15 @@ function haupt(argv) {
   }
   const { basis, grund } = findeBasis(wurzel, basisRef);
   const { befunde, hinweise, laut, zahlen } = pruefe(wurzel, basis);
-  if (!basis) hinweise.push(`Basis nicht gefunden: ${grund}`);
-  for (const h of hinweise) console.log(`Hinweis: ${h}`);
-  for (const l of laut) console.log(`BEGRÜNDUNG (in den PR-Text): ${l}`);
+  const bew = bewerteBasis(basis, grund, process.env);
+  hinweise.push(...bew.hinweise);
+  befunde.push(...bew.befunde);
+  const kopf = `pruefe-groessen: Vergleich ${basis ? `MIT Basis ${basis.name}` : 'OHNE Basis'}${basis && !basis.grenzen ? ' (Basis kennt die Grenzdatei noch nicht)' : ''}`;
+  const zeilen = [{ art: befunde.length ? 'error' : basis ? 'notice' : 'warning', text: `${kopf}; ${zahlen.dateien} Dateien, ${zahlen.liste} Einträge, Selbstprobe ${fallzahl} Fälle` }];
+  for (const h of hinweise) zeilen.push({ art: /Basis|Gedächtnis/.test(h) ? 'warning' : 'notice', text: `Hinweis: ${h}` });
+  for (const l of laut) zeilen.push({ art: 'warning', text: `BEGRÜNDUNG (in den PR-Text): ${l}` });
+  for (const z of zeilen) console.log(`${z.text}`);
+  meldeAnCi(zeilen, process.env);
   if (befunde.length === 0) {
     console.log(`pruefe-groessen: grün (${zahlen.dateien} Dateien gezählt, ${zahlen.liste} Einträge in ${GRENZEN_DATEI}, Basis ${basis ? basis.name : 'keine'}, Selbstprobe ${fallzahl} Fälle grün).`);
     return 0;

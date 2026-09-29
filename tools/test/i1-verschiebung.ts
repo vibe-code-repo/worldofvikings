@@ -581,12 +581,12 @@ console.log('── Grenzen: N3 (falsch rot bei Einzelschnitt ohne this.) ──
     };
     const gut = lauf(['--namen', NAMEN.join(','), '--klasse', 'Server']);
     faelle++;
-    if (gut.status === 0 && /BEWEIS ERBRACHT/.test(gut.out)) console.log('ok   CLI: echter Lauf endet mit 0');
+    if (gut.status === 0 && /KEINE ABWEICHUNG GEFUNDEN \(eingeschränkt\)/.test(gut.out) && /EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis/.test(gut.out) && !/BEWEIS ERBRACHT/.test(gut.out)) console.log('ok   CLI: echter Lauf endet mit 0');
     else { rot++; console.log(`ROT  CLI: echter Lauf endet nicht mit 0\n${gut.out}`); }
     writeFileSync(join(spiel, 'Ziel.ts'), B.ziel.replace('k.zaehler > r', 'k.zaehler >= r'));
     const schlecht = lauf(['--namen', NAMEN.join(','), '--klasse', 'Server']);
     faelle++;
-    if (schlecht.status === 1 && /BEWEIS GESCHEITERT/.test(schlecht.out)) console.log('ok   CLI: gefälschter Lauf endet mit 1');
+    if (schlecht.status === 1 && /ABWEICHUNG GEFUNDEN/.test(schlecht.out) && /EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis/.test(schlecht.out)) console.log('ok   CLI: gefälschter Lauf endet mit 1');
     else { rot++; console.log(`ROT  CLI: gefälschter Lauf endet nicht mit 1\n${schlecht.out}`); }
     const falsch = spawnSync(process.execPath, [werkzeug, '--alt'], { encoding: 'utf-8' });
     faelle++;

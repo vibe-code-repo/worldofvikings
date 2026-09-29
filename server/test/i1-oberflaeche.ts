@@ -34,24 +34,11 @@
  * `Object.getOwnPropertyNames`/`Reflect.ownKeys` loops, test code outside the scanned folders (`server/test`,
  * `admin/test`, `client/test`, `shared/test`, `scripts`, `tools`), and WIRING: the list holds names, not who calls whom.
  * If `onPacket` calls `handleAttack` where it called `handleParry`, or if `maxHealth` gets an extra required parameter,
- * this test stays green (M4 of the attack on #155; the move proof catches the first while it runs, the tests that
- * replace the handlers on the instance (`tod-treffer-n1.ts`) catch the second).
- *
- * ── Exception rule for text tests (I1 finding 1, decided in step 0) ──────────────────────────────
- * Plan section 5.2 says the test folders stay untouched. Four checks in three test files read the
- * SOURCE of `WovServer.ts` and go red when the block they look at moves. A step may change such a test,
- * under these conditions, and only these:
- *   a) The test file and the step are named in TEXT_TESTS below. Anything else stays "no test touched".
- *   b) Only the TARGET of the check changes (the new file, the new spelling: `this.x` becomes `k.x`),
- *      never WHAT it protects. The number of checks stays the same.
- *   c) Mutation proof in the PR text: the changed check turns red when, in the new module, exactly the
- *      protected thing is removed (`baueModul(` deleted, `deleteModule(` deleted, `dungeonsWurzel:` line
- *      deleted, `serverConfigFlags` import deleted). Before/after output of the mutation run is quoted.
- *   d) `git diff --stat origin/main -- server/test admin/test client/test shared/test` names exactly the
- *      files of the step's TEXT_TESTS entries and nothing else.
- * In step 0 no test is changed; this rule and the list are the only result.
- *
- * Run: npx tsx server/test/i1-oberflaeche.ts   (from the repo root)
+ * this test stays green (M4 of the attack on #155). What catches the swapped calls is `server/test/kampf-waffe.ts` (16 FAIL
+ * with the Attack/Parry mutant, measured in the follow-up attack), not this test and not `tod-treffer-n1.ts`; `tod-treffer-n1.ts`
+ * replaces the packet handlers on the instance and thereby freezes their NAMES. Also not covered (N2, M7 limits): text readers whose
+ * path is assembled at run time (`'WovServer' + '.ts'`, `` `…/WovServer${endung}` ``, `readdirSync('server/src')` and reading each file),
+ * and names in template text with a substitution in the middle of the name.
  */
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -344,7 +331,7 @@ function dateien(d: string, aus: string[] = []): string[] {
     if (e === 'node_modules' || e === 'build' || e === 'dist' || e.startsWith('.')) continue;
     const p = join(d, e);
     if (statSync(p).isDirectory()) dateien(p, aus);
-    else if (/\.(ts|tsx|mts|mjs|cjs|js)$/.test(e)) aus.push(p);
+    else if (/\.(ts|tsx|mts|cts|mjs|cjs|js)$/.test(e)) aus.push(p);
   }
   return aus;
 }
@@ -371,7 +358,7 @@ console.log('7. Scan: text tests');
     if (rel === 'server/test/i1-oberflaeche.ts') continue;
     const tf = quelleVon(f);
     const geh = (n: ts.Node): void => {
-      if ((ts.isStringLiteralLike(n) || ts.isTemplateHead(n)) && /WovServer\.ts\b/.test(n.text)) gefunden.add(rel);
+      if ((ts.isStringLiteralLike(n) || ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) && /WovServer\.ts\b/.test(n.text)) gefunden.add(rel);
       ts.forEachChild(n, geh);
     };
     geh(tf);
@@ -405,6 +392,16 @@ console.log('8. Scan: private names reached by tests are all frozen');
       if ((ts.isTypeLiteralNode(n) || ts.isInterfaceDeclaration(n)) && n.members) for (const m of n.members) if (m.name && (ts.isIdentifier(m.name) || ts.isStringLiteralLike(m.name))) merke(m.name.text);
       if (ts.isPropertyAccessExpression(n)) merke(n.name.text);
       if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression)) merke(n.argumentExpression.text);
+      // M7: `Object.assign(server, { name() {}, name: …, name })` und Unterklassen mit einem Mitglied dieses Namens
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'assign' && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'Object') {
+        for (const a of n.arguments.slice(1)) {
+          if (!ts.isObjectLiteralExpression(a)) continue;
+          for (const m of a.properties) if (m.name && (ts.isIdentifier(m.name) || ts.isStringLiteralLike(m.name))) merke(m.name.text);
+        }
+      }
+      if ((ts.isClassDeclaration(n) || ts.isClassExpression(n)) && n.heritageClauses?.some((h) => h.token === ts.SyntaxKind.ExtendsKeyword)) {
+        for (const m of n.members) if (m.name && (ts.isIdentifier(m.name) || ts.isStringLiteralLike(m.name))) merke(m.name.text);
+      }
       if (ts.isBindingElement(n)) merke(((n.propertyName ?? n.name) as ts.Identifier).text ?? '');
       if (ts.isStringLiteralLike(n) && !ts.isImportDeclaration(n.parent) && !ts.isExportDeclaration(n.parent)) merke(n.text);
       ts.forEachChild(n, geh);

@@ -47,13 +47,13 @@ interface AuthAntwort { token: string; account: Konto; characters: Charakter[] }
 interface MeAntwort { account: Konto; characters: Charakter[] }
 interface TicketAntwort { sessionToken: string; character: Charakter }
 
-class ApiFehler extends Error {
+export class ApiFehler extends Error {
   constructor(readonly schluessel: string) {
     super(schluessel);
   }
 }
 
-async function ruf<T>(
+export async function ruf<T>(
   pfad: string,
   init: { methode?: 'GET' | 'POST' | 'DELETE'; token?: string; koerper?: unknown } = {},
 ): Promise<T> {
@@ -85,6 +85,21 @@ async function ruf<T>(
     throw new ApiFehler(typeof schluessel === 'string' ? schluessel : 'unknown');
   }
   return daten as T;
+}
+
+/**
+ * Uebersetzungs-ID zu einem Server-Fehlerschluessel. Nur bekannte
+ * Schluessel bekommen einen eigenen Satz — ein unbekannter (z. B. eine neue
+ * Serverantwort) faellt auf den allgemeinen Satz zurueck, statt eine nicht
+ * vorhandene Uebersetzungs-ID zu indizieren.
+ */
+export function fehlerTextSchluessel(fehler: string): TranslationKey {
+  const bekannt: readonly string[] = [
+    'username-invalid', 'email-invalid', 'password-too-short', 'username-taken',
+    'login-failed', 'too-many-attempts', 'not-signed-in', 'name-invalid',
+    'name-taken', 'malformed-body', 'server-error', 'network', 'conflict', 'unknown',
+  ];
+  return `login.error.${bekannt.includes(fehler) ? fehler : 'unknown'}` as TranslationKey;
 }
 
 type Ansicht = 'anmelden' | 'registrieren' | 'charaktere' | 'laden';
@@ -212,20 +227,7 @@ export class Anmeldung {
 
   private fehlerText(): string | null {
     if (!this.fehler) return null;
-    // Nur bekannte Server-Fehlerschluessel bekommen einen eigenen Satz —
-    // ein unbekannter Schluessel (z. B. eine neue Serverantwort) faellt auf
-    // den allgemeinen Satz zurueck, statt eine nicht vorhandene
-    // Uebersetzungs-ID zu indizieren.
-    const bekannt: readonly string[] = [
-      'username-invalid', 'email-invalid', 'password-too-short', 'username-taken',
-      'login-failed', 'too-many-attempts', 'not-signed-in', 'name-invalid',
-      'name-taken', 'malformed-body', 'server-error', 'network', 'unknown',
-    ];
-    const key = (bekannt.includes(this.fehler) ? this.fehler : 'unknown') as
-      'username-invalid' | 'email-invalid' | 'password-too-short' | 'username-taken'
-      | 'login-failed' | 'too-many-attempts' | 'not-signed-in' | 'name-invalid'
-      | 'name-taken' | 'malformed-body' | 'server-error' | 'network' | 'unknown';
-    return this.t(`login.error.${key}` as TranslationKey);
+    return this.t(fehlerTextSchluessel(this.fehler));
   }
 
   private feld(typ: string, platzhalter: string, autocomplete?: string): HTMLInputElement {

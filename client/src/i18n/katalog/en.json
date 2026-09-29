@@ -133,6 +133,7 @@
   "login.character.play": "Play",
   "login.character.title": "Choose a character",
   "login.email": "E-mail",
+  "login.error.conflict": "Sign-in was just changed elsewhere — please try again.",
   "login.error.email-invalid": "Invalid e-mail address.",
   "login.error.login-failed": "Wrong username or password.",
   "login.error.malformed-body": "Malformed request.",

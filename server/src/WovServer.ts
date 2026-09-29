@@ -6399,6 +6399,11 @@ const KREATUR_DROPS: Record<string, Array<[string, number, number, number]>> = {
   // long), so one more than the boar; the wolf drops what the boar drops.
   Kuh: [['RawMeat', 2, 3, 1]],
   Wolf: [['RawMeat', 1, 2, 1]],
+  // B9.6: same reason — no Feathers item exists in itemDefs.ts (only a
+  // decorative ITEM_DROP prefab of that name, not a carriable item), so the
+  // hen drops meat too. It is the smallest animal in the table (0.26 m),
+  // smaller than the boar's drop: exactly 1, always (chance 1, min=max=1).
+  Huhn: [['RawMeat', 1, 1, 1]],
   Neck: [['NeckTail', 1, 1, 0.75]],
   Skeleton: [['Coins', 2, 5, 0.6]],
   Draugr: [['Entrails', 1, 2, 1]],

@@ -59,6 +59,11 @@ export const MAX_LEBEN: ReadonlyMap<string, number> = new Map<string, number>([
   // with the flint axe). No new gradation without a reason to change it.
   ['Kuh', 30],
   ['Wolf', 30],
+  // Hen (B9.6): the smallest animal in the table, and it shows — below
+  // even the child (15, the previous minimum). 10 HP takes one flint-axe
+  // hit (15) or one north-sword hit (12) to kill, but still three fist
+  // hits (4 each) and not one: a hen is fragile, not paper.
+  ['Huhn', 10],
 
   // ── Boss ───────────────────────────────────────────────────────────
   ['Eikthyr', 300],

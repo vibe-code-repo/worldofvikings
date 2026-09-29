@@ -61,11 +61,14 @@ export function loeschsperreAnzahl(antwort: Record<string, unknown>): number {
   return lockCount(antwort);
 }
 
+/** Separator between the text of an answer and the hold-back sentence. */
+const SPERR_TRENNER = ' · ';
+
 /** The HUD line after a publish (`speichern`): the outcome plus the hold-back sentence, if any. */
 export function speicherText(a: SpeicherAntwort): string {
   const basis = a.ok ? t('testflug.gespeichert_neustart_noetig', { message: a.message }) : a.message;
   const sperre = loeschsperreText(a.loeschsperre);
-  return sperre ? `${basis} ${sperre}` : basis;
+  return sperre ? `${basis}${SPERR_TRENNER}${sperre}` : basis;
 }
 
 export interface TestflugPersistenz {
@@ -199,7 +202,7 @@ const ZURUECK = (a: { zurueckgenommen: boolean; verworfen?: number }): string =>
 
 const mitSperre = (text: string | null, anzahl: number | undefined): string | null => {
   const sperre = loeschsperreText(anzahl);
-  return sperre ? (text ? `${text} ${sperre}` : sperre) : text;
+  return sperre ? (text ? `${text}${SPERR_TRENNER}${sperre}` : sperre) : text;
 };
 
 /** The line for the HUD; `null` = nothing to say (local store, or an empty text). */

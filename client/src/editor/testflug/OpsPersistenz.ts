@@ -26,6 +26,7 @@
 import type { Vorgang } from '@wov/shared/src/worldlayout/ops.js';
 import { loeschsperreAnzahl, mitVorgaengen } from './TestflugPersistenz';
 import type { TestflugPersistenz, VorgangAntwort } from './TestflugPersistenz';
+import { ohneDienstSperrsatz } from '../weltdokument';
 import { t } from '../i18n';
 
 export const OPS_URL = '/api/worldlayout/ops';
@@ -53,8 +54,9 @@ export function opsSender(fetchFn: typeof fetch = fetch, url: string = OPS_URL):
     } catch {
       // No JSON: decided by the status alone.
     }
-    const message = alsText(d.message) ?? '';
     const gesperrt = loeschsperreAnzahl(d);
+    // One hold-back sentence on the HUD line: the flight's own (`antwortText`), not the service's technical one.
+    const message = ohneDienstSperrsatz(alsText(d.message) ?? '', gesperrt);
     const sperre = gesperrt > 0 ? { loeschsperre: gesperrt } : {};
     if (antwort.status === 409) {
       const ids = Array.isArray(d.ids) ? d.ids.filter((i): i is string => typeof i === 'string') : [];

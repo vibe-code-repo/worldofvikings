@@ -372,6 +372,30 @@ export const BASIS_VERLANGT =
   'und hat nichts geschrieben. Serverstand laden oder abgleichen (Feld „WELT" links oben in der Kopfzeile anklicken) ' +
   'und dann erneut speichern.';
 
+/**
+ * Removes the hold-back sentence that the operations service itself appends to `message` of a 202
+ * (`admin/src/routen/anwendung.ts`: `lock.open` behind the reason, or `lock.pending` as the reason's text; technical,
+ * with "POST /api/welt/bestaetigen"). The flight shows its own sentence instead, so the line names the lock ONCE.
+ * Only the service's sentence, VERBATIM at the end, in either language (it writes in `WOV_LANGUAGE`, unknown here);
+ * anything else in `message` stays as it is.
+ *
+ * Entfernt den Sperrsatz, den der Betriebsdienst bei 202 selbst an `message` hängt; nur wörtlich am Ende, in beiden
+ * Sprachen, alles andere bleibt.
+ */
+export function ohneDienstSperrsatz(message: string, anzahl: number | undefined): string {
+  if (anzahl === undefined || !(anzahl > 0)) return message;
+  for (const sprache of ['de', 'en']) {
+    for (const key of ['lock.open', 'lock.pending'] as const) {
+      const satz = lockMessage(key, { count: anzahl }, sprache);
+      if (!message.endsWith(satz)) continue;
+      const rest = message.slice(0, message.length - satz.length).trimEnd();
+      // `lock.pending` is the reason's text ("Geschrieben, … (grund): <Satz>"): drop the dangling colon with it.
+      return key === 'lock.pending' && rest.endsWith(':') ? rest.slice(0, -1) : rest;
+    }
+  }
+  return message;
+}
+
 /** Ausgang von `schreibeWeltdokument`. */
 export type SchreibAntwort =
   | {
@@ -394,6 +418,8 @@ export type SchreibAntwort =
       sperrHinweis?: string | null;
       /** Test flight: the count of locked objects in the receipt's `loeschsperre` (0 or missing: none). */
       sperrAnzahl?: number;
+      /** Test flight: `message` without the hold-back sentence the service appended itself (same as `message` when there is none). */
+      messageOhneSperre?: string;
     }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
@@ -537,6 +563,7 @@ export async function schreibeWeltdokument(
       detail: hoehenText ? `${hoehenText}${detail ? ` ${detail}` : ''}` : detail,
       zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
       sperrAnzahl: gesperrt,
+      messageOhneSperre: (typeof d.message === 'string' ? ohneDienstSperrsatz(d.message, gesperrt) : (d.message ?? 'Gespeichert')) + (hoehenText ? ` — ${hoehenText}` : '') + hinweis,
       sperrHinweis: gesperrt > 0 && d.grund !== 'bestaetigung-noetig' ? lockMessage(d.angewendet === true ? 'lock.applied' : 'lock.open', { count: gesperrt }, sichereSprache(locale)) : null,
     };
   }

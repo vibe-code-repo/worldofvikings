@@ -2342,6 +2342,21 @@ const KERN = [
     Text, ~0.1 s.
   */
   ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
+  /*
+    Karte W3-Reste (2026-09-28), U1-U3/N3/N5/N6/Punkt 10: Namensorakel ueber
+    Unicode-Schreibweisen (Kelvin-Zeichen, Å/å), ungekuerzte Schluessel,
+    verfruehtes Aufraeumen, 409 bei Generationswechsel, IPv6-/64-Zaehlung,
+    Variantenselektor hinter Keycap-Basen, "Editor" als reservierter
+    Kontocharaktername. Echter node:http-Server, ~1-2 s (U3 stellt die Uhr).
+  */
+  ['server', 'test/konto-namensorakel.ts'],
+  /*
+    Karte W3-Reste (2026-09-28), N-3: Die Forum-Schreibrouten pruefen das
+    Konto-Token nach dem Lesen des Koerpers erneut (dasselbe Fenster wie
+    N4 in KontoApi.ts, hier fuer ForumApi.ts). In-Process-Attrappen wie
+    server/test/forum-api.ts, kein Netz, ~0.2 s.
+  */
+  ['server', 'test/forum-token-nach-koerper.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

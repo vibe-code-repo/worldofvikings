@@ -177,6 +177,18 @@ const KERN = [
   */
   ['tools/armor/test', 'skin-gate-selftest.mjs'],
   /*
+    All 33 female armor items (five sets) against the real, shipped
+    WikingerinKoerper.glb (71 bones, since 27.09.2026): every item's skin
+    joints match the body's joints by name and order, and canWearArmor
+    accepts the shipped wov-female-v1 policy and rejects the retired
+    legacy-female-v1 profile. Needs the real body and item GLBs.
+  */
+  [
+    'tools/armor/test',
+    'female-71-skin.mjs',
+    brauchtModelle('assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  /*
     The four thin armor build entry points (Seidraven/Emberrage, male/female)
     check their command line before any build starts: run under python3 with a
     stand-in for the call that would start build_common.py, good command lines
@@ -1644,6 +1656,9 @@ const KERN = [
   //
   // Cow and wolf join the switch: a tree that predates them holds
   // PlayerAvatar.glb but not the two files and would go red on the new manifest.
+  //
+  // B9.6: the hen joins for the same reason — a tree that predates it has
+  // Kuh.glb/Wolf.glb but not Huhn.glb.
   [
     'tools',
     'test/manifest-vollstaendig.ts',
@@ -1651,6 +1666,7 @@ const KERN = [
       'assets/models/PlayerAvatar.glb',
       'assets/models/Kuh.glb',
       'assets/models/Wolf.glb',
+      'assets/models/Huhn.glb',
     ),
   ],
   /*
@@ -2298,10 +2314,86 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  // Handkorrektur der Gelaendehoehe (heightDeltas, T1): Schema, Sanitizer, Einrechnung nach den
+  // Regionen (Sockel gewinnt), Cache je Zone, Server = Client, 422-Weg.
+  ['shared', 'test/hoehenkorrektur.ts'],
+  // ... K5.0: heightDeltas ist eine geo-Aenderung wie Regionen/Wasser/Sockel (202, Neustart), reiner Klassifizierungstest.
+  ['server', 'test/layout-live-hoehenkorrektur.ts'],
+  // ... N1/B1/B3: die echte 422-mit-Liste (doppelte Zone, gemischte Punkte, __proto__, Index 64) und die
+  // Obergrenzen (Zonen/Punkte) ueber den echten Betriebsdienst.
+  ['admin', 'test/weltops-hoehenkorrektur.ts'],
+  // ... N2: vergleiche() (Editor) prueft heightDeltas INHALTLICH (entfernt/geaendert = schwer, nicht nur die
+  // Punktzahl); DOM-frei.
+  ['client', 'test/welt-abgleich-hoehenkorrektur.ts'],
+  // B9.6: das Huhn im Spiel — Tabellen (Spawn-Tabelle, Registry, Leben,
+  // Manifest-Clips, renderScale gegen die IDLE-Pose aus B9.6/Blender statt
+  // der Bindepose des Manifests), das Spawnsystem mit den ausgelieferten
+  // Zahlen (Wiese, `anim`-Member folgt der Bewegung, greift nie an) und der
+  // echte Paketweg: Treffer, Tod nach einem Steinaxt-Schlag, Beute im
+  // Inventar. ~40 s.
+  ['server', 'test/b9-6-huhn.ts'],
+  // PR #119 N1 (Befund B4/M9): uebergebeAnKlon() gibt einen aufgegebenen
+  // Klon aus vegetationsAufgegebeneKlone frei, BEVOR es ihn per nimmAuf()
+  // anmeldet — sonst blockiert die Sperre die eigene Freigabe, und weder
+  // Klon noch (schon entfernte) Quelle wirft bis zum naechsten Neupacken.
+  // NullEngine, <1 s.
+  ['client', 'test/schatten-werfer-uebergabe-reihenfolge.ts'],
   // Karte M1: Vollstaendigkeitstest der Uebersetzungskataloge (client/src/i18n/katalog
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  // Height correction: real boot terrain and structured MCP reader diagnostics.
+  ['server', 'test/height-correction-boot.ts'],
+  ['tools/worldlayout-mcp', 'height-correction-readers.ts'],
+  // G3 Stufe 1: Namensschilder, Objektnamen und das Fadenkreuz-Ziel projizierten
+  // mit der TAA-verzitterten Projektionsmatrix und sprangen deshalb bei
+  // stehender Kamera jedes Bild um den Halton-Versatz. transformOhneJitter()
+  // (PostProcessing.ts) setzt den Versatz zurueck; drei echte Mutanten (je
+  // Aufrufstelle) bestaetigen, dass der Test die Stellen einzeln trifft.
+  ['client', 'test/schilder-transform-ohne-jitter.ts'],
+  // Wolfsbalance: chase speed rescaled from the real B9.2 GPU trace stays
+  // under 3 % p90 foot-sliding (was ~11-14 % at the old 5.5 m/s), and at
+  // most two of three wolves pinned on one peer ever strike at once, with
+  // the third taking a freed slot when an active attacker dies.
+  ['server', 'test/wolf-rudel-begrenzung.ts'],
+  ['server', 'test/wolf-zielschaden.ts'],
+  ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
+  /*
+    Karte D1 (Zweitdomains/Ablösung): die gemeinsame Ursprungs-Liste von
+    KontoApi.ts und ForumApi.ts (world-of-mmorpg.com/.de, world-of-vikings.com
+    während der Übergangszeit), dazu feindliche Ursprünge mit Präfix-/
+    Suffix-Treffer (Angriffsbefund M5) — echtes HTTP für KontoApi,
+    Fake-Request für ForumApi, kein assets/, keine GPU.
+  */
+  ['server/test', 'website-urspruenge.ts'],
+  /*
+    Karte D1, Angriffsbefund F2: Textnachweis über deploy/nginx-live.conf —
+    der $editor_host-Schalter kennt jede produktive Editor-Domain. Liest
+    nur Text, ~0.1 s.
+  */
+  ['tools/test', 'nginx-live-editor-host.ts'],
+  /*
+    Karte D1, Angriffsbefund E2: die Weiterleitungsvorlage
+    (deploy/npm-weiterleitung-vikings.conf) bildet dieselbe Regel ab wie
+    wov-web/src/lib/basisDomains.ts (weiterleitungsZielVikings). Liest nur
+    Text, ~0.1 s.
+  */
+  ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
+  /*
+    Karte W3-Reste (2026-09-28), U1-U3/N3/N5/N6/Punkt 10: Namensorakel ueber
+    Unicode-Schreibweisen (Kelvin-Zeichen, Å/å), ungekuerzte Schluessel,
+    verfruehtes Aufraeumen, 409 bei Generationswechsel, IPv6-/64-Zaehlung,
+    Variantenselektor hinter Keycap-Basen, "Editor" als reservierter
+    Kontocharaktername. Echter node:http-Server, ~1-2 s (U3 stellt die Uhr).
+  */
+  ['server', 'test/konto-namensorakel.ts'],
+  /*
+    Karte W3-Reste (2026-09-28), N-3: Die Forum-Schreibrouten pruefen das
+    Konto-Token nach dem Lesen des Koerpers erneut (dasselbe Fenster wie
+    N4 in KontoApi.ts, hier fuer ForumApi.ts). In-Process-Attrappen wie
+    server/test/forum-api.ts, kein Netz, ~0.2 s.
+  */
+  ['server', 'test/forum-token-nach-koerper.ts'],
   // Card Z3 N1: the deletion lock is now a DURABLE file, checked afresh on every boot and every live
   // apply, not an in-memory/receipt-only guard — this rules out mass deletion above AENDERUNGEN_MAX or
   // together with a geo change (finding A1), a kill mid-boot (A2) and a later, unrelated change (A3).
@@ -2311,6 +2403,12 @@ const KERN = [
   // finding A5), 409 with no open lock (finding A6), a stale hash, revocation and a reset.
   ['server', 'test/z3n1-live-inproc.ts'],
   ['server', 'test/z3n1-hauptprozess.ts'],
+  // Card Z3 N1 completion: the cases the first N1 left open — only ENOENT means "no lock" (EISDIR/broken JSON close),
+  // a broken lock is never overwritten, a request arriving during a save is not lost, an invalid request is consumed
+  // with a log line, confirming deletes only the locked ids (no geo/object take-over), more than 40 locked old
+  // deletions do not block a small new placement, the felled-tree witness, the height-correction cross cases and the
+  // 6 s tick witness (in-process; the real-main.ts cases are in z3n1-hauptprozess.ts).
+  ['server', 'test/z3n1-abschluss.ts'],
   ['admin', 'test/welt-bestaetigen-z3.ts'],
 ];
 

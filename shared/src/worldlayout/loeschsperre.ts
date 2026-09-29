@@ -52,16 +52,16 @@ export function loeschsperreEntfernen(pfad: string): void {
 }
 
 /**
- * Lesen. Drei Ausgänge: eine gültige Sperre; `'kaputt'` (die Datei ist da, aber ihr Inhalt ist kein
- * gültiges Objekt der erwarteten Form — gilt als GESCHLOSSEN, s. Kopfkommentar); `null` (die Datei
- * fehlt — keine Sperre).
+ * Lesen. Drei Ausgänge: eine gültige Sperre; `'kaputt'` (die Datei ist da, aber nicht lesbar oder ihr Inhalt
+ * ist kein gültiges Objekt der erwarteten Form — gilt als GESCHLOSSEN, s. Kopfkommentar); `null` (die Datei
+ * fehlt, und NUR das: ENOENT — keine Sperre). Jeder andere Lesefehler (EACCES, EIO, EISDIR, …) schließt.
  */
 export function loeschsperreLesen(pfad: string): Loeschsperre | 'kaputt' | null {
   let text: string;
   try {
     text = readFileSync(pfad, 'utf-8');
-  } catch {
-    return null;
+  } catch (fehler) {
+    return (fehler as NodeJS.ErrnoException).code === 'ENOENT' ? null : 'kaputt';
   }
   try {
     const s = JSON.parse(text) as Partial<Loeschsperre> | null;

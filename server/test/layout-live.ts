@@ -36,6 +36,7 @@ import { join } from 'node:path';
 import { HEALTH_MEMBER, LAYOUT_ID_MEMBER, PacketType, getStableHash } from '@wov/shared';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungLesen, quittungSchreiben, quittungsDatei, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { loeschsperreDatei, loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { createWovServer } from '../src/WovServer.js';
 import { portVon } from '../../scripts/testport.mjs';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
@@ -68,6 +69,7 @@ const WELTEN = join(WURZEL, 'worlds');
 mkdirSync(WELTEN, { recursive: true });
 const LAYOUT = join(WURZEL, 'layout.json');
 const QUITTUNG = quittungsDatei(WELTEN, 'liveprobe');
+const SPERRE = loeschsperreDatei(WELTEN, 'liveprobe');
 const KOPIE = process.env.WOV_LIVE_KOPIE;
 
 type Platz = { id: string; prefab: string; x: number; z: number; yaw?: number; einebnen?: number; route?: string };
@@ -371,6 +373,12 @@ async function haupt(): Promise<void> {
       q = await quittung(hash);
       check(`(k) ${name}: receipt bestaetigung-noetig, the ids are named`, q?.ergebnis === 'nicht-angewendet' && q.grund === 'bestaetigung-noetig' && (q.detail ?? '').includes(id), `${q?.grund}: ${q?.detail}`);
       check(`(k) ${name}: 0 ZDOs removed, chest content stays, 0 changed revisions`, layoutZdos().length === anzK && nach('kiste-2')?.zdoid.toString() === truheId && nach('kiste-2')?.getString('truheInhalt') === '[[Wood,7]]' && !nach('kiste-l') && gleicheRevisionen(vorK, alle()) === 0);
+      // Karte Z3 N1: Was zurückgehalten wurde, bleibt je id DAUERHAFT gesperrt (Sperrdatei). Jeder Fall dieser Schleife soll
+      // die Regel selbst auslösen, nicht eine Sperre des Vorgängers erben: Das alte Dokument zurückschreiben ist die
+      // Rücknahme (alle gesperrten ids stehen wieder im Dokument), die Sperrdatei verschwindet.
+      hash = schreibe(json(dokument(D0)));
+      q = await quittung(hash);
+      check(`(k) ${name}: writing the old document back revokes the lock (no lock file left)`, q?.ergebnis === 'angewendet' && loeschsperreLesen(SPERRE) === null, `${q?.ergebnis} ${JSON.stringify(loeschsperreLesen(SPERRE))}`);
     }
     hash = schreibe(json(dokument(D0)));
     q = await quittung(hash);
@@ -384,9 +392,16 @@ async function haupt(): Promise<void> {
     hash = schreibe(json(dokument(D0)));
     q = await quittung(hash);
     check('(k) removing 24 (more than 20): bestaetigung-noetig, 0 removed', q?.grund === 'bestaetigung-noetig' && layoutZdos().length === anzW, `${q?.grund}: ${(q?.detail ?? '').slice(0, 80)}`);
+    // Z3 N1: die 24 ids sind jetzt gesperrt; erst die Rücknahme (alle wieder im Dokument) macht den nächsten Fall unabhängig.
+    hash = schreibe(json(dokument([...D0, ...wald])));
+    q = await quittung(hash);
+    check('(k) writing the 24 back revokes the lock', q?.ergebnis === 'angewendet' && loeschsperreLesen(SPERRE) === null, `${q?.ergebnis}`);
     hash = schreibe(json(dokument([...D0, ...wald.slice(0, 16)])));
     q = await quittung(hash);
     check('(k) removing 8 of 30 (more than 25 %): bestaetigung-noetig, 0 removed', q?.grund === 'bestaetigung-noetig' && layoutZdos().length === anzW, `${q?.grund}: ${(q?.detail ?? '').slice(0, 80)}`);
+    hash = schreibe(json(dokument([...D0, ...wald])));
+    q = await quittung(hash);
+    check('(k) writing the 24 back revokes the lock again', q?.ergebnis === 'angewendet' && loeschsperreLesen(SPERRE) === null, `${q?.ergebnis}`);
     hash = schreibe(json(dokument([...D0, ...wald.slice(0, 21)])));
     q = await quittung(hash);
     check('(k) removing 3 of 30 (10 %, no state): applied, entfernt = 3', q?.ergebnis === 'angewendet' && q.zaehler?.entfernt === 3 && layoutZdos().length === anzW - 3, JSON.stringify(q?.zaehler));

@@ -34,6 +34,10 @@
  *     bereiter Klon werden nicht angefasst.
  *  9. Ein Klon, der seine Tiefe zum ZWEITEN Mal verliert, startet wieder bei
  *     null Versuchen (F3/X3) — sonst gibt er beim zweiten Verlust zu frueh auf.
+ * 10. B1 (Nachangriff #105 N1): ein aufgegebener Klon bleibt nach einem
+ *     Neubestimmen der Werferliste OHNE Neupacken (z.B. setDistantShadows)
+ *     aus der renderList ausgeschlossen und kommt erst nach einer echten,
+ *     erfolgreichen Uebergabe zurueck.
  *
  * Lauf: npx tsx client/test/schatten-wrapper-sicher.ts
  */
@@ -295,6 +299,71 @@ function bauSchattenSzene() {
   engine.dispose();
 }
 
+// ── B1: aufgegebener Klon bleibt nach Rescan ohne Neupacken draussen (Nachangriff #105 N1) ──
+// Ohne vegetationsAufgegebeneKlone nahm ein Neubestimmen der Werferliste OHNE
+// Neupacken (z.B. setDistantShadows) einen aufgegebenen Klon ueber darfWerfen()
+// wieder in die renderList auf — Doppelwurf mit der weiter werfenden Quelle.
+{
+  const { engine, scene, shadows, fake, liste, laub, klon } = bauSchattenSzene();
+  const material = klon.material as PBRMaterial;
+  material.resetDrawCache();
+  fake.bereit = false;
+  // Wie in 7b: bis TIEFE_MAX_VERSUCHE (1200) aufgeben, 20 Bilder Luft.
+  for (let i = 0; i < 1220; i++) shadows.tick();
+  pruefe(!liste.includes(klon), 'Vorbedingung: der aufgegebene Klon steht noch in der renderList');
+  pruefe(liste.includes(laub), 'Vorbedingung: die Quelle wirft nach dem Aufgeben nicht weiter');
+
+  // Neubestimmen OHNE Neupacken: setDistantShadows durchsucht scene.meshes
+  // erneut ueber darfWerfen(), ruehrt vegetationsPackPending aber nicht an.
+  shadows.setDistantShadows(false);
+  shadows.tick();
+  shadows.tick();
+  pruefe(
+    !liste.includes(klon),
+    'B1: ein aufgegebener Klon ist nach setDistantShadows (Rescan ohne Neupacken) wieder in der renderList — droht Doppelwurf mit der Quelle'
+  );
+  pruefe(liste.includes(laub), 'B1: die Quelle wirft nach dem Rescan nicht mehr, obwohl der Klon weiter aufgegeben ist');
+
+  // Ein zweiter Rescan ohne Neupacken aendert daran nichts (keine einmalige Ausnahme).
+  shadows.setDistantShadows(true);
+  shadows.tick();
+  shadows.tick();
+  pruefe(!liste.includes(klon), 'B1: ein zweiter Rescan ohne Neupacken nimmt den aufgegebenen Klon doch noch auf');
+
+  // Eine ECHTE Uebergabe (Neupacken, danach bereit) hebt die Sperre wieder auf.
+  // 17 m liegt > NACHFUEHR_ABSTAND (16 m, loest ein Neupacken aus), die
+  // Instanzen (x=0,2,4) bleiben aber im Auswahlradius — anders als bei
+  // 200 m, wo der radiale Packer keine Instanz mehr packt (aktiv=0) und
+  // die Pruefung ueber den Leerpack-Zweig liefe, ohne dass eine echte
+  // Uebergabe stattfindet (Nachangriff #119 N2, Auflage N2-1).
+  fake.bereit = true;
+  shadows.setPlayerPosition(17, 0);
+  for (let i = 0; i < 5; i++) shadows.tick();
+  const internStand = shadows as unknown as {
+    vegetationsSchatten: Map<Mesh, { aktiv: number; tiefeBereit: boolean }>;
+  };
+  const stand = internStand.vegetationsSchatten.get(laub)!;
+  pruefe(
+    stand.aktiv > 0,
+    'B1: nach der Uebergabe packt der Stand keine Instanz (aktiv=0) — die Pruefung liefe ueber den Leerpack-Zweig statt ueber eine echte Uebergabe'
+  );
+  pruefe(stand.tiefeBereit === true, 'B1: nach der Uebergabe ist der Tiefen-Eintrag nicht bereit');
+  pruefe(liste.includes(klon) && !liste.includes(laub), 'nach einer echten Uebergabe nach dem Neupacken wirft nicht der Klon allein');
+
+  // Ein weiterer Rescan OHNE Neupacken (z.B. setDistantShadows) darf die
+  // echte Uebergabe nicht wieder aufheben.
+  shadows.setDistantShadows(false);
+  shadows.tick();
+  shadows.tick();
+  pruefe(
+    liste.includes(klon) && !liste.includes(laub),
+    'B1: ein weiterer Rescan ohne Neupacken wirft die echte Uebergabe wieder um'
+  );
+
+  scene.dispose();
+  engine.dispose();
+}
+
 // ── F1: keine Bild-Luecke mehr, unabhaengig vom alten 15er-Takt ─────────
 // Reproduziert genau die Karten-Zusage: ein Klon, der IRGENDWANN zwischen
 // zwei frueheren Pruefzeitpunkten (TIEFE_PRUEF_TAKT=15, jetzt entfernt)
@@ -405,6 +474,49 @@ function bauSchattenSzene() {
   intern.vegetationsPackPending.add(standPackend);
   intern.vegetationsWrapperWerfer.add(standPackend);
 
+  // B3 (Nachangriff #105 N1, Befund B3/M7): Tiefen-Eintrag schon GEBAUT, bevor
+  // die Vorlage per resetDrawCache ihre defines verliert — genau der Zweig, den
+  // tiefeSchonGebaut() bewacht. Babylon kopiert nur beim ANLEGEN eines Eintrags;
+  // ein schon gebauter bleibt gueltig. Ohne diesen Fall im Test bleibt die
+  // Mutante "tiefeSchonGebaut aus dem Praedikat gestrichen" gruen, weil die
+  // Attrappen-Generatoren der anderen Staende nie einen Eintrag anlegen.
+  const standTiefeGebaut = (() => {
+    const name = 'w4';
+    const quelle = new Mesh(`${name}_q`, scene);
+    const klon = new Mesh(`${name}_k`, scene);
+    const vd = new VertexData();
+    vd.positions = [0, 0, 0, 1, 0, 0, 0, 2, 0];
+    vd.indices = [0, 1, 2];
+    vd.normals = [0, 0, 1, 0, 0, 1, 0, 0, 1];
+    vd.uvs = [0, 0, 1, 0, 0, 1];
+    vd.applyToMesh(klon);
+    const material = new PBRMaterial(`${name}_mat`, scene);
+    const wrapper = new SicherTiefenWrapper(material, scene, { doNotInjectCode: true });
+    material.shadowDepthWrapper = wrapper;
+    klon.material = material;
+    const teil = klon.subMeshes[0]!;
+    material.isReadyForSubMesh(klon, teil, false);
+    // Vorlage als fertig ausgeben, wie zustandNachReset() oben — sonst baut
+    // wrapper.isReadyForSubMesh() auf der NullEngine keinen echten Eintrag.
+    const vorlage = (wrapper as unknown as Tabellen)._subMeshToEffect.get(teil)?.[0] as object | undefined;
+    if (vorlage) {
+      Object.defineProperty(vorlage, 'isReady', { value: () => true });
+      Object.defineProperty(vorlage, 'vertexSourceCodeBeforeMigration', { value: 'void main(){}' });
+      Object.defineProperty(vorlage, 'fragmentSourceCodeBeforeMigration', { value: 'void main(){}' });
+    }
+    // Eintrag anlegen, keyed auf `fake` — denselben Generator, den
+    // pruefeWrapperWerferBereitschaft(fake) unten befragt.
+    wrapper.isReadyForSubMesh(teil, [], fake as unknown as ShadowGenerator, false, 0);
+    teil.resetDrawCache();
+    return { quelle, schatten: klon, bereit: true, tiefeBereit: true, tiefeVersuche: 0, aktiv: 3 };
+  })();
+  const wDrawWrapper = (standTiefeGebaut.schatten.material as PBRMaterial).shadowDepthWrapper!;
+  pruefe(
+    !vorlageHatDefines(wDrawWrapper, standTiefeGebaut.schatten.subMeshes[0]!),
+    'Ausgangslage B3: die Vorlage hat nach dem Reset noch defines — der Test misst nichts'
+  );
+  intern.vegetationsWrapperWerfer.add(standTiefeGebaut);
+
   intern.pruefeWrapperWerferBereitschaft(fake);
 
   pruefe(!intern.vegetationsWrapperWerfer.has(standNichtBereit), 'ein nicht mehr bereiter Stand blieb in der Menge stehen');
@@ -415,6 +527,21 @@ function bauSchattenSzene() {
   pruefe(!intern.vegetationsWrapperWerfer.has(standPackend), 'ein zum Packen anstehender Stand blieb in der Menge stehen');
   pruefe(!intern.vegetationsTiefePending.has(standPackend), 'ein zum Packen anstehender Klon wurde trotzdem angefasst');
   pruefe(!liste.includes(standPackend.quelle), 'die Quelle eines zum Packen anstehenden Stands wurde trotzdem als Werfer angemeldet');
+
+  // B3: ein schon GEBAUTER Tiefen-Eintrag gilt weiter, auch ohne defines an der
+  // Vorlage — die Mutante "tiefeSchonGebaut gestrichen" muss hier rot werden.
+  pruefe(
+    intern.vegetationsWrapperWerfer.has(standTiefeGebaut),
+    'B3: ein Klon mit schon gebautem Tiefen-Eintrag wurde nach resetDrawCache faelschlich als Verlust behandelt'
+  );
+  pruefe(
+    !intern.vegetationsTiefePending.has(standTiefeGebaut),
+    'B3: ein Klon mit schon gebautem Tiefen-Eintrag landete trotzdem in der Warteliste'
+  );
+  pruefe(
+    !liste.includes(standTiefeGebaut.quelle),
+    'B3: die Quelle eines Klons mit schon gebautem Tiefen-Eintrag wurde grundlos wieder als Werfer angemeldet'
+  );
 
   // Gegenprobe: ein wirklich bereiter Klon (echter Wrapper, echte defines aus
   // bauSchattenSzene) wird nicht angefasst.

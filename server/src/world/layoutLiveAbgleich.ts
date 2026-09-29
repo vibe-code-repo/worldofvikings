@@ -250,7 +250,10 @@ export function liveAbgleich(
   const neuListe = neu.placements ?? [];
   const { geaendert, entfernt, vorher, zurueck } = idDiff(altListe, neuListe, grabsteine);
   // Der Takt läuft im Spiel-Thread: Ab der Obergrenze wird nichts angewendet (die Datei gilt nach dem Neustart).
-  if (geaendert.length + entfernt.length > AENDERUNGEN_MAX) return { art: 'zuViele', anzahl: geaendert.length + entfernt.length };
+  // Karte Z3 N1: dauerhaft gesperrte ids löscht dieser Abgleich nie und zählen deshalb nicht gegen die Obergrenze —
+  // sonst blockierten mehr als 40 gesperrte Alt-Löschungen jede erlaubte, kleine Folgeänderung (Befund 8).
+  const wirksamEntfernt = geschuetzteIds && geschuetzteIds.size > 0 ? entfernt.filter((id) => !geschuetzteIds.has(id)).length : entfernt.length;
+  if (geaendert.length + wirksamEntfernt > AENDERUNGEN_MAX) return { art: 'zuViele', anzahl: geaendert.length + wirksamEntfernt };
   const bekannt = (p: PlacementDef): { hash: number } | undefined => kontext.prefabs.getByName(p.prefab);
 
   // ── Was würde entfernt? ──

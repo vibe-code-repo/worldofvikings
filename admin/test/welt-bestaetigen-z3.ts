@@ -19,12 +19,13 @@
  *  6. Welt zurücksetzen (K4.0) mit offener Sperre → Sperrdatei weg.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { LAYOUT_ID_MEMBER } from '@wov/shared';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { quittungLesen, quittungsDatei, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { quittungLesen, quittungSchreiben, quittungsDatei, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreDatei, loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { createWovServer } from '../../server/src/WovServer.js';
 import type { ZDO } from '../../server/src/zdo/ZDO.js';
@@ -53,6 +54,7 @@ const WELT_DATEI = resolve(WELTEN, 'dev.json');
 const INSTANZ = 'dev';
 const QUITTUNG = quittungsDatei(SPIELSTAENDE, INSTANZ);
 const SPERRE = loeschsperreDatei(SPIELSTAENDE, INSTANZ);
+const ANFRAGE = bestaetigenAnfrageDatei(SPIELSTAENDE, INSTANZ);
 const LAEUFT = resolve(ORDNER, 'laeuft');
 const TOKEN = 'z3-token';
 const TOKEN_DATEI = resolve(ORDNER, 'token');
@@ -214,15 +216,46 @@ async function haupt(): Promise<void> {
     check('3 confirm with a wrong hash: 409, nothing applied', stale.status === 409 && stale.daten.ok === false && stale.daten.aktuell === hashLeer, `${stale.status} ${JSON.stringify(stale.daten)}`);
     check('3 nothing changed by the refused confirmation: 30 layout ZDOs', layoutZdos().length === 30);
 
+    // ── 3b: an unreadable lock is refused (409), never freed, and no request file is written ──
+    const sperreBytes = existsSync(SPERRE) ? readFileSync(SPERRE, 'utf-8') : '';
+    writeFileSync(SPERRE, '{kaputt');
+    const kaputt = await bestaetigen(hashLeer);
+    check('3b confirm with a broken lock file: 409, no request file', kaputt.status === 409 && kaputt.daten.ok === false && !existsSync(ANFRAGE), `${kaputt.status} ${JSON.stringify(kaputt.daten)}`);
+    check('3b the broken lock file is untouched', existsSync(SPERRE) && readFileSync(SPERRE, 'utf-8') === '{kaputt');
+    if (sperreBytes) writeFileSync(SPERRE, sperreBytes);
+    else rmSync(SPERRE, { force: true });
+
+    // ── 3c: an OLD "angewendet" receipt for the same hash is no success for a new request ──
+    // (after a start with a lock the wache writes `angewendet` for the current hash without any confirmation).
+    // While a save runs the wache cannot take the request: the answer must be 202, not a stale 200.
+    const srv = server as unknown as { speichertGerade: boolean };
+    srv.speichertGerade = true;
+    quittungSchreiben(QUITTUNG, { hash: hashLeer, ergebnis: 'angewendet', grund: null, zaehler: null, zeit: new Date().toISOString() });
+    const t3c = Date.now();
+    const alt = await bestaetigen(hashLeer);
+    check('3c old angewendet receipt: NO premature 200 (202 keine-quittung after the wait)', alt.status === 202 && alt.daten.angewendet === false && Date.now() - t3c >= 2500, `${alt.status} ${JSON.stringify(alt.daten)} after ${Date.now() - t3c} ms`);
+    check('3c the request is still pending, 30 layout ZDOs stand', existsSync(ANFRAGE) && layoutZdos().length === 30, `${layoutZdos().length}`);
+    srv.speichertGerade = false;
+    await warteAuf(() => !existsSync(ANFRAGE), 5000);
+    check('3c after the save the wache takes the request and deletes the locked ids', !existsSync(ANFRAGE) && layoutZdos().length === 0 && loeschsperreLesen(SPERRE) === null, `${layoutZdos().length}`);
+    // Back to the state before 3b for the following steps: full document, the felled t3 stays felled.
+    const hashVoll2 = schreibe(json(dokument(DOC_VOLL)));
+    await quittung(hashVoll2);
+    nach('kiste-1')?.setString('truheInhalt', '[[Wood,9]]');
+    nach('t3') && server.zdos.destroyZDO(nach('t3')!.zdoid);
+    const hashLeerB = schreibe(json(dokument([])));
+    await quittung(hashLeerB);
+    check('3c set-up for 4: lock is open again with the chest', loeschsperreLesen(SPERRE) !== null && !!nach('kiste-1'));
+
     // ── 4: confirming the right hash removes EXACTLY the locked ids, nothing else ──
-    const ok = await bestaetigen(hashLeer);
+    const ok = await bestaetigen(hashLeerB);
     check(
       '4 confirm with the right hash: self-consistent answer (200+angewendet, or 202+bestaetigung-noetig while the wache catches up)',
-      (ok.status === 200 && ok.daten.angewendet === true) || (ok.status === 202 && ok.daten.angewendet === false),
+      (ok.status === 200 && ok.daten.angewendet === true && ok.daten.bestaetigt === true && ok.daten.entfernt === 30) || (ok.status === 202 && ok.daten.angewendet === false),
       `${ok.status} ${JSON.stringify(ok.daten)}`
     );
-    const q4 = await quittungAngewendet(hashLeer);
-    check('4 receipt angewendet for the confirmed hash', q4?.hash === hashLeer && q4.ergebnis === 'angewendet', `${q4?.hash} ${q4?.ergebnis}`);
+    const q4 = await quittungAngewendet(hashLeerB);
+    check('4 receipt angewendet for the confirmed hash', q4?.hash === hashLeerB && q4.ergebnis === 'angewendet', `${q4?.hash} ${q4?.ergebnis}`);
     check('4 the chest and the 29 standing trees are gone: 0 layout ZDOs', layoutZdos().length === 0, `${layoutZdos().length}`);
     check('4 lock file is gone', loeschsperreLesen(SPERRE) === null, JSON.stringify(loeschsperreLesen(SPERRE)));
     check('4 the felled t3 was NOT resurrected (no boot-style reconciliation, findet A5)', !nach('t3'));
@@ -230,7 +263,8 @@ async function haupt(): Promise<void> {
     // ── 5: revocation — writing the objects back drops the open lock, WITHOUT confirming ──
     let hash = schreibe(json(dokument(DOC_VOLL)));
     q = await quittung(hash);
-    check('5 set-up: the 31 entries return (fresh ZDOs)', q?.ergebnis === 'angewendet' && layoutZdos().length === 31, `${q?.ergebnis} ${layoutZdos().length}`);
+    // t3 stays felled: its entry never left the document's applied state (tombstone), so only 30 ZDOs come back.
+    check('5 set-up: the entries return (30 ZDOs; the felled t3 stays felled)', q?.ergebnis === 'angewendet' && layoutZdos().length === 30, `${q?.ergebnis} ${layoutZdos().length}`);
     nach('kiste-1')?.setString('truheInhalt', '[[Wood,5]]');
     zeilen.length = 0;
     const hashLeer2 = schreibe(json(dokument([])));
@@ -240,7 +274,7 @@ async function haupt(): Promise<void> {
     hash = schreibe(json(dokument(DOC_VOLL))); // undo: bring the objects back instead of confirming
     q = await quittung(hash);
     check('5 revocation: writing the objects back is a plain "angewendet" for the new hash', q?.ergebnis === 'angewendet' && q.grund === null, `${q?.ergebnis} ${q?.grund}`);
-    check('5 revocation: no longer stuck on bestaetigung-noetig, 31 ZDOs (fresh)', layoutZdos().length === 31, `${layoutZdos().length}`);
+    check('5 revocation: no longer stuck on bestaetigung-noetig, 30 ZDOs', layoutZdos().length === 30, `${layoutZdos().length}`);
     check('5 revocation: lock file is gone (every id is back in the document)', loeschsperreLesen(SPERRE) === null, JSON.stringify(loeschsperreLesen(SPERRE)));
     const nochOffen = await bestaetigen(hashLeer2);
     check('5 confirming the revoked (gone) lock: 409 nichts-offen', nochOffen.status === 409 && nochOffen.daten.fehler === 'nichts-offen', `${nochOffen.status} ${JSON.stringify(nochOffen.daten)}`);

@@ -9,6 +9,7 @@
 
 import { ItemType, type ItemShared } from './ItemData.js';
 import { istEigenesModell } from '../prefabs.js';
+import { FEMALE_ARMOR_BODY } from '../armorCompatibility.js';
 
 /**
  * `Hammer.glb` is a 248-byte stub with zero meshes — the real geometry sits in
@@ -494,7 +495,7 @@ const KLEIDUNG: ItemShared[] = [
     toolTier: 0,
     ausruestung: 'hemd',
     ruestungsteil: 'leder_bh',
-    bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin',
+    ...FEMALE_ARMOR_BODY,
   },
   {
     name: 'LederShorts',
@@ -507,7 +508,7 @@ const KLEIDUNG: ItemShared[] = [
     toolTier: 0,
     ausruestung: 'hose',
     ruestungsteil: 'leder_shorts',
-    bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin',
+    ...FEMALE_ARMOR_BODY,
   },
 ];
 

@@ -14,20 +14,16 @@
  * Der Hash im Rumpf muss GENAU der aktuellen Weltdatei entsprechen (derselbe
  * Hash, den die offene Quittung nennt) — sonst 409, nichts geschrieben. Passt
  * er, schreibt dieser Weg eine kleine Anfrage-Datei neben der Quittung
- * (`shared/worldlayout/bestaetigenAnfrage.ts`); die Layout-Wache des
- * Spielservers verbraucht sie im nächsten Takt (höchstens eine Sekunde) und
- * gleicht dabei das GANZE Dokument gegen den ZDO-Bestand ab, nicht nur die
- * geänderten Einträge — nur so geschieht die zurückgehaltene Löschung jetzt
- * wirklich. Anschließend steht die Quittung auf `angewendet`.
+ * (`shared/worldlayout/bestaetigenAnfrage.ts`, mit eigener Kennung); die Layout-Wache des
+ * Spielservers übernimmt sie im nächsten Takt (höchstens eine Sekunde) und löscht dabei GENAU die
+ * dauerhaft gesperrten Objekte, die im Dokument fehlen, sonst nichts (Karte Z3 N1) — keine Geo-, Höhen-
+ * oder Objektänderung des Dokuments wird dadurch angewendet.
  *
- * ── Warum nicht `quittungAbwarten` (wie jeder andere Schreibweg) ──────
- * Diese Anfrage ändert NICHT den Hash der Weltdatei — sie hebt nur eine
- * bestehende `bestaetigung-noetig`-Quittung FÜR DENSELBEN Hash auf. Genau die
- * liegt aber schon vor der Anfrage (sie ist ja deren Grund): `quittungAbwarten`
- * würde also sofort einen "passenden" Stand sehen und ohne jede Wartezeit mit
- * `nicht angewendet` zurückkommen, egal wie schnell die Wache danach tatsächlich
- * anwendet. Hier wird deshalb ausdrücklich auf den ÜBERGANG zu `angewendet`
- * gewartet, nicht nur auf einen Treffer des Hashs.
+ * ── Worauf gewartet wird ─────────────────────────────────────────────
+ * Die Anfrage ändert NICHT den Hash der Weltdatei, und ein `angewendet` für denselben Hash kann schon vor
+ * der Anfrage dastehen (etwa nach einem Start mit Sperre). Deshalb wartet dieser Weg auf die Quittung,
+ * die die Kennung SEINER Anfrage nennt (`bestaetigung.id`): `200` mit `entfernt` und `angewendet` (ob der
+ * Rest des Dokuments angewendet ist), `409 abgelehnt` mit dem Grund, sonst `202`.
  *
  * Geschützt wie jeder andere Schreibweg: Anmeldung (Token), Herkunft und
  * Netz-Riegel prüft der allgemeine Vorschalter in `admin/src/main.ts`, bevor
@@ -100,8 +96,9 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
       },
     };
   }
+  let anfrageId: string;
   try {
-    bestaetigenAnfrageSchreiben(umg.anfragePfad, aktuell);
+    anfrageId = bestaetigenAnfrageSchreiben(umg.anfragePfad, aktuell);
   } catch (fehler) {
     console.error(`[Admin] POST /api/welt/bestaetigen -> 500: ${(fehler as Error).message}`);
     return { code: 500, daten: { ok: false, fehler: 'schreiben', message: `Bestätigungsanfrage nicht schreibbar: ${(fehler as Error).message}` } };
@@ -132,8 +129,39 @@ export async function weltBestaetigenBehandeln(body: unknown, umg: BestaetigenUm
   const ende = jetzt() + warteMs;
   for (;;) {
     const q = quittungLesen(umg.quittungsPfad);
-    if (q && q.hash === aktuell && q.ergebnis === 'angewendet') {
-      return { code: 200, daten: { ok: true, hash: aktuell, angewendet: true, zaehler: q.zaehler, message: 'Zurückgehaltene Löschung angewendet.' } };
+    // Karte Z3 N1: gewartet wird auf die Quittung, die DIESE Anfrage nennt (`bestaetigung.id`) — nicht auf irgendein
+    // `angewendet` desselben Hashs (die Wache schreibt es auch ohne Bestätigung, etwa nach einem Start mit Sperre).
+    if (q && q.hash === aktuell && q.bestaetigung?.id === anfrageId) {
+      if (q.bestaetigung.abgelehnt) {
+        return {
+          code: 409,
+          daten: {
+            ok: false,
+            fehler: 'abgelehnt',
+            grund: q.bestaetigung.abgelehnt,
+            hash: aktuell,
+            message: `Die Bestätigung wurde nicht ausgeführt (${q.bestaetigung.abgelehnt}) — nichts gelöscht.`,
+          },
+        };
+      }
+      // Bestätigt heißt: genau die gesperrten Objekte sind weg. Ob der Rest des Dokuments (Geo, Höhe, …) angewendet
+      // ist, sagt `angewendet`; `grund` nennt sonst, was noch aussteht.
+      return {
+        code: 200,
+        daten: {
+          ok: true,
+          hash: aktuell,
+          bestaetigt: true,
+          entfernt: q.bestaetigung.entfernt,
+          angewendet: q.ergebnis === 'angewendet',
+          ...(q.ergebnis === 'angewendet' ? {} : { grund: q.grund }),
+          ...(q.detail ? { detail: q.detail } : {}),
+          message:
+            q.ergebnis === 'angewendet'
+              ? 'Zurückgehaltene Löschung ausgeführt.'
+              : 'Zurückgehaltene Löschung ausgeführt; der Rest des Dokuments ist noch nicht angewendet.',
+        },
+      };
     }
     if (jetzt() >= ende) break;
     await schlafen(100);

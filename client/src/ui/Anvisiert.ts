@@ -26,6 +26,7 @@ import { Viewport } from '@babylonjs/core/Maths/math.viewport';
 import type { Scene } from '@babylonjs/core/scene';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { EntityManager, StatischeInstanz } from '../entities/EntityManager';
+import { transformOhneJitter } from '../engine/PostProcessing';
 
 /**
  * Reichweite in Metern, gemessen vom Spieler. Aus dem Original:
@@ -123,7 +124,8 @@ export class Anvisiert {
     const engine = this.scene.getEngine();
     const breite = engine.getRenderWidth();
     const hoehe = engine.getRenderHeight();
-    const view = this.scene.getTransformMatrix();
+    // transformOhneJitter statt scene.getTransformMatrix() — s. Namensschild.ts.
+    const view = transformOhneJitter(this.scene, this.camera);
     // ACHTUNG: toGlobalToRef liefert `this` zurück, nicht das Ziel — der
     // gerechnete Wert steht ausschliesslich in `this.viewport`.
     this.camera.viewport.toGlobalToRef(breite, hoehe, this.viewport);

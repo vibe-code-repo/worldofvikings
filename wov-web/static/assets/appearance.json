@@ -16,7 +16,7 @@
       "model": "wikingerin/WikingerinKoerper",
       "name": "Wikingerin",
       "bodyVariant": "female",
-      "bodyProfile": "legacy-female-v1",
+      "bodyProfile": "wov-female-v1",
       "nameEn": "Viking woman"
     }
   ],
@@ -1262,7 +1262,7 @@
       "familyId": "seidraven",
       "classId": "seherin",
       "bodyVariant": "female",
-      "bodyProfile": "legacy-female-v1",
+      "bodyProfile": "wov-female-v1",
       "itemIds": [
         "seidraven_female_hood",
         "seidraven_female_vest",
@@ -1302,7 +1302,7 @@
           ],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "seidraven_female_vest",
@@ -1320,7 +1320,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "seidraven_female_robe",
@@ -1338,7 +1338,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "seidraven_female_shoulders",
@@ -1357,7 +1357,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "seidraven_female_bracers",
@@ -1376,7 +1376,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "seidraven_female_gloves",
@@ -1395,7 +1395,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "seidraven_female_boots",
@@ -1414,7 +1414,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         }
       ]
     },
@@ -1597,7 +1597,7 @@
       "familyId": "emberrage",
       "classId": "runenmagier",
       "bodyVariant": "female",
-      "bodyProfile": "legacy-female-v1",
+      "bodyProfile": "wov-female-v1",
       "itemIds": [
         "emberrage_female_hood",
         "emberrage_female_vest",
@@ -1638,7 +1638,7 @@
           ],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "emberrage_female_vest",
@@ -1657,7 +1657,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "emberrage_female_robe",
@@ -1676,7 +1676,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "emberrage_female_shoulders",
@@ -1696,7 +1696,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "emberrage_female_bracers",
@@ -1716,7 +1716,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "emberrage_female_gloves",
@@ -1736,7 +1736,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "emberrage_female_boots",
@@ -1756,7 +1756,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         }
       ]
     },
@@ -1891,7 +1891,7 @@
       "figure": "wikingerin",
       "familyId": "plainhide",
       "bodyVariant": "female",
-      "bodyProfile": "legacy-female-v1",
+      "bodyProfile": "wov-female-v1",
       "starter": true,
       "freeRegions": [
         "Head",
@@ -1930,7 +1930,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "plainhide_female_vest",
@@ -1948,7 +1948,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "plainhide_female_bracers",
@@ -1967,7 +1967,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "plainhide_female_robe",
@@ -1985,7 +1985,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "plainhide_female_boots",
@@ -2004,7 +2004,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         }
       ]
     },
@@ -2187,7 +2187,7 @@
       "familyId": "gravethorn",
       "classId": "berserker",
       "bodyVariant": "female",
-      "bodyProfile": "legacy-female-v1",
+      "bodyProfile": "wov-female-v1",
       "itemIds": [
         "gravethorn_female_hood",
         "gravethorn_female_vest",
@@ -2228,7 +2228,7 @@
           ],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "gravethorn_female_vest",
@@ -2247,7 +2247,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "gravethorn_female_robe",
@@ -2266,7 +2266,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "gravethorn_female_shoulders",
@@ -2286,7 +2286,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "gravethorn_female_bracers",
@@ -2306,7 +2306,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "gravethorn_female_gloves",
@@ -2326,7 +2326,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "gravethorn_female_boots",
@@ -2346,7 +2346,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         }
       ]
     },
@@ -2522,7 +2522,7 @@
       "familyId": "crowshade",
       "classId": "jaeger",
       "bodyVariant": "female",
-      "bodyProfile": "legacy-female-v1",
+      "bodyProfile": "wov-female-v1",
       "itemIds": [
         "crowshade_female_hood",
         "crowshade_female_vest",
@@ -2562,7 +2562,7 @@
           ],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "crowshade_female_vest",
@@ -2580,7 +2580,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "crowshade_female_robe",
@@ -2598,7 +2598,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "crowshade_female_shoulders",
@@ -2617,7 +2617,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "crowshade_female_bracers",
@@ -2636,7 +2636,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "crowshade_female_gloves",
@@ -2655,7 +2655,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         },
         {
           "itemId": "crowshade_female_boots",
@@ -2674,7 +2674,7 @@
           "hideAppearance": [],
           "figure": "wikingerin",
           "bodyVariant": "female",
-          "bodyProfile": "legacy-female-v1"
+          "bodyProfile": "wov-female-v1"
         }
       ]
     }

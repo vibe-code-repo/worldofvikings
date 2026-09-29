@@ -16,11 +16,19 @@
  *       Prozess, kein main.ts-Codepfad rührt sie an) und schützt weiterhin.
  *  A3   Nach dem gesperrten Neustart (A1a) eine Folgeänderung (leer + 1 neuer Baum) LIVE im selben
  *       Kindprozess, dann NOCH EIN Neustart → Truhe (mit Inhalt) UND der neue Baum stehen.
+ *  A1b  30 Bäume + Truhe, dann 11 neue und die 31 alten fehlend (über AENDERUNGEN_MAX) → NEUSTART → die
+ *       11 neuen stehen, die Truhe (byte-gleich) und alle 30 alten auch.
+ *  A1c  leer plus geänderte Region (Geo) → NEUSTART → Truhe steht.
+ *  A2k  kaputte Sperrdatei → echter Start löscht NICHTS, Logzeile GESCHLOSSEN, Datei unverändert.
+ *  BEST Bestätigen im echten Kindprozess: Quittung nennt die Sperre schon nach dem Start (Boot-Quittung), die
+ *       Anfrage wird an ihrer Kennung erkannt, danach ist genau die Truhe weg, ein vorher gefällter Baum bleibt
+ *       gefällt, die Sperrdatei ist weg.
+ *  RUE  Rücknahme im echten Kindprozess: die Truhe wieder ins Dokument → Sperrdatei weg, Truhe steht.
  *
  * Lauf: npx tsx test/z3n1-hauptprozess.ts   (aus server/)
  */
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +36,7 @@ import { zstdDecompressSync } from 'node:zlib';
 import { getStableHash, LAYOUT_ID_MEMBER } from '@wov/shared';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungLesen, quittungsDatei, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { bestaetigenAnfrageDatei, bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreDatei, loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { createWovServer } from '../src/WovServer.js';
 
@@ -38,6 +47,8 @@ function check(name: string, ok: boolean, detail = ''): void {
     console.error(`FAIL ${name}${detail ? ` (${detail})` : ''}`);
   } else console.log(`ok   ${name}${detail ? ` (${detail})` : ''}`);
 }
+/** Datei lesen; fehlt sie, kommt null (ein Stand OHNE Sperrdatei soll ein FAIL geben, keinen Absturz). */
+const lies = (pfad: string): string | null => (existsSync(pfad) ? readFileSync(pfad, 'utf-8') : null);
 const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -224,7 +235,7 @@ const BAEUME: Platz[] = Array.from({ length: 45 }, (_, i) => ({ id: `b${i}`, pre
 const KISTE: Platz = { id: 'kiste-h', prefab: 'piece_chest_wood', x: 400, z: 400 };
 const DOC_VOLL = [...BAEUME, KISTE];
 
-async function haupt(): Promise<void> {
+async function a1aA2A3(): Promise<void> {
   // WOV_INSTANZ akzeptiert nur "dev" oder "live" (instanzName() bricht sonst ab, s. shared/src/instanz.ts) —
   // "dev" ist hier unproblematisch: eigener, isolierter WURZEL-Ordner je Testlauf, kein echtes /opt/worldofvikings.
   const inst = instanz(WURZEL, 'dev');
@@ -299,16 +310,30 @@ async function haupt(): Promise<void> {
   // Prozess überhaupt weit genug ist) oder zu spät (der Boot ist auf einer schnellen Maschine längst
   // durch); dieses Signal ist in jedem Tempo dasselbe.
   const boot_zeile = /Löschsperre hält 46 Objekt\(e\) zurück/;
-  const sperreVorA2 = readFileSync(inst.loeschsperrePfad, 'utf-8');
+  const sperreVorA2 = lies(inst.loeschsperrePfad);
   for (const [signal, name] of [['SIGKILL', 'kill'], ['SIGTERM', 'term']] as const) {
     const lauf = starteHauptprozess(inst, 15_000, boot_zeile);
     const zwischenstand = await lauf.warten();
     check(`A2 ${name}: Boot-Zeile der Löschsperre erreicht (mitten im Boot)`, zwischenstand.bereitErreicht, zwischenstand.ausgabe.slice(-300));
-    check(`A2 ${name}: "Server started" NOCH NICHT erreicht (wirklich mitten im Boot)`, !BEREIT.test(zwischenstand.ausgabe));
     const ende = await lauf.stoppen(signal);
+    // Nach dem Signal geprüft (nicht nur davor): Erst die Ausgabe BIS zum Tod des Prozesses beweist, dass er
+    // das Boot-Fenster wirklich nie verlassen hat.
+    // SIGKILL beendet den Prozess auf der Stelle: Erst seine Gesamtausgabe beweist, dass er das Boot-Fenster nie
+    // verlassen hat. SIGTERM handhabt main.ts geordnet (zu Ende booten, dann sauber stoppen, Exit 0), dort ist „Server
+    // started“ nach dem Signal erlaubt; für ihn zählen Sperrdatei und Nachstart.
+    if (signal === 'SIGKILL') check(`A2 ${name}: "Server started" wurde NIE erreicht (das Signal fiel wirklich in den Boot)`, !BEREIT.test(ende.ausgabe), ende.ausgabe.slice(-200));
     check(`A2 ${name}: Kindprozess beendet`, ende.code !== null || signal === 'SIGKILL', `Code ${ende.code}`);
-    const sperreDanach = readFileSync(inst.loeschsperrePfad, 'utf-8');
+    const sperreDanach = lies(inst.loeschsperrePfad);
     check(`A2 ${name}: Sperrdatei UNVERÄNDERT (kein Codepfad in main.ts rührt sie an)`, sperreDanach === sperreVorA2);
+    // Je Signal ein EIGENER normaler Nachstart.
+    const nach = starteHauptprozess(inst, 20_000, BEREIT);
+    const bereitNach = await nach.warten();
+    check(`A2 ${name}: normaler Nachstart wird bereit und schützt weiter 46 Objekte`, bereitNach.bereitErreicht && /Löschsperre hält 46 Objekt\(e\) zurück/.test(bereitNach.ausgabe), bereitNach.ausgabe.slice(-300));
+    const endeNach = await nach.stoppen('SIGTERM');
+    check(`A2 ${name}: Nachstart endet sauber (Exit 0)`, endeNach.code === 0, `Code ${endeNach.code}`);
+    await warte(200);
+    const saveNach = saveLesen(inst.savePfad);
+    check(`A2 ${name}: nach dem Nachstart alle 46 ZDOs, Truhe byte-gleich`, saveNach.size === 46 && saveNach.get('kiste-h')?.members[String(HASH_TRUHE_INHALT)]?.v === '[[Wood,9]]', `${saveNach.size}`);
   }
   const lauf2 = starteHauptprozess(inst, 20_000, BEREIT);
   const bereit2 = await lauf2.warten();
@@ -345,8 +370,190 @@ async function haupt(): Promise<void> {
   check('A3: der neue Baum steht', save4.has('neu-1'));
 }
 
+/** Ein Spielstand im Dokument-Aufbau: erst in DIESEM Prozess (echte Serialisierung), danach übernehmen Kindprozesse. */
+function materialisiere(inst: Instanz, seed: string): ReturnType<typeof createWovServer> {
+  const setup = createWovServer({
+    port: 0,
+    everyoneAdmin: true,
+    worldName: inst.instanz,
+    worldSeed: seed,
+    worldFeatures: false,
+    worldVegetation: false,
+    worldsDir: inst.worldsDir,
+    kontenDir: resolve(inst.server, 'data/konten'),
+    worldMode: 'layout',
+    worldLayoutPath: inst.layoutDatei,
+    saveIntervalMs: 3600_000,
+  });
+  setup.start();
+  return setup;
+}
+function wacheVon(server: ReturnType<typeof createWovServer>): { tick(): void } {
+  return (server as unknown as { layoutWache: { tick(): void } }).layoutWache;
+}
+/** `seed` in der server.yml der Kopie ist fest `z3n1-boot`; die anderen Fälle benutzen denselben Seed. */
+const SEED = 'z3n1-boot';
+async function warteBis(bed: () => boolean, ms = 10_000): Promise<boolean> {
+  const t0 = Date.now();
+  while (!bed()) {
+    if (Date.now() - t0 > ms) return false;
+    await warte(50);
+  }
+  return true;
+}
+
+async function a1bA1c(): Promise<void> {
+  // ── A1b: 30 Bäume + Truhe, dann 11 neue und die 31 alten fehlend (42 Änderungen > AENDERUNGEN_MAX) ──
+  {
+    const inst = instanz(resolve(WURZEL, 'a1b'), 'dev');
+    const alt: Platz[] = [...Array.from({ length: 30 }, (_, i) => ({ id: `t${i}`, prefab: 'Beech1', x: 20 + i * 3, z: 20 })), KISTE];
+    schreibe(inst.layoutDatei, dokument(alt));
+    const setup = materialisiere(inst, SEED);
+    setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-h')?.setString('truheInhalt', '[[Wood,9]]');
+    const neu: Platz[] = Array.from({ length: 11 }, (_, i) => ({ id: `n${i}`, prefab: 'Beech1', x: 500 + i * 3, z: 20 }));
+    schreibe(inst.layoutDatei, dokument(neu));
+    wacheVon(setup).tick();
+    const q = quittungLesen(inst.quittungsPfad);
+    check('A1b live: zu-viele-aenderungen, Sperre mit 31 ids', q?.grund === 'zu-viele-aenderungen' && q.loeschsperre?.anzahl === 31, JSON.stringify(q));
+    setup.stop();
+    await warte(300);
+    const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+    const bereit = await lauf.warten();
+    check('A1b Neustart: main.ts wird bereit', bereit.bereitErreicht, bereit.ausgabe.slice(-300));
+    const ende = await lauf.stoppen('SIGTERM');
+    check('A1b Neustart: Exit 0', ende.code === 0, `Code ${ende.code}`);
+    await warte(200);
+    const save = saveLesen(inst.savePfad);
+    check('A1b Neustart: die 11 neuen stehen', Array.from({ length: 11 }, (_, i) => `n${i}`).every((id) => save.has(id)), [...save.keys()].sort().join(','));
+    check('A1b Neustart: die 30 alten Bäume und die Truhe stehen (31 alte + 11 neue = 42)', save.size === 42 && save.has('kiste-h') && save.has('t0') && save.has('t29'), `${save.size}`);
+    check('A1b Neustart: Truheninhalt byte-gleich', save.get('kiste-h')?.members[String(HASH_TRUHE_INHALT)]?.v === '[[Wood,9]]');
+  }
+  // ── A1c: leer plus geänderte Region ──
+  {
+    const inst = instanz(resolve(WURZEL, 'a1c'), 'dev');
+    const alt: Platz[] = [...Array.from({ length: 6 }, (_, i) => ({ id: `g${i}`, prefab: 'Beech1', x: 20 + i * 3, z: 20 })), KISTE];
+    schreibe(inst.layoutDatei, dokument(alt));
+    const setup = materialisiere(inst, SEED);
+    setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-h')?.setString('truheInhalt', '[[Wood,9]]');
+    const geaendert = dokument([]);
+    (geaendert.regions as { baseLevel: number }[])[0]!.baseLevel = 0.35;
+    schreibe(inst.layoutDatei, geaendert);
+    wacheVon(setup).tick();
+    const q = quittungLesen(inst.quittungsPfad);
+    check('A1c live: geo, Sperre mit 7 ids', q?.grund === 'geo' && q.loeschsperre?.anzahl === 7, JSON.stringify(q));
+    setup.stop();
+    await warte(300);
+    const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+    const bereit = await lauf.warten();
+    check('A1c Neustart: main.ts wird bereit', bereit.bereitErreicht, bereit.ausgabe.slice(-300));
+    const ende = await lauf.stoppen('SIGTERM');
+    check('A1c Neustart: Exit 0', ende.code === 0, `Code ${ende.code}`);
+    await warte(200);
+    const save = saveLesen(inst.savePfad);
+    check('A1c Neustart: die Truhe steht (byte-gleich) samt allen 7', save.size === 7 && save.get('kiste-h')?.members[String(HASH_TRUHE_INHALT)]?.v === '[[Wood,9]]', `${save.size}`);
+  }
+}
+
+async function kaputteSperre(): Promise<void> {
+  const inst = instanz(resolve(WURZEL, 'kaputt'), 'dev');
+  schreibe(inst.layoutDatei, dokument([...Array.from({ length: 5 }, (_, i) => ({ id: `k${i}`, prefab: 'Beech1', x: 20 + i * 3, z: 20 })), KISTE]));
+  const setup = materialisiere(inst, SEED);
+  setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-h')?.setString('truheInhalt', '[[Wood,9]]');
+  setup.stop();
+  await warte(300);
+  // Das Dokument verlangt jetzt eine harmlose Änderung: 5 Bäume fehlen (Grenze: 20 bzw. 25 % ab 5 → würde gesperrt),
+  // dazu liegt eine kaputte Sperrdatei. Der echte Start darf nichts löschen.
+  schreibe(inst.layoutDatei, dokument([]));
+  writeFileSync(inst.loeschsperrePfad, '{kaputt');
+  const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+  const bereit = await lauf.warten();
+  check('A2k kaputte Sperrdatei: main.ts wird bereit', bereit.bereitErreicht, bereit.ausgabe.slice(-300));
+  check('A2k Logzeile GESCHLOSSEN vorhanden', /GESCHLOSSEN/.test(bereit.ausgabe), bereit.ausgabe.split('\n').filter((z) => /Löschsperre/.test(z)).join(' | ').slice(0, 300));
+  const ende = await lauf.stoppen('SIGTERM');
+  check('A2k Exit 0', ende.code === 0, `Code ${ende.code}`);
+  await warte(200);
+  const save = saveLesen(inst.savePfad);
+  check('A2k nichts gelöscht: 6 ZDOs, Truhe byte-gleich', save.size === 6 && save.get('kiste-h')?.members[String(HASH_TRUHE_INHALT)]?.v === '[[Wood,9]]', `${save.size}`);
+  check('A2k die kaputte Datei ist unverändert (nicht überschrieben, nicht gelöscht)', lies(inst.loeschsperrePfad) === '{kaputt');
+}
+
+/** Ein Spielstand mit gefälltem Baum t3 und Truhe mit Inhalt, Dokument ohne Truhe → Sperre [kiste-h]. */
+function sperreMitGefaelltemBaum(inst: Instanz): { hash: string; bauStand: Platz[] } {
+  const baeume: Platz[] = Array.from({ length: 10 }, (_, i) => ({ id: `b${i}`, prefab: 'Beech1', x: 20 + i * 3, z: 20 }));
+  schreibe(inst.layoutDatei, dokument([...baeume, KISTE]));
+  const setup = materialisiere(inst, SEED);
+  const kiste = setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === 'kiste-h');
+  kiste?.setString('truheInhalt', '[[Wood,9]]');
+  const b3 = setup.zdos.getAllZDOs().find((z) => z.getString(LAYOUT_ID_MEMBER) === 'b3');
+  if (b3) setup.zdos.destroyZDO(b3.zdoid); // gefällt: kein Objekt, der Eintrag bleibt im Dokument
+  const hash = schreibe(inst.layoutDatei, dokument(baeume)); // b3 bleibt im Dokument, nur die Truhe fehlt
+  wacheVon(setup).tick();
+  check('BEST Aufbau: Sperre mit genau der Truhe', ((): boolean => {
+    const sp = loeschsperreLesen(inst.loeschsperrePfad);
+    return sp !== null && sp !== 'kaputt' && sp.ids.join() === 'kiste-h';
+  })());
+  setup.stop();
+  return { hash, bauStand: baeume };
+}
+
+async function bestaetigenUndRuecknahme(): Promise<void> {
+  // ── Bestätigen ──
+  {
+    const inst = instanz(resolve(WURZEL, 'bestaetigen'), 'dev');
+    const { hash } = sperreMitGefaelltemBaum(inst);
+    await warte(300);
+    const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+    const bereit = await lauf.warten();
+    check('BEST Start mit Sperre: bereit, Boot-Log nennt die Sperre', bereit.bereitErreicht && /Löschsperre hält 1 Objekt/.test(bereit.ausgabe), bereit.ausgabe.slice(-200));
+    const q0 = await warteAufQuittung(inst.quittungsPfad, hash);
+    check('BEST nach dem Start: Quittung angewendet, NENNT die offene Sperre (1 id) und keine Bestätigung', q0?.ergebnis === 'angewendet' && q0.loeschsperre?.anzahl === 1 && !q0.bestaetigung, JSON.stringify(q0));
+    const id = bestaetigenAnfrageSchreiben(bestaetigenAnfrageDatei(inst.worldsDir, inst.instanz), hash);
+    const erkannt = await warteBis(() => quittungLesen(inst.quittungsPfad)?.bestaetigung?.id === id);
+    const q1 = quittungLesen(inst.quittungsPfad);
+    check('BEST Quittung nennt die Kennung der Anfrage, 1 entfernt', erkannt && q1?.bestaetigung?.entfernt === 1, JSON.stringify(q1));
+    check('BEST Anfrage verbraucht, Sperrdatei weg', !existsSync(bestaetigenAnfrageDatei(inst.worldsDir, inst.instanz)) && !existsSync(inst.loeschsperrePfad));
+    const ende = await lauf.stoppen('SIGTERM');
+    check('BEST Exit 0', ende.code === 0, `Code ${ende.code}`);
+    await warte(200);
+    const save = saveLesen(inst.savePfad);
+    // (Der Start davor hat b3 wie jeder Boot neu gesetzt: „gefällt bleibt gefällt“ gilt nur live und steht in
+    // z3n1-abschluss.ts F7. Hier zählt: genau die Truhe ist weg, kein Baum ging verloren.)
+    check('BEST danach: genau die Truhe ist weg, alle 10 Bäume stehen', !save.has('kiste-h') && save.size === 10, [...save.keys()].sort().join(','));
+  }
+  // ── Rücknahme ──
+  {
+    const inst = instanz(resolve(WURZEL, 'ruecknahme'), 'dev');
+    const { bauStand } = sperreMitGefaelltemBaum(inst);
+    await warte(300);
+    const lauf = starteHauptprozess(inst, 20_000, BEREIT);
+    const bereit = await lauf.warten();
+    check('RUE Start mit Sperre: bereit', bereit.bereitErreicht);
+    const hash = schreibe(inst.layoutDatei, dokument([...bauStand, KISTE]));
+    const weg = await warteBis(() => !existsSync(inst.loeschsperrePfad));
+    check('RUE Truhe wieder im Dokument: Sperrdatei weg', weg);
+    await warteAufQuittung(inst.quittungsPfad, hash);
+    const ende = await lauf.stoppen('SIGTERM');
+    check('RUE Exit 0', ende.code === 0, `Code ${ende.code}`);
+    await warte(200);
+    const save = saveLesen(inst.savePfad);
+    check('RUE danach: die Truhe steht, byte-gleich', save.get('kiste-h')?.members[String(HASH_TRUHE_INHALT)]?.v === '[[Wood,9]]', [...save.keys()].sort().join(','));
+  }
+}
+
+// Jeder Fall für sich: Ein Fehlschlag/Absturz eines Falls (etwa auf einem Stand OHNE Sperrdatei) verdeckt die anderen nicht.
 try {
-  await haupt();
+  for (const [name, fall] of [
+    ['A1a/A2/A3', a1aA2A3],
+    ['A1b/A1c', a1bA1c],
+    ['A2k', kaputteSperre],
+    ['BEST/RUE', bestaetigenUndRuecknahme],
+  ] as const) {
+    try {
+      await fall();
+    } catch (e) {
+      check(`${name}: Fall lief ohne Absturz durch`, false, (e as Error).message.split('\n')[0]);
+    }
+  }
 } finally {
   aufraeumen();
 }

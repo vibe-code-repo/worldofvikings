@@ -14,6 +14,11 @@
  * hier aus der Sperrdatei — unabhängig davon, ob sie zufällig auch noch ein ZDO hat. Wird die Liste
  * dadurch leer, verschwindet die Datei ganz (Rücknahme insgesamt). Dieser Abgleich SCHREIBT also unter
  * Umständen, obwohl er nach außen wie ein reines Lesen aussieht — immer atomar, wie die Datei selbst.
+ * Aber nur, wenn das Dokument verlässlich ist (`ruecknahme`): Ein Dokument mit Höhenfehler, mit verworfenen
+ * oder falsch getypten Platzierungen gilt nicht als ausdrückliche Rücknahme.
+ *
+ * Eine unlesbare oder kaputte Sperrdatei bleibt in JEDEM Weg unangetastet: weder umgangen noch überschrieben,
+ * weder verkleinert noch entfernt (das darf nur ein Mensch, oder „Welt zurücksetzen“).
  */
 import { LAYOUT_ID_MEMBER } from '@wov/shared';
 import type { WorldLayout } from '@wov/shared';
@@ -33,6 +38,8 @@ export interface SperrAuswertung {
    * nicht nur die genannten ids), bis sie von Hand geprüft ist.
    */
   aktive: ReadonlySet<string> | 'kaputt';
+  /** Zahl der ids, die die Datei nennt, und ihr Hash (für die Quittung); null: keine Datei. */
+  info: { anzahl: number; hash: string; kaputt?: boolean } | null;
 }
 
 function vorhandeneLayoutIds(zdos: ZDOManager): Set<string> {
@@ -45,6 +52,14 @@ function vorhandeneLayoutIds(zdos: ZDOManager): Set<string> {
   return vorhanden;
 }
 
+/** Was die Sperrdatei JETZT sagt, für die Quittung (liest, schreibt nie). */
+export function sperrInfo(pfad: string): { anzahl: number; hash: string; kaputt?: boolean } | null {
+  const sperre = loeschsperreLesen(pfad);
+  if (sperre === null) return null;
+  if (sperre === 'kaputt') return { anzahl: 0, hash: '', kaputt: true };
+  return { anzahl: sperre.ids.length, hash: sperre.hash };
+}
+
 /**
  * Sperrdatei lesen und mit dem übergebenen Dokument abgleichen (Rücknahme je id, s. Kopfkommentar).
  * Liefert die ids, die JETZT noch aktiv sind — für `layoutAbgleich`/`liveAbgleich` als `geschuetzteIds`.
@@ -53,52 +68,76 @@ export function sperreAbgleichen(
   pfad: string,
   zdos: ZDOManager,
   layout: WorldLayout,
-  protokoll: (text: string) => void = console.error
+  protokoll: (text: string) => void = console.error,
+  ruecknahme = true
 ): SperrAuswertung {
   const sperre = loeschsperreLesen(pfad);
-  if (sperre === null) return { aktive: new Set() };
+  if (sperre === null) return { aktive: new Set(), info: null };
   if (sperre === 'kaputt') {
     protokoll(
       `[WoV] Löschsperre (${pfad}) ist da, aber nicht als gültige Sperre lesbar — GESCHLOSSEN: kein Layout-Objekt wird gelöscht, bis die Datei von Hand geprüft ist.`
     );
-    return { aktive: 'kaputt' };
+    return { aktive: 'kaputt', info: { anzahl: 0, hash: '', kaputt: true } };
   }
   const imDokument = new Set((layout.placements ?? []).map((p) => p.id).filter((id): id is string => typeof id === 'string'));
-  const behalten = sperre.ids.filter((id) => !imDokument.has(id));
+  const behalten = ruecknahme ? sperre.ids.filter((id) => !imDokument.has(id)) : sperre.ids;
   if (behalten.length !== sperre.ids.length) {
-    if (behalten.length === 0) loeschsperreEntfernen(pfad);
-    else loeschsperreSchreiben(pfad, { ...sperre, ids: behalten });
+    try {
+      if (behalten.length === 0) loeschsperreEntfernen(pfad);
+      else loeschsperreSchreiben(pfad, { ...sperre, ids: behalten });
+    } catch (fehler) {
+      // Nicht schreibbar: Die alte Datei bleibt (mit den ids, die zurückgekehrt sind); der nächste Abgleich versucht es wieder.
+      protokoll(`[WoV] Löschsperre: Rücknahme nicht gespeichert (${(fehler as Error).message})`);
+    }
   }
   const vorhanden = vorhandeneLayoutIds(zdos);
-  return { aktive: new Set(behalten.filter((id) => vorhanden.has(id))) };
+  return { aktive: new Set(behalten.filter((id) => vorhanden.has(id))), info: behalten.length > 0 ? { anzahl: behalten.length, hash: sperre.hash } : null };
 }
+
+export type SperreErweitert =
+  | { art: 'ok'; sperre: Loeschsperre }
+  | { art: 'kaputt' }
+  | { art: 'fehler'; text: string };
 
 /**
  * Neue ids in die Sperrdatei aufnehmen (Vereinigung mit einer vorhandenen Sperre): Karte Z3 N1, E-b.
  * Aufgerufen, sobald ein Schreibvorgang die Massenlöschungsregel (a)/(b) träfe — unabhängig davon, was
  * die Quittung DIESES Schreibvorgangs sonst sagt (`zu-viele-aenderungen`, `geo`, …).
+ * Eine kaputte/unlesbare Sperre wird NIE überschrieben (`kaputt`); ein Schreibfehler wird gemeldet (`fehler`),
+ * der Aufrufer wendet dann nichts an.
  */
-export function sperreErweitern(pfad: string, neueIds: readonly string[], hash: string, grund: Loeschsperre['grund']): Loeschsperre | null {
+export function sperreErweitern(pfad: string, neueIds: readonly string[], hash: string, grund: Loeschsperre['grund']): SperreErweitert | null {
   if (neueIds.length === 0) return null;
   const bestehend = loeschsperreLesen(pfad);
-  const ids = new Set(bestehend && bestehend !== 'kaputt' ? bestehend.ids : []);
+  if (bestehend === 'kaputt') return { art: 'kaputt' };
+  const ids = new Set(bestehend ? bestehend.ids : []);
   for (const id of neueIds) ids.add(id);
   const sperre: Loeschsperre = { ids: [...ids], hash, grund, zeit: new Date().toISOString() };
-  loeschsperreSchreiben(pfad, sperre);
-  return sperre;
+  try {
+    loeschsperreSchreiben(pfad, sperre);
+  } catch (fehler) {
+    return { art: 'fehler', text: (fehler as Error).message };
+  }
+  return { art: 'ok', sperre };
 }
+
+export type BestaetigungsPlan = { art: 'kaputt' } | { art: 'keine' } | { art: 'ids'; ids: string[] };
 
 /**
  * Bestätigen (Karte Z3 N1, E-d): genau die ids liefern, die die Sperrdatei nennt UND im aktuellen
- * Dokument fehlen — nichts sonst. Entfernt die Sperrdatei in jedem Fall (auch wenn sie `'kaputt'` war
- * oder keine ihrer ids mehr im ZDO-Bestand steht): Eine Bestätigung räumt die Sperre auf, gleich was sie
- * bewirkt hat. Der Aufrufer zerstört selbst die ZDOs dieser ids — kein Abgleich im Boot-Stil, damit
- * gefällte Bäume und getötete NPCs unangetastet bleiben.
+ * Dokument fehlen — nichts sonst. Entfernt NICHTS: Der Aufrufer zerstört die ZDOs und gibt die Sperre
+ * danach mit `sperreFreigeben` frei (nie vorher: bricht er ab, bleibt der Schutz stehen). Kein Abgleich im
+ * Boot-Stil, damit gefällte Bäume und getötete NPCs unangetastet bleiben.
  */
-export function sperreBestaetigenIds(pfad: string, layout: WorldLayout): string[] {
+export function sperreBestaetigenPlan(pfad: string, layout: WorldLayout): BestaetigungsPlan {
   const sperre = loeschsperreLesen(pfad);
-  loeschsperreEntfernen(pfad);
-  if (sperre === null || sperre === 'kaputt') return [];
+  if (sperre === 'kaputt') return { art: 'kaputt' };
+  if (sperre === null) return { art: 'keine' };
   const imDokument = new Set((layout.placements ?? []).map((p) => p.id).filter((id): id is string => typeof id === 'string'));
-  return sperre.ids.filter((id) => !imDokument.has(id));
+  return { art: 'ids', ids: sperre.ids.filter((id) => !imDokument.has(id)) };
+}
+
+/** Die Sperre nach einer erfolgreichen Bestätigung freigeben. */
+export function sperreFreigeben(pfad: string): void {
+  loeschsperreEntfernen(pfad);
 }

@@ -1,3 +1,4 @@
+import type { HeightProblem } from './sanitize.js';
 /**
  * Quittung des Spielservers für das Weltdokument (Editor E2, Karte K5.0).
  *
@@ -18,6 +19,8 @@ import { resolve } from 'node:path';
 export type QuittungsGrund = 'geo' | 'abgelehnt' | 'bestaetigung-noetig' | 'verworfen' | 'zu-viele-aenderungen' | 'boot' | null;
 
 export interface Quittung {
+  /** Optional structured height rejection; older receipts remain readable. */
+  heightProblem?: HeightProblem;
   /** SHA-256 über die BYTES der Weltdatei, wie `layoutHash`. */
   hash: string;
   ergebnis: 'angewendet' | 'nicht-angewendet';
@@ -35,7 +38,14 @@ export interface Quittung {
    * vom obigen `grund`, der `zu-viele-aenderungen` oder `geo` bleiben kann) — `anzahl` und `hash` der
    * gerade erweiterten Sperrdatei, für Editor und MCP.
    */
-  loeschsperre?: { anzahl: number; hash: string };
+  loeschsperre?: { anzahl: number; hash: string; kaputt?: boolean };
+  /**
+   * Karte Z3 N1: gesetzt, wenn dieser Takt eine ausdrückliche Bestätigung (`POST /api/welt/bestaetigen`)
+   * verarbeitet hat: `id` ist die Kennung der Anfrage, `entfernt` die Zahl wirklich gelöschter Objekte.
+   * `abgelehnt`: warum die Anfrage nichts bewirkt hat (Hash überholt, Sperre unlesbar, Dokument unzuverlässig).
+   * Der Betriebsdienst wartet auf DIESE Quittung, nicht auf irgendein `angewendet` desselben Hashs.
+   */
+  bestaetigung?: { id: string | null; entfernt: number; abgelehnt?: string };
   /**
    * Zähler des Abgleichs (`gespawnt`, `aktualisiert`, `unveraendert`, `entfernt`, …), sonst null. Live kommt
    * `zurueck` dazu: Einträge, die ein Grabstein verschluckt hat (gleiche id, gleicher Inhalt wie ein gelöschter,

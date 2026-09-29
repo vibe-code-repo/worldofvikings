@@ -105,7 +105,7 @@ export const de = {
      the markup, not here. */
   'hall.gate.eyebrow': 'Offizielle Seite von World of Vikings',
   'hall.gate.intro':
-    'world-of-vikings.com ist das offizielle Browserspiel um Midgard: Angelsachsen gegen Wikinger, neun Lande, fünf Wächter. Kein Download, kein Client — Welt erkunden, bauen, bestehen. Karte, Saga und Ruhmeshalle liegen auf dieser Seite.',
+    'Dies ist das offizielle Browserspiel um Midgard: Angelsachsen gegen Wikinger, neun Lande, fünf Wächter. Kein Download, kein Client — Welt erkunden, bauen, bestehen. Karte, Saga und Ruhmeshalle liegen auf dieser Seite.',
   'hall.gate.play_button': 'Spielen',
   'hall.gate.early_access_text':
     'Midgard ist im Aufbau. Was gebaut wird, bleibt stehen — aber Regeln, Welten und Werte können sich noch ändern.',

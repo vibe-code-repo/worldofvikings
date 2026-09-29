@@ -2467,6 +2467,9 @@ const KERN = [
   // null, warnt genau einmal je Klip, nie eine unhandled rejection
   // (per process.on('unhandledRejection') gezählt). Pure, DOM-frei.
   ['client', 'test/audio-clip-loader.ts'],
+  // Karte B2 N3: startAudioEngine kapselt create/.then/.catch aus main.ts;
+  // ein fehlschlagendes create warnt genau einmal, nie unhandled rejection.
+  ['client', 'test/audio-start.ts'],
   // Karte B1: Vollstaendigkeit der Ton- und Symbol-Abschnitte von
   // assets/manifest.json (tools/asset-manifest.mjs) gegen den echten
   // Bestand unter assets/store/audio bzw. assets/store/ui.

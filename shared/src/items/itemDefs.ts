@@ -10,6 +10,7 @@
 import { ItemType, type ItemShared } from './ItemData.js';
 import { istEigenesModell } from '../prefabs.js';
 import { FEMALE_ARMOR_BODY } from '../armorCompatibility.js';
+import { werteFuerRuestungsteil } from './setWerte.js';
 
 /**
  * `Hammer.glb` is a 248-byte stub with zero meshes — the real geometry sits in
@@ -63,6 +64,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   {
     // verified: $item_hoe, item type 19, maxDurability 200, drain 1, stamina 5
     name: 'Hoe',
+    stats: { damage: 2 },
     label: 'Hacke (Hoe)',
     itemType: ItemType.Tool,
     icon: 'hoe',
@@ -81,6 +83,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   {
     // verified: $item_cultivator, tool with a piece table
     name: 'Cultivator',
+    stats: { damage: 2 },
     label: 'Pflug',
     itemType: ItemType.Tool,
     // There is no cultivator.png in the rip — only the bronze/iron variants.
@@ -102,6 +105,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     // spawn-on-terrain-hit -> digg_v3. Digs through the attack path, not build
     // mode — that is why it has no piece table.
     name: 'PickaxeAntler',
+    stats: { damage: 8 },
     label: 'Geweihspitzhacke',
     itemType: ItemType.TwoHandedWeapon,
     icon: 'pickaxe_antler',
@@ -310,6 +314,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   {
     // Einfache Nahkampfwaffe — Rezept: 6 Holz an keiner Station.
     name: 'Club',
+    stats: { damage: 12 },
     label: 'Keule',
     itemType: ItemType.TwoHandedWeapon,
     icon: 'club',
@@ -345,6 +350,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   },
   {
     name: 'AxeFlint',
+    stats: { damage: 15 },
     label: 'Feuersteinaxt',
     itemType: ItemType.TwoHandedWeapon,
     icon: 'axe_flint',
@@ -382,6 +388,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     // Griff bis zur Parierstange bleibt (Mike, 10.09.: Griff weiter
     // hinten halten).
     name: 'SwordNorth',
+    stats: { damage: 12 },
     label: 'Nordschwert',
     itemType: ItemType.TwoHandedWeapon,
     icon: 'sword_north',
@@ -403,6 +410,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     // Faust. Ruhehaltung wie der Speer (Mike, 12.09.): aufrecht in der
     // rechten Hand, Ende am Boden; Hiebe beidhaendig aus der Stabkette.
     name: 'Staff',
+    stats: { damage: 10 },
     label: 'Kampfstab',
     itemType: ItemType.TwoHandedWeapon,
     icon: 'staff',
@@ -435,6 +443,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     // in der Pose steht die Faustachse fast senkrecht, also der Speer
     // aufrecht neben der Figur.
     name: 'Spear',
+    stats: { damage: 11 },
     label: 'Speer',
     itemType: ItemType.TwoHandedWeapon,
     icon: 'spear',
@@ -483,6 +492,7 @@ const KLEIDUNG: ItemShared[] = [
     icon: p.id, model: null, maxStackSize: 1, weight: p.weight, toolTier: 0,
     ausruestung: p.equipment, ruestungsteil: p.id, hideAppearance: p.hideAppearance,
     ...('vfxProfile' in p ? { vfxProfile: p.vfxProfile } : {}),
+    ...(werteFuerRuestungsteil(p.id) ? { stats: werteFuerRuestungsteil(p.id) } : {}),
     bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile, figure: p.figure })),
   {
     name: 'LederBH',

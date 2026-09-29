@@ -22,6 +22,7 @@ export const enum ItemType {
 
 import type { AppearancePolicy } from '../appearanceVisibility.js';
 import type { ArmorBodyPolicy, ArmorVfxProfile } from '../armorCompatibility.js';
+import type { ItemStats } from './stats.js';
 
 /** Shared, immutable definition of an item type. */
 export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
@@ -47,6 +48,11 @@ export interface ItemShared extends AppearancePolicy, ArmorBodyPolicy {
    * table — the original's spawn-on-terrain-hit field. This is how the pickaxe digs.
    */
   spawnOnHitTerrain?: string;
+  /**
+   * Attribute values (shared/src/items/stats.ts). Weapons carry `damage` only in stage 1; armor parts carry
+   * `armor` and the primary attributes (from shared/src/items/setWerte.ts). A missing entry means 0.
+   */
+  stats?: ItemStats;
   /** Tool tier — which rocks/trees this can damage. Unused so far. */
   toolTier: number;
 

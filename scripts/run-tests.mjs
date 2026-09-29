@@ -2613,6 +2613,13 @@ const KERN = [
     Angreifer“ (echter Server, zwei WebSocket-Spieler, Layout bleibt 17 Byte).
   */
   ['server/test', 'kampf-toene-hiteffect.ts'],
+  /*
+    Kampfkern K1 (2026-09-29): Item-Attribute und Formeln (rein) und ihr Weg
+    durch den Server (drei echte WebSocket-Spieler mit verschiedener
+    Ausruestung). Keine Assets noetig. ~10 s bzw. ~25 s.
+  */
+  ['shared', 'test/kampf-attribute.ts'],
+  ['server', 'test/kampf-attribute.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

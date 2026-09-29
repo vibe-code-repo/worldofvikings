@@ -221,6 +221,7 @@ export default [
     Ohne Weiche: kein `assets/`, keine GPU, reine Tabellen.
   */
   ['shared', 'test/flora-verdrahtung.ts'],
+  ['shared', 'test/gegenstands-daten.ts'],
   ['shared', 'test/geo-smoke.ts'],
   /*
     Stufe 2 „Look", Bauer Gras und Wasser — drei Waechter ueber drei

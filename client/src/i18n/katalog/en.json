@@ -291,6 +291,7 @@
   "testflug.lage.sprung_abgelehnt": "Jump refused",
   "testflug.lage.zurueck_zur_karte": "Q: back to the map",
   "testflug.letzte_platzierung_entfernt": "Last placement removed",
+  "testflug.loeschsperre": "{count} deletion(s) held back and not carried out yet — confirm them in the map editor.",
   "testflug.npc_angaben_uebernommen": "{prefab}: details applied",
   "testflug.ops.angewendet": "Applied",
   "testflug.ops.grund_unbekannt": "unknown",

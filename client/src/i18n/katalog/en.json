@@ -386,6 +386,7 @@
   "testflug.wegpunkt_abgesetzt": "Waypoint {n} dropped",
   "testflug.wegpunkt_gegriffen": "Waypoint {n} of {route} grabbed — dragging moves it",
   "testflug.zurueck_zur_karte": "Back to the map …",
+  "tod.bett_verloren": "Your bed is gone",
   "tooltip.action.move": "Click moves the stack ({amount})",
   "tooltip.action.unequip": "Click to unequip",
   "tooltip.itemlevel": "Item level {level}",

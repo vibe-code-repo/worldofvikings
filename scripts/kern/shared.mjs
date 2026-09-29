@@ -444,6 +444,10 @@ export default [
   // {heights, paint}) — Fix nur im Test. ~7s, kein Server/Socket.
   ['shared', 'test/terrain-comp.ts'],
   /*
+    Tod und Treffer sichtbar (2026-09-29): die reine Regel Seite → Clip (8 Richtungen, Wire-Indizes, Einmal-Member).
+  */
+  ['shared', 'test/tod-treffer.ts'],
+  /*
     F1 „Tageslauf" (12.09.2026): der Tageslauf hat EINE Uhr.
 
     Bis dahin endete der Tagbogen der Phasengewichte bei f = 0,75, der

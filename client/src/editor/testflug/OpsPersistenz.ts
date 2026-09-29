@@ -26,6 +26,7 @@
 import type { Vorgang } from '@wov/shared/src/worldlayout/ops.js';
 import { mitVorgaengen } from './TestflugPersistenz';
 import type { TestflugPersistenz, VorgangAntwort } from './TestflugPersistenz';
+import { t } from '../i18n';
 
 export const OPS_URL = '/api/worldlayout/ops';
 
@@ -43,7 +44,7 @@ export function opsSender(fetchFn: typeof fetch = fetch, url: string = OPS_URL):
       });
     } catch (fehler) {
       // No answer: the request may have been applied (the line can drop after the service applied it).
-      return { art: 'unklar', message: `keine Antwort (${String(fehler)})` };
+      return { art: 'unklar', message: t('testflug.ops.keine_antwort', { fehler: String(fehler) }) };
     }
     let d: Record<string, unknown> = {};
     try {
@@ -63,10 +64,13 @@ export function opsSender(fetchFn: typeof fetch = fetch, url: string = OPS_URL):
       return { art: 'konflikt', ids: genannt, message, zurueckgenommen: false };
     }
     if (antwort.status === 202) {
-      return { art: 'nur-geschrieben', grund: alsText(d.grund) ?? 'unbekannt', message };
+      // N1 (Angriff „Editor T0a", Befund B4): der Rückfall war das deutsche
+      // Wort 'unbekannt', roh im sonst technischen `grund`-Code
+      // (`server-aus`/`geo`/`abgelehnt`, s. Kopfkommentar) — jetzt übersetzt.
+      return { art: 'nur-geschrieben', grund: alsText(d.grund) ?? t('testflug.ops.grund_unbekannt'), message };
     }
     if (antwort.status === 200 && d.ok !== false) {
-      return { art: 'angewendet', message: message === '' ? 'Angewendet' : message };
+      return { art: 'angewendet', message: message === '' ? t('testflug.ops.angewendet') : message };
     }
     // Any other 2xx (204, 201, …) is not the answer this service gives: whether it applied the Vorgang is unknown.
     if (antwort.status >= 200 && antwort.status < 300) return { art: 'unklar', message: `HTTP ${antwort.status}${message ? `: ${message}` : ''}` };

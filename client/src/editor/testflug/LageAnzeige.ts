@@ -5,6 +5,7 @@
  *
  * Die Orientierungsanzeige des Testflugs, unter der Minimap.
  */
+import { t } from '../i18n';
 
 /** Below the minimap: top 10 px + circle 230 px + clock bar 30 px + gap. */
 const TOP_PX = 276;
@@ -76,12 +77,12 @@ export class LageAnzeige {
       'background:rgba(40,12,8,.94);border:2px solid #ff9a8a;border-radius:6px;' +
       'color:#ffe0d8;font:15px/1.5 Georgia,serif;pointer-events:none';
     const kopf = document.createElement('div');
-    kopf.textContent = 'Sprung abgelehnt';
+    kopf.textContent = t('testflug.lage.sprung_abgelehnt');
     kopf.style.cssText = 'font-weight:bold;font-size:17px;color:#ff9a8a;margin-bottom:6px';
     const zeile = document.createElement('div');
     zeile.textContent = text;
     const rat = document.createElement('div');
-    rat.textContent = 'Die Figur steht am Ursprung. Tab schließen und in der Karte eine Stelle an Land wählen.';
+    rat.textContent = t('testflug.lage.rat');
     rat.style.cssText = 'margin-top:8px;font-size:13px;color:#e0c2b8';
     banner.append(kopf, zeile, rat);
     document.body.appendChild(banner);

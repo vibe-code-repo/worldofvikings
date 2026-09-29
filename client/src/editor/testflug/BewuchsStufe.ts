@@ -23,6 +23,8 @@ import {
   type BewuchsStufe,
   type BewuchsVorschau,
 } from "../BewuchsVorschau";
+import { t } from "../i18n";
+import type { TranslationKey } from "../../i18n";
 
 /** localStorage entry that keeps the chosen level across a restart. */
 export const BEWUCHS_STUFE_KEY = "wov-editor-bewuchs-stufe";
@@ -76,11 +78,22 @@ export function naechsteBewuchsStufe(stufe: BewuchsStufe): BewuchsStufe {
   ];
 }
 
+/** Display name of a level (`stufe` itself stays the internal id, e.g. for `localStorage`). */
+const STUFE_NAME_SCHLUESSEL = {
+  voll: 'testflug.bewuchs.stufe.voll',
+  klein: 'testflug.bewuchs.stufe.klein',
+  aus: 'testflug.bewuchs.stufe.aus',
+} as const satisfies Record<BewuchsStufe, TranslationKey>;
+
+function bewuchsStufeName(stufe: BewuchsStufe): string {
+  return t(STUFE_NAME_SCHLUESSEL[stufe]);
+}
+
 /** Short line for the HUD chip. */
 export function bewuchsStufeText(stufe: BewuchsStufe): string {
   const r = STUFEN_RADIUS[stufe];
-  const flaeche = r < 0 ? "aus" : `${2 * r + 1} × ${2 * r + 1} Zonen`;
-  return `Bewuchs: ${stufe} (${flaeche}) · L wechselt`;
+  const flaeche = r < 0 ? t('testflug.bewuchs.stufe.aus') : t('testflug.bewuchs.zonen', { n: 2 * r + 1 });
+  return t('testflug.bewuchs.chip', { stufe: bewuchsStufeName(stufe), flaeche });
 }
 
 /**
@@ -120,7 +133,7 @@ export function verdrahteBewuchsStufe(
     const gespeichert = schreibeBewuchsStufe(speicher, bewuchs.stufe);
     zeige();
     optionen.hud.meldung(
-      `${bewuchsStufeText(bewuchs.stufe)}${gespeichert ? "" : " — nicht gespeichert (Browser-Speicher gesperrt)"}`,
+      `${bewuchsStufeText(bewuchs.stufe)}${gespeichert ? "" : t('testflug.bewuchs.nicht_gespeichert')}`,
     );
   });
 }

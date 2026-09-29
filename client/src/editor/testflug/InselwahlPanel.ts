@@ -9,6 +9,7 @@
 import type { RegionDef, WorldLayout } from '@wov/shared';
 import { F, M, SCHRIFT, beiUeberfahren, el, knopf, luecke, schwebendStil, stil, zierTitel } from '../design';
 import { heightSourcesFor, islandRows, islandSearchAsync, searchMessage } from './inselwahl';
+import { t } from '../i18n';
 
 export interface InselwahlHost {
   /** The current draft, sanitised; null when it is unusable. */
@@ -50,11 +51,15 @@ export class InselwahlPanel {
       'div',
       stil({ display: 'flex', 'align-items': 'center', gap: '8px', padding: '10px 12px 4px' })
     );
-    kopf.append(zierTitel('Inselwahl', 14), luecke(), knopf('Schließen', () => this.close(), { art: 'leise', hoehe: 26 }));
+    kopf.append(
+      zierTitel(t('testflug.inselwahl.titel'), 14),
+      luecke(),
+      knopf(t('testflug.inselwahl.schliessen'), () => this.close(), { art: 'leise', hoehe: 26 })
+    );
     const hinweis = el(
       'div',
       stil({ padding: '0 12px 8px', 'font-size': '11px', color: F.gedimmt2, 'line-height': '1.4' }),
-      'Öffnet den Testflug mit dem Entwurf auf der Inselmitte. Oder: Zeiger über die Karte, Taste T — dann direkt an dieser Stelle.'
+      t('testflug.inselwahl.hinweis')
     );
     this.list = el('div', stil({ overflow: 'auto', padding: '0 6px 8px' }));
     this.root.append(kopf, hinweis, this.list);
@@ -81,7 +86,11 @@ export class InselwahlPanel {
     this.list.replaceChildren();
     if (!layout || layout.regions.length === 0) {
       this.list.appendChild(
-        el('div', stil({ padding: '12px', color: F.gedimmt, 'font-size': '12.5px' }), 'Der Entwurf hat keine Regionen — zeichne zuerst eine Insel.')
+        el(
+          'div',
+          stil({ padding: '12px', color: F.gedimmt, 'font-size': '12.5px' }),
+          t('testflug.inselwahl.keine_regionen')
+        )
       );
     } else {
       // The rows need no heights (only counts); the jump target is computed on click.
@@ -132,24 +141,26 @@ export class InselwahlPanel {
     const zahl = el(
       'span',
       stil({ 'font-family': SCHRIFT.mono, 'font-size': '10.5px', color: F.gedimmt3, 'white-space': 'nowrap' }),
-      e.placements === 1 ? '1 Platzierung' : `${e.placements} Platzierungen`
+      e.placements === 1
+        ? t('testflug.inselwahl.platzierung_eine')
+        : t('testflug.inselwahl.platzierung_mehrere', { n: e.placements })
     );
     const go: HTMLButtonElement = knopf(
-      'In 3D betreten',
+      t('testflug.inselwahl.betreten'),
       () => {
         const region = layout.regions.find((r) => r.id === id);
         if (!region) return;
         const tab = this.host.oeffneTab();
         if (!tab) return;
-        go.textContent = 'Suche …';
+        go.textContent = t('testflug.inselwahl.suche');
         go.disabled = true;
         void this.suche(layout, region, id, tab)
           .catch((fehler: unknown) => {
             tab.close();
-            this.host.meldung(`Die Suche ist fehlgeschlagen: ${String(fehler)}`, true);
+            this.host.meldung(t('testflug.inselwahl.suche_fehlgeschlagen', { fehler: String(fehler) }), true);
           })
           .finally(() => {
-          go.textContent = 'In 3D betreten';
+          go.textContent = t('testflug.inselwahl.betreten');
           go.disabled = false;
         });
       },

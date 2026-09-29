@@ -25,6 +25,8 @@ import { WATER_LEVEL, sanitizeWorldLayout, shapeBounds, signedDistance } from '@
 import type { ContinentDef, RegionDef, WorldLayout } from '@wov/shared';
 import { createWorld } from '../../world/World';
 import { gameUrl } from '../spielAdresse';
+import { aktuelleSprache, t } from '../i18n';
+import type { TranslationKey } from '../../i18n';
 
 /** Ground height in metres at a world point (`ClientWorld.getGroundHeight`). */
 export type GroundHeight = (x: number, z: number) => number;
@@ -86,8 +88,13 @@ export interface IslandEntry {
   message: string | null;
 }
 
-const num = (v: number, digits = 1): string =>
-  v.toFixed(digits).replace('.', ',');
+// N1 (Angriff „Editor T0a", Befund B4): das Komma war fest verdrahtet, auch
+// bei lang=en ("2,5 m above ground" statt "2.5 m") — der Dezimaltrenner
+// folgt jetzt der aktiven Sprache wie der restliche Text.
+const num = (v: number, digits = 1): string => {
+  const text = v.toFixed(digits);
+  return aktuelleSprache() === 'de' ? text.replace('.', ',') : text;
+};
 
 const roundStep = (v: number): number => Math.round(v / COORDINATE_STEP) * COORDINATE_STEP;
 
@@ -120,7 +127,7 @@ export function checkJump(
   rawZ: number
 ): JumpCheck {
   if (!Number.isFinite(rawX) || !Number.isFinite(rawZ)) {
-    return { ok: false, reason: 'invalid', message: 'Keine gültige Stelle.' };
+    return { ok: false, reason: 'invalid', message: t('testflug.inselwahl.keine_gueltige_stelle') };
   }
   const x = roundCoordinate(rawX);
   const z = roundCoordinate(rawZ);
@@ -129,7 +136,7 @@ export function checkJump(
     return {
       ok: false,
       reason: 'outside',
-      message: `Stelle (${Math.round(x)}, ${Math.round(z)}) liegt außerhalb jeder Region — offene See, dort gibt es nichts zu betreten.`,
+      message: t('testflug.inselwahl.ausserhalb_region', { x: Math.round(x), z: Math.round(z) }),
     };
   }
   const g = ground(x, z);
@@ -137,9 +144,13 @@ export function checkJump(
     return {
       ok: false,
       reason: 'water',
-      message:
-        `Stelle (${Math.round(x)}, ${Math.round(z)}) in ${region.id} liegt im Wasser ` +
-        `(Gelände ${num(g)} m, Wasserlinie ${num(WATER_LEVEL, 0)} m).`,
+      message: t('testflug.inselwahl.im_wasser', {
+        x: Math.round(x),
+        z: Math.round(z),
+        region: region.id,
+        gelaende: num(g),
+        wasserlinie: num(WATER_LEVEL, 0),
+      }),
     };
   }
   return { ok: true, x, z, ground: g, y: g + JUMP_CLEARANCE, region };
@@ -155,9 +166,9 @@ export function checkJumpFromDraft(
   posParam: string | null
 ): JumpCheck {
   const target = parseJumpParam(posParam);
-  if (!target) return { ok: false, reason: 'invalid', message: 'Keine gültige Stelle in der Adresse.' };
+  if (!target) return { ok: false, reason: 'invalid', message: t('testflug.inselwahl.keine_gueltige_stelle_adresse') };
   const layout = draft ? sanitizeWorldLayout(draft) : null;
-  if (!layout) return { ok: false, reason: 'invalid', message: 'Kein Entwurf zum Betreten.' };
+  if (!layout) return { ok: false, reason: 'invalid', message: t('testflug.inselwahl.kein_entwurf_betreten') };
   return checkJump(layout, ground, target.x, target.z);
 }
 
@@ -389,7 +400,11 @@ export function islandCentre(
   return islandSearch(layout, region, ground, estimate, opt).target;
 }
 
-const sekunden = (ms: number): string => (ms / 1000).toFixed(1).replace('.', ',');
+// N1 (Befund B4, wie `num` oben): Dezimaltrenner folgt der aktiven Sprache.
+const sekunden = (ms: number): string => {
+  const text = (ms / 1000).toFixed(1);
+  return aktuelleSprache() === 'de' ? text.replace('.', ',') : text;
+};
 
 /**
  * What the player is told after a search, or null when there is nothing to
@@ -404,18 +419,18 @@ export function searchMessage(
 ): { text: string; error: boolean } | null {
   if (!r.target) {
     return r.complete
-      ? { text: `${id} hat kein Land über der Wasserlinie — dort gibt es nichts zu betreten.`, error: true }
+      ? { text: t('testflug.inselwahl.kein_land', { id }), error: true }
       : {
-          text: `Suche nach ${sekunden(budgetMs)} s abgebrochen — bis dahin kein Land in ${id} gefunden, vermutlich hat es keines.`,
+          text: t('testflug.inselwahl.suche_abgebrochen', { sekunden: sekunden(budgetMs), id }),
           error: true,
         };
   }
   if (r.height !== null && r.height < TARGET_HEIGHT) {
     return {
       text:
-        `${id}: das Ziel liegt niedrig — nur ${num(r.height)} m über der Wasserlinie` +
-        (r.complete ? '' : `, die Suche wurde nach ${sekunden(budgetMs)} s abgebrochen`) +
-        ', höheres Land wurde nicht gefunden.',
+        t('testflug.inselwahl.ziel_niedrig', { id, hoehe: num(r.height) }) +
+        (r.complete ? '' : t('testflug.inselwahl.suche_dabei_abgebrochen', { sekunden: sekunden(budgetMs) })) +
+        t('testflug.inselwahl.hoeheres_land_nicht_gefunden'),
       error: false,
     };
   }
@@ -456,7 +471,7 @@ export function islandList(
     return {
       ...row,
       target,
-      message: target ? null : `${row.id} hat kein Land über der Wasserlinie.`,
+      message: target ? null : t('testflug.inselwahl.kein_land_punkt', { id: row.id }),
     };
   });
 }
@@ -496,7 +511,17 @@ export function parseJumpParam(value: string | null): { x: number; z: number } |
   return Number.isFinite(x) && Number.isFinite(z) ? { x, z } : null;
 }
 
-const COMPASS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'] as const;
+/** Display name per compass point — order matches the 45°-step index below. */
+const COMPASS: readonly TranslationKey[] = [
+  'testflug.inselwahl.compass.n',
+  'testflug.inselwahl.compass.no',
+  'testflug.inselwahl.compass.o',
+  'testflug.inselwahl.compass.so',
+  'testflug.inselwahl.compass.s',
+  'testflug.inselwahl.compass.sw',
+  'testflug.inselwahl.compass.w',
+  'testflug.inselwahl.compass.nw',
+];
 
 /**
  * Compass heading of a view direction, in degrees (0 = north = +z, 90 = east
@@ -509,7 +534,7 @@ export function headingOf(yaw: number): number {
 }
 
 export function compassName(heading: number): string {
-  return COMPASS[Math.round((((heading % 360) + 360) % 360) / 45) % 8]!;
+  return t(COMPASS[Math.round((((heading % 360) + 360) % 360) / 45) % 8]!);
 }
 
 export interface PositionInput {
@@ -533,9 +558,9 @@ export function positionLines(
   const g = ground(p.x, p.z);
   const heading = headingOf(p.yaw);
   return [
-    region ? `${region.id} · ${region.biome}` : 'offene See',
+    region ? `${region.id} · ${region.biome}` : t('testflug.inselwahl.offene_see'),
     `x ${Math.round(p.x)}  z ${Math.round(p.z)}`,
-    `${num(p.y - g)} m über Grund (Gelände ${num(g)} m)`,
-    `Blick ${compassName(heading)} ${Math.round(heading)}°`,
+    t('testflug.inselwahl.hoehe_ueber_grund', { hoehe: num(p.y - g), gelaende: num(g) }),
+    t('testflug.inselwahl.blick', { compass: compassName(heading), grad: Math.round(heading) }),
   ];
 }

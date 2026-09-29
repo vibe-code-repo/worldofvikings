@@ -7,7 +7,9 @@
  *   Schwerthiebe). Ein neuer Klick setzt den Hieb von vorn an und verwirft
  *   den wartenden Ton; beim Auslösen muss der Schlag noch laufen.
  * - Treffer/Parade: einzige Quelle ist das Paket `HitEffect` des Servers
- *   (`art` 0 Ernte, 1 Fleisch, 2 Parade). Ohne Serverpaket kein Ton.
+ *   (`art` 0 Ernte, 1 Fleisch, 2 Parade). Ohne Serverpaket kein Ton. Der
+ *   Server meldet beim Klick; ein eigener Schwerttreffer klingt erst zum
+ *   Hiebzeitpunkt des Clips.
  *
  * Kein Babylon, keine Web-Audio-API: Figur, Waffe, Uhr und Ton-Engine kommen
  * als Funktionen herein (Test ohne Browser).
@@ -93,6 +95,8 @@ export class KampfToene {
   private letzterSatz: Waffensatz | null = null;
   private letzterHieb = 0;
   private letzterKlick = -Infinity;
+  /** Uhrzeit, zu der der zuletzt angestoßene Schwerthieb sein Ziel erreicht. */
+  private hiebZeit = -Infinity;
 
   constructor(
     private readonly audio: () => AudioEngine | null,
@@ -109,6 +113,7 @@ export class KampfToene {
     this.letzterSatz = satz;
     this.letzterHieb = hieb;
     this.letzterKlick = this.uhr.jetzt();
+    this.hiebZeit = satz === 'schwert' ? this.letzterKlick + (SCHWUNG_VERZUG_S[hieb] ?? 0.3) : -Infinity;
     if (this.wartend !== null) this.uhr.loesche(this.wartend);
     this.wartend = null;
     const verzug = SCHWUNG_VERZUG_S[hieb] ?? 0.3;
@@ -152,7 +157,16 @@ export class KampfToene {
       const w = this.waffe();
       gruppe = w === 'AxeFlint' ? GRUPPE_HOLZ : w === 'PickaxeAntler' ? GRUPPE_METALL : null;
     }
-    if (gruppe !== null) this.spiele(gruppe, pos);
+    if (gruppe === null) return;
+    // Der Server bestätigt beim Klick, der Hieb erreicht das Ziel aber erst
+    // im Clip: der eigene Treffer klingt zum Hiebzeitpunkt, nicht davor.
+    const rest = eigen && !aufMich ? this.hiebZeit - this.uhr.jetzt() : 0;
+    if (rest > 0.005) {
+      const ort = { x: pos.x, y: pos.y, z: pos.z };
+      this.uhr.setze(() => this.spiele(gruppe, ort), rest * 1000);
+    } else {
+      this.spiele(gruppe, pos);
+    }
   }
 
   private spiele(gruppe: string, pos: { x: number; y: number; z: number }): void {

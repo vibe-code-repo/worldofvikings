@@ -61,6 +61,11 @@ class FalscheUhr implements Uhr {
   }
 }
 
+/** Ohne die Schwungtöne (combat/slash…): nur Treffer, Parade, Ernte. */
+function ohneSchwung(spuren: Spur[]): Spur[] {
+  return spuren.filter((x) => !/^combat\/slash/.test(x.gruppe));
+}
+
 interface Spur {
   zeit: number;
   bus: string;
@@ -180,13 +185,16 @@ console.log('\n[4] Treffer nur mit Serverpaket:');
   a.klick('schwert', 0);
   a.uhr.bis(a.uhr.t + 0.1);
   a.k.treffer(ziel, TREFFER_FLEISCH);
-  pruefe('mit HitEffect: Treffer-Ton sword-flesh am Ziel', a.spuren.length === 1 && a.spuren[0]!.gruppe === 'combat/sword-flesh' && a.spuren[0]!.pos?.x === 13, JSON.stringify(a.spuren));
+  a.uhr.bis(a.uhr.t + 1);
+  const treffer = ohneSchwung(a.spuren);
+  pruefe('mit HitEffect: Treffer-Ton sword-flesh am Ziel', treffer.length === 1 && treffer[0]!.gruppe === 'combat/sword-flesh' && treffer[0]!.pos?.x === 13, JSON.stringify(treffer));
 }
 {
   const a = aufbau();
   a.klick('schwert', 2);
   a.k.treffer({ x: 13, y: 1, z: 10 }, TREFFER_FLEISCH);
-  pruefe('Schwerthieb 3: sword-impact-flesh', a.spuren[0]?.gruppe === 'combat/sword-impact-flesh', String(a.spuren[0]?.gruppe));
+  a.uhr.bis(2);
+  pruefe('Schwerthieb 3: sword-impact-flesh', ohneSchwung(a.spuren)[0]?.gruppe === 'combat/sword-impact-flesh', String(ohneSchwung(a.spuren)[0]?.gruppe));
 }
 {
   const a = aufbau('Spear');
@@ -217,6 +225,38 @@ console.log('\n[4] Treffer nur mit Serverpaket:');
   pruefe('Treffer eines Mitspielers 20 m entfernt: hörbar an seinem Ort', a.spuren[1]?.gruppe === 'combat/sword-flesh' && a.spuren[1]?.pos?.x === 30);
 }
 
+console.log('\n[4b] Der eigene Treffer klingt zum Hiebzeitpunkt:');
+{
+  const soll = [0.28, 0.4, 0.68];
+  for (let hieb = 0; hieb < 3; hieb++) {
+    const a = aufbau();
+    a.uhr.t = 50;
+    a.klick('schwert', hieb);
+    a.uhr.bis(50.03); // Serverpaket kommt 30 ms nach dem Klick
+    a.k.treffer({ x: 13, y: 1, z: 10 }, TREFFER_FLEISCH);
+    const vorher = a.spuren.filter((x) => x.gruppe.includes('flesh')).length;
+    a.uhr.bis(50 + soll[hieb]! - 0.01);
+    const kurzVor = a.spuren.filter((x) => x.gruppe.includes('flesh')).length;
+    a.uhr.bis(50 + soll[hieb]! + 0.01);
+    const flesh = a.spuren.filter((x) => x.gruppe.includes('flesh'));
+    pruefe(`Hieb ${hieb + 1}: Treffer nicht sofort (${vorher}), nicht 10 ms vor dem Hieb (${kurzVor}), dann genau einer`, vorher === 0 && kurzVor === 0 && flesh.length === 1, String(flesh.length));
+    pruefe(`Hieb ${hieb + 1}: Treffer-Ton zeitgleich mit dem Schwung (${soll[hieb]} s)`, flesh.length === 1 && Math.abs(flesh[0]!.zeit - (50 + soll[hieb]!)) < 1e-6, String(flesh[0]?.zeit));
+    pruefe(`Hieb ${hieb + 1}: an der Trefferstelle`, flesh[0]?.pos?.x === 13);
+  }
+  const a = aufbau();
+  a.klick('schwert', 0);
+  a.uhr.bis(0.5);
+  a.k.treffer({ x: 13, y: 1, z: 10 }, TREFFER_FLEISCH);
+  pruefe('Serverpaket NACH dem Hiebzeitpunkt: sofort', a.spuren.filter((x) => x.gruppe.includes('flesh')).length === 1 && a.spuren[a.spuren.length - 1]!.zeit === 0.5);
+  const b = aufbau();
+  b.k.treffer({ x: 13, y: 1, z: 10 }, TREFFER_FLEISCH);
+  pruefe('fremder Treffer (kein eigener Klick): sofort', b.spuren.length === 1 && b.spuren[0]!.zeit === 0);
+  const c = aufbau('');
+  c.klick('faust', 0);
+  c.k.treffer({ x: 12, y: 1, z: 10 }, TREFFER_FLEISCH);
+  pruefe('Faust (Hiebzeit ungemessen): Treffer sofort', c.spuren.length === 1 && c.spuren[0]!.gruppe === 'combat/punch' && c.spuren[0]!.zeit === 0);
+}
+
 console.log('\n[5] Ernte (HitEffect art 0):');
 {
   const cases: [string, string | null][] = [
@@ -229,7 +269,9 @@ console.log('\n[5] Ernte (HitEffect art 0):');
     const a = aufbau(w);
     a.klick('schwert', 0);
     a.k.treffer({ x: 12, y: 1, z: 10 }, TREFFER_ERNTE);
-    pruefe(`Ernte mit ${w || 'leerer Hand'}: ${soll ?? 'kein Ton'}`, (a.spuren[0]?.gruppe ?? null) === soll, String(a.spuren[0]?.gruppe ?? null));
+    a.uhr.bis(2);
+    const e = ohneSchwung(a.spuren)[0]?.gruppe ?? null;
+    pruefe(`Ernte mit ${w || 'leerer Hand'}: ${soll ?? 'kein Ton'}`, e === soll, String(e));
   }
   const a = aufbau('AxeFlint');
   a.k.treffer({ x: 12, y: 1, z: 10 }, TREFFER_ERNTE);

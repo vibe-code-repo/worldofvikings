@@ -8,4 +8,4 @@ export const WILDWARDEN_PARTS = ([
   { id: 'wildwarden_bracers', item: 'wildwarden_bracers', name: 'Waldhüter-Wurzelarmschienen', slot: 'unterarme', equipment: 'unterarme', regions: ['ArmLowerLeft', 'ArmLowerRight'], hideAppearance: [], weight: 1 },
   { id: 'wildwarden_gloves', item: 'wildwarden_gloves', name: 'Waldhüter-Lederhandschuhe', slot: 'haende', equipment: 'haende', regions: ['HandLeft', 'HandRight'], hideAppearance: [], weight: .5 },
   { id: 'wildwarden_boots', item: 'wildwarden_boots', name: 'Waldhüter-Wanderstiefel', slot: 'fuesse', equipment: 'schuhe', regions: ['LegLeft', 'LegRight'], hideAppearance: [], weight: 1 },
-] as const).map(part => ({ ...part, ...MALE_ARMOR_BODY }));
+] as const).map(part => ({ ...part, ...MALE_ARMOR_BODY, textKey: `inhalt.item.${part.id}` }));

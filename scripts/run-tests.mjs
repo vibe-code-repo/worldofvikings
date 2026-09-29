@@ -2526,6 +2526,12 @@ const KERN = [
     noetig).
   */
   ['client', 'test/schritte-gruppe.ts'],
+  /*
+    Kampftoene (client/src/engine/Audio/KampfToene.ts): Schwung zum
+    Hiebzeitpunkt, Treffer/Parade nur mit HitEffect, Faust ohne Schwung,
+    alle Gruppen im `toene`-Abschnitt der getrackten assets/manifest.json.
+  */
+  ['client', 'test/kampf-toene.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

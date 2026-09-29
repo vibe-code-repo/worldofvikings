@@ -114,6 +114,16 @@ export interface SavedPlayer {
   klasse?: string;
   starterSetGranted?: string;
   ruestung?: string;
+  /**
+   * F8: Zeitpunkt (ms seit Epoch), zu dem dieser Stand gezogen wurde.
+   * Optional — Staende von vor F8 haben ihn nicht und zaehlen als 0.
+   *
+   * Der Spielerzustand liegt an ZWEI Stellen: im Weltspeicher (players[],
+   * alle 30 min und beim Stopp) und in der Konten-SQLite (write-behind,
+   * s. spiel/SpielerSicherung.ts). Beim Laden gewinnt der NEUERE; der
+   * Zeitstempel ist der Schiedsrichter (spiel/SpielerSicherung.neuerAls).
+   */
+  gespeichertAm?: number;
 }
 
 export interface WorldSaveData {

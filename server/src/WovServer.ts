@@ -103,6 +103,7 @@ import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleichErgebnis, type LayoutAbgleichKontext } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
+import { SpielerSicherung, SPIELER_SICHERUNG_INTERVALL_MS, neuerAls } from './spiel/SpielerSicherung.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
@@ -174,6 +175,13 @@ export interface ServerConfig {
   worldName: string;
   worldSeed: string;
   saveIntervalMs: number;
+  /**
+   * F8: Takt der Spielerzustands-Sicherung in die Konten-SQLite (ms).
+   * Vorgabe 30 s = obere Grenze des Verlustfensters ausserhalb von
+   * Ereignissen (s. spiel/SpielerSicherung.ts). Tests verkuerzen ihn hier,
+   * statt etwas zu ueberschreiben.
+   */
+  spielerSicherungMs: number;
   // Worldgen (D6) — the world* flags (server.yml world section)
   worldGenVersion: number;
   worldBlendSmoothStep: boolean;
@@ -328,6 +336,7 @@ const DEFAULT_CONFIG: ServerConfig = {
   worldSeed: 'KxSYuZquuw',
   wetterVorgabe: WETTER_VORGABE_AUS,
   saveIntervalMs: SAVE_INTERVAL_MS,
+  spielerSicherungMs: SPIELER_SICHERUNG_INTERVALL_MS,
   worldGenVersion: 2,
   worldBlendSmoothStep: true,
   worldBilinearHeight: false,
@@ -587,6 +596,10 @@ export class WovServer {
   private running: boolean;
   private updateTimer: ReturnType<typeof setInterval> | null;
   private saveTimer: ReturnType<typeof setInterval> | null;
+  /** F8: Takt der Spielerzustands-Sicherung. */
+  private spielerTimer: ReturnType<typeof setInterval> | null = null;
+  /** F8: null bis init() (Unit-Tests ohne init). */
+  private spielerSicherung: SpielerSicherung | null = null;
   private zdoSyncAccumulator: number;
   /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
   private layoutWache: LayoutWache | null = null;
@@ -1156,6 +1169,13 @@ export class WovServer {
       this.config.worldGenVersion,
       this.worldLayoutHash()
     );
+    // F8: Welt-Kennung der Spielerzustands-Zeilen. Seed + Layout-Hash: nach
+    // "Welt zuruecksetzen" ohne Konten aendert sich (mindestens) der Hash,
+    // und die alten Zeilen gelten als fremd (s. SpielerSicherung).
+    this.spielerSicherung = new SpielerSicherung(
+      this.kontenDb,
+      `${this.config.worldSeed}|${this.worldLayoutHash() ?? ''}`
+    );
     this.loadWorld();
 
     // Phase G: Camps (Dörfer, Farmen, GoblinCamps) in bereits generierten
@@ -1610,6 +1630,7 @@ export class WovServer {
     // A second start() without stop() must not stack timers.
     if (this.updateTimer) clearInterval(this.updateTimer);
     if (this.saveTimer) clearInterval(this.saveTimer);
+    if (this.spielerTimer) clearInterval(this.spielerTimer);
 
     this.running = true;
     this.startTime = Date.now();
@@ -1637,6 +1658,11 @@ export class WovServer {
       void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
 
+    // F8: Spielerzustand alle 30 s (write-behind), s. spiel/SpielerSicherung.ts.
+    this.spielerTimer = setInterval(() => {
+      this.sichereSpieler(this.net.getPeers(), 'takt');
+    }, this.config.spielerSicherungMs);
+
     return gebunden.then(
       (port) => {
         console.log(`[WoV] Server started: "${this.config.name}" on port ${port}`);
@@ -1649,8 +1675,10 @@ export class WovServer {
         this.running = false;
         if (this.updateTimer) clearInterval(this.updateTimer);
         if (this.saveTimer) clearInterval(this.saveTimer);
+        if (this.spielerTimer) clearInterval(this.spielerTimer);
         this.updateTimer = null;
         this.saveTimer = null;
+        this.spielerTimer = null;
         throw err;
       },
     );
@@ -1668,6 +1696,8 @@ export class WovServer {
 
     if (this.updateTimer) clearInterval(this.updateTimer);
     if (this.saveTimer) clearInterval(this.saveTimer);
+    if (this.spielerTimer) clearInterval(this.spielerTimer);
+    this.spielerTimer = null;
 
     // Netz zuerst zu, aber nur die ANNAHME: Die verbundenen Peers muessen
     // fuer den Save noch in der Liste stehen (momentaufnahme() liest ihre
@@ -1678,6 +1708,11 @@ export class WovServer {
     // und ein Prozess, der gleich beendet wird, arbeitet keine Promises mehr
     // ab — ein asynchroner Save käme nie bis zum `rename`.
     let gespeichert = true;
+    // F8: letzte Spielersicherung VOR dem Weltspeichern (die Peers stehen noch
+    // in der Liste). Scheitert sie, ist das laut, aber kein Grund, den
+    // Stopp-Rueckgabewert zu aendern: der Weltspeicher traegt dieselben
+    // Staende in players[] (S1: "Stopp immer mit Ende").
+    this.sichereSpieler(this.net.getPeers(), 'stopp');
     try {
       this.saveWorld();
     } catch (err) {
@@ -2328,6 +2363,9 @@ export class WovServer {
         this.savedPlayers.delete(schluessel);
       }
     }
+    // F8: auch die Zeilen der Konten-SQLite, sonst kaeme der Stand beim
+    // naechsten Start zurueck (der neuere gewinnt, s. spielerstaendeAusKonto).
+    this.spielerSicherung?.vergiss([...ids]);
     const besitzer = new Set(konto.charaktere.map((c) => c.altlastUserId.toString()));
     let truhen = 0;
     let bauten = 0;
@@ -2380,23 +2418,12 @@ export class WovServer {
     // and the next world save writes it to the players[] section.
     // F3 (Security-Review): geschluesselt ueber die stabile spielerId,
     // nicht mehr ueber den Namen — siehe Kopfkommentar von savedPlayers.
-    this.savedPlayers.set(peer.spielerId, {
-      name: peer.name,
-      spielerId: peer.spielerId,
-      position: { ...peer.position },
-      flying: peer.flying,
-      spawnPoint: peer.spawnPoint ?? undefined,
-      spawnBettId: peer.spawnBettId || undefined,
-      spawnBettBesitzer: peer.spawnBettBesitzer ?? undefined,
-      figur: peer.figur,
-      frisur: peer.frisur,
-      haarfarbe: peer.haarfarbe,
-      augenfarbe: peer.augenfarbe,
-      klasse: peer.klasse,
-      starterSetGranted: peer.starterSetGranted,
-      ruestung: peer.ruestung,
-      inventar: peer.inventar.serialize(),
-    });
+    const stand = this.spielerStand(peer);
+    this.savedPlayers.set(peer.spielerId, stand);
+    // F8: der Abschlussstand geht sofort in die SQLite (Fehler laut, der
+    // Weltspeicher hat ihn ohnehin in savedPlayers).
+    this.spielerSicherung?.sichere([stand], 'abmelden');
+    this.spielerSicherung?.abgemeldet(peer.spielerId);
     // Destroy player character ZDO
     if (!peer.characterID.isNone()) {
       this.zdosVon(peer).destroyZDO(peer.characterID);
@@ -4214,6 +4241,7 @@ export class WovServer {
       // Nur ein Layout-Bett wandert mit dem Gelaende: seine Kennung merken.
       peer.spawnBettId = istSpielerbau(ziel) ? '' : ziel.getString(LAYOUT_ID_MEMBER);
       peer.spawnBettBesitzer = ziel.getString('besitzer');
+      this.sichereSpielerSofort(peer, 'schlafplatz'); // F8
       return antwort(true, 'Schlafplatz gesetzt — hier wachst du künftig auf');
     }
 
@@ -4371,6 +4399,8 @@ export class WovServer {
       charZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
     }
     this.kappeLeben(peer);
+    // F8: Ausruestungswechsel geht sofort auf die Platte.
+    this.sichereSpielerSofort(peer, 'ausruestung');
   }
 
   private handleSetFigur(peer: Peer, reader: Reader): void {
@@ -4388,6 +4418,7 @@ export class WovServer {
     if (charZDO) charZDO.setString(FIGUR_MEMBER, gewuenscht);
     // Teile, die zur neuen Figur nicht passen, fallen ab (dieselbe Pruefung wie sonst), Werte werden neu gerechnet.
     this.inventarSync(peer);
+    this.sichereSpielerSofort(peer, 'figur'); // F8
     console.log(`[WoV] "${peer.name}" spielt jetzt als "${gewuenscht}"`);
   }
 
@@ -5598,6 +5629,7 @@ export class WovServer {
           if (treffer.length === 0) { uebersprungen.push(`${name} (unbekannt)`); continue; }
           if (treffer.length > 1) { uebersprungen.push(`${name} (nicht eindeutig)`); continue; }
           this.savedPlayers.delete(treffer[0][0]);
+          this.spielerSicherung?.vergiss([treffer[0][0], treffer[0][1].spielerId ?? '']);
           weg.push(name);
         }
         const rest = this.savedPlayers.size;
@@ -6141,6 +6173,75 @@ export class WovServer {
   // ── Persistence ────────────────────────────────────────────────
 
   /**
+   * F8: Spielerstaende aus der Konten-SQLite einlesen. REGEL: Es gewinnt der
+   * NEUERE Stand (SavedPlayer.gespeichertAm), egal ob er aus dem
+   * Weltspeicher oder aus der SQLite kommt; bei Gleichstand oder fehlendem
+   * Zeitstempel bleibt der schon geladene Weltspeicher-Eintrag (s.
+   * spiel/SpielerSicherung.neuerAls). Damit macht ein aelterer Weltspeicher
+   * (Absturz zwischen zwei Speicherungen) keinen Rueckschritt.
+   */
+  private spielerstaendeAusKonto(): void {
+    if (!this.spielerSicherung) return;
+    let uebernommen = 0;
+    for (const stand of this.spielerSicherung.laden()) {
+      const schluessel = stand.spielerId!;
+      if (neuerAls(stand, this.savedPlayers.get(schluessel))) {
+        this.savedPlayers.set(schluessel, stand);
+        uebernommen++;
+      }
+    }
+    if (uebernommen > 0) {
+      console.log(`[WoV] ${uebernommen} Spielerstand/-staende aus der Konten-SQLite (neuer als der Weltspeicher)`);
+    }
+  }
+
+  /**
+   * F8: Der Spielerstand eines verbundenen Peers — EINE Stelle fuer
+   * Abmelden, Weltspeichern und die laufende Sicherung, damit sich die
+   * drei nie auseinanderentwickeln.
+   *
+   * Phase G: fuer Peers in einem Dungeon zaehlt der Rueckkehrpunkt der
+   * Oberwelt — Instanzen ueberleben keinen Neustart.
+   */
+  private spielerStand(peer: Peer): SavedPlayer {
+    return {
+      name: peer.name,
+      spielerId: peer.spielerId,
+      position: peer.dungeonId && peer.dungeonReturn ? { ...peer.dungeonReturn } : { ...peer.position },
+      flying: peer.flying,
+      spawnPoint: peer.spawnPoint ?? undefined,
+      spawnBettId: peer.spawnBettId || undefined,
+      spawnBettBesitzer: peer.spawnBettBesitzer ?? undefined,
+      figur: peer.figur,
+      frisur: peer.frisur,
+      haarfarbe: peer.haarfarbe,
+      augenfarbe: peer.augenfarbe,
+      klasse: peer.klasse,
+      starterSetGranted: peer.starterSetGranted,
+      ruestung: peer.ruestung,
+      inventar: peer.inventar.serialize(),
+      gespeichertAm: Date.now(),
+    };
+  }
+
+  /**
+   * F8: verbundene Spieler in die Konten-SQLite sichern (nur die
+   * veraenderten, eine Transaktion). Editor-Sitzungen und noch nicht
+   * angemeldete Verbindungen nie: Sie tragen keine Figur und koennten die
+   * spielerId eines echten Charakters teilen.
+   */
+  private sichereSpieler(peers: readonly Peer[], grund: string): void {
+    if (!this.spielerSicherung) return;
+    const staende = peers.filter((p) => p.authenticated && !p.nurEditor && p.spielerId).map((p) => this.spielerStand(p));
+    this.spielerSicherung.sichere(staende, grund);
+  }
+
+  /** F8: Ereignis, das sofort auf die Platte muss (Ausruestung, Schlafplatz, ...). */
+  private sichereSpielerSofort(peer: Peer, grund: string): void {
+    this.sichereSpieler([peer], grund);
+  }
+
+  /**
    * Loads the save file (reference order preserved): worldTime →
    * generated zones → persistent ZDOs. Player positions load into savedPlayers and are applied in
    * onPeerAuthenticated. No save file / mismatch → fresh world.
@@ -6149,6 +6250,9 @@ export class WovServer {
     const data = this.worldManager.load();
     if (!data) {
       console.log('[WoV] No saved world found — starting fresh');
+      // F8: auch ohne Weltdatei (Absturz vor dem ersten Weltspeichern) kann
+      // die Konten-SQLite Spielerstaende halten.
+      this.spielerstaendeAusKonto();
       return;
     }
 
@@ -6204,6 +6308,7 @@ export class WovServer {
         player.spielerId && istSpielerId(player.spielerId) ? player.spielerId : player.name;
       this.savedPlayers.set(schluessel, player);
     }
+    this.spielerstaendeAusKonto();
 
     // Vegetation nachsetzen: gebackene y-Werte stammen aus dem Boden ZUM
     // GENERIERUNGSZEITPUNKT. Ändert sich der danach — Terrain-Modifier
@@ -6398,28 +6503,7 @@ export class WovServer {
       // Schluessel); der bleibt unbenutzt liegen. Was tatsaechlich auf die Platte geht, sind nur die WERTE
       // (players[] ist ein Array) — der Map-Schluessel selbst ist reiner
       // Laufzeitzustand.
-      players.set(peer.spielerId, {
-        name: peer.name,
-        spielerId: peer.spielerId,
-        // Phase G: for peers inside a dungeon save the overworld return
-        // point — instances don't survive a restart.
-        position:
-          peer.dungeonId && peer.dungeonReturn
-            ? { ...peer.dungeonReturn }
-            : { ...peer.position },
-        flying: peer.flying,
-        spawnPoint: peer.spawnPoint ?? undefined,
-        spawnBettId: peer.spawnBettId || undefined,
-        spawnBettBesitzer: peer.spawnBettBesitzer ?? undefined,
-        figur: peer.figur,
-        frisur: peer.frisur,
-        haarfarbe: peer.haarfarbe,
-        augenfarbe: peer.augenfarbe,
-        klasse: peer.klasse,
-        starterSetGranted: peer.starterSetGranted,
-        ruestung: peer.ruestung,
-        inventar: peer.inventar.serialize(),
-      });
+      players.set(peer.spielerId, this.spielerStand(peer));
     }
 
     return {

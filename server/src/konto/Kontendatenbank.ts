@@ -352,6 +352,21 @@ export class Kontendatenbank {
         UNIQUE (melder_konto_id, gemeldet_konto_id)
       );
     `);
+
+    // F8: laufender Spielerzustand (write-behind, s. spiel/SpielerSicherung.ts).
+    // Kein Fremdschluessel auf charaktere: Gaeste ohne Konto haben eine
+    // spielerId und keine Kontozeile, und ihr Stand gehoert genauso
+    // gesichert. `welt_id` bindet die Zeile an die Welt, in der sie
+    // entstand — nach "Welt zuruecksetzen" ohne Konten bliebe sie sonst
+    // liegen und braechte alte Inventare in die neue Welt.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS spielerzustand (
+        spieler_id TEXT PRIMARY KEY COLLATE NOCASE,
+        welt_id    TEXT NOT NULL,
+        stand      INTEGER NOT NULL,
+        daten      TEXT NOT NULL
+      );
+    `);
   }
 
   // ── Accounts ────────────────────────────────────────────────────────
@@ -933,6 +948,48 @@ export class Kontendatenbank {
       erstellt: Number(z.erstellt),
       zuletztGespielt: z.zuletzt_gespielt === null ? null : Number(z.zuletzt_gespielt),
     };
+  }
+
+  // ── F8: Spielerzustand (write-behind) ───────────────────────────────
+
+  /**
+   * Zeilen des Spielerzustands in EINER Transaktion schreiben (Ersetzen je
+   * spielerId). Alles oder nichts: wirft, wenn irgendetwas scheitert, und
+   * rollt zurueck — der Aufrufer behaelt die Eintraege dann als schmutzig.
+   */
+  spielerzustandSchreiben(zeilen: readonly { spielerId: string; weltId: string; stand: number; daten: string }[]): void {
+    if (zeilen.length === 0) return;
+    const ersetzen = this.db.prepare(
+      'INSERT OR REPLACE INTO spielerzustand (spieler_id, welt_id, stand, daten) VALUES (?, ?, ?, ?)',
+    );
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const z of zeilen) ersetzen.run(z.spielerId, z.weltId, z.stand, z.daten);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK'); } catch { /* Transaktion schon weg */ }
+      throw err;
+    }
+  }
+
+  /** Alle Zeilen der Welt `weltId` (Zeitstempel in ms, JSON-Text). */
+  spielerzustandLesen(weltId: string): { spielerId: string; stand: number; daten: string }[] {
+    return (
+      this.db
+        .prepare('SELECT spieler_id, stand, daten FROM spielerzustand WHERE welt_id = ?')
+        .all(weltId) as Record<string, unknown>[]
+    ).map((z) => ({ spielerId: String(z.spieler_id), stand: Number(z.stand), daten: String(z.daten) }));
+  }
+
+  /** Zeilen fremder Welten wegraeumen (Weltwechsel nach einem Zuruecksetzen); liefert die Zahl. */
+  spielerzustandFremdeWeltenLoeschen(weltId: string): number {
+    return Number(this.db.prepare('DELETE FROM spielerzustand WHERE welt_id <> ?').run(weltId).changes);
+  }
+
+  /** Zeilen einzelner Spieler loeschen (Konto geloescht, `spieler entfernen`). */
+  spielerzustandLoeschen(spielerIds: readonly string[]): void {
+    const weg = this.db.prepare('DELETE FROM spielerzustand WHERE spieler_id = ?');
+    for (const id of spielerIds) weg.run(id);
   }
 
   schliessen(): void {

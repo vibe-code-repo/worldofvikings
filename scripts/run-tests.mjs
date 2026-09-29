@@ -2632,6 +2632,13 @@ const KERN = [
   */
   ['shared', 'test/kampf-attribute.ts'],
   ['server', 'test/kampf-attribute.ts'],
+  /*
+    F8 (2026-09-29): Spielerzustand write-behind in die Konten-SQLite. Echte
+    Serverprozesse mit SIGKILL, ein echter WebSocket-Spieler: Takt, Ereignis,
+    Stopp, neuester Stand gewinnt, fremde Welt, Fehlerweg. Keine Assets.
+    Ephemerer Port, ~60 s.
+  */
+  ['server', 'test/spielerzustand-writebehind.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

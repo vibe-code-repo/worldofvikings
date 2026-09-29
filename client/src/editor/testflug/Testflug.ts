@@ -35,7 +35,7 @@ import { LageAnzeige } from './LageAnzeige';
 import { positionLines, regionAt } from './inselwahl';
 import { planReturn, sendReturnFromBrowser } from './ruecksprung';
 import type { TestflugKontext } from './TestflugKontext';
-import { antwortText } from './TestflugPersistenz';
+import { antwortText, speicherText } from './TestflugPersistenz';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebnis } from './TestflugPersistenz';
 import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
 import { sockelRadiusFuer } from './sockel';
@@ -467,7 +467,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         void persistenz
           .speichern(sauber)
           .then((a) => {
-            hud.meldung(a.ok ? t('testflug.gespeichert_neustart_noetig', { message: a.message }) : a.message);
+            hud.meldung(speicherText(a));
           })
           .catch((err) => hud.meldung(t('testflug.speichern_fehlgeschlagen', { fehler: String(err) })));
       },

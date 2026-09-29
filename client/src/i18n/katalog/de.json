@@ -291,6 +291,7 @@
   "testflug.lage.sprung_abgelehnt": "Sprung abgelehnt",
   "testflug.lage.zurueck_zur_karte": "Q: zurück zur Karte",
   "testflug.letzte_platzierung_entfernt": "Letzte Platzierung entfernt",
+  "testflug.loeschsperre": "{count} Löschung(en) zurückgehalten und noch nicht ausgeführt — im Karteneditor bestätigen.",
   "testflug.npc_angaben_uebernommen": "{prefab}: Angaben übernommen",
   "testflug.ops.angewendet": "Angewendet",
   "testflug.ops.grund_unbekannt": "unbekannt",

@@ -392,6 +392,8 @@ export type SchreibAntwort =
        * Editors; `null`/fehlt: keine Sperre offen.
        */
       sperrHinweis?: string | null;
+      /** Test flight: the count of locked objects in the receipt's `loeschsperre` (0 or missing: none). */
+      sperrAnzahl?: number;
     }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
@@ -534,6 +536,7 @@ export async function schreibeWeltdokument(
       grund: typeof d.grund === 'string' ? d.grund : null,
       detail: hoehenText ? `${hoehenText}${detail ? ` ${detail}` : ''}` : detail,
       zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
+      sperrAnzahl: gesperrt,
       sperrHinweis: gesperrt > 0 && d.grund !== 'bestaetigung-noetig' ? lockMessage(d.angewendet === true ? 'lock.applied' : 'lock.open', { count: gesperrt }, sichereSprache(locale)) : null,
     };
   }

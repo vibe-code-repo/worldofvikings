@@ -64,13 +64,20 @@ const basisLesen = (sp: EntwurfsSpeicher): string | null | undefined => {
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
+/**
+ * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
+ * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
+ * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ * Each module adds two checks to SOLL.
+ */
+const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 let fehler = 0;
 let gut = 0;
 // Expected number of checks. A cut-short run (`process.exit(0)`, an exception, a section that never ran) prints no ✗ line and
 // may even exit 0 -- counted as "0 red" it would pass. So the exit hook prints a red line and sets the exit code, and the end
 // compares ✓ + ✗ with this number.
-const SOLL = 315;
+const SOLL = 321;
 let fertig = false;
 process.on('exit', () => {
   if (fertig) return;
@@ -2428,6 +2435,23 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     fremdeKontexte.map((c) => c.getText().slice(0, 60)).join(' | ')
   );
   check('… und alle Haken-Arten kommen vor (kein Haken wurde stillschweigend aus dem Editor genommen)', HAKEN.every((h) => hakenAufrufe.some((c) => aufrufName(c) === h)), HAKEN.filter((h) => !hakenAufrufe.some((c) => aufrufName(c) === h)).join(','));
+  // The same boundary for the modules cut out of editorMain.ts, each on its own syntax tree. The lower bound of 12 call sites
+  // stays with editorMain.ts: a module may call no hook at all, but every hook it calls gets `werkzeugKontext`.
+  const cutOutTrees = CUT_OUT_MODULES.map((file) => ({ file, tree: baum(readFileSync(resolve(HIER, '../src/editor', file), 'utf-8'), file) }));
+  for (const { file, tree } of cutOutTrees) {
+    const hookCalls = aufrufeIn(tree).filter((c) => ts.isPropertyAccessExpression(c.expression) && HAKEN.includes(aufrufName(c)!) && c.arguments.length > 0);
+    const resolveAlias = (id: ts.Identifier, depth = 0): string => {
+      if (depth > 4) return id.text;
+      const d = knoten(tree).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === id.text && n.initializer !== undefined && ts.isIdentifier(n.initializer));
+      return d ? resolveAlias(d.initializer as ts.Identifier, depth + 1) : id.text;
+    };
+    const otherContexts = hookCalls.filter((c) => !(ts.isIdentifier(c.arguments[0]!) && resolveAlias(c.arguments[0] as ts.Identifier) === 'werkzeugKontext'));
+    check(
+      `${file}: jeder Werkzeug-Haken (${HAKEN.length} Arten, ${hookCalls.length} Aufrufstellen) bekommt \`werkzeugKontext\` — keiner einen anderen Kontext (abweichend: ${otherContexts.length})`,
+      otherContexts.length === 0,
+      otherContexts.map((c) => c.getText().slice(0, 60)).join(' | ')
+    );
+  }
   // Die großen Editor-Funktionen gehen unverpackt in den Kern (oder in einem Pfeil `() => f()`), nie als Attrappe.
   const glieder = (e: ts.Expression, sf: ts.SourceFile, tiefe = 0): Map<string, ts.Expression> | null => {
     if (tiefe > 6) return null;
@@ -2531,6 +2555,15 @@ console.log('▶ Quelltextprüfung editorMain.ts');
       (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && SCHREIBER.includes(n.expression.name.text) && n.arguments.length > 0 && wurzelName(n.arguments[0]!) === 'werkzeugKontext')
   );
   check('editorMain.ts: kein Schreibzugriff auf `werkzeugKontext` (Zuweisung an ein Glied, Object.assign, defineProperty)', schreibzugriffe.length === 0, schreibzugriffe.map((n) => n.getText().slice(0, 60)).join(' | '));
+  // The same boundary for the modules cut out of editorMain.ts, each on its own syntax tree.
+  for (const { file, tree } of cutOutTrees) {
+    const writes = knoten(tree).filter(
+      (n) =>
+        (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment && !ts.isIdentifier(n.left) && wurzelName(n.left) === 'werkzeugKontext') ||
+        (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && SCHREIBER.includes(n.expression.name.text) && n.arguments.length > 0 && wurzelName(n.arguments[0]!) === 'werkzeugKontext')
+    );
+    check(`${file}: kein Schreibzugriff auf \`werkzeugKontext\` (Zuweisung an ein Glied, Object.assign, defineProperty)`, writes.length === 0, writes.map((n) => n.getText().slice(0, 60)).join(' | '));
+  }
 
   const rueckruf = /beiFremdem: \(fremd, info\) => \{([\s\S]*?)\n  \},\n\}\);/.exec(quelle)?.[1] ?? '';
   const iM = rueckruf.indexOf('verlauf.uebernahme(layout, fremd);');

@@ -24,12 +24,19 @@ import type { SeitenHost, WerkzeugKontext } from '../src/editor/werkzeuge/typ';
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
 const EDITOR = resolve(HIER, '../src/editor');
+/**
+ * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
+ * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
+ * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ * Each module adds one check to SOLL.
+ */
+const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 let fehler = 0;
 let gut = 0;
 // Expected number of checks. A crash in the middle (an exception, a section that never ran) prints no ✗ line -- counted
 // as "0 red" it would pass; so the end (and the exit hook) compares ✓ + ✗ with this number.
-const SOLL = 180;
+const SOLL = 183;
 let fertig = false;
 process.on('exit', () => {
   if (fertig) return;
@@ -1066,6 +1073,11 @@ async function main(): Promise<void> {
     const hud = readFileSync(resolve(EDITOR, 'KartenHud.ts'), 'utf-8');
     const index = readFileSync(resolve(EDITOR, 'werkzeuge', 'index.ts'), 'utf-8');
     gleich("editorMain.ts: no `werkzeug === 'platzieren'` branch", haupt.match(/werkzeug\s*[!=]==\s*'platzieren'/g) ?? [], []);
+    // The same boundary for the modules cut out of editorMain.ts, each file on its own.
+    for (const file of CUT_OUT_MODULES) {
+      const text = kanonisch(readFileSync(resolve(EDITOR, file), 'utf-8'));
+      gleich(`${file}: no \`werkzeug === 'platzieren'\` branch`, text.match(/werkzeug\s*[!=]==\s*'platzieren'/g) ?? [], []);
+    }
     gleich('editorMain.ts: no `spawnPrefab`, no `layoutMitPlatzierung`', haupt.match(/\b(spawnPrefab|layoutMitPlatzierung)\b/g) ?? [], []);
     check('editorMain.ts: a release counts as "on the map" only when the element under the pointer IS the map (elementFromPoint), so a floating panel over the map aborts the drag like the sidebar', /document\.elementFromPoint\(e\.clientX, e\.clientY\) === overlay/.test(haupt) && !/getBoundingClientRect\(\);\s*const drin/.test(haupt));
     check('editorMain.ts: a click on a floating panel over the map reaches the tool (capture listener on the map container -> beiFlaechenKlick), the map itself does not count', /flaeche\.addEventListener\('pointerdown', \(e\) => \{\s*if \(e\.target === overlay[^\n]*\)\s*return;\s*werkzeugMitId\(werkzeug\)\?\.beiFlaechenKlick\?\.\(werkzeugKontext\);\s*\}, true\)/.test(haupt));

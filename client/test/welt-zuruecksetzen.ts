@@ -49,6 +49,12 @@ type ResetZahlen = import('../src/editor/weltZuruecksetzen').ResetZahlen;
 type ResetErgebnis = import('../src/editor/weltZuruecksetzen').ResetErgebnis;
 
 const HIER = dirname(fileURLToPath(import.meta.url));
+/**
+ * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
+ * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
+ * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ */
+const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 let fehler = 0;
 function check(name: string, ok: boolean, zusatz = ''): void {
@@ -425,6 +431,12 @@ const dialog = quelle('../src/editor/WeltZuruecksetzenDialog.ts');
   check('resetSektionBauen hängt im Welt-Reiter (weltSektionBauen ruft sie)', !!weltSektion && alle(weltSektion, istAufruf).some((c) => aufrufName(c) === 'resetSektionBauen'));
   const texte = alle(main, (n): n is ts.StringLiteral => ts.isStringLiteralLike(n) && /welt-zuruecksetzen/.test(n.text));
   check('editorMain kennt den Pfad /api/welt-zuruecksetzen nicht selbst (nur weltZuruecksetzen.ts)', texte.length === 0, `n=${texte.length}`);
+  // The same boundary for the modules cut out of editorMain.ts, each on its own syntax tree.
+  for (const file of CUT_OUT_MODULES) {
+    const tree = quelle(`../src/editor/${file}`);
+    const found = alle(tree, (n): n is ts.StringLiteral => ts.isStringLiteralLike(n) && /welt-zuruecksetzen/.test(n.text));
+    check(`${file} kennt den Pfad /api/welt-zuruecksetzen nicht selbst (nur weltZuruecksetzen.ts)`, found.length === 0, `n=${found.length}`);
+  }
   const abgleich = funktion(main, 'testweltSchalten');
   check('der Wartebalken benutzt denselben Weg wie die Testwelt (dienstAbwarten → testweltStand)', (() => {
     const warten = funktion(main, 'dienstAbwarten');

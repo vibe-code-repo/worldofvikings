@@ -10,7 +10,7 @@
  * stacks and swaps otherwise — same rule as the original.
  */
 
-import type { AusruestungsSlot, Inventory, ItemShared, ItemStack } from '@wov/shared';
+import type { AusruestungsSlot, Inventory, ItemStack } from '@wov/shared';
 import type { Equipment } from '../player/Equipment';
 import type { GameI18n } from '../i18n';
 import { UI, overlayStyle, panelStyle, slotStyle, titleStyle } from './theme';

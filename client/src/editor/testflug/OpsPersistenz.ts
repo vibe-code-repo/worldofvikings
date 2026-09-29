@@ -64,7 +64,10 @@ export function opsSender(fetchFn: typeof fetch = fetch, url: string = OPS_URL):
       return { art: 'konflikt', ids: genannt, message, zurueckgenommen: false };
     }
     if (antwort.status === 202) {
-      return { art: 'nur-geschrieben', grund: alsText(d.grund) ?? 'unbekannt', message };
+      // N1 (Angriff „Editor T0a", Befund B4): der Rückfall war das deutsche
+      // Wort 'unbekannt', roh im sonst technischen `grund`-Code
+      // (`server-aus`/`geo`/`abgelehnt`, s. Kopfkommentar) — jetzt übersetzt.
+      return { art: 'nur-geschrieben', grund: alsText(d.grund) ?? t('testflug.ops.grund_unbekannt'), message };
     }
     if (antwort.status === 200 && d.ok !== false) {
       return { art: 'angewendet', message: message === '' ? t('testflug.ops.angewendet') : message };

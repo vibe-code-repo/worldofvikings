@@ -103,7 +103,6 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     };
     // Alles, was der Testflug am Entwurf ändert, läuft als Vorgang über id.
     const aktionen = new TestflugAktionen(persistenz);
-    const KEINE_ID = t('testflug.keine_id');
     /** Antwort der Gegenseite (200/202/409) in die Meldungszeile; bei Rücknahme die Anzeige neu aufbauen. */
     const melde = (antwort: Promise<VorgangAntwort>): void => {
       void antwort.then((a) => {
@@ -215,7 +214,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         if (!roh?.placements?.length) return;
         const i = roh.placements.length - 1;
         const weg = roh.placements[i]!;
-        if (!weg.id) return hud.meldung(KEINE_ID);
+        if (!weg.id) return hud.meldung(t('testflug.keine_id'));
         if (!anwenden(aktionen.loeschen(weg.id))) return;
         ent.removeZDO(`edplace-${i}`);
         ent.flush();
@@ -832,7 +831,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       });
       const best = entscheidung.art === 'greifen' ? entscheidung.index : -1;
       if (best >= 0 && !roh.placements[best]!.id) {
-        hud.meldung(KEINE_ID);
+        hud.meldung(t('testflug.keine_id'));
       } else if (best >= 0 && doppelteIds(roh.placements).includes(roh.placements[best]!.id!)) {
         hud.meldung(t('testflug.doppelte_id_nicht_gegriffen', { id: roh.placements[best]!.id! }));
       } else if (best >= 0) {

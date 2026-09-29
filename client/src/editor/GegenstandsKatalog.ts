@@ -120,6 +120,7 @@ import {
   uploadedModelRegistry,
   type Groessenvorschlag,
   type PrefabDef,
+  type Vorschlagsquelle,
   type Zieldimension,
 } from '@wov/shared';
 import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
@@ -163,10 +164,49 @@ import {
   type StoreArt,
   type StoreEintrag,
 } from './StoreKatalogDaten';
-import { t } from './i18n';
+import { aktuelleSprache, t } from './i18n';
+import type { TranslationKey } from '../i18n';
 
 /** Zeilen je Listenseite — s. Kopf („Warum Seiten"). */
 const SEITE_GROESSE = 60;
+
+/**
+ * Uebersetzungsschluessel je `Vorschlagsquelle` (Auftrag Punkt 4, N1 Befund
+ * B1) — `schlageZielgroesseVor` liefert seit N1 nur noch Zahlen und (bei den
+ * ersten beiden Quellen) einen Namen, keinen fertigen Satz mehr.
+ */
+const VORSCHLAG_SCHLUESSEL: Readonly<Record<Vorschlagsquelle, TranslationKey>> = {
+  'aehnliches-modell': 'editor.upload.vorschlag.aehnliches_modell',
+  kategorie: 'editor.upload.vorschlag.kategorie',
+  rohgroesse: 'editor.upload.vorschlag.rohgroesse',
+};
+
+/** Vorschlagszeile für das Zielgrößenfeld — s. `VORSCHLAG_SCHLUESSEL`. */
+function vorschlagText(vorschlag: Groessenvorschlag): string {
+  return t(VORSCHLAG_SCHLUESSEL[vorschlag.quelle], {
+    name: vorschlag.begruendungName ?? '',
+    meter: vorschlag.meter.toFixed(2),
+  });
+}
+
+/**
+ * N1 (Angriff „Editor T0a", Befund B4): `eintrag.kollisionsart` ist ein
+ * interner Wert (`'fest' | 'durchlaessig'`), keine Anzeige — die passenden
+ * Anzeigenamen gibt es schon als Katalogschlüssel (dieselben, die die
+ * Kollisions-Auswahl im Formular benutzt).
+ */
+function kollisionsartText(art: uploadedModelRegistry.Kollisionsart): string {
+  return t(art === 'fest' ? 'editor.upload.kollision.fest' : 'editor.upload.kollision.durchlaessig');
+}
+
+/**
+ * N1 (Befund B4): `toLocaleString('de-DE')` blieb auch bei `lang=en` fest
+ * deutsch (Punkt statt Komma als Tausendertrennzeichen). Zahlen folgen jetzt
+ * der aktiven Sprache wie der restliche Text.
+ */
+function zahlLocale(): 'de-DE' | 'en-US' {
+  return aktuelleSprache() === 'de' ? 'de-DE' : 'en-US';
+}
 
 /**
  * Geduld für EIN Modell (ms). Großzügig, weil einzelne GLBs des Exports
@@ -1568,7 +1608,7 @@ export class GegenstandsKatalog {
       rohMasse,
       uploadedModelRegistry.uploadedModelEntries()
     );
-    this.hochladenVorschlagText.textContent = `Vorschlag: ${vorschlag.begruendung}`;
+    this.hochladenVorschlagText.textContent = vorschlagText(vorschlag);
     if (this.hochladenZielFeld.value.trim() === '') {
       this.hochladenZielFeld.value = vorschlag.meter.toFixed(2);
     }
@@ -1937,7 +1977,7 @@ export class GegenstandsKatalog {
 
       const g = uploadedModelRegistry.grundskalaVon(eintrag);
       const zahlen =
-        t('editor.upload.dreiecke', { n: eintrag.dreiecke.toLocaleString('de-DE') }) +
+        t('editor.upload.dreiecke', { n: eintrag.dreiecke.toLocaleString(zahlLocale()) }) +
         t('editor.upload.masse_roh', {
           breite: eintrag.breite.toFixed(2),
           hoehe: eintrag.hoehe.toFixed(2),
@@ -1951,7 +1991,7 @@ export class GegenstandsKatalog {
               tiefe: (eintrag.tiefe * g).toFixed(2),
             })
           : ', ') +
-        t('editor.upload.kollision_wert', { art: eintrag.kollisionsart });
+        t('editor.upload.kollision_wert', { art: kollisionsartText(eintrag.kollisionsart) });
       // N1 (Angriff, Befund B4): Im Katalog UND im Testflug steht das
       // Modell sofort (beide bauen client-seitig aus der Registry bzw.
       // direkt aus den Platzierungen, Browser-Sichtnachweis

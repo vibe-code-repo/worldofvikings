@@ -219,7 +219,6 @@ export function mitVorgaengen(
   let laeuft = false;
   /** After an answer that left it unknown whether the server has a Vorgang: nothing more until a reload. */
   let unklar = false;
-  const UNKLAR_TEXT = t('testflug.persistenz.stand_unklar');
 
   const lokal = (v: Vorgang): { ok: true } | { ok: false; ids: string[]; message: string } => {
     const dok = speicher.laden();
@@ -334,7 +333,7 @@ export function mitVorgaengen(
     aendern: speicher.aendern,
     speichern: speicher.speichern,
     vorgang: (v, zwischen = false) => {
-      if (unklar) return { ok: false, ids: [], message: UNKLAR_TEXT };
+      if (unklar) return { ok: false, ids: [], message: t('testflug.persistenz.stand_unklar') };
       if (ziehGesperrt) {
         // The drag was refused with the mouse still down: frames are ignored until the release (`abschliessen`).
         if (zwischen) return { ok: false, ids: [], message: t('testflug.persistenz.ziehen_abgelehnt') };

@@ -30,8 +30,20 @@ export type Vorschlagsquelle = 'aehnliches-modell' | 'kategorie' | 'rohgroesse';
 export interface Groessenvorschlag {
   readonly meter: number;
   readonly quelle: Vorschlagsquelle;
-  /** Ganzer Satz für die Anzeige neben dem Feld — kein Statuscode, kein Kürzel. */
-  readonly begruendung: string;
+  /**
+   * Name des Vorbilds (`quelle === 'aehnliches-modell'`) bzw. der Kategorie
+   * (`quelle === 'kategorie'`) — bei `quelle === 'rohgroesse'` `undefined`.
+   *
+   * N1 (Angriff „Editor T0a", Befund B1): Vorher stand hier ein fertiger
+   * deutscher Satz (`begruendung: string`). Der Editor (T0a) übersetzt jetzt
+   * jeden sichtbaren Text über `t()` — ein an dieser Stelle FERTIGER Satz
+   * ließe sich nicht mehr übersetzen, ohne Deutsch am Satzbau zu erkennen.
+   * `quelle` sagt bereits, WELCHER der drei Sätze gemeint ist (eine eigene
+   * Katalog-Zeile je `Vorschlagsquelle`, s. `GegenstandsKatalog.ts`); dieses
+   * Feld liefert nur noch den einen Namen, den zwei der drei Sätze als
+   * Platzhalter brauchen.
+   */
+  readonly begruendungName?: string;
 }
 
 /**
@@ -107,7 +119,7 @@ export function schlageZielgroesseVor(
       return {
         meter,
         quelle: 'aehnliches-modell',
-        begruendung: `wie vorhandenem Modell '${gewaehlt.anzeigename}' (${meter.toFixed(2)} m)`,
+        begruendungName: gewaehlt.anzeigename,
       };
     }
   }
@@ -117,12 +129,12 @@ export function schlageZielgroesseVor(
     return {
       meter: kategorie.meter,
       quelle: 'kategorie',
-      begruendung: `Kategorie „${kategorie.kategorie}" (${kategorie.meter.toFixed(2)} m)`,
+      begruendungName: kategorie.kategorie,
     };
   }
 
   const meter = dimension === 'breite' ? rohMasse.breite : rohMasse.hoehe;
-  return { meter, quelle: 'rohgroesse', begruendung: `Rohgröße der Datei (${meter.toFixed(2)} m)` };
+  return { meter, quelle: 'rohgroesse' };
 }
 
 /**

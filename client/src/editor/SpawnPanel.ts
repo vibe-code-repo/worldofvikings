@@ -100,9 +100,6 @@ const ROLLE_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
   haendler: 'testflug.spawn.rolle.haendler',
   monster: 'testflug.spawn.rolle.monster',
 };
-const ROLLE_TEXT: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(ROLLE_SCHLUESSEL).map(([k, v]) => [k, t(v)])
-);
 const FRAKTION_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
   neutral: 'testflug.spawn.fraktion.neutral',
   wikinger: 'testflug.spawn.fraktion.wikinger',
@@ -110,18 +107,23 @@ const FRAKTION_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
   wild: 'testflug.spawn.fraktion.wild',
   muspel: 'testflug.spawn.fraktion.muspel',
 };
-const FRAKTION_TEXT: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(FRAKTION_SCHLUESSEL).map(([k, v]) => [k, t(v)])
-);
 const QUEST_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
   keine: 'testflug.spawn.quest.keine',
   verfuegbar: 'testflug.spawn.quest.verfuegbar',
   laeuft: 'testflug.spawn.quest.laeuft',
   fertig: 'testflug.spawn.quest.fertig',
 };
-const QUEST_TEXT: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(QUEST_SCHLUESSEL).map(([k, v]) => [k, t(v)])
-);
+
+/**
+ * N1 (Angriff „Editor T0a", Befund B5): vorher wurden `ROLLE_TEXT` u. a. als
+ * `const … = Object.fromEntries(…, t(v))` beim MODUL-Laden gebaut — vor
+ * jeder Sprachwahl der Sitzung. `schluesselText()` übersetzt jetzt erst beim
+ * Aufruf (aus dem Panel-Konstruktor, s. u.), also mit der Sprache, die zu dem
+ * Zeitpunkt gilt.
+ */
+function schluesselText(schluessel: Readonly<Record<string, TranslationKey>>): Readonly<Record<string, string>> {
+  return Object.fromEntries(Object.entries(schluessel).map(([k, v]) => [k, t(v)]));
+}
 
 /**
  * Pfad zum Vorschaubild eines eigenen Modells (tools/vorschaubilder.py),
@@ -176,14 +178,19 @@ function eigeneZuerst(namen: readonly string[]): string[] {
  */
 const STORE_NAMEN_MENGE: ReadonlySet<string> = new Set(STORE_MODELL_NAMEN);
 
-const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
+/**
+ * N1 (Befund B5, wie oben): `nameSchluessel` statt eines beim Modul-Laden
+ * schon übersetzten `name` — `t()` läuft erst am Aufbau der Auswahl (Panel-
+ * Konstruktor), mit der zu dem Zeitpunkt aktiven Sprache.
+ */
+const KATEGORIEN: ReadonlyArray<{ nameSchluessel: TranslationKey; namen: () => string[] }> = [
   // Zuerst, und damit die Vorgabe beim Öffnen: die kurze Liste der selbst
   // erzeugten Modelle. In den anderen Kategorien gehen sie zwischen
   // hunderten Einträgen unter (die Liste zeigt nur die ersten 80).
   // Nicht vorhandene Namen werden gefiltert, damit ein Eintrag ohne
   // passende GLB die Auswahl nicht mit einer toten Zeile verstopft.
   {
-    name: t('testflug.spawn.kategorie.eigene_modelle'),
+    nameSchluessel: 'testflug.spawn.kategorie.eigene_modelle',
     namen: () =>
       EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n) && !STORE_NAMEN_MENGE.has(n)),
   },
@@ -199,14 +206,14 @@ const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
     Gruppe geordnet (`environment-sm-prop-barrel-…`), ein „barrel" im
     Suchfeld holt also das ganze Fach.
   */
-  { name: t('testflug.spawn.kategorie.asset_speicher'), namen: () => [...STORE_MODELL_NAMEN] },
+  { nameSchluessel: 'testflug.spawn.kategorie.asset_speicher', namen: () => [...STORE_MODELL_NAMEN] },
   {
-    name: t('testflug.spawn.kategorie.vegetation'),
+    nameSchluessel: 'testflug.spawn.kategorie.vegetation',
     namen: () => eigeneZuerst([...new Set(FOLIAGE.map((f) => f.prefabName))]),
   },
-  { name: t('testflug.spawn.kategorie.bauteile'), namen: () => eigeneZuerst([...BAU_PREFABS]) },
+  { nameSchluessel: 'testflug.spawn.kategorie.bauteile', namen: () => eigeneZuerst([...BAU_PREFABS]) },
   {
-    name: t('testflug.spawn.kategorie.alle_mit_modell'),
+    nameSchluessel: 'testflug.spawn.kategorie.alle_mit_modell',
     namen: () =>
       eigeneZuerst([...PREFABS_BY_NAME.values()].filter((d) => d.model).map((d) => d.name)),
   },
@@ -316,7 +323,7 @@ export class SpawnPanel {
     KATEGORIEN.forEach((k, i) => {
       const o = document.createElement('option');
       o.value = String(i);
-      o.textContent = k.name;
+      o.textContent = t(k.nameSchluessel);
       kat.appendChild(o);
     });
     kat.onchange = () => {
@@ -440,8 +447,8 @@ export class SpawnPanel {
     this.npcName.onchange = () => this.npcSchreiben();
     this.npcBlock.appendChild(this.npcName);
 
-    this.npcRolle = this.npcAuswahl(t('testflug.spawn.npc.rolle'), NPC_ROLLEN, ROLLE_TEXT);
-    this.npcFraktion = this.npcAuswahl(t('testflug.spawn.npc.fraktion'), FRAKTIONEN, FRAKTION_TEXT);
+    this.npcRolle = this.npcAuswahl(t('testflug.spawn.npc.rolle'), NPC_ROLLEN, schluesselText(ROLLE_SCHLUESSEL));
+    this.npcFraktion = this.npcAuswahl(t('testflug.spawn.npc.fraktion'), FRAKTIONEN, schluesselText(FRAKTION_SCHLUESSEL));
 
     this.npcBlock.appendChild(this.label(t('testflug.spawn.npc.stufe')));
     this.npcStufe = document.createElement('input');
@@ -461,10 +468,11 @@ export class SpawnPanel {
     this.npcQuestZeile.appendChild(this.label(t('testflug.spawn.npc.quest_zustand')));
     this.npcQuest = document.createElement('select');
     this.npcQuest.style.cssText = this.feldStil();
+    const questText = schluesselText(QUEST_SCHLUESSEL);
     for (const q of QUEST_ZUSTAENDE) {
       const o = document.createElement('option');
       o.value = q;
-      o.textContent = QUEST_TEXT[q] ?? q;
+      o.textContent = questText[q] ?? q;
       this.npcQuest.appendChild(o);
     }
     this.npcQuest.onchange = () => this.npcSchreiben();

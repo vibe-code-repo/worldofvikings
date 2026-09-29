@@ -25,7 +25,7 @@ import { WATER_LEVEL, sanitizeWorldLayout, shapeBounds, signedDistance } from '@
 import type { ContinentDef, RegionDef, WorldLayout } from '@wov/shared';
 import { createWorld } from '../../world/World';
 import { gameUrl } from '../spielAdresse';
-import { t } from '../i18n';
+import { aktuelleSprache, t } from '../i18n';
 import type { TranslationKey } from '../../i18n';
 
 /** Ground height in metres at a world point (`ClientWorld.getGroundHeight`). */
@@ -88,8 +88,13 @@ export interface IslandEntry {
   message: string | null;
 }
 
-const num = (v: number, digits = 1): string =>
-  v.toFixed(digits).replace('.', ',');
+// N1 (Angriff „Editor T0a", Befund B4): das Komma war fest verdrahtet, auch
+// bei lang=en ("2,5 m above ground" statt "2.5 m") — der Dezimaltrenner
+// folgt jetzt der aktiven Sprache wie der restliche Text.
+const num = (v: number, digits = 1): string => {
+  const text = v.toFixed(digits);
+  return aktuelleSprache() === 'de' ? text.replace('.', ',') : text;
+};
 
 const roundStep = (v: number): number => Math.round(v / COORDINATE_STEP) * COORDINATE_STEP;
 
@@ -395,7 +400,11 @@ export function islandCentre(
   return islandSearch(layout, region, ground, estimate, opt).target;
 }
 
-const sekunden = (ms: number): string => (ms / 1000).toFixed(1).replace('.', ',');
+// N1 (Befund B4, wie `num` oben): Dezimaltrenner folgt der aktiven Sprache.
+const sekunden = (ms: number): string => {
+  const text = (ms / 1000).toFixed(1);
+  return aktuelleSprache() === 'de' ? text.replace('.', ',') : text;
+};
 
 /**
  * What the player is told after a search, or null when there is nothing to

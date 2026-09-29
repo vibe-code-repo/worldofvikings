@@ -18,6 +18,11 @@
  *    not a third implementation, a DOM-independent twin of the one method
  *    every testflug/SpawnPanel/upload-dialog message actually needs. Safe
  *    to import anywhere, browser or plain Node.
+ *  - N1 (Angriff „Editor T0a", Befund B5): the language order now matches
+ *    `main.ts` (`?lang` first, then the stored choice, then the default —
+ *    see `GameI18n`'s constructor and `main.ts` ~424) instead of skipping
+ *    `?lang` outright. DOM-free (no `window`): falls straight through to
+ *    the stored choice/default, same as before.
  *  - `editorI18nInstance()` builds (once, memoized) the actual `GameI18n`
  *    instance for `editorMain.ts`, exactly as PR #130 built it
  *    (`serverI18n`) — that file only ever runs in the browser (its own
@@ -44,13 +49,34 @@ import en from '../i18n/katalog/en.json';
 const CATALOGUES = { de, en } as const;
 const STORAGE_KEY = 'wov-language';
 
-function domfreieSprache(): GameLocale {
+/** `?lang` from the address, same as `main.ts` ~424 (`ausAdresse.get('lang')`) — `null` without `window` or without a valid value. */
+function adressSprache(): GameLocale | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const wert = new URLSearchParams(window.location.search).get('lang');
+    return isGameLocale(wert) ? wert : null;
+  } catch {
+    return null;
+  }
+}
+
+function gespeicherteSprache(): GameLocale | null {
   try {
     const value = localStorage.getItem(STORAGE_KEY);
-    return isGameLocale(value) ? value : 'de';
+    return isGameLocale(value) ? value : null;
   } catch {
-    return 'de';
+    return null;
   }
+}
+
+/** Same order as `GameI18n`'s constructor / `main.ts`: `?lang`, then the stored choice, then `de`. */
+function domfreieSprache(): GameLocale {
+  return adressSprache() ?? gespeicherteSprache() ?? 'de';
+}
+
+/** The resolved language `t()` is currently using — for callers that need it directly (e.g. number formatting). */
+export function aktuelleSprache(): GameLocale {
+  return domfreieSprache();
 }
 
 /** DOM-free translation, for testflug/SpawnPanel/upload-dialog modules (see file header). */

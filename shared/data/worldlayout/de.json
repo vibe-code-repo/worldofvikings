@@ -4,5 +4,20 @@
   "height.inspection-limit": "Höhenkorrektur nicht vollständig prüfbar: {rawZones} rohe Zonen überschreiten das Prüfbudget {inspectionLimit}; geprüft: {zones} wirkende Zonen, {points} Punkte. Das Prüfbudget ist keine fachliche Zonen-/Punktgrenze.",
   "height.errors": "Fehler in der Handkorrektur (heightDeltas): {errors} — {list}",
   "height.placements": "Fehler in Platzierungen: {errors} — {list}",
-  "height.repair": "Nichts angewendet. Die Datei von Hand oder per Git reparieren; keine gekürzte Fassung zurückschreiben."
+  "height.repair": "Nichts angewendet. Die Datei von Hand oder per Git reparieren; keine gekürzte Fassung zurückschreiben.",
+  "lock.applied": "Angewendet, aber {count} Objekt(e) bleiben gesperrt stehen: Ihre Löschung ist zurückgehalten und übersteht jeden Neustart. Zum Löschen bestätigen (POST /api/welt/bestaetigen mit dem aktuellen Hash).",
+  "lock.open": "{count} Objekt(e) sind dauerhaft gesperrt; ihre Löschung übersteht jeden Neustart (bestätigen: POST /api/welt/bestaetigen mit dem aktuellen Hash).",
+  "lock.pending": "Der Abgleich hätte viele Objekte oder Objekte mit Zustand entfernt; live geschah nichts. Die betroffenen Objekte sind dauerhaft gesperrt und bleiben auch nach einem Neustart stehen, bis die Löschung ausdrücklich bestätigt wird (POST /api/welt/bestaetigen mit dem aktuellen Hash; Einzelheiten in `detail`).",
+  "confirm.no-hash": "hash (der zurückgehaltene Stand) fehlt oder ist leer — nichts geändert.",
+  "confirm.nothing-open": "Keine zurückgehaltene Löschung offen — nichts zu bestätigen.",
+  "confirm.lock-unreadable": "Die Löschsperre-Datei ist da, aber nicht lesbar — von Hand prüfen. Nichts bestätigt.",
+  "confirm.file-missing": "Weltdatei nicht lesbar — nichts geändert.",
+  "confirm.stale": "Die Weltdatei hat sich seit der zurückgehaltenen Löschung geändert (jetzt {current}) — nichts angewendet. Neu laden und erneut prüfen.",
+  "confirm.write-failed": "Bestätigungsanfrage nicht schreibbar: {reason}",
+  "confirm.written-no-receipt": "Bestätigungsanfrage geschrieben (Quittung aus).",
+  "confirm.server-off": "Bestätigungsanfrage geschrieben, aber der Spielserver läuft nicht — sie wirkt beim nächsten Start.",
+  "confirm.rejected": "Die Bestätigung wurde nicht ausgeführt ({reason}) — nichts gelöscht.",
+  "confirm.done": "Zurückgehaltene Löschung ausgeführt.",
+  "confirm.done-rest-pending": "Zurückgehaltene Löschung ausgeführt; der Rest des Dokuments ist noch nicht angewendet.",
+  "confirm.pending": "Bestätigungsanfrage geschrieben, aber (noch) nicht angewendet — die Wache übernimmt sie beim nächsten Takt."
 }

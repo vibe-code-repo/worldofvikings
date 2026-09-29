@@ -4,5 +4,20 @@
   "height.inspection-limit": "Height correction could not be fully inspected: {rawZones} raw zones exceed the inspection budget {inspectionLimit}; inspected: {zones} effective zones, {points} points. The inspection budget is not a content zone/point limit.",
   "height.errors": "Errors in the height correction (heightDeltas): {errors} — {list}",
   "height.placements": "Placement errors: {errors} — {list}",
-  "height.repair": "Nothing applied. Repair the file manually or via Git; do not write back a truncated copy."
+  "height.repair": "Nothing applied. Repair the file manually or via Git; do not write back a truncated copy.",
+  "lock.applied": "Applied, but {count} object(s) stay locked in place: their deletion is held back and survives every restart. Confirm to delete them (POST /api/welt/bestaetigen with the current hash).",
+  "lock.open": "{count} object(s) are permanently locked; their deletion survives every restart (confirm: POST /api/welt/bestaetigen with the current hash).",
+  "lock.pending": "The reconcile would have removed many objects or objects with state; nothing happened live. The affected objects are permanently locked and stay in place across restarts until the deletion is explicitly confirmed (POST /api/welt/bestaetigen with the current hash; details in `detail`).",
+  "confirm.no-hash": "hash (the held-back state) is missing or empty — nothing changed.",
+  "confirm.nothing-open": "No held-back deletion is open — nothing to confirm.",
+  "confirm.lock-unreadable": "The deletion lock file exists but is unreadable — check it by hand. Nothing confirmed.",
+  "confirm.file-missing": "World file unreadable — nothing changed.",
+  "confirm.stale": "The world file has changed since the deletion was held back (now {current}) — nothing applied. Reload and check again.",
+  "confirm.write-failed": "Confirmation request could not be written: {reason}",
+  "confirm.written-no-receipt": "Confirmation request written (receipts off).",
+  "confirm.server-off": "Confirmation request written, but the game server is not running — it takes effect at the next start.",
+  "confirm.rejected": "The confirmation was not carried out ({reason}) — nothing deleted.",
+  "confirm.done": "Held-back deletion carried out.",
+  "confirm.done-rest-pending": "Held-back deletion carried out; the rest of the document is not applied yet.",
+  "confirm.pending": "Confirmation request written but not applied yet — the guard picks it up at the next tick."
 }

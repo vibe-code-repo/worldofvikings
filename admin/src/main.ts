@@ -90,7 +90,10 @@ import {
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { fehlerhaftAntwort, weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
 import { anwendungAnhaengen } from './routen/anwendung.js';
+import { weltBestaetigenBehandeln } from './routen/weltBestaetigen.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
+import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
+import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import {
   unfertigenResetMelden,
   weltZuruecksetzenBehandeln,
@@ -1212,6 +1215,7 @@ function resetUmgebung(): ResetUmgebung {
     layoutDatei: LAYOUT_DATEI,
     spielstand: resolve(WELTEN_ORDNER, `${INSTANZ}.db.zst`),
     kontenDb: KONTEN_DB,
+    loeschsperrePfad: loeschsperreDatei(WELTEN_ORDNER, INSTANZ),
     dienstStoppen: async () => {
       await ausfuehren(SYSTEMCTL, ['stop', 'wov-server']);
     },
@@ -2126,9 +2130,26 @@ async function behandeln(
     const vorher = `${welt}.prev`;
     const vorherBeiseite = `${vorher}.beiseite`;
     const testAblage = resolve(WELTEN_ORDNER, 'testwelt.db.zst');
+    // Z3 N4 (D2): Die Loeschsperre gehoert zum Spielstand (sie schuetzt dessen ZDOs) und wird deshalb genau wie er
+    // getauscht: die dev-Sperre geht beim Starten beiseite und kommt beim Zurueckholen zurueck, eine Testwelt-Sperre
+    // wird aufgehoben statt geloescht (`.testwelt`, wird beim naechsten Mal ueberschrieben). Bliebe sie liegen,
+    // naehme der Boot der frischen Welt sie als Ruecknahme zurueck, und ein Bestaetigen dort hoebe die dev-Sperre auf.
+    const sperre = loeschsperreDatei(WELTEN_ORDNER, INSTANZ);
+    const sperreBeiseite = `${sperre}.beiseite`;
+    const sperreTestAblage = `${sperre}.testwelt`;
+    // Z3 N5 (E1): Auch die Bestaetigungs-Anfrage ist Zustand je Instanz. Sie gehoert zu der Welt, in der sie gestellt
+    // wurde (bei gestopptem Server bleibt sie liegen, 202 server-aus); nach einem Tausch darf sie nie in der anderen
+    // Welt wirken. Deshalb wandert sie wie die Sperre: beiseite, zurueck, oder als `.testwelt` aufgehoben.
+    const anfrage = bestaetigenAnfrageDatei(WELTEN_ORDNER, INSTANZ);
+    const anfrageBeiseite = `${anfrage}.beiseite`;
+    const anfrageTestAblage = `${anfrage}.testwelt`;
 
     if (aktion === 'starten' && existsSync(beiseite)) {
       return { code: 409, daten: { fehler: 'Es laeuft bereits eine Testwelt — erst zurueckholen' } };
+    }
+    if (aktion === 'starten' && existsSync(sperreBeiseite)) {
+      // Ein Rest eines abgebrochenen Wechsels: ein Ueberschreiben wuerde die dev-Sperre vernichten.
+      return { code: 409, daten: { fehler: 'Eine beiseitegelegte Loeschsperre liegt schon da — bitte von Hand pruefen' } };
     }
     if ((aktion === 'zurueck' || aktion === 'erneuern') && !existsSync(beiseite)) {
       return {
@@ -2155,25 +2176,62 @@ async function behandeln(
       const zeitlimit = aktion === 'erneuern' ? { timeout: SYSTEMCTL_ZEITLIMIT_MS } : undefined;
 
       await ausfuehren(SYSTEMCTL, ['stop', 'wov-server'], zeitlimit);
+      // Jede erledigte Umbenennung wird gemerkt: Scheitert eine spaetere, laufen die frueheren rueckwaerts zurueck
+      // (Spielstand und Sperre bleiben beisammen), bevor der Dienst wieder startet.
+      const getan: [string, string][] = [];
+      const tausche = (von: string, nach: string): boolean => {
+        if (!existsSync(von)) return false;
+        renameSync(von, nach);
+        getan.push([von, nach]);
+        return true;
+      };
+      const meldeAnfrage = (bewegt: boolean, seite: string, was: string): void => {
+        if (bewegt) console.log(`[Admin] Testwelt-Tausch (${aktion}): liegende Bestaetigungs-Anfrage der ${seite}-Welt ${was}`);
+      };
       try {
-        if (aktion === 'starten') {
-          if (existsSync(welt)) renameSync(welt, beiseite);
-          if (existsSync(vorher)) renameSync(vorher, vorherBeiseite);
-        } else if (aktion === 'zurueck') {
-          // Die Testwelt aufheben statt loeschen — wer sie noch einmal
-          // ansehen will, findet sie unter testwelt.db.zst.
-          if (existsSync(welt)) renameSync(welt, testAblage);
-          if (existsSync(vorher)) unlinkSync(vorher);
-          renameSync(beiseite, welt);
-          if (existsSync(vorherBeiseite)) renameSync(vorherBeiseite, vorher);
-        } else {
-          // "erneuern": genau das Muster, mit dem "zurueck" den
-          // Testwelt-Spielstand behandelt (aufheben statt loeschen) —
-          // nur OHNE den dev-Stand (`beiseite`/`vorherBeiseite`)
-          // anzuruehren. Der Server findet danach keinen Spielstand am
-          // Ladeort und erzeugt die Testwelt frisch aus dem Layout.
-          if (existsSync(welt)) renameSync(welt, testAblage);
-          if (existsSync(vorher)) unlinkSync(vorher);
+        try {
+          if (aktion === 'starten') {
+            // Z3 N5 (E2): Sperre und Anfrage nur mitnehmen, wenn auch der Spielstand beiseitegeht. Ohne dev-Spielstand
+            // gilt keine Testwelt als aktiv ("aktiv" haengt allein an `beiseite`); eine beiseitegelegte Sperre laege dann
+            // fest, und "zurueck" wie "starten" antworteten beide mit 409.
+            if (existsSync(welt)) {
+              tausche(welt, beiseite);
+              tausche(vorher, vorherBeiseite);
+              tausche(sperre, sperreBeiseite);
+              meldeAnfrage(tausche(anfrage, anfrageBeiseite), 'dev', 'beiseitegelegt');
+            }
+          } else if (aktion === 'zurueck') {
+            // Die Testwelt aufheben statt loeschen — wer sie noch einmal
+            // ansehen will, findet sie unter testwelt.db.zst.
+            tausche(welt, testAblage);
+            if (existsSync(vorher)) unlinkSync(vorher);
+            tausche(sperre, sperreTestAblage);
+            meldeAnfrage(tausche(anfrage, anfrageTestAblage), 'Testwelt', 'aufgehoben');
+            renameSync(beiseite, welt);
+            getan.push([beiseite, welt]);
+            tausche(vorherBeiseite, vorher);
+            tausche(sperreBeiseite, sperre);
+            meldeAnfrage(tausche(anfrageBeiseite, anfrage), 'dev', 'zurueckgelegt');
+          } else {
+            // "erneuern": genau das Muster, mit dem "zurueck" den
+            // Testwelt-Spielstand behandelt (aufheben statt loeschen) —
+            // nur OHNE den dev-Stand (`beiseite`/`vorherBeiseite`/`sperreBeiseite`)
+            // anzuruehren. Der Server findet danach keinen Spielstand am
+            // Ladeort und erzeugt die Testwelt frisch aus dem Layout.
+            tausche(welt, testAblage);
+            if (existsSync(vorher)) unlinkSync(vorher);
+            tausche(sperre, sperreTestAblage);
+            meldeAnfrage(tausche(anfrage, anfrageTestAblage), 'Testwelt', 'aufgehoben');
+          }
+        } catch (fehler) {
+          for (const [von, nach] of getan.reverse()) {
+            try {
+              if (existsSync(nach) && !existsSync(von)) renameSync(nach, von);
+            } catch {
+              // Rueckroll best effort: der Dienst muss trotzdem wieder starten, der Fehler unten bleibt der Befund.
+            }
+          }
+          throw fehler;
         }
       } finally {
         // Auch wenn der Tausch schiefgeht: Der Server muss wieder laufen.
@@ -2211,6 +2269,21 @@ async function behandeln(
     }
     const umgebung = resetUmgebung();
     return methode === 'GET' ? weltZuruecksetzenVorschau(umgebung) : weltZuruecksetzenBehandeln(leib, umgebung);
+  }
+
+  // ── Zurückgehaltene Massenlöschung trotzdem anwenden (Editor Z3) ──
+  //
+  // Begruendung und Ablauf stehen im Kopf von routen/weltBestaetigen.ts. Hier nur die Verdrahtung —
+  // dieselben Bausteine wie jeder andere Schreibweg (`QUITTUNG_AUS`, `quittungsDatei`, `dienstZustand`).
+  if (pfad === '/api/welt/bestaetigen' && methode === 'POST') {
+    return weltBestaetigenBehandeln(leib, {
+      datei: LAYOUT_DATEI,
+      anfragePfad: bestaetigenAnfrageDatei(WELTEN_ORDNER, INSTANZ),
+      loeschsperrePfad: loeschsperreDatei(WELTEN_ORDNER, INSTANZ),
+      quittungsPfad: quittungsDatei(WELTEN_ORDNER, INSTANZ),
+      dienstAktiv: async () => (await dienstZustand('wov-server')).aktiv,
+      warten: !QUITTUNG_AUS,
+    });
   }
 
   // ── Weltsicherungen ──

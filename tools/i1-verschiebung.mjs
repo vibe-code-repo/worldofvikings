@@ -1,72 +1,96 @@
 #!/usr/bin/env node
 /**
- * i1-verschiebung.mjs — proof of a purely mechanical move (I1 step 0, plan section 5.1).
- * Verschiebebeweis: belegt, dass ein Schnitt nur verschoben und nichts verändert hat.
+ * i1-verschiebung.mjs — proof of a purely mechanical move (I1 step 0 + N1, plan section 5.1).
+ * Verschiebebeweis: belegt, dass ein Schnitt nur verschoben und sonst NICHTS verändert hat.
+ *
+ * Leitsatz (N1): Der Beweis zeigt „außer den erlaubten Ersetzungen ist nichts anders“. Verglichen wird deshalb
+ * der GANZE Rest der Quelldatei und die GANZE Zieldatei, nicht nur Funktionsrümpfe. Was das Werkzeug nicht
+ * beweisen kann, meldet es ROT; der Nutzer gibt es mit `--freigabe SCHLÜSSEL` ausdrücklich frei, und die
+ * Freigabe erscheint in der Ausgabe (FREIGEGEBEN) und gehört in den PR-Text. Lieber ein falsches Rot als ein
+ * falsches Grün.
  *
  * ── Anleitung / How to use ─────────────────────────────────────────────────────────────
  *
  *   node tools/i1-verschiebung.mjs \
  *        --alt   git:origin/main:server/src/WovServer.ts     # Stand VOR dem Schritt (Datei oder git:<ref>:<pfad>)
  *        --rest  server/src/WovServer.ts                      # dieselbe Datei NACH dem Schritt (mit Weiterleitungen)
- *        --ziel  server/src/spiel/Kampf.ts [--ziel …]         # Modul(e), in die verschoben wurde
- *        --namen handleAttack,handleParry                     # verschobene Methoden / freie Funktionen
+ *        --ziel  server/src/spiel/Kampf.ts [--ziel …]         # Modul(e), in die verschoben wurde (ganze Datei wird geprüft)
+ *        --namen handleAttack,handleParry                     # Methoden / freie Funktionen, die Weiterleitungen behalten
+ *        [--woertlich-namen A,B]                              # Deklarationen der Modulebene, die OHNE Kontext und OHNE
+ *                                                             # Weiterleitung wörtlich wandern (Tabellen, Konstanten, Funktionen
+ *                                                             # ohne this, interface/type); der Rest führt sie per `export { … } from` weiter
+ *        [--woertlich]                                        # alle --namen sind wörtlich (Kurzform, Form 0)
  *        [--liste namen.txt]                                  # oder: ein Name je Zeile (# = Kommentar)
- *        [--ersetzung tabelle.json]                           # zusätzliche Ersetzungen, s. u.
- *        [--ersetze ALT=NEU …]                                # dito, einzeln
+ *        [--ersetzung tabelle.json] [--ersetze ALT=NEU …]     # zusätzliche Ersetzungen, s. u.
  *        [--kontext k]                                        # Name des Kontext-Parameters (Vorgabe k)
  *        [--klasse WovServer]                                 # Methoden nur aus dieser Klasse (sonst jede)
- *        [--max-zeilen 3]                                     # Länge einer Weiterleitung (Plan 5.6, Vorgabe 3)
- *        [--woertlich]                                        # Form 0: Deklarationen der Modulebene OHNE Kontext und OHNE
- *                                                             # Weiterleitung (Tabellen, Konstanten, Funktionen ohne this)
+ *        [--max-zeilen 3]                                     # Zeilen des Rumpfs einer Weiterleitung (Vorgabe 3)
+ *        [--alias ALT=NEU …]                                  # erlaubt `export { ALT as NEU } from` (Form 0)
+ *        [--freigabe SCHLÜSSEL …]                             # Freigabe eines nicht beweisbaren Punkts, s. u.
  *        [--json]                                             # Ausgabe als JSON
- *   node tools/i1-verschiebung.mjs --selbsttest               # Fixtures: echt, gefälscht, unvollständig je Form
+ *   Der Selbsttest mit den Fixtures (echt, gefälscht, unvollständig je Form) ist `tools/test/i1-verschiebung.ts`.
  *
  * Exit 0 = Beweis erbracht; 1 = mindestens ein Befund; 2 = Aufruf falsch.
  *
- * Was bewiesen wird (je Name, dazu die Summe):
- *   1. Der Text ist bis auf die erlaubte Ersetzung gleich. Verglichen werden Typparameter, Parameter
- *      (Namen, Typen, Optionalität, Vorgaben), Rückgabetyp, `async`/`*` und der Rumpf, jeweils als
- *      Folge der Syntaxbaum-Blätter. Kommentare und Leerraum zählen nicht, Modifikatoren wie
- *      `private`/`export`/`function` auch nicht. Anführungszeichen, Klammern, Semikolons zählen.
- *   2. Die verschobene Funktion nimmt den Kontext als zusätzlichen ERSTEN Parameter (Form a) bzw. bei
- *      Klassenmethoden statt `this`. Alle übrigen Parameter sind unverändert.
- *   3. Die Weiterleitung im Rest hat dieselbe Signatur (Name, Zugriffsmodifikator, Parameter, Rückgabetyp),
- *      ihr Rumpf ist EINE Anweisung, die den Namen mit [beliebigem Kontextausdruck, Parameter…] aufruft,
- *      und sie ist höchstens --max-zeilen Zeilen lang.
- *   4. Nichts doppelt, nichts fehlt: jeder Name steht genau einmal im Alt, genau einmal in den Zielen,
- *      genau einmal (als Weiterleitung, nicht als Original) im Rest; kein Name des Alt-Stands ist im Rest
- *      verschwunden, ohne verschoben zu sein; jeder Ersetzungseintrag trifft mindestens einmal.
+ * Was bewiesen wird:
+ *   H1 Weiterleitung. Nur in der exakten Form `return <modul>.<gleicher Name>(this, <Parameter unverändert>)`
+ *      (freie Funktionen: `(<umgebung>(), …)`), mit `return` auch bei void; `<modul>` ist ein Import auf genau die
+ *      genannte Zieldatei (oder `import { name }` aus ihr). Kontextargument genau `this`, kein `?.`, keine Zusatzanweisung.
+ *      Modifikatoren (`static`, `async`, Sichtbarkeit), Typparameter, Parameter samt Vorgabewerten und Rückgabetyp
+ *      gleich wie im Original, Rumpf höchstens --max-zeilen Zeilen.
+ *   H2 Rest der Quelldatei. Nach dem Herausnehmen der verschobenen Deklarationen (Alt) bzw. der Weiterleitungen (Rest)
+ *      sind die Token der GANZEN Datei gleich: Konstruktor, Felder, Accessoren, Modulkonstanten, Anweisungen der
+ *      Modulebene, Modifikatoren nicht genannter Methoden. Ausnahme sind Importzeilen: neue nur auf die Zieldateien,
+ *      entfernte nur, wenn der Name im Rest nicht mehr vorkommt. Kommentare mit Wirkung (`@ts-expect-error`,
+ *      `eslint-disable`, `prettier-ignore` …) bleiben erhalten (Rest und je verschobene Deklaration).
+ *   H3 Form 0. Text bis auf `export` gleich, Deklaration im Rest weg, Rest unverändert (H2), Reexport nur als
+ *      `export { name } from '<Ziel>'` ohne Alias (Alias nur mit --alias), nur für Namen, die schon exportiert waren.
+ *   H4 Ziel. Die ganze Zieldatei: außer Importen, Typdeklarationen (interface/type), den verschobenen Deklarationen und
+ *      Kommentaren steht dort nichts (keine Modulebene mit Nebenwirkung, keine zweite Funktion). Jeder Import im Ziel
+ *      hat ein Gegenstück im Alt-Stand (gleiche aufgelöste Datei, gleicher Name) oder ist `import type` aus Kontext.
+ *      Jeder freie Name eines verschobenen Rumpfs zeigt im Ziel auf DIESELBE Deklaration wie in der Quelle (derselbe
+ *      Import aus derselben Datei); ein Name, der im Alt-Stand eine Deklaration der Quelldatei war, muss im selben
+ *      Lauf wörtlich mitwandern (--woertlich-namen) oder über die Tabelle (`k.NAME`) laufen, sonst rot.
+ *   H5 Kontextname. Kommt `k` im Rumpf des Originals schon vor (lokal, Parameter, frei) → rot; `--kontext` anders wählen.
+ *   M1 `arguments` im Rumpf → rot. Vorgabewerte mit `this.` werden mit ersetzt und verglichen.
+ *   M2 Ersetzungstabelle: nur `this.` → `<k>.` und `NAME` → `<k>.NAME` (derselbe Name). Alles andere rot, außer
+ *      `--freigabe tabelle:SCHLÜSSEL=WERT`. Freie Funktionen: das Kontextargument der Weiterleitung ist `<fabrik>()`;
+ *      sein Inhalt ist nicht beweisbar, also `--freigabe umgebung:<fabrik>` (steht dann in der Ausgabe).
+ *   N1 Kommentare mit Wirkung (s. H2). N2 Kontext mit `any`/`unknown` oder ohne Typ → rot.
+ *   Nichts doppelt, nichts fehlt: jeder Name genau 1× im Alt-Stand, 1× im Ziel, 1× (als Weiterleitung) im Rest; jeder
+ *   Ersetzungseintrag trifft mindestens einmal; `this.` in verschachtelter function/Klasse, nacktes `this`, Kurzform
+ *   `{ NAME }`, Schatten einer ersetzten Tabelle sind Befunde.
  *
- * Form 0 (`--woertlich`): Der Text ist bis auf `export` gleich, die Deklaration steht im Rest nicht mehr,
- *   und war der Name exportiert, führt der Rest ihn per `export { name } from '…'` weiter (kein Importeur ändert sich).
- *   Gedacht für den frühen Schritt „Tabellen und Waffenhelfer“ (Zuarbeit Befund 4): kein `this`, kein Kontext.
- *   Es gibt hier weder Ersetzung noch Weiterleitung; --ersetze, --kontext und --max-zeilen werden ignoriert.
+ * Freigabe-Schlüssel: `umgebung:<fabrik>`, `tabelle:<schlüssel>=<wert>`, `import:<aufgelöster Pfad>`,
+ * `bindung:<name>`. Jede Freigabe erscheint als Zeile „FREIGEGEBEN“ in der Ausgabe.
+ *
+ * Grenzen (dokumentiert, nicht gebaut):
+ *   - Formen b) (veränderliche Modulvariable → Lesefunktion und Setzer) und c) (Anweisungen der Modulebene → Rumpf
+ *     einer Funktion) fehlen. Statische Mitglieder `Klasse.X` im Rumpf laufen nur über die Tabelle oder rot.
+ *   - N3: eine einzeln verschobene Methode ohne `this.` meldet „`this.` kam nie vor“ (falsch rot); im Paket mit anderen
+ *     Methoden ist das unkritisch, sonst `--freigabe kein-this`.
+ *   - N5: Das Werkzeug vergleicht Token, nicht Formatierung, aber Prettier ändert Anführungszeichen, Kommas und
+ *     Klammern. Verschobenen Text NICHT formatieren.
+ *   - N7: Zeichenketten und Vorlagen werden als ganze Token verglichen; ein Umbruch in einem Vorlagentext zählt.
+ *   - Typdeklarationen im Ziel (interface/type) sind unbeweisbar, aber ohne Laufzeitwirkung; sie stehen als Hinweis.
+ *   - Überladungssignaturen (Methoden ohne Rumpf) werden nicht unterstützt (0 Fälle in den fünf Zieldateien).
+ *   - Der Beweis prüft Text und Bindung, nicht das Verhalten: `k` MUSS der Server selbst sein (`this`), Modulcode ruft
+ *     andere verschobene Methoden über `k.` (Attrappen auf der Instanz, Fund 2 in Schritt 0).
  *
  * Ersetzungstabelle: Schlüssel = alter Name, Wert = neuer Ausdruck (JSON-Objekt oder --ersetze).
- *   "this."        → "k."              Vorgabe. `this.x` wird `k.x`. Ein `this` OHNE folgenden Punkt ist
- *                                      ein Befund („nacktes this“), weil es keine mechanische Ersetzung gibt.
- *   "ADMINS_DATEI" → "k.ADMINS_DATEI"  Form a): ein freier Name der Modulebene wird Feld des Kontexts.
- *                                      Ersetzt werden nur ECHTE Verweise (nicht `x.ADMINS_DATEI`, nicht
- *                                      Objektschlüssel, nicht Deklarationsnamen). Kurzform `{ ADMINS_DATEI }`
- *                                      und ein lokal gleichnamig deklarierter Name sind Befunde.
- *   Das Format ist offen für Erweiterungen: ein Wert darf später ein Objekt sein
- *   ({ "nach": "k.layout()", … }); heute gilt nur der Text. Form b) (veränderliche Modulvariable →
- *   Lesefunktion `k.x()` und Setzer) und Form c) (Anweisungen der Modulebene → Rumpf einer Funktion)
- *   sind NICHT Teil von Schritt 0 und hier nicht gebaut.
+ *   "this."        → "k."              Vorgabe. `this.x` wird `k.x`. Ein `this` OHNE folgenden Punkt ist ein Befund.
+ *   "ADMINS_DATEI" → "k.ADMINS_DATEI"  Form a): ein freier Name der Modulebene wird Feld des Kontexts (nur mit demselben Namen).
  *
  * Funktioniert für Klassenmethoden und freie Funktionen in jeder Datei (WovServer.ts, EntityManager.ts,
- * GegenstandsKatalog.ts, editorMain.ts, admin/src/main.ts), weil weder Dateiname noch Klasse
- * festverdrahtet sind.
+ * GegenstandsKatalog.ts, editorMain.ts, admin/src/main.ts): weder Dateiname noch Klasse sind festverdrahtet.
  */
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { posix, resolve as pfadAufloesen } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const K = ts.SyntaxKind;
-const NACKTES_THIS = 'nacktes this';
 
 // ── Einlesen ────────────────────────────────────────────────────────────────────────────
 
@@ -81,23 +105,38 @@ function parse(text, name) {
   return ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
 
+/** Relativen Importpfad gegen die Datei auflösen; Endung `.js/.ts/.mjs/.mts` fällt weg. Pakete bleiben wie sie sind. */
+function loese(spec, vonDatei) {
+  if (!spec.startsWith('.')) return spec;
+  const dir = posix.dirname(vonDatei.replaceAll('\\', '/'));
+  return posix.normalize(posix.join(dir, spec)).replace(/\.(m?[jt]s|cjs)$/, '');
+}
+const dateiKern = (name) => posix.normalize(name.replaceAll('\\', '/')).replace(/\.(m?[jt]s|cjs)$/, '');
+
 // ── Blätter als normalisierte Tokenfolge ────────────────────────────────────────────────
 
-/** Alle Blatt-Token eines Knotens; JSDoc und Trivia gibt es hier nicht. */
-function blaetter(knoten, sf, aus = []) {
+/**
+ * Alle Blatt-Token eines Knotens (ohne Trivia, ohne JSDoc-Knoten). `ersetze` (Map Knoten → Text) ersetzt einen ganzen
+ * Teilbaum durch einen Platzhalter-Token (Text '' = weglassen).
+ */
+function blaetter(knoten, sf, ersetze = null, aus = []) {
+  if (ersetze?.has(knoten)) {
+    const t = ersetze.get(knoten);
+    if (t !== '') aus.push({ text: t, knoten });
+    return aus;
+  }
   if (knoten.kind >= K.FirstJSDocNode && knoten.kind <= K.LastJSDocNode) return aus;
   const kinder = knoten.getChildren(sf);
   if (kinder.length === 0) {
-    aus.push(knoten);
+    aus.push({ text: knoten.getText(sf), knoten });
     return aus;
   }
-  for (const k of kinder) blaetter(k, sf, aus);
+  for (const k of kinder) blaetter(k, sf, ersetze, aus);
   return aus;
 }
+const tokenText = (n, sf) => (n ? blaetter(n, sf).map((b) => b.text) : []);
 
-const text = (b, sf) => b.getText(sf);
-
-/** Ist der Bezeichner ein echter Verweis auf einen freien Namen (kein Property-Name, kein Schlüssel, keine Deklaration)? */
+/** Bezeichner-Rolle: true = Verweis, 'kurzform' = `{ x }`, 'deklaration' = Name einer Deklaration, false = Property/Schlüssel/Label. */
 function istVerweis(id) {
   const p = id.parent;
   if (!p) return true;
@@ -106,18 +145,21 @@ function istVerweis(id) {
   if (ts.isShorthandPropertyAssignment(p)) return 'kurzform';
   if ((ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isGetAccessor(p) || ts.isSetAccessor(p)) && p.name === id) return false;
   if (ts.isPropertySignature(p) && p.name === id) return false;
+  if (ts.isMethodSignature(p) && p.name === id) return false;
   if (ts.isEnumMember(p) && p.name === id) return false;
   if (ts.isLabeledStatement(p) || ts.isBreakOrContinueStatement(p)) return false;
   if (ts.isBindingElement(p) && p.propertyName === id) return false;
+  if (ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isNamespaceImport(p) || ts.isImportClause(p)) return false;
   if (
     (ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isBindingElement(p) ||
-      ts.isFunctionDeclaration(p) || ts.isFunctionExpression(p) || ts.isClassDeclaration(p)) &&
+      ts.isFunctionDeclaration(p) || ts.isFunctionExpression(p) || ts.isClassDeclaration(p) || ts.isClassExpression(p) ||
+      ts.isEnumDeclaration(p) || ts.isTypeParameterDeclaration(p) || ts.isInterfaceDeclaration(p) || ts.isTypeAliasDeclaration(p)) &&
     p.name === id
   ) return 'deklaration';
   return true;
 }
 
-/** Namen, die im Knoten lokal deklariert werden (Parameter, var/let/const, Funktionen, Bindungen). */
+/** Namen, die im Knoten irgendwo lokal deklariert werden (Parameter, var/let/const, Funktionen, Klassen, enum, Typparameter, Bindungen). */
 function lokaleNamen(knoten) {
   const namen = new Set();
   const nimm = (n) => {
@@ -127,7 +169,8 @@ function lokaleNamen(knoten) {
   };
   const geh = (n) => {
     if (ts.isVariableDeclaration(n) || ts.isParameter(n)) nimm(n.name);
-    else if ((ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isClassDeclaration(n)) && n.name) namen.add(n.name.text);
+    else if ((ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isClassDeclaration(n) || ts.isClassExpression(n) || ts.isEnumDeclaration(n)) && n.name) namen.add(n.name.text);
+    else if (ts.isTypeParameterDeclaration(n)) namen.add(n.name.text);
     else if (ts.isCatchClause(n) && n.variableDeclaration) nimm(n.variableDeclaration.name);
     ts.forEachChild(n, geh);
   };
@@ -135,19 +178,87 @@ function lokaleNamen(knoten) {
   return namen;
 }
 
+/** Namen einer Bindung (Bezeichner oder Muster). */
+function musterNamen(n, aus = new Set()) {
+  if (!n) return aus;
+  if (ts.isIdentifier(n)) aus.add(n.text);
+  else if (ts.isObjectBindingPattern(n) || ts.isArrayBindingPattern(n)) for (const e of n.elements) if (ts.isBindingElement(e)) musterNamen(e.name, aus);
+  return aus;
+}
+const istFunktion = (n) => ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n) || ts.isMethodDeclaration(n) || ts.isConstructorDeclaration(n) || ts.isGetAccessor(n) || ts.isSetAccessor(n);
+
+/** Deklariert ein `var` oder eine function-Deklaration im Rumpf (ohne in verschachtelte Funktionen zu gehen) den Namen? */
+function hochgezogen(knoten, name) {
+  let gefunden = false;
+  const geh = (n) => {
+    if (gefunden) return;
+    if (n !== knoten && istFunktion(n)) {
+      if (ts.isFunctionDeclaration(n) && n.name?.text === name) gefunden = true;
+      return;
+    }
+    if (ts.isVariableDeclarationList(n) && (n.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0) for (const d of n.declarations) if (musterNamen(d.name).has(name)) gefunden = true;
+    ts.forEachChild(n, geh);
+  };
+  geh(knoten);
+  return gefunden;
+}
+
+/** Deklariert der Knoten `a` (als Geltungsbereich) den Namen `name`? */
+function deklariertIn(a, name) {
+  if (istFunktion(a)) {
+    if ((a.typeParameters ?? []).some((t) => t.name.text === name)) return true;
+    if (a.parameters.some((p) => musterNamen(p.name).has(name))) return true;
+    if (ts.isFunctionExpression(a) && a.name?.text === name) return true;
+    return !!a.body && hochgezogen(a.body, name);
+  }
+  if (ts.isBlock(a) || ts.isCaseBlock(a) || ts.isModuleBlock(a) || ts.isSourceFile(a)) {
+    const stmts = ts.isCaseBlock(a) ? a.clauses.flatMap((c) => [...c.statements]) : [...a.statements];
+    for (const st of stmts) {
+      if (ts.isVariableStatement(st) && (st.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0 && st.declarationList.declarations.some((d) => musterNamen(d.name).has(name))) return true;
+      if ((ts.isClassDeclaration(st) || ts.isEnumDeclaration(st) || ts.isFunctionDeclaration(st)) && st.name?.text === name) return true;
+    }
+    return false;
+  }
+  if (ts.isForStatement(a) || ts.isForInStatement(a) || ts.isForOfStatement(a)) {
+    const i = a.initializer;
+    return !!i && ts.isVariableDeclarationList(i) && i.declarations.some((d) => musterNamen(d.name).has(name));
+  }
+  if (ts.isCatchClause(a)) return !!a.variableDeclaration && musterNamen(a.variableDeclaration.name).has(name);
+  if (ts.isClassExpression(a) || ts.isClassDeclaration(a)) return (a.typeParameters ?? []).some((t) => t.name.text === name) || (ts.isClassExpression(a) && a.name?.text === name);
+  return false;
+}
+
+/** Bindet der Bezeichner `id` an eine Deklaration INNERHALB von `wurzel` (Parameter, lokale Variable, …)? */
+function lokalGebunden(id, wurzel) {
+  for (let a = id.parent; a; a = a.parent) {
+    if (deklariertIn(a, id.text)) return true;
+    if (a === wurzel) return false;
+  }
+  return false;
+}
+
+/** Alle Bezeichner eines Knotens mit ihrer Rolle. */
+function bezeichner(knoten) {
+  const aus = [];
+  const geh = (n) => {
+    if (ts.isIdentifier(n)) aus.push({ id: n, rolle: istVerweis(n) });
+    ts.forEachChild(n, geh);
+  };
+  geh(knoten);
+  return aus;
+}
+
 /**
- * Tokenfolge eines Knotens mit angewandter Ersetzung. `tabelle` = Map alt → neuer Ausdruck (Text).
- * `treffer` (Map alt → Anzahl) und `befunde` (Liste) werden ergänzt.
+ * Tokenfolge eines Knotens mit angewandter Ersetzung. `tabelle` = Map alt → neuer Ausdruck (Text) oder null.
  */
 function tokens(knoten, sf, tabelle, treffer, befunde, lokal) {
   const aus = [];
   const bl = blaetter(knoten, sf);
   for (let i = 0; i < bl.length; i++) {
-    const b = bl[i];
-    const t = text(b, sf);
-    // this. → …
+    const b = bl[i].knoten;
+    const t = bl[i].text;
     if (b.kind === K.ThisKeyword && tabelle) {
-      const naechster = bl[i + 1] && text(bl[i + 1], sf);
+      const naechster = bl[i + 1] && bl[i + 1].text;
       const ersatz = tabelle.get('this.');
       const istMitPunkt = naechster === '.' || naechster === '?.';
       if (ersatz !== undefined && istMitPunkt && b.parent && ts.isPropertyAccessExpression(b.parent) && b.parent.expression === b) {
@@ -158,17 +269,13 @@ function tokens(knoten, sf, tabelle, treffer, befunde, lokal) {
           }
         }
         treffer.set('this.', (treffer.get('this.') ?? 0) + 1);
-        // `this.x` → `k.x`: der Ersatz steht ohne den Punkt (Schlüssel "this." hat den Punkt schon)
         aus.push(...tokenisiere(ersatz.replace(/\.$/, '')));
         continue;
       }
-      if (b.parent && b.parent.kind !== K.ThisType) {
-        befunde.push(`${NACKTES_THIS}: "${zeile(b, sf)}" (keine mechanische Ersetzung)`);
-      }
+      if (b.parent && b.parent.kind !== K.ThisType) befunde.push(`nacktes this: "${zeile(b, sf)}" (keine mechanische Ersetzung)`);
       aus.push(t);
       continue;
     }
-    // freier Name → Ausdruck
     if (b.kind === K.Identifier && tabelle && tabelle.has(t) && t !== 'this.') {
       const art = istVerweis(b);
       if (art === true) {
@@ -184,85 +291,14 @@ function tokens(knoten, sf, tabelle, treffer, befunde, lokal) {
   return aus;
 }
 
-/** Tokenfolge eines Ausdruckstexts (für die rechte Seite der Tabelle). */
 function tokenisiere(ausdruck) {
   const sf = parse(`(${ausdruck});`, 'ersatz.ts');
-  const bl = blaetter(sf, sf).map((b) => text(b, sf)).filter((t) => t !== '');
-  // Klammern und Semikolon, die wir selbst zugefügt haben, wieder abziehen: ( … ) ;
-  return bl.slice(1, -2);
+  return blaetter(sf, sf).map((b) => b.text).filter((t) => t !== '').slice(1, -2);
 }
 
 function zeile(knoten, sf) {
   const { line } = sf.getLineAndCharacterOfPosition(knoten.getStart(sf));
   return `${sf.fileName}:${line + 1}`;
-}
-
-// ── Deklarationen finden ────────────────────────────────────────────────────────────────
-
-/**
- * Alle benennbaren Funktionen einer Datei: Klassenmethoden ({ klasse, name }) und freie Funktionen der
- * Modulebene (function-Deklarationen und `const x = (…) => …`/`function`). Konstruktoren und Accessoren
- * zählen nicht.
- */
-function deklarationen(sf) {
-  const liste = [];
-  const nimmFunktionswert = (name, init, stmt) => {
-    if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) liste.push({ art: 'frei', klasse: null, name, knoten: init, stmt });
-  };
-  for (const s of sf.statements) {
-    if (ts.isFunctionDeclaration(s) && s.name) liste.push({ art: 'frei', klasse: null, name: s.name.text, knoten: s, stmt: s });
-    else if (ts.isVariableStatement(s)) {
-      for (const d of s.declarationList.declarations) if (ts.isIdentifier(d.name)) nimmFunktionswert(d.name.text, d.initializer, s);
-    } else if (ts.isClassDeclaration(s)) {
-      const kn = s.name ? s.name.text : '(anonym)';
-      for (const m of s.members) {
-        if (ts.isMethodDeclaration(m) && m.name && (ts.isIdentifier(m.name) || ts.isPrivateIdentifier(m.name))) {
-          liste.push({ art: 'methode', klasse: kn, name: m.name.text, knoten: m, stmt: m });
-        }
-      }
-    }
-  }
-  return liste;
-}
-
-function finde(decls, name, klasse) {
-  return decls.filter((d) => (d.art === 'frei' || !klasse || d.klasse === klasse) && d.name === name);
-}
-
-// ── Signatur und Rumpf ──────────────────────────────────────────────────────────────────
-
-function hatModifikator(n, art) {
-  return !!(ts.canHaveModifiers(n) && ts.getModifiers(n)?.some((m) => m.kind === art));
-}
-
-function zugriff(n) {
-  if (hatModifikator(n, K.PrivateKeyword)) return 'private';
-  if (hatModifikator(n, K.ProtectedKeyword)) return 'protected';
-  return 'public';
-}
-
-const tokenText = (n, sf) => (n ? blaetter(n, sf).map((b) => text(b, sf)) : []);
-
-/** Zerlegung einer Funktion in vergleichbare Teile (Token-Listen). */
-function zerlege(d, sf, tabelle, treffer, befunde) {
-  const f = d.knoten;
-  const lokal = f.body ? lokaleNamen(f) : new Set();
-  const tk = (n) => (n ? tokens(n, sf, tabelle, treffer, befunde, lokal) : []);
-  return {
-    async: hatModifikator(f, K.AsyncKeyword),
-    stern: !!f.asteriskToken,
-    typParams: (f.typeParameters ?? []).map((p) => tokenText(p, sf)),
-    params: f.parameters.map((p) => tokenText(p, sf)),
-    paramNamen: f.parameters.map((p) => text(p.name, sf)),
-    rueckgabe: tokenText(f.type, sf),
-    hatKoerper: !!f.body,
-    koerper: f.body ? tk(f.body) : [],
-    koerperKnoten: f.body,
-    zugriff: zugriff(f),
-    zeilen: sf.getLineAndCharacterOfPosition(f.getEnd()).line - sf.getLineAndCharacterOfPosition(f.getStart(sf)).line + 1,
-    klasse: d.klasse,
-    art: d.art,
-  };
 }
 
 const gleich = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -275,264 +311,546 @@ function ersterUnterschied(a, b) {
   return `an Token ${i} (alt ${a.length}, neu ${b.length}): alt "… ${um(a)} …" / neu "… ${um(b)} …"`;
 }
 
-// ── Der Beweis ──────────────────────────────────────────────────────────────────────────
+// ── Deklarationen ───────────────────────────────────────────────────────────────────────
 
 /**
- * @param {object} o
- *   alt, rest: Quelltext; ziele: [{name, text}]; namen: string[]; tabelle: Map; kontext; klasse; maxZeilen
- * @returns {{befunde: string[], zeilen: string[], zaehler: object}}
+ * Funktionen einer Datei: Klassenmethoden ({ art:'methode', klasse, name }) und freie Funktionen der Modulebene
+ * (`function name`). Pfeilfunktionen in `const` sind nicht unterstützt und werden als `pfeil` gemeldet.
  */
-export function beweise(o) {
-  const kontext = o.kontext ?? 'k';
-  const maxZeilen = o.maxZeilen ?? 3;
-  const tabelle = new Map([['this.', `${kontext}.`], ...(o.tabelle ?? [])]);
-  const treffer = new Map();
-  const befunde = [];
-  const zeilen = [];
-
-  const sfAlt = parse(o.alt, 'alt');
-  const sfRest = parse(o.rest, 'rest');
-  const ziele = o.ziele.map((z) => ({ name: z.name, sf: parse(z.text, z.name) }));
-  const dAlt = deklarationen(sfAlt);
-  const dRest = deklarationen(sfRest);
-  const dZiel = ziele.flatMap((z) => deklarationen(z.sf).map((d) => ({ ...d, sf: z.sf, datei: z.name })));
-
-  const listeEindeutig = new Set(o.namen);
-  if (listeEindeutig.size !== o.namen.length) befunde.push('Namensliste enthält einen Namen mehrfach');
-  if (o.namen.length === 0) befunde.push('Namensliste ist leer');
-
-  let gleichZahl = 0;
-  let weiterleitungen = 0;
-  for (const name of listeEindeutig) {
-    const fehler = [];
-    const inAlt = finde(dAlt, name, o.klasse);
-    const inRest = finde(dRest, name, o.klasse);
-    const inZiel = finde(dZiel, name, null);
-
-    if (inAlt.length !== 1) fehler.push(`im Alt-Stand ${inAlt.length}× gefunden (erwartet genau 1)`);
-    if (inZiel.length !== 1) fehler.push(`in den Zielen ${inZiel.length}× gefunden (erwartet genau 1)${inZiel.length > 1 ? ' → doppelt' : inZiel.length === 0 ? ' → fehlt' : ''}`);
-    if (inRest.length !== 1) fehler.push(`im Rest ${inRest.length}× gefunden (erwartet genau 1 Weiterleitung)`);
-
-    if (fehler.length === 0) {
-      const a = inAlt[0];
-      const z = inZiel[0];
-      const r = inRest[0];
-      const eigen = [];
-      const za = zerlege(a, sfAlt, tabelle, treffer, eigen);
-      // Ziel wird nicht ersetzt: nur Token
-      const zz = zerlege(z, z.sf, null, new Map(), []);
-      const zr = zerlege(r, sfRest, null, new Map(), []);
-      fehler.push(...eigen);
-
-      // 1. Text gleich bis auf Ersetzung (Ziel: erster Parameter = Kontext)
-      if (!zz.hatKoerper || !za.hatKoerper) fehler.push('Funktion ohne Rumpf');
-      else {
-        if (zz.params.length !== za.params.length + 1) fehler.push(`Ziel hat ${zz.params.length} Parameter, erwartet ${za.params.length + 1} (Kontext + ${za.params.length})`);
-        else {
-          if (zz.paramNamen[0] !== kontext) fehler.push(`erster Parameter des Ziels heißt "${zz.paramNamen[0]}", erwartet "${kontext}"`);
-          const zuRest = zz.params.slice(1);
-          za.params.forEach((p, i) => {
-            if (!gleich(p, zuRest[i])) fehler.push(`Parameter ${i + 1} weicht ab: alt "${p.join(' ')}" / Ziel "${zuRest[i].join(' ')}"`);
-          });
+function deklarationen(sf) {
+  const liste = [];
+  for (const s of sf.statements) {
+    if (ts.isFunctionDeclaration(s) && s.name) liste.push({ art: 'frei', klasse: null, name: s.name.text, knoten: s });
+    else if (ts.isVariableStatement(s)) {
+      for (const d of s.declarationList.declarations) {
+        if (ts.isIdentifier(d.name) && d.initializer && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))) liste.push({ art: 'pfeil', klasse: null, name: d.name.text, knoten: d.initializer });
+      }
+    } else if (ts.isClassDeclaration(s)) {
+      const kn = s.name ? s.name.text : '(anonym)';
+      for (const m of s.members) {
+        if (ts.isMethodDeclaration(m) && m.name && (ts.isIdentifier(m.name) || ts.isPrivateIdentifier(m.name))) {
+          liste.push({ art: 'methode', klasse: kn, name: m.name.text, knoten: m });
         }
-        if (za.async !== zz.async) fehler.push(`async: alt ${za.async} / Ziel ${zz.async}`);
-        if (za.stern !== zz.stern) fehler.push('Generator-Stern weicht ab');
-        if (!gleich(za.typParams.flat(), zz.typParams.flat())) fehler.push('Typparameter weichen ab');
-        if (!gleich(za.rueckgabe, zz.rueckgabe)) fehler.push(`Rückgabetyp weicht ab: alt "${za.rueckgabe.join(' ')}" / Ziel "${zz.rueckgabe.join(' ')}"`);
-        if (!gleich(za.koerper, zz.koerper)) fehler.push(`Rumpf weicht ab ${ersterUnterschied(za.koerper, zz.koerper)}`);
-      }
-
-      // 3. Weiterleitung
-      if (zr.zugriff !== za.zugriff && a.art === 'methode') fehler.push(`Zugriff der Weiterleitung "${zr.zugriff}", alt "${za.zugriff}"`);
-      if (zr.art !== a.art) fehler.push(`Weiterleitung ist ${zr.art}, das Original war ${a.art}`);
-      if (zr.params.length !== za.params.length || !za.params.every((p, i) => gleich(p, zr.params[i]))) fehler.push('Weiterleitung hat andere Parameter als das Original');
-      if (!gleich(za.rueckgabe, zr.rueckgabe)) fehler.push('Weiterleitung hat anderen Rückgabetyp als das Original');
-      if (!zr.hatKoerper) fehler.push('Weiterleitung ohne Rumpf');
-      else {
-        const stmts = zr.koerperKnoten.statements ?? [];
-        if (stmts.length !== 1) fehler.push(`Weiterleitung hat ${stmts.length} Anweisungen statt 1 (Original noch da? Zusätze?)`);
-        else fehler.push(...pruefeAufruf(stmts[0], name, zr.paramNamen, sfRest));
-        if (zr.zeilen > maxZeilen) fehler.push(`Weiterleitung ist ${zr.zeilen} Zeilen lang (Höchstens ${maxZeilen})`);
-      }
-      if (fehler.length === 0) {
-        gleichZahl++;
-        weiterleitungen++;
       }
     }
-    zeilen.push(fehler.length === 0 ? `OK      ${name}` : `FEHLER  ${name}`);
-    for (const f of fehler) {
-      zeilen.push(`          - ${f}`);
-      befunde.push(`${name}: ${f}`);
-    }
   }
-
-  // Ersetzungseinträge ohne Treffer
-  for (const k of tabelle.keys()) {
-    if ((treffer.get(k) ?? 0) === 0 && k !== 'this.') befunde.push(`Ersetzungseintrag "${k}" hat keinen Treffer (Tabelle veraltet oder falsch)`);
-  }
-  if (o.namen.length > 0 && (treffer.get('this.') ?? 0) === 0 && o.tabelleOhneThisErlaubt !== true && [...listeEindeutig].some((n) => finde(dAlt, n, o.klasse)[0]?.art === 'methode')) {
-    befunde.push('Klassenmethoden verschoben, aber `this.` kam nie vor');
-  }
-
-  // 4. Verlorenes: Namen des Alt-Stands, die weder im Rest noch verschoben sind
-  const restNamen = new Set(dRest.map((d) => `${d.klasse ?? ''}.${d.name}`));
-  for (const d of dAlt) {
-    const schluessel = `${d.klasse ?? ''}.${d.name}`;
-    if (!restNamen.has(schluessel) && !listeEindeutig.has(d.name)) befunde.push(`verloren: "${schluessel}" steht im Rest nicht mehr und wurde nicht als verschoben genannt`);
-  }
-  // Nicht genannte Funktionen müssen im Rest unverändert sein (sonst wurde etwas verschoben oder geändert, das nicht in der Liste steht)
-  for (const d of dAlt) {
-    if (listeEindeutig.has(d.name)) continue;
-    const r = dRest.find((x) => x.name === d.name && x.klasse === d.klasse);
-    if (!r) continue;
-    const ta = zerlege(d, sfAlt, null, new Map(), []);
-    const tr = zerlege(r, sfRest, null, new Map(), []);
-    if (!gleich(ta.koerper, tr.koerper) || !gleich(ta.params.flat(), tr.params.flat()) || !gleich(ta.rueckgabe, tr.rueckgabe)) {
-      befunde.push(`geändert, aber nicht als verschoben genannt: "${d.klasse ? `${d.klasse}.` : ''}${d.name}" (${ersterUnterschied(ta.koerper, tr.koerper)})`);
-    }
-  }
-  // Neues im Rest, das es im Alt-Stand nicht gab
-  const altNamen = new Set(dAlt.map((d) => `${d.klasse ?? ''}.${d.name}`));
-  for (const d of dRest) {
-    const schluessel = `${d.klasse ?? ''}.${d.name}`;
-    if (!altNamen.has(schluessel)) befunde.push(`neu im Rest: "${schluessel}" gab es im Alt-Stand nicht`);
-  }
-  // Unbenannte Funktionen der Ziele (nur Hinweis, kein Befund)
-  const hinweise = dZiel.filter((d) => !listeEindeutig.has(d.name)).map((d) => `${d.datei}:${d.name}`);
-
-  return {
-    befunde,
-    zeilen,
-    zaehler: { namen: o.namen.length, gleich: gleichZahl, weiterleitungen, ersetzungen: Object.fromEntries(treffer), weitereFunktionenImZiel: hinweise },
-  };
+  return liste;
 }
 
-/** Eine Anweisung, die `name(<ein Ausdruck>, …Parameter)` (oder `name(…Parameter)`) aufruft. */
-function pruefeAufruf(stmt, name, paramNamen, sf) {
-  const f = [];
-  let ausdruck = null;
-  if (ts.isExpressionStatement(stmt)) ausdruck = stmt.expression;
-  else if (ts.isReturnStatement(stmt)) ausdruck = stmt.expression;
-  else return [`Weiterleitung ist keine Aufruf-Anweisung (${ts.SyntaxKind[stmt.kind]})`];
-  while (ausdruck && (ts.isAwaitExpression(ausdruck) || ts.isParenthesizedExpression(ausdruck))) ausdruck = ausdruck.expression;
-  if (!ausdruck || !ts.isCallExpression(ausdruck)) return ['Weiterleitung ruft nichts auf'];
-  const callee = ausdruck.expression;
-  const nameGerufen = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '';
-  if (nameGerufen !== name) f.push(`Weiterleitung ruft "${nameGerufen}" statt "${name}"`);
-  const args = ausdruck.arguments.map((a) => a.getText(sf));
-  const erwartet = paramNamen.map((n) => n.replace(/^\.\.\./, ''));
-  // Original-Parameterobjekte (Destrukturierung) haben keinen einfachen Namen; dann Vergleich auslassen
-  const spread = paramNamen.map((n) => n);
-  const rest = args.slice(1);
-  const ohne = args;
-  const passt = (a) => a.length === erwartet.length && a.every((x, i) => x === erwartet[i] || x === `...${erwartet[i]}`);
-  if (!passt(rest) && !passt(ohne)) f.push(`Weiterleitung reicht die Parameter nicht 1:1 weiter (Aufruf: ${args.join(', ')}; erwartet: [Kontext,] ${spread.join(', ')})`);
-  else if (passt(ohne) && !passt(rest) && erwartet.length > 0 && args.length === erwartet.length) f.push('Weiterleitung übergibt keinen Kontext als ersten Argument');
-  return f;
-}
-
-// ── Form 0: wörtlich verschieben (ohne Kontext) ─────────────────────────────────────────
-
-/** Deklarationen der Modulebene, die sich wörtlich verschieben lassen: function und const/let mit EINEM Namen. */
+/** Deklarationen der Modulebene, die sich wörtlich verschieben lassen: function, const/let/var mit EINEM Namen, interface und type (ohne Laufzeitwirkung). */
 function modulDeklarationen(sf) {
   const liste = [];
   for (const st of sf.statements) {
     if (ts.isFunctionDeclaration(st) && st.name) liste.push({ name: st.name.text, art: 'function', st });
     else if (ts.isVariableStatement(st) && st.declarationList.declarations.length === 1 && ts.isIdentifier(st.declarationList.declarations[0].name)) {
       liste.push({ name: st.declarationList.declarations[0].name.text, art: 'variable', st });
-    }
+    } else if (ts.isInterfaceDeclaration(st)) liste.push({ name: st.name.text, art: 'interface', st });
+    else if (ts.isTypeAliasDeclaration(st)) liste.push({ name: st.name.text, art: 'typ', st });
   }
   return liste;
 }
 
-/** Wird `name` im Rest wieder ausgeführt (Import, `export { name }`, `export … from`)? */
-function reexportiert(sf, name) {
-  for (const st of sf.statements) {
-    if (ts.isExportDeclaration(st) && st.exportClause && ts.isNamedExports(st.exportClause) && st.exportClause.elements.some((e) => e.name.text === name)) return true;
+/** Alle Namen, die auf der Modulebene einer Datei deklariert sind (für die Bindungsprüfung). */
+function modulNamen(sf) {
+  const m = new Map(); // name → art
+  for (const s of sf.statements) {
+    if ((ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s) || ts.isEnumDeclaration(s) || ts.isInterfaceDeclaration(s) || ts.isTypeAliasDeclaration(s) || ts.isModuleDeclaration(s)) && s.name) m.set(s.name.text, ts.SyntaxKind[s.kind]);
+    else if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) for (const n of lokaleNamen(d)) m.set(n, 'variable');
   }
-  return false;
+  return m;
 }
 
+function hatModifikator(n, art) {
+  return !!(ts.canHaveModifiers(n) && ts.getModifiers(n)?.some((m) => m.kind === art));
+}
+const modifikatoren = (n) => (ts.canHaveModifiers(n) ? (ts.getModifiers(n) ?? []).map((m) => m.getText()).sort() : []);
+
+// ── Importe ─────────────────────────────────────────────────────────────────────────────
+
+/** Jede Bindung eines Imports als eigener Eintrag { schluessel, lokal, art, imp, aufgeloest, typOnly, spec }. */
+function importEintraege(sf, dateiName) {
+  const aus = [];
+  for (const s of sf.statements) {
+    if (!ts.isImportDeclaration(s) || !ts.isStringLiteral(s.moduleSpecifier)) continue;
+    const spec = s.moduleSpecifier.text;
+    const aufgeloest = loese(spec, dateiName);
+    const ic = s.importClause;
+    const typOnly = !!ic?.isTypeOnly;
+    const neu = (lokal, art, imp, typ) => aus.push({ lokal, art, imp, aufgeloest, spec, typOnly: typOnly || !!typ, schluessel: `${aufgeloest}|${art}|${imp}|${lokal}` });
+    if (!ic) {
+      neu('', 'seite', '', false);
+      continue;
+    }
+    if (ic.name) neu(ic.name.text, 'default', 'default', false);
+    if (ic.namedBindings) {
+      if (ts.isNamespaceImport(ic.namedBindings)) neu(ic.namedBindings.name.text, 'namespace', '*', false);
+      else for (const e of ic.namedBindings.elements) neu(e.name.text, 'named', (e.propertyName ?? e.name).text, e.isTypeOnly);
+    }
+  }
+  return aus;
+}
+
+// ── Kommentare mit Wirkung (N1) ─────────────────────────────────────────────────────────
+
+const WIRKUNG = /(@ts-(expect-error|ignore|nocheck|check)|eslint-(disable|enable)|prettier-ignore|@vite-ignore|__PURE__|istanbul ignore|c8 ignore)/;
+
+/** Alle Kommentare mit Wirkung einer Datei: [{ text, pos }] in Dateireihenfolge. */
+function wirkungsKommentare(sf, text) {
+  const aus = [];
+  for (const b of blaetter(sf, sf)) {
+    const k = b.knoten;
+    const trivia = text.slice(k.pos, k.getStart(sf));
+    for (const m of trivia.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g)) {
+      if (WIRKUNG.test(m[0])) aus.push({ text: m[0].trim(), pos: k.pos + m.index });
+    }
+  }
+  return aus;
+}
+
+// ── Der Beweis ──────────────────────────────────────────────────────────────────────────
+
+const istAny = (typ, ziel) => {
+  if (!typ) return true;
+  if (typ.kind === K.AnyKeyword || typ.kind === K.UnknownKeyword) return true;
+  if (ts.isTypeReferenceNode(typ)) {
+    if ((typ.typeArguments ?? []).some((a) => istAny(a, ziel))) return true;
+    if (ts.isIdentifier(typ.typeName)) {
+      const alias = ziel.statements.find((s) => ts.isTypeAliasDeclaration(s) && s.name.text === typ.typeName.text);
+      if (alias) return istAny(alias.type, ziel);
+    }
+    return false;
+  }
+  if (ts.isUnionTypeNode(typ) || ts.isIntersectionTypeNode(typ)) return typ.types.some((t) => istAny(t, ziel));
+  if (ts.isParenthesizedTypeNode(typ)) return istAny(typ.type, ziel);
+  return false;
+};
+
 /**
- * Form 0: Deklarationen der Modulebene (Funktionen ohne `this`, Konstanten, Tabellen) wandern OHNE
- * Kontext und OHNE Weiterleitung in ein Modul (I1-Zuarbeit Befund 4: Beutetabellen und Waffenhelfer).
- * Der Text ist bis auf die Modifikatoren (`export`) gleich; im Rest gibt es die Deklaration nicht mehr; war der Name
- * im Alt-Stand exportiert, muss der Rest ihn weiter exportieren (`export { name } from …`), damit kein Importeur ändert.
- * Es gibt keine Ersetzung: ein `this` oder ein Verweis auf einen Namen, der im Alt-Stand lokal war, taucht im Ziel
- * unverändert auf; ein Ziel, das dort nicht übersetzt, meldet der TypeScript-Prüfer.
+ * @param {object} o
+ *   alt, rest: Quelltext; ziele: [{name, text}]; namen: string[]; woertlichNamen: string[]; tabelle: Map;
+ *   kontext; klasse; maxZeilen; restName (Pfad der Quelldatei, für relative Importe); aliase: Map; freigaben: string[]
+ * @returns {{befunde: string[], zeilen: string[], zaehler: object, freigegeben: string[], hinweise: string[]}}
  */
-export function beweiseWoertlich(o) {
+export function beweise(o) {
+  const kontext = o.kontext ?? 'k';
+  const maxZeilen = o.maxZeilen ?? 3;
+  const restName = o.restName ?? 'rest.ts';
+  const tabelle = new Map([['this.', `${kontext}.`], ...(o.tabelle ?? [])]);
+  const freigaben = new Set(o.freigaben ?? []);
+  const aliase = o.aliase ?? new Map();
+  const namen = [...new Set(o.namen ?? [])];
+  const woertlich = [...new Set(o.woertlichNamen ?? [])];
+  const treffer = new Map();
   const befunde = [];
   const zeilen = [];
-  const sfAlt = parse(o.alt, 'alt');
-  const sfRest = parse(o.rest, 'rest');
-  const ziele = o.ziele.map((z) => ({ name: z.name, sf: parse(z.text, z.name) }));
-  const dAlt = modulDeklarationen(sfAlt);
-  const dRest = modulDeklarationen(sfRest);
-  const dZiel = ziele.flatMap((z) => modulDeklarationen(z.sf).map((d) => ({ ...d, sf: z.sf, datei: z.name })));
-  const namen = [...new Set(o.namen)];
-  if (namen.length !== o.namen.length) befunde.push('Namensliste enthält einen Namen mehrfach');
-  if (namen.length === 0) befunde.push('Namensliste ist leer');
-  const tk = (d, sf) => tokenText(d.st, sf).filter((t) => t !== 'export');
+  const freigegeben = [];
+  const hinweise = [];
+  /** Befund, der mit `--freigabe schluessel` ausdrücklich freigegeben werden kann. */
+  const freigebbar = (schluessel, text) => {
+    if (freigaben.has(schluessel)) {
+      freigegeben.push(`${schluessel}: ${text}`);
+      return;
+    }
+    befunde.push(`${text} (nicht beweisbar; ausdrücklich freigeben mit --freigabe ${schluessel})`);
+  };
+
+  if ((o.namen ?? []).length !== namen.length || (o.woertlichNamen ?? []).length !== woertlich.length) befunde.push('Namensliste enthält einen Namen mehrfach');
+  if (namen.length + woertlich.length === 0) befunde.push('Namensliste ist leer');
+  const doppelt = namen.filter((n) => woertlich.includes(n));
+  if (doppelt.length) befunde.push(`Name in beiden Listen: ${doppelt.join(', ')}`);
+
+  // M2: Tabelle
+  for (const [schluessel, wert] of tabelle) {
+    const soll = schluessel === 'this.' ? `${kontext}.` : `${kontext}.${schluessel}`;
+    if (wert !== soll) freigebbar(`tabelle:${schluessel}=${wert}`, `Ersetzungseintrag "${schluessel}" → "${wert}" ist nicht "${soll}"`);
+  }
+
+  const sfAlt = parse(o.alt, restName);
+  const sfRest = parse(o.rest, restName);
+  const ziele = o.ziele.map((z) => ({ name: z.name, kern: dateiKern(z.name), sf: parse(z.text, z.name), text: z.text }));
+  const zielKerne = new Set(ziele.map((z) => z.kern));
+  const dAlt = deklarationen(sfAlt);
+  const dRest = deklarationen(sfRest);
+  const dZiel = ziele.flatMap((z) => deklarationen(z.sf).map((d) => ({ ...d, zsf: z.sf, datei: z.name, kern: z.kern, text: z.text })));
+  const mAlt = modulDeklarationen(sfAlt);
+  const mRest = modulDeklarationen(sfRest);
+  const mZiel = ziele.flatMap((z) => modulDeklarationen(z.sf).map((d) => ({ ...d, zsf: z.sf, datei: z.name, kern: z.kern })));
+  const impAlt = importEintraege(sfAlt, restName);
+  const impRest = importEintraege(sfRest, restName);
+  const altModulNamen = modulNamen(sfAlt);
+  const alleVerschoben = new Set([...namen, ...woertlich]);
+
+  const restErsetze = new Map();
+  const altErsetze = new Map();
+  const regionenAlt = []; // [von,bis,name] der verschobenen Deklarationen im Alt-Stand
+  const regionenRest = []; // Weiterleitungen / weggelassene Anweisungen im Rest
+  const regionenZiel = new Map(); // name → [von,bis,zielDatei]
+  const wirkAlt = wirkungsKommentare(sfAlt, o.alt);
+  const wirkRest = wirkungsKommentare(sfRest, o.rest);
+
   let gleichZahl = 0;
+  let weiterleitungen = 0;
+  const kontextFabriken = new Set();
+  const finde = (decls, name) => decls.filter((d) => (d.art !== 'methode' || !o.klasse || d.klasse === o.klasse) && d.name === name);
+
+  // ── Funktionen mit Kontext und Weiterleitung ──
   for (const name of namen) {
     const fehler = [];
-    const a = dAlt.filter((d) => d.name === name);
-    const z = dZiel.filter((d) => d.name === name);
-    const r = dRest.filter((d) => d.name === name);
-    if (a.length !== 1) fehler.push(`im Alt-Stand ${a.length}× gefunden (erwartet genau 1)`);
-    if (z.length !== 1) fehler.push(`in den Zielen ${z.length}× gefunden (erwartet genau 1)${z.length > 1 ? ' → doppelt' : ' → fehlt'}`);
-    if (r.length !== 0) fehler.push(`im Rest steht die Deklaration noch (${r.length}×): doppelt statt verschoben`);
-    if (a.length === 1 && z.length === 1) {
-      if (a[0].art !== z[0].art) fehler.push(`Art weicht ab: alt ${a[0].art}, Ziel ${z[0].art}`);
-      const ta = tk(a[0], sfAlt);
-      const tz = tk(z[0], z[0].sf);
-      if (!gleich(ta, tz)) fehler.push(`Text weicht ab ${ersterUnterschied(ta, tz)}`);
-      const warExportiert = hatModifikator(a[0].st, K.ExportKeyword);
-      if (warExportiert && !hatModifikator(z[0].st, K.ExportKeyword)) fehler.push('war im Alt-Stand exportiert, im Ziel nicht');
-      if (warExportiert && !reexportiert(sfRest, name)) fehler.push('war im Alt-Stand exportiert, der Rest führt es nicht mehr aus (`export { … } from` fehlt): Importeure würden brechen');
+    const inAlt = finde(dAlt, name);
+    const inRest = finde(dRest, name);
+    const inZiel = dZiel.filter((d) => d.name === name && d.art === 'frei');
+    if (inAlt.length !== 1) fehler.push(`im Alt-Stand ${inAlt.length}× gefunden (erwartet genau 1)`);
+    if (inZiel.length !== 1) fehler.push(`in den Zielen ${inZiel.length}× gefunden (erwartet genau 1)${inZiel.length > 1 ? ' → doppelt' : ' → fehlt'}`);
+    if (inRest.length !== 1) fehler.push(`im Rest ${inRest.length}× gefunden (erwartet genau 1 Weiterleitung)`);
+    if (inAlt[0]?.art === 'pfeil') fehler.push('Pfeilfunktion in const: nicht unterstützt (function-Deklaration verwenden)');
+    if (fehler.length === 0) {
+      const a = inAlt[0];
+      const z = inZiel[0];
+      const r = inRest[0];
+      const fa = a.knoten;
+      const fz = z.knoten;
+      const fr = r.knoten;
+      const lokal = fa.body ? lokaleNamen(fa) : new Set();
+      const eigen = [];
+      const tk = (n) => (n ? tokens(n, sfAlt, tabelle, treffer, eigen, lokal) : []);
+      if (!fa.body || !fz.body || !fr.body) fehler.push('Funktion ohne Rumpf (Überladungssignaturen sind nicht unterstützt)');
+      else {
+        regionenAlt.push({ von: fa.getFullStart(), bis: fa.end, name });
+        regionenRest.push({ von: fr.getFullStart(), bis: fr.end, name });
+        regionenZiel.set(name, { von: fz.getFullStart(), bis: fz.end, zsf: z.zsf, datei: z.datei });
+        altErsetze.set(fa, `⟦${name}⟧`);
+        restErsetze.set(fr, `⟦${name}⟧`);
+
+        // H5 / M1
+        for (const { id, rolle } of bezeichner(fa)) {
+          if (id.text === kontext && rolle !== false) fehler.push(`Kontextname "${kontext}" kommt im Rumpf schon vor (${zeile(id, sfAlt)}): --kontext anders wählen`);
+          if (id.text === 'arguments' && rolle !== false) fehler.push(`\`arguments\` im Rumpf (${zeile(id, sfAlt)}): im Ziel zählt der Kontext mit`);
+        }
+        // Ziel: Kontextparameter
+        const p0 = fz.parameters[0];
+        if (!p0 || !ts.isIdentifier(p0.name) || p0.name.text !== kontext) fehler.push(`erster Parameter des Ziels ist nicht "${kontext}"`);
+        else {
+          if (p0.initializer || p0.questionToken || p0.dotDotDotToken) fehler.push('Kontextparameter hat Vorgabewert, `?` oder `...`');
+          if (istAny(p0.type, z.zsf)) fehler.push(`Kontextparameter "${kontext}" hat keinen echten Typ (any/unknown/fehlt): der Typprüfer sähe nichts mehr`);
+        }
+        // Parameter (mit Ersetzung), Modifikatoren, Signatur
+        const paramsAlt = fa.parameters.map((p) => tk(p));
+        const paramsZiel = fz.parameters.slice(1).map((p) => tokenText(p, z.zsf));
+        if (fz.parameters.length !== fa.parameters.length + 1) fehler.push(`Ziel hat ${fz.parameters.length} Parameter, erwartet ${fa.parameters.length + 1} (Kontext + ${fa.parameters.length})`);
+        else paramsAlt.forEach((p, i) => { if (!gleich(p, paramsZiel[i])) fehler.push(`Parameter ${i + 1} weicht ab: alt "${p.join(' ')}" / Ziel "${paramsZiel[i].join(' ')}"`); });
+        const asyncA = hatModifikator(fa, K.AsyncKeyword);
+        if (asyncA !== hatModifikator(fz, K.AsyncKeyword)) fehler.push(`async: alt ${asyncA} / Ziel ${hatModifikator(fz, K.AsyncKeyword)}`);
+        if (!!fa.asteriskToken !== !!fz.asteriskToken) fehler.push('Generator-Stern weicht ab');
+        if (!gleich((fa.typeParameters ?? []).flatMap((p) => tokenText(p, sfAlt)), (fz.typeParameters ?? []).flatMap((p) => tokenText(p, z.zsf)))) fehler.push('Typparameter weichen ab');
+        if (!gleich(tokenText(fa.type, sfAlt), tokenText(fz.type, z.zsf))) fehler.push('Rückgabetyp weicht ab');
+        if (!hatModifikator(fz, K.ExportKeyword)) fehler.push('Funktion im Ziel ist nicht exportiert');
+        const tAlt = tk(fa.body);
+        const tZiel = tokenText(fz.body, z.zsf);
+        if (!gleich(tAlt, tZiel)) fehler.push(`Rumpf weicht ab ${ersterUnterschied(tAlt, tZiel)}`);
+        fehler.push(...eigen);
+
+        // N1: Kommentare mit Wirkung
+        const kAlt = wirkAlt.filter((c) => c.pos >= fa.getFullStart() && c.pos <= fa.end).map((c) => c.text);
+        const kZiel = wirkungsKommentare(z.zsf, z.text).filter((c) => c.pos >= fz.getFullStart() && c.pos <= fz.end).map((c) => c.text);
+        if (!gleich(kAlt, kZiel)) fehler.push(`Kommentare mit Wirkung weichen ab: alt [${kAlt.join(' | ')}] / Ziel [${kZiel.join(' | ')}]`);
+
+        // H4: freie Namen binden
+        const ktypIds = new Set(p0?.type ? bezeichner(p0.type).map((x) => x.id) : []);
+        const zielImp = importEintraege(z.zsf, z.datei);
+        const zielTopNamen = modulNamen(z.zsf);
+        const gemeldet = new Set();
+        for (const { id, rolle } of bezeichner(fz)) {
+          if (rolle !== true && rolle !== 'kurzform') continue;
+          const n = id.text;
+          if (n === kontext || gemeldet.has(n)) continue;
+          if (lokalGebunden(id, fz)) continue;
+          if (ktypIds.has(id)) continue; // Typname des Kontexts
+          if (tabelle.has(n)) continue;
+          const eAlt = impAlt.find((e) => e.lokal === n);
+          const eZiel = zielImp.find((e) => e.lokal === n);
+          if (eAlt) {
+            if (!eZiel || eZiel.aufgeloest !== eAlt.aufgeloest || eZiel.imp !== eAlt.imp || eZiel.art !== eAlt.art) {
+              gemeldet.add(n);
+              fehler.push(`freier Name "${n}": im Alt-Stand Import ${eAlt.art === 'named' ? `{ ${eAlt.imp} }` : eAlt.art} aus ${eAlt.aufgeloest}, im Ziel ${eZiel ? `Import aus ${eZiel.aufgeloest}` : 'nicht gebunden'}`);
+            }
+          } else if (altModulNamen.has(n)) {
+            if (!alleVerschoben.has(n)) {
+              gemeldet.add(n);
+              freigebbar(`bindung:${n}`, `freier Name "${n}": im Alt-Stand Deklaration der Quelldatei (${altModulNamen.get(n)}), im Ziel nicht gebunden (im selben Lauf wörtlich mitverschieben oder über die Tabelle \`${kontext}.${n}\` führen)`);
+            } else if (!zielTopNamen.has(n) && !mZiel.some((d) => d.name === n)) {
+              gemeldet.add(n);
+              fehler.push(`freier Name "${n}": mit verschoben, aber im Ziel nicht deklariert`);
+            }
+          } else if (eZiel || (zielTopNamen.has(n) && !alleVerschoben.has(n))) {
+            gemeldet.add(n);
+            fehler.push(`freier Name "${n}": im Alt-Stand ungebunden (global), im Ziel ${eZiel ? `Import aus ${eZiel.aufgeloest}` : 'als Deklaration'} gebunden`);
+          }
+        }
+
+        // H1: Weiterleitung
+        fehler.push(...pruefeWeiterleitung({ fa, fr, sfAlt, sfRest, name, kontext, maxZeilen, impRest, zielKern: z.kern, freigebbar, kontextFabriken, art: a.art }));
+      }
     }
-    if (fehler.length === 0) gleichZahl++;
+    if (fehler.length === 0) {
+      gleichZahl++;
+      weiterleitungen++;
+    }
     zeilen.push(fehler.length === 0 ? `OK      ${name}` : `FEHLER  ${name}`);
     for (const f of fehler) {
       zeilen.push(`          - ${f}`);
       befunde.push(`${name}: ${f}`);
     }
   }
-  // Nichts anderes darf sich im Rest geändert haben: jede nicht genannte Deklaration des Alt-Stands unverändert
-  for (const d of dAlt) {
-    if (namen.includes(d.name)) continue;
-    const r = dRest.find((x) => x.name === d.name);
-    if (!r) befunde.push(`verloren: "${d.name}" steht im Rest nicht mehr und wurde nicht als verschoben genannt`);
-    else if (!gleich(tokenText(d.st, sfAlt), tokenText(r.st, sfRest))) befunde.push(`geändert, aber nicht als verschoben genannt: "${d.name}"`);
+
+  // ── Wörtlich verschobene Deklarationen (Form 0) ──
+  const erlaubteReexporte = new Set();
+  for (const name of woertlich) {
+    const fehler = [];
+    const a = mAlt.filter((d) => d.name === name);
+    const z = mZiel.filter((d) => d.name === name);
+    const r = mRest.filter((d) => d.name === name);
+    if (a.length !== 1) fehler.push(`im Alt-Stand ${a.length}× gefunden (erwartet genau 1)`);
+    if (z.length !== 1) fehler.push(`in den Zielen ${z.length}× gefunden (erwartet genau 1)${z.length > 1 ? ' → doppelt' : ' → fehlt'}`);
+    if (r.length !== 0) fehler.push(`im Rest steht die Deklaration noch (${r.length}×): doppelt statt verschoben`);
+    if (a.length === 1 && z.length === 1) {
+      altErsetze.set(a[0].st, '');
+      regionenAlt.push({ von: a[0].st.getFullStart(), bis: a[0].st.end, name });
+      if (a[0].art !== z[0].art) fehler.push(`Art weicht ab: alt ${a[0].art}, Ziel ${z[0].art}`);
+      const ta = tokenText(a[0].st, sfAlt).filter((t) => t !== 'export');
+      const tz = tokenText(z[0].st, z[0].zsf).filter((t) => t !== 'export');
+      if (!gleich(ta, tz)) fehler.push(`Text weicht ab ${ersterUnterschied(ta, tz)}`);
+      const warExportiert = hatModifikator(a[0].st, K.ExportKeyword);
+      if (warExportiert && !hatModifikator(z[0].st, K.ExportKeyword)) fehler.push('war im Alt-Stand exportiert, im Ziel nicht');
+      if (a[0].art === 'variable' && a[0].st.declarationList.flags !== z[0].st.declarationList.flags) fehler.push('const/let/var weicht ab');
+      regionenZiel.set(name, { von: z[0].st.getFullStart(), bis: z[0].st.end, zsf: z[0].zsf, datei: z[0].datei });
+      const kAlt = wirkAlt.filter((c) => c.pos >= a[0].st.getFullStart() && c.pos <= a[0].st.end).map((c) => c.text);
+      const kZiel = wirkungsKommentare(z[0].zsf, ziele.find((q) => q.name === z[0].datei).text).filter((c) => c.pos >= z[0].st.getFullStart() && c.pos <= z[0].st.end).map((c) => c.text);
+      if (!gleich(kAlt, kZiel)) fehler.push(`Kommentare mit Wirkung weichen ab: alt [${kAlt.join(' | ')}] / Ziel [${kZiel.join(' | ')}]`);
+      if (warExportiert) erlaubteReexporte.add(name);
+      if (!hatModifikator(z[0].st, K.ExportKeyword)) fehler.push('Deklaration im Ziel ist nicht exportiert (der Rest kann sie nicht importieren)');
+    }
+    if (fehler.length === 0) gleichZahl++;
+    zeilen.push(fehler.length === 0 ? `OK      ${name} (wörtlich)` : `FEHLER  ${name} (wörtlich)`);
+    for (const f of fehler) {
+      zeilen.push(`          - ${f}`);
+      befunde.push(`${name}: ${f}`);
+    }
   }
-  return { befunde, zeilen, zaehler: { namen: namen.length, gleich: gleichZahl, weiterleitungen: 0, ersetzungen: {}, weitereFunktionenImZiel: [] } };
+
+  // Reexporte im Rest (H3)
+  const reexportStatements = new Set();
+  const gesehenReexport = new Set();
+  for (const s of sfRest.statements) {
+    if (!ts.isExportDeclaration(s) || !s.moduleSpecifier || !ts.isStringLiteral(s.moduleSpecifier)) continue;
+    const ziel = loese(s.moduleSpecifier.text, restName);
+    const nurVerschoben = s.exportClause && ts.isNamedExports(s.exportClause) && s.exportClause.elements.length > 0 && s.exportClause.elements.every((e) => woertlich.includes((e.propertyName ?? e.name).text));
+    if (!nurVerschoben) continue; // alles andere gehört zum Rest und wird unten verglichen
+    if (!zielKerne.has(ziel)) {
+      befunde.push(`Reexport ${s.getText(sfRest).slice(0, 80)}: zeigt auf ${ziel}, nicht auf eine der Zieldateien`);
+      continue;
+    }
+    for (const e of s.exportClause.elements) {
+      const orig = (e.propertyName ?? e.name).text;
+      if (e.propertyName && aliase.get(orig) !== e.name.text) befunde.push(`Reexport von ${orig} mit Alias "${e.name.text}": nicht erlaubt (nur mit --alias ${orig}=${e.name.text})`);
+      if (!erlaubteReexporte.has(orig)) befunde.push(`Reexport von ${orig}: der Name war im Alt-Stand nicht exportiert (erweitert die Oberfläche)`);
+      gesehenReexport.add(orig);
+    }
+    reexportStatements.add(s);
+    restErsetze.set(s, '');
+  }
+  for (const n of erlaubteReexporte) {
+    if (!gesehenReexport.has(n)) befunde.push(`${n}: war im Alt-Stand exportiert, der Rest führt es nicht mehr aus (\`export { ${n} } from '<Ziel>'\` fehlt): Importeure würden brechen`);
+  }
+
+  // ── H2: der ganze Rest ──
+  {
+    const streams = (sf, ersetze) => {
+      const t = [];
+      for (const s of sf.statements) {
+        if (ts.isImportDeclaration(s)) continue;
+        t.push(...blaetter(s, sf, ersetze).map((b) => b.text));
+      }
+      return t;
+    };
+    const tAlt = streams(sfAlt, altErsetze);
+    const tRest = streams(sfRest, restErsetze);
+    if (!gleich(tAlt, tRest)) befunde.push(`Rest der Quelldatei weicht ab (außerhalb der verschobenen Deklarationen und ihrer Weiterleitungen) ${ersterUnterschied(tAlt, tRest)}`);
+    // Kommentare mit Wirkung außerhalb der verschobenen Bereiche
+    const draussen = (liste, regionen) => liste.filter((c) => !regionen.some((r) => c.pos >= r.von && c.pos <= r.bis)).map((c) => c.text);
+    const kA = draussen(wirkAlt, regionenAlt);
+    const kR = draussen(wirkRest, regionenRest);
+    if (!gleich(kA, kR)) befunde.push(`Kommentare mit Wirkung im Rest weichen ab: alt [${kA.join(' | ')}] / Rest [${kR.join(' | ')}]`);
+    // Importe als Menge
+    const schluesselAlt = new Set(impAlt.map((e) => e.schluessel));
+    const schluesselRest = new Set(impRest.map((e) => e.schluessel));
+    const restIds = new Set(tRest);
+    for (const e of impRest) {
+      if (schluesselAlt.has(e.schluessel)) continue;
+      if (!zielKerne.has(e.aufgeloest)) befunde.push(`neuer Import im Rest: "${e.lokal}" aus ${e.spec} (${e.aufgeloest}) zeigt nicht auf eine Zieldatei`);
+    }
+    for (const e of impAlt) {
+      if (schluesselRest.has(e.schluessel)) continue;
+      if (e.art === 'seite') befunde.push(`Import mit Nebenwirkung entfernt: ${e.spec}`);
+      else if (restIds.has(e.lokal)) befunde.push(`Import "${e.lokal}" aus ${e.spec} entfernt oder geändert, der Name kommt im Rest aber noch vor`);
+    }
+  }
+
+  // ── H4: die ganzen Zieldateien ──
+  for (const z of ziele) {
+    const zielImp = importEintraege(z.sf, z.name);
+    for (const s of z.sf.statements) {
+      if (ts.isImportDeclaration(s)) continue;
+      if (ts.isFunctionDeclaration(s) && s.name) {
+        if (!alleVerschoben.has(s.name.text)) befunde.push(`Ziel ${z.name}: Funktion "${s.name.text}" ist nicht als verschoben genannt`);
+        continue;
+      }
+      if (ts.isVariableStatement(s)) {
+        for (const d of s.declarationList.declarations) {
+          const n = ts.isIdentifier(d.name) ? d.name.text : '(Muster)';
+          if (!woertlich.includes(n)) befunde.push(`Ziel ${z.name}: Deklaration "${n}" ist nicht als wörtlich verschoben genannt (Modulebene mit möglicher Nebenwirkung)`);
+        }
+        continue;
+      }
+      if ((ts.isTypeAliasDeclaration(s) || ts.isInterfaceDeclaration(s)) && woertlich.includes(s.name.text)) continue;
+      if (ts.isTypeAliasDeclaration(s) || ts.isInterfaceDeclaration(s)) {
+        hinweise.push(`Ziel ${z.name}: Typdeklaration "${s.name.text}" (ohne Laufzeitwirkung, nicht beweisbar)`);
+        continue;
+      }
+      befunde.push(`Ziel ${z.name}: ${ts.SyntaxKind[s.kind]} auf der Modulebene ist nicht erlaubt (${zeile(s, z.sf)}): ${s.getText(z.sf).slice(0, 60).replace(/\s+/g, ' ')}`);
+    }
+    for (const e of zielImp) {
+      if (e.art === 'seite') {
+        befunde.push(`Ziel ${z.name}: Import mit Nebenwirkung ${e.spec}`);
+        continue;
+      }
+      const gegenstueck = impAlt.some((a) => a.aufgeloest === e.aufgeloest && a.art === e.art && a.imp === e.imp && a.lokal === e.lokal);
+      const kontextImport = /(^|\/)Kontext$/.test(e.aufgeloest) && e.typOnly;
+      const andereZiele = zielKerne.has(e.aufgeloest) && e.aufgeloest !== z.kern;
+      if (!gegenstueck && !kontextImport && !andereZiele) freigebbar(`import:${e.aufgeloest}`, `Ziel ${z.name}: Import "${e.lokal}" aus ${e.spec} hat im Alt-Stand kein Gegenstück`);
+    }
+  }
+
+  // Ersetzungseinträge ohne Treffer, this-Regel
+  for (const k of tabelle.keys()) {
+    if ((treffer.get(k) ?? 0) === 0 && k !== 'this.') befunde.push(`Ersetzungseintrag "${k}" hat keinen Treffer (Tabelle veraltet oder falsch)`);
+  }
+  if (namen.length > 0 && (treffer.get('this.') ?? 0) === 0 && o.tabelleOhneThisErlaubt !== true && !freigaben.has('kein-this') && namen.some((n) => finde(dAlt, n)[0]?.art === 'methode')) {
+    befunde.push('Klassenmethoden verschoben, aber `this.` kam nie vor (N3: einzeln verschobene Methode ohne this.; sonst --freigabe kein-this)');
+  }
+  if (kontextFabriken.size > 1) befunde.push(`Weiterleitungen nutzen verschiedene Kontext-Fabriken: ${[...kontextFabriken].join(', ')}`);
+
+  return {
+    befunde,
+    zeilen,
+    freigegeben,
+    hinweise,
+    zaehler: { namen: namen.length + woertlich.length, gleich: gleichZahl, weiterleitungen, ersetzungen: Object.fromEntries(treffer), tabelle: Object.fromEntries(tabelle) },
+  };
+}
+
+/** Form 0 (alle Namen wörtlich): Kurzform für ältere Aufrufer. */
+export function beweiseWoertlich(o) {
+  return beweise({ ...o, namen: [], woertlichNamen: o.namen });
+}
+
+/** H1: die Weiterleitung `fr` im Rest gegen das Original `fa`. Gibt eine Liste von Fehlern zurück. */
+function pruefeWeiterleitung({ fa, fr, sfAlt, sfRest, name, kontext, maxZeilen, impRest, zielKern, freigebbar, kontextFabriken, art }) {
+  const f = [];
+  if (!fr.body) return ['Weiterleitung ohne Rumpf'];
+  if (art === 'methode' && !ts.isMethodDeclaration(fr)) f.push('Weiterleitung ist keine Methode');
+  if (art === 'frei' && !ts.isFunctionDeclaration(fr)) f.push('Weiterleitung ist keine function-Deklaration');
+  // Modifikatoren, Signatur
+  if (!gleich(modifikatoren(fa), modifikatoren(fr))) f.push(`Modifikatoren der Weiterleitung [${modifikatoren(fr).join(' ')}] ≠ Original [${modifikatoren(fa).join(' ')}]`);
+  if (!!fa.asteriskToken !== !!fr.asteriskToken) f.push('Generator-Stern der Weiterleitung weicht ab');
+  if (!gleich((fa.typeParameters ?? []).flatMap((p) => tokenText(p, sfAlt)), (fr.typeParameters ?? []).flatMap((p) => tokenText(p, sfRest)))) f.push('Typparameter der Weiterleitung weichen ab');
+  const pa = fa.parameters.map((p) => tokenText(p, sfAlt));
+  const pr = fr.parameters.map((p) => tokenText(p, sfRest));
+  if (pa.length !== pr.length || !pa.every((p, i) => gleich(p, pr[i]))) f.push('Weiterleitung hat andere Parameter als das Original (Namen, Typen, Vorgabewerte)');
+  if (!gleich(tokenText(fa.type, sfAlt), tokenText(fr.type, sfRest))) f.push('Weiterleitung hat anderen Rückgabetyp als das Original');
+  // Rumpf
+  const stmts = fr.body.statements;
+  if (stmts.length !== 1) return [...f, `Weiterleitung hat ${stmts.length} Anweisungen statt 1`];
+  const st = stmts[0];
+  if (!ts.isReturnStatement(st) || !st.expression) return [...f, `Weiterleitung ist kein \`return <Aufruf>\` (${ts.SyntaxKind[st.kind]})`];
+  const call = st.expression;
+  if (!ts.isCallExpression(call)) return [...f, 'Weiterleitung gibt etwas anderes als den Aufruf zurück (Ergebnis verändert?)'];
+  if (call.questionDotToken || (ts.isPropertyAccessExpression(call.expression) && call.expression.questionDotToken)) f.push('Aufruf mit `?.` ist keine gültige Weiterleitung');
+  // Aufgerufener
+  const callee = call.expression;
+  let modul = null;
+  if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.name.text === name) {
+    const e = impRest.find((x) => x.lokal === callee.expression.text && x.art === 'namespace');
+    if (!e) f.push(`Weiterleitung ruft \`${callee.expression.text}.${name}\`, aber \`${callee.expression.text}\` ist kein \`import * as\` im Rest`);
+    else modul = e.aufgeloest;
+  } else if (ts.isIdentifier(callee) && callee.text === name) {
+    const e = impRest.find((x) => x.lokal === name && x.art === 'named' && x.imp === name);
+    if (!e) f.push(`Weiterleitung ruft \`${name}(…)\` ohne \`import { ${name} }\` aus der Zieldatei (Selbstaufruf?)`);
+    else modul = e.aufgeloest;
+  } else {
+    f.push(`Weiterleitung ruft "${callee.getText(sfRest).slice(0, 50)}" statt \`<modul>.${name}\``);
+  }
+  if (modul !== null && modul !== zielKern) f.push(`Weiterleitung ruft ein Modul (${modul}), das nicht die Zieldatei ${zielKern} ist`);
+  // Typargumente
+  const tp = (fa.typeParameters ?? []).map((p) => p.name.text);
+  const ta = (call.typeArguments ?? []).map((t) => t.getText(sfRest));
+  if (ta.length && !gleich(ta, tp)) f.push('Typargumente der Weiterleitung sind nicht die Typparameter');
+  // Argumente
+  const args = call.arguments;
+  const erwartet = fa.parameters.map((p) => (ts.isIdentifier(p.name) ? { text: p.name.text, spread: !!p.dotDotDotToken } : null));
+  if (erwartet.some((e) => e === null)) f.push('Parameter mit Destrukturierung: Weiterleitung nicht möglich');
+  const ersteArg = args[0];
+  if (!ersteArg) f.push('Weiterleitung übergibt keinen Kontext');
+  else if (art === 'methode') {
+    if (ersteArg.kind !== K.ThisKeyword) f.push(`Kontextargument ist "${ersteArg.getText(sfRest).slice(0, 40)}" statt genau \`this\``);
+  } else {
+    if (ts.isCallExpression(ersteArg) && ts.isIdentifier(ersteArg.expression) && ersteArg.arguments.length === 0) {
+      kontextFabriken.add(ersteArg.expression.text);
+      freigebbar(`umgebung:${ersteArg.expression.text}`, `Kontext der Weiterleitung \`${ersteArg.expression.text}()\` (Inhalt nicht beweisbar)`);
+    } else f.push(`Kontextargument "${ersteArg.getText(sfRest).slice(0, 50)}" ist keine Fabrik der Form \`<name>()\``);
+  }
+  const rest = [...args].slice(1);
+  if (rest.length !== erwartet.length) f.push(`Weiterleitung übergibt ${rest.length} Argumente nach dem Kontext, erwartet ${erwartet.length}`);
+  else {
+    rest.forEach((a, i) => {
+      const e = erwartet[i];
+      if (!e) return;
+      const ok = e.spread ? ts.isSpreadElement(a) && ts.isIdentifier(a.expression) && a.expression.text === e.text : ts.isIdentifier(a) && a.text === e.text;
+      if (!ok) f.push(`Argument ${i + 1} der Weiterleitung ist "${a.getText(sfRest).slice(0, 40)}", erwartet "${e.spread ? '...' : ''}${e.text}" (Parameter unverändert, gleiche Reihenfolge)`);
+    });
+  }
+  // Länge
+  const zl = sfRest.getLineAndCharacterOfPosition(fr.body.getEnd()).line - sfRest.getLineAndCharacterOfPosition(fr.body.getStart(sfRest)).line + 1;
+  if (zl > maxZeilen) f.push(`Rumpf der Weiterleitung ist ${zl} Zeilen lang (höchstens ${maxZeilen})`);
+  return f;
 }
 
 // ── Aufruf von der Kommandozeile ────────────────────────────────────────────────────────
 
 function argumente(argv) {
-  const a = { ziele: [], ersetze: [], namen: [] };
+  const a = { ziele: [], ersetze: [], namen: [], woertlichNamen: [], freigaben: [], aliase: [] };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const nimm = () => {
       if (i + 1 >= argv.length) throw new Error(`${k} braucht einen Wert`);
       return argv[++i];
     };
+    const liste = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
     switch (k) {
       case '--alt': a.alt = nimm(); break;
       case '--rest': a.rest = nimm(); break;
       case '--ziel': a.ziele.push(nimm()); break;
-      case '--namen': a.namen.push(...nimm().split(',').map((s) => s.trim()).filter(Boolean)); break;
+      case '--namen': a.namen.push(...liste(nimm())); break;
+      case '--woertlich-namen': a.woertlichNamen.push(...liste(nimm())); break;
       case '--liste': a.liste = nimm(); break;
       case '--ersetzung': a.ersetzung = nimm(); break;
       case '--ersetze': a.ersetze.push(nimm()); break;
       case '--kontext': a.kontext = nimm(); break;
       case '--klasse': a.klasse = nimm(); break;
       case '--max-zeilen': a.maxZeilen = Number(nimm()); break;
+      case '--freigabe': a.freigaben.push(nimm()); break;
+      case '--alias': a.aliase.push(nimm()); break;
       case '--woertlich': a.woertlich = true; break;
       case '--json': a.json = true; break;
-      case '--selbsttest': a.selbsttest = true; break;
       case '-h': case '--help': a.hilfe = true; break;
       default: throw new Error(`unbekannter Schalter ${k}`);
     }
@@ -566,23 +884,28 @@ function haupt(argv) {
     console.log(readFileSync(fileURLToPath(import.meta.url), 'utf-8').split('*/')[0]);
     return 0;
   }
-  if (a.selbsttest) return selbsttest();
   if (!a.alt || !a.rest || a.ziele.length === 0) {
-    console.error('benötigt: --alt, --rest, mindestens ein --ziel und --namen/--liste (siehe --help)');
+    console.error('benötigt: --alt, --rest, mindestens ein --ziel und --namen/--woertlich-namen/--liste (siehe --help)');
     return 2;
   }
   if (a.liste) for (const l of readFileSync(a.liste, 'utf-8').split('\n')) { const s = l.replace(/#.*$/, '').trim(); if (s) a.namen.push(s); }
+  if (a.woertlich) { a.woertlichNamen.push(...a.namen); a.namen = []; }
   let erg;
   try {
-    erg = (a.woertlich ? beweiseWoertlich : beweise)({
+    const aliase = new Map(a.aliase.map((x) => x.split('=')));
+    erg = beweise({
       alt: lies(a.alt),
       rest: lies(a.rest),
-      ziele: a.ziele.map((z) => ({ name: z, text: lies(z) })),
+      restName: pfadAufloesen(a.rest).replaceAll('\\', '/'),
+      ziele: a.ziele.map((z) => ({ name: pfadAufloesen(z).replaceAll('\\', '/'), text: lies(z) })),
       namen: a.namen,
+      woertlichNamen: a.woertlichNamen,
       tabelle: tabelleAus(a),
       kontext: a.kontext,
       klasse: a.klasse,
       maxZeilen: a.maxZeilen,
+      freigaben: a.freigaben,
+      aliase,
     });
   } catch (e) {
     console.error(`Lesefehler: ${e.message ?? e}`);
@@ -592,8 +915,9 @@ function haupt(argv) {
   else {
     console.log(erg.zeilen.join('\n'));
     const z = erg.zaehler;
-    console.log(`\nNamen ${z.namen}, gleich ${z.gleich}, Weiterleitungen ${z.weiterleitungen}; Ersetzungen ${JSON.stringify(z.ersetzungen)}`);
-    if (z.weitereFunktionenImZiel.length) console.log(`Weitere Funktionen im Ziel (nicht in der Liste, kein Befund): ${z.weitereFunktionenImZiel.join(', ')}`);
+    console.log(`\nNamen ${z.namen}, gleich ${z.gleich}, Weiterleitungen ${z.weiterleitungen}; Ersetzungen ${JSON.stringify(z.ersetzungen)}; Tabelle ${JSON.stringify(z.tabelle)}`);
+    for (const h of erg.hinweise) console.log(`Hinweis: ${h}`);
+    for (const f of erg.freigegeben) console.log(`FREIGEGEBEN (in den PR-Text): ${f}`);
     const rest = erg.befunde.filter((b) => !erg.zeilen.some((l) => l.includes(b.replace(/^[^:]+: /, ''))));
     if (rest.length) console.log(`\nWeitere Befunde:\n${rest.map((b) => `  - ${b}`).join('\n')}`);
     console.log(erg.befunde.length === 0 ? '\nBEWEIS ERBRACHT: verschoben, nichts verändert.' : `\nBEWEIS GESCHEITERT: ${erg.befunde.length} Befund(e).`);
@@ -601,222 +925,4 @@ function haupt(argv) {
   return erg.befunde.length === 0 ? 0 : 1;
 }
 
-// ── Selbsttest ──────────────────────────────────────────────────────────────────────────
-
-/** Fixtures: je Form echt / gefälscht (mehrere Arten) / unvollständig. Jeder Fall nennt, ob der Beweis gelingen soll. */
-function selbsttest() {
-  const teile = [];
-  const fall = (name, soll, o, erwarteterBefund) => teile.push({ name, soll, o, erwarteterBefund });
-
-  // ── Form 1: Klassenmethode mit this. ──
-  const altKlasse = `
-class Server {
-  private zaehler = 0;
-  /** eine Doku */
-  private handleA(p: Peer, r: number): void {
-    // Kommentar
-    if (this.zaehler > r) { this.log('viel'); return; }
-    this.zaehler += r;
-  }
-  async handleB(p: Peer): Promise<number> {
-    const x = await this.laden(p);
-    return x + 1;
-  }
-  other(): number { return 1; }
-}
-`;
-  const restKlasse = `
-class Server {
-  private zaehler = 0;
-  private handleA(p: Peer, r: number): void { spielA.handleA(this, p, r); }
-  async handleB(p: Peer): Promise<number> { return handleB(this, p); }
-  other(): number { return 1; }
-}
-`;
-  const zielKlasse = `
-export function handleA(k: SpielKontext, p: Peer, r: number): void {
-  if (k.zaehler > r) { k.log('viel'); return; }
-  k.zaehler += r;
-}
-export async function handleB(k: SpielKontext, p: Peer): Promise<number> {
-  const x = await k.laden(p);
-  return x + 1;
-}
-`;
-  const basisKl = { alt: altKlasse, rest: restKlasse, ziele: [{ name: 'ziel.ts', text: zielKlasse }], namen: ['handleA', 'handleB'], klasse: 'Server' };
-  fall('Klassenmethode echt', true, basisKl);
-  fall('Klassenmethode: Whitespace und Kommentare egal', true, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('  const x', '\n\n   // neu\n  const x') }] });
-  fall('Klassenmethode gefälscht: Operator geändert', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('k.zaehler > r', 'k.zaehler >= r') }] }, 'Rumpf weicht ab');
-  fall('Klassenmethode gefälscht: Anweisung vertauscht', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace("k.log('viel'); return;", "return; k.log('viel');") }] }, 'Rumpf weicht ab');
-  fall('Klassenmethode gefälscht: this. nicht ersetzt', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('k.zaehler += r', 'this.zaehler += r') }] }, 'Rumpf weicht ab');
-  fall('Klassenmethode gefälscht: Zeichenkette geändert', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace("'viel'", "'wenig'") }] }, 'Rumpf weicht ab');
-  fall('Klassenmethode gefälscht: Await entfernt', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('await k.laden', 'k.laden') }] }, 'Rumpf weicht ab');
-  fall('Klassenmethode gefälscht: Parametertyp', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('r: number', 'r: string') }] }, 'Parameter 2 weicht ab');
-  fall('Klassenmethode gefälscht: Kontextparameter fehlt', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('handleA(k: SpielKontext, p: Peer', 'handleA(p: Peer') }] }, 'Parameter');
-  fall('Klassenmethode unvollständig: Ziel fehlt', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace(/export async function handleB[\s\S]*$/, '') }] }, 'fehlt');
-  fall('Klassenmethode doppelt: in zwei Zielen', false, { ...basisKl, ziele: [{ name: 'ziel.ts', text: zielKlasse }, { name: 'zwei.ts', text: 'export function handleA(k: SpielKontext, p: Peer, r: number): void {}' }] }, 'doppelt');
-  fall('Klassenmethode unvollständig: Original bleibt im Rest', false, { ...basisKl, rest: restKlasse.replace('spielA.handleA(this, p, r);', 'if (this.zaehler > r) { this.log(\'viel\'); return; } this.zaehler += r;') }, 'Anweisungen');
-  fall('Klassenmethode unvollständig: Weiterleitung fehlt', false, { ...basisKl, rest: restKlasse.replace(/  private handleA.*\n/, '') }, 'im Rest 0');
-  fall('Klassenmethode: Weiterleitung mit anderer Signatur', false, { ...basisKl, rest: restKlasse.replace('handleA(p: Peer, r: number): void', 'handleA(p: Peer): void') }, 'Weiterleitung');
-  fall('Klassenmethode: Weiterleitung gibt Parameter nicht weiter', false, { ...basisKl, rest: restKlasse.replace('spielA.handleA(this, p, r)', 'spielA.handleA(this, r, p)') }, 'nicht 1:1');
-  fall('Klassenmethode: Weiterleitung ruft falschen Namen', false, { ...basisKl, rest: restKlasse.replace('spielA.handleA(this', 'spielA.handleX(this') }, 'statt');
-  fall('Klassenmethode: Weiterleitung zu lang', false, { ...basisKl, rest: restKlasse.replace('{ spielA.handleA(this, p, r); }', '{\n // a\n // b\n\n spielA.handleA(this, p, r);\n }') }, 'Zeilen lang');
-  fall('Klassenmethode verloren: Name nicht genannt', false, { ...basisKl, namen: ['handleA'], rest: restKlasse, ziele: [{ name: 'ziel.ts', text: zielKlasse }] }, 'geändert, aber nicht als verschoben genannt');
-  fall('Klassenmethode: Zugriff der Weiterleitung geändert', false, { ...basisKl, rest: restKlasse.replace('private handleA', 'handleA') }, 'Zugriff');
-  fall('Klassenmethode: nacktes this', false, { alt: altKlasse.replace('this.zaehler += r;', 'this.zaehler += r; reg(this);'), rest: restKlasse, ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('k.zaehler += r;', 'k.zaehler += r; reg(k);') }], namen: ['handleA'], klasse: 'Server' }, 'nacktes this');
-  fall('Klassenmethode: this. in verschachtelter function ist Befund', false, {
-    alt: altKlasse.replace('this.zaehler += r;', 'this.zaehler += r; arr.map(function (x) { return this.zaehler + x; });'),
-    rest: restKlasse,
-    ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('k.zaehler += r;', 'k.zaehler += r; arr.map(function (x) { return k.zaehler + x; });') }],
-    namen: ['handleA', 'handleB'],
-    klasse: 'Server',
-  }, 'verschachtelten Funktion');
-  fall('Klassenmethode: this. in Pfeilfunktion ist ok', true, {
-    alt: altKlasse.replace('this.zaehler += r;', 'this.zaehler += r; arr.map((x) => this.zaehler + x);'),
-    rest: restKlasse,
-    ziele: [{ name: 'ziel.ts', text: zielKlasse.replace('k.zaehler += r;', 'k.zaehler += r; arr.map((x) => k.zaehler + x);') }],
-    namen: ['handleA', 'handleB'],
-    klasse: 'Server',
-  });
-  fall('Klassenmethode: doppelter Name in Liste', false, { ...basisKl, namen: ['handleA', 'handleA', 'handleB'] }, 'mehrfach');
-
-  // ── Form 2: freie Funktion, Form a) ──
-  const altFrei = `
-const ADMINS_DATEI = 'admins.json';
-function ymlLesen(): string { return ''; }
-function adminsLaden(): string[] {
-  const roh = readFileSync(ADMINS_DATEI, 'utf-8');
-  const cfg = ymlLesen();
-  return roh.split(cfg).map((s) => s.trim()).filter(Boolean);
-}
-function adminsSchreiben(liste: string[]): void {
-  const meta = { ADMINS_DATEI: 1 };
-  writeFileSync(ADMINS_DATEI, liste.join('\\n') + meta.ADMINS_DATEI);
-}
-`;
-  const restFrei = `
-const ADMINS_DATEI = 'admins.json';
-function ymlLesen(): string { return ''; }
-function adminsLaden(): string[] { return laden(umgebung()); }
-function adminsSchreiben(liste: string[]): void { return schreiben(umgebung(), liste); }
-`;
-  const zielFrei = `
-export function laden(k: Umgebung): string[] {
-  const roh = readFileSync(k.ADMINS_DATEI, 'utf-8');
-  const cfg = k.ymlLesen();
-  return roh.split(cfg).map((s) => s.trim()).filter(Boolean);
-}
-export function schreiben(k: Umgebung, liste: string[]): void {
-  const meta = { ADMINS_DATEI: 1 };
-  writeFileSync(k.ADMINS_DATEI, liste.join('\\n') + meta.ADMINS_DATEI);
-}
-`;
-  // Namen im Ziel weichen von den alten Namen ab? Nein: gleicher Name ist Pflicht (Plan 5.1). Fixture benennt gleich.
-  const zielFreiGleich = zielFrei.replace('function laden', 'function adminsLaden').replace('function schreiben', 'function adminsSchreiben');
-  const restFreiGleich = `
-const ADMINS_DATEI = 'admins.json';
-function ymlLesen(): string { return ''; }
-function adminsLaden(): string[] { return laden.adminsLaden(umgebung()); }
-function adminsSchreiben(liste: string[]): void { return laden.adminsSchreiben(umgebung(), liste); }
-`;
-  const tab = new Map([['ADMINS_DATEI', 'k.ADMINS_DATEI'], ['ymlLesen', 'k.ymlLesen']]);
-  const basisFr = { alt: altFrei, rest: restFreiGleich, ziele: [{ name: 'admin.ts', text: zielFreiGleich }], namen: ['adminsLaden', 'adminsSchreiben'], tabelle: tab, tabelleOhneThisErlaubt: true };
-  fall('Freie Funktion (Form a) echt', true, basisFr);
-  fall('Freie Funktion gefälscht: Feld nicht ersetzt', false, { ...basisFr, ziele: [{ name: 'admin.ts', text: zielFreiGleich.replace('readFileSync(k.ADMINS_DATEI', 'readFileSync(ADMINS_DATEI') }] }, 'Rumpf weicht ab');
-  fall('Freie Funktion gefälscht: falsches Feld', false, { ...basisFr, ziele: [{ name: 'admin.ts', text: zielFreiGleich.replace('k.ymlLesen()', 'k.ymlSchreiben()') }] }, 'Rumpf weicht ab');
-  fall('Freie Funktion gefälscht: Zusatzanweisung', false, { ...basisFr, ziele: [{ name: 'admin.ts', text: zielFreiGleich.replace("const cfg = k.ymlLesen();", "const cfg = k.ymlLesen(); console.log(cfg);") }] }, 'Rumpf weicht ab');
-  fall('Freie Funktion unvollständig: zweite fehlt im Ziel', false, { ...basisFr, ziele: [{ name: 'admin.ts', text: zielFreiGleich.replace(/export function adminsSchreiben[\s\S]*$/, '') }] }, 'fehlt');
-  fall('Freie Funktion: Original bleibt im Rest (doppelt)', false, { ...basisFr, rest: restFreiGleich.replace('{ return laden.adminsLaden(umgebung()); }', altFrei.match(/function adminsLaden\(\): string\[\] (\{[\s\S]*?\n\})/)[1]) }, 'Anweisungen');
-  fall('Freie Funktion: Signatur der Weiterleitung geändert (Kontext als Parameter statt behalten)', false, { ...basisFr, rest: restFreiGleich.replace('function adminsSchreiben(liste: string[])', 'function adminsSchreiben(k: Umgebung, liste: string[])') }, 'Parameter');
-  fall('Freie Funktion: Tabelle ohne Treffer', false, { ...basisFr, tabelle: new Map([...tab, ['GIBTS_NICHT', 'k.GIBTS_NICHT']]) }, 'keinen Treffer');
-  fall('Freie Funktion: Objektschlüssel/Property werden nicht ersetzt (echt)', true, basisFr); // meta = { ADMINS_DATEI: 1 } und meta.ADMINS_DATEI bleiben
-  fall('Freie Funktion: Kurzform { ADMINS_DATEI } ist Befund', false, {
-    ...basisFr,
-    alt: altFrei.replace('const meta = { ADMINS_DATEI: 1 };', 'const meta = { ADMINS_DATEI };'),
-    ziele: [{ name: 'admin.ts', text: zielFreiGleich.replace('const meta = { ADMINS_DATEI: 1 };', 'const meta = { ADMINS_DATEI };') }],
-  }, 'Kurzform');
-  fall('Freie Funktion: Schatten (lokal gleichnamig) ist Befund', false, {
-    ...basisFr,
-    alt: altFrei.replace('const meta = { ADMINS_DATEI: 1 };', 'const ADMINS_DATEI = 3; const meta = { x: ADMINS_DATEI };').replace('meta.ADMINS_DATEI', 'meta.x'),
-    ziele: [{ name: 'admin.ts', text: zielFreiGleich.replace('const meta = { ADMINS_DATEI: 1 };', 'const ADMINS_DATEI = 3; const meta = { x: k.ADMINS_DATEI };').replace('meta.ADMINS_DATEI', 'meta.x') }],
-  }, 'Schatten');
-
-  // ── Form 0: wörtlich verschieben, ohne Kontext ──
-  const altW = `
-export function gepruefteWaffe(inventar: Inventory, waffe: string): string {
-  return inventar.has(waffe) ? waffe : '';
-}
-export const KREATUR_DROPS: Record<string, number> = { wolf: 2, kuh: 1 };
-const TRUHEN = [1, 2, 3];
-export function wuerfleTruhe(i: number): number { return TRUHEN[i % 3]!; }
-class Wov { go(): number { return 1; } }
-`;
-  const restW = `
-export { gepruefteWaffe, KREATUR_DROPS } from './spiel/Beute.js';
-import { TRUHEN, wuerfleTruhe } from './spiel/Beute.js';
-export { wuerfleTruhe };
-class Wov { go(): number { return 1; } }
-`;
-  const zielW = `
-export function gepruefteWaffe(inventar: Inventory, waffe: string): string {
-  return inventar.has(waffe) ? waffe : '';
-}
-export const KREATUR_DROPS: Record<string, number> = { wolf: 2, kuh: 1 };
-export const TRUHEN = [1, 2, 3];
-export function wuerfleTruhe(i: number): number { return TRUHEN[i % 3]!; }
-`;
-  const basisW = { alt: altW, rest: restW, ziele: [{ name: 'Beute.ts', text: zielW }], namen: ['gepruefteWaffe', 'KREATUR_DROPS', 'TRUHEN', 'wuerfleTruhe'], woertlich: true };
-  fall('Form 0 echt (Funktionen, Tabelle, nicht exportierte Konstante)', true, basisW);
-  fall('Form 0 gefälscht: Wert in der Tabelle', false, { ...basisW, ziele: [{ name: 'Beute.ts', text: zielW.replace('wolf: 2', 'wolf: 3') }] }, 'Text weicht ab');
-  fall('Form 0 gefälscht: Bedingung in der Funktion', false, { ...basisW, ziele: [{ name: 'Beute.ts', text: zielW.replace('inventar.has(waffe) ? waffe', 'inventar.has(waffe) ? waffe + 1') }] }, 'Text weicht ab');
-  fall('Form 0 unvollständig: Deklaration bleibt im Rest (doppelt)', false, { ...basisW, rest: restW + "export const KREATUR_DROPS: Record<string, number> = { wolf: 2, kuh: 1 };\n" }, 'Deklaration noch');
-  fall('Form 0 unvollständig: Reexport fehlt', false, { ...basisW, rest: restW.replace("export { gepruefteWaffe, KREATUR_DROPS } from './spiel/Beute.js';", "export { gepruefteWaffe } from './spiel/Beute.js';") }, 'Importeure würden brechen');
-  fall('Form 0 unvollständig: Ziel fehlt', false, { ...basisW, ziele: [{ name: 'Beute.ts', text: zielW.replace(/export const KREATUR_DROPS[^\n]*\n/, '') }] }, 'fehlt');
-  fall('Form 0: Ziel exportiert nicht', false, { ...basisW, ziele: [{ name: 'Beute.ts', text: zielW.replace('export const KREATUR_DROPS', 'const KREATUR_DROPS') }] }, 'im Ziel nicht');
-  fall('Form 0 verloren: nicht genannte Deklaration verschwindet', false, { ...basisW, namen: ['gepruefteWaffe', 'KREATUR_DROPS', 'TRUHEN'] }, 'wuerfleTruhe');
-  fall('Form 0: nicht genannte Klasse bleibt unverändert (echt)', true, basisW);
-
-  // ── Lauf ──
-  let rot = 0;
-  for (const t of teile) {
-    let erg;
-    try {
-      erg = (t.o.woertlich ? beweiseWoertlich : beweise)(t.o);
-    } catch (e) {
-      erg = { befunde: [`Ausnahme: ${e.message}`] };
-    }
-    const gelungen = erg.befunde.length === 0;
-    let ok = gelungen === t.soll;
-    if (ok && !t.soll && t.erwarteterBefund && !erg.befunde.some((b) => b.includes(t.erwarteterBefund))) ok = false;
-    console.log(`${ok ? 'ok  ' : 'ROT '} ${t.name}${!ok ? `\n      Befunde: ${JSON.stringify(erg.befunde)}` : ''}`);
-    if (!ok) rot++;
-  }
-  // Ein Befund je Fall genügt nicht als Beweis; zusätzlich: die CLI selbst an echten Dateien.
-  const tmp = mkdtempSync(join(tmpdir(), 'i1-verschiebung-'));
-  try {
-    writeFileSync(join(tmp, 'alt.ts'), altKlasse);
-    writeFileSync(join(tmp, 'rest.ts'), restKlasse);
-    writeFileSync(join(tmp, 'ziel.ts'), zielKlasse);
-    const skript = fileURLToPath(import.meta.url);
-    const lauf = (extra) => spawnSync(process.execPath, [skript, '--alt', join(tmp, 'alt.ts'), '--rest', join(tmp, 'rest.ts'), '--ziel', join(tmp, 'ziel.ts'), ...extra], { encoding: 'utf-8' });
-    const gut = lauf(['--namen', 'handleA,handleB', '--klasse', 'Server']);
-    const cliOk = gut.status === 0 && /BEWEIS ERBRACHT/.test(gut.stdout);
-    console.log(`${cliOk ? 'ok  ' : 'ROT '} CLI: echter Lauf endet mit 0`);
-    if (!cliOk) { rot++; console.log(gut.stdout + gut.stderr); }
-    writeFileSync(join(tmp, 'ziel.ts'), zielKlasse.replace('k.zaehler > r', 'k.zaehler >= r'));
-    const schlecht = lauf(['--namen', 'handleA,handleB', '--klasse', 'Server']);
-    const cliRot = schlecht.status === 1 && /BEWEIS GESCHEITERT/.test(schlecht.stdout);
-    console.log(`${cliRot ? 'ok  ' : 'ROT '} CLI: gefälschter Lauf endet mit 1`);
-    if (!cliRot) { rot++; console.log(schlecht.stdout + schlecht.stderr); }
-    const falsch = spawnSync(process.execPath, [skript, '--alt'], { encoding: 'utf-8' });
-    const cliArg = falsch.status === 2;
-    console.log(`${cliArg ? 'ok  ' : 'ROT '} CLI: falscher Aufruf endet mit 2`);
-    if (!cliArg) rot++;
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
-  }
-  console.log(rot === 0 ? `\nSelbsttest grün (${teile.length + 3} Fälle).` : `\nSelbsttest ROT: ${rot} Fall/Fälle.`);
-  return rot === 0 ? 0 : 1;
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(haupt(process.argv.slice(2)));
+if (process.argv[1] && pfadAufloesen(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(haupt(process.argv.slice(2)));

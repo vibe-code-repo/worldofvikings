@@ -11,20 +11,31 @@
  *                        stays in `WovServer` (block F, distributor); a case that moves out is a finding.
  *   2. BEFEHLE           the names in the admin command registry after construction (13). The
  *                        registration code moves to `spiel/befehle/*` in step 1; the names stay.
- *   3. METHODEN          21 private methods that tests reach by name (`as unknown as { … }`, `as any`,
+ *   3. METHODEN          32 private methods that tests reach by name (`as unknown as { … }`, `as any`,
  *                        `Object.create(WovServer.prototype)`). After a move each must still be a real
  *                        PROTOTYPE method of the class with the same name (a one-line forwarding).
  *                        Not a field with an arrow function: `Object.create(WovServer.prototype)` (see
  *                        `inventory-logout.ts`) sees prototype methods only.
  *   4. FELDER            11 private fields that tests read or write. Fields STAY in the class, also when
  *                        only one module uses them.
- *   5. UEBERSCHRIEBEN    methods that tests REPLACE on the instance (`server.update = …`). Code in a
+ *   5. UEBERSCHRIEBEN    methods that tests REPLACE on the instance (19: the 7 of step 0, the 11 packet handlers `tod-treffer-n1.ts` replaces, `handleAttack`) (`server.update = …`). Code in a
  *                        module must therefore call such a method through the context (`k.saveWorld()`),
  *                        never by importing the moved function directly, or the stand-in is bypassed.
  *   6. TEXT_TESTS        the tests that read `WovServer.ts` as text (see the exception rule below).
- * On top: a scan of all test folders finds every private member a test reaches through a cast, a type
- * literal or a `server.`-like receiver, and fails when one is missing from the lists (a new test that
- * reaches a new private name forces someone to freeze it here).
+ * On top: a scan of all test folders (N1: every property name, `['…']` key, destructured name, type member and string
+ * literal that equals a PRIVATE member of `WovServer`, whatever the receiver is called and whether the file names
+ * `WovServer` or not) fails when a name is missing from the lists. The message says what to do: "Name X in
+ * server/test/i1-oberflaeche.ts METHODEN eintragen". Harmless hits (another object with the same member name) go into
+ * FEHLTREFFER, per name and file. This is what a step or a new test must do when a name appears that is not on main yet
+ * (for example `zaehleEigeneBauten` of #153 in METHODEN, `spielerSicherung` of #146 in FELDER: those two lines come with
+ * the merge of the pull request that adds the member, not before: the names do not exist on main).
+ *
+ * Limits of the scan (not covered, by design): a name built at run time (`server['han' + 'dleEat']`), a call through
+ * `Object.getOwnPropertyNames`/`Reflect.ownKeys` loops, test code outside the scanned folders (`server/test`,
+ * `admin/test`, `client/test`, `shared/test`, `scripts`, `tools`), and WIRING: the list holds names, not who calls whom.
+ * If `onPacket` calls `handleAttack` where it called `handleParry`, or if `maxHealth` gets an extra required parameter,
+ * this test stays green (M4 of the attack on #155; the move proof catches the first while it runs, the tests that
+ * replace the handlers on the instance (`tod-treffer-n1.ts`) catch the second).
  *
  * ── Exception rule for text tests (I1 finding 1, decided in step 0) ──────────────────────────────
  * Plan section 5.2 says the test folders stay untouched. Four checks in three test files read the
@@ -87,23 +98,72 @@ export const PACKET_FAELLE = [
   'DungeonModulLoeschen',
 ] as const;
 
-/** Names in the admin command registry after `createWovServer` (sorted). 13 commands. */
+/** Names in the admin command registry after `createWovServer` (sorted). 13 commands. One name per line, sorted: two pull requests that add a name touch different lines. */
 export const BEFEHLE = [
-  'abbau', 'admin', 'bann', 'dungeon', 'entbann', 'fly', 'item', 'kick', 'marke', 'spawn', 'spieler', 'teleport', 'zone',
+  'abbau',
+  'admin',
+  'bann',
+  'dungeon',
+  'entbann',
+  'fly',
+  'item',
+  'kick',
+  'marke',
+  'spawn',
+  'spieler',
+  'teleport',
+  'zone',
 ] as const;
 
-/** Private methods that tests reach by name. Each stays a prototype method of `WovServer`. */
+/** Private methods that tests reach by name (32 + 11 found by the broadened scan of N1: `tod-treffer-n1.ts` replaces the 11 packet handlers). Each stays a prototype method of `WovServer`. */
 export const METHODEN = [
-  'applyCreatureAttack', 'darfBenutzen', 'ermittleGespeichertenStand', 'gebeItem', 'handleAttack',
-  'handlePlayerInput', 'handleSetAussehen', 'inventarSync', 'maxHealth', 'momentaufnahme', 'onPeerQuit',
-  'registerSpawnCommand', 'sendPlayerState', 'sendeTrefferEffekt', 'syncZDOs', 'teleportPeer', 'update',
-  'weltSpawn', 'welt', 'writeZDO', 'zdosVon',
+  'applyCreatureAttack',
+  'darfBenutzen',
+  'ermittleGespeichertenStand',
+  'gebeItem',
+  'handleAdminCommand',
+  'handleAttack',
+  'handleChatMessage',
+  'handleContainerAction',
+  'handleCraft',
+  'handleEat',
+  'handleEquip',
+  'handleInteract',
+  'handleParry',
+  'handlePlacePiece',
+  'handlePlayerInput',
+  'handleRemovePiece',
+  'handleSetAussehen',
+  'handleTerrainOp',
+  'inventarSync',
+  'maxHealth',
+  'momentaufnahme',
+  'onPeerQuit',
+  'registerSpawnCommand',
+  'sendPlayerState',
+  'sendeTrefferEffekt',
+  'syncZDOs',
+  'teleportPeer',
+  'update',
+  'welt',
+  'weltSpawn',
+  'writeZDO',
+  'zdosVon',
 ] as const;
 
 /** Private fields that tests read or write. Fields stay in the class. */
 export const FELDER = [
-  'kontenDb', 'layoutWache', 'loeschsperrePfad', 'ohneWeltLetzteMeldung', 'running', 'saveTimer',
-  'savedPlayers', 'speichertGerade', 'timeSyncAccumulator', 'updateTimer', 'worldTime',
+  'kontenDb',
+  'layoutWache',
+  'loeschsperrePfad',
+  'ohneWeltLetzteMeldung',
+  'running',
+  'saveTimer',
+  'savedPlayers',
+  'speichertGerade',
+  'timeSyncAccumulator',
+  'updateTimer',
+  'worldTime',
 ] as const;
 
 /**
@@ -113,7 +173,25 @@ export const FELDER = [
  * listen-bindefehler, kampf-waffe, stopp-speichern).
  */
 export const UEBERSCHRIEBEN = [
-  'ermittleGespeichertenStand', 'saveWorld', 'saveWorldAsync', 'stop', 'syncZDOs', 'update', 'zdosVon',
+  'ermittleGespeichertenStand',
+  'handleAdminCommand',
+  'handleAttack',
+  'handleChatMessage',
+  'handleContainerAction',
+  'handleCraft',
+  'handleEat',
+  'handleEquip',
+  'handleInteract',
+  'handleParry',
+  'handlePlacePiece',
+  'handleRemovePiece',
+  'handleTerrainOp',
+  'saveWorld',
+  'saveWorldAsync',
+  'stop',
+  'syncZDOs',
+  'update',
+  'zdosVon',
 ] as const;
 
 /** Text tests: which test reads which source of `WovServer.ts`, and in which step it may be changed. */
@@ -145,6 +223,25 @@ export const TEXT_TESTS: readonly { datei: string; muster: readonly string[]; sc
     ziel: 'server/src/spiel/Anmeldung.ts',
     wirdRot: true,
   },
+];
+
+/**
+ * Files that NAME `server/src/WovServer.ts` in a string but do not read its text as a check (found by scan 7).
+ * One entry per line, sorted by path. An entry needs a reason.
+ */
+export const TEXT_AUSNAHMEN: readonly { datei: string; grund: string }[] = [
+  { datei: 'tools/dungeon2-e2e.mjs', grund: 'nennt den Pfad nur in einem erzeugten Import (Pfad als Daten), liest die Datei nicht' },
+  { datei: 'scripts/pruefe-groessen.mjs', grund: 'nennt den Pfad als Eintrag der Liste FREI_ERLAUBT (Daten), liest die Datei nur zum Zeilenzählen' },
+];
+
+/**
+ * Known harmless hits of scan 8: a name that equals a private member of `WovServer` but belongs to another object in
+ * that file. Per name AND file, so a new file with the same name is still reported. One entry per line, sorted by
+ * file, then name. An entry needs a reason.
+ */
+export const FEHLTREFFER: readonly { name: string; datei: string; grund: string }[] = [
+  { name: 'zeigeTreffer', datei: 'client/test/tod-treffer-avatar.ts', grund: 'AvatarRig.zeigeTreffer (Client), nicht das Serverfeld gleichen Namens' },
+  { name: 'handleParry', datei: 'tools/test/i1-verschiebung.ts', grund: 'Fixture-Name des Verschiebebeweis-Selbsttests, keine Server-Nutzung' },
 ];
 
 // ── Syntaxbaum von WovServer.ts ──────────────────────────────────────────────────────────────
@@ -246,62 +343,75 @@ function dateien(d: string, aus: string[] = []): string[] {
     if (e === 'node_modules' || e === 'build' || e === 'dist' || e.startsWith('.')) continue;
     const p = join(d, e);
     if (statSync(p).isDirectory()) dateien(p, aus);
-    else if (/\.(ts|mjs)$/.test(e)) aus.push(p);
+    else if (/\.(ts|tsx|mts|mjs|cjs|js)$/.test(e)) aus.push(p);
   }
   return aus;
 }
 const alle = ordner.flatMap((o) => dateien(join(WURZEL, o)));
+const quelleCache = new Map<string, ts.SourceFile>();
+const quelleVon = (f: string): ts.SourceFile => {
+  let q = quelleCache.get(f);
+  if (!q) {
+    q = ts.createSourceFile(f, readFileSync(f, 'utf8'), ts.ScriptTarget.Latest, true);
+    quelleCache.set(f, q);
+  }
+  return q;
+};
 const teststellen = alle.filter((f) => /\/(test|tools|scripts)\//.test(f.replace(WURZEL, '')) || /\/test\//.test(f));
 
 console.log('7. Scan: text tests');
 {
-  // A test that reads the SOURCE of WovServer.ts: `readFileSync` and a path string naming `WovServer.ts` in one file.
-  const gefunden = teststellen
-    .filter((f) => {
-      const rel = relative(WURZEL, f);
-      // This file, the tool and the size guard NAME the path as data (a list of paths), they do not read its text.
-      if (['server/test/i1-oberflaeche.ts', 'scripts/pruefe-groessen.mjs'].includes(rel) || rel.startsWith('tools/i1-verschiebung')) return false;
-      if (!/(^|\/)test\//.test(rel) && !rel.startsWith('scripts/')) return false; // tools/*.ts outside tools/test are not tests
-      const t = readFileSync(f, 'utf8');
-      return /readFileSync|lies\(/.test(t) && /server\/src\/WovServer\.ts/.test(t);
-    })
-    .map((f) => relative(WURZEL, f))
-    .sort();
-  const soll = TEXT_TESTS.map((t) => t.datei).sort();
-  check(gleich(gefunden, soll), 'exactly the listed tests read WovServer.ts as text', `found: ${gefunden}; listed: ${soll}`);
-}
-
-console.log('8. Scan: private names reached by tests are all frozen');
-{
-  const eingefroren = new Set<string>([...METHODEN, ...FELDER]);
-  const EMPFAENGER = /^(server|srv|wov|wovServer|s|probe|priv|p|host|sv|serverProbe)$/i;
-  const treffer = new Map<string, Set<string>>();
-  const privat = (n: string): boolean => mitglieder.get(n)?.privat === true;
+  // A test (or tool) that names the SOURCE file `WovServer.ts` in a string literal (`'server/src/WovServer.ts'`,
+  // `join('server', 'src', 'WovServer.ts')`, a relative `'../src/WovServer.ts'`, `readFile` of any kind). Import
+  // specifiers end in `.js` and do not match. Comments do not count.
+  const gefunden = new Set<string>();
   for (const f of teststellen) {
     const rel = relative(WURZEL, f);
     if (rel === 'server/test/i1-oberflaeche.ts') continue;
-    const text = readFileSync(f, 'utf8');
-    if (!/WovServer|createWovServer|\bWov\(/.test(text)) continue;
-    const tf = ts.createSourceFile(f, text, ts.ScriptTarget.Latest, true);
-    const merke = (n: string): void => {
-      if (!privat(n) || eingefroren.has(n)) return;
-      if (!treffer.has(n)) treffer.set(n, new Set());
-      treffer.get(n)!.add(rel);
-    };
+    const tf = quelleVon(f);
     const geh = (n: ts.Node): void => {
-      if (ts.isTypeLiteralNode(n) || ts.isInterfaceDeclaration(n)) for (const m of n.members) if (m.name && ts.isIdentifier(m.name)) merke(m.name.text);
-      if (ts.isPropertyAccessExpression(n)) {
-        let e: ts.Expression = n.expression;
-        while (ts.isParenthesizedExpression(e)) e = e.expression;
-        if (ts.isAsExpression(e) || (ts.isIdentifier(e) && EMPFAENGER.test(e.text))) merke(n.name.text);
-      }
-      if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression)) merke(n.argumentExpression.text);
+      if ((ts.isStringLiteralLike(n) || ts.isTemplateHead(n)) && /WovServer\.ts\b/.test(n.text)) gefunden.add(rel);
       ts.forEachChild(n, geh);
     };
     geh(tf);
   }
-  const rest = [...treffer.entries()].map(([n, w]) => `${n} (${[...w].join(', ')})`);
-  check(rest.length === 0, 'no test reaches a private member that is missing from METHODEN/FELDER', rest.join('; '));
+  const soll = new Set([...TEXT_TESTS.map((t) => t.datei), ...TEXT_AUSNAHMEN.map((t) => t.datei)]);
+  const zuViel = [...gefunden].filter((x) => !soll.has(x)).sort();
+  const fehltNun = [...soll].filter((x) => !gefunden.has(x)).sort();
+  check(zuViel.length === 0, 'no test or tool names WovServer.ts as a path outside the lists', `Datei „${zuViel.join('; ')}“ nennt server/src/WovServer.ts als Pfad: liest sie den Text, gehört sie in TEXT_TESTS (mit Schritt und Ziel); nennt sie ihn nur als Daten, in TEXT_AUSNAHMEN (mit Grund) eintragen`);
+  check(fehltNun.length === 0, 'every listed text test / exception still names WovServer.ts', `nicht mehr gefunden: ${fehltNun.join('; ')} (Eintrag entfernen oder Datei prüfen)`);
+}
+
+console.log('8. Scan: private names reached by tests are all frozen');
+{
+  // Every property name, `['…']` key, destructured name, type member and string literal in any test-like file that
+  // equals a PRIVATE member of WovServer, whatever the receiver is called and whether the file names WovServer or not.
+  // Known harmless hits (another object with the same member name) are listed in FEHLTREFFER, per name AND file.
+  const eingefroren = new Set<string>([...METHODEN, ...FELDER]);
+  const treffer = new Map<string, Set<string>>();
+  const privat = (n: string): boolean => mitglieder.get(n)?.privat === true;
+  const ausnahme = (n: string, rel: string): boolean => FEHLTREFFER.some((x) => x.name === n && x.datei === rel);
+  for (const f of teststellen) {
+    const rel = relative(WURZEL, f);
+    if (rel === 'server/test/i1-oberflaeche.ts') continue;
+    const tf = quelleVon(f);
+    const merke = (n: string): void => {
+      if (!privat(n) || eingefroren.has(n) || ausnahme(n, rel)) return;
+      if (!treffer.has(n)) treffer.set(n, new Set());
+      treffer.get(n)!.add(rel);
+    };
+    const geh = (n: ts.Node): void => {
+      if ((ts.isTypeLiteralNode(n) || ts.isInterfaceDeclaration(n)) && n.members) for (const m of n.members) if (m.name && (ts.isIdentifier(m.name) || ts.isStringLiteralLike(m.name))) merke(m.name.text);
+      if (ts.isPropertyAccessExpression(n)) merke(n.name.text);
+      if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression)) merke(n.argumentExpression.text);
+      if (ts.isBindingElement(n)) merke(((n.propertyName ?? n.name) as ts.Identifier).text ?? '');
+      if (ts.isStringLiteralLike(n) && !ts.isImportDeclaration(n.parent) && !ts.isExportDeclaration(n.parent)) merke(n.text);
+      ts.forEachChild(n, geh);
+    };
+    geh(tf);
+  }
+  const fehler = [...treffer.entries()].sort().map(([n, w]) => `Name "${n}" in server/test/i1-oberflaeche.ts ${mitglieder.get(n)?.art === 'feld' ? 'FELDER' : 'METHODEN'} eintragen (gefunden in: ${[...w].join(', ')}); ist es ein Fehltreffer (anderes Objekt), stattdessen in FEHLTREFFER mit Grund`);
+  check(fehler.length === 0, 'no test reaches a private member that is missing from METHODEN/FELDER', fehler.join('\n       '));
 }
 
 console.log(failures === 0 ? '\nI1 oberflaeche: all green.' : `\nI1 oberflaeche: ${failures} FAILED.`);

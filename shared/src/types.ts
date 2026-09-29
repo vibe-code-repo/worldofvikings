@@ -426,6 +426,26 @@ export enum PacketType {
    * kommen über den ZDO-Sync; das Paket trägt das Dokument selbst nach.
    */
   LayoutAktualisiert = 79,
+  /**
+   * Client → Server: getragene Waffe anlegen oder ablegen (Kampfkern K2a).
+   * Payload: String slot (heute nur "waffe"), String item (Name des
+   * Gegenstands im Server-Inventar; Leerstring = ablegen).
+   *
+   * Der Server prueft Besitz und Slot, setzt `peer.waffe` und antwortet
+   * IMMER mit EquipStand (angenommen wie abgelehnt). Ab dem ersten Equip
+   * einer Verbindung zaehlt im Angriffspaket nicht mehr der Name, sondern
+   * die getragene Waffe. Additiv, kein Versionssprung (s. SetFigur): ein
+   * aelterer Server verwirft den unbekannten Typ, ein aelterer Client
+   * schickt ihn nie.
+   */
+  Equip = 80,
+  /**
+   * Server → Client: autoritativer Stand eines Ausruestungsslots.
+   * Payload: String slot, String item ("" = leer), Bool aufAnfrage (true =
+   * Antwort auf genau ein Equip, false = ungefragt: Login, Inventarabgleich,
+   * Gegenstand verschwunden). Ein aelterer Client verwirft den Typ.
+   */
+  EquipStand = 81,
 }
 
 // === Vector3 ===

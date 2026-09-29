@@ -2636,6 +2636,14 @@ const KERN = [
   */
   ['shared', 'test/kampf-attribute.ts'],
   ['server', 'test/kampf-attribute.ts'],
+  /*
+    Kampfkern K2a (2026-09-29): getragene Waffe am Server. Echter WebSocket-Weg
+    (Equip/EquipStand/Attack/ContainerAction, zwei Spieler, Neuanmeldung mit
+    Spielstand) und der reine Client-Abgleich mit Rueckrollen. Keine Assets
+    noetig. ~35 s bzw. <1 s.
+  */
+  ['server', 'test/kampf-waffe.ts'],
+  ['client', 'test/kampf-waffe-abgleich.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

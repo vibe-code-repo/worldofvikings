@@ -197,6 +197,8 @@ export interface Ruestungsteil extends AppearancePolicy, ArmorBodyPolicy {
   readonly id: string;
   readonly datei: string;
   readonly name: string;
+  /** Catalog key of the display name (`inhalt.item.*`); the two old leather pieces have none. */
+  readonly textKey?: string;
   readonly slot: Slot;
   readonly regions?: readonly string[];
   readonly figure?: string;
@@ -210,9 +212,9 @@ export const RUESTUNG: readonly Ruestungsteil[] = [
   ...PLAINHIDE_PARTS.map(p => ({ ...p, datei: `plainhide/${p.item}` })),
   ...GRAVETHORN_PARTS.map(p => ({ ...p, datei: `gravethorn/${p.item}` })),
   ...CROWSHADE_PARTS.map(p => ({ ...p, datei: `crowshade/${p.item}` })),
-  ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
-  ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
-  ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
+  ...IRONWARD_PARTS.map(p => ({ id: p.id, datei: `ironward/${p.item}`, name: p.name, textKey: p.textKey, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
+  ...WILDWARDEN_PARTS.map(p => ({ id: p.id, datei: `wildwarden/${p.item}`, name: p.name, textKey: p.textKey, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
+  ...ASHENVEIL_PARTS.map(p => ({ id: p.id, datei: `ashenveil/${p.item}`, name: p.name, textKey: p.textKey, slot: p.slot, regions: p.regions, hideAppearance: p.hideAppearance, figure: p.figure, bodyVariant: p.bodyVariant, bodyProfile: p.bodyProfile })),
 ] as const;
 
 /** Kennt die Liste diese Frisur? Der Server glaubt dem Client nichts. */

@@ -8,4 +8,4 @@ export const IRONWARD_PARTS = ([
   { id: 'ironward_arme', item: 'IronwardBracers', name: 'Ironward-Armschienen', slot: 'unterarme', equipment: 'unterarme', regions: ['ArmLowerLeft', 'ArmLowerRight'], hideAppearance: [], weight: 1 },
   { id: 'ironward_handschuhe', item: 'IronwardGauntlets', name: 'Ironward-Handschuhe', slot: 'haende', equipment: 'haende', regions: ['HandLeft', 'HandRight'], hideAppearance: [], weight: 1 },
   { id: 'ironward_stiefel', item: 'IronwardBoots', name: 'Ironward-Panzerstiefel', slot: 'fuesse', equipment: 'schuhe', regions: ['LegLeft', 'LegRight'], hideAppearance: [], weight: 2 },
-] as const).map(part => ({ ...part, ...MALE_ARMOR_BODY }));
+] as const).map(part => ({ ...part, ...MALE_ARMOR_BODY, textKey: `inhalt.item.${part.id}` }));

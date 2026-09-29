@@ -18,18 +18,37 @@
  * file the world uses, `layoutUnterSperre`). Compare, check and rename are ONE synchronous section, so two PUTs with
  * the same `If-Match` give exactly one 200 and one 412.
  *
- * ── Removing items ───────────────────────────────────────────────────
+ * ── Removing items (nothing is ever lost silently) ───────────────────
  * If the new state lacks an item of the old state, the route answers 409 `brauchtBestaetigung` with `entfernt: [ids]`
- * and writes nothing; with `?bestaetigt=1` it writes. Removing ALWAYS needs this confirmation. How many players hold
+ * and writes nothing; with `?bestaetigt=1` it writes. Removing ALWAYS needs this confirmation. That includes entries
+ * the reader DISCARDS in the old state (hand-edited, or dropped by a later, stricter reader): their id is read from
+ * the raw old JSON and counts as removed once it is missing in the new state; an entry without a readable id is listed
+ * as `#<index>` in `entferntOhneId` (it can never be found again, so it always needs the confirmation).
+ * An old state that is itself broken (`dateiFehler`: unreadable, cut off, unknown version, too big) is overwritten only
+ * with `?bestaetigt=1`; without it: 409 `alter-stand-kaputt` (+ the old `dateiFehler`). Before that write the route
+ * keeps a copy `<file>.kaputt-<UTC time>` of the broken file (the last 5 stay).
+ *
+ * ── Lock ─────────────────────────────────────────────────────────────
+ * The lock is taken WITHOUT blocking the event loop: one non-waiting attempt (`sperreWartenMs: 0`), then up to 2 s of
+ * `setTimeout` waits between retries. If a foreign holder (the game server's watch) is still there: 503 `gesperrt`
+ * with `Retry-After: 2`, no pid, host or path in the answer. (`layoutUnterSperre` itself waits synchronously; it lives
+ * in `shared/**`, so the route wraps it instead of changing it.)
+ *
+ * ── If-Match ─────────────────────────────────────────────────────────
+ * A list of tags applies if ONE entry matches the current hash. `*` (anywhere in the value) is refused with 428
+ * `basis-unbestimmt`: it would switch the protection off ("any state exists").
+ *
+ * Every answer carries a stable `fehler` code (404 `unbekannter-endpunkt`, 405 `methode`, 500 `intern`); raw error texts
+ * (paths, `EISDIR`, stacks) go to the log only. How many players hold
  * the item is counted later by the server watch (Game card G2), which holds back its own application in the receipt
  * (`bestaetigung-noetig`), like the deletion lock of the world (Z3). The route knows no inventories.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { basename, dirname, resolve } from 'node:path';
-import { layoutHash, layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { LayoutGesperrt, layoutHash, layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import {
   GegenstandsSchreibFehler,
   MAX_DATEI_BYTES,
@@ -61,10 +80,121 @@ function json(res: ServerResponse, code: number, daten: unknown, kopf: Kopf = {}
 
 const etag = (hash: string): Kopf => ({ ETag: `"${hash}"` });
 
-/** The bare hash of an `If-Match` value (`"<hash>"`, `W/"<hash>"`, or bare); anything else matches no hash. */
-function basisHash(roh: string): string {
-  const s = roh.trim().replace(/^W\//, '');
-  return s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
+/**
+ * The bare hashes of an `If-Match` value: a comma separated list of `"<hash>"`, `W/"<hash>"` or bare hashes (the
+ * request applies if ONE of them is the current hash). `null` if the value contains `*`, which is refused.
+ */
+function basisHashes(roh: string): string[] | null {
+  const aus: string[] = [];
+  for (const teil of roh.split(',')) {
+    const s = teil.trim().replace(/^W\//, '');
+    if (s === '*') return null;
+    const bloss = s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
+    if (bloss !== '') aus.push(bloss);
+  }
+  return aus;
+}
+
+/** How long a PUT waits (asynchronously) for a foreign lock before it answers 503. */
+const SPERRE_WARTEN_MS = 2000;
+const SPERRE_PAUSE_MS = 100;
+/** Own temp files older than this are leftovers of a crashed writer. */
+const TMP_ALTER_MS = 10 * 60_000;
+/** Copies of a broken working copy that stay. */
+const KAPUTT_KOPIEN = 5;
+
+/** The lock is held by someone else and did not come free within `SPERRE_WARTEN_MS`. */
+class Gesperrt extends Error {}
+
+/**
+ * `layoutUnterSperre` without blocking the event loop: a non-waiting attempt (`sperreWartenMs: 0` gives up after ONE
+ * try, no sleep), retried after `setTimeout` pauses for up to `SPERRE_WARTEN_MS`. `arbeit` runs synchronously (no
+ * `await`) once the lock is held, exactly like before.
+ */
+async function unterSperre<T>(pfad: string, arbeit: () => T): Promise<T> {
+  const ende = Date.now() + SPERRE_WARTEN_MS;
+  for (;;) {
+    let gefangen: unknown;
+    try {
+      return layoutUnterSperre(pfad, arbeit, { sperreWartenMs: 0 });
+    } catch (fehler) {
+      if (!(fehler instanceof LayoutGesperrt)) throw fehler;
+      gefangen = fehler;
+    }
+    if (Date.now() >= ende) throw new Gesperrt(String((gefangen as Error).name));
+    await new Promise<void>((fertig) => setTimeout(fertig, SPERRE_PAUSE_MS));
+  }
+}
+
+/** Removes leftovers `<file>.<pid>.<random>.tmp` of this route (older than 10 min). Only inside the lock. */
+function tmpAufraeumen(dateien: string[]): void {
+  for (const datei of dateien) {
+    const ordner = dirname(datei);
+    const muster = new RegExp(`^${basename(datei).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.\\d+\\.[0-9a-f]{8}\\.tmp$`);
+    try {
+      for (const name of readdirSync(ordner)) {
+        if (!muster.test(name)) continue;
+        const voll = resolve(ordner, name);
+        try {
+          if (Date.now() - statSync(voll).mtimeMs > TMP_ALTER_MS) rmSync(voll, { force: true });
+        } catch {
+          /* gone in between */
+        }
+      }
+    } catch {
+      /* cleaning up is never more important than the request */
+    }
+  }
+}
+
+/** Keeps a copy of the broken working copy (`<file>.kaputt-<UTC time>`) and removes all but the last 5. Inside the lock. */
+function kaputtSichern(arbeit: string): void {
+  const stempel = new Date().toISOString().replace(/[-:.Z]/g, '');
+  let ziel = `${arbeit}.kaputt-${stempel}`;
+  for (let i = 1; existsSync(ziel); i++) ziel = `${arbeit}.kaputt-${stempel}-${i}`;
+  copyFileSync(arbeit, ziel);
+  const vorspann = `${basename(arbeit)}.kaputt-`;
+  const kopien = readdirSync(dirname(arbeit)).filter((n) => n.startsWith(vorspann)).sort();
+  for (const alt of kopien.slice(0, Math.max(0, kopien.length - KAPUTT_KOPIEN))) rmSync(resolve(dirname(arbeit), alt), { force: true });
+}
+
+/** The ids of entries the reader discards in `text`, read from the raw JSON (`#<index>` if there is none). */
+function verworfeneIds(text: string, lesung: GegenstandsLesung): { ids: string[]; ohneId: string[] } {
+  let roh: unknown[] = [];
+  try {
+    const dokument = JSON.parse(text) as { gegenstaende?: unknown };
+    if (Array.isArray(dokument.gegenstaende)) roh = dokument.gegenstaende;
+  } catch {
+    /* an unreadable file has no discarded entries, it has a dateiFehler */
+  }
+  const ids: string[] = [];
+  const ohneId: string[] = [];
+  for (const v of lesung.verworfen) {
+    const eintrag = roh[v.index] as { id?: unknown } | null | undefined;
+    const id = typeof v.id === 'string' && v.id !== '' ? v.id : typeof eintrag?.id === 'string' && eintrag.id !== '' ? eintrag.id : null;
+    if (id === null) ohneId.push(`#${v.index}`);
+    else ids.push(id);
+  }
+  return { ids, ohneId };
+}
+
+/** Never an internal message: a code and a generic sentence; the details go to the log. */
+function interneFehlerAntwort(res: ServerResponse, fehler: unknown): void {
+  console.error(`[Admin] Gegenstaende: interner Fehler: ${fehler instanceof Error ? (fehler.stack ?? fehler.message) : String(fehler)}`);
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
+  json(res, 500, { ok: false, fehler: 'intern', message: 'Interner Fehler — nichts geschrieben, Einzelheiten im Log des Betriebsdienstes.' });
+}
+
+function gesperrtAntwort(res: ServerResponse): void {
+  json(
+    res,
+    503,
+    { ok: false, fehler: 'gesperrt', message: 'Die Gegenstandsdatei wird gerade von einem anderen Vorgang geschrieben — gleich noch einmal versuchen. Nichts geschrieben.' },
+    { 'Retry-After': '2' }
+  );
 }
 
 /** Path of the receipt file: next to the working copy. */
@@ -146,9 +276,14 @@ function standAntwort(res: ServerResponse, stand: Stand): stand is { bytes: Buff
   return true;
 }
 
-function lesen(res: ServerResponse, wurzel: string): void {
+async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
   const arbeit = gegenstandsArbeitsDatei(wurzel);
-  const stand = layoutUnterSperre(arbeit, () => arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel)));
+  const anlegen = (): Stand => {
+    tmpAufraeumen([arbeit, gegenstandsBasisDatei(wurzel)]);
+    return arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel));
+  };
+  // An existing working copy is read without the lock: writers replace it by `rename`, so a reader sees a whole file.
+  const stand = existsSync(arbeit) ? arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel)) : await unterSperre(arbeit, anlegen);
   if (!standAntwort(res, stand)) return;
   const text = stand.bytes.toString('utf-8');
   const lesung = leseGegenstandsDatei(text);
@@ -189,7 +324,18 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     });
     return;
   }
-  const basis = basisHash(basisRoh);
+  const basen = basisHashes(basisRoh);
+  if (basen === null || basen.length === 0) {
+    json(res, 428, {
+      ok: false,
+      fehler: basen === null ? 'basis-unbestimmt' : 'basis-fehlt',
+      message:
+        basen === null
+          ? 'If-Match: * gilt nicht — der Hash aus GET /api/gegenstaende ist nötig. Nichts geschrieben.'
+          : 'Speichern ohne Basis: If-Match ohne Hash — nichts geschrieben.',
+    });
+    return;
+  }
 
   // Sanitise BEFORE the lock (pure): a broken file or any discarded entry is refused as a whole.
   const neu: GegenstandsLesung = leseGegenstandsDatei(text);
@@ -221,18 +367,32 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
   type Ausgang =
     | { art: 'stand'; stand: Stand }
     | { art: 'veraltet'; hash: string }
-    | { art: 'bestaetigung'; hash: string; entfernt: string[] }
-    | { art: 'geschrieben'; hash: string; entfernt: string[] };
-  // ONE synchronous section: read, compare, check removals, rename. No `await` in here.
-  const ausgang = layoutUnterSperre(arbeit, (): Ausgang => {
+    | { art: 'bestaetigung'; hash: string; entfernt: string[]; entferntOhneId: string[] }
+    | { art: 'altKaputt'; hash: string; dateiFehler: string }
+    | { art: 'geschrieben'; hash: string; entfernt: string[]; entferntOhneId: string[] };
+  // ONE synchronous section: read, compare, check removals, rename. No `await` in here (the wait for the lock is
+  // asynchronous and happens BEFORE it).
+  const ausgang = await unterSperre(arbeit, (): Ausgang => {
+    tmpAufraeumen([arbeit, gegenstandsBasisDatei(wurzel)]);
     const stand = arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel));
     if ('fehler' in stand) return { art: 'stand', stand };
-    if (stand.hash !== basis) return { art: 'veraltet', hash: stand.hash };
+    if (!basen.includes(stand.hash)) return { art: 'veraltet', hash: stand.hash };
+    const altText = stand.bytes.toString('utf-8');
+    const alt = leseGegenstandsDatei(altText);
+    if (alt.dateiFehler !== null) {
+      // The old state is broken: nothing of it can be compared, so overwriting needs the confirmation (and a copy).
+      if (!bestaetigt) return { art: 'altKaputt', hash: stand.hash, dateiFehler: alt.dateiFehler };
+      kaputtSichern(arbeit);
+      atomarSchreiben(arbeit, kanonisch);
+      return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt: [], entferntOhneId: [] };
+    }
     const neueIds = new Set(neu.eintraege.map((e) => e.id));
-    const entfernt = leseGegenstandsDatei(stand.bytes.toString('utf-8')).eintraege.map((e) => e.id).filter((id) => !neueIds.has(id));
-    if (entfernt.length > 0 && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt };
+    const verworfen = verworfeneIds(altText, alt);
+    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id));
+    const entferntOhneId = verworfen.ohneId;
+    if ((entfernt.length > 0 || entferntOhneId.length > 0) && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt, entferntOhneId };
     atomarSchreiben(arbeit, kanonisch);
-    return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt };
+    return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt, entferntOhneId };
   });
 
   switch (ausgang.art) {
@@ -252,7 +412,23 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
         etag(ausgang.hash)
       );
       return;
-    case 'bestaetigung':
+    case 'altKaputt':
+      json(
+        res,
+        409,
+        {
+          ok: false,
+          fehler: 'alter-stand-kaputt',
+          brauchtBestaetigung: true,
+          dateiFehler: ausgang.dateiFehler,
+          hash: ausgang.hash,
+          message: `Die bisherige Arbeitsdatei ist unbrauchbar (${ausgang.dateiFehler}). Mit ?bestaetigt=1 erneut senden, um sie zu ersetzen (eine Sicherung bleibt liegen). Nichts geschrieben.`,
+        },
+        etag(ausgang.hash)
+      );
+      return;
+    case 'bestaetigung': {
+      const alle = [...ausgang.entfernt, ...ausgang.entferntOhneId];
       json(
         res,
         409,
@@ -261,15 +437,17 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
           fehler: 'brauchtBestaetigung',
           brauchtBestaetigung: true,
           entfernt: ausgang.entfernt,
+          entferntOhneId: ausgang.entferntOhneId,
           hash: ausgang.hash,
-          message: `${ausgang.entfernt.length} Gegenstand/Gegenstände würden endgültig entfernt (${ausgang.entfernt.join(', ')}). Mit ?bestaetigt=1 erneut senden, um sie zu entfernen. Nichts geschrieben.`,
+          message: `${alle.length} Gegenstand/Gegenstände würden endgültig entfernt (${alle.join(', ')}). Mit ?bestaetigt=1 erneut senden, um sie zu entfernen. Nichts geschrieben.`,
         },
         etag(ausgang.hash)
       );
       return;
+    }
     case 'geschrieben':
-      console.log(`[Admin] Gegenstandsdatei geschrieben: ${neu.eintraege.length} Eintrag/Einträge, ${ausgang.entfernt.length} entfernt (${basename(arbeit)})`);
-      json(res, 200, { ok: true, hash: ausgang.hash, eintraege: neu.eintraege.length, entfernt: ausgang.entfernt }, etag(ausgang.hash));
+      console.log(`[Admin] Gegenstandsdatei geschrieben: ${neu.eintraege.length} Eintrag/Einträge, ${ausgang.entfernt.length + ausgang.entferntOhneId.length} entfernt (${basename(arbeit)})`);
+      json(res, 200, { ok: true, hash: ausgang.hash, eintraege: neu.eintraege.length, entfernt: ausgang.entfernt, entferntOhneId: ausgang.entferntOhneId }, etag(ausgang.hash));
       return;
   }
 }
@@ -307,17 +485,27 @@ export async function gegenstaendeBehandeln(
   parameter: URLSearchParams,
   wurzel: string
 ): Promise<boolean> {
+  if (pfad !== '/api/gegenstaende' && !pfad.startsWith('/api/gegenstaende/')) return false;
+  try {
+    await verteilen(req, res, pfad, parameter, wurzel);
+  } catch (fehler) {
+    if (fehler instanceof Gesperrt) gesperrtAntwort(res);
+    else if (req.aborted || (fehler as Error)?.message === 'aborted') res.destroy(); // client gone: nobody to answer, no noise
+    else interneFehlerAntwort(res, fehler);
+  }
+  return true;
+}
+
+async function verteilen(req: IncomingMessage, res: ServerResponse, pfad: string, parameter: URLSearchParams, wurzel: string): Promise<void> {
   const methode = req.method ?? 'GET';
   if (pfad === '/api/gegenstaende') {
-    if (methode === 'GET') lesen(res, wurzel);
+    if (methode === 'GET') await lesen(res, wurzel);
     else if (methode === 'PUT') await schreiben(req, res, wurzel, parameter.get('bestaetigt') === '1');
-    else json(res, 405, { ok: false, fehler: 'methode', message: 'GET oder PUT erwartet' });
-    return true;
-  }
-  if (pfad === '/api/gegenstaende/quittung') {
+    else json(res, 405, { ok: false, fehler: 'methode', message: 'GET oder PUT erwartet' }, { Allow: 'GET, PUT' });
+  } else if (pfad === '/api/gegenstaende/quittung') {
     if (methode === 'GET') quittungLesen(res, wurzel);
-    else json(res, 405, { ok: false, fehler: 'methode', message: 'GET erwartet' });
-    return true;
+    else json(res, 405, { ok: false, fehler: 'methode', message: 'GET erwartet' }, { Allow: 'GET' });
+  } else {
+    json(res, 404, { ok: false, fehler: 'unbekannter-endpunkt', message: 'Unbekannter Endpunkt unter /api/gegenstaende.' });
   }
-  return false;
 }

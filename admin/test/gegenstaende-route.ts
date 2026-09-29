@@ -14,16 +14,38 @@
  *  6. Path: a PUT changes only the working copy (file list of the test root before/after; no lock/tmp left over),
  *     whatever the query says.
  *  7. Other verbs / paths / missing token.
+ *  9. N1/F1: entries the reader DISCARDS in the old state count as removed (409, ids or `#<index>`), file byte-equal.
+ * 10. N1/F2: a broken old state needs `?bestaetigt=1` (409 `alter-stand-kaputt`), a `.kaputt-<time>` copy is kept (max 5).
+ * 11. N1/F3+F4: a SECOND process holds the lock: PUT gets 503 `gesperrt` (+ Retry-After, no pid/path), another endpoint
+ *     answers in < 300 ms meanwhile; a PUT waits (async) for a lock released within 2 s.
+ * 12. N1/F5: stable `fehler` codes (404, 500 `intern`), `If-Match: *` 428, ETag lists, stale `.tmp` cleanup, HEAD.
  *
  * Run: npx tsx admin/test/gegenstaende-route.ts   (from the repo root; cwd as in scripts/kern/admin.mjs)
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAX_DATEI_BYTES, leseGegenstandsDatei, schreibeGegenstandsDatei } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { gegenstandsArbeitsDatei, gegenstandsBasisDatei, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+
+// Lock holder: this file started again as a second process (`--halter <working copy> <stop file>`). It takes the lock
+// like the game server's watch would and holds it until the stop file exists.
+if (process.argv[2] === '--halter') {
+  const [arbeitsDatei, stoppDatei] = [process.argv[3], process.argv[4]];
+  layoutUnterSperre(
+    arbeitsDatei,
+    () => {
+      console.log('HALTER-BEREIT');
+      while (!existsSync(stoppDatei)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    },
+    { sperreWartenMs: 5000 }
+  );
+  process.exit(0);
+}
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -120,28 +142,65 @@ function dienstStarten(): Promise<number> {
 const port = await dienstStarten();
 const pids = [dienst!.pid!];
 
-type Antwort = { status: number; daten: Record<string, unknown>; etag: string | null };
+type Antwort = { status: number; daten: Record<string, unknown>; etag: string | null; retryAfter: string | null; roh: string };
 async function anfrage(
   methode: string,
   pfad: string,
-  opt: { body?: string; ifMatch?: string | null; token?: boolean } = {}
+  opt: { body?: string; ifMatch?: string | null; ifMatchRoh?: string; token?: boolean } = {}
 ): Promise<Antwort> {
   const kopf: Record<string, string> = { 'content-type': 'application/json' };
   if (opt.token !== false) kopf['x-wov-token'] = TOKEN;
   if (opt.ifMatch) kopf['if-match'] = opt.ifMatch;
+  if (opt.ifMatchRoh !== undefined) kopf['if-match'] = opt.ifMatchRoh;
   const r = await fetch(`http://127.0.0.1:${port}${pfad}`, { method: methode, headers: kopf, ...(opt.body === undefined ? {} : { body: opt.body }) });
   let daten: Record<string, unknown> = {};
+  const roh = await r.text();
   try {
-    daten = (await r.json()) as Record<string, unknown>;
+    daten = JSON.parse(roh) as Record<string, unknown>;
   } catch {
     /* no JSON */
   }
-  return { status: r.status, daten, etag: r.headers.get('etag') };
+  return { status: r.status, daten, etag: r.headers.get('etag'), retryAfter: r.headers.get('retry-after'), roh };
 }
 const get = (): Promise<Antwort> => anfrage('GET', '/api/gegenstaende');
 const put = (body: string, ifMatch: string | null, query = ''): Promise<Antwort> =>
   anfrage('PUT', `/api/gegenstaende${query}`, { body, ifMatch: ifMatch === null ? null : `"${ifMatch}"` });
 const arbeitBytes = (): Buffer => readFileSync(ARBEIT);
+
+/** A second process holding `<working copy>.lock`; `freigeben()` lets it go and waits for its end. */
+const halterPids: number[] = [];
+async function halterStarten(name: string): Promise<{ pid: number; freigeben: () => Promise<void> }> {
+  const stopp = resolve(ORDNER, `stopp-${name}`);
+  const kind = spawn(TSX, [fileURLToPath(import.meta.url), '--halter', ARBEIT, stopp], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const pid = kind.pid!;
+  halterPids.push(pid);
+  const beendet = new Promise<void>((fertig) => kind.once('exit', () => fertig()));
+  await new Promise<void>((fertig, scheitern) => {
+    const zeit = setTimeout(() => scheitern(new Error('lock holder does not start')), 30_000);
+    let s = '';
+    kind.stdout!.on('data', (d: Buffer) => {
+      s += d.toString();
+      if (s.includes('HALTER-BEREIT')) {
+        clearTimeout(zeit);
+        fertig();
+      }
+    });
+  });
+  return {
+    pid,
+    freigeben: async () => {
+      writeFileSync(stopp, '');
+      await Promise.race([beendet, new Promise((r) => setTimeout(r, 10_000))]);
+      for (const z of [-pid, pid]) {
+        try {
+          process.kill(z, 'SIGKILL');
+        } catch {
+          /* gone */
+        }
+      }
+    },
+  };
+}
 
 // ── test data ──
 function eintrag(id: string, ueberschreibe: Record<string, unknown> = {}): Record<string, unknown> {
@@ -312,14 +371,157 @@ let hash = sha(arbeitBytes());
   check('8 ohne Token: 401', (await anfrage('GET', '/api/gegenstaende', { token: false })).status === 401);
   check('8 DELETE: 405', (await anfrage('DELETE', '/api/gegenstaende')).status === 405);
   check('8 POST auf quittung: 405', (await anfrage('POST', '/api/gegenstaende/quittung', { body: '{}' })).status === 405);
-  check('8 bestaetigen/abnehmen gibt es noch nicht: 404', (await anfrage('POST', '/api/gegenstaende/bestaetigen', { body: '{}' })).status === 404);
+  const unbekannt = await anfrage('POST', '/api/gegenstaende/bestaetigen', { body: '{}' });
+  check('8 bestaetigen/abnehmen gibt es noch nicht: 404 unbekannter-endpunkt', unbekannt.status === 404 && unbekannt.daten.fehler === 'unbekannter-endpunkt', `${unbekannt.status} ${JSON.stringify(unbekannt.daten)}`);
   check('8 kaputte Arbeitskopie: GET meldet dateiFehler, kein Absturz', await (async () => {
     writeFileSync(ARBEIT, '{kaputt');
     const a = await get();
     return a.status === 200 && a.daten.dateiFehler === 'datei-kein-json' && a.daten.hash === sha('{kaputt');
   })());
-  const repariert = await put(datei([holzaxt]), sha('{kaputt'));
-  check('8 kaputte Arbeitskopie laesst sich mit gueltigem Stand ueberschreiben', repariert.status === 200 && arbeitBytes().toString('utf-8') === kanon([holzaxt]));
+  // N1/F2: overwriting a broken state is NOT silent any more.
+  const ohneBestaetigung = await put(datei([holzaxt]), sha('{kaputt'));
+  check('8 kaputte Arbeitskopie: PUT ohne Bestaetigung 409 alter-stand-kaputt', ohneBestaetigung.status === 409 && ohneBestaetigung.daten.fehler === 'alter-stand-kaputt' && arbeitBytes().toString('utf-8') === '{kaputt', `${ohneBestaetigung.status} ${JSON.stringify(ohneBestaetigung.daten)}`);
+  const repariert = await put(datei([holzaxt]), sha('{kaputt'), '?bestaetigt=1');
+  check('8 kaputte Arbeitskopie laesst sich MIT Bestaetigung ueberschreiben', repariert.status === 200 && arbeitBytes().toString('utf-8') === kanon([holzaxt]));
+  hash = String(repariert.daten.hash);
+}
+
+// ── 9. N1/F1: entries the reader discards in the OLD state count as removed ──
+{
+  const schwert = { id: 'Schwert', nameSchluessel: 'inhalt.gegenstand.Schwert.name', typ: 'unbekannterTyp', texte: {} };
+  const ohneId = { nameSchluessel: 'x', typ: 'material' };
+  const altText = datei([holzaxt, ohneId, schwert, { id: 'kaputt!', typ: 'material' }, erz]);
+  writeFileSync(ARBEIT, altText);
+  const g = await get();
+  const verw = g.daten.verworfen as Array<{ index: number; id: string | null }>;
+  check('9 Vorbereitung: der Leser verwirft 3 Eintraege des alten Stands', Array.isArray(verw) && verw.length === 3, JSON.stringify(verw));
+  const alt = Buffer.from(altText);
+  const a = await put(datei([holzaxt, erz]), String(g.daten.hash));
+  const ids = (a.daten.entfernt as string[] | undefined) ?? [];
+  check('9 verworfene Eintraege mit id stehen in entfernt: 409', a.status === 409 && a.daten.fehler === 'brauchtBestaetigung' && [...ids].sort().join(',') === 'Schwert,kaputt!', `${a.status} ${JSON.stringify(a.daten)}`);
+  check('9 Eintrag ohne lesbare id steht als #<index> in entferntOhneId', JSON.stringify(a.daten.entferntOhneId) === JSON.stringify(['#1']), JSON.stringify(a.daten.entferntOhneId));
+  check('9 Datei nach dem 409 byte-gleich', arbeitBytes().equals(alt));
+  const b = await put(datei([holzaxt, erz]), String(g.daten.hash), '?bestaetigt=1');
+  check('9 mit Bestaetigung: 200, entfernt und entferntOhneId genannt', b.status === 200 && (b.daten.entfernt as string[]).length === 2 && JSON.stringify(b.daten.entferntOhneId) === JSON.stringify(['#1']), `${b.status} ${JSON.stringify(b.daten)}`);
+  check('9 Datei danach kanonisch', arbeitBytes().toString('utf-8') === kanon([holzaxt, erz]));
+  hash = String(b.daten.hash);
+  // A discarded entry whose id IS in the new state is not removed (the id lives on).
+  writeFileSync(ARBEIT, datei([holzaxt, { ...schwert }]));
+  const g2 = await get();
+  const c = await put(datei([holzaxt, eintrag('Schwert')]), String(g2.daten.hash));
+  check('9 verworfen, aber die id steht im neuen Stand: kein Entfernen, 200', c.status === 200 && (c.daten.entfernt as string[]).length === 0 && !('entferntOhneId' in c.daten && (c.daten.entferntOhneId as unknown[]).length > 0), `${c.status} ${JSON.stringify(c.daten)}`);
+  hash = String(c.daten.hash);
+}
+
+// ── 10. N1/F2: a broken old state needs confirmation and leaves a copy ──
+{
+  const kaputtFall = { 'version 2': datei([holzaxt, erz, eintrag('Stein')], { version: 2 }), abgeschnitten: '{"version":1,"gegenstaende":[{"id":"Holz' };
+  for (const [name, inhalt] of Object.entries(kaputtFall)) {
+    writeFileSync(ARBEIT, inhalt);
+    const g = await get();
+    const a = await put(datei([holzaxt]), String(g.daten.hash));
+    check(`10 ${name}: PUT ohne Bestaetigung 409 alter-stand-kaputt mit dateiFehler des alten Stands`, a.status === 409 && a.daten.fehler === 'alter-stand-kaputt' && a.daten.dateiFehler === g.daten.dateiFehler && g.daten.dateiFehler !== null, `${a.status} ${JSON.stringify(a.daten)}`);
+    check(`10 ${name}: Datei byte-gleich`, readFileSync(ARBEIT, 'utf-8') === inhalt);
+    const b = await put(datei([holzaxt]), String(g.daten.hash), '?bestaetigt=1');
+    const kopien = readdirSync(dirname(ARBEIT)).filter((f) => f.startsWith(`${ARBEIT.split('/').pop()}.kaputt-`)).sort();
+    check(`10 ${name}: mit Bestaetigung 200, kanonisch geschrieben`, b.status === 200 && arbeitBytes().toString('utf-8') === kanon([holzaxt]), `${b.status} ${JSON.stringify(b.daten)}`);
+    check(`10 ${name}: Sicherung der kaputten Datei liegt da (gleiche Bytes)`, kopien.length > 0 && readFileSync(resolve(dirname(ARBEIT), kopien[kopien.length - 1]), 'utf-8') === inhalt, kopien.join(','));
+    hash = String(b.daten.hash);
+  }
+  // At most the last 5 copies are kept.
+  let letzte = '';
+  for (let i = 0; i < 7; i++) {
+    letzte = `{"kaputt":${i}`;
+    writeFileSync(ARBEIT, letzte);
+    const g = await get();
+    const r = await put(datei([holzaxt]), String(g.daten.hash), '?bestaetigt=1');
+    hash = String(r.daten.hash);
+  }
+  const kopien = readdirSync(dirname(ARBEIT)).filter((f) => f.startsWith(`${ARBEIT.split('/').pop()}.kaputt-`)).sort();
+  check('10 hoechstens 5 Sicherungen', kopien.length === 5, String(kopien.length));
+  check('10 die neueste Sicherung ist die letzte kaputte Datei', kopien.length > 0 && readFileSync(resolve(dirname(ARBEIT), kopien[kopien.length - 1]), 'utf-8') === letzte);
+  for (const k of kopien) rmSync(resolve(dirname(ARBEIT), k));
+}
+
+// ── 11. N1/F3 + F4: a SECOND process holds the lock ──
+{
+  const vorher = arbeitBytes();
+  const h = await halterStarten('sperre-503');
+  const t0 = Date.now();
+  const putP = put(datei(JSON.parse(vorher.toString('utf-8')).gegenstaende), hash);
+  await new Promise((r) => setTimeout(r, 300));
+  const t1 = Date.now();
+  const q = await anfrage('GET', '/api/gegenstaende/quittung');
+  const dauer = Date.now() - t1;
+  check('11 waehrend die Sperre fremd gehalten wird: anderer Endpunkt antwortet in < 300 ms', q.status === 200 && dauer < 300, `${q.status} ${dauer} ms`);
+  const a = await putP;
+  const zeit = Date.now() - t0;
+  check('11 PUT bei fremder Sperre: 503 gesperrt mit Retry-After: 2', a.status === 503 && a.daten.fehler === 'gesperrt' && a.retryAfter === '2', `${a.status} ${a.roh} ${String(a.retryAfter)}`);
+  check('11 der PUT wartet hoechstens rund 2 s (unter 3 s)', zeit < 3000, `${zeit} ms`);
+  check('11 Antwort ohne pid, Rechnername, Pfad', !/pid|\.lock|\/var\/tmp|\/opt\//i.test(a.roh) && !a.roh.includes(hostname()) && !a.roh.includes(String(h.pid)) && !a.roh.includes(ORDNER), a.roh);
+  check('11 Datei byte-gleich, keine .tmp', arbeitBytes().equals(vorher) && !readdirSync(dirname(ARBEIT)).some((f) => f.endsWith('.tmp')));
+  await h.freigeben();
+  const danach = await put(datei(JSON.parse(vorher.toString('utf-8')).gegenstaende), hash);
+  check('11 nach dem Loslassen: PUT geht wieder (200)', danach.status === 200, `${danach.status} ${danach.roh}`);
+  hash = String(danach.daten.hash);
+}
+{
+  // The wait is asynchronous: a lock released within the wait time lets the PUT through, after the release.
+  const h = await halterStarten('sperre-frei');
+  const bestand = JSON.parse(arbeitBytes().toString('utf-8')).gegenstaende as unknown[];
+  const t0 = Date.now();
+  const putP = put(datei([...bestand, eintrag('Wartend')]), hash);
+  await new Promise((r) => setTimeout(r, 700));
+  const fruehVorher = arbeitBytes();
+  await h.freigeben();
+  const a = await putP;
+  check('11 PUT wartet auf eine kurz gehaltene fremde Sperre und geht dann durch (200)', a.status === 200 && Date.now() - t0 >= 600, `${a.status} ${a.roh}`);
+  check('11 waehrend des Haltens wurde nichts geschrieben', fruehVorher.toString('utf-8') === kanon(bestand));
+  hash = String(a.daten.hash);
+}
+
+// ── 12. N1/F5 + F6: stable codes, If-Match rules, temp files, HEAD ──
+{
+  const q404 = await anfrage('GET', '/api/gegenstaende/gibtsnicht');
+  check('12 404 traegt den Code unbekannter-endpunkt', q404.status === 404 && q404.daten.fehler === 'unbekannter-endpunkt', q404.roh);
+  check('12 405 traegt den Code methode', (await anfrage('DELETE', '/api/gegenstaende')).daten.fehler === 'methode');
+  mkdirSync(QUITTUNG);
+  const q500 = await anfrage('GET', '/api/gegenstaende/quittung');
+  check('12 500 hat den Code intern und keinen Rohtext (EISDIR, Pfad)', q500.status === 500 && q500.daten.fehler === 'intern' && !/EISDIR|editor-eg1|\/var\/tmp|at /.test(q500.roh), q500.roh);
+  rmSync(QUITTUNG, { recursive: true });
+  const bestand = arbeitBytes().toString('utf-8');
+  const stern = await anfrage('PUT', '/api/gegenstaende', { body: bestand, ifMatchRoh: '*' });
+  check('12 If-Match: * wird abgelehnt (428), nichts geschrieben', stern.status === 428 && typeof stern.daten.fehler === 'string' && arbeitBytes().toString('utf-8') === bestand, `${stern.status} ${stern.roh}`);
+  const liste = await anfrage('PUT', '/api/gegenstaende', { body: bestand, ifMatchRoh: `"${'a'.repeat(64)}", W/"${hash}"` });
+  check('12 If-Match-Liste: ein passender Eintrag genuegt (200)', liste.status === 200, `${liste.status} ${liste.roh}`);
+  const listeFalsch = await anfrage('PUT', '/api/gegenstaende', { body: bestand, ifMatchRoh: `"${'a'.repeat(64)}", "${'b'.repeat(64)}"` });
+  check('12 If-Match-Liste ohne passenden Eintrag: 412', listeFalsch.status === 412 && listeFalsch.daten.fehler === 'veraltet', `${listeFalsch.status}`);
+  const listeStern = await anfrage('PUT', '/api/gegenstaende', { body: bestand, ifMatchRoh: `"${hash}", *` });
+  check('12 If-Match-Liste mit * darin: 428', listeStern.status === 428, `${listeStern.status}`);
+  // stale temp files of THIS route (older than 10 min) are removed under the lock; fresh and foreign ones stay
+  const ordner = dirname(ARBEIT);
+  const alt = `${ARBEIT}.99999.deadbeef.tmp`;
+  const frisch = `${ARBEIT}.99998.cafebabe.tmp`;
+  const fremd = resolve(ordner, 'anderes.tmp');
+  for (const f of [alt, frisch, fremd]) writeFileSync(f, 'x');
+  const vorZehnMin = new Date(Date.now() - 11 * 60_000);
+  for (const f of [alt, fremd]) utimesSync(f, vorZehnMin, vorZehnMin);
+  const bestand2 = arbeitBytes().toString('utf-8');
+  const p = await anfrage('PUT', '/api/gegenstaende', { body: bestand2, ifMatchRoh: `"${sha(bestand2)}"` });
+  check('12 PUT 200', p.status === 200, `${p.status} ${p.roh}`);
+  check('12 alte .tmp der Route entfernt, frische und fremde bleiben', !existsSync(alt) && existsSync(frisch) && existsSync(fremd));
+  for (const f of [frisch, fremd]) rmSync(f, { force: true });
+  hash = sha(arbeitBytes());
+  // HEAD: an answer instead of a reset connection
+  for (const pfad of ['/api/gegenstaende', '/api/gegenstaende/quittung']) {
+    let status = -1;
+    try {
+      status = (await fetch(`http://127.0.0.1:${port}${pfad}`, { method: 'HEAD', headers: { 'x-wov-token': TOKEN } })).status;
+    } catch {
+      status = -1;
+    }
+    check(`12 HEAD ${pfad}: 405 oder 200 ohne Body statt Verbindungsabbruch`, status === 405 || status === 200, String(status));
+  }
 }
 
 // ── shut down ──
@@ -329,7 +531,7 @@ await new Promise((r) => setTimeout(r, 300));
 gruppeBeenden('SIGKILL');
 await new Promise((r) => setTimeout(r, 300));
 let lebt = false;
-for (const p of [gruppe, ...pids]) {
+for (const p of [gruppe, ...pids, ...halterPids, ...halterPids.map((x) => -x)]) {
   try {
     process.kill(p, 0);
     lebt = true;

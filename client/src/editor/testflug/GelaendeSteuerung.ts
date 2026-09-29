@@ -187,7 +187,7 @@ export class GelaendeSteuerung {
       }
       case 'grenze':
         this.neuBauen(r.zurueckgenommen);
-        this.abh.meldung(`${grenzText(r.grund)} — ${t('testflug.gelaende.strich_abgelehnt')}`);
+        this.abh.meldung(t('testflug.gelaende.abgelehnt', { grund: grenzText(r.grund) }));
         break;
       case 'abgelehnt':
         break;
@@ -228,7 +228,7 @@ export class GelaendeSteuerung {
     // The draft refused: take the stroke back from the live ground too, so ground and draft agree.
     const zurueck = invertiere(v);
     if (wendeVorgang(this.karte, zurueck).ok) this.neuBauen(zurueck.aenderungen);
-    this.abh.meldung(`${r.message} — ${t('testflug.gelaende.strich_abgelehnt')}`);
+    this.abh.meldung(t('testflug.gelaende.abgelehnt', { grund: r.message }));
   }
 
   /** Tool ended while the mouse may still be down (Esc, right click, other tab): the open stroke is finished, not dropped. */

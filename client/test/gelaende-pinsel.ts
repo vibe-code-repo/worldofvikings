@@ -504,6 +504,19 @@ const zieheStrich = (a: Aufbau, von: [number, number], bis: [number, number], bi
   pruefe(benutzt.length > 15 && benutzt.every((k) => k in de), `9: alle ${benutzt.length} im Quelltext genannten Schlüssel gibt es (${benutzt.filter((k) => !(k in de)).join(', ')})`);
 }
 
+// ── 10. Verdrahtung (Quelltext, nur die Stellen, die ein Laufzeittest ohne Browser nicht erreicht) ──
+{
+  const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
+  const sp = readFileSync(resolve(HIER, '../src/editor/SpawnPanel.ts'), 'utf-8');
+  pruefe(/panel\.istGelaendeModus && !e\.altKey && !routen\.istZeichenModus/.test(tf), '10: Linksklick im Reiter formt, Alt greift wie bisher, Routenzeichnen geht vor');
+  pruefe(/setzeAb = \(\): void => \{\s*\/\/[^\n]*\n\s*if \(gelaendeUnten\) gelaendeAus\(\);/.test(tf), '10: Loslassen/Fokusverlust/Esc (setzeAb) beendet den Strich');
+  pruefe(/if \(panel\.istGelaendeModus\) \{\s*gelaendeAus\(\);\s*panel\.beendeGelaendeModus\(\);/.test(tf), '10: Rechtsklick beendet das Werkzeug');
+  pruefe(tf.includes('radiusSchritt(e)') && tf.includes('e.preventDefault();\n      panel.setzeRadius('), '10: Radiustasten laufen über radiusSchritt (e.key, nicht e.code)');
+  pruefe(/aufZeichenStart: \(\) => \{[^}]*panel\.beendeGelaendeModus\(\)/.test(tf), '10: Routenzeichnen beendet das Geländewerkzeug');
+  pruefe(sp.includes('get istGelaendeModus(): boolean') && sp.includes("if (tab === 'gelaende') this.beendePlatzierModus();"), '10: Reiterwechsel beendet den Setzen-Modus, istGelaendeModus gibt es');
+  pruefe(/else if \(this\.tab === 'gelaende'\) \{\s*this\.tab = 'objekte';/.test(sp), '10: ein geschlossenes Panel verlässt den Gelände-Reiter');
+}
+
 console.log(`\n${geprueft - fehler}/${geprueft} Prüfungen bestanden`);
 if (fehler > 0) {
   console.error(`${fehler} FEHLER`);

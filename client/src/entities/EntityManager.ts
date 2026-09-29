@@ -12,7 +12,7 @@ import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
 import { stabilizeHeadSkin } from '../player/headSkin.js';
-import { canWearArmor, parseEinmal } from '@wov/shared';
+import { TOD_CLIPS, canWearArmor, parseEinmal } from '@wov/shared';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -3652,8 +3652,9 @@ export class EntityManager {
     if (e.n === dyn.einmalN) return;
     dyn.einmalN = e.n;
     if (dyn.stirbt) return;
-    if (e.clip === 'die') {
-      if (this.assets.spieleEinmalKreatur(dyn.root, 'die', null)) dyn.stirbt = true;
+    if (e.clip === 'die' || (TOD_CLIPS as readonly string[]).includes(e.clip)) {
+      // A creature dies with `die`, a player figure with `tod_vorn` / `tod_hinten` (todTreffer.ts): once, then it lies.
+      if (this.assets.spieleEinmalKreatur(dyn.root, e.clip, null)) dyn.stirbt = true;
       return;
     }
     this.assets.spieleEinmalKreatur(dyn.root, e.clip, () => this.faelltZurueck(dyn));
@@ -3717,8 +3718,14 @@ export class EntityManager {
       }
       this.dynamics.set(u.key, dyn);
       this.dynamicCount++;
+      // A player who lies dead when we first see him: show the lying pose (the fall itself is history).
+      if (dyn.istSpieler && wunschAnim && (TOD_CLIPS as readonly string[]).includes(wunschAnim)) {
+        if (this.assets.spieleEinmalKreatur(root, wunschAnim, null)) dyn.stirbt = true;
+      }
     } else if (wunschAnim && wunschAnim !== dyn.anim) {
       dyn.anim = wunschAnim;
+      // A revived player figure stands up again: its lying pose (`anim` = tod_*) went back to a normal state.
+      if (dyn.istSpieler && dyn.stirbt) dyn.stirbt = false;
       if (!dyn.stirbt) this.spieleZustand(dyn, wunschAnim);
     }
     this.pruefeEinmal(dyn, u.animEinmal);

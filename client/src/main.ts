@@ -118,6 +118,7 @@ import { LoadingScreen } from './ui/LoadingScreen';
 import { GameI18n } from './i18n';
 import { Equipment } from './player/Equipment';
 import { KampfEffekte } from './engine/KampfEffekte';
+import { TodTreffer } from './player/TodTreffer';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
 import { ContainerPanel } from './ui/ContainerPanel';
@@ -2476,6 +2477,7 @@ async function main() {
     // Interaktions-Ergebnis: Meldung + ggf. Beute ins Inventar.
     // Treffereffekt vom Server (Kreatur getroffen: Blut; Holz/Stein: Funken;
     // Parade: Funke) — auch fuer Treffer, die Mitspieler landen.
+    new TodTreffer(input, () => player?.avatar ?? null).verdrahte(socket);
     socket.on(PacketType.HitEffect, (reader) => {
       const pos = reader.readVector3();
       const art = reader.readInt32();

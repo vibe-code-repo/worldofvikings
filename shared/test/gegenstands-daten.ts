@@ -10,6 +10,7 @@
  *
  * Run: npx tsx shared/test/gegenstands-daten.ts   (from the repo root)
  */
+import { deepStrictEqual } from 'node:assert';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -29,7 +30,10 @@ import {
   datenRezepte,
   gegenstaendeMitUpload,
   gegenstandZuItem,
+  VERWERF_GRUENDE,
   leseGegenstandsDatei,
+  pruefeEintrag,
+  schreibeGegenstandsDatei,
   wendeGegenstandsDatenAn,
   type GegenstandsEintrag,
 } from '../src/items/gegenstandsDaten.js';
@@ -415,6 +419,64 @@ pruefe(REZEPTE.every((r) => r.zutaten.every((z) => istCodeItem(z.item)) && istCo
 pruefe(JSON.stringify(REZEPTE) === rezepteVorher, 'REZEPTE byte-gleich');
 wendeGegenstandsDatenAn([]);
 pruefe(datenRezepte().length === 0, 'Rezepte werden mit dem Datenstand ersetzt');
+
+// ── 10b. Canonical writer (N3) ───────────────────────────────────────
+console.log('Gegenstandsdaten — schreibeGegenstandsDatei');
+const alle = lese(
+  holzaxt({ haltbarkeit: { max: 150, verbrauch: 1, ausdauer: 8 }, ernte: { baum: 2, fels: 3 }, werte: { damage: 10, armor: 2, strength: 1, vitality: 3, agility: 4 }, symbol: 'axt-holz', rarity: 'rare', itemLevel: 7 }),
+  schlicht('Nur'),
+  schlicht('Mit', { rezept: { menge: 3, zutaten: [{ item: 'Holzaxt', menge: 2 }, { item: 'Stone', menge: 1 }] }, modell: { upload: 'hochgeladen/U_Mit', hiebVersatz: 0.5, haltePosition: [0.1, 0.2, 0.3] } }),
+).eintraege;
+pruefe(alle.length === 3, 'Rundreise-Eingabe: drei Eintraege, alle Felder belegt');
+const text1 = schreibeGegenstandsDatei(alle);
+pruefe(text1.endsWith('}\n') && !text1.endsWith('\n\n') && text1.startsWith('{\n  "version": 1,\n  "gegenstaende": [\n    {\n      "id": "Holzaxt"'), 'zwei Leerzeichen, Zeilenumbruch am Ende, feste Feldreihenfolge (id zuerst)');
+const zurueck = leseGegenstandsDatei(text1);
+pruefe(zurueck.ok && zurueck.verworfen.length === 0 && zurueck.unbekannteFelder === 0, 'die geschriebene Datei wird ohne Verlust gelesen');
+let gleich = true;
+try {
+  deepStrictEqual(zurueck.eintraege, alle);
+} catch {
+  gleich = false;
+}
+pruefe(gleich, 'lese(schreibe(x)).eintraege ist gleich x (texte, rezept, modell, ernte, werte, haltbarkeit)');
+pruefe(schreibeGegenstandsDatei(alle) === text1, 'zweimal schreiben: byte-gleich');
+pruefe(schreibeGegenstandsDatei(zurueck.eintraege) === text1, 'lese -> schreibe: byte-gleich');
+pruefe(schreibeGegenstandsDatei(leseGegenstandsDatei(schreibeGegenstandsDatei(leseGegenstandsDatei(text1).eintraege)).eintraege) === text1, 'lese -> schreibe -> lese -> schreibe: byte-gleich');
+// Same entries, other key order in the input -> same output.
+const umgedreht = (o: unknown): unknown => (Array.isArray(o) ? o.map(umgedreht) : o && typeof o === 'object' ? Object.fromEntries(Object.entries(o as Roh).reverse().map(([k, v]) => [k, umgedreht(v)])) : o);
+const ausUmgedreht = leseGegenstandsDatei(JSON.stringify(umgedreht(JSON.parse(text1))));
+pruefe(ausUmgedreht.ok && ausUmgedreht.verworfen.length === 0 && schreibeGegenstandsDatei(ausUmgedreht.eintraege) === text1, 'andere Schluesselreihenfolge in der Eingabe ergibt dieselbe Ausgabe');
+const leerText = schreibeGegenstandsDatei([]);
+pruefe(leerText === '{\n  "version": 1,\n  "gegenstaende": []\n}\n' && leseGegenstandsDatei(leerText).ok, 'leere Liste: kanonische leere Datei, lesbar');
+const kleinesText = schreibeGegenstandsDatei(lese(schlicht('Nur')).eintraege);
+pruefe(!kleinesText.includes('"fels"') && !kleinesText.includes('"max"'), 'nicht gesetzte Felder tauchen nicht auf (keine erfundenen Vorgaben)');
+
+// ── 10c. pruefeEintrag agrees with leseGegenstandsDatei (N3) ──────────
+console.log('Gegenstandsdaten — pruefeEintrag');
+const kontext = lese(schlicht('Zwei')).eintraege;
+// Bb needs Aa, which is the entry being edited and therefore not part of the context.
+const kontextZyklus = lese(schlicht('Aa'), schlicht('Bb', { rezept: { menge: 1, zutaten: [{ item: 'Aa', menge: 1 }] } })).eintraege.filter((e) => e.id === 'Bb');
+const pruefFaelle: Array<[string, unknown, GegenstandsEintrag[], string]> = [
+  ...faelle.map(([n, roh, g]): [string, unknown, GegenstandsEintrag[], string] => [n, roh, [], g]),
+  ...textFaelle.map(([n, roh, g]): [string, unknown, GegenstandsEintrag[], string] => [n, roh, [], g]),
+  ['id doppelt im Kontext', schlicht('Zwei'), kontext, 'id-doppelt'],
+  ['Schreibung doppelt im Kontext', schlicht('ZWEI'), kontext, 'id-schreibung-doppelt'],
+  ['Schreibung Code', schlicht('MESSER'), [], 'id-schreibung-code'],
+  ['Code-Kollision', schlicht('Club'), [], 'id-code-kollision'],
+  ['Zyklus mit einem Eintrag des Kontexts', rz('Aa', 'Bb'), kontextZyklus, 'rezept-zyklus'],
+];
+const gesehen = new Set<string>();
+for (const [name, roh, andere, grund] of pruefFaelle) {
+  const codes = pruefeEintrag(roh, andere);
+  const ausDatei = leseGegenstandsDatei(datei([...andere, roh])).verworfen.filter((v) => v.index === andere.length).map((v) => v.grund);
+  pruefe(codes.length === 1 && codes[0] === grund, `pruefeEintrag: ${name} -> ${grund} (war: ${codes.join()})`);
+  pruefe(JSON.stringify(codes) === JSON.stringify(ausDatei), `pruefeEintrag == leseGegenstandsDatei: ${name}`);
+  gesehen.add(grund);
+}
+pruefe(VERWERF_GRUENDE.every((g) => gesehen.has(g)), `jeder Grund-Code ist abgedeckt (fehlt: ${VERWERF_GRUENDE.filter((g) => !gesehen.has(g)).join() || 'keiner'})`);
+pruefe(pruefeEintrag(holzaxt(), []).length === 0 && pruefeEintrag(schlicht('Frisch'), kontext).length === 0, 'gueltiger Eintrag: leere Liste');
+pruefe(pruefeEintrag(rz('Neu9', 'Zwei'), kontext).length === 0, 'Zutat aus den anderen Eintraegen ist bekannt');
+pruefe(pruefeEintrag(rz('Neu9', 'Zwei'), []).join() === 'rezept-zutat-unbekannt', 'dieselbe Zutat ohne Kontext: rezept-zutat-unbekannt');
 
 // ── 11. Registration: atomic, replacing removes ──────────────────────
 console.log('Gegenstandsdaten — Registrierung');

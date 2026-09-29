@@ -69,29 +69,31 @@ export type DateiFehler =
   | 'datei-version-unbekannt'
   | 'datei-zu-viele-eintraege';
 
-/** Reason codes of a discarded entry. */
-export type VerwerfGrund =
-  | 'eintrag-kein-objekt'
-  | 'id-ungueltig'
-  | 'id-doppelt'
-  | 'id-code-kollision'
-  | 'id-schreibung-code'
-  | 'id-schreibung-doppelt'
-  | 'schluessel-ungueltig'
-  | 'typ-unbekannt'
-  | 'slot-unbekannt'
-  | 'modell-ungueltig'
-  | 'symbol-ungueltig'
-  | 'zahl-ungueltig'
-  | 'werte-ungueltig'
-  | 'feld-ungueltig'
-  | 'rezept-ungueltig'
-  | 'rezept-selbstbezug'
-  | 'rezept-zutat-unbekannt'
-  | 'rezept-zyklus'
-  | 'texte-ungueltig'
-  | 'texte-schluessel-fremd'
-  | 'texte-name-fehlt';
+/** Reason codes of a discarded entry (all of them, for translation tables and tests). */
+export const VERWERF_GRUENDE = [
+  'eintrag-kein-objekt',
+  'id-ungueltig',
+  'id-doppelt',
+  'id-code-kollision',
+  'id-schreibung-code',
+  'id-schreibung-doppelt',
+  'schluessel-ungueltig',
+  'typ-unbekannt',
+  'slot-unbekannt',
+  'modell-ungueltig',
+  'symbol-ungueltig',
+  'zahl-ungueltig',
+  'werte-ungueltig',
+  'feld-ungueltig',
+  'rezept-ungueltig',
+  'rezept-selbstbezug',
+  'rezept-zutat-unbekannt',
+  'rezept-zyklus',
+  'texte-ungueltig',
+  'texte-schluessel-fremd',
+  'texte-name-fehlt',
+] as const;
+export type VerwerfGrund = typeof VERWERF_GRUENDE[number];
 
 export interface GegenstandsText {
   de?: string;
@@ -199,7 +201,7 @@ function text(v: unknown): string {
   return v;
 }
 
-function pruefeEintrag(roh: unknown, z: { n: number }): GegenstandsEintrag {
+function saubereEintrag(roh: unknown, z: { n: number }): GegenstandsEintrag {
   if (!istObjekt(roh)) throw new Verwerfen('eintrag-kein-objekt');
   zaehleUnbekannte(
     roh,
@@ -249,7 +251,9 @@ function pruefeEintrag(roh: unknown, z: { n: number }): GegenstandsEintrag {
     modell.skala = zahl(nimm(modellRoh, 'skala'), 0.05, 5) ?? 1;
     modell.haltePosition = vektor(nimm(modellRoh, 'haltePosition'), 2);
     modell.halteRotation = vektor(nimm(modellRoh, 'halteRotation'), 2 * Math.PI);
-    modell.hiebVersatz = zahl(nimm(modellRoh, 'hiebVersatz'), 0, 1.5) ?? null;
+    // null = "not set", as the writer emits it
+    const versatz = nimm(modellRoh, 'hiebVersatz');
+    modell.hiebVersatz = versatz === null ? null : zahl(versatz, 0, 1.5) ?? null;
     const satz = nimm(modellRoh, 'animationsSatz');
     if (satz !== undefined && satz !== null) {
       if (typeof satz !== 'string' || !(ANIMATIONSSAETZE as readonly string[]).includes(satz)) throw new Verwerfen('modell-ungueltig');
@@ -381,30 +385,8 @@ function liegtImZyklus(start: string, karte: ReadonlyMap<string, GegenstandsEint
   return false;
 }
 
-/**
- * Reads and sanitises the text of a data file. Never throws.
- * Liest und saeubert den Text einer Gegenstandsdatei. Wirft nie.
- */
-export function leseGegenstandsDatei(text: string): GegenstandsLesung {
-  const kaputt = (dateiFehler: DateiFehler): GegenstandsLesung =>
-    ({ ok: false, dateiFehler, eintraege: [], verworfen: [], unbekannteFelder: 0 });
-  if (typeof text !== 'string') return kaputt('datei-kein-json');
-  if (text.length > MAX_DATEI_BYTES || new TextEncoder().encode(text).length > MAX_DATEI_BYTES) return kaputt('datei-zu-gross');
-  let wurzel: unknown;
-  try {
-    wurzel = JSON.parse(text);
-  } catch {
-    return kaputt('datei-kein-json');
-  }
-  if (!istObjekt(wurzel)) return kaputt('datei-kopf-falsch');
-  const version = nimm(wurzel, 'version');
-  const liste = nimm(wurzel, 'gegenstaende');
-  if (typeof version !== 'number' || !Array.isArray(liste)) return kaputt('datei-kopf-falsch');
-  if (version !== GEGENSTAENDE_VERSION) return kaputt('datei-version-unbekannt');
-  if (liste.length > MAX_EINTRAEGE) return kaputt('datei-zu-viele-eintraege');
-
-  const z = { n: 0 };
-  zaehleUnbekannte(wurzel, ['version', 'gegenstaende'], z);
+/** The shared core of reading: sanitises every entry, then the cross-entry checks. `z` counts unknown fields. */
+function verarbeiteListe(liste: readonly unknown[], z: { n: number }): { eintraege: GegenstandsEintrag[]; verworfen: VerworfenerEintrag[] } {
   const verworfen: VerworfenerEintrag[] = [];
   const karte = new Map<string, GegenstandsEintrag>();
   const kleinIds = new Set<string>();
@@ -412,7 +394,7 @@ export function leseGegenstandsDatei(text: string): GegenstandsLesung {
     const idRoh = istObjekt(roh) ? nimm(roh, 'id') : undefined;
     const idOk = typeof idRoh === 'string' && ID_MUSTER.test(idRoh) ? idRoh : null;
     try {
-      const e = pruefeEintrag(roh, z);
+      const e = saubereEintrag(roh, z);
       if (karte.has(e.id)) throw new Verwerfen('id-doppelt');
       if (kleinIds.has(e.id.toLowerCase())) throw new Verwerfen('id-schreibung-doppelt');
       kleinIds.add(e.id.toLowerCase());
@@ -452,7 +434,103 @@ export function leseGegenstandsDatei(text: string): GegenstandsLesung {
 
   // Map order is the order of the first valid occurrence, which is the file order.
   const eintraege = [...karte.values()];
+  return { eintraege, verworfen };
+}
+
+/**
+ * Reads and sanitises the text of a data file. Never throws.
+ * Liest und saeubert den Text einer Gegenstandsdatei. Wirft nie.
+ */
+export function leseGegenstandsDatei(text: string): GegenstandsLesung {
+  const kaputt = (dateiFehler: DateiFehler): GegenstandsLesung =>
+    ({ ok: false, dateiFehler, eintraege: [], verworfen: [], unbekannteFelder: 0 });
+  if (typeof text !== 'string') return kaputt('datei-kein-json');
+  if (text.length > MAX_DATEI_BYTES || new TextEncoder().encode(text).length > MAX_DATEI_BYTES) return kaputt('datei-zu-gross');
+  let wurzel: unknown;
+  try {
+    wurzel = JSON.parse(text);
+  } catch {
+    return kaputt('datei-kein-json');
+  }
+  if (!istObjekt(wurzel)) return kaputt('datei-kopf-falsch');
+  const version = nimm(wurzel, 'version');
+  const liste = nimm(wurzel, 'gegenstaende');
+  if (typeof version !== 'number' || !Array.isArray(liste)) return kaputt('datei-kopf-falsch');
+  if (version !== GEGENSTAENDE_VERSION) return kaputt('datei-version-unbekannt');
+  if (liste.length > MAX_EINTRAEGE) return kaputt('datei-zu-viele-eintraege');
+
+  const z = { n: 0 };
+  zaehleUnbekannte(wurzel, ['version', 'gegenstaende'], z);
+  const { eintraege, verworfen } = verarbeiteListe(liste, z);
   return { ok: true, dateiFehler: null, eintraege, verworfen, unbekannteFelder: z.n };
+}
+
+/**
+ * Live check of ONE entry in the context of the others (collision, case, ingredients, cycles). Uses the
+ * same core as `leseGegenstandsDatei`, so both always give the same reason. `andere` are the other,
+ * already sanitised entries WITHOUT the one being checked (when editing, leave the old version out).
+ * Returns the reason codes for `eintrag` (empty = it would be accepted).
+ */
+export function pruefeEintrag(eintrag: unknown, andere: readonly GegenstandsEintrag[]): VerwerfGrund[] {
+  const { verworfen } = verarbeiteListe([...andere, eintrag], { n: 0 });
+  return verworfen.filter((v) => v.index === andere.length).map((v) => v.grund);
+}
+
+/**
+ * The canonical text of a data file: fixed field order, 2-space indent, one newline at the end. The
+ * inverse of `leseGegenstandsDatei` for sanitised entries, and the same bytes for the same entries
+ * whatever order the keys had in the input.
+ */
+export function schreibeGegenstandsDatei(eintraege: readonly GegenstandsEintrag[]): string {
+  const ordne = (e: GegenstandsEintrag): Roh => {
+    const m = e.modell;
+    const werte: Roh = {};
+    for (const s of STAT_IDS) if (Object.hasOwn(e.werte, s) && e.werte[s] !== undefined) werte[s] = e.werte[s];
+    const ernte: Roh = {};
+    if (e.ernte.baum !== undefined) ernte.baum = e.ernte.baum;
+    if (e.ernte.fels !== undefined) ernte.fels = e.ernte.fels;
+    const haltbarkeit: Roh = {};
+    if (e.haltbarkeit.max !== undefined) haltbarkeit.max = e.haltbarkeit.max;
+    if (e.haltbarkeit.verbrauch !== undefined) haltbarkeit.verbrauch = e.haltbarkeit.verbrauch;
+    if (e.haltbarkeit.ausdauer !== undefined) haltbarkeit.ausdauer = e.haltbarkeit.ausdauer;
+    const texte: Roh = {};
+    for (const k of [e.nameSchluessel, e.beschreibungSchluessel]) {
+      if (k === null || !Object.hasOwn(e.texte, k)) continue;
+      const t = e.texte[k];
+      const eintrag: Roh = {};
+      if (t.de !== undefined) eintrag.de = t.de;
+      if (t.en !== undefined) eintrag.en = t.en;
+      texte[k] = eintrag;
+    }
+    return {
+      id: e.id,
+      nameSchluessel: e.nameSchluessel,
+      beschreibungSchluessel: e.beschreibungSchluessel,
+      typ: e.typ,
+      slot: e.slot,
+      modell: {
+        upload: m.upload,
+        skala: m.skala,
+        haltePosition: m.haltePosition,
+        halteRotation: m.halteRotation,
+        hiebVersatz: m.hiebVersatz,
+        animationsSatz: m.animationsSatz,
+      },
+      symbol: e.symbol,
+      stapel: e.stapel,
+      gewicht: e.gewicht,
+      werte,
+      ernte,
+      haltbarkeit,
+      itemLevel: e.itemLevel,
+      rarity: e.rarity,
+      rezept: e.rezept
+        ? { menge: e.rezept.menge, zutaten: e.rezept.zutaten.map((x) => ({ item: x.item, menge: x.menge })) }
+        : null,
+      texte,
+    };
+  };
+  return `${JSON.stringify({ version: GEGENSTAENDE_VERSION, gegenstaende: eintraege.map(ordne) }, null, 2)}\n`;
 }
 
 // ── Translation into the game ──────────────────────────────────────────

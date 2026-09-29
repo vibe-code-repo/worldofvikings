@@ -157,6 +157,7 @@ function starteServer() {
     worldLayoutPath: LAYOUT,
   });
   server.start();
+  server.liegezeitMs = 0; // these checks are about WHERE the player wakes up, not about the lying time (tod-treffer.ts)
   return server;
 }
 type Server = ReturnType<typeof starteServer>;

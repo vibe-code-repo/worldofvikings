@@ -282,10 +282,11 @@ export default [
   */
   ['tools', 'test/generiert-getrennt.ts'],
   /*
-    I1 step 0: the proof tool `tools/i1-verschiebung.mjs` proves itself with fixtures: a real move, forged moves
-    (operator, order, string, await, parameter type, un-replaced `this.`) and incomplete moves (missing target, both
-    copies, missing or wrong forwarding), for a class method (`this.` -> `k.`) and a free function (form a: module
-    name -> field of the context); plus the command line (exit 0, 1, 2). Node only, ~1 s.
+    I1 step 0 (N1): the proof tool `tools/i1-verschiebung.mjs` proves itself with 151 fixtures: real moves and every
+    forgery of the attack on #155 (forwarding form, the whole rest of the source file, the whole target file, free
+    names bound with scopes, local `k`, `arguments`, replacement table, effect comments, `k: any`), for a class method
+    (`this.` -> `k.`), a free function (form a) and verbatim moves (form 0); plus the command line (exit 0, 1, 2).
+    Node only, ~2 s.
     Der Verschiebebeweis probt sich selbst: echt, gefälscht, unvollständig, je Form.
   */
   ['tools', 'test/i1-verschiebung.ts'],

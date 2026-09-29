@@ -30,8 +30,9 @@
  *       mit `git fetch --depth=1` geholt). Im PR darf
  *         - eine Obergrenze nur SINKEN (Erhöhung nur mit "grund"; er wird laut gemeldet und gehört in den PR-Text),
  *         - ein Deckel nur sinken (ebenso), `frei` nicht wieder zur Zahl über dem Deckel und keine Zahl zu `frei` werden,
- *         - ein NEUER Eintrag nur für eine Datei entstehen, die auf der Basis schon über 1.500 Zeilen hatte (eine
- *           Umbenennung ohne passenden Eintrag ist damit rot: B4 für den alten, „neu“ für den neuen Namen).
+ *         - ein NEUER Eintrag nur für eine Datei entstehen, die auf der Basis schon über 1.500 Zeilen hatte. Eine
+ *           Umbenennung ohne Eintrag ist rot (B1); mit Eintrag unter dem neuen Namen nur mit "grund" ("umbenannt von …"),
+ *           der laut gemeldet wird.
  *       Ohne Git bzw. ohne Basis läuft der Wächter wie bisher und sagt das.
  *
  * `client/src/main.ts` trägt einen Deckel von 3.700; dort sind zusätzlich die Zeilenwächter in `client/test` zuständig.
@@ -285,7 +286,10 @@ export function pruefe(wurzel, basis = null) {
       if (!a || a.art === 'ungueltig') {
         const amBasis = basis.zeilen(pfad);
         if (amBasis === null || amBasis <= GRENZE) {
-          befunde.push(`M5 ${pfad}: neuer Eintrag, aber die Datei hatte auf der Basis ${basis.name} ${amBasis === null ? 'nicht (Neuanlage oder Umbenennung)' : `nur ${amBasis} Zeilen`} — die Liste wächst nicht; aufteilen statt eintragen.`);
+          const was = amBasis === null ? 'nicht (Neuanlage oder Umbenennung)' : `nur ${amBasis} Zeilen`;
+          if (!grundMelden(pfad, e, `neuer Eintrag ${JSON.stringify(grenzen[pfad])}, die Datei hatte auf der Basis ${basis.name} ${was}`)) {
+            befunde.push(`M5 ${pfad}: neuer Eintrag, aber die Datei hatte auf der Basis ${basis.name} ${was} — die Liste wächst nicht; aufteilen statt eintragen (eine Umbenennung einer gelisteten Datei nur mit "grund", zum Beispiel "umbenannt von …").`);
+          }
         }
         continue;
       }
@@ -387,7 +391,8 @@ export function selbstprobe() {
     fall('M5: Obergrenze erhöht MIT Grund: grün und laut', { 'client/src/a.ts': 2205, [gross]: 6703 }, { ...alt, 'client/src/a.ts': { grenze: 2450, grund: 'Datei bekommt die Vorschau-Kaskade' } }, [], { basis: B({ ...alt, 'client/src/a.ts': 2200 }), laut: 'Vorschau-Kaskade' });
     fall('M5: Obergrenze gesenkt ist grün', { 'client/src/a.ts': 1900, [gross]: 6703 }, { ...alt, 'client/src/a.ts': 2100 }, [], { basis: B(alt) });
     fall('M5: Umbenennung ohne passenden Eintrag (alter Name weg, neue Datei > 1.500)', { 'client/src/b.ts': 2000, [gross]: 6703 }, { [gross]: alt[gross] }, ['B1'], { basis: B(alt) });
-    fall('M5: Umbenennung mit Eintrag unter neuem Namen (Basis kennt den neuen Namen nicht)', { 'client/src/b.ts': 2000, [gross]: 6703 }, { 'client/src/b.ts': 2200, [gross]: alt[gross] }, ['M5'], { basis: B(alt) });
+    fall('M5: Umbenennung mit Eintrag unter neuem Namen, ohne Grund', { 'client/src/b.ts': 2000, [gross]: 6703 }, { 'client/src/b.ts': 2200, [gross]: alt[gross] }, ['M5'], { basis: B(alt) });
+    fall('M5: Umbenennung mit Eintrag unter neuem Namen MIT Grund: grün und laut', { 'client/src/b.ts': 2000, [gross]: 6703 }, { 'client/src/b.ts': { grenze: 2200, grund: 'umbenannt von client/src/a.ts' }, [gross]: alt[gross] }, [], { basis: B(alt), laut: 'umbenannt von' });
     fall('M5: Deckel erhöht ohne Grund', { [gross]: 6703 }, { [gross]: { frei: true, hoechstens: 9000 } }, ['M5'], { basis: B({ [gross]: { frei: true, hoechstens: 7550 } }) });
     fall('M5: Deckel erhöht mit Grund: grün und laut', { [gross]: 6703 }, { [gross]: { frei: true, hoechstens: 9000, grund: 'Sammelmerge der Nachtkarten' } }, [], { basis: B({ [gross]: { frei: true, hoechstens: 7550 } }), laut: 'Sammelmerge' });
     fall('M5: Deckel gesenkt ist grün', { [gross]: 6703 }, { [gross]: { frei: true, hoechstens: 7000 } }, [], { basis: B({ [gross]: { frei: true, hoechstens: 7550 } }) });

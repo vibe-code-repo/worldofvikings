@@ -176,7 +176,7 @@ interface Fall {
 
 function fall(f: Fall): void {
   faelle++;
-  let erg: { befunde: string[]; freigegeben: string[] };
+  let erg: { befunde: string[]; freigegeben?: string[] };
   try {
     erg = (f.kurz ? beweiseWoertlich : beweise)(f.eingabe);
   } catch (e) {
@@ -189,7 +189,7 @@ function fall(f: Fall): void {
     ok = false;
     grund = `rot, aber kein Befund enthält "${f.erwartet}"`;
   }
-  if (ok && f.freigegeben && erg.freigegeben.length === 0) {
+  if (ok && f.freigegeben && (erg.freigegeben ?? []).length === 0) {
     ok = false;
     grund = 'grün, aber die Freigabe steht nicht in der Ausgabe';
   }
@@ -431,6 +431,9 @@ fall({ id: 'R15', name: 'Kommentar mit Wirkung im Rest verloren', soll: 'rot', e
   fall({ id: 'S8', name: 'Typ der Quelle in der Signatur, nicht mitverschoben: rot', soll: 'rot', eingabe: b8.eingabe, erwartet: 'Eintrag' });
   const b9 = schnitt(`export interface Eintrag {\n  a: number;\n}\nexport class A {\n  m(e: Eintrag): number {\n    return e.a + this.n;\n  }\n  n = 1;\n}\n`, { namen: ['m'], woertlich: ['Eintrag'] });
   fall({ id: 'S9', name: 'Typ wörtlich mitverschoben (interface): grün', soll: 'gruen', eingabe: mit(b9, {}) });
+  const b10 = schnitt(`export class Server {\n  static readonly SICHT = 4;\n  zaehler = 0;\n  m(): number {\n    return Server.SICHT + this.zaehler;\n  }\n}\n`, { namen: ['m'] });
+  fall({ id: 'S10', name: 'statisches Mitglied `Server.SICHT` im Rumpf (M7): der Klassenname ist ein freier Name der Quelle: rot', soll: 'rot', eingabe: b10.eingabe, erwartet: 'Server' });
+  fall({ id: 'S11', name: 'dasselbe, ausdrücklich freigegeben (bindung:Server): grün und in der Ausgabe', soll: 'gruen', freigegeben: true, eingabe: mit(b10, { freigaben: ['bindung:Server'] }) });
 }
 
 console.log('── F: Form a (freie Funktion) und Ersetzungstabelle (M2) ──');

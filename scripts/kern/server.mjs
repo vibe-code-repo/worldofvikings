@@ -378,10 +378,11 @@ export default [
   // The client address is the trusted hop's (rightmost X-Forwarded-For), never a visitor-supplied prefix (F3).
   ['server', 'test/herkunft-xff.ts'],
   /*
-    I1 step 0: the surface of WovServer that the cuts of steps 1-10 must not lose: the 20 `case PacketType` labels of
-    `onPacket`, the 13 admin command names, the 21 private methods and 11 fields that tests reach by name, the text
-    tests that read WovServer.ts, and a scan that fails when a test reaches a new private name. Builds one server
-    without starting it, in a temp folder.
+    I1 step 0 (N1): the surface of WovServer that the cuts of steps 1-10 must not lose: the 20 `case PacketType` labels of
+    `onPacket`, the 13 admin command names, the 32 private methods and 11 fields that tests reach by name, the 19
+    methods tests replace on the instance, the text tests that read WovServer.ts, and a scan of all test folders that
+    fails (with the line to add) when a test reaches a new private name. Builds one server without starting it, in a
+    temp folder.
     Schritt 0 von I1: die Oberfläche, die die Schnitte nicht verlieren dürfen.
   */
   ['server', 'test/i1-oberflaeche.ts'],

@@ -40,6 +40,7 @@ import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwor
 import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
 import { sockelRadiusFuer } from './sockel';
 import { DoppelklickSperre, Ziehgriff, entscheideKlick, griffPosition, modusNachSetzen } from './greifen';
+import { verdrahteGrundskalaLive } from './grundskalaLive';
 
 /**
  * ?layout=editor lädt den Editor-Entwurf — der "Testflug" des 3D-Map-
@@ -138,6 +139,21 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     const entwurf = testflug as { placements?: EntwurfEintrag[] };
     (entwurf.placements ?? []).forEach(zeige);
     ent.flush();
+
+    // ── Grundskala live (G1) ─────────────────────────────────────────
+    // Der Katalog meldet per BroadcastChannel, wenn ein Upload eine neue
+    // Grundskala bekommen hat (`GegenstandsKatalog.
+    // grundskalaAendernAusfuehren`, anderer Tab). N1-1 (Nachangriff): der
+    // ganze Handler (Registry DIESES Fensters neu laden, dann
+    // `aktualisiereGrundskala`, dann `flush()`) lebt jetzt DOM-frei in
+    // `verdrahteGrundskalaLive` (`grundskalaLive.ts`) — hier bleibt nur
+    // noch die Verdrahtung mit den echten Abhängigkeiten dieses Fensters.
+    const grundskalaAbmelden = verdrahteGrundskalaLive({
+      ladeRegistry: (signal) => ladeHochgeladeneRegistrierung(undefined, signal),
+      aktualisiereGrundskala: (model) => ent.aktualisiereGrundskala(model),
+      flush: () => ent.flush(),
+    });
+    scene.onDisposeObservable.add(grundskalaAbmelden);
 
     // ── Live-Planieren ──────────────────────────────────────────────
     // Sockel sofort in die laufende Geo einfügen/entfernen und die

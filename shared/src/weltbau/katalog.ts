@@ -22,7 +22,7 @@ import { istFesterKoerper } from '../kollision/festeKoerper.js';
 import { FOLIAGE } from '../vegetation.js';
 import { FEATURES } from '../features.js';
 import { BIOME_BY_NAME, type BiomeName } from '../worldlayout/types.js';
-import type { UploadedModelEntry } from '../uploadedModelRegistry.js';
+import { grundskalaVon, type UploadedModelEntry } from '../uploadedModelRegistry.js';
 import { huellenAufloeser, type Huelle, type HuellenAufloeser } from './huelle.js';
 import type { ManifestModell } from './manifest.js';
 
@@ -185,14 +185,20 @@ export function baueKatalog(quellen: KatalogQuellen = {}): KatalogEintrag[] {
   for (const u of uploads) {
     if (gesehen.has(u.name)) continue;
     gesehen.add(u.name);
+    // M1 (Angriff „Editor Upload-Größe"): `u.breite`/`u.hoehe`/`u.tiefe`
+    // sind die ROHE Hüllbox der Datei (wie `huelle.ts` `ausUpload` sie
+    // liest) — ohne die Grundskala meldete der Katalog (und damit
+    // `tools/worldlayout-mcp`) ein Viertel der tatsächlichen Kante eines
+    // Modells mit Grundskala 4, während die Hülle selbst schon skaliert war.
+    const g = grundskalaVon(u);
     liste.push({
       name: u.name,
       quelle: 'upload',
       gruppe: 'Hochgeladen',
       untergruppe: u.anzeigename,
-      breite: runde(u.breite),
-      tiefe: runde(u.tiefe),
-      hoehe: runde(u.hoehe),
+      breite: runde(u.breite * g),
+      tiefe: runde(u.tiefe * g),
+      hoehe: runde(u.hoehe * g),
       huelleQuelle: 'upload',
       fest: u.kollisionsart === 'fest',
       dreiecke: u.dreiecke,

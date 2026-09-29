@@ -204,5 +204,23 @@ check(erzwingeName('U_U_U_Dreifach') === 'U_Dreifach', `mehrfach wiederholtes Pr
 check(erzwingeName('／etc／passwd') === null, `VOLLBREITES Solidus '／' (NFKD → '/') wird ABGELEHNT, nicht zu '_' (${erzwingeName('／etc／passwd')})`);
 check(erzwingeName('a‥b') === null, `TWO DOT LEADER '‥' (NFKD → '..') wird ABGELEHNT (${erzwingeName('a‥b')})`);
 
+console.log('\n11. B7 (Nachangriff „Editor Upload-Größe N2", Info) — erzwingeName ist NFC/NFD-unabhängig\n');
+{
+  // 'K','ä' (ein Zeichen, NFC) gegen 'K','a','̈' (zwei Zeichen: 'a' +
+  // KOMBINIERENDER TREMA, NFD — wie macOS-Dateinamen sie liefern). Vor B7
+  // erkannte die Umlauttabelle nur die ZUSAMMENGESETZTE Form; die zerlegte
+  // ergab 'U_Ka_sestand' (der Trema-Codepunkt wurde zu '_') statt
+  // 'U_Kaesestand' — zwei Registry-Namen für denselben sichtbaren Namen.
+  const nfc = 'Käsestand';
+  const nfd = `K${'ä'}sestand`;
+  check(nfc !== nfd, `Gegenprobe: NFC- und NFD-'Käsestand' sind als JS-String tatsächlich verschieden (Längen ${nfc.length}/${nfd.length})`);
+  check(nfc.normalize('NFC') === nfd.normalize('NFC'), 'Gegenprobe: NFC-normalisiert sind beide dieselbe Zeichenkette');
+  check(erzwingeName(nfc) === 'U_Kaesestand', `NFC-'Käsestand' → 'U_Kaesestand' (${erzwingeName(nfc)})`);
+  check(erzwingeName(nfd) === 'U_Kaesestand', `NFD-'Käsestand' ergibt DENSELBEN Namen 'U_Kaesestand' (${erzwingeName(nfd)}) — vorher (B7) 'U_Ka_sestand'`);
+
+  const zaunNfd = `Zaunstu${'ç'}`; // 'c' + KOMBINIERENDE CEDILLE — Nebenprobe: ein anderer Akzent bleibt vom NFC-Schritt unberuehrt, NFKD greift wie zuvor.
+  check(typeof erzwingeName(zaunNfd) === 'string', 'ein anderer, nicht-deutscher Akzent bleibt weiterhin ohne Absturz verarbeitbar');
+}
+
 console.log(failures === 0 ? '\nU1-Registry: alles grün.\n' : `\nU1-Registry: ${failures} FEHLGESCHLAGEN.\n`);
 process.exit(failures > 0 ? 1 : 0);

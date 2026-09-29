@@ -68,14 +68,22 @@
  * The store catalogue's sorting rule — pure, DOM-free, testable.
  */
 
-/** Erste Ebene der Bedienung: wonach sieht man ueberhaupt? */
-export type StoreArt = 'Modelle' | 'Texturen' | 'Ton' | 'Höhenfelder' | 'Kulisse';
+/**
+ * Erste Ebene der Bedienung: wonach sieht man ueberhaupt?
+ *
+ * `Symbole` (Bauer B1, 28.09.2026): die UI-Bilder unter `assets/store/ui/`
+ * — HUD-Rahmen und Gegenstandsicons. Ein eigener Wert und keine
+ * Untergruppe von `Texturen`, weil sie nichts mit Modell-Texturen zu tun
+ * haben (kein Modell traegt sie) und die Ton-Engine (B2) bzw. der
+ * Gegenstands-Katalog sie ueber die Art ansprechen wollen.
+ */
+export type StoreArt = 'Modelle' | 'Texturen' | 'Ton' | 'Höhenfelder' | 'Kulisse' | 'Symbole';
 
 /** Reihenfolge der Arten in der Bedienung (Modelle zuerst — die groesste Sorte). */
-export const STORE_ARTEN: readonly StoreArt[] = ['Modelle', 'Texturen', 'Ton', 'Höhenfelder', 'Kulisse'];
+export const STORE_ARTEN: readonly StoreArt[] = ['Modelle', 'Texturen', 'Ton', 'Höhenfelder', 'Kulisse', 'Symbole'];
 
-/** Sorten, die das Manifest kennt. */
-export type StoreSorte = 'mesh' | 'prefab' | 'texture' | 'audio' | 'terrain';
+/** Sorten, die das Manifest kennt. `ui` kommt nicht aus dem Store-Manifest selbst (s. `mitTonUndSymbolenErgaenzen`). */
+export type StoreSorte = 'mesh' | 'prefab' | 'texture' | 'audio' | 'terrain' | 'ui';
 
 /** Kategorien, die `prefabs.json` kennt. */
 export type PrefabKategorie = 'prop' | 'environment' | 'vegetation' | 'terrain' | 'backdrop';
@@ -504,6 +512,20 @@ export function einsortieren(eintrag: StoreRoheintrag): Einordnung {
     return { art: 'Ton', gruppe, untergruppe: uebersetzeTonWort(erstesWort(basis)), kennzeichen };
   }
 
+  // ── Symbole (UI-Bilder) ────────────────────────────────────────────
+  /*
+    Nur zwei Fächer im Speicher (Messprobe 28.09.2026): `ui/hud/…` (124,
+    Rahmen, Knöpfe, Fadenkreuze) und `ui/icons/…` (229, Gegenstands- und
+    Rüstungssymbole). Beide bekommen dieselbe Gruppe wie die Art — genau
+    das Muster von Höhenfeldern und Kulisse oben, wo eine einzige Gruppe
+    reicht und die Untergruppe die eigentliche Auskunft trägt.
+  */
+  if (eintrag.kind === 'ui' || ordner[0] === 'ui') {
+    const fach = ordner[1] ?? '';
+    const untergruppe = fach === 'hud' ? 'Bedienelemente' : fach === 'icons' ? 'Gegenstandssymbole' : namenAusDatei(fach || basis);
+    return { art: 'Symbole', gruppe: 'Symbole', untergruppe, kennzeichen };
+  }
+
   // ── Texturen ───────────────────────────────────────────────────────
   if (eintrag.kind === 'texture') {
     if (pfad.startsWith('textures/terrain-')) {
@@ -661,6 +683,71 @@ export interface PrefabDatei {
 }
 
 /**
+ * `assets/manifest.json`, so weit dieses Modul es liest — nur `toene`
+ * und `symbole` (Bauer B1, `tools/asset-manifest.mjs`). Die `modelle`
+ * kennt dieses Modul nicht, dafür ist `shared/src/weltbau/manifest.ts`
+ * zuständig.
+ */
+export interface AssetManifestDatei {
+  toene?: Readonly<Record<string, { datei: string; bytes: number; hash: string; dauer: number; kanaele: string; abtastrate: number }>>;
+  symbole?: Readonly<Record<string, { datei: string; bytes: number; hash: string; breite: number; hoehe: number }>>;
+}
+
+/**
+ * Ergänzt den Store-Katalog um die Ton- und Symbol-Einträge aus
+ * `assets/manifest.json` — den vollständig gemessenen Bestand (Bauer
+ * B1, 28.09.2026).
+ *
+ * ── Warum eine zweite Quelle für dieselbe Art ─────────────────────────
+ * Der Speicher bringt sein EIGENES `manifest.json` mit (außerhalb des
+ * Repos, von der Store-Einfuhr geschrieben) — es führt nur 45 der 325
+ * Töne und kein einziges UI-Bild. `assets/manifest.json` dagegen ist
+ * GETRACKT und wird von `tools/asset-manifest.mjs` aus dem tatsächlichen
+ * Plattenbestand erzeugt — vollständig, mit sha256 gegen das, was
+ * wirklich dort liegt (nicht gegen eine Zahl aus der Store-Einfuhr, die
+ * am 28.09.2026 nachweislich veraltet war: `forest-wind-crows.ogg` trägt
+ * im Store-Manifest einen anderen Hash als die Datei auf der Platte).
+ *
+ * Ein Pfad, den der Store-Speicher SELBST schon führt, bleibt
+ * UNVERÄNDERT: Diese 45 Einträge tragen Lizenz- und Herkunftsangaben
+ * (Autor, Lizenzprüfung), die eine bloße Nachmessung nicht kennt und
+ * nicht erfinden soll.
+ */
+export function mitTonUndSymbolenErgaenzen(
+  store: ManifestDatei,
+  assetManifest: AssetManifestDatei | null
+): ManifestDatei {
+  if (!assetManifest) return store;
+  const bekanntePfade = new Set(store.assets.map((a) => a.path));
+  const ergaenzung: ManifestDatei['assets'][number][] = [];
+  for (const [stamm, e] of Object.entries(assetManifest.toene ?? {})) {
+    const pfad = `audio/${e.datei}`;
+    if (bekanntePfade.has(pfad)) continue;
+    ergaenzung.push({
+      id: `audio/${stamm}`,
+      path: pfad,
+      kind: 'audio',
+      bytes: e.bytes,
+      hash: e.hash,
+      origin: `${e.dauer.toFixed(2)} s, ${e.kanaele}, ${Math.round(e.abtastrate / 1000)} kHz — gemessen von tools/asset-manifest.mjs.`,
+    });
+  }
+  for (const [stamm, e] of Object.entries(assetManifest.symbole ?? {})) {
+    const pfad = `ui/${e.datei}`;
+    if (bekanntePfade.has(pfad)) continue;
+    ergaenzung.push({
+      id: `ui/${stamm}`,
+      path: pfad,
+      kind: 'ui',
+      bytes: e.bytes,
+      hash: e.hash,
+      origin: `${e.breite}×${e.hoehe} px — gemessen von tools/asset-manifest.mjs.`,
+    });
+  }
+  return ergaenzung.length === 0 ? store : { assets: [...store.assets, ...ergaenzung] };
+}
+
+/**
  * Lizenzlage in einem Satz.
  *
  * Die drei Rohfelder (`license`, `redistributable`, `visibility`) sagen
@@ -809,6 +896,9 @@ export function sucheSpeicher(eintraege: readonly StoreEintrag[], text: string):
 /** Wurzel des Speichers im Dev-Server (vite liefert `assets/` unter `/assets/`). */
 export const SPEICHER_WURZEL = '/assets/store/';
 
+/** Das GETRACKTE Manifest (Ton, Symbole) — s. `mitTonUndSymbolenErgaenzen`. */
+export const ASSET_MANIFEST_PFAD = '/assets/manifest.json';
+
 /**
  * Der Katalog, EINMAL geladen.
  *
@@ -822,9 +912,10 @@ let geladen: Promise<StoreEintrag[]> | null = null;
 export async function ladeStoreKatalog(wurzel = SPEICHER_WURZEL): Promise<StoreEintrag[]> {
   if (!geladen) {
     geladen = (async () => {
-      const [manifestAntwort, prefabAntwort] = await Promise.all([
+      const [manifestAntwort, prefabAntwort, assetManifestAntwort] = await Promise.all([
         fetch(`${wurzel}manifest.json`),
         fetch(`${wurzel}prefabs.json`),
+        fetch(ASSET_MANIFEST_PFAD),
       ]);
       if (!manifestAntwort.ok) {
         throw new Error(`manifest.json nicht erreichbar (${manifestAntwort.status})`);
@@ -838,7 +929,15 @@ export async function ladeStoreKatalog(wurzel = SPEICHER_WURZEL): Promise<StoreE
         waere die schlechtere Antwort auf „was liegt im Speicher?".
       */
       const prefabs = prefabAntwort.ok ? ((await prefabAntwort.json()) as PrefabDatei) : null;
-      return baueStoreKatalog(manifest, prefabs);
+      /*
+        `assets/manifest.json` ebenso: Fehlt es (alter Build, Ton/Symbole
+        noch nicht erzeugt), steht der Katalog trotzdem — nur ohne die
+        beiden Arten, wie vor Bauer B1.
+      */
+      const assetManifest = assetManifestAntwort.ok
+        ? ((await assetManifestAntwort.json()) as AssetManifestDatei)
+        : null;
+      return baueStoreKatalog(mitTonUndSymbolenErgaenzen(manifest, assetManifest), prefabs);
     })();
     geladen.catch(() => {
       // Ein Fehlschlag darf nicht dauerhaft werden — sonst bliebe der

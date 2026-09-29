@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-29T01:56:00.099Z",
+ "erzeugt": "2026-09-29T03:07:33.101Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 366,
  "gemessen": 366,
@@ -9979,6 +9979,5087 @@
    "animationen": [],
    "meshlos": false,
    "skins": 1
+  }
+ },
+ "toeneAnzahl": 325,
+ "toeneGemessen": 325,
+ "toeneUebernommen": [],
+ "toene": {
+  "ambience/forest-birds": {
+   "datei": "ambience/forest-birds.ogg",
+   "bytes": 1477142,
+   "hash": "sha256-28b4e994c9ff2c7a24ba5729bf648a911eadac2575e1104c80232b2e23cf814d",
+   "dauer": 203.16,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "ambience/forest-wind-crows": {
+   "datei": "ambience/forest-wind-crows.ogg",
+   "bytes": 280152,
+   "hash": "sha256-1e17582b0c0b01d670b83706b28e4f005d78fcd88dc6c0e11a2deab00eb483b6",
+   "dauer": 40,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "ambience/forest-wind-gusts": {
+   "datei": "ambience/forest-wind-gusts.ogg",
+   "bytes": 375686,
+   "hash": "sha256-bd054336330a17ecf231295177dca74e8c9c41ee4390cb14bae8dce853eb931e",
+   "dauer": 54,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "ambience/town-crowd": {
+   "datei": "ambience/town-crowd.ogg",
+   "bytes": 240347,
+   "hash": "sha256-e7418f745f27dc0431cb134e44ab5115e19fba76e571b78eb1d2256ab25495b5",
+   "dauer": 33.672,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "animals/cat-01": {
+   "datei": "animals/cat-01.ogg",
+   "bytes": 6689,
+   "hash": "sha256-a03171f3fa7258517234d9b43bbed560331e1e85966ff7e5954667857607ce3b",
+   "dauer": 1.176,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/chicken-01": {
+   "datei": "animals/chicken-01.ogg",
+   "bytes": 6133,
+   "hash": "sha256-5f3e14fec8210fbc3089b7ebc858b07f36baa0730975c38fdec30719c4c20ef8",
+   "dauer": 0.874,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/chicken-02": {
+   "datei": "animals/chicken-02.ogg",
+   "bytes": 10232,
+   "hash": "sha256-17053bcbb504eca8c3f4fc8bf741b1c0705e6e404a56b67e52fa2736a191dace",
+   "dauer": 1.664,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/cow-01": {
+   "datei": "animals/cow-01.ogg",
+   "bytes": 28402,
+   "hash": "sha256-569d61a2946cd4a819dc4f25cd1693b3890aa553665b90eb3feec5d3d1af8531",
+   "dauer": 4.052,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/crow-01": {
+   "datei": "animals/crow-01.ogg",
+   "bytes": 7976,
+   "hash": "sha256-d49d10f4614b73be7d1765e761c9295574d3d411af0bb0c8f65a6eeba19cedc8",
+   "dauer": 1.202,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/crow-02": {
+   "datei": "animals/crow-02.ogg",
+   "bytes": 19355,
+   "hash": "sha256-38a3a2c95bb43fb2cfc79cd5ac7bf40a886687fd297bcb53a839f04e7f258dcf",
+   "dauer": 3.161,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/crow-03": {
+   "datei": "animals/crow-03.ogg",
+   "bytes": 3342,
+   "hash": "sha256-243747268e3a6ee0c60111d2100431be43a7bfe04335f170409a91309942a1c7",
+   "dauer": 0.444,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/crow-04": {
+   "datei": "animals/crow-04.ogg",
+   "bytes": 5060,
+   "hash": "sha256-cb0e7cad236962a24a90ac0a1bb82f29352e0507722e98c85b10a17552c07e01",
+   "dauer": 0.784,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/crow-05": {
+   "datei": "animals/crow-05.ogg",
+   "bytes": 6144,
+   "hash": "sha256-bb4b49dc5d2730060e5c396cb0176ebe4a55761bed5def85a25908efb18524bb",
+   "dauer": 0.914,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/rooster-01": {
+   "datei": "animals/rooster-01.ogg",
+   "bytes": 13447,
+   "hash": "sha256-b13b919de7f1c3ce891eefd76fe88deb85eb7f1cd83af780794f836155282127",
+   "dauer": 1.881,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "animals/rooster-02": {
+   "datei": "animals/rooster-02.ogg",
+   "bytes": 16738,
+   "hash": "sha256-20e3cd3838cf1200288cbce38eb01961494fd2c50a8d7cdc317d6b9f2cb3013d",
+   "dauer": 2.22,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/punch-01": {
+   "datei": "combat/punch-01.ogg",
+   "bytes": 4715,
+   "hash": "sha256-90bdcc21d5a93afa1011fb751ebd205ad6f232b4858ab0a94a57bd3d511551b2",
+   "dauer": 0.779,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/punch-02": {
+   "datei": "combat/punch-02.ogg",
+   "bytes": 4524,
+   "hash": "sha256-16afa9fb771c881c501fb52363d4feb9ee46afd01d5e2693a71f4883794dd39c",
+   "dauer": 0.718,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/punch-03": {
+   "datei": "combat/punch-03.ogg",
+   "bytes": 4926,
+   "hash": "sha256-9ba2841a51fda22d0470eb21a9ceadf42395b4843798659a3935c74c3d814200",
+   "dauer": 0.822,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-metal-01": {
+   "datei": "combat/shield-metal-01.ogg",
+   "bytes": 6841,
+   "hash": "sha256-9b31965234158752796676c30a77acb38781b58b264d088a2ed98c1de7df5aee",
+   "dauer": 1.496,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-metal-02": {
+   "datei": "combat/shield-metal-02.ogg",
+   "bytes": 6423,
+   "hash": "sha256-28c28e2258f6767473e326af91a11d35d161617970ae0d19d4c34f2f619f17d9",
+   "dauer": 1.357,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-metal-03": {
+   "datei": "combat/shield-metal-03.ogg",
+   "bytes": 7132,
+   "hash": "sha256-9d8a723c4dc4d74f8ea673b7cad1091e73c9e0081339f515b2fb4e69e06021a7",
+   "dauer": 1.508,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-metal-04": {
+   "datei": "combat/shield-metal-04.ogg",
+   "bytes": 8514,
+   "hash": "sha256-7d55837f44e770bbeba86f62fc8e068c6f22dd9c332675dfef10e32eeee8c0f1",
+   "dauer": 1.609,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-metal-05": {
+   "datei": "combat/shield-metal-05.ogg",
+   "bytes": 9031,
+   "hash": "sha256-ade48cd841df750048dbe77b732b992a86b7a81f9a0128e21445e817620166fc",
+   "dauer": 1.917,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-metal-06": {
+   "datei": "combat/shield-metal-06.ogg",
+   "bytes": 11111,
+   "hash": "sha256-d2f065478303ac5b7ac40c28d429e2c65c2468ba0e4279557e66c6ded136a168",
+   "dauer": 2.317,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-water-01": {
+   "datei": "combat/shield-water-01.ogg",
+   "bytes": 11668,
+   "hash": "sha256-e513f8a44c88fb0f8bb59184a2e376cdc1f3c8d8749d11ecd3cfc774f97f024d",
+   "dauer": 1.662,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-water-02": {
+   "datei": "combat/shield-water-02.ogg",
+   "bytes": 7642,
+   "hash": "sha256-9743780b2065ceeb775168ecb9a3d9e923860a05bb124dd00ffe86ae61763a02",
+   "dauer": 1.765,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-water-03": {
+   "datei": "combat/shield-water-03.ogg",
+   "bytes": 7251,
+   "hash": "sha256-3c809e44084b7ac4a487c422db1a935535755fa3de67221e0662786979d216ac",
+   "dauer": 1.584,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-water-04": {
+   "datei": "combat/shield-water-04.ogg",
+   "bytes": 15363,
+   "hash": "sha256-e32d9e88995f3e8ec4d28446e51bd5e04d736e14d26262e350ea319388d78d4f",
+   "dauer": 2.518,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-wood-01": {
+   "datei": "combat/shield-wood-01.ogg",
+   "bytes": 5822,
+   "hash": "sha256-bc4502ca22278ff9e1d0263206bf1ef981d09b4161fa3bd7ba072ca735a2fba6",
+   "dauer": 0.86,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-wood-02": {
+   "datei": "combat/shield-wood-02.ogg",
+   "bytes": 3594,
+   "hash": "sha256-58f30c5f92d69d0a2562f8527cf73857da07aced510826de1b45b522baa82af3",
+   "dauer": 0.54,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-wood-03": {
+   "datei": "combat/shield-wood-03.ogg",
+   "bytes": 5229,
+   "hash": "sha256-082702486a421e6e63d9c1381b830e18fe18af72809349b1017e86b35bbc20bb",
+   "dauer": 0.753,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/shield-wood-04": {
+   "datei": "combat/shield-wood-04.ogg",
+   "bytes": 4842,
+   "hash": "sha256-83ef3a2768c7bed383c10ca209c8031a9cafb8a9336383208c94602d276d21a9",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/slash-01": {
+   "datei": "combat/slash-01.ogg",
+   "bytes": 2478,
+   "hash": "sha256-f392321493599f622e416a0e04aed4f4af00ec36028c85d48150ad133659963c",
+   "dauer": 0.379,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/slash-02": {
+   "datei": "combat/slash-02.ogg",
+   "bytes": 1971,
+   "hash": "sha256-25ad2c5da5b155a61949ce48c01fc82ba653aab34b72ed78be4186233b8fc48c",
+   "dauer": 0.288,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/slash-03": {
+   "datei": "combat/slash-03.ogg",
+   "bytes": 1708,
+   "hash": "sha256-0209c68bfe326a7430b5e34c4fd2c2d941e34bbf44c9d5dc561c045fd2c6bda5",
+   "dauer": 0.248,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/slash-heavy-01": {
+   "datei": "combat/slash-heavy-01.ogg",
+   "bytes": 2900,
+   "hash": "sha256-41d7d64784ad42d98da4b4de13e83b6f0a7125f46f7b3a08a192f00a3d88bbf0",
+   "dauer": 0.456,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/slash-heavy-02": {
+   "datei": "combat/slash-heavy-02.ogg",
+   "bytes": 2313,
+   "hash": "sha256-3a650d6a1f53065a7748ec4cfb8ccd03b2ec61bfeacd386b842deb23d1f7d40c",
+   "dauer": 0.36,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/slash-heavy-03": {
+   "datei": "combat/slash-heavy-03.ogg",
+   "bytes": 2108,
+   "hash": "sha256-deb7a47318d852f27afcae7b2d53c06360642607c3b226038f09686e748a448f",
+   "dauer": 0.336,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-flesh-01": {
+   "datei": "combat/sword-flesh-01.ogg",
+   "bytes": 5549,
+   "hash": "sha256-b379cfaf1c546e2aba2c3d3fd72f4a12e4709b7f4d371f1ac8b1aac87b42c8cb",
+   "dauer": 1.018,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-flesh-02": {
+   "datei": "combat/sword-flesh-02.ogg",
+   "bytes": 3755,
+   "hash": "sha256-95894541b6613dc3e03d37411a033b197f8229d738a4daacc2d94b7b599f7538",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-flesh-03": {
+   "datei": "combat/sword-flesh-03.ogg",
+   "bytes": 4042,
+   "hash": "sha256-6a5ed5acacc393d4f891c17a6a4dfd0f508c185c938a331f7d7b6c32dee2dee5",
+   "dauer": 0.882,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-grass-01": {
+   "datei": "combat/sword-grass-01.ogg",
+   "bytes": 3260,
+   "hash": "sha256-424c1d824d5cb255c99aeb2efefbd5d36e53688e0abd74919c05979653455f3a",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-grass-02": {
+   "datei": "combat/sword-grass-02.ogg",
+   "bytes": 3353,
+   "hash": "sha256-5b27b3c2276cb69a72f0facf3b98669f4b59bf1365a78268109ef2754b93ff82",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-grass-03": {
+   "datei": "combat/sword-grass-03.ogg",
+   "bytes": 3379,
+   "hash": "sha256-c64322f199a4a06c24c145589699ce08673abd12f0da3e31323db4dffd64cdcb",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-grass-04": {
+   "datei": "combat/sword-grass-04.ogg",
+   "bytes": 3880,
+   "hash": "sha256-db1d4f04f41b75f762235c0a9f470bb753c7f1c4d71bbaffa6af1f90ac5f6d74",
+   "dauer": 0.913,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-impact-flesh-01": {
+   "datei": "combat/sword-impact-flesh-01.ogg",
+   "bytes": 3241,
+   "hash": "sha256-60e02ef817736ff1651a814844710bc5e7abbbe2f0c3507a67336f528a05cc77",
+   "dauer": 0.522,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-impact-flesh-02": {
+   "datei": "combat/sword-impact-flesh-02.ogg",
+   "bytes": 5023,
+   "hash": "sha256-c748ce1c8ee4f6ce2d7b7543dcd3ed7aa2ae9f1c7bb453f63da19f06da6a4ed9",
+   "dauer": 0.862,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-impact-flesh-03": {
+   "datei": "combat/sword-impact-flesh-03.ogg",
+   "bytes": 4143,
+   "hash": "sha256-d30ac78b1d0b63c955a8fbcfc54c93f40a637cd7f2745ab8bb3b9f6a93bfc557",
+   "dauer": 0.522,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-metal-01": {
+   "datei": "combat/sword-metal-01.ogg",
+   "bytes": 7466,
+   "hash": "sha256-91ecaf8f40f2fc0e9d365cc5255d565614caf585460588139b22b077e088b9df",
+   "dauer": 1.06,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-metal-02": {
+   "datei": "combat/sword-metal-02.ogg",
+   "bytes": 8024,
+   "hash": "sha256-4dfca1d84557d9f3d90951c381ea8f1de821a71fd2124c7eeec67fd26aee5925",
+   "dauer": 1.059,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-metal-03": {
+   "datei": "combat/sword-metal-03.ogg",
+   "bytes": 9668,
+   "hash": "sha256-497324b219166dbf0ee7fa3fcac7a15d6e10610d2014a71aa51dc85d0382de2a",
+   "dauer": 1.413,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-metal-04": {
+   "datei": "combat/sword-metal-04.ogg",
+   "bytes": 9532,
+   "hash": "sha256-e8eeb4eb8e7a907124628b3ebb441b8f9cfbd677effd62caf0fb6209489b39f7",
+   "dauer": 1.412,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-sand-01": {
+   "datei": "combat/sword-sand-01.ogg",
+   "bytes": 3844,
+   "hash": "sha256-51491c3cd3967da4f7a149d7515e26233010d7cfa5f0b857d21a8c41de9114ab",
+   "dauer": 0.886,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-sand-02": {
+   "datei": "combat/sword-sand-02.ogg",
+   "bytes": 4067,
+   "hash": "sha256-39f4769cfc734d45bb58f70aade36f2c50d1d348248906715369d6837c7a6653",
+   "dauer": 0.974,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-sand-03": {
+   "datei": "combat/sword-sand-03.ogg",
+   "bytes": 3628,
+   "hash": "sha256-e1717ae0edda2c921f0caa9a16c61dea6c178eb895be7266b2c03243888fa6bc",
+   "dauer": 0.77,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-sand-04": {
+   "datei": "combat/sword-sand-04.ogg",
+   "bytes": 3735,
+   "hash": "sha256-d6c796bc87bc0b73e51568b23c8281de04e9394c2395fbdb119f59f1059935fd",
+   "dauer": 0.886,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-stab-flesh-01": {
+   "datei": "combat/sword-stab-flesh-01.ogg",
+   "bytes": 6313,
+   "hash": "sha256-132eeb082d11832de24a38f3dcb05e896baf59375119354d333664db9589b562",
+   "dauer": 1.149,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-stab-flesh-02": {
+   "datei": "combat/sword-stab-flesh-02.ogg",
+   "bytes": 3798,
+   "hash": "sha256-7fe4e25da206cf5fcceb19bf2f8e2c3f314bd4433e9b0f0b36df6b418fc78c1d",
+   "dauer": 0.653,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-stab-flesh-03": {
+   "datei": "combat/sword-stab-flesh-03.ogg",
+   "bytes": 7439,
+   "hash": "sha256-f4fc0d7675ebff71dfb49048d3a987706e8d9799e462571aa64265fe2eea8e54",
+   "dauer": 0.993,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-stab-flesh-04": {
+   "datei": "combat/sword-stab-flesh-04.ogg",
+   "bytes": 5625,
+   "hash": "sha256-0dfc22ceb6f176e0b644937da062fd9ab072b8266d11197395fb520ca4d69b79",
+   "dauer": 0.94,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-stab-flesh-05": {
+   "datei": "combat/sword-stab-flesh-05.ogg",
+   "bytes": 3756,
+   "hash": "sha256-d8743eb0b1f8d278125874bb6fab0c227cfd4bd96ff3ad63371dcc9858351c99",
+   "dauer": 0.601,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-water-01": {
+   "datei": "combat/sword-water-01.ogg",
+   "bytes": 7025,
+   "hash": "sha256-d59eb6eac5106cae32ce0266eb4990404e8baf27a17f5db6532bba8272059afb",
+   "dauer": 1.259,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-water-02": {
+   "datei": "combat/sword-water-02.ogg",
+   "bytes": 7726,
+   "hash": "sha256-c19ca4b1651da5b7c4970c0289fa6f5def743da3dc206012267fd591699855f8",
+   "dauer": 1.412,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-water-03": {
+   "datei": "combat/sword-water-03.ogg",
+   "bytes": 6835,
+   "hash": "sha256-d8b1e7dd7da9a3404afc4ed0d30a75b16eb87fbd23331a31635b474740c40a44",
+   "dauer": 1.236,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-water-04": {
+   "datei": "combat/sword-water-04.ogg",
+   "bytes": 7867,
+   "hash": "sha256-c26fae805d80f0dd18357de6d32d990890e67d6c03641ccd75ab8351f3a13467",
+   "dauer": 1.518,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-wood-01": {
+   "datei": "combat/sword-wood-01.ogg",
+   "bytes": 4211,
+   "hash": "sha256-8258afea43697f80306bb0f51b50e0cf78ea1f03132519382a12e23e99ec6548",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-wood-02": {
+   "datei": "combat/sword-wood-02.ogg",
+   "bytes": 4151,
+   "hash": "sha256-0fb3460e1e1d7195a1470d03eba555bd85c0f7dbfaf0d4fff3cd2efb39acde20",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-wood-03": {
+   "datei": "combat/sword-wood-03.ogg",
+   "bytes": 3739,
+   "hash": "sha256-1ebfae9219d2c60cdc2d04c27f262394b9a0b560eec103133a315d009f0e491f",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "combat/sword-wood-04": {
+   "datei": "combat/sword-wood-04.ogg",
+   "bytes": 3834,
+   "hash": "sha256-668631edab02aadc55ed4fec4ae1b1db3c093336ed5a74596a97e2204d4fc2dc",
+   "dauer": 0.771,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-aggro-01": {
+   "datei": "creatures/demon-aggro-01.ogg",
+   "bytes": 5736,
+   "hash": "sha256-9bfb6b964e5eaf2150394fc8dff59040b2dd6054a30b7923e2553c40ed981ce5",
+   "dauer": 0.836,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-aggro-02": {
+   "datei": "creatures/demon-aggro-02.ogg",
+   "bytes": 8812,
+   "hash": "sha256-fd533f5264a03c5b5ed57de3370954d5b8616a997fc5d656ecdc5dd5426eb8d5",
+   "dauer": 1.332,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-aggro-03": {
+   "datei": "creatures/demon-aggro-03.ogg",
+   "bytes": 6697,
+   "hash": "sha256-e600207d022bdc3da346cae56a12742104698ad4bbf906deb20b61c224d511b2",
+   "dauer": 1.045,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-aggro-04": {
+   "datei": "creatures/demon-aggro-04.ogg",
+   "bytes": 5604,
+   "hash": "sha256-ce98e468b912ffb6f799c680e6687d3c44efd764e01eb12b824ea509c329d5aa",
+   "dauer": 0.81,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-aggro-05": {
+   "datei": "creatures/demon-aggro-05.ogg",
+   "bytes": 4968,
+   "hash": "sha256-823d07f684844ff6f38f4ef0bb6b1e6bfe20fa26973484828e1554d09fa6643a",
+   "dauer": 0.705,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-death-01": {
+   "datei": "creatures/demon-death-01.ogg",
+   "bytes": 9188,
+   "hash": "sha256-dc2e802396b8cfc8b028a5332732ff42a1adc75ae388b47834a769d90ac63002",
+   "dauer": 1.463,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-death-02": {
+   "datei": "creatures/demon-death-02.ogg",
+   "bytes": 8505,
+   "hash": "sha256-35cbfe251efe4cb6d0a66b34daddc2f9b7ddee276daaa090581c6ed4fe33414f",
+   "dauer": 1.358,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-idle-01": {
+   "datei": "creatures/demon-idle-01.ogg",
+   "bytes": 9688,
+   "hash": "sha256-8248a394ecb2024627cd731fa3df9223a29a7990017b12f65a40a417a311e400",
+   "dauer": 1.437,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-idle-02": {
+   "datei": "creatures/demon-idle-02.ogg",
+   "bytes": 9100,
+   "hash": "sha256-898d415fadaa1e0152ca7a708b48f8817af662c0e9ab538a391edaa42fe82440",
+   "dauer": 1.358,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-idle-03": {
+   "datei": "creatures/demon-idle-03.ogg",
+   "bytes": 7337,
+   "hash": "sha256-8fd1616e18649433350e397b59e15282c86369feb9d8bce9e1a396a316cdf771",
+   "dauer": 1.071,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-idle-04": {
+   "datei": "creatures/demon-idle-04.ogg",
+   "bytes": 8100,
+   "hash": "sha256-da42de540b639f65b812f7ab9fc5d602ac20dc32ac82040238867ed3aba34f73",
+   "dauer": 1.228,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/demon-rage": {
+   "datei": "creatures/demon-rage.ogg",
+   "bytes": 6603,
+   "hash": "sha256-e7a7714aa282fd28a2893c185dd27e61075046a848291ae3bd96905e834bd9ff",
+   "dauer": 0.967,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-aggro-01": {
+   "datei": "creatures/evil-god-aggro-01.ogg",
+   "bytes": 6231,
+   "hash": "sha256-608fe2200c61187628b668630c19b786025d28379361ecca459e60e71fb9128b",
+   "dauer": 0.94,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-aggro-02": {
+   "datei": "creatures/evil-god-aggro-02.ogg",
+   "bytes": 5823,
+   "hash": "sha256-961728f3c637b3070a9cad33fcc223247baffcda9bd22eca7c6639b10d97eb95",
+   "dauer": 0.81,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-aggro-03": {
+   "datei": "creatures/evil-god-aggro-03.ogg",
+   "bytes": 5348,
+   "hash": "sha256-a4633f7f9ef91c4f1174f8a019fc5f58f1569d1024422a36a341e314480439be",
+   "dauer": 0.731,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-aggro-04": {
+   "datei": "creatures/evil-god-aggro-04.ogg",
+   "bytes": 4646,
+   "hash": "sha256-399f43dc7973ff809249ef3d8359ae8a5f56ccbecb33b33324fa094bf4cb8fc2",
+   "dauer": 0.679,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-aggro-05": {
+   "datei": "creatures/evil-god-aggro-05.ogg",
+   "bytes": 4177,
+   "hash": "sha256-bb7e0cb7d044552cd01c81d2bdb1af9e62a24f8d0432755096f761d32674fb00",
+   "dauer": 0.549,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-death-01": {
+   "datei": "creatures/evil-god-death-01.ogg",
+   "bytes": 8121,
+   "hash": "sha256-e5bb7f295de39a307e74bee30c8042c2ff5ab75b4be93eb7257e7f93b2e6d8e0",
+   "dauer": 1.149,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-death-02": {
+   "datei": "creatures/evil-god-death-02.ogg",
+   "bytes": 9190,
+   "hash": "sha256-54cc0c54816f7f41380055bb1f06dbc29c3eb14e8e91e207c2f320b7fa9fdc96",
+   "dauer": 1.332,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-hit-01": {
+   "datei": "creatures/evil-god-hit-01.ogg",
+   "bytes": 3830,
+   "hash": "sha256-945c3ca01f25537cd906bf1bf5ff964153d6fff4df95b9e9f44ad65bc8f358d4",
+   "dauer": 0.496,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-hit-02": {
+   "datei": "creatures/evil-god-hit-02.ogg",
+   "bytes": 4730,
+   "hash": "sha256-0fcf83b89c4257284765661c7b1e08b78d724f86aca64bb75c54dd928e0a54d8",
+   "dauer": 0.627,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-hit-03": {
+   "datei": "creatures/evil-god-hit-03.ogg",
+   "bytes": 3388,
+   "hash": "sha256-3ae9f997863b07997b7abd177ceebd70ec36dc4d8898425ad4eda050dc5ba342",
+   "dauer": 0.418,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-hit-04": {
+   "datei": "creatures/evil-god-hit-04.ogg",
+   "bytes": 3113,
+   "hash": "sha256-51d3012a8fdf7b1894e5f92fb9891fa87c0303b4e6a9dddfabdacc9f9971fa69",
+   "dauer": 0.392,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-hit-05": {
+   "datei": "creatures/evil-god-hit-05.ogg",
+   "bytes": 2839,
+   "hash": "sha256-875c1ead6a554277961dbbefb5ee8017616f04f5248fc97513c07b40b562ca31",
+   "dauer": 0.34,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/evil-god-rage": {
+   "datei": "creatures/evil-god-rage.ogg",
+   "bytes": 7470,
+   "hash": "sha256-6e4a7024c8c2b65313b545e6372f1be976fd231bf61e0ede456276995af663a4",
+   "dauer": 1.019,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-aggro-01": {
+   "datei": "creatures/frogman-aggro-01.ogg",
+   "bytes": 5055,
+   "hash": "sha256-b5e631f109245c523155b9d9dc519b99447a0a34e08552c31d080af656eafc1c",
+   "dauer": 0.576,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-aggro-02": {
+   "datei": "creatures/frogman-aggro-02.ogg",
+   "bytes": 5190,
+   "hash": "sha256-dd0b49c0938120a10f4adfed04cfb63c91718591ba30b73ac9f1b95a31ad9be4",
+   "dauer": 0.6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-aggro-03": {
+   "datei": "creatures/frogman-aggro-03.ogg",
+   "bytes": 4817,
+   "hash": "sha256-ecdcca21b5760ae84d8d9aca89700064678fc3ec912288322dcfaf6feb931a9d",
+   "dauer": 0.6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-aggro-04": {
+   "datei": "creatures/frogman-aggro-04.ogg",
+   "bytes": 4027,
+   "hash": "sha256-af7266c9c57aa9ddfe88c191b10bd5e7f19ab02d7844d589068156e67ab0710f",
+   "dauer": 0.456,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-hit-01": {
+   "datei": "creatures/frogman-hit-01.ogg",
+   "bytes": 4243,
+   "hash": "sha256-3e7c3e3437ee6aeba8ed9864fa2918571e15901eb0721b89f10a41822e3331d9",
+   "dauer": 0.552,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-hit-02": {
+   "datei": "creatures/frogman-hit-02.ogg",
+   "bytes": 4017,
+   "hash": "sha256-175de29fb5e7f24b58d6404249c5e8a71b007c937a12ce649e730fdcc5a9d4dc",
+   "dauer": 0.504,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-hit-03": {
+   "datei": "creatures/frogman-hit-03.ogg",
+   "bytes": 3453,
+   "hash": "sha256-e5ed007f365ae5ef06fe5a66927a5e4ddad1bf03c8cafb751508692ede81284c",
+   "dauer": 0.384,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-hit-04": {
+   "datei": "creatures/frogman-hit-04.ogg",
+   "bytes": 2447,
+   "hash": "sha256-72385f609ed535efafcf8007a1c3eabf568d2a93b7f376d7b3c14b3b9a99319d",
+   "dauer": 0.312,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-hit-05": {
+   "datei": "creatures/frogman-hit-05.ogg",
+   "bytes": 2704,
+   "hash": "sha256-4057653c79579b10479523b4f034f90a8d47c1dfc1958448ada713fbce992f6d",
+   "dauer": 0.312,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-idle-01": {
+   "datei": "creatures/frogman-idle-01.ogg",
+   "bytes": 5886,
+   "hash": "sha256-6a1de14293eb80ebc65e636608fe2a08ae38f0bc149e3adbe6723c8a010ad2df",
+   "dauer": 0.696,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-idle-02": {
+   "datei": "creatures/frogman-idle-02.ogg",
+   "bytes": 5262,
+   "hash": "sha256-53111a9456e6cd6e0c42087657e69ca586fd8af5e49d33ad8e2e52c0da7c4cc9",
+   "dauer": 0.696,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-idle-03": {
+   "datei": "creatures/frogman-idle-03.ogg",
+   "bytes": 5185,
+   "hash": "sha256-dbd98a4ebb8720386765d7f38fe259d74c4801428f460cff06cd3d5d0860c958",
+   "dauer": 0.6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-idle-04": {
+   "datei": "creatures/frogman-idle-04.ogg",
+   "bytes": 5930,
+   "hash": "sha256-c12153144a0c1f3b707a40941ff3fb9ee9f9d75824e1f9a4b330f317f8815396",
+   "dauer": 0.792,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-idle-05": {
+   "datei": "creatures/frogman-idle-05.ogg",
+   "bytes": 6646,
+   "hash": "sha256-7a5efd055bcf7d9d1cf922a5a4b814a8e016125ab08d97c05226179e69457cc7",
+   "dauer": 0.84,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-idle-06": {
+   "datei": "creatures/frogman-idle-06.ogg",
+   "bytes": 7000,
+   "hash": "sha256-caa23b04ed043b5681695669e4dd17bbac0b0ec2951dd936c728da94c82368c7",
+   "dauer": 0.84,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-idle-07": {
+   "datei": "creatures/frogman-idle-07.ogg",
+   "bytes": 6617,
+   "hash": "sha256-7a8420635d38f575765c6a1c116c788b45163af8073385469efcc6c089c83d42",
+   "dauer": 0.84,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/frogman-rage": {
+   "datei": "creatures/frogman-rage.ogg",
+   "bytes": 7546,
+   "hash": "sha256-88cb8cddc796dd13880d4c97b699aca666281f2820cf2c2eaf2eb47866fd7607",
+   "dauer": 0.96,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-aggro-01": {
+   "datei": "creatures/goblin-aggro-01.ogg",
+   "bytes": 5147,
+   "hash": "sha256-d0eee8b85ca7fd2f5f20d5632f57d91b5f27a86a4d5444a8eb2688bad2f94a23",
+   "dauer": 0.744,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-aggro-02": {
+   "datei": "creatures/goblin-aggro-02.ogg",
+   "bytes": 6722,
+   "hash": "sha256-4df9bb5389305fd437907bd38fcefc9d72ba84490b857c758f2b33f53107b081",
+   "dauer": 0.936,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-aggro-03": {
+   "datei": "creatures/goblin-aggro-03.ogg",
+   "bytes": 7537,
+   "hash": "sha256-d326bdc7b024df2f1696ffe463bd2b3bcc5b8ce7c3c4eb3a91107b0148e36225",
+   "dauer": 1.08,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-aggro-04": {
+   "datei": "creatures/goblin-aggro-04.ogg",
+   "bytes": 5796,
+   "hash": "sha256-0f66e49e3dbf699d45d531c0b51eb96919b3ef2f6091c7f5736fa337a7ee4882",
+   "dauer": 0.792,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-aggro-05": {
+   "datei": "creatures/goblin-aggro-05.ogg",
+   "bytes": 5798,
+   "hash": "sha256-d98a3119f3545bfc03d3de1e950b6d074f7f7aeb3dccab53ec6a24e19500dcaf",
+   "dauer": 0.72,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-death-01": {
+   "datei": "creatures/goblin-death-01.ogg",
+   "bytes": 5342,
+   "hash": "sha256-f8738efb14b0c18b7924879b34702674cbb10db25e65fed31e0ca480c9fc10e7",
+   "dauer": 0.72,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-death-02": {
+   "datei": "creatures/goblin-death-02.ogg",
+   "bytes": 4671,
+   "hash": "sha256-708254752e43e5a97804050437623e4ee18b6b91045ee56eba604e82730f96ec",
+   "dauer": 0.6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-death-03": {
+   "datei": "creatures/goblin-death-03.ogg",
+   "bytes": 5968,
+   "hash": "sha256-9936ddd3af641fac7ea2a04f0a1c1c69b9db6aeb503f8d82b8433ae1f91b6f1e",
+   "dauer": 0.792,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-death-04": {
+   "datei": "creatures/goblin-death-04.ogg",
+   "bytes": 4939,
+   "hash": "sha256-c49855fbba9b3e4869ced937a0679433cebc9ac9d5dc4958d03f4639ad2454a4",
+   "dauer": 0.672,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-death-05": {
+   "datei": "creatures/goblin-death-05.ogg",
+   "bytes": 5959,
+   "hash": "sha256-15d085235d627773f2dbbc7505964a8bc58ffe6cc025c807393aa80673e2ee28",
+   "dauer": 0.792,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-death-06": {
+   "datei": "creatures/goblin-death-06.ogg",
+   "bytes": 4887,
+   "hash": "sha256-432c0bb4d92391129eed3fd34fd8307b3b7646ae50235c9710fc7e5d468b24da",
+   "dauer": 0.6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-death-07": {
+   "datei": "creatures/goblin-death-07.ogg",
+   "bytes": 4851,
+   "hash": "sha256-37f186cd3c02af7c34e7fb57160611bcc67f30289ae3d0745dee9bd99b353619",
+   "dauer": 0.672,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-death-heavy": {
+   "datei": "creatures/goblin-death-heavy.ogg",
+   "bytes": 12722,
+   "hash": "sha256-eee145a3e22a3b9957d467f8d12bebbfc31c964eeea1da83e48b7c643ec85e02",
+   "dauer": 1.824,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-hit-01": {
+   "datei": "creatures/goblin-hit-01.ogg",
+   "bytes": 4417,
+   "hash": "sha256-56b8f9d9565fdbad0e8780d9e1ddae594724ec2701972c8a9a874b9e28587b58",
+   "dauer": 0.627,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-hit-02": {
+   "datei": "creatures/goblin-hit-02.ogg",
+   "bytes": 3384,
+   "hash": "sha256-93cec1bad7b81e6ae6ac4d1fa5e273c0b20d6d5b66ed30a15d060313f8242434",
+   "dauer": 0.48,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-hit-03": {
+   "datei": "creatures/goblin-hit-03.ogg",
+   "bytes": 4609,
+   "hash": "sha256-63f35c1ebf7167817a7ab41beff18e5a9abecdc89189d6db6e15af4100c4281a",
+   "dauer": 0.6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-hit-04": {
+   "datei": "creatures/goblin-hit-04.ogg",
+   "bytes": 4446,
+   "hash": "sha256-1c2cb7bcd0ec10074a57fd398aae256604227f4638321a2bdb98bf5d2f10965a",
+   "dauer": 0.576,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-idle-01": {
+   "datei": "creatures/goblin-idle-01.ogg",
+   "bytes": 18221,
+   "hash": "sha256-56fc99e1096f346f6131ee27a89f18c45b37bc928ea9dbae0a51254664419599",
+   "dauer": 2.952,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-idle-02": {
+   "datei": "creatures/goblin-idle-02.ogg",
+   "bytes": 9846,
+   "hash": "sha256-4e53f0e2a40735be70b71d299626241c3b15d581b662248d43b7d3412ede7df5",
+   "dauer": 1.632,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-idle-03": {
+   "datei": "creatures/goblin-idle-03.ogg",
+   "bytes": 12586,
+   "hash": "sha256-b6d2c984de3a1ed859eb39cc324635a361444fa1b4be1b32177b87c5b40b039d",
+   "dauer": 1.8,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-idle-04": {
+   "datei": "creatures/goblin-idle-04.ogg",
+   "bytes": 12242,
+   "hash": "sha256-ebc15453404b57e8d1d38d68d9f5bcbb316a4f69f560839532ab2ec5ea10f8cc",
+   "dauer": 1.824,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-idle-05": {
+   "datei": "creatures/goblin-idle-05.ogg",
+   "bytes": 11821,
+   "hash": "sha256-83213418be4a5e54be83d7c580c085fa05b539f4e9ed8de23db8d1b12d330532",
+   "dauer": 1.968,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/goblin-rage": {
+   "datei": "creatures/goblin-rage.ogg",
+   "bytes": 14411,
+   "hash": "sha256-25a1d0bc1a312c42a31f03c17df698259437004ed8d304d4dee9bedd9cc905b1",
+   "dauer": 2.16,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-aggro-01": {
+   "datei": "creatures/golem-aggro-01.ogg",
+   "bytes": 7732,
+   "hash": "sha256-8ccdbb517f034df4f032591ba08c6e4c602496b4997b68dc681ba86e94c685f9",
+   "dauer": 1.08,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-aggro-02": {
+   "datei": "creatures/golem-aggro-02.ogg",
+   "bytes": 5592,
+   "hash": "sha256-d37dd6c3749fd7fb23d725d1f4a9a156caf86ed1c3e6129a07484625d99ddd99",
+   "dauer": 0.744,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-aggro-03": {
+   "datei": "creatures/golem-aggro-03.ogg",
+   "bytes": 8064,
+   "hash": "sha256-22f69eef18d71e3652a7a13679e5128d58c47525639828fdd0a5e4026ace1555",
+   "dauer": 1.08,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-aggro-04": {
+   "datei": "creatures/golem-aggro-04.ogg",
+   "bytes": 8235,
+   "hash": "sha256-a8c5b7c2b884a6aedad9388176fd01bc36f762d9280247cc27b31e87b81714bf",
+   "dauer": 1.08,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-aggro-05": {
+   "datei": "creatures/golem-aggro-05.ogg",
+   "bytes": 8248,
+   "hash": "sha256-a34acb584a0f8f5a6f32ddb4867dc1f632e68e86c863a691b29efe123f925889",
+   "dauer": 1.08,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-aggro-06": {
+   "datei": "creatures/golem-aggro-06.ogg",
+   "bytes": 7740,
+   "hash": "sha256-d2552d8b523845dea4112ca634d7c6c77a9c9ce82def106fff5685820781b896",
+   "dauer": 1.08,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-aggro-07": {
+   "datei": "creatures/golem-aggro-07.ogg",
+   "bytes": 7347,
+   "hash": "sha256-fdb64017a4f59b23c6cebe9bcf82d1dad49c15ca1bff54a04bc6890290406b24",
+   "dauer": 1.08,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-aggro-08": {
+   "datei": "creatures/golem-aggro-08.ogg",
+   "bytes": 10065,
+   "hash": "sha256-d2173b496174ed7e978be223197b5df6ede9229d37acf108953e4617d6ab59ec",
+   "dauer": 1.416,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-death": {
+   "datei": "creatures/golem-death.ogg",
+   "bytes": 16106,
+   "hash": "sha256-3b1972a1656924e972d749146a6769b8c0a6e576f11da4c2d665039785bc84e3",
+   "dauer": 2.448,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-idle-01": {
+   "datei": "creatures/golem-idle-01.ogg",
+   "bytes": 10508,
+   "hash": "sha256-1b0f2237622f9521d22b03aa533da23363d32eeab69aeeca3335f964dbad3f99",
+   "dauer": 1.776,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-idle-02": {
+   "datei": "creatures/golem-idle-02.ogg",
+   "bytes": 8721,
+   "hash": "sha256-f4b1cc8b912b3d7e40b501c7e853760fd93af2cbbb055173ae04ded61a187312",
+   "dauer": 1.416,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-idle-03": {
+   "datei": "creatures/golem-idle-03.ogg",
+   "bytes": 14791,
+   "hash": "sha256-6577a83d38e30dba4da4a4003f96611209116f65e8f80a54ea9fa2b9a853c725",
+   "dauer": 2.112,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-idle-04": {
+   "datei": "creatures/golem-idle-04.ogg",
+   "bytes": 9661,
+   "hash": "sha256-1506baa489a29b9faf84d3a99d34924b3fa72377232cb9c3056bf011e822d7f1",
+   "dauer": 1.416,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/golem-rage": {
+   "datei": "creatures/golem-rage.ogg",
+   "bytes": 16223,
+   "hash": "sha256-d5d213e08550a907a3537d0321a7172879f6a818737bd77fb0e4117c7e6c5e00",
+   "dauer": 2.448,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/imp-aggro-01": {
+   "datei": "creatures/imp-aggro-01.ogg",
+   "bytes": 8127,
+   "hash": "sha256-6af861259ca8f19ee64730f546d2b16fd48d50538ecebaafcc2d219ba3979e2f",
+   "dauer": 1.248,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/imp-aggro-02": {
+   "datei": "creatures/imp-aggro-02.ogg",
+   "bytes": 10978,
+   "hash": "sha256-b503f020ae6527fb15484561b66e598098c2da91bd3359b5ed4cc985d6b9c16c",
+   "dauer": 1.68,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/imp-aggro-03": {
+   "datei": "creatures/imp-aggro-03.ogg",
+   "bytes": 8801,
+   "hash": "sha256-cf1647bab993615094caf387cb0eafedd32abc32646a4e45fb804851614d3a31",
+   "dauer": 1.296,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/imp-aggro-04": {
+   "datei": "creatures/imp-aggro-04.ogg",
+   "bytes": 8755,
+   "hash": "sha256-f2a5660a55152910504062ac52076fc38ddedf12a9a5899c21f4f77a9bddeff0",
+   "dauer": 1.344,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/imp-idle-01": {
+   "datei": "creatures/imp-idle-01.ogg",
+   "bytes": 17390,
+   "hash": "sha256-b89e56ce3b58bc29926b1831e63ae8ecdce800ffe685054d532a4722f045a96f",
+   "dauer": 2.832,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/imp-idle-02": {
+   "datei": "creatures/imp-idle-02.ogg",
+   "bytes": 12056,
+   "hash": "sha256-e30d411dcaa26133761deea20e12c98b6a5491514535f15c8caea003069a5201",
+   "dauer": 1.92,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/imp-idle-03": {
+   "datei": "creatures/imp-idle-03.ogg",
+   "bytes": 10921,
+   "hash": "sha256-2ac2d4312105aaf233818bf8740a840630c15e91bda06c5ea7312576f7cdba56",
+   "dauer": 1.728,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/imp-rage": {
+   "datei": "creatures/imp-rage.ogg",
+   "bytes": 11386,
+   "hash": "sha256-23c3bc7057f4a6a7cc639532a8b24d6560b66d76304625ce82ff7438d3982785",
+   "dauer": 1.68,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-aggro-01": {
+   "datei": "creatures/spirit-demon-aggro-01.ogg",
+   "bytes": 9858,
+   "hash": "sha256-128f4a7447e7d1e628ee1cdb4da04a1a64f5c19da9536f549fd1290ce5f63b12",
+   "dauer": 1.416,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-aggro-02": {
+   "datei": "creatures/spirit-demon-aggro-02.ogg",
+   "bytes": 9296,
+   "hash": "sha256-11e137390345404a57dc6362a7ad598a4cd7c43cdd2fe614c949d22198a2795a",
+   "dauer": 1.296,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-aggro-03": {
+   "datei": "creatures/spirit-demon-aggro-03.ogg",
+   "bytes": 7924,
+   "hash": "sha256-a45e8b1330b558109aecc01ca11d6543f35a28906808bea0ed2e8e485692be94",
+   "dauer": 1.152,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-aggro-04": {
+   "datei": "creatures/spirit-demon-aggro-04.ogg",
+   "bytes": 7935,
+   "hash": "sha256-215403647d15339887ba06beb5c1bafaab16048535fb8834cd05718f2b0767f6",
+   "dauer": 1.128,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-aggro-05": {
+   "datei": "creatures/spirit-demon-aggro-05.ogg",
+   "bytes": 7740,
+   "hash": "sha256-874700f0ee5a55934723763e3d63bb70f67b0768261e72a9df37e2f68b069e1c",
+   "dauer": 1.128,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-death-01": {
+   "datei": "creatures/spirit-demon-death-01.ogg",
+   "bytes": 12661,
+   "hash": "sha256-f5041067bed3f5be1ca6bb91739c8898310ead51d6d1b17bd53a8c9721d699de",
+   "dauer": 2.088,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-death-02": {
+   "datei": "creatures/spirit-demon-death-02.ogg",
+   "bytes": 14403,
+   "hash": "sha256-dc87356e61dae749250fc10ac982ff3942250691f5a12780187ae1befe1bb5f5",
+   "dauer": 2.352,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-idle-01": {
+   "datei": "creatures/spirit-demon-idle-01.ogg",
+   "bytes": 23903,
+   "hash": "sha256-f74783c71c6804542f52c4817057fb7eab8b2c1b7d99bcdd1978a5244e33e12f",
+   "dauer": 4.008,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-idle-02": {
+   "datei": "creatures/spirit-demon-idle-02.ogg",
+   "bytes": 24148,
+   "hash": "sha256-34ff54137bea881fbb3270629de3f1aef04981c47462ceb3c3912d1de64355b5",
+   "dauer": 4.224,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-idle-03": {
+   "datei": "creatures/spirit-demon-idle-03.ogg",
+   "bytes": 34053,
+   "hash": "sha256-74cf0e94dfc0d7a409e27421829b06fb5f5d9f5f10f453e4826457bd6d0a44f5",
+   "dauer": 5.64,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-idle-04": {
+   "datei": "creatures/spirit-demon-idle-04.ogg",
+   "bytes": 26780,
+   "hash": "sha256-e65eb0fe80e373bf88810a0ee3f46e38952c3621520f2c637b9474fe7d9f4a07",
+   "dauer": 4.56,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-idle-05": {
+   "datei": "creatures/spirit-demon-idle-05.ogg",
+   "bytes": 27900,
+   "hash": "sha256-e46c669b09d3cbae1f4f0a44bf3d753b7ff132d7466beb0dd2b803bdc42eb3ba",
+   "dauer": 4.656,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/spirit-demon-rage": {
+   "datei": "creatures/spirit-demon-rage.ogg",
+   "bytes": 23406,
+   "hash": "sha256-47c7edea5f1cf1d050edee4a88976272a13e16e4cdf7c2103cd197abc88ae3a9",
+   "dauer": 3.888,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-aggro-01": {
+   "datei": "creatures/ulifo-aggro-01.ogg",
+   "bytes": 4593,
+   "hash": "sha256-393199f36524af21430ecb85e8e2b9da63d0e5649ba110ac42a276501c9b0463",
+   "dauer": 0.576,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-aggro-02": {
+   "datei": "creatures/ulifo-aggro-02.ogg",
+   "bytes": 6284,
+   "hash": "sha256-69882d827f9a971e91236a7d377048c6ca274e495c5b8c7fea5448ed9b752865",
+   "dauer": 0.696,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-aggro-03": {
+   "datei": "creatures/ulifo-aggro-03.ogg",
+   "bytes": 4244,
+   "hash": "sha256-8a6194358a8ff9ec1fdc47ad4b06342cbbcdda229a710ace80074837af194b0f",
+   "dauer": 0.48,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-aggro-04": {
+   "datei": "creatures/ulifo-aggro-04.ogg",
+   "bytes": 5263,
+   "hash": "sha256-ca994fcc2af54baafbd8808e271b338c3c5816f15467da16992c195f60474a94",
+   "dauer": 0.696,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-aggro-05": {
+   "datei": "creatures/ulifo-aggro-05.ogg",
+   "bytes": 3992,
+   "hash": "sha256-e098869f2bb56ae5387129185de5b0d3716c6f55a2d0e252ad4f9e36e84771f4",
+   "dauer": 0.456,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-idle-01": {
+   "datei": "creatures/ulifo-idle-01.ogg",
+   "bytes": 30968,
+   "hash": "sha256-952b4727b190dec63c9c8c6f6568da5486d2b00d231a217a72f6530cdc37e5bf",
+   "dauer": 4.848,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-idle-02": {
+   "datei": "creatures/ulifo-idle-02.ogg",
+   "bytes": 18267,
+   "hash": "sha256-d8174bbd3c75e3c149541bd0b8c9c2c221827e78445da56882965737123a01c7",
+   "dauer": 2.856,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-idle-03": {
+   "datei": "creatures/ulifo-idle-03.ogg",
+   "bytes": 35090,
+   "hash": "sha256-41a81e8607e513d726adef303a01eaa3361cf7afb23ffa8cabedb31b93b7f647",
+   "dauer": 5.688,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-idle-04": {
+   "datei": "creatures/ulifo-idle-04.ogg",
+   "bytes": 20965,
+   "hash": "sha256-a2a7540c496e00bc8a58d0c2ab30e6ad4a03a63565243055c0ce23a2ab2d4afc",
+   "dauer": 3.288,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/ulifo-rage": {
+   "datei": "creatures/ulifo-rage.ogg",
+   "bytes": 9792,
+   "hash": "sha256-3e924af715dd1c34693d1e7e9385f42a39c852783aa680cdcda8ab20441d2006",
+   "dauer": 1.344,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-aggro-01": {
+   "datei": "creatures/undead-aggro-01.ogg",
+   "bytes": 7292,
+   "hash": "sha256-3e9abb8981218c4a5acc7ed774c9785be5d0ee891853a0b2b4227418dae039b5",
+   "dauer": 1.128,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-aggro-02": {
+   "datei": "creatures/undead-aggro-02.ogg",
+   "bytes": 6863,
+   "hash": "sha256-5cd8b2cf695c5aabdffa0ac6fe4ac789d07236e6e991b9a5bbd1a0bb3c49bcf2",
+   "dauer": 1.08,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-aggro-03": {
+   "datei": "creatures/undead-aggro-03.ogg",
+   "bytes": 5653,
+   "hash": "sha256-cb3f4bb65906ff26a2db8abd2a8e2c0a8b1a4be6cc13e872140a2037c4ff818e",
+   "dauer": 0.816,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-aggro-04": {
+   "datei": "creatures/undead-aggro-04.ogg",
+   "bytes": 5709,
+   "hash": "sha256-ae90ad6497a77ef70b257b151b9c251fbd68a020f7b0479b23b06520b64c91e5",
+   "dauer": 0.888,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-aggro-05": {
+   "datei": "creatures/undead-aggro-05.ogg",
+   "bytes": 6693,
+   "hash": "sha256-eb11fa7d30684442b6385181f627bcba4ca616a8bbf86fd1dc555c7171c644ce",
+   "dauer": 1.008,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-death": {
+   "datei": "creatures/undead-death.ogg",
+   "bytes": 6413,
+   "hash": "sha256-873cebdb2a84b274b8fab9d711e90af496beb9e1e688593656c432964cf6f51d",
+   "dauer": 0.984,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-aggro-01": {
+   "datei": "creatures/undead-ghost-female-aggro-01.ogg",
+   "bytes": 5645,
+   "hash": "sha256-6ae41b44136f1d4d90ec6422e8b01a3ddfe09c861311df67501fb90c68d79f66",
+   "dauer": 0.864,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-aggro-02": {
+   "datei": "creatures/undead-ghost-female-aggro-02.ogg",
+   "bytes": 5157,
+   "hash": "sha256-a8985ffd2bc33688a6aa1548f579444a350c673f686db32b88ee6ea7216552a0",
+   "dauer": 0.768,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-aggro-03": {
+   "datei": "creatures/undead-ghost-female-aggro-03.ogg",
+   "bytes": 6193,
+   "hash": "sha256-4bcab77d3cccc6863b39e61e95b47237ddd3f47b7c9b9c1dc4ff230dd22a5622",
+   "dauer": 0.864,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-aggro-04": {
+   "datei": "creatures/undead-ghost-female-aggro-04.ogg",
+   "bytes": 4915,
+   "hash": "sha256-b1b2e66e2fe8dcadd9ba8f56b90c864b8bd8849ca53cfcc57f58989a93204db9",
+   "dauer": 0.696,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-aggro-05": {
+   "datei": "creatures/undead-ghost-female-aggro-05.ogg",
+   "bytes": 5354,
+   "hash": "sha256-be53c4f7f635d2679bd75da0950c202925061767445c4cb177644d35dc0ea02e",
+   "dauer": 0.768,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-aggro-06": {
+   "datei": "creatures/undead-ghost-female-aggro-06.ogg",
+   "bytes": 4928,
+   "hash": "sha256-627f0b03aacb21289d29a2be7dcfd28b7a49486feb5b1764e137ad42e4939b38",
+   "dauer": 0.72,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-idle-01": {
+   "datei": "creatures/undead-ghost-female-idle-01.ogg",
+   "bytes": 30398,
+   "hash": "sha256-926aa3f42d07eae9de76fafad591f513a0148c5dbd7acc17dd6c2dcd2f767d2c",
+   "dauer": 4.68,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-idle-02": {
+   "datei": "creatures/undead-ghost-female-idle-02.ogg",
+   "bytes": 25300,
+   "hash": "sha256-3080aca976aeca579e08cdcbc231c1194512231ca57241fffb7e86eba604fbff",
+   "dauer": 3.912,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-idle-03": {
+   "datei": "creatures/undead-ghost-female-idle-03.ogg",
+   "bytes": 29160,
+   "hash": "sha256-341a3282e7e9fa80ddc5325fb5dfd8fa48bbb380d84364427cbe59e250adf6c9",
+   "dauer": 4.56,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-idle-04": {
+   "datei": "creatures/undead-ghost-female-idle-04.ogg",
+   "bytes": 29141,
+   "hash": "sha256-8e002460cc80eef910d8cf37c578bc43a6e3164c71ee89e1f398c7c70ca3ad57",
+   "dauer": 4.68,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-female-rage": {
+   "datei": "creatures/undead-ghost-female-rage.ogg",
+   "bytes": 9887,
+   "hash": "sha256-ef214bf8c73b49523ea8a44ecfe1c21160afeecfed080174ccd5db651fc120fa",
+   "dauer": 1.584,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-aggro-01": {
+   "datei": "creatures/undead-ghost-male-aggro-01.ogg",
+   "bytes": 5566,
+   "hash": "sha256-95d96b3f59f9579b9ec5bdc51abaeab314a4cb5a13f39cddc7483baf18e5a464",
+   "dauer": 0.888,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-aggro-02": {
+   "datei": "creatures/undead-ghost-male-aggro-02.ogg",
+   "bytes": 5343,
+   "hash": "sha256-baadf66a1b61ed3b32d0657ec8322166a5c484d2dba2cf70925a91f9fc1a9dbd",
+   "dauer": 0.888,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-aggro-03": {
+   "datei": "creatures/undead-ghost-male-aggro-03.ogg",
+   "bytes": 4978,
+   "hash": "sha256-f1fee8639babb6d9ed74032e952a499c9ee9ca40e30384fb1784437601010d06",
+   "dauer": 0.768,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-aggro-04": {
+   "datei": "creatures/undead-ghost-male-aggro-04.ogg",
+   "bytes": 4565,
+   "hash": "sha256-bc77474669ec77c7dba663902737dd53ebf79fc0282cd36a1c909d0a3fb650a3",
+   "dauer": 0.768,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-aggro-05": {
+   "datei": "creatures/undead-ghost-male-aggro-05.ogg",
+   "bytes": 5110,
+   "hash": "sha256-73978eec3a31052a60377123cc94df8ad935b29a06d7843c890851e99bd860d8",
+   "dauer": 0.792,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-idle-01": {
+   "datei": "creatures/undead-ghost-male-idle-01.ogg",
+   "bytes": 27700,
+   "hash": "sha256-6e870e2e65a630d4c039a251b8745c3940c955358a538e9de01514ba9e191f71",
+   "dauer": 4.68,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-idle-02": {
+   "datei": "creatures/undead-ghost-male-idle-02.ogg",
+   "bytes": 25721,
+   "hash": "sha256-1ace2e809c2dfaf2f8cfc2d6765954756088285e5fa5f40bf8336db98786e120",
+   "dauer": 4.392,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-idle-03": {
+   "datei": "creatures/undead-ghost-male-idle-03.ogg",
+   "bytes": 30401,
+   "hash": "sha256-2812d1f0873ead1a476edf65b6d99e78e025e2cd2c0b754474b1bda85af3adc9",
+   "dauer": 4.968,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-idle-04": {
+   "datei": "creatures/undead-ghost-male-idle-04.ogg",
+   "bytes": 28770,
+   "hash": "sha256-9ad70f0189d4e3906b6b37329b5f9043d3747beb049b7d7ab6df1756a570ca1b",
+   "dauer": 4.896,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-idle-05": {
+   "datei": "creatures/undead-ghost-male-idle-05.ogg",
+   "bytes": 22091,
+   "hash": "sha256-4788333135bdbcbf91a6b5c0293afee823991cc9ac32bedcd918f9cf48f81729",
+   "dauer": 3.72,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-ghost-male-rage": {
+   "datei": "creatures/undead-ghost-male-rage.ogg",
+   "bytes": 5436,
+   "hash": "sha256-80f858cf145c4172103c0841d90944a301620840b0a8ed8fd30baeeb9763f620",
+   "dauer": 0.936,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-hit-01": {
+   "datei": "creatures/undead-hit-01.ogg",
+   "bytes": 5976,
+   "hash": "sha256-2f69d4a73cf471cdd4f80297e3684667b37d78311d3f2116bf982d4489fb8e9d",
+   "dauer": 0.912,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-hit-02": {
+   "datei": "creatures/undead-hit-02.ogg",
+   "bytes": 5869,
+   "hash": "sha256-d7e1e2350a4302686221a2b68c857ae700c7c98cd02e30acd7d314ce880abe26",
+   "dauer": 0.912,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-hit-03": {
+   "datei": "creatures/undead-hit-03.ogg",
+   "bytes": 4876,
+   "hash": "sha256-4329696b5c4f54c1b35f996f0fe6c29b606fae2459ef2e84a5d5cc30c8389ce3",
+   "dauer": 0.744,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-idle-01": {
+   "datei": "creatures/undead-idle-01.ogg",
+   "bytes": 12614,
+   "hash": "sha256-47cadb8b538dc340b7916b005a54572f8ca4f1ced5952af45bd625e952a3b072",
+   "dauer": 2.016,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-idle-02": {
+   "datei": "creatures/undead-idle-02.ogg",
+   "bytes": 12723,
+   "hash": "sha256-96a7a2db161859ea07c338f94b90cb3d60be6cf24e90a4f4ac9f35fafb228940",
+   "dauer": 2.064,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-idle-03": {
+   "datei": "creatures/undead-idle-03.ogg",
+   "bytes": 16228,
+   "hash": "sha256-f0010cacde045d6ad8dee6b293ca1141d86fed8ccc2fd158c6d3621ef3fc78d9",
+   "dauer": 2.736,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-idle-04": {
+   "datei": "creatures/undead-idle-04.ogg",
+   "bytes": 15903,
+   "hash": "sha256-773afa20492b933d6ca3a36cf8e6a7f638ec2cac2d2f39a48cd24e1551b54190",
+   "dauer": 2.664,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-idle-05": {
+   "datei": "creatures/undead-idle-05.ogg",
+   "bytes": 15573,
+   "hash": "sha256-76296681a1e030ef611d5a76b69618cbef327d41fa1597f72ada76aa23e00295",
+   "dauer": 2.616,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/undead-rage": {
+   "datei": "creatures/undead-rage.ogg",
+   "bytes": 11631,
+   "hash": "sha256-127f925d65e43937b0368d823d45f9d8d08edf5a8c7dbc15634798b02a8c4e1e",
+   "dauer": 1.848,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-aggro-01": {
+   "datei": "creatures/werewolf-aggro-01.ogg",
+   "bytes": 7959,
+   "hash": "sha256-d61c48799c7352f515e8a671471fef5110746576d996e4324b16a17ebb507cca",
+   "dauer": 1.104,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-aggro-02": {
+   "datei": "creatures/werewolf-aggro-02.ogg",
+   "bytes": 8100,
+   "hash": "sha256-dc1cdfae4c34dcdfd2a936570b4508b26e72384089381b2a1453044866504bdf",
+   "dauer": 1.228,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-aggro-03": {
+   "datei": "creatures/werewolf-aggro-03.ogg",
+   "bytes": 7798,
+   "hash": "sha256-532a2b41db9bc7c31dd94be53a56b34b3a6222c94ac1f2916ebe6b5882e70a26",
+   "dauer": 1.202,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-aggro-04": {
+   "datei": "creatures/werewolf-aggro-04.ogg",
+   "bytes": 9667,
+   "hash": "sha256-da784168520c817690af6093b15cc1c26f1e17148c106d60eae488f7a6ca01ba",
+   "dauer": 1.463,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-aggro-05": {
+   "datei": "creatures/werewolf-aggro-05.ogg",
+   "bytes": 6737,
+   "hash": "sha256-58df9536882c3b9946008213da33ec31a205f972c1e8c5a4cd1aa6aea29ed87e",
+   "dauer": 0.94,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-death": {
+   "datei": "creatures/werewolf-death.ogg",
+   "bytes": 9571,
+   "hash": "sha256-4032c85b4adc987e1db2b827be0308d341ffd09ba735e10fa720c85cbbc0ae72",
+   "dauer": 1.488,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-hit-01": {
+   "datei": "creatures/werewolf-hit-01.ogg",
+   "bytes": 5810,
+   "hash": "sha256-e3d58a3bb690f4dd94dd2c840c1d0eb05062570a5dcf5985f70187090c72cec4",
+   "dauer": 0.731,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-hit-02": {
+   "datei": "creatures/werewolf-hit-02.ogg",
+   "bytes": 5854,
+   "hash": "sha256-cfe442be9dbaaa139569db890d6cdbd2be8f7b09e4defcd5cad5832807cebfe3",
+   "dauer": 0.731,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-hit-03": {
+   "datei": "creatures/werewolf-hit-03.ogg",
+   "bytes": 6322,
+   "hash": "sha256-a0fc971687c72bdd06c3ab52246f9cc5c1b1ab0d8a984c8b1c8ea1aa44044fc7",
+   "dauer": 0.731,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-idle-01": {
+   "datei": "creatures/werewolf-idle-01.ogg",
+   "bytes": 9040,
+   "hash": "sha256-744acd037e8eaa012efbf3011422d79c76f0810fda308300b96554081f7e6e36",
+   "dauer": 1.071,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-idle-02": {
+   "datei": "creatures/werewolf-idle-02.ogg",
+   "bytes": 8591,
+   "hash": "sha256-704d1531c027de17a78bfaa3510287241921188ae8d93b6e6c2e1722a145a372",
+   "dauer": 1.071,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-idle-03": {
+   "datei": "creatures/werewolf-idle-03.ogg",
+   "bytes": 7157,
+   "hash": "sha256-6763df78cd870b241f31cfab6ec2d385d76fc1fff04ef98bc4c21fea82059fd7",
+   "dauer": 1.071,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-idle-04": {
+   "datei": "creatures/werewolf-idle-04.ogg",
+   "bytes": 13257,
+   "hash": "sha256-f7709969909fee4f37ee2416a2ea241002731e0778660b7b8bd265c33cbd9c42",
+   "dauer": 2.299,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-idle-05": {
+   "datei": "creatures/werewolf-idle-05.ogg",
+   "bytes": 7749,
+   "hash": "sha256-a2ac573996666f13fb682d0431ec71de4217c221e96378e34f87172052356fe8",
+   "dauer": 1.332,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-idle-06": {
+   "datei": "creatures/werewolf-idle-06.ogg",
+   "bytes": 32870,
+   "hash": "sha256-18dc92c17074d8c541a13bf191709744c288c15c377408ad43d1c61366d3020b",
+   "dauer": 4.232,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/werewolf-rage": {
+   "datei": "creatures/werewolf-rage.ogg",
+   "bytes": 17594,
+   "hash": "sha256-4187f47ff83d68be58711db84ade12fabc1c4ffa373c786a230f121b95353139",
+   "dauer": 2.821,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-aggro-01": {
+   "datei": "creatures/wolf-aggro-01.ogg",
+   "bytes": 4033,
+   "hash": "sha256-5e92038fc116427b98a36660148112c96403a3b3566901b1dc21dce30b99eefe",
+   "dauer": 0.576,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-aggro-02": {
+   "datei": "creatures/wolf-aggro-02.ogg",
+   "bytes": 2700,
+   "hash": "sha256-c3f60b5e5a4a3f0da30a99e11c41d11ddbf6db1d076868f28ec5bb56322dd460",
+   "dauer": 0.384,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-aggro-03": {
+   "datei": "creatures/wolf-aggro-03.ogg",
+   "bytes": 8358,
+   "hash": "sha256-7dbbb2735eacd46583200cf297d7084c2be7696e49fe8893e9dfb0d94eac1bff",
+   "dauer": 1.32,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-aggro-04": {
+   "datei": "creatures/wolf-aggro-04.ogg",
+   "bytes": 7231,
+   "hash": "sha256-3dab7c12472df75abbed4dbf0cd6efa19071886e4f1e89f2dc9b4021cbf0f5c6",
+   "dauer": 1.152,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-death": {
+   "datei": "creatures/wolf-death.ogg",
+   "bytes": 5423,
+   "hash": "sha256-79a852d16d53caa9818d755f2f980fc830283ad95b5849bda3cd02fc9096c15a",
+   "dauer": 0.864,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-idle-01": {
+   "datei": "creatures/wolf-idle-01.ogg",
+   "bytes": 22099,
+   "hash": "sha256-5533624fe3ce36bdd806ebb88e137ff3b0d576643e77f7a61e6bf9d8c16ae070",
+   "dauer": 3.552,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-idle-02": {
+   "datei": "creatures/wolf-idle-02.ogg",
+   "bytes": 23515,
+   "hash": "sha256-86ebf3526cade7a2e638519590e6b627d3c9c9ab5fec9deb6b2ee53b083dffe2",
+   "dauer": 3.84,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-idle-03": {
+   "datei": "creatures/wolf-idle-03.ogg",
+   "bytes": 14904,
+   "hash": "sha256-3df9e4830eb196aa2dc7016148ccf7617ac2a6225501ea9193648691a09332c6",
+   "dauer": 2.448,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "creatures/wolf-idle-04": {
+   "datei": "creatures/wolf-idle-04.ogg",
+   "bytes": 8106,
+   "hash": "sha256-f4a08f8be38fa87e9c8ed59c51722275e7eaabdb196a85a102d1926881ec486a",
+   "dauer": 1.44,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "emitters/door-close": {
+   "datei": "emitters/door-close.ogg",
+   "bytes": 9658,
+   "hash": "sha256-31933496a038b04d3babd5e462c6bd243fee19b646a35edbfddf102b214ab799",
+   "dauer": 1.696,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "emitters/door-open": {
+   "datei": "emitters/door-open.ogg",
+   "bytes": 5645,
+   "hash": "sha256-d43ae82d71310ac7aed01c08a206afd4b52c56b06746c16efa8ab445bfe551df",
+   "dauer": 0.908,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "emitters/fire-small-loop": {
+   "datei": "emitters/fire-small-loop.ogg",
+   "bytes": 29886,
+   "hash": "sha256-9f6c11d346f114a47e3915b5b5ce1e3a633e1a8e6d46994b7e8509ca336a9513",
+   "dauer": 5.143,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "emitters/forge-hammer": {
+   "datei": "emitters/forge-hammer.ogg",
+   "bytes": 39238,
+   "hash": "sha256-e0778690418dabf57395223f21f857a9ec2ef68626bddb6d3e8e22b09bf49f20",
+   "dauer": 6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "emitters/shout-breath": {
+   "datei": "emitters/shout-breath.ogg",
+   "bytes": 31268,
+   "hash": "sha256-f72483ffc728d7ba9f9cc66d0240ad69432ffe82ad24122211e9f7a3bb238a22",
+   "dauer": 5.64,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "emitters/wind-open-ground": {
+   "datei": "emitters/wind-open-ground.ogg",
+   "bytes": 33881,
+   "hash": "sha256-c3f3e958587575bda227aafa10089b5c3e43904545b331c783719750d121ca6a",
+   "dauer": 5.862,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-01": {
+   "datei": "footsteps/grass-01.ogg",
+   "bytes": 4685,
+   "hash": "sha256-25f2b293f85146494e9d99dfb6e22b5cd18f81c21ef16ed590e0688fb41f5e76",
+   "dauer": 0.882,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-02": {
+   "datei": "footsteps/grass-02.ogg",
+   "bytes": 5540,
+   "hash": "sha256-d565fb565febee59485b1a5444303f86090e864415f9058d078e2f64a37b41c2",
+   "dauer": 1.059,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-03": {
+   "datei": "footsteps/grass-03.ogg",
+   "bytes": 4265,
+   "hash": "sha256-d1da38c13449507e7732835606e3d224d3d73f25fc8987b7cd5ab3fd0340f3c2",
+   "dauer": 0.971,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-04": {
+   "datei": "footsteps/grass-04.ogg",
+   "bytes": 7168,
+   "hash": "sha256-c01d15b4191890c6a00ee68d1437d2423b3912f10d179bf961f64a5bae33eabc",
+   "dauer": 1.412,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-05": {
+   "datei": "footsteps/grass-05.ogg",
+   "bytes": 6881,
+   "hash": "sha256-255b4b893c3a2c8cc366485a2154ae9280d1609e8e2325ab9f2a93ffc5be1557",
+   "dauer": 1.412,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-06": {
+   "datei": "footsteps/grass-06.ogg",
+   "bytes": 3206,
+   "hash": "sha256-d7f03021dfc0736eae857a993bcd770245e7307848c9fed5f574df925e43a8a4",
+   "dauer": 0.503,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-07": {
+   "datei": "footsteps/grass-07.ogg",
+   "bytes": 2406,
+   "hash": "sha256-072b0f5a1aed9a4728efe0b08d4e25c13e27c171cc3f2a6ba3fad338fbeada61",
+   "dauer": 0.356,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-08": {
+   "datei": "footsteps/grass-08.ogg",
+   "bytes": 2305,
+   "hash": "sha256-2299ad92a8476bbc4b13732ca90e2f67b659a08d5539caf9e816467482d9c8d9",
+   "dauer": 0.349,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/grass-09": {
+   "datei": "footsteps/grass-09.ogg",
+   "bytes": 2514,
+   "hash": "sha256-e2bb91fffed126a54db1c4f4c26e40e47139b0fe8e0bde9ab6adb3096e283f29",
+   "dauer": 0.384,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-01": {
+   "datei": "footsteps/gravel-01.ogg",
+   "bytes": 2219,
+   "hash": "sha256-d0e08e70d20104406a20692021c33e09ff8106b262e63f43c18ae991bb8c503f",
+   "dauer": 0.341,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-02": {
+   "datei": "footsteps/gravel-02.ogg",
+   "bytes": 2348,
+   "hash": "sha256-a4f0bcc0e541c10f91b29b578f4047e37185a19d2ec8ebe9dd5ec5087def4dbf",
+   "dauer": 0.368,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-03": {
+   "datei": "footsteps/gravel-03.ogg",
+   "bytes": 2513,
+   "hash": "sha256-90a48fa79025f52de803c0d9fe552f3e786d84463f7fff81c1af4cfedede70f5",
+   "dauer": 0.377,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-04": {
+   "datei": "footsteps/gravel-04.ogg",
+   "bytes": 2154,
+   "hash": "sha256-96148eda8e8e60a9fabbd2123fb679ec3afec58628d04966af813c44e34d6c28",
+   "dauer": 0.331,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-05": {
+   "datei": "footsteps/gravel-05.ogg",
+   "bytes": 3410,
+   "hash": "sha256-a535879e935e9afa5b1300073e7a0eaa7581ff44cdc7536d95f6fa81a10c8329",
+   "dauer": 0.48,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-06": {
+   "datei": "footsteps/gravel-06.ogg",
+   "bytes": 3516,
+   "hash": "sha256-985a52530448b531acda93efcb7d6c930a09de9622636ffeb86e2e7551b22957",
+   "dauer": 0.56,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-07": {
+   "datei": "footsteps/gravel-07.ogg",
+   "bytes": 2884,
+   "hash": "sha256-00f53b4895487a0aad92c1e10d603e329cf155ec16fed57c87860804bc01fef7",
+   "dauer": 0.448,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-08": {
+   "datei": "footsteps/gravel-08.ogg",
+   "bytes": 3456,
+   "hash": "sha256-5f069098c3210be9983a4833b59d3a3d616633f2785be7851d7eca5370203c89",
+   "dauer": 0.491,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-09": {
+   "datei": "footsteps/gravel-09.ogg",
+   "bytes": 3700,
+   "hash": "sha256-3ed55c3d8e852ecc5b9a3eb179a47d2f1359b79532d2325d2ed1ec1ef53f0edb",
+   "dauer": 0.581,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/gravel-10": {
+   "datei": "footsteps/gravel-10.ogg",
+   "bytes": 3186,
+   "hash": "sha256-05d36bda9d2a3076f9a455c104e90334a31f89bedcc5f72c3a13d5411611d11c",
+   "dauer": 0.512,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/metal-01": {
+   "datei": "footsteps/metal-01.ogg",
+   "bytes": 5740,
+   "hash": "sha256-1f7270adc211dc8e1d34e0cb11f3aeb36785b2e36c9868ecaab679930e8ec445",
+   "dauer": 1.191,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/metal-02": {
+   "datei": "footsteps/metal-02.ogg",
+   "bytes": 6597,
+   "hash": "sha256-186e8c5203c8c7b22b8baaa2a3a5f0943af724d456faaeb2c72a227293cfb29f",
+   "dauer": 1.368,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/metal-03": {
+   "datei": "footsteps/metal-03.ogg",
+   "bytes": 6605,
+   "hash": "sha256-36c351ac50e6cbbbacb0246492e6a95fd55638d249680cce9f67f55ea8abfb2f",
+   "dauer": 1.368,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/metal-04": {
+   "datei": "footsteps/metal-04.ogg",
+   "bytes": 5194,
+   "hash": "sha256-579bb77cc3241020dbb4c90db6ce93c101e51566debc7e8c8c6120316f7a24a4",
+   "dauer": 1.059,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-01": {
+   "datei": "footsteps/snow-01.ogg",
+   "bytes": 3385,
+   "hash": "sha256-76ca3a8966312f4bc6ccdb4119f90ea62365aee7d740a40d246e98888df7b34e",
+   "dauer": 0.48,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-02": {
+   "datei": "footsteps/snow-02.ogg",
+   "bytes": 2273,
+   "hash": "sha256-1d7d82ec78ff9f191b6fa732b7da8763a05512b67e7f813a10b1977ab394b877",
+   "dauer": 0.341,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-03": {
+   "datei": "footsteps/snow-03.ogg",
+   "bytes": 3284,
+   "hash": "sha256-d6f752e982cfd0b47116e27717f9a81e3ac793093d8ff75e2d5854cbce3a6a14",
+   "dauer": 0.523,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-04": {
+   "datei": "footsteps/snow-04.ogg",
+   "bytes": 3697,
+   "hash": "sha256-5cd0065e6474d12b26ebcd9922a7278641134cdeba4ea33a9f62ca0f71846dac",
+   "dauer": 0.565,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-05": {
+   "datei": "footsteps/snow-05.ogg",
+   "bytes": 4110,
+   "hash": "sha256-cd649f6cf33bc01793ab1edbc5933efbc50172063cd62d47a2ba7bf8faa6dbb4",
+   "dauer": 0.661,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-06": {
+   "datei": "footsteps/snow-06.ogg",
+   "bytes": 2961,
+   "hash": "sha256-e991df70a9d625d69429855e51eee1efe242df00d1150a63d12a06153222a434",
+   "dauer": 0.467,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-07": {
+   "datei": "footsteps/snow-07.ogg",
+   "bytes": 2593,
+   "hash": "sha256-8db51473991c44658ece566d02b75aeefabc42c1ee94e72d8c95dc60c460bb8f",
+   "dauer": 0.4,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-08": {
+   "datei": "footsteps/snow-08.ogg",
+   "bytes": 2028,
+   "hash": "sha256-fc276ffe540906067c5e8508f3e87dbc8d8faec8af0fba3e838a5fb9469f6f63",
+   "dauer": 0.301,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-09": {
+   "datei": "footsteps/snow-09.ogg",
+   "bytes": 2600,
+   "hash": "sha256-280d3bce47b2c7ae4b0d382259cf43ba315b1da08dc7b7365751361067ebd41b",
+   "dauer": 0.402,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/snow-10": {
+   "datei": "footsteps/snow-10.ogg",
+   "bytes": 1775,
+   "hash": "sha256-11c8e47a9738a4328778c454fe177134fb68b365412bc48b022223fffa113876",
+   "dauer": 0.263,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/tile-01": {
+   "datei": "footsteps/tile-01.ogg",
+   "bytes": 3807,
+   "hash": "sha256-a4f400851072af0754ad7fd067e2beb238a55475483e302fb5393d57e2a02bae",
+   "dauer": 0.794,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/tile-02": {
+   "datei": "footsteps/tile-02.ogg",
+   "bytes": 3789,
+   "hash": "sha256-1ace92047f16ae3a14599bd9106534cece50edd0e1bc0912893b7bd9e8b9d5e8",
+   "dauer": 0.772,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/tile-03": {
+   "datei": "footsteps/tile-03.ogg",
+   "bytes": 4476,
+   "hash": "sha256-16aaef3c377c4b0953b626f5cb4b4b0858944692f3d55480ea5059e32da6dffb",
+   "dauer": 0.914,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/tile-04": {
+   "datei": "footsteps/tile-04.ogg",
+   "bytes": 3782,
+   "hash": "sha256-7e4a0c02a97f5b464a10f48bd6e716a1742b6f5041f1e5793fb10e4c51b94aca",
+   "dauer": 0.747,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/water-01": {
+   "datei": "footsteps/water-01.ogg",
+   "bytes": 6285,
+   "hash": "sha256-05832c9f7524af89ee48a63276a07b344801b12b1bec617d5f8ce78e34da1095",
+   "dauer": 1.235,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/water-02": {
+   "datei": "footsteps/water-02.ogg",
+   "bytes": 6239,
+   "hash": "sha256-a84b3b1192da643b12fe88f01ed52d1ec4e82c7f25e113b7a7c551ab44809fc0",
+   "dauer": 1.235,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/water-03": {
+   "datei": "footsteps/water-03.ogg",
+   "bytes": 6686,
+   "hash": "sha256-3fb8d97d4178be9e23ff56abac0361dc1e60bf1b53181497024f46d719dc04c2",
+   "dauer": 1.235,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/water-04": {
+   "datei": "footsteps/water-04.ogg",
+   "bytes": 6514,
+   "hash": "sha256-090f10ac478b87fef9327da7c96bad7dce1693c19b81366b64aba0bf494f5346",
+   "dauer": 1.235,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/water-05": {
+   "datei": "footsteps/water-05.ogg",
+   "bytes": 7161,
+   "hash": "sha256-0f4b61206d0b05bfff2cc024f9286239b8032df1ed4dbfcaa97ee8bf446a1174",
+   "dauer": 1.235,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/wood-01": {
+   "datei": "footsteps/wood-01.ogg",
+   "bytes": 3990,
+   "hash": "sha256-c5f9614d77a8093ed96b2725597094a5090f6c3e2b34198e37192540173eec7b",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/wood-02": {
+   "datei": "footsteps/wood-02.ogg",
+   "bytes": 3706,
+   "hash": "sha256-09460bbff195ee776da4aa6481ce0297b106357cd16fb082f7ca67117a716c90",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/wood-03": {
+   "datei": "footsteps/wood-03.ogg",
+   "bytes": 3662,
+   "hash": "sha256-9435e6e42d3c461b3ca45c8c4174cca052d9fbe282ed3e60bb7302ce864a4a14",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "footsteps/wood-04": {
+   "datei": "footsteps/wood-04.ogg",
+   "bytes": 3520,
+   "hash": "sha256-c4f594ba76b6128a37f62e5f7b22ae380e2c80cf525390aef8ecbbfbe7c00276",
+   "dauer": 0.706,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "music/changes": {
+   "datei": "music/changes.ogg",
+   "bytes": 1177069,
+   "hash": "sha256-de35b735c35f34ee9434d042a9db5211c8fecad586edace3244a3cb2b801a6df",
+   "dauer": 134.478,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/combat-01": {
+   "datei": "music/combat-01.ogg",
+   "bytes": 407640,
+   "hash": "sha256-6c7314cec0597d5208937f43fadc5b61079f38d42850edcd2d5454d0bf261c0f",
+   "dauer": 51.487,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/combat-02": {
+   "datei": "music/combat-02.ogg",
+   "bytes": 468696,
+   "hash": "sha256-635d2663c4d1339d0aecc25660954b297fd143f48cdf0f0976926d0aac1c3f6d",
+   "dauer": 57.652,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/combat-03": {
+   "datei": "music/combat-03.ogg",
+   "bytes": 427420,
+   "hash": "sha256-e1535795e88711ddd4411e30a64a1e5deebb45abb75d4ae1aa9e7f4c9f94121f",
+   "dauer": 54.962,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/dungeons-01": {
+   "datei": "music/dungeons-01.ogg",
+   "bytes": 460429,
+   "hash": "sha256-47e56312a2764e730af42535411557e3497fe64be0468c72d06a94ea7fbe60e6",
+   "dauer": 50.155,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/dungeons-02": {
+   "datei": "music/dungeons-02.ogg",
+   "bytes": 402770,
+   "hash": "sha256-e55bebff5fdf564981c6c088861351401db8cd6ecd885e94adf852133263bc2d",
+   "dauer": 48.065,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/dungeons-03": {
+   "datei": "music/dungeons-03.ogg",
+   "bytes": 583857,
+   "hash": "sha256-4924879c1daac92e39bb40aefd79a286b4f46b48735e46d1ca185af0bdbf29e0",
+   "dauer": 66.847,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/epic-drums": {
+   "datei": "music/epic-drums.ogg",
+   "bytes": 307578,
+   "hash": "sha256-2876f762bbe08c6da1b8bf64565ae9e52e97c7fcf0d7f2a5f4093cee2be61a87",
+   "dauer": 40.945,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/exploration-01": {
+   "datei": "music/exploration-01.ogg",
+   "bytes": 387673,
+   "hash": "sha256-85b7a3651c179abe21e2532f56eee7f99a099d0e57d785d273c5484fa9f6b762",
+   "dauer": 44.382,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/exploration-02": {
+   "datei": "music/exploration-02.ogg",
+   "bytes": 567963,
+   "hash": "sha256-33a8e04e701ed6b18ba2d35fe0a4ae5f90666210c502491473ae1f3440fe691f",
+   "dauer": 69.878,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/exploration-03": {
+   "datei": "music/exploration-03.ogg",
+   "bytes": 428950,
+   "hash": "sha256-9b996ca1370fc2877c9973c75fd454056b4632812fc1501c833896fdfdd3cc56",
+   "dauer": 48.065,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/exploration-04": {
+   "datei": "music/exploration-04.ogg",
+   "bytes": 489205,
+   "hash": "sha256-32d8987146e2f09db82c24ff3d173e2187a0a687cdfa3ac9e95f41a0c31c13b4",
+   "dauer": 57.887,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/exploration-05": {
+   "datei": "music/exploration-05.ogg",
+   "bytes": 267663,
+   "hash": "sha256-99c5451ac7c79e88a3b481634f7cd3e5b652983ce1144444a3010b3c99e7899a",
+   "dauer": 33.463,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/exploration-06": {
+   "datei": "music/exploration-06.ogg",
+   "bytes": 361275,
+   "hash": "sha256-d5475dae0927f8699dfc93f48bfad278f97a05ba6e9d4052808e80d592f264eb",
+   "dauer": 38.478,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/tavern-01": {
+   "datei": "music/tavern-01.ogg",
+   "bytes": 617270,
+   "hash": "sha256-75e5e2c9faf8bcd73e848e16f7325882c62bd8689a48cbbe5c4cc8f65ace4b88",
+   "dauer": 72.098,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/tavern-02": {
+   "datei": "music/tavern-02.ogg",
+   "bytes": 310429,
+   "hash": "sha256-9dd7eb985620cea0e9da8ac3d024da989da10496f7c0c8a3c280e592190c9df9",
+   "dauer": 36.075,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/temple-01": {
+   "datei": "music/temple-01.ogg",
+   "bytes": 628669,
+   "hash": "sha256-cbab1165f709f198ff7ac2b038ca95a870a0215e5396b6ae74c39e6f5ed68c91",
+   "dauer": 72.072,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/temple-02": {
+   "datei": "music/temple-02.ogg",
+   "bytes": 687071,
+   "hash": "sha256-0701615ae85953834aa5b66a674185b23df6ea218fc20d555d8e10495c195608",
+   "dauer": 80.536,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/town-01": {
+   "datei": "music/town-01.ogg",
+   "bytes": 476234,
+   "hash": "sha256-0215afdeb833de9f49c285e8318786417b6bd3f9f56d7d08311115904b600c7f",
+   "dauer": 54.936,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/town-02": {
+   "datei": "music/town-02.ogg",
+   "bytes": 541297,
+   "hash": "sha256-2c6bdec760ad739ce892b928e7f5b945eac07ea83c5d9dd8a6dec6aeb2f6eba7",
+   "dauer": 59.141,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "music/town-03": {
+   "datei": "music/town-03.ogg",
+   "bytes": 343647,
+   "hash": "sha256-21faa0e7678422c7e3c4495661ce7d105d85e9951e42eb8f97f5dbec5d2d6bfb",
+   "dauer": 42.736,
+   "kanaele": "stereo",
+   "abtastrate": 48000
+  },
+  "ui/inventory-armor-drag-end": {
+   "datei": "ui/inventory-armor-drag-end.ogg",
+   "bytes": 3232,
+   "hash": "sha256-9865b8ac09e40d64386dffcaef8238b67e07117977a0408ae7868fd8ad6dd644",
+   "dauer": 0.528,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-armor-drag-start": {
+   "datei": "ui/inventory-armor-drag-start.ogg",
+   "bytes": 2554,
+   "hash": "sha256-205f8cf989f17bd4486a6d0cc37ba690852dde0f88b00bd74f8620ee4e30cb1a",
+   "dauer": 0.432,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-metal-drag-end": {
+   "datei": "ui/inventory-metal-drag-end.ogg",
+   "bytes": 4806,
+   "hash": "sha256-0d55320763452fcf29b0c7b7935570887935f8990cccb9491d2f932dcb7a5eb9",
+   "dauer": 0.672,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-metal-drag-start": {
+   "datei": "ui/inventory-metal-drag-start.ogg",
+   "bytes": 4251,
+   "hash": "sha256-3da1e468a98066a6573509f043f9f8c412ac6caf57789a0bdf11a626ad40203e",
+   "dauer": 0.6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-potion-drag-end": {
+   "datei": "ui/inventory-potion-drag-end.ogg",
+   "bytes": 3209,
+   "hash": "sha256-3002babd1e0a6cf573dac357950666563ec881c73f279f911869e4fb9a2d05bc",
+   "dauer": 0.6,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-potion-drag-start": {
+   "datei": "ui/inventory-potion-drag-start.ogg",
+   "bytes": 2533,
+   "hash": "sha256-880d314b3d2f75a10499bf87af4786d62544f7a0287729f07db13f4daa2d7662",
+   "dauer": 0.408,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-small-drag-end": {
+   "datei": "ui/inventory-small-drag-end.ogg",
+   "bytes": 1661,
+   "hash": "sha256-84935ea8198a768d0ff9efdf4db751a4228e239a115474e343485126cb79d47a",
+   "dauer": 0.288,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-small-drag-start": {
+   "datei": "ui/inventory-small-drag-start.ogg",
+   "bytes": 1408,
+   "hash": "sha256-fffdef085767475cf07705359643996e588b5fc3a8441c9262ce43a9629b2f20",
+   "dauer": 0.216,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-soft-drag-end": {
+   "datei": "ui/inventory-soft-drag-end.ogg",
+   "bytes": 2082,
+   "hash": "sha256-61ae198769992f31e2d999694ec5df1483424406862cf723739df20163e8d0e1",
+   "dauer": 0.336,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/inventory-soft-drag-start": {
+   "datei": "ui/inventory-soft-drag-start.ogg",
+   "bytes": 2298,
+   "hash": "sha256-57a7f0496f2eaaba15b0861bc4c62c156ca6f6bf7aff31c228e81ac0e14e3f0e",
+   "dauer": 0.384,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  },
+  "ui/skill-rage": {
+   "datei": "ui/skill-rage.ogg",
+   "bytes": 84828,
+   "hash": "sha256-5ecb677a6ca82eaf1838dae48cf240c3d40e3ae5fd0fcd6719b6a47852557407",
+   "dauer": 15.192,
+   "kanaele": "mono",
+   "abtastrate": 48000
+  }
+ },
+ "symboleAnzahl": 353,
+ "symboleGemessen": 353,
+ "symboleUebernommen": [],
+ "symbole": {
+  "hud/00-frame7": {
+   "datei": "hud/00-frame7.png",
+   "bytes": 12777,
+   "hash": "sha256-16ff7fc084a94ab60c59209a0516bc8aed07c8bea0a64f0b176d952ab22c9bc1",
+   "breite": 100,
+   "hoehe": 100
+  },
+  "hud/actionbutton": {
+   "datei": "hud/actionbutton.png",
+   "bytes": 3255,
+   "hash": "sha256-df56d4f56dd98bc0911a71c5067fa2d818edde6d6a8769153f49c8107badc3a6",
+   "breite": 224,
+   "hoehe": 85
+  },
+  "hud/actionbuttonselected": {
+   "datei": "hud/actionbuttonselected.png",
+   "bytes": 3252,
+   "hash": "sha256-cf9bbfc095fd326e59439b52465b62604c6358864038ac37e66a6622b9d184e5",
+   "breite": 229,
+   "hoehe": 90
+  },
+  "hud/arrow-above": {
+   "datei": "hud/arrow-above.png",
+   "bytes": 245,
+   "hash": "sha256-1c2ce03052f1ae7b27cdade4c1d7e9cab55380f81e9422a067713a3a726c3739",
+   "breite": 32,
+   "hoehe": 32
+  },
+  "hud/arrow-below": {
+   "datei": "hud/arrow-below.png",
+   "bytes": 281,
+   "hash": "sha256-011318cea5be989ab0973d6139eba83c0b3f9909f49df8a2fbe1838017b4e7b9",
+   "breite": 32,
+   "hoehe": 32
+  },
+  "hud/arrowattribute": {
+   "datei": "hud/arrowattribute.png",
+   "bytes": 2501,
+   "hash": "sha256-46b7f7e11fa461dc87b7c91e499f39396441f267b91219a4c333c8c939e03527",
+   "breite": 88,
+   "hoehe": 66
+  },
+  "hud/assaultriflecrosshairsbottom": {
+   "datei": "hud/assaultriflecrosshairsbottom.png",
+   "bytes": 80,
+   "hash": "sha256-bf7dc5624c3547694eacb4bb602369d90acea96328f8b3cea3db198ee72caf86",
+   "breite": 2,
+   "hoehe": 8
+  },
+  "hud/assaultriflecrosshairscenter": {
+   "datei": "hud/assaultriflecrosshairscenter.png",
+   "bytes": 653,
+   "hash": "sha256-850c1940a679421cc496160b799ae091040b5b2937d2e3a6e65df339d1a0f40f",
+   "breite": 40,
+   "hoehe": 40
+  },
+  "hud/assaultriflecrosshairsleft": {
+   "datei": "hud/assaultriflecrosshairsleft.png",
+   "bytes": 77,
+   "hash": "sha256-002df224d09e0a9837bf3665fde4238686e923c1a2126f3dad1e70a8f397fc1a",
+   "breite": 8,
+   "hoehe": 2
+  },
+  "hud/attributebackground": {
+   "datei": "hud/attributebackground.png",
+   "bytes": 289,
+   "hash": "sha256-507de63318c0720794096b856835094484a7346e42837005bbf9ebfb5f8c292e",
+   "breite": 44,
+   "hoehe": 32
+  },
+  "hud/bodycrosshairs": {
+   "datei": "hud/bodycrosshairs.png",
+   "bytes": 364,
+   "hash": "sha256-ee08f9c90d88841998b9b909139337f283b16776f9a4311301606f0152c47be9",
+   "breite": 20,
+   "hoehe": 20
+  },
+  "hud/bowcrosshairsaim": {
+   "datei": "hud/bowcrosshairsaim.png",
+   "bytes": 165,
+   "hash": "sha256-82489563c37fb4b41730bb705c0c4a1224cbaa160aeb010dbaeb27d5e3a689c5",
+   "breite": 48,
+   "hoehe": 9
+  },
+  "hud/box-border": {
+   "datei": "hud/box-border.png",
+   "bytes": 101,
+   "hash": "sha256-14775921c5f85421dd3519d694275fe8b0f4dfadb09c708ee8caa4094d80cf58",
+   "breite": 20,
+   "hoehe": 20
+  },
+  "hud/box-noborder": {
+   "datei": "hud/box-noborder.png",
+   "bytes": 91,
+   "hash": "sha256-488ab3cbaacc64b0373e5d9527051be3678a6e5a3883edcffe643e8703338eab",
+   "breite": 20,
+   "hoehe": 20
+  },
+  "hud/box-solid": {
+   "datei": "hud/box-solid.png",
+   "bytes": 91,
+   "hash": "sha256-a056f2b2a3addbc805f9d3b9b74902648b969cad195a9aef7c338ddbd015a2ae",
+   "breite": 20,
+   "hoehe": 20
+  },
+  "hud/button": {
+   "datei": "hud/button.png",
+   "bytes": 26230,
+   "hash": "sha256-9e14fa701905e381d9673d176812b3ad6489df6c735cb006851b1e54e16b35c9",
+   "breite": 340,
+   "hoehe": 69
+  },
+  "hud/button-1-d": {
+   "datei": "hud/button-1-d.png",
+   "bytes": 19171,
+   "hash": "sha256-a83079dd125142d16ddef945178189f0330e46e671d47801bed086b58bf3749d",
+   "breite": 340,
+   "hoehe": 69
+  },
+  "hud/button-1-h": {
+   "datei": "hud/button-1-h.png",
+   "bytes": 28916,
+   "hash": "sha256-fd1a774c4dccbaadf417f6f1763284384f1ddb98d6412818e72ad59fc87177a9",
+   "breite": 340,
+   "hoehe": 69
+  },
+  "hud/button-1-p": {
+   "datei": "hud/button-1-p.png",
+   "bytes": 23779,
+   "hash": "sha256-a5970940175386498bb5332277d961d3f59e2b75ca20dbb0b65853b726c7843b",
+   "breite": 340,
+   "hoehe": 69
+  },
+  "hud/button-2": {
+   "datei": "hud/button-2.png",
+   "bytes": 15642,
+   "hash": "sha256-ae3c936f8e8cf3c490eae88f7533edd8c4259953e3121a2f3851c9160ac80015",
+   "breite": 206,
+   "hoehe": 66
+  },
+  "hud/button-2-h": {
+   "datei": "hud/button-2-h.png",
+   "bytes": 18027,
+   "hash": "sha256-83dcb239422df7ea6c74189635d998b59acdf6c60f0b10616570abf036455287",
+   "breite": 206,
+   "hoehe": 66
+  },
+  "hud/button-2-p": {
+   "datei": "hud/button-2-p.png",
+   "bytes": 14120,
+   "hash": "sha256-67ad1850afec352a2714f0036a4bd7b7d9f76279cc5da03fb69a2eee68e85d2d",
+   "breite": 206,
+   "hoehe": 66
+  },
+  "hud/button-3": {
+   "datei": "hud/button-3.png",
+   "bytes": 14302,
+   "hash": "sha256-c4a62c0acf2c697d16b41cff92396934a1fd18c53639d0c52e78d3e6a841fef5",
+   "breite": 194,
+   "hoehe": 63
+  },
+  "hud/button-3-h": {
+   "datei": "hud/button-3-h.png",
+   "bytes": 16621,
+   "hash": "sha256-6b1b1d761298d3f821ebf5ee2f039d4947c690684fe0e4d52d180ea629a4c563",
+   "breite": 194,
+   "hoehe": 63
+  },
+  "hud/button-3-p": {
+   "datei": "hud/button-3-p.png",
+   "bytes": 13031,
+   "hash": "sha256-00cb42aae7cc1353417e54bfa91c24768f2ab5fb28d7dd404f73fe445639ee98",
+   "breite": 194,
+   "hoehe": 63
+  },
+  "hud/button-4": {
+   "datei": "hud/button-4.png",
+   "bytes": 10261,
+   "hash": "sha256-fcfe83ac0774ab73fac9e55e08bec787ea432fdeadfb4f89b2e2df62a8dc818b",
+   "breite": 206,
+   "hoehe": 56
+  },
+  "hud/button-4-h": {
+   "datei": "hud/button-4-h.png",
+   "bytes": 13327,
+   "hash": "sha256-d9a813fae510c811da02cde0e8d8b0055161123648f0c9154e85f9706e9471b6",
+   "breite": 206,
+   "hoehe": 56
+  },
+  "hud/button-4-p": {
+   "datei": "hud/button-4-p.png",
+   "bytes": 9304,
+   "hash": "sha256-12c4c206728e0ae4428e4eb711fc8654a6997b486dc04992f318a462eb1b114e",
+   "breite": 206,
+   "hoehe": 56
+  },
+  "hud/button-5": {
+   "datei": "hud/button-5.png",
+   "bytes": 2066,
+   "hash": "sha256-1649c70babc8c85e4250426c45e5231f5d6bc99f74f0c2fa417fb0a34a6feac2",
+   "breite": 46,
+   "hoehe": 46
+  },
+  "hud/button-5-h": {
+   "datei": "hud/button-5-h.png",
+   "bytes": 2987,
+   "hash": "sha256-ea80e0960e312399c50b4b6e3190fb6cd75556211374f8c7493a43a7091d6d50",
+   "breite": 46,
+   "hoehe": 46
+  },
+  "hud/button-5-p": {
+   "datei": "hud/button-5-p.png",
+   "bytes": 1850,
+   "hash": "sha256-4db81c753aefaaba0221d25f0ef64266f66d50df66bbf1d603f5eeca26e64275",
+   "breite": 46,
+   "hoehe": 46
+  },
+  "hud/button-6": {
+   "datei": "hud/button-6.png",
+   "bytes": 72860,
+   "hash": "sha256-036706e1d762b81d7a71b1641caac7f96b223c92dd555fc55629cda5514f4aa0",
+   "breite": 363,
+   "hoehe": 364
+  },
+  "hud/button-6-bright": {
+   "datei": "hud/button-6-bright.png",
+   "bytes": 86314,
+   "hash": "sha256-01c1e5e31b651e95bc449dfe37794b460c36ed00e97a24a2664ca03902655850",
+   "breite": 363,
+   "hoehe": 364
+  },
+  "hud/button-6-d-map": {
+   "datei": "hud/button-6-d-map.png",
+   "bytes": 52105,
+   "hash": "sha256-631ce960a9db762d31782c807332fc240d74f4b482c96d2b60abf6745a2abccc",
+   "breite": 362,
+   "hoehe": 364
+  },
+  "hud/button-6-h-bright": {
+   "datei": "hud/button-6-h-bright.png",
+   "bytes": 94373,
+   "hash": "sha256-7ad79e4953f6827be66080d0e0e550216a3fe0fcf7c545cec4c1507d7193d2fa",
+   "breite": 363,
+   "hoehe": 364
+  },
+  "hud/button-6-p": {
+   "datei": "hud/button-6-p.png",
+   "bytes": 68862,
+   "hash": "sha256-b6a007d01268b3e4fc496e0a9a3ccaf0ad4f442a920fba7dadea29185fb1e117",
+   "breite": 363,
+   "hoehe": 364
+  },
+  "hud/button-7": {
+   "datei": "hud/button-7.png",
+   "bytes": 948,
+   "hash": "sha256-a147939233d91515af8e8dd8c5beae8cd97dc33fc75e2ef99f6d5b30a258d698",
+   "breite": 46,
+   "hoehe": 46
+  },
+  "hud/button-a-lil-ready": {
+   "datei": "hud/button-a-lil-ready.png",
+   "bytes": 37274,
+   "hash": "sha256-8fb7498ff1f183f3df4d1c61b31cb507102daaec7c3f40e240f3e01f2d130347",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "hud/circle-portrait": {
+   "datei": "hud/circle-portrait.png",
+   "bytes": 11681,
+   "hash": "sha256-cc2e3af59bf78e1cf6e06dda055c2ba013bc0b145740bb3c4397433b878fbd82",
+   "breite": 79,
+   "hoehe": 79
+  },
+  "hud/crosshairs-bow": {
+   "datei": "hud/crosshairs-bow.png",
+   "bytes": 294,
+   "hash": "sha256-ee7df273d026c4dd86ebd58fb902cf63e2df31af72a574fa040392bd92bc4779",
+   "breite": 71,
+   "hoehe": 5
+  },
+  "hud/disabledbutton": {
+   "datei": "hud/disabledbutton.png",
+   "bytes": 3074,
+   "hash": "sha256-4eec168ad65066f2a245271b59dd4e836193e4a22700c83220f17dafe02b0cc4",
+   "breite": 224,
+   "hoehe": 85
+  },
+  "hud/disabledbuttonselected": {
+   "datei": "hud/disabledbuttonselected.png",
+   "bytes": 3028,
+   "hash": "sha256-adbf18378205fed67d7c6a3109335c30e341ee04f1eca06e6f829514d3375aab",
+   "breite": 229,
+   "hoehe": 90
+  },
+  "hud/downarrowindicator": {
+   "datei": "hud/downarrowindicator.png",
+   "bytes": 2987,
+   "hash": "sha256-a966a4e8a1bad5a8bc0ef902c62c926b1a68dc3136e678ebebf8347c7a665173",
+   "breite": 116,
+   "hoehe": 120
+  },
+  "hud/fraggrenadecrosshairs": {
+   "datei": "hud/fraggrenadecrosshairs.png",
+   "bytes": 809,
+   "hash": "sha256-d399fc676d844d68aaf3b372e92d21cf41a0e5ca3961b5ef5fb7c1d5632c23fa",
+   "breite": 44,
+   "hoehe": 44
+  },
+  "hud/frame-square-skill": {
+   "datei": "hud/frame-square-skill.png",
+   "bytes": 2585,
+   "hash": "sha256-6f8c48dda776afe9aa9f4acedf47abacf19266ad9b1107782fb50f27fa327c30",
+   "breite": 60,
+   "hoehe": 60
+  },
+  "hud/frame-square3": {
+   "datei": "hud/frame-square3.png",
+   "bytes": 4707,
+   "hash": "sha256-2cf0eb63f374b911b9e0675b70455d0bdfb17763cb1180ef1ad007f27867e7db",
+   "breite": 59,
+   "hoehe": 59
+  },
+  "hud/frame-square4": {
+   "datei": "hud/frame-square4.png",
+   "bytes": 1474,
+   "hash": "sha256-a9a51771ff332805fb5746a4a793faedaf8c8a05f5049101fb45f097a003dd5d",
+   "breite": 50,
+   "hoehe": 50
+  },
+  "hud/frame-square4-slised": {
+   "datei": "hud/frame-square4-slised.png",
+   "bytes": 1193,
+   "hash": "sha256-4da9b39ae7d4b67ba4b700c3e993602867234d95f88f103fb9c3ea4e74ca1af3",
+   "breite": 50,
+   "hoehe": 50
+  },
+  "hud/frame-square4-slised-select": {
+   "datei": "hud/frame-square4-slised-select.png",
+   "bytes": 1571,
+   "hash": "sha256-75f260580ddd78f845a04538654b3d0e469b47305dcf4f97aa863ab197b98efc",
+   "breite": 50,
+   "hoehe": 50
+  },
+  "hud/frame2elite": {
+   "datei": "hud/frame2elite.png",
+   "bytes": 18887,
+   "hash": "sha256-8d31a01a0c632ae0553d586136fa38ba6adcda457ffd82b6fc3414474370ac2e",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "hud/frame2elite3": {
+   "datei": "hud/frame2elite3.png",
+   "bytes": 16745,
+   "hash": "sha256-f229bb9c4260fa135333186185ff9083e364bf7c1cda10cb54ee2cef8ae05eed",
+   "breite": 260,
+   "hoehe": 320
+  },
+  "hud/frame2elite4": {
+   "datei": "hud/frame2elite4.png",
+   "bytes": 17214,
+   "hash": "sha256-d0cb69e9062f1e8aa463362c119b87bf849fe920524ad4366122be71647d7536",
+   "breite": 320,
+   "hoehe": 320
+  },
+  "hud/frame2elite5": {
+   "datei": "hud/frame2elite5.png",
+   "bytes": 30547,
+   "hash": "sha256-3319eb1eb633d3f44d6bfcab50942db4d3deda1067366903619312925051d431",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "hud/health-bar-back-boss-mask": {
+   "datei": "hud/health-bar-back-boss-mask.png",
+   "bytes": 5498,
+   "hash": "sha256-47b182af323599b50f4c77898cc49fa857c6fbe5d2968ca9787462ccec8f5cb7",
+   "breite": 503,
+   "hoehe": 40
+  },
+  "hud/hp-bar-mini-back": {
+   "datei": "hud/hp-bar-mini-back.png",
+   "bytes": 5165,
+   "hash": "sha256-b4baf2890665f8a123108cfd88513ac21083c278b0923c3cec5b2b40b2af82f6",
+   "breite": 492,
+   "hoehe": 49
+  },
+  "hud/icon-arrow": {
+   "datei": "hud/icon-arrow.png",
+   "bytes": 594,
+   "hash": "sha256-370625779b9d23abf01ff23cedfd9b204e877dea54280f71aaf4b420f0f6e581",
+   "breite": 38,
+   "hoehe": 64
+  },
+  "hud/icon-arrow-2": {
+   "datei": "hud/icon-arrow-2.png",
+   "bytes": 113092,
+   "hash": "sha256-a665ff7f530ec633b7fc977a4700e3cce4adf05e3c2799c86e7c285e76b6a625",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-arrow-h": {
+   "datei": "hud/icon-arrow-h.png",
+   "bytes": 122735,
+   "hash": "sha256-a73ab85c73cc147cd67cebdb14cce3459277102da1265eddea1357fed6497635",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-arrow-p": {
+   "datei": "hud/icon-arrow-p.png",
+   "bytes": 101551,
+   "hash": "sha256-4ceb5798bbda8ae0cd059536f5e47ff806d17a73250272c1df2379e8cb6d38d6",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-char": {
+   "datei": "hud/icon-char.png",
+   "bytes": 109099,
+   "hash": "sha256-5782fa869dd530f2030a6336ee4a92691216d267243046cd526532725d6675d0",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-char-h": {
+   "datei": "hud/icon-char-h.png",
+   "bytes": 118835,
+   "hash": "sha256-a2cda97ad93f59e813808112bde5ef924ae3db702b4a6b0f193445563a64576c",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-char-p": {
+   "datei": "hud/icon-char-p.png",
+   "bytes": 100156,
+   "hash": "sha256-90aa8840ee21b19b972c0544c7092d0e2e4dc332c7e3d94c78b935a077e5ed99",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-dot": {
+   "datei": "hud/icon-dot.png",
+   "bytes": 108629,
+   "hash": "sha256-86330290125560241a99df91ca7f3dbbae380f517e560160910d63006d6e1b11",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-dot-1-h": {
+   "datei": "hud/icon-dot-1-h.png",
+   "bytes": 119070,
+   "hash": "sha256-fef4b4fdb1ea6b98155f022b6ec8009903e44ef768b9dd1bd8f6e206a4b2e8c8",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-dot-2": {
+   "datei": "hud/icon-dot-2.png",
+   "bytes": 109544,
+   "hash": "sha256-bac9f63aa9e234c5246f5386511cae5116a53de7ab11212c038ce8356ea2bb52",
+   "breite": 361,
+   "hoehe": 399
+  },
+  "hud/icon-dot-3-h": {
+   "datei": "hud/icon-dot-3-h.png",
+   "bytes": 120102,
+   "hash": "sha256-0c131b2683c9a666c9c400874651160e2183ecd66429dc330a6c2af9f9d69aab",
+   "breite": 361,
+   "hoehe": 399
+  },
+  "hud/icon-dot-3-p": {
+   "datei": "hud/icon-dot-3-p.png",
+   "bytes": 97634,
+   "hash": "sha256-db53d3f65554d3e5c5e48db81434b13c1390b57c8824e52284179967200b9e92",
+   "breite": 361,
+   "hoehe": 399
+  },
+  "hud/icon-enemy": {
+   "datei": "hud/icon-enemy.png",
+   "bytes": 1280,
+   "hash": "sha256-d5a8a2ad86c912181e7ed376e7515ad4698b3562faf7d8feb9323a2a5f5fc083",
+   "breite": 58,
+   "hoehe": 63
+  },
+  "hud/icon-home": {
+   "datei": "hud/icon-home.png",
+   "bytes": 579,
+   "hash": "sha256-ed3e17528a98404b92d6f2fea7db44527e5486e93fe21f3759e45e24eebd1ac4",
+   "breite": 64,
+   "hoehe": 59
+  },
+  "hud/icon-hudnav-chest": {
+   "datei": "hud/icon-hudnav-chest.png",
+   "bytes": 10309,
+   "hash": "sha256-2bc80d8f6673cf5958e8067186af23e65623a4576e613a75835c2a1e829d8fdf",
+   "breite": 273,
+   "hoehe": 191
+  },
+  "hud/icon-hudnav-craftforge": {
+   "datei": "hud/icon-hudnav-craftforge.png",
+   "bytes": 8571,
+   "hash": "sha256-93b2cfb89c83703622333e125dea1c7df8e80680a7634a2b179813772497e9a9",
+   "breite": 267,
+   "hoehe": 195
+  },
+  "hud/icon-hudnav-enemy": {
+   "datei": "hud/icon-hudnav-enemy.png",
+   "bytes": 12001,
+   "hash": "sha256-c8828a485f59d16e85f14eee2da36777e78f7f80cc6e5cacf21b9264b74d8e33",
+   "breite": 203,
+   "hoehe": 203
+  },
+  "hud/icon-hudnav-forgerune": {
+   "datei": "hud/icon-hudnav-forgerune.png",
+   "bytes": 24469,
+   "hash": "sha256-6c4995344a6aca69c87e20f9cb4bf6307abfb74d3bf0e3c340da6395961e52bc",
+   "breite": 183,
+   "hoehe": 207
+  },
+  "hud/icon-hudnav-home": {
+   "datei": "hud/icon-hudnav-home.png",
+   "bytes": 6678,
+   "hash": "sha256-776c170e1add91c0cdb88f96bb87b8af81829aa2fee71df7d79f4c696f3931b8",
+   "breite": 245,
+   "hoehe": 212
+  },
+  "hud/icon-hudnav-portal": {
+   "datei": "hud/icon-hudnav-portal.png",
+   "bytes": 25473,
+   "hash": "sha256-0717ee98e70daa96e5c877028495ba26aa6945ec32a254ebbb0df320f1bad3bf",
+   "breite": 222,
+   "hoehe": 220
+  },
+  "hud/icon-hudnav-quest-mark": {
+   "datei": "hud/icon-hudnav-quest-mark.png",
+   "bytes": 41752,
+   "hash": "sha256-aff6c60bd346edd6a4260a765271d3b76837f9fe8f3c7edbb94e726d974f56ab",
+   "breite": 280,
+   "hoehe": 280
+  },
+  "hud/icon-hudnav-quest-mark-2": {
+   "datei": "hud/icon-hudnav-quest-mark-2.png",
+   "bytes": 29659,
+   "hash": "sha256-698fbb4ce5cefb34e4d8af07933ef03f43318ab1e41c063c58e92fbdc4c6f0f9",
+   "breite": 280,
+   "hoehe": 280
+  },
+  "hud/icon-hudnav-shop": {
+   "datei": "hud/icon-hudnav-shop.png",
+   "bytes": 27315,
+   "hash": "sha256-f201352e54c17a8451ad1f386bfddfcd2f306a285609c9cf0fc00040a40fc81f",
+   "breite": 275,
+   "hoehe": 229
+  },
+  "hud/icon-hudnav-skillsshop": {
+   "datei": "hud/icon-hudnav-skillsshop.png",
+   "bytes": 16219,
+   "hash": "sha256-82621fd9288f37655e13de6750a01d839cdeac7c3afd4d72480a5933dfad47a6",
+   "breite": 194,
+   "hoehe": 236
+  },
+  "hud/icon-inventar": {
+   "datei": "hud/icon-inventar.png",
+   "bytes": 118456,
+   "hash": "sha256-a8bcd9bb9c7737602dc37e2b6b9b43b9c7b3cd89985579983ba8f46ff6025c59",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-inventar-h": {
+   "datei": "hud/icon-inventar-h.png",
+   "bytes": 129951,
+   "hash": "sha256-d4901c10ad5f0a452e796cc07cba6cad8e4b12d4da69fbd52ef9f16cc59cece2",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-inventar-p": {
+   "datei": "hud/icon-inventar-p.png",
+   "bytes": 108496,
+   "hash": "sha256-127fbf15e2463598774a2208b3ed2ab2857e6703480fb94bff346cf4c69b03b2",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-p": {
+   "datei": "hud/icon-p.png",
+   "bytes": 109313,
+   "hash": "sha256-ad08f18d139654a03e93fc305b1b5557be4d5eacb9e5b8b84b07b8e4c5681c5a",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-p-h": {
+   "datei": "hud/icon-p-h.png",
+   "bytes": 118935,
+   "hash": "sha256-c1fd5071996b7430fc0391139fe042af6454e5e7c7ba8ec9a2549e4ae4f7a67d",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-p-p": {
+   "datei": "hud/icon-p-p.png",
+   "bytes": 98899,
+   "hash": "sha256-aa79efeb870a420970601b292c4b0cd5d5669ec9d6192294374600efae8c6045",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-p2": {
+   "datei": "hud/icon-p2.png",
+   "bytes": 108324,
+   "hash": "sha256-cca2fad413c5d38dc3dca2a9022078e77659050f8d4fcbcff9277cd043beb8a3",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-p2-h": {
+   "datei": "hud/icon-p2-h.png",
+   "bytes": 118830,
+   "hash": "sha256-d687c7ef1b1db05c6a95c69eabb7b20ad5c3e5f3e66fd4127321493bf0a38b93",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-p2-p": {
+   "datei": "hud/icon-p2-p.png",
+   "bytes": 97541,
+   "hash": "sha256-dd348a30581a5f51cbf52e33e7a135b65480eb5ea2b471873fabae97a7afe78a",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-player": {
+   "datei": "hud/icon-player.png",
+   "bytes": 658,
+   "hash": "sha256-de920c5bed621fb0c65e6f472d85aa0c92bd6c17f7dbf3821d24c7b64d75d62e",
+   "breite": 64,
+   "hoehe": 64
+  },
+  "hud/icon-prism": {
+   "datei": "hud/icon-prism.png",
+   "bytes": 1054,
+   "hash": "sha256-70ad15e9ecdec4e74b95f448c5cf9f39cc9368f23ba6f23eba9ba081ad2a2d93",
+   "breite": 58,
+   "hoehe": 64
+  },
+  "hud/icon-prism-filled": {
+   "datei": "hud/icon-prism-filled.png",
+   "bytes": 714,
+   "hash": "sha256-22c835961d4de32d3c9aacf7a4c8fca69672521a59465ba8177e469af4bd5184",
+   "breite": 58,
+   "hoehe": 64
+  },
+  "hud/icon-tooltip-defense": {
+   "datei": "hud/icon-tooltip-defense.png",
+   "bytes": 6969,
+   "hash": "sha256-aff6fbcf52f3ce3a3e4e89ca888ac9aa34309697865cad5627d1ed28f9523ce0",
+   "breite": 103,
+   "hoehe": 103
+  },
+  "hud/icon-tooltip-weapon": {
+   "datei": "hud/icon-tooltip-weapon.png",
+   "bytes": 5510,
+   "hash": "sha256-88486c9b517fc2a5e1b37e340db84ae8b5609296bbe3a245136c1b5a506fbd58",
+   "breite": 82,
+   "hoehe": 126
+  },
+  "hud/icon-x": {
+   "datei": "hud/icon-x.png",
+   "bytes": 112156,
+   "hash": "sha256-88dc86cb0044cc3e84fb0fefad8df4b78f67de75be303fd02aeee22ac655d283",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-x-h": {
+   "datei": "hud/icon-x-h.png",
+   "bytes": 119912,
+   "hash": "sha256-cdacf3496055f05917314c36f55177b818095e011109091c8e41a1576f89531a",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/icon-x-p": {
+   "datei": "hud/icon-x-p.png",
+   "bytes": 102264,
+   "hash": "sha256-839b1808ff11750612fe1a12d63c096a3523c2fdf3bcfd7a0731f52acdd7a98a",
+   "breite": 361,
+   "hoehe": 364
+  },
+  "hud/indicator": {
+   "datei": "hud/indicator.png",
+   "bytes": 15491,
+   "hash": "sha256-f8ba4e2e161779261443088e8a2b1243f5c272a0b0a3cef597eab6190edeac09",
+   "breite": 166,
+   "hoehe": 91
+  },
+  "hud/itemviewslot": {
+   "datei": "hud/itemviewslot.png",
+   "bytes": 833,
+   "hash": "sha256-4ac0b602bff6f36ed1e159d5ab7666424f4e3bd0f180658492f4388a7d02f8a7",
+   "breite": 119,
+   "hoehe": 119
+  },
+  "hud/itemviewslotequipped": {
+   "datei": "hud/itemviewslotequipped.png",
+   "bytes": 2341,
+   "hash": "sha256-c49d08e446ad1d56cff82253017fc6ecc883efd26ceb7113f0e11f3ff40a3974",
+   "breite": 119,
+   "hoehe": 119
+  },
+  "hud/itemviewslotselected": {
+   "datei": "hud/itemviewslotselected.png",
+   "bytes": 1456,
+   "hash": "sha256-4b89b6fbbb437dd7df5af21604ad9a2dc30cf0e6f9f121570d832b119f28eb23",
+   "breite": 124,
+   "hoehe": 124
+  },
+  "hud/itemviewslotselectedequipped": {
+   "datei": "hud/itemviewslotselectedequipped.png",
+   "bytes": 2941,
+   "hash": "sha256-7e889a856057b7c77317ec585751da111200d5c66429b7a5d4e12388b2799e21",
+   "breite": 124,
+   "hoehe": 124
+  },
+  "hud/joystick": {
+   "datei": "hud/joystick.png",
+   "bytes": 4321,
+   "hash": "sha256-255ec67b98e597b1fee36b0c43d224237fe50cffa57b56e26f20fbe7b2f9634f",
+   "breite": 104,
+   "hoehe": 104
+  },
+  "hud/joystick-button": {
+   "datei": "hud/joystick-button.png",
+   "bytes": 30405,
+   "hash": "sha256-1bed6f46d8d28582a4b3828ef687dc2ce9d0835564261625c46e6f47cba0b176",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "hud/loading-bar": {
+   "datei": "hud/loading-bar.png",
+   "bytes": 9787,
+   "hash": "sha256-488f66c225ad72cd66ad30fb38cd94221170211d6f44025c56d9f7f61e5f63a1",
+   "breite": 440,
+   "hoehe": 49
+  },
+  "hud/loading-bar-2": {
+   "datei": "hud/loading-bar-2.png",
+   "bytes": 2896,
+   "hash": "sha256-389fae512952b61e8dd560ba514066ffb38aedbd2a1bcfd2d112788a1500d7f9",
+   "breite": 73,
+   "hoehe": 37
+  },
+  "hud/meleecrosshairs": {
+   "datei": "hud/meleecrosshairs.png",
+   "bytes": 484,
+   "hash": "sha256-2f0226f23a2a4b00cc097cb3364fdea289f72c8a44d5219fc7857b46df4a582c",
+   "breite": 33,
+   "hoehe": 33
+  },
+  "hud/panelbackground": {
+   "datei": "hud/panelbackground.png",
+   "bytes": 6618,
+   "hash": "sha256-2a25a99eff058a48279508f92add83502e25bfcbdc6aaac93710a2ec7cf969e2",
+   "breite": 292,
+   "hoehe": 307
+  },
+  "hud/panelcontent3": {
+   "datei": "hud/panelcontent3.png",
+   "bytes": 137707,
+   "hash": "sha256-a246558d87a6018410de181af22cefb565b6ac372aa2a54e550b0a29ddf4df1e",
+   "breite": 474,
+   "hoehe": 474
+  },
+  "hud/panelcontentsmall": {
+   "datei": "hud/panelcontentsmall.png",
+   "bytes": 17004,
+   "hash": "sha256-56e4b2dde9374229bb32667e0e3a1ad88d2381dbb453818cc8943c64c9b6bece",
+   "breite": 192,
+   "hoehe": 192
+  },
+  "hud/panelheader": {
+   "datei": "hud/panelheader.png",
+   "bytes": 19524,
+   "hash": "sha256-2c7e1ec6bda369be96726d73e7821179906418788a97c995c676a62f48af300c",
+   "breite": 434,
+   "hoehe": 140
+  },
+  "hud/pistolcrosshairsbottom": {
+   "datei": "hud/pistolcrosshairsbottom.png",
+   "bytes": 131,
+   "hash": "sha256-9474b340b286445d25b9268e3f76cccf8b16abe9684892a43a2401528ce95a52",
+   "breite": 10,
+   "hoehe": 3
+  },
+  "hud/pistolcrosshairscenter": {
+   "datei": "hud/pistolcrosshairscenter.png",
+   "bytes": 550,
+   "hash": "sha256-cea67c71bda934bc5c89486bf77544eb82b7ae55192cc915d080e6beb66b6fe4",
+   "breite": 32,
+   "hoehe": 32
+  },
+  "hud/pistolcrosshairsleft": {
+   "datei": "hud/pistolcrosshairsleft.png",
+   "bytes": 131,
+   "hash": "sha256-2545733b55f5aa3d71fc0c83d8976925c24c97f1eb9dc66f5b46be624520f613",
+   "breite": 3,
+   "hoehe": 10
+  },
+  "hud/pistolcrosshairsright": {
+   "datei": "hud/pistolcrosshairsright.png",
+   "bytes": 136,
+   "hash": "sha256-f9a181b18eda354c43bfe69882acbe4502abaff4b238d28742d75a3e0af73386",
+   "breite": 3,
+   "hoehe": 10
+  },
+  "hud/pistolcrosshairstop": {
+   "datei": "hud/pistolcrosshairstop.png",
+   "bytes": 127,
+   "hash": "sha256-6d1aee793e31f7b1f2a69b8e1541440c9d85c57bc0cac01692c8651d7f88dd72",
+   "breite": 10,
+   "hoehe": 3
+  },
+  "hud/portrait": {
+   "datei": "hud/portrait.png",
+   "bytes": 1827,
+   "hash": "sha256-643c42cb92037a91e70e6e5c920588118790294db4b219007c2af5fe0cbfd8be",
+   "breite": 64,
+   "hoehe": 64
+  },
+  "hud/slot": {
+   "datei": "hud/slot.png",
+   "bytes": 1307,
+   "hash": "sha256-3b384c20c4eb642806df31e73688dde6dfa94f8b9b368816e8dbc57733b47722",
+   "breite": 46,
+   "hoehe": 46
+  },
+  "hud/slot-2x2": {
+   "datei": "hud/slot-2x2.png",
+   "bytes": 4414,
+   "hash": "sha256-951b26c20f869a5c54f0cdf00bc73b3994b64c444e4ad8b9ff48654cc7b670ac",
+   "breite": 116,
+   "hoehe": 119
+  },
+  "hud/slot-2x2-h": {
+   "datei": "hud/slot-2x2-h.png",
+   "bytes": 8150,
+   "hash": "sha256-d22017e8c54e920406455be250c0b5185931315c66999804f1485488b83f28f7",
+   "breite": 103,
+   "hoehe": 103
+  },
+  "hud/slot-2x3": {
+   "datei": "hud/slot-2x3.png",
+   "bytes": 10068,
+   "hash": "sha256-8dbd0c0c00c79fb75152adea9e0151f28332a0731168ad6d3ccdad7c6b5ea411",
+   "breite": 116,
+   "hoehe": 169
+  },
+  "hud/slot-2x3-h": {
+   "datei": "hud/slot-2x3-h.png",
+   "bytes": 3139,
+   "hash": "sha256-236d589786734f55738340080811c15676b44cdcb1379819e4a40afb47561e06",
+   "breite": 103,
+   "hoehe": 153
+  },
+  "hud/slot-hover": {
+   "datei": "hud/slot-hover.png",
+   "bytes": 6868,
+   "hash": "sha256-169c4b7df637553c612631d0c1c24a51a41ae59b3d8233f63031bb4d9c1c9555",
+   "breite": 191,
+   "hoehe": 191
+  },
+  "hud/subpanel": {
+   "datei": "hud/subpanel.png",
+   "bytes": 6189,
+   "hash": "sha256-c9bc991e371ba615a4610668fdbe3d32a7ba4d675f56834d3a31ad201859f663",
+   "breite": 245,
+   "hoehe": 245
+  },
+  "hud/ui-element-box-default": {
+   "datei": "hud/ui-element-box-default.png",
+   "bytes": 139,
+   "hash": "sha256-17cafa0c9b90996d2172a56474c41bf06b66a18230b791beffea8723fe558085",
+   "breite": 16,
+   "hoehe": 16
+  },
+  "icons/amazingrune": {
+   "datei": "icons/amazingrune.png",
+   "bytes": 31286,
+   "hash": "sha256-2c5a37e2f8924d1bae37e12c83d9be13021c8fa54e32b673658f18c0b49603c6",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/armor": {
+   "datei": "icons/armor.png",
+   "bytes": 5711,
+   "hash": "sha256-c1583a59a7cef8c09c111cf62c8fedc8c8ddbbafed4fe30e80423ba9c83f0f7f",
+   "breite": 93,
+   "hoehe": 93
+  },
+  "icons/armor-adventurer": {
+   "datei": "icons/armor-adventurer.png",
+   "bytes": 56060,
+   "hash": "sha256-926e735dfb79cd8e564bb4b5817d2e45f454dd586d5333529300fff3916e7161",
+   "breite": 230,
+   "hoehe": 256
+  },
+  "icons/armor-courage": {
+   "datei": "icons/armor-courage.png",
+   "bytes": 71565,
+   "hash": "sha256-7194b634e6cb45a117edb0ebc2013a909397aff4a41b4cf1be89ce38e944daee",
+   "breite": 252,
+   "hoehe": 256
+  },
+  "icons/armor-courage-2": {
+   "datei": "icons/armor-courage-2.png",
+   "bytes": 74713,
+   "hash": "sha256-c064946a63e7d332cf09f66ce81c753d0e602c5ac4049923e27f70acaeceeb5d",
+   "breite": 252,
+   "hoehe": 256
+  },
+  "icons/armor-dark-lord": {
+   "datei": "icons/armor-dark-lord.png",
+   "bytes": 61726,
+   "hash": "sha256-457567bf2ae012f5bebb2163ad6fd5d1a58e715a783336f048cc67938ee7532c",
+   "breite": 234,
+   "hoehe": 256
+  },
+  "icons/armor-dark-lord-2": {
+   "datei": "icons/armor-dark-lord-2.png",
+   "bytes": 65147,
+   "hash": "sha256-bb7e054b4ef10e9af6b04356c64bb13d5732c9ccaba4ba46f51c05ad69b0af0b",
+   "breite": 233,
+   "hoehe": 256
+  },
+  "icons/armor-guardian": {
+   "datei": "icons/armor-guardian.png",
+   "bytes": 69014,
+   "hash": "sha256-1b4987649370f49287699ee1728c89255edd2d009d12c2d00e824720c8cf33ea",
+   "breite": 240,
+   "hoehe": 256
+  },
+  "icons/armor-guardian-2": {
+   "datei": "icons/armor-guardian-2.png",
+   "bytes": 66221,
+   "hash": "sha256-92b678b050c8fbd409aab917f38a0b7f9c3b3afcb17331a3c84e5ead83033ef2",
+   "breite": 241,
+   "hoehe": 256
+  },
+  "icons/armor-invincibility": {
+   "datei": "icons/armor-invincibility.png",
+   "bytes": 74849,
+   "hash": "sha256-7fffb825e37921d1f2c5a30e87a1f05a9acc17a4935023053b4932a7c3efd42f",
+   "breite": 232,
+   "hoehe": 256
+  },
+  "icons/armor-invincibility-2": {
+   "datei": "icons/armor-invincibility-2.png",
+   "bytes": 78061,
+   "hash": "sha256-4ff9948c0b8bc9c4bce3bd3477b692d56192eece14b97cdde3c5a447c740a689",
+   "breite": 231,
+   "hoehe": 256
+  },
+  "icons/armor-mercenary": {
+   "datei": "icons/armor-mercenary.png",
+   "bytes": 53303,
+   "hash": "sha256-8673ef9f821c70338ab57fcac6473df7622f6ae1d168b655133c6f7e9a7026cb",
+   "breite": 256,
+   "hoehe": 246
+  },
+  "icons/armor-mercenary-2": {
+   "datei": "icons/armor-mercenary-2.png",
+   "bytes": 57125,
+   "hash": "sha256-49a2ab2f784cde6c1df91714876c2cd65e1a0101df1f3e350bcfd8cbfb15ed3b",
+   "breite": 256,
+   "hoehe": 246
+  },
+  "icons/armor-power": {
+   "datei": "icons/armor-power.png",
+   "bytes": 62460,
+   "hash": "sha256-0e7801de7f74578b069005707c86e893429bb3e7f1652200d75ee5b1571a9678",
+   "breite": 236,
+   "hoehe": 256
+  },
+  "icons/armor-power-2": {
+   "datei": "icons/armor-power-2.png",
+   "bytes": 59591,
+   "hash": "sha256-7991e72d78ccf0aab36ff6974c5d1f392eaf7a8156c21215a25943e247fd6443",
+   "breite": 237,
+   "hoehe": 256
+  },
+  "icons/armor-warrior": {
+   "datei": "icons/armor-warrior.png",
+   "bytes": 74286,
+   "hash": "sha256-835189c1d5653f96c95f2578901ca6aee4c3e5f3b37eaa6ee7ac7e07819157ce",
+   "breite": 256,
+   "hoehe": 253
+  },
+  "icons/armor-warrior-2": {
+   "datei": "icons/armor-warrior-2.png",
+   "bytes": 77498,
+   "hash": "sha256-4460b9a97813a518f8fd4a1a1690281262ddbee4795c204f2d1f60e7daf21564",
+   "breite": 256,
+   "hoehe": 255
+  },
+  "icons/assaultrifle": {
+   "datei": "icons/assaultrifle.png",
+   "bytes": 2117,
+   "hash": "sha256-f8d9c718deaa8cb2cb21bcdc467de0cff139fcc78ba26e13bdf83f78e426ec25",
+   "breite": 103,
+   "hoehe": 92
+  },
+  "icons/big-health-potion-icon": {
+   "datei": "icons/big-health-potion-icon.png",
+   "bytes": 19240,
+   "hash": "sha256-2045404d3c681d9d47ed97405034b4ce9223f0c1ca324864f8ae316f28050fad",
+   "breite": 146,
+   "hoehe": 200
+  },
+  "icons/bigbomb": {
+   "datei": "icons/bigbomb.png",
+   "bytes": 28247,
+   "hash": "sha256-8d4b9156d207885655c186aa79d7ebefb03dfee8742321c6d5ceb673e9a94a55",
+   "breite": 179,
+   "hoehe": 188
+  },
+  "icons/bigpotion": {
+   "datei": "icons/bigpotion.png",
+   "bytes": 29389,
+   "hash": "sha256-a5f5dd06e4f815f2fb9df665dbce9500904314811049e34459f5e63eb4e2d5b3",
+   "breite": 160,
+   "hoehe": 187
+  },
+  "icons/bigpotionshapesgrid": {
+   "datei": "icons/bigpotionshapesgrid.png",
+   "bytes": 23618,
+   "hash": "sha256-311e713dbb291cacadf354285485db53d1d6f839b2641d3ed432cccbe579e946",
+   "breite": 126,
+   "hoehe": 256
+  },
+  "icons/bomb": {
+   "datei": "icons/bomb.png",
+   "bytes": 15261,
+   "hash": "sha256-d610a0ed12263bd37b7efce26bf005766117d7b34ccf5536b631b6b10cffd810",
+   "breite": 135,
+   "hoehe": 169
+  },
+  "icons/boostrune": {
+   "datei": "icons/boostrune.png",
+   "bytes": 28073,
+   "hash": "sha256-86a6f0fd20e7dead530255e757137863aace05d6cf8677a0283194fc2641c2e5",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/boots-adventurer": {
+   "datei": "icons/boots-adventurer.png",
+   "bytes": 41536,
+   "hash": "sha256-45e054d8477236f1b87e132a8e3e2fd9419d91e1439b6192ad76263b3b6d45ec",
+   "breite": 232,
+   "hoehe": 256
+  },
+  "icons/boots-courage": {
+   "datei": "icons/boots-courage.png",
+   "bytes": 48036,
+   "hash": "sha256-5b0222bdc92a56bfb6148c414aec017851cc07d231975326f4cfcf3f327723b7",
+   "breite": 214,
+   "hoehe": 256
+  },
+  "icons/boots-dark-lord": {
+   "datei": "icons/boots-dark-lord.png",
+   "bytes": 44040,
+   "hash": "sha256-3f193e5b09ce7f9b6584bcb3320d905601f8fab5aaf964b5556c09061ea4e84e",
+   "breite": 179,
+   "hoehe": 256
+  },
+  "icons/boots-guardian": {
+   "datei": "icons/boots-guardian.png",
+   "bytes": 45309,
+   "hash": "sha256-f23ccc252dc4deb5d1932b42ad3f4ebe35eac7480f4d4cb91c9f073b6e6a2a72",
+   "breite": 196,
+   "hoehe": 256
+  },
+  "icons/boots-invincibility": {
+   "datei": "icons/boots-invincibility.png",
+   "bytes": 49793,
+   "hash": "sha256-74a1214155e5a50150702f47c29a2a0d3d73025cc91cab1d57a3d3bc729fcac9",
+   "breite": 207,
+   "hoehe": 256
+  },
+  "icons/boots-mercenary": {
+   "datei": "icons/boots-mercenary.png",
+   "bytes": 47064,
+   "hash": "sha256-8aca2a557d58a0dec38262535304f86ce1b186cea77c331309aa2c72021d36dd",
+   "breite": 239,
+   "hoehe": 256
+  },
+  "icons/boots-power": {
+   "datei": "icons/boots-power.png",
+   "bytes": 52103,
+   "hash": "sha256-66fead82ecfd3ea0156dfc6a7b9859c9fb6fd3b93abd8119fa2abd3e42c1e88d",
+   "breite": 216,
+   "hoehe": 256
+  },
+  "icons/boots-warrior": {
+   "datei": "icons/boots-warrior.png",
+   "bytes": 52124,
+   "hash": "sha256-7f70877f147da0f1f37fe30fdc7aa4ca3232498fdcbc8fa1c282ad7e5a5b2d00",
+   "breite": 235,
+   "hoehe": 256
+  },
+  "icons/bow": {
+   "datei": "icons/bow.png",
+   "bytes": 2076,
+   "hash": "sha256-b120e68a3f9b91658517ab8fe35cbaf6e3ccde3c23019484002961aee3d32907",
+   "breite": 104,
+   "hoehe": 91
+  },
+  "icons/bow-battle": {
+   "datei": "icons/bow-battle.png",
+   "bytes": 15787,
+   "hash": "sha256-78585b01fcfffaa96392452f8b50d063a93953965a66e61bb621127f6644e125",
+   "breite": 80,
+   "hoehe": 256
+  },
+  "icons/bow-dragon": {
+   "datei": "icons/bow-dragon.png",
+   "bytes": 18117,
+   "hash": "sha256-e18b06ffe1b21f340fad4e32f01beec6daf96bc8864f3c0b4bcf52b96803948d",
+   "breite": 78,
+   "hoehe": 256
+  },
+  "icons/bow-hunter": {
+   "datei": "icons/bow-hunter.png",
+   "bytes": 17567,
+   "hash": "sha256-5f7f608504409c71734486bd30d25709a8e980b60780ffe7bda0a9803697e655",
+   "breite": 83,
+   "hoehe": 256
+  },
+  "icons/chain-mail-helmet": {
+   "datei": "icons/chain-mail-helmet.png",
+   "bytes": 34292,
+   "hash": "sha256-cf1ca270f03f5b36aa0418834e72c31fe87606c32975df11750907b65883914c",
+   "breite": 161,
+   "hoehe": 256
+  },
+  "icons/chestkey": {
+   "datei": "icons/chestkey.png",
+   "bytes": 16955,
+   "hash": "sha256-22c0b3447c9b32b44a55525bf31f13bbbda4c514b16c70439b1a118c6090b420",
+   "breite": 180,
+   "hoehe": 195
+  },
+  "icons/chestkeyshapesgrid": {
+   "datei": "icons/chestkeyshapesgrid.png",
+   "bytes": 25875,
+   "hash": "sha256-cecb169a9cabfc7855d6a800508362d0d6a0c55cb42d30551e6b545a02a1d64f",
+   "breite": 256,
+   "hoehe": 113
+  },
+  "icons/dagger-dragon": {
+   "datei": "icons/dagger-dragon.png",
+   "bytes": 18318,
+   "hash": "sha256-ae602ac7c1c5a0d8e180a4ba6217133b24d529143aac03cd5502fdf32d63fe7c",
+   "breite": 86,
+   "hoehe": 256
+  },
+  "icons/dagger-hunter": {
+   "datei": "icons/dagger-hunter.png",
+   "bytes": 14521,
+   "hash": "sha256-36438f6023f36f37fd6bb3e8b343d0585f1074edcd9234839ac03c00b7e20520",
+   "breite": 72,
+   "hoehe": 256
+  },
+  "icons/dagger-mystic": {
+   "datei": "icons/dagger-mystic.png",
+   "bytes": 16763,
+   "hash": "sha256-15111d1ebace3fc5502c0c84c31111322f4d9e5e77c281225af2f5d587b51269",
+   "breite": 105,
+   "hoehe": 256
+  },
+  "icons/dagger-spider": {
+   "datei": "icons/dagger-spider.png",
+   "bytes": 14671,
+   "hash": "sha256-afa5609b5aaac95ddbddf854e107d0d493a0e96caa77b7cb630821937418424a",
+   "breite": 92,
+   "hoehe": 256
+  },
+  "icons/dagger-vampire": {
+   "datei": "icons/dagger-vampire.png",
+   "bytes": 17434,
+   "hash": "sha256-1116c972ff333529dfa5b4aaa26eedfba19debe63eb2de841ba9d1e1a1a823ab",
+   "breite": 83,
+   "hoehe": 256
+  },
+  "icons/doomrune": {
+   "datei": "icons/doomrune.png",
+   "bytes": 32392,
+   "hash": "sha256-6772fbad8b05663b4cfdbaad5e65c4f0ee385db6bac25fde52ded528a772cc26",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/fashionable-hat": {
+   "datei": "icons/fashionable-hat.png",
+   "bytes": 45653,
+   "hash": "sha256-32b834f8772adb98860eb7a9bb69c406b0d92471073396de3622acaad7b6aabb",
+   "breite": 230,
+   "hoehe": 256
+  },
+  "icons/firewand": {
+   "datei": "icons/firewand.png",
+   "bytes": 14981,
+   "hash": "sha256-d9a1ea71f6f3febe08624d63e969d9568e425376b3222fb5d3e202c53cf753af",
+   "breite": 167,
+   "hoehe": 168
+  },
+  "icons/firewandshapesgrid": {
+   "datei": "icons/firewandshapesgrid.png",
+   "bytes": 18736,
+   "hash": "sha256-8e6e9dcd9eeebdeab5b3024d7bda29a031339c086dd0254b3e2a6bfd74d58428",
+   "breite": 56,
+   "hoehe": 256
+  },
+  "icons/fist": {
+   "datei": "icons/fist.png",
+   "bytes": 654,
+   "hash": "sha256-ff61d7a4153869ae9692c52145ff41a8059357ef152dcef6c7752dddf9a58f97",
+   "breite": 50,
+   "hoehe": 48
+  },
+  "icons/flagshapegrid": {
+   "datei": "icons/flagshapegrid.png",
+   "bytes": 24988,
+   "hash": "sha256-60d7521b1d40f991679e518edc581b0bb92f85be0e84555cc1992a9ff90ef6c0",
+   "breite": 174,
+   "hoehe": 256
+  },
+  "icons/gatekey": {
+   "datei": "icons/gatekey.png",
+   "bytes": 18561,
+   "hash": "sha256-c5e61bcf6754faa430900e25956d468ae624b22da7fd1a73407da9ccf890b9dc",
+   "breite": 179,
+   "hoehe": 194
+  },
+  "icons/gatekeyshapesgrid": {
+   "datei": "icons/gatekeyshapesgrid.png",
+   "bytes": 28535,
+   "hash": "sha256-b7856e1795521e434a446778db6a1a257bda32346c06b8c3a7737eacab83232e",
+   "breite": 256,
+   "hoehe": 114
+  },
+  "icons/gloves-adventurer": {
+   "datei": "icons/gloves-adventurer.png",
+   "bytes": 47932,
+   "hash": "sha256-cefe28bb4235fd4d085f4c7fdfe05a24254bf91b9106c7e408a91a6db0a7c825",
+   "breite": 229,
+   "hoehe": 256
+  },
+  "icons/gloves-courage": {
+   "datei": "icons/gloves-courage.png",
+   "bytes": 53477,
+   "hash": "sha256-7f52af28eb19a9a6523d70abbd0c5a0e353279b50017b19db2c22dae96728d97",
+   "breite": 232,
+   "hoehe": 256
+  },
+  "icons/gloves-dark-lord": {
+   "datei": "icons/gloves-dark-lord.png",
+   "bytes": 52980,
+   "hash": "sha256-2dbcd4d889e63e7dace71a8c0df1fafd292ce87ff35a611d9ab7f4c13edcb0ec",
+   "breite": 223,
+   "hoehe": 256
+  },
+  "icons/gloves-guardian": {
+   "datei": "icons/gloves-guardian.png",
+   "bytes": 48144,
+   "hash": "sha256-1ced0585ad7b9c932ad4eb94acf00f6cedbe736fb2e740f39131ddc9dc70a612",
+   "breite": 229,
+   "hoehe": 256
+  },
+  "icons/gloves-invincibility": {
+   "datei": "icons/gloves-invincibility.png",
+   "bytes": 50261,
+   "hash": "sha256-213ceb7002558fe0599b3a5e39455c592a674cfe061febecfd1e9766641c8831",
+   "breite": 231,
+   "hoehe": 256
+  },
+  "icons/gloves-mercenary": {
+   "datei": "icons/gloves-mercenary.png",
+   "bytes": 58506,
+   "hash": "sha256-9ca99616205af70a172ffb62f9bc9cafd40c354983025c15c1f47f3015bddf20",
+   "breite": 226,
+   "hoehe": 256
+  },
+  "icons/gloves-power": {
+   "datei": "icons/gloves-power.png",
+   "bytes": 59382,
+   "hash": "sha256-123bd4f59eee2793df193e65b9d8215b8b6f1931e090f0278d5f3f052c840534",
+   "breite": 229,
+   "hoehe": 256
+  },
+  "icons/gloves-warrior": {
+   "datei": "icons/gloves-warrior.png",
+   "bytes": 50991,
+   "hash": "sha256-7d71643be9e3219e42eb0ddabb8c0235cfd6e97cc391416d839f34a2d45a0f0e",
+   "breite": 227,
+   "hoehe": 256
+  },
+  "icons/greatsword": {
+   "datei": "icons/greatsword.png",
+   "bytes": 19900,
+   "hash": "sha256-46e8ac952322e22da7d75f3773f2225c6dd50e1596542c611da582e1cb95ac1e",
+   "breite": 171,
+   "hoehe": 171
+  },
+  "icons/greatswordshapesgrid": {
+   "datei": "icons/greatswordshapesgrid.png",
+   "bytes": 23114,
+   "hash": "sha256-e1a48e5b457f9d5070d70139526070c713b7f85ebbee9a787012785140aa76de",
+   "breite": 93,
+   "hoehe": 256
+  },
+  "icons/grenade": {
+   "datei": "icons/grenade.png",
+   "bytes": 873,
+   "hash": "sha256-5b612323384f2ad70ffd88853b979f2968428ba259071b1cd7df8c1ab241c754",
+   "breite": 46,
+   "hoehe": 68
+  },
+  "icons/hat": {
+   "datei": "icons/hat.png",
+   "bytes": 32391,
+   "hash": "sha256-cc2b0c2023f4cc5c3dbf925053d3cc6e03b98bd49b852ae737b09e45d7b51f10",
+   "breite": 173,
+   "hoehe": 256
+  },
+  "icons/healing-mushrooms-icon": {
+   "datei": "icons/healing-mushrooms-icon.png",
+   "bytes": 42349,
+   "hash": "sha256-624aea366e37364e73542c4f65b27fffe183c499cd5728b85df9faa1b5540ab1",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/healweed": {
+   "datei": "icons/healweed.png",
+   "bytes": 23927,
+   "hash": "sha256-99aaaebf23d4fa8390d119c60b21e071acc111a84c0afb3620b4ee3c86f83baf",
+   "breite": 151,
+   "hoehe": 181
+  },
+  "icons/helmet-bear": {
+   "datei": "icons/helmet-bear.png",
+   "bytes": 52994,
+   "hash": "sha256-14a9d9799cbf6e782e9a0240b03cb3e3e24259326d7d5d716a7cca635bd013e2",
+   "breite": 238,
+   "hoehe": 256
+  },
+  "icons/helmet-courage": {
+   "datei": "icons/helmet-courage.png",
+   "bytes": 37377,
+   "hash": "sha256-6ead51846239c6104b8ccc08f7011cecdabb0619ca8186b8d5f9ae47d43ba351",
+   "breite": 168,
+   "hoehe": 256
+  },
+  "icons/helmet-dark-lord": {
+   "datei": "icons/helmet-dark-lord.png",
+   "bytes": 33443,
+   "hash": "sha256-d2ff89c52b221e1fc4149179dd64776a55819d75cc5fe49df0c76167a52d4cca",
+   "breite": 180,
+   "hoehe": 256
+  },
+  "icons/helmet-invincibility": {
+   "datei": "icons/helmet-invincibility.png",
+   "bytes": 40381,
+   "hash": "sha256-31c9a5fc945295a15f1930bf7dd9c2adf2830f846553ada20ecd4eb91b0a8413",
+   "breite": 174,
+   "hoehe": 256
+  },
+  "icons/helmet-power": {
+   "datei": "icons/helmet-power.png",
+   "bytes": 41359,
+   "hash": "sha256-0b8a4e447c60ac26b7420f86ea0d250088784467f20cce013f5b7853bc3afa7d",
+   "breite": 172,
+   "hoehe": 256
+  },
+  "icons/helmet-valor": {
+   "datei": "icons/helmet-valor.png",
+   "bytes": 41246,
+   "hash": "sha256-9053513b6b1642492c5cfdb8ca732cfaffc35695a66c0109ad603122b6af845d",
+   "breite": 169,
+   "hoehe": 256
+  },
+  "icons/helmet-warrior": {
+   "datei": "icons/helmet-warrior.png",
+   "bytes": 38088,
+   "hash": "sha256-d2df46d62efd018f784f8bfd9fb4080e78fb8b33b7f88d3ee31c48992939ccbb",
+   "breite": 168,
+   "hoehe": 256
+  },
+  "icons/helmet-warrior-s-amulet": {
+   "datei": "icons/helmet-warrior-s-amulet.png",
+   "bytes": 36450,
+   "hash": "sha256-78efd65121a3c5df4cef4f4d2e98b66a75ee748d1bebce608777e1b5510b1a67",
+   "breite": 181,
+   "hoehe": 256
+  },
+  "icons/helmet-white-wolf": {
+   "datei": "icons/helmet-white-wolf.png",
+   "bytes": 49736,
+   "hash": "sha256-093606f430fd58c7ea59c3307c9df4f3a639dbaa326d8689874378150a4898f4",
+   "breite": 194,
+   "hoehe": 256
+  },
+  "icons/hood": {
+   "datei": "icons/hood.png",
+   "bytes": 18925,
+   "hash": "sha256-65616c09966f0079dc76db3b84023eaace9c7e2de2eec9ae2124f56dbbc15446",
+   "breite": 142,
+   "hoehe": 196
+  },
+  "icons/hood-2": {
+   "datei": "icons/hood-2.png",
+   "bytes": 34923,
+   "hash": "sha256-990ae68c1c971b1fd95a1f619743d032a0647979d7eb60aace012bd975bb5d94",
+   "breite": 166,
+   "hoehe": 256
+  },
+  "icons/icewand": {
+   "datei": "icons/icewand.png",
+   "bytes": 15520,
+   "hash": "sha256-ee649f66c5944536c187810985a1475ef2357c244454aea48700e699c1ce750c",
+   "breite": 167,
+   "hoehe": 183
+  },
+  "icons/icewandshapesgrid": {
+   "datei": "icons/icewandshapesgrid.png",
+   "bytes": 18340,
+   "hash": "sha256-e43966f84bd7eb685691b8959c7e35e302c195e935c58435dc167b533ebd30e1",
+   "breite": 56,
+   "hoehe": 256
+  },
+  "icons/iron-ingot-icon": {
+   "datei": "icons/iron-ingot-icon.png",
+   "bytes": 21455,
+   "hash": "sha256-a52c0cfff07b8898c7634406ba1e23454bdf18b318ac9b3b766881cce9046ebf",
+   "breite": 189,
+   "hoehe": 182
+  },
+  "icons/ironsword": {
+   "datei": "icons/ironsword.png",
+   "bytes": 19297,
+   "hash": "sha256-e5bf4cd2ef824a9026b9610f7703a14d7b2bd067b5611bb8e9ee24f4c4e76bb9",
+   "breite": 177,
+   "hoehe": 190
+  },
+  "icons/ironswordshapesgrid": {
+   "datei": "icons/ironswordshapesgrid.png",
+   "bytes": 19496,
+   "hash": "sha256-823bdfc6cc30405d05ac4e2a0bf3730d57c30559d34c34f16c5492a719c9f2b9",
+   "breite": 87,
+   "hoehe": 256
+  },
+  "icons/itempickup": {
+   "datei": "icons/itempickup.png",
+   "bytes": 17748,
+   "hash": "sha256-4595d6cd2a2dcd7333c8199535dec41d7708f4a291b6650c13016c2a5dbd890a",
+   "breite": 158,
+   "hoehe": 200
+  },
+  "icons/katana": {
+   "datei": "icons/katana.png",
+   "bytes": 1441,
+   "hash": "sha256-0b8a945c146e776ad87a9ad22b3ca51866c2e69dbb400d682379793b994091f2",
+   "breite": 101,
+   "hoehe": 88
+  },
+  "icons/keyitem": {
+   "datei": "icons/keyitem.png",
+   "bytes": 8107,
+   "hash": "sha256-d65fcf63ec8ef676e6adbcd80e6871355e4221f5b3db0da3e886b1367689f869",
+   "breite": 98,
+   "hoehe": 100
+  },
+  "icons/knightarmor": {
+   "datei": "icons/knightarmor.png",
+   "bytes": 24907,
+   "hash": "sha256-a53347d84cca795b3b82b5e708b517dcbdc8eddcc46226e38efe4dfbe3b045ca",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/knightboots": {
+   "datei": "icons/knightboots.png",
+   "bytes": 22303,
+   "hash": "sha256-e839b1823a69afca799ff42c483c935a37143fffaa16b99cec4a11d4a89d640c",
+   "breite": 200,
+   "hoehe": 198
+  },
+  "icons/knighthelmet": {
+   "datei": "icons/knighthelmet.png",
+   "bytes": 20456,
+   "hash": "sha256-fdabe1c1e5aa21ce70a67ce71b267668827f90329c95b55e47026cf74c50f578",
+   "breite": 200,
+   "hoehe": 187
+  },
+  "icons/leather-armor": {
+   "datei": "icons/leather-armor.png",
+   "bytes": 62826,
+   "hash": "sha256-a70c7f7ee34e21a97138b101457bc9cf7cc4128554ad381f7384dd80483059a0",
+   "breite": 241,
+   "hoehe": 256
+  },
+  "icons/leather-armor-2": {
+   "datei": "icons/leather-armor-2.png",
+   "bytes": 60590,
+   "hash": "sha256-9f4009ff80f71f705044c4d89d8c00c40939259ba55c2eef84415223da6c9313",
+   "breite": 242,
+   "hoehe": 256
+  },
+  "icons/leather-boots": {
+   "datei": "icons/leather-boots.png",
+   "bytes": 38013,
+   "hash": "sha256-d329e9b3a142ff69e01241d1f346a801c620bed2459b9386d6b53aab45506889",
+   "breite": 216,
+   "hoehe": 256
+  },
+  "icons/leather-gloves": {
+   "datei": "icons/leather-gloves.png",
+   "bytes": 50674,
+   "hash": "sha256-6f0377234abec1d59a7ba603f550eda5aedad3d43de0dcdd549e393e40af8283",
+   "breite": 230,
+   "hoehe": 256
+  },
+  "icons/leather-icon": {
+   "datei": "icons/leather-icon.png",
+   "bytes": 21280,
+   "hash": "sha256-db79a6372f276d639c1438f0bba7c56183fce20e9ffd5a9b3a2bb8dcb506fe2c",
+   "breite": 200,
+   "hoehe": 184
+  },
+  "icons/leather-legguard": {
+   "datei": "icons/leather-legguard.png",
+   "bytes": 41570,
+   "hash": "sha256-3f920da08a8a0a4fec04d6041ae62f658b3a0c532ddb95ffff34932f002099c8",
+   "breite": 253,
+   "hoehe": 256
+  },
+  "icons/leatherarmor": {
+   "datei": "icons/leatherarmor.png",
+   "bytes": 24284,
+   "hash": "sha256-0912a3f0f27185951888c70ee179c84c03cbfaa33eeda7693d2a307a0b03d26f",
+   "breite": 186,
+   "hoehe": 192
+  },
+  "icons/leatherboots": {
+   "datei": "icons/leatherboots.png",
+   "bytes": 24319,
+   "hash": "sha256-1ec31835e69fedd8e4c4418ce786ba937a3ce821433e1575ecdd85389bfe1a2b",
+   "breite": 164,
+   "hoehe": 196
+  },
+  "icons/legguard-adventurer": {
+   "datei": "icons/legguard-adventurer.png",
+   "bytes": 47149,
+   "hash": "sha256-70352a08c2842a7f35005cca9d40ce51e459343d8bf4719dcd1ef1fd6ca63b8d",
+   "breite": 223,
+   "hoehe": 256
+  },
+  "icons/legguard-courage": {
+   "datei": "icons/legguard-courage.png",
+   "bytes": 53601,
+   "hash": "sha256-5bfce964eea1a2240872200cab0249aa3cbe05ce6cceb888f102dc2681e61240",
+   "breite": 219,
+   "hoehe": 256
+  },
+  "icons/legguard-dark-lord": {
+   "datei": "icons/legguard-dark-lord.png",
+   "bytes": 51913,
+   "hash": "sha256-01c934cb536b8324fa8059121ca4925bc5b1cf2a0b038f27bc5b8c85e0a60615",
+   "breite": 213,
+   "hoehe": 256
+  },
+  "icons/legguard-guardian": {
+   "datei": "icons/legguard-guardian.png",
+   "bytes": 37463,
+   "hash": "sha256-ffd1f44a8d001202a8c78cc1aa6c2fac0887904b14cc2fe10d213ef55bc4e200",
+   "breite": 192,
+   "hoehe": 256
+  },
+  "icons/legguard-invincibility": {
+   "datei": "icons/legguard-invincibility.png",
+   "bytes": 43720,
+   "hash": "sha256-a6884f250945cb373e675b157672daff2387fd06d540629b2af87515d0f235c1",
+   "breite": 241,
+   "hoehe": 256
+  },
+  "icons/legguard-mercenary": {
+   "datei": "icons/legguard-mercenary.png",
+   "bytes": 47056,
+   "hash": "sha256-d8d0416da419f58037882777eae18662f83cea05904d115cf794a85fc572cb13",
+   "breite": 224,
+   "hoehe": 256
+  },
+  "icons/legguard-power": {
+   "datei": "icons/legguard-power.png",
+   "bytes": 46396,
+   "hash": "sha256-53b7076f979453edd7d8f96cb5e8f007a690bd57bd25aafc7fbe363318d12e9b",
+   "breite": 229,
+   "hoehe": 256
+  },
+  "icons/legguard-warrior": {
+   "datei": "icons/legguard-warrior.png",
+   "bytes": 47931,
+   "hash": "sha256-af46b211c3f8204b138b8fe0156427e90c1590683f3b7bfd1ffd7c2f88a5c5ba",
+   "breite": 189,
+   "hoehe": 256
+  },
+  "icons/magicalpowder": {
+   "datei": "icons/magicalpowder.png",
+   "bytes": 35763,
+   "hash": "sha256-24411fd68d6fa5b39708a713bad7bed4a817292d44656943a7221b70d47f433d",
+   "breite": 200,
+   "hoehe": 169
+  },
+  "icons/magicfireball": {
+   "datei": "icons/magicfireball.png",
+   "bytes": 1716,
+   "hash": "sha256-8787cbdaf68d251764f57a4fd438fa508b5956c3894d03cc0b0b7062757205d5",
+   "breite": 65,
+   "hoehe": 75
+  },
+  "icons/magicheal": {
+   "datei": "icons/magicheal.png",
+   "bytes": 1154,
+   "hash": "sha256-83da6fdf9a37ad38f47c56a661309fc67a2408c7c480a895b4a9fa77c7184a3c",
+   "breite": 65,
+   "hoehe": 73
+  },
+  "icons/material": {
+   "datei": "icons/material.png",
+   "bytes": 5488,
+   "hash": "sha256-3b6835c977057b5bd9010bb0d91aca294f54d3493160eb6e8472a9c3946a2969",
+   "breite": 86,
+   "hoehe": 95
+  },
+  "icons/money-eq-icon-nb": {
+   "datei": "icons/money-eq-icon-nb.png",
+   "bytes": 57923,
+   "hash": "sha256-9cb6bd1a42d840a179dc8e2c7b61a049d3eabc182b2aa5bb1c235f87b746ed58",
+   "breite": 256,
+   "hoehe": 255
+  },
+  "icons/pistol": {
+   "datei": "icons/pistol.png",
+   "bytes": 1264,
+   "hash": "sha256-ae5c442bd4bf4954930c8876c2da6fc5c1bea40932338579e1ed439b486209c8",
+   "breite": 68,
+   "hoehe": 81
+  },
+  "icons/pistolbullet": {
+   "datei": "icons/pistolbullet.png",
+   "bytes": 1364,
+   "hash": "sha256-60fd0942beb8a1ee4c12ad41f1747f436473f6913f265e0cb90dd7d307ee1696",
+   "breite": 101,
+   "hoehe": 102
+  },
+  "icons/potion": {
+   "datei": "icons/potion.png",
+   "bytes": 14785,
+   "hash": "sha256-1d5c6ab91bed1ee94433856086f9db684813fc4e9bbcc63ae929b70c506ac69a",
+   "breite": 102,
+   "hoehe": 186
+  },
+  "icons/rifle-a1-image": {
+   "datei": "icons/rifle-a1-image.png",
+   "bytes": 22629,
+   "hash": "sha256-3ba57985874de1a8b0940c46ef9ebd2a10c4abbd662e40b60662bdc289be3f38",
+   "breite": 256,
+   "hoehe": 81
+  },
+  "icons/rifle-bullet2": {
+   "datei": "icons/rifle-bullet2.png",
+   "bytes": 13175,
+   "hash": "sha256-e4c23b0f5dd37dfa775c6e7a93feaee2833412d44a28910221853cecdbae23c2",
+   "breite": 256,
+   "hoehe": 83
+  },
+  "icons/riflebullet": {
+   "datei": "icons/riflebullet.png",
+   "bytes": 1570,
+   "hash": "sha256-5bf14cd09f1990d97783b78e628ca3427438f1ea2aff50c0aa0eb80dd182dbdb",
+   "breite": 110,
+   "hoehe": 111
+  },
+  "icons/rune-attack": {
+   "datei": "icons/rune-attack.png",
+   "bytes": 28858,
+   "hash": "sha256-d2b023d7c267ee20fb7cf375f042bc348ea464a7e5a889cea6e700db3a7ee63f",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/rune-defence": {
+   "datei": "icons/rune-defence.png",
+   "bytes": 26304,
+   "hash": "sha256-ac2ffb1f5b97a789514fe362d92de92a9b07785f47361b67496373ccfd008d9c",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/rune-other": {
+   "datei": "icons/rune-other.png",
+   "bytes": 23768,
+   "hash": "sha256-9df25dc3c679d00d837a2b477f8d123ca98ce5042cf7d90b2a4d5fa81ec75421",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/shield": {
+   "datei": "icons/shield.png",
+   "bytes": 986,
+   "hash": "sha256-7b584c120be22e5e1b1b75e1e67f119b6c8bea45b8f14370c63e36ff1b44a808",
+   "breite": 49,
+   "hoehe": 76
+  },
+  "icons/shield-dark-lord": {
+   "datei": "icons/shield-dark-lord.png",
+   "bytes": 42198,
+   "hash": "sha256-b5f42baf2c0ab964494e063f20e7b01e95e5df8d34dc58cdba77a6473c3a1ccb",
+   "breite": 200,
+   "hoehe": 256
+  },
+  "icons/shield-flame": {
+   "datei": "icons/shield-flame.png",
+   "bytes": 38014,
+   "hash": "sha256-92de38a0278fc3385e177870cc13a8fdd5572f365ac2e4d87b2d86b7cffb713a",
+   "breite": 190,
+   "hoehe": 256
+  },
+  "icons/shield-militiaman": {
+   "datei": "icons/shield-militiaman.png",
+   "bytes": 59788,
+   "hash": "sha256-4b596d1e353722fa17cf4ec55507b39cd7b06188033aa3b9838b8ecb7899c003",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/shield-north": {
+   "datei": "icons/shield-north.png",
+   "bytes": 61274,
+   "hash": "sha256-b67d53d635d6551de43e5b867e39319fa87a87be35d579b350ee4849f3511b2d",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/shield-shell": {
+   "datei": "icons/shield-shell.png",
+   "bytes": 54644,
+   "hash": "sha256-4c254304770387d0ff0ff9b169603961f693827528a58c0f540a75ccc2b69bd4",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/shield-turtle": {
+   "datei": "icons/shield-turtle.png",
+   "bytes": 62074,
+   "hash": "sha256-90327a910cf3370ed9dcde4b50c041afb627cd9888e10e4e60ace532fac33b27",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/simple-boots": {
+   "datei": "icons/simple-boots.png",
+   "bytes": 45617,
+   "hash": "sha256-806e8227e02b28565058cd9f86b663fbc2074191df37340fdc82398f4fd10a9a",
+   "breite": 211,
+   "hoehe": 256
+  },
+  "icons/simple-clothes": {
+   "datei": "icons/simple-clothes.png",
+   "bytes": 56950,
+   "hash": "sha256-f52b9b99f8752bec446dc32383dd7629abcf17c7dddc68d594df7086966f4ed5",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/simple-clothes-2": {
+   "datei": "icons/simple-clothes-2.png",
+   "bytes": 53155,
+   "hash": "sha256-04a150004e5a33253914e4a6454a7c0035a80b1ad2c39ca7a7014895de01870e",
+   "breite": 243,
+   "hoehe": 256
+  },
+  "icons/simple-gloves": {
+   "datei": "icons/simple-gloves.png",
+   "bytes": 56362,
+   "hash": "sha256-7e93f53f38d059f3d775c96468ed01df0ffeda0ffb40185ce00df120b487008c",
+   "breite": 231,
+   "hoehe": 256
+  },
+  "icons/simple-item-asteroid": {
+   "datei": "icons/simple-item-asteroid.png",
+   "bytes": 45575,
+   "hash": "sha256-2c438623685d3284ae3ba669c7c02a1a85880686d73271b66bc9ae2ca2b4e7a9",
+   "breite": 256,
+   "hoehe": 236
+  },
+  "icons/simple-item-bell": {
+   "datei": "icons/simple-item-bell.png",
+   "bytes": 38109,
+   "hash": "sha256-dbac4eca934b67861d4db206e34718e7b85e973482e5c90a56a2ec6ea465e5d3",
+   "breite": 221,
+   "hoehe": 256
+  },
+  "icons/simple-item-big-goblet": {
+   "datei": "icons/simple-item-big-goblet.png",
+   "bytes": 43753,
+   "hash": "sha256-d07fda13499649e3351cfd124684a0f421f0cc9f6eb93373c84cbf80b8d9d964",
+   "breite": 228,
+   "hoehe": 256
+  },
+  "icons/simple-item-billy": {
+   "datei": "icons/simple-item-billy.png",
+   "bytes": 30533,
+   "hash": "sha256-29eb72ef6f2048463e60ad01d2119bc08bd3810730c989a83949db2e30aed9ea",
+   "breite": 150,
+   "hoehe": 256
+  },
+  "icons/simple-item-blue-crystal": {
+   "datei": "icons/simple-item-blue-crystal.png",
+   "bytes": 18920,
+   "hash": "sha256-923505f1bc3c8877ccbc34c9a5d406cfed8bc2556ad21966b9e7cd3618d29aaa",
+   "breite": 187,
+   "hoehe": 200
+  },
+  "icons/simple-item-blue-gem": {
+   "datei": "icons/simple-item-blue-gem.png",
+   "bytes": 15396,
+   "hash": "sha256-aed8754cc5cf1c2f7d447efaaef8e228c5418d7248cfbb934b596c5c939d727c",
+   "breite": 133,
+   "hoehe": 200
+  },
+  "icons/simple-item-bracelet": {
+   "datei": "icons/simple-item-bracelet.png",
+   "bytes": 25410,
+   "hash": "sha256-0ef10d8b006b9f2943175002bb3a401e5d7d6b2f4a2835f4f271dee9eddfbfe2",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/simple-item-candlestick": {
+   "datei": "icons/simple-item-candlestick.png",
+   "bytes": 17502,
+   "hash": "sha256-0837ea6cd960b53a24b344d4dd54ca67d5850e0f22bf0f98e893c31ceb3eb752",
+   "breite": 81,
+   "hoehe": 256
+  },
+  "icons/simple-item-cow-skull": {
+   "datei": "icons/simple-item-cow-skull.png",
+   "bytes": 31060,
+   "hash": "sha256-c16254b1064e4832436b7d1a849d0e69f0b05cdcd19eddeae2f8ce61b5205d83",
+   "breite": 256,
+   "hoehe": 211
+  },
+  "icons/simple-item-cup": {
+   "datei": "icons/simple-item-cup.png",
+   "bytes": 16757,
+   "hash": "sha256-9de54c88604ba3d4ff4e0d2adb53c978623adbc72984bdd94a7512afe3a544a1",
+   "breite": 200,
+   "hoehe": 196
+  },
+  "icons/simple-item-dish": {
+   "datei": "icons/simple-item-dish.png",
+   "bytes": 18227,
+   "hash": "sha256-fadc96a88215df2b5307c38da094d01a88da9cca2cc0215b81b553f3c8520f2f",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/simple-item-dragon-claw": {
+   "datei": "icons/simple-item-dragon-claw.png",
+   "bytes": 12957,
+   "hash": "sha256-a3488674a76c9d58214977b6298254c740a11ec772c264ff822b5548c05ddbbb",
+   "breite": 128,
+   "hoehe": 200
+  },
+  "icons/simple-item-dragon-skull": {
+   "datei": "icons/simple-item-dragon-skull.png",
+   "bytes": 51596,
+   "hash": "sha256-da452d7955aba3ad249352cae10d87b5c25f522fe84ffb5b338b8386bbda7d2b",
+   "breite": 233,
+   "hoehe": 256
+  },
+  "icons/simple-item-dragon-vertebra": {
+   "datei": "icons/simple-item-dragon-vertebra.png",
+   "bytes": 18706,
+   "hash": "sha256-26e95b64b585782ffe683e7227e0d8ea41e2e7d14d155ed9bf1920160ffb6573",
+   "breite": 200,
+   "hoehe": 166
+  },
+  "icons/simple-item-giant-s-ring": {
+   "datei": "icons/simple-item-giant-s-ring.png",
+   "bytes": 24766,
+   "hash": "sha256-ea3b38071046f0fbb04ca1b5cb7331a74059e22813adbd5b3d6cf311ed2cb62b",
+   "breite": 164,
+   "hoehe": 200
+  },
+  "icons/simple-item-goblet": {
+   "datei": "icons/simple-item-goblet.png",
+   "bytes": 25695,
+   "hash": "sha256-bd403d4a0f43eaadfca058579f5119f3cea89478cd557c8d0fe79535a6abb25b",
+   "breite": 128,
+   "hoehe": 256
+  },
+  "icons/simple-item-goblin-drum": {
+   "datei": "icons/simple-item-goblin-drum.png",
+   "bytes": 49258,
+   "hash": "sha256-4518f538da36c6b1145a44a7a83853b95cf7537454cd6656cede76d0bba0972b",
+   "breite": 256,
+   "hoehe": 233
+  },
+  "icons/simple-item-green-gem": {
+   "datei": "icons/simple-item-green-gem.png",
+   "bytes": 13066,
+   "hash": "sha256-d1b383458f89b6a2bda17a36073dbee66a15dae2b56d922df44cf07402840bd9",
+   "breite": 125,
+   "hoehe": 200
+  },
+  "icons/simple-item-historical-book": {
+   "datei": "icons/simple-item-historical-book.png",
+   "bytes": 26457,
+   "hash": "sha256-6779891af845193075ec19aa20810e5b7fe56e17226cec119c512fb86a942b69",
+   "breite": 205,
+   "hoehe": 256
+  },
+  "icons/simple-item-hook": {
+   "datei": "icons/simple-item-hook.png",
+   "bytes": 24314,
+   "hash": "sha256-4e4fb5f7b10e30b04231320a5bff52f70b652fa71424fc2eec10ef76df1df0ff",
+   "breite": 126,
+   "hoehe": 256
+  },
+  "icons/simple-item-hoop": {
+   "datei": "icons/simple-item-hoop.png",
+   "bytes": 54471,
+   "hash": "sha256-85e9c68fd11988c08cc8ea6b4cef361a57737a1520a17289517f8123eb3c769d",
+   "breite": 256,
+   "hoehe": 251
+  },
+  "icons/simple-item-huge-horseshoe": {
+   "datei": "icons/simple-item-huge-horseshoe.png",
+   "bytes": 22519,
+   "hash": "sha256-15ee2c150f29a3433085cba9b2a663d560296e713377538fd0580fcaa047c42d",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/simple-item-lock": {
+   "datei": "icons/simple-item-lock.png",
+   "bytes": 21064,
+   "hash": "sha256-0938428b660ac95c455660ea3dacaa3d183a049b5ce02bcfaaf257a9cf1b063e",
+   "breite": 173,
+   "hoehe": 200
+  },
+  "icons/simple-item-mug": {
+   "datei": "icons/simple-item-mug.png",
+   "bytes": 15272,
+   "hash": "sha256-7be029035b2425b6b8d6b4f7d7343a5cbeee5386e7565c77ed5812437223f4c1",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/simple-item-mug-tankard": {
+   "datei": "icons/simple-item-mug-tankard.png",
+   "bytes": 20988,
+   "hash": "sha256-a7661070d3f40f0a65804ecbefeef15d6902a33f4048f8c3790f38eb4d17e470",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/simple-item-mystical-book": {
+   "datei": "icons/simple-item-mystical-book.png",
+   "bytes": 32615,
+   "hash": "sha256-d15a96d85e416a47ba5f626733387e450106ffab2b2c6f47be8c4f85fd1b78f3",
+   "breite": 206,
+   "hoehe": 256
+  },
+  "icons/simple-item-old-book": {
+   "datei": "icons/simple-item-old-book.png",
+   "bytes": 31493,
+   "hash": "sha256-8dadeea968ecc9fb2cece3ffe1a46c014bbfb0219aacd20ebb4b1b817033ea46",
+   "breite": 212,
+   "hoehe": 256
+  },
+  "icons/simple-item-planter-pot": {
+   "datei": "icons/simple-item-planter-pot.png",
+   "bytes": 36285,
+   "hash": "sha256-1f3c34a34c1271bfea2652b30af8b66beb84590326c667828adf779b0857959c",
+   "breite": 153,
+   "hoehe": 256
+  },
+  "icons/simple-item-pot": {
+   "datei": "icons/simple-item-pot.png",
+   "bytes": 22795,
+   "hash": "sha256-96f54ede2d029da113fffd0af1c35e20631ebd262a588d8b7cb73d895bdf2b6a",
+   "breite": 136,
+   "hoehe": 256
+  },
+  "icons/simple-item-red-gem": {
+   "datei": "icons/simple-item-red-gem.png",
+   "bytes": 11317,
+   "hash": "sha256-42dc1790863954a6718c6a371cbbc298aa23bcf96be6c608ae7588b6de39d321",
+   "breite": 113,
+   "hoehe": 200
+  },
+  "icons/simple-item-table-candlestick": {
+   "datei": "icons/simple-item-table-candlestick.png",
+   "bytes": 38301,
+   "hash": "sha256-701cea502966f0f4c0787cd1b3c4390c55dcbab4e2d6aeaa0e35e7976eddcfa4",
+   "breite": 187,
+   "hoehe": 256
+  },
+  "icons/simple-item-witches-poison": {
+   "datei": "icons/simple-item-witches-poison.png",
+   "bytes": 25988,
+   "hash": "sha256-f3e642519e2a91d021c6ee194218c304af10328c2b8cb19c266237e5b45e0ed7",
+   "breite": 131,
+   "hoehe": 256
+  },
+  "icons/simple-item-yellow-gem": {
+   "datei": "icons/simple-item-yellow-gem.png",
+   "bytes": 10783,
+   "hash": "sha256-7d463c0f8ce5c851e67d88003fee0430060eb4d2920120e9379c5a694a4fa11d",
+   "breite": 111,
+   "hoehe": 200
+  },
+  "icons/simple-pants": {
+   "datei": "icons/simple-pants.png",
+   "bytes": 35428,
+   "hash": "sha256-4b74b8f4ce576c96fc9ec5f5c3e9e6a50543fab6823b39750295f5db06857d7e",
+   "breite": 223,
+   "hoehe": 256
+  },
+  "icons/skilla-push-wave-l": {
+   "datei": "icons/skilla-push-wave-l.png",
+   "bytes": 79338,
+   "hash": "sha256-879260d8de134a46106488cd8cd93db5fde6e5fa4bd55d0df2a4a56a9ea69351",
+   "breite": 256,
+   "hoehe": 255
+  },
+  "icons/skilla-push-wave-l-2": {
+   "datei": "icons/skilla-push-wave-l-2.png",
+   "bytes": 76958,
+   "hash": "sha256-527f730ed8f9c769d9320648ff4ae7e26a08b18959f996a2309a0b17077d1c88",
+   "breite": 256,
+   "hoehe": 255
+  },
+  "icons/skilla-push-wave-l-3": {
+   "datei": "icons/skilla-push-wave-l-3.png",
+   "bytes": 76649,
+   "hash": "sha256-51506988a42ebac5810fcea973ecd74a31551eb580aeda55502999cab0140983",
+   "breite": 256,
+   "hoehe": 255
+  },
+  "icons/skilla-rage-l": {
+   "datei": "icons/skilla-rage-l.png",
+   "bytes": 70836,
+   "hash": "sha256-022babd586461823d0acf0fbb6b6b103924080c3504461da302fcb20f102574b",
+   "breite": 256,
+   "hoehe": 253
+  },
+  "icons/skilla-rage-l-2": {
+   "datei": "icons/skilla-rage-l-2.png",
+   "bytes": 69545,
+   "hash": "sha256-c910e4e5a640e5d854354e419003d4082b14c6085ebb9a0c91396c426f898545",
+   "breite": 256,
+   "hoehe": 253
+  },
+  "icons/skilla-rage-l-3": {
+   "datei": "icons/skilla-rage-l-3.png",
+   "bytes": 69580,
+   "hash": "sha256-edc9544687c85c7b96bc559637b7eb17c3c6432bba1de8554d174abc764c5ba4",
+   "breite": 256,
+   "hoehe": 253
+  },
+  "icons/skilla-stun-wave-l": {
+   "datei": "icons/skilla-stun-wave-l.png",
+   "bytes": 88624,
+   "hash": "sha256-d87c9f9bd20f339e835ec1304bbda48b4182cb94d7eeebb0b6abe3605d1b2470",
+   "breite": 256,
+   "hoehe": 254
+  },
+  "icons/skilla-stun-wave-l-2": {
+   "datei": "icons/skilla-stun-wave-l-2.png",
+   "bytes": 85260,
+   "hash": "sha256-524b6f806ead0d4113e4bd690836ed4dfb67844f865fd76a8700d22a6f2d176c",
+   "breite": 256,
+   "hoehe": 254
+  },
+  "icons/skilla-stun-wave-l-3": {
+   "datei": "icons/skilla-stun-wave-l-3.png",
+   "bytes": 85609,
+   "hash": "sha256-b8aa609f4483445b0fd52357822fbab11714c9f3648436d7ca428d3304e58b79",
+   "breite": 256,
+   "hoehe": 254
+  },
+  "icons/skillp-crit-chance-l": {
+   "datei": "icons/skillp-crit-chance-l.png",
+   "bytes": 78028,
+   "hash": "sha256-eb9377941865dad1e8088a2666973a378ce3eb794f5ad6c92b497bed9276fdb6",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-crit-chance-l-2": {
+   "datei": "icons/skillp-crit-chance-l-2.png",
+   "bytes": 77151,
+   "hash": "sha256-edd281b3993bf0e4c8d0df70ac48def3818c6742fbebc1bed1cc5f9b5c5aba5b",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-crit-chance-l-3": {
+   "datei": "icons/skillp-crit-chance-l-3.png",
+   "bytes": 77219,
+   "hash": "sha256-0461feea18ad9141c6055c476a703e5286dd0a44faae62fad9ece5627d88a504",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-crit-strength-l": {
+   "datei": "icons/skillp-crit-strength-l.png",
+   "bytes": 83349,
+   "hash": "sha256-258bbf95800c500796cbee313b10a1351bf01cba2bcd62624607bf36fee5af0d",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-crit-strength-l-2": {
+   "datei": "icons/skillp-crit-strength-l-2.png",
+   "bytes": 81777,
+   "hash": "sha256-dbdb835642b9c1096ad7ee93db832c06f70eb3d1ab7b0631918d13f9e3c5dc91",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-crit-strength-l-3": {
+   "datei": "icons/skillp-crit-strength-l-3.png",
+   "bytes": 81809,
+   "hash": "sha256-6438d65137961477389feef603e05a9340aa8d979739f34114b35a747e021eda",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-effect-heal-l": {
+   "datei": "icons/skillp-effect-heal-l.png",
+   "bytes": 89705,
+   "hash": "sha256-1a111c4b01900bd066d6e0ad6b8a88920dc7e62d80bc7dd9d6769cbe445d659a",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-effect-heal-l-2": {
+   "datei": "icons/skillp-effect-heal-l-2.png",
+   "bytes": 86123,
+   "hash": "sha256-3f99e030ff96ffa7682100edc913fe98976dd9984a0dadba4bdf7cf79e868c06",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-effect-heal-l-3": {
+   "datei": "icons/skillp-effect-heal-l-3.png",
+   "bytes": 86330,
+   "hash": "sha256-f88bd95801269bf4df719aa84519c0b7d48918ce70651c21fc380bf50c312955",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-increase-max-hp-l": {
+   "datei": "icons/skillp-increase-max-hp-l.png",
+   "bytes": 85537,
+   "hash": "sha256-e08546da015f9c40206821f8bff8fc94b4b5df505da24e63398d4f717192c2c5",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-increase-max-hp-l-2": {
+   "datei": "icons/skillp-increase-max-hp-l-2.png",
+   "bytes": 83439,
+   "hash": "sha256-7f9c27d72d104692f3ccd0e79933e6dd67f18643fa5d0828163dda3eb1d78254",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-increase-max-hp-l-3": {
+   "datei": "icons/skillp-increase-max-hp-l-3.png",
+   "bytes": 83625,
+   "hash": "sha256-7aae7fe2d683d3199072946da61af0e417adf559eb6a82ade6dc7f6f681cf198",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-passive-heal-l": {
+   "datei": "icons/skillp-passive-heal-l.png",
+   "bytes": 79372,
+   "hash": "sha256-caf5afe68f4c09bc92402f890a474277a7c53c0413ae761a19789f217ce67ca1",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-phenix-l": {
+   "datei": "icons/skillp-phenix-l.png",
+   "bytes": 92482,
+   "hash": "sha256-a9daea26acf30dadbcc3cd956510e9903703c4dd4f37ec1587fa0449a538121f",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-phenix-l-2": {
+   "datei": "icons/skillp-phenix-l-2.png",
+   "bytes": 88584,
+   "hash": "sha256-27efb132e83c09e3330376b499fd565744835a46a6186a3ea8d944962ae24763",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-phenix-l-3": {
+   "datei": "icons/skillp-phenix-l-3.png",
+   "bytes": 88658,
+   "hash": "sha256-e2702ddc526f25be970d6bda11bcf96d594c0cae9348feecaae70d3055592a5a",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-stun-attack-l": {
+   "datei": "icons/skillp-stun-attack-l.png",
+   "bytes": 105066,
+   "hash": "sha256-e85c204339379521028bd04cff4f7ee4399adee8119793cb6b59c933ab9cb50f",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-stun-attack-l-2": {
+   "datei": "icons/skillp-stun-attack-l-2.png",
+   "bytes": 101602,
+   "hash": "sha256-cd5ade6d586f92ef491c846d0dde8484ea199b7bf19969945d6a9f0e8d6cea46",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-stun-attack-l-3": {
+   "datei": "icons/skillp-stun-attack-l-3.png",
+   "bytes": 101927,
+   "hash": "sha256-afaad0d219774385cd1331f4d78a21691bd7abf82ca4e719f6508f2dcdf4448e",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-stun-duration-l": {
+   "datei": "icons/skillp-stun-duration-l.png",
+   "bytes": 95649,
+   "hash": "sha256-1d60d23ce5ef1d81501b908d80b0b42bd7c8adf4fb819717701de9d272eb80ca",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-stun-duration-l-2": {
+   "datei": "icons/skillp-stun-duration-l-2.png",
+   "bytes": 92944,
+   "hash": "sha256-634f38d59cd0f227ec1d7aefc78d5c2b7e758ed827b71f52dbda34274d06078d",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-stun-duration-l-3": {
+   "datei": "icons/skillp-stun-duration-l-3.png",
+   "bytes": 93543,
+   "hash": "sha256-2a1f0a0d04e16a701a15b771ea2c39b3b41e523fef8cac6a1375e0942e1d0825",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-trade-l": {
+   "datei": "icons/skillp-trade-l.png",
+   "bytes": 93417,
+   "hash": "sha256-dae8cdbb449d13d7476f2681072d8c9155ad15b687a3974c4fc40ad958bc83a6",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-trade-l-2": {
+   "datei": "icons/skillp-trade-l-2.png",
+   "bytes": 83943,
+   "hash": "sha256-96f29bf8607519f4e10c6461b6b7f9ffe958da50dadc2abde094b457d2c9e1f3",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/skillp-trade-l-3": {
+   "datei": "icons/skillp-trade-l-3.png",
+   "bytes": 83950,
+   "hash": "sha256-c3e7ee6eb21a7aa2c75bdc55fdc8474bb4ea5640c37d21f9c0f05d3d6000cc7f",
+   "breite": 256,
+   "hoehe": 256
+  },
+  "icons/smalbag": {
+   "datei": "icons/smalbag.png",
+   "bytes": 10504,
+   "hash": "sha256-ffd73610ff5843a8a21200c76080c0a78523f6b7f32190617324a031146c051b",
+   "breite": 96,
+   "hoehe": 132
+  },
+  "icons/small-health-potion-icon": {
+   "datei": "icons/small-health-potion-icon.png",
+   "bytes": 15353,
+   "hash": "sha256-4ff076a8cfe7c39887133edbe079f91b332d94a19311a2eb1d3be139d801f11c",
+   "breite": 123,
+   "hoehe": 181
+  },
+  "icons/surprisebox": {
+   "datei": "icons/surprisebox.png",
+   "bytes": 14777,
+   "hash": "sha256-397b9df77080901ced3ea2e2cefac96bc8891afc13bf1818afc61c7d89030423",
+   "breite": 175,
+   "hoehe": 191
+  },
+  "icons/sword": {
+   "datei": "icons/sword.png",
+   "bytes": 1353,
+   "hash": "sha256-be1b328d59fa886b024d9565aa9069ce1a9b6f453ed8e1467be02cc9a6539fa8",
+   "breite": 92,
+   "hoehe": 92
+  },
+  "icons/sword-broken": {
+   "datei": "icons/sword-broken.png",
+   "bytes": 17301,
+   "hash": "sha256-0a0ef1783e1961d23ac884b2c2b3ac89e67e275bf25a4bd5792128c096a37c70",
+   "breite": 83,
+   "hoehe": 256
+  },
+  "icons/sword-claw": {
+   "datei": "icons/sword-claw.png",
+   "bytes": 12904,
+   "hash": "sha256-e5d040326de5b3865bdd8172ecb219d57d3d96b91403b4d8e246dc8df35e7c9c",
+   "breite": 78,
+   "hoehe": 256
+  },
+  "icons/sword-defender": {
+   "datei": "icons/sword-defender.png",
+   "bytes": 11602,
+   "hash": "sha256-1c700912936c7a2011d9858c49bccb9e94d296a9bfb12851cee807b3c4db2e49",
+   "breite": 58,
+   "hoehe": 256
+  },
+  "icons/sword-dragon-blade": {
+   "datei": "icons/sword-dragon-blade.png",
+   "bytes": 15436,
+   "hash": "sha256-4d5d6d9d9ac361dde5d737ed0c542b6a1b7d3c9cfaeb80d5d036a8723e7abdf9",
+   "breite": 76,
+   "hoehe": 256
+  },
+  "icons/sword-elite-guardian": {
+   "datei": "icons/sword-elite-guardian.png",
+   "bytes": 11964,
+   "hash": "sha256-a373934b7932cf17f53bb233f193bcf0477c070239dc5a56721476dead4c67e7",
+   "breite": 68,
+   "hoehe": 256
+  },
+  "icons/sword-goblin": {
+   "datei": "icons/sword-goblin.png",
+   "bytes": 14913,
+   "hash": "sha256-6320e68432936da5c2dc2e307d1027d5d6862c2a570c08d8b2aecbb6d950b54d",
+   "breite": 63,
+   "hoehe": 256
+  },
+  "icons/sword-iron-sting": {
+   "datei": "icons/sword-iron-sting.png",
+   "bytes": 11217,
+   "hash": "sha256-0da45fd1ed3b284bb11662ed0d06d017273f1f40b3d914a444c0f0ae84622c77",
+   "breite": 79,
+   "hoehe": 256
+  },
+  "icons/sword-legend-of-the-dark-lands": {
+   "datei": "icons/sword-legend-of-the-dark-lands.png",
+   "bytes": 15567,
+   "hash": "sha256-c306a576b98701d18cfc758bc5dae435c925f5cd7ae938e9df72d73d72d58ced",
+   "breite": 74,
+   "hoehe": 256
+  },
+  "icons/sword-mercenary": {
+   "datei": "icons/sword-mercenary.png",
+   "bytes": 12866,
+   "hash": "sha256-bffb8da59e5aceae7a5ae7e6120fb137156789f385591a876cc5a14ba7d0b31a",
+   "breite": 61,
+   "hoehe": 256
+  },
+  "icons/sword-mist-guardian": {
+   "datei": "icons/sword-mist-guardian.png",
+   "bytes": 12028,
+   "hash": "sha256-e3379a3bde36dccd9b1420620ae1d276018d700e8e8bced738ad733baabb7318",
+   "breite": 67,
+   "hoehe": 256
+  },
+  "icons/sword-north": {
+   "datei": "icons/sword-north.png",
+   "bytes": 15461,
+   "hash": "sha256-dc97c856e44a7593fd1a6c7f6ddfdab237d4c7619f167fdb514ebeaa41b32236",
+   "breite": 73,
+   "hoehe": 256
+  },
+  "icons/sword-of-the-king": {
+   "datei": "icons/sword-of-the-king.png",
+   "bytes": 13339,
+   "hash": "sha256-82eaed15edaf05e5090301c3ccc7641d9a11730250485e1f9c8e61e12ad7a58c",
+   "breite": 64,
+   "hoehe": 256
+  },
+  "icons/sword-shadow": {
+   "datei": "icons/sword-shadow.png",
+   "bytes": 11661,
+   "hash": "sha256-f6ba1901e2dfdd1b4549fce8761b46d5e9611d722e9b449cceddb6ebf5538c94",
+   "breite": 62,
+   "hoehe": 256
+  },
+  "icons/sword-thunder": {
+   "datei": "icons/sword-thunder.png",
+   "bytes": 14572,
+   "hash": "sha256-f467b8bb320338f5d4a8d137a4086dda530fe426e17dbd4b9e23eeb9346e2c55",
+   "breite": 61,
+   "hoehe": 256
+  },
+  "icons/sword-vampire-fang": {
+   "datei": "icons/sword-vampire-fang.png",
+   "bytes": 12414,
+   "hash": "sha256-64742f451f392dae3075c75739c6eb8d6f9402c986ab5194da5db04f99c1783d",
+   "breite": 56,
+   "hoehe": 256
+  },
+  "icons/sword-wild-whirlwind": {
+   "datei": "icons/sword-wild-whirlwind.png",
+   "bytes": 15409,
+   "hash": "sha256-a83837c13ded53e0fc6289ce4e6e35e787620f3569c4c6defe9b23fcce4c8339",
+   "breite": 76,
+   "hoehe": 256
+  },
+  "icons/textile-icon": {
+   "datei": "icons/textile-icon.png",
+   "bytes": 29218,
+   "hash": "sha256-e01a889725d878de20f018713a1ca66c9a4aca822397e2d714c0fac697d1ae13",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/titaniumingot": {
+   "datei": "icons/titaniumingot.png",
+   "bytes": 13402,
+   "hash": "sha256-423cb78a0a389f16b9c57752d7288ae31d02eb812c994feebf6340031b8c0460",
+   "breite": 140,
+   "hoehe": 140
+  },
+  "icons/titaniumnugget": {
+   "datei": "icons/titaniumnugget.png",
+   "bytes": 14589,
+   "hash": "sha256-f7478229a51603674130f54c212d876625fd1d891842f4650050b4785178e8a7",
+   "breite": 120,
+   "hoehe": 116
+  },
+  "icons/warrior-s-hood": {
+   "datei": "icons/warrior-s-hood.png",
+   "bytes": 35204,
+   "hash": "sha256-e229eb878799e1ac2de1bf2724cead31b4c755d04859b230ee3089ba58eea2d5",
+   "breite": 158,
+   "hoehe": 256
+  },
+  "icons/water": {
+   "datei": "icons/water.png",
+   "bytes": 15001,
+   "hash": "sha256-5b9a8d3ebc013be22295812a59b75fde0e95d19eac5492a9d00037711c256869",
+   "breite": 151,
+   "hoehe": 180
+  },
+  "icons/weapons": {
+   "datei": "icons/weapons.png",
+   "bytes": 8902,
+   "hash": "sha256-fbb2db979016a2ec9d9f59fb4744bbf863b9aac6b1dabb9d61ae87ad1c8b8674",
+   "breite": 95,
+   "hoehe": 95
+  },
+  "icons/wizardwand": {
+   "datei": "icons/wizardwand.png",
+   "bytes": 37420,
+   "hash": "sha256-81400b1dc85e6b243c7e16aaccd29883b957a82654c066221922be3c39b93028",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/wizardwandshapesgrid": {
+   "datei": "icons/wizardwandshapesgrid.png",
+   "bytes": 21635,
+   "hash": "sha256-6bad7571686b4a73cc1741986680f68bbc409a39ac66ddcd19eeb294735e62d2",
+   "breite": 64,
+   "hoehe": 256
+  },
+  "icons/wood": {
+   "datei": "icons/wood.png",
+   "bytes": 29194,
+   "hash": "sha256-b3b73f48eea4f2b14b9f07519ddc6ff8cc434a2b20deb6909ab14b3969cde8e7",
+   "breite": 174,
+   "hoehe": 165
+  },
+  "icons/wood-icon": {
+   "datei": "icons/wood-icon.png",
+   "bytes": 32397,
+   "hash": "sha256-00f1a05963f410879aaa6b7d6ffcbd530848ac7e108974ed65d89d58f9afe08a",
+   "breite": 200,
+   "hoehe": 200
+  },
+  "icons/woodensword": {
+   "datei": "icons/woodensword.png",
+   "bytes": 19687,
+   "hash": "sha256-465d185d3b4fbd0e6f2e410ed3cd44bb1afca20b0eb8c3790c43b8aa9ab69898",
+   "breite": 200,
+   "hoehe": 181
+  },
+  "icons/woodenswordshapesgrid": {
+   "datei": "icons/woodenswordshapesgrid.png",
+   "bytes": 25138,
+   "hash": "sha256-213f2aba1fb7d3643d468c7686012d50e66ce15326caeb5486d0787a93482e19",
+   "breite": 92,
+   "hoehe": 256
   }
  }
 }

@@ -35,7 +35,7 @@
  * festgestellt, dass es KEINE `_col`-Knoten in den Dateien gibt — die
  * Trennung läuft ausschliesslich über den Dateinamen.
  */
-export type StoreArt = 'modell' | 'textur' | 'ton' | 'terrain' | 'kulisse' | 'kollision';
+export type StoreArt = 'modell' | 'textur' | 'ton' | 'terrain' | 'kulisse' | 'kollision' | 'symbol';
 
 /**
  * Darf die Datei das Repo verlassen?

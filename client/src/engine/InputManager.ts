@@ -376,23 +376,31 @@ export class InputManager {
     this.lastClickAt = performance.now();
   }
 
+  /**
+   * Locked while the player lies dead (TodTreffer): every game key and mouse button reads as not
+   * pressed, so nothing can move, swing, parry or interact. The menu keys still work (Escape, F1, F11),
+   * and the camera keeps turning (`consumeMouseDelta` is not touched).
+   */
+  gesperrt = false;
+  private static readonly TOT_ERLAUBT: ReadonlySet<string> = new Set(['Escape', 'F1', 'F11']);
+
   isDown(code: string): boolean {
-    return this.keys.has(code);
+    return this.keys.has(code) && (!this.gesperrt || InputManager.TOT_ERLAUBT.has(code));
   }
 
   /** True for one frame after the key went down. */
   wasPressed(code: string): boolean {
-    return this.keysPressed.has(code);
+    return this.keysPressed.has(code) && (!this.gesperrt || InputManager.TOT_ERLAUBT.has(code));
   }
 
   /** 0 = left, 1 = middle, 2 = right. */
   isMouseDown(button: number): boolean {
-    return this.mouse.has(button);
+    return !this.gesperrt && this.mouse.has(button);
   }
 
   /** True for one frame after the button went down. */
   wasMousePressed(button: number): boolean {
-    return this.mousePressed.has(button);
+    return !this.gesperrt && this.mousePressed.has(button);
   }
 
   /**

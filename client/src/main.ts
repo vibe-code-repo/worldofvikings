@@ -119,6 +119,7 @@ import { GameI18n } from './i18n';
 import { Equipment } from './player/Equipment';
 import { waffenStandHandler } from './player/WaffenAbgleich';
 import { KampfEffekte } from './engine/KampfEffekte';
+import { verdrahteKampf } from './net/KampfNetz';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
 import { ContainerPanel } from './ui/ContainerPanel';
@@ -2459,22 +2460,14 @@ async function main() {
       }
     });
 
-    // Interaktions-Ergebnis: Meldung + ggf. Beute ins Inventar.
-    // Treffereffekt vom Server (Kreatur getroffen: Blut; Holz/Stein: Funken;
-    // Parade: Funke) — auch fuer Treffer, die Mitspieler landen.
-    socket.on(PacketType.HitEffect, (reader) => {
-      const pos = reader.readVector3();
-      const art = reader.readInt32();
-      kampfEffekte.treffer(new Vector3(pos.x, pos.y, pos.z), art);
-      kampfToene.treffer(pos, art, reader.remaining > 0 && reader.readBool());
-    });
+    verdrahteKampf(socket, input, () => player?.avatar ?? null, { kampfEffekte, kampfToene });
 
     socket.on(PacketType.InteractResult, (reader) => {
       reader.readBool();
       const message = reader.readString();
       const itemName = reader.readString();
       const amount = reader.readInt32();
-      if (message) hud.meldung(message);
+      if (message) hud.meldung(i18n.serverMeldung(message));
       // Items addiert NUR noch der Server (InventorySync) — itemName/amount
       // bleiben im Paket für HUD-Signale und Alt-Clients.
       void itemName;

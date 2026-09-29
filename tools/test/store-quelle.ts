@@ -14,7 +14,7 @@
  * Die Quelle ist ein Symlink auf einen Speicher außerhalb des Repos, und der
  * Generator liest seinen Pfad aus dem Ort, an dem er liegt. Der Test baut
  * deshalb einen WEGWERF-Baum: eine Kopie des Generators, Verweise auf
- * `client/` und `shared/`, und einen eigenen `assets/store` mit veränderter
+ * `client/` und `shared/`, `assets/manifest.json` und einen eigenen `assets/store` mit veränderter
  * `prefabs.json`, dessen übrige Einträge auf den echten Speicher zeigen.
  * Geschrieben wird nur dorthin (`--nach`); nichts Getracktes wird angefasst.
  *
@@ -43,7 +43,7 @@ const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = join(HIER, '..', '..');
 const STORE = join(WURZEL, 'assets/store');
 const TSX = join(WURZEL, 'node_modules/.bin/tsx');
-const ERZEUGNISSE = ['storePrefabs.ts', 'storeKatalogDaten.ts', 'storeKollisionDaten.ts', 'storeVerhalten.ts'] as const;
+const ERZEUGNISSE = ['storePrefabs.ts', 'storeKatalogDaten.ts', 'storeKollisionDaten.ts', 'storeVerhalten.ts', 'storeHuelleDaten.ts'] as const;
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -85,6 +85,10 @@ try {
     if (name === 'prefabs.json') continue;
     symlinkSync(join(STORE, name), join(baum, 'assets/store', name));
   }
+  // Seit #127 liest der Generator zusätzlich `assets/manifest.json` (Ton/Symbole);
+  // ohne sie weichen Katalog und Hülle vom Eingecheckten ab. Getrackte Datei, nur gelesen.
+  const assetManifest = join(WURZEL, 'assets/manifest.json');
+  if (existsSync(assetManifest)) symlinkSync(assetManifest, join(baum, 'assets/manifest.json'));
   const labQuelle = join(WURZEL, 'assets/store-lab');
   if (existsSync(labQuelle)) symlinkSync(labQuelle, join(baum, 'assets/store-lab'));
 

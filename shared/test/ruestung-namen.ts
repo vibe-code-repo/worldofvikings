@@ -65,6 +65,18 @@ for (const key of erwartet) {
   check(`${key}: text in en`, typeof en[key] === 'string' && en[key].trim() !== '');
 }
 
+// F1: no German text in en.json. Same text in de and en is only allowed for proper names (listed, with reason);
+// en must contain no umlaut or sharp s.
+const GLEICHE_EIGENNAMEN: ReadonlyMap<string, string> = new Map([
+  ['inhalt.set.ironward', 'invented proper name, identical in both languages'],
+  ['inhalt.set.seidraven', 'invented proper name, identical in both languages'],
+]);
+for (const key of erwartet) {
+  if (de[key] === en[key]) check(`${key}: identical de/en text is a listed proper name`, GLEICHE_EIGENNAMEN.has(key), en[key]);
+  check(`${key}: en text has no umlaut or sharp s`, !/[äöüÄÖÜß]/.test(en[key] ?? ''), en[key]);
+}
+for (const key of GLEICHE_EIGENNAMEN.keys()) check(`${key}: listed proper name is really identical`, de[key] === en[key]);
+
 for (const [name, katalogInhalt] of [['de', de], ['en', en]] as const) {
   const verwaist = Object.keys(katalogInhalt).filter(k => /^inhalt\.(item|set)\./.test(k) && k !== 'inhalt.item.beispiel' && !erwartet.has(k));
   check(`${name}.json: no orphan inhalt.item.*/inhalt.set.* key`, verwaist.length === 0, verwaist.join(', '));

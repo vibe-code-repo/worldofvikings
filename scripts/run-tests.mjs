@@ -2342,6 +2342,68 @@ const KERN = [
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  // Karte „Editor Upload-Größe": Grundskala in Registry + Hülle (huellenAufloeser) —
+  // Feld optional (fehlt = 1), Grenzen 0,01…100, Hülle multipliziert statt abschreibt.
+  // Nachbesserung N1 (H1): applyUploadedModelRegistry übernimmt eine geänderte
+  // grundskala bei bekanntem Namen; eine manipulierte Änderung verwirft nur SIE (N5).
+  ['shared', 'test/upload-grundskala-registry.ts'],
+  // Grundskala im Loader (AssetManager.getMasters, synthetischer Container): wirkt
+  // multiplikativ auf die Platzierungs-scale — 1,0×0,72×0,6 m ×Grundskala 4 -> 4,0×2,88×2,4 m
+  // bei scale 1, 8,0×5,76×4,8 m bei scale 2. Gemessen im Szenengraph.
+  ['client', 'test/upload-grundskala-loader.ts'],
+  // Nachbesserung N1 (H1): eine geänderte Grundskala eines SCHON registrierten
+  // Uploads wirkt ohne Neuladen der Seite — zweimal applyUploadedModelRegistry,
+  // dann AssetManager.getMasters() erneut (in-place aktualisiert, kein Neuladen der GLB).
+  // Nachbesserung N2 (F2/F3): zwei gleichzeitige getMasters() ergeben dieselbe Skala
+  // (gebündelt), eine vorher gehaltene localMatrix-Referenz sieht eine spätere Änderung.
+  ['client', 'test/upload-grundskala-neu-anwenden.ts'],
+  // Grundskala in der Server-Kollision (KollisionsFormen, echte Kette bewegungsSchritt/
+  // Kollisionswelt) und im Nachträglich-ändern-Weg (aendereGrundskala): Registry-Datei UND
+  // Laufzeit-Registrierung folgen, Grenzen greifen, unbekannter Name/Sperre lehnen ab.
+  ['server', 'test/upload-grundskala-kollision.ts'],
+  // Vorschlagslogik für die Zielgröße (DOM-frei): ähnliches Modell -> Kategorietabelle ->
+  // Rohgröße, cm-Verdacht (>50 m), rohMasseAusGlb (Hüllbox browserseitig vor dem Upload).
+  // Nachbesserung N2/N3: Tabellenmuster ohne echten Wortkern lösen nicht mehr aus
+  // (Fassade/Shuttle/Abstandhalter/Wagenrad/Boxhandschuh), Namensvergleich umlaut-unabhängig.
+  // Nachbesserung N2 (F5/F6): Abgleich auf ganze Namensbestandteile/Kompositum-Ende
+  // umgestellt (Fassung/Standuhr/Boxsack/Abstandshalter/Wagenräder ebenfalls kein
+  // Treffer mehr), Namensvergleich zusätzlich NFD-unabhängig (macOS-Dateinamen).
+  ['shared', 'test/upload-grundskala-vorschlag.ts'],
+  // Nachbesserung M1: der Weltbau-Katalog (tools/worldlayout-mcp-Grundlage) meldet für
+  // Uploads die GRUNDSKALIERTEN Maße, nicht die rohe Hüllbox der Datei.
+  ['shared', 'test/upload-grundskala-katalog.ts'],
+  // Nachbesserung N4 (N3-4, Info): WOV_HOCHGELADEN_DIR robust gegen /proc-Umgehung
+  // (//proc/x, /./proc/x — erst resolve(), dann Sperrliste, keine mkdirSync-
+  // Endlosschleife mehr), Symlink-Ziel via realpathSync, Tippfehler bricht ab statt
+  // still einen Baum anzulegen, Schreibprobe über zufälligen Namen mit O_EXCL.
+  ['shared', 'test/upload-hochgeladen-dir-haerten.ts'],
+  // Betriebsdienst-Verdrahtung (Syntaxbaum, wie modell-upload-verdrahtung.ts): Kopfzeile
+  // x-wov-grundskala geprüft und durchgereicht, neuer PATCH-Zweig für „nachträglich ändern"
+  // (422 bei ungültiger Grundskala, keine Bestätigungslogik wie bei DELETE).
+  ['admin', 'test/upload-grundskala-dienst.ts'],
+  // Dieselbe Verdrahtung am ECHTEN, laufenden Betriebsdienst (Port 0, wie betriebsdienst.ts):
+  // POST mit/ohne X-Wov-Grundskala, Grenzen 0,01…100 inkl. 422, PATCH „nachträglich ändern"
+  // (Registry-Datei UND Antwort), unbekannter Name/fehlende Felder. Nachbesserung H2: eigener
+  // Upload-Ordner je Lauf (WOV_HOCHGELADEN_DIR), NIE der Checkout — geprüft auch nach SIGKILL
+  // mitten im Upload (Angriff Probe C4). Nachbesserung N1: 0x10/1e1/Leerzeichen/+4 -> 422.
+  // Nachbesserung N2 (F1): Dienst startet detached, jedes Beenden trifft die ganze
+  // Prozessgruppe (kein verwaister Enkelprozess mehr). F4: leerer/relativer
+  // WOV_HOCHGELADEN_DIR bricht den Start mit klarer Meldung ab.
+  // Nachbesserung N3 (B1): kein Wrapper, kein detached mehr — der Dienst ist ein
+  // gewöhnliches Kind (node --import tsx direkt). B8: /proc/sys, hängender Symlink
+  // and invalid upload directories fail at startup. Each temporary directory
+  // is owned by this test; immediate signal/exit handlers clean up. ~10 s.
+  ['admin', 'test/upload-grundskala-betriebsdienst.ts'],
+  // B1 (Nachangriff N2): der Abbruch des GANZEN Tests (TERM/KILL an seine Gruppe,
+  // wie run-tests.mjs es bei Zeitlimit/Speicherwächter tut) darf keinen Dienst mit
+  // PPID 1 und offenem Port hinterlassen — Rot auf bd8fa6c (detached-Fix), grün seit
+  // dem wrapper-/detached-losen Start. Nachbesserung N4 (N3-1): der Abbruch-Test
+  // selbst startete sein Kind detached in einer eigenen Gruppe und hinterließ dabei
+  // im Startfenster eine Waise — jetzt ein exit/SIGTERM/SIGINT-Riegel plus ein
+  // stdin EOF guard covers parent SIGKILL. Each TERM/KILL probe owns a separate
+  // temporary directory, cleaned on exit/TERM/INT. SIGKILL of this test can
+  // leave its own directory behind; no old-directory cleanup. ~4 s.
+  ['admin', 'test/upload-grundskala-betriebsdienst-abbruch.ts'],
   // Height correction: real boot terrain and structured MCP reader diagnostics.
   ['server', 'test/height-correction-boot.ts'],
   ['tools/worldlayout-mcp', 'height-correction-readers.ts'],

@@ -43,6 +43,7 @@ import {
   type PrefabDef,
 } from '@wov/shared';
 import { leseGlb, type GlbNetz } from '@wov/shared/src/kollision/glb.js';
+import * as uploadedModelRegistry from '@wov/shared/src/uploadedModelRegistry.js';
 import { uploadedModelEntry } from '@wov/shared/src/uploadedModelRegistry.js';
 import type { Vek3 } from '@wov/shared/src/kollision/form.js';
 
@@ -105,6 +106,17 @@ function kisteAusPositionen(positionen: Float32Array): KollisionsForm {
   const min: Vek3 = { x: minX, y: minY, z: minZ };
   const max: Vek3 = { x: maxX, y: maxY, z: maxZ };
   return { art: 'kiste', min, max };
+}
+
+/**
+ * Vertexpositionen um den Ursprung uniform skalieren — die Grundskala
+ * eines Uploads (Karte „Editor Upload-Größe"), angewendet auf die rohen
+ * Dateikoordinaten VOR jeder Formableitung (Kiste oder eigenes Netz).
+ */
+function skalierePositionen(positionen: Float32Array, g: number): Float32Array {
+  const aus = new Float32Array(positionen.length);
+  for (let i = 0; i < positionen.length; i++) aus[i] = positionen[i]! * g;
+  return aus;
 }
 
 export class KollisionsFormen implements FormQuelle {
@@ -197,14 +209,26 @@ export class KollisionsFormen implements FormQuelle {
       if (!def?.model) return null;
       const inhalt = this.leseModell(def.model);
       if (inhalt === null) return null;
+      // Grundskala (Karte „Editor Upload-Größe"): Die Vertexpositionen
+      // kommen roh aus der Datei — vor `skalierung()` (Kollisionswelt.ts),
+      // die weiterhin nur ZDO-`scale`/`localScale` kennt und unveraendert
+      // bleibt. Skaliert wird HIER, an den Positionen selbst, damit die
+      // Grundskala multiplikativ auf die Platzierungs-Skalierung wirkt statt
+      // sie zu ersetzen — dieselbe Reihenfolge wie beim Client-Loader
+      // (`AssetManager.getMasters`).
+      const g = uploadedModelRegistry.grundskalaVon(hochgeladen);
       if (hochgeladen.hatKollisionsnetz && inhalt.kollision !== null) {
-        const form = kollisionsForm(inhalt.kollision.positionen, inhalt.kollision.indizes, prefabName, null, {
-          eigenesNetz: true,
-        });
+        const form = kollisionsForm(
+          g === 1 ? inhalt.kollision.positionen : skalierePositionen(inhalt.kollision.positionen, g),
+          inhalt.kollision.indizes,
+          prefabName,
+          null,
+          { eigenesNetz: true }
+        );
         if (form !== null) return form;
       }
       if (inhalt.sicht === null) return null;
-      return kisteAusPositionen(inhalt.sicht.positionen);
+      return kisteAusPositionen(g === 1 ? inhalt.sicht.positionen : skalierePositionen(inhalt.sicht.positionen, g));
     }
 
     /*

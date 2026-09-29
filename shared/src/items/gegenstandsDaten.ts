@@ -27,7 +27,8 @@ import { ersetzeDatenTexte, repoText } from '../texte.js';
 // ── Limits ─────────────────────────────────────────────────────────────
 export const GEGENSTAENDE_VERSION = 1;
 export const MAX_EINTRAEGE = 500;
-export const MAX_DATEI_BYTES = 256 * 1024;
+/** 1 MB: 500 realistically filled entries (about 1.7 KB each when pretty-printed) fit; see the size test. */
+export const MAX_DATEI_BYTES = 1024 * 1024;
 export const MAX_TEXT_ZEICHEN = 200;
 export const MAX_ZUTATEN = 20;
 export const MAX_SCHADEN = 200;
@@ -41,15 +42,49 @@ const ZUTAT_MUSTER = /^[A-Za-z0-9_]{1,64}$/;
 /**
  * Characters that are refused in texts, by Unicode category: control (Cc), format (Cf: zero-width, bidi
  * controls, soft hyphen, word joiner, BOM, tag characters), line/paragraph separators (Zl, Zp), lone
- * surrogates (Cs; a well-formed pair is one astral character and does not match under /u), unassigned
- * (Cn, incl. U+FFFE/FFFF) and private use (Co). Category tables differ a little between engines, so the
- * invisible ones that are not in Cf are listed by hand: U+180E, U+FFFC, the Hangul fillers, the braille
- * blank U+2800, variation selectors, Mongolian selectors, Khmer inherent vowels and the grapheme joiner.
+ * surrogates (Cs; a well-formed pair is one astral character and does not match under /u) and private
+ * use (Co). NOT `\p{Cn}`: which code points are "unassigned" depends on the Unicode version of the engine,
+ * and server and client must agree, so a newly assigned emoji must pass everywhere. Instead the
+ * noncharacters (U+FDD0-FDEF and U+xFFFE/xFFFF of every plane) are listed, and so are the invisible ones
+ * that are not in Cf: U+180E, U+FFFC, the Hangul fillers, the braille blank U+2800, variation selectors
+ * U+FE00-FE0E and the tag/selector block U+E0000-E0FFF, the unassigned default-ignorables U+2065 and U+FFF0-FFF8, Mongolian selectors, Khmer inherent vowels and the grapheme joiner.
+ * ZWNJ/ZWJ (U+200C/D) and VS16 (U+FE0F) are allowed only in context (`kontextOk`).
  * The text is DISCARDED (entry refused) instead of stripped: silently editing a name would show something
  * the author did not write. HTML in texts is allowed on purpose: the client only ever shows texts through
  * `textContent` (G3), never as markup, so `<b>` is just characters there.
  */
-const STEUERZEICHEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Cn}\p{Co}\u180e\ufffc\u3164\u115f\u1160\u2800\ufe00-\ufe0f\u{e0100}-\u{e01ef}\u180b-\u180d\u17b4\u17b5\u034f]/u;
+const NICHTZEICHEN = ['\\u{fdd0}-\\u{fdef}', ...Array.from({ length: 17 }, (_, plane) => `\\u{${(plane * 0x10000 + 0xfffe).toString(16)}}\\u{${(plane * 0x10000 + 0xffff).toString(16)}}`)].join('');
+const STEUERZEICHEN = new RegExp(
+  `[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}\\p{Co}${NICHTZEICHEN}\\u2065\\ufff0-\\ufff8\\u180e\\ufffc\\u3164\\u115f\\u1160\\u2800\\ufe00-\\ufe0e\\u{e0000}-\\u{e0fff}\\u180b-\\u180d\\u17b4\\u17b5\\u034f]`,
+  'u'
+);
+const JOINER_NACHBAR = /^[\p{L}\p{M}\p{Extended_Pictographic}]$/u;
+const JOINER_VORGAENGER = /^[\p{L}\p{M}\p{Extended_Pictographic}\p{Emoji_Modifier}\ufe0f]$/u;
+const EMOJI = /^\p{Extended_Pictographic}$/u;
+
+/**
+ * True if `v` has no refused character. ZWNJ/ZWJ pass when both neighbours are letters, marks or
+ * pictographs (Persian, Devanagari, emoji sequences such as a man plus a sheaf of rice), and VS16 passes
+ * directly after a pictograph. The soft hyphen U+00AD stays refused.
+ */
+function zeichenOk(v: string): boolean {
+  const z = Array.from(v);
+  let rest = '';
+  for (let i = 0; i < z.length; i++) {
+    const c = z[i];
+    if (c === '\u200c' || c === '\u200d') {
+      const vor = z[i - 1];
+      const nach = z[i + 1];
+      if (vor === undefined || nach === undefined || !JOINER_VORGAENGER.test(vor) || !JOINER_NACHBAR.test(nach)) return false;
+    } else if (c === '\ufe0f') {
+      const vor = z[i - 1];
+      if (vor === undefined || !EMOJI.test(vor)) return false;
+    } else {
+      rest += c;
+    }
+  }
+  return !STEUERZEICHEN.test(rest);
+}
 /** A name needs at least one letter or digit, else it is invisible or only punctuation. */
 const SICHTBAR = /[\p{L}\p{N}]/u;
 
@@ -92,6 +127,8 @@ export const VERWERF_GRUENDE = [
   'texte-ungueltig',
   'texte-schluessel-fremd',
   'texte-name-fehlt',
+  'eintrag-ungueltig',
+  'zu-viele-eintraege',
 ] as const;
 export type VerwerfGrund = typeof VERWERF_GRUENDE[number];
 
@@ -195,7 +232,7 @@ function vektor(v: unknown, grenze: number): [number, number, number] | null {
 }
 
 function text(v: unknown): string {
-  if (typeof v !== 'string' || v.length > MAX_TEXT_ZEICHEN || STEUERZEICHEN.test(v)) {
+  if (typeof v !== 'string' || v.length > MAX_TEXT_ZEICHEN || !zeichenOk(v)) {
     throw new Verwerfen('texte-ungueltig');
   }
   return v;
@@ -390,27 +427,25 @@ function verarbeiteListe(liste: readonly unknown[], z: { n: number }): { eintrae
   const verworfen: VerworfenerEintrag[] = [];
   const karte = new Map<string, GegenstandsEintrag>();
   const kleinIds = new Set<string>();
+  const indexVon = new Map<string, number>();
   liste.forEach((roh, index) => {
-    const idRoh = istObjekt(roh) ? nimm(roh, 'id') : undefined;
-    const idOk = typeof idRoh === 'string' && ID_MUSTER.test(idRoh) ? idRoh : null;
+    // Nothing below may throw out of here: a live object (getter, proxy) is refused like any other bad entry.
+    let idOk: string | null = null;
     try {
+      const idRoh = istObjekt(roh) ? nimm(roh, 'id') : undefined;
+      idOk = typeof idRoh === 'string' && ID_MUSTER.test(idRoh) ? idRoh : null;
       const e = saubereEintrag(roh, z);
       if (karte.has(e.id)) throw new Verwerfen('id-doppelt');
       if (kleinIds.has(e.id.toLowerCase())) throw new Verwerfen('id-schreibung-doppelt');
       kleinIds.add(e.id.toLowerCase());
       karte.set(e.id, e);
+      indexVon.set(e.id, index);
     } catch (fehler) {
-      if (!(fehler instanceof Verwerfen)) throw fehler;
-      verworfen.push({ index, id: idOk, grund: fehler.grund });
+      verworfen.push({ index, id: idOk, grund: fehler instanceof Verwerfen ? fehler.grund : 'eintrag-ungueltig' });
     }
   });
 
   // Recipes across entries: ingredients must exist, no cycles. Dropping an entry can orphan others, so repeat.
-  const indexVon = new Map<string, number>();
-  liste.forEach((roh, i) => {
-    const id = istObjekt(roh) ? nimm(roh, 'id') : undefined;
-    if (typeof id === 'string' && !indexVon.has(id)) indexVon.set(id, i);
-  });
   const wirf = (id: string, grund: VerwerfGrund): void => {
     karte.delete(id);
     verworfen.push({ index: indexVon.get(id) ?? -1, id, grund });
@@ -472,27 +507,60 @@ export function leseGegenstandsDatei(text: string): GegenstandsLesung {
  * Returns the reason codes for `eintrag` (empty = it would be accepted).
  */
 export function pruefeEintrag(eintrag: unknown, andere: readonly GegenstandsEintrag[]): VerwerfGrund[] {
+  if (andere.length + 1 > MAX_EINTRAEGE) return ['zu-viele-eintraege'];
   const { verworfen } = verarbeiteListe([...andere, eintrag], { n: 0 });
   return verworfen.filter((v) => v.index === andere.length).map((v) => v.grund);
 }
 
+export class GegenstandsSchreibFehler extends Error {
+  constructor(readonly code: 'datei-zu-viele-eintraege' | 'datei-zu-gross') {
+    super(code);
+    this.name = 'GegenstandsSchreibFehler';
+  }
+}
+
 /**
- * The canonical text of a data file: fixed field order, 2-space indent, one newline at the end. The
- * inverse of `leseGegenstandsDatei` for sanitised entries, and the same bytes for the same entries
- * whatever order the keys had in the input.
+ * The canonical text of a data file: fixed field order, 2-space indent, one newline at the end, unset
+ * fields left out. The inverse of `leseGegenstandsDatei` for sanitised entries, and the same bytes for the
+ * same entries whatever order the keys had in the input. Throws `GegenstandsSchreibFehler` instead of
+ * returning a text the reader would refuse as a whole (more than 500 entries, more than `MAX_DATEI_BYTES`).
  */
 export function schreibeGegenstandsDatei(eintraege: readonly GegenstandsEintrag[]): string {
+  if (eintraege.length > MAX_EINTRAEGE) throw new GegenstandsSchreibFehler('datei-zu-viele-eintraege');
   const ordne = (e: GegenstandsEintrag): Roh => {
     const m = e.modell;
+    const o: Roh = { id: e.id, nameSchluessel: e.nameSchluessel };
+    if (e.beschreibungSchluessel !== null) o.beschreibungSchluessel = e.beschreibungSchluessel;
+    o.typ = e.typ;
+    o.slot = e.slot;
+    const modell: Roh = {};
+    if (m.upload !== null) modell.upload = m.upload;
+    if (m.skala !== 1) modell.skala = m.skala;
+    if (m.haltePosition !== null) modell.haltePosition = m.haltePosition;
+    if (m.halteRotation !== null) modell.halteRotation = m.halteRotation;
+    if (m.hiebVersatz !== null) modell.hiebVersatz = m.hiebVersatz;
+    if (m.animationsSatz !== null) modell.animationsSatz = m.animationsSatz;
+    if (Object.keys(modell).length > 0) o.modell = modell;
+    if (e.symbol !== null) o.symbol = e.symbol;
+    o.stapel = e.stapel;
+    o.gewicht = e.gewicht;
     const werte: Roh = {};
     for (const s of STAT_IDS) if (Object.hasOwn(e.werte, s) && e.werte[s] !== undefined) werte[s] = e.werte[s];
+    if (Object.keys(werte).length > 0) o.werte = werte;
     const ernte: Roh = {};
     if (e.ernte.baum !== undefined) ernte.baum = e.ernte.baum;
     if (e.ernte.fels !== undefined) ernte.fels = e.ernte.fels;
+    if (Object.keys(ernte).length > 0) o.ernte = ernte;
     const haltbarkeit: Roh = {};
     if (e.haltbarkeit.max !== undefined) haltbarkeit.max = e.haltbarkeit.max;
     if (e.haltbarkeit.verbrauch !== undefined) haltbarkeit.verbrauch = e.haltbarkeit.verbrauch;
     if (e.haltbarkeit.ausdauer !== undefined) haltbarkeit.ausdauer = e.haltbarkeit.ausdauer;
+    if (Object.keys(haltbarkeit).length > 0) o.haltbarkeit = haltbarkeit;
+    o.itemLevel = e.itemLevel;
+    o.rarity = e.rarity;
+    if (e.rezept) {
+      o.rezept = { menge: e.rezept.menge, zutaten: e.rezept.zutaten.map((x) => ({ item: x.item, menge: x.menge })) };
+    }
     const texte: Roh = {};
     for (const k of [e.nameSchluessel, e.beschreibungSchluessel]) {
       if (k === null || !Object.hasOwn(e.texte, k)) continue;
@@ -502,35 +570,13 @@ export function schreibeGegenstandsDatei(eintraege: readonly GegenstandsEintrag[
       if (t.en !== undefined) eintrag.en = t.en;
       texte[k] = eintrag;
     }
-    return {
-      id: e.id,
-      nameSchluessel: e.nameSchluessel,
-      beschreibungSchluessel: e.beschreibungSchluessel,
-      typ: e.typ,
-      slot: e.slot,
-      modell: {
-        upload: m.upload,
-        skala: m.skala,
-        haltePosition: m.haltePosition,
-        halteRotation: m.halteRotation,
-        hiebVersatz: m.hiebVersatz,
-        animationsSatz: m.animationsSatz,
-      },
-      symbol: e.symbol,
-      stapel: e.stapel,
-      gewicht: e.gewicht,
-      werte,
-      ernte,
-      haltbarkeit,
-      itemLevel: e.itemLevel,
-      rarity: e.rarity,
-      rezept: e.rezept
-        ? { menge: e.rezept.menge, zutaten: e.rezept.zutaten.map((x) => ({ item: x.item, menge: x.menge })) }
-        : null,
-      texte,
-    };
+    o.texte = texte;
+    return o;
   };
-  return `${JSON.stringify({ version: GEGENSTAENDE_VERSION, gegenstaende: eintraege.map(ordne) }, null, 2)}\n`;
+  const text = `${JSON.stringify({ version: GEGENSTAENDE_VERSION, gegenstaende: eintraege.map(ordne) }, null, 2)}\n`;
+  // Never write what the reader would refuse as a whole.
+  if (new TextEncoder().encode(text).length > MAX_DATEI_BYTES) throw new GegenstandsSchreibFehler('datei-zu-gross');
+  return text;
 }
 
 // ── Translation into the game ──────────────────────────────────────────

@@ -29,6 +29,7 @@ import {
   MAX_EINTRAEGE,
   datenRezepte,
   gegenstaendeMitUpload,
+  GegenstandsSchreibFehler,
   gegenstandZuItem,
   VERWERF_GRUENDE,
   leseGegenstandsDatei,
@@ -218,9 +219,9 @@ const zuViele = leseGegenstandsDatei(datei(viele(MAX_EINTRAEGE + 1)));
 pruefe(!zuViele.ok && zuViele.dateiFehler === 'datei-zu-viele-eintraege' && zuViele.eintraege.length === 0, '501 Eintraege: ganze Datei abgelehnt');
 const polster = (n: number) => datei([], { fuellung: 'x'.repeat(n) });
 const grenze = MAX_DATEI_BYTES - polster(0).length;
-pruefe(leseGegenstandsDatei(polster(grenze - 16)).dateiFehler !== 'datei-zu-gross', 'knapp unter 256 KB ist nicht zu gross');
+pruefe(leseGegenstandsDatei(polster(grenze - 16)).dateiFehler !== 'datei-zu-gross', 'knapp unter MAX_DATEI_BYTES ist nicht zu gross');
 const genau = polster(MAX_DATEI_BYTES - polster(0).length + 1);
-pruefe(genau.length > MAX_DATEI_BYTES && leseGegenstandsDatei(genau).dateiFehler === 'datei-zu-gross', '256 KB + 1 Byte: zu gross');
+pruefe(genau.length > MAX_DATEI_BYTES && leseGegenstandsDatei(genau).dateiFehler === 'datei-zu-gross', 'MAX_DATEI_BYTES + 1 Byte: zu gross');
 // Multi-byte characters count as bytes, not as characters.
 const umlaute = polster(Math.ceil(MAX_DATEI_BYTES / 2));
 pruefe(umlaute.length < MAX_DATEI_BYTES && leseGegenstandsDatei(datei([], { fuellung: 'ä'.repeat(MAX_DATEI_BYTES / 2 + 10) })).dateiFehler === 'datei-zu-gross', 'Umlaute zaehlen als Bytes (zwei je Zeichen)');
@@ -380,7 +381,7 @@ const unsichtbar: number[] = [
   0x061c, 0x180e, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0x2065, 0x206a, 0x206b, 0x206c, 0x206d, 0x206e, 0x206f,
   0x034f, 0x00ad, 0xfe00, 0xfe0f, 0xe0001, 0xe0020, 0xe007f, 0xe0100, 0xe01ef, 0xfff9, 0xfffa, 0xfffb, 0xfffc,
   0x3164, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x2800, 0x1d173, 0xfffe, 0xffff, 0xd800, 0xdfff,
-  0xe000, 0x0378, 0x200d, 0x2029,
+  0xe000, 0x2029, 0xfff0, 0xfff8, 0xfdd0, 0xfdef, 0x1fffe, 0x10ffff, 0xe0fff,
 ];
 const nameMit = (de: string) => holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de, en: 'Axe' } } });
 for (const cp of unsichtbar) {
@@ -473,10 +474,182 @@ for (const [name, roh, andere, grund] of pruefFaelle) {
   pruefe(JSON.stringify(codes) === JSON.stringify(ausDatei), `pruefeEintrag == leseGegenstandsDatei: ${name}`);
   gesehen.add(grund);
 }
+// The same cases against a non-empty context: the entry being checked must not be mixed up with the others.
+for (const [name, roh, , grund] of pruefFaelle.slice(0, faelle.length + textFaelle.length)) {
+  const codes = pruefeEintrag(roh, kontext);
+  pruefe(codes.length === 1 && codes[0] === grund, `mit nichtleerem Kontext: ${name} -> ${grund} (war: ${codes.join()})`);
+}
+pruefe(pruefeEintrag(schlicht('Ok1', { typ: 'x' }), kontext).join() === 'typ-unbekannt', 'ungueltiger Eintrag bei nichtleerem andere: typ-unbekannt (nicht [])');
+// A live object that throws must give a code, never an exception.
+const werfend = { get id(): string { throw new Error('boom'); } };
+const proxyWerfend = new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('boom'); }, ownKeys() { throw new Error('boom'); }, get() { throw new Error('boom'); } });
+let wurf = false;
+let ausGetter: string[] = [];
+let ausProxy: string[] = [];
+try {
+  ausGetter = pruefeEintrag(werfend, kontext);
+  ausProxy = pruefeEintrag(proxyWerfend, []);
+} catch {
+  wurf = true;
+}
+pruefe(!wurf && ausGetter.join() === 'eintrag-ungueltig' && ausProxy.join() === 'eintrag-ungueltig', 'werfender Getter und werfender Proxy: eintrag-ungueltig statt Ausnahme');
+gesehen.add('eintrag-ungueltig');
+// More than 500 entries.
+const fuenfhundert = viele(MAX_EINTRAEGE).map((r) => lese(r).eintraege[0]);
+pruefe(pruefeEintrag(schlicht('Extra'), fuenfhundert).join() === 'zu-viele-eintraege', 'der 501. Eintrag: zu-viele-eintraege');
+pruefe(pruefeEintrag(schlicht('Extra'), fuenfhundert.slice(1)).length === 0, 'der 500. Eintrag ist noch in Ordnung');
+gesehen.add('zu-viele-eintraege');
 pruefe(VERWERF_GRUENDE.every((g) => gesehen.has(g)), `jeder Grund-Code ist abgedeckt (fehlt: ${VERWERF_GRUENDE.filter((g) => !gesehen.has(g)).join() || 'keiner'})`);
 pruefe(pruefeEintrag(holzaxt(), []).length === 0 && pruefeEintrag(schlicht('Frisch'), kontext).length === 0, 'gueltiger Eintrag: leere Liste');
 pruefe(pruefeEintrag(rz('Neu9', 'Zwei'), kontext).length === 0, 'Zutat aus den anderen Eintraegen ist bekannt');
 pruefe(pruefeEintrag(rz('Neu9', 'Zwei'), []).join() === 'rezept-zutat-unbekannt', 'dieselbe Zutat ohne Kontext: rezept-zutat-unbekannt');
+
+// ── 9c. Characters in context, engine independence (N4) ──────────────
+console.log('Gegenstandsdaten — Zeichen im Zusammenhang');
+const nameGeht = (de: string): boolean => lese(nameMit(de)).eintraege.length === 1;
+const erlaubt: Array<[string, string]> = [
+  ['Persisch mit ZWNJ', 'می\u200cخواهم'],
+  ['Devanagari mit ZWJ', 'क\u094d\u200dष'],
+  ['Emoji-Sequenz Mann+Garbe im Namen', 'Bauer 👨\u200d🌾'],
+  ['Emoji mit Hautton und ZWJ', 'Bauerin 👩🏽\u200d🌾'],
+  ['Herz mit VS16', 'Axt ❤\ufe0f'],
+  ['Herz-Feuer', 'Axt ❤\ufe0f\u200d🔥'],
+  ['ZWNJ zwischen Buchstaben (Latein)', 'a\u200cb'],
+  ['neu zugewiesenes Emoji U+1FAE9', 'Axt \u{1FAE9}'],
+  ['in jeder Unicode-Version unzugewiesen U+0378', 'a\u0378b'],
+];
+for (const [n, de] of erlaubt) pruefe(nameGeht(de), `erlaubt: ${n}`);
+const verboten: Array<[string, string]> = [
+  ['ZWJ am Anfang', '\u200dab'],
+  ['ZWJ am Ende', 'ab\u200d'],
+  ['ZWJ nach Leerzeichen', 'a \u200db'],
+  ['ZWJ vor Leerzeichen', 'a\u200d b'],
+  ['zwei ZWJ hintereinander', 'a\u200d\u200db'],
+  ['ZWNJ zwischen Ziffern', '1\u200c2'],
+  ['VS16 am Anfang', '\ufe0fab'],
+  ['VS16 nach Buchstabe', 'a\ufe0f'],
+  ['weiches Trennzeichen', 'Holz\u00adaxt'],
+  ['Nichtzeichen U+FDD0', 'a\ufdd0b'],
+  ['Nichtzeichen U+1FFFF', 'a\u{1FFFF}b'],
+  ['reiner Emoji-Name', '🪓'],
+  ['reine Emoji-Sequenz als Name', '👨\u200d🌾'],
+  ['nur Herz mit VS16', '❤\ufe0f'],
+];
+for (const [n, de] of verboten) pruefe(!nameGeht(de), `verboten: ${n}`);
+// The visibility rule holds for the English name too (the `||` branch).
+for (const en of ['!!!', '---', '\u{1FA93}', '   ']) {
+  const r = lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'Axt', en } } }));
+  pruefe(r.eintraege.length === 0 && (grundVon(r) === 'texte-ungueltig' || grundVon(r) === 'texte-name-fehlt'), `gueltiges de, en ohne Buchstabe/Ziffer (${JSON.stringify(en)}) -> abgelehnt`);
+}
+pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'Axt', en: 'Axe\u2060' } } })).eintraege.length === 0, 'gueltiges de, en mit Wortverbinder -> abgelehnt');
+pruefe(!/\p\{Cn\}/.test(readFileSync(new URL('../src/items/gegenstandsDaten.ts', import.meta.url), 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')), 'Quelltext benutzt \\p{Cn} nicht mehr (Kommentare ausgenommen)');
+// The reader must not throw on odd but valid JSON.
+for (const roh of ['null', '"x"', '{"version":1,"gegenstaende":[null,[],{"id":{}},{"id":"Ab","nameSchluessel":[]}]}', '{"version":1,"gegenstaende":[{"__proto__":1}]}']) {
+  let wirft = false;
+  try {
+    leseGegenstandsDatei(roh);
+  } catch {
+    wirft = true;
+  }
+  pruefe(!wirft, `leseGegenstandsDatei wirft nie: ${roh.slice(0, 40)}`);
+}
+
+// ── 10d. Writer at the limits (N4) ───────────────────────────────────
+console.log('Gegenstandsdaten — Schreiber an den Grenzen');
+const zutatNamen = ITEM_DEFS.map((d) => d.name).filter((n) => /^[A-Za-z0-9_]{1,64}$/.test(n)).slice(0, 20);
+pruefe(zutatNamen.length === 20, 'zwanzig Code-Items als Zutaten vorhanden');
+const idNr = (i: number, laenge: number): string => {
+  let s = '';
+  let n = i;
+  do {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26);
+  } while (n > 0);
+  return `Q${s}`.padEnd(laenge, '0');
+};
+/** A completely filled entry. `hoechst` = the largest the sanitiser allows; otherwise realistic sizes. */
+function voll(i: number, hoechst: boolean): Roh {
+  const id = idNr(i, hoechst ? 32 : 14);
+  const tx = (n: number, c: string): string => c.repeat(n);
+  const zahlL = hoechst ? 0.123456789012345 : 0.6;
+  return {
+    id,
+    nameSchluessel: `inhalt.gegenstand.${id}.name`,
+    beschreibungSchluessel: `inhalt.gegenstand.${id}.beschreibung`,
+    typ: 'zweihaendigWaffe',
+    slot: 'hand',
+    modell: {
+      upload: hoechst ? `hochgeladen/U_${'x'.repeat(40)}` : 'hochgeladen/U_Holzaxt',
+      skala: zahlL, haltePosition: [zahlL, -zahlL, zahlL], halteRotation: [-1.9, zahlL, 0], hiebVersatz: zahlL, animationsSatz: 'sword',
+    },
+    symbol: hoechst ? 'y'.repeat(64) : 'axt-holz',
+    stapel: 999, gewicht: hoechst ? 123.456789012345 : 2.5,
+    werte: { damage: 10, armor: 5, strength: 2, vitality: 3, agility: 4 },
+    ernte: { baum: 1, fels: 1 },
+    haltbarkeit: { max: 150, verbrauch: 1, ausdauer: 8 },
+    itemLevel: 42, rarity: 'legendary',
+    rezept: { menge: 3, zutaten: zutatNamen.slice(0, hoechst ? 20 : 5).map((item) => ({ item, menge: 999 })) },
+    texte: {
+      [`inhalt.gegenstand.${id}.name`]: { de: tx(hoechst ? 200 : 40, 'a'), en: tx(hoechst ? 200 : 40, 'b') },
+      [`inhalt.gegenstand.${id}.beschreibung`]: { de: tx(hoechst ? 200 : 120, 'c'), en: tx(hoechst ? 200 : 120, 'd') },
+    },
+  };
+}
+const viele2 = (n: number, hoechst: boolean): GegenstandsEintrag[] => {
+  // Read in chunks: the compact input for 500 largest entries would itself be over the file limit.
+  const alle: GegenstandsEintrag[] = [];
+  for (let von = 0; von < n; von += 50) {
+    const r = leseGegenstandsDatei(datei(Array.from({ length: Math.min(50, n - von) }, (_, k) => voll(von + k, hoechst))));
+    if (r.eintraege.length !== Math.min(50, n - von)) throw new Error(`Testdaten ungueltig: ${JSON.stringify(r.verworfen.slice(0, 2))} ${r.dateiFehler}`);
+    alle.push(...r.eintraege);
+  }
+  return alle;
+};
+const einzeln = (hoechst: boolean): number => new TextEncoder().encode(schreibeGegenstandsDatei(viele2(2, hoechst))).length - new TextEncoder().encode(schreibeGegenstandsDatei(viele2(1, hoechst))).length;
+const bytesReal = einzeln(false);
+const bytesMax = einzeln(true);
+console.log(`  Rechnung: ein voll gefuellter, realistischer Eintrag = ${bytesReal} Byte, der groesstmoegliche = ${bytesMax} Byte; in ${MAX_DATEI_BYTES} Byte passen ${Math.floor(MAX_DATEI_BYTES / bytesReal)} bzw. ${Math.floor(MAX_DATEI_BYTES / bytesMax)}`);
+pruefe(bytesReal * MAX_EINTRAEGE < MAX_DATEI_BYTES, `${MAX_EINTRAEGE} realistische, voll gefuellte Eintraege passen in MAX_DATEI_BYTES (${bytesReal * MAX_EINTRAEGE} < ${MAX_DATEI_BYTES})`);
+const realText = schreibeGegenstandsDatei(viele2(MAX_EINTRAEGE, false));
+const realZurueck = leseGegenstandsDatei(realText);
+pruefe(realZurueck.ok && realZurueck.eintraege.length === MAX_EINTRAEGE && realZurueck.verworfen.length === 0, `500 realistische Eintraege: schreiben -> lesen gelingt (${realText.length} Byte)`);
+pruefe(schreibeGegenstandsDatei(realZurueck.eintraege) === realText, '... und ist bytestabil');
+// Never write what the reader refuses: for every count either the round trip works or the writer throws first.
+let letzteOk = 0;
+let ersteZuGross = 0;
+for (const n of [1, 50, 100, 200, 300, 400, 500]) {
+  const liste = viele2(n, true);
+  let text: string | null = null;
+  let code: string | null = null;
+  try {
+    text = schreibeGegenstandsDatei(liste);
+  } catch (f) {
+    code = f instanceof GegenstandsSchreibFehler ? f.code : `fremd:${String(f)}`;
+  }
+  if (text !== null) {
+    const r = leseGegenstandsDatei(text);
+    pruefe(r.ok && r.eintraege.length === n && r.verworfen.length === 0, `${n} groesstmoegliche Eintraege: geschrieben und wieder gelesen`);
+    letzteOk = n;
+  } else {
+    pruefe(code === 'datei-zu-gross', `${n} groesstmoegliche Eintraege: Schreiber wirft datei-zu-gross statt eine unlesbare Datei zu schreiben (war: ${code})`);
+    if (ersteZuGross === 0) ersteZuGross = n;
+  }
+}
+console.log(`  groesstmoegliche Eintraege: bis ${letzteOk} geschrieben, ab ${ersteZuGross || 'nie'} wirft der Schreiber`);
+let zuVieleCode: string | null = null;
+try {
+  schreibeGegenstandsDatei(viele2(MAX_EINTRAEGE, false).concat(viele2(1, false).map((e) => ({ ...e, id: 'Zusatz' }))));
+} catch (f) {
+  zuVieleCode = f instanceof GegenstandsSchreibFehler ? f.code : "fremd";
+}
+pruefe(zuVieleCode === 'datei-zu-viele-eintraege', '501 Eintraege: Schreiber wirft datei-zu-viele-eintraege');
+const kompakt = schreibeGegenstandsDatei(lese(schlicht('Nur')).eintraege);
+pruefe(!kompakt.includes('null') && !kompakt.includes('{}') && !kompakt.includes('[]'), 'nicht gesetzte Felder fehlen (kein null, keine leeren Objekte)');
+pruefe(leseGegenstandsDatei('{"version":1,"gegenstaende":[{"id":"Alt","nameSchluessel":"inhalt.gegenstand.Alt.name","typ":"material","modell":{"hiebVersatz":null},"texte":{"inhalt.gegenstand.Alt.name":{"de":"a","en":"b"}}}]}').eintraege.length === 1, 'alte Dateien mit hiebVersatz: null bleiben lesbar');
+let stapelDurch = leseGegenstandsDatei(schreibeGegenstandsDatei(viele2(3, false)));
+pruefe(stapelDurch.eintraege.length === 3, 'Rundreise mit voll gefuellten Eintraegen');
+stapelDurch = leseGegenstandsDatei(schreibeGegenstandsDatei(lese(schlicht('Kein', { modell: { skala: 1 } })).eintraege));
+pruefe(stapelDurch.eintraege[0].modell.skala === 1, 'skala 1 (Vorgabe) wird weggelassen und wieder als 1 gelesen');
 
 // ── 11. Registration: atomic, replacing removes ──────────────────────
 console.log('Gegenstandsdaten — Registrierung');

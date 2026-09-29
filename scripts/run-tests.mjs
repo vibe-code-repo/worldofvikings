@@ -2638,6 +2638,12 @@ const KERN = [
     ECHTEN Koerpern (48 Clips): Zustaende unveraendert, Tod liegt bei 0,12 m, Treffer-Schicht nur Oberkoerper, Mindestabstand.
     Braucht die beiden echten Koerper (v1), in der CI ohne Assets uebersprungen.
   */
+  /*
+    Die Figuren ANDERER Spieler (EntityManager mit Attrappen-Assets): Treffer-Schicht faellt auf `idle` zurueck (nicht auf den
+    Prefab-Zustand `Walking`, der keine Gruppe nennt), Tod bleibt liegen, Spaeteinsteiger sehen die Liegepose, Beleben.
+    Gefunden im Browserlauf auf mike-pc (Sicht des zweiten Spielers). Ohne Assets.
+  */
+  ['client', 'test/tod-treffer-fremd.ts'],
   [
     'client',
     'test/tod-treffer-wurzel.ts',

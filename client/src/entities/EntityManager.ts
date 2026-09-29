@@ -13,6 +13,7 @@ import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APP
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
 import { stabilizeHeadSkin } from '../player/headSkin.js';
 import { TOD_CLIPS, canWearArmor, parseEinmal } from '@wov/shared';
+
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -1189,6 +1190,9 @@ export function zellMeshAusPrototyp(proto: Mesh, name: string, scene: Scene): Me
   return mesh;
 }
 
+
+/** Is `anim` the lying pose of a dead player figure? */
+const istTodAnim = (anim: string | undefined): anim is string => anim !== undefined && (TOD_CLIPS as readonly string[]).includes(anim);
 export class EntityManager {
   private readonly buckets = new Map<string, StaticBucket>();
   /**
@@ -3639,10 +3643,17 @@ export class EntityManager {
    */
   private faelltZurueck(dyn: DynamicEntity): void {
     if (dyn.stirbt) return;
-    const z = dyn.anim && dyn.anim !== 'attack' ? dyn.anim : 'idle';
+    // A player figure has no movement state from the server (its prefab default `Walking` names no group of
+    // the body models): after a hit reaction it stands in `idle`, it must not stop with no group at all.
+    const z = !dyn.istSpieler && dyn.anim && dyn.anim !== 'attack' ? dyn.anim : 'idle';
     this.assets.wechsleAnimation(dyn.root, z);
     // The fresh start plays as authored: tell the tempo coupling.
     if (dyn.clipTempo) dyn.clipTempo.rate = 1;
+  }
+
+  /** A player figure lies down with `clip` (tod_vorn / tod_hinten): plays once and stays; no state moves it afterwards. */
+  private legeHin(dyn: DynamicEntity, clip: string): void {
+    if (this.assets.spieleEinmalKreatur(dyn.root, clip, null)) dyn.stirbt = true;
   }
 
   /** One-shot events from the server (`animEinmal`): blow, hit, death. */
@@ -3652,9 +3663,9 @@ export class EntityManager {
     if (e.n === dyn.einmalN) return;
     dyn.einmalN = e.n;
     if (dyn.stirbt) return;
-    if (e.clip === 'die' || (TOD_CLIPS as readonly string[]).includes(e.clip)) {
+    if (e.clip === 'die' || istTodAnim(e.clip)) {
       // A creature dies with `die`, a player figure with `tod_vorn` / `tod_hinten` (todTreffer.ts): once, then it lies.
-      if (this.assets.spieleEinmalKreatur(dyn.root, e.clip, null)) dyn.stirbt = true;
+      this.legeHin(dyn, e.clip);
       return;
     }
     this.assets.spieleEinmalKreatur(dyn.root, e.clip, () => this.faelltZurueck(dyn));
@@ -3678,7 +3689,7 @@ export class EntityManager {
       if (model) {
         // A creature first seen mid-swing starts standing: `attack` is a
         // one-shot, and looping it here would be the very jump it avoids.
-        root = await this.assets.instantiate(model, wunschAnim === 'attack' ? 'idle' : wunschAnim);
+        root = await this.assets.instantiate(model, wunschAnim === 'attack' || istTodAnim(wunschAnim) ? 'idle' : wunschAnim);
       }
       if (!root) {
         root = makePlaceholder(this.scene, prefabName);
@@ -3719,14 +3730,14 @@ export class EntityManager {
       this.dynamics.set(u.key, dyn);
       this.dynamicCount++;
       // A player who lies dead when we first see him: show the lying pose (the fall itself is history).
-      if (dyn.istSpieler && wunschAnim && (TOD_CLIPS as readonly string[]).includes(wunschAnim)) {
-        if (this.assets.spieleEinmalKreatur(root, wunschAnim, null)) dyn.stirbt = true;
-      }
+      if (dyn.istSpieler && istTodAnim(wunschAnim)) this.legeHin(dyn, wunschAnim);
     } else if (wunschAnim && wunschAnim !== dyn.anim) {
       dyn.anim = wunschAnim;
       // A revived player figure stands up again: its lying pose (`anim` = tod_*) went back to a normal state.
       if (dyn.istSpieler && dyn.stirbt) dyn.stirbt = false;
-      if (!dyn.stirbt) this.spieleZustand(dyn, wunschAnim);
+      // The lying pose plays ONCE (never as a looping state): the death event plays the fall, this keeps the pose.
+      if (dyn.istSpieler && istTodAnim(wunschAnim)) this.legeHin(dyn, wunschAnim);
+      else if (!dyn.stirbt) this.spieleZustand(dyn, wunschAnim);
     }
     this.pruefeEinmal(dyn, u.animEinmal);
     // Trefferpunkte → Prozent. Hier und nicht im Namensschild, weil an

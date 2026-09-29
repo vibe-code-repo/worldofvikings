@@ -32,6 +32,8 @@ export const SCHWUNG_VERZUG_S: readonly number[] = [0.28, 0.4, 0.68];
 
 export const GRUPPE_SCHWUNG = 'combat/slash';
 export const GRUPPE_SCHWUNG_SCHWER = 'combat/slash-heavy';
+/** Faustschwung: luftiges Rauschen ohne Metall, leiser als `slash` (2 Klips). */
+export const GRUPPE_SCHWUNG_FAUST = 'combat/fist-swing';
 export const GRUPPE_FLEISCH = 'combat/sword-flesh';
 export const GRUPPE_FLEISCH_WUCHT = 'combat/sword-impact-flesh';
 export const GRUPPE_FLEISCH_STICH = 'combat/sword-stab-flesh';
@@ -45,6 +47,7 @@ export const GRUPPE_PARADE_HOLZ = 'combat/shield-wood';
 export const KAMPF_GRUPPEN: readonly string[] = [
   GRUPPE_SCHWUNG,
   GRUPPE_SCHWUNG_SCHWER,
+  GRUPPE_SCHWUNG_FAUST,
   GRUPPE_FLEISCH,
   GRUPPE_FLEISCH_WUCHT,
   GRUPPE_FLEISCH_STICH,
@@ -80,14 +83,15 @@ export function moeglicheStrecke(dt: number): number {
 const HIEB_MERKZEIT_S = 2;
 
 /**
- * Schwunggruppe des Hiebs `hieb` (0…) im Satz mit der Waffe `waffe`; null =
- * kein Schwungton. Es gibt nur zwei Schwungaufnahmen, also entscheidet die
+ * Schwunggruppe des Hiebs `hieb` (0…) im Satz mit der Waffe `waffe`. Es gibt
+ * nur die Aufnahmen `slash`, `slash-heavy`, `fist-swing`, also entscheidet die
  * Wucht: Klinge/Axt leicht, der dritte Hieb schwer; Stab und Keule (Holz,
  * beidhändig, schwer geführt) immer schwer; Speer (Stich, schnell) leicht.
- * Faust: keine passende Aufnahme, kein Schwungton (nur `punch` beim Treffer).
+ * Faust: eigene, leisere Luftaufnahme `fist-swing` (die `punch`-Aufnahmen sind
+ * Aufprall und haben vor dem Schlag nur -45 dB Luft); `punch` bleibt der Treffer.
  */
-export function schwungGruppe(satz: Waffensatz, hieb: number, waffe = ''): string | null {
-  if (satz === 'faust') return null;
+export function schwungGruppe(satz: Waffensatz, hieb: number, waffe = ''): string {
+  if (satz === 'faust') return GRUPPE_SCHWUNG_FAUST;
   if (satz === 'stab' || waffe === 'Club') return GRUPPE_SCHWUNG_SCHWER;
   if (satz === 'speer') return GRUPPE_SCHWUNG;
   return hieb >= 2 ? GRUPPE_SCHWUNG_SCHWER : GRUPPE_SCHWUNG;
@@ -169,7 +173,6 @@ export class KampfToene {
     while (this.hiebe.length > 0 && this.hiebe[0]!.spitze < jetzt - HIEB_MERKZEIT_S) this.hiebe.shift();
     if (bogen) this.uhr.setze(bogen, verzug * 1000);
     const gruppe = schwungGruppe(satz, hieb, eintrag.waffe);
-    if (gruppe === null) return;
     const handle = this.uhr.setze(() => {
       if (this.wartend !== handle) return;
       this.wartend = null;

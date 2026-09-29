@@ -15,7 +15,7 @@
  * gepflegt in `storeKatalog.ts`; hier sind nur die Daten.
  *
  * ── Was hier NICHT steht: der Katalog ────────────────────────────────
- * `STORE_KATALOG` (1304 Einträge mit Lizenz, Kennzeichen,
+ * `STORE_KATALOG` (1306 Einträge mit Lizenz, Kennzeichen,
  * Hüllbox und Kollisionsart) liegt in `storeKatalogDaten.ts`. Diese
  * Datei hier hängt am Barrel und damit im SPIEL-Bundle; der Katalog
  * interessiert nur den Editor. Zusammen in einer Datei lud ihn jeder

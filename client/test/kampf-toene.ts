@@ -67,7 +67,7 @@ class FalscheUhr implements Uhr {
 
 /** Ohne die Schwungtöne (combat/slash…): nur Treffer, Parade, Ernte. */
 function ohneSchwung(spuren: Spur[]): Spur[] {
-  return spuren.filter((x) => !/^combat\/slash/.test(x.gruppe));
+  return spuren.filter((x) => !/^combat\/(slash|fist-swing)/.test(x.gruppe));
 }
 
 interface Spur {
@@ -168,7 +168,7 @@ console.log('\n[3] Faust, Stab, Speer:');
     const a = aufbau('');
     a.klick('faust', 0);
     a.uhr.bis(2);
-    pruefe('faust: kein Schwungton (keine passende Aufnahme)', a.spuren.length === 0);
+    pruefe('faust: Schwungton fist-swing zur Hiebspitze (kein punch ohne Treffer)', a.spuren.length === 1 && a.spuren[0]!.gruppe === 'combat/fist-swing', JSON.stringify(a.spuren.map((x) => x.gruppe)));
   }
   const a = aufbau();
   let bogen = 0;
@@ -210,8 +210,8 @@ console.log('\n[4] Treffer nur mit Serverpaket:');
   const a = aufbau('');
   a.klick('faust', 0);
   a.uhr.bis(2);
+  pruefe('Faust ohne Treffer: nur der Schwung, kein punch', a.spuren.length === 1 && a.spuren[0]!.gruppe === 'combat/fist-swing');
   a.spuren.length = 0;
-  pruefe('Faust ohne Treffer: still', a.spuren.length === 0);
   a.klick('faust', 0);
   a.k.treffer({ x: 12.5, y: 1, z: 10 }, TREFFER_FLEISCH, true);
   pruefe('Faust + Treffer: punch', a.spuren.length === 1 && a.spuren[0]!.gruppe === 'combat/punch', String(a.spuren[0]?.gruppe));
@@ -448,9 +448,9 @@ console.log('\n[13] N1: Hiebzeit kommt aus dem Rig, nicht aus einer Tabelle (Bef
   pruefe('auch der Slash-Halbmond folgt der gemeldeten Zeit', Math.abs(bogenZeit - 0.2) < 1e-6, String(bogenZeit));
 }
 
-console.log('\n[14] Schwungton je Waffenart:');
+console.log('\n[14] Schwungton je Waffenart (Faust: fist-swing):');
 {
-  const soll: [Waffensatz, string, number, string | null][] = [
+  const soll: [Waffensatz, string, number, string][] = [
     ['schwert', 'SwordNorth', 0, 'combat/slash'],
     ['schwert', 'SwordNorth', 1, 'combat/slash'],
     ['schwert', 'SwordNorth', 2, 'combat/slash-heavy'],
@@ -461,11 +461,11 @@ console.log('\n[14] Schwungton je Waffenart:');
     ['stab', 'Staff', 2, 'combat/slash-heavy'],
     ['speer', 'Spear', 0, 'combat/slash'],
     ['speer', 'Spear', 2, 'combat/slash'],
-    ['faust', '', 0, null],
+    ['faust', '', 0, 'combat/fist-swing'],
+    ['faust', '', 2, 'combat/fist-swing'],
   ];
   for (const [satz, waffe, hieb, gruppe] of soll) {
     pruefe(`schwungGruppe(${satz}, ${waffe || 'leer'}, Hieb ${hieb + 1}) = ${gruppe}`, schwungGruppe(satz, hieb, waffe) === gruppe, String(schwungGruppe(satz, hieb, waffe)));
-    if (gruppe === null) continue;
     const a = aufbau(waffe);
     a.klick(satz, hieb);
     a.uhr.bis(2);
@@ -564,10 +564,10 @@ console.log('\n[8] Gruppen im echten toene-Abschnitt (Bus world):');
   const gruppen = groupByBus(readAudioManifest(manifest)).world;
   const soll: Record<string, number> = {
     'combat/slash': 3, 'combat/slash-heavy': 3, 'combat/sword-flesh': 3, 'combat/sword-impact-flesh': 3,
-    'combat/sword-stab-flesh': 5, 'combat/punch': 3, 'combat/sword-wood': 4, 'combat/sword-metal': 4,
+    'combat/sword-stab-flesh': 5, 'combat/punch': 3, 'combat/fist-swing': 2, 'combat/sword-wood': 4, 'combat/sword-metal': 4,
     'combat/shield-metal': 6, 'combat/shield-wood': 4,
   };
-  pruefe('10 verwendete Gruppen', KAMPF_GRUPPEN.length === 10 && new Set(KAMPF_GRUPPEN).size === 10);
+  pruefe('11 verwendete Gruppen', KAMPF_GRUPPEN.length === 11 && new Set(KAMPF_GRUPPEN).size === 11);
   for (const g of KAMPF_GRUPPEN) {
     const n = (gruppen.get(g) ?? []).length;
     pruefe(`Gruppe ${g}`, n === soll[g], `${n} Klips`);

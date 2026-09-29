@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS } from '@wov/shared';
+import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, ItemType, SLOT_VORGABE, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
@@ -2289,6 +2289,9 @@ export class WovServer {
       }
     }
     peer.starterSetGranted = grantStarterSet(peer.inventar, peer.klasse, peer.figur, peer.starterSetGranted);
+    // Getragene Waffe (K2a): Spielstand, sonst ein als getragen markierter Stapel; inventarSync prueft sie.
+    peer.waffe = typeof saved?.waffe === 'string'
+      ? saved.waffe : peer.inventar.all.find((i) => i.equipped && !i.shared.ruestungsteil)?.shared.name ?? '';
     this.inventarSync(peer);
     // Piece-Budget: eigene Bauten einmalig zählen (15k-ZDO-Scan, nur Login).
     const meineId = peer.userId.toString();
@@ -2402,6 +2405,7 @@ export class WovServer {
       klasse: peer.klasse,
       starterSetGranted: peer.starterSetGranted,
       ruestung: peer.ruestung,
+      waffe: peer.waffe || undefined,
       inventar: peer.inventar.serialize(),
     });
     // Destroy player character ZDO
@@ -2514,6 +2518,9 @@ export class WovServer {
         break;
       case PacketType.SetAussehen:
         this.handleSetAussehen(peer, reader);
+        break;
+      case PacketType.Equip:
+        this.handleEquip(peer, reader);
         break;
       case PacketType.DungeonEditRequest:
         this.handleDungeonEditRequest(peer, reader);
@@ -3391,9 +3398,77 @@ export class WovServer {
       if (!item.shared.ruestungsteil) continue;
       item.equipped = remaining.delete(item.shared.ruestungsteil);
     }
+    this.pruefeWaffe(peer);
     peer.sendPacketWith(PacketType.InventorySync, (w) => {
       w.writeString(JSON.stringify(peer.inventar.serialize()));
     });
+    this.sendeEquipStand(peer, false);
+  }
+
+  /**
+   * Getragene Waffe gegen das Inventar halten (K2a): Ist der Gegenstand weg
+   * (Truhe, Handwerk, Wegwerfen, Handel), faellt sie ab. Setzt ausserdem das
+   * `equipped`-Merkmal der Waffenstapel, damit der Spielstand es traegt.
+   * Gibt zurueck, ob die Waffe dabei abgefallen ist.
+   */
+  private pruefeWaffe(peer: Peer): boolean {
+    const abgefallen = peer.waffe !== '' && !waffeTragbar(peer.inventar, peer.waffe);
+    if (abgefallen) peer.waffe = '';
+    for (const item of peer.inventar.all) {
+      if (!item.shared.ruestungsteil) item.equipped = peer.waffe !== '' && item.shared.name === peer.waffe;
+    }
+    return abgefallen;
+  }
+
+  /** Autoritativen Stand des Waffenslots an den Client (EquipStand). */
+  private sendeEquipStand(peer: Peer, aufAnfrage: boolean): void {
+    peer.sendPacketWith(PacketType.EquipStand, (w) => {
+      w.writeString('waffe');
+      w.writeString(peer.waffe);
+      w.writeBool(aufAnfrage);
+    });
+  }
+
+  /**
+   * Client → Server (Equip): Waffe anlegen (item) oder ablegen (""). Genau
+   * eine Antwort (EquipStand, aufAnfrage) je Paket — angenommen wie
+   * abgelehnt, damit der Client bei Ablehnung zurueckrollt.
+   */
+  private handleEquip(peer: Peer, reader: Reader): void {
+    let slot = '';
+    let name = '';
+    try {
+      slot = reader.readString();
+      name = reader.readString();
+    } catch {
+      /* zu kurzes Paket: wie ein Ablegen behandeln, unten wird der Stand zurueckgemeldet */
+      slot = '';
+    }
+    peer.equipGesehen = true;
+    if (slot === 'waffe') {
+      if (name === '') peer.waffe = '';
+      else if (waffeTragbar(peer.inventar, name)) peer.waffe = name;
+      else console.warn(`[WoV] Equip von "${peer.name}" abgelehnt: slot=waffe item="${name.slice(0, 32)}"`);
+      this.pruefeWaffe(peer);
+    } else if (!istAusruestungsSlot(slot)) {
+      console.warn(`[WoV] Equip von "${peer.name}" abgelehnt: unbekannter Slot "${slot.slice(0, 24)}"`);
+    }
+    this.sendeEquipStand(peer, true);
+  }
+
+  /**
+   * Waffe fuer Schlag und Ernte (K2a): die getragene, nicht die im Paket
+   * genannte. Faellt die getragene unbemerkt weg (Inventar ohne Sync), wird
+   * das hier nachgezogen und dem Client gemeldet.
+   */
+  private waffeFuerSchlag(peer: Peer, paketName: string): string {
+    const waffe = wirksameWaffe(peer.inventar, peer.waffe, peer.equipGesehen, paketName);
+    if (peer.waffe !== '' && !waffeTragbar(peer.inventar, peer.waffe)) {
+      peer.waffe = '';
+      this.pruefeWaffe(peer);
+      this.sendeEquipStand(peer, false);
+    }
+    return waffe;
   }
 
   /**
@@ -3751,10 +3826,10 @@ export class WovServer {
     } catch {
       /* alter Client ohne Waffenfeld */
     }
-    // Nur was tatsächlich im Server-Inventar liegt zählt (A2) — sonst
-    // Faust. handleHarvest bekommt dieselbe geprüfte Waffe weitergereicht,
-    // eine zweite Prüfung dort erübrigt sich.
-    waffe = gepruefteWaffe(peer.inventar, waffe);
+    // Es zaehlt die vom Server als getragen gefuehrte Waffe (K2a), nicht der
+    // Paketname; der gilt nur fuer Clients, die noch nie ein Equip geschickt
+    // haben (wirksameWaffe). handleHarvest bekommt dieselbe Waffe weitergereicht.
+    waffe = this.waffeFuerSchlag(peer, waffe);
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
       schlagKosten(this.werteVon(peer).agility),
@@ -3859,7 +3934,7 @@ export class WovServer {
    * HP als ZDO-Member; beim Fällen wandert der Ertrag direkt ins Inventar
    * des Angreifers (konsistent mit den Kreaturen-Drops).
    *
-   * `waffe` kommt bereits geprüft von handleAttack (gepruefteWaffe, A2) —
+   * `waffe` kommt bereits geprüft von handleAttack (waffeFuerSchlag, K2a) —
    * kein zweiter Abgleich hier nötig.
    */
   private handleHarvest(peer: Peer, pos: Vector3, waffe: string): void {
@@ -6531,6 +6606,7 @@ export class WovServer {
         klasse: peer.klasse,
         starterSetGranted: peer.starterSetGranted,
         ruestung: peer.ruestung,
+        waffe: peer.waffe || undefined,
         inventar: peer.inventar.serialize(),
       });
     }
@@ -6584,23 +6660,51 @@ function pickableItem(prefabName: string): { name: string; amount: number } | nu
  * Waffenname aus dem Angriffs-/Ernte-Paket nur übernehmen, wenn er
  * tatsächlich im Server-Inventar liegt (A2) — sonst Faust ('').
  *
- * Der Server kennt (noch) keinen Begriff einer "ausgerüsteten" Waffe: das
- * `equipped`-Feld auf ItemStack (shared/src/items/ItemData.ts) wird
- * ausschließlich client-seitig gesetzt (client/src/player/Equipment.ts)
- * und nie zum Server synchronisiert — es gibt kein Protokollpaket dafür.
- * peer.inventar (Peer.ts) ist die einzige serverseitige Quelle. Ohne diese
- * Prüfung schlug der Server den Schaden aus WAFFEN_SCHADEN[waffe] direkt
- * für den Paket-String nach, unabhängig vom Besitz — Axtschaden ohne Axt,
- * und weil handleAttack dieselbe Waffe an handleHarvest durchreicht, auch
- * Werkzeugpflicht-Umgehung beim Ernten. EIN Prüfpunkt für beide Pfade.
- *
- * Sollte der Server künftig ein echtes Ausrüstungskonzept bekommen (Review
- * A2, Schritt 2), gehört die schärfere Prüfung — nur die AUSGERÜSTETE
- * Waffe zählt, das Paketfeld wird ignoriert — hierher, an diese eine Stelle.
+ * Seit K2a kennt der Server die getragene Waffe (`peer.waffe`, Paket Equip);
+ * diese Pruefung gilt nur noch fuer den Paketnamen alter Clients ohne Equip
+ * (wirksameWaffe, Uebergangsregel WAFFE_PAKETNAME_OHNE_EQUIP). Ohne sie
+ * schlug der Server den Schaden fuer den Paket-String direkt nach,
+ * unabhaengig vom Besitz — Axtschaden ohne Axt und Werkzeugpflicht-Umgehung
+ * beim Ernten (A2).
  */
 export function gepruefteWaffe(inventar: Inventory, waffe: string): string {
   if (waffe === '') return waffe;
   return inventar.countOf(waffe) > 0 ? waffe : '';
+}
+
+/**
+ * Darf dieser Gegenstand als Waffe getragen werden (K2a)? Er muss im
+ * Server-Inventar liegen, in den Waffenslot gehoeren (kein Ruestungsteil,
+ * kein anderer Slot) und darf kein blosses Material sein.
+ */
+export function waffeTragbar(inventar: Inventory, name: string): boolean {
+  if (name === '' || inventar.countOf(name) <= 0) return false;
+  const def = findItem(name);
+  return !!def && !def.ruestungsteil && (def.ausruestung ?? SLOT_VORGABE) === 'waffe' && def.itemType !== ItemType.Material;
+}
+
+/**
+ * Uebergangsregel fuer alte Clients (K2a): Solange eine Verbindung noch nie
+ * ein Equip geschickt hat, gilt wie bisher der geprüfte Paketname
+ * (gepruefteWaffe). Sonst wuerde ein offener Tab mit altem Client ploetzlich
+ * mit der Faust schlagen und nicht mehr ernten. Auf `false` stellen, wenn
+ * keine alten Clients mehr im Umlauf sind.
+ */
+export const WAFFE_PAKETNAME_OHNE_EQUIP = true;
+
+/**
+ * Die Waffe, mit der ein Schlag oder eine Ernte gerechnet wird. Rein, damit
+ * beide Zweige der Uebergangsregel ohne Server testbar sind.
+ */
+export function wirksameWaffe(
+  inventar: Inventory,
+  getragen: string,
+  equipGesehen: boolean,
+  paketName: string,
+  uebergang: boolean = WAFFE_PAKETNAME_OHNE_EQUIP,
+): string {
+  if (!equipGesehen && uebergang) return gepruefteWaffe(inventar, paketName);
+  return waffeTragbar(inventar, getragen) ? getragen : '';
 }
 
 const EIKTHYR_HASH = getStableHash('Eikthyr');

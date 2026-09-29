@@ -54,6 +54,13 @@ console.log('\n1. (a) Ähnliches vorhandenes Modell über den Namen — Marktsta
   const vorschlagBreite = schlageZielgroesseVor('Marktstand2', 'breite', rohMasse, kandidaten);
   pruefe(vorschlagBreite.quelle === 'aehnliches-modell', "Quelle ist 'aehnliches-modell'");
   pruefe(vorschlagBreite.meter === 4.0, `Breite-Vorschlag ist 4.0 (${vorschlagBreite.meter})`);
+  // N1 (Angriff „Editor T0a", Befund B1): `begruendung` (fertiger deutscher
+  // Satz) ist jetzt `begruendungName` (nur der Name) — der Editor baut den
+  // Satz selbst über einen Uebersetzungsschluessel je `quelle`.
+  pruefe(
+    vorschlagBreite.begruendungName === 'Marktstand',
+    `begruendungName ist der Vorbildname (${vorschlagBreite.begruendungName})`
+  );
   const vorschlagHoehe = schlageZielgroesseVor('Marktstand2', 'hoehe', rohMasse, kandidaten);
   pruefe(vorschlagHoehe.meter === 3.37, `Höhe-Vorschlag folgt der gewählten Dimension: 3.37 (${vorschlagHoehe.meter})`);
 
@@ -148,6 +155,14 @@ console.log('\n3. (b) Größentabelle — kein ähnliches Modell, aber das KOPFW
     const v = schlageZielgroesseVor(name, 'breite', rohMasse, []);
     pruefe(v.quelle === 'kategorie' && v.meter === erwartet, `'${name}' -> Kategorie ${erwartet} m (bekommen ${v.meter}, ${v.quelle})`);
   }
+  // N1 (Befund B1): auch bei (b) liefert begruendungName den Kategorienamen
+  // (das KATEGORIE-Wort, nicht den gesuchten Namen — "Langhaus" fällt unter
+  // die Kategorie "Haus", s. `uploadedModelGroessentabelle.ts`).
+  const vLanghaus = schlageZielgroesseVor('Langhaus', 'breite', rohMasse, []);
+  pruefe(
+    vLanghaus.begruendungName === 'Haus',
+    `begruendungName ist der Kategoriename (${vLanghaus.begruendungName})`
+  );
   // "Marktstand2" ohne Kandidaten: die Ziffer ist kein Kopfwort, das
   // Kopfwort bleibt "marktstand" (N4-3, letzte Zeile der Mindestliste).
   const vMarktstand2 = schlageZielgroesseVor('Marktstand2', 'breite', rohMasse, []);
@@ -168,6 +183,8 @@ console.log('\n4. (c) Rohgröße — weder ähnliches Modell noch Kategorie pass
   const rohMasse = { breite: 2.345, hoehe: 1.111 };
   const vBreite = schlageZielgroesseVor('Mysteriöses Ding', 'breite', rohMasse, []);
   pruefe(vBreite.quelle === 'rohgroesse' && vBreite.meter === 2.345, `Breite fällt auf die Rohgröße zurück (${vBreite.meter})`);
+  // N1 (Befund B1): (c) hat keinen Namen — begruendungName bleibt undefined.
+  pruefe(vBreite.begruendungName === undefined, `begruendungName ist bei (c) undefined (${vBreite.begruendungName})`);
   const vHoehe = schlageZielgroesseVor('Mysteriöses Ding', 'hoehe', rohMasse, []);
   pruefe(vHoehe.quelle === 'rohgroesse' && vHoehe.meter === 1.111, `Höhe fällt auf die Rohgröße zurück (${vHoehe.meter})`);
   pruefe(kategorieFuerName('Mysteriöses Ding') === null, "kein Kategorie-Treffer für 'Mysteriöses Ding'");

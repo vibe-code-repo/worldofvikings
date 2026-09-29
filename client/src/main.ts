@@ -117,6 +117,7 @@ import { RENDER_SCALE } from './ui/Settings';
 import { LoadingScreen } from './ui/LoadingScreen';
 import { GameI18n } from './i18n';
 import { Equipment } from './player/Equipment';
+import { waffenStandHandler } from './player/WaffenAbgleich';
 import { KampfEffekte } from './engine/KampfEffekte';
 import { TodTreffer } from './player/TodTreffer';
 import { Hotbar } from './ui/Hotbar';
@@ -2246,6 +2247,8 @@ async function main() {
     // Kommt vor ServerConfig: So baut `buildWorld` bereits den richtigen
     // Koerper und nicht kurz die lokale Vorgabe. Das Konto/der Spielstand
     // ist bei einer Ticket-Anmeldung die einzige Wahrheit.
+    // Getragene Waffe: der Server fuehrt sie, der Client zeigt sie und rollt bei Ablehnung zurueck (K2a).
+    socket.on(PacketType.EquipStand, waffenStandHandler(() => equipment, (n) => inventory?.all.find((i) => i.shared.name === n) ?? null, (s, n) => socket?.sendEquip(s, n)));
     socket.on(PacketType.EigenesAussehen, (reader) => {
       const figur = reader.readString();
       const frisur = reader.readString();
@@ -2474,9 +2477,7 @@ async function main() {
       }
     });
 
-    // Interaktions-Ergebnis: Meldung + ggf. Beute ins Inventar.
-    // Treffereffekt vom Server (Kreatur getroffen: Blut; Holz/Stein: Funken;
-    // Parade: Funke) — auch fuer Treffer, die Mitspieler landen.
+    // Treffereffekt vom Server (Blut, Funken, Parade-Funke), auch fuer Treffer der Mitspieler; Tod/Treffer der eigenen Figur: TodTreffer.
     new TodTreffer(input, () => player?.avatar ?? null).verdrahte(socket);
     socket.on(PacketType.HitEffect, (reader) => {
       const pos = reader.readVector3();

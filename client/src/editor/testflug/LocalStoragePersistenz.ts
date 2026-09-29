@@ -33,16 +33,11 @@ import { STAND_KEY, schreibeWeltdokument } from '../weltdokument';
 import { zettelBasisLesen, zettelMitBasis } from '../entwurfsSpeicher';
 import { mitVorgaengen } from './TestflugPersistenz';
 import type { EntwurfDokument, SpeicherAntwort, TestflugPersistenz } from './TestflugPersistenz';
+import { t } from '../i18n';
 
-const OHNE_BASIS =
-  'Speichern aus dem Testflug braucht einen Editor-Stand – bitte im Editor den Serverstand abgleichen ' +
-  '(Feld „WELT" links oben anklicken; nach einem JSON-Import nötig) und dort speichern.';
-const VERLANGT =
-  'Der Betriebsdienst verlangt für das Speichern eine Basis und hat nichts geschrieben – ' +
-  'bitte im Editor den Serverstand abgleichen (Feld „WELT" links oben anklicken) und dort speichern.';
-const VERALTET =
-  'Die Welt auf dem Server wurde inzwischen geändert und dein Entwurf beruht nicht darauf – ' +
-  'nichts überschrieben. Bitte im Editor abgleichen (Serverstand laden oder „Entwurf behalten") und dort speichern.';
+const OHNE_BASIS = (): string => t('testflug.persistenz.local.ohne_basis');
+const VERLANGT = (): string => t('testflug.persistenz.local.verlangt');
+const VERALTET = (): string => t('testflug.persistenz.local.veraltet');
 
 /** Basis aus dem Begleitzettel; `null` bei fehlendem oder nicht lesbarem Zettel bzw. Speicher. */
 function zettelBasis(): string | null {
@@ -80,7 +75,7 @@ export function localStoragePersistenz(): TestflugPersistenz {
     // die Route nie.
     speichern: async (dokument) => {
       const basis = zettelBasis();
-      if (!basis) return { ok: false, message: OHNE_BASIS } satisfies SpeicherAntwort;
+      if (!basis) return { ok: false, message: OHNE_BASIS() } satisfies SpeicherAntwort;
       const antwort = await schreibeWeltdokument(dokument as WorldLayout, basis);
       if (antwort.art === 'ok') {
         // Der Server hat jetzt unseren Stand: Er ist die Basis des nächsten Speicherns.
@@ -88,9 +83,9 @@ export function localStoragePersistenz(): TestflugPersistenz {
         return { ok: true, message: antwort.message } satisfies SpeicherAntwort;
       }
       // Bei 409 bleibt die alte Basis im Zettel: Erst der Editor-Dialog (Serverstand laden oder „Entwurf behalten") ersetzt sie.
-      if (antwort.art === 'veraltet') return { ok: false, message: VERALTET } satisfies SpeicherAntwort;
+      if (antwort.art === 'veraltet') return { ok: false, message: VERALTET() } satisfies SpeicherAntwort;
       // 428: the service demands a base; neutral text (whether one was sent is not the service's statement).
-      if (antwort.art === 'basis-fehlt') return { ok: false, message: VERLANGT } satisfies SpeicherAntwort;
+      if (antwort.art === 'basis-fehlt') return { ok: false, message: VERLANGT() } satisfies SpeicherAntwort;
       return { ok: false, message: antwort.message } satisfies SpeicherAntwort;
     },
   });

@@ -13,6 +13,7 @@ import { freiflaechenHuellen, istEigenesModell } from '@wov/shared';
 import { registeredModules } from '@wov/shared/src/moduleRegistry.js';
 import { NAME_PRAEFIX } from '@wov/shared/src/uploadedModelRegistry.js';
 import { leseManifest, type ManifestModell } from '@wov/shared/src/weltbau/manifest.js';
+import { t } from '../i18n';
 
 /** Where the client finds the manifest (the whole `assets/` folder is served). */
 export const MANIFEST_URL = '/assets/manifest.json';
@@ -136,7 +137,7 @@ export async function ladeBewuchsQuellen(
   try {
     const text = await io.holeManifest();
     const m = leseManifest(text);
-    if (m.size === 0) bericht.manifestFehler = 'Manifest leer oder nicht lesbar';
+    if (m.size === 0) bericht.manifestFehler = t('testflug.bewuchs.manifest_leer');
     else {
       bericht.manifest = m;
       bericht.ohneManifestEintrag = ohneManifestEintrag(namen, m, io.brauchtManifest);
@@ -160,20 +161,24 @@ export async function ladeBewuchsQuellen(
 /** Visible warning when preview and server may clear different areas; `null` when all sources are there. */
 export function abweichungsText(b: QuellenBericht): string | null {
   const teile: string[] = [];
-  if (b.manifestFehler !== null) teile.push(`Manifest fehlt (${b.manifestFehler})`);
+  if (b.manifestFehler !== null) teile.push(t('testflug.bewuchs.manifest_fehlt', { grund: b.manifestFehler }));
   if (b.ohneManifestEintrag.length > 0) {
     teile.push(
-      `Manifest ohne Eintrag für platzierte Prefabs: ${b.ohneManifestEintrag.slice(0, 3).join(', ')}${b.ohneManifestEintrag.length > 3 ? ' …' : ''}`
+      t('testflug.bewuchs.ohne_manifest_eintrag', {
+        namen: b.ohneManifestEintrag.slice(0, 3).join(', ') + (b.ohneManifestEintrag.length > 3 ? ' …' : ''),
+      })
     );
   }
   if (b.weiterUnbekannt.length > 0) {
-    teile.push(`Upload-Modell(e) unbekannt: ${b.weiterUnbekannt.slice(0, 3).join(', ')}${b.weiterUnbekannt.length > 3 ? ' …' : ''}`);
+    teile.push(
+      t('testflug.bewuchs.upload_unbekannt', {
+        namen: b.weiterUnbekannt.slice(0, 3).join(', ') + (b.weiterUnbekannt.length > 3 ? ' …' : ''),
+      })
+    );
   } else if (b.registryFehler.length > 0) {
-    teile.push(`Upload-Registry nicht sauber geladen (${b.registryFehler[0]})`);
+    teile.push(t('testflug.bewuchs.registry_nicht_sauber', { grund: b.registryFehler[0]! }));
   }
-  return teile.length === 0
-    ? null
-    : `Bewuchs-Vorschau kann vom Spiel abweichen: ${teile.join('; ')}`;
+  return teile.length === 0 ? null : t('testflug.bewuchs.abweichung', { teile: teile.join('; ') });
 }
 
 /**

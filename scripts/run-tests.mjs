@@ -2571,6 +2571,18 @@ const KERN = [
     noetig).
   */
   ['client', 'test/schritte-gruppe.ts'],
+  // Karte T0a (2026-09-29): Testflug, SpawnPanel und der Upload-Dialog
+  // (GegenstandsKatalog.ts) sind jetzt uebersetzbar -- ein Scanner findet
+  // verbliebene deutsche Klartext-Literale in diesen Dateien (Kommentare
+  // und console.*-Zeilen zaehlen nicht), dazu prueft er, dass jeder
+  // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
+  // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
+  ['client', 'test/testflug-texte-vollstaendig.ts'],
+  // T0a N2 (Auflagen A1/A2 aus dem Nachangriff): Sprachauswahl von t()/aktuelleSprache()
+  // in editor/i18n.ts (?lang, dann gespeicherte Wahl, dann de), Gleichheit mit GameI18n/
+  // main.ts fuer dieselben Eingaben, dazu editorI18nInstance() in zwei Kindprozessen
+  // (memoisiert). DOM-frei, ein paar Sekunden wegen der zwei tsx-Kindprozesse.
+  ['client', 'test/editor-i18n-sprache.ts'],
   // Card Z3 N1: the deletion lock is now a DURABLE file, checked afresh on every boot and every live
   // apply, not an in-memory/receipt-only guard — this rules out mass deletion above AENDERUNGEN_MAX or
   // together with a geo change (finding A1), a kill mid-boot (A2) and a later, unrelated change (A3).
@@ -2620,6 +2632,14 @@ const KERN = [
   */
   ['shared', 'test/kampf-attribute.ts'],
   ['server', 'test/kampf-attribute.ts'],
+  /*
+    Kampfkern K2a (2026-09-29): getragene Waffe am Server. Echter WebSocket-Weg
+    (Equip/EquipStand/Attack/ContainerAction, zwei Spieler, Neuanmeldung mit
+    Spielstand) und der reine Client-Abgleich mit Rueckrollen. Keine Assets
+    noetig. ~35 s bzw. <1 s.
+  */
+  ['server', 'test/kampf-waffe.ts'],
+  ['client', 'test/kampf-waffe-abgleich.ts'],
   /*
     Tod und Treffer sichtbar (2026-09-29): die reine Regel Seite → Clip (8 Richtungen, Wire-Indizes, Einmal-Member) und der
     Weg durch den echten Server (zwei WebSocket-Spieler: Treffer-Schicht, Tod 5 s, tot = kein Schaden/keine Eingabe,

@@ -86,8 +86,13 @@ export function t(key: TranslationKey, variables: TranslationVars = {}): string 
   );
 }
 
-/** The `GameI18n` instance for `editorMain.ts`, built lazily (browser-only, see file header). */
+/**
+ * The `GameI18n` instance for `editorMain.ts`, built lazily (browser-only, see file header).
+ * N2 (Angriffsbefund B3): `?lang` first, same as `t()`/`aktuelleSprache()` and `main.ts` ~424
+ * (`new GameI18n(ausAdresse.get('lang'))`) — otherwise the server-control tab (#130) and the
+ * upload dialog could disagree on the language when `?lang` is set by hand.
+ */
 let instanz: GameI18n | null = null;
 export function editorI18nInstance(): GameI18n {
-  return (instanz ??= new GameI18n());
+  return (instanz ??= new GameI18n(adressSprache()));
 }

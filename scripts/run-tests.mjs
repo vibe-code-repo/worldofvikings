@@ -2533,6 +2533,11 @@ const KERN = [
   // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
   // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
   ['client', 'test/testflug-texte-vollstaendig.ts'],
+  // T0a N2 (Auflagen A1/A2 aus dem Nachangriff): Sprachauswahl von t()/aktuelleSprache()
+  // in editor/i18n.ts (?lang, dann gespeicherte Wahl, dann de), Gleichheit mit GameI18n/
+  // main.ts fuer dieselben Eingaben, dazu editorI18nInstance() in zwei Kindprozessen
+  // (memoisiert). DOM-frei, ein paar Sekunden wegen der zwei tsx-Kindprozesse.
+  ['client', 'test/editor-i18n-sprache.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

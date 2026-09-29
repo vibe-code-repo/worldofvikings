@@ -35,13 +35,6 @@ interface Erwartung {
   weg: string;
   /** Wonach in der Datei gesucht wird — ein location-Kopf, der den Weg trägt. */
   muster: RegExp;
-  /**
-   * Kommentare vor dem Suchen entfernen. Nötig in BEIDE Richtungen, wo die
-   * Erwartung auf „vor dem ersten `location`" achtet: Ein Kommentar mit der
-   * Direktive träfe, auch wenn sie selbst fehlt; und ein Kommentar, der das
-   * Wort `location` nennt, ließe die echte Direktive dahinter durchfallen.
-   */
-  ohneKommentare?: boolean;
 }
 
 const ERWARTUNGEN: Erwartung[] = [
@@ -50,6 +43,39 @@ const ERWARTUNGEN: Erwartung[] = [
     // `(?:[^{}]|\{[^{}]*\})*`: der Block enthaelt seit der Editor-Umleitung ein
     // eigenes `if (...) { ... }` — ein nacktes `[^}]*` endete an dessen Klammer.
     muster: /location\s+\/\s*\{(?:[^{}]|\{[^{}]*\})*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
+  },
+  /*
+    Karte D1, Angriffsbefund M1: `location = /` weicht VOR dem Node-Dienst
+    nach Host aus, weil adapter-node die vorgerenderte Wurzel-Datei
+    (immer `/de`) ausliefert, bevor `hooks.server.ts` je läuft — ein
+    host-abhängiges Ziel geht deshalb nur hier. Je eine Zusicherung pro
+    Domain, damit ein Mutant, der eine Zeile still auf die falsche Sprache
+    dreht, hier auffällt (nicht nur die Existenz des Blocks).
+  */
+  {
+    weg: 'location = / leitet world-of-mmorpg.de auf /de',
+    muster: /if\s*\(\$host\s*=\s*world-of-mmorpg\.de\)\s*\{\s*return\s+302\s+\/de;\s*\}/,
+  },
+  {
+    weg: 'location = / leitet world-of-mmorpg.com auf /en',
+    muster: /if\s*\(\$host\s*=\s*world-of-mmorpg\.com\)\s*\{\s*return\s+302\s+\/en;\s*\}/,
+  },
+  /*
+    Angriffsbefund N-2/M1a: eine fehlende www.-Zeile blieb bisher unbemerkt,
+    weil es dafür keine eigene Zusicherung gab — www. leitet genauso um wie
+    der Apex, aber als eigene `if`-Zeile in der Konfiguration.
+  */
+  {
+    weg: 'location = / leitet www.world-of-mmorpg.de auf /de',
+    muster: /if\s*\(\$host\s*=\s*www\.world-of-mmorpg\.de\)\s*\{\s*return\s+302\s+\/de;\s*\}/,
+  },
+  {
+    weg: 'location = / leitet www.world-of-mmorpg.com auf /en',
+    muster: /if\s*\(\$host\s*=\s*www\.world-of-mmorpg\.com\)\s*\{\s*return\s+302\s+\/en;\s*\}/,
+  },
+  {
+    weg: 'location = / fällt für jeden anderen Host auf denselben Node-Dienst zurück',
+    muster: /location\s*=\s*\/\s*\{(?:[^{}]|\{[^{}]*\})*proxy_pass\s+http:\/\/127\.0\.0\.1:3000/,
   },
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
@@ -62,7 +88,17 @@ const ERWARTUNGEN: Erwartung[] = [
     weg: '/assets/ (Webseite: Schriften/Bilder, VOR den Spiel-Assets)',
     muster: /location\s+\/assets\/\s*\{[^}]*wov-web\/build\/client\/assets\/[^}]*\}/,
   },
-  { weg: '@spiel-assets (Fallback: Modelle/Texturen/Audio)', muster: /location\s+@spiel-assets\s*\{[^}]*\/opt\/worldofvikings\/assets\/[^}]*\}/ },
+  /*
+    Angriffsbefund N-2 (Nebenfund beim Umbau auf universelle
+    Kommentar-Entfernung): Der bisherige Treffer stammte allein aus dem
+    erklaerenden Kommentar dieses Blocks ("... wird /assets/x zu
+    /opt/worldofvikings/assets/x"), nicht aus echtem Code — die einzige
+    Direktive hier ist "root /opt/worldofvikings;", das Wort "assets"
+    kommt erst aus dem angefragten Pfad dazu. Ohne Kommentare waere die
+    Zusicherung nie erfuellbar gewesen. Geprueft wird jetzt die echte
+    root-Direktive.
+  */
+  { weg: '@spiel-assets (Fallback: Modelle/Texturen/Audio)', muster: /location\s+@spiel-assets\s*\{[^}]*root\s+\/opt\/worldofvikings\s*;[^}]*\}/ },
   { weg: '/ws (Spielserver-WebSocket)', muster: /location\s+\/ws\s*\{/ },
   /*
     Der statische Wurzelordner zeigt seit dem Node-Adapter auf
@@ -84,7 +120,15 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: 'Schalter $oeffentlich wird gesetzt', muster: /set\s+\$oeffentlich\s+0;/ },
   // Verankert auf den Namen selbst: `[\s\S]{0,80}?world-of-vikings` traefe auch den
   // Editor-Schalter unten und hielte den Test gruen, obwohl `$oeffentlich` fehlt.
-  { weg: 'Schalter erkennt world-of-vikings.com', muster: /if\s*\(\$host\s*~\*\s*"\^\(www\\\.\)\?world-of-vikings\\\.com\$"\)/ },
+  //
+  // Karte D1 (Zweitdomains): world-of-mmorpg.com/.de sind gleichwertige
+  // oeffentliche Hauptdomains und muessen im SELBEN Schalter stehen wie
+  // world-of-vikings.com — ein Umbau, der sie in eine eigene, vergessene
+  // zweite Bedingung schriebe, liesse `$oeffentlich` fuer sie bei 0 stehen.
+  {
+    weg: 'Schalter erkennt world-of-vikings.com UND world-of-mmorpg.com/.de',
+    muster: /if\s*\(\$host\s*~\*\s*"\^\(www\\\.\)\?\(world-of-vikings\\\.com\|world-of-mmorpg\\\.\(com\|de\)\)\$"\)/,
+  },
   { weg: '/api/ (Betriebsdienst) ist unter dem oeffentlichen Namen dicht', muster: /location\s+\/api\/\s*\{[^}]*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
   { weg: '/editor/ ist unter dem oeffentlichen Namen dicht', muster: /location\s+=\s*\/editor\/\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
   { weg: '/editor (ohne Schraegstrich) ebenso', muster: /location\s+=\s*\/editor\s*\{\s*if\s*\(\$oeffentlich\)\s*\{\s*return\s+404/ },
@@ -100,16 +144,26 @@ const ERWARTUNGEN: Erwartung[] = [
     muster: /set\s+\$editor_name\s+0;\s*if\s*\(\$host\s*~\*\s*"\^editor\\\.dev\\\.world-of-vikings\\\.com\$"\)\s*\{\s*set\s+\$editor_name\s+1;/,
   },
   /*
+    Karte D1, Angriffsbefund M4: dieselbe editor.dev-Rolle gilt zusätzlich
+    für die zwei neuen Hauptdomains (DNS liegt dort ebenso an). Eigener
+    Fund, weil ein Umbau die Regex oben leicht um `|world-of-mmorpg\.(com|de)`
+    erweitern könnte, ohne dass ein Test das verlangt — dann bliebe der
+    Editor auf den neuen dev-Namen ohne die Wurzel-Umleitung stehen.
+  */
+  {
+    weg: 'editor.dev.world-of-mmorpg.com/.de setzt $editor_name ebenfalls',
+    muster: /if\s*\(\$host\s*~\*\s*"\^editor\\\.dev\\\.world-of-mmorpg\\\.\(com\|de\)\$"\)\s*\{\s*set\s+\$editor_name\s+1;/,
+  },
+  /*
     `absolute_redirect off;` steht auf der `server`-Ebene, VOR dem ersten
     `location`. Nur in `location /` wirkte es nicht auf `= /editor` und
     `= /play`, deren 301 dann weiter `http://<Host>:<Port>/…` trügen —
     hinter dem Proxy Manager, wo TLS endet, ein Sprung von `https://` auf
-    `http://`. Ohne Kommentare gelesen, siehe `ohneKommentare`.
+    `http://`. Gelesen wird gegen die kommentarfreie Fassung (siehe unten).
   */
   {
     weg: 'absolute_redirect off; auf der server-Ebene (vor dem ersten location)',
     muster: /server\s*\{(?:(?!\blocation\b)[\s\S])*?\babsolute_redirect\s+off\s*;/,
-    ohneKommentare: true,
   },
   {
     weg: 'location / leitet den Editor-Namen zuerst per 302 auf /editor/',
@@ -127,9 +181,13 @@ function main(): void {
   }
 
   let fehler = 0;
+  // Angriffsbefund N-2: JEDE Zusicherung liest die kommentarfreie Fassung,
+  // nicht nur die eine, die das vorher ausdruecklich anforderte — sonst
+  // haelt eine auskommentierte Host-Weiche (`# if ($host = ...) { ... }`)
+  // den Text-Treffer trotzdem gruen.
   const ohneKommentare = text.replace(/(^|\s)#.*$/gm, '$1');
-  for (const { weg, muster, ohneKommentare: ohne } of ERWARTUNGEN) {
-    const treffer = muster.test(ohne ? ohneKommentare : text);
+  for (const { weg, muster } of ERWARTUNGEN) {
+    const treffer = muster.test(ohneKommentare);
     console.log(`${treffer ? 'OK  ' : 'FEHL'}  ${weg}`);
     if (!treffer) fehler++;
   }

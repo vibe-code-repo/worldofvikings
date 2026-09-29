@@ -43,13 +43,11 @@ import {
   type ThreadPage,
   type ThreadView,
 } from '@wov/shared';
+import { WEBSITE_URSPRUENGE } from '../net/WebsiteUrspruenge.js';
 import { ForumDatabase, type ForumAutor } from './ForumDatabase.js';
 
-/** Origins allowed to call this API from a browser (same set as KontoApi). */
-const ERLAUBTE_URSPRUENGE = new Set([
-  'https://world-of-vikings.com',
-  'https://www.world-of-vikings.com',
-]);
+/** Origins allowed to call this API from a browser (Karte D1: dieselbe Konstante wie KontoApi.ts). */
+const ERLAUBTE_URSPRUENGE = WEBSITE_URSPRUENGE;
 
 const PRAEFIX = '/forum';
 const MAX_KOERPER_BYTES = 64 * 1024;
@@ -240,6 +238,7 @@ export class ForumApi {
     if (!this.db.threadById(threadId)) return this.json(res, 404, { error: 'unknown-thread' });
 
     const k = await this.koerper(req).catch(() => null);
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
     const wert = k ? k.value !== false : true;
     if (wert) this.db.abonnieren(threadId, kontoId);
     else this.db.abbestellen(threadId, kontoId);
@@ -260,6 +259,7 @@ export class ForumApi {
     const kontoId = this.kontoIdAus(req);
     if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
     const k = await this.koerper(req).catch(() => null);
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
     const roh = k ? Number(k.upTo) : Number.NaN;
     const bisId = Number.isInteger(roh) && roh > 0 ? roh : null;
     this.db.benachrichtigungenLesen(kontoId, bisId);
@@ -335,6 +335,7 @@ export class ForumApi {
 
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
 
     const autor = this.autorAus(kontoId, k.characterId);
     if (!autor) return this.json(res, 400, { error: 'character-invalid' });
@@ -369,6 +370,7 @@ export class ForumApi {
 
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
 
     const autor = this.autorAus(kontoId, k.characterId);
     if (!autor) return this.json(res, 400, { error: 'character-invalid' });
@@ -397,6 +399,7 @@ export class ForumApi {
 
     const k = await this.koerper(req);
     if (!k) return this.json(res, 400, { error: 'malformed-body' });
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
 
     const autor = this.autorAus(kontoId, k.characterId);
     if (!autor) return this.json(res, 400, { error: 'character-invalid' });
@@ -450,6 +453,7 @@ export class ForumApi {
     if (eigen.deletedAt !== null) return this.json(res, 409, { error: 'deleted' });
 
     const k = await this.koerper(req).catch(() => null);
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
     const kind = k ? String(k.kind ?? '') : '';
     if (!isReactionKind(kind)) return this.json(res, 400, { error: 'reaction-invalid' });
 
@@ -492,6 +496,7 @@ export class ForumApi {
     if (!this.erlaubt(kontoId, 'report')) return this.json(res, 429, { error: 'too-fast' });
 
     const k = await this.koerper(req).catch(() => null);
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
     const grund = k ? String(k.reason ?? '').trim().slice(0, 500) : '';
     const id = this.db.reportPost(postId, kontoId, grund);
     this.json(res, 201, { reportId: id });
@@ -522,8 +527,15 @@ export class ForumApi {
     id: number,
     art: 'pin' | 'lock' | 'move',
   ): Promise<void> {
-    if (this.modKonto(req, res) === null) return;
+    const kontoId = this.modKonto(req, res);
+    if (kontoId === null) return;
     const k = await this.koerper(req).catch(() => null);
+    if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
+    // N4 (W3-Reste-Pruefung, Opus, 28.09.2026): Das Token allein reicht nicht
+    // mehr, sobald der Koerper gelesen ist — verliert das Konto waehrend des
+    // Uploads sein Moderatorrecht (Adminlisten-Wechsel), darf Anheften,
+    // Sperren oder Verschieben nicht mehr ausgefuehrt werden.
+    if (!this.istModerator(kontoId)) return this.json(res, 403, { error: 'not-moderator' });
 
     if (art === 'move') {
       const board = k ? String(k.board ?? '') : '';
@@ -554,6 +566,18 @@ export class ForumApi {
   }
 
   // ── Helfer ──────────────────────────────────────────────────────────
+
+  /**
+   * Gilt das Konto NACH dem Lesen des Koerpers noch? Derselbe Zweck wie
+   * `KontoApi.nochAngemeldet` (N-3/N4 in der W3-Pruefung): Der Koerper kann
+   * langsam kommen (bis zum requestTimeout), waehrenddessen kann eine
+   * Rettung ("ueberall abmelden") oder ein Passwortwechsel das Token
+   * beendet haben. Ohne diese zweite Pruefung schriebe ein davor
+   * begonnener Aufruf noch.
+   */
+  private nochAngemeldet(req: IncomingMessage, kontoId: number): boolean {
+    return this.kontoIdAus(req) === kontoId;
+  }
 
   /** Charakter des Kontos aufloesen; null, wenn fremd, fehlend oder unbrauchbar. */
   private autorAus(kontoId: number, roh: unknown): ForumAutor | null {

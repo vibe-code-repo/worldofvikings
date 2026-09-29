@@ -67,9 +67,19 @@ function ausschnitt(quelle: string, name: string): string | null {
   return ende > beginn ? quelle.slice(beginn, ende) : null;
 }
 
-/** Environment without GIT_* (a git hook would otherwise redirect the scratch repo into the caller's). */
+/**
+ * Environment without GIT_* (a git hook would otherwise redirect the scratch repo into the caller's)
+ * and without any WOV_* variable. The latter closes N8 (I-1, Ausrollversuch main 657c87e,
+ * 27.09.2026): this file cuts fragments out of wov-update.sh and runs them as if "the caller set
+ * nothing", but this very process can itself be running INSIDE a real tools/wov-update.sh (its
+ * test-tor calls `node scripts/run-tests.mjs`, which loads this file as a child process) -- before
+ * this fix, only GIT_* was stripped, so WOV_HEAD_VOR_MERGE, WOV_UPDATE_VORHER and WOV_UPDATE_STUFE2
+ * (the variables the script exports before that point, see `grep -n 'export ' tools/wov-update.sh`)
+ * leaked through and were mistaken for a value "untergeschoben" via wov.env. Every spot below that
+ * needs a specific WOV_* value sets it explicitly on top of this base.
+ */
 const SAUBERE_UMGEBUNG: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
+  Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_') && !k.startsWith('WOV_')),
 );
 
 // ── Der Kaefig ───────────────────────────────────────────────────────
@@ -96,7 +106,11 @@ const IM_KAEFIG = process.env.WOV_KAEFIG === '1';
  * of SUDO_UMGEBUNG (each checked against NAME_OK). The caller's PATH, LD_PRELOAD, NODE_OPTIONS never get through.
  */
 const NAME_OK = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const SUDO_UMGEBUNG = ['HOME', 'CI', 'WOV_KAEFIG', 'TMPDIR'];
+const SUDO_UMGEBUNG = [
+  'HOME', 'CI', 'WOV_KAEFIG', 'TMPDIR',
+  // The rollout witness must inherit these on the sudo path too, before sanitizing them.
+  'WOV_HEAD_VOR_MERGE', 'WOV_UPDATE_VORHER', 'WOV_UPDATE_STUFE2',
+];
 const SUDO_PFAD = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 const SUDO_WERKZEUGE = { env: '/usr/bin/env', setpriv: '/usr/bin/setpriv', unshare: '/usr/bin/unshare' };
 
@@ -124,6 +138,72 @@ function kaefigBefehl(befehl: string[], viaSudo = false, umgebung: Record<string
 const IN_CI = /^(true|1)$/i.test(process.env.CI ?? '');
 /** The cage run prints KAEFIG-PROBE OK=<n>; fewer than this many measured checks is not green. */
 const MINDEST_OK = 150;
+
+// ── K5.7: Zeuge fuer die echte Update-Umgebung (Ausrollversuch main 657c87e, 27.09.2026, N8/I-1) ──
+// tools/wov-update.sh exportiert vor "▶ Tests" WOV_HEAD_VOR_MERGE, WOV_UPDATE_VORHER und
+// WOV_UPDATE_STUFE2 (grep -n 'export ' tools/wov-update.sh) und startet DANACH node
+// scripts/run-tests.mjs, das diese Datei als eigenen Prozess laedt -- SAUBERE_UMGEBUNG wird beim
+// Import DIESES Prozesses aus dessen process.env gebaut. Der Fehler vom 27.09. zeigte sich deshalb
+// erst in einem frischen Prozess mit genau dieser geerbten Umgebung, nie durch einen spawnSync
+// innerhalb eines schon laufenden Prozesses (die Proben weiter unten wie "mitKopf" setzen die drei
+// Variablen nur fuer EINEN Bash-Unterprozess, nicht fuer die eigene SAUBERE_UMGEBUNG-Berechnung
+// dieser Datei). Deshalb hier ein echter Kindprozess derselben Datei, mit WOV_KAEFIG=1 und den drei
+// Variablen vorbelegt wie im echten Rollout -- er startet damit schon "im Kaefig" und fuehrt diesen
+// Abschnitt (nur `!IM_KAEFIG`) nicht noch einmal aus, es bleibt bei einer Verschachtelungsstufe.
+if (!IM_KAEFIG) {
+  const k57BasisUmgebung = Object.fromEntries(
+    Object.entries(process.env).filter(([k, v]) => !k.startsWith('TSX_') && v !== undefined),
+  ) as Record<string, string>;
+  let k57ViaSudo = false;
+  let [k57Prog, k57Args] = kaefigBefehl(['true']);
+  let k57Probe = spawnSync(k57Prog, k57Args, { encoding: 'utf8' });
+  if (k57Probe.status !== 0 && IN_CI && process.getuid?.() !== 0 && spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' }).status === 0) {
+    const k57SudoLauf = { ...k57BasisUmgebung, WOV_KAEFIG: '1' };
+    [k57Prog, k57Args] = kaefigBefehl(['true'], true, k57SudoLauf);
+    const k57Probe2 = spawnSync(k57Prog, k57Args, { encoding: 'utf8' });
+    if (k57Probe2.status === 0) {
+      k57ViaSudo = true;
+      k57Probe = k57Probe2;
+    }
+  }
+  if (k57Probe.status === 0) {
+    const K57_UPDATE_UMGEBUNG: Record<string, string> = {
+      ...k57BasisUmgebung,
+      WOV_KAEFIG: '1',
+      WOV_UPDATE_STUFE2: '1',
+      WOV_HEAD_VOR_MERGE: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
+      WOV_UPDATE_VORHER: '392453106b95b9af545cdf08523fdbeec06cbe8f',
+    };
+    const [k57RunProg, k57RunArgs] = kaefigBefehl(
+      [process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)],
+      k57ViaSudo,
+      K57_UPDATE_UMGEBUNG,
+    );
+    const k57Lauf = spawnSync(k57RunProg, k57RunArgs, {
+      encoding: 'utf8',
+      env: K57_UPDATE_UMGEBUNG,
+      maxBuffer: 256 * 1024 * 1024,
+      timeout: 300_000,
+      // PID 1 in a PID namespace may ignore SIGTERM; unshare --kill-child reaps the cage.
+      killSignal: 'SIGKILL',
+    });
+    const witnessOutput = `${k57Lauf.stdout ?? ''}\n${k57Lauf.stderr ?? ''}`;
+    const redLines = witnessOutput.split(/\r?\n/).filter((line) => /^\s*ROT\s/.test(line));
+    pruefe(
+      k57Lauf.status === 0 && redLines.length === 0,
+      'K5.7: dieser Test bleibt gruen, wenn er (wie im echten Rollout) mit WOV_HEAD_VOR_MERGE/WOV_UPDATE_VORHER/WOV_UPDATE_STUFE2 in der ererbten Umgebung startet',
+      // Details may continue after a ROT line (for example the inherited environment).
+      // Keep both complete streams on failure rather than truncating the decisive values.
+      `rc=${k57Lauf.status} signal=${k57Lauf.signal} error=${k57Lauf.error?.message ?? 'none'}\n${witnessOutput}`,
+    );
+    if (fehler > 0) {
+      console.error(`\n${fehler} Pruefung(en) rot (K5.7-Zeuge).`);
+      process.exit(1);
+    }
+  } else {
+    console.error('  K5.7-Zeuge uebersprungen: kein Namensraum verfuegbar (siehe Kaefig-Pruefung unten).');
+  }
+}
 
 let ausfuehren = IM_KAEFIG;
 if (!IM_KAEFIG) {
@@ -1138,7 +1218,8 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
       serverPidDatei?: string; // literaler Inhalt statt der echten Kind-PID (fuer "0"/leer)
       adminPidDatei?: string;
       adminPidVerzoegert?: number; // Sekunden, nach denen die echte admin-PID erst geschrieben wird (Neustart-Luecke)
-      frist?: string; // WOV_WELT_MAINPID_FRIST (nur mit WOV_KAEFIG=1 wirksam -- hier immer der Fall, s.o.)
+      frist?: string; // WOV_WELT_MAINPID_FRIST; lauf() explicitly supplies its required cage mark.
+      virtualClock?: boolean; // Exercise the real deadline loop without wall-clock/load assertions.
       vorher?: string; // WOV_UPDATE_VORHER, fuer den Rueckweg-Text im Logger
       gestartet?: string[]; // N6 (N5-2): GESTARTET-Inhalt selbst vorgeben; Vorgabe (wov-server wov-admin) wie bisher
     }
@@ -1194,12 +1275,17 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
       } else if (opt.adminPidDatei !== undefined) {
         zeilen.push(`echo "${opt.adminPidDatei}" > "${zustand}/wov-admin.service.MainPID"`);
       }
+      if (opt.virtualClock) {
+        // Unsetting Bash's special SECONDS removes its clock semantics. The production loop
+        // still runs unchanged, but each requested sleep advances a deterministic logical clock.
+        zeilen.push('unset SECONDS; SECONDS=0', 'sleep() { SECONDS=$((SECONDS + $1)); echo "CLOCK_WAIT=$1" >&2; }');
+      }
       zeilen.push('gesundheit_pruefen', 'echo GESUND_OK');
       const skript = zeilen.filter((z) => z !== '').join('\n');
       const r = spawnSync(bash, ['-c', skript], {
         cwd: wurzel,
         encoding: 'utf8',
-        env: { ...SAUBERE_UMGEBUNG, PATH: `${fakeBin}:${process.env.PATH ?? ''}`, ...(opt.frist ? { WOV_WELT_MAINPID_FRIST: opt.frist } : {}), ...(opt.vorher ? { WOV_UPDATE_VORHER: opt.vorher } : {}) },
+        env: { ...SAUBERE_UMGEBUNG, WOV_KAEFIG: '1', PATH: `${fakeBin}:${process.env.PATH ?? ''}`, ...(opt.frist ? { WOV_WELT_MAINPID_FRIST: opt.frist } : {}), ...(opt.vorher ? { WOV_UPDATE_VORHER: opt.vorher } : {}) },
       });
       const journal = existsSync(loggerLog) ? readFileSync(loggerLog, 'utf8') : '';
       return { ...r, journal };
@@ -1272,7 +1358,14 @@ if (ausfuehren && weltBlock !== null && gesundFn !== null && unitBlock !== null)
     });
     const erholtDauer = Date.now() - startZeit;
     pruefe(erholtSich.status === 0 && erholtSich.stdout.includes('GESUND_OK') && erholtDauer >= 1500, 'N4-6: MainPID von wov-admin ist zunaechst leer und wird erst nach ~2s gueltig: die Nachpruefung wartet (mind. 1,5s gemessen) und wird dann gruen, kein sofortiger Abbruch', `rc=${erholtSich.status} dauer=${erholtDauer}ms ${erholtSich.stdout} ${erholtSich.stderr}`);
+    const deadlineProbe = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1', { adminEnv: null, frist: '1', virtualClock: true });
+    const waitedSeconds = [...deadlineProbe.stderr.matchAll(/^CLOCK_WAIT=(\d+)$/gm)].reduce((sum, match) => sum + Number(match[1]), 0);
+    pruefe(deadlineProbe.status === 1 && waitedSeconds === 1 && deadlineProbe.stderr.includes('wov-admin hat keine MainPID') && ende(deadlineProbe),
+      'N1/B2: the cage deadline requests exactly one second, not the production ten-second fallback',
+      `rc=${deadlineProbe.status} requestedSeconds=${waitedSeconds} ${deadlineProbe.stderr}`);
+    const deadlineStart = Date.now();
     const nieBereit = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1', { adminEnv: null, frist: '1' });
+    console.log(`N1/B2 real deadline elapsed=${Date.now() - deadlineStart}ms`);
     pruefe(nieBereit.status === 1 && !nieBereit.stdout.includes('GESUND_OK') && nieBereit.stderr.includes('wov-admin hat keine MainPID'), 'N4-6: wov-admin bleibt ohne MainPID (kein Prozess): nach der Frist ein klarer Fehler, kein stilles Uebergehen', `rc=${nieBereit.status} ${nieBereit.stderr}`);
 
     const keinPid = lauf(['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], '1', { adminEnv: ['WOV_WELT_VERZEICHNIS=/var/lib/wov/welten'], serverPidDatei: '0', frist: '1' });
@@ -1309,12 +1402,11 @@ if (ausfuehren && envSourcenBlock !== null) {
     // N8 (I-1): wov.env versucht zusaetzlich, WOV_HEAD_VOR_MERGE und WOV_UPDATE_VORHER
     // unterzuschieben -- genau die Probe S-WOVENV/S-WOVENV2 aus dem N7-Angriffsbericht.
     writeFileSync(envDatei, 'WOV_INSTANZ=dev\nWOV_KAEFIG=0\nWOV_UNIT_VERZEICHNIS=/von-wov-env\nWOV_HEAD_VOR_MERGE=untergeschoben-kopf\nWOV_UPDATE_VORHER=untergeschoben-vorher\n');
-    // Diese Testdatei laeuft selbst im Kaefig (WOV_KAEFIG=1 in der Aufrufumgebung des ganzen Laufs):
-    // die Basisumgebung fuer den "Aufrufer hat nichts gesetzt"-Fall muss beide Variablen deshalb explizit
-    // entfernen, sonst wuerde der Kaefig der aeusseren Probe selbst als "vom Aufrufer gesetzt" durchgehen.
-    const OHNE_KAEFIG_MARKEN: NodeJS.ProcessEnv = { ...SAUBERE_UMGEBUNG };
-    delete OHNE_KAEFIG_MARKEN.WOV_KAEFIG;
-    delete OHNE_KAEFIG_MARKEN.WOV_UNIT_VERZEICHNIS;
+    // SAUBERE_UMGEBUNG entfernt inzwischen JEDE WOV_*-Variable (s. Kommentar an ihrer Definition):
+    // diese Testdatei laeuft selbst im Kaefig (WOV_KAEFIG=1 in der Aufrufumgebung des ganzen Laufs)
+    // und kann, waehrend eines echten tools/wov-update.sh-Laufs, auch dessen exportierte
+    // WOV_HEAD_VOR_MERGE/WOV_UPDATE_VORHER geerbt haben -- der "Aufrufer hat nichts gesetzt"-Fall
+    // braucht dafuer keine eigene Entfernliste mehr, die genau diese Luecke offen liess (N8/I-1).
     const lauf = (extra: Record<string, string> = {}) => {
       const skript = [
         'set -euo pipefail',
@@ -1326,7 +1418,7 @@ if (ausfuehren && envSourcenBlock !== null) {
         'echo "KOPFVOR=${WOV_HEAD_VOR_MERGE-X}"',
         'echo "VORHERWERT=${WOV_UPDATE_VORHER-X}"',
       ].join('\n');
-      return spawnSync('bash', ['-c', skript], { encoding: 'utf8', env: { ...OHNE_KAEFIG_MARKEN, ...extra } });
+      return spawnSync('bash', ['-c', skript], { encoding: 'utf8', env: { ...SAUBERE_UMGEBUNG, ...extra } });
     };
     const ohne = lauf();
     pruefe(

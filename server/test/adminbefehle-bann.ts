@@ -48,6 +48,14 @@
  *      ohne sie zu trennen.
  *   6. Und der letzte Admin kann sich nicht mehr selbst aussperren
  *      (Befund 4) — mit einem zweiten Admin auf der Liste geht es.
+ *   7. B1 (Nachbesserung Pruefung 4): `bann herkunft` trifft den Admin
+ *      auch unter anderer Schreibung nicht selbst — `trifftAdmin` schuetzt
+ *      nur Konto-/Spielerbanns, keinen Herkunftsbann, deshalb braucht es
+ *      hier den eigenen Selbstschutz.
+ *   8. A8: Die Zielsuche von `bann herkunft` findet eine andere Schreibung
+ *      (normalisiert, wie `kick`). Jede Verbindung bekommt dafuer ihre
+ *      eigene, vorgetaeuschte Herkunft (X-Forwarded-For) — sonst traefe
+ *      ein echter Herkunftsbann jede offene Verbindung dieses Prozesses.
  *
  * Ablauf: npx tsx server/test/adminbefehle-bann.ts   (aus der Wurzel)
  */
@@ -164,8 +172,15 @@ interface Sitzung {
   befehl(zeile: string): Promise<string>;
 }
 
+// B1/A8 (Nachbesserung Pruefung 4): jede Verbindung bekommt ihre eigene,
+// per X-Forwarded-For vorgetaeuschte Herkunft (Herkunft.ts glaubt den Kopf,
+// weil die Peer-Adresse hier Loopback ist) -- sonst traefe ein echter
+// `bann herkunft` JEDE offene Verbindung dieses Prozesses (alle kommen
+// technisch von 127.0.0.1), nicht nur das gemeinte Ziel.
+let herkunftZaehler = 1;
 function verbinde(name: string, token: string): Sitzung {
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+  const herkunft = `10.77.${Math.floor(herkunftZaehler / 250)}.${(herkunftZaehler++ % 250) + 1}`;
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}`, { headers: { 'x-forwarded-for': herkunft } });
   ws.binaryType = 'nodebuffer';
   let authGesendet = false;
   let aufAdminEvent: ((text: string) => void) | null = null;
@@ -298,6 +313,40 @@ async function main(): Promise<void> {
     // ── 3. Die Huerde vor dem Selbstaussperren ───────────────────────
     const selbst = await adminSitzung.befehl('bann Admin');
     check('sich selbst kann der Admin nicht bannen', selbst.includes('Dich selbst'), selbst);
+
+    // ── 3b. `bann herkunft`: Selbstschutz (B1) und normalisierte Suche
+    //      (A8) — Nachbesserung Pruefung 4 ─────────────────────────────
+    //
+    // Pruefung 4 §2 fand eine Regression: Admin "Boss" sperrte sich per
+    // "bann herkunft BOSS" (andere Schreibung) dauerhaft selbst aus --
+    // `trifftAdmin` schuetzt nur Konto-/Spielerbanns, KEINEN Herkunftsbann.
+    // Der Fix vergleicht ueber das gefundene Ziel (`findPeerByName(name)
+    // === peer`), nicht mehr ueber den rohen Namen.
+    const selbstHerkunft = await adminSitzung.befehl('bann herkunft ADMIN');
+    check('B1: `bann herkunft ADMIN` (eigener Name, andere Schreibung) trifft den Admin nicht selbst',
+      selbstHerkunft.includes('Dich selbst'), selbstHerkunft);
+    check('B1: der Admin bleibt verbunden', !adminSitzung.geschlossen);
+    check('B1: kein Herkunftsbann wurde angelegt', innen.kontenDb.bannListe().length === 0,
+      JSON.stringify(innen.kontenDb.bannListe()));
+
+    // A8: Die Zielsuche von `bann herkunft` normalisiert seit C3
+    // (namenSchluessel statt `===`) — ein Mutant, der das zurueckbaut,
+    // muss an einer ANDEREN Schreibung als der Verbindungsname scheitern.
+    const wacheSitzung = verbinde('Wache', '');
+    await wacheSitzung.fertig;
+    check('A8: Gast „Wache“ kommt herein (Kontrolle)', wacheSitzung.angemeldet, wacheSitzung.ablehnung);
+    const herkunftBann = await adminSitzung.befehl('bann herkunft WACHE');
+    check('A8: `bann herkunft WACHE` (andere Schreibung) findet „Wache“ trotz normalisierter Suche',
+      herkunftBann.includes('gebannt'), herkunftBann);
+    await warte(400);
+    check('A8: „Wache“ ist getrennt', wacheSitzung.geschlossen);
+    check('A8: der Bann steht als Herkunftsbann in der Datenbank',
+      innen.kontenDb.bannListe().length === 1 && innen.kontenDb.bannListe()[0]?.art === 'herkunft',
+      JSON.stringify(innen.kontenDb.bannListe()));
+    // Aufraeumen, damit Abschnitt 4 mit einer leeren Bannliste beginnt.
+    const herkunftWert = innen.kontenDb.bannListe()[0]?.wert ?? '';
+    innen.kontenDb.bannAufheben('herkunft', herkunftWert);
+    check('A8: Bannliste nach dem Aufraeumen wieder leer', innen.kontenDb.bannListe().length === 0);
 
     // ── 4. bann/kick/entbann am lebenden Gast ────────────────────────
     check('der Gast zaehlt vor dem Bann als online', server.net.peerCount === 2,

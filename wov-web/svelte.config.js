@@ -72,6 +72,11 @@ export default {
      * kann `SHORES.dev` jederzeit wieder auf einen zweiten Host zeigen
      * lassen (Umgebungsschalter, s. dort), und ohne den Eintrag hier
      * bräche das lautlos an der CSP.
+     *
+     * Karte D1: `play.world-of-mmorpg.com`/`.de` kommen zusätzlich dazu,
+     * nicht statt der world-of-vikings.com-Einträge — Letztere bleiben
+     * erreichbar, solange world-of-vikings.com noch nicht auf reine
+     * Weiterleitung umgestellt ist (Teil 3, noch nicht ausgeführt).
      */
     csp: {
       mode: 'hash',
@@ -99,6 +104,17 @@ export default {
           'self',
           'https://play.world-of-vikings.com',
           'https://play.dev.world-of-vikings.com',
+          'https://play.world-of-mmorpg.com',
+          'https://play.world-of-mmorpg.de',
+          // Karte D1-N2 (Niedrig, geprueft an account.ts/SHORES): dieselbe
+          // Absicherung wie play.dev.world-of-vikings.com zwei Zeilen
+          // darueber — WOV_DEV_ORIGIN (der Vite-Schalter fuer SHORES.dev)
+          // kann jederzeit auf einen zweiten Host zeigen, und ohne diesen
+          // Eintrag braeche das lautlos an der CSP, sobald er auf einen
+          // dev-Host der neuen Domains zeigt. SHORES.live selbst baut nur
+          // play.world-of-mmorpg.com/.de (oben bereits erlaubt).
+          'https://play.dev.world-of-mmorpg.com',
+          'https://play.dev.world-of-mmorpg.de',
         ],
         'form-action': ['self'],
         'upgrade-insecure-requests': true,

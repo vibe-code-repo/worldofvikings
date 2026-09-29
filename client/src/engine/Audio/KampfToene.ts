@@ -22,6 +22,7 @@
  * the server's `HitEffect` packet (which says whether you are the attacker).
  */
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { LAUF_TEMPO } from '@wov/shared/src/bewegung/masse.js';
 import type { AudioEngine } from './AudioEngine';
 
 export type Waffensatz = 'schwert' | 'stab' | 'speer' | 'faust';
@@ -61,14 +62,34 @@ export const TREFFER_PARADE = 2;
 
 /** Ein Treffer so dicht an der Figur trifft SIE (eigene Parade). */
 export const AUF_MICH_RADIUS = 0.8;
-/** Ein wartender Ton verfällt, wenn die Figur sich seit dem Klick weiter bewegt hat (Tod, Teleport). */
-export const ORTSSPRUNG_M = 4;
+/**
+ * Ein wartender Ton verfällt, wenn die Figur sich seit dem Klick weiter
+ * bewegt hat, als sie laufen kann (Tod, Teleport): Höchsttempo × verstrichene
+ * Zeit + Rand. Eine feste Grenze (früher 4 m) verschluckte beim Sprint
+ * (7,5 m/s) den dritten Hieb nach 0,68 s = 5,1 m.
+ */
+export const HOECHSTTEMPO = LAUF_TEMPO;
+/** Rand auf die mögliche Strecke (Bildtakt, Serverkorrektur), in m. */
+export const ORTSRAND_M = 1;
+
+/** Größte Strecke (m), die die Figur in `dt` Sekunden zu Fuß schaffen kann. */
+export function moeglicheStrecke(dt: number): number {
+  return HOECHSTTEMPO * Math.max(0, dt) + ORTSRAND_M;
+}
 /** Angemeldete Hiebe älter als das (s) nach ihrer Spitze zählen nicht mehr. */
 const HIEB_MERKZEIT_S = 2;
 
-/** Schwunggruppe des Hiebs `hieb` (0…) im Satz; null = kein Schwungton. */
-export function schwungGruppe(satz: Waffensatz, hieb: number): string | null {
-  if (satz !== 'schwert') return null;
+/**
+ * Schwunggruppe des Hiebs `hieb` (0…) im Satz mit der Waffe `waffe`; null =
+ * kein Schwungton. Es gibt nur zwei Schwungaufnahmen, also entscheidet die
+ * Wucht: Klinge/Axt leicht, der dritte Hieb schwer; Stab und Keule (Holz,
+ * beidhändig, schwer geführt) immer schwer; Speer (Stich, schnell) leicht.
+ * Faust: keine passende Aufnahme, kein Schwungton (nur `punch` beim Treffer).
+ */
+export function schwungGruppe(satz: Waffensatz, hieb: number, waffe = ''): string | null {
+  if (satz === 'faust') return null;
+  if (satz === 'stab' || waffe === 'Club') return GRUPPE_SCHWUNG_SCHWER;
+  if (satz === 'speer') return GRUPPE_SCHWUNG;
   return hieb >= 2 ? GRUPPE_SCHWUNG_SCHWER : GRUPPE_SCHWUNG;
 }
 
@@ -103,6 +124,8 @@ export interface KampfFigur {
 interface Hieb {
   satz: Waffensatz;
   hieb: number;
+  /** Uhrzeit des Klicks. */
+  start: number;
   /** Uhrzeit, zu der der Hieb seine Spitze erreicht. */
   spitze: number;
   waffe: string;
@@ -136,6 +159,7 @@ export class KampfToene {
     const eintrag: Hieb = {
       satz,
       hieb,
+      start: jetzt,
       spitze: jetzt + verzug,
       waffe: this.waffe(),
       x: f?.position.x ?? 0,
@@ -144,7 +168,7 @@ export class KampfToene {
     this.hiebe.push(eintrag);
     while (this.hiebe.length > 0 && this.hiebe[0]!.spitze < jetzt - HIEB_MERKZEIT_S) this.hiebe.shift();
     if (bogen) this.uhr.setze(bogen, verzug * 1000);
-    const gruppe = schwungGruppe(satz, hieb);
+    const gruppe = schwungGruppe(satz, hieb, eintrag.waffe);
     if (gruppe === null) return;
     const handle = this.uhr.setze(() => {
       if (this.wartend !== handle) return;
@@ -224,7 +248,9 @@ export class KampfToene {
   }
 
   private unveraendert(h: Hieb, f: KampfFigur): boolean {
-    return this.waffe() === h.waffe && Math.hypot(f.position.x - h.x, f.position.z - h.z) <= ORTSSPRUNG_M;
+    // Nur was die Figur seit dem Klick laufen konnte zählt; mehr ist Tod/Teleport.
+    const dt = this.uhr.jetzt() - h.start;
+    return this.waffe() === h.waffe && Math.hypot(f.position.x - h.x, f.position.z - h.z) <= moeglicheStrecke(dt);
   }
 
   private spiele(gruppe: string, pos: { x: number; y: number; z: number }): void {

@@ -528,13 +528,19 @@ exit 0
       const weltDatei = resolve(WORLDS3, 'dev.db.zst');
       const beiseiteDatei = `${weltDatei}.beiseite`;
       const vorherDatei = `${weltDatei}.prev`;
+      // N1-3 (Nachangriff 29.09., M22): .prev.beiseite ist die VORIGE
+      // dev-Generation (die "zurueck" nach .prev zuruecklegt) — muss von
+      // "erneuern" genauso unberuehrt bleiben wie .beiseite selbst.
+      const vorherBeiseiteDatei = `${weltDatei}.prev.beiseite`;
       const testAblage = resolve(WORLDS3, 'testwelt.db.zst');
       const sicherungDatei = resolve(WORLDS3, 'dev.db.zst.2026-09-20T00-00-00.bak');
       writeFileSync(weltDatei, 'testwelt-spielstand-aktuell');
       writeFileSync(vorherDatei, 'testwelt-spielstand-prev');
       writeFileSync(beiseiteDatei, 'dev-stand-beiseite');
+      writeFileSync(vorherBeiseiteDatei, 'dev-stand-prev-beiseite');
       writeFileSync(sicherungDatei, 'sicherung-unberuehrt');
       const beiseiteVorher = readFileSync(beiseiteDatei);
+      const vorherBeiseiteVorher = readFileSync(vorherBeiseiteDatei);
       const sicherungVorher = readFileSync(sicherungDatei);
 
       const erneuern = await anfrage3({ pfad: '/api/testwelt', methode: 'POST', leib: JSON.stringify({ aktion: 'erneuern' }) });
@@ -549,6 +555,10 @@ exit 0
         existsSync(testAblage) && readFileSync(testAblage, 'utf-8') === 'testwelt-spielstand-aktuell'
       );
       check('.beiseite (der dev-Stand) byte-gleich wie vorher — erneuern fasst ihn NICHT an', readFileSync(beiseiteDatei).equals(beiseiteVorher));
+      check(
+        '.prev.beiseite (die vorige dev-Generation) byte-gleich wie vorher — erneuern fasst sie NICHT an (N1-3, M22)',
+        readFileSync(vorherBeiseiteDatei).equals(vorherBeiseiteVorher)
+      );
       check('die Sicherung byte-gleich wie vorher — erneuern fasst sie NICHT an', readFileSync(sicherungDatei).equals(sicherungVorher));
       check('aktiv bleibt true (die Testwelt laeuft weiter, nur frisch erzeugt)', erneuern.daten.aktiv === true, JSON.stringify(erneuern.daten));
     } finally {

@@ -3818,8 +3818,10 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck' | 'erneuern'): Pro
     const a = (await r.json()) as { ok?: boolean; message?: string; fehler?: string };
     if (!r.ok || a.fehler) {
       schirm.schliessen();
-      shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${a.fehler ?? 'unbekannt'} ──`);
-      shell.meldung(a.fehler ?? 'Umschalten fehlgeschlagen.', true);
+      const grund = a.message ?? a.fehler ?? 'unbekannt';
+      shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${grund} ──`);
+      shell.meldung(serverI18n.t('editor.server.live_test.failed', { grund }), true);
+      await serverSteuerungAktualisieren();
       return;
     }
     const { start, erreicht } = await dienstAbwarten(schirm, basis);
@@ -3840,7 +3842,8 @@ async function testweltSchalten(aktion: 'starten' | 'zurueck' | 'erneuern'): Pro
   } catch (err) {
     schirm.schliessen();
     shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${String(err)} ──`);
-    shell.meldung(`Umschalten fehlgeschlagen: ${String(err)}`, true);
+    shell.meldung(serverI18n.t('editor.server.live_test.failed', { grund: String(err) }), true);
+    await serverSteuerungAktualisieren();
   }
 }
 

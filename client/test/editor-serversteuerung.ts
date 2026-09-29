@@ -186,5 +186,91 @@ console.log('\n[5] Quelltext: Verdrahtung in editorMain.ts (Syntaxbaum) — Muta
   }
 }
 
+// ── Quelltext: testweltSchalten/dienstAbwarten (Syntaxbaum) ───────────
+//
+// N1-2 (Nachangriff 29.09.): B5 war bisher nur ueber die reine Funktion
+// serverStatusAnzeige abgesichert. Drei Mutationen an der echten
+// Verdrahtung blieben unbemerkt gruen:
+//  M20: dienstAbwarten liefert immer erreicht: true.
+//  M24: testweltSchalten meldet trotz Zeitlimit "fertig" (der
+//       if (!erreicht)-Zweig ist abgeschaltet).
+//  M25: nach testweltSchalten wird die Serveranzeige nicht neu geladen.
+// Dazu (N1-1) eine vierte/fuenfte Pruefung: die neue Aktualisierung im
+// Fehlerzweig und im catch von testweltSchalten.
+
+console.log('\n[6] Quelltext: testweltSchalten/dienstAbwarten (Syntaxbaum) — M20/M24/M25 + N1-1:');
+{
+  const main = quelle('../src/editor/editorMain.ts');
+
+  const dienstAbwartenFn = funktion(main, 'dienstAbwarten');
+  check('editorMain hat dienstAbwarten', dienstAbwartenFn !== undefined);
+  if (dienstAbwartenFn) {
+    const erreichtZuweisungen = alle(
+      dienstAbwartenFn,
+      (n): n is ts.BinaryExpression => ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ).filter((b) => b.left.getText() === 'erreicht');
+    check('genau eine Zuweisung an erreicht (im Wartepfad)', erreichtZuweisungen.length === 1, `n=${erreichtZuweisungen.length}`);
+    const vergleich = erreichtZuweisungen[0]?.right;
+    check(
+      'erreicht = laeuft === zielAktiv, kein festes true (M20: sonst meldet dienstAbwarten immer erreicht)',
+      !!vergleich &&
+        ts.isBinaryExpression(vergleich) &&
+        vergleich.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        [vergleich.left.getText(), vergleich.right.getText()].sort().join(',') === 'laeuft,zielAktiv',
+      vergleich?.getText()
+    );
+  }
+
+  const testweltSchaltenFn = funktion(main, 'testweltSchalten');
+  check('editorMain hat testweltSchalten', testweltSchaltenFn !== undefined);
+  if (testweltSchaltenFn) {
+    const ifs = alle(testweltSchaltenFn, (n): n is ts.IfStatement => ts.isIfStatement(n));
+    const tryStmt = alle(testweltSchaltenFn, (n): n is ts.TryStatement => ts.isTryStatement(n))[0];
+    check('testweltSchalten hat einen try/catch-Block', tryStmt !== undefined);
+
+    const zeitlimitIf = ifs.find(
+      (i) =>
+        ts.isPrefixUnaryExpression(i.expression) &&
+        i.expression.operator === ts.SyntaxKind.ExclamationToken &&
+        i.expression.operand.getText() === 'erreicht'
+    );
+    check('genau ein if fragt "!erreicht" ab (Zeitlimit-Zweig)', zeitlimitIf !== undefined);
+    const zeitlimitHatReturn = zeitlimitIf ? alle(zeitlimitIf.thenStatement, ts.isReturnStatement).length > 0 : false;
+    check(
+      'der Zeitlimit-Zweig bricht mit return ab (M24: sonst meldet testweltSchalten trotz Zeitlimit "fertig")',
+      zeitlimitHatReturn
+    );
+
+    const fehlerIf = ifs.find((i) => i.expression.getText().includes('r.ok'));
+    check('genau ein if prueft r.ok/a.fehler (Fehlerzweig)', fehlerIf !== undefined);
+    const fehlerAktualisiert = fehlerIf
+      ? alle(fehlerIf.thenStatement, istAufruf).some((c) => aufrufName(c) === 'serverSteuerungAktualisieren')
+      : false;
+    check(
+      'im Fehlerzweig (409 u.a.) wird serverSteuerungAktualisieren() aufgerufen (N1-1: sonst zeigt die Anzeige nach einem Fehler den alten Zustand weiter)',
+      fehlerAktualisiert
+    );
+
+    const catchAktualisiert = tryStmt?.catchClause
+      ? alle(tryStmt.catchClause.block, istAufruf).some((c) => aufrufName(c) === 'serverSteuerungAktualisieren')
+      : false;
+    check(
+      'im catch (z. B. nach einem 504 beim stop) wird serverSteuerungAktualisieren() aufgerufen (N1-1)',
+      catchAktualisiert
+    );
+
+    if (tryStmt && zeitlimitIf) {
+      const tryStatements = tryStmt.tryBlock.statements;
+      const idx = tryStatements.findIndex((s) => s === zeitlimitIf);
+      const erfolgspfad = idx >= 0 ? tryStatements.slice(idx + 1) : [];
+      const erfolgAktualisiert = erfolgspfad.some((s) => alle(s, istAufruf).some((c) => aufrufName(c) === 'serverSteuerungAktualisieren'));
+      check(
+        'nach erreichtem Zielzustand (Erfolgspfad, nach dem Zeitlimit-if) wird serverSteuerungAktualisieren() aufgerufen (M25: sonst wird die Serveranzeige nicht neu geladen)',
+        erfolgAktualisiert
+      );
+    }
+  }
+}
+
 console.log(fehler === 0 ? '\nAlle Prüfungen grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);
 process.exit(fehler > 0 ? 1 : 0);

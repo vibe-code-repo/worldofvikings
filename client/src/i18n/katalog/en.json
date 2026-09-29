@@ -44,6 +44,7 @@
   "editor.server.cancel_hint": "Nothing is changed.",
   "editor.server.cancelled": "Cancelled — nothing was changed.",
   "editor.server.live_test.active_title": "Test world is running — saves your draft and rebuilds the test world fresh (no switching again).",
+  "editor.server.live_test.failed": "Switching failed: {grund}",
   "editor.server.live_test.inactive_title": "Restarts the game server with the saved map state.",
   "editor.server.live_test.refresh_body": "The test world is already running. Your draft is saved (the same file the server rebuilds from). The game server stops briefly, the RUNNING test world is discarded (it stays around as testwelt.db.zst) and rebuilt completely fresh from the layout. All players are disconnected.",
   "editor.server.live_test.refresh_confirm": "Save and rebuild test world",

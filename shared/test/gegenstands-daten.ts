@@ -370,6 +370,32 @@ const fremdSprache = lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': {
 pruefe(fremdSprache.eintraege.length === 1 && fremdSprache.unbekannteFelder === 1 && !('fr' in fremdSprache.eintraege[0].texte['inhalt.gegenstand.Holzaxt.name']), 'weitere Sprache wird verworfen und gezaehlt');
 pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a', en: 'b' } } })).eintraege.length === 1, 'Beschreibung ohne Text ist erlaubt');
 
+// ── 9b. Invisible characters by category (N2) ────────────────────────
+console.log('Gegenstandsdaten — unsichtbare Zeichen');
+const unsichtbar: number[] = [
+  0x061c, 0x180e, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0x2065, 0x206a, 0x206b, 0x206c, 0x206d, 0x206e, 0x206f,
+  0x034f, 0x00ad, 0xfe00, 0xfe0f, 0xe0001, 0xe0020, 0xe007f, 0xe0100, 0xe01ef, 0xfff9, 0xfffa, 0xfffb, 0xfffc,
+  0x3164, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x2800, 0x1d173, 0xfffe, 0xffff, 0xd800, 0xdfff,
+  0xe000, 0x0378, 0x200d, 0x2029,
+];
+const nameMit = (de: string) => holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de, en: 'Axe' } } });
+for (const cp of unsichtbar) {
+  const z = cp >= 0xd800 && cp <= 0xdfff ? String.fromCharCode(cp) : String.fromCodePoint(cp);
+  const hex = `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+  const mitten = lese(nameMit(`a${z}b`));
+  const ganz = lese(nameMit(z + z));
+  const mittenOk = mitten.eintraege.length === 0 && grundVon(mitten) === 'texte-ungueltig';
+  const ganzOk = ganz.eintraege.length === 0 && (grundVon(ganz) === 'texte-ungueltig' || grundVon(ganz) === 'texte-name-fehlt');
+  pruefe(mittenOk && ganzOk, `${hex} mitten im Namen und als ganzer Name abgelehnt`);
+}
+pruefe(unsichtbar.length >= 41, `mindestens 41 Codepunkte geprueft (${unsichtbar.length})`);
+pruefe(lese(nameMit('a\u{1F600}b')).eintraege.length === 1, 'gueltiges Surrogatpaar (Emoji) bleibt erlaubt');
+pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: '!!! ---', en: 'Axe' } } })).verworfen[0]?.grund === 'texte-ungueltig', 'Name ohne Buchstabe und Ziffer wird abgelehnt');
+pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'Axt', en: '  \u00a0 ' } } })).eintraege.length === 0, 'Name nur aus Leerraum wird abgelehnt');
+for (const name of ["Äxte über Öl", 'Straße', 'Café Zoë', "O'Brien-Axt", 'Éowyn’s Schwert', 'Axt 2', '1234', '斧', 'Ünï-çødé ß']) {
+  pruefe(lese(nameMit(name)).eintraege.length === 1, `normaler Name bleibt erlaubt: ${name}`);
+}
+
 // ── 10. Recipes across entries ───────────────────────────────────────
 console.log('Gegenstandsdaten — Rezepte, Zyklen');
 const rz = (id: string, ...zutaten: string[]) => schlicht(id, { rezept: { menge: 1, zutaten: zutaten.map((item) => ({ item, menge: 1 })) } });

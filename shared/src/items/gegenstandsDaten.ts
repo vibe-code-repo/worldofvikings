@@ -39,12 +39,19 @@ const SCHLUESSEL_MUSTER = /^inhalt\.[A-Za-z0-9._-]{1,80}$/;
 const SYMBOL_MUSTER = /^[A-Za-z0-9_-]{1,64}$/;
 const ZUTAT_MUSTER = /^[A-Za-z0-9_]{1,64}$/;
 /**
- * Characters that are refused in texts: control characters, line/paragraph separators, zero-width and
- * bidi controls and the BOM. The text is DISCARDED (entry refused) instead of stripped: silently editing
- * a name would show something the author did not write. HTML in texts is allowed on purpose: the client
- * only ever shows texts through `textContent` (G3), never as markup, so `<b>` is just characters there.
+ * Characters that are refused in texts, by Unicode category: control (Cc), format (Cf: zero-width, bidi
+ * controls, soft hyphen, word joiner, BOM, tag characters), line/paragraph separators (Zl, Zp), lone
+ * surrogates (Cs; a well-formed pair is one astral character and does not match under /u), unassigned
+ * (Cn, incl. U+FFFE/FFFF) and private use (Co). Category tables differ a little between engines, so the
+ * invisible ones that are not in Cf are listed by hand: U+180E, U+FFFC, the Hangul fillers, the braille
+ * blank U+2800, variation selectors, Mongolian selectors, Khmer inherent vowels and the grapheme joiner.
+ * The text is DISCARDED (entry refused) instead of stripped: silently editing a name would show something
+ * the author did not write. HTML in texts is allowed on purpose: the client only ever shows texts through
+ * `textContent` (G3), never as markup, so `<b>` is just characters there.
  */
-const STEUERZEICHEN = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/;
+const STEUERZEICHEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Cn}\p{Co}\u180e\ufffc\u3164\u115f\u1160\u2800\ufe00-\ufe0f\u{e0100}-\u{e01ef}\u180b-\u180d\u17b4\u17b5\u034f]/u;
+/** A name needs at least one letter or digit, else it is invisible or only punctuation. */
+const SICHTBAR = /[\p{L}\p{N}]/u;
 
 export const GEGENSTANDS_TYPEN = ['einhaendigWaffe', 'zweihaendigWaffe', 'werkzeug', 'material'] as const;
 export type GegenstandsTyp = typeof GEGENSTANDS_TYPEN[number];
@@ -351,6 +358,7 @@ function pruefeEintrag(roh: unknown, z: { n: number }): GegenstandsEintrag {
   }
   const nameText = Object.hasOwn(texte, nameSchluessel) ? texte[nameSchluessel] : undefined;
   if (!nameText || !nameText.de?.trim() || !nameText.en?.trim()) throw new Verwerfen('texte-name-fehlt');
+  if (!SICHTBAR.test(nameText.de) || !SICHTBAR.test(nameText.en)) throw new Verwerfen('texte-ungueltig');
 
   return {
     id, nameSchluessel, beschreibungSchluessel, typ: typ as GegenstandsTyp, slot: 'hand', modell,

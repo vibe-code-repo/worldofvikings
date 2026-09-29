@@ -292,14 +292,14 @@ export default [
   // Fuellrichtung, Hotbar, Verschieben/Tauschen, Kapazitaet, Speichern/
   // Laden, Gewicht). Reine Funktion, Sekunden.
   ['shared', 'test/inventory.ts'],
+  // Item-Tooltip (2026-09-29): Itemlevel und Seltenheit jeder Definition nach
+  // Tabelle B2, anzeigeName mit/ohne textKey (rein). Keine Assets noetig.
+  ['shared', 'test/item-stufen.ts'],
   /*
     Kampfkern K1 (2026-09-29): Item-Attribute und Formeln (rein) und ihr Weg
     durch den Server (drei echte WebSocket-Spieler mit verschiedener
     Ausruestung). Keine Assets noetig. ~10 s bzw. ~25 s.
   */
-  // Item-Tooltip (2026-09-29): Itemlevel und Seltenheit jeder Definition nach
-  // Tabelle B2, anzeigeName mit/ohne textKey (rein). Keine Assets noetig.
-  ['shared', 'test/item-stufen.ts'],
   ['shared', 'test/kampf-attribute.ts'],
   // B6/B7 (Roadmap): Zellbelegung fuers Ueberlappungs-Bild im Editor und
   // die Flaechenrechnung der Kopfzeile -- reine Geometrie, DOM-frei,

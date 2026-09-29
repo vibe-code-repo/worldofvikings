@@ -357,14 +357,14 @@ export default [
   */
   ['client', 'test/instanz-toenung.ts'],
   ['client/test', 'ironward.ts'],
+  // Item-Tooltip (2026-09-29): Tooltip-Inhalt de/en mit den echten Katalogen und
+  // Vergleich mit dem Getragenen (rein). Keine Assets noetig.
+  ['client', 'test/item-tooltip.ts'],
   /*
     Kampftoene (client/src/engine/Audio/KampfToene.ts): Schwung zum
     Hiebzeitpunkt, Treffer/Parade nur mit HitEffect, Faust ohne Schwung,
     alle Gruppen im `toene`-Abschnitt der getrackten assets/manifest.json.
   */
-  // Item-Tooltip (2026-09-29): Tooltip-Inhalt de/en mit den echten Katalogen und
-  // Vergleich mit dem Getragenen (rein). Keine Assets noetig.
-  ['client', 'test/item-tooltip.ts'],
   ['client', 'test/kampf-toene.ts'],
   ['client', 'test/kampf-waffe-abgleich.ts'],
   // Editor map image in tiles (K3.0): stage choice (4 m per pixel -> 4 m texel),

@@ -43,7 +43,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
-import { EDITOR_NAME, namenSchluessel } from '../net/Namen.js';
+import { EDITOR_NAME, nameHatSteuerzeichen, namenSchluessel } from '../net/Namen.js';
 import { WEBSITE_URSPRUENGE } from '../net/WebsiteUrspruenge.js';
 import { Kontendatenbank, PROFILTEXT_MAX, type Charakter, type GeloeschtesKonto } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
@@ -562,6 +562,13 @@ export class KontoApi {
 
     const name = String(k.name ?? '').trim();
     if (!CHARAKTERNAME_REGEX.test(name)) return this.json(res, 400, { error: 'name-invalid' });
+    // M1 (W3-Reste-Pruefung, Opus, 28.09.2026): CHARAKTERNAME_REGEX laesst
+    // Hangul-Fuellzeichen durch (sie gehoeren zu \p{Lo}), und namenSchluessel
+    // entfernt sie nicht. Damit liesse sich "Editor" (und jeder andere Name)
+    // unsichtbar verlaengern. Das Spiel selbst sperrt genau diese Zeichen
+    // ueber `nameHatSteuerzeichen` (server/src/net/Namen.ts, NetManager.ts);
+    // hier gilt dieselbe Regel.
+    if (nameHatSteuerzeichen(name)) return this.json(res, 400, { error: 'name-invalid' });
     // Derselbe Namensvergleich wie im Spiel (Namen.ts): "Editor" ist der vom
     // Server fest vergebene Name jeder Editor-Verbindung, nie aus dem Client.
     // Ein Charakter mit diesem Namen (auch Gross/Klein oder eine unsichtbar

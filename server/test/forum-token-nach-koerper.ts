@@ -13,6 +13,14 @@
  * erst nach einem expliziten Signal ankommt — genau in diesem Fenster wird
  * das Token entzogen (die Attrappe fuer `kontoIdAus` liest eine Variable,
  * die dann umgeschaltet wird).
+ *
+ * N1 (Nachpruefung zu PR #129, Opus, 28.09.2026): die urspruengliche
+ * Fassung deckte nur 4 der 8 Schreibrouten mit Koerper ab. Ergaenzt:
+ * bearbeiteBeitrag, aboSchalter, benachrichtigungenGelesen, threadSchalter.
+ *
+ * N4 (dieselbe Nachpruefung): threadSchalter prueft nach dem Koerper auch
+ * das Moderatorrecht erneut, nicht nur das Token (eigene Attrappe
+ * `moderator`, waehrend der Uebertragung umschaltbar).
  */
 import { strict as assert } from 'node:assert';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -37,13 +45,15 @@ interface FakeAntwort { status: number; body: string; headers: Record<string, st
 
 /** Konto-Id, die die Anfrage "traegt"; null = nicht (mehr) angemeldet. */
 let angemeldet: number | null = 1;
+/** Moderatorrecht des angemeldeten Kontos — fuer N4 waehrend der Anfrage entziehbar. */
+let moderator = true;
 
 function fakeApi(db: ForumDatabase): ForumApi {
   return new ForumApi(
     db,
     () => angemeldet,
     (kontoId, charakterId) => (kontoId === 1 && charakterId === 3 ? { id: 3, name: 'Runa' } : null),
-    () => true, // Moderator: fuer den threadSchalter-Fall gebraucht
+    () => moderator,
     () => null,
   );
 }
@@ -148,6 +158,74 @@ async function main(): Promise<void> {
   ));
   check('melden: Token waehrend der Uebertragung entzogen ⇒ 401',
     melden.status === 401 && json(melden).error === 'not-signed-in', `status=${melden.status} body=${melden.body}`);
+
+  // ── N1: die vier bisher ungeprueften Schreibrouten mit Koerper ───────
+  // (W3-Reste-Pruefung, Opus, 28.09.2026: bearbeiteBeitrag, aboSchalter,
+  // benachrichtigungenGelesen und threadSchalter riefen `nochAngemeldet`
+  // richtig auf, aber kein Mutant, der die Pruefung entfernt, wurde von
+  // diesem Test bisher rot.)
+
+  // ── bearbeiteBeitrag: dasselbe Fenster ───────────────────────────────
+  angemeldet = 1;
+  const bearbeitet = await frage(api, fakeReqVerzoegert(
+    'PATCH', `/forum/posts/${postId}`,
+    { characterId: 3, body: 'Ein bearbeiteter Text, lang genug fuer die Pruefung.' },
+    () => { angemeldet = null; },
+  ));
+  check('bearbeiteBeitrag: Token waehrend der Uebertragung entzogen ⇒ 401',
+    bearbeitet.status === 401 && json(bearbeitet).error === 'not-signed-in',
+    `status=${bearbeitet.status} body=${bearbeitet.body}`);
+
+  // ── aboSchalter: dasselbe Fenster ────────────────────────────────────
+  angemeldet = 1;
+  const abo = await frage(api, fakeReqVerzoegert(
+    'POST', `/forum/threads/${themaId}/subscribe`,
+    { value: true },
+    () => { angemeldet = null; },
+  ));
+  check('aboSchalter: Token waehrend der Uebertragung entzogen ⇒ 401',
+    abo.status === 401 && json(abo).error === 'not-signed-in', `status=${abo.status} body=${abo.body}`);
+
+  // ── benachrichtigungenGelesen: dasselbe Fenster ──────────────────────
+  angemeldet = 1;
+  const gelesen = await frage(api, fakeReqVerzoegert(
+    'POST', `${'/forum/notifications/read'}`,
+    { upTo: postId },
+    () => { angemeldet = null; },
+  ));
+  check('benachrichtigungenGelesen: Token waehrend der Uebertragung entzogen ⇒ 401',
+    gelesen.status === 401 && json(gelesen).error === 'not-signed-in', `status=${gelesen.status} body=${gelesen.body}`);
+
+  // ── threadSchalter (Anheften/Sperren/Verschieben): dasselbe Fenster ──
+  // Die Fake-API liefert `() => true` fuer istModerator, das Konto besteht
+  // also den vorderen `modKonto`-Check; erst danach entzieht der Test das
+  // Token, waehrend der Koerper noch kommt.
+  angemeldet = 1;
+  const geschaltet = await frage(api, fakeReqVerzoegert(
+    'POST', `/forum/threads/${themaId}/pin`,
+    { value: true },
+    () => { angemeldet = null; },
+  ));
+  check('threadSchalter: Token waehrend der Uebertragung entzogen ⇒ 401',
+    geschaltet.status === 401 && json(geschaltet).error === 'not-signed-in',
+    `status=${geschaltet.status} body=${geschaltet.body}`);
+
+  // ── N4: threadSchalter prueft nach dem Koerper auch das Moderatorrecht ──
+  // (W3-Reste-Pruefung, Opus, 28.09.2026: verliert das Konto sein
+  // Moderatorrecht waehrend des Uploads, darf Anheften/Sperren/Verschieben
+  // trotzdem NICHT mehr ausgefuehrt werden — vorher pruefte `nochAngemeldet`
+  // nur das Token erneut, nicht das Recht.)
+  angemeldet = 1;
+  moderator = true;
+  const modEntzogen = await frage(api, fakeReqVerzoegert(
+    'POST', `/forum/threads/${themaId}/lock`,
+    { value: true },
+    () => { moderator = false; },
+  ));
+  check('threadSchalter: Moderatorrecht waehrend der Uebertragung entzogen ⇒ 403',
+    modEntzogen.status === 403 && json(modEntzogen).error === 'not-moderator',
+    `status=${modEntzogen.status} body=${modEntzogen.body}`);
+  moderator = true;
 
   db.schliessen();
 }

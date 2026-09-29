@@ -531,6 +531,11 @@ export class ForumApi {
     if (kontoId === null) return;
     const k = await this.koerper(req).catch(() => null);
     if (!this.nochAngemeldet(req, kontoId)) return this.json(res, 401, { error: 'not-signed-in' });
+    // N4 (W3-Reste-Pruefung, Opus, 28.09.2026): Das Token allein reicht nicht
+    // mehr, sobald der Koerper gelesen ist — verliert das Konto waehrend des
+    // Uploads sein Moderatorrecht (Adminlisten-Wechsel), darf Anheften,
+    // Sperren oder Verschieben nicht mehr ausgefuehrt werden.
+    if (!this.istModerator(kontoId)) return this.json(res, 403, { error: 'not-moderator' });
 
     if (art === 'move') {
       const board = k ? String(k.board ?? '') : '';

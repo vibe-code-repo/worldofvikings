@@ -1,9 +1,10 @@
 /**
  * W3-Reste — Konto-Namensorakel und -Grenzen (Karte 2026-09-28).
  *
- * Deckt die Punkte U1-U3, N3, N5, N6 und die reservierten Namen (Punkt 10)
- * der Karte ab, alle in `KontoApi.ts` gefunden von den W3-N2/N3/N4-Pruefungen
- * (Opus, 27.09.2026):
+ * Deckt die Punkte U1-U3, N3, N5, N6, die reservierten Namen (Punkt 10) und
+ * die Nachbesserung M1 ab, alle in `KontoApi.ts` gefunden von den
+ * W3-N2/N3/N4-Pruefungen (Opus, 27.09.2026) bzw. der Nachpruefung zu PR #129
+ * (Opus, 28.09.2026):
  *
  *  - U1: Der Schluessel fuer unbekannte Login-Namen faltete Unicode voll
  *    (`toLowerCase()`), SQLite `COLLATE NOCASE` faltet nur A-Z — zwei
@@ -23,6 +24,12 @@
  *  - Punkt 10: Ein neuer Kontocharakter darf nicht "Editor" heissen (auch
  *    nicht in anderer Schreibweise) — derselbe Namensvergleich wie im
  *    Spiel (`server/src/net/Namen.ts`, `namenSchluessel`/`EDITOR_NAME`).
+ *  - M1: Hangul-Fuellzeichen (U+115F, U+1160, U+3164, U+FFA0) hinter oder in
+ *    "Editor" passierten `CHARAKTERNAME_REGEX` (als `\p{Lo}`) und wurden von
+ *    `namenSchluessel` nicht entfernt — die Editor-Sperre liess sich damit
+ *    unsichtbar umgehen. `nameHatSteuerzeichen` (dieselbe Pruefung, die das
+ *    Spiel selbst benutzt) faengt das jetzt vor dem Editor-Vergleich ab und
+ *    damit auch bei jedem anderen Namen (siehe N5 in der Pruefung).
  */
 import { strict as assert } from 'node:assert';
 import { createServer } from 'node:http';
@@ -228,6 +235,36 @@ try {
     }
     const ok = await aufruf('/accounts/characters', { name: 'Redakteur', ...aussehen }, ip, token);
     assert.equal(ok.status, 201, 'ein regulaerer Name bleibt weiterhin erlaubt');
+  }
+
+  // ── M1: Hangul-Fuellzeichen umgehen die Editor-Sperre nicht mehr ────
+  // (W3-Reste-Pruefung, Opus, 28.09.2026: "Editorㅤ" u.ae. sahen wie
+  // "Editor" aus, passierten CHARAKTERNAME_REGEX als \p{Lo} und wurden von
+  // namenSchluessel nicht entfernt. Dieselben Zeichen sperrt das Spiel
+  // selbst ueber nameHatSteuerzeichen, NetManager.ts:536.)
+  {
+    const ip = '203.0.113.17';
+    const reg = await aufruf('/accounts/register', {
+      username: 'Fuellzeichentest', email: 'fuellzeichentest@example.org', password: 'korrektespasswort123',
+    }, ip);
+    assert.equal(reg.status, 201);
+    const token = reg.daten.token as string;
+    const fuellzeichen = ['ㅤ', 'ᅟ', 'ᅠ', 'ﾠ'];
+    for (const fz of fuellzeichen) {
+      const kennung = `U+${fz.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`;
+      const hinterEditor = await aufruf('/accounts/characters', { name: `Editor${fz}`, ...aussehen }, ip, token);
+      assert.equal(hinterEditor.status, 400, `"Editor" + ${kennung} wird abgelehnt (M1), war ${hinterEditor.status}`);
+      assert.equal(hinterEditor.daten.error, 'name-invalid');
+
+      const hinterNormal = await aufruf('/accounts/characters', { name: `Bjorn${fz}`, ...aussehen }, ip, token);
+      assert.equal(
+        hinterNormal.status, 400,
+        `ein normaler Name + ${kennung} wird ebenfalls abgelehnt (M1), war ${hinterNormal.status}`,
+      );
+      assert.equal(hinterNormal.daten.error, 'name-invalid');
+    }
+    const normal = await aufruf('/accounts/characters', { name: 'Astrid', ...aussehen }, ip, token);
+    assert.equal(normal.status, 201, 'ein regulaerer Name ohne Fuellzeichen bleibt weiterhin erlaubt (M1)');
   }
 
   console.log('Konto-Namensorakel: alle Zusicherungen erfuellt');

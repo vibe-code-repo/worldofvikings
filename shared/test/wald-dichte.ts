@@ -168,11 +168,11 @@ for (const p of punkte) {
     }
   }
 }
-const baeume: { x: number; z: number }[] = [];
+const baeume: { n: string; x: number; y: number; z: number }[] = [];
 for (const { zx, zy } of zonen.values()) {
   const h = hm.getZoneAt(zx * ZONE_UNITS, zy * ZONE_UNITS);
   streueZone({ seed, geo, heightmaps: hm, regionGeo: geo }, h, [], (fund) => {
-    if (istWaldbaum(fund.prefabName)) baeume.push({ x: fund.position.x, z: fund.position.z });
+    if (istWaldbaum(fund.prefabName)) baeume.push({ n: fund.prefabName, x: fund.position.x, y: fund.position.y, z: fund.position.z });
   });
 }
 const P: number[] = [];
@@ -222,6 +222,81 @@ const dicht = P.map((e, i) => [e, N[i]] as const).filter(([e]) => e >= 150);
 const mittelDicht = dicht.reduce((s, [, n]) => s + n, 0) / Math.max(1, dicht.length);
 const mittelAlle = N.reduce((s, n) => s + n, 0) / N.length;
 pruefe('dicht (Erwartung ≥ 150): im Mittel mehr gezählte Bäume als im Durchschnitt', mittelDicht > mittelAlle * 1.3, `${mittelDicht.toFixed(1)} gegen ${mittelAlle.toFixed(1)}`);
+
+// ── 3. Drift-Wächter: die Entscheidungen der Dichte gegen die Streuregel ──
+console.log('Drift-Wächter gegen die Streuung');
+// (a) Jeder von `streueZone` TATSÄCHLICH gesetzte Baum muss von der Dichte erlaubt sein (Waldfenster, Kuratierung, Höhe, Neigung).
+//     Lockert jemand eine Streuregel (Höhenfenster, Neigung, Wasser), setzt die Streuung Bäume, die die Dichte verbietet: rot.
+//     `hoehe` = Höhe, auf der die Streuung den Baum gesetzt hat (Raycast, ohne groundOffset); Toleranz nur für den Unterschied
+//     zu `getGroundHeight` (Client-Höhe), s. u.
+const artNach = new Map(FOLIAGE.map((v) => [v.prefabName, v]));
+let verletzt = 0;
+let nurClientHoehe = 0;
+let nahGrenze = 0;
+for (const b of baeume) {
+  const v = artNach.get(b.n)!;
+  const f = geo.getForestFactor(b.x, b.z);
+  const liste = geo.regionAt(b.x, b.z)?.vegetation;
+  const ny = hm.getZoneAt(b.x, b.z).getWorldNormal(b.x, b.z)?.y ?? 1;
+  const hStreu = b.y - v.groundOffset;
+  const hClient = hm.getGroundHeight(b.x, b.z);
+  const erlaubtStreu = liste !== undefined && baumErwartung(f, [b.n], { hoehe: hStreu, normalY: ny }) > 0 && liste.includes(b.n);
+  if (!erlaubtStreu) verletzt++;
+  else if (baumErwartung(f, [b.n], { hoehe: hClient, normalY: ny }) === 0) {
+    nurClientHoehe++;
+    const wd = hClient - WATER_LEVEL;
+    if (Math.abs(wd - v.minAltitude) < 1.2 || Math.abs(wd - v.maxAltitude) < 1.2) nahGrenze++;
+  }
+}
+pruefe('jeder gesetzte Baum liegt innerhalb der Dichte-Regeln (Waldfenster, Liste, Höhe, Neigung)', verletzt === 0, `${verletzt} von ${baeume.length}`);
+// Bekannte Abweichung: der Client kennt `getGroundHeight`, die Streuung `getGroundHeightRaycast` (bis 1,08 m Unterschied, gemessen von der Prüfung).
+// Sie zeigt sich nur, wenn ein Baum knapp an der Höhengrenze steht; erlaubt: höchstens 0,5 % der Bäume und nur innerhalb 1,2 m um die Grenze.
+pruefe('Abweichung Raycast gegen getGroundHeight höchstens 0,5 % der Bäume', nurClientHoehe <= baeume.length * 0.005, `${nurClientHoehe} von ${baeume.length}`);
+pruefe('… und nur nahe der Höhengrenze (≤ 1,2 m)', nahGrenze === nurClientHoehe, `${nahGrenze} von ${nurClientHoehe}`);
+
+// (b) Punkte × Baumarten: Entscheidung „Höhen- und Neigungsfenster erlaubt?“ der Dichte gegen die Streuregel, wie sie in streuung.ts steht
+//     (float32-Kosinus, Raycast-Höhe). Toleranz wie oben.
+{
+  const f32 = Math.fround;
+  let entscheidungen = 0;
+  let abweichend = 0;
+  let abweichendNah = 0;
+  for (const p of punkte) {
+    const hRay = hm.getGroundHeightRaycast(p.x, p.z);
+    const hCl = hm.getGroundHeight(p.x, p.z);
+    const ny = hm.getZoneAt(p.x, p.z).getWorldNormal(p.x, p.z)?.y ?? 1;
+    const wd = f32(hRay - WATER_LEVEL);
+    for (const v of baumEintraege) {
+      const cmax = f32(Math.cos(f32(v.maxTilt * f32(Math.PI / 180))));
+      const cmin = f32(Math.cos(f32(v.minTilt * f32(Math.PI / 180))));
+      const streu = !(wd < v.minAltitude || wd > v.maxAltitude) && ny >= cmax && ny <= cmin;
+      const f = v.inForest ? (v.forestTresholdMin + v.forestTresholdMax) / 2 : 0.5;
+      const dichte = baumErwartung(f, [v.prefabName], { hoehe: hCl, normalY: ny }) > 0;
+      entscheidungen++;
+      if (streu !== dichte) {
+        abweichend++;
+        const w2 = hCl - WATER_LEVEL;
+        if (Math.abs(w2 - v.minAltitude) < 1.2 || Math.abs(w2 - v.maxAltitude) < 1.2) abweichendNah++;
+      }
+    }
+  }
+  console.log(`  ${entscheidungen} Entscheidungen (${punkte.length} Punkte × ${baumEintraege.length} Baumarten), abweichend ${abweichend}`);
+  // Grenze 1 %: die Punkte sind zu 30 % Küste/Meer (dort liegen viele Höhen nahe `minAltitude`); die Prüfer-Stichprobe über Land zeigte 0,175 %, die hiesige 0,57 %.
+  // Die eigentliche Enge ist die zweite Prüfung: jede Abweichung liegt höchstens 1,2 m neben einer Höhengrenze, keine bei der Neigung.
+  pruefe('Entscheidungen der Dichte gleich der Streuregel (≤ 1 % Abweichung)', abweichend <= entscheidungen * 0.01, `${abweichend} von ${entscheidungen} (${((100 * abweichend) / entscheidungen).toFixed(3)} %)`);
+  pruefe('… Abweichungen nur nahe der Höhengrenze (≤ 1,2 m), nie bei der Neigung', abweichendNah === abweichend, `${abweichendNah} von ${abweichend}`);
+}
+
+// (c) Was die Dichte NICHT rechnet, darf für Baumarten nicht gebraucht werden — sonst müsste sie es lernen.
+pruefe('Baumarten ohne Geländedelta, Vegetationsmaske, Ozeantiefe, snapToWater, forcePlacement',
+  baumEintraege.every((v) => v.terrainDeltaRadius === 0 && v.minVegetation === v.maxVegetation && v.minOceanDepth === v.maxOceanDepth && !v.snapToWater && !v.forcePlacement));
+// (d) Die Streuregeln stehen noch so in streuung.ts (Text ohne Leerraum): ändert jemand sie oder fügt eine Bedingung hinzu, wird der Test rot.
+{
+  const quelltext = readFileSync(resolve(wurzel, 'shared/src/worldgen/streuung.ts'), 'utf-8').replace(/\s+/g, '');
+  pruefe('streuung.ts: Höhenfenster unverändert', quelltext.includes('if(waterDiff<veg.minAltitude||waterDiff>veg.maxAltitude){continue;}'));
+  pruefe('streuung.ts: Neigungsfenster unverändert', quelltext.includes('if(normal.y>=maxTilt&&normal.y<=minTilt){'));
+  pruefe('streuung.ts: Kuratierungsliste exklusiv unverändert', quelltext.includes('if(!region.vegetation.includes(veg.prefabName))continue;'));
+}
 
 // Kosten mit warmem Gelände-Zwischenspeicher (im Spiel liegen die Zonen um die Figur ohnehin geladen)
 const messPunkt = punkte[0];

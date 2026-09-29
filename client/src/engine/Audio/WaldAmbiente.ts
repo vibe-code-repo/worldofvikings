@@ -141,6 +141,8 @@ export class WaldAmbiente {
     private readonly tageszeit: () => number,
     private readonly audio: () => AmbienteAudio | null,
     private readonly werte: Readonly<WaldAmbienteWerte> = WALD_WERTE,
+    /** `true`, wenn der Spieler die Umgebung nicht hören will (Regler Umgebung 0, Gesamt 0, stumm): Ziel 0, die Schleife hält nach 10 s an. */
+    private readonly still: () => boolean = () => false,
   ) {}
 
   update(dt: number): void {
@@ -160,6 +162,7 @@ export class WaldAmbiente {
     if (this.stufeZiel === 0 && this.stufe < 1e-3) this.stufe = 0; // die Glättung erreicht 0 nie von selbst
 
     const ziel = zielPegel(this.stufe, this.tageszeit(), this.ziel);
+    if (this.still()) ziel.vogel = ziel.wind = 0;
     this.fahre(this.vogel, ziel.vogel, this.werte.vogelMax, dt, audio);
     this.fahre(this.wind, ziel.wind, this.werte.windMax, dt, audio);
 

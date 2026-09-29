@@ -11,9 +11,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FRACTION_SUNRISE, FRACTION_SUNSET, WATER_LEVEL } from '@wov/shared';
+import { Biome, FRACTION_SUNRISE, FRACTION_SUNSET, WATER_LEVEL } from '@wov/shared';
 import { FOLIAGE } from '@wov/shared/src/vegetation.js';
-import { istWaldbaum, waldStufe, type WaldQuelle } from '@wov/shared/src/worldgen/waldDichte.js';
+import { baeumeImUmkreis, istWaldbaum, waldStufe, type WaldQuelle } from '@wov/shared/src/worldgen/waldDichte.js';
 import {
   GRUPPE_VOEGEL,
   GRUPPE_WIND,
@@ -29,7 +29,9 @@ import {
   type SchleifenHandle,
 } from '../src/engine/Audio/WaldAmbiente';
 import { readAudioManifest, groupByBus } from '../src/engine/Audio/AudioManifest';
-import { AUDIO_VORGABEN, BUS_VORGABE, berechnePegel } from '../src/engine/Audio/AudioEinstellungen';
+import { AUDIO_VORGABEN, BUS_VORGABE, berechnePegel, type AudioWerte } from '../src/engine/Audio/AudioEinstellungen';
+import { WeltToene, umgebungAus, type ToeneWelt } from '../src/engine/Audio/WeltToene';
+import type { AudioEngine } from '../src/engine/Audio/AudioEngine';
 
 let fehler = 0;
 function pruefe(name: string, an: boolean, detail = ''): void {
@@ -341,6 +343,79 @@ async function main(): Promise<void> {
     pruefe('diagnose.wald ist über die Bilder dasselbe Objekt', a.audio.diagnose!.wald === erstes);
     const aus = { vogel: 0, wind: 0 };
     pruefe('zielPegel schreibt in das übergebene Objekt', zielPegel(0.5, 0.5, aus) === aus);
+  }
+
+  // ── 3c. Anbindung an die Welt (weltZuQuelle), WeltToene, Regler ──
+  console.log('Weltanbindung, WeltToene, Regler Umgebung');
+  const hmStub = (hoehe: number, ny = 1): NonNullable<ToeneWelt['heightmaps']> & Record<string, unknown> => ({
+    getGroundHeight: () => hoehe,
+    getZoneAt: () => ({ getWorldNormal: () => ({ y: ny }), zoneX: 0, zoneY: 0, cornerBiomes: [Biome.Meadows, Biome.Meadows, Biome.Meadows, Biome.Meadows], getBiome: () => Biome.Meadows, getVegetationMask: () => 0 }),
+  }) as never;
+  const weltMit = (hm?: ReturnType<typeof hmStub>): ToeneWelt => ({ geo: { getForestFactor: () => 0.5 }, regionGeo: { regionAt: () => ({ vegetation: BAUMNAMEN }) }, heightmaps: hm as never });
+  const qLand = weltZuQuelle(weltMit(hmStub(WATER_LEVEL + 5)))!;
+  pruefe('weltZuQuelle bindet das Gelände an (gelaende ist eine Funktion)', typeof qLand.gelaende === 'function');
+  pruefe('… Land: Bäume', baeumeImUmkreis(0, 0, qLand) > 100);
+  pruefe('… offenes Meer (5 m unter dem Spiegel): 0 Bäume', baeumeImUmkreis(0, 0, weltZuQuelle(weltMit(hmStub(WATER_LEVEL - 5)))!) === 0);
+  pruefe('… 60°-Hang: 0 Bäume', baeumeImUmkreis(0, 0, weltZuQuelle(weltMit(hmStub(WATER_LEVEL + 5, 0.5)))!) === 0);
+  pruefe('… ohne Radialwelt-Region: 0 Bäume', baeumeImUmkreis(0, 0, weltZuQuelle({ ...weltMit(hmStub(WATER_LEVEL + 5)), regionGeo: null })!) === 0);
+  pruefe('… ohne Welt: null', weltZuQuelle(null) === null);
+
+  interface Fake { aufrufeWelt: string[]; schleifen: { gruppe: string; volume: number; gestoppt: boolean }[]; engine: AudioEngine }
+  const fakeEngine = (): Fake => {
+    const f: Fake = { aufrufeWelt: [], schleifen: [], engine: null as never };
+    f.engine = {
+      diagnose: {},
+      playAsync: async (bus: string, gruppe: string) => { f.aufrufeWelt.push(`${bus}:${gruppe}`); },
+      startLoopAsync: async (_bus: string, gruppe: string) => {
+        const h = { gruppe, volume: -1, gestoppt: false };
+        f.schleifen.push(h);
+        return { get volume() { return h.volume; }, set volume(v: number) { h.volume = v; }, stop: () => { h.gestoppt = true; } };
+      },
+    } as never;
+    return f;
+  };
+  const figurFake = (): { position: { x: number; y: number; z: number }; inLuft: boolean; rennt: boolean; bauModus: boolean; frozen: boolean; dungeonMode: boolean; bodenSonde: null } =>
+    ({ position: { x: 0, y: WATER_LEVEL + 5, z: 0 }, inLuft: false, rennt: false, bauModus: false, frozen: false, dungeonMode: false, bodenSonde: null });
+  const wiese = { ...hmStub(WATER_LEVEL + 5), getGroundHeight: () => WATER_LEVEL + 5 };
+  {
+    const fe = fakeEngine();
+    const fig = figurFake();
+    const wt = new WeltToene(() => fig, () => weltMit(wiese as never), () => ({ timeOfDay: 0.5 }), () => fe.engine, { get: () => AUDIO_VORGABEN });
+    for (let i = 0; i < 60 * 8; i++) {
+      fig.position.x += 4.5 / 60;
+      wt.update(1 / 60);
+      await Promise.resolve();
+    }
+    pruefe('WeltToene: die Schritte laufen (Bus world, Gras)', fe.aufrufeWelt.filter((a) => a === 'world:footsteps/grass').length >= 20, `${fe.aufrufeWelt.length} Schritte in 8 s`);
+    pruefe('WeltToene: das Waldambiente läuft (Vogelschleife mit Lautstärke)', fe.schleifen.length === 1 && fe.schleifen[0].gruppe === GRUPPE_VOEGEL && fe.schleifen[0].volume > 0.5, `${fe.schleifen.map((h) => `${h.gruppe} ${h.volume.toFixed(2)}`)}`);
+  }
+
+  // Regler Umgebung: bei 0 (oder Gesamt 0 / stumm) hält die Schleife nach 10 s an, danach kehrt sie zurück.
+  {
+    pruefe('umgebungAus: nur bei Regler Umgebung 0, Gesamt 0 oder stumm', !umgebungAus(AUDIO_VORGABEN) && umgebungAus({ ...AUDIO_VORGABEN, regler: { ...AUDIO_VORGABEN.regler, ambience: 0 } }) && umgebungAus({ ...AUDIO_VORGABEN, gesamt: 0 }) && umgebungAus({ ...AUDIO_VORGABEN, stumm: true }) && !umgebungAus({ ...AUDIO_VORGABEN, regler: { ...AUDIO_VORGABEN.regler, world: 0, music: 0 } }));
+    let werte: AudioWerte = AUDIO_VORGABEN;
+    const fe = fakeEngine();
+    const fig = figurFake();
+    const wt = new WeltToene(() => fig, () => weltMit(wiese as never), () => ({ timeOfDay: 0.5 }), () => fe.engine, { get: () => werte });
+    const laufe = async (s: number): Promise<void> => {
+      for (let i = 0; i < s * 60; i++) {
+        wt.update(1 / 60);
+        await Promise.resolve();
+      }
+    };
+    await laufe(12);
+    const erste = fe.schleifen[0];
+    pruefe('im Wald bei Regler 100 %: Schleife läuft mit Lautstärke', fe.schleifen.length === 1 && erste.volume > 0.9 && !erste.gestoppt);
+    werte = { ...AUDIO_VORGABEN, regler: { ...AUDIO_VORGABEN.regler, ambience: 0 } };
+    await laufe(8);
+    pruefe('Regler Umgebung 0: nach 8 s Lautstärke 0, Schleife noch nicht angehalten', erste.volume === 0 && !erste.gestoppt, `${erste.volume}`);
+    await laufe(6);
+    pruefe('Regler Umgebung 0: nach 14 s (2,5 s Rampe + 10 s Stille) angehalten', erste.gestoppt);
+    await laufe(20);
+    pruefe('… und bleibt aus (kein Neustart trotz Wald)', fe.schleifen.length === 1);
+    werte = AUDIO_VORGABEN;
+    await laufe(12);
+    pruefe('Regler wieder 100 %: neue Schleife, genau eine laufende', fe.schleifen.length === 2 && !fe.schleifen[1].gestoppt && fe.schleifen[1].volume > 0.9, `${fe.schleifen.length} Starts`);
   }
 
   // ── 4. Aus-Fälle ──────────────────────────────────────────────────

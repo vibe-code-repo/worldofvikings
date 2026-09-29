@@ -113,12 +113,20 @@ import {
   PREFABS_BY_NAME,
   PREFAB_DEFS,
   STORE_BASIS,
+  cmVerdacht,
   isRenderable,
   istEigenesModell,
+  schlageZielgroesseVor,
   uploadedModelRegistry,
+  type Groessenvorschlag,
   type PrefabDef,
+  type Zieldimension,
 } from '@wov/shared';
 import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
+// Karte „Editor Upload-Größe": NICHT über den Barrel (`@wov/shared`) —
+// zieht `kollision/glb.ts` sonst in jedes Spiel-Bundle, s. Kopfkommentar
+// `uploadedModelRohmasse.ts`. Nur der Editor braucht diese Messung.
+import { rohMasseAusGlb } from '@wov/shared/src/uploadedModelRohmasse.js';
 import { AssetManager, modelUrl } from '../engine/AssetManager';
 import { toeneStoreMeshes } from '../engine/StoreToenung';
 import { laubSpitzenMeshes } from '../engine/LaubSpitzen';
@@ -138,6 +146,7 @@ import {
   luecke,
   lupenBild,
   marke,
+  regler,
   schalter,
   schwebendStil,
   sinnbild,
@@ -361,6 +370,17 @@ interface Kennzahlen {
 /** Zustand der Statusplakette über der Bühne. */
 type StatusArt = 'laedt' | 'da' | 'fehlt' | 'neutral';
 
+/**
+ * Maße der beiden Referenzkörper neben der Upload-Vorschau (Auftrag Punkt 4)
+ * — eine 1,8-m-Figur (Breite/Tiefe grob wie ein Mensch) und eine 1-m-Kiste,
+ * mit derselben Lücke auf beiden Seiten des Modells.
+ */
+const REFERENZ_FIGUR_BREITE = 0.5;
+const REFERENZ_FIGUR_HOEHE = 1.8;
+const REFERENZ_FIGUR_TIEFE = 0.3;
+const REFERENZ_KISTE_KANTE = 1;
+const REFERENZ_LUECKE = 0.4;
+
 export class GegenstandsKatalog {
   private readonly root: HTMLDivElement;
   private readonly leinwand: HTMLCanvasElement;
@@ -380,6 +400,34 @@ export class GegenstandsKatalog {
   private hochladenKollisionswunsch: uploadedModelRegistry.Kollisionsart = 'fest';
   private readonly hochladenStatus: HTMLDivElement;
   private hochladenLaeuft = false;
+  /**
+   * Zielgröße (Karte „Editor Upload-Größe"): welche Kante das Zielfeld
+   * gerade einstellt, die rohe Hüllbox der GEWÄHLTEN Datei (browserseitig
+   * gemessen, s. `rohMasseAusGlb`) und das Zielfeld selbst. `null` heisst
+   * „noch keine gültige Datei gewählt" — dann bleibt die Zeile stumm statt
+   * einen Vorschlag zu erfinden.
+   */
+  private readonly hochladenDimensionZeile: HTMLDivElement;
+  private hochladenZielDimension: Zieldimension = 'breite';
+  private readonly hochladenZielFeld: HTMLInputElement;
+  private readonly hochladenVorschlagText: HTMLSpanElement;
+  private readonly hochladenCmKnopf: HTMLButtonElement;
+  /** N6 (Angriff „Editor Upload-Größe"): sichtbare Warnung statt stillem Klemmen der Grundskala. */
+  private readonly hochladenGrenzwarnung: HTMLSpanElement;
+  private hochladenRohMasse: { breite: number; hoehe: number; tiefe: number } | null = null;
+  /**
+   * Größenvorschau (Auftrag Punkt 4, „Vorschau"): der Regler-Behälter,
+   * neu gezeichnet bei jeder Zielgrößen-Änderung (kein <input type=range>,
+   * s. Kopfkommentar `regler()` in design.ts), die beiden Referenzkörper
+   * (1,8-m-Figur, 1-m-Kiste) und ihr gemeinsames Material, und ob GERADE
+   * diese Vorschau (statt einer Katalog-Auswahl) in `this.gezeigt` hängt —
+   * nur dann darf `hochladenVorschauAktualisieren` `this.gezeigt` anfassen.
+   */
+  private readonly hochladenReglerHuelle: HTMLDivElement;
+  private hochladenVorschauAktiv = false;
+  private hochladenReferenzFigur: Mesh | null = null;
+  private hochladenReferenzKiste: Mesh | null = null;
+  private hochladenReferenzMaterial: StandardMaterial | null = null;
   private readonly sucheFeld: HTMLInputElement;
   /** Die <select>-Hülle der Kategorie — die Marken müssen sie mitführen. */
   private readonly katSelect: HTMLSelectElement | null;
@@ -733,6 +781,7 @@ export class GegenstandsKatalog {
     ) as HTMLInputElement;
     dateiEingabe.type = 'file';
     dateiEingabe.accept = '.glb';
+    dateiEingabe.onchange = () => void this.hochladenDateiGewaehlt();
     this.hochladenDateiEingabe = dateiEingabe;
     hochladenZeile.appendChild(dateiEingabe);
 
@@ -742,7 +791,56 @@ export class GegenstandsKatalog {
     });
     this.hochladenNameFeld = nameFeldHuelle.querySelector('input')!;
     this.hochladenNameFeld.placeholder = 'Name (z. B. Holzfass)';
+    this.hochladenNameFeld.oninput = () => this.hochladenVorschlagAktualisieren();
     hochladenZeile.appendChild(nameFeldHuelle);
+
+    // ── Zielgröße (Karte „Editor Upload-Größe") ──────────────────────
+    //
+    // Tripo-/Meshy-Exporte normieren auf Kantenlänge 1 — statt das still
+    // umzurechnen, fragt der Upload eine ZIELGRÖSSE ab (Breite oder Höhe,
+    // umschaltbar) und schickt daraus eine `grundskala` mit. Voreinstellung
+    // ist „wie Datei" (Feld leer): dann wird gar keine Kopfzeile geschickt
+    // und der Server nimmt 1 an — kein stilles Normieren ohne Zutun.
+    this.hochladenDimensionZeile = el(
+      'div',
+      stil({ display: 'flex', 'align-items': 'center', gap: '8px', flex: 'none' })
+    );
+    const dimensionAuswahl = auswahl(
+      [
+        { id: 'breite', name: 'Breite' },
+        { id: 'hoehe', name: 'Höhe' },
+      ],
+      this.hochladenZielDimension,
+      (id) => {
+        this.hochladenZielDimension = id as Zieldimension;
+        this.hochladenVorschlagAktualisieren();
+      }
+    );
+    dimensionAuswahl.style.flex = 'none';
+    dimensionAuswahl.style.width = '92px';
+    dimensionAuswahl.title = 'Welche Kante die Zielgröße festlegt — die andere Kante wächst proportional mit.';
+    this.hochladenDimensionZeile.appendChild(dimensionAuswahl);
+
+    const zielFeldHuelle = feld('', () => {}, {
+      breite: '104px',
+      titel: 'Zielgröße in Metern — leer heisst „wie Datei" (Grundskala 1). Vorschlag füllt sich nach Namen und Datei.',
+      einheit: 'm',
+    });
+    this.hochladenZielFeld = zielFeldHuelle.querySelector('input')!;
+    this.hochladenZielFeld.placeholder = 'wie Datei';
+    // `feld()` verdrahtet nur `onchange` (Verlassen des Felds) — dieselbe
+    // Live-Kopplung wie beim Namensfeld (`hochladenNameFeld.oninput`
+    // oben), damit Regler und 3D-Vorschau schon während des Tippens
+    // mitziehen, nicht erst danach.
+    this.hochladenZielFeld.oninput = () => this.hochladenZielFeldGeaendert();
+    this.hochladenDimensionZeile.appendChild(zielFeldHuelle);
+    // Regler (Auftrag Punkt 4, „mit Regler"): eigener Behälter, dessen
+    // Inhalt bei jeder Zielgrößen-Änderung neu gezeichnet wird — `regler()`
+    // ist zustandslos (Kopfkommentar design.ts) und kennt kein „Wert
+    // nachträglich setzen", nur einen neuen Aufruf mit dem neuen Wert.
+    this.hochladenReglerHuelle = el('div', stil({ flex: '1', 'min-width': '150px' }));
+    this.hochladenDimensionZeile.appendChild(this.hochladenReglerHuelle);
+    hochladenZeile.appendChild(this.hochladenDimensionZeile);
 
     const kollisionAuswahl = auswahl(
       [
@@ -769,6 +867,45 @@ export class GegenstandsKatalog {
     );
     hochladenZeile.appendChild(this.hochladenStatus);
     tafel.appendChild(hochladenZeile);
+
+    // Zweite Zeile: Vorschlag (Name → ähnliches Modell → Kategorie →
+    // Rohgröße) und, nur bei Verdacht auf einen cm-Export (> 50 m), ein
+    // Angebot ×0,01 — eine WARNUNG, kein stilles Umrechnen.
+    const vorschlagZeile = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '10px',
+        padding: '0 16px 10px 16px',
+        'border-bottom': `1px solid ${F.randLeise}`,
+        flex: 'none',
+      })
+    );
+    this.hochladenVorschlagText = el(
+      'span',
+      stil({ 'font-size': '11px', color: F.gedimmt2, 'line-height': '1.4' }),
+      ''
+    );
+    vorschlagZeile.appendChild(this.hochladenVorschlagText);
+    this.hochladenCmKnopf = knopf(
+      '× 0,01 anwenden',
+      () => this.hochladenCmKorrekturAnwenden(),
+      { art: 'leise', randHover: F.warnRand, titel: 'Rohgröße wahrscheinlich in Zentimetern exportiert — Zielwert durch 100 teilen.' }
+    );
+    this.hochladenCmKnopf.style.display = 'none';
+    vorschlagZeile.appendChild(this.hochladenCmKnopf);
+    // N6 (Angriff „Editor Upload-Größe"): Grundskala wird weiter geklemmt
+    // (0,01…100, gewollt gegen Tippfehler-422), aber nicht mehr STILL — das
+    // Zielfeld zeigt sonst z. B. weiterhin 500 m, während Vorschau und
+    // Upload längst mit dem geklemmten g = 100 rechnen.
+    this.hochladenGrenzwarnung = el(
+      'span',
+      stil({ 'font-size': '11px', color: F.fehler, 'line-height': '1.4', display: 'none' }),
+      ''
+    );
+    vorschlagZeile.appendChild(this.hochladenGrenzwarnung);
+    tafel.appendChild(vorschlagZeile);
 
     // ── Hauptteil: Liste links, Vorschau rechts ──────────────────────
     const reihe = el('div', stil({ flex: '1', display: 'flex', 'min-height': '0' }));
@@ -1379,6 +1516,334 @@ export class GegenstandsKatalog {
   }
 
   /**
+   * Eine Datei wurde im Dateiwähler gewählt (oder abgewählt) — Rohgröße
+   * BROWSERSEITIG messen (`rohMasseAusGlb`, dieselbe Rechnung wie der
+   * Betriebsdienst), damit der Vorschlag und die cm-Warnung ohne einen
+   * Upload-Versuch entstehen können.
+   */
+  private async hochladenDateiGewaehlt(): Promise<void> {
+    const datei = this.hochladenDateiEingabe.files?.[0];
+    if (!datei) {
+      this.hochladenRohMasse = null;
+      this.hochladenVorschlagAktualisieren();
+      this.hochladenVorschauEntfernen();
+      return;
+    }
+    const bytes = new Uint8Array(await datei.arrayBuffer());
+    this.hochladenRohMasse = rohMasseAusGlb(bytes);
+    if (!this.hochladenRohMasse) {
+      // Keine gültige GLB — der eigentliche Upload-Versuch liefert dafür
+      // gleich die ausführliche Ablehnung; hier bleibt die Zeile nur still.
+      this.hochladenVorschlagText.textContent = '';
+      this.hochladenCmKnopf.style.display = 'none';
+      this.hochladenVorschauEntfernen();
+      return;
+    }
+    this.hochladenVorschlagAktualisieren();
+    // Die 3D-Vorschau (Auftrag Punkt 4) lädt die rohe Datei EIN ZWEITES
+    // Mal, direkt in die Katalog-Bühne — dieselbe `rohMasseAusGlb`-Messung
+    // oben genügt für Zahlen (Vorschlag, cm-Warnung), aber nicht für ein
+    // Bild. Bewusst NICHT blockierend abgewartet: Die Zahlen-Zeile steht
+    // sofort, das Modell folgt, sobald Babylon fertig ist.
+    void this.hochladenVorschauZeigen(datei);
+  }
+
+  /**
+   * Vorschlagstext (und cm-Warnung) neu schreiben — nach Namenseingabe,
+   * Dimensionswechsel oder neuer Datei. Füllt das Zielfeld NUR, wenn der
+   * Nutzer es noch nicht selbst befüllt hat (Vorschlag, kein Zwang).
+   */
+  private hochladenVorschlagAktualisieren(): void {
+    const rohMasse = this.hochladenRohMasse;
+    if (!rohMasse) {
+      this.hochladenVorschlagText.textContent = '';
+      this.hochladenCmKnopf.style.display = 'none';
+      return;
+    }
+    const name = this.hochladenNameFeld.value.trim();
+    const vorschlag: Groessenvorschlag = schlageZielgroesseVor(
+      name,
+      this.hochladenZielDimension,
+      rohMasse,
+      uploadedModelRegistry.uploadedModelEntries()
+    );
+    this.hochladenVorschlagText.textContent = `Vorschlag: ${vorschlag.begruendung}`;
+    if (this.hochladenZielFeld.value.trim() === '') {
+      this.hochladenZielFeld.value = vorschlag.meter.toFixed(2);
+    }
+    this.hochladenCmKnopf.style.display = cmVerdacht(rohMasse) ? '' : 'none';
+    this.hochladenReglerNeuZeichnen();
+    this.hochladenVorschauAktualisieren();
+  }
+
+  /** „× 0,01 anwenden": die aktuell gewählte Kante der Rohgröße durch 100 geteilt ins Zielfeld. */
+  private hochladenCmKorrekturAnwenden(): void {
+    const rohMasse = this.hochladenRohMasse;
+    if (!rohMasse) return;
+    const roh = this.hochladenZielDimension === 'breite' ? rohMasse.breite : rohMasse.hoehe;
+    this.hochladenZielFeld.value = (roh * 0.01).toFixed(2);
+    this.hochladenReglerNeuZeichnen();
+    this.hochladenVorschauAktualisieren();
+  }
+
+  /** Zielfeld von Hand geändert (Tippen) — Regler und 3D-Vorschau nachziehen. */
+  private hochladenZielFeldGeaendert(): void {
+    this.hochladenReglerNeuZeichnen();
+    this.hochladenVorschauAktualisieren();
+  }
+
+  /**
+   * Grundskala aus Zielfeld und Rohgröße — `wert` ist `undefined`, wenn das
+   * Zielfeld leer ist ("wie Datei", Grundskala 1) oder keine Rohgröße
+   * vorliegt. Geklemmt auf denselben Bereich wie der Betriebsdienst
+   * (`GRUNDSKALA_MIN`…`GRUNDSKALA_MAX`), damit ein Tippfehler nie eine
+   * 422-Ablehnung auslöst, die der Nutzer nicht versteht — eine Zahl
+   * ausserhalb des Bereichs wird stattdessen an den Rand geklemmt.
+   *
+   * N6 (Angriff „Editor Upload-Größe"): Das Klemmen selbst bleibt (siehe
+   * oben, gewollt), darf aber nicht STILL passieren — `geklemmtVon` trägt
+   * den unklemmten Wert, wenn geklemmt wurde, sonst `null`; der Aufrufer
+   * zeigt daraus eine sichtbare Warnung (`hochladenGrenzwarnungAktualisieren`).
+   */
+  private hochladenGrundskala(): { readonly wert: number | undefined; readonly geklemmtVon: number | null } {
+    const nichts = { wert: undefined, geklemmtVon: null } as const;
+    const text = this.hochladenZielFeld.value.trim();
+    if (text === '') return nichts;
+    const ziel = Number(text.replace(',', '.'));
+    const rohMasse = this.hochladenRohMasse;
+    if (!Number.isFinite(ziel) || ziel <= 0 || !rohMasse) return nichts;
+    const roh = this.hochladenZielDimension === 'breite' ? rohMasse.breite : rohMasse.hoehe;
+    if (!Number.isFinite(roh) || roh <= 0) return nichts;
+    const g = ziel / roh;
+    const geklemmt = Math.min(
+      uploadedModelRegistry.GRUNDSKALA_MAX,
+      Math.max(uploadedModelRegistry.GRUNDSKALA_MIN, g)
+    );
+    return { wert: geklemmt, geklemmtVon: geklemmt === g ? null : g };
+  }
+
+  /**
+   * Sichtbare Warnung, wenn `hochladenGrundskala()` gerade geklemmt hat
+   * (N6) — `null` blendet sie aus. Vorher zeigte das Zielfeld weiter den
+   * eingegebenen (z. B. 500 m), tatsächlich hochgeladen/vorgeschaut wurde
+   * aber mit dem geklemmten Wert (g = 100), ohne jeden Hinweis.
+   *
+   * F8 (Nachangriff „Editor Upload-Größe N1"): `toFixed(2)` zeigte bei einer
+   * sehr kleinen Grundskala (unter 0,005, geklemmt auf `GRUNDSKALA_MIN`
+   * 0,01) „×0.00" — eine Zahl, die aussieht, als wäre gar nichts mehr da.
+   * `toPrecision(3)` zeigt stattdessen immer drei bedeutende Ziffern, auch
+   * für sehr kleine oder sehr große Werte (z. B. „×0.00499" oder „×250").
+   */
+  private hochladenGrenzwarnungAktualisieren(geklemmtVon: number | null): void {
+    if (geklemmtVon === null) {
+      this.hochladenGrenzwarnung.style.display = 'none';
+      this.hochladenGrenzwarnung.textContent = '';
+      return;
+    }
+    const grenze =
+      geklemmtVon > uploadedModelRegistry.GRUNDSKALA_MAX
+        ? uploadedModelRegistry.GRUNDSKALA_MAX
+        : uploadedModelRegistry.GRUNDSKALA_MIN;
+    this.hochladenGrenzwarnung.textContent = `Grundskala auf ${grenze} begrenzt (Zielwert entspräche ×${geklemmtVon.toPrecision(3)}) — hochgeladen/vorgeschaut wird mit ${grenze}.`;
+    this.hochladenGrenzwarnung.style.display = '';
+  }
+
+  /**
+   * Regler neu zeichnen (Auftrag Punkt 4, „mit Regler") — `regler()` ist
+   * zustandslos (design.ts), der einzige Weg, ihn einen neuen Wert zeigen
+   * zu lassen, ist ihn mit diesem Wert neu zu bauen und den alten zu
+   * ersetzen. Ohne Rohgröße bleibt der Behälter leer: ohne Datei gibt es
+   * nichts, dessen Zielgröße man verschieben könnte.
+   */
+  private hochladenReglerNeuZeichnen(): void {
+    this.hochladenReglerHuelle.replaceChildren();
+    const rohMasse = this.hochladenRohMasse;
+    if (!rohMasse) return;
+    const roh = this.hochladenZielDimension === 'breite' ? rohMasse.breite : rohMasse.hoehe;
+    if (!Number.isFinite(roh) || roh <= 0) return;
+    const feldWert = Number(this.hochladenZielFeld.value.trim().replace(',', '.'));
+    const wert = Number.isFinite(feldWert) && feldWert > 0 ? feldWert : roh;
+    // Obergrenze grosszügig über dem aktuellen Wert UND der Rohgröße —
+    // ein Boot (Rohgröße z. B. 1 m, Ziel 10 m) soll den Regler nicht schon
+    // bei der eigenen Zielgröße enden lassen.
+    const max = Math.max(roh * 4, wert * 2, 20);
+    const el2 = regler(
+      'Zielgröße',
+      wert,
+      0.05,
+      max,
+      (v) => {
+        this.hochladenZielFeld.value = v.toFixed(2);
+        this.hochladenReglerNeuZeichnen();
+        this.hochladenVorschauAktualisieren();
+      },
+      { schritt: 0.05, anzeige: (v) => `${v.toFixed(2)} m` }
+    );
+    this.hochladenReglerHuelle.appendChild(el2);
+  }
+
+  /**
+   * Die gewählte Datei EIN ZWEITES Mal laden — diesmal nicht nur zum
+   * Messen (`rohMasseAusGlb`), sondern als sichtbares Modell in derselben
+   * Bühne, die auch die Katalog-Auswahl zeigt (Auftrag Punkt 4, „Vorschau").
+   *
+   * Läuft wie `storeModellZeigen`: eigener `SceneLoader.LoadAssetContainerAsync`-
+   * Aufruf (Babylon nimmt dessen zweiten Parameter auch als `File`
+   * entgegen, nicht nur als Dateiname — dieselbe Funktionssignatur, kein
+   * Blob-URL-Umweg nötig), Zeitgrenze, `ladeNummer`-Wächter gegen eine
+   * inzwischen überholte Auswahl (schnell hintereinander gewählte
+   * Dateien). Der Container hängt hinterher in `this.storeContainer` —
+   * demselben Feld, das `modellFreigeben()` ohnehin schon aufräumt.
+   */
+  private async hochladenVorschauZeigen(datei: File): Promise<void> {
+    this.szeneSicherstellen();
+    const scene = this.scene;
+    if (!scene) return;
+    const nummer = ++this.ladeNummer;
+    this.modellFreigeben();
+    this.letzteMasse = null;
+    this.buehneUmschalten('modell');
+    this.kameraFaktor = 2.4;
+
+    let uhr: number | null = null;
+    const abbruch = new Promise<'timeout'>((fertig) => {
+      uhr = window.setTimeout(() => fertig('timeout'), LADE_TIMEOUT);
+    });
+    let ergebnis: AssetContainer | 'timeout' | null;
+    try {
+      ergebnis = await Promise.race([SceneLoader.LoadAssetContainerAsync('', datei, scene), abbruch]);
+    } catch (err) {
+      console.warn('[katalog] Hochlade-Vorschau nicht ladbar', datei.name, err);
+      ergebnis = null;
+    } finally {
+      if (uhr !== null) window.clearTimeout(uhr);
+    }
+
+    if (nummer !== this.ladeNummer) {
+      // Überholt — eine neue Datei (oder ein Wechsel weg vom Hochladen)
+      // ist inzwischen dran; der Container hängt noch nicht in der Szene,
+      // muss aber trotzdem weg.
+      if (ergebnis && ergebnis !== 'timeout') ergebnis.dispose();
+      return;
+    }
+    if (ergebnis === 'timeout' || !ergebnis) {
+      // Keine Bild-Vorschau — die Zahlen-Zeile (Vorschlag/cm-Warnung) aus
+      // `rohMasseAusGlb` steht trotzdem, der eigentliche Upload-Versuch
+      // liefert im Fehlerfall ohnehin die ausführlichere Ablehnung.
+      return;
+    }
+
+    ergebnis.addAllToScene();
+    this.storeContainer = ergebnis;
+    const wurzel = ergebnis.rootNodes.find((n): n is TransformNode => n instanceof TransformNode) ?? null;
+    if (!wurzel) return;
+    this.gezeigt = wurzel;
+    this.hochladenVorschauAktiv = true;
+    this.hochladenVorschauAktualisieren();
+  }
+
+  /**
+   * Skalierung der 3D-Vorschau (und der Kamera-Rahmung) auf den aktuellen
+   * Stand von Zielfeld/Regler bringen — ohne neu zu laden. Aufgerufen bei
+   * jeder Änderung, die NICHT die Datei selbst betrifft (Zielfeld, Regler,
+   * Dimension, cm-Knopf); ein `undefined` von `hochladenGrundskala()`
+   * (Feld leer) zeigt die Datei in ihrer ROHEN Größe — genau „wie Datei".
+   */
+  private hochladenVorschauAktualisieren(): void {
+    if (!this.hochladenVorschauAktiv) return;
+    const wurzel = this.gezeigt;
+    const scene = this.scene;
+    if (!wurzel || !scene) return;
+    const { wert: hochladenG, geklemmtVon } = this.hochladenGrundskala();
+    const g = hochladenG ?? 1;
+    this.hochladenGrenzwarnungAktualisieren(geklemmtVon);
+    wurzel.scaling.setAll(g);
+    const masse = this.messen(wurzel);
+    const halbBreite = masse.breite / 2;
+    const figurX = -(halbBreite + REFERENZ_LUECKE + REFERENZ_FIGUR_BREITE / 2);
+    const kisteX = halbBreite + REFERENZ_LUECKE + REFERENZ_KISTE_KANTE / 2;
+    this.hochladenReferenzenBauen(scene, figurX, kisteX);
+    const minX = -(halbBreite + REFERENZ_LUECKE + REFERENZ_FIGUR_BREITE);
+    const maxX = halbBreite + REFERENZ_LUECKE + REFERENZ_KISTE_KANTE;
+    this.letzteMasse = {
+      ...masse,
+      breite: maxX - minX,
+      hoehe: Math.max(masse.hoehe, REFERENZ_FIGUR_HOEHE, REFERENZ_KISTE_KANTE),
+      mitte: new Vector3((minX + maxX) / 2, masse.mitte.y, masse.mitte.z),
+    };
+    this.kameraRahmen();
+  }
+
+  /**
+   * Referenzkörper (1,8-m-Figur, 1-m-Kiste) links und rechts vom Modell —
+   * einfache Quader, kein echtes Figur-/Kisten-Modell: Diese Bühne dient
+   * nur der GRÖSSENEINSCHÄTZUNG vor dem Hochladen, kein Laden zweier
+   * weiterer GLBs nur für den Maßstab.
+   */
+  private hochladenReferenzenBauen(scene: Scene, figurX: number, kisteX: number): void {
+    this.hochladenReferenzenEntfernen();
+    if (!this.hochladenReferenzMaterial) {
+      const mat = new StandardMaterial('katalogreferenzmat', scene);
+      mat.diffuseColor = Color3.FromHexString(F.gedimmt2);
+      mat.emissiveColor = Color3.FromHexString(F.gedimmt2);
+      mat.alpha = 0.5;
+      mat.disableLighting = true;
+      this.hochladenReferenzMaterial = mat;
+    }
+    const figur = MeshBuilder.CreateBox(
+      'katalogreferenzfigur',
+      { width: REFERENZ_FIGUR_BREITE, height: REFERENZ_FIGUR_HOEHE, depth: REFERENZ_FIGUR_TIEFE },
+      scene
+    );
+    figur.position.set(figurX, REFERENZ_FIGUR_HOEHE / 2, 0);
+    figur.material = this.hochladenReferenzMaterial;
+    figur.isPickable = false;
+    const kiste = MeshBuilder.CreateBox(
+      'katalogreferenzkiste',
+      { width: REFERENZ_KISTE_KANTE, height: REFERENZ_KISTE_KANTE, depth: REFERENZ_KISTE_KANTE },
+      scene
+    );
+    kiste.position.set(kisteX, REFERENZ_KISTE_KANTE / 2, 0);
+    kiste.material = this.hochladenReferenzMaterial;
+    kiste.isPickable = false;
+    this.hochladenReferenzFigur = figur;
+    this.hochladenReferenzKiste = kiste;
+  }
+
+  /** Referenzkörper wieder weg — das Material bleibt (gecacht, wie `platzhalterMaterial`). */
+  private hochladenReferenzenEntfernen(): void {
+    this.hochladenReferenzFigur?.dispose();
+    this.hochladenReferenzFigur = null;
+    this.hochladenReferenzKiste?.dispose();
+    this.hochladenReferenzKiste = null;
+  }
+
+  /**
+   * Datei abgewählt oder ungültig — die 3D-Vorschau (Modell + Referenzen)
+   * wieder abräumen. `modellFreigeben()` übernimmt das Modell selbst
+   * (`this.storeContainer`); hier bleiben nur der Aktiv-Schalter und die
+   * Referenzkörper, die `modellFreigeben()` ohnehin am Anfang jeder neuen
+   * Anzeige entfernt, hier aber auch OHNE eine neue Anzeige verschwinden
+   * müssen.
+   *
+   * `++this.ladeNummer` VOR der Prüfung auf `hochladenVorschauAktiv`:
+   * Wird die Datei abgewählt, WÄHREND `hochladenVorschauZeigen` noch lädt
+   * (Netz, grosse Datei), ist der Schalter noch `false` — ohne den
+   * Zähler bliebe der Ladevorgang gültig und zeigte das Modell trotzdem
+   * noch an, nachdem die Auswahl längst weg ist.
+   */
+  private hochladenVorschauEntfernen(): void {
+    ++this.ladeNummer;
+    this.hochladenGrenzwarnungAktualisieren(null);
+    if (!this.hochladenVorschauAktiv) return;
+    this.hochladenVorschauAktiv = false;
+    this.hochladenReferenzenEntfernen();
+    this.modellFreigeben();
+    this.letzteMasse = null;
+    this.kameraRahmen();
+  }
+
+  /**
    * Die gewählte Datei zum Betriebsdienst schicken (U1).
    *
    * Rohe Bytes im Körper, Name und Kollisionswunsch als Kopfzeilen — kein
@@ -1404,6 +1869,10 @@ export class GegenstandsKatalog {
     this.hochladenStatusSchreiben(`Lade '${datei.name}' hoch …`, false);
     try {
       const bytes = await datei.arrayBuffer();
+      // Grundskala (Karte „Editor Upload-Größe"): nur mitschicken, wenn das
+      // Zielfeld tatsächlich eine gültige Zielgröße ergibt — leer bleibt
+      // „wie Datei" (keine Kopfzeile, Server nimmt 1 an).
+      const { wert: grundskala } = this.hochladenGrundskala();
       const antwort = await fetch('/api/modell-hochladen', {
         method: 'POST',
         headers: {
@@ -1416,6 +1885,7 @@ export class GegenstandsKatalog {
           // ASCII; der Betriebsdienst dekodiert es zurück.
           'X-Wov-Modellname': encodeURIComponent(angezeigterName),
           'X-Wov-Kollision': this.hochladenKollisionswunsch,
+          ...(grundskala !== undefined ? { 'X-Wov-Grundskala': String(grundskala) } : {}),
         },
         body: bytes,
       });
@@ -1447,6 +1917,12 @@ export class GegenstandsKatalog {
       katAnzahlen = null;
       this.hochladenNameFeld.value = '';
       this.hochladenDateiEingabe.value = '';
+      this.hochladenZielFeld.value = '';
+      this.hochladenRohMasse = null;
+      this.hochladenVorschlagText.textContent = '';
+      this.hochladenCmKnopf.style.display = 'none';
+      this.hochladenReglerHuelle.replaceChildren();
+      this.hochladenVorschauEntfernen();
       const idxHochgeladen = KATEGORIEN.findIndex((k) => k.dynamisch);
       if (this.kategorie === idxHochgeladen) {
         this.seite = 0;
@@ -1455,9 +1931,13 @@ export class GegenstandsKatalog {
         this.kategorieSetzen(idxHochgeladen);
       }
 
+      const g = uploadedModelRegistry.grundskalaVon(eintrag);
       const zahlen =
         `${eintrag.dreiecke.toLocaleString('de-DE')} Dreiecke, ` +
-        `${eintrag.breite.toFixed(2)} × ${eintrag.hoehe.toFixed(2)} × ${eintrag.tiefe.toFixed(2)} m, ` +
+        `${eintrag.breite.toFixed(2)} × ${eintrag.hoehe.toFixed(2)} × ${eintrag.tiefe.toFixed(2)} m roh` +
+        (g !== 1
+          ? ` × Grundskala ${g.toFixed(2)} = ${(eintrag.breite * g).toFixed(2)} × ${(eintrag.hoehe * g).toFixed(2)} × ${(eintrag.tiefe * g).toFixed(2)} m, `
+          : ', ') +
         `Kollision: ${eintrag.kollisionsart}`;
       // N1 (Angriff, Befund B4): Im Katalog UND im Testflug steht das
       // Modell sofort (beide bauen client-seitig aus der Registry bzw.
@@ -1531,6 +2011,125 @@ export class GegenstandsKatalog {
       this.listeFuellen();
     } catch (e) {
       window.alert(`Netzwerkfehler: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Die Zeile „Grundskala ändern" für ein SCHON hochgeladenes Modell
+   * (Auftrag Punkt 5) — dieselbe Maske wie beim Hochladen (Zielgröße statt
+   * Faktor direkt, damit „4,0 m" und nicht „×4" die Eingabe ist), nur ohne
+   * Datei: die Rohgröße steht schon in der Registry.
+   */
+  private grundskalaZeileBauen(eintrag: uploadedModelRegistry.UploadedModelEntry): HTMLDivElement {
+    const zeile = el(
+      'div',
+      stil({ display: 'flex', 'align-items': 'center', gap: '8px', 'flex-wrap': 'wrap', 'margin-top': '2px' })
+    );
+    zeile.appendChild(
+      el('span', stil({ 'font-size': '11.5px', color: F.gedimmt, 'white-space': 'nowrap' }), 'Grundskala:')
+    );
+    const g = uploadedModelRegistry.grundskalaVon(eintrag);
+    let dimension: Zieldimension = 'breite';
+    const zielFeldHuelle = feld('', () => {}, {
+      breite: '96px',
+      titel: 'Zielgröße in Metern für die gewählte Kante — rechnet die Grundskala aus der rohen Registry-Größe.',
+      einheit: 'm',
+    });
+    const zielFeld = zielFeldHuelle.querySelector('input')!;
+    zielFeld.value = (dimension === 'breite' ? eintrag.breite * g : eintrag.hoehe * g).toFixed(2);
+    const dimensionAuswahl = auswahl(
+      [
+        { id: 'breite', name: 'Breite' },
+        { id: 'hoehe', name: 'Höhe' },
+      ],
+      dimension,
+      (id) => {
+        dimension = id as Zieldimension;
+        zielFeld.value = (dimension === 'breite' ? eintrag.breite * g : eintrag.hoehe * g).toFixed(2);
+      }
+    );
+    dimensionAuswahl.style.flex = 'none';
+    dimensionAuswahl.style.width = '92px';
+    zeile.appendChild(dimensionAuswahl);
+    zeile.appendChild(zielFeldHuelle);
+    zeile.appendChild(
+      el(
+        'span',
+        stil({ 'font-size': '11px', color: F.gedimmt2, 'white-space': 'nowrap' }),
+        `— jetzt ${g.toFixed(2)}× (Rohgröße ${eintrag.breite.toFixed(2)} × ${eintrag.hoehe.toFixed(2)} × ${eintrag.tiefe.toFixed(2)} m)`
+      )
+    );
+    const status = el('span', stil({ 'font-size': '11px', color: F.gedimmt, 'white-space': 'nowrap' }), '');
+    zeile.appendChild(
+      knopf(
+        'Übernehmen',
+        () => {
+          const roh = dimension === 'breite' ? eintrag.breite : eintrag.hoehe;
+          const ziel = Number(zielFeld.value.trim().replace(',', '.'));
+          if (!Number.isFinite(ziel) || ziel <= 0 || !Number.isFinite(roh) || roh <= 0) {
+            status.textContent = 'Ungültige Zielgröße.';
+            status.style.color = F.fehler;
+            return;
+          }
+          void this.grundskalaAendernAusfuehren(eintrag.name, ziel / roh, status);
+        },
+        { art: 'leise', titel: 'Grundskala in der Registry ändern — wirkt auf alle Platzierungen dieses Modells.' }
+      )
+    );
+    zeile.appendChild(status);
+    return zeile;
+  }
+
+  /** PATCH /api/modell-hochladen — Grundskala eines bestehenden Uploads ändern. */
+  private async grundskalaAendernAusfuehren(name: string, grundskala: number, status: HTMLSpanElement): Promise<void> {
+    status.textContent = 'Ändere …';
+    status.style.color = F.gedimmt;
+    try {
+      const antwort = await fetch('/api/modell-hochladen', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, grundskala }),
+      });
+      const rumpf = (await antwort.json().catch(() => null)) as {
+        ok?: boolean;
+        message?: string;
+        eintrag?: uploadedModelRegistry.UploadedModelEntry;
+      } | null;
+      if (!antwort.ok || !rumpf?.ok) {
+        status.textContent = rumpf?.message ?? `Fehlgeschlagen (HTTP ${antwort.status}).`;
+        status.style.color = F.fehler;
+        return;
+      }
+      await ladeHochgeladeneRegistrierung();
+      // H1b (Angriff „Editor Upload-Größe"): Der Spielserver liest die
+      // Upload-Registry nur beim eigenen Prozessstart (`server/src/main.ts`,
+      // Kopfkommentar dort) — anders als Editor-Katalog und Layout-Prüfung
+      // (beide im Betriebsdienst, der die Änderung sofort übernimmt) sieht
+      // ein LAUFENDER Spielserver eine geänderte Grundskala erst nach einem
+      // Neustart. „Übernommen." allein sagte das nicht ehrlich; ein neuer
+      // Server-Weg dafür ist nicht Teil dieser Nachbesserung.
+      //
+      // F3 (Nachangriff): „Editor sofort" allein war zu weit gefasst — wahr
+      // ist es nur für DIESEN Katalog (er baut die Vorschau unten neu auf)
+      // und für neu geöffnete Testflüge (die laden das Modell zum ersten
+      // Mal). Ein SCHON offener Testflug-Tab oder ein laufender Spielclient
+      // hält seine Thin-Instance-Puffer bereits im Bild und baut sie nicht
+      // von selbst neu — `AssetManager.wendeGrundskalaAn` aktualisiert zwar
+      // `master.localMatrix` seit dieser Nachbesserung in-place, aber ein
+      // schon ins GPU-Bild geschriebener Puffer liest davon nichts nach.
+      status.textContent =
+        'Übernommen — Katalog und neu geöffnete Testflüge sofort, offene Flüge und Spielclients erst nach Neuladen, Spielserver erst nach Neustart.';
+      status.style.color = F.textRuhig;
+      // Die Vorschau (dieses Modell steht gerade, sonst gäbe es die
+      // Grundskala-Zeile nicht) und der Infoblock neu aufbauen — beide
+      // lesen die Grundskala über `uploadedModelRegistry.
+      // grundskalaFuerModell`, die die neu registrierte Registry jetzt
+      // (H1-Nachbesserung an `applyUploadedModelRegistry`) auch bei einem
+      // schon bekannten Namen aktuell hält.
+      if (this.gewaehlt === name) void this.waehle(name);
+    } catch (e) {
+      status.textContent = `Netzwerkfehler: ${(e as Error).message}`;
+      status.style.color = F.fehler;
     }
   }
 
@@ -2134,7 +2733,15 @@ export class GegenstandsKatalog {
     // Weltskalierung wie im Spiel: Die GLB rendert in ihrer natürlichen
     // Größe MAL localScale (s. EntityManager.composeZdoWorld) — ohne das
     // wären die angezeigten Maße nicht die der Welt.
-    ergebnis.scaling.set(def.localScale.x, def.localScale.y, def.localScale.z);
+    //
+    // Grundskala hochgeladener Modelle (Karte „Editor Upload-Größe") kommt
+    // NICHT über localScale (Kopfkommentar uploadedModelRegistry.
+    // uploadedPrefabDef) — dieselbe manuelle Multiplikation wie im
+    // Bucket-Loader (`AssetManager.getMasters`), nur hier direkt am
+    // scaling-Vektor dieser Einzel-Instanz, weil die Katalog-Vorschau über
+    // `assets.instantiate()` läuft, nicht über Thin Instances.
+    const g = uploadedModelRegistry.grundskalaFuerModell(def.model);
+    ergebnis.scaling.set(def.localScale.x * g, def.localScale.y * g, def.localScale.z * g);
     this.gezeigt = ergebnis;
     const masse = this.messen(ergebnis);
     this.letzteMasse = masse;
@@ -2162,6 +2769,12 @@ export class GegenstandsKatalog {
 
   /** Gezeigtes Modell aus der Szene nehmen. */
   private modellFreigeben(): void {
+    // Upload-Vorschau (Auftrag Punkt 4): Jede neue Anzeige — eine
+    // Katalog-Auswahl, ein Speicher-Eintrag, eine neue Datei — beendet
+    // eine laufende Upload-Vorschau, auch wenn ihr Container hier gleich
+    // im selben Zug mit entsorgt wird.
+    this.hochladenVorschauAktiv = false;
+    this.hochladenReferenzenEntfernen();
     if (this.storeContainer) {
       /*
         Der Speicher-Container gehört DIESER Ansicht: Meshes, Materialien
@@ -2700,6 +3313,15 @@ export class GegenstandsKatalog {
       );
     }
     this.infoBlock.appendChild(kopf);
+
+    // Grundskala nachträglich ändern (Karte „Editor Upload-Größe",
+    // Auftrag Punkt 5) — dieselbe Maske, nur für ein SCHON registriertes
+    // Modell statt für die gerade gewählte Datei. Gesetzte Platzierungen
+    // behalten ihre `scale`; sie werden dadurch größer/kleiner, und genau
+    // das ist gewollt (Auftrag).
+    if (hochgeladenerEintrag) {
+      this.infoBlock.appendChild(this.grundskalaZeileBauen(hochgeladenerEintrag));
+    }
 
     // Kennzahlen als Spalten — nur, was der Katalog wirklich gemessen
     // oder aus der Registry gelesen hat.

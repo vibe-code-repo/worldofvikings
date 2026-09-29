@@ -46,13 +46,15 @@
  * Sprache: neue Bezeichner englisch, wo sie nicht an einen bestehenden
  * deutschen Namen andocken.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { findPrefabByName } from './prefabs.js';
 import { leseGlb, parseGlbChunks } from './kollision/glb.js';
 import {
+  GRUNDSKALA_MAX,
+  GRUNDSKALA_MIN,
   HUELLBOX_ABLEHNEN_MAX_M,
   HUELLBOX_ABLEHNEN_MIN_M,
   HUELLBOX_HINWEIS_MAX_M,
@@ -82,14 +84,159 @@ import {
   type UploadedModelEntry,
 } from './uploadedModelRegistry.js';
 
+/** `<repo>/assets/hochgeladen` — zwei Ebenen hinauf: Diese Datei liegt in `shared/src/`, also `src → shared → <repo>`. */
+const UPLOAD_DIR_VORGABE = resolve(dirname(fileURLToPath(import.meta.url)), '../../assets/hochgeladen');
+
+/** `WOV_HOCHGELADEN_DIR` ist gesetzt, aber leer, kein absoluter Pfad oder inhaltlich unbrauchbar (B8). */
+export class HochgeladenDirUngueltig extends Error {
+  constructor(readonly wert: string, grund: string) {
+    super(`WOV_HOCHGELADEN_DIR="${wert}" ${grund}`);
+    this.name = 'HochgeladenDirUngueltig';
+  }
+}
+
 /**
- * `<repo>/assets/hochgeladen` — zwei Ebenen hinauf: Diese Datei liegt in
- * `shared/src/`, also `src → shared → <repo>`.
+ * Der Ordner der hochgeladenen Modelle — geprüft wie `weltArbeitsOrdner`
+ * (`shared/src/instanz.ts`): `WOV_HOCHGELADEN_DIR` MUSS, wenn gesetzt, ein
+ * absoluter Pfad sein, sonst wirft dieser Aufruf `HochgeladenDirUngueltig`.
+ *
+ * H2 (Angriff „Editor Upload-Größe" N1): Anders als jeder andere Pfad im
+ * Betriebsdienst (`WOV_WURZEL`) hing dieser Ordner am Ort DIESER Moduldatei,
+ * nicht an der Umgebung — ein Prozess-Test mit eigenem `WOV_WURZEL` schrieb
+ * dadurch trotzdem in die ECHTE `assets/hochgeladen/` des Checkouts (beim
+ * Ausrollen die von DEV). `WOV_HOCHGELADEN_DIR` überschreibt ihn deshalb,
+ * wenn gesetzt — nur Tests setzen es, Server und Betriebsdienst laufen ohne
+ * Änderung weiter am bisherigen, moduleigenen Pfad.
+ *
+ * F4 (Nachangriff „Editor Upload-Größe N1"): Anders als bei
+ * `WOV_WELT_VERZEICHNIS` gilt ein LEERER Wert hier NICHT als „nicht
+ * gesetzt" — `WOV_HOCHGELADEN_DIR=` liess `UPLOAD_DIR` vorher zu `""`
+ * werden, der Dienst startete, und jeder Upload scheiterte erst danach mit
+ * 500 statt schon beim Start mit einer verständlichen Meldung. Ein
+ * relativer Wert löste sich zuvor gegen das `cwd` des jeweiligen Prozesses
+ * auf (`admin/` beim Betriebsdienst, `server/` beim Spielserver) — zwei
+ * verschiedene Ordner für denselben Namen.
+ *
+ * B8 (Nachangriff „Editor Upload-Größe N2", Info): F4 prüfte nur die FORM
+ * des Pfads, nicht, ob er tatsächlich benutzbar ist. Ein Pfad unter
+ * `/proc`/`/sys` (virtuelle Kernel-Schnittstellen, keine echten Ordner),
+ * ein hängender Symlink (Ziel existiert nicht) oder eine Datei statt eines
+ * Ordners liessen den Dienst zwar starten, aber jeder Upload scheiterte
+ * erst danach mit einem nackten 500 (ENOENT/ENOTDIR/EEXIST nur im
+ * Server-Log). Jetzt wird das beim Start geprüft: ein hängender Symlink
+ * und eine Nicht-Ordner-Stelle brechen sofort ab; ein noch NICHT
+ * existierender Pfad wird angelegt (wie bisher, `mkdirSync`) und mit einer
+ * Schreibprobe bestätigt.
+ *
+ * N4 (Nachangriff „Editor Upload-Größe N3", Befund N3-4, Info): B8 prüfte
+ * nur den ROHEN Text (`roh.startsWith('/proc/')`) — `//proc/x` und
+ * `/./proc/x` liefen daran vorbei, direkt in `mkdirSync(roh, { recursive:
+ * true })`, und hingen dort synchron bei 100 % CPU (dieselbe Endlosschleife
+ * wie beim Upload selbst, nur jetzt schon beim Start). Ein Symlink auf
+ * `/proc/self` wurde nur zufällig über die Schreibprobe abgefangen (falsche
+ * Meldung „nicht beschreibbar"), ein Tippfehler im Pfad legte still einen
+ * mehrstufigen Ordnerbaum an, und die feste Schreibprobe `.wov-
+ * schreibprobe` folgte einem dort liegenden Symlink und kürzte dessen Ziel
+ * auf 0 Byte. Jetzt: erst `resolve()` (Normalisierung, faltet `//`, `/./`,
+ * `..`, ohne dem Dateisystem zu folgen), DANN die Sperrliste prüfen —
+ * `//proc/x` wird so VOR jedem Dateisystemzugriff abgelehnt, keine
+ * Endlosschleife mehr möglich. Ein vorhandener Symlink wird zusätzlich
+ * über `realpathSync` (folgt der GANZEN Kette) gegen dieselbe Sperrliste
+ * geprüft. Fehlt der Pfad noch, wird nur EIN Elternverzeichnis vorausgesetzt
+ * — existiert es nicht, bricht der Start mit einer Meldung ab, statt still
+ * einen Baum aus mehreren Ebenen anzulegen (ein Tippfehler bleibt so
+ * sichtbar). Die Schreibprobe läuft über einen ZUFÄLLIGEN Dateinamen mit
+ * `O_CREAT|O_EXCL` (keine feste, vorhersagbare Stelle mehr, der ein Symlink
+ * auflauern könnte, und `O_EXCL` folgt ohnehin nie einem vorhandenen Eintrag).
  */
-export const UPLOAD_DIR = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../assets/hochgeladen'
-);
+const GESPERRTE_WURZELN = ['/dev/shm', '/dev', '/proc', '/sys'] as const;
+
+/** `pfad` ist eine der gesperrten Wurzeln selbst oder liegt darunter (bzw. ist `/`). */
+function unterGesperrterWurzel(pfad: string): boolean {
+  if (pfad === '/') return true;
+  return GESPERRTE_WURZELN.some((g) => pfad === g || pfad.startsWith(`${g}/`));
+}
+
+export function ermittleUploadDir(roh: string | undefined = process.env.WOV_HOCHGELADEN_DIR): string {
+  if (roh === undefined) return UPLOAD_DIR_VORGABE;
+  if (roh === '' || !isAbsolute(roh)) {
+    throw new HochgeladenDirUngueltig(
+      roh,
+      'ist leer oder kein absoluter Pfad. Ein relativer oder leerer Wert loest sich je Prozess ' +
+        '(Spielserver, Betriebsdienst) gegen ein anderes Arbeitsverzeichnis auf und meinte zwei ' +
+        'verschiedene Ordner. Absoluten Pfad setzen oder die Variable weglassen.'
+    );
+  }
+  // N4/N3-4: erst normalisieren (faltet "//proc/x", "/./proc/x", ".." — rein
+  // textuell, OHNE dem Dateisystem zu folgen), DANN gegen die Sperrliste
+  // pruefen — vor jedem mkdirSync/lstatSync, damit keine dieser Formen je
+  // in einen Dateisystemzugriff unter /proc bzw. /sys gelangt.
+  const normalisiert = resolve(roh);
+  if (unterGesperrterWurzel(normalisiert)) {
+    throw new HochgeladenDirUngueltig(
+      roh,
+      `liegt unter '${normalisiert}' — das ist eine virtuelle oder besonders geschuetzte Systemstelle, kein Ordner fuer Dateien.`
+    );
+  }
+  // Existiert der Pfad schon (als Symlink oder sonst), muss er ein ECHTER,
+  // erreichbarer Ordner sein — ein hängender Symlink, ein Symlink auf eine
+  // gesperrte Wurzel oder eine Datei an dieser Stelle sollen den Start
+  // verhindern, nicht erst den ersten Upload.
+  let liegtSchonDa = false;
+  try {
+    const linkStand = lstatSync(normalisiert);
+    liegtSchonDa = true;
+    if (linkStand.isSymbolicLink()) {
+      let ziel: string;
+      try {
+        ziel = realpathSync(normalisiert); // folgt der GANZEN Kette; wirft ENOENT bei einem haengenden Symlink
+      } catch {
+        throw new HochgeladenDirUngueltig(roh, 'ist ein haengender Symlink (das Ziel existiert nicht).');
+      }
+      if (unterGesperrterWurzel(ziel)) {
+        throw new HochgeladenDirUngueltig(
+          roh,
+          `zeigt auf '${ziel}' — das ist eine virtuelle oder besonders geschuetzte Systemstelle, kein Ordner fuer Dateien.`
+        );
+      }
+    }
+    if (!statSync(normalisiert).isDirectory()) {
+      throw new HochgeladenDirUngueltig(roh, 'ist kein Ordner (dort liegt schon eine Datei oder etwas anderes).');
+    }
+  } catch (e) {
+    if (e instanceof HochgeladenDirUngueltig) throw e;
+    liegtSchonDa = false; // existiert nicht -- wird unten angelegt
+  }
+  if (!liegtSchonDa) {
+    // N4/N3-4: nur EIN Elternverzeichnis wird vorausgesetzt, nie ein ganzer
+    // Baum still angelegt — ein Tippfehler im Pfad bricht so sichtbar ab,
+    // statt einen leeren Ordner irgendwo im Dateisystem zu hinterlassen.
+    const elternordner = dirname(normalisiert);
+    if (!existsSync(elternordner) || !statSync(elternordner).isDirectory()) {
+      throw new HochgeladenDirUngueltig(
+        roh,
+        `das Elternverzeichnis '${elternordner}' existiert nicht — vermutlich ein Tippfehler. ` +
+          'Verzeichnis von Hand anlegen oder den Pfad pruefen.'
+      );
+    }
+  }
+  try {
+    if (!liegtSchonDa) mkdirSync(normalisiert);
+    // N4/N3-4: zufälliger Dateiname statt der festen ".wov-schreibprobe" —
+    // ein dort abgelegter Symlink kann nicht mehr auflauern, weil sein Name
+    // nie vorher bekannt ist; O_CREAT|O_EXCL folgt ohnehin nie einem
+    // vorhandenen Eintrag (Datei oder Symlink), sondern bricht sofort ab.
+    const schreibprobe = join(normalisiert, `.wov-schreibprobe-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const fd = openSync(schreibprobe, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+    closeSync(fd);
+    rmSync(schreibprobe, { force: true });
+  } catch (e) {
+    throw new HochgeladenDirUngueltig(roh, `ist nicht beschreibbar: ${(e as Error).message}`);
+  }
+  return normalisiert;
+}
+
+export const UPLOAD_DIR = ermittleUploadDir();
 
 // ── Freigabeliste für glTF-Erweiterungen ─────────────────────────────
 /**
@@ -279,6 +426,27 @@ export interface UploadWunsch {
   readonly bytes: Uint8Array;
   readonly angezeigterName: string;
   readonly kollisionswunsch: Kollisionsart;
+  /** Grundskala (Karte „Editor Upload-Größe"); fehlt sie, gilt 1 ("wie Datei"). */
+  readonly grundskala?: number;
+}
+
+/**
+ * Grundskala-Eingabe prüfen — dieselbe Grenze wie `pruefeRegistryEintrag`
+ * (`GRUNDSKALA_MIN`…`GRUNDSKALA_MAX`), hier VOR jedem Schreiben, für
+ * Upload UND „nachträglich ändern". `undefined` (Feld fehlt) ist gültig
+ * und bedeutet 1 — nur ein VORHANDENER, aber falscher Wert wird abgelehnt.
+ */
+export function pruefeGrundskala(grundskala: number | undefined): string | null {
+  if (grundskala === undefined) return null;
+  if (
+    typeof grundskala !== 'number' ||
+    !Number.isFinite(grundskala) ||
+    grundskala < GRUNDSKALA_MIN ||
+    grundskala > GRUNDSKALA_MAX
+  ) {
+    return `Grundskala muss eine endliche Zahl zwischen ${GRUNDSKALA_MIN} und ${GRUNDSKALA_MAX} sein (bekommen: ${String(grundskala)}).`;
+  }
+  return null;
 }
 
 export type UploadAntwort =
@@ -310,6 +478,8 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
   if (wunsch.bytes.byteLength > MAX_BYTES) {
     return nein(`Die Datei ist zu groß: ${wunsch.bytes.byteLength} Byte, erlaubt sind höchstens ${MAX_BYTES} Byte.`);
   }
+  const grundskalaFehler = pruefeGrundskala(wunsch.grundskala);
+  if (grundskalaFehler !== null) return nein(grundskalaFehler);
 
   const name = erzwingeName(wunsch.angezeigterName);
   if (name === null) {
@@ -507,6 +677,10 @@ export function pruefeUndSpeichereUpload(kontext: UploadKontext, wunsch: UploadW
     kollisionsnetzAbgelehnt,
     hochgeladenVon: kontext.hochgeladenVon,
     zeitpunkt: new Date().toISOString(),
+    // Nur SCHREIBEN, wenn ausdrücklich mitgeschickt — ein fehlendes Feld
+    // bleibt fehlend (nicht `1`), damit ein Registry-Diff zeigt, welche
+    // Einträge nie eine Grundskala gesetzt bekamen.
+    ...(wunsch.grundskala !== undefined ? { grundskala: wunsch.grundskala } : {}),
   };
 
   // N1 (Angriff, Befund B2): Wirft `schreibeRegistry` HIER (volle Platte,
@@ -707,4 +881,84 @@ export function entferneUpload(kontext: EntfernenKontext, name: string, bestaeti
   }
 
   return { ok: true, name, verbleibend: verbleibend.length };
+}
+
+// ── Grundskala nachträglich ändern (Karte „Editor Upload-Größe") ──────
+export interface GrundskalaKontext {
+  /** Dasselbe Tor wie beim Hochladen — Instanz ≠ live UND server.yml-Schalter an. */
+  readonly erlaubt: boolean;
+  readonly verzeichnis: string;
+}
+
+export type GrundskalaAntwort =
+  | { readonly ok: true; readonly eintrag: UploadedModelEntry }
+  | { readonly ok: false; readonly meldung: string };
+
+/**
+ * Die Grundskala eines SCHON hochgeladenen Modells ändern — dieselbe
+ * Datei bleibt liegen, nur der Registry-Eintrag und die Laufzeit-
+ * Registrierung (`PREFAB_DEFS`/`PREFABS_BY_NAME`/`PREFABS_BY_HASH`)
+ * bekommen den neuen Faktor. Gesetzte Platzierungen behalten ihre
+ * `scale` unverändert (Auftrag, Punkt 5) — sie werden dadurch grösser
+ * oder kleiner, ohne dass irgendetwas an ihnen selbst geschrieben wird.
+ *
+ * Geschützt wie der bestehende Upload-Weg: dasselbe `erlaubt`-Tor, dieselbe
+ * Namensprüfung wie `entferneUpload` (Handarbeit an der Registry darf nie
+ * aus dem Zielordner ausbrechen), derselbe Registry-Schreibweg (temp+rename).
+ * Der Name ändert sich nie, also gibt es hier — anders als beim Hochladen —
+ * keine neue Hash-Kollision zu prüfen.
+ */
+export function aendereGrundskala(
+  kontext: GrundskalaKontext,
+  name: string,
+  grundskala: number
+): GrundskalaAntwort {
+  if (!kontext.erlaubt) {
+    return { ok: false, meldung: 'Modell-Upload ist auf dieser Instanz nicht erlaubt (server.yml: uploads.modell-hochladen, oder Instanz live).' };
+  }
+  if (!NAME_MUSTER.test(name)) {
+    return { ok: false, meldung: `Ungültiger Name — erwartet wird das Muster ${NAME_MUSTER}.` };
+  }
+  const grundskalaFehler = pruefeGrundskala(grundskala);
+  if (grundskalaFehler !== null) return { ok: false, meldung: grundskalaFehler };
+
+  let stand: RegistryDatei;
+  try {
+    stand = leseRegistry(kontext.verzeichnis);
+  } catch (e) {
+    console.error(`[ModellUpload] Registry unlesbar (${kontext.verzeichnis}): ${(e as Error).message}`);
+    return { ok: false, meldung: 'Die Registry ist nicht lesbar (Einzelheiten im Server-Log).' };
+  }
+  const index = stand.modelle.findIndex((m) => m.name === name);
+  if (index < 0) {
+    return { ok: false, meldung: `Die Registry kennt '${name}' nicht — es gibt nichts zu ändern.` };
+  }
+
+  const eintrag: UploadedModelEntry = { ...stand.modelle[index]!, grundskala };
+  const modelle = [...stand.modelle];
+  modelle[index] = eintrag;
+  try {
+    schreibeRegistry(kontext.verzeichnis, modelle);
+  } catch (e) {
+    console.error(`[ModellUpload] Registry nicht schreibbar (${kontext.verzeichnis}), Grundskala nicht geändert: ${(e as Error).message}`);
+    return { ok: false, meldung: 'Die Registry konnte nicht geschrieben werden, nichts wurde geändert (Einzelheiten im Server-Log).' };
+  }
+
+  // Laufzeit-Registrierung nachziehen — derselbe Diff-Weg wie
+  // `applyUploadedModelRegistry` für GENAU diesen einen Eintrag: austragen,
+  // neu eintragen. Der Hash hängt nur am NAMEN (unverändert), kann hier
+  // also nie kollidieren.
+  try {
+    unregisterUploadedPrefab(name);
+  } catch {
+    /* war (noch) nicht registriert, z. B. weil dieser Prozess gerade erst gestartet ist */
+  }
+  try {
+    registerUploadedPrefab(eintrag);
+  } catch (e) {
+    console.error(`[ModellUpload] Neu-Registrierung nach Grundskala-Änderung fehlgeschlagen ('${name}'): ${(e as Error).message}`);
+    return { ok: false, meldung: 'Grundskala in der Registry geändert, aber nicht neu registriert (Einzelheiten im Server-Log) — ein Neustart des Prozesses holt das nach.' };
+  }
+
+  return { ok: true, eintrag };
 }

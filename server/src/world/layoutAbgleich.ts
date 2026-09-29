@@ -479,7 +479,9 @@ export function layoutAbgleich(
     if (passend.length === 0) {
       // Z3 N3 (C1): also with an unreadable lock file (`keineLoeschung`, fail-closed) nothing may die, so the old ZDO
       // stays and no second one may appear under the id (the next boot would read that as a revocation).
-      if (optionen.geschuetzteIds?.has(p.id!) || optionen.keineLoeschung) {
+      // Z3 N4 (D1): the same for every boot that does not delete (`ohneLoeschen`, e.g. a discarded entry): the old
+      // ZDO stays and no second one appears; the change lands in the next boot that may delete.
+      if (optionen.geschuetzteIds?.has(p.id!) || ergebnis.ohneLoeschen) {
         for (const z of alle) darfLoeschen(z, p.id!);
         zurueckgehalten.add(p);
         continue;

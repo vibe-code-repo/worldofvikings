@@ -107,7 +107,7 @@ import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
 import { liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
-import { sperreAbgleichen, sperreBestaetigenPlan, sperreFreigeben } from './world/layoutBootSchutz.js';
+import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreFreigeben } from './world/layoutBootSchutz.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
@@ -1370,11 +1370,8 @@ export class WovServer {
       // Eine unlesbare Sperre wird nie ungeprüft freigegeben (und keine ihrer ids ist bekannt): nichts geschieht.
       if (plan.art === 'kaputt') return abgelehnt('Löschsperre-Datei unlesbar (GESCHLOSSEN) — nichts bestätigt');
       if (plan.art === 'keine') return { art: 'bestaetigt', ids: [], entfernt: 0 };
-      const geloeschteSet = new Set(plan.ids);
-      const zuLoeschen = this.zdos.getAllZDOs().filter((zdo) => {
-        const id = zdo.getString(LAYOUT_ID_MEMBER);
-        return !!id && geloeschteSet.has(id) && !istSpielerbau(zdo);
-      });
+      // Z3 N4 (D1): a held-back prefab change (id still in the document) loses only its ZDOs with the OLD prefab.
+      const zuLoeschen = bestaetigungsZdos(this.zdos, layout, plan.ids, (name) => this.prefabs.getByName(name)?.hash);
       for (const zdo of zuLoeschen) this.zdos.destroyZDO(zdo.zdoid);
       // Erst NACH dem Löschen freigeben: bricht etwas davor ab, bleibt der Schutz stehen.
       try {

@@ -23,7 +23,8 @@
 import { LAYOUT_ID_MEMBER } from '@wov/shared';
 import type { WorldLayout } from '@wov/shared';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
-import { istSpielerbau } from './layoutAbgleich.js';
+import type { ZDO } from '../zdo/ZDO.js';
+import { istSpielerbau, zustand } from './layoutAbgleich.js';
 import {
   type Loeschsperre,
   loeschsperreEntfernen,
@@ -58,23 +59,56 @@ function vorhandeneLayoutIds(zdos: ZDOManager): Set<string> {
  * Eine solche id gilt NICHT als zurückgenommen, nur weil sie im Dokument steht. Unbekannte Prefabs zählen nicht.
  */
 export function ersetzteIds(zdos: ZDOManager, layout: WorldLayout, prefabHash: (name: string) => number | undefined): Set<string> {
+  const soll = sollHashJeId(layout, prefabHash);
+  // Z3 N3 (C1): one ZDO under the id with ANOTHER prefab is enough — a second ZDO that does match (left by an
+  // earlier boot) must not read as a revocation and let the next boot delete the old one with its state.
+  // Z3 N4 (D1): next to a matching ZDO a foreign one counts only if it carries state (a stateless leftover tree
+  // must not keep a revoked lock alive forever); with no matching ZDO at all any foreign one is the replaced object.
+  const passend = new Set<string>();
+  const fremd: { id: string; zdo: ZDO }[] = [];
+  for (const zdo of zdos.getAllZDOs()) {
+    if (istSpielerbau(zdo)) continue;
+    const id = zdo.getString(LAYOUT_ID_MEMBER);
+    const hash = id ? soll.get(id) : undefined;
+    if (!id || hash === undefined) continue;
+    if (zdo.prefabHash === hash) passend.add(id);
+    else fremd.push({ id, zdo });
+  }
+  const ersetzt = new Set<string>();
+  for (const f of fremd) if (!passend.has(f.id) || zustand(f.zdo) > 0) ersetzt.add(f.id);
+  return ersetzt;
+}
+
+/** id → Prefab-Hash, den das Dokument jetzt nennt (unbekannte Prefabs fehlen). */
+function sollHashJeId(layout: WorldLayout, prefabHash: (name: string) => number | undefined): Map<string, number> {
   const soll = new Map<string, number>();
   for (const p of layout.placements ?? []) {
     if (typeof p.id !== 'string') continue;
     const hash = prefabHash(p.prefab);
     if (hash !== undefined) soll.set(p.id, hash);
   }
-  // Z3 N3 (C1): one ZDO under the id with ANOTHER prefab is enough — a second ZDO that does match (left by an
-  // earlier boot) must not read as a revocation and let the next boot delete the old one with its state.
-  const ersetzt = new Set<string>();
-  for (const zdo of zdos.getAllZDOs()) {
-    if (istSpielerbau(zdo)) continue;
+  return soll;
+}
+
+/**
+ * Z3 N4 (D1): die ZDOs, die eine Bestätigung für `ids` zerstört. Eine id, die im Dokument fehlt, verliert alle ihre
+ * ZDOs. Eine id, die im Dokument steht (zurückgehaltener Prefab-Wechsel), verliert nur die ZDOs mit FREMDEM Prefab:
+ * Ein passendes ZDO daneben (Truhe samt Inhalt nach einer Rücknahme) bleibt stehen.
+ */
+export function bestaetigungsZdos(
+  zdos: ZDOManager,
+  layout: WorldLayout,
+  ids: readonly string[],
+  prefabHash: (name: string) => number | undefined
+): ZDO[] {
+  const menge = new Set(ids);
+  const soll = sollHashJeId(layout, prefabHash);
+  return zdos.getAllZDOs().filter((zdo) => {
     const id = zdo.getString(LAYOUT_ID_MEMBER);
-    const hash = id ? soll.get(id) : undefined;
-    if (!id || hash === undefined) continue;
-    if (zdo.prefabHash !== hash) ersetzt.add(id);
-  }
-  return ersetzt;
+    if (!id || !menge.has(id) || istSpielerbau(zdo)) return false;
+    const hash = soll.get(id);
+    return hash === undefined || zdo.prefabHash !== hash;
+  });
 }
 
 /** Was die Sperrdatei JETZT sagt, für die Quittung (liest, schreibt nie). */

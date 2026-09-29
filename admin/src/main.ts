@@ -2130,9 +2130,20 @@ async function behandeln(
     const vorher = `${welt}.prev`;
     const vorherBeiseite = `${vorher}.beiseite`;
     const testAblage = resolve(WELTEN_ORDNER, 'testwelt.db.zst');
+    // Z3 N4 (D2): Die Loeschsperre gehoert zum Spielstand (sie schuetzt dessen ZDOs) und wird deshalb genau wie er
+    // getauscht: die dev-Sperre geht beim Starten beiseite und kommt beim Zurueckholen zurueck, eine Testwelt-Sperre
+    // wird aufgehoben statt geloescht (`.testwelt`, wird beim naechsten Mal ueberschrieben). Bliebe sie liegen,
+    // naehme der Boot der frischen Welt sie als Ruecknahme zurueck, und ein Bestaetigen dort hoebe die dev-Sperre auf.
+    const sperre = loeschsperreDatei(WELTEN_ORDNER, INSTANZ);
+    const sperreBeiseite = `${sperre}.beiseite`;
+    const sperreTestAblage = `${sperre}.testwelt`;
 
     if (aktion === 'starten' && existsSync(beiseite)) {
       return { code: 409, daten: { fehler: 'Es laeuft bereits eine Testwelt — erst zurueckholen' } };
+    }
+    if (aktion === 'starten' && existsSync(sperreBeiseite)) {
+      // Ein Rest eines abgebrochenen Wechsels: ein Ueberschreiben wuerde die dev-Sperre vernichten.
+      return { code: 409, daten: { fehler: 'Eine beiseitegelegte Loeschsperre liegt schon da — bitte von Hand pruefen' } };
     }
     if ((aktion === 'zurueck' || aktion === 'erneuern') && !existsSync(beiseite)) {
       return {
@@ -2159,25 +2170,49 @@ async function behandeln(
       const zeitlimit = aktion === 'erneuern' ? { timeout: SYSTEMCTL_ZEITLIMIT_MS } : undefined;
 
       await ausfuehren(SYSTEMCTL, ['stop', 'wov-server'], zeitlimit);
+      // Jede erledigte Umbenennung wird gemerkt: Scheitert eine spaetere, laufen die frueheren rueckwaerts zurueck
+      // (Spielstand und Sperre bleiben beisammen), bevor der Dienst wieder startet.
+      const getan: [string, string][] = [];
+      const tausche = (von: string, nach: string): void => {
+        if (!existsSync(von)) return;
+        renameSync(von, nach);
+        getan.push([von, nach]);
+      };
       try {
-        if (aktion === 'starten') {
-          if (existsSync(welt)) renameSync(welt, beiseite);
-          if (existsSync(vorher)) renameSync(vorher, vorherBeiseite);
-        } else if (aktion === 'zurueck') {
-          // Die Testwelt aufheben statt loeschen — wer sie noch einmal
-          // ansehen will, findet sie unter testwelt.db.zst.
-          if (existsSync(welt)) renameSync(welt, testAblage);
-          if (existsSync(vorher)) unlinkSync(vorher);
-          renameSync(beiseite, welt);
-          if (existsSync(vorherBeiseite)) renameSync(vorherBeiseite, vorher);
-        } else {
-          // "erneuern": genau das Muster, mit dem "zurueck" den
-          // Testwelt-Spielstand behandelt (aufheben statt loeschen) —
-          // nur OHNE den dev-Stand (`beiseite`/`vorherBeiseite`)
-          // anzuruehren. Der Server findet danach keinen Spielstand am
-          // Ladeort und erzeugt die Testwelt frisch aus dem Layout.
-          if (existsSync(welt)) renameSync(welt, testAblage);
-          if (existsSync(vorher)) unlinkSync(vorher);
+        try {
+          if (aktion === 'starten') {
+            tausche(welt, beiseite);
+            tausche(vorher, vorherBeiseite);
+            tausche(sperre, sperreBeiseite);
+          } else if (aktion === 'zurueck') {
+            // Die Testwelt aufheben statt loeschen — wer sie noch einmal
+            // ansehen will, findet sie unter testwelt.db.zst.
+            tausche(welt, testAblage);
+            if (existsSync(vorher)) unlinkSync(vorher);
+            tausche(sperre, sperreTestAblage);
+            renameSync(beiseite, welt);
+            getan.push([beiseite, welt]);
+            tausche(vorherBeiseite, vorher);
+            tausche(sperreBeiseite, sperre);
+          } else {
+            // "erneuern": genau das Muster, mit dem "zurueck" den
+            // Testwelt-Spielstand behandelt (aufheben statt loeschen) —
+            // nur OHNE den dev-Stand (`beiseite`/`vorherBeiseite`/`sperreBeiseite`)
+            // anzuruehren. Der Server findet danach keinen Spielstand am
+            // Ladeort und erzeugt die Testwelt frisch aus dem Layout.
+            tausche(welt, testAblage);
+            if (existsSync(vorher)) unlinkSync(vorher);
+            tausche(sperre, sperreTestAblage);
+          }
+        } catch (fehler) {
+          for (const [von, nach] of getan.reverse()) {
+            try {
+              if (existsSync(nach) && !existsSync(von)) renameSync(nach, von);
+            } catch {
+              // Rueckroll best effort: der Dienst muss trotzdem wieder starten, der Fehler unten bleibt der Befund.
+            }
+          }
+          throw fehler;
         }
       } finally {
         // Auch wenn der Tausch schiefgeht: Der Server muss wieder laufen.

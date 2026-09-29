@@ -15,6 +15,10 @@
  *       Layout-ZDO existiert; eine ANDERE id im selben Dokument wird normal entfernt.
  *  E-e  Takt: 1500 Platzierungen, offene Sperre, 6 Leerlauf-Takte — Median ≤ 1 ms, genau eine
  *       Warnzeile und genau eine neue Quittung (aus dem AUSLÖSENDEN Takt, keine aus den sechs danach).
+ *  D1   (Z3 N4) Ein Offline-Wechsel mit einem verworfenen Eintrag im Dokument (`ohneLoeschen`) erzeugt kein zweites
+ *       ZDO unter der id; `ersetzteIds` zählt ein fremdes ZDO neben einem passenden nur mit Zustand; Bestätigen
+ *       zerstört bei einer im Dokument stehenden id nur die ZDOs mit fremdem Prefab (Truhe samt Inhalt bleibt,
+ *       wenn sie wieder das Dokument-Prefab ist). Fälle R8, R5a, R5b des Angriffs auf Z3 N3.
  *
  * Lauf: npx tsx test/z3n1-live-inproc.ts   (aus server/)
  */
@@ -22,6 +26,8 @@ import { mkdirSync, mkdtempSync, existsSync, readFileSync, renameSync, rmSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LAYOUT_ID_MEMBER } from '@wov/shared';
+import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { bestaetigenAnfrageDatei, bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreLesen } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { quittungLesen, quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { createWovServer } from '../src/WovServer.js';
@@ -236,6 +242,111 @@ try {
       console.warn = origWarn;
     }
     abbauen(u);
+  }
+  // ── D1 (Z3 N4): zwei ZDOs unter einer id, Rücknahme und Bestätigen ──
+  {
+    const B10: Platz[] = Array.from({ length: 10 }, (_, i) => ({ id: `d${i}`, prefab: 'Beech1', x: 10 + i * 3, z: 20 }));
+    const KISTE_D: Platz = { id: 'kiste', prefab: 'piece_chest_wood', x: 200, z: 200 };
+    const INHALT = '[[Wood,9]]';
+    const TRUHE = `1:piece_chest_wood+${INHALT}`;
+    const doc = (prefab: string, extra: Platz[] = []): Platz[] => [...B10, { ...KISTE_D, prefab }, ...extra];
+    type Neu = Umgebung & { welten: string; anfragePfad: string; server: ReturnType<typeof createWovServer> };
+    const aufD = (name: string): Neu => {
+      const u = aufsetzen(name, [...B10, KISTE_D]);
+      u.server.zdos.getAllZDOs().find((z: ZDO) => z.getString(LAYOUT_ID_MEMBER) === 'kiste')!.setString('truheInhalt', INHALT);
+      const welten = join(u.layout, '..', 'worlds');
+      return { ...u, welten, anfragePfad: bestaetigenAnfrageDatei(welten, 'z3n1') };
+    };
+    const prefabHash = (u: Neu, n: string): number => (u.server as unknown as { prefabs: { getByName(n: string): { hash: number } | undefined } }).prefabs.getByName(n)!.hash;
+    const zdosVon = (u: Neu, id: string): string => {
+      const namen = ['Beech1', 'Oak1', 'piece_chest_wood'];
+      const l = u.server.zdos.getAllZDOs().filter((z: ZDO) => z.getString(LAYOUT_ID_MEMBER) === id);
+      return l.length === 0 ? '0' : `${l.length}:` + l.map((z: ZDO) => `${namen.find((n) => prefabHash(u, n) === z.prefabHash) ?? z.prefabHash}${z.getString('truheInhalt') ? `+${z.getString('truheInhalt')}` : ''}`).join('|');
+    };
+    const sperre = (u: Neu): string => {
+      const x = loeschsperreLesen(u.loeschsperrePfad);
+      return x === null ? 'KEINE' : x === 'kaputt' ? 'KAPUTT' : x.ids.join(',');
+    };
+    const stumm = <T,>(f: () => T): T => {
+      const o = { w: console.warn, e: console.error, l: console.log };
+      console.warn = console.error = console.log = (): void => undefined;
+      try {
+        return f();
+      } finally {
+        console.warn = o.w;
+        console.error = o.e;
+        console.log = o.l;
+      }
+    };
+    const schreibeH = (u: Neu, d: Platz[]): string => {
+      const text = JSON.stringify(dokument(d));
+      const temp = `${u.layout}.probe.tmp`;
+      writeFileSync(temp, text);
+      renameSync(temp, u.layout);
+      return layoutHash(text);
+    };
+    const schreibTick = (u: Neu, d: Platz[]): string => stumm(() => {
+      const h = schreibeH(u, d);
+      u.tick();
+      return h;
+    });
+    const bestaetige = (u: Neu, h: string): void => {
+      bestaetigenAnfrageSchreiben(u.anfragePfad, h);
+      stumm(() => u.tick());
+    };
+    const neustartD = (u: Neu, vorBoot: () => void): Neu => {
+      u.server.stop();
+      vorBoot();
+      return stumm(() => {
+        const server = createWovServer({
+          port: 0, everyoneAdmin: true, worldName: 'z3n1', worldSeed: 'z3n1-live', worldFeatures: false, worldVegetation: false,
+          worldsDir: u.welten, kontenDir: join(u.welten, '..', 'konten'), worldMode: 'layout', worldLayoutPath: u.layout, saveIntervalMs: 3600_000,
+        });
+        server.start();
+        const wache = (server as unknown as { layoutWache: { tick(): void } }).layoutWache;
+        wache.tick();
+        return { ...u, server, tick: () => wache.tick(), layoutIds: () => new Set(server.zdos.getAllZDOs().map((z: ZDO) => z.getString(LAYOUT_ID_MEMBER)).filter((id): id is string => !!id)) };
+      });
+    };
+    const bad = { id: 'bad', prefab: 'Beech1', x: 'abc', z: 1 } as unknown as Platz;
+
+    // R8: Offline-Wechsel + verworfener Eintrag → kein zweites ZDO; Wechsel live → Sperre, Rücknahme hebt sie auf, Bestätigen zerstört die Truhe nicht
+    {
+      let u = aufD('d1-r8');
+      u = neustartD(u, () => schreibeH(u, doc('Beech1', [bad])));
+      check('D1/R8 Boot mit verworfenem Eintrag: die Truhe steht allein, KEIN zweites ZDO', zdosVon(u, 'kiste') === TRUHE, zdosVon(u, 'kiste'));
+      check('D1/R8 ... und keine Sperre (nichts wurde ersetzt)', sperre(u) === 'KEINE', sperre(u));
+      schreibTick(u, doc('Oak1'));
+      check('D1/R8 live Wechsel → Oak1: Sperre auf kiste, Truhe steht', sperre(u) === 'kiste' && zdosVon(u, 'kiste') === TRUHE, `${sperre(u)} ${zdosVon(u, 'kiste')}`);
+      const hR = schreibTick(u, doc('piece_chest_wood'));
+      check('D1/R8 Rücknahme hebt die Sperre auf, Truhe mit Inhalt', sperre(u) === 'KEINE' && zdosVon(u, 'kiste') === TRUHE, `${sperre(u)} ${zdosVon(u, 'kiste')}`);
+      u = neustartD(u, () => undefined);
+      bestaetige(u, hR);
+      check('D1/R8 Neustart + Bestätigen mit dem Rücknahme-Hash: Truheninhalt lebt', zdosVon(u, 'kiste') === TRUHE, zdosVon(u, 'kiste'));
+      abbauen(u);
+    }
+    // R5 (Altbestand): zwei ZDOs unter kiste — Truhe mit Inhalt + ein zustandsloser Baum mit dem Dokument-Prefab
+    for (const variante of ['a', 'b'] as const) {
+      let u = aufD(`d1-r5${variante}`);
+      const h = schreibTick(u, doc('Beech1'));
+      const k = u.server.zdos.getAllZDOs().find((z: ZDO) => z.getString(LAYOUT_ID_MEMBER) === 'kiste')!;
+      const extra = u.server.zdos.createZDO(prefabHash(u, 'Beech1'), { x: k.position.x, y: k.position.y, z: k.position.z });
+      extra.setString(LAYOUT_ID_MEMBER, 'kiste');
+      u = neustartD(u, () => undefined);
+      check(`D1/R5${variante} Boot Altbestand (Dokument Beech1): Truhe mit Inhalt lebt, Sperre hält`, sperre(u) === 'kiste' && zdosVon(u, 'kiste').includes(INHALT), `${sperre(u)} ${zdosVon(u, 'kiste')}`);
+      if (variante === 'a') {
+        bestaetige(u, h);
+        check('D1/R5a Bestätigen (Dokument Beech1): NUR die Truhe fällt, der passende Baum bleibt (genau 1 Beech1)', zdosVon(u, 'kiste') === '1:Beech1' && sperre(u) === 'KEINE', `${zdosVon(u, 'kiste')} ${sperre(u)}`);
+      } else {
+        // Rücknahme: das Dokument sagt wieder Truhe; der zustandslose Baum daneben hält die Sperre nicht
+        const hR = schreibTick(u, doc('piece_chest_wood'));
+        check('D1/R5b Rücknahme: die Sperre fällt (ein zustandsloses fremdes ZDO hält sie nicht)', sperre(u) === 'KEINE', `${sperre(u)} ${zdosVon(u, 'kiste')}`);
+        check('D1/R5b Rücknahme: Truhe mit Inhalt lebt', zdosVon(u, 'kiste').includes(INHALT), zdosVon(u, 'kiste'));
+        bestaetige(u, hR);
+        check('D1/R5b Bestätigen nach der Rücknahme: Truheninhalt lebt', zdosVon(u, 'kiste').includes(INHALT), zdosVon(u, 'kiste'));
+      }
+      abbauen(u);
+    }
   }
 } finally {
   if (existsSync(WURZEL)) rmSync(WURZEL, { recursive: true, force: true });

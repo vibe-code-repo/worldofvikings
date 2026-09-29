@@ -29,29 +29,68 @@ function check(name: string, cond: boolean, detail = ''): void {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UI = resolve(HERE, '..', 'src', 'ui');
 
-// ── 1. by syntax tree ───────────────────────────────────────────────
-console.log('\n[1] no HTML injection path in the tooltip and panel code (syntax tree)');
+// ── 1. by syntax tree with the type checker ─────────────────────────
+console.log('\n[1] no HTML injection path in the tooltip and panel code (syntax tree + types)');
+/*
+ * What is forbidden in these files, found on the TYPED syntax tree (comments and strings do not count):
+ *  - any property / method NAMED innerHTML, outerHTML, insertAdjacentHTML, createContextualFragment, srcdoc,
+ *    DOMParser, document.write / writeln: as access, as object-literal key (`Object.assign(el, { innerHTML })`),
+ *    shorthand, destructuring, or string-literal element access;
+ *  - element access on a DOM node with anything but a numeric literal (`kopf[k] = name` with a computed key): the
+ *    type checker tells a DOM node (it has a property `innerHTML`) from an array or a map;
+ *  - Object.assign / defineProperty / defineProperties / setPrototypeOf / Reflect.set with a DOM node as first
+ *    argument, and setAttribute on any node (attribute injection: onerror, srcdoc).
+ * Limits: code that hands a DOM node through `any`/`unknown` (the checker cannot see the type) and code in OTHER
+ * files. The fake-DOM part below still catches the tooltip itself through its setter counter.
+ * The one allowed exception is the fixed catalogue text `character.hint` in CharakterPanel.
+ */
+const NAMEN = /^(innerHTML|outerHTML|insertAdjacentHTML|createContextualFragment|srcdoc|DOMParser|writeln)$/;
+const DATEIEN = ['ItemTooltip.ts', 'itemTooltipInhalt.ts', 'Hotbar.ts', 'InventoryPanel.ts', 'ContainerPanel.ts', 'CraftingPanel.ts', 'CharakterPanel.ts'];
+const clientWurzel = resolve(HERE, '..');
+const cfg = ts.readConfigFile(resolve(clientWurzel, 'tsconfig.json'), ts.sys.readFile);
+const optionen = ts.parseJsonConfigFileContent(cfg.config, ts.sys, clientWurzel).options;
+const programm = ts.createProgram(DATEIEN.map((f) => resolve(UI, f)), { ...optionen, noEmit: true });
+const pruefer = programm.getTypeChecker();
+const istDomKnoten = (n: ts.Expression): boolean => {
+  const t = pruefer.getTypeAtLocation(n);
+  return t.getProperty('innerHTML') !== undefined || (t.isUnion() && t.types.some((u) => u.getProperty('innerHTML') !== undefined));
+};
 function htmlZugriffe(datei: string): string[] {
-  const quelle = readFileSync(resolve(UI, datei), 'utf8');
-  const sf = ts.createSourceFile(datei, quelle, ts.ScriptTarget.Latest, true);
+  const sf = programm.getSourceFile(resolve(UI, datei))!;
   const treffer: string[] = [];
+  const zeile = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
   const geh = (n: ts.Node): void => {
-    if (ts.isPropertyAccessExpression(n) && ['innerHTML', 'outerHTML', 'insertAdjacentHTML'].includes(n.name.text)) {
-      treffer.push(`${n.name.text} @${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}: ${n.parent.getText().slice(0, 70)}`);
+    if (ts.isPropertyAccessExpression(n)) {
+      if (NAMEN.test(n.name.text)) treffer.push(`${n.name.text} @${zeile(n)}: ${n.parent.getText().slice(0, 70)}`);
+      if (n.name.text === 'write' && n.expression.getText() === 'document') treffer.push(`document.write @${zeile(n)}`);
+      if (n.name.text === 'setAttribute' || n.name.text === 'setAttributeNS') treffer.push(`${n.name.text} @${zeile(n)}`);
     }
-    if (ts.isPropertyAccessExpression(n) && n.name.text === 'write' && n.expression.getText() === 'document') treffer.push('document.write');
-    if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression) && /HTML$/.test(n.argumentExpression.text)) treffer.push(`["${n.argumentExpression.text}"]`);
+    if ((ts.isPropertyAssignment(n) || ts.isMethodDeclaration(n) || ts.isBindingElement(n)) && n.name && (ts.isIdentifier(n.name) || ts.isStringLiteralLike(n.name)) && NAMEN.test(n.name.text)) treffer.push(`key ${n.name.text} @${zeile(n)}`);
+    if (ts.isBindingElement(n) && n.propertyName && (ts.isIdentifier(n.propertyName) || ts.isStringLiteralLike(n.propertyName)) && NAMEN.test(n.propertyName.text)) treffer.push(`destructure ${n.propertyName.text} @${zeile(n)}`);
+    if (ts.isShorthandPropertyAssignment(n) && NAMEN.test(n.name.text)) treffer.push(`shorthand ${n.name.text} @${zeile(n)}`);
+    if (ts.isElementAccessExpression(n)) {
+      const arg = n.argumentExpression;
+      if (ts.isStringLiteralLike(arg) && NAMEN.test(arg.text)) treffer.push(`["${arg.text}"] @${zeile(n)}`);
+      else if (!ts.isNumericLiteral(arg) && istDomKnoten(n.expression)) treffer.push(`computed key on a DOM node @${zeile(n)}: ${n.getText().slice(0, 50)}`);
+    }
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+      const objekt = n.expression.expression.getText();
+      const fn = n.expression.name.text;
+      const erst = n.arguments[0];
+      if (((objekt === 'Object' && ['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf'].includes(fn)) || (objekt === 'Reflect' && fn === 'set')) && erst && istDomKnoten(erst)) treffer.push(`${objekt}.${fn} on a DOM node @${zeile(n)}`);
+    }
+    if (ts.isNewExpression(n) && n.expression.getText() === 'DOMParser') treffer.push(`new DOMParser @${zeile(n)}`);
     ts.forEachChild(n, geh);
   };
   geh(sf);
   return treffer;
 }
-for (const f of ['ItemTooltip.ts', 'itemTooltipInhalt.ts', 'Hotbar.ts', 'InventoryPanel.ts', 'ContainerPanel.ts', 'CraftingPanel.ts']) {
+for (const f of DATEIEN.filter((d) => d !== 'CharakterPanel.ts')) {
   const t = htmlZugriffe(f);
-  check(`${f}: no innerHTML/outerHTML/insertAdjacentHTML/document.write`, t.length === 0, t.join('; '));
+  check(`${f}: no HTML injection path`, t.length === 0, t.join('; '));
 }
 const charTreffer = htmlZugriffe('CharakterPanel.ts');
-check('CharakterPanel.ts: exactly one innerHTML, the fixed catalogue text character.hint', charTreffer.length === 1 && charTreffer[0].includes("'character.hint'"), charTreffer.join('; '));
+check('CharakterPanel.ts: exactly one innerHTML, the fixed catalogue text character.hint', charTreffer.length === 1 && charTreffer[0].startsWith('innerHTML') && charTreffer[0].includes("'character.hint'"), charTreffer.join('; '));
 
 // ── fake DOM ────────────────────────────────────────────────────────
 type Handler = (e: Record<string, unknown>) => void;

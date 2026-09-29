@@ -6,6 +6,14 @@ import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 type MaskState = { original: number[]; partitions: Map<string, number[]>; key: string };
 const masks = new WeakMap<AbstractMesh, MaskState>();
 
+/**
+ * Retired since 27.09.2026 ("Wikingerin 71 Rüstung"): no figure's armorBodyForFigure() returns bodyProfile
+ * legacy-female-v1 any more (the Wikingerin moved to the 71-bone wov-female-v1 body), so the guard below always
+ * returns early for every real caller and this function is a no-op in play. Kept, not deleted, in case a future
+ * body ever needs the 51-bone triangle-partition mask again; `armorBodyForFigure`'s return type is intentionally
+ * widened (Required<ArmorBodyPolicy>, not the narrower literal TypeScript would otherwise infer) so this
+ * comparison keeps type-checking against a profile no live figure currently produces.
+ */
 /** Call only for freshly loaded BODY meshes, never an entire scene with attachments. */
 export function prepareLegacyFemaleBody(meshes: readonly AbstractMesh[], figure: string): void {
   if (armorBodyForFigure(figure)?.bodyProfile !== 'legacy-female-v1') return;

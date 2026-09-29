@@ -177,6 +177,18 @@ const KERN = [
   */
   ['tools/armor/test', 'skin-gate-selftest.mjs'],
   /*
+    All 33 female armor items (five sets) against the real, shipped
+    WikingerinKoerper.glb (71 bones, since 27.09.2026): every item's skin
+    joints match the body's joints by name and order, and canWearArmor
+    accepts the shipped wov-female-v1 policy and rejects the retired
+    legacy-female-v1 profile. Needs the real body and item GLBs.
+  */
+  [
+    'tools/armor/test',
+    'female-71-skin.mjs',
+    brauchtModelle('assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  /*
     The four thin armor build entry points (Seidraven/Emberrage, male/female)
     check their command line before any build starts: run under python3 with a
     stand-in for the call that would start build_common.py, good command lines
@@ -1644,6 +1656,9 @@ const KERN = [
   //
   // Cow and wolf join the switch: a tree that predates them holds
   // PlayerAvatar.glb but not the two files and would go red on the new manifest.
+  //
+  // B9.6: the hen joins for the same reason — a tree that predates it has
+  // Kuh.glb/Wolf.glb but not Huhn.glb.
   [
     'tools',
     'test/manifest-vollstaendig.ts',
@@ -1651,6 +1666,7 @@ const KERN = [
       'assets/models/PlayerAvatar.glb',
       'assets/models/Kuh.glb',
       'assets/models/Wolf.glb',
+      'assets/models/Huhn.glb',
     ),
   ],
   /*
@@ -2298,6 +2314,13 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  // B9.6: das Huhn im Spiel — Tabellen (Spawn-Tabelle, Registry, Leben,
+  // Manifest-Clips, renderScale gegen die IDLE-Pose aus B9.6/Blender statt
+  // der Bindepose des Manifests), das Spawnsystem mit den ausgelieferten
+  // Zahlen (Wiese, `anim`-Member folgt der Bewegung, greift nie an) und der
+  // echte Paketweg: Treffer, Tod nach einem Steinaxt-Schlag, Beute im
+  // Inventar. ~40 s.
+  ['server', 'test/b9-6-huhn.ts'],
   // PR #119 N1 (Befund B4/M9): uebergebeAnKlon() gibt einen aufgegebenen
   // Klon aus vegetationsAufgegebeneKlone frei, BEVOR es ihn per nimmAuf()
   // anmeldet — sonst blockiert die Sperre die eigene Freigabe, und weder
@@ -2308,6 +2331,18 @@ const KERN = [
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  // G3 Stufe 1: Namensschilder, Objektnamen und das Fadenkreuz-Ziel projizierten
+  // mit der TAA-verzitterten Projektionsmatrix und sprangen deshalb bei
+  // stehender Kamera jedes Bild um den Halton-Versatz. transformOhneJitter()
+  // (PostProcessing.ts) setzt den Versatz zurueck; drei echte Mutanten (je
+  // Aufrufstelle) bestaetigen, dass der Test die Stellen einzeln trifft.
+  ['client', 'test/schilder-transform-ohne-jitter.ts'],
+  // Wolfsbalance: chase speed rescaled from the real B9.2 GPU trace stays
+  // under 3 % p90 foot-sliding (was ~11-14 % at the old 5.5 m/s), and at
+  // most two of three wolves pinned on one peer ever strike at once, with
+  // the third taking a freed slot when an active attacker dies.
+  ['server', 'test/wolf-rudel-begrenzung.ts'],
+  ['server', 'test/wolf-zielschaden.ts'],
   ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
   /*
     Karte D1 (Zweitdomains/Ablösung): die gemeinsame Ursprungs-Liste von
@@ -2334,6 +2369,21 @@ const KERN = [
   // assets/manifest.json (tools/asset-manifest.mjs) gegen den echten
   // Bestand unter assets/store/audio bzw. assets/store/ui.
   ['tools', 'test/manifest-ton-symbole.ts', brauchtModelle('assets/store/audio', 'assets/store/ui')],
+  /*
+    Karte W3-Reste (2026-09-28), U1-U3/N3/N5/N6/Punkt 10: Namensorakel ueber
+    Unicode-Schreibweisen (Kelvin-Zeichen, Å/å), ungekuerzte Schluessel,
+    verfruehtes Aufraeumen, 409 bei Generationswechsel, IPv6-/64-Zaehlung,
+    Variantenselektor hinter Keycap-Basen, "Editor" als reservierter
+    Kontocharaktername. Echter node:http-Server, ~1-2 s (U3 stellt die Uhr).
+  */
+  ['server', 'test/konto-namensorakel.ts'],
+  /*
+    Karte W3-Reste (2026-09-28), N-3: Die Forum-Schreibrouten pruefen das
+    Konto-Token nach dem Lesen des Koerpers erneut (dasselbe Fenster wie
+    N4 in KontoApi.ts, hier fuer ForumApi.ts). In-Process-Attrappen wie
+    server/test/forum-api.ts, kein Netz, ~0.2 s.
+  */
+  ['server', 'test/forum-token-nach-koerper.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

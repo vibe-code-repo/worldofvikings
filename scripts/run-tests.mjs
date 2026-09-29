@@ -2620,6 +2620,13 @@ const KERN = [
   */
   ['shared', 'test/kampf-attribute.ts'],
   ['server', 'test/kampf-attribute.ts'],
+  /*
+    Waldambiente (2026-09-29): Walddichte gegen die echte Streuung der
+    dev.json (Korrelation, ~12 s) und Lautstaerke-Regeln der Schleifen
+    (Dichte, Glaettung, Tag/Nacht, Aus-Faelle). Rein, keine Assets noetig.
+  */
+  ['shared', 'test/wald-dichte.ts'],
+  ['client', 'test/wald-ambiente.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

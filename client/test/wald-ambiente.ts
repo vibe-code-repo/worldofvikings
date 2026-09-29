@@ -1,0 +1,276 @@
+/**
+ * Waldambiente (client/src/engine/Audio/WaldAmbiente.ts): Dichte → Lautstärke,
+ * Glättung, Tag/Nacht, Aus-Fälle, Ladeverhalten, Regler, Manifest.
+ *
+ * Reine Logik mit einer Attrappe der Ton-Engine (kein Browser, kein Babylon).
+ * Die Dichte kommt aus shared/src/worldgen/waldDichte.ts mit einer künstlichen
+ * Waldquelle (Wald ab x = 0, oder ein Baumstand ohne Dichte).
+ *
+ * Lauf: npx tsx client/test/wald-ambiente.ts   (aus dem Repo-Wurzel)
+ */
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { FRACTION_SUNRISE, FRACTION_SUNSET, WATER_LEVEL } from '@wov/shared';
+import { FOLIAGE } from '@wov/shared/src/vegetation.js';
+import { istWaldbaum, waldStufe, type WaldQuelle } from '@wov/shared/src/worldgen/waldDichte.js';
+import {
+  GRUPPE_VOEGEL,
+  GRUPPE_WIND,
+  RAMPE_S,
+  WALD_WERTE,
+  WaldAmbiente,
+  pegelZuLautstaerke,
+  rampe,
+  tagesAnteil,
+  weltZuQuelle,
+  zielPegel,
+  type AmbienteAudio,
+  type SchleifenHandle,
+} from '../src/engine/Audio/WaldAmbiente';
+import { readAudioManifest, groupByBus } from '../src/engine/Audio/AudioManifest';
+import { AUDIO_VORGABEN, BUS_VORGABE, berechnePegel } from '../src/engine/Audio/AudioEinstellungen';
+
+let fehler = 0;
+function pruefe(name: string, an: boolean, detail = ''): void {
+  if (an) console.log(`  PASS ${name}${detail ? ` (${detail})` : ''}`);
+  else {
+    console.error(`  FAIL ${name}${detail ? ` (${detail})` : ''}`);
+    fehler += 1;
+  }
+}
+
+const wurzel = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const BAUMNAMEN = FOLIAGE.filter((v) => istWaldbaum(v.prefabName)).map((v) => v.prefabName);
+
+/** Wald ab x >= 0 (kuratierte Baumliste, Waldfaktor 0,5), davor Wiese ohne Liste. */
+const waldAbNull: WaldQuelle = {
+  getForestFactor: () => 0.5,
+  regionAt: (x) => (x >= 0 ? { vegetation: BAUMNAMEN } : {}),
+};
+/** Wiese mit einzelnen Bäumen: kuratiert mit einer einzigen seltenen Art (≈ 1 Baum je Zone). */
+const einzelBaeume: WaldQuelle = {
+  getForestFactor: () => 0.5,
+  regionAt: () => ({ vegetation: ['vegetation-massive-tree-1a3'] }),
+};
+const ueberallWald: WaldQuelle = { getForestFactor: () => 0.5, regionAt: () => ({ vegetation: BAUMNAMEN }) };
+
+interface Attrappe {
+  audio: AmbienteAudio;
+  aufrufe: string[];
+  handles: Map<string, { volume: number; gestoppt: boolean }>;
+  entsperren(): void;
+}
+function attrappe(gesperrt = false): Attrappe {
+  let gate = gesperrt;
+  const aufrufe: string[] = [];
+  const handles = new Map<string, { volume: number; gestoppt: boolean }>();
+  const audio: AmbienteAudio = {
+    diagnose: {},
+    startLoopAsync: async (_bus, gruppe): Promise<SchleifenHandle | null> => {
+      aufrufe.push(gruppe);
+      if (gate) return null;
+      const h = { volume: -1, gestoppt: false };
+      handles.set(gruppe, h);
+      return { get volume() { return h.volume; }, set volume(v: number) { h.volume = v; }, stop: () => { h.gestoppt = true; } };
+    },
+  };
+  return { audio, aufrufe, handles, entsperren: () => { gate = false; } };
+}
+
+interface Bild { t: number; x: number; baeume: number; vogel: number; wind: number }
+interface LaufOptionen {
+  quelle: WaldQuelle | null;
+  tageszeit?: number | ((t: number) => number);
+  x0: number;
+  vx: number; // m/s
+  y?: number;
+  dungeon?: boolean;
+  sekunden: number;
+  dt?: number;
+  a?: Attrappe;
+  entsperrtNach?: number;
+}
+async function lauf(o: LaufOptionen): Promise<{ bilder: Bild[]; a: Attrappe }> {
+  const a = o.a ?? attrappe();
+  const figur = { position: { x: o.x0, y: o.y ?? WATER_LEVEL + 20, z: 0 }, dungeonMode: o.dungeon ?? false };
+  const feste = typeof o.tageszeit === 'number' ? o.tageszeit : 0.5;
+  const zeitFn = typeof o.tageszeit === 'function' ? o.tageszeit : (): number => feste;
+  let t = 0;
+  const w = new WaldAmbiente(() => figur, () => o.quelle, () => zeitFn(t), () => a.audio);
+  const dt = o.dt ?? 1 / 60;
+  const bilder: Bild[] = [];
+  for (; t < o.sekunden; t += dt) {
+    if (o.entsperrtNach !== undefined && t >= o.entsperrtNach) a.entsperren();
+    figur.position.x = o.x0 + o.vx * t;
+    w.update(dt);
+    await Promise.resolve(); // Zusagen der Attrappe abwarten
+    const d = a.audio.diagnose!.wald as { baeume: number; vogelLautstaerke: number; windLautstaerke: number } | undefined;
+    bilder.push({ t, x: figur.position.x, baeume: d?.baeume ?? 0, vogel: d?.vogelLautstaerke ?? 0, wind: d?.windLautstaerke ?? 0 });
+  }
+  return { bilder, a };
+}
+const db = (a: number, b: number): number => 20 * Math.log10(b / a);
+const BODEN = 0.00316; // −50 dB: darunter zählt ein Sprung nicht mehr als hörbar
+function groessterSprungDb(werte: number[]): number {
+  let m = 0;
+  for (let i = 1; i < werte.length; i++) if (werte[i] > BODEN && werte[i - 1] > BODEN) m = Math.max(m, Math.abs(db(werte[i - 1], werte[i])));
+  return m;
+}
+
+async function main(): Promise<void> {
+  // ── 1. Kurven ─────────────────────────────────────────────────────
+  console.log('Kurve Baumzahl → Lautstärke (Mittag)');
+  const hoerer = (b: number): number => pegelZuLautstaerke(zielPegel(waldStufe(b, WALD_WERTE.von, WALD_WERTE.voll), 0.5).vogel, WALD_WERTE.vogelMax);
+  pruefe('offene Fläche (0 Bäume): Lautstärke 0', hoerer(0) === 0);
+  pruefe('unter der Schwelle (von): 0', hoerer(WALD_WERTE.von) === 0);
+  pruefe('ab voll: Höchstwert', Math.abs(hoerer(WALD_WERTE.voll) - WALD_WERTE.vogelMax) < 1e-12 && hoerer(1e6) === WALD_WERTE.vogelMax);
+  let monoton = true;
+  let vorher = -1;
+  for (let b = 0; b <= 400; b += 0.25) {
+    const v = hoerer(b);
+    if (v < vorher) monoton = false;
+    vorher = v;
+  }
+  pruefe('monoton steigend über 0…400 Bäume', monoton);
+  pruefe('Rampe: höchstens rate·dt je Schritt, trifft das Ziel', rampe(0, 1, 0.4, 0.5) === 0.2 && rampe(0.9, 1, 0.4, 0.5) === 1 && rampe(1, 0, 0.4, 0.5) === 0.8 && rampe(0.1, 0, 0.4, 0.5) === 0);
+
+  console.log('Tag/Nacht');
+  pruefe('Mittag: Tagesanteil 1', tagesAnteil(0.5) === 1);
+  pruefe('Mitternacht: Tagesanteil 0', tagesAnteil(0) === 0 && tagesAnteil(0.99) === 0);
+  pruefe('Sonnenaufgang: Dämmerung (0,2)', Math.abs(tagesAnteil(FRACTION_SUNRISE) - 0.2) < 1e-9, tagesAnteil(FRACTION_SUNRISE).toFixed(3));
+  pruefe('Sonnenuntergang: Dämmerung (0,2)', Math.abs(tagesAnteil(FRACTION_SUNSET) - 0.2) < 1e-9, tagesAnteil(FRACTION_SUNSET).toFixed(3));
+  let morgenMonoton = true;
+  let abendMonoton = true;
+  let v = -1;
+  for (let f = 0.05; f <= 0.3; f += 0.001) {
+    const t = tagesAnteil(f);
+    if (t < v) morgenMonoton = false;
+    v = t;
+  }
+  v = 2;
+  for (let f = 0.7; f <= 0.95; f += 0.001) {
+    const t = tagesAnteil(f);
+    if (t > v) abendMonoton = false;
+    v = t;
+  }
+  pruefe('Morgen: Tagesanteil steigt monoton, Abend: fällt monoton', morgenMonoton && abendMonoton);
+  const dd = zielPegel(1, FRACTION_SUNRISE);
+  pruefe('Dämmerung: Vögel und Wind zugleich leise (Überblendung, Summe = 1)', dd.vogel > 0 && dd.wind > 0 && Math.abs(dd.vogel + dd.wind - 1) < 1e-9, `${dd.vogel.toFixed(2)} + ${dd.wind.toFixed(2)}`);
+
+  // ── 2. Lauf: von der Wiese in den Wald ────────────────────────────
+  console.log('Lauf Wiese → Wald (60 Bilder/s, 4,5 m/s)');
+  const r60 = await lauf({ quelle: waldAbNull, x0: -120, vx: 4.5, sekunden: 60 });
+  const vogel = r60.bilder.map((b) => b.vogel);
+  const ersteHoerbar = r60.bilder.find((b) => b.vogel > BODEN);
+  pruefe('auf der Wiese still', r60.bilder.filter((b) => b.x < -80).every((b) => b.vogel === 0 && b.baeume === 0));
+  pruefe('im Wald nach der Überblendung Höchstwert', vogel[vogel.length - 1] > 0.99 * WALD_WERTE.vogelMax, vogel[vogel.length - 1].toFixed(3));
+  pruefe('kein Absinken beim Hineinlaufen (monoton nicht fallend)', vogel.every((x, i) => i === 0 || x >= vogel[i - 1] - 1e-12));
+  const s60 = groessterSprungDb(vogel);
+  pruefe('größter Sprung je Bild (60/s) ≤ 2,1 dB über −50 dBFS', s60 <= 2.1, `${s60.toFixed(2)} dB`);
+  const t0 = ersteHoerbar?.t ?? 0;
+  const tVoll = r60.bilder.find((b) => b.vogel > 0.99 * WALD_WERTE.vogelMax)?.t ?? 0;
+  pruefe('Überblendung dauert mindestens die Rampe (2,5 s) vom Hörbaren bis Voll', tVoll - t0 >= RAMPE_S * 0.9, `${(tVoll - t0).toFixed(2)} s`);
+
+  console.log('Lauf 30 Bilder/s');
+  const r30 = await lauf({ quelle: waldAbNull, x0: -120, vx: 4.5, sekunden: 60, dt: 1 / 30 });
+  const s30 = groessterSprungDb(r30.bilder.map((b) => b.vogel));
+  pruefe('größter Sprung je Bild (30/s) ≤ 4,0 dB', s30 <= 4.0, `${s30.toFixed(2)} dB`);
+
+  console.log('Lauf Wald → Wiese (zurück)');
+  const zurueck = await lauf({ quelle: waldAbNull, x0: 200, vx: -4.5, sekunden: 75 });
+  const vz = zurueck.bilder.map((b) => b.vogel);
+  pruefe('im Wald zuerst laut, auf der Wiese am Ende 0', vz[vz.length - 1] === 0 && Math.max(...vz) > 0.9);
+  const spitze = vz.indexOf(Math.max(...vz));
+  pruefe('nach der Spitze nur noch fallend (kein Anstieg beim Herauslaufen)', vz.slice(spitze).every((x, i, arr) => i === 0 || x <= arr[i - 1] + 1e-12));
+  pruefe('Sprung je Bild ≤ 2,1 dB', groessterSprungDb(vz) <= 2.1, `${groessterSprungDb(vz).toFixed(2)} dB`);
+
+  console.log('Einzelne Bäume am Weg');
+  const einzel = await lauf({ quelle: einzelBaeume, x0: -300, vx: 4.5, sekunden: 120 });
+  const maxEinzel = Math.max(...einzel.bilder.map((b) => b.vogel));
+  const maxBaeume = Math.max(...einzel.bilder.map((b) => b.baeume));
+  pruefe('Wiese mit Einzelbäumen bleibt still (kein Sprung, gar keine Lautstärke)', maxEinzel === 0, `Lautstärke max ${maxEinzel}, Bäume im Umkreis max ${maxBaeume.toFixed(1)}`);
+  pruefe('… weil die Erwartung unter der Schwelle liegt', maxBaeume < WALD_WERTE.von, `${maxBaeume.toFixed(1)} < ${WALD_WERTE.von}`);
+
+  console.log('Sprung in der Quelle (Teleport in dichten Wald)');
+  const teleWald = attrappe();
+  const figur = { position: { x: 100, y: WATER_LEVEL + 20, z: 0 }, dungeonMode: false };
+  const w = new WaldAmbiente(() => figur, () => waldAbNull, () => 0.5, () => teleWald.audio);
+  const spruenge: number[] = [];
+  for (let i = 0; i < 300; i++) {
+    w.update(1 / 60);
+    await Promise.resolve();
+    spruenge.push((teleWald.audio.diagnose!.wald as { vogelLautstaerke: number }).vogelLautstaerke);
+  }
+  const nach1s = spruenge[59];
+  pruefe('nach dem Teleport in den Wald höchstens (1 s / 2,5 s)² des Höchstwerts nach 1 s', nach1s <= (1 / RAMPE_S) ** 2 * WALD_WERTE.vogelMax + 1e-9, nach1s.toFixed(4));
+  pruefe('… und Sprung je Bild ≤ 2,1 dB', groessterSprungDb(spruenge) <= 2.1, `${groessterSprungDb(spruenge).toFixed(2)} dB`);
+
+  // ── 3. Tag und Nacht im Wald ──────────────────────────────────────
+  console.log('Tag/Nacht im dichten Wald (Lauf, 20 s Stand)');
+  const tag = await lauf({ quelle: ueberallWald, x0: 0, vx: 0, sekunden: 20, tageszeit: 0.5 });
+  const nacht = await lauf({ quelle: ueberallWald, x0: 0, vx: 0, sekunden: 20, tageszeit: 0.0 });
+  const tEnde = tag.bilder[tag.bilder.length - 1];
+  const nEnde = nacht.bilder[nacht.bilder.length - 1];
+  pruefe('Mittag: Vögel voll, Wind 0', tEnde.vogel > 0.99 * WALD_WERTE.vogelMax && tEnde.wind === 0, `${tEnde.vogel.toFixed(3)} / ${tEnde.wind}`);
+  pruefe('Mitternacht: Vögel 0, leiser Wind', nEnde.vogel === 0 && Math.abs(nEnde.wind - WALD_WERTE.windMax) < 0.01 * WALD_WERTE.windMax, `${nEnde.vogel} / ${nEnde.wind.toFixed(3)}`);
+  pruefe('Nachtwind leiser als Tagesvögel', nEnde.wind < tEnde.vogel);
+  pruefe('Nacht lädt nur die Wind-Schleife, Tag nur die Vögel', nacht.a.aufrufe.length > 0 && nacht.a.aufrufe.every((g) => g === GRUPPE_WIND) && tag.a.aufrufe.every((g) => g === GRUPPE_VOEGEL) && tag.a.aufrufe.length > 0, `Nacht ${[...new Set(nacht.a.aufrufe)]}, Tag ${[...new Set(tag.a.aufrufe)]}`);
+  const wechsel = await lauf({ quelle: ueberallWald, x0: 0, vx: 0, sekunden: 90, tageszeit: (t) => 0.05 + t * (0.25 / 90) }); // Nacht → Morgen in 90 s
+  pruefe('Nacht → Morgen: Sprung je Bild (Vögel) ≤ 2,1 dB', groessterSprungDb(wechsel.bilder.map((b) => b.vogel)) <= 2.1, `${groessterSprungDb(wechsel.bilder.map((b) => b.vogel)).toFixed(2)} dB`);
+  pruefe('Nacht → Morgen: Sprung je Bild (Wind) ≤ 2,1 dB', groessterSprungDb(wechsel.bilder.map((b) => b.wind)) <= 2.1, `${groessterSprungDb(wechsel.bilder.map((b) => b.wind)).toFixed(2)} dB`);
+
+  // ── 4. Aus-Fälle ──────────────────────────────────────────────────
+  console.log('Aus-Fälle');
+  const dung = await lauf({ quelle: ueberallWald, x0: 0, vx: 0, sekunden: 20, dungeon: true });
+  pruefe('Dungeon: still', dung.bilder.every((b) => b.vogel === 0 && b.wind === 0) && dung.a.aufrufe.length === 0);
+  const tief = await lauf({ quelle: ueberallWald, x0: 0, vx: 0, sekunden: 20, y: WATER_LEVEL - 0.6 });
+  pruefe('unter Wasser (0,6 m tief): still', tief.bilder.every((b) => b.vogel === 0));
+  const knie = await lauf({ quelle: ueberallWald, x0: 0, vx: 0, sekunden: 20, y: WATER_LEVEL - 0.3 });
+  pruefe('Wasser bis Knie (0,3 m): läuft', knie.bilder[knie.bilder.length - 1].vogel > 0.9);
+  const ohneWelt = await lauf({ quelle: null, x0: 0, vx: 0, sekunden: 5 });
+  pruefe('ohne Welt: still', ohneWelt.bilder.every((b) => b.vogel === 0) && ohneWelt.a.aufrufe.length === 0);
+  const radial = await lauf({ quelle: weltZuQuelle({ geo: { getForestFactor: () => 0.5 }, regionGeo: null }), x0: 0, vx: 0, sekunden: 5 });
+  pruefe('Radialwelt (kein Layout): still', radial.bilder.every((b) => b.vogel === 0));
+
+  // ── 5. Laden ──────────────────────────────────────────────────────
+  console.log('Ladeverhalten');
+  const offen = await lauf({ quelle: waldAbNull, x0: -300, vx: 0, sekunden: 30 });
+  pruefe('offenes Gelände lädt nichts (die Vogel-Datei ist 203 s lang)', offen.a.aufrufe.length === 0);
+  const gesperrt = attrappe(true);
+  const spaet = await lauf({ quelle: ueberallWald, x0: 0, vx: 0, sekunden: 10, a: gesperrt, entsperrtNach: 5 });
+  const vorher5 = spaet.a.aufrufe.length;
+  pruefe('vor dem Entsperren höchstens 1 Versuch je Sekunde', vorher5 <= 11, `${vorher5} Versuche in 10 s`);
+  pruefe('nach dem Entsperren läuft die Schleife und hat Lautstärke', spaet.a.handles.has(GRUPPE_VOEGEL) && (spaet.a.handles.get(GRUPPE_VOEGEL)?.volume ?? 0) > 0, String(spaet.a.handles.get(GRUPPE_VOEGEL)?.volume));
+  pruefe('genau eine Schleife je Gruppe (kein Mehrfachstart)', new Set(tag.a.aufrufe).size === 1 && tag.a.aufrufe.length === 1, `${tag.a.aufrufe.length}`);
+
+  // ── 6. Regler „Umgebung“ ──────────────────────────────────────────
+  console.log('Regler Umgebung');
+  const normal = berechnePegel(AUDIO_VORGABEN);
+  const nullRegler = berechnePegel({ ...AUDIO_VORGABEN, regler: { ...AUDIO_VORGABEN.regler, ambience: 0 } });
+  const maxLautstaerke = tEnde.vogel;
+  pruefe('Regler 100 %: Bus = Vorgabe (0,5), am Ohr Schleife × Bus', normal.bus.ambience === BUS_VORGABE.ambience && Math.abs(maxLautstaerke * normal.bus.ambience - 0.5) < 0.01);
+  pruefe('Regler Umgebung 0 %: Bus 0, am Ohr 0', nullRegler.bus.ambience === 0 && maxLautstaerke * nullRegler.bus.ambience === 0);
+  pruefe('Regler Umgebung 0 % lässt Musik und Welt unberührt', nullRegler.bus.music === normal.bus.music && nullRegler.bus.world === normal.bus.world);
+
+  // ── 7. Manifest und Einbau ────────────────────────────────────────
+  console.log('Manifest und Einbau');
+  const roh = JSON.parse(readFileSync(resolve(wurzel, 'assets/manifest.json'), 'utf-8')) as { toene?: Record<string, { dauer?: number }> };
+  const gruppen = groupByBus(readAudioManifest(roh)).ambience;
+  pruefe('Gruppe Vögel steht im echten toene-Manifest (Bus ambience)', gruppen.has(GRUPPE_VOEGEL) && gruppen.get(GRUPPE_VOEGEL)!.length === 1, [...(gruppen.get(GRUPPE_VOEGEL) ?? [])].join(','));
+  pruefe('Gruppe Wind steht im echten toene-Manifest (Bus ambience)', gruppen.has(GRUPPE_WIND) && gruppen.get(GRUPPE_WIND)!.length === 1, [...(gruppen.get(GRUPPE_WIND) ?? [])].join(','));
+  pruefe('Schleifen sind lang genug (Vögel 203 s, Wind 54 s)', (roh.toene?.['ambience/forest-birds']?.dauer ?? 0) > 200 && (roh.toene?.['ambience/forest-wind-gusts']?.dauer ?? 0) > 50);
+  const modul = readFileSync(resolve(wurzel, 'client/src/engine/Audio/WaldAmbiente.ts'), 'utf-8');
+  const engine = readFileSync(resolve(wurzel, 'client/src/engine/Audio/AudioEngine.ts'), 'utf-8');
+  const hauptdatei = readFileSync(resolve(wurzel, 'client/src/main.ts'), 'utf-8');
+  pruefe('Modul ist rein (kein Babylon-Import)', !/@babylonjs/.test(modul));
+  pruefe('Ton-Engine hat startLoopAsync und diagnose', /async startLoopAsync\(/.test(engine) && /readonly diagnose/.test(engine));
+  pruefe('main.ts hängt es ein (Aufrufstelle je Frame) und bleibt unter 3700 Zeilen', /waldAmbiente\?\.update\(dt\)/.test(hauptdatei) && hauptdatei.split('\n').length < 3700, `${hauptdatei.split('\n').length} Zeilen`);
+
+  if (fehler > 0) {
+    console.error(`\n${fehler} Prüfung(en) fehlgeschlagen`);
+    process.exit(1);
+  }
+  console.log('\nOK');
+}
+void main();

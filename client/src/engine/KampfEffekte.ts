@@ -216,14 +216,63 @@ export class KampfEffekte {
       farbe: new Color4(1, 0.9, 0.3, 1), additiv: true, streuung: 1 });
   }
 
-  /** Ein einmaliger Partikelstoss; raeumt sich selbst auf, wenn alle Teilchen tot sind. */
+  /**
+   * Partikelsysteme je Stossart, wiederverwendet. Frueher entstand je Stoss ein neues System mit
+   * `disposeOnStop = true` — und Babylon entsorgt dabei standardmaessig die TEXTUR des Systems mit.
+   * Die Texturen liegen aber im Cache dieser Klasse und gehoeren allen Stoessen: Nach dem ersten
+   * Stoss war die Textur `punkt_hart.png`/`blut_spritzer.png` entsorgt, jeder weitere Biss (und jeder
+   * weitere Funken- und Splitterstoss) zeichnete nichts mehr. Genau das sah Mike: Blut nur beim
+   * ersten Wolfsbiss (29.09.2026). Jetzt raeumt nur `dispose()` dieser Klasse auf, und je Stossart
+   * gibt es hoechstens POOL_MAX Systeme — ein Rudel erzeugt nie hunderte.
+   */
+  private readonly pool = new Map<string, ParticleSystem[]>();
+  /** Hoechstens so viele Systeme je Stossart (drei Woelfe beissen zusammen in unter einer Sekunde). */
+  static readonly POOL_MAX = 6;
+
+  /** Nur zum Messen: Zahl der Systeme je Stossart. */
+  get poolGroessen(): Record<string, number> {
+    return Object.fromEntries([...this.pool].map(([n, l]) => [n, l.length]));
+  }
+
+  /** Nur zum Messen: die Systeme einer Stossart. */
+  systeme(name: string): readonly ParticleSystem[] {
+    return this.pool.get(name) ?? [];
+  }
+
+  /** Ein einmaliger Partikelstoss aus dem Pool; das System stoppt selbst, wenn alle Teilchen tot sind. */
   private burst(o: {
     name: string; textur: string; pos: Vector3; anzahl: number; groesse: [number, number]; leben: [number, number];
     tempo: [number, number]; farbe: Color4; additiv: boolean; streuung?: number; schwerkraft?: number;
   }): void {
+    let liste = this.pool.get(o.name);
+    if (!liste) {
+      liste = [];
+      this.pool.set(o.name, liste);
+    }
+    // Frei = gestoppt und ausgeklungen. Sonst ein neues, solange Platz ist; ist der Pool voll, wird das
+    // aelteste System neu angestossen (seine letzten Teilchen weichen dem neuen Stoss).
+    let ps = liste.find((p) => !p.isStarted());
+    if (!ps && liste.length < KampfEffekte.POOL_MAX) {
+      ps = this.baueSystem(o);
+      liste.push(ps);
+    } else if (!ps) {
+      ps = liste.shift()!;
+      ps.stop();
+      ps.reset();
+      liste.push(ps);
+    }
+    (ps.emitter as Vector3).copyFrom(o.pos);
+    ps.manualEmitCount = o.anzahl;
+    ps.start();
+  }
+
+  private baueSystem(o: {
+    name: string; textur: string; anzahl: number; groesse: [number, number]; leben: [number, number];
+    tempo: [number, number]; farbe: Color4; additiv: boolean; streuung?: number; schwerkraft?: number;
+  }): ParticleSystem {
     const ps = new ParticleSystem(o.name, Math.max(o.anzahl, 4), this.scene);
     ps.particleTexture = this.textur(o.textur);
-    ps.emitter = o.pos.clone();
+    ps.emitter = Vector3.Zero();
     ps.minEmitBox = Vector3.Zero();
     ps.maxEmitBox = Vector3.Zero();
     const s = o.streuung ?? 0;
@@ -241,13 +290,16 @@ export class KampfEffekte {
     ps.colorDead = new Color4(o.farbe.r, o.farbe.g, o.farbe.b, 0);
     ps.blendMode = o.additiv ? ParticleSystem.BLENDMODE_ADD : ParticleSystem.BLENDMODE_STANDARD;
     ps.emitRate = 0;
-    ps.manualEmitCount = o.anzahl;
     ps.targetStopDuration = 0.05;
-    ps.disposeOnStop = true;
-    ps.start();
+    // NIE `disposeOnStop`: es entsorgt die geteilte Textur mit (s. `pool`).
+    ps.disposeOnStop = false;
+    return ps;
   }
 
   dispose(): void {
+    // Systeme OHNE ihre Textur entsorgen (die Texturen gehoeren dem Cache, s. `pool`), dann die Texturen selbst.
+    for (const liste of this.pool.values()) for (const ps of liste) ps.dispose(false);
+    this.pool.clear();
     this.slashMaterial.dispose(false, false);
     this.slashTextur.dispose();
     for (const t of this.texturen.values()) t.dispose();

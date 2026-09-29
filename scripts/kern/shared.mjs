@@ -221,6 +221,7 @@ export default [
     Ohne Weiche: kein `assets/`, keine GPU, reine Tabellen.
   */
   ['shared', 'test/flora-verdrahtung.ts'],
+  ['shared', 'test/gegenstands-daten.ts'],
   ['shared', 'test/geo-smoke.ts'],
   /*
     Stufe 2 „Look", Bauer Gras und Wasser — drei Waechter ueber drei
@@ -375,6 +376,9 @@ export default [
   // Stable placement ids: the sanitizer derives / keeps / sorts ids, folds exact duplicates.
   ['shared', 'test/platzierungs-ids.ts'],
   ['shared', 'test/region-geo.ts'],
+  // Armor names via translation keys: every set and piece has a textKey that follows the schema and
+  // exists in de.json and en.json; no orphan inhalt.item.* / inhalt.set.* key, no German text in en. <1 s.
+  ['shared', 'test/ruestung-namen.ts'],
   // Plateau diff and tie-break independent of list order: a live-patched geo matches a fresh compile.
   ['shared', 'test/sockel-diff.ts'],
   // ── Asset-Bruecke: der Speicher unter assets/store ─────────────────
@@ -437,6 +441,10 @@ export default [
   // applyTerrainOp-Rueckgabewert (frueher ein flaches Array, jetzt
   // {heights, paint}) — Fix nur im Test. ~7s, kein Server/Socket.
   ['shared', 'test/terrain-comp.ts'],
+  /*
+    Tod und Treffer sichtbar (2026-09-29): die reine Regel Seite → Clip (8 Richtungen, Wire-Indizes, Einmal-Member).
+  */
+  ['shared', 'test/tod-treffer.ts'],
   /*
     F1 „Tageslauf" (12.09.2026): der Tageslauf hat EINE Uhr.
 

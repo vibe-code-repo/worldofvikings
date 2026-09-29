@@ -371,7 +371,11 @@ export class SpawnSystem {
     gibAnim(zdo, 'kreatur');
   }
 
-  update(deltaSec: number, peerPositions: readonly Vector3[]): void {
+  /**
+   * `peerPositions`: every player in this world (despawn and spawn radius). `ziele`: those creatures may
+   * chase and strike (default: all) — a dead player is in the first list, not in the second.
+   */
+  update(deltaSec: number, peerPositions: readonly Vector3[], ziele: readonly Vector3[] = peerPositions): void {
     this.simTime += deltaSec;
 
     if (peerPositions.length === 0) {
@@ -382,7 +386,7 @@ export class SpawnSystem {
 
     this.despawnFar(peerPositions);
     this.spawnTick(deltaSec, peerPositions);
-    this.simulateTick(deltaSec, peerPositions);
+    this.simulateTick(deltaSec, ziele);
   }
 
   // ── Despawn ──────────────────────────────────────────────────────
@@ -490,7 +494,16 @@ export class SpawnSystem {
       }
       // Cheap rest when no player is near (position untouched, bit-exact)
       const nearest = this.nearestPeer(c.zdo.position, peerPositions);
-      if (!nearest || nearest.distSqr > simSqr) continue;
+      if (!nearest) {
+        // No target at all (the only player lies dead): a chaser lets go and stands.
+        if (c.mode === 'chase') {
+          c.mode = 'idle';
+          c.idleUntil = this.simTime + this.rng.rangeFloat(c.entry.idleMinSec, c.entry.idleMaxSec);
+          this.zeigeAnim(c, 'idle');
+        }
+        continue;
+      }
+      if (nearest.distSqr > simSqr) continue;
 
       const entry = c.entry;
 

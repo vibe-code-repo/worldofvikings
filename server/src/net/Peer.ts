@@ -136,6 +136,13 @@ export class Peer {
    * keine Parade. Gesetzt von handleParry, gelesen in applyCreatureAttack.
    */
   paradeBis: number;
+  /**
+   * Tod: Zeitstempel (ms), bis zu dem der Spieler tot am Boden liegt. 0 = lebt.
+   * Solange er laeuft, nimmt der Spieler keinen Schaden, gilt Kreaturen nicht als
+   * Ziel und seine Eingaben (Bewegung, Schlag, Parade, Interaktion) werden
+   * ignoriert; danach belebt ihn der Server (WovServer.belebeFaellige).
+   */
+  totBis = 0;
 
   /** Respawn-Punkt (Bett) — null = Weltspawn. */
   spawnPoint: Vector3 | null;
@@ -207,11 +214,18 @@ export class Peer {
   /** Map visibility flag (BitPack index 0) */
   mapVisible: boolean;
 
-  /** ZDOs known to this peer: zdoid.toString() -> entry */
-  private knownZDOs: Map<string, PeerZDOEntry>;
+  /**
+   * ZDOs known to this peer: zdoid.hashCode() -> entry.
+   *
+   * Der Schlüssel ist die gepackte Zahl (10 Bit Nutzerindex + 22 Bit id), nicht
+   * der String "userId:id": syncZDOs fragt die Karte je ZDO und Tick ab, und
+   * ein Template-String je Abfrage waren Zehntausende Allokationen je Tick.
+   * Eindeutig innerhalb EINES ZDO-Raums; weltWechselVorbereiten leert sie.
+   */
+  private knownZDOs: Map<number, PeerZDOEntry>;
 
-  /** ZDOs to force-send next tick */
-  private forceSend: Set<string>;
+  /** ZDOs to force-send next tick (numeric keys, see knownZDOs) */
+  private forceSend: Set<number>;
 
   /** Invalidated sectors */
   private invalidSectors: Set<string>;
@@ -288,8 +302,7 @@ export class Peer {
 
   /** Check if a ZDO is outdated for this peer. */
   isOutdatedZDO(zdoid: ZDOID, dataRev: number, ownerRev: number): boolean {
-    const key = zdoid.toString();
-    const entry = this.knownZDOs.get(key);
+    const entry = this.knownZDOs.get(zdoid.hashCode());
     if (!entry) return true; // never sent = outdated
     return entry.dataRevision !== dataRev || entry.ownerRevision !== ownerRev;
   }
@@ -304,12 +317,12 @@ export class Peer {
    * die bei 81 Zonen × 20 Hz zusammenkommt.
    */
   syncStand(zdoid: ZDOID): PeerZDOEntry | undefined {
-    return this.knownZDOs.get(zdoid.toString());
+    return this.knownZDOs.get(zdoid.hashCode());
   }
 
   /** Mark a ZDO as known/sent to this peer. */
   markZDOSent(zdoid: ZDOID, dataRev: number, ownerRev: number): void {
-    this.knownZDOs.set(zdoid.toString(), {
+    this.knownZDOs.set(zdoid.hashCode(), {
       dataRevision: dataRev,
       ownerRevision: ownerRev,
       lastSentTime: Date.now(),
@@ -334,16 +347,16 @@ export class Peer {
 
   /** Remove a ZDO from this peer's known set. */
   removeKnownZDO(zdoid: ZDOID): void {
-    this.knownZDOs.delete(zdoid.toString());
+    this.knownZDOs.delete(zdoid.hashCode());
   }
 
   /** Force-send a ZDO next tick. */
   forceSendZDO(zdoid: ZDOID): void {
-    this.forceSend.add(zdoid.toString());
+    this.forceSend.add(zdoid.hashCode());
   }
 
   /** Consume force-send set. */
-  consumeForceSend(): Set<string> {
+  consumeForceSend(): Set<number> {
     const set = this.forceSend;
     this.forceSend = new Set();
     return set;

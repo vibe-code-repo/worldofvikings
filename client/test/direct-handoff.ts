@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { websiteLoginUrl } from '../src/net/websiteLogin';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const clientRoot = resolve(HERE, '..');
@@ -94,20 +95,51 @@ check('the legacy connect button is absent from the shipped HTML', !html.include
 check('the legacy character preview is absent from the shipped HTML', !html.includes('vorschau-canvas'));
 check('main.ts no longer looks up legacy connection controls', !/getElementById\('(connect-screen|connect-btn|player-name|server-url)'\)/.test(main));
 check(
-  'an online visit without an account session returns to the CURRENT domain, not a fixed one',
+  'an online visit without an account session takes the way back through net/websiteLogin',
   main.includes('if (!offlineMode && !accountSessionPresent)') &&
-    main.includes("i18n.language === 'en' ? '/en/login' : '/de/anmelden'") &&
-    // Karte D1-N2 (Angriffsbefund M-B, Rest von M5/D2): beide tragenden
-    // Zeilen wörtlich verlangen, in der kommentarfreien Fassung, damit ein
-    // Aufruf, der nur im Kommentar steht, oder ein `basis`, das berechnet
-    // aber nicht benutzt wird, den Test rot machen — vorher genügte
-    // irgendwo im Text vorkommen, das ließ genau diese beiden Mutanten
-    // leben.
-    mainOhneKommentare.includes('const basis = basisDomainVonSpielHost(window.location.host);') &&
-    mainOhneKommentare.includes('new URL(loginPath, `${window.location.protocol}//${basis}`)') &&
-    // Jedes andere `new URL(loginPath, …` ausschließen — auch mit fremder
-    // Adresse als Template-Literal (Angriffsbefund DH3).
-    (mainOhneKommentare.match(/new URL\(\s*loginPath\s*,/g) ?? []).length === 1,
+    main.includes("from './net/websiteLogin'") &&
+    mainOhneKommentare.includes('websiteLoginUrlFuer(window.location, i18n.language, expired)') &&
+    // main.ts builds no login URL of its own any more (Angriffsbefund DH3).
+    !/new URL\(\s*loginPath\s*,/.test(mainOhneKommentare),
+);
+
+// Karte D1-R (DH7-DH10): the behaviour of the way back, by running it.
+const ws = (protocol: string, host: string, language = 'de', expired = false): URL =>
+  websiteLoginUrl({ protocol, host }, language, expired);
+check(
+  'play.world-of-mmorpg.de:5292 returns to https://world-of-mmorpg.de with the port',
+  ws('https:', 'play.world-of-mmorpg.de:5292').origin === 'https://world-of-mmorpg.de:5292',
+);
+check(
+  'play.dev.world-of-mmorpg.de:5292 keeps the DEV shore and the `.de` domain',
+  ws('https:', 'play.dev.world-of-mmorpg.de:5292').host === 'dev.world-of-mmorpg.de:5292' &&
+    ws('https:', 'play.dev.world-of-mmorpg.de:5292').searchParams.get('shore') === 'dev',
+);
+check(
+  'play.world-of-mmorpg.com returns to .com, play.world-of-mmorpg.de to .de',
+  ws('https:', 'play.world-of-mmorpg.com').href === 'https://world-of-mmorpg.com/de/anmelden?shore=live' &&
+    ws('https:', 'play.world-of-mmorpg.de', 'en').href === 'https://world-of-mmorpg.de/en/login?shore=live',
+);
+check(
+  'a slot port on 127.0.0.1 stays on its own port (Angriffsbefund N1)',
+  ws('http:', '127.0.0.1:5295', 'de', true).href === 'http://127.0.0.1:5295/de/anmelden?shore=live&abgelaufen=1',
+);
+check(
+  'a foreign host falls back to the safe default domain',
+  ['evil.example', 'play.evil.example', 'world-of-mmorpg.com.evil.example', 'xworld-of-mmorpg.com.evil.example:1'].every(
+    (h) => ws('https:', h).origin === 'https://world-of-mmorpg.com',
+  ),
+);
+check(
+  'a host cannot smuggle another target into the URL',
+  ['evil.example/x', 'a@evil.example', 'play.a@evil.example', 'evil.example\\@world-of-mmorpg.com', 'x y', 'world-of-mmorpg.com:99999', '', 'world-of-mmorpg.com#x', 'world-of-mmorpg.com?x'].every((h) => {
+    const u = ws('https:', h);
+    return u.origin === 'https://world-of-mmorpg.com' && u.username === '' && u.pathname === '/de/anmelden';
+  }),
+);
+check(
+  'a protocol other than http: is taken as https:',
+  ws('javascript:', 'play.world-of-mmorpg.com').protocol === 'https:' && ws('ftp:', 'localhost').protocol === 'https:',
 );
 check(
   'a connection failure uses the same website recovery path',

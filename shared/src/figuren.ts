@@ -36,13 +36,14 @@ export interface Figur {
  * ── Warum ein Ordner im Modellnamen steht ───────────────────────────
  * Beide Körper liegen mit ihren modularen Teilen in Unterordnern. Die
  * Wikingerin und alle 38 Frisuren sowie 18 Bärte stammen aus derselben
- * Blender-Datei und tragen dieselbe Gelenkliste; erzeugt werden sie von
- * tools/web/charakterteile-exportieren.py.
+ * Blender-Datei (master2) und tragen dieselbe Gelenkliste wie der Wikinger:
+ * 71 Knochen, 48 Clips. Erzeugt werden sie von
+ * tools/web/charakterteile-exportieren.py (Standardfigur + master2).
  *
  * ── Der Wikinger (09.09.2026) ───────────────────────────────────────
  * `wikinger/WikingerKoerper` ist die Standardfigur aus dem Synty-Rig:
- * 63 Knochen, Clips `idle/gehen/rennen/springen/angriff` (Sprung =
- * Absprung, Flug, Fall; Angriff = Faustschlag). Er steht VORN und ist
+ * 71 Knochen (Stand 09.2026; ursprünglich 63), Clips `idle/gehen/rennen/springen/angriff`
+ * (Sprung = Absprung, Flug, Fall; Angriff = Faustschlag) und weitere, heute 48. Er steht VORN und ist
  * damit die Vorgabe. Die Wikingerin ist als zweite Körperform wieder
  * auswählbar und verwendet dieselben modularen Aussehensteile.
  *

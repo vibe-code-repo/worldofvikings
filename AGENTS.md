@@ -359,6 +359,21 @@ modules you touched (`git grep` the changed file's path or its exports under
 `*/test/`), and `scripts/pruefe-runner-liste.mjs` whenever you added a test
 file — it is the guard that a new file is really entered in `KERN`.
 
+**Where do I register a new test?** In the area file under `scripts/kern/`, not in
+`scripts/run-tests.mjs`. `KERN` is split into one file per area (`admin`, `client`,
+`scripts`, `server`, `shared`, `tools`; the area is the first segment of the path, so
+`['server/test', 'x.ts']` belongs to `server.mjs`). Every file exports one array literal of
+`[package, file, switch?]` entries, **sorted by the full path** `package/file` (plain byte
+comparison, so `server/test/a.ts` comes before `server/test/b.ts`). Insert your entry at its
+alphabetical place with its comment directly above it, **never at the end of the file**:
+two pull requests that each add one test then touch different places and git merges them
+without a conflict (an entry appended to the end is exactly what used to collide). A switch
+(`brauchtModelle(...)` and the like) is imported at the top of the area file from
+`../testweichen.mjs`. A new area needs a new file, an `import` and a `...KERN_<AREA>` in
+`run-tests.mjs`; without both, `scripts/pruefe-runner-liste.mjs` and the run's bookkeeping
+turn red. That witness also fails when a file is out of order, sits in the wrong area,
+or is not read by `KERN` at all.
+
 Run a full local `npm test` only when the task explicitly asks for it: changes
 to the runner itself, to `scripts/testweichen.mjs`, to test helpers several
 packages share, or to chase down a red CI. Why: one full run takes about 25

@@ -19,7 +19,7 @@
  * die er nicht trägt.
  *
  * Das funktioniert nur, weil jede Teildatei DIESELBE Gelenkliste traegt
- * wie der Koerper — 63 Knochen, Index fuer Index. Erzeugt werden sie von
+ * wie der Koerper — 71 Knochen, Index fuer Index. Erzeugt werden sie von
  * tools/web/charakterteile-exportieren.py aus derselben Blender-Datei.
  */
 import { Engine } from '@babylonjs/core/Engines/engine';

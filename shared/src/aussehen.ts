@@ -18,9 +18,10 @@
  * lädt der Client lediglich Körper, gewählte Frisur und gewählten Bart.
  *
  * Das funktioniert nur, weil jede Teildatei DIESELBE Gelenkliste trägt
- * wie der Körper — 63 Knochen, Index für Index gleich. Erzeugt werden
- * sie deshalb ausschliesslich von tools/web/charakterteile-exportieren.py,
- * das genau das nachprüft und sonst abbricht. Wer eine Teildatei von Hand
+ * wie der Körper — 71 Knochen, Index für Index gleich. Erzeugt werden
+ * sie deshalb ausschliesslich von tools/web/charakterteile-exportieren.py
+ * (Standardfigur mit 71 Knochen plus Körper und Teile aus master2), das
+ * Gelenk- und Clipzahl der Körperdatei nachprüft und sonst abbricht. Wer eine Teildatei von Hand
  * exportiert, riskiert eine Frisur, die im Spiel am Fussgelenk hängt.
  */
 

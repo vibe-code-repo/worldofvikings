@@ -305,7 +305,9 @@ in the commands below are shorthand for that.
    `npm run aussehen:json` (`tools/aussehen-json.mjs`) writes the appearance lists for
    the website; `node tools/vorschau-buendeln.mjs` rebuilds the website's preview
    bundle. (`tools/kleidung-richten.py` and `tools/web/charakterteile-exportieren.py`
-   are related character-part tools that live outside this folder.)
+   are related character-part tools that live outside this folder; the latter builds
+   the 71-bone, 48-clip `wikingerin/` body and parts from the standard figure plus
+   master2 and takes `--standard`, `--master` and `--ausgabe`.)
 
 10. **Skin gate, registered.** The same command as step 5 **without** `--unregistered`.
     Now the registry drives it: every item the registry lists must be in the manifest

@@ -39,6 +39,17 @@
  * ist neu: N2-4 — Abmelden lässt die Kette nichts mehr verarbeiten, und
  * ein hängender Registry-Abruf blockiert sie nicht für immer.
  *
+ * N4 (Nachbesserung nach Nachangriff N3, Befunde N3-1/N3-2): Abschnitt 6
+ * bekommt drei weitere Durchläufe — `zeitlimitDurchlauf` prüft jetzt
+ * zusätzlich, dass das Zeitlimit den `AbortSignal` der Attrappe wirklich
+ * abbricht (N3-1), `abmeldenBrichtLaufendenAbrufAbDurchlauf` ist neu
+ * („Abmelden während eines laufenden Abrufs bricht ihn ab", Auftrag 1) und
+ * `abmeldenDurchlauf` zählt zusätzlich die `ladeRegistry`-Aufrufe: nach dem
+ * Abmelden dürfen schon eingereihte, aber noch nicht gestartete
+ * Kettenglieder KEINEN weiteren Abruf mehr auslösen (N3-2, Probe S5). Die
+ * Fälle mit einem ECHTEN, zu langsamen/hängenden HTTP-Abruf gegen die
+ * echte Attrappe (S4b/S4d) prüft `grundskala-live-wirkung.ts`.
+ *
  * Lauf: npx tsx client/test/grundskala-live.ts
  */
 import {
@@ -276,13 +287,23 @@ function ohneKanalDurchlauf(): void {
 //    Registry-Abruf blockiert die Kette nicht für immer (Zeitlimit). Der
 //    Angriffsbefund (S5): zwei Meldungen in der Kette, `abmelden()`
 //    zwischendurch — vorher liefen `aktualisiereGrundskala` und `flush`
-//    trotzdem noch, auf einer schon verworfenen Szene. ──────────────────
+//    trotzdem noch, auf einer schon verworfenen Szene.
+//
+//    N4/N3-1/N3-2: `zeitlimitDurchlauf` prüft zusätzlich den echten
+//    `AbortSignal`-Abbruch beim Zeitlimit, `abmeldenDurchlauf` zählt die
+//    `ladeRegistry`-Aufrufe (S5: nach dem Abmelden kein weiterer), und
+//    `abmeldenBrichtLaufendenAbrufAbDurchlauf` ist neu: `abmelden()` allein
+//    (ohne Zeitlimit) bricht einen laufenden Abruf ab. ───────────────────
 
 async function abmeldenDurchlauf(): Promise<void> {
   const aktualisiereAufrufe: string[] = [];
   let flushAufrufe = 0;
+  let ladeAufrufe = 0;
   const abmelden = verdrahteGrundskalaLive({
-    ladeRegistry: () => new Promise((r) => setTimeout(() => r(undefined), 30)),
+    ladeRegistry: () => {
+      ladeAufrufe++;
+      return new Promise((r) => setTimeout(() => r(undefined), 30));
+    },
     aktualisiereGrundskala: async (model) => {
       aktualisiereAufrufe.push(model);
     },
@@ -290,13 +311,17 @@ async function abmeldenDurchlauf(): Promise<void> {
       flushAufrufe++;
     },
   });
+  // N3-2 (S5): drei Meldungen kurz hintereinander — nur die ERSTE startet
+  // sofort, die beiden anderen bleiben hinter der Kette eingereiht.
   sendeGrundskalaGeaendert('U_Abmelden1', 2);
   sendeGrundskalaGeaendert('U_Abmelden2', 3);
+  sendeGrundskalaGeaendert('U_Abmelden3', 4);
   await new Promise((r) => setTimeout(r, 15));
   pruefe(
     aktualisiereAufrufe.length === 0,
     `vor dem Abmelden noch nichts übernommen, die Registry-Abrufe laufen noch (${aktualisiereAufrufe.length})`
   );
+  pruefe(ladeAufrufe === 1, `vor dem Abmelden hat erst der erste Kettenreintrag ladeRegistry gerufen (N1-2): ${ladeAufrufe}`);
   abmelden();
   await new Promise((r) => setTimeout(r, 100));
   pruefe(
@@ -304,13 +329,21 @@ async function abmeldenDurchlauf(): Promise<void> {
     `nach dem Abmelden verarbeitet die Kette nichts mehr — aktualisiereGrundskala läuft nicht (N2-4): ${aktualisiereAufrufe.length}`
   );
   pruefe(flushAufrufe === 0, `nach dem Abmelden läuft auch flush nicht mehr (N2-4): ${flushAufrufe}`);
+  pruefe(
+    ladeAufrufe === 1,
+    `nach dem Abmelden holen die noch eingereihten Meldungen 2 und 3 KEINEN weiteren Registry-Abruf mehr (N3-2, S5): ${ladeAufrufe}`
+  );
 }
 
 async function zeitlimitDurchlauf(): Promise<void> {
   const rufe: string[] = [];
+  let empfangenesSignal: AbortSignal | undefined;
   const abmelden = verdrahteGrundskalaLive(
     {
-      ladeRegistry: () => new Promise(() => {}), // hängt für immer, wie ein toter Proxy
+      ladeRegistry: (signal) => {
+        empfangenesSignal = signal;
+        return new Promise(() => {}); // hängt für immer, wie ein toter Proxy
+      },
       aktualisiereGrundskala: async (model) => {
         rufe.push(model);
       },
@@ -327,9 +360,43 @@ async function zeitlimitDurchlauf(): Promise<void> {
       rufe.join(',') === 'hochgeladen/U_Zeitlimit,flush',
       `nach dem Zeitlimit läuft die Kette weiter statt an einem hängenden Abruf zu hängen (N2-4): ${rufe.join(',')}`
     );
+    pruefe(
+      empfangenesSignal?.aborted === true,
+      `das Zeitlimit bricht den Registry-Abruf über AbortController wirklich ab (N3-1): aborted=${empfangenesSignal?.aborted}`
+    );
   } finally {
     abmelden();
   }
+}
+
+/**
+ * N4/N3-1 (Auftrag 1, letzter Punkt): „Abmelden während eines laufenden
+ * Abrufs bricht ihn ab" — unabhängig vom Zeitlimit. Der Abruf hängt hier
+ * ABSICHTLICH für immer (wie `zeitlimitDurchlauf`), aber mit einem langen
+ * Zeitlimit, das in diesem Test nie greift — nur `abmelden()` selbst darf
+ * das Signal auslösen.
+ */
+async function abmeldenBrichtLaufendenAbrufAbDurchlauf(): Promise<void> {
+  let empfangenesSignal: AbortSignal | undefined;
+  const abmelden = verdrahteGrundskalaLive({
+    ladeRegistry: (signal) => {
+      empfangenesSignal = signal;
+      return new Promise(() => {}); // hängt für immer
+    },
+    aktualisiereGrundskala: async () => {},
+    flush: () => {},
+  });
+  sendeGrundskalaGeaendert('U_AbmeldenAbbruch', 2);
+  await new Promise((r) => setTimeout(r, 15));
+  pruefe(
+    empfangenesSignal !== undefined && empfangenesSignal.aborted === false,
+    `der Abruf läuft noch und ist noch nicht abgebrochen (${empfangenesSignal?.aborted})`
+  );
+  abmelden();
+  pruefe(
+    empfangenesSignal?.aborted === true,
+    `abmelden() bricht den laufenden Registry-Abruf sofort über denselben AbortController ab (N3-1): aborted=${empfangenesSignal?.aborted}`
+  );
 }
 
 async function haupt(): Promise<void> {
@@ -339,6 +406,7 @@ async function haupt(): Promise<void> {
   ohneKanalDurchlauf();
   await abmeldenDurchlauf();
   await zeitlimitDurchlauf();
+  await abmeldenBrichtLaufendenAbrufAbDurchlauf();
   console.log(fehler === 0 ? 'OK — grundskala-live' : `${fehler} ABWEICHUNGEN`);
   process.exit(fehler > 0 ? 1 : 0);
 }

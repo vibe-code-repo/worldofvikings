@@ -149,7 +149,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // `verdrahteGrundskalaLive` (`grundskalaLive.ts`) — hier bleibt nur
     // noch die Verdrahtung mit den echten Abhängigkeiten dieses Fensters.
     const grundskalaAbmelden = verdrahteGrundskalaLive({
-      ladeRegistry: () => ladeHochgeladeneRegistrierung(),
+      ladeRegistry: (signal) => ladeHochgeladeneRegistrierung(undefined, signal),
       aktualisiereGrundskala: (model) => ent.aktualisiereGrundskala(model),
       flush: () => ent.flush(),
     });

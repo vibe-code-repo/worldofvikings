@@ -99,6 +99,30 @@
  *     ein hängender `fetch` (toter Proxy) blockierte die Kette sonst
  *     unbegrenzt. Nach dem Zeitlimit läuft die Kette mit dem zu diesem
  *     Zeitpunkt bekannten Registry-Stand weiter, statt zu hängen.
+ *
+ * N4 (Nachbesserung nach Nachangriff N3, Befunde N3-1/N3-2; N3-3 bewusst
+ * NICHT ausgebaut, s. `grundskala-live-wirkung.ts`):
+ *
+ *   - **N3-1** — das N2-4-Zeitlimit oben liess nur die KETTE weiterlaufen,
+ *     der `fetch` in `ladeHochgeladeneRegistrierung` lief im Hintergrund
+ *     unbeobachtet weiter. Kam die späte Antwort irgendwann an, schrieb sie
+ *     die GLOBALE Registry des Fensters — mit dem Stand, den der Server
+ *     beim (längst überholten) Anfrageeingang hatte — und überschrieb damit
+ *     still einen inzwischen neueren, schon korrekt angewendeten Wert
+ *     (Angriffsproben S4b/S4d). `ladeHochgeladeneRegistrierung` bekommt
+ *     jetzt ein optionales `signal?: AbortSignal` (durchgereicht an
+ *     `fetch`, andere Aufrufer unverändert). Diese Verdrahtung legt PRO
+ *     ABRUF einen eigenen `AbortController` an (`mitZeitlimit` unten) und
+ *     bricht ihn ZWEIFACH aus: beim Zeitlimit UND beim Abmelden — ein
+ *     abgebrochener Abruf landet im `catch` von `ladeHochgeladeneRegistrierung`
+ *     (wirft dort nie) und schreibt die Registry nicht mehr.
+ *   - **N3-2** — die Kette prüfte `beendet` bisher erst NACH dem
+ *     Registry-Abruf. Ein zum Abmeldezeitpunkt schon EINGEREIHTER, aber
+ *     noch nicht gestarteter Eintrag löste dadurch trotzdem noch einen
+ *     Netzabruf und einen Schreibzugriff auf die Registry eines Fensters
+ *     aus, dessen Szene schon verworfen war (Probe S5). `if (beendet)
+ *     return;` steht jetzt als ERSTE Zeile im Ketten-Eintrag — ein nach dem
+ *     Abmelden noch anlaufender Eintrag tut gar nichts mehr.
  */
 
 import { uploadedModelRegistry } from '@wov/shared';
@@ -219,8 +243,16 @@ export function hoereGrundskalaGeaendert(
  * benutzt, statt die Verdrahtung nachzubauen.
  */
 export interface GrundskalaLiveEmpfaenger {
-  /** Lädt die Upload-Registry DIESES Fensters neu (Blocker B1: ohne das bleibt `AssetManager.wendeGrundskalaAn` beim alten Wert). */
-  readonly ladeRegistry: () => Promise<unknown>;
+  /**
+   * Lädt die Upload-Registry DIESES Fensters neu (Blocker B1: ohne das
+   * bleibt `AssetManager.wendeGrundskalaAn` beim alten Wert). N4/N3-1:
+   * bekommt das `AbortSignal` dieses Abrufs — beim Zeitlimit UND beim
+   * Abmelden abgebrochen (durchreichen an `fetch`, z. B.
+   * `ladeHochgeladeneRegistrierung(basis, signal)`), damit ein zu
+   * langsamer oder hängender Abruf die Registry nicht mehr still mit
+   * einem überholten Stand überschreiben kann.
+   */
+  readonly ladeRegistry: (signal: AbortSignal) => Promise<unknown>;
   /** `EntityManager.aktualisiereGrundskala`, mit dem VOLLEN Prefab-Namen inklusive Upload-Präfix. */
   readonly aktualisiereGrundskala: (model: string) => Promise<unknown>;
   /** Den markierten Bucket noch in diesem Tick ausführen. */
@@ -233,15 +265,19 @@ const REGISTRY_ZEITLIMIT_MS = 10_000;
 /**
  * `p` abwarten, aber nach `ms` spätestens weitermachen (N2-4: ein
  * hängender `fetch`, z. B. toter Proxy, darf die Kette nicht unbegrenzt
- * blockieren). Löst IMMER auf, nie ab — `ladeRegistry` wirft ohnehin nie
- * (Kopfkommentar `UploadedModelRegistryLoad.ts`), dieser Wrapper ist nur
- * die zeitliche Grenze, kein Fehlerpfad.
+ * blockieren) UND `abbruch` auslösen (N4/N3-1: der `fetch` selbst muss
+ * wirklich enden, sonst schreibt eine späte Antwort später still einen
+ * überholten Stand in die globale Registry). Löst IMMER auf, nie ab —
+ * `ladeRegistry` wirft ohnehin nie (Kopfkommentar
+ * `UploadedModelRegistryLoad.ts`), dieser Wrapper ist nur die zeitliche
+ * Grenze, kein Fehlerpfad.
  */
-function mitZeitlimit(p: Promise<unknown>, ms: number): Promise<void> {
+function mitZeitlimit(p: Promise<unknown>, ms: number, abbruch: AbortController): Promise<void> {
   return new Promise((resolve) => {
     let erledigt = false;
     const timer = setTimeout(() => {
       erledigt = true;
+      abbruch.abort();
       resolve();
     }, ms);
     p.then(
@@ -266,8 +302,16 @@ export function verdrahteGrundskalaLive(
   zeitlimitMs: number = REGISTRY_ZEITLIMIT_MS
 ): () => void {
   let beendet = false;
+  let laufenderAbbruch: AbortController | null = null;
   const abmelden = hoereGrundskalaGeaendert(async (name) => {
-    await mitZeitlimit(empfaenger.ladeRegistry(), zeitlimitMs);
+    // N3-2: ganz am Anfang, VOR dem Registry-Abruf — ein zum Abmeldezeitpunkt
+    // schon eingereihter, aber noch nicht gestarteter Eintrag tut dann gar
+    // nichts mehr, statt noch einen Netzabruf auszulösen.
+    if (beendet) return;
+    const abbruch = new AbortController();
+    laufenderAbbruch = abbruch;
+    await mitZeitlimit(empfaenger.ladeRegistry(abbruch.signal), zeitlimitMs, abbruch);
+    laufenderAbbruch = null;
     if (beendet) return;
     await empfaenger.aktualisiereGrundskala(`${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}${name}`);
     if (beendet) return;
@@ -275,6 +319,9 @@ export function verdrahteGrundskalaLive(
   });
   return () => {
     beendet = true;
+    // N3-1: ein noch laufender Abruf darf nicht mehr fertig werden und
+    // später still die Registry schreiben.
+    laufenderAbbruch?.abort();
     abmelden();
   };
 }

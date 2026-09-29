@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout, layoutBounds, type WorldLayout } from '@wov/shared';
 import { instanzName, weltArbeitsOrdner, weltDatei } from '@wov/shared/src/instanz.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
+import { lockCount, lockMessage } from '@wov/shared/src/worldlayout/lockMessages.js';
 
 // Der Betriebsdienst ist der einzige Schreiber der Weltdatei — dieser
 // Prozess redet nur mit ihm, siehe Kopfkommentar. Aus layoutDatei.ts kommt
@@ -200,20 +201,25 @@ export async function lade(locale = process.env.WOV_LANGUAGE ?? 'de'): Promise<{
  */
 export function wirkungsHinweis(status: number, daten: Record<string, unknown>, locale = process.env.WOV_LANGUAGE ?? 'de'): string {
   const hoehenText = heightResponseMessage(daten, locale);
+  const gesperrt = lockCount(daten);
   if (status === 202) {
     const grund = typeof daten.grund === 'string' ? daten.grund : 'unbekannt';
     const detail = typeof daten.detail === 'string' && daten.detail ? `: ${daten.detail}` : '';
-    return `${hoehenText ? `\n${hoehenText}` : ''}\nACHTUNG: geschrieben, aber im laufenden Spiel NICHT angewendet (grund: ${grund}${detail}).`;
+    // Z3 N2: Bei `bestaetigung-noetig` trägt der Text der Antwort die Löschsperre schon (Katalog); sonst kommt die offene Sperre dazu.
+    const sperre = grund === 'bestaetigung-noetig' ? lockMessage('lock.pending', {}, locale) : gesperrt > 0 ? lockMessage('lock.open', { count: gesperrt }, locale) : '';
+    return `${hoehenText ? `\n${hoehenText}` : ''}\nACHTUNG: geschrieben, aber im laufenden Spiel NICHT angewendet (grund: ${grund}${detail}).${sperre ? `\n${sperre}` : ''}`;
   }
   if (daten.angewendet !== true) return '';
   // Z5a: angewendet, aber ein Grabstein hat ein Neusetzen verschluckt (Objekt gelöscht, derselbe Eintrag wieder da).
   const zaehler = daten.zaehler && typeof daten.zaehler === 'object' ? (daten.zaehler as Record<string, unknown>) : {};
   const zurueck = Number(zaehler.zurueck);
+  // Z3 N2: Steht eine Löschsperre offen, ist „angewendet“ nicht die ganze Wahrheit: die gesperrten Objekte stehen weiter.
+  const sperre = gesperrt > 0 ? `\n${lockMessage('lock.applied', { count: gesperrt }, locale)}` : '';
   if (Number.isFinite(zurueck) && zurueck > 0) {
     const detail = typeof daten.detail === 'string' && daten.detail ? ` (${daten.detail})` : '';
-    return `\nIm laufenden Spiel angewendet, ABER ${zurueck} Neusetzen von einem gelöschten Objekt zurückgehalten${detail}: das Objekt steht nicht wieder da.`;
+    return `\nIm laufenden Spiel angewendet, ABER ${zurueck} Neusetzen von einem gelöschten Objekt zurückgehalten${detail}: das Objekt steht nicht wieder da.${sperre}`;
   }
-  return '\nIm laufenden Spiel angewendet.';
+  return gesperrt > 0 ? sperre : '\nIm laufenden Spiel angewendet.';
 }
 
 /**

@@ -21,11 +21,12 @@
  *
  * What counts as a value import: `import … from`, `import '…'`,
  * `export … from`, `import x = require('…')`, `import('…')`, `require('…')`,
- * `import.meta.glob('…')` and `new URL('…', import.meta.url)`. Type-only are
- * the declaration forms `import type …` and `export type … from` and the
- * type position `import('…').X`. An inline `import { type X } from '…'`
- * counts as a VALUE import on purpose: whether the statement survives the
- * build depends on compiler options, and the boundary must not.
+ * `import.meta.glob('…')` and `new URL('…', import.meta.url)`. A glob without
+ * `eager: true` loads like `import()`. Type-only are the declaration forms
+ * `import type …` and `export type … from` and the type position
+ * `import('…').X`. An inline `import { type X } from '…'` counts as a VALUE
+ * import on purpose: whether the statement survives the build depends on
+ * compiler options, and the boundary must not.
  *
  * Section [0] proves first that the scanner can turn red: it runs the same
  * rules over synthetic sources, one per import form.
@@ -91,7 +92,7 @@ interface Reference {
   readonly form: Form;
   readonly specifier: string;
   readonly typeOnly: boolean;
-  /** Loaded when the statement RUNS (`import()`), not when the importing module loads. */
+  /** Loaded when the statement RUNS (`import()`, a glob without `eager`), not when the importing module loads. */
   readonly dynamic: boolean;
   readonly target: Target;
 }
@@ -134,9 +135,12 @@ function specifierText(node: ts.Expression): string | null {
   return null;
 }
 
-/** Absolute path a specifier points to (query and hash dropped), `null` for another package. */
-function resolveSpecifier(fromFile: string, specifier: string): string | null {
-  const bare = specifier.replace(/[?#].*$/, '');
+/**
+ * Absolute path a specifier points to, `null` for another package. A query or hash (`?raw`, `#x`) is
+ * dropped, except in a glob: there `?` is a wildcard.
+ */
+function resolveSpecifier(fromFile: string, specifier: string, glob = false): string | null {
+  const bare = glob ? specifier : specifier.replace(/[?#].*$/, '');
   if (bare === '.' || bare === '..' || bare.startsWith('./') || bare.startsWith('../')) {
     return resolve(dirname(fromFile), bare);
   }
@@ -148,45 +152,69 @@ function resolveSpecifier(fromFile: string, specifier: string): string | null {
   return null;
 }
 
-/** Glob to regular expression: `**`, `*`, `?`, `{a,b}` and {@link ANY}. */
-function patternToRegExp(pattern: string): RegExp {
+/** Glob to regular expression: `**`, `*`, `?`, `{a,b}`, `[a-z]` and {@link ANY}. */
+function patternToRegExp(glob: string): RegExp {
   let out = '';
-  for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i]!;
+  let braces = 0;
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]!;
+    const classEnd = c === '[' ? glob.indexOf(']', i + 2) : -1;
     if (c === ANY) out += '.*';
-    else if (c === '*' && pattern[i + 1] === '*') {
+    else if (c === '*' && glob[i + 1] === '*') {
       out += '.*';
       i++;
-      if (pattern[i + 1] === '/') i++; // `**/` also matches no folder at all
+      if (glob[i + 1] === '/') i++; // `**/` also matches no folder at all
     } else if (c === '*') out += '[^/]*';
     else if (c === '?') out += '[^/]';
-    else if (c === '{') out += '(?:';
-    else if (c === '}') out += ')';
-    else if (c === ',') out += '|';
-    else out += c.replace(/[.+^$()|[\]\\]/g, '\\$&');
+    else if (classEnd > 0) {
+      // A character class is taken over as it is; a glob negates with `!`, a regular expression with `^`.
+      out += `[${glob.slice(i + 1, classEnd).replace(/^!/, '^')}]`;
+      i = classEnd;
+    } else if (c === '{') {
+      out += '(?:';
+      braces++;
+    } else if (c === '}' && braces > 0) {
+      out += ')';
+      braces--;
+    } else if (c === ',' && braces > 0) out += '|';
+    else out += c.replace(/[.+^$(){}|[\]\\]/g, '\\$&');
   }
   return new RegExp(`^${out}$`);
 }
 
-/** The modules a reference can reach. `katalogFiles` is only asked for specifiers with wildcards. */
-function targetsOf(fromFile: string, specifier: string, katalogFiles: readonly string[]): Target[] {
-  const resolved = resolveSpecifier(fromFile, specifier);
+/**
+ * The modules a reference can reach. Wildcards are the glob characters in a glob and {@link ANY}
+ * everywhere. Only then `katalogFiles` is asked; a plain specifier is judged by its path alone.
+ */
+function targetsOf(fromFile: string, specifier: string, katalogFiles: readonly string[], glob: boolean): Target[] {
+  const resolved = resolveSpecifier(fromFile, specifier, glob);
   if (resolved === null) return [];
-  const gegenstandsKatalog = GEGENSTANDS_KATALOG.replace(SOURCE_EXT, '');
-  if (!/[*?{\u0000]/.test(specifier)) {
+  const hasWildcard = specifier.includes(ANY) || (glob && /[*?{[]/.test(specifier));
+  if (!hasWildcard) {
     const stem = resolved.replace(SOURCE_EXT, '');
     if (isInside(KATALOG_DIR, stem)) return ['katalog'];
-    return stem === gegenstandsKatalog ? ['GegenstandsKatalog'] : [];
+    return stem === GEGENSTANDS_KATALOG.replace(SOURCE_EXT, '') ? ['GegenstandsKatalog'] : [];
   }
-  const muster = patternToRegExp(resolved.split(sep).join('/'));
-  const trifft = (path: string): boolean => {
-    const mitSchraegstrich = path.split(sep).join('/');
-    return muster.test(mitSchraegstrich) || muster.test(mitSchraegstrich.replace(SOURCE_EXT, ''));
+  const pattern = patternToRegExp(resolved.split(sep).join('/'));
+  const matches = (path: string): boolean => {
+    const withSlashes = path.split(sep).join('/');
+    return pattern.test(withSlashes) || pattern.test(withSlashes.replace(SOURCE_EXT, ''));
   };
   const targets: Target[] = [];
-  if (trifft(KATALOG_DIR) || katalogFiles.some(trifft)) targets.push('katalog');
-  if (trifft(GEGENSTANDS_KATALOG)) targets.push('GegenstandsKatalog');
+  if (matches(KATALOG_DIR) || katalogFiles.some(matches)) targets.push('katalog');
+  if (matches(GEGENSTANDS_KATALOG)) targets.push('GegenstandsKatalog');
   return targets;
+}
+
+/** `eager: true` in the options of `import.meta.glob`. Options that cannot be read count as eager. */
+function isEagerGlob(options: ts.Expression | undefined): boolean {
+  if (!options) return false;
+  if (!ts.isObjectLiteralExpression(options)) return true;
+  return options.properties.some((property) => {
+    if (!ts.isPropertyAssignment(property)) return true; // spread, shorthand, method: not readable
+    if (!ts.isIdentifier(property.name) && !ts.isStringLiteralLike(property.name)) return true; // computed name
+    return property.name.text === 'eager' && property.initializer.kind !== ts.SyntaxKind.FalseKeyword;
+  });
 }
 
 function isImportMeta(node: ts.Node): boolean {
@@ -200,7 +228,7 @@ function referencesIn(file: string, text: string, katalogFiles: readonly string[
   const add = (node: ts.Node, form: Form, specifier: string | null, typeOnly: boolean, dynamic = false): void => {
     if (specifier === null) return;
     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-    for (const target of targetsOf(file, specifier, katalogFiles)) {
+    for (const target of targetsOf(file, specifier, katalogFiles, form === 'import.meta.glob')) {
       out.push({ file, line, form, specifier: specifier.split(ANY).join('${…}'), typeOnly, dynamic, target });
     }
   };
@@ -228,7 +256,10 @@ function referencesIn(file: string, text: string, katalogFiles: readonly string[
         callee.name.text.startsWith('glob')
       ) {
         const patterns = first && ts.isArrayLiteralExpression(first) ? first.elements : first ? [first] : [];
-        for (const pattern of patterns) add(node, 'import.meta.glob', specifierText(pattern), false);
+        // Without `eager` a glob hands out functions that import when called, like `import()`. A
+        // pattern with a leading `!` only takes files away and is not resolved.
+        const lazy = callee.name.text === 'glob' && !isEagerGlob(node.arguments[1]);
+        for (const pattern of patterns) add(node, 'import.meta.glob', specifierText(pattern), false, lazy);
       }
     } else if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'URL') {
       const [first, second] = node.arguments ?? [];
@@ -304,7 +335,12 @@ console.log('── [0] The scanner can turn red (synthetic sources) ──');
     [EDITOR_MAIN, `const k = require('./katalog/kategorien');`, [1]],
     [EDITOR_MAIN, `import k = require('./katalog/kategorien');`, [1]],
     [EDITOR_MAIN, `const m = import.meta.glob('./katalog/*.ts', { eager: true });`, [1]],
+    [EDITOR_MAIN, `const m = import.meta.glob('./katalog/*.ts');`, [1]],
     [EDITOR_MAIN, `const m = import.meta.glob(['./werkzeuge/*.ts', './**/kategorien.ts']);`, [1]],
+    [EDITOR_MAIN, `const m = import.meta.glob('./katalog/form?t.ts');`, [1]],
+    [EDITOR_MAIN, `const m = import.meta.glob('./katalog/{format,konstanten}.ts');`, [1]],
+    [EDITOR_MAIN, `const m = import.meta.glob('./katalog/[a-k]*.ts');`, [1]],
+    [EDITOR_MAIN, `import text from './katalog/kategorien?raw';`, [1]],
     [EDITOR_MAIN, `const u = new URL('./katalog/kategorien.ts', import.meta.url);`, [1]],
     [EDITOR_MAIN, `import { fmt } from './katalog';`, [1]],
     [MAIN, `import { fmt } from './editor/katalog/format';`, [1]],
@@ -320,13 +356,17 @@ console.log('── [0] The scanner can turn red (synthetic sources) ──');
     // rule 2: static value imports of GegenstandsKatalog.ts
     [EDITOR_MAIN, `import { GegenstandsKatalog } from './GegenstandsKatalog';`, [2]],
     [EDITOR_MAIN, `import './GegenstandsKatalog';`, [2]],
-    [EDITOR_MAIN, `const m = import.meta.glob('./Gegenstands*.ts');`, [2]],
+    [EDITOR_MAIN, `const m = import.meta.glob('./Gegenstands*.ts', { eager: true });`, [2]],
+    [EDITOR_MAIN, `const o = { eager: true }; const m = import.meta.glob('./Gegenstands*.ts', o);`, [2]],
     [MAIN, `export * from './editor/GegenstandsKatalog.ts';`, [2]],
     [EDITOR_MAIN, `import type { GegenstandsKatalog } from './GegenstandsKatalog';`, []],
     [EDITOR_MAIN, `void import('./GegenstandsKatalog');`, []],
+    [EDITOR_MAIN, `const m = import.meta.glob('./Gegenstands*.ts');`, []],
+    [EDITOR_MAIN, `const m = import.meta.glob('./Gegenstands*.ts', { eager: false });`, []],
     // rule 3: katalog/ never loads GegenstandsKatalog.ts
     [FORMAT, `import { GegenstandsKatalog } from '../GegenstandsKatalog';`, [3]],
     [FORMAT, `void import('../GegenstandsKatalog');`, [3]],
+    [FORMAT, `const m = import.meta.glob('../Gegenstands*.ts');`, [3]],
     [FORMAT, `import type { GegenstandsKatalog } from '../GegenstandsKatalog';`, []],
     // neither target, and text that only LOOKS like an import
     [EDITOR_MAIN, `import { DungeonSeite } from './DungeonKatalog';`, []],
@@ -334,7 +374,9 @@ console.log('── [0] The scanner can turn red (synthetic sources) ──');
     [EDITOR_MAIN, `import { x } from '@wov/shared';`, []],
     [EDITOR_MAIN, `// import { KATEGORIEN } from './katalog/kategorien';`, []],
     [EDITOR_MAIN, `const s = "import { KATEGORIEN } from './katalog/kategorien';";`, []],
-    [EDITOR_MAIN, `const pfad = './katalog/kategorien'; void import(pfad);`, []],
+    [EDITOR_MAIN, `const path = './katalog/kategorien'; void import(path);`, []],
+    [EDITOR_MAIN, `const m = import.meta.glob('./testflug/*.ts', { eager: true });`, []],
+    [EDITOR_MAIN, `import { x } from './werkzeuge/a,katalog/b';`, []],
   ];
   const probeKatalogFiles = KATALOG_MODULES.map((name) => resolve(KATALOG_DIR, `${name}.ts`));
   for (const [file, source, rules] of PROBES) {
@@ -388,14 +430,14 @@ console.log('\n── [2] GegenstandsKatalog.ts is never imported statically as 
   const ofClass = references.filter((r) => r.target === 'GegenstandsKatalog');
   // Witness against an empty rule: somebody does load the class, and does it dynamically.
   const dynamic = ofClass.filter((r) => r.dynamic);
-  check('GegenstandsKatalog.ts is loaded with import() somewhere', dynamic.length > 0, list(dynamic));
+  check('GegenstandsKatalog.ts is loaded dynamically somewhere', dynamic.length > 0, list(dynamic));
   const found = violations.filter((v) => v.rule === 2);
   check(
     'no static value import of GegenstandsKatalog.ts',
     found.length === 0,
     found.length
       ? found.map(describe).join(' | ')
-      : `${ofClass.length} references: ${ofClass.filter((r) => r.typeOnly).length} type-only, ${dynamic.length} import()`,
+      : `${ofClass.length} references: ${ofClass.filter((r) => r.typeOnly).length} type-only, ${dynamic.length} dynamic`,
   );
 }
 
@@ -413,11 +455,11 @@ console.log('\n── [3] katalog/ never imports GegenstandsKatalog.ts as a valu
 
 console.log('\n── [4] Behaviour of the moved functions and of the derived lists ──');
 /** Loads a module of `katalog/`; a missing module is a failed check, not a crash without a count. */
-async function load<T>(name: string, laden: () => Promise<T>): Promise<T | null> {
+async function load<T>(name: string, loader: () => Promise<T>): Promise<T | null> {
   try {
-    const modul = await laden();
+    const loaded = await loader();
     check(`katalog/${name}.ts loads without a browser`, true);
-    return modul;
+    return loaded;
   } catch (error) {
     check(`katalog/${name}.ts loads without a browser`, false, error instanceof Error ? error.message.split('\n')[0] : String(error));
     return null;
@@ -427,38 +469,39 @@ async function load<T>(name: string, laden: () => Promise<T>): Promise<T | null>
 const format = await load('format', () => import('../src/editor/katalog/format'));
 if (format) {
   const { fmt, fmtBytes, kollisionsartText, vorschlagText, zahlLocale } = format;
-  const gleich = (name: string, ist: string, soll: string): void => check(`${name} = '${soll}'`, ist === soll, `got '${ist}'`);
+  const same = (name: string, actual: string, expected: string): void =>
+    check(`${name} = '${expected}'`, actual === expected, `got '${actual}'`);
   // Values right at a rounding step (9.999, 99.95, 1048575 bytes) are left out on purpose: what the
   // functions print there is an accident of the implementation, not a promise.
-  gleich('fmt(12.412345678)', fmt(12.412345678), '12,4');
-  gleich('fmt(NaN)', fmt(NaN), '—');
-  gleich('fmt(Infinity)', fmt(Infinity), '—');
-  gleich('fmt(0.5)', fmt(0.5), '0,50');
-  gleich('fmt(10)', fmt(10), '10,0');
-  gleich('fmt(100)', fmt(100), '100');
-  gleich('fmt(-3.14159)', fmt(-3.14159), '-3,14');
-  gleich('fmtBytes(20560)', fmtBytes(20560), '20 kB');
-  gleich('fmtBytes(-1)', fmtBytes(-1), '—');
-  gleich('fmtBytes(NaN)', fmtBytes(NaN), '—');
-  gleich('fmtBytes(0)', fmtBytes(0), '0 B');
-  gleich('fmtBytes(1023)', fmtBytes(1023), '1023 B');
-  gleich('fmtBytes(1024)', fmtBytes(1024), '1 kB');
-  gleich('fmtBytes(1048576)', fmtBytes(1048576), '1,0 MB');
-  gleich('fmtBytes(17825792)', fmtBytes(17825792), '17,0 MB');
+  same('fmt(12.412345678)', fmt(12.412345678), '12,4');
+  same('fmt(NaN)', fmt(NaN), '—');
+  same('fmt(Infinity)', fmt(Infinity), '—');
+  same('fmt(0.5)', fmt(0.5), '0,50');
+  same('fmt(10)', fmt(10), '10,0');
+  same('fmt(100)', fmt(100), '100');
+  same('fmt(-3.14159)', fmt(-3.14159), '-3,14');
+  same('fmtBytes(20560)', fmtBytes(20560), '20 kB');
+  same('fmtBytes(-1)', fmtBytes(-1), '—');
+  same('fmtBytes(NaN)', fmtBytes(NaN), '—');
+  same('fmtBytes(0)', fmtBytes(0), '0 B');
+  same('fmtBytes(1023)', fmtBytes(1023), '1023 B');
+  same('fmtBytes(1024)', fmtBytes(1024), '1 kB');
+  same('fmtBytes(1048576)', fmtBytes(1048576), '1,0 MB');
+  same('fmtBytes(17825792)', fmtBytes(17825792), '17,0 MB');
   // Without a browser there is neither `?lang` nor a stored choice: the language is the default, `de`.
-  gleich('zahlLocale()', zahlLocale(), 'de-DE');
-  gleich(`kollisionsartText('fest')`, kollisionsartText('fest'), t('editor.upload.kollision.fest'));
-  gleich(
+  same('zahlLocale()', zahlLocale(), 'de-DE');
+  same(`kollisionsartText('fest')`, kollisionsartText('fest'), t('editor.upload.kollision.fest'));
+  same(
     `kollisionsartText('durchlaessig')`,
     kollisionsartText('durchlaessig'),
     t('editor.upload.kollision.durchlaessig'),
   );
-  gleich(
+  same(
     'vorschlagText(rohgroesse, 1.5 m)',
     vorschlagText({ quelle: 'rohgroesse', meter: 1.5 }),
     t('editor.upload.vorschlag.rohgroesse', { name: '', meter: '1.50' }),
   );
-  gleich(
+  same(
     'vorschlagText(kategorie, 2 m, Tisch)',
     vorschlagText({ quelle: 'kategorie', meter: 2, begruendungName: 'Tisch' }),
     t('editor.upload.vorschlag.kategorie', { name: 'Tisch', meter: '2.00' }),
@@ -469,17 +512,17 @@ const kategorien = await load('kategorien', () => import('../src/editor/katalog/
 if (kategorien) {
   const { ITEMS_NACH_NAME, KATEGORIEN } = kategorien;
   // `MIT_MODELL` has no export (nothing outside the module uses it): it is checked through `KATEGORIEN`.
-  const mitModell = PREFAB_DEFS.filter((d) => d.model !== null && isRenderable(d));
-  const listsMitModell = KATEGORIEN.filter((k) => k.namen().join('|') === mitModell.map((d) => d.name).join('|'));
+  const withModel = PREFAB_DEFS.filter((d) => d.model !== null && isRenderable(d));
+  const listing = KATEGORIEN.filter((k) => k.namen().join('|') === withModel.map((d) => d.name).join('|'));
   check(
     'exactly one entry lists MIT_MODELL: the same filter over PREFAB_DEFS gives the same names',
-    listsMitModell.length === 1 && mitModell.length > 0,
-    `${mitModell.length} of ${PREFAB_DEFS.length} prefabs`,
+    listing.length === 1 && withModel.length > 0,
+    `${withModel.length} of ${PREFAB_DEFS.length} prefabs`,
   );
   check(
     'its hint names the length of MIT_MODELL',
-    listsMitModell.length === 1 && listsMitModell[0]!.hinweis.includes(String(mitModell.length)),
-    listsMitModell[0]?.hinweis ?? 'entry missing',
+    listing.length === 1 && listing[0]!.hinweis.includes(String(withModel.length)),
+    listing[0]?.hinweis ?? 'entry missing',
   );
   check(
     'ITEMS_NACH_NAME has one entry per item name',

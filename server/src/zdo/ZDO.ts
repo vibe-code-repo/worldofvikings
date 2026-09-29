@@ -16,6 +16,9 @@ import { ZDOID } from './ZDOID.js';
 import { BitPack32 } from '../util/BitPack.js';
 import { getStableHash } from '../util/Hash.js';
 
+/** Member `spieler` (1 = von einem Spieler gebaut), s. `beiSpielerMember`. */
+export const SPIELER_MEMBER_HASH = getStableHash('spieler');
+
 // ── ZDO Revision ───────────────────────────────────────────────────
 // Reference: bit pack of a uint32 as 23 + (32-23) bits
 //   DATA_REVISION_PACK_INDEX = 0 (23 bits)
@@ -220,7 +223,15 @@ export class ZDO {
 
   // ── Generic member access ────────────────────────────────────────
 
+  /**
+   * Meldet dem ZDOManager, dass am Member `spieler` geschrieben wurde (F2:
+   * Index der Spielerbauten). Setzt der Manager beim Aufnehmen des ZDOs;
+   * damit hängt der Index nicht davon ab, dass jeder Schreibweg ihn kennt.
+   */
+  beiSpielerMember: ((zdo: ZDO) => void) | null = null;
+
   setMember(hash: number, type: number, value: ZDOMemberValue): void {
+    if (hash === SPIELER_MEMBER_HASH) this.beiSpielerMember?.(this);
     // Erst revidieren, dann stempeln: Der Member trägt die Revision, ab der
     // er neu ist — genau die Zahl, gegen die der Delta-Versand vergleicht.
     this.revision.reviseData();
@@ -359,6 +370,7 @@ export class ZDO {
       // Mit 0 haette er alles Uebernommene fuer laengst gesehen gehalten
       // und die Figur des Umgezogenen nie bekommen.
       this.members.set(hash, { type: member.t, value, rev: this.revision.dataRevision });
+      if (hash === SPIELER_MEMBER_HASH) this.beiSpielerMember?.(this);
     }
     this.revision.reviseData();
     this.dirty = true;

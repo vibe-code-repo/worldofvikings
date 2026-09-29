@@ -24,8 +24,9 @@
  * hält weiter der darunterliegende Speicher.
  */
 import type { Vorgang } from '@wov/shared/src/worldlayout/ops.js';
-import { mitVorgaengen } from './TestflugPersistenz';
+import { loeschsperreAnzahl, mitVorgaengen } from './TestflugPersistenz';
 import type { TestflugPersistenz, VorgangAntwort } from './TestflugPersistenz';
+import { ohneDienstSperrsatz } from '../weltdokument';
 import { t } from '../i18n';
 
 export const OPS_URL = '/api/worldlayout/ops';
@@ -53,7 +54,10 @@ export function opsSender(fetchFn: typeof fetch = fetch, url: string = OPS_URL):
     } catch {
       // No JSON: decided by the status alone.
     }
-    const message = alsText(d.message) ?? '';
+    const gesperrt = loeschsperreAnzahl(d);
+    // One hold-back sentence on the HUD line: the flight's own (`antwortText`), not the service's technical one.
+    const message = ohneDienstSperrsatz(alsText(d.message) ?? '', gesperrt);
+    const sperre = gesperrt > 0 ? { loeschsperre: gesperrt } : {};
     if (antwort.status === 409) {
       const ids = Array.isArray(d.ids) ? d.ids.filter((i): i is string => typeof i === 'string') : [];
       const ausStellen = Array.isArray(d.eintraege)
@@ -67,10 +71,10 @@ export function opsSender(fetchFn: typeof fetch = fetch, url: string = OPS_URL):
       // N1 (Angriff „Editor T0a", Befund B4): der Rückfall war das deutsche
       // Wort 'unbekannt', roh im sonst technischen `grund`-Code
       // (`server-aus`/`geo`/`abgelehnt`, s. Kopfkommentar) — jetzt übersetzt.
-      return { art: 'nur-geschrieben', grund: alsText(d.grund) ?? t('testflug.ops.grund_unbekannt'), message };
+      return { art: 'nur-geschrieben', grund: alsText(d.grund) ?? t('testflug.ops.grund_unbekannt'), message, ...sperre };
     }
     if (antwort.status === 200 && d.ok !== false) {
-      return { art: 'angewendet', message: message === '' ? t('testflug.ops.angewendet') : message };
+      return { art: 'angewendet', message: message === '' ? t('testflug.ops.angewendet') : message, ...sperre };
     }
     // Any other 2xx (204, 201, …) is not the answer this service gives: whether it applied the Vorgang is unknown.
     if (antwort.status >= 200 && antwort.status < 300) return { art: 'unklar', message: `HTTP ${antwort.status}${message ? `: ${message}` : ''}` };

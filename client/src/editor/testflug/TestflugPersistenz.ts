@@ -15,6 +15,7 @@
  */
 import type { NpcDef } from '@wov/shared';
 import { invertiere, verschmelze, type Vorgang } from '@wov/shared/src/worldlayout/ops.js';
+import { lockCount } from '@wov/shared/src/worldlayout/lockMessages.js';
 import { t } from '../i18n';
 
 /**
@@ -40,7 +41,35 @@ export type EntwurfDokument = {
 };
 
 /** Answer of the publish endpoint (`POST /api/worldlayout`). */
-export type SpeicherAntwort = { ok: boolean; message: string };
+export type SpeicherAntwort = {
+  ok: boolean;
+  message: string;
+  /** Objects whose deletion the service holds back (`loeschsperre.anzahl` of the receipt); 0 or missing: none. */
+  loeschsperre?: number;
+};
+
+/**
+ * The HUD sentence for held-back deletions, or `null` when there are none. The flight has no confirm button:
+ * the sentence says where to confirm (the map editor).
+ */
+export function loeschsperreText(anzahl: number | undefined): string | null {
+  return anzahl !== undefined && anzahl > 0 ? t('testflug.loeschsperre', { count: anzahl }) : null;
+}
+
+/** The answer's `loeschsperre` field as a count (same rule as the map editor: `lockCount`). */
+export function loeschsperreAnzahl(antwort: Record<string, unknown>): number {
+  return lockCount(antwort);
+}
+
+/** Separator between the text of an answer and the hold-back sentence. */
+const SPERR_TRENNER = ' · ';
+
+/** The HUD line after a publish (`speichern`): the outcome plus the hold-back sentence, if any. */
+export function speicherText(a: SpeicherAntwort): string {
+  const basis = a.ok ? t('testflug.gespeichert_neustart_noetig', { message: a.message }) : a.message;
+  const sperre = loeschsperreText(a.loeschsperre);
+  return sperre ? `${basis}${SPERR_TRENNER}${sperre}` : basis;
+}
 
 export interface TestflugPersistenz {
   /**
@@ -89,9 +118,9 @@ export interface TestflugPersistenz {
 /** What the remote side said (or the local store: `angewendet` with an empty text). */
 export type VorgangAntwort =
   /** 200: applied. */
-  | { art: 'angewendet'; message: string }
+  | { art: 'angewendet'; message: string; loeschsperre?: number }
   /** 202: written to the file, but not applied to the running world; `grund` says why (`server-aus`, `geo`, `abgelehnt`). */
-  | { art: 'nur-geschrieben'; grund: string; message: string }
+  | { art: 'nur-geschrieben'; grund: string; message: string; loeschsperre?: number }
   /** 409: the objects `ids` are no longer as the writer saw them; nothing was written. `zurueckgenommen`: the local draft was put back; `verworfen`: how many gestures were put back with it (the refused one and every later one). */
   | { art: 'konflikt'; ids: string[]; message: string; zurueckgenommen: boolean; verworfen?: number }
   /** Anything else (422, 503); nothing was written. */
@@ -171,16 +200,24 @@ const ZURUECK = (a: { zurueckgenommen: boolean; verworfen?: number }): string =>
     : t('testflug.persistenz.zurueck.eine');
 };
 
+const mitSperre = (text: string | null, anzahl: number | undefined): string | null => {
+  const sperre = loeschsperreText(anzahl);
+  return sperre ? (text ? `${text}${SPERR_TRENNER}${sperre}` : sperre) : text;
+};
+
 /** The line for the HUD; `null` = nothing to say (local store, or an empty text). */
 export function antwortText(a: VorgangAntwort): string | null {
   switch (a.art) {
     case 'angewendet':
-      return a.message === '' ? null : a.message;
+      return mitSperre(a.message === '' ? null : a.message, a.loeschsperre);
     case 'nur-geschrieben':
-      return t('testflug.persistenz.nur_geschrieben', {
-        grund: a.grund,
-        detail: a.message ? t('testflug.persistenz.detail_anhang', { message: a.message }) : '',
-      });
+      return mitSperre(
+        t('testflug.persistenz.nur_geschrieben', {
+          grund: a.grund,
+          detail: a.message ? t('testflug.persistenz.detail_anhang', { message: a.message }) : '',
+        }),
+        a.loeschsperre
+      );
     case 'konflikt':
       return t('testflug.persistenz.konflikt_bei', { ids: a.ids.join(', ') }) + ZURUECK(a);
     case 'fehler':

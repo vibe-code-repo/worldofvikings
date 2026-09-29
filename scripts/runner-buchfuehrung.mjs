@@ -17,7 +17,8 @@
  *   ueberspringe(buch, …)         bucht einen durch eine Weiche übersprungenen Eintrag
  *   auslassen(buch, …, grund)     bucht einen absichtlich ausgelassenen Eintrag (Filter)
  *   leereUndBeende(prozess, code) lässt stdout/stderr leerlaufen und ruft dann erst `exit` (auch für Signalwege)
- *   beende(buch, optionen)        liest die Soll-Liste aus dem LITERAL von KERN im Quelltext
+ *   beende(buch, optionen)        liest die Soll-Liste aus dem LITERAL von KERN im Quelltext (samt den
+ *                                 Bereichsdateien unter scripts/kern/, denen `...NAME` in KERN folgt)
  *                                 (nicht aus der lebenden Variablen), vergleicht, druckt die
  *                                 Schlusszeile aus den GEBUCHTEN Zahlen und beendet den Prozess
  *
@@ -53,8 +54,8 @@
  * LITERAL of KERN; the closing line and the exit code come from the books, and a run that
  * never closes them stays red.
  */
-import { readFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, relative, resolve } from 'node:path';
 
 const SKRIPT_DATEI = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py)$/i;
 
@@ -62,20 +63,32 @@ const SKRIPT_DATEI = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py)$/i;
  * The entries of the top-level `const KERN = [...]` of `quelltext`, read from the syntax
  * tree with the TypeScript module `ts`. Only the declaration at the top level of the file
  * counts (a `KERN` in a function or block registers nothing). `...NAME` is followed when
- * NAME is a top-level array literal (lists in parts); anything else that is not a
- * `['ordner', 'datei']` of text literals is `unlesbar`. `fehler` holds problems with the
- * declaration itself.
+ * NAME is a top-level array literal (lists in parts) or a default import of an area file
+ * (`import NAME from './kern/x.mjs'`, resolved against `optionen.verzeichnis`, the folder of
+ * `quelltext`; the file must hold exactly one `export default [ ... ]` with a literal).
+ * Anything else that is not a `['ordner', 'datei']` of text literals is `unlesbar`. `fehler`
+ * holds problems with the declaration itself, also an area file in `<verzeichnis>/kern/`
+ * that KERN does not include (a list that is not read registers nothing, silently).
+ * `weichen` carries the third position of every entry as a syntax node (or `undefined`),
+ * `teile` the entries per area file, in file order.
  */
-export function leseKern(ts, quelltext) {
+export function leseKern(ts, quelltext, optionen = {}) {
+  const { verzeichnis = null, lies: leseDatei = (pfad) => readFileSync(pfad, 'utf8') } = optionen;
   const baum = ts.createSourceFile('run-tests.mjs', quelltext, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const eintraege = [];
+  const weichen = [];
+  const teile = [];
   const unlesbar = [];
   const fehler = [];
   const zeile = (n) => baum.getLineAndCharacterOfPosition(n.getStart(baum)).line + 1;
-  const kurz = (n) => n.getText(baum).replace(/\s+/g, ' ').slice(0, 80);
+  const kurz = (n) => n.getText().replace(/\s+/g, ' ').slice(0, 80);
   const oberste = new Map();
+  const importe = new Map();
   const deklarationen = [];
   for (const anweisung of baum.statements) {
+    if (ts.isImportDeclaration(anweisung) && anweisung.importClause?.name && ts.isStringLiteralLike(anweisung.moduleSpecifier)) {
+      importe.set(anweisung.importClause.name.text, anweisung.moduleSpecifier.text);
+    }
     if (!ts.isVariableStatement(anweisung)) continue;
     for (const d of anweisung.declarationList.declarations) {
       if (!ts.isIdentifier(d.name)) continue;
@@ -84,6 +97,41 @@ export function leseKern(ts, quelltext) {
     }
   }
   const text = (n) => (n && ts.isStringLiteralLike(n) ? n.text : null);
+  const nimm = (eintrag, name, ziel) => {
+    const [ordner, datei, weiche] = ts.isArrayLiteralExpression(eintrag) ? eintrag.elements : [];
+    if (text(ordner) === null || text(datei) === null) {
+      unlesbar.push(`${name}: ${kurz(eintrag)}`);
+      return;
+    }
+    eintraege.push([text(ordner), text(datei)]);
+    weichen.push({ ordner: text(ordner), datei: text(datei), weiche });
+    ziel?.push([text(ordner), text(datei)]);
+  };
+  const gelesenePfade = new Set();
+  const leseBereich = (name, spezifizierer) => {
+    if (!verzeichnis) {
+      unlesbar.push(`${name}: Import ${spezifizierer} (kein Verzeichnis zum Auflösen)`);
+      return;
+    }
+    const pfad = resolve(verzeichnis, spezifizierer);
+    let quelle;
+    try {
+      quelle = leseDatei(pfad);
+    } catch (fehlerLesen) {
+      unlesbar.push(`${name}: Bereichsdatei ${spezifizierer} nicht lesbar (${fehlerLesen.message})`);
+      return;
+    }
+    gelesenePfade.add(pfad);
+    const bereich = ts.createSourceFile(pfad, quelle, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const exporte = bereich.statements.filter((s) => ts.isExportAssignment(s) && !s.isExportEquals);
+    if (exporte.length !== 1 || !ts.isArrayLiteralExpression(exporte[0].expression)) {
+      fehler.push(`Bereichsdatei ${spezifizierer} hat nicht genau ein \`export default [ ... ]\` mit Array-Literal`);
+      return;
+    }
+    const teil = { datei: pfad, eintraege: [] };
+    teile.push(teil);
+    for (const eintrag of exporte[0].expression.elements) nimm(eintrag, spezifizierer, teil.eintraege);
+  };
   const lies = (liste, name, besucht) => {
     for (const eintrag of liste.elements) {
       if (ts.isSpreadElement(eintrag) && ts.isIdentifier(eintrag.expression)) {
@@ -92,13 +140,12 @@ export function leseKern(ts, quelltext) {
           lies(teil, eintrag.expression.text, new Set(besucht).add(eintrag.expression.text));
           continue;
         }
+        if (!teil && importe.has(eintrag.expression.text)) {
+          leseBereich(eintrag.expression.text, importe.get(eintrag.expression.text));
+          continue;
+        }
       }
-      const [ordner, datei] = ts.isArrayLiteralExpression(eintrag) ? eintrag.elements : [];
-      if (text(ordner) === null || text(datei) === null) {
-        unlesbar.push(`${name}: ${kurz(eintrag)}`);
-        continue;
-      }
-      eintraege.push([text(ordner), text(datei)]);
+      nimm(eintrag, name);
     }
   };
   if (deklarationen.length === 0) {
@@ -113,7 +160,16 @@ export function leseKern(ts, quelltext) {
       lies(d.initializer, 'KERN', new Set());
     }
   }
-  return { eintraege, unlesbar, fehler };
+  // A file in kern/ that KERN does not read: its tests would silently not run.
+  const kernOrdner = verzeichnis ? resolve(verzeichnis, 'kern') : null;
+  if (kernOrdner && existsSync(kernOrdner)) {
+    for (const name of readdirSync(kernOrdner).sort()) {
+      if (/\.mjs$/.test(name) && !gelesenePfade.has(resolve(kernOrdner, name))) {
+        fehler.push(`Bereichsdatei kern/${name} wird von KERN nicht gelesen (nicht importiert oder nicht mit \`...NAME\` in KERN aufgenommen): ihre Tests liefen nie`);
+      }
+    }
+  }
+  return { eintraege, weichen, teile, unlesbar, fehler };
 }
 
 /** A fresh book. Sets the exit code to 1: until `beende` decides, the run counts as red. */
@@ -185,7 +241,7 @@ export async function beende(
   let soll = new Set();
   try {
     const tsModul = ts ?? (await import('typescript')).default;
-    const gelesen = leseKern(tsModul, readFileSync(quelle, 'utf8'));
+    const gelesen = leseKern(tsModul, readFileSync(quelle, 'utf8'), { verzeichnis: dirname(resolve(quelle)) });
     vorab.push(...gelesen.fehler, ...gelesen.unlesbar.map((u) => `Eintrag nicht lesbar: ${u}`));
     soll = new Set(gelesen.eintraege.map(([ordner, datei]) => resolve(wurzel, ordner, datei)));
   } catch (fehlerLesen) {

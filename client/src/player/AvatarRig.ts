@@ -1917,7 +1917,7 @@ export class AvatarRig {
    * figure does (walking, standing — the legs are not touched).
    *
    * Two rules, both on purpose:
-   *  - a swing wins (the attack clip is a full-body clip, like the Full Body Layer of the original);
+   *  - a swing wins (the attack clip moves the whole body, so the flinch must not fight it);
    *  - a reaction that started less than TREFFER_MINDESTABSTAND_S ago is not restarted — the next
    *    blow of a pack would otherwise hold the upper body at the first frames forever.
    *

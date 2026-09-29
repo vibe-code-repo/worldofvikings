@@ -107,3 +107,12 @@ export function trefferClipVonIndex(i: number): TrefferClip | null {
 export function istTodOderTrefferClip(name: string): boolean {
   return (TOD_CLIPS as readonly string[]).includes(name) || (TREFFER_CLIPS as readonly string[]).includes(name);
 }
+
+/**
+ * A server message that is a catalogue key, not a text: the server writes `@` + key into the
+ * message field of `InteractResult`, the client translates it (`GameI18n.serverMeldung`).
+ */
+export const SERVER_MELDUNG_SCHLUESSEL_PRAEFIX = '@';
+
+/** The bed the player had set is gone: he wakes at the world spawn (catalogue key `tod.bett_verloren`). */
+export const SERVER_MELDUNG_BETT_VERLOREN = `${SERVER_MELDUNG_SCHLUESSEL_PRAEFIX}tod.bett_verloren`;

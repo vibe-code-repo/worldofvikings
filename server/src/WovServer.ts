@@ -10,7 +10,7 @@
 
 import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, ItemType, SLOT_VORGABE, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
-import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
+import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
@@ -1753,18 +1753,24 @@ export class WovServer {
       // deshalb fast nichts: Vegetation, Kreaturen und Routen hängen alle
       // am Umkreis der Spieler. Eine leerstehende Instanz kostet nichts.
       const positionenJeWelt = new Map<string, Vector3[]>();
+      const zieleJeWelt = new Map<string, Vector3[]>();
       for (const p of peers) {
-        // A dead player is no target: creatures let go of him (his position is not offered).
-        if (p.totBis > 0) continue;
+        // A dead player stays in the position list (zones, spawns and routes keep
+        // running around him, creatures do not despawn because he lies) but is no
+        // target: aggro lets go of him.
         const liste = positionenJeWelt.get(p.worldId);
         if (liste) liste.push(p.position);
         else positionenJeWelt.set(p.worldId, [p.position]);
+        if (p.totBis > 0) continue;
+        const ziele = zieleJeWelt.get(p.worldId);
+        if (ziele) ziele.push(p.position);
+        else zieleJeWelt.set(p.worldId, [p.position]);
       }
       const weltenStart = performance.now();
       for (const welt of this.welten.values()) {
         const positionen = positionenJeWelt.get(welt.id);
         if (!positionen?.length) continue;
-        const { neueZonen } = welt.tick(deltaSec, positionen);
+        const { neueZonen } = welt.tick(deltaSec, positionen, zieleJeWelt.get(welt.id) ?? []);
         if (neueZonen > 0) {
           console.log(
             `[WoV] Vegetation (${welt.id}): +${neueZonen} zone(s) ` +
@@ -2467,7 +2473,12 @@ export class WovServer {
   private static readonly TOT_GESPERRT: ReadonlySet<PacketType> = new Set([
     PacketType.Interact, PacketType.Attack, PacketType.Parry, PacketType.TerrainOp, PacketType.PlacePiece,
     PacketType.RemovePiece, PacketType.Craft, PacketType.Eat, PacketType.ContainerAction,
+    // Admin commands move or heal (teleport, spawn): the client would read a teleport as the revival.
+    PacketType.AdminCommand,
   ]);
+  // Chat, Equip, SetFigur and SetAussehen stay allowed on purpose: they change no world state
+  // (own settings / talk only), and a client that sends its look or gear right around the
+  // revival must not lose that packet.
 
   private onPacket(peer: Peer, type: PacketType, reader: Reader): void {
     // A dead player acts on nothing while he lies (his own client blocks the input as well;
@@ -4245,7 +4256,7 @@ export class WovServer {
     if (sofort || bettVerloren) {
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
-        w.writeString(bettVerloren ? (sofort ? 'Du bist gestorben — dein Schlafplatz ist nicht mehr da' : 'Dein Schlafplatz ist nicht mehr da') : 'Du bist gestorben');
+        w.writeString(bettVerloren ? (sofort ? 'Du bist gestorben — dein Schlafplatz ist nicht mehr da' : SERVER_MELDUNG_BETT_VERLOREN) : 'Du bist gestorben');
         w.writeString('');
         w.writeInt32(0);
       });

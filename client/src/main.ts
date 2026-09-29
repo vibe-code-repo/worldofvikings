@@ -2484,7 +2484,7 @@ async function main() {
       const message = reader.readString();
       const itemName = reader.readString();
       const amount = reader.readInt32();
-      if (message) hud.meldung(message);
+      if (message) hud.meldung(i18n.serverMeldung(message));
       // Items addiert NUR noch der Server (InventorySync) — itemName/amount
       // bleiben im Paket für HUD-Signale und Alt-Clients.
       void itemName;

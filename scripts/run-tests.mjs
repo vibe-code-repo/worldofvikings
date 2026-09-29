@@ -2674,6 +2674,14 @@ const KERN = [
     'test/tod-treffer-avatar.ts',
     brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
   ],
+  /*
+    Tod und Treffer N1 (Nachbesserung zu #149): Der Tote bleibt in der Positionsliste (echte Woelfe bleiben, beissen im Tod 0x,
+    danach wieder; allein tickt die Welt weiter), jeder TOT_GESPERRT-Eintrag ueber den echten WebSocket, Admin-Teleport im
+    Tod abgelehnt, Bett-verloren-Meldung als Schluessel. Der Servertest wartet ~30 s. Der Clienttest prueft die Schluessel-
+    Uebersetzung der Servermeldung.
+  */
+  ['server', 'test/tod-treffer-n1.ts'],
+  ['client', 'test/tod-treffer-meldung.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

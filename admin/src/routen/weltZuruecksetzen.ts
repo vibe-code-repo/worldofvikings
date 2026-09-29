@@ -57,6 +57,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { zstdDecompressSync } from 'node:zlib';
 import { layoutLesenMitHash, layoutSchreibenAsync } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { WORLD_LAYOUT_VERSION, type WorldLayout } from '@wov/shared/src/worldlayout/types.js';
+import { sperreAktiv, sperreFreigeben, sperreVersuchen } from './serverSperre.js';
 
 /** Same shape as `Antwort` in admin/src/main.ts. */
 export type ResetAntwort = { code: number; daten: unknown; kopf?: Record<string, string> };
@@ -115,9 +116,6 @@ export const SICHERUNGEN_SPIELSTAND = 20;
 export const WELTNAME_VORGABE = 'World of Vikings';
 /** More compressed bytes than this and the ZDO count is skipped (a count is nice to have, not worth a stalled service). */
 const ZDO_ZAEHLEN_BIS_BYTES = 200_000_000;
-
-/** One reset at a time in this process. */
-let laeuft = false;
 
 const zweistellig = (n: number): string => String(n).padStart(2, '0');
 
@@ -290,14 +288,13 @@ export async function weltZuruecksetzenBehandeln(body: unknown, umg: ResetUmgebu
       daten: { ok: false, fehler: 'testwelt-aktiv', message: 'Es läuft eine Testwelt — erst „dev-Welt zurückholen“. Nichts angefasst.' },
     };
   }
-  if (laeuft) {
-    return { code: 409, daten: { ok: false, fehler: 'laeuft-bereits', message: 'Ein Zurücksetzen läuft bereits — nichts angefasst.' } };
+  if (!sperreVersuchen()) {
+    return { code: 409, daten: { ok: false, fehler: 'laeuft-bereits', message: 'Eine andere Serveraktion läuft bereits — nichts angefasst.' } };
   }
-  laeuft = true;
   try {
     return await zuruecksetzen(umg, seed, mitKonten);
   } finally {
-    laeuft = false;
+    sperreFreigeben();
   }
 }
 
@@ -426,7 +423,7 @@ export function zuruecksetzenStatus(umg: ResetUmgebung): { laeuft: boolean; unfe
       unfertige.push({ datei: name, marker, zustand: unfertigBeschreiben(marker, umg) });
     }
   }
-  return { laeuft, unfertige };
+  return { laeuft: sperreAktiv(), unfertige };
 }
 
 const wortZdos = (s: ResetZahlen['spielstand']): string =>

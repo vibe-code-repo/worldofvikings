@@ -101,6 +101,8 @@ import {
   zuruecksetzenStatus,
   type ResetUmgebung,
 } from './routen/weltZuruecksetzen.js';
+import { serverStatusLesen, serverAktionBehandeln, type ServerSteuerungUmgebung } from './routen/serverSteuerung.js';
+import { sperreFreigeben, sperreVersuchen } from './routen/serverSperre.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
 // geschickt wie beim Server. Der Editor soll sehen, was auch der
 // Spielserver sieht — ein Rohtext koennte Raeume enthalten, die dort
@@ -160,6 +162,16 @@ import { formatierePrometheus, type MetrikSchnappschuss } from '@wov/shared/src/
 
 const ausfuehren = promisify(execFile);
 
+/**
+ * `execFile`'s `timeout` option kills the child with `killSignal` (default
+ * `SIGTERM`) and rejects with an error carrying `killed: true` — that shape
+ * is how a systemctl timeout (SYSTEMCTL_ZEITLIMIT_MS, B7) is told apart
+ * from every other failure (exit code, ENOENT, …) in the catch-all below.
+ */
+function istSystemctlZeitueberschreitung(fehler: unknown): boolean {
+  return typeof fehler === 'object' && fehler !== null && (fehler as { killed?: unknown }).killed === true;
+}
+
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = process.env.WOV_WURZEL ?? resolve(HIER, '../..');
 const PORT = Number(process.env.WOV_ADMIN_PORT ?? 2468);
@@ -195,6 +207,14 @@ if (SYSTEMCTL_ERSATZ !== null) {
       'Zustandsabfragen, Zuruecksetzen, Testwelt) geht an dieses Programm statt an systemctl. Nur fuer Tests und Probelaeufe.'
   );
 }
+// Zeitlimit fuer die systemctl-Aufrufe von /api/server und der Testwelt-Aktion
+// "erneuern" (29.09., B7): ohne `timeout` haengt ein blockierender
+// systemctl unbegrenzt, die Sperre (serverSperre.ts) bliebe gehalten und
+// jede weitere Aktion bekaeme fuer immer 409. `/dienst` und die
+// bestehenden Testwelt-Aktionen starten/zurueck bekommen KEIN Zeitlimit
+// (nicht Teil dieses Auftrags). Ueber die Umgebung einstellbar, damit ein
+// Test es ohne 120 Sekunden Wartezeit ausloesen kann.
+const SYSTEMCTL_ZEITLIMIT_MS = Number(process.env.WOV_SYSTEMCTL_ZEITLIMIT_MS ?? 120_000);
 
 const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
@@ -742,14 +762,24 @@ async function nginxSchreiben(aenderungen: Record<string, string>): Promise<stri
 
 // ── Zustand ───────────────────────────────────────────────────────────
 
-async function dienstZustand(name: Dienst): Promise<{ aktiv: boolean; seit: string | null }> {
+/**
+ * `roh` (29.09., B5): the raw `ActiveState` (`active`, `inactive`,
+ * `activating`, `deactivating`, `failed`, or `unbekannt` when the query
+ * itself failed) — `aktiv`/`seit` alone cannot tell "stopped" apart from
+ * "still switching" or "could not ask". Every existing caller keeps
+ * destructuring just `{ aktiv, seit }`; only `/api/server` GET passes
+ * `roh` on to the editor (main.ts, `/api/server` GET) so it can show
+ * "wechselt"/"unbekannt" instead of a flat "gestoppt".
+ */
+async function dienstZustand(name: Dienst): Promise<{ aktiv: boolean; seit: string | null; roh: string }> {
   try {
     const { stdout } = await ausfuehren(SYSTEMCTL, ['show', name, '--property=ActiveState,ActiveEnterTimestamp']);
-    const aktiv = /ActiveState=active/.test(stdout);
+    const roh = /ActiveState=(\S+)/.exec(stdout)?.[1] ?? 'unbekannt';
+    const aktiv = roh === 'active';
     const seit = /ActiveEnterTimestamp=(.*)/.exec(stdout)?.[1]?.trim() || null;
-    return { aktiv, seit };
+    return { aktiv, seit, roh };
   } catch {
-    return { aktiv: false, seit: null };
+    return { aktiv: false, seit: null, roh: 'unbekannt' };
   }
 }
 
@@ -1197,6 +1227,23 @@ function resetUmgebung(): ResetUmgebung {
   };
 }
 
+/** The server-control route's view of this process: same `wov-server` target as `resetUmgebung`, just restart/stop/start instead of the reset's file dance. */
+function serverSteuerungUmgebung(): ServerSteuerungUmgebung {
+  return {
+    instanz: INSTANZ,
+    zustand: () => dienstZustand('wov-server'),
+    neustart: async () => {
+      await ausfuehren(SYSTEMCTL, ['restart', 'wov-server'], { timeout: SYSTEMCTL_ZEITLIMIT_MS });
+    },
+    stoppen: async () => {
+      await ausfuehren(SYSTEMCTL, ['stop', 'wov-server'], { timeout: SYSTEMCTL_ZEITLIMIT_MS });
+    },
+    starten: async () => {
+      await ausfuehren(SYSTEMCTL, ['start', 'wov-server'], { timeout: SYSTEMCTL_ZEITLIMIT_MS });
+    },
+  };
+}
+
 // ── Routen ────────────────────────────────────────────────────────────
 
 // `kopf`: zusaetzliche Antwortkopfzeilen (bisher nur der ETag des Weltdokuments).
@@ -1272,6 +1319,18 @@ async function behandeln(
     const eingabe = (leib ?? {}) as Record<string, string>;
     const erledigt = await nginxSchreiben(eingabe);
     return { code: 200, daten: { geaendert: erledigt, hinweis: 'Sofort wirksam (nginx neu geladen).' } };
+  }
+
+  // ── Serversteuerung (Editor) ──
+  //
+  // Begruendung, Absicherung und Sperre stehen im Kopf von
+  // routen/serverSteuerung.ts. Hier nur die Verdrahtung, wie bei
+  // /api/welt-zuruecksetzen.
+  if (pfad === '/api/server' && methode === 'GET') {
+    return serverStatusLesen(serverSteuerungUmgebung());
+  }
+  if (pfad === '/api/server' && methode === 'POST') {
+    return serverAktionBehandeln(leib, serverSteuerungUmgebung());
   }
 
   // ── Dienste ──
@@ -2063,8 +2122,8 @@ async function behandeln(
 
   if (pfad === '/api/testwelt' && methode === 'POST') {
     const { aktion } = (leib ?? {}) as { aktion?: string };
-    if (aktion !== 'starten' && aktion !== 'zurueck') {
-      return { code: 400, daten: { fehler: 'aktion muss "starten" oder "zurueck" sein' } };
+    if (aktion !== 'starten' && aktion !== 'zurueck' && aktion !== 'erneuern') {
+      return { code: 400, daten: { fehler: 'aktion muss "starten", "zurueck" oder "erneuern" sein' } };
     }
     const welt = resolve(WELTEN_ORDNER, `${INSTANZ}.db.zst`);
     const beiseite = `${welt}.beiseite`;
@@ -2075,45 +2134,75 @@ async function behandeln(
     if (aktion === 'starten' && existsSync(beiseite)) {
       return { code: 409, daten: { fehler: 'Es laeuft bereits eine Testwelt — erst zurueckholen' } };
     }
-    if (aktion === 'zurueck' && !existsSync(beiseite)) {
-      return { code: 409, daten: { fehler: 'Keine Testwelt aktiv — nichts zurueckzuholen' } };
+    if ((aktion === 'zurueck' || aktion === 'erneuern') && !existsSync(beiseite)) {
+      return {
+        code: 409,
+        daten: {
+          fehler:
+            aktion === 'zurueck' ? 'Keine Testwelt aktiv — nichts zurueckzuholen' : 'Keine Testwelt aktiv — nichts zu erneuern',
+        },
+      };
     }
-
-    let sicherung: string | null = null;
-    if (aktion === 'starten') sicherung = sichern(welt, 20);
-
-    await ausfuehren(SYSTEMCTL, ['stop', 'wov-server']);
+    // B2 (29.09., Angriff): eine gemeinsame Sperre mit /api/server und
+    // /api/welt-zuruecksetzen — sonst kann ein zweiter Aufruf einer der
+    // anderen beiden Routen mitten in den Stop/Tausch/Start-Tanz hier
+    // platzen (z. B. ein "/api/server stoppen", waehrend hier gerade erst
+    // gestoppt, dann aber schon wieder gestartet wird).
+    if (!sperreVersuchen()) {
+      return { code: 409, daten: { fehler: 'aktion-laeuft', message: 'Eine andere Serveraktion läuft bereits — bitte warten.' } };
+    }
     try {
-      if (aktion === 'starten') {
-        if (existsSync(welt)) renameSync(welt, beiseite);
-        if (existsSync(vorher)) renameSync(vorher, vorherBeiseite);
-      } else {
-        // Die Testwelt aufheben statt loeschen — wer sie noch einmal
-        // ansehen will, findet sie unter testwelt.db.zst.
-        if (existsSync(welt)) renameSync(welt, testAblage);
-        if (existsSync(vorher)) unlinkSync(vorher);
-        renameSync(beiseite, welt);
-        if (existsSync(vorherBeiseite)) renameSync(vorherBeiseite, vorher);
-      }
-    } finally {
-      // Auch wenn der Tausch schiefgeht: Der Server muss wieder laufen.
-      await ausfuehren(SYSTEMCTL, ['start', 'wov-server']);
-    }
+      let sicherung: string | null = null;
+      if (aktion === 'starten') sicherung = sichern(welt, 20);
+      // Nur die NEUE Aktion "erneuern" bekommt ein Zeitlimit (B7) — die
+      // beiden bestehenden Aktionen bleiben unveraendert.
+      const zeitlimit = aktion === 'erneuern' ? { timeout: SYSTEMCTL_ZEITLIMIT_MS } : undefined;
 
-    return {
-      code: 200,
-      daten: {
-        ok: true,
-        aktion,
-        aktiv: existsSync(beiseite),
-        sicherung: sicherung ? basename(sicherung) : null,
-        message:
-          aktion === 'starten'
-            ? `Testwelt gestartet — ${basename(welt)} liegt beiseite, der Server erzeugt die Karte neu aus dem Layout.`
-            : `dev-Welt zurueckgeholt. Die Testwelt liegt als ${basename(testAblage)} daneben.`,
-        zustand: await dienstZustand('wov-server'),
-      },
-    };
+      await ausfuehren(SYSTEMCTL, ['stop', 'wov-server'], zeitlimit);
+      try {
+        if (aktion === 'starten') {
+          if (existsSync(welt)) renameSync(welt, beiseite);
+          if (existsSync(vorher)) renameSync(vorher, vorherBeiseite);
+        } else if (aktion === 'zurueck') {
+          // Die Testwelt aufheben statt loeschen — wer sie noch einmal
+          // ansehen will, findet sie unter testwelt.db.zst.
+          if (existsSync(welt)) renameSync(welt, testAblage);
+          if (existsSync(vorher)) unlinkSync(vorher);
+          renameSync(beiseite, welt);
+          if (existsSync(vorherBeiseite)) renameSync(vorherBeiseite, vorher);
+        } else {
+          // "erneuern": genau das Muster, mit dem "zurueck" den
+          // Testwelt-Spielstand behandelt (aufheben statt loeschen) —
+          // nur OHNE den dev-Stand (`beiseite`/`vorherBeiseite`)
+          // anzuruehren. Der Server findet danach keinen Spielstand am
+          // Ladeort und erzeugt die Testwelt frisch aus dem Layout.
+          if (existsSync(welt)) renameSync(welt, testAblage);
+          if (existsSync(vorher)) unlinkSync(vorher);
+        }
+      } finally {
+        // Auch wenn der Tausch schiefgeht: Der Server muss wieder laufen.
+        await ausfuehren(SYSTEMCTL, ['start', 'wov-server'], zeitlimit);
+      }
+
+      return {
+        code: 200,
+        daten: {
+          ok: true,
+          aktion,
+          aktiv: existsSync(beiseite),
+          sicherung: sicherung ? basename(sicherung) : null,
+          message:
+            aktion === 'starten'
+              ? `Testwelt gestartet — ${basename(welt)} liegt beiseite, der Server erzeugt die Karte neu aus dem Layout.`
+              : aktion === 'zurueck'
+                ? `dev-Welt zurueckgeholt. Die Testwelt liegt als ${basename(testAblage)} daneben.`
+                : `Testwelt erneuert — ${basename(welt)} liegt wieder beiseite, der Server erzeugt sie frisch aus dem Layout.`,
+          zustand: await dienstZustand('wov-server'),
+        },
+      };
+    } finally {
+      sperreFreigeben();
+    }
   }
 
   // ── Welt zuruecksetzen: alles auf null (Editor K4.0) ──
@@ -2336,7 +2425,15 @@ const dienst = createServer((req, res) => {
         return json(res, 413, { ok: false, fehler: 'anfrage-zu-gross', message: fehler.message }, { Connection: 'close' });
       }
       const eingabefehler = fehler instanceof LayoutUngueltig || fehler instanceof SyntaxError;
-      const code = eingabefehler ? 400 : 500;
+      // B7 (29.09.): ein systemctl-Aufruf, der das Zeitlimit reisst
+      // (SYSTEMCTL_ZEITLIMIT_MS, nur /api/server und die Testwelt-Aktion
+      // "erneuern"), ist kein Eingabefehler und kein gewoehnlicher interner
+      // Fehler — 504, damit der Editor "hat zu lange gedauert" von "ist
+      // kaputt" unterscheiden kann. Die Sperre ist zu diesem Zeitpunkt
+      // schon frei: der `finally` der jeweiligen Route laeuft, bevor die
+      // Ablehnung hier ankommt.
+      const zeitueberschreitung = istSystemctlZeitueberschreitung(fehler);
+      const code = zeitueberschreitung ? 504 : eingabefehler ? 400 : 500;
       // U1-N3: Die Upload-Route (POST/DELETE /api/modell-hochladen) gibt nie
       // eine rohe `Error.message` an den Browser — fs-Fehler tragen den
       // absoluten Pfad, JSON-Fehler einen Dateiausschnitt. Nur eine feste

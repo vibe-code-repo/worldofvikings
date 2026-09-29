@@ -40,8 +40,9 @@ console.log('\n[1] no HTML injection path in the tooltip and panel code (syntax 
  *    type checker tells a DOM node (it has a property `innerHTML`) from an array or a map;
  *  - Object.assign / defineProperty / defineProperties / setPrototypeOf / Reflect.set with a DOM node as first
  *    argument, and setAttribute on any node (attribute injection: onerror, srcdoc).
- * Limits: code that hands a DOM node through `any`/`unknown` (the checker cannot see the type) and code in OTHER
- * files. The fake-DOM part below still catches the tooltip itself through its setter counter.
+ * A computed key on a value typed any / unknown / never counts too (a cast would hide the node). Limits: code in OTHER
+ * files, and a node that reaches an untyped element access under another name (`const o: Record<string, string> = el`
+ * does not compile without a cast, and the cast is caught above). The fake-DOM part below still catches the tooltip itself through its setter counter.
  * The one allowed exception is the fixed catalogue text `character.hint` in CharakterPanel.
  */
 const NAMEN = /^(innerHTML|outerHTML|insertAdjacentHTML|createContextualFragment|srcdoc|DOMParser|writeln)$/;
@@ -51,8 +52,10 @@ const cfg = ts.readConfigFile(resolve(clientWurzel, 'tsconfig.json'), ts.sys.rea
 const optionen = ts.parseJsonConfigFileContent(cfg.config, ts.sys, clientWurzel).options;
 const programm = ts.createProgram(DATEIEN.map((f) => resolve(UI, f)), { ...optionen, noEmit: true });
 const pruefer = programm.getTypeChecker();
+// A DOM node, or a value the checker cannot type (any / unknown / never: `(el as never)[k]` would hide a node).
 const istDomKnoten = (n: ts.Expression): boolean => {
   const t = pruefer.getTypeAtLocation(n);
+  if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Never | ts.TypeFlags.Unknown)) return true;
   return t.getProperty('innerHTML') !== undefined || (t.isUnion() && t.types.some((u) => u.getProperty('innerHTML') !== undefined));
 };
 function htmlZugriffe(datei: string): string[] {
